@@ -1,5 +1,5 @@
 import { Icon } from '@cn/design'
-import { ArrowLeft, ArrowRight, Globe, PanelRight, RotateCw, Scissors } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowRightToLine, Globe, RotateCw, Scissors } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { Clip } from '../../shared/api'
 import { decodeUrl, toUrl } from '../url'
@@ -79,8 +79,8 @@ export function WebTab(props: {
         <button className="iconbtn" aria-label="整页剪藏" title="整页剪进收件箱" onClick={() => void clipPage()}>
           <Icon of={Scissors} size={14} />
         </button>
-        <button className="btn btn-sm" title="放回右栏，边看边记" onClick={() => props.onToRight(cur)}>
-          <Icon of={PanelRight} size={13} />
+        <button className="wtool wwide" title="放回右栏：网页回到右栏，边看边记" onClick={() => props.onToRight(cur)}>
+          <Icon of={ArrowRightToLine} size={14} />
           放回右栏
         </button>
       </div>

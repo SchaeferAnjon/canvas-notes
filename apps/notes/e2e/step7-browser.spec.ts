@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { editorText, gitStatus, launch, openNote, pane, rail, waitSaved } from './app'
+import { editorText, gitStatus, launch, openNote, pane, rail, waitSaved, webMore } from './app'
 import { folder, installExtension, url, writeBookmarks, writeHistory } from './fake-chrome-data'
 import { makeFakeChrome } from './fake-chrome'
 import { solidPng } from './fixtures/png'
@@ -111,15 +111,18 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     await rail(page).getByRole('button', { name: '网页' }).click()
     await expect(webTabs(page)).toHaveText(['第二页', '冰岛的黑沙滩 - 旅行杂志'])
 
-    // 在中间栏开成宽标签，再放回右栏
+    // 在中间栏大屏看，再放回右栏；右栏还有别的网页，就显示那个，不留空页
     await webTabs(page).nth(1).getByRole('button').first().click()
     await expect.poll(() => guest(page, 'document.readyState')).toBe('complete')
-    await page.locator('.right.web .wtabs').getByRole('button', { name: '在中间栏打开' }).click()
+    await page.locator('.right.web .wtabs').getByRole('button', { name: '移到中间' }).click()
     const wide = page.locator('.wpane:not([hidden])')
     await expect(wide.locator('webview')).toBeVisible()
     await expect(page.locator('.center .tabs .tab.on')).toContainText('冰岛的黑沙滩')
     await expect.poll(() => guest(page, 'document.title', '.wpane:not([hidden]) webview')).toBe('冰岛的黑沙滩 - 旅行杂志')
     await expect(webTabs(page)).toHaveText(['第二页'])
+    await expect(web(page)).toBeVisible()
+    await expect(webTabs(page).nth(0)).toHaveAttribute('aria-selected', 'true')
+    await expect(web(page).getByRole('region', { name: '书签首页' })).toHaveCount(0)
     const wideBox = (await wide.locator('webview').boundingBox())!
     expect(wideBox.width).toBeGreaterThan(600)
     await wide.getByRole('button', { name: '放回右栏' }).click()
@@ -148,7 +151,7 @@ test('书签：一键从 Chrome 导入（按用户选）、书签栏和文件夹
   try {
     await openWeb(page, `${base}/two`)
     // 导入书签：两个 Chrome 用户，选「工作」
-    await web(page).getByRole('button', { name: '书签和历史' }).click()
+    await webMore(page, '书签和历史')
     const lib = page.getByRole('dialog', { name: '书签和历史' })
     await expect(lib).toContainText('还没有书签')
     await lib.getByRole('button', { name: '从 Chrome 导入' }).click()
@@ -162,7 +165,9 @@ test('书签：一键从 Chrome 导入（按用户选）、书签栏和文件夹
     await lib.getByRole('button', { name: '从 Chrome 导入' }).click()
     await page.getByRole('menu', { name: '选 Chrome 用户' }).getByRole('menuitem', { name: /工作/ }).click()
     await expect(page.locator('.toast-cn')).toContainText('导入了 0 个书签，4 个已经有了')
-    await web(page).getByRole('button', { name: '书签和历史' }).click()
+    // 点面板外面收起
+    await web(page).getByRole('textbox', { name: '网址' }).click()
+    await expect(lib).toHaveCount(0)
 
     // 书签栏：第二页直接摆着，「旅行」是文件夹菜单，「其他书签」在最右
     const bar = web(page).getByRole('toolbar', { name: '书签栏' })
@@ -171,14 +176,22 @@ test('书签：一键从 Chrome 导入（按用户选）、书签栏和文件夹
     await expect(page.getByRole('menu', { name: '旅行' }).getByRole('menuitem')).toHaveText([/黑沙滩/, /第三页冰岛/])
     await page.getByRole('menu', { name: '旅行' }).getByRole('menuitem', { name: /黑沙滩/ }).click()
     await expect.poll(() => guest(page, 'location.href')).toBe(`${base}/a`)
-    // 当前网页已经在书签里：星是实心的，点一下取消
-    await expect(web(page).getByRole('button', { name: '取消书签' })).toBeVisible()
-    await web(page).getByRole('button', { name: '取消书签' }).click()
-    await expect(web(page).getByRole('button', { name: '加书签' })).toBeVisible()
-    await web(page).getByRole('button', { name: '加书签' }).click()
+    // 当前网页已经在书签里：星是实心的；点开书签管家删掉，再点一下又收藏上（像 Chrome，点星星就收藏并开书签管家）
+    const star = web(page).getByRole('button', { name: '书签管家', exact: true })
+    await expect(star).toHaveClass(/\bon\b/)
+    await star.click()
+    const keeper = page.getByRole('dialog', { name: '书签管家' })
+    await keeper.getByRole('button', { name: '删掉书签', exact: true }).click()
+    await expect(keeper).toHaveCount(0)
+    await expect(star).not.toHaveClass(/\bon\b/)
+    await star.click()
+    await expect(star).toHaveClass(/\bon\b/)
+    await expect(keeper).toContainText('已收藏')
     await expect(bar).toContainText('冰岛的黑沙滩 - 旅行杂志')
+    await star.click()
+    await expect(keeper).toHaveCount(0)
     // 面板里删一个
-    await web(page).getByRole('button', { name: '书签和历史' }).click()
+    await webMore(page, '书签和历史')
     await lib.getByRole('button', { name: '删掉书签 第二页' }).click()
     await expect(bar).not.toContainText('第二页')
 
@@ -232,7 +245,7 @@ test('Chrome 插件：一键导入（拷一份，Chrome 那边不动）、内容
   try {
     await openWeb(page, `${base}/two`)
     await expect.poll(() => guest(page, 'document.documentElement.dataset.cnTestExt ?? "none"')).toBe('none')
-    await web(page).getByRole('button', { name: '插件', exact: true }).click()
+    await webMore(page, '插件')
     const panel = page.getByRole('dialog', { name: '插件' })
     await expect(panel).toContainText('还没有插件')
     await panel.getByRole('button', { name: '从 Chrome 导入' }).click()
@@ -248,9 +261,11 @@ test('Chrome 插件：一键导入（拷一份，Chrome 那边不动）、内容
 
     // 导入后网页重新载入，内容脚本进去了
     await expect.poll(() => guest(page, 'document.documentElement.dataset.cnTestExt ?? "none"'), { timeout: 10_000 }).toBe('on')
-    // 工具栏上的插件按钮：点开是插件的弹窗（一个小窗口）
-    await web(page).getByRole('button', { name: '插件', exact: true }).click()
+    // 插件按钮默认不摆出来；在插件面板里点图钉固定到地址栏右边，点开是插件的弹窗（一个小窗口）
     const btn = web(page).getByRole('toolbar', { name: '插件按钮' }).getByRole('button', { name: '测试插件' })
+    await expect(btn).toHaveCount(0)
+    await webMore(page, '插件')
+    await list.getByRole('button', { name: '固定到地址栏 测试高亮' }).click()
     await expect(btn).toBeVisible()
     await expect.poll(() => btn.locator('img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0)
     const popupP = app.waitForEvent('window')
@@ -260,7 +275,7 @@ test('Chrome 插件：一键导入（拷一份，Chrome 那边不动）、内容
     expect(popup.url()).toBe(`chrome-extension://${good}/popup.html`)
 
     // 关掉：再载入网页，内容脚本没了；重开插件面板还在、开关是关的
-    await web(page).getByRole('button', { name: '插件', exact: true }).click()
+    await webMore(page, '插件')
     await list.getByRole('switch', { name: '启用 测试高亮' }).click()
     await expect(list.getByRole('switch', { name: '启用 测试高亮' })).not.toBeChecked()
     await expect(web(page).getByRole('toolbar', { name: '插件按钮' }).getByRole('button', { name: '测试插件' })).toHaveCount(0)
@@ -269,7 +284,7 @@ test('Chrome 插件：一键导入（拷一份，Chrome 那边不动）、内容
     await expect(panel).toHaveCount(0)
     await expect.poll(() => guest(page, 'document.readyState + (document.documentElement.dataset.cnTestExt ?? "none")')).toBe('completenone')
     // 移除：列表里没了，拷过来的文件夹删了
-    await web(page).getByRole('button', { name: '插件', exact: true }).click()
+    await webMore(page, '插件')
     await list.getByRole('button', { name: '移除 测试高亮' }).click()
     await expect(list.getByRole('listitem')).toHaveCount(1)
     expect(existsSync(join(userData, 'web', 'extensions', good))).toBe(false)

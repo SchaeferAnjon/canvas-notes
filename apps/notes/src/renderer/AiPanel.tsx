@@ -36,6 +36,7 @@ import {
   parseMoves,
   dreamSummary,
   PENDING_COMMANDS,
+  TIDY_BOARD,
   summaryPrompt,
   SYSTEM,
   topicFolder,
@@ -230,7 +231,12 @@ export function AiPanel(props: {
     push({ id, role: 'ai', pending: true })
     setRunning(id)
     try {
-      if (cmd && !COMMANDS.some((c) => c.name === cmd)) return patch(id, { pending: false, error: `没有叫「${cmd}」的命令` })
+      // 不是现成的命令：去掉斜杠，当成一句话交给 AI 去做
+      if (cmd && !COMMANDS.some((c) => c.name === cmd)) return await agentTurn(id, text.slice(1))
+      if (cmd === '整理当前白板') {
+        if (!notePath) return patch(id, { pending: false, error: '先打开一块白板' })
+        return await agentTurn(id, TIDY_BOARD)
+      }
       if (cmd === '找重复') return await findDuplicates(id)
       if (cmd === '现在梦游') return await dreamNow(id)
       if (cmd && PENDING_COMMANDS[cmd]) return await pendingCommand(id, cmd)
@@ -621,7 +627,7 @@ export function AiPanel(props: {
             <div className="keys">↑↓ 选择 · ↵ 执行 · esc 关闭</div>
           </div>
         )}
-        {slash && cmdItems.length === 0 && <div className="nocmd">没有叫这个的命令</div>}
+        {slash && cmdItems.length === 0 && <div className="nocmd">没有这条命令，回车直接交给 AI 去做</div>}
         <textarea
           ref={box}
           rows={1}

@@ -133,6 +133,16 @@ const need = (re, label) => {
 const archRe = `(${ARCHS.join('|')})`
 const dmgs = need(new RegExp(`^${brand.artifact}-${version}-mac-${archRe}\\.dmg$`), ' dmg')
 need(new RegExp(`^${brand.artifact}-${version}-mac-${archRe}\\.zip$`), ' zip')
+// 检查更新要的：latest-mac.yml（写着这一版每个架构的 zip）和 zip 的 blockmap（只下改了的块）
+need(new RegExp(`^${brand.artifact}-${version}-mac-${archRe}\\.zip\\.blockmap$`), ' zip.blockmap')
+{
+  const yml = path.join(out, 'mac', 'latest-mac.yml')
+  if (!fs.existsSync(yml)) fail(`少了 latest-mac.yml（${path.dirname(yml)}）`)
+  const text = fs.readFileSync(yml, 'utf8')
+  if (!text.includes(`version: ${version}`)) fail(`latest-mac.yml 里的版本不是 ${version}`)
+  for (const a of ARCHS) if (!text.includes(`${brand.artifact}-${version}-mac-${a}.zip`)) fail(`latest-mac.yml 里没有 ${a} 的 zip`)
+  files.push(yml)
+}
 
 // dmg 本身也公证、钉票据：下载后双击打开时 Gatekeeper 不再联网查
 if (notarize) {

@@ -29,10 +29,12 @@ pnpm --filter @cn/notes dist:mac   # 打一个本机用的 .app（本地签名�
 - 库：一个文件夹，里面是 md 文件，自动建 Git。`收件箱/` 放新东西，`素材/<主题>/` 放剪来的，其余是「我写的」；frontmatter 里 `type: board` 的是白板。
 - 文档：实时预览（光标所在行露出 md 原文）和「源文件」；⌘N 新建，点标题改名（别处的 `[[旧名]]` 一起改），⌘ 点双链打开；自动保存，内容没变不写盘。
 - 白板：双击空白处加卡片，左边工具板加待办、列、子白板；拖卡片挪位置、拖进列；卡片右边的小圆点拖到另一张卡上连线；选中按删除键删；⌘Z 撤销；右上「未整理」里是这篇没放进卡片的段落和收件箱，拖上白板。
-- 网页（右栏）：选中一段，白板标签里「剪成卡片 · 到：收件箱」，文档标签里「剪进文档」插到光标处；右上登录图标一键导入 Chrome 的登录（macOS 会问一次钥匙串）。
-  - 多标签：⌘T 新网页，网页焦点时 ⌘W 关网页标签，⌘L 到地址栏；新窗口链接开成新标签；标签记在本机，每个中间栏标签记住自己看的网页。网页标签条右边的「在中间栏打开」把网页开成一个宽标签读，「放回右栏」再放回来。
-  - 书签和历史：地址栏里的星星加书签，书签栏摆书签栏里的书签，文件夹点开是菜单；书签图标里按文件夹看、删、搜历史，「从 Chrome 导入」按 Chrome 用户导书签和历史。存在软件设置目录（`userData/web/`），不进库。
-  - Chrome 插件：插件图标里「从 Chrome 导入」把 Chrome 某个用户装的插件拷一份到 `userData/web/extensions/` 再加载（Chrome 那边不动），能开关、移除，每个插件写着能不能用、缺哪些接口；有按钮的插件摆在地址栏右边，点开是它的弹窗。Electron 只有一部分 Chrome 插件接口，拦广告、用户脚本、要和电脑上配套程序通信的插件多半用不了。
+- 网页（右栏）：选中一段，白板标签里「剪成卡片 · 到：收件箱」，文档标签里「剪进文档」插到光标处；地址栏右边「⋯」里「导入 Chrome 登录」一键导入 Chrome 的登录（macOS 会问一次钥匙串）。
+  - 右上按钮分两组：标签条右边只有「移到中间」和收起；地址栏里是双语翻译和星星，右边是剪藏、固定的 Chrome 插件按钮（最多 2 个）和「⋯」（稍后再看、双语翻译、书签首页、书签和历史、插件、导入 Chrome 登录）。
+  - 多标签：⌘T 新网页，网页焦点时 ⌘W 关网页标签，⌘L 到地址栏；新窗口链接开成新标签；标签记在本机，每个中间栏标签记住自己看的网页。标签条右边的「移到中间」把网页开成中间栏的一个宽标签读，右栏还有别的网页就显示别的，没有了就收起；宽标签那边「放回右栏」再放回来。
+  - 书签和历史：地址栏里的星星是书签唯一的入口（书签管家开着时点一下就收藏并弹出这一页的小卡：标题、标签、备注、文件夹，底下「整理全部书签」），书签栏摆书签栏里的书签，文件夹点开是菜单；「⋯ › 书签和历史」里按文件夹看、删、搜历史，「从 Chrome 导入」按 Chrome 用户导书签和历史。存在软件设置目录（`userData/web/`），不进库。
+  - 书签首页（书签管家插件给的）：⌘T 或标签条的 + 新开的网页标签显示它。问候和日期、搜全部书签（/ 聚焦）、快捷书签（书签栏里的书签和一级子文件夹，子文件夹是 2×2 小图标的分组；拖一个到另一个正中停一下合并成「书签栏 / 新分组」，拖到两格之间排序，先后记在书签的 `order` 上；右键菜单、编辑、添加）、全部文件夹、打开的标签（按网站分组，收藏、稍后看、关掉）、稍后再看（存在 `userData/plugins/bookmarks/home.json`）。按自己的宽度排版（容器查询）。
+  - Chrome 插件：「⋯ › 插件」里「从 Chrome 导入」把 Chrome 某个用户装的插件拷一份到 `userData/web/extensions/` 再加载（Chrome 那边不动），能开关、移除，每个插件写着能不能用、缺哪些接口；有按钮的插件点图钉固定到地址栏右边（最多 2 个，记在本机），点开是它的弹窗。Electron 只有一部分 Chrome 插件接口，拦广告、用户脚本、要和电脑上配套程序通信的插件多半用不了。
   - 整页剪藏：剪刀按钮把当前网页的正文（Readability 抽正文、Turndown 转 md）存成收件箱里新的一篇，带 created 和 source，单独一次提交，能撤回；AI 的 /剪藏当前网页 调同一个 `window.cn.clipCurrentPage`。
   - 图片：网页里的图片直接拖到白板上变成图片卡（带来源），访达里的图片拖进来、剪贴板里的图片粘贴进来也行；拖进文档插 `![说明](附件/…)`。图片存在库里的 `附件/`，界面用主线的只读 `cn-file://` 看库里的图。
 - Git 底栏：未提交的文件、提交、同步（先提交，再拉，再推）、历史。没提交的改动按设置里的间隔自动提交（默认每 10 分钟，可关），退出和换库前也会提交。
@@ -72,7 +74,8 @@ node scripts/release.mjs --publish                # 上传核对过的那一份�
 - 签名用钥匙串里的 `Developer ID Application`（`release/brand.json` 的 `signing.identity`），hardened runtime，entitlements 在 `apps/notes/build/entitlements.mac.plist`（JIT、可执行内存、库校验、Apple 事件）。
 - 不公证（2026-11-15 用户定，和 MeetCaption 一样）：README 和官网写了第一次打开时在访达里右键「打开」。以后要公证：加 `--notarize`，用 notarytool 的钥匙串 profile，名字默认 `canvas-notes-notary`，环境变量 `CN_NOTARY_PROFILE` 可换；先跑一次 `xcrun notarytool store-credentials canvas-notes-notary --apple-id <开发者账号> --team-id <团队>`。凭据不进仓库。
 - 产出：`CanvasNotes-<版本>-mac-<arm64|x64>.dmg` 和 `.zip`，另有不带版本号的 `CanvasNotes-mac-<arch>.dmg`（README 和官网链到 `releases/latest/download/` 下的它），`SHA256SUMS.txt`。
-- 自动更新还没做：zip 先一起传上去，以后接 electron-updater 时用。
+- 检查更新（`src/main/updater.ts`，照 MeetCaption）：electron-updater 查 GitHub Release 的 `latest-mac.yml`，启动 30 秒后一次、之后每 6 小时；有新版在后台下 zip，Squirrel 验过签（要和装着的同一张 Developer ID）才算下好，底栏最右端出「● 重启更新到 x」，不点就下次退出时装上。设置 › 更新能手动查、关自动检查。只有发布包会查（`CN_RELEASE=1` 打包时才写 `publish`，包里才有 `app-update.yml`）；开发版、`dist:mac` 本机包、端到端测试都是「开发版，不自动更新」。所以发版时 `latest-mac.yml`、两个 zip 和 `.zip.blockmap` 都要传（`scripts/release.mjs` 会核对）。
+  - 真更新怎么测：把 version 改成 0.1.98 用 `--try --arch=arm64` 打一份，再改成 0.1.99 打一份；用一个本机 http 服务放 `apps/notes/release/0.1.99/mac/`，`CN_E2E=1 CN_UPDATE_URL=http://127.0.0.1:<端口>/` 打开 0.1.98 那份，`window.cn.checkUpdate()` 后等到 ready，退出，那份 .app 的版本变成 0.1.99、签名照样过（2026-11-15 这样测过）。
 - 包里不带任何 AI 的程序或 SDK：四家 AI 都是起用户自己装的命令行（Claude Code 是 `claude -p --output-format stream-json`，见 `apps/notes/src/main/agent/engines.ts`）。
 
 ## 官网

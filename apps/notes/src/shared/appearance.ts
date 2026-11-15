@@ -50,6 +50,8 @@ export interface AppSettings {
   autoCommitMinutes: number
   /** 多少天没改过的笔记算归档（左栏不显示），0 = 不自动归档 */
   archiveDays: ArchiveDays
+  /** 自动检查更新（启动 30 秒后一次，之后每 6 小时） */
+  autoUpdate: boolean
 }
 
 export const AUTO_COMMIT_CHOICES = [0, 5, 10, 30, 60] as const
@@ -66,6 +68,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   autoCommitMinutes: 10,
   archiveDays: DEFAULT_ARCHIVE_DAYS,
+  autoUpdate: true,
 }
 
 /** 读出来的设置可能是旧版本或者被手改坏的：一项一项检查，不对的用默认值 */
@@ -91,6 +94,7 @@ export function normalizeSettings(raw: unknown): AppSettings {
     },
     autoCommitMinutes: Number.isFinite(mins) && mins >= 0 && mins <= 24 * 60 ? Math.round(mins) : DEFAULT_SETTINGS.autoCommitMinutes,
     archiveDays: isArchiveDays(r.archiveDays) ? r.archiveDays : DEFAULT_SETTINGS.archiveDays,
+    autoUpdate: typeof r.autoUpdate === 'boolean' ? r.autoUpdate : DEFAULT_SETTINGS.autoUpdate,
   }
 }
 

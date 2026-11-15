@@ -81,6 +81,13 @@ export async function launch(
 /** 窗口最右边的竖条（网页、梦游、历史） */
 export const rail = (page: Page) => page.getByRole('navigation', { name: '右栏' })
 
+/** 右栏网页面板地址栏右边的「⋯」里点一项（书签和历史、导入 Chrome 登录、插件） */
+export async function webMore(page: Page, item: '书签和历史' | '导入 Chrome 登录' | '插件') {
+  const web = page.getByRole('complementary', { name: '网页' })
+  await web.getByRole('button', { name: '更多', exact: true }).click()
+  await web.getByRole('menu', { name: '更多', exact: true }).getByRole('menuitem', { name: new RegExp('^' + item) }).click()
+}
+
 /** 当前标签的内容区 */
 export const pane = (page: Page) => page.locator('.pane:not([hidden])')
 

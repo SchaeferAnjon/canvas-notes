@@ -14,6 +14,8 @@ export function GitBar(props: {
   onSync(): Promise<void>
   onToggleHistory(): void
   onOpen(path: string): void
+  /** 最右端（检查更新：「● 重启更新到 x」） */
+  right?: React.ReactNode
 }) {
   const { git } = props
   const [busy, setBusy] = useState<'commit' | 'sync' | null>(null)
@@ -91,6 +93,7 @@ export function GitBar(props: {
           本周 <span className="num">{git.weekCommits}</span> 次提交
         </span>
       )}
+      {props.right}
     </footer>
   )
 }

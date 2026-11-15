@@ -37,6 +37,8 @@ export const translate: RendererPlugin = {
   id: ID,
   icon: Languages,
   button: {
+    slot: 'address',
+    menu: { label: '双语翻译', keys: '⌥A' },
     useLook(page) {
       const st = usePageState<TrState>(page?.wcId, ID)
       // 焦点在软件界面（不是网页、不在输入框里）时 ⌥A 也开关当前网页；网页里的 ⌥A 由网页预加载自己接

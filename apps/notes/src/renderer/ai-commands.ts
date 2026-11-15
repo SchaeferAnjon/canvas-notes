@@ -11,6 +11,7 @@ export interface Command {
 
 export const COMMANDS: Command[] = [
   { name: '整理收件箱', desc: '给收件箱里的东西找主题，你点同意才挪，一次提交可撤回' },
+  { name: '整理当前白板', desc: '按内容把卡片分成几列、排整齐，不删不改卡片，一次提交可撤回' },
   { name: '总结这块白板', desc: '把当前这块白板或这篇读一遍，写成几句话' },
   { name: '写成文章', desc: '按白板从左到右、从上到下写成一篇文档草稿' },
   { name: '翻译', desc: '翻译文档里选中的那段；没选就翻整篇' },
@@ -40,6 +41,9 @@ export function dreamSummary(report: DreamReport, labels: Record<string, string>
   const notes = report.notes.length ? `\n${report.notes.join('\n')}` : ''
   return { text: head + notes, items: report.items.length, groups: counts.size }
 }
+
+/** /整理当前白板 交给引擎时说的话（引擎用 board_* 工具动手） */
+export const TIDY_BOARD = `整理当前白板：先用 board_list 看这块白板上所有卡片和列；按内容分成几组（3 到 6 组），每组用 board_add_column 建一列（已有合适的列就用它），列名写这组讲什么；用 board_put_in_column 把卡片放进去；最后 board_arrange 按列排整齐。不删卡片，不改卡片内容。做完用一两句话说分了哪几组。`
 
 export const SYSTEM = `你是 ${BRAND.name} 笔记软件里的助手，帮一个人整理和写作自己的笔记。
 用中文回答，平实、直接，不客套，不重复问题。笔记内容在用户消息里，只根据这些内容回答，不编造没有的事。`

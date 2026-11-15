@@ -1,15 +1,17 @@
 import { Icon } from '@cn/design'
-import { ArrowLeft, ArrowRight, BookMarked, Globe, LogIn, Maximize2, Plus, Puzzle, RotateCw, Scissors, Star, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft, ArrowLeftToLine, ArrowRight, BookMarked, Ellipsis, Globe, LayoutGrid, Lock, LogIn, type LucideIcon, Plus, Puzzle, RotateCw, Scissors, Star, X } from 'lucide-react'
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import type { Clip } from '../shared/api'
 import type { Bookmark } from '../shared/web-api'
 import { decodeUrl, toUrl } from './url'
+import { Favicon } from './web/favicons'
 import { ActionButtons } from './web/ActionButtons'
 import { BookmarksBar } from './web/BookmarksBar'
 import { ExtensionsPanel } from './web/ExtensionsPanel'
 import { setCurrentPage } from './web/image-drop'
 import { LibraryPanel } from './web/LibraryPanel'
-import { PluginButtons, PluginPopup } from './plugins'
+import { PluginButtons, PluginNewTab, PluginPageMenu, PluginPopup, usePluginMenu, usePluginOn } from './plugins'
+import type { WebPage } from './plugins/types'
 import { setWebHost } from './plugins/host'
 import { ProfileMenu } from './web/ProfileMenu'
 import { activate, closeTab, followOwner, loadWebTabs, newTabId, openTab, saveWebTabs, updateTab, type WebTabs } from './web/web-tabs'
@@ -22,11 +24,17 @@ export { toUrl }
 
 export const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
-/** 开着的弹层；内置插件的弹窗是 plugin:<id> */
-type Menu = null | 'login' | 'library' | 'extensions' | `plugin:${string}`
+/** 开着的弹层：「⋯」菜单、从它打开的三个面板、星星的书签小卡；内置插件的弹窗是 plugin:<id> */
+type Menu = null | 'more' | 'star' | 'login' | 'library' | 'extensions' | `plugin:${string}`
+
+/** 书签管家插件的 id（它的弹窗由地址栏的星星开） */
+const BOOKMARKS = 'bookmarks'
 
 /**
  * 右栏网页：多个网页标签（⌘T 新建、⌘W 关当前），地址栏、书签栏、插件按钮、整页剪藏。
+ * 按钮分两组：标签条右边只管标签和右栏（移到中间、收起）；地址栏里是这一页的开关（双语翻译、星星），右边是剪藏、固定的 Chrome 插件按钮和「⋯」。
+ * 书签只有地址栏的星星一个入口；不常用的（书签和历史、导入 Chrome 登录、插件）在「⋯」里。
+ * 新开的网页标签显示书签首页（书签管家插件给的）。
  * 一直挂着（右栏切到历史 / AI 时只是藏起来），网页不会重新载入。
  */
 export function WebPanel(props: {
@@ -43,6 +51,10 @@ export function WebPanel(props: {
   onClose(): void
   /** 在中间栏开成宽标签 */
   onOpenWide(url: string, title: string): void
+  /** 中间栏开着的宽网页标签（书签首页「打开的标签」里也列出来） */
+  wideTabs: { id: string; url: string; title?: string }[]
+  onActivateWide(id: string): void
+  onCloseWide(id: string): void
   onOpenNote(path: string): void
   /** 打开设置 · 插件 */
   onPluginSettings(): void
@@ -204,7 +216,7 @@ export function WebPanel(props: {
   useEffect(() => {
     if (!menu) return
     const onDown = (e: PointerEvent) => {
-      if (!(e.target as HTMLElement).closest('.right.web .imp')) setMenu(null)
+      if (!(e.target as HTMLElement).closest('.right.web .imp, .right.web .addr .star')) setMenu(null)
     }
     window.addEventListener('pointerdown', onDown, true)
     return () => window.removeEventListener('pointerdown', onDown, true)
@@ -218,13 +230,34 @@ export function WebPanel(props: {
 
   const starred = useMemo(() => (active?.url ? bookmarks.find((b) => b.url === active.url) : undefined), [bookmarks, active?.url])
 
-  async function toggleStar() {
+  const keeperOn = usePluginOn(BOOKMARKS)
+  const keeperOpen = menu === 'star'
+
+  /**
+   * 地址栏的星星：书签管家开着时像 Chrome，没收藏的先收藏，再在星星下面开书签小卡（改标题、标签、备注、文件夹，删）；
+   * 书签管家关着时就是加 / 取消书签
+   */
+  async function clickStar() {
     if (!active?.url) return
     try {
-      setBookmarks(starred ? await window.cnWeb.removeBookmark(starred.id) : await window.cnWeb.addBookmark({ title: active.title || active.url, url: active.url }))
+      if (keeperOn) {
+        // 弹窗开着：收藏过的点星星是收起；刚在弹窗里删掉的，点星星是再收藏上
+        if (keeperOpen && starred) return setMenu(null)
+        if (!starred) setBookmarks(await window.cnWeb.addBookmark({ title: active.title || active.url, url: active.url }))
+        setMenu('star')
+      } else setBookmarks(starred ? await window.cnWeb.removeBookmark(starred.id) : await window.cnWeb.addBookmark({ title: active.title || active.url, url: active.url }))
     } catch (e) {
       props.onNotice(errText(e))
     }
+  }
+
+  /** 在中间栏大屏看：网页挪过去，右栏不留空页；右栏没有别的网页了就收起 */
+  function openWide() {
+    if (!active?.url) return
+    props.onOpenWide(active.url, active.title)
+    const left = stRef.current.tabs.length - 1
+    close(active.id)
+    if (left === 0) props.onClose()
   }
 
   const openUrl = (u: string, newOne: boolean) => {
@@ -256,52 +289,59 @@ export function WebPanel(props: {
     })
     return () => setWebHost(null)
   }, [page, props.hidden])
+  /** 星星的书签小卡贴在星星下面，右边和星星对齐（放不下就贴右栏右边） */
+  const starRef = useRef<HTMLButtonElement>(null)
+  const cardPos = (): CSSProperties | undefined => {
+    const st = starRef.current?.getBoundingClientRect()
+    const box = root.current?.getBoundingClientRect()
+    if (!st || !box) return undefined
+    const right = Math.max(8, box.right - st.right - 8)
+    // 小卡上的箭头对准星星：箭头 12 宽，离小卡右边多远
+    return { top: st.bottom - box.top + 8, right, ['--arrow-right' as string]: `${box.right - right - (st.left + st.width / 2) - 6}px` }
+  }
+  const https = !!active?.url && active.url.startsWith('https:')
+
   return (
     <aside className="right web" aria-label="网页" hidden={props.hidden} ref={root}>
       <div className="tabs wtabs" role="tablist" aria-label="网页标签">
         {st.tabs.map((t) => (
           <div key={t.id} className={'tab' + (t.id === st.active ? ' on' : '')} role="tab" aria-selected={t.id === st.active} title={t.url ? decodeUrl(t.url) : '新网页'}>
             <button className="tl" onClick={() => setSt((s) => activate(s, t.id, cb.current.owner))}>
-              <Icon of={Globe} size={13} />
+              {t.url ? <Favicon url={t.url} size={14} /> : <Icon of={Globe} size={13} />}
               <span className="truncate">{t.title || (t.url ? hostOf(t.url) : '新网页')}</span>
             </button>
-            <button className="x" aria-label="关闭网页标签" onClick={() => close(t.id)}>
+            <button className="x" aria-label="关闭网页标签" title="关闭网页标签 ⌘W" onClick={() => close(t.id)}>
               <Icon of={X} size={12} />
             </button>
           </div>
         ))}
-        <button className="iconbtn wnew" aria-label="新网页" title="新网页 ⌘T" onClick={() => newTab()}>
+        <button className="iconbtn wnew" aria-label="新网页" title="新网页 ⌘T（书签首页）" onClick={() => newTab()}>
           <Icon of={Plus} size={14} />
         </button>
         <span className="sp" />
-        <ActionButtons tabId={activeWc ?? -1}>
-          <PluginButtons page={page} popup={pluginPopup} onPopup={(id) => setMenu(id ? `plugin:${id}` : null)} />
-        </ActionButtons>
-        <button
-          className="iconbtn wtool"
-          aria-label="在中间栏打开"
-          title="在中间栏开成宽标签"
-          disabled={!active?.url}
-          onClick={() => {
-            if (!active?.url) return
-            props.onOpenWide(active.url, active.title)
-            close(active.id)
-          }}
-        >
-          <Icon of={Maximize2} size={14} />
-        </button>
-        <button className="iconbtn wtool" aria-label="关上网页" onClick={props.onClose}>
+        {active?.url && (
+          <button
+            className={'wtool wwide' + (st.tabs.length >= 3 ? ' tight' : '')}
+            aria-label="移到中间"
+            title="开成宽标签，右栏空出来"
+            onClick={openWide}
+          >
+            <Icon of={ArrowLeftToLine} size={14} />
+            <span>移到中间</span>
+          </button>
+        )}
+        <button className="iconbtn wtool" aria-label="收起网页" title="收起网页（网页还开着，竖条上再点「网页」回来）" onClick={props.onClose}>
           <Icon of={X} size={14} />
         </button>
       </div>
       <div className="rhead">
-        <button className="iconbtn" aria-label="后退" disabled={!activeNav?.back} onClick={() => active && views.current.get(active.id)?.goBack()}>
+        <button className="iconbtn" aria-label="后退" title="后退" disabled={!activeNav?.back} onClick={() => active && views.current.get(active.id)?.goBack()}>
           <Icon of={ArrowLeft} size={14} />
         </button>
-        <button className="iconbtn" aria-label="前进" disabled={!activeNav?.forward} onClick={() => active && views.current.get(active.id)?.goForward()}>
+        <button className="iconbtn" aria-label="前进" title="前进" disabled={!activeNav?.forward} onClick={() => active && views.current.get(active.id)?.goForward()}>
           <Icon of={ArrowRight} size={14} />
         </button>
-        <button className="iconbtn" aria-label="重新载入" disabled={!active?.url} onClick={() => active && views.current.get(active.id)?.reload()}>
+        <button className="iconbtn" aria-label="重新载入" title="重新载入" disabled={!active?.url} onClick={() => active && views.current.get(active.id)?.reload()}>
           <Icon of={RotateCw} size={14} className={activeNav?.loading ? 'spin' : ''} />
         </button>
         <form
@@ -311,29 +351,53 @@ export function WebPanel(props: {
             if (address.trim()) go(address)
           }}
         >
-          <Icon of={Globe} size={13} />
+          <Icon of={https ? Lock : Globe} size={13} />
           <input ref={addr} aria-label="网址" placeholder="输入网址或要搜的词" value={address} onChange={(e) => setAddress(e.target.value)} onFocus={(e) => e.currentTarget.select()} />
           {active?.url && (
-            <button type="button" className={'star' + (starred ? ' on' : '')} aria-label={starred ? '取消书签' : '加书签'} title={starred ? '取消书签' : '加书签'} onClick={() => void toggleStar()}>
-              <Icon of={Star} size={13} />
-            </button>
+            <span className="addr-acts" role="toolbar" aria-label="这一页">
+              <PluginButtons slot="address" page={page} popup={pluginPopup} onPopup={(id) => setMenu(id ? `plugin:${id}` : null)} />
+              <button
+                ref={starRef}
+                type="button"
+                className={'abtn star' + (starred ? ' on' : '') + (keeperOpen ? ' open' : '')}
+                aria-label={keeperOn ? '书签管家' : starred ? '取消书签' : '加书签'}
+                aria-pressed={keeperOn ? keeperOpen : !!starred}
+                title={keeperOn ? (starred ? '已收藏 · 改标签和备注' : '加书签（收藏后能加标签和备注）') : starred ? '取消书签' : '加书签'}
+                onClick={() => void clickStar()}
+              >
+                <Icon of={Star} size={13} />
+              </button>
+            </span>
           )}
         </form>
         <button className="iconbtn" aria-label="整页剪藏" title="整页剪进收件箱" disabled={!active?.url || clipping} onClick={() => void clipPage()}>
           <Icon of={Scissors} size={14} className={clipping ? 'spin' : ''} />
         </button>
+        <ActionButtons tabId={activeWc ?? -1}>
+          <PluginButtons slot="toolbar" page={page} popup={pluginPopup} onPopup={(id) => setMenu(id ? `plugin:${id}` : null)} />
+        </ActionButtons>
         <div className="imp">
-          <button className={'iconbtn' + (menu === 'library' ? ' on' : '')} aria-label="书签和历史" title="书签和历史" onClick={() => setMenu(menu === 'library' ? null : 'library')}>
-            <Icon of={BookMarked} size={14} />
+          <button
+            className={'iconbtn' + (menu === 'more' || menu === 'library' || menu === 'extensions' || menu === 'login' ? ' on' : '')}
+            aria-label="更多"
+            title="更多：稍后再看、双语翻译、书签和历史、插件、导入 Chrome 登录"
+            aria-haspopup="menu"
+            aria-expanded={menu === 'more'}
+            onClick={() => setMenu(menu === 'more' ? null : 'more')}
+          >
+            <Icon of={importing ? LogIn : Ellipsis} size={16} className={importing ? 'spin' : ''} />
           </button>
-          {menu === 'library' && (
-            <LibraryPanel bookmarks={bookmarks} onBookmarks={setBookmarks} onOpen={openUrl} onNotice={props.onNotice} onClose={() => setMenu(null)} />
+          {menu === 'more' && (
+            <MoreMenu
+              page={page}
+              importing={importing}
+              onClose={() => setMenu(null)}
+              onNewTab={() => (setMenu(null), newTab())}
+              onPick={(m) => setMenu(m)}
+              onNotice={props.onNotice}
+            />
           )}
-        </div>
-        <div className="imp">
-          <button className={'iconbtn' + (menu === 'extensions' ? ' on' : '')} aria-label="插件" title="插件" onClick={() => setMenu(menu === 'extensions' ? null : 'extensions')}>
-            <Icon of={Puzzle} size={14} />
-          </button>
+          {menu === 'library' && <LibraryPanel bookmarks={bookmarks} onBookmarks={setBookmarks} onOpen={openUrl} onNotice={props.onNotice} onClose={() => setMenu(null)} />}
           {menu === 'extensions' && (
             <ExtensionsPanel
               tabId={activeWc ?? -1}
@@ -343,16 +407,13 @@ export function WebPanel(props: {
               onPluginSettings={() => (setMenu(null), props.onPluginSettings())}
             />
           )}
-        </div>
-        <div className="imp">
-          <button className="iconbtn" aria-label="导入 Chrome 登录" title="导入 Chrome 登录" disabled={importing} onClick={() => setMenu(menu === 'login' ? null : 'login')}>
-            <Icon of={LogIn} size={14} className={importing ? 'spin' : ''} />
-          </button>
           {menu === 'login' && <ProfileMenu label="选 Chrome 用户" title="导入哪个 Chrome 用户的登录？" onPick={(id) => void doImport(id)} onNotice={props.onNotice} onClose={() => setMenu(null)} />}
         </div>
       </div>
-      {pluginPopup && <PluginPopup id={pluginPopup} page={page} onClose={() => setMenu(null)} />}
-      <BookmarksBar bookmarks={bookmarks} onOpen={openUrl} />
+      {pluginPopup && <PluginPopup id={pluginPopup} page={page} mode="all" onClose={() => setMenu(null)} />}
+      {menu === 'star' && <PluginPopup id={BOOKMARKS} page={page} mode="this-page" style={cardPos()} onClose={() => setMenu(null)} />}
+      {/* 书签首页自己就是书签，那时不摆书签栏 */}
+      {(active?.url || !keeperOn) && <BookmarksBar bookmarks={bookmarks} onOpen={openUrl} />}
       {clipped && (
         <div className="wnote" role="status">
           {clipped.undone ? (
@@ -410,14 +471,75 @@ export function WebPanel(props: {
             ) : null,
           )}
           {(!active || !active.url) && (
-            <div className="webstart">
-              <p>输入网址打开一个网页。选中一段文字，就能剪进笔记；网页里的图片能直接拖到白板上。</p>
-              <p className="sub">网站要登录的话，先点右上角的登录图标，把 Chrome 的登录状态导进来。</p>
-            </div>
+            <PluginNewTab
+              tabs={[
+                ...st.tabs.filter((t) => t.url && t.id !== active?.id),
+                ...props.wideTabs.map((t) => ({ id: `wide:${t.id}`, url: t.url, title: t.title ?? '', where: 'center' as const })),
+              ]}
+              open={(u) => go(u)}
+              openNew={(u) => setSt((s) => openTab(s, u, { background: true, owner: cb.current.owner }))}
+              openLibrary={() => setMenu('library')}
+              activate={(id) => (id.startsWith('wide:') ? props.onActivateWide(id.slice(5)) : setSt((s) => activate(s, id, cb.current.owner)))}
+              close={(ids) => ids.forEach((id) => (id.startsWith('wide:') ? props.onCloseWide(id.slice(5)) : close(id)))}
+              notice={props.onNotice}
+              openPopup={() => setMenu(`plugin:${BOOKMARKS}`)}
+              openSettings={props.onPluginSettings}
+              fallback={
+                <div className="webstart">
+                  <p>输入网址打开一个网页。选中一段文字，就能剪进笔记；网页里的图片能直接拖到白板上。</p>
+                  <p className="sub">网站要登录的话，先点右上角「⋯」里的「导入 Chrome 登录」，把 Chrome 的登录状态导进来。</p>
+                </div>
+              }
+            />
           )}
         </div>
       </div>
     </aside>
+  )
+}
+
+/**
+ * 地址栏右边「⋯」菜单：这一页（插件给的项，比如稍后再看、双语翻译）、书签（书签首页、书签和历史）、浏览器（插件、导入 Chrome 登录）。
+ * ↑↓ 选，↵ 执行，esc 关。
+ */
+function MoreMenu(props: { page: WebPage | null; importing: boolean; onClose(): void; onNewTab(): void; onPick(m: 'library' | 'extensions' | 'login'): void; onNotice(t: string): void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const pluginItems = usePluginMenu(props.page)
+  useEffect(() => ref.current?.querySelector<HTMLButtonElement>('[role=menuitem]:not(:disabled)')?.focus(), [])
+  const onKey = (e: React.KeyboardEvent) => {
+    const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role=menuitem]:not(:disabled)') ?? [])]
+    const i = items.indexOf(document.activeElement as HTMLButtonElement)
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length]?.focus()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      props.onClose()
+    }
+  }
+  const item = (label: string, icon: LucideIcon, run: () => void, hint?: string, disabled?: boolean) => (
+    <button key={label} role="menuitem" disabled={disabled} onClick={run}>
+      <Icon of={icon} size={14} />
+      <span className="mlabel">{label}</span>
+      {hint && <kbd>{hint}</kbd>}
+    </button>
+  )
+  return (
+    <div ref={ref} className="menu wmore" role="menu" aria-label="更多" onKeyDown={onKey}>
+      <div role="group" aria-label="这一页">
+        <PluginPageMenu page={props.page} onDone={props.onClose} onNotice={props.onNotice} />
+        {pluginItems.map((p) => item(p.label, p.icon, () => (props.onClose(), p.run()), p.keys, !props.page))}
+      </div>
+      <div role="group" aria-label="书签">
+        {item('书签首页', LayoutGrid, props.onNewTab, '⌘T')}
+        {item('书签和历史…', BookMarked, () => props.onPick('library'))}
+      </div>
+      <div role="group" aria-label="浏览器">
+        {item('插件…', Puzzle, () => props.onPick('extensions'))}
+        {item('导入 Chrome 登录…', LogIn, () => props.onPick('login'), undefined, props.importing)}
+      </div>
+    </div>
   )
 }
 

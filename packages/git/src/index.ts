@@ -17,12 +17,21 @@ export interface GitOptions {
   timeoutMs?: number
 }
 
+/**
+ * 从访达、程序坞打开的软件只拿到 /usr/bin:/bin 这样的 PATH，Homebrew 装的 git-lfs 这类 git 钩子要用的程序找不到
+ * （用户全局 core.hooksPath 里有 Git LFS 的 post-checkout 钩子时，git worktree 会直接失败）。补上常见安装位置，排在继承来的后面。
+ */
+export function gitPath(path = process.env.PATH ?? ''): string {
+  const dirs = [...path.split(':'), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
+  return [...new Set(dirs.filter(Boolean))].join(':')
+}
+
 export function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile(
       'git',
       ['-c', 'core.quotepath=false', ...args],
-      { cwd, timeout: opts.timeoutMs ?? 30_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } },
+      { cwd, timeout: opts.timeoutMs ?? 30_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, PATH: gitPath(), GIT_TERMINAL_PROMPT: '0' } },
       (err, stdout, stderr) => {
         if (err) reject(new GitError(`git ${args[0]} 失败：${stderr.trim() || err.message}`, args, stderr))
         else resolve(stdout)

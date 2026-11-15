@@ -1,11 +1,12 @@
 import { Icon } from '@cn/design'
 import { Bookmark as BookmarkIcon, Check, ExternalLink, Inbox, Pencil, Search, Trash2, X } from 'lucide-react'
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { ago } from '../../../shared/plugins/bookmark-home'
 import { allTags, type BookmarkRow, matchBookmark, SORTS, type SortKey, sortBookmarks, splitTags } from '../../../shared/plugins/bookmarks'
 import { decodeUrl } from '../../url'
 import { errText, webHost } from '../host'
 import type { WebPage } from '../types'
-import { ID, set, useBookmarkRows } from './store'
+import { ID, removeBookmark, saveBookmark, useBookmarkRows } from './store'
 
 const BAR = '书签栏'
 
@@ -26,23 +27,8 @@ function hostOf(url: string) {
   }
 }
 
-function ago(ms: number): string {
-  if (!ms) return ''
-  const d = Math.floor((Date.now() - ms) / 86400_000)
-  if (d <= 0) return '今天'
-  if (d === 1) return '昨天'
-  if (d < 30) return `${d} 天前`
-  const t = new Date(ms)
-  return `${t.getFullYear()}-${t.getMonth() + 1}-${t.getDate()}`
-}
-
-async function save(b: { id?: string; url: string } & Draft) {
-  set(await window.cnPlugins.call<BookmarkRow[]>(ID, 'save', b))
-}
-
-async function remove(id: string) {
-  set(await window.cnPlugins.call<BookmarkRow[]>(ID, 'remove', id))
-}
+const save = saveBookmark
+const remove = removeBookmark
 
 /** 标签输入：已有的是小胶囊，回车或逗号加一个，退格删最后一个 */
 function TagInput(props: { tags: string[]; suggest: string[]; onChange(t: string[]): void; label: string }) {
@@ -129,7 +115,11 @@ function Fields(props: { d: Draft; onChange(d: Draft): void; folders: string[]; 
 }
 
 /** 书签管家的弹窗：上面是这一页（收藏 / 改），下面是全部书签（搜、排、按标签筛、改、删、存进库） */
-export function BookmarkKeeper(props: { page: WebPage | null; onClose(): void }) {
+/**
+ * mode：this-page 是地址栏星星开的小卡（只管这一页：标题、标签、备注、文件夹，删掉 / 完成，底下一个「整理全部书签」）；
+ * all 是整理全部（上面这一页，下面全部书签）
+ */
+export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page' | 'all'; onClose(): void }) {
   const rows = useBookmarkRows()
   const page = props.page?.url && /^https?:/.test(props.page.url) ? props.page : null
   const mine = page ? rows.find((b) => b.url === page.url) : undefined
@@ -145,6 +135,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; onClose(): void })
   const [busy, setBusy] = useState(false)
   const notice = (t: string) => webHost()?.notice(t)
   const root = useRef<HTMLDivElement>(null)
+  const [mode, setMode] = useState(props.mode === 'this-page' && page ? 'this-page' : 'all')
 
   // 换了网页、或这一页刚被收藏 / 删掉：表单跟着换
   useEffect(() => setDraft(draftOf(mine ?? { title: page?.title || page?.url || '' })), [page?.url, mine?.id])
@@ -213,6 +204,47 @@ export function BookmarkKeeper(props: { page: WebPage | null; onClose(): void })
       else n.add(id)
       return n
     })
+
+  if (mode === 'this-page' && page)
+    return (
+      <div ref={root} className="wpop bk bk-card" role="dialog" aria-label="书签管家">
+        <section className="bk-this" aria-label="这一页">
+          <div className="bk-this-h">
+            <Icon of={BookmarkIcon} size={13} className={mine ? 'bk-filled' : ''} />
+            <span className="truncate" title={decodeUrl(page.url)}>
+              {mine ? `已收藏 · ${ago(mine.addedMs)}` : '收藏这一页'} · {hostOf(page.url)}
+            </span>
+          </div>
+          <Fields d={draft} onChange={setDraft} folders={folders} tags={tags} autoFocus onEnter={() => void saveThis()?.then(props.onClose)} />
+          <div className="bk-acts">
+            {mine ? (
+              <>
+                <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => void run(() => remove(mine.id)).then(props.onClose)}>
+                  <Icon of={Trash2} size={12} />
+                  删掉书签
+                </button>
+                <span className="sp" />
+                <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void (dirty ? saveThis() : Promise.resolve())?.then(props.onClose)}>
+                  <Icon of={Check} size={12} />
+                  完成
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="sp" />
+                <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void saveThis()}>
+                  <Icon of={BookmarkIcon} size={12} />
+                  收藏这页
+                </button>
+              </>
+            )}
+          </div>
+        </section>
+        <button className="bk-more" onClick={() => setMode('all')}>
+          整理全部书签 →
+        </button>
+      </div>
+    )
 
   return (
     <div ref={root} className="wpop bk" role="dialog" aria-label="书签管家">

@@ -51,6 +51,10 @@ export function fakeEngine(id: EngineId): Engine {
         const page = await call('web_read')
         const title = /^标题：(.*)$/m.exec(page)?.[1] ?? ''
         await say(`\n\n打开了，网页标题是「${title}」。`)
+      } else if (/^整理当前白板/.test(said)) {
+        await call('board_list')
+        await call('board_arrange', { mode: 'columns' })
+        await say('按列排整齐了。')
       } else if (/卡片/.test(said) && /排/.test(said)) {
         const items = [...said.matchAll(/「([^」]+)」/g)].map((m) => m[1]!)
         const cards = items.length ? items : ['订机票', '订租车', '看极光']

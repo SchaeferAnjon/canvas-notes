@@ -5,7 +5,7 @@ import type { Bookmark } from '../web-api'
 export const BOOKMARKS: PluginManifest = {
   id: 'bookmarks',
   name: '书签管家',
-  description: '在弹窗里收藏当前网页、加标签和备注、搜、排、改、删，不离开这一页；选中的书签能存进库。',
+  description: '新开的网页标签是书签首页（快捷书签、全部文件夹、打开的标签、稍后再看）；地址栏的星星收藏当前网页、加标签和备注，搜、排、改、删；选中的书签能存进库。',
   permissions: ['notes:write'],
 }
 

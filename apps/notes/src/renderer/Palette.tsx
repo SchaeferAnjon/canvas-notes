@@ -74,7 +74,7 @@ export function Palette(props: { notes: NoteFile[]; commands: PaletteCommand[]; 
     <div className="pal-back" onMouseDown={props.onClose}>
       <div className="pal" role="dialog" aria-label="搜索和命令" onMouseDown={(e) => e.stopPropagation()}>
         <div className="pal-in">
-          <Icon of={Search} size={16} />
+          <Icon of={Search} size={18} />
           <input
             autoFocus
             aria-label="搜索笔记、输入网址或命令"

@@ -32,6 +32,7 @@ const api: CnApi = {
   commit: () => ipcRenderer.invoke('git:commit'),
   sync: () => ipcRenderer.invoke('git:sync'),
   history: (limit) => ipcRenderer.invoke('git:history', limit),
+  commitFileDiff: (hash, path) => ipcRenderer.invoke('git:file-diff', hash, path),
   pickImage: () => ipcRenderer.invoke('attach:pickImage'),
   settings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
@@ -46,6 +47,27 @@ const api: CnApi = {
     const h = (_e: unknown, path: string, text: string) => cb(path, text)
     ipcRenderer.on('note:changed', h)
     return () => ipcRenderer.removeListener('note:changed', h)
+  },
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  moveToApps: () => ipcRenderer.invoke('update:moveToApps'),
+  revealApp: () => ipcRenderer.invoke('update:reveal'),
+  releaseUrl: () => ipcRenderer.invoke('update:releaseUrl'),
+  onUpdateState(cb) {
+    const h = (_e: unknown, s: Parameters<typeof cb>[0]) => cb(s)
+    ipcRenderer.on('update:state', h)
+    return () => ipcRenderer.removeListener('update:state', h)
+  },
+  onUpdateOpen(cb) {
+    const h = () => cb()
+    ipcRenderer.on('update:open', h)
+    return () => ipcRenderer.removeListener('update:open', h)
+  },
+  onAppKey(cb) {
+    const h = (_e: unknown, k: string) => cb(k)
+    ipcRenderer.on('app:key', h)
+    return () => ipcRenderer.removeListener('app:key', h)
   },
   onFilesChanged(cb) {
     const h = () => cb()

@@ -117,11 +117,13 @@ export interface CnApi {
   commit(): Promise<CommitInfo | null>
   sync(): Promise<SyncOutcome>
   history(limit: number): Promise<CommitInfo[]>
+  /** 某次提交里某个文件改了什么；exists：这个文件现在还在不在 */
+  commitFileDiff(hash: string, path: string): Promise<{ diff: DreamDiffFile | null; exists: boolean }>
   /** 选一张图片拷进库的「附件/」，返回库里的相对路径；取消返回 null */
   pickImage(): Promise<string | null>
   /** 软件设置（外观、自动提交间隔），存在软件设置目录 */
   settings(): Promise<AppSettings>
-  setSettings(patch: { appearance?: Partial<Appearance>; autoCommitMinutes?: number; archiveDays?: number }): Promise<AppSettings>
+  setSettings(patch: { appearance?: Partial<Appearance>; autoCommitMinutes?: number; archiveDays?: number; autoUpdate?: boolean }): Promise<AppSettings>
   /** 从电脑选一张窗口背景（深海蓝用），拷进设置目录；取消是 null */
   pickWinBg(): Promise<AppSettings | null>
   /** 首页设置：库里的 .canvas-notes/首页.json */
@@ -139,6 +141,21 @@ export interface CnApi {
   onNoteChanged(cb: (path: string, text: string) => void): () => void
   /** 文件增删 */
   onFilesChanged(cb: () => void): () => void
+  updateStatus(): Promise<UpdateState>
+  /** 现在查一次；出错时 ok 为 false，error 是看得懂的话 */
+  checkUpdate(): Promise<{ ok: boolean; error?: string; state: UpdateState }>
+  /** 下好的新版：退出、装上、重新打开 */
+  installUpdate(): Promise<boolean>
+  onUpdateState(cb: (s: UpdateState) => void): () => void
+  /** 不在「应用程序」文件夹：挪过去并重开；用户取消返回 false */
+  moveToApps(): Promise<boolean>
+  revealApp(): Promise<void>
+  /** 新版本（没有就是这一版）在 GitHub 上的发布页 */
+  releaseUrl(): Promise<string>
+  /** 菜单栏点了「检查更新…」：界面打开设置里的更新 */
+  onUpdateOpen(cb: () => void): () => void
+  /** 网页有焦点时按的 ⌘J、⌘K、⌘F、⌘N、⌘,（主线转过来的，key 是小写字母） */
+  onAppKey(cb: (key: string) => void): () => void
 
   // ---------- AI 浮窗（类型见 shared/agent.ts） ----------
   /** 本机找到的 AI 命令行和现在选的那家 */
@@ -217,6 +234,21 @@ export interface DreamReport {
   notes: string[]
   /** 分支和临时检出都已删掉（都处理完了） */
   closed: boolean
+}
+
+/**
+ * 检查更新的状态。off：这个包不更新（开发版、本机打的包）；checking；downloading（percent）；
+ * ready：新版 version 下好了，重启就装上；latest：已是最新（checkedAt 是上次查的时间）；error：error 是原文。
+ * inApps：是不是从「应用程序」文件夹打开的（别处打开的可能装不上）
+ */
+export interface UpdateState {
+  phase: 'off' | 'idle' | 'checking' | 'downloading' | 'ready' | 'latest' | 'error'
+  current: string
+  version: string
+  percent: number
+  error: string
+  checkedAt: number
+  inApps: boolean
 }
 
 export interface DreamDiffFile {

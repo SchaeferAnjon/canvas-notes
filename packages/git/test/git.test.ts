@@ -1,8 +1,8 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, expect, it } from 'vitest'
-import { commitAll, commitPaths, currentBranch, git, init, isRepo, log, remote, revert, setRemote, status } from '../src'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { commitAll, commitPaths, currentBranch, git, gitPath, init, isRepo, log, remote, revert, setRemote, status } from '../src'
 
 let dir: string
 beforeEach(async () => {
@@ -70,4 +70,11 @@ it('远程地址：没有时是 null，设了是 origin，再设改的是同一�
   expect(await remote(dir)).toEqual({ name: 'origin', url: 'https://example.com/me/notes.git' })
   await expect(setRemote(dir, '--upload-pack=x')).rejects.toThrow('远程地址不对')
   await expect(setRemote(dir, 'a b')).rejects.toThrow('远程地址不对')
+})
+
+describe('gitPath', () => {
+  it('从访达打开时 PATH 很短：补上 Homebrew 的目录（git-lfs 这类钩子要用），继承来的排前面、不重复', () => {
+    expect(gitPath('/usr/bin:/bin:/usr/sbin:/sbin')).toBe('/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin')
+    expect(gitPath('/my/bin:/opt/homebrew/bin')).toBe('/my/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin')
+  })
 })

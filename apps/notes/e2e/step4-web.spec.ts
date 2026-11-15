@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { editorText, launch, openNote, pane, rail, waitSaved } from './app'
+import { editorText, launch, openNote, pane, rail, waitSaved, webMore } from './app'
 import { FAKE_PASSWORD, makeFakeChrome } from './fake-chrome'
 import { ICELAND } from './fixtures/board'
 
@@ -114,7 +114,7 @@ test('一键导入 Chrome 登录：选 Chrome 用户，cookie 进内置浏览器
     await openNote(page, 'a')
     await openWeb(page, `${base}/whoami`)
     await expect.poll(() => guest(page, `document.getElementById('who').textContent`)).toBe('cookie=')
-    await web(page).getByRole('button', { name: '导入 Chrome 登录' }).click()
+    await webMore(page, '导入 Chrome 登录')
     const menu = page.getByRole('menu', { name: '选 Chrome 用户' })
     await expect(menu).toContainText('工作')
     await expect(menu).toContainText('me@example.com')

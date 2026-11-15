@@ -11,6 +11,8 @@ export interface Bookmark {
   tags?: string[]
   /** 书签管家加的一句备注 */
   note?: string
+  /** 书签首页快捷书签的先后（小的在前）；没有就按加进来的先后 */
+  order?: number
 }
 
 export interface HistoryEntry {
@@ -112,4 +114,6 @@ export interface CnWebApi {
   saveImage(src: ImageSource, nameHint?: string): Promise<SavedImage>
   /** 撤回整页剪藏（反向提交） */
   undoClip(path: string): Promise<void>
+  /** 网站小图标多深：dark 很黑（深色主题里垫白底）、light 很白、empty 几乎透明（当没有） */
+  faviconTone(url: string): Promise<'dark' | 'light' | 'mid' | 'empty'>
 }

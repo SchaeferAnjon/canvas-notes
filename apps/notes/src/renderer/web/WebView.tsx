@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { Clip } from '../../shared/api'
 import type { ClipMode } from '../WebPanel'
 import { pageReported } from '../plugins/host'
+import { noteFavicon } from './favicons'
 import { dropWebDragAt, noteWebDrag } from './image-drop'
 
 /** webview 元素上我们用到的方法 */
@@ -93,6 +94,8 @@ export function WebView(props: {
       }
     }
     const onTitle = (e: Event) => cb.current.onTitle((e as Event & { title: string }).title)
+    // 网站小图标记下来，书签首页用
+    const onFavicon = (e: Event) => noteFavicon(w.getURL(), (e as Event & { favicons: string[] }).favicons ?? [])
     const onStart = () => nav(true)
     const onStop = () => nav(false)
     const onNavEv = () => nav(false)
@@ -103,6 +106,7 @@ export function WebView(props: {
     w.addEventListener('did-start-loading', onStart)
     w.addEventListener('did-stop-loading', onStop)
     w.addEventListener('page-title-updated', onTitle)
+    w.addEventListener('page-favicon-updated', onFavicon)
     w.addEventListener('ipc-message', onIpc)
     return () => {
       w.removeEventListener('did-attach', onAttach)
@@ -112,6 +116,7 @@ export function WebView(props: {
       w.removeEventListener('did-start-loading', onStart)
       w.removeEventListener('did-stop-loading', onStop)
       w.removeEventListener('page-title-updated', onTitle)
+      w.removeEventListener('page-favicon-updated', onFavicon)
       w.removeEventListener('ipc-message', onIpc)
     }
   }, [])

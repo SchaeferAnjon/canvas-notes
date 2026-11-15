@@ -10,11 +10,11 @@ import * as git from '@cn/git'
 import type { SkinId } from '../shared/appearance'
 import { BRAND } from '../shared/brand'
 import { quickMarkdown, type QuickContext } from '../shared/quick'
+import { E2E } from './test-mode'
 import { TRAY_1X, TRAY_2X } from './tray-icon'
 import type { Vault } from './vault'
 
 export const QUICK_KEY = process.env.CN_QUICK_KEY || 'Alt+Command+N'
-const E2E = process.env.CN_E2E === '1'
 const WIDTH = 600
 
 /** 能取网址的浏览器（bundle id → AppleScript 里怎么问） */
@@ -104,6 +104,8 @@ export function setupQuick(o: {
   saveSettings(patch: { quickHint?: boolean }): void
   /** 主窗口现在用的主题，速记小卡跟着它 */
   skin(): SkinId
+  /** 菜单栏图标的菜单最上面多的几项（新版本下好了时「重启并更新到 x」） */
+  topItems?(): Electron.MenuItemConstructorOptions[]
 }) {
   let win: BrowserWindow | null = null
   let ctx: QuickContext = { trusted: false, hint: true }
@@ -155,7 +157,7 @@ export function setupQuick(o: {
   /** 弹出速记框 */
   async function show() {
     if (win?.isVisible()) {
-      win.focus()
+      if (!E2E) win.focus()
       return
     }
     prev = null
@@ -180,8 +182,11 @@ export function setupQuick(o: {
     if (E2E) win.setPosition(-3000, 80)
     else win.setPosition(Math.round(area.x + (area.width - WIDTH) / 2), Math.round(area.y + area.height * 0.22))
     win.webContents.send('quick:context', ctx)
-    win.show()
-    win.focus()
+    if (E2E) win.showInactive()
+    else {
+      win.show()
+      win.focus()
+    }
   }
 
   async function save(text: string): Promise<string> {
@@ -222,19 +227,26 @@ export function setupQuick(o: {
   icon.setTemplateImage(true)
   const tray = new Tray(icon)
   tray.setToolTip(BRAND.name)
-  const menu = Menu.buildFromTemplate([
+  const buildTrayMenu = () =>
+    Menu.buildFromTemplate([
+    ...(o.topItems?.() ?? []),
     { label: '速记', accelerator: registered ? QUICK_KEY : undefined, registerAccelerator: false, click: () => void show() },
     { label: `打开 ${BRAND.name}`, click: () => o.openMain() },
     { label: '现在梦游', click: () => o.dreamNow() },
     { type: 'separator' },
     { label: '退出', role: 'quit' },
   ])
-  tray.setContextMenu(menu)
-
-  // 端到端测试从这里弹出速记框、读菜单栏菜单（测试不按真的全局快捷键）
-  if (E2E) Object.assign(globalThis, { cnQuick: { show, menu, registered } })
+  const setMenu = () => {
+    const menu = buildTrayMenu()
+    tray.setContextMenu(menu)
+    // 端到端测试从这里弹出速记框、读菜单栏菜单（测试不按真的全局快捷键）
+    if (E2E) Object.assign(globalThis, { cnQuick: { show, menu, registered } })
+  }
+  setMenu()
 
   return {
+    /** 菜单栏图标的菜单重建（新版本下好了多一项） */
+    refreshMenu: setMenu,
     dispose() {
       globalShortcut.unregister(QUICK_KEY)
       tray.destroy()

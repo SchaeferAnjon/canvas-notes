@@ -5,12 +5,13 @@
 import { Icon } from '@cn/design'
 import { Puzzle, Settings as SettingsIcon } from 'lucide-react'
 import { PERMISSION_LABEL, type PluginInfo } from '../../shared/plugins'
+import type { CSSProperties, ReactNode } from 'react'
 import type { PaletteCommand } from '../Palette'
 import { Toggle } from '../Settings'
 import { bookmarks } from './bookmarks'
 import { errText, setPluginEnabled, setPluginSettings, usePlugins, webHost } from './host'
 import { translate } from './translate'
-import type { RendererPlugin, WebPage } from './types'
+import type { NewTabProps, RendererPlugin, WebPage } from './types'
 import './plugins.css'
 
 export const PLUGINS: RendererPlugin[] = [translate, bookmarks]
@@ -30,44 +31,71 @@ export function usePluginCommands(): PaletteCommand[] {
   return on.flatMap((p) => p.commands?.(page) ?? [])
 }
 
-function PluginButton({ p, page, open, onPopup }: { p: RendererPlugin; page: WebPage | null; open: boolean; onPopup(id: string | null): void }) {
+function PluginButton({ p, page, open, onPopup, small }: { p: RendererPlugin; page: WebPage | null; open: boolean; onPopup(id: string | null): void; small: boolean }) {
   const look = p.button!.useLook(page)
-  return (
-    <span className="imp plug-btn">
-      <button
-        className={'iconbtn wact' + (look.on || open ? ' on' : '') + (look.filled ? ' filled' : '')}
-        aria-label={look.label}
-        aria-pressed={p.button!.click ? !!look.on : open}
-        title={look.title}
-        onClick={() => (p.button!.click ? p.button!.click(page) : onPopup(open ? null : p.id))}
-      >
-        <Icon of={look.icon} size={15} />
-      </button>
-    </span>
+  const btn = (
+    <button
+      type="button"
+      className={(small ? 'abtn' : 'iconbtn wact') + (look.on || open ? ' on' : '') + (look.filled ? ' filled' : '')}
+      aria-label={look.label}
+      aria-pressed={p.button!.click ? !!look.on : open}
+      title={look.title}
+      onClick={() => (p.button!.click ? p.button!.click(page) : onPopup(open ? null : p.id))}
+    >
+      <Icon of={look.icon} size={small ? 13 : 15} />
+    </button>
   )
+  return small ? btn : <span className="imp plug-btn">{btn}</span>
 }
 
-/** 网页标签条右边：开着的内置插件的按钮（和 Chrome 插件按钮同一排，排在前面） */
-export function PluginButtons(props: { page: WebPage | null; popup: string | null; onPopup(id: string | null): void }) {
+/** 某个内置插件开着没有 */
+export function usePluginOn(id: string): boolean {
+  return useOn().some((p) => p.id === id)
+}
+
+/** 新开的网页标签那一页：开着的插件里第一个有 NewTab 的；都没有就用 fallback */
+export function PluginNewTab(props: NewTabProps & { fallback: ReactNode }) {
+  const p = useOn().find((x) => x.NewTab)
+  if (!p?.NewTab) return <>{props.fallback}</>
+  const { fallback: _, ...rest } = props
+  return <p.NewTab {...rest} />
+}
+
+/** 开着的内置插件的按钮：slot 是 address 的画在地址栏里（小圆按钮），toolbar 的画在地址栏右边 */
+export function PluginButtons(props: { slot: 'address' | 'toolbar'; page: WebPage | null; popup: string | null; onPopup(id: string | null): void }) {
   return (
     <>
       {useOn()
-        .filter((p) => p.button)
+        .filter((p) => p.button && (p.button.slot ?? 'toolbar') === props.slot)
         .map((p) => (
-          <PluginButton key={p.id} p={p} page={props.page} open={props.popup === p.id} onPopup={props.onPopup} />
+          <PluginButton key={p.id} p={p} page={props.page} open={props.popup === p.id} onPopup={props.onPopup} small={props.slot === 'address'} />
         ))}
     </>
   )
 }
 
-/** 按钮下面的弹窗（书签管家） */
-export function PluginPopup(props: { id: string; page: WebPage | null; onClose(): void }) {
+/** 「⋯」菜单里插件的项（声明了 button.menu 的）：名字、快捷键、点了做什么 */
+export function usePluginMenu(page: WebPage | null): { id: string; label: string; keys?: string; icon: RendererPlugin['icon']; run(): void }[] {
+  return useOn().flatMap((p) => (p.button?.menu && p.button.click ? [{ id: p.id, label: p.button.menu.label, keys: p.button.menu.keys, icon: p.icon, run: () => p.button!.click!(page) }] : []))
+}
+
+/** 「⋯」菜单「这一页」组里各插件自己的项 */
+export function PluginPageMenu(props: { page: WebPage | null; onDone(): void; onNotice(t: string): void }) {
+  return (
+    <>
+      {useOn().map((p) => (p.PageMenu ? <p.PageMenu key={p.id} {...props} /> : null))}
+    </>
+  )
+}
+
+/** 插件的弹窗（书签管家）；mode 见 RendererPlugin.Popup */
+export function PluginPopup(props: { id: string; page: WebPage | null; mode?: 'this-page' | 'all'; style?: CSSProperties; onClose(): void }) {
   const p = byId(props.id)
   const on = useOn()
   if (!p?.Popup || !on.includes(p)) return null
   return (
-    <div className="imp plug-pop">
-      <p.Popup page={props.page} onClose={props.onClose} />
+    <div className="imp plug-pop" style={props.style}>
+      <p.Popup page={props.page} mode={props.mode} onClose={props.onClose} />
     </div>
   )
 }

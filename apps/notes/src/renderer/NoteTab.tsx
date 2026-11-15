@@ -32,7 +32,11 @@ export function NoteTab(props: NoteTabProps) {
   const doc = useRef<NoteDoc | null>(null)
   const [state, setState] = useState<SaveState>('saved')
   const [readOnly, setReadOnly] = useState(false)
-  const [mode, setMode] = useState<ViewMode>('doc')
+  // 白板一打开就是白板样式：左栏的列表已经知道它是白板，不等读完文件（不然先闪一下文档，读完又跳回白板，
+  // 这中间点的「文档」也会被盖掉）
+  const [mode, setMode] = useState<ViewMode>(() => (props.notes.find((n) => n.path === path)?.board ? 'board' : 'doc'))
+  /** 用户自己点过看法：读完文件后不再按 frontmatter 改 */
+  const picked = useRef(false)
   const [text, setText] = useState<string | null>(null)
   const [renaming, setRenaming] = useState(fresh)
   const cb = useRef(props)
@@ -57,7 +61,7 @@ export function NoteTab(props: NoteTabProps) {
       })
       doc.current = d
       setText(note.text)
-      if (fmValue(note.text, 'type') === 'board') setMode('board')
+      if (fmValue(note.text, 'type') === 'board' && !picked.current) setMode('board')
       if (!wasFresh.current) d.view.focus()
       off = window.cn.onNoteChanged((p, text) => {
         if (d && p === d.path) void d.applyRemote(text)
@@ -146,17 +150,17 @@ export function NoteTab(props: NoteTabProps) {
           {state === 'saved' ? '' : state === 'saving' ? '正在保存' : '未保存'}
         </span>
         <div className="seg" role="tablist" aria-label="看法">
-          <button className={mode === 'board' ? 'on' : ''} onClick={() => setMode('board')} role="tab" aria-selected={mode === 'board'}>
+          <button className={mode === 'board' ? 'on' : ''} onClick={() => ((picked.current = true), setMode('board'))} role="tab" aria-selected={mode === 'board'}>
             <Icon of={LayoutGrid} size={14} />
             白板
           </button>
-          <button className={mode === 'doc' ? 'on' : ''} onClick={() => setMode('doc')} role="tab" aria-selected={mode === 'doc'}>
+          <button className={mode === 'doc' ? 'on' : ''} onClick={() => ((picked.current = true), setMode('doc'))} role="tab" aria-selected={mode === 'doc'}>
             <Icon of={FileText} size={14} />
             文档
           </button>
           <button
             className={mode === 'source' ? 'on' : ''}
-            onClick={() => setMode('source')}
+            onClick={() => ((picked.current = true), setMode('source'))}
             role="tab"
             aria-selected={mode === 'source'}
           >

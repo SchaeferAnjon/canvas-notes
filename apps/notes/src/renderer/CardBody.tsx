@@ -1,22 +1,27 @@
+import { Icon } from '@cn/design'
+import { Globe } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
+import { when } from './ListView'
 import { imageSrc } from './md-widgets'
 
 /**
  * 卡片里的 md 显示成什么样。只认卡片里常见的写法，全部走 React 元素（不拼 HTML）。
  */
 
-export type CardKind = 'note' | 'clip' | 'todo' | 'color' | 'image' | 'board' | 'link'
+export type CardKind = 'note' | 'clip' | 'todo' | 'color' | 'image' | 'board' | 'doc' | 'link'
 
 export interface CardInfo {
   kind: CardKind
   source?: { title: string; url: string }
   boardPath?: string
+  /** 只放了一个 [[双链]] 的卡片：指向的那篇（整页剪藏拖上白板就是这样） */
+  docPath?: string
 }
 
 const SOURCE = /^(?:>\s*)?——\s*\[([^\]]+)\]\((\S+?)\)\s*$/
-const TODO = /^[-*] \[( |x|X)\] (.*)$/
+export const TODO = /^[-*] \[( |x|X)\](?: (.*))?$/
 const COLOR = /^(#[0-9a-fA-F]{6})(?:\s+(.+))?$/
 const IMAGE = /^!\[([^\]]*)\]\((\S+?)\)$/
 const WIKI_ONLY = /^\[\[([^\]|#^]+)(?:[|#^][^\]]*)?\]\]$/
@@ -38,6 +43,8 @@ export function classify(text: string, notes: NoteFile[]): CardInfo {
       const target = w[1]!.trim().toLowerCase()
       const hit = notes.find((n) => n.board && titleOf(n.path).toLowerCase() === target)
       if (hit) return { kind: 'board', boardPath: hit.path }
+      const doc = notes.find((n) => !n.board && titleOf(n.path).toLowerCase() === target)
+      if (doc) return { kind: 'doc', docPath: doc.path }
     }
     if (URL_ONLY.test(one)) return { kind: 'link' }
   }
@@ -86,7 +93,7 @@ export function CardBody(props: {
         {m[1] && <figcaption>{m[1]}</figcaption>}
         {info.source && (
           <div className="src">
-            <span className="fav">{domainOf(info.source.url).slice(0, 1).toUpperCase()}</span>
+            <span className="fav"><Icon of={Globe} size={12} /></span>
             <span className="truncate">{info.source.title}</span>
           </div>
         )}
@@ -105,6 +112,27 @@ export function CardBody(props: {
       </div>
     )
   }
+  if (info.kind === 'doc') {
+    const n = props.notes.find((x) => x.path === info.docPath)!
+    const title = titleOf(n.path)
+    // 摘要从正文开始：去掉开头重复的标题
+    const summary = n.preview?.startsWith(title) ? n.preview.slice(title.length).trim() : n.preview
+    return (
+      <div className="cb-doc" title={n.source ? '双击看全文' : '双击打开'}>
+        <b>{title}</b>
+        {summary && <p>{summary}</p>}
+        <div className="src">
+          {n.source && (
+            <span className="fav">
+              <Icon of={Globe} size={12} />
+            </span>
+          )}
+          <span className="truncate">{n.source ? domainOf(n.source) : n.path}</span>
+          <span className="at mono">{when(n.createdMs)}</span>
+        </div>
+      </div>
+    )
+  }
   if (info.kind === 'link') {
     const m = URL_ONLY.exec(text.trim())!
     return (
@@ -119,17 +147,17 @@ export function CardBody(props: {
       <div className="cb-todo">
         {lines.map((l, i) => {
           const m = TODO.exec(l)
-          if (!m) return l.trim() ? <h4 key={i}>{inline(l.replace(/^#+\s*|\*\*/g, ''))}</h4> : null
+          if (!m) return l.trim() ? <h4 key={i} data-row={i}>{inline(l.replace(/^#+\s*|\*\*/g, ''))}</h4> : null
           const done = m[1] !== ' '
           return (
-            <label key={i} className={'td' + (done ? ' done' : '')}>
+            <label key={i} className={'td' + (done ? ' done' : '')} data-row={i}>
               <input
                 type="checkbox"
                 checked={done}
                 onChange={() => props.onToggle(i)}
                 onPointerDown={(e) => e.stopPropagation()}
               />
-              <span>{inline(m[2]!)}</span>
+              <span>{inline(m[2] ?? '')}</span>
             </label>
           )
         })}
@@ -142,7 +170,7 @@ export function CardBody(props: {
       <>
         <div className="q">{paragraphs(quote)}</div>
         <div className="src">
-          <span className="fav">{domainOf(info.source!.url).slice(0, 1).toUpperCase()}</span>
+          <span className="fav"><Icon of={Globe} size={12} /></span>
           <span className="truncate">{domainOf(info.source!.url)}</span>
         </div>
       </>
@@ -177,7 +205,7 @@ function join(lines: string[]): ReactNode[] {
   return lines.flatMap((l, i) => (i ? [<br key={'br' + i} />, ...inline(l, i)] : inline(l, i)))
 }
 
-const INLINE = /(\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)\s]+\))/g
+const INLINE = /(!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)\s]+(?:\s+"[^"]*")?\))/g
 
 export function inline(s: string, keyBase: string | number = ''): ReactNode[] {
   const out: ReactNode[] = []
@@ -186,7 +214,9 @@ export function inline(s: string, keyBase: string | number = ''): ReactNode[] {
     if (m.index! > last) out.push(s.slice(last, m.index))
     const t = m[0]
     const key = `${keyBase}-${m.index}`
-    if (t.startsWith('**')) out.push(<b key={key}>{t.slice(2, -2)}</b>)
+    // 正文中间的图片只留说明文字：卡片里放大图会把卡片撑得很长
+    if (t.startsWith('![')) out.push(<span key={key} className="img-alt">{t.slice(2, t.indexOf(']')) || '图片'}</span>)
+    else if (t.startsWith('**')) out.push(<b key={key}>{t.slice(2, -2)}</b>)
     else if (t.startsWith('`')) out.push(<code key={key}>{t.slice(1, -1)}</code>)
     else if (t.startsWith('[[')) out.push(<span key={key} className="wl">{t.slice(2, -2).split('|').pop()}</span>)
     else if (t.startsWith('[')) out.push(<u key={key}>{t.slice(1, t.indexOf(']'))}</u>)

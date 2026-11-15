@@ -153,49 +153,48 @@
   border-radius: 4px;
   padding: 0 5px;
 }
-.dd .dl {
+:is(.dd, .hdiff) .dl {
   background: var(--card);
   border-radius: 10px;
   box-shadow: var(--shadow);
   overflow: hidden;
-  font-size: 12px;
-  line-height: 1.7;
+  font: 11.5px/1.7 var(--mono);
   user-select: text;
 }
-.dd .dl div {
+:is(.dd, .hdiff) .dl div {
   padding: 2px 12px 2px 26px;
   position: relative;
   white-space: pre-wrap;
   word-break: break-word;
 }
-.dd .dl div::before {
+:is(.dd, .hdiff) .dl div::before {
   position: absolute;
   left: 10px;
   color: var(--t3);
   font: 11px var(--mono);
   top: 3px;
 }
-.dd .dl .a {
+:is(.dd, .hdiff) .dl .a {
   background: color-mix(in srgb, var(--green) 12%, transparent);
 }
-.dd .dl .a::before {
+:is(.dd, .hdiff) .dl .a::before {
   content: '+';
   color: var(--green);
 }
-.dd .dl .d {
+:is(.dd, .hdiff) .dl .d {
   background: color-mix(in srgb, var(--red) 10%, transparent);
   color: var(--t2);
   text-decoration: line-through;
   text-decoration-color: color-mix(in srgb, var(--red) 50%, transparent);
 }
-.dd .dl .d::before {
+:is(.dd, .hdiff) .dl .d::before {
   content: '−';
   color: var(--red);
 }
-.dd .dl .c {
+:is(.dd, .hdiff) .dl .c {
   color: var(--t2);
 }
-.dd .dl .gap {
+:is(.dd, .hdiff) .dl .gap {
   color: var(--t3);
   background: var(--fill);
 }

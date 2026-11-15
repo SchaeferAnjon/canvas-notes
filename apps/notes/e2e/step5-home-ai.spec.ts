@@ -55,7 +55,7 @@ test('AI：/ 菜单筛选和键盘选；/总结这块白板 → 存成卡片 →
     await expect(page.getByTestId('ai-sees')).toContainText('白板：冰岛自驾')
     const box = ai(page).getByRole('textbox', { name: '问 AI' })
     await box.type('/')
-    await expect(ai(page).getByRole('option')).toHaveCount(7)
+    await expect(ai(page).getByRole('option')).toHaveCount(8)
     await box.type('总结')
     await expect(ai(page).getByRole('option')).toHaveCount(1)
     await box.press('Enter')
@@ -80,7 +80,7 @@ test('AI：/ 菜单筛选和键盘选；/总结这块白板 → 存成卡片 →
 
     // 打错命令
     await box.fill('/没有这个')
-    await expect(ai(page).locator('.nocmd')).toHaveText('没有叫这个的命令')
+    await expect(ai(page).locator('.nocmd')).toHaveText('没有这条命令，回车直接交给 AI 去做')
   } finally {
     await run.close()
   }

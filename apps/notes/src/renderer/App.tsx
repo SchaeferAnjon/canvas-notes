@@ -1,5 +1,5 @@
 import { Icon } from '@cn/design'
-import { Archive, FilePlus, FileText, Files, Folder, FolderOpen, GitCommitHorizontal, Globe, History, Home, Inbox, LayoutGrid, Moon, Palette as PaletteIcon, RefreshCw, Settings as SettingsIcon, Sparkles, X } from 'lucide-react'
+import { Archive, CircleArrowUp, FilePlus, FileText, Files, Folder, FolderOpen, GitCommitHorizontal, Globe, History, Home, Inbox, LayoutGrid, Moon, Palette as PaletteIcon, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings as SettingsIcon, Sparkles, X } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Clip, GitState, NoteFile, VaultInfo } from '../shared/api'
 import { CLIPS, clipMarkdown, titleOf } from '../shared/layout'
@@ -11,6 +11,7 @@ import { GitBar } from './GitBar'
 import { reloadHome, resetHome } from './home-store'
 import { HomeView } from './HomeView'
 import { HistoryPanel } from './HistoryPanel'
+import { UpdateBarItem, useUpdateState } from './update'
 import { ListView } from './ListView'
 import type { ViewMode } from './note-doc'
 import { NoteIndex } from './NoteIndex'
@@ -65,6 +66,21 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   })
   /** AI 只浮在中间栏右下角（⌘J 开关），不进右栏 */
   const [aiFloat, setAiFloat] = useState(false)
+  /** 左栏收起来了（红绿灯旁的按钮或 ⌘\\），记在本机 */
+  const [sidebarHidden, setSidebarHidden] = useState(() => {
+    try {
+      return localStorage.getItem('cn.sideHidden') === '1'
+    } catch {
+      return false
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem('cn.sideHidden', sidebarHidden ? '1' : '0')
+    } catch {
+      // 记不住不影响使用
+    }
+  }, [sidebarHidden])
   const [git, setGit] = useState<GitState | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [right, setRight] = useState<Right>(null)
@@ -83,6 +99,25 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     setWebOpen((r) => ({ url, seq: (r?.seq ?? 0) + 1 }))
     setRight('web')
   }
+  // ---------- 检查更新 ----------
+  const update = useUpdateState()
+  useEffect(() => window.cn.onUpdateOpen(() => setSettingsPage('update')), [])
+  // 更新后第一次打开：说一句（只一次）
+  useEffect(() => {
+    if (!update || update.phase === 'off') return
+    try {
+      const last = localStorage.getItem('cn.lastVersion')
+      localStorage.setItem('cn.lastVersion', update.current)
+      if (last && last !== update.current) setNotice(`已更新到 ${update.current}`)
+    } catch {
+      // 记不住就不说
+    }
+  }, [update?.current, update?.phase === 'off'])
+  async function installUpdate() {
+    await NoteDoc.saveAll()
+    if (!(await window.cn.installUpdate())) setNotice('新版本还没下载好')
+  }
+
   /** 让 AI 一打开就跑的命令（首页「让 AI 分一分」、⌘K 里的 AI 命令） */
   const [aiAuto, setAiAuto] = useState<{ text: string; seq: number } | null>(null)
   /** 右栏宽度，能拖；记在本机 */
@@ -198,27 +233,25 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
 
   // 布局阶段就挂上：窗口一画出来 ⌘N、⌘K、⌘J、⌘, 就能用（useEffect 要等画完下一帧才挂，刚打开时按的会丢）
   useLayoutEffect(() => {
+    const run = (key: string): boolean => {
+      if (key === 'n') void newNote()
+      else if (key === 'k' || key === 'f') setPaletteOpen((v) => !v)
+      else if (key === 'j') toggleAi()
+      else if (key === 'w' && active) closeTab(active)
+      else if (key === ',') setSettingsPage((p) => (p ? null : 'look'))
+      else if (key === '\\') setSidebarHidden((h) => !h)
+      else return false
+      return true
+    }
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey) return
-      if (e.key === 'n') {
-        e.preventDefault()
-        void newNote()
-      } else if (e.key === 'k' || e.key === 'f') {
-        e.preventDefault()
-        setPaletteOpen((v) => !v)
-      } else if (e.key === 'j') {
-        e.preventDefault()
-        toggleAi()
-      } else if (e.key === 'w' && active) {
-        e.preventDefault()
-        closeTab(active)
-      } else if (e.key === ',') {
-        e.preventDefault()
-        setSettingsPage((p) => (p ? null : 'look'))
-      }
+      if (e.metaKey && !e.altKey && !e.ctrlKey && run(e.key)) e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const offApp = window.cn.onAppKey((k) => void run(k))
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      offApp()
+    }
   }, [newNote, active, right, aiFloat])
 
   function runAi(text: string) {
@@ -277,8 +310,10 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     { name: '找重复', hint: 'AI', icon: Sparkles, run: () => runAi('/找重复') },
     { name: '剪藏当前网页', hint: '整页进收件箱', icon: Sparkles, run: () => runAi('/剪藏当前网页') },
     { name: '现在梦游', hint: '不等夜里，现在整理一遍', icon: Moon, run: () => runAi('/现在梦游') },
+    ...(update && update.phase !== 'off' ? [{ name: '检查更新', hint: '设置 · 更新', icon: CircleArrowUp, run: () => (setSettingsPage('update'), void window.cn.checkUpdate()) }] : []),
     ...pluginCommands,
   ]
+  if (update?.phase === 'ready') commands.unshift({ name: '重启更新', hint: `新版本 ${update.version} 已下好`, icon: CircleArrowUp, run: () => void installUpdate() })
 
   async function commit() {
     try {
@@ -362,7 +397,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
 
   return (
     <div
-      className={'win' + (right ? ' with-right' : '') + (right === 'web' ? ' web-open' : '') + (aiFloat && !right ? ' ai-float' : '') + (aiFloat ? ' ai-on' : '')}
+      className={'win' + (sidebarHidden ? ' side-hidden' : '') + (right ? ' with-right' : '') + (right === 'web' ? ' web-open' : '') + (aiFloat && !right ? ' ai-float' : '') + (aiFloat ? ' ai-on' : '')}
       style={{ '--right-w': `${rightW}px` } as React.CSSProperties}
     >
       {right && (
@@ -390,6 +425,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           }}
         />
       )}
+      <button
+        className="side-toggle iconbtn"
+        aria-label={sidebarHidden ? '展开左栏' : '收起左栏'}
+        aria-pressed={!sidebarHidden}
+        title={(sidebarHidden ? '展开左栏' : '收起左栏') + ' · ⌘\\'}
+        onClick={() => setSidebarHidden((h) => !h)}
+      >
+        <Icon of={sidebarHidden ? PanelLeftOpen : PanelLeftClose} size={16} />
+      </button>
       {paletteOpen && (
         <Palette
           notes={notes}
@@ -623,6 +667,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         onNotice={setNotice}
         onClose={() => setRight(null)}
         onOpenWide={(url, title) => open((t) => t.type === 'web' && t.url === url, () => ({ id: newId(), type: 'web', url, title }))}
+        wideTabs={tabs.flatMap((t) => (t.type === 'web' ? [{ id: t.id, url: t.url, title: t.title }] : []))}
+        onActivateWide={(id) => setTabs((x) => x, id)}
+        onCloseWide={closeTab}
         onOpenNote={(p) => openNote(p)}
         onPluginSettings={() => setSettingsPage('plugins')}
       />
@@ -642,6 +689,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           onNotice={setNotice}
           onGitChanged={refreshGit}
           onClose={() => setSettingsPage(null)}
+          updateReady={update?.phase === 'ready'}
+          onInstallUpdate={installUpdate}
+          onOpenUrl={(u) => (setSettingsPage(null), openInWeb(u))}
         />
       )}
 
@@ -653,6 +703,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         onSync={sync}
         onToggleHistory={() => toggleRight('history')}
         onOpen={(p) => openNote(p)}
+        right={<UpdateBarItem st={update} onInstall={installUpdate} onOpenSettings={() => setSettingsPage('update')} />}
       />
     </div>
   )

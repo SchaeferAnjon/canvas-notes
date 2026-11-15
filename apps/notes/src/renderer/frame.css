@@ -239,3 +239,21 @@
   box-shadow: inset 0 0 0 1px var(--line2);
   color: var(--t2);
 }
+
+/* ---------- 收起左栏：按钮在红绿灯右边那一带，左栏收起后挪到紧挨红绿灯 ---------- */
+.side-toggle {
+  position: fixed;
+  top: 11px;
+  left: 84px;
+  z-index: 30;
+  -webkit-app-region: no-drag;
+}
+.win.side-hidden {
+  --side-w: 0px;
+}
+.win.side-hidden .side {
+  display: none;
+}
+.win.side-hidden .center > .tabs {
+  padding-left: 120px;
+}

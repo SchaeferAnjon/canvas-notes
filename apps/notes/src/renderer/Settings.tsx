@@ -1,5 +1,5 @@
 import { Icon } from '@cn/design'
-import { Bot, Check, FolderOpen, GitBranch, Home, Image as ImageIcon, Keyboard, Library, Palette, Plus, Puzzle, RefreshCw, X } from 'lucide-react'
+import { Bot, Check, CircleArrowUp, FolderOpen, GitBranch, Home, Image as ImageIcon, Keyboard, Library, Palette, Plus, Puzzle, RefreshCw, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { VaultInfo } from '../shared/api'
 import type { EngineInfo } from '../shared/agent'
@@ -10,8 +10,9 @@ import { COVERS, coverImage, GRADIENTS, WINBG_THUMBS } from './covers'
 import { saveHome, useHomeConfig } from './home-store'
 import { PluginsSettings } from './plugins'
 import './settings.css'
+import { UpdatePage } from './update'
 
-export type SettingsPage = 'look' | 'home' | 'vault' | 'ai' | 'plugins' | 'git' | 'keys'
+export type SettingsPage = 'look' | 'home' | 'vault' | 'ai' | 'plugins' | 'git' | 'keys' | 'update'
 
 const PAGES: { id: SettingsPage; name: string; icon: typeof Palette }[] = [
   { id: 'look', name: '外观', icon: Palette },
@@ -21,6 +22,7 @@ const PAGES: { id: SettingsPage; name: string; icon: typeof Palette }[] = [
   { id: 'plugins', name: '插件', icon: Puzzle },
   { id: 'git', name: 'Git 和同步', icon: GitBranch },
   { id: 'keys', name: '快捷键', icon: Keyboard },
+  { id: 'update', name: '更新', icon: CircleArrowUp },
 ]
 
 type Patch = Parameters<typeof window.cn.setSettings>[0]
@@ -38,6 +40,10 @@ export function Settings(props: {
   onNotice(t: string): void
   onGitChanged(): void
   onClose(): void
+  /** 新版本下好了：「更新」分页上一颗小点 */
+  updateReady: boolean
+  onInstallUpdate(): Promise<void>
+  onOpenUrl(url: string): void
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -59,6 +65,7 @@ export function Settings(props: {
             <button key={p.id} className={'si' + (props.page === p.id ? ' on' : '')} aria-current={props.page === p.id ? 'page' : undefined} onClick={() => props.onPage(p.id)}>
               <Icon of={p.icon} />
               {p.name}
+              {p.id === 'update' && props.updateReady && <span className="udot nav" aria-label="新版本已下好" />}
             </button>
           ))}
         </nav>
@@ -73,6 +80,14 @@ export function Settings(props: {
           {props.page === 'plugins' && <PluginsSettings onNotice={props.onNotice} />}
           {props.page === 'git' && <GitPage {...props} />}
           {props.page === 'keys' && <KeysPage />}
+          {props.page === 'update' && (
+            <UpdatePage
+              autoUpdate={props.settings.autoUpdate}
+              onAutoUpdate={(v) => void props.onChange({ autoUpdate: v })}
+              onInstall={props.onInstallUpdate}
+              onOpenUrl={props.onOpenUrl}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -453,7 +468,8 @@ function GitPage(props: { settings: AppSettings; onChange(p: Patch): Promise<App
 const KEYS: [string, string, string?][] = [
   ['速记', '⌥⌘N', '在任何软件里都能按'],
   ['搜索', '⌘F', '⌘K 也行'],
-  ['AI', '⌘J'],
+  ['打开 / 关上 AI', '⌘J', '在网页里也能按'],
+  ['收起 / 展开左栏', '⌘\\'],
   ['新建笔记', '⌘N'],
   ['关掉标签', '⌘W'],
   ['新网页', '⌘T', '右栏网页'],

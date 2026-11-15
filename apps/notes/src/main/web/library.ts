@@ -89,6 +89,26 @@ export class Bookmarks {
     return this.list
   }
 
+  /**
+   * 一次挪好几个（书签首页拖图标合并、排序、改分组名）：每项改文件夹和 / 或先后，写一次盘。
+   * 不认识的 id 跳过（可能刚被删了）。
+   */
+  arrange(changes: { id: string; folder?: string; order?: number }[]): Bookmark[] {
+    const byId = new Map(changes.map((c) => [c.id, c]))
+    let changed = false
+    this.list = this.list.map((b) => {
+      const c = byId.get(b.id)
+      if (!c) return b
+      const folder = c.folder !== undefined ? c.folder.trim() || BAR : b.folder
+      const order = c.order !== undefined && Number.isFinite(c.order) ? c.order : b.order
+      if (folder === b.folder && order === b.order) return b
+      changed = true
+      return { ...b, folder, ...(order !== undefined ? { order } : {}) }
+    })
+    if (changed) this.save()
+    return this.list
+  }
+
   remove(id: string): Bookmark[] {
     this.list = this.list.filter((b) => b.id !== id)
     this.save()

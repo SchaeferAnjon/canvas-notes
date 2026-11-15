@@ -23,6 +23,8 @@ export function previewOf(text: string, max = 140): string {
   const body = text
     .replace(/^---\n[\s\S]*?\n---\n?/, '')
     .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/^—— .*$/gm, '')
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^>\s?/gm, '')
     .replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, '$1')

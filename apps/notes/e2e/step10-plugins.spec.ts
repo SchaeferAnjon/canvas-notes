@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
-import { gitStatus, launch, rail, type Running } from './app'
+import { gitStatus, launch, rail, type Running, webMore } from './app'
 
 let server: Server
 let base: string
@@ -33,7 +33,8 @@ test.beforeAll(async () => {
 test.afterAll(() => server.close())
 
 const web = (page: Page) => page.getByRole('complementary', { name: '网页' })
-const pluginBar = (page: Page) => web(page).getByRole('toolbar', { name: '插件按钮' })
+/** 地址栏里「这一页」的开关（双语翻译、星星） */
+const pluginBar = (page: Page) => web(page).getByRole('toolbar', { name: '这一页' })
 
 function guest(page: Page, code: string): Promise<unknown> {
   return page.evaluate((c) => (document.querySelector('.right.web webview.on') as unknown as { executeJavaScript(c: string): Promise<unknown> }).executeJavaScript(c), code)
@@ -131,7 +132,7 @@ test('双语翻译：按钮开、段落下出现译文（跳过代码、导航�
     expect(after.fromCache).toBeGreaterThan(cachedBefore.fromCache)
 
     // 设置 · 插件里换成「只看译文」：原文藏起来，只剩译文
-    await web(page).getByRole('button', { name: '插件', exact: true }).click()
+    await webMore(page, '插件')
     await page.getByRole('dialog', { name: '插件' }).getByRole('button', { name: '双语翻译 设置' }).click()
     const settings = page.getByRole('dialog', { name: '设置' })
     await expect(settings.getByRole('radiogroup', { name: '译文怎么显示' })).toBeVisible()
@@ -176,7 +177,7 @@ test('双语翻译：按钮开、段落下出现译文（跳过代码、导航�
     await expect.poll(() => guest(page, `document.getElementById('cn-tr-card').style.display`)).toBe('none')
 
     // 插件面板里关掉双语翻译：按钮没了，选区工具条上也没有「翻译」
-    await web(page).getByRole('button', { name: '插件', exact: true }).click()
+    await webMore(page, '插件')
     const panel = page.getByRole('dialog', { name: '插件' })
     await expect(panel.getByRole('list', { name: '内置插件' }).getByRole('listitem')).toHaveText([/双语翻译.*读改当前网页 · 联网/, /书签管家.*写笔记/])
     await panel.getByRole('switch', { name: '启用 双语翻译' }).click()
@@ -193,45 +194,53 @@ test('双语翻译：按钮开、段落下出现译文（跳过代码、导航�
   }
 })
 
-test('书签管家：弹窗里收藏当前页（改标题、加标签和备注、选文件夹），按钮变实心、书签栏同一份；搜、按标签筛、排序、改、删；选中的存进库是收件箱里的一篇，一次提交', async () => {
+test('书签管家：地址栏的星星收藏当前页并开小卡（改标题、加标签和备注、选文件夹），星星变实心、书签栏同一份；小卡里「整理全部书签」；搜、按标签筛、排序、改、删；选中的存进库是收件箱里的一篇，一次提交', async () => {
   const run = await launch({ 'a.md': '# a\n' }, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   try {
     await openWeb(page, `${base}/b`)
-    const btn = pluginBar(page).getByRole('button', { name: '书签管家' })
-    await expect(btn).not.toHaveClass(/filled/)
+    // 书签只有一个入口：地址栏的星星（地址栏右边的插件按钮里没有书签管家）
+    await expect(web(page).getByRole('toolbar', { name: '插件按钮' }).getByRole('button', { name: '书签管家', exact: true })).toHaveCount(0)
+    const btn = web(page).getByRole('button', { name: '书签管家', exact: true })
+    await expect(btn).not.toHaveClass(/\bon\b/)
     await btn.click()
     const dlg = page.getByRole('dialog', { name: '书签管家' })
+    await expect(btn).toHaveClass(/\bon\b/)
+    await expect(dlg).toContainText('已收藏')
     await expect(dlg.getByRole('textbox', { name: '书签标题' })).toHaveValue('Second page')
-    await expect(dlg.getByRole('list', { name: '书签管家列表' })).toContainText('还没有书签')
     await dlg.getByRole('textbox', { name: '书签标题' }).fill('雷克雅未克第二页')
     await dlg.getByRole('combobox', { name: '书签标签' }).fill('冰岛')
     await dlg.getByRole('combobox', { name: '书签标签' }).press('Enter')
     await dlg.getByRole('combobox', { name: '书签标签' }).fill('城市，')
     await dlg.getByRole('textbox', { name: '书签备注' }).fill('首都的一页，回头细看')
-    await dlg.getByRole('button', { name: '收藏这页' }).click()
-    await expect(btn).toHaveClass(/filled/)
-    await expect(dlg).toContainText('已收藏')
-    const list = dlg.getByRole('list', { name: '书签管家列表' })
-    await expect(list.getByRole('listitem')).toHaveText([/雷克雅未克第二页.*#冰岛.*#城市.*首都的一页，回头细看/])
+    // 星星开的是只管这一页的小卡：点「完成」存好收起
+    await expect(dlg.getByRole('list', { name: '书签管家列表' })).toHaveCount(0)
+    await dlg.getByRole('button', { name: '完成' }).click()
+    await expect(dlg).toHaveCount(0)
     // 书签栏、地址栏的星星是同一份
     await expect(web(page).getByRole('toolbar', { name: '书签栏' })).toContainText('雷克雅未克第二页')
-    await expect(web(page).getByRole('button', { name: '取消书签' })).toBeVisible()
 
-    // 第二个、第三个书签：去别的页收藏（第三个从地址栏的星星加，管家里也看得到）
-    await page.keyboard.press('Escape')
+    // 第二个、第三个书签：去别的页点星星收藏
     await go(page, `${base}/c`)
     await btn.click()
     await expect(dlg.getByRole('textbox', { name: '书签标题' })).toHaveValue('Aurora guide')
     await dlg.getByRole('combobox', { name: '书签标签' }).fill('极光')
     await dlg.getByRole('combobox', { name: '书签标签' }).press('Enter')
-    await dlg.getByRole('button', { name: '收藏这页' }).click()
-    await expect(list.getByRole('listitem')).toHaveCount(2)
-    await btn.click()
+    await dlg.getByRole('button', { name: '完成' }).click()
+    await expect(dlg).toHaveCount(0)
     await go(page, `${base}/article`)
-    await web(page).getByRole('button', { name: '加书签' }).click()
     await btn.click()
+    // 收藏过的再点星星是收起
+    await expect(dlg).toContainText('已收藏')
+    await btn.click()
+    await expect(dlg).toHaveCount(0)
+    // 小卡底下「整理全部书签」：整个书签管家
+    await btn.click()
+    await dlg.getByRole('button', { name: '整理全部书签 →' }).click()
+    const list = dlg.getByRole('list', { name: '书签管家列表' })
     await expect(list.getByRole('listitem')).toHaveCount(3)
+    await expect(list.getByRole('listitem', { name: '雷克雅未克第二页' })).toHaveText(/雷克雅未克第二页.*#冰岛.*#城市.*首都的一页，回头细看/)
+    await expect(list.getByRole('listitem', { name: 'Aurora guide' })).toContainText('#极光')
 
     // 搜：标题、网址、标签、备注都能搜
     const search = dlg.getByRole('textbox', { name: '搜书签' })
@@ -255,6 +264,7 @@ test('书签管家：弹窗里收藏当前页（改标题、加标签和备注�
     await expect(dlg).toHaveCount(0)
     await go(page, `${base}/b`)
     await btn.click()
+    await dlg.getByRole('button', { name: '整理全部书签 →' }).click()
     await dlg.getByRole('combobox', { name: '书签排序' }).selectOption({ label: '按上次访问' })
     await expect(list.getByRole('listitem').first()).toContainText('雷克雅未克第二页')
 

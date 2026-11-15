@@ -66,4 +66,5 @@ export const webApi: CnWebApi = {
   onKey: (cb) => on('web:key', cb),
   saveImage: (src, nameHint) => ipcRenderer.invoke('web:save-image', src, nameHint),
   undoClip: (path) => ipcRenderer.invoke('web:undo-clip', path),
+  faviconTone: (url) => ipcRenderer.invoke('web:favicon-tone', url),
 }

@@ -1,12 +1,12 @@
 import { Icon } from '@cn/design'
-import { Download, Trash2 } from 'lucide-react'
+import { Download, Pin, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { permissionLabel } from '../../shared/extension-apis'
 import type { ExtensionInfo } from '../../shared/web-api'
 import { BuiltinPlugins } from '../plugins'
 import { Toggle } from '../Settings'
 import { errText } from '../WebPanel'
-import { ActionIcon, activateAction, useActions } from './ActionButtons'
+import { ActionIcon, activateAction, MAX_PINNED, togglePin, useActions, usePinned } from './ActionButtons'
 import { ProfileMenu } from './ProfileMenu'
 
 const VERDICT: Record<ExtensionInfo['verdict'], string> = {
@@ -21,6 +21,7 @@ export function ExtensionsPanel(props: { tabId: number; onNotice(t: string): voi
   const [picking, setPicking] = useState(false)
   const [busy, setBusy] = useState(false)
   const actions = useActions()
+  const pins = usePinned()
 
   useEffect(() => {
     void window.cnWeb.extensions().then(setList)
@@ -95,6 +96,17 @@ export function ExtensionsPanel(props: { tabId: number; onNotice(t: string): voi
                   {!x.error && x.missing.length > 0 && `：缺${[...new Set(x.missing.map(permissionLabel))].join('、')}`}
                 </span>
               </div>
+              {a && x.enabled && (
+                <button
+                  className={'iconbtn wpin' + (pins.includes(a.id) ? ' on' : '')}
+                  aria-label={pins.includes(a.id) ? `取消固定 ${x.name}` : `固定到地址栏 ${x.name}`}
+                  aria-pressed={pins.includes(a.id)}
+                  title={pins.includes(a.id) ? '取消固定（按钮从地址栏右边拿掉）' : `固定到地址栏右边（最多 ${MAX_PINNED} 个，多了换掉最早的）`}
+                  onClick={() => togglePin(a.id)}
+                >
+                  <Icon of={Pin} size={13} />
+                </button>
+              )}
               <Toggle on={x.enabled} label={`启用 ${x.name}`} onChange={(v) => void run(() => window.cnWeb.setExtensionEnabled(x.id, v))} />
               <button className="iconbtn" aria-label={`移除 ${x.name}`} title="移除" onClick={() => void run(() => window.cnWeb.removeExtension(x.id))}>
                 <Icon of={Trash2} size={13} />

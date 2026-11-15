@@ -11,6 +11,7 @@ import { listProfiles } from '../chrome-import'
 import { localStamp, type Vault } from '../vault'
 import { logActivity } from '../activity'
 import { setActiveWeb } from '../agent/web'
+import { faviconTone } from './favicon-tone'
 import { saveImage } from './save-image'
 import { readChromeBookmarks, readChromeHistory } from './chrome-data'
 import { Extensions } from './extensions'
@@ -156,6 +157,7 @@ export async function setupWeb(d: Deps): Promise<void> {
     return { path: await saveImage(needVault().root, ses, src, typeof nameHint === 'string' ? nameHint : undefined) }
   })
 
+  ipcMain.handle('web:favicon-tone', (_e, url: unknown) => faviconTone(ses, url))
   ipcMain.handle('web:clip-page', (_e, webUrl: unknown) => clipCurrentPage(typeof webUrl === 'string' ? webUrl : null))
   ipcMain.handle('web:undo-clip', async (_e, path: unknown) => {
     const hash = typeof path === 'string' ? clipCommits.get(path) : undefined
@@ -222,6 +224,10 @@ export function attachWebview(wc: WebContents, win: BrowserWindow) {
     if (k === 't' || k === 'w' || k === 'l') {
       e.preventDefault()
       send('web:key', k, wc.id)
+    } else if (k === 'j' || k === 'k' || k === 'f' || k === 'n' || k === ',') {
+      // 整个软件的快捷键（AI、搜索、新建、设置）：网页有焦点时也要能用
+      e.preventDefault()
+      send('app:key', k)
     }
   })
   wc.once('destroyed', () => {

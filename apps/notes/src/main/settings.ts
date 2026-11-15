@@ -10,6 +10,8 @@ export interface StoredSettings extends Partial<AppSettings> {
   lastVault?: string
   /** 速记小窗里要不要提示去开辅助功能权限 */
   quickHint?: boolean
+  /** 检查更新上次查到「已是最新」的时间（毫秒） */
+  updateCheckedAt?: number
 }
 
 export class SettingsFile {
@@ -40,12 +42,13 @@ export class SettingsFile {
   }
 
   /** 改外观、间隔或归档天数：合并后再检查一遍，返回存下的样子 */
-  setApp(p: { appearance?: Partial<AppSettings['appearance']>; autoCommitMinutes?: number; archiveDays?: number }): AppSettings {
+  setApp(p: { appearance?: Partial<AppSettings['appearance']>; autoCommitMinutes?: number; archiveDays?: number; autoUpdate?: boolean }): AppSettings {
     const cur = this.app()
     const next = normalizeSettings({
       ...cur,
       ...(p.autoCommitMinutes !== undefined ? { autoCommitMinutes: p.autoCommitMinutes } : {}),
       ...(p.archiveDays !== undefined ? { archiveDays: p.archiveDays } : {}),
+      ...(p.autoUpdate !== undefined ? { autoUpdate: p.autoUpdate } : {}),
       appearance: { ...cur.appearance, ...(p.appearance ?? {}) },
     })
     this.patch(next)

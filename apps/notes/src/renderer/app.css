@@ -928,6 +928,10 @@ button.bi[data-testid='git-changed']:disabled {
 .bcard blockquote {
   margin: 0;
 }
+/* 长网址、长英文单词在卡片里折行，不撑出卡片 */
+.bcard {
+  overflow-wrap: anywhere;
+}
 .bcard p + p,
 .bcard h4 + p,
 .bcard p + blockquote,
@@ -990,7 +994,7 @@ button.bi[data-testid='git-changed']:disabled {
   height: 14px;
   border-radius: 4px;
   background: var(--fill2);
-  color: var(--t2);
+  color: var(--t3);
   font-size: 9px;
   font-weight: 600;
   display: grid;
@@ -1006,7 +1010,7 @@ button.bi[data-testid='git-changed']:disabled {
   gap: 8px;
   padding: 2px 0;
 }
-.cb-todo input {
+.cb-todo input[type='checkbox'] {
   appearance: none;
   width: 14px;
   height: 14px;
@@ -1018,11 +1022,11 @@ button.bi[data-testid='git-changed']:disabled {
   display: grid;
   place-items: center;
 }
-.cb-todo input:checked {
+.cb-todo input[type='checkbox']:checked {
   background: var(--acc-bg);
   border-color: var(--acc-bg);
 }
-.cb-todo input:checked::after {
+.cb-todo input[type='checkbox']:checked::after {
   content: '';
   width: 7px;
   height: 4px;
@@ -1939,7 +1943,7 @@ body.resizing {
   background: rgba(0, 0, 0, 0.45);
 }
 .pal {
-  width: min(600px, calc(100% - 40px));
+  width: min(680px, calc(100% - 40px));
   max-height: min(520px, calc(100vh - 140px));
   display: flex;
   flex-direction: column;
@@ -1952,20 +1956,23 @@ body.resizing {
   align-self: flex-start;
 }
 .pal-in {
+  /* 列表长的时候不许被压扁（.pal 是有最大高度的竖排 flex） */
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 52px;
-  padding: 0 16px;
+  gap: 12px;
+  height: 60px;
+  padding: 0 20px;
   border-bottom: 1px solid var(--line);
   color: var(--t3);
 }
 .pal-in input {
   flex: 1;
   min-width: 0;
+  height: 100%;
   border: 0;
   background: none;
-  font-size: 15px;
+  font-size: 17px;
   color: var(--t1);
   outline: none;
 }
@@ -2039,8 +2046,146 @@ body.resizing {
   color: var(--t3);
 }
 .pal-foot {
-  padding: 8px 16px;
+  flex: none;
+  padding: 8px 20px;
   border-top: 1px solid var(--line);
   font-size: 11px;
   color: var(--t3);
+}
+.bcard .todo-edit {
+  cursor: text;
+}
+.todo-edit input[type='text'] {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--t1);
+  font: inherit;
+  line-height: 22px;
+  outline: none;
+  display: block;
+}
+.todo-edit input[type='text']::placeholder {
+  color: var(--t3);
+}
+.todo-edit input.todo-title {
+  font: 600 14px/22px var(--sans);
+  margin-bottom: 4px;
+}
+.todo-edit .td.done input[type='text'] {
+  text-decoration: line-through;
+  color: var(--t3);
+}
+.todo-edit .todo-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.bcard.k-doc {
+  background: var(--clip);
+  box-shadow: none;
+  border: 1px solid var(--line);
+}
+.bcard .cb-doc {
+  padding: 14px 16px 0;
+}
+.bcard .cb-doc .src .at {
+  margin-left: auto;
+  flex: none;
+  font-size: 11px;
+  color: var(--t3);
+}
+.bcard .cb-doc b {
+  display: block;
+  font: 600 14px/1.35 var(--sans);
+}
+.bcard .cb-doc p {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--t2);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.bcard .cb-doc .src {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px -16px 0;
+  padding: 8px 16px 10px;
+  border-top: 1px dashed var(--line2);
+  font-size: 12px;
+  color: var(--t2);
+}
+.bcard .img-alt {
+  color: var(--t3);
+}
+.bcard .img-alt::before {
+  content: '[图] ';
+}
+.fr.on {
+  background: var(--fill);
+}
+.hdiff {
+  margin: 4px 0 10px;
+  padding: 0;
+  font-size: 12px;
+}
+.hdiff > .meta {
+  display: block;
+  padding: 4px 6px;
+  color: var(--t3);
+}
+.hdiff .hd-acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.hdiff .dl {
+  max-height: 420px;
+  overflow: auto;
+}
+
+/* ---------- 检查更新：底栏最右端「● 重启更新到 x」/「● 更新没装上」 ---------- */
+.udot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--acc);
+  flex: none;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+.udot.err {
+  background: var(--red);
+}
+.udot.soft {
+  background: var(--t3);
+}
+.gitbar .bi.upd {
+  color: var(--t1);
+  font-weight: 500;
+  animation: upd-in 0.18s ease-out;
+}
+.gitbar .bi.upd .udot {
+  margin-right: 0;
+}
+@keyframes upd-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (max-width: 900px) {
+  .gitbar .upd-v {
+    display: none;
+  }
 }

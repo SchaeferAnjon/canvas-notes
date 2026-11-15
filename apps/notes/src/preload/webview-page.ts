@@ -12,6 +12,34 @@ import { mdUrl } from '../shared/layout'
 function toMarkdown(node: Node): string {
   const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-', emDelimiter: '*' })
   td.remove(['script', 'style', 'noscript', 'iframe', 'form', 'button'])
+  // 链接：不带 title（「"珍珠楼"」这种重复的字），网址里的 %E7%8F%8D 还原成能读的字
+  td.addRule('link', {
+    filter: (n) => n.nodeName === 'A' && !!(n as HTMLAnchorElement).getAttribute('href'),
+    replacement: (content, node) => {
+      const text = content.trim()
+      const href = (node as HTMLAnchorElement).href
+      if (!text) return ''
+      if (!/^https?:/.test(href)) return text
+      return `[${text}](${mdUrl(readableUrl(href))})`
+    },
+  })
+  // 表格：只有字的数据表一行一行写成「a · b · c」；套着图、套着表的排版用表（维基百科的信息框）整个不要
+  td.addRule('table', {
+    filter: 'table',
+    replacement: (_c, node) => {
+      const t = node as HTMLTableElement
+      if (t.querySelector('table, img')) return ''
+      const rows = Array.from(t.rows)
+        .map((r) =>
+          Array.from(r.cells)
+            .map((c) => (c.textContent ?? '').replace(/\s+/g, ' ').trim())
+            .filter(Boolean)
+            .join(' · '),
+        )
+        .filter(Boolean)
+      return rows.length ? '\n\n' + rows.join('\n\n') + '\n\n' : ''
+    },
+  })
   // 图片：没有地址的（懒加载占位）不要
   td.addRule('img', {
     filter: 'img',
@@ -19,7 +47,9 @@ function toMarkdown(node: Node): string {
       const img = node as HTMLImageElement
       const src = img.getAttribute('src') ?? ''
       if (!src || src.startsWith('data:')) return ''
-      const alt = (img.getAttribute('alt') ?? '').replace(/[\[\]\n]/g, ' ').trim()
+      // 说明只留短的：维基百科的图说明常是一整段，和下面的图注重复
+      let alt = (img.getAttribute('alt') ?? '').replace(/[\[\]\n]/g, ' ').trim()
+      if (alt.length > 40) alt = alt.slice(0, 40) + '…'
       return `![${alt}](${mdUrl(src)})`
     },
   })
@@ -35,9 +65,34 @@ function fixLazyImages(root: Document) {
   }
 }
 
+/** 网址里的 %xx 还原成字（维基百科的中文链接整串都是 %E7%8F%8D…）；还原不了就原样 */
+function readableUrl(href: string): string {
+  try {
+    return decodeURI(href)
+  } catch {
+    return href
+  }
+}
+
+/**
+ * 剪之前先去掉正文里的杂物：信息框、导航框、目录、「[编辑]」、脚注角标 [1]、参考文献、分类、
+ * 隐藏的和只给读屏的元素。各网站常见的类名，没有的就什么也不做。
+ */
+const NOISE = [
+  '.infobox', '.navbox', '.vertical-navbox', '.sidebar', '.metadata', '.ambox', '.hatnote', '.noprint', '.mw-editsection',
+  '.mw-jump-link', '#toc', '.toc', 'sup.reference', '.reference', '.references', '.reflist', '.refbegin', '.catlinks',
+  '.printfooter', '.mw-cite-backlink', '.navigation-not-searchable', '.shortdescription', '[role=navigation]', '[aria-hidden=true]',
+  '[hidden]', '.sr-only', '.visually-hidden', 'nav', 'aside', 'footer',
+].join(',')
+
+function stripNoise(root: Document) {
+  for (const el of Array.from(root.querySelectorAll(NOISE))) el.remove()
+}
+
 export function extract(): { url: string; title: string; byline?: string; markdown: string } {
   const clone = document.cloneNode(true) as Document
   fixLazyImages(clone)
+  stripNoise(clone)
   const article = new Readability<Node>(clone, { charThreshold: 200, serializer: (n) => n }).parse()
   if (article?.content) {
     return {

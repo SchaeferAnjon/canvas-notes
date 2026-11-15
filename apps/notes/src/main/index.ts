@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
-import { copyFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
+import { app, autoUpdater as nativeUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
+import { copyFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
 import type { Activity, AiChange, GitState, NoteMenuAction, VaultInfo } from '../shared/api'
@@ -11,11 +12,15 @@ import { attachWeb, registerAgent } from './agent'
 import { ask } from './ai'
 import { registerAttachments, registerFileScheme } from './attachments'
 import { importCookies, listProfiles } from './chrome-import'
+import { parseDiff } from './dream'
 import { setupDream } from './dream-main'
 import { duplicatesOf, readAll } from './duplicates'
 import { registerHome } from './home'
 import { pinNote, readPins, repin } from './pins'
 import { setupQuick } from './quick'
+import { E2E } from './test-mode'
+import { Updater } from './updater'
+import { menuLabel, releaseUrl, updateError } from '../shared/update'
 import { SettingsFile } from './settings'
 import { Vault } from './vault'
 import { setupPlugins } from './plugins'
@@ -326,6 +331,16 @@ function registerIpc() {
   registerAttachments(needVault, () => win, app.getPath('userData'))
   registerHome(needVault, () => win)
   ipcMain.handle('git:history', (_e, limit: number) => git.log(needVault().root, Math.min(Math.max(1, Number(limit) || 50), 500)))
+  ipcMain.handle('git:file-diff', async (_e, hash: unknown, path: unknown) => {
+    if (typeof hash !== 'string' || !/^[0-9a-f]{7,40}$/.test(hash) || typeof path !== 'string' || path.startsWith('/') || path.split('/').includes('..')) throw new Error('参数不对')
+    const v = needVault()
+    const out = await git.git(v.root, ['show', '--format=', '-M', '--no-color', '--no-ext-diff', '-U3', hash, '--', path])
+    const exists = await stat(join(v.root, path)).then(
+      (s) => s.isFile(),
+      () => false,
+    )
+    return { diff: parseDiff(out)[0] ?? null, exists }
+  })
 }
 
 function createWindow() {
@@ -335,7 +350,7 @@ function createWindow() {
     minWidth: 960,
     minHeight: 600,
     // 端到端测试的窗口放到屏幕外，不挡人
-    ...(process.env.CN_E2E === '1' ? { x: -3000, y: 80 } : {}),
+    ...(E2E ? { x: -3000, y: 80 } : {}),
     title: BRAND.name,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 18, y: 18 },
@@ -346,6 +361,8 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       webviewTag: true,
+      // 测试时窗口不激活，也要照常渲染
+      ...(E2E ? { backgroundThrottling: false } : {}),
     },
   })
   // 右栏网页：只许用我们的预加载、我们的登录分区，网页拿不到 Node
@@ -364,7 +381,8 @@ function createWindow() {
     // 新窗口链接开成新网页标签、记历史、插件、网页焦点时的快捷键：都在 web/index.ts
     attachWebview(wc, win!)
   })
-  win.once('ready-to-show', () => win?.show())
+  // 测试模式只 showInactive：不激活软件、不抢用户正在用的窗口的焦点
+  win.once('ready-to-show', () => (E2E ? win?.showInactive() : win?.show()))
   win.on('closed', () => (win = null))
   if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
@@ -384,28 +402,133 @@ app.whenReady().then(async () => {
   registerIpc()
   registerAgent({ win: () => win, vault: () => vault })
   const dreams = setupDream({ root: () => vault?.root ?? null, send: (ch, ...args) => win?.webContents.send(ch, ...args) })
-  setupQuick({
+  quick = setupQuick({
     vault: () => vault,
     onSaved: () => win?.webContents.send('files:changed'),
     openMain: () => {
       if (!win) createWindow()
+      else if (E2E) win.showInactive()
       else win.show()
-      app.focus({ steal: true })
+      if (!E2E) app.focus({ steal: true })
     },
     dreamNow: () => void dreams.dreamNow().catch((e) => console.error('梦游失败', e)),
     settings: () => settings.read(),
     saveSettings: (patch) => settings.patch(patch),
     skin: currentSkin,
+    topItems: readyItems,
   })
   await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault })
   setupPlugins({ window: () => win, vault: () => vault })
   // 开发时程序坞里也显示应用图标（打包后用 .icns）
-  if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
+  if (E2E) app.dock?.hide()
+  else if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
   createWindow()
+  buildMenu()
+  void setupUpdater()
   app.on('activate', () => {
     if (!win) createWindow()
   })
 })
+
+// 检查更新：正式发布的包（打包时带了 app-update.yml）才查；开发版、本机自己打的包、端到端测试不查。
+// CN_UPDATE_URL：测试时指向本机的更新服务器
+let updater: Updater | null = null
+let quick: ReturnType<typeof setupQuick>
+async function setupUpdater() {
+  const feedUrl = process.env.CN_UPDATE_URL ?? ''
+  const supported = app.isPackaged && existsSync(join(process.resourcesPath, 'app-update.yml')) && (!E2E || !!feedUrl)
+  // electron-updater 是 CommonJS，autoUpdater 是取值时才建的属性：从 ESM 里 import 时它在 default 上
+  type Engine = ConstructorParameters<typeof Updater>[0]['engine']
+  const mod = supported ? ((await import('electron-updater')) as unknown as { autoUpdater?: Engine; default?: { autoUpdater: Engine } }) : null
+  const engine = mod ? (mod.default?.autoUpdater ?? mod.autoUpdater) : undefined
+  updater = new Updater({
+    supported,
+    enabled: () => settings.app().autoUpdate,
+    feedUrl,
+    engine,
+    native: process.platform === 'darwin' ? nativeUpdater : null,
+    inApps: !app.isPackaged || app.isInApplicationsFolder(),
+    version: app.getVersion(),
+    checkedAt: Number(settings.read().updateCheckedAt) || 0,
+  })
+  let phase = ''
+  updater.on('state', (st) => {
+    win?.webContents.send('update:state', st)
+    if (st.phase === phase) return // 下载进度一秒好几次，菜单只在阶段变了时重建
+    phase = st.phase
+    if (st.phase === 'latest') settings.patch({ updateCheckedAt: st.checkedAt })
+    buildMenu()
+    quick.refreshMenu()
+  })
+  updater.on('quitting', () => (quitting = true))
+  nativeUpdater.on('before-quit-for-update', () => (quitting = true))
+  ipcMain.handle('update:status', () => updater!.status())
+  ipcMain.handle('update:check', async () => {
+    try {
+      const state = await updater!.check()
+      return state.phase === 'error' ? { ok: false, error: updateError(state.error, state.version).text, state } : { ok: true, state }
+    } catch (e) {
+      const st = updater!.status()
+      return { ok: false, error: updateError(String((e as Error)?.message ?? e), st.version).text, state: st }
+    }
+  })
+  ipcMain.handle('update:install', () => installUpdate())
+  // 不在「应用程序」文件夹：挪过去并重开（「应用程序」里有旧的、没在跑时旧的进废纸篓）；用户在授权框点取消返回 false
+  ipcMain.handle('update:moveToApps', () => app.moveToApplicationsFolder())
+  ipcMain.handle('update:reveal', () => shell.showItemInFolder(app.getPath('exe').replace(/\/Contents\/MacOS\/[^/]+$/, '')))
+  ipcMain.handle('update:releaseUrl', () => releaseUrl(BRAND.repo, updater!.status().version || app.getVersion()))
+  updater.start()
+}
+
+/** 下好的新版：先提交没提交的改动，再退出、装上、重新打开 */
+async function installUpdate(): Promise<boolean> {
+  if (updater?.status().phase !== 'ready') return false
+  await commitPending().catch((err) => console.error('更新前提交失败', err))
+  quitting = true
+  return updater.install()
+}
+
+/** 「检查更新…」：显示主窗口、打开设置的「更新」页、立刻查一次 */
+function checkFromMenu() {
+  if (!win) createWindow()
+  else if (!E2E) win.show()
+  win?.webContents.send('update:open')
+  void updater?.check().catch(() => undefined)
+}
+
+/** 下好了时菜单栏图标的菜单最上面多这一项 */
+function readyItems(): Electron.MenuItemConstructorOptions[] {
+  const st = updater?.status()
+  return st?.phase === 'ready' ? [{ label: `重启并更新到 ${st.version}`, click: () => void installUpdate() }, { type: 'separator' }] : []
+}
+
+/** 菜单栏：标准的几个菜单，应用菜单里多「检查更新…」（下好了就是「重启并更新到 x」）和「设置…」 */
+function buildMenu() {
+  const st = updater?.status()
+  const updateItem: Electron.MenuItemConstructorOptions =
+    st?.phase === 'ready'
+      ? { label: `重启并更新到 ${st.version}`, click: () => void installUpdate() }
+      : { label: st ? menuLabel(st) : '检查更新…', enabled: !!st && ['idle', 'latest', 'error'].includes(st.phase), click: checkFromMenu }
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      {
+        label: app.name,
+        submenu: [
+          { role: 'about' },
+          updateItem,
+          { type: 'separator' },
+          // ⌘, 由界面自己处理（网页有焦点时主线转过去），这里只显示快捷键、不注册
+          { label: '设置…', accelerator: 'CommandOrControl+,', registerAccelerator: false, click: () => win?.webContents.send('app:key', ',') },
+          { type: 'separator' },
+          { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
+      },
+      { role: 'fileMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ]),
+  )
+}
 
 // 退出前把没提交的改动提交掉
 let quitting = false

@@ -18,8 +18,9 @@ module.exports = {
   directories: { output: process.env.CN_RELEASE_OUT || 'release', buildResources: 'build' },
   // AI 用的是用户自己装的命令行（claude、codex、gemini、opencode），包里不带任何 AI 的程序或 SDK
   files: ['out/**', 'package.json'],
-  // 自动更新还没做：不写 publish，Release 由 scripts/release.mjs --publish 用 gh 建
-  publish: null,
+  // 检查更新（src/main/updater.ts）查这个仓库的 Release 里的 latest-mac.yml。只有发布包写 publish：
+  // 打包时会把 app-update.yml 放进包里，软件看到它才查更新；本机自己打的包没有它，不查。Release 还是由 scripts/release.mjs --publish 用 gh 建
+  publish: release ? { provider: 'github', owner: brand.repo.split('/')[0], repo: brand.repo.split('/')[1], releaseType: 'release' } : null,
   mac: {
     category: 'public.app-category.productivity',
     // 应用图标「一叠卡片」：由 scripts/make-icons.mjs 从 design/v3/icon/ 生成

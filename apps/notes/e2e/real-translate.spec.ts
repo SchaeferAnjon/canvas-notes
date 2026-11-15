@@ -45,7 +45,7 @@ test('真网页翻译：维基百科条目首屏', async () => {
     if (shots) await shootPage(run, join(shots, 'real-page-before.png'))
 
     const t0 = Date.now()
-    await web(page).getByRole('toolbar', { name: '插件按钮' }).getByRole('button', { name: '双语翻译' }).click()
+    await web(page).getByRole('toolbar', { name: '这一页' }).getByRole('button', { name: '双语翻译' }).click()
     const doneCount = () => guest(page, `Array.from(document.querySelectorAll('cn-tr')).filter(e => !/^(翻译中|没翻成)/.test(e.textContent)).length`) as Promise<number>
     await expect.poll(doneCount, { timeout: 60_000, intervals: [100] }).toBeGreaterThan(0).catch(async (e: Error) => {
       console.log('没出译文：', await guest(page, `JSON.stringify(Array.from(document.querySelectorAll('cn-tr')).slice(0, 5).map(e => e.textContent))`), await page.locator('.toast-cn').textContent({ timeout: 300 }).catch(() => ''))

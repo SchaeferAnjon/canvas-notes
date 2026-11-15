@@ -20,7 +20,7 @@ import { Icon } from '@cn/design'
 import { CheckSquare, ChevronDown, Columns3, LayoutGrid, StickyNote } from 'lucide-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile } from '../shared/api'
-import { previewOf, titleOf } from '../shared/layout'
+import { CLIPS, previewOf, titleOf } from '../shared/layout'
 import {
   addCard,
   addColumn,
@@ -39,7 +39,7 @@ import {
   slotInColumn,
   TODO_BODY,
 } from './board-drop'
-import { CardBody, classify } from './CardBody'
+import { CardBody, classify, TODO } from './CardBody'
 import { useBoardImageDrop } from './web/useImageDrop'
 
 type Drag =
@@ -86,6 +86,8 @@ export function BoardView(props: BoardViewProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selLink, setSelLink] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
+  /** 双击的是待办里第几行（文件里的行号） */
+  const editRow = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [dropCol, setDropCol] = useState<string | null>(null)
   const [unsortedOpen, setUnsortedOpen] = useState(false)
@@ -207,8 +209,10 @@ export function BoardView(props: BoardViewProps) {
     }
     const id = newId(doc)
     commit(addCard(doc, id, kind === 'todo' ? TODO_BODY : '', where))
-    if (kind === 'card') setEditing(id)
-    else if (dropped) setFlash(id)
+    if (kind === 'card' || kind === 'todo') {
+      editRow.current = null
+      setEditing(id)
+    } else if (dropped) setFlash(id)
   }
 
   // ---------- 拖动 ----------
@@ -334,9 +338,17 @@ export function BoardView(props: BoardViewProps) {
       if (l) commit(placeLoose(doc, l, { id: newId(doc), x: pos.x, y: pos.y, w: CARD_W }))
       return
     }
-    // 收件箱里的一篇：内容放成卡片，收件箱那篇移到废纸篓
     const note = await window.cn.readNote(d.inboxPath)
     const body = note.text.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
+    if (isWholeDoc(note.text, body)) {
+      // 整页剪藏这类长的：那篇挪到「素材/<这块白板>/」，白板上放一张指向它的卡片（标题、来源、几行摘要），双击看全文
+      const moved = await window.cn.createNote(`${CLIPS}/${titleOf(props.notePath)}`, titleOf(d.inboxPath), note.text)
+      await window.cn.trashNote(d.inboxPath)
+      const id = addBlock('card', pos, `[[${titleOf(moved)}]]`)
+      setFlash(id)
+      return
+    }
+    // 收件箱里短的一条：内容放成卡片，收件箱那篇移到废纸篓
     const id = addBlock('card', pos, body)
     setFlash(id)
     await window.cn.trashNote(d.inboxPath)
@@ -408,10 +420,25 @@ export function BoardView(props: BoardViewProps) {
         onDoubleClick={(e) => {
           e.stopPropagation()
           if (info.kind === 'board' && info.boardPath) props.onOpen(info.boardPath)
-          else if (!props.readOnly) setEditing(id)
+          else if (info.kind === 'doc' && info.docPath) props.onOpen(info.docPath)
+          else if (!props.readOnly) {
+            // 双击待办的某一行：编辑器打开后光标落在那一行
+            const row = (e.target as HTMLElement).closest('[data-row]')
+            editRow.current = row ? Number(row.getAttribute('data-row')) : null
+            setEditing(id)
+          }
         }}
       >
-        {editing === id ? (
+        {editing === id && info.kind === 'todo' ? (
+          <TodoEditor
+            initial={body}
+            focusLine={editRow.current}
+            onDone={(v) => {
+              setEditing(null)
+              if (v !== null) setContent(id, v)
+            }}
+          />
+        ) : editing === id ? (
           <CardEditor
             initial={body}
             onDone={(v) => {
@@ -674,6 +701,111 @@ function ColumnTitle(props: { title: string; count: number; onDown(e: React.Poin
       {props.title}
       <span className="meta num">{props.count} 张卡片</span>
     </h3>
+  )
+}
+
+/** 整页剪藏（frontmatter 里有 source、正文有标题）或很长的一篇：不拆成卡片，放一张指向它的卡片 */
+function isWholeDoc(text: string, body: string): boolean {
+  return (/^---\n[\s\S]*?\nsource:/.test(text) && /^# /m.test(body)) || body.length > 800
+}
+
+/** 待办卡片的编辑：标题一行，下面每条一行勾选框加输入框；回车加一条，空着按退格删这条，esc 不改，点别处存 */
+function TodoEditor(props: { initial: string; focusLine: number | null; onDone(v: string | null): void }) {
+  const lines = props.initial.split('\n')
+  const head = lines[0] && !TODO.test(lines[0]) ? lines[0].replace(/^#+\s*|\*\*/g, '').trim() : ''
+  const [title, setTitle] = useState(head)
+  const [rows, setRows] = useState(() => {
+    const r = lines
+      .map((l, i) => ({ m: TODO.exec(l), i }))
+      .filter((x) => x.m)
+      .map((x) => ({ key: x.i, done: x.m![1] !== ' ', text: x.m![2] ?? '' }))
+    return r.length ? r : [{ key: 0, done: false, text: '' }]
+  })
+  const box = useRef<HTMLDivElement>(null)
+  const focusAt = useRef<number | null>(null)
+  const done = useRef(false)
+  const nextKey = useRef(1000)
+  const state = useRef({ title, rows })
+  state.current = { title, rows }
+
+  const finish = (save: boolean) => {
+    if (done.current) return
+    done.current = true
+    if (!save) return props.onDone(null)
+    const { title: t, rows: rs } = state.current
+    const kept = rs.filter((r) => r.text.trim())
+    const out = [t.trim() ? `**${t.trim()}**` : null, ...(kept.length ? kept : [{ done: false, text: '' }]).map((r) => `- [${r.done ? 'x' : ' '}] ${r.text.trim()}`)]
+    props.onDone(out.filter((l) => l !== null).join('\n'))
+  }
+
+  useLayoutEffect(() => {
+    const inputs = box.current!.querySelectorAll<HTMLInputElement>('input[type=text]')
+    const at = props.focusLine === null ? -1 : rows.findIndex((r) => r.key === props.focusLine)
+    const el = props.focusLine === 0 && head ? inputs[0] : inputs[at >= 0 ? at + 1 : inputs.length - 1]
+    el?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  useLayoutEffect(() => {
+    if (focusAt.current === null) return
+    box.current!.querySelectorAll<HTMLInputElement>('input[type=text]')[focusAt.current + 1]?.focus()
+    focusAt.current = null
+  })
+
+  const update = (i: number, p: Partial<{ done: boolean; text: string }>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...p } : r)))
+
+  return (
+    <div
+      ref={box}
+      className="cb-todo todo-edit"
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onBlur={(e) => {
+        if (!box.current!.contains(e.relatedTarget as Node | null)) finish(true)
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        if (e.key === 'Escape') (e.preventDefault(), finish(false))
+        if (e.key === 'Enter' && e.metaKey) (e.preventDefault(), finish(true))
+      }}
+    >
+      <input
+        type="text"
+        className="todo-title"
+        aria-label="待办标题"
+        placeholder="标题（可不写）"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.metaKey && !e.nativeEvent.isComposing) (e.preventDefault(), (focusAt.current = 0), setRows((r) => [...r]))
+        }}
+      />
+      {rows.map((r, i) => (
+        <div key={r.key} className={'td' + (r.done ? ' done' : '')}>
+          <input type="checkbox" aria-label="做完了" checked={r.done} onChange={() => update(i, { done: !r.done })} />
+          <input
+            type="text"
+            aria-label="待办事项"
+            placeholder="写一条，回车加下一条"
+            value={r.text}
+            onChange={(e) => update(i, { text: e.target.value })}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.metaKey) return
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                focusAt.current = i + 1
+                setRows((rs) => [...rs.slice(0, i + 1), { key: nextKey.current++, done: false, text: '' }, ...rs.slice(i + 1)])
+              } else if (e.key === 'Backspace' && r.text === '' && rows.length > 1) {
+                e.preventDefault()
+                focusAt.current = Math.max(0, i - 1)
+                setRows((rs) => rs.filter((_, j) => j !== i))
+              } else if (e.key === 'ArrowDown' && i < rows.length - 1) (e.preventDefault(), (focusAt.current = i + 1), setRows((rs) => [...rs]))
+              else if (e.key === 'ArrowUp') (e.preventDefault(), (focusAt.current = i - 1), setRows((rs) => [...rs]))
+            }}
+          />
+        </div>
+      ))}
+      <div className="todo-hint">回车加一条 · 空着按退格删掉 · ⌘回车或点别处存</div>
+    </div>
   )
 }
 

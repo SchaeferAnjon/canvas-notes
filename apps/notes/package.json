@@ -1,7 +1,7 @@
 {
   "name": "@cn/notes",
   "productName": "Canvas Notes",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "main": "out/main/index.js",
   "scripts": {
@@ -36,7 +36,8 @@
     "vite": "^8.3.8"
   },
   "dependencies": {
-    "electron-chrome-extensions": "4.10.0"
+    "electron-chrome-extensions": "4.10.0",
+    "electron-updater": "^6.8.11"
   },
   "description": "个人笔记软件：本地 Markdown + Git、白板、网页剪藏、AI",
   "author": "Jia Zonghan",

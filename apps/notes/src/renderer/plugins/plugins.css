@@ -19,10 +19,10 @@
   fill: currentColor;
 }
 
-/* 弹窗挂在右栏顶上、标签条下面，靠右 */
+/* 弹窗挂在地址栏下面，靠右（星星和插件按钮都在地址栏那一行） */
 .plug-pop {
   position: absolute;
-  top: 40px;
+  top: 84px;
   right: 8px;
   z-index: 45;
 }
@@ -36,6 +36,40 @@
   width: 380px;
   max-height: min(640px, calc(100vh - 120px));
   padding: 12px;
+}
+/* 地址栏星星开的书签小卡：300 宽，只管这一页，底下一个「整理全部书签 →」 */
+.wpop.bk.bk-card {
+  width: 300px;
+  gap: 6px;
+}
+/* 箭头 12×6 对准星星（WebPanel 算好 --arrow-right） */
+.wpop.bk.bk-card::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  right: var(--arrow-right, 20px);
+  width: 12px;
+  height: 6px;
+  background: var(--pop);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+.bk-card .bk-this {
+  background: none;
+  padding: 2px 2px 4px;
+}
+.bk-more {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  padding: 6px 2px 0;
+  border-top: 0;
+  font-size: 12px;
+  color: var(--t2);
+}
+.bk-more:hover {
+  color: var(--t1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 .bk .wlib-head .iconbtn {
   width: 24px;
