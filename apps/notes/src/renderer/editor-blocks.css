@@ -1,0 +1,301 @@
+/* 文档模式的块编辑：块把手、块菜单、/ 菜单、待办、表格、图片。样子照 design/v3/DESIGN.v3.md「6 文档：一块一块」 */
+
+/* ---------- 块把手：左边留白里的「+」和「⋮⋮」 ---------- */
+.doc .blk-bar {
+  position: absolute;
+  left: -52px;
+  display: flex;
+  gap: 0;
+  z-index: 5;
+  animation: blk-in 0.12s ease;
+}
+@keyframes blk-in {
+  from {
+    opacity: 0;
+  }
+}
+.doc .blk-bar[hidden] {
+  display: none;
+}
+.doc .blk-bar button {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--t3);
+}
+.doc .blk-bar button:first-child svg {
+  width: 16px;
+  height: 16px;
+}
+.doc .blk-bar button:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.doc .blk-bar .blk-grip {
+  cursor: grab;
+}
+.doc .blk-dragging,
+.doc .blk-dragging * {
+  cursor: grabbing !important;
+}
+/* 松手会落在这里 */
+.doc .blk-drop {
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--acc);
+  pointer-events: none;
+  z-index: 5;
+}
+.doc .blk-drop[hidden] {
+  display: none;
+}
+/* 落点线左端一个 8px 圆点 */
+.doc .blk-drop::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--acc);
+}
+/* 正在拖、正在开菜单的那块：选中底比版心左右各宽出 8 */
+.doc .cm-line.cm-blk-hot {
+  background: var(--acc-soft);
+  box-shadow: -8px 0 0 var(--acc-soft), 8px 0 0 var(--acc-soft);
+}
+
+/* ---------- 浮层：块菜单和 / 菜单 ---------- */
+.ed-pop {
+  position: fixed;
+  z-index: 1000;
+}
+.ed-pop[hidden] {
+  display: none;
+}
+.blk-menu,
+.slash-menu,
+.slash-ai {
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  color: var(--t1);
+  outline: none;
+}
+.blk-menu {
+  width: 200px;
+}
+.blk-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 13px;
+  text-align: left;
+  color: var(--t1);
+}
+.blk-menu button svg {
+  color: var(--t2);
+  flex: none;
+}
+.blk-menu button.on {
+  background: var(--fill2);
+}
+.blk-menu .lb {
+  flex: 1;
+}
+.blk-menu kbd {
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+.blk-menu .blk-sep {
+  margin: 4px 0 2px;
+  padding: 8px 8px 4px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--t3);
+}
+
+/* / 菜单：和 AI 命令菜单一样的行 */
+.slash-menu {
+  width: 300px;
+  max-height: 380px;
+  overflow-y: auto;
+}
+.slash-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+.slash-menu button.on {
+  background: var(--fill2);
+}
+.slash-menu .ib,
+.slash-ai .ib {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--t2);
+}
+.slash-ai .ib {
+  color: var(--acc);
+}
+.slash-menu .tx {
+  min-width: 0;
+}
+.slash-menu b {
+  display: block;
+  font-weight: 500;
+  font-size: 13px;
+}
+.slash-menu .tx > span {
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.slash-empty {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.slash-menu .keys,
+.slash-ai .keys {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.slash-ai {
+  width: 380px;
+}
+.slash-ai-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 2px 8px;
+}
+.slash-ai input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  border: 0;
+  outline: none;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+}
+.slash-ai input::placeholder {
+  color: var(--t3);
+}
+
+/* ---------- 待办：和白板待办卡同一个勾选框 ---------- */
+.doc .cm-taskbox {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  border-radius: 4px;
+  border: 1.5px solid var(--line2);
+  background: var(--card);
+  box-sizing: border-box;
+  cursor: pointer;
+}
+.doc .cm-taskbox.on {
+  background: var(--acc-bg);
+  border-color: var(--acc-bg);
+}
+.doc .cm-taskbox.on::after {
+  content: '';
+  width: 7px;
+  height: 4px;
+  border-left: 1.6px solid #fff;
+  border-bottom: 1.6px solid #fff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+.doc .cm-task-done {
+  text-decoration: line-through;
+  color: var(--t3);
+}
+
+/* ---------- 表格、图片 ---------- */
+.doc .cm-table {
+  margin: 4px 0;
+  overflow-x: auto;
+}
+.doc .cm-table table {
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.doc .cm-table th,
+.doc .cm-table td {
+  min-width: 72px;
+  padding: 6px 10px;
+  border: 1px solid var(--line2);
+  text-align: left;
+  vertical-align: top;
+  cursor: text;
+}
+.doc .cm-table th {
+  background: var(--fill);
+  font-weight: 500;
+  color: var(--t2);
+}
+.doc .cm-image {
+  margin: 6px 0;
+}
+.doc .cm-image img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.doc .cm-image.broken {
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* 米白：整个版心放在一张纸上，纸上下离中间栏 28 */
+[data-skin='cream'] .doc.doc {
+  margin: 28px auto 40px;
+  background: var(--paper);
+  box-shadow: var(--paper-sh);
+  border-radius: 4px;
+}

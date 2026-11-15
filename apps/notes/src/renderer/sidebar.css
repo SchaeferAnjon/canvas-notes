@@ -1,0 +1,51 @@
+/* 左栏「只放活着的」：小标题后的说明、空行、还有几篇、收件箱堆多了的提醒、底部全部笔记和归档 */
+
+.sh .sub {
+  margin-left: 6px;
+  font-weight: 400;
+}
+.s-none {
+  margin: 0;
+  padding: 4px 10px 6px 36px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.si.s-more {
+  height: 26px;
+  padding-left: 36px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.si.s-more:hover {
+  color: var(--t1);
+}
+
+/* 收件箱超过 20 条：计数变琥珀色，下面一行「让 AI 分一分」 */
+.si .badge.warn {
+  background: color-mix(in srgb, var(--yellow) 16%, transparent);
+  color: var(--yellow);
+}
+.si.s-tidy {
+  height: 26px;
+  gap: 6px;
+  padding-left: 36px;
+  font-size: 12px;
+  color: var(--yellow);
+}
+.si.s-tidy > svg {
+  color: inherit;
+}
+.si.s-tidy:hover {
+  background: color-mix(in srgb, var(--yellow) 10%, transparent);
+}
+
+/* 底部两个入口：全部笔记、归档 */
+.sall {
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  -webkit-app-region: no-drag;
+}
+.sall .si .c {
+  margin-left: auto;
+}

@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- 候选 1「一叠卡片」：李子紫底，三张卡片叠起来，最上面一张写着字、勾了一项 -->
+  <defs>
+    <linearGradient id="bg" x1="0.1" y1="0" x2="0.9" y2="1">
+      <stop offset="0" stop-color="#C77BD9"/>
+      <stop offset="0.55" stop-color="#9A48AD"/>
+      <stop offset="1" stop-color="#5E2470"/>
+    </linearGradient>
+    <radialGradient id="hl" cx="0.28" cy="0.12" r="0.75">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F6EEF8"/>
+    </linearGradient>
+    <filter id="outer" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#2A0B33" flood-opacity="0.30"/>
+    </filter>
+    <filter id="card" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="20" flood-color="#2A0B33" flood-opacity="0.32"/>
+    </filter>
+    <clipPath id="sq"><rect x="100" y="100" width="824" height="824" rx="185"/></clipPath>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#outer)"/>
+  <g clip-path="url(#sq)">
+    <rect x="100" y="100" width="824" height="824" fill="url(#hl)"/>
+    <g transform="rotate(-13 512 540)">
+      <rect x="312" y="300" width="400" height="500" rx="44" fill="#F1DDF6" opacity="0.55"/>
+    </g>
+    <g transform="rotate(8 512 540)">
+      <rect x="312" y="300" width="400" height="500" rx="44" fill="#FBF1FD" opacity="0.82" filter="url(#card)"/>
+    </g>
+    <g transform="rotate(-3 512 540)" filter="url(#card)">
+      <path d="M356 284 H668 A44 44 0 0 1 712 328 V700 L622 790 H356 A44 44 0 0 1 312 746 V328 A44 44 0 0 1 356 284 Z" fill="url(#paper)"/>
+      <path d="M712 700 L622 790 V734 A34 34 0 0 1 656 700 Z" fill="#E4D2EA"/>
+      <rect x="362" y="342" width="214" height="30" rx="15" fill="#2B1631"/>
+      <circle cx="660" cy="357" r="15" fill="#9A48AD"/>
+      <rect x="362" y="410" width="300" height="18" rx="9" fill="#D9C9DE"/>
+      <rect x="362" y="448" width="262" height="18" rx="9" fill="#D9C9DE"/>
+      <rect x="362" y="486" width="286" height="18" rx="9" fill="#D9C9DE"/>
+      <rect x="362" y="552" width="40" height="40" rx="11" fill="#9A48AD"/>
+      <path d="M372 572 l10 10 l18 -20" fill="none" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="420" y="563" width="170" height="18" rx="9" fill="#E7DCEA"/>
+      <rect x="362" y="616" width="40" height="40" rx="11" fill="none" stroke="#CDB9D3" stroke-width="5"/>
+      <rect x="420" y="627" width="140" height="18" rx="9" fill="#D9C9DE"/>
+    </g>
+  </g>
+</svg>

@@ -1,0 +1,10 @@
+{
+  "name": "Canvas Notes",
+  "nameZh": "画布笔记",
+  "artifact": "CanvasNotes",
+  "appId": "com.jiazonghan.canvasnotes",
+  "license": "GPL-3.0-or-later",
+  "author": "Jia Zonghan",
+  "repo": "SchaeferAnjon/canvas-notes",
+  "site": "https://canvas-note.us-cloud.uk"
+}

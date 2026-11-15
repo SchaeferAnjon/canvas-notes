@@ -1,0 +1,237 @@
+/* 梦游报告：右栏清单（照 design/src/proto-b.src.html 的 .dlist .dsum .dg .di .dfoot），点开一条在下面展开为什么和改了什么 */
+.dream-panel .rhead .lucide {
+  color: var(--t2);
+}
+.dlist {
+  flex: 1;
+  overflow: auto;
+  padding: 6px 10px 16px;
+}
+.dsum {
+  margin: 10px 6px 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.6;
+}
+.dsum b {
+  color: var(--t1);
+  font-weight: 500;
+}
+.dsum .dnote {
+  display: block;
+  margin-top: 6px;
+  color: var(--yellow, #b87400);
+}
+.dsum .btn {
+  display: flex;
+  width: fit-content;
+  margin-top: 10px;
+}
+.dsum.dempty p + p {
+  margin-top: 6px;
+}
+.dg {
+  font-size: 12px;
+  color: var(--t3);
+  font-weight: 500;
+  padding: 14px 8px 4px;
+  display: flex;
+}
+.dg span {
+  margin-left: auto;
+  font-weight: 400;
+}
+.di {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 9px 8px;
+  border-radius: 8px;
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+.di:hover {
+  background: var(--fill);
+}
+.di.on {
+  background: var(--fill2);
+}
+.di .ico {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--fill);
+  color: var(--t2);
+}
+.di .tx {
+  flex: 1;
+  min-width: 0;
+}
+.di .tx b {
+  display: block;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.di .tx span {
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+}
+.di .st {
+  font-size: 12px;
+  flex: none;
+  margin-top: 2px;
+  color: var(--t3);
+}
+.di.done .st {
+  color: var(--green);
+}
+.di.done .tx b,
+.di.drop .tx b {
+  color: var(--t3);
+}
+.di.drop .tx b {
+  text-decoration: line-through;
+}
+
+/* 展开的那一条 */
+.dd {
+  margin: 2px 0 8px 34px;
+  padding: 4px 8px 10px 0;
+}
+.dd .pv-k {
+  font-size: 12px;
+  color: var(--t3);
+}
+.dd .pv-why {
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 4px 0 10px;
+}
+.dd .dpair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.dd .dpair .btn {
+  max-width: 100%;
+}
+.dfile + .dfile {
+  margin-top: 8px;
+}
+.dfn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 11px var(--mono);
+  color: var(--t2);
+  margin-bottom: 4px;
+  min-width: 0;
+}
+.dfn .k {
+  flex: none;
+  margin-left: auto;
+  font: 11px var(--sans);
+  color: var(--t3);
+  background: var(--fill);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+.dd .dl {
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.7;
+  user-select: text;
+}
+.dd .dl div {
+  padding: 2px 12px 2px 26px;
+  position: relative;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.dd .dl div::before {
+  position: absolute;
+  left: 10px;
+  color: var(--t3);
+  font: 11px var(--mono);
+  top: 3px;
+}
+.dd .dl .a {
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.dd .dl .a::before {
+  content: '+';
+  color: var(--green);
+}
+.dd .dl .d {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  color: var(--t2);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--red) 50%, transparent);
+}
+.dd .dl .d::before {
+  content: '−';
+  color: var(--red);
+}
+.dd .dl .c {
+  color: var(--t2);
+}
+.dd .dl .gap {
+  color: var(--t3);
+  background: var(--fill);
+}
+.dd .pv-acts {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+.dd .pv-acts .hint {
+  font-size: 12px;
+  color: var(--t3);
+}
+.dd .pv-state {
+  margin-top: 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+  font-size: 12px;
+}
+.dd .pv-state.drop {
+  color: var(--t2);
+  background: var(--fill);
+}
+.dfoot {
+  border-top: 1px solid var(--line);
+  padding: 10px 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: none;
+}
+.dfoot .s {
+  flex: 1;
+  font-size: 12px;
+  color: var(--t3);
+}

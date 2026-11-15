@@ -1,0 +1,132 @@
+/* AI 浮窗新加的部分：引擎切换、工具步骤。外观沿用 app.css 里的 .ai，第三版设计稿出来后统一换皮 */
+.ai[hidden] {
+  display: none;
+}
+
+.aieng {
+  position: relative;
+}
+.aieng .engbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  background: var(--card);
+  font-size: 12px;
+  color: var(--t2);
+}
+.aieng .engbtn:hover {
+  background: var(--fill);
+}
+.aieng .engmenu {
+  position: absolute;
+  top: 30px;
+  left: 0;
+  z-index: 20;
+  width: 220px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+}
+.aieng .engmenu .mh {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.aieng .engmenu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 13px;
+  color: var(--t1);
+  text-align: left;
+}
+.aieng .engmenu button:hover:not(:disabled) {
+  background: var(--fill2);
+}
+.aieng .engmenu button:disabled {
+  color: var(--t3);
+}
+.aieng .engmenu .ck {
+  width: 12px;
+  display: inline-flex;
+}
+.aieng .engmenu b {
+  flex: 1;
+  font-weight: 500;
+}
+.aieng .engmenu button span:last-child {
+  font-size: 12px;
+  color: var(--t3);
+}
+
+.am .tstep {
+  margin-bottom: 2px;
+}
+.am .tstep.err {
+  color: var(--red);
+}
+.am .tstep .why {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.am .tstep + .txt,
+.am .tstep + .thinking {
+  margin-top: 6px;
+}
+
+/* /找重复 的结果：每一对一行，两篇标题能点开，右边相似度，下面一句为什么 */
+.am .dups {
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px 10px;
+}
+.am .dup {
+  padding: 6px 0;
+}
+.am .dup + .dup {
+  border-top: 1px solid var(--line);
+}
+.am .dup .pair {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  min-width: 0;
+}
+.am .dup .pair .lnk {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--t1);
+}
+.am .dup .vs {
+  color: var(--t3);
+}
+.am .dup .sp {
+  flex: 1;
+}
+.am .dup .score {
+  color: var(--t2);
+}
+.am .dup .why {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}

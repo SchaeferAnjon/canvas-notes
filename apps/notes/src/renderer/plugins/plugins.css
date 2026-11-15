@@ -1,0 +1,325 @@
+/* 内置插件：标签条右边的按钮、按钮下面的弹窗（书签管家）、插件面板里的「内置」一组、设置 · 插件。沿用 DESIGN.md 的变量和现有弹层样式 */
+
+.right.web {
+  position: relative;
+}
+
+/* 按钮：亮着（正在双语）用强调色；收藏过的书签图标实心，和地址栏的星星一样 */
+.plug-btn {
+  display: flex;
+}
+.wact.on {
+  background: var(--fill2);
+  color: var(--acc);
+}
+.wact.filled {
+  color: var(--acc);
+}
+.wact.filled svg {
+  fill: currentColor;
+}
+
+/* 弹窗挂在右栏顶上、标签条下面，靠右 */
+.plug-pop {
+  position: absolute;
+  top: 40px;
+  right: 8px;
+  z-index: 45;
+}
+.plug-pop > .wpop {
+  top: 0;
+  right: 0;
+}
+
+/* ---------- 书签管家 ---------- */
+.wpop.bk {
+  width: 380px;
+  max-height: min(640px, calc(100vh - 120px));
+  padding: 12px;
+}
+.bk .wlib-head .iconbtn {
+  width: 24px;
+  height: 24px;
+}
+.bk-count {
+  font-size: 12px;
+  color: var(--t3);
+}
+.bk > .hint {
+  margin: 0 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.bk-this {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.bk-this-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t2);
+  min-width: 0;
+}
+.bk-this-h .lucide {
+  flex: none;
+  color: var(--t3);
+}
+.bk-this-h .bk-filled {
+  color: var(--acc);
+  fill: currentColor;
+}
+.bk-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bk-fields label {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.bk-fields label > span {
+  font-size: 12px;
+  color: var(--t3);
+}
+.bk-fields input,
+.bk-fields select,
+.bk-tags-in,
+.bk-find select {
+  height: 28px;
+  min-width: 0;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--t1);
+  padding: 0 8px;
+  font: 13px var(--sans);
+  outline: none;
+}
+.bk-fields input:focus,
+.bk-fields select:focus,
+.bk-tags-in:focus-within {
+  border-color: var(--acc-ring);
+}
+.bk-tags-in {
+  height: auto;
+  min-height: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 6px;
+}
+.bk-tags-in input {
+  flex: 1;
+  min-width: 80px;
+  height: 22px;
+  border: 0;
+  padding: 0 2px;
+  background: none;
+}
+.bk-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-radius: 999px;
+  background: var(--fill2);
+  color: var(--t2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.bk-tag button {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--t3);
+}
+.bk-tag button:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.bk-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bk-acts .sp,
+.bk-foot .sp {
+  flex: 1;
+}
+.bk-find {
+  display: flex;
+  gap: 6px;
+}
+.bk-find .wsearch {
+  flex: 1;
+}
+.bk-find select {
+  flex: none;
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.bk .wfolders .chip {
+  cursor: pointer;
+}
+.bk-list {
+  flex: 1;
+}
+.bk-row {
+  padding: 0 4px 0 8px;
+}
+.bk-row.picked {
+  background: var(--fill2);
+}
+/* 勾选框：14 方形圆角 4，勾上是强调色填色白勾（同白板待办卡） */
+.bk-pick {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0 4px 0 0;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  background: var(--card);
+  display: grid;
+  place-items: center;
+}
+.bk-pick:checked {
+  border-color: var(--acc-bg);
+  background: var(--acc-bg);
+}
+.bk-pick:checked::after {
+  content: '';
+  width: 7px;
+  height: 4px;
+  margin-top: -2px;
+  border: solid #fff;
+  border-width: 0 0 1.6px 1.6px;
+  transform: rotate(-45deg);
+}
+.bk-row .wmain .bk-t {
+  font-style: normal;
+  margin-left: 6px;
+  color: var(--t2);
+}
+.bk-row .wmain .bk-note {
+  color: var(--t2);
+}
+.bk-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.bk-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t2);
+}
+.imp .menu.bk-menu {
+  right: auto;
+  width: 180px;
+  z-index: 50;
+}
+.imp .menu.bk-menu button {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.imp .menu.bk-menu .lucide {
+  color: var(--t2);
+}
+
+/* ---------- 插件面板里的「内置」一组 ---------- */
+.wext .wgroup {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  gap: 8px;
+  margin: 4px 4px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+}
+.wext .wgroup .sp {
+  flex: 1;
+}
+.plug-list {
+  flex: none;
+}
+.plug-row {
+  align-items: flex-start;
+  padding: 8px 6px 8px 8px;
+  gap: 8px;
+}
+.plug-ic {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 2px;
+  border-radius: 7px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--t2);
+}
+.plug-row .wmain {
+  padding: 0;
+  gap: 2px;
+}
+.plug-row .wmain .plug-desc {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t2);
+  white-space: normal;
+}
+.plug-row .wmain .plug-perm {
+  font-size: 11px;
+  color: var(--t3);
+}
+.plug-row > .iconbtn {
+  width: 24px;
+  height: 24px;
+}
+.plug-row > .sw-toggle {
+  flex: none;
+  margin-top: 5px;
+}
+
+/* ---------- 设置 · 插件 ---------- */
+.plug-set + .plug-set {
+  margin-top: 28px;
+}
+.set-body .note.plug-about {
+  margin: -4px 0 0;
+}
+.set-body .note.plug-inline {
+  margin: 0;
+}
+.wextrow > .sw-toggle {
+  flex: none;
+}

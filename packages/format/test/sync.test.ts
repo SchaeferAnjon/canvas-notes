@@ -1,0 +1,92 @@
+import { describe, expect, it } from 'vitest'
+import { applyChanges, conflictCopyName, merge3, reconcile, textChanges } from '../src'
+
+// 规矩 2：正在编辑时外部改动进来，正在打的字不丢；冲突的那一版另存一份冲突副本。
+describe('外部改动不丢正在打的字', () => {
+  const base = '# 旅行\n\n第一段。\n\n第二段。\n\n第三段。\n'
+
+  it('本地没改：直接换成磁盘的', () => {
+    const remote = base.replace('第三段', '第三段（同步来的）')
+    expect(reconcile(base, base, remote)).toEqual({ kind: 'update', text: remote, merged: false })
+  })
+
+  it('两边改的不是一处：合并，两边的字都在', () => {
+    const local = base.replace('第一段。', '第一段。正在打的字')
+    const remote = base.replace('第三段。', '第三段。AI 补的一句')
+    const r = reconcile(base, local, remote)
+    expect(r.kind).toBe('update')
+    if (r.kind !== 'update') return
+    expect(r.text).toContain('正在打的字')
+    expect(r.text).toContain('AI 补的一句')
+  })
+
+  it('外部在开头插了几行，本地在后面打字：合并', () => {
+    const local = base + '新写的一段\n'
+    const remote = '---\ntags: [旅行]\n---\n' + base
+    const r = reconcile(base, local, remote)
+    expect(r).toEqual({ kind: 'update', text: '---\ntags: [旅行]\n---\n' + base + '新写的一段\n', merged: true })
+  })
+
+  it('两边改了同一行：本地不动，磁盘那版另存', () => {
+    const local = base.replace('第二段。', '第二段，我在改')
+    const remote = base.replace('第二段。', '第二段，同步改的')
+    expect(reconcile(base, local, remote)).toEqual({ kind: 'conflict', conflictText: remote })
+  })
+
+  it('磁盘没变、或者变得和本地一样：什么都不做', () => {
+    const local = base + 'x'
+    expect(reconcile(base, local, base)).toEqual({ kind: 'none' })
+    expect(reconcile(base, local, local)).toEqual({ kind: 'none' })
+  })
+
+  it('两边做了同样的改动不算冲突', () => {
+    const both = base.replace('第二段。', '一样的改动')
+    const local = both + '本地多打的\n'
+    expect(merge3(base, local, both)).toEqual({ text: local, conflict: false })
+  })
+
+  it('冲突副本的名字', () => {
+    const d = new Date(2026, 10, 15, 14, 3)
+    expect(conflictCopyName('旅行.md', d)).toBe('旅行（冲突 2026-11-15 14.03）.md')
+    expect(conflictCopyName('旅行.md', d, 2)).toBe('旅行（冲突 2026-11-15 14.03 2）.md')
+  })
+})
+
+describe('textChanges：只动改了的地方', () => {
+  it('改动落在光标后面时，光标前的文字不在改动范围里', () => {
+    const a = '第一行正在打\n第二行\n第三行\n'
+    const b = '第一行正在打\n第二行\n第三行改了\n'
+    const cs = textChanges(a, b)
+    expect(cs).toEqual([{ from: a.indexOf('\n第三行') + 4, to: a.indexOf('\n第三行') + 4, insert: '改了' }])
+  })
+
+  it('删掉结尾的空行、在结尾加行', () => {
+    for (const [a, b] of [
+      ['x\n\n\n', 'x\nyy\n\n'],
+      ['a\n\n', 'a\n'],
+      ['a\n', 'a\n\n\nb'],
+      ['', 'a\nb'],
+      ['a\nb', ''],
+      ['a', 'a\n'],
+    ]) expect(applyChanges(a!, textChanges(a!, b!)), JSON.stringify([a, b])).toBe(b)
+  })
+
+  it('随机文字：按改动应用后得到目标', () => {
+    for (const start of [7, 11, 12345, 99991])
+      fuzz(start)
+  })
+
+  function fuzz(start: number) {
+    let seed = start
+    const rnd = (n: number) => ((seed = (seed * 1103515245 + 12345) % 2147483648), seed % n)
+    const pieces = ['甲', '乙', 'a', 'b', '\n', '\n\n', ' ', '。']
+    const gen = () => Array.from({ length: rnd(30) }, () => pieces[rnd(pieces.length)]).join('')
+    for (let i = 0; i < 3000; i++) {
+      const a = gen()
+      const b = rnd(2) ? gen() : a.slice(0, rnd(a.length + 1)) + gen() + a.slice(rnd(a.length + 1))
+      const cs = textChanges(a, b)
+      expect(applyChanges(a, cs), JSON.stringify({ a, b, cs })).toBe(b)
+      for (let k = 1; k < cs.length; k++) expect(cs[k]!.from).toBeGreaterThanOrEqual(cs[k - 1]!.to)
+    }
+  }
+})

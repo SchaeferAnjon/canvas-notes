@@ -1,0 +1,112 @@
+/* 全局速记小窗：--pop 底（浅色主题即白卡）圆角 16、--shadow-up，跟着主窗口的主题；窗口本身透明，四周留 20px 给阴影 */
+html,
+body.quick-body {
+  background: transparent;
+  height: auto;
+  overflow: hidden;
+}
+body.quick-body {
+  padding: 20px;
+}
+.qk {
+  background: var(--pop);
+  border-radius: 16px;
+  box-shadow: var(--shadow-up);
+  padding: 14px 16px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  -webkit-app-region: drag;
+}
+.qk-k {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.qk-in {
+  -webkit-app-region: no-drag;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--t1);
+  font: 400 15px/1.75 var(--sans);
+  padding: 0;
+  min-height: 26px;
+  user-select: text;
+}
+.qk-in::placeholder {
+  color: var(--t3);
+}
+.qk-sel {
+  -webkit-app-region: no-drag;
+  background: var(--clip);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.qk-sel .q {
+  border-left: 2px solid var(--clip-bar);
+  padding-left: 10px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--t2);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+.qk-sel .src {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line2);
+  font-size: 12px;
+  color: var(--t2);
+  min-width: 0;
+}
+.qk-hint {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.qk-hint span {
+  flex: 1;
+}
+.qk-err {
+  font-size: 12px;
+  color: var(--red, #dc3545);
+}
+.qk-foot {
+  display: flex;
+  gap: 14px;
+  justify-content: flex-end;
+  font-size: 11px;
+  color: var(--t3);
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.qk-foot kbd {
+  font: 11px var(--sans);
+  color: var(--t2);
+  background: var(--fill);
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin-right: 2px;
+}
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

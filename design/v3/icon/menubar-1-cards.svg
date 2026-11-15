@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <!-- 菜单栏模板图 1「一叠卡片」：单色黑，系统按深浅色自己换色 -->
+  <g fill="none" stroke="#000" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12.6 4.2 L13.6 4.5 a1.2 1.2 0 0 1 .8 1.4 l-2.1 7.7 a1.2 1.2 0 0 1 -1.4 .8 l-1.3 -.3"/>
+    <rect x="2.2" y="1.8" width="8.6" height="12" rx="1.8"/>
+    <path d="M4.7 5 H8.3"/>
+    <path d="M4.7 7.4 H8.3"/>
+  </g>
+  <path d="M4.3 9.6 h2 v2 h-2 z" fill="#000"/>
+</svg>

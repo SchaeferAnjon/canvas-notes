@@ -1,0 +1,18 @@
+{
+  "name": "Canvas Notes",
+  "nameZh": "画布笔记",
+  "artifact": "CanvasNotes",
+  "appId": "com.jiazonghan.canvasnotes",
+  "license": "GPL-3.0-or-later",
+  "author": "Jia Zonghan",
+  "year": 2026,
+  "repo": "SchaeferAnjon/canvas-notes",
+  "site": "https://canvas-note.us-cloud.uk",
+  "hub": "https://apps.us-cloud.uk",
+  "signing": {
+    "identity": "zonghan jia (3H5S5NXPXS)",
+    "team": "3H5S5NXPXS",
+    "notaryProfileEnv": "CN_NOTARY_PROFILE",
+    "notaryProfileDefault": "canvas-notes-notary"
+  }
+}

@@ -1,0 +1,79 @@
+// 假的 claude 命令行（claude -p --output-format stream-json）：测引擎接法用，不联网。
+// 话从标准输入读，一行一个 JSON 事件写到标准输出，和真的一样；--mcp-config 给了就真去调一次 MCP 服务的 board_list。
+import { readFileSync, statSync, writeFileSync } from 'node:fs'
+
+const argv = process.argv.slice(2)
+const flag = (name) => {
+  const i = argv.indexOf(name)
+  return i === -1 ? undefined : argv[i + 1]
+}
+const has = (name) => argv.includes(name)
+const out = (m) => process.stdout.write(JSON.stringify(m) + '\n')
+
+let prompt = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (d) => (prompt += d))
+process.stdin.on('end', () => void main())
+
+async function main() {
+  const resume = flag('--resume')
+  if (resume === 'gone') {
+    process.stderr.write(`No conversation found with session ID: ${resume}\n`)
+    out({ type: 'result', subtype: 'error_during_execution', is_error: true, session_id: resume })
+    process.exit(1)
+  }
+  if (process.env.FAKE_CLAUDE_NOT_LOGGED_IN) {
+    out({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login', session_id: 'x' })
+    process.exit(1)
+  }
+  const session = resume ?? 'c-new'
+  out({ type: 'system', subtype: 'init', session_id: session, tools: (flag('--tools') ?? '').split(',').filter(Boolean) })
+  if (prompt.includes('等着')) {
+    if (process.env.FAKE_CLAUDE_PIDFILE) writeFileSync(process.env.FAKE_CLAUDE_PIDFILE, String(process.pid))
+    setInterval(() => undefined, 1000)
+    return
+  }
+  if (process.env.FAKE_CLAUDE_NO_PARTIAL) {
+    out({ type: 'assistant', session_id: session, message: { content: [{ type: 'text', text: '整段给的回答' }] } })
+    out({ type: 'result', subtype: 'success', is_error: false, result: '整段给的回答', session_id: session })
+    return
+  }
+
+  const block = () => out({ type: 'stream_event', session_id: session, event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } } })
+  const delta = (text) => out({ type: 'stream_event', session_id: session, event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } } })
+  // 前面混一行不是 JSON 的（真的 claude 偶尔打印提示）
+  process.stdout.write('not json\n')
+  block()
+  delta('我先')
+  delta('看看。')
+
+  const parts = []
+  const config = flag('--mcp-config')
+  if (config) {
+    const mode = (statSync(config).mode & 0o777).toString(8)
+    const server = JSON.parse(readFileSync(config, 'utf8')).mcpServers.canvas
+    const res = await fetch(server.url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...server.headers },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'board_list', arguments: {} } }),
+    })
+    const body = await res.json()
+    out({ type: 'assistant', session_id: session, message: { content: [{ type: 'tool_use', id: 't1', name: 'mcp__canvas__board_list', input: {} }] } })
+    parts.push(`工具 ${flag('--tools')}`, `放行 ${flag('--allowedTools')}`, `调工具 ${body.result.content[0].text}`, `配置文件 ${mode}`, `轮数 ${flag('--max-turns')}`)
+  } else {
+    parts.push(`工具「${flag('--tools')}」`, `轮数 ${flag('--max-turns')}`, `不留记录 ${has('--no-session-persistence') ? '是' : '否'}`)
+  }
+  parts.push(
+    `禁止 ${flag('--disallowedTools')}`,
+    `权限 ${flag('--permission-mode')}`,
+    `设置 ${argv.includes('--setting-sources=') ? '不读' : '读'}`,
+    `只接我们的 MCP ${has('--strict-mcp-config') ? '是' : '否'}`,
+    `接着聊 ${resume ?? '否'}`,
+    `系统提示 ${flag('--system-prompt')}`,
+    `话 ${prompt.replace(/\n/g, '/')}`,
+  )
+  // 调完工具另起一个文字块
+  block()
+  for (const p of parts) delta(p + '；')
+  out({ type: 'result', subtype: 'success', is_error: false, result: '（结果里的全文）', session_id: session })
+}

@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Canvas Notes · 画布笔记：本地 Markdown 的白板笔记</title>
+<meta name="description" content="Canvas Notes（画布笔记）：Mac 上的个人笔记软件。白板和文档是同一个 Markdown 文件，旁边开着网页随手剪，AI 用你电脑上已有的命令行替你整理。数据是本地文件加 Git，开源免费。">
+<link rel="icon" href="icon.png">
+<style>
+/* 家族官网的样子（apps.us-cloud.uk、meetcaption.us-cloud.uk）：冷中性灰、白卡、黑色胶囊主按钮、宋体大标题；
+   Canvas Notes 的强调色是李子紫，只给小标记。浅深两色跟着系统，data-theme 可以强制一种 */
+:root {
+  color-scheme: light dark;
+  --paper: light-dark(#fbfbfc, #0f0f11);
+  --mist: light-dark(#f1f1f3, #17171a);
+  --card: light-dark(#ffffff, #1b1b1e);
+  --ink: light-dark(#111113, #f2f2f4);
+  --ink2: light-dark(#3a3a3d, #c9c9cd);
+  --lead: light-dark(#6e6e73, #9a9aa0);
+  --faint: light-dark(#a1a1a6, #6a6a70);
+  --line: light-dark(rgba(17, 17, 19, .08), rgba(255, 255, 255, .08));
+  --line2: light-dark(rgba(17, 17, 19, .14), rgba(255, 255, 255, .14));
+  --acc: light-dark(#9a48ad, #c98bdb);
+  --acc-t: light-dark(#8a3b9d, #d9a8e6);
+  --acc-soft: light-dark(rgba(154, 72, 173, .1), rgba(201, 139, 219, .16));
+  --green: light-dark(#1d9a54, #3fcf7f);
+  --shadow: 0 1px 2px light-dark(rgba(17, 17, 19, .05), rgba(0, 0, 0, .3)), 0 24px 60px -24px light-dark(rgba(17, 17, 19, .28), rgba(0, 0, 0, .7));
+  --serif: "Songti SC", "STSong", "Noto Serif SC", "Source Han Serif SC", Georgia, serif;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --maxw: 1160px;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+}
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; text-autospace: normal; }
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+.ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+.ico.f { fill: currentColor; stroke: none; }
+.wrap { width: min(var(--maxw), calc(100% - 64px)); margin: 0 auto; }
+
+/* 导航 */
+.nav { position: sticky; top: 0; z-index: 50; background: color-mix(in srgb, var(--paper) 86%, transparent); backdrop-filter: saturate(1.4) blur(16px); -webkit-backdrop-filter: saturate(1.4) blur(16px); border-bottom: 1px solid transparent; transition: border-color .2s; }
+.nav.sc { border-bottom-color: var(--line); }
+.nav .in { height: 64px; display: flex; align-items: center; gap: 30px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; white-space: nowrap; }
+.brand img { width: 32px; height: 32px; }
+.links { display: flex; gap: 26px; font-size: 14.5px; color: var(--lead); }
+.links a { white-space: nowrap; }
+.links a:hover { color: var(--ink); }
+.nr { margin-left: auto; display: flex; align-items: center; gap: 16px; font-size: 14px; }
+.seg { display: flex; padding: 3px; border-radius: 999px; border: 1px solid var(--line2); font-size: 12px; }
+.seg button { border: 0; background: none; color: var(--lead); font: inherit; padding: 2px 9px; border-radius: 999px; cursor: pointer; }
+.seg button.on { background: var(--ink); color: var(--paper); }
+.gh { display: flex; align-items: center; gap: 6px; color: var(--lead); }
+.gh:hover { color: var(--ink); }
+
+/* 按钮：黑色胶囊是唯一的实心按钮 */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 40px; padding: 0 20px; border-radius: 999px; border: 1px solid var(--line2); background: var(--card); color: var(--ink); font: 600 14.5px var(--sans); cursor: pointer; white-space: nowrap; transition: transform .15s var(--ease); }
+.btn:hover { transform: translateY(-1px); }
+.btn.ink { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.btn.lg { height: 54px; padding: 0 28px; font-size: 16.5px; }
+.btn.sm { height: 34px; padding: 0 16px; font-size: 13.5px; }
+.btn .ico { width: 17px; height: 17px; }
+
+.kicker { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; font-weight: 500; letter-spacing: .12em; color: var(--lead); }
+.kicker i { width: 7px; height: 7px; border-radius: 50%; background: var(--acc); }
+.h2 { font-family: var(--serif); font-weight: 700; font-size: clamp(28px, 3.2vw, 42px); line-height: 1.25; margin: 12px 0 0; }
+.lede { color: var(--lead); max-width: 40em; margin: 16px 0 0; }
+.sec { padding: 110px 0 0; scroll-margin-top: 64px; }
+.center { text-align: center; }
+.center .lede { margin-left: auto; margin-right: auto; }
+
+/* 首屏 */
+.hero { padding: 72px 0 0; text-align: center; }
+.hero h1 { font-family: var(--serif); font-weight: 700; font-size: clamp(40px, 6.2vw, 72px); line-height: 1.2; letter-spacing: -.01em; margin: 20px 0 0; }
+.hero h1 em { font-style: normal; position: relative; }
+.hero h1 em::after { content: ""; position: absolute; left: 4%; right: 4%; bottom: .04em; height: .08em; border-radius: .04em; background: var(--acc); opacity: .55; }
+.hero .sub { margin: 22px auto 0; max-width: 36em; font-size: 17px; line-height: 1.75; color: var(--lead); text-wrap: balance; }
+.cta { margin-top: 30px; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+.meta { margin-top: 14px; font-size: 13px; color: var(--faint); }
+.meta a { color: var(--lead); text-decoration: underline; text-underline-offset: 3px; }
+
+/* 软件截图：画一个 Mac 窗口的边和红绿灯（截图里窗口顶上没有红绿灯，位置和软件里一样） */
+.shot { position: relative; border-radius: 12px; overflow: hidden; background: var(--card); box-shadow: 0 0 0 1px var(--line2), var(--shadow); }
+.shot img { width: 100%; height: auto; }
+.shot::before { content: ""; position: absolute; left: 1.25%; top: 2%; width: 4.6%; aspect-ratio: 66 / 12; background: radial-gradient(circle at 9% 50%, #ff5f57 0 9%, transparent 10%), radial-gradient(circle at 50% 50%, #febc2e 0 9%, transparent 10%), radial-gradient(circle at 91% 50%, #28c840 0 9%, transparent 10%); background-size: 100% 100%; }
+.shot.wide::before { top: 2%; }
+.stage { width: min(1160px, calc(100% - 40px)); margin: 56px auto 0; }
+
+/* 四句话 */
+.facts { display: grid; grid-template-columns: repeat(4, 1fr); margin: 64px 0 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.fact { padding: 22px 20px; border-left: 1px solid var(--line); }
+.fact:first-child { border-left: 0; }
+.fact dt { font-size: 13px; color: var(--lead); display: flex; align-items: center; gap: 6px; }
+.fact .v { font-family: var(--serif); font-weight: 700; font-size: 24px; margin: 4px 0; }
+.fact dd { margin: 0; font-size: 13.5px; color: var(--lead); }
+
+/* 功能：一行字一张图，左右交替 */
+.feat { display: grid; grid-template-columns: 5fr 7fr; gap: 56px; align-items: center; padding: 56px 0; border-top: 1px solid var(--line); }
+.feat:first-of-type { border-top: 0; }
+.feat.flip .txt { order: 2; }
+.feat .ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--mist); }
+.feat h3 { font-family: var(--serif); font-size: 28px; line-height: 1.3; margin: 16px 0 10px; }
+.feat p { margin: 0 0 12px; color: var(--ink2); font-size: 15.5px; }
+.feat ul { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; font-size: 14.5px; color: var(--lead); }
+.feat li { display: flex; gap: 8px; }
+.feat li .ico { width: 16px; height: 16px; color: var(--acc); margin-top: 5px; }
+.kbd { display: inline-flex; align-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 5px; font: 500 12px/1 var(--sans); background: var(--mist); border: 1px solid var(--line); color: var(--ink2); vertical-align: 1px; }
+.pair { display: grid; gap: 14px; }
+.pair .shot:nth-child(2) { width: 78%; margin: -18% 0 0 auto; }
+.cap { font-size: 12.5px; color: var(--faint); margin-top: 10px; }
+
+/* 开源与隐私：换了底色的一块，跟着浅深走 */
+.night { margin-top: 110px; background: var(--mist); padding: 100px 0; scroll-margin-top: 64px; }
+.boxes { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 40px; }
+.box { border-radius: 18px; border: 1px solid var(--line2); background: var(--card); padding: 24px; }
+.box h4 { margin: 0 0 14px; font-size: 16px; display: flex; gap: 8px; align-items: center; }
+.box ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; font-size: 14.5px; color: var(--ink2); }
+.box li { display: flex; gap: 10px; }
+.box li .ico { width: 16px; height: 16px; flex: none; margin-top: 5px; color: var(--green); }
+.box.out li .ico { color: var(--lead); }
+.cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 16px; }
+.cell { border-radius: 16px; background: var(--card); border: 1px solid var(--line); padding: 20px; font-size: 14px; color: var(--ink2); }
+.cell b { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
+.cell a { text-decoration: underline; text-underline-offset: 3px; }
+
+/* 下载 */
+.dl { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 40px; }
+.dlc { border-radius: 22px; background: var(--card); border: 1px solid var(--line); padding: 28px 26px; display: flex; flex-direction: column; gap: 10px; }
+.dlc .tag2 { font-size: 12.5px; letter-spacing: .1em; color: var(--lead); }
+.dlc .big { font-family: var(--serif); font-size: 30px; font-weight: 700; line-height: 1.2; }
+.dlc .fn { font: 12.5px var(--mono); color: var(--lead); word-break: break-all; }
+.dlc ol { margin: 4px 0 0; padding-left: 20px; color: var(--ink2); font-size: 14.5px; display: grid; gap: 6px; }
+.dlc .bt { margin-top: auto; padding-top: 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+.dlnote { text-align: center; margin-top: 22px; font-size: 14px; color: var(--lead); }
+.dlnote a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.dlnote + .dlnote { margin: 8px auto 0; max-width: 640px; }
+
+/* 常见问题 */
+.faq { max-width: 820px; margin: 34px auto 0; }
+.faq details { border-bottom: 1px solid var(--line); padding: 16px 4px; }
+.faq summary { cursor: pointer; font-weight: 600; font-size: 16px; list-style: none; display: flex; justify-content: space-between; gap: 16px; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; color: var(--lead); font-weight: 400; }
+.faq details[open] summary::after { content: "−"; }
+.faq .ans { color: var(--lead); margin-top: 8px; font-size: 15px; }
+.faq .ans a { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+
+.finale { padding: 120px 0 100px; text-align: center; }
+
+/* 页脚：回总站的小条和 MeetCaption 一样 */
+.foot { border-top: 1px solid var(--line); padding: 48px 0 40px; }
+.foot .g { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 24px; font-size: 14px; }
+.foot h4 { margin: 0 0 10px; font-size: 13.5px; }
+.foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; color: var(--lead); }
+.foot ul a:hover { color: var(--ink); }
+.xstrip { margin-top: 36px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; font-size: 13px; color: var(--lead); }
+.xstrip .by u { text-underline-offset: 3px; text-decoration-color: var(--line2); }
+.xstrip .by:hover u { text-decoration-color: currentColor; color: var(--ink); }
+.xstrip .sep { color: var(--faint); }
+.xstrip .icons { display: flex; gap: 8px; }
+.xstrip .icons a { position: relative; display: block; width: 22px; height: 22px; }
+.xstrip .icons img { width: 22px; height: 22px; border-radius: 5px; box-shadow: 0 0 0 1px var(--line); transition: transform .15s; }
+.xstrip .icons a:hover img { transform: translateY(-1px); }
+.xstrip .icons a.cur::after { content: ""; position: absolute; left: 50%; bottom: -6px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--faint); }
+.xstrip .icons .tip { position: absolute; left: 50%; bottom: 30px; transform: translateX(-50%); padding: 3px 8px; border-radius: 6px; background: var(--ink); color: var(--paper); font-size: 11.5px; white-space: nowrap; pointer-events: none; display: none; }
+.xstrip .icons a:hover .tip { display: block; }
+.xstrip .icons a:last-child .tip { left: auto; right: 0; transform: none; }
+.foot .cp { margin-top: 10px; font-size: 12.5px; color: var(--faint); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+
+@media (max-width: 960px) {
+  .feat { grid-template-columns: 1fr; gap: 26px; padding: 44px 0; }
+  .feat.flip .txt { order: 0; }
+  .facts { grid-template-columns: 1fr 1fr; }
+  .fact:nth-child(3) { border-left: 0; }
+  .fact:nth-child(n + 3) { border-top: 1px solid var(--line); }
+}
+@media (max-width: 760px) {
+  .wrap { width: calc(100% - 32px); }
+  .nav .links, .nav .gh span { display: none; }
+  .nav .in { gap: 12px; }
+  .nr { gap: 10px; }
+  .hero { padding-top: 44px; }
+  .hero .sub { font-size: 16px; }
+  .btn.lg { height: auto; min-height: 50px; padding: 10px 22px; white-space: normal; text-align: center; line-height: 1.3; }
+  .stage { width: calc(100% - 32px); margin-top: 40px; }
+  .sec { padding-top: 80px; }
+  .night { margin-top: 80px; padding: 72px 0; }
+  .boxes, .cells, .dl { grid-template-columns: 1fr; }
+  .facts { grid-template-columns: 1fr; }
+  .fact { border-left: 0; border-top: 1px solid var(--line); }
+  .fact:first-child { border-top: 0; }
+  .feat h3 { font-size: 24px; }
+  .foot .g { grid-template-columns: 1fr 1fr; }
+  .foot .g > div:first-child { grid-column: 1 / -1; }
+  .finale { padding: 90px 0 70px; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-github" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4"/><path d="M9 18c-4.51 2-5-2-7-2"/></symbol>
+  <symbol id="i-apple" viewBox="0 0 24 24"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.2-1.7-3-1.9-3.6-2-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.6 1.3-.1 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.8-1.1-2.9-4.3zM13.9 5.3c.7-.9 1.2-2 1-3.2-1 0-2.3.7-3 1.6-.7.8-1.2 2-1.1 3.1 1.2.1 2.4-.6 3.1-1.5z"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+  <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></symbol>
+  <symbol id="i-drive" viewBox="0 0 24 24"><path d="M22 12H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><path d="M6 16h.01"/><path d="M10 16h.01"/></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><path d="M6 3v12"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m4 17 6-6-6-6"/><path d="M12 19h8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></symbol>
+  <symbol id="i-code" viewBox="0 0 24 24"><path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></symbol>
+</svg>
+
+<header class="nav" id="nav"><div class="wrap in">
+  <a class="brand" href="#top"><img src="icon.png" alt="">Canvas Notes</a>
+  <nav class="links"><a href="#features" data-i="nav.f">功能</a><a href="#open" data-i="nav.o">开源与隐私</a><a href="#download" data-i="nav.d">下载</a><a href="#faq" data-i="nav.q">常见问题</a></nav>
+  <div class="nr">
+    <div class="seg" role="group" aria-label="语言 / Language"><button data-lang="zh">简</button><button data-lang="en">EN</button></div>
+    <a class="gh" href="https://github.com/SchaeferAnjon/canvas-notes" target="_blank" rel="noopener"><svg class="ico"><use href="#i-github"/></svg><span>GitHub</span></a>
+    <a class="btn ink sm" href="#download" data-i="nav.dl">下载</a>
+  </div>
+</div></header>
+
+<main id="top">
+  <section class="hero wrap">
+    <span class="kicker"><i></i><span data-i="hero.k">画布笔记 · 开源免费 · Mac</span></span>
+    <h1 data-i="hero.h">随手存，<em>自动整理</em>，<br>随时看得到。</h1>
+    <p class="sub" data-i="hero.p">白板和文档是同一个 Markdown 文件，旁边开着网页随手剪，AI 用你电脑上已有的命令行替你整理。笔记是你硬盘上的普通文件，每一次改动都在 Git 里，能撤回。</p>
+    <div class="cta">
+      <a class="btn ink lg" data-dl="arm64" href="https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-arm64.dmg"><svg class="ico"><use href="#i-download"/></svg><span data-i="hero.dl">免费下载 Mac 版 · Apple 芯片</span></a>
+      <a class="btn lg" href="https://github.com/SchaeferAnjon/canvas-notes" target="_blank" rel="noopener"><svg class="ico"><use href="#i-github"/></svg><span data-i="hero.src">看源码</span></a>
+    </div>
+    <div class="meta"><span class="ver" data-i="hero.meta">macOS 12 及以上</span> · <a data-dl="x64" href="https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-x64.dmg" data-i="hero.intel">Intel 芯片的 Mac 点这里</a></div>
+  </section>
+
+  <div class="stage">
+    <div class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/board-dark.jpg"><img src="shots/board-light.jpg" width="2160" height="1350" alt="Canvas Notes 的白板：冰岛自驾的卡片、待办、图片卡、剪来的引文和一列「极光看哪两晚」" data-i-alt="alt.hero"></picture></div>
+  </div>
+
+  <div class="wrap">
+    <dl class="facts">
+      <div class="fact"><dt><svg class="ico" style="width:14px;height:14px"><use href="#i-file"/></svg><span data-i="f1.t">数据</span></dt><div class="v" data-i="f1.v">本地 Markdown</div><dd data-i="f1.d">一个文件夹，几篇 md，别的软件也能打开</dd></div>
+      <div class="fact"><dt><svg class="ico" style="width:14px;height:14px"><use href="#i-branch"/></svg><span data-i="f2.t">历史</span></dt><div class="v">Git</div><dd data-i="f2.d">自动提交，每一步都能撤回</dd></div>
+      <div class="fact"><dt><svg class="ico" style="width:14px;height:14px"><use href="#i-terminal"/></svg><span data-i="f3.t">AI</span></dt><div class="v" data-i="f3.v">你的命令行</div><dd data-i="f3.d">Claude Code、Codex、Gemini、OpenCode</dd></div>
+      <div class="fact"><dt><svg class="ico" style="width:14px;height:14px"><use href="#i-code"/></svg><span data-i="f4.t">价格</span></dt><div class="v" data-i="f4.v">免费</div><dd data-i="f4.d">开源（GPL-3.0-or-later），没有付费版</dd></div>
+    </dl>
+  </div>
+
+  <section class="sec wrap" id="features">
+    <div class="center"><span class="kicker"><i></i><span data-i="feat.k">功能</span></span><h2 class="h2" data-i="feat.h">先随手存，整理交给软件</h2><p class="lede" data-i="feat.p">不用先想好分类。剪进来的先进收件箱，写的东西随时能在白板上摆开，AI 和「梦游」替你把散的收拢。</p></div>
+
+    <article class="feat">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-grid"/></svg></div>
+        <h3 data-i="b.h">白板和文档，是同一个文件</h3>
+        <p data-i="b.p">一篇笔记点「白板」摊成卡片，点「文档」从上往下读。卡片、列、待办、图片、子白板、连线都写在 md 的注释里，换个软件打开照样是一篇读得通的文章。</p>
+        <ul>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l1">双击空白处加卡片，拖进列、连线、⌘Z 撤销</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l2">文档实时预览，光标所在行露出 md 原文；[[双链]] 和 Obsidian 一样</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l3">打开再保存，文件一个字节都不变（有自动化测试守着）</span></li>
+        </ul>
+      </div>
+      <div class="pair">
+        <div class="shot"><img src="shots/board-light.jpg" width="2160" height="1350" loading="lazy" alt="白板" data-i-alt="alt.board"></div>
+        <div class="shot"><img src="shots/doc.jpg" width="2160" height="1350" loading="lazy" alt="同一个库里的文档，米白主题下正文是一张纸" data-i-alt="alt.doc"></div>
+      </div>
+    </article>
+
+    <article class="feat flip">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-scissors"/></svg></div>
+        <h3 data-i="c.h">右边开网页，选中一段就剪</h3>
+        <p data-i="c.p">内置完整的 Chrome 内核。选中一段，白板里是「剪成卡片」，文档里是「剪进文档」插到光标处，来源和时间自动带上。整页剪藏把正文存成收件箱里新的一篇。</p>
+        <ul>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="c.l1">一键导入 Chrome 的登录、书签、历史和插件</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="c.l2">网页里的图片直接拖上白板，存进库里的「附件」</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="c.l3">任何软件里按 <span class="kbd">⌥</span> <span class="kbd">⌘</span> <span class="kbd">N</span> 速记，回车进收件箱</span></li>
+        </ul>
+      </div>
+      <div><div class="shot"><img src="shots/clip.jpg" width="2160" height="1350" loading="lazy" alt="右栏网页里选中一段，上方出现「剪成卡片 · 到：收件箱」" data-i-alt="alt.clip"></div></div>
+    </article>
+
+    <article class="feat">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-sparkles"/></svg></div>
+        <h3 data-i="a.h">AI 接你自己的命令行，能动手</h3>
+        <p data-i="a.p">右下角的 AI 用这台 Mac 上已经登录的 Claude Code、Codex、Gemini 或 OpenCode，不另存密钥。直接说话，它能在白板上加卡片、排成列，在文档里插入、改写，在网页里打开、剪藏。</p>
+        <ul>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="a.l1">每一轮改的文件是一次单独的提交，浮窗里点「撤回」就回去</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="a.l2">它只能用软件给的工具改笔记，不能自己写文件、跑命令</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="a.l3">/ 命令：整理收件箱、总结这块白板、写成文章、翻译、找重复</span></li>
+        </ul>
+      </div>
+      <div><div class="shot"><img src="shots/ai.jpg" width="2160" height="1350" loading="lazy" alt="AI 浮窗：一步步加了三张卡片、按列排整齐，下面是改了 1 个文件的改动预览和撤回按钮" data-i-alt="alt.ai"></div></div>
+    </article>
+
+    <article class="feat flip">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-moon"/></svg></div>
+        <h3 data-i="d.h">梦游：你睡觉时，它在分支上整理</h3>
+        <p data-i="d.p">Mac 闲着的时候，AI 在单独的 Git 分支上给收件箱分类、补双链、找重复、写本周小结。第二天看「梦游报告」，一条条收下或丢掉。</p>
+        <ul>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="d.l1">收下才合进 main，你写的正文一个字不动</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="d.l2">也可以随时点「现在梦游」</span></li>
+        </ul>
+      </div>
+      <div><div class="shot"><img src="shots/dream.jpg" width="2160" height="1350" loading="lazy" alt="深色主题的梦游报告：收件箱分了类、本周小结，每条能收下或丢掉" data-i-alt="alt.dream"></div></div>
+    </article>
+
+    <article class="feat">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-search"/></svg></div>
+        <h3 data-i="s.h"><span class="kbd" style="font-size:20px;height:30px;min-width:30px;vertical-align:4px">⌘</span> F 一下就找到</h3>
+        <p data-i="s.p">搜标题也搜正文，刚打的字也算。命令也在这里：换主题、编辑首页、在右栏开网页、打开梦游报告、问 AI。</p>
+      </div>
+      <div><div class="shot"><img src="shots/search.jpg" width="2160" height="1350" loading="lazy" alt="⌘F 搜索面板：搜「极光」，笔记和命令分组列出" data-i-alt="alt.search"></div></div>
+    </article>
+
+    <article class="feat flip">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-history"/></svg></div>
+        <h3 data-i="h.h">每一次改动都在 Git 里，能撤回</h3>
+        <p data-i="h.p">没提交的改动按设置的间隔自动提交，退出和换库前也会提交。历史里看每次改了哪些文件；配上自己的远程仓库，「同步」一下在几台电脑间来回。</p>
+        <ul>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="h.l1">别的软件或同步改了文件，你正在打的字不会丢（有自动化测试守着）</span></li>
+        </ul>
+      </div>
+      <div><div class="shot"><img src="shots/history.jpg" width="2160" height="1350" loading="lazy" alt="右栏的历史：一次次提交和每次改了的文件" data-i-alt="alt.history"></div></div>
+    </article>
+
+    <article class="feat">
+      <div class="txt">
+        <div class="ic"><svg class="ico"><use href="#i-palette"/></svg></div>
+        <h3 data-i="t.h">六套主题，首页自己摆</h3>
+        <p data-i="t.p">家族灰（浅、深）、纯白、米白、纯黑、深海蓝，白天夜里可以各用一套。首页两种样式：封面长图加组件，或者整页背景加玻璃组件；组件能拖、能收、能换大小，封面能换。</p>
+      </div>
+      <div class="pair">
+        <div class="shot"><img src="shots/themes.jpg" width="2160" height="1350" loading="lazy" alt="设置的外观页：六套主题卡片和两种首页样式" data-i-alt="alt.themes"></div>
+        <div class="shot"><img src="shots/home-b.jpg" width="2160" height="1350" loading="lazy" alt="深海蓝主题的首页 B：极光照片铺满，组件是半透明玻璃" data-i-alt="alt.home"></div>
+      </div>
+    </article>
+  </section>
+
+  <section class="night" id="open">
+    <div class="wrap">
+      <div class="center"><span class="kicker"><i></i><span data-i="o.k">开源与隐私</span></span><h2 class="h2" data-i="o.h">你的笔记，留在你的硬盘上</h2><p class="lede" data-i="o.p">没有账号，没有服务器，没有使用统计。软件只是打开你选的那个文件夹。</p></div>
+      <div class="boxes">
+        <div class="box">
+          <h4><svg class="ico"><use href="#i-drive"/></svg><span data-i="o.in">只在你电脑上</span></h4>
+          <ul>
+            <li><svg class="ico"><use href="#i-check"/></svg><span data-i="o.i1">笔记：一个文件夹里的普通 md 文件和图片，每个库是一个 Git 仓库</span></li>
+            <li><svg class="ico"><use href="#i-check"/></svg><span data-i="o.i2">设置、AI 对话记录、网页标签、书签和历史：软件自己的设置目录</span></li>
+            <li><svg class="ico"><use href="#i-check"/></svg><span data-i="o.i3">导入的 Chrome 登录：只在内置浏览器里用，不出这台电脑</span></li>
+            <li><svg class="ico"><use href="#i-check"/></svg><span data-i="o.i4">不用注册，不收集使用数据，软件自己不往任何服务器发东西</span></li>
+          </ul>
+        </div>
+        <div class="box out">
+          <h4><svg class="ico"><use href="#i-out"/></svg><span data-i="o.out">只有你让它出门时才出门</span></h4>
+          <ul>
+            <li><svg class="ico"><use href="#i-terminal"/></svg><span data-i="o.o1">AI：这一轮要看的笔记交给你选的命令行，再由它发给它自己的服务（Anthropic、OpenAI、Google……），和你在终端里用它一样</span></li>
+            <li><svg class="ico"><use href="#i-branch"/></svg><span data-i="o.o2">同步：推到你自己填的 Git 远程仓库；不填就只在本机</span></li>
+            <li><svg class="ico"><use href="#i-globe"/></svg><span data-i="o.o3">网页：你在内置浏览器里打开的网站，和用 Chrome 打开一样</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="cells">
+        <div class="cell"><b data-i="o.c1">源码公开</b><span data-i="o.c1p">全部代码在 <a href="https://github.com/SchaeferAnjon/canvas-notes" target="_blank" rel="noopener">GitHub</a>，按 GPL-3.0-or-later 开源，可以自己编译。</span></div>
+        <div class="cell"><b data-i="o.c2">不锁住你的数据</b><span data-i="o.c2p">不用这个软件了，文件夹还在，Obsidian、VS Code、任何编辑器都能打开。</span></div>
+        <div class="cell"><b data-i="o.c3">一个人维护</b><span data-i="o.c3p">写代码、回问题、发新版的是同一个人。有问题去 <a href="https://github.com/SchaeferAnjon/canvas-notes/issues" target="_blank" rel="noopener">GitHub Issues</a>。</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec wrap" id="download">
+    <div class="center"><span class="kicker"><i></i><span data-i="dl.k">下载</span></span><h2 class="h2" data-i="dl.h">免费下载，打开就能用</h2><p class="lede" data-i="dl.p">没有试用期，没有付费版，没有账号。<span class="ver2"></span></p></div>
+    <div class="dl">
+      <div class="dlc">
+        <div class="tag2">MAC · ARM64</div>
+        <div class="big" data-i="dl.arm">Apple 芯片</div>
+        <div class="fn" data-fn="arm64">CanvasNotes-mac-arm64.dmg</div>
+        <ol>
+          <li data-i="dl.s1">打开下载的 dmg，把 Canvas Notes 拖进「应用程序」</li>
+          <li data-i="dl.s2">第一次打开选一个文件夹当库（空文件夹，或者已有的 Obsidian 库都行）</li>
+          <li data-i="dl.s3">要用 AI，先在终端里装好并登录 Claude Code、Codex、Gemini 或 OpenCode 中的一个</li>
+        </ol>
+        <div class="bt"><a class="btn ink" data-dl="arm64" href="https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-arm64.dmg"><svg class="ico f"><use href="#i-apple"/></svg><span data-i="dl.b">下载</span></a></div>
+      </div>
+      <div class="dlc">
+        <div class="tag2">MAC · X64</div>
+        <div class="big" data-i="dl.intel">Intel 芯片</div>
+        <div class="fn" data-fn="x64">CanvasNotes-mac-x64.dmg</div>
+        <ol>
+          <li data-i="dl.i1">不知道是哪种芯片：点屏幕左上角的苹果菜单，选「关于本机」，「芯片」那一行写 Apple M 就选左边，写 Intel 就选这里</li>
+          <li data-i="dl.i2">要求 macOS 12 或更新；需要 Git（第一次用时 macOS 会提示安装命令行工具）</li>
+        </ol>
+        <div class="bt"><a class="btn" data-dl="x64" href="https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-x64.dmg"><svg class="ico f"><use href="#i-apple"/></svg><span data-i="dl.b">下载</span></a></div>
+      </div>
+    </div>
+    <p class="dlnote"><span data-i="dl.more">以前的版本和每一版改了什么在</span> <a href="https://github.com/SchaeferAnjon/canvas-notes/releases" target="_blank" rel="noopener" data-i="dl.rel">GitHub 发布页</a><span data-i="dl.win">。Windows 和手机版还没有。</span></p>
+    <p class="dlnote" data-i="dl.gk">这一版没有经过 Apple 公证（作者的其他软件也没有）。第一次打开时如果提示「无法验证开发者」，在访达里右键点 Canvas Notes 选「打开」，或到 系统设置 › 隐私与安全性 里点「仍要打开」。</p>
+  </section>
+
+  <section class="sec wrap" id="faq">
+    <div class="center"><span class="kicker"><i></i><span data-i="q.k">常见问题</span></span><h2 class="h2" data-i="q.h">常见问题</h2></div>
+    <div class="faq">
+      <details><summary data-i="q1">收费吗？</summary><div class="ans" data-i="a1">不收费。没有试用额度，没有付费版，也不用注册。AI 用的是你自己命令行的账号，那边怎么收费跟这个软件无关。</div></details>
+      <details><summary data-i="q2">笔记存在哪？能用别的软件打开吗？</summary><div class="ans" data-i="a2">存在你选的文件夹里，就是普通的 .md 文件和图片，文件夹本身是一个 Git 仓库。白板的卡片位置写在 HTML 注释里，Obsidian、Typora、VS Code 打开看到的是一篇正常的文章。</div></details>
+      <details><summary data-i="q3">能直接打开我现在的 Obsidian 库吗？</summary><div class="ans" data-i="a3">能。选那个文件夹当库就行，[[双链]] 的写法一样。它会在库里建 Git（已经是 Git 仓库就直接用），在 .canvas-notes/ 里存首页的摆法。</div></details>
+      <details><summary data-i="q4">没装 AI 命令行能用吗？</summary><div class="ans" data-i="a4">能。白板、文档、剪藏、搜索、Git 历史都不需要 AI。要用 AI 时，在终端里装好并登录 Claude Code、Codex、Gemini 或 OpenCode 中的一个，软件会自己找到它。</div></details>
+      <details><summary data-i="q5">AI 会把我的笔记发出去吗？</summary><div class="ans" data-i="a5">只发你这一轮让它看的内容：当前的白板或文档、选中的卡片、你 @ 的笔记、开着的网页。它们交给你选的命令行，由命令行发给它自己的服务，和你在终端里用它一样。软件本身不经过任何别的服务器。</div></details>
+      <details><summary data-i="q6">怎么在两台电脑之间同步？</summary><div class="ans" data-i="a6">在设置的「Git」页填一个你自己的远程仓库（比如 GitHub 私有仓库），底栏点「同步」：先提交，再拉，再推。两边同时改了同一处，会另存一份冲突副本，不会丢。</div></details>
+      <details><summary data-i="q7">有 Windows 版或手机版吗？</summary><div class="ans" data-i="a7">现在只有 Mac。手机版在计划里，还没开始做。</div></details>
+      <details><summary data-i="q8">为什么是 GPL？</summary><div class="ans" data-i="a8">GPL-3.0-or-later 保证这个软件和它的改版一直开源：谁拿去改了再发出来，也要按同样的许可证公开改过的源码。个人用、公司内部用都不受影响。作者的其他软件（比如 MeetCaption）也用这个许可证。</div></details>
+    </div>
+  </section>
+
+  <section class="finale wrap">
+    <h2 class="h2" data-i="end.h">打开一个文件夹，开始随手存</h2>
+    <div class="cta"><a class="btn ink lg" data-dl="arm64" href="https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-arm64.dmg"><svg class="ico"><use href="#i-download"/></svg><span data-i="hero.dl">免费下载 Mac 版 · Apple 芯片</span></a></div>
+    <div class="meta"><a data-dl="x64" href="https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-x64.dmg" data-i="hero.intel">Intel 芯片的 Mac 点这里</a></div>
+  </section>
+</main>
+
+<footer class="foot"><div class="wrap">
+  <div class="g">
+    <div><a class="brand" href="#top"><img src="icon.png" alt="">Canvas Notes</a><p style="color:var(--lead);font-size:14px;margin:12px 0 0;max-width:24em" data-i="ft.p">画布笔记 · 本地 Markdown 加 Git 的白板笔记，开源免费。</p></div>
+    <div><h4 data-i="ft.prod">产品</h4><ul><li><a href="#features" data-i="nav.f">功能</a></li><li><a href="#download" data-i="nav.d">下载</a></li><li><a href="https://github.com/SchaeferAnjon/canvas-notes/releases" target="_blank" rel="noopener" data-i="ft.rel">更新记录</a></li></ul></div>
+    <div><h4 data-i="ft.open">开源</h4><ul><li><a href="https://github.com/SchaeferAnjon/canvas-notes" target="_blank" rel="noopener" data-i="ft.src">GitHub 源码</a></li><li><a href="https://github.com/SchaeferAnjon/canvas-notes/issues" target="_blank" rel="noopener" data-i="ft.iss">提问题</a></li><li><a href="https://github.com/SchaeferAnjon/canvas-notes/blob/main/LICENSE" target="_blank" rel="noopener">GPL-3.0-or-later</a></li></ul></div>
+    <div><h4 data-i="ft.help">帮助</h4><ul><li><a href="#faq" data-i="nav.q">常见问题</a></li><li><a href="#open" data-i="ft.priv">隐私</a></li></ul></div>
+  </div>
+  <div class="xstrip"><a class="by" href="https://apps.us-cloud.uk"><span data-i="ft.by">SchaeferAnjon 出品</span> <span class="sep">·</span> <u data-i="ft.all">全部软件</u></a><span class="icons">
+    <a class="cur" href="#top" aria-label="Canvas Notes"><img src="icon.png" alt=""><span class="tip">Canvas Notes · <span data-i="ft.here">你在这里</span></span></a>
+    <a href="https://meetcaption.us-cloud.uk" aria-label="MeetCaption"><img src="family/meetcaption.png" alt=""><span class="tip">MeetCaption</span></a>
+    <a href="https://typeright.us-cloud.uk" aria-label="TypeRight"><img src="family/typeright.png" alt=""><span class="tip">TypeRight</span></a>
+    <a href="https://getnewword.us-cloud.uk" aria-label="GetNewWord"><img src="family/getnewword.png" alt=""><span class="tip">GetNewWord</span></a>
+    <a href="https://pararead.us-cloud.uk" aria-label="ParaRead"><img src="family/pararead.png" alt=""><span class="tip">ParaRead</span></a>
+    <a href="https://askfree.us-cloud.uk" aria-label="Ask Free"><img src="family/askfree.png" alt=""><span class="tip">Ask Free</span></a>
+  </span></div>
+  <div class="cp"><span>© 2026 Jia Zonghan · GPL-3.0-or-later</span><span>macOS 12+ · <span id="ver">v0.1.0</span></span></div>
+</div></footer>
+
+<script>
+const REPO = 'SchaeferAnjon/canvas-notes'
+
+/* 语言：?lang= > 上次选的 > 浏览器语言。中文写在页面里，英文在下面这张表 */
+const EN = {
+  'nav.f': 'Features', 'nav.o': 'Open source & privacy', 'nav.d': 'Download', 'nav.q': 'FAQ', 'nav.dl': 'Download',
+  'hero.k': 'Open source · Free · Mac',
+  'hero.h': 'Save anything.<br><em>Sorted for you.</em><br>Always in sight.',
+  'hero.p': 'A whiteboard and a document in the same Markdown file, a browser beside it to clip from, and an AI that tidies up through the command line you already have. Your notes are plain files on your disk, and every change is in Git, so you can undo it.',
+  'hero.dl': 'Download for Mac · Apple silicon', 'hero.src': 'View source', 'hero.meta': 'macOS 12 or later', 'hero.intel': 'Mac with an Intel chip',
+  'alt.hero': 'A Canvas Notes whiteboard: cards, a to-do list, photos, a clipped quote and a column for planning an Iceland road trip',
+  'f1.t': 'Data', 'f1.v': 'Local Markdown', 'f1.d': 'A folder of .md files any editor can open',
+  'f2.t': 'History', 'f2.d': 'Committed for you; every step can be undone',
+  'f3.t': 'AI', 'f3.v': 'Your own CLI', 'f3.d': 'Claude Code, Codex, Gemini, OpenCode',
+  'f4.t': 'Price', 'f4.v': 'Free', 'f4.d': 'Open source (GPL-3.0-or-later), no paid tier',
+  'feat.k': 'Features', 'feat.h': 'Save first. Let the app sort it out.', 'feat.p': 'No folders to plan up front. Clippings land in the inbox, anything you write can be spread out on a board, and the AI and Dreaming gather the loose ends.',
+  'b.h': 'A whiteboard and a document, one file', 'b.p': 'Open a note as a board and it spreads into cards; switch to Document and it reads top to bottom. Cards, columns, to-dos, images, sub-boards and links live in Markdown comments, so any other app still shows a readable article.',
+  'b.l1': 'Double-click to add a card, drag into columns, draw links, ⌘Z to undo', 'b.l2': 'Live preview shows the raw Markdown on the line you are editing; [[wikilinks]] work as in Obsidian', 'b.l3': 'Open and save without edits and the file stays byte-for-byte the same (covered by automated tests)',
+  'alt.board': 'The whiteboard', 'alt.doc': 'A document in the same vault; in the Cream theme the page is a sheet of paper',
+  'c.h': 'A browser on the right; select and clip', 'c.p': 'A full Chromium browser is built in. Select a paragraph: on a board it becomes a card, in a document it is inserted at the cursor, with the source and time attached. Clip a whole page and its article becomes a new note in the inbox.',
+  'c.l1': 'Import your Chrome sign-ins, bookmarks, history and extensions in one click', 'c.l2': 'Drag images from a page straight onto the board; they are saved in the vault', 'c.l3': 'Press <span class="kbd">⌥</span> <span class="kbd">⌘</span> <span class="kbd">N</span> in any app for a quick note that goes to the inbox',
+  'alt.clip': 'A paragraph selected in the browser panel, with the Clip as card button above it',
+  'a.h': 'The AI uses your own CLI, and can act', 'a.p': 'The assistant in the corner runs Claude Code, Codex, Gemini or OpenCode, whichever is already signed in on this Mac; no keys are stored. Just talk: it adds cards and arranges columns on a board, inserts and rewrites in a document, and opens and clips web pages.',
+  'a.l1': 'Each turn is one commit; Undo in the panel takes it back', 'a.l2': 'It can only change notes through the app’s tools, never write files or run commands itself', 'a.l3': 'Slash commands: tidy the inbox, summarise this board, turn it into an article, translate, find duplicates',
+  'alt.ai': 'The AI panel adding three cards step by step, arranging them in columns, with a change preview and an Undo button',
+  'd.h': 'Dreaming: it tidies on a branch while you sleep', 'd.p': 'When your Mac is idle, the AI works on a separate Git branch: it files the inbox, adds missing links, finds duplicates and writes a weekly summary. The next day you read the Dream report and accept or drop each item.',
+  'd.l1': 'Nothing reaches main until you accept it, and your own writing is never touched', 'd.l2': 'Or start a dream any time with Dream now',
+  'alt.dream': 'The Dream report in the dark theme: inbox items filed, a weekly summary, each with accept and drop',
+  's.h': '<span class="kbd" style="font-size:20px;height:30px;min-width:30px;vertical-align:4px">⌘</span> F finds it', 's.p': 'Searches titles and full text, including what you typed a second ago. Commands live here too: change theme, edit the home page, open a page on the right, open the Dream report, ask the AI.',
+  'alt.search': 'The ⌘F palette searching for aurora, notes and commands in groups',
+  'h.h': 'Every change is in Git, and can be undone', 'h.p': 'Uncommitted changes are committed on a timer you choose, and before you quit or switch vaults. History shows which files each commit touched; add your own remote and Sync moves your notes between computers.',
+  'h.l1': 'When sync or another app changes a file, what you are typing is not lost (covered by automated tests)',
+  'alt.history': 'The history panel: commits and the files each one changed',
+  't.h': 'Six themes, a home page you arrange', 't.p': 'Family grey (light and dark), White, Cream, Black and Deep sea, with one theme for day and one for night. Two home styles: a cover with widgets, or a full-page photo with glass widgets. Drag, hide and resize the widgets, and change the cover.',
+  'alt.themes': 'Appearance settings: six theme cards and two home styles', 'alt.home': 'Home style B in the Deep sea theme: an aurora photo behind glass widgets',
+  'o.k': 'Open source & privacy', 'o.h': 'Your notes stay on your disk', 'o.p': 'No account, no server, no usage statistics. The app just opens the folder you pick.',
+  'o.in': 'Stays on your computer', 'o.i1': 'Notes: plain .md files and images in a folder; each vault is a Git repository', 'o.i2': 'Settings, AI chat history, browser tabs, bookmarks and history: the app’s own settings folder', 'o.i3': 'Imported Chrome sign-ins: used only by the built-in browser, never leave this computer', 'o.i4': 'No sign-up, no analytics; the app itself sends nothing to any server',
+  'o.out': 'Leaves only when you ask', 'o.o1': 'AI: the notes for this turn go to the command-line tool you picked, which sends them to its own service (Anthropic, OpenAI, Google…), just as when you use it in a terminal', 'o.o2': 'Sync: pushes to a Git remote you set up yourself; without one, everything stays local', 'o.o3': 'Web: the sites you open in the built-in browser, as in Chrome',
+  'o.c1': 'Open source', 'o.c1p': 'All the code is on <a href="https://github.com/SchaeferAnjon/canvas-notes" target="_blank" rel="noopener">GitHub</a> under GPL-3.0-or-later. Build it yourself if you like.',
+  'o.c2': 'No lock-in', 'o.c2p': 'Stop using the app and the folder is still there; Obsidian, VS Code or any editor opens it.',
+  'o.c3': 'One maintainer', 'o.c3p': 'The person who writes the code also answers issues and ships releases. Report problems on <a href="https://github.com/SchaeferAnjon/canvas-notes/issues" target="_blank" rel="noopener">GitHub Issues</a>.',
+  'dl.k': 'Download', 'dl.h': 'Free to download, ready to use', 'dl.p': 'No trial, no paid tier, no account. <span class="ver2"></span>',
+  'dl.arm': 'Apple silicon', 'dl.intel': 'Intel chip', 'dl.b': 'Download',
+  'dl.s1': 'Open the dmg and drag Canvas Notes into Applications', 'dl.s2': 'On first launch, pick a folder as your vault (an empty one, or an existing Obsidian vault)', 'dl.s3': 'For the AI, install and sign in to one of Claude Code, Codex, Gemini or OpenCode in a terminal first',
+  'dl.i1': 'Not sure which chip? Apple menu → About This Mac. If Chip says Apple M, take the left one; if it says Intel, take this one', 'dl.i2': 'Requires macOS 12 or later and Git (macOS offers to install the command line tools the first time)',
+  'dl.more': 'Earlier versions and release notes are on the', 'dl.rel': 'GitHub releases page', 'dl.win': '. There is no Windows or mobile version yet.',
+  'dl.gk': 'This version is not notarized by Apple (neither are the author\'s other apps). If macOS says it cannot verify the developer the first time you open it, right-click Canvas Notes in Finder and choose Open, or click Open Anyway in System Settings › Privacy &amp; Security.',
+  'q.k': 'FAQ', 'q.h': 'Questions',
+  'q1': 'Does it cost anything?', 'a1': 'No. No trial limits, no paid tier, no sign-up. The AI runs on your own command-line account; whatever that costs is between you and its provider.',
+  'q2': 'Where are my notes? Can other apps open them?', 'a2': 'In the folder you picked: plain .md files and images, and the folder is a Git repository. Board layout is stored in HTML comments, so Obsidian, Typora or VS Code show an ordinary article.',
+  'q3': 'Can it open my Obsidian vault?', 'a3': 'Yes. Pick that folder as the vault; [[wikilinks]] work the same. It sets up Git in the vault (or uses the existing repository) and keeps the home page layout in .canvas-notes/.',
+  'q4': 'Does it work without an AI CLI?', 'a4': 'Yes. Boards, documents, clipping, search and Git history need no AI. When you want the AI, install and sign in to Claude Code, Codex, Gemini or OpenCode in a terminal and the app finds it.',
+  'q5': 'Does the AI send my notes anywhere?', 'a5': 'Only what this turn needs: the current board or document, selected cards, notes you @-mention and the open web page. They go to the command-line tool you chose, which sends them to its own service, the same as using it in a terminal. The app itself goes through no other server.',
+  'q6': 'How do I sync between two computers?', 'a6': 'Add a remote you own (a private GitHub repository, say) in Settings → Git and click Sync in the bottom bar: it commits, pulls, then pushes. If both sides changed the same spot, a conflict copy is saved; nothing is lost.',
+  'q7': 'Is there a Windows or mobile version?', 'a7': 'Mac only for now. A mobile version is planned but not started.',
+  'q8': 'Why GPL?', 'a8': 'GPL-3.0-or-later keeps the app and every modified version open: anyone who changes it and releases it must publish their source under the same license. Personal use and use inside a company are not affected. The author\'s other apps, such as MeetCaption, use the same license.',
+  'end.h': 'Open a folder and start saving',
+  'ft.p': 'Whiteboard notes on local Markdown and Git. Open source and free.', 'ft.prod': 'Product', 'ft.rel': 'Changelog', 'ft.open': 'Open source', 'ft.src': 'Source on GitHub', 'ft.iss': 'Report an issue', 'ft.help': 'Help', 'ft.priv': 'Privacy',
+  'ft.by': 'Made by SchaeferAnjon', 'ft.all': 'All apps', 'ft.here': 'You are here',
+}
+const ZH = {}
+document.querySelectorAll('[data-i]').forEach((el) => { ZH[el.dataset.i] = el.innerHTML })
+document.querySelectorAll('[data-i-alt]').forEach((el) => { ZH[el.dataset.iAlt] = el.alt })
+let LANG = (() => {
+  const q = new URLSearchParams(location.search).get('lang')
+  if (q === 'zh' || q === 'en') return q
+  try { const s = localStorage.getItem('cn.lang'); if (s === 'zh' || s === 'en') return s } catch {}
+  return /^zh/i.test(navigator.language || '') ? 'zh' : 'en'
+})()
+const ZH_TITLE = document.title
+let REL = null
+function render() {
+  const d = LANG === 'en' ? EN : ZH
+  document.documentElement.lang = LANG === 'en' ? 'en' : 'zh-CN'
+  document.title = LANG === 'en' ? 'Canvas Notes · Whiteboard notes on local Markdown' : ZH_TITLE
+  document.querySelectorAll('[data-i]').forEach((el) => { const v = d[el.dataset.i] ?? ZH[el.dataset.i]; if (v != null) el.innerHTML = v })
+  document.querySelectorAll('[data-i-alt]').forEach((el) => { el.alt = d[el.dataset.iAlt] ?? ZH[el.dataset.iAlt] })
+  document.querySelectorAll('.seg button').forEach((b) => b.classList.toggle('on', b.dataset.lang === LANG))
+  showRelease()
+}
+document.querySelector('.seg').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-lang]')
+  if (!b) return
+  LANG = b.dataset.lang
+  try { localStorage.setItem('cn.lang', LANG) } catch {}
+  render()
+})
+addEventListener('scroll', () => document.getElementById('nav').classList.toggle('sc', scrollY > 10), { passive: true })
+
+/* 下载：按钮默认链到 releases/latest/download/<不带版本号的文件名>（发版脚本会传这两份），
+   GitHub 接口回来后换成最新一版带版本号的文件，写上版本和日期；还没有任何 Release 时指向发布页 */
+function showRelease() {
+  const line = REL === false
+    ? (LANG === 'en' ? 'The first release is on its way.' : '第一版还在准备，发布后这里就能下载。')
+    : REL ? (LANG === 'en' ? `Latest: ${REL.tag}, ${REL.date.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })}.` : `最新 ${REL.tag}，${REL.date.getFullYear()} 年 ${REL.date.getMonth() + 1} 月 ${REL.date.getDate()} 日。`) : ''
+  document.querySelectorAll('.ver2').forEach((el) => { el.textContent = line })
+  if (REL) document.getElementById('ver').textContent = REL.tag
+}
+fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { accept: 'application/vnd.github+json' } })
+  .then((r) => (r.ok ? r.json() : r.status === 404 ? false : null))
+  .then((j) => {
+    if (j === null) return
+    if (j === false) {
+      REL = false
+      document.querySelectorAll('[data-dl]').forEach((a) => { a.href = `https://github.com/${REPO}/releases`; a.target = '_blank'; a.rel = 'noopener' })
+    } else {
+      REL = { tag: j.tag_name, date: new Date(j.published_at) }
+      for (const arch of ['arm64', 'x64']) {
+        const f = (j.assets || []).find((a) => new RegExp(`-mac-${arch}\\.dmg$`).test(a.name) && /\d/.test(a.name))
+        if (!f) continue
+        document.querySelectorAll(`[data-dl="${arch}"]`).forEach((a) => { a.href = f.browser_download_url })
+        document.querySelectorAll(`[data-fn="${arch}"]`).forEach((el) => { el.textContent = `${f.name} · ${(f.size / 1e6).toFixed(0)} MB` })
+      }
+    }
+    showRelease()
+  })
+  .catch(() => {})
+render()
+</script>
+</body>
+</html>

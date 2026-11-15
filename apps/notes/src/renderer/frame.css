@@ -1,0 +1,241 @@
+/*
+ * 第三版框架：方向 A「右边竖条」（design/v3/DESIGN.v3.md「1.2」），和每套主题的结构差异（「4.1」）。
+ * 左栏 236 | 中间栏 | 右栏（开着时）| 竖条 56；底栏 Git 32 横贯。
+ */
+:root {
+  --rail-w: 56px;
+}
+
+.win {
+  grid-template-columns: var(--side-w) minmax(0, 1fr) var(--rail-w);
+  background: var(--bgart), var(--win);
+  background-color: var(--win);
+}
+.win.with-right {
+  grid-template-columns: var(--side-w) minmax(0, 1fr) var(--right-w) var(--rail-w);
+}
+.center {
+  background: transparent;
+}
+
+/* ---------- 右边竖条 ---------- */
+.rail {
+  grid-row: 1;
+  grid-column: -2 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0 14px;
+  background: var(--side);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  border-left: 1px solid var(--line);
+  z-index: 3;
+  -webkit-app-region: drag;
+}
+.rb {
+  position: relative;
+  width: 48px;
+  height: 50px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--t2);
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+}
+.rb:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.rb.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.rb .dot {
+  position: absolute;
+  top: 9px;
+  right: 12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--acc);
+}
+
+/* ---------- 右栏：从窗口顶上开始，头 48 只放这一页的东西 ---------- */
+.right {
+  background: var(--win);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+}
+.right:not(.web) .rhead {
+  margin-top: 0;
+  border-top: 0;
+  -webkit-app-region: drag;
+}
+.right .rhead button,
+.right .rhead form,
+.right .rhead .imp {
+  -webkit-app-region: no-drag;
+}
+.right:not(.web) .rhead b {
+  font-size: 13px;
+}
+.right .rhead > .lucide:first-child {
+  color: var(--t2);
+}
+.vsplit {
+  right: calc(var(--right-w) + var(--rail-w) - 3px);
+}
+
+/* ---------- 左栏底部：外观 + 设置 ---------- */
+.sfoot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--line);
+  -webkit-app-region: no-drag;
+}
+.sfoot .si {
+  flex: 1;
+  width: auto;
+}
+.sfoot .iconbtn {
+  border-radius: 6px;
+}
+
+/* ---------- 标签条、分段控件、按钮跟着主题 ---------- */
+.tabs {
+  background: var(--tabbar);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+}
+.tab.on {
+  border-bottom-color: transparent;
+}
+.seg button.on {
+  background: var(--seg-on);
+}
+.side,
+.gitbar {
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+}
+
+/* 纯白、纯黑：当前标签下面一道 2px 线，不用卡片样子 */
+[data-skin='white'] .tab.on,
+[data-skin='black'] .tab.on {
+  background: transparent;
+  box-shadow: inset 0 -2px 0 var(--t1);
+  border-radius: 0;
+}
+
+/* 米白：中间栏铺一层很淡的纸纹 */
+[data-skin='cream'] .center {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .35 0 0 0 0 .27 0 0 0 0 .12 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* 深海蓝：整窗渐变光，左栏、标签条、右栏、底栏是玻璃；当前标签是一块淡蓝 */
+[data-skin='deepsea'] .win::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(140, 180, 255, 0.07) 38%, transparent 46%),
+    linear-gradient(105deg, transparent 52%, rgba(160, 140, 255, 0.05) 58%, transparent 66%);
+  mix-blend-mode: screen;
+}
+[data-skin='deepsea'][data-winbg='photo'] .win::before {
+  display: none;
+}
+[data-skin='deepsea'] .tab.on {
+  background: rgba(150, 185, 255, 0.1);
+  box-shadow: none;
+}
+[data-skin='deepsea'] .right {
+  background: rgba(6, 14, 34, 0.62);
+}
+[data-skin='deepsea'] .btn:not(.btn-primary):not(.btn-ghost) {
+  background: rgba(150, 185, 255, 0.1);
+}
+[data-skin] .btn:not(.btn-primary):not(.btn-ghost):hover {
+  background: var(--fill2);
+}
+
+/* 白板底在深海蓝里是透明的，让窗口的光透过来；网页始终是网站自己的颜色 */
+.webbody webview,
+.wstack webview {
+  background: #fff;
+}
+
+/* ---------- AI：中间栏右下角 44 圆按钮 + 392 宽浮窗（「2.1」），六套主题一样 ---------- */
+.ai-fab {
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+}
+.ai-fab:hover {
+  background: var(--card);
+}
+.ai-fab.on {
+  box-shadow: var(--shadow-up), inset 0 0 0 1.5px var(--acc-ring);
+}
+.ai.floating {
+  bottom: 70px;
+  height: min(580px, calc(100% - 86px));
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  animation: ai-in 0.2s ease;
+  transform-origin: 100% 100%;
+}
+@keyframes ai-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+.aieng .engbtn {
+  border: 0;
+  background: var(--fill);
+  font-weight: 500;
+  color: var(--t1);
+  padding: 0 8px 0 10px;
+}
+.aieng .engbtn:hover {
+  background: var(--fill2);
+}
+.aieng .engbtn svg {
+  color: var(--t2);
+}
+.aieng .engmenu {
+  background: var(--pop);
+  padding: 6px;
+}
+.aieng .engmenu .mh {
+  font-size: 12px;
+}
+.aieng .engmenu button {
+  border-radius: 6px;
+}
+.aieng .engmenu .ck {
+  color: var(--acc);
+}
+.sees {
+  padding: 9px 14px;
+}
+.sees .chip {
+  color: var(--t1);
+}
+.sees .chip.hands {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  color: var(--t2);
+}

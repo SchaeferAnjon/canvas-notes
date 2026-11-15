@@ -1,0 +1,420 @@
+/* 内置浏览器：网页标签、书签栏、插件按钮、书签和历史、插件面板、宽网页标签。沿用 DESIGN.md 现有的样式和变量 */
+
+/* 右栏顶上和中间栏标签条对齐的那 40px 放网页标签 */
+.right.web .rhead {
+  margin-top: 0;
+  gap: 2px;
+}
+.tabs.wtabs {
+  padding: 0 6px 0 8px;
+  overflow: hidden;
+}
+.wtabs .tab {
+  flex: 0 1 160px;
+  min-width: 56px;
+  padding: 0 4px 0 10px;
+  gap: 4px;
+}
+.wtabs .tab .tl {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 0;
+  height: 100%;
+}
+.wtabs .wnew,
+.wtabs .wtool {
+  align-self: center;
+  flex: none;
+  margin-left: 2px;
+  -webkit-app-region: no-drag;
+}
+.wtabs .sp {
+  flex: 1;
+  min-width: 8px;
+}
+.addr input:focus-visible,
+.wsearch input:focus-visible {
+  outline: none;
+}
+
+/* 地址栏里的星星 */
+.addr .star {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--t3);
+}
+.addr .star:hover {
+  color: var(--t1);
+}
+.addr .star.on {
+  color: var(--acc);
+}
+.addr .star.on svg {
+  fill: currentColor;
+}
+.rhead .iconbtn.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+
+/* 插件按钮 */
+.wactions {
+  display: flex;
+  gap: 2px;
+  align-self: center;
+  -webkit-app-region: no-drag;
+}
+.wact {
+  position: relative;
+}
+.wact img {
+  width: 16px;
+  height: 16px;
+}
+.wact .badge {
+  position: absolute;
+  right: 0;
+  bottom: 1px;
+  min-width: 14px;
+  height: 12px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--t2);
+  color: #fff;
+  font: 600 9px/12px var(--sans);
+  font-style: normal;
+  text-align: center;
+}
+.wact-ph {
+  width: 28px;
+  flex: none;
+}
+
+/* 书签栏 */
+.bmbar {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+.bmbar .bm {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 140px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--t2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.bmbar .bm:hover,
+.bmbar .bm.on {
+  background: var(--fill);
+  color: var(--t1);
+}
+.bmbar > .bm,
+.bmbar .bmf {
+  flex: 0 1 auto;
+  min-width: 30px;
+}
+.bmbar .bmf {
+  position: relative;
+}
+.bmbar .bmf > .bm {
+  max-width: 100%;
+}
+.bmbar .bmf.end {
+  flex: none;
+  margin-left: auto;
+}
+
+/* 弹层：书签菜单、书签和历史、插件。.menu 的底样式在 app.css 的 .imp .menu */
+.bmbar .menu {
+  position: absolute;
+  z-index: 41;
+  width: 260px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+}
+.bmbar .menu {
+  left: 0;
+  top: 26px;
+  max-height: 420px;
+  overflow: auto;
+}
+.bmbar .menu.right {
+  left: auto;
+  right: 0;
+}
+.bmbar .menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+.bmbar .menu button:hover {
+  background: var(--fill);
+}
+.bmbar .menu b {
+  font-weight: 500;
+  font-size: 13px;
+  max-width: 100%;
+}
+.bmbar .menu span {
+  font-size: 12px;
+  color: var(--t3);
+  max-width: 100%;
+}
+
+.wpop {
+  position: absolute;
+  right: 0;
+  top: 34px;
+  z-index: 40;
+  width: 340px;
+  max-height: min(560px, calc(100vh - 140px));
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+.wlib-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.wlib-head b {
+  font-weight: 600;
+  font-size: 14px;
+  padding-left: 4px;
+}
+.wlib-head .sp {
+  flex: 1;
+}
+.wlib-head .seg button {
+  height: 24px;
+}
+.wsearch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.wsearch input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t1);
+}
+.wfolders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wfolders .chip {
+  display: inline-flex;
+  border: 0;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--t2);
+  font-size: 12px;
+  max-width: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wfolders .chip.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.wlist {
+  overflow: auto;
+  min-height: 0;
+  margin: 0 -4px;
+}
+.wlist .hint,
+.wext > .hint {
+  margin: 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.wrow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border-radius: 8px;
+}
+.wrow:hover {
+  background: var(--fill);
+}
+.wrow .wmain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 4px;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+.wrow .wmain b {
+  font-weight: 500;
+  font-size: 13px;
+  max-width: 100%;
+}
+.wrow .wmain span {
+  font-size: 12px;
+  color: var(--t3);
+  max-width: 100%;
+}
+.wrow > .iconbtn {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  opacity: 0;
+}
+.wrow:hover > .iconbtn,
+.wrow > .iconbtn:focus-visible {
+  opacity: 1;
+}
+.wrow .when {
+  font-size: 11px;
+  color: var(--t3);
+  flex: none;
+}
+.wextrow {
+  padding: 2px 4px;
+}
+.wextrow > .wact {
+  opacity: 1;
+}
+.wextrow .wmain .verdict {
+  white-space: normal;
+  line-height: 1.45;
+}
+.wextrow .verdict.ok {
+  color: var(--green);
+}
+.wextrow .verdict.partial {
+  color: var(--yellow);
+}
+.wextrow .toggle {
+  flex: none;
+}
+
+/* 整页剪藏后的一行：打开、撤回 */
+.wnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--card);
+  font-size: 12px;
+  color: var(--t2);
+}
+.wnote .truncate {
+  flex: 1;
+}
+
+/* 网页：开着的几个叠在一起，只露当前那个，切换时不重新载入 */
+.webbody .wstack {
+  position: relative;
+  flex: 1;
+  display: flex;
+}
+.wstack webview {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: #fff;
+}
+.wstack webview.on {
+  z-index: 1;
+}
+
+/* 中间栏的宽网页标签 */
+.wpane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.wpane .tool {
+  gap: 4px;
+}
+.wpane .wbody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.wpane .wbody webview {
+  flex: 1;
+  background: #fff;
+}
+
+/* 图片卡的来源行，和素材卡一样 */
+.cb-img .src {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px dashed var(--line2);
+  font-size: 12px;
+  color: var(--t2);
+}
+.cb-img figcaption + .src {
+  padding-top: 6px;
+}
+
+/* 图片拖到白板上方时 */
+.board.dropping .board-wrap {
+  box-shadow: inset 0 0 0 2px var(--acc-ring);
+}

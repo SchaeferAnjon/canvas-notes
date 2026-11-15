@@ -1,0 +1,91 @@
+#!/usr/bin/env node
+// 开源仓库的第一个提交：把 HEAD 的文件（git archive，只有提交过的）导出到一个新文件夹，去掉 release/public-exclude.txt 里的路径，
+// 再扫一遍有没有密钥、邮箱、本机路径、AI 工具签名。照 MeetCaption：公开仓库只有一个初始提交，完整历史留在私有仓库。
+//   node scripts/public-export.mjs <新文件夹>      导出并检查（文件夹要不存在或是空的）
+//   node scripts/public-export.mjs --check <文件夹>  只检查一个已有的导出
+// 不建仓库、不推送：之后的命令在 release/CHECKLIST.md。
+import { execFileSync } from 'node:child_process'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+
+/** public-exclude.txt：前缀匹配，! 开头的是例外（保留） */
+export function excluder(text) {
+  const rules = text.split('\n').map((l) => l.trim()).filter((l) => l && !l.startsWith('#'))
+  const drop = rules.filter((r) => !r.startsWith('!'))
+  const keep = rules.filter((r) => r.startsWith('!')).map((r) => r.slice(1))
+  return (rel) => drop.some((d) => rel === d || rel.startsWith(d.endsWith('/') ? d : d + '/')) && !keep.some((k) => rel === k || rel.startsWith(k))
+}
+
+/** 不该出现在公开仓库里的东西；每条是 [说明, 正则, 不查的文件]（锁文件里是依赖包作者公开的邮箱） */
+export const LEAKS = [
+  ['API 密钥', /\b(sk-ant-[\w-]{10,}|sk-[A-Za-z0-9]{24,}|ghp_[A-Za-z0-9]{20,}|github_pat_\w{20,}|gho_\w{20,}|AKIA[0-9A-Z]{16}|AIza[\w-]{30,}|xox[baprs]-[\w-]{10,}|sk_live_\w+|whsec_\w+)/],
+  ['私钥', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
+  ['本机用户目录', /\/Users\/(?!runner\b)[a-z][\w-]*\//],
+  ['邮箱', /(?<![\w.+-])(?!git@)[\w.+-]+@(?!example\.com|users\.noreply\.github\.com|anthropic\.com\b)[\w-]+\.(com|net|org|cn|io|me|de)\b/, /^pnpm-lock\.yaml$/],
+  ['AI 工具签名', /Co-Authored-By: Claude|Generated with \[Claude Code\]/],
+]
+const TEXT = /\.(md|ts|tsx|js|mjs|cjs|json|yml|yaml|html|css|txt|plist|svg|py)$|^[^.]+$/
+
+export function scan(dir) {
+  const found = []
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = path.join(d, e.name)
+      const rel = path.relative(dir, p)
+      if (e.isDirectory()) {
+        if (e.name !== '.git' && e.name !== 'node_modules') walk(p)
+        continue
+      }
+      if (!TEXT.test(e.name) || rel === 'scripts/public-export.mjs') continue
+      const lines = fs.readFileSync(p, 'utf8').split('\n')
+      lines.forEach((line, i) => {
+        for (const [what, re, skip] of LEAKS) if (!skip?.test(rel) && re.test(line)) found.push(`${rel}:${i + 1} ${what}：${line.trim().slice(0, 120)}`)
+      })
+    }
+  }
+  walk(dir)
+  return found
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  const args = process.argv.slice(2)
+  const checkOnly = args[0] === '--check'
+  const dest = path.resolve(checkOnly ? args[1] : args[0] || '')
+  if (!args.length || (checkOnly && !args[1])) {
+    console.error('用法：node scripts/public-export.mjs <新文件夹>  或  --check <文件夹>')
+    process.exit(2)
+  }
+  if (!checkOnly) {
+    if (fs.existsSync(dest) && fs.readdirSync(dest).length) {
+      console.error(`${dest} 不是空的`)
+      process.exit(1)
+    }
+    fs.mkdirSync(dest, { recursive: true })
+    const tar = execFileSync('git', ['archive', '--format=tar', 'HEAD'], { cwd: ROOT, maxBuffer: 1 << 30 })
+    execFileSync('tar', ['-x', '-C', dest], { input: tar })
+    const out = excluder(fs.readFileSync(path.join(ROOT, 'release/public-exclude.txt'), 'utf8'))
+    const files = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean)
+    let dropped = 0
+    for (const f of files) {
+      if (!out(f)) continue
+      fs.rmSync(path.join(dest, f), { force: true })
+      dropped++
+    }
+    // 删空了的文件夹
+    const prune = (d) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) if (e.isDirectory()) prune(path.join(d, e.name))
+      if (d !== dest && !fs.readdirSync(d).length) fs.rmdirSync(d)
+    }
+    prune(dest)
+    console.log(`导出 ${files.length - dropped} 个文件到 ${dest}（去掉 ${dropped} 个，见 release/public-exclude.txt）`)
+  }
+  const found = scan(dest)
+  if (found.length) {
+    console.error(`有 ${found.length} 处不该公开的：\n${found.map((f) => '  ' + f).join('\n')}`)
+    process.exit(1)
+  }
+  console.log('没扫到密钥、私人邮箱、本机路径和 AI 工具签名')
+}

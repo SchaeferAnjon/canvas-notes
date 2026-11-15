@@ -1,0 +1,19 @@
+# 开源仓库里不放的路径（scripts/public-export.mjs 读）。一行一个，前缀匹配；# 开头是说明。
+# 原因见 release/CHECKLIST.md「隐私检查」。
+
+# 设计过程稿：v1、v2 的原型和截图里有用户自己笔记库的标题和片段（Tolaria 截图、原型里的笔记名、真实行程），
+# refs/ 里还有 Milanote 官网的截图（别人的图）和带着用户浏览器工具栏的截图
+design/
+# 但打包要的图标源文件和第三版界面规范留着（make-icons.mjs、DESIGN.md 引用它们）
+!design/v3/icon/
+!design/v3/DESIGN.v3.md
+
+# 给 Agent 的说明和交接文档：写着本机路径和用户的个人情况（MeetCaption 的 CLAUDE.md 也只在本地）
+CLAUDE.md
+docs/HANDOFF.md
+
+# 给总站的补丁（只给作者自己用，总站仓库另行提交）
+website/hub-entry/
+
+# 待执行清单：写着隐私检查的细节、服务器的端口和配置，只给作者自己看
+release/CHECKLIST.md

@@ -1,0 +1,19 @@
+{
+  "name": "canvas-notes",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "dev": "pnpm --filter @cn/notes dev",
+    "build": "pnpm --filter @cn/notes build",
+    "typecheck": "tsc -p packages/format && tsc -p packages/git && tsc -p packages/design && tsc -p apps/notes",
+    "test": "vitest run",
+    "test:e2e": "pnpm --filter @cn/notes test:e2e"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  },
+  "license": "GPL-3.0-or-later"
+}
