@@ -1,31 +1,46 @@
 /**
  * 翻译：一批段落问一次 AI，要它每段回一行 JSON（{"id":编号,"text":"译文"}），边生成边按行拆出来，
- * 先出来的段先显示。漏了的段再问一次；还漏就报「没翻成」。每段按「目标语言 + 原文」缓存，同一段不再问。
- * 不碰 Electron，能单独测。
+ * 先出来的段先显示。漏了的段再问一次；还漏就报「没翻成」（带原因，见 errors.ts）。
+ * 有课程术语表时，这批里出现的词放进提示（「术语照这个译」），缓存键也带上用到的术语：改了表的段会重翻。
+ * 每段按「目标语言 + 原文 + 用到的术语」缓存，同一段不再问。不碰 Electron，能单独测。
  */
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { langName } from '../../../shared/plugins/translate'
+import { langName, pickTerms, type Term, type TrEngineId, type TrError } from '../../../shared/plugins/translate'
+import { toTrError } from './errors'
 
 export interface Item {
   id: number
   text: string
 }
 
-export type AskFn = (system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void) => Promise<string>
+/** 问一次 AI：给回答（路由器还告诉是哪个引擎答的） */
+export type AskFn = (system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void) => Promise<string | { text: string; engine: TrEngineId }>
+
+export type OnResult = (id: number, text: string | null, error?: TrError) => void
 
 export const SYSTEM = '你是翻译。只按要求的格式输出译文，不解释、不加别的话。'
 
-export function buildPrompt(items: Item[], target: string): string {
+export function buildPrompt(items: Item[], target: string, terms: Term[] = []): string {
   return [
     '命令：翻译段落',
     `目标语言：${langName(target)}（${target}）`,
     '把下面每一段翻成目标语言，意思准确、读起来自然，专有名词照惯用译法，数字和符号照原样。',
+    ...(terms.length ? [`术语照这个译：${terms.map((t) => `${t.src} → ${t.dst}`).join('；')}`] : []),
     '每段输出一行 JSON：{"id":编号,"text":"译文"}，按编号顺序，一段一行；不要代码块，不要别的话。已经是目标语言的段原样返回。',
     '段落：',
     JSON.stringify(items.map((i) => ({ id: i.id, text: i.text }))),
   ].join('\n')
+}
+
+/** 用到的术语算一个短指纹，进缓存键 */
+export function termsKey(terms: Term[]): string {
+  if (!terms.length) return ''
+  return createHash('sha1')
+    .update(terms.map((t) => `${t.src}\u0001${t.dst}`).join('\u0002'))
+    .digest('base64url')
+    .slice(0, 12)
 }
 
 /** 从一行里拆出 {id, text}；不是这样的一行给 null */
@@ -81,16 +96,19 @@ export class TranslationCache {
     }
   }
 
-  private key(target: string, text: string) {
-    return createHash('sha1').update(target).update('\0').update(text).digest('base64url')
+  private key(target: string, text: string, terms: string) {
+    const h = createHash('sha1').update(target).update('\0').update(text)
+    if (terms) h.update('\0').update(terms)
+    return h.digest('base64url')
   }
 
-  get(target: string, text: string): string | undefined {
-    return this.map.get(this.key(target, text))
+  /** terms：用到的术语的指纹（termsKey），没用术语是空的 */
+  get(target: string, text: string, terms = ''): string | undefined {
+    return this.map.get(this.key(target, text, terms))
   }
 
-  set(target: string, text: string, tr: string) {
-    const k = this.key(target, text)
+  set(target: string, text: string, tr: string, terms = '') {
+    const k = this.key(target, text, terms)
     this.map.delete(k)
     this.map.set(k, tr)
     while (this.map.size > MAX_CACHE) this.map.delete(this.map.keys().next().value!)
@@ -154,18 +172,26 @@ export class Translator {
     }
   }
 
-  /** 翻一批：每翻好一段调一次 onResult（缓存里有的马上给）；没翻成的给 error */
-  async translate(items: Item[], target: string, onResult: (id: number, text: string | null, error?: string) => void, signal: AbortSignal): Promise<void> {
-    const todo: Item[] = []
+  /**
+   * 翻一批：每翻好一段调一次 onResult（缓存里有的马上给）；没翻成的给原因。
+   * glossary 是这门课的术语表（没有就是空的），这批里出现的放进提示。
+   * 出错时：命令行退出、网络断这类再试一次；没登录、Key 不对、太快这类不白试。漏段再问一次，还漏是「格式不对」。
+   */
+  async translate(items: Item[], target: string, onResult: OnResult, signal: AbortSignal, glossary: Term[] = [], fresh = false): Promise<void> {
+    const todo: (Item & { terms: Term[]; tkey: string })[] = []
     for (const it of items) {
-      const hit = this.cache.get(target, it.text)
+      const terms = pickTerms(glossary, [it.text])
+      const tkey = termsKey(terms)
+      // fresh：「重新翻译」不看缓存，翻好的照样存回去（换掉旧的）
+      const hit = fresh ? undefined : this.cache.get(target, it.text, tkey)
       if (hit !== undefined) {
         this.stats.fromCache++
         onResult(it.id, hit)
-      } else todo.push(it)
+      } else todo.push({ ...it, terms, tkey })
     }
     let left = todo
-    let lastError = '没翻成'
+    let lastError: TrError | null = null
+    let engine: TrEngineId | undefined
     for (let attempt = 0; attempt < 2 && left.length && !signal.aborted; attempt++) {
       const byId = new Map(left.map((i) => [i.id, i]))
       const done = new Set<number>()
@@ -174,14 +200,15 @@ export class Translator {
         if (!it || done.has(id)) return
         done.add(id)
         this.stats.fromAi++
-        this.cache.set(target, it.text, tr)
+        this.cache.set(target, it.text, tr, it.tkey)
         onResult(id, tr)
       }
+      const terms = pickTerms(glossary, left.map((i) => i.text))
       try {
         let buf = ''
         const out = await this.slot(() => {
           this.stats.aiCalls++
-          return this.ask(SYSTEM, buildPrompt(left, target), signal, (delta) => {
+          return this.ask(SYSTEM, buildPrompt(left, target, terms), signal, (delta) => {
             buf += delta
             let nl: number
             while ((nl = buf.indexOf('\n')) !== -1) {
@@ -191,14 +218,22 @@ export class Translator {
             }
           })
         })
-        for (const [id, tr] of parseWhole(out)) take(id, tr)
+        const text = typeof out === 'string' ? out : out.text
+        if (typeof out !== 'string') engine = out.engine
+        for (const [id, tr] of parseWhole(text)) take(id, tr)
+        lastError = null
       } catch (e) {
         if (signal.aborted) return
-        lastError = String((e as Error).message ?? e)
+        lastError = toTrError(e)
+        if (!RETRY.includes(lastError.code)) break
       }
       left = left.filter((i) => !done.has(i.id))
     }
     if (signal.aborted) return
-    for (const it of left) onResult(it.id, null, lastError)
+    const err: TrError = lastError ?? { code: 'bad-output', ...(engine ? { engine } : {}), raw: `AI 回的格式不对，漏了 ${left.length} 段（已经自动重问过一次）` }
+    for (const it of left) onResult(it.id, null, err)
   }
 }
+
+/** 这几种再问一次可能就好了 */
+const RETRY: TrError['code'][] = ['exited', 'network', 'other']

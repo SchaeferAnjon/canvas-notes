@@ -6,6 +6,7 @@
  * 开关和设置存在 <userData>/plugins/state.json；插件自己的东西（缓存之类）放 <userData>/plugins/<id>/。
  */
 import type { WebContents } from 'electron'
+import type { EngineId } from '../../shared/agent'
 import type { PageState, PluginInfo, PluginManifest, PluginPermission } from '../../shared/plugins'
 import type { Vault } from '../vault'
 
@@ -16,6 +17,12 @@ export interface CallContext {
 }
 
 export type Handler = (ctx: CallContext, ...args: unknown[]) => unknown
+
+/** 本机的 AI 命令行：在不在、登录没有（不真的问），问一次（不给工具） */
+export interface CliBackend {
+  state(id: EngineId): 'ok' | 'login' | 'missing'
+  ask(id: EngineId, system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void): Promise<string>
+}
 
 export interface PluginHost<S> {
   readonly id: string
@@ -34,6 +41,8 @@ export interface PluginHost<S> {
   ai(system: string, prompt: string, signal: AbortSignal, onText?: (delta: string) => void): Promise<string>
   /** 用哪家 AI 答（设置页里显示） */
   aiLabel(): string
+  /** 自己挑用哪个本机 AI 命令行（翻译）：要声明「联网」 */
+  cli(): CliBackend
   /** 告诉界面库里的文件变了 */
   filesChanged(): void
   /** 退出前要做的（存缓存之类） */
@@ -53,6 +62,7 @@ export interface HostDeps {
   vault(): Vault | null
   ai(system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void): Promise<string>
   aiLabel(): string
+  cli: CliBackend
   sendApp(channel: string, ...args: unknown[]): void
   filesChanged(): void
   onQuit(fn: () => void): void
@@ -113,6 +123,10 @@ export class PluginRegistry {
         return deps.ai(system, prompt, signal, onText)
       },
       aiLabel: () => deps.aiLabel(),
+      cli() {
+        if (!has('net')) throw new Error(`插件「${plugin.manifest.name}」没有声明联网的权限`)
+        return deps.cli
+      },
       filesChanged: () => deps.filesChanged(),
       onQuit: (fn) => deps.onQuit(fn),
     }

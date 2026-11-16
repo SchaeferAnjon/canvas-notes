@@ -2,6 +2,7 @@
  * 界面里插件共用的：插件表（开关和设置，主进程推过来就刷新）、每个网页报上来的插件状态、
  * 右栏网页面板借给插件用的几样本事（给网页发命令、开弹窗、打开网址、提示一句）。
  */
+import type { WebviewEl } from '../web/WebView'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { PluginInfo } from '../../shared/plugins'
 import type { WebPage } from './types'
@@ -94,6 +95,10 @@ export interface WebHost {
   notice(t: string): void
   /** 打开设置 · 插件 */
   openSettings(): void
+  /** 在中间栏打开库里的一篇 */
+  openNote(path: string): void
+  /** 当前网页的 <webview>（阅读视图、框着问要它） */
+  view(): WebviewEl | null
 }
 
 let host: WebHost | null = null
@@ -120,6 +125,25 @@ export function useWebPage(): WebPage | null {
     }
   }, [])
   return host?.page() ?? null
+}
+
+// ---------------------------------------------------------------- 中间栏开着的文件
+
+let activePath: string | null = null
+const activeSubs = new Set<(p: string | null) => void>()
+
+/** App 换标签时报：中间栏现在开着的文件（不是文件的标签给 null） */
+export function setActiveFile(p: string | null) {
+  if (p === activePath) return
+  activePath = p
+  activeSubs.forEach((f) => f(p))
+}
+
+/** 插件要知道中间栏开着哪个文件（双语翻译照那门课的术语表翻）；马上给一次现在的 */
+export function onActiveFile(f: (p: string | null) => void): () => void {
+  activeSubs.add(f)
+  f(activePath)
+  return () => activeSubs.delete(f)
 }
 
 export function errText(e: unknown) {

@@ -1,0 +1,1468 @@
+/*
+ * 读 PDF 边读边问（方向 A 右栏切换）：PDF 页面区、框选、页边标记、右栏 AI 和笔记。
+ * 尺寸照 design/pdf 的 spec 1.2–1.6，变量只用 DESIGN.md 里的。
+ */
+
+/* ---------- 工具栏 ---------- */
+.pdfpane .tool h1.ro {
+  cursor: default;
+}
+.pdfpane .tool h1.ro:hover {
+  background: none;
+}
+.pdfpane .pager {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+  padding: 0 4px;
+}
+.pdfpane .pager button {
+  height: 28px;
+  border: 0;
+  background: none;
+  padding: 0 8px;
+  color: inherit;
+  font: inherit;
+}
+.pdfpane .pager b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.pdfpane .pager input {
+  width: 52px;
+  height: 22px;
+  border: 0;
+  outline: none;
+  border-radius: 999px;
+  background: var(--card);
+  text-align: center;
+  font: 12px var(--sans);
+  color: var(--t1);
+}
+.pdfpane .tool .btn {
+  font-size: 12px;
+}
+.pdfpane .pdfmore {
+  position: relative;
+}
+.rail .rsep {
+  width: 24px;
+  height: 1px;
+  margin: 6px 0;
+  background: var(--line2);
+}
+/* ---------- 页面区 ---------- */
+.pdfpane .pdfbody {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.pdfpane .pdfv {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: var(--board);
+  padding: 0 52px 120px 40px;
+  outline: none;
+  display: flex;
+  flex-direction: column;
+  /* 放大到比栏宽时左边也滚得到 */
+  align-items: safe center;
+}
+.pdfpane .pdfslot {
+  position: relative;
+  flex: none;
+  margin-bottom: 24px;
+}
+.pdfpane .pdfpage {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.06),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+  cursor: crosshair;
+  overflow: hidden;
+}
+/* PDF 是纸本身的颜色，不跟主题；深色里压暗一点 */
+[data-tone='dark'] .pdfpane .pdfpage {
+  filter: brightness(0.92);
+}
+.pdfpane .pdfpage canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.pdfpane .pdfv.drawing,
+.pdfpane .pdfv.drawing .textLayer span {
+  cursor: crosshair;
+  user-select: none;
+}
+.pdfpane .pno {
+  position: absolute;
+  left: -30px;
+  top: 0;
+  width: 24px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--t3);
+}
+.pdfpane .pdferr {
+  position: absolute;
+  inset: 40px 0 auto;
+  text-align: center;
+  font-size: 13px;
+  color: var(--t2);
+  z-index: 2;
+}
+
+/* 框：拖的时候、松手后等着发的、问过的（悬停标记时显出来）、跳回时闪两下 */
+.pdfpane .pdfover {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.pdfpane .fr {
+  position: absolute;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.pdfpane .fr.drawing,
+.pdfpane .fr.pending {
+  border: 1.5px solid var(--acc);
+  background: var(--acc-soft);
+}
+.pdfpane .fr.asked {
+  border: 1.5px dashed var(--acc-ring);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.pdfpane .fr.asked.show {
+  opacity: 1;
+}
+.pdfpane .fr.flash {
+  animation: pdf-flash 1.9s ease-out forwards;
+}
+.pdfpane .fr.flash.whole {
+  inset: 0;
+}
+@keyframes pdf-flash {
+  0%,
+  40% {
+    background: var(--acc-soft);
+    box-shadow: 0 0 0 3px var(--acc-ring);
+  }
+  20%,
+  60% {
+    background: transparent;
+    box-shadow: 0 0 0 1px var(--acc-ring);
+  }
+  50% {
+    background: var(--acc-soft);
+    box-shadow: 0 0 0 3px var(--acc-ring);
+  }
+  100% {
+    background: transparent;
+    box-shadow: none;
+  }
+}
+
+/* 框下面的黑色胶囊工具条 */
+.pdfpane .cap {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--solid);
+  color: var(--solid-t);
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  cursor: default;
+  animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes cap-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.pdfpane .cap button {
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  color: inherit;
+  font-size: 12px;
+}
+.pdfpane .cap button:hover {
+  background: rgba(127, 127, 127, 0.25);
+}
+.pdfpane .cap .k {
+  opacity: 0.6;
+  font-size: 11px;
+}
+.pdfpane .cap .sep {
+  width: 1px;
+  height: 14px;
+  background: currentColor;
+  opacity: 0.2;
+}
+
+/* 页边标记：页右边外 8，和框的上沿齐平 */
+.pdfpane .mk {
+  position: absolute;
+  left: calc(100% + 8px);
+  z-index: 4;
+  height: 20px;
+  min-width: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line2);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--t2);
+  transform: translateY(-2px);
+}
+.pdfpane .mk:hover {
+  color: var(--t1);
+  box-shadow: 0 0 0 1px var(--acc-ring);
+}
+.pdfpane .mk.cur {
+  color: var(--acc-t);
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+.pdfpane .mk.new {
+  animation: mk-pop 0.5s;
+}
+@keyframes mk-pop {
+  0% {
+    transform: scale(0.4) translateY(-2px);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.15) translateY(-2px);
+  }
+  100% {
+    transform: scale(1) translateY(-2px);
+  }
+}
+.pdfpane .mklist {
+  position: absolute;
+  left: calc(100% + 8px);
+  z-index: 7;
+  width: 220px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+}
+.pdfpane .mklist button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--t1);
+}
+.pdfpane .mklist button:hover {
+  background: var(--fill2);
+}
+.pdfpane .mklist .num {
+  font-size: 12px;
+  color: var(--t3);
+}
+.pdfpane .mklist b {
+  font-weight: 400;
+  min-width: 0;
+}
+
+/* pdf.js 文字层（取自 pdf_viewer.css 必要的部分，照 ParaRead） */
+.pdfpane .textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: clip;
+  opacity: 1;
+  line-height: 1;
+  letter-spacing: normal;
+  word-spacing: normal;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 2;
+  color-scheme: only light;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.pdfpane .textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  user-select: text;
+}
+.pdfpane .textLayer > :not(.markedContent),
+.pdfpane .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.pdfpane .textLayer .markedContent {
+  display: contents;
+}
+.pdfpane .textLayer span[role='img'] {
+  user-select: none;
+  cursor: default;
+}
+.pdfpane .textLayer ::selection {
+  background: var(--acc-soft);
+  color: transparent;
+}
+.pdfpane .textLayer br::selection {
+  background: transparent;
+}
+.pdfpane .textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+
+/* ---------- 右栏下格：AI 和笔记 ---------- */
+.right.reading-ai,
+.right.reading-notes {
+  background: var(--win);
+  min-width: 0;
+  overflow: hidden;
+}
+.reading-ai .aih,
+.reading-notes .aih {
+  -webkit-app-region: drag;
+}
+.reading-ai .aih button,
+.reading-notes .aih button {
+  -webkit-app-region: no-drag;
+}
+.reading-ai .aih b,
+.reading-notes .aih b {
+  font-size: 13px;
+}
+.reading-notes .aih .meta {
+  min-width: 0;
+}
+.reading-ai .sees {
+  padding: 8px 16px;
+}
+.reading-ai .sees .chip .ok,
+.reading-ai .am .read .ok {
+  color: var(--green);
+}
+.reading-ai .msgs {
+  padding: 12px 16px 16px;
+  gap: 14px;
+}
+.reading-ai .daysep {
+  text-align: center;
+  font-size: 11px;
+  color: var(--t3);
+  margin: 2px 0 -4px;
+}
+.reading-ai .um-wrap {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 86%;
+  border-radius: 10px;
+}
+.reading-ai .um-wrap .um {
+  max-width: 100%;
+}
+.reading-ai .um-wrap.flash {
+  animation: note-ring 2s ease-out;
+}
+@keyframes note-ring {
+  0%,
+  60% {
+    box-shadow: 0 0 0 2px var(--acc-ring);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+.reading-ai .um-wrap .att {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line2);
+  background: #fff;
+}
+[data-tone='dark'] .reading-ai .um-wrap .att,
+[data-tone='dark'] .reading-in .attc,
+[data-tone='dark'] .reading-notes .fig .im {
+  filter: brightness(0.92);
+}
+.reading-ai .um-wrap .att img {
+  display: block;
+  max-width: 200px;
+  max-height: 120px;
+}
+.reading-ai .um-wrap .uq {
+  max-width: 100%;
+  padding: 4px 10px;
+  border-left: 2px solid var(--clip-bar);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.reading-ai .am .txt {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.md a.pg {
+  color: var(--acc-t);
+  text-decoration: none;
+  border-radius: 4px;
+  padding: 0 1px;
+  cursor: pointer;
+}
+.md a.pg:hover {
+  background: var(--acc-soft);
+}
+.btn.btn-xs {
+  height: 24px;
+  padding: 0 10px;
+  gap: 5px;
+  font-size: 12px;
+}
+.btn.btn-xs svg {
+  color: var(--t2);
+}
+.reading-ai .am .acts {
+  flex-wrap: wrap;
+}
+.reading-ai .noted {
+  margin-top: 8px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.reading-ai .noted.err {
+  color: var(--red);
+  height: auto;
+}
+.reading-ai .noted .lnk {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+  color: var(--t2);
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.reading-ai .noted .lnk:hover {
+  color: var(--t1);
+  background: var(--fill);
+}
+
+/* 输入框：框好的那块在上面，外圈 1.5px 强调色 */
+.aiin.reading-in {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  margin: 0 12px 12px;
+  padding: 8px 8px 8px 12px;
+  border: 0;
+  box-shadow:
+    0 0 0 1px var(--line2),
+    0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.aiin.reading-in.hot {
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+.reading-in .atts {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.reading-in .attc {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line2);
+  background: #fff;
+}
+.reading-in .attc img {
+  display: block;
+  max-width: 140px;
+  max-height: 72px;
+}
+.reading-in .attwait {
+  display: block;
+  width: 96px;
+  height: 56px;
+  background: var(--fill);
+}
+.reading-in .attc .lb {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  font-size: 11px;
+  background: rgba(17, 17, 19, 0.72);
+  color: #fff;
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 16px;
+}
+.reading-in .rm {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(17, 17, 19, 0.6);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.reading-in .attq {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 26px 4px 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.reading-in .attq .lb {
+  flex: none;
+  color: var(--t3);
+}
+.reading-in .attq .q {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reading-in .attq .rm {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.reading-in .crow {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.reading-in textarea {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  border: 0;
+  outline: none;
+  background: none;
+  resize: none;
+  font: 13px/20px var(--sans);
+  color: var(--t1);
+  padding: 0;
+}
+.reading-in textarea::placeholder {
+  color: var(--t3);
+}
+.reading-in textarea::selection {
+  background: var(--acc-soft);
+}
+.reading-in .send {
+  width: 28px;
+  height: 28px;
+}
+.reading-in .chint {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--t3);
+}
+
+/* ---------- 笔记 ---------- */
+.reading-notes .notes {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 16px 80px;
+}
+.reading-notes .nempty {
+  padding: 40px 12px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+}
+.reading-notes .nempty p {
+  margin: 0 0 4px;
+}
+.reading-notes .props {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 0 2px;
+}
+.reading-notes .chip {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.reading-notes .nsum {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0 8px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t2);
+}
+.reading-notes .nfind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  margin: 10px 0 2px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t3);
+}
+.reading-notes .nfind input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  font-size: 12px;
+  color: var(--t1);
+}
+.reading-notes .nfind input::placeholder {
+  color: var(--t3);
+}
+.reading-notes .nfind .num {
+  white-space: nowrap;
+}
+.reading-notes .ns {
+  position: relative;
+  padding: 16px 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+.reading-notes .ns.row1 {
+  padding: 0;
+}
+.reading-notes .ns.row1 .nsh {
+  height: 40px;
+  margin: 0;
+  cursor: default;
+}
+.reading-notes .ns.row1 .nsh:hover h3 {
+  color: var(--t1);
+}
+.reading-notes .ns.row1 h3 {
+  font-size: 13px;
+  font-weight: 500;
+}
+.reading-notes .ns.row1 .fold {
+  color: var(--t3);
+  margin: 0 2px 0 4px;
+}
+.reading-notes .ns.flash {
+  animation: note-ring 2s ease-out;
+  border-radius: 10px;
+}
+.reading-notes .ns.writing {
+  opacity: 0.55;
+}
+.reading-notes .nsh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+.reading-notes .nsh .iconbtn.fold {
+  width: 20px;
+  height: 20px;
+  color: var(--t3);
+}
+.reading-notes .nsh h3 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.reading-notes .nsh .tm {
+  flex: none;
+  font-size: 11px;
+  color: var(--t3);
+}
+.reading-notes .pgc {
+  flex: none;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.reading-notes button.pgc:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.reading-notes .figs {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.reading-notes .fig {
+  flex: none;
+  min-width: 0;
+}
+.reading-notes .fig .im {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line2);
+  background: #fff;
+}
+.reading-notes .fig .im img {
+  display: block;
+}
+/* 两张以上：两列网格，图按格子宽缩，不再一排伸出右栏被边缘切断 */
+.reading-notes .figs:has(.fig + .fig) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.reading-notes .figs:has(.fig + .fig) .im {
+  width: fit-content;
+  max-width: 100%;
+}
+.reading-notes .figs:has(.fig + .fig) .im img {
+  max-width: 100% !important;
+  height: auto;
+}
+.reading-notes .figs .fc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reading-notes .fig .im:hover {
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+.reading-notes .fig .fc {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.reading-notes .wnote {
+  margin: 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+.reading-notes .lab2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+}
+.reading-notes .doubt {
+  margin-bottom: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.reading-notes .doubt p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.reading-notes .doubt p + p {
+  margin-top: 2px;
+}
+.reading-notes .good {
+  margin-bottom: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.reading-notes .good .ver {
+  font-weight: 400;
+  color: var(--t3);
+}
+.reading-notes .good p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  user-select: text;
+}
+.reading-notes .pts {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.reading-notes .pts li {
+  margin: 2px 0;
+}
+.reading-notes .bad {
+  font-size: 12px;
+  color: var(--t3);
+}
+.reading-notes .bad summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  margin-left: -4px;
+  padding: 0 4px;
+  border-radius: 6px;
+  list-style: none;
+  cursor: default;
+}
+.reading-notes .bad summary::-webkit-details-marker {
+  display: none;
+}
+.reading-notes .bad summary:hover {
+  background: var(--fill);
+  color: var(--t2);
+}
+.reading-notes .bad summary svg {
+  flex: none;
+  transition: transform 0.15s;
+}
+.reading-notes .bad details[open] summary svg {
+  transform: rotate(90deg);
+}
+.reading-notes .bad .body2 {
+  padding: 2px 0 6px 20px;
+  line-height: 1.6;
+  color: var(--t2);
+  white-space: pre-wrap;
+}
+.reading-notes .nsf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 12px;
+}
+.reading-notes .nsf .lnk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  color: var(--t2);
+}
+.reading-notes .nsf .lnk:hover {
+  color: var(--t1);
+}
+.reading-notes .nsf .lnk.wl {
+  color: var(--acc-t);
+}
+
+/* ---------- 右栏两格：上格网页 / 梦游 / 历史 46%，下格 AI 或笔记 ---------- */
+.win.rsplit .right:not(.reading-ai):not(.reading-notes) {
+  align-self: start;
+  height: 46%;
+  border-bottom: 1px solid var(--line);
+}
+.win.rsplit .right.reading-ai,
+.win.rsplit .right.reading-notes {
+  align-self: end;
+  height: 54%;
+}
+
+/* ---------- 第 2 段：进度、做个可视化、我的疑惑、送 Anki、HTML 标签 ---------- */
+
+/* 工具栏「问到 5/10」+ 36×3 进度条 */
+.pdfpane .prog {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.pdfpane .prog b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.pdfpane .prog .bar {
+  width: 36px;
+  height: 3px;
+  margin-left: 4px;
+  border-radius: 2px;
+  background: var(--fill2);
+  overflow: hidden;
+}
+.pdfpane .prog .bar i {
+  display: block;
+  height: 100%;
+  background: var(--t2);
+  transition: width 0.4s;
+}
+
+/* 回答下面：后台在做可视化 / 做好了 */
+.reading-ai .vizpill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: 100%;
+  height: 28px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.reading-ai .vizpill.done {
+  background: none;
+  box-shadow: 0 0 0 1px var(--line2);
+  color: var(--t1);
+  padding-right: 3px;
+}
+.reading-ai .vizpill .btn {
+  flex: none;
+}
+.reading-ai .noted.err .lnk {
+  margin-left: 6px;
+}
+
+/* 笔记里的可视化卡 */
+.reading-notes .vcard {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 8px 0 6px;
+  padding: 8px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+  text-align: left;
+  color: var(--t1);
+}
+.reading-notes .vcard:hover {
+  box-shadow: 0 0 0 1px var(--line2);
+}
+.reading-notes .vcard .th {
+  flex: none;
+  width: 72px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t2);
+}
+.reading-notes .vcard .tx {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.reading-notes .vcard b {
+  font-size: 13px;
+  font-weight: 500;
+}
+.reading-notes .vcard .tx span {
+  font-size: 12px;
+  color: var(--t3);
+}
+.reading-notes .nsum .sp {
+  flex: 1;
+}
+.reading-notes .nsum .lnk {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  text-decoration: none;
+  color: var(--t2);
+}
+.reading-notes .nsum .lnk:hover {
+  color: var(--t1);
+}
+
+/* 我的疑惑：版心 820 居中 */
+.pane.doubts {
+  overflow: auto;
+}
+.doubts .dq-wrap {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
+  padding: 36px 40px 80px;
+  box-sizing: content-box;
+}
+.doubts .dq-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.doubts .dq-head h1 {
+  margin: 0;
+  font: 600 28px/1.3 var(--serif);
+}
+.doubts .dq-head .sp {
+  flex: 1;
+}
+.doubts .dq-sub {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--t2);
+}
+.doubts .dq-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.doubts .dq-find {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.doubts .dq-find input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  font-size: 12px;
+  color: var(--t1);
+}
+.doubts .dq-find input::placeholder {
+  color: var(--t3);
+}
+.doubts .dq-empty {
+  padding: 40px 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--t3);
+}
+.doubts .dq-gh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t3);
+  text-align: left;
+}
+.doubts .dq-gh b {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.doubts .dq-gh .latest {
+  min-width: 0;
+  margin-left: 6px;
+}
+.doubts .dq-gh:hover {
+  color: var(--t2);
+}
+.doubts .dq-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  margin: 0 -10px;
+  padding: 0 10px;
+  border-radius: 8px;
+}
+.doubts .dq-row:hover {
+  background: var(--fill);
+}
+.doubts .dq-line {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 56px;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+.doubts .dq-shot {
+  width: 88px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line2);
+  color: var(--t3);
+}
+[data-tone='dark'] .doubts .dq-shot {
+  filter: brightness(0.92);
+}
+.doubts .dq-shot img {
+  max-width: 88px;
+  max-height: 56px;
+}
+.doubts .dq-tx {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.doubts .dq-tx b {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+.doubts .dq-tx span {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.doubts .dq-sent {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.doubts .pgc {
+  flex: none;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.doubts .pgc:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.doubts .dq-full {
+  grid-column: 1 / -1;
+  margin: 0 0 12px 102px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.doubts .dq-full p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.doubts .dq-full ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.doubts .dq-full .dq-doubts {
+  margin: 0 0 6px;
+  color: var(--t2);
+}
+.doubts .dq-more {
+  height: 28px;
+  margin-left: 102px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.doubts .dq-more:hover {
+  color: var(--t1);
+}
+
+/* 送进 Anki 的对话框 */
+.ankidlg {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(600px, calc(100% - 40px));
+  padding: 16px 22px 18px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+}
+.ankidlg .adh {
+  display: flex;
+  align-items: center;
+  height: 28px;
+}
+.ankidlg .adh b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ankidlg .adh .sp,
+.ankidlg .adf .sp {
+  flex: 1;
+}
+.ankidlg .adsub {
+  margin: 4px 0 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.ankidlg .adcards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.ankidlg .adcard {
+  min-height: 170px;
+  max-height: 300px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.ankidlg .adk {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.ankidlg .adq {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+.ankidlg .adcard img {
+  display: block;
+  max-width: 100%;
+  max-height: 120px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--line);
+  background: #fff;
+}
+.ankidlg .ada {
+  white-space: pre-wrap;
+}
+.ankidlg .adcard ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--t2);
+}
+.ankidlg .adsrc {
+  margin-top: 8px;
+  color: var(--acc-t);
+}
+.ankidlg .aderr {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--red);
+}
+.ankidlg .adf {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* HTML 标签：沙箱 iframe 铺满 */
+.htmlpane .tool h1.ro {
+  cursor: default;
+}
+.htmlpane .tool h1.ro:hover {
+  background: none;
+}
+.htmlpane .sandboxed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.htmlpane .htmlbody {
+  flex: 1;
+  min-height: 0;
+  background: var(--board);
+  display: flex;
+}
+.htmlpane iframe {
+  flex: 1;
+  border: 0;
+  background: #fff;
+}
+
+/* HTML 上框一块问：iframe 上面一层，开着时十字光标、能拖 */
+.htmlpane .htmlbody {
+  position: relative;
+}
+.htmlpane .htmlframe {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+.htmlpane .htmlframe.on {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+.htmlpane .htmlframe .cap {
+  pointer-events: auto;
+}
+.htmlpane .htmlframe .hint {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 12px;
+  color: var(--t2);
+  pointer-events: none;
+}
+.htmlpane .iconbtn.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.htmlpane .fr {
+  position: absolute;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.htmlpane .fr.drawing,
+.htmlpane .fr.pending {
+  border: 1.5px solid var(--acc);
+  background: var(--acc-soft);
+}
+.htmlpane .cap {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--solid);
+  color: var(--solid-t);
+  font-size: 12px;
+  white-space: nowrap;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  cursor: default;
+  animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.htmlpane .cap button {
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  color: inherit;
+  font-size: 12px;
+}
+.htmlpane .cap button:hover {
+  background: rgba(127, 127, 127, 0.25);
+}
+.htmlpane .cap .k {
+  opacity: 0.6;
+  font-size: 11px;
+}
+.htmlpane .cap .sep {
+  width: 1px;
+  height: 14px;
+  background: currentColor;
+  opacity: 0.2;
+}

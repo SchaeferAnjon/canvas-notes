@@ -92,8 +92,13 @@ describe('electron-builder 配置', () => {
     expect(c.mac).toMatchObject({ identity: brand.signing.identity, hardenedRuntime: true, target: ['dmg', 'zip'], entitlements: 'build/entitlements.mac.plist', notarize: false })
     expect(c.artifactName).toBe('CanvasNotes-${version}-${os}-${arch}.${ext}')
     // 包里不带 AI 的 SDK（Claude Agent SDK 不是开源许可，2026-11-15 去掉）
-    expect(c.files).toEqual(['out/**', 'package.json'])
-    expect(c.asarUnpack).toBeUndefined()
+    // 带进包里的只有构建出来的和 package.json；别的都是去掉不用的（别的平台的原生库、source map）
+    expect(c.files.slice(0, 2)).toEqual(['out/**', 'package.json'])
+    expect(c.files.slice(2).every((f: string) => f.startsWith('!'))).toBe(true)
+    expect(JSON.stringify(c)).not.toMatch(/anthropic|claude-agent-sdk/i)
+    // 按意思搜的本机模型和它的原生运行库（onnxruntime-node 不能在 asar 里）
+    expect(c.asarUnpack).toEqual(['**/node_modules/onnxruntime-node/**'])
+    expect(c.extraResources).toContainEqual({ from: 'resources/models/multilingual-e5-small', to: 'models/multilingual-e5-small' })
     expect(c.mac.extendInfo.NSAppleEventsUsageDescription).toContain('Canvas Notes')
     const ent = readFileSync(join(ROOT, 'apps/notes/build/entitlements.mac.plist'), 'utf8')
     for (const k of ['allow-jit', 'allow-unsigned-executable-memory', 'disable-library-validation', 'automation.apple-events']) expect(ent).toContain(k)

@@ -31,6 +31,8 @@ function writeJson(file: string, value: unknown) {
 const isWebUrl = (u: unknown): u is string => typeof u === 'string' && /^https?:\/\//i.test(u) && u.length < 8192
 
 export interface BookmarkInput {
+  /** 不给就新生成一个 */
+  id?: string
   title: string
   url: string
   folder?: string
@@ -64,7 +66,7 @@ export class Bookmarks {
     if (!isWebUrl(b.url)) throw new Error('只能收藏 http(s) 网页')
     if (this.list.some((x) => x.url === b.url)) return this.list
     const folder = (b.folder ?? BAR).trim() || BAR
-    this.list = [...this.list, { id: randomUUID(), title: String(b.title || b.url).slice(0, 300), url: b.url, folder, addedMs: now, ...extras(b) }]
+    this.list = [...this.list, { id: b.id ?? randomUUID(), title: String(b.title || b.url).slice(0, 300), url: b.url, folder, addedMs: now, ...extras(b) }]
     this.save()
     return this.list
   }
@@ -90,22 +92,14 @@ export class Bookmarks {
   }
 
   /**
-   * 一次挪好几个（书签首页拖图标合并、排序、改分组名）：每项改文件夹和 / 或先后，写一次盘。
-   * 不认识的 id 跳过（可能刚被删了）。
+   * 一次改好几个（BookmarkKeeper 的 chrome.bookmarks 接口挪书签、改文件夹、排先后用，见 bookmarkkeeper/bookmark-tree.ts）：
+   * fn 拿到现在的表、返回新表，写一次盘。网址不是 http(s) 的丢掉。
    */
-  arrange(changes: { id: string; folder?: string; order?: number }[]): Bookmark[] {
-    const byId = new Map(changes.map((c) => [c.id, c]))
-    let changed = false
-    this.list = this.list.map((b) => {
-      const c = byId.get(b.id)
-      if (!c) return b
-      const folder = c.folder !== undefined ? c.folder.trim() || BAR : b.folder
-      const order = c.order !== undefined && Number.isFinite(c.order) ? c.order : b.order
-      if (folder === b.folder && order === b.order) return b
-      changed = true
-      return { ...b, folder, ...(order !== undefined ? { order } : {}) }
-    })
-    if (changed) this.save()
+  replace(fn: (list: Bookmark[]) => Bookmark[]): Bookmark[] {
+    const next = fn(this.list).filter((b) => isWebUrl(b?.url))
+    if (next.length === this.list.length && next.every((b, i) => b === this.list[i])) return this.list
+    this.list = next
+    this.save()
     return this.list
   }
 

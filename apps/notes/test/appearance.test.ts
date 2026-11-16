@@ -3,12 +3,24 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SettingsFile } from '../src/main/settings'
-import { activeSkin, autoCommitLabel, DEFAULT_SETTINGS, normalizeSettings, pickSkin, setFollowSystem, SKINS } from '../src/shared/appearance'
+import { activeSkin, autoCommitLabel, DEFAULT_SETTINGS, normalizeSettings, pickSkin, setFollowSystem, skinOf, SKINS } from '../src/shared/appearance'
 
 describe('外观设置', () => {
-  it('六套配色：三套浅、三套深', () => {
-    expect(SKINS.map((s) => s.id).sort()).toEqual(['black', 'cream', 'deepsea', 'fam-dark', 'fam-light', 'white'])
-    expect(SKINS.filter((s) => s.tone === 'light').map((s) => s.id)).toEqual(['fam-light', 'white', 'cream'])
+  it('十套主题：五浅五深，没有家族灰、纯白纯黑、米白、深海蓝', () => {
+    expect(SKINS.map((s) => s.id)).toEqual(['mint', 'sky', 'sakura', 'lilac', 'stone', 'pine', 'petrol', 'cocoa', 'ink', 'graphite'])
+    expect(SKINS.filter((s) => s.tone === 'light').map((s) => s.id)).toEqual(['mint', 'sky', 'sakura', 'lilac', 'stone'])
+  })
+
+  it('每套结构也不一样：当前标签的四种标记都用上了', () => {
+    expect(new Set(SKINS.map((s) => s.tab))).toEqual(new Set(['top', 'bottom', 'fill', 'none']))
+  })
+
+  it('旧主题换成最近的新主题：纯白、纯黑 → 石白、石墨（Dispatch 的白和黑），米白 → 樱花，深海蓝 → 深湖', () => {
+    expect(normalizeSettings({ appearance: { day: 'white', night: 'black', skin: 'cream' } }).appearance).toMatchObject({ day: 'stone', night: 'graphite', skin: 'sakura' })
+    expect(normalizeSettings({ appearance: { night: 'deepsea', skin: 'deepsea' } }).appearance).toMatchObject({ night: 'petrol', skin: 'petrol' })
+    // 旧版的深海光渐变换成默认的极光照片
+    expect(normalizeSettings({ appearance: { winBg: 'glow' } }).appearance.winBg).toBe('aurora')
+    expect(normalizeSettings({ appearance: { winBg: 'none' } }).appearance.winBg).toBe('none')
   })
 
   it('空的、坏的设置都回到默认值', () => {
@@ -17,35 +29,47 @@ describe('外观设置', () => {
     expect(normalizeSettings({ appearance: { skin: 'pink', homeStyle: 'c', followSystem: 'yes' }, autoCommitMinutes: -3 })).toEqual(DEFAULT_SETTINGS)
   })
 
-  it('白天只能是浅色主题，夜里只能是深色主题', () => {
-    const s = normalizeSettings({ appearance: { day: 'black', night: 'cream' } })
-    expect(s.appearance.day).toBe('fam-light')
-    expect(s.appearance.night).toBe('fam-dark')
+  it('界面风格：默认 B 浮岛书桌，只认 a、b', () => {
+    expect(DEFAULT_SETTINGS.appearance.frame).toBe('b')
+    expect(normalizeSettings({ appearance: { frame: 'a' } }).appearance.frame).toBe('a')
+    expect(normalizeSettings({ appearance: { frame: 'c' } }).appearance.frame).toBe('b')
+    expect(normalizeSettings({ appearance: {} }).appearance.frame).toBe('b')
   })
 
-  it('自己选的背景文件名不能带路径；没有文件时回到深海光', () => {
-    expect(normalizeSettings({ appearance: { winBg: 'custom', winBgFile: '../x.png' } }).appearance).toMatchObject({ winBg: 'glow', winBgFile: null })
+  it('默认白天薄荷、夜里松林；旧的家族灰换成薄荷 / 松林', () => {
+    expect(DEFAULT_SETTINGS.appearance).toMatchObject({ day: 'mint', night: 'pine', skin: 'mint' })
+    expect(normalizeSettings({ appearance: { day: 'fam-light', night: 'fam-dark', skin: 'fam-dark' } }).appearance).toMatchObject({ day: 'mint', night: 'pine', skin: 'pine' })
+  })
+
+  it('白天只能是浅色主题，夜里只能是深色主题', () => {
+    const s = normalizeSettings({ appearance: { day: 'ink', night: 'sky' } })
+    expect(s.appearance.day).toBe('mint')
+    expect(s.appearance.night).toBe('pine')
+  })
+
+  it('自己选的背景文件名不能带路径；没有文件时回到极光照片', () => {
+    expect(normalizeSettings({ appearance: { winBg: 'custom', winBgFile: '../x.png' } }).appearance).toMatchObject({ winBg: 'aurora', winBgFile: null })
     expect(normalizeSettings({ appearance: { winBg: 'custom', winBgFile: 'a.jpg' } }).appearance).toMatchObject({ winBg: 'custom', winBgFile: 'a.jpg' })
   })
 
   it('跟系统：白天用 day、夜里用 night；不跟系统一直用 skin', () => {
-    const a = { ...DEFAULT_SETTINGS.appearance, day: 'cream' as const, night: 'deepsea' as const, skin: 'white' as const }
-    expect(activeSkin(a, false)).toBe('cream')
-    expect(activeSkin(a, true)).toBe('deepsea')
-    expect(activeSkin({ ...a, followSystem: false }, true)).toBe('white')
+    const a = { ...DEFAULT_SETTINGS.appearance, day: 'sakura', night: 'petrol', skin: 'stone' }
+    expect(activeSkin(a, false)).toBe('sakura')
+    expect(activeSkin(a, true)).toBe('petrol')
+    expect(activeSkin({ ...a, followSystem: false }, true)).toBe('stone')
   })
 
   it('点主题卡：跟系统时按浅深换白天或夜里那套，不跟系统时直接换', () => {
     const a = DEFAULT_SETTINGS.appearance
-    expect(pickSkin(a, 'black')).toMatchObject({ day: 'fam-light', night: 'black' })
-    expect(pickSkin(a, 'white')).toMatchObject({ day: 'white', night: 'fam-dark' })
-    expect(pickSkin({ ...a, followSystem: false }, 'deepsea')).toMatchObject({ skin: 'deepsea', day: 'fam-light', night: 'fam-dark' })
+    expect(pickSkin(a, skinOf('graphite'))).toMatchObject({ day: 'mint', night: 'graphite' })
+    expect(pickSkin(a, skinOf('sky'))).toMatchObject({ day: 'sky', night: 'pine' })
+    expect(pickSkin({ ...a, followSystem: false }, skinOf('cocoa'))).toMatchObject({ skin: 'cocoa', day: 'mint', night: 'pine' })
   })
 
   it('关掉跟系统时留住现在看到的那套', () => {
-    const a = { ...DEFAULT_SETTINGS.appearance, night: 'black' as const }
-    expect(setFollowSystem(a, false, true)).toMatchObject({ followSystem: false, skin: 'black' })
-    expect(setFollowSystem(a, false, false)).toMatchObject({ followSystem: false, skin: 'fam-light' })
+    const a = { ...DEFAULT_SETTINGS.appearance, night: 'ink' }
+    expect(setFollowSystem(a, false, true)).toMatchObject({ followSystem: false, skin: 'ink' })
+    expect(setFollowSystem(a, false, false)).toMatchObject({ followSystem: false, skin: 'mint' })
   })
 
   it('自动提交间隔的说法', () => {
@@ -68,8 +92,8 @@ describe('设置文件', () => {
     expect(s.appearance.homeStyle).toBe('b')
     expect(s.autoCommitMinutes).toBe(30)
     const disk = JSON.parse(readFileSync(path, 'utf8'))
-    expect(disk).toMatchObject({ lastVault: '/x/库', quickHint: false, autoCommitMinutes: 30, appearance: { homeStyle: 'b', day: 'fam-light' } })
-    expect(f.setApp({ appearance: { skin: 'nope' as never } }).appearance.skin).toBe('fam-light')
+    expect(disk).toMatchObject({ lastVault: '/x/库', quickHint: false, autoCommitMinutes: 30, appearance: { homeStyle: 'b', day: 'mint' } })
+    expect(f.setApp({ appearance: { skin: 'nope' as never } }).appearance.skin).toBe('mint')
   })
 
   it('没有设置文件时是默认值', () => {

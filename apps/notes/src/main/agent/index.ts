@@ -41,7 +41,8 @@ export const AGENT_SYSTEM = `你是 ${BRAND.name} 笔记软件里的助手，帮
 
 let engines: Partial<Record<EngineId, Engine>> = {}
 
-function engine(id: EngineId): Engine {
+/** 读 PDF 边读边问也用同一组引擎（同一个进程、同一个假引擎） */
+export function engine(id: EngineId): Engine {
   if (FAKE()) return (engines[id] ??= fakeEngine(id))
   return (engines[id] ??= id === 'claude' ? claudeEngine() : id === 'codex' ? codexEngine() : id === 'gemini' ? geminiEngine() : opencodeEngine())
 }

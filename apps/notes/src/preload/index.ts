@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { CnApi } from '../shared/api'
+import { folderApi } from './folder-home'
+import { importApi } from './importer'
+import { mapApi } from './mindmap'
 import { pluginsApi } from './plugins'
+import { readingApi } from './reading'
+import { searchApi } from './search'
+import type { CnFilesApi } from '../shared/files'
+import { videoApi } from './video-api'
 import { webApi } from './web'
 
 const api: CnApi = {
@@ -37,6 +44,9 @@ const api: CnApi = {
   settings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   pickWinBg: () => ipcRenderer.invoke('settings:pickWinBg'),
+  themes: () => ipcRenderer.invoke('themes:list'),
+  importTheme: () => ipcRenderer.invoke('themes:import'),
+  removeTheme: (id) => ipcRenderer.invoke('themes:remove', id),
   homeConfig: () => ipcRenderer.invoke('home:get'),
   saveHomeConfig: (cfg) => ipcRenderer.invoke('home:set', cfg),
   pickCover: () => ipcRenderer.invoke('home:pickCover'),
@@ -98,6 +108,11 @@ const api: CnApi = {
   dreamTake: (id) => ipcRenderer.invoke('dream:take', id),
   dreamDrop: (id) => ipcRenderer.invoke('dream:drop', id),
   dreamTakeAll: () => ipcRenderer.invoke('dream:takeAll'),
+  dreamTakeMany: (ids) => ipcRenderer.invoke('dream:takeMany', ids),
+  dreamDropMany: (ids) => ipcRenderer.invoke('dream:dropMany', ids),
+  dreamUndo: (u) => ipcRenderer.invoke('dream:undo', u),
+  dreamRedo: (ids, feedback) => ipcRenderer.invoke('dream:redo', ids, feedback),
+  dreamRedoStop: () => ipcRenderer.invoke('dream:redoStop'),
   dreamDiff: (id) => ipcRenderer.invoke('dream:diff', id),
   onDream(cb) {
     const h = (_e: unknown, report: Parameters<typeof cb>[0], running: boolean) => cb(report, running)
@@ -109,3 +124,10 @@ const api: CnApi = {
 contextBridge.exposeInMainWorld('cn', api)
 contextBridge.exposeInMainWorld('cnWeb', webApi)
 contextBridge.exposeInMainWorld('cnPlugins', pluginsApi)
+contextBridge.exposeInMainWorld('cnMap', mapApi)
+contextBridge.exposeInMainWorld('cnFolder', folderApi)
+contextBridge.exposeInMainWorld('cnReading', readingApi)
+contextBridge.exposeInMainWorld('cnSearch', searchApi)
+contextBridge.exposeInMainWorld('cnFiles', { all: () => ipcRenderer.invoke('files:all') } satisfies CnFilesApi)
+contextBridge.exposeInMainWorld('cnVideo', videoApi)
+contextBridge.exposeInMainWorld('cnImport', importApi)

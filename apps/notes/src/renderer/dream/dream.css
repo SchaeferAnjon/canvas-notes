@@ -1,5 +1,5 @@
 /* 梦游报告：右栏清单（照 design/src/proto-b.src.html 的 .dlist .dsum .dg .di .dfoot），点开一条在下面展开为什么和改了什么 */
-.dream-panel .rhead .lucide {
+.dream-panel .rhead .ci {
   color: var(--t2);
 }
 .dlist {
@@ -233,4 +233,342 @@
   flex: 1;
   font-size: 12px;
   color: var(--t3);
+}
+
+/* ---------- 归类和改名、预览（design-mindmap 方向 B 第 7、8 节） ---------- */
+.btn.btn-xs {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+  gap: 4px;
+}
+.dg .dg-pv {
+  margin: -4px 0 -4px 8px;
+  font-weight: 400;
+}
+.dsub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 6px 8px 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dsub .num {
+  margin-left: auto;
+}
+.dsub .btn {
+  color: var(--t2);
+}
+.di .st.ok {
+  color: var(--green);
+}
+.tag-acc,
+.tag-new {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1;
+  flex: none;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+}
+.di .tag-acc {
+  margin-top: 1px;
+}
+.dd .pv-move {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -4px 0 10px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.dd .pv-move i {
+  font-style: normal;
+  color: var(--t3);
+  display: inline-block;
+  width: 44px;
+}
+.dd .pv-move s {
+  color: var(--t3);
+}
+.dstay,
+.dbulk-h {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 8px;
+  border-radius: 8px;
+}
+.dstay .ico,
+.dbulk-h .ico {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--fill);
+  color: var(--t2);
+}
+.dstay .tx,
+.dbulk-h .tx {
+  flex: 1;
+  min-width: 0;
+}
+.dstay .tx b,
+.dbulk-h .tx b {
+  display: block;
+  font-weight: 500;
+  font-size: 13px;
+}
+.dstay .tx span,
+.dbulk-h .tx span {
+  display: block;
+  font-size: 12px;
+  color: var(--t2);
+}
+.dbulk-h {
+  cursor: pointer;
+}
+.dbulk-h:hover,
+.dbulk.open .dbulk-h {
+  background: var(--fill2);
+}
+.dbulk-b {
+  margin: 4px 0 8px 34px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--pop);
+  box-shadow: var(--shadow);
+}
+.dsearch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.dsearch input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--t1);
+  outline: none;
+}
+.dbulk-k {
+  margin: 10px 0 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dbulk-r {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--line);
+}
+.dbulk-r .ci {
+  color: var(--t3);
+}
+.dbulk-r .o {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+  max-width: 45%;
+}
+.dbulk-r.done {
+  color: var(--t3);
+}
+.dbulk-more {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dbulk-act {
+  display: flex;
+  gap: 4px;
+  margin: 8px -8px 0;
+}
+
+/* 预览中：左栏和中间栏内描一圈（v3「AI 动手区域外圈」同一个记号） */
+.side.previewing,
+.center.previewing {
+  box-shadow: inset 0 0 0 2px var(--acc-ring);
+}
+.pv-bar {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--tab-h, 40px) + var(--tool-h, 48px) + 12px);
+  transform: translateX(-50%);
+  z-index: 45;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  border-radius: 999px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--t1);
+  max-width: calc(100% - 32px);
+}
+.pv-bar > span:not(.pd) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 4px;
+}
+.pv-bar .btn-ghost {
+  color: var(--t2);
+}
+.pv-pop {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--tab-h, 40px) + var(--tool-h, 48px) + 52px);
+  transform: translateX(-50%);
+  z-index: 60;
+  width: 400px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  color: var(--t1);
+}
+.pv-pop h4 {
+  margin: 0 0 8px;
+  font: 600 13px/1.4 var(--sans);
+}
+.pv-pop textarea {
+  width: 100%;
+  resize: none;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line2);
+  background: var(--card);
+  color: var(--t1);
+  font: 13px/1.5 var(--sans);
+}
+.pv-pop textarea:focus {
+  outline: none;
+  border-color: var(--acc-ring);
+}
+.pv-pop .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.pv-pop .chip {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--t1);
+  font-size: 12px;
+  cursor: pointer;
+}
+.pv-pop .chip:hover {
+  background: var(--fill2);
+}
+.pv-pop .help {
+  margin: 0 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.pv-pop .act {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.pv-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 46;
+  height: 40px;
+  padding: 0 6px 0 14px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--t1);
+  max-width: calc(100% - 120px);
+}
+.pv-toast > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pv-toast code {
+  font: 11px var(--mono);
+  color: var(--t3);
+}
+.iconbtn.sm {
+  width: 24px;
+  height: 24px;
+}
+.iconbtn.xs {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+}
+/* 左栏：挪来的「新」，悬停出收下 / 丢掉这一处 */
+.pv-mark {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.pv-mark .pv-hover {
+  display: none;
+  gap: 2px;
+}
+.si:hover .pv-mark .pv-hover {
+  display: flex;
+}
+.si:hover .pv-mark .tag-new {
+  display: none;
+}
+.pv-ghost {
+  color: var(--t3);
+  cursor: default;
+}
+.pv-ghost:hover {
+  background: none;
+}
+.pv-ghost s {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.pv-ghost .to {
+  margin-left: auto;
+  font-size: 12px;
+  flex: none;
+  max-width: 50%;
 }

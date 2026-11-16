@@ -1,5 +1,4 @@
-import { Icon } from '@cn/design'
-import { ChevronDown, ChevronsRight, Folder } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Bookmark } from '../../shared/web-api'
 import { Favicon } from './favicons'
@@ -32,7 +31,12 @@ export function BookmarksBar(props: { bookmarks: Bookmark[]; onOpen(url: string,
     return () => ro.disconnect()
   }, [props.bookmarks.length > 0])
 
-  const top = props.bookmarks.filter((b) => b.folder === BAR)
+  // 先后和 BookmarkKeeper 整理书签页里排的一样（书签的 order，没排过的按加进来的先后）
+  const top = props.bookmarks
+    .map((b, i) => ({ b, k: b.order ?? 1e9 + i }))
+    .filter(({ b }) => b.folder === BAR)
+    .sort((x, y) => x.k - y.k)
+    .map(({ b }) => b)
   const folders = [...new Set(props.bookmarks.filter((b) => b.folder.startsWith(BAR + ' / ')).map((b) => b.folder.split(' / ')[1]!))]
   const others = props.bookmarks.filter((b) => b.folder !== BAR && !b.folder.startsWith(BAR + ' / '))
   const inFolder = (f: string) => props.bookmarks.filter((b) => b.folder === `${BAR} / ${f}` || b.folder.startsWith(`${BAR} / ${f} / `))
@@ -87,7 +91,7 @@ export function BookmarksBar(props: { bookmarks: Bookmark[]; onOpen(url: string,
         ) : (
           <div key={e.key} data-bm className="bmf">
             <button className={'bm' + (open === e.name ? ' on' : '')} title={e.name} onClick={() => setOpen(open === e.name ? null : e.name)}>
-              <Icon of={Folder} size={13} />
+              <Codicon name="folder" size={13} />
               <span className="truncate">{e.name}</span>
             </button>
             {menu(e.name, inFolder(e.name), `${BAR} / ${e.name}`)}
@@ -97,7 +101,7 @@ export function BookmarksBar(props: { bookmarks: Bookmark[]; onOpen(url: string,
       {hidden.length > 0 && (
         <div className="bmf">
           <button className={'bm bmmore' + (open === '»' ? ' on' : '')} aria-label="更多书签" title={`还有 ${hidden.length} 个摆不下`} onClick={() => setOpen(open === '»' ? null : '»')}>
-            <Icon of={ChevronsRight} size={13} />
+            <Codicon name="chevron-right" size={13} />
           </button>
           {open === '»' && (
             <div className="menu bmmenu right" role="menu" aria-label="更多书签">
@@ -123,7 +127,7 @@ export function BookmarksBar(props: { bookmarks: Bookmark[]; onOpen(url: string,
         <div className="bmf end">
           <button className={'bm' + (open === '其他书签' ? ' on' : '')} onClick={() => setOpen(open === '其他书签' ? null : '其他书签')}>
             其他书签
-            <Icon of={ChevronDown} size={12} />
+            <Codicon name="chevron-down" size={12} />
           </button>
           {open === '其他书签' && (
             <div className="menu bmmenu right" role="menu" aria-label="其他书签">

@@ -1,9 +1,10 @@
 /** 首页设置存在库里的 .canvas-notes/首页.json；从电脑选的封面拷进 附件/封面/ */
 import { dialog, ipcMain, type BrowserWindow } from 'electron'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, extname, join } from 'node:path'
 import { COVER_DIR, HOME_FILE, homeJson, normalizeHome, type HomeConfig } from '../shared/home'
 import { copyIntoVault, IMAGE_EXT } from './attachments'
+import { writeFileAtomic } from './atomic'
 import type { Vault } from './vault'
 
 export async function readHome(vault: Vault): Promise<HomeConfig> {
@@ -18,16 +19,8 @@ export async function readHome(vault: Vault): Promise<HomeConfig> {
 
 export async function writeHome(vault: Vault, cfg: unknown): Promise<HomeConfig> {
   const text = homeJson(normalizeHome(cfg))
-  const p = vault.abs(HOME_FILE)
-  // 一样就不写，免得 Git 里多出假改动
-  const cur = await readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {
-    if (e.code === 'ENOENT') return null
-    throw e
-  })
-  if (cur !== text) {
-    await mkdir(dirname(p), { recursive: true })
-    await writeFile(p, text)
-  }
+  // 一样就不写；先写临时文件再改名；连着点几次按先后排队落盘
+  await writeFileAtomic(vault.abs(HOME_FILE), text)
   return JSON.parse(text) as HomeConfig
 }
 

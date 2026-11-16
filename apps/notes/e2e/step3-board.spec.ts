@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { gitStatus, launch, pane, waitSaved } from './app'
+import { gitStatus, launch, pane, waitSaved, acts, tabOn } from './app'
 import { ICELAND, LODGING } from './fixtures/board'
 
 const board = (page: Page) => pane(page).getByTestId('board')
@@ -10,7 +10,7 @@ const card = (page: Page, id: string) => board(page).locator(`.bcard[data-id="${
 
 async function openBoard(page: Page, name: string) {
   await page.locator('.nav .si', { hasText: new RegExp(`^${name}`) }).first().click()
-  await expect(pane(page).locator('.tool h1')).toHaveText(name)
+  await expect(tabOn(page)).toHaveText(name)
   await expect(board(page)).toBeVisible()
 }
 
@@ -62,13 +62,12 @@ test('新建白板、双击加卡、改卡片、删卡片', async () => {
   const run = await launch({ '甲.md': '甲\n' })
   const { page, vault } = run
   try {
-    await page.locator('.nav').hover()
-    await page.locator('.nav').getByRole('button', { name: '新建白板' }).click()
-    await expect(pane(page).getByRole('textbox', { name: '笔记名字' })).toBeFocused()
+    await page.locator('aside.side').getByRole('button', { name: '新建白板' }).click()
+    await expect(page.getByRole('textbox', { name: '笔记名字' })).toBeFocused()
     await page.keyboard.type('冰岛自驾')
     await page.keyboard.press('Enter')
     await expect(board(page)).toBeVisible()
-    await expect(pane(page).locator('.tool h1')).toHaveText('冰岛自驾')
+    await expect(tabOn(page)).toHaveText('冰岛自驾')
     await expect.poll(() => existsSync(join(vault, '冰岛自驾.md'))).toBe(true)
     expect(read(vault, '冰岛自驾.md')).toMatch(/^---\ntype: board\ncolor: #[0-9A-F]{6}\n---\n$/)
 
@@ -186,10 +185,10 @@ test('待办打勾；子白板新建、起名后父白板里的链接跟着改�
 
     await board(page).locator('.bpal').getByRole('button', { name: '子白板' }).click()
     // 新标签，名字框等着起名
-    await expect(pane(page).getByRole('textbox', { name: '笔记名字' })).toBeFocused()
+    await expect(page.getByRole('textbox', { name: '笔记名字' })).toBeFocused()
     await page.keyboard.type('环岛路线')
     await page.keyboard.press('Enter')
-    await expect(pane(page).locator('.tool h1')).toHaveText('环岛路线')
+    await expect(tabOn(page)).toHaveText('环岛路线')
     expect(existsSync(join(vault, '环岛路线.md'))).toBe(true)
     await expect.poll(() => read(vault, '冰岛自驾.md')).toContain('[[环岛路线]]')
     expect(read(vault, '冰岛自驾.md')).not.toContain('未命名白板')
@@ -198,7 +197,7 @@ test('待办打勾；子白板新建、起名后父白板里的链接跟着改�
     const sub = board(page).locator('.bcard.k-board', { hasText: '环岛路线' })
     await expect(sub).toContainText('0 张卡片')
     await sub.dblclick()
-    await expect(pane(page).locator('.tool h1')).toHaveText('环岛路线')
+    await expect(tabOn(page)).toHaveText('环岛路线')
   } finally {
     await run.close()
   }
@@ -211,7 +210,7 @@ test('未整理：普通文档的段落和收件箱里的东西拖上白板', as
   writeFileSync(join(vault, '收件箱', '冰洞.md'), '---\ncreated: 2026-11-14 21:10\n---\n> 冰洞只在冬天开放。\n—— [Ice](https://safetravel.is/ice)\n')
   try {
     await page.locator('.nav .si', { hasText: '所思所想' }).click()
-    await pane(page).getByRole('tab', { name: '白板' }).click()
+    await acts(page).getByRole('tab', { name: '白板' }).click()
     await expect(board(page).getByTestId('unsorted')).toContainText('3 未整理')
     await board(page).getByTestId('unsorted').click()
     const bb = (await board(page).boundingBox())!
@@ -230,7 +229,7 @@ test('未整理：普通文档的段落和收件箱里的东西拖上白板', as
     await waitSaved(page)
     expect(read(vault, '所思所想.md')).toContain('> 冰洞只在冬天开放。\n—— [Ice](https://safetravel.is/ice)')
     // 切回文档：同一个文件，内容都在
-    await pane(page).getByRole('tab', { name: '文档' }).click()
+    await acts(page).getByRole('tab', { name: '文档' }).click()
     await expect(pane(page).locator('.cm-content')).toContainText('第一段想法')
   } finally {
     await run.close()

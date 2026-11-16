@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { editorText, launch, openNote, pane, waitSaved } from './app'
+import { editorText, launch, openNote, pane, waitSaved, acts } from './app'
 
 // 规矩 2：正在编辑时外部改动进来（同步、AI、梦游），正在打的字不丢；冲突的那一版另存一份冲突副本。
 
@@ -74,7 +74,7 @@ test('没在改的时候外部改了：编辑器直接换成新的，不写回',
     await expect.poll(() => editorText(page)).toContain('第四段')
     await page.waitForTimeout(1200)
     expect(readFileSync(file, 'utf8')).toBe(remote)
-    await expect(pane(page).getByTestId('save-state')).toHaveAttribute('data-state', 'saved')
+    await expect(acts(page).getByTestId('save-state')).toHaveAttribute('data-state', 'saved')
   } finally {
     await run.close()
   }

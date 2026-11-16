@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { commitAll, commitPaths, currentBranch, git, gitPath, init, isRepo, log, remote, revert, setRemote, status } from '../src'
+import { commitAll, commitPaths, currentBranch, git, gitPath, init, isRepo, log, parseStatus, remote, revert, setRemote, status } from '../src'
 
 let dir: string
 beforeEach(async () => {
@@ -76,5 +76,16 @@ describe('gitPath', () => {
   it('从访达打开时 PATH 很短：补上 Homebrew 的目录（git-lfs 这类钩子要用），继承来的排前面、不重复', () => {
     expect(gitPath('/usr/bin:/bin:/usr/sbin:/sbin')).toBe('/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin')
     expect(gitPath('/my/bin:/opt/homebrew/bin')).toBe('/my/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin')
+  })
+})
+
+describe('parseStatus', () => {
+  it('认改动、新文件、改名（改名后面那段旧路径跳过）', () => {
+    expect(parseStatus(' M a.md\0?? 新 文件.md\0R  b.md\0old.md\0')).toEqual([
+      { path: 'a.md', code: ' M' },
+      { path: '新 文件.md', code: '??' },
+      { path: 'b.md', code: 'R ' },
+    ])
+    expect(parseStatus('')).toEqual([])
   })
 })

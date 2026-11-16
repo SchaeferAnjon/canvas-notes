@@ -28,8 +28,22 @@ export interface EngineRun {
   model?: string
   /** 会话接不上（软件重开过）时补在前面的最近几轮对话 */
   history?: string
+  /** 跟着这段话一起给的图（读 PDF 时框的那块）：data 是 base64，path 是本机的绝对路径（Codex 只认文件） */
+  images?: EngineImage[]
+  /** 不给工具时也留着会话、能接着聊（读 PDF 的问答要追问；/ 命令那种问一次就完的不留） */
+  keepSession?: boolean
+  /** 只给只读的 Read、Glob、Grep 自己翻库里的文件（「让 Claude 帮我找」），不接我们的 MCP；只有 Claude Code 认 */
+  readOnly?: boolean
+  /** AI 每调一次工具报一声（「让 Claude 帮我找」把过程显示出来） */
+  onTool?(name: string, input: Record<string, unknown>): void
   signal: AbortSignal
   onText(delta: string): void
+}
+
+export interface EngineImage {
+  mime: 'image/png' | 'image/jpeg'
+  data: string
+  path: string
 }
 
 export interface EngineOutcome {
@@ -69,7 +83,7 @@ const CLAUDE_READ_TOOLS = ['Read', 'Glob', 'Grep']
 const CLAUDE_DENIED = ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']
 
 /** claude -p 的参数（以 claude --help 为准，2.1.323 核过）。mcpConfig：写着我们 MCP 服务和令牌的 json 文件，只在给工具时有 */
-export function claudeArgs(r: Pick<EngineRun, 'system' | 'mcp' | 'model'>, resume?: string, mcpConfig?: string): string[] {
+export function claudeArgs(r: Pick<EngineRun, 'system' | 'mcp' | 'model' | 'images' | 'keepSession' | 'readOnly'>, resume?: string, mcpConfig?: string): string[] {
   const args = [
     '-p',
     '--output-format', 'stream-json',
@@ -87,12 +101,24 @@ export function claudeArgs(r: Pick<EngineRun, 'system' | 'mcp' | 'model'>, resum
   if (r.mcp && mcpConfig) {
     const ours = r.mcp.tools.map((t) => `mcp__${MCP_NAME}__${t}`)
     args.push('--tools', CLAUDE_READ_TOOLS.join(','), '--mcp-config', mcpConfig, '--allowedTools', ours.join(','), '--max-turns', '40')
+  } else if (r.readOnly) {
+    // 只读翻文件：只给 Read、Glob、Grep，dontAsk 下读不到库外面；找完就完，不留会话
+    args.push('--tools', CLAUDE_READ_TOOLS.join(','), '--allowedTools', CLAUDE_READ_TOOLS.join(','), '--max-turns', '30', '--no-session-persistence')
   } else {
-    // 只聊天（/ 命令）：一个工具都不给，答一次，不留会话记录
-    args.push('--tools', '', '--max-turns', '1', '--no-session-persistence')
+    // 只聊天：一个工具都不给，答一次；/ 命令那种不留会话记录，读 PDF 的问答留着好追问
+    args.push('--tools', '', '--max-turns', '1')
+    if (!r.keepSession) args.push('--no-session-persistence')
   }
+  // 带图：话改成 stream-json 的一条用户消息（图是 image 内容块），见 code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode
+  if (r.images?.length) args.push('--input-format', 'stream-json')
   if (resume) args.push('--resume', resume)
   return args
+}
+
+/** 带图时从标准输入给的那一行 */
+export function claudeImageMessage(text: string, images: EngineImage[]): string {
+  const content = [{ type: 'text', text }, ...images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mime, data: i.data } }))]
+  return JSON.stringify({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null }) + '\n'
 }
 
 /** 我们的 MCP 服务写进一个只有自己能读的临时文件（令牌不放在命令行上，ps 看不到） */
@@ -112,6 +138,7 @@ interface ClaudeLine {
   is_error?: boolean
   result?: string
   event?: { type?: string; delta?: { type?: string; text?: string }; content_block?: { type?: string } }
+  message?: { content?: { type?: string; name?: string; input?: Record<string, unknown> }[] }
 }
 
 /** 跑一次 claude -p：话从标准输入给，一行一个 JSON 事件读回来 */
@@ -157,6 +184,8 @@ function runClaude(exe: string, args: string[], prompt: string, r: EngineRun): P
           text += ev.delta.text
           r.onText(ev.delta.text)
         }
+      } else if (m.type === 'assistant' && r.onTool) {
+        for (const c of m.message?.content ?? []) if (c.type === 'tool_use' && c.name) r.onTool(c.name, c.input ?? {})
       } else if (m.type === 'result') {
         if (m.subtype === 'success' && !m.is_error) result = m.result ?? ''
         else error = (m.subtype === 'success' ? m.result : m.subtype) || '不知道为什么'
@@ -204,7 +233,8 @@ export function claudeEngine(command?: string, prefix: string[] = []): Engine {
       const once = async (resume: string | undefined): Promise<EngineOutcome> => {
         const config = r.mcp ? mcpConfigFile(r.mcp) : null
         try {
-          return await runClaude(exe, [...prefix, ...claudeArgs(r, resume, config?.path)], withHistory(r, !resume), r)
+          const text = withHistory(r, !resume)
+          return await runClaude(exe, [...prefix, ...claudeArgs(r, resume, config?.path)], r.images?.length ? claudeImageMessage(text, r.images) : text, r)
         } finally {
           config?.remove()
         }
@@ -315,7 +345,8 @@ export function codexEngine(command?: string, prefix: string[] = []): Engine {
       const stop = () => turnId && void p.request('turn/interrupt', { threadId, turnId }).catch(() => undefined)
       r.signal.addEventListener('abort', stop)
       try {
-        const t = await p.request<{ turn: { id: string } }>('turn/start', { threadId, input: [{ type: 'text', text: withHistory(r, fresh), text_elements: [] }] })
+        const input: unknown[] = [{ type: 'text', text: withHistory(r, fresh), text_elements: [] }, ...(r.images ?? []).map((i) => ({ type: 'localImage', path: i.path }))]
+        const t = await p.request<{ turn: { id: string } }>('turn/start', { threadId, input })
         turnId = t.turn.id
         if (r.signal.aborted) stop()
         await done
@@ -413,7 +444,8 @@ export function acpEngine(o: AcpOptions): Engine {
       try {
         // ACP 没有单独的系统提示，开新会话时放在第一段话前面
         const prompt = fresh ? `${r.system}\n\n---\n\n${withHistory(r, true)}` : r.prompt
-        const res = await p.request<{ stopReason?: string }>('session/prompt', { sessionId, prompt: [{ type: 'text', text: prompt }] }, 0)
+        const images = (r.images ?? []).map((i) => ({ type: 'image', mimeType: i.mime, data: i.data }))
+        const res = await p.request<{ stopReason?: string }>('session/prompt', { sessionId, prompt: [{ type: 'text', text: prompt }, ...images] }, 0)
         if (res.stopReason === 'refusal') throw new Error(`${LABELS[o.id]} 拒绝回答`)
       } finally {
         r.signal.removeEventListener('abort', stop)

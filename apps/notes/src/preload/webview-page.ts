@@ -7,6 +7,7 @@ import { Readability } from '@mozilla/readability'
 import { ipcRenderer } from 'electron'
 import TurndownService from 'turndown'
 import { mdUrl } from '../shared/layout'
+import { prepareClip } from './plugins/translate'
 
 /** 直接转 DOM 节点，不拼 HTML 字符串（有的网站开了 Trusted Types，innerHTML 会被拦） */
 function toMarkdown(node: Node): string {
@@ -57,7 +58,7 @@ function toMarkdown(node: Node): string {
 }
 
 /** 懒加载的图：真地址在 data-src 之类的属性里 */
-function fixLazyImages(root: Document) {
+export function fixLazyImages(root: Document) {
   for (const img of Array.from(root.querySelectorAll('img'))) {
     const real = img.getAttribute('data-src') || img.getAttribute('data-original') || img.getAttribute('data-lazy-src') || img.getAttribute('data-actualsrc')
     const src = img.getAttribute('src') ?? ''
@@ -85,12 +86,14 @@ const NOISE = [
   '[hidden]', '.sr-only', '.visually-hidden', 'nav', 'aside', 'footer',
 ].join(',')
 
-function stripNoise(root: Document) {
+export function stripNoise(root: Document) {
   for (const el of Array.from(root.querySelectorAll(NOISE))) el.remove()
 }
 
 export function extract(): { url: string; title: string; byline?: string; markdown: string } {
   const clone = document.cloneNode(true) as Document
+  // 双语翻译插进去的译文：按「整页剪藏带上译文」开关拿掉或写成引用
+  prepareClip(clone)
   fixLazyImages(clone)
   stripNoise(clone)
   const article = new Readability<Node>(clone, { charThreshold: 200, serializer: (n) => n }).parse()

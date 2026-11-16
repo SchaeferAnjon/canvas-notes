@@ -371,21 +371,30 @@
   grid-template-columns: repeat(7, 1fr);
   gap: 6px;
   align-items: end;
-  height: 54px;
+  justify-items: center;
+  height: 40px;
   margin-top: 12px;
 }
+/* 柱子细一点、颜色淡：只有存得最多的那天用强调色（用户 2026-11-16：周一一整块灰太重） */
 .bars i {
   display: block;
-  border-radius: 4px 4px 2px 2px;
-  background: var(--w1);
-  min-height: 4px;
+  width: 100%;
+  max-width: 18px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--fill2);
 }
-.bars i.today {
-  background: var(--w3);
-}
+/* 这周还空着：一排 6 高的细条 --w1（DESIGN.v3 5.3） */
 .bars.none i {
   height: 6px;
-  border-radius: 3px;
+  background: var(--w1);
+}
+.bars i.best {
+  background: var(--acc);
+  opacity: 0.7;
+}
+.bars i.today:not(.best) {
+  background: var(--acc-ring);
 }
 .barl {
   display: grid;
@@ -524,6 +533,8 @@
 .th:hover {
   box-shadow: var(--shadow);
 }
+/* 缩略图：--board 底 + --dotc 点阵，和下面的白卡之间一道 --line（石白的 --board 几乎是白的，靠这道线分开）；
+   小块 --card + 1px --line2 */
 .th .p {
   display: block;
   height: 74px;
@@ -531,15 +542,16 @@
   background-color: var(--board);
   background-image: radial-gradient(var(--dotc) 1px, transparent 1.2px);
   background-size: 8px 8px;
-}
-[data-skin='deepsea'] .th .p {
-  background-color: rgba(4, 10, 26, 0.35);
+  border-bottom: 1px solid var(--line);
 }
 .th .p i {
   position: absolute;
   background: var(--card);
   border-radius: 3px;
-  box-shadow: 0 0 0 0.5px var(--line2);
+  box-shadow: 0 0 0 1px var(--line2);
+}
+.th .p i.m {
+  border-radius: 999px;
 }
 .th .p i.c {
   background: var(--clip);
@@ -700,9 +712,6 @@
 /* ---------- 方向 B：封面铺满首页，组件是半透明玻璃；排第一的时钟直接写在图上 ---------- */
 .home-b .hscroll {
   background: linear-gradient(180deg, transparent 0, transparent 160px, var(--win) 520px), var(--cover-img) 50% var(--cover-y) / cover no-repeat;
-}
-[data-skin='deepsea'] .home-b .hscroll {
-  background: linear-gradient(180deg, transparent 0, transparent 140px, rgba(5, 12, 30, 0.75) 520px), var(--cover-img) 50% var(--cover-y) / cover no-repeat;
 }
 .home-b .cover {
   background: none;

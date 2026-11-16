@@ -26,17 +26,30 @@ export function gitPath(path = process.env.PATH ?? ''): string {
   return [...new Set(dirs.filter(Boolean))].join(':')
 }
 
-export function git(cwd: string, args: string[], opts: GitOptions = {}): Promise<string> {
+export function git(cwd: string, args: string[], opts: GitOptions = {}, tries = 3): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(
-      'git',
-      ['-c', 'core.quotepath=false', ...args],
-      { cwd, timeout: opts.timeoutMs ?? 30_000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, PATH: gitPath(), GIT_TERMINAL_PROMPT: '0' } },
-      (err, stdout, stderr) => {
-        if (err) reject(new GitError(`git ${args[0]} 失败：${stderr.trim() || err.message}`, args, stderr))
-        else resolve(stdout)
-      },
-    )
+    const ms = opts.timeoutMs ?? 30_000
+    // 兜底：软件里偶尔 git 已经退出（ps 里是 <defunct>）、Node 却一直没收到它退出的消息，回调永远不来（端到端测试里约百分之一，
+    // 退出软件时就卡在提交上）。超时后再等 5 秒还没回音就算失败，不让调用的一直等
+    const deadline = setTimeout(() => reject(new GitError(`git ${args[0]} 没有回音`, args, '')), ms + 5_000)
+    try {
+      execFile(
+        'git',
+        ['-c', 'core.quotepath=false', ...args],
+        { cwd, timeout: ms, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, PATH: gitPath(), GIT_TERMINAL_PROMPT: '0' } },
+        (err, stdout, stderr) => {
+          clearTimeout(deadline)
+          if (err) reject(new GitError(`git ${args[0]} 失败：${stderr.trim() || err.message}`, args, stderr))
+          else resolve(stdout)
+        },
+      )
+    } catch (e) {
+      clearTimeout(deadline)
+      // macOS 上别的线程正好在关文件时（收下几百处、库里几百个文件一起变），起子进程偶尔当场报 EBADF；
+      // 进程根本没起来，隔一会儿再起一次就好
+      if ((e as NodeJS.ErrnoException).code === 'EBADF' && tries > 1) setTimeout(() => git(cwd, args, opts, tries - 1).then(resolve, reject), 50)
+      else reject(e)
+    }
   })
 }
 
@@ -66,7 +79,13 @@ export interface FileStatus {
 
 export async function status(dir: string): Promise<FileStatus[]> {
   // 不抢 index.lock：界面随时在查状态，抢了锁会让同时进行的提交、撤回失败
-  const out = await git(dir, ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  return parseStatus(await git(dir, STATUS_ARGS))
+}
+
+export const STATUS_ARGS = ['--no-optional-locks', 'status', '--porcelain=v1', '-z', '--untracked-files=all']
+
+/** git status --porcelain=v1 -z 的输出 → 每个文件的状态 */
+export function parseStatus(out: string): FileStatus[] {
   const items: FileStatus[] = []
   const parts = out.split('\0')
   for (let i = 0; i < parts.length; i++) {

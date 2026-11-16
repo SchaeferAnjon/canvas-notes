@@ -47,7 +47,7 @@
   content: '';
   position: absolute;
   top: -6px;
-  right: var(--arrow-right, 20px);
+  right: calc(var(--arrow-right, 20px) + var(--arrow-dx, 0px));
   width: 12px;
   height: 6px;
   background: var(--pop);
@@ -100,7 +100,7 @@
   color: var(--t2);
   min-width: 0;
 }
-.bk-this-h .lucide {
+.bk-this-h .ci {
   flex: none;
   color: var(--t3);
 }
@@ -283,7 +283,7 @@
   gap: 8px;
   font-size: 13px;
 }
-.imp .menu.bk-menu .lucide {
+.imp .menu.bk-menu .ci {
   color: var(--t2);
 }
 
@@ -356,4 +356,15 @@
 }
 .wextrow > .sw-toggle {
   flex: none;
+}
+
+/* 「⋯ › 插件」：内置插件多了（微信读书是第三个），整块滚动，不把下面的 Chrome 插件列表挤没 */
+.wpop.wext {
+  overflow-y: auto;
+}
+.wpop.wext > * {
+  flex-shrink: 0;
+}
+.wpop.wext > .wlist {
+  overflow: visible;
 }

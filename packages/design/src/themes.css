@@ -1,8 +1,10 @@
 /*
- * canvas-notes 六套配色（design/v3/DESIGN.v3.md「4 主题」的变量表）。
+ * canvas-notes 的十套主题（2026-11-16 用户定，`界面两种风格十套主题`）：四浅四深照 design-frame/spec.md 第 6 节（各照一个 VS Code 主题），
+ * 加两套照 Dispatch IDE 的黑白（石白、石墨，颜色取自 Dispatch IDE 自带的 theme-dispatch）。没有靛蓝、灰、米黄（`主题不要靛蓝灰米黄`）。
+ * 每套除了颜色，结构也不一样（`配色方案要真不同`）：当前标签的标记（data-tabmark，写在 appearance.ts 的 SKINS 里）、
+ * 底栏是不是彩色一条（--status）、卡片投影还是只描边（--shadow）、有没有分区细线（--seam）、圆角大小（--r-card）。
+ * 导入的 VS Code 主题由 apps/notes/src/shared/vscode-theme.ts 换算成同样的变量；改颜色后跑 test/themes-css.test.ts（变量齐全、对比度）。
  * 变量挂在 [data-skin] 上：<html data-skin> 管整个窗口，任何元素也能单独套一套（外观页的小预览就是这么画的）。
- * 每套写自己的 color-scheme，家族组件里 light-dark() 写的颜色跟着浅深走。
- * 主题的结构差异（纯白和纯黑的标签下划线、米白的纸、深海蓝的玻璃）写在 apps/notes 的 frame.css 里。
  */
 
 [data-skin] {
@@ -19,291 +21,503 @@
   --accent-text: var(--acc-t);
   --accent-soft: var(--acc-soft);
   --accent-ring: var(--acc-ring);
+  --text-on-accent: var(--acc-on);
   --btn-bg: var(--card);
   --field-bg: var(--card);
   color: var(--t1);
+  /* 强调色底上的字、四条栏之间的分区线：多数主题是白字、细线 */
+  --acc-on: #ffffff;
+  --seam: var(--line);
+  --bgart: none;
+  --blur: none;
+  --paper: transparent;
+  --paper-sh: none;
 }
 
-/* ---------- 家族灰 · 浅（默认） ---------- */
-[data-skin='fam-light'] {
+/* ---------- 薄荷 · 浅（白天默认，GitHub Light 的结构 + Everforest 的绿） ---------- */
+[data-skin='mint'] {
   color-scheme: light;
-  --win: #fbfbfc;
-  --side: #f3f3f5;
-  --board: #f1f1f3;
-  --dotc: rgba(17, 17, 19, 0.1);
+  --title: #e4f1ea;
+  --bar: #e4f1ea;
+  --side: #eef7f2;
+  --win: #fafdfb;
+  --tabbar: #eef7f2;
+  --tab-on: #fafdfb;
+  --status: #d8ece1;
+  --status-t: #24453a;
+  --board: #f2f8f4;
+  --dotc: rgba(23, 70, 50, 0.13);
   --card: #ffffff;
-  --clip: #f6f6f8;
-  --clip-bar: #c7c7cc;
+  --clip: #f3f9f5;
+  --clip-bar: #b8cbc2;
   --pop: #ffffff;
-  --t1: #111113;
-  --t2: #6e6e73;
-  --t3: #a1a1a6;
-  --line: rgba(17, 17, 19, 0.08);
-  --line2: rgba(17, 17, 19, 0.14);
-  --fill: rgba(17, 17, 19, 0.045);
-  --fill2: rgba(17, 17, 19, 0.075);
-  --solid: #111113;
-  --solid-t: #ffffff;
+  --t1: #15231d;
+  --t2: #4c6158;
+  --t3: #889b92;
+  --line: rgba(23, 70, 50, 0.1);
+  --line2: rgba(23, 70, 50, 0.18);
+  --fill: rgba(23, 100, 65, 0.06);
+  --fill2: rgba(23, 100, 65, 0.11);
+  --solid: #15231d;
+  --solid-t: #fafdfb;
+  --acc: #12805a;
+  --acc-bg: #12805a;
+  --acc-t: #0b6b4a;
+  --acc-soft: rgba(18, 128, 90, 0.1);
+  --acc-ring: rgba(18, 128, 90, 0.4);
+  --shadow: 0 0 0 1px rgba(23, 70, 50, 0.08), 0 1px 2px rgba(23, 70, 50, 0.05), 0 8px 24px rgba(23, 70, 50, 0.07);
+  --shadow-up: 0 0 0 1px rgba(23, 70, 50, 0.1), 0 2px 6px rgba(23, 70, 50, 0.06), 0 24px 56px -12px rgba(23, 70, 50, 0.24);
+  --glass: rgba(250, 253, 251, 0.86);
+  --green: #1f8a4c;
+  --yellow: #a86b00;
+  --red: #cf3440;
+  --wire: #afc1b9;
+  --w0: rgba(23, 70, 50, 0.05);
+  --w1: rgba(23, 70, 50, 0.14);
+  --w2: rgba(23, 70, 50, 0.28);
+  --w3: rgba(23, 70, 50, 0.48);
+  --w4: rgba(23, 70, 50, 0.72);
+  --r-card: 10px;
+  --r-wid: 14px;
+  --seg-on: #ffffff;
+}
+
+/* ---------- 天青 · 浅（Light Owl / VS Code Light+）：底栏一条青色，卡片只描边，当前标签下沿 ---------- */
+[data-skin='sky'] {
+  color-scheme: light;
+  --title: #e2eff5;
+  --bar: #e2eff5;
+  --side: #edf5f9;
+  --win: #fbfdfe;
+  --tabbar: #edf5f9;
+  --tab-on: #fbfdfe;
+  --status: #0b7aa0;
+  --status-t: #ffffff;
+  --board: #f1f7fa;
+  --dotc: rgba(15, 70, 100, 0.13);
+  --card: #ffffff;
+  --clip: #f2f8fb;
+  --clip-bar: #b6c9d4;
+  --pop: #ffffff;
+  --t1: #0f2230;
+  --t2: #4a6272;
+  --t3: #87a0ae;
+  --line: rgba(15, 70, 100, 0.1);
+  --line2: rgba(15, 70, 100, 0.18);
+  --fill: rgba(15, 100, 140, 0.06);
+  --fill2: rgba(15, 100, 140, 0.11);
+  --solid: #0f2230;
+  --solid-t: #fbfdfe;
+  --acc: #0a7ea4;
+  --acc-bg: #0a7ea4;
+  --acc-t: #076a8a;
+  --acc-soft: rgba(10, 126, 164, 0.1);
+  --acc-ring: rgba(10, 126, 164, 0.4);
+  --shadow: 0 0 0 1px rgba(15, 70, 100, 0.12);
+  --shadow-up: 0 0 0 1px rgba(15, 70, 100, 0.14), 0 18px 44px -14px rgba(15, 50, 80, 0.26);
+  --glass: rgba(251, 253, 254, 0.86);
+  --green: #1c8a4e;
+  --yellow: #a86b00;
+  --red: #cf3440;
+  --wire: #adc1cb;
+  --w0: rgba(15, 70, 100, 0.05);
+  --w1: rgba(15, 70, 100, 0.14);
+  --w2: rgba(15, 70, 100, 0.28);
+  --w3: rgba(15, 70, 100, 0.48);
+  --w4: rgba(15, 70, 100, 0.72);
+  --r-card: 8px;
+  --r-wid: 10px;
+  --seg-on: #ffffff;
+}
+
+/* ---------- 樱花 · 浅（Horizon Bright）：当前标签整块染色，卡片软投影，圆角大一号 ---------- */
+[data-skin='sakura'] {
+  color-scheme: light;
+  --title: #fae6ea;
+  --bar: #fae6ea;
+  --side: #fdf0f2;
+  --win: #fffbfc;
+  --tabbar: #fdf0f2;
+  --tab-on: #fffbfc;
+  --status: #fdf0f2;
+  --status-t: #6e525a;
+  --board: #fdf5f6;
+  --dotc: rgba(120, 40, 60, 0.13);
+  --card: #ffffff;
+  --clip: #fcf3f5;
+  --clip-bar: #dcbec4;
+  --pop: #ffffff;
+  --t1: #2b1a1f;
+  --t2: #6c5058;
+  --t3: #a88d94;
+  --line: rgba(120, 40, 60, 0.1);
+  --line2: rgba(120, 40, 60, 0.18);
+  --fill: rgba(170, 50, 80, 0.06);
+  --fill2: rgba(170, 50, 80, 0.11);
+  --solid: #2b1a1f;
+  --solid-t: #fffbfc;
+  --acc: #d2336a;
+  --acc-bg: #c42a60;
+  --acc-t: #b32359;
+  --acc-soft: rgba(210, 51, 106, 0.1);
+  --acc-ring: rgba(210, 51, 106, 0.4);
+  --shadow: 0 0 0 1px rgba(120, 40, 60, 0.07), 0 10px 28px rgba(120, 40, 60, 0.08);
+  --shadow-up: 0 0 0 1px rgba(120, 40, 60, 0.1), 0 24px 56px -12px rgba(120, 40, 60, 0.26);
+  --glass: rgba(255, 251, 252, 0.86);
+  --green: #2e8a57;
+  --yellow: #a86500;
+  --red: #c8302f;
+  --wire: #d2b5bd;
+  --w0: rgba(120, 40, 60, 0.05);
+  --w1: rgba(120, 40, 60, 0.14);
+  --w2: rgba(120, 40, 60, 0.28);
+  --w3: rgba(120, 40, 60, 0.48);
+  --w4: rgba(120, 40, 60, 0.72);
+  --r-card: 12px;
+  --r-wid: 16px;
+  --seg-on: #ffffff;
+}
+
+/* ---------- 丁香 · 浅（Noctis Lilac，强调换成李子紫） ---------- */
+[data-skin='lilac'] {
+  color-scheme: light;
+  --title: #ece5f4;
+  --bar: #ece5f4;
+  --side: #f4f0f9;
+  --win: #fdfbff;
+  --tabbar: #f4f0f9;
+  --tab-on: #fdfbff;
+  --status: #e6dcf2;
+  --status-t: #4a3a5c;
+  --board: #f7f4fb;
+  --dotc: rgba(70, 40, 100, 0.13);
+  --card: #ffffff;
+  --clip: #f7f3fb;
+  --clip-bar: #c8bed4;
+  --pop: #ffffff;
+  --t1: #221a2b;
+  --t2: #5f5270;
+  --t3: #998ca8;
+  --line: rgba(70, 40, 100, 0.1);
+  --line2: rgba(70, 40, 100, 0.18);
+  --fill: rgba(100, 50, 140, 0.06);
+  --fill2: rgba(100, 50, 140, 0.11);
+  --solid: #221a2b;
+  --solid-t: #fdfbff;
   --acc: #9a48ad;
   --acc-bg: #9a48ad;
   --acc-t: #8a3b9d;
   --acc-soft: rgba(154, 72, 173, 0.1);
-  --acc-ring: rgba(154, 72, 173, 0.38);
-  --shadow: 0 0 0 1px rgba(17, 17, 19, 0.06), 0 1px 2px rgba(17, 17, 19, 0.04), 0 8px 24px rgba(17, 17, 19, 0.06);
-  --shadow-up: 0 0 0 1px rgba(17, 17, 19, 0.08), 0 2px 6px rgba(17, 17, 19, 0.06), 0 24px 56px -12px rgba(17, 17, 19, 0.22);
-  --green: #1d9a54;
-  --yellow: #b87400;
-  --red: #dc3545;
-  --wire: #b4b4ba;
-  --w0: rgba(17, 17, 19, 0.05);
-  --w1: rgba(17, 17, 19, 0.14);
-  --w2: rgba(17, 17, 19, 0.28);
-  --w3: rgba(17, 17, 19, 0.48);
-  --w4: rgba(17, 17, 19, 0.72);
-  --bgart: none;
-  --blur: none;
-  --r-card: 10px;
-  --r-wid: 14px;
-  --tabbar: var(--side);
-  --seg-on: #ffffff;
-  --paper: transparent;
-  --paper-sh: none;
-}
-
-/* ---------- 家族灰 · 深 ---------- */
-[data-skin='fam-dark'] {
-  color-scheme: dark;
-  --win: #0f0f11;
-  --side: #161618;
-  --board: #0f0f11;
-  --dotc: rgba(255, 255, 255, 0.07);
-  --card: #1d1d20;
-  --clip: #18181b;
-  --clip-bar: #48484e;
-  --pop: #1d1d20;
-  --t1: #f2f2f4;
-  --t2: #9a9aa0;
-  --t3: #6a6a70;
-  --line: rgba(255, 255, 255, 0.08);
-  --line2: rgba(255, 255, 255, 0.14);
-  --fill: rgba(255, 255, 255, 0.05);
-  --fill2: rgba(255, 255, 255, 0.09);
-  --solid: #f2f2f4;
-  --solid-t: #111113;
-  --acc: #c98bdb;
-  --acc-bg: #a656b9;
-  --acc-t: #d9a8e6;
-  --acc-soft: rgba(201, 139, 219, 0.16);
-  --acc-ring: rgba(201, 139, 219, 0.5);
-  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.32);
-  --shadow-up: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 2px 6px rgba(0, 0, 0, 0.3), 0 24px 56px -12px rgba(0, 0, 0, 0.6);
-  --green: #3fcf7f;
-  --yellow: #f5b83d;
-  --red: #ff6369;
-  --wire: #4a4a50;
-  --w0: rgba(255, 255, 255, 0.05);
-  --w1: rgba(255, 255, 255, 0.14);
-  --w2: rgba(255, 255, 255, 0.28);
-  --w3: rgba(255, 255, 255, 0.48);
-  --w4: rgba(255, 255, 255, 0.72);
-  --bgart: none;
-  --blur: none;
-  --r-card: 10px;
-  --r-wid: 14px;
-  --tabbar: var(--side);
-  --seg-on: rgba(255, 255, 255, 0.13);
-  --paper: transparent;
-  --paper-sh: none;
-}
-
-/* ---------- 纯白：没有一块灰底，靠细线分区，卡片只描边 ---------- */
-[data-skin='white'] {
-  color-scheme: light;
-  --win: #ffffff;
-  --side: #ffffff;
-  --board: #ffffff;
-  --dotc: rgba(0, 0, 0, 0.11);
-  --card: #ffffff;
-  --clip: #fafafa;
-  --clip-bar: #d4d4d8;
-  --pop: #ffffff;
-  --t1: #0a0a0a;
-  --t2: #666666;
-  --t3: #9b9b9b;
-  --line: rgba(0, 0, 0, 0.09);
-  --line2: rgba(0, 0, 0, 0.16);
-  --fill: rgba(0, 0, 0, 0.04);
-  --fill2: rgba(0, 0, 0, 0.065);
-  --solid: #0a0a0a;
-  --solid-t: #ffffff;
-  --acc: #9a48ad;
-  --acc-bg: #9a48ad;
-  --acc-t: #8a3b9d;
-  --acc-soft: rgba(154, 72, 173, 0.09);
   --acc-ring: rgba(154, 72, 173, 0.4);
-  --shadow: 0 0 0 1px rgba(0, 0, 0, 0.1);
-  --shadow-up: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 18px 44px -14px rgba(0, 0, 0, 0.18);
-  --green: #16884a;
-  --yellow: #a86a00;
-  --red: #d62e3f;
-  --wire: #bdbdc2;
-  --w0: rgba(0, 0, 0, 0.05);
-  --w1: rgba(0, 0, 0, 0.14);
-  --w2: rgba(0, 0, 0, 0.3);
-  --w3: rgba(0, 0, 0, 0.52);
-  --w4: rgba(0, 0, 0, 0.8);
-  --bgart: none;
-  --blur: none;
+  --shadow: 0 0 0 1px rgba(70, 40, 100, 0.08), 0 8px 24px rgba(70, 40, 100, 0.08);
+  --shadow-up: 0 0 0 1px rgba(70, 40, 100, 0.1), 0 24px 56px -12px rgba(70, 40, 100, 0.26);
+  --glass: rgba(253, 251, 255, 0.86);
+  --green: #1f8a4c;
+  --yellow: #a86b00;
+  --red: #cf3440;
+  --wire: #c1b5cc;
+  --w0: rgba(70, 40, 100, 0.05);
+  --w1: rgba(70, 40, 100, 0.14);
+  --w2: rgba(70, 40, 100, 0.28);
+  --w3: rgba(70, 40, 100, 0.48);
+  --w4: rgba(70, 40, 100, 0.72);
+  --r-card: 10px;
+  --r-wid: 14px;
+  --seg-on: #ffffff;
+}
+
+/* ---------- 石白 · 浅（照 Dispatch Light）：没有分隔线、只靠两层底色；黑按钮，当前标签只靠白底 ---------- */
+[data-skin='stone'] {
+  color-scheme: light;
+  --title: #fafaf9;
+  --bar: #fafaf9;
+  --side: #fafaf9;
+  --win: #ffffff;
+  --tabbar: #fafaf9;
+  --tab-on: #ffffff;
+  --status: #fafaf9;
+  --status-t: #79716b;
+  --board: #fcfcfb;
+  --dotc: rgba(28, 25, 23, 0.13);
+  --card: #ffffff;
+  --clip: #fafaf9;
+  --clip-bar: #c2c2c0;
+  --pop: #ffffff;
+  --t1: #0c0a09;
+  --t2: #6f6863;
+  --t3: #a6a09b;
+  --line: rgba(28, 25, 23, 0.08);
+  --line2: rgba(28, 25, 23, 0.13);
+  --fill: rgba(28, 25, 23, 0.045);
+  --fill2: rgba(28, 25, 23, 0.075);
+  --solid: #0c0a09;
+  --solid-t: #ffffff;
+  --acc: #1c1917;
+  --acc-bg: #252525;
+  --acc-t: #0c0a09;
+  --acc-soft: rgba(28, 25, 23, 0.1);
+  --acc-ring: rgba(28, 25, 23, 0.4);
+  --shadow: 0 0 0 1px rgba(28, 25, 23, 0.06), 0 1px 3px rgba(28, 25, 23, 0.06), 0 8px 24px rgba(28, 25, 23, 0.06);
+  --shadow-up: 0 0 0 1px rgba(28, 25, 23, 0.08), 0 24px 56px -12px rgba(28, 25, 23, 0.22);
+  --glass: rgba(255, 255, 255, 0.86);
+  --green: #008235;
+  --yellow: #c05a00;
+  --red: #e7000b;
+  --wire: #b4b3b2;
+  --w0: rgba(28, 25, 23, 0.05);
+  --w1: rgba(28, 25, 23, 0.14);
+  --w2: rgba(28, 25, 23, 0.28);
+  --w3: rgba(28, 25, 23, 0.48);
+  --w4: rgba(28, 25, 23, 0.72);
+  --r-card: 10px;
+  --r-wid: 12px;
+  --seg-on: #ffffff;
+  --acc-on: #fafaf9;
+  --seam: transparent;
+}
+
+/* ---------- 松林 · 深（夜里默认，Everforest Dark） ---------- */
+[data-skin='pine'] {
+  color-scheme: dark;
+  --title: #232a2e;
+  --bar: #232a2e;
+  --side: #272e33;
+  --win: #2d353b;
+  --tabbar: #272e33;
+  --tab-on: #2d353b;
+  --status: #232a2e;
+  --status-t: #9da9a0;
+  --board: #2a3237;
+  --dotc: rgba(211, 198, 170, 0.09);
+  --card: #343f44;
+  --clip: #30393e;
+  --clip-bar: #525451;
+  --pop: #343f44;
+  --t1: #e2d9c2;
+  --t2: #a3aea5;
+  --t3: #7a857d;
+  --line: rgba(211, 198, 170, 0.09);
+  --line2: rgba(211, 198, 170, 0.17);
+  --fill: rgba(211, 198, 170, 0.06);
+  --fill2: rgba(211, 198, 170, 0.11);
+  --solid: #e2d9c2;
+  --solid-t: #232a2e;
+  --acc: #a7c080;
+  --acc-bg: #a7c080;
+  --acc-t: #bcd199;
+  --acc-soft: rgba(167, 192, 128, 0.15);
+  --acc-ring: rgba(167, 192, 128, 0.5);
+  --shadow: 0 0 0 1px rgba(211, 198, 170, 0.08), 0 10px 26px rgba(0, 0, 0, 0.28);
+  --shadow-up: 0 0 0 1px rgba(211, 198, 170, 0.12), 0 24px 56px -12px rgba(0, 0, 0, 0.6);
+  --glass: rgba(39, 46, 51, 0.84);
+  --green: #a7c080;
+  --yellow: #dbbc7f;
+  --red: #e67e80;
+  --wire: #646560;
+  --w0: rgba(211, 198, 170, 0.06);
+  --w1: rgba(211, 198, 170, 0.16);
+  --w2: rgba(211, 198, 170, 0.3);
+  --w3: rgba(211, 198, 170, 0.5);
+  --w4: rgba(211, 198, 170, 0.78);
+  --r-card: 10px;
+  --r-wid: 14px;
+  --seg-on: rgba(211, 198, 170, 0.13);
+  --acc-on: #232a2e;
+}
+
+/* ---------- 深湖 · 深（Solarized Dark）：底栏一条深青，卡片只描边，当前标签下沿 ---------- */
+[data-skin='petrol'] {
+  color-scheme: dark;
+  --title: #001e27;
+  --bar: #001e27;
+  --side: #00252f;
+  --win: #002b36;
+  --tabbar: #00252f;
+  --tab-on: #002b36;
+  --status: #145a63;
+  --status-t: #d5dedb;
+  --board: #00303c;
+  --dotc: rgba(147, 161, 161, 0.09);
+  --card: #073642;
+  --clip: #04313c;
+  --clip-bar: #25444c;
+  --pop: #073642;
+  --t1: #d5dedb;
+  --t2: #93a1a1;
+  --t3: #6c8a90;
+  --line: rgba(147, 161, 161, 0.11);
+  --line2: rgba(147, 161, 161, 0.2);
+  --fill: rgba(147, 161, 161, 0.07);
+  --fill2: rgba(147, 161, 161, 0.13);
+  --solid: #d5dedb;
+  --solid-t: #001e27;
+  --acc: #2aa198;
+  --acc-bg: #2aa198;
+  --acc-t: #52c4ba;
+  --acc-soft: rgba(42, 161, 152, 0.15);
+  --acc-ring: rgba(42, 161, 152, 0.5);
+  --shadow: 0 0 0 1px rgba(147, 161, 161, 0.14);
+  --shadow-up: 0 0 0 1px rgba(147, 161, 161, 0.18), 0 24px 56px -12px rgba(0, 0, 0, 0.7);
+  --glass: rgba(0, 37, 47, 0.84);
+  --green: #859900;
+  --yellow: #b58900;
+  --red: #dc322f;
+  --wire: #315259;
+  --w0: rgba(147, 161, 161, 0.06);
+  --w1: rgba(147, 161, 161, 0.16);
+  --w2: rgba(147, 161, 161, 0.3);
+  --w3: rgba(147, 161, 161, 0.5);
+  --w4: rgba(147, 161, 161, 0.78);
   --r-card: 8px;
   --r-wid: 10px;
-  --tabbar: #ffffff;
-  --seg-on: #ffffff;
-  --paper: transparent;
-  --paper-sh: none;
+  --seg-on: rgba(147, 161, 161, 0.13);
+  --acc-on: #002b36;
 }
 
-/* ---------- 米白：暖纸色，文档是一张放在书桌上的纸 ---------- */
-[data-skin='cream'] {
-  color-scheme: light;
-  --win: #fbf8f1;
-  --side: #f3ede1;
-  --board: #f4efe4;
-  --dotc: rgba(90, 70, 30, 0.13);
-  --card: #fffdf8;
-  --clip: #f7f2e7;
-  --clip-bar: #d5c9b3;
-  --pop: #fffdf8;
-  --t1: #2a251e;
-  --t2: #786e60;
-  --t3: #a69b8b;
-  --line: rgba(70, 50, 20, 0.1);
-  --line2: rgba(70, 50, 20, 0.17);
-  --fill: rgba(90, 65, 25, 0.05);
-  --fill2: rgba(90, 65, 25, 0.09);
-  --solid: #2a251e;
-  --solid-t: #fbf8f1;
-  --acc: #93449f;
-  --acc-bg: #93449f;
-  --acc-t: #833a8f;
-  --acc-soft: rgba(147, 68, 159, 0.1);
-  --acc-ring: rgba(147, 68, 159, 0.38);
-  --shadow: 0 0 0 1px rgba(70, 50, 20, 0.07), 0 1px 2px rgba(70, 50, 20, 0.05), 0 10px 28px rgba(70, 50, 20, 0.08);
-  --shadow-up: 0 0 0 1px rgba(70, 50, 20, 0.09), 0 2px 6px rgba(70, 50, 20, 0.06), 0 24px 56px -12px rgba(70, 50, 20, 0.25);
-  --green: #2f8a4e;
-  --yellow: #a8700a;
-  --red: #c8402f;
-  --wire: #c2b6a0;
-  --w0: rgba(90, 65, 25, 0.06);
-  --w1: rgba(90, 65, 25, 0.16);
-  --w2: rgba(90, 65, 25, 0.3);
-  --w3: rgba(90, 65, 25, 0.5);
-  --w4: rgba(90, 65, 25, 0.74);
-  --bgart: none;
-  --blur: none;
+/* ---------- 可可 · 深（Monokai Pro Ristretto）：当前标签整块染色，卡片投影 ---------- */
+[data-skin='cocoa'] {
+  color-scheme: dark;
+  --title: #211c1c;
+  --bar: #211c1c;
+  --side: #262020;
+  --win: #2c2525;
+  --tabbar: #262020;
+  --tab-on: #2c2525;
+  --status: #211c1c;
+  --status-t: #c3b7b8;
+  --board: #2a2323;
+  --dotc: rgba(255, 241, 243, 0.09);
+  --card: #362e2e;
+  --clip: #312929;
+  --clip-bar: #5c5455;
+  --pop: #362e2e;
+  --t1: #fff1f3;
+  --t2: #c3b7b8;
+  --t3: #8f8485;
+  --line: rgba(255, 241, 243, 0.09);
+  --line2: rgba(255, 241, 243, 0.17);
+  --fill: rgba(255, 241, 243, 0.06);
+  --fill2: rgba(255, 241, 243, 0.11);
+  --solid: #fff1f3;
+  --solid-t: #211c1c;
+  --acc: #f38d70;
+  --acc-bg: #f38d70;
+  --acc-t: #f9a88f;
+  --acc-soft: rgba(243, 141, 112, 0.15);
+  --acc-ring: rgba(243, 141, 112, 0.5);
+  --shadow: 0 0 0 1px rgba(255, 241, 243, 0.07), 0 10px 26px rgba(0, 0, 0, 0.3);
+  --shadow-up: 0 0 0 1px rgba(255, 241, 243, 0.12), 0 24px 56px -12px rgba(0, 0, 0, 0.65);
+  --glass: rgba(38, 32, 32, 0.84);
+  --green: #adda78;
+  --yellow: #f9cc6c;
+  --red: #fd6883;
+  --wire: #726869;
+  --w0: rgba(255, 241, 243, 0.06);
+  --w1: rgba(255, 241, 243, 0.16);
+  --w2: rgba(255, 241, 243, 0.3);
+  --w3: rgba(255, 241, 243, 0.5);
+  --w4: rgba(255, 241, 243, 0.78);
   --r-card: 12px;
   --r-wid: 16px;
-  --tabbar: var(--side);
-  --seg-on: #fffdf8;
-  --paper: #fffdf8;
-  --paper-sh: 0 0 0 1px rgba(70, 50, 20, 0.06), 0 18px 50px -20px rgba(70, 50, 20, 0.25);
+  --seg-on: rgba(255, 241, 243, 0.13);
+  --acc-on: #211c1c;
 }
 
-/* ---------- 纯黑：OLED 黑，没有投影，只有细线 ---------- */
-[data-skin='black'] {
+/* ---------- 墨夜 · 深（Ayu Dark）：近黑底、橙色强调，卡片只描边，当前标签下沿 ---------- */
+[data-skin='ink'] {
   color-scheme: dark;
-  --win: #000000;
-  --side: #000000;
-  --board: #000000;
-  --dotc: rgba(255, 255, 255, 0.1);
-  --card: #0c0c0e;
-  --clip: #08080a;
-  --clip-bar: #3a3a40;
-  --pop: #0e0e10;
-  --t1: #f5f5f7;
-  --t2: #a1a1a8;
-  --t3: #64646b;
-  --line: rgba(255, 255, 255, 0.1);
-  --line2: rgba(255, 255, 255, 0.17);
+  --title: #08090d;
+  --bar: #08090d;
+  --side: #0b0e14;
+  --win: #0d1017;
+  --tabbar: #0b0e14;
+  --tab-on: #0d1017;
+  --status: #08090d;
+  --status-t: #8a8f98;
+  --board: #0d1017;
+  --dotc: rgba(230, 225, 207, 0.09);
+  --card: #141821;
+  --clip: #10141b;
+  --clip-bar: #424343;
+  --pop: #141821;
+  --t1: #e6e3da;
+  --t2: #a8a69e;
+  --t3: #6c727d;
+  --line: rgba(230, 225, 207, 0.08);
+  --line2: rgba(230, 225, 207, 0.15);
+  --fill: rgba(230, 225, 207, 0.05);
+  --fill2: rgba(230, 225, 207, 0.09);
+  --solid: #e6e3da;
+  --solid-t: #08090d;
+  --acc: #ff8f40;
+  --acc-bg: #ff8f40;
+  --acc-t: #ffa766;
+  --acc-soft: rgba(255, 143, 64, 0.15);
+  --acc-ring: rgba(255, 143, 64, 0.5);
+  --shadow: 0 0 0 1px rgba(230, 225, 207, 0.1);
+  --shadow-up: 0 0 0 1px rgba(230, 225, 207, 0.14), 0 24px 56px -12px rgba(0, 0, 0, 0.85);
+  --glass: rgba(11, 14, 20, 0.84);
+  --green: #aad94c;
+  --yellow: #e6b450;
+  --red: #f26d78;
+  --wire: #555554;
+  --w0: rgba(230, 225, 207, 0.06);
+  --w1: rgba(230, 225, 207, 0.16);
+  --w2: rgba(230, 225, 207, 0.3);
+  --w3: rgba(230, 225, 207, 0.5);
+  --w4: rgba(230, 225, 207, 0.78);
+  --r-card: 8px;
+  --r-wid: 10px;
+  --seg-on: rgba(230, 225, 207, 0.13);
+  --acc-on: #0b0e14;
+}
+
+/* ---------- 石墨 · 深（照 Dispatch Dark）：没有分隔线、只靠两层底色；白按钮黑字，当前标签只靠黑底 ---------- */
+[data-skin='graphite'] {
+  color-scheme: dark;
+  --title: #1c1917;
+  --bar: #1c1917;
+  --side: #1c1917;
+  --win: #0c0a09;
+  --tabbar: #1c1917;
+  --tab-on: #0c0a09;
+  --status: #1c1917;
+  --status-t: #a6a09b;
+  --board: #100e0d;
+  --dotc: rgba(255, 255, 255, 0.09);
+  --card: #1c1917;
+  --clip: #151311;
+  --clip-bar: #555251;
+  --pop: #1c1917;
+  --t1: #fafaf9;
+  --t2: #a6a09b;
+  --t3: #7d756f;
+  --line: rgba(255, 255, 255, 0.08);
+  --line2: rgba(255, 255, 255, 0.15);
   --fill: rgba(255, 255, 255, 0.06);
   --fill2: rgba(255, 255, 255, 0.1);
-  --solid: #f5f5f7;
-  --solid-t: #000000;
-  --acc: #c98bdb;
-  --acc-bg: #a656b9;
-  --acc-t: #d9a8e6;
-  --acc-soft: rgba(201, 139, 219, 0.15);
-  --acc-ring: rgba(201, 139, 219, 0.55);
-  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.11);
-  --shadow-up: 0 0 0 1px rgba(255, 255, 255, 0.16), 0 24px 56px -12px rgba(0, 0, 0, 0.9);
-  --green: #3fcf7f;
-  --yellow: #f5b83d;
-  --red: #ff6369;
-  --wire: #3c3c42;
+  --solid: #fafaf9;
+  --solid-t: #1c1917;
+  --acc: #e7e5e4;
+  --acc-bg: #fafaf9;
+  --acc-t: #fafaf9;
+  --acc-soft: rgba(231, 229, 228, 0.15);
+  --acc-ring: rgba(231, 229, 228, 0.5);
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-up: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 56px -12px rgba(0, 0, 0, 0.8);
+  --glass: rgba(28, 25, 23, 0.84);
+  --green: #0ca34c;
+  --yellow: #ff8904;
+  --red: #ff6467;
+  --wire: #5c5b5a;
   --w0: rgba(255, 255, 255, 0.06);
   --w1: rgba(255, 255, 255, 0.16);
   --w2: rgba(255, 255, 255, 0.3);
   --w3: rgba(255, 255, 255, 0.5);
   --w4: rgba(255, 255, 255, 0.78);
-  --bgart: none;
-  --blur: none;
-  --r-card: 8px;
-  --r-wid: 10px;
-  --tabbar: #000000;
-  --seg-on: rgba(255, 255, 255, 0.14);
-  --paper: transparent;
-  --paper-sh: none;
-}
-
-/* ---------- 深海蓝：整窗渐变光，面板是半透明的玻璃 ---------- */
-[data-skin='deepsea'] {
-  color-scheme: dark;
-  --win: #081430;
-  --side: rgba(6, 14, 34, 0.5);
-  --board: transparent;
-  --dotc: rgba(170, 200, 255, 0.13);
-  --card: rgba(24, 42, 82, 0.55);
-  --clip: rgba(14, 28, 60, 0.55);
-  --clip-bar: #4a5f8f;
-  --pop: rgba(12, 24, 52, 0.94);
-  --t1: #eaf1ff;
-  --t2: #9fb0d0;
-  --t3: #6b7ba2;
-  --line: rgba(150, 185, 255, 0.12);
-  --line2: rgba(150, 185, 255, 0.2);
-  --fill: rgba(150, 185, 255, 0.08);
-  --fill2: rgba(150, 185, 255, 0.14);
-  --solid: #eaf1ff;
-  --solid-t: #06122a;
-  --acc: #d29bea;
-  --acc-bg: #a95fc4;
-  --acc-t: #e2b6f2;
-  --acc-soft: rgba(210, 155, 234, 0.16);
-  --acc-ring: rgba(210, 155, 234, 0.55);
-  --shadow: 0 0 0 1px rgba(150, 185, 255, 0.14), 0 10px 30px rgba(0, 8, 30, 0.35);
-  --shadow-up: 0 0 0 1px rgba(150, 185, 255, 0.2), 0 24px 60px -12px rgba(0, 6, 24, 0.75);
-  --green: #4ade9a;
-  --yellow: #f7c25a;
-  --red: #ff7a85;
-  --wire: #4a5f8f;
-  --w0: rgba(150, 185, 255, 0.08);
-  --w1: rgba(150, 185, 255, 0.2);
-  --w2: rgba(150, 185, 255, 0.36);
-  --w3: rgba(170, 200, 255, 0.58);
-  --w4: rgba(200, 220, 255, 0.85);
-  --bgart: radial-gradient(1100px 560px at 16% -12%, rgba(88, 140, 255, 0.5), transparent 60%),
-    radial-gradient(800px 520px at 88% -6%, rgba(150, 110, 255, 0.28), transparent 62%),
-    radial-gradient(1100px 720px at 62% 112%, rgba(18, 96, 180, 0.5), transparent 62%),
-    linear-gradient(180deg, #0b1a3d 0%, #071230 50%, #030916 100%);
-  --blur: blur(22px) saturate(150%);
-  --r-card: 12px;
-  --r-wid: 16px;
-  --tabbar: rgba(6, 14, 34, 0.35);
-  --seg-on: rgba(150, 185, 255, 0.2);
-  --paper: transparent;
-  --paper-sh: none;
-}
-
-/* 深海蓝换成照片：照片铺满，上面压暗到字能看清（照片地址由界面写进 --winbg-img） */
-[data-skin='deepsea'][data-winbg='photo'] {
-  --bgart: linear-gradient(180deg, rgba(4, 10, 28, 0.55), rgba(3, 8, 20, 0.86)), var(--winbg-img) center / cover no-repeat;
+  --r-card: 10px;
+  --r-wid: 12px;
+  --seg-on: rgba(255, 255, 255, 0.13);
+  --acc-on: #1c1917;
+  --seam: transparent;
 }

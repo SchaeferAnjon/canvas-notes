@@ -22,6 +22,9 @@ export const RECENT_DAYS = 7
 /** 每组最多几行 */
 export const MAX_BOARDS = 5
 export const MAX_WORKS = 10
+/** 左栏「文件夹」最多露几行（多了一行「还有 N 个文件夹」）；它占的行从「这周动过的」里扣，左栏总行数不变 */
+export const MAX_FOLDERS = 5
+export const folderRowsOf = (folders: number) => Math.min(folders, MAX_FOLDERS) + (folders > MAX_FOLDERS ? 1 : 0)
 export const MAX_TOPICS = 6
 /** 收件箱超过这么多条就提醒 */
 export const INBOX_WARN = 20
@@ -47,7 +50,8 @@ export interface SidebarModel {
   archived: number
 }
 
-export function sidebarOf(notes: NoteFile[], pins: readonly string[], now: number, days: ArchiveDays): SidebarModel {
+export function sidebarOf(notes: NoteFile[], pins: readonly string[], now: number, days: ArchiveDays, folders = 0): SidebarModel {
+  const maxWorks = MAX_WORKS - folderRowsOf(folders)
   const pinSet = new Set(pins)
   const byPath = new Map(notes.map((n) => [n.path, n]))
   const pinned = pins.map((p) => byPath.get(p)).filter((n): n is NoteFile => !!n)
@@ -69,8 +73,8 @@ export function sidebarOf(notes: NoteFile[], pins: readonly string[], now: numbe
   return {
     pinned,
     boards,
-    works: recent.slice(0, MAX_WORKS),
-    moreWorks: Math.max(0, recent.length - MAX_WORKS),
+    works: recent.slice(0, maxWorks),
+    moreWorks: Math.max(0, recent.length - maxWorks),
     topics,
     inbox: notes.filter((n) => n.kind === 'inbox').length,
     all: notes.length,

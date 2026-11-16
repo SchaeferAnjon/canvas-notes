@@ -40,7 +40,7 @@ export const COVERS: { id: BuiltinCover; name: string; kind: 'photo' | 'grad'; f
 ]
 
 export const WINBG_PHOTOS = { aurora, cave: iceCave }
-export const WINBG_THUMBS = { aurora: auroraT, cave: iceCaveT, glow: GRADIENTS.glow }
+export const WINBG_THUMBS = { aurora: auroraT, cave: iceCaveT }
 
 /** 封面的 CSS background-image；thumb 用小图 */
 export function coverImage(c: Cover, thumb = false): string {

@@ -1,0 +1,827 @@
+/* 文件夹首页（design-mindmap 方向 B 第 9 节）：在主页 home.css 的网格上改几处，下面是自己的部分 */
+.fhome .cover {
+  height: 160px;
+}
+.fh-title {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin: 0 0 18px;
+  position: relative;
+}
+.fh-ico {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  margin-top: -28px;
+  position: relative;
+  z-index: 2;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  display: grid;
+  place-items: center;
+  color: var(--t2);
+}
+.fh-ico.colored {
+  color: #fff;
+}
+.fh-tx {
+  flex: 1;
+  min-width: 0;
+  padding-top: 14px;
+}
+.fh-tx h2 {
+  margin: 0;
+  font: 600 28px/1.25 var(--serif);
+}
+.fh-tx p {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--t2);
+}
+.fh-title .sp,
+.fh-ebar .sp,
+.fhome .wk .sp {
+  flex: 1;
+}
+.fh-menu {
+  position: relative;
+}
+.fh-pop {
+  position: absolute;
+  right: 0;
+  top: 36px;
+  z-index: 60;
+  width: 320px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  color: var(--t1);
+}
+.fh-pop.menu {
+  width: 200px;
+  padding: 6px;
+}
+.fh-pop.menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 13px;
+  color: var(--t1);
+}
+.fh-pop.menu button:hover {
+  background: var(--fill);
+}
+.fh-pop h4 {
+  margin: 0 0 6px;
+  font: 600 13px/1.4 var(--sans);
+}
+.fh-pop p {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.fh-pop .act {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.fh-ebar .fh-pop.icons {
+  left: 0;
+  right: auto;
+  width: 300px;
+}
+.fh-pop .ig {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.fh-pop .ig button,
+.fh-pop .cg button {
+  height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--t2);
+  display: grid;
+  place-items: center;
+}
+.fh-pop .ig button.on {
+  outline: 2px solid var(--acc);
+}
+.fh-pop .cg {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.fh-pop .cg button {
+  height: 24px;
+  border-radius: 6px;
+}
+.fh-pop .cg button.on {
+  outline: 2px solid var(--acc);
+  outline-offset: 1px;
+}
+.fh-ebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--fill);
+  font-size: 12px;
+}
+.fh-ebar .k,
+.fh-ebar .hint {
+  color: var(--t3);
+}
+.fh-ebar .bar {
+  width: 1px;
+  height: 18px;
+  background: var(--line2);
+}
+.fhome .wk .n {
+  color: var(--t3);
+  margin-left: 6px;
+}
+.fhome .wd.flash {
+  box-shadow: var(--shadow), 0 0 0 3px var(--acc-ring);
+}
+.fhome .wd .wk {
+  margin-bottom: 10px;
+  min-height: 20px;
+}
+/* 编辑时：把手在左上角外面（-8），右上的小按钮窄组件只留图标 */
+.fhome .wgrip {
+  top: -8px;
+  left: -8px;
+  color: var(--t2);
+}
+.fhome.editing .wd .wk {
+  padding-left: 0;
+}
+.fhome .wd.s1 .wedit .lbl {
+  display: none;
+}
+.fhome .wd.drop-before {
+  box-shadow: var(--shadow);
+}
+.fhome .wd.drop-before::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--acc);
+}
+.fw-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 4px;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--t1);
+  text-align: left;
+}
+button.fw-row:hover {
+  background: var(--fill);
+  border-radius: 6px;
+}
+.fw-row > .ci {
+  color: var(--t2);
+  flex: none;
+}
+.fw-row .r .ok {
+  color: var(--green);
+}
+.fw-sub {
+  font-size: 12px;
+  color: var(--t2);
+  margin-bottom: 4px;
+}
+.fw-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.fw-chips .chip {
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t1);
+  display: inline-flex;
+  align-items: center;
+}
+.fw-thumbs {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+}
+.fw-thumb {
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line);
+  background: var(--card);
+  text-align: left;
+  color: var(--t1);
+}
+.fw-thumb .tv {
+  height: 70px;
+  background: var(--fill);
+  display: grid;
+  place-items: center;
+  color: var(--t3);
+}
+.fw-thumb .tn {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+.fw-thumb .tn small {
+  flex: none;
+  color: var(--t3);
+}
+.fw-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.fw-link:hover {
+  color: var(--t1);
+}
+.fw-exam {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+.fw-exam-n {
+  display: block;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  color: var(--t1);
+}
+.fw-exam-n small {
+  font-size: 13px;
+  color: var(--t2);
+  margin-left: 6px;
+}
+.fw-exam-n .sub {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.fw-next {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t2);
+}
+.fw-exam-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.fw-exam-edit input {
+  width: 100%;
+  height: 26px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--t1);
+  padding: 0 6px;
+  font-size: 12px;
+}
+.fw-row .r {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+  flex: none;
+}
+.fw-row .r .ci {
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+/* 课件进度：72 宽的进度条 */
+.fw-bar {
+  width: 72px;
+  height: 4px;
+  flex: none;
+  margin-left: 8px;
+  border-radius: 2px;
+  background: var(--fill2);
+  overflow: hidden;
+}
+.fw-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--t2);
+}
+.fw-resume {
+  align-self: flex-start;
+  margin-top: 10px;
+}
+.fw-more {
+  align-self: flex-start;
+}
+.fh-name {
+  width: 100%;
+  max-width: 420px;
+  margin: 0;
+  padding: 0 6px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--t1);
+  font: 600 28px/1.25 var(--serif);
+  outline: none;
+}
+.fh-name:focus {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 3px var(--acc-ring);
+}
+.fw-empty {
+  margin: 4px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+}
+.fw-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fw-more:hover {
+  color: var(--t1);
+}
+.fw-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.fw-cards button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  text-align: left;
+  font-size: 13px;
+}
+.fw-cards span,
+.fw-board span {
+  font-size: 12px;
+  color: var(--t3);
+}
+.fw-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.fw-table th {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+  background: var(--fill);
+  text-align: left;
+  padding: 4px 6px;
+}
+.fw-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.fw-exam .big {
+  font: 400 32px/1.1 var(--serif);
+}
+.fw-todo input:not([type='checkbox']),
+.fw-links input {
+  height: 26px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--t1);
+  padding: 0 6px;
+  font-size: 12px;
+}
+.fw-todo label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  font-size: 13px;
+}
+.fw-todo label.done span {
+  text-decoration: line-through;
+  color: var(--t3);
+}
+.fw-todo input[type='checkbox'] {
+  accent-color: var(--acc-bg);
+}
+.fw-todo form,
+.fw-links form {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--t3);
+}
+.fw-links a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  font-size: 13px;
+  color: var(--t1);
+  text-decoration: none;
+}
+.fw-text {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  color: var(--t1);
+  width: 100%;
+}
+.fw-text-edit {
+  width: 100%;
+  min-height: 120px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  padding: 8px;
+  font: 13px/1.7 var(--sans);
+  background: var(--card);
+  color: var(--t1);
+}
+.fw-board {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 0;
+  background: none;
+  padding: 0;
+  text-align: left;
+}
+.fw-board .th {
+  height: 110px;
+  border-radius: 8px;
+  opacity: 0.25;
+}
+.fw-stages div {
+  display: grid;
+  grid-template-columns: 80px 1fr 40px;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  font-size: 13px;
+}
+.fw-stages i {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--fill2);
+}
+.fw-stages i i {
+  background: var(--t2);
+}
+.fw-cal {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 12px);
+  gap: 3px;
+}
+.fw-cal i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+.fw-cal i.today {
+  box-shadow: 0 0 0 1.5px var(--acc);
+}
+.fw-cal i.fut {
+  opacity: 0.35;
+}
+.fw-act {
+  margin: -4px 0;
+}
+
+/* 组件库、按条件列出：盖在中间栏上的大窗口 */
+.fh-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 70;
+  background: rgba(10, 10, 14, 0.18);
+  display: grid;
+  place-items: center;
+}
+[data-tone='dark'] .fh-scrim {
+  background: rgba(0, 0, 0, 0.45);
+}
+.fh-win {
+  width: min(860px, calc(100% - 32px));
+  height: min(600px, calc(100% - 32px));
+  border-radius: 14px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--t1);
+}
+.fh-win.cond {
+  width: min(900px, calc(100% - 32px));
+}
+.fh-win .hd,
+.fh-win .ft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 0 20px;
+  flex: none;
+}
+.fh-win .hd {
+  height: 52px;
+  border-bottom: 1px solid var(--line);
+}
+.fh-win .ft {
+  height: 56px;
+  border-top: 1px solid var(--line);
+}
+.fh-win .hd h3 {
+  margin: 0;
+  font: 600 15px/1.35 var(--sans);
+}
+.fh-win .hd .sp {
+  flex: 1;
+}
+.fh-win .ft .help {
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fh-win .find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  width: 200px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.fh-win .find input {
+  border: 0;
+  background: none;
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t1);
+}
+.fh-win .bd {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.fh-win.lib nav {
+  width: 168px;
+  flex: none;
+  padding: 12px 8px;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fh-win.lib nav button {
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--t2);
+}
+.fh-win.lib nav button.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.fh-win.lib .cards {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  align-content: start;
+}
+.fh-win.lib .card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line);
+  background: var(--card);
+}
+.fh-win.lib .card .pv {
+  flex: none;
+  height: 96px;
+  background: var(--fill);
+  display: grid;
+  place-items: center;
+  color: var(--t2);
+}
+.fh-win.lib .card .tx {
+  flex: 1;
+  padding: 10px 12px;
+}
+.fh-win.lib .card b {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+}
+.fh-win.lib .card .tx span {
+  display: block;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--t2);
+}
+.fh-win.lib .card .ac {
+  padding: 0 12px 12px;
+}
+.fh-win.lib .card em {
+  font-size: 12px;
+  font-style: normal;
+  color: var(--t3);
+}
+.fh-win.lib .none {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fh-win .hd .sub {
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 窗口里的预览不跟编辑时的虚线外圈 */
+.fh-win .wd {
+  outline: none;
+}
+.fh-win.cond .form {
+  width: 400px;
+  flex: none;
+  overflow: auto;
+  padding: 16px 20px;
+  border-right: 1px solid var(--line);
+}
+.fh-win.cond .cf-field {
+  margin-bottom: 12px;
+}
+.fh-win.cond .cf-field > label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.fh-win.cond .cf-field .seg {
+  display: inline-flex;
+}
+.fh-win.cond .seg.sm button {
+  height: 22px;
+  font-size: 12px;
+}
+.fh-win.cond input,
+.fh-win.cond select {
+  height: 26px;
+  min-width: 0;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--t1);
+  padding: 0 8px;
+  font-size: 13px;
+}
+.fh-win.cond input.wide {
+  width: 100%;
+  height: 28px;
+}
+.fh-win.cond .rule {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.fh-win.cond .rule select {
+  flex: 1;
+}
+.fh-win.cond .rule .op {
+  flex: none;
+  width: 76px;
+}
+.fh-win.cond .rule .val {
+  flex: none;
+  width: 110px;
+}
+.fh-win.cond .add {
+  margin-left: -8px;
+}
+.fh-win.cond .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fh-win.cond .row .k {
+  font-size: 12px;
+  color: var(--t2);
+}
+.fh-win.cond .lim {
+  width: 48px;
+}
+.fh-win.cond .seg button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.fh-win.cond .pvw {
+  flex: 1;
+  padding: 16px 20px;
+  overflow: auto;
+  background: var(--board);
+}
+.fh-win.cond .pvw > .k {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fh-win.cond .pvw .wd {
+  min-height: 0;
+}
+
+/* 方向 B 样式：封面铺满整页，从 120 往下渐变到底色；标题白字黑柔影，组件是玻璃 */
+.fhome.home-b .cover {
+  height: 120px;
+}
+.fhome.home-b .hscroll {
+  background: linear-gradient(180deg, transparent 0, transparent 120px, var(--win) 420px), var(--cover-img) 50% var(--cover-y) / cover no-repeat;
+}
+.fhome.home-b .fh-ico {
+  margin-top: 0;
+}
+.fhome.home-b .fh-tx h2,
+.fhome.home-b .fh-tx p {
+  color: #fff;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.35);
+}
+.fhome.home-b .fh-ebar {
+  background: color-mix(in srgb, var(--pop) 74%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+}

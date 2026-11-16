@@ -16,7 +16,7 @@
   grid-column: 1;
   grid-row: 1;
   background: var(--side);
-  border-right: 1px solid var(--line);
+  border-right: 1px solid var(--seam);
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -44,7 +44,7 @@
   flex: 1;
   min-width: 0;
 }
-.vault > .lucide:last-child {
+.vault > .ci:last-child {
   color: var(--t3);
 }
 .vault .vi {
@@ -366,9 +366,6 @@ button.bi[data-testid='git-changed']:disabled {
 .gdot.warn {
   background: var(--yellow);
 }
-.gdot.ok {
-  background: var(--green);
-}
 
 /* ---------- 提示 ---------- */
 .toast-cn {
@@ -387,6 +384,14 @@ button.bi[data-testid='git-changed']:disabled {
   font-weight: 500;
   font-size: 13px;
   z-index: 20;
+}
+/* 带「撤回」的提示 */
+.toast-cn.with-act {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 14px;
+  white-space: nowrap;
 }
 
 /* ---------- 还没打开库 ---------- */
@@ -535,6 +540,10 @@ button.bi[data-testid='git-changed']:disabled {
 }
 
 /* ---------- 文档：实时预览 ---------- */
+.doc.doc .cm-h {
+  /* 导入的 VS Code 主题带着它的语法色（--md-*），自带的主题不设，跟正文一样 */
+  color: var(--md-heading, inherit);
+}
 .doc.doc .cm-h1 {
   font: 600 28px/1.3 var(--serif);
   padding: 4px 0 8px;
@@ -554,9 +563,11 @@ button.bi[data-testid='git-changed']:disabled {
 }
 .doc.doc .cm-strong {
   font-weight: 600;
+  color: var(--md-bold, inherit);
 }
 .doc.doc .cm-em {
   font-style: italic;
+  color: var(--md-italic, inherit);
 }
 .doc.doc .cm-strike {
   text-decoration: line-through;
@@ -564,6 +575,7 @@ button.bi[data-testid='git-changed']:disabled {
 }
 .doc.doc .cm-icode {
   font: 13px var(--mono);
+  color: var(--md-code, inherit);
   background: var(--fill);
   border-radius: 4px;
   padding: 1px 4px;
@@ -583,7 +595,7 @@ button.bi[data-testid='git-changed']:disabled {
 .doc.doc .cm-quote {
   position: relative;
   padding-left: 16px !important;
-  color: var(--t1);
+  color: var(--md-quote, var(--t1));
 }
 .doc.doc .cm-quote::before {
   content: '';
@@ -595,16 +607,90 @@ button.bi[data-testid='git-changed']:disabled {
   border-radius: 2px;
   background: var(--clip-bar);
 }
+/* 光标碰到的那一处露出来的记号：小一号、淡色 */
+.doc.doc .cm-mdmark {
+  color: var(--t3);
+  font-size: 0.85em;
+  font-weight: 400;
+  font-style: normal;
+}
+/* 代码块（DESIGN.v3 6.5）：--fill 底、圆角 8、内边距 12/14、等宽 12.5/1.65；围栏行藏起来当上下 12 的内边距，语言名在右上角 */
 .doc.doc .cm-codeblock {
   font: 12.5px/1.65 var(--mono);
+  color: var(--md-code, inherit);
   background: var(--fill);
   padding: 0 14px !important;
+}
+.doc.doc .cm-code-top {
+  border-radius: 8px 8px 0 0;
+  position: relative;
+}
+.doc.doc .cm-code-bot {
+  border-radius: 0 0 8px 8px;
+}
+.doc.doc .cm-code-top.cm-code-bot {
+  border-radius: 8px;
+}
+.doc.doc .cm-code-fence {
+  color: var(--t3);
+}
+.doc.doc .cm-code-hidden {
+  height: 12px;
+  font-size: 0;
+  line-height: 12px;
+}
+.doc.doc .cm-codelang {
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  font: 11px/1 var(--sans);
+  color: var(--t3);
+  pointer-events: none;
+}
+/* 列表：每级缩进 24（行首空格藏起来，改用左内边距），无序列表的记号是 5px 圆点 --t2 */
+.doc.doc .cm-li {
+  padding-left: calc(var(--li-depth, 0) * 24px) !important;
+}
+.doc.doc .cm-bullet {
+  display: inline-block;
+  width: 14px;
+  height: 1em;
+  vertical-align: -0.1em;
+  position: relative;
+}
+.doc.doc .cm-bullet::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: calc(50% - 2.5px);
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--t2);
 }
 .doc.doc .cm-listmark {
   color: var(--t3);
 }
+.doc.doc .cm-olmark {
+  color: var(--t2);
+}
+/* 分隔线：1px --line2，上下 14；光标在那一行时露出原文 */
 .doc.doc .cm-hr {
   color: var(--t3);
+}
+.doc.doc .cm-hr-line {
+  position: relative;
+  height: 29px;
+  font-size: 0;
+}
+.doc.doc .cm-hr-line::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 14px;
+  height: 1px;
+  background: var(--line2);
 }
 .doc .cm-fm,
 .doc .cm-layout {
@@ -671,6 +757,12 @@ button.bi[data-testid='git-changed']:disabled {
 .list-empty {
   color: var(--t3);
   padding: 8px 4px;
+}
+/* 收件箱很长时：底下「再显示 60 条 · 还有 N 条」 */
+.list-more {
+  display: flex;
+  margin: 12px auto 4px;
+  color: var(--t2);
 }
 .cards {
   columns: 240px;
@@ -744,7 +836,7 @@ button.bi[data-testid='git-changed']:disabled {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--seam);
   background: var(--win);
 }
 .rhead {
@@ -1323,6 +1415,8 @@ button.bi[data-testid='git-changed']:disabled {
   background: none;
   font-size: 12px;
   color: var(--t1);
+  /* 放不下时末尾省略号，不是半个字被切掉；点进去打字时照常横着滚 */
+  text-overflow: ellipsis;
 }
 .imp {
   position: relative;
@@ -1451,7 +1545,7 @@ button.bi[data-testid='git-changed']:disabled {
 .ai.docked {
   grid-column: 3;
   grid-row: 1;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--seam);
   background: var(--win);
   padding-top: var(--tabs-h);
 }
@@ -1475,9 +1569,28 @@ button.bi[data-testid='git-changed']:disabled {
 .aih b {
   font-weight: 600;
 }
+.aih {
+  container: aih / inline-size;
+}
 .aih .meta {
+  min-width: 0;
   font-size: 12px;
   color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aih .meta .short {
+  display: none;
+}
+/* 右栏 340 宽（头的内容宽 316）：「AI」+ 带标志的引擎胶囊 + 新对话之后只剩约 100，整句放不下，换短的；浮着的 392 宽（内容宽 368）放得下整句 */
+@container aih (max-width: 349px) {
+  .aih .meta .long {
+    display: none;
+  }
+  .aih .meta .short {
+    display: inline;
+  }
 }
 .aih .sp {
   flex: 1;
@@ -1628,7 +1741,7 @@ button.bi[data-testid='git-changed']:disabled {
 .md .md-task.done .md-box {
   background: var(--acc-bg);
   border-color: var(--acc-bg);
-  color: #fff;
+  color: var(--acc-on);
 }
 .md .md-quote {
   margin: 0;
@@ -2045,6 +2158,92 @@ body.resizing {
   font: 11px var(--sans);
   color: var(--t3);
 }
+/* 三层搜索的行（DESIGN.v3 §3）：一行 36 高，图标 16 + 名字 13 + 位置 12 --t3 + 命中的那一小段 12 --t2 */
+.pal-g .why {
+  font-weight: 400;
+}
+.pal-row.sr {
+  gap: 10px;
+  padding: 6px 12px;
+}
+.pal-row.sr .i {
+  flex: none;
+  color: var(--t2);
+}
+.pal-row.sr .nm {
+  flex: none;
+  max-width: 46%;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pal-row.sr .lc {
+  flex: none;
+  max-width: 30%;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pal-row.sr .sn {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pal-row.sr .rt {
+  margin-left: auto;
+  flex: none;
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+.pal-row.sr .col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pal-row.sr .col .nm {
+  max-width: none;
+}
+.pal-row.sr .col .sn {
+  flex: none;
+}
+.pal-row.sr.two {
+  align-items: flex-start;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.pal-row.sr.two .i {
+  margin-top: 1px;
+}
+.pal-row.sr.more {
+  min-height: 28px;
+  padding-left: 38px;
+}
+.pal-row.sr.more .nm {
+  font-size: 12px;
+  color: var(--t2);
+}
+.pal-row.sr .rt .done {
+  display: block;
+}
+.pal-none.more {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.sr-hit {
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  border-radius: 2px;
+}
 .pal-foot {
   flex: none;
   padding: 8px 20px;
@@ -2188,4 +2387,15 @@ body.resizing {
   .gitbar .upd-v {
     display: none;
   }
+}
+
+/* 各家 AI 的标志（engine-logo.tsx） */
+.eng-logo {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+.eng-logo svg {
+  width: 100%;
+  height: 100%;
 }

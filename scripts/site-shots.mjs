@@ -171,14 +171,14 @@ function makeVault(root) {
   return vault
 }
 
-async function launch(name, { skin = 'fam-light', homeStyle = 'a', winBg = 'glow', hidpi = true, env = {} } = {}) {
+async function launch(name, { skin = 'mint', homeStyle = 'a', winBg = 'glow', hidpi = true, env = {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cn-shots-'))
   const vault = makeVault(root)
   const userData = path.join(root, 'user-data')
   fs.mkdirSync(userData)
   fs.writeFileSync(
     path.join(userData, 'settings.json'),
-    JSON.stringify({ appearance: { followSystem: false, day: skin.includes('dark') || ['black', 'deepsea'].includes(skin) ? 'fam-light' : skin, night: ['fam-dark', 'black', 'deepsea'].includes(skin) ? skin : 'fam-dark', skin, homeStyle, winBg, winBgFile: null }, autoCommitMinutes: 10, quickHint: false }),
+    JSON.stringify({ appearance: { followSystem: false, day: skin === 'pine' || ['black', 'deepsea'].includes(skin) ? 'mint' : skin, night: ['pine', 'black', 'deepsea'].includes(skin) ? skin : 'pine', skin, homeStyle, winBg, winBgFile: null }, autoCommitMinutes: 10, quickHint: false }),
   )
   const app = await electron.launch({
     executablePath: electronPath,
@@ -254,7 +254,7 @@ async function selectPara(page, id) {
 const SHOTS = {
   // 首屏：白板（浅、深）
   async board() {
-    for (const [skin, file] of [['fam-light', 'board-light'], ['fam-dark', 'board-dark']]) {
+    for (const [skin, file] of [['mint', 'board-light'], ['pine', 'board-dark']]) {
       const r = await launch(file, { skin })
       await nav(r.page, '冰岛自驾')
       await pane(r.page).getByTestId('board').waitFor()
@@ -265,7 +265,7 @@ const SHOTS = {
   },
   // 白板 + 网页：选中一段，剪刀工具条出来
   async clip() {
-    const r = await launch('clip', { skin: 'fam-light', hidpi: false })
+    const r = await launch('clip', { skin: 'mint', hidpi: false })
     await nav(r.page, '冰岛自驾')
     await pane(r.page).getByTestId('board').waitFor()
     await openWeb(r.page, 'https://example.com/iceland/ice-caves')
@@ -286,7 +286,7 @@ const SHOTS = {
   },
   // AI 在白板上动手：加卡片、排整齐，一次提交可撤回
   async ai() {
-    const r = await launch('ai', { skin: 'fam-light' })
+    const r = await launch('ai', { skin: 'mint' })
     await nav(r.page, '逐日行程')
     await pane(r.page).getByTestId('board').waitFor()
     await r.page.keyboard.press('Meta+j')
@@ -300,7 +300,7 @@ const SHOTS = {
   },
   // ⌘F 搜索
   async search() {
-    const r = await launch('search', { skin: 'fam-light' })
+    const r = await launch('search', { skin: 'mint' })
     await nav(r.page, '冰岛十日')
     await sleep(500)
     await r.page.keyboard.press('Meta+f')
@@ -311,7 +311,7 @@ const SHOTS = {
   },
   // Git 历史
   async history() {
-    const r = await launch('history', { skin: 'fam-light' })
+    const r = await launch('history', { skin: 'mint' })
     await nav(r.page, '冰岛自驾')
     await rail(r.page).getByRole('button', { name: '历史' }).click()
     await sleep(800)
@@ -320,7 +320,7 @@ const SHOTS = {
   },
   // 梦游：现在梦游 → 报告
   async dream() {
-    const r = await launch('dream', { skin: 'fam-dark' })
+    const r = await launch('dream', { skin: 'pine' })
     const card = r.page.getByTestId('dream-card')
     await card.getByRole('button', { name: '现在梦游' }).click()
     await card.getByRole('button', { name: '看报告' }).waitFor({ timeout: 60_000 })
@@ -331,7 +331,7 @@ const SHOTS = {
   },
   // 首页 A（封面）、首页 B（深海蓝玻璃）、外观设置里的六套主题
   async home() {
-    let r = await launch('home-a', { skin: 'fam-light' })
+    let r = await launch('home-a', { skin: 'mint' })
     await r.shot('home-a')
     await r.close()
     r = await launch('home-b', { skin: 'deepsea', homeStyle: 'b', winBg: 'aurora' })

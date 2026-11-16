@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { editorText, gitStatus, launch, openNote, pane, rail, waitSaved, webMore } from './app'
+import { editorText, gitStatus, launch, openNote, pane, rail, starItem, waitSaved, webMore } from './app'
 import { folder, installExtension, url, writeBookmarks, writeHistory } from './fake-chrome-data'
 import { makeFakeChrome } from './fake-chrome'
 import { solidPng } from './fixtures/png'
@@ -39,11 +39,11 @@ test.afterAll(() => server.close())
 const web = (page: Page) => page.getByRole('complementary', { name: '网页' })
 const webTabs = (page: Page) => web(page).getByRole('tablist', { name: '网页标签' }).getByRole('tab')
 
-/** 右栏打开网页面板；没有网页标签就新开一个，载入 url */
+/** 右栏打开网页面板（一个网页标签也没有时它自己开一个新标签页），在当前标签载入 url */
 async function openWeb(page: Page, u: string) {
   await rail(page).getByRole('button', { name: '网页' }).click()
   await expect(web(page)).toBeVisible()
-  if ((await webTabs(page).count()) === 0) await web(page).getByRole('button', { name: '新网页' }).click()
+  await expect(webTabs(page)).not.toHaveCount(0)
   await go(page, u)
 }
 
@@ -79,7 +79,7 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     await expect(webTabs(page)).toHaveText(['第二页', '冰岛的黑沙滩 - 旅行杂志'])
     // 切回第一个：地址栏跟着变，网页没重新载入（还是同一个 webview）
     await webTabs(page).nth(0).getByRole('button').first().click()
-    await expect(web(page).getByRole('textbox', { name: '网址' })).toHaveValue(`${base}/two`)
+    await expect(web(page).getByRole('textbox', { name: '网址' })).toHaveValue(`${base.replace(/^http:\/\//, '')}/two`)
     // 新窗口链接（target=_blank）开成新标签
     const link = JSON.parse(String(await guest(page, `JSON.stringify(document.getElementById('nw').getBoundingClientRect())`))) as { x: number; y: number; width: number; height: number }
     const box = (await web(page).locator('webview.on').boundingBox())!
@@ -176,20 +176,24 @@ test('书签：一键从 Chrome 导入（按用户选）、书签栏和文件夹
     await expect(page.getByRole('menu', { name: '旅行' }).getByRole('menuitem')).toHaveText([/黑沙滩/, /第三页冰岛/])
     await page.getByRole('menu', { name: '旅行' }).getByRole('menuitem', { name: /黑沙滩/ }).click()
     await expect.poll(() => guest(page, 'location.href')).toBe(`${base}/a`)
-    // 当前网页已经在书签里：星是实心的；点开书签管家删掉，再点一下又收藏上（像 Chrome，点星星就收藏并开书签管家）
-    const star = web(page).getByRole('button', { name: '书签管家', exact: true })
-    await expect(star).toHaveClass(/\bon\b/)
+    // 当前网页已经在书签里：「⋯」里那一项是勾上的（实心星）；点开书签管家删掉，再点一下又收藏上（像 Chrome，收藏并开书签管家）
+    let star = await starItem(page)
+    await expect(star).toHaveAttribute('aria-checked', 'true')
+    await expect(star).toHaveText('已收藏 · 改标签和备注')
     await star.click()
     const keeper = page.getByRole('dialog', { name: '书签管家' })
     await keeper.getByRole('button', { name: '删掉书签', exact: true }).click()
     await expect(keeper).toHaveCount(0)
-    await expect(star).not.toHaveClass(/\bon\b/)
+    star = await starItem(page)
+    await expect(star).toHaveAttribute('aria-checked', 'false')
+    await expect(star).toHaveText('加书签')
     await star.click()
-    await expect(star).toHaveClass(/\bon\b/)
     await expect(keeper).toContainText('已收藏')
     await expect(bar).toContainText('冰岛的黑沙滩 - 旅行杂志')
-    await star.click()
+    // 再点「⋯」：小卡收起，菜单打开
+    await web(page).getByRole('button', { name: '更多', exact: true }).click()
     await expect(keeper).toHaveCount(0)
+    await page.keyboard.press('Escape')
     // 面板里删一个
     await webMore(page, '书签和历史')
     await lib.getByRole('button', { name: '删掉书签 第二页' }).click()

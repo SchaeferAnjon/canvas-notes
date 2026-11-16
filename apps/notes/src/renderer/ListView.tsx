@@ -1,8 +1,10 @@
-import { Icon } from '@cn/design'
-import { ArrowUp, Inbox } from 'lucide-react'
+import { PageNote, TabActs } from './shell/TabActs'
+import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
+
+const PAGE = 60
 
 /** 收件箱或一个素材主题：卡片列表，新的在前 */
 export function ListView(props: {
@@ -15,6 +17,8 @@ export function ListView(props: {
   onNotice(t: string): void
 }) {
   const [text, setText] = useState('')
+  /** 导入几百条旧笔记后收件箱很长：先画最新的 PAGE 条，往下点一次多画一页 */
+  const [shown, setShown] = useState(PAGE)
   const items = [...props.items].sort((a, b) => b.createdMs - a.createdMs)
 
   async function submit() {
@@ -31,13 +35,11 @@ export function ListView(props: {
 
   return (
     <section className="pane">
-      <div className="tool">
-        <h1>{props.title}</h1>
-        <span className="meta">
+      <TabActs active>
+        <PageNote>
           <span className="num">{items.length}</span> 条 · {props.hint}
-        </span>
-        <span className="sp" />
-      </div>
+        </PageNote>
+      </TabActs>
       <div className="body">
         <div className="list">
           {props.capture && (
@@ -48,7 +50,7 @@ export function ListView(props: {
                 void submit()
               }}
             >
-              <Icon of={Inbox} size={14} />
+              <Codicon name="inbox" size={14} />
               <input
                 aria-label="速记"
                 placeholder="随手记一句，回车放进收件箱"
@@ -56,13 +58,13 @@ export function ListView(props: {
                 onChange={(e) => setText(e.target.value)}
               />
               <button className="send" type="submit" aria-label="放进收件箱" disabled={!text.trim()}>
-                <Icon of={ArrowUp} size={14} />
+                <Codicon name="arrow-up" size={14} />
               </button>
             </form>
           )}
           {items.length === 0 && <p className="list-empty">这里还没有东西。</p>}
           <div className="cards">
-            {items.map((n) => (
+            {items.slice(0, shown).map((n) => (
               <button key={n.path} className={'lcard' + (n.kind !== 'work' && n.source ? ' clip' : '')} onClick={() => props.onOpen(n.path)}>
                 <span className="q">{n.preview || titleOf(n.path)}</span>
                 <span className="src">
@@ -72,6 +74,11 @@ export function ListView(props: {
               </button>
             ))}
           </div>
+          {items.length > shown && (
+            <button className="btn btn-ghost btn-sm list-more" onClick={() => setShown((s) => s + PAGE)}>
+              再显示 {Math.min(PAGE, items.length - shown)} 条 · 还有 <span className="num">{items.length - shown}</span> 条
+            </button>
+          )}
         </div>
       </div>
     </section>
@@ -94,5 +101,7 @@ export function when(ms: number): string {
   if (d.toDateString() === now.toDateString()) return `今天 ${hm}`
   const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
   if (d.toDateString() === y.toDateString()) return `昨天 ${hm}`
+  // 导进来的旧笔记常是前几年的：带上年份，不然看着像今年
+  if (d.getFullYear() !== now.getFullYear()) return `${d.getFullYear()}-${d.getMonth() + 1}-${p(d.getDate())}`
   return `${d.getMonth() + 1}-${p(d.getDate())} ${hm}`
 }

@@ -37,6 +37,8 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     chunk(sid, `MCP ${mcp.map((s) => `${s.type}:${s.name}:${s.headers[0].value.startsWith('Bearer ') ? '有令牌' : '没令牌'}`).join(',')}；`)
     chunk(sid, `我们的工具 ${ours.outcome.optionId}；它自己写文件 ${theirs.outcome.optionId}；`)
     chunk(sid, `开头是系统提示 ${prompt.startsWith('系统') ? '是' : '否'}`)
+    const imgs = m.params.prompt.filter((b) => b.type === 'image')
+    if (imgs.length) chunk(sid, `；图 ${imgs.map((b) => `${b.mimeType}:${b.data}`).join(',')}`)
     return send({ id: m.id, result: { stopReason: 'end_turn' } })
   }
 })

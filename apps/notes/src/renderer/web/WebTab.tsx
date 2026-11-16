@@ -1,5 +1,4 @@
-import { Icon } from '@cn/design'
-import { ArrowLeft, ArrowRight, ArrowRightToLine, Globe, RotateCw, Scissors } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import { useEffect, useRef, useState } from 'react'
 import type { Clip } from '../../shared/api'
 import { decodeUrl, toUrl } from '../url'
@@ -55,13 +54,13 @@ export function WebTab(props: {
     <section className="pane wpane" hidden={!props.active}>
       <div className="tool">
         <button className="iconbtn" aria-label="后退" disabled={!nav?.back} onClick={() => view.current?.goBack()}>
-          <Icon of={ArrowLeft} size={14} />
+          <Codicon name="arrow-left" size={14} />
         </button>
         <button className="iconbtn" aria-label="前进" disabled={!nav?.forward} onClick={() => view.current?.goForward()}>
-          <Icon of={ArrowRight} size={14} />
+          <Codicon name="arrow-right" size={14} />
         </button>
         <button className="iconbtn" aria-label="重新载入" onClick={() => view.current?.reload()}>
-          <Icon of={RotateCw} size={14} className={nav?.loading ? 'spin' : ''} />
+          <Codicon name="refresh" size={14} className={nav?.loading ? 'spin' : ''} />
         </button>
         <form
           className="addr"
@@ -73,14 +72,14 @@ export function WebTab(props: {
             void view.current?.loadURL(u).catch(() => undefined)
           }}
         >
-          <Icon of={Globe} size={13} />
+          <Codicon name="globe" size={13} />
           <input ref={addr} aria-label="网址" value={address} onChange={(e) => setAddress(e.target.value)} onFocus={(e) => e.currentTarget.select()} />
         </form>
         <button className="iconbtn" aria-label="整页剪藏" title="整页剪进收件箱" onClick={() => void clipPage()}>
-          <Icon of={Scissors} size={14} />
+          <Codicon name="quote" size={14} />
         </button>
         <button className="wtool wwide" title="放回右栏：网页回到右栏，边看边记" onClick={() => props.onToRight(cur)}>
-          <Icon of={ArrowRightToLine} size={14} />
+          <Codicon name="open-in-product" size={14} />
           放回右栏
         </button>
       </div>

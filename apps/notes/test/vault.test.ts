@@ -54,5 +54,7 @@ it('分区和预览', () => {
   expect(kindOf('素材/a.md')).toEqual({ kind: 'clip', topic: '未分主题' })
   expect(kindOf('收件箱.md')).toEqual({ kind: 'work' })
   expect(previewOf('---\na: 1\n---\n# 标题\n<!-- card id=a -->\n> 引文 [[笔记|别名]] [链接](http://x)\n**粗**')).toBe('标题 引文 笔记 链接 粗')
+  // 导进来的备忘录：勾选清单、列表、表格的记号不露出来
+  expect(previewOf('- [x] 看懂定义\n- [ ] 做习题\n\t- 子项\n\n| 名词 | 意思 |\n| --- | --- |\n| 核 | 零空间 |\n```\ncode\n```')).toBe('看懂定义 做习题 子项 名词 意思 核 零空间 code')
   expect(localStamp(new Date(2026, 0, 2, 3, 4))).toBe('2026-01-02 03:04')
 })

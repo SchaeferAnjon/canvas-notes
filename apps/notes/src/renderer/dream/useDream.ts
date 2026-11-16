@@ -18,7 +18,8 @@ export function useDream() {
 export const pendingOf = (r: DreamReport | null) => r?.items.filter((i) => i.state === 'pending').length ?? 0
 
 export const GROUPS: Record<DreamGroup, string> = {
-  inbox: '收件箱分了类',
+  file: '归类和改名',
+  viz: '可视化',
   link: '补上的双链',
   dup: '可能重复',
   week: '本周小结',

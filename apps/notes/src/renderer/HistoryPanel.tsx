@@ -1,5 +1,4 @@
-import { Icon } from '@cn/design'
-import { FileText, X } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import { useEffect, useState } from 'react'
 import type { CommitInfo, DreamDiffFile } from '../shared/api'
 import { when } from './ListView'
@@ -29,7 +28,7 @@ export function HistoryPanel(props: { version: number; onClose(): void; onOpen(p
         <span className="meta">每次提交改了哪些文件，点文件看改了什么</span>
         <span className="sp" />
         <button className="iconbtn" aria-label="关上历史" onClick={props.onClose}>
-          <Icon of={X} size={14} />
+          <Codicon name="close" size={14} />
         </button>
       </div>
       <div className="rbody">
@@ -88,7 +87,7 @@ function FileDiff(props: { hash: string; path: string; onOpen(path: string): voi
       <div className="hd-acts">
         {res.exists ? (
           <button className="btn btn-sm" onClick={() => props.onOpen(props.path)}>
-            <Icon of={FileText} size={14} />
+            <Codicon name="file-text" size={14} />
             打开这篇
           </button>
         ) : (

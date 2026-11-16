@@ -72,6 +72,10 @@ describe('左栏只放活着的', () => {
     expect(m.topics[0]).toEqual({ topic: '主题 0', count: 1 })
     expect(m.archived).toBe(5000)
     expect(m.all).toBe(5052)
+    // 左栏「文件夹」占的行从「这周动过的」里扣：2 门课少 2 行；文件夹再多也最多扣 6 行（5 个加「还有 N 个」）
+    expect(sidebarOf(notes, [], NOW, 90, 2).works).toHaveLength(MAX_WORKS - 2)
+    expect(sidebarOf(notes, [], NOW, 90, 2).moreWorks).toBe(30 - MAX_WORKS + 2)
+    expect(sidebarOf(notes, [], NOW, 90, 40).works).toHaveLength(MAX_WORKS - 6)
   })
 
   it('素材主题：只要有没归档的素材才出现，数的是这个主题一共几段', () => {

@@ -2,14 +2,21 @@ import { type ArchiveDays, DEFAULT_ARCHIVE_DAYS, isArchiveDays } from './sidebar
 
 /**
  * 外观和软件设置（存在软件设置目录 userData/settings.json，首页的设置除外）。
- * 六套配色，按 design/v3/DESIGN.v3.md「4 主题」；这里只放纯函数，主进程和界面都用。
+ * 十套主题（2026-11-16 用户定，`界面两种风格十套主题`）：八套照 design-frame/spec.md 第 6 节，加两套照 Dispatch IDE 的黑白；
+ * 另外可以导入 VS Code 主题（shared/vscode-theme.ts），导入的 id 以 vsc- 打头。这里只放纯函数，主进程和界面都用。
  */
 
-export type SkinId = 'fam-light' | 'fam-dark' | 'white' | 'cream' | 'black' | 'deepsea'
+export type BuiltinSkin = 'mint' | 'sky' | 'sakura' | 'lilac' | 'stone' | 'pine' | 'petrol' | 'cocoa' | 'ink' | 'graphite'
+/** 自带的十套之一，或者导入的 VS Code 主题（vsc-…） */
+export type SkinId = string
 export type Tone = 'light' | 'dark'
 export type HomeStyle = 'a' | 'b'
-/** 深海蓝的窗口背景：深海光渐变、两张照片、自己选的图 */
-export type WinBg = 'glow' | 'aurora' | 'cave' | 'custom'
+/** 界面风格（2026-11-16 用户定两种都要）：a 照 VS Code（平的、细线分区、面包屑、底栏写满、AI 在底栏最右）；b 浮岛书桌（背景图铺满、三块圆角磨砂面板、底栏几项、AI 在右下角圆按钮） */
+export type FrameStyle = 'a' | 'b'
+/** 窗口背景（哪套主题都能配）：不用图、两张照片、自己选的图 */
+export type WinBg = 'none' | 'aurora' | 'cave' | 'custom'
+/** 当前标签怎么标：上沿 2px、下沿 2px、整块强调色、只靠底色（Dispatch 的做法） */
+export type TabMark = 'top' | 'bottom' | 'fill' | 'none'
 
 export interface SkinInfo {
   id: SkinId
@@ -17,19 +24,44 @@ export interface SkinInfo {
   tone: Tone
   /** 外观页卡片下面的一句话 */
   note: string
+  tab: TabMark
+  /** 编辑区底色（窗口刚建时的底色，打开时不闪） */
+  win: string
+  /** 导入的 VS Code 主题：能删 */
+  imported?: boolean
 }
 
-export const SKINS: SkinInfo[] = [
-  { id: 'fam-light', name: '家族灰', tone: 'light', note: '两级冷灰，白卡轻阴影' },
-  { id: 'white', name: '纯白', tone: 'light', note: '没有灰底，只靠细线分区' },
-  { id: 'cream', name: '米白', tone: 'light', note: '暖纸色，文档是一张纸' },
-  { id: 'fam-dark', name: '家族灰', tone: 'dark', note: '深灰两级，和浅色一套结构' },
-  { id: 'black', name: '纯黑', tone: 'dark', note: '全黑底，没有投影只有细线' },
-  { id: 'deepsea', name: '深海蓝', tone: 'dark', note: '渐变光加半透明玻璃面板' },
+export const SKINS: (SkinInfo & { id: BuiltinSkin })[] = [
+  { id: 'mint', name: '薄荷', tone: 'light', tab: 'top', win: '#fafdfb', note: '淡绿三级底，当前标签上沿一道绿' },
+  { id: 'sky', name: '天青', tone: 'light', tab: 'bottom', win: '#fbfdfe', note: '底栏一条青色，卡片只描边' },
+  { id: 'sakura', name: '樱花', tone: 'light', tab: 'fill', win: '#fffbfc', note: '淡粉底，当前标签整块染色，卡片软投影' },
+  { id: 'lilac', name: '丁香', tone: 'light', tab: 'top', win: '#fdfbff', note: '淡紫底，李子紫强调' },
+  { id: 'stone', name: '石白', tone: 'light', tab: 'none', win: '#ffffff', note: '照 Dispatch 的白：没有分隔线，只靠底色深浅' },
+  { id: 'pine', name: '松林', tone: 'dark', tab: 'top', win: '#2d353b', note: '暖墨绿底、米色字，照 Everforest' },
+  { id: 'petrol', name: '深湖', tone: 'dark', tab: 'bottom', win: '#002b36', note: '照 Solarized，底栏一条深青，卡片只描边' },
+  { id: 'cocoa', name: '可可', tone: 'dark', tab: 'fill', win: '#2c2525', note: '暖棕底、珊瑚色强调，照 Monokai Pro' },
+  { id: 'ink', name: '墨夜', tone: 'dark', tab: 'bottom', win: '#0d1017', note: '近黑蓝底、橙色强调，照 Ayu Dark' },
+  { id: 'graphite', name: '石墨', tone: 'dark', tab: 'none', win: '#0c0a09', note: '照 Dispatch 的黑：没有分隔线，黑底白按钮' },
 ]
 
-export const skinOf = (id: SkinId): SkinInfo => SKINS.find((s) => s.id === id)!
-const isSkin = (v: unknown): v is SkinId => SKINS.some((s) => s.id === v)
+/** 自带的十套加上导入的 */
+export const allSkins = (user: readonly SkinInfo[] = []): SkinInfo[] => [...SKINS, ...user]
+/** 找不到（导入的删掉了）就当薄荷 */
+export const skinOf = (id: SkinId, user: readonly SkinInfo[] = []): SkinInfo => allSkins(user).find((s) => s.id === id) ?? SKINS[0]!
+
+/**
+ * 旧版主题换成最近的新主题（2026-11-16）：家族灰浅深 → 薄荷 / 松林；纯白、纯黑 → Dispatch 的白和黑（石白 / 石墨，结构最像：没有灰底、靠底色分区）；
+ * 米白 → 樱花（同是暖色浅底）；深海蓝 → 深湖（同是深蓝绿底）。
+ */
+export const OLD_SKINS: Record<string, BuiltinSkin> = {
+  'fam-light': 'mint',
+  'fam-dark': 'pine',
+  white: 'stone',
+  black: 'graphite',
+  cream: 'sakura',
+  deepsea: 'petrol',
+}
+const skinIn = (v: unknown): unknown => (typeof v === 'string' && OLD_SKINS[v]) || v
 
 export interface Appearance {
   /** 跟着系统换浅深：白天用 day，夜里用 night */
@@ -39,6 +71,7 @@ export interface Appearance {
   /** 不跟系统时一直用这套 */
   skin: SkinId
   homeStyle: HomeStyle
+  frame: FrameStyle
   winBg: WinBg
   /** 自己选的窗口背景：拷进设置目录 backgrounds/ 后的文件名 */
   winBgFile: string | null
@@ -59,11 +92,13 @@ export const AUTO_COMMIT_CHOICES = [0, 5, 10, 30, 60] as const
 export const DEFAULT_SETTINGS: AppSettings = {
   appearance: {
     followSystem: true,
-    day: 'fam-light',
-    night: 'fam-dark',
-    skin: 'fam-light',
+    day: 'mint',
+    night: 'pine',
+    skin: 'mint',
     homeStyle: 'a',
-    winBg: 'glow',
+    frame: 'b',
+    // 默认极光照片（`背景图保留`）
+    winBg: 'aurora',
     winBgFile: null,
   },
   autoCommitMinutes: 10,
@@ -71,25 +106,32 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoUpdate: true,
 }
 
-/** 读出来的设置可能是旧版本或者被手改坏的：一项一项检查，不对的用默认值 */
-export function normalizeSettings(raw: unknown): AppSettings {
+/**
+ * 读出来的设置可能是旧版本或者被手改坏的：一项一项检查，不对的用默认值。
+ * user：导入的 VS Code 主题（删掉了的不认，回到默认）。
+ */
+export function normalizeSettings(raw: unknown, user: readonly SkinInfo[] = []): AppSettings {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const a = (r.appearance && typeof r.appearance === 'object' ? r.appearance : {}) as Record<string, unknown>
   const d = DEFAULT_SETTINGS.appearance
-  const day = isSkin(a.day) && skinOf(a.day).tone === 'light' ? a.day : d.day
-  const night = isSkin(a.night) && skinOf(a.night).tone === 'dark' ? a.night : d.night
-  const winBg = a.winBg === 'glow' || a.winBg === 'aurora' || a.winBg === 'cave' || a.winBg === 'custom' ? a.winBg : d.winBg
+  const all = allSkins(user)
+  const find = (v: unknown) => all.find((s) => s.id === v)
+  const [aDay, aNight, aSkin] = [find(skinIn(a.day)), find(skinIn(a.night)), find(skinIn(a.skin))]
+  // 旧版的「深海光」渐变跟着深海蓝走了：换成默认的极光照片（B 里本来就铺的它）
+  const bg = a.winBg === 'glow' ? 'aurora' : a.winBg
+  const winBg = bg === 'none' || bg === 'aurora' || bg === 'cave' || bg === 'custom' ? bg : d.winBg
   const winBgFile = typeof a.winBgFile === 'string' && /^[^/\\]+$/.test(a.winBgFile) ? a.winBgFile : null
   const mins = Number(r.autoCommitMinutes)
   return {
     appearance: {
       followSystem: typeof a.followSystem === 'boolean' ? a.followSystem : d.followSystem,
-      day,
-      night,
-      skin: isSkin(a.skin) ? a.skin : d.skin,
+      day: aDay?.tone === 'light' ? aDay.id : d.day,
+      night: aNight?.tone === 'dark' ? aNight.id : d.night,
+      skin: aSkin ? aSkin.id : d.skin,
       homeStyle: a.homeStyle === 'b' ? 'b' : 'a',
-      // 自己选的图没了就回到深海光
-      winBg: winBg === 'custom' && !winBgFile ? 'glow' : winBg,
+      frame: a.frame === 'a' ? 'a' : 'b',
+      // 自己选的图没了就回到极光
+      winBg: winBg === 'custom' && !winBgFile ? d.winBg : winBg,
       winBgFile,
     },
     autoCommitMinutes: Number.isFinite(mins) && mins >= 0 && mins <= 24 * 60 ? Math.round(mins) : DEFAULT_SETTINGS.autoCommitMinutes,
@@ -108,9 +150,9 @@ export function activeSkin(a: Appearance, systemDark: boolean): SkinId {
  * 外观页点一张主题卡：跟系统时，浅色卡换掉白天那套、深色卡换掉夜里那套；
  * 不跟系统时直接用这套。
  */
-export function pickSkin(a: Appearance, id: SkinId): Appearance {
-  if (!a.followSystem) return { ...a, skin: id }
-  return skinOf(id).tone === 'light' ? { ...a, day: id } : { ...a, night: id }
+export function pickSkin(a: Appearance, s: Pick<SkinInfo, 'id' | 'tone'>): Appearance {
+  if (!a.followSystem) return { ...a, skin: s.id }
+  return s.tone === 'light' ? { ...a, day: s.id } : { ...a, night: s.id }
 }
 
 /** 关掉「跟着系统」时，留住现在看到的那套，界面不跳 */
@@ -118,16 +160,6 @@ export function setFollowSystem(a: Appearance, on: boolean, systemDark: boolean)
   if (on === a.followSystem) return a
   if (on) return { ...a, followSystem: true }
   return { ...a, followSystem: false, skin: activeSkin(a, systemDark) }
-}
-
-/** 窗口刚建时的底色（和主题的 --win 一致，打开时不闪白） */
-export const WIN_COLOR: Record<SkinId, string> = {
-  'fam-light': '#fbfbfc',
-  'fam-dark': '#0f0f11',
-  white: '#ffffff',
-  cream: '#fbf8f1',
-  black: '#000000',
-  deepsea: '#081430',
 }
 
 /** 自动提交间隔的说法 */

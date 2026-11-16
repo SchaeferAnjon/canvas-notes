@@ -1,4 +1,4 @@
-/* 设置：居中面板 820 × 最高 600，圆角 14，左边 180 宽分页（design/v3/DESIGN.v3.md「4.3 外观页」） */
+/* 设置：B 里是居中弹窗 900 × 620，圆角 12，左边 180 宽分页（design/v3/DESIGN.v3.md「4.4 外观页」）；A 里开成中间的标签 */
 .set-back {
   position: fixed;
   inset: 0;
@@ -11,11 +11,11 @@
   background: rgba(0, 0, 0, 0.45);
 }
 .set {
-  width: min(820px, calc(100vw - 40px));
-  height: min(600px, calc(100vh - 60px));
+  width: min(900px, calc(100vw - 40px));
+  height: min(620px, calc(100vh - 60px));
   display: grid;
   grid-template-columns: 180px minmax(0, 1fr);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--pop);
   -webkit-backdrop-filter: var(--blur);
   backdrop-filter: var(--blur);
@@ -71,19 +71,23 @@
   flex: 1;
 }
 
-/* 主题卡：上面 96 高的小窗口预览，下面名字 + 浅色/深色 + 一句话 */
+/* 主题卡：上面一个小窗口（那套主题自己的颜色和结构），下面名字 + 白天 / 夜里 + 一句话；浅色、深色、导入的各一组 */
+.skins-h {
+  margin: 12px 0 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.skins-h:first-child {
+  margin-top: 0;
+}
 .skins {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
 }
 .sk {
-  border: 0;
-  border-radius: 12px;
-  padding: 6px;
-  background: none;
-  text-align: left;
-  color: var(--t1);
+  position: relative;
+  border-radius: 10px;
   box-shadow: 0 0 0 1px var(--line);
 }
 .sk:hover {
@@ -92,18 +96,29 @@
 .sk.on {
   box-shadow: 0 0 0 2px var(--acc);
 }
+.sk-pick {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  padding: 5px;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
 .sk .nm {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 4px 2px;
+  padding: 7px 3px 3px;
   font-weight: 500;
+  font-size: 13px;
+  white-space: nowrap;
 }
-.sk .nm .tone {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--t3);
-  font-weight: 400;
+.sk .nm .t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .sk .nm .slot {
   font-style: normal;
@@ -111,73 +126,193 @@
   font-weight: 400;
   padding: 0 5px;
   border-radius: 4px;
-  background: var(--fill2);
-  color: var(--t2);
+  background: var(--acc-soft);
+  color: var(--acc-t);
 }
-.sk .ds {
-  display: block;
-  font-size: 12px;
-  color: var(--t3);
-  padding: 0 4px 4px;
-  line-height: 1.45;
+.sk .sk-x {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: var(--pop);
+  box-shadow: var(--shadow);
+  opacity: 0;
 }
+.sk:hover .sk-x,
+.sk-x:focus-visible {
+  opacity: 1;
+}
+.imp-theme {
+  margin-top: 12px;
+}
+.imp-theme .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 小窗口：标题栏 8、图标栏 10、侧栏 30%、标签条 10（当前标签照主题的标记）、文档里一张卡和一颗强调色按钮、底栏 7 */
 .mini {
-  height: 96px;
-  border-radius: 8px;
+  height: 72px;
+  border-radius: 7px;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 30% 1fr;
-  background: var(--bgart), var(--win);
-  background-color: var(--win);
+  grid-template-rows: 8px minmax(0, 1fr) 7px;
+  background: var(--win);
   box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--t1);
 }
-.mini .ms {
+.mini > i {
+  display: block;
+}
+.mini .m-title {
+  background: var(--title);
+  border-bottom: 1px solid var(--seam);
+}
+.mini .m-status {
+  background: var(--status);
+  border-top: 1px solid var(--seam);
+}
+.mini .m-body {
+  display: grid;
+  grid-template-columns: 11px 30% minmax(0, 1fr);
+  min-height: 0;
+}
+.mini .m-bar {
+  background: var(--bar);
+  border-right: 1px solid var(--seam);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 5px;
+}
+.mini .m-bar i {
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
+  background: var(--t3);
+  opacity: 0.6;
+}
+.mini .m-bar i.on {
+  background: var(--t1);
+  opacity: 1;
+}
+.mini .m-side {
   background: var(--side);
-  border-right: 1px solid var(--line);
-  padding: 8px 6px;
+  border-right: 1px solid var(--seam);
+  padding: 6px 4px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
-.mini .ms i {
+.mini .m-side i {
   height: 5px;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--fill2);
 }
-.mini .ms i.on {
-  background: var(--t3);
-  width: 70%;
+.mini .m-side i.on {
+  background: var(--acc-soft);
+  box-shadow: inset 2px 0 0 var(--acc);
 }
-.mini .mc {
-  padding: 8px;
+.mini .m-main {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  align-content: start;
-  background-color: var(--board);
+  grid-template-rows: 11px minmax(0, 1fr);
+  min-width: 0;
 }
-.mini .mc b {
-  height: 30px;
-  border-radius: 5px;
+.mini .m-tabs {
+  display: flex;
+  background: var(--tabbar);
+  border-bottom: 1px solid var(--seam);
+}
+.mini .m-tabs i {
+  position: relative;
+  width: 30px;
+  border-right: 1px solid var(--seam);
+}
+.mini .m-tabs i.on {
+  background: var(--tab-on);
+}
+.mini[data-tabmark='top'] .m-tabs i.on {
+  box-shadow: inset 0 2px 0 var(--acc);
+}
+.mini[data-tabmark='bottom'] .m-tabs i.on {
+  box-shadow: inset 0 -2px 0 var(--acc);
+}
+.mini[data-tabmark='fill'] .m-tabs i.on {
+  background: linear-gradient(var(--acc-soft), var(--acc-soft)), var(--tab-on);
+}
+.mini .m-doc {
+  position: relative;
+  padding: 7px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.mini .m-doc em {
+  height: 5px;
+  width: 55%;
+  border-radius: 2px;
+  background: var(--md-heading, var(--t1));
+}
+.mini .m-doc s {
+  height: 3px;
+  width: 80%;
+  border-radius: 2px;
+  background: var(--t2);
+  opacity: 0.55;
+}
+.mini .m-doc s.short {
+  width: 50%;
+}
+.mini .m-doc b {
+  height: 16px;
+  width: 60%;
+  margin-top: 2px;
+  border-radius: 3px;
   background: var(--card);
   box-shadow: var(--shadow);
 }
-.mini .mc b.acc {
-  box-shadow: 0 0 0 1.5px var(--acc);
+.mini .m-doc u {
+  position: absolute;
+  right: 7px;
+  bottom: 6px;
+  width: 18px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--acc-bg);
 }
-.mini .mc em {
-  grid-column: span 2;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--t1);
-  width: 60%;
-  opacity: 0.85;
+
+/* 界面风格 A 的小图（Settings.tsx FrameMiniA）：和 B 的小图一样高，左右各一条图标栏，标签下一行面包屑 */
+.mini.fr-mini-a {
+  height: 64px;
 }
-.mini .mc u {
-  height: 12px;
-  width: 40px;
-  border-radius: 999px;
-  background: var(--solid);
+.mini.fr-mini-a .m-body {
+  grid-template-columns: 11px 26% minmax(0, 1fr) 11px;
+}
+.mini.fr-mini-a .m-rbar {
+  border-right: 0;
+  border-left: 1px solid var(--seam);
+}
+.mini.fr-mini-a .m-main {
+  grid-template-rows: 11px 7px minmax(0, 1fr);
+}
+.mini .m-crumb {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+}
+.mini .m-crumb i {
+  width: 40%;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--t3);
+  opacity: 0.6;
+}
+.mini.fr-mini-a .m-doc {
+  padding-top: 4px;
 }
 
 /* 一行：开关 / 下拉 / 输入框放在一块浅底里 */
@@ -356,32 +491,6 @@
 .covers button.on i {
   box-shadow: 0 0 0 2px var(--acc);
 }
-.bgs.off {
-  opacity: 0.45;
-}
-.accrow {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  color: var(--t2);
-}
-.accrow div {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-}
-.accrow i {
-  width: 14px;
-  height: 14px;
-  border-radius: 4px;
-  display: inline-block;
-}
-/* 外观页里套了别的主题的小块，字仍用面板自己的颜色 */
-.set .accrow [data-skin] {
-  color: inherit;
-}
-
 /* 列表行：组件开关、AI 引擎、快捷键 */
 .wlist-set,
 .eng-list,

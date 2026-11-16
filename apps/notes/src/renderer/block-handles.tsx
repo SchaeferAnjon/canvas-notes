@@ -1,4 +1,4 @@
-import { Icon } from '@cn/design'
+import { Codicon, type CodiconName } from '@cn/design'
 import {
   type BlockEdit,
   type BlockTarget,
@@ -17,22 +17,6 @@ import {
 } from '@cn/format'
 import { Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view'
-import {
-  ArrowDown,
-  ArrowUp,
-  Code,
-  Copy,
-  GripVertical,
-  Heading1,
-  Heading2,
-  Heading3,
-  type LucideIcon,
-  Pilcrow,
-  Plus,
-  Quote,
-  SquareCheck,
-  Trash2,
-} from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
@@ -103,25 +87,25 @@ type MenuAction = 'up' | 'down' | 'dup' | 'del' | BlockTarget
 interface MenuItem {
   id: MenuAction
   label: string
-  icon: LucideIcon
+  icon: CodiconName
   keys?: string
 }
 
 const ACTIONS: MenuItem[] = [
-  { id: 'up', label: '上移', icon: ArrowUp, keys: '⌥⇧↑' },
-  { id: 'down', label: '下移', icon: ArrowDown, keys: '⌥⇧↓' },
-  { id: 'dup', label: '复制一份', icon: Copy },
-  { id: 'del', label: '删除', icon: Trash2 },
+  { id: 'up', label: '上移', icon: 'arrow-up', keys: '⌥⇧↑' },
+  { id: 'down', label: '下移', icon: 'arrow-down', keys: '⌥⇧↓' },
+  { id: 'dup', label: '复制一份', icon: 'copy' },
+  { id: 'del', label: '删除', icon: 'trash' },
 ]
 
 const TARGETS: MenuItem[] = [
-  { id: 'paragraph', label: '正文', icon: Pilcrow },
-  { id: 'h1', label: '一级标题', icon: Heading1 },
-  { id: 'h2', label: '二级标题', icon: Heading2 },
-  { id: 'h3', label: '三级标题', icon: Heading3 },
-  { id: 'todo', label: '待办', icon: SquareCheck },
-  { id: 'quote', label: '引用', icon: Quote },
-  { id: 'code', label: '代码', icon: Code },
+  { id: 'paragraph', label: '正文', icon: 'whitespace' },
+  { id: 'h1', label: '一级标题', icon: 'text-size' },
+  { id: 'h2', label: '二级标题', icon: 'text-size' },
+  { id: 'h3', label: '三级标题', icon: 'text-size' },
+  { id: 'todo', label: '待办', icon: 'checklist' },
+  { id: 'quote', label: '引用', icon: 'quote' },
+  { id: 'code', label: '代码', icon: 'code' },
 ]
 
 function BlockMenu(props: { block: MdBlock; canUp: boolean; canDown: boolean; onPick(a: MenuAction): void; onClose(): void }) {
@@ -164,7 +148,7 @@ function BlockMenu(props: { block: MdBlock; canUp: boolean; canDown: boolean; on
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => props.onPick(it.id)}
           >
-            <Icon of={it.icon} size={14} />
+            <Codicon name={it.icon} size={14} />
             <span className="lb">{it.label}</span>
             {it.keys && <kbd>{it.keys}</kbd>}
           </button>
@@ -199,7 +183,7 @@ class Handles {
       this.barRoot.render(
         <>
           <button className="blk-add" aria-label="在下面加一块" title="在下面加一块" onMouseDown={(e) => e.preventDefault()} onClick={() => this.add()}>
-            <Icon of={Plus} size={14} />
+            <Codicon name="add" size={14} />
           </button>
           <button
             className="blk-grip"
@@ -207,7 +191,7 @@ class Handles {
             title="拖动挪块，点一下出菜单"
             onMouseDown={(e) => this.gripDown(e.nativeEvent)}
           >
-            <Icon of={GripVertical} size={14} />
+            <Codicon name="gripper" size={14} />
           </button>
         </>,
       ),

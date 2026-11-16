@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { gitStatus, launch, pane, rail, waitSaved } from './app'
+import { gitStatus, launch, pane, rail, waitSaved, tabOn } from './app'
 
 // 工具板上的卡片、待办、列、子白板：按住拖到白板上，在松手处新建（用户 2026-11-15：「这些需要可以直接拖动到白板。」）
 
@@ -27,7 +27,7 @@ const read = (vault: string, f = '计划.md') => readFileSync(join(vault, f), 'u
 
 async function openBoard(page: Page, name: string) {
   await page.locator('.nav .si', { hasText: new RegExp(`^${name}`) }).first().click()
-  await expect(pane(page).locator('.tool h1')).toHaveText(name)
+  await expect(tabOn(page)).toHaveText(name)
   await expect(board(page)).toBeVisible()
 }
 
@@ -115,10 +115,10 @@ test('四样都能拖到白板上任意位置，在松手处新建；拖的时�
     to = await screenOf(page, { x: 450, y: 300 }, 1)
     want = await expectedAt(page, to, 1)
     await dragFromPal(page, '子白板', to)
-    await expect(pane(page).getByRole('textbox', { name: '笔记名字' })).toBeFocused()
+    await expect(page.getByRole('textbox', { name: '笔记名字' })).toBeFocused()
     await page.keyboard.type('环岛路线')
     await page.keyboard.press('Enter')
-    await expect(pane(page).locator('.tool h1')).toHaveText('环岛路线')
+    await expect(tabOn(page)).toHaveText('环岛路线')
     await expect.poll(() => read(vault)).toContain('[[环岛路线]]')
     expectNear(read(vault).match(/<!-- card id=\w+ x=(\d+) y=(\d+) w=280 -->\n\[\[环岛路线\]\]\n/), want)
     await page.locator('.tab', { hasText: '计划' }).locator('.tl').click()
@@ -221,7 +221,7 @@ test('拖回工具板、拖到画布外、按 esc：都取消，文件不变，�
     await expect(board(page).locator('.bcard')).toHaveCount(2)
     await expect(board(page).locator('.bcol')).toHaveCount(1)
     await expect(board(page).getByRole('textbox', { name: '卡片内容' })).toHaveCount(0)
-    await expect(pane(page).locator('.tool h1')).toHaveText('计划')
+    await expect(tabOn(page)).toHaveText('计划')
     expect(read(vault)).toBe(PLAN)
     expect(gitStatus(vault)).toBe('')
   } finally {

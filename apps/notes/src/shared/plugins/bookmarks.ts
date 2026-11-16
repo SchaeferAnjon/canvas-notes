@@ -5,7 +5,7 @@ import type { Bookmark } from '../web-api'
 export const BOOKMARKS: PluginManifest = {
   id: 'bookmarks',
   name: '书签管家',
-  description: '新开的网页标签是书签首页（快捷书签、全部文件夹、打开的标签、稍后再看）；地址栏的星星收藏当前网页、加标签和备注，搜、排、改、删；选中的书签能存进库。',
+  description: '新开的网页标签是 BookmarkKeeper 的新标签页（快捷书签经 iCloud 和 Chrome、Safari、别的 Mac 同步，搜全部书签，打开的标签按网站整理）；地址栏的星星收藏当前网页、加标签和备注，搜、排、改、删；选中的书签能存进库。',
   permissions: ['notes:write'],
 }
 
@@ -76,4 +76,15 @@ export function bookmarkNote(b: Bookmark, stamp: string, mdUrl: (u: string) => s
   const tags = b.tags?.length ? `tags: [${b.tags.map((t) => JSON.stringify(t)).join(', ')}]\n` : ''
   const note = b.note?.trim() ? `\n${b.note.trim()}\n` : ''
   return `---\ncreated: ${stamp}\nsource: ${b.url}\n${tags}---\n# ${title}\n\n—— [${title.replace(/[\[\]]/g, '')}](${mdUrl(b.url)})\n${note}`
+}
+
+/** 几天前（书签管家里用） */
+export function ago(ms: number, now = Date.now()): string {
+  if (!ms) return ''
+  const d = Math.floor((now - ms) / 86400_000)
+  if (d <= 0) return '今天'
+  if (d === 1) return '昨天'
+  if (d < 30) return `${d} 天前`
+  const t = new Date(ms)
+  return `${t.getFullYear()}-${t.getMonth() + 1}-${t.getDate()}`
 }

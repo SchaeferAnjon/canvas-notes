@@ -10,10 +10,12 @@ import { fastEngine } from '../agent'
 import type { Vault } from '../vault'
 import { isOurWebview, ourWebviews } from '../web'
 import { bookmarksPlugin } from './bookmarks'
+import { fakeCli, realCli } from './translate/cli'
 import { type CallContext, type MainPlugin, PluginRegistry } from './host'
 import { translatePlugin } from './translate'
+import { wereadPlugin } from './weread'
 
-const PLUGINS: MainPlugin<never>[] = [translatePlugin as MainPlugin<never>, bookmarksPlugin as MainPlugin<never>]
+const PLUGINS: MainPlugin<never>[] = [translatePlugin as MainPlugin<never>, bookmarksPlugin as MainPlugin<never>, wereadPlugin as MainPlugin<never>]
 
 export function setupPlugins(d: { window(): BrowserWindow | null; vault(): Vault | null }) {
   const dir = join(app.getPath('userData'), 'plugins')
@@ -28,6 +30,8 @@ export function setupPlugins(d: { window(): BrowserWindow | null; vault(): Vault
       vault: d.vault,
       ai: askFast,
       aiLabel: () => fastEngine().label,
+      // 插件问命令行时的工作目录是插件自己的文件夹，没有库里的 CLAUDE.md 掺进来
+      cli: process.env.CN_AI_FAKE === '1' ? fakeCli() : realCli(dir),
       sendApp,
       filesChanged: () => sendApp('files:changed'),
       onQuit: (fn) => quits.push(fn),

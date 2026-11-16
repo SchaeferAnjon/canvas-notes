@@ -6,3 +6,5 @@ playwright-report/
 .DS_Store
 /apps/notes/release/
 /website/.check/
+/apps/notes/src/renderer/public/pdfjs/
+/apps/notes/resources/models/

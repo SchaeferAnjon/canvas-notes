@@ -2,6 +2,7 @@
 
 import type { AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from './agent'
 import type { Appearance, AppSettings } from './appearance'
+import type { ThemeFile } from './vscode-theme'
 import type { HomeConfig } from './home'
 import type { NoteKind } from './layout'
 
@@ -26,7 +27,8 @@ export interface NoteFile {
   /** frontmatter 里 draft: true（AI 写的草稿） */
   draft?: boolean
   /** frontmatter 里 type: board 的是白板 */
-  board?: { color: string; cards: number; icon?: string; thumb: ThumbRect[] }
+  /** nodes：导图白板的节点数（导图的节点不算卡片） */
+  board?: { color: string; cards: number; icon?: string; thumb: ThumbRect[]; nodes?: number }
 }
 
 export interface OpenedNote {
@@ -124,8 +126,14 @@ export interface CnApi {
   /** 软件设置（外观、自动提交间隔），存在软件设置目录 */
   settings(): Promise<AppSettings>
   setSettings(patch: { appearance?: Partial<Appearance>; autoCommitMinutes?: number; archiveDays?: number; autoUpdate?: boolean }): Promise<AppSettings>
-  /** 从电脑选一张窗口背景（深海蓝用），拷进设置目录；取消是 null */
+  /** 从电脑选一张窗口背景，拷进设置目录；取消是 null */
   pickWinBg(): Promise<AppSettings | null>
+  /** 导入的 VS Code 主题（设置目录 themes/） */
+  themes(): Promise<ThemeFile[]>
+  /** 选一个 .json 或 .vsix 导进来并用上；取消是 null，读不懂会报错 */
+  importTheme(): Promise<{ added: ThemeFile[]; settings: AppSettings } | null>
+  /** 删掉一套导入的主题，返回删后的设置（正用着它的回到默认） */
+  removeTheme(id: string): Promise<AppSettings>
   /** 首页设置：库里的 .canvas-notes/首页.json */
   homeConfig(): Promise<HomeConfig>
   saveHomeConfig(cfg: HomeConfig): Promise<HomeConfig>
@@ -183,8 +191,17 @@ export interface CnApi {
   dreamTake(id: string): Promise<DreamReport>
   /** 丢掉一条：跳过，不进当前分支 */
   dreamDrop(id: string): Promise<DreamReport>
-  /** 剩下的全部收下 */
+  /** 剩下的全部收下（一次提交） */
   dreamTakeAll(): Promise<DreamReport>
+  /** 收下几条（一组、预览条上的「收下这 N 处」）：一次提交进当前分支；commit 是那次提交，撤回用 */
+  dreamTakeMany(ids: string[]): Promise<{ report: DreamReport; commit: string | null }>
+  /** 丢掉几条（一组、预览条上的「丢掉」） */
+  dreamDropMany(ids: string[]): Promise<DreamReport>
+  /** 撤回：taken 是收下时那次提交（再做一次反向提交）；不给就是撤回丢掉。这几条回到待看 */
+  dreamUndo(u: { ids: string[]; taken?: string }): Promise<{ report: DreamReport; commit: string | null }>
+  /** 跟 AI 说哪里不对：在梦游分支上按这句话重做这几条（归类和改名），changed 是变了几条 */
+  dreamRedo(ids: string[], feedback: string): Promise<{ report: DreamReport; changed: number }>
+  dreamRedoStop(): Promise<void>
   /** 这一条改了什么（那个提交的 diff） */
   dreamDiff(id: string): Promise<DreamDiffFile[]>
   /** 梦游开始、跑完、报告变了 */
@@ -199,7 +216,9 @@ export interface DuplicatePair {
   why: string
 }
 
-export type DreamGroup = 'inbox' | 'link' | 'dup' | 'week'
+/** file：归类和改名（收件箱里的挪进课程、项目、生活、写作、素材，顺手起好名字） */
+/** viz：今天卡得最久的几处做的可视化（新的 HTML，挂到读 PDF 笔记那一段） */
+export type DreamGroup = 'file' | 'viz' | 'link' | 'dup' | 'week'
 
 export interface DreamItem {
   id: string
@@ -217,6 +236,12 @@ export interface DreamItem {
   state: 'pending' | 'taken' | 'dropped'
   /** 收下后在当前分支上的提交号 */
   taken?: string
+  /** 归类和改名：从哪挪到哪（按用户说的重做过的是重做后的） */
+  move?: { from: string; to: string }
+  /** 按用户说的重做过：他说的那句话 */
+  redo?: string
+  /** 重做时在分支上多出的提交，收下时跟在 commit 后面一起合进来 */
+  redoCommits?: string[]
 }
 
 export interface DreamReport {
@@ -234,6 +259,8 @@ export interface DreamReport {
   notes: string[]
   /** 分支和临时检出都已删掉（都处理完了） */
   closed: boolean
+  /** 收件箱里 AI 拿不准、留着不动的条数 */
+  stay?: number
 }
 
 /**
@@ -295,11 +322,11 @@ export interface Activity {
 
 export type NoteMenuAction = 'pin' | 'unpin' | 'rename' | 'trash' | 'reveal' | null
 
-/** 白板缩略图里的一块：坐标是白板上的像素；k 是 n 普通卡、c 素材卡、i 图片、l 列 */
+/** 白板缩略图里的一块：坐标是白板上的像素；k 是 n 普通卡、c 素材卡、i 图片、l 列、m 导图节点 */
 export interface ThumbRect {
   x: number
   y: number
   w: number
   h: number
-  k: 'n' | 'c' | 'i' | 'l'
+  k: 'n' | 'c' | 'i' | 'l' | 'm'
 }

@@ -1,25 +1,5 @@
-import { Icon } from '@cn/design'
-import {
-  ArrowUpDown,
-  Check,
-  Clock,
-  Copy,
-  FileText,
-  FolderInput,
-  Globe,
-  GripVertical,
-  Image as ImageIcon,
-  Inbox,
-  LayoutGrid,
-  Link2,
-  Minimize2,
-  Moon,
-  PenLine,
-  Plus,
-  Shuffle,
-  Sparkles,
-  type LucideIcon,
-} from 'lucide-react'
+import { Codicon, type CodiconName } from '@cn/design'
+import { ActBtn, TabActs } from './shell/TabActs'
 import { useEffect, useRef, useState } from 'react'
 import type { Activity, DreamGroup, DreamReport, NoteFile } from '../shared/api'
 import type { HomeStyle } from '../shared/appearance'
@@ -75,15 +55,15 @@ export function useActivity(version: number) {
 }
 
 const WEEKDAY = '一二三四五六日'
-const ICONS: Record<WidgetId, LucideIcon> = {
-  clock: Clock,
-  week: PenLine,
-  inbox: Inbox,
-  wall: LayoutGrid,
-  boards: LayoutGrid,
-  dream: Moon,
-  recent: FileText,
-  flip: Shuffle,
+const ICONS: Record<WidgetId, CodiconName> = {
+  clock: 'clockface',
+  week: 'edit',
+  inbox: 'inbox',
+  wall: 'layout',
+  boards: 'layout',
+  dream: 'wand',
+  recent: 'file-text',
+  flip: 'arrow-swap',
 }
 
 export interface HomeProps {
@@ -141,7 +121,6 @@ export function HomeView(props: HomeProps) {
   const empty = props.notes.length === 0
   const now = new Date()
   const coverY = adjustY ?? cfg.coverY
-  const b = props.style === 'b'
 
   function onGripDown(e: React.PointerEvent, id: WidgetId) {
     e.preventDefault()
@@ -190,24 +169,24 @@ export function HomeView(props: HomeProps) {
               onPointerUp={onGripUp}
               onPointerCancel={() => setDrag(null)}
             >
-              <Icon of={GripVertical} size={14} />
+              <Codicon name="gripper" size={14} />
             </button>
             <div className="wedit">
               {!fixed && (
                 <button onClick={() => save(resizeWidget(cfg, id))}>
-                  <Icon of={ArrowUpDown} size={12} style={{ transform: 'rotate(90deg)' }} />
+                  <Codicon name="arrow-swap" size={12} />
                   {sizeAction(size)}
                 </button>
               )}
               <button onClick={() => save(hideWidget(cfg, id))}>
-                <Icon of={Minimize2} size={12} />
+                <Codicon name="screen-normal" size={12} />
                 收起
               </button>
             </div>
           </>
         )}
         <div className="wk">
-          <Icon of={ICONS[id]} size={14} />
+          <Codicon name={ICONS[id]} size={14} />
           {WIDGETS.find((w) => w.id === id)!.name}
           {id === 'wall' && <WallLegend />}
         </div>
@@ -218,12 +197,16 @@ export function HomeView(props: HomeProps) {
 
   return (
     <section className={'pane homev home-' + props.style + (editing ? ' editing' : '')} data-testid="home" data-style={props.style}>
-      {!b && (
-        <div className="tool">
-          <h1>首页</h1>
-          <span className="meta">最近积累 · 这里能自己摆</span>
-        </div>
-      )}
+      <TabActs active>
+        {editing ? (
+          <button className="btn btn-primary btn-sm" onClick={() => setEditing(false)}>
+            <Codicon name="check" size={14} />
+            完成
+          </button>
+        ) : (
+          <ActBtn icon="edit" label="编辑首页" onClick={() => setEditing(true)} />
+        )}
+      </TabActs>
       <div className="body">
         <div className="hscroll" style={{ ['--cover-img' as string]: coverImage(cfg.cover), ['--cover-y' as string]: `${coverY}%` }}>
           <div
@@ -266,11 +249,11 @@ export function HomeView(props: HomeProps) {
               {adjustY === null ? (
                 <>
                   <button className="cbtn" onClick={() => setGallery((v) => !v)} aria-expanded={gallery}>
-                    <Icon of={ImageIcon} size={14} />
+                    <Codicon name="file-media" size={14} />
                     换封面
                   </button>
                   <button className="cbtn" onClick={() => (setGallery(false), setAdjustY(cfg.coverY))}>
-                    <Icon of={ArrowUpDown} size={14} />
+                    <Codicon name="arrow-swap" size={14} />
                     调整位置
                   </button>
                 </>
@@ -301,18 +284,6 @@ export function HomeView(props: HomeProps) {
                   {now.getMonth() + 1} 月 {now.getDate()} 日 · {a.wrote + a.clipped ? `这周攒下了 ${a.wrote + a.clipped} 样东西` : '这周还没攒下东西'}
                 </p>
               </div>
-              <span className="sp" />
-              {editing ? (
-                <button className="btn btn-primary" onClick={() => setEditing(false)}>
-                  <Icon of={Check} size={14} />
-                  完成
-                </button>
-              ) : (
-                <button className="btn btn-ghost hedit" onClick={() => setEditing(true)}>
-                  <Icon of={LayoutGrid} size={14} />
-                  编辑首页
-                </button>
-              )}
             </div>
             <div className="wgrid" ref={grid}>
               {empty && <StartWidget {...props} />}
@@ -321,14 +292,14 @@ export function HomeView(props: HomeProps) {
             {editing && (
               <div className="tray" data-testid="home-tray">
                 <div className="hd">
-                  <Icon of={Plus} size={14} />
+                  <Codicon name="add" size={14} />
                   收起来的组件，点一下放回首页
                 </div>
                 <div className="items">
                   {cfg.hidden.length === 0 && <span className="none">都在首页上了</span>}
                   {cfg.hidden.map((id) => (
                     <button key={id} className="ti" onClick={() => save(showWidget(cfg, id))}>
-                      <Icon of={ICONS[id]} size={14} />
+                      <Codicon name={ICONS[id]} size={14} />
                       {WIDGETS.find((w) => w.id === id)!.name}
                     </button>
                   ))}
@@ -343,7 +314,7 @@ export function HomeView(props: HomeProps) {
 }
 
 /** 换封面：照片 / 渐变 / 从电脑选 / 随机一张；点一张立即换，弹层不关 */
-function CoverGallery(props: { cfg: HomeConfig; onPick(c: HomeConfig): void; onNotice(t: string): void; onClose(): void }) {
+export function CoverGallery(props: { cfg: HomeConfig; onPick(c: HomeConfig): void; onNotice(t: string): void; onClose(): void }) {
   const { cfg } = props
   const [tab, setTab] = useState<'photo' | 'grad'>(cfg.cover.kind === 'builtin' && (COVER_GRADIENTS as readonly string[]).includes(cfg.cover.id) ? 'grad' : 'photo')
   const ids: readonly BuiltinCover[] = tab === 'photo' ? COVER_PHOTOS : COVER_GRADIENTS
@@ -384,7 +355,7 @@ function CoverGallery(props: { cfg: HomeConfig; onPick(c: HomeConfig): void; onN
             props.onPick({ ...cfg, cover: { kind: 'builtin', id: pool[Math.floor(Math.random() * pool.length)]! } })
           }}
         >
-          <Icon of={Shuffle} size={12} />
+          <Codicon name="arrow-swap" size={12} />
           随机一张
         </button>
       </div>
@@ -406,15 +377,15 @@ function CoverGallery(props: { cfg: HomeConfig; onPick(c: HomeConfig): void; onN
 
 /** 空库时排第一的「从这里开始」：三步，库里有了第一篇东西后自动消失 */
 function StartWidget(props: HomeProps) {
-  const steps: [string, string, string, LucideIcon, () => void][] = [
-    ['剪一段网页', '在右栏打开网页，选中一段就能剪进收件箱', '开网页', Globe, props.onOpenWeb],
-    ['建一块白板', '把想法摊开成卡片，拖来拖去排位置', '新建白板', LayoutGrid, props.onNewBoard],
-    ['搬进旧笔记', 'Obsidian 之类的文件夹直接打开就能用', '选文件夹', FolderInput, props.onChooseFolder],
+  const steps: [string, string, string, CodiconName, () => void][] = [
+    ['剪一段网页', '在右栏打开网页，选中一段就能剪进收件箱', '开网页', 'globe', props.onOpenWeb],
+    ['建一块白板', '把想法摊开成卡片，拖来拖去排位置', '新建白板', 'layout', props.onNewBoard],
+    ['搬进旧笔记', 'Obsidian 之类的文件夹直接打开就能用', '选文件夹', 'root-folder', props.onChooseFolder],
   ]
   return (
     <div className="wd s4 w-start" data-testid="widget-start">
       <div className="wk">
-        <Icon of={Sparkles} size={14} />
+        <Codicon name="sparkle" size={14} />
         从这里开始
       </div>
       <div className="ssteps">
@@ -424,7 +395,7 @@ function StartWidget(props: HomeProps) {
             <b>{name}</b>
             <span>{note}</span>
             <button className="btn btn-sm" onClick={go}>
-              <Icon of={icon} size={14} />
+              <Codicon name={icon} size={14} />
               {btn}
             </button>
           </div>
@@ -446,11 +417,12 @@ function WallLegend() {
   )
 }
 
-const DREAM_LINES: Record<DreamGroup, [string, LucideIcon]> = {
-  inbox: ['条 收件箱找到了去处', Inbox],
-  link: ['处 补了双链', Link2],
-  dup: ['对 可能重复', Copy],
-  week: ['篇 本周小结', PenLine],
+const DREAM_LINES: Record<DreamGroup, [string, CodiconName]> = {
+  file: ['处 归类和改名', 'inbox'],
+  viz: ['个 可视化', 'preview'],
+  link: ['处 补了双链', 'link'],
+  dup: ['对 可能重复', 'copy'],
+  week: ['篇 本周小结', 'edit'],
 }
 
 function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumulate>; act: Activity | null }) {
@@ -463,7 +435,8 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
       const today = (new Date().getDay() + 6) % 7
       const more = act ? act.clipsThisWeek - act.clipsLastWeek : 0
       const best = a.days.indexOf(Math.max(...a.days))
-      const none = a.days.every((d) => d === 0)
+      // 上面两个数都是 0 时柱子也是空的（建库那次提交之类不算「积累」），不和数字打架（DESIGN.v3 5.3）
+      const none = a.wrote + a.clipped === 0 || a.days.every((d) => d === 0)
       return (
         <>
           <div className="wk-big" data-testid="home-stats">
@@ -478,7 +451,12 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
           </div>
           <div className={'bars' + (none ? ' none' : '')}>
             {a.days.map((d, i) => (
-              <i key={i} className={i === today ? 'today' : ''} title={`周${WEEKDAY[i]} · ${d} 样`} style={{ height: none ? undefined : `${Math.max(8, (d / max) * 100)}%` }} />
+              <i
+                key={i}
+                className={(i === today ? 'today' : '') + (!none && i === best ? ' best' : '')}
+                title={`周${WEEKDAY[i]} · ${d} 样`}
+                style={{ height: none || d === 0 ? undefined : `${Math.max(12, (d / max) * 100)}%` }}
+              />
             ))}
           </div>
           <div className="barl">
@@ -517,14 +495,14 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
           {items.length === 0 && <p className="empty-note">收件箱是空的。在任何软件里按 ⌥⌘N 速记，回车就落到这里。</p>}
           {items.slice(0, 3).map((n) => (
             <button key={n.path} className="li" onClick={() => props.onOpen(n.path)}>
-              <Icon of={Inbox} size={12} />
+              <Codicon name="inbox" size={12} />
               <span className="truncate">{n.preview || titleOf(n.path)}</span>
             </button>
           ))}
           {items.length > 0 && (
             <div className="wgo">
               <button className={'btn btn-sm' + (warn ? ' btn-primary' : '')} onClick={props.onTidy}>
-                <Icon of={Sparkles} size={14} />
+                <Codicon name="sparkle" size={14} />
                 让 AI 分一分
               </button>
             </div>
@@ -544,7 +522,16 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
               <span className="n">
                 <b className="truncate">{titleOf(n.path)}</b>
                 <span>
-                  <span className="num">{n.board!.cards}</span> 张 · {when(n.mtimeMs).replace(/ \d\d:\d\d$/, '')}
+                  {n.board!.nodes !== undefined ? (
+                    <>
+                      <span className="num">{n.board!.nodes}</span> 个节点
+                    </>
+                  ) : (
+                    <>
+                      <span className="num">{n.board!.cards}</span> 张
+                    </>
+                  )}{' '}
+                  · {when(n.mtimeMs).replace(/ \d\d:\d\d$/, '')}
                 </span>
               </span>
             </button>
@@ -552,7 +539,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
           {boards.length === 0 && (
             <button className="th new" onClick={props.onNewBoard}>
               <span>
-                <Icon of={Plus} size={16} />
+                <Codicon name="add" size={16} />
                 建第一块白板
               </span>
             </button>
@@ -569,7 +556,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
         <div className="recent">
           {works.map((n) => (
             <button key={n.path} className="r" onClick={() => props.onOpen(n.path)}>
-              <Icon of={FileText} size={14} />
+              <Codicon name="file-text" size={14} />
               <span className="truncate">{titleOf(n.path)}</span>
               <span className="t">{when(n.mtimeMs)}</span>
             </button>
@@ -613,7 +600,7 @@ function DreamBody(props: HomeProps) {
         {!props.dreamRunning && (
           <div className="wgo">
             <button className="btn btn-sm" onClick={props.onDreamNow}>
-              <Icon of={Moon} size={14} />
+              <Codicon name="wand" size={14} />
               现在梦游
             </button>
           </div>
@@ -631,7 +618,7 @@ function DreamBody(props: HomeProps) {
       <div className="drows">
         {counts.map(([g, c]) => (
           <div key={g} className="l">
-            <Icon of={DREAM_LINES[g][1]} size={12} />
+            <Codicon name={DREAM_LINES[g][1]} size={12} />
             <b className="num">
               {c} {DREAM_LINES[g][0].split(' ')[0]}
             </b>
@@ -665,7 +652,7 @@ function FlipBody(props: HomeProps) {
       </div>
       <div className="wgo">
         <button className="btn btn-sm btn-ghost" onClick={() => setI((x) => x + 1)}>
-          <Icon of={Shuffle} size={14} />
+          <Codicon name="arrow-swap" size={14} />
           换一张
         </button>
       </div>

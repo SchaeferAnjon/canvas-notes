@@ -1,6 +1,6 @@
 /** 全局速记：小窗和主进程之间的接口，preload 按这个暴露成 window.quick */
 
-import type { SkinId } from './appearance'
+import type { SkinInfo } from './appearance'
 import { clipMarkdown } from './layout'
 
 /** 按下快捷键那一刻，前台软件里的东西 */
@@ -16,8 +16,8 @@ export interface QuickContext {
   /** 前台是浏览器时：网址和标题 */
   url?: string
   title?: string
-  /** 主窗口现在用的主题 */
-  skin?: SkinId
+  /** 主窗口现在用的主题（导入的 VS Code 主题带着它的样式） */
+  skin?: { info: SkinInfo; css?: string }
 }
 
 export interface QuickApi {

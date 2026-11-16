@@ -7,7 +7,6 @@ import { app, BrowserWindow, clipboard, ClipboardItem, globalShortcut, ipcMain, 
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import * as git from '@cn/git'
-import type { SkinId } from '../shared/appearance'
 import { BRAND } from '../shared/brand'
 import { quickMarkdown, type QuickContext } from '../shared/quick'
 import { E2E } from './test-mode'
@@ -103,7 +102,7 @@ export function setupQuick(o: {
   settings(): { quickHint?: boolean }
   saveSettings(patch: { quickHint?: boolean }): void
   /** 主窗口现在用的主题，速记小卡跟着它 */
-  skin(): SkinId
+  skin(): NonNullable<QuickContext['skin']>
   /** 菜单栏图标的菜单最上面多的几项（新版本下好了时「重启并更新到 x」） */
   topItems?(): Electron.MenuItemConstructorOptions[]
 }) {

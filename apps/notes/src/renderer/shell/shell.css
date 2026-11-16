@@ -1,0 +1,1323 @@
+/*
+ * 四条栏的骨架（task-mzstv，设计稿 design-frame/spec.md）。
+ * 列：左图标栏 | 左栏 | 中间 | 右栏（开着时）| 右图标栏；行：标题栏 | 中间 | 底栏。
+ * .frame-a 照 VS Code：平的、1px 细线分区、底栏横贯写满。
+ * .frame-b 浮岛书桌：背景图铺满窗口，左栏、中间、右栏是三块圆角磨砂面板，图标栏和底栏画在背景上。
+ */
+.win {
+  --abar-w: 48px;
+  --title-h: 40px;
+  --status-h: 24px;
+  --gitbar-h: var(--status-h);
+  --side-w: 252px;
+  grid-template-columns: var(--abar-w) var(--side-w) minmax(0, 1fr) 0 var(--abar-w);
+  grid-template-rows: var(--title-h) minmax(0, 1fr) var(--status-h);
+  background: var(--bgart), var(--win);
+  background-color: var(--win);
+}
+.win.with-right {
+  grid-template-columns: var(--abar-w) var(--side-w) minmax(0, 1fr) var(--right-w) var(--abar-w);
+}
+.win.side-hidden {
+  --side-w: 0px;
+}
+.win.side-hidden .side {
+  display: none;
+}
+.win > .side {
+  grid-column: 2;
+  grid-row: 2;
+  padding-top: 0;
+  -webkit-app-region: no-drag;
+}
+.win > .center {
+  grid-column: 3;
+  grid-row: 2;
+}
+.win > .right:not(.abar),
+.win > .ai.docked {
+  grid-column: 4;
+  grid-row: 2;
+  padding-top: 0;
+}
+.win > .right .rhead {
+  margin-top: 0;
+  border-top: 0;
+  height: 36px;
+}
+.win > .right:not(.web) .rhead b {
+  font-size: 13px;
+}
+
+/* ---------- 标题栏 ---------- */
+.titlebar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-left: 82px; /* 红绿灯 */
+  -webkit-app-region: drag;
+  z-index: 6;
+}
+.titlebar button {
+  -webkit-app-region: no-drag;
+}
+.tb-left,
+.tb-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.tb-right {
+  margin-left: auto;
+  padding-right: 10px;
+}
+.tb-btn {
+  width: 28px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  display: grid;
+  place-items: center;
+  color: var(--t2);
+}
+.tb-btn:hover:not(:disabled) {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.tb-btn:disabled {
+  opacity: 0.35;
+}
+.cmd {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, 38vw);
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t2);
+  font-size: 12px;
+}
+.cmd:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.cmd .ph {
+  flex: 1;
+  text-align: left;
+}
+.cmd b {
+  font-weight: 500;
+  color: var(--t1);
+}
+
+/* ---------- 图标栏 ---------- */
+.abar {
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 4;
+  -webkit-app-region: no-drag;
+}
+.abar.left {
+  grid-column: 1;
+}
+.abar.right {
+  grid-column: 5;
+}
+.abg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.abar .grow {
+  flex: 1;
+}
+.ab {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border: 0;
+  background: none;
+  display: grid;
+  place-items: center;
+  color: var(--t3);
+}
+.ab .ci {
+  width: 24px;
+  height: 24px;
+}
+.ab:hover,
+.ab.on {
+  color: var(--t1);
+}
+.ab.dim {
+  opacity: 0.4;
+}
+.ab .sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.ab .badge {
+  position: absolute;
+  right: 7px;
+  bottom: 9px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--acc-bg);
+  color: var(--acc-on);
+  font: 600 10px/16px var(--sans);
+  text-align: center;
+}
+.ab .badge.warn {
+  background: var(--yellow);
+}
+.ab .dot {
+  position: absolute;
+  right: 12px;
+  top: 11px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 0 2px var(--side);
+}
+.ab-sep {
+  width: 22px;
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line2);
+}
+
+/* ---------- 左右栏的头 ---------- */
+.vh {
+  height: 36px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px 0 14px;
+}
+.vh h2 {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.vh h2 .sub {
+  font-weight: 400;
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ib {
+  height: 24px;
+  min-width: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--t2);
+  font-size: 12px;
+  flex: none;
+}
+.ib:hover,
+.ib.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.ib.s-tidy {
+  color: var(--yellow);
+}
+.side .nav {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.side .none,
+.right .none {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* ---------- 大纲 ---------- */
+.right.outline .vbody {
+  flex: 1;
+  overflow: auto;
+  padding: 2px 0 12px;
+}
+.ol {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 12px 0 calc(16px + var(--d, 0) * 14px);
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--t2);
+  text-align: left;
+  position: relative;
+}
+.ol:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.ol.on {
+  color: var(--t1);
+}
+.ol.on::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--acc);
+}
+.ol .pg {
+  margin-left: auto;
+  font: 11px var(--mono);
+  color: var(--t3);
+}
+
+/* ---------- 面包屑（方向 A） ---------- */
+.crumbs {
+  height: 24px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--seam);
+  font-size: 12px;
+  color: var(--t2);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.crumbs .cr {
+  display: flex;
+  align-items: center;
+}
+.crumbs button {
+  border: 0;
+  background: none;
+  padding: 0 3px;
+  border-radius: 4px;
+  color: var(--t2);
+  font-size: 12px;
+}
+.crumbs button:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.crumbs b {
+  font-weight: 400;
+  color: var(--t1);
+  padding: 0 3px;
+}
+.crumbs .sep {
+  color: var(--t3);
+}
+
+/* ---------- 底栏 ---------- */
+.win > .status {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  height: auto;
+  padding: 0 4px;
+  gap: 0;
+  font-size: 12px;
+  z-index: 5;
+}
+.status .bi {
+  height: 100%;
+  padding: 0 8px;
+  border-radius: 0;
+  gap: 5px;
+}
+.status .bi .ci {
+  flex: none;
+}
+.status .vault {
+  width: auto;
+  border: 0;
+  padding-top: 0;
+}
+.status .vault b {
+  font-weight: 400;
+}
+.status .vault .br {
+  color: var(--t3);
+}
+.status .pv-slot {
+  display: none;
+}
+.status.previewing .pv-slot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.status.previewing > :not(.pv-slot):not(.ai-corner):not(.st-toast) {
+  display: none;
+}
+.status .pv-bar {
+  position: static;
+  transform: none;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+  padding: 0 4px 0 6px;
+  font-size: 12px;
+  color: inherit;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.status .pv-bar .btn {
+  height: 20px;
+}
+/* 底栏里的预览条：宽度由内容定（浮在中间栏时的 max-width 在这里会让说明被省略号截掉） */
+.status .pv-bar {
+  max-width: none;
+}
+.status .pv-bar > span:not(.pd) {
+  flex: none;
+}
+/* 预览条按钮里的图标跟字同色（.btn-xs 的图标是 --t2，在 A 的强调色底上几乎看不见） */
+.status .pv-bar .btn svg {
+  color: inherit;
+}
+.pv-bar .pv-short {
+  display: none;
+}
+@media (max-width: 1200px) {
+  .pv-bar .pv-long,
+  .pv-bar .pv-ask .pv-lb {
+    display: none;
+  }
+  .pv-bar .pv-short {
+    display: inline;
+    white-space: nowrap;
+  }
+}
+.spin {
+  animation: shell-spin 1.2s linear infinite;
+}
+@keyframes shell-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.win > .vsplit {
+  top: var(--title-h);
+  bottom: var(--status-h);
+  right: calc(var(--right-w) + var(--abar-w) - 3px);
+}
+
+/* ---------- 悬停提示、小弹层 ---------- */
+.shell-tip {
+  position: fixed;
+  z-index: 200;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: var(--pop);
+  border: 1px solid var(--line2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.08s;
+}
+.shell-tip.show {
+  opacity: 1;
+}
+/* 长的（整条网址）折成几行，最宽 480，不出窗口 */
+.shell-tip.long {
+  height: auto;
+  max-width: min(480px, calc(100vw - 12px));
+  padding: 4px 8px;
+  line-height: 16px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.shell-tip kbd {
+  font: 11px var(--mono);
+  color: var(--t3);
+}
+.shell-menu {
+  position: fixed;
+  z-index: 150;
+  min-width: 220px;
+  max-width: 360px;
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  color: var(--t1);
+}
+.shell-menu .mh {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.shell-menu .mi {
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--t1);
+  text-align: left;
+  font-size: 13px;
+}
+.shell-menu .mi:hover:not(:disabled) {
+  background: var(--fill2);
+}
+.shell-menu .mi .r {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 11px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.shell-menu .mi .mi-sp {
+  width: 16px;
+}
+.shell-menu .ms {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+.shell-menu .btns {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 2px;
+}
+/* 没东西可提交时「提交」不是实心色：--fill 底、--t3 字（灰底白字看着像坏了） */
+.shell-menu .btns .btn-primary:disabled {
+  opacity: 1;
+  background: var(--fill);
+  border-color: transparent;
+  color: var(--t3);
+}
+
+/* ---------- 设置：界面风格的两张小图 ---------- */
+.fr-pv {
+  display: grid;
+  grid-template-columns: 8px 22px 1fr 22px 8px;
+  height: 64px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--side);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.fr-pv i {
+  display: block;
+}
+.fr-pv.a .sd {
+  background: var(--side);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+}
+.fr-pv.a .md {
+  background: var(--win);
+}
+.fr-pv.b {
+  background: var(--pv) center / cover;
+  gap: 3px;
+  padding: 8px 0 6px;
+}
+.fr-pv.b .sd,
+.fr-pv.b .md {
+  border-radius: 4px;
+  background: var(--card);
+  opacity: 0.9;
+}
+
+/* ======================= 方向 A：照 VS Code ======================= */
+.frame-a .titlebar {
+  background: var(--side);
+  border-bottom: 1px solid var(--seam);
+}
+.frame-a .abar {
+  background: var(--side);
+}
+.frame-a .abar.left {
+  border-right: 1px solid var(--seam);
+}
+.frame-a .abar.right {
+  border-left: 1px solid var(--seam);
+}
+.frame-a .ab.on::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  background: var(--t1);
+}
+.frame-a .abar.left .ab.on::before {
+  left: 0;
+}
+.frame-a .abar.right .ab.on::before {
+  right: 0;
+}
+.frame-a .status {
+  border-top: 1px solid var(--seam);
+}
+.frame-a.previewing .status {
+  background: var(--acc-bg);
+  color: var(--acc-on);
+}
+.frame-a.previewing .status .pv-bar .btn {
+  color: var(--acc-on);
+  background: color-mix(in srgb, var(--acc-on) 16%, transparent);
+  border-color: transparent;
+}
+.frame-a.previewing .status .pv-bar .btn-primary {
+  background: var(--acc-on);
+  color: var(--acc-bg);
+}
+.status .ai-corner {
+  padding: 0 10px;
+  font-weight: 500;
+}
+.status .ai-corner.on {
+  background: var(--fill2);
+}
+
+/* ======================= 方向 B：浮岛书桌 ======================= */
+.frame-b {
+  --abar-w: 44px;
+  --title-h: 40px;
+  --status-h: 30px;
+  --gap: 6px;
+  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.3)), var(--frame-photo, none) center / cover, var(--side);
+  background-color: var(--side);
+}
+/* 窗口背景选了「不用图」：标题栏那层纯色 */
+[data-winbg='none'] .frame-b {
+  background: var(--title);
+}
+.frame-b .titlebar,
+.frame-b .abar,
+.frame-b .status {
+  background: transparent;
+  border: 0;
+}
+.frame-b .abar {
+  grid-row: 2 / 4;
+  padding-bottom: 8px;
+}
+.frame-b .ab {
+  width: 34px;
+  height: 34px;
+  margin: 3px 0;
+  border-radius: 8px;
+}
+.frame-b .ab .ci {
+  width: 20px;
+  height: 20px;
+}
+.frame-b .ab:hover {
+  background: var(--fill2);
+}
+.frame-b .ab.on {
+  background: var(--pop);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.frame-b .ab .badge {
+  right: -4px;
+  top: -4px;
+  bottom: auto;
+}
+.frame-b .ab .dot {
+  right: 4px;
+  top: 4px;
+}
+/* 背景图上的字和图标：白的才看得清 */
+[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-btn,
+[data-frame='b'][data-winbg='photo'] .frame-b .abar .ab:not(.on) {
+  color: rgba(255, 255, 255, 0.82);
+}
+[data-frame='b'][data-winbg='photo'] .frame-b .abar .ab:not(.on):hover,
+[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+.frame-b .cmd {
+  height: 28px;
+  border-radius: 8px;
+  background: var(--pop);
+  border-color: var(--line);
+  opacity: 0.92;
+}
+.frame-b > .side,
+.frame-b > .center,
+.frame-b > .right:not(.abar) {
+  border: 0;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--line), 0 6px 24px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+}
+.frame-b > .side {
+  margin-right: var(--gap);
+  background: var(--side);
+}
+.frame-b > .center {
+  background: var(--win);
+}
+.frame-b > .right:not(.abar) {
+  margin-left: var(--gap);
+}
+.frame-b.rsplit > .right:not(.reading-ai):not(.reading-notes) {
+  height: calc(46% - 3px);
+}
+.frame-b.rsplit > .right.reading-ai,
+.frame-b.rsplit > .right.reading-notes {
+  height: calc(54% - 3px);
+}
+.frame-b > .status {
+  grid-column: 2 / 5;
+  align-self: center;
+  height: 24px;
+  margin: 0 0 2px;
+  padding: 0 2px;
+  border-radius: 8px;
+  /* 底栏垫一条半透明的面板色，字放在照片上才看得清 */
+  background: color-mix(in srgb, var(--side) 82%, transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--t2);
+}
+.frame-b .status .bi {
+  height: 24px;
+  border-radius: 6px;
+}
+.frame-b .status button.bi:hover:not(:disabled) {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.frame-b.previewing .status .pv-slot {
+  background: var(--acc-bg);
+  color: var(--acc-on);
+  border-radius: 8px;
+  height: 26px;
+  box-shadow: var(--shadow-up);
+}
+.frame-b.previewing .status .pv-bar .btn {
+  color: var(--acc-on);
+  background: color-mix(in srgb, var(--acc-on) 16%, transparent);
+  border-color: transparent;
+}
+.frame-b.previewing .status .pv-bar .btn-primary {
+  background: var(--acc-on);
+  color: var(--acc-bg);
+}
+.frame-b .vsplit {
+  right: calc(var(--right-w) + var(--abar-w) - 3px);
+}
+/* B 的 AI：右图标栏最下面的圆按钮，正好在窗口右下角 */
+.abar .ai-fab {
+  position: static;
+  width: 34px;
+  height: 34px;
+  margin-top: 6px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--t1);
+  box-shadow: var(--shadow-up);
+}
+
+/* ======================= 标签条、每页的动作（spec 第 1、2、3 节） ======================= */
+.win .center > .tabs {
+  height: 35px;
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: visible;
+  background: var(--tabbar);
+  border-bottom: 1px solid var(--seam);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  -webkit-app-region: no-drag;
+}
+.tabs .tlist {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs .tlist::-webkit-scrollbar {
+  display: none;
+}
+/* 能滚的那一侧 24 的渐隐，看得出后面还有标签（照 VS Code）；App 量好了挂 .fl / .fr */
+.tabs .tlist.fl {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px);
+  mask-image: linear-gradient(to right, transparent, #000 24px);
+}
+.tabs .tlist.fr {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 24px);
+  mask-image: linear-gradient(to left, transparent, #000 24px);
+}
+.tabs .tlist.fl.fr {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+}
+/* 标签不压缩：最窄 96、最宽 200，多了 .tlist 横着滚（照 VS Code） */
+.win .tabs .tab,
+.win .tabs .tab[aria-selected='true'] {
+  flex: 0 0 auto;
+  position: relative;
+  top: 0;
+  height: auto;
+  min-width: 96px;
+  max-width: 200px;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 8px 0 0;
+  border: 0;
+  border-right: 1px solid var(--seam);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--t2);
+  font-size: 13px;
+  font-weight: 400;
+}
+.win .tabs .tab.on {
+  color: var(--t1);
+  background: var(--tab-on);
+}
+.win .tabs .tab .tl {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 12px;
+  font-size: 13px;
+  color: inherit;
+}
+.tabs .tab .tl > .ci {
+  flex: none;
+}
+.tabs .tab .sw {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  flex: none;
+}
+.win .tabs .tab .x {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  color: var(--t2);
+  opacity: 0;
+}
+.win .tabs .tab:hover .x,
+.win .tabs .tab.on .x {
+  opacity: 1;
+}
+.win .tabs .tab .x:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.tab-rename {
+  width: 150px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--acc-ring);
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--t1);
+  font: 13px var(--sans);
+  outline: none;
+}
+/* 当前标签的标记（主题表「当前标签」一列，<html data-tabmark>）：上沿 2px、下沿 2px、整块染强调色；none 只靠底色（Dispatch 的黑白） */
+[data-tabmark='top'] .win .tabs .tab.on::before,
+[data-tabmark='bottom'] .win .tabs .tab.on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--acc);
+  pointer-events: none;
+}
+[data-tabmark='bottom'] .win .tabs .tab.on::before {
+  top: auto;
+  bottom: 0;
+}
+[data-tabmark='fill'] .win .tabs .tab.on {
+  background: linear-gradient(var(--acc-soft), var(--acc-soft)), var(--tab-on);
+  color: var(--acc-t);
+}
+
+/* 标签条右端：这一页的动作 */
+.tabs > .acts {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 8px;
+}
+.tabs > .acts:empty {
+  display: none;
+}
+.acts .txt {
+  font-size: 12px;
+  color: var(--t3);
+  padding: 0 6px;
+  white-space: nowrap;
+  /* 页面说明最宽 220（中间窄于 900 时 140），放不下就省略号、悬停看全句（PageNote），别把标签条挤窄 */
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.center.compact .acts .txt {
+  max-width: 140px;
+}
+.acts .txt.warn {
+  color: var(--yellow);
+}
+.acts .txt[hidden] {
+  display: none;
+}
+.ab-act {
+  height: 24px;
+  min-width: 24px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--t2);
+  font-size: 12px;
+  flex: none;
+}
+.ab-act:hover:not(:disabled),
+.ab-act.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.ab-act:disabled {
+  opacity: 0.4;
+}
+.ab-act .lb,
+.acts .seg .lb {
+  display: none;
+}
+.win .acts .seg {
+  height: auto;
+  display: flex;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--fill);
+}
+.win .acts .seg button {
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t2);
+}
+.win .acts .seg button.on {
+  background: var(--tab-on);
+  color: var(--t1);
+  box-shadow: 0 0 0 1px var(--line2);
+}
+.acts .pager button {
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: 12px var(--mono);
+  color: var(--t3);
+}
+.acts .pager button:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.acts .pager input {
+  width: 48px;
+  height: 22px;
+  font: 12px var(--mono);
+}
+.acts .split-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+}
+.acts .split-btn:hover {
+  background: var(--fill);
+}
+.acts .split-btn .bichev {
+  min-width: 14px;
+  width: 14px;
+  padding: 0;
+  margin-left: -2px;
+}
+.acts .split-btn .bichev .ci {
+  width: 12px;
+  height: 12px;
+}
+/* 标签条右端弹出的菜单（PDF「更多」、对照读、HTML「更多」）：往下、靠右；和软件里别的菜单一个样子：
+   --pop 底、圆角 12、--shadow-up、内边距 4，每项 28 高、圆角 8、没有边框，悬停 --fill，当前那项一个 12 的勾 --acc */
+.acts .split-btn > .menu,
+.acts .pdfmore > .menu {
+  position: absolute;
+  right: 0;
+  left: auto;
+  top: 30px;
+  z-index: 60;
+  width: 200px;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+}
+.acts .split-btn > .menu {
+  width: 160px;
+}
+.acts .split-btn > .menu button,
+.acts .pdfmore > .menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  box-shadow: none;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--t1);
+  text-align: left;
+}
+.acts .split-btn > .menu button:hover,
+.acts .pdfmore > .menu button:hover {
+  background: var(--fill);
+}
+.acts .split-btn > .menu button .ci {
+  width: 12px;
+  height: 12px;
+  color: var(--acc);
+}
+.acts .pdfmore > .menu button .ci {
+  color: var(--t2);
+}
+.acts .pdfmore > .menu kbd {
+  margin-left: auto;
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+.acts .pdfmore {
+  position: relative;
+}
+.acts .menu .mnote {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--t3);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  white-space: nowrap;
+}
+.acts .mm-props {
+  top: 30px;
+}
+.acts .fh-menu {
+  position: relative;
+}
+
+/* 面包屑：库名打头 */
+.crumbs {
+  gap: 2px;
+  background: var(--win);
+}
+.crumbs .cr {
+  gap: 2px;
+}
+.crumbs .cr.root {
+  gap: 4px;
+  padding: 0 3px;
+}
+.crumbs button.last {
+  color: var(--t1);
+}
+
+/* 底栏正中的提示：不压内容（用户 2026-11-16：toast 压住了卡片） */
+.status .st-toast {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+}
+.status .st-toast .toast-cn {
+  position: static;
+  transform: none;
+  max-width: 100%;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 10px;
+  border-radius: 5px;
+  background: var(--solid);
+  color: var(--solid-t);
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  animation: st-in 0.18s ease-out;
+}
+.status .st-toast .toast-cn > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status .st-toast .toast-cn:not(.with-act) {
+  padding-right: 10px;
+}
+.status .st-toast .toast-cn .btn {
+  height: 16px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.3);
+  color: inherit;
+  font-size: 11px;
+}
+@keyframes st-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.status.previewing > .st-toast {
+  display: flex;
+}
+
+/* A：设置是中间一个标签 */
+.pane.setpane {
+  display: flex;
+  min-height: 0;
+}
+.set.set-tab {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--win);
+}
+
+/* ---------- 方向 A 的颜色块（主题表：标题栏、图标栏、底栏各有自己的颜色） ---------- */
+.frame-a .titlebar {
+  background: var(--title);
+}
+.frame-a .abar {
+  background: var(--bar);
+}
+.frame-a > .status {
+  background: var(--status);
+  color: var(--status-t);
+}
+.frame-a .status button.bi:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.16);
+  color: inherit;
+}
+.frame-a .ab .dot {
+  box-shadow: 0 0 0 2px var(--bar);
+}
+
+/* ---------- 方向 B 的标签条：标签是上圆角 7 的块，当前标签 --fill2 ---------- */
+.frame-b .center > .tabs {
+  height: 38px;
+  padding: 6px 6px 0;
+  background: transparent;
+}
+.frame-b .tabs .tlist {
+  gap: 2px;
+}
+.win.frame-b .tabs .tab,
+.win.frame-b .tabs .tab[aria-selected='true'] {
+  border: 0;
+  border-radius: 7px 7px 0 0;
+  padding-right: 6px;
+}
+.win.frame-b .tabs .tab .tl {
+  padding-left: 10px;
+}
+.win.frame-b .tabs .tab:hover {
+  background: var(--fill);
+}
+.win.frame-b .tabs .tab.on {
+  background: var(--fill2);
+}
+[data-tabmark='top'] .win.frame-b .tabs .tab.on::before {
+  left: 8px;
+  right: 8px;
+  border-radius: 0 0 2px 2px;
+}
+[data-tabmark='bottom'] .win.frame-b .tabs .tab.on::before {
+  left: 8px;
+  right: 8px;
+  border-radius: 2px 2px 0 0;
+}
+[data-tabmark='fill'] .win.frame-b .tabs .tab.on {
+  background: var(--acc-soft);
+}
+.frame-b .tabs > .acts {
+  padding-bottom: 4px;
+}
+/* B：分段和属性按钮带字 */
+.frame-b .acts .seg .lb,
+.frame-b .ab-act.wt .lb {
+  display: inline;
+}
+.frame-b .ab-act.wt {
+  padding: 0 6px;
+}
+/* B：中间窄于 640 时动作只留图标（App 给 .center 加 .narrow），位置让给标签 */
+.frame-b .center.narrow .acts .seg .lb,
+.frame-b .center.narrow .ab-act.wt .lb {
+  display: none;
+}
+.frame-b .center.narrow .ab-act.wt {
+  padding: 0 4px;
+}
+.frame-b .ab.on {
+  background: var(--glass);
+}
+.frame-b > .side {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+.frame-b .cmd {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  opacity: 1;
+}
+
+/* B：右栏也是磨砂的岛 */
+.frame-b > .right:not(.abar) {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* 家族 ui.css 的 .titlebar 有自己的高（52）：这里跟着框架第一行走，不然盖住标签条上沿 */
+.win > .titlebar {
+  height: auto;
+  padding-right: 0;
+}
+
+/* 右栏里的弹层不比右栏宽（再往里挪见 shell/keep-inside.ts） */
+.win > .right .wpop,
+.win > .right .trm {
+  max-width: calc(var(--right-w) - 12px);
+}
+
+/* 大纲点了白板的一项：那张卡片闪一圈强调色 */
+.board .flown {
+  animation: flown 1.2s ease-out;
+}
+@keyframes flown {
+  0%, 40% {
+    box-shadow: 0 0 0 3px var(--acc-ring), var(--shadow);
+  }
+}
+
+/* B：右栏和中间之间 6 的缝不算进右栏宽（记住的宽度 = 看得见的右栏宽） */
+.win.frame-b.with-right {
+  grid-template-columns: var(--abar-w) var(--side-w) minmax(0, 1fr) calc(var(--right-w) + var(--gap)) var(--abar-w);
+}
+
+/* 左右栏的行：A 24 高、整行平的（VS Code 列表）；B 28 高、左右缩 6 的圆角块（spec 第 1、2 节） */
+.frame-a > .side .si,
+.frame-a > .side .ftree .ft-row {
+  height: 24px;
+  gap: 6px;
+  border-radius: 0;
+}
+.frame-b > .side .si,
+.frame-b > .side .ftree .ft-row {
+  height: 28px;
+  gap: 6px;
+}

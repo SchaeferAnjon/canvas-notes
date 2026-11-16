@@ -1,10 +1,13 @@
 import { app, autoUpdater as nativeUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
-import { copyFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
 import type { Activity, AiChange, GitState, NoteMenuAction, VaultInfo } from '../shared/api'
-import { activeSkin, type AppSettings, WIN_COLOR } from '../shared/appearance'
+import { activeSkin, type AppSettings, skinOf } from '../shared/appearance'
+import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
+import { isExtUrl } from '../shared/bookmarkkeeper'
 import { BRAND } from '../shared/brand'
 import { kindOf, titleOf } from '../shared/layout'
 import { dayKey, logActivity, readActivity } from './activity'
@@ -14,17 +17,25 @@ import { registerAttachments, registerFileScheme } from './attachments'
 import { importCookies, listProfiles } from './chrome-import'
 import { parseDiff } from './dream'
 import { setupDream } from './dream-main'
+import { setupMindmap } from './mindmap'
 import { duplicatesOf, readAll } from './duplicates'
 import { registerHome } from './home'
+import { registerFolderHome } from './folder-home'
 import { pinNote, readPins, repin } from './pins'
 import { setupQuick } from './quick'
 import { E2E } from './test-mode'
 import { Updater } from './updater'
 import { menuLabel, releaseUrl, updateError } from '../shared/update'
 import { SettingsFile } from './settings'
+import { ThemeStore } from './themes'
 import { Vault } from './vault'
 import { setupPlugins } from './plugins'
+import { setupReading } from './reading'
+import { searchVault, setupSearch } from './search'
+import { registerFiles } from './files'
+import { setupImport } from './import'
 import { attachWebview, setupWeb } from './web'
+import { attachVideo, flushVideo, setupVideo } from './video'
 
 /** 内置浏览器的登录分区：和软件自己的界面分开，导入的 Chrome 登录放这里 */
 const WEB_PARTITION = 'persist:web'
@@ -33,6 +44,11 @@ const webviewPreload = () => join(__dirname, '../preload/webview.js')
 // 设置目录固定叫 canvas-notes（工作名时代就是它）：显示名换了，用户的设置、AI 对话、网页登录不搬家。测试和多开时用自己的
 app.setPath('userData', process.env.CN_USER_DATA || join(app.getPath('appData'), 'canvas-notes'))
 registerFileScheme()
+// 端到端测试用 Chromium 的假摄像头：不碰真的摄像头、不弹系统的授权框
+if (E2E) {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+}
 
 let win: BrowserWindow | null = null
 let vault: Vault | null = null
@@ -61,9 +77,19 @@ async function commitPending(): Promise<string | null> {
   return hash
 }
 
-const settings = new SettingsFile(join(app.getPath('userData'), 'settings.json'))
+/** 导入的 VS Code 主题（设置目录 themes/） */
+const themes = new ThemeStore(join(app.getPath('userData'), 'themes'))
+const userSkins = () => themes.list().map(themeInfo)
+const settings = new SettingsFile(join(app.getPath('userData'), 'settings.json'), userSkins)
 /** 现在窗口用的是哪套主题（速记小窗、窗口底色跟着它） */
 const currentSkin = () => activeSkin(settings.app().appearance, nativeTheme.shouldUseDarkColors)
+const winColor = () => skinOf(currentSkin(), userSkins()).win
+/** 速记小卡用的主题：导入的那几套连样式一起带过去 */
+function quickSkin() {
+  const id = currentSkin()
+  const t = themes.list().find((x) => x.id === id)
+  return { info: skinOf(id, userSkins()), css: t ? themeCss(t) : undefined }
+}
 
 function vaultFromArgs(): string | null {
   const arg = process.argv.find((a) => a.startsWith('--vault='))
@@ -91,6 +117,7 @@ async function openVault(dir: string): Promise<VaultInfo> {
     () => win?.webContents.send('files:changed'),
   )
   settings.patch({ lastVault: root })
+  searchVault(root)
   return { path: root, name: vault.name }
 }
 
@@ -127,7 +154,7 @@ function registerIpc() {
     const before = settings.app()
     const next = settings.setApp(patch)
     if (next.autoCommitMinutes !== before.autoCommitMinutes) scheduleAutoCommit()
-    win?.setBackgroundColor(WIN_COLOR[currentSkin()])
+    win?.setBackgroundColor(winColor())
     return next
   })
   ipcMain.handle('settings:pickWinBg', async (): Promise<AppSettings | null> => {
@@ -144,6 +171,30 @@ function registerIpc() {
     const name = `bg-${Date.now()}${extname(r.filePaths[0]).toLowerCase()}`
     copyFileSync(r.filePaths[0], join(dir, name))
     return settings.setApp({ appearance: { winBg: 'custom', winBgFile: name } })
+  })
+  ipcMain.handle('themes:list', (): ThemeFile[] => themes.list())
+  ipcMain.handle('themes:import', async (): Promise<{ added: ThemeFile[]; settings: AppSettings } | null> => {
+    const r = await dialog.showOpenDialog(win!, {
+      title: '导入 VS Code 主题',
+      buttonLabel: '导入',
+      properties: ['openFile'],
+      filters: [{ name: 'VS Code 主题', extensions: ['json', 'vsix'] }],
+    })
+    if (r.canceled || !r.filePaths[0]) return null
+    const added = themes.import(r.filePaths[0])
+    // 导进来就用上：跟系统时按浅深换白天或夜里那套
+    const a = settings.app().appearance
+    const first = themeInfo(added[0]!)
+    const appearance = !a.followSystem ? { skin: first.id } : first.tone === 'light' ? { day: first.id } : { night: first.id }
+    const next = settings.setApp({ appearance })
+    win?.setBackgroundColor(winColor())
+    return { added, settings: next }
+  })
+  ipcMain.handle('themes:remove', (_e, id: unknown): AppSettings => {
+    if (typeof id !== 'string') throw new Error('主题 id 不对')
+    themes.remove(id)
+    win?.setBackgroundColor(winColor())
+    return settings.app()
   })
   ipcMain.handle('git:remote', async () => (vault ? git.remote(vault.root) : null))
   ipcMain.handle('git:setRemote', async (_e, url: unknown) => {
@@ -295,7 +346,15 @@ function registerIpc() {
         { type: 'separator' },
         { label: '移到废纸篓', click: () => (picked = 'trash') },
       ])
-      menu.popup({ window: win!, callback: () => resolve(picked) })
+      const open = { menu, win: win! }
+      openMenus.add(open)
+      menu.popup({
+        window: open.win,
+        callback: () => {
+          openMenus.delete(open)
+          resolve(picked)
+        },
+      })
     }).then(async (a) => {
       if (a === 'reveal') shell.showItemInFolder(v.abs(path))
       if (a === 'pin' || a === 'unpin') await pinNote(v, path, a === 'pin')
@@ -330,6 +389,7 @@ function registerIpc() {
   })
   registerAttachments(needVault, () => win, app.getPath('userData'))
   registerHome(needVault, () => win)
+  registerFolderHome(needVault, () => win)
   ipcMain.handle('git:history', (_e, limit: number) => git.log(needVault().root, Math.min(Math.max(1, Number(limit) || 50), 500)))
   ipcMain.handle('git:file-diff', async (_e, hash: unknown, path: unknown) => {
     if (typeof hash !== 'string' || !/^[0-9a-f]{7,40}$/.test(hash) || typeof path !== 'string' || path.startsWith('/') || path.split('/').includes('..')) throw new Error('参数不对')
@@ -353,8 +413,8 @@ function createWindow() {
     ...(E2E ? { x: -3000, y: 80 } : {}),
     title: BRAND.name,
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 18, y: 18 },
-    backgroundColor: WIN_COLOR[currentSkin()],
+    trafficLightPosition: { x: 16, y: 14 },
+    backgroundColor: winColor(),
     show: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -373,17 +433,31 @@ function createWindow() {
     prefs.contextIsolation = true
     prefs.sandbox = true
     params.partition = WEB_PARTITION
-    if (!/^(https?:|about:blank)/.test(params.src ?? '')) params.src = 'about:blank'
+    if (!/^(https?:|about:blank)/.test(params.src ?? '') && !isExtUrl(params.src)) params.src = 'about:blank'
   })
   win.webContents.on('did-attach-webview', (_e, wc) => {
     // AI 要能操纵右栏网页
     attachWeb(wc)
     // 新窗口链接开成新网页标签、记历史、插件、网页焦点时的快捷键：都在 web/index.ts
     attachWebview(wc, win!)
+    // 视频页：字幕、记下这一刻、框一块问（video/）
+    attachVideo(wc)
   })
   // 测试模式只 showInactive：不激活软件、不抢用户正在用的窗口的焦点
   win.once('ready-to-show', () => (E2E ? win?.showInactive() : win?.show()))
-  win.on('closed', () => (win = null))
+  // 关主窗口（软件不退）：先存编辑器里没存的字再关。退出时（含装更新）字已经存过，这里不拦：拦了 Electron 会取消这次退出
+  const w = win
+  let notesSaved = false
+  w.on('close', (e) => {
+    quitLog('窗口 close')
+    if (notesSaved || quitStarted) return
+    e.preventDefault()
+    void saveOpenNotes([w]).then(() => {
+      notesSaved = true
+      if (!w.isDestroyed()) w.close()
+    })
+  })
+  win.on('closed', () => (quitLog('窗口 closed'), (win = null)))
   if (process.env.ELECTRON_RENDERER_URL) void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
 }
@@ -401,6 +475,7 @@ app.whenReady().then(async () => {
   })
   registerIpc()
   registerAgent({ win: () => win, vault: () => vault })
+  setupMindmap({ win: () => win, vault: () => vault })
   const dreams = setupDream({ root: () => vault?.root ?? null, send: (ch, ...args) => win?.webContents.send(ch, ...args) })
   quick = setupQuick({
     vault: () => vault,
@@ -414,11 +489,18 @@ app.whenReady().then(async () => {
     dreamNow: () => void dreams.dreamNow().catch((e) => console.error('梦游失败', e)),
     settings: () => settings.read(),
     saveSettings: (patch) => settings.patch(patch),
-    skin: currentSkin,
+    skin: quickSkin,
     topItems: readyItems,
   })
   await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault })
   setupPlugins({ window: () => win, vault: () => vault })
+  setupReading({ win: () => win, vault: () => vault })
+  setupSearch({ win: () => win, vault: () => vault })
+  registerFiles(() => vault)
+  setupVideo({ window: () => win, vault: () => vault, ses: web, userData: app.getPath('userData') })
+  // 退出时最后存一次：窗口都关了以后（before-quit 时网页还在，之后还会改它，留下的定时器会在 Node 收尾时才跑）
+  app.on('will-quit', flushVideo)
+  setupImport({ win: () => win, vault: () => vault, filesChanged: () => win?.webContents.send('files:changed') })
   // 开发时程序坞里也显示应用图标（打包后用 .icns）
   if (E2E) app.dock?.hide()
   else if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
@@ -480,9 +562,10 @@ async function setupUpdater() {
   updater.start()
 }
 
-/** 下好的新版：先提交没提交的改动，再退出、装上、重新打开 */
+/** 下好的新版：先存编辑器里没存的字、提交没提交的改动，再退出、装上、重新打开 */
 async function installUpdate(): Promise<boolean> {
   if (updater?.status().phase !== 'ready') return false
+  await saveOpenNotes()
   await commitPending().catch((err) => console.error('更新前提交失败', err))
   quitting = true
   return updater.install()
@@ -522,7 +605,15 @@ function buildMenu() {
           { type: 'separator' },
           { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
       },
-      { role: 'fileMenu' },
+      {
+        label: '文件',
+        submenu: [
+          { label: '拍一张导图', accelerator: 'Shift+CommandOrControl+C', click: () => win?.webContents.send('map:open') },
+          { label: '导入旧笔记…', click: () => win?.webContents.send('import:open') },
+          { type: 'separator' },
+          { role: 'close' },
+        ],
+      },
       { role: 'editMenu' },
       { role: 'viewMenu' },
       { role: 'windowMenu' },
@@ -530,16 +621,103 @@ function buildMenu() {
   )
 }
 
-// 退出前把没提交的改动提交掉
+// 测试模式：退出的每一步记进设置目录的 quit.log（端到端测试关软件卡住时看卡在哪一步）
+const quitLog = (what: string) => E2E && appendFileSync(join(app.getPath('userData'), 'quit.log'), `${Date.now()} ${what}\n`)
+
+/**
+ * 退出途中主进程里再抛出来的错（包括没人接的 Promise 失败）只记下来，不弹 Electron 默认的「A JavaScript error occurred in the main process」框。
+ * 那个框是模态的：退出途中弹出来，软件就停在框上退不出去（端到端测试里窗口在屏幕外，没人点，一直挂着），
+ * Node 的事件循环也跟着停，正在跑的 git 退出了没人收（ps 里的 <defunct>）。平时出错还是照常弹框（不加这个监听，Electron 的默认处理才在）。
+ */
+let quietErrors = false
+function quietErrorsWhileQuitting() {
+  if (quietErrors) return
+  quietErrors = true
+  process.on('uncaughtException', (err, origin) => {
+    console.error('退出途中出错（不弹框）', origin, err)
+    quitLog(`出错（不弹框）：${String((err as Error)?.stack ?? err).replace(/\n/g, ' | ')}`)
+  })
+}
+
+/** 编辑器里还没自动保存的字（停手 0.8 秒才存）先写到磁盘；网页卡住时最多等 5 秒 */
+async function saveOpenNotes(wins = BrowserWindow.getAllWindows()): Promise<void> {
+  let timer: NodeJS.Timeout | undefined
+  await Promise.race([
+    Promise.all(
+      wins
+        .filter((w) => !w.isDestroyed())
+        .map((w) => w.webContents.executeJavaScript('window.cnSaveAll && window.cnSaveAll()').catch((e) => console.error('退出前保存失败', e))),
+    ),
+    new Promise<void>((r) => (timer = setTimeout(() => (console.error('退出前保存 5 秒没完，接着退出'), r()), 5000))),
+  ])
+  clearTimeout(timer)
+}
+
+/**
+ * 正弹着的系统菜单（笔记的「更多」/ 右键菜单）。它开着时主线程在 macOS 的菜单循环里：
+ * 这时叫退出（装更新重启、注销关机、测试里的 app.quit），quit 事件发完了进程也出不了菜单循环，一直不退，
+ * 直到有人把菜单点掉（端到端测试的窗口在屏幕外，没人点）。退出时先把它们都收起来。
+ * 可能不止一个：菜单开着时界面又叫一次（测试里连点「更多」），新菜单的循环套在旧的里面，只收最里面那个，外面的还卡着。
+ * 网页里的 <select> 下拉不用管，Chromium 自己收
+ */
+const openMenus = new Set<{ menu: Menu; win: BrowserWindow }>()
+
+// 退出：先存编辑器里没存的字，再把没提交的改动提交掉，再退
 let quitting = false
+let savingForQuit = false
+/** 开始退出了：关窗口时不再拦（见 createWindow） */
+let quitStarted = false
 app.on('before-quit', (e) => {
+  quitLog('before-quit')
+  quietErrorsWhileQuitting()
+  quitStarted = true
+  if (openMenus.size) {
+    quitLog(`收起菜单 ${openMenus.size} 个`)
+    // 从最里面（最后弹出的）往外收
+    for (const m of [...openMenus].reverse()) if (!m.win.isDestroyed()) m.menu.closePopup(m.win)
+    openMenus.clear()
+  }
   if (quitting || !vault) return
+  // 先拦下这次退出：存字要等界面回话
   e.preventDefault()
-  quitting = true
-  void commitPending()
-    .catch((err) => console.error('退出前提交失败', err))
-    .finally(() => app.quit())
+  if (savingForQuit) return
+  savingForQuit = true
+  void saveOpenNotes().then(() => {
+    quitLog('存完')
+    quitting = true
+    try {
+      if (vault) commitPendingSync(vault.root)
+    } catch (err) {
+      console.error('退出前提交失败', err)
+    }
+    quitLog('提交完')
+    // 窗口直接销毁，不走网页的卸载：右栏网页（视频页、框着问过的页）偶尔卸载不完，窗口就一直关不掉。字都存过、提交过了，销毁不丢东西
+    for (const w of BrowserWindow.getAllWindows()) w.destroy()
+    app.quit()
+  })
 })
+
+/**
+ * 退出前的提交用同步的 git：不靠事件循环，正常一两百毫秒，每步最多 10 秒；失败了照样退出（改动还在文件里，下次自动提交时带上）。
+ * 刚好撞上后台正在提交（视频、微信读书这些自己会提交），index.lock 被占着：等它一会儿再试，最多约 3 秒
+ */
+function commitPendingSync(root: string) {
+  const run = (args: string[]) =>
+    execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd: root, timeout: 10_000, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: git.gitPath(), GIT_TERMINAL_PROMPT: '0' } })
+  for (let i = 0; ; i++) {
+    try {
+      const st = git.parseStatus(run(git.STATUS_ARGS))
+      if (!st.length) return
+      run(['add', '-A'])
+      run(['commit', '-q', '-m', git.describeChanges(st)])
+      return
+    } catch (err) {
+      if (i >= 20 || !/index\.lock/.test(String((err as Error).message))) throw err
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150)
+    }
+  }
+}
+app.on('quit', () => quitLog('quit'))
 
 // 关掉窗口不退出：菜单栏和 ⌥⌘N 速记还要用（⌘Q 或菜单栏「退出」才退）
 app.on('window-all-closed', () => {
@@ -550,6 +728,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
+  quitLog('will-quit')
   globalShortcut.unregisterAll()
   vault?.close()
 })

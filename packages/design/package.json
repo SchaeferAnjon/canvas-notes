@@ -8,16 +8,15 @@
     "./tokens.css": "./src/tokens.css",
     "./ui.css": "./src/ui.css",
     "./notes.css": "./src/notes.css",
-    "./themes.css": "./src/themes.css"
+    "./themes.css": "./src/themes.css",
+    "./codicon-svg": "./src/codicon-svg.ts"
   },
   "peerDependencies": {
     "react": "^19.0.0"
   },
-  "dependencies": {
-    "lucide-react": "^1.73.0"
-  },
   "devDependencies": {
     "@types/react": "^19.3.0",
+    "@vscode/codicons": "0.0.45",
     "react": "^19.3.1"
   }
 }

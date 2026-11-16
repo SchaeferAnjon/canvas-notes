@@ -1,27 +1,7 @@
-import { Icon } from '@cn/design'
+import { Codicon, type CodiconName } from '@cn/design'
 import { relativeLink, tableMarkdown } from '@cn/format'
 import { Prec, StateEffect, StateField, type EditorState } from '@codemirror/state'
 import { EditorView, keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view'
-import {
-  CalendarDays,
-  Code,
-  FileText,
-  Heading1,
-  Heading2,
-  Heading3,
-  Image,
-  LayoutGrid,
-  Link,
-  List,
-  ListOrdered,
-  type LucideIcon,
-  Minus,
-  Pilcrow,
-  Quote,
-  Sparkles,
-  SquareCheck,
-  Table,
-} from 'lucide-react'
 import { useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { BRAND } from '../shared/brand'
@@ -137,7 +117,7 @@ interface SlashItem {
   id: string
   label: string
   desc: string
-  icon: LucideIcon
+  icon: CodiconName
   /** 筛选用的别名（英文、拼音） */
   keys: string
   run(view: EditorView, from: number, to: number): void | Promise<void>
@@ -146,19 +126,19 @@ interface SlashItem {
 const prefix = (p: string) => (view: EditorView, from: number, to: number) => replace(view, from, to, p)
 
 const ITEMS: SlashItem[] = [
-  { id: 'text', label: '正文', desc: '普通的一段字', icon: Pilcrow, keys: 'text paragraph zhengwen zw p', run: prefix('') },
-  { id: 'h1', label: '一级标题', desc: '# 大标题', icon: Heading1, keys: 'h1 heading title biaoti bt yiji', run: prefix('# ') },
-  { id: 'h2', label: '二级标题', desc: '## 小节标题', icon: Heading2, keys: 'h2 heading biaoti bt erji', run: prefix('## ') },
-  { id: 'h3', label: '三级标题', desc: '### 小标题', icon: Heading3, keys: 'h3 heading biaoti bt sanji', run: prefix('### ') },
-  { id: 'todo', label: '待办列表', desc: '- [ ] 能勾选的一项', icon: SquareCheck, keys: 'todo task check daiban db', run: prefix('- [ ] ') },
-  { id: 'bullet', label: '无序列表', desc: '- 一项', icon: List, keys: 'bullet list ul liebiao lb wuxu', run: prefix('- ') },
-  { id: 'ordered', label: '有序列表', desc: '1. 第一项', icon: ListOrdered, keys: 'ordered number list ol liebiao lb youxu', run: prefix('1. ') },
-  { id: 'quote', label: '引用', desc: '> 一段引文', icon: Quote, keys: 'quote blockquote yinyong yy', run: prefix('> ') },
+  { id: 'text', label: '正文', desc: '普通的一段字', icon: 'whitespace', keys: 'text paragraph zhengwen zw p', run: prefix('') },
+  { id: 'h1', label: '一级标题', desc: '# 大标题', icon: 'text-size', keys: 'h1 heading title biaoti bt yiji', run: prefix('# ') },
+  { id: 'h2', label: '二级标题', desc: '## 小节标题', icon: 'text-size', keys: 'h2 heading biaoti bt erji', run: prefix('## ') },
+  { id: 'h3', label: '三级标题', desc: '### 小标题', icon: 'text-size', keys: 'h3 heading biaoti bt sanji', run: prefix('### ') },
+  { id: 'todo', label: '待办列表', desc: '- [ ] 能勾选的一项', icon: 'checklist', keys: 'todo task check daiban db', run: prefix('- [ ] ') },
+  { id: 'bullet', label: '无序列表', desc: '- 一项', icon: 'list-unordered', keys: 'bullet list ul liebiao lb wuxu', run: prefix('- ') },
+  { id: 'ordered', label: '有序列表', desc: '1. 第一项', icon: 'list-ordered', keys: 'ordered number list ol liebiao lb youxu', run: prefix('1. ') },
+  { id: 'quote', label: '引用', desc: '> 一段引文', icon: 'quote', keys: 'quote blockquote yinyong yy', run: prefix('> ') },
   {
     id: 'code',
     label: '代码块',
     desc: '``` 等宽的代码',
-    icon: Code,
+    icon: 'code',
     keys: 'code daima dm',
     run(view, from, to) {
       const line = view.state.doc.lineAt(from)
@@ -174,7 +154,7 @@ const ITEMS: SlashItem[] = [
     id: 'hr',
     label: '分隔线',
     desc: '--- 一条横线',
-    icon: Minus,
+    icon: 'horizontal-rule',
     keys: 'hr divider line fengexian fgx',
     run(view, from, to) {
       const md = from === 0 ? '***' : '---'
@@ -185,7 +165,7 @@ const ITEMS: SlashItem[] = [
     id: 'table',
     label: '表格',
     desc: '3 列 3 行的 md 表格',
-    icon: Table,
+    icon: 'table',
     keys: 'table biaoge bg',
     run(view, from, to) {
       // 选中第一格「列 1」，直接打字就换掉
@@ -196,7 +176,7 @@ const ITEMS: SlashItem[] = [
     id: 'image',
     label: '图片',
     desc: '选一张图，拷进库的「附件」',
-    icon: Image,
+    icon: 'file-media',
     keys: 'image picture img tupian tp',
     async run(view, from, to) {
       const host = view.state.facet(editorHost)
@@ -213,7 +193,7 @@ const ITEMS: SlashItem[] = [
     id: 'link',
     label: '链接到笔记',
     desc: '[[笔记名]]，从列表里挑',
-    icon: Link,
+    icon: 'link',
     keys: 'link note wikilink lianjie lj biji',
     run(view, from, to) {
       replace(view, from, to, '[[]]', 2)
@@ -224,7 +204,7 @@ const ITEMS: SlashItem[] = [
     id: 'board',
     label: '白板',
     desc: '新建一块子白板，插入 [[名字]]',
-    icon: LayoutGrid,
+    icon: 'layout',
     keys: 'board canvas baiban bb',
     async run(view, from, to) {
       const host = view.state.facet(editorHost)
@@ -239,7 +219,7 @@ const ITEMS: SlashItem[] = [
     id: 'date',
     label: '日期',
     desc: '今天的日期',
-    icon: CalendarDays,
+    icon: 'calendar',
     keys: 'date today riqi rq jintian',
     run: (view, from, to) => replace(view, from, to, today()),
   },
@@ -247,7 +227,7 @@ const ITEMS: SlashItem[] = [
     id: 'ai',
     label: 'AI 写一段',
     desc: '说一句要写什么，写好插在这里',
-    icon: Sparkles,
+    icon: 'sparkle',
     keys: 'ai write xie xieyiduan',
     run(view, from, to) {
       if (typeof window.cn.aiAsk !== 'function') return view.state.facet(editorHost).notice('「AI 写一段」这条还在做')
@@ -280,7 +260,7 @@ function filterNotes(notes: NoteFile[], q: string, self: string): NoteFile[] {
 
 interface Row {
   key: string
-  icon: LucideIcon
+  icon: CodiconName
   name: string
   desc: string
 }
@@ -302,7 +282,7 @@ function Menu(props: { label: string; rows: Row[]; idx: number; empty: string; o
           onMouseMove={() => i !== props.idx && props.onHover(i)}
         >
           <span className="ib">
-            <Icon of={r.icon} size={14} />
+            <Codicon name={r.icon} size={14} />
           </span>
           <span className="tx">
             <b>{r.name}</b>
@@ -333,7 +313,7 @@ function AiBox(props: { onSubmit(want: string, id: number): Promise<void>; onClo
     <div className="slash-ai" role="dialog" aria-label="AI 写一段">
       <div className="slash-ai-row">
         <span className="ib">
-          <Icon of={Sparkles} size={14} />
+          <Codicon name="sparkle" size={14} />
         </span>
         <input
           autoFocus
@@ -425,7 +405,7 @@ class SlashView {
       return {
         rows: notes.map((n) => ({
           key: n.path,
-          icon: n.board ? LayoutGrid : FileText,
+          icon: n.board ? 'layout' : 'file-text',
           name: titleOf(n.path),
           desc: n.board ? `白板 · ${n.path}` : n.path,
         })),

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { dirname, join } from 'node:path'
-import { gitStatus, launch, openNote, pane, pickFromNoteMenu, rail, waitSaved } from './app'
+import { gitStatus, launch, openNote, pane, pickFromNoteMenu, rail, waitSaved, tabOn } from './app'
 
 const lastSubject = (vault: string) => execFileSync('git', ['-C', vault, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).trim()
 const commits = (vault: string) => Number(execFileSync('git', ['-C', vault, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim())
@@ -23,7 +23,7 @@ test('⌘F 全局搜索：搜到正文里的词（刚打的字也算），回车
     await expect(first).toContainText('财富是睡觉时也在赚钱的资产')
     await box.press('Enter')
     await expect(palette(page)).toHaveCount(0)
-    await expect(pane(page).locator('.tool h1')).toHaveText('所思所想')
+    await expect(tabOn(page)).toHaveText('所思所想')
 
     // 在另一篇里打几个字，保存后马上搜得到；编辑器里按 ⌘F 也是全局搜索
     await openNote(page, '旅行')
@@ -43,7 +43,7 @@ test('⌘F 全局搜索：搜到正文里的词（刚打的字也算），回车
     await page.getByRole('button', { name: '搜索' }).click()
     await expect(box).toBeFocused()
     await box.fill('没有这个词')
-    await expect(palette(page).locator('.pal-none')).toHaveText('没有笔记里有「没有这个词」')
+    await expect(palette(page).locator('.pal-none')).toHaveText('笔记和 PDF 里都没有「没有这个词」这几个字')
   } finally {
     await run.close()
   }
@@ -66,7 +66,7 @@ test('左栏右键「移到废纸篓」：文件进废纸篓，开着的标签�
     expect(trashed[0]).toMatch(/删我\.md$/)
     expect(readFileSync(join(run.trash, trashed[0]!), 'utf8')).toBe('# 删我\n\n不要了\n')
     expect(gitStatus(vault)).toBe(' D 删我.md\n')
-    await expect(page.locator('.gitbar').getByTestId('git-changed')).toContainText('1 个文件改了')
+    await expect(page.locator('.gitbar').getByTestId('git-changed')).toContainText('1 处没提交')
     expect(readFileSync(join(vault, '留着.md'), 'utf8')).toBe('# 留着\n')
   } finally {
     await run.close()
@@ -107,7 +107,7 @@ test('自动提交：到点把没提交的改动提交掉，底栏变回已提�
     await expect.poll(() => gitStatus(vault), { timeout: 10_000 }).toBe('')
     expect(commits(vault)).toBe(before + 1)
     expect(lastSubject(vault)).toBe('更新 1 个文件：所思所想')
-    await expect(page.locator('.gitbar').getByTestId('git-changed')).not.toContainText('改了', { timeout: 10_000 })
+    await expect(page.locator('.gitbar').getByTestId('git-changed')).not.toContainText('没提交', { timeout: 10_000 })
   } finally {
     await run.close()
   }
@@ -181,10 +181,10 @@ test('地址栏显示中文：打中文网址、网页里点 %E6 那种链接，
     await addr.press('Enter')
     const guest = (code: string) => page.evaluate((c) => (document.querySelector('webview') as unknown as { executeJavaScript(c: string): Promise<unknown> }).executeJavaScript(c), code)
     await expect.poll(() => guest('document.readyState + "|" + location.pathname')).toBe('complete|/wiki/%E5%86%B0%E5%B2%9B')
-    await expect(addr).toHaveValue(`${base}/wiki/冰岛`)
+    await expect(addr).toHaveValue(`${base.replace(/^http:\/\//, "")}/wiki/冰岛`)
     await guest(`document.getElementById('go').click()`)
     await expect.poll(() => guest('location.pathname')).toBe('/wiki/%E6%9E%81%E5%85%89')
-    await expect(addr).toHaveValue(`${base}/wiki/极光`)
+    await expect(addr).toHaveValue(`${base.replace(/^http:\/\//, "")}/wiki/极光`)
   } finally {
     await run.close()
   }

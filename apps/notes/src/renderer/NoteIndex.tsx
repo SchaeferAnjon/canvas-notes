@@ -1,5 +1,5 @@
-import { Icon } from '@cn/design'
-import { FileText, Inbox, Pin, Quote, Search, Settings, X } from 'lucide-react'
+import { PageNote, TabActs } from './shell/TabActs'
+import { Codicon } from '@cn/design'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
@@ -96,21 +96,18 @@ export function NoteIndex(props: {
 
   return (
     <section className="pane ix" data-testid={archive ? 'archive-view' : 'all-view'}>
-      <div className="tool">
-        <h1>{archive ? '归档' : '全部笔记'}</h1>
-        <span className="meta">
-          <span className="num">{pool.length}</span> 篇 ·{' '}
-          {archive ? (off ? '没开自动归档' : `${props.archiveDays} 天没改过的，左栏不显示；文件没挪，改一下就回到左栏`) : '按修改时间排，左栏只放这周动过的'}
-        </span>
-        <span className="sp" />
-      </div>
+      <TabActs active>
+        <PageNote>
+          <span className="num">{pool.length}</span> 篇 · {archive ? (off ? '没开自动归档' : `${props.archiveDays} 天没改过的，左栏不显示`) : '按修改时间排'}
+        </PageNote>
+      </TabActs>
       <div className="ix-bar">
         <label className="ix-find">
-          <Icon of={Search} size={14} />
+          <Codicon name="search" size={14} />
           <input aria-label="筛选" placeholder="筛选标题或文件夹" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} />
           {q && (
             <button className="ix-clear" aria-label="清空筛选" onClick={() => setQ('')}>
-              <Icon of={X} size={12} />
+              <Codicon name="close" size={12} />
             </button>
           )}
         </label>
@@ -136,7 +133,7 @@ export function NoteIndex(props: {
           <div className="ix-empty">
             <p>没开自动归档，所有笔记都按「这周动过」进左栏。</p>
             <button className="btn btn-sm" onClick={props.onOpenSettings}>
-              <Icon of={Settings} size={14} />
+              <Codicon name="settings-gear" size={14} />
               在设置里打开
             </button>
           </div>
@@ -156,7 +153,7 @@ export function NoteIndex(props: {
                     onClick={() => props.onOpen(n.path)}
                     onContextMenu={(e) => void noteMenu(e, n.path, { rename: setRenaming, trash: props.onTrash, pinned: props.onPinsChanged })}
                   >
-                    {n.board ? <i className="sw" style={{ background: n.board.color }} /> : <Icon of={n.kind === 'inbox' ? Inbox : n.kind === 'clip' ? Quote : FileText} size={16} />}
+                    {n.board ? <i className="sw" style={{ background: n.board.color }} /> : <Codicon name={n.kind === 'inbox' ? 'inbox' : n.kind === 'clip' ? 'quote' : 'file-text'} size={16} />}
                     {renaming === n.path ? (
                       <RenameInput path={n.path} onDone={() => setRenaming(null)} onRename={props.onRename} />
                     ) : (
@@ -165,7 +162,7 @@ export function NoteIndex(props: {
                     {folder && <span className="f truncate">{folder}</span>}
                     {pinSet.has(n.path) && (
                       <span className="pin" title="置顶的">
-                        <Icon of={Pin} size={12} />
+                        <Codicon name="pin" size={12} />
                       </span>
                     )}
                     {!archive && isArchived(n, now, props.archiveDays, pinSet) && <span className="tag">归档</span>}

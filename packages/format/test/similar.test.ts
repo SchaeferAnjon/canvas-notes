@@ -91,13 +91,14 @@ describe('找重复：3-gram + MinHash', () => {
     expect(similarity('云量低于三成、KP 指数到 3 以上就出门', '云量低于三成、KP 指数到 3 以上就开车').passage).toBe('云量低于三成 KP 指数到 3 以上就')
   })
 
-  it('一千篇两秒内比完', () => {
+  // 单独跑约几百毫秒；整套单元测试并行跑、CPU 忙时会到两秒上下，所以上限放到 6 秒：防的是退化成逐对比较（那样要几十秒）
+  it('一千篇几秒内比完（不是逐对比较）', () => {
     const docs = Array.from({ length: 1000 }, (_, i) => ({
       id: `n${i}.md`,
       text: `第 ${i} 篇：${'随手记下的一句话，'.repeat(1 + (i % 5))}编号 ${i * 7919} 结尾 ${String(i).repeat(6)}`,
     }))
     const t = performance.now()
     findSimilarPairs(docs)
-    expect(performance.now() - t).toBeLessThan(2000)
+    expect(performance.now() - t).toBeLessThan(6000)
   })
 })

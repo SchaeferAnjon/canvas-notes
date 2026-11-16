@@ -4,7 +4,7 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { type AppSettings, normalizeSettings } from '../shared/appearance'
+import { type AppSettings, normalizeSettings, type SkinInfo } from '../shared/appearance'
 
 export interface StoredSettings extends Partial<AppSettings> {
   lastVault?: string
@@ -15,7 +15,11 @@ export interface StoredSettings extends Partial<AppSettings> {
 }
 
 export class SettingsFile {
-  constructor(private path: string) {}
+  /** userSkins：导入的 VS Code 主题（设置里选的是删掉了的那套时回到默认） */
+  constructor(
+    private path: string,
+    private userSkins: () => SkinInfo[] = () => [],
+  ) {}
 
   read(): StoredSettings {
     try {
@@ -38,19 +42,22 @@ export class SettingsFile {
   }
 
   app(): AppSettings {
-    return normalizeSettings(this.read())
+    return normalizeSettings(this.read(), this.userSkins())
   }
 
   /** 改外观、间隔或归档天数：合并后再检查一遍，返回存下的样子 */
   setApp(p: { appearance?: Partial<AppSettings['appearance']>; autoCommitMinutes?: number; archiveDays?: number; autoUpdate?: boolean }): AppSettings {
     const cur = this.app()
-    const next = normalizeSettings({
-      ...cur,
-      ...(p.autoCommitMinutes !== undefined ? { autoCommitMinutes: p.autoCommitMinutes } : {}),
-      ...(p.archiveDays !== undefined ? { archiveDays: p.archiveDays } : {}),
-      ...(p.autoUpdate !== undefined ? { autoUpdate: p.autoUpdate } : {}),
-      appearance: { ...cur.appearance, ...(p.appearance ?? {}) },
-    })
+    const next = normalizeSettings(
+      {
+        ...cur,
+        ...(p.autoCommitMinutes !== undefined ? { autoCommitMinutes: p.autoCommitMinutes } : {}),
+        ...(p.archiveDays !== undefined ? { archiveDays: p.archiveDays } : {}),
+        ...(p.autoUpdate !== undefined ? { autoUpdate: p.autoUpdate } : {}),
+        appearance: { ...cur.appearance, ...(p.appearance ?? {}) },
+      },
+      this.userSkins(),
+    )
     this.patch(next)
     return next
   }

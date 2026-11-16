@@ -37,10 +37,13 @@ describe('认语言、翻成什么', () => {
     expect(effectiveTarget('ja', null)).toBe('ja')
   })
 
-  it('设置：认不得的语言和显示方式回到默认', () => {
-    expect(normalizeTranslate(undefined)).toEqual({ target: 'zh-CN', display: 'below' })
-    expect(normalizeTranslate({ target: 'xx', display: 'weird' })).toEqual({ target: 'zh-CN', display: 'below' })
-    expect(normalizeTranslate({ target: 'ja', display: 'only' })).toEqual({ target: 'ja', display: 'only' })
+  it('设置：空的、坏的语言和认不得的显示方式回到默认；常用之外的语言（视频字幕「翻成「斯瓦希里语」」）照样记住', () => {
+    expect(normalizeTranslate(undefined)).toMatchObject({ target: 'zh-CN', display: 'below' })
+    expect(normalizeTranslate({ target: '', display: 'weird' })).toMatchObject({ target: 'zh-CN', display: 'below' })
+    expect(normalizeTranslate({ target: 'a\n"b' })).toMatchObject({ target: 'zh-CN' })
+    expect(normalizeTranslate({ target: 'x'.repeat(41) })).toMatchObject({ target: 'zh-CN' })
+    expect(normalizeTranslate({ target: '斯瓦希里语' })).toMatchObject({ target: '斯瓦希里语' })
+    expect(normalizeTranslate({ target: 'ja', display: 'only' })).toMatchObject({ target: 'ja', display: 'only' })
   })
 })
 
@@ -86,7 +89,7 @@ describe('翻译：一批问一次、按行拆、漏的重问、缓存', () => {
     expect(calls).toHaveLength(3)
   })
 
-  it('回答里漏了几段、格式乱：漏的再问一次；还漏就报「没翻成」', async () => {
+  it('回答里漏了几段、格式乱：漏的再问一次；还漏就报「格式不对」', async () => {
     const calls: string[] = []
     // 第一次只回了第 1 段，还夹了废话；第二次回第 2 段；第 3 段永远不回
     const t = new Translator(
@@ -94,22 +97,29 @@ describe('翻译：一批问一次、按行拆、漏的重问、缓存', () => {
       new TranslationCache(null),
     )
     const got: [number, string | null, string?][] = []
-    await t.translate([1, 2, 3].map((id) => ({ id, text: `p${id}` })), 'zh-CN', (id, text, err) => got.push([id, text, err]), new AbortController().signal)
+    await t.translate([1, 2, 3].map((id) => ({ id, text: `p${id}` })), 'zh-CN', (id, text, err) => got.push([id, text, err?.code]), new AbortController().signal)
     expect(calls).toHaveLength(2)
     expect(JSON.parse(calls[1]!.split('\n').pop()!).map((i: { id: number }) => i.id)).toEqual([2, 3])
-    expect(got).toEqual([[1, '一', undefined], [2, '二', undefined], [3, null, '没翻成']])
+    expect(got).toEqual([[1, '一', undefined], [2, '二', undefined], [3, null, 'bad-output']])
   })
 
-  it('AI 出错：重试一次，还错就把错误给每一段', async () => {
+  it('AI 出错（退出了这类）：重试一次，还错就把原因给每一段；没登录这类不白试', async () => {
     let n = 0
     const t = new Translator(async () => {
       n++
       throw new Error('Claude Code 没答完')
     }, new TranslationCache(null))
-    const got: (string | undefined)[] = []
+    const got: unknown[] = []
     await t.translate([{ id: 1, text: 'a' }], 'zh-CN', (_id, _t, err) => got.push(err), new AbortController().signal)
     expect(n).toBe(2)
-    expect(got).toEqual(['Claude Code 没答完'])
+    expect(got).toEqual([{ code: 'exited', raw: 'Claude Code 没答完' }])
+    let m = 0
+    const t2 = new Translator(async () => {
+      m++
+      throw new Error('Not logged in · Please run /login')
+    }, new TranslationCache(null))
+    await t2.translate([{ id: 1, text: 'a' }], 'zh-CN', () => undefined, new AbortController().signal)
+    expect(m).toBe(1)
   })
 
   it('同时最多 4 次 AI 调用', async () => {

@@ -1,17 +1,24 @@
-import { Icon } from '@cn/design'
-import { fmValue } from '@cn/format'
-import { Code, FileText, LayoutGrid } from 'lucide-react'
+import { Codicon } from '@cn/design'
+import { fmValue, isMindmap } from '@cn/format'
 import { useEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
 import { BoardView } from './BoardView'
+import { PropsButton } from './mindmap/PropsButton'
 import { NoteDoc, type SaveState, type ViewMode } from './note-doc'
+import { ActBtn, noteRenamers, PageNote, TabActs } from './shell/TabActs'
 
 export interface NoteTabProps {
+  /** 标签 id：标签上改名时按它找到这一篇的改名 */
+  tabId: string
   path: string
   active: boolean
-  /** 刚新建：标题直接进入改名 */
+  /** 刚新建：先不抢焦点，标签上在改名 */
   fresh: boolean
+  /** 标签上正在改名：编辑器先不抢焦点 */
+  renaming: boolean
+  /** 标签条右端「更多」：改名、置顶、移到废纸篓（系统菜单） */
+  onMenu(e: React.MouseEvent): void
   notes: NoteFile[]
   /** 右栏开着：白板缩到 0.8 */
   rightOpen: boolean
@@ -38,7 +45,7 @@ export function NoteTab(props: NoteTabProps) {
   /** 用户自己点过看法：读完文件后不再按 frontmatter 改 */
   const picked = useRef(false)
   const [text, setText] = useState<string | null>(null)
-  const [renaming, setRenaming] = useState(fresh)
+  const renaming = props.renaming
   const cb = useRef(props)
   cb.current = props
 
@@ -95,8 +102,12 @@ export function NoteTab(props: NoteTabProps) {
     if (active) cb.current.onMode(mode)
   }, [active, mode])
 
+  useEffect(() => {
+    noteRenamers.set(props.tabId, rename)
+    return () => void noteRenamers.delete(props.tabId)
+  })
+
   async function rename(name: string) {
-    setRenaming(false)
     if (!name.trim() || name.trim() === titleOf(path)) return
     try {
       // 第一行是「# 旧名」就跟着改成新名
@@ -117,58 +128,37 @@ export function NoteTab(props: NoteTabProps) {
 
   return (
     <section className="pane" hidden={!active} data-path={path}>
-      <div className="tool">
-        {renaming ? (
-          <input
-            className="title-input"
-            aria-label="笔记名字"
-            defaultValue={titleOf(path)}
-            autoFocus
-            onFocus={(e) => e.currentTarget.select()}
-            onBlur={(e) => void rename(e.currentTarget.value)}
-            onKeyDown={(e) => {
-              // 拦住这个键，不然焦点回到正文后回车会打进正文
-              if (e.key === 'Enter' || e.key === 'Escape') e.preventDefault()
-              if (e.key === 'Enter') e.currentTarget.blur()
-              if (e.key === 'Escape') {
-                e.currentTarget.value = titleOf(path)
-                e.currentTarget.blur()
-              }
-            }}
-          />
-        ) : (
-          <h1 title="点一下改名" onClick={() => !readOnly && setRenaming(true)}>
-            {titleOf(path)}
-          </h1>
+      <TabActs active={active}>
+        <span className="txt" hidden={state === 'saved'} data-testid="save-state" data-state={state}>
+          {state === 'saving' ? '正在保存' : state === 'saved' ? '' : '未保存'}
+        </span>
+        {readOnly && (
+          <span className="txt warn" data-testid="page-note" title="文件里有软件读不懂的字节，为了不改坏它，不保存">
+            只读
+          </span>
         )}
-        <span className="meta">
-          {mode === 'board' ? '白板' : '文档'} · {path}
-          {readOnly && ' · 只读：文件里有软件读不懂的字节，为了不改坏它，不保存'}
-        </span>
-        <span className="sp" />
-        <span className="meta" data-testid="save-state" data-state={state}>
-          {state === 'saved' ? '' : state === 'saving' ? '正在保存' : '未保存'}
-        </span>
+        {!readOnly && text !== null && isMindmap(text) && path.startsWith('收件箱/') && (
+          <PageNote>
+            收件箱 · 今晚梦游时归类、起名
+          </PageNote>
+        )}
+        {text !== null && <PropsButton text={text} notes={props.notes} readOnly={readOnly} onChange={(t) => doc.current?.setText(t)} />}
         <div className="seg" role="tablist" aria-label="看法">
-          <button className={mode === 'board' ? 'on' : ''} onClick={() => ((picked.current = true), setMode('board'))} role="tab" aria-selected={mode === 'board'}>
-            <Icon of={LayoutGrid} size={14} />
-            白板
-          </button>
-          <button className={mode === 'doc' ? 'on' : ''} onClick={() => ((picked.current = true), setMode('doc'))} role="tab" aria-selected={mode === 'doc'}>
-            <Icon of={FileText} size={14} />
-            文档
-          </button>
-          <button
-            className={mode === 'source' ? 'on' : ''}
-            onClick={() => ((picked.current = true), setMode('source'))}
-            role="tab"
-            aria-selected={mode === 'source'}
-          >
-            <Icon of={Code} size={14} />
-            源文件
-          </button>
+          {(
+            [
+              ['board', 'layout', '白板'],
+              ['doc', 'file-text', '文档'],
+              ['source', 'code', '源文件'],
+            ] as const
+          ).map(([m, icon, name]) => (
+            <button key={m} className={mode === m ? 'on' : ''} onClick={() => ((picked.current = true), setMode(m))} role="tab" aria-selected={mode === m} aria-label={name} data-tip={name} data-side="below">
+              <Codicon name={icon} size={14} />
+              <span className="lb">{name}</span>
+            </button>
+          ))}
         </div>
-      </div>
+        <ActBtn icon="ellipsis" label="更多" onClick={(e) => props.onMenu(e)} />
+      </TabActs>
       <div className="body" hidden={mode === 'board'}>
         <div className={'doc ' + mode} ref={host} />
       </div>

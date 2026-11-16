@@ -1,0 +1,312 @@
+/* 导入旧笔记：窗口沿用拍导图的外壳（.mm-scrim / .mm-sheet / .mm-hd / .mm-ft / .mm-steps），里面是这里的 */
+
+.imp-sheet {
+  width: 600px;
+  max-height: min(640px, calc(100% - 48px));
+}
+.imp-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 20px;
+}
+.imp-lead {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.imp-note {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+}
+.imp-err {
+  margin: 12px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--red);
+}
+
+/* ① 来源：两张能点的卡 */
+.imp-src {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 0 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--t1);
+  text-align: left;
+  cursor: pointer;
+}
+.imp-src:hover {
+  background: var(--fill);
+}
+.imp-src:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.imp-src .vi {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--fill2);
+  color: var(--t2);
+  display: grid;
+  place-items: center;
+}
+.imp-src .tx {
+  flex: 1;
+  min-width: 0;
+}
+.imp-src b {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+}
+.imp-src .tx span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t2);
+}
+.imp-src .chev {
+  color: var(--t3);
+  flex: none;
+}
+
+/* ② 文件夹 */
+.imp-from {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -4px 0 10px;
+  color: var(--t3);
+  font-size: 12px;
+}
+.imp-from .mono {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imp-list {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 4px;
+  max-height: 340px;
+  overflow: auto;
+}
+.imp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.imp-row:hover {
+  background: var(--fill);
+}
+.imp-row.all {
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px 6px 0 0;
+  margin-bottom: 4px;
+  color: var(--t2);
+}
+.imp-row input[type='checkbox'] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border-radius: 4px;
+  border: 1.5px solid var(--line2);
+  background: var(--card);
+  flex: none;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.imp-row input[type='checkbox']:checked {
+  background: var(--acc-bg);
+  border-color: var(--acc-bg);
+}
+.imp-row input[type='checkbox']:checked::after {
+  content: '';
+  width: 7px;
+  height: 4px;
+  border-left: 1.6px solid #fff;
+  border-bottom: 1.6px solid #fff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+.imp-row .fi {
+  color: var(--t3);
+  flex: none;
+}
+.imp-row .nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imp-row .tag {
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--fill);
+  color: var(--t2);
+  font-size: 11px;
+  line-height: 18px;
+}
+.imp-row .ct {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.imp-row .ct em {
+  font-style: normal;
+}
+.mm-ft .help b {
+  color: var(--t1);
+  font-weight: 500;
+}
+
+/* ③ 导入中、导好了 */
+.imp-prog .line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.imp-prog b {
+  font-size: 13px;
+  font-weight: 500;
+  flex: none;
+}
+.imp-prog .cur {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--t3);
+}
+.imp-prog .bar,
+.imp-pill .bar {
+  display: block;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fill2);
+  overflow: hidden;
+}
+.imp-prog .bar i,
+.imp-pill .bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--t1);
+  transition: width 0.2s ease;
+}
+.imp-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.imp-result .okc {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+  display: grid;
+  place-items: center;
+}
+.imp-result b {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 4px 0 4px;
+}
+.imp-result span {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.imp-lost {
+  margin: 12px 0 0 40px;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--t2);
+}
+.imp-lost li::before {
+  content: '·';
+  margin-right: 6px;
+  color: var(--t3);
+}
+.imp-next {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--fill);
+  color: var(--t2);
+}
+.imp-next .icon,
+.imp-next svg {
+  flex: none;
+  margin-top: 2px;
+}
+.imp-next p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.mm-ft .imp-undo {
+  margin-left: -8px;
+}
+
+/* 窗口关着时中间栏底下的小进度 */
+.imp-pill {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 6px 0 14px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.imp-pill .bar {
+  width: 96px;
+}
+.imp-done-toast .ok {
+  color: var(--green);
+  flex: none;
+}

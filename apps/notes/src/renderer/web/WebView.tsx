@@ -2,8 +2,10 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { Clip } from '../../shared/api'
 import type { ClipMode } from '../WebPanel'
 import { pageReported } from '../plugins/host'
+import { videoReported } from '../video/store'
 import { noteFavicon } from './favicons'
 import { dropWebDragAt, noteWebDrag } from './image-drop'
+import { webReadIpc } from '../reading/web-bridge'
 
 /** webview 元素上我们用到的方法 */
 export interface WebviewEl extends HTMLElement {
@@ -19,6 +21,8 @@ export interface WebviewEl extends HTMLElement {
   executeJavaScript(code: string): Promise<unknown>
   getWebContentsId(): number
   focus(): void
+  /** 换网址：网页还没载好（dom-ready 之前 loadURL 会抛错）就先记着，载好了再换（WebView 装上的） */
+  go(url: string): void
 }
 
 export interface NavState {
@@ -47,6 +51,8 @@ export function WebView(props: {
   const cb = useRef(props)
   cb.current = props
   const first = useRef(props.initialUrl)
+  /** dom-ready 之前要换的网址（刚开的新标签页里马上在地址栏打了网址） */
+  const pendingUrl = useRef<string | null>(null)
 
   // 用 layout effect：webview 一插进页面就可能挂上，普通 effect 要等画完才跑，会漏掉 did-attach
   useLayoutEffect(() => {
@@ -72,6 +78,9 @@ export function WebView(props: {
     const onReady = () => {
       onAttach()
       ready.current = true
+      const next = pendingUrl.current
+      pendingUrl.current = null
+      if (next) void w.loadURL(next).catch(() => undefined)
       w.send('cn:mode', cb.current.clipMode)
       nav(false)
     }
@@ -87,6 +96,12 @@ export function WebView(props: {
       } else if (channel === 'cn:plugin') {
         // 网页里的内置插件报状态（比如双语开没开）
         pageReported(w.getWebContentsId(), args[0], args[1])
+      } else if (channel === 'cn:video') {
+        // 视频页报的：播到哪、框好了（video/store.ts）
+        videoReported(w.getWebContentsId(), args[0])
+      } else if (channel.startsWith('cn:read:')) {
+        // 阅读视图要的正文、在网页上框好的一块（reading/web-bridge.ts）
+        webReadIpc(w, channel, args)
       } else if (channel === 'cn:dragend') {
         const p = args[0] as { x?: unknown; y?: unknown } | undefined
         const r = w.getBoundingClientRect()
@@ -129,6 +144,11 @@ export function WebView(props: {
     <webview
       ref={(el) => {
         ref.current = el as WebviewEl | null
+        if (ref.current)
+          ref.current.go = (url) => {
+            if (ready.current) void ref.current!.loadURL(url).catch(() => undefined)
+            else pendingUrl.current = url
+          }
         props.onRef(ref.current)
       }}
       className={props.visible ? 'on' : ''}

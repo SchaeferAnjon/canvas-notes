@@ -1,12 +1,26 @@
 /**
  * 双语翻译网页这半（webview 预加载的隔离环境，网页脚本碰不到）：
- * - 开：认出正文段落（p、li、h1–h6、blockquote、td……，跳过代码、导航、按钮），只翻看得见的，滚到哪翻到哪；
- *   每段下面插一行淡一点的译文（或者「只看译文」把原文藏起来），没回来之前是「翻译中…」。
+ * - 开：先问主进程有没有能用的引擎（不真的问 AI）；没有就不往段落里写字，告诉界面打开菜单说原因。
+ *   有就认出正文段落（p、li、h1–h6、blockquote、td……，跳过代码、导航、按钮），只翻看得见的，滚到哪翻到哪；
+ *   每段下面插一个 <cn-tr data-s="样式">（或者「只看译文」把原文藏起来），没回来之前是「翻译中…」，没翻成是一行固定 12px 的「没翻成 · 重试」。
+ * - 七种样式写在一张 <style id="cn-tr-style"> 里，颜色跟着网页自己的底色（深浅两组），不跟软件主题。
  * - 再按一次：译文全拿掉，原文原样放回。
  * - 选中一段点「翻译」：选区下面弹一张小卡片显示译文（不抢焦点）。
- * 段落一批批交给主进程（main/plugins/translate），翻好一段回来一段。
+ * - 整页剪藏、选区剪藏：按「整页剪藏带上译文」开关跳过或带上译文（webview-page.ts、webview.ts 调这里的两个函数）。
+ * 段落一批批交给主进程（main/plugins/translate），翻好一段回来一段；出错时带原因（哪种、哪个引擎、原话），存在这一页，报给界面。
  */
-import { type Display, detectLang, effectiveTarget, langName, normalizeTranslate, sameLang } from '../../shared/plugins/translate'
+import {
+  type Display,
+  detectLang,
+  effectiveTarget,
+  errorTitle,
+  langName,
+  normalizeTranslate,
+  sameLang,
+  type TrError,
+  type TrPageState,
+  type TrStyle,
+} from '../../shared/plugins/translate'
 import { callPlugin, onHostCommand, onPageEvent, onPluginState, pluginEnabled, pluginState, tellHost } from './state'
 
 const ID = 'translate'
@@ -21,6 +35,9 @@ const SKIP =
   '[contenteditable=""],[contenteditable="true"],[aria-hidden="true"],[translate="no"],.notranslate,.mw-editsection,' +
   'cn-tr,cn-orig,#cn-clip-host,#cn-tr-card'
 
+/** 问得太快时多久再试 */
+const RATE_RETRY_MS = 30_000
+
 type Status = 'wait' | 'queued' | 'sent' | 'done' | 'error'
 
 interface Item {
@@ -32,12 +49,21 @@ interface Item {
   /** 只看译文时包住原文的那一层 */
   orig: HTMLElement | null
   result?: string
-  anim?: Animation
+  error?: TrError
 }
 
 let on = false
+let starting = false
 let target = 'zh-CN'
+let pageLang: string | null = null
 let display: Display = 'below'
+let style: TrStyle = 'plain'
+let blocked: TrError | undefined
+let lastError: TrError | undefined
+let retryAt: number | undefined
+let retryTimer: ReturnType<typeof setTimeout> | undefined
+let menuSeq = 0
+let pdfSeq = 0
 /** 段落编号从一个随机数开始：换了网页后，上一页还在路上的译文对不上这一页的段 */
 let seq = Math.floor(Math.random() * 1e9)
 let sentChars = 0
@@ -52,6 +78,73 @@ let lastSettings = ''
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
 const htmlLang = () => document.documentElement.lang || ''
+const settings = () => normalizeTranslate(pluginState(ID)?.settings)
+
+// ---------------------------------------------------------------- 样式表（spec 第 2 节，照抄）
+
+const CSS = `
+cn-tr{display:block;margin:.3em 0 0;white-space:normal;font-style:normal}
+cn-tr[data-s="plain"]{color:color-mix(in srgb,currentColor 72%,transparent)}
+cn-tr[data-s="underline"]{text-decoration:underline 1.5px var(--cn-ring);text-underline-offset:.28em;text-decoration-skip-ink:auto}
+cn-tr[data-s="dashed"]{border:1px dashed var(--cn-line2);border-radius:6px;padding:.2em .5em;margin-top:.4em}
+cn-tr[data-s="marker"]>span{background:linear-gradient(transparent 58%,var(--cn-mark) 58%);-webkit-box-decoration-break:clone;box-decoration-break:clone}
+cn-tr[data-s="bar"]{border-left:2px solid var(--cn-bar);padding-left:.7em;margin-top:.4em}
+[data-cn-fade]{color:color-mix(in srgb,var(--cn-c) 45%,transparent)!important}
+[data-cn-fade] cn-tr{color:var(--cn-c)}
+cn-tr[data-s="blur"]{filter:blur(5px);transition:filter .15s;user-select:none;cursor:pointer}
+cn-tr[data-s="blur"]:hover{filter:blur(3px)}
+cn-tr[data-s="blur"][data-shown]{filter:none;user-select:auto;cursor:auto}
+cn-tr[data-st="wait"],cn-tr[data-st="err"]{font:400 12px/1.5 -apple-system,"PingFang SC",sans-serif;filter:none;border:0;padding:0;text-decoration:none}
+cn-tr[data-st="wait"]{color:color-mix(in srgb,currentColor 45%,transparent);animation:cn-pulse 1.4s ease-in-out infinite}
+cn-tr[data-st="err"]{color:color-mix(in srgb,currentColor 55%,transparent);display:flex;align-items:center;gap:6px}
+cn-tr[data-st="err"] i{width:6px;height:6px;border-radius:50%;background:var(--cn-red);flex:none}
+cn-tr[data-st="err"] u{text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+@keyframes cn-pulse{50%{opacity:.45}}
+`
+
+/** 浅色网页 / 深色网页上的那组颜色（DESIGN.v3.md 4.2 家族灰两列） */
+const PALETTE = {
+  light: '--cn-acc:#9A48AD;--cn-ring:rgba(154,72,173,.38);--cn-mark:rgba(154,72,173,.16);--cn-line2:rgba(17,17,19,.22);--cn-bar:#C7C7CC;--cn-red:#DC3545',
+  dark: '--cn-acc:#C98BDB;--cn-ring:rgba(201,139,219,.55);--cn-mark:rgba(201,139,219,.24);--cn-line2:rgba(255,255,255,.24);--cn-bar:#48484E;--cn-red:#FF6369',
+}
+
+/** 「r, g, b, a」：拆不出来给 null */
+function rgba(c: string): [number, number, number, number] | null {
+  const m = /rgba?\(([^)]+)\)/.exec(c)
+  if (!m) return null
+  const p = m[1]!.split(/[\s,/]+/).filter(Boolean).map(Number)
+  return [p[0] ?? 0, p[1] ?? 0, p[2] ?? 0, p[3] ?? 1]
+}
+
+/** 网页底色：body，透明就看 html，再透明当白；相对亮度 < 0.4 算深色网页 */
+export function pageIsDark(): boolean {
+  for (const el of [document.body, document.documentElement]) {
+    if (!el) continue
+    const c = rgba(getComputedStyle(el).backgroundColor)
+    if (!c || c[3] === 0) continue
+    const lin = (v: number) => {
+      const s = v / 255
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]) < 0.4
+  }
+  return false
+}
+
+function ensureStyle() {
+  let el = document.getElementById('cn-tr-style')
+  if (!el) {
+    el = document.createElement('style')
+    el.id = 'cn-tr-style'
+    ;(document.head ?? document.documentElement).appendChild(el)
+  }
+  el.textContent = `html{${pageIsDark() ? PALETTE.dark : PALETTE.light}}${CSS}`
+}
+
+// 网站跟着系统换深浅色：重量一次
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => on && setTimeout(ensureStyle, 50))
+
+// ---------------------------------------------------------------- 认段落、排队
 
 /** 这个元素算不算「一段」，算的话给它的字 */
 function paragraphText(el: HTMLElement): string | null {
@@ -114,9 +207,7 @@ window.addEventListener(
   true,
 )
 
-function css(el: HTMLElement, props: Record<string, string>) {
-  for (const [k, v] of Object.entries(props)) el.style.setProperty(k, v, 'important')
-}
+// ---------------------------------------------------------------- 画一段
 
 function trOf(it: Item): HTMLElement {
   if (!it.tr || !it.tr.isConnected) {
@@ -127,35 +218,77 @@ function trOf(it: Item): HTMLElement {
   return it.tr
 }
 
-const BASE = { display: 'block', margin: '0.3em 0 0', padding: '0', 'white-space': 'normal', 'font-style': 'normal', 'text-decoration': 'none', cursor: 'auto' }
+/** 段落上的那行提示：「Claude Code 还没登录。点「重试」再翻这一段」 */
+const errHint = (e: TrError | undefined) => `${e ? errorTitle(e) : '没翻成'}。点「重试」再翻这一段`
+
+function setFade(it: Item, fade: boolean) {
+  if (fade && !it.el.hasAttribute('data-cn-fade')) {
+    // 量这段原来的字色（加淡化前），译文用它
+    it.el.style.setProperty('--cn-c', getComputedStyle(it.el).color)
+    it.el.setAttribute('data-cn-fade', '')
+  } else if (!fade && it.el.hasAttribute('data-cn-fade')) {
+    it.el.removeAttribute('data-cn-fade')
+    it.el.style.removeProperty('--cn-c')
+  }
+}
+
+/** 模糊自测时点开过的段（这一页；换页就清空） */
+const shown = new Set<number>()
 
 function render(it: Item) {
-  it.anim?.cancel()
-  it.anim = undefined
   const tr = trOf(it)
   tr.onclick = null
+  tr.removeAttribute('title')
+  tr.removeAttribute('data-shown')
   if (it.status === 'done') {
-    tr.textContent = it.result ?? ''
+    tr.removeAttribute('data-st')
+    const span = document.createElement('span')
+    span.textContent = it.result ?? ''
+    tr.replaceChildren(span)
     if (display === 'only') {
+      setFade(it, false)
       wrapOriginal(it)
-      css(tr, { ...BASE, margin: '0', opacity: '1', 'font-size': 'inherit' })
+      tr.removeAttribute('data-s')
+      tr.style.setProperty('margin', '0', 'important')
     } else {
       unwrapOriginal(it)
-      css(tr, { ...BASE, opacity: '0.72', 'font-size': 'inherit' })
+      tr.style.removeProperty('margin')
+      tr.setAttribute('data-s', style)
+      setFade(it, style === 'fade')
+      if (style === 'blur') {
+        if (shown.has(it.id)) tr.setAttribute('data-shown', '')
+        tr.onclick = (e) => {
+          // 点一下显出来，再点糊回去；点到译文里的链接不管
+          if ((e.target as HTMLElement).closest('a')) return
+          e.preventDefault()
+          e.stopPropagation()
+          if (shown.has(it.id)) shown.delete(it.id)
+          else shown.add(it.id)
+          tr.toggleAttribute('data-shown', shown.has(it.id))
+        }
+      }
     }
-  } else if (it.status === 'error') {
-    unwrapOriginal(it)
-    tr.textContent = '没翻成 · 点这里重试'
-    css(tr, { ...BASE, opacity: '0.5', 'font-size': '0.85em', cursor: 'pointer' })
-    tr.onclick = (e) => {
+    return
+  }
+  setFade(it, false)
+  unwrapOriginal(it)
+  tr.removeAttribute('data-s')
+  tr.style.removeProperty('margin')
+  if (it.status === 'error') {
+    tr.setAttribute('data-st', 'err')
+    tr.title = errHint(it.error)
+    const retry = document.createElement('u')
+    retry.textContent = '重试'
+    retry.onclick = (e) => {
       e.preventDefault()
       e.stopPropagation()
+      it.status = 'wait'
       enqueue(it)
     }
+    tr.replaceChildren(document.createElement('i'), '没翻成 · ', retry)
   } else {
+    tr.setAttribute('data-st', 'wait')
     tr.textContent = '翻译中…'
-    css(tr, { ...BASE, opacity: '0.45', 'font-size': '0.85em' })
-    it.anim = tr.animate([{ opacity: 0.25 }, { opacity: 0.55 }], { duration: 800, iterations: Infinity, direction: 'alternate' })
   }
 }
 
@@ -179,6 +312,7 @@ function unwrapOriginal(it: Item) {
 function enqueue(it: Item) {
   if (!on || it.status === 'queued' || it.status === 'sent' || it.status === 'done') return
   it.status = 'queued'
+  it.error = undefined
   render(it)
   queue.push(it)
   clearTimeout(flushTimer)
@@ -204,37 +338,51 @@ function flush() {
     sentChars += chars
     for (const it of batch) it.status = 'sent'
     callPlugin(ID, 'translate', { items: batch.map((it) => ({ id: it.id, text: it.text })), target }).catch((e: Error) => {
+      const error: TrError = { code: 'other', raw: String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }
       for (const it of batch) {
         if (items.get(it.id) !== it || it.status !== 'sent') continue
-        it.status = 'error'
-        render(it)
+        fail(it, error)
       }
-      console.warn('[canvas-notes] 翻译失败', e.message)
       report()
     })
   }
 }
 
+function fail(it: Item, error: TrError) {
+  it.status = 'error'
+  it.error = error
+  lastError = error
+  render(it)
+  if (error.code === 'rate-limit') scheduleRetry()
+}
+
+/** 问得太快：30 秒后自动把这类没翻成的再翻一遍，不用点 */
+function scheduleRetry() {
+  if (retryTimer) return
+  retryAt = Date.now() + RATE_RETRY_MS
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined
+    retryAt = undefined
+    for (const it of items.values()) if (it.status === 'error' && it.error?.code === 'rate-limit') (it.status = 'wait'), enqueue(it)
+    report()
+  }, RATE_RETRY_MS)
+}
+
 onPageEvent(ID, 'result', (p) => {
-  const { id, text } = (p ?? {}) as { id?: number; text?: string | null }
+  const { id, text, error } = (p ?? {}) as { id?: number; text?: string | null; error?: TrError }
   const it = typeof id === 'number' ? items.get(id) : undefined
   if (!on || !it || it.status === 'done') return
   if (typeof text === 'string' && text.trim()) {
+    it.status = 'done'
     // 和原文一样（本来就是目标语言）：不插
     if (norm(text) === it.text) {
-      it.status = 'done'
-      it.anim?.cancel()
       it.tr?.remove()
       it.tr = null
     } else {
-      it.status = 'done'
       it.result = text.trim()
       render(it)
     }
-  } else {
-    it.status = 'error'
-    render(it)
-  }
+  } else fail(it, error ?? { code: 'other', raw: '没翻成' })
   report()
 })
 
@@ -244,48 +392,113 @@ function report() {
   reportTimer = setTimeout(() => {
     let done = 0
     let busy = 0
+    let failed = 0
     for (const it of items.values()) {
       if (it.status === 'done') done++
       else if (it.status === 'queued' || it.status === 'sent') busy++
+      else if (it.status === 'error') failed++
     }
-    tellHost(ID, { on, target, done, busy })
+    // 没翻成的段都重试好了：原因也收起来
+    if (!failed) lastError = undefined
+    const st: TrPageState = {
+      on,
+      target,
+      pageLang,
+      done,
+      busy,
+      failed,
+      menuSeq,
+      pdfSeq,
+      ...(lastError ? { error: lastError } : {}),
+      ...(blocked ? { blocked } : {}),
+      ...(retryAt ? { retryAt } : {}),
+    }
+    tellHost(ID, st)
   }, 80)
 }
 
-function start() {
-  if (on || !pluginEnabled(ID) || !document.body) return
-  const s = normalizeTranslate(pluginState(ID)?.settings)
-  lastSettings = JSON.stringify(s)
-  target = effectiveTarget(s.target, detectLang(norm(document.body.innerText.slice(0, 6000)), htmlLang()))
-  display = s.display
-  on = true
-  sentChars = 0
-  io = new IntersectionObserver(
-    (entries) => {
-      for (const e of entries) {
-        if (!e.isIntersecting) continue
-        io?.unobserve(e.target)
-        const it = byEl.get(e.target)
-        if (it && it.status === 'wait') enqueue(it)
-      }
-    },
-    { rootMargin: '240px 0px' },
-  )
-  scan()
-  sweep()
-  // 后来才出来的段落（无限滚动、点开的折叠）
-  mo = new MutationObserver((muts) => {
-    if (muts.every((m) => Array.from(m.addedNodes).every((n) => n.nodeName === 'CN-TR' || n.nodeName === 'CN-ORIG' || n.nodeType !== Node.ELEMENT_NODE))) return
-    clearTimeout(rescanTimer)
-    rescanTimer = setTimeout(() => (scan(), sweep()), 500)
+// ---------------------------------------------------------------- 开、关
+
+/** 浏览器自己的 PDF 查看器：网页翻译翻不了，叫人去 PDF 阅读器 */
+const isPdf = () => document.contentType === 'application/pdf' || !!document.querySelector('body > embed[type="application/pdf"]:only-child')
+
+/** 刚载入的网页：插件开关和设置还在从主进程来的路上，等它到 */
+function stateReady(): Promise<void> {
+  if (pluginState(ID)) return Promise.resolve()
+  return new Promise((r) => {
+    const off = onPluginState(() => {
+      off()
+      r()
+    })
   })
-  mo.observe(document.body, { childList: true, subtree: true })
-  report()
+}
+
+async function start() {
+  if (on || starting || !document.body) return
+  starting = true
+  await stateReady()
+  starting = false
+  if (on || !pluginEnabled(ID)) return
+  if (isPdf()) {
+    pdfSeq++
+    return report()
+  }
+  starting = true
+  try {
+    // 先查有没有能用的：没有就不往段落里写任何字，界面打开菜单说原因
+    const pre = await callPlugin<{ ok: true } | { ok: false; error: TrError }>(ID, 'preflight').catch((e: Error) => ({ ok: false as const, error: { code: 'other' as const, raw: String(e.message) } }))
+    const s = settings()
+    lastSettings = JSON.stringify(s)
+    pageLang = detectLang(norm(document.body.innerText.slice(0, 6000)), htmlLang())
+    target = effectiveTarget(s.target, pageLang)
+    display = s.display
+    style = s.style
+    on = true
+    lastError = undefined
+    if (!pre.ok) {
+      blocked = pre.error
+      menuSeq++
+      return report()
+    }
+    blocked = undefined
+    sentChars = 0
+    ensureStyle()
+    io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue
+          io?.unobserve(e.target)
+          const it = byEl.get(e.target)
+          if (it && it.status === 'wait') enqueue(it)
+        }
+      },
+      { rootMargin: '240px 0px' },
+    )
+    scan()
+    sweep()
+    // 后来才出来的段落（无限滚动、点开的折叠）
+    mo = new MutationObserver((muts) => {
+      const ours = (m: MutationRecord) =>
+        !!(m.target as Element).closest?.('cn-tr, cn-orig') || Array.from(m.addedNodes).every((n) => n.nodeName === 'CN-TR' || n.nodeName === 'CN-ORIG' || n.nodeType !== Node.ELEMENT_NODE)
+      if (muts.every(ours)) return
+      clearTimeout(rescanTimer)
+      rescanTimer = setTimeout(() => (scan(), sweep()), 500)
+    })
+    mo.observe(document.body, { childList: true, subtree: true })
+    report()
+  } finally {
+    starting = false
+  }
 }
 
 function restore() {
   if (!on) return
   on = false
+  blocked = undefined
+  lastError = undefined
+  retryAt = undefined
+  clearTimeout(retryTimer)
+  retryTimer = undefined
   clearTimeout(flushTimer)
   clearTimeout(rescanTimer)
   io?.disconnect()
@@ -293,39 +506,64 @@ function restore() {
   io = mo = null
   queue = []
   for (const it of items.values()) {
-    it.anim?.cancel()
+    setFade(it, false)
     unwrapOriginal(it)
     it.tr?.remove()
   }
   items.clear()
   byEl = new WeakMap()
+  shown.clear()
   void callPlugin(ID, 'cancel').catch(() => undefined)
   report()
 }
 
-const toggle = () => (on ? restore() : start())
+const toggle = () => (on ? restore() : void start())
+
+/** 全部重试：一开就不能用的从头再开；没翻成的段再翻 */
+function retryAll() {
+  if (!on) return void start()
+  if (blocked) {
+    restore()
+    return void start()
+  }
+  for (const it of items.values()) if (it.status === 'error') (it.status = 'wait'), enqueue(it)
+  report()
+}
 
 onHostCommand(ID, (cmd) => {
   if (cmd === 'toggle') toggle()
-  else if (cmd === 'on') start()
+  else if (cmd === 'on') void start()
   else if (cmd === 'off') restore()
+  else if (cmd === 'retryAll') retryAll()
+  else if (cmd === 'retryIfBlocked') {
+    // 设置里刚填好 Key、换了引擎：一开就不能用的这一页再查一次
+    if (on && blocked) retryAll()
+  }
+  else if (cmd === 'revealAll') {
+    for (const it of items.values()) {
+      if (it.status !== 'done' || !it.tr) continue
+      shown.add(it.id)
+      it.tr.setAttribute('data-shown', '')
+    }
+  } else if (cmd === 'report') report()
 })
 
-// 设置变了：关掉插件就恢复原文；换了目标语言重翻；换了显示方式重排
+// 设置变了：关掉插件就恢复原文；换了目标语言重翻；换了显示方式、样式重画；换了引擎、改了 Key 后一开就不能用的再查一次
 onPluginState(() => {
   if (!on) return
   if (!pluginEnabled(ID)) return restore()
-  const s = normalizeTranslate(pluginState(ID)?.settings)
+  const s = settings()
   const key = JSON.stringify(s)
   if (key === lastSettings) return
-  const prev = JSON.parse(lastSettings) as { target: string }
+  const prev = JSON.parse(lastSettings) as typeof s
   lastSettings = key
-  if (s.target !== prev.target) {
+  if (s.target !== prev.target || (blocked && (s.engineMode !== prev.engineMode || s.pick !== prev.pick || s.engineOrder.join() !== prev.engineOrder.join()))) {
     restore()
-    start()
+    void start()
   } else {
     display = s.display
-    for (const it of items.values()) if (it.status === 'done') render(it)
+    style = s.style
+    for (const it of items.values()) if (it.status === 'done' && it.tr) render(it)
   }
 })
 
@@ -338,7 +576,8 @@ function editable(t: EventTarget | null): boolean {
 window.addEventListener(
   'keydown',
   (e) => {
-    if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.code !== 'KeyA' || !pluginEnabled(ID) || editable(e.target)) return
+    // 插件状态还没到（网页刚载入）时先接着，start() 会等它到了再看开没开
+    if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.code !== 'KeyA' || (pluginState(ID) && !pluginEnabled(ID)) || editable(e.target)) return
     e.preventDefault()
     e.stopImmediatePropagation()
     toggle()
@@ -347,6 +586,41 @@ window.addEventListener(
 )
 
 document.addEventListener('DOMContentLoaded', report)
+
+// ---------------------------------------------------------------- 剪藏带不带译文
+
+/**
+ * 整页剪藏前改剪下来的那份（clone，不动网页）：「只看译文」时藏起来的原文放回来（原文是出处，不丢）；
+ * 开关关着：译文都拿掉；开着：翻好的段原文后面跟一段引用（列表项里的跟在项里，表格里的不带），没翻好的只留原文。
+ */
+export function prepareClip(doc: Document) {
+  for (const o of Array.from(doc.querySelectorAll('cn-orig'))) o.replaceWith(...Array.from(o.childNodes))
+  const withTr = pluginEnabled(ID) && settings().clipWithTranslation
+  for (const t of Array.from(doc.querySelectorAll('cn-tr'))) {
+    const text = norm(t.textContent ?? '')
+    const host = t.parentElement
+    t.remove()
+    if (!withTr || t.hasAttribute('data-st') || !text || !host) continue
+    if (/^(TD|TH|CAPTION)$/.test(host.tagName)) continue
+    const q = doc.createElement('blockquote')
+    q.textContent = text
+    if (host.tagName === 'LI' || host.tagName === 'DD' || host.tagName === 'DT') host.appendChild(q)
+    else host.after(q)
+  }
+  for (const el of Array.from(doc.querySelectorAll('[data-cn-fade]'))) el.removeAttribute('data-cn-fade')
+}
+
+/** 选区剪藏取的字：开关关着时选区里的译文去掉，只留原文 */
+export function selectionText(sel: Selection): string {
+  let s = sel.toString()
+  if (pluginEnabled(ID) && settings().clipWithTranslation) return s
+  for (const t of Array.from(document.querySelectorAll('cn-tr'))) {
+    if (!sel.containsNode(t, true)) continue
+    const tt = t.textContent ?? ''
+    if (tt) s = s.replace(tt, '')
+  }
+  return s.replace(/\n{3,}/g, '\n\n').trim()
+}
 
 // ---------------------------------------------------------------- 选中一段翻译
 
@@ -402,8 +676,7 @@ window.addEventListener('keydown', (e) => e.key === 'Escape' && hideCard(), true
 /** 选区工具条上点了「翻译」：选区下面弹小卡片（放不下就放上面） */
 export function translateSelection(text: string, rect: DOMRect) {
   const c = ensureCard()
-  const s = normalizeTranslate(pluginState(ID)?.settings)
-  const to = effectiveTarget(s.target, detectLang(text, htmlLang()))
+  const to = effectiveTarget(settings().target, detectLang(text, htmlLang()))
   const my = ++cardSeq
   c.head.textContent = `译文 · ${langName(to)}`
   c.body.textContent = '翻译中…'
@@ -429,4 +702,19 @@ export function translateSelection(text: string, rect: DOMRect) {
       c.body.className = 'body wait'
     },
   )
+}
+
+/** 选区工具条上点了「加进术语表」：加进中间栏那门课的术语表，在中间栏打开；不行的话卡片上说为什么 */
+export function addToGlossary(text: string, rect: DOMRect) {
+  callPlugin(ID, 'glossaryAdd', { text }).catch((e: Error) => {
+    const c = ensureCard()
+    cardSeq++
+    c.head.textContent = '加进术语表'
+    c.body.textContent = String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+    c.body.className = 'body wait'
+    c.copy.style.display = 'none'
+    c.host.style.display = 'block'
+    const left = Math.max(8, Math.min(rect.left, innerWidth - 368)) + scrollX
+    c.host.style.transform = `translate(${left}px, ${rect.bottom + 8 + scrollY}px)`
+  })
 }

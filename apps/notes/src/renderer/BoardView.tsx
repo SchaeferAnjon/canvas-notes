@@ -15,9 +15,10 @@ import {
   withAttrs,
   withContent,
   withLinks,
+  isMindmap,
 } from '@cn/format'
-import { Icon } from '@cn/design'
-import { CheckSquare, ChevronDown, Columns3, LayoutGrid, StickyNote } from 'lucide-react'
+import { onFlyToCard } from './shell/OutlineView'
+import { Codicon, type CodiconName } from '@cn/design'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { CLIPS, previewOf, titleOf } from '../shared/layout'
@@ -40,20 +41,25 @@ import {
   TODO_BODY,
 } from './board-drop'
 import { CardBody, classify, TODO } from './CardBody'
+import { openVideo } from './video/actions'
+import { boardMomentStats } from './video/board'
+import { momentsTitle, videoKeyOfCard, videoUrlOfCard } from './video/BoardCards'
 import { useBoardImageDrop } from './web/useImageDrop'
+import { openCapture } from './mindmap/capture-store'
+import { MindmapLayer } from './mindmap/MindmapLayer'
 
 type Drag =
   | { type: 'block'; id: string; start: Pt; origin: Pt; moved: boolean; delta: Pt }
   | { type: 'link'; from: string; to: Pt }
   | { type: 'loose'; key: string; text: string; inboxPath?: string; at: Pt; client: Pt }
   /** 从工具板按住拖出来的新东西；over：现在松手会落在画布上（不在工具板、浮层上，也不在画布外） */
-  | { type: 'pal'; kind: PalKind; start: Pt; client: Pt; moved: boolean; over: boolean }
+  | { type: 'pal'; kind: PalKind; start: Pt; client: Pt; moved: boolean; over: boolean; map?: boolean }
 
-const PAL: { kind: PalKind; label: string; title: string; icon: typeof StickyNote }[] = [
-  { kind: 'card', label: '卡片', title: '新卡片', icon: StickyNote },
-  { kind: 'todo', label: '待办', title: '待办', icon: CheckSquare },
-  { kind: 'column', label: '列', title: '新的列', icon: Columns3 },
-  { kind: 'board', label: '子白板', title: '子白板', icon: LayoutGrid },
+const PAL: { kind: PalKind; label: string; title: string; icon: CodiconName }[] = [
+  { kind: 'card', label: '卡片', title: '新卡片', icon: 'note' },
+  { kind: 'todo', label: '待办', title: '待办', icon: 'checklist' },
+  { kind: 'column', label: '列', title: '新的列', icon: 'split-horizontal' },
+  { kind: 'board', label: '子白板', title: '子白板', icon: 'layout' },
 ]
 
 export interface BoardViewProps {
@@ -75,8 +81,12 @@ export function BoardView(props: BoardViewProps) {
   const { text, notes, scale } = props
   const doc = useMemo(() => parseBoard(text), [text])
   const links = useMemo(() => parseLinks(doc), [doc])
-  const loose = useMemo(() => looseParagraphs(doc), [doc])
-  const inbox = notes.filter((n) => n.kind === 'inbox').sort((a, b) => b.createdMs - a.createdMs)
+  /** 导图白板：正文里的列表画成导图（mindmap/MindmapLayer），列表和原照片不算「未整理」 */
+  const mindmap = isMindmap(text)
+  const loose = useMemo(() => looseParagraphs(doc).filter((l) => !mindmap || !(/^[-*+][ \t]/.test(l.text) || /^!\[[^\]]*\]\([^)]*\)$/.test(l.text.trim()))), [doc, mindmap])
+  const [mapSize, setMapSize] = useState({ w: 0, h: 0 })
+  // 收件箱里的白板（刚拍的导图）不把自己算进自己的「未整理」
+  const inbox = notes.filter((n) => n.kind === 'inbox' && n.path !== props.notePath).sort((a, b) => b.createdMs - a.createdMs)
 
   const wrap = useRef<HTMLDivElement>(null)
   const outer = useRef<HTMLDivElement>(null)
@@ -92,6 +102,8 @@ export function BoardView(props: BoardViewProps) {
   const [dropCol, setDropCol] = useState<string | null>(null)
   const [unsortedOpen, setUnsortedOpen] = useState(false)
   const [flash, setFlash] = useState<string | null>(null)
+  /** 展开了的「时刻」列 */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const commit = useCallback(
     (next: BoardDoc) => {
@@ -247,12 +259,12 @@ export function BoardView(props: BoardViewProps) {
 
   /** 工具板按钮按下：移过 DRAG_SLOP 才算拖；没移就是点一下，照旧交给 onClick */
   const palDragged = useRef(false)
-  function startPal(e: React.PointerEvent, kind: PalKind) {
+  function startPal(e: React.PointerEvent, kind: PalKind, map = false) {
     palDragged.current = false
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
     const c = { x: e.clientX, y: e.clientY }
-    setDrag({ type: 'pal', kind, start: c, client: c, moved: false, over: false })
+    setDrag({ type: 'pal', kind, start: c, client: c, moved: false, over: false, map })
   }
 
   /** 拖完松手，浏览器还会在按钮上补一个 click，那一下不算点 */
@@ -309,6 +321,19 @@ export function BoardView(props: BoardViewProps) {
       if (!onCanvas({ x: e.clientX, y: e.clientY })) return
       // 列只放在画布上；卡片、待办、子白板落在列上就进那一列
       const col = drag.kind === 'column' ? null : columnAt(p)
+      if (drag.map) {
+        // 拍导图拖到白板上：拍好、做成导图白板后，落点放一张指向它的卡片
+        const where: Place = col ? { column: col, slot: slotInColumn(doc, rects, col, p.y) } : { at: dropOrigin(p) }
+        openCapture({
+          onPlaced: (path) => {
+            const now = latest.current
+            const id = newId(now)
+            commit(addCard(now, id, `[[${titleOf(path)}]]`, where))
+            setFlash(id)
+          },
+        })
+        return
+      }
       void createFromPal(drag.kind, col ? { column: col, slot: slotInColumn(doc, rects, col, p.y) } : { at: dropOrigin(p) }, true)
       return
     }
@@ -390,7 +415,7 @@ export function BoardView(props: BoardViewProps) {
   const free = doc.blocks.filter((b) => !attr(b, 'in') && attr(b, 'id'))
   const extent = free.reduce(
     (m, b) => ({ w: Math.max(m.w, num(b, 'x', 0) + num(b, 'w', CARD_W) + 600), h: Math.max(m.h, num(b, 'y', 0) + 900) }),
-    { w: 2400, h: 1600 },
+    { w: Math.max(2400, mapSize.w + 600), h: Math.max(1600, mapSize.h + 600) },
   )
 
   const dragOffset = (id: string) =>
@@ -398,7 +423,7 @@ export function BoardView(props: BoardViewProps) {
       ? { transform: `translate(${drag.delta.x}px, ${drag.delta.y}px)`, zIndex: 50 }
       : undefined
 
-  const renderCard = (b: (typeof doc.blocks)[number], inColumn: boolean) => {
+  const renderCard = (b: (typeof doc.blocks)[number], inColumn: boolean, small = false) => {
     const id = attr(b, 'id')!
     const body = content(b)
     const info = classify(body, notes)
@@ -413,7 +438,7 @@ export function BoardView(props: BoardViewProps) {
           if (el) els.current.set(id, el)
           else els.current.delete(id)
         }}
-        className={`bcard k-${info.kind}${inColumn ? ' incol' : ''}${isSel ? ' sel' : ''}${flash === id ? ' flash' : ''}`}
+        className={`bcard k-${info.kind}${inColumn ? ' incol' : ''}${small ? ' small' : ''}${isSel ? ' sel' : ''}${flash === id ? ' flash' : ''}`}
         style={style}
         data-id={id}
         onPointerDown={(e) => onBlockDown(e, id)}
@@ -421,6 +446,11 @@ export function BoardView(props: BoardViewProps) {
           e.stopPropagation()
           if (info.kind === 'board' && info.boardPath) props.onOpen(info.boardPath)
           else if (info.kind === 'doc' && info.docPath) props.onOpen(info.docPath)
+          else if ((info.kind === 'video' || info.kind === 'moment') && videoUrlOfCard(body)) {
+            // 视频卡：右栏打开，从上次看到的地方接着播；时刻卡：跳回那一秒
+            const v = videoUrlOfCard(body)!
+            void openVideo(v.url, v.resume)
+          }
           else if (!props.readOnly) {
             // 双击待办的某一行：编辑器打开后光标落在那一行
             const row = (e.target as HTMLElement).closest('[data-row]')
@@ -453,6 +483,8 @@ export function BoardView(props: BoardViewProps) {
             info={info}
             notes={notes}
             notePath={props.notePath}
+            small={small}
+            videoStats={info.kind === 'video' ? boardMomentStats(text, videoKeyOfCard(body) ?? '') : undefined}
             onToggle={(line) => {
               const ls = body.split('\n')
               ls[line] = ls[line]!.replace(/\[( |x|X)\]/, (m) => (m === '[ ]' ? '[x]' : '[ ]'))
@@ -477,6 +509,24 @@ export function BoardView(props: BoardViewProps) {
   }
 
   const unsortedCount = loose.length + inbox.length
+
+  // 右栏大纲点了一张卡片或一列：滚到正中、选中，闪一下
+  useEffect(
+    () =>
+      onFlyToCard(props.notePath, (id) => {
+        const w = wrap.current
+        const el = w?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)
+        if (!w || !el) return
+        const wr = w.getBoundingClientRect()
+        const r = el.getBoundingClientRect()
+        w.scrollTo({ left: w.scrollLeft + r.left - wr.left - (wr.width - r.width) / 2, top: w.scrollTop + r.top - wr.top - (wr.height - r.height) / 2, behavior: 'smooth' })
+        setSelected(new Set([id]))
+        el.classList.remove('flown')
+        void el.offsetWidth
+        el.classList.add('flown')
+      }),
+    [props.notePath],
+  )
 
   return (
     <div
@@ -536,11 +586,31 @@ export function BoardView(props: BoardViewProps) {
           )}
         </svg>
 
+        {mindmap && (
+          <MindmapLayer
+            text={text}
+            notePath={props.notePath}
+            scale={scale}
+            readOnly={props.readOnly}
+            overlay={outer.current}
+            onChange={props.onChange}
+            onUndo={props.onUndo}
+            onRedo={props.onRedo}
+            onSize={(w, h) => setMapSize((m) => (m.w === w && m.h === h ? m : { w, h }))}
+            onNotice={props.onNotice}
+          />
+        )}
+
         {doc.blocks.map((b) => {
           const id = attr(b, 'id')
           if (!id || attr(b, 'in')) return null
           if (b.kind === 'card') return renderCard(b, false)
           const members = doc.blocks.filter((x) => attr(x, 'in') === id && x.kind === 'card')
+          // 视频的「时刻」列：最新的在上面放大，最多摆 3 张，多的收成一行（偏好「别把上万条全铺开」）
+          const moments = attr(b, 'moments')
+          const open = expanded.has(id)
+          const shown = moments && !open ? members.slice(0, 3) : members
+          const videoTitle = moments ? momentsTitle(doc, moments) : ''
           return (
             <div
               key={id}
@@ -555,10 +625,29 @@ export function BoardView(props: BoardViewProps) {
               <ColumnTitle
                 title={attr(b, 'title') ?? '新的列'}
                 count={members.length}
+                sub={videoTitle}
+                unit={moments ? '个' : '张卡片'}
                 onDown={(e) => onBlockDown(e, id)}
                 onRename={(t) => setBlockAttrs(id, { title: t })}
               />
-              {members.map((m) => renderCard(m, true))}
+              {shown.map((m, i) => renderCard(m, true, !!moments && i > 0))}
+              {moments && members.length > 3 && (
+                <button
+                  type="button"
+                  className="col-more"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() =>
+                    setExpanded((x) => {
+                      const n = new Set(x)
+                      if (n.has(id)) n.delete(id)
+                      else n.add(id)
+                      return n
+                    })
+                  }
+                >
+                  {open ? '收起，只摆最近 3 个' : `还有 ${members.length - 3} 个，按时间排`}
+                </button>
+              )}
               {members.length === 0 && <div className="col-empty">把卡片拖进来</div>}
             </div>
           )
@@ -571,17 +660,32 @@ export function BoardView(props: BoardViewProps) {
           {PAL.map((it) => (
             <button
               key={it.kind}
-              title={`${it.title}：点一下，或按住拖到白板上`}
+              data-tip={`${it.title}：点一下，或按住拖到白板上`}
+              data-side="right"
               onPointerDown={(e) => startPal(e, it.kind)}
               onClick={() => {
                 if (palDragged.current) return
                 void createFromPal(it.kind, { at: freeSpot() }, false)
               }}
             >
-              <Icon of={it.icon} size={16} />
+              <Codicon name={it.icon} size={16} />
               <span>{it.label}</span>
             </button>
           ))}
+          <hr />
+          <button
+            data-tip="拍一张导图：点一下，或按住拖到白板上（做好后落点放一张指向它的卡片）"
+            data-key="⇧⌘C"
+            data-side="right"
+            onPointerDown={(e) => startPal(e, 'board', true)}
+            onClick={() => {
+              if (palDragged.current) return
+              openCapture()
+            }}
+          >
+            <Codicon name="device-camera" size={16} />
+            <span>拍导图</span>
+          </button>
         </div>
       )}
       {drag?.type === 'pal' && drag.moved && outer.current && (
@@ -591,7 +695,7 @@ export function BoardView(props: BoardViewProps) {
       <div className={'unsorted' + (unsortedOpen ? ' open' : '')} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
         <button className="h" onClick={() => setUnsortedOpen((v) => !v)} data-testid="unsorted">
           <b className="num">{unsortedCount}</b> 未整理
-          <Icon of={ChevronDown} size={14} />
+          <Codicon name="chevron-down" size={14} />
         </button>
         {unsortedOpen && (
           <div className="stack">
@@ -674,7 +778,7 @@ function Mini(props: { text: string; sub: string; onDown(e: React.PointerEvent):
   )
 }
 
-function ColumnTitle(props: { title: string; count: number; onDown(e: React.PointerEvent): void; onRename(t: string): void }) {
+function ColumnTitle(props: { title: string; count: number; sub?: string; unit?: string; onDown(e: React.PointerEvent): void; onRename(t: string): void }) {
   const [edit, setEdit] = useState(false)
   if (edit)
     return (
@@ -699,7 +803,10 @@ function ColumnTitle(props: { title: string; count: number; onDown(e: React.Poin
   return (
     <h3 onPointerDown={props.onDown} onDoubleClick={(e) => (e.stopPropagation(), setEdit(true))}>
       {props.title}
-      <span className="meta num">{props.count} 张卡片</span>
+      {props.sub && <span className="col-sub">{props.sub}</span>}
+      <span className="meta num">
+        {props.count} {props.unit ?? '张卡片'}
+      </span>
     </h3>
   )
 }

@@ -33,11 +33,21 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
             ? { type: 'home', title: '首页' }
             : t.type === 'web'
               ? { type: 'none', title: `中间栏的网页：${t.title || t.url}` }
+              : t.type === 'pdf'
+                ? { type: 'none', title: `PDF：${t.path}` }
+              : t.type === 'doubts'
+                ? { type: 'none', title: `我的疑惑：${t.folder || '库的根目录'}` }
+              : t.type === 'html'
+                ? { type: 'none', title: `HTML：${t.path}` }
+              : t.type === 'webread'
+                ? { type: 'none', title: `阅读视图：${t.title}（${t.url}）` }
               : t.type === 'all'
                 ? { type: 'none', title: '全部笔记' }
                 : t.type === 'archive'
                   ? { type: 'none', title: '归档' }
-                  : { type: 'topic', title: `素材 / ${t.topic}` }
+                  : t.type === 'folder'
+                    ? { type: 'none', title: `${t.folder} 的首页` }
+                    : { type: 'topic', title: `素材 / ${t.topic}` }
   const ctx: AgentContext = { tab, web: { open: s.webOpen, url: s.webUrl } }
   const d = s.doc
   if (d && t?.type === 'note' && d.path === t.path && s.mode !== 'board') {

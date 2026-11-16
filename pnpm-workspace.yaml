@@ -5,5 +5,7 @@ allowBuilds:
   electron: true
   # 只给 Windows 打安装包用，Mac 上用不着它的安装脚本
   electron-winstaller: false
+  # 本机语义搜索的模型推理：Mac 的二进制包里自带，安装脚本只在 Linux 上下 CUDA，用不着
+  onnxruntime-node: false
 minimumReleaseAgeExclude:
   - lucide-react@1.73.0

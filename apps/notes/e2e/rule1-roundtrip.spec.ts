@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { decodeNote } from '@cn/format'
 import { FIXTURES } from '../../../packages/format/test/fixtures'
-import { gitStatus, launch, openNote, pane, waitSaved } from './app'
+import { gitStatus, launch, openNote, pane, waitSaved, acts } from './app'
 
 // 规矩 1：一篇笔记打开、什么都不改、保存，文件一个字节都不变（Git 里没有假改动）。
 test('打开再保存文件不变：每个样本打开、⌘S、打一个字再删掉、等自动保存，Git 状态仍然干净', async () => {
@@ -17,14 +17,14 @@ test('打开再保存文件不变：每个样本打开、⌘S、打一个字再�
       await page.keyboard.press('Meta+s')
       if (!decodeNote(bytes).meta.readOnly) {
         await page.keyboard.type('x')
-        await expect(pane(page).getByTestId('save-state')).toHaveAttribute('data-state', 'dirty')
+        await expect(acts(page).getByTestId('save-state')).toHaveAttribute('data-state', 'dirty')
         await page.keyboard.press('Backspace')
         await page.keyboard.press('Meta+s')
         await waitSaved(page)
       } else {
         // 只读文件：打字不进去
         await page.keyboard.type('x')
-        await expect(pane(page).locator('.tool .meta').first()).toContainText('只读')
+        await expect(acts(page).getByTestId('page-note')).toContainText('只读')
       }
       expect(Buffer.from(readFileSync(join(vault, name))).equals(Buffer.from(bytes)), name).toBe(true)
     }

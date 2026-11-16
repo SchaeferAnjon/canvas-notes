@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- hardened runtime 下 Electron 要的：V8 的 JIT、可写可执行内存、加载 Electron 框架里不是同一张证书签的库；
-     apple-events：速记用 osascript 问前台浏览器当前网页、让「系统事件」按 ⌘C（Info.plist 里有 NSAppleEventsUsageDescription） -->
+     apple-events：速记用 osascript 问前台浏览器当前网页、让「系统事件」按 ⌘C（Info.plist 里有 NSAppleEventsUsageDescription）；
+     device.camera：拍手写导图（Info.plist 里有 NSCameraUsageDescription） -->
 <plist version="1.0">
 <dict>
   <key>com.apple.security.cs.allow-jit</key>
@@ -11,6 +12,8 @@
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
   <key>com.apple.security.automation.apple-events</key>
+  <true/>
+  <key>com.apple.security.device.camera</key>
   <true/>
 </dict>
 </plist>

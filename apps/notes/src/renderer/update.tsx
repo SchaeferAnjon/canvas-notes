@@ -2,8 +2,7 @@
  * 检查更新的界面：设置 ›「更新」页、底栏最右端「● 重启更新到 x」/「● 更新没装上」。
  * 设计规格见 DESIGN.md「底栏 Git」；状态由主线 src/main/updater.ts 推过来，这里只画。
  */
-import { Icon } from '@cn/design'
-import { FolderSearch, Globe, Loader, RefreshCw, TriangleAlert } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import { useEffect, useState } from 'react'
 import type { UpdateState } from '../shared/api'
 import { BRAND } from '../shared/brand'
@@ -63,7 +62,7 @@ export function UpdateBarItem(props: { st: UpdateState | null; onInstall(): Prom
           void props.onInstall().finally(() => setBusy(false))
         }}
       >
-        {busy ? <Icon of={Loader} size={12} className="spin" /> : <i className="udot" />}
+        {busy ? <Codicon name="loading" size={12} className="spin" /> : <i className="udot" />}
         {busy ? '正在重启…' : <span className="upd-t">重启更新<span className="upd-v">到 {v}</span></span>}
       </button>
     </>
@@ -130,7 +129,7 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
         <div className="upd-acts">
           {err?.action === 'site' && (
             <button className="btn btn-sm" onClick={() => props.onOpenUrl(BRAND.site)}>
-              <Icon of={Globe} size={14} />
+              <Codicon name="globe" size={14} />
               去官网下载
             </button>
           )}
@@ -140,7 +139,7 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
             </button>
           ) : (
             <button className="btn btn-sm" disabled={off || busy} onClick={() => void check()}>
-              <Icon of={RefreshCw} size={14} className={st.phase === 'checking' || checking ? 'spin' : ''} />
+              <Codicon name="refresh" size={14} className={st.phase === 'checking' || checking ? 'spin' : ''} />
               {st.phase === 'checking' || checking ? '正在检查' : err ? '再查一次' : '检查更新'}
             </button>
           )}
@@ -148,7 +147,7 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
       </div>
       {!st.inApps && !off && (
         <div className="callout" data-testid="update-not-in-apps">
-          <Icon of={TriangleAlert} size={16} className="warn" />
+          <Codicon name="warning" size={16} className="warn" />
           <div className="tx">
             <b>{BRAND.name} 不在「应用程序」文件夹里</b>
             <span>从「下载」或安装盘里直接打开时，新版本可能装不上</span>
@@ -157,7 +156,7 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
                 挪到「应用程序」并重开
               </button>
               <button className="btn btn-sm btn-ghost" onClick={() => void window.cn.revealApp()}>
-                <Icon of={FolderSearch} size={14} />
+                <Codicon name="search" size={14} />
                 在 Finder 中显示
               </button>
             </div>

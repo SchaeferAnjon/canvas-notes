@@ -1,18 +1,17 @@
 /**
  * 书签管家主进程这半：和内置浏览器用同一份书签（<userData>/web/bookmarks.json），多了标签和备注；
  * 「上次访问」从浏览历史里查；「存进库」把选中的书签每个存成收件箱里的一篇，一次提交。
- * 书签首页（新网页标签）：快捷书签就是书签栏和它的子文件夹，拖动合并、排序走 arrange（一次写盘）；稍后再看存在插件自己的文件夹（home.ts）。
+ * 新网页标签是 BookmarkKeeper 自己的新标签页（main/web/bookmarkkeeper/）；「稍后再看」放进它的「Saved for later」。
  * 界面那半在 renderer/plugins/bookmarks/。
  */
 import * as git from '@cn/git'
-import { join } from 'node:path'
 import { BOOKMARKS, bookmarkNote, type BookmarkRow, normalizeNote, normalizeTags } from '../../../shared/plugins/bookmarks'
 import { INBOX, mdUrl } from '../../../shared/layout'
 import { logActivity } from '../../activity'
 import { localStamp } from '../../vault'
 import { webLibrary } from '../../web'
+import { laterHas, laterToggle } from '../../web/bookmarkkeeper'
 import type { MainPlugin } from '../host'
-import { BookmarkHome, parseArrange } from './home'
 
 interface SaveArg {
   id?: unknown
@@ -35,14 +34,14 @@ export const bookmarksPlugin: MainPlugin<Record<string, never>> = {
 
     host.handle('list', () => rows())
 
-    // 书签首页：挪书签（合并成分组、排序、改分组名、移出快捷书签），稍后再看
-    let home: BookmarkHome | null = null
-    const homeData = () => (home ??= new BookmarkHome(join(host.dir, 'home.json')))
-    host.handle('home', () => homeData().get())
-    host.handle('arrange', (_ctx, changes) => (webLibrary().bookmarks.arrange(parseArrange(changes)), rows()))
-    host.handle('addLater', (_ctx, page) => homeData().addLater((page ?? {}) as { url: unknown; title: unknown }))
-    host.handle('laterDone', (_ctx, id, done) => homeData().setLaterDone(id, done))
-    host.handle('removeLater', (_ctx, id) => homeData().removeLater(id))
+    // 「⋯ › 稍后再看」：放进 BookmarkKeeper 新标签页自己的「Saved for later」
+    const page = (p: unknown) => {
+      const x = (p ?? {}) as { url?: unknown; title?: unknown }
+      if (typeof x.url !== 'string' || !/^https?:/.test(x.url)) throw new Error('只有网页能稍后再看')
+      return { url: x.url, title: typeof x.title === 'string' ? x.title : x.url }
+    }
+    host.handle('laterHas', (_ctx, p) => laterHas(page(p).url))
+    host.handle('laterToggle', (_ctx, p) => laterToggle(page(p)))
 
     /** 有 id 改那一个；没有 id 按网址收藏（网址已经有了就改那一个） */
     host.handle('save', (_ctx, arg) => {

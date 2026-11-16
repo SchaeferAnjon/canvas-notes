@@ -35,6 +35,8 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     delta(`令牌 ${process.env.CN_MCP_TOKEN ? '在环境变量里' : '没有'}；`)
     delta(`我们的工具 ${mcp.action}；它自己改文件 ${patch.decision}；`)
     delta(`系统提示 ${instructions}`)
+    const imgs = m.params.input.filter((i) => i.type === 'localImage')
+    if (imgs.length) delta(`；图 ${imgs.map((i) => i.path).join(',')}`)
     // 别的线程的字不该混进来
     send({ method: 'item/agentMessage/delta', params: { threadId: 'other', turnId: 'x', itemId: 'x', delta: '串了' } })
     send({ method: 'turn/completed', params: { threadId, turn: { id: 'u1', status: 'completed' } } })

@@ -1,16 +1,17 @@
-import { Icon } from '@cn/design'
-import { Globe } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import type { ReactNode } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
 import { when } from './ListView'
 import { imageSrc } from './md-widgets'
+import { parseMoment, parseVideoCard, videoOf } from '../shared/video'
+import { MomentCard, VideoCard } from './video/BoardCards'
 
 /**
  * 卡片里的 md 显示成什么样。只认卡片里常见的写法，全部走 React 元素（不拼 HTML）。
  */
 
-export type CardKind = 'note' | 'clip' | 'todo' | 'color' | 'image' | 'board' | 'doc' | 'link'
+export type CardKind = 'note' | 'clip' | 'todo' | 'color' | 'image' | 'board' | 'doc' | 'link' | 'video' | 'moment'
 
 export interface CardInfo {
   kind: CardKind
@@ -30,6 +31,9 @@ const URL_ONLY = /^(?:\[([^\]]+)\]\()?(https?:\/\/[^\s)]+)\)?$/
 export function classify(text: string, notes: NoteFile[]): CardInfo {
   const lines = text.split('\n').filter((l) => l.trim() !== '')
   const one = lines.length === 1 ? lines[0]!.trim() : null
+  // 视频：时刻卡（<!-- moment --> 开头）、视频卡（封面 + 标题链接 + 频道行，或者光秃秃一个 YouTube / B 站链接）
+  if (parseMoment(text.trim())) return { kind: 'moment' }
+  if (parseVideoCard(text) || (one && URL_ONLY.test(one) && videoOf(URL_ONLY.exec(one)![2]))) return { kind: 'video' }
   // 图片卡：一行图片，可以再跟一行来源（从网页拖来的）
   if (lines.length === 2 && IMAGE.test(lines[0]!.trim())) {
     const src = SOURCE.exec(lines[1]!.trim())
@@ -68,10 +72,16 @@ export function CardBody(props: {
   notes: NoteFile[]
   /** 卡片所在的笔记：图片的相对路径从它算起 */
   notePath?: string
+  /** 视频卡底下那行：白板上这个视频有几个时刻、问过几次 */
+  videoStats?: { moments: number; asked: number }
+  /** 时刻卡：列里第二张起是小的 */
+  small?: boolean
   onToggle(line: number): void
 }) {
   const { text, info } = props
   const lines = text.split('\n')
+  if (info.kind === 'video') return <VideoCard text={text} notePath={props.notePath ?? ''} stats={props.videoStats} />
+  if (info.kind === 'moment') return <MomentCard text={text} notePath={props.notePath ?? ''} small={!!props.small} />
 
   if (info.kind === 'color') {
     const m = COLOR.exec(text.trim())!
@@ -93,7 +103,7 @@ export function CardBody(props: {
         {m[1] && <figcaption>{m[1]}</figcaption>}
         {info.source && (
           <div className="src">
-            <span className="fav"><Icon of={Globe} size={12} /></span>
+            <span className="fav"><Codicon name="globe" size={12} /></span>
             <span className="truncate">{info.source.title}</span>
           </div>
         )}
@@ -124,7 +134,7 @@ export function CardBody(props: {
         <div className="src">
           {n.source && (
             <span className="fav">
-              <Icon of={Globe} size={12} />
+              <Codicon name="globe" size={12} />
             </span>
           )}
           <span className="truncate">{n.source ? domainOf(n.source) : n.path}</span>
@@ -170,7 +180,7 @@ export function CardBody(props: {
       <>
         <div className="q">{paragraphs(quote)}</div>
         <div className="src">
-          <span className="fav"><Icon of={Globe} size={12} /></span>
+          <span className="fav"><Codicon name="globe" size={12} /></span>
           <span className="truncate">{domainOf(info.source!.url)}</span>
         </div>
       </>
@@ -219,6 +229,8 @@ export function inline(s: string, keyBase: string | number = ''): ReactNode[] {
     else if (t.startsWith('**')) out.push(<b key={key}>{t.slice(2, -2)}</b>)
     else if (t.startsWith('`')) out.push(<code key={key}>{t.slice(1, -1)}</code>)
     else if (t.startsWith('[[')) out.push(<span key={key} className="wl">{t.slice(2, -2).split('|').pop()}</span>)
+    // 读 PDF 时 AI 回答里的「[第 4 页](#page=4)」：点了 PDF 翻过去（右栏 AI 接住点击）
+    else if (/\]\(#page=\d+\)$/.test(t)) out.push(<a key={key} className="pg" data-page={/#page=(\d+)/.exec(t)![1]}>{t.slice(1, t.indexOf(']'))}</a>)
     else if (t.startsWith('[')) out.push(<u key={key}>{t.slice(1, t.indexOf(']'))}</u>)
     else out.push(<i key={key}>{t.slice(1, -1)}</i>)
     last = m.index! + t.length

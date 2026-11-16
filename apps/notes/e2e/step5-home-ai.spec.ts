@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { launch, pane, rail, waitSaved } from './app'
+import { launch, pane, rail, waitSaved, tabOn, railItems, openInboxTab, leftView } from './app'
 import { ICELAND, LODGING } from './fixtures/board'
 
 const ai = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
@@ -26,7 +26,7 @@ test('首页：这周攒下几样、本周积累和收件箱组件、积累墙�
   mkdirSync(join(vault, '收件箱'))
   writeFileSync(join(vault, '收件箱', '冰洞.md'), '---\ncreated: 2026-11-14 21:10\nsource: https://safetravel.is/ice\n---\n> 冰洞\n')
   try {
-    await expect(pane(page).locator('.tool h1')).toHaveText('首页')
+    await expect(tabOn(page)).toHaveText('首页')
     await expect(page.locator('.hello .lead')).toContainText('这周攒下了 2 样东西')
     const week = page.getByTestId('home-stats')
     await expect(week.locator('div')).toHaveText(['2篇自己写的', '0段剪来的'])
@@ -126,7 +126,7 @@ test('AI：/写成文章 新建一篇草稿，左栏「我写的」多一篇标�
     expect(readFileSync(draft, 'utf8')).toMatch(/^---\ndraft: true\nfrom: "\[\[冰岛自驾\]\]"\n---\n# 冰岛自驾\n/)
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾：文章草稿' })).toContainText('草稿')
     await msg.getByRole('button', { name: '打开' }).click()
-    await expect(pane(page).locator('.tool h1')).toHaveText('冰岛自驾：文章草稿')
+    await expect(tabOn(page)).toHaveText('冰岛自驾：文章草稿')
     expect(lastSubject(vault)).toBe('AI：按「冰岛自驾」写成文章草稿')
     expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(ICELAND)
   } finally {
@@ -143,7 +143,7 @@ test('AI：/整理收件箱 列出要挪去的主题，点同意一次挪好、�
   execFileSync('git', ['-C', vault, 'add', '-A'])
   execFileSync('git', ['-C', vault, 'commit', '-qm', '收件箱'])
   try {
-    await page.locator('.nav .si', { hasText: '收件箱' }).click()
+    await openInboxTab(page)
     await openAi(page)
     await expect(page.getByTestId('ai-sees')).toContainText('收件箱 2 条')
     await ai(page).getByRole('button', { name: '/整理收件箱' }).click()
@@ -154,6 +154,7 @@ test('AI：/整理收件箱 列出要挪去的主题，点同意一次挪好、�
     await expect(msg).toContainText('挪好了 2 条')
     expect(existsSync(join(vault, '素材', '旅行', '冰洞.md'))).toBe(true)
     expect(existsSync(join(vault, '收件箱', '冰洞.md'))).toBe(false)
+    await leftView(page, '最近')
     await expect(page.locator('.nav .si', { hasText: '旅行' })).toContainText('2')
     expect(lastSubject(vault)).toBe('AI：整理收件箱：挪了 2 条')
     await msg.getByRole('button', { name: '撤回' }).click()
@@ -190,14 +191,15 @@ test('AI：/翻译 选中的那段；@ 引用笔记加进「看得到」；⌘J 
     await expect(ai(page)).toBeHidden()
     // 右栏开着时再开 AI：还是浮在中间栏右下角，右栏的历史照样开着；顶栏切换里没有 AI
     await rail(page).getByRole('button', { name: '历史' }).click()
-    await expect(rail(page).getByRole('button')).toHaveText(['网页', '梦游', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['大纲', '网页', '历史'])
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toBeVisible()
     await expect(ai(page)).toHaveClass(/floating/)
     await expect(page.getByRole('complementary', { name: '历史' })).toBeVisible()
     const center = (await page.locator('main.center').boundingBox())!
     const panel = (await ai(page).boundingBox())!
-    expect(Math.round(center.x + center.width - (panel.x + panel.width))).toBe(16)
+    // 浮窗右边离中间的岛 12（spec 第 2 节）
+    expect(Math.round(center.x + center.width - (panel.x + panel.width))).toBe(12)
   } finally {
     await run.close()
   }

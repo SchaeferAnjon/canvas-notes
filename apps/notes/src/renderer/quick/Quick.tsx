@@ -1,8 +1,7 @@
-import { Icon } from '@cn/design'
-import { Globe, Inbox, ShieldCheck } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { QuickApi, QuickContext } from '../../shared/quick'
-import { applySkin } from '../skin'
+import { applySkin, installThemeCss } from '../skin'
 
 declare global {
   interface Window {
@@ -30,7 +29,10 @@ export function Quick() {
   useEffect(
     () =>
       window.quick.onContext((c) => {
-        applySkin(c.skin ?? 'fam-light', null)
+        if (c.skin) {
+          installThemeCss(c.skin.css ?? '')
+          applySkin(c.skin.info)
+        }
         setCtx(c)
         setText('')
         setError(null)
@@ -65,7 +67,7 @@ export function Quick() {
   return (
     <div className="qk" ref={card} role="dialog" aria-label="速记">
       <div className="qk-k">
-        <Icon of={Inbox} size={14} />
+        <Codicon name="inbox" size={14} />
         速记 · 回车进收件箱
       </div>
       <textarea
@@ -92,14 +94,14 @@ export function Quick() {
         <div className="qk-sel" data-testid="quick-selection">
           <div className="q">{ctx.selection}</div>
           <div className="src">
-            <Icon of={Globe} size={12} />
+            <Codicon name="globe" size={12} />
             <span className="truncate">{ctx.url ? `${ctx.title || host(ctx.url)} · ${host(ctx.url)}` : `来自 ${ctx.app ?? '前台软件'}`}</span>
           </div>
         </div>
       )}
       {!ctx.trusted && ctx.hint && (
         <div className="qk-hint" data-testid="quick-hint">
-          <Icon of={ShieldCheck} size={14} />
+          <Codicon name="workspace-trusted" size={14} />
           <span>允许「辅助功能」后，按 ⌥⌘N 时选中的字和来源会一起带上来</span>
           <button className="btn btn-sm" onClick={() => void window.quick.allow()}>
             去允许

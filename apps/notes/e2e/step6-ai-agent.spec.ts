@@ -4,7 +4,7 @@ import { readFileSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { dirname, join } from 'node:path'
 import electronPath from 'electron'
-import { gitStatus, launch, pane, rail, waitSaved } from './app'
+import { gitStatus, launch, pane, rail, waitSaved, tabOn, railItems } from './app'
 import { DREAM_VAULT } from './fixtures/dream'
 
 const ai = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
@@ -55,8 +55,8 @@ test('AI 只在右下角：圆形入口打开浮窗，切引擎记住选择，�
   try {
     // 右边竖条里没有 AI
     await page.locator('.nav .si', { hasText: '随笔' }).click()
-    await expect(rail(page).getByRole('button')).toHaveText(['网页', '梦游', '历史'])
-    const fab = page.locator('main.center').getByRole('button', { name: '打开 AI' })
+    await expect.poll(() => railItems(page)).toEqual(['大纲', '网页', '历史'])
+    const fab = page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' })
     await expect(fab).toBeVisible()
     await fab.click()
     await expect(ai(page)).toBeVisible()
@@ -92,7 +92,7 @@ test('AI 只在右下角：圆形入口打开浮窗，切引擎记住选择，�
     })
     try {
       const p2 = await app.firstWindow()
-      await p2.locator('main.center').getByRole('button', { name: '打开 AI' }).click()
+      await p2.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
       await expect(ai(p2).getByTestId('ai-engine')).toHaveText('Codex')
       await expect(ai(p2).getByTestId('ai-msg')).toHaveText(['这是测试回答（Codex）。'])
       await expect(ai(p2).locator('.um')).toHaveText(['你好'])
@@ -172,7 +172,7 @@ test('网页上让 AI 打开网址并读出标题：右栏自动打开，地址�
   try {
     await page.locator('.nav .si', { hasText: '随笔' }).click()
     await expect(page.getByRole('complementary', { name: '网页' })).toHaveCount(0)
-    await page.locator('main.center').getByRole('button', { name: '打开 AI' }).click()
+    await page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
     const url = `${base}/aurora`
     await send(page, `打开 ${url} 看看标题`)
     const msg = ai(page).getByTestId('ai-msg').last()
@@ -180,7 +180,7 @@ test('网页上让 AI 打开网址并读出标题：右栏自动打开，地址�
     await expect(msg.getByTestId('ai-step')).toHaveText(['打开网页 127.0.0.1', '读网页'])
     const web = page.getByRole('complementary', { name: '网页' })
     await expect(web).toBeVisible()
-    await expect(web.getByRole('textbox', { name: '网址' })).toHaveValue(url)
+    await expect(web.getByRole('textbox', { name: '网址' })).toHaveValue(url.replace(/^http:\/\//, ''))
     // 「看得到」里有这个网页；AI 浮窗还在中间栏右下角
     await expect(page.getByTestId('ai-sees')).toContainText('网页：127.0.0.1')
     await expect(ai(page)).toBeVisible()
@@ -221,7 +221,7 @@ test('/找重复：每一对列出来（两篇能点开、相似度、为什么�
   const run = await launch(DREAM_VAULT, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   try {
-    await page.locator('main.center').getByRole('button', { name: '打开 AI' }).click()
+    await page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
     await send(page, '/找重复')
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg.locator('.txt')).toHaveText('找到 1 对可能重复的，像的在前：')
@@ -232,13 +232,13 @@ test('/找重复：每一对列出来（两篇能点开、相似度、为什么�
     expect(gitStatus(vault)).toBe('')
     await page.screenshot({ path: test.info().outputPath('ai-dups.png') })
     await dup.getByRole('button', { name: '巴黎深度漫游指南' }).click()
-    await expect(pane(page).locator('.tool h1')).toHaveText('巴黎深度漫游指南')
+    await expect(tabOn(page)).toHaveText('巴黎深度漫游指南')
   } finally {
     await run.close()
   }
   const plain = await launch(files, { CN_AI_FAKE: '1' })
   try {
-    await plain.page.locator('main.center').getByRole('button', { name: '打开 AI' }).click()
+    await plain.page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
     await send(plain.page, '/找重复')
     await expect(ai(plain.page).getByTestId('ai-msg').last().locator('.txt')).toHaveText('没找到重复的。')
   } finally {
@@ -250,10 +250,10 @@ test('/现在梦游：跑完说整理了几条、分几组，按钮在右栏打�
   const run = await launch(DREAM_VAULT, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   try {
-    await page.locator('main.center').getByRole('button', { name: '打开 AI' }).click()
+    await page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
     await send(page, '/现在梦游')
     const msg = ai(page).getByTestId('ai-msg').last()
-    await expect(msg.locator('.txt')).toContainText('梦游跑完了：整理了 6 条，分 4 组（收件箱分了类 3 · 补上的双链 1 · 可能重复 1 · 本周小结 1）。改动在 dream/', { timeout: 30_000 })
+    await expect(msg.locator('.txt')).toContainText('梦游跑完了：整理了 6 条，分 4 组（归类和改名 3 · 补上的双链 1 · 可能重复 1 · 本周小结 1）。改动在 dream/', { timeout: 30_000 })
     expect(gitStatus(vault)).toBe('')
     await expect(page.getByRole('complementary', { name: '梦游报告' })).toHaveCount(0)
     await msg.getByRole('button', { name: '打开梦游报告' }).click()

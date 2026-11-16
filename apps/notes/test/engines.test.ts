@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { acpEngine, CLAUDE_MODEL, claudeArgs, claudeEngine, codexEngine, type Engine } from '../src/main/agent/engines'
+import { acpEngine, CLAUDE_MODEL, claudeArgs, claudeEngine, claudeImageMessage, codexEngine, type Engine, type EngineImage } from '../src/main/agent/engines'
 import { type McpServer, startMcpServer } from '../src/main/agent/mcp-server'
 
 const cwd = mkdtempSync(join(tmpdir(), 'cn-engine-'))
@@ -34,6 +34,13 @@ describe('ACP 引擎（Gemini、OpenCode 的接法）', () => {
     expect(again.text).toContain('开头是系统提示 否')
   })
 
+  it('带图：图作为 image 内容块跟在话后面', async () => {
+    const e = acpEngine({ id: 'opencode', command: process.execPath, args: () => [fixture('fake-acp.mjs')], loginHint: '去登录' })
+    opened.push(e)
+    const r = await e.run({ prompt: '讲一下', system: '系统', cwd, images: [{ mime: 'image/png', data: 'QUJD', path: '/x.png' }], signal: new AbortController().signal, onText: () => undefined })
+    expect(r.text).toContain('；图 image/png:QUJD')
+  })
+
   it('没登录时说清楚怎么登录', async () => {
     const e = acpEngine({ id: 'gemini', command: process.execPath, args: () => [fixture('fake-acp.mjs')], env: () => ({ FAKE_ACP_NO_LOGIN: '1' }), loginHint: 'Gemini 还没登录：在终端里运行一次 gemini' })
     opened.push(e)
@@ -52,6 +59,13 @@ describe('Codex 引擎（app-server）', () => {
     expect(r.deltas).not.toContain('串了')
     expect(r.session).toBe('th1')
     expect((await turn(e, 'th1')).session).toBe('th1')
+  })
+
+  it('带图：Codex 只认本机文件，给 localImage 和路径', async () => {
+    const e = codexEngine(process.execPath, [fixture('fake-codex.mjs')])
+    opened.push(e)
+    const r = await e.run({ prompt: '讲一下', system: '系统', cwd, images: [{ mime: 'image/png', data: 'QUJD', path: '/tmp/p5-1.png' }], signal: new AbortController().signal, onText: () => undefined })
+    expect(r.text).toContain('；图 /tmp/p5-1.png')
   })
 })
 
@@ -75,7 +89,7 @@ describe('Claude Code 引擎（claude -p 命令行）', () => {
   const claude = (env: Record<string, string> = {}) => {
     const e = claudeEngine(process.execPath, [fixture('fake-claude.mjs')])
     return {
-      async run(o: { session?: string; history?: string; tools?: boolean; prompt?: string; signal?: AbortSignal } = {}) {
+      async run(o: { session?: string; history?: string; tools?: boolean; prompt?: string; signal?: AbortSignal; images?: EngineImage[]; keepSession?: boolean } = {}) {
         const saved = { ...process.env }
         Object.assign(process.env, env)
         const deltas: string[] = []
@@ -87,6 +101,8 @@ describe('Claude Code 引擎（claude -p 命令行）', () => {
             mcp: o.tools === false ? undefined : { url: server.url, token: server.token, tools: ['board_list', 'board_add_card'] },
             session: o.session,
             history: o.history,
+            images: o.images,
+            keepSession: o.keepSession,
             signal: o.signal ?? new AbortController().signal,
             onText: (d) => deltas.push(d),
           })
@@ -141,6 +157,40 @@ describe('Claude Code 引擎（claude -p 命令行）', () => {
     // 翻译这类快活换便宜的模型（askFast 给 model）
     const fast = claudeArgs({ system: 's', model: 'haiku' })
     expect(fast.slice(fast.indexOf('--model'), fast.indexOf('--model') + 2)).toEqual(['--model', 'haiku'])
+  })
+
+  it('让 Claude 帮我找：只给只读的 Read、Glob、Grep，不接 MCP、不留会话，每调一次工具报一声', async () => {
+    const tools: [string, Record<string, unknown>][] = []
+    const exe = process.execPath
+    const r = await claudeEngine(exe, [join(__dirname, 'fixtures/fake-claude.mjs')]).run({
+      prompt: '找矩阵',
+      system: 's',
+      cwd: tmpdir(),
+      readOnly: true,
+      signal: new AbortController().signal,
+      onText: () => undefined,
+      onTool: (n, i) => tools.push([n, i]),
+    })
+    expect(tools.map((t) => t[0])).toEqual(['Grep', 'Read'])
+    expect(tools[0]![1]).toEqual({ pattern: '矩阵' })
+    expect(r.text).toContain('放行 Read,Glob,Grep；工具「Read,Glob,Grep」；轮数 30；不留记录 是；')
+    expect(r.text).toContain('禁止 Bash,Edit,Write')
+    const args = claudeArgs({ system: 's', readOnly: true })
+    expect(args).not.toContain('--mcp-config')
+  })
+
+  it('读 PDF 框的那块：话和图一起作为 stream-json 的一条用户消息给；不给工具也留着会话好追问', async () => {
+    const png = Buffer.from('fake-png').toString('base64')
+    const r = await claude().run({ tools: false, keepSession: true, prompt: '给我讲解一下', images: [{ mime: 'image/png', data: png, path: '/tmp/x.png' }] })
+    expect(r.text).toContain('不留记录 否；')
+    expect(r.text).toContain(`话 给我讲解一下【图 image/png:${png.length}】；`)
+    expect(claudeArgs({ system: 's', images: [{ mime: 'image/png', data: png, path: '/x' }] })).toContain('--input-format')
+    expect(claudeArgs({ system: 's' })).not.toContain('--input-format')
+    expect(JSON.parse(claudeImageMessage('问', [{ mime: 'image/png', data: 'AAA', path: '/x' }]))).toEqual({
+      type: 'user',
+      message: { role: 'user', content: [{ type: 'text', text: '问' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAA' } }] },
+      parent_tool_use_id: null,
+    })
   })
 
   it('没有边生成边给的字时，把结果整段给出去', async () => {

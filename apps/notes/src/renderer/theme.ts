@@ -1,12 +1,13 @@
-/** 把设置里的外观套到窗口上：<html data-skin data-tone data-winbg>，跟着系统浅深和设置变化 */
-import { useEffect, useState } from 'react'
-import { activeSkin, type AppSettings, DEFAULT_SETTINGS } from '../shared/appearance'
+/** 把设置里的外观套到窗口上：<html data-skin data-tone data-tabmark data-winbg>，跟着系统浅深和设置变化 */
+import { useEffect, useState, useSyncExternalStore } from 'react'
+import { activeSkin, type AppSettings, DEFAULT_SETTINGS, type SkinInfo, skinOf } from '../shared/appearance'
+import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { WINBG_PHOTOS } from './covers'
-import { applySkin } from './skin'
+import { applySkin, installThemeCss } from './skin'
 
 const media = () => window.matchMedia('(prefers-color-scheme: dark)')
 
-/** 窗口背景照片的地址：自带的两张或者自己选的（存在设置目录 backgrounds/ 里） */
+/** 窗口背景照片的地址：自带的两张或者自己选的（存在设置目录 backgrounds/ 里）；「不用图」是 null */
 export function winBgUrl(s: AppSettings): string | null {
   const a = s.appearance
   if (a.winBg === 'custom' && a.winBgFile) return `cn-file://app/backgrounds/${encodeURIComponent(a.winBgFile)}`
@@ -14,10 +15,28 @@ export function winBgUrl(s: AppSettings): string | null {
   return null
 }
 
+// ---------- 导入的 VS Code 主题：整个窗口一份，外观页导入、删掉后重读 ----------
+let userThemes: ThemeFile[] | null = null
+const subs = new Set<() => void>()
+export async function reloadUserThemes() {
+  userThemes = await window.cn.themes()
+  installThemeCss(userThemes.map(themeCss).join('\n'))
+  subs.forEach((f) => f())
+}
+const subscribe = (f: () => void) => {
+  subs.add(f)
+  if (userThemes === null) void reloadUserThemes()
+  return () => subs.delete(f)
+}
+/** 导入的主题；还没读到时是 null */
+export const useUserThemes = (): ThemeFile[] | null => useSyncExternalStore(subscribe, () => userThemes)
+export const userSkinInfos = (list: ThemeFile[] | null): SkinInfo[] => (list ?? []).map(themeInfo)
+
 /** 软件设置（外观、自动提交间隔），改了马上套上。只在主窗口的 Desk 里用一次，设置页从这里拿 */
 export function useAppSettings(): [AppSettings, (p: Parameters<typeof window.cn.setSettings>[0]) => Promise<AppSettings>, boolean] {
   const [s, setS] = useState<AppSettings>(DEFAULT_SETTINGS)
   const [dark, setDark] = useState(() => media().matches)
+  const user = useUserThemes()
   useEffect(() => {
     void window.cn.settings().then(setS)
     const m = media()
@@ -25,7 +44,11 @@ export function useAppSettings(): [AppSettings, (p: Parameters<typeof window.cn.
     m.addEventListener('change', h)
     return () => m.removeEventListener('change', h)
   }, [])
-  useEffect(() => applySkin(activeSkin(s.appearance, dark), winBgUrl(s)), [s, dark])
+  useEffect(() => {
+    // 导入的主题读到之前先不套（不然选的是导入主题时会先闪一下薄荷）
+    if (user === null) return
+    applySkin(skinOf(activeSkin(s.appearance, dark), userSkinInfos(user)), s.appearance.frame, winBgUrl(s))
+  }, [s, dark, user])
   const set = async (p: Parameters<typeof window.cn.setSettings>[0]) => {
     const next = await window.cn.setSettings(p)
     setS(next)

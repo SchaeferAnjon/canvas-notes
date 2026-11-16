@@ -27,8 +27,13 @@ export function previewOf(text: string, max = 140): string {
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^>\s?/gm, '')
+    // 勾选清单、列表、表格、代码块的记号（导进来的备忘录里很多）
+    .replace(/^\s*[-*+]\s+(\[[ xX]\]\s+)?/gm, '')
+    .replace(/^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*$/gm, '')
+    .replace(/^```.*$/gm, '')
     .replace(/\[\[([^\]|]+)(\|[^\]]+)?\]\]/g, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\s*\|\s*/g, ' ')
     .replace(/[*_`]/g, '')
     .replace(/\s+/g, ' ')
     .trim()

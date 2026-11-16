@@ -1,0 +1,379 @@
+/*
+ * 双语对照读（design/pdf spec 2.2–2.4）：工具栏三段、双语工具条、并排的译文栏、重排 / 只看译文、术语表小卡。
+ * 变量只用 DESIGN.md 里的；字号档 11/12/13/14/15。
+ */
+
+/* 工具栏里的「原文 / 对照 / 只看译文」 */
+.pdfpane .seg.biseg button {
+  padding: 0 10px;
+}
+
+/* 双语工具条：40 高，吸在页面区顶上 */
+.bibar {
+  flex: none;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--win);
+  font-size: 12px;
+  color: var(--t2);
+  min-width: 0;
+}
+.bibar .tl {
+  flex: none;
+  color: var(--t2);
+}
+.bibar .seg {
+  height: 24px;
+}
+.bibar .seg button {
+  padding: 0 10px;
+}
+.bibar .sp {
+  flex: 1;
+}
+/* 窄的时候先截断这一段 */
+.bibar .tier {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 11px;
+  color: var(--t3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.bibar .btn {
+  flex: none;
+  font-size: 12px;
+}
+.bigloss {
+  position: relative;
+  flex: none;
+}
+.glosspop {
+  position: absolute;
+  right: 0;
+  top: 32px;
+  z-index: 40;
+  width: 280px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  padding: 6px 0 0;
+  animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.glosspop .gl-list {
+  max-height: 300px;
+  overflow: auto;
+  padding: 0 6px;
+}
+.glosspop .gl-row {
+  height: 26px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.glosspop .gl-row:hover {
+  background: var(--fill);
+}
+.glosspop .gl-row .s {
+  color: var(--t2);
+}
+.glosspop .gl-row .d {
+  color: var(--t1);
+}
+.glosspop .gl-empty {
+  margin: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.glosspop .gl-foot {
+  margin-top: 6px;
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--t3);
+}
+.glosspop .lnk {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--acc-t);
+}
+
+/* ---------- 并排：每页一行，左原页、右这页的译文，上沿对齐 ---------- */
+.pdfpane .pdfrow {
+  position: relative;
+  flex: none;
+}
+.pdfpane .birow {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 60px;
+  width: 100%;
+}
+.pdfpane .pdfv.side {
+  align-items: stretch;
+}
+.pdfpane .bicol {
+  flex: 1;
+  min-width: 0;
+  max-width: 560px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+  cursor: default;
+}
+.pdfpane .bicol .sb {
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--t1);
+  transition: background 0.12s;
+}
+.pdfpane .bicol .sb.h {
+  font-weight: 600;
+}
+.pdfpane .bicol .sb.on {
+  background: var(--acc-soft);
+}
+.pdfpane .bicol .sb.err {
+  color: var(--t3);
+  font-size: 12px;
+}
+.pdfpane .bicol .skip {
+  margin: 0;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.pdfpane .fr.hl {
+  background: var(--acc-soft);
+  border-radius: 3px;
+}
+/* 还没翻回来的：两条淡灰的占位线 */
+.pdfpane .bicol .wait,
+.reflow .t.wait i {
+  display: block;
+  height: 10px;
+  margin: 7px 0;
+  border-radius: 999px;
+  background: var(--fill2);
+  animation: bi-wait 1.4s ease-in-out infinite;
+}
+.pdfpane .bicol .wait {
+  width: 70%;
+}
+.reflow .t.wait i:last-child {
+  width: 55%;
+}
+@keyframes bi-wait {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---------- 重排 / 只看译文：版心 720 居中，--win 底 ---------- */
+.reflow {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  background: var(--win);
+  padding: 8px 32px 120px;
+  outline: none;
+}
+.reflow .fgrp {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 28px 0 24px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 10px;
+}
+.reflow .fgrp.flash {
+  animation: pdf-flash 1.9s ease-out forwards;
+}
+.reflow .fh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.reflow .fh .pgc {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.reflow .fh .pgc:hover {
+  color: var(--t1);
+  background: var(--fill2);
+}
+.reflow .fh .mk {
+  position: static;
+  transform: none;
+}
+.reflow .fload {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.reflow .fb {
+  position: relative;
+  margin: 0 -10px 14px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  transition: background 0.12s;
+}
+.reflow .fb:hover {
+  background: var(--fill);
+}
+.reflow .fb.staged {
+  background: var(--acc-soft);
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+.reflow .fb .o {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.reflow .fb .t {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--t1);
+}
+.reflow .fb .t.re {
+  opacity: 0.55;
+}
+.reflow .fb .t.err {
+  font-size: 12px;
+  color: var(--t3);
+}
+.reflow .fb.heading .o {
+  font-weight: 500;
+}
+.reflow .fb.heading .t {
+  font-size: 15px;
+  font-weight: 600;
+}
+.reflow.tronly .fb .o {
+  padding-left: 10px;
+  border-left: 2px solid var(--line2);
+}
+/* 段落悬停：右上一排小按钮 */
+.reflow .fbact {
+  position: absolute;
+  top: -12px;
+  right: 8px;
+  display: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line2), var(--shadow);
+}
+.reflow .fb:hover .fbact,
+.reflow .fb:focus-within .fbact {
+  display: flex;
+}
+.reflow .fbact button {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.reflow .fbact button:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.reflow .fbact button.on {
+  color: var(--acc-t);
+}
+/* 公式和图：照原页裁下来；网页里的代码、表格原样放着 */
+.reflow .fc .fci.raw {
+  background: var(--fill);
+  filter: none;
+}
+.reflow .fc .fci pre {
+  margin: 0;
+  max-height: 320px;
+  overflow: auto;
+  font: 12px/1.6 ui-monospace, monospace;
+  color: var(--t1);
+  white-space: pre-wrap;
+}
+.reflow .fc {
+  margin: 0 0 14px;
+}
+.reflow .fc .fci {
+  display: inline-block;
+  max-width: 100%;
+  padding: 6px;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line2);
+}
+[data-tone='dark'] .reflow .fc .fci {
+  filter: brightness(0.92);
+}
+.reflow .fc img {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+}
+.reflow .fc.formula img {
+  max-height: 160px;
+}
+.reflow .fc .ph {
+  display: block;
+  width: 240px;
+  height: 60px;
+}
+.reflow .fc figcaption {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--t3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .reflow .fgrp.flash,
+  .pdfpane .bicol .wait,
+  .reflow .t.wait i {
+    animation: none;
+  }
+}

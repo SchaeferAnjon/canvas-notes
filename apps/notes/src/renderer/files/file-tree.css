@@ -1,0 +1,46 @@
+/* 左栏「文件」页的目录树（设计 design/pdf/ §1.8：分段 28 高占满宽，右边 28 × 28「按名字跳 ⌘O」；树的行 28 高，每层缩进 16） */
+
+
+/* 「全部文件」时，切换下面原来那套（置顶、白板、这周动过的、素材）和底部全部笔记 / 归档都让给目录树 */
+.side.tree-mode .side.tree-mode .sall {
+  display: none;
+}
+
+.ftree {
+  padding-bottom: 8px;
+}
+.ftree .ft-row {
+  height: 28px;
+  gap: 8px;
+  padding-right: 8px;
+  cursor: default;
+  user-select: none;
+}
+.ftree .ft-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--acc-ring);
+}
+.ftree .ft-tw {
+  width: 12px;
+  flex: none;
+  display: inline-flex;
+  margin-right: -2px;
+  color: var(--t3);
+}
+.ftree .ft-tw > svg {
+  color: inherit;
+}
+.ftree .ft-meta {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  font: 11px var(--mono);
+  color: var(--t3);
+}
+.ftree .ft-meta .done {
+  color: var(--green);
+}
+.ftree .ft-more {
+  height: 26px;
+}

@@ -2,19 +2,19 @@
  * 界面这边的内置插件表，和网页面板、⌘F、插件面板、设置页的接头。
  * 加一个内置插件：在 PLUGINS 里加一行（主进程那半加到 main/plugins/index.ts）。
  */
-import { Icon } from '@cn/design'
-import { Puzzle, Settings as SettingsIcon } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import { PERMISSION_LABEL, type PluginInfo } from '../../shared/plugins'
-import type { CSSProperties, ReactNode } from 'react'
+import type { CSSProperties } from 'react'
 import type { PaletteCommand } from '../Palette'
 import { Toggle } from '../Settings'
 import { bookmarks } from './bookmarks'
 import { errText, setPluginEnabled, setPluginSettings, usePlugins, webHost } from './host'
 import { translate } from './translate'
-import type { NewTabProps, RendererPlugin, WebPage } from './types'
+import { weread } from './weread'
+import type { RendererPlugin, WebPage } from './types'
 import './plugins.css'
 
-export const PLUGINS: RendererPlugin[] = [translate, bookmarks]
+export const PLUGINS: RendererPlugin[] = [translate, bookmarks, weread]
 
 const byId = (id: string) => PLUGINS.find((p) => p.id === id)
 
@@ -42,7 +42,7 @@ function PluginButton({ p, page, open, onPopup, small }: { p: RendererPlugin; pa
       title={look.title}
       onClick={() => (p.button!.click ? p.button!.click(page) : onPopup(open ? null : p.id))}
     >
-      <Icon of={look.icon} size={small ? 13 : 15} />
+      <Codicon name={look.icon} size={small ? 13 : 15} />
     </button>
   )
   return small ? btn : <span className="imp plug-btn">{btn}</span>
@@ -53,23 +53,20 @@ export function usePluginOn(id: string): boolean {
   return useOn().some((p) => p.id === id)
 }
 
-/** 新开的网页标签那一页：开着的插件里第一个有 NewTab 的；都没有就用 fallback */
-export function PluginNewTab(props: NewTabProps & { fallback: ReactNode }) {
-  const p = useOn().find((x) => x.NewTab)
-  if (!p?.NewTab) return <>{props.fallback}</>
-  const { fallback: _, ...rest } = props
-  return <p.NewTab {...rest} />
-}
-
 /** 开着的内置插件的按钮：slot 是 address 的画在地址栏里（小圆按钮），toolbar 的画在地址栏右边 */
 export function PluginButtons(props: { slot: 'address' | 'toolbar'; page: WebPage | null; popup: string | null; onPopup(id: string | null): void }) {
   return (
     <>
       {useOn()
         .filter((p) => p.button && (p.button.slot ?? 'toolbar') === props.slot)
-        .map((p) => (
-          <PluginButton key={p.id} p={p} page={props.page} open={props.popup === p.id} onPopup={props.onPopup} small={props.slot === 'address'} />
-        ))}
+        .map((p) => {
+          const Control = p.button!.Control
+          return Control ? (
+            <Control key={p.id} page={props.page} open={props.popup === p.id} onPopup={props.onPopup} />
+          ) : (
+            <PluginButton key={p.id} p={p} page={props.page} open={props.popup === p.id} onPopup={props.onPopup} small={props.slot === 'address'} />
+          )
+        })}
     </>
   )
 }
@@ -112,7 +109,7 @@ export function BuiltinPlugins(props: { onNotice(t: string): void; onSettings():
         return (
           <div key={i.id} className="wrow plug-row" role="listitem" aria-label={i.name}>
             <span className="plug-ic">
-              <Icon of={p?.icon ?? Puzzle} size={15} />
+              <Codicon name={p?.icon ?? 'extensions'} size={15} />
             </span>
             <div className="wmain">
               <b className="truncate">{i.name}</b>
@@ -121,7 +118,7 @@ export function BuiltinPlugins(props: { onNotice(t: string): void; onSettings():
             </div>
             {p?.Settings && (
               <button className="iconbtn" aria-label={`${i.name} 设置`} title="设置" onClick={props.onSettings}>
-                <Icon of={SettingsIcon} size={13} />
+                <Codicon name="settings-gear" size={13} />
               </button>
             )}
             <Toggle on={i.enabled} label={`启用 ${i.name}`} onChange={(v) => void setPluginEnabled(i.id, v).catch((e) => props.onNotice(errText(e)))} />

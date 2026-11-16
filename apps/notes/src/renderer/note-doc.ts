@@ -6,7 +6,10 @@ import { reconcile, textChanges } from '@cn/format'
 import type { OpenedNote } from '../shared/api'
 import { docEditing } from './doc-editing'
 import { livePreview } from './live-preview'
+import { propsBlock } from './mindmap/props-block'
 import { docImageDrop } from './web/doc-image-drop'
+import { videoDocWidgets } from './video/doc-widgets'
+import { materialFold } from './video/material-fold'
 
 export type SaveState = 'saved' | 'dirty' | 'saving'
 
@@ -83,7 +86,7 @@ export class NoteDoc {
     this.readOnly = note.readOnly
     this.base = note.text
     NoteDoc.open.add(this)
-    this.docMode = [livePreview, docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) })]
+    this.docMode = [livePreview, propsBlock, videoDocWidgets, materialFold, docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) })]
     this.view = new EditorView({
       parent,
       state: EditorState.create({

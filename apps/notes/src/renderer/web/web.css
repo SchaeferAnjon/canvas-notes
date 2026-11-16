@@ -47,8 +47,10 @@
   outline: none;
 }
 
-/* 地址栏里的小圆按钮：双语翻译、星星（这一页的开关，开着时一眼看得到） */
+/* 地址栏：只留双语翻译（图标 + 小箭头）；书签星号在「⋯」里。网址框至少 160 宽 */
 .right.web .addr {
+  flex: 1;
+  min-width: 160px;
   padding: 0 4px 0 10px;
   margin: 0 4px;
 }
@@ -83,15 +85,8 @@
   background: var(--acc-soft);
   color: var(--acc);
 }
-.addr .star.on {
-  background: none;
-}
-.addr .star.on svg,
 .addr .abtn.filled svg {
   fill: currentColor;
-}
-.addr .star.open {
-  background: var(--fill2);
 }
 .rhead .iconbtn.on {
   background: var(--fill2);
@@ -523,6 +518,9 @@
   flex: 1;
   font-size: 13px;
   color: var(--t1);
+}
+.imp .menu.wmore [aria-checked='true'] svg {
+  color: var(--acc);
 }
 .imp .menu.wmore kbd {
   font: 11px var(--mono);

@@ -1,28 +1,31 @@
-import { Icon } from '@cn/design'
-import { Bot, Check, CircleArrowUp, FolderOpen, GitBranch, Home, Image as ImageIcon, Keyboard, Library, Palette, Plus, Puzzle, RefreshCw, X } from 'lucide-react'
+import { Codicon, type CodiconName } from '@cn/design'
 import { useEffect, useState } from 'react'
 import type { VaultInfo } from '../shared/api'
 import type { EngineInfo } from '../shared/agent'
-import { activeSkin, type AppSettings, AUTO_COMMIT_CHOICES, autoCommitLabel, pickSkin, setFollowSystem, SKINS, type SkinId, type WinBg } from '../shared/appearance'
+import { activeSkin, allSkins, type AppSettings, AUTO_COMMIT_CHOICES, autoCommitLabel, pickSkin, setFollowSystem, type SkinInfo, SKINS, type WinBg } from '../shared/appearance'
 import { ARCHIVE_CHOICES, archiveLabel, type ArchiveDays } from '../shared/sidebar'
 import { COVER_GRADIENTS, COVER_PHOTOS, hideWidget, showWidget, WIDGETS, type Cover } from '../shared/home'
-import { COVERS, coverImage, GRADIENTS, WINBG_THUMBS } from './covers'
+import { COVERS, coverImage, WINBG_THUMBS } from './covers'
+import { reloadUserThemes, userSkinInfos, useUserThemes } from './theme'
 import { saveHome, useHomeConfig } from './home-store'
+import { openImport } from './importer/store'
 import { PluginsSettings } from './plugins'
+import { VideoKeys } from './video/VideoKeys'
+import { EngineLogo } from './engine-logo'
 import './settings.css'
 import { UpdatePage } from './update'
 
 export type SettingsPage = 'look' | 'home' | 'vault' | 'ai' | 'plugins' | 'git' | 'keys' | 'update'
 
-const PAGES: { id: SettingsPage; name: string; icon: typeof Palette }[] = [
-  { id: 'look', name: '外观', icon: Palette },
-  { id: 'home', name: '首页', icon: Home },
-  { id: 'vault', name: '库', icon: Library },
-  { id: 'ai', name: 'AI', icon: Bot },
-  { id: 'plugins', name: '插件', icon: Puzzle },
-  { id: 'git', name: 'Git 和同步', icon: GitBranch },
-  { id: 'keys', name: '快捷键', icon: Keyboard },
-  { id: 'update', name: '更新', icon: CircleArrowUp },
+const PAGES: { id: SettingsPage; name: string; icon: CodiconName }[] = [
+  { id: 'look', name: '外观', icon: 'symbol-color' },
+  { id: 'home', name: '首页', icon: 'home' },
+  { id: 'vault', name: '库', icon: 'library' },
+  { id: 'ai', name: 'AI', icon: 'robot' },
+  { id: 'plugins', name: '插件', icon: 'extensions' },
+  { id: 'git', name: 'Git 和同步', icon: 'git-branch' },
+  { id: 'keys', name: '快捷键', icon: 'record-keys' },
+  { id: 'update', name: '更新', icon: 'arrow-circle-up' },
 ]
 
 type Patch = Parameters<typeof window.cn.setSettings>[0]
@@ -44,8 +47,11 @@ export function Settings(props: {
   updateReady: boolean
   onInstallUpdate(): Promise<void>
   onOpenUrl(url: string): void
+  /** 方向 A：开成中间的一个标签（VS Code 的做法），不是弹窗 */
+  asTab?: boolean
 }) {
   useEffect(() => {
+    if (props.asTab) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault()
@@ -54,24 +60,24 @@ export function Settings(props: {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [props.onClose])
+  }, [props.onClose, props.asTab])
 
   return (
-    <div className="set-back" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
-      <div className="set" role="dialog" aria-label="设置">
+    <div className={props.asTab ? 'pane setpane' : 'set-back'} onMouseDown={(e) => !props.asTab && e.target === e.currentTarget && props.onClose()}>
+      <div className={'set' + (props.asTab ? ' set-tab' : '')} role={props.asTab ? 'region' : 'dialog'} aria-label="设置">
         <nav className="set-nav" aria-label="设置分页">
           <h3>设置</h3>
           {PAGES.map((p) => (
             <button key={p.id} className={'si' + (props.page === p.id ? ' on' : '')} aria-current={props.page === p.id ? 'page' : undefined} onClick={() => props.onPage(p.id)}>
-              <Icon of={p.icon} />
+              <Codicon name={p.icon} />
               {p.name}
               {p.id === 'update' && props.updateReady && <span className="udot nav" aria-label="新版本已下好" />}
             </button>
           ))}
         </nav>
         <div className="set-body">
-          <button className="iconbtn set-x" aria-label="关上设置" title="关上 esc" onClick={props.onClose}>
-            <Icon of={X} size={14} />
+          <button className="iconbtn set-x" hidden={props.asTab} aria-label="关上设置" title="关上 esc" onClick={props.onClose}>
+            <Codicon name="close" size={14} />
           </button>
           {props.page === 'look' && <LookPage {...props} />}
           {props.page === 'home' && <HomePage {...props} />}
@@ -99,22 +105,102 @@ export function Toggle(props: { on: boolean; label: string; onChange(v: boolean)
   return <button className={'sw-toggle' + (props.on ? ' on' : '')} role="switch" aria-checked={props.on} aria-label={props.label} onClick={() => props.onChange(!props.on)} />
 }
 
-/** 一套主题的小窗口预览：用那套主题自己的变量画 */
-function Mini({ skin }: { skin: SkinId }) {
+/** 一套主题的小窗口预览：用那套主题自己的变量画，结构也照它（标题栏、图标栏、侧栏、标签条和当前标签的标记、卡片、底栏） */
+function Mini({ skin }: { skin: SkinInfo }) {
   return (
-    <div className="mini" data-skin={skin}>
-      <div className="ms">
-        <i className="on" />
-        <i />
-        <i />
-        <i />
+    <div className="mini" data-skin={skin.id} data-tabmark={skin.tab} aria-hidden="true">
+      <i className="m-title" />
+      <div className="m-body">
+        <div className="m-bar">
+          <i className="on" />
+          <i />
+          <i />
+        </div>
+        <div className="m-side">
+          <i />
+          <i className="on" />
+          <i />
+          <i />
+        </div>
+        <div className="m-main">
+          <div className="m-tabs">
+            <i className="on" />
+            <i />
+          </div>
+          <div className="m-doc">
+            <em />
+            <s />
+            <s className="short" />
+            <b />
+            <u />
+          </div>
+        </div>
       </div>
-      <div className="mc">
-        <em />
-        <b className="acc" />
-        <b />
-        <u />
-      </div>
+      <i className="m-status" />
+    </div>
+  )
+}
+
+/**
+ * 界面风格 A 的小图：用现在这套主题的颜色，照主题卡的画法画出 VS Code 的样子——
+ * 标题栏、左右图标栏、侧栏、标签条（当前标签的标记）、面包屑、底栏一条
+ */
+function FrameMiniA({ tab }: { tab: SkinInfo['tab'] }) {
+  return (
+    <span className="mini fr-mini-a" data-tabmark={tab} aria-hidden="true">
+      <i className="m-title" />
+      <span className="m-body">
+        <span className="m-bar">
+          <i className="on" />
+          <i />
+          <i />
+        </span>
+        <span className="m-side">
+          <i />
+          <i className="on" />
+          <i />
+          <i />
+        </span>
+        <span className="m-main">
+          <span className="m-tabs">
+            <i className="on" />
+            <i />
+          </span>
+          <span className="m-crumb">
+            <i />
+          </span>
+          <span className="m-doc">
+            <em />
+            <s />
+            <s className="short" />
+          </span>
+        </span>
+        <span className="m-bar m-rbar">
+          <i />
+          <i />
+        </span>
+      </span>
+      <i className="m-status" />
+    </span>
+  )
+}
+
+function SkinCard(props: { skin: SkinInfo; on: boolean; slot: string | null; onPick(): void; onRemove?(): void }) {
+  const s = props.skin
+  return (
+    <div className={'sk' + (props.on ? ' on' : '')}>
+      <button className="sk-pick" role="radio" aria-checked={props.on} aria-label={s.name} aria-description={s.note} data-tip={s.note} data-side="below" data-skin-card={s.id} onClick={props.onPick}>
+        <Mini skin={s} />
+        <span className="nm">
+          <span className="t">{s.name}</span>
+          {props.slot && <em className="slot">{props.slot}</em>}
+        </span>
+      </button>
+      {props.onRemove && (
+        <button className="iconbtn sk-x" aria-label={`删掉 ${s.name}`} data-tip="删掉这套导入的主题" onClick={props.onRemove}>
+          <Codicon name="trash" size={14} />
+        </button>
+      )}
     </div>
   )
 }
@@ -123,32 +209,70 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
   const a = props.settings.appearance
   const now = activeSkin(a, props.systemDark)
   const set = (appearance: Partial<AppSettings['appearance']>) => void props.onChange({ appearance })
-  const deep = now === 'deepsea'
+  const user = userSkinInfos(useUserThemes())
+  const all = allSkins(user)
+  const [importing, setImporting] = useState(false)
   const bgs: { id: WinBg; name: string; bg: string }[] = [
-    { id: 'glow', name: '深海光', bg: GRADIENTS.glow! },
+    { id: 'none', name: '不用图', bg: 'var(--title)' },
     { id: 'aurora', name: '极光照片', bg: `url("${WINBG_THUMBS.aurora}") center/cover` },
     { id: 'cave', name: '冰洞照片', bg: `url("${WINBG_THUMBS.cave}") center/cover` },
   ]
+  const card = (s: SkinInfo) => (
+    <SkinCard
+      key={s.id}
+      skin={s}
+      on={now === s.id}
+      slot={a.followSystem ? (a.day === s.id ? '白天' : a.night === s.id ? '夜里' : null) : null}
+      onPick={() => set(pickSkin(a, s))}
+      onRemove={
+        s.imported
+          ? async () => {
+              const next = await window.cn.removeTheme(s.id)
+              await reloadUserThemes()
+              await props.onChange({ appearance: next.appearance })
+              props.onNotice(`删掉了「${s.name}」`)
+            }
+          : undefined
+      }
+    />
+  )
+  const importTheme = async () => {
+    setImporting(true)
+    try {
+      const r = await window.cn.importTheme()
+      if (!r) return
+      await reloadUserThemes()
+      await props.onChange({ appearance: r.settings.appearance })
+      props.onNotice(r.added.length > 1 ? `导入了 ${r.added.length} 套：${r.added.map((t) => t.name).join('、')}` : `导入了「${r.added[0]!.name}」，已经用上`)
+    } catch (e) {
+      props.onNotice('导入失败：' + String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    } finally {
+      setImporting(false)
+    }
+  }
   return (
     <>
       <h4>
         主题 <span>{a.followSystem ? '跟着系统：点浅色换白天那套，点深色换夜里那套' : '点一张就换'}</span>
       </h4>
-      <div className="skins" role="radiogroup" aria-label="主题">
-        {SKINS.map((s) => {
-          const slot = a.followSystem ? (a.day === s.id ? '白天' : a.night === s.id ? '夜里' : null) : null
-          return (
-            <button key={s.id} className={'sk' + (now === s.id ? ' on' : '')} role="radio" aria-checked={now === s.id} data-skin-card={s.id} onClick={() => set(pickSkin(a, s.id))}>
-              <Mini skin={s.id} />
-              <span className="nm">
-                {s.name}
-                {slot && <em className="slot">{slot}</em>}
-                <span className="tone">{s.tone === 'light' ? '浅色' : '深色'}</span>
-              </span>
-              <span className="ds">{s.note}</span>
-            </button>
-          )
-        })}
+      <div role="radiogroup" aria-label="主题">
+        <div className="skins-h">浅色</div>
+        <div className="skins">{SKINS.filter((s) => s.tone === 'light').map(card)}</div>
+        <div className="skins-h">深色</div>
+        <div className="skins">{SKINS.filter((s) => s.tone === 'dark').map(card)}</div>
+        {user.length > 0 && (
+          <>
+            <div className="skins-h">导入的 VS Code 主题</div>
+            <div className="skins">{user.map(card)}</div>
+          </>
+        )}
+      </div>
+      <div className="pair plain imp-theme">
+        <button className="btn" onClick={() => void importTheme()} disabled={importing}>
+          <Codicon name={importing ? 'loading' : 'add'} size={14} className={importing ? 'spin' : undefined} />
+          导入 VS Code 主题…
+        </button>
+        <span className="note">选 .json 或 .vsix；对不上的颜色按底色和字色算</span>
       </div>
 
       <div className="pair">
@@ -159,22 +283,26 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
             <span className="sp" />
             <label>
               白天用
-              <select aria-label="白天用" value={a.day} onChange={(e) => set({ day: e.target.value as SkinId })}>
-                {SKINS.filter((s) => s.tone === 'light').map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
+              <select aria-label="白天用" value={a.day} onChange={(e) => set({ day: e.target.value })}>
+                {all
+                  .filter((s) => s.tone === 'light')
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
               </select>
             </label>
             <label>
               夜里用
-              <select aria-label="夜里用" value={a.night} onChange={(e) => set({ night: e.target.value as SkinId })}>
-                {SKINS.filter((s) => s.tone === 'dark').map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
+              <select aria-label="夜里用" value={a.night} onChange={(e) => set({ night: e.target.value })}>
+                {all
+                  .filter((s) => s.tone === 'dark')
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
               </select>
             </label>
           </>
@@ -182,16 +310,41 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       </div>
 
       <h4>
-        首页样式 <span>两种都能自己摆组件、换封面</span>
+        界面风格 <span>结构一样，只换样子和几处位置</span>
       </h4>
-      <HomeStylePicker value={a.homeStyle} onChange={(homeStyle) => set({ homeStyle })} />
+      <div className="hstyles frames" role="radiogroup" aria-label="界面风格">
+        {(
+          [
+            ['a', '照 VS Code', '平的、细线分区；标签下有位置；底栏写满，AI 在底栏最右'],
+            ['b', '浮岛书桌', '背景图铺满窗口，三块圆角磨砂面板；AI 是右下角圆按钮'],
+          ] as const
+        ).map(([id, name, note]) => (
+          <button key={id} role="radio" aria-checked={a.frame === id} className={'hs' + (a.frame === id ? ' on' : '')} onClick={() => set({ frame: id })}>
+            {id === 'a' ? (
+              <FrameMiniA tab={(all.find((s) => s.id === now) ?? all[0]!).tab} />
+            ) : (
+              <span className={'fr-pv ' + id} style={{ ['--pv' as string]: coverImage({ kind: 'builtin', id: 'aurora' }, true) }}>
+                <i className="ab" />
+                <i className="sd" />
+                <i className="md" />
+                <i className="sd" />
+                <i className="ab" />
+              </span>
+            )}
+            <span className="nm">
+              {id.toUpperCase()} · {name}
+            </span>
+            <span className="ds">{note}</span>
+          </button>
+        ))}
+      </div>
 
       <h4>
-        窗口背景 <span>{deep ? '照片会压暗到字能看清' : '只有深海蓝用得上'}</span>
+        窗口背景 <span>{a.frame === 'b' ? '浮岛书桌铺满整个窗口，哪套主题都能配；照片会压暗一点' : '换成 B 浮岛书桌时铺满整个窗口；A 照 VS Code 不用'}</span>
       </h4>
-      <div className={'bgs' + (deep ? '' : ' off')} role="radiogroup" aria-label="窗口背景" aria-disabled={!deep}>
+      <div className="bgs" role="radiogroup" aria-label="窗口背景">
         {bgs.map((b) => (
-          <button key={b.id} role="radio" aria-checked={a.winBg === b.id} className={a.winBg === b.id ? 'on' : ''} disabled={!deep} onClick={() => set({ winBg: b.id })}>
+          <button key={b.id} role="radio" aria-checked={a.winBg === b.id} className={a.winBg === b.id ? 'on' : ''} onClick={() => set({ winBg: b.id })}>
             <i style={{ background: b.bg }} />
             {b.name}
           </button>
@@ -200,7 +353,6 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
           role="radio"
           aria-checked={a.winBg === 'custom'}
           className={a.winBg === 'custom' ? 'on' : ''}
-          disabled={!deep}
           onClick={async () => {
             if (a.winBg !== 'custom' || !a.winBgFile) {
               const next = await window.cn.pickWinBg()
@@ -209,24 +361,16 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
           }}
         >
           <i className="up" style={a.winBgFile ? { background: `url("cn-file://app/backgrounds/${encodeURIComponent(a.winBgFile)}") center/cover` } : undefined}>
-            {!a.winBgFile && <Icon of={Plus} size={16} />}
+            {!a.winBgFile && <Codicon name="add" size={16} />}
           </i>
           从电脑选
         </button>
       </div>
 
       <h4>
-        强调色 <span>每套主题里的李子紫，只用在选中和标记上</span>
+        首页样式 <span>两种都能自己摆组件、换封面</span>
       </h4>
-      <div className="accrow">
-        {SKINS.map((s) => (
-          <div key={s.id} data-skin={s.id}>
-            <i style={{ background: 'var(--acc)' }} />
-            {s.name}
-            {s.id === 'fam-light' || s.id === 'fam-dark' ? (s.tone === 'light' ? '浅' : '深') : ''}
-          </div>
-        ))}
-      </div>
+      <HomeStylePicker value={a.homeStyle} onChange={(homeStyle) => set({ homeStyle })} />
     </>
   )
 }
@@ -292,7 +436,7 @@ function HomePage(props: { settings: AppSettings; onChange(p: Patch): Promise<Ap
           }}
         >
           <i className="up" style={cfg.cover.kind === 'file' ? { backgroundImage: coverImage(cfg.cover) } : undefined}>
-            {cfg.cover.kind !== 'file' && <Icon of={ImageIcon} size={16} />}
+            {cfg.cover.kind !== 'file' && <Codicon name="file-media" size={16} />}
           </i>
           从电脑选
         </button>
@@ -316,13 +460,13 @@ function HomePage(props: { settings: AppSettings; onChange(p: Patch): Promise<Ap
   )
 }
 
-function VaultPage(props: { vault: VaultInfo; onSwitchVault(): void; settings: AppSettings; onChange(p: Patch): Promise<AppSettings> }) {
+function VaultPage(props: { vault: VaultInfo; onSwitchVault(): void; settings: AppSettings; onChange(p: Patch): Promise<AppSettings>; onClose(): void }) {
   return (
     <>
       <h4>现在的库</h4>
       <div className="card-row">
         <span className="vi">
-          <Icon of={Library} />
+          <Codicon name="library" />
         </span>
         <div className="tx">
           <b>{props.vault.name}</b>
@@ -331,8 +475,21 @@ function VaultPage(props: { vault: VaultInfo; onSwitchVault(): void; settings: A
       </div>
       <p className="note">库就是一个文件夹，里面是普通的 md 文件；没有 Git 的话打开时会帮你建一个。换库前，这个库没提交的改动会先提交。</p>
       <button className="btn" onClick={props.onSwitchVault}>
-        <Icon of={FolderOpen} size={14} />
+        <Codicon name="folder-opened" size={14} />
         打开别的文件夹…
+      </button>
+      <h4>
+        导入旧笔记 <span>备忘录或旧的 Obsidian 库：先进收件箱，梦游时分好类、起好名字，你预览了再收下</span>
+      </h4>
+      <button
+        className="btn"
+        onClick={() => {
+          props.onClose()
+          openImport()
+        }}
+      >
+        <Codicon name="root-folder" size={14} />
+        导入旧笔记…
       </button>
       <h4>
         自动归档 <span>很久没改的笔记从左栏收进「归档」；文件不挪、不改，置顶的不归档，改一下就回到左栏</span>
@@ -382,7 +539,8 @@ function AiPage(props: { onNotice(t: string): void }) {
               }
             }}
           >
-            <span className="ck">{cur === e.id && <Icon of={Check} size={14} />}</span>
+            <span className="ck">{cur === e.id && <Codicon name="check" size={14} />}</span>
+            <EngineLogo id={e.id} />
             <b>{e.label}</b>
             <span className="sp" />
             <span className="st">{e.path ? '已装好' : (e.hint ?? '没装')}</span>
@@ -456,7 +614,7 @@ function GitPage(props: { settings: AppSettings; onChange(p: Patch): Promise<App
             }
           }}
         >
-          <Icon of={RefreshCw} size={14} className={syncing ? 'spin' : ''} />
+          <Codicon name="refresh" size={14} className={syncing ? 'spin' : ''} />
           {syncing ? '正在同步' : '现在同步'}
         </button>
         <span className="note">{saved ? '底栏的「同步」也是这个' : '还没有远程仓库：先填地址，再同步'}</span>
@@ -482,7 +640,7 @@ function KeysPage() {
   return (
     <>
       <h4>
-        快捷键 <span>现在还不能改</span>
+        快捷键 <span>这一组现在还不能改</span>
       </h4>
       <div className="keys-list">
         {KEYS.map(([name, k, note]) => (
@@ -494,6 +652,7 @@ function KeysPage() {
           </div>
         ))}
       </div>
+      <VideoKeys />
     </>
   )
 }

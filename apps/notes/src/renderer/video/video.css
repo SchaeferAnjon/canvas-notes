@@ -1,0 +1,823 @@
+/* 视频（方向 A「视频条」，spec 第 3、5 节）：地址栏下面两行、字幕菜单、时刻弹层、问话框、底部提示、文档里的时刻块和视频卡、白板上的视频卡和时刻卡。
+   变量都来自 DESIGN.md / DESIGN.v3.md；菜单借双语翻译菜单的 .trm 那一套 */
+
+/* ---------- 视频条：高 40，--win 底，下边 1px --line，左右 8 ---------- */
+.vstrip {
+  position: relative;
+  flex: none;
+  z-index: 30;
+}
+.vbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 8px;
+  background: var(--win);
+}
+.vbar .sp {
+  flex: 1;
+}
+.vbar kbd {
+  font: 500 11px/1 var(--sans);
+  opacity: 0.7;
+  margin-left: 2px;
+}
+.vsub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  max-width: 168px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--t1);
+  font-size: 12px;
+  font-weight: 500;
+  flex: none;
+}
+.vsub:hover {
+  background: var(--fill2);
+}
+.vsub .vdot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t3);
+  flex: none;
+}
+.vsub.on .vdot {
+  background: var(--acc);
+}
+.vbar .btn {
+  flex: none;
+  gap: 6px;
+}
+.vdest {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 132px;
+  height: 28px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--t2);
+  font-size: 12px;
+  min-width: 0;
+}
+.vdest:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+
+/* ---------- 刻度：高 30，左右 12 ---------- */
+.vticks {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 30px;
+  padding: 0 12px;
+  background: var(--win);
+  border-bottom: 1px solid var(--line);
+}
+.vtrack {
+  position: relative;
+  flex: 1;
+  height: 14px;
+}
+.vtrack::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line2);
+}
+.vplayed {
+  position: absolute;
+  left: 0;
+  top: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--t2);
+}
+.vmark {
+  position: absolute;
+  top: 2px;
+  width: 3px;
+  height: 10px;
+  margin-left: -1.5px;
+  padding: 0;
+  border: 0;
+  border-radius: 1px;
+  background: var(--t1);
+  cursor: pointer;
+}
+.vmark::after {
+  content: '';
+  position: absolute;
+  inset: -4px -4px;
+}
+.vmark.asked {
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  border-radius: 50%;
+  background: var(--win);
+  box-shadow: inset 0 0 0 1.5px var(--t1);
+}
+.vmark.new {
+  background: var(--acc);
+}
+.vmark.asked.new {
+  background: var(--win);
+  box-shadow: inset 0 0 0 1.5px var(--acc);
+}
+.vhead {
+  position: absolute;
+  top: 1px;
+  width: 2px;
+  height: 12px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--acc);
+  pointer-events: none;
+}
+.vtip {
+  position: absolute;
+  bottom: 18px;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
+.vcount {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.vcount:hover {
+  color: var(--t1);
+}
+
+/* ---------- 弹层：字幕菜单 300 宽，时刻 330 宽 ---------- */
+.vmenu {
+  position: absolute;
+  top: 38px;
+  z-index: 46;
+}
+.trm.vmenu {
+  max-height: calc(100vh - 200px);
+  overflow-y: auto;
+}
+.vsubmenu {
+  left: 8px;
+  width: 300px;
+}
+.vmoments {
+  right: 8px;
+  top: 68px;
+  width: 330px;
+  padding: 10px 6px;
+}
+.vdestmenu {
+  right: 8px;
+  width: 280px;
+}
+.vseg {
+  width: 100%;
+}
+.vseg button {
+  flex: 1;
+  justify-content: center;
+  padding: 0 6px;
+}
+.vlist {
+  display: flex;
+  flex-direction: column;
+}
+.vlist button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t1);
+  font-size: 13px;
+  text-align: left;
+}
+.vlist button:hover {
+  background: var(--fill);
+}
+.vlist .ck,
+.vlangs .ck {
+  width: 12px;
+  display: grid;
+  place-items: center;
+  color: var(--acc);
+  flex: none;
+}
+.vmenu .t3 {
+  color: var(--t3);
+}
+.vmore {
+  display: block;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.vnote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.vlangs {
+  grid-template-columns: repeat(2, 1fr);
+  margin-top: 6px;
+}
+.vsearch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.vmoments .vsearch {
+  margin: 0 8px 6px;
+}
+.vsearch input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t1);
+  outline: none;
+}
+.vfoot {
+  margin: 6px 14px 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--t3);
+}
+.vgroup {
+  padding: 4px 0;
+}
+.vgroup .trm-lab {
+  padding: 0 8px;
+  margin-bottom: 2px;
+}
+.vmrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--t1);
+  text-align: left;
+}
+.vmrow:hover {
+  background: var(--fill);
+}
+.vmrow img,
+.vmrow .vth {
+  width: 56px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--fill2);
+  flex: none;
+}
+.vmt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.vmt .t3 {
+  font-size: 12px;
+}
+.vdestmenu .vfoot {
+  margin: 6px 10px 4px;
+}
+
+/* ---------- 问话框：300 宽，圆角 12，--shadow-up ---------- */
+.vask-pop {
+  position: absolute;
+  z-index: 48;
+  width: 300px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+}
+.vask-in {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 4px 0 12px;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.vask-in input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  color: var(--t1);
+  outline: none;
+}
+.vask-sug {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.vask-sug button {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--t2);
+  font-size: 12px;
+}
+.vask-sug button:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.vask-pop .vfoot {
+  margin: 10px 0 0;
+}
+
+/* ---------- 记好以后底部那条提示 ---------- */
+.vtoast {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(640px, calc(100% - 48px));
+  padding: 8px 8px 8px 14px;
+  border-radius: 999px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  color: var(--t1);
+  z-index: 60;
+}
+.vtoast .ok {
+  color: var(--green);
+  flex: none;
+}
+.vtoast .btn {
+  flex: none;
+}
+
+/* ---------- 文档里的时刻块（data-part="时刻块"）：--clip 底、1px --line、圆角 10、内边距 10/12 ---------- */
+.cm-vmoment {
+  display: flex;
+  gap: 12px;
+  margin: 6px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--clip);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 13px;
+  line-height: 1.6;
+  cursor: default;
+}
+.cm-justclipped .cm-vmoment,
+.cm-vmoment.flash {
+  box-shadow: inset 0 0 0 1px var(--line), 0 0 0 2px var(--acc-ring);
+}
+.cm-vmoment .shot {
+  position: relative;
+  width: 128px;
+  height: 72px;
+  flex: none;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--fill2);
+}
+.cm-vmoment .shot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cm-vmoment .shot .tm {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(8, 8, 10, 0.72);
+  color: #fff;
+  font: 500 11px/1.4 var(--mono);
+}
+.cm-vmoment .main {
+  flex: 1;
+  min-width: 0;
+}
+.cm-vmoment .hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.vpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fill2);
+  color: var(--t1);
+  font: 500 12px/1 var(--mono);
+  cursor: pointer;
+  flex: none;
+}
+.vpill:hover {
+  background: var(--acc-soft);
+  color: var(--acc-t);
+}
+.cm-vmoment .hd .ttl {
+  font-size: 12px;
+  color: var(--t3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-vmoment .hd .asked {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.cm-vmoment .o {
+  margin-top: 4px;
+  color: var(--t1);
+}
+.cm-vmoment .t {
+  color: var(--t2);
+}
+.cm-vmoment .more {
+  margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t3);
+  cursor: pointer;
+}
+.cm-vmoment .lines {
+  margin-top: 4px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.cm-vmoment .lines .mono {
+  color: var(--t3);
+}
+.cm-vmoment .lines .cur {
+  color: var(--t1);
+  font-weight: 500;
+}
+/* 问过 AI 的那块：截图大一点，旁边是「我的疑惑」 */
+.cm-vmoment.ask {
+  flex-direction: column;
+}
+.cm-vmoment.ask .body {
+  display: flex;
+  gap: 12px;
+}
+.cm-vmoment.ask .shot {
+  width: 240px;
+  height: 135px;
+}
+.cm-vmoment .doubt {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.cm-vmoment .doubt .lb {
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* 文档里的视频卡：一行，1px --line 边框、圆角 10、内边距 10/12 */
+.cm-vcard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 6px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  background: var(--card);
+}
+.cm-vcard .cv {
+  width: 64px;
+  height: 36px;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--fill2);
+  flex: none;
+}
+.cm-vcard .tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.cm-vcard .tx b {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-vcard .tx span {
+  font-size: 12px;
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-vcard .go {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cm-vcard .go:hover {
+  color: var(--t1);
+}
+
+/* ---------- 白板：视频卡 262 宽、时刻卡 ---------- */
+.bcard.k-video {
+  width: 262px;
+  padding: 0;
+  overflow: hidden;
+}
+.cb-video .cover {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+.cb-video .cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cb-video .cover .dur {
+  position: absolute;
+  right: 6px;
+  bottom: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(8, 8, 10, 0.78);
+  color: #fff;
+  font: 500 11px/1.4 var(--mono);
+}
+.cb-video .cover .seen {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: #e5332a;
+}
+.cb-video .cover .play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  margin: -20px 0 0 -20px;
+  border-radius: 50%;
+  background: rgba(8, 8, 10, 0.6);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.bcard.k-video:hover .cb-video .play {
+  opacity: 1;
+}
+.cb-video .txt {
+  padding: 12px 14px 12px;
+}
+.cb-video .txt b {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.cb-video .from {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.cb-video .from .site {
+  font-weight: 600;
+  color: var(--t1);
+}
+.cb-video .foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line2);
+  font-size: 12px;
+  color: var(--t3);
+}
+.cb-video .foot .sp {
+  flex: 1;
+}
+
+.bcard.k-moment {
+  padding: 0;
+  overflow: hidden;
+}
+.cb-moment .shot {
+  position: relative;
+  height: 118px;
+  background: #000;
+}
+.cb-moment .shot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.cb-moment .shot .tm {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(8, 8, 10, 0.72);
+  color: #fff;
+  font: 500 11px/1.4 var(--mono);
+}
+.cb-moment .tx {
+  padding: 10px 14px 12px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.cb-moment .tx .t {
+  color: var(--t2);
+}
+/* 列里第二张起是小的：64×36 截图 + 时间 + 译文一行 */
+.bcol .bcard.k-moment.small {
+  display: flex;
+}
+.cb-moment.small {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+}
+.cb-moment.small img,
+.cb-moment.small .ph {
+  width: 64px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--fill2);
+  flex: none;
+}
+.cb-moment.small .tx {
+  padding: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cb-moment.small .mono {
+  color: var(--t1);
+  font-weight: 500;
+  margin-right: 4px;
+}
+.col-more {
+  width: 100%;
+  padding: 6px 4px 2px;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-size: 12px;
+  color: var(--t3);
+  cursor: pointer;
+}
+.col-more:hover {
+  color: var(--t1);
+}
+.bcol h3 {
+  white-space: nowrap;
+}
+.bcol h3 .meta {
+  flex: none;
+}
+.bcol .col-sub {
+  flex: 1;
+  margin-left: -2px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* 字幕全文按章节收起：标题下面一行「▸ 展开 · 31 行」 */
+.cm-vfold {
+  display: block;
+  margin: 2px 0 8px;
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t3);
+  font: 400 12px/1.6 var(--sans);
+  cursor: pointer;
+}
+.cm-vfold:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+
+/* 设置 › 快捷键里「看视频」那一组：和上面的快捷键列表一个样子 */
+.vkeys kbd {
+  font: 12px var(--sans);
+  padding: 2px 8px;
+  border-radius: 5px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--t2);
+}
+.vkeys .btn kbd {
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}

@@ -14,6 +14,7 @@ import { setActiveWeb } from '../agent/web'
 import { faviconTone } from './favicon-tone'
 import { saveImage } from './save-image'
 import { readChromeBookmarks, readChromeHistory } from './chrome-data'
+import { noteIcon, notifyBookmarksChanged, setupBookmarkKeeper } from './bookmarkkeeper'
 import { Extensions } from './extensions'
 import { Bookmarks, History } from './library'
 import { clipFileName, extractPage, listenForExtracts, pageClipText } from './page-clip'
@@ -85,9 +86,13 @@ async function profileName(id: string): Promise<string> {
 export async function setupWeb(d: Deps): Promise<void> {
   deps = d
   const dir = join(app.getPath('userData'), 'web')
-  bookmarks = new Bookmarks(join(dir, 'bookmarks.json'), () => send('web:bookmarks-changed'))
+  bookmarks = new Bookmarks(join(dir, 'bookmarks.json'), () => {
+    send('web:bookmarks-changed')
+    notifyBookmarksChanged()
+  })
   history = new History(join(dir, 'history.json'))
-  app.on('before-quit', () => history.flush())
+  // 窗口都关了以后再存（before-quit 时网页还在，之后还会记，留下的定时器会在 Node 收尾时才跑）
+  app.on('will-quit', () => history.flush())
   listenForExtracts()
 
   const ses = session.fromPartition(d.partition)
@@ -167,10 +172,11 @@ export async function setupWeb(d: Deps): Promise<void> {
     send('files:changed')
   })
 
+  await setupBookmarkKeeper({ ses, bookmarks, window: d.window, webviews: ourWebviews, isOurWebview })
   await extensions.loadAll()
 }
 
-/** 书签和历史（书签管家插件用的是同一份） */
+/** 书签和历史（书签管家插件、BookmarkKeeper 新标签页用的是同一份） */
 export function webLibrary(): { bookmarks: Bookmarks; history: History } {
   return { bookmarks, history }
 }
@@ -218,14 +224,16 @@ export function attachWebview(wc: WebContents, win: BrowserWindow) {
   })
   wc.on('did-navigate', (_e, url) => history.visit(url, wc.getTitle()))
   wc.on('page-title-updated', (_e, title) => history.title(wc.getURL(), title))
+  // 书签管家新标签页里的网站图标用右栏开过的网站报的图标
+  wc.on('page-favicon-updated', (_e, icons) => noteIcon(wc.getURL(), icons))
   wc.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown' || !input.meta || input.alt || input.control) return
     const k = input.key.toLowerCase()
     if (k === 't' || k === 'w' || k === 'l') {
       e.preventDefault()
       send('web:key', k, wc.id)
-    } else if (k === 'j' || k === 'k' || k === 'f' || k === 'n' || k === ',') {
-      // 整个软件的快捷键（AI、搜索、新建、设置）：网页有焦点时也要能用
+    } else if (k === 'j' || k === 'k' || k === 'f' || k === 'o' || k === 'n' || k === ',') {
+      // 整个软件的快捷键（AI、搜索、按名字跳、新建、设置）：网页有焦点时也要能用
       e.preventDefault()
       send('app:key', k)
     }

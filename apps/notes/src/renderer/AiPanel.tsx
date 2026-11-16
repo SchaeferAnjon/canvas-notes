@@ -1,27 +1,7 @@
-import { Icon } from '@cn/design'
+import { Codicon, type CodiconName } from '@cn/design'
 import { fmValue } from '@cn/format'
-import {
-  ArrowUp,
-  Check,
-  ChevronDown,
-  CopyCheck,
-  FileText,
-  GitCommitHorizontal,
-  Globe,
-  Inbox,
-  LayoutGrid,
-  Languages,
-  LoaderCircle,
-  Moon,
-  PenLine,
-  Plus,
-  Sparkles,
-  Square,
-  Undo2,
-  X,
-  MousePointer2,
-} from 'lucide-react'
 import { Markdown } from './md-render'
+import { EngineLogo } from './engine-logo'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AgentContext, EngineId, EngineInfo, StoredMsg, ToolStep } from '../shared/agent'
 import type { CommitInfo, NoteFile } from '../shared/api'
@@ -46,6 +26,7 @@ import {
 import { GROUPS } from './dream/useDream'
 import type { NoteDoc, ViewMode } from './note-doc'
 import type { Tab } from './tabs'
+import { onInjectAi } from './video/ai-inject'
 
 type Action = { label: string; primary?: boolean; run(): Promise<void> | void }
 
@@ -59,14 +40,14 @@ type Msg = StoredMsg & {
   actions?: Action[]
 }
 
-const ICONS: Record<string, typeof Inbox> = {
-  整理收件箱: Inbox,
-  总结这块白板: LayoutGrid,
-  写成文章: PenLine,
-  翻译: Languages,
-  找重复: CopyCheck,
-  剪藏当前网页: Globe,
-  现在梦游: Moon,
+const ICONS: Record<string, CodiconName> = {
+  整理收件箱: 'inbox',
+  总结这块白板: 'layout',
+  写成文章: 'edit',
+  翻译: 'whole-word',
+  找重复: 'check',
+  剪藏当前网页: 'globe',
+  现在梦游: 'wand',
 }
 
 let seq = Date.now()
@@ -88,6 +69,8 @@ export function AiPanel(props: {
   onChanged(): void
   /** 一打开就跑这条（seq 变了再跑一次） */
   autoRun?: { text: string; seq: number } | null
+  /** 现在用的引擎名字（A 的底栏 AI 项写它） */
+  onEngine?(label: string, id: EngineId): void
 }) {
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -98,6 +81,18 @@ export function AiPanel(props: {
   const [engines, setEngines] = useState<EngineInfo[]>([])
   const [engine, setEngine] = useState<EngineId>('claude')
   const [engineMenu, setEngineMenu] = useState(false)
+  // 引擎菜单开着时按 Esc 收起（只收菜单，不关 AI 浮窗）
+  useEffect(() => {
+    if (!engineMenu) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      setEngineMenu(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [engineMenu])
   const list = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
 
@@ -106,6 +101,7 @@ export function AiPanel(props: {
   const isBoard = !!noteFile?.board || props.mode === 'board'
   const inbox = props.notes.filter((n) => n.kind === 'inbox')
   const engineLabel = engines.find((e) => e.id === engine)?.label ?? 'Claude Code'
+  useEffect(() => props.onEngine?.(engineLabel, engine), [engineLabel, engine])
 
   // 对话记录和选的引擎：存在软件设置目录，关了再开、重开软件都还在
   useEffect(() => {
@@ -158,6 +154,20 @@ export function AiPanel(props: {
     ranSeq.current = a.seq
     void run(a.text)
   }, [props.autoRun?.seq, loaded])
+  // 视频条「框一块问」交过来的一问（video/ai-inject.ts）：记一问一答，答完自动记进笔记
+  useEffect(
+    () =>
+      onInjectAi((q) => {
+        push({ id: seq++, role: 'user', text: q.question })
+        const id = seq++
+        push({ id, role: 'ai', pending: true, read: q.read })
+        q.run.then(
+          (r) => patch(id, { pending: false, text: r.text, ...(r.read ? { read: r.read } : {}), ...(r.done ? { done: r.done } : {}) }),
+          (e) => patch(id, { pending: false, error: errText(e) }),
+        )
+      }),
+    [],
+  )
   useEffect(() => {
     list.current?.scrollTo({ top: list.current.scrollHeight })
   }, [msgs])
@@ -447,15 +457,17 @@ export function AiPanel(props: {
         <b>AI</b>
         <div className="aieng">
           <button className="engbtn" aria-label="选 AI 引擎" aria-haspopup="menu" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} data-testid="ai-engine">
+            <EngineLogo id={engine} />
             {engineLabel}
-            <Icon of={ChevronDown} size={12} />
+            <Codicon name="chevron-down" size={12} />
           </button>
           {engineMenu && (
             <div className="engmenu" role="menu" aria-label="AI 引擎">
               <div className="mh">用这台 Mac 上已经登录的</div>
               {engines.map((e) => (
                 <button key={e.id} role="menuitemradio" aria-checked={e.id === engine} disabled={!e.path} title={e.hint ?? e.path ?? ''} onClick={() => pickEngine(e)}>
-                  <span className="ck">{e.id === engine && <Icon of={Check} size={12} />}</span>
+                  <span className="ck">{e.id === engine && <Codicon name="check" size={12} />}</span>
+                  <EngineLogo id={e.id} />
                   <b>{e.label}</b>
                   <span>{e.path ? '' : '没装'}</span>
                 </button>
@@ -463,13 +475,17 @@ export function AiPanel(props: {
             </div>
           )}
         </div>
-        <span className="meta">改动都是提交，可撤回</span>
+        {/* 头里放不下整句（右栏 340 宽、引擎胶囊带标志）就换成短的「改动可撤回」，悬停看全句 */}
+        <span className="meta" data-testid="ai-undo-hint" data-tip="AI 的改动都是 Git 提交，随时可撤回" data-side="below">
+          <span className="long">改动都是提交，可撤回</span>
+          <span className="short">改动可撤回</span>
+        </span>
         <span className="sp" />
         <button className="iconbtn" aria-label="新对话" title="新对话" onClick={newChat}>
-          <Icon of={Plus} size={14} />
+          <Codicon name="add" size={14} />
         </button>
         <button className="iconbtn" aria-label="收起 AI" title="收起 ⌘J" onClick={props.onClose}>
-          <Icon of={X} size={14} />
+          <Codicon name="close" size={14} />
         </button>
       </div>
       <div className="sees" data-testid="ai-sees">
@@ -483,7 +499,7 @@ export function AiPanel(props: {
         ))}
         {hands && (
           <span className="chip hands">
-            <Icon of={MousePointer2} size={12} />
+            <Codicon name="cursor" size={12} />
             能动手：{hands}
           </span>
         )}
@@ -496,7 +512,7 @@ export function AiPanel(props: {
             <div className="sugg">
               {suggestions.map((s) => (
                 <button key={s} onClick={() => void run('/' + s)}>
-                  <Icon of={ICONS[s] ?? Sparkles} size={14} />/{s}
+                  <Codicon name={ICONS[s] ?? 'sparkle'} size={14} />/{s}
                 </button>
               ))}
             </div>
@@ -511,13 +527,13 @@ export function AiPanel(props: {
             <div key={m.id} className="am" data-testid="ai-msg" data-engine={m.engine}>
               {m.read && (
                 <div className="read">
-                  <Icon of={Check} size={12} />
+                  <Codicon name="check" size={12} />
                   {m.read}
                 </div>
               )}
               {m.steps?.map((s) => (
                 <div key={s.id} className={'read tstep ' + s.status} data-testid="ai-step" title={s.detail}>
-                  <Icon of={s.status === 'run' ? LoaderCircle : s.status === 'ok' ? Check : X} size={12} className={s.status === 'run' ? 'spin' : ''} />
+                  <Codicon name={s.status === 'run' ? 'loading' : s.status === 'ok' ? 'check' : 'close'} size={12} className={s.status === 'run' ? 'spin' : ''} />
                   {s.label}
                   {s.status === 'err' && s.detail && <span className="why">：{s.detail}</span>}
                 </div>
@@ -562,7 +578,7 @@ export function AiPanel(props: {
               {m.draft && (
                 <div className="dprev">
                   <div className="dh">
-                    <Icon of={FileText} size={14} />
+                    <Codicon name="file-text" size={14} />
                     <b className="truncate">{titleOf(m.draft.path)}</b>
                   </div>
                   <div className="dmeta">
@@ -575,7 +591,7 @@ export function AiPanel(props: {
               {m.dream && (
                 <div className="acts">
                   <button className="btn btn-sm btn-primary" onClick={props.onShowDream}>
-                    <Icon of={Moon} size={12} />
+                    <Codicon name="wand" size={12} />
                     打开梦游报告
                   </button>
                 </div>
@@ -605,7 +621,7 @@ export function AiPanel(props: {
               ? cmdItems.map((c, i) => (
                   <button key={c.name} role="option" aria-selected={i === menuIdx} className={i === menuIdx ? 'on' : ''} onMouseDown={(e) => (e.preventDefault(), pick(i))}>
                     <span className="ib">
-                      <Icon of={ICONS[c.name] ?? Sparkles} size={14} />
+                      <Codicon name={ICONS[c.name] ?? 'sparkle'} size={14} />
                     </span>
                     <span>
                       <b>{c.name}</b>
@@ -616,7 +632,7 @@ export function AiPanel(props: {
               : atItems.map((n, i) => (
                   <button key={n.path} role="option" aria-selected={i === menuIdx} className={i === menuIdx ? 'on' : ''} onMouseDown={(e) => (e.preventDefault(), pick(i))}>
                     <span className="ib">
-                      <Icon of={n.board ? LayoutGrid : FileText} size={14} />
+                      <Codicon name={n.board ? 'layout' : 'file-text'} size={14} />
                     </span>
                     <span>
                       <b>{titleOf(n.path)}</b>
@@ -645,11 +661,11 @@ export function AiPanel(props: {
         />
         {running !== null ? (
           <button className="send" aria-label="停下" onClick={stop}>
-            <Icon of={Square} size={12} />
+            <Codicon name="primitive-square" size={12} />
           </button>
         ) : (
           <button className="send" aria-label="发送" disabled={!input.trim()} onClick={() => void run(input)}>
-            <Icon of={ArrowUp} size={14} />
+            <Codicon name="arrow-up" size={14} />
           </button>
         )}
       </div>
@@ -670,13 +686,13 @@ function ChangeBlock({ change, onRevert, onHistory }: { change: Change; onRevert
   return (
     <div className={'aichg' + (change.reverted ? ' reverted' : '')} data-testid="ai-change">
       <div className="hd">
-        <Icon of={GitCommitHorizontal} size={14} />
+        <Codicon name="git-commit" size={14} />
         {change.reverted ? '已撤回' : `改了 ${c.files.length} 个文件`}
         <code>{(change.reverted ?? c).hash.slice(0, 7)}</code>
         <span className="sp" />
         {!change.reverted && (
           <button className="btn btn-sm" onClick={onRevert}>
-            <Icon of={Undo2} size={12} />
+            <Codicon name="discard" size={12} />
             撤回
           </button>
         )}

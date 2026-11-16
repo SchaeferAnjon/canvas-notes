@@ -1,5 +1,4 @@
-import { Icon } from '@cn/design'
-import { Download, Pin, Trash2 } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import { useEffect, useState } from 'react'
 import { permissionLabel } from '../../shared/extension-apis'
 import type { ExtensionInfo } from '../../shared/web-api'
@@ -67,7 +66,7 @@ export function ExtensionsPanel(props: { tabId: number; onNotice(t: string): voi
         <span className="sp" />
         <div className="imp">
           <button className="btn btn-sm" disabled={busy} onClick={() => setPicking((v) => !v)}>
-            <Icon of={Download} size={12} className={busy ? 'spin' : ''} />
+            <Codicon name="desktop-download" size={12} className={busy ? 'spin' : ''} />
             {busy ? '正在导入' : '从 Chrome 导入'}
           </button>
           {picking && <ProfileMenu label="选 Chrome 用户" title="导入哪个 Chrome 用户装的插件？" onPick={(id, name) => void importFrom(id, name)} onNotice={props.onNotice} onClose={() => setPicking(false)} />}
@@ -104,12 +103,12 @@ export function ExtensionsPanel(props: { tabId: number; onNotice(t: string): voi
                   title={pins.includes(a.id) ? '取消固定（按钮从地址栏右边拿掉）' : `固定到地址栏右边（最多 ${MAX_PINNED} 个，多了换掉最早的）`}
                   onClick={() => togglePin(a.id)}
                 >
-                  <Icon of={Pin} size={13} />
+                  <Codicon name="pin" size={13} />
                 </button>
               )}
               <Toggle on={x.enabled} label={`启用 ${x.name}`} onChange={(v) => void run(() => window.cnWeb.setExtensionEnabled(x.id, v))} />
               <button className="iconbtn" aria-label={`移除 ${x.name}`} title="移除" onClick={() => void run(() => window.cnWeb.removeExtension(x.id))}>
-                <Icon of={Trash2} size={13} />
+                <Codicon name="trash" size={13} />
               </button>
             </div>
           )

@@ -1,4 +1,12 @@
 /** 内置浏览器（多标签、书签、历史、Chrome 插件、图片附件）的接口，preload 按这个暴露成 window.cnWeb */
+import type { NewTabInfo, TabMirror } from './bookmarkkeeper'
+import type { ExtTheme } from './ext-theme'
+
+export type TabCommand =
+  | { type: 'select' | 'close'; webContentsId: number }
+  | { type: 'select' | 'close'; tabId: string }
+  | { type: 'navigate'; tabId: string; url: string }
+  | { type: 'show' }
 
 export interface Bookmark {
   id: string
@@ -11,7 +19,7 @@ export interface Bookmark {
   tags?: string[]
   /** 书签管家加的一句备注 */
   note?: string
-  /** 书签首页快捷书签的先后（小的在前）；没有就按加进来的先后 */
+  /** 在文件夹里的先后（小的在前，BookmarkKeeper 整理书签挪动时排的）；没有就按加进来的先后 */
   order?: number
 }
 
@@ -105,8 +113,17 @@ export interface CnWebApi {
   /** 网页里点了新窗口链接、插件开了新标签：交给界面开一个网页标签。reqId 有值时开好后调 tabCreated */
   onOpenTab(cb: (req: { url: string; reqId?: number; background?: boolean }) => void): () => void
   tabCreated(reqId: number, webContentsId: number): void
-  /** 插件要切换 / 关掉某个标签 */
-  onTabCommand(cb: (cmd: { type: 'select' | 'close'; webContentsId: number }) => void): () => void
+  /**
+   * 插件要切换 / 关掉 / 换网址某个标签：Chrome 插件按 webContentsId 说，BookmarkKeeper 新标签页按网页标签 id（tabId，宽标签是 wide:<id>）说；
+   * show 是把右栏的网页亮出来
+   */
+  onTabCommand(cb: (cmd: TabCommand) => void): () => void
+  /** 现在开着的网页标签告诉主进程（BookmarkKeeper 的 chrome.tabs 用） */
+  setTabs(list: TabMirror[]): void
+  /** 新网页标签显示什么：找到 BookmarkKeeper 就是它的新标签页 */
+  newtab(): Promise<NewTabInfo>
+  /** 报当前主题的颜色，书签管家的新标签页照它换色（shared/ext-theme.ts） */
+  extTheme(t: ExtTheme): void
   /** 网页焦点时按的 ⌘T、⌘W、⌘L（网页里的按键到不了界面，主进程转过来） */
   onKey(cb: (key: 't' | 'w' | 'l', webContentsId: number) => void): () => void
   // 图片

@@ -16,6 +16,12 @@ process.stdin.on('data', (d) => (prompt += d))
 process.stdin.on('end', () => void main())
 
 async function main() {
+  // 带图时话是 stream-json 的一条用户消息：取出文字，图记个数和类型
+  if (flag('--input-format') === 'stream-json') {
+    const msg = JSON.parse(prompt.trim())
+    const blocks = msg.message.content
+    prompt = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('') + `【图 ${blocks.filter((b) => b.type === 'image').map((b) => `${b.source.media_type}:${b.source.data.length}`).join(',')}】`
+  }
   const resume = flag('--resume')
   if (resume === 'gone') {
     process.stderr.write(`No conversation found with session ID: ${resume}\n`)
@@ -61,6 +67,12 @@ async function main() {
     out({ type: 'assistant', session_id: session, message: { content: [{ type: 'tool_use', id: 't1', name: 'mcp__canvas__board_list', input: {} }] } })
     parts.push(`工具 ${flag('--tools')}`, `放行 ${flag('--allowedTools')}`, `调工具 ${body.result.content[0].text}`, `配置文件 ${mode}`, `轮数 ${flag('--max-turns')}`)
   } else {
+    // 只读翻文件：像真的一样先搜再读（assistant 消息里的 tool_use）
+    if (flag('--allowedTools') === 'Read,Glob,Grep') {
+      out({ type: 'assistant', session_id: session, message: { content: [{ type: 'tool_use', id: 't1', name: 'Grep', input: { pattern: '矩阵' } }] } })
+      out({ type: 'assistant', session_id: session, message: { content: [{ type: 'text', text: '找到了' }, { type: 'tool_use', id: 't2', name: 'Read', input: { file_path: process.cwd() + '/笔记.md' } }] } })
+      parts.push(`放行 ${flag('--allowedTools')}`)
+    }
     parts.push(`工具「${flag('--tools')}」`, `轮数 ${flag('--max-turns')}`, `不留记录 ${has('--no-session-persistence') ? '是' : '否'}`)
   }
   parts.push(

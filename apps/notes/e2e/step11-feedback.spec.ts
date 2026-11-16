@@ -3,7 +3,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { launch, pane, waitSaved } from './app'
+import { launch, pane, waitSaved, gitAct } from './app'
 
 const board = (page: Page) => pane(page).getByTestId('board')
 const read = (vault: string, f: string) => readFileSync(join(vault, f), 'utf8')
@@ -109,9 +109,9 @@ test('历史：点文件在下面展开这次改了什么，能打开这篇', as
   const { page, vault } = run
   try {
     writeFileSync(join(vault, '甲.md'), '# 甲\n\n第一行\n\n新加的一行\n')
-    await page.getByRole('button', { name: '提交', exact: true }).click()
+    await gitAct(page, '提交')
     await expect(page.getByTestId('git-changed')).toHaveText('都提交了')
-    await page.getByRole('contentinfo').getByRole('button', { name: '历史' }).click()
+    await gitAct(page, '历史')
     const hist = page.getByRole('complementary', { name: '历史' })
     await hist.locator('.commit.open .fr', { hasText: '甲.md' }).click()
     const diff = hist.getByTestId('history-diff')
@@ -138,10 +138,9 @@ test('⌘K 输入条在列表很长时也不被压扁；红绿灯旁的按钮收
     await expect(page.locator('.side')).toBeVisible()
     await page.getByRole('button', { name: '收起左栏' }).click()
     await expect(page.locator('.side')).toBeHidden()
-    expect((await page.locator('main.center').boundingBox())!.x).toBeLessThan(2)
-    // 标签条让开红绿灯和按钮
-    const tab = (await page.locator('.center > .tabs .tab').first().boundingBox())!
-    expect(tab.x).toBeGreaterThanOrEqual(115)
+    // 中间的岛左边贴着左图标栏
+    const bar = (await page.getByRole('navigation', { name: '左栏' }).boundingBox())!
+    expect(Math.abs((await page.locator('main.center').boundingBox())!.x - (bar.x + bar.width))).toBeLessThan(2)
     await page.getByRole('button', { name: '展开左栏' }).click()
     await expect(page.locator('.side')).toBeVisible()
     await page.keyboard.press('Meta+\\')

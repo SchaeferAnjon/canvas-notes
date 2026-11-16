@@ -3,6 +3,7 @@ import { syntaxTree } from '@codemirror/language'
 import { type EditorState, type Range, StateField, type Text } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { editorHost } from './editor-host'
+import { inVideoBlock } from './video/block-head'
 
 /**
  * 文档模式里画成控件的 md：待办的勾选框、表格、图片。
@@ -163,6 +164,13 @@ class ImageWidget extends WidgetType {
       fig.textContent = `图片打不开：${this.alt || this.src}`
     })
     fig.appendChild(img)
+    // 说明（alt）写在图下面一行（DESIGN.v3 6.5）
+    if (this.alt.trim()) {
+      const cap = document.createElement('div')
+      cap.className = 'cm-image-cap'
+      cap.textContent = this.alt.trim()
+      fig.appendChild(cap)
+    }
     fig.addEventListener('mousedown', (e) => {
       e.preventDefault()
       view.focus()
@@ -202,6 +210,8 @@ function blockWidgets(state: EditorState): DecorationSet {
       const src = state.doc.sliceString(b.from, b.to)
       out.push(Decoration.replace({ widget: new TableWidget(src, b), block: true }).range(b.from, b.to))
     } else if (b.kind === 'image') {
+      // 视频块里的截图由 video/doc-widgets 画
+      if (inVideoBlock(state, b.from)) continue
       const m = IMAGE.exec(state.doc.sliceString(b.from, b.to))
       if (!m) continue
       const widget = new ImageWidget(imageSrc(path, m[2]!), m[1]!, b.from)

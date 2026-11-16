@@ -3,8 +3,7 @@
  * 没记过的 https 网站先试 /favicon.ico，都没有就是中性的地球图标（不用首字母图标）。
  * 深色主题里很黑的图标（GitHub）垫一块 26×26 圆角 6 的白底；几乎透明、载不出来的当没有。
  */
-import { Icon } from '@cn/design'
-import { Globe } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 
 const KEY = 'cn.favicons'
@@ -92,7 +91,7 @@ const subDark = sub(darkSubs)
 function None({ size }: { size: number }) {
   return (
     <span className="fav fav-none" style={{ width: size, height: size }} aria-hidden>
-      <Icon of={Globe} size={Math.round(size * 0.8)} />
+      <Codicon name="globe" size={Math.round(size * 0.8)} />
     </span>
   )
 }

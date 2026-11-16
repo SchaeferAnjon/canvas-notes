@@ -1,9 +1,11 @@
 import { watch, type FSWatcher, type Stats } from 'node:fs'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
-import { attr, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, num, parseBoard } from '@cn/format'
+import { attr, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, isMindmap, num, parseBoard, parseMindmap } from '@cn/format'
 import type { NoteFile, OpenedNote, SearchHit, ThumbRect, WriteResult } from '../shared/api'
 import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
+import { hitSnippet } from './search/chunks'
+import { mindmapThumb } from '../shared/mindmap-layout'
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 
@@ -206,17 +208,12 @@ export class Vault {
       if (!words.every((w) => title.includes(w) || low.includes(w))) continue
       const inTitle = words.filter((w) => title.includes(w)).length
       const first = words.map((w) => low.indexOf(w)).filter((i) => i >= 0).sort((a, b) => a - b)[0]
-      let snippet = ''
-      if (first !== undefined) {
-        const from = Math.max(0, first - 24)
-        snippet = (from > 0 ? '…' : '') + text.slice(from, first + 60).replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, ' ').trim()
-      }
-      hits.push({ path, snippet, score: inTitle * 100 + (first === undefined ? 0 : 50 - Math.min(50, first / 100)) })
+      hits.push({ path, snippet: '', score: inTitle * 100 + (first === undefined ? 0 : 50 - Math.min(50, first / 100)) })
     }
     return hits
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
-      .map(({ path, snippet }) => ({ path, snippet }))
+      .map(({ path }) => ({ path, snippet: hitSnippet(this.index.get(path)!, words) }))
   }
 
   private reindex(rel: string, text: string | null) {
@@ -286,6 +283,18 @@ export class Vault {
       if (!filename) return
       const rel = filename.split(sep).join('/')
       if (rel.split('/').some((part) => SKIP_DIRS.has(part))) return
+      // PDF、HTML 加了、删了、改了：只报「文件变了」（目录树、⌘O、PDF 列表跟着刷新），不当笔记读
+      if (/\.(pdf|html?)$/i.test(rel) && !rel.split('/').some((part) => part.startsWith('.'))) {
+        clearTimeout(this.timers.get(rel))
+        this.timers.set(
+          rel,
+          setTimeout(() => {
+            this.timers.delete(rel)
+            onFilesChanged()
+          }, 300),
+        )
+        return
+      }
       if (!rel.toLowerCase().endsWith('.md')) return
       // 同一个文件一次保存常常连着来好几个事件，等它停 50ms 再读
       clearTimeout(this.timers.get(rel))
@@ -370,6 +379,12 @@ function describe(rel: string, st: Stats, text: string): NoteFile {
       }
     }
     file.board = { color: fmValue(text, 'color') ?? '#8E8E96', cards, thumb }
+    // 导图白板：节点不算卡片，缩略图按节点排出来的位置画，首页写「N 个节点」
+    if (isMindmap(text)) {
+      const m = mindmapThumb(parseMindmap(text).roots, /!\[[^\]]*\]\(/.test(text))
+      file.board.nodes = m.nodes
+      file.board.thumb = [...m.thumb, ...thumb]
+    }
     const icon = fmValue(text, 'icon')
     if (icon) file.board.icon = icon
   }

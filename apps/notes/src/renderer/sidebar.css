@@ -49,3 +49,15 @@
 .sall .si .c {
   margin-left: auto;
 }
+
+/* 文件夹首页选了颜色：16 方块、圆角 4、白图标（左栏「文件夹」和标签上） */
+.fmark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 4px;
+}
+.fmark > svg,
+.si > .fmark > svg {
+  color: #fff;
+}

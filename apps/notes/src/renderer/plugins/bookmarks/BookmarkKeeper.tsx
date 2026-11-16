@@ -1,8 +1,6 @@
-import { Icon } from '@cn/design'
-import { Bookmark as BookmarkIcon, Check, ExternalLink, Inbox, Pencil, Search, Trash2, X } from 'lucide-react'
+import { Codicon, type CodiconName } from '@cn/design'
 import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { ago } from '../../../shared/plugins/bookmark-home'
-import { allTags, type BookmarkRow, matchBookmark, SORTS, type SortKey, sortBookmarks, splitTags } from '../../../shared/plugins/bookmarks'
+import { ago, allTags, type BookmarkRow, matchBookmark, SORTS, type SortKey, sortBookmarks, splitTags } from '../../../shared/plugins/bookmarks'
 import { decodeUrl } from '../../url'
 import { errText, webHost } from '../host'
 import type { WebPage } from '../types'
@@ -45,7 +43,7 @@ function TagInput(props: { tags: string[]; suggest: string[]; onChange(t: string
         <span key={t} className="bk-tag">
           #{t}
           <button type="button" aria-label={`去掉标签 ${t}`} onClick={() => props.onChange(props.tags.filter((x) => x !== t))}>
-            <Icon of={X} size={10} />
+            <Codicon name="close" size={10} />
           </button>
         </span>
       ))}
@@ -210,7 +208,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
       <div ref={root} className="wpop bk bk-card" role="dialog" aria-label="书签管家">
         <section className="bk-this" aria-label="这一页">
           <div className="bk-this-h">
-            <Icon of={BookmarkIcon} size={13} className={mine ? 'bk-filled' : ''} />
+            <Codicon name="bookmark" size={13} className={mine ? 'bk-filled' : ''} />
             <span className="truncate" title={decodeUrl(page.url)}>
               {mine ? `已收藏 · ${ago(mine.addedMs)}` : '收藏这一页'} · {hostOf(page.url)}
             </span>
@@ -220,12 +218,12 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
             {mine ? (
               <>
                 <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => void run(() => remove(mine.id)).then(props.onClose)}>
-                  <Icon of={Trash2} size={12} />
+                  <Codicon name="trash" size={12} />
                   删掉书签
                 </button>
                 <span className="sp" />
                 <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void (dirty ? saveThis() : Promise.resolve())?.then(props.onClose)}>
-                  <Icon of={Check} size={12} />
+                  <Codicon name="check" size={12} />
                   完成
                 </button>
               </>
@@ -233,7 +231,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
               <>
                 <span className="sp" />
                 <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void saveThis()}>
-                  <Icon of={BookmarkIcon} size={12} />
+                  <Codicon name="bookmark" size={12} />
                   收藏这页
                 </button>
               </>
@@ -253,14 +251,14 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
         <span className="bk-count num">{rows.length} 个</span>
         <span className="sp" />
         <button className="iconbtn" aria-label="关上书签管家" onClick={props.onClose}>
-          <Icon of={X} size={13} />
+          <Codicon name="close" size={13} />
         </button>
       </div>
 
       {page ? (
         <section className="bk-this" aria-label="这一页">
           <div className="bk-this-h">
-            <Icon of={BookmarkIcon} size={13} className={mine ? 'bk-filled' : ''} />
+            <Codicon name="bookmark" size={13} className={mine ? 'bk-filled' : ''} />
             <span className="truncate" title={decodeUrl(page.url)}>
               {mine ? `已收藏 · ${ago(mine.addedMs)}` : '收藏这一页'} · {hostOf(page.url)}
             </span>
@@ -270,12 +268,12 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
             {mine ? (
               <>
                 <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => void run(() => remove(mine.id))}>
-                  <Icon of={Trash2} size={12} />
+                  <Codicon name="trash" size={12} />
                   删掉书签
                 </button>
                 <span className="sp" />
                 <button className="btn btn-sm btn-primary" disabled={busy || !dirty} onClick={() => void saveThis()}>
-                  <Icon of={Check} size={12} />
+                  <Codicon name="check" size={12} />
                   保存
                 </button>
               </>
@@ -283,7 +281,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
               <>
                 <span className="sp" />
                 <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => void saveThis()}>
-                  <Icon of={BookmarkIcon} size={12} />
+                  <Codicon name="bookmark" size={12} />
                   收藏这页
                 </button>
               </>
@@ -296,7 +294,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
 
       <div className="bk-find">
         <label className="wsearch">
-          <Icon of={Search} size={13} />
+          <Codicon name="search" size={13} />
           <input aria-label="搜书签" placeholder="搜标题、网址、标签、备注" value={q} onChange={(e) => setQ(e.target.value)} />
         </label>
         <select aria-label="书签排序" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
@@ -364,10 +362,10 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
                 {b.note && <span className="bk-note truncate">{b.note}</span>}
               </button>
               <button className="iconbtn" aria-label={`改书签 ${b.title}`} title="改" onClick={() => setEditing({ id: b.id, d: draftOf(b) })}>
-                <Icon of={Pencil} size={13} />
+                <Codicon name="edit" size={13} />
               </button>
               <button className="iconbtn" aria-label={`删掉书签 ${b.title}`} title="删掉" onClick={() => void run(() => remove(b.id))}>
-                <Icon of={Trash2} size={13} />
+                <Codicon name="trash" size={13} />
               </button>
             </div>
           ),
@@ -382,7 +380,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
           </button>
           <span className="sp" />
           <button className="btn btn-sm" disabled={busy} onClick={() => void toVault([...picked])}>
-            <Icon of={Inbox} size={12} />
+            <Codicon name="inbox" size={12} />
             存进库
           </button>
         </div>
@@ -392,19 +390,19 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
         (() => {
           const b = rows.find((x) => x.id === menu.id)
           if (!b) return null
-          const item = (label: string, icon: typeof Pencil, f: () => void) => (
+          const item = (label: string, icon: CodiconName, f: () => void) => (
             <button role="menuitem" onPointerDown={(e) => e.stopPropagation()} onClick={() => (setMenu(null), f())}>
-              <Icon of={icon} size={13} />
+              <Codicon name={icon} size={13} />
               {label}
             </button>
           )
           return (
             <div className="menu bk-menu" role="menu" aria-label="书签菜单" style={{ left: menu.x, top: menu.y }}>
-              {item('打开', ExternalLink, () => open(b, false))}
-              {item('在新标签打开', ExternalLink, () => open(b, true))}
-              {item('改', Pencil, () => setEditing({ id: b.id, d: draftOf(b) }))}
-              {item('存进库', Inbox, () => void toVault([b.id]))}
-              {item('删掉', Trash2, () => void run(() => remove(b.id)))}
+              {item('打开', 'link-external', () => open(b, false))}
+              {item('在新标签打开', 'link-external', () => open(b, true))}
+              {item('改', 'edit', () => setEditing({ id: b.id, d: draftOf(b) }))}
+              {item('存进库', 'inbox', () => void toVault([b.id]))}
+              {item('删掉', 'trash', () => void run(() => remove(b.id)))}
             </div>
           )
         })()}

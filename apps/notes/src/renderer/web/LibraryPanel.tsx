@@ -1,5 +1,4 @@
-import { Icon } from '@cn/design'
-import { Download, Folder, Search, Trash2 } from 'lucide-react'
+import { Codicon } from '@cn/design'
 import { useEffect, useMemo, useState } from 'react'
 import type { Bookmark, HistoryEntry } from '../../shared/web-api'
 import { decodeUrl } from '../url'
@@ -71,7 +70,7 @@ export function LibraryPanel(props: {
         <span className="sp" />
         <div className="imp">
           <button className="btn btn-sm" disabled={busy} onClick={() => setPicking((v) => !v)}>
-            <Icon of={Download} size={12} />
+            <Codicon name="desktop-download" size={12} />
             从 Chrome 导入
           </button>
           {picking && (
@@ -86,7 +85,7 @@ export function LibraryPanel(props: {
         </div>
       </div>
       <label className="wsearch">
-        <Icon of={Search} size={13} />
+        <Codicon name="search" size={13} />
         <input aria-label={tab === 'bookmarks' ? '搜书签' : '搜历史'} placeholder={tab === 'bookmarks' ? '搜书签' : '搜历史：标题或网址'} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
       </label>
       {tab === 'bookmarks' ? (
@@ -98,7 +97,7 @@ export function LibraryPanel(props: {
               </button>
               {folders.map((f) => (
                 <button key={f} className={'chip' + (folder === f ? ' on' : '')} title={f} onClick={() => setFolder(folder === f ? null : f)}>
-                  <Icon of={Folder} size={11} />
+                  <Codicon name="folder" size={11} />
                   {f.split(' / ').pop()}
                 </button>
               ))}
@@ -124,7 +123,7 @@ export function LibraryPanel(props: {
                     }
                   }}
                 >
-                  <Icon of={Trash2} size={13} />
+                  <Codicon name="trash" size={13} />
                 </button>
               </div>
             ))}
