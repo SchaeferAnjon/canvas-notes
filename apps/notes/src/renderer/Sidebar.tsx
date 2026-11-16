@@ -9,7 +9,8 @@ import {
   MAX_FOLDERS,
   sidebarOf,
 } from "../shared/sidebar";
-import { noteMenu, RenameInput } from "./note-menu";
+import { RenameInput } from "./note-menu";
+import { onFileMenu } from "./ctx/file-menu";
 import { GhostRows, MovedMark, type DreamPreview } from "./dream/preview";
 import { FolderMark } from "./folder-home/icons";
 import { FileTree } from "./files/FileTree";
@@ -51,9 +52,6 @@ export function Sidebar(props: {
   onTidy(): void;
   /** 右键菜单里点了「重命名」后，在左栏原地改名 */
   onRename(path: string, name: string): void;
-  onTrash(path: string): void;
-  /** 右键置顶 / 取消置顶之后 */
-  onPinsChanged(): void;
   /** 梦游预览开着：notes 已经是改好以后的样子，挪来的行标「新」，收件箱里留影子 */
   preview?: DreamPreview | null;
   /** 有首页的文件夹（课程/<课>、项目/<项目>、生活、写作）；fresh：只在梦游预览里才有的 */
@@ -76,11 +74,7 @@ export function Sidebar(props: {
     [notes, props.pins, props.archiveDays, props.folders.length],
   );
   const menu = (e: React.MouseEvent, path: string) =>
-    void noteMenu(e, path, {
-      rename: setRenaming,
-      trash: props.onTrash,
-      pinned: props.onPinsChanged,
-    });
+    onFileMenu(e, path, { rename: () => setRenaming(path) });
   const isOn = (path: string) =>
     active?.type === "note" && active.path === path;
 
@@ -178,6 +172,7 @@ export function Sidebar(props: {
               onOpen={props.onOpenFile}
               onOpenFolder={props.onOpenFolder}
               preview={props.preview ?? null}
+              onRename={props.onRename}
             />
           </nav>
         </>

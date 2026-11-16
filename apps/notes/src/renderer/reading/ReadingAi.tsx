@@ -4,6 +4,7 @@
  * 回答下面「还是不懂」「换个方式讲」，再下面一行后台记笔记的进度。
  */
 import { Codicon } from '@cn/design'
+import { onMessageMenu } from '../ctx/message-menu'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { EngineId, EngineInfo } from '../../shared/agent'
 import { askedUpTo, type ReadingMsg, withoutVizMark } from '../../shared/reading'
@@ -306,10 +307,12 @@ function Msg(p: {
             </div>
           )}
           {p.quote && <div className="uq">「{p.quote}」</div>}
-          <div className="um">{m.text}</div>
+          <div className="um" onContextMenu={(e) => onMessageMenu(e, m.text)}>
+            {m.text}
+          </div>
         </div>
       ) : (
-        <div className="am" data-testid="reading-msg">
+        <div className="am" data-testid="reading-msg" onContextMenu={(e) => m.text && onMessageMenu(e, withoutVizMark(m.text).text)}>
           {(m.text || m.error) && m.read && (
             <div className="read">
               <Codicon name="check" size={12} className="ok" />

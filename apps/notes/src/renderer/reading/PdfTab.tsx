@@ -5,6 +5,7 @@
  * 照 design/pdf 方向 A（右栏切换）的 spec 1.2–1.4。
  */
 import { Codicon } from '@cn/design'
+import { menuAt } from '../ctx/menu'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -300,18 +301,44 @@ export function PdfTab(props: {
     }
   }
 
-  /** 选中一段字：工具条出在选区上方，问的时候截图换成引文 */
-  function onSelectionEnd() {
+  /** PDF 里选着的那段字（页码、在页上的位置、去掉多余空白的字）；没选、选在别处是 null */
+  function selectionBox(): Boxed | null {
     const sel = window.getSelection()
-    if (!sel || sel.isCollapsed || !sel.rangeCount) return
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return null
     const range = sel.getRangeAt(0)
     const pageEl = pageAt(range.startContainer.parentElement)
-    if (!pageEl || !scroller.current?.contains(pageEl)) return
+    if (!pageEl || !scroller.current?.contains(pageEl)) return null
     const quote = sel.toString().replace(/\s+/g, ' ').trim()
-    if (quote.length < 2) return
+    if (quote.length < 2) return null
     const pb = pageEl.getBoundingClientRect()
     const rb = range.getBoundingClientRect()
-    setBoxed({ page: Number(pageEl.dataset.page), rect: [(rb.left - pb.left) / pb.width, (rb.top - pb.top) / pb.height, rb.width / pb.width, rb.height / pb.height], quote })
+    return { page: Number(pageEl.dataset.page), rect: [(rb.left - pb.left) / pb.width, (rb.top - pb.top) / pb.height, rb.width / pb.width, rb.height / pb.height], quote }
+  }
+
+  /** 选中一段字：工具条出在选区上方，问的时候截图换成引文 */
+  function onSelectionEnd() {
+    const b = selectionBox()
+    if (b) setBoxed(b)
+  }
+
+  /** 右键（DESIGN.v3 9.2）：选了字是拷贝、问 AI、翻译 + 讲一讲；页面上是问这一页、跳到笔记、在访达中显示 */
+  function onContext(e: React.MouseEvent) {
+    const pageEl = pageAt(e.target)
+    if (!pageEl) return
+    const n = Number(pageEl.dataset.page)
+    const sel = selectionBox()
+    const threads = r.state.threads.filter((t) => t.page === n)
+    void menuAt(e, [
+      sel && { edit: 'copy' },
+      sel && { label: '问 AI', run: () => capAsk('rephrase', sel) },
+      sel && { label: '讲解一下', run: () => capAsk('explain', sel) },
+      sel && { label: '翻译 + 讲一讲', run: () => capAsk('translate', sel) },
+      '-',
+      { label: `问这一页（第 ${n} 页）`, accel: 'CommandOrControl+Return', enabled: !!doc && r.running === null, run: () => askPage(n) },
+      threads.length > 0 && { label: '跳到笔记', run: () => props.onShowNote(threads[threads.length - 1]!.id) },
+      '-',
+      { label: '在访达中显示', run: () => window.cnReading.reveal(path) },
+    ])
   }
 
   function cancelBox() {
@@ -321,8 +348,7 @@ export function PdfTab(props: {
   }
 
   /** 工具条上的按钮：讲解一下 / 翻译 + 讲一讲 直接发；改问法 只放好图，光标进输入框 */
-  async function capAsk(kind: 'explain' | 'translate' | 'rephrase') {
-    const b = boxed
+  async function capAsk(kind: 'explain' | 'translate' | 'rephrase', b = boxed) {
     if (!b) return
     props.onAsk()
     if (b.quote) R.stage(path, { page: b.page, rect: b.rect, quote: b.quote, blank: kind === 'rephrase' })
@@ -631,6 +657,7 @@ export function PdfTab(props: {
           tabIndex={0}
           onScroll={onScroll}
           onPointerDown={onPointerDown}
+          onContextMenu={onContext}
           onPointerMove={(e) => (onPointerMove(e), hoverPage(e))}
           onPointerUp={() => void onPointerUp()}
           data-testid="pdf-view"

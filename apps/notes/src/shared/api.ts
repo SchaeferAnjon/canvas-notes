@@ -107,8 +107,6 @@ export interface CnApi {
   /** 撤回 AI 的那次提交（反向提交），返回新的提交 */
   aiRevert(hash: string): Promise<CommitInfo | null>
   search(q: string): Promise<SearchHit[]>
-  /** 左栏右键菜单（系统原生菜单），返回点了哪一项；置顶 / 取消置顶在主进程里就存好了 */
-  noteMenu(path: string): Promise<NoteMenuAction>
   /** 置顶的笔记（库里 .canvas-notes/置顶.json），按置顶的先后 */
   pins(): Promise<string[]>
   /** 记一次积累（剪进文档时用；剪进收件箱主进程自己记） */
@@ -320,7 +318,6 @@ export interface Activity {
   lastSync: number | null
 }
 
-export type NoteMenuAction = 'pin' | 'unpin' | 'rename' | 'trash' | 'reveal' | null
 
 /** 白板缩略图里的一块：坐标是白板上的像素；k 是 n 普通卡、c 素材卡、i 图片、l 列、m 导图节点 */
 export interface ThumbRect {

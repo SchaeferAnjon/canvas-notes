@@ -1,4 +1,5 @@
 import { Codicon } from '@cn/design'
+import { linkRowMenu } from '../ctx/link-row-menu'
 import { useEffect, useMemo, useState } from 'react'
 import type { Bookmark, HistoryEntry } from '../../shared/web-api'
 import { decodeUrl } from '../url'
@@ -106,7 +107,7 @@ export function LibraryPanel(props: {
           <div className="wlist" role="list" aria-label="书签">
             {shown.length === 0 && <p className="hint">{props.bookmarks.length ? '没有搜到。' : '还没有书签。点地址栏里的星星加一个，或者从 Chrome 导入。'}</p>}
             {shown.map((b) => (
-              <div key={b.id} className="wrow" role="listitem">
+              <div key={b.id} className="wrow" role="listitem" onContextMenu={(e) => linkRowMenu(e, b.url, b.title, () => (props.onOpen(b.url, false), props.onClose()), () => props.onOpen(b.url, true), async () => props.onBookmarks(await window.cnWeb.removeBookmark(b.id)))}>
                 <button className="wmain" title={b.url} onClick={(e) => (props.onOpen(b.url, e.metaKey), props.onClose())}>
                   <b className="truncate">{b.title}</b>
                   <span className="truncate">{folder ? decodeUrl(b.url) : b.folder}</span>
@@ -133,7 +134,7 @@ export function LibraryPanel(props: {
         <div className="wlist" role="list" aria-label="历史">
           {history.length === 0 && <p className="hint">{q ? '没有搜到。' : '还没有浏览记录。'}</p>}
           {history.map((h) => (
-            <div key={h.url} className="wrow" role="listitem">
+            <div key={h.url} className="wrow" role="listitem" onContextMenu={(e) => linkRowMenu(e, h.url, h.title || h.url, () => (props.onOpen(h.url, false), props.onClose()), () => props.onOpen(h.url, true))}>
               <button className="wmain" title={h.url} onClick={(e) => (props.onOpen(h.url, e.metaKey), props.onClose())}>
                 <b className="truncate">{h.title || decodeUrl(h.url)}</b>
                 <span className="truncate">{decodeUrl(h.url)}</span>

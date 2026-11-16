@@ -1,4 +1,5 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { onMessageMenu } from './ctx/message-menu'
 import { fmValue } from '@cn/format'
 import { Markdown } from './md-render'
 import { EngineLogo } from './engine-logo'
@@ -69,6 +70,8 @@ export function AiPanel(props: {
   onChanged(): void
   /** 一打开就跑这条（seq 变了再跑一次） */
   autoRun?: { text: string; seq: number } | null
+  /** 右键「问 AI」：这段字作为引文放进输入框，光标进去，不自动发（seq 变了再放一次） */
+  draft?: { text: string; seq: number } | null
   /** 现在用的引擎名字（A 的底栏 AI 项写它） */
   onEngine?(label: string, id: EngineId): void
 }) {
@@ -147,6 +150,22 @@ export function AiPanel(props: {
       void window.cn.aiEngines().then((r) => setEngine(r.current))
     } else setEngineMenu(false)
   }, [props.open])
+  const draftSeq = useRef(0)
+  useEffect(() => {
+    const d = props.draft
+    if (!d || d.seq === draftSeq.current) return
+    draftSeq.current = d.seq
+    setInput(quoteOf(d.text))
+    // 浮窗刚打开，等它画出来再把光标放到最后
+    requestAnimationFrame(() => {
+      const t = box.current
+      if (!t) return
+      t.focus()
+      t.setSelectionRange(t.value.length, t.value.length)
+      t.style.height = 'auto'
+      t.style.height = Math.min(t.scrollHeight, 140) + 'px'
+    })
+  }, [props.draft?.seq])
   const ranSeq = useRef(0)
   useEffect(() => {
     const a = props.autoRun
@@ -520,11 +539,11 @@ export function AiPanel(props: {
         )}
         {msgs.map((m) =>
           m.role === 'user' ? (
-            <div key={m.id} className="um">
+            <div key={m.id} className="um" onContextMenu={(e) => onMessageMenu(e, m.text ?? '')}>
               {m.text}
             </div>
           ) : (
-            <div key={m.id} className="am" data-testid="ai-msg" data-engine={m.engine}>
+            <div key={m.id} className="am" data-testid="ai-msg" data-engine={m.engine} onContextMenu={(e) => !m.pending && onMessageMenu(e, m.text ?? '')}>
               {m.read && (
                 <div className="read">
                   <Codicon name="check" size={12} />
@@ -671,6 +690,12 @@ export function AiPanel(props: {
       </div>
     </aside>
   )
+}
+
+/** 右键「问 AI」放进输入框的引文：每行前面加 >，空一行等人接着打 */
+export function quoteOf(text: string): string {
+  const lines = text.trim().split('\n').map((l) => ('> ' + l).trimEnd())
+  return lines.join('\n') + '\n\n'
 }
 
 /** 存盘时去掉只在这次打开时有的东西；没做完的那条记成停下了 */

@@ -47,6 +47,9 @@ import { momentsTitle, videoKeyOfCard, videoUrlOfCard } from './video/BoardCards
 import { useBoardImageDrop } from './web/useImageDrop'
 import { openCapture } from './mindmap/capture-store'
 import { MindmapLayer } from './mindmap/MindmapLayer'
+import { app } from './ctx/actions'
+import { align, duplicateCard, intoNewColumn, takeOut, tidyGrid } from './ctx/board-ops'
+import { type MenuEntry, showMenu } from './ctx/menu'
 
 type Drag =
   | { type: 'block'; id: string; start: Pt; origin: Pt; moved: boolean; delta: Pt }
@@ -102,6 +105,8 @@ export function BoardView(props: BoardViewProps) {
   const [dropCol, setDropCol] = useState<string | null>(null)
   const [unsortedOpen, setUnsortedOpen] = useState(false)
   const [flash, setFlash] = useState<string | null>(null)
+  /** 右键「改名」的那一列（seq 变了就进改名） */
+  const [renameCol, setRenameCol] = useState<{ id: string; seq: number } | null>(null)
   /** 展开了的「时刻」列 */
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -410,6 +415,130 @@ export function BoardView(props: BoardViewProps) {
     }
   }
 
+  // ---------- 右键（DESIGN.v3 9.2）：卡片、选了几张、空白处、连线、列 ----------
+
+  /** 卡片转成文档：开头一行当名字，新建在这块白板旁边，卡片换成指向它的双链 */
+  async function cardToDoc(id: string, body: string) {
+    const first = body.split('\n').find((l) => l.trim())?.replace(/^[#>*\-\s\[\]x]+/i, '').replace(/[*_`[\]]/g, '').trim() ?? ''
+    const name = first.slice(0, 40) || '卡片'
+    const dir = props.notePath.includes('/') ? props.notePath.slice(0, props.notePath.lastIndexOf('/')) : ''
+    const text = /^#\s/.test(body.trimStart()) ? body.trim() + '\n' : `# ${name}\n\n${body.trim()}\n`
+    const path = await window.cn.createNote(dir, name, text)
+    const now = latest.current
+    commit({ ...now, blocks: now.blocks.map((b) => (attr(b, 'id') === id ? withContent(b, `[[${titleOf(path)}]]`) : b)) })
+    app().refresh()
+    props.onNotice(`转成了文档「${titleOf(path)}」，卡片指向它`)
+  }
+
+  function cardMenu(id: string): MenuEntry[] {
+    const b = block(id)
+    if (!b) return []
+    const body = content(b)
+    const info = classify(body, notes)
+    const target = info.kind === 'board' ? info.boardPath : info.kind === 'doc' ? info.docPath : undefined
+    const col = attr(b, 'in')
+    return [
+      target
+        ? { label: '打开', run: () => props.onOpen(target) }
+        : !videoUrlOfCard(body) && { label: '编辑', run: () => ((editRow.current = null), setEditing(id)) },
+      { label: '复制一份', run: () => {
+          const r = duplicateCard(doc, id)
+          commit(r.doc)
+          setFlash(r.id)
+        } },
+      col && { label: '从列里拿出来', run: () => commit(takeOut(doc, id, rects[id])) },
+      '-',
+      body.trim() && { label: '问 AI 这张', run: () => app().askAi(body) },
+      !target && body.trim() && { label: '转成文档', run: () => cardToDoc(id, body) },
+      '-',
+      { label: '删除', accel: 'Backspace', run: () => (removeBlocks(new Set([id])), setSelected(new Set())) },
+    ]
+  }
+
+  function manyMenu(ids: Set<string>): MenuEntry[] {
+    return [
+      { label: '左对齐', run: () => commit(align(doc, ids, 'left')) },
+      { label: '顶对齐', run: () => commit(align(doc, ids, 'top')) },
+      { label: '排整齐', run: () => commit(tidyGrid(doc, ids, rects)) },
+      '-',
+      { label: '放进新列', run: () => commit(intoNewColumn(doc, ids, rects)) },
+      '-',
+      { label: `删除 ${ids.size} 张`, accel: 'Backspace', run: () => (removeBlocks(ids), setSelected(new Set())) },
+    ]
+  }
+
+  async function emptyMenu(at: Pt): Promise<MenuEntry[]> {
+    const clip = await window.cnMenu.clipboardHas()
+    return [
+      { label: '新卡片', run: () => setEditing(addBlock('card', at, '')) },
+      { label: '新待办', run: () => createFromPal('todo', { at }, false) },
+      { label: '新列', run: () => createFromPal('column', { at }, false) },
+      { label: '新子白板', run: () => createFromPal('board', { at }, true) },
+      '-',
+      {
+        label: '拍导图',
+        accel: 'Shift+CommandOrControl+C',
+        run: () =>
+          openCapture({
+            onPlaced: (path) => {
+              const now = latest.current
+              const id = newId(now)
+              commit(addCard(now, id, `[[${titleOf(path)}]]`, { at }))
+              setFlash(id)
+            },
+          }),
+      },
+      '-',
+      // 剪贴板里是图：交给白板接粘贴的那条路（存进附件、放图片卡）；是字：在点的地方放一张卡
+      clip.image
+        ? { edit: 'paste' }
+        : { label: '粘贴', accel: 'CommandOrControl+V', enabled: clip.text, run: async () => {
+            const t = (await window.cnMenu.readClipboardText()).trim()
+            if (!t) return
+            const now = latest.current
+            const id = newId(now)
+            commit(addCard(now, id, t, { at }))
+            setFlash(id)
+          } },
+    ]
+  }
+
+  async function onContext(e: React.MouseEvent) {
+    const t = e.target as HTMLElement
+    // 正在编辑的卡片、工具板、未整理、导图：交给输入框的标准菜单或不弹
+    if (props.readOnly || t.closest('input, textarea, [contenteditable="true"], .bpal, .unsorted, .mm-layer')) return
+    e.preventDefault()
+    e.stopPropagation()
+    outer.current?.focus({ preventScroll: true })
+    const wireEl = t.closest<SVGElement>('[data-link]')
+    const cardEl = t.closest<HTMLElement>('.bcard')
+    const colEl = t.closest<HTMLElement>('.bcol')
+    let items: MenuEntry[]
+    if (wireEl) {
+      const key = wireEl.dataset.link!
+      setSelLink(key)
+      setSelected(new Set())
+      items = [{ label: '删除连线', accel: 'Backspace', run: () => (commit(withLinks(doc, links.filter((l) => `${l.from}>${l.to}` !== key))), setSelLink(null)) }]
+    } else if (cardEl?.dataset.id) {
+      const id = cardEl.dataset.id
+      setSelLink(null)
+      if (selected.has(id) && selected.size > 1) items = manyMenu(selected)
+      else {
+        setSelected(new Set([id]))
+        items = cardMenu(id)
+      }
+    } else if (colEl?.dataset.id) {
+      const id = colEl.dataset.id
+      setSelected(new Set([id]))
+      items = [
+        { label: '改名', run: () => setRenameCol((r) => ({ id, seq: (r?.seq ?? 0) + 1 })) },
+        '-',
+        { label: '删除列（卡片留下）', run: () => (removeBlocks(new Set([id])), setSelected(new Set())) },
+      ]
+    } else items = await emptyMenu(toPlane(e.clientX, e.clientY))
+    await showMenu(items)
+  }
+
   // ---------- 画 ----------
 
   const free = doc.blocks.filter((b) => !attr(b, 'in') && attr(b, 'id'))
@@ -537,12 +666,15 @@ export function BoardView(props: BoardViewProps) {
       onPointerMove={onMove}
       onPointerUp={onUp}
       {...imageDrop.handlers}
+      onContextMenu={(e) => void onContext(e)}
       data-testid="board"
     >
     <div
       className="board-wrap"
       ref={wrap}
-      onPointerDown={() => {
+      onPointerDown={(e) => {
+        // 右键不清选中：选了几张再右键是对这几张做
+        if (e.button === 2) return
         setSelected(new Set())
         setSelLink(null)
         outer.current?.focus({ preventScroll: true })
@@ -629,6 +761,7 @@ export function BoardView(props: BoardViewProps) {
                 unit={moments ? '个' : '张卡片'}
                 onDown={(e) => onBlockDown(e, id)}
                 onRename={(t) => setBlockAttrs(id, { title: t })}
+                editSeq={renameCol?.id === id ? renameCol.seq : 0}
               />
               {shown.map((m, i) => renderCard(m, true, !!moments && i > 0))}
               {moments && members.length > 3 && (
@@ -778,8 +911,12 @@ function Mini(props: { text: string; sub: string; onDown(e: React.PointerEvent):
   )
 }
 
-function ColumnTitle(props: { title: string; count: number; sub?: string; unit?: string; onDown(e: React.PointerEvent): void; onRename(t: string): void }) {
+function ColumnTitle(props: { title: string; count: number; sub?: string; unit?: string; onDown(e: React.PointerEvent): void; onRename(t: string): void; editSeq: number }) {
   const [edit, setEdit] = useState(false)
+  // 右键「改名」
+  useEffect(() => {
+    if (props.editSeq) setEdit(true)
+  }, [props.editSeq])
   if (edit)
     return (
       <input

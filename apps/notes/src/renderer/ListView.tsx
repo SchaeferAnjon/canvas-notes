@@ -1,4 +1,5 @@
 import { PageNote, TabActs } from './shell/TabActs'
+import { onFileMenu } from './ctx/file-menu'
 import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import type { NoteFile } from '../shared/api'
@@ -65,7 +66,7 @@ export function ListView(props: {
           {items.length === 0 && <p className="list-empty">这里还没有东西。</p>}
           <div className="cards">
             {items.slice(0, shown).map((n) => (
-              <button key={n.path} className={'lcard' + (n.kind !== 'work' && n.source ? ' clip' : '')} onClick={() => props.onOpen(n.path)}>
+              <button key={n.path} className={'lcard' + (n.kind !== 'work' && n.source ? ' clip' : '')} onClick={() => props.onOpen(n.path)} onContextMenu={(e) => onFileMenu(e, n.path)}>
                 <span className="q">{n.preview || titleOf(n.path)}</span>
                 <span className="src">
                   {n.source && <span className="dom">{domainOf(n.source)}</span>}

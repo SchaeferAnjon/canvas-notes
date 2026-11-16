@@ -1,4 +1,5 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { onFileMenu } from './ctx/file-menu'
 import { ActBtn, TabActs } from './shell/TabActs'
 import { useEffect, useRef, useState } from 'react'
 import type { Activity, DreamGroup, DreamReport, NoteFile } from '../shared/api'
@@ -494,7 +495,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
           </button>
           {items.length === 0 && <p className="empty-note">收件箱是空的。在任何软件里按 ⌥⌘N 速记，回车就落到这里。</p>}
           {items.slice(0, 3).map((n) => (
-            <button key={n.path} className="li" onClick={() => props.onOpen(n.path)}>
+            <button key={n.path} className="li" onClick={() => props.onOpen(n.path)} onContextMenu={(e) => onFileMenu(e, n.path)}>
               <Codicon name="inbox" size={12} />
               <span className="truncate">{n.preview || titleOf(n.path)}</span>
             </button>
@@ -517,7 +518,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
       return (
         <div className="thumbs">
           {boards.map((n) => (
-            <button key={n.path} className="th" onClick={() => props.onOpen(n.path)}>
+            <button key={n.path} className="th" onClick={() => props.onOpen(n.path)} onContextMenu={(e) => onFileMenu(e, n.path)}>
               <Thumb note={n} />
               <span className="n">
                 <b className="truncate">{titleOf(n.path)}</b>
@@ -555,7 +556,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
       return (
         <div className="recent">
           {works.map((n) => (
-            <button key={n.path} className="r" onClick={() => props.onOpen(n.path)}>
+            <button key={n.path} className="r" onClick={() => props.onOpen(n.path)} onContextMenu={(e) => onFileMenu(e, n.path)}>
               <Codicon name="file-text" size={14} />
               <span className="truncate">{titleOf(n.path)}</span>
               <span className="t">{when(n.mtimeMs)}</span>
@@ -643,7 +644,7 @@ function FlipBody(props: HomeProps) {
   const c = clips[i % clips.length]!
   return (
     <div className="flip">
-      <button className="q" onClick={() => props.onOpen(c.path)}>
+      <button className="q" onClick={() => props.onOpen(c.path)} onContextMenu={(e) => onFileMenu(e, c.path)}>
         {c.preview || titleOf(c.path)}
       </button>
       <div className="from">

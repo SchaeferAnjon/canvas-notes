@@ -1,4 +1,5 @@
 import { Codicon } from '@cn/design'
+import { copy, menuAt } from './ctx/menu'
 import { useEffect, useState } from 'react'
 import type { CommitInfo, DreamDiffFile } from '../shared/api'
 import { when } from './ListView'
@@ -34,7 +35,16 @@ export function HistoryPanel(props: { version: number; onClose(): void; onOpen(p
       <div className="rbody">
         {commits?.length === 0 && <p className="list-empty">还没有提交。</p>}
         {commits?.map((c, i) => (
-          <div key={c.hash} className={'commit' + (openHash === c.hash ? ' open' : '')}>
+          <div
+            key={c.hash}
+            className={'commit' + (openHash === c.hash ? ' open' : '')}
+            onContextMenu={(e) =>
+              void menuAt(e, [
+                { label: '拷贝提交号', run: () => copy(c.hash) },
+                { label: '拷贝说明', run: () => copy(c.subject) },
+              ])
+            }
+          >
             <button className="ch" onClick={() => (setOpenHash(openHash === c.hash ? null : c.hash), setOpenFile(null))}>
               <i className={'cdot' + (i === 0 ? ' head' : '')} />
               <span className="subj">{c.subject}</span>

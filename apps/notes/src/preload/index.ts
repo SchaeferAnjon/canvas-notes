@@ -9,6 +9,7 @@ import { searchApi } from './search'
 import type { CnFilesApi } from '../shared/files'
 import { videoApi } from './video-api'
 import { webApi } from './web'
+import { menuApi } from './ctx-menu'
 
 const api: CnApi = {
   vault: () => ipcRenderer.invoke('vault:get'),
@@ -31,7 +32,6 @@ const api: CnApi = {
   aiChange: (change) => ipcRenderer.invoke('ai:change', change),
   aiRevert: (hash) => ipcRenderer.invoke('ai:revert', hash),
   search: (q) => ipcRenderer.invoke('search', q),
-  noteMenu: (path) => ipcRenderer.invoke('note:menu', path),
   pins: () => ipcRenderer.invoke('pins:get'),
   logActivity: (kind, path) => ipcRenderer.invoke('activity:log', kind, path),
   activity: () => ipcRenderer.invoke('activity:get'),
@@ -131,3 +131,4 @@ contextBridge.exposeInMainWorld('cnSearch', searchApi)
 contextBridge.exposeInMainWorld('cnFiles', { all: () => ipcRenderer.invoke('files:all') } satisfies CnFilesApi)
 contextBridge.exposeInMainWorld('cnVideo', videoApi)
 contextBridge.exposeInMainWorld('cnImport', importApi)
+contextBridge.exposeInMainWorld('cnMenu', menuApi)

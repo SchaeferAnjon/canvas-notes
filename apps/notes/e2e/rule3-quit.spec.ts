@@ -162,3 +162,37 @@ test('「更多」连点几次、好几个系统菜单套着开着时退出：�
     rmSync(dirname(vault), { recursive: true, force: true, maxRetries: 5 })
   }
 })
+
+test('右键菜单开着时退出（文档里、输入框里各右键一次）：全收起，5 秒内退干净，没存的字照样存好、提交好', async () => {
+  const run = await launch({ '日记.md': '# 日记\n\n今天去了海边。\n' })
+  const { page, vault, app } = run
+  try {
+    // 数还开着几个系统菜单（真弹出来的，测试窗口在屏幕外没人点）
+    await app.evaluate(({ Menu }) => {
+      const g = globalThis as unknown as { cnOpenMenus: number }
+      g.cnOpenMenus = 0
+      const popup = Menu.prototype.popup
+      Menu.prototype.popup = function (this: Electron.Menu, opts?: Electron.PopupOptions) {
+        g.cnOpenMenus++
+        this.once('menu-will-close', () => g.cnOpenMenus--)
+        return popup.call(this, opts)
+      }
+    })
+    await openNote(page, '日记')
+    await pane(page).locator('.cm-line', { hasText: '今天去了海边。' }).click()
+    await page.keyboard.press('End')
+    await page.keyboard.type('右键菜单开着时打的字')
+    // 文档自己的菜单
+    await pane(page).locator('.cm-line', { hasText: '今天去了海边。' }).click({ button: 'right' })
+    await expect.poll(() => app.evaluate(() => (globalThis as unknown as { cnOpenMenus: number }).cnOpenMenus)).toBe(1)
+    // 主进程兜底的输入框菜单（属性面板之外的任意输入框：这里用标签条上改名的输入框不方便，直接对 AI 输入框发右键）
+    await page.evaluate(() => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="问 AI"]')?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
+    await page.waitForTimeout(300)
+    expect(await timedQuit(run)).toBeLessThan(5_000)
+    expect(readFileSync(join(run.userData, 'quit.log'), 'utf8')).toMatch(/before-quit[\s\S]*收起菜单 [1-9] 个[\s\S]*存完[\s\S]*提交完[\s\S]*quit/)
+    expect(readFileSync(join(vault, '日记.md'), 'utf8')).toBe('# 日记\n\n今天去了海边。右键菜单开着时打的字\n')
+    expect(gitStatus(vault)).toBe('')
+  } finally {
+    rmSync(dirname(vault), { recursive: true, force: true, maxRetries: 5 })
+  }
+})

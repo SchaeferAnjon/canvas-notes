@@ -8,6 +8,8 @@
 
 .ftree {
   padding-bottom: 8px;
+  /* 下面的空白也算目录树：右键能新建 */
+  min-height: 100%;
 }
 .ftree .ft-row {
   height: 28px;

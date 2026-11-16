@@ -4,7 +4,8 @@ import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
 import { type ArchiveDays, isArchived } from '../shared/sidebar'
-import { noteMenu, RenameInput } from './note-menu'
+import { RenameInput } from './note-menu'
+import { onFileMenu } from './ctx/file-menu'
 import './note-index.css'
 
 type Kind = 'any' | 'work' | 'board' | 'clip' | 'inbox'
@@ -55,8 +56,6 @@ export function NoteIndex(props: {
   archiveDays: ArchiveDays
   onOpen(path: string): void
   onRename(path: string, name: string): void
-  onTrash(path: string): void
-  onPinsChanged(): void
   onOpenSettings(): void
 }) {
   const [q, setQ] = useState('')
@@ -151,7 +150,7 @@ export function NoteIndex(props: {
                     className="ix-open"
                     title={n.path}
                     onClick={() => props.onOpen(n.path)}
-                    onContextMenu={(e) => void noteMenu(e, n.path, { rename: setRenaming, trash: props.onTrash, pinned: props.onPinsChanged })}
+                    onContextMenu={(e) => onFileMenu(e, n.path, { rename: () => setRenaming(n.path) })}
                   >
                     {n.board ? <i className="sw" style={{ background: n.board.color }} /> : <Codicon name={n.kind === 'inbox' ? 'inbox' : n.kind === 'clip' ? 'quote' : 'file-text'} size={16} />}
                     {renaming === n.path ? (

@@ -4,7 +4,7 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, renameSync, statSy
 import { stat } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
-import type { Activity, AiChange, GitState, NoteMenuAction, VaultInfo } from '../shared/api'
+import type { Activity, AiChange, GitState, VaultInfo } from '../shared/api'
 import { activeSkin, type AppSettings, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { isExtUrl } from '../shared/bookmarkkeeper'
@@ -21,7 +21,7 @@ import { setupMindmap } from './mindmap'
 import { duplicatesOf, readAll } from './duplicates'
 import { registerHome } from './home'
 import { registerFolderHome } from './folder-home'
-import { pinNote, readPins, repin } from './pins'
+import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
 import { E2E } from './test-mode'
 import { Updater } from './updater'
@@ -34,6 +34,7 @@ import { setupReading } from './reading'
 import { searchVault, setupSearch } from './search'
 import { registerFiles } from './files'
 import { setupImport } from './import'
+import { attachEditMenu, closeAllMenus, forwardWebContext, popup, setupCtxMenu } from './ctx-menu'
 import { attachWebview, setupWeb } from './web'
 import { attachVideo, flushVideo, setupVideo } from './video'
 
@@ -332,35 +333,6 @@ function registerIpc() {
   })
   ipcMain.handle('search', (_e, q: string) => (typeof q === 'string' ? needVault().search(q) : []))
   ipcMain.handle('pins:get', () => readPins(needVault()))
-  ipcMain.handle('note:menu', async (_e, path: string) => {
-    const v = needVault()
-    v.abs(path)
-    const pinned = (await readPins(v)).includes(path)
-    return new Promise<NoteMenuAction>((resolve) => {
-      let picked: NoteMenuAction = null
-      const menu = Menu.buildFromTemplate([
-        pinned ? { label: '取消置顶', click: () => (picked = 'unpin') } : { label: '置顶', click: () => (picked = 'pin') },
-        { type: 'separator' },
-        { label: '重命名', click: () => (picked = 'rename') },
-        { label: '在 Finder 中显示', click: () => (picked = 'reveal') },
-        { type: 'separator' },
-        { label: '移到废纸篓', click: () => (picked = 'trash') },
-      ])
-      const open = { menu, win: win! }
-      openMenus.add(open)
-      menu.popup({
-        window: open.win,
-        callback: () => {
-          openMenus.delete(open)
-          resolve(picked)
-        },
-      })
-    }).then(async (a) => {
-      if (a === 'reveal') shell.showItemInFolder(v.abs(path))
-      if (a === 'pin' || a === 'unpin') await pinNote(v, path, a === 'pin')
-      return a
-    })
-  })
   ipcMain.handle('activity:log', (_e, kind: string, path: string) => {
     if (kind !== 'clip' || typeof path !== 'string') throw new Error('参数不对')
     return logActivity(needVault().root, { t: Date.now(), kind: 'clip', path })
@@ -387,6 +359,7 @@ function registerIpc() {
     const v = needVault()
     return duplicatesOf(await readAll(v.root, (await v.list()).map((n) => n.path)))
   })
+  setupCtxMenu(needVault, () => win?.webContents.send('files:changed'))
   registerAttachments(needVault, () => win, app.getPath('userData'))
   registerHome(needVault, () => win)
   registerFolderHome(needVault, () => win)
@@ -442,6 +415,8 @@ function createWindow() {
     attachWebview(wc, win!)
     // 视频页：字幕、记下这一刻、框一块问（video/）
     attachVideo(wc)
+    // 网页里的右键转给界面拼菜单
+    forwardWebContext(wc, win!.webContents)
   })
   // 测试模式只 showInactive：不激活软件、不抢用户正在用的窗口的焦点
   win.once('ready-to-show', () => (E2E ? win?.showInactive() : win?.show()))
@@ -653,14 +628,6 @@ async function saveOpenNotes(wins = BrowserWindow.getAllWindows()): Promise<void
   clearTimeout(timer)
 }
 
-/**
- * 正弹着的系统菜单（笔记的「更多」/ 右键菜单）。它开着时主线程在 macOS 的菜单循环里：
- * 这时叫退出（装更新重启、注销关机、测试里的 app.quit），quit 事件发完了进程也出不了菜单循环，一直不退，
- * 直到有人把菜单点掉（端到端测试的窗口在屏幕外，没人点）。退出时先把它们都收起来。
- * 可能不止一个：菜单开着时界面又叫一次（测试里连点「更多」），新菜单的循环套在旧的里面，只收最里面那个，外面的还卡着。
- * 网页里的 <select> 下拉不用管，Chromium 自己收
- */
-const openMenus = new Set<{ menu: Menu; win: BrowserWindow }>()
 
 // 退出：先存编辑器里没存的字，再把没提交的改动提交掉，再退
 let quitting = false
@@ -671,12 +638,9 @@ app.on('before-quit', (e) => {
   quitLog('before-quit')
   quietErrorsWhileQuitting()
   quitStarted = true
-  if (openMenus.size) {
-    quitLog(`收起菜单 ${openMenus.size} 个`)
-    // 从最里面（最后弹出的）往外收
-    for (const m of [...openMenus].reverse()) if (!m.win.isDestroyed()) m.menu.closePopup(m.win)
-    openMenus.clear()
-  }
+  // 开着的系统菜单（右键、「更多」）先收起：不收，进程出不了菜单循环（ctx-menu.ts）
+  const menus = closeAllMenus()
+  if (menus) quitLog(`收起菜单 ${menus} 个`)
   if (quitting || !vault) return
   // 先拦下这次退出：存字要等界面回话
   e.preventDefault()
@@ -718,6 +682,8 @@ function commitPendingSync(root: string) {
   }
 }
 app.on('quit', () => quitLog('quit'))
+// 软件自己的窗口（主窗口、速记小窗）里界面没接管的右键（输入框、选了字）：标准编辑菜单
+app.on('browser-window-created', (_e, w) => attachEditMenu(w.webContents))
 
 // 关掉窗口不退出：菜单栏和 ⌥⌘N 速记还要用（⌘Q 或菜单栏「退出」才退）
 app.on('window-all-closed', () => {

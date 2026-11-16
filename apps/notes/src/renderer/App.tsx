@@ -14,7 +14,9 @@ import { StatusBar } from './shell/StatusBar'
 import { OutlineView } from './shell/OutlineView'
 import { ActsSlot, noteRenamers } from './shell/TabActs'
 import { revealLeft, tabEdges } from './shell/tab-scroll'
-import { noteMenu } from './note-menu'
+import { onFileMenu } from './ctx/file-menu'
+import { setAppActions } from './ctx/actions'
+import { copy, type MenuEntry, menuAt, setMenuNotice } from './ctx/menu'
 import { reloadHome, resetHome } from './home-store'
 import { HomeView } from './HomeView'
 import { HistoryPanel } from './HistoryPanel'
@@ -181,6 +183,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     setNotice(text)
     setNoticeUndo(run ? { text, run } : null)
   }
+  /** 右键「问 AI」放进输入框的引文 */
+  const [aiDraft, setAiDraft] = useState<{ text: string; seq: number } | null>(null)
   const [right, setRight] = useState<Right>(null)
   const historyOpen = right === 'history'
   const toggleRight = (r: Exclude<Right, null>) => setRight((v) => (v === r ? null : r))
@@ -369,6 +373,23 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       (t) => t.type === 'topic' && t.topic === topic,
       () => ({ id: newId(), type: 'topic', topic }),
     )
+
+  /** 标签右键（DESIGN.v3 9.2）：关闭这几种、改名、在访达中显示、拷贝路径、网页移到右栏 */
+  function tabMenu(t: Tab): MenuEntry[] {
+    const i = tabs.findIndex((x) => x.id === t.id)
+    const path = 'path' in t ? t.path : null
+    return [
+      { label: '关闭', accel: 'CommandOrControl+W', run: () => closeTab(t.id) },
+      { label: '关闭其他', enabled: tabs.length > 1, run: () => setTabState({ tabs: tabs.filter((x) => x.id === t.id), active: t.id }) },
+      { label: '关闭右侧', enabled: i < tabs.length - 1, run: () => setTabState((s) => ({ tabs: s.tabs.slice(0, i + 1), active: s.tabs.slice(0, i + 1).some((x) => x.id === s.active) ? s.active : t.id })) },
+      { label: '关闭全部', run: () => setTabState({ tabs: [], active: null }) },
+      '-',
+      t.type === 'note' && { label: '重命名', accel: 'F2', run: () => setRenaming(t.id) },
+      path && { label: '在访达中显示', run: () => window.cnMenu.reveal(path) },
+      path && { label: '拷贝路径', run: () => copy(vault.path + '/' + path) },
+      t.type === 'web' && { label: '移到右栏', run: () => (closeTab(t.id), openInWeb(t.url)) },
+    ]
+  }
 
   function closeTab(id: string) {
     setTabState((s) => {
@@ -559,7 +580,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     try {
       await NoteDoc.saveAll()
       setTabState((s) => {
-        const tabs = s.tabs.filter((t) => !(t.type === 'note' && t.path === path))
+        // 文档、PDF、HTML 开着的标签一起关
+        const tabs = s.tabs.filter((t) => !('path' in t && t.path === path))
         return { tabs, active: tabs.some((t) => t.id === s.active) ? s.active : (tabs[tabs.length - 1]?.id ?? null) }
       })
       await window.cn.trashNote(path)
@@ -771,6 +793,98 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     }
   }
 
+  // 右键菜单要用的整个软件的动作（ctx/actions.ts）：每次渲染都换成最新的
+  const openWide = (url: string, title?: string) => open((t) => t.type === 'web' && t.url === url, () => ({ id: newId(), type: 'web', url, title }))
+  /** 当前标签换成这一篇（右键「打开」）；它已经开在别的标签就切过去 */
+  const openHere = (path: string) => {
+    if (!/\.md$/i.test(path)) return openFile(path)
+    setTabState((s) => {
+      const there = s.tabs.find((t) => t.type === 'note' && t.path === path)
+      if (there) return { ...s, active: there.id }
+      const i = s.tabs.findIndex((t) => t.id === s.active)
+      const t: Tab = { id: newId(), type: 'note', path }
+      if (i === -1 || s.tabs[i]!.type !== 'note') return { tabs: [...s.tabs, t], active: t.id }
+      return { tabs: s.tabs.map((x, j) => (j === i ? t : x)), active: t.id }
+    })
+  }
+  setMenuNotice(setNotice)
+  setAppActions({
+    openFile,
+    openHere,
+    openWikilink(target, here) {
+      const name = target.toLowerCase()
+      const hit = notes.find((n) => titleOf(n.path).toLowerCase() === name || n.path.toLowerCase() === name + '.md')
+      if (hit && here) openHere(hit.path)
+      else openLink(target)
+    },
+    openReading(path) {
+      openFile(path)
+      setLower('ai')
+    },
+    openInWeb,
+    openWide,
+    askAi(text) {
+      if (readingDoc) {
+        // 读 PDF / HTML 时 AI 在右栏下格：引文放进那边的输入框
+        setLower('ai')
+        Reading.stage(readingDoc, { page: Reading.get(readingDoc).state.page ?? 1, quote: text.slice(0, 2000), blank: true })
+        return
+      }
+      setWebAsk(null)
+      setAiFloat(true)
+      setAiDraft((d) => ({ text, seq: (d?.seq ?? 0) + 1 }))
+    },
+    notice: (t) => noticeWithUndo(t),
+    doc: () => (clipMode.mode === 'doc' && activeDoc.current && !activeDoc.current.readOnly ? activeDoc.current : null),
+    async clip(c, to) {
+      const doc = activeDoc.current
+      if (to === 'doc' && clipMode.mode === 'doc' && doc && !doc.readOnly) {
+        doc.insertAtCursor(clipMarkdown(c.text, c.title, c.url))
+        void window.cn.logActivity('clip', doc.path)
+        setNotice(`插到「${clipMode.target}」光标处，带来源标题和链接`)
+        return
+      }
+      await window.cn.clipToInbox(c)
+      setNotice('剪成卡片，放进收件箱了')
+      refreshNotes()
+      refreshGit()
+    },
+    refresh: () => (refreshNotes(), refreshGit()),
+    async newNote(folder) {
+      const path = await window.cn.createNote(folder, '未命名', '# 未命名\n\n')
+      refreshNotes()
+      openNote(path, true)
+    },
+    async newBoard(folder) {
+      const path = await window.cn.createBoard(folder, '未命名白板')
+      refreshNotes()
+      openNote(path, true)
+    },
+    trash,
+    async togglePin(path, on) {
+      await window.cnMenu.pin(path, on)
+      refreshNotes()
+      refreshGit()
+    },
+    pins: () => pins,
+    folders: () => {
+      const all = new Set<string>()
+      for (const p of [...notes.map((n) => n.path), ...pdfs.map((x) => x.path)]) if (p.includes('/')) all.add(p.slice(0, p.indexOf('/')))
+      for (const f of folders) all.add(f.folder)
+      return [...all].sort((a, b) => a.localeCompare(b, 'zh')).slice(0, 30)
+    },
+    hasFolderHome: (f) => folders.some((x) => x.folder === f),
+    async moveNote(path, folder) {
+      await NoteDoc.saveAll()
+      const to = await window.cnMenu.moveNote(path, folder)
+      setTabs((x) => x.map((t) => (t.type === 'note' && t.path === path ? { ...t, path: to } : t)))
+      setNotice(`「${titleOf(path)}」挪到了 ${folder || '库的最外层'}`)
+      refreshNotes()
+      refreshGit()
+    },
+    absPath: (rel) => vault.path + '/' + rel,
+    openFolderHome: (f) => openFolder(f),
+  })
   const frame = settings.appearance.frame
   // 梦游预览时数的是改好以后的收件箱
   const inboxCount = (pv.on ? pv.preview.notes : notes).filter((n) => n.kind === 'inbox').length
@@ -948,16 +1062,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           pins={pins}
           archiveDays={settings.archiveDays}
           onTidy={() => runAi('/整理收件箱')}
-          onPinsChanged={() => {
-            refreshNotes()
-            refreshGit()
-          }}
           onNewNote={() => void newNote()}
           onNewBoard={() => void newBoard()}
           onOpenFile={openFile}
           onQuickOpen={() => (setPaletteOpen(false), setQuickOpen(true))}
           onRename={(p, n) => void renameFromSidebar(p, n)}
-          onTrash={(p) => void trash(p)}
           folders={sideFolders}
           onOpenFolder={(f) => openFolder(f)}
           onNewCourse={() => void newCourse()}
@@ -979,6 +1088,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                   aria-selected={on}
                   data-testid={on ? 'tab-on' : undefined}
                   onDoubleClick={() => t.type === 'note' && setRenaming(t.id)}
+                  onContextMenu={(e) => renaming !== t.id && void menuAt(e, tabMenu(t))}
                 >
                   {renaming === t.id ? (
                     <span className="tl">
@@ -1065,13 +1175,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               key={t.id}
               tabId={t.id}
               renaming={renaming === t.id}
-              onMenu={(e) =>
-                void noteMenu(e, t.path, {
-                  rename: () => setRenaming(t.id),
-                  trash: (p) => void trash(p),
-                  pinned: () => (refreshNotes(), refreshGit()),
-                })
-              }
+              onMenu={(e) => onFileMenu(e, t.path, { rename: () => setRenaming(t.id) })}
               path={t.path}
               active={t.id === shown}
               fresh={!!t.fresh}
@@ -1187,11 +1291,6 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 archiveDays={settings.archiveDays}
                 onOpen={(p) => openNote(p)}
                 onRename={(p, n) => void renameFromSidebar(p, n)}
-                onTrash={(p) => void trash(p)}
-                onPinsChanged={() => {
-                  refreshNotes()
-                  refreshGit()
-                }}
                 onOpenSettings={() => openSettings('vault')}
               />
             )
@@ -1226,6 +1325,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           onShowHistory={() => setRight('history')}
           onShowDream={() => openLeft('dream')}
           autoRun={aiAuto}
+          draft={aiDraft}
           onEngine={(label, id) => (setAiEngine(label), setAiEngineId(id))}
           onChanged={() => {
             refreshNotes()

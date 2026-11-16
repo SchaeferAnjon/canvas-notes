@@ -5,6 +5,10 @@ import { MovedMark, type DreamPreview } from '../dream/preview'
 import { fileIcon } from '../Palette'
 import { Progress } from '../search/QuickOpen'
 import { useVaultFiles } from './store'
+import { folderMenu, onFileMenu } from '../ctx/file-menu'
+import { menuAt } from '../ctx/menu'
+import { app } from '../ctx/actions'
+import { RenameInput } from '../note-menu'
 import './file-tree.css'
 
 const OPEN_KEY = 'cn.treeOpen'
@@ -34,10 +38,12 @@ const shown = (name: string) => name.replace(/\.(md|pdf|html?)$/i, '')
  * 梦游预览开着时画成改好以后的样子：挪来的标「新」，原来的位置留划掉的影子。
  * 独立组件：以后左边改成图标栏 + 侧栏时整个挪过去就行。
  */
-export function FileTree(props: { activePath: string | null; onOpen(path: string): void; onOpenFolder(path: string): void; preview?: DreamPreview | null }) {
+export function FileTree(props: { activePath: string | null; onOpen(path: string): void; onOpenFolder(path: string): void; preview?: DreamPreview | null; onRename(path: string, name: string): void }) {
   const { files, loaded } = useVaultFiles()
   const [open, setOpen] = useState(loadOpen)
   const [pages, setPages] = useState<Record<string, number>>({})
+  /** 右键「重命名」：原地改名的那一篇 */
+  const [renaming, setRenaming] = useState<string | null>(null)
   const pv = props.preview
 
   const { tree, real, ghosts } = useMemo(() => {
@@ -93,6 +99,7 @@ export function FileTree(props: { activePath: string | null; onOpen(path: string
             title={home ? '点名字开首页，点箭头展开' : n.path}
             onClick={() => (home ? props.onOpenFolder(n.path) : toggle(n.path))}
             onKeyDown={(e) => e.key === 'Enter' && (home ? props.onOpenFolder(n.path) : toggle(n.path))}
+            onContextMenu={(e) => void menuAt(e, folderMenu(n.path))}
           >
             <span
               className="ft-tw"
@@ -144,10 +151,15 @@ export function FileTree(props: { activePath: string | null; onOpen(path: string
           title={n.path}
           onClick={() => props.onOpen(realPath)}
           onKeyDown={(e) => e.key === 'Enter' && props.onOpen(realPath)}
+          onContextMenu={(e) => onFileMenu(e, realPath, { rename: () => setRenaming(realPath) })}
         >
           <span className="ft-tw" />
           <Codicon name={fileIcon(n.path)} size={16} />
-          <span className="truncate">{shown(n.name)}</span>
+          {renaming === realPath ? (
+            <RenameInput path={realPath} onDone={() => setRenaming(null)} onRename={props.onRename} />
+          ) : (
+            <span className="truncate">{shown(n.name)}</span>
+          )}
           {mark && pv && <MovedMark m={mark} pv={pv} />}
           {n.kind === 'pdf' && (
             <span className="ft-meta">
@@ -169,7 +181,19 @@ export function FileTree(props: { activePath: string | null; onOpen(path: string
   walk(tree, 0)
 
   return (
-    <div className="ftree" role="tree" aria-label="全部文件">
+    <div
+      className="ftree"
+      role="tree"
+      aria-label="全部文件"
+      // 空白处右键：在库的最外层新建
+      onContextMenu={(e) =>
+        e.target === e.currentTarget &&
+        void menuAt(e, [
+          { label: '新建笔记', run: () => app().newNote('') },
+          { label: '新建白板', run: () => app().newBoard('') },
+        ])
+      }
+    >
       {rows}
       {loaded && !tree.length && <p className="s-none">库里还没有笔记、PDF 或 HTML</p>}
     </div>

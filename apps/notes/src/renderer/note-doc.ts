@@ -4,6 +4,7 @@ import { Compartment, EditorState, type Extension, StateEffect, StateField, Tran
 import { Decoration, type DecorationSet, drawSelection, EditorView, keymap } from '@codemirror/view'
 import { reconcile, textChanges } from '@cn/format'
 import type { OpenedNote } from '../shared/api'
+import { editorMenu } from './ctx/editor-menu'
 import { docEditing } from './doc-editing'
 import { livePreview } from './live-preview'
 import { propsBlock } from './mindmap/props-block'
@@ -134,7 +135,11 @@ export class NoteDoc {
         ],
       }),
     })
+    this.view.dom.addEventListener('contextmenu', this.onContextMenu)
   }
+
+  /** 右键：文档自己的菜单（ctx/editor-menu.ts）。挂在整个编辑器上：图片、表格这些小部件不把事件交给 CodeMirror */
+  private onContextMenu = (e: MouseEvent) => editorMenu(this.view, e, this.path)
 
   setMode(mode: ViewMode) {
     this.view.dispatch({ effects: this.mode.reconfigure(mode === 'source' ? [] : this.docMode) })

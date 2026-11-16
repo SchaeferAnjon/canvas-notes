@@ -3,6 +3,7 @@
  * 课件进度、我的疑惑、今天要复习的数据由 PDF 阅读和 Anki 那边写进属性；还没有时显示空状态的那句话。
  */
 import { Codicon } from '@cn/design'
+import { onFileMenu } from '../ctx/file-menu'
 import { useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { type Cond, type FolderHome, type PropFile, runCond, setWidget, type WidgetData } from '../../shared/folder-home'
@@ -61,7 +62,7 @@ function Rows(props: { c: WCtx; list: PropFile[]; limit: number; right?(f: PropF
   return (
     <>
       {props.list.slice(0, props.limit).map((f) => (
-        <button key={f.path} className="fw-row" onClick={() => c.onOpen(f.path)}>
+        <button key={f.path} className="fw-row" onClick={() => c.onOpen(f.path)} onContextMenu={(e) => onFileMenu(e, f.path)}>
           <Codicon name={f.props['类型'] === '导图' ? 'type-hierarchy' : 'file-text'} size={14} />
           <span className="truncate">{name(f.path)}</span>
           {c.fresh.has(f.path) && <span className="tag-new">新</span>}
@@ -86,7 +87,7 @@ export function CondBody(props: { c: WCtx; cond: Cond }) {
     return (
       <div className="fw-cards">
         {list.slice(0, cond.limit).map((f) => (
-          <button key={f.path} onClick={() => c.onOpen(f.path)}>
+          <button key={f.path} onClick={() => c.onOpen(f.path)} onContextMenu={(e) => onFileMenu(e, f.path)}>
             <b className="truncate">{name(f.path)}</b>
             <span>{right(f) || f.props['类型'] || ''}</span>
           </button>
@@ -106,7 +107,7 @@ export function CondBody(props: { c: WCtx; cond: Cond }) {
         </thead>
         <tbody>
           {list.slice(0, cond.limit).map((f) => (
-            <tr key={f.path} onClick={() => c.onOpen(f.path)}>
+            <tr key={f.path} onClick={() => c.onOpen(f.path)} onContextMenu={(e) => onFileMenu(e, f.path)}>
               <td className="truncate">{name(f.path)}</td>
               <td>{f.props['类型'] ?? ''}</td>
               <td className="num">{f.props['第几讲'] ?? ''}</td>
@@ -155,7 +156,7 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
       const boards = c.notes.filter((n) => n.board && n.path.startsWith(c.folder + '/'))
       const b = boards.find((n) => n.path === w.board) ?? boards[0]
       return b ? (
-        <button className="fw-board" onClick={() => c.onOpen(b.path)}>
+        <button className="fw-board" onClick={() => c.onOpen(b.path)} onContextMenu={(e) => onFileMenu(e, b.path)}>
           <span className="th" style={{ background: b.board!.color }} />
           <b>{titleOf(b.path)}</b>
           <span>白板 · {b.board!.cards} 张卡片</span>
@@ -224,7 +225,7 @@ function Slides(props: { c: WCtx; list: PropFile[] }) {
   return (
     <>
       {shown.map((f) => (
-        <button key={f.path} className="fw-row" onClick={() => c.onOpen(f.path)}>
+        <button key={f.path} className="fw-row" onClick={() => c.onOpen(f.path)} onContextMenu={(e) => onFileMenu(e, f.path)}>
           <Codicon name="file-text" size={14} />
           <span className="truncate">{stem(f.path)}</span>
           {c.fresh.has(f.path) && <span className="tag-new">新</span>}
@@ -247,7 +248,7 @@ function Slides(props: { c: WCtx; list: PropFile[] }) {
       ))}
       <More n={props.list.length} shown={shown.length} unit="份" onAll={c.onAll} />
       {resume && (
-        <button className="btn btn-xs fw-resume" onClick={() => c.onOpen(resume.path)}>
+        <button className="btn btn-xs fw-resume" onClick={() => c.onOpen(resume.path)} onContextMenu={(e) => onFileMenu(e, resume.path)}>
           <Codicon name="file-text" size={12} />
           接着读 {stem(resume.path)} 第 {at(resume)} 页
         </button>
@@ -349,7 +350,7 @@ function Viz(props: { c: WCtx; list: PropFile[] }) {
     <>
       <div className="fw-thumbs">
         {props.list.slice(0, 4).map((f) => (
-          <button key={f.path} className="fw-thumb" onClick={() => c.onOpen(f.path)}>
+          <button key={f.path} className="fw-thumb" onClick={() => c.onOpen(f.path)} onContextMenu={(e) => onFileMenu(e, f.path)}>
             <span className="tv">
               <Codicon name="file-code" size={20} />
             </span>

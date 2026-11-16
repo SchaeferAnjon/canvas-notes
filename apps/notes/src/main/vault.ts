@@ -159,7 +159,7 @@ export class Vault {
   /** 挪到另一个文件夹（名字重了加序号），返回新路径 */
   async move(rel: string, toFolder: string): Promise<string> {
     const from = this.abs(rel)
-    const dir = this.abs(toFolder)
+    const dir = toFolder === '' ? this.root : this.abs(toFolder)
     await mkdir(dir, { recursive: true })
     const base = basename(rel, '.md')
     for (let n = 1; ; n++) {

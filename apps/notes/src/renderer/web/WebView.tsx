@@ -6,6 +6,7 @@ import { videoReported } from '../video/store'
 import { noteFavicon } from './favicons'
 import { dropWebDragAt, noteWebDrag } from './image-drop'
 import { webReadIpc } from '../reading/web-bridge'
+import { registerWebMenu, type WebMenuHost } from '../ctx/web-menu'
 
 /** webview 元素上我们用到的方法 */
 export interface WebviewEl extends HTMLElement {
@@ -45,6 +46,8 @@ export function WebView(props: {
   onNav(n: NavState): void
   onTitle(title: string): void
   onClip(c: Clip): void
+  /** 网页里右键菜单的「在新标签打开」「在中间栏打开」「整页剪藏」在这个网页所在的地方怎么做 */
+  menuHost: WebMenuHost
 }) {
   const ref = useRef<WebviewEl | null>(null)
   const ready = useRef(false)
@@ -64,6 +67,7 @@ export function WebView(props: {
     // 报 webContents id：did-attach 时 webview 有时还拿不到 id（getWebContentsId 会抛错），那就等 dom-ready 再报；
     // 漏报的话这个标签对不上它的网页，插件按钮、剪藏、插件的「当前标签」都不灵
     let reported = false
+    let offMenu = () => {}
     const onAttach = () => {
       if (reported) return
       let id: number
@@ -74,6 +78,11 @@ export function WebView(props: {
       }
       reported = true
       cb.current.onAttach(id)
+      offMenu = registerWebMenu(
+        id,
+        { url: () => w.getURL(), title: () => w.getTitle(), canGoBack: () => w.canGoBack(), canGoForward: () => w.canGoForward(), goBack: () => w.goBack(), goForward: () => w.goForward(), reload: () => w.reload(), rect: () => w.getBoundingClientRect() },
+        () => cb.current.menuHost,
+      )
     }
     const onReady = () => {
       onAttach()
@@ -133,6 +142,7 @@ export function WebView(props: {
       w.removeEventListener('page-title-updated', onTitle)
       w.removeEventListener('page-favicon-updated', onFavicon)
       w.removeEventListener('ipc-message', onIpc)
+      offMenu()
     }
   }, [])
 

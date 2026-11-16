@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Clip } from '../../shared/api'
 import { decodeUrl, toUrl } from '../url'
 import { errText } from '../WebPanel'
+import { app } from '../ctx/actions'
 import { type NavState, WebView, type WebviewEl } from './WebView'
 
 /** 中间栏里的宽网页标签：一个网页单独开成一个标签读 */
@@ -102,6 +103,7 @@ export function WebTab(props: {
             props.onUrl(cur, t)
           }}
           onClip={props.onClip}
+          menuHost={{ openTab: (u) => app().openInWeb(u), clipPage: () => void clipPage() }}
         />
       </div>
     </section>

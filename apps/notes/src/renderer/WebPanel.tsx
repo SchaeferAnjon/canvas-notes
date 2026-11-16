@@ -580,6 +580,11 @@ export function WebPanel(props: {
                 }}
                 onTitle={(title) => setSt((s) => updateTab(s, t.id, { title }))}
                 onClip={props.onClip}
+                menuHost={{
+                  openTab: (u) => setSt((s) => openTab(s, u, { background: true, owner: cb.current.owner })),
+                  openWide: (u, title) => cb.current.onOpenWide(u, title),
+                  clipPage: () => void clipPage(),
+                }}
               />
             ) : null
           })}
