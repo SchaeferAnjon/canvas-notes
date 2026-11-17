@@ -34,14 +34,14 @@ export function VideoKeys() {
   return (
     <>
       <h4>
-        看视频 <span>右栏开着 YouTube、B 站的视频时管用，在文档里打字时也管用</span>
+        看视频<span>右栏开着YouTube、B站的视频时管用，在文档里打字时也管用</span>
       </h4>
       <div className="wlist-set vkeys">
         {NAMES.map((n) => (
           <div key={n.id} className="row">
             <span>{n.name}</span>
             <span className="sp" />
-            <button type="button" className={'btn btn-sm' + (rec === n.id ? ' btn-primary' : '')} aria-label={`改「${n.name}」的快捷键`} onClick={() => (setMsg(''), setRec(rec === n.id ? null : n.id))}>
+            <button type="button" className={'vkey' + (rec === n.id ? ' rec' : '')} aria-label={`改「${n.name}」的快捷键`} onClick={() => (setMsg(''), setRec(rec === n.id ? null : n.id))}>
               {rec === n.id ? '按一个 ⌥ 加字母的键…' : <kbd>{keyLabel(set.keys[n.id])}</kbd>}
             </button>
           </div>
@@ -49,7 +49,7 @@ export function VideoKeys() {
         {(
           [
             ['播放 / 暂停', '⌥K'],
-            ['退 / 进 5 秒', '⌥J / ⌥L'],
+            ['退 / 进5秒', '⌥J / ⌥L'],
             ['字幕开关', '⌥A'],
           ] as const
         ).map(([name, k]) => (

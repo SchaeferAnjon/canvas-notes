@@ -181,7 +181,7 @@ test('双语翻译：按钮开、段落下出现译文（跳过代码、导航�
     // 插件面板里关掉双语翻译：按钮没了，选区工具条上也没有「翻译」
     await webMore(page, '插件')
     const panel = page.getByRole('dialog', { name: '插件' })
-    await expect(panel.getByRole('list', { name: '内置插件' }).getByRole('listitem')).toHaveText([/双语翻译.*读改当前网页 · 联网/, /书签管家.*写笔记/, /微信读书.*读改当前网页 · 联网/])
+    await expect(panel.getByRole('list', { name: '内置插件' }).getByRole('listitem')).toHaveText([/双语翻译.*读改当前网页 · 联网/, /书签管家.*写笔记/, /微信读书.*读改当前网页 · 联网/, /拦广告.*读改当前网页 · 联网/])
     await panel.getByRole('switch', { name: '启用 双语翻译' }).click()
     await expect(panel.getByRole('switch', { name: '启用 双语翻译' })).toHaveAttribute('aria-checked', 'false')
     await expect(pluginBar(page).getByRole('button', { name: '双语翻译' })).toHaveCount(0)
@@ -238,7 +238,7 @@ test('书签管家：地址栏的星星收藏当前页并开小卡（改标题�
     await expect(dlg).toContainText('已收藏')
     await web(page).getByRole('button', { name: '更多', exact: true }).click()
     await expect(dlg).toHaveCount(0)
-    await expect(web(page).getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox')).toHaveAttribute('aria-checked', 'true')
+    await expect(web(page).getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox').filter({ hasText: /书签|收藏/ })).toHaveAttribute('aria-checked', 'true')
     await web(page).getByRole('button', { name: '更多', exact: true }).click()
     // 小卡底下「整理全部书签」：整个书签管家
     await btn.click()
@@ -298,7 +298,7 @@ test('书签管家：地址栏的星星收藏当前页并开小卡（改标题�
     await list.getByRole('checkbox', { name: '选中 雷克雅未克第二页' }).check()
     await list.getByRole('checkbox', { name: '选中 极光指南' }).check()
     await dlg.getByRole('button', { name: '存进库' }).click()
-    await expect(page.locator('.toast-cn')).toContainText('存进收件箱 2 篇，一次提交')
+    await expect(page.locator('.toast-cn')).toContainText('存进收件箱2篇，一次提交')
     const files = readdirSync(join(vault, '收件箱')).sort()
     expect(files).toEqual(['极光指南.md', '雷克雅未克第二页.md'])
     const md = readFileSync(join(vault, '收件箱', '雷克雅未克第二页.md'), 'utf8')

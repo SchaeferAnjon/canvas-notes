@@ -4,6 +4,7 @@ import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
+import { when } from '../shared/when'
 
 const PAGE = 60
 
@@ -38,7 +39,7 @@ export function ListView(props: {
     <section className="pane">
       <TabActs active>
         <PageNote>
-          <span className="num">{items.length}</span> 条 · {props.hint}
+          <span className="num">{items.length}</span>条 · {props.hint}
         </PageNote>
       </TabActs>
       <div className="body">
@@ -77,7 +78,7 @@ export function ListView(props: {
           </div>
           {items.length > shown && (
             <button className="btn btn-ghost btn-sm list-more" onClick={() => setShown((s) => s + PAGE)}>
-              再显示 {Math.min(PAGE, items.length - shown)} 条 · 还有 <span className="num">{items.length - shown}</span> 条
+              <span className="num">{`再显示${Math.min(PAGE, items.length - shown)}条 · 还有${items.length - shown}条`}</span>
             </button>
           )}
         </div>
@@ -92,17 +93,4 @@ function domainOf(url: string): string {
   } catch {
     return url
   }
-}
-
-export function when(ms: number): string {
-  const d = new Date(ms)
-  const now = new Date()
-  const p = (x: number) => String(x).padStart(2, '0')
-  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`
-  if (d.toDateString() === now.toDateString()) return `今天 ${hm}`
-  const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
-  if (d.toDateString() === y.toDateString()) return `昨天 ${hm}`
-  // 导进来的旧笔记常是前几年的：带上年份，不然看着像今年
-  if (d.getFullYear() !== now.getFullYear()) return `${d.getFullYear()}-${d.getMonth() + 1}-${p(d.getDate())}`
-  return `${d.getMonth() + 1}-${p(d.getDate())} ${hm}`
 }

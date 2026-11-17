@@ -36,7 +36,7 @@ test('打开白板什么都不做：文件不变；挪一张卡只改它那一�
     await openBoard(page, '冰岛自驾')
     await expect(card(page, 'k1')).toContainText('出发前先定')
     await expect(card(page, 'k2')).toContainText('safetravel.is')
-    await expect(card(page, 'k7')).toContainText('1 张卡片')
+    await expect(card(page, 'k7')).toContainText('1张卡片')
     await expect(board(page).locator('.bcol h3')).toContainText('极光看哪两晚')
     await expect(board(page).locator('.wire')).toHaveCount(1)
     await page.waitForTimeout(1200)
@@ -79,7 +79,8 @@ test('新建白板、双击加卡、改卡片、删卡片', async () => {
     await page.mouse.click(box.x + 700, box.y + 500)
     await waitSaved(page)
     expect(read(vault, '冰岛自驾.md')).toMatch(/<!-- card id=\w+ x=\d+ y=\d+ w=280 -->\n2\.27 的住处还没订\n\n$/)
-    await expect(page.locator('.nav .si', { hasText: '冰岛自驾' })).toContainText('1')
+    // 左栏「最近」里这块白板一行：它自己的颜色方块，右边是时间（2026-11-17 起左栏按时间排，不再写卡片数）
+    await expect(page.locator('.nav .si', { hasText: '冰岛自驾' }).locator('.sw')).toBeVisible()
 
     // 双击改字
     await board(page).locator('.bcard').dblclick()
@@ -88,10 +89,12 @@ test('新建白板、双击加卡、改卡片、删卡片', async () => {
     await page.keyboard.press('Meta+Enter')
     await waitSaved(page)
     expect(read(vault, '冰岛自驾.md')).toContain('\n住处订好了\n\n')
-    // Esc 不改
+    // Esc 收起也存下（和文档白板「改字」一样，d312d8d；不要的字 ⌘Z 撤回）
     await board(page).locator('.bcard').dblclick()
-    await page.keyboard.type('不要的字')
+    await page.keyboard.type('又加的字')
     await page.keyboard.press('Escape')
+    await expect(board(page).locator('.bcard')).toHaveText('住处订好了又加的字')
+    await page.keyboard.press('Meta+z')
     await expect(board(page).locator('.bcard')).toHaveText('住处订好了')
 
     // 选中按删除键
@@ -116,7 +119,7 @@ test('列：卡片拖进列、在列里排序、拖出来；列名可改', async
     const from = await center(page, card(page, 'k1'))
     await dragBy(page, from, target.x + 40 - from.x, target.y + 4 - from.y)
     await expect(col.locator('.bcard')).toHaveCount(3)
-    await expect(col.locator('h3 .meta')).toHaveText('3 张卡片')
+    await expect(col.locator('h3 .meta')).toHaveText('3张卡片')
     await waitSaved(page)
     let md = read(vault, '冰岛自驾.md')
     expect(md).toContain('<!-- column id=c1 x=820 y=90 w=300 title="极光看哪两晚" -->\n<!-- card id=k1 in=c1 -->\n## 出发前先定')
@@ -195,7 +198,7 @@ test('待办打勾；子白板新建、起名后父白板里的链接跟着改�
 
     await page.locator('.tab', { hasText: '冰岛自驾' }).locator('.tl').click()
     const sub = board(page).locator('.bcard.k-board', { hasText: '环岛路线' })
-    await expect(sub).toContainText('0 张卡片')
+    await expect(sub).toContainText('0张卡片')
     await sub.dblclick()
     await expect(tabOn(page)).toHaveText('环岛路线')
   } finally {
@@ -203,15 +206,15 @@ test('待办打勾；子白板新建、起名后父白板里的链接跟着改�
   }
 })
 
-test('未整理：普通文档的段落和收件箱里的东西拖上白板', async () => {
-  const run = await launch({ '所思所想.md': '# 所思所想\n\n第一段想法\n\n第二段想法\n' })
+// 普通文档切到白板是按节摆（doc-board，e2e/g2-doc-board.spec.ts）；「未整理」是白板文件（type: board）的
+test('未整理：白板里没放进卡片的段落和收件箱里的东西拖上白板', async () => {
+  const run = await launch({ '所思所想.md': '---\ntype: board\n---\n# 所思所想\n\n第一段想法\n\n第二段想法\n' })
   const { page, vault } = run
   mkdirSync(join(vault, '收件箱'))
   writeFileSync(join(vault, '收件箱', '冰洞.md'), '---\ncreated: 2026-11-14 21:10\n---\n> 冰洞只在冬天开放。\n—— [Ice](https://safetravel.is/ice)\n')
   try {
     await page.locator('.nav .si', { hasText: '所思所想' }).click()
-    await acts(page).getByRole('tab', { name: '白板' }).click()
-    await expect(board(page).getByTestId('unsorted')).toContainText('3 未整理')
+    await expect(board(page).getByTestId('unsorted')).toContainText('3未整理')
     await board(page).getByTestId('unsorted').click()
     const bb = (await board(page).boundingBox())!
     const mini = board(page).locator('.mini', { hasText: '第一段想法' })
@@ -219,7 +222,7 @@ test('未整理：普通文档的段落和收件箱里的东西拖上白板', as
     await dragBy(page, { x: m.x + 20, y: m.y + 10 }, bb.x + 300 - m.x, bb.y + 200 - m.y)
     await expect(board(page).locator('.bcard')).toHaveText('第一段想法')
     await waitSaved(page)
-    expect(read(vault, '所思所想.md')).toMatch(/^# 所思所想\n\n第二段想法\n\n<!-- card id=\w+ x=\d+ y=\d+ w=280 -->\n第一段想法\n\n$/)
+    expect(read(vault, '所思所想.md')).toMatch(/^---\ntype: board\n---\n# 所思所想\n\n第二段想法\n\n<!-- card id=\w+ x=\d+ y=\d+ w=280 -->\n第一段想法\n\n$/)
 
     const clip = board(page).locator('.mini', { hasText: '冰洞只在冬天开放' })
     const c = (await clip.boundingBox())!

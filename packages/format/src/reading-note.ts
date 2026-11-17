@@ -14,11 +14,13 @@
  *   > [!question] 我的疑惑
  *   > 整块没看懂：旋转矩阵的四个数是怎么来的
  *
- *   > [!success] 讲通的讲法（第 2 版）
+ *   > [!ai] AI 讲解（第 2 版） · Claude Code · Opus 5.5 · 看了第 5 页
  *   > 换个看法，先别看公式……
+ *   >
+ *   > - 要点一
+ *   > - 要点二
  *
- *   - 要点一
- *   - 要点二
+ *   （讲通的讲法和要点是 AI 写的，放进一个 [!ai] 提示块，CN-76；以前写成 [!success] 讲通的讲法 + 块外的列表，照样读得回来）
  *
  *   <details><summary>没讲通 · 第 1 版：用公式推，没听懂</summary>
  *
@@ -31,6 +33,7 @@
  * 读回来时路径都换回库里的路径（AskSection 里一律是库里的路径）。
  * 「完整对话」的路径就是这一段的身份：同一处接着问，就按它找到这一段整段换掉；用户自己写的别的段落原样留着。
  */
+import { aiCallout, parseAiCalloutHead, splitAiBody } from './ai-callout'
 import { encodePath, formatPdfAnchor, parsePdfAnchor, type Rect } from './pdf-link'
 import { AI_KEY, setProp } from './props'
 
@@ -68,6 +71,8 @@ export interface AskSection {
   good: string
   /** 换过讲法时是第几版 */
   goodVersion?: number
+  /** 哪家哪个模型讲的（「Claude Code · Opus 5.5」，写在提示块头上） */
+  by?: string
   points: string[]
   failed: FailedTry[]
   rounds: number
@@ -77,9 +82,10 @@ export interface AskSection {
   viz?: { path: string; title: string }
   /**
    * 不是在 PDF 上问的：网页（url 是网址，label 是域名）或库里的 HTML（url 是库里的路径，label 是文件名）。
-   * 这时链接那行写「[域名](网址)」，点了回网页；page 是问的时候 PDF 翻到的那页（没有 PDF 时是 0，标题不写页码）
+   * 这时链接那行写「[域名](网址)」，点了回网页；page 是问的时候 PDF 翻到的那页（没有 PDF 时是 0，标题不写页码）。
+   * 视频问答块「接着问」的：label 是「▶ 00:06 · 视频名」，t 是那一问在视频第几秒（AI 那块写「看了 00:06 这一帧」）
    */
-  web?: { url: string; label: string }
+  web?: { url: string; label: string; t?: number }
 }
 
 export const CONVO_DIR = '.canvas-notes/对话'
@@ -164,6 +170,23 @@ const quote = (s: string) =>
     .map((l) => (l.trim() ? `> ${l}` : '>'))
     .join('\n')
 
+/** 视频里第几秒：00:06、1:02:03（和视频块上的一样） */
+function clipTime(sec: number): string {
+  const s = Math.max(0, Math.floor(sec))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  return h ? `${h}:${pad2(m)}:${pad2(s % 60)}` : `${pad2(m)}:${pad2(s % 60)}`
+}
+
+/** 「问这一页」附的整页截图的说明 */
+const WHOLE_PAGE = '整页'
+
+/** 附的截图叫什么：「问这一页」没有框，是「整页」；框的、网页上框的是「我框的」（笔记文件、右栏笔记面板、Anki 弹窗同一个说法） */
+export function cropCaption(s: { rect?: unknown; web?: unknown }): string {
+  return !s.rect && !s.web ? WHOLE_PAGE : '我框的'
+}
+
 /** note：这一段写进的那篇笔记在库里的路径（链接相对它） */
 export function renderSection(s: AskSection, note: string): string {
   const out: string[] = []
@@ -173,13 +196,17 @@ export function renderSection(s: AskSection, note: string): string {
     : `[第 ${s.page} 页](${anchorFrom(note, s.file, s.page, s.rect)})`
   out.push(`${back}${s.time ? ` · ${s.time}` : ''}`)
   const imgs: string[] = []
-  if (s.crop) imgs.push(`![我框的](${linkFrom(note, s.crop)})`)
+  // 「问这一页」附的是整页（没有框）：图的说明写「整页」，不写「我框的」
+  if (s.crop) imgs.push(`![${cropCaption(s)}](${linkFrom(note, s.crop)})`)
   for (const f of s.figures) imgs.push(`![${alt(f.caption) || '图'}](${linkFrom(note, f.path)})`)
   // 一张图一段：文档视图里一段只有一张图才显示成图
   if (imgs.length) out.push('', imgs.join('\n\n'))
   if (s.doubts.length) out.push('', `> [!question] 我的疑惑\n${s.doubts.map((d) => `> ${oneLine(d)}`).join('\n')}`)
-  if (s.good.trim()) out.push('', `> [!success] 讲通的讲法${s.goodVersion ? `（第 ${s.goodVersion} 版）` : ''}\n${quote(s.good)}`)
-  if (s.points.length) out.push('', s.points.map((p) => `- ${oneLine(p)}`).join('\n'))
+  // AI 讲通的讲法和要点：一个 [!ai] 提示块，和自己写的分得开
+  if (s.good.trim() || s.points.length) {
+    const seen = s.web ? (s.web.t !== undefined ? `看了 ${clipTime(s.web.t)} 这一帧` : /^https?:/i.test(s.web.url) ? '看了网页这一段' : '看了框的这一块') : `看了第 ${s.page} 页`
+    out.push('', aiCallout({ text: s.good, points: s.points, seen, ...(s.by ? { by: s.by } : {}), ...(s.goodVersion ? { version: s.goodVersion } : {}) }))
+  }
   for (const f of s.failed) {
     out.push('', `<details><summary>没讲通 · 第 ${f.version} 版：${oneLine(f.line).replace(/</g, '＜')}</summary>`, '', f.text.trim(), '', '</details>')
   }
@@ -235,13 +262,16 @@ export function parseSection(chunk: string, note: string): AskSection | null {
     const w = /^\[([^\]]*)\]\(((?:https?:[^)\s]+)|[^)\s]*\.html?)\)(?:\s*·\s*(\d{1,2}:\d{2}))?\s*$/i.exec(lines[1] ?? '')
     if (w) {
       s.web = { label: w[1]!, url: /^https?:/i.test(w[2]!) ? w[2]!.replace(/%2[089]/gi, (c) => decodeURIComponent(c)) : linkTo(note, w[2]!) }
+      // 视频「接着问」的：「▶ 00:06 · 视频名」
+      const vt = /^▶ (?:(\d+):)?(\d+):(\d{2}) · /.exec(w[1]!)
+      if (vt) s.web.t = Number(vt[1] ?? 0) * 3600 + Number(vt[2]) * 60 + Number(vt[3])
       if (!head[1]) s.page = 0
       if (w[3]) s.time = w[3]
     }
   }
   for (const m of chunk.matchAll(/!\[([^\]]*)\]\(([^)]+)\)/g)) {
     const path = linkTo(note, m[2]!)
-    if (m[1] === '我框的' && !s.crop) s.crop = path
+    if ((m[1] === '我框的' || m[1] === WHOLE_PAGE) && !s.crop) s.crop = path
     else s.figures.push({ path, caption: m[1]! })
   }
   let i = 1
@@ -253,7 +283,14 @@ export function parseSection(chunk: string, note: string): AskSection | null {
       i++
       while (i < lines.length && /^>/.test(lines[i]!)) body.push(lines[i++]!.replace(/^>\s?/, ''))
       if (callout[1] === 'question') s.doubts.push(...body.map((b) => b.trim()).filter(Boolean))
-      else if (callout[1] === 'success') {
+      else if (callout[1] === 'ai') {
+        const h = parseAiCalloutHead(callout[2]!)
+        const b = splitAiBody(body)
+        s.good = b.text
+        s.points.push(...b.points)
+        if (h.version) s.goodVersion = h.version
+        if (h.by) s.by = h.by
+      } else if (callout[1] === 'success') {
         s.good = body.join('\n').trim()
         const v = /第\s*(\d+)\s*版/.exec(callout[2]!)
         if (v) s.goodVersion = Number(v[1])
@@ -351,7 +388,7 @@ export function conversationMd(convo: string, pdf: string, page: number, rect: R
   const out = [`# ${stem(pdf)} · 第 ${page} 页 · 完整对话`, '', `[回到第 ${page} 页](${anchorFrom(convo, pdf, page, rect)})`]
   for (const t of turns) {
     out.push('', `### ${t.role === 'user' ? '我' : 'AI'}${t.time ? ` · ${t.time}` : ''}`, '')
-    if (t.image) out.push(`![我框的](${linkFrom(convo, t.image)})`, '')
+    if (t.image) out.push(`![${rect ? '我框的' : WHOLE_PAGE}](${linkFrom(convo, t.image)})`, '')
     out.push(t.text.trim())
   }
   return out.join('\n') + '\n'

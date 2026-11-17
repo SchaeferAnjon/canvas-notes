@@ -70,11 +70,11 @@ for (const tone of ['light', 'dark'] as const) {
 
       // 第一次默认 iPhone：测试机上没有，说清楚、「拍」是灰的
       const vf = sheet(page).getByTestId('viewfinder')
-      await expect(vf).toContainText('iPhone 没连上')
+      await expect(vf).toContainText('iPhone没连上')
       await expect(sheet(page).getByRole('button', { name: /^拍/ })).toBeDisabled()
       // 桌上视角：列不出来，窗口里照实说
       await sheet(page).getByRole('tab', { name: '桌上视角' }).click()
-      await expect(sheet(page).getByTestId('desk-unsupported')).toContainText('这台 Mac 用不了桌上视角')
+      await expect(sheet(page).getByTestId('desk-unsupported')).toContainText('这台Mac用不了桌上视角')
       await expect(sheet(page).getByTestId('desk-unsupported')).toContainText('这个软件读不到那一路画面')
       await shot(page, `cam-desk-${tone}`)
 
@@ -106,7 +106,7 @@ for (const tone of ['light', 'dark'] as const) {
       const rows = sheet(page).locator('.mm-rows .or')
       await expect(rows).toHaveCount(15)
       await expect(sheet(page).locator('.mm-photo .bx')).toHaveCount(15)
-      await expect(sheet(page).locator('.mm-ft .help')).toHaveText('认出 15 个节点，1 个拿不准 · 放上白板后也能改')
+      await expect(sheet(page).locator('.mm-ft .help')).toHaveText('认出15个节点，1个拿不准 · 放上白板后也能改')
       const unsure = rows.filter({ has: page.locator('.tag-yel') })
       await expect(unsure).toHaveCount(1)
       await expect(unsure.locator('input')).toHaveValue('秩-零化渡定理')
@@ -121,7 +121,7 @@ for (const tone of ['light', 'dark'] as const) {
       // 改拿不准的字：黄色去掉
       await unsure.locator('input').fill('秩-零化度定理')
       await expect(sheet(page).locator('.tag-yel')).toHaveCount(0)
-      await expect(sheet(page).locator('.mm-ft .help')).toHaveText('认出 15 个节点，都核对过了 · 放上白板后也能改')
+      await expect(sheet(page).locator('.mm-ft .help')).toHaveText('认出15个节点，都核对过了 · 放上白板后也能改')
       // 回车加一行同级，Tab 缩到上一行下面
       const last = rows.filter({ has: page.locator('input[value="求导 d/dx"]') }).locator('input')
       await last.click()
@@ -300,7 +300,7 @@ test('白板上改导图：对照照片改拿不准的、Tab 加子节点、删�
     // 属性在标题下面一张表，frontmatter 原文藏起来
     const table = pane(page).locator('.cm-props')
     await expect(table.locator('.pr')).toHaveCount(5)
-    await expect(table.locator('.pr', { hasText: '课程' })).toHaveText('课程线性代数AI 填的')
+    await expect(table.locator('.pr', { hasText: '课程' })).toHaveText('课程线性代数AI填的')
     await expect(pane(page).locator('.cm-content')).not.toContainText('type: board')
     await shot(page, 'map-doc-light')
     // 点一行：露出原文，光标在那一行
@@ -320,7 +320,7 @@ test('白板上改导图：对照照片改拿不准的、Tab 加子节点、删�
     // 拿不准的：点「?」，照片框出来，挑 AI 猜的写法
     await node(page, '秩-零化渡定理').getByRole('button', { name: '对照照片改' }).click()
     const fix = page.getByRole('dialog', { name: '照片上这块写的是？' })
-    await expect(fix).toContainText('AI 读成了「秩-零化渡定理」')
+    await expect(fix).toContainText('AI读成了「秩-零化渡定理」')
     await page.waitForTimeout(400)
     await shot(page, 'map-fix-light')
     await fix.getByRole('button', { name: '秩-零化度定理' }).click()
@@ -398,7 +398,7 @@ test('属性：工具栏「属性」里改课程（不再算 AI 填的）、加�
     const pop = page.getByRole('dialog', { name: '属性' })
     await expect(pop.getByRole('combobox', { name: '类型' })).toHaveValue('导图')
     await expect(pop.getByRole('combobox', { name: '课程' })).toHaveValue('线性代数')
-    await expect(pop.locator('.pr', { hasText: '课程' }).locator('.ai')).toHaveText('AI 填的')
+    await expect(pop.locator('.pr', { hasText: '课程' }).locator('.ai')).toHaveText('AI填的')
     await expect(pop.locator('.pr', { hasText: '来源' }).locator('.ai')).toHaveText('')
     await shot(page, 'props-light')
     await pop.getByRole('combobox', { name: '课程' }).selectOption('概率论')

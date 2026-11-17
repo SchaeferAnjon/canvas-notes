@@ -16,11 +16,12 @@ export function TabActs(props: { active: boolean; children: React.ReactNode }) {
 /**
  * 标签条右端一句灰字的页面说明（「收件箱 · 今晚梦游时归类、起名」这类）：最宽 220，放不下省略号；
  * 被省略时悬停用软件自己的提示看全句（鼠标移上来那一刻量，挂上 data-tip 给 Tooltips）
+ * 中间窄于 640 时整句藏起来（.center.narrow .pnote），把位置让给标签
  */
 export function PageNote(props: { children: React.ReactNode }) {
   return (
     <span
-      className="txt"
+      className="txt pnote"
       data-testid="page-note"
       data-side="below"
       onMouseOver={(e) => {
@@ -66,3 +67,6 @@ export function ActBtn(props: {
 
 /** 笔记标签的改名：双击标签、F2、面包屑最后一节、「更多 › 改名」都走这里；NoteTab 按标签 id 登记自己的改名 */
 export const noteRenamers = new Map<string, (name: string) => Promise<void>>()
+
+/** 笔记标签关掉前：标题改过还没跟上就先按标题改名（关标签也算离开标题），回来现在的路径；NoteTab 按标签 id 登记 */
+export const noteLeavers = new Map<string, () => Promise<string>>()

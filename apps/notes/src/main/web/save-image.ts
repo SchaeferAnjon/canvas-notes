@@ -5,6 +5,7 @@
 import type { Session } from 'electron'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { attachmentDir } from '@cn/format'
 import type { ImageSource } from '../../shared/web-api'
 import { ATTACHMENTS } from '../attachments'
 
@@ -80,8 +81,12 @@ async function download(ses: Session, url: string): Promise<{ bytes: Uint8Array;
   }
 }
 
-/** 存一张图进 <库>/附件/，名字重了加 -2、-3；返回库内路径 */
-export async function saveImage(vaultRoot: string, ses: Session, src: ImageSource, nameHint?: string): Promise<string> {
+/**
+ * 存一张图进库里，名字重了加 -2、-3；返回库内路径。
+ * opts.note：存进这篇笔记自己的附件文件夹 `附件/<笔记路径>/`（CN-40 A），不给就是 `附件/`；
+ * opts.shot：剪贴板里的截图（文件名都叫 image.png），起名「截图 1」「截图 2」……
+ */
+export async function saveImage(vaultRoot: string, ses: Session, src: ImageSource, nameHint?: string, opts: { note?: string; shot?: boolean } = {}): Promise<string> {
   let bytes: Uint8Array
   let type: string
   let hint = nameHint
@@ -98,14 +103,15 @@ export async function saveImage(vaultRoot: string, ses: Session, src: ImageSourc
   if (bytes.byteLength > MAX_BYTES) throw new Error('图片太大（超过 30MB）')
   const ext = sniffImage(bytes) ?? TYPES[type] ?? null
   if (!ext) throw new Error('这不是图片')
-  const dir = join(vaultRoot, ATTACHMENTS)
+  const folder = opts.note ? attachmentDir(opts.note) : ATTACHMENTS
+  const dir = join(vaultRoot, folder)
   await mkdir(dir, { recursive: true })
-  const base = baseNameFor(hint)
+  const base = opts.shot ? '截图' : baseNameFor(hint)
   for (let n = 1; ; n++) {
-    const name = `${base}${n > 1 ? `-${n}` : ''}.${ext}`
+    const name = opts.shot ? `${base} ${n}.${ext}` : `${base}${n > 1 ? `-${n}` : ''}.${ext}`
     try {
       await writeFile(join(dir, name), bytes, { flag: 'wx' })
-      return `${ATTACHMENTS}/${name}`
+      return `${folder}/${name}`
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
     }

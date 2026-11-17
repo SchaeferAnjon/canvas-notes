@@ -91,9 +91,9 @@ describe('检查更新', () => {
   })
 
   it('报错换成看得懂的话；签名不对、只读、安装包下载不到算「装不上」（底栏出提示），网络这类只写在设置页', () => {
-    expect(updateError('Cannot download "http://x/CanvasNotes-0.2.1-mac-arm64.zip", status 404: Not Found', '0.2.1')).toEqual({ text: '新版本 0.2.1 的安装包下载不到（404），过一会儿再试', blocking: true })
-    expect(updateError('Cannot find channel "latest-mac.yml" update info: HttpError: 404')).toMatchObject({ text: 'GitHub 上还没有能自动更新的新版本', blocking: false, soft: true })
-    expect(updateError('net::ERR_INTERNET_DISCONNECTED').text).toBe('连不上 GitHub，检查一下网络；过一会儿会自动再查')
+    expect(updateError('Cannot download "http://x/CanvasNotes-0.2.1-mac-arm64.zip", status 404: Not Found', '0.2.1')).toEqual({ text: '新版本0.2.1的安装包下载不到（404），过一会儿再试', blocking: true })
+    expect(updateError('Cannot find channel "latest-mac.yml" update info: HttpError: 404')).toMatchObject({ text: 'GitHub上还没有能自动更新的新版本', blocking: false, soft: true })
+    expect(updateError('net::ERR_INTERNET_DISCONNECTED').text).toBe('连不上GitHub，检查一下网络；过一会儿会自动再查')
     expect(updateError('Code signature at URL file:///x did not pass validation')).toMatchObject({ blocking: true, action: 'site' })
     expect(updateError('EROFS: read-only file system')).toMatchObject({ blocking: true, action: 'move' })
     expect(updateError('HttpError: 403 rate limit exceeded').blocking).toBe(false)
@@ -102,13 +102,13 @@ describe('检查更新', () => {
 
   it('设置页状态行', () => {
     const s = { phase: 'idle', current: '0.2.0', version: '', percent: 0, error: '', checkedAt: 0, inApps: true } as const
-    expect(updateLine(s, true)).toBe('还没查过；打开 30 秒后会自动查一次')
+    expect(updateLine(s, true)).toBe('还没查过；打开30秒后会自动查一次')
     expect(updateLine(s, false)).toBe('自动检查已关，点右边查一次')
-    expect(updateLine({ ...s, phase: 'downloading', version: '0.2.1', percent: 42 }, true)).toBe('正在下载新版本 0.2.1 · 42%')
-    expect(updateLine({ ...s, phase: 'ready', version: '0.2.1' }, true)).toBe('新版本 0.2.1 已下好，重启就能用')
-    expect(updateLine({ ...s, phase: 'error', error: 'net::ERR_X' }, true)).toBe('没查成：连不上 GitHub，检查一下网络；过一会儿会自动再查')
+    expect(updateLine({ ...s, phase: 'downloading', version: '0.2.1', percent: 42 }, true)).toBe('正在下载新版本0.2.1 · 42%')
+    expect(updateLine({ ...s, phase: 'ready', version: '0.2.1' }, true)).toBe('新版本0.2.1已下好，重启就能用')
+    expect(updateLine({ ...s, phase: 'error', error: 'net::ERR_X' }, true)).toBe('没查成：连不上GitHub，检查一下网络；过一会儿会自动再查')
     expect(updateLine({ ...s, phase: 'off' }, true)).toBe('开发版，不自动更新')
-    expect(checkedLabel(new Date(2026, 10, 12, 9, 30).getTime(), new Date(2026, 10, 15))).toBe('11 月 12 日 09:30')
+    expect(checkedLabel(new Date(2026, 10, 12, 9, 30).getTime(), new Date(2026, 10, 15))).toBe('周四 09:30')
   })
 
   it('设置：默认自动检查更新，乱写的值回到默认', () => {

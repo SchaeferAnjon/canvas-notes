@@ -50,23 +50,34 @@ test('梦游做可视化：挑今天卡得最久的那处做一个 HTML，报告
     const card = page.getByTestId('dream-card')
     await card.getByRole('button', { name: '现在梦游' }).click()
     await expect(card.locator('h3')).toContainText('等你过目', { timeout: 30_000 })
-    await expect(card.locator('.l')).toContainText(['1 个可视化'])
+    await expect(card.locator('.l')).toContainText(['1个可视化'])
     // 只在分支上：课程文件夹里还没有
     expect(existsSync(join(vault, '课程/线性代数/旋转矩阵.html'))).toBe(false)
     expect(gitStatus(vault)).toBe('')
 
     await card.getByRole('button', { name: '看报告' }).click()
     const panel = page.getByRole('complementary', { name: '梦游报告' })
-    await expect(panel.locator('.dg', { hasText: '可视化' })).toContainText('1 条')
+    await expect(panel.locator('.dg', { hasText: '可视化' })).toContainText('1条')
     const item = panel.getByTestId('dream-item').filter({ hasText: '旋转矩阵 · 拖动角度看基向量' })
-    await expect(item).toContainText('新文件 课程/线性代数/旋转矩阵.html · 挂到「第3讲 线性映射 笔记」第 5 页')
+    await expect(item).toContainText('新文件 课程/线性代数/旋转矩阵.html · 挂到「第3讲 线性映射 笔记」第5页')
     await item.click()
     const detail = panel.getByTestId('dream-detail')
-    await expect(detail).toContainText('你今天在第 5 页「旋转矩阵每个数从哪来」问了 3 轮、1 次还是不懂')
+    await expect(detail).toContainText('你今天在第5页「旋转矩阵每个数从哪来」问了3轮、1次还是不懂')
+    // 写着是哪家哪个模型做的（CN-54，设置 › AI 的「梦游」）
+    await expect(detail.getByTestId('dream-by')).toHaveText('Claude Code · Opus 5.5做的')
+    // 侧栏不铺 HTML 源码：一行「新建『旋转矩阵.html』· N KB」带文件夹，一行笔记那一段的人话（CN-55 / 63）
+    const changes = detail.getByTestId('dream-change')
+    await expect(changes).toHaveText([/^新建「旋转矩阵.html」· \d+ (B|KB)课程\/线性代数\/$/, '第3讲 线性映射 笔记：第5页那段末尾加了可视化链接'])
+    await expect(detail.locator('.dl')).toHaveCount(0)
+    // 点 HTML 那行：对比标签里也是一行，源码默认收起
+    await changes.first().click()
+    const viz = page.locator('[data-testid="diff-tab"]:not([hidden]) [data-file="课程/线性代数/旋转矩阵.html"]')
+    await expect(viz.locator('.dv-one .meta')).toHaveText(/^新文件 · /)
+    await expect(viz.locator('.cm-editor')).toHaveCount(0)
     // 预览：中间栏开梦游分支上的那份，在沙箱里跑，不能问
     await detail.getByRole('button', { name: '预览可视化' }).click()
     const pane = page.locator('.htmlpane:not([hidden])')
-    await expect(acts(page).getByTestId('page-note')).toContainText('梦游做的可视化 · 还没收下')
+    await expect(acts(page).getByTestId('page-note')).toContainText('梦游做的可视化 · Claude Code · Opus 5.5 · 还没收下')
     await expect(acts(page).getByRole('button', { name: '问这一屏' })).toHaveCount(0)
     await expect(page.frameLocator('[data-testid="html-frame"]').locator('h1')).toHaveText('第 5 页 · 拖动角度')
     // 收下：进课程文件夹，笔记那一段的脚上挂着可视化，一次提交

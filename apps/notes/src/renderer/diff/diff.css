@@ -1,0 +1,258 @@
+/*
+ * 对比标签（CN-48 方向 A，照 GitHub 提交页 / VS Code 的 changes）。颜色只用主题变量：
+ * 改的行整行 --green / --red 的 10%，改的字再深一层（28%）；没改的折成一条 --fill 的「展开没改的 N 行」。
+ */
+.dv {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.dv-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 0 80px;
+}
+.dv-empty {
+  margin: 24px;
+  font-size: 13px;
+  color: var(--t3);
+}
+
+/* ---------- 每个文件一段：文件条 ---------- */
+.dv-file {
+  border-bottom: 1px solid var(--line);
+}
+.dv-fh {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 8px;
+  background: var(--win);
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--t1);
+}
+.dv-tw {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--t3);
+  cursor: pointer;
+}
+.dv-tw:hover {
+  background: var(--fill);
+}
+.dv-path {
+  flex: 0 1 auto;
+  min-width: 60px;
+  font: 13px var(--mono);
+}
+.dv-tag {
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+  font-size: 11px;
+}
+.dv-tag.del {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
+.dv-num {
+  flex: none;
+  font-size: 12px;
+}
+.dv-num .add {
+  color: var(--green);
+}
+.dv-num .del {
+  color: var(--red);
+}
+.dv-sum {
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dv-fh .sp {
+  flex: 1;
+}
+.dv-fh .btn {
+  flex: none;
+}
+
+/* 新建的 HTML、大文件：一行，源码默认收起 */
+.dv-one {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 38px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dv-one .sp {
+  flex: 1;
+}
+
+/* 图片：两张小图并排 */
+.dv-imgs {
+  display: flex;
+  gap: 16px;
+  padding: 12px 16px 16px 38px;
+}
+.dv-imgs figure {
+  margin: 0;
+  max-width: 320px;
+}
+.dv-imgs figcaption {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dv-imgs img {
+  display: block;
+  max-width: 100%;
+  max-height: 240px;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+/* ---------- 两列的抬头 ---------- */
+.dv-cols {
+  display: flex;
+  height: 30px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t3);
+}
+.dv-cols > span {
+  flex: 1;
+  min-width: 0;
+  padding: 0 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dv-split .dv-cols > span + span {
+  border-left: 1px solid var(--line);
+}
+
+/* ---------- 编辑器：只读，两列各有行号 ---------- */
+.dv-diff .doc {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+.dv-diff .cm-editor {
+  background: transparent;
+  color: var(--t1);
+}
+.dv-diff .cm-editor.cm-focused {
+  outline: none;
+}
+.dv-diff.src-look .cm-scroller {
+  font: 13px/1.7 var(--mono);
+}
+.dv-diff.doc-look .cm-scroller {
+  font: 14px/1.7 var(--sans);
+}
+.dv-diff .cm-content {
+  padding: 4px 0;
+}
+.dv-diff .cm-line {
+  padding: 0 16px 0 8px;
+}
+.dv-diff .cm-gutters {
+  background: transparent;
+  border-right: 0;
+  color: var(--t3);
+  font: 12px/1.7 var(--mono);
+}
+.dv-diff .cm-lineNumbers .cm-gutterElement {
+  min-width: 36px;
+  padding: 0 8px 0 12px;
+}
+.dv-split .cm-mergeViewEditor + .cm-mergeViewEditor {
+  border-left: 1px solid var(--line);
+}
+
+/* 改的行整行淡绿 / 淡红，改的字更深一层 */
+.dv-diff .cm-merge-a .cm-changedLine,
+.dv-diff .cm-deletedChunk {
+  background-color: color-mix(in srgb, var(--red) 10%, transparent);
+}
+.dv-diff .cm-merge-b .cm-changedLine,
+.dv-diff .cm-inlineChangedLine,
+.dv-diff.dv-unified .cm-changedLine {
+  background-color: color-mix(in srgb, var(--green) 10%, transparent);
+}
+.dv-diff .cm-merge-a .cm-changedText,
+.dv-diff .cm-deletedChunk .cm-deletedText {
+  background: color-mix(in srgb, var(--red) 28%, transparent);
+  border-radius: 2px;
+}
+.dv-diff .cm-merge-b .cm-changedText,
+.dv-diff.dv-unified .cm-changedText {
+  background: color-mix(in srgb, var(--green) 28%, transparent);
+  border-radius: 2px;
+}
+.dv-diff .cm-changedLineGutter,
+.dv-diff .cm-deletedLineGutter {
+  background: var(--red) !important;
+}
+.dv-diff .cm-merge-b .cm-changedLineGutter,
+.dv-diff.dv-unified .cm-changedLineGutter {
+  background: var(--green) !important;
+}
+.dv-diff .cm-deletedChunk {
+  padding-left: 0;
+}
+.dv-diff .cm-deletedLine {
+  padding: 0 16px 0 8px;
+}
+
+/* 没改的折成一条：「展开没改的 N 行」，点开能一路展开到整篇 */
+.dv-diff .cm-collapsedLines {
+  padding: 4px 16px;
+  background: color-mix(in srgb, var(--acc) 8%, var(--fill)) !important;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  color: var(--acc-t) !important;
+  font: 12px/1.6 var(--sans);
+  cursor: pointer;
+}
+.dv-diff .cm-collapsedLines::before {
+  content: '⌄' !important;
+  margin-inline-end: 8px;
+}
+.dv-diff .cm-collapsedLines::after {
+  content: '' !important;
+}
+.dv-diff .cm-collapsedLines:hover {
+  text-decoration: underline;
+}
+
+/* 文档样子：标题、链接、图片按编辑器现成的实时预览画；行号和正文顶端对齐 */
+.dv-diff.doc-look .cm-content {
+  caret-color: transparent;
+}
+
+/* 预览标签：斜体，再点别的文件就换掉它；双击标签固定下来（同 VS Code） */
+.tabs .tab.preview .tl .truncate {
+  font-style: italic;
+}

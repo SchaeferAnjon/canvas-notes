@@ -100,13 +100,13 @@ describe('笔记一段', () => {
         '> 整块没看懂：旋转矩阵的四个数是怎么来的',
         '> 还是不懂 −sin θ 为什么在右上角',
         '',
-        '> [!success] 讲通的讲法（第 2 版）',
+        '> [!ai] AI 讲解（第 2 版） · 看了第 5 页',
         '> 换个看法，先别看公式，看图。',
         '>',
         '> 把整张方格纸钉住原点。',
-        '',
-        '- R(θ) 第 1 列 = (cos θ, sin θ)',
-        '- e₂ 转完往左偏，所以是 −sin θ',
+        '>',
+        '> - R(θ) 第 1 列 = (cos θ, sin θ)',
+        '> - e₂ 转完往左偏，所以是 −sin θ',
         '',
         '<details><summary>没讲通 · 第 1 版：用第 4 页「列 = 基向量去哪」套公式</summary>',
         '',
@@ -118,6 +118,22 @@ describe('笔记一段', () => {
         '',
       ].join('\n'),
     )
+  })
+
+  it('AI 讲的放进 [!ai] 提示块，头上写哪家哪个模型、看了什么；读回来一样（CN-76）', () => {
+    const s = sec({ by: 'Claude Code · Opus 5.5' })
+    const md = renderSection(s, NOTE)
+    expect(md).toContain('> [!ai] AI 讲解（第 2 版） · Claude Code · Opus 5.5 · 看了第 5 页\n> 换个看法')
+    expect(parseReadingNote(newReadingNote('课程/线性代数/第3讲 线性映射.pdf') + '\n' + md, NOTE)).toEqual([s])
+  })
+
+  it('以前写的 [!success] 讲通的讲法 + 块外要点照样读得回来', () => {
+    const old = renderSection(sec(), NOTE).replace(
+      '> [!ai] AI 讲解（第 2 版） · 看了第 5 页\n> 换个看法，先别看公式，看图。\n>\n> 把整张方格纸钉住原点。\n>\n> - R(θ) 第 1 列 = (cos θ, sin θ)\n> - e₂ 转完往左偏，所以是 −sin θ',
+      '> [!success] 讲通的讲法（第 2 版）\n> 换个看法，先别看公式，看图。\n>\n> 把整张方格纸钉住原点。\n\n- R(θ) 第 1 列 = (cos θ, sin θ)\n- e₂ 转完往左偏，所以是 −sin θ',
+    )
+    expect(old).toContain('[!success]')
+    expect(parseReadingNote(newReadingNote('课程/线性代数/第3讲 线性映射.pdf') + '\n' + old, NOTE)).toEqual([sec()])
   })
 
   it('写出来再读回来一样', () => {
@@ -171,6 +187,19 @@ describe('笔记一段', () => {
     const top = renderSection(sec({ file: 'a.pdf', crop: '附件/a/p1.png', figures: [] }), 'a 笔记.md')
     expect(top).toContain('](a.pdf#page=5')
     expect(top).toContain('![我框的](附件/a/p1.png)')
+  })
+
+  it('「问这一页」附的是整页（没有框）：图的说明写「整页」，读回来还是这一段的截图，再写一样', () => {
+    const s = sec({ rect: undefined, figures: [] })
+    const md = renderSection(s, NOTE)
+    expect(md).toContain('![整页](../../附件/第3讲%20线性映射/p5-1.png)')
+    expect(md).not.toContain('我框的')
+    const back = parseReadingNote(md, NOTE)[0]!
+    expect(back.crop).toBe('附件/第3讲 线性映射/p5-1.png')
+    expect(back.figures).toEqual([])
+    expect(renderSection(back, NOTE)).toBe(md)
+    const convo = conversationMd(s.id, s.file, 5, undefined, [{ role: 'user', text: '给我讲解一下这一页', image: s.crop! }])
+    expect(convo).toContain('![整页](../../附件/第3讲%20线性映射/p5-1.png)')
   })
 
   it('标题和说明里的换行、方括号不破坏结构', () => {
@@ -300,7 +329,7 @@ describe('我的疑惑', () => {
   })
   it('我的疑惑.md：属性、每讲一节、问题加粗带回 PDF 的页码链接、讲通的讲法一行、已送的标出来', () => {
     const md = doubtsNote('课程/线性代数', '线性代数', items, new Set(['课程/线性代数/第3讲 线性映射.pdf-5']))
-    expect(md.startsWith('---\n类型: 我的疑惑\n课程: 线性代数\n---\n\n# 我的疑惑\n\n线性代数 · 4 条。')).toBe(true)
+    expect(md.startsWith('---\n类型: 我的疑惑\n课程: 线性代数\n生成: 软件\n---\n\n# 我的疑惑\n\n线性代数 · 4 条。')).toBe(true)
     expect(md).toContain('## 第1讲 向量\n\n- **线性无关为什么全部 c = 0** [第 9 页](第1讲%20向量.pdf#page=9&rect=0.05,0.29,0.52,0.36)\n  讲通的 讲法')
     expect(md).toContain('- **旋转矩阵四个数怎么来的** [第 5 页](第3讲%20线性映射.pdf#page=5&rect=0.05,0.29,0.52,0.36) · 已送 Anki')
   })

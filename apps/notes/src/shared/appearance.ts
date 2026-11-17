@@ -36,12 +36,12 @@ export const SKINS: (SkinInfo & { id: BuiltinSkin })[] = [
   { id: 'sky', name: '天青', tone: 'light', tab: 'bottom', win: '#fbfdfe', note: '底栏一条青色，卡片只描边' },
   { id: 'sakura', name: '樱花', tone: 'light', tab: 'fill', win: '#fffbfc', note: '淡粉底，当前标签整块染色，卡片软投影' },
   { id: 'lilac', name: '丁香', tone: 'light', tab: 'top', win: '#fdfbff', note: '淡紫底，李子紫强调' },
-  { id: 'stone', name: '石白', tone: 'light', tab: 'none', win: '#ffffff', note: '照 Dispatch 的白：没有分隔线，只靠底色深浅' },
-  { id: 'pine', name: '松林', tone: 'dark', tab: 'top', win: '#2d353b', note: '暖墨绿底、米色字，照 Everforest' },
-  { id: 'petrol', name: '深湖', tone: 'dark', tab: 'bottom', win: '#002b36', note: '照 Solarized，底栏一条深青，卡片只描边' },
-  { id: 'cocoa', name: '可可', tone: 'dark', tab: 'fill', win: '#2c2525', note: '暖棕底、珊瑚色强调，照 Monokai Pro' },
-  { id: 'ink', name: '墨夜', tone: 'dark', tab: 'bottom', win: '#0d1017', note: '近黑蓝底、橙色强调，照 Ayu Dark' },
-  { id: 'graphite', name: '石墨', tone: 'dark', tab: 'none', win: '#0c0a09', note: '照 Dispatch 的黑：没有分隔线，黑底白按钮' },
+  { id: 'stone', name: '石白', tone: 'light', tab: 'none', win: '#ffffff', note: '照Dispatch的白：没有分隔线，只靠底色深浅' },
+  { id: 'pine', name: '松林', tone: 'dark', tab: 'top', win: '#2d353b', note: '暖墨绿底、米色字，照Everforest' },
+  { id: 'petrol', name: '深湖', tone: 'dark', tab: 'bottom', win: '#002b36', note: '照Solarized，底栏一条深青，卡片只描边' },
+  { id: 'cocoa', name: '可可', tone: 'dark', tab: 'fill', win: '#2c2525', note: '暖棕底、珊瑚色强调，照Monokai Pro' },
+  { id: 'ink', name: '墨夜', tone: 'dark', tab: 'bottom', win: '#0d1017', note: '近黑蓝底、橙色强调，照Ayu Dark' },
+  { id: 'graphite', name: '石墨', tone: 'dark', tab: 'none', win: '#0c0a09', note: '照Dispatch的黑：没有分隔线，黑底白按钮' },
 ]
 
 /** 自带的十套加上导入的 */
@@ -71,6 +71,8 @@ export interface Appearance {
   /** 不跟系统时一直用这套 */
   skin: SkinId
   homeStyle: HomeStyle
+  /** 首页样式 B 的整页背景直接用窗口背景那张图（CN-52）：这台电脑的设置，不进库 */
+  homeWinBg: boolean
   frame: FrameStyle
   winBg: WinBg
   /** 自己选的窗口背景：拷进设置目录 backgrounds/ 后的文件名 */
@@ -96,6 +98,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     night: 'pine',
     skin: 'mint',
     homeStyle: 'a',
+    homeWinBg: false,
     frame: 'b',
     // 默认极光照片（`背景图保留`）
     winBg: 'aurora',
@@ -129,6 +132,7 @@ export function normalizeSettings(raw: unknown, user: readonly SkinInfo[] = []):
       night: aNight?.tone === 'dark' ? aNight.id : d.night,
       skin: aSkin ? aSkin.id : d.skin,
       homeStyle: a.homeStyle === 'b' ? 'b' : 'a',
+      homeWinBg: a.homeWinBg === true,
       frame: a.frame === 'a' ? 'a' : 'b',
       // 自己选的图没了就回到极光
       winBg: winBg === 'custom' && !winBgFile ? d.winBg : winBg,
@@ -165,6 +169,6 @@ export function setFollowSystem(a: Appearance, on: boolean, systemDark: boolean)
 /** 自动提交间隔的说法 */
 export function autoCommitLabel(min: number): string {
   if (min === 0) return '不自动提交'
-  if (min < 60) return `每 ${min} 分钟`
-  return min % 60 === 0 ? `每 ${min / 60} 小时` : `每 ${min} 分钟`
+  if (min < 60) return `每${min}分钟`
+  return min % 60 === 0 ? `每${min / 60}小时` : `每${min}分钟`
 }

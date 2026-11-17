@@ -9,7 +9,8 @@
     "./ui.css": "./src/ui.css",
     "./notes.css": "./src/notes.css",
     "./themes.css": "./src/themes.css",
-    "./codicon-svg": "./src/codicon-svg.ts"
+    "./codicon-svg": "./src/codicon-svg.ts",
+    "./codicons-all": "./src/codicons-all.gen.ts"
   },
   "peerDependencies": {
     "react": "^19.0.0"

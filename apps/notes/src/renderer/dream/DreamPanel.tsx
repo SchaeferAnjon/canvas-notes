@@ -1,13 +1,18 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { engineOfLabel } from '../../shared/ai-features'
+import { EngineLogo } from '../engine-logo'
 import { Fragment, useEffect, useState } from 'react'
-import type { DreamDiffFile, DreamGroup, DreamItem, DreamReport } from '../../shared/api'
+import type { DreamGroup, DreamItem, DreamReport } from '../../shared/api'
+import { baseName, type DiffEntry, type DiffSource } from '../../shared/diff'
+import { fileIcon } from '../Palette'
 import { BULK, fileGroups, GROUP_SHOW, searchGroup } from '../../shared/dream-preview'
 import { titleOf } from '../../shared/layout'
 import './dream.css'
 import type { DreamPreview } from './preview'
+import { expectDreamChange } from './own-change'
 import { dreamWhen, errText, GROUPS, pendingOf } from './useDream'
 
-const ICONS: Record<DreamGroup, CodiconName> = { file: 'inbox', viz: 'preview', link: 'link', dup: 'copy', week: 'edit' }
+const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', dup: 'copy', week: 'edit' }
 
 /** 右栏「梦游报告」：按组列出，点开一条看为什么、改了什么；收下 = cherry-pick 到当前分支，丢掉 = 跳过 */
 export function DreamPanel(props: {
@@ -18,7 +23,16 @@ export function DreamPanel(props: {
   onOpen(path: string): void
   /** 梦游做的可视化：在中间栏预览梦游分支上的那份 */
   onPreviewHtml(path: string): void
+  /** 点一处改动：中间栏开对比标签（左列 main 上的、右列梦游改后的） */
+  onOpenDiff(src: DiffSource, title: string): void
+  /** 挪老图那一条的「预览」：中间栏开「梦游预览 · 挪老图」 */
+  onPreviewImages(itemId: string): void
   onNotice(text: string): void
+  /** 收下 / 丢掉一条：和预览标签里的「收下这一条」走同一条路（提示条写收下了什么，带撤回）；做完给新报告 */
+  onTake(item: DreamItem): Promise<DreamReport | null>
+  onDrop(item: DreamItem): Promise<DreamReport | null>
+  /** 上面两件在做（按钮先不能点） */
+  acting: boolean
   /** 归类和改名的预览、收下一组、跟 AI 说 */
   pv: DreamPreview
 }) {
@@ -69,8 +83,8 @@ export function DreamPanel(props: {
         {running && <div className="dsum">正在梦游：整理收件箱、补双链、找重复、写本周小结。改动放在单独的分支上，跑完这里出新报告。</div>}
         {!running && !report && (
           <div className="dsum dempty">
-            <p>还没梦游过。Mac 闲着超过 15 分钟时会自己整理一遍：收件箱分类、补上双链、找出可能重复的、写本周小结。</p>
-            <p>改动都放在单独的分支上，你点「收下」才进 main，你写的正文一个字不动。</p>
+            <p>还没梦游过。Mac闲着超过15分钟时会自己整理一遍：收件箱分类、补上双链、找出可能重复的、写本周小结。</p>
+            <p>改动都放在单独的分支上，你点「收下」才进main，你写的正文一个字不动。</p>
             <button className="btn" disabled={busy} onClick={() => void dreamNow()}>
               <Codicon name="wand" size={14} />
               现在梦游
@@ -81,11 +95,10 @@ export function DreamPanel(props: {
           <div className="dsum" data-testid="dream-summary">
             {items.length ? (
               <>
-                {dreamWhen(report)} 整理了 <b>{items.length} 处</b>。都在 {report.branch} 分支上
-                {items.some((i) => i.group === 'file') ? '，点「预览」看改好后的样子' : ''}，收下才合进 {report.base}，<b>你写的正文一个字没动</b>。
+                {`${dreamWhen(report)}整理了`}<b>{`${items.length}处`}</b>{`。都在${report.branch}分支上${items.some((i) => i.group === 'file') ? '，点「预览」看改好后的样子' : ''}，收下才合进${report.base}，`}<b>你写的正文一个字没动</b>。
               </>
             ) : (
-              <>{dreamWhen(report)} 梦游了一次，没什么要整理的。</>
+              <>{`${dreamWhen(report)}梦游了一次，没什么要整理的。`}</>
             )}
             {report.notes.map((n) => (
               <span key={n} className="dnote">
@@ -115,6 +128,7 @@ export function DreamPanel(props: {
                 total={items.filter((x) => x.group === 'file').length}
                 busy={busy || pv.busy}
                 onOpen={props.onOpen}
+                onOpenDiff={props.onOpenDiff}
                 onTake={() => void pv.take([it.id])}
                 onDrop={() => void pv.drop([it.id])}
                 onAsk={() => pv.ask([it.id], `「${it.title}」`)}
@@ -129,7 +143,7 @@ export function DreamPanel(props: {
               it.group !== group ? (
                 <div className="dg">
                   {GROUPS[it.group]}
-                  <span>{items.filter((x) => x.group === it.group).length} 条</span>
+                  <span>{`${items.filter((x) => x.group === it.group).length}条`}</span>
                 </div>
               ) : null
             group = it.group
@@ -152,11 +166,13 @@ export function DreamPanel(props: {
                     base={report!.base}
                     index={i}
                     total={items.length}
-                    busy={busy}
+                    busy={busy || props.acting}
                     onOpen={props.onOpen}
+                    onOpenDiff={props.onOpenDiff}
                     onPreviewHtml={props.onPreviewHtml}
-                    onTake={() => void act(() => window.cn.dreamTake(it.id), next)}
-                    onDrop={() => void act(() => window.cn.dreamDrop(it.id), next)}
+                    onPreviewImages={props.onPreviewImages}
+                    onTake={() => void props.onTake(it).then((r) => r && next(r))}
+                    onDrop={() => void props.onDrop(it).then((r) => r && next(r))}
                   />
                 )}
               </Fragment>
@@ -166,15 +182,15 @@ export function DreamPanel(props: {
       {report && items.length > 0 && !running && (
         <div className="dfoot">
           <span className="s" data-testid="dream-left">
-            {left ? `还剩 ${left} 条 · ${report.closed ? '只是提醒，不改文件' : `改动在 ${report.branch} 分支`}` : `都看完了，收下的已合进 ${report.base}`}
+            {left ? `还剩${left}条 · ${report.closed ? '只是提醒，不改文件' : `改动在${report.branch}分支`}` : `都看完了，收下的已合进${report.base}`}
           </span>
           <button
             className="btn"
-            disabled={busy || !left}
+            disabled={busy || props.acting || !left}
             onClick={() =>
               void act(
-                () => window.cn.dreamTakeAll(),
-                (r) => props.onNotice(`剩下的都收下了，${r.branch} 已合进 ${r.base}`),
+                () => (expectDreamChange(items.filter((i) => i.state === 'pending')), window.cn.dreamTakeAll()),
+                (r) => props.onNotice(`剩下的都收下了，${r.branch}已合进${r.base}`),
               )
             }
           >
@@ -187,28 +203,49 @@ export function DreamPanel(props: {
   )
 }
 
-function Detail(props: { item: DreamItem; base: string; index: number; total: number; busy: boolean; onOpen(path: string): void; onPreviewHtml?(path: string): void; onTake(): void; onDrop(): void; onAsk?(): void }) {
+function Detail(props: {
+  item: DreamItem
+  base: string
+  index: number
+  total: number
+  busy: boolean
+  onOpen(path: string): void
+  onOpenDiff(src: DiffSource, title: string): void
+  onPreviewHtml?(path: string): void
+  onPreviewImages?(itemId: string): void
+  onTake(): void
+  onDrop(): void
+  onAsk?(): void
+}) {
   const { item } = props
-  const [diff, setDiff] = useState<DreamDiffFile[] | null>(null)
+  // 每处改动一行人话（梦游动手时记下的；旧报告没记的按 diff 拼），点了中间开对比；侧栏不再铺源码（CN-63 / 55）
+  const [rows, setRows] = useState<DiffEntry[] | null>(null)
   useEffect(() => {
-    setDiff(null)
-    if (!item.commit) return
+    setRows(null)
+    if (!item.commit || item.move || item.oldImages) return
     let stale = false
-    void window.cn.dreamDiff(item.id).then(
-      (d) => !stale && setDiff(d),
-      () => !stale && setDiff([]),
+    void window.cn.diffFiles({ kind: 'dream', id: item.id }).then(
+      (d) => !stale && setRows(d.files),
+      () => !stale && setRows([]),
     )
     return () => {
       stale = true
     }
-  }, [item.id, item.commit])
+  }, [item.id, item.commit, item.move])
+  const dir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/') + 1) : '')
 
   return (
     <div className="dd" data-testid="dream-detail">
       <div className="pv-k">
-        {GROUPS[item.group]} · 第 {props.index + 1} 条，共 {props.total} 条
+        {`${GROUPS[item.group]} · 第${props.index + 1}条，共${props.total}条`}
       </div>
       <div className="pv-why">{item.why}</div>
+      {item.by && (
+        <div className="pv-by" data-testid="dream-by">
+          {engineOfLabel(item.by) && <EngineLogo id={engineOfLabel(item.by)!} size={12} />}
+          {`${item.by}做的`}
+        </div>
+      )}
       {item.move && (
         <div className="pv-move">
           <span>
@@ -231,6 +268,13 @@ function Detail(props: { item: DreamItem; base: string; index: number; total: nu
           </button>
         </div>
       )}
+      {item.oldImages && <OldImagesSummary info={item.oldImages} />}
+      {item.group === 'dup' && (
+        <button className="dchg" data-testid="dream-change" onClick={() => props.onOpenDiff({ kind: 'pair', a: item.files[0]!, b: item.files[1]! }, `${titleOf(item.files[0]!)} ↔ ${titleOf(item.files[1]!)}`)}>
+          <Codicon name="git-compare" size={14} />
+          <span className="tx">两篇并排看哪里一样</span>
+        </button>
+      )}
       {item.group === 'dup' && (
         <div className="dpair">
           {item.files.map((f) => (
@@ -241,24 +285,29 @@ function Detail(props: { item: DreamItem; base: string; index: number; total: nu
           ))}
         </div>
       )}
-      {!item.move && diff?.map((f) => (
-        <div key={f.path} className="dfile">
-          <div className="dfn">
-            <span className="truncate">{f.from ? `${f.from} → ${f.path}` : f.path}</span>
-            <span className="k">{f.status === 'new' ? '新' : f.status === 'moved' ? '移动' : f.status === 'deleted' ? '删' : '改'}</span>
-          </div>
-          <div className="dl">
-            {f.lines.map((l, i) => (
-              <div key={i} className={l.k}>
-                {l.t || ' '}
-              </div>
-            ))}
-          </div>
-        </div>
+      {rows?.map((f) => (
+        <button
+          key={f.path}
+          className="dchg"
+          data-testid="dream-change"
+          onClick={() => props.onOpenDiff({ kind: 'dream', id: item.id, focus: f.path }, `${baseName(f.path).replace(/\.md$/i, '')} · 梦游改的`)}
+        >
+          <Codicon name={fileIcon(f.path)} size={14} />
+          <span className="tx">
+            <span>{f.kind === 'md' && f.status !== 'new' ? `${titleOf(f.path)}：${f.summary}` : f.summary}</span>
+            {(f.status === 'new' || f.status === 'moved') && <span className="p">{dir(f.path) || '库的最外层'}</span>}
+          </span>
+        </button>
       ))}
       {item.state === 'pending' ? (
         <div className="pv-acts">
           {/* 一屏一个主按钮：预览条上的「收下这 N 处」才是主按钮，报告里的都是次按钮 */}
+          {item.oldImages && props.onPreviewImages && (
+            <button className="btn btn-sm" onClick={() => props.onPreviewImages!(item.id)}>
+              <Codicon name="eye" size={14} />
+              预览
+            </button>
+          )}
           <button className="btn btn-sm" disabled={props.busy} onClick={props.onTake}>
             <Codicon name="check" size={14} />
             {item.commit ? '收下' : '知道了'}
@@ -272,14 +321,31 @@ function Detail(props: { item: DreamItem; base: string; index: number; total: nu
           {props.onAsk && (
             <button className="btn btn-ghost btn-sm" disabled={props.busy} onClick={props.onAsk}>
               <Codicon name="sparkle" size={12} />
-              跟 AI 说
+              跟AI说
             </button>
           )}
-          {!props.onAsk && <span className="hint">{item.commit ? `收下 = 一次提交进 ${props.base}，可在历史里撤回` : '只是提醒，不改任何文件'}</span>}
+          {!props.onAsk && <span className="hint">{item.commit ? `收下 = 一次提交进${props.base}，可在历史里撤回` : '只是提醒，不改任何文件'}</span>}
         </div>
       ) : (
-        <div className={'pv-state' + (item.state === 'dropped' ? ' drop' : '')}>
-          {item.state === 'taken' ? (item.taken ? `已收下，合进 ${props.base} · ${item.taken.slice(0, 7)}` : item.commit ? '已收下' : '看过了，没改任何文件') : `已丢掉，这条改动不会进 ${props.base}`}
+        <div className={'pv-state' + (item.state === 'dropped' ? ' drop' : '') + (item.state === 'taken' && item.taken ? ' has-commit' : '')}>
+          {item.state === 'taken' ? (
+            item.taken ? (
+              // 一行：宽时「已收下，合进main · 提交号」；窄时短写成「已收下 · 提交号」，「合进main」放进悬停提示，提交号整个露着（第 4 轮美学）
+              <>
+                <span className="long truncate">{`已收下，合进${props.base} ·`}</span>
+                <span className="short" data-tip={`已收下，合进${props.base}`}>
+                  已收下 ·
+                </span>
+                <code className="num">{item.taken.slice(0, 7)}</code>
+              </>
+            ) : item.commit ? (
+              '已收下'
+            ) : (
+              '看过了，没改任何文件'
+            )
+          ) : (
+            `已丢掉，这条改动不会进${props.base}`
+          )}
         </div>
       )}
     </div>
@@ -324,7 +390,7 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
       <div className="dg">
         归类和改名
         <span className="num">
-          {items.length} 条{bulk ? ` · ${groups.length} 组` : ''}
+          {`${items.length}条${bulk ? ` · ${groups.length}组` : ''}`}
         </span>
         <button className="btn btn-xs dg-pv" disabled={!pending.length && !pv.on} onClick={() => pv.setOn(!pv.on)}>
           <Codicon name={pv.on ? 'close' : 'eye'} size={12} />
@@ -341,7 +407,7 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
               <span className="tx">
                 <b>{g.folder}</b>
                 <span className="num">
-                  {g.items.length} 条挪进来 · 改了 {g.renamed} 个名字{g.pending.length < g.items.length ? ` · 还剩 ${g.pending.length} 条` : ''}
+                  {`${g.items.length}条挪进来 · 改了${g.renamed}个名字${g.pending.length < g.items.length ? ` · 还剩${g.pending.length}条` : ''}`}
                 </span>
               </span>
               {g.pending.length > 0 && (
@@ -355,9 +421,9 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
               <div className="dbulk-b">
                 <label className="dsearch">
                   <Codicon name="search" size={12} />
-                  <input aria-label="在这组里找" placeholder={`在这 ${g.items.length} 条里找名字或原名`} value={q} onChange={(e) => setQ(e.target.value)} />
+                  <input aria-label="在这组里找" placeholder={`在这${g.items.length}条里找名字或原名`} value={q} onChange={(e) => setQ(e.target.value)} />
                 </label>
-                {!q && <div className="dbulk-k">先看其中 {Math.min(GROUP_SHOW, g.items.length)} 条</div>}
+                {!q && <div className="dbulk-k">{`先看其中${Math.min(GROUP_SHOW, g.items.length)}条`}</div>}
                 {(q ? searchGroup(g.items, q).slice(0, 20) : g.items.slice(0, GROUP_SHOW)).map((it) => (
                   <div key={it.id} className={'dbulk-r' + (it.state !== 'pending' ? ' done' : '')}>
                     <Codicon name="file-text" size={14} />
@@ -367,13 +433,13 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
                 ))}
                 {!q && g.items.length > GROUP_SHOW && (
                   <p className="dbulk-more">
-                    还有 {g.items.length - GROUP_SHOW} 条 · 用上面的搜索找，或预览时在左栏里看
+                    {`还有${g.items.length - GROUP_SHOW}条 · 用上面的搜索找，或预览时在左栏里看`}
                   </p>
                 )}
                 <div className="dbulk-act">
                   <button className="btn btn-ghost btn-xs" disabled={!g.pending.length} onClick={() => pv.ask(g.pending.map((i) => i.id), `这组（${g.folder}）`)}>
                     <Codicon name="sparkle" size={12} />
-                    跟 AI 说这组哪里不对
+                    跟AI说这组哪里不对
                   </button>
                   <button className="btn btn-ghost btn-xs" disabled={!g.pending.length || pv.busy} onClick={() => void pv.drop(g.pending.map((i) => i.id))}>
                     <Codicon name="close" size={12} />
@@ -388,7 +454,7 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
             <div className="dsub">
               <Codicon name={g.folder === '收件箱' ? 'inbox' : 'folder'} size={12} />
               <span className="truncate">{g.folder}</span>
-              <span className="num">{g.items.length} 条</span>
+              <span className="num">{`${g.items.length}条`}</span>
               {g.pending.length > 1 && (
                 <button className="btn btn-ghost btn-xs" disabled={pv.busy} onClick={() => void pv.take(g.pending.map((i) => i.id))}>
                   收下这组
@@ -406,10 +472,40 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
           </span>
           <span className="tx">
             <b>收件箱 · 拿不准的</b>
-            <span className="num">{props.stay} 条留着不动，等你自己定</span>
+            <span className="num">{`${props.stay}条留着不动，等你自己定`}</span>
           </span>
         </div>
       )}
     </section>
   )
 }
+
+/** 挪老图那一条：两行例子（从哪挪到哪）、还有几张、改几篇几处链接；不挪的一句 */
+function OldImagesSummary({ info }: { info: NonNullable<DreamItem['oldImages']> }) {
+  const links = info.examples.reduce((n, e) => n + e.count, 0)
+  const shared = info.kept.filter((k) => k.why === 'shared').length
+  const unused = info.kept.filter((k) => k.why === 'unused').length
+  const other = info.kept.length - shared - unused
+  const why = [shared && `${shared}张几篇都在用`, unused && `${unused}张没有哪篇在用`, other && `${other}张这次先不挪（预览里写了原因）`].filter(Boolean).join('，')
+  return (
+    <>
+      <div className="dimg" data-testid="old-images-summary">
+        {info.moves.slice(0, 2).map((m) => (
+          <Fragment key={m.from}>
+            <span>{m.from}</span>
+            <span className="to">→ {m.to.slice(0, m.to.lastIndexOf('/') + 1)}</span>
+          </Fragment>
+        ))}
+        <span className="more">
+          {`${info.moves.length > 2 ? `还有${info.moves.length - 2}张 · ` : ''}共改${info.examples.length}篇${links}处链接`}
+        </span>
+      </div>
+      {info.kept.length > 0 && (
+        <p className="dkeep">
+          {`${info.kept.length}张不挪：${why}。`}
+        </p>
+      )}
+    </>
+  )
+}
+

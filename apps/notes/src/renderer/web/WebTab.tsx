@@ -13,8 +13,6 @@ export function WebTab(props: {
   onUrl(url: string, title: string): void
   onClip(c: Clip): void
   onNotice(t: string): void
-  /** 放回右栏 */
-  onToRight(url: string): void
   onClose(): void
 }) {
   const view = useRef<WebviewEl | null>(null)
@@ -78,10 +76,6 @@ export function WebTab(props: {
         </form>
         <button className="iconbtn" aria-label="整页剪藏" title="整页剪进收件箱" onClick={() => void clipPage()}>
           <Codicon name="quote" size={14} />
-        </button>
-        <button className="wtool wwide" title="放回右栏：网页回到右栏，边看边记" onClick={() => props.onToRight(cur)}>
-          <Codicon name="open-in-product" size={14} />
-          放回右栏
         </button>
       </div>
       <div className="wbody">

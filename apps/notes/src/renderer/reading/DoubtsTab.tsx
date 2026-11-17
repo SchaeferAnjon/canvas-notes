@@ -52,11 +52,11 @@ export function DoubtsTab(props: { folder: string; active: boolean; current: str
           <span className="sp" />
           <button className="btn btn-primary" disabled={!unsent.length} onClick={() => setAnki(true)}>
             <Codicon name="send" size={14} />
-            送进 Anki · {unsent.length} 张
+            {`送进Anki · ${unsent.length}张`}
           </button>
         </div>
         <p className="dq-sub">
-          {view?.course || '这个文件夹'} · <span className="num">{total}</span> 条 · 按讲收起，正在读的那讲展开；考前搜一下或一讲一讲看
+          {view?.course || '这个文件夹'} · <span className="num">{total}</span>条 · 按讲收起，正在读的那讲展开；考前搜一下或一讲一讲看
         </p>
         <div className="dq-tools">
           <label className="dq-find">
@@ -68,11 +68,11 @@ export function DoubtsTab(props: { folder: string; active: boolean; current: str
               全部
             </button>
             <button className={only === 'unsent' ? 'on' : ''} role="tab" aria-selected={only === 'unsent'} onClick={() => setOnly('unsent')}>
-              还没送 Anki
+              还没送Anki
             </button>
           </div>
         </div>
-        {view && !total && <div className="dq-empty">还没有疑惑。读 PDF 时框一块问 AI，问过的地方都会汇到这里。</div>}
+        {view && !total && <div className="dq-empty">还没有疑惑。读PDF时框一块问AI，问过的地方都会汇到这里。</div>}
         {groups.map((g) => {
           const hits = g.items.filter(match)
           if ((t || only === 'unsent') && !hits.length) return null
@@ -115,7 +115,7 @@ export function DoubtsTab(props: { folder: string; active: boolean; current: str
                       )}
                     </button>
                     <button className="pgc" title="回到 PDF 这一页" onClick={() => props.onOpenPdf(it.pdf, it.section.page, it.section.rect)}>
-                      <Codicon name="book" size={12} />第 {it.section.page} 页
+                      <Codicon name="book" size={12} />{`第${it.section.page}页`}
                     </button>
                     {row === it.id && (
                       <div className="dq-full">
@@ -140,7 +140,7 @@ export function DoubtsTab(props: { folder: string; active: boolean; current: str
                 ))}
               {isOpen && !t && !full.has(g.key) && hits.length > PER_GROUP && (
                 <button className="dq-more" onClick={() => setFull((s) => new Set(s).add(g.key))}>
-                  还有 {hits.length - PER_GROUP} 条 · 展开这一讲
+                  {`还有${hits.length - PER_GROUP}条 · 展开这一讲`}
                 </button>
               )}
             </div>

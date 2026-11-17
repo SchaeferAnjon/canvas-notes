@@ -2,6 +2,7 @@ import { Codicon } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Bookmark } from '../../shared/web-api'
 import { Favicon } from './favicons'
+import { onPageOutside } from './page-outside'
 
 export const BAR = '书签栏'
 
@@ -20,8 +21,16 @@ export function BookmarksBar(props: { bookmarks: Bookmark[]; onOpen(url: string,
   useEffect(() => {
     if (!open) return
     const close = (e: PointerEvent) => !(e.target as HTMLElement).closest('.bmbar') && setOpen(null)
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(null)
     window.addEventListener('pointerdown', close)
-    return () => window.removeEventListener('pointerdown', close)
+    window.addEventListener('keydown', key)
+    // 点网页正文、在网页里按 Esc 也收起（CN-43）
+    const offPage = onPageOutside(() => setOpen(null))
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', key)
+      offPage()
+    }
   }, [open])
   useEffect(() => {
     const el = bar.current

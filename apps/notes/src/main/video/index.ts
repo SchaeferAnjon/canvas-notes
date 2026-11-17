@@ -4,9 +4,10 @@
  * 记下这一刻（截帧、存图、给回 md）、框一块问 AI、字幕全文存进「素材/视频」并让 AI 写摘要。
  * 界面那半在 renderer/video/，网页里那半在 preload/video.ts。
  */
-import { commitPathsRetry, revertRetry } from '../git-retry'
-import { type BrowserWindow, ipcMain, type IpcMainInvokeEvent, nativeImage, type Session, type WebContents } from 'electron'
-import { appendFileSync, existsSync } from 'node:fs'
+import { commitPaths } from '@cn/git'
+import { revertRetry } from '../git-retry'
+import { app, type BrowserWindow, ipcMain, type IpcMainInvokeEvent, nativeImage, type Session, type WebContents } from 'electron'
+import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { courseOf, langName, primary } from '../../shared/plugins/translate'
@@ -35,6 +36,7 @@ import {
   trackId,
   VIDEO_FOLDER,
   videoCardMd,
+  videoDoubtsText,
   type VideoMeta,
   videoOf,
   type VideoRef,
@@ -43,12 +45,16 @@ import {
 import { type AskRequest, type AskResult, type Box, FIXED_KEYS, type MomentMark, type MomentResult, type VideoSettings, type VideoState } from '../../shared/video-api'
 import { askFast } from '../ai'
 import { findCli, INSTALL_HINT } from '../agent/cli'
+import { featureLabel, visionModel } from '../agent'
+import { aiCallout } from '@cn/format'
 import { askWithImage } from '../mindmap/vision'
 import { translateService } from '../plugins/translate/service'
 import type { Vault } from '../vault'
 import { biliInfo, currentTime, grabFrame, videoRect, ytInfo, ytLoadTrack } from './page'
 import { VideoStore } from './store'
+import { dbg } from './log'
 import { onTapped, tap } from '../web/tap'
+import { readSttCues, savedSttTrack, setSttKey, setupStt, startStt, sttKeyStatus, sttState, stopStt } from './stt'
 
 interface Sess {
   wc: WebContents
@@ -83,11 +89,6 @@ interface Deps {
 }
 
 let deps: Deps
-/** 排查用：CN_VIDEO_LOG=<文件> 时把拿字幕的每一步写进去 */
-export function dbg(...a: unknown[]) {
-  const f = process.env.CN_VIDEO_LOG
-  if (f) appendFileSync(f, `${new Date().toISOString().slice(11, 23)} ${a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ')}\n`)
-}
 let store: VideoStore
 const sessions = new Map<number, Sess>()
 /** 每个网页最近拿到的 B 站字幕列表：cid → 列表 */
@@ -131,6 +132,8 @@ function stateOf(s: Sess): VideoState {
     material: s.material,
     chapters: s.chapters,
     off: s.off,
+    stt: sttState(s.ref.key),
+    sttKey: sttKeyStatus().has,
   }
 }
 
@@ -194,6 +197,7 @@ function onUrl(wc: WebContents, url: string) {
     cur.ac.abort()
     sessions.delete(wc.id)
   }
+  dbg('onUrl', wc.id, ref?.key ?? null, cur ? `换掉 ${cur.ref.key}` : '')
   if (!ref) {
     if (cur) {
       send('video:state', wc.id, null)
@@ -262,9 +266,16 @@ async function load(s: Sess) {
     const got = biliLists.get(s.wc.id)?.get(s.cid ?? -1)
     s.tracks = got?.tracks ?? []
     s.needLogin = got ? got.needLogin : false
+    dbg('biliTracks', ref.key, s.cid, got ? got.tracks.map((t) => t.lang) : '播放器没请求字幕列表', got?.needLogin)
   }
+  // 以前生成过字幕（库里有那份 vtt）：多一条「听写 · Soniox」
+  const stt = await savedSttTrack(ref)
+  if (stt) s.tracks = [...s.tracks, stt]
   pushState(s)
   await useTrack(s, store.get(ref.key)?.track ?? null)
+  // 没字幕：时刻块里点过「生成字幕」的，或者开了「以后没字幕的视频打开就自动生成」：直接生成
+  const wanted = sttWanted.delete(ref.key)
+  if ((s.subs === 'none' || (wanted && s.subs === 'login')) && (wanted || (store.settings().autoStt && sttKeyStatus().has))) void startStt(ref, s.meta.title, bundledYtDlp()).catch((e) => send('video:notice', (e as Error).message))
 }
 
 async function useTrack(s: Sess, lang: string | null) {
@@ -282,6 +293,7 @@ async function useTrack(s: Sess, lang: string | null) {
   store.update(s.ref.key, { track: trackId(track) })
   s.subs = 'loading'
   pushState(s)
+  if (track.stt) return gotCues(s, await readSttCues(s.ref))
   if (s.ref.site === 'bilibili') {
     const res = await deps.ses.fetch(track.url!, { signal: AbortSignal.any([s.ac.signal, AbortSignal.timeout(15_000)]) })
     if (!res.ok) throw new Error(`B 站字幕取不到（${res.status}）`)
@@ -456,7 +468,7 @@ function writeMaterial(s: Sess, commit = true): Promise<string | null> {
         store.update(s.ref.key, { material: s.material })
       } else if (cur.text !== text) await v.write(s.material, text, cur.text)
     }
-    if (commit) await commitPathsRetry(v.root, [s.material], `视频字幕全文：${s.meta.title.slice(0, 50)}`)
+    if (commit) await commitPaths(v.root, [s.material], `视频字幕全文：${s.meta.title.slice(0, 50)}`)
     dbg('material', s.material)
     send('files:changed')
     pushState(s)
@@ -601,7 +613,7 @@ async function moment(raw: { wcId?: unknown; dest?: unknown }): Promise<MomentRe
 /** 一次提交（附件图 + 文档改动）；记进本机的时刻表。字幕全文里的「记下的时刻」随后单独一次提交（撤回这一刻时不和它打架） */
 async function commitWith(s: Sess, paths: string[], message: string, mark: MomentMark): Promise<string | null> {
   const v = needVault()
-  const hash = await serial(() => commitPathsRetry(v.root, paths, message))
+  const hash = await serial(() => commitPaths(v.root, paths, message))
   store.addMoment(s.ref.key, mark)
   send('files:changed')
   pushState(s, true)
@@ -648,8 +660,22 @@ export function parseAnswer(out: string): { doubt: string; answer: string; point
 
 const FAKE_ANSWER = JSON.stringify({ doubt: '框里这两个箭头为什么能决定整个网格怎么动？', answer: '框里是 i 帽和 j 帽变换后的位置。任何向量都是它俩的组合，所以它俩落到哪，整个网格就跟着落到哪。', points: ['只要知道两个基向量落在哪', '矩阵的两列就是这两个落点'] })
 
+/** 框一块问：每一问自己能停（文档里占位上的「停下 esc」，CN-84） */
+const asking = new Map<number, AbortController>()
+
 async function ask(raw: AskRequest): Promise<AskResult> {
   const s = sess(raw?.wcId)
+  const stop = new AbortController()
+  asking.get(s.wc.id)?.abort()
+  asking.set(s.wc.id, stop)
+  try {
+    return await askOnce(s, raw, AbortSignal.any([s.ac.signal, stop.signal]))
+  } finally {
+    if (asking.get(s.wc.id) === stop) asking.delete(s.wc.id)
+  }
+}
+
+async function askOnce(s: Sess, raw: AskRequest, signal: AbortSignal): Promise<AskResult> {
   const dest = checkDest(raw?.dest)
   const box = raw?.box
   if (!box || ![box.x, box.y, box.w, box.h].every((n) => typeof n === 'number' && n >= 0 && n <= 1)) throw new Error('框的参数不对')
@@ -662,12 +688,12 @@ async function ask(raw: AskRequest): Promise<AskResult> {
   const prompt = askPrompt({ title: s.meta.title, channel: s.meta.channel, time: fmtTime(t), box, question, subs, note: String(raw.noteText ?? '').slice(0, 4000) })
   let out: string
   if (process.env.CN_AI_FAKE === '1') {
-    await sleep(Number(process.env.CN_AI_FAKE_DELAY_MS) || 400)
+    await sleep(Number(process.env.CN_AI_FAKE_ASK_MS ?? process.env.CN_AI_FAKE_DELAY_MS) || 400, signal)
     out = FAKE_ANSWER
   } else {
     const exe = findCli('claude')
     if (!exe) throw new Error(`看画面问要用 Claude Code（要能看图）。${INSTALL_HINT.claude}`)
-    out = await askWithImage({ exe, cwd: v.root, system: ASK_SYSTEM, prompt, image: { mime: 'image/jpeg', base64: jpeg.toString('base64') }, signal: s.ac.signal, timeoutMs: 120_000 })
+    out = await askWithImage({ exe, cwd: v.root, model: visionModel(), system: ASK_SYSTEM, prompt, image: { mime: 'image/jpeg', base64: jpeg.toString('base64') }, signal, timeoutMs: 120_000 })
   }
   const a = parseAnswer(out)
   const time = fmtTime(t)
@@ -679,10 +705,8 @@ async function ask(raw: AskRequest): Promise<AskResult> {
     `[▶ ${time} · ${s.meta.title.replace(/[[\]]/g, ' ')}](${timeUrl(s.ref, t)})`,
     `> **我的疑惑**：${(a.doubt || question).replace(/\n/g, ' ')}`,
     '',
-    a.answer,
-    ...(a.points.length ? ['', ...a.points.map((p) => `- ${p}`)] : []),
-    '',
-    `*问的是「${question.replace(/\n/g, ' ').replace(/\*/g, '＊')}」· 看了 ${time} 这一帧、${from}–${to} 的字幕*`,
+    // AI 的回答放进 [!ai] 提示块，和自己写的分得开（CN-76）
+    aiCallout({ by: featureLabel('vision'), seen: `看了 ${time} 这一帧、${from}–${to} 的字幕`, text: a.answer, points: a.points }),
   ].join('\n')
   // 也进这门课的疑惑清单。「我的疑惑.md」是读 PDF 那边按 PDF 笔记自动重写的（main/reading/doubts.ts），写进去会被盖掉，
   // 所以视频里问的单独一篇「视频里的疑惑.md」，放在同一个文件夹（不在课程里就是库根目录）
@@ -690,7 +714,7 @@ async function ask(raw: AskRequest): Promise<AskResult> {
   const doubts = course ? `课程/${course}/视频里的疑惑.md` : '视频里的疑惑.md'
   const entry = [`## ${time} · ${s.meta.title.replace(/\n/g, ' ')}`, `> ${(a.doubt || question).replace(/\n/g, ' ')}`, '', a.answer, '', `[▶ ${time}](${timeUrl(s.ref, t)}) · 记在 [[${dest.title}]]`].join('\n')
   const cur = await v.read(doubts).catch(() => null)
-  const next = cur ? cur.text.replace(/\n*$/, '\n\n') + entry + '\n' : `# 视频里的疑惑\n\n看视频时框一块问过 AI 的地方，新的在后面。读 PDF 时问的在「我的疑惑」。\n\n${entry}\n`
+  const next = videoDoubtsText(cur?.text ?? null, entry)
   if (!(await v.write(doubts, next, cur?.text ?? '')).ok) throw new Error('「视频里的疑惑」刚被改了，再问一次')
   const files = [image, doubts]
   const res: AskResult = {
@@ -739,6 +763,10 @@ async function fetchMeta(url: string) {
 // ---------------------------------------------------------------- 接上
 
 let testOrigin: string | null = null
+/** 时刻块里点了「生成字幕」、视频还没开好的：开好后开始 */
+const sttWanted = new Set<string>()
+/** 包里带的 yt-dlp（打包时 extraResources 放进 Resources/bin/；开发时 resources/bin/，由 scripts/fetch-ytdlp.mjs 下好） */
+const bundledYtDlp = () => (app.isPackaged ? join(process.resourcesPath, 'bin', 'yt-dlp') : join(__dirname, '../../resources/bin/yt-dlp'))
 
 export function setupVideo(d: Deps) {
   deps = d
@@ -748,6 +776,25 @@ export function setupVideo(d: Deps) {
     if (/\/api\/timedtext|\/x\/player\//.test(t.url)) onBody(t.wc, t.url, t.body)
   })
   setVideoTestOrigin(testOrigin)
+  setupStt({
+    vault: () => deps.vault(),
+    ses: d.ses,
+    userData: d.userData,
+    changed: (key) => {
+      for (const s of sessions.values()) if (s.ref.key === key) pushState(s, true)
+    },
+    // 生成好的字幕：加进轨道、选上、翻完；返回带译文的句子（补时刻块用）
+    ready: async (key, track) => {
+      const s = [...sessions.values()].find((x) => x.ref.key === key)
+      if (!s) return null
+      s.tracks = [...s.tracks.filter((t) => !t.stt), track]
+      await useTrack(s, trackId(track))
+      return s.cues
+    },
+    serial,
+    notice: (text) => send('video:notice', text),
+    noteChanged: (path, text) => send('note:changed', path, text),
+  })
 
   const appOnly = (e: IpcMainInvokeEvent) => {
     if (e.sender.id !== deps.window()?.webContents.id) throw new Error('只有软件界面能调')
@@ -805,6 +852,7 @@ export function setupVideo(d: Deps) {
   })
   ipcMain.handle('video:moment', (e, r: unknown) => (appOnly(e), moment(r as { wcId?: unknown; dest?: unknown })))
   ipcMain.handle('video:ask', (e, r: unknown) => (appOnly(e), ask(r as AskRequest)))
+  ipcMain.handle('video:ask:stop', (e, wcId: unknown) => (appOnly(e), typeof wcId === 'number' && asking.get(wcId)?.abort()))
   ipcMain.handle('video:commit', async (e, paths: unknown, message: unknown, mark: unknown) => {
     appOnly(e)
     if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string' && !p.includes('..')) || typeof message !== 'string') throw new Error('参数不对')
@@ -842,6 +890,23 @@ export function setupVideo(d: Deps) {
   })
   // 端到端测试：本机假视频站当成 YouTube，界面也要知道
   ipcMain.on('video:test-origin', (e) => (e.returnValue = testOrigin))
+  ipcMain.handle('video:transcribe', async (e, r: unknown) => {
+    appOnly(e)
+    const x = (r ?? {}) as { wcId?: unknown; key?: unknown }
+    const s = typeof x.wcId === 'number' ? sessions.get(x.wcId) : typeof x.key === 'string' ? [...sessions.values()].find((y) => y.ref.key === x.key) : undefined
+    if (s) return startStt(s.ref, s.meta.title, bundledYtDlp())
+    // 时刻块里点的、视频还没在右栏开好：开好后自动开始
+    if (typeof x.key === 'string') return void sttWanted.add(x.key)
+    throw new Error('这个视频没开着')
+  })
+  ipcMain.handle('video:transcribe-stop', (e, wcId: unknown) => (appOnly(e), stopStt(sess(wcId).ref.key)))
+  ipcMain.handle('video:stt-key', (e) => (appOnly(e), sttKeyStatus()))
+  ipcMain.handle('video:set-stt-key', (e, key: unknown) => {
+    appOnly(e)
+    const r = setSttKey(key)
+    for (const s of sessions.values()) pushState(s, true)
+    return r
+  })
   ipcMain.handle('video:last-pos', (e, key: unknown) => (appOnly(e), typeof key === 'string' ? (store.get(key)?.pos ?? 0) : 0))
   // 网页预加载每秒报一次播到哪：记「看到哪」
   ipcMain.on('video:tick', (e, key: unknown, t: unknown) => {
@@ -896,3 +961,13 @@ export function attachVideo(wc: WebContents) {
 
 /** 我们窗口里的网页（给测试和别处用） */
 export const videoSessions = () => [...sessions.values()].map((s) => ({ wcId: s.wc.id, key: s.ref.key }))
+
+/** 右栏开着这个视频、有字幕时：第 t 秒前后 30 秒的字幕（视频问答块「接着问」给 AI 看，和框一块问时一样多） */
+export function subsAround(url: string, t: number): string {
+  const key = videoOf(url)?.key
+  const s = key ? [...sessions.values()].find((x) => x.ref.key === key && x.cues.length) : undefined
+  if (!s) return ''
+  return cuesBetween(s.cues, t - 30, t + 30)
+    .map((c) => `${fmtTime(c.start)} ${c.text}${c.tr ? ` / ${c.tr}` : ''}`)
+    .join('\n')
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commonPassage, estimate, findSimilarPairs, jaccard, minhash, plainText, shingles, similarity } from '../src'
+import { commonPassage, estimate, findSimilarPairs, jaccard, minhash, plainText, prepareSimilar, scanSimilar, shingles, similarity, type SimilarPair } from '../src'
 
 const PARIS_A = `---
 created: 2026-11-08 10:00
@@ -101,4 +101,97 @@ describe('找重复：3-gram + MinHash', () => {
     findSimilarPairs(docs)
     expect(performance.now() - t).toBeLessThan(6000)
   })
+
+  /** 以前的写法（3000 × 3000 的表），新写法要和它一模一样 */
+  function passageByTable(a: string, b: string, max = 40): string {
+    const x = Array.from(a.slice(0, 3000))
+    const y = Array.from(b.slice(0, 3000))
+    let best = 0
+    let end = 0
+    let prev = new Uint16Array(y.length + 1)
+    let cur = new Uint16Array(y.length + 1)
+    for (let i = 1; i <= x.length; i++) {
+      for (let j = 1; j <= y.length; j++) {
+        cur[j] = x[i - 1] === y[j - 1] ? prev[j - 1]! + 1 : 0
+        if (cur[j]! > best) {
+          best = cur[j]!
+          end = i
+        }
+      }
+      ;[prev, cur] = [cur, prev]
+      cur.fill(0)
+    }
+    const s = x.slice(end - best, end).join('').trim()
+    return Array.from(s).length > max ? Array.from(s).slice(0, max).join('') + '…' : s
+  }
+
+  function rng(seed: number) {
+    let s = seed >>> 0
+    return () => ((s = (s * 1664525 + 1013904223) >>> 0), s / 2 ** 32)
+  }
+
+  it('两篇都有的最长一段：和以前逐格算的结果一模一样（一样长的取前面那段、超过 40 字截断、emoji 不拆开）', () => {
+    const r = rng(3)
+    const alpha = ['冰', '岛', '自', '驾', '极', '光', 'a', 'b', ' ', '😀', '路']
+    const make = (n: number) => Array.from({ length: n }, () => alpha[Math.floor(r() * alpha.length)]).join('')
+    for (let k = 0; k < 300; k++) {
+      const a = make(Math.floor(r() * 120))
+      const b = r() < 0.5 ? make(Math.floor(r() * 120)) : a.slice(Math.floor(r() * 20)) + make(10)
+      expect(commonPassage(a, b)).toBe(passageByTable(a, b))
+    }
+    const long = '第一天从拉丁区出发，先去先贤祠，再穿过卢森堡公园。下午沿塞纳河走到西岱岛，看圣礼拜堂的彩色玻璃。'
+    expect(commonPassage('前' + long + '后', '另' + long)).toBe(passageByTable('前' + long + '后', '另' + long))
+    expect(commonPassage('', 'abc')).toBe('')
+  })
+
+  /** 以前的写法：Set 里的字串一对对算，新写法（编号、提前停、分几份）结果要一样 */
+  function pairsBySets(docs: { id: string; text: string }[]): SimilarPair[] {
+    const items = docs.map((d) => ({ id: d.id, text: d.text, set: shingles(plainText(d.text)) })).filter((d) => d.set.size >= 20)
+    const sigs = items.map((d) => minhash(d.set))
+    const cands = new Set<string>()
+    for (let band = 0; band < 64; band++) {
+      const buckets = new Map<string, number[]>()
+      items.forEach((_, i) => {
+        const key = sigs[i]![band * 2]!.toString(36) + ',' + sigs[i]![band * 2 + 1]!.toString(36) + ','
+        buckets.set(key, [...(buckets.get(key) ?? []), i])
+      })
+      for (const l of buckets.values()) if (l.length >= 2 && l.length <= 200) for (let x = 0; x < l.length; x++) for (let y = x + 1; y < l.length; y++) cands.add(`${l[x]} ${l[y]}`)
+    }
+    const out: SimilarPair[] = []
+    for (const c of cands) {
+      const [i, j] = c.split(' ').map(Number) as [number, number]
+      const a = items[i]!
+      const b = items[j]!
+      const score = jaccard(a.set, b.set)
+      const [sm, bg] = a.set.size <= b.set.size ? [a.set, b.set] : [b.set, a.set]
+      let inter = 0
+      for (const g of sm) if (bg.has(g)) inter++
+      const containment = inter / sm.size
+      if (score < 0.4 && !(containment >= 0.8 && sm.size >= 30)) continue
+      const [f, s2] = a.id < b.id ? [a, b] : [b, a]
+      out.push({ a: f.id, b: s2.id, score: Math.round(score * 100) / 100, containment: Math.round(containment * 100) / 100, passage: passageByTable(plainText(f.text, true), plainText(s2.text, true)) })
+    }
+    return out.sort((x, y) => y.score - x.score || y.containment - x.containment || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
+  }
+
+  it('随机拼的一堆笔记：找出来的对、相似度、那一段和以前的写法一样；拆成几份比再合起来也一样', () => {
+    const r = rng(11)
+    const words = '冰岛 自驾 极光 预报 读书 笔记 产品 设计 卡片 白板 整理 素材 写作 习惯 时间'.split(' ')
+    const para = (n: number) => Array.from({ length: n }, () => words[Math.floor(r() * words.length)]).join('')
+    const docs: { id: string; text: string }[] = []
+    for (let i = 0; i < 160; i++) {
+      const base = i > 0 && r() < 0.3 ? docs[Math.floor(r() * docs.length)]!.text : `# 第${i}篇\n\n${para(20 + Math.floor(r() * 60))}`
+      docs.push({ id: `n${String(i).padStart(3, '0')}.md`, text: r() < 0.5 ? base + para(5) : para(10) + base.slice(0, 200) })
+    }
+    const want = pairsBySets(docs)
+    expect(want.length).toBeGreaterThan(20)
+    expect(findSimilarPairs(docs)).toEqual(want)
+    const prep = prepareSimilar(docs)
+    const got: SimilarPair[] = []
+    let done = 0
+    for (let part = 0; part < 3; part++) scanSimilar(prep, part, 3, (p) => got.push(p), () => done++)
+    expect(done).toBe(prep.ids.length)
+    expect(got.sort((x, y) => y.score - x.score || y.containment - x.containment || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))).toEqual(want)
+  })
 })
+

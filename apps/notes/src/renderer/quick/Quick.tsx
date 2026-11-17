@@ -95,7 +95,7 @@ export function Quick() {
           <div className="q">{ctx.selection}</div>
           <div className="src">
             <Codicon name="globe" size={12} />
-            <span className="truncate">{ctx.url ? `${ctx.title || host(ctx.url)} · ${host(ctx.url)}` : `来自 ${ctx.app ?? '前台软件'}`}</span>
+            <span className="truncate">{ctx.url ? `${ctx.title || host(ctx.url)} · ${host(ctx.url)}` : `来自${ctx.app ?? '前台软件'}`}</span>
           </div>
         </div>
       )}

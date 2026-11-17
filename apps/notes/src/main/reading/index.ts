@@ -6,6 +6,7 @@
  * - 后台记笔记：AI 把这一处的问答收成一段，写进 PDF 旁边的「… 笔记.md」，完整对话写进 .canvas-notes/对话/，一次提交。
  */
 import { app, type BrowserWindow, ipcMain, shell } from 'electron'
+import { pastedImages } from '../pasted'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
@@ -31,13 +32,15 @@ import {
   renderSection,
 } from '@cn/format'
 import { siteOf } from '../../shared/web-reader'
+import { fmtTime, videoOf } from '../../shared/video'
+import { subsAround } from '../video'
 import type { EngineId } from '../../shared/agent'
 import type { CommitInfo } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
 import type { AnkiSendResult, AskEvent, AskRequest, AskResult, DoubtsView, PdfFile, ReadingMsg, ReadingState, SummarizeRequest, SummarizeResult, VizRequest, VizResult, WriteSectionRequest, WriteSectionResult } from '../../shared/reading'
-import { engine, FAST_MODEL } from '../agent'
+import { engine, FAST_MODEL, featureLabel, modelOpt } from '../agent'
 import { E2E } from '../test-mode'
-import { pdfHash, type PdfTextCache, textCachePath } from '../pdf-text-cache'
+import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
 import type { EngineImage } from '../agent/engines'
 import type { Vault } from '../vault'
 import { askPrompt, extractHtml, fullTextOf, noteDigest, parseSummary, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, versionsOf, VIZ_SYSTEM, vizFileStem, vizPrompt, vizTitle, withVizMeta } from './prompts'
@@ -72,8 +75,32 @@ function needSource(path: unknown): string {
 }
 const isWeb = (p: string) => p.startsWith('web:')
 /** 截图、完整对话文件名用的名字 */
-const nameOf = (p: string) => (isWeb(p) ? `网页-${siteOf(p.slice(4))}` : stemOf(p))
+/** 截图、完整对话的文件名前缀：PDF 名；网页是「网页-域名」，视频是「视频-youtube-视频号」 */
+function nameOf(p: string): string {
+  if (!isWeb(p)) return stemOf(p)
+  const v = videoOf(p.slice(4))
+  return v ? `视频-${v.site}-${v.id}${v.p && v.p > 1 ? `-p${v.p}` : ''}` : `网页-${siteOf(p.slice(4))}`
+}
+
+/** 笔记那段第二行的来源：视频「接着问」写「▶ 00:06 · 视频名」（和那块问答一样），网页写域名，HTML 写文件名 */
+function webSource(web: { url: string; title: string; t?: number }): { url: string; label: string; t?: number } {
+  if (web.t !== undefined) return { url: web.url, label: `▶ ${fmtTime(web.t)} · ${web.title}`, t: web.t }
+  return { url: web.url, label: /^https?:/i.test(web.url) ? siteOf(web.url) : (web.url.split('/').pop() ?? '') }
+}
 const attachOf = (p: string) => (isWeb(p) ? `${ATTACH_DIR}/网页` : attachDirFor(p))
+
+/** 读 PDF / HTML 记在本机的进度、会话文件名：库 + 路径的 hash */
+const readingKey = (root: string, pdf: string) => createHash('sha1').update(root + '\0' + pdf).digest('hex').slice(0, 16)
+
+/** 文件挪了（文件夹改名）：本机记着的读到哪、AI 会话跟着换到新路径 */
+export function moveReadingState(root: string, from: string, to: string) {
+  if (!/\.(pdf|html?)$/i.test(from)) return
+  const dir = join(app.getPath('userData'), 'reading')
+  for (const ext of ['.json', '.sessions.json']) {
+    const a = join(dir, readingKey(root, from) + ext)
+    if (existsSync(a)) renameSync(a, join(dir, readingKey(root, to) + ext))
+  }
+}
 
 export function setupReading(deps: ReadingDeps) {
   const dir = join(app.getPath('userData'), 'reading')
@@ -87,7 +114,7 @@ export function setupReading(deps: ReadingDeps) {
   setupCapture(deps.win)
 
   // ---------- 本机记着的 ----------
-  const keyOf = (pdf: string) => createHash('sha1').update(needVault().root + '\0' + pdf).digest('hex').slice(0, 16)
+  const keyOf = (pdf: string) => readingKey(needVault().root, pdf)
   const readJson = <T>(p: string, fallback: T): T => {
     try {
       return JSON.parse(readFileSync(p, 'utf8')) as T
@@ -219,7 +246,8 @@ export function setupReading(deps: ReadingDeps) {
 
   ipcMain.handle('reading:thread', (_e, pdf: unknown, page: number) => {
     const p = needSource(pdf)
-    return freeName((n) => `${CONVO_DIR}/${nameOf(p)}-p${Math.max(1, Math.floor(page))}-${n}.md`)
+    // 视频没有页码：「视频-youtube-视频号-1.md」
+    return freeName((n) => `${CONVO_DIR}/${nameOf(p)}${isWeb(p) && videoOf(p.slice(4)) ? '' : `-p${Math.max(1, Math.floor(page))}`}-${n}.md`)
   })
 
   // ---------- 全文（pdf-blocks 拼好的段落块，按内容指纹缓存） ----------
@@ -228,7 +256,8 @@ export function setupReading(deps: ReadingDeps) {
     if (typeof hash !== 'string' || !Array.isArray(pages) || !Array.isArray(sizes)) throw new Error('全文不对')
     writeJson(textPath(hash), { pdf: p, pages, sizes } satisfies PdfTextCache)
   })
-  const textOf = (hash: string) => readJson<PdfTextCache | null>(textPath(hash), null)?.pages ?? null
+  // 有 MinerU 认好的（m1）用它，没有用 pdf.js 拼的（b2）
+  const textOf = (hash: string) => readTextCache(app.getPath('userData'), hash)?.pages ?? null
   ipcMain.handle('reading:text:get', (_e, hash: string) => (typeof hash === 'string' ? textOf(hash) : null))
 
   // ---------- 笔记 ----------
@@ -279,6 +308,7 @@ export function setupReading(deps: ReadingDeps) {
       const prompt = askPrompt({
         pdfName: isWeb(pdf) ? (req.thread.web?.title ?? '网页') : stemOf(pdf),
         ...(req.thread.web ? { web: req.thread.web } : {}),
+        ...(req.thread.web?.t !== undefined ? { subs: subsAround(req.thread.web.url, req.thread.web.t) } : {}),
         ...(/\.html?$/i.test(pdf) ? { html: true } : {}),
         page: req.thread.page,
         pages: req.pages,
@@ -288,15 +318,17 @@ export function setupReading(deps: ReadingDeps) {
         ...(needFull && pages ? { fullText: fullTextOf(pages) } : {}),
         fullPending: !pages && /\.pdf$/i.test(pdf),
         digest: noteDigest(parseReadingNote(note, notePathFor(pdf))),
-        hasImage: req.images.length > 0,
+        hasImage: req.images.length + (req.pasted?.length ?? 0) > 0,
+        ...(req.renamed && !needFull ? { renamed: req.renamed } : {}),
       })
       const r = await engine(req.engine).run({
+        ...modelOpt('chat', req.engine),
         prompt,
         system: TUTOR_SYSTEM,
         cwd: v.root,
         session,
         keepSession: true,
-        images: await imagesOf(req.images),
+        images: [...(await imagesOf(req.images)), ...(await pastedImages(req.pasted))],
         history: historyOf(state?.msgs ?? [], pages && needFull ? '' : pages ? fullTextOf(pages) : ''),
         signal: ac.signal,
         onText: (delta) => {
@@ -353,7 +385,7 @@ export function setupReading(deps: ReadingDeps) {
       id: req.thread.id,
       file: isWeb(pdf) ? '' : pdf,
       page: req.thread.page,
-      ...(req.thread.web ? { web: { url: req.thread.web.url, label: /^https?:/i.test(req.thread.web.url) ? siteOf(req.thread.web.url) : (req.thread.web.url.split('/').pop() ?? '') } } : {}),
+      ...(req.thread.web ? { web: webSource(req.thread.web) } : {}),
       ...(req.thread.rect ? { rect: req.thread.rect } : {}),
       title: p.title,
       time: clockOf(new Date(first?.time ?? req.thread.createdAt)),
@@ -449,6 +481,7 @@ export function setupReading(deps: ReadingDeps) {
     const msgs = req.msgs.filter((m) => m.thread === req.thread.id)
     const good = parseReadingNote((await readText(note)) ?? '', note).find((x) => x.id === req.thread.id)?.good
     const r = await engine(req.engine).run({
+      ...modelOpt('chat', req.engine),
       prompt: vizPrompt({ pdfName: stemOf(pdf), thread: req.thread, msgs, pageText: req.pageText, ...(good ? { good } : {}) }),
       system: VIZ_SYSTEM,
       cwd: v.root,
@@ -462,7 +495,7 @@ export function setupReading(deps: ReadingDeps) {
     const folder = dirOf(pdf)
     const course = courseName(folder)
     const lec = lectureOf(pdf)
-    const html = withVizMeta(raw, { 类型: '可视化', 课程: course, 第几讲: lec !== undefined ? String(lec) : '', 来源: `[[${pdf.split('/').pop()}]] 第 ${req.thread.page} 页` })
+    const html = withVizMeta(raw, { 类型: '可视化', 课程: course, 第几讲: lec !== undefined ? String(lec) : '', 来源: `[[${pdf.split('/').pop()}]] 第 ${req.thread.page} 页`, 模型: featureLabel('chat') })
     return queued(note, async () => {
       const path = freeName((n) => `${folder ? folder + '/' : ''}${vizFileStem(title)}${n > 1 ? ` ${n}` : ''}.html`)
       await writeFile(v.abs(path), html)
@@ -587,7 +620,7 @@ function webConversationMd(s: AskSection, turns: { role: 'user' | 'ai'; text: st
   const out = [`# ${w.label} · ${s.title} · 完整对话`, '', `[回到 ${w.label}](${href})`]
   for (const t of turns) {
     out.push('', `### ${t.role === 'user' ? '我' : 'AI'}${t.time ? ` · ${t.time}` : ''}`, '')
-    if (t.image) out.push(`![我框的](${linkFrom(s.id, t.image)})`, '')
+    if (t.image) out.push(`![${w.t !== undefined ? `${fmtTime(w.t)} 这一帧` : '我框的'}](${linkFrom(s.id, t.image)})`, '')
     out.push(t.text.trim())
   }
   return out.join('\n') + '\n'

@@ -42,8 +42,12 @@
   backdrop-filter: var(--blur);
 }
 
-[data-skin] .btn:not(.btn-primary):not(.btn-ghost):hover {
-  background: var(--fill2);
+/* 普通按钮悬停是 --fill2：只换家族组件的悬停色（token），不写一条盖住所有按钮的悬停规则。
+   以前那条规则权重太高，自己定了底色的按钮（黑色实心、预览条上的、底部提示里的）一悬停都被换成浅底，白字看不清；
+   现在它们悬停时保留自己的颜色，要变就在自己那里写 :hover。黑色实心按钮一律用 .btn-primary。 */
+:root[data-skin],
+[data-skin] {
+  --btn-bg-hover: var(--fill2);
 }
 
 /* 网页始终是网站自己的颜色 */

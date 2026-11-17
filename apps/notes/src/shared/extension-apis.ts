@@ -8,7 +8,7 @@ export const API_LABELS: Record<string, string> = {
   userScripts: '用户脚本',
   debugger: '调试接口',
   sidePanel: '侧边栏',
-  identity: '登录 Google 账号',
+  identity: '登录Google账号',
   alarms: '定时器',
   idle: '空闲检测',
   downloads: '下载',

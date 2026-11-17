@@ -29,7 +29,7 @@ async function openPdf(page: Page) {
   await page.locator('.pal-row', { hasText: '第3讲 线性映射' }).first().click()
   await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
   await expect(pdfPane(page).locator('.pdfpage[data-page="1"] canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
-  await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文 3 页')
+  await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文3页')
 }
 
 test('PDF 对照读：三种显示、⌥A、AI 开着默认重排、公式和图不翻、只看译文时看原文、问这段、重新翻译', async () => {
@@ -55,7 +55,7 @@ test('PDF 对照读：三种显示、⌥A、AI 开着默认重排、公式和图
     await expect(formula.locator('figcaption')).toHaveText('公式和图不翻译，照原页裁下来')
     await expect(reflow(page).locator('[data-group="p2"] .fc.figure img')).toBeVisible()
     await expect(reflow(page).locator('.fb', { hasText: "x' = x cos t" })).toHaveCount(0)
-    await expect(bar.getByTestId('bi-status')).toContainText('译文 3/3 页')
+    await expect(bar.getByTestId('bi-status')).toContainText('译文3/3页')
 
     // ⌥A：只看译文（原文藏起来，悬停这段点「原文」临时露出来）
     await page.locator('body').click({ position: { x: 5, y: 300 } })
@@ -96,7 +96,7 @@ test('PDF 对照读并排：AI 收起时默认并排，两边悬停互相点亮�
   try {
     await openPdf(page)
     // 收起 AI，中间栏变宽：对照默认并排
-    await rail(page).getByRole('button', { name: 'AI', exact: true }).click()
+    await ai(page).getByRole('button', { name: '收起 AI' }).click()
     await expect(ai(page)).toBeHidden()
     // 主按钮：点一下按上次的方式开（第一次是对照）
     await mode(page).getByRole('button', { name: '对照读' }).click()
@@ -120,7 +120,7 @@ test('PDF 对照读并排：AI 收起时默认并排，两边悬停互相点亮�
     await expect(col.locator('.sb.on')).toHaveCount(1)
 
     // 术语表 · 2 条：小卡一行一条
-    await bar.getByRole('button', { name: '术语表 · 2 条' }).click()
+    await bar.getByRole('button', { name: '术语表 · 2条' }).click()
     const pop = page.getByRole('dialog', { name: '术语表' })
     await expect(pop.locator('.gl-row')).toHaveCount(2)
     await expect(pop.locator('.gl-row').first()).toContainText('linear map线性映射')
@@ -129,7 +129,7 @@ test('PDF 对照读并排：AI 收起时默认并排，两边悬停互相点亮�
 
     // 存成双语笔记：每页一节，原文引用跟译文，公式和图是裁图；一次提交
     await bar.getByRole('button', { name: '存成双语笔记' }).click()
-    await expect(page.getByText(`已存成 ${BI} · 每页带回到 PDF 的链接`)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(`已存成${BI} · 每页带回到PDF的链接`)).toBeVisible({ timeout: 15_000 })
     await expect(bar.getByRole('button', { name: '已存成双语笔记' })).toBeVisible()
     const md = readFileSync(join(vault, BI), 'utf8')
     expect(md).toContain('类型: 双语')

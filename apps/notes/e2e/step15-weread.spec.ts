@@ -6,7 +6,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { editorText, launch, openNote, pane, rail, type Running, waitSaved } from './app'
-import { BOOK, type FakeWeread, OTHER, PARAS, startFakeWeread } from './fixtures/fake-weread'
+import { BOOK, type FakeWeread, OTHER, PARAS, READER, startFakeWeread, VID } from './fixtures/fake-weread'
 
 let fake: FakeWeread
 
@@ -16,11 +16,23 @@ test.beforeAll(async () => {
 test.afterAll(() => fake.server.close())
 test.beforeEach(() => {
   fake.loggedOut = false
+  fake.skey = 'skey-1'
+  fake.failBookmarks = 0
+  fake.hideBookId = false
   for (const [id, list] of fake.marks) fake.marks.set(id, list.slice(0, 1))
 })
 
 const web = (page: Page) => page.getByRole('complementary', { name: '网页' })
-const env = () => ({ CN_WEREAD_ORIGIN: fake.base, CN_WEREAD_API: fake.base })
+const env = () => ({ CN_WEREAD_ORIGIN: fake.base })
+
+/** 右栏网页里已经登录了微信读书（扫码那一步在 step22-weread-login 里真的走一遍） */
+async function login(run: Running) {
+  await run.app.evaluate(async ({ session }, [url, vid, skey]) => {
+    const c = session.fromPartition('persist:web').cookies
+    await c.set({ url, name: 'wr_vid', value: vid })
+    await c.set({ url, name: 'wr_skey', value: skey })
+  }, [fake.base, VID, fake.skey] as const)
+}
 const read = (vault: string, f: string) => readFileSync(join(vault, f), 'utf8')
 const bookPath = `素材/微信读书/${BOOK.title}.md`
 const commits = (vault: string) => execFileSync('git', ['-C', vault, 'log', '--format=%s'], { encoding: 'utf8' }).trim().split('\n')
@@ -40,7 +52,7 @@ async function shot(run: Running, name: string) {
 async function openReader(page: Page) {
   await rail(page).getByRole('button', { name: '网页' }).click()
   const addr = web(page).getByRole('textbox', { name: '网址' })
-  await addr.fill(`${fake.base}/web/reader/ce032b305a9bc1ce0b0dd2a`)
+  await addr.fill(`${fake.base}${READER}`)
   await addr.press('Enter')
   await expect.poll(() => guest(page, 'document.readyState')).toBe('complete')
 }
@@ -71,6 +83,7 @@ test('左边开着文档：微信读书里划一段，自动插到文档光标�
   const run = await launch({ '思考快与慢 读书笔记.md': '# 思考快与慢 读书笔记\n\n我的感想：\n' }, env())
   const { page, vault } = run
   try {
+    await login(run)
     await openNote(page, '思考快与慢 读书笔记')
     await pane(page).locator('.cm-content').click()
     await page.keyboard.press('Meta+End')
@@ -90,7 +103,7 @@ test('左边开着文档：微信读书里划一段，自动插到文档光标�
     await expect(page.locator('#wr-toast')).toHaveClass(/\bon\b/)
     await waitSaved(page)
     const md = await editorText(page)
-    expect(md).toContain(`> ${quote}\n—— [《${BOOK.title}》 · 第1章 两个系统](${fake.base}/web/reader/ce032b305a9bc1ce0b0dd2a)`)
+    expect(md).toContain(`> ${quote}\n—— [《${BOOK.title}》 · 第1章 两个系统](${fake.base}${READER})`)
     await shot(run, 'weread-doc')
     // 素材里也有了这一段，一本书一次提交
     await expect.poll(() => read(vault, bookPath)).toContain(`> ${quote}`)
@@ -111,6 +124,7 @@ test('左边没开文档：不插，右下角说这一段在素材里；设置�
   const run = await launch({ 'a.md': '# a\n' }, env())
   const { page, vault } = run
   try {
+    await login(run)
     await openReader(page)
     await expect.poll(() => existsSync(join(vault, bookPath)), { timeout: 10_000 }).toBe(true)
     await highlight(page, 1, 10)
@@ -124,7 +138,7 @@ test('左边没开文档：不插，右下角说这一段在素材里；设置�
     await expect(sec.getByRole('switch', { name: '划线插进左边开着的文档' })).toHaveAttribute('aria-checked', 'false')
     await page.keyboard.press('Meta+,')
     await openNote(page, 'a')
-    await web(page).getByRole('button', { name: '收起网页' }).click()
+    await rail(page).getByRole('button', { name: '网页' }).click()
     await rail(page).getByRole('button', { name: '网页' }).click()
     await highlight(page, 2, 8)
     await expect.poll(() => read(vault, bookPath)).toContain(`> ${PARAS[2]!.slice(0, 8)}`)
@@ -142,6 +156,7 @@ test('深色：划一段插进文档，右下角提示', async () => {
   })
   const { page, vault } = run
   try {
+    await login(run)
     await openNote(page, '读书笔记')
     await pane(page).locator('.cm-content').click()
     await page.keyboard.press('Meta+End')
@@ -160,18 +175,24 @@ test('设置 › 插件 › 微信读书：同步状态、上次同步时间；�
   const run = await launch({ 'a.md': '# a\n' }, env())
   const { page, vault } = run
   try {
+    await login(run)
     await page.keyboard.press('Meta+,')
     await page.getByRole('button', { name: '插件' }).click()
     const sec = page.getByRole('region', { name: '微信读书' })
     await expect(sec).toContainText('还没同步过')
+    await expect(sec.getByLabel('同步状态')).toContainText('已登录')
     await sec.getByRole('button', { name: '现在同步' }).click()
-    await expect(sec.getByLabel('同步状态')).toContainText('已同步 2 本书、2 条划线 · 上次 今天')
+    await expect(sec.getByLabel('同步状态')).toContainText('已登录（读书的人）：用的是右栏网页里登录的微信读书')
+    await expect(sec.getByLabel('同步状态')).toContainText('已同步2本书、2条划线 · 上次 今天')
     expect(read(vault, `素材/微信读书/${OTHER.title}.md`)).toContain('> 杰出不是天生的。')
     expect(read(vault, bookPath)).toContain(`> ${PARAS[0]}`)
     await shot(run, 'weread-settings')
     fake.loggedOut = true
     await sec.getByRole('button', { name: '现在同步' }).click()
-    await expect(sec.getByLabel('同步状态')).toContainText('没登录微信读书')
+    await expect(sec.getByLabel('同步状态')).toContainText('微信读书的登录过期了')
+    await expect(sec.getByRole('button', { name: '在右栏打开登录' })).toBeVisible()
+    // 只问网页版的接口，手机 App 那套（i.weread.qq.com）一次也没问
+    expect(fake.requests.filter((r) => /^\/(book|review|user)\//.test(r))).toEqual([])
   } finally {
     await run.close()
   }

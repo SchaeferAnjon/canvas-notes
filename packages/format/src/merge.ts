@@ -20,6 +20,54 @@ export function merge3(base: string, local: string, remote: string): MergeResult
   return { text: lines.join('\n'), conflict: false }
 }
 
+/**
+ * 三方合并，两边改了同一处时那几行留 local（编辑器里正在写的）；别处 remote 改的照样合进来。
+ * conflict 说有没有这种「留了 local」的地方（有就把 remote 另存冲突副本）。
+ */
+export function merge3Ours(base: string, local: string, remote: string): MergeResult {
+  if (local === remote || remote === base) return { text: local, conflict: false }
+  if (local === base) return { text: remote, conflict: false }
+  const regions = diff3Merge(local.split('\n'), base.split('\n'), remote.split('\n'), { excludeFalseConflicts: true })
+  const lines: string[] = []
+  let conflict = false
+  for (const r of regions) {
+    if (r.conflict) {
+      conflict = true
+      lines.push(...r.conflict.a)
+    } else lines.push(...r.ok!)
+  }
+  return { text: lines.join('\n'), conflict }
+}
+
+/** 按字合并时一个「字」：一串英文字母数字、一串空白，或者别的一个字符（汉字、标点各算一个） */
+const tokens = (s: string) => s.match(/[A-Za-z0-9_]+|\s+|[^]/gu) ?? []
+/** 按字合并只用在一小段冲突上：太长的不硬合 */
+const FINE_MAX = 20_000
+
+/**
+ * 三方合并，先按行；两边改了同一行但改的不是同一处（一边在行尾接着打字、一边改了行里的链接），再按字合并这几行。
+ * 按字也碰到同一处才算冲突，text 是 local 原样。
+ */
+export function merge3Fine(base: string, local: string, remote: string): MergeResult {
+  if (local === remote) return { text: local, conflict: false }
+  if (local === base) return { text: remote, conflict: false }
+  if (remote === base) return { text: local, conflict: false }
+  const regions = diff3Merge(local.split('\n'), base.split('\n'), remote.split('\n'), { excludeFalseConflicts: true })
+  const lines: string[] = []
+  for (const r of regions) {
+    if (!r.conflict) {
+      lines.push(...r.ok!)
+      continue
+    }
+    const [a, o, b] = [r.conflict.a, r.conflict.o, r.conflict.b].map((l) => l.join('\n'))
+    if (a!.length + o!.length + b!.length > FINE_MAX) return { text: local, conflict: true }
+    const fine = diff3Merge(tokens(a!), tokens(o!), tokens(b!), { excludeFalseConflicts: true })
+    if (fine.some((f) => f.conflict)) return { text: local, conflict: true }
+    lines.push(...fine.flatMap((f) => f.ok!).join('').split('\n'))
+  }
+  return { text: lines.join('\n'), conflict: false }
+}
+
 export interface TextChange {
   from: number
   to: number

@@ -2,6 +2,7 @@
  * 检查更新的文案（设置页状态行、底栏、菜单都用这里的），照 MeetCaption 的 updateError 改写。
  * 设计规格：设置 › 更新、底栏最右端「● 重启更新到 x」、装不上时「● 更新没装上」。
  */
+import { when } from './when'
 import type { UpdateState } from './api'
 
 export interface UpdateError {
@@ -16,31 +17,23 @@ export interface UpdateError {
 
 /** electron-updater / Squirrel 的原文报错换成看得懂的话；认不出的给原文第一行（最多 80 字） */
 export function updateError(msg: string, version = ''): UpdateError {
-  const v = version ? ` ${version} ` : ''
+  const v = version
   if (/code signature|code requirement|did not pass validation|designated requirement/i.test(msg))
     return { text: '新版本的签名和装着的这一版对不上，没有装；去官网重新下载安装一次就好', blocking: true, action: 'site' }
-  if (/read-only|EROFS/i.test(msg)) return { text: 'Canvas Notes 在只读的位置（比如直接从安装盘里打开），装不上新版本；挪到「应用程序」再打开', blocking: true, action: 'move' }
+  if (/read-only|EROFS/i.test(msg)) return { text: 'Canvas Notes在只读的位置（比如直接从安装盘里打开），装不上新版本；挪到「应用程序」再打开', blocking: true, action: 'move' }
   const dl = /Cannot download "[^"]*", status (\d+)/.exec(msg)
   if (dl) return { text: `新版本${v}的安装包下载不到（${dl[1]}），过一会儿再试`, blocking: true }
-  if (/Cannot find channel/i.test(msg)) return { text: 'GitHub 上还没有能自动更新的新版本', blocking: false, soft: true }
-  if (/403/.test(msg) && /rate limit/i.test(msg)) return { text: 'GitHub 暂时不让查（查得太频繁），一小时后会自动再查', blocking: false }
+  if (/Cannot find channel/i.test(msg)) return { text: 'GitHub上还没有能自动更新的新版本', blocking: false, soft: true }
+  if (/403/.test(msg) && /rate limit/i.test(msg)) return { text: 'GitHub暂时不让查（查得太频繁），一小时后会自动再查', blocking: false }
   if (/net::|ENOTFOUND|ECONNREFUSED|ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|getaddrinfo|socket hang up/i.test(msg))
-    return { text: '连不上 GitHub，检查一下网络；过一会儿会自动再查', blocking: false }
+    return { text: '连不上GitHub，检查一下网络；过一会儿会自动再查', blocking: false }
   if (/ENOSPC/.test(msg)) return { text: '磁盘空间不够，新版本没下完；腾出一些空间再查', blocking: false }
   const first = msg.split('\n')[0]!.trim()
   return { text: first.length > 80 ? first.slice(0, 80) + '…' : first, blocking: false }
 }
 
-/** 时间：今天 18:02 / 昨天 21:05 / 11 月 12 日 09:30 */
-export function checkedLabel(ms: number, now = new Date()): string {
-  const d = new Date(ms)
-  const p = (x: number) => String(x).padStart(2, '0')
-  const hm = `${p(d.getHours())}:${p(d.getMinutes())}`
-  if (d.toDateString() === now.toDateString()) return `今天 ${hm}`
-  const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
-  if (d.toDateString() === y.toDateString()) return `昨天 ${hm}`
-  return `${d.getMonth() + 1} 月 ${d.getDate()} 日 ${hm}`
-}
+/** 时间：今天 18:02 / 昨天 21:05 / 11月12日 09:30（全软件同一种写法） */
+export const checkedLabel = (ms: number, now = new Date()) => when(ms, { now: now.getTime(), time: true })
 
 /** 设置页的状态行 */
 export function updateLine(s: UpdateState, autoOn: boolean): string {
@@ -48,11 +41,11 @@ export function updateLine(s: UpdateState, autoOn: boolean): string {
     case 'off':
       return '开发版，不自动更新'
     case 'checking':
-      return '正在查 GitHub 上有没有新版本…'
+      return '正在查GitHub上有没有新版本…'
     case 'downloading':
-      return `正在下载新版本 ${s.version} · ${s.percent}%`
+      return `正在下载新版本${s.version} · ${s.percent}%`
     case 'ready':
-      return `新版本 ${s.version} 已下好，重启就能用`
+      return `新版本${s.version}已下好，重启就能用`
     case 'latest':
       return `已是最新 · ${checkedLabel(s.checkedAt)}查过`
     case 'error': {
@@ -61,7 +54,7 @@ export function updateLine(s: UpdateState, autoOn: boolean): string {
     }
     default:
       if (!autoOn) return '自动检查已关，点右边查一次'
-      return s.checkedAt ? `上次 ${checkedLabel(s.checkedAt)}查过，是最新的` : '还没查过；打开 30 秒后会自动查一次'
+      return s.checkedAt ? `上次${checkedLabel(s.checkedAt)}查过，是最新的` : '还没查过；打开30秒后会自动查一次'
   }
 }
 

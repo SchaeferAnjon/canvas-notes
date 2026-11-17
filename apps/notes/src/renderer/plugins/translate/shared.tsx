@@ -118,7 +118,7 @@ export function FailBox(props: {
   const [how, setHow] = useState(false)
   const now = useNow(!!props.retryAt)
   const s = settingsNow()
-  const title = (failed ? `${failed} 段没翻成：` : '') + errorTitle(e) + (props.retryAt && e.code === 'rate-limit' ? `，${Math.max(0, Math.ceil((props.retryAt - now) / 1000))} 秒后再试` : '')
+  const title = (failed ? `${failed}段没翻成：` : '') + errorTitle(e) + (props.retryAt && e.code === 'rate-limit' ? `，${Math.max(0, Math.ceil((props.retryAt - now) / 1000))}秒后再试` : '')
   const next = nextUsable(engines?.list, e.engine)
   const cli = e.engine && engineMeta(e.engine).kind === 'cli' ? (e.engine as keyof typeof HOW_LOGIN) : null
   const api = e.engine === 'deepseek' || e.engine === 'zhipu' ? e.engine : null
@@ -134,9 +134,9 @@ export function FailBox(props: {
 
   const why =
     e.code === 'none'
-      ? `${e.raw.replace(/。?$/, '。')}装好一个命令行并登录，或者填一个 API Key。`
+      ? `${e.raw.replace(/。?$/, '。')}装好一个命令行并登录，或者填一个API Key。`
       : s.engineMode === 'pick' && e.engine
-        ? `设置里指定了只用 ${nameOf(e.engine)}。`
+        ? `设置里指定了只用${nameOf(e.engine)}。`
         : e.code === 'bad-output'
           ? '已经自动重问过一次。'
           : e.code === 'rate-limit'
@@ -155,13 +155,13 @@ export function FailBox(props: {
       全部重试
     </button>
   )
-  const useNext = next ? btn(`改用 ${nameOf(next.id)}`, () => use(next.id)) : null
+  const useNext = next ? btn(`改用${nameOf(next.id)}`, () => use(next.id)) : null
   switch (e.code) {
     case 'none':
       acts.push(btn('去设置', () => (props.onDone?.(), openTranslateSettings()), 'btn btn-sm btn-primary'))
       acts.push(
         <span key="fast" className="tr-fast">
-          最快：填一个 DeepSeek Key
+          最快：填一个DeepSeek Key
         </span>,
       )
       break
@@ -178,7 +178,7 @@ export function FailBox(props: {
       break
     case 'bad-key':
     case 'no-key':
-      acts.push(btn(e.code === 'no-key' ? '填 Key' : '换 Key', () => (props.onDone?.(), openTranslateSettings(e.engine))))
+      acts.push(btn(e.code === 'no-key' ? '填Key' : '换Key', () => (props.onDone?.(), openTranslateSettings(e.engine))))
       break
     case 'no-balance':
       if (api) acts.push(btn('去充值 ↗', () => (props.onDone?.(), webHost()?.open(API_PAGES[api].billing, true))))

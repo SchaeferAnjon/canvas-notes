@@ -163,7 +163,9 @@ test('/ 菜单：插入标题、待办、表格、链接到笔记、日期；打
     // 打 / 弹出菜单；Esc 关掉，/ 留着当普通字
     await page.keyboard.type('/')
     await expect(slash(page)).toBeVisible()
-    await expect(slash(page).getByRole('option')).toHaveCount(16)
+    // 16 项 + 数据库（CN-19）
+    // 第 1 轮加了「提示块 · 说明」「折叠块」（提示块别的类型打字筛选时才列）
+    await expect(slash(page).getByRole('option')).toHaveCount(19)
     await page.keyboard.press('Escape')
     await expect(slash(page)).toBeHidden()
     await page.keyboard.press('Backspace')
@@ -351,10 +353,11 @@ test('/ 白板 新建子白板并插入链接；/ 图片 拷进附件并显示�
     await page.keyboard.press('Enter')
     await page.keyboard.type('/图片')
     await page.keyboard.press('Enter')
-    await expect.poll(() => existsSync(join(vault, '附件', '猫 咪.png'))).toBe(true)
-    expect(readFileSync(join(vault, '附件', '猫 咪.png')).equals(png)).toBe(true)
+    // 拷进这篇自己的附件文件夹 附件/<笔记名>/，说明默认空（CN-40）
+    await expect.poll(() => existsSync(join(vault, '附件', '旅行', '猫 咪.png'))).toBe(true)
+    expect(readFileSync(join(vault, '附件', '旅行', '猫 咪.png')).equals(png)).toBe(true)
     await waitSaved(page)
-    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n[[未命名白板]]\n\n![猫 咪](附件/猫%20咪.png)\n')
+    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n[[未命名白板]]\n\n![](附件/旅行/猫%20咪.png)\n')
     // 光标移开，图片显示出来（cn-file:// 读的是库里的文件）
     await line(page, '正文').click()
     const img = pane(page).locator('.cm-image img')
@@ -374,7 +377,7 @@ test('/ 白板 新建子白板并插入链接；/ 图片 拷进附件并显示�
     await page.keyboard.press('Enter')
     await expect(ask).toBeHidden()
     await waitSaved(page)
-    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n这是测试回答。\n\n[[未命名白板]]\n\n![猫 咪](附件/猫%20咪.png)\n')
+    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n这是测试回答。\n\n[[未命名白板]]\n\n![](附件/旅行/猫%20咪.png)\n')
   } finally {
     await run.close()
     rmSync(tmp, { recursive: true, force: true })

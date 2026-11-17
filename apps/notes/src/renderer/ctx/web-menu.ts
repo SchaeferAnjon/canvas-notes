@@ -79,7 +79,7 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
         run: async () => {
           const saved = await window.cnWeb.saveImage({ kind: 'url', url: img })
           a.refresh()
-          a.notice(`图存进了 ${saved.path}`)
+          a.notice(`图存进了${saved.path}`)
         },
       },
       doc && {

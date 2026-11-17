@@ -1,22 +1,28 @@
 /**
  * 微信读书主进程这半：右栏开着微信读书的阅读页时，网页预加载报来是哪本书；
  * 用户用微信读书自带的划线划了一段（我们拦到它「划线」的请求，或者网页里松开鼠标后过一会儿），
- * 就去微信读书的接口（i.weread.qq.com，带着右栏的登录）取这本书的划线，和上次见过的比，新的那一段交给界面插进左边的文档；
+ * 就去微信读书网页版的接口（weread.qq.com，带着右栏网页里的登录，和 obsidian-weread-plugin 一样）取这本书的划线，和上次见过的比，新的那一段交给界面插进左边的文档；
  * 每本书的划线、想法、书评在后台同步成「素材/微信读书/<书名>.md」，一本一次提交。
  * 只读微信读书，不往它那边写任何东西。界面那半在 renderer/plugins/weread/，网页里那半在 preload/plugins/weread.ts。
- * 测试：CN_WEREAD_ORIGIN（假的阅读页网站）、CN_WEREAD_API（假的接口）。
+ * 以前问的是手机 App 的接口 i.weread.qq.com：网页里登录拿到的 cookie 它不认（回 -2012 登录超时），划线不插、设置里一直「没登录」（CN-37、CN-53）。
+ * 登录：右栏 persist:web 里的 wr_vid、wr_skey；接口前先 HEAD 一次网站续 cookie（十分钟一次），说登录超时就再续一次重试。
+ * 测试：CN_WEREAD_ORIGIN（假的微信读书网站，网页和接口都在它上面），CN_WEREAD_API 只换接口。
  */
-import { commitPathsRetry } from '../../git-retry'
-import { session, type WebContents } from 'electron'
+import { commitPaths } from '@cn/git'
+import { type Cookie, session, type WebContents } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import {
+  apiError,
   type BookInfo,
+  bookIdOfReader,
   bookFile,
   bookMd,
   isReader,
+  loginOf,
   type Mark,
-  newMarks,
+  marksToInsert,
   normalizeWeread,
   parseBookmarks,
   parseNotebooks,
@@ -24,30 +30,55 @@ import {
   setWereadOrigin,
   WEREAD,
   WEREAD_FOLDER,
+  type WereadLogin,
+  wereadOrigin,
   type WereadSettings,
   type WereadStatus,
 } from '../../../shared/plugins/weread'
 import { onTapped, tap } from '../../web/tap'
 import type { MainPlugin, PluginHost } from '../host'
 
-const API = () => process.env.CN_WEREAD_API || 'https://i.weread.qq.com'
+const API = () => process.env.CN_WEREAD_API || wereadOrigin()
+const md5 = (t: string) => createHash('md5').update(t).digest('hex')
+const web = () => session.fromPartition('persist:web')
 
 class NotLoggedIn extends Error {
   constructor() {
-    super('没登录微信读书：在右栏打开 weread.qq.com 登录，或者「⋯ › 导入 Chrome 登录」')
+    super('没登录微信读书：在右栏打开微信读书扫码登录')
   }
 }
 
-/** 问微信读书的接口：带着右栏网页的登录（同一个分区的 cookie），15 秒没回就算了 */
-async function api(path: string, params: Record<string, string>): Promise<unknown> {
+/** 右栏网页里微信读书的 cookie */
+const wereadCookies = () => web().cookies.get({ url: wereadOrigin() })
+
+/** HEAD 一次网站：微信读书在回答里换新的 wr_skey，存进右栏的分区（隔几天不用重新扫码） */
+let refreshedAt = 0
+async function refreshCookie(force = false): Promise<void> {
+  if (!force && Date.now() - refreshedAt < 10 * 60_000) return
+  refreshedAt = Date.now()
+  try {
+    await web().fetch(wereadOrigin() + '/', { method: 'HEAD', credentials: 'include', signal: AbortSignal.timeout(10_000) })
+  } catch (e) {
+    console.warn('[weread] 续登录没成', (e as Error).message)
+  }
+}
+
+/** 问微信读书网页版的接口：带着右栏网页的登录（同一个分区的 cookie），15 秒没回就算了；说登录超时就续一次 cookie 再问一次 */
+async function api(path: string, params: Record<string, string>, retried = false): Promise<unknown> {
+  if (!loginOf(await wereadCookies())) throw new NotLoggedIn()
+  await refreshCookie()
   const u = new URL(API() + path)
   for (const [k, v] of Object.entries(params)) u.searchParams.set(k, v)
-  const res = await session.fromPartition('persist:web').fetch(u.toString(), { credentials: 'include', signal: AbortSignal.timeout(15_000) })
-  if (res.status === 401) throw new NotLoggedIn()
+  const res = await web().fetch(u.toString(), { credentials: 'include', signal: AbortSignal.timeout(15_000) })
+  const j = (await res.json().catch(() => null)) as unknown
+  const err = apiError(j)
+  if (res.status === 401 || err?.login) {
+    if (retried) throw new NotLoggedIn()
+    await refreshCookie(true)
+    return api(path, params, true)
+  }
   if (!res.ok) throw new Error(`微信读书回了 ${res.status}`)
-  const j = (await res.json()) as { errcode?: number; errmsg?: string }
-  if (j.errcode === -2010 || j.errcode === -2012) throw new NotLoggedIn()
-  if (j.errcode && j.errcode !== 0) throw new Error(j.errmsg || `微信读书出错（${j.errcode}）`)
+  if (err) throw new Error(err.message)
   return j
 }
 
@@ -74,6 +105,7 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
   normalizeSettings: normalizeWeread,
   setup(host: PluginHost<WereadSettings>) {
     setWereadOrigin(process.env.CN_WEREAD_ORIGIN || null)
+    WEREAD.entry = { ...WEREAD.entry!, url: wereadOrigin() + '/web/shelf' }
     const file = join(host.dir, 'state.json')
     let saved: Saved = { seen: {}, synced: {}, lastSync: 0, books: 0, marks: 0, state: 'never' }
     try {
@@ -87,13 +119,57 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
       renameSync(file + '.tmp', file)
     }
     let syncing = false
-    const status = (): WereadStatus => ({ state: saved.state, lastSync: saved.lastSync, books: saved.books, marks: saved.marks, syncing, ...(saved.error ? { error: saved.error } : {}) })
+    /** 登录：看右栏的 cookie；昵称和头像问一次 /web/user，记住 */
+    let login: WereadLogin = { state: 'out' }
+    let who: { vid: string; name?: string; avatar?: string } | null = null
+    const status = (): WereadStatus => ({ state: saved.state, login, lastSync: saved.lastSync, books: saved.books, marks: saved.marks, syncing, ...(saved.error ? { error: saved.error } : {}) })
+    const withWho = (state: WereadLogin['state']): WereadLogin => ({ state, ...(who?.name ? { name: who.name } : {}), ...(who?.avatar ? { avatar: who.avatar } : {}) })
+    async function readLogin(): Promise<WereadLogin> {
+      const me = loginOf(await wereadCookies())
+      if (!me) {
+        who = null
+        return (login = { state: 'out' })
+      }
+      // 刚登录（cookie 变了）：上次「没登录」那句不再算数
+      if (login.state !== 'in' && saved.state === 'login') {
+        saved.state = saved.lastSync ? 'ok' : 'never'
+        delete saved.error
+        save()
+      }
+      if (who?.vid !== me.vid) {
+        who = { vid: me.vid }
+        void api('/web/user', { userVid: me.vid }).then(
+          (u) => {
+            const j = (u ?? {}) as { name?: unknown; avatar?: unknown }
+            if (who?.vid !== me.vid) return
+            who = { vid: me.vid, ...(typeof j.name === 'string' && j.name ? { name: j.name.slice(0, 40) } : {}), ...(typeof j.avatar === 'string' && /^https:\/\//.test(j.avatar) ? { avatar: j.avatar } : {}) }
+            if (login.state === 'in') login = withWho('in')
+            host.emit('status', status())
+          },
+          () => undefined,
+        )
+      }
+      return (login = withWho(saved.state === 'login' ? 'expired' : 'in'))
+    }
     const failed = (e: unknown) => {
       saved.state = e instanceof NotLoggedIn ? 'login' : 'error'
       saved.error = (e as Error).message
+      if (e instanceof NotLoggedIn && login.state === 'in') login = { ...login, state: 'expired' }
       save()
       host.emit('status', status())
     }
+    // 右栏网页里登录、退出（wr_ 开头的 cookie 变了）：马上重查，设置页不用点「现在同步」就变
+    let cookieTimer: ReturnType<typeof setTimeout> | undefined
+    const siteHost = new URL(wereadOrigin()).hostname
+    web().cookies.on('changed', (_e, c: Cookie) => {
+      if (!c.name.startsWith('wr_') || !siteHost.endsWith((c.domain ?? '').replace(/^\./, ''))) return
+      clearTimeout(cookieTimer)
+      cookieTimer = setTimeout(() => void readLogin().then(() => host.emit('status', status())), 300)
+    })
+    // 打开软件时：登录过的话续一次 cookie（没登录过不联网）
+    void readLogin().then((l) => {
+      if (l.state !== 'out') void refreshCookie()
+    })
 
     const pages = new Map<number, PageBook>()
     const vault = () => {
@@ -107,7 +183,7 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
     // ------------------------------------------------------------ 一本书：取划线和想法、写进素材
 
     async function fetchBook(bookId: string) {
-      const list = parseBookmarks(await api('/book/bookmarklist', { bookId }), bookId)
+      const list = parseBookmarks(await api('/web/book/bookmarklist', { bookId }), bookId)
       return list
     }
 
@@ -117,7 +193,7 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
       const run = async () => {
         const v = vault()
         if (!v || !host.settings().sync) return false
-        const thoughts = parseReviews(await api('/review/list', { bookId: book.bookId, listType: '11', mine: '1', synckey: '0' }).catch((e) => (e instanceof NotLoggedIn ? Promise.reject(e) : { reviews: [] })))
+        const thoughts = parseReviews(await api('/web/review/list', { bookId: book.bookId, listType: '11', mine: '1', synckey: '0' }).catch((e) => (e instanceof NotLoggedIn ? Promise.reject(e) : { reviews: [] })))
         const path = bookFile(book.title)
         const text = bookMd(book, marks, thoughts, url)
         const cur = await v.read(path).catch(() => null)
@@ -125,7 +201,7 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
         mkdirSync(v.abs(WEREAD_FOLDER), { recursive: true })
         const r = await v.write(path, text, cur?.text ?? '')
         if (!r.ok) return false
-        await commitPathsRetry(v.root, [path], `微信读书：同步《${book.title.slice(0, 40)}》${marks.length} 条划线`)
+        await commitPaths(v.root, [path], `微信读书：同步《${book.title.slice(0, 40)}》${marks.length} 条划线`)
         host.filesChanged()
         saved.lastSync = Date.now()
         save()
@@ -137,15 +213,25 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
       return p
     }
 
-    /** 这本书现在的划线：没见过的交给界面插进左边文档（first 是第一次打开这本书：只记下来，不插） */
+    /**
+     * 这本书现在的划线：没见过的交给界面插进左边文档。打开书那一次（why = open）只记下来，不插；
+     * 打开那次没取成时不记「见过的」，下一次划线时 2 分钟内新建的当成新的（marksToInsert）。
+     * 划线触发的（不是打开书）没成：右下角说原因。
+     */
     async function check(wcId: number, why: string) {
       const page = pages.get(wcId)
       if (!page) return
       try {
         const { marks, book } = await fetchBook(page.bookId)
-        const info: BookInfo = { bookId: page.bookId, title: book?.title || page.title, author: book?.author || page.author }
+        // 划线接口没带书名、网页报的又不可靠时，问一次书的信息
+        const meta = book?.title || page.title ? null : ((await api('/web/book/info', { bookId: page.bookId }).catch(() => null)) as { title?: unknown; author?: unknown } | null)
+        const info: BookInfo = {
+          bookId: page.bookId,
+          title: book?.title || page.title || (typeof meta?.title === 'string' ? meta.title.slice(0, 200) : '') || page.bookId,
+          author: book?.author || page.author || (typeof meta?.author === 'string' ? meta.author.slice(0, 100) : ''),
+        }
         const seenList = saved.seen[page.bookId]
-        const fresh = seenList ? newMarks(marks, new Set(seenList)) : []
+        const fresh = marksToInsert(marks, seenList, why, Math.floor(Date.now() / 1000))
         saved.seen[page.bookId] = marks.map((m) => m.id)
         saved.state = 'ok'
         delete saved.error
@@ -154,13 +240,18 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
         if (fresh.length || !seenList) void writeBook(info, marks, page.url).catch(failed)
       } catch (e) {
         failed(e)
+        if (why !== 'open') host.emit('problem', { kind: e instanceof NotLoggedIn ? 'login' : 'error', message: (e as Error).message })
       }
     }
 
+    /** 阅读页上读不到书的编号（微信读书改版了）：划线时说一声 */
+    const unknown = new Set<number>()
+
     // 阅读页「划线」的请求：划完马上去取
     onTapped((t) => {
-      if (!/\/web\/book\/addBookmark|\/web\/review\/add/.test(t.url) || !pages.has(t.wc.id)) return
-      void check(t.wc.id, 'tap')
+      if (!/\/web\/book\/addBookmark|\/web\/review\/add/.test(t.url)) return
+      if (pages.has(t.wc.id)) void check(t.wc.id, 'tap')
+      else if (unknown.has(t.wc.id)) host.emit('problem', { kind: 'book' })
     })
 
     // ------------------------------------------------------------ 网页里调的
@@ -170,13 +261,32 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
       async ({ sender }, arg) => {
         const a = (arg ?? {}) as Partial<PageBook>
         const url = sender.getURL()
-        if (!isReader(url) || typeof a.bookId !== 'string' || !/^\w{1,40}$/.test(a.bookId)) {
+        // 书的编号先从阅读页的地址拆（真网站上 __INITIAL_STATE__ 里的编号会是别的书），拆不出再用网页报的
+        const fromUrl = bookIdOfReader(url, md5)
+        const reported = typeof a.bookId === 'string' && /^\w{1,40}$/.test(a.bookId) ? a.bookId : null
+        const bookId = fromUrl ?? reported
+        if (!isReader(url) || !bookId) {
           pages.delete(sender.id)
+          // 阅读页却读不到书的编号：记下来，划线时好告诉用户
+          if (isReader(url) && !unknown.has(sender.id)) {
+            unknown.add(sender.id)
+            sender.once('destroyed', () => unknown.delete(sender.id))
+            void tap(sender as WebContents)
+          }
           return
         }
+        unknown.delete(sender.id)
         const was = pages.get(sender.id)
-        pages.set(sender.id, { bookId: a.bookId, title: String(a.title ?? '').slice(0, 200), author: String(a.author ?? '').slice(0, 100), chapter: String(a.chapter ?? '').slice(0, 200), url })
-        if (was?.bookId === a.bookId) return
+        // 网页报的书名、作者是它那本的：和地址上的不是同一本就不用
+        const sameBook = bookId === reported
+        pages.set(sender.id, {
+          bookId,
+          title: sameBook ? String(a.title ?? '').slice(0, 200) : '',
+          author: sameBook ? String(a.author ?? '').slice(0, 100) : '',
+          chapter: sameBook ? String(a.chapter ?? '').slice(0, 200) : '',
+          url,
+        })
+        if (was?.bookId === bookId) return
         sender.once('destroyed', () => pages.delete(sender.id))
         void tap(sender as WebContents)
         await check(sender.id, 'open')
@@ -188,7 +298,19 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
 
     // ------------------------------------------------------------ 界面调的
 
-    host.handle('status', () => status())
+    host.handle('status', async () => (await readLogin(), status()))
+
+    // 只给测试实例：把这本书「见过的」里最新的一条忘掉，下一次检查就当它是新划的、插进左边文档。
+    // 真账号验证（e2e/real-weread.spec.ts）靠它走一遍插入，不用在用户的微信读书里新划线
+    if (process.env.CN_E2E === '1')
+      host.handle('forgetNewest', async (_ctx, arg) => {
+        const bookId = String((arg as { bookId?: unknown } | undefined)?.bookId ?? '')
+        const { marks } = await fetchBook(bookId)
+        const newest = [...marks].sort((a, b) => b.created - a.created)[0]
+        if (!newest || !saved.seen[bookId]) return null
+        saved.seen[bookId] = saved.seen[bookId]!.filter((id) => id !== newest.id)
+        return { text: newest.text }
+      })
 
     /** 现在同步：有笔记的书里，上次同步以后动过的一本本写进素材 */
     host.handle('syncAll', async () => {
@@ -196,14 +318,14 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
       syncing = true
       host.emit('status', status())
       try {
-        const books = parseNotebooks(await api('/user/notebooks', {}))
+        const books = parseNotebooks(await api('/api/user/notebook', {}))
         let marks = 0
         for (const b of books) {
           marks += b.marks
           if (saved.synced[b.bookId] === b.updated && saved.seen[b.bookId]) continue
           const list = await fetchBook(b.bookId)
           saved.seen[b.bookId] = list.marks.map((m) => m.id)
-          await writeBook({ bookId: b.bookId, title: list.book?.title || b.title, author: list.book?.author || b.author }, list.marks, `${process.env.CN_WEREAD_ORIGIN || 'https://weread.qq.com'}/web/bookDetail/${b.bookId}`)
+          await writeBook({ bookId: b.bookId, title: list.book?.title || b.title, author: list.book?.author || b.author }, list.marks, `${wereadOrigin()}/web/bookDetail/${b.bookId}`)
           saved.synced[b.bookId] = b.updated
         }
         saved.books = books.length

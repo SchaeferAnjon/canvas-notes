@@ -9,6 +9,7 @@ import { app, type BrowserWindow, ipcMain } from 'electron'
 import { join } from 'node:path'
 import * as git from '@cn/git'
 import type { AgentContext, AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from '../../shared/agent'
+import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, FEATURES, pickLabel, resolvePick } from '../../shared/ai-features'
 import { BRAND } from '../../shared/brand'
 import { logActivity } from '../activity'
 import type { Vault } from '../vault'
@@ -16,6 +17,7 @@ import type { Size } from './board-ops'
 import { findCli, INSTALL_HINT } from './cli'
 import { claudeEngine, codexEngine, type Engine, geminiEngine, LABELS, opencodeEngine } from './engines'
 import { fakeEngine } from './fake-engine'
+import { pastedImages } from '../pasted'
 import { type McpServer, startMcpServer } from './mcp-server'
 import { AgentStore } from './store'
 import { runTool, type ToolHost, toolLabel, toolSpecs } from './tools'
@@ -251,12 +253,14 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
     const server = await ensureMcp()
     const chat = store.chat(v.root)
     const r = await engine(req.engine).run({
+      ...modelOpt('chat', req.engine),
       prompt: `${describeContext(req.context)}\n\n用户说：\n${req.text}`,
       system: AGENT_SYSTEM,
       cwd: v.root,
       mcp: { url: server.url, token: server.token, tools: toolSpecs().map((x) => x.name) },
       session: chat.sessions[req.engine],
       history: historyOf(chat.msgs.filter((m) => !(m.role === 'user' && m.text === req.text))),
+      images: await pastedImages(req.pasted),
       signal: ac.signal,
       onText: (delta) => {
         text += delta
@@ -289,27 +293,51 @@ function subject(text: string): string {
 
 // ---------- 只聊天（/ 命令） ----------
 
-/** 用选好的引擎问一次，不给工具；onText 边生成边给 */
-export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (d: string) => void): Promise<string> {
+/** 设置 › AI 里这个功能用哪家哪个模型（CN-44）。小活的 Claude Code 模型 CN_FAST_MODEL 能换（测试和自己试用） */
+export function pickFor(feature: AiFeature): AiPick {
+  let p = resolvePick(store.prefs(), feature)
+  // 选的那家这台 Mac 上没装：小活退回默认那家（以前「装了 Claude Code 就用 Haiku，没装用浮窗选的」的规矩）
+  if (feature === 'quick' && !FAKE() && !findCli(p.engine)) p = store.prefs().default
+  if (feature === 'quick' && p.engine === 'claude' && process.env.CN_FAST_MODEL) p = { engine: 'claude', model: process.env.CN_FAST_MODEL }
+  return p
+}
+
+/** 这个功能这一轮用 id 这家时传给引擎的模型：只有 Claude Code 认；CN_AI_MODEL 能换默认的 Opus（测试用便宜的） */
+export function modelOpt(feature: AiFeature, id: EngineId): { model?: string } {
+  const p = pickFor(feature)
+  const m = p.engine === id && id === 'claude' ? p.model : id === 'claude' ? store.prefs().default.model : undefined
+  if (!m) return {}
+  return { model: m === CLAUDE_DEFAULT && process.env.CN_AI_MODEL ? process.env.CN_AI_MODEL : m }
+}
+
+/** 看图问（视频框一块问、拍导图）用 Claude Code 的哪个模型 */
+export const visionModel = () => modelOpt('vision', 'claude').model
+
+/** 各功能用的「Claude Code · Opus 5.5」（界面上写是哪个模型做的，CN-54） */
+export const featureLabel = (feature: AiFeature) => pickLabel(pickFor(feature))
+
+/** 用这个功能选好的引擎问一次，不给工具；onText 边生成边给（/ 命令是 AI 对话，梦游是梦游） */
+export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (d: string) => void, feature: AiFeature = 'chat'): Promise<string> {
   const v = deps.vault()
-  const r = await engine(store.engine()).run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText })
+  const p = pickFor(feature)
+  const r = await engine(p.engine).run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...modelOpt(feature, p.engine) })
   return r.text
 }
 
 /** 快而便宜的模型：翻译这类一次要问很多遍的活用它（CN_FAST_MODEL 能换） */
 export const FAST_MODEL = process.env.CN_FAST_MODEL || 'haiku'
 
-/** 快问一次用哪家：装了 Claude Code 就用它的 Haiku，没装用浮窗里选的那家（用它默认的模型，会慢一些） */
+/** 小活用哪家（设置 › AI 的「小活」，从没设过是 Claude Code · Haiku） */
 export function fastEngine(): { id: EngineId; label: string } {
-  const id: EngineId = FAKE() || findCli('claude') ? 'claude' : store.engine()
-  return { id, label: id === 'claude' ? `${LABELS.claude} · ${FAST_MODEL === 'haiku' ? 'Haiku' : FAST_MODEL}` : LABELS[id] }
+  const p = pickFor('quick')
+  return { id: p.engine, label: pickLabel(p) }
 }
 
-/** 用快模型问一次，不给工具 */
+/** 用小活那家问一次，不给工具 */
 export async function askFast(system: string, prompt: string, signal: AbortSignal, onText: (d: string) => void): Promise<string> {
   const v = deps.vault()
-  const { id } = fastEngine()
-  const r = await engine(id).run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...(id === 'claude' ? { model: FAST_MODEL } : {}) })
+  const p = pickFor('quick')
+  const r = await engine(p.engine).run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...modelOpt('quick', p.engine) })
   return r.text
 }
 
@@ -320,11 +348,26 @@ export function engineInfo(): EngineInfo[] {
   })
 }
 
+function aiPrefsView() {
+  return { prefs: store.prefs(), labels: Object.fromEntries(FEATURES.map((f) => [f, featureLabel(f)])) as Record<AiFeature, string>, engines: engineInfo() }
+}
+
 export function registerAgent(d: AgentDeps) {
   deps = d
   store = new AgentStore(join(app.getPath('userData'), 'ai'))
-  ipcMain.handle('ai:engines', () => ({ engines: engineInfo(), current: store.engine() }))
-  ipcMain.handle('ai:engine:set', (_e, id: EngineId) => store.setEngine(id))
+  // 浮窗、边读边问头上的引擎胶囊：现在 AI 对话用的那家；换了它只改「AI 对话」那一行（设置 › AI 里同一行），默认、梦游这些不动
+  ipcMain.handle('ai:engines', () => ({ engines: engineInfo(), current: pickFor('chat').engine, label: featureLabel('chat') }))
+  ipcMain.handle('ai:engine:set', (_e, id: EngineId) => {
+    store.setChatEngine(id)
+    send('ai:prefs:changed')
+  })
+  ipcMain.handle('ai:prefs', () => aiPrefsView())
+  ipcMain.handle('ai:prefs:set', (_e, p: AiPrefs) => {
+    store.setPrefs(p)
+    // 开着的 AI 面板（浮窗、读 PDF 右栏）马上换成新选的
+    send('ai:prefs:changed')
+    return aiPrefsView()
+  })
   ipcMain.handle('ai:turn', (_e, req: TurnRequest) => runTurn(req))
   ipcMain.handle('ai:turn:stop', (_e, id: number) => turns.get(id)?.abort())
   ipcMain.handle('ai:chat:load', () => {

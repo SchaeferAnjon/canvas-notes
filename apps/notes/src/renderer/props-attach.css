@@ -1,0 +1,225 @@
+/* 「属性」弹层里的附件（小样 2a、2b）：列表 340 宽、行 40 高；网格 410 宽、4 列 */
+.mm-props.with-attach {
+  width: 340px;
+}
+.mm-props.grid {
+  width: 410px;
+}
+.pa-sec {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.pa-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+}
+.pa-hd b {
+  font: 600 13px/1.4 var(--sans);
+}
+.pa-hd .num {
+  font-size: 12px;
+  color: var(--t3);
+}
+.pa-hd .sp {
+  flex: 1;
+}
+.pa-ib {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.pa-ib:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.pa-row {
+  width: calc(100% + 12px);
+  margin: 0 -6px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+.pa-row:hover {
+  background: var(--fill);
+}
+.pa-row img {
+  width: 36px;
+  height: 32px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--line2);
+  background: var(--card);
+}
+.pa-row .tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+.pa-row .n {
+  font-size: 13px;
+}
+.pa-row .w {
+  font-size: 12px;
+  color: var(--t3);
+}
+.pa-row .sz {
+  flex: none;
+  font: 12px var(--mono);
+  color: var(--t3);
+}
+.pa-row .rv {
+  display: none;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--t1);
+}
+.pa-row:hover .sz {
+  display: none;
+}
+.pa-row:hover .rv {
+  display: inline-flex;
+}
+.pa-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 30px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.pa-more button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--acc-t);
+}
+/* 网格 */
+.pa-find {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  padding: 0 10px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  color: var(--t3);
+}
+.mm-props .pa-find input,
+.mm-props .pa-find input:hover,
+.mm-props .pa-find input:focus {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--t1);
+}
+.pa-find:focus-within {
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+}
+.pa-tg {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.pa-tg button {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  font-size: 12px;
+  color: var(--t2);
+}
+.pa-tg button.on {
+  background: var(--fill2);
+  box-shadow: none;
+  color: var(--t1);
+  font-weight: 500;
+}
+.pa-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.pa-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  color: var(--t2);
+}
+.pa-cell img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--line2);
+  background: var(--card);
+}
+.pa-cell:hover img {
+  box-shadow: 0 0 0 2px var(--acc-ring);
+}
+.pa-cell.unused img {
+  box-shadow: 0 0 0 2px var(--yellow);
+}
+.pa-cell .n {
+  font-size: 12px;
+}
+.pa-cell.unused .n {
+  color: var(--t3);
+}
+.pa-none {
+  grid-column: 1 / -1;
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+.pa-foot {
+  margin: 8px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t3);
+}

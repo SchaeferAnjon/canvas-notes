@@ -243,10 +243,12 @@ test('iCloud 容器不在（iCloud 云盘没开、没装 BookmarkKeeper App）�
     await expect(webTabs(page).first()).toContainText('极光')
     await web(page).getByRole('button', { name: '新网页', exact: true }).click()
     await until(page, `!document.querySelector('#bkSyncNote').hidden`)
-    expect(await guest(page, `document.querySelector('#bkSyncNote').textContent`)).toContain('只保存在这台 Mac 上')
+    expect(await guest(page, `document.querySelector('#bkSyncNote').textContent`)).toContain('只保存在这台Mac上')
     // 还没有快捷书签的那句中文提示不用斜体（中文没有斜体字形，硬斜出来笔画发歪）
     await until(page, `document.querySelector('#bkQuick .bk-quick-empty')`)
     await expect.poll(() => guest(page, `getComputedStyle(document.querySelector('#bkQuick .bk-quick-empty')).fontStyle`)).toBe('normal')
+    // 那句占满整行，不挤在 104 宽的一格里折成四行（第 1 轮美学）
+    expect(await guest(page, `document.querySelector('#bkQuick .bk-quick-empty').offsetWidth >= document.querySelector('#bkQuick').clientWidth - 1`)).toBe(true)
     await clickIn(run, '#openTabsMissions .chip-quick')
     await until(page, `[...document.querySelectorAll('#bkQuick .bk-t-title')].some((e) => e.textContent === '极光')`)
     const local = join(userData, 'web', 'bookmarkkeeper', 'QuickLinks')

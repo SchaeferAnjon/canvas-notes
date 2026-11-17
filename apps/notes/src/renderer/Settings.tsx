@@ -1,19 +1,21 @@
+import { when } from '../shared/when'
 import { Codicon, type CodiconName } from '@cn/design'
-import { useEffect, useState } from 'react'
+import { AiSettingsPage } from './settings-ai'
+import { useEffect, useRef, useState } from 'react'
 import type { VaultInfo } from '../shared/api'
-import type { EngineInfo } from '../shared/agent'
 import { activeSkin, allSkins, type AppSettings, AUTO_COMMIT_CHOICES, autoCommitLabel, pickSkin, setFollowSystem, type SkinInfo, SKINS, type WinBg } from '../shared/appearance'
 import { ARCHIVE_CHOICES, archiveLabel, type ArchiveDays } from '../shared/sidebar'
 import { COVER_GRADIENTS, COVER_PHOTOS, hideWidget, showWidget, WIDGETS, type Cover } from '../shared/home'
 import { COVERS, coverImage, WINBG_THUMBS } from './covers'
-import { reloadUserThemes, userSkinInfos, useUserThemes } from './theme'
+import { homeWinBg, reloadUserThemes, userSkinInfos, useUserThemes, winBgName } from './theme'
 import { saveHome, useHomeConfig } from './home-store'
 import { openImport } from './importer/store'
 import { PluginsSettings } from './plugins'
 import { VideoKeys } from './video/VideoKeys'
-import { EngineLogo } from './engine-logo'
 import './settings.css'
 import { UpdatePage } from './update'
+import { useMineruStatus } from './reading/MineruBar'
+import { MINERU_DISK, MINERU_DOWNLOAD } from '../shared/mineru'
 
 export type SettingsPage = 'look' | 'home' | 'vault' | 'ai' | 'plugins' | 'git' | 'keys' | 'update'
 
@@ -23,7 +25,7 @@ const PAGES: { id: SettingsPage; name: string; icon: CodiconName }[] = [
   { id: 'vault', name: '库', icon: 'library' },
   { id: 'ai', name: 'AI', icon: 'robot' },
   { id: 'plugins', name: '插件', icon: 'extensions' },
-  { id: 'git', name: 'Git 和同步', icon: 'git-branch' },
+  { id: 'git', name: 'Git和同步', icon: 'git-branch' },
   { id: 'keys', name: '快捷键', icon: 'record-keys' },
   { id: 'update', name: '更新', icon: 'arrow-circle-up' },
 ]
@@ -82,7 +84,13 @@ export function Settings(props: {
           {props.page === 'look' && <LookPage {...props} />}
           {props.page === 'home' && <HomePage {...props} />}
           {props.page === 'vault' && <VaultPage {...props} />}
-          {props.page === 'ai' && <AiPage onNotice={props.onNotice} />}
+          {props.page === 'ai' && (
+            <>
+              <AiSettingsPage onNotice={props.onNotice} onPlugins={() => props.onPage('plugins')} />
+              <SttKey onNotice={props.onNotice} />
+              <MineruSettings onNotice={props.onNotice} />
+            </>
+          )}
           {props.page === 'plugins' && <PluginsSettings onNotice={props.onNotice} />}
           {props.page === 'git' && <GitPage {...props} />}
           {props.page === 'keys' && <KeysPage />}
@@ -243,7 +251,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       if (!r) return
       await reloadUserThemes()
       await props.onChange({ appearance: r.settings.appearance })
-      props.onNotice(r.added.length > 1 ? `导入了 ${r.added.length} 套：${r.added.map((t) => t.name).join('、')}` : `导入了「${r.added[0]!.name}」，已经用上`)
+      props.onNotice(r.added.length > 1 ? `导入了${r.added.length}套：${r.added.map((t) => t.name).join('、')}` : `导入了「${r.added[0]!.name}」，已经用上`)
     } catch (e) {
       props.onNotice('导入失败：' + String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     } finally {
@@ -253,7 +261,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
   return (
     <>
       <h4>
-        主题 <span>{a.followSystem ? '跟着系统：点浅色换白天那套，点深色换夜里那套' : '点一张就换'}</span>
+        主题<span>{a.followSystem ? '跟着系统：点浅色换白天那套，点深色换夜里那套' : '点一张就换'}</span>
       </h4>
       <div role="radiogroup" aria-label="主题">
         <div className="skins-h">浅色</div>
@@ -262,7 +270,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
         <div className="skins">{SKINS.filter((s) => s.tone === 'dark').map(card)}</div>
         {user.length > 0 && (
           <>
-            <div className="skins-h">导入的 VS Code 主题</div>
+            <div className="skins-h">导入的VS Code主题</div>
             <div className="skins">{user.map(card)}</div>
           </>
         )}
@@ -270,9 +278,9 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       <div className="pair plain imp-theme">
         <button className="btn" onClick={() => void importTheme()} disabled={importing}>
           <Codicon name={importing ? 'loading' : 'add'} size={14} className={importing ? 'spin' : undefined} />
-          导入 VS Code 主题…
+          导入VS Code主题…
         </button>
-        <span className="note">选 .json 或 .vsix；对不上的颜色按底色和字色算</span>
+        <span className="note">选 .json或 .vsix；对不上的颜色按底色和字色算</span>
       </div>
 
       <div className="pair">
@@ -310,13 +318,13 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       </div>
 
       <h4>
-        界面风格 <span>结构一样，只换样子和几处位置</span>
+        界面风格<span>结构一样，只换样子和几处位置</span>
       </h4>
       <div className="hstyles frames" role="radiogroup" aria-label="界面风格">
         {(
           [
-            ['a', '照 VS Code', '平的、细线分区；标签下有位置；底栏写满，AI 在底栏最右'],
-            ['b', '浮岛书桌', '背景图铺满窗口，三块圆角磨砂面板；AI 是右下角圆按钮'],
+            ['a', '照VS Code', '平的、细线分区；标签下有位置；底栏写满，AI在底栏最右'],
+            ['b', '浮岛书桌', '背景图铺满窗口，三块圆角磨砂面板；AI是右下角圆按钮'],
           ] as const
         ).map(([id, name, note]) => (
           <button key={id} role="radio" aria-checked={a.frame === id} className={'hs' + (a.frame === id ? ' on' : '')} onClick={() => set({ frame: id })}>
@@ -340,7 +348,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       </div>
 
       <h4>
-        窗口背景 <span>{a.frame === 'b' ? '浮岛书桌铺满整个窗口，哪套主题都能配；照片会压暗一点' : '换成 B 浮岛书桌时铺满整个窗口；A 照 VS Code 不用'}</span>
+        窗口背景<span>{a.frame === 'b' ? '浮岛书桌铺满整个窗口，哪套主题都能配；照片会压暗一点' : '换成B浮岛书桌时铺满整个窗口；A照VS Code不用'}</span>
       </h4>
       <div className="bgs" role="radiogroup" aria-label="窗口背景">
         {bgs.map((b) => (
@@ -368,10 +376,23 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       </div>
 
       <h4>
-        首页样式 <span>两种都能自己摆组件、换封面</span>
+        首页样式<span>两种都能自己摆组件、换封面</span>
       </h4>
       <HomeStylePicker value={a.homeStyle} onChange={(homeStyle) => set({ homeStyle })} />
+      <HomeWinBgRow settings={props.settings} onChange={(homeWinBg) => set({ homeWinBg })} />
     </>
+  )
+}
+
+/** 首页样式选 B 时多一行：整页背景用窗口背景那张图（CN-52）；勾上后首页里的「换封面」变灰 */
+function HomeWinBgRow(props: { settings: AppSettings; onChange(v: boolean): void }) {
+  if (props.settings.appearance.homeStyle !== 'b') return null
+  return (
+    <label className="pair hs-winbg">
+      <input type="checkbox" checked={props.settings.appearance.homeWinBg} onChange={(e) => props.onChange(e.currentTarget.checked)} />
+      <span>整页背景用窗口背景那张图</span>
+      <span className="note">现在：{winBgName(props.settings)}</span>
+    </label>
   )
 }
 
@@ -408,13 +429,14 @@ function HomePage(props: { settings: AppSettings; onChange(p: Patch): Promise<Ap
   return (
     <>
       <h4>
-        首页样式 <span>首页上的「编辑首页」改的也是这里</span>
+        首页样式<span>首页上的「编辑首页」改的也是这里</span>
       </h4>
       <HomeStylePicker value={props.settings.appearance.homeStyle} onChange={(homeStyle) => void props.onChange({ appearance: { homeStyle } })} />
+      <HomeWinBgRow settings={props.settings} onChange={(homeWinBg) => void props.onChange({ appearance: { homeWinBg } })} />
       <h4>
-        封面 <span>存在库里，跟着 Git 走</span>
+        封面<span>{homeWinBg(props.settings) ? '现在首页用的是窗口背景那张图（上面的勾），这里换了也不显示' : '存在库里，跟着Git走'}</span>
       </h4>
-      <div className="covers">
+      <div className={'covers' + (homeWinBg(props.settings) ? ' off' : '')}>
         {[...COVER_PHOTOS, ...COVER_GRADIENTS].map((id) => {
           const c: Cover = { kind: 'builtin', id }
           return (
@@ -442,7 +464,7 @@ function HomePage(props: { settings: AppSettings; onChange(p: Patch): Promise<Ap
         </button>
       </div>
       <h4>
-        组件 <span>关掉的收进首页下面的抽屉，随时放回来</span>
+        组件<span>关掉的收进首页下面的抽屉，随时放回来</span>
       </h4>
       <div className="wlist-set">
         {WIDGETS.map((w) => {
@@ -473,13 +495,13 @@ function VaultPage(props: { vault: VaultInfo; onSwitchVault(): void; settings: A
           <span title={props.vault.path}>{props.vault.path.replace(/^\/Users\/[^/]+/, '~')}</span>
         </div>
       </div>
-      <p className="note">库就是一个文件夹，里面是普通的 md 文件；没有 Git 的话打开时会帮你建一个。换库前，这个库没提交的改动会先提交。</p>
+      <p className="note">库就是一个文件夹，里面是普通的md文件；没有Git的话打开时会帮你建一个。换库前，这个库没提交的改动会先提交。</p>
       <button className="btn" onClick={props.onSwitchVault}>
         <Codicon name="folder-opened" size={14} />
         打开别的文件夹…
       </button>
       <h4>
-        导入旧笔记 <span>备忘录或旧的 Obsidian 库：先进收件箱，梦游时分好类、起好名字，你预览了再收下</span>
+        导入旧笔记<span>备忘录或旧的Obsidian库：先进收件箱，梦游时分好类、起好名字，你预览了再收下</span>
       </h4>
       <button
         className="btn"
@@ -492,7 +514,7 @@ function VaultPage(props: { vault: VaultInfo; onSwitchVault(): void; settings: A
         导入旧笔记…
       </button>
       <h4>
-        自动归档 <span>很久没改的笔记从左栏收进「归档」；文件不挪、不改，置顶的不归档，改一下就回到左栏</span>
+        自动归档<span>很久没改的笔记从左栏收进「归档」；文件不挪、不改，置顶的不归档，改一下就回到左栏</span>
       </h4>
       <div className="pair">
         <span>归档</span>
@@ -508,46 +530,210 @@ function VaultPage(props: { vault: VaultInfo; onSwitchVault(): void; settings: A
   )
 }
 
-function AiPage(props: { onNotice(t: string): void }) {
-  const [engines, setEngines] = useState<EngineInfo[]>([])
-  const [cur, setCur] = useState<string | null>(null)
-  useEffect(() => {
-    void window.cn.aiEngines().then((r) => {
-      setEngines(r.engines)
-      setCur(r.current)
-    })
-  }, [])
+/** 听写（Soniox）密钥：没字幕的视频「生成字幕」时用（CN-69）。加密存在这台 Mac 上，界面只看得到最后 4 位 */
+function SttKey(props: { onNotice(t: string): void }) {
+  const [st, setSt] = useState<{ has: boolean; tail: string | null; fromEnv: boolean } | null>(null)
+  const [val, setVal] = useState('')
+  useEffect(() => void window.cnVideo.sttKey().then(setSt), [])
+  const errText = (err: unknown) => String((err as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  const save = async (key: string | null) => {
+    try {
+      setSt(await window.cnVideo.setSttKey(key))
+      setVal('')
+      props.onNotice(key ? 'Soniox密钥存好了' : 'Soniox密钥删掉了')
+    } catch (err) {
+      props.onNotice(errText(err))
+    }
+  }
   return (
     <>
       <h4>
-        默认引擎 <span>用这台 Mac 上已经登录的命令行，不另存密钥；AI 浮窗头上也能换</span>
+        听写（Soniox）密钥<span>没字幕的视频「生成字幕」时用：下载音频交给Soniox听写，约 ¥0.7一小时</span>
       </h4>
-      <div className="eng-list" role="radiogroup" aria-label="AI 引擎">
-        {engines.map((e) => (
-          <button
-            key={e.id}
-            role="radio"
-            aria-checked={cur === e.id}
-            className={'row' + (cur === e.id ? ' on' : '')}
-            disabled={!e.path}
-            onClick={async () => {
-              try {
-                await window.cn.aiSetEngine(e.id)
-                setCur(e.id)
-              } catch (err) {
-                props.onNotice(String((err as Error).message))
-              }
-            }}
-          >
-            <span className="ck">{cur === e.id && <Codicon name="check" size={14} />}</span>
-            <EngineLogo id={e.id} />
-            <b>{e.label}</b>
-            <span className="sp" />
-            <span className="st">{e.path ? '已装好' : (e.hint ?? '没装')}</span>
+      <form
+        className="pair"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (val.trim()) void save(val)
+        }}
+      >
+        <span>密钥</span>
+        <input className="field mono" type="password" aria-label="Soniox 密钥" placeholder={st?.tail ? `已填 ••••${st.tail}` : '粘贴Soniox的API Key'} value={val} onChange={(e) => setVal(e.target.value)} />
+        <button className="btn btn-sm" type="submit" disabled={!val.trim()}>
+          <Codicon name="save" size={14} />
+          保存
+        </button>
+        {st?.tail && (
+          <button className="btn btn-ghost btn-sm" type="button" onClick={() => void save(null)}>
+            删掉
           </button>
-        ))}
+        )}
+      </form>
+      <p className="note" data-testid="stt-key-state">
+        {st?.tail ? `已填 ••••${st.tail}，加密存在这台Mac上` : st?.fromEnv ? '用的是环境变量SONIOX_API_KEY' : '还没填：到soniox.com注册后在控制台拿一个API Key'}
+      </p>
+    </>
+  )
+}
+
+/** 设置 › AI 最下面：PDF 精读增强（MinerU）在用哪一份、自己填路径、提示开关 */
+function MineruSettings(props: { onNotice(t: string): void }) {
+  const st = useMineruStatus()
+  const [val, setVal] = useState<string | null>(null)
+  const errText = (err: unknown) => String((err as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  const f = st?.find ?? null
+  const busy = st ? ['uv', 'python', 'packages', 'models'].includes(st.install.phase) : false
+  const line = !st || !f
+    ? '正在找…'
+    : busy
+      ? `正在装：${st.install.line} · ${st.install.percent}%`
+      : f.state === 'ready'
+        ? `在用${f.from}的MinerU ${f.version}（${f.path}）`
+        : f.state === 'bad'
+          ? `${f.reason}；先照常用PDF自带的文字`
+          : f.state === 'off'
+            ? '测试实例里不找'
+            : `没找到${f.resume ? '（上次没装完）' : ''}：打开PDF时在工具条下面提示安装，下载${MINERU_DOWNLOAD}、占盘${MINERU_DISK}`
+  async function savePath(p: string | null) {
+    try {
+      await window.cnMineru.setPath(p)
+      setVal(null)
+      props.onNotice(p ? '路径存好了，按它重新找了一遍' : '路径清掉了，按默认的地方重新找了一遍')
+    } catch (err) {
+      props.onNotice(errText(err))
+    }
+  }
+  return (
+    <>
+      <h4>
+        PDF精读增强（MinerU） <span>表格、公式、双栏和配图认得更准；不随软件安装，用到PDF时找已有的一份</span>
+      </h4>
+      <form
+        className="pair"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (val !== null) void savePath(val.trim() || null)
+        }}
+      >
+        <span>mineru-kit</span>
+        <input
+          className="field mono"
+          aria-label="mineru-kit 的路径"
+          placeholder={f?.state === 'ready' ? f.path : '不填就在 ~/.mineru-venv、ParaRead装的那份和PATH里找'}
+          value={val ?? ''}
+          onChange={(e) => setVal(e.target.value)}
+        />
+        <button className="btn btn-sm" type="submit" disabled={val === null}>
+          <Codicon name="save" size={14} />
+          保存
+        </button>
+        <button className="btn btn-ghost btn-sm" type="button" onClick={() => void window.cnMineru.refind()}>
+          <Codicon name="refresh" size={14} />
+          重新找
+        </button>
+        {f?.state === 'missing' && !busy && (
+          <button className="btn btn-sm" type="button" onClick={() => void window.cnMineru.install()}>
+            <Codicon name="cloud-download" size={14} />
+            安装
+          </button>
+        )}
+      </form>
+      <p className="note" data-testid="mineru-state">
+        {line}
+      </p>
+      <div className="pair">
+        <Toggle on={!st?.dismissed} label="没找到时提示安装PDF精读增强" onChange={(v) => void window.cnMineru.dismiss(!v)} />
+        <span>没找到时在PDF工具条下面提示安装</span>
       </div>
-      <p className="note">AI 改的每一处都是一次提交，浮窗里能撤回；它不能自己写文件、跑命令，只能用软件给它的工具。</p>
+    </>
+  )
+}
+
+/**
+ * 提交署名：每次提交记进历史的名字和邮箱。这台 Mac 上 git 没设时，打开库时软件按系统用户给这个库设了一个（main/git-identity.ts）；
+ * 这里看得到、能改（只改这个库的 .git/config）
+ */
+function GitIdentity(props: { onNotice(t: string): void }) {
+  const [id, setId] = useState<{ name: string; email: string; local: boolean } | null | undefined>(undefined)
+  const [draft, setDraft] = useState<{ name: string; email: string } | null>(null)
+  /** 存不进去的原因（邮箱格式不对……）：写在输入框下面，不跑到底栏 */
+  const [bad, setBad] = useState('')
+  const errText = (err: unknown) => String((err as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  useEffect(() => void window.cn.gitIdentity().then(setId), [])
+  async function save() {
+    if (!draft) return
+    try {
+      setId(await window.cn.setGitIdentity(draft.name, draft.email))
+      setDraft(null)
+      setBad('')
+      props.onNotice('提交署名改好了，以后的提交用它')
+    } catch (err) {
+      setBad(errText(err))
+    }
+  }
+  const cancel = () => (setDraft(null), setBad(''))
+  return (
+    <>
+      <h4>
+        提交署名<span>每次提交记进历史的名字和邮箱；同步后远程仓库也看得到</span>
+      </h4>
+      {draft ? (
+        <form
+          className="pair"
+          aria-label="改提交署名"
+          onSubmit={(e) => {
+            e.preventDefault()
+            void save()
+          }}
+          onKeyDown={(e) => {
+            // Esc 只收起这一行（第 5 轮：以前整个设置关掉，填的字丢了）
+            if (e.key !== 'Escape') return
+            e.preventDefault()
+            e.stopPropagation()
+            cancel()
+          }}
+        >
+          <span>名字和邮箱</span>
+          <input className="field id-name" aria-label="署名的名字" placeholder="名字" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} autoFocus />
+          <input className="field" aria-label="署名的邮箱" aria-invalid={!!bad || undefined} placeholder="邮箱" value={draft.email} onChange={(e) => (setDraft({ ...draft, email: e.target.value }), setBad(''))} />
+          <button className="btn btn-sm" type="submit" disabled={!draft.name.trim() || !draft.email.trim()}>
+            <Codicon name="save" size={14} />
+            保存
+          </button>
+          <button className="btn btn-ghost btn-sm" type="button" onClick={cancel}>
+            取消
+          </button>
+        </form>
+      ) : (
+        <div className="pair" data-testid="git-identity">
+          <span>名字和邮箱</span>
+          {id === undefined ? (
+            <span className="sp aside">正在读…</span>
+          ) : id ? (
+            <span className="sp truncate id-val">
+              {id.name}
+              <span className="id-mail">{id.email}</span>
+            </span>
+          ) : (
+            <span className="sp id-none">
+              <i className="dot warn" />
+              还没有，提交会失败
+            </span>
+          )}
+          <button className="btn btn-sm" type="button" disabled={id === undefined} onClick={() => setDraft({ name: id?.name ?? '', email: id?.email ?? '' })}>
+            <Codicon name="edit" size={14} />
+            改
+          </button>
+        </div>
+      )}
+      {draft && bad && (
+        <p className="note id-bad" role="alert">
+          <Codicon name="error" size={12} className="ic" />
+          <span>{bad}</span>
+        </p>
+      )}
+      {/* 库里、全局都没有署名时不提全局设置（第 5 轮：那一行说「还没有」，下面却说「用的是全局设置」） */}
+      {id !== undefined && <p className="note">{id?.local ? '写在这个库里，只用在这个库' : id ? '用的是这台Mac上Git的全局设置；改了只改这个库' : '填上后写在这个库里，只用在这个库'}</p>}
     </>
   )
 }
@@ -556,17 +742,53 @@ function GitPage(props: { settings: AppSettings; onChange(p: Patch): Promise<App
   const [remote, setRemote] = useState<string>('')
   const [saved, setSaved] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
+  const [lastSync, setLastSync] = useState<number | null>(null)
+  const [syncError, setSyncError] = useState<{ at: number; text: string } | null>(null)
+  const readState = () =>
+    window.cn.gitState().then((g) => {
+      setLastSync(g.lastSync)
+      setSyncError(g.syncError)
+    })
   useEffect(() => {
     void window.cn.gitRemote().then((r) => {
       setRemote(r?.url ?? '')
       setSaved(r?.url ?? null)
     })
+    void readState()
   }, [])
+  const dirty = !!remote.trim() && remote.trim() !== saved
+  const errText = (err: unknown) => String((err as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+  async function save() {
+    try {
+      const r = await window.cn.setGitRemote(remote)
+      setSaved(r?.url ?? null)
+      props.onNotice('远程地址存好了')
+      props.onGitChanged()
+    } catch (err) {
+      props.onNotice(errText(err))
+    }
+  }
+  // 离开这一页（换到别的设置页、关上设置）时，填了没存的地址自动存
+  const latest = useRef({ remote, dirty })
+  latest.current = { remote, dirty }
+  useEffect(
+    () => () => {
+      const { remote: url, dirty: unsaved } = latest.current
+      if (!unsaved) return
+      void window.cn.setGitRemote(url).then(
+        () => (props.onNotice('远程地址存好了'), props.onGitChanged()),
+        (err: unknown) => props.onNotice(errText(err)),
+      )
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
   const min = props.settings.autoCommitMinutes
   return (
     <>
+      <GitIdentity onNotice={props.onNotice} />
       <h4>
-        自动提交 <span>没提交的改动到点自动提交一次；退出、换库前也会提交</span>
+        自动提交<span>没提交的改动到点自动提交一次；退出、换库前也会提交</span>
       </h4>
       <div className="pair">
         <span>间隔</span>
@@ -579,36 +801,62 @@ function GitPage(props: { settings: AppSettings; onChange(p: Patch): Promise<App
         </select>
       </div>
       <h4>
-        远程同步 <span>同步 = 先提交，再拉，再推；只在你点「同步」时联网</span>
+        远程同步<span>同步 = 先提交，再拉，再推；只在你点「同步」时联网</span>
       </h4>
       <form
         className="pair"
-        onSubmit={async (e) => {
+        onSubmit={(e) => {
           e.preventDefault()
-          try {
-            const r = await window.cn.setGitRemote(remote)
-            setSaved(r?.url ?? null)
-            props.onNotice('远程地址存好了')
-            props.onGitChanged()
-          } catch (err) {
-            props.onNotice(String((err as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
-          }
+          if (dirty) void save()
         }}
       >
         <span>远程地址</span>
-        <input className="field" aria-label="远程地址" placeholder="比如 git@github.com:你/笔记.git" value={remote} onChange={(e) => setRemote(e.target.value)} />
-        <button className="btn btn-sm" type="submit" disabled={!remote.trim() || remote.trim() === saved}>
-          存
-        </button>
+        <input className="field mono" aria-label="远程地址" placeholder="比如git@github.com:你/笔记.git" value={remote} onChange={(e) => setRemote(e.target.value)} />
+        {saved && !dirty ? (
+          <button className="btn btn-sm" type="button" disabled>
+            <Codicon name="check" size={14} />
+            已保存
+          </button>
+        ) : (
+          <button className="btn btn-sm btn-primary" type="submit" disabled={!dirty}>
+            <Codicon name="save" size={14} />
+            保存
+          </button>
+        )}
       </form>
+      <div className="git-state" data-testid="git-remote-state">
+        {dirty ? (
+          <>
+            <i className="dot warn" />
+            <span>
+              地址还没保存：按 <kbd>↵</kbd> 或点「保存」
+            </span>
+            <span className="sp" />
+            <span className="aside">离开这一页时也会自动存</span>
+          </>
+        ) : saved && syncError ? (
+          <>
+            <i className="dot warn" />
+            <span>上次同步没成功（{when(syncError.at, { time: true })}）：{syncError.text}</span>
+          </>
+        ) : saved ? (
+          <>
+            <i className="dot ok" />
+            <span>地址存好了 · {lastSync ? `上次同步${when(lastSync, { time: true })}` : '还没同步过：点「现在同步」推上去'}</span>
+          </>
+        ) : (
+          <span className="aside">还没有远程仓库：先填地址，再同步</span>
+        )}
+      </div>
       <div className="pair plain">
         <button
-          className="btn btn-sm"
-          disabled={!saved || syncing}
+          className={'btn btn-sm' + (saved && !dirty ? ' btn-primary' : '')}
+          disabled={!saved || dirty || syncing}
           onClick={async () => {
             setSyncing(true)
             try {
               await props.onSync()
+              await readState()
             } finally {
               setSyncing(false)
             }
@@ -617,7 +865,7 @@ function GitPage(props: { settings: AppSettings; onChange(p: Patch): Promise<App
           <Codicon name="refresh" size={14} className={syncing ? 'spin' : ''} />
           {syncing ? '正在同步' : '现在同步'}
         </button>
-        <span className="note">{saved ? '底栏的「同步」也是这个' : '还没有远程仓库：先填地址，再同步'}</span>
+        <span className="note">{saved && !dirty ? '底栏的「同步」也是这个' : '存好地址后才能同步'}</span>
       </div>
     </>
   )
@@ -626,7 +874,7 @@ function GitPage(props: { settings: AppSettings; onChange(p: Patch): Promise<App
 const KEYS: [string, string, string?][] = [
   ['速记', '⌥⌘N', '在任何软件里都能按'],
   ['搜索', '⌘F', '⌘K 也行'],
-  ['打开 / 关上 AI', '⌘J', '在网页里也能按'],
+  ['打开 / 关上AI', '⌘J', '在网页里也能按'],
   ['收起 / 展开左栏', '⌘\\'],
   ['新建笔记', '⌘N'],
   ['关掉标签', '⌘W'],
@@ -640,7 +888,7 @@ function KeysPage() {
   return (
     <>
       <h4>
-        快捷键 <span>这一组现在还不能改</span>
+        快捷键<span>这一组现在还不能改</span>
       </h4>
       <div className="keys-list">
         {KEYS.map(([name, k, note]) => (

@@ -84,12 +84,14 @@ describe('梦游做可视化', { timeout: 30_000 }, () => {
     g(root, 'commit', '--allow-empty', '-qm', '笔记：第3讲 线性映射 第 4 页 · 列是基向量去哪')
     g(root, 'commit', '--allow-empty', '-qm', '笔记：第3讲 线性映射 第 6 页 · 一问就懂')
     const before = readFileSync(join(root, NOTE), 'utf8')
-    const r = await runDream({ root, scratch: join(base, 'scratch'), ask, trigger: 'manual', now: new Date() })
+    const r = await runDream({ root, scratch: join(base, 'scratch'), ask, trigger: 'manual', now: new Date(), by: 'Claude Code · Haiku' })
     const viz = r.items.filter((i) => i.group === 'viz')
+    // CN-54：报告这一条和 HTML 里都写着是哪家哪个模型做的
+    expect(viz[0]!.by).toBe('Claude Code · Haiku')
     expect(viz.map((i) => i.title)).toEqual(['第 5 页 · 拖一拖', '第 4 页 · 拖一拖'])
     expect(viz[0]!.files).toEqual(['课程/线性代数/第 5 页.html', NOTE])
-    expect(viz[0]!.sub).toBe('新文件 课程/线性代数/第 5 页.html · 挂到「第3讲 线性映射 笔记」第 5 页')
-    expect(viz[0]!.why).toContain('问了 3 轮、1 次还是不懂')
+    expect(viz[0]!.sub).toBe('新文件 课程/线性代数/第 5 页.html · 挂到「第3讲 线性映射 笔记」第5页')
+    expect(viz[0]!.why).toContain('问了3轮、1次还是不懂')
     expect(r.notes).toEqual([])
     // 给 AI 的话里有疑惑、没讲通的版本、讲通的讲法
     const p5 = prompts.find((p) => p.includes('第 5 页'))!
@@ -104,6 +106,7 @@ describe('梦游做可视化', { timeout: 30_000 }, () => {
     expect(html).toContain('<meta name="类型" content="可视化">')
     expect(html).toContain('<meta name="第几讲" content="3">')
     expect(html).toContain('<meta name="做的" content="梦游">')
+    expect(html).toContain('<meta name="模型" content="Claude Code · Haiku">')
     const onBranch = parseReadingNote(g(root, 'show', `${r.branch}:${NOTE}`), NOTE)
     expect(onBranch.find((s) => s.page === 5)!.viz).toEqual({ path: '课程/线性代数/第 5 页.html', title: '第 5 页 · 拖一拖' })
     expect(onBranch.find((s) => s.page === 6)!.viz).toBeUndefined()
@@ -118,6 +121,6 @@ describe('梦游做可视化', { timeout: 30_000 }, () => {
     commitNote([sec(5, '旋转矩阵每个数从哪来', 3, 1)], '笔记：第3讲 线性映射 第 5 页 · 旋转矩阵每个数从哪来')
     const r = await runDream({ root, scratch: join(base, 'scratch'), ask: async (s, p) => (p.startsWith('命令：梦游可视化') ? '做不了' : ask(s, p)), trigger: 'manual', now: new Date() })
     expect(r.items.filter((i) => i.group === 'viz')).toEqual([])
-    expect(r.notes).toEqual(['第 5 页「旋转矩阵每个数从哪来」的可视化没做成：AI 没做出能打开的网页'])
+    expect(r.notes).toEqual(['第5页「旋转矩阵每个数从哪来」的可视化没做成：AI 没做出能打开的网页'])
   })
 })

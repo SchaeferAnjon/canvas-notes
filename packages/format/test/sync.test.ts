@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyChanges, conflictCopyName, merge3, reconcile, textChanges } from '../src'
+import { applyChanges, conflictCopyName, merge3, merge3Fine, reconcile, textChanges } from '../src'
 
 // 规矩 2：正在编辑时外部改动进来，正在打的字不丢；冲突的那一版另存一份冲突副本。
 describe('外部改动不丢正在打的字', () => {
@@ -30,7 +30,13 @@ describe('外部改动不丢正在打的字', () => {
   it('两边改了同一行：本地不动，磁盘那版另存', () => {
     const local = base.replace('第二段。', '第二段，我在改')
     const remote = base.replace('第二段。', '第二段，同步改的')
-    expect(reconcile(base, local, remote)).toEqual({ kind: 'conflict', conflictText: remote })
+    expect(reconcile(base, local, remote)).toEqual({ kind: 'conflict', conflictText: remote, text: local })
+  })
+
+  it('两边改了同一段、外面还改了别的段：同一段留我的，外面别处改的照样合进来（以前只进冲突副本），磁盘那版另存', () => {
+    const local = base.replace('第二段。', '第二段，我在改')
+    const remote = base.replace('第二段。', '第二段，同步改的').replace('第一段。', '第一段，外面也改了。')
+    expect(reconcile(base, local, remote)).toEqual({ kind: 'conflict', conflictText: remote, text: local.replace('第一段。', '第一段，外面也改了。') })
   })
 
   it('磁盘没变、或者变得和本地一样：什么都不做', () => {
@@ -89,4 +95,21 @@ describe('textChanges：只动改了的地方', () => {
       for (let k = 1; k < cs.length; k++) expect(cs[k]!.from).toBeGreaterThanOrEqual(cs[k - 1]!.to)
     }
   }
+})
+
+describe('merge3Fine：同一行两边改的不是同一处，按字合并', () => {
+  const base = '# 笔记\n\n![](../../附件/课程/ecp/Lecture05%20笔记/image-1.png)\n\n下面一段。\n'
+  it('一边在行尾接着打字、一边把链接改回去：两样都留下', () => {
+    const local = base.replace('image-1.png)', 'image-1.png) 图：这是比较静态的示意')
+    const remote = base.replace('课程/ecp/Lecture05%20笔记/', '')
+    expect(merge3Fine(base, local, remote)).toEqual({ text: '# 笔记\n\n![](../../附件/image-1.png) 图：这是比较静态的示意\n\n下面一段。\n', conflict: false })
+  })
+  it('两边改的是同一处：冲突，text 是 local 原样', () => {
+    const local = base.replace('![](', '![示意图](')
+    const remote = base.replace('![](../../附件/课程/ecp/Lecture05%20笔记/', '![a](../../附件/')
+    expect(merge3Fine(base, local, remote)).toEqual({ text: local, conflict: true })
+  })
+  it('按行合得了的照按行合（不进按字那一步）', () => {
+    expect(merge3Fine('a\nb\nc\n', 'A\nb\nc\n', 'a\nb\nC\n')).toEqual({ text: 'A\nb\nC\n', conflict: false })
+  })
 })

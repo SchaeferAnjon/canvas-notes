@@ -33,15 +33,15 @@ test('全部文件：整个库的树，PDF 和课程旁边是进度；点文件�
     await expect(tree(page)).toHaveCount(0)
     await sideTab(page, '全部文件').click()
     // 顶层按 课程 / 生活 / 收件箱 排；课程默认展开；原来的分组都让开了
-    await expect(tree(page).getByRole('treeitem', { level: 1 })).toHaveText(['课程', '生活', '收件箱'])
+    await expect(tree(page).getByRole('treeitem', { level: 1 }).locator('.truncate')).toHaveText(['课程', '生活', '收件箱'])
     await expect(page.locator('aside.side').getByRole('group', { name: '最近的白板' })).toBeHidden()
     await expect(page.locator('aside.side .sall')).toBeHidden()
     // 线性代数：3 份课件问完 1 份
-    await expect(item(page, '线性代数').locator('.ft-meta')).toHaveText('1/3 讲')
+    await expect(item(page, '线性代数').locator('.ft-meta')).toHaveText('1/3讲')
 
     // 点箭头只展开（不开首页）：我的疑惑在最上，同一讲课件和笔记挨着，第 10 讲排在第 3 讲后面；名字不带扩展名
     await item(page, '线性代数').getByRole('button', { name: '展开 线性代数' }).click()
-    await expect(tree(page).getByRole('treeitem', { level: 3 })).toHaveText([/^我的疑惑/, /^第2讲 向量空间/, /^第2讲 向量空间 笔记/, /^第3讲 线性映射3\/5/, /^第3讲 线性映射 笔记/, /^第10讲 二次型/, /^旋转矩阵/])
+    await expect(tree(page).getByRole('treeitem', { level: 3 })).toHaveText([/^我的疑惑/, /^第2讲 向量空间/, /^第2讲 向量空间 笔记/, /^第3讲 线性映射PDF3\/5/, /^第3讲 线性映射 笔记/, /^第10讲 二次型/, /^旋转矩阵/])
     await expect(page.locator('.tab', { hasText: '线性代数' })).toHaveCount(0)
     // 问完的是绿勾，问了一些写 3/5，没开始什么都不写
     await expect(item(page, '第2讲 向量空间').first().locator('.done')).toBeVisible()
@@ -69,10 +69,11 @@ test('全部文件：整个库的树，PDF 和课程旁边是进度；点文件�
     // 记住选的是全部文件；切回最近，原来那套回来
     await sideTab(page, '最近').click()
     await expect(tree(page)).toHaveCount(0)
-    await expect(page.locator('aside.side').getByRole('group', { name: '这周动过的' })).toBeVisible()
-    // 文件页头的「按名字跳」开 ⌘O
+    await expect(page.locator('aside.side').getByRole('group', { name: '今天' })).toBeVisible()
+    // 文件页头是一排工具（新建笔记、新建文件夹、新建白板、定位当前文件、排序、全部收起）；按名字跳还是 ⌘O
     await sideTab(page, '全部文件').click()
-    await page.locator('aside.side').getByRole('button', { name: '按名字跳' }).click()
+    expect(await page.locator('aside.side .vh').getByRole('button').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).toEqual(['新建笔记', '新建文件夹', '新建白板', '定位当前文件', '排序', '全部收起'])
+    await page.keyboard.press('Meta+o')
     await expect(page.getByRole('dialog', { name: '按名字跳到' })).toBeVisible()
   } finally {
     await run.close()
@@ -99,12 +100,12 @@ test('梦游预览时目录树画成改好以后的样子：挪来的标「新�
     await expect(page.getByTestId('preview-bar')).toBeVisible()
 
     // 树里：生活/周末去花市买 是挪来的（标「新」），收件箱里原来那篇留划掉的影子
-    await expect(tree(page).getByRole('treeitem', { level: 1 })).toHaveText(['课程', '生活', '收件箱'])
+    await expect(tree(page).getByRole('treeitem', { level: 1 }).locator('.truncate')).toHaveText(['课程', '生活', '收件箱'])
     await item(page, '生活').getByRole('button', { name: '展开 生活' }).click()
     const moved = item(page, '周末去花市买')
     await expect(moved.locator('.tag-new')).toHaveText('新')
     await item(page, '收件箱').getByRole('button', { name: '展开 收件箱' }).click()
-    await expect(tree(page).locator('.pv-ghost')).toHaveText('一条速记挪到 生活')
+    await expect(tree(page).locator('.pv-ghost')).toHaveText('一条速记挪到生活')
     await expect(item(page, '说不好的')).toBeVisible()
     // 点挪来的那篇：开的是它现在（还在收件箱里）的那篇
     await moved.click()

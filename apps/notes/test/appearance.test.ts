@@ -74,8 +74,8 @@ describe('外观设置', () => {
 
   it('自动提交间隔的说法', () => {
     expect(autoCommitLabel(0)).toBe('不自动提交')
-    expect(autoCommitLabel(10)).toBe('每 10 分钟')
-    expect(autoCommitLabel(60)).toBe('每 1 小时')
+    expect(autoCommitLabel(10)).toBe('每10分钟')
+    expect(autoCommitLabel(60)).toBe('每1小时')
   })
 })
 
@@ -99,5 +99,14 @@ describe('设置文件', () => {
   it('没有设置文件时是默认值', () => {
     dir = mkdtempSync(join(tmpdir(), 'cn-settings-'))
     expect(new SettingsFile(join(dir, 'settings.json')).app()).toEqual(DEFAULT_SETTINGS)
+  })
+
+  it('首页整页背景用窗口背景那张图（CN-52）：默认不用，只认 true，存在这台电脑的设置里', () => {
+    dir = mkdtempSync(join(tmpdir(), 'cn-settings-'))
+    const f = new SettingsFile(join(dir, 'settings.json'))
+    expect(f.app().appearance.homeWinBg).toBe(false)
+    expect(f.setApp({ appearance: { homeStyle: 'b', homeWinBg: true } }).appearance).toMatchObject({ homeStyle: 'b', homeWinBg: true })
+    expect(JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')).appearance.homeWinBg).toBe(true)
+    expect(f.setApp({ appearance: { homeWinBg: 'yes' as never } }).appearance.homeWinBg).toBe(false)
   })
 })

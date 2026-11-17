@@ -33,20 +33,58 @@ export function isFormula(text: string): boolean {
   return words.length <= 1 && math >= 2
 }
 
-/** 一块怎么出现在对照里：要翻的字、照原页裁的公式 / 图 */
-export type BiKind = 'heading' | 'text' | 'formula' | 'figure'
+/**
+ * 一块怎么出现在对照里：要翻的字（标题、正文、图注）、照原页裁的公式 / 图；
+ * MinerU 认出的表格画成表、公式（LaTeX）渲染出来，都不翻
+ */
+export type BiKind = 'heading' | 'text' | 'caption' | 'formula' | 'figure' | 'table'
 
-export function biKind(b: Pick<PdfBlock, 'kind' | 'text'>): BiKind {
+export function biKind(b: Pick<PdfBlock, 'kind' | 'text' | 'stack'>): BiKind {
   if (b.kind === 'image') return 'figure'
   if (b.kind === 'heading') return 'heading'
+  if (b.kind === 'table') return 'table'
+  if (b.kind === 'formula') return 'formula'
+  if (b.kind === 'caption') return 'caption'
+  // 一格一格的标签（「Computation Stack」那种彩色表，pdf-blocks 把它的行用换行连着）：拍扁成一行字看不懂，整块照原页裁
+  if (b.stack) return 'figure'
   return isFormula(b.text) ? 'formula' : 'text'
+}
+
+/**
+ * 装饰图（CN-31）：不进对照、不裁成「公式和图」。
+ * - 面积小于页面 4% 的图（Logo、图标、项目符号）；
+ * - 同一个位置（差不到页面的 2%）、差不多大的图在 3 页以上都有（校徽、页角色块、每页一样的页眉图）。
+ * 返回这些图块的 id。
+ */
+export function decorations(pages: Record<number, Pick<PdfBlock, 'id' | 'kind' | 'x' | 'y' | 'w' | 'h'>[]>, sizes: { w: number; h: number }[]): Set<string> {
+  const out = new Set<string>()
+  const imgs: { id: string; page: number; x: number; y: number; w: number; h: number }[] = []
+  for (const [k, list] of Object.entries(pages)) {
+    const n = Number(k)
+    const sz = sizes[n - 1]
+    if (!sz) continue
+    for (const b of list) {
+      if (b.kind !== 'image') continue
+      const f = { id: b.id, page: n, x: b.x / sz.w, y: b.y / sz.h, w: b.w / sz.w, h: b.h / sz.h }
+      if (f.w * f.h < 0.04) out.add(b.id)
+      imgs.push(f)
+    }
+  }
+  const near = (a: (typeof imgs)[number], b: (typeof imgs)[number]) =>
+    Math.abs(a.x - b.x) < 0.02 && Math.abs(a.y - b.y) < 0.02 && Math.abs(a.w - b.w) < 0.02 && Math.abs(a.h - b.h) < 0.02
+  for (const a of imgs) {
+    if (out.has(a.id)) continue
+    const pagesWith = new Set(imgs.filter((b) => near(a, b)).map((b) => b.page))
+    if (pagesWith.size >= 3) out.add(a.id)
+  }
+  return out
 }
 
 /** 要送去翻的块（公式和图不送）；页码、页眉这类只有数字的短行也不送 */
 export function translatable<T extends Pick<PdfBlock, 'kind' | 'text'>>(blocks: T[]): T[] {
   return blocks.filter((b) => {
     const k = biKind(b)
-    if (k === 'formula' || k === 'figure') return false
+    if (k === 'formula' || k === 'figure' || k === 'table') return false
     return /[A-Za-zÀ-ɏЀ-ӿ぀-ヿ一-鿿가-힯]{2,}/.test(b.text)
   })
 }
@@ -57,6 +95,9 @@ export function translatable<T extends Pick<PdfBlock, 'kind' | 'text'>>(blocks: 
 export type BiNoteBlock =
   | { kind: 'heading' | 'text'; text: string; tr: string | null }
   | { kind: 'formula' | 'figure'; path: string; caption?: string }
+  /** MinerU 认出的：公式写 $$LaTeX$$，表格写 Markdown 表（有合并格的照原页裁成图） */
+  | { kind: 'math'; tex: string }
+  | { kind: 'table'; md: string }
 
 export interface BiNotePage {
   /** PDF 的第几页；网页没有页 */
@@ -124,6 +165,10 @@ export function bilingualNote(input: BiNoteInput): string {
       out.push('')
       if ('path' in b) {
         out.push(`![${(b.caption ?? (b.kind === 'formula' ? '公式' : '图')).replace(/[[\]]/g, '')}](${/^https?:/i.test(b.path) ? b.path : linkFrom(note, b.path)})`)
+      } else if (b.kind === 'math') {
+        out.push(`$$\n${b.tex.trim()}\n$$`)
+      } else if (b.kind === 'table') {
+        out.push(b.md.trim())
       } else if (b.kind === 'heading') {
         out.push(`### ${oneLine(b.tr ?? b.text)}`)
         if (b.tr) out.push('', quote(b.text))

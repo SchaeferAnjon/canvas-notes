@@ -1,4 +1,4 @@
-import { ipcRenderer } from 'electron'
+import { ipcRenderer, webUtils } from 'electron'
 import type { CnFolderApi } from '../shared/folder-home-api'
 
 export const folderApi: CnFolderApi = {
@@ -9,5 +9,15 @@ export const folderApi: CnFolderApi = {
   files: (folder, scope) => ipcRenderer.invoke('folderHome:files', folder, scope),
   list: () => ipcRenderer.invoke('folderHome:list'),
   create: (folder) => ipcRenderer.invoke('folderHome:create', folder),
-  rename: (folder, name) => ipcRenderer.invoke('folderHome:rename', folder, name),
+  rename: (folder, name) => ipcRenderer.invoke('folder:rename', folder, name),
+  make: (parent, name) => ipcRenderer.invoke('folder:create', parent, name),
+  trash: (folder) => ipcRenderer.invoke('folder:trash', folder),
+  move: (folder, parent) => ipcRenderer.invoke('folder:move', folder, parent),
+  left: () => ipcRenderer.invoke('left:get'),
+  setLeft: (c) => ipcRenderer.invoke('left:set', c),
+  pathOf: (file) => webUtils.getPathForFile(file),
+  importPdfs: (folder, paths) => ipcRenderer.invoke('slides:import', folder, paths),
+  unimportPdfs: (paths) => ipcRenderer.invoke('slides:unimport', paths),
+  thumb: (path, mtimeMs) => ipcRenderer.invoke('slides:thumb', path, mtimeMs),
+  putThumb: (path, mtimeMs, png) => ipcRenderer.invoke('slides:thumb:put', path, mtimeMs, png),
 }

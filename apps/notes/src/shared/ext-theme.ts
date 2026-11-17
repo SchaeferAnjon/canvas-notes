@@ -1,5 +1,5 @@
 /**
- * 书签管家新标签页（cn-ext://bookmarkkeeper/newtab）跟着软件的主题走：插件的文件原样不改，
+ * 书签管家新标签页（cn-ext://bookmarkkeeper/newtab，软件自带的那份）跟着软件的主题走：颜色不写死在它的文件里，
  * 由网页预加载往页面里加一段样式，把插件自己的颜色变量（--paper、--ink、--warm-gray……）换成当前主题的变量，
  * 顺手修右栏窄宽里的排版（按钮竖着断行、「Open tabs」卡片被 600 的最小宽度撑出右栏）。
  * 主题的值由界面算好（getComputedStyle），经主进程转给每个开着的插件页。
@@ -56,7 +56,6 @@ html .bk-quick-empty, html .bk-noresult, html .bk-empty { font-style: normal; co
 }
 @media (max-width: 480px) {
   html .container { padding: 28px 16px 48px; }
-  html header { margin-bottom: 28px; padding-bottom: 18px; }
   html .section-header { flex-wrap: wrap; row-gap: 4px; }
   html .bk-section .section-count { flex-basis: 100%; }
   html .bk-quick-bar .bk-quick-hint { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

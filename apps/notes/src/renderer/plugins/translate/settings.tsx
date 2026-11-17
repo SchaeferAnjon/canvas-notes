@@ -34,7 +34,7 @@ const STATE_COLOR: Record<EngineStatus['state'], string> = {
 
 type TestResult = { run: true } | { ok: true; ms: number; text: string; who?: string } | { ok: false; ms: number; error: TrError }
 
-const secs = (ms: number) => `${(ms / 1000).toFixed(1)} 秒`
+const secs = (ms: number) => `${(ms / 1000).toFixed(1)}秒`
 
 export function TranslateSettingsPane({ info, onChange, onNotice }: { info: PluginInfo; onChange(patch: Record<string, unknown>): void; onNotice(t: string): void }) {
   const s = normalizeTranslate(info.settings)
@@ -65,7 +65,7 @@ export function TranslateSettingsPane({ info, onChange, onNotice }: { info: Plug
   return (
     <>
       <h4 className="trs-h">
-        翻译用什么 <span>一批段落问一次；翻过的段记在本机，同一段不再问</span>
+        翻译用什么<span>一批段落问一次；翻过的段记在本机，同一段不再问</span>
       </h4>
       {none && (
         <div className="trs-none">
@@ -128,10 +128,10 @@ export function TranslateSettingsPane({ info, onChange, onNotice }: { info: Plug
         </button>
         <span className="note">用现在的设置翻「eigenvalue」，看谁答、多快</span>
       </div>
-      {tryRes && <ResultLine r={tryRes} what={(t) => `${t.who} 答的 · ${secs(t.ms)} · eigenvalue → ${t.text}`} />}
+      {tryRes && <ResultLine r={tryRes} what={(t) => `${t.who}答的 · ${secs(t.ms)} · eigenvalue → ${t.text}`} />}
 
       <h4 className="trs-h">
-        默认怎么翻 <span>网页里随手改的也记在这里</span>
+        默认怎么翻<span>网页里随手改的也记在这里</span>
       </h4>
       <div className="pair">
         <span>翻成</span>
@@ -173,24 +173,24 @@ export function TranslateSettingsPane({ info, onChange, onNotice }: { info: Plug
         <span className="sp" />
         <Toggle on={s.clipWithTranslation} label="整页剪藏带上译文" onChange={(v) => onChange({ clipWithTranslation: v })} />
       </div>
-      <p className="note trs-note">关着：只存原文。开着：每段原文下面跟一段译文（md 里是「&gt; 」引用），只看译文时也照样存原文。</p>
+      <p className="note trs-note">关着：只存原文。开着：每段原文下面跟一段译文（md里是「&gt; 」引用），只看译文时也照样存原文。</p>
 
       <h4 className="trs-h">
-        术语表 <span>课程文件夹里的 术语表.md</span>
+        术语表<span>课程文件夹里的 术语表.md</span>
       </h4>
       <div className="pair">
         <span className="wide">中间栏开着哪门课的文件，就照哪门课的术语表翻</span>
         <span className="sp" />
         {gl?.exists && gl.path ? (
           <button type="button" className="btn btn-sm" onClick={() => webHost()?.openNote(gl.path!)}>
-            打开 {gl.path.replace(/^课程\//, '')}
+            {`打开${gl.path.replace(/^课程\//, '')}`}
           </button>
         ) : (
-          <span className="note plug-inline">{gl?.course ? `${gl.course}还没有，网页里翻译菜单能让 AI 起个头` : '现在中间栏没开课程里的文件'}</span>
+          <span className="note plug-inline">{gl?.course ? `${gl.course}还没有，网页里翻译菜单能让AI起个头` : '现在中间栏没开课程里的文件'}</span>
         )}
       </div>
       <p className="note trs-note">
-        翻过的段记在本机{cached !== null && `（已记 ${cached} 段）`}
+        {`翻过的段记在本机${cached !== null ? `（已记${cached}段）` : ''}`}
         {!!cached && (
           <button
             type="button"
@@ -223,13 +223,13 @@ function NoneBox({ reason, onKey, onHow }: { reason: string; onKey(): void; onHo
       </span>
       <div className="tr-callout-body">
         <b>现在没有能翻的</b>
-        <p>{reason.replace(/。?$/, '。')}最快：填一个 DeepSeek Key，1 分钟。</p>
+        <p>{`${reason.replace(/。?$/, '。')}最快：填一个DeepSeek Key，1分钟。`}</p>
         <div className="acts">
           <button type="button" className="btn btn-sm btn-primary" onClick={onKey}>
-            填 DeepSeek Key
+            填DeepSeek Key
           </button>
           <button type="button" className="btn btn-sm" onClick={onHow}>
-            怎么装 Claude Code
+            怎么装Claude Code
           </button>
         </div>
       </div>
@@ -273,7 +273,7 @@ function EngineRow(props: {
   const { e, mode } = props
   const api = e.kind === 'api'
   const cli = e.kind === 'cli' ? (e.id as keyof typeof HOW_LOGIN) : null
-  const link = cli && e.state === 'login' ? '怎么登录' : cli && e.state === 'missing' ? '怎么装' : api ? (e.keyTail ? '换 Key' : '填 Key') : null
+  const link = cli && e.state === 'login' ? '怎么登录' : cli && e.state === 'missing' ? '怎么装' : api ? (e.keyTail ? '换Key' : '填Key') : null
   const dis = mode === 'pick' && e.state !== 'ok'
   return (
     <>
@@ -394,11 +394,11 @@ function KeyBox({ e, onStatuses, reload, onNotice }: { e: EngineStatus; onStatus
 
   const failText = (err: TrError) =>
     err.code === 'bad-key'
-      ? `Key 不对（${/\b(401|403)\b/.exec(err.raw)?.[1] ?? 401}），去 ${e.name} 看看是不是复制少了`
+      ? `Key不对（${/\b(401|403)\b/.exec(err.raw)?.[1] ?? 401}），去${e.name}看看是不是复制少了`
       : err.code === 'no-balance'
         ? `余额不够（${/\b402\b/.test(err.raw) ? 402 : /1113/.test(err.raw) ? 1113 : 402}）`
         : err.code === 'timeout'
-          ? '连不上，10 秒没回应'
+          ? '连不上，10秒没回应'
           : err.code === 'network'
             ? `连不上：${err.raw}`
             : errorTitle(err)
@@ -433,7 +433,7 @@ function KeyBox({ e, onStatuses, reload, onNotice }: { e: EngineStatus; onStatus
               ref={input}
               className="inp"
               aria-label={`${e.name} 的 API Key`}
-              placeholder={`粘贴 ${e.name} 的 API Key`}
+              placeholder={`粘贴${e.name}的API Key`}
               value={draft}
               autoComplete="off"
               spellCheck={false}
@@ -450,16 +450,16 @@ function KeyBox({ e, onStatuses, reload, onNotice }: { e: EngineStatus; onStatus
         </button>
       </div>
       <p className="note">
-        存在这台 Mac 的钥匙串里，不进库、不进 Git；这里只露最后 4 位。
+        存在这台Mac的钥匙串里，不进库、不进Git；这里只露最后4位。
         <button type="button" className="tr-lnk" onClick={() => webHost()?.open(API_PAGES[id].key, true)}>
-          去 {e.name} 拿 Key
+          {`去${e.name}拿Key`}
           <Codicon name="link-external" size={11} />
         </button>
       </p>
       {test &&
         ('run' in test ? (
           <div className="trs-res">
-            <Codicon name="loading" size={12} className="spin" />在连 {e.name}…
+            <Codicon name="loading" size={12} className="spin" />{`在连${e.name}…`}
           </div>
         ) : test.ok ? (
           <div className="trs-res" role="status">

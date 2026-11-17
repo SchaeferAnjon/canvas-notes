@@ -34,7 +34,14 @@ let last = ''
 async function report() {
   if (!pluginEnabled(ID) || !/^\/web\/reader\//.test(location.pathname)) return
   const info = await read()
-  if (!info) return
+  if (!info) {
+    // 阅读页上读不到书的编号：多半是微信读书改版了。记一条日志，也告诉主进程（划线时右下角说「没认出这本书」）
+    if (last === location.href) return
+    last = location.href
+    console.warn('[canvas-notes] 微信读书：阅读页上读不到书的编号（__INITIAL_STATE__ 里没有 reader.bookId），网页可能改版了', location.pathname)
+    await callPlugin(ID, 'page', {}).catch(() => undefined)
+    return
+  }
   const key = `${location.href}|${info.bookId}|${info.chapter}`
   if (key === last) return
   last = key

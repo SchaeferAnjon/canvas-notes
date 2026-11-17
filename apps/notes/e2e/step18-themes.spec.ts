@@ -44,9 +44,9 @@ test('导入 VS Code 主题：选 .json → 主题卡里多一组「导入的」
     await page.keyboard.press('Meta+,')
     const dlg = settingsDialog(page)
     await expect(dlg).toBeVisible()
-    await dlg.getByRole('button', { name: '导入 VS Code 主题…' }).click()
+    await dlg.getByRole('button', { name: '导入VS Code主题…' }).click()
     await expect(page.getByText('导入了「Monokai」，已经用上')).toBeVisible()
-    await expect(dlg.getByText('导入的 VS Code 主题')).toBeVisible()
+    await expect(dlg.getByText('导入的VS Code主题')).toBeVisible()
     const card = dlg.locator('[data-skin-card="vsc-monokai"]')
     await expect(card).toHaveAttribute('aria-checked', 'true')
     await expect(page.locator('html')).toHaveAttribute('data-skin', 'vsc-monokai')
@@ -74,8 +74,8 @@ test('导入 VS Code 主题：选 .json → 主题卡里多一组「导入的」
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as typeof dialog.showOpenDialog
     }, join(src, 'broken.json'))
     await page.keyboard.press('Meta+,')
-    await dlg.getByRole('button', { name: '导入 VS Code 主题…' }).click()
-    await expect(page.getByText(/导入失败：.*不是 VS Code 主题文件/)).toBeVisible()
+    await dlg.getByRole('button', { name: '导入VS Code主题…' }).click()
+    await expect(page.getByText(/导入失败：.*不是VS Code主题文件/)).toBeVisible()
     await expect(page.locator('html')).toHaveAttribute('data-skin', 'vsc-monokai')
 
     // 删掉：鼠标移上卡片出垃圾桶，点了回到默认（薄荷），文件没了

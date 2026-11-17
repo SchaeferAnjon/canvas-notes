@@ -2,44 +2,46 @@ import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { editorText, gitStatus, launch, openNote, pane, shownText, waitSaved, acts, tabOn, gitAct, openInboxTab } from './app'
+import { editorText, gitStatus, launch, leftView, openNote, pane, shownText, waitSaved, acts, tabOn, gitAct, openInboxTab } from './app'
 
 const bar = (page: Page) => page.getByRole('contentinfo')
 const toast = (page: Page) => page.locator('.toast-cn')
 
-test('新建笔记：点加号、起名字、打字，左栏和磁盘上都有；改名时第一行标题跟着改', async () => {
+test('新建笔记：点加号、在第一行写标题、回车接着打字，文件名跟着标题，左栏和磁盘上都有；改名时第一行标题跟着改', async () => {
   const run = await launch({ '旧的.md': '旧\n' })
   const { page, vault } = run
   try {
-    await page.locator('.nav').hover()
-    await page.locator('.nav').getByRole('button', { name: '新建笔记' }).click()
-    const name = page.getByRole('textbox', { name: '笔记名字' })
-    await expect(name).toBeFocused()
+    // 左栏「最近」头上的新建笔记
+    await page.locator('aside.side .vh').getByRole('button', { name: '新建笔记' }).click()
+    // 不进标签改名框：光标在标题里，「未命名」选着，打字替换；回车后文件名跟着标题，光标到正文
+    await expect(page.getByRole('textbox', { name: '笔记名字' })).toHaveCount(0)
+    await expect(pane(page).locator('.cm-content')).toBeFocused()
     await page.keyboard.type('冰岛自驾')
     await page.keyboard.press('Enter')
     await expect(tabOn(page)).toHaveText('冰岛自驾')
     await expect(page.locator('.tab.on')).toContainText('冰岛自驾')
-    // 新建的笔记第一行是「# 未命名」，起了名字跟着改；光标停在标题下面
     await page.keyboard.type('先订 2.27 的住处。')
     await waitSaved(page)
-    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe('# 冰岛自驾\n\n先订 2.27 的住处。')
-    expect(existsSync(join(vault, '未命名.md'))).toBe(false)
+    expect(readFileSync(join(vault, '收件箱/冰岛自驾.md'), 'utf8')).toBe('# 冰岛自驾\n\n先订 2.27 的住处。')
+    expect(existsSync(join(vault, '收件箱/未命名.md'))).toBe(false)
+    // 新建的笔记进收件箱（CN-11）：在左栏收件箱页里
+    await leftView(page, '收件箱')
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾' })).toBeVisible()
-    await expect(bar(page).getByTestId('git-changed')).toContainText('1 处没提交')
+    await expect(bar(page).getByTestId('git-changed')).toContainText('1处没提交')
 
     // 再双击标签改一次名
     await tabOn(page).dblclick()
     await page.keyboard.type('冰岛自驾攻略')
     await page.keyboard.press('Enter')
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾攻略' })).toBeVisible()
-    expect(existsSync(join(vault, '冰岛自驾攻略.md'))).toBe(true)
+    expect(existsSync(join(vault, '收件箱/冰岛自驾攻略.md'))).toBe(true)
     // 改名后接着打字，写进新文件
     await pane(page).locator('.cm-content').click()
     await page.keyboard.press('Meta+End')
     await page.keyboard.type('再订车。')
     await waitSaved(page)
-    expect(readFileSync(join(vault, '冰岛自驾攻略.md'), 'utf8')).toBe('# 冰岛自驾攻略\n\n先订 2.27 的住处。再订车。')
-    expect(existsSync(join(vault, '冰岛自驾.md'))).toBe(false)
+    expect(readFileSync(join(vault, '收件箱/冰岛自驾攻略.md'), 'utf8')).toBe('# 冰岛自驾攻略\n\n先订 2.27 的住处。再订车。')
+    expect(existsSync(join(vault, '收件箱/冰岛自驾.md'))).toBe(false)
   } finally {
     await run.close()
   }
@@ -129,13 +131,13 @@ test('Git 底栏：看改了哪些文件、提交、本周加一、历史里看�
   const run = await launch({ '甲.md': '甲\n' })
   const { page, vault } = run
   try {
-    await expect(bar(page).getByTestId('week-commits')).toHaveText('本周 1 次提交')
+    await expect(bar(page).getByTestId('week-commits')).toHaveText('本周1次提交')
     await expect(bar(page).getByTestId('git-changed')).toHaveText('都提交了')
     await openNote(page, '甲')
     await page.keyboard.press('Meta+End')
     await page.keyboard.type('加一行')
     await waitSaved(page)
-    await expect(bar(page).getByTestId('git-changed')).toHaveText('1 处没提交')
+    await expect(bar(page).getByTestId('git-changed')).toHaveText('1处没提交')
     await bar(page).getByTestId('git-changed').click()
     await expect(page.getByRole('dialog', { name: '没提交的改动' })).toContainText('甲.md')
     await page.keyboard.press('Escape')
@@ -144,7 +146,7 @@ test('Git 底栏：看改了哪些文件、提交、本周加一、历史里看�
     await gitAct(page, '提交')
     await expect(toast(page)).toContainText('提交好了：更新 1 个文件：甲')
     await expect(bar(page).getByTestId('git-changed')).toHaveText('都提交了')
-    await expect(bar(page).getByTestId('week-commits')).toHaveText('本周 2 次提交')
+    await expect(bar(page).getByTestId('week-commits')).toHaveText('本周2次提交')
     expect(gitStatus(vault)).toBe('')
     expect(execFileSync('git', ['-C', vault, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).trim()).toBe('更新 1 个文件：甲')
 
@@ -189,7 +191,7 @@ test('同步：没有远程时说清楚；有远程时拉下另一台电脑的�
     await page.keyboard.type('本机正在写')
     await waitSaved(page)
     await gitAct(page, '同步')
-    await expect(toast(page)).toContainText('拉下 1 次提交')
+    await expect(toast(page)).toContainText('拉下1次提交')
     await expect(toast(page)).toContainText('推上去了')
     await expect.poll(() => editorText(page)).toContain('第二段，另一台电脑写的。')
     expect(await editorText(page)).toContain('第一段。本机正在写')

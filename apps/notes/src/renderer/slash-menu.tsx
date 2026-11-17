@@ -1,12 +1,15 @@
 import { Codicon, type CodiconName } from '@cn/design'
-import { relativeLink, tableMarkdown } from '@cn/format'
+import { fmValue, relativeLink, tableMarkdown } from '@cn/format'
 import { Prec, StateEffect, StateField, type EditorState } from '@codemirror/state'
 import { EditorView, keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { BRAND } from '../shared/brand'
 import { titleOf } from '../shared/layout'
+import { insertBase } from './base/base-block'
 import { editorHost, Popover } from './editor-host'
+import { toggleFold } from './fold-block'
+import { hiddenOk } from './hidden-syntax'
 
 /**
  * 文档里的 / 菜单（像 Notion）：在空行或行首打 /（中文输入法打出的「、」也算），弹出插入菜单；
@@ -83,6 +86,8 @@ function replace(view: EditorView, from: number, to: number, insert: string, cur
     changes: { from, to, insert },
     selection: { anchor: from + cursor, head: from + cursor + select },
     userEvent: 'input.slash',
+    // 斜杠插的块（折叠块）先收着、下一步才展开：选中标题字是有意的，hidden-syntax 不把选区挪出来
+    annotations: hiddenOk.of(true),
     scrollIntoView: true,
   })
 }
@@ -109,6 +114,7 @@ function insertOwnBlock(view: EditorView, from: number, to: number, md: string, 
     changes: { from, to: line.to, insert: pre + md + after },
     selection: { anchor: from + pre.length + cursor, head: from + pre.length + cursor + select },
     userEvent: 'input.slash',
+    annotations: hiddenOk.of(true),
     scrollIntoView: true,
   })
 }
@@ -120,8 +126,19 @@ interface SlashItem {
   icon: CodiconName
   /** 筛选用的别名（英文、拼音） */
   keys: string
+  /** 只在打字筛选时列出（提示块的别的类型：不打字时只列「说明」一种，菜单不拉太长） */
+  searched?: boolean
   run(view: EditorView, from: number, to: number): void | Promise<void>
 }
+
+/** 斜杠菜单里的提示块：类型、名字、图标（颜色和图标同 callout.ts） */
+const CALLOUTS: [string, string, CodiconName][] = [
+  ['info', '说明', 'info'],
+  ['warning', '注意', 'warning'],
+  ['question', '疑惑', 'question'],
+  ['success', '讲通了', 'pass'],
+  ['danger', '出错', 'error'],
+]
 
 const prefix = (p: string) => (view: EditorView, from: number, to: number) => replace(view, from, to, p)
 
@@ -134,6 +151,31 @@ const ITEMS: SlashItem[] = [
   { id: 'bullet', label: '无序列表', desc: '- 一项', icon: 'list-unordered', keys: 'bullet list ul liebiao lb wuxu', run: prefix('- ') },
   { id: 'ordered', label: '有序列表', desc: '1. 第一项', icon: 'list-ordered', keys: 'ordered number list ol liebiao lb youxu', run: prefix('1. ') },
   { id: 'quote', label: '引用', desc: '> 一段引文', icon: 'quote', keys: 'quote blockquote yinyong yy', run: prefix('> ') },
+  // 提示块（callout）：先写标题，回车在块里写正文，空行再回车出块（doc-keys.ts）
+  ...CALLOUTS.map(
+    ([type, name, icon], i): SlashItem => ({
+      id: 'callout-' + type,
+      searched: i > 0,
+      label: `提示块 · ${name}`,
+      desc: `> [!${type}] 先写标题，回车写正文`,
+      icon,
+      keys: `callout tishikuai tsk tishi ${type}`,
+      run: prefix(`> [!${type}] `),
+    }),
+  ),
+  {
+    id: 'details',
+    label: '折叠块',
+    desc: '点开才看得到里面的字',
+    icon: 'chevron-right',
+    keys: 'details fold zhedie zdk shouqi',
+    run(view, from, to) {
+      // 和提示块一样：先写标题（「收起的内容」选中，打字就换掉），回车进块里写正文（fold-block.ts 的 enterInFoldTitle）
+      insertOwnBlock(view, from, to, '<details><summary>收起的内容</summary>\n\n\n\n</details>', '<details><summary>'.length, '收起的内容'.length)
+      // 刚插的块先展开
+      view.dispatch({ effects: toggleFold.of(view.state.doc.lineAt(view.state.selection.main.head).from) })
+    },
+  },
   {
     id: 'code',
     label: '代码块',
@@ -164,7 +206,7 @@ const ITEMS: SlashItem[] = [
   {
     id: 'table',
     label: '表格',
-    desc: '3 列 3 行的 md 表格',
+    desc: '3列3行的md表格',
     icon: 'table',
     keys: 'table biaoge bg',
     run(view, from, to) {
@@ -175,18 +217,29 @@ const ITEMS: SlashItem[] = [
   {
     id: 'image',
     label: '图片',
-    desc: '选一张图，拷进库的「附件」',
+    desc: '选一张图，拷进这篇的附件文件夹',
     icon: 'file-media',
     keys: 'image picture img tupian tp',
     async run(view, from, to) {
       const host = view.state.facet(editorHost)
       if (typeof window.cn.pickImage !== 'function') return host.notice('「图片」这条还在做')
       replace(view, from, to, '')
-      const picked = await window.cn.pickImage()
+      const picked = await window.cn.pickImage(host.path())
       if (!picked) return
       const at = view.state.selection.main.head
-      const alt = titleOf(picked).replace(/\.[^.]+$/, '').replace(/[[\]]/g, '')
-      replace(view, at, at, `![${alt}](${relativeLink(host.path(), picked)})`)
+      // 说明默认空（CN-40）：悬停图片时点「加说明…」再写
+      replace(view, at, at, `![](${relativeLink(host.path(), picked)})`)
+    },
+  },
+  {
+    id: 'base',
+    label: '数据库',
+    desc: '嵌在文档里的表格，每条是一篇md',
+    icon: 'database',
+    keys: 'database base db shujuku sjk biao',
+    run(view, from, to) {
+      const host = view.state.facet(editorHost)
+      return insertBase(view, host.path(), from, to).catch((e: unknown) => host.notice(String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
     },
   },
   {
@@ -225,22 +278,26 @@ const ITEMS: SlashItem[] = [
   },
   {
     id: 'ai',
-    label: 'AI 写一段',
+    label: 'AI写一段',
     desc: '说一句要写什么，写好插在这里',
     icon: 'sparkle',
     keys: 'ai write xie xieyiduan',
     run(view, from, to) {
-      if (typeof window.cn.aiAsk !== 'function') return view.state.facet(editorHost).notice('「AI 写一段」这条还在做')
+      if (typeof window.cn.aiAsk !== 'function') return view.state.facet(editorHost).notice('「AI写一段」这条还在做')
       replace(view, from, to, '')
       view.dispatch({ effects: openSlash.of({ from, mode: 'ai' }) })
     },
   },
 ]
 
-function filterItems(q: string): SlashItem[] {
+/**
+ * 菜单里列哪几项。board：这篇是白板（type: board）在「文档」里看：不给「数据库」（白板上画不出表，切回白板是一张卡里一段 YAML 原文）
+ */
+export function filterItems(q: string, board = false): SlashItem[] {
   const s = q.trim().toLowerCase()
-  if (!s) return ITEMS
-  return ITEMS.filter((it) => it.label.toLowerCase().includes(s) || it.keys.split(' ').some((k) => k.startsWith(s)))
+  const all = board ? ITEMS.filter((it) => it.id !== 'base') : ITEMS
+  if (!s) return all.filter((it) => !it.searched)
+  return all.filter((it) => it.label.toLowerCase().includes(s) || it.keys.split(' ').some((k) => k.startsWith(s)))
 }
 
 function filterNotes(notes: NoteFile[], q: string, self: string): NoteFile[] {
@@ -318,7 +375,7 @@ function AiBox(props: { onSubmit(want: string, id: number): Promise<void>; onClo
         <input
           autoFocus
           aria-label="让 AI 写什么"
-          placeholder={busy !== null ? 'AI 正在写…' : '让 AI 写什么？比如：总结上面三段'}
+          placeholder={busy !== null ? 'AI正在写…' : '让AI写什么？比如：总结上面三段'}
           value={want}
           disabled={busy !== null}
           onChange={(e) => setWant(e.target.value)}
@@ -352,7 +409,7 @@ function AiBox(props: { onSubmit(want: string, id: number): Promise<void>; onClo
           </button>
         )}
       </div>
-      <div className="keys">{error || (busy !== null ? 'AI 正在写，写好插在光标处 · esc 停下' : '↵ 开始写 · esc 关闭')}</div>
+      <div className="keys">{error || (busy !== null ? 'AI正在写，写好插在光标处 · esc 停下' : '↵ 开始写 · esc 关闭')}</div>
     </div>
   )
 }
@@ -419,7 +476,7 @@ class SlashView {
         },
       }
     }
-    const items = filterItems(q)
+    const items = filterItems(q, fmValue(this.view.state.doc.sliceString(0, Math.min(this.view.state.doc.length, 4000)), 'type') === 'board')
     return {
       rows: items.map((it) => ({ key: it.id, icon: it.icon, name: it.label, desc: it.desc })),
       pick: (i) => {

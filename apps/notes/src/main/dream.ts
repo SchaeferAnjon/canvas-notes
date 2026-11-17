@@ -8,13 +8,15 @@
  * 这里不依赖 Electron：路径和 AI 都由调用方给，单元测试直接跑。
  */
 import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
-import { decodeNote, encodeNote, HIDDEN_KEYS, plainText, readProps, shingles, similarity, jaccard } from '@cn/format'
+import { basename, dirname, extname, join } from 'node:path'
+import { decodeNote, encodeNote, HIDDEN_KEYS, merge3Fine, readProps } from '@cn/format'
 import * as git from '@cn/git'
-import type { DreamDiffFile, DreamGroup, DreamItem, DreamReport } from '../shared/api'
+import type { DreamGroup, DreamItem, DreamReport, DuplicatePair } from '../shared/api'
 import { CLIPS, INBOX, previewOf, titleOf } from '../shared/layout'
+import { VIDEO_FOLDER, videoOf } from '../shared/video'
 import { BRAND } from '../shared/brand'
-import { duplicatesOf } from './duplicates'
+import { duplicatesOf, isAutoSummary, type LinkCand, linkCandidates } from './duplicates'
+import { oldImagesOnBranch } from './dream-attach'
 import { makeDreamViz } from './dream-viz'
 import { foldersOf, movedText, parsePlan, planInBatches, redoPrompt, relinkText, targetOf, type FilePlan } from './dream-file'
 
@@ -38,6 +40,21 @@ export interface DreamOptions {
   ask: Ask
   trigger: DreamReport['trigger']
   now?: Date
+  /** 梦游用的哪家哪个模型（「Claude Code · Opus 5.5」），写进可视化那一条（CN-54） */
+  by?: string
+  /** 补双链、找重复这两样重活怎么算；不给就在这个进程里算（单元测试） */
+  similar?: Similar
+}
+
+/** 补双链、找重复：几千篇的库要算几分钟 */
+export interface Similar {
+  links(texts: [string, string][], loose: string[]): Promise<LinkCand[]>
+  duplicates(docs: { id: string; text: string }[]): Promise<DuplicatePair[]>
+}
+
+const inProcess: Similar = {
+  links: async (texts, loose) => linkCandidates(texts, loose),
+  duplicates: async (docs) => duplicatesOf(docs),
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -107,8 +124,28 @@ function parseJsonBlock(reply: string): unknown {
 let seq = 0
 const newId = () => `${Date.now().toString(36)}${(seq++).toString(36)}`
 
+/**
+ * 上次梦游被打断（⌘Q、崩溃）留下的 dream/ 分支和它的临时检出：报告没存下，界面上看不到也没人清，下次只好改叫 dream/11-17-2。
+ * 下次梦游前清掉；keep 是还开着的那份报告的分支（里面的条目还能收下）。返回清掉的分支
+ */
+export async function clearStrayDreams(root: string, keep: string | null): Promise<string[]> {
+  const out = await git.git(root, ['worktree', 'list', '--porcelain'])
+  for (const block of out.split('\n\n')) {
+    const path = /^worktree (.+)$/m.exec(block)?.[1]
+    const branch = /^branch refs\/heads\/(.+)$/m.exec(block)?.[1]
+    if (!path || !branch?.startsWith('dream/') || branch === keep) continue
+    await git.git(root, ['worktree', 'remove', '--force', path]).catch(() => undefined)
+    await rm(path, { recursive: true, force: true })
+  }
+  await git.git(root, ['worktree', 'prune']).catch(() => undefined)
+  const stray = (await git.git(root, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/dream/'])).split('\n').filter((b) => b && b !== keep)
+  for (const b of stray) await git.git(root, ['branch', '-D', b])
+  return stray
+}
+
 /** 跑一次梦游，返回报告。改动都在新分支上，当前分支只多一次「先把没提交的改动提交掉」 */
 export async function runDream(o: DreamOptions): Promise<DreamReport> {
+  const similar = o.similar ?? inProcess
   const { root, ask } = o
   const now = o.now ?? new Date()
   const started = Date.now()
@@ -142,6 +179,13 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
     const files = (await git.git(wt, ['ls-files', '-z', '--', '*.md'])).split('\0').filter(Boolean)
     const texts = new Map<string, string>()
     for (const f of files) texts.set(f, await readText(join(wt, f)))
+    // 2b. 老图挪进各篇自己的附件文件夹（最先做：用的是还没挪动的路径；收件箱里的那几篇等归类以后再挪）
+    try {
+      const it = await oldImagesOnBranch(wt, files, texts, (m, ok) => commitChecked(wt, m, ok))
+      if (it) add('attach', it)
+    } catch (e) {
+      report.notes.push(`老图没挪：${(e as Error).message}`)
+    }
     const inbox = files.filter((f) => f.startsWith(INBOX + '/'))
     const loose = files.filter((f) => f.startsWith(INBOX + '/') || f.startsWith(CLIPS + '/'))
 
@@ -169,7 +213,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
             await writeFile(join(wt, weekPath), `---\nby: 梦游\ncreated: ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}\n---\n# ${week} 小结\n\n${reply}\n`)
             await git.git(wt, ['add', '--', weekPath])
             const c = await commitChecked(wt, `梦游：写了本周小结 ${weekPath}`)
-            add('week', { title: `周记 ${week}`, sub: `新文件 ${weekPath}`, why: '梦游按这周的提交写的，收下前可以改；你写的正文不会动', commit: c, files: [weekPath] })
+            add('week', { title: `周记 ${week}`, sub: `新文件 ${weekPath}`, why: '梦游按这周的提交写的，收下前可以改；你写的正文不会动', commit: c, files: [weekPath], changes: [{ path: weekPath, text: `新建 ${weekPath}` }] })
           }
         }
       } catch (e) {
@@ -178,27 +222,9 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
     }
 
     // 4. 补双链：收件箱和素材里的笔记，和库里另一篇讲到同一件事就在末尾加「相关：[[那篇]]」
-    const sets = new Map<string, Set<string>>()
-    for (const [p, t] of texts) sets.set(p, shingles(plainText(t)))
-    // 先算出每篇最像的那篇，再按像的程度挑前 LINK_MAX 处（导入几百条时一晚上不铺几百条）
-    const cands: { p: string; to: string; score: number; passage: string }[] = []
-    for (const p of loose) {
-      const mine = sets.get(p)!
-      if (mine.size < 12) continue
-      let best: { path: string; score: number } | null = null
-      for (const [q, other] of sets) {
-        if (q === p || other.size < 12) continue
-        const s = jaccard(mine, other)
-        if (s >= 0.06 && s < 0.4 && (!best || s > best.score)) best = { path: q, score: s }
-      }
-      if (!best) continue
-      const text = texts.get(p)!
-      if (text.includes(`[[${titleOf(best.path)}`)) continue
-      const sim = similarity(text, texts.get(best.path)!)
-      if (sim.containment >= 0.8 || Array.from(sim.passage).length < 4) continue
-      cands.push({ p, to: best.path, score: best.score, passage: sim.passage })
-    }
-    cands.sort((a, b) => b.score - a.score)
+    // 先算出每篇最像的那篇，再按像的程度挑前 LINK_MAX 处（导入几百条时一晚上不铺几百条）。
+    // 几千篇的库要算几分钟：交给 similar（软件里在单独的进程算，主进程不卡，退出时直接停掉）
+    const cands = await similar.links([...texts], loose)
     const linked = new Set<string>()
     let links = 0
     for (const c of cands) {
@@ -216,16 +242,17 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
         why: `两篇都讲到「${c.passage}」。只在这篇末尾加一行，「${target}」那篇不改`,
         commit,
         files: [c.p],
+        changes: [{ path: c.p, text: `末尾加了一行 相关：[[${target}]]` }],
       })
     }
     if (cands.length > LINK_MAX) report.notes.push(`还有 ${cands.length - links} 处能补双链，这次先补最像的 ${links} 处，下次梦游接着补`)
 
     // 5. 可能重复：只提醒，不改文件，没有提交；最像的 DUP_MAX 对
-    const dups = duplicatesOf([...texts].map(([id, text]) => ({ id, text }))).sort((a, b) => b.score - a.score)
+    const dups = (await similar.duplicates([...texts].map(([id, text]) => ({ id, text })))).sort((a, b) => b.score - a.score)
     for (const d of dups.slice(0, DUP_MAX)) {
       add('dup', {
         title: `${titleOf(d.a)} + ${titleOf(d.b)}`,
-        sub: `相似度 ${Math.round(d.score * 100)}%`,
+        sub: `相似度${Math.round(d.score * 100)}%`,
         why: `${d.why}。不删也不改任何一篇，你来决定留哪篇`,
         commit: null,
         files: [d.a, d.b],
@@ -233,8 +260,19 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
     }
     if (dups.length > DUP_MAX) report.notes.push(`还有 ${dups.length - DUP_MAX} 对可能重复的没列出来，⌘K「找重复」能看全部`)
 
+    // 5a. 同一个视频记散在两篇以上（CN-80）：提醒合成一篇；只是提醒，不改文件
+    for (const g of sameVideoNotes(texts)) {
+      add('dup', {
+        title: g.files.map((f) => titleOf(f)).join(' + '),
+        sub: `同一个视频《${g.title}》· 可以合成一篇`,
+        why: `这 ${g.files.length} 篇都记着《${g.title}》的时刻或问答。合成一篇，以后看这个视频的笔记只在一处；不删也不改任何一篇，你来合`,
+        commit: null,
+        files: g.files,
+      })
+    }
+
     // 5b. 可视化：今天卡得最久的几处（挪动之前做，挂的是笔记现在的路径）
-    for (const it of await makeDreamViz({ wt, texts, ask, now, notes: report.notes, commit: (m, ok) => commitChecked(wt, m, ok) })) add('viz', it)
+    for (const it of await makeDreamViz({ wt, texts, ask, now, notes: report.notes, commit: (m, ok) => commitChecked(wt, m, ok), ...(o.by ? { by: o.by } : {}) })) add('viz', it)
 
     // 6. 归类和改名（挪动放最后：前面补双链改的是挪动前的路径）
     const inboxAll = (await git.git(wt, ['ls-files', '-z', '--', INBOX + '/'])).split('\0').filter(Boolean)
@@ -261,7 +299,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
   }
 
   // 列表按设计稿分组：归类和改名、双链、重复、小结；cherry-pick 按提交顺序
-  const order: DreamGroup[] = ['file', 'viz', 'link', 'dup', 'week']
+  const order: DreamGroup[] = ['attach', 'file', 'viz', 'link', 'dup', 'week']
   report.items.sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group))
   report.finished = Date.now()
   ;(report as DreamReportInternal).worktree = wt
@@ -370,6 +408,21 @@ export async function dropItem(root: string, r: DreamReport, id: string): Promis
   await closeIfDone(root, r)
 }
 
+/**
+ * 这一次收下、撤回挪了哪几篇：前后比每条的状态。待看 → 收下是 from → to，收下 → 待看（撤回）是 to → from。
+ * 单条收下、一组、全部收下、撤回都从这里出，开着的那篇跟过去走同一条路
+ */
+export function movesOf(before: Map<string, DreamItem['state']>, items: DreamItem[]): { from: string; to: string }[] {
+  const out: { from: string; to: string }[] = []
+  for (const it of items) {
+    if (!it.move || !it.commit || it.move.from === it.move.to) continue
+    const was = before.get(it.id)
+    if (was === 'pending' && it.state === 'taken') out.push({ from: it.move.from, to: it.move.to })
+    else if (was === 'taken' && it.state === 'pending') out.push({ from: it.move.to, to: it.move.from })
+  }
+  return out
+}
+
 /** 剩下的全部收下：一次提交 */
 export async function takeAll(root: string, r: DreamReport): Promise<string | null> {
   return takeMany(
@@ -451,16 +504,78 @@ export async function undo(root: string, r: DreamReport, ids: string[], taken?: 
   let hash: string | null = null
   if (taken) {
     if (!items.every((i) => i.taken === taken || (i.state === 'taken' && !i.commit))) throw new Error('这几条不是那一次收下的')
+    // 收下以后在开着的那篇里接着打的字（自动存了、还没提交）：先提交，和收下时一样，不然 git revert 嫌工作区不干净撤不回
+    await git.commitPending(root)
+    // 收下以后那篇在外面改了名、挪走或删了：撤回找不到它，直接说清楚（不去试 revert，那样报的是「同一处又改了」）
+    const gone = await goneSince(root, taken, items)
+    if (gone) throw new Error(gone)
     // 挪回收件箱也不算改过
     const restore = await keepTimes(root, items.flatMap((i) => (i.move ? [{ from: i.move.to, to: i.move.from }] : [])))
-    hash = await git.revert(root, taken)
-    await restore()
+    // 撤回的说明用中文；同一行收下以后又打了字（图那一行后面接着写）按字合并，改的不是同一处就撤得回
+    const subject = (await git.git(root, ['log', '-1', '--format=%s', taken])).trim()
+    hash = await git
+      .revert(root, taken, {
+        message: subject.startsWith('梦游：') ? `撤回${subject}` : subject.startsWith('收下梦游的') ? `撤回${subject.slice(2)}` : `撤回梦游：${subject}`,
+        resolve: (base, ours, theirs) => {
+          const m = merge3Fine(base, ours, theirs)
+          return m.conflict ? null : m.text
+        },
+        conflict: (files) =>
+          `撤回不了：${[...new Set(files.map((f) => `「${titleOf(f)}」`))].join('、')}里这次改过的地方后来又改了，和撤回要改的是同一处。什么都没动；要改回去，在右竖条「历史」里点开这次收下，照着对比手动改。`,
+      })
+      .finally(restore)
   } else if (!items.every((i) => i.state === 'dropped')) throw new Error('这几条没丢掉')
   for (const i of items) {
     i.state = 'pending'
     delete i.taken
   }
   return hash
+}
+
+/**
+ * 收下时挪过去的那篇，后来在外面改了名、挪走或删了（访达、同步盘）：撤回要把它挪回收件箱，却找不到它。
+ * 返回说给用户的那句（它现在叫什么、在哪）；都还在原处给 null
+ */
+async function goneSince(root: string, taken: string, items: DreamItem[]): Promise<string | null> {
+  for (const i of items) {
+    if (!i.move || (await exists(join(root, i.move.to)))) continue
+    // git 按内容认改名：收下那次以后，挪过去的那个文件变成了哪个
+    const parts = (await git.git(root, ['diff', '-M', '--name-status', '-z', taken, 'HEAD'])).split('\0')
+    let now: string | null = null
+    for (let k = 0; k < parts.length; k++) {
+      if (/^[RC]\d*$/.test(parts[k]!)) {
+        if (parts[k + 1] === i.move.to) now = parts[k + 2]!
+        k += 2
+      } else if (parts[k]) k += 1
+    }
+    // git 只认相似度过半的：收件箱的随手记很短，外面改名时顺手添两句就认不出了。
+    // 再看那次以后新出现的文件里，有没有一篇把原来那篇的字几乎都留着（同内容或改名时加了几句）
+    if (!now) now = await grewInto(root, taken, i.move.to)
+    const was = titleOf(i.move.to)
+    // 短到底栏一行放得下（960 宽）；怎么办交给提示后面的「在历史里看」
+    if (!now) return `撤回不了：「${was}」收下以后被删了，什么都没动`
+    const where = titleOf(now) === was ? `挪到了${now.includes('/') ? now.slice(0, now.lastIndexOf('/')) : '库的最外层'}` : `改名成了「${titleOf(now)}」`
+    return `撤回不了：「${was}」收下以后${where}，什么都没动`
+  }
+  return null
+}
+
+/**
+ * 收下那次以后新加的文件里，哪一篇是 gone 改了名、又添了字变来的：原来那篇的每一行（去掉空行）八成以上还在它里面。
+ * 好几篇都像时取留下最多的那篇；都不像是 null
+ */
+async function grewInto(root: string, taken: string, gone: string): Promise<string | null> {
+  const lines = (t: string) => t.split('\n').map((l) => l.trim()).filter(Boolean)
+  const old = lines(await git.git(root, ['show', `${taken}:${gone}`]))
+  if (!old.length) return null
+  const added = (await git.git(root, ['diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', taken, 'HEAD'])).split('\0').filter((p) => p && extname(p) === extname(gone))
+  let best: { path: string; share: number } | null = null
+  for (const p of added) {
+    const now = new Set(lines(await git.git(root, ['show', `HEAD:${p}`])))
+    const share = old.filter((l) => now.has(l)).length / old.length
+    if (share >= 0.8 && (!best || share > best.share)) best = { path: p, share }
+  }
+  return best?.path ?? null
 }
 
 /** 分支和临时检出删了（都处理完以后又撤回）：按最后一次提交重新建出来，好接着重做 */
@@ -500,6 +615,7 @@ export async function redo(root: string, r: DreamReportInternal, ids: string[], 
     it.redoCommits = [...(it.redoCommits ?? []), c]
     it.move = { from: it.move!.from, to: moved.to }
     it.files = [it.move.from, moved.to]
+    it.changes = [{ path: moved.to, text: `按你说的挪到 ${dirname(moved.to) === '.' ? '库的最外层' : dirname(moved.to)}` }]
     it.redo = text
     it.why = `你说「${text}」，${plan.why || '按你说的重做了'}`
     if (moved.to === it.move.from) {
@@ -507,7 +623,7 @@ export async function redo(root: string, r: DreamReportInternal, ids: string[], 
       it.sub = '按你说的留在收件箱'
     } else {
       it.title = titleOf(moved.to)
-      it.sub = `从 收件箱 挪来 · 原名 ${titleOf(it.move.from)}`
+      it.sub = `从收件箱挪来 · 原名「${titleOf(it.move.from)}」`
     }
     changed++
   }
@@ -564,51 +680,35 @@ async function fileOne(wt: string, plan: FilePlan, texts: Map<string, string>): 
   const t = texts.get(plan.path)
   return {
     title: titleOf(moved.to),
-    sub: `从 收件箱 挪来 · 原名 ${titleOf(plan.path)}`,
+    sub: `从收件箱挪来 · 原名「${titleOf(plan.path)}」`,
     why: plan.why || (t ? `AI 读了内容，放进「${plan.folder}」` : `按文件名放进「${plan.folder}」`),
     commit: c,
     files: [plan.path, moved.to],
     move: { from: plan.path, to: moved.to },
+    changes: [{ path: moved.to, text: `从 收件箱 挪到 ${plan.folder}${renamed ? `，改名「${titleOf(moved.to)}」` : ''}` }],
   }
 }
 
-/** 这一条的提交改了什么 */
-export async function itemDiff(root: string, r: DreamReport, id: string): Promise<DreamDiffFile[]> {
-  const it = find(r, id)
-  if (!it.commit) return []
-  // 重做过的：从第一次提交之前到最后一次重做，只看这一条的文件
-  const last = it.redoCommits?.[it.redoCommits.length - 1]
-  const out = last
-    ? await git.git(root, ['diff', '-M', '--no-color', '--no-ext-diff', '-U2', `${it.commit}^`, last, '--', ...it.files])
-    : await git.git(root, ['show', '--format=', '-M', '--no-color', '--no-ext-diff', '-U2', it.commit])
-  return parseDiff(out)
-}
-
-export function parseDiff(out: string): DreamDiffFile[] {
-  const files: DreamDiffFile[] = []
-  let cur: DreamDiffFile | null = null
-  const unq = (s: string) => s.replace(/^"|"$/g, '')
-  for (const line of out.split('\n')) {
-    if (line.startsWith('diff --git ')) {
-      const m = /^diff --git a\/(.+) b\/(.+)$/.exec(line)
-      cur = { path: unq(m?.[2] ?? ''), status: 'changed', lines: [] }
-      files.push(cur)
-      continue
+/**
+ * 同一个视频散在几篇笔记里（CN-80）：按文档里的视频卡、时刻、问答（video=<站>:<号>）和属性「视频: <网址>」认；
+ * 字幕全文（素材/视频/）和软件汇总的（视频里的疑惑）不算。两篇以上才给。
+ */
+export function sameVideoNotes(texts: Map<string, string>): { key: string; title: string; files: string[] }[] {
+  const byKey = new Map<string, { title: string; files: string[] }>()
+  for (const [path, text] of texts) {
+    if (path.startsWith(VIDEO_FOLDER + '/') || isAutoSummary(text)) continue
+    const keys = new Set([...text.matchAll(/<!--\s*(?:video|moment|moment-ask)\s+video=(\S+)/g)].map((m) => m[1]!))
+    const own = videoOf(readProps(text).find((p) => p.key === '视频')?.value)
+    if (own) keys.add(own.key)
+    for (const k of keys) {
+      const g = byKey.get(k) ?? { title: '', files: [] }
+      g.files.push(path)
+      if (!g.title) g.title = /\[▶ [\d:]+ · (.+)\]\(/.exec(text)?.[1] ?? ''
+      byKey.set(k, g)
     }
-    if (!cur) continue
-    if (line.startsWith('new file mode')) cur.status = 'new'
-    else if (line.startsWith('deleted file mode')) cur.status = 'deleted'
-    else if (line.startsWith('rename from ')) {
-      cur.from = unq(line.slice('rename from '.length))
-      cur.status = 'moved'
-    } else if (line.startsWith('rename to ')) cur.path = unq(line.slice('rename to '.length))
-    else if (line.startsWith('@@')) {
-      if (cur.lines.length) cur.lines.push({ k: 'gap', t: '…' })
-    } else if (/^(index |similarity index|--- |\+\+\+ |old mode|new mode|\\ No newline)/.test(line)) continue
-    else if (line.startsWith('+')) cur.lines.push({ k: 'a', t: line.slice(1) })
-    else if (line.startsWith('-')) cur.lines.push({ k: 'd', t: line.slice(1) })
-    else if (line.startsWith(' ')) cur.lines.push({ k: 'c', t: line.slice(1) })
   }
-  for (const f of files) if (f.status === 'moved' && !f.lines.length) f.lines.push({ k: 'gap', t: `从 ${f.from} 挪到 ${f.path}，内容没变` })
-  return files
+  return [...byKey]
+    .filter(([, g]) => g.files.length >= 2)
+    .map(([key, g]) => ({ key, title: g.title || key, files: g.files.sort() }))
 }
+

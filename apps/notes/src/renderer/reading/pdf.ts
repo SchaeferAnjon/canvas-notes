@@ -51,18 +51,17 @@ export async function renderCrop(doc: PdfDoc, n: number, rect: Rect | undefined,
   const [rx, ry, rw, rh] = rect ?? [0, 0, 1, 1]
   // 截出来的那块大约 maxW 宽，但不超过 4 倍（小框放太大糊）
   const scale = Math.min(4, Math.max(1, maxW / (base.width * rw)))
-  const vp = page.getViewport({ scale })
-  const full = document.createElement('canvas')
-  full.width = Math.ceil(vp.width)
-  full.height = Math.ceil(vp.height)
-  const ctx = full.getContext('2d')!
-  ctx.fillStyle = '#fff'
-  ctx.fillRect(0, 0, full.width, full.height)
-  await page.render({ canvas: full, canvasContext: ctx, viewport: vp }).promise
+  // 只画框住的那一块（视口挪到框的左上角、画布只有框那么大）：以前整页按最多 4 倍画再裁，
+  // 重排里每个小 Logo 都整页画一遍，pdf.js 一个线程排着队，切到并排时原页要等很久（CN-31）
+  const full = page.getViewport({ scale })
+  const vp = page.getViewport({ scale, offsetX: -full.width * rx, offsetY: -full.height * ry })
   const out = document.createElement('canvas')
-  out.width = Math.max(1, Math.round(vp.width * rw))
-  out.height = Math.max(1, Math.round(vp.height * rh))
-  out.getContext('2d')!.drawImage(full, vp.width * rx, vp.height * ry, out.width, out.height, 0, 0, out.width, out.height)
+  out.width = Math.max(1, Math.round(full.width * rw))
+  out.height = Math.max(1, Math.round(full.height * rh))
+  const ctx = out.getContext('2d')!
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, out.width, out.height)
+  await page.render({ canvas: out, canvasContext: ctx, viewport: vp }).promise
   page.cleanup()
   const blob = await new Promise<Blob>((res, rej) => out.toBlob((b) => (b ? res(b) : rej(new Error('截图失败'))), 'image/png'))
   const png = new Uint8Array(await blob.arrayBuffer())

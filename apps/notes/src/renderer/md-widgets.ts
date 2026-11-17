@@ -3,6 +3,7 @@ import { syntaxTree } from '@codemirror/language'
 import { type EditorState, type Range, StateField, type Text } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { editorHost } from './editor-host'
+import { type Hidden, hiddenSyntax, wholeBlock } from './hidden-syntax'
 import { inVideoBlock } from './video/block-head'
 
 /**
@@ -164,19 +165,79 @@ class ImageWidget extends WidgetType {
       fig.textContent = `图片打不开：${this.alt || this.src}`
     })
     fig.appendChild(img)
-    // 说明（alt）写在图下面一行（DESIGN.v3 6.5）
-    if (this.alt.trim()) {
-      const cap = document.createElement('div')
-      cap.className = 'cm-image-cap'
-      cap.textContent = this.alt.trim()
-      fig.appendChild(cap)
+    // 库里的图：悬停时右上角写它存在哪（附件 / 未命名 3 / 截图 1.png），能在访达中显示（CN-40）
+    const rel = this.src.startsWith('cn-file://vault/') ? this.src.slice('cn-file://vault/'.length).split('/').map(decodeURIComponent).join('/') : null
+    if (rel) {
+      const tag = document.createElement('div')
+      tag.className = 'cm-image-tag'
+      const where = document.createElement('span')
+      where.textContent = rel.split('/').join(' / ')
+      const show = document.createElement('button')
+      show.type = 'button'
+      show.tabIndex = -1
+      show.textContent = '在访达中显示'
+      show.addEventListener('mousedown', (e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        void window.cnMenu.reveal(rel)
+      })
+      tag.append(where, show)
+      fig.appendChild(tag)
     }
-    fig.addEventListener('mousedown', (e) => {
+    // 说明（alt）写在图下面一行（DESIGN.v3 6.5）；没写说明时什么都不显示，悬停才出一行灰字「加说明…」，点了就地写
+    const cap = document.createElement('div')
+    cap.className = 'cm-image-cap' + (this.alt.trim() ? '' : ' add')
+    cap.textContent = this.alt.trim() || '加说明…'
+    cap.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || view.state.readOnly) return
       e.preventDefault()
+      e.stopPropagation()
+      this.editCaption(view, cap)
+    })
+    fig.appendChild(cap)
+    fig.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
+      e.preventDefault()
+      // 点图选中这一块（再按退格删掉）；光标不进原文
+      const end = view.state.doc.lineAt(this.from).to
       view.focus()
-      view.dispatch({ selection: { anchor: view.state.doc.lineAt(this.from).to } })
+      view.dispatch({ selection: { anchor: this.from, head: end } })
     })
     return fig
+  }
+  /** 就地改说明：回车写进 ![说明](…)，Esc 不改 */
+  private editCaption(view: EditorView, cap: HTMLElement) {
+    const input = document.createElement('input')
+    input.className = 'cm-image-capin'
+    input.value = this.alt
+    input.placeholder = '加说明…'
+    input.setAttribute('aria-label', '图片说明')
+    cap.replaceChildren(input)
+    cap.classList.remove('add')
+    cap.classList.add('editing')
+    let done = false
+    const finish = (save: boolean) => {
+      if (done) return
+      done = true
+      const v = input.value.replace(/[[\]\n]/g, ' ').trim()
+      const at = this.from
+      const alt = view.state.doc.sliceString(at, at + 2 + this.alt.length + 1)
+      if (save && v !== this.alt && alt === `![${this.alt}]`) view.dispatch({ changes: { from: at + 2, to: at + 2 + this.alt.length, insert: v }, userEvent: 'input.caption' })
+      else {
+        cap.classList.remove('editing')
+        cap.classList.toggle('add', !this.alt.trim())
+        cap.textContent = this.alt.trim() || '加说明…'
+      }
+      view.focus()
+    }
+    input.addEventListener('mousedown', (e) => e.stopPropagation())
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation()
+      if (e.key === 'Enter' && !e.isComposing) (e.preventDefault(), finish(true))
+      else if (e.key === 'Escape') (e.preventDefault(), finish(false))
+    })
+    input.addEventListener('blur', () => finish(true))
+    input.focus()
   }
   ignoreEvent() {
     return true
@@ -214,9 +275,8 @@ function blockWidgets(state: EditorState): DecorationSet {
       if (inVideoBlock(state, b.from)) continue
       const m = IMAGE.exec(state.doc.sliceString(b.from, b.to))
       if (!m) continue
-      const widget = new ImageWidget(imageSrc(path, m[2]!), m[1]!, b.from)
-      if (touches(state, b)) out.push(Decoration.widget({ widget, block: true, side: 1 }).range(b.to))
-      else out.push(Decoration.replace({ widget, block: true }).range(b.from, b.to))
+      // 光标在哪都画成图，不露 ![说明](附件/…) 原文（CN-86、CN-40）
+      out.push(Decoration.replace({ widget: new ImageWidget(imageSrc(path, m[2]!), m[1]!, b.from), block: true }).range(b.from, b.to))
     }
   }
   return Decoration.set(out, true)
@@ -225,7 +285,20 @@ function blockWidgets(state: EditorState): DecorationSet {
 const widgets = StateField.define<DecorationSet>({
   create: blockWidgets,
   update: (v, tr) => (tr.docChanged || tr.selection ? blockWidgets(tr.state) : v),
-  provide: (f) => EditorView.decorations.from(f),
+  provide: (f) => [
+    EditorView.decorations.from(f),
+    // 图片是一整块（表格点进去要改格子，不算）
+    EditorView.atomicRanges.of((view) => {
+      const out: Range<Decoration>[] = []
+      view.state.field(f).between(0, view.state.doc.length, (from, to, d) => void (d.spec.widget instanceof ImageWidget && out.push(d.range(from, to))))
+      return Decoration.set(out)
+    }),
+    hiddenSyntax.of((state) => {
+      const out: Hidden[] = []
+      state.field(f).between(0, state.doc.length, (from, to, d) => void (d.spec.widget instanceof ImageWidget && out.push(wholeBlock(state.doc, from, to, true))))
+      return out
+    }),
+  ],
 })
 
 export const mdWidgets = [tasks, taskInput, widgets]

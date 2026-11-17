@@ -9,13 +9,14 @@ import { menuAt } from '../ctx/menu'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { courseOf } from '@cn/format'
+import { courseOf, decorations } from '@cn/format'
 import { closePdf, loadPdf, type PdfDoc, pdfjs } from './pdf'
 import * as R from './store'
 import { BiBar, SideCol } from './bilingual/BiParts'
 import { type FlowBlock, type FlowGroup, ReflowView } from './bilingual/ReflowView'
 import { autoLayout, type BiLayout, type BiMode, langsLine, nextMode, saveMode, savedMode, useBi } from './bilingual/store'
 import { biStatus, blockRect, bodyBlocks, savePdfBilingual } from './bilingual/pdf-bilingual'
+import { MineruBar, MineruTool, useMineruStatus } from './MineruBar'
 
 interface Size {
   w: number
@@ -94,9 +95,20 @@ export function PdfTab(props: {
   const [saved, setSaved] = useState<string | null>(null)
   const course = courseOf(path) ?? null
   const trBi = useBi(path)
+  // PDF 精读增强：哪都找不到 MinerU 时工具条下面一行提示；后台认完换上它的块时底栏说一声
+  const mineru = useMineruStatus()
+  const wasLayout = useRef(r.layout)
+  useEffect(() => {
+    if (wasLayout.current === 'pdfjs' && r.layout === 'mineru' && props.active) props.onNotice('已换成PDF精读增强认的版面：表格、公式、图注')
+    wasLayout.current = r.layout
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r.layout])
   const layout: BiLayout = bi.layout ?? autoLay
   const flow = bi.mode === 'tr' || (bi.mode === 'bi' && layout === 'flow')
   const side = bi.mode === 'bi' && layout === 'side'
+
+  // 标签关了：排着的那一问不发、不记笔记（正在答的照常答完）
+  useEffect(() => () => R.closed(path), [path])
 
   // ---------- 打开 ----------
   useEffect(() => {
@@ -183,7 +195,7 @@ export function PdfTab(props: {
     const p = Math.min(Math.max(1, r.state.page), sizes.length)
     if (p > 1) {
       scroller.current.scrollTop = pageTop(p) - 8
-      props.onNotice(`回到上次看到的第 ${p} 页`)
+      props.onNotice(`回到上次看到的第${p}页`)
     }
     onScroll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -193,13 +205,19 @@ export function PdfTab(props: {
     const el = scroller.current
     if (!el || !sizes) return
     const st = el.scrollTop
-    const mid = st + el.clientHeight / 3
+    const bottom = st + el.clientHeight
+    // 现在是第几页：露出来最多的那一页，一样多取上面那页（窗口窄、一屏装下好几页时还是第 1 页，不自己跳到第 2 页）
     let y = PAD_TOP
     let n = 1
+    let best = -1
     const vis = new Set<number>()
     for (let i = 0; i < sizes.length; i++) {
       const h = sizes[i]!.h * scale
-      if (y <= mid) n = i + 1
+      const shown = Math.min(y + h, bottom) - Math.max(y, st)
+      if (shown > best + 1) {
+        best = shown
+        n = i + 1
+      }
       if (y + h > st - el.clientHeight && y < st + el.clientHeight * 2) vis.add(i + 1)
       y += h + GAP
     }
@@ -292,9 +310,10 @@ export function PdfTab(props: {
     const rect: Rect = [Math.min(d.x0, d.x1) / pw, Math.min(d.y0, d.y1) / ph, w / pw, h / ph]
     setBoxed({ page: d.page, rect })
     props.onAsk()
+    const sentAt = R.get(path).sent
     try {
       const c = await R.cropOf(path, d.page, rect)
-      R.stage(path, { page: d.page, rect, url: c.url, png: c.png })
+      R.stage(path, { page: d.page, rect, url: c.url, png: c.png }, sentAt)
     } catch (e) {
       setBoxed(null)
       props.onNotice(String((e as Error).message ?? e))
@@ -347,32 +366,43 @@ export function PdfTab(props: {
     window.getSelection()?.removeAllRanges()
   }
 
-  /** 工具条上的按钮：讲解一下 / 翻译 + 讲一讲 直接发；改问法 只放好图，光标进输入框 */
+  /** 已经点过「讲解一下」「翻译 + 讲一讲」的那一块：手快连点两下，第二下不再发（CN-28） */
+  const asking = useRef<Boxed | null>(null)
+  /** 工具条上的按钮：讲解一下 / 翻译 + 讲一讲 直接发（AI 还在答就排在后面）；改问法 只放好图，光标进输入框 */
   async function capAsk(kind: 'explain' | 'translate' | 'rephrase', b = boxed) {
     if (!b) return
+    if (kind !== 'rephrase') {
+      if (asking.current === b) return
+      asking.current = b
+    }
     props.onAsk()
-    if (b.quote) R.stage(path, { page: b.page, rect: b.rect, quote: b.quote, blank: kind === 'rephrase' })
+    if (b.quote) R.stage(path, { page: b.page, rect: b.rect, quote: b.quote, ...(kind === 'rephrase' ? { blank: true } : { direct: true }) })
     else if (kind === 'rephrase') {
       const pend = R.get(path).pending
       if (pend) R.stage(path, { ...pend, blank: true })
     }
     window.getSelection()?.removeAllRanges()
     if (kind === 'rephrase') return
-    // 截图还在截的话等它好
-    for (let i = 0; i < 50 && !b.quote && !R.get(path).pending?.png; i++) await new Promise((res) => setTimeout(res, 40))
+    // 截图还在截的话等它好；5 秒还没好就不带图问这一块（框的位置还在），晚到的截图丢掉
+    for (let i = 0; i < 125 && !b.quote && !R.get(path).pending?.png; i++) await new Promise((res) => setTimeout(res, 40))
+    if (!R.get(path).pending) R.stage(path, { page: b.page, rect: b.rect, direct: true })
     await R.send(path, kind === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲')
   }
 
-  /** 问这一页：整页当一个框，直接发出 */
-  async function askPage(n = page) {
-    if (!doc || R.get(path).running !== null) return
+  /** 问这一页：整页当一个框，直接发出；text：输入框里自己打的那句（不给是「给我讲解一下这一页」） */
+  const pageAsking = useRef(false)
+  async function askPage(n = page, text = '给我讲解一下这一页') {
+    if (!doc || R.get(path).running !== null || pageAsking.current) return
+    pageAsking.current = true
     props.onAsk()
     try {
       const c = await R.cropOf(path, n)
-      R.stage(path, { page: n, url: c.url, png: c.png })
-      await R.send(path, '给我讲解一下这一页')
+      R.stage(path, { page: n, url: c.url, png: c.png, direct: true })
+      await R.send(path, text)
     } catch (e) {
       props.onNotice(String((e as Error).message ?? e))
+    } finally {
+      pageAsking.current = false
     }
   }
 
@@ -388,8 +418,17 @@ export function PdfTab(props: {
       else if (e.metaKey && e.key === '-') (e.preventDefault(), setZoom((z) => Math.max(0.4, z / 1.15)))
       else if (e.metaKey && e.key === '0') (e.preventDefault(), setZoom(1))
     }
+    // 输入框里打了自己的问题再按 ⌘↵：带上这一页问这句（ReadingAi 发来）
+    const onAskPage = (e: Event) => {
+      const d = (e as CustomEvent<{ src: string; text: string }>).detail
+      if (d.src === path) void askPage(page, d.text)
+    }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener(R.ASK_PAGE, onAskPage)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener(R.ASK_PAGE, onAskPage)
+    }
   })
 
   function goPage(n: number) {
@@ -442,16 +481,21 @@ export function PdfTab(props: {
   const flowBlocks = useMemo(() => {
     const out: Record<number, FlowBlock[]> = {}
     if (!sizes) return out
+    // Logo、校徽、页角色块：同一个位置 3 页以上都有的、很小的图，不进对照
+    const decor = decorations(r.blocks, sizes)
     for (const [k, list] of Object.entries(r.blocks)) {
       const n = Number(k)
       const sz = sizes[n - 1]
       if (!sz) continue
-      out[n] = bodyBlocks(list, sz).map((b) => ({
+      out[n] = bodyBlocks(list, sz, decor).map((b) => ({
           id: b.id,
           kind: b.kind,
           text: b.text,
-          // 裁图按原页大约 1.25 倍显示
-          ...(b.kind === 'image' || b.kind === 'text' ? { crop: () => cropUrl(path, n, blockRect(b, sz)), w: Math.round((b.w + 6) * 1.25) } : {}),
+          top: b.y,
+          ...(b.stack ? { stack: b.stack } : {}),
+          ...(b.by === 'mineru' ? { math: true as const } : {}),
+          // 裁图按原页大约 1.25 倍显示（MinerU 认出的表格拆不出格子时也照原页裁）
+          ...(b.kind === 'image' || b.kind === 'text' || b.kind === 'table' ? { crop: () => cropUrl(path, n, blockRect(b, sz)), w: Math.round((b.w + 6) * 1.25) } : {}),
         }))
     }
     return out
@@ -465,11 +509,11 @@ export function PdfTab(props: {
         return {
           key: `p${n}`,
           blocks: flowBlocks[n] ?? [],
-          ...(flowBlocks[n] ? {} : { loading: `正在读第 ${n} 页…` }),
+          ...(flowBlocks[n] ? {} : { loading: `正在读第${n}页…` }),
           head: (
             <>
               <button type="button" className="pgc" title="切回原文看这一页" onClick={() => (setMode('orig'), setTimeout(() => goPage(n), 0))}>
-                <Codicon name="book" size={12} />第 {n} 页
+                <Codicon name="book" size={12} />{`第${n}页`}
               </button>
               {asked.slice(0, 3).map((t) => (
                 <button key={t.id} type="button" className="mk num" title={`这里问过 ${rounds(t.id)} 轮 · 点一下看笔记`} onClick={() => props.onShowNote(t.id)}>
@@ -494,9 +538,10 @@ export function PdfTab(props: {
     const rect = blockRect(blk, sz)
     setStagedBlock(b.id)
     props.onAsk()
+    const sentAt = R.get(path).sent
     try {
       const c = await R.cropOf(path, n, rect)
-      R.stage(path, { page: n, rect, url: c.url, png: c.png })
+      R.stage(path, { page: n, rect, url: c.url, png: c.png }, sentAt)
     } catch (e) {
       setStagedBlock(null)
       props.onNotice(String((e as Error).message ?? e))
@@ -521,7 +566,7 @@ export function PdfTab(props: {
     try {
       const res = await savePdfBilingual(path, sizes, course, (t) => setSaving(t))
       setSaved(res.path)
-      props.onNotice(`已存成 ${res.path} · 每页带回到 PDF 的链接`)
+      props.onNotice(`已存成${res.path} · 每页带回到PDF的链接`)
     } catch (e) {
       props.onNotice(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     } finally {
@@ -540,6 +585,7 @@ export function PdfTab(props: {
   return (
     <section className="pane pdfpane" hidden={!props.active} data-path={path}>
       <TabActs active={props.active}>
+        <MineruTool job={r.mineru} onRetry={() => void R.enhance(path, true)} />
         {sizes && (
           <div className="pager num" data-testid="pdf-pager">
             {pageEdit ? (
@@ -616,6 +662,7 @@ export function PdfTab(props: {
           )}
         </div>
       </TabActs>
+      <MineruBar status={mineru} />
       {bi.mode !== 'orig' && status && (
         <BiBar
           langs={langsLine(Object.values(r.blocks).flat().slice(0, 40).map((b) => b.text).join(' '))}
@@ -649,7 +696,7 @@ export function PdfTab(props: {
             }}
           />
         )}
-        {error && <div className="pdferr">打不开这份 PDF：{error}</div>}
+        {error && <div className="pdferr">打不开这份PDF：{error}</div>}
         <div
           className={'pdfv' + (drag ? ' drawing' : '') + (side ? ' side' : '')}
           hidden={flow}
@@ -714,10 +761,10 @@ export function PdfTab(props: {
                     ))}
                   </div>
                 )}
-                {cap && boxed?.page === n && (
+                {cap && boxed?.page === n && !r.queued.length && (
                   <div className="cap" style={{ left: cap.left, top: cap.top }} role="toolbar" aria-label="框好的这块" onPointerDown={(e) => e.stopPropagation()}>
                     <button onClick={() => void capAsk('explain')}>
-                      讲解一下 <span className="k">↵</span>
+                      讲解一下<span className="k">↵</span>
                     </button>
                     <button onClick={() => void capAsk('translate')}>
                       <Codicon name="whole-word" size={14} />
@@ -740,6 +787,7 @@ export function PdfTab(props: {
                   blocks={flowBlocks[n]}
                   course={course}
                   height={s.h * scale}
+                  scale={scale}
                   visible={visible.has(n)}
                   hover={hoverBlock?.page === n ? hoverBlock.id : null}
                   onHover={(id) => setHoverBlock(id ? { page: n, id } : null)}
@@ -806,6 +854,8 @@ const PageView = memo(function PageView(p: { doc: PdfDoc; n: number; w: number; 
       const vp = page.getViewport({ scale: p.scale })
       const dpr = window.devicePixelRatio || 1
       const canvas = canvasRef.current!
+      // 换了比例重画：画好之前不算画好
+      delete canvas.dataset.ready
       canvas.width = Math.floor(vp.width * dpr)
       canvas.height = Math.floor(vp.height * dpr)
       task = page.render({ canvas, viewport: vp, ...(dpr !== 1 ? { transform: [dpr, 0, 0, dpr, 0, 0] } : {}) })

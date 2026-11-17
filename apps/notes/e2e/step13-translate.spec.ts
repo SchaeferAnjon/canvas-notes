@@ -127,7 +127,7 @@ test('菜单：小箭头开菜单换语言、对照 / 只看译文、七种样�
 
     // 菜单里换回简体中文：先出「翻译中…」再重翻；菜单不关
     await menuBtn(page).click()
-    await expect(menu(page).getByText('这页是 English')).toBeVisible()
+    await expect(menu(page).getByText('这页是English')).toBeVisible()
     await menu(page).getByRole('radio', { name: '简体中文' }).click()
     await expect.poll(() => trOf(page, 'p1'), { timeout: 2000 }).toBe('翻译中…')
     await expect.poll(() => trOf(page, 'p1')).toBe(fake(SRC.p1))
@@ -217,24 +217,24 @@ test('没翻成：按钮不再亮紫色、不写「双语对照中」，写「�
     expect(await trBtn(page).getAttribute('title')).not.toContain('双语对照中')
     // 标题下面那行也是 12px，不跟 h1 放大；悬停写原因
     expect(await css(page, '#h cn-tr', 'fontSize')).toBe('12px')
-    expect(await guest(page, `document.querySelector('#h cn-tr').title`)).toBe('Claude Code 还没登录。点「重试」再翻这一段')
+    expect(await guest(page, `document.querySelector('#h cn-tr').title`)).toBe('Claude Code还没登录。点「重试」再翻这一段')
     // 菜单不自己弹出来；点开才看到原因
     await expect(menu(page)).toHaveCount(0)
     await menuBtn(page).click()
     const alert = menu(page).getByRole('alert', { name: '没翻成的原因' })
-    await expect(alert).toContainText('段没翻成：Claude Code 还没登录')
-    await expect(alert).toContainText('设置里指定了只用 Claude Code。')
-    await expect(menu(page).getByText('指定用 Claude Code')).toBeVisible()
+    await expect(alert).toContainText('段没翻成：Claude Code还没登录')
+    await expect(alert).toContainText('设置里指定了只用Claude Code。')
+    await expect(menu(page).getByText('指定用Claude Code')).toBeVisible()
     await alert.getByRole('button', { name: '怎么登录' }).click()
-    await expect(alert).toContainText('打开「终端」，输入 claude 回车')
+    await expect(alert).toContainText('打开「终端」，输入claude回车')
     // 改用 Codex：设置切成指定 Codex，失败的段重翻
-    await alert.getByRole('button', { name: '改用 Codex' }).click()
+    await alert.getByRole('button', { name: '改用Codex' }).click()
     await expect.poll(() => trOf(page, 'p1')).toBe(fake(SRC.p1))
     expect(await trOf(page, 'h')).toBe(fake(SRC.h))
     await expect(ctl).toHaveClass(/\bon\b/)
     await expect(trBtn(page)).toHaveAttribute('title', '恢复原文（在翻成中）⌥A')
     await expect(menu(page).getByRole('alert')).toHaveCount(0)
-    await expect(menu(page).getByText('用 Codex 翻')).toBeVisible()
+    await expect(menu(page).getByText('用Codex翻')).toBeVisible()
     await page.keyboard.press('Escape')
 
     // 自动模式：Claude Code 不行就换下一个，不打扰人
@@ -263,8 +263,8 @@ test('一个能用的都没有：一按就打开菜单说原因，不往段落�
     await expect(menu(page)).toBeVisible()
     const alert = menu(page).getByRole('alert')
     await expect(alert).toContainText('现在没有能翻的')
-    await expect(alert).toContainText('Claude Code、Codex、Gemini、OpenCode 没装，API 都没填 Key')
-    await expect(alert).toContainText('最快：填一个 DeepSeek Key')
+    await expect(alert).toContainText('Claude Code、Codex、Gemini、OpenCode没装，API都没填Key')
+    await expect(alert).toContainText('最快：填一个DeepSeek Key')
     await expect(bar(page).locator('.trctl')).toHaveClass(/\berr\b/)
     expect(await guest(page, `document.querySelectorAll('cn-tr').length`)).toBe(0)
 
@@ -272,7 +272,7 @@ test('一个能用的都没有：一按就打开菜单说原因，不往段落�
     await alert.getByRole('button', { name: '去设置' }).click()
     const set = page.getByRole('dialog', { name: '设置' })
     await expect(set.getByRole('alert', { name: '现在没有能翻的' })).toBeVisible()
-    await set.getByRole('button', { name: '填 DeepSeek Key' }).click()
+    await set.getByRole('button', { name: '填DeepSeek Key' }).click()
     const input = set.getByRole('textbox', { name: 'DeepSeek 的 API Key' })
     await expect(input).toBeFocused()
     await expect(set.getByRole('button', { name: '测试连接' })).toBeDisabled()
@@ -293,7 +293,7 @@ test('一个能用的都没有：一按就打开菜单说原因，不往段落�
     expect(apiSeen.at(-1)).toEqual({ auth: `Bearer ${KEY}`, model: 'deepseek-flash' })
     // 试一句：用现在的设置
     await set.getByRole('button', { name: '试一句' }).click()
-    await expect(set.getByRole('status').filter({ hasText: '答的' })).toContainText('DeepSeek API 答的')
+    await expect(set.getByRole('status').filter({ hasText: '答的' })).toContainText('DeepSeek API答的')
     await expect(set.getByRole('alert', { name: '现在没有能翻的' })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(set).toHaveCount(0)
@@ -307,13 +307,13 @@ test('一个能用的都没有：一按就打开菜单说原因，不往段落�
     await page.keyboard.press('Meta+,')
     const set2 = page.getByRole('dialog', { name: '设置' })
     await set2.getByRole('button', { name: '插件' }).click()
-    await set2.getByRole('listitem', { name: 'DeepSeek' }).getByRole('button', { name: '换 Key' }).click()
+    await set2.getByRole('listitem', { name: 'DeepSeek' }).getByRole('button', { name: '换Key' }).click()
     await set2.getByRole('button', { name: '测试连接' }).click()
-    await expect(set2.getByRole('status').filter({ hasText: 'Key 不对' })).toHaveText('Key 不对（401），去 DeepSeek 看看是不是复制少了')
-    await expect(set2.getByRole('listitem', { name: 'DeepSeek' })).toContainText('Key 不对')
+    await expect(set2.getByRole('status').filter({ hasText: 'Key不对' })).toHaveText('Key不对（401），去DeepSeek看看是不是复制少了')
+    await expect(set2.getByRole('listitem', { name: 'DeepSeek' })).toContainText('Key不对')
     // 删掉 Key
     await set2.getByRole('button', { name: '删掉' }).click()
-    await expect(set2.getByRole('listitem', { name: 'DeepSeek' })).toContainText('没填 Key')
+    await expect(set2.getByRole('listitem', { name: 'DeepSeek' })).toContainText('没填Key')
   } finally {
     apiMode = 'ok'
     await run.close()
@@ -328,10 +328,10 @@ test('设置 › 翻译用什么：自动 / 指定一个，拖动换顺序，记
     const set = page.getByRole('dialog', { name: '设置' })
     await set.getByRole('button', { name: '插件' }).click()
     const list = set.getByRole('list', { name: '翻译用什么' })
-    await expect(list.getByRole('listitem')).toHaveText([/1.*Claude Code.*没登录.*怎么登录/, /2.*Codex.*正在用.*能用/, /3.*Gemini CLI.*没装.*怎么装/, /4.*OpenCode/, /5.*DeepSeek.*没填 Key/, /6.*智谱 GLM.*没填 Key/])
+    await expect(list.getByRole('listitem')).toHaveText([/1.*Claude Code.*没登录.*怎么登录/, /2.*Codex.*正在用.*能用/, /3.*Gemini CLI.*没装.*怎么装/, /4.*OpenCode/, /5.*DeepSeek.*没填Key/, /6.*智谱GLM.*没填Key/])
     // 怎么登录：展开命令
     await list.getByRole('listitem', { name: 'Claude Code' }).getByRole('button', { name: '怎么登录' }).click()
-    await expect(set.getByText('打开「终端」，输入 claude 回车')).toBeVisible()
+    await expect(set.getByText('打开「终端」，输入claude回车')).toBeVisible()
     // 拖 DeepSeek 到最上面
     await list.getByLabel('拖动 DeepSeek 换顺序').dragTo(list.getByRole('listitem', { name: 'Claude Code' }))
     await expect.poll(() => savedSettings(run).engineOrder).toEqual(['deepseek', 'claude', 'codex', 'gemini', 'opencode', 'zhipu'])
@@ -394,7 +394,7 @@ test('课程术语表：中间栏开着课程里的文件，菜单里「让 AI �
     await menuBtn(page).click()
     const row = menu(page).getByLabel('术语表')
     await expect(row).toContainText('线性代数还没有')
-    await row.getByRole('button', { name: '让 AI 起个头' }).click()
+    await row.getByRole('button', { name: '让AI起个头' }).click()
     await expect(tabOn(page)).toHaveText('术语表')
     const md = readFileSync(join(vault, '课程/线性代数/术语表.md'), 'utf8')
     expect(md).toContain('| 原文 | 译法 | 备注 |')
@@ -409,7 +409,7 @@ test('课程术语表：中间栏开着课程里的文件，菜单里「让 AI �
     await trBtn(page).click()
     await expect.poll(() => trOf(page, 'p2')).toBe(`${fake(SRC.p2)} [特征值、特征向量、特征方程]`)
     await menuBtn(page).click()
-    await expect(menu(page).getByLabel('术语表')).toContainText('线性代数 · 5 条')
+    await expect(menu(page).getByLabel('术语表')).toContainText('线性代数 · 5条')
     await page.keyboard.press('Escape')
 
     // 网页里双击选一个词，工具条上「加进术语表」：加一行，译法先留空，一次提交，在中间栏打开
@@ -442,7 +442,7 @@ test('PDF：网页翻译不假装在翻，按钮不亮，告诉人去 PDF 阅读
     await addr.press('Enter')
     await expect.poll(() => guest(page, 'document.contentType').catch(() => '')).toBe('application/pdf')
     await trBtn(page).click()
-    await expect(page.locator('.toast-cn')).toContainText('这是 PDF：网页里的双语翻译翻不了它')
+    await expect(page.locator('.toast-cn')).toContainText('这是PDF：网页里的双语翻译翻不了它')
     await expect(trBtn(page)).toHaveAttribute('aria-pressed', 'false')
     await expect(bar(page).locator('.trctl')).not.toHaveClass(/\bon\b/)
   } finally {

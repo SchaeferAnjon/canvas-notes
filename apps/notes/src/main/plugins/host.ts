@@ -29,6 +29,8 @@ export interface PluginHost<S> {
   /** 这个插件自己的文件夹：<userData>/plugins/<id>/ */
   readonly dir: string
   settings(): S
+  /** 插件现在开着没有（关掉时插件自己的钩子要放行，比如拦广告）*/
+  enabled(): boolean
   /** 注册一个能被调的方法；page: true 时网页预加载也能调（默认只有界面能调） */
   handle(method: string, fn: Handler, opts?: { page?: boolean }): void
   /** 发一个事件给界面（window.cnPlugins.on(id, event, cb) 收） */
@@ -105,6 +107,7 @@ export class PluginRegistry {
       id,
       dir: `${deps.dir}/${id}`,
       settings: () => this.settingsOf(id) as S,
+      enabled: () => this.enabled(id),
       handle(method, fn, opts) {
         entry.handlers.set(method, { fn, page: !!opts?.page })
       },

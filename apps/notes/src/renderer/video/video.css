@@ -199,9 +199,50 @@
   width: 330px;
   padding: 10px 6px;
 }
+/* 「记到哪」：和引擎菜单一个样子（DESIGN.v3 2.1）——280 宽、圆角 12、行 30 高、左边 12 宽放勾 */
 .vdestmenu {
   right: 8px;
   width: 280px;
+  max-width: 280px;
+  padding: 4px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+}
+.vdestmenu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--t1);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: default;
+}
+.vdestmenu button:hover {
+  background: var(--fill);
+}
+.vdestmenu button > .ci {
+  flex: none;
+  color: var(--t2);
+}
+.vdestmenu .ck {
+  flex: none;
+  width: 12px;
+  display: inline-flex;
+  color: var(--acc);
+}
+.vdestmenu .mlabel {
+  flex: 1;
+  min-width: 0;
 }
 .vseg {
   width: 100%;
@@ -328,7 +369,12 @@
   font-size: 12px;
 }
 .vdestmenu .vfoot {
-  margin: 6px 10px 4px;
+  margin: 4px 0 0;
+  padding: 8px 8px 4px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
 }
 
 /* ---------- 问话框：300 宽，圆角 12，--shadow-up ---------- */
@@ -412,12 +458,63 @@
 .vtoast .btn {
   flex: none;
 }
+/* 状态词、时间、文档名末两个字永远完整；先缩文档名的前半（中间省略） */
+.vtoast .vt-text {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
+}
+.vtoast .vt-verb,
+.vtoast .vt-time,
+.vtoast .vt-extra {
+  flex: none;
+}
+.vtoast .vt-extra[hidden] {
+  display: none;
+}
+.vtoast .vt-doc {
+  display: flex;
+  min-width: 0;
+}
+.vtoast .vt-head {
+  min-width: 1.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 中间栏很窄：两行，状态词和时间一行、文档名一行，「撤回」在右边 */
+.vtoast.two {
+  border-radius: 14px;
+}
+.vtoast.two .vt-text {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  row-gap: 2px;
+}
+.vtoast.two .vt-verb {
+  grid-row: 1;
+}
+.vtoast.two .vt-time {
+  grid-row: 1;
+  grid-column: 2;
+}
+.vtoast.two .vt-doc {
+  grid-row: 2;
+  grid-column: 1 / 3;
+}
 
 /* ---------- 文档里的时刻块（data-part="时刻块"）：--clip 底、1px --line、圆角 10、内边距 10/12 ---------- */
+/* 块部件不用上下外边距：CodeMirror 量块高时不算外边距，点哪行会落到下一行（CN-64）。外层 .cm-vwrap 用内边距留缝，
+   也是容器查询的容器：正文窄于 420 时截图放上面、字放下面（CN-72） */
+.cm-vwrap {
+  padding: 6px 0;
+  container-type: inline-size;
+}
 .cm-vmoment {
+  box-sizing: border-box;
+  max-width: 100%;
   display: flex;
   gap: 12px;
-  margin: 6px 0;
   padding: 10px 12px;
   border-radius: 10px;
   background: var(--clip);
@@ -426,14 +523,10 @@
   line-height: 1.6;
   cursor: default;
 }
-.cm-justclipped .cm-vmoment,
-.cm-vmoment.flash {
-  box-shadow: inset 0 0 0 1px var(--line), 0 0 0 2px var(--acc-ring);
-}
 .cm-vmoment .shot {
   position: relative;
-  width: 128px;
-  height: 72px;
+  width: 170px;
+  height: 96px;
   flex: none;
   border-radius: 6px;
   overflow: hidden;
@@ -504,6 +597,23 @@
 .cm-vmoment .t {
   color: var(--t2);
 }
+/* 没字幕时那一句（12 --t3），「生成字幕」是能点的字 */
+.cm-vmoment .none {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.cm-vmoment .none .gen {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.cm-vmoment .none .gen:hover {
+  text-decoration: underline;
+}
 .cm-vmoment .more {
   margin-top: 2px;
   padding: 0;
@@ -551,13 +661,106 @@
   font-size: 12px;
   color: var(--t3);
 }
+/* 「接着问」：AI 开在右栏下格（CN-84） */
+.cm-vmoment .doubt .askmore {
+  margin-top: 8px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 12px;
+  color: var(--t1);
+  cursor: pointer;
+}
+.cm-vmoment .doubt .askmore:hover {
+  background: var(--fill2);
+}
+
+/* 视频框一块问时文档里的占位（CN-84）：灰条在动 + 「AI 正在看 00:06 这一帧…」+「停下 esc」，不写进 md */
+.cm-aiwait {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-size: 13px;
+  color: var(--t2);
+}
+.cm-aiwait .dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acc);
+  animation: cm-aiwait-breath 1.4s ease-in-out infinite;
+}
+.cm-aiwait .bar {
+  flex: 1;
+  min-width: 40px;
+  height: 8px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--fill2) 0%, var(--line2) 50%, var(--fill2) 100%);
+  background-size: 200% 100%;
+  animation: cm-aiwait-shimmer 1.6s linear infinite;
+}
+.cm-aiwait .stop {
+  flex: none;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  font-size: 12px;
+  color: var(--t1);
+  cursor: pointer;
+}
+.cm-aiwait .stop kbd {
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+@keyframes cm-aiwait-breath {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes cm-aiwait-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-aiwait .dot,
+  .cm-aiwait .bar {
+    animation: none;
+  }
+}
+
+@container (max-width: 420px) {
+  .cm-vmoment:not(.ask) {
+    flex-direction: column;
+  }
+  .cm-vmoment .shot,
+  .cm-vmoment.ask .shot {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 16 / 9;
+  }
+  .cm-vmoment.ask .body {
+    flex-direction: column;
+  }
+  .cm-vmoment .hd .asked {
+    display: none;
+  }
+}
 
 /* 文档里的视频卡：一行，1px --line 边框、圆角 10、内边距 10/12 */
 .cm-vcard {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin: 6px 0;
   padding: 10px 12px;
   border-radius: 10px;
   box-shadow: inset 0 0 0 1px var(--line);
@@ -808,16 +1011,119 @@
 }
 
 /* 设置 › 快捷键里「看视频」那一组：和上面的快捷键列表一个样子 */
-.vkeys kbd {
+.vkeys kbd,
+.vkeys .vkey {
   font: 12px var(--sans);
   padding: 2px 8px;
-  border-radius: 5px;
+  border: 0;
+  border-radius: 4px;
   background: var(--card);
   box-shadow: 0 0 0 1px var(--line);
   color: var(--t2);
 }
-.vkeys .btn kbd {
+/* 能改的那几个：同一个方键帽（圆角 4，DESIGN.md 圆角），悬停描边深一档表示能点；正在录时是黑底 */
+.vkeys .vkey {
+  height: auto;
+  line-height: inherit;
+  cursor: pointer;
+}
+.vkeys .vkey:hover {
+  box-shadow: 0 0 0 1px var(--line2);
+  color: var(--t1);
+}
+.vkeys .vkey.rec {
+  background: var(--solid);
+  box-shadow: none;
+  color: var(--solid-t);
+}
+.vkeys .vkey kbd {
+  padding: 0;
   background: none;
   box-shadow: none;
-  padding: 0;
+  color: inherit;
+}
+
+/* 生成字幕（CN-69 方向 A）：字幕菜单「原文用哪条字幕」里一块 --clip 底、细边、圆角 10 */
+.vstt {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--clip);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.vstt > b {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t1);
+}
+.vstt p {
+  margin: 2px 0 8px;
+}
+.vstt-go {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* 「生成字幕」「再试一次」是 .btn-primary（黑色实心，悬停自己变淡）；没填密钥时灰掉 */
+.vstt .vstt-btn:disabled {
+  background: var(--fill2);
+  color: var(--t3);
+}
+.vstt-auto {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  color: var(--t2);
+}
+.vstt-steps {
+  margin: 2px 0 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--t3);
+}
+.vstt-steps span {
+  display: inline;
+}
+.vstt-steps .ci {
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+.vstt-steps span:not(:last-child)::after {
+  content: ' →';
+  margin-right: 6px;
+  color: var(--t3);
+}
+.vstt-err {
+  margin: 2px 0 8px;
+}
+.vstt .aierr .raw-tg {
+  margin-top: 6px;
+}
+.vstt-steps .cur {
+  color: var(--t1);
+}
+.vstt-bar {
+  height: 4px;
+  margin: 8px 0;
+  border-radius: 2px;
+  background: var(--fill2);
+  overflow: hidden;
+}
+.vstt-bar i {
+  display: block;
+  height: 100%;
+  background: var(--acc);
+  transition: width 0.3s ease;
+}
+.vstt-foot {
+  margin: 6px 0 0 !important;
+  color: var(--t3);
 }

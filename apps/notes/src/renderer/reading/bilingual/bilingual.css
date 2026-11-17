@@ -140,6 +140,10 @@
   padding: 2px 4px 2px 0;
   cursor: default;
 }
+.pdfpane .bicol.aligned {
+  /* 每行上面空多少由 SideCol 按原页那段的位置算（对齐原页），不用 flex 的 gap */
+  gap: 0;
+}
 .pdfpane .bicol .sb {
   margin: 0;
   padding: 4px 8px;
@@ -367,7 +371,7 @@
 }
 .reflow .fc figcaption {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--t3);
 }
 @media (prefers-reduced-motion: reduce) {
@@ -376,4 +380,69 @@
   .reflow .t.wait i {
     animation: none;
   }
+}
+/* PDF 精读增强认出的：图注（跟着图，小一号）、公式（KaTeX 渲染）、表格（画成表） */
+.reflow .fb.caption .o {
+  font-size: 12px;
+}
+.reflow .fb.caption .t {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.pdfpane .bicol .sb.cap {
+  font-size: 12px;
+  color: var(--t2);
+}
+.reflow .fc.rendered .fci {
+  display: block;
+  padding: 10px 12px;
+  background: var(--card);
+  color: var(--t1);
+  filter: none;
+  overflow-x: auto;
+}
+.reflow .fc.formula.rendered .fci {
+  text-align: center;
+}
+/* 表格不套框：左边和正文对齐，宽表横着滚 */
+.reflow .fc.table.rendered .fci {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+.reflow .mblock {
+  font-size: 15px;
+}
+.reflow .mblock .katex-display {
+  margin: 0;
+}
+.reflow .mtable table {
+  border-collapse: collapse;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.reflow .mtable th,
+.reflow .mtable td {
+  padding: 6px 10px;
+  border: 1px solid var(--line2);
+  text-align: left;
+  vertical-align: middle;
+}
+.reflow .mtable .n {
+  text-align: right;
+}
+.reflow .mtable th {
+  font-weight: 500;
+  color: var(--t2);
+  background: var(--fill);
+}
+.reflow .mi .katex {
+  font-size: 1.05em;
+}
+[data-tone='dark'] .reflow .fc.rendered .fci {
+  filter: none;
 }

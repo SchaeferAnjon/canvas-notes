@@ -2,7 +2,7 @@ import { Text } from '@codemirror/state'
 import { expect, it } from 'vitest'
 import { blockInsert } from '../src/renderer/web/doc-image-drop'
 import { imageMarkdown } from '../src/renderer/web/image-drop'
-import { activate, closeTab, EMPTY, followOwner, openTab, updateTab } from '../src/renderer/web/web-tabs'
+import { activate, closeTab, EMPTY, followOwner, openOrSwitch, openTab, updateTab } from '../src/renderer/web/web-tabs'
 
 it('网页标签：新开的排在当前后面并切过去；后台开不切；关当前切到右边那个；每个中间栏标签记住自己的网页', () => {
   let s = openTab(EMPTY, 'https://a.test/', { id: 'a', owner: 'note1' })
@@ -44,4 +44,17 @@ it('图片插进文档：落在一段上就插在这段后面，落在空行上�
   expect(ins('# 南岸\n\n', 2)).toBe('# 南岸\n\nIMG\n')
   expect(ins('# 南岸\n\n', 3)).toBe('# 南岸\n\nIMG\n')
   expect(ins('最后一段', 1)).toBe('最后一段\n\nIMG\n')
+})
+
+it('网页标签：开网址时已经开着这个网站就切过去（微信读书入口），没开着才新开', () => {
+  let s = openTab(EMPTY, 'https://example.com/a', { id: 'a' })
+  s = openTab(s, 'https://weread.qq.com/web/reader/abc', { id: 'w' })
+  s = activate(s, 'a', null)
+  const back = openOrSwitch(s, 'https://weread.qq.com/web/shelf', 'https://weread.qq.com/', 'note1')
+  expect(back.tabs).toHaveLength(2)
+  expect(back.active).toBe('w')
+  expect(back.owners).toEqual({ note1: 'w' })
+  expect(openOrSwitch(s, 'https://weread.qq.com/web/shelf', undefined, null).tabs).toHaveLength(3)
+  const none = openOrSwitch(openTab(EMPTY, 'https://example.com/a'), 'https://weread.qq.com/web/shelf', 'https://weread.qq.com/', null)
+  expect(none.tabs.map((t) => t.url)).toEqual(['https://example.com/a', 'https://weread.qq.com/web/shelf'])
 })

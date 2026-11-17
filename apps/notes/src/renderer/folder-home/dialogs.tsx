@@ -125,7 +125,7 @@ export function CondEditor(props: { initial: Cond; found(c: Cond): number; previ
       <div className="fh-win cond" role="dialog" aria-label="按条件列出">
         <div className="hd">
           <h3>按条件列出</h3>
-          <span className="sub">像 Notion 的数据库视图，只是一页看法，不改文件</span>
+          <span className="sub">像Notion的数据库视图，只是一页看法，不改文件</span>
           <span className="sp" />
           <button className="iconbtn" aria-label="关闭" onClick={props.onCancel}>
             <Codicon name="close" size={16} />
@@ -211,12 +211,12 @@ export function CondEditor(props: { initial: Cond; found(c: Cond): number; previ
             </div>
           </div>
           <div className="pvw">
-            <div className="k" data-testid="cond-found">预览 · 找到 {props.found(c)} 个</div>
+            <div className="k" data-testid="cond-found">{`预览 · 找到${props.found(c)}个`}</div>
             {props.preview(c)}
           </div>
         </div>
         <div className="ft">
-          <span className="help">条件存在这个文件夹的 .首页.json 里，跟着 Git 走。</span>
+          <span className="help">条件存在这个文件夹的 .首页.json里，跟着Git走。</span>
           <button className="btn" onClick={props.onCancel}>
             取消
           </button>

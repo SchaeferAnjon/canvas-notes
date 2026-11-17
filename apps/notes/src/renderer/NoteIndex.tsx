@@ -1,3 +1,4 @@
+import { when } from '../shared/when'
 import { PageNote, TabActs } from './shell/TabActs'
 import { Codicon } from '@cn/design'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -21,17 +22,6 @@ const kindOf = (n: NoteFile): Kind => (n.board ? 'board' : n.kind)
 /** 一行 36 高；只画看得见的那几十行，几千篇也不卡 */
 export const ROW_H = 36
 const OVERSCAN = 10
-
-/** 2026-11-15 的说法：今天 14:03、昨天 14:03、今年 11-03、往年 2024-11-03 */
-export function dateOf(ms: number, now = new Date()): string {
-  const d = new Date(ms)
-  const p = (x: number) => String(x).padStart(2, '0')
-  if (d.toDateString() === now.toDateString()) return `今天 ${p(d.getHours())}:${p(d.getMinutes())}`
-  const y = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)
-  if (d.toDateString() === y.toDateString()) return `昨天 ${p(d.getHours())}:${p(d.getMinutes())}`
-  if (d.getFullYear() === now.getFullYear()) return `${p(d.getMonth() + 1)}-${p(d.getDate())}`
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
 
 /** 筛选：每个词都要出现在标题或文件夹里（不分大小写） */
 export function filterNotes(notes: NoteFile[], q: string, kind: Kind, oldFirst: boolean): NoteFile[] {
@@ -97,7 +87,7 @@ export function NoteIndex(props: {
     <section className="pane ix" data-testid={archive ? 'archive-view' : 'all-view'}>
       <TabActs active>
         <PageNote>
-          <span className="num">{pool.length}</span> 篇 · {archive ? (off ? '没开自动归档' : `${props.archiveDays} 天没改过的，左栏不显示`) : '按修改时间排'}
+          <span className="num">{pool.length}</span>篇 · {archive ? (off ? '没开自动归档' : `${props.archiveDays}天没改过的，左栏不显示`) : '按修改时间排'}
         </PageNote>
       </TabActs>
       <div className="ix-bar">
@@ -165,7 +155,7 @@ export function NoteIndex(props: {
                       </span>
                     )}
                     {!archive && isArchived(n, now, props.archiveDays, pinSet) && <span className="tag">归档</span>}
-                    <span className="d num">{dateOf(n.mtimeMs)}</span>
+                    <span className="d num">{when(n.mtimeMs)}</span>
                   </button>
                 </div>
               )

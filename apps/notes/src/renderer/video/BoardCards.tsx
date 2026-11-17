@@ -54,10 +54,10 @@ export function VideoCard({ text, notePath, stats }: { text: string; notePath: s
           {channel && <span className="truncate">{channel}</span>}
         </div>
         <div className="foot">
-          {stats && stats.moments > 0 && <span>{stats.moments} 个时刻</span>}
-          {stats && stats.asked > 0 && <span>问过 {stats.asked} 次</span>}
+          {stats && stats.moments > 0 && <span>{`${stats.moments}个时刻`}</span>}
+          {stats && stats.asked > 0 && <span>{`问过${stats.asked}次`}</span>}
           <span className="sp" />
-          <span>{pos > 3 ? `双击接着看 ${fmtTime(pos)}` : '双击在右栏看'}</span>
+          <span>{pos > 3 ? `双击接着看${fmtTime(pos)}` : '双击在右栏看'}</span>
         </div>
       </div>
     </div>
@@ -90,7 +90,7 @@ export function MomentCard({ text, notePath, small }: { text: string; notePath: 
       </div>
       <div className="tx">
         {orig && <div>{orig}</div>}
-        {tr && <div className="t">{doubt ? `问过 AI：${tr}` : tr}</div>}
+        {tr && <div className="t">{doubt ? `问过AI：${tr}` : tr}</div>}
       </div>
     </div>
   )

@@ -138,7 +138,7 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
       onProgress: (done, all, title) => send(done === all ? { phase: 'committing', done, total: all } : { phase: 'writing', done, total: all, title }),
     })
     const out: string[] = []
-    if (locked) out.push(`${locked} 条上了锁，没导（在备忘录里去掉锁再导一次就行）`)
+    if (locked) out.push(`${locked}条上了锁，没导（在备忘录里去掉锁再导一次就行）`)
     for (const [k, v] of Object.entries(lost)) out.push(v > 1 || !k.startsWith('读不出来') ? `${k} · ${v} 处` : k)
     return { source: scan.source, dir: importDir(scan.source), notes: total, attachments: w.attachments, bytes: w.bytes, commit: w.commit, skipped: { locked, already }, lost: out }
   }

@@ -1,7 +1,8 @@
-import { watch, type FSWatcher, type Stats } from 'node:fs'
+import { existsSync, watch, type FSWatcher, type Stats } from 'node:fs'
+import { safeName } from '../shared/file-name'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
-import { attr, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, isMindmap, num, parseBoard, parseMindmap } from '@cn/format'
+import { attachmentDir, attr, baseFoldersIn, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, isMindmap, num, parseBoard, parseMindmap, relinkMovedNote } from '@cn/format'
 import type { NoteFile, OpenedNote, SearchHit, ThumbRect, WriteResult } from '../shared/api'
 import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
 import { hitSnippet } from './search/chunks'
@@ -19,8 +20,63 @@ export class Vault {
   private index = new Map<string, string>()
   /** index 里是不是已经有库里所有的文件（list() 跑完一遍才算） */
   private indexed = false
+  /** 刚在外面没了的文件（访达里改名、同步盘挪走的那一半）：几秒内同样内容的新文件出现，就当成改了名 */
+  private gone = new Map<string, { text: string; t: number }>()
+  /**
+   * 改了名的：旧路径 → 新路径和到几点为止算数（编辑器还没换路径时存的字写进新文件，不把旧名字建回来）。
+   * 外面改的一直算；软件自己改的只算 10 秒（编辑器拿到新路径之前那一会儿），之后旧名字再建一篇是新的一篇
+   */
+  private movedAway = new Map<string, { to: string; until: number; busy?: boolean }>()
+  /**
+   * 软件自己改名、挪走：旧路径上还在路上的写跟到新路径。done：改名整个做完了（挪附件、改双链），编辑器马上拿到新路径。
+   * 没做完的时候旧名字不给新建的笔记用（第 5 轮：盘慢时按标题改名要好几秒，这时新建的「未命名」和它撞在一个名字上，
+   * 编辑器还拿着旧路径存的字写进了新建的那篇）。做完以后排在后面的写马上跟过去，旧名字照常能用
+   */
+  private ownMove(from: string, to: string, done = false) {
+    this.movedAway.set(from, { to, until: Date.now() + 10_000, ...(done ? {} : { busy: true }) })
+  }
   /** list() 的缓存：路径 → 上次读到时的修改时间、大小和说明。没变的文件不再读 */
   private described = new Map<string, { mtimeMs: number; size: number; file: NoteFile }>()
+  /**
+   * 写笔记、改名、挪走排队一个一个来。写是「读磁盘 → 比 → 写」几步，中间会让出去；改名插进来（机器慢、盘慢时会）的话，
+   * 新名字的文件是改名前的旧内容，那次写又把旧名字的文件建了回来，刚打的字留在旧名字里
+   */
+  private turn: Promise<unknown> = Promise.resolve()
+  private inTurn<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.turn.then(fn, fn)
+    this.turn = run.catch(() => undefined)
+    return run
+  }
+
+  /**
+   * 软件自己要一口气挪、改好几篇（梦游收下、撤回）：和写笔记排同一个队。做的时候编辑器要存的字等着，
+   * 做完 followOwnMove 登记好新路径再写，不会写到已经挪走的旧路径上
+   */
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return this.inTurn(fn)
+  }
+
+  /**
+   * 软件自己把 from 挪到了 to（梦游收下、撤回；挪的同时可能改了字）：开着的编辑器跟到新路径。
+   * 记下的文字、搜索缓存换到新路径，旧路径上还在路上的写跟过去；返回新路径上现在的文字，编辑器拿它重载（不在了是 null）
+   */
+  async followOwnMove(from: string, to: string): Promise<string | null> {
+    this.ownMove(from, to)
+    this.moved(from, to)
+    this.known.delete(from)
+    this.gone.delete(from)
+    let bytes: Buffer
+    try {
+      bytes = await readFile(this.abs(to))
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+      return null
+    }
+    const { text } = decodeNote(bytes)
+    this.known.set(to, text)
+    this.index.set(to, text)
+    return text
+  }
 
   constructor(readonly root: string) {}
 
@@ -67,7 +123,26 @@ export class Vault {
     const seen = new Set(out.map((f) => f.path))
     for (const rel of new Set([...this.described.keys(), ...this.index.keys()])) if (!seen.has(rel)) this.forget(rel)
     this.indexed = true
+    // 数据库的条目：所在文件夹是某个数据库（```base）的数据源
+    const tables = this.tablesIn()
+    for (const f of out) {
+      const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : ''
+      if (tables.has(dir)) f.table = dir.split('/').pop()!
+      else delete f.table
+    }
     return out.sort((a, b) => b.mtimeMs - a.mtimeMs)
+  }
+
+  private tablesIn(): Set<string> {
+    const tables = new Set<string>()
+    for (const text of this.index.values()) for (const f of baseFoldersIn(text)) tables.add(f)
+    return tables
+  }
+
+  /** 库里所有数据库（```base）的数据源文件夹，不管主笔记放在哪个文件夹 */
+  async tableFolders(): Promise<Set<string>> {
+    if (!this.indexed) await this.list()
+    return this.tablesIn()
   }
 
   /** 没变（修改时间和大小都一样）就用上次的说明；文件刚被删掉返回 null */
@@ -103,12 +178,19 @@ export class Vault {
     await mkdir(dir, { recursive: true })
     const base = safeName(name)
     for (let n = 1; ; n++) {
-      const target = join(dir, `${base}${n > 1 ? ` ${n}` : ''}.md`)
+      const title = `${base}${n > 1 ? ` ${n}` : ''}`
+      const target = join(dir, `${title}.md`)
+      // 正在改名挪走的旧名字（编辑器还拿着它在存字）先不给新笔记用
+      const away = this.movedAway.get(this.rel(target))
+      if (away?.busy) continue
+      // 撞名加了「 2」：开头的「# 名字」跟着写成新名字，标题和文件名对得上（第一行标题跟文件名走，title-follow.ts）。
+      // 每次都从传进来的原文算：改写过一次再拿去比，第 3 篇起就认不出开头，标题停在「未命名 2」
+      const body = n > 1 && text.startsWith(`# ${name}\n`) ? `# ${title}\n` + text.slice(name.length + 3) : text
       try {
-        await writeFile(target, encodeNote(text, DEFAULT_META), { flag: 'wx' })
+        await writeFile(target, encodeNote(body, DEFAULT_META), { flag: 'wx' })
         const rel = this.rel(target)
-        this.known.set(rel, text)
-        this.reindex(rel, text)
+        this.known.set(rel, body)
+        this.reindex(rel, body)
         return rel
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
@@ -116,15 +198,25 @@ export class Vault {
     }
   }
 
-  async rename(rel: string, newName: string): Promise<string> {
+  /** free：重名时加「 2」「 3」（标题跟着改名时用），不报错 */
+  rename(rel: string, newName: string, free = false): Promise<string> {
+    return this.inTurn(() => this.renameNow(rel, newName, free))
+  }
+
+  private async renameNow(rel: string, newName: string, free: boolean): Promise<string> {
     const from = this.abs(rel)
-    const to = join(dirname(from), `${safeName(newName)}.md`)
+    let to = join(dirname(from), `${safeName(newName)}.md`)
     if (to === from) return rel
-    try {
-      await stat(to)
-      throw new Error(`已经有一篇叫「${safeName(newName)}」了`)
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    for (let n = 2; ; n++) {
+      try {
+        await stat(to)
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+        break
+      }
+      if (!free) throw new Error(`已经有一篇叫「${safeName(newName)}」了`)
+      to = join(dirname(from), `${safeName(newName)} ${n}.md`)
+      if (to === from) return rel
     }
     await rename(from, to)
     const newRel = this.rel(to)
@@ -132,8 +224,44 @@ export class Vault {
     this.known.delete(rel)
     if (text !== undefined) this.known.set(newRel, text)
     this.moved(rel, newRel)
-    await this.relink(basename(rel, '.md'), safeName(newName))
+    this.ownMove(rel, newRel)
+    try {
+      await this.carryAttachments(rel, newRel)
+      await this.relink(basename(rel, '.md'), basename(to, '.md'))
+    } finally {
+      // 盘慢时挪附件、改双链要好几秒，编辑器这才拿到新路径：从这会儿起再算 10 秒
+      this.ownMove(rel, newRel, true)
+    }
     return newRel
+  }
+
+  /**
+   * 笔记改名、挪走后：它的附件文件夹 附件/<旧路径>/ 跟着挪到 附件/<新路径>/，笔记里的链接跟着改；
+   * 换了文件夹时别的相对链接也按新位置重算（CN-40 A）。新文件夹已经有了就不挪，只改断掉的链接。
+   * 打开着的笔记通过监听收到改动并合并。
+   */
+  private async carryAttachments(oldRel: string, newRel: string) {
+    const from = attachmentDir(oldRel)
+    const to = attachmentDir(newRel)
+    let moved: { from: string; to: string } | undefined
+    const exists = async (p: string) =>
+      stat(p).then(
+        () => true,
+        (e: NodeJS.ErrnoException) => {
+          if (e.code === 'ENOENT') return false
+          throw e
+        },
+      )
+    if ((await exists(this.abs(from))) && !(await exists(this.abs(to)))) {
+      await mkdir(dirname(this.abs(to)), { recursive: true })
+      await rename(this.abs(from), this.abs(to))
+      moved = { from, to }
+    }
+    const p = this.abs(newRel)
+    const { text, meta } = decodeNote(await readFile(p))
+    if (meta.readOnly) return
+    const next = relinkMovedNote(text, oldRel, newRel, moved)
+    if (next !== text) await writeFile(p, encodeNote(next, meta))
   }
 
   /** 改名后把所有 [[旧名]]、[[旧名|…]]、[[旧名#…]] 换成新名。打开着的笔记会通过监听收到改动并合并 */
@@ -157,7 +285,11 @@ export class Vault {
   }
 
   /** 挪到另一个文件夹（名字重了加序号），返回新路径 */
-  async move(rel: string, toFolder: string): Promise<string> {
+  move(rel: string, toFolder: string): Promise<string> {
+    return this.inTurn(() => this.moveNow(rel, toFolder))
+  }
+
+  private async moveNow(rel: string, toFolder: string): Promise<string> {
     const from = this.abs(rel)
     const dir = toFolder === '' ? this.root : this.abs(toFolder)
     await mkdir(dir, { recursive: true })
@@ -174,6 +306,12 @@ export class Vault {
         const newRel = this.rel(target)
         if (text !== undefined) this.known.set(newRel, text)
         this.moved(rel, newRel)
+        this.ownMove(rel, newRel)
+        try {
+          await this.carryAttachments(rel, newRel)
+        } finally {
+          this.ownMove(rel, newRel, true)
+        }
         return newRel
       }
     }
@@ -203,10 +341,13 @@ export class Vault {
     if (!this.indexed) await this.list()
     const hits: (SearchHit & { score: number })[] = []
     for (const [path, text] of this.index) {
-      const title = basename(path, '.md').toLowerCase()
+      // 带点的词连扩展名一起对文件名（打「readme.md」要找到 readme.md 这篇；只打「md」不算，不然篇篇都中）
+      const name = basename(path).toLowerCase()
+      const title = name.replace(/\.md$/, '')
+      const inName = (w: string) => title.includes(w) || (w.includes('.') && name.includes(w))
       const low = text.toLowerCase()
-      if (!words.every((w) => title.includes(w) || low.includes(w))) continue
-      const inTitle = words.filter((w) => title.includes(w)).length
+      if (!words.every((w) => inName(w) || low.includes(w))) continue
+      const inTitle = words.filter(inName).length
       const first = words.map((w) => low.indexOf(w)).filter((i) => i >= 0).sort((a, b) => a - b)[0]
       hits.push({ path, snippet: '', score: inTitle * 100 + (first === undefined ? 0 : 50 - Math.min(50, first / 100)) })
     }
@@ -228,6 +369,23 @@ export class Vault {
     if (text !== undefined) this.index.set(to, text)
   }
 
+  /**
+   * 文件夹改了名：里面每篇记着的文字、搜索缓存跟着换路径。这样改名后紧接着改链接时，监听认得出是哪篇，
+   * 开着的编辑器照外部改动合并（不当成新文件）。
+   */
+  movedFolder(from: string, to: string) {
+    const map = (p: string) => (p.startsWith(from + '/') ? to + p.slice(from.length) : null)
+    for (const m of [this.known, this.index] as Map<string, string>[]) {
+      for (const [p, text] of [...m]) {
+        const n = map(p)
+        if (n === null) continue
+        m.delete(p)
+        m.set(n, text)
+      }
+    }
+    for (const p of [...this.described.keys()]) if (map(p) !== null) this.described.delete(p)
+  }
+
   async read(rel: string): Promise<OpenedNote> {
     const { text, meta } = decodeNote(await readFile(this.abs(rel)))
     this.known.set(rel, text)
@@ -238,7 +396,17 @@ export class Vault {
    * 先比后写：磁盘上还是 base 才写，否则把磁盘上的还回去让界面合并。
    * 写的时候沿用磁盘上文件的 BOM 和换行。
    */
-  async write(rel: string, text: string, base: string): Promise<WriteResult> {
+  write(rel: string, text: string, base: string): Promise<WriteResult> {
+    return this.inTurn(() => this.writeNow(rel, text, base))
+  }
+
+  private async writeNow(rel: string, text: string, base: string): Promise<WriteResult> {
+    // 编辑器还拿着旧路径（刚改了名、挪走，回话还没到）：写进现在的文件，不把旧名字建回来；连着改过几次名就一路跟过去
+    for (let i = 0; i < 20 && !existsSync(this.abs(rel)); i++) {
+      const away = this.movedAway.get(rel)
+      if (!away || away.until < Date.now()) break
+      rel = away.to
+    }
     const p = this.abs(rel)
     if (!p.toLowerCase().endsWith('.md')) throw new Error(`只写 md 文件：${rel}`)
     let meta = DEFAULT_META
@@ -257,11 +425,48 @@ export class Vault {
       }
       if (disk.text === text) return { ok: true }
       meta = disk.meta
+    } else {
+      // 文件不在了（外面删了、挪走了又认不出去哪了）：字照样存下，存回原来的位置，文件夹没了就建回来，编辑器说一句
+      await mkdir(dirname(p), { recursive: true })
     }
     this.known.set(rel, text)
     await writeFile(p, encodeNote(text, meta))
     this.reindex(rel, text)
-    return { ok: true }
+    return bytes ? { ok: true } : { ok: true, recreated: rel }
+  }
+
+  /**
+   * 写不进去（文件被锁成只读、盘满了……）：编辑器里的字另存一篇，放在原来那篇旁边（那里也写不进去就放库的最外层）。
+   * 同一篇再失败时给 into，覆盖上次另存的那篇，不一次多一篇。返回另存的相对路径。
+   * 不记进 known：让监听照常报「文件变了」，左栏、⌘O 列出这一篇
+   */
+  async rescue(rel: string, text: string, into?: string): Promise<string> {
+    if (into && existsSync(this.abs(into))) {
+      await writeFile(this.abs(into), encodeNote(text, DEFAULT_META))
+      this.reindex(into, text)
+      return into
+    }
+    const name = basename(rel).replace(/\.md$/i, '')
+    const now = new Date()
+    const p = (x: number) => String(x).padStart(2, '0')
+    const stamp = `${p(now.getHours())}-${p(now.getMinutes())}`
+    let lastError: unknown
+    for (const dir of [dirname(this.abs(rel)), this.root]) {
+      for (let n = 1; n < 50; n++) {
+        const target = join(dir, `${name}（没存上的字 ${stamp}${n > 1 ? ` ${n}` : ''}）.md`)
+        try {
+          await mkdir(dir, { recursive: true })
+          await writeFile(target, encodeNote(text, DEFAULT_META), { flag: 'wx' })
+          const r = this.rel(target)
+          this.reindex(r, text)
+          return r
+        } catch (e) {
+          lastError = e
+          if ((e as NodeJS.ErrnoException).code !== 'EEXIST') break
+        }
+      }
+    }
+    throw lastError
   }
 
   async saveConflictCopy(rel: string, text: string): Promise<string> {
@@ -278,7 +483,11 @@ export class Vault {
     }
   }
 
-  watch(onNoteChanged: (rel: string, text: string) => void, onFilesChanged: () => void): void {
+  /**
+   * onRenamed：开着的笔记在外面改了名（访达、同步盘）：旧文件没了、几秒内出现内容一样的新文件，算同一篇改了名，
+   * 不当成「删了一篇、又多了一篇」（那样编辑器接着存会把旧名字的文件建回来，库里变两份）
+   */
+  watch(onNoteChanged: (rel: string, text: string) => void, onFilesChanged: () => void, onRenamed: (from: string, to: string) => void = () => {}): void {
     this.watcher = watch(this.root, { recursive: true }, (_event, filename) => {
       if (!filename) return
       const rel = filename.split(sep).join('/')
@@ -302,18 +511,20 @@ export class Vault {
         rel,
         setTimeout(() => {
           this.timers.delete(rel)
-          void this.check(rel, onNoteChanged, onFilesChanged)
+          void this.check(rel, onNoteChanged, onFilesChanged, onRenamed)
         }, 50),
       )
     })
   }
 
-  private async check(rel: string, onNoteChanged: (rel: string, text: string) => void, onFilesChanged: () => void) {
+  private async check(rel: string, onNoteChanged: (rel: string, text: string) => void, onFilesChanged: () => void, onRenamed: (from: string, to: string) => void) {
     let bytes: Buffer
     try {
       bytes = await readFile(this.abs(rel))
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+      const was = this.known.get(rel)
+      if (was !== undefined) this.gone.set(rel, { text: was, t: Date.now() })
       this.known.delete(rel)
       this.reindex(rel, null)
       onFilesChanged()
@@ -323,6 +534,15 @@ export class Vault {
     const { text } = decodeNote(bytes)
     this.index.set(rel, text)
     if (prev === undefined) {
+      const from = this.renamedFrom(rel, text)
+      if (from) {
+        this.known.delete(from)
+        this.gone.delete(from)
+        this.forget(from)
+        this.known.set(rel, text)
+        this.movedAway.set(from, { to: rel, until: Infinity })
+        onRenamed(from, rel)
+      }
       onFilesChanged()
       return
     }
@@ -332,21 +552,23 @@ export class Vault {
     onFilesChanged()
   }
 
+  /** 新出现的 rel 是不是哪篇开着的笔记在外面改的名：内容一样、旧文件已经不在（刚没的，或还没轮到报「没了」） */
+  private renamedFrom(rel: string, text: string): string | null {
+    const now = Date.now()
+    for (const [p, g] of this.gone) {
+      if (now - g.t > 5000) this.gone.delete(p)
+      else if (g.text === text && p !== rel) return p
+    }
+    for (const [p, known] of this.known) if (p !== rel && known === text && /\.md$/i.test(p) && !existsSync(this.abs(p))) return p
+    return null
+  }
+
   close(): void {
     this.watcher?.close()
     for (const t of this.timers.values()) clearTimeout(t)
   }
 }
 
-/** 文件名里不能有的字符换掉；空的叫「未命名」 */
-export function safeName(name: string): string {
-  const s = name
-    .replace(/[\\/:*?"<>|\u0000-\u001f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .replace(/^[.\s]+|[.\s]+$/g, '')
-    .slice(0, 80)
-  return s || '未命名'
-}
 
 /** 2026-11-15 14:03 */
 export function localStamp(d: Date): string {
@@ -388,6 +610,8 @@ function describe(rel: string, st: Stats, text: string): NoteFile {
     const icon = fmValue(text, 'icon')
     if (icon) file.board.icon = icon
   }
+  const excerpt = previewOf(text.replace(/^(---\n[\s\S]*?\n---\n)?\s*#\s+[^\n]*\n?/, '$1'), 80)
+  if (excerpt) file.excerpt = excerpt
   if (kind !== 'work') {
     file.preview = previewOf(text)
     const fm = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? ''
@@ -399,3 +623,5 @@ function describe(rel: string, st: Stats, text: string): NoteFile {
   }
   return file
 }
+
+export { safeName }

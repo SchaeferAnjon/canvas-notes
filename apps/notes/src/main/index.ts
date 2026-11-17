@@ -4,33 +4,39 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, renameSync, statSy
 import { stat } from 'node:fs/promises'
 import { extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
-import type { Activity, AiChange, GitState, VaultInfo } from '../shared/api'
+import type { Activity, AiChange, AiCommitFailed, GitState, VaultInfo } from '../shared/api'
 import { activeSkin, type AppSettings, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { isExtUrl } from '../shared/bookmarkkeeper'
 import { BRAND } from '../shared/brand'
+import { commitErrorText, syncErrorText } from '../shared/git-errors'
 import { kindOf, titleOf } from '../shared/layout'
 import { dayKey, logActivity, readActivity } from './activity'
 import { attachWeb, registerAgent } from './agent'
 import { ask } from './ai'
 import { registerAttachments, registerFileScheme } from './attachments'
+import { setupPasted } from './pasted'
+import { registerSlides } from './slides'
 import { importCookies, listProfiles } from './chrome-import'
-import { parseDiff } from './dream'
 import { setupDream } from './dream-main'
 import { setupMindmap } from './mindmap'
-import { duplicatesOf, readAll } from './duplicates'
+import { readAll } from './duplicates'
+import { duplicatesWithProgress, stopSimilar } from './similar'
 import { registerHome } from './home'
 import { registerFolderHome } from './folder-home'
+import { registerNoteAttach } from './note-attach'
 import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
-import { E2E } from './test-mode'
+import { E2E, guardScreen } from './test-mode'
 import { Updater } from './updater'
 import { menuLabel, releaseUrl, updateError } from '../shared/update'
 import { SettingsFile } from './settings'
 import { ThemeStore } from './themes'
 import { Vault } from './vault'
+import { macIdentity } from './git-identity'
 import { setupPlugins } from './plugins'
-import { setupReading } from './reading'
+import { moveReadingState, setupReading } from './reading'
+import { setupMineru } from './mineru'
 import { searchVault, setupSearch } from './search'
 import { registerFiles } from './files'
 import { setupImport } from './import'
@@ -55,6 +61,10 @@ let win: BrowserWindow | null = null
 let vault: Vault | null = null
 /** 上次同步成功的时间 */
 let lastSync: number | null = null
+/** 最近一次同步没成功的原因（中文）；成功一次就清掉 */
+let syncError: { at: number; text: string } | null = null
+/** 最近一次自动提交没成功的原因（中文）；随便哪次提交成功就清掉（第 5 轮：以前只在主进程 console.error，底栏弹层只列文件、不说为什么） */
+let autoCommitError: { at: number; text: string } | null = null
 
 /** 自动提交间隔在设置里（默认每 10 分钟）；测试用 CN_MINUTE_MS 把「一分钟」缩短 */
 const MINUTE_MS = Number(process.env.CN_MINUTE_MS) || 60_000
@@ -66,7 +76,16 @@ function scheduleAutoCommit() {
   autoTimer = null
   const min = settings.app().autoCommitMinutes
   if (!vault || min === 0) return
-  autoTimer = setInterval(() => void commitPending().catch((e) => console.error('自动提交失败', e)), min * MINUTE_MS)
+  autoTimer = setInterval(
+    () =>
+      void commitPending().catch((e) => {
+        console.error('自动提交失败', e)
+        if (!(e instanceof git.GitError)) return
+        autoCommitError = { at: Date.now(), text: commitErrorText(e.message) }
+        win?.webContents.send('files:changed')
+      }),
+    min * MINUTE_MS,
+  )
 }
 
 async function commitPending(): Promise<string | null> {
@@ -74,6 +93,7 @@ async function commitPending(): Promise<string | null> {
   const st = await git.status(vault.root)
   if (!st.length) return null
   const hash = await git.commitAll(vault.root, git.describeChanges(st))
+  autoCommitError = null
   win?.webContents.send('files:changed')
   return hash
 }
@@ -108,6 +128,9 @@ function isDir(p: string): boolean {
 async function openVault(dir: string): Promise<VaultInfo> {
   const root = resolve(dir)
   if (!(await git.isRepo(root))) await git.init(root)
+  // 这台 Mac 上 git 没有署名（全局、库里都没设）：给这个库设一个，不然所有提交都报「作者身份未知」
+  const id = await git.ensureIdentity(root, await macIdentity())
+  if (id) console.log('git 没有署名，给库设了', id)
   // 换库前把旧库没提交的改动提交掉，和退出前一样
   if (vault && vault.root !== root) await commitPending().catch((e) => console.error('换库前提交失败', e))
   vault?.close()
@@ -116,6 +139,7 @@ async function openVault(dir: string): Promise<VaultInfo> {
   vault.watch(
     (path, text) => win?.webContents.send('note:changed', path, text),
     () => win?.webContents.send('files:changed'),
+    (from, to) => win?.webContents.send('note:renamed', from, to),
   )
   settings.patch({ lastVault: root })
   searchVault(root)
@@ -209,6 +233,10 @@ function registerIpc() {
     if (typeof text !== 'string' || typeof base !== 'string') throw new Error('写入参数不对')
     return needVault().write(path, text, base)
   })
+  ipcMain.handle('note:rescue', (_e, path: string, text: string, into: unknown) => {
+    if (typeof path !== 'string' || typeof text !== 'string') throw new Error('写入参数不对')
+    return needVault().rescue(path, text, typeof into === 'string' ? into : undefined)
+  })
   ipcMain.handle('note:conflictCopy', (_e, path: string, text: string) => {
     if (typeof text !== 'string') throw new Error('写入参数不对')
     return needVault().saveConflictCopy(path, text)
@@ -217,10 +245,10 @@ function registerIpc() {
     if (typeof folder !== 'string' || typeof name !== 'string' || typeof text !== 'string') throw new Error('新建参数不对')
     return needVault().create(folder, name, text)
   })
-  ipcMain.handle('note:rename', async (_e, path: string, newName: string) => {
+  ipcMain.handle('note:rename', async (_e, path: string, newName: string, free?: unknown) => {
     if (typeof newName !== 'string') throw new Error('改名参数不对')
     const v = needVault()
-    const to = await v.rename(path, newName)
+    const to = await v.rename(path, newName, free === true)
     await repin(v, path, to)
     return to
   })
@@ -297,7 +325,32 @@ function registerIpc() {
       await repin(v, m.from, to)
       paths.push(m.from, to)
     }
-    const hash = await git.commitPaths(v.root, paths, `AI：${change.message}`)
+    const message = `AI：${change.message}`
+    let hash: string | null
+    try {
+      hash = await git.commitPaths(v.root, paths, message)
+    } catch (e) {
+      // 改动已经写进文件、只是没提交上（没署名、锁一直不放）：照实说，界面不当成 AI 没答出来；
+      // 带上改了哪几个文件、提交说明，「再提交一次」只提交这几个（第 5 轮：以前是「现在提交」整个库，提交说明成了「更新 2 个文件」、也没了撤回）
+      if (!(e instanceof git.GitError)) throw e
+      console.error('AI 改完提交失败', e.message)
+      win?.webContents.send('files:changed')
+      return { failed: commitErrorText(e.message), paths, message } satisfies AiCommitFailed
+    }
+    win?.webContents.send('files:changed')
+    if (!hash) return null
+    return (await git.log(v.root, 1))[0] ?? null
+  })
+  ipcMain.handle('ai:commit', async (_e, paths: string[], message: string) => {
+    const v = needVault()
+    if (!Array.isArray(paths) || paths.some((p) => typeof p !== 'string') || typeof message !== 'string' || !message.startsWith('AI：')) throw new Error('AI 提交参数不对')
+    let hash: string | null
+    try {
+      hash = await git.commitPaths(v.root, paths, message)
+    } catch (e) {
+      if (!(e instanceof git.GitError)) throw e
+      throw new Error(commitErrorText(e.message))
+    }
     win?.webContents.send('files:changed')
     if (!hash) return null
     return (await git.log(v.root, 1))[0] ?? null
@@ -309,27 +362,56 @@ function registerIpc() {
   })
   ipcMain.handle('git:state', async (): Promise<GitState> => {
     const v = needVault()
-    if (!(await git.isRepo(v.root))) return { isRepo: false, branch: null, changes: [], weekCommits: 0, hasRemote: false, lastSync: null, autoCommitMinutes: 0 }
+    if (!(await git.isRepo(v.root))) return { isRepo: false, branch: null, changes: [], weekCommits: 0, hasRemote: false, lastSync: null, syncError: null, autoCommitMinutes: 0, autoCommitError: null }
     const [branch, changes, weekCommits, hasRemote] = await Promise.all([
       git.currentBranch(v.root),
       git.status(v.root),
       git.countCommitsSince(v.root, startOfWeek(new Date())),
       git.hasRemote(v.root),
     ])
-    return { isRepo: true, branch, changes, weekCommits, hasRemote, lastSync, autoCommitMinutes: settings.app().autoCommitMinutes }
+    // 没有要提交的了（别处提交上了）：自动提交的那次失败不再挂着
+    if (!changes.length) autoCommitError = null
+    return { isRepo: true, branch, changes, weekCommits, hasRemote, lastSync, syncError, autoCommitMinutes: settings.app().autoCommitMinutes, autoCommitError }
   })
   ipcMain.handle('git:commit', async () => {
     const v = needVault()
     const st = await git.status(v.root)
     if (!st.length) return null
-    const hash = await git.commitAll(v.root, git.describeChanges(st))
+    let hash: string | null
+    try {
+      hash = await git.commitAll(v.root, git.describeChanges(st))
+    } catch (e) {
+      // git 的原话（可能带完整路径、英文命令）换成一句中文原因
+      if (!(e instanceof git.GitError)) throw e
+      console.error('现在提交失败', e.message)
+      throw new Error(commitErrorText(e.message))
+    }
+    autoCommitError = null
     if (!hash) return null
     return (await git.log(v.root, 1))[0] ?? null
   })
+  ipcMain.handle('git:identity', () => git.identity(needVault().root))
+  ipcMain.handle('git:setIdentity', async (_e, name: unknown, email: unknown) => {
+    const v = needVault()
+    if (typeof name !== 'string' || typeof email !== 'string') throw new Error('署名参数不对')
+    await git.setIdentity(v.root, name, email)
+    return git.identity(v.root)
+  })
   ipcMain.handle('git:sync', async () => {
-    const r = await git.sync(needVault().root)
-    if (r.kind === 'ok') lastSync = Date.now()
-    return r
+    try {
+      const r = await git.sync(needVault().root)
+      if (r.kind === 'ok') {
+        lastSync = Date.now()
+        syncError = null
+      }
+      return r
+    } catch (e) {
+      // git 的英文原话换成一句中文，记下来（设置 › Git 和同步的状态行一直写着，直到下次同步成功）
+      if (!(e instanceof git.GitError)) throw e
+      console.error('同步失败', e.message)
+      syncError = { at: Date.now(), text: syncErrorText(e.message) }
+      throw new Error(syncError.text)
+    }
   })
   ipcMain.handle('search', (_e, q: string) => (typeof q === 'string' ? needVault().search(q) : []))
   ipcMain.handle('pins:get', () => readPins(needVault()))
@@ -355,24 +437,42 @@ function registerIpc() {
       lastSync,
     }
   })
-  ipcMain.handle('notes:duplicates', async () => {
+  // ⌘K「找重复」：边算边把进度（已比几篇、新找到的几对）发给界面；「停下」结束那个进程
+  let dupRun: { stop(): void } | null = null
+  ipcMain.handle('notes:duplicates', async (e) => {
     const v = needVault()
-    return duplicatesOf(await readAll(v.root, (await v.list()).map((n) => n.path)))
+    const docs = await readAll(v.root, (await v.list()).map((n) => n.path))
+    dupRun?.stop()
+    const run = duplicatesWithProgress(docs, (p) => !e.sender.isDestroyed() && e.sender.send('notes:dups-progress', p))
+    dupRun = run
+    try {
+      return await run.done
+    } finally {
+      if (dupRun === run) dupRun = null
+    }
+  })
+  ipcMain.handle('notes:duplicates-stop', () => {
+    dupRun?.stop()
+    dupRun = null
   })
   setupCtxMenu(needVault, () => win?.webContents.send('files:changed'))
   registerAttachments(needVault, () => win, app.getPath('userData'))
+  registerNoteAttach(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'))
+  setupPasted(app.getPath('userData'))
+  registerSlides(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'))
   registerHome(needVault, () => win)
-  registerFolderHome(needVault, () => win)
-  ipcMain.handle('git:history', (_e, limit: number) => git.log(needVault().root, Math.min(Math.max(1, Number(limit) || 50), 500)))
-  ipcMain.handle('git:file-diff', async (_e, hash: unknown, path: unknown) => {
-    if (typeof hash !== 'string' || !/^[0-9a-f]{7,40}$/.test(hash) || typeof path !== 'string' || path.startsWith('/') || path.split('/').includes('..')) throw new Error('参数不对')
-    const v = needVault()
-    const out = await git.git(v.root, ['show', '--format=', '-M', '--no-color', '--no-ext-diff', '-U3', hash, '--', path])
-    const exists = await stat(join(v.root, path)).then(
-      (s) => s.isFile(),
-      () => false,
-    )
-    return { diff: parseDiff(out)[0] ?? null, exists }
+  registerFolderHome(needVault, () => win, moveReadingState)
+  ipcMain.handle('git:history', async (_e, limit: number) => {
+    const root = needVault().root
+    const commits = await git.log(root, Math.min(Math.max(1, Number(limit) || 50), 500))
+    // 每个文件现在还在不在（挪走、删了的右键「打开」灰掉，「看这一版」照样能用）
+    const here = new Map<string, boolean>()
+    for (const c of commits)
+      for (const f of c.files) {
+        if (!here.has(f.path)) here.set(f.path, await stat(join(root, f.path)).then((s) => s.isFile(), () => false))
+        ;(f as { exists?: boolean }).exists = here.get(f.path)
+      }
+    return commits
   })
 }
 
@@ -418,8 +518,8 @@ function createWindow() {
     // 网页里的右键转给界面拼菜单
     forwardWebContext(wc, win!.webContents)
   })
-  // 测试模式只 showInactive：不激活软件、不抢用户正在用的窗口的焦点
-  win.once('ready-to-show', () => (E2E ? win?.showInactive() : win?.show()))
+  // 测试模式窗口根本不显示（Playwright 的截图、点按、打字走 CDP，不用窗口在屏幕上）
+  win.once('ready-to-show', () => { if (!E2E) win?.show() })
   // 关主窗口（软件不退）：先存编辑器里没存的字再关。退出时（含装更新）字已经存过，这里不拦：拦了 Electron 会取消这次退出
   const w = win
   let notesSaved = false
@@ -437,6 +537,8 @@ function createWindow() {
   else void win.loadFile(join(__dirname, '../renderer/index.html'))
 }
 
+guardScreen()
+
 app.whenReady().then(async () => {
   // 网站看到的是普通 Chrome，不带 Electron 字样（有的网站会拦）
   const web = session.fromPartition(WEB_PARTITION)
@@ -451,14 +553,27 @@ app.whenReady().then(async () => {
   registerIpc()
   registerAgent({ win: () => win, vault: () => vault })
   setupMindmap({ win: () => win, vault: () => vault })
-  const dreams = setupDream({ root: () => vault?.root ?? null, send: (ch, ...args) => win?.webContents.send(ch, ...args) })
+  const dreams = setupDream({
+    root: () => vault?.root ?? null,
+    send: (ch, ...args) => win?.webContents.send(ch, ...args),
+    // 收下、撤回时 git 挪文件、改字：和写笔记排同一个队，挪完开着的那篇跟到新路径、拿新内容重载（单条、一组、全部收下都走这里）
+    exclusive: (f) => (vault ? vault.exclusive(f) : f()),
+    async followMoves(moves) {
+      const v = vault
+      if (!v) return
+      for (const m of moves) {
+        const text = await v.followOwnMove(m.from, m.to)
+        win?.webContents.send('note:renamed', m.from, m.to, true)
+        if (text !== null) win?.webContents.send('note:changed', m.to, text)
+      }
+    },
+  })
   quick = setupQuick({
     vault: () => vault,
     onSaved: () => win?.webContents.send('files:changed'),
     openMain: () => {
       if (!win) createWindow()
-      else if (E2E) win.showInactive()
-      else win.show()
+      else if (!E2E) win.show()
       if (!E2E) app.focus({ steal: true })
     },
     dreamNow: () => void dreams.dreamNow().catch((e) => console.error('梦游失败', e)),
@@ -470,6 +585,7 @@ app.whenReady().then(async () => {
   await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault })
   setupPlugins({ window: () => win, vault: () => vault })
   setupReading({ win: () => win, vault: () => vault })
+  setupMineru({ win: () => win, vault: () => vault, settings })
   setupSearch({ win: () => win, vault: () => vault })
   registerFiles(() => vault)
   setupVideo({ window: () => win, vault: () => vault, ses: web, userData: app.getPath('userData') })
@@ -614,18 +730,27 @@ function quietErrorsWhileQuitting() {
   })
 }
 
-/** 编辑器里还没自动保存的字（停手 0.8 秒才存）先写到磁盘；网页卡住时最多等 5 秒 */
-async function saveOpenNotes(wins = BrowserWindow.getAllWindows()): Promise<void> {
+/**
+ * 编辑器里还没自动保存的字（停手 0.8 秒才存）先写到磁盘；网页卡住时最多等 5 秒。
+ * 返回没存好的：写不进去另存了的篇、保存出错、5 秒没完；全存好是空的
+ */
+async function saveOpenNotes(wins = BrowserWindow.getAllWindows()): Promise<string[]> {
   let timer: NodeJS.Timeout | undefined
-  await Promise.race([
+  const problems = await Promise.race([
     Promise.all(
       wins
         .filter((w) => !w.isDestroyed())
-        .map((w) => w.webContents.executeJavaScript('window.cnSaveAll && window.cnSaveAll()').catch((e) => console.error('退出前保存失败', e))),
-    ),
-    new Promise<void>((r) => (timer = setTimeout(() => (console.error('退出前保存 5 秒没完，接着退出'), r()), 5000))),
+        .map((w) =>
+          w.webContents.executeJavaScript('window.cnSaveAll && window.cnSaveAll()').then(
+            (failed: unknown) => (Array.isArray(failed) ? failed.map((p) => `${String(p)} 写不进去，字另存了`) : []),
+            (e) => (console.error('退出前保存失败', e), [`保存出错：${String((e as Error)?.message ?? e)}`]),
+          ),
+        ),
+    ).then((all) => all.flat()),
+    new Promise<string[]>((r) => (timer = setTimeout(() => (console.error('退出前保存 5 秒没完，接着退出'), r(['5 秒没存完'])), 5000))),
   ])
   clearTimeout(timer)
+  return problems
 }
 
 
@@ -641,20 +766,25 @@ app.on('before-quit', (e) => {
   // 开着的系统菜单（右键、「更多」）先收起：不收，进程出不了菜单循环（ctx-menu.ts）
   const menus = closeAllMenus()
   if (menus) quitLog(`收起菜单 ${menus} 个`)
+  // 梦游、找重复正在算的（大库要几分钟）直接停掉，下次再算
+  const jobs = stopSimilar()
+  if (jobs) quitLog(`停下找像的笔记 ${jobs} 个`)
   if (quitting || !vault) return
   // 先拦下这次退出：存字要等界面回话
   e.preventDefault()
   if (savingForQuit) return
   savingForQuit = true
-  void saveOpenNotes().then(() => {
-    quitLog('存完')
+  void saveOpenNotes().then((problems) => {
+    quitLog(problems.length ? `没存好：${problems.join('；')}` : '存完')
     quitting = true
     try {
       if (vault) commitPendingSync(vault.root)
+      quitLog('提交完')
     } catch (err) {
       console.error('退出前提交失败', err)
+      // 锁一直不放（上次 git 崩了留下的）等情况：字在文件里，没提交；照实记，不写「提交完」
+      quitLog(`没提交上：${commitErrorText(String((err as { stderr?: string }).stderr || (err as Error).message))}`)
     }
-    quitLog('提交完')
     // 窗口直接销毁，不走网页的卸载：右栏网页（视频页、框着问过的页）偶尔卸载不完，窗口就一直关不掉。字都存过、提交过了，销毁不丢东西
     for (const w of BrowserWindow.getAllWindows()) w.destroy()
     app.quit()

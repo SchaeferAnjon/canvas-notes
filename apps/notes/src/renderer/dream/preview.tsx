@@ -9,17 +9,26 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DreamReport, NoteFile } from '../../shared/api'
 import { type Moved, pendingMoves, previewLine, previewOf } from '../../shared/dream-preview'
 import { titleOf } from '../../shared/layout'
+import { expectDreamChange } from './own-change'
 import { errText } from './useDream'
 
 interface Toast {
   text: string
+  /** 窄时换成的短写法（提交号照样整个露着），整句放进悬停提示 */
+  short?: string
   commit?: string | null
   undo?: { ids: string[]; taken?: string }
 }
 
 export type DreamPreview = ReturnType<typeof useDreamPreview>
 
-export function useDreamPreview(dream: { report: DreamReport | null; setReport(r: DreamReport): void }, notes: NoteFile[], onNotice: (t: string) => void) {
+export function useDreamPreview(
+  dream: { report: DreamReport | null; setReport(r: DreamReport): void },
+  notes: NoteFile[],
+  onNotice: (t: string) => void,
+  /** 撤不回：底栏说原因、带「在历史里看」（这里的提示条连「撤回」一起收掉，不留一个点了还是同一句的按钮） */
+  onUndoFailed: (e: unknown) => void,
+) {
   const [on, setOn] = useState(false)
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<{ ids: string[]; label: string; chips: string[] } | null>(null)
@@ -50,7 +59,9 @@ export function useDreamPreview(dream: { report: DreamReport | null; setReport(r
     }
   }
 
-  const n = (ids: string[]) => `${ids.length} 处`
+  const n = (ids: string[]) => `${ids.length}处`
+  /** 这几条要挪、要改的文件：这几秒里是软件自己改的 */
+  const own = (ids: string[]) => expectDreamChange((dream.report?.items ?? []).filter((i) => ids.includes(i.id)))
   const self = {
     on,
     busy,
@@ -64,20 +75,32 @@ export function useDreamPreview(dream: { report: DreamReport | null; setReport(r
     /** 预览里点一篇挪来的：打开它在 main 上原来的那篇 */
     realPath: (p: string) => (on ? (pv.marks.get(p)?.from ?? p) : p),
     async take(ids: string[]) {
+      // 收下是软件自己挪、改名：开着的那篇标签跟过去，不说「在外面改名」
+      own(ids)
       const r = await run(() => window.cn.dreamTakeMany(ids))
       if (!r) return
       dream.setReport(r.report)
-      setToast({ text: `收下了 ${n(ids)}，已提交到 ${r.report.base}`, commit: r.commit, ...(r.commit ? { undo: { ids, taken: r.commit } } : {}) })
+      setToast({ text: `收下了${n(ids)}，已提交到${r.report.base}`, short: '已收下 ·', commit: r.commit, ...(r.commit ? { undo: { ids, taken: r.commit } } : {}) })
     },
     async drop(ids: string[]) {
       const r = await run(() => window.cn.dreamDropMany(ids))
       if (!r) return
       dream.setReport(r)
-      setToast({ text: `丢掉了 ${n(ids)} · 收件箱保持原样`, undo: { ids } })
+      setToast({ text: `丢掉了${n(ids)} · 收件箱保持原样`, undo: { ids } })
     },
     async undo(u: { ids: string[]; taken?: string }) {
-      const r = await run(() => window.cn.dreamUndo(u))
-      if (!r) return
+      own(u.ids)
+      setBusy(true)
+      let r: Awaited<ReturnType<typeof window.cn.dreamUndo>>
+      try {
+        r = await window.cn.dreamUndo(u)
+      } catch (e) {
+        setToast(null)
+        onUndoFailed(e)
+        return
+      } finally {
+        setBusy(false)
+      }
       dream.setReport(r.report)
       setToast(u.taken ? { text: '已撤回 · 文件回到收件箱，原来的名字 · 新提交', commit: r.commit } : { text: '撤回了 · 又回到待看' })
     },
@@ -100,7 +123,7 @@ export function useDreamPreview(dream: { report: DreamReport | null; setReport(r
       try {
         const r = await window.cn.dreamRedo(ids, text)
         dream.setReport(r.report)
-        setToast({ text: r.changed ? `重做好了 · ${r.changed} 处变了，标着「按你说的改了」，再看看` : 'AI 看了一遍，没有要改的；换个说法再试试' })
+        setToast({ text: r.changed ? `重做好了 · ${r.changed}处变了，标着「按你说的改了」，再看看` : 'AI看了一遍，没有要改的；换个说法再试试' })
       } catch (e) {
         const msg = errText(e)
         if (!/停下了/.test(msg)) onNotice(msg)
@@ -138,10 +161,10 @@ export function PreviewOverlay(props: { pv: DreamPreview }) {
           {pv.redoing ? (
             <>
               <span>
-                AI 按你说的重做中 ·「{pv.redoing.text}」
+                AI按你说的重做中 ·「{pv.redoing.text}」
               </span>
               <button className="btn btn-ghost btn-xs" onClick={pv.stopRedo}>
-                停下 <span className="kbd-in">esc</span>
+                停下<span className="kbd-in">esc</span>
               </button>
             </>
           ) : (
@@ -149,20 +172,20 @@ export function PreviewOverlay(props: { pv: DreamPreview }) {
               {/* 窗口窄时说明缩短、「跟 AI 说」只留图标，最要紧的那句不被省略号截掉 */}
               <span className="pv-long">正在预览梦游的整理 · {pv.line}</span>
               <span className="pv-short">
-                预览梦游 · <span className="num">{pv.moves.length}</span> 处
+                预览梦游 · <span className="num">{pv.moves.length}</span>处
               </span>
-              <button className="btn btn-ghost btn-xs pv-ask" disabled={!ids.length} onClick={() => pv.ask(ids, `这 ${ids.length} 处`)} aria-label="跟 AI 说哪里不对" data-tip="跟 AI 说哪里不对" data-side="above">
+              <button className="btn btn-ghost btn-xs pv-ask" disabled={!ids.length} onClick={() => pv.ask(ids, `这 ${ids.length} 处`)} aria-label="跟 AI 说哪里不对" data-tip="跟AI说哪里不对" data-side="above">
                 <Codicon name="sparkle" size={14} />
-                <span className="pv-lb">跟 AI 说哪里不对</span>
+                <span className="pv-lb">跟AI说哪里不对</span>
               </button>
               <button className="btn btn-ghost btn-xs" onClick={() => pv.setOn(false)}>
-                退出预览 <span className="kbd-in">esc</span>
+                退出预览<span className="kbd-in">esc</span>
               </button>
               <button className="btn btn-xs" disabled={pv.busy || !ids.length} onClick={() => void pv.drop(ids)}>
                 丢掉
               </button>
               <button className="btn btn-primary btn-xs" disabled={pv.busy || !ids.length} onClick={() => void pv.take(ids)}>
-                {pv.moves.length > 12 ? '收下全部' : `收下这 ${ids.length} 处`}
+                {pv.moves.length > 12 ? '收下全部' : `收下这${ids.length}处`}
               </button>
             </>
           )}
@@ -171,9 +194,16 @@ export function PreviewOverlay(props: { pv: DreamPreview }) {
       )}
       {pv.feedback && <FeedbackPop key={pv.feedback.ids.join()} pv={pv} />}
       {pv.toast && (
-        <div className="pv-toast" role="status" data-testid="preview-toast">
+        // 外面一层铺满中间栏的宽，按它换短写法（容器查询量不了按内容定宽的提示条自己）
+        <div className="pv-toast-box">
+        <div className={'pv-toast' + (pv.toast.short ? ' has-short' : '')} role="status" data-testid="preview-toast">
           {pv.toast.commit !== undefined && <Codicon name="git-commit" size={14} />}
-          <span>{pv.toast.text}</span>
+          <span className="long">{pv.toast.text}</span>
+          {pv.toast.short && (
+            <span className="short" data-tip={pv.toast.text} data-side="above">
+              {pv.toast.short}
+            </span>
+          )}
           {pv.toast.commit && <code className="num">{pv.toast.commit.slice(0, 7)}</code>}
           {pv.toast.undo && (
             <button className="btn btn-ghost btn-xs" disabled={pv.busy} onClick={() => void pv.undo(pv.toast!.undo!).then(() => undefined)}>
@@ -184,6 +214,7 @@ export function PreviewOverlay(props: { pv: DreamPreview }) {
           <button className="iconbtn sm" aria-label="关掉提示" onClick={pv.closeToast}>
             <Codicon name="close" size={12} />
           </button>
+        </div>
         </div>
       )}
     </>
@@ -199,7 +230,7 @@ function FeedbackPop(props: { pv: DreamPreview }) {
   const send = () => text.trim() && void pv.redo(f.ids, text.trim())
   return (
     <div className="pv-pop" role="dialog" aria-label={`跟 AI 说${f.label}哪里不对`}>
-      <h4>跟 AI 说{f.label}哪里不对</h4>
+      <h4>{`跟AI说${f.label}哪里不对`}</h4>
       <textarea
         ref={area}
         rows={3}
@@ -219,14 +250,14 @@ function FeedbackPop(props: { pv: DreamPreview }) {
           </button>
         ))}
       </div>
-      <p className="help">AI 在同一个梦游分支上按你说的重做，做好了再给你预览；你没提到的不动。</p>
+      <p className="help">AI在同一个梦游分支上按你说的重做，做好了再给你预览；你没提到的不动。</p>
       <div className="act">
         <button className="btn btn-ghost btn-sm" onClick={pv.closeFeedback}>
           取消
         </button>
         <button className="btn btn-primary btn-sm" disabled={!text.trim()} onClick={send}>
           <Codicon name="sparkle" size={14} />
-          重做 <span className="kbd-in">⌘↵</span>
+          重做<span className="kbd-in">⌘↵</span>
         </button>
       </div>
     </div>
@@ -248,10 +279,10 @@ export function GhostRows(props: { pv: DreamPreview }) {
         <div key={g.id} className="si pv-ghost" title={`挪到 ${g.to}`}>
           <Codicon name="inbox" />
           <s className="truncate">{titleOf(g.from)}</s>
-          <span className="to truncate">挪到 {g.to.split('/').slice(-2, -1)[0]}</span>
+          <span className="to truncate">{`挪到${g.to.split('/').slice(-2, -1)[0] ?? ''}`}</span>
         </div>
       ))}
-      {ghosts.length > SHOW && <p className="s-none">还有 {ghosts.length - SHOW} 条挪走的</p>}
+      {ghosts.length > SHOW && <p className="s-none">{`还有${ghosts.length - SHOW}条挪走的`}</p>}
     </div>
   )
 }

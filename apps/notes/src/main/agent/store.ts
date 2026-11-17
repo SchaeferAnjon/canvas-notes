@@ -6,6 +6,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { EngineId, StoredMsg } from '../../shared/agent'
+import { type AiPrefs, CLAUDE_DEFAULT, normalizePrefs, resolvePick } from '../../shared/ai-features'
 
 const ENGINES: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
 
@@ -35,14 +36,41 @@ export class AgentStore {
     renameSync(p + '.tmp', p)
   }
 
+  /** 默认那家（设置 › AI 的「默认」） */
   engine(): EngineId {
-    const e = this.read<{ engine?: string }>('settings.json', {}).engine
-    return ENGINES.includes(e as EngineId) ? (e as EngineId) : 'claude'
+    return this.prefs().default.engine
   }
 
+  /** 设置 › AI：默认和每个功能用哪家哪个模型（旧的设置只有 engine 一项，读成默认） */
+  prefs(): AiPrefs {
+    const s = this.read<{ engine?: string; prefs?: unknown }>('settings.json', {})
+    return normalizePrefs(s.prefs, ENGINES.includes(s.engine as EngineId) ? (s.engine as EngineId) : undefined)
+  }
+
+  setPrefs(p: AiPrefs) {
+    const n = normalizePrefs(p)
+    this.write('settings.json', { ...this.read<object>('settings.json', {}), engine: n.default.engine, prefs: n })
+  }
+
+  /** 换默认那家（Claude Code 用它的默认模型） */
   setEngine(e: EngineId) {
     if (!ENGINES.includes(e)) throw new Error('没有这个引擎')
-    this.write('settings.json', { ...this.read<object>('settings.json', {}), engine: e })
+    const p = this.prefs()
+    this.setPrefs({ ...p, default: p.default.engine === e ? p.default : { engine: e } })
+  }
+
+  /**
+   * 换「AI 对话」用哪家（AI 面板头上的引擎菜单）：只改这一行，默认和别的功能不动。
+   * 选的就是默认那家：回到「跟默认」；已经在用这家：不变（Claude Code 选好的模型留着）
+   */
+  setChatEngine(e: EngineId) {
+    if (!ENGINES.includes(e)) throw new Error('没有这个引擎')
+    const p = this.prefs()
+    if (resolvePick(p, 'chat').engine === e) return
+    const features = { ...p.features }
+    if (p.default.engine === e) delete features.chat
+    else features.chat = e === 'claude' ? { engine: e, model: CLAUDE_DEFAULT } : { engine: e }
+    this.setPrefs({ ...p, features })
   }
 
   private file(vault: string) {

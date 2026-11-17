@@ -15,6 +15,20 @@ export function winBgUrl(s: AppSettings): string | null {
   return null
 }
 
+/** 窗口背景那张图叫什么（设置里「现在：…」） */
+export function winBgName(s: AppSettings): string {
+  const a = s.appearance
+  if (a.winBg === 'custom' && a.winBgFile) return '从电脑选的那张'
+  if (a.winBg === 'aurora') return '极光照片'
+  if (a.winBg === 'cave') return '冰洞照片'
+  return '不用图（首页是标题栏的纯色）'
+}
+
+/** 首页样式 B 勾了「整页背景用窗口背景那张图」时首页用的图：{ url } 是那张图，url 为 null 是纯色；没勾（或首页是 A）是 null */
+export function homeWinBg(s: AppSettings): { url: string | null } | null {
+  return s.appearance.homeStyle === 'b' && s.appearance.homeWinBg ? { url: winBgUrl(s) } : null
+}
+
 // ---------- 导入的 VS Code 主题：整个窗口一份，外观页导入、删掉后重读 ----------
 let userThemes: ThemeFile[] | null = null
 const subs = new Set<() => void>()

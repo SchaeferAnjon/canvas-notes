@@ -1,33 +1,39 @@
 /**
  * 文件夹首页的主线部分：读写 <文件夹>/.首页.json（先写临时文件再改名）、模板、恢复默认、
- * 列出这个文件夹（或整个库）的文件和属性给「按条件列出」用、列出库里有首页的文件夹、新建和给空的新文件夹改名。
+ * 列出这个文件夹（或整个库）的文件和属性给「按条件列出」用、列出库里有首页的文件夹、新建课程和项目；
+ * 任何文件夹的新建、改名、移到废纸篓在 folder-ops.ts，接口也挂在这里。
  * 换封面走主页那套（window.cn.pickCover，图拷进 附件/封面/）。
  */
-import { decodeNote, notePathFor, readProps } from '@cn/format'
-import { ipcMain, type BrowserWindow } from 'electron'
-import { mkdir, open, readdir, readFile, rename, stat } from 'node:fs/promises'
+import { baseFoldersIn, decodeNote, notePathFor, readProps } from '@cn/format'
+import { dialog, ipcMain, shell, type BrowserWindow } from 'electron'
+import { mkdir, open, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import {
-  checkFolderName,
   defaultFolderHome,
   type FolderEntry,
   folderHomeJson,
   folderKind,
   type FolderHome,
+  homeKindOf,
   type FolderKind,
   homeFileOf,
   normalizeFolderHome,
   type PropFile,
+  blankNote,
+  onlyBase,
+  bodyChars,
   sortFolders,
   templateFileOf,
 } from '../shared/folder-home'
 import { writeFileAtomic } from './atomic'
+import { countFiles, GITKEEP, makeFolder, moveFolder, renameFolder, testTrash, trashFolder } from './folder-ops'
+import { readLeft, writeLeft } from './left'
 import type { Vault } from './vault'
 
 const SKIP = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 
 function kindOf(folder: unknown): FolderKind {
-  const k = typeof folder === 'string' ? folderKind(folder) : null
+  const k = typeof folder === 'string' ? homeKindOf(folder) : null
   if (!k) throw new Error(`这个文件夹没有首页：${String(folder)}`)
   return k
 }
@@ -63,6 +69,7 @@ export async function writeFolderHome(v: Vault, folder: string, raw: unknown): P
 /** 文件夹里（scope 是 vault 时整个库）的文件和属性；md 读 frontmatter，PDF 当课件、从名字认第几讲 */
 export async function propFiles(v: Vault, folder: string | null): Promise<PropFile[]> {
   const out: PropFile[] = []
+  const tables = new Set<string>()
   const walk = async (dir: string) => {
     let ents
     try {
@@ -76,22 +83,50 @@ export async function propFiles(v: Vault, folder: string | null): Promise<PropFi
       const rel = dir ? `${dir}/${e.name}` : e.name
       if (e.isDirectory()) await walk(rel)
       else if (e.isFile()) {
-        const ext = extname(e.name).toLowerCase()
-        if (ext !== '.md' && ext !== '.pdf' && ext !== '.html') continue
-        const st = await stat(v.abs(rel))
-        const props: Record<string, string> = {}
-        if (ext === '.md') for (const p of readProps(decodeNote(await readFile(v.abs(rel))).text)) props[p.key] = p.value
-        else if (ext === '.html') Object.assign(props, htmlMeta(await readHead(v.abs(rel))))
-        else {
-          props['类型'] = '课件'
-          const m = /第\s*(\d+)\s*讲/.exec(e.name)
-          if (m) props['第几讲'] = m[1]!
+        // readdir 之后这篇被挪走、移到废纸篓了（关空的新笔记、删除、梦游挪走都会撞上）：跳过，不让整个列表报 ENOENT
+        try {
+          const ext = extname(e.name).toLowerCase()
+          if (ext !== '.md' && ext !== '.pdf' && ext !== '.html') continue
+          const st = await stat(v.abs(rel))
+          const props: Record<string, string> = {}
+          let blank = false
+          let db = false
+          let chars: number | undefined
+          if (ext === '.md') {
+            const text = decodeNote(await readFile(v.abs(rel))).text
+            for (const p of readProps(text)) props[p.key] = p.value
+            blank = blankNote(text)
+            chars = bodyChars(text)
+            for (const f of baseFoldersIn(text)) tables.add(f)
+            db = onlyBase(text)
+          }
+          if (ext === '.html') Object.assign(props, htmlMeta(await readHead(v.abs(rel))))
+          else if (ext === '.pdf') {
+            props['类型'] = '课件'
+            // 「第 5 讲」「Lecture05」「lecture 5」都认
+            const m = /第\s*(\d+)\s*讲|lecture[\s_-]*0*(\d+)/i.exec(e.name)
+            if (m) props['第几讲'] = (m[1] ?? m[2])!
+          }
+          out.push({ path: rel, mtimeMs: st.mtimeMs, props, ...(blank ? { blank } : {}), ...(db ? { db } : {}), ...(chars !== undefined ? { chars } : {}) })
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
         }
-        out.push({ path: rel, mtimeMs: st.mtimeMs, props })
       }
     }
   }
   await walk(folder ?? '')
+  // 数据库的条目：所在文件夹是某个数据库（```base）的数据源。主笔记不一定在这个文件夹里（数据源拖进「写作」、主笔记挪去「生活」），
+  // 库里别处的数据库也算（第 4 轮：写作首页把条目都算成草稿）
+  if (folder) for (const f of await v.tableFolders()) tables.add(f)
+  // 数据源是 file.inFolder：下面的子文件夹也算（第 5 轮：子文件夹里的条目表里列着，首页却算成草稿）
+  const inTable = (path: string) => {
+    for (let d = path; d.includes('/'); ) {
+      d = d.slice(0, d.lastIndexOf('/'))
+      if (tables.has(d)) return true
+    }
+    return false
+  }
+  for (const f of out) if (inTable(f.path)) f.entry = true
   // 课件问到第几页：读 PDF 时写在旁边那篇笔记的属性「进度」里（问过的最大页码/一共几页）
   const byPath = new Map(out.map((f) => [f.path, f]))
   for (const f of out) {
@@ -152,24 +187,13 @@ export async function createFolder(v: Vault, folder: string): Promise<string> {
   let f = folder
   for (let n = 2; await exists(v.abs(f)); n++) f = `${folder} ${n}`
   await mkdir(v.abs(f), { recursive: true })
+  // 空文件夹 Git 记不住：放一个看不见的 .gitkeep
+  await writeFile(v.abs(`${f}/${GITKEEP}`), '')
   return f
 }
 
-/** 给还空着的课程或项目改名（新建后在首页标题上改）；里面有文件了就不改，免得别处的链接断 */
-export async function renameEmptyFolder(v: Vault, folder: string, name: string): Promise<string> {
-  const kind = kindOf(folder)
-  if (kind !== 'course' && kind !== 'project') throw new Error('生活、写作不能改名')
-  const bad = checkFolderName(name)
-  if (bad) throw new Error(bad)
-  const to = `${folder.split('/')[0]}/${name.trim()}`
-  if (to === folder) return folder
-  if ((await readdir(v.abs(folder))).some((n) => !n.startsWith('.'))) throw new Error('这个文件夹里已经有文件了，在访达里改名吧')
-  if (await exists(v.abs(to))) throw new Error(`已经有「${name.trim()}」了`)
-  await rename(v.abs(folder), v.abs(to))
-  return to
-}
-
-export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserWindow | null) {
+/** moved：文件夹改名时里面每个文件挪了（本机记着的读 PDF 进度跟着换） */
+export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserWindow | null, moved?: (root: string, from: string, to: string) => void) {
   const changed = () => getWin()?.webContents.send('files:changed')
   ipcMain.handle('folderHome:get', (_e, folder: unknown) => readFolderHome(getVault(), folder as string))
   ipcMain.handle('folderHome:set', async (_e, folder: unknown, home: unknown) => {
@@ -207,11 +231,51 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     changed()
     return f
   })
-  ipcMain.handle('folderHome:rename', async (_e, folder: unknown, name: unknown) => {
-    if (typeof name !== 'string') throw new Error('名字不对')
-    const f = await renameEmptyFolder(getVault(), folder as string, name)
+  // 任何文件夹：新建（放 .gitkeep）、改名（链接、置顶跟着改）、移到废纸篓（先问一句），各一次提交
+  ipcMain.handle('folder:create', async (_e, parent: unknown, name: unknown) => {
+    if (typeof parent !== 'string' || typeof name !== 'string') throw new Error('新建文件夹的参数不对')
+    const f = await makeFolder(getVault(), parent, name)
     changed()
     return f
   })
+  ipcMain.handle('folder:rename', async (_e, folder: unknown, name: unknown) => {
+    const v = getVault()
+    try {
+      return (await renameFolder(v, folder, name, (from, to) => moved?.(v.root, from, to))).to
+    } finally {
+      changed()
+    }
+  })
+  ipcMain.handle('folder:move', async (_e, folder: unknown, parent: unknown) => {
+    const v = getVault()
+    try {
+      return (await moveFolder(v, folder, parent, (from, to) => moved?.(v.root, from, to))).to
+    } finally {
+      changed()
+    }
+  })
+  ipcMain.handle('left:get', () => readLeft(getVault()))
+  ipcMain.handle('left:set', (_e, c: unknown) => writeLeft(getVault(), c))
+  ipcMain.handle('folder:trash', async (_e, folder: unknown) => {
+    const v = getVault()
+    if (typeof folder !== 'string') throw new Error('文件夹不对')
+    const n = await countFiles(v, folder)
+    const win = getWin()
+    const ask = {
+      type: 'warning' as const,
+      message: `把「${folder.split('/').pop()}」${n ? `和里面 ${n} 个文件` : ''}移到废纸篓？`,
+      detail: '会提交一次，在历史里能撤回；也能在访达的废纸篓里找回。',
+      buttons: ['移到废纸篓', '取消'],
+      defaultId: 0,
+      cancelId: 1,
+    }
+    const r = win ? await dialog.showMessageBox(win, ask) : await dialog.showMessageBox(ask)
+    if (r.response !== 0) return null
+    const trashDir = process.env.CN_TRASH_DIR
+    try {
+      return await trashFolder(v, folder, trashDir ? testTrash(trashDir) : (abs) => shell.trashItem(abs))
+    } finally {
+      changed()
+    }
+  })
 }
-

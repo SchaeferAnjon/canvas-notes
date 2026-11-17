@@ -34,7 +34,8 @@ export function fakeEngine(id: EngineId): Engine {
           if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
           text += part
           r.onText(part)
-          await sleep(25)
+          // CN_FAKE_SAY_MS：每 4 个字隔多久（测试「答的时候再框一块」要答得慢一点）
+          await sleep(Number(process.env.CN_FAKE_SAY_MS ?? 25))
         }
       }
       const call = async (name: string, args: Record<string, unknown> = {}) => {
@@ -103,12 +104,30 @@ export function fakeEngine(id: EngineId): Engine {
       if (r.prompt.includes('他说：')) {
         const q = /他说：([\s\S]*)$/.exec(r.prompt)?.[1]?.trim() ?? ''
         const page = /他现在在看第 (\d+) 页/.exec(r.prompt)?.[1] ?? '?'
-        const seen = [`第 ${page} 页`, `图 ${r.images?.length ?? 0} 张`, r.prompt.includes('<pdf>') || r.history?.includes('<pdf>') ? '读过全文' : '没读全文', r.session ? '接着聊' : '新会话']
-        if (/还是不懂|换个方式/.test(q)) await say(`换个方式讲（${seen.join('，')}）：先别看公式，看图。`)
+        const seen = [`第 ${page} 页`, `图 ${r.images?.length ?? 0} 张`, r.prompt.includes('<pdf>') || r.history?.includes('<pdf>') ? '读过全文' : '没读全文', r.session ? '接着聊' : '新会话', ...(r.prompt.includes('<answer>') ? ['带了上一问的回答'] : []), ...(r.prompt.includes('<subs>') ? ['带了字幕'] : [])]
+        // 测试设置 › AI 选的模型真的传到了引擎（CN-44）
+        if (q.includes('用的什么模型')) {
+          await say(`模型：${r.model ?? '没指定'}`)
+          return { text, session: `fake-read-${id}` }
+        }
+        // 测试出错的说法（CN-75）：照录屏里的原话报错
+        if (q.includes('假装被拦'))
+          throw new Error(
+            "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). Please try rephrasing your request. Details: [reasoning_extraction] Request ID: req_011FAKE Message ID: msg_01FAKE",
+          )
+        // 测试表格（CN-29）：左右对照翻译
+        if (q.includes('对照表'))
+          await say('翻译：\n\n| 原文 | 译文 |\n|---|---|\n| **physics-inspired** machine learning | 受物理启发的机器学习 |\n| data-driven surrogate models for partial differential equations | 偏微分方程的数据驱动代理模型 |\n| [第 2 页](#page=2) | 见第 2 页 |\n\n就这些。')
+        else if (/还是不懂|换个方式/.test(q)) await say(`换个方式讲（${seen.join('，')}）：先别看公式，看图。`)
         else await say(`这是讲解（${seen.join('，')}）。用你在 [第 2 页](#page=2) 弄懂的那条：列就是基向量去哪。\n\n〔可以做个可视化〕`)
+        // 配图的框（CN-60）：测试里给一个固定的框
+        if (process.env.CN_FAKE_FIGURE_MARK && r.images?.length && r.prompt.includes('〔配图')) await say(`\n${process.env.CN_FAKE_FIGURE_MARK}`)
         return { text, session: `fake-read-${id}` }
       }
 
+      // 右下角 AI 浮窗也能演被拦（同读 PDF 那条）：看出错那一句在浮窗里的样子
+      if (said.includes('假装被拦'))
+        throw new Error("API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). Please try rephrasing your request. Request ID: req_011FAKE")
       const url = /https?:\/\/\S+/.exec(said)?.[0]
       if (url && /打开/.test(said)) {
         await say('好，我在右栏打开它。')
@@ -135,7 +154,7 @@ export function fakeEngine(id: EngineId): Engine {
         await call('doc_insert', { text: what })
         await say('插好了。')
       } else {
-        await say(`这是测试回答（${LABELS[id]}）。`)
+        await say(/用的什么模型/.test(said) ? `模型：${r.model ?? '没指定'}（${LABELS[id]}）` : `这是测试回答（${LABELS[id]}${r.images?.length ? `，图 ${r.images.length} 张` : ''}）。`)
       }
       return { text, session: `fake-${id}` }
     },

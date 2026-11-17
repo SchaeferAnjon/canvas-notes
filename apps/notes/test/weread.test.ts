@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { bookFile, bookMd, isReader, isWeread, newMarks, normalizeWeread, parseBookmarks, parseNotebooks, parseReviews, quoteMd } from '../src/shared/plugins/weread'
+import { createHash } from 'node:crypto'
+import { apiError, bookFile, bookIdOfReader, bookMd, isReader, isWeread, loginOf, marksToInsert, newMarks, normalizeWeread, parseBookmarks, parseNotebooks, parseReviews, quoteMd, readerCode } from '../src/shared/plugins/weread'
 
 const LIST = {
   synckey: 1,
@@ -45,7 +46,10 @@ describe('微信读书', () => {
       ['r1', false],
       ['r2', true],
     ])
-    expect(parseNotebooks({ books: [{ bookId: '1', book: { title: 'A', author: 'B' }, bookmarkCount: 3, reviewCount: 1, sort: 9 }, { bookId: '', book: {} }] })).toEqual([{ bookId: '1', title: 'A', author: 'B', marks: 3, reviews: 1, updated: 9 }])
+    // 真账号上的样子（2026-11-17 量的字段）：划了 2 条时 noteCount=2、bookmarkCount=0
+    expect(parseNotebooks({ books: [{ bookId: '1', book: { title: 'A', author: 'B' }, noteCount: 2, bookmarkCount: 0, reviewCount: 1, reviewLikeCount: 0, reviewCommentCount: 0, sort: 9 }, { bookId: '', book: {} }] })).toEqual([{ bookId: '1', title: 'A', author: 'B', marks: 2, reviews: 1, updated: 9 }])
+    // 只有 bookmarkCount 的旧写法也认
+    expect(parseNotebooks({ books: [{ bookId: '2', book: { title: 'C' }, bookmarkCount: 3 }] })[0]!.marks).toBe(3)
   })
   it('一本书的素材：按章节排、想法跟在它那一段后面、书评单独一节', () => {
     const { marks, book } = parseBookmarks(LIST, '900001')
@@ -84,5 +88,40 @@ describe('微信读书', () => {
       ].join('\n'),
     )
     expect(bookFile('a/b: c?')).toBe('素材/微信读书/a b c.md')
+  })
+  it('阅读页地址 ↔ 书的编号：拆得回来、编得回去；翻章时后面接的 k… 不影响；对不上的（假网站、乱写的）不认', () => {
+    const md5 = (t: string) => createHash('md5').update(t).digest('hex')
+    // 真微信读书书架上的一条阅读页地址（2026-11-17 量的，只有编号）
+    expect(readerCode('3300207982', md5)).toBe('fdf32730813abb7beg012542')
+    expect(bookIdOfReader('https://weread.qq.com/web/reader/fdf32730813abb7beg012542', md5)).toBe('3300207982')
+    expect(bookIdOfReader(`https://weread.qq.com/web/reader/fdf32730813abb7beg012542k${readerCode('15', md5)}`, md5)).toBe('3300207982')
+    // 不是纯数字的编号（类型 4）也能来回
+    expect(bookIdOfReader(`https://weread.qq.com/web/reader/${readerCode('CB_3Ft7ab', md5)}`, md5)).toBe('CB_3Ft7ab')
+    // 短的编号（要拿 md5 补到 20 位）
+    expect(bookIdOfReader(`https://weread.qq.com/web/reader/${readerCode('695233', md5)}`, md5)).toBe('695233')
+    expect(bookIdOfReader('https://weread.qq.com/web/reader/ce032b305a9bc1ce0b0dd2b', md5)).toBeNull()
+    expect(bookIdOfReader('https://weread.qq.com/web/reader/fdf32730813abb7beg012543', md5)).toBeNull()
+    expect(bookIdOfReader('https://weread.qq.com/web/shelf', md5)).toBeNull()
+  })
+  it('网页版接口的出错：errCode 和 errcode 两种写法，-2012 登录超时、-2010 用户不存在都算没登录', () => {
+    expect(apiError({ errCode: -2012, errMsg: '登录超时' })).toEqual({ login: true, message: '登录超时' })
+    expect(apiError({ errcode: -2010, errmsg: '用户不存在' })).toEqual({ login: true, message: '用户不存在' })
+    expect(apiError({ errCode: -1, errMsg: '' })).toEqual({ login: false, message: '微信读书出错（-1）' })
+    expect(apiError({ books: [] })).toBeNull()
+    expect(apiError(null)).toBeNull()
+  })
+  it('右栏的 cookie 里认登录：wr_vid 和 wr_skey 都在才算', () => {
+    expect(loginOf([{ name: 'wr_vid', value: '123' }, { name: 'wr_skey', value: 'abc' }])).toEqual({ vid: '123' })
+    expect(loginOf([{ name: 'wr_vid', value: '123' }])).toBeNull()
+    expect(loginOf([])).toBeNull()
+  })
+  it('该插进文档的划线：见过这本书就是没见过的；打开书那次没取成，划线触发时 2 分钟内新建的算新的', () => {
+    const { marks } = parseBookmarks(LIST, '900001')
+    expect(marksToInsert(marks, ['900001_5_10-30'], 'tap', 1794800100).map((m) => m.id)).toEqual(['900001_3_200-260'])
+    // 第一次打开这本书：只记下，不插
+    expect(marksToInsert(marks, undefined, 'open', 1794800100)).toEqual([])
+    // 打开那次没取成，紧接着划了一条：刚建的那条（100 秒前）插，早的不插
+    expect(marksToInsert(marks, undefined, 'tap', 1794800100).map((m) => m.id)).toEqual(['900001_5_10-30'])
+    expect(marksToInsert(marks, undefined, 'mouseup', 1794800000 + 121)).toEqual([])
   })
 })

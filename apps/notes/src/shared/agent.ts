@@ -48,6 +48,8 @@ export interface TurnRequest {
   engine: EngineId
   text: string
   context: AgentContext
+  /** 输入框里粘贴的图（软件设置目录 pasted/ 里的名字） */
+  pasted?: string[]
 }
 
 export interface TurnResult {
@@ -65,10 +67,20 @@ export interface StoredMsg {
   id: number
   role: 'user' | 'ai'
   text?: string
+  /** 用户这句带的、在输入框里粘贴的图（软件设置目录 pasted/ 里的名字） */
+  pasted?: string[]
   engine?: EngineId
+  /** 哪家哪个模型答的（「Claude Code · Opus 5.5」，CN-54） */
+  by?: string
   read?: string
   error?: string
   done?: string
+  /** 做成了、只是没提交上（「卡存好了，提交没成功：…」）：黄色提醒，不当 AI 没答出来 */
+  warn?: string
+  /** 没提交上的那次 AI 改动：「再提交一次」只提交这几个文件、用这句说明，提交上了按 kinds 列「改了几个文件」 */
+  retry?: { paths: string[]; message: string; kinds: Record<string, string> }
+  /** 「再提交一次」点过几次（又没成时写「第 N 次也没提交上」） */
+  tries?: number
   steps?: ToolStep[]
   change?: { commit: CommitInfo; kinds: Record<string, string>; reverted?: CommitInfo }
   moves?: { path: string; topic: string }[]

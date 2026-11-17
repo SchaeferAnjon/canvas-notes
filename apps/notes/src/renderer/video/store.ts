@@ -45,6 +45,8 @@ function start() {
   })
   void window.cnVideo.settings().then(settings.set)
   window.cnVideo.onSettings(settings.set)
+  // 主进程这边后台做完的事（生成字幕后补上了几处时刻）：中间栏底部提示一句
+  window.cnVideo.onNotice((text) => center.get()?.notice(text))
 }
 
 export function useVideoState(wcId: number | undefined): VideoState | null {
@@ -112,10 +114,12 @@ export interface VideoHost {
   cmd(wcId: number, cmd: string, arg?: unknown): void
   /** 网页元素在窗口里的位置（问话框贴着视频） */
   webviewRect(wcId: number): DOMRect | null
-  /** 右栏打开带时间的视频链接：开着同一个视频就切过去、跳到那一秒 */
-  openAt(url: string, t: number | null): void
+  /** 右栏打开带时间的视频链接：开着同一个视频就切过去、跳到那一秒（still：跳过去停住，看着那一帧） */
+  openAt(url: string, t: number | null, still?: boolean): void
   /** 现在右栏的网页（webContents id） */
   activeWc(): number | null
+  /** 焦点交回视频网页（点完视频条上的按钮，空格还是暂停 / 播放，CN-70） */
+  focus(wcId: number): void
 }
 
 let host: VideoHost | null = null
@@ -126,6 +130,18 @@ export const videoHost = () => host
 
 // ---------------------------------------------------------------- 中间栏开着什么
 
+/** 视频问答块上「接着问」：那一问问的什么、在哪个视频第几秒 */
+export interface AskFrom {
+  quote: string
+  t: number
+  url: string
+  title: string
+  /** 那一问框的那一帧（库里的路径）：接着问时附给 AI */
+  image?: string
+  /** 那一问 AI 的回答（块后面的 [!ai] 提示块） */
+  answer?: string
+}
+
 export interface Center {
   center: CenterKind
   /** 上一篇开着的文档（中间栏开着的是字幕全文时记到它） */
@@ -133,9 +149,17 @@ export interface Center {
   doc(): NoteDoc | null
   aiOpen: boolean
   openAi(): void
+  /** 右栏网页（视频）下格开 AI 追问；from：问答块上「接着问」那一问（问的话放进输入框当引文，标「00:06 · 视频名」） */
+  askInRight(from?: AskFrom): void
   notice(t: string): void
   /** 记完以后刷新左栏和底栏 */
   refresh(): void
+  /** 中间栏开这一篇（CN-70：没开文档时新建的那篇） */
+  open(path: string): void
+  /** 中间开着的这一篇改名（CN-80：「未命名」改成视频名），别处的 [[旧名]] 跟着改 */
+  rename(path: string, name: string): Promise<void>
+  /** 设置 › AI（填 Soniox 密钥） */
+  openAiSettings(): void
 }
 
 const center = bus<Center | null>(null)

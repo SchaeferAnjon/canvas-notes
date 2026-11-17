@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   addWidget,
+  blankNote,
+  bodyChars,
   checkFolderName,
   type Cond,
   foldersOfPaths,
@@ -124,7 +126,8 @@ describe('按条件列出', () => {
     f('课程/线性代数/草稿.md', { draft: 'true' }),
   ]
   it('类型是其中、第几讲 ≥、按第几讲排', () => {
-    expect(runCond(files, NOTES_COND, now).map((x) => x.props['第几讲'])).toEqual(['5', '3', '1'])
+    // 没写类型的 md（草稿.md）也算笔记，没有第几讲排在最后
+    expect(runCond(files, NOTES_COND, now).map((x) => x.props['第几讲'])).toEqual(['5', '3', '1', undefined])
     const c: Cond = { ...NOTES_COND, rules: [{ prop: '类型', op: '是其中', value: '导图' }, { prop: '第几讲', op: '≥', value: '4' }], sort: { prop: '第几讲', dir: 'asc' } }
     expect(runCond(files, c, now).map((x) => x.path)).toEqual(['课程/线性代数/第5讲 导图.md'])
   })
@@ -134,12 +137,46 @@ describe('按条件列出', () => {
     expect(runCond(files, { ...week, rules: [] }, now)).toHaveLength(5)
   })
   it('标题下那一句：几讲、几个文件、问到第几讲；项目这周改了几个；写作几篇草稿、这个月写完几篇', () => {
-    expect(leadOf('course', files, now)).toBe('课程 · 4 讲 · 5 个文件')
-    expect(leadOf('course', [...files, f('课程/线性代数/第4讲.pdf', { 类型: '课件', 第几讲: '4', 问到: '7', 页数: '10' })], now)).toBe('课程 · 5 讲 · 6 个文件 · 问到第 4 讲')
+    expect(leadOf('course', files, now)).toBe('课程 · 4讲 · 5个文件')
+    expect(leadOf('course', [...files, f('课程/线性代数/第4讲.pdf', { 类型: '课件', 第几讲: '4', 问到: '7', 页数: '10' })], now)).toBe('课程 · 5讲 · 6个文件 · 问到第4讲')
     expect(leadOf('course', [], now)).toBe('课程 · 还没有文件')
-    expect(leadOf('project', files, now)).toBe('项目 · 5 个文件 · 这周改了 1 个')
-    expect(leadOf('writing', files, now)).toBe('写作 · 1 篇草稿 · 这个月写完 2 篇')
-    expect(leadOf('life', files, now)).toBe('生活 · 5 个文件')
+    // 名字认不出第几讲的课件 PDF 也算一讲（左栏按 PDF 数「0/5 讲」，两处对得上）
+    expect(leadOf('course', [...files, f('课程/线性代数/坏的.pdf', { 类型: '课件' })], now)).toBe('课程 · 5讲 · 6个文件')
+    expect(leadOf('project', files, now)).toBe('项目 · 5个文件 · 这周改了1个')
+    expect(leadOf('writing', files, now)).toBe('写作 · 1篇草稿 · 这个月写完2篇')
+    expect(leadOf('life', files, now)).toBe('生活 · 5个文件')
+  })
+  it('没写类型的 md 算笔记，进「笔记和导图」；白板不算', () => {
+    const hand = f('课程/ecp/Lecture05 笔记.md', { 进度: '5/5' }, 1)
+    const board = f('课程/ecp/板.md', { type: 'board' }, 1)
+    expect(runCond([hand, board], NOTES_COND, now).map((x) => x.path)).toEqual(['课程/ecp/Lecture05 笔记.md'])
+  })
+  it('新建了还没写字的「未命名」算草稿，不算「这个月写完」', () => {
+    const blank = (p: string): PropFile => ({ ...f(p, {}, 0), blank: true })
+    const all = [...files, blank('写作/未命名.md'), blank('写作/未命名 2.md')]
+    expect(leadOf('writing', all, now)).toBe('写作 · 3篇草稿 · 这个月写完2篇')
+    expect(blankNote('# 未命名\n\n')).toBe(true)
+    expect(blankNote('---\n草稿: 否\n---\n# 未命名\n')).toBe(true)
+    expect(blankNote('')).toBe(true)
+    expect(blankNote('# 冰岛\n\n第一句。\n')).toBe(false)
+  })
+  it('写作首页：白板不进「草稿」也不进「写完的」；字数只算正文的字，不算图片地址、白板位置行、网址', () => {
+    const long = '这是一篇写完了的长文章。'.repeat(12)
+    const board = { ...f('写作/选题墙.md', { type: 'board' }, 0), chars: 400 }
+    const pic = { ...f('写作/截图一张.md', {}, 0), chars: bodyChars('# 截图一张\n\n![](https://images.example.com/2026/11/Screenshot-2026-11-17-at-10.00.00-very-long-name.png)\n') }
+    const done = { ...f('写作/长文.md', {}, 0), chars: bodyChars(`# 长文\n\n${long}\n`) }
+    expect(pic.chars).toBe(0)
+    expect(bodyChars('<!-- card id=c1 x=0 y=0 w=280 -->\n短\n[看这里](https://example.com/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t) https://example.com/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')).toBe(4)
+    expect(leadOf('writing', [board, pic, done], now)).toBe('写作 · 1篇草稿 · 这个月写完1篇')
+    // 第 4 轮：只有双链（[[…]]、![[…]]）、只有代码块的不算写了字
+    const links = Array.from({ length: 30 }, (_, i) => `[[参考笔记第${i}篇]]`).join(' ')
+    expect(bodyChars(`# 双链多\n\n${links}\n\n![[配图.png]]\n`)).toBe(0)
+    expect(bodyChars('# 代码块\n\n```js\n' + 'console.log("hello world");\n'.repeat(10) + '```\n\n~~~\nmore code here\n~~~\n')).toBe(0)
+    expect(bodyChars('# 混着\n\n正文三个字\n\n```\ncode\n```\n\n见[[别处]]。\n')).toBe(7)
+    const doneCond: Cond = { ...NOTES_COND, rules: [{ prop: '草稿', op: '是', value: '否' }], sort: { prop: '名字', dir: 'asc' } }
+    expect(runCond([board, pic, done], doneCond, now).map((x) => x.path)).toEqual(['写作/长文.md'])
+    const draftCond: Cond = { ...doneCond, rules: [{ prop: '草稿', op: '是', value: '是' }] }
+    expect(runCond([board, pic, done], draftCond, now).map((x) => x.path)).toEqual(['写作/截图一张.md'])
   })
   it('同一讲的几篇按名字排，不管文件先后', () => {
     const same = [f('课程/线性代数/第3讲 线性映射.md', { 类型: '笔记', 第几讲: '3' }, 1), f('课程/线性代数/第3讲 补充.md', { 类型: '笔记', 第几讲: '3' }, 5)]

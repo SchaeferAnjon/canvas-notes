@@ -1,9 +1,38 @@
 /* 左栏「文件」页的目录树（设计 design/pdf/ §1.8：分段 28 高占满宽，右边 28 × 28「按名字跳 ⌘O」；树的行 28 高，每层缩进 16） */
 
 
-/* 「全部文件」时，切换下面原来那套（置顶、白板、这周动过的、素材）和底部全部笔记 / 归档都让给目录树 */
-.side.tree-mode .side.tree-mode .sall {
-  display: none;
+/* 类型筛选（全部 / 文档 / 白板 / 素材）：「文件」「最近」、摘出来的文件夹顶上同一排，文件夹首页和「最近」页也是这一排 */
+.tchips {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.tchips .chip {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.tchips .chip:hover {
+  color: var(--t1);
+}
+.tchips .chip.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.side .side-chips {
+  padding: 0 8px 6px;
+}
+/* 排序菜单：六种排法右边写「新的在前」「A → Z」 */
+.shell-menu.sortpop {
+  width: 262px;
+  border-radius: 8px;
 }
 
 .ftree {
@@ -13,10 +42,68 @@
 }
 .ftree .ft-row {
   height: 28px;
-  gap: 8px;
+  gap: 6px;
   padding-right: 8px;
   cursor: default;
   user-select: none;
+}
+.ftree .ft-fl {
+  flex: 1;
+  min-width: 4px;
+}
+/* 文件夹后面的篇数：12 等宽数字 --t3（和行里别的次要字同号） */
+.ftree .ft-count {
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.ftree .ft-pin {
+  flex: none;
+  display: inline-flex;
+  color: var(--t3);
+}
+/* 定位到的那一行：选中底 + 一圈强调色外圈，约 2 秒后消失 */
+.ftree .ft-row.ring {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+/* 点过的文件夹（「新建文件夹」放进它里面）：一圈细线，和开着的那一行（--fill2 底）分开（照 VS Code 的选中但不是当前） */
+.ftree .ft-row.picked {
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+/* 拖着笔记经过的文件夹：松手就挪进去 */
+.ftree .ft-row.drop {
+  background: var(--acc-soft);
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.ftree .ft-new .si-rename {
+  height: 20px;
+}
+.ftree .ft-ext {
+  flex: none;
+  padding: 0 4px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  font: 500 10px/14px var(--sans);
+  color: var(--t2);
+}
+/*
+ * 文件行：名字优先。放不下时先藏右端的「3/6」「疑惑 N」，再藏 PDF 小标（悬停整行看全名）——
+ * 行能折行、只露第一行：后面的东西放不下就整个掉到看不见的第二行，不会被截成半个。
+ */
+.ftree .ft-row.ft-fit {
+  flex-wrap: wrap;
+  align-content: flex-start;
+  overflow: hidden;
+}
+.ftree .ft-row.ft-fit > .ft-tw {
+  height: 28px;
+}
+.ftree .ft-row.ft-fit > .truncate {
+  max-width: calc(100% - 38px);
+}
+/* 白板的颜色方块和 16 的图标占同样的宽 */
+.ftree .ft-sw {
+  margin: 0 2px;
 }
 .ftree .ft-row:focus-visible {
   outline: none;
@@ -33,7 +120,6 @@
   color: inherit;
 }
 .ftree .ft-meta {
-  margin-left: auto;
   flex: none;
   display: flex;
   align-items: center;
@@ -45,4 +131,36 @@
 }
 .ftree .ft-more {
   height: 26px;
+}
+
+/* 软件汇总的（我的疑惑、视频里的疑惑）：名字后面一个「自动汇总」小标，和下面自己的笔记隔一条细线（CN-56） */
+.ftree .ft-auto {
+  flex: none;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  background: var(--fill2);
+  font-size: 11px;
+  color: var(--t2);
+}
+.ftree .ft-sep {
+  height: 1px;
+  margin: 3px 8px 3px 0;
+  background: var(--line);
+}
+/* 笔记行右端「疑惑 N」：点了跳到汇总里这一讲 */
+.ftree .ft-doubts {
+  height: 20px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: 11px var(--sans);
+  cursor: pointer;
+}
+.ftree .ft-doubts:hover {
+  background: var(--fill2);
+  color: var(--t1);
 }

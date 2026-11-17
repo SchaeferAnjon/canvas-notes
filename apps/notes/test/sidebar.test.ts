@@ -5,10 +5,11 @@ import { describe, expect, it } from 'vitest'
 import type { NoteFile } from '../src/shared/api'
 import { normalizeSettings } from '../src/shared/appearance'
 import { kindOf } from '../src/shared/layout'
-import { DAY_MS, isArchived, MAX_BOARDS, MAX_TOPICS, MAX_WORKS, movePin, normalizePins, pinsJson, setPin, sidebarOf } from '../src/shared/sidebar'
+import { DAY_MS, isArchived, movePin, normalizePins, pinsJson, setPin } from '../src/shared/sidebar'
 import { pinNote, readPins, repin } from '../src/main/pins'
 import { Vault } from '../src/main/vault'
-import { dateOf, filterNotes } from '../src/renderer/NoteIndex'
+import { filterNotes } from '../src/renderer/NoteIndex'
+import { when } from '../src/shared/when'
 
 const NOW = new Date(2026, 10, 15, 12, 0).getTime()
 const note = (path: string, daysAgo: number, extra: Partial<NoteFile> = {}): NoteFile => {
@@ -30,58 +31,6 @@ describe('归档', () => {
     expect(isArchived(note('收件箱/x.md', 900), NOW, 90, none)).toBe(false)
     expect(isArchived(board('白板.md', 120), NOW, 90, none)).toBe(true)
     expect(isArchived(note('素材/旅行/x.md', 120), NOW, 90, none)).toBe(true)
-  })
-})
-
-describe('左栏只放活着的', () => {
-  it('置顶按先后、不重复出现；白板最近的几块；文档只要这周动过的；底部数全部和归档', () => {
-    const notes = [
-      note('这周.md', 1),
-      note('昨天草稿.md', 0.5, { draft: true }),
-      note('上个月.md', 40),
-      note('很久.md', 200),
-      note('置顶的旧文.md', 400),
-      board('新白板.md', 2),
-      board('旧白板.md', 300),
-      note('收件箱/一条.md', 500),
-    ]
-    const m = sidebarOf(notes, ['置顶的旧文.md', '这周.md', '已经删了.md'], NOW, 90)
-    expect(paths(m.pinned)).toEqual(['置顶的旧文.md', '这周.md'])
-    expect(paths(m.works)).toEqual(['昨天草稿.md'])
-    expect(paths(m.boards)).toEqual(['新白板.md'])
-    expect(m.moreWorks).toBe(0)
-    expect(m.inbox).toBe(1)
-    expect(m.all).toBe(8)
-    // 很久.md、旧白板.md；置顶的和收件箱不算
-    expect(m.archived).toBe(2)
-  })
-
-  it('库再大，每组也有上限，超出的文档数一下「还有几篇」', () => {
-    const notes = [
-      ...Array.from({ length: 30 }, (_, i) => note(`文档 ${i}.md`, i * 0.2)),
-      ...Array.from({ length: 12 }, (_, i) => board(`白板 ${i}.md`, i)),
-      ...Array.from({ length: 10 }, (_, i) => note(`素材/主题 ${i}/x.md`, i)),
-      ...Array.from({ length: 5000 }, (_, i) => note(`旧/${i}.md`, 100 + i)),
-    ]
-    const m = sidebarOf(notes, [], NOW, 90)
-    expect(m.works).toHaveLength(MAX_WORKS)
-    expect(m.works[0]!.path).toBe('文档 0.md')
-    expect(m.moreWorks).toBe(30 - MAX_WORKS)
-    expect(m.boards).toHaveLength(MAX_BOARDS)
-    expect(m.topics).toHaveLength(MAX_TOPICS)
-    expect(m.topics[0]).toEqual({ topic: '主题 0', count: 1 })
-    expect(m.archived).toBe(5000)
-    expect(m.all).toBe(5052)
-    // 左栏「文件夹」占的行从「这周动过的」里扣：2 门课少 2 行；文件夹再多也最多扣 6 行（5 个加「还有 N 个」）
-    expect(sidebarOf(notes, [], NOW, 90, 2).works).toHaveLength(MAX_WORKS - 2)
-    expect(sidebarOf(notes, [], NOW, 90, 2).moreWorks).toBe(30 - MAX_WORKS + 2)
-    expect(sidebarOf(notes, [], NOW, 90, 40).works).toHaveLength(MAX_WORKS - 6)
-  })
-
-  it('素材主题：只要有没归档的素材才出现，数的是这个主题一共几段', () => {
-    const notes = [note('素材/旅行/新.md', 3), note('素材/旅行/旧.md', 400), note('素材/历史/旧.md', 400)]
-    expect(sidebarOf(notes, [], NOW, 90).topics).toEqual([{ topic: '旅行', count: 2 }])
-    expect(sidebarOf(notes, [], NOW, 0).topics.map((t) => t.topic)).toEqual(['旅行', '历史'])
   })
 })
 
@@ -143,11 +92,11 @@ describe('全部笔记、归档列表', () => {
     expect(paths(filterNotes(notes, '', 'work', false))).toEqual(['读书/三体.md', '日记/2024/三月.md'])
     expect(paths(filterNotes(notes, '', 'inbox', false))).toEqual(['收件箱/速记.md'])
   })
-  it('日期：今天、昨天、今年、往年', () => {
-    const now = new Date(2026, 10, 15, 12, 0)
-    expect(dateOf(new Date(2026, 10, 15, 9, 5).getTime(), now)).toBe('今天 09:05')
-    expect(dateOf(new Date(2026, 10, 14, 23, 0).getTime(), now)).toBe('昨天 23:00')
-    expect(dateOf(new Date(2026, 2, 3).getTime(), now)).toBe('03-03')
-    expect(dateOf(new Date(2024, 10, 3).getTime(), now)).toBe('2024-11-03')
+  it('日期：今天、昨天、今年、往年（和左栏、文件夹首页同一个 when）', () => {
+    const now = new Date(2026, 10, 15, 12, 0).getTime()
+    expect(when(new Date(2026, 10, 15, 9, 5).getTime(), { now })).toBe('09:05')
+    expect(when(new Date(2026, 10, 14, 23, 0).getTime(), { now })).toBe('昨天')
+    expect(when(new Date(2026, 2, 3).getTime(), { now })).toBe('3月3日')
+    expect(when(new Date(2024, 10, 3).getTime(), { now })).toBe('2024年11月3日')
   })
 })

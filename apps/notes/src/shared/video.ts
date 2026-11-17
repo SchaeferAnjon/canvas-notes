@@ -1,3 +1,5 @@
+import { prop, setProp } from '@cn/format'
+
 /**
  * 看视频（方向 A「视频条」）用的纯函数：认 YouTube / B 站的视频页、拼带时间的链接、拆字幕、
  * 时刻和视频卡的 md 写法、字幕全文那一篇、记到哪的规矩、白板「时刻」列。主进程、界面、网页预加载、测试都用，不碰 Electron。
@@ -108,6 +110,8 @@ export interface Track {
   auto: boolean
   /** B 站的字幕文件地址；YouTube 让播放器自己取 */
   url?: string
+  /** 软件生成的（下载音频、Soniox 听写），存在库里 .canvas-notes/字幕/ */
+  stt?: boolean
 }
 
 interface Json3 {
@@ -216,7 +220,7 @@ export function ytTracks(list: { languageCode?: string; kind?: string; name?: { 
 }
 
 /** 一条字幕的编号：语言代码，自动生成的后面加 #auto（YouTube 同一种语言常有人工和自动两条） */
-export const trackId = (t: Pick<Track, 'lang' | 'auto'>) => `${t.lang}${t.auto ? '#auto' : ''}`
+export const trackId = (t: Pick<Track, 'lang' | 'auto' | 'stt'>) => `${t.lang}${t.auto ? '#auto' : ''}${t.stt ? '#stt' : ''}`
 
 /** 选哪条：上次选的还在就用它，不然人工字幕在前（视频原来的语言优先） */
 export function pickTrack(tracks: Track[], last?: string | null): Track | null {
@@ -270,7 +274,7 @@ export interface VideoMeta {
   cover?: string
 }
 
-export const siteName = (s: Site) => (s === 'youtube' ? 'YouTube' : 'B 站')
+export const siteName = (s: Site) => (s === 'youtube' ? 'YouTube' : 'B站')
 
 /** 视频标题当文件名：去掉文件名里不能有的字，最长 80 */
 export function safeTitle(t: string): string {
@@ -311,12 +315,38 @@ const mdText = (s: string) => s.replace(/[[\]]/g, (c) => (c === '[' ? '［' : '�
  */
 export function momentMd(v: VideoRef, meta: Pick<VideoMeta, 'title'>, t: number, image: string | null, around: { list: Cue[]; current: number }): string {
   const tt = fmtTime(t)
-  const lines = [`<!-- moment video=${v.key} t=${Math.round(t * 10) / 10} -->`, ...(image ? [`![${tt}](${image})`] : []), `[▶ ${tt} · ${mdText(meta.title)}](${timeUrl(v, t)})`]
-  around.list.forEach((c, i) => {
+  return [`<!-- moment video=${v.key} t=${Math.round(t * 10) / 10} -->`, ...(image ? [`![${tt}](${image})`] : []), `[▶ ${tt} · ${mdText(meta.title)}](${timeUrl(v, t)})`, ...aroundLines(around)].join('\n')
+}
+
+/** 时刻块里前后几行字幕：`> 时间 原文 / 译文`，当前那行加粗 */
+function aroundLines(around: { list: Cue[]; current: number }): string[] {
+  return around.list.map((c, i) => {
     const s = `${fmtTime(c.start)} ${c.text}${c.tr ? ` / ${c.tr}` : ''}`.replace(/\n/g, ' ')
-    lines.push(i === around.current ? `> **${s.replace(/\*/g, '＊')}**` : `> ${s}`)
+    return i === around.current ? `> **${s.replace(/\*/g, '＊')}**` : `> ${s}`
   })
-  return lines.join('\n')
+}
+
+/**
+ * 字幕生成好以后（CN-69 / 74）：这篇里这个视频没带字幕的时刻块补上那一秒前后的原文和译文。
+ * 只补「<!-- moment video=… -->」块里一行 `>` 都没有的；问答块、已经有字幕的不动。返回补了几处和新全文
+ */
+export function fillMoments(text: string, key: string, cues: Cue[]): { text: string; filled: number } {
+  if (!cues.length) return { text, filled: 0 }
+  const lines = text.split('\n')
+  let filled = 0
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^<!--\s*moment\s+video=(\S+)\s+t=([\d.]+)\s*-->$/.exec(lines[i]!.trim())
+    if (!m || m[1] !== key) continue
+    let end = i
+    while (end + 1 < lines.length && lines[end + 1]!.trim() !== '' && !/^<!--/.test(lines[end + 1]!.trim())) end++
+    if (lines.slice(i + 1, end + 1).some((l) => l.trim().startsWith('>'))) continue
+    const add = aroundLines(cuesAround(cues, Number(m[2]), 2, 2))
+    if (!add.length) continue
+    lines.splice(end + 1, 0, ...add)
+    filled++
+    i = end + add.length
+  }
+  return { text: lines.join('\n'), filled }
 }
 
 export interface MomentInfo {
@@ -332,6 +362,21 @@ export interface MomentInfo {
 }
 
 const MOMENT_HEAD = /^<!--\s*(moment|moment-ask)\s+video=(\S+)\s+t=([\d.]+)\s*-->$/
+
+/**
+ * 文档里 from 处那块问答（<!-- moment-ask … --> 到空行）后面紧跟着的 AI 提示块（> [!ai] …）的正文：
+ * 「接着问」时交给 AI，它才知道自己上一回怎么讲的。没有就是空串
+ */
+export function askAnswerAfter(text: string, from: number): string {
+  const lines = text.slice(from).split('\n')
+  let i = 0
+  while (i < lines.length && lines[i]!.trim() !== '') i++
+  while (i < lines.length && lines[i]!.trim() === '') i++
+  if (!/^>\s*\[!ai\]/i.test(lines[i] ?? '')) return ''
+  const body: string[] = []
+  for (i++; i < lines.length && /^>/.test(lines[i]!); i++) body.push(lines[i]!.replace(/^>\s?/, ''))
+  return body.join('\n').trim()
+}
 
 /** 认时刻块（文档里一块、白板卡片的正文）；不是就给 null */
 export function parseMoment(text: string): MomentInfo | null {
@@ -479,19 +524,35 @@ export function parseSummary(text: string): { t: number; text: string }[] {
 /** 中间栏现在开着什么 */
 export type CenterKind = { kind: 'doc'; path: string; title: string } | { kind: 'board'; path: string; title: string } | { kind: 'material'; path: string; title: string } | { kind: 'none' }
 
-/** 记下的东西落在哪 */
-export type Dest = { kind: 'doc'; path: string; title: string } | { kind: 'board'; path: string; title: string } | { kind: 'inbox'; path: string; title: string }
+/** 记下的东西落在哪；new：中间没开文档，记的时候新建「收件箱/<视频标题>.md」在中间打开（已经有就用那篇），再当文档插 */
+export type Dest = { kind: 'doc'; path: string; title: string } | { kind: 'board'; path: string; title: string } | { kind: 'inbox'; path: string; title: string } | { kind: 'new'; path: string; title: string }
 
 export const inboxPathFor = (title: string) => `收件箱/${safeTitle(title)}.md`
 
 /**
  * 记到哪（spec 第 2 节）：开着文档插到光标处；开着白板进这个视频的「时刻」列；
- * 开着的是这个视频自己的字幕全文就记进上一篇开着的文档；什么都没开进「收件箱/<视频标题>.md」。
+ * 开着的是这个视频自己的字幕全文就记进上一篇开着的文档；中间没开文档（HTML、PDF、首页、什么都没开）：
+ * 新建「收件箱/<视频标题>.md」在中间打开再插（CN-70）。inbox：用户在「记到」里明确选了收件箱，只往那篇末尾追加、不打开。
  */
-export function destFor(center: CenterKind, lastDoc: { path: string; title: string } | null, videoTitle: string): Dest {
+export function destFor(center: CenterKind, lastDoc: { path: string; title: string } | null, videoTitle: string, inbox = false): Dest {
+  const path = inboxPathFor(videoTitle)
+  if (inbox) return { kind: 'inbox', path, title: safeTitle(videoTitle) }
   if (center.kind === 'doc') return { kind: 'doc', path: center.path, title: center.title }
   if (center.kind === 'board') return { kind: 'board', path: center.path, title: center.title }
   if (center.kind === 'material' && lastDoc) return { kind: 'doc', ...lastDoc }
-  const path = inboxPathFor(videoTitle)
-  return { kind: 'inbox', path, title: safeTitle(videoTitle) }
+  return { kind: 'new', path, title: safeTitle(videoTitle) }
 }
+
+/** 「未命名」「未命名 3」：还没起过名字的那篇，第一次记一个视频时直接改成视频名（CN-80） */
+export const isUntitled = (title: string) => /^未命名(?: \d+)?$/.test(title.trim())
+
+/**
+ * 「视频里的疑惑.md」加一条以后的全文：软件汇总的（front matter「类型: 视频里的疑惑」「生成: 软件」，梦游找重复时跳过），
+ * 新的在后面；以前建的没有 front matter 的这次补上
+ */
+export function videoDoubtsText(cur: string | null, entry: string): string {
+  if (cur === null) return `${setProp(setProp('', '类型', '视频里的疑惑'), '生成', '软件')}\n# 视频里的疑惑\n\n看视频时框一块问过 AI 的地方，新的在后面。读 PDF 时问的在「我的疑惑」。\n\n${entry}\n`
+  const marked = prop(cur, '生成') === '软件' ? cur : setProp(setProp(cur, '类型', prop(cur, '类型') ?? '视频里的疑惑'), '生成', '软件')
+  return marked.replace(/\n*$/, '\n\n') + entry + '\n'
+}
+

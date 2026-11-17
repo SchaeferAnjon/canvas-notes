@@ -11,6 +11,8 @@ export interface FakePage {
   image?: { x: number; y: number; w: number; h: number }
   /** 行距（默认 20，正文连成一段；30 以上每行自成一段） */
   lineGap?: number
+  /** 页面底下再画这么多个小色块（画起来慢的「重」页，像图多的课件） */
+  heavy?: number
 }
 
 const esc = (s: string) => s.replace(/[\\()]/g, (c) => '\\' + c)
@@ -43,6 +45,7 @@ export function lecturePdf(pages: FakePage[]): Buffer {
     p.lines.forEach((l, k) => {
       s += `BT /F2 13 Tf 72 ${H - 150 - k * (p.lineGap ?? 20)} Td (${esc(l)}) Tj ET\n`
     })
+    for (let k = 0; k < (p.heavy ?? 0); k++) s += `${(k % 7) / 7} ${(k % 5) / 5} 0.8 rg ${(k * 37) % 560 + 20} ${(k * 53) % 300 + 60} 6 6 re f\n`
     if (p.image) s += `q ${p.image.w} 0 0 ${p.image.h} ${p.image.x} ${p.image.y} cm /Im1 Do Q\n`
     s += `BT /F2 10 Tf 72 40 Td (Linear Algebra - Lecture 3) Tj ET\nBT /F2 10 Tf ${W - 110} 40 Td (${i + 1} / ${pages.length}) Tj ET\n`
     const content = add(`<< /Length ${Buffer.byteLength(s, 'latin1')} >>\nstream\n${s}endstream`)

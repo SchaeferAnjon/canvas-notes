@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { BookmarkTree } from '../src/main/web/bookmarkkeeper/bookmark-tree'
 import { fnv1a, machineIdFrom, merge, QuickBridge, QuickStore, validate } from '../src/main/web/bookmarkkeeper/quick-store'
-import { BOOKMARKKEEPER_ID, findSource } from '../src/main/web/bookmarkkeeper/source'
+import { findSource } from '../src/main/web/bookmarkkeeper/source'
 import { Bookmarks } from '../src/main/web/library'
 
 let dir: string
@@ -151,22 +151,13 @@ describe('BookmarkKeeper 的文件从哪来', () => {
     writeFileSync(join(d, 'newtab', 'index.html'), '<title>x</title>')
     return d
   }
-  it('先用 Chrome 里装的（开发者模式是绝对路径，商店装的是 Extensions/ 下的相对路径），再源码目录，最后自带的', () => {
-    const chrome = join(dir, 'Chrome')
+  it('只用软件自带的那份（测试时用 CN_BOOKMARKKEEPER_DIR 指的）；Chrome 里装的、源码目录里的都不找', () => {
     const bundled = ext(join(dir, 'bundled'))
-    const projects = join(dir, 'projects')
-    expect(findSource({ chromeRoot: chrome, projects, bundled })).toMatchObject({ dir: bundled, from: 'bundled', version: '0.8.0' })
-    ext(projects)
-    expect(findSource({ chromeRoot: chrome, projects, bundled })!.from).toBe('projects')
-    const unpacked = ext(join(dir, 'unpacked'))
-    mkdirSync(join(chrome, 'Profile 2'), { recursive: true })
-    writeFileSync(join(chrome, 'Profile 2', 'Secure Preferences'), JSON.stringify({ extensions: { settings: { [BOOKMARKKEEPER_ID]: { path: unpacked, location: 4 } } } }))
-    expect(findSource({ chromeRoot: chrome, projects, bundled })).toMatchObject({ dir: unpacked, from: 'chrome' })
-    // 商店装的：相对路径；不是 BookmarkKeeper 的文件夹跳过
-    writeFileSync(join(chrome, 'Profile 2', 'Secure Preferences'), JSON.stringify({ extensions: { settings: { [BOOKMARKKEEPER_ID]: { path: `${BOOKMARKKEEPER_ID}/0.8.0_0` } } } }))
-    ext(join(chrome, 'Profile 2', 'Extensions', BOOKMARKKEEPER_ID, '0.8.0_0'), '别的插件')
-    expect(findSource({ chromeRoot: chrome, projects, bundled })!.from).toBe('projects')
-    expect(findSource({ env: bundled, chromeRoot: chrome, projects, bundled })!.from).toBe('env')
-    expect(findSource({ chromeRoot: chrome, projects: join(dir, 'nope'), bundled: join(dir, 'nope2') })).toBeNull()
+    expect(findSource({ bundled })).toMatchObject({ dir: bundled, from: 'bundled', version: '0.8.0' })
+    const env = ext(join(dir, 'env'))
+    expect(findSource({ env, bundled })).toMatchObject({ dir: env, from: 'env' })
+    // 指的不是 BookmarkKeeper：还是自带的
+    expect(findSource({ env: ext(join(dir, 'other'), '别的插件'), bundled })!.from).toBe('bundled')
+    expect(findSource({ bundled: join(dir, 'nope') })).toBeNull()
   })
 })

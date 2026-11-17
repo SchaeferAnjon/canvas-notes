@@ -7,12 +7,15 @@ import { aiFilled, HIDDEN_KEYS, readProps, setPropByUser } from '@cn/format'
 import { useEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { coursesOf } from '../../shared/mindmap'
+import { AttachGrid, AttachList, useAttachments } from '../PropsAttach'
 
 export const TYPES = ['课件', '笔记', '导图', '可视化', '书摘']
 /** 常用的放前面，没写的也列出来让人填 */
 const COMMON = ['类型', '课程', '第几讲', '来源', '日期']
 
-export function PropsButton(props: { text: string; notes: NoteFile[]; readOnly: boolean; onChange(text: string): void }) {
+type PropsProps = { path: string; text: string; notes: NoteFile[]; readOnly: boolean; onChange(text: string): void; /** 附件网格里双击一张：跳到文中那一处 */ onJump(offset: number): void }
+
+export function PropsButton(props: PropsProps) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -37,7 +40,7 @@ export function PropsButton(props: { text: string; notes: NoteFile[]; readOnly: 
   )
 }
 
-function PropsPop(props: { text: string; notes: NoteFile[]; readOnly: boolean; onChange(text: string): void }) {
+function PropsPop(props: PropsProps) {
   const all = readProps(props.text).filter((p) => !HIDDEN_KEYS.has(p.key))
   const ai = aiFilled(props.text)
   const keys = [...COMMON.filter((k) => all.some((p) => p.key === k) || k === '类型' || k === '课程'), ...all.map((p) => p.key).filter((k) => !COMMON.includes(k))]
@@ -45,8 +48,18 @@ function PropsPop(props: { text: string; notes: NoteFile[]; readOnly: boolean; o
   const [adding, setAdding] = useState(false)
   const courses = coursesOf(props.notes.map((n) => n.path))
   const set = (k: string, v: string) => props.onChange(setPropByUser(props.text, k, v.trim() === '' ? undefined : v))
+  const [att, reload] = useAttachments(props.path, props.text)
+  const [grid, setGrid] = useState(false)
+  // 附件文件夹有就打开它，没有（图都在别处）就在访达里显示这篇
+  const reveal = () => window.cnMenu.reveal(att?.dirExists ? att.dir : props.path)
+  if (grid && att)
+    return (
+      <div className="mm-props grid" role="dialog" aria-label="附件">
+        <AttachGrid a={att} onBack={() => setGrid(false)} onReveal={reveal} onJump={props.onJump} reload={reload} />
+      </div>
+    )
   return (
-    <div className="mm-props" role="dialog" aria-label="属性">
+    <div className={'mm-props' + (att?.items.length ? ' with-attach' : '')} role="dialog" aria-label="属性">
       <h4>属性</h4>
       {keys.map((k) => (
         <div className="pr" key={k}>
@@ -63,7 +76,7 @@ function PropsPop(props: { text: string; notes: NoteFile[]; readOnly: boolean; o
           ) : (
             <PropInput label={k} value={value(k)} readOnly={props.readOnly} onCommit={(v) => set(k, v)} />
           )}
-          <span className="ai">{ai.includes(k) && value(k) ? 'AI 填的' : ''}</span>
+          <span className="ai">{ai.includes(k) && value(k) ? 'AI填的' : ''}</span>
         </div>
       ))}
       {adding ? (
@@ -81,7 +94,8 @@ function PropsPop(props: { text: string; notes: NoteFile[]; readOnly: boolean; o
           </button>
         )
       )}
-      <p className="foot">AI 认出来当场填好，你改了以你为准。存在文件开头；改属性不挪文件、不改名。</p>
+      {att && <AttachList a={att} onAll={() => setGrid(true)} onReveal={reveal} reload={reload} />}
+      <p className="foot">AI认出来当场填好，你改了以你为准。存在文件开头；改属性不挪文件、不改名。</p>
     </div>
   )
 }

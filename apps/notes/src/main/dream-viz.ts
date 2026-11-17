@@ -5,6 +5,7 @@
  * 这是梦游「只动收件箱、素材、周记」之外的例外：只新建 HTML、只改那篇读 PDF 笔记里那一段的脚，提交前核对。
  * 不依赖 Electron，单元测试直接跑。
  */
+import { sizeText } from '../shared/diff'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { type AskSection, lectureOf, parseReadingNote, prop, upsertSection } from '@cn/format'
@@ -90,6 +91,8 @@ export async function makeDreamViz(o: {
   now: Date
   commit(message: string, ok: ReadonlySet<string>): Promise<string>
   notes: string[]
+  /** 哪家哪个模型做的（「Claude Code · Opus 5.5」） */
+  by?: string
 }): Promise<Omit<DreamItem, 'id' | 'group' | 'state'>[]> {
   const { wt, now } = o
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -106,7 +109,7 @@ export async function makeDreamViz(o: {
       const folder = dirname(spot.pdf) === '.' ? '' : dirname(spot.pdf)
       const course = /^课程\/([^/]+)/.exec(folder)?.[1] ?? ''
       const lec = lectureOf(spot.pdf)
-      const html = withVizMeta(raw, { 类型: '可视化', 课程: course, 第几讲: lec !== undefined ? String(lec) : '', 来源: `[[${spot.pdf.split('/').pop()}]] 第 ${s.page} 页`, 做的: '梦游' })
+      const html = withVizMeta(raw, { 类型: '可视化', 课程: course, 第几讲: lec !== undefined ? String(lec) : '', 来源: `[[${spot.pdf.split('/').pop()}]] 第 ${s.page} 页`, 做的: '梦游', ...(o.by ? { 模型: o.by } : {}) })
       let stem = vizFileStem(title)
       let rel = `${folder ? folder + '/' : ''}${stem}.html`
       for (let n = 2; taken.has(rel) || (await exists(wt, rel)); n++) rel = `${folder ? folder + '/' : ''}${stem} ${n}.html`
@@ -123,13 +126,18 @@ export async function makeDreamViz(o: {
       const c = await o.commit(`梦游：做了可视化「${title}」（${spot.pdf.split('/').pop()!.replace(/\.pdf$/i, '')} 第 ${s.page} 页）`, new Set([rel, spot.note]))
       out.push({
         title,
-        sub: `新文件 ${rel} · 挂到「${spot.note.split('/').pop()!.replace(/\.md$/, '')}」第 ${s.page} 页`,
-        why: `你今天在第 ${s.page} 页「${s.title}」问了 ${s.rounds} 轮${s.failed.length ? `、${s.failed.length} 次还是不懂` : ''}。做了一个能拖的小网页，收下才进课程文件夹`,
+        sub: `新文件 ${rel} · 挂到「${spot.note.split('/').pop()!.replace(/\.md$/, '')}」第${s.page}页`,
+        why: `你今天在第${s.page}页「${s.title}」问了${s.rounds}轮${s.failed.length ? `、${s.failed.length}次还是不懂` : ''}。做了一个能拖的小网页，收下才进课程文件夹`,
         commit: c,
         files: [rel, spot.note],
+        ...(o.by ? { by: o.by } : {}),
+        changes: [
+          { path: rel, text: `新建「${rel.split('/').pop()}」· ${sizeText(Buffer.byteLength(html))}` },
+          { path: spot.note, text: `第${s.page}页那段末尾加了可视化链接` },
+        ],
       })
     } catch (e) {
-      o.notes.push(`第 ${s.page} 页「${s.title}」的可视化没做成：${(e as Error).message}`)
+      o.notes.push(`第${s.page}页「${s.title}」的可视化没做成：${(e as Error).message}`)
     }
   }
   return out

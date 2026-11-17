@@ -5,15 +5,18 @@
  * 3. 隔一阵写一次盘，下次打开只算新的和改了的。
  * 不依赖 Electron：单元测试用假模型直接跑。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import { decodeNote, type PdfBlock } from '@cn/format'
 import { type MeaningHit, type PdfTextHit, queryWords, type SearchStatus } from '../../shared/search'
-import { pdfHash, type PdfTextCache, textCachePath } from '../pdf-text-cache'
+import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
 import { type Chunk, mdChunks, pdfChunks, pdfTextHits } from './chunks'
 import type { Embedder } from './embedder'
 import { VectorIndex } from './vector-index'
+
+/** md 切段的版本，切法一变就加一（2：摘要去掉 ```base 等数据库块，第 4 轮美学） */
+const MD_CHUNKS_V = ':c2'
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 const BATCH = 16
@@ -24,6 +27,15 @@ const SAVE_EVERY = 400
  * 只留不低于 0.83、离第一名不到 0.04 的（2026-11-16 拿中英文混的小库量的）
  */
 export const MEANING = { limit: 30, min: 0.83, near: 0.04 }
+/**
+ * 意思相近「有把握」的门槛：最像的那段比这句话和几句空泛的套话（FILLER）平均像出多少。
+ * 这个模型对什么都给 0.8 上下，看绝对分数分不开沾边和不沾边（「没有这个qq」最像的是 0.860，「买菜」配购物清单是 0.857）；
+ * 减掉「和套话有多像」以后，不沾边的词（特斯拉股价、老布什abc、没有这个qq、天气预报、量子力学、股票…）都在 0.040 以下，
+ * 沾边的（矩阵怎么变换 0.069、发版清单 0.088、javascript 事件循环 0.111、爬山 0.048）在 0.045 以上（2026-11-17 量的，
+ * 300 篇和 10 篇的库一样，见 test/search-model.test.ts）。宁可漏掉几个弱的（买菜 0.035），也不把不沾边的当默认
+ */
+export const SURE = 0.045
+const FILLER = ['正文。', '这是一段笔记。', 'hello']
 
 export interface IndexerOptions {
   root: string
@@ -121,8 +133,10 @@ export class Indexer {
           if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
           throw e
         }
-        const f = { path: relative(this.o.root, abs).split(sep).join('/'), sig: `${st.mtimeMs}:${st.size}` }
-        ;(low.endsWith('.md') ? md : pdf).push(f)
+        const isMd = low.endsWith('.md')
+        // md 的签名带上切段的版本：切法变了（如摘要不再露数据库块），没改过的笔记也重算一次
+        const f = { path: relative(this.o.root, abs).split(sep).join('/'), sig: `${st.mtimeMs}:${st.size}${isMd ? MD_CHUNKS_V : ''}` }
+        ;(isMd ? md : pdf).push(f)
       }
     }
     await go(this.o.root)
@@ -204,11 +218,11 @@ export class Indexer {
   private async pdfText(path: string): Promise<{ pages: PdfBlock[][]; sizes?: [number, number][] }> {
     const abs = join(this.o.root, path)
     const data = new Uint8Array(await readFile(abs))
-    const cachePath = textCachePath(this.o.userData, pdfHash(data))
-    if (existsSync(cachePath)) {
-      const c = JSON.parse(readFileSync(cachePath, 'utf8')) as PdfTextCache
-      if (c.sizes) return { pages: c.pages, sizes: c.sizes }
-    }
+    const hash = pdfHash(data)
+    const cachePath = textCachePath(this.o.userData, hash)
+    // 有 MinerU 认好的（m1）用它，没有用 pdf.js 拼的
+    const c = readTextCache(this.o.userData, hash)
+    if (c?.sizes) return { pages: c.pages, sizes: c.sizes }
     const r = await this.o.readPdf(abs)
     mkdirSync(dirname(cachePath), { recursive: true })
     writeFileSync(cachePath + '.tmp', JSON.stringify({ pdf: path, pages: r.pages, sizes: r.sizes } satisfies PdfTextCache))
@@ -228,9 +242,26 @@ export class Indexer {
     return out.slice(0, limit)
   }
 
+  private filler: Float32Array[] | null = null
+
   async meaning(q: string): Promise<MeaningHit[]> {
     if (!this.index || !this.o.embedder || !q.trim()) return []
-    const [v] = await this.o.embedder.embed([q.trim()], 'query')
-    return this.index.search(v!, this.o.meaning ?? MEANING)
+    const e = this.o.embedder
+    const [v] = await e.embed([q.trim()], 'query')
+    const dot = (a: Float32Array, b: Float32Array) => {
+      let s = 0
+      for (let k = 0; k < a.length; k++) s += a[k]! * b[k]!
+      return s
+    }
+    const o = this.o.meaning ?? MEANING
+    // 索引还没建完（「先找建好的」）：真正最像的那篇可能还没算进来，「比最像的低不过 near」就没了依据，
+    // 本机小模型给不沾边的段也有 0.84 上下，过得了 min（2000 篇只写「随便写点。」的库，搜「线性代数复习」列出 30 篇）。
+    // 这时拿「正文就是这句话的一段」和查询的分数当最像的来卡，建完再照常
+    const anchor = this.status.phase !== 'ready' ? dot(v!, (await e.embed([q.trim()], 'passage'))[0]!) : undefined
+    const hits = this.index.search(v!, anchor === undefined ? o : { ...o, anchor })
+    if (!hits.length) return hits
+    this.filler ??= await e.embed(FILLER, 'passage')
+    const filler = this.filler.reduce((s, f) => s + dot(v!, f), 0) / this.filler.length
+    return hits.map((h) => (h.score - filler >= SURE ? { ...h, sure: true } : h))
   }
 }

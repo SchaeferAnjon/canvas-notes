@@ -4,8 +4,9 @@
  */
 import { Codicon } from '@cn/design'
 import { biKind, translatable } from '@cn/format'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { glossaryPath, parseGlossary, type Term } from '../../../shared/plugins/translate'
+import { MathText } from '../math'
 import type { FlowBlock } from './ReflowView'
 import { type BiLayout, hashOf, request, useBi } from './store'
 
@@ -15,6 +16,8 @@ export function SideCol(props: {
   blocks: FlowBlock[] | undefined
   course: string | null
   height: number
+  /** 原页的比例（页面单位 → 像素）：每段译文的顶边对齐到原页那一段 */
+  scale: number
   /** 这一页看得到（上下多一屏）才翻 */
   visible: boolean
   hover: string | null
@@ -25,34 +28,53 @@ export function SideCol(props: {
   useEffect(() => {
     if (visible && blocks) void request(srcKey, translatable(blocks), course)
   }, [visible, blocks, srcKey, course])
-  if (!blocks) return <div className="bicol" style={{ height: props.height }} />
-  const rows: ({ k: 'skip'; id: string } | { k: 'tr'; b: FlowBlock })[] = []
-  for (const b of blocks) {
+  const rows: ({ k: 'skip'; id: string; top?: number } | { k: 'tr'; b: FlowBlock })[] = []
+  for (const b of blocks ?? []) {
     const kind = biKind(b)
-    if (kind === 'formula' || kind === 'figure') {
-      if (rows[rows.length - 1]?.k !== 'skip') rows.push({ k: 'skip', id: b.id })
+    if (kind === 'formula' || kind === 'figure' || kind === 'table') {
+      if (rows[rows.length - 1]?.k !== 'skip') rows.push({ k: 'skip', id: b.id, ...(b.top !== undefined ? { top: b.top } : {}) })
     } else if (translatable([b]).length) rows.push({ k: 'tr', b })
   }
+  // 每段译文的顶边对齐到原页那一段（放不下就往下推，下一段接着排）：量出每行多高，算出每行上面空多少（CN-31）
+  const col = useRef<HTMLDivElement>(null)
+  const [gaps, setGaps] = useState<number[]>([])
+  useLayoutEffect(() => {
+    const el = col.current
+    if (!el) return
+    const kids = [...el.children] as HTMLElement[]
+    // 栏顶有 2 的内边距；行和行之间至少空 6。rel[i] = 这一行上面空多少（第一行相对栏顶，之后相对上一行底边）
+    let bottom = 2
+    const rel = kids.map((k, i) => {
+      const r = rows[i]
+      const want = r ? ((r.k === 'tr' ? r.b.top : r.top) ?? 0) * props.scale - (r.k === 'tr' ? 4 : 0) : 0
+      const top = Math.max(i ? bottom + 6 : 2, Math.round(want))
+      const gap = top - bottom
+      bottom = top + k.offsetHeight
+      return gap
+    })
+    if (rel.length !== gaps.length || rel.some((g, i) => Math.abs(g - gaps[i]!) > 0.5)) setGaps(rel)
+  })
+  if (!blocks) return <div className="bicol" style={{ height: props.height }} />
   return (
-    <div className="bicol" style={{ maxHeight: props.height }} onMouseLeave={() => props.onHover(null)} data-testid="bi-side">
-      {rows.map((r) =>
+    <div className="bicol aligned" ref={col} style={{ maxHeight: props.height }} onMouseLeave={() => props.onHover(null)} data-testid="bi-side">
+      {rows.map((r, i) =>
         r.k === 'skip' ? (
-          <p key={r.id} className="skip">
+          <p key={r.id} className="skip" style={{ marginTop: gaps[i] ?? 0 }}>
             <Codicon name="screen-full" size={12} />
             公式和图不翻译，看左边原页
           </p>
         ) : (
-          <SideBlock key={r.b.id} b={r.b} tr={bi.tr[hashOf(r.b.text)]} on={props.hover === r.b.id} onEnter={() => props.onHover(r.b.id)} />
+          <SideBlock key={r.b.id} b={r.b} tr={bi.tr[hashOf(r.b.text)]} on={props.hover === r.b.id} onEnter={() => props.onHover(r.b.id)} gap={gaps[i] ?? 0} />
         ),
       )}
     </div>
   )
 }
 
-function SideBlock({ b, tr, on, onEnter }: { b: FlowBlock; tr: { state: string; text?: string; error?: string } | undefined; on: boolean; onEnter(): void }) {
+function SideBlock({ b, tr, on, onEnter, gap }: { b: FlowBlock; tr: { state: string; text?: string; error?: string } | undefined; on: boolean; onEnter(): void; gap: number }) {
   return (
-    <p className={'sb' + (b.kind === 'heading' ? ' h' : '') + (on ? ' on' : '') + (tr?.state === 'err' ? ' err' : '')} data-block={b.id} onMouseEnter={onEnter}>
-      {tr?.text ? tr.text : tr?.state === 'err' ? `没翻成：${tr.error}` : <span className="wait" aria-label="正在翻" />}
+    <p className={'sb' + (b.kind === 'heading' ? ' h' : b.kind === 'caption' ? ' cap' : '') + (on ? ' on' : '') + (tr?.state === 'err' ? ' err' : '')} data-block={b.id} onMouseEnter={onEnter} style={{ marginTop: gap }}>
+      {tr?.text ? b.math ? <MathText text={tr.text} /> : tr.text : tr?.state === 'err' ? `没翻成：${tr.error}` : <span className="wait" aria-label="正在翻" />}
     </p>
   )
 }
@@ -141,7 +163,7 @@ function GlossaryButton({ course, onOpen }: { course: string; onOpen(path: strin
     <div className="bigloss" ref={ref}>
       <button type="button" className="btn btn-sm btn-ghost" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <Codicon name="book" size={14} />
-        术语表 · {terms.length} 条
+        {`术语表 · ${terms.length}条`}
       </button>
       {open && (
         <div className="glosspop" role="dialog" aria-label="术语表">
@@ -155,7 +177,7 @@ function GlossaryButton({ course, onOpen }: { course: string; onOpen(path: strin
             {!terms.length && <p className="gl-empty">表里还没有词</p>}
           </div>
           <div className="gl-foot">
-            翻译和 AI 讲解都照这里的叫法 ·{' '}
+            翻译和AI讲解都照这里的叫法 ·{' '}
             <button type="button" className="lnk" onClick={() => (setOpen(false), onOpen(path))}>
               打开 术语表.md
             </button>

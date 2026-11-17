@@ -2,10 +2,11 @@ import { Codicon } from '@cn/design'
 import type { ReactNode } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
-import { when } from './ListView'
+import { when } from '../shared/when'
 import { imageSrc } from './md-widgets'
 import { parseMoment, parseVideoCard, videoOf } from '../shared/video'
 import { MomentCard, VideoCard } from './video/BoardCards'
+import { inline, Markdown } from './md-render'
 
 /**
  * 卡片里的 md 显示成什么样。只认卡片里常见的写法，全部走 React 元素（不拼 HTML）。
@@ -117,7 +118,7 @@ export function CardBody(props: {
         <span className="sq" style={{ background: n.board!.color }} />
         <span>
           <b>{titleOf(n.path)}</b>
-          <span className="meta num">{n.board!.cards} 张卡片</span>
+          <span className="meta num">{`${n.board!.cards}张卡片`}</span>
         </span>
       </div>
     )
@@ -186,7 +187,12 @@ export function CardBody(props: {
       </>
     )
   }
-  return <div className="cb-note">{paragraphs(lines)}</div>
+  // 普通卡片：和文档、AI 回答同一套 md 显示（列表、提示块、折叠块、表格、高亮都不露记号）
+  return (
+    <div className="cb-note">
+      <Markdown text={text} />
+    </div>
+  )
 }
 
 /** 按空行分段，# 开头的是小标题，> 开头的是引文 */
@@ -213,28 +219,4 @@ function paragraphs(lines: string[]): ReactNode[] {
 
 function join(lines: string[]): ReactNode[] {
   return lines.flatMap((l, i) => (i ? [<br key={'br' + i} />, ...inline(l, i)] : inline(l, i)))
-}
-
-const INLINE = /(!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)\s]+(?:\s+"[^"]*")?\))/g
-
-export function inline(s: string, keyBase: string | number = ''): ReactNode[] {
-  const out: ReactNode[] = []
-  let last = 0
-  for (const m of s.matchAll(INLINE)) {
-    if (m.index! > last) out.push(s.slice(last, m.index))
-    const t = m[0]
-    const key = `${keyBase}-${m.index}`
-    // 正文中间的图片只留说明文字：卡片里放大图会把卡片撑得很长
-    if (t.startsWith('![')) out.push(<span key={key} className="img-alt">{t.slice(2, t.indexOf(']')) || '图片'}</span>)
-    else if (t.startsWith('**')) out.push(<b key={key}>{t.slice(2, -2)}</b>)
-    else if (t.startsWith('`')) out.push(<code key={key}>{t.slice(1, -1)}</code>)
-    else if (t.startsWith('[[')) out.push(<span key={key} className="wl">{t.slice(2, -2).split('|').pop()}</span>)
-    // 读 PDF 时 AI 回答里的「[第 4 页](#page=4)」：点了 PDF 翻过去（右栏 AI 接住点击）
-    else if (/\]\(#page=\d+\)$/.test(t)) out.push(<a key={key} className="pg" data-page={/#page=(\d+)/.exec(t)![1]}>{t.slice(1, t.indexOf(']'))}</a>)
-    else if (t.startsWith('[')) out.push(<u key={key}>{t.slice(1, t.indexOf(']'))}</u>)
-    else out.push(<i key={key}>{t.slice(1, -1)}</i>)
-    last = m.index! + t.length
-  }
-  if (last < s.length) out.push(s.slice(last))
-  return out
 }

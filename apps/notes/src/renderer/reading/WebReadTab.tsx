@@ -93,7 +93,7 @@ export function WebReadTab(props: { url: string; title: string; active: boolean;
         ],
       })
       setSaved(res.path)
-      props.onNotice(`已存成 ${res.path} · 带原网址`)
+      props.onNotice(`已存成${res.path} · 带原网址`)
     } catch (e) {
       props.onNotice(errText(e))
     } finally {
@@ -125,7 +125,7 @@ export function WebReadTab(props: { url: string; title: string; active: boolean;
           <BiBar
             langs={`${langsLine(want.slice(0, 40).map((b) => b.text).join(' '))} · ${page.site}`}
             layout={null}
-            status={`${busy ? '正在翻 · ' : ''}译文 ${done}/${want.length} 段`}
+            status={`${busy ? '正在翻 · ' : ''}译文${done}/${want.length}段`}
             busy={busy}
             course={null}
             saved={saved}

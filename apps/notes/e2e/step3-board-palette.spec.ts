@@ -141,7 +141,7 @@ test('卡片和待办拖进已有的列：列高亮，松手放进那一列、�
     await page.mouse.up()
     await expect(col).not.toHaveClass(/drop/)
     await expect(col.locator('.bcard')).toHaveCount(3)
-    await expect(col.locator('h3 .meta')).toHaveText('3 张卡片')
+    await expect(col.locator('h3 .meta')).toHaveText('3张卡片')
     await waitSaved(page)
     let md = read(vault)
     expect(md).toMatch(/<!-- card id=k5 in=c1 -->\n机票\n\n<!-- card id=\w+ in=c1 -->\n\*\*待办\*\*\n- \[ \] \n\n<!-- card id=k6 in=c1 -->\n车\n/)
@@ -157,7 +157,7 @@ test('卡片和待办拖进已有的列：列高亮，松手放进那一列、�
     md = read(vault)
     expect(md).toContain('<!-- column id=c1 x=700 y=80 w=300 title=要订的 -->\n<!-- card id=')
     expect(md).toMatch(/title=要订的 -->\n<!-- card id=\w+ in=c1 -->\n护照\n\n<!-- card id=k5 in=c1 -->/)
-    await expect(col.locator('h3 .meta')).toHaveText('4 张卡片')
+    await expect(col.locator('h3 .meta')).toHaveText('4张卡片')
   } finally {
     await run.close()
   }
@@ -281,7 +281,8 @@ test('AI 浮窗或右栏开着、白板缩到 0.8 时，落点照样对', async 
     // 缩放时拖进列也认得出落点：放在「车」后面
     const col = board(page).locator('.bcol[data-id="c1"]')
     const k6 = (await col.locator('.bcard[data-id="k6"]').boundingBox())!
-    await dragFromPal(page, '卡片', { x: k6.x + 60, y: k6.y + k6.height + 6 })
+    // 落点靠列的左边：画布上边让出 64 后（第 3 轮美学），「车」下面那一截到了 AI 浮窗的高度，浮窗盖着列的右半边
+    await dragFromPal(page, '卡片', { x: k6.x + 20, y: k6.y + k6.height + 6 })
     await expect(col.getByRole('textbox', { name: '卡片内容' })).toBeFocused()
     await page.keyboard.type('缩放时放进来的')
     await page.keyboard.press('Meta+Enter')

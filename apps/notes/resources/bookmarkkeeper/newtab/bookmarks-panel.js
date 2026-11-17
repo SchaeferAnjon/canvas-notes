@@ -83,7 +83,7 @@ import { HAS_BOOKMARKS, APP_DOWNLOAD_URL } from '../shared/env.js';
     }
     .bk-group-row .bk-tile img { width: 28px; height: 28px; }
     .bk-quick-bar { display: flex; align-items: center; gap: 12px; margin: 2px 0 4px; }
-    .bk-quick-bar .bk-quick-label { font-size: 11px; color: var(--muted); letter-spacing: .5px; text-transform: uppercase; }
+    .bk-quick-bar .bk-quick-label { font-size: 11px; color: var(--muted); }
     .bk-quick-bar .bk-quick-hint { font-size: 11px; color: var(--muted); opacity: .7; flex: 1; }
     .bk-edit-btn {
       cursor: pointer; background: none; border: 1px solid var(--warm-gray); border-radius: 999px;
@@ -105,10 +105,10 @@ import { HAS_BOOKMARKS, APP_DOWNLOAD_URL } from '../shared/env.js';
     }
     .chip-quick:hover { color: var(--accent-amber) !important; background: rgba(200,113,58,0.08) !important; }
     .chip-quick.is-added { color: var(--accent-amber); opacity: 1; }
-    .bk-quick-empty { font-size: 13px; color: var(--muted); font-style: italic; padding: 12px 0 16px; }
+    .bk-quick-empty { grid-column: 1 / -1; font-size: 13px; color: var(--muted); padding: 12px 0 16px; }
     .bk-folders-toggle {
       display: inline-flex; align-items: center; gap: 6px; cursor: pointer; background: none; border: none;
-      font: inherit; font-size: 12px; color: var(--muted); padding: 6px 0; margin-bottom: 14px; letter-spacing: .3px;
+      font: inherit; font-size: 12px; color: var(--muted); padding: 6px 0; margin-bottom: 14px;
     }
     .bk-folders-toggle:hover { color: var(--accent-amber); }
     .bk-folders-toggle svg { width: 12px; height: 12px; transition: transform .2s; }
@@ -149,7 +149,7 @@ import { HAS_BOOKMARKS, APP_DOWNLOAD_URL } from '../shared/env.js';
   section.id = 'bkSection';
   section.innerHTML = `
     <div class="section-header">
-      <h2>Bookmarks</h2>
+      <h2>书签</h2>
       <div class="section-line"></div>
       ${HAS_BOOKMARKS ? '<span class="bk-tools" id="bkTools"><a href="../manager/manager.html">整理书签</a><a href="../options/options.html">设置</a></span>' : ''}
       <div class="section-count" id="bkCount"></div>
@@ -166,7 +166,7 @@ import { HAS_BOOKMARKS, APP_DOWNLOAD_URL } from '../shared/env.js';
     <div class="bk-group-row" id="bkGroupRow" style="display:none"></div>
     ${HAS_BOOKMARKS ? `<button class="bk-folders-toggle" id="bkFoldersToggle" type="button">
       <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-      <span id="bkFoldersLabel">All folders</span>
+      <span id="bkFoldersLabel">全部文件夹</span>
     </button>
     <div class="bk-cards" id="bkCards" style="display:none"></div>` : ''}`;
   anchor.parentNode.insertBefore(section, anchor);
@@ -273,7 +273,8 @@ import { HAS_BOOKMARKS, APP_DOWNLOAD_URL } from '../shared/env.js';
     editBtn.textContent = editing ? '完成' : '编辑';
     if (openGroup >= 0 && !isGroup(quickLinks[openGroup])) openGroup = -1;
     if (!quickLinks.length) {
-      quickEl.innerHTML = '<div class="bk-quick-empty">还没有快捷书签。在网页上按 Alt+Shift+B 或右键「加入快捷书签」。</div>';
+      // 下面没有「开着的网页」（只开着这一页）时换一句能照做的（style.css 按那一栏在不在显示其中一句）
+      quickEl.innerHTML = '<div class="bk-quick-empty">还没有快捷书签。<span class="bk-has-tabs">在下面「开着的网页」里点网页旁边的星星，就加进来了。</span><span class="bk-no-tabs">先开几个网页，再回到新网页，在「开着的网页」里点网页旁边的星星，就加进来了。</span></div>';
       groupRowEl.style.display = 'none';
       return;
     }
@@ -316,9 +317,9 @@ import { HAS_BOOKMARKS, APP_DOWNLOAD_URL } from '../shared/env.js';
     const s = await syncStatus();
     const app = `<a href="${APP_DOWNLOAD_URL}" target="_blank" rel="noopener">BookmarkKeeper App</a>`;
     const notes = {
-      local: ['iCloud 云盘没有打开：快捷书签只保存在这台 Mac 上，不会同步到其他电脑。', false],
-      error: [`连不上 ${app}。请先从「应用程序」打开一次 App。`, true],
-      chrome: s.lost ? [`连不上 ${app}，现在显示的是 Chrome 书签里的旧快捷书签。打开 App 检查一下。`, true] : null,
+      local: ['iCloud云盘没有打开：快捷书签只保存在这台Mac上，不会同步到其他电脑。', false],
+      error: [`连不上${app}。请先从「应用程序」打开一次App。`, true],
+      chrome: s.lost ? [`连不上${app}，现在显示的是Chrome书签里的旧快捷书签。打开App检查一下。`, true] : null,
     };
     const note = notes[s.mode];
     syncNoteEl.hidden = !note;
@@ -495,7 +496,7 @@ import { HAS_BOOKMARKS, APP_DOWNLOAD_URL } from '../shared/env.js';
   function renderCard(card, collapsed) {
     const extra = card.links.length - CHIP_LIMIT;
     const chips = card.links.map((b, i) => linkChip(b, i >= CHIP_LIMIT)).join('');
-    const more = extra > 0 ? `<button class="bk-more" data-bk-more="${esc(card.id)}">+${extra} more</button>` : '';
+    const more = extra > 0 ? `<button class="bk-more" data-bk-more="${esc(card.id)}">还有${extra}个</button>` : '';
     return `
       <div class="bk-card${collapsed.has(card.id) ? ' is-collapsed' : ''}" data-bk-id="${esc(card.id)}">
         <div class="mission-top" data-bk-toggle="${esc(card.id)}">
@@ -511,11 +512,11 @@ import { HAS_BOOKMARKS, APP_DOWNLOAD_URL } from '../shared/env.js';
       const cards = await collectFolders();
       const collapsed = new Set(lsGet(LS_COLLAPSED, []));
       const total = cards.reduce((s, c) => s + c.links.length, 0);
-      countEl.textContent = total ? `${total} links · ${cards.length} folders` : '';
-      foldersLabel.textContent = `All folders (${cards.length})`;
+      countEl.textContent = total ? `${total}个书签 · ${cards.length}个文件夹` : '';
+      foldersLabel.textContent = `全部文件夹（${cards.length}）`;
       cardsEl.innerHTML = cards.length
         ? cards.map((c) => renderCard(c, collapsed)).join('')
-        : '<div class="bk-empty">No bookmarks yet.</div>';
+        : '<div class="bk-empty">还没有书签。</div>';
       foldersRendered = true;
     } catch (err) {
       console.warn('[tab-out/bk] bookmarks unavailable:', err);
@@ -533,7 +534,7 @@ import { HAS_BOOKMARKS, APP_DOWNLOAD_URL } from '../shared/env.js';
     if (more) {
       const card = more.closest('.bk-card');
       const expanded = card.classList.toggle('is-expanded');
-      more.textContent = expanded ? 'Show less' : `+${card.querySelectorAll('.bk-hidden').length} more`;
+      more.textContent = expanded ? '收起' : `还有${card.querySelectorAll('.bk-hidden').length}个`;
       return;
     }
     const toggle = e.target.closest('[data-bk-toggle]');

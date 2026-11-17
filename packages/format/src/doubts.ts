@@ -55,6 +55,8 @@ export function doubtsNote(folder: string, course: string, items: DoubtItem[], s
   const note = `${folder ? folder + '/' : ''}${DOUBTS_NAME}`
   let head = setProp('', '类型', '我的疑惑')
   if (course) head = setProp(head, '课程', course)
+  // 软件汇总的，不是人写的：梦游找重复时跳过（CN-56）
+  head = setProp(head, '生成', '软件')
   const out = [`${head}\n# 我的疑惑`, '', `${course || '这个文件夹'} · ${items.length} 条。软件按这里各篇读 PDF 的笔记自动汇总，要改就改笔记里那一段。`]
   for (const g of groupDoubts(items)) {
     out.push('', `## ${g.title}`, '')

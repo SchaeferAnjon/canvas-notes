@@ -135,7 +135,7 @@ test('网页：图右键「存进附件」存进库里、「拷贝图片地址�
     expect(menuLabels(m).slice(0, 3)).toEqual(['拷贝图片', '拷贝图片地址', '存进附件'])
     await pickMenu(run, '存进附件')
     await expect.poll(() => (existsSync(join(vault, '附件')) ? readdirSync(join(vault, '附件')).length : 0)).toBe(1)
-    await expect(page.getByTestId('toast')).toContainText('图存进了 附件/')
+    await expect(page.getByTestId('toast')).toContainText('图存进了附件/')
     await rightClick(page, 'i1')
     await pickMenu(run, '拷贝图片地址')
     await expect.poll(() => clipboardText(run)).toBe(`${base}/dot.png`)
@@ -169,9 +169,11 @@ test('网页的浏览历史右键「在中间栏打开」「拷贝链接」；Gi
     await expect.poll(() => clipboardText(run)).toBe(`${base}/rich`)
 
     await gitAct(page, '历史')
-    const commit = page.locator('.commit').first()
+    // 最新那次默认展开，下面列着改的文件（文件行有自己的右键），所以右键点提交那一行
+    const commit = page.locator('.commit').first().locator('.ch')
     await expect(commit).toBeVisible()
     await commit.click({ button: 'right' })
+    expect(menuLabels(await openedMenu(run))).toEqual(['看这次改了什么', '拷贝提交号', '拷贝说明'])
     await pickMenu(run, '拷贝提交号')
     const { execFileSync } = await import('node:child_process')
     const head = execFileSync('git', ['-C', vault, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()

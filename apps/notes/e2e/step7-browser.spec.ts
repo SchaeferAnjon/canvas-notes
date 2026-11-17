@@ -4,10 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { editorText, gitStatus, launch, openNote, pane, rail, starItem, waitSaved, webMore } from './app'
+import { editorText, gitStatus, launch, openNote, pane, rail, shownText, starItem, waitSaved, webMore } from './app'
 import { folder, installExtension, url, writeBookmarks, writeHistory } from './fake-chrome-data'
 import { makeFakeChrome } from './fake-chrome'
 import { solidPng } from './fixtures/png'
+import { shotPart, shotTone } from './shots'
 
 let server: Server
 let base: string
@@ -22,6 +23,8 @@ test.beforeAll(async () => {
     res.setHeader('content-type', 'text/html; charset=utf-8')
     if (req.url === '/two') return res.end('<title>第二页</title><h1>第二页</h1><p><a id="nw" href="/three" target="_blank">新窗口打开第三页</a></p>')
     if (req.url === '/three') return res.end('<title>第三页</title><h1>第三页</h1>')
+    // 慢的网页：1.2 秒后才回（用户在这期间往地址栏里打字）
+    if (req.url === '/slow') return void setTimeout(() => res.end('<title>慢页</title><h1>慢页</h1>'), 1200)
     res.end(`<title>冰岛的黑沙滩 - 旅行杂志</title><body style="font:16px sans-serif;padding:20px;max-width:640px">
       <nav>首页 · 目的地 · 关于</nav>
       <article><h1>冰岛的黑沙滩</h1>
@@ -100,6 +103,9 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     await page.keyboard.press('Meta+t')
     await expect(webTabs(page)).toHaveCount(3)
     await expect(web(page).getByRole('textbox', { name: '网址' })).toBeFocused()
+    // 三个标签挤在右栏里：标题至少留四个字宽（第 1 轮美学；× 浮在右端不占地方）
+    const room = await webTabs(page).evaluateAll((els) => els.filter((e) => !e.classList.contains('on')).map((e) => { const t = e.querySelector('.truncate') as HTMLElement; return { t: t.clientWidth, full: t.scrollWidth <= t.clientWidth, x: !!(e.querySelector('.x') as HTMLElement).offsetParent } }))
+    expect(room.every((r) => r.full || r.t >= 4 * 13), JSON.stringify(room)).toBe(true)
     // 点 × 关掉空的新标签
     await webTabs(page).nth(2).getByRole('button', { name: '关闭网页标签' }).click()
     await expect(webTabs(page)).toHaveCount(2)
@@ -114,7 +120,7 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     // 在中间栏大屏看，再放回右栏；右栏还有别的网页，就显示那个，不留空页
     await webTabs(page).nth(1).getByRole('button').first().click()
     await expect.poll(() => guest(page, 'document.readyState')).toBe('complete')
-    await page.locator('.right.web .wtabs').getByRole('button', { name: '移到中间' }).click()
+    await page.getByRole('banner').getByRole('button', { name: '移到中间' }).click()
     const wide = page.locator('.wpane:not([hidden])')
     await expect(wide.locator('webview')).toBeVisible()
     await expect(page.locator('.center .tabs .tab.on')).toContainText('冰岛的黑沙滩')
@@ -125,12 +131,41 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     await expect(web(page).getByRole('region', { name: '书签首页' })).toHaveCount(0)
     const wideBox = (await wide.locator('webview').boundingBox())!
     expect(wideBox.width).toBeGreaterThan(600)
-    await wide.getByRole('button', { name: '放回右栏' }).click()
+    await page.getByRole('banner').getByRole('button', { name: '放回右栏' }).click()
     await expect(page.locator('.wpane')).toHaveCount(0)
     await expect(webTabs(page)).toHaveText(['第二页', '冰岛的黑沙滩 - 旅行杂志'])
   } finally {
     await run.close()
     rmSync(userData, { recursive: true, force: true })
+  }
+})
+
+test('网页还在载入时往地址栏里打字：载完不冲掉打的字，回车去打的那个网址；没打字时地址栏照常跟上网页', async () => {
+  const run = await launch({ 'a.md': '# a\n' })
+  const { page } = run
+  try {
+    await openWeb(page, `${base}/a`)
+    const addr = web(page).getByRole('textbox', { name: '网址' })
+    await addr.fill(`${base}/slow`)
+    await addr.press('Enter')
+    // 网页还没回来，用户点进地址栏改主意，打另一个网址
+    await addr.click()
+    await page.keyboard.type(`${base}/two`)
+    await expect.poll(() => guest(page, 'document.title'), { timeout: 10_000 }).toBe('慢页')
+    await expect(webTabs(page)).toHaveText(['慢页'])
+    await expect(addr).toHaveValue(`${base}/two`)
+    await addr.press('Enter')
+    await expect.poll(() => guest(page, 'document.title')).toBe('第二页')
+    await expect(addr).toHaveValue(`${base.replace(/^http:\/\//, '')}/two`)
+    // 只是点进地址栏、没打字：网页换了，地址栏跟着换，而且还是全选着，接着打的字替换它
+    await addr.click()
+    await guest(page, `location.href = '${base}/three'`)
+    await expect.poll(() => guest(page, 'document.title')).toBe('第三页')
+    await expect(addr).toHaveValue(`${base}/three`)
+    await page.keyboard.type(`${base}/a`)
+    await expect(addr).toHaveValue(`${base}/a`)
+  } finally {
+    await run.close()
   }
 })
 
@@ -154,17 +189,17 @@ test('书签：一键从 Chrome 导入（按用户选）、书签栏和文件夹
     await webMore(page, '书签和历史')
     const lib = page.getByRole('dialog', { name: '书签和历史' })
     await expect(lib).toContainText('还没有书签')
-    await lib.getByRole('button', { name: '从 Chrome 导入' }).click()
+    await lib.getByRole('button', { name: '从Chrome导入' }).click()
     await page.getByRole('menu', { name: '选 Chrome 用户' }).getByRole('menuitem', { name: /工作/ }).click()
-    await expect(page.locator('.toast-cn')).toContainText('从 Chrome 导入了 4 个书签')
+    await expect(page.locator('.toast-cn')).toContainText('从Chrome导入了4个书签')
     await expect(lib.getByRole('list', { name: '书签' }).getByRole('listitem')).toHaveCount(4)
     // 按文件夹看
     await lib.getByRole('list', { name: '书签文件夹' }).getByRole('button', { name: '旅行' }).click()
     await expect(lib.getByRole('list', { name: '书签' }).getByRole('listitem')).toHaveText([/黑沙滩/, /第三页/])
     // 再导一次不重复
-    await lib.getByRole('button', { name: '从 Chrome 导入' }).click()
+    await lib.getByRole('button', { name: '从Chrome导入' }).click()
     await page.getByRole('menu', { name: '选 Chrome 用户' }).getByRole('menuitem', { name: /工作/ }).click()
-    await expect(page.locator('.toast-cn')).toContainText('导入了 0 个书签，4 个已经有了')
+    await expect(page.locator('.toast-cn')).toContainText('导入了0个书签，4个已经有了')
     // 点面板外面收起
     await web(page).getByRole('textbox', { name: '网址' }).click()
     await expect(lib).toHaveCount(0)
@@ -204,9 +239,9 @@ test('书签：一键从 Chrome 导入（按用户选）、书签栏和文件夹
     await lib.getByRole('textbox', { name: '搜历史' }).fill('黑沙滩')
     await expect(lib.getByRole('list', { name: '历史' }).getByRole('listitem')).toHaveCount(1)
     await expect(lib.getByRole('list', { name: '历史' })).toContainText(`${base}/a`)
-    await lib.getByRole('button', { name: '从 Chrome 导入' }).click()
+    await lib.getByRole('button', { name: '从Chrome导入' }).click()
     await page.getByRole('menu', { name: '选 Chrome 用户' }).getByRole('menuitem', { name: /工作/ }).click()
-    await expect(page.locator('.toast-cn')).toContainText('从 Chrome 导入了 2 条历史')
+    await expect(page.locator('.toast-cn')).toContainText('从Chrome导入了2条历史')
     await lib.getByRole('textbox', { name: '搜历史' }).fill('瀑布')
     await expect(lib.getByRole('list', { name: '历史' }).getByRole('listitem')).toHaveText([/黄金瀑布攻略/])
     await lib.getByRole('list', { name: '历史' }).getByRole('button', { name: /黄金瀑布攻略/ }).click({ modifiers: ['Meta'] })
@@ -252,9 +287,9 @@ test('Chrome 插件：一键导入（拷一份，Chrome 那边不动）、内容
     await webMore(page, '插件')
     const panel = page.getByRole('dialog', { name: '插件' })
     await expect(panel).toContainText('还没有插件')
-    await panel.getByRole('button', { name: '从 Chrome 导入' }).click()
+    await panel.getByRole('button', { name: '从Chrome导入' }).click()
     await page.getByRole('menu', { name: '选 Chrome 用户' }).getByRole('menuitem', { name: /工作/ }).click()
-    await expect(page.locator('.toast-cn')).toContainText('导入了 2 个插件，其中 1 个多半用不了')
+    await expect(page.locator('.toast-cn')).toContainText('导入了2个插件，其中1个多半用不了')
     const list = panel.getByRole('list', { name: '插件列表' })
     await expect(list.getByRole('listitem', { name: '测试高亮' }).getByTestId('verdict')).toHaveText('应该能用')
     await expect(list.getByRole('listitem', { name: '假密码管理器' }).getByTestId('verdict')).toHaveText('多半用不了：缺和电脑上的程序通信')
@@ -319,10 +354,11 @@ async function dropOn(page: Page, sel: string, data: { uri?: string; html?: stri
 
 const BOARD = '---\ntype: board\n---\n# 冰岛自驾\n\n<!-- card id=a1 x=40 y=40 w=280 -->\n先订住处。\n'
 
-test('图片拖进白板：网页拖来的下载进「附件/」带来源，访达的文件、剪贴板的图也行；卡片显示库里的本地图', async () => {
+test('图片拖进白板：网页拖来的下载进这块白板的附件文件夹「附件/冰岛自驾/」带来源，访达的文件、剪贴板的截图（叫「截图 1」、不带说明）也行；卡片显示库里的本地图', async () => {
   const run = await launch({ '冰岛自驾.md': BOARD })
   const { page, vault } = run
   try {
+    await shotTone(page)
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
     await expect(pane(page).getByTestId('board')).toBeVisible()
     await openWeb(page, `${base}/a`)
@@ -335,18 +371,20 @@ test('图片拖进白板：网页拖来的下载进「附件/」带来源，访�
     await expect.poll(() => card.locator('img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(64)
     expect(await card.locator('img').getAttribute('src')).toMatch(/^cn-file:\/\/vault\//)
     await waitSaved(page)
-    // 附件名用图片说明，读得懂
-    expect(readdirSync(join(vault, '附件'))).toEqual(['黑沙滩远景.png'])
-    expect(readFileSync(join(vault, '附件', '黑沙滩远景.png')).equals(PNG)).toBe(true)
+    // 附件按笔记分文件夹（CN-40 A）：附件/<笔记路径>/，附件名用图片说明，读得懂
+    const dir = join(vault, '附件', '冰岛自驾')
+    expect(readdirSync(join(vault, '附件'))).toEqual(['冰岛自驾'])
+    expect(readdirSync(dir)).toEqual(['黑沙滩远景.png'])
+    expect(readFileSync(join(dir, '黑沙滩远景.png')).equals(PNG)).toBe(true)
     expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toMatch(
-      new RegExp(`<!-- card id=\\w+ x=\\d+ y=\\d+ w=280 -->\\n!\\[黑沙滩远景\\]\\(附件/黑沙滩远景\\.png\\)\\n—— \\[冰岛的黑沙滩 - 旅行杂志\\]\\(${base.replace(/\./g, '\\.')}/a\\)\\n+$`),
+      new RegExp(`<!-- card id=\\w+ x=\\d+ y=\\d+ w=280 -->\\n!\\[黑沙滩远景\\]\\(附件/冰岛自驾/黑沙滩远景\\.png\\)\\n—— \\[冰岛的黑沙滩 - 旅行杂志\\]\\(${base.replace(/\./g, '\\.')}/a\\)\\n+$`),
     )
     // 2. 访达里拖来的文件
     await dropOn(page, '.pane:not([hidden]) .board-wrap', { file: { name: '地图 截图.png', type: 'image/png', base64: solidPng(20, 10, [0, 0, 0]).toString('base64') } }, { x: 100, y: 420 })
     await expect(card).toHaveCount(2)
     await waitSaved(page)
-    expect(readdirSync(join(vault, '附件')).sort()).toEqual(['地图-截图.png', '黑沙滩远景.png'])
-    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('![地图 截图](附件/地图-截图.png)\n')
+    expect(readdirSync(dir).sort()).toEqual(['地图-截图.png', '黑沙滩远景.png'])
+    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('![地图 截图](附件/冰岛自驾/地图-截图.png)\n')
     // 3. 剪贴板里的图：白板有焦点时粘贴
     await pane(page).getByTestId('board').focus()
     await page.evaluate((b64) => {
@@ -356,7 +394,12 @@ test('图片拖进白板：网页拖来的下载进「附件/」带来源，访�
     }, solidPng(8, 8, [255, 0, 0]).toString('base64'))
     await expect(card).toHaveCount(3)
     await waitSaved(page)
-    expect(readdirSync(join(vault, '附件'))).toContain('image.png')
+    // 剪贴板的截图不叫 image：「截图 1」，说明留空，卡片下面不写「image」（CN-40）
+    expect(readdirSync(dir)).toContain('截图 1.png')
+    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('![](附件/冰岛自驾/截图%201.png)\n')
+    await expect(card.nth(2).locator('figcaption')).toHaveCount(0)
+    await expect.poll(() => card.nth(2).locator('img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(8)
+    await shotPart(pane(page).locator('.board-wrap'), 'board-paste-shot')
     // 不是图片的拖进来不动
     await dropOn(page, '.pane:not([hidden]) .board-wrap', { uri: `${base}/two` })
     await page.waitForTimeout(300)
@@ -373,14 +416,14 @@ test('图片拖进白板：网页拖来的下载进「附件/」带来源，访�
     )
     await expect(card).toHaveCount(4)
     await waitSaved(page)
-    expect(readdirSync(join(vault, '附件'))).toContain('黑沙滩远景-2.png')
-    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('![黑沙滩远景](附件/黑沙滩远景-2.png)\n—— [冰岛的黑沙滩 - 旅行杂志]')
+    expect(readdirSync(dir)).toContain('黑沙滩远景-2.png')
+    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('![黑沙滩远景](附件/冰岛自驾/黑沙滩远景-2.png)\n—— [冰岛的黑沙滩 - 旅行杂志]')
   } finally {
     await run.close()
   }
 })
 
-test('图片拖进文档：插入 ![说明](附件/…)；子文件夹里的笔记用 ../附件/；库外的路径看不到', async () => {
+test('图片拖进文档：存进这篇的附件文件夹，插入 ![说明](附件/<笔记>/…)；子文件夹里的笔记用 ../附件/<文件夹>/<笔记>/；库外的路径看不到', async () => {
   const run = await launch({ '所思所想.md': '# 所思所想\n\n第一段。\n\n第二段。\n' })
   const { page, vault } = run
   try {
@@ -392,9 +435,13 @@ test('图片拖进文档：插入 ![说明](附件/…)；子文件夹里的笔�
     await dropOn(page, '.pane:not([hidden]) .cm-content', { uri: `${base}/pic.png`, html: `<img src="/pic.png" alt="黑沙滩远景">` }, { x: lb.x - pb.x + 20, y: lb.y - pb.y + lb.height / 2 })
     await waitSaved(page)
     await expect.poll(() => readFileSync(join(vault, '所思所想.md'), 'utf8')).toBe(
-      `# 所思所想\n\n第一段。\n\n![黑沙滩远景](附件/黑沙滩远景.png)\n\n—— [冰岛的黑沙滩 - 旅行杂志](${base}/a)\n\n第二段。\n`,
+      `# 所思所想\n\n第一段。\n\n![黑沙滩远景](附件/所思所想/黑沙滩远景.png)\n\n—— [冰岛的黑沙滩 - 旅行杂志](${base}/a)\n\n第二段。\n`,
     )
-    expect(await editorText(page)).toContain('![黑沙滩远景](附件/黑沙滩远景.png)')
+    expect(readdirSync(join(vault, '附件', '所思所想'))).toEqual(['黑沙滩远景.png'])
+    expect(await editorText(page)).toContain('![黑沙滩远景](附件/所思所想/黑沙滩远景.png)')
+    // 文档里图片画成卡片（显示库里的本地图），看得到的字里不露 md 原文（CN-86）
+    await expect(pane(page).locator('.cm-content img[src^="cn-file://vault/"]')).toHaveCount(1)
+    expect(await shownText(page)).not.toContain('附件/')
 
     // 子文件夹里的笔记：相对路径往上一层
     mkdirSync(join(vault, '游记'))
@@ -402,7 +449,7 @@ test('图片拖进文档：插入 ![说明](附件/…)；子文件夹里的笔�
     await openNote(page, '南岸')
     await dropOn(page, '.pane:not([hidden]) .cm-content', { file: { name: 'b.png', type: 'image/png', base64: solidPng(4, 4, [1, 2, 3]).toString('base64') } })
     await waitSaved(page)
-    await expect.poll(() => readFileSync(join(vault, '游记', '南岸.md'), 'utf8')).toBe('# 南岸\n\n![b](../附件/b.png)\n')
+    await expect.poll(() => readFileSync(join(vault, '游记', '南岸.md'), 'utf8')).toBe('# 南岸\n\n![b](../附件/游记/南岸/b.png)\n')
 
     // cn-file://（主线的协议）只给库里的图片
     const load = (src: string) =>
@@ -416,8 +463,8 @@ test('图片拖进文档：插入 ![说明](附件/…)；子文件夹里的笔�
           }),
         src,
       )
-    expect(await load('cn-file://vault/附件/b.png')).toBe('ok 4')
-    expect(await load('cn-file://vault/%E9%99%84%E4%BB%B6/b.png')).toBe('ok 4')
+    expect(await load('cn-file://vault/附件/游记/南岸/b.png')).toBe('ok 4')
+    expect(await load('cn-file://vault/%E9%99%84%E4%BB%B6/%E6%B8%B8%E8%AE%B0/%E5%8D%97%E5%B2%B8/b.png')).toBe('ok 4')
     expect(await load('cn-file://vault/../../etc/hosts.png')).toBe('error')
     expect(await load('cn-file://vault/所思所想.md')).toBe('error')
   } finally {
@@ -447,7 +494,7 @@ test('整页剪藏：右栏网页点剪刀，正文转成 md 进收件箱新的�
     await web(page).locator('.wnote').getByRole('button', { name: '撤回' }).click()
     await expect(web(page).locator('.wnote')).toContainText('撤回了')
     expect(existsSync(join(vault, '收件箱', '冰岛的黑沙滩.md'))).toBe(false)
-    expect(log()).toMatch(/^Revert "剪藏整页：冰岛的黑沙滩 - 旅行杂志"/)
+    expect(log()).toMatch(/^撤回剪藏整页：冰岛的黑沙滩 - 旅行杂志/)
     // AI 那边调的接口
     const p = await page.evaluate((u) => window.cn.clipCurrentPage({ webUrl: u }), `${base}/a`)
     expect(p).toBe('收件箱/冰岛的黑沙滩.md')

@@ -1,7 +1,7 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { onFileMenu } from './ctx/file-menu'
 import { ActBtn, TabActs } from './shell/TabActs'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Activity, DreamGroup, DreamReport, NoteFile } from '../shared/api'
 import type { HomeStyle } from '../shared/appearance'
 import {
@@ -25,7 +25,7 @@ import { COVERS, coverImage } from './covers'
 import { dreamWhen, pendingOf } from './dream/useDream'
 import { saveHome, useHomeConfig } from './home-store'
 import './home.css'
-import { when } from './ListView'
+import { dateText, when } from '../shared/when'
 
 /** 本周一 0 点 */
 export function weekStart(now = new Date()): number {
@@ -69,6 +69,8 @@ const ICONS: Record<WidgetId, CodiconName> = {
 
 export interface HomeProps {
   style: HomeStyle
+  /** 样式 B 勾了「整页背景用窗口背景那张图」：用这张图（url 是 null 时用标题栏的纯色），换封面变灰（CN-52） */
+  winBg?: { url: string | null } | null
   notes: NoteFile[]
   version: number
   dream: DreamReport | null
@@ -209,12 +211,19 @@ export function HomeView(props: HomeProps) {
         )}
       </TabActs>
       <div className="body">
-        <div className="hscroll" style={{ ['--cover-img' as string]: coverImage(cfg.cover), ['--cover-y' as string]: `${coverY}%` }}>
+        <div
+          className="hscroll"
+          style={{
+            ['--cover-img' as string]: props.winBg ? (props.winBg.url ? `url("${props.winBg.url}")` : 'linear-gradient(var(--title), var(--title))') : coverImage(cfg.cover),
+            ['--cover-y' as string]: `${props.winBg ? 50 : coverY}%`,
+          }}
+        >
           <div
             className={'cover' + (adjustY !== null ? ' adjust' : '') + (gallery ? ' keep' : '')}
             data-testid="home-cover"
-            data-cover={cfg.cover.kind === 'file' ? cfg.cover.path : cfg.cover.id}
+            data-cover={props.winBg ? 'window' : cfg.cover.kind === 'file' ? cfg.cover.path : cfg.cover.id}
             onDragOver={(e) => {
+              if (props.winBg) return
               if (!Array.from(e.dataTransfer.items).some((i) => i.kind === 'file' && i.type.startsWith('image/'))) return
               e.preventDefault()
               e.dataTransfer.dropEffect = 'copy'
@@ -247,7 +256,19 @@ export function HomeView(props: HomeProps) {
           >
             {adjustY !== null && <span className="hint">上下拖动图片，挑一个位置</span>}
             <div className="cacts">
-              {adjustY === null ? (
+              {props.winBg ? (
+                <button
+                  className="cbtn"
+                  aria-disabled="true"
+                  aria-label="换封面（整页背景用的是窗口背景那张图，不能换）"
+                  data-tip="整页背景用的是窗口背景那张图：设置 › 外观 › 首页样式 里取消勾选就能换封面"
+                  data-side="below"
+                  onClick={() => props.onNotice('首页现在用窗口背景那张图：设置 › 外观 › 首页样式 里取消「整页背景用窗口背景那张图」，就能换封面')}
+                >
+                  <Codicon name="file-media" size={14} />
+                  换封面
+                </button>
+              ) : adjustY === null ? (
                 <>
                   <button className="cbtn" onClick={() => setGallery((v) => !v)} aria-expanded={gallery}>
                     <Codicon name="file-media" size={14} />
@@ -282,7 +303,7 @@ export function HomeView(props: HomeProps) {
               <div>
                 <h2 data-testid="home-title">{greeting(now)}</h2>
                 <p className="lead">
-                  {now.getMonth() + 1} 月 {now.getDate()} 日 · {a.wrote + a.clipped ? `这周攒下了 ${a.wrote + a.clipped} 样东西` : '这周还没攒下东西'}
+                  {dateText(now.getTime())} · {a.wrote + a.clipped ? `这周攒下了${a.wrote + a.clipped}样东西` : '这周还没攒下东西'}
                 </p>
               </div>
             </div>
@@ -381,7 +402,7 @@ function StartWidget(props: HomeProps) {
   const steps: [string, string, string, CodiconName, () => void][] = [
     ['剪一段网页', '在右栏打开网页，选中一段就能剪进收件箱', '开网页', 'globe', props.onOpenWeb],
     ['建一块白板', '把想法摊开成卡片，拖来拖去排位置', '新建白板', 'layout', props.onNewBoard],
-    ['搬进旧笔记', 'Obsidian 之类的文件夹直接打开就能用', '选文件夹', 'root-folder', props.onChooseFolder],
+    ['搬进旧笔记', 'Obsidian之类的文件夹直接打开就能用', '选文件夹', 'root-folder', props.onChooseFolder],
   ]
   return (
     <div className="wd s4 w-start" data-testid="widget-start">
@@ -419,6 +440,7 @@ function WallLegend() {
 }
 
 const DREAM_LINES: Record<DreamGroup, [string, CodiconName]> = {
+  attach: ['张 老图挪进各篇的文件夹', 'file-media'],
   file: ['处 归类和改名', 'inbox'],
   viz: ['个 可视化', 'preview'],
   link: ['处 补了双链', 'link'],
@@ -471,10 +493,10 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
               : [
                   more > 0 ? (
                     <span key="m">
-                      比上周多 <b className="num">{more} 段</b>，
+                      比上周多<b className="num">{`${more}段`}</b>，
                     </span>
                   ) : more < 0 ? (
-                    `比上周少 ${-more} 段，`
+                    `比上周少${-more}段，`
                   ) : (
                     ''
                   ),
@@ -504,7 +526,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
             <div className="wgo">
               <button className={'btn btn-sm' + (warn ? ' btn-primary' : '')} onClick={props.onTidy}>
                 <Codicon name="sparkle" size={14} />
-                让 AI 分一分
+                让AI分一分
               </button>
             </div>
           )}
@@ -523,16 +545,18 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
               <span className="n">
                 <b className="truncate">{titleOf(n.path)}</b>
                 <span>
-                  {n.board!.nodes !== undefined ? (
-                    <>
-                      <span className="num">{n.board!.nodes}</span> 个节点
-                    </>
-                  ) : (
-                    <>
-                      <span className="num">{n.board!.cards}</span> 张
-                    </>
-                  )}{' '}
-                  · {when(n.mtimeMs).replace(/ \d\d:\d\d$/, '')}
+                  <span>
+                    {n.board!.nodes !== undefined ? (
+                      <>
+                        <span className="num">{n.board!.nodes}</span>个节点
+                      </>
+                    ) : (
+                      <>
+                        <span className="num">{n.board!.cards}</span>张卡片
+                      </>
+                    )}
+                  </span>
+                  <span>· {when(n.mtimeMs)}</span>
                 </span>
               </span>
             </button>
@@ -584,7 +608,7 @@ function ClockBody() {
         <small>{p(now.getSeconds())}</small>
       </div>
       <div className="dt">
-        {now.getMonth() + 1} 月 {now.getDate()} 日 · 星期{WEEKDAY[(now.getDay() + 6) % 7]}
+        {`${dateText(now.getTime())} · 星期${WEEKDAY[(now.getDay() + 6) % 7]}`}
       </div>
     </div>
   )
@@ -596,7 +620,7 @@ function DreamBody(props: HomeProps) {
     return (
       <div className="dreamw" data-testid="dream-card">
         <h3>{props.dreamRunning ? '正在梦游，跑完这里出报告' : '第一晚还没到'}</h3>
-        <p>Mac 闲着时自己整理收件箱、补双链、找重复、写本周小结。</p>
+        <p>Mac闲着时自己整理收件箱、补双链、找重复、写本周小结。</p>
         <p>改动放在单独的分支上，你点收下才算数。</p>
         {!props.dreamRunning && (
           <div className="wgo">
@@ -615,13 +639,14 @@ function DreamBody(props: HomeProps) {
   return (
     <div className="dreamw" data-testid="dream-card">
       <span className="dk">{dreamWhen(r).replace(' ', '梦游 · ')}</span>
-      <h3>{n === 0 ? '没什么要整理的' : left === 0 ? `整理了 ${n} 处，都看完了` : `整理了 ${n} 处，等你过目`}</h3>
+      <h3>{n === 0 ? '没什么要整理的' : left === 0 ? `整理了${n}处，都看完了` : `整理了${n}处，等你过目`}</h3>
       <div className="drows">
         {counts.map(([g, c]) => (
           <div key={g} className="l">
             <Codicon name={DREAM_LINES[g][1]} size={12} />
             <b className="num">
-              {c} {DREAM_LINES[g][0].split(' ')[0]}
+              {c}
+              {DREAM_LINES[g][0].split(' ')[0]}
             </b>
             {DREAM_LINES[g][0].split(' ')[1]}
           </div>
@@ -631,7 +656,7 @@ function DreamBody(props: HomeProps) {
         <button className="btn btn-sm btn-primary" onClick={props.onOpenDream}>
           看报告
         </button>
-        <span className="hint">在分支 {r.branch} 上，收下才进 main</span>
+        <span className="hint">{`在分支${r.branch}上，收下才进main`}</span>
       </div>
     </div>
   )
@@ -669,9 +694,22 @@ const hostOf = (u: string) => {
   }
 }
 
-/** 积累墙：最近 52 周，每格一天，存得越多颜色越深；今天那格一圈强调色 */
+/**
+ * 积累墙：最近 52 周，每格一天，存得越多颜色越深；今天那格一圈强调色。
+ * 卡片窄到放不下 52 周（首页开着 AI 浮窗、窗口窄）时只画放得下的整周，最近的在右边，最左一列不会被卡片边切成半格（第 5 轮美学）
+ */
 function Wall({ days }: { days: Record<string, number> }) {
-  const weeks = 52
+  const ref = useRef<HTMLDivElement>(null)
+  const [weeks, setWeeks] = useState(52)
+  useLayoutEffect(() => {
+    const el = ref.current!
+    // 每格 12、间距 3：n 周占 15n - 3
+    const fit = () => setWeeks(Math.max(1, Math.min(52, Math.floor((el.clientWidth + 3) / 15))))
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   const start = weekStart() - (weeks - 1) * 7 * 86400_000
   const now = Date.now()
   const todayKey = dayKey(now)
@@ -685,7 +723,7 @@ function Wall({ days }: { days: Record<string, number> }) {
   const level = (n: number) => (n === 0 ? 0 : Math.min(4, 1 + Math.floor((n / max) * 3.999)))
   const none = cells.every((c) => c.n === 0)
   return (
-    <div className="wall" data-testid="wall">
+    <div className="wall" data-testid="wall" ref={ref}>
       <div className="hgrid">
         {cells.map((c) => (
           <i key={c.k} className={(c.future ? 'future' : 'l' + level(c.n)) + (c.k === todayKey ? ' today' : '')} title={`${c.k} · ${c.n} 样`} />

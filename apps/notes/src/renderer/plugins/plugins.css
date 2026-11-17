@@ -368,3 +368,60 @@
 .wpop.wext > .wlist {
   overflow: visible;
 }
+
+/* 设置 › 插件 › 拦广告：规则一行（右边「现在更新」），下面不拦的网站是一排小块，× 拿掉 */
+.ab-rules {
+  gap: 12px;
+}
+.ab-st {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t2);
+}
+.ab-st.bad {
+  color: var(--red);
+}
+.ab-rules .btn {
+  flex: none;
+  gap: 6px;
+}
+.ab-allow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.ab-allow-h {
+  margin-right: 4px;
+}
+.ab-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 4px 0 10px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t1);
+}
+.ab-chip button {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  background: none;
+  color: var(--t2);
+}
+.ab-chip button:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.ab-none {
+  color: var(--t3);
+}

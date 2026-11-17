@@ -40,10 +40,21 @@
   grid-row: 2;
   padding-top: 0;
 }
-.win > .right .rhead {
+/* 左右栏的头（右栏历史、网页；左栏梦游报告）和中间标签条齐平、一样高（A 35，B 38）：旧版右栏给标签条让位的 margin-top 不要了 */
+.win > .right .rhead,
+.win > .side .rhead {
   margin-top: 0;
   border-top: 0;
   height: 36px;
+  flex: none;
+}
+.win > .right:not(.web) .rhead,
+.win > .side .rhead {
+  height: 35px;
+}
+.win.frame-b > .right:not(.web) .rhead,
+.win.frame-b > .side .rhead {
+  height: 38px;
 }
 .win > .right:not(.web) .rhead b {
   font-size: 13px;
@@ -89,6 +100,30 @@
 }
 .tb-btn:disabled {
   opacity: 0.35;
+}
+/* 「移到中间 / 放回右栏」：收起右栏左边，开着网页时才有；A 只有图标（悬停出提示），B 图标加字 */
+.tb-web .lb {
+  display: none;
+}
+.frame-b .tb-web {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px 0 7px;
+  margin-right: 2px;
+  background: var(--fill);
+  font: 500 12px var(--sans);
+  white-space: nowrap;
+}
+.frame-b .tb-web .lb {
+  display: inline;
+}
+[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-web {
+  background: rgba(255, 255, 255, 0.14);
+}
+[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-web:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 .cmd {
   position: absolute;
@@ -160,6 +195,22 @@
 .ab.on {
   color: var(--t1);
 }
+/* 亮着的那格：不加底块（图标别做白底突起块），图标实色 + 靠外一侧 2px 强调色竖线（照 VS Code） */
+.ab.on::before {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--acc);
+}
+.abar.left .ab.on::before {
+  left: 0;
+}
+.abar.right .ab.on::before {
+  right: 0;
+}
 .ab.dim {
   opacity: 0.4;
 }
@@ -205,6 +256,10 @@
 }
 
 /* ---------- 左右栏的头 ---------- */
+/* 左栏拖到最窄时（6 颗图标的「文件」头）：头的内边距和图标间距收紧，标题和图标都放得下 */
+.win > .side {
+  container-type: inline-size;
+}
 .vh {
   height: 36px;
   flex: none;
@@ -213,9 +268,17 @@
   gap: 2px;
   padding: 0 8px 0 14px;
 }
+/* 写在 .vh 后面：同样的选择器后写的才算数 */
+@container (max-width: 230px) {
+  .vh {
+    gap: 0;
+    padding: 0 4px 0 10px;
+  }
+}
 .vh h2 {
   flex: 1;
-  min-width: 0;
+  /* 标题字不让（「文件」不被图标挤成一个字宽），后面的小字（1 篇）让 */
+  min-width: auto;
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -224,7 +287,11 @@
   color: var(--t2);
   white-space: nowrap;
 }
+.vh h2 .t {
+  flex: none;
+}
 .vh h2 .sub {
+  min-width: 0;
   font-weight: 400;
   color: var(--t3);
   overflow: hidden;
@@ -245,10 +312,14 @@
   font-size: 12px;
   flex: none;
 }
-.ib:hover,
-.ib.on {
+.ib:hover {
   background: var(--fill2);
   color: var(--t1);
+}
+/* 开着菜单的那颗（排序）：强调色符号 + 淡底，不做白底块（图标别做白底突起块） */
+.ib.on {
+  background: var(--fill);
+  color: var(--acc-t);
 }
 .ib.s-tidy {
   color: var(--yellow);
@@ -376,6 +447,9 @@
 .status .vault .br {
   color: var(--t3);
 }
+.status span.vault:hover {
+  background: none;
+}
 .status .pv-slot {
   display: none;
 }
@@ -441,6 +515,28 @@
   bottom: var(--status-h);
   right: calc(var(--right-w) + var(--abar-w) - 3px);
 }
+/* 左栏右边缘的分隔线（shell/SideSash.tsx）：6 宽的手柄，悬停和拖着时中间一条 2px --line2（和右栏那条一样） */
+.win > .hsplit {
+  position: fixed;
+  top: var(--title-h);
+  bottom: var(--status-h);
+  left: calc(var(--abar-w) + var(--side-w) - 3px);
+  width: 6px;
+  z-index: 30;
+  cursor: col-resize;
+}
+/* B：左栏岛右边有 6 的缝，手柄放在缝里 */
+.win.frame-b > .hsplit {
+  left: calc(var(--abar-w) + var(--side-w) - var(--gap) / 2 - 3px);
+}
+.win > .hsplit:hover,
+.win > .hsplit.dragging {
+  background: linear-gradient(to right, transparent 2px, var(--line2) 2px, var(--line2) 4px, transparent 4px);
+}
+/* 拖左栏时右栏那条不跟着亮 */
+body.resizing-left .win > .vsplit {
+  background: none;
+}
 
 /* ---------- 悬停提示、小弹层 ---------- */
 .shell-tip {
@@ -492,8 +588,25 @@
 }
 .shell-menu .mh {
   padding: 6px 10px 4px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--t3);
+}
+/* 底栏「N 处没提交」弹层：自动提交没成功的原因（12 号淡字，前面黄色 warning） */
+.shell-menu .mwarn {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  max-width: 340px;
+  padding: 2px 10px 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t2);
+  text-spacing-trim: trim-start;
+}
+.shell-menu .mwarn .ic {
+  flex: none;
+  color: var(--yellow);
+  transform: translateY(1px);
 }
 .shell-menu .mi {
   width: 100%;
@@ -515,7 +628,7 @@
 .shell-menu .mi .r {
   margin-left: auto;
   padding-left: 12px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--t3);
   white-space: nowrap;
 }
@@ -588,20 +701,6 @@
 .frame-a .abar.right {
   border-left: 1px solid var(--seam);
 }
-.frame-a .ab.on::before {
-  content: '';
-  position: absolute;
-  top: 12px;
-  bottom: 12px;
-  width: 2px;
-  background: var(--t1);
-}
-.frame-a .abar.left .ab.on::before {
-  left: 0;
-}
-.frame-a .abar.right .ab.on::before {
-  right: 0;
-}
 .frame-a .status {
   border-top: 1px solid var(--seam);
 }
@@ -611,12 +710,25 @@
 }
 .frame-a.previewing .status .pv-bar .btn {
   color: var(--acc-on);
-  background: color-mix(in srgb, var(--acc-on) 16%, transparent);
+  background: transparent;
   border-color: transparent;
+}
+/* 次按钮透明底 + 一圈细描边，字直接落在 --acc-bg 上（十套都 ≥ 4.5；以前底往字色混 16%，底和字反而更近，天青 3.45）。
+   悬停只把描边加深，底不变 */
+.frame-a.previewing .status .pv-bar .btn:not(.btn-primary) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc-on) 45%, transparent);
+}
+.frame-a.previewing .status .pv-bar .btn:not(.btn-primary):hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc-on) 70%, transparent);
 }
 .frame-a.previewing .status .pv-bar .btn-primary {
   background: var(--acc-on);
   color: var(--acc-bg);
+}
+/* 主按钮在彩色条上：悬停不变淡（变淡就透出条的颜色，字看不清），外面描一圈 */
+.frame-a.previewing .status .pv-bar .btn-primary:hover {
+  opacity: 1;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc-on) 40%, transparent);
 }
 .status .ai-corner {
   padding: 0 10px;
@@ -659,12 +771,16 @@
   width: 20px;
   height: 20px;
 }
-.frame-b .ab:hover {
-  background: var(--fill2);
+/* B 的格子 34 高、在 44 宽的栏里居中：竖线贴到栏的外沿 */
+.frame-b .ab.on::before {
+  top: 7px;
+  bottom: 7px;
 }
-.frame-b .ab.on {
-  background: var(--pop);
-  box-shadow: 0 0 0 1px var(--line);
+.frame-b .abar.left .ab.on::before {
+  left: -5px;
+}
+.frame-b .abar.right .ab.on::before {
+  right: -5px;
 }
 .frame-b .ab .badge {
   right: -4px;
@@ -677,12 +793,23 @@
 }
 /* 背景图上的字和图标：白的才看得清 */
 [data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-btn,
-[data-frame='b'][data-winbg='photo'] .frame-b .abar .ab:not(.on) {
+[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-btn {
   color: rgba(255, 255, 255, 0.82);
 }
-[data-frame='b'][data-winbg='photo'] .frame-b .abar .ab:not(.on):hover,
 [data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-btn:hover:not(:disabled) {
   background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+/* 照片上的图标栏：没亮的 64% 白，亮着的、悬停的纯白；不加底块 */
+[data-frame='b'][data-winbg='photo'] .frame-b .abar .ab {
+  color: rgba(255, 255, 255, 0.64);
+}
+/* 照片上「看法」「摘出来的文件夹」「梦游」之间的分隔线 */
+[data-frame='b'][data-winbg='photo'] .frame-b .abar .ab-sep {
+  background: rgba(255, 255, 255, 0.28);
+}
+[data-frame='b'][data-winbg='photo'] .frame-b .abar .ab:hover,
+[data-frame='b'][data-winbg='photo'] .frame-b .abar .ab.on {
   color: #fff;
 }
 .frame-b .cmd {
@@ -748,12 +875,25 @@
 }
 .frame-b.previewing .status .pv-bar .btn {
   color: var(--acc-on);
-  background: color-mix(in srgb, var(--acc-on) 16%, transparent);
+  background: transparent;
   border-color: transparent;
+}
+/* 次按钮透明底 + 一圈细描边，字直接落在 --acc-bg 上（十套都 ≥ 4.5；以前底往字色混 16%，底和字反而更近，天青 3.45）。
+   悬停只把描边加深，底不变 */
+.frame-b.previewing .status .pv-bar .btn:not(.btn-primary) {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc-on) 45%, transparent);
+}
+.frame-b.previewing .status .pv-bar .btn:not(.btn-primary):hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--acc-on) 70%, transparent);
 }
 .frame-b.previewing .status .pv-bar .btn-primary {
   background: var(--acc-on);
   color: var(--acc-bg);
+}
+/* 主按钮在彩色条上：悬停不变淡（变淡就透出条的颜色，字看不清），外面描一圈 */
+.frame-b.previewing .status .pv-bar .btn-primary:hover {
+  opacity: 1;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc-on) 40%, transparent);
 }
 .frame-b .vsplit {
   right: calc(var(--right-w) + var(--abar-w) - 3px);
@@ -930,8 +1070,19 @@
 .center.compact .acts .txt {
   max-width: 140px;
 }
+/* 中间窄于 640：页面说明整句藏起来，位置让给标签（第 3 轮美学：对比标签的名字被「还没提交的改动 · 1处」挤成半个字）；「只读」这类提醒不是页面说明，照样露着 */
+.center.narrow .acts .pnote {
+  display: none;
+}
 .acts .txt.warn {
   color: var(--yellow);
+}
+/* 写不进去：红点（同底栏 .gdot）+ --t2 字；黄字在几套浅色主题上对比不够 */
+.acts .txt.failed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--t2);
 }
 .acts .txt[hidden] {
   display: none;
@@ -955,6 +1106,12 @@
 .ab-act.on {
   background: var(--fill2);
   color: var(--t1);
+}
+/* 白板缩放「80% ▾」：比例本身就是按钮；宽度留够 3 位数，变的时候不挤动旁边 */
+.ab-act.zoom {
+  gap: 2px;
+  min-width: 52px;
+  padding: 0 4px 0 6px;
 }
 .ab-act:disabled {
   opacity: 0.4;
@@ -1160,7 +1317,10 @@
   border-radius: 3px;
   background: rgba(127, 127, 127, 0.3);
   color: inherit;
-  font-size: 11px;
+  font-size: 12px;
+}
+.status .st-toast .toast-cn .btn:hover {
+  background: rgba(127, 127, 127, 0.45);
 }
 @keyframes st-in {
   from {
@@ -1259,9 +1419,6 @@
 }
 .frame-b .center.narrow .ab-act.wt {
   padding: 0 4px;
-}
-.frame-b .ab.on {
-  background: var(--glass);
 }
 .frame-b > .side {
   background: var(--glass);

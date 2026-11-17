@@ -5,8 +5,10 @@ import { importApi } from './importer'
 import { mapApi } from './mindmap'
 import { pluginsApi } from './plugins'
 import { readingApi } from './reading'
+import { mineruApi } from './mineru'
 import { searchApi } from './search'
 import type { CnFilesApi } from '../shared/files'
+import type { CnAttachApi } from '../shared/attach'
 import { videoApi } from './video-api'
 import { webApi } from './web'
 import { menuApi } from './ctx-menu'
@@ -17,9 +19,10 @@ const api: CnApi = {
   listNotes: () => ipcRenderer.invoke('notes:list'),
   readNote: (path) => ipcRenderer.invoke('note:read', path),
   writeNote: (path, text, base) => ipcRenderer.invoke('note:write', path, text, base),
+  rescueNote: (path, text, into) => ipcRenderer.invoke('note:rescue', path, text, into),
   saveConflictCopy: (path, text) => ipcRenderer.invoke('note:conflictCopy', path, text),
   createNote: (folder, name, text) => ipcRenderer.invoke('note:create', folder, name, text),
-  renameNote: (path, newName) => ipcRenderer.invoke('note:rename', path, newName),
+  renameNote: (path, newName, free) => ipcRenderer.invoke('note:rename', path, newName, free),
   createBoard: (folder, name) => ipcRenderer.invoke('board:create', folder, name),
   trashNote: (path) => ipcRenderer.invoke('note:trash', path),
   capture: (text) => ipcRenderer.invoke('inbox:capture', text),
@@ -30,6 +33,7 @@ const api: CnApi = {
   aiAsk: (id, system, prompt) => ipcRenderer.invoke('ai:ask', id, system, prompt),
   aiStop: (id) => ipcRenderer.invoke('ai:stop', id),
   aiChange: (change) => ipcRenderer.invoke('ai:change', change),
+  aiCommit: (paths, message) => ipcRenderer.invoke('ai:commit', paths, message),
   aiRevert: (hash) => ipcRenderer.invoke('ai:revert', hash),
   search: (q) => ipcRenderer.invoke('search', q),
   pins: () => ipcRenderer.invoke('pins:get'),
@@ -39,8 +43,7 @@ const api: CnApi = {
   commit: () => ipcRenderer.invoke('git:commit'),
   sync: () => ipcRenderer.invoke('git:sync'),
   history: (limit) => ipcRenderer.invoke('git:history', limit),
-  commitFileDiff: (hash, path) => ipcRenderer.invoke('git:file-diff', hash, path),
-  pickImage: () => ipcRenderer.invoke('attach:pickImage'),
+  pickImage: (note) => ipcRenderer.invoke('attach:pickImage', note),
   settings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   pickWinBg: () => ipcRenderer.invoke('settings:pickWinBg'),
@@ -53,10 +56,17 @@ const api: CnApi = {
   dropCover: (bytes, name) => ipcRenderer.invoke('home:dropCover', bytes, name),
   gitRemote: () => ipcRenderer.invoke('git:remote'),
   setGitRemote: (url) => ipcRenderer.invoke('git:setRemote', url),
+  gitIdentity: () => ipcRenderer.invoke('git:identity'),
+  setGitIdentity: (name, email) => ipcRenderer.invoke('git:setIdentity', name, email),
   onNoteChanged(cb) {
     const h = (_e: unknown, path: string, text: string) => cb(path, text)
     ipcRenderer.on('note:changed', h)
     return () => ipcRenderer.removeListener('note:changed', h)
+  },
+  onNoteRenamed(cb) {
+    const h = (_e: unknown, from: string, to: string, own?: boolean) => cb(from, to, own === true)
+    ipcRenderer.on('note:renamed', h)
+    return () => ipcRenderer.removeListener('note:renamed', h)
   },
   updateStatus: () => ipcRenderer.invoke('update:status'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
@@ -86,8 +96,16 @@ const api: CnApi = {
   },
   aiEngines: () => ipcRenderer.invoke('ai:engines'),
   aiSetEngine: (id) => ipcRenderer.invoke('ai:engine:set', id),
+  aiPrefs: () => ipcRenderer.invoke('ai:prefs'),
+  aiSetPrefs: (p) => ipcRenderer.invoke('ai:prefs:set', p),
+  onAiPrefsChanged(cb) {
+    const h = () => cb()
+    ipcRenderer.on('ai:prefs:changed', h)
+    return () => ipcRenderer.removeListener('ai:prefs:changed', h)
+  },
   aiTurn: (req) => ipcRenderer.invoke('ai:turn', req),
   aiTurnStop: (id) => ipcRenderer.invoke('ai:turn:stop', id),
+  aiPaste: (bytes, mime) => ipcRenderer.invoke('ai:paste', bytes, mime),
   aiChatLoad: () => ipcRenderer.invoke('ai:chat:load'),
   aiChatSave: (msgs) => ipcRenderer.invoke('ai:chat:save', msgs),
   aiChatClear: () => ipcRenderer.invoke('ai:chat:clear'),
@@ -103,6 +121,12 @@ const api: CnApi = {
   },
   aiReply: (id, ok, value) => ipcRenderer.invoke('ai:reply', id, ok, value),
   findDuplicates: () => ipcRenderer.invoke('notes:duplicates'),
+  onDuplicatesProgress(cb) {
+    const h = (_e: unknown, p: Parameters<typeof cb>[0]) => cb(p)
+    ipcRenderer.on('notes:dups-progress', h)
+    return () => ipcRenderer.removeListener('notes:dups-progress', h)
+  },
+  stopDuplicates: () => ipcRenderer.invoke('notes:duplicates-stop'),
   dreamReport: () => ipcRenderer.invoke('dream:report'),
   dreamNow: () => ipcRenderer.invoke('dream:now'),
   dreamTake: (id) => ipcRenderer.invoke('dream:take', id),
@@ -113,7 +137,7 @@ const api: CnApi = {
   dreamUndo: (u) => ipcRenderer.invoke('dream:undo', u),
   dreamRedo: (ids, feedback) => ipcRenderer.invoke('dream:redo', ids, feedback),
   dreamRedoStop: () => ipcRenderer.invoke('dream:redoStop'),
-  dreamDiff: (id) => ipcRenderer.invoke('dream:diff', id),
+  diffFiles: (src) => ipcRenderer.invoke('diff:files', src),
   onDream(cb) {
     const h = (_e: unknown, report: Parameters<typeof cb>[0], running: boolean) => cb(report, running)
     ipcRenderer.on('dream:changed', h)
@@ -127,8 +151,14 @@ contextBridge.exposeInMainWorld('cnPlugins', pluginsApi)
 contextBridge.exposeInMainWorld('cnMap', mapApi)
 contextBridge.exposeInMainWorld('cnFolder', folderApi)
 contextBridge.exposeInMainWorld('cnReading', readingApi)
+contextBridge.exposeInMainWorld('cnMineru', mineruApi)
 contextBridge.exposeInMainWorld('cnSearch', searchApi)
 contextBridge.exposeInMainWorld('cnFiles', { all: () => ipcRenderer.invoke('files:all') } satisfies CnFilesApi)
 contextBridge.exposeInMainWorld('cnVideo', videoApi)
 contextBridge.exposeInMainWorld('cnImport', importApi)
 contextBridge.exposeInMainWorld('cnMenu', menuApi)
+contextBridge.exposeInMainWorld('cnAttach', {
+  of: (note, shared) => ipcRenderer.invoke('attach:of', note, shared),
+  trashNote: (note, withImages) => ipcRenderer.invoke('attach:trash-note', note, withImages),
+  undo: (id) => ipcRenderer.invoke('attach:undo', id),
+} satisfies CnAttachApi)

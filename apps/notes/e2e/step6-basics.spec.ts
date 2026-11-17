@@ -43,7 +43,7 @@ test('⌘F 全局搜索：搜到正文里的词（刚打的字也算），回车
     await page.getByRole('button', { name: '搜索' }).click()
     await expect(box).toBeFocused()
     await box.fill('没有这个词')
-    await expect(palette(page).locator('.pal-none')).toHaveText('笔记和 PDF 里都没有「没有这个词」这几个字')
+    await expect(palette(page).locator('.pal-none')).toHaveText('笔记和PDF里都没有「没有这个词」这几个字')
   } finally {
     await run.close()
   }
@@ -57,7 +57,7 @@ test('左栏右键「移到废纸篓」：文件进废纸篓，开着的标签�
     await expect(page.locator('.tab', { hasText: '删我' })).toHaveCount(1)
     await pickFromNoteMenu(run, '移到废纸篓')
     await page.locator('.nav .si', { hasText: '删我' }).click({ button: 'right' })
-    await expect(toast(page)).toContainText('「删我」移到了废纸篓')
+    await expect(toast(page)).toContainText('已删除《删我》')
     await expect(page.locator('.tab', { hasText: '删我' })).toHaveCount(0)
     await expect(page.locator('.nav .si', { hasText: '删我' })).toHaveCount(0)
     expect(existsSync(join(vault, '删我.md'))).toBe(false)
@@ -66,7 +66,7 @@ test('左栏右键「移到废纸篓」：文件进废纸篓，开着的标签�
     expect(trashed[0]).toMatch(/删我\.md$/)
     expect(readFileSync(join(run.trash, trashed[0]!), 'utf8')).toBe('# 删我\n\n不要了\n')
     expect(gitStatus(vault)).toBe(' D 删我.md\n')
-    await expect(page.locator('.gitbar').getByTestId('git-changed')).toContainText('1 处没提交')
+    await expect(page.locator('.gitbar').getByTestId('git-changed')).toContainText('1处没提交')
     expect(readFileSync(join(vault, '留着.md'), 'utf8')).toBe('# 留着\n')
   } finally {
     await run.close()

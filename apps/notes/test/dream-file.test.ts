@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { cleanName, FILE_BATCH, foldersOf, movedText, parsePlan, planInBatches, relinkText, targetOf, validFolder } from '../src/main/dream-file'
-import { type Ask, type DreamReportInternal, dropMany, itemDiff, redo, runDream, takeAll, takeMany, undo } from '../src/main/dream'
+import { type Ask, type DreamReportInternal, dropMany, redo, runDream, takeAll, takeMany, undo } from '../src/main/dream'
+import { diffOf } from '../src/main/diff'
 
 describe('归类和改名：纯函数', () => {
   it('去处只能是 课程/<课>、项目/<项目>、生活、写作、素材/<主题>', () => {
@@ -112,8 +113,8 @@ describe('归类和改名：在梦游分支上', { timeout: 30_000 }, () => {
     const r = await dream()
     const files = r.items.filter((i) => i.group === 'file')
     expect(files.map((i) => [i.title, i.sub])).toEqual([
-      ['第3讲 线性映射 导图', '从 收件箱 挪来 · 原名 导图 11-15 21∶40'],
-      ['周末花市', '从 收件箱 挪来 · 原名 周末去花市'],
+      ['第3讲 线性映射 导图', '从收件箱挪来 · 原名「导图 11-15 21∶40」'],
+      ['周末花市', '从收件箱挪来 · 原名「周末去花市」'],
     ])
     expect(r.stay).toBe(1)
     // main 上什么都没变
@@ -126,7 +127,7 @@ describe('归类和改名：在梦游分支上', { timeout: 30_000 }, () => {
     const moved = g(root, 'show', `${c}:${NEW_MAP}`)
     expect(moved).toContain('# 第3讲 线性映射 导图\n\n![原照片](../../附件/导图/a.jpg)')
     expect(g(root, 'show', `${c}:复习.md`)).toContain('[[第3讲 线性映射 导图]]')
-    const d = await itemDiff(root, r, files[0]!.id)
+    const d = (await diffOf(root, { kind: 'dream', id: files[0]!.id }, r)).files
     expect(d.find((f) => f.path === NEW_MAP)).toMatchObject({ status: 'moved', from: '收件箱/导图 11-15 21∶40.md' })
   })
 
@@ -144,6 +145,8 @@ describe('归类和改名：在梦游分支上', { timeout: 30_000 }, () => {
 
     const back = await undo(root, r, ids, hash!)
     expect(back).toMatch(/^[0-9a-f]{40}$/)
+    // 撤回的说明是中文（第 3 轮：历史里是「Revert "…"」）
+    expect(g(root, 'log', '-1', '--format=%s').trim()).toBe('撤回梦游的归类和改名：2 处')
     expect(read('收件箱/导图 11-15 21∶40.md')).toBe(MAP)
     expect(read('复习.md')).toContain('[[导图 11-15 21∶40]]')
     expect(existsSync(join(root, '生活/周末花市.md'))).toBe(false)
@@ -176,8 +179,8 @@ describe('归类和改名：在梦游分支上', { timeout: 30_000 }, () => {
     expect(flower.redoCommits).toHaveLength(1)
     expect(map.redoCommits).toBeUndefined()
     // 改了什么：从收件箱直接到写作
-    const d = await itemDiff(root, r, flower.id)
-    expect(d).toEqual([expect.objectContaining({ path: '写作/花市.md', from: '收件箱/周末去花市.md', status: 'moved' })])
+    const d = (await diffOf(root, { kind: 'dream', id: flower.id }, r)).files
+    expect(d).toEqual([expect.objectContaining({ path: '写作/花市.md', from: '收件箱/周末去花市.md', status: 'moved', summary: '按你说的挪到 写作' })])
     await takeMany(root, r, [flower.id])
     expect(read('写作/花市.md')).toBe(VAULT['收件箱/周末去花市.md'])
     expect(existsSync(join(root, '生活'))).toBe(false)

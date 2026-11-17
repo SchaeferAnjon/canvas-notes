@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { age, gitStatus, launch, pane, pickFromNoteMenu, waitSaved, tabOn, leftView } from './app'
 import { ICELAND } from './fixtures/board'
@@ -7,6 +7,8 @@ import { makeBigVault, type BigVaultStats } from './fixtures/big-vault'
 
 const side = (page: Page) => page.locator('.side')
 const group = (page: Page, name: string) => page.locator('.nav').getByRole('group', { name })
+/** 一组里每行的名字（右边的时间不算） */
+const names = (page: Page, name: string) => group(page, name).locator('.si .truncate')
 const sideRow = (page: Page, title: string) => page.locator('.nav .si').filter({ has: page.locator('.truncate', { hasText: new RegExp(`^${title}$`) }) })
 const pinsFile = (vault: string) => join(vault, '.canvas-notes', '置顶.json')
 const settingsDialog = (page: Page) => page.getByRole('dialog', { name: '设置' })
@@ -47,14 +49,14 @@ test('置顶：右键「置顶」进左栏最上面一组，存在库里 .canvas
     await expect(group(page, '置顶')).toHaveCount(0)
     await pickFromNoteMenu(run, '置顶')
     await sideRow(page, '这周写的').click({ button: 'right' })
-    await expect(group(page, '置顶').locator('.si')).toHaveText(['这周写的'])
-    // 置顶的不在下面「这周动过的」里重复
-    await expect(group(page, '这周动过的').locator('.si', { hasText: '这周写的' })).toHaveCount(0)
+    await expect(names(page, '置顶')).toHaveText(['这周写的'])
+    // 置顶的不在下面「今天」里重复
+    await expect(group(page, '今天').locator('.si', { hasText: '这周写的' })).toHaveCount(0)
     expect(JSON.parse(readFileSync(pinsFile(vault), 'utf8'))).toEqual(['这周写的.md'])
     expect(readFileSync(pinsFile(vault), 'utf8')).toBe('[\n  "这周写的.md"\n]\n')
     // 进 Git：底栏看得到一个没提交的文件
     expect(gitStatus(vault)).toBe('?? .canvas-notes/置顶.json\n')
-    await expect(page.locator('.gitbar').getByTestId('git-changed')).toContainText('1 处没提交')
+    await expect(page.locator('.gitbar').getByTestId('git-changed')).toContainText('1处没提交')
 
     // 改名：置顶跟着换路径
     await pickFromNoteMenu(run, '重命名')
@@ -62,36 +64,36 @@ test('置顶：右键「置顶」进左栏最上面一组，存在库里 .canvas
     const input = page.locator('.nav').getByRole('textbox', { name: '新名字' })
     await input.fill('置顶的那篇')
     await input.press('Enter')
-    await expect(group(page, '置顶').locator('.si')).toHaveText(['置顶的那篇'])
+    await expect(names(page, '置顶')).toHaveText(['置顶的那篇'])
     await expect.poll(() => JSON.parse(readFileSync(pinsFile(vault), 'utf8'))).toEqual(['置顶的那篇.md'])
 
     // 归档里的「很久以前」：在归档列表里右键置顶，回到左栏置顶组，归档少一篇
-    await expect(page.getByTestId('archive-count')).toHaveText('2 篇')
+    await expect(page.getByTestId('archive-count')).toHaveText('2篇')
     await side(page).getByRole('button', { name: /^归档/ }).click()
     const list = pane(page).getByRole('list', { name: '归档的笔记' })
     await expect(list.getByRole('listitem')).toHaveCount(2)
     await pickFromNoteMenu(run, '置顶')
     await list.getByRole('listitem').filter({ hasText: '很久以前' }).getByRole('button').click({ button: 'right' })
-    await expect(group(page, '置顶').locator('.si')).toHaveText(['置顶的那篇', '很久以前'])
-    await expect(page.getByTestId('archive-count')).toHaveText('1 篇')
+    await expect(names(page, '置顶')).toHaveText(['置顶的那篇', '很久以前'])
+    await expect(page.getByTestId('archive-count')).toHaveText('1篇')
     await expect(list.getByRole('listitem')).toHaveCount(1)
-    // 全部笔记里置顶的那行带图钉
-    await side(page).getByRole('button', { name: /^全部笔记/ }).click()
-    const all = pane(page).getByRole('list', { name: '全部笔记' })
-    await expect(all.getByRole('listitem').filter({ hasText: '很久以前' }).locator('.pin')).toHaveCount(1)
-    await expect(all.getByRole('listitem').filter({ hasText: '旧白板' }).locator('.tag')).toHaveText('归档')
+    // 中间的「最近」整页：归档了的也列（找东西用），按月收起在「更早」的月份里
+    await side(page).getByRole('button', { name: '在中间打开' }).click()
+    const all = pane(page).getByRole('list', { name: '最近的笔记' })
+    await pane(page).getByRole('textbox', { name: '筛选' }).fill('旧白板')
+    await expect(all.getByRole('listitem').filter({ hasText: '旧白板' })).toHaveCount(1)
 
     // 取消置顶：菜单里这时是「取消置顶」
     await pickFromNoteMenu(run, '取消置顶')
     await sideRow(page, '置顶的那篇').click({ button: 'right' })
-    await expect(group(page, '置顶').locator('.si')).toHaveText(['很久以前'])
-    await expect(group(page, '这周动过的').locator('.si', { hasText: '置顶的那篇' })).toHaveCount(1)
+    await expect(names(page, '置顶')).toHaveText(['很久以前'])
+    await expect(group(page, '今天').locator('.si', { hasText: '置顶的那篇' })).toHaveCount(1)
     expect(JSON.parse(readFileSync(pinsFile(vault), 'utf8'))).toEqual(['很久以前.md'])
     await pickFromNoteMenu(run, '取消置顶')
     await sideRow(page, '很久以前').click({ button: 'right' })
     await expect(group(page, '置顶')).toHaveCount(0)
     await expect(sideRow(page, '很久以前')).toHaveCount(0)
-    await expect(page.getByTestId('archive-count')).toHaveText('2 篇')
+    await expect(page.getByTestId('archive-count')).toHaveText('2篇')
     expect(readFileSync(pinsFile(vault), 'utf8')).toBe('[]\n')
   } finally {
     await run.close()
@@ -102,14 +104,16 @@ test('自动归档：90 天没改的不在左栏，「归档」里筛得到、�
   const run = await launch(SMALL, {}, agedSmall)
   const { page, vault } = run
   try {
-    // 左栏：这周写的在；上个月（45 天）不在左栏但没归档；很久以前、旧白板归档了；收件箱不归档
+    // 左栏：这周写的在；上个月（45 天）收在月份里、没归档；很久以前、旧白板归档了；收件箱不归档
     await expect(sideRow(page, '这周写的')).toHaveCount(1)
     await expect(sideRow(page, '上个月')).toHaveCount(0)
     await expect(sideRow(page, '很久以前')).toHaveCount(0)
     await expect(sideRow(page, '旧白板')).toHaveCount(0)
     await expect(page.getByTestId('inbox-count')).toHaveText('1')
-    await expect(page.getByTestId('all-count')).toHaveText('5 篇')
-    await expect(page.getByTestId('archive-count')).toHaveText('2 篇')
+    await expect(page.getByTestId('recent-count')).toHaveText('5篇')
+    await expect(page.getByTestId('archive-count')).toHaveText('2篇')
+    // 上个月那篇在十月，收件箱那条（不归档）在一月
+    await expect(side(page).locator('.s-fold')).toHaveCount(2)
 
     await side(page).getByRole('button', { name: /^归档/ }).click()
     await expect(tabOn(page)).toHaveText('归档')
@@ -134,13 +138,13 @@ test('自动归档：90 天没改的不在左栏，「归档」里筛得到、�
     expect(readFileSync(join(vault, '很久以前.md'), 'utf8')).toBe(SMALL['很久以前.md'])
     expect(gitStatus(vault)).toBe('')
 
-    // 改一下：修改时间变成现在，回到左栏「这周动过的」，归档少一篇
+    // 改一下：修改时间变成现在，回到左栏「今天」，归档少一篇
     await pane(page).locator('.cm-line', { hasText: '两百天前改的' }).click()
     await page.keyboard.press('End')
     await page.keyboard.type('今天又补了一句。')
     await waitSaved(page)
-    await expect(group(page, '这周动过的').locator('.si', { hasText: '很久以前' })).toHaveCount(1)
-    await expect(page.getByTestId('archive-count')).toHaveText('1 篇')
+    await expect(group(page, '今天').locator('.si', { hasText: '很久以前' })).toHaveCount(1)
+    await expect(page.getByTestId('archive-count')).toHaveText('1篇')
     expect(readFileSync(join(vault, '很久以前.md'), 'utf8')).toBe('# 很久以前\n\n两百天前改的。今天又补了一句。\n')
   } finally {
     await run.close()
@@ -151,19 +155,19 @@ test('归档天数在设置 › 库 里改：30 天、不自动归档、180 天�
   const run = await launch(SMALL, {}, agedSmall)
   const { page, vault, userData } = run
   try {
-    await expect(page.getByTestId('archive-count')).toHaveText('2 篇')
+    await expect(page.getByTestId('archive-count')).toHaveText('2篇')
     await openVaultSettings(page)
     const sel = settingsDialog(page).getByRole('combobox', { name: '自动归档' })
     await expect(sel).toHaveValue('90')
-    await expect(sel.locator('option')).toHaveText(['30 天没改过', '60 天没改过', '90 天没改过', '180 天没改过', '不自动归档'])
+    await expect(sel.locator('option')).toHaveText(['30天没改过', '60天没改过', '90天没改过', '180天没改过', '不自动归档'])
     await sel.selectOption('30')
     // 上个月（45 天）也归档了
-    await expect(page.getByTestId('archive-count')).toHaveText('3 篇')
+    await expect(page.getByTestId('archive-count')).toHaveText('3篇')
     expect(settingsOf(userData).archiveDays).toBe(30)
     await sel.selectOption('180')
-    await expect(page.getByTestId('archive-count')).toHaveText('2 篇')
+    await expect(page.getByTestId('archive-count')).toHaveText('2篇')
     await sel.selectOption('0')
-    await expect(page.getByTestId('archive-count')).toHaveText('0 篇')
+    await expect(page.getByTestId('archive-count')).toHaveText('0篇')
     expect(settingsOf(userData).archiveDays).toBe(0)
     await page.keyboard.press('Escape')
     await side(page).getByRole('button', { name: /^归档/ }).click()
@@ -172,7 +176,7 @@ test('归档天数在设置 › 库 里改：30 天、不自动归档、180 天�
     await pane(page).getByRole('button', { name: '在设置里打开' }).click()
     await expect(settingsDialog(page).getByRole('combobox', { name: '自动归档' })).toHaveValue('0')
     await settingsDialog(page).getByRole('combobox', { name: '自动归档' }).selectOption('90')
-    await expect(page.getByTestId('archive-count')).toHaveText('2 篇')
+    await expect(page.getByTestId('archive-count')).toHaveText('2篇')
     expect(gitStatus(vault)).toBe('')
   } finally {
     await run.close()
@@ -188,7 +192,7 @@ test('收件箱超过 20 条：左栏计数和首页收件箱组件变提醒样�
     await expect(page.getByTestId('inbox-count')).not.toHaveClass(/warn/)
     // 收件箱页头的「让 AI 分一分」平时只是一颗图标，不提醒
     await leftView(page, '收件箱')
-    await expect(side(page).getByRole('button', { name: '让 AI 分一分' })).not.toHaveClass(/s-tidy/)
+    await expect(side(page).getByRole('button', { name: '让AI分一分' })).not.toHaveClass(/s-tidy/)
     await expect(page.getByTestId('widget-inbox')).not.toHaveClass(/warn/)
 
     // 再速记一条：21 条
@@ -197,21 +201,21 @@ test('收件箱超过 20 条：左栏计数和首页收件箱组件变提醒样�
     await pane(page).getByRole('textbox', { name: '速记' }).press('Enter')
     await expect(page.getByTestId('inbox-count')).toHaveText('21')
     await expect(page.getByTestId('inbox-count')).toHaveClass(/warn/)
-    const tidy = side(page).getByRole('button', { name: '收件箱堆了 21 条，让 AI 按主题分进素材' })
+    const tidy = side(page).getByRole('button', { name: '收件箱堆了21条，让AI按主题分进素材' })
     await expect(tidy).toHaveClass(/s-tidy/)
-    await expect(tidy).toContainText('让 AI 分一分')
+    await expect(tidy).toContainText('让AI分一分')
     await page.getByRole('banner').getByRole('button', { name: '首页' }).click()
     const w = page.getByTestId('widget-inbox')
     await expect(w).toHaveClass(/warn/)
     await expect(w.locator('.big')).toHaveText('21条没整理 · 堆多了')
-    await expect(w.getByRole('button', { name: '让 AI 分一分' })).toHaveClass(/btn-primary/)
+    await expect(w.getByRole('button', { name: '让AI分一分' })).toHaveClass(/btn-primary/)
     await page.screenshot({ path: shot('inbox-warn-home.png') })
 
     // 左栏收件箱页头的「让 AI 分一分」：打开 AI，跑 /整理收件箱
     await tidy.click()
     const ai = page.getByRole('complementary', { name: 'AI 对话' })
     await expect(ai).toBeVisible()
-    await expect(ai.getByTestId('ai-msg').last()).toContainText('读了收件箱 21 条', { timeout: 20_000 })
+    await expect(ai.getByTestId('ai-msg').last()).toContainText('读了收件箱21条', { timeout: 20_000 })
     // 只给建议，点同意之前一条都不挪
     expect(existsSync(join(vault, '收件箱', '第 1 条.md'))).toBe(true)
   } finally {
@@ -219,7 +223,7 @@ test('收件箱超过 20 条：左栏计数和首页收件箱组件变提醒样�
   }
 })
 
-test('7000 篇的库：启动、左栏、⌘F 搜索、首页、归档列表都不卡；左栏不超过 30 行', async () => {
+test('7000 篇的库：启动、左栏（最近、文件树）、文件夹首页、中间的「最近」、⌘F 搜索、首页、归档列表都不卡；不把上万条全铺开', async () => {
   test.setTimeout(240_000)
   let stats: BigVaultStats | null = null
   const run = await launch({}, {}, (v) => (stats = makeBigVault(v)))
@@ -227,28 +231,57 @@ test('7000 篇的库：启动、左栏、⌘F 搜索、首页、归档列表都�
   const s = stats!
   const nums: Record<string, number> = {}
   try {
-    // 启动：从开软件到左栏数出 7000 篇
-    await expect(page.getByTestId('all-count')).toHaveText(`${s.total} 篇`, { timeout: 60_000 })
+    // 启动：从开软件到左栏「最近」数出 7000 篇
+    await expect(page.getByTestId('recent-count')).toHaveText(`${s.total}篇`, { timeout: 60_000 })
     nums['启动到左栏出来（ms）'] = Date.now() - run.launchedAt
     await expect(page.getByTestId('widget-inbox')).toBeVisible()
     nums['启动到首页组件出来（ms）'] = Date.now() - run.launchedAt
-    await expect(page.getByTestId('archive-count')).toHaveText(`${s.olderThan90} 篇`)
-
-    // 收件箱页头：堆多了的「让 AI 分一分」；课程和文件夹首页页：两个项目
-    await leftView(page, '收件箱')
-    await expect(side(page).getByRole('button', { name: /让 AI 按主题分进素材/ })).toBeVisible()
-    await leftView(page, '课程和文件夹首页')
-    await expect(group(page, '文件夹').locator('.si')).toHaveCount(2)
-    // 「最近」只有二三十行，不管库多大（等每一组都出来再数）
-    await leftView(page, '最近')
-    await expect(page.locator('.nav .sh', { hasText: '素材' })).toBeVisible()
-    await expect(group(page, '这周动过的').locator('.s-more')).toBeVisible()
+    await expect(page.getByTestId('archive-count')).toHaveText(`${s.olderThan90}篇`)
+    // 「最近」：今天、这周之外按月收起，每组最多先列 100 篇
     const rows = await side(page).locator('.si:visible').count()
-    nums['左栏行数'] = rows
-    expect(rows).toBeLessThanOrEqual(30)
-    // 这周动过的 10 篇加「还有 N 篇」；左栏「文件夹」（这个库有 项目/canvas、项目/旧项目）占的 2 行从这里扣
-    expect(await group(page, '这周动过的').locator('.si').count()).toBe(11 - 2)
-    await page.screenshot({ path: shot('big-vault-sidebar.png') })
+    nums['左栏「最近」行数'] = rows
+    expect(rows).toBeLessThanOrEqual(2 * 100 + 20)
+    expect(await side(page).locator('.s-fold').count()).toBeGreaterThan(0)
+
+    // 收件箱页头：堆多了的「让 AI 分一分」
+    await leftView(page, '收件箱')
+    await expect(side(page).getByRole('button', { name: /让AI按主题分进素材/ })).toBeVisible()
+
+    // 文件树：只画展开了的，一个文件夹先列 100 个
+    let t = Date.now()
+    await leftView(page, '文件')
+    await expect(side(page).getByRole('tree', { name: '全部文件' }).getByRole('treeitem').first()).toBeVisible()
+    nums['切到「文件」树出来（ms）'] = Date.now() - t
+    nums['文件树行数'] = await side(page).getByRole('treeitem').count()
+    expect(nums['文件树行数']).toBeLessThan(150)
+
+    // 文件夹首页：点「日记」（几百篇的文件夹）
+    const diary = side(page).getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: /^日记$/ }) })
+    t = Date.now()
+    await diary.click()
+    await expect(pane(page).getByTestId('folder-content').locator('.fc-fcard').first()).toBeVisible()
+    nums['打开「日记」文件夹首页（ms）'] = Date.now() - t
+    const year = side(page).getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: /^2025$/ }) })
+    t = Date.now()
+    await year.click()
+    await expect(pane(page).getByTestId('folder-content').getByRole('region', { name: '笔记' }).locator('.fc-row').first()).toBeVisible()
+    nums['打开「日记/2025」文件夹首页（ms）'] = Date.now() - t
+    nums['「日记/2025」首页上的笔记行数'] = await pane(page).getByTestId('folder-content').locator('.fc-row').count()
+    expect(nums['「日记/2025」首页上的笔记行数']).toBeLessThanOrEqual(4)
+    expect(await side(page).getByRole('treeitem').count()).toBeLessThan(150 + 100)
+
+    // 中间的「最近」：按月收起，打开就出来
+    await leftView(page, '最近')
+    t = Date.now()
+    await side(page).getByRole('button', { name: '在中间打开' }).click()
+    await expect(pane(page).getByRole('list', { name: '最近的笔记' }).locator('.rp-fold').first()).toBeVisible()
+    nums['打开中间的「最近」（ms）'] = Date.now() - t
+    nums['「最近」页上的行数'] = await pane(page).locator('.rp-row').count()
+    expect(nums['「最近」页上的行数']).toBeLessThanOrEqual(200)
+    t = Date.now()
+    await pane(page).getByRole('textbox', { name: '筛选' }).fill('白板')
+    await expect(pane(page).locator('.rp-row').first()).toContainText('白板')
+    nums['「最近」页筛选（ms）'] = Date.now() - t
 
     // 列一次笔记（每次保存后都会列一次）：主进程有缓存，只看修改时间
     nums['再列一次 7000 篇（ms）'] = await page.evaluate(async () => {
@@ -281,16 +314,9 @@ test('7000 篇的库：启动、左栏、⌘F 搜索、首页、归档列表都�
     await pane(page).locator('.body').evaluate((el) => (el.scrollTop = el.scrollHeight))
     await expect(list.getByRole('listitem').last()).toBeVisible()
     expect(await list.getByRole('listitem').count()).toBeLessThan(80)
-    // 筛一下
-    const t2 = Date.now()
-    await pane(page).getByRole('textbox', { name: '筛选' }).fill('白板')
-    await expect(list).toHaveAttribute('aria-rowcount', /^\d+$/)
-    await expect(list.getByRole('listitem').first()).toContainText('白板')
-    nums['归档里筛选（ms）'] = Date.now() - t2
-    // 点开一篇
     const t3 = Date.now()
     await list.getByRole('listitem').first().getByRole('button').click()
-    await expect(tabOn(page)).toContainText('白板')
+    await expect(tabOn(page)).not.toHaveText('归档')
     nums['从归档打开一篇（ms）'] = Date.now() - t3
 
     // 回首页
@@ -301,8 +327,12 @@ test('7000 篇的库：启动、左栏、⌘F 搜索、首页、归档列表都�
     await expect(page.getByTestId('widget-inbox')).toHaveClass(/warn/)
 
     console.log('7000 篇库测得：', JSON.stringify({ ...s, ...nums }, null, 2))
+    if (process.env.CN_PERF_OUT) writeFileSync(process.env.CN_PERF_OUT, JSON.stringify({ ...s, ...nums }, null, 2))
     for (const [k, v] of Object.entries(nums)) test.info().annotations.push({ type: k, description: String(v) })
     expect(nums['启动到左栏出来（ms）']).toBeLessThan(10_000)
+    expect(nums['切到「文件」树出来（ms）']).toBeLessThan(1500)
+    expect(nums['打开「日记」文件夹首页（ms）']).toBeLessThan(1500)
+    expect(nums['打开中间的「最近」（ms）']).toBeLessThan(1500)
     expect(nums['再列一次 7000 篇（ms）']).toBeLessThan(1000)
     expect(nums['⌘F 打字到出结果（ms，含 80ms 防抖）']).toBeLessThan(2000)
   } finally {
@@ -319,7 +349,7 @@ test('截图：十套主题下的左栏（有置顶、收件箱提醒）和归�
   )
   const { page } = run
   try {
-    await expect(group(page, '置顶').locator('.si')).toHaveText(['读书笔记', '很久以前'])
+    await expect(names(page, '置顶')).toHaveText(['读书笔记', '很久以前'])
     await page.keyboard.press('Meta+,')
     await settingsDialog(page).getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '外观', exact: true }).click()
     await settingsDialog(page).getByRole('switch', { name: '跟着系统换浅深' }).click()
@@ -342,10 +372,11 @@ test('截图：十套主题下的左栏（有置顶、收件箱提醒）和归�
     await expect(settingsDialog(page).getByRole('combobox', { name: '自动归档' })).toBeVisible()
     await page.screenshot({ path: shot('settings-vault.png') })
     await page.keyboard.press('Escape')
-    await side(page).getByRole('button', { name: /^全部笔记/ }).click()
-    await expect(pane(page).getByRole('list', { name: '全部笔记' })).toBeVisible()
+    await leftView(page, '最近')
+    await side(page).getByRole('button', { name: '在中间打开' }).click()
+    await expect(pane(page).getByRole('list', { name: '最近的笔记' })).toBeVisible()
     await page.mouse.move(400, 300)
-    await page.screenshot({ path: shot('all-notes.png') })
+    await page.screenshot({ path: shot('recent-page.png') })
   } finally {
     await run.close()
   }

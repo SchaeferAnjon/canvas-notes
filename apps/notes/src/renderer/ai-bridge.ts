@@ -41,13 +41,17 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
                 ? { type: 'none', title: `HTML：${t.path}` }
               : t.type === 'webread'
                 ? { type: 'none', title: `阅读视图：${t.title}（${t.url}）` }
-              : t.type === 'all'
-                ? { type: 'none', title: '全部笔记' }
+              : t.type === 'recent'
+                ? { type: 'none', title: '最近' }
                 : t.type === 'archive'
                   ? { type: 'none', title: '归档' }
                   : t.type === 'folder'
-                    ? { type: 'none', title: `${t.folder} 的首页` }
-                    : { type: 'topic', title: `素材 / ${t.topic}` }
+                    ? { type: 'none', title: `${t.folder}的首页` }
+                    : t.type === 'diff'
+                      ? { type: 'none', title: `对比：${t.title}` }
+                      : t.type === 'oldimages'
+                        ? { type: 'none', title: '梦游预览 · 挪老图' }
+                      : { type: 'topic', title: `素材 / ${t.topic}` }
   const ctx: AgentContext = { tab, web: { open: s.webOpen, url: s.webUrl } }
   const d = s.doc
   if (d && t?.type === 'note' && d.path === t.path && s.mode !== 'board') {
@@ -102,7 +106,7 @@ async function handle(s: BridgeState, op: BridgeOp, arg: unknown): Promise<unkno
     case 'docInsert': {
       const { path, text } = arg as { path: string; text: string }
       const d = docFor(s, path)
-      d.insertAtCursor(text.replace(/\n+$/, ''))
+      d.insertAtCursor(text.replace(/\n+$/, ''), { focus: false })
       await d.save()
       return null
     }

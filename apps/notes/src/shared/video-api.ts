@@ -21,11 +21,13 @@ export interface VideoSettings {
   /** 存字幕全文时带译文 */
   withTranslation: boolean
   keys: VideoKeys
+  /** 以后没字幕的视频打开就自动生成字幕（下载音频、Soniox 听写，要花钱），默认关 */
+  autoStt: boolean
 }
 
 export const DEFAULT_VIDEO_KEYS: VideoKeys = { moment: 'Alt+KeyS', ask: 'Alt+KeyD' }
 
-export const DEFAULT_VIDEO_SETTINGS: VideoSettings = { mode: 'bi', place: 'over', autoSubs: true, withTranslation: true, keys: DEFAULT_VIDEO_KEYS }
+export const DEFAULT_VIDEO_SETTINGS: VideoSettings = { mode: 'bi', place: 'over', autoSubs: true, withTranslation: true, keys: DEFAULT_VIDEO_KEYS, autoStt: false }
 
 /** 快捷键只认「⌥ 加一个字母或数字」（不占网站自己的不带修饰键的键，见 spec 7.5） */
 export const isVideoKey = (k: unknown): k is string => typeof k === 'string' && /^Alt\+(Key[A-Z]|Digit[0-9])$/.test(k)
@@ -47,7 +49,14 @@ export function normalizeVideoSettings(raw: unknown): VideoSettings {
     autoSubs: typeof r.autoSubs === 'boolean' ? r.autoSubs : true,
     withTranslation: typeof r.withTranslation === 'boolean' ? r.withTranslation : true,
     keys: { moment, ask },
+    autoStt: r.autoStt === true,
   }
+}
+
+/** 生成字幕走到哪：下载音频 / Soniox 听写 / 翻译（1/3、2/3、3/3）；出错时 error 是原因 */
+export interface SttState {
+  stage: 'download' | 'listen' | 'translate'
+  error?: string
 }
 
 /** 字幕现在怎样：在拿 / 好了 / 这个视频没有字幕 / 要登录 B 站 / 出错 */
@@ -91,6 +100,10 @@ export interface VideoState {
   chapters: { start: number; title: string }[]
   /** 这个视频的字幕关着（视频条上关的，或者设置里「打开视频就开字幕」关着） */
   off: boolean
+  /** 正在生成字幕（CN-69）；没在生成是 null */
+  stt: SttState | null
+  /** 填了 Soniox 密钥（没填时「生成字幕」旁写「先在设置里填」） */
+  sttKey: boolean
 }
 
 /** 网页里报给界面的：播放到哪、视频在网页里的位置（框一块问、问话框要贴着它） */
@@ -166,6 +179,8 @@ export interface CnVideoApi {
   setTarget(target: string): Promise<void>
   moment(r: MomentRequest): Promise<MomentResult>
   ask(r: AskRequest): Promise<AskResult>
+  /** 停下这个视频正在问的那一问 */
+  askStop(wcId: number): Promise<void>
   /** 文档、白板里插好、存好以后：一次提交（附件图 + 文档改动） */
   commit(paths: string[], message: string, mark: { wcId: number; t: number; note: string; asked?: boolean; text?: string; image?: string }): Promise<string | null>
   /** 撤回 = 反向提交 */
@@ -176,6 +191,14 @@ export interface CnVideoApi {
   meta(url: string): Promise<{ title: string; channel: string; duration: number; cover: string | null } | null>
   /** 双击视频卡接着看：上次看到哪一秒 */
   lastPos(key: string): Promise<number>
+  /** 生成字幕：wcId 是开着的视频；只给 key 时（时刻块里点「生成字幕」）等这个视频在右栏打开后开始 */
+  transcribe(r: { wcId?: number; key?: string }): Promise<void>
+  stopTranscribe(wcId: number): Promise<void>
+  /** Soniox 密钥：有没有、最后 4 位、是不是用的环境变量；null 是删掉 */
+  sttKey(): Promise<{ has: boolean; tail: string | null; fromEnv: boolean }>
+  setSttKey(key: string | null): Promise<{ has: boolean; tail: string | null; fromEnv: boolean }>
+  /** 主进程后台做完的事说一句（生成字幕后补上了几处时刻的原文和译文） */
+  onNotice(cb: (text: string) => void): () => void
   /** 端到端测试：本机假视频站的地址（当成 YouTube）；平时是 null */
   testOrigin: string | null
 }

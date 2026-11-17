@@ -10,6 +10,10 @@ Canvas Notes 本身按 GPL-3.0-or-later 授权（见 `LICENSE`），Copyright ©
 
 界面图标用的是 VS Code 的图标库 Codicons（@vscode/codicons 0.0.45，https://github.com/microsoft/vscode-codicons ），© Microsoft Corporation，按 Creative Commons Attribution 4.0 International（CC BY 4.0，https://creativecommons.org/licenses/by/4.0/ ）授权。用到的图标由 `scripts/codicons.mjs` 原样拷进 `packages/design/src/codicons.gen.ts`，没有改动图形。CC BY 4.0 允许再分发和改编，只要署名，和 GPL-3.0 一起分发没有冲突。
 
+## yt-dlp
+
+没字幕的视频生成字幕时，用 yt-dlp（https://github.com/yt-dlp/yt-dlp ）只下载视频的音频。安装包里带的是它官方 Release 的 macOS 单文件版（`yt-dlp_macos`，版本钉在 `apps/notes/scripts/fetch-ytdlp.mjs`，按 sha256 核对），原样不改，放在 `Resources/bin/yt-dlp`。yt-dlp 按 The Unlicense 授权（放进公有领域），和 GPL-3.0 一起分发没有冲突。这个单文件版里还打包了 Python 运行时和 yt-dlp 依赖的几个库，各自按自己的许可证（PSF、MIT、MPL-2.0 等，清单见 yt-dlp 仓库的 THIRD_PARTY_LICENSES.txt）。
+
 ## Claudian
 
 `apps/notes/src/main/agent/` 里接本机 AI 命令行的做法（找命令行、补全 PATH、Codex app-server 和 ACP 的 JSON-RPC 接法、只放行自己的工具）参照了 Claudian：
@@ -41,9 +45,9 @@ SOFTWARE.
 
 ## BookmarkKeeper（新网页标签）
 
-新网页标签显示的是 BookmarkKeeper（书签管家）0.8.0 的新标签页、整理书签页和设置页，原样运行它的文件，一个字不改：
-https://github.com/SchaeferAnjon/bookmark （拷的是 bb383e7）。随包带的一份在 `apps/notes/resources/bookmarkkeeper/`，
-由 `apps/notes/scripts/vendor-bookmarkkeeper.mjs` 从它的源码拷来，里面有它的 `LICENSE`；新标签页的打开标签仪表盘改自
+新网页标签显示的是 BookmarkKeeper（书签管家）0.8.0 的新标签页、整理书签页和设置页：
+https://github.com/SchaeferAnjon/bookmark （从 bb383e7 拷来）。随包带的一份在 `apps/notes/resources/bookmarkkeeper/`，
+是软件自己的一部分：新标签页的字改成了中文、问候区的间距改小了（改动记在那份的 `SOURCE.json`），里面有它的 `LICENSE`；新标签页的打开标签仪表盘改自
 Tab Out（MIT，见那份里的 `newtab/LICENSE-tab-out.md`）。快捷书签仓库（`apps/notes/src/main/web/bookmarkkeeper/quick-store.ts`）
 照它 Mac App 里 BKCore 的 QuickStore、Bridge、StoreLocation 的做法用 TypeScript 重写，读写同一种文件。
 
@@ -78,6 +82,7 @@ SOFTWARE.
 | electron-chrome-extensions（Samuel Maddock） | 4.10.0 | MIT | 给内置浏览器补 Chrome 插件接口：工具栏按钮和弹窗、tabs、windows、contextMenus 等（`apps/notes/src/main/web/extensions.ts`） |
 | @mozilla/readability | 0.6.0 | Apache-2.0 | 整页剪藏时抽正文（`apps/notes/src/preload/webview-page.ts`） |
 | turndown（Dom Christie） | 7.2.5 | MIT | 整页剪藏时把正文转成 Markdown（同上） |
+| @ghostery/adblocker-electron（Ghostery，https://github.com/ghostery/adblocker ）和它带的 @ghostery/adblocker、@ghostery/adblocker-electron-preload、@ghostery/adblocker-content、@ghostery/adblocker-extended-selectors、@ghostery/url-parser、@remusao/*、tldts-experimental、tldts-core | 2.20.3 | MPL-2.0（tldts、@remusao/* 是 MIT） | 内置插件「拦广告」：内置浏览器里拦广告请求、藏广告位（`apps/notes/src/main/plugins/adblock/`）。原样放在包里的 node_modules，没改它的文件；MPL-2.0 的源码就是上面的仓库。规则是用户电脑上取的 EasyList、EasyPrivacy（CC BY-SA 3.0 / GPL-3.0），不随包分发 |
 
 读 Chrome 书签和历史的 `flattenBookmarks`、`historyRowsToEntries`（`apps/notes/src/main/web/chrome-data.ts`）照着用户自己在 Dispatch IDE 里的实现写（`patches/browser-import-chrome.patch`，MIT）。
 
@@ -118,6 +123,12 @@ SOFTWARE.
 | vik.jpg | https://commons.wikimedia.org/wiki/File:Vík_í_Mýrdal_-_Víkurkirkja_-_Jeff_Sheldon_2014-11-05_(Unsplash_4IPe3tnBKK0).jpg | Jeff Sheldon |
 | myvatn.jpg | https://commons.wikimedia.org/wiki/File:Mývatn,_Iceland_(Unsplash).jpg | Jan |
 
+## PDF 精读增强：MinerU（可选，运行时由用户下载，不随安装包分发）
+
+MinerU（https://github.com/opendatalab/MinerU ，3.1 起是 Apache-2.0 加附加条款，见它的 LICENSE.md；4.x 的模型是 Apache-2.0）不在安装包里，软件里也没有它的任何代码。用到 PDF 时软件只找本机已经装好的 `mineru-kit`，找到就作为子进程调用（只用本机模型，不加 `--remote`）；找不到时用户在 PDF 工具条下面那行提示里点「安装」，才由 uv（https://github.com/astral-sh/uv ，Apache-2.0 / MIT，同样运行时下载）从 PyPI 装进 `~/.mineru-venv`，模型由 MinerU 自己下载到 `~/.mineru/models`。
+
+`apps/notes/src/main/mineru/`（找、装、跑）和 `packages/format/src/mineru.ts`（middle_json 换成块）来自同一作者的 ParaRead（`src/main/mineru.ts`、`mineruInstall.ts`、`platform.ts`、`layout.ts`），在此以 GPL-3.0-or-later 提供。
+
 ## 随包分发的其他库（许可证按 `pnpm licenses list` 核过，2026-11-15）
 
 界面、预加载脚本和主进程打进包里的：
@@ -128,6 +139,7 @@ SOFTWARE.
 | React、react-dom、scheduler | MIT |
 | CodeMirror 6（@codemirror/*、@lezer/*、style-mod、w3c-keyname、crelt、@marijn/find-cluster-break） | MIT |
 | pdfjs-dist（见上面「读 PDF」） | Apache-2.0 |
+| KaTeX 0.19.0（https://github.com/KaTeX/KaTeX ，含它的字体）：PDF 精读增强认出的公式、表格里的上下标渲染 | MIT |
 | node-diff3 | MIT |
 | @mixmark-io/domino（turndown 的依赖） | BSD-2-Clause |
 | electron-chrome-extensions 的依赖（debug、ms） | MIT |

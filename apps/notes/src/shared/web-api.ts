@@ -127,8 +127,11 @@ export interface CnWebApi {
   /** 网页焦点时按的 ⌘T、⌘W、⌘L（网页里的按键到不了界面，主进程转过来） */
   onKey(cb: (key: 't' | 'w' | 'l', webContentsId: number) => void): () => void
   // 图片
-  /** 把一张图存进库里的「附件/」，返回库内路径 */
-  saveImage(src: ImageSource, nameHint?: string): Promise<SavedImage>
+  /**
+   * 把一张图存进库里的附件，返回库内路径。opts.note：存到这篇的 `附件/<笔记路径>/`（CN-40）；
+   * opts.shot：剪贴板里的截图，起名「截图 1」「截图 2」
+   */
+  saveImage(src: ImageSource, nameHint?: string, opts?: { note?: string; shot?: boolean }): Promise<SavedImage>
   /** 撤回整页剪藏（反向提交） */
   undoClip(path: string): Promise<void>
   /** 网站小图标多深：dark 很黑（深色主题里垫白底）、light 很白、empty 几乎透明（当没有） */

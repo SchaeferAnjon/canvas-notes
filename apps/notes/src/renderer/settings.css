@@ -67,6 +67,24 @@
   color: var(--t3);
   margin: 10px 0 12px;
 }
+.set-body .note.id-bad {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  margin: 6px 0 0;
+  color: var(--t1);
+}
+.set-body .note.id-bad .ic {
+  flex: none;
+  color: var(--red);
+  transform: translateY(1px);
+}
+.set-body .note.id-bad + .note {
+  margin-top: 2px;
+}
+.set-body .field[aria-invalid='true'] {
+  border-color: var(--red);
+}
 .set-body .sp {
   flex: 1;
 }
@@ -519,7 +537,7 @@
 .keys-list kbd {
   font: 12px var(--sans);
   padding: 2px 8px;
-  border-radius: 5px;
+  border-radius: 4px;
   background: var(--card);
   box-shadow: 0 0 0 1px var(--line);
   color: var(--t2);
@@ -691,4 +709,255 @@
 }
 .upd-card .tx b em {
   font-style: normal;
+}
+
+/* 设置 › AI（CN-44 方向 A）：默认一行 + 各功能一行一个下拉；下拉菜单和引擎菜单一个样子 */
+.aip-def {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 48px;
+  padding: 0 8px 0 12px;
+  border-radius: 12px;
+  background: var(--fill);
+  font-size: 13px;
+}
+.aip-def b {
+  font-weight: 500;
+}
+.aip-def .st {
+  font-size: 12px;
+  color: var(--t3);
+}
+.aip-rows {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.aip-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 8px 12px;
+}
+.aip-row + .aip-row {
+  border-top: 1px solid var(--line);
+}
+.aip-row .ic {
+  flex: none;
+  color: var(--t2);
+}
+.aip-row .tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.aip-row .tx b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.aip-row .tx span {
+  font-size: 12px;
+  color: var(--t3);
+}
+.aip-why {
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.aip-link {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--acc-t);
+}
+.aip-drop {
+  position: relative;
+  flex: none;
+  min-width: 0;
+  max-width: 300px;
+}
+.aip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.aip-btn b {
+  font-weight: 500;
+}
+.aip-btn .m {
+  min-width: 0;
+  color: var(--t3);
+}
+.aip-btn > .ci {
+  flex: none;
+  color: var(--t3);
+}
+.aip-menu {
+  position: absolute;
+  right: 0;
+  top: 32px;
+  z-index: 30;
+  width: 280px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+}
+.aip-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 13px;
+  color: var(--t1);
+  text-align: left;
+}
+.aip-menu button:hover:not(:disabled) {
+  background: var(--fill);
+}
+.aip-menu button:disabled {
+  color: var(--t3);
+}
+.aip-menu .ck {
+  flex: none;
+  width: 12px;
+  display: inline-flex;
+  color: var(--acc);
+}
+.aip-menu .nologo {
+  width: 14px;
+  flex: none;
+}
+.aip-menu b {
+  flex: none;
+  font-weight: 500;
+}
+.aip-menu .sub {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+  text-align: right;
+}
+
+/* 远程同步（CN-45）：主按钮是黑色实心胶囊（.btn-primary），一屏只有一个（存前是「保存」，存后是「现在同步」）；地址框下面一行说存没存 */
+.pair .field.mono {
+  font-family: var(--mono);
+}
+.git-state {
+  margin: 10px 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  font-size: 12px;
+  color: var(--t2);
+}
+/* 提交署名那一行：名字 --t1，空 8 接邮箱 --t2；还没有署名时前面一个黄点 */
+.pair .id-mail {
+  margin-left: 8px;
+  color: var(--t2);
+}
+.pair .id-name {
+  flex: 0 1 160px;
+  min-width: 100px;
+}
+.pair .id-none {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--t2);
+}
+.pair .dot.warn {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--yellow);
+}
+.git-state .dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+}
+.git-state .dot.warn {
+  background: var(--yellow);
+}
+.git-state .dot.ok {
+  background: var(--green);
+}
+.git-state kbd {
+  padding: 0 4px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  font: 11px var(--mono);
+  color: var(--t2);
+}
+.git-state .aside {
+  color: var(--t3);
+}
+
+/* 首页样式 B 下面一行：整页背景用窗口背景那张图（CN-52）；勾选框 14 方、圆角 4，勾上是 --acc-bg */
+.pair.hs-winbg {
+  cursor: pointer;
+}
+.pair.hs-winbg .note {
+  margin: 0 0 0 auto;
+  font-size: 12px;
+  color: var(--t2);
+}
+.pair.hs-winbg input[type='checkbox'] {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border-radius: 4px;
+  border: 1.5px solid var(--line2);
+  background: var(--card);
+  flex: none;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.pair.hs-winbg input[type='checkbox']:checked {
+  background: var(--acc-bg);
+  border-color: var(--acc-bg);
+}
+.pair.hs-winbg input[type='checkbox']:checked::after {
+  content: '';
+  width: 7px;
+  height: 4px;
+  border-left: 1.6px solid var(--acc-on);
+  border-bottom: 1.6px solid var(--acc-on);
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+/* 首页用着窗口背景那张图时：封面格子变灰（点了也不显示） */
+.covers.off {
+  opacity: 0.45;
 }

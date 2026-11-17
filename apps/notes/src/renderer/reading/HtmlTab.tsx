@@ -23,9 +23,9 @@ interface Box {
   y1: number
 }
 
-export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; onNotice(t: string): void; dream?: boolean }) {
+export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; onNotice(t: string): void; dream?: boolean; by?: string }) {
   const { path } = props
-  const [meta, setMeta] = useState<{ type?: string; lecture?: string; title?: string }>({})
+  const [meta, setMeta] = useState<{ type?: string; lecture?: string; title?: string; by?: string }>({})
   const [seq, setSeq] = useState(0)
   const [more, setMore] = useState(false)
   /** 框选层开着（点了「框一块问」或按住 ⌘） */
@@ -39,17 +39,21 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
 
   // 标题和属性从文件的 <title>、<meta name="类型"> 里读（主进程读字，不跑它的脚本）；字给 AI 看
   useEffect(() => {
-    if (props.dream) return setMeta({ type: '梦游做的可视化 · 还没收下' })
+    // 梦游分支上的那份：报告里那一条写着是哪家哪个模型做的（CN-54）
+    if (props.dream) return setMeta({ type: `梦游做的可视化${props.by ? ` · ${props.by}` : ''} · 还没收下` })
     void R.load(path)
     void window.cnReading.htmlMeta(path).then(
       (m) => {
-        setMeta({ type: m.props['类型'], lecture: m.props['第几讲'], title: m.title })
+        setMeta({ type: m.props['类型'], lecture: m.props['第几讲'], title: m.title, ...(m.props['模型'] ? { by: m.props['模型'] } : {}) })
         const text = m.text
         R.update(path, () => ({ pages: 1, readN: 1, blocks: { 1: text ? [{ id: 'p1-b1', page: 1, kind: 'text', text, x: 0, y: 0, w: 1, h: 1 }] : [] } }))
       },
       () => setMeta({}),
     )
-  }, [path, seq, props.dream])
+  }, [path, seq, props.dream, props.by])
+
+  // 标签关了：排着的那一问不发、不记笔记（正在答的照常答完）
+  useEffect(() => () => void (canAsk && R.closed(path)), [path, canAsk])
 
   // 发出去了：框收起来
   useEffect(() => {
@@ -69,10 +73,19 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
     }
     const up = (e: KeyboardEvent) => e.key === 'Meta' && setCmd(false)
     const blur = () => setCmd(false)
+    // 输入框里打了自己的问题再按 ⌘↵：带上这一屏问这句（ReadingAi 发来）
+    const onAskPage = (e: Event) => {
+      const d = (e as CustomEvent<{ src: string; text: string; taken?: boolean }>).detail
+      if (d.src !== path) return
+      d.taken = true
+      void askScreen(d.text)
+    }
+    window.addEventListener(R.ASK_PAGE, onAskPage)
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
     window.addEventListener('blur', blur)
     return () => {
+      window.removeEventListener(R.ASK_PAGE, onAskPage)
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
       window.removeEventListener('blur', blur)
@@ -88,11 +101,11 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
   }
 
   /** 截窗口上的一块（窗口坐标），放进右栏 AI 输入框；rect 是这一屏上的比例 */
-  async function stageShot(x: number, y: number, w: number, h: number, rect?: Rect) {
+  async function stageShot(x: number, y: number, w: number, h: number, rect?: Rect, direct = false) {
     props.onAsk()
     const png = await window.cnReading.capture(null, { x, y, w, h })
     const url = URL.createObjectURL(new Blob([new Uint8Array(png)], { type: 'image/png' }))
-    R.stage(path, { page: 0, ...(rect ? { rect } : {}), url, png, web: { url: path, title: meta.title ?? stem(path) } })
+    R.stage(path, { page: 0, ...(rect ? { rect } : {}), url, png, web: { url: path, title: meta.title ?? stem(path) }, ...(direct ? { direct } : {}) })
   }
 
   function onDown(e: React.PointerEvent) {
@@ -139,12 +152,12 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
   }
 
   /** 问这一屏：整个看得到的那屏当一个框，直接发出 */
-  async function askScreen() {
+  async function askScreen(text = '给我讲解一下这一屏') {
     const b = frameRect()
     if (!b || R.get(path).running !== null) return
     try {
-      await stageShot(b.left, b.top, b.width, b.height)
-      await R.send(path, '给我讲解一下这一屏')
+      await stageShot(b.left, b.top, b.width, b.height, undefined, true)
+      await R.send(path, text)
     } catch (err) {
       props.onNotice(errText(err))
     }
@@ -157,7 +170,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
     <section className="pane htmlpane" hidden={!props.active} data-path={path}>
       <TabActs active={props.active}>
         <PageNote>
-          {[meta.type ?? 'HTML', meta.lecture && `第 ${meta.lecture} 讲`].filter(Boolean).join(' · ')}
+          {[meta.type ?? 'HTML', meta.lecture && `第${meta.lecture}讲`, meta.by].filter(Boolean).join(' · ')}
         </PageNote>
         <ActBtn icon="refresh" label="重新载入" onClick={() => setSeq((n) => n + 1)} />
         {canAsk && (
@@ -185,7 +198,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
       <div className="htmlbody" ref={body}>
         {props.active && <iframe key={seq} title={meta.title ?? stem(path)} src={src(path, props.dream ? 'dream' : 'vault')} sandbox="allow-scripts" data-testid="html-frame" />}
         <div className={'htmlframe' + (layer ? ' on' : '')} data-testid="html-frame-layer" onPointerDown={layer ? onDown : undefined} onPointerMove={onMove} onPointerUp={() => void onUp()}>
-          {framing && !drag && <span className="hint">拖一个框问 AI · esc 取消</span>}
+          {framing && !drag && <span className="hint">拖一个框问AI · esc 取消</span>}
           {box && (
             <div
               className={'fr ' + (drag ? 'drawing' : 'pending')}
@@ -202,7 +215,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
               onPointerDown={(e) => e.stopPropagation()}
             >
               <button onClick={() => void capAsk('explain')}>
-                讲解一下 <span className="k">↵</span>
+                讲解一下<span className="k">↵</span>
               </button>
               <button onClick={() => void capAsk('translate')}>
                 <Codicon name="whole-word" size={14} />

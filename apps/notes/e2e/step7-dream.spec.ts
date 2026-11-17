@@ -17,7 +17,7 @@ test('找重复：window.cn.findDuplicates 给出讲同一件事的一对和相�
     expect(pairs).toHaveLength(1)
     expect(pairs[0]).toMatchObject({ a: '收件箱/巴黎自由行全景指南.md', b: '素材/巴黎/巴黎深度漫游指南.md' })
     expect(pairs[0]!.score).toBeGreaterThan(0.4)
-    expect(pairs[0]!.why).toMatch(/^两篇约 \d+% 的字句相同，都有「.+」$/)
+    expect(pairs[0]!.why).toMatch(/^两篇约\d+%的字句相同，都有「.+」$/)
     expect(gitStatus(vault)).toBe('')
   } finally {
     await run.close()
@@ -34,8 +34,8 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     const card = page.getByTestId('dream-card')
     await expect(card).toContainText('第一晚还没到')
     await card.getByRole('button', { name: '现在梦游' }).click()
-    await expect(card.locator('h3')).toHaveText('整理了 6 处，等你过目', { timeout: 30_000 })
-    await expect(card.locator('.l')).toHaveText(['3 处归类和改名', '1 处补了双链', '1 对可能重复', '1 篇本周小结'])
+    await expect(card.locator('h3')).toHaveText('整理了6处，等你过目', { timeout: 30_000 })
+    await expect(card.locator('.l')).toHaveText(['3处归类和改名', '1处补了双链', '1对可能重复', '1篇本周小结'])
     await expect(card.locator('.dk')).toContainText('梦游 · ')
     await expect(page.getByTestId('dream-dot')).toBeVisible()
     // 梦游只在分支上改：main 的工作目录没变，多了分支
@@ -46,9 +46,9 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
 
     await card.getByRole('button', { name: '看报告' }).click()
     const panel = page.getByRole('complementary', { name: '梦游报告' })
-    await expect(panel.getByTestId('dream-summary')).toContainText(`整理了 6 处。都在 ${branch} 分支上，点「预览」看改好后的样子，收下才合进 main，你写的正文一个字没动。`)
-    await expect(panel.locator('.dg')).toHaveText(['归类和改名3 条预览', '补上的双链1 条', '可能重复1 条', '本周小结1 条'])
-    await expect(panel.getByTestId('dream-left')).toHaveText(`还剩 6 条 · 改动在 ${branch} 分支`)
+    await expect(panel.getByTestId('dream-summary')).toContainText(`整理了6处。都在${branch}分支上，点「预览」看改好后的样子，收下才合进main，你写的正文一个字没动。`)
+    await expect(panel.locator('.dg')).toHaveText(['归类和改名3条预览', '补上的双链1条', '可能重复1条', '本周小结1条'])
+    await expect(panel.getByTestId('dream-left')).toHaveText(`还剩6条 · 改动在${branch}分支`)
     await page.screenshot({ path: test.info().outputPath('dream-panel.png') })
 
     // 1. 收下「补上的双链」：看为什么、改了什么，收下后 main 上多一次提交，文件末尾多一行
@@ -57,7 +57,8 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     await link.click()
     const detail = panel.getByTestId('dream-detail')
     await expect(detail).toContainText('两篇都讲到「')
-    await expect(detail.locator('.dl .a')).toHaveText([/^\s*$/, '相关：[[极光预报]]'])
+    // 侧栏只写一句人话，点了中间开对比标签（CN-63）
+    await expect(detail.getByTestId('dream-change')).toHaveText('极光：末尾加了一行 相关：[[极光预报]]')
     await page.screenshot({ path: test.info().outputPath('dream-detail.png') })
     await detail.getByRole('button', { name: '收下' }).click()
     await expect(link).toContainText('已收下')
@@ -67,14 +68,14 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     expect(gitStatus(vault)).toBe('')
 
     // 2. 丢掉「冰洞」那条挪动：文件留在收件箱，不多提交
-    const ice = panel.getByTestId('dream-item').filter({ hasText: '原名 冰洞' })
+    const ice = panel.getByTestId('dream-item').filter({ hasText: '原名「冰洞」' })
     await ice.click()
     await expect(detail.locator('.pv-move')).toHaveText('挪到素材/旅行/')
     await detail.getByRole('button', { name: '丢掉' }).click()
     await expect(ice).toContainText('已丢掉')
     expect(commits(vault)).toBe(before + 1)
     expect(existsSync(join(vault, '收件箱/冰洞.md'))).toBe(true)
-    await expect(panel.getByTestId('dream-left')).toHaveText(`还剩 4 条 · 改动在 ${branch} 分支`)
+    await expect(panel.getByTestId('dream-left')).toHaveText(`还剩4条 · 改动在${branch}分支`)
 
     // 可能重复：只提醒，能打开两篇
     await panel.getByTestId('dream-item').filter({ hasText: '相似度' }).click()
@@ -85,8 +86,8 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
 
     // 3. 全部收下：剩下的挪动、小结合成一次提交；删掉分支和临时检出
     await panel.getByRole('button', { name: '全部收下' }).click()
-    await expect(page.locator('.toast-cn')).toContainText(`剩下的都收下了，${branch} 已合进 main`)
-    await expect(panel.getByTestId('dream-left')).toHaveText('都看完了，收下的已合进 main')
+    await expect(page.locator('.toast-cn')).toContainText(`剩下的都收下了，${branch}已合进main`)
+    await expect(panel.getByTestId('dream-left')).toHaveText('都看完了，收下的已合进main')
     await expect(panel.getByTestId('dream-item').filter({ hasText: '已收下' })).toHaveCount(4)
     await expect(panel.getByTestId('dream-item').filter({ hasText: '相似度' })).toContainText('看过了')
     expect(commits(vault)).toBe(before + 2)

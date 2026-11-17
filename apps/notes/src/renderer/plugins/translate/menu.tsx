@@ -48,7 +48,7 @@ export function TrControl({ page, open, onPopup }: { page: WebPage | null; open:
     }
     if (st.pdfSeq > (seenPdf.get(page.wcId) ?? 0)) {
       seenPdf.set(page.wcId, st.pdfSeq)
-      webHost()?.notice('这是 PDF：网页里的双语翻译翻不了它。把它存进库，用 PDF 阅读器打开，在那里对照读')
+      webHost()?.notice('这是PDF：网页里的双语翻译翻不了它。把它存进库，用PDF阅读器打开，在那里对照读')
     }
   }, [page, st, onPopup])
 
@@ -133,12 +133,6 @@ export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): voi
   }, [])
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  useEffect(() => {
     void window.cnPlugins.call<GlossaryInfo>(ID, 'glossary').then(setGl, (e) => notice(errText(e)))
     return window.cnPlugins.on(ID, 'glossaryProgress', (p) => setWriting((p as { found: number }).found))
   }, [])
@@ -152,7 +146,7 @@ export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): voi
   const langNote = pageLang
     ? sameLang(pageLang, s.target)
       ? `网页本身是${LANG_ZH[primary(pageLang)] ?? langName(pageLang)}，这页改翻成${langName(effectiveTarget(s.target, pageLang))}`
-      : `这页是 ${langName(pageLang)}`
+      : `这页是${langName(pageLang)}`
     : ''
 
   async function draft() {
@@ -160,7 +154,7 @@ export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): voi
     try {
       const r = await window.cnPlugins.call<{ path: string; count: number }>(ID, 'glossaryDraft', { wcId: page?.wcId })
       setGl({ course: gl?.course ?? null, path: r.path, exists: true, count: r.count })
-      notice(`AI 写好了术语表，${r.count} 条，是一次提交，可撤回`)
+      notice(`AI写好了术语表，${r.count}条，是一次提交，可撤回`)
       webHost()?.openNote(r.path)
     } catch (e) {
       notice(errText(e))
@@ -284,11 +278,11 @@ function footText(engines: EnginesInfo | null, used: string | null): string {
   const s = settingsNow()
   if (used) {
     const e = engines.list.find((x) => x.id === used)
-    if (e) return `用 ${e.id === 'claude' ? 'Claude Code · Haiku' : e.kind === 'api' ? `${e.name} API` : e.name} 翻`
+    if (e) return `用${e.id === 'claude' ? 'Claude Code · Haiku' : e.kind === 'api' ? `${e.name} API` : e.name}翻`
   }
   if (s.engineMode === 'pick') {
     const p = engines.list.find((x) => x.id === s.pick)
-    if (p) return `指定用 ${p.name}（${STATE_TEXT[p.state]}）`
+    if (p) return `指定用${p.name}（${STATE_TEXT[p.state]}）`
   }
   return '没有能翻的'
 }
@@ -306,7 +300,7 @@ function GlossaryRow({ gl, writing, onOpen, onDraft }: { gl: GlossaryInfo | null
         {head}
         <span className="sp" />
         <Codicon name="loading" size={12} className="spin" />
-        <span className="t3">AI 在写{writing ? `，找到 ${writing} 条` : ''}…</span>
+        <span className="t3">{`AI在写${writing ? `，找到${writing}条` : ''}…`}</span>
       </div>
     )
   if (!gl?.course)
@@ -321,7 +315,7 @@ function GlossaryRow({ gl, writing, onOpen, onDraft }: { gl: GlossaryInfo | null
       <button type="button" className="trm-row link" aria-label="术语表" onClick={() => onOpen(gl.path!)}>
         {head}
         <span className="t3">
-          {gl.course} · {gl.count} 条
+          {`${gl.course} · ${gl.count}条`}
         </span>
         <span className="sp" />
         <span className="tr-lnk">打开</span>
@@ -330,10 +324,10 @@ function GlossaryRow({ gl, writing, onOpen, onDraft }: { gl: GlossaryInfo | null
   return (
     <div className="trm-row" aria-label="术语表">
       {head}
-      <span className="t3">{gl.course}还没有</span>
+      <span className="t3">{`${gl.course}还没有`}</span>
       <span className="sp" />
       <button type="button" className="tr-lnk" onClick={onDraft}>
-        让 AI 起个头
+        让AI起个头
       </button>
     </div>
   )

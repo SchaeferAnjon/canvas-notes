@@ -7,6 +7,7 @@ import { noteFavicon } from './favicons'
 import { dropWebDragAt, noteWebDrag } from './image-drop'
 import { webReadIpc } from '../reading/web-bridge'
 import { registerWebMenu, type WebMenuHost } from '../ctx/web-menu'
+import { pageOutside } from './page-outside'
 
 /** webview 元素上我们用到的方法 */
 export interface WebviewEl extends HTMLElement {
@@ -111,6 +112,8 @@ export function WebView(props: {
       } else if (channel.startsWith('cn:read:')) {
         // 阅读视图要的正文、在网页上框好的一块（reading/web-bridge.ts）
         webReadIpc(w, channel, args)
+      } else if (channel === 'cn:page-down' || channel === 'cn:page-esc') {
+        pageOutside(channel === 'cn:page-down' ? 'down' : 'esc')
       } else if (channel === 'cn:dragend') {
         const p = args[0] as { x?: unknown; y?: unknown } | undefined
         const r = w.getBoundingClientRect()

@@ -6,7 +6,8 @@
 import { Codicon } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { LANGS, langName, primary, SHORT } from '../../shared/plugins/translate'
-import { fmtTime, trackId } from '../../shared/video'
+import { sttErrorView } from '../../shared/stt-errors'
+import { fmtTime, safeTitle, trackId } from '../../shared/video'
 import { keyLabel, type MomentMark, type SubMode, type SubPlace, type VideoState } from '../../shared/video-api'
 import { setPluginSettings, webHost } from '../plugins/host'
 import { settingsNow as trSettings } from '../plugins/translate/shared'
@@ -20,7 +21,7 @@ const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Erro
 /** 语言的简称：英、中、日…；认不得的用名字的头两个字 */
 function short(code: string | null): string {
   if (!code) return ''
-  const c = code.replace(/^ai-/, '').replace(/#auto$/, '')
+  const c = code.replace(/^ai-/, '').replace(/#(auto|stt)$/, '')
   const p = primary(c)
   const m: Record<string, string> = { en: '英', zh: '中', ja: '日', ko: '韩', fr: '法', de: '德', es: '西', ru: '俄', it: '意', pt: '葡', vi: '越' }
   return m[p] ?? SHORT[c] ?? (/^[a-z]/i.test(c) ? c.slice(0, 2) : c.slice(0, 1))
@@ -56,11 +57,18 @@ export function VideoStrip({ wcId, narrow }: { wcId: number; narrow: boolean }) 
     <div className="vstrip" ref={ref} role="region" aria-label="视频条">
       <div className="vbar">
         <button type="button" className={'vsub' + (on ? ' on' : '')} aria-label="字幕" aria-haspopup="dialog" aria-expanded={pop === 'subs'} title="字幕：双语、翻成什么、放在哪" onClick={() => setPop(pop === 'subs' ? null : 'subs')}>
-          <i className="vdot" />
+          {st.stt && !st.stt.error ? <Codicon name="loading" size={13} className="spin" /> : <i className="vdot" />}
           <span className="truncate">{lab}</span>
           <Codicon name="chevron-down" size={12} />
         </button>
-        <button type="button" className={'btn btn-sm ' + (center?.aiOpen ? '' : 'btn-primary') + ' vsave'} title={`记下这一刻 ${keyLabel(set.keys.moment)}`} onClick={() => void saveMoment(wcId)}>
+        <button type="button" className={'btn btn-sm ' + (center?.aiOpen ? '' : 'btn-primary') + ' vsave'} title={`记下这一刻 ${keyLabel(set.keys.moment)}`}
+          // 按钮不留焦点：点完焦点回到视频，按空格是暂停 / 播放，不会再记一刻（CN-70）
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => {
+            videoHost()?.focus(wcId)
+            void saveMoment(wcId)
+          }}
+        >
           <Codicon name="device-camera" size={13} />
           <span>记下这一刻</span>
           <kbd>{keyLabel(set.keys.moment)}</kbd>
@@ -72,9 +80,17 @@ export function VideoStrip({ wcId, narrow }: { wcId: number; narrow: boolean }) 
         </button>
         <span className="sp" />
         {dest && (
-          <button type="button" className="vdest" aria-label={`记到 ${dest.title}`} aria-haspopup="menu" aria-expanded={pop === 'dest'} title={`记到：${dest.kind === 'inbox' ? dest.path : `《${dest.title}》`}`} onClick={() => setPop(pop === 'dest' ? null : 'dest')}>
-            <Codicon name={dest.kind === 'board' ? 'layout' : dest.kind === 'inbox' ? 'inbox' : 'file-text'} size={13} />
-            {!narrow && <span className="truncate">{dest.title}</span>}
+          <button
+            type="button"
+            className="vdest"
+            aria-label={`记到 ${dest.kind === 'new' ? `新建《${dest.title}》` : dest.title}`}
+            aria-haspopup="menu"
+            aria-expanded={pop === 'dest'}
+            title={`记到：${dest.kind === 'inbox' ? dest.path : dest.kind === 'new' ? `新建《${dest.title}》（${dest.path}），在中间打开` : `《${dest.title}》`}`}
+            onClick={() => setPop(pop === 'dest' ? null : 'dest')}
+          >
+            <Codicon name={dest.kind === 'board' ? 'layout' : dest.kind === 'inbox' ? 'inbox' : dest.kind === 'new' ? 'new-file' : 'file-text'} size={13} />
+            {!narrow && <span className="truncate">{dest.kind === 'new' ? `新建《${dest.title}》` : dest.title}</span>}
             <Codicon name="chevron-down" size={12} />
           </button>
         )}
@@ -88,10 +104,13 @@ export function VideoStrip({ wcId, narrow }: { wcId: number; narrow: boolean }) 
   )
 }
 
+const STAGES = ['download', 'listen', 'translate'] as const
+
 function subLabel(st: VideoState, mode: SubMode): string {
+  if (st.stt && !st.stt.error) return `生成字幕${STAGES.indexOf(st.stt.stage) + 1}/3`
   if (st.subs === 'loading') return '字幕 读取中'
   if (st.subs === 'none') return '没有字幕'
-  if (st.subs === 'login') return '字幕要登录 B 站'
+  if (st.subs === 'login') return '字幕要登录B站'
   if (st.subs === 'error') return '字幕没拿到'
   if (mode === 'off' || st.off) return '字幕关'
   const src = short(st.track)
@@ -128,12 +147,12 @@ function Ticks({ st, wcId, onMenu, open }: { st: VideoState; wcId: number; onMen
         <div className="vhead" style={{ left: pct(tick?.t ?? 0) }} />
         {hover && (
           <div className="vtip" style={{ left: pct(hover.t) }}>
-            <span className="mono">{fmtTime(hover.t)}</span> 在《{hover.note}》
+            <span className="mono">{fmtTime(hover.t)}</span>在《{hover.note}》
           </div>
         )}
       </div>
       <button type="button" className="vcount" aria-haspopup="dialog" aria-expanded={open} onClick={onMenu}>
-        {st.moments.length} 个时刻 <Codicon name="chevron-down" size={12} />
+        {`${st.moments.length}个时刻`} <Codicon name="chevron-down" size={12} />
       </button>
     </div>
   )
@@ -155,7 +174,7 @@ function SubMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
     try {
       await setPluginSettings('translate', { target: code })
       await window.cnVideo.setTarget(code)
-      notice(`字幕改翻成${langName(code)}：先翻正在播的前后 2 分钟，再往后补`)
+      notice(`字幕改翻成${langName(code)}：先翻正在播的前后2分钟，再往后补`)
     } catch (e) {
       notice(errText(e))
     }
@@ -188,21 +207,23 @@ function SubMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
               <button key={trackId(t)} type="button" role="radio" aria-checked={st.track === trackId(t)} onClick={() => void window.cnVideo.useTrack(st.wcId, trackId(t)).catch((e) => notice(errText(e)))}>
                 <span className="ck">{st.track === trackId(t) && <Codicon name="check" size={12} />}</span>
                 {t.name}
-                {t.auto && <span className="t3"> · {st.site === 'bilibili' ? 'AI 字幕' : '自动生成'}</span>}
+                {t.auto && <span className="t3"> · {st.site === 'bilibili' ? 'AI字幕' : '自动生成'}</span>}
               </button>
             ))}
-            {st.tracks.length > 8 && <span className="vmore">还有 {st.tracks.length - 8} 条</span>}
+            {st.tracks.length > 8 && <span className="vmore">{`还有${st.tracks.length - 8}条`}</span>}
           </div>
-        ) : (
-          <p className="vnote">{st.subs === 'login' ? 'B 站要登录后才给字幕：点右上角「⋯」里的「导入 Chrome 登录」。' : st.subs === 'loading' ? '在读这个视频的字幕…' : '这个视频没有字幕文件。听写（本机 Whisper 边播边转写）这一版还没做；画面里自带字幕的就直接看画面。'}</p>
-        )}
+        ) : st.subs === 'login' || st.subs === 'loading' ? (
+          <p className="vnote">{st.subs === 'login' ? 'B站要登录后才给字幕：点右上角「⋯」里的「导入Chrome登录」。' : '在读这个视频的字幕…'}</p>
+        ) : null}
+        {/* B 站没登录时看不到它的字幕：照样能自己生成（下载公开的音频听写） */}
+        {(st.stt || (!st.tracks.length && (st.subs === 'none' || st.subs === 'error' || st.subs === 'login'))) && <SttBox st={st} target={cur} />}
       </div>
       <div className="trm-sec">
         <div className="trm-lab">
           翻成<span className="sp" />
           {st.target && st.translated < st.total && (
             <span>
-              翻了 {st.translated} / {st.total} 句
+              {`翻了${st.translated} / ${st.total}句`}
             </span>
           )}
         </div>
@@ -269,6 +290,98 @@ function SubMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
   )
 }
 
+// ---------------------------------------------------------------- 生成字幕（CN-69 方向 A）
+
+/**
+ * 没字幕的视频：一句话说三步和大概用时、花费 +「生成字幕」；生成时写到了哪一步、能停下；出错写原因和「再试一次」。
+ * 下面一个方角开关「以后没字幕的视频打开就自动生成」，开一次就记住（设好就收起来）。
+ */
+function SttBox({ st, target }: { st: VideoState; target: string | null }) {
+  const set = useVideoSettings()
+  const center = useCenter()
+  const notice = (t: string) => webHost()?.notice(t)
+  const go = () => void window.cnVideo.transcribe({ wcId: st.wcId }).catch((e) => notice(errText(e)))
+  const run = st.stt && !st.stt.error ? st.stt : null
+  if (run) {
+    const at = STAGES.indexOf(run.stage)
+    // 三步的名字和字幕轨一致：听写那一步叫「听写 · Soniox」，正在做写「听写中 · Soniox」，做好的轨叫「English（听写 · Soniox）」
+    const names = ['下载音频', '听写 · Soniox', '翻译']
+    const doing = ['下载音频中', '听写中 · Soniox', '翻译中']
+    return (
+      <div className="vstt" data-testid="stt-box">
+        <b>正在生成</b>
+        {/* 一行放下三步，步与步之间的箭头挂在前一步末尾，放不下整行省略，不会有一行以分隔符开头 */}
+        <div className="vstt-steps" data-testid="stt-steps">
+          {names.map((n, i) => (
+            <span key={n} className={i < at ? 'done' : i === at ? 'cur' : ''}>
+              {i < at && <Codicon name="check" size={12} />}
+              {i === at ? doing[i] : n}
+            </span>
+          ))}
+        </div>
+        <div className="vstt-bar" role="progressbar" aria-valuemin={0} aria-valuemax={3} aria-valuenow={at + 1}>
+          <i style={{ width: `${((at + 0.5) / 3) * 100}%` }} />
+        </div>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => void window.cnVideo.stopTranscribe(st.wcId)}>
+          <Codicon name="debug-stop" size={13} />
+          停下
+        </button>
+        <p className="vstt-foot">生成好后上面多一条「听出的语言（听写 · Soniox）」，自动选上；存进库里，换台Mac不用再听写</p>
+      </div>
+    )
+  }
+  const min = Math.max(1, Math.round((st.duration || 0) / 540))
+  const yuan = ((st.duration || 0) / 3600) * 0.1 * 7.2
+  const dur = st.duration ? `${Math.floor(st.duration / 60)}分${Math.round(st.duration % 60)}秒的视频约${min}分钟，Soniox${yuan < 0.1 ? '不到 ¥0.1' : `约 ¥${yuan.toFixed(1)}`}。` : ''
+  const err = st.stt?.error ? sttErrorView(st.stt.error, st.site) : null
+  return (
+    <div className="vstt" data-testid="stt-box">
+      <b>{err ? '字幕没生成成' : '这个视频没带字幕'}</b>
+      {err ? (
+        <div className="aierr vstt-err" data-testid="stt-error">
+          <div className="t">
+            <Codicon name="error" size={12} className="ic" />
+            <span>{err.title}</span>
+          </div>
+        </div>
+      ) : (
+        <p>{`下载音频 → Soniox听写成原文 → 用你设的AI翻成${langName(target ?? 'zh-CN')}。${dur}`}</p>
+      )}
+      <div className="vstt-go">
+        <button type="button" className="btn btn-sm btn-primary vstt-btn" disabled={!st.sttKey} onClick={go}>
+          <Codicon name="mic" size={13} />
+          {st.stt?.error ? '再试一次' : '生成字幕'}
+        </button>
+        {!st.sttKey && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => center?.openAiSettings()}>
+            先在设置里填Soniox密钥
+            <Codicon name="arrow-right" size={12} />
+          </button>
+        )}
+      </div>
+      {err?.raw && <RawWords raw={err.raw} />}
+      <label className="vstt-auto">
+        <span>以后没字幕的视频打开就自动生成</span>
+        <Toggle on={set.autoStt} label="以后没字幕的视频打开就自动生成" onChange={(v) => void setVideoSettings({ autoStt: v }).catch((e) => notice(errText(e)))} />
+      </label>
+    </div>
+  )
+}
+
+/** 「看原话 ›」：点开才是英文原话（等宽、能拷），和 AI 出错同一个样子 */
+function RawWords({ raw }: { raw: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="aierr">
+      <button type="button" className="raw-tg" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {open ? '收起原话' : '看原话'}
+        <Codicon name={open ? 'chevron-down' : 'chevron-right'} size={12} />
+      </button>
+      {open && <pre className="raw">{raw}</pre>}
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------- 记到哪
 
 function DestMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
@@ -276,28 +389,29 @@ function DestMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
   const cur = destNow(st.title)
   if (!center || !cur) return null
   const inbox = `收件箱/${st.title.slice(0, 30)}`
-  const own = center.center.kind === 'doc' || center.center.kind === 'board' ? center.center : center.center.kind === 'material' && center.lastDoc ? { kind: 'doc' as const, ...center.lastDoc } : null
+  const own = center.center.kind === 'doc' || center.center.kind === 'board' ? center.center : center.center.kind === 'material' && center.lastDoc ? { kind: 'doc' as const, ...center.lastDoc } : { kind: 'new' as const, title: `新建《${safeTitle(st.title)}》` }
   const pick = (toInbox: boolean) => {
     setDestInbox(toInbox)
     onClose()
   }
   return (
     <div className="menu vmenu vdestmenu" role="menu" aria-label="记到">
-      {own && (
-        <button role="menuitemradio" aria-checked={cur.kind !== 'inbox'} onClick={() => pick(false)}>
-          <Codicon name={own.kind === 'board' ? 'layout' : 'file-text'} size={14} />
+      {(
+        <button role="menuitemradio" aria-checked={cur.kind !== 'inbox'} title={own.title} onClick={() => pick(false)}>
+          <span className="ck">{cur.kind !== 'inbox' && <Codicon name="check" size={12} />}</span>
+          <Codicon name={own.kind === 'board' ? 'layout' : own.kind === 'new' ? 'new-file' : 'file-text'} size={14} />
           <span className="mlabel truncate">
-            {own.kind === 'board' ? '白板「时刻」列' : '文档光标处'} · {own.title}
+            {own.kind === 'board' ? '白板「时刻」列 · ' : own.kind === 'new' ? '' : '文档光标处 · '}
+            {own.title}
           </span>
-          {cur.kind !== 'inbox' && <Codicon name="check" size={12} />}
         </button>
       )}
-      <button role="menuitemradio" aria-checked={cur.kind === 'inbox'} onClick={() => pick(true)}>
+      <button role="menuitemradio" aria-checked={cur.kind === 'inbox'} title={inbox} onClick={() => pick(true)}>
+        <span className="ck">{cur.kind === 'inbox' && <Codicon name="check" size={12} />}</span>
         <Codicon name="inbox" size={14} />
-        <span className="mlabel truncate">{inbox}</span>
-        {cur.kind === 'inbox' && <Codicon name="check" size={12} />}
+        <span className="mlabel truncate">收件箱 · 新建一篇</span>
       </button>
-      <p className="vfoot">换了中间栏的标签就回到默认：开着文档插光标处，开着白板进「时刻」列，都没开进收件箱。</p>
+      <p className="vfoot">换了中间栏的标签就回到默认：开着文档插光标处，开着白板进「时刻」列，都没开就新建一篇在中间打开。</p>
     </div>
   )
 }
@@ -319,7 +433,7 @@ function MomentsMenu({ st, wcId, onClose }: { st: VideoState; wcId: number; onCl
     <div className="trm vmenu vmoments" role="dialog" aria-label="时刻">
       <label className="vsearch">
         <Codicon name="search" size={13} />
-        <input aria-label="在时刻里找" placeholder={`在这个视频的 ${st.moments.length} 个时刻里找`} value={q} onChange={(e) => setQ(e.target.value)} />
+        <input aria-label="在时刻里找" placeholder={`在这个视频的${st.moments.length}个时刻里找`} value={q} onChange={(e) => setQ(e.target.value)} />
       </label>
       {!st.moments.length && <p className="vnote">还没有。按 ⌥S 记下这一刻，按 ⌥D 框一块问。</p>}
       {groups.map(({ c, items }) => (
@@ -341,14 +455,14 @@ function MomentsMenu({ st, wcId, onClose }: { st: VideoState; wcId: number; onCl
             >
               {m.image ? <img src={`cn-file://vault/${m.image.split('/').map(encodeURIComponent).join('/')}`} alt="" /> : <span className="vth" />}
               <span className="vmt">
-                <span className="truncate">{m.text || (m.asked ? '问过 AI' : '记下的时刻')}</span>
+                <span className="truncate">{m.text || (m.asked ? '问过AI' : '记下的时刻')}</span>
                 <span className="t3">
                   <span className="mono">{fmtTime(m.t)}</span> · 在《{m.note}》
                 </span>
               </span>
             </button>
           ))}
-          {items.length > 3 && <span className="vmore">还有 {items.length - 3} 个</span>}
+          {items.length > 3 && <span className="vmore">{`还有${items.length - 3}个`}</span>}
         </div>
       ))}
       {st.material && <p className="vfoot">全部的在素材那篇「记下的时刻」里。</p>}
@@ -414,7 +528,9 @@ function AskBox({ wcId, st }: { wcId: number; st: VideoState }) {
           </button>
         ))}
       </div>
-      <p className="vfoot">问完自动记进《{dest?.title ?? '收件箱'}》和「视频里的疑惑」· esc 取消</p>
+      <p className="vfoot">
+        {`问完自动记进${dest?.kind === 'new' ? '新建的' : ''}《${dest?.title ?? '收件箱'}》和「视频里的疑惑」· esc 取消`}
+      </p>
     </div>
   )
 }

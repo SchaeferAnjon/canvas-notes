@@ -6,6 +6,7 @@ import { redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/command
 import { blockIndexAt, type BlockTarget, convertible, convertMdBlock, findBlocks, plainOf, resolveLink } from '@cn/format'
 import type { EditorView } from '@codemirror/view'
 import { applyBlockEdit } from '../block-handles'
+import { HIGHLIGHT_KEY, inHighlight, toggleHighlight } from '../highlight'
 import { app } from './actions'
 import { copy, type MenuEntry, menuAt } from './menu'
 import { translateAt } from './translate'
@@ -122,6 +123,7 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
   }
 
   const canConvert = editable && !!block && convertible(block)
+  const hl = inHighlight(text, sel.from, sel.to)
   void menuAt(e, [
     ...linkItems,
     '-',
@@ -135,10 +137,11 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
     '-',
     editable && !sel.empty && { label: '加粗', run: () => toggleWrap(view, '**') },
     editable && !sel.empty && { label: '斜体', run: () => toggleWrap(view, '*') },
+    editable && (!sel.empty || hl) && { label: hl ? '取消高亮' : '高亮', accel: HIGHLIGHT_KEY, run: () => toggleHighlight(view) },
     editable && !sel.empty && !hit && { label: '加链接', run: () => addLink(view) },
     canConvert && { label: '转成', submenu: TARGETS.map(([t, label]) => ({ label, run: () => applyBlockEdit(view, convertMdBlock(view.state.doc.toString(), bi, t), 0, 'move.block') })) },
     '-',
-    plain.trim() ? { label: selText.trim() ? '问 AI 这段' : '问 AI 这一块', run: () => a.askAi(plain) } : null,
+    plain.trim() ? { label: selText.trim() ? '问 AI 这段' : '问 AI 这一块', accel: selText.trim() ? 'CommandOrControl+J' : undefined, run: () => a.askAi(plain) } : null,
     plain.trim() ? { label: selText.trim() ? '翻译这段' : '翻译这一块', run: () => translateAt(plain, { x: e.clientX, y: e.clientY }) } : null,
     piece.trim() ? { label: '复制为 Markdown', run: () => copy(piece) } : null,
   ])

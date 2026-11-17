@@ -156,10 +156,12 @@ export async function setupWeb(d: Deps): Promise<void> {
     done(wc)
   })
 
-  ipcMain.handle('web:save-image', async (_e, src: ImageSource, nameHint: unknown) => {
+  ipcMain.handle('web:save-image', async (_e, src: ImageSource, nameHint: unknown, opts: unknown) => {
     if (!src || (src.kind !== 'url' && src.kind !== 'bytes')) throw new Error('图片参数不对')
     if (src.kind === 'url' && typeof src.url !== 'string') throw new Error('图片参数不对')
-    return { path: await saveImage(needVault().root, ses, src, typeof nameHint === 'string' ? nameHint : undefined) }
+    const o = (opts && typeof opts === 'object' ? opts : {}) as { note?: unknown; shot?: unknown }
+    const note = typeof o.note === 'string' && /\.md$/i.test(o.note) && !o.note.split('/').includes('..') ? o.note : undefined
+    return { path: await saveImage(needVault().root, ses, src, typeof nameHint === 'string' ? nameHint : undefined, { note, shot: o.shot === true }) }
   })
 
   ipcMain.handle('web:favicon-tone', (_e, url: unknown) => faviconTone(ses, url))

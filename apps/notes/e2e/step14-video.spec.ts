@@ -78,7 +78,7 @@ test('视频页：地址栏下面出视频条和刻度；字幕从播放器自�
     await expect.poll(() => guest(page, `getComputedStyle(document.querySelector('.ytp-caption-window-container')).display`)).toBe('none')
     // 记到：中间栏开着的文档
     await expect(strip(page).getByRole('button', { name: '记到 第3讲 笔记' })).toBeVisible()
-    await expect(strip(page).getByRole('button', { name: '0 个时刻' }).or(strip(page).getByText('0 个时刻'))).toBeVisible()
+    await expect(strip(page).getByRole('button', { name: '0 个时刻' }).or(strip(page).getByText('0个时刻'))).toBeVisible()
     await shot(run, 'video-strip')
     // 普通网页没有视频条
     const addr = web(page).getByRole('textbox', { name: '网址' })
@@ -117,14 +117,14 @@ test('⌥S 记下这一刻：文档光标处多一块时刻（截图 + 时间 + 
     expect(filesOf(vault, '视频：记下 00:07《Linear transformations and matrices》→ 第3讲 笔记')).toEqual(expect.arrayContaining(['第3讲 笔记.md', `附件/视频/youtube-${FAKE_VIDEO_ID}/00-07.jpg`]))
     expect(gitStatus(vault)).not.toContain('第3讲')
     // 刻度上一根
-    await expect(strip(page).getByText('1 个时刻')).toBeVisible()
+    await expect(strip(page).getByText('1个时刻')).toBeVisible()
     await shot(run, 'video-moment')
     // 撤回
     await page.locator('.vtoast').getByRole('button', { name: '撤回' }).click()
     await expect(page.locator('.vtoast')).toContainText('撤回了')
     await expect.poll(async () => (await editorText(page)).includes('<!-- moment')).toBe(false)
     expect(existsSync(join(vault, `附件/视频/youtube-${FAKE_VIDEO_ID}/00-07.jpg`))).toBe(false)
-    await expect(strip(page).getByText('0 个时刻')).toBeVisible()
+    await expect(strip(page).getByText('0个时刻')).toBeVisible()
   } finally {
     await run.close()
   }
@@ -150,22 +150,22 @@ test('白板开着时 ⌥S：时刻进这个视频的「时刻」列（没有视
       await web(page).locator('webview.on').focus()
       await page.keyboard.press('Alt+KeyS')
       await expect(page.locator('.vtoast')).toContainText(`· 00:${String(sec).padStart(2, '0')}`)
-      await expect(strip(page).getByText(`${secs.indexOf(sec) + 1} 个时刻`)).toBeVisible()
+      await expect(strip(page).getByText(`${secs.indexOf(sec) + 1}个时刻`)).toBeVisible()
     }
     const board = pane(page).getByTestId('board')
     await expect(board.locator('.bcard.k-video')).toHaveCount(1)
     await expect(board.locator('.bcard.k-video')).toContainText('Linear transformations and matrices')
-    await expect(board.locator('.bcard.k-video')).toContainText('4 个时刻')
+    await expect(board.locator('.bcard.k-video')).toContainText('4个时刻')
     const col = board.locator('.bcol')
     await expect(col.locator('h3')).toContainText('时刻')
-    await expect(col.locator('h3')).toContainText('4 个')
+    await expect(col.locator('h3')).toContainText('4个')
     // 最多摆 3 张，最新的（00:13）在最上面放大
     await expect(col.locator('.bcard.k-moment')).toHaveCount(3)
     await expect(col.locator('.bcard.k-moment').first()).not.toHaveClass(/small/)
     await expect(col.locator('.bcard.k-moment').first()).toContainText('00:13')
-    await expect(col.getByRole('button', { name: '还有 1 个，按时间排' })).toBeVisible()
+    await expect(col.getByRole('button', { name: '还有1个，按时间排' })).toBeVisible()
     await shot(run, 'video-board')
-    await col.getByRole('button', { name: '还有 1 个，按时间排' }).click()
+    await col.getByRole('button', { name: '还有1个，按时间排' }).click()
     await expect(col.locator('.bcard.k-moment')).toHaveCount(4)
     await waitSaved(page)
     const md = read(vault, '线性代数 白板.md')
@@ -181,12 +181,12 @@ test('白板开着时 ⌥S：时刻进这个视频的「时刻」列（没有视
   }
 })
 
-test('什么都没开（首页）：记进「收件箱/<视频标题>.md」，同一个视频都进这一篇，第一次先放视频卡；字幕全文存进「素材/视频」带 AI 摘要和记下的时刻', async () => {
+test('什么都没开（首页）：新建「收件箱/<视频标题>.md」在中间打开，同一个视频都进这一篇，第一次先放视频卡；字幕全文存进「素材/视频」带 AI 摘要和记下的时刻', async () => {
   const run = await launch({ 'a.md': '# a\n' }, env())
   const { page, vault } = run
   try {
     await openVideo(page)
-    await expect(strip(page).getByRole('button', { name: /^记到 / })).toHaveAttribute('aria-label', '记到 Linear transformations and matrices')
+    await expect(strip(page).getByRole('button', { name: /^记到 / })).toHaveAttribute('aria-label', '记到 新建《Linear transformations and matrices》')
     await expect(strip(page).getByRole('button', { name: '字幕' })).toContainText('英→中', { timeout: 15_000 })
     const matPath = '素材/视频/Linear transformations and matrices.md'
     await expect.poll(() => existsSync(join(vault, matPath)) && read(vault, matPath).includes('## AI 摘要\n- [00:00]'), { timeout: 15_000 }).toBe(true)
@@ -197,20 +197,21 @@ test('什么都没开（首页）：记进「收件箱/<视频标题>.md」，�
     expect(m0).toContain('## 00:12 Matrices')
     await seek(page, 10)
     await strip(page).getByRole('button', { name: '记下这一刻' }).click()
-    await expect(page.locator('.vtoast')).toContainText('记进了《Linear transformations and matrices》 · 00:10')
+    await expect(page.locator('.vtoast')).toContainText('新建了《Linear transformations and matrices》，记了00:10')
     await seek(page, 16)
     await strip(page).getByRole('button', { name: '记下这一刻' }).click()
     await expect(page.locator('.vtoast')).toContainText('· 00:16')
+    await waitSaved(page)
     const inbox = read(vault, '收件箱/Linear transformations and matrices.md')
-    expect(inbox.startsWith(`# Linear transformations and matrices\n\n<!-- video video=youtube:${FAKE_VIDEO_ID} -->\n![Linear transformations and matrices](../附件/视频/youtube-${FAKE_VIDEO_ID}/cover.jpg)\n`)).toBe(true)
+    expect(inbox.startsWith(`---\n视频: ${base}/watch?v=${FAKE_VIDEO_ID}\n---\n\n# Linear transformations and matrices\n\n<!-- video video=youtube:${FAKE_VIDEO_ID} -->\n![Linear transformations and matrices](../附件/视频/youtube-${FAKE_VIDEO_ID}/cover.jpg)\n`)).toBe(true)
     expect(inbox.match(/<!-- moment /g)).toHaveLength(2)
     expect(existsSync(join(vault, `附件/视频/youtube-${FAKE_VIDEO_ID}/cover.jpg`))).toBe(true)
     // 字幕全文的「记下的时刻」跟着这次提交更新
     await expect.poll(() => read(vault, matPath)).toContain('## 记下的时刻\n- [00:10]')
     await expect.poll(() => gitStatus(vault)).toBe('')
-    expect(commits(vault)).toContain('视频：记下 00:16《Linear transformations and matrices》→ 收件箱')
+    expect(commits(vault)).toContain('视频：记下 00:16《Linear transformations and matrices》→ Linear transformations and matrices')
     // 「N 个时刻」弹层：按章节分组，点一个跳回去
-    await strip(page).getByRole('button', { name: /2 个时刻/ }).click()
+    await strip(page).getByRole('button', { name: /2个时刻/ }).click()
     const pop = web(page).getByRole('dialog', { name: '时刻' })
     await expect(pop.locator('.trm-lab', { hasText: 'Matrices' })).toBeVisible()
     await expect(pop.locator('.trm-lab', { hasText: 'Intro' })).toBeVisible()
@@ -222,7 +223,7 @@ test('什么都没开（首页）：记进「收件箱/<视频标题>.md」，�
   }
 })
 
-test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；AI 浮窗里答，答完自动记进文档和「视频里的疑惑」，一次提交；刻度上多一个空心圆', async () => {
+test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；不弹浮窗，就地答进文档（[!ai] 提示块）和「视频里的疑惑」，一次提交；刻度上多一个空心圆', async () => {
   const run = await launch({ '课程/线性代数/第3讲 笔记.md': '# 第3讲 笔记\n\n线性 = 直线变完还是直线。\n' }, env())
   const { page, vault } = run
   try {
@@ -250,14 +251,16 @@ test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；AI 
     const at = Math.floor(await videoTime(page))
     const tt = `00:${String(at).padStart(2, '0')}`
     await ask.getByRole('textbox', { name: '想问什么' }).press('Enter')
-    // AI 浮窗：答完一行「已记进…」
-    await expect(page.getByText('已记进《第3讲 笔记》和「视频里的疑惑」')).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByText('框里是 i 帽和 j 帽变换后的位置', { exact: false }).first()).toBeVisible()
+    // 不弹浮窗，就地答进文档（CN-84）：底部提示「AI 讲完了，记进…」
+    await expect(page.getByText('AI讲完了，记进《第3讲 笔记》和「视频里的疑惑」')).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator('main.center').getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
     await shot(run, 'video-asked')
     await waitSaved(page)
     const md = await editorText(page)
     expect(md).toContain(`<!-- moment-ask video=youtube:${FAKE_VIDEO_ID} t=${at}`)
     expect(md).toContain('> **我的疑惑**：框里这两个箭头为什么能决定整个网格怎么动？')
+    expect(md).toContain('> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了')
+    expect(md).toContain('> 框里是 i 帽和 j 帽变换后的位置。')
     expect(md).toContain(`![${tt} 框住的地方](../../附件/视频/youtube-${FAKE_VIDEO_ID}/${tt.replace(':', '-')}-问.jpg)`)
     const doubts = read(vault, '课程/线性代数/视频里的疑惑.md')
     expect(doubts).toContain(`## ${tt} · Linear transformations and matrices`)
@@ -266,7 +269,6 @@ test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；AI 
     expect(filesOf(vault, `视频：问 AI ${tt}《Linear transformations and matrices》→ 第3讲 笔记`).sort()).toEqual(['课程/线性代数/视频里的疑惑.md', '课程/线性代数/第3讲 笔记.md', `附件/视频/youtube-${FAKE_VIDEO_ID}/${tt.replace(':', '-')}-问.jpg`].sort())
     await expect(strip(page).locator('.vmark.asked')).toHaveCount(1)
     // 文档里画成问答块；点时间胶囊回到那一秒
-    await page.keyboard.press('Meta+j')
     await pane(page).getByText('线性 = 直线变完还是直线。').click()
     const block = pane(page).locator('[data-part="问答块"]')
     await expect(block).toBeVisible()
@@ -290,25 +292,32 @@ test('文档里：时刻块画成卡片（截图、时间、这一秒的双语�
     await seek(page, 12)
     await strip(page).getByRole('button', { name: '记下这一刻' }).click()
     await expect(page.locator('.vtoast')).toContainText('· 00:12')
-    // 光标挪开，块画成卡片
-    await pane(page).getByText('线性。').click()
+    // 插进来马上就是卡片（光标在它下面新的空段落，CN-71）
     const m = pane(page).locator('[data-part="时刻块"]')
     await expect(m).toBeVisible()
     await expect(m.locator('img')).toHaveAttribute('src', /00-12\.jpg$/)
     await expect(m.locator('.o')).toHaveText(LINES[4]!)
     await expect(m.locator('.t')).toHaveText(`译文：${LINES[4]}`)
-    await m.getByRole('button', { name: /前后 4 行/ }).click()
+    // 焦点留在视频上，不交回文档（2026-11-17 用户定，空格照样控制视频）；光标照样落在时刻块下面新的空段落（CN-71）：
+    // 回到文档（只给焦点，不点别处）就接着往下写
+    expect(await page.evaluate(() => document.activeElement?.classList.contains('cm-content') ?? false)).toBe(false)
+    await pane(page).locator('.cm-content').focus()
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('接着写')
+    await expect.poll(() => pane(page).locator('.cm-line', { hasText: '接着写' }).count()).toBe(1)
+    expect(await pane(page).locator('.cm-content').evaluate((el) => (el.textContent ?? '').includes('<!-- moment'))).toBe(false)
+    await m.getByRole('button', { name: /前后4行/ }).click()
     await expect(m.locator('.lines')).toBeVisible()
     const card = pane(page).locator('[data-part="视频卡"]')
     await expect(card).toContainText('Linear transformations and matrices')
-    await expect(card).toContainText('YouTube · 3Blue1Brown · 00:24 · 这篇记了 1 处')
+    await expect(card).toContainText('YouTube · 3Blue1Brown · 00:24 · 这篇记了1处')
     await shot(run, 'video-doc-blocks')
     // 视频播到别处，点时间胶囊回到第 12 秒
     await seek(page, 3)
     await m.locator('.vpill').click()
     await expect.poll(async () => Math.round(await videoTime(page))).toBe(12)
     // 右栏收起来再点：右栏打开、还是这个视频（不另开一个）
-    await web(page).getByRole('button', { name: '收起网页' }).click()
+    await rail(page).getByRole('button', { name: '网页' }).click()
     await m.locator('.vpill').click()
     await expect(web(page)).toBeVisible()
     await expect(web(page).getByRole('tablist', { name: '网页标签' }).getByRole('tab')).toHaveCount(1)
@@ -358,19 +367,21 @@ test('字幕菜单：双语 / 只看译文 / 只看原文、放在画面下面�
   }
 })
 
-test('没有字幕的视频：字幕开关写「没有字幕」，菜单里说听写还没做；照样能记下这一刻', async () => {
+test('没有字幕的视频：字幕开关写「没有字幕」，菜单里是「生成字幕」那一块；照样能记下这一刻', async () => {
   const run = await launch({ 'a.md': '# a\n' }, env())
   const { page, vault } = run
   try {
     await openVideo(page, FAKE_NO_SUBS_ID)
     await expect(strip(page).getByRole('button', { name: '字幕' })).toContainText('没有字幕', { timeout: 15_000 })
     await strip(page).getByRole('button', { name: '字幕' }).click()
-    await expect(web(page).getByRole('dialog', { name: '字幕' })).toContainText('听写（本机 Whisper 边播边转写）这一版还没做')
+    // 菜单里不放开发进度，换成「生成字幕」那一块（CN-81 / 69）
+    await expect(web(page).getByRole('dialog', { name: '字幕' })).toContainText('这个视频没带字幕')
+    await expect(web(page).getByRole('dialog', { name: '字幕' })).not.toContainText('还没做')
     await shot(run, 'video-nosubs')
     await page.keyboard.press('Escape')
     await seek(page, 3)
     await strip(page).getByRole('button', { name: '记下这一刻' }).click()
-    await expect(page.locator('.vtoast')).toContainText('· 00:03')
+    await expect(page.locator('.vtoast')).toContainText('记了00:03')
     expect(read(vault, '收件箱/A video without subtitles.md')).toContain(`<!-- moment video=youtube:${FAKE_NO_SUBS_ID} t=3`)
   } finally {
     await run.close()
@@ -395,7 +406,7 @@ test('设置 › 快捷键：「记下这一刻」改成 ⌥M，视频条上跟�
     await seek(page, 5)
     await page.locator('.center').click({ position: { x: 300, y: 300 } })
     await page.keyboard.press('Alt+KeyM')
-    await expect(page.locator('.vtoast')).toContainText('· 00:05')
+    await expect(page.locator('.vtoast')).toContainText('记了00:05')
   } finally {
     await run.close()
   }
@@ -419,11 +430,11 @@ test('字幕全文那一篇：章节默认收起（「▸ 展开 · N 行」）�
     for (let i = 0; i < 6; i++) await page.mouse.wheel(0, 1500)
     await expect(folds).toHaveCount(2)
     await expect(folds.nth(0)).toHaveText('▴ 收起这一章')
-    await expect(folds.nth(1)).toHaveText('▸ 展开 · 40 行')
+    await expect(folds.nth(1)).toHaveText('▸ 展开 · 40行')
     await expect(pane(page).getByText('Line 300.')).toHaveCount(0)
     // 收起第一章、展开第二章
     await folds.nth(0).click()
-    await expect(folds.nth(0)).toHaveText('▸ 展开 · 30 行')
+    await expect(folds.nth(0)).toHaveText('▸ 展开 · 30行')
     await expect(pane(page).getByText('Line 25.')).toHaveCount(0)
     await folds.nth(1).click()
     await expect(pane(page).getByText('Line 300.')).toBeVisible()
@@ -479,9 +490,9 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(web(page).getByRole('dialog', { name: '问 AI' })).toBeVisible()
       await shot(run, `deliver-${tone}-ask`)
       await page.keyboard.press('Enter')
-      await expect(page.getByText('已记进《第3讲 线性映射 笔记》和「视频里的疑惑」')).toBeVisible({ timeout: 15_000 })
+      await expect(page.getByText('AI讲完了，记进《第3讲 线性映射 笔记》和「视频里的疑惑」')).toBeVisible({ timeout: 15_000 })
       await shot(run, `deliver-${tone}-asked`)
-      await strip(page).getByRole('button', { name: /3 个时刻/ }).click()
+      await strip(page).getByRole('button', { name: /3个时刻/ }).click()
       await shot(run, `deliver-${tone}-moments`)
     } finally {
       await run.close()
@@ -496,7 +507,7 @@ test('白板上光秃秃的视频链接卡：画成视频卡（标题、频道�
     // 先看过一次（标题、频道记在本机；真 YouTube 从 oEmbed 取）
     await openVideo(page)
     await expect(strip(page).getByRole('button', { name: '字幕' })).toContainText('英→中', { timeout: 15_000 })
-    await web(page).getByRole('button', { name: '收起网页' }).click()
+    await rail(page).getByRole('button', { name: '网页' }).click()
     await page.locator('.nav .si', { hasText: /^看视频 白板/ }).first().click()
     const card = pane(page).getByTestId('board').locator('.bcard.k-video')
     await expect(card).toContainText('Linear transformations and matrices')

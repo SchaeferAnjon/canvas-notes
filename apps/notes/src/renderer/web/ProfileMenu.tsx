@@ -11,7 +11,7 @@ export function ProfileMenu(props: { label: string; title: string; onPick(id: st
       (l) => {
         if (!alive) return
         if (!l.length) {
-          props.onNotice('这台 Mac 上没找到 Chrome 的用户资料')
+          props.onNotice('这台Mac上没找到Chrome的用户资料')
           props.onClose()
         } else if (l.length === 1) props.onPick(l[0]!.id, l[0]!.name)
         else setList(l)

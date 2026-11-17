@@ -1,4 +1,4 @@
-/* 左栏「只放活着的」：小标题后的说明、空行、还有几篇、收件箱堆多了的提醒、底部全部笔记和归档 */
+/* 左栏：小标题后的说明、空行、还有几篇、收件箱堆多了的提醒、按月收起的一行、底部「归档」「在「文件」里看位置」 */
 
 .sh .sub {
   margin-left: 6px;
@@ -40,7 +40,7 @@
   background: color-mix(in srgb, var(--yellow) 10%, transparent);
 }
 
-/* 底部两个入口：全部笔记、归档 */
+/* 底部一行：「最近」的归档、摘出来的文件夹的「在「文件」里看位置」 */
 .sall {
   padding: 6px 10px;
   border-top: 1px solid var(--line);
@@ -49,15 +49,18 @@
 .sall .si .c {
   margin-left: auto;
 }
-
-/* 文件夹首页选了颜色：16 方块、圆角 4、白图标（左栏「文件夹」和标签上） */
-.fmark {
-  display: inline-grid;
-  place-items: center;
+.side .si .c {
   flex: none;
-  border-radius: 4px;
+  white-space: nowrap;
 }
-.fmark > svg,
-.si > .fmark > svg {
-  color: #fff;
+
+/* 「最近」里按月收起的一行：› 十月 23 篇 */
+.si.s-fold {
+  color: var(--t2);
+}
+.si.s-fold > svg {
+  color: var(--t3);
+}
+.si.s-fold .c {
+  margin-left: auto;
 }

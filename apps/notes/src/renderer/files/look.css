@@ -1,0 +1,161 @@
+/* 文件夹的图标和颜色：树上的图标、首页头上的方块、「设图标和颜色…」弹层（2026-11-17 左栏重组，小样 2c） */
+/* 没设颜色的图标是 --t2（和别的行图标一样）；设了颜色的写在 style 上；活动栏里跟着格子的颜色（只用单色符号） */
+.fglyph {
+  flex: none;
+  display: inline-flex;
+  color: var(--t2);
+}
+.fglyph > .ci,
+.fh-ico > .ci {
+  color: inherit;
+}
+.ab .fglyph {
+  color: inherit;
+}
+.fbadge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--t2);
+}
+
+.shell-menu.lookpick {
+  width: 300px;
+  max-width: 300px;
+  padding: 12px;
+  border-radius: 12px;
+}
+.lookpick .lp-hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 10px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.lookpick .lp-hd .fbadge {
+  border-radius: 8px;
+}
+.lookpick .lp-hd b {
+  font-weight: 500;
+}
+.lookpick .lp-find {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.lookpick .lp-find input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: 12px;
+  color: var(--t1);
+}
+.lookpick .lp-lab {
+  padding: 8px 2px 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.lookpick .lp-icons {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  max-height: 206px;
+  overflow-y: auto;
+}
+.lookpick .lp-icons button {
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.lookpick .lp-icons button:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.lookpick .lp-icons button.on {
+  background: var(--fill2);
+  color: var(--t1);
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.lookpick .lp-none {
+  grid-column: 1 / -1;
+  padding: 8px 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.lookpick .lp-cols {
+  display: flex;
+  gap: 8px;
+  padding: 2px;
+}
+.lookpick .lp-cols button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  position: relative;
+}
+.lookpick .lp-cols button.on {
+  box-shadow: 0 0 0 2px var(--pop), 0 0 0 3.5px var(--acc-ring);
+}
+.lookpick .lp-cols button.none {
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.lookpick .lp-cols button.none.on {
+  box-shadow: inset 0 0 0 1px var(--line2), 0 0 0 2px var(--pop), 0 0 0 3.5px var(--acc-ring);
+}
+.lookpick .lp-cols button.none::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: 50%;
+  height: 1.5px;
+  background: var(--t3);
+  transform: rotate(-45deg);
+}
+.lookpick .lp-ft {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t3);
+}
+.lookpick .lp-reset {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.lookpick .lp-reset:hover:not(:disabled) {
+  background: var(--fill);
+}
+.lookpick .lp-reset:disabled {
+  color: var(--t3);
+  opacity: 0.6;
+}

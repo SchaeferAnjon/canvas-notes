@@ -26,9 +26,11 @@ const sec = (over: Partial<AskSection>): AskSection => ({
 
 describe('做个可视化', () => {
   it('回答最后那行标记：界面上去掉，记下这一处适合做；边生成时半截的标记也藏起来', () => {
-    expect(withoutVizMark('讲解。\n\n〔可以做个可视化〕')).toEqual({ text: '讲解。', viz: true })
-    expect(withoutVizMark('讲解。')).toEqual({ text: '讲解。', viz: false })
+    expect(withoutVizMark('讲解。\n\n〔可以做个可视化〕')).toEqual({ text: '讲解。', viz: true, figure: null })
+    expect(withoutVizMark('讲解。')).toEqual({ text: '讲解。', viz: false, figure: null })
     expect(withoutVizMark('讲解。\n\n〔可以做').text).toBe('讲解。')
+    // 配图的框那一行（CN-60）：也去掉，框交给记笔记用
+    expect(withoutVizMark('讲解。\n\n〔可以做个可视化〕\n〔配图 0.1,0.4,0.6,0.3 · 结构图〕')).toEqual({ text: '讲解。', viz: true, figure: { rect: [0.1, 0.4, 0.6, 0.3], caption: '结构图' } })
   })
   it('从回答里取出 HTML（包在代码块里也行），标题取 <title>，文件名去掉不能用的字', () => {
     const html = '<!doctype html><html><head><title>旋转矩阵 · 拖动角度看基向量</title></head><body>x</body></html>'

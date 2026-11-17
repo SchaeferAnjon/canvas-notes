@@ -102,7 +102,7 @@ export function OutlineView(props: { tab: Tab | null; doc(): NoteDoc | null; onC
     setCur(i)
   }
 
-  const sub = kind === 'pdf' ? 'PDF 自带的目录' : items && path ? path.split('/').pop()!.replace(/\.md$/i, '') : undefined
+  const sub = kind === 'pdf' ? 'PDF自带的目录' : items && path ? path.split('/').pop()!.replace(/\.md$/i, '') : undefined
   return (
     <aside className="right outline" aria-label="大纲">
       <ViewHead title="大纲" sub={sub}>
@@ -110,7 +110,7 @@ export function OutlineView(props: { tab: Tab | null; doc(): NoteDoc | null; onC
       </ViewHead>
       <div className="vbody" role="list" aria-label="大纲条目">
         {!kind && <p className="none">这一页没有大纲。文档、PDF、白板才有。</p>}
-        {kind && items?.length === 0 && <p className="none">{kind === 'pdf' ? '这份 PDF 没有自带目录。' : '还没有标题。用 # 写标题，这里就会列出来。'}</p>}
+        {kind && items?.length === 0 && <p className="none">{kind === 'pdf' ? '这份PDF没有自带目录。' : '还没有标题。用 # 写标题，这里就会列出来。'}</p>}
         {items?.map((o, i) => (
           <button key={i} role="listitem" className={'ol' + (i === cur ? ' on' : '')} style={{ '--d': o.depth } as React.CSSProperties} onClick={() => go(o, i)}>
             <span className="truncate">{o.text}</span>

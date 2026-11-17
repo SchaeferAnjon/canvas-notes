@@ -1,8 +1,9 @@
 /**
  * 读 PDF 边读边问的提示词，和把 AI 收好的笔记段读回来（纯函数，单元测试测）。
  */
-import { type AskSection, blocksText, type PdfBlock } from '@cn/format'
+import { type AskSection, blocksText, isFigureBlock, type PdfBlock } from '@cn/format'
 import { type ReadingMsg, type ReadingThread, VIZ_MARK } from '../../shared/reading'
+import { fmtTime } from '../../shared/video'
 
 export const TUTOR_SYSTEM = `你是一个耐心、讲话直白的老师，在 Canvas Notes 笔记软件里陪一个人读 PDF 课件。他读到哪里不懂，就在 PDF 上框一块（发给你的图片）或者整页问你，一直问到懂为止。
 
@@ -33,11 +34,25 @@ export function askPrompt(o: {
   digest: string
   hasImage: boolean
   /** 在右栏网页上框着问的 */
-  web?: { url: string; title: string; text?: string }
+  web?: { url: string; title: string; text?: string; t?: number; answer?: string }
+  /** 视频「接着问」：那一秒前后的字幕（右栏开着这个视频、有字幕时） */
+  subs?: string
   /** 来源是库里的一份 HTML（可视化） */
   html?: boolean
+  /** 版面换成了 PDF 精读增强认的：之前给过的块编号 → 新编号 */
+  renamed?: Record<string, string>
 }): string {
   const out: string[] = []
+  if (o.web && /^https?:/i.test(o.web.url) && o.web.t !== undefined) {
+    // 视频问答块上「接着问」：带上那一帧（附的图）、那一问的回答和前后字幕，AI 才知道「第三个箭头」指什么
+    const time = fmtTime(o.web.t)
+    if (o.pageText) out.push(`他中间开着的 PDF「${o.pdfName}」正在看第 ${o.page} 页，这一页的文字：\n<page>\n${o.pageText}\n</page>`)
+    out.push(`他在看右边的视频「${o.web.title}」（${o.web.url}），在 ${time} 那一帧框了一块问过：「${o.thread.quote ?? ''}」。${o.hasImage ? `附上的图是 ${time} 那一帧（紫色框是他当时框的地方）。` : ''}`)
+    if (o.web.answer) out.push(`你当时的回答：\n<answer>\n${o.web.answer}\n</answer>`)
+    if (o.subs) out.push(`${time} 前后的字幕：\n<subs>\n${o.subs}\n</subs>`)
+    out.push(`这是他接着那一问在追问。\n他说：${o.question}`)
+    return out.join('\n\n')
+  }
   if (o.web && /^https?:/i.test(o.web.url)) {
     if (o.digest) out.push(`他笔记里已经弄懂的：\n${o.digest}`)
     if (o.pageText) out.push(`他中间开着的 PDF「${o.pdfName}」正在看第 ${o.page} 页，这一页的文字：\n<page>\n${o.pageText}\n</page>`)
@@ -52,12 +67,20 @@ export function askPrompt(o: {
   }
   if (o.fullText) out.push(`这是整份 PDF「${o.pdfName}」的文字（共 ${o.pages} 页，「# 」开头的是标题，[图 p5-b3] 是图的位置），先通读一遍，后面他会一处一处问：\n<pdf>\n${o.fullText}\n</pdf>`)
   else if (o.fullPending) out.push(`（整份 PDF「${o.pdfName}」的文字还在读，这一轮先看这一页。）`)
+  const renamed = Object.entries(o.renamed ?? {}).slice(0, 60)
+  if (renamed.length) out.push(`（这份 PDF 的版面换成了更准的识别结果，表格、公式现在是单独的块。之前给你的图编号对应到：${renamed.map(([a, b]) => `${a} → ${b}`).join('、')}；以后用新编号。）`)
   if (o.digest) out.push(`他笔记里已经弄懂的：\n${o.digest}`)
   out.push(`他现在在看第 ${o.page} 页（共 ${o.pages} 页）。这一页的文字：\n<page>\n${o.pageText || '（这一页没有能选的字，是图片或扫描件）'}\n</page>`)
   const where = o.thread.quote ? `他选中了这段字：「${o.thread.quote}」。` : o.hasImage ? (o.thread.rect ? '他在这一页上框了一块，就是附上的图。' : '附上的图是整页。') : '这是他接着刚才那处在追问。'
   out.push(`${where}\n他说：${o.question}`)
+  // 配图的框（CN-60）：笔记里要配一张图时按这个框从 PDF 重新画的页面里裁，矢量画的图也裁得对
+  if (o.hasImage && !o.thread.quote) out.push(FIGURE_ASK)
   return out.join('\n\n')
 }
+
+/** 让 AI 在回答最后顺带写配图的框（软件认出来就去掉，不显示） */
+export const FIGURE_ASK =
+  '回答完以后，如果附上的图里有值得配进笔记的图（示意图、结构图、流程图、表格、函数图像；不算 Logo、页眉页脚、整段文字），最后单独写一行：〔配图 左,上,宽,高 · 这张图是什么，10 个字以内〕，四个数是它在附上的图里的位置，0 到 1 的比例，框紧一点、把图的标注带上；没有就不写这一行。'
 
 /** 全文太长时截断（大约 15 万字，够一学期的讲义） */
 export function fullTextOf(pages: PdfBlock[][], max = 150_000): string {
@@ -102,7 +125,7 @@ export function summarizePrompt(o: { pdfName: string; thread: ReadingThread; msg
       return `【AI 第 ${answers.indexOf(m) + 1} 版】${m.text}`
     })
     .join('\n\n')
-  const figures = o.blocks.filter((b) => b.kind === 'image').map((b) => b.id)
+  const figures = o.blocks.filter(isFigureBlock).map((b) => b.id)
   const w = o.thread.web
   const head = w
     ? `${/^https?:/i.test(w.url) ? `网页「${w.title}」（${w.url}）` : `可视化「${w.title}」`}，他框了一块问。
@@ -111,7 +134,7 @@ export function summarizePrompt(o: { pdfName: string; thread: ReadingThread; msg
 ${w.text || blocksText(o.blocks) || '（没有能读的字）'}`
     : `PDF「${o.pdfName}」第 ${o.thread.page} 页${o.thread.quote ? `，他选中的字：「${o.thread.quote}」` : o.thread.rect ? '，他框了一块问' : '，他问的是整页'}。
 
-这一页的文字（[图 pX-bY] 是图）：
+这一页的文字（[图 pX-bY] 是图，[表 pX-bY] 是表）：
 ${blocksText(o.blocks) || '（没有能选的字）'}`
   return `${head}
 
@@ -163,7 +186,7 @@ export function parseSummary(
       if (o.failed.includes(v) && str(f?.line)) failedLines[v] = str(f.line)
     }
   for (const v of o.failed) failedLines[v] ??= oneLine(answers[v - 1]?.text ?? '', 30)
-  const figureIds = new Set(o.blocks.filter((x) => x.kind === 'image').map((x) => x.id))
+  const figureIds = new Set(o.blocks.filter(isFigureBlock).map((x) => x.id))
   const figure = str(j.figure)
   const titles = new Set(o.titles)
   return {

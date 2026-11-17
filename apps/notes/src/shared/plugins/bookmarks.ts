@@ -5,7 +5,7 @@ import type { Bookmark } from '../web-api'
 export const BOOKMARKS: PluginManifest = {
   id: 'bookmarks',
   name: '书签管家',
-  description: '新开的网页标签是 BookmarkKeeper 的新标签页（快捷书签经 iCloud 和 Chrome、Safari、别的 Mac 同步，搜全部书签，打开的标签按网站整理）；地址栏的星星收藏当前网页、加标签和备注，搜、排、改、删；选中的书签能存进库。',
+  description: '新开的网页标签是BookmarkKeeper的新标签页（快捷书签经iCloud和Chrome、Safari、别的Mac同步，搜全部书签，打开的标签按网站整理）；地址栏的星星收藏当前网页、加标签和备注，搜、排、改、删；选中的书签能存进库。',
   permissions: ['notes:write'],
 }
 
@@ -84,7 +84,7 @@ export function ago(ms: number, now = Date.now()): string {
   const d = Math.floor((now - ms) / 86400_000)
   if (d <= 0) return '今天'
   if (d === 1) return '昨天'
-  if (d < 30) return `${d} 天前`
+  if (d < 30) return `${d}天前`
   const t = new Date(ms)
   return `${t.getFullYear()}-${t.getMonth() + 1}-${t.getDate()}`
 }

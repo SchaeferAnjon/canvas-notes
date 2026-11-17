@@ -67,11 +67,12 @@ test('文档里剪藏：选中一段点「剪进文档」，引文插到光标�
     await openWeb(page, `${base}/rich`)
     // 网页开着时，文档光标是李子紫竖线
     await expect(page.locator('.win')).toHaveClass(/web-open/)
-    await selectAndClip(page, 'p1', '剪进文档· 插到：所思所想 · 光标处')
+    await selectAndClip(page, 'p1', '剪进文档· 插到：所思所想 · 光标处⌘↵')
     await expect(page.locator('.toast-cn')).toContainText('插到「所思所想」光标处')
-    await expect(pane(page).locator('.cm-justclipped').first()).toBeVisible()
+    await expect(pane(page).locator('.cm-flashbar:not([hidden])')).toHaveCount(1)
     await waitSaved(page)
-    const want = `# 所思所想\n\n财富是靠专长、杠杆。\n\n> Seek wealth, not money or status.\n—— [How to Get Rich](${base}/rich)\n\n最后一段。\n`
+    // 引文后面补了一个空段落放光标（CN-17）
+    const want = `# 所思所想\n\n财富是靠专长、杠杆。\n\n> Seek wealth, not money or status.\n—— [How to Get Rich](${base}/rich)\n\n\n\n最后一段。\n`
     expect(readFileSync(join(vault, '所思所想.md'), 'utf8')).toBe(want)
     expect(await editorText(page)).toBe(want)
     expect(readdirSync(vault)).not.toContain('收件箱')
@@ -85,11 +86,11 @@ test('白板里剪藏：「剪成卡片 · 到：收件箱」，收件箱多一�
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
-    await expect(pane(page).getByTestId('unsorted')).toContainText('1 未整理')
+    await expect(pane(page).getByTestId('unsorted')).toContainText('1未整理')
     await openWeb(page, `${base}/rich`)
-    await selectAndClip(page, 'p2', '剪成卡片· 到：收件箱')
+    await selectAndClip(page, 'p2', '剪成卡片· 到：收件箱⌘↵')
     await expect(page.locator('.toast-cn')).toContainText('放进收件箱')
-    await expect(pane(page).getByTestId('unsorted')).toContainText('2 未整理')
+    await expect(pane(page).getByTestId('unsorted')).toContainText('2未整理')
     const files = readdirSync(join(vault, '收件箱'))
     expect(files).toHaveLength(1)
     const md = readFileSync(join(vault, '收件箱', files[0]!), 'utf8')
@@ -114,12 +115,12 @@ test('一键导入 Chrome 登录：选 Chrome 用户，cookie 进内置浏览器
     await openNote(page, 'a')
     await openWeb(page, `${base}/whoami`)
     await expect.poll(() => guest(page, `document.getElementById('who').textContent`)).toBe('cookie=')
-    await webMore(page, '导入 Chrome 登录')
+    await webMore(page, '导入Chrome登录')
     const menu = page.getByRole('menu', { name: '选 Chrome 用户' })
     await expect(menu).toContainText('工作')
     await expect(menu).toContainText('me@example.com')
     await menu.getByRole('menuitem', { name: /工作/ }).click()
-    await expect(page.locator('.toast-cn')).toContainText('导入了 1 个登录信息，1 个已过期没导')
+    await expect(page.locator('.toast-cn')).toContainText('导入了1个登录信息，1个已过期没导')
     await expect.poll(() => guest(page, `document.getElementById('who')?.textContent`)).toBe('cookie=session=logged-in-abc')
   } finally {
     await run.close()

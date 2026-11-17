@@ -118,24 +118,76 @@ export function estimate(a: Uint32Array, b: Uint32Array): number {
   return same / a.length
 }
 
-/** 两段文字都有的最长一段（只看前 3000 个字），用来告诉人为什么像 */
+/**
+ * 两段文字都有的最长一段（只看前 3000 个字），用来告诉人为什么像；一样长的取在 a 里最靠前的那段。
+ * 用 a 的后缀自动机走一遍 b，两段长度之和的线性时间（以前是 3000 × 3000 的表，一对 30 多毫秒，
+ * 大库「找重复」上万对光这一步就要 10 分钟）。
+ */
 export function commonPassage(a: string, b: string, max = 40): string {
   const x = Array.from(a.slice(0, 3000))
   const y = Array.from(b.slice(0, 3000))
-  let best = 0
-  let end = 0
-  let prev = new Uint16Array(y.length + 1)
-  let cur = new Uint16Array(y.length + 1)
-  for (let i = 1; i <= x.length; i++) {
-    for (let j = 1; j <= y.length; j++) {
-      cur[j] = x[i - 1] === y[j - 1] ? prev[j - 1]! + 1 : 0
-      if (cur[j]! > best) {
-        best = cur[j]!
-        end = i
+  const cap = 2 * x.length + 2
+  const len = new Int32Array(cap)
+  const link = new Int32Array(cap)
+  /** 每个状态的字串在 x 里最早结束在哪（下标） */
+  const first = new Int32Array(cap)
+  const next: Map<string, number>[] = [new Map()]
+  link[0] = -1
+  let size = 1
+  let last = 0
+  for (let p = 0; p < x.length; p++) {
+    const c = x[p]!
+    const cur = size++
+    next.push(new Map())
+    len[cur] = len[last]! + 1
+    first[cur] = p
+    let q = last
+    while (q !== -1 && !next[q]!.has(c)) {
+      next[q]!.set(c, cur)
+      q = link[q]!
+    }
+    if (q === -1) link[cur] = 0
+    else {
+      const r = next[q]!.get(c)!
+      if (len[q]! + 1 === len[r]) link[cur] = r
+      else {
+        const clone = size++
+        next.push(new Map(next[r]!))
+        len[clone] = len[q]! + 1
+        link[clone] = link[r]!
+        first[clone] = first[r]!
+        while (q !== -1 && next[q]!.get(c) === r) {
+          next[q]!.set(c, clone)
+          q = link[q]!
+        }
+        link[r] = clone
+        link[cur] = clone
       }
     }
-    ;[prev, cur] = [cur, prev]
-    cur.fill(0)
+    last = cur
+  }
+  let v = 0
+  let l = 0
+  let best = 0
+  /** 最长那段在 x 里结束的位置（不含） */
+  let end = 0
+  for (const c of y) {
+    while (v !== 0 && !next[v]!.has(c)) {
+      v = link[v]!
+      l = len[v]!
+    }
+    const to = next[v]!.get(c)
+    if (to !== undefined) {
+      v = to
+      l++
+    } else {
+      v = 0
+      l = 0
+    }
+    if (l > best) {
+      best = l
+      end = first[v]! + 1
+    } else if (l === best && l > 0 && first[v]! + 1 < end) end = first[v]! + 1
   }
   const s = x
     .slice(end - best, end)
@@ -155,47 +207,135 @@ export function similarity(a: string, b: string): { score: number; containment: 
 
 const round = (x: number) => Math.round(x * 100) / 100
 
-/** 在一堆笔记里找可能重复的对，像的在前 */
-export function findSimilarPairs(docs: SimilarDoc[], opts: SimilarOptions = {}): SimilarPair[] {
-  const threshold = opts.threshold ?? 0.4
-  const contain = opts.containment ?? 0.8
-  const minShingles = opts.minShingles ?? 20
-  const items = docs
-    .map((d) => {
-      const set = shingles(plainText(d.text))
-      return { id: d.id, text: d.text, set }
-    })
-    .filter((d) => d.set.size >= minShingles)
-  const sigs = items.map((d) => minhash(d.set))
+/**
+ * 找重复的准备：每篇的 3-gram 换成整数编号（排好序，比两篇的交集只要并着走一遍，比 Set 查字串快好几倍，结果一样），
+ * 再算 MinHash 签名分段。几千篇的库这一步一两秒；后面的 scanSimilar 可以拆成几份在几个线程里一起比。
+ */
+export interface SimilarPrep {
+  /** 参加比的那几篇（太短的已经去掉） */
+  ids: string[]
+  /** 第 i 篇的编号在 grams 里是 [off[i], off[i + 1]) */
+  off: Int32Array
+  grams: Int32Array
+  /** 第 i 篇的签名是 sigs[i * K, (i + 1) * K) */
+  sigs: Uint32Array
+  /** 给人看的那段用的字（plainText 不转小写，前 3000 个字） */
+  plain: string[]
+  threshold: number
+  containment: number
+  minShingles: number
+}
 
-  // 分段：任何一段签名完全一样就成为候选
-  const candidates = new Set<string>()
+export function prepareSimilar(docs: SimilarDoc[], opts: SimilarOptions = {}): SimilarPrep {
+  const minShingles = opts.minShingles ?? 20
+  const dict = new Map<string, number>()
+  const kept: { id: string; text: string; set: Set<string>; grams: Int32Array }[] = []
+  for (const d of docs) {
+    const set = shingles(plainText(d.text))
+    if (set.size < minShingles) continue
+    const grams = new Int32Array(set.size)
+    let k = 0
+    for (const g of set) {
+      let n = dict.get(g)
+      if (n === undefined) dict.set(g, (n = dict.size))
+      grams[k++] = n
+    }
+    grams.sort()
+    kept.push({ id: d.id, text: d.text, set, grams })
+  }
+  const off = new Int32Array(kept.length + 1)
+  for (let i = 0; i < kept.length; i++) off[i + 1] = off[i]! + kept[i]!.grams.length
+  const grams = new Int32Array(off[kept.length]!)
+  const sigs = new Uint32Array(kept.length * K)
+  kept.forEach((d, i) => {
+    grams.set(d.grams, off[i]!)
+    sigs.set(minhash(d.set), i * K)
+  })
+  return {
+    ids: kept.map((d) => d.id),
+    off,
+    grams,
+    sigs,
+    plain: kept.map((d) => plainText(d.text, true).slice(0, 3000)),
+    threshold: opts.threshold ?? 0.4,
+    containment: opts.containment ?? 0.8,
+    minShingles,
+  }
+}
+
+/**
+ * 比一份：第 i 篇（i 除以 parts 余 part 的那些）和它的候选（MinHash 分段里同桶的）一对对算真的 Jaccard。
+ * 每一对只比一次（i + j 是偶数从小的那篇比，奇数从大的那篇比，几份的活差不多一样多）。
+ * 像的一对交给 onPair（先找到的先给），每比完一篇叫一次 onDoc。
+ */
+export function scanSimilar(prep: SimilarPrep, part: number, parts: number, onPair: (p: SimilarPair) => void, onDoc?: () => void): void {
+  const { ids, off, grams, sigs, plain, threshold, containment: contain, minShingles } = prep
+  const n = ids.length
+  /** 每段：第 i 篇落在哪个桶 */
+  const bucketOf: number[][][] = []
   for (let band = 0; band < BANDS; band++) {
     const buckets = new Map<string, number[]>()
-    for (let i = 0; i < items.length; i++) {
-      const sig = sigs[i]!
+    const of: number[][] = new Array(n)
+    for (let i = 0; i < n; i++) {
       let key = ''
-      for (let r = 0; r < ROWS; r++) key += sig[band * ROWS + r]!.toString(36) + ','
-      const list = buckets.get(key)
-      if (list) list.push(i)
-      else buckets.set(key, [i])
+      for (let r = 0; r < ROWS; r++) key += sigs[i * K + band * ROWS + r]!.toString(36) + ','
+      let list = buckets.get(key)
+      if (!list) buckets.set(key, (list = []))
+      list.push(i)
+      of[i] = list
     }
-    for (const list of buckets.values()) {
+    bucketOf.push(of)
+  }
+  const seen = new Int32Array(n)
+  for (let i = part; i < n; i += parts) {
+    const a0 = off[i]!
+    const a1 = off[i + 1]!
+    const na = a1 - a0
+    for (let band = 0; band < BANDS; band++) {
+      const list = bucketOf[band]![i]!
       if (list.length < 2 || list.length > 200) continue
-      for (let x = 0; x < list.length; x++) for (let y = x + 1; y < list.length; y++) candidates.add(`${list[x]} ${list[y]}`)
+      for (const j of list) {
+        if (j === i || ((i + j) % 2 === 0 ? j < i : j > i) || seen[j] === i + 1) continue
+        seen[j] = i + 1
+        const b0 = off[j]!
+        const b1 = off[j + 1]!
+        const nb = b1 - b0
+        const small = Math.min(na, nb)
+        // 交集至少要这么大才可能算像：比到一半就知道够不上的不往下比（只是省时间，算像不算像照下面原来的式子）
+        const need = Math.min((threshold * (na + nb)) / (1 + threshold), small >= minShingles * 1.5 ? contain * small : Infinity) - 1e-6
+        let x = a0
+        let y = b0
+        let inter = 0
+        while (x < a1 && y < b1) {
+          const u = grams[x]!
+          const w = grams[y]!
+          if (u === w) {
+            inter++
+            x++
+            y++
+          } else if (u < w) x++
+          else y++
+          if (inter + Math.min(a1 - x, b1 - y) < need) break
+        }
+        const score = inter / (na + nb - inter)
+        const containment = inter / small
+        if (score < threshold && !(containment >= contain && small >= minShingles * 1.5)) continue
+        const [p, q] = ids[i]! < ids[j]! ? [i, j] : [j, i]
+        onPair({ a: ids[p]!, b: ids[q]!, score: round(score), containment: round(containment), passage: commonPassage(plain[p]!, plain[q]!) })
+      }
     }
+    onDoc?.()
   }
+}
 
+/** 像的在前（一样像的按名字排，结果固定） */
+export function sortSimilar(pairs: SimilarPair[]): SimilarPair[] {
+  return pairs.sort((x, y) => y.score - x.score || y.containment - x.containment || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
+}
+
+/** 在一堆笔记里找可能重复的对，像的在前（在这个线程里一口气算完；软件里大库拆到几个线程，见 apps/notes 的 similar/worker） */
+export function findSimilarPairs(docs: SimilarDoc[], opts: SimilarOptions = {}): SimilarPair[] {
   const out: SimilarPair[] = []
-  for (const c of candidates) {
-    const [i, j] = c.split(' ').map(Number) as [number, number]
-    const a = items[i]!
-    const b = items[j]!
-    const score = jaccard(a.set, b.set)
-    const containment = overlap(a.set, b.set)
-    if (score < threshold && !(containment >= contain && Math.min(a.set.size, b.set.size) >= minShingles * 1.5)) continue
-    const [first, second] = a.id < b.id ? [a, b] : [b, a]
-    out.push({ a: first.id, b: second.id, score: round(score), containment: round(containment), passage: commonPassage(plainText(first.text, true), plainText(second.text, true)) })
-  }
-  return out.sort((x, y) => y.score - x.score || y.containment - x.containment || x.a.localeCompare(y.a))
+  scanSimilar(prepareSimilar(docs, opts), 0, 1, (p) => out.push(p))
+  return sortSimilar(out)
 }

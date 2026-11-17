@@ -205,11 +205,11 @@ export function noneReason(list: Pick<EngineStatus, 'id' | 'name' | 'kind' | 'st
   const api = list.filter((e) => e.kind === 'api')
   for (const [st, names] of by) {
     if (st === 'nokey' && api.length && names.length === api.length) {
-      parts.push('API 都没填 Key')
+      parts.push('API都没填Key')
       continue
     }
-    const word = st === 'missing' ? '没装' : st === 'login' ? '没登录' : st === 'nokey' ? '没填 Key' : st === 'badkey' ? 'Key 不对' : st === 'nobalance' ? '余额不够' : '模型不对'
-    parts.push(`${names.join('、')} ${word}`)
+    const word = st === 'missing' ? '没装' : st === 'login' ? '没登录' : st === 'nokey' ? '没填Key' : st === 'badkey' ? 'Key不对' : st === 'nobalance' ? '余额不够' : '模型不对'
+    parts.push(`${names.join('、')}${/^[A-Za-z]/.test(word) ? ' ' : ''}${word}`)
   }
   return parts.join('，') || '没有能用的翻译引擎'
 }

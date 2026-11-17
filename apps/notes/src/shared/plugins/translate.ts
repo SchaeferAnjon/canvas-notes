@@ -4,7 +4,7 @@ import type { PluginManifest } from '../plugins'
 export const TRANSLATE: PluginManifest = {
   id: 'translate',
   name: '双语翻译',
-  description: '网页每段下面插一行译文，再按一次恢复原文；选中一段也能翻。用这台 Mac 上的 AI 命令行翻，都没有时用自己填的 API Key。',
+  description: '网页每段下面插一行译文，再按一次恢复原文；选中一段也能翻。用这台Mac上的AI命令行翻，都没有时用自己填的API Key。',
   permissions: ['page', 'net', 'notes:read', 'notes:write'],
 }
 
@@ -43,8 +43,8 @@ export const ENGINES: TrEngineMeta[] = [
   { id: 'codex', name: 'Codex', kind: 'cli', sub: '' },
   { id: 'gemini', name: 'Gemini CLI', kind: 'cli', sub: '' },
   { id: 'opencode', name: 'OpenCode', kind: 'cli', sub: '' },
-  { id: 'deepseek', name: 'DeepSeek', kind: 'api', sub: 'API · 自己的 Key' },
-  { id: 'zhipu', name: '智谱 GLM', kind: 'api', sub: 'API · 自己的 Key' },
+  { id: 'deepseek', name: 'DeepSeek', kind: 'api', sub: 'API · 自己的Key' },
+  { id: 'zhipu', name: '智谱GLM', kind: 'api', sub: 'API · 自己的Key' },
 ]
 
 export const ENGINE_IDS = ENGINES.map((e) => e.id)
@@ -58,8 +58,8 @@ export const STATE_TEXT: Record<EngineState, string> = {
   ok: '能用',
   login: '没登录',
   missing: '没装',
-  nokey: '没填 Key',
-  badkey: 'Key 不对',
+  nokey: '没填Key',
+  badkey: 'Key不对',
   nobalance: '余额不够',
   badmodel: '模型不对',
 }
@@ -218,27 +218,27 @@ export function errorTitle(e: TrError): string {
   const short = e.engine ? engineMeta(e.engine).name.replace(/ CLI$/, '') : 'AI'
   switch (e.code) {
     case 'not-installed':
-      return `${short} 没装`
+      return `${short}没装`
     case 'not-logged-in':
-      return `${short} 还没登录`
+      return `${short}还没登录`
     case 'bad-model':
-      return e.engine === 'claude' ? 'Claude Code 用不了 Haiku 这个模型' : `${short} 用不了设置的模型`
+      return e.engine === 'claude' ? 'Claude Code用不了Haiku这个模型' : `${short}用不了设置的模型`
     case 'bad-key':
-      return `${short} 的 Key 不对`
+      return `${short}的Key不对`
     case 'no-key':
-      return `${short} 还没填 Key`
+      return `${short}还没填Key`
     case 'no-balance':
-      return `${short} 余额不够`
+      return `${short}余额不够`
     case 'rate-limit':
-      return `问得太快，${short} 让等一会儿`
+      return `问得太快，${short}让等一会儿`
     case 'network':
-      return `连不上 ${short}`
+      return `连不上${short}`
     case 'timeout':
-      return `${short} ${/(\d+) 秒/.exec(e.raw)?.[1] ?? 60} 秒没回应`
+      return `${short} ${/(\d+) 秒/.exec(e.raw)?.[1] ?? 60}秒没回应`
     case 'exited':
-      return `${short} 中途退出了`
+      return `${short}中途退出了`
     case 'bad-output':
-      return `AI 回的格式不对${/漏了 \d+ 段/.exec(e.raw)?.[0] ? '，' + /漏了 \d+ 段/.exec(e.raw)![0] : ''}`
+      return `AI回的格式不对${/漏了 \d+ 段/.exec(e.raw)?.[0] ? '，' + /漏了 \d+ 段/.exec(e.raw)![0] : ''}`
     case 'none':
       return '现在没有能翻的'
     default: {
@@ -349,18 +349,18 @@ type CliId = 'claude' | 'codex' | 'gemini' | 'opencode'
 
 /** 怎么登录（失败说明块里展开的那句）；cmd 是「复制」复制的命令 */
 export const HOW_LOGIN: Record<CliId, { text: string; cmd: string }> = {
-  claude: { text: '打开「终端」，输入 claude 回车，照提示在浏览器里登录；回来点「全部重试」。', cmd: 'claude' },
-  codex: { text: '打开「终端」，输入 codex login 回车，照提示在浏览器里登录；回来点「全部重试」。', cmd: 'codex login' },
-  gemini: { text: '打开「终端」，输入 gemini 回车，选「Log in with Google」；回来点「全部重试」。', cmd: 'gemini' },
-  opencode: { text: '打开「终端」，输入 opencode auth login 回车，照提示登录；回来点「全部重试」。', cmd: 'opencode auth login' },
+  claude: { text: '打开「终端」，输入claude回车，照提示在浏览器里登录；回来点「全部重试」。', cmd: 'claude' },
+  codex: { text: '打开「终端」，输入codex login回车，照提示在浏览器里登录；回来点「全部重试」。', cmd: 'codex login' },
+  gemini: { text: '打开「终端」，输入gemini回车，选「Log in with Google」；回来点「全部重试」。', cmd: 'gemini' },
+  opencode: { text: '打开「终端」，输入opencode auth login回车，照提示登录；回来点「全部重试」。', cmd: 'opencode auth login' },
 }
 
 /** 怎么装 */
 export const HOW_INSTALL: Record<CliId, { text: string; cmd: string }> = {
-  claude: { text: '打开「终端」运行下面这行，装好后再运行一次 claude 登录。', cmd: 'curl -fsSL https://claude.ai/install.sh | bash' },
-  codex: { text: '打开「终端」运行下面这行，装好后运行 codex login 登录。', cmd: 'npm i -g @openai/codex' },
-  gemini: { text: '打开「终端」运行下面这行，装好后运行一次 gemini 登录。', cmd: 'npm i -g @google/gemini-cli' },
-  opencode: { text: '打开「终端」运行下面这行，装好后运行 opencode auth login。', cmd: 'curl -fsSL https://opencode.ai/install | bash' },
+  claude: { text: '打开「终端」运行下面这行，装好后再运行一次claude登录。', cmd: 'curl -fsSL https://claude.ai/install.sh | bash' },
+  codex: { text: '打开「终端」运行下面这行，装好后运行codex login登录。', cmd: 'npm i -g @openai/codex' },
+  gemini: { text: '打开「终端」运行下面这行，装好后运行一次gemini登录。', cmd: 'npm i -g @google/gemini-cli' },
+  opencode: { text: '打开「终端」运行下面这行，装好后运行opencode auth login。', cmd: 'curl -fsSL https://opencode.ai/install | bash' },
 }
 
 /** API 去哪拿 Key、去哪充值（界面在右栏开这个网址） */

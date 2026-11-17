@@ -10,6 +10,7 @@ import { extname, join } from 'node:path'
 import * as git from '@cn/git'
 import type { MapNode } from '@cn/format'
 import { INSTALL_HINT, findCli } from '../agent/cli'
+import { visionModel } from '../agent'
 import { INBOX } from '../../shared/layout'
 import {
   coursesOf,
@@ -97,6 +98,8 @@ export function setupMindmap(d: { vault(): Vault | null; win(): BrowserWindow | 
         system: RECOGNIZE_SYSTEM,
         prompt: recognizePrompt(courses, typeof course === 'string' ? course : undefined),
         image,
+        // 设置 › AI「看图问」选的模型（CN_MAP_MODEL 给了就用它）
+        ...(process.env.CN_MAP_MODEL ? {} : { model: visionModel() }),
         signal: ac.signal,
       })
       return parseRecognition(answer)

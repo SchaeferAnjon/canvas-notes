@@ -21,7 +21,14 @@ export interface BarItem {
   /** 收件箱堆多了：数字胶囊变琥珀 */
   warn?: boolean
   dot?: boolean
+  /** 测试里认它的名字（默认是 id；摘出来的收件箱一格叫 inbox） */
+  tid?: string
+  /** 不是常用那套 Codicons 里的图标（摘出来的文件夹自己挑的）：直接给画好的 */
+  glyph?: React.ReactNode
   onClick(e: React.MouseEvent<HTMLButtonElement>): void
+  onContextMenu?(e: React.MouseEvent<HTMLButtonElement>): void
+  /** 按住拖上拖下排顺序（摘出来的文件夹）：key 是自己，onDrop(拖的, 放到谁前面) */
+  drag?: { key: string; onDrop(from: string, before: string): void }
 }
 
 /** 一条图标栏：只放图标，悬停才出名字；亮着的那个再点一下 = 收起那一侧 */
@@ -43,12 +50,24 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
                 data-tip={it.label}
                 data-key={it.key}
                 data-side={tipSide}
-                data-testid={`ab-${it.id}`}
+                data-testid={`ab-${it.tid ?? it.id}`}
                 onClick={it.onClick}
+                onContextMenu={it.onContextMenu}
+                draggable={!!it.drag}
+                onDragStart={it.drag ? (e) => (e.dataTransfer.setData('application/x-cn-left', it.drag!.key), (e.dataTransfer.effectAllowed = 'move')) : undefined}
+                onDragOver={it.drag ? (e) => [...e.dataTransfer.types].includes('application/x-cn-left') && e.preventDefault() : undefined}
+                onDrop={
+                  it.drag
+                    ? (e) => {
+                        const from = e.dataTransfer.getData('application/x-cn-left')
+                        if (from) (e.preventDefault(), it.drag!.onDrop(from, it.drag!.key))
+                      }
+                    : undefined
+                }
               >
-                <Codicon name={it.icon} size={0} />
+                {it.glyph ?? <Codicon name={it.icon} size={0} />}
                 <span className="sr">{it.label}</span>
-                {!!it.badge && <span className={'badge num' + (it.warn ? ' warn' : '')} data-testid={`${it.id}-count`}>{it.badge}</span>}
+                {!!it.badge && <span className={'badge num' + (it.warn ? ' warn' : '')} data-testid={`${it.tid ?? it.id}-count`}>{it.badge}</span>}
                 {it.dot && <i className="dot" data-testid={`${it.id}-dot`} />}
               </button>
             ))}
@@ -60,7 +79,7 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
   )
 }
 
-/** 标题栏：红绿灯旁收起左栏、后退前进、首页；正中搜索框；最右收起右栏 */
+/** 标题栏：红绿灯旁收起左栏、后退前进、首页；正中搜索框；最右收起右栏，开着网页时它左边是「移到中间 / 放回右栏」 */
 export function TitleBar(props: {
   leftOpen: boolean
   rightOpen: boolean
@@ -75,7 +94,10 @@ export function TitleBar(props: {
   onForward(): void
   onHome(): void
   onSearch(): void
+  /** 正在看的网页在哪：右栏（按钮写「移到中间」）还是中间的宽标签（「放回右栏」）；都没在看网页时没有这颗按钮 */
+  web: { where: 'right' | 'center'; onMove(): void } | null
 }) {
+  const webLabel = props.web?.where === 'center' ? '放回右栏' : '移到中间'
   return (
     <header className="titlebar">
       <div className="tb-left">
@@ -97,13 +119,26 @@ export function TitleBar(props: {
         <span className="ph truncate">
           {props.location ?? (
             <>
-              搜索 <b>{props.vaultName}</b>：笔记、PDF、命令、网址
+              搜索<b>{props.vaultName}</b>：笔记、PDF、命令、网址
             </>
           )}
         </span>
         <kbd>⌘K</kbd>
       </button>
       <div className="tb-right">
+        {props.web && (
+          <button
+            className="tb-btn tb-web"
+            aria-label={webLabel}
+            data-tip={props.web.where === 'center' ? '放回右栏：网页回到右栏，边看边记' : '移到中间：开成中间的宽标签，右栏空出来'}
+            data-side="below-left"
+            data-testid="tb-web"
+            onClick={props.web.onMove}
+          >
+            <Codicon name={props.web.where === 'center' ? 'layout-sidebar-right' : 'layout-centered'} />
+            <span className="lb">{webLabel}</span>
+          </button>
+        )}
         <button className="tb-btn" aria-label={props.rightOpen ? '收起右栏' : '展开右栏'} aria-pressed={props.rightOpen} data-tip={props.rightOpen ? '收起右栏' : '展开右栏'} data-key="⌥⌘\" data-side="below-left" onClick={props.onToggleRight}>
           <Codicon name={props.rightOpen ? 'layout-sidebar-right' : 'layout-sidebar-right-off'} />
         </button>
@@ -117,7 +152,7 @@ export function ViewHead(props: { title: string; sub?: React.ReactNode; children
   return (
     <div className="vh">
       <h2>
-        {props.title}
+        <span className="t">{props.title}</span>
         {props.sub !== undefined && <span className="sub">{props.sub}</span>}
       </h2>
       {props.children}
@@ -125,9 +160,9 @@ export function ViewHead(props: { title: string; sub?: React.ReactNode; children
   )
 }
 
-export function HeadBtn(props: { icon: CodiconName; label: string; keys?: string; on?: boolean; onClick(): void; className?: string; children?: React.ReactNode }) {
+export function HeadBtn(props: { icon: CodiconName; label: string; keys?: string; on?: boolean; /** 正在做（新建笔记建好、读好之前） */ busy?: boolean; onClick(e: React.MouseEvent<HTMLButtonElement>): void; className?: string; children?: React.ReactNode }) {
   return (
-    <button className={'ib' + (props.on ? ' on' : '') + (props.className ? ' ' + props.className : '')} aria-label={props.label} data-tip={props.label} data-key={props.keys} data-side="below" onClick={props.onClick}>
+    <button className={'ib' + (props.on ? ' on' : '') + (props.className ? ' ' + props.className : '')} aria-label={props.label} aria-pressed={props.on} aria-busy={props.busy || undefined} data-tip={props.label} data-key={props.keys} data-side="below" onClick={props.onClick}>
       <Codicon name={props.icon} />
       {props.children}
     </button>
@@ -135,7 +170,7 @@ export function HeadBtn(props: { icon: CodiconName; label: string; keys?: string
 }
 
 /** 小弹出菜单（库、设置、改动、后台）：贴着点它的那个按钮，点外面关 */
-export function Popover(props: { anchor: HTMLElement; onClose(): void; label: string; children: React.ReactNode }) {
+export function Popover(props: { anchor: HTMLElement; onClose(): void; label: string; children: React.ReactNode; className?: string; /** right：贴在点它那一行的右边（目录树里的文件夹） */ side?: 'right' }) {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   useEffect(() => {
@@ -147,7 +182,8 @@ export function Popover(props: { anchor: HTMLElement; onClose(): void; label: st
       const h = el.offsetHeight
       let left = r.left
       let top = r.bottom + 4
-      if (props.anchor.closest('.abar.left')) ((left = r.right + 6), (top = Math.min(r.top, innerHeight - h - 8)))
+      if (props.side === 'right') ((left = r.right + 8), (top = Math.min(r.top + r.height / 2 - h / 2, innerHeight - h - 8)))
+      else if (props.anchor.closest('.abar.left')) ((left = r.right + 6), (top = Math.min(r.top, innerHeight - h - 8)))
       else if (props.anchor.closest('.abar.right')) ((left = r.left - w - 6), (top = Math.min(r.top, innerHeight - h - 8)))
       else if (r.top > innerHeight - 80) top = r.top - h - 6
       setPos({ left: Math.max(8, Math.min(left, innerWidth - w - 8)), top: Math.max(8, top) })
@@ -172,7 +208,7 @@ export function Popover(props: { anchor: HTMLElement; onClose(): void; label: st
   }, [props])
   // 挂到 body 上：底栏（B 有磨砂）会给 fixed 的子元素另起坐标，弹层就跑出窗口
   return createPortal(
-    <div ref={ref} className="shell-menu" role="dialog" aria-label={props.label} style={pos ? { left: pos.left, top: pos.top } : { visibility: 'hidden' }}>
+    <div ref={ref} className={'shell-menu' + (props.className ? ' ' + props.className : '')} role="dialog" aria-label={props.label} style={pos ? { left: pos.left, top: pos.top } : { visibility: 'hidden' }}>
       {props.children}
     </div>,
     document.body,

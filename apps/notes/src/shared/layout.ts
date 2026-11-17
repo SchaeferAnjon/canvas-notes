@@ -18,15 +18,32 @@ export function kindOf(path: string): { kind: NoteKind; topic?: string } {
 
 export const titleOf = (path: string) => path.replace(/\.md$/i, '').split('/').pop()!
 
-/** 卡片上显示的前几行：去掉 frontmatter、排版注释和 md 记号 */
+/**
+ * 去掉画成别的东西、不是给人读的代码块：```base（文档里画成数据库表）和 Obsidian 插件的查询块（dataview、query、tasks、mermaid）。
+ * 摘要（左栏、卡片、⌘K 的结果）都先过它，不露 YAML；普通代码块里的字照样留着（导进来的备忘录里常有）。
+ */
+export function dropDataBlocks(md: string): string {
+  return md.replace(/^(`{3,}|~{3,})[ \t]*(base|dataview|dataviewjs|query|tasks|mermaid)\b[^\n]*\n[\s\S]*?^\1[ \t]*$\n?/gm, '')
+}
+
+/** 卡片上显示的前几行：去掉 frontmatter、排版注释、数据库块和 md 记号 */
 export function previewOf(text: string, max = 140): string {
-  const body = text
+  const body = dropDataBlocks(text)
     .replace(/^---\n[\s\S]*?\n---\n?/, '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/^—— .*$/gm, '')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    // 嵌入 ![[图]]、脚注 [^1] 和它的定义记号
+    .replace(/!\[\[[^\]]*\]\]/g, '')
+    .replace(/\[\^[^\]]+\]:?/g, '')
+    // 尖括号链接留网址；别的 HTML 标签（折叠块的 <details><summary>、<span>）只留里面的字
+    .replace(/<((?:https?|mailto):[^>\s]+)>/g, '$1')
+    .replace(/<\/?[a-zA-Z][^>]*>/g, ' ')
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^>\s?/gm, '')
+    // 提示块的类型记号 [!tip]-
+    .replace(/^\s*\[![\w-]+\][+-]?\s*/gm, '')
+    .replace(/==/g, '')
     // 勾选清单、列表、表格、代码块的记号（导进来的备忘录里很多）
     .replace(/^\s*[-*+]\s+(\[[ xX]\]\s+)?/gm, '')
     .replace(/^\s*\|?(\s*:?-{3,}:?\s*\|)+\s*:?-*:?\s*$/gm, '')

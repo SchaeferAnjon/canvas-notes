@@ -1,6 +1,6 @@
-/** 文件夹首页的图标：首页的图标方块、左栏「文件夹」、标签上都用同一个；选了颜色就是那个颜色底的小方块配白图标 */
-import { Codicon, type CodiconName } from '@cn/design'
-import type { FolderEntry, FWidget } from '../../shared/folder-home'
+/** 文件夹首页 .首页.json 里老的图标名（sigma、atom…）对到 Codicons；现在的图标和颜色在 .canvas-notes/左栏.json（files/look.tsx） */
+import type { CodiconName } from '@cn/design'
+import type { FWidget } from '../../shared/folder-home'
 
 const BY_KEY: Record<string, CodiconName> = {
   sigma: 'symbol-numeric',
@@ -39,15 +39,3 @@ const WIDGET: Record<FWidget, CodiconName> = {
   list: 'list-filter',
 }
 export const widgetIcon = (t: FWidget) => WIDGET[t]
-
-/** 左栏和标签上的小记号：16 方块圆角 4、白图标 11（有颜色时），不然就是那个线条图标 */
-export function FolderMark(props: { f: Pick<FolderEntry, 'icon' | 'color'>; size?: number }) {
-  const size = props.size ?? 16
-  if (props.f.color)
-    return (
-      <i className="fmark" style={{ background: props.f.color, width: size, height: size }}>
-        <Codicon name={folderIcon(props.f.icon)} size={Math.round(size * 0.7)} />
-      </i>
-    )
-  return <Codicon name={folderIcon(props.f.icon)} size={size} />
-}

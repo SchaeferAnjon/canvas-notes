@@ -254,8 +254,9 @@
 }
 
 /* ---------- 表格、图片 ---------- */
+/* 表格、图片：块部件不用上下外边距（CN-64），用内边距留缝 */
 .doc .cm-table {
-  margin: 4px 0;
+  padding: 4px 0;
   overflow-x: auto;
 }
 .doc .cm-table table {
@@ -278,7 +279,8 @@
   color: var(--t2);
 }
 .doc .cm-image {
-  margin: 6px 0;
+  position: relative;
+  padding: 6px 0;
 }
 .doc .cm-image img {
   display: block;
@@ -293,8 +295,744 @@
   line-height: 1.5;
   color: var(--t3);
 }
+/* 没写说明：平时什么都不显示，悬停图片时出一行灰字「加说明…」（CN-40）；占着同样的高度，出现时不推开下面 */
+.doc .cm-image-cap.add {
+  visibility: hidden;
+  cursor: text;
+}
+.doc .cm-image:hover .cm-image-cap.add {
+  visibility: visible;
+}
+.doc .cm-image-cap.editing {
+  visibility: visible;
+}
+.doc .cm-image-capin {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  font: 12px/1.5 var(--sans);
+  color: var(--t2);
+}
+.doc .cm-image-capin::placeholder {
+  color: var(--t3);
+}
+/* 悬停时右上角：这张图存在哪 + 在访达中显示 */
+.doc .cm-image-tag {
+  position: absolute;
+  top: 14px;
+  right: 8px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 16px);
+  padding: 3px 4px 3px 8px;
+  border-radius: 6px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font: 11px/1.4 var(--mono);
+  color: var(--t2);
+}
+.doc .cm-image:hover .cm-image-tag {
+  display: flex;
+}
+.doc .cm-image-tag span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc .cm-image-tag button {
+  flex: none;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill);
+  font: 12px var(--sans);
+  color: var(--t1);
+  cursor: pointer;
+}
+.doc .cm-image-tag button:hover {
+  background: var(--fill2);
+}
+/* 粘贴、拖进来还没存好的图（CN-39）：同样的大小先显示，右下角一个小转圈；上面空出一行，和存好后插进来的位置一样 */
+.doc .cm-image-pending {
+  padding-top: 1.75em;
+}
+.doc .cm-image.blank {
+  height: 120px;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.doc .cm-image-spin {
+  position: absolute;
+  right: 10px;
+  bottom: 16px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-top-color: var(--acc);
+  animation: spin 0.9s linear infinite;
+}
 .doc .cm-image.broken {
   font-size: 12px;
   color: var(--t3);
 }
 
+
+/* 选中一整块（图片、视频卡、时刻块）：块后面一层 --acc-soft 底，上下露出块的内边距（atomic-blocks.ts） */
+.doc .cm-blk-selbg {
+  background: var(--acc-soft);
+  border-radius: 6px;
+}
+
+/* ---------- 提示块（callout，CN-59）：--fill 底、圆角 8、内边距 10/14，没有左竖线；第一行图标 14 + 标题 13/500 ---------- */
+.doc.doc .cm-callout {
+  position: relative;
+  padding: 0 14px !important;
+  background: var(--fill);
+}
+.doc.doc .cm-callout-head {
+  padding-top: 10px !important;
+  padding-right: 40px !important;
+  border-radius: 8px 8px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+.doc.doc .cm-callout-bot,
+.doc.doc .cm-callout-folded {
+  padding-bottom: 10px !important;
+  border-radius: 0 0 8px 8px;
+}
+.doc.doc .cm-callout-head.cm-callout-bot,
+.doc.doc .cm-callout-head.cm-callout-folded {
+  border-radius: 8px;
+}
+.doc .cm-callout-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.doc .cm-callout-label {
+  font-weight: 500;
+}
+.doc .cm-tone-yellow .cm-callout-icon {
+  color: var(--yellow);
+}
+.doc .cm-tone-green .cm-callout-icon {
+  color: var(--green);
+}
+.doc .cm-tone-red .cm-callout-icon {
+  color: var(--red);
+}
+.doc .cm-tone-acc .cm-callout-icon {
+  color: var(--acc);
+}
+.doc .cm-tone-t2 .cm-callout-icon {
+  color: var(--t2);
+}
+.doc .cm-callout-icon .cm-callout-label {
+  color: var(--t1);
+}
+/* AI 讲解：「AI 讲解」13/500，后面「引擎 · 模型 · 看了什么」12 --t3 */
+.doc.doc .cm-callout-meta {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t3);
+}
+/* 标题行右端的收起 / 展开 */
+.doc .cm-callout-fold {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--t3);
+  cursor: pointer;
+}
+.doc .cm-callout-fold:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+
+/* ---------- 折叠块（<details>，CN-25）：一行「›  没讲通 · 第 1 版」13px --t2；展开后里面缩进 16、左边 1px --line2 ---------- */
+.doc .cm-fold-head {
+  display: flex;
+  align-items: center;
+  /* chevron 14 + 9：标题的字和里面正文的字（6 + 细线 1 + 16 = 23）对齐 */
+  gap: 9px;
+  padding: 3px 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+  cursor: pointer;
+  user-select: none;
+}
+.doc .cm-fold-head:hover {
+  color: var(--t1);
+}
+.doc .cm-fold-head.open {
+  border-radius: 8px;
+  background: var(--fill);
+}
+.doc .cm-fold-head .ci {
+  flex: none;
+  color: var(--t3);
+}
+/* 展开着的折叠块：标题行是普通的一行字（能就地改），底色和收着时的标题一样；开头一个 chevron 点了收起 */
+.doc.doc .cm-fold-headline {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+  border-radius: 8px;
+  background: var(--fill);
+}
+/* <summary> 写成好几行：标题条连成一块，后面几行的字和第一行的字对齐（chevron 14 + 右边 9） */
+.doc.doc .cm-fold-hl-top {
+  padding-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.doc.doc .cm-fold-hl-more {
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 23px;
+  border-radius: 0;
+}
+.doc.doc .cm-fold-hl-end {
+  padding-bottom: 3px;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+}
+.doc .cm-fold-chev {
+  display: inline-flex;
+  margin-right: 9px;
+  vertical-align: -2px;
+  color: var(--t3);
+  cursor: pointer;
+}
+.doc .cm-fold-chev:hover {
+  color: var(--t1);
+}
+.doc .cm-fold-ph {
+  color: var(--t3);
+}
+/*
+ * 套着的折叠块（第 4 轮）：每套一层再缩 23（外层正文的字从哪开始，里层标题的 chevron 就从哪开始：6 + 细线 1 + 16）；
+ * --fd 是这一行套在几层展开着的块里。自己那层的细线是 border-left，外面几层的细线由 ::before 往左画（每 23 一条），连成竖线
+ */
+.doc.doc .cm-fold-head.cm-fold-in {
+  position: relative;
+  margin-left: calc(6px + 23px * (var(--fd, 1) - 1));
+  padding-left: 16px;
+  border-left: 1px solid var(--line2);
+  border-radius: 0;
+  background: none;
+}
+.doc.doc .cm-fold-body {
+  position: relative;
+  margin-left: calc(6px + 23px * (var(--fd, 1) - 1));
+  padding-left: 16px !important;
+  border-left: 1px solid var(--line2);
+  color: var(--t2);
+}
+.doc.doc .cm-fold-headline[style*='--fd'] {
+  position: relative;
+  margin-left: calc(23px * var(--fd));
+}
+/* 只在套了两层以上时画（一层的正文行不占 ::before，里面的引用、列表照常用它） */
+.doc.doc .cm-fold-body[style*='--fd']::before,
+.doc.doc .cm-fold-head.cm-fold-in[style*='--fd']::before,
+.doc.doc .cm-fold-headline[style*='--fd']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(-1px - 23px * (var(--fd, 1) - 1));
+  width: calc(23px * (var(--fd, 1) - 1));
+  background: repeating-linear-gradient(to right, var(--line2) 0 1px, transparent 1px 23px);
+  pointer-events: none;
+}
+.doc.doc .cm-fold-headline[style*='--fd']::before {
+  left: calc(6px - 23px * var(--fd));
+  width: calc(23px * var(--fd) - 6px);
+}
+.doc.doc .cm-fold-gap {
+  height: 6px;
+  font-size: 0;
+  line-height: 6px;
+}
+
+/* ---------- 引文下面「我的评价」那一段（CN-38 B）：从引文竖线拐下来一道弯钩，评价前一个小标签；没写评价什么都不画 ---------- */
+.doc.doc .cm-review-gap {
+  position: relative;
+}
+.doc.doc .cm-review-gap::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -2px;
+  bottom: 0;
+  width: 2px;
+  background: var(--clip-bar);
+}
+.doc.doc .cm-review {
+  position: relative;
+  padding-left: 16px !important;
+}
+.doc.doc .cm-review::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 10px;
+  height: 0.9em;
+  border-left: 2px solid var(--clip-bar);
+  border-bottom: 2px solid var(--clip-bar);
+  border-bottom-left-radius: 8px;
+}
+.doc.doc .cm-review-tag {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--fill);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+  /* 并进来的「：」用半宽字形，标签右边不多出半个字的空白 */
+  font-feature-settings: 'halt';
+}
+
+/* ---------- 数据库（```base，CN-19 A）：头一行名字 + 视图 + 筛选排序 + 整页打开 / 新一条；表格 13px，行间 1px --line2 ---------- */
+.cm-base {
+  padding: 6px 0 10px;
+}
+.base {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--t1);
+}
+.base-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+}
+.base-top > .ci {
+  color: var(--t2);
+}
+.base-top b {
+  font-weight: 500;
+}
+.base-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  margin-left: 8px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--fill2);
+  font-size: 12px;
+}
+.base-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.base-top .sp {
+  flex: 1;
+}
+.base-btn {
+  width: 26px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.base-btn:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.base-btn.wt {
+  width: auto;
+  display: inline-flex;
+  gap: 4px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.base-btn.on {
+  background: var(--acc-soft);
+  color: var(--acc-t);
+}
+.base-btn:disabled {
+  opacity: 0.5;
+}
+/* 工具条上的筛选小标签：「状态 是 在读 ×」，点 × 去掉这一条 */
+.base-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-radius: 6px;
+  background: var(--acc-soft);
+  font-size: 12px;
+  color: var(--acc-t);
+  white-space: nowrap;
+}
+.base-tag button {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  opacity: 0.7;
+}
+.base-tag button:hover {
+  opacity: 1;
+  background: var(--fill2);
+}
+/* 浮层：列头菜单、隐藏的列、筛选面板（--pop、圆角 12、--shadow-up，同块菜单） */
+.base {
+  position: relative;
+}
+.base-filter-wrap {
+  position: relative;
+}
+.base-pop {
+  position: fixed;
+  z-index: 1000;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  color: var(--t1);
+  text-align: left;
+  font-weight: 400;
+}
+.base-colmenu {
+  width: 200px;
+}
+.base-colmenu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+  text-align: left;
+}
+.base-colmenu button span {
+  flex: 1;
+}
+.base-colmenu button .ci {
+  color: var(--t2);
+}
+.base-colmenu button:hover {
+  background: var(--fill2);
+}
+.base-colmenu .sep {
+  margin: 4px 8px;
+  border-top: 1px solid var(--line);
+}
+.base-colmenu .hd {
+  padding: 6px 8px 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-filter {
+  width: 470px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 12px;
+}
+.base-filter-hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  font-size: 13px;
+  color: var(--t2);
+}
+.base-filter-hd .ci {
+  color: var(--t3);
+}
+.base-filter select,
+.base-filter input {
+  height: 30px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.base-filter select:focus,
+.base-filter input:focus {
+  border-color: var(--acc);
+}
+.base-filter-row {
+  display: grid;
+  grid-template-columns: 34px 1.1fr 0.9fr 1.3fr 24px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.base-filter-row .lead {
+  font-size: 12px;
+  color: var(--t3);
+  text-align: right;
+}
+.base-x {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t3);
+}
+.base-x:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.base-filter-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  margin: 8px 0 4px 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t2);
+}
+.base-filter-add:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.base-filter-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--solid);
+  color: var(--solid-t);
+  font-size: 12px;
+}
+.base-scroll {
+  overflow-x: auto;
+}
+.base table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.base th,
+.base td {
+  padding: 6px 10px;
+  border-top: 1px solid var(--line2);
+  text-align: left;
+  white-space: nowrap;
+}
+.base th {
+  position: relative;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+  user-select: none;
+}
+/* 列头是一颗按钮：点了出这一列的菜单（升序、降序、按这一列筛选、隐藏） */
+.base-th {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 500 12px/1 var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.base-th:hover,
+.base th.on .base-th {
+  background: var(--fill);
+  color: var(--t1);
+}
+.base-th .ci {
+  color: var(--t3);
+}
+.base th.base-th-hidden,
+.base td.base-td-hidden {
+  width: 1%;
+  text-align: right;
+}
+.base-th-hidden .base-th {
+  color: var(--t3);
+}
+.base td {
+  cursor: text;
+}
+.base td.nm {
+  /* 改名的输入框和存好后的名字一样宽，列宽不跳 */
+  min-width: 120px;
+}
+/* 新一条直接起名：输入框里的字和别的行名字对齐（框的内边距 6 + 描边 1）、一样粗 */
+.base td.nm .base-in {
+  display: block;
+  width: calc(100% + 7px);
+  /* 框高 22，上下各收 1：起名时和存好后这一行一样高 */
+  margin: -1px 0 -1px -7px;
+  font-weight: 500;
+}
+.base td.nm button {
+  display: block;
+  max-width: 100%;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 500 13px/20px var(--sans);
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.base td.nm button:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 3px;
+}
+/* 点「新一条」后列宽定住（BaseTable 的 lock）：按那一刻量下的宽排，长名字省略号，不把别的列挤动 */
+.base table.fixed {
+  table-layout: fixed;
+}
+.base table.fixed td,
+.base table.fixed th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 开着筛选新建的那条：先留在表底，名字格右端叠一个淡底小标签，不占列宽（第 3 轮美学：跟在名字后面会把名字列撑宽）；名字和起名框的字给它让出位置 */
+.base td.nm.out {
+  position: relative;
+}
+.base td.nm.out button {
+  max-width: calc(100% - 132px);
+}
+.base td.nm.out .base-in {
+  padding-right: 132px;
+}
+.base-out {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--fill);
+  font-size: 11px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.base td.num {
+  font-variant-numeric: tabular-nums;
+  color: var(--t2);
+}
+.base-sel {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 12px;
+  background: var(--fill2);
+  color: var(--t2);
+}
+.base-sel.green {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: color-mix(in srgb, var(--green) 70%, var(--t1));
+}
+.base-sel.yellow {
+  background: color-mix(in srgb, var(--yellow) 16%, transparent);
+  color: color-mix(in srgb, var(--yellow) 65%, var(--t1));
+}
+.base-in {
+  width: 100%;
+  min-width: 80px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line2);
+  border-radius: 5px;
+  background: var(--card);
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.base-check {
+  accent-color: var(--acc-bg);
+}
+.base-foot {
+  padding: 6px 10px;
+  border-top: 1px solid var(--line2);
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 整页打开：盖住这个标签的内容区，正文宽度跟中间栏走；esc 收回 */
+.base-full {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  overflow: auto;
+  padding: 28px 40px 80px;
+  background: var(--win);
+}

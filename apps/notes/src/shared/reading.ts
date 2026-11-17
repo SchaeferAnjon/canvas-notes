@@ -1,5 +1,6 @@
 /** 读 PDF 边读边问：界面和主进程之间来回传的东西 */
 import type { AskSection, DoubtItem, PdfBlock, Rect } from '@cn/format'
+import { type FigureBox, parseFigureMark, stripFigureMark } from '@cn/format'
 import type { CommitInfo } from './api'
 import type { EngineId } from './agent'
 
@@ -25,7 +26,7 @@ export interface ReadingThread {
    * 在网页上框着问的（右栏网页）或库里的 HTML：网址（HTML 是库里的路径）、标题、框里的字。
    * 有它时笔记那段的来源写域名、点了回网页
    */
-  web?: { url: string; title: string; text?: string }
+  web?: { url: string; title: string; text?: string; /** 视频问答块「接着问」：那一问在视频第几秒 */ t?: number; /** 「接着问」：那一问 AI 当时的回答 */ answer?: string }
   createdAt: number
 }
 
@@ -37,11 +38,17 @@ export interface ReadingMsg {
   time: number
   /** 用户消息带的截图（库里的路径） */
   image?: string
+  /** 用户在输入框里粘贴的图（软件设置目录 pasted/ 里的名字） */
+  pasted?: string[]
+  /** AI 在回答里给的配图框（整页上的比例，CN-60） */
+  fig?: FigureBox
   page?: number
   /** AI 回答上面那一行「读了第 5 页」 */
   read?: string
   error?: string
   engine?: EngineId
+  /** 哪家哪个模型答的（「Claude Code · Opus 5.5」，CN-54） */
+  by?: string
   /** 这一轮记进笔记了没有 */
   note?: 'writing' | 'done' | 'error'
   /** 记到了别处（网页上问的：「《文档名》」「收件箱」） */
@@ -74,9 +81,13 @@ export interface AskRequest {
   text: string
   /** 这一轮带的图（库里的路径），框的那块 */
   images: string[]
+  /** 输入框里粘贴的图（软件设置目录 pasted/ 里的名字） */
+  pasted?: string[]
   /** 这一页的文字（pdf-blocks 拼好的） */
   pageText: string
   pages: number
+  /** 版面刚换成 PDF 精读增强（MinerU）认的：这个会话里提过的旧块编号 → 新编号（只在换完后的第一问带） */
+  renamed?: Record<string, string>
 }
 
 export interface AskResult {
@@ -203,23 +214,33 @@ export interface BilingualSaveRequest {
   langs?: string
   pages: {
     page?: number
-    blocks: ({ kind: 'heading' | 'text'; text: string; tr: string | null } | { kind: 'formula' | 'figure'; png: Uint8Array } | { kind: 'formula' | 'figure'; url: string })[]
+    blocks: (
+      | { kind: 'heading' | 'text'; text: string; tr: string | null }
+      | { kind: 'formula' | 'figure'; png: Uint8Array }
+      | { kind: 'formula' | 'figure'; url: string }
+      /** PDF 精读增强认出的公式（LaTeX）、表格（Markdown 表） */
+      | { kind: 'math'; tex: string }
+      | { kind: 'table'; md: string }
+    )[]
   }[]
 }
 
 /** 回答上面那一行：读了哪页；回答里提到的别的页正好是笔记里弄懂过的，就说用到了 */
 export function readLine(page: number, answer: string, sections: AskSection[]): string {
   const used = [...new Set([...answer.matchAll(/\]\(#page=(\d+)\)/g)].map((m) => Number(m[1])))].filter((n) => n !== page && sections.some((s) => s.page === n))
-  return `读了第 ${page} 页${used.length ? ` · 用到第 ${used.join('、')} 页你弄懂的那条` : ''}`
+  return `读了第${page}页${used.length ? ` · 用到第${used.join('、')}页你弄懂的那条` : ''}`
 }
 
 /** AI 回答最后这一行：这一处适合做个可视化（界面上不显示这行，换成「做个可视化」按钮） */
 export const VIZ_MARK = '〔可以做个可视化〕'
 
 /** 回答里去掉可视化标记（边生成边显示时半截的也去掉） */
-export function withoutVizMark(text: string): { text: string; viz: boolean } {
+export function withoutVizMark(text: string): { text: string; viz: boolean; figure: FigureBox | null } {
   const viz = text.includes(VIZ_MARK)
-  return { text: text.replace(/\n*〔可以做个可视化〕\s*$/, '').replace(VIZ_MARK, '').replace(/\n*〔[^〕\n]{0,8}$/, ''), viz }
+  // 配图的框那一行（CN-60）也不显示
+  const figure = parseFigureMark(text)
+  const t = stripFigureMark(text)
+  return { text: t.replace(/\n*〔可以做个可视化〕\s*$/, '').replace(VIZ_MARK, '').replace(/\n*〔[^〕\n]{0,8}$/, '').trimEnd(), viz, figure }
 }
 
 /** 问到第几页：问过的最大页码 */

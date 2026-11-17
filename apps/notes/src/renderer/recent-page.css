@@ -1,0 +1,152 @@
+/* 中间的「最近」整页（小样 3）：版心 800，顶上新建框，筛选 + 类型，按时间分组、每篇两行 */
+.recentp .body {
+  overflow-y: auto;
+}
+.rp-in {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 22px 32px 40px;
+}
+.rp-new {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 14px;
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--t3);
+}
+.rp-new input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: 13px;
+  color: var(--t1);
+}
+.rp-new input::placeholder {
+  color: var(--t3);
+}
+.rp-new .go {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--fill2);
+  color: var(--t2);
+}
+.rp-new .go:disabled {
+  opacity: 0.6;
+}
+.rp-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px 0 4px;
+}
+.rp-find {
+  width: 220px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.rp-find input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: 12px;
+  color: var(--t1);
+}
+.rp-g {
+  margin: 16px 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+}
+.rp-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  column-gap: 12px;
+  align-items: start;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+.rp-row:hover {
+  background: var(--fill);
+}
+.rp-row.on {
+  background: var(--fill2);
+}
+.rp-row .ic {
+  padding-top: 2px;
+  display: grid;
+  place-items: center;
+  color: var(--t2);
+}
+.rp-row .ti {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-row .rt {
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  text-align: right;
+}
+.rp-row .pv {
+  grid-column: 2 / 4;
+  font-size: 12px;
+  color: var(--t2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rp-fold {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 13px;
+  color: var(--t2);
+  text-align: left;
+}
+.rp-fold:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.rp-fold .c {
+  font-size: 12px;
+  color: var(--t3);
+}
+.rp-more .c {
+  margin-left: auto;
+}
+.rp-none {
+  padding: 16px 10px;
+  font-size: 13px;
+  color: var(--t3);
+}

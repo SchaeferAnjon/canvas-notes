@@ -37,6 +37,14 @@ function page(id: string): string {
     window.ytInitialPlayerResponse = pr
     window.ytInitialData = { playerOverlays: { playerOverlayRenderer: { decoratedPlayerBarRenderer: { decoratedPlayerBarRenderer: { playerBar: { multiMarkersPlayerBarRenderer: { markersMap: [{ key: 'DESCRIPTION_CHAPTERS', value: { chapters: [{ chapterRenderer: { title: { simpleText: 'Intro' }, timeRangeStartMillis: 0 } }, { chapterRenderer: { title: { simpleText: 'Matrices' }, timeRangeStartMillis: 12000 } }] } }] } } } } } } }
     const mp = document.getElementById('movie_player')
+    // 和真 YouTube 一样：焦点在网页上（不在输入框里）时空格是播放 / 暂停
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== ' ' || /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return
+      e.preventDefault()
+      const v = document.getElementById('v')
+      if (v.paused) v.play()
+      else v.pause()
+    })
     window.captionRequests = []
     mp.getPlayerResponse = () => pr
     mp.loadModule = () => {}

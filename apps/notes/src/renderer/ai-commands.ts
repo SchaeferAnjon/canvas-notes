@@ -2,6 +2,7 @@ import { appendBlock, attr, newBlock, newId, num, parseBoard, serializeBoard } f
 import type { DreamReport, NoteFile } from '../shared/api'
 import { CLIPS, previewOf, titleOf } from '../shared/layout'
 import { BRAND } from '../shared/brand'
+import { DOC_BOARD_RULES } from '@cn/format'
 
 /** AI 能做的 / 命令 */
 export interface Command {
@@ -34,16 +35,18 @@ export const PENDING_COMMANDS: Record<string, string> = {
 export function dreamSummary(report: DreamReport, labels: Record<string, string>): { text: string; items: number; groups: number } {
   const counts = new Map<string, number>()
   for (const it of report.items) counts.set(it.group, (counts.get(it.group) ?? 0) + 1)
-  const parts = [...counts].map(([g, n]) => `${labels[g] ?? g} ${n}`)
+  const parts = [...counts].map(([g, n]) => `${labels[g] ?? g}${n}`)
   const head = report.items.length
-    ? `梦游跑完了：整理了 ${report.items.length} 条，分 ${counts.size} 组（${parts.join(' · ')}）。改动在 ${report.branch} 分支上，收下才算数。`
+    ? `梦游跑完了：整理了${report.items.length}条，分${counts.size}组（${parts.join(' · ')}）。改动在${report.branch}分支上，收下才算数。`
     : '梦游跑完了，没什么要整理的。'
   const notes = report.notes.length ? `\n${report.notes.join('\n')}` : ''
   return { text: head + notes, items: report.items.length, groups: counts.size }
 }
 
 /** /整理当前白板 交给引擎时说的话（引擎用 board_* 工具动手） */
-export const TIDY_BOARD = `整理当前白板：先用 board_list 看这块白板上所有卡片和列；按内容分成几组（3 到 6 组），每组用 board_add_column 建一列（已有合适的列就用它），列名写这组讲什么；用 board_put_in_column 把卡片放进去；最后 board_arrange 按列排整齐。不删卡片，不改卡片内容。做完用一两句话说分了哪几组。`
+export const TIDY_BOARD = `整理当前白板：先用 board_list 看这块白板上所有卡片和列；按内容分成几组（3 到 6 组），每组用 board_add_column 建一列（已有合适的列就用它），列名写这组讲什么；用 board_put_in_column 把卡片放进去；最后 board_arrange 按列排整齐。不删卡片，不改卡片内容。做完用一两句话说分了哪几组。
+
+${DOC_BOARD_RULES}`
 
 export const SYSTEM = `你是 ${BRAND.name} 笔记软件里的助手，帮一个人整理和写作自己的笔记。
 用中文回答，平实、直接，不客套，不重复问题。笔记内容在用户消息里，只根据这些内容回答，不编造没有的事。`
@@ -82,9 +85,9 @@ export function askPrompt(question: string, context: { path: string; text: strin
 /** 从回答里取 JSON 代码块 */
 export function parseMoves(reply: string, inbox: NoteFile[]): { path: string; topic: string }[] {
   const m = /```(?:json)?\s*([\s\S]*?)```/.exec(reply) ?? /(\[[\s\S]*\])/.exec(reply)
-  if (!m) throw new Error('AI 没给出能用的整理方案')
+  if (!m) throw new Error('AI没给出能用的整理方案')
   const raw = JSON.parse(m[1]!) as unknown
-  if (!Array.isArray(raw)) throw new Error('AI 没给出能用的整理方案')
+  if (!Array.isArray(raw)) throw new Error('AI没给出能用的整理方案')
   const paths = new Set(inbox.map((n) => n.path))
   return raw
     .filter((x): x is { path: string; topic: string } => typeof x?.path === 'string' && typeof x?.topic === 'string')
@@ -106,4 +109,32 @@ export function withSummaryCard(boardText: string, summary: string): { text: str
 
 export function draftText(boardPath: string, article: string): string {
   return `---\ndraft: true\nfrom: "[[${titleOf(boardPath)}]]"\n---\n${article.replace(/<!--[\s\S]*?-->\n?/g, '').trim()}\n`
+}
+
+/** 右键「问 AI」、⌘J 放进输入框的引文：每行前面加 >，空一行等人接着打 */
+export function quoteOf(text: string): string {
+  const lines = text.trim().split('\n').map((l) => ('> ' + l).trimEnd())
+  return lines.join('\n') + '\n\n'
+}
+
+/**
+ * 输入框里拿掉 quote 这段引文，人自己打的字留着：「>」开头的行（引文里删过、改过几个字也算）拿掉；
+ * 在引文某一行前面打了字（「先问：> 第一段」）留下前面那几个字；开头、末尾多出的空行去掉。
+ */
+export function dropQuote(input: string, quote: string): string {
+  const qs = quote.split('\n').filter((l) => l.startsWith('>'))
+  const out: string[] = []
+  input.split('\n').forEach((line, i) => {
+    if (line.startsWith('>')) return
+    // 引文在最上面：第一行「先问：> 一段甲。」（引文那行改过也算）留下「先问：」
+    const at = i === 0 ? line.indexOf('> ') : -1
+    const hit = qs.find((q) => line.endsWith(q))
+    if (hit || at > 0) {
+      const pre = hit ? line.slice(0, line.length - hit.length) : line.slice(0, at)
+      if (pre.trim()) out.push(pre.trimEnd())
+      return
+    }
+    out.push(line)
+  })
+  return out.join('\n').replace(/^\n+|\n+$/g, '')
 }

@@ -8,9 +8,13 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DreamReport } from '../shared/api'
 import { ask } from './ai'
+import { featureLabel } from './agent'
 import * as git from '@cn/git'
 import { setDreamHtml } from './attachments'
-import { type DreamReportInternal, closeIfDone, dropItem, dropMany, itemDiff, redo, runDream, takeAll, takeItem, takeMany, undo } from './dream'
+import { diffOf } from './diff'
+import type { DiffSource } from '../shared/diff'
+import { similarOffThread } from './similar'
+import { type DreamReportInternal, clearStrayDreams, closeIfDone, dropItem, dropMany, movesOf, redo, runDream, takeAll, takeItem, takeMany, undo } from './dream'
 
 const IDLE_SEC = Number(process.env.CN_DREAM_IDLE_SEC ?? 15 * 60)
 const GAP_MS = Number(process.env.CN_DREAM_GAP_MS ?? 20 * 3600_000)
@@ -43,7 +47,14 @@ function view(r: DreamReportInternal | null): DreamReport | null {
   return rest
 }
 
-export function setupDream(o: { root(): string | null; send(channel: string, ...args: unknown[]): void }) {
+export function setupDream(o: {
+  root(): string | null
+  send(channel: string, ...args: unknown[]): void
+  /** 收下、撤回在这里面做：和写笔记排同一个队（没给就直接做） */
+  exclusive?<T>(f: () => Promise<T>): Promise<T>
+  /** 软件自己挪了这几篇：开着的编辑器跟到新路径、重载内容 */
+  followMoves?(moves: { from: string; to: string }[]): Promise<void>
+}) {
   // 报告里还没收下的可视化：从梦游分支上读出来预览（只给报告里列着的文件）
   setDreamHtml(async (rel) => {
     const root = o.root()
@@ -80,7 +91,9 @@ export function setupDream(o: { root(): string | null; send(channel: string, ...
         await closeIfDone(root, old)
         await save(root, old)
       }
-      const r = await runDream({ root, scratch: join(dir(), 'checkouts'), ask: (s, p) => ask(s, p, AbortSignal.timeout(10 * 60_000)), trigger })
+      // 上次被 ⌘Q 打断留下的半截分支：清掉（开着的报告的分支留着）
+      await clearStrayDreams(root, old && !old.closed ? old.branch : null)
+      const r = await runDream({ root, scratch: join(dir(), 'checkouts'), ask: (s, p) => ask(s, p, AbortSignal.timeout(10 * 60_000), undefined, 'dream'), by: featureLabel('dream'), trigger, similar: similarOffThread })
       await save(root, r)
       return view(r)!
     }).finally(() => {
@@ -92,13 +105,23 @@ export function setupDream(o: { root(): string | null; send(channel: string, ...
     return running
   }
 
-  async function act(f: (root: string, r: DreamReportInternal) => Promise<unknown>): Promise<DreamReport> {
+  /** moves：这件事会挪库里的文件（收下、撤回）：和写笔记排同一个队，挪了的开着的那篇跟过去。重做要等 AI 几分钟，不排进去 */
+  async function act(f: (root: string, r: DreamReportInternal) => Promise<unknown>, moves = false): Promise<DreamReport> {
     const root = needRoot()
     return serial(async () => {
       const r = await load(root)
       if (!r) throw new Error('还没有梦游报告')
+      const before = new Map(r.items.map((i) => [i.id, i.state] as const))
+      const run = async () => {
+        try {
+          await f(root, r)
+        } finally {
+          // 失败了也看一眼：做了一半（先收下了几条再出错）挪了的照样跟过去
+          if (moves) await o.followMoves?.(movesOf(before, r.items))
+        }
+      }
       try {
-        await f(root, r)
+        await (moves && o.exclusive ? o.exclusive(run) : run())
       } finally {
         await save(root, r)
         o.send('files:changed')
@@ -119,23 +142,23 @@ export function setupDream(o: { root(): string | null; send(channel: string, ...
   })
   ipcMain.handle('dream:running', () => running !== null)
   ipcMain.handle('dream:now', () => dream('manual'))
-  ipcMain.handle('dream:take', (_e, id: unknown) => act((root, r) => takeItem(root, r, str(id))))
+  ipcMain.handle('dream:take', (_e, id: unknown) => act((root, r) => takeItem(root, r, str(id)), true))
   ipcMain.handle('dream:drop', (_e, id: unknown) => act((root, r) => dropItem(root, r, str(id))))
-  ipcMain.handle('dream:takeAll', () => act((root, r) => takeAll(root, r)))
+  ipcMain.handle('dream:takeAll', () => act((root, r) => takeAll(root, r), true))
   const ids = (x: unknown) => {
     if (!Array.isArray(x) || !x.every((i) => typeof i === 'string')) throw new Error('参数不对')
     return x as string[]
   }
   ipcMain.handle('dream:takeMany', async (_e, x: unknown) => {
     let commit: string | null = null
-    const report = await act(async (root, r) => (commit = await takeMany(root, r, ids(x))))
+    const report = await act(async (root, r) => (commit = await takeMany(root, r, ids(x))), true)
     return { report, commit }
   })
   ipcMain.handle('dream:dropMany', (_e, x: unknown) => act((root, r) => dropMany(root, r, ids(x))))
   ipcMain.handle('dream:undo', async (_e, u: { ids?: unknown; taken?: unknown }) => {
     let commit: string | null = null
     const taken = typeof u?.taken === 'string' && /^[0-9a-f]{7,40}$/.test(u.taken) ? u.taken : undefined
-    const report = await act(async (root, r) => (commit = await undo(root, r, ids(u?.ids), taken)))
+    const report = await act(async (root, r) => (commit = await undo(root, r, ids(u?.ids), taken)), true)
     return { report, commit }
   })
   let redoing: AbortController | null = null
@@ -147,7 +170,7 @@ export function setupDream(o: { root(): string | null; send(channel: string, ...
     try {
       let changed = 0
       const report = await act(async (root, r) => {
-        changed = await redo(root, r, ids(x), feedback, (s, p) => ask(s, p, AbortSignal.any([ac.signal, AbortSignal.timeout(10 * 60_000)])), join(dir(), 'checkouts'))
+        changed = await redo(root, r, ids(x), feedback, (s, p) => ask(s, p, AbortSignal.any([ac.signal, AbortSignal.timeout(10 * 60_000)]), undefined, 'dream'), join(dir(), 'checkouts'))
       })
       return { report, changed }
     } finally {
@@ -155,11 +178,10 @@ export function setupDream(o: { root(): string | null; send(channel: string, ...
     }
   })
   ipcMain.handle('dream:redoStop', () => redoing?.abort())
-  ipcMain.handle('dream:diff', async (_e, id: unknown) => {
+  // 对比标签：历史的一次提交、梦游的一条、可能重复的两篇（梦游的要报告，所以接在这里）
+  ipcMain.handle('diff:files', async (_e, src: unknown) => {
     const root = needRoot()
-    const r = await load(root)
-    if (!r) throw new Error('还没有梦游报告')
-    return itemDiff(root, r, str(id))
+    return diffOf(root, checkSource(src), await load(root))
   })
 
   // 闲时：没人动超过 15 分钟、距上次梦游超过 20 小时、上一份报告看完了
@@ -181,3 +203,17 @@ export function setupDream(o: { root(): string | null; send(channel: string, ...
     stop: () => clearInterval(timer),
   }
 }
+
+/** 界面给的对比来源：只认这几种，字段都是字符串 */
+function checkSource(src: unknown): DiffSource {
+  const s = src as Record<string, unknown> | null
+  const str = (k: string) => (typeof s?.[k] === 'string' ? (s[k] as string) : null)
+  const kind = str('kind')
+  if (kind === 'commit' && str('hash')) return { kind, hash: str('hash')! }
+  if (kind === 'version' && str('hash') && str('path')) return { kind, hash: str('hash')!, path: str('path')! }
+  if (kind === 'dream' && str('id')) return { kind, id: str('id')! }
+  if (kind === 'pair' && str('a') && str('b')) return { kind, a: str('a')!, b: str('b')! }
+  if (kind === 'working') return { kind, ...(str('focus') ? { focus: str('focus')! } : {}) }
+  throw new Error('对比的东西不对')
+}
+

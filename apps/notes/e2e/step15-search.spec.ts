@@ -31,8 +31,8 @@ test('⌘F 三层：PDF 里的字跳到那页闪一下；按意思找到写「�
     // ---- 文字：PDF 里的字，带页码，命中的词标出来；点了 PDF 翻到第 3 页，那一段闪一下 ----
     await page.keyboard.press('Meta+f')
     await box(page).fill('rotated e1')
-    await expect(group(page, '文字')).toContainText('笔记和 PDF 里的字')
-    const hit = pal(page).getByRole('option').filter({ hasText: '第3讲 线性映射.pdf' }).filter({ hasText: '第 3 页' })
+    await expect(group(page, '文字')).toContainText('笔记和PDF里的字')
+    const hit = pal(page).getByRole('option').filter({ hasText: '第3讲 线性映射.pdf' }).filter({ hasText: '第3页' })
     await expect(hit).toHaveCount(1)
     await expect(hit.locator('mark.sr-hit').first()).toHaveText(/rotated/i)
     await hit.click()
@@ -50,7 +50,7 @@ test('⌘F 三层：PDF 里的字跳到那页闪一下；按意思找到写「�
     // 不沾边的（爬山）不硬凑
     await expect(pal(page).getByRole('option').filter({ hasText: '周末' })).toHaveCount(0)
     // 最后一行永远是让 Claude 帮我找
-    await expect(pal(page).getByRole('option').last()).toHaveText(/让 Claude 帮我找「矩阵怎么变换」.*几秒到十几秒/)
+    await expect(pal(page).getByRole('option').last()).toHaveText(/让Claude帮我找「矩阵怎么变换」.*几秒到十几秒/)
     await near.click()
     await expect(tabOn(page)).toHaveText('第3讲 线性映射 笔记')
 
@@ -59,17 +59,17 @@ test('⌘F 三层：PDF 里的字跳到那页闪一下；按意思找到写「�
     await box(page).fill('开销')
     const textRows = pal(page).getByRole('option').filter({ hasText: '今天又记了一笔开销' })
     await expect(textRows).toHaveCount(5)
-    await pal(page).getByRole('option', { name: '还有 3 条' }).click()
+    await pal(page).getByRole('option', { name: '还有3条' }).click()
     await expect(textRows).toHaveCount(8)
     await expect(pal(page)).toBeVisible()
 
     // ---- 搜不到：让 Claude 帮我找（假引擎翻文件），过程一步步显示，找到的点了打开 ----
     await box(page).fill('极光在哪个网站看')
-    await expect(pal(page).locator('.pal-none')).toHaveText('笔记和 PDF 里都没有「极光在哪个网站看」这几个字')
-    const ask = pal(page).getByRole('option').filter({ hasText: '让 Claude 帮我找「极光在哪个网站看」' })
+    await expect(pal(page).locator('.pal-none')).toHaveText('笔记和PDF里都没有「极光在哪个网站看」这几个字')
+    const ask = pal(page).getByRole('option').filter({ hasText: '让Claude帮我找「极光在哪个网站看」' })
     await ask.click()
-    await expect(pal(page).getByRole('option').filter({ hasText: 'Claude 在翻文件…' })).toContainText('已看 0 个 · 搜「极光在哪个网站看」')
-    await expect(group(page, 'Claude 找到的')).toBeVisible({ timeout: 10_000 })
+    await expect(pal(page).getByRole('option').filter({ hasText: 'Claude在翻文件…' })).toContainText('已看0个 · 搜「极光在哪个网站看」')
+    await expect(group(page, 'Claude找到的')).toBeVisible({ timeout: 10_000 })
     // Claude 找到的每条两行：名字，下面一句为什么（意思相近那一层也可能已经列了冰岛）
     const found = pal(page).locator('.pal-row.two', { hasText: '冰岛' })
     await expect(found).toContainText('极光')
@@ -92,7 +92,7 @@ test('新加的 PDF 不用重开就搜得到它里面的字（搜索进程自己
     await expect.poll(async () => (await page.evaluate(() => window.cnSearch.pdfText('kernel'))).length, { timeout: 20_000 }).toBe(1)
     await page.keyboard.press('Meta+f')
     await box(page).fill('kernel')
-    await expect(pal(page).getByRole('option').filter({ hasText: '新课件.pdf' }).filter({ hasText: '第 4 页' })).toHaveCount(1)
+    await expect(pal(page).getByRole('option').filter({ hasText: '新课件.pdf' }).filter({ hasText: '第4页' })).toHaveCount(1)
   } finally {
     await run.close()
   }

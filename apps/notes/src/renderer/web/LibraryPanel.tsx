@@ -1,3 +1,4 @@
+import { when } from '../../shared/when'
 import { Codicon } from '@cn/design'
 import { linkRowMenu } from '../ctx/link-row-menu'
 import { useEffect, useMemo, useState } from 'react'
@@ -44,11 +45,11 @@ export function LibraryPanel(props: {
       if (tab === 'bookmarks') {
         const r = await window.cnWeb.importBookmarks(id)
         props.onBookmarks(await window.cnWeb.bookmarks())
-        props.onNotice(r.total ? `从 Chrome 导入了 ${r.added} 个书签${r.total > r.added ? `，${r.total - r.added} 个已经有了` : ''}` : '这个 Chrome 用户没有书签')
+        props.onNotice(r.total ? `从Chrome导入了${r.added}个书签${r.total > r.added ? `，${r.total - r.added}个已经有了` : ''}` : '这个Chrome用户没有书签')
       } else {
         const r = await window.cnWeb.importHistory(id)
         setHistory(await window.cnWeb.history(q, 200))
-        props.onNotice(`从 Chrome 导入了 ${r.added} 条历史`)
+        props.onNotice(`从Chrome导入了${r.added}条历史`)
       }
     } catch (e) {
       props.onNotice(errText(e))
@@ -72,12 +73,12 @@ export function LibraryPanel(props: {
         <div className="imp">
           <button className="btn btn-sm" disabled={busy} onClick={() => setPicking((v) => !v)}>
             <Codicon name="desktop-download" size={12} />
-            从 Chrome 导入
+            从Chrome导入
           </button>
           {picking && (
             <ProfileMenu
               label="选 Chrome 用户"
-              title={tab === 'bookmarks' ? '导入哪个 Chrome 用户的书签？' : '导入哪个 Chrome 用户的历史？'}
+              title={tab === 'bookmarks' ? '导入哪个Chrome用户的书签？' : '导入哪个Chrome用户的历史？'}
               onPick={(id) => void importFrom(id)}
               onNotice={props.onNotice}
               onClose={() => setPicking(false)}
@@ -105,7 +106,7 @@ export function LibraryPanel(props: {
             </div>
           )}
           <div className="wlist" role="list" aria-label="书签">
-            {shown.length === 0 && <p className="hint">{props.bookmarks.length ? '没有搜到。' : '还没有书签。点地址栏里的星星加一个，或者从 Chrome 导入。'}</p>}
+            {shown.length === 0 && <p className="hint">{props.bookmarks.length ? '没有搜到。' : '还没有书签。点地址栏里的星星加一个，或者从Chrome导入。'}</p>}
             {shown.map((b) => (
               <div key={b.id} className="wrow" role="listitem" onContextMenu={(e) => linkRowMenu(e, b.url, b.title, () => (props.onOpen(b.url, false), props.onClose()), () => props.onOpen(b.url, true), async () => props.onBookmarks(await window.cnWeb.removeBookmark(b.id)))}>
                 <button className="wmain" title={b.url} onClick={(e) => (props.onOpen(b.url, e.metaKey), props.onClose())}>
@@ -139,20 +140,11 @@ export function LibraryPanel(props: {
                 <b className="truncate">{h.title || decodeUrl(h.url)}</b>
                 <span className="truncate">{decodeUrl(h.url)}</span>
               </button>
-              <span className="when num">{when(h.lastVisit)}</span>
+              <span className="when num">{h.lastVisit ? when(h.lastVisit) : ''}</span>
             </div>
           ))}
         </div>
       )}
     </div>
   )
-}
-
-function when(ms: number): string {
-  if (!ms) return ''
-  const d = new Date(ms)
-  const now = new Date()
-  const p = (x: number) => String(x).padStart(2, '0')
-  if (d.toDateString() === now.toDateString()) return `${p(d.getHours())}:${p(d.getMinutes())}`
-  return d.getFullYear() === now.getFullYear() ? `${d.getMonth() + 1}-${d.getDate()}` : `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`
 }

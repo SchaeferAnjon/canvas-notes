@@ -38,6 +38,25 @@ describe('自带的十套主题', () => {
     expect(v['color-scheme'] ?? css.match(new RegExp(`\\[data-skin='${id}'\\] \\{\\s*color-scheme: (\\w+)`))?.[1]).toBe(s.tone)
   })
 
+  // 「更弱」的字（时间、篇数、说明、占位）也要看得清（第 2 轮美学：天青 2.65、深湖 2.87 读着费劲）：
+  // 对每一块实底，和选中行、悬停行（--fill2 / --fill 叠在 --win、--side、--pop、--card 上）都 ≥ 3:1；还得比 --t2 淡
+  it.each(SKINS.map((s) => [s.id] as const))('%s：--t3 对各块底色、选中和悬停的行 ≥ 3:1，仍比 --t2 淡', (id) => {
+    const v = blocks.get(id)!
+    const rgba = (c: string): [number, number, number, number] => {
+      const m = /^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/.exec(c)
+      return m ? [+m[1]!, +m[2]!, +m[3]!, +m[4]!] : hex(c)
+    }
+    const over = (top: string, bottom: string) => {
+      const [t, b] = [rgba(top), hex(bottom)]
+      return [0, 1, 2].map((i) => t[i]! * t[3] + b[i]! * (1 - t[3])).concat(1) as [number, number, number, number]
+    }
+    const t3 = hex(v.t3)
+    const grounds: [string, [number, number, number, number]][] = ['title', 'bar', 'side', 'win', 'tabbar', 'tab-on', 'board', 'card', 'clip', 'pop'].map((k) => [k, hex(v[k])])
+    for (const f of ['fill', 'fill2']) for (const k of ['win', 'side', 'pop', 'card']) grounds.push([`${f}/${k}`, over(v[f]!, v[k]!)])
+    for (const [k, g] of grounds) expect(contrast(t3, g), `${id} --t3 对 ${k}`).toBeGreaterThanOrEqual(3)
+    expect(contrast(hex(v.t2), hex(v.win))).toBeGreaterThan(contrast(t3, hex(v.win)))
+  })
+
   it('配色真不一样：两两之间编辑区、侧栏、强调色至少有一样差得多', () => {
     const ids = [...blocks.keys()]
     for (let i = 0; i < ids.length; i++)

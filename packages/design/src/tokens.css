@@ -182,6 +182,8 @@
 :root {
   --sans: var(--font-sans);
   --serif: 'Songti SC', 'STSong', 'Noto Serif SC', 'Source Han Serif SC', Georgia, serif;
+  /* 文档大标题：数字、字母用 macOS 自带的西文衬线 Charter（没有汉字，汉字仍落到宋体），粗细、高矮和汉字一样；宋体自带的西文字形细一圈、矮一截。New York 在 Chromium 里按名字取不到 */
+  --serif-title: Charter, var(--serif);
   --mono: var(--font-mono);
 
   --win: light-dark(#fbfbfc, #0f0f11);

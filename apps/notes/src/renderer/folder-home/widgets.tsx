@@ -2,13 +2,17 @@
  * 文件夹首页的各个组件（spec 9.5）。列表型的只露几条加「全部 N 份」（偏好「别把上万条全铺开」）。
  * 课件进度、我的疑惑、今天要复习的数据由 PDF 阅读和 Anki 那边写进属性；还没有时显示空状态的那句话。
  */
+import { dateText, when } from '../../shared/when'
 import { Codicon } from '@cn/design'
 import { onFileMenu } from '../ctx/file-menu'
 import { useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { type Cond, type FolderHome, type PropFile, runCond, setWidget, type WidgetData } from '../../shared/folder-home'
-import { titleOf } from '../../shared/layout'
+import { CLIPS, kindOf, titleOf } from '../../shared/layout'
+import { vaultFiles } from '../files/store'
 import { type DoubtItem, questionOf } from '@cn/format'
+import { useCover } from './slide-covers'
+import { openFolderHome } from './store'
 
 export interface WCtx {
   folder: string
@@ -32,12 +36,12 @@ export interface WCtx {
 }
 
 const EMPTY: Record<string, string> = {
-  slides: '还没有课件。把 PDF 拖进这个文件夹，就会列在这里，问到第几页也会记上。',
-  review: 'Anki 里还没有这门课的牌组。在「我的疑惑」里送一次就有了。',
+  slides: '把PDF拖到这张卡上，就收进这门课；问到第几页也会记在这里。',
+  review: 'Anki里还没有这门课的牌组。在「我的疑惑」里送一次就有了。',
   exam: '还没填考试日期。点一下填。',
-  notes: '还没有笔记和导图。读课件时问 AI，笔记会自己写好放进来。',
+  notes: '还没有笔记和导图。读课件时问AI，笔记会自己写好放进来。',
   doubts: '还没有疑惑。读课件时问过的都会记在这里。',
-  viz: '还没有可视化。问 AI 时点「做个可视化」，做好的放这里。',
+  viz: '还没有可视化。问AI时点「做个可视化」，做好的放这里。',
   todo: '没有待办。',
   links: '还没有链接。',
   board: '还没选白板。',
@@ -53,23 +57,36 @@ const name = (p: string) => titleOf(p)
 const More = (p: { n: number; shown: number; unit: string; onAll(): void }) =>
   p.n > p.shown ? (
     <button className="fw-more" onClick={p.onAll}>
-      全部 {p.n} {p.unit} · 打开列表看
+      {`全部${p.n}${p.unit} · 打开列表看`}
     </button>
   ) : null
 
 function Rows(props: { c: WCtx; list: PropFile[]; limit: number; right?(f: PropFile): string }) {
   const { c } = props
+  // 同名的几篇（各个子文件夹里的「未命名」）：名字后面淡淡写在哪个子文件夹，分得出是哪篇
+  const shown = props.list.slice(0, props.limit)
+  const dup = new Set(shown.map((f) => name(f.path)).filter((n, i, a) => a.indexOf(n) !== i))
+  const sub = (p: string) => {
+    const dir = p.slice(0, p.lastIndexOf('/'))
+    return dir === c.folder ? '' : dir.startsWith(c.folder + '/') ? dir.slice(c.folder.length + 1) : dir
+  }
   return (
     <>
-      {props.list.slice(0, props.limit).map((f) => (
+      {shown.map((f) => (
         <button key={f.path} className="fw-row" onClick={() => c.onOpen(f.path)} onContextMenu={(e) => onFileMenu(e, f.path)}>
-          <Codicon name={f.props['类型'] === '导图' ? 'type-hierarchy' : 'file-text'} size={14} />
+          <Codicon name={f.entry ? 'database' : f.props['类型'] === '导图' ? 'type-hierarchy' : 'file-text'} size={14} />
           <span className="truncate">{name(f.path)}</span>
+          {/* 数据库的一条写表名（和左栏「最近」一样）；同名的几篇写在哪个子文件夹 */}
+          {f.entry ? (
+            <span className="fw-in truncate">{f.path.slice(0, f.path.lastIndexOf('/')).split('/').pop()}</span>
+          ) : (
+            dup.has(name(f.path)) && sub(f.path) && <span className="fw-in truncate">{sub(f.path)}</span>
+          )}
           {c.fresh.has(f.path) && <span className="tag-new">新</span>}
           <span className="r num">{props.right?.(f) ?? ''}</span>
         </button>
       ))}
-      <More n={props.list.length} shown={props.limit} unit="份" onAll={c.onAll} />
+      <More n={props.list.length} shown={props.limit} unit="篇" onAll={c.onAll} />
     </>
   )
 }
@@ -82,7 +99,7 @@ export function CondBody(props: { c: WCtx; cond: Cond }) {
   const { c, cond } = props
   const list = condResult(c, cond)
   if (!list.length) return <p className="fw-empty">{EMPTY[c.home.widgets[c.id]!.type] ?? EMPTY.list}</p>
-  const right = (f: PropFile) => (f.props['第几讲'] ? `第 ${f.props['第几讲']} 讲` : '')
+  const right = (f: PropFile) => (f.props['第几讲'] ? `第${f.props['第几讲']}讲` : '')
   if (cond.view === 'cards')
     return (
       <div className="fw-cards">
@@ -130,7 +147,7 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
     case 'list':
       return <CondBody c={c} cond={w.cond!} />
     case 'slides': {
-      const list = inFolder.filter((f) => f.props['类型'] === '课件').sort((a, b) => (Number(a.props['第几讲']) || 0) - (Number(b.props['第几讲']) || 0))
+      const list = slidesOf(c)
       if (!list.length) return <p className="fw-empty">{EMPTY.slides}</p>
       return <Slides c={c} list={list} />
     }
@@ -159,7 +176,7 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
         <button className="fw-board" onClick={() => c.onOpen(b.path)} onContextMenu={(e) => onFileMenu(e, b.path)}>
           <span className="th" style={{ background: b.board!.color }} />
           <b>{titleOf(b.path)}</b>
-          <span>白板 · {b.board!.cards} 张卡片</span>
+          <span>{`白板 · ${b.board!.cards}张卡片`}</span>
         </button>
       ) : (
         <p className="fw-empty">{EMPTY.board}</p>
@@ -185,17 +202,24 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
     case 'calendar':
       return <Calendar c={c} files={inFolder} weeks={w.type === 'cal' ? 20 : 5} />
     case 'clips': {
+      // 每个主题几篇：和那个主题文件夹首页头上的数一样（剪来的 PDF、网页也算）
       const topics = new Map<string, number>()
-      for (const n of c.notes) if (n.kind === 'clip') topics.set(n.topic!, (topics.get(n.topic!) ?? 0) + 1)
+      const all = vaultFiles()
+      const paths = all.length ? all.filter((f) => f.kind !== 'dir').map((f) => f.path) : c.notes.map((n) => n.path)
+      for (const p of paths) {
+        const k = kindOf(p)
+        if (k.kind === 'clip') topics.set(k.topic!, (topics.get(k.topic!) ?? 0) + 1)
+      }
       const list = [...topics].sort((a, b) => b[1] - a[1])
       return list.length ? (
         <>
           {list.slice(0, 5).map(([t, n]) => (
-            <div key={t} className="fw-row">
-              <Codicon name="file-text" size={14} />
+            // 一行是一个主题文件夹：文件夹图标，点了开那个文件夹的首页（没分主题的开「素材」）
+            <button key={t} className="fw-row" onClick={() => openFolderHome(t === '未分主题' ? CLIPS : `${CLIPS}/${t}`)}>
+              <Codicon name="folder" size={14} />
               <span className="truncate">{t}</span>
-              <span className="r num">{n} 条</span>
-            </div>
+              <span className="r num">{`${n}篇`}</span>
+            </button>
           ))}
           <More n={list.length} shown={5} unit="个主题" onAll={c.onAll} />
         </>
@@ -206,54 +230,109 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
   }
 }
 
+const slideAt = (f: PropFile) => Number(f.props['问到']) || 0
+const slidePages = (f: PropFile) => Number(f.props['页数']) || 0
+const slideDone = (f: PropFile) => slidePages(f) > 0 && slideAt(f) >= slidePages(f)
+const slideStem = (p: string) => titleOf(p).replace(/\.pdf$/i, '')
+
+/** 这门课的课件（按第几讲排） */
+export function slidesOf(c: WCtx): PropFile[] {
+  return c.files
+    .filter((f) => f.path.startsWith(c.folder + '/') && f.props['类型'] === '课件')
+    .sort((a, b) => (Number(a.props['第几讲']) || 0) - (Number(b.props['第几讲']) || 0) || a.path.localeCompare(b.path, 'zh'))
+}
+
 /**
- * 课件进度：每份 PDF 一行，名字 +「问到 7 / 10 页」或「读完」+ 72 宽进度条；底下「接着读」最近没读完的那份。
- * 问到第几页由 PDF 阅读写进属性「问到」「页数」；还没有就是「没开始」。多了只列没读完的和最近读完的 4 份。
+ * 课件进度放不下时摆哪几份：刚拖进来的（标「新」）→ 正在读的（最近读的在前）→ 没开始的（按第几讲）→ 读完的（最近读完的在前），
+ * 取前 max 份，再按第几讲排回去。拖进几份都看得见，不被名字排在前面的挤掉。
+ */
+export function pickSlides(list: PropFile[], max: number, fresh: Set<string>): PropFile[] {
+  if (list.length <= max) return list
+  const lecture = (f: PropFile) => Number(f.props['第几讲']) || 0
+  const rank = (f: PropFile) => (fresh.has(f.path) ? 0 : slideDone(f) ? 3 : slideAt(f) > 0 ? 1 : 2)
+  return [...list]
+    .sort((a, b) => rank(a) - rank(b) || (rank(a) === 2 ? 0 : b.mtimeMs - a.mtimeMs))
+    .slice(0, max)
+    .sort((a, b) => lecture(a) - lecture(b) || a.path.localeCompare(b.path, 'zh'))
+}
+
+/**
+ * 课件进度（CN-21 方向 A）：一排封面（PDF 第一页），进度是封面底边一条 3px 细条（读完变灰），
+ * 下面一行名字 +「问到 10 / 43 页」；最后一格虚线框「拖 PDF 到这里」（CN-2）。
+ * 多了只列几份（「别把上万条全铺开」，挑法见 pickSlides），「全部 N 份」打开列表。
  */
 function Slides(props: { c: WCtx; list: PropFile[] }) {
   const { c } = props
-  const at = (f: PropFile) => Number(f.props['问到']) || 0
-  const pages = (f: PropFile) => Number(f.props['页数']) || 0
-  const done = (f: PropFile) => pages(f) > 0 && at(f) >= pages(f)
-  const lecture = (f: PropFile) => Number(f.props['第几讲']) || 0
-  const shown =
-    props.list.length <= 4
-      ? props.list
-      : [...props.list.filter((f) => !done(f)), ...props.list.filter(done).sort((a, b) => b.mtimeMs - a.mtimeMs)].slice(0, 4).sort((a, b) => lecture(a) - lecture(b))
-  const resume = props.list.filter((f) => at(f) > 0 && !done(f)).sort((a, b) => b.mtimeMs - a.mtimeMs)[0]
-  const stem = (p: string) => titleOf(p).replace(/\.pdf$/i, '')
+  const max = c.editing ? 4 : 3
+  const shown = pickSlides(props.list, max, c.fresh)
+  const course = c.folder.split('/').pop()
   return (
     <>
-      {shown.map((f) => (
-        <button key={f.path} className="fw-row" onClick={() => c.onOpen(f.path)} onContextMenu={(e) => onFileMenu(e, f.path)}>
-          <Codicon name="file-text" size={14} />
-          <span className="truncate">{stem(f.path)}</span>
-          {c.fresh.has(f.path) && <span className="tag-new">新</span>}
-          <span className="r num">
-            {done(f) ? (
-              <>
-                <Codicon name="check" size={12} className="ok" />
-                读完
-              </>
-            ) : at(f) ? (
-              `问到 ${at(f)} / ${pages(f) || '?'} 页`
-            ) : (
-              '没开始'
-            )}
-          </span>
-          <i className="fw-bar" aria-hidden>
-            <i style={{ width: `${pages(f) ? Math.min(100, (at(f) / pages(f)) * 100) : 0}%` }} />
-          </i>
-        </button>
-      ))}
+      <div className="fw-covers" data-testid="slides-covers">
+        {shown.map((f) => (
+          <SlideCover key={f.path} c={c} f={f} />
+        ))}
+        {!c.editing && (
+          <div className="fw-dropcell" aria-hidden>
+            <Codicon name="add" size={16} />
+            <span>
+              拖PDF到这里
+              <br />
+              {`收进${course}`}
+            </span>
+          </div>
+        )}
+      </div>
       <More n={props.list.length} shown={shown.length} unit="份" onAll={c.onAll} />
-      {resume && (
-        <button className="btn btn-xs fw-resume" onClick={() => c.onOpen(resume.path)} onContextMenu={(e) => onFileMenu(e, resume.path)}>
-          <Codicon name="file-text" size={12} />
-          接着读 {stem(resume.path)} 第 {at(resume)} 页
-        </button>
-      )}
     </>
+  )
+}
+
+function SlideCover({ c, f }: { c: WCtx; f: PropFile }) {
+  const url = useCover(f.path, f.mtimeMs)
+  const at = slideAt(f)
+  const pages = slidePages(f)
+  const done = slideDone(f)
+  return (
+    <button className="fw-cover" data-testid="slide-cover" onClick={() => c.onOpen(f.path)} onContextMenu={(e) => onFileMenu(e, f.path)} title={titleOf(f.path)}>
+      <span className="cv">
+        {url && url !== 'failed' ? <img src={url} alt={`${slideStem(f.path)} 第一页`} draggable={false} /> : <Codicon name="file-pdf" size={20} className={url === 'failed' ? 'bad' : 'wait'} />}
+        <i className={'pg' + (done ? ' done' : '')} aria-hidden>
+          <i style={{ width: `${done ? 100 : pages ? Math.min(100, (at / pages) * 100) : 0}%` }} />
+        </i>
+      </span>
+      <span className="nm">
+        <span className="truncate">{slideStem(f.path)}</span>
+        {c.fresh.has(f.path) && <span className="tag-new">新</span>}
+        <span className="r num">
+          {done ? (
+            <>
+              <Codicon name="check" size={12} className="ok" />
+              读完
+            </>
+          ) : at ? (
+            `问到${at} / ${pages || '?'}页`
+          ) : (
+            '没开始'
+          )}
+        </span>
+      </span>
+    </button>
+  )
+}
+
+/** 课件进度的头上右端：「接着读 Lecture05 · 第 10 页 ›」（最近没读完的那份） */
+export function SlidesResume(props: { c: WCtx }) {
+  const { c } = props
+  const resume = slidesOf(c)
+    .filter((f) => slideAt(f) > 0 && !slideDone(f))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs)[0]
+  if (!resume) return null
+  return (
+    <button className="fw-resume" onClick={() => c.onOpenAt(resume.path, slideAt(resume))} onContextMenu={(e) => onFileMenu(e, resume.path)}>
+      {`接着读${slideStem(resume.path)} · 第${slideAt(resume)}页`}
+      <Codicon name="chevron-right" size={12} />
+    </button>
   )
 }
 
@@ -278,7 +357,7 @@ function Exam(props: { w: WidgetData; set(p: Partial<WidgetData>): void }) {
       >
         <input name="date" type="date" aria-label="考试日期" defaultValue={w.date ?? ''} autoFocus />
         <input name="label" aria-label="叫什么" placeholder="期中考试" defaultValue={w.label ?? ''} />
-        <input name="next" aria-label="下次上课" placeholder="下次上课 周二 10:15 · 数学楼 HS 2" defaultValue={w.next ?? ''} />
+        <input name="next" aria-label="下次上课" placeholder="下次上课 周二 10:15 · 数学楼HS 2" defaultValue={w.next ?? ''} />
         <button className="btn btn-xs" type="submit">
           好了
         </button>
@@ -295,7 +374,7 @@ function Exam(props: { w: WidgetData; set(p: Partial<WidgetData>): void }) {
           <span className="big num">{Math.max(0, days)}</span>
           <small>{days < 0 ? `天前${w.label || '考试'}` : `天后${w.label || '考试'}`}</small>
           <span className="sub">
-            {d!.getMonth() + 1} 月 {d!.getDate()} 日 星期{WEEK[d!.getDay()]}
+            {`${dateText(d!.getTime())} · 星期${WEEK[d!.getDay()]}`}
           </span>
         </button>
       )}
@@ -317,26 +396,26 @@ function Doubts(props: { c: WCtx; list: DoubtItem[] }) {
   for (const d of props.list) if (lec(d)) byLec.set(lec(d), (byLec.get(lec(d)) ?? 0) + 1)
   return (
     <>
-      {last > 0 && <div className="fw-sub">最近问的 · 第 {last} 讲</div>}
+      {last > 0 && <div className="fw-sub">{`最近问的 · 第${last}讲`}</div>}
       {recent.slice(0, 3).map((d) => (
         <button key={d.id} className="fw-row" onClick={() => c.onOpenAt(d.pdf, d.section.page)}>
           <Codicon name="question" size={14} />
           <span className="truncate">{questionOf(d.section)}</span>
-          <span className="r num">第 {d.section.page} 页</span>
+          <span className="r num">{`第${d.section.page}页`}</span>
         </button>
       ))}
       {byLec.size > 0 && (
         <div className="fw-chips">
           {[...byLec].sort((a, b) => b[0] - a[0]).map(([l, n]) => (
             <span key={l} className="chip num">
-              第 {l} 讲 {n}
+              {`第${l}讲${n}`}
             </span>
           ))}
         </div>
       )}
       {props.list.length > 3 && (
         <button className="fw-more" onClick={c.onDoubts}>
-          全部 {props.list.length} 条 · 打开列表看
+          {`全部${props.list.length}条 · 打开列表看`}
         </button>
       )}
     </>
@@ -356,7 +435,7 @@ function Viz(props: { c: WCtx; list: PropFile[] }) {
             </span>
             <span className="tn">
               <span className="truncate">{titleOf(f.path).replace(/\.html?$/i, '')}</span>
-              {f.props['第几讲'] && <small>第 {f.props['第几讲']} 讲</small>}
+              {f.props['第几讲'] && <small>{`第${f.props['第几讲']}讲`}</small>}
             </span>
           </button>
         ))}
@@ -393,7 +472,7 @@ function Todos(props: { c: WCtx; w: WidgetData; set(p: Partial<WidgetData>): voi
           </label>
         )
       })}
-      {open.length > 5 && <p className="fw-more-t">还有 {open.length - 5} 条</p>}
+      {open.length > 5 && <p className="fw-more-t">{`还有${open.length - 5}条`}</p>}
       <form
         onSubmit={(e) => {
           e.preventDefault()
@@ -485,7 +564,7 @@ function Calendar(props: { c: WCtx; files: PropFile[]; weeks: number }) {
     <div className="fw-cal" style={{ gridTemplateColumns: `repeat(${props.weeks}, 12px)` }}>
       {cells.map((d) => {
         const n = days.get(d.toDateString()) ?? 0
-        return <i key={d.toDateString()} title={`${d.getMonth() + 1} 月 ${d.getDate()} 日 · ${n}`} className={(d.toDateString() === today.toDateString() ? 'today ' : '') + (d > today ? 'fut' : '')} style={{ background: `var(--w${Math.min(4, n)})` }} />
+        return <i key={d.toDateString()} title={`${dateText(d.getTime())} · ${n}`} className={(d.toDateString() === today.toDateString() ? 'today ' : '') + (d > today ? 'fut' : '')} style={{ background: `var(--w${Math.min(4, n)})` }} />
       })}
     </div>
   )
@@ -496,13 +575,8 @@ export function ago(ms: number, now = Date.now()): string {
   const d = Math.floor((new Date(now).setHours(24, 0, 0, 0) - ms) / 86400_000)
   if (d <= 0) return '今天'
   if (d === 1) return '昨天'
-  if (d < 7) return `${d} 天前`
+  if (d < 7) return `${d}天前`
   if (d < 14) return '上周'
-  if (d < 60) return `${Math.floor(d / 7)} 周前`
-  return `${Math.floor(d / 30)} 个月前`
-}
-
-function when(ms: number): string {
-  const d = new Date(ms)
-  return `${d.getMonth() + 1}-${String(d.getDate()).padStart(2, '0')}`
+  if (d < 60) return `${Math.floor(d / 7)}周前`
+  return `${Math.floor(d / 30)}个月前`
 }

@@ -2,11 +2,14 @@ import { attr, content, parseBoard } from '@cn/format'
 import { describe, expect, it } from 'vitest'
 import { addMomentToBoard, boardMomentStats } from '../src/renderer/video/board'
 import {
+  askAnswerAfter,
   biliTracks,
   chaptersFor,
   cueAt,
   cuesAround,
   destFor,
+  fillMoments,
+  isUntitled,
   fmtTime,
   momentMd,
   parseBiliSubtitle,
@@ -189,11 +192,17 @@ describe('存进笔记', () => {
       { t: 3723, text: '结尾' },
     ])
   })
-  it('记到哪：文档插光标处，白板进时刻列，字幕全文记进上一篇文档，什么都没开进收件箱', () => {
+  it('记到哪：文档插光标处，白板进时刻列，字幕全文记进上一篇文档；中间没开文档就新建「收件箱/<视频标题>.md」开在中间（CN-70）；明确选了收件箱才只追加', () => {
     expect(destFor({ kind: 'doc', path: 'a.md', title: 'a' }, null, 'V')).toEqual({ kind: 'doc', path: 'a.md', title: 'a' })
     expect(destFor({ kind: 'board', path: 'b.md', title: 'b' }, null, 'V').kind).toBe('board')
     expect(destFor({ kind: 'material', path: '素材/视频/V.md', title: 'V' }, { path: 'a.md', title: 'a' }, 'V')).toEqual({ kind: 'doc', path: 'a.md', title: 'a' })
-    expect(destFor({ kind: 'none' }, null, 'Linear: transformations?')).toEqual({ kind: 'inbox', path: '收件箱/Linear transformations.md', title: 'Linear transformations' })
+    expect(destFor({ kind: 'none' }, null, 'Linear: transformations?')).toEqual({ kind: 'new', path: '收件箱/Linear transformations.md', title: 'Linear transformations' })
+    expect(destFor({ kind: 'material', path: '素材/视频/V.md', title: 'V' }, null, 'V').kind).toBe('new')
+    expect(destFor({ kind: 'doc', path: 'a.md', title: 'a' }, null, 'V', true)).toEqual({ kind: 'inbox', path: '收件箱/V.md', title: 'V' })
+  })
+  it('「未命名」「未命名 3」算没起过名字；别的不算（CN-80）', () => {
+    expect(['未命名', '未命名 3', ' 未命名 12 '].map(isUntitled)).toEqual([true, true, true])
+    expect(['未命名的想法', '第3讲 笔记', '未命名3'].map(isUntitled)).toEqual([false, false, false])
   })
 })
 
@@ -224,5 +233,51 @@ describe('白板的「时刻」列', () => {
     const col = parseBoard(r.text).blocks.find((b) => b.kind === 'column')!
     expect([attr(col, 'x'), attr(col, 'y')]).toEqual(['386', '200'])
     expect(parseBoard(r.text).blocks.filter((b) => content(b).startsWith('![T]'))).toHaveLength(1)
+  })
+})
+
+describe('字幕生成好以后补时刻块（CN-74）', () => {
+  it('没带字幕的时刻块补上前后的原文和译文；问答块、已经有字幕的、别的视频的不动；文字别处一个字不改', () => {
+    const cues = [0, 3, 6, 9, 12].map((s, i) => ({ start: s, end: s + 2.5, text: `第 ${i} 句`, tr: `line ${i}` }))
+    const doc = [
+      '# 赛百味',
+      '',
+      '<!-- moment video=youtube:abcdefghijk t=6 -->',
+      '![00:06](附件/视频/youtube-abcdefghijk/00-06.jpg)',
+      '[▶ 00:06 · 赛百味](https://www.youtube.com/watch?v=abcdefghijk&t=6s)',
+      '',
+      '<!-- moment video=youtube:abcdefghijk t=9 -->',
+      '[▶ 00:09 · 赛百味](https://www.youtube.com/watch?v=abcdefghijk&t=9s)',
+      '> 00:09 已经有了',
+      '',
+      '<!-- moment video=youtube:zzzzzzzzzzz t=6 -->',
+      '[▶ 00:06 · 别的](https://www.youtube.com/watch?v=zzzzzzzzzzz&t=6s)',
+      '',
+      '<!-- moment-ask video=youtube:abcdefghijk t=3 -->',
+      '[▶ 00:03 · 赛百味](https://www.youtube.com/watch?v=abcdefghijk&t=3s)',
+      '',
+    ].join('\n')
+    const r = fillMoments(doc, 'youtube:abcdefghijk', cues)
+    expect(r.filled).toBe(1)
+    expect(r.text).toBe(
+      doc.replace(
+        '(https://www.youtube.com/watch?v=abcdefghijk&t=6s)\n',
+        '(https://www.youtube.com/watch?v=abcdefghijk&t=6s)\n> 00:00 第 0 句 / line 0\n> 00:03 第 1 句 / line 1\n> **00:06 第 2 句 / line 2**\n> 00:09 第 3 句 / line 3\n> 00:12 第 4 句 / line 4\n',
+      ),
+    )
+    expect(parseMoment(r.text.split('\n').slice(2, 11).join('\n'))!.lines.find((l) => l.current)).toEqual({ time: '00:06', text: '第 2 句', tr: 'line 2', current: true })
+    expect(fillMoments(r.text, 'youtube:abcdefghijk', cues).filled).toBe(0)
+  })
+})
+
+
+describe('问答块「接着问」带上那一问的回答', () => {
+  const doc = '# 笔记\n\n<!-- moment-ask video=youtube:abc t=6 -->\n![00:06 框住的地方](附件/视频/youtube-abc/00-06-问.jpg)\n[▶ 00:06 · 线性变换](https://www.youtube.com/watch?v=abc&t=6s)\n> **我的疑惑**：两个箭头？\n\n> [!ai] AI 讲解 · Claude Code · 看了 00:06 这一帧\n> 框里是 i 帽和 j 帽。\n>\n> - 要点一\n\n后面的字。\n'
+  it('块后面紧跟的 [!ai] 提示块：去掉头一行和「> 」', () => {
+    expect(askAnswerAfter(doc, doc.indexOf('<!-- moment-ask'))).toBe('框里是 i 帽和 j 帽。\n\n- 要点一')
+  })
+  it('后面不是 AI 提示块：空串', () => {
+    const d = doc.replace('> [!ai]', '> [!note]')
+    expect(askAnswerAfter(d, d.indexOf('<!-- moment-ask'))).toBe('')
   })
 })

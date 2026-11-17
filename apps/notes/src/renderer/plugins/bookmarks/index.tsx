@@ -21,7 +21,7 @@ function LaterItem(props: { page: WebPage | null; onDone(): void; onNotice(t: st
     if (!page) return
     props.onDone()
     void window.cnPlugins.call<boolean>(ID, 'laterToggle', { url: page.url, title: page.title }).then(
-      (added) => props.onNotice(added ? '存到稍后再看了：新网页标签的「Saved for later」里看得到' : '移出稍后再看了'),
+      (added) => props.onNotice(added ? '存到稍后再看了：新网页标签的「稍后再看」里看得到' : '移出稍后再看了'),
       (e) => props.onNotice(errText(e)),
     )
   }

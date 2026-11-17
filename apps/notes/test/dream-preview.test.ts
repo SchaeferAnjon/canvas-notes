@@ -67,8 +67,8 @@ describe('梦游预览', () => {
   })
 
   it('预览条上的一句：少的说几处，多的说分到几个文件夹', () => {
-    expect(previewLine(pendingMoves(report(items)))).toBe('3 处挪动和改名')
+    expect(previewLine(pendingMoves(report(items)))).toBe('3处挪动和改名')
     const bulk = Array.from({ length: 40 }, (_, i) => item(String(i), `收件箱/${i}.md`, `${['生活', '写作', '素材/旅行'][i % 3]}/${i}.md`))
-    expect(previewLine(pendingMoves(report(bulk)))).toBe('40 条，分到 3 个文件夹')
+    expect(previewLine(pendingMoves(report(bulk)))).toBe('40条，分到3个文件夹')
   })
 })

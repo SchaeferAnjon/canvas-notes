@@ -53,6 +53,17 @@ it('没列过就搜：先列一遍再搜，读到的全文留着', async () => {
   expect((await v.search('极光')).map((h) => h.path)).toEqual(['甲.md'])
 })
 
+it('第 3 轮：打像网址的笔记名（readme.md、Node.js）也找得到那篇；只打「md」不算篇篇都中', async () => {
+  writeFileSync(join(root, 'readme.md'), '# readme\n\n说明。\n')
+  writeFileSync(join(root, 'Node.js.md'), '# Node.js\n\n事件循环。\n')
+  writeFileSync(join(root, '随手记.md'), '# 随手记\n\n正文。\n')
+  const v = new Vault(root)
+  await v.list()
+  expect((await v.search('readme.md')).map((h) => h.path)).toEqual(['readme.md'])
+  expect((await v.search('Node.js')).map((h) => h.path)).toEqual(['Node.js.md'])
+  expect(await v.search('md')).toEqual([])
+})
+
 it('7000 篇的库：第一次列、再列、第一次搜都在几百毫秒内（测得的数字打出来）', async () => {
   const stats = makeBigVault(root)
   const v = new Vault(root)

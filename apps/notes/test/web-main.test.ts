@@ -161,6 +161,10 @@ it('图片附件：按文件头认格式，名字取说明或网址最后一段�
   await expect(saveImage(root, ses, { kind: 'bytes', bytes: Buffer.from('<html>'), type: 'text/html' })).rejects.toThrow('不是图片')
   await expect(saveImage(root, ses, { kind: 'url', url: 'file:///etc/hosts' })).rejects.toThrow('http')
   expect(readFileSync(join(root, '附件', '黑沙滩.png')).equals(png)).toBe(true)
+  // 给了笔记：存进这篇自己的附件文件夹；剪贴板截图起名「截图 1」「截图 2」（CN-40 A）
+  expect(await saveImage(root, ses, { kind: 'bytes', bytes: png, type: 'image/png', name: 'image.png' }, undefined, { note: '课程/未命名 3.md', shot: true })).toBe('附件/课程/未命名 3/截图 1.png')
+  expect(await saveImage(root, ses, { kind: 'bytes', bytes: png, type: 'image/png', name: 'image.png' }, undefined, { note: '课程/未命名 3.md', shot: true })).toBe('附件/课程/未命名 3/截图 2.png')
+  expect(await saveImage(root, ses, { kind: 'bytes', bytes: png, type: 'image/png' }, '黑沙滩', { note: '课程/未命名 3.md' })).toBe('附件/课程/未命名 3/黑沙滩.png')
 })
 
 it('整页剪藏的文件：文件名去掉网站名尾巴，frontmatter 带 created 和 source，正文前面是标题和来源', () => {

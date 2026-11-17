@@ -9,15 +9,79 @@
   padding: 0 8px;
 }
 .tabs.wtabs {
-  padding: 0 8px 0 8px;
+  padding: 0 4px 0 8px;
   overflow: hidden;
   container: wtabs / inline-size;
 }
-.wtabs .tab {
-  flex: 0 1 160px;
-  min-width: 56px;
+/* 标签都在这一段里，多了横着滚；+ 在它外面，永远在标签条最右（CN-32） */
+.wtabs .wtlist {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: inherit;
+  gap: inherit;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.wtabs .wtlist::-webkit-scrollbar {
+  display: none;
+}
+/*
+ * 右栏的当前网页标签不画主题的标记（CN-15）：只靠底色，和下面地址栏同一块底连起来，像 Chrome。
+ * 网页面板的底：A 是 --win；B 是 --pop（实的，不用磨砂，网页本身也是实的），标签条在它上面压一层 --fill。
+ */
+.right.web {
+  --wpanel: var(--win);
+}
+.win.frame-b > .right.web {
+  --wpanel: var(--pop);
+  background: var(--wpanel);
+}
+/* 标签条和地址行之间不画线：当前标签和地址行同一个底，一块连下来 */
+.win > .right.web > .tabs.wtabs {
+  background: var(--tabbar);
+  border-bottom: 0;
+}
+.win.frame-b > .right.web > .tabs.wtabs {
+  background: linear-gradient(var(--fill), var(--fill)), var(--wpanel);
+}
+[data-tabmark] .win .right.web .wtabs .tab.on {
+  background: var(--wpanel);
+  color: var(--t1);
+}
+[data-tabmark] .win .right.web .wtabs .tab.on::before {
+  content: none;
+}
+/* 像 Chrome：先把标签压窄（最窄 88），再放不下才横着滚 */
+.win .right.web .wtabs .tab {
+  position: relative;
+  flex: 0 1 180px;
+  min-width: 88px;
   padding: 0 4px 0 10px;
   gap: 4px;
+}
+/*
+ * 标签压窄时名字要留得下四五个字，分得出谁是谁（CN-32）：左边距只算标签自己的 10（不再叠上中间栏标签名字的 12）；
+ * 不是当前的标签，× 不占地方，悬停时浮在右端；当前标签带着 ×，最窄 112
+ */
+.win .right.web .wtabs .tab .tl {
+  padding: 0 2px 0 0;
+}
+.win .right.web .wtabs .tab:not(.on) .x {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+/* 悬停时名字末尾渐隐让出 ×（像 Chrome），不垫底色，哪套主题、A / B 都对得上 */
+.win .right.web .wtabs .tab:not(.on):hover .tl {
+  -webkit-mask-image: linear-gradient(to left, transparent 24px, #000 36px);
+  mask-image: linear-gradient(to left, transparent 24px, #000 36px);
+}
+.win .right.web .wtabs .tab.on {
+  min-width: 120px;
 }
 .wtabs .tab .tl {
   flex: 1;
@@ -31,16 +95,11 @@
   padding: 0;
   height: 100%;
 }
-.wtabs .wnew,
-.wtabs .wtool {
+.wtabs .wnew {
   align-self: center;
   flex: none;
-  margin-left: 2px;
+  margin-left: 4px;
   -webkit-app-region: no-drag;
-}
-.wtabs .sp {
-  flex: 1;
-  min-width: 8px;
 }
 .addr input:focus-visible,
 .wsearch input:focus-visible {
@@ -445,49 +504,6 @@
 /* 图片拖到白板上方时 */
 .board.dropping .board-wrap {
   box-shadow: inset 0 0 0 2px var(--acc-ring);
-}
-
-/* 「移到中间」/「放回右栏」：一对带字的小胶囊（.btn 的小号），说清网页去哪 */
-.wwide {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 24px;
-  padding: 0 10px 0 8px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  box-shadow: 0 0 0 1px var(--line2);
-  color: var(--t2);
-  font: 500 12px var(--sans);
-  white-space: nowrap;
-  -webkit-app-region: no-drag;
-}
-.wwide:hover {
-  background: var(--fill);
-  color: var(--t1);
-}
-.wwide:active {
-  background: var(--fill2);
-}
-.wtabs .wwide {
-  margin-right: 4px;
-}
-.wtabs .wtool.iconbtn {
-  margin-right: 0;
-}
-/* 右栏窄（< 400）、标签又多（≥ 3 个）：字收起，只留图标，title 不变 */
-@container wtabs (max-width: 399px) {
-  .wtabs .wwide.tight {
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    justify-content: center;
-    box-shadow: none;
-  }
-  .wtabs .wwide.tight span {
-    display: none;
-  }
 }
 
 /* 「⋯」菜单：220 宽，每行 30 高（图标 14 + 名字 13 + 右端键帽），组间一条线 */

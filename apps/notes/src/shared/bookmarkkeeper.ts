@@ -11,8 +11,8 @@ export const isExtUrl = (u: string | null | undefined) => !!u && u.startsWith(EX
 /** 新网页标签的情况：找到了插件就有 url */
 export interface NewTabInfo {
   url: string | null
-  /** 插件从哪来：Chrome 里装的、作者的源码目录、软件自带的 */
-  from?: 'env' | 'chrome' | 'projects' | 'bundled'
+  /** 插件从哪来：软件自带的（测试时是 CN_BOOKMARKKEEPER_DIR 指的） */
+  from?: 'env' | 'bundled'
   dir?: string
   version?: string
   /** 快捷书签存哪：iCloud（和 Chrome、Safari、别的 Mac 同步）还是只在本机 */

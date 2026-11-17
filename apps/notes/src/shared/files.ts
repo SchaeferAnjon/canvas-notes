@@ -10,10 +10,16 @@ export interface FileEntry {
   path: string
   kind: FileKind
   mtimeMs: number
+  /** 建文件的时间（目录树「按创建时间」排） */
+  ctimeMs?: number
   /** PDF 问到第几页（旁边笔记的属性「进度」：问过的最大页码 / 一共几页） */
   progress?: { asked: number; pages: number }
   /** HTML（做好的可视化）属于第几讲：<head> 里 <meta name="第几讲">，目录树里排在那一讲后面 */
   lecture?: number
+  /** 软件汇总的（我的疑惑、视频里的疑惑，front matter「生成: 软件」）：课程里排第一，带「自动汇总」小标；count 是一共几条 */
+  auto?: { count: number }
+  /** 读 PDF 笔记：这篇在同一文件夹「我的疑惑」里有几条，点了跳到汇总里这一讲那段（heading） */
+  doubts?: { n: number; summary: string; heading: string }
 }
 
 export interface CnFilesApi {
@@ -79,53 +85,134 @@ export interface TreeNode {
   kind: FileKind
   entry?: FileEntry
   children: TreeNode[]
+  /** 里面（含子文件夹）有几个文件（筛过类型以后的）；文件是 1 */
+  count: number
+  /** 排序用的时间：文件是它的修改 / 创建时间，文件夹是里面最新的那个 */
+  time: number
+  /** 置顶了（笔记写在置顶.json 里，文件夹写成「写作/」） */
+  pinned?: boolean
 }
 
 const KIND_ORDER: Record<FileKind, number> = { dir: 0, pdf: 1, md: 2, html: 3 }
 /** 顶层分类按这个先后，别的文件夹按名字排在后面 */
 export const TOP_ORDER = ['课程', '项目', '生活', '写作', '素材', '收件箱']
 
-/** 一门课里放在最上面的两篇（考前看的） */
-const PINNED = ['我的疑惑.md', '术语表.md']
+/** 一门课里放在最上面的几篇（考前看的）：软件汇总的两篇在最前 */
+const PINNED = ['我的疑惑.md', '视频里的疑惑.md', '术语表.md']
+
+/**
+ * 读「我的疑惑.md」（packages/format 的 doubtsNote 写的）：按讲分段（## 标题），每条链着那份 PDF 的那一页。
+ * 给出每篇读 PDF 笔记在里面有几条、在哪一段，和一共几条
+ */
+export function doubtsIndex(summary: string, text: string, notePathOf: (pdf: string) => string, resolve: (from: string, link: string) => string | null): { total: number; notes: Map<string, { n: number; heading: string }> } {
+  const notes = new Map<string, { n: number; heading: string }>()
+  let heading = ''
+  let total = 0
+  for (const line of text.split('\n')) {
+    const h = /^##\s+(.+)$/.exec(line)
+    if (h) {
+      heading = h[1]!.trim()
+      continue
+    }
+    const item = /^- \*\*.*\]\(([^)#\s]+\.pdf)(?:#[^)]*)?\)/i.exec(line)
+    if (!item) continue
+    total++
+    const pdf = resolve(summary, item[1]!)
+    if (!pdf) continue
+    const note = notePathOf(pdf)
+    const cur = notes.get(note)
+    if (cur) cur.n++
+    else notes.set(note, { n: 1, heading })
+  }
+  return { total, notes }
+}
 
 /** 「第3讲 xx」「第 12 讲」这种按数字排，不按字 */
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' })
 
+/** 目录树的六种排法（照 Obsidian 的排序菜单）：修改时间、创建时间、名字，各有正反 */
+export type TreeSort = 'mtime-desc' | 'mtime-asc' | 'ctime-desc' | 'ctime-asc' | 'name-asc' | 'name-desc'
+export const TREE_SORTS: { id: TreeSort; label: string; hint: string }[] = [
+  { id: 'mtime-desc', label: '修改时间', hint: '新的在前' },
+  { id: 'mtime-asc', label: '修改时间', hint: '旧的在前' },
+  { id: 'ctime-desc', label: '创建时间', hint: '新的在前' },
+  { id: 'ctime-asc', label: '创建时间', hint: '旧的在前' },
+  { id: 'name-asc', label: '名字', hint: 'A → Z' },
+  { id: 'name-desc', label: '名字', hint: 'Z → A' },
+]
+export const isTreeSort = (v: unknown): v is TreeSort => TREE_SORTS.some((s) => s.id === v)
+
+export interface TreeOpts {
+  sort: TreeSort
+  /** 文件夹排在前面 */
+  foldersFirst: boolean
+  /** 置顶的排在最前 */
+  pinsFirst: boolean
+  /** 置顶了的路径（文件夹带 /） */
+  pins: ReadonlySet<string>
+  /** 类型筛选：只留这些文件；留不下文件的文件夹也不画。不给 = 全部（空文件夹也画） */
+  keep?: (f: FileEntry) => boolean
+}
+export const DEFAULT_TREE_OPTS: TreeOpts = { sort: 'name-asc', foldersFirst: true, pinsFirst: true, pins: new Set() }
+
 /**
- * 拼成树：文件夹在前；课程文件夹里同一讲的课件、笔记、可视化挨着（按名字排，数字按大小）；
- * 顶层按 课程 / 项目 / 生活 / 写作 / 素材 / 收件箱 排。文件夹本身不在列表里也会补出来。
+ * 拼成树：文件夹在前（可关）；置顶的在最前（可关）；按名字排时课程文件夹里同一讲的课件、笔记、可视化挨着（数字按大小），
+ * 顶层按 课程 / 项目 / 生活 / 写作 / 素材 / 收件箱 排；按时间排时文件夹算里面最新的那个。
+ * 文件夹本身不在列表里也会补出来（不筛类型时空文件夹也画）。每个节点记着里面有几个文件。
  */
-export function buildTree(files: FileEntry[]): TreeNode[] {
-  const root: TreeNode = { path: '', name: '', kind: 'dir', children: [] }
+export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): TreeNode[] {
+  const o = { ...DEFAULT_TREE_OPTS, ...opts }
+  const byTime = !o.sort.startsWith('name')
+  const ctime = o.sort.startsWith('ctime')
+  const root: TreeNode = { path: '', name: '', kind: 'dir', children: [], count: 0, time: 0 }
   const dirs = new Map<string, TreeNode>([['', root]])
   const dirOf = (path: string): TreeNode => {
     const hit = dirs.get(path)
     if (hit) return hit
     const parent = dirOf(folderOfPath(path))
-    const node: TreeNode = { path, name: fileName(path), kind: 'dir', children: [] }
+    const node: TreeNode = { path, name: fileName(path), kind: 'dir', children: [], count: 0, time: 0 }
     parent.children.push(node)
     dirs.set(path, node)
     return node
   }
   for (const f of files) {
     if (f.kind === 'dir') {
+      if (o.keep) continue
       const d = dirOf(f.path)
       d.entry = f
-    } else dirOf(folderOfPath(f.path)).children.push({ path: f.path, name: fileName(f.path), kind: f.kind, entry: f, children: [] })
+      continue
+    }
+    if (o.keep && !o.keep(f)) continue
+    const time = ctime ? (f.ctimeMs ?? f.mtimeMs) : f.mtimeMs
+    dirOf(folderOfPath(f.path)).children.push({ path: f.path, name: fileName(f.path), kind: f.kind, entry: f, children: [], count: 1, time })
   }
-  const sort = (n: TreeNode, top: boolean) => {
+  if (o.keep) for (const f of files) if (f.kind === 'dir' && dirs.has(f.path)) dirs.get(f.path)!.entry = f
+  const desc = o.sort.endsWith('desc')
+  const finish = (n: TreeNode, top: boolean) => {
+    for (const c of n.children) {
+      c.pinned = o.pins.has(c.kind === 'dir' ? c.path + '/' : c.path)
+      if (c.kind === 'dir') finish(c, false)
+    }
+    n.count = n.children.reduce((s, c) => s + c.count, 0)
+    n.time = n.children.reduce((m, c) => Math.max(m, c.time), n.entry?.mtimeMs ?? 0)
     n.children.sort((a, b) => {
+      if (o.pinsFirst && !!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1
+      if (o.foldersFirst && (a.kind === 'dir') !== (b.kind === 'dir')) return a.kind === 'dir' ? -1 : 1
+      if (byTime) {
+        if (a.time !== b.time) return desc ? b.time - a.time : a.time - b.time
+        return collator.compare(stem(a.name), stem(b.name))
+      }
+      if (desc) return collator.compare(stem(b.name), stem(a.name)) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]
       if (a.kind === 'dir' && b.kind === 'dir' && top) {
         const ia = TOP_ORDER.indexOf(a.name)
         const ib = TOP_ORDER.indexOf(b.name)
         if (ia !== ib) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
       }
-      if ((a.kind === 'dir') !== (b.kind === 'dir')) return a.kind === 'dir' ? -1 : 1
       const pa = PINNED.indexOf(a.name)
       const pb = PINNED.indexOf(b.name)
       if (pa !== pb) return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb)
       // 一门课里按讲次排，同一讲 课件 → 笔记 → 可视化；不是哪一讲的排在后面
-      if (a.kind !== 'dir') {
+      if (a.kind !== 'dir' && b.kind !== 'dir') {
         const la = lectureOfNode(a)
         const lb = lectureOfNode(b)
         if (la !== lb) return (la ?? Infinity) - (lb ?? Infinity)
@@ -133,10 +220,20 @@ export function buildTree(files: FileEntry[]): TreeNode[] {
       }
       return collator.compare(stem(a.name), stem(b.name)) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]
     })
-    for (const c of n.children) if (c.kind === 'dir') sort(c, false)
   }
-  sort(root, true)
+  finish(root, true)
   return root.children
+}
+
+/** 树里找到某个文件夹那一枝（摘到活动栏的文件夹，左栏只画它自己的树） */
+export function subtree(nodes: TreeNode[], folder: string): TreeNode[] {
+  let list = nodes
+  for (const seg of folder.split('/')) {
+    const hit = list.find((n) => n.kind === 'dir' && n.name === seg)
+    if (!hit) return []
+    list = hit.children
+  }
+  return list
 }
 
 const stem = (name: string) => name.replace(/\.(md|pdf|html?)$/i, '')
@@ -168,5 +265,5 @@ export function previewFiles(files: FileEntry[], moves: { from: string; to: stri
   return { files: out, moved, ghosts: moves.filter((m) => moved.has(m.to)) }
 }
 
-/** 有首页的文件夹：课程/<课>、项目/<项目>、生活、写作（点名字开首页，点箭头只展开） */
-export const hasFolderHome = (path: string) => /^(课程|项目)\/[^/]+$/.test(path) || path === '生活' || path === '写作'
+/** 最外层这几个是软件认的分类（附件放图），不改名、不删 */
+export const fixedFolder = (folder: string) => !folder.includes('/') && [...TOP_ORDER, '附件'].includes(folder)

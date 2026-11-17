@@ -63,7 +63,7 @@ export function UpdateBarItem(props: { st: UpdateState | null; onInstall(): Prom
         }}
       >
         {busy ? <Codicon name="loading" size={12} className="spin" /> : <i className="udot" />}
-        {busy ? '正在重启…' : <span className="upd-t">重启更新<span className="upd-v">到 {v}</span></span>}
+        {busy ? '正在重启…' : <span className="upd-t">重启更新<span className="upd-v">{`到${v}`}</span></span>}
       </button>
     </>
   )
@@ -100,7 +100,7 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
   return (
     <>
       <h4>
-        版本 <span>{BRAND.name} 从 GitHub 上的正式版更新</span>
+        版本<span>{`${BRAND.name}从GitHub上的正式版更新`}</span>
       </h4>
       <div className="card-row upd-card" data-testid="update-card">
         <img className="upd-icon" src={appIcon} alt="" draggable={false} />
@@ -149,7 +149,7 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
         <div className="callout" data-testid="update-not-in-apps">
           <Codicon name="warning" size={16} className="warn" />
           <div className="tx">
-            <b>{BRAND.name} 不在「应用程序」文件夹里</b>
+            <b>{`${BRAND.name}不在「应用程序」文件夹里`}</b>
             <span>从「下载」或安装盘里直接打开时，新版本可能装不上</span>
             <div className="upd-acts left">
               <button className="btn btn-sm" onClick={() => void move()}>
@@ -157,14 +157,14 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
               </button>
               <button className="btn btn-sm btn-ghost" onClick={() => void window.cn.revealApp()}>
                 <Codicon name="search" size={14} />
-                在 Finder 中显示
+                在Finder中显示
               </button>
             </div>
           </div>
         </div>
       )}
       <h4>
-        自动更新 <span>有新版本在后台下载，下好后提示你重启</span>
+        自动更新<span>有新版本在后台下载，下好后提示你重启</span>
       </h4>
       <div className={'pair' + (off ? ' dim' : '')}>
         <Toggle on={props.autoUpdate && !off} label="自动检查并下载新版本" onChange={(v) => !off && props.onAutoUpdate(v)} />
@@ -172,8 +172,8 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
       </div>
       <p className="note">
         {off
-          ? '开发版和自己打的包不查更新；正式版从官网或 GitHub Release 下载。'
-          : '启动 30 秒后查一次，之后每 6 小时查一次，只连 GitHub。下好后底栏右边出现「重启更新」；不点也行，下次退出时自动装上。'}
+          ? '开发版和自己打的包不查更新；正式版从官网或GitHub Release下载。'
+          : '启动30秒后查一次，之后每6小时查一次，只连GitHub。下好后底栏右边出现「重启更新」；不点也行，下次退出时自动装上。'}
       </p>
     </>
   )

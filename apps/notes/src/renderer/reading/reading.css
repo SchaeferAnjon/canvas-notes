@@ -394,10 +394,23 @@
 .reading-ai .msgs {
   padding: 12px 16px 16px;
   gap: 14px;
+  /* 右栏下格可能很矮（700 高的窗口、上格开着视频、输入框上面挂着待问块）：按它的高收空状态 */
+  container-type: size;
+}
+/* 放不下大标题时只留那一句；那一句也放不下就整个不画（输入框里的提示已经说了怎么问），不被拦腰切（第 3 轮美学） */
+@container (max-height: 140px) {
+  .reading-ai .ai-empty h2 {
+    display: none;
+  }
+}
+@container (max-height: 96px) {
+  .reading-ai .ai-empty {
+    display: none;
+  }
 }
 .reading-ai .daysep {
   text-align: center;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--t3);
   margin: 2px 0 -4px;
 }
@@ -564,13 +577,50 @@
   display: grid;
   place-items: center;
 }
+/* 排着的几问：一问一行，叠在附件右边 */
+/* 排着的几问：附图下面、输入框上面自己占一整块（第 3 轮美学：放在附图那一行里只剩 183 宽） */
+.reading-in .queue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+.reading-in .queued {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 排着的那一问：「不发了」退回输入框 */
+.reading-in .queued .truncate {
+  flex: 1;
+  min-width: 0;
+}
+.reading-in .queued .lnk {
+  flex: none;
+  border: 0;
+  background: none;
+  text-decoration: none;
+  padding: 0 2px;
+  border-radius: 4px;
+  font: inherit;
+  color: var(--t2);
+  cursor: pointer;
+}
+.reading-in .queued .lnk:hover {
+  color: var(--t1);
+  background: var(--fill);
+}
 .reading-in .attq {
   position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
   max-width: 100%;
-  padding: 4px 26px 4px 8px;
+  padding: 4px 30px 4px 8px;
   border-radius: 6px;
   background: var(--fill);
   font-size: 12px;
@@ -586,6 +636,37 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 视频「接着问」：左边那一帧的小图，右边第一行「00:06 · 视频名」，第二行问过的那句，各自一行省略 */
+.reading-in .attq .col {
+  display: contents;
+}
+.reading-in .attq.two {
+  gap: 8px;
+}
+.reading-in .attq.two .col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.reading-in .attq.two .frame {
+  flex: none;
+  width: 48px;
+  height: 27px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+.reading-in .attq.two .lb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reading-in .attq.two .q {
+  color: var(--t2);
+  /* 开头的「占半个字的空白，不然第二行看着比第一行往里缩 */
+  text-spacing-trim: trim-start;
+}
 .reading-in .attq .rm {
   top: 50%;
   transform: translateY(-50%);
@@ -598,7 +679,10 @@
 .reading-in textarea {
   flex: 1;
   min-width: 0;
-  height: 40px;
+  /* 跟着字变高，最多 6 行再滚（排着的几问接回来时都看得见） */
+  field-sizing: content;
+  min-height: 40px;
+  max-height: 120px;
   border: 0;
   outline: none;
   background: none;
@@ -1465,4 +1549,104 @@
   height: 14px;
   background: currentColor;
   opacity: 0.2;
+}
+
+/* ---------- PDF 精读增强（MinerU）：哪都找不到时工具条下面一行提示，不弹框 ---------- */
+.mubar {
+  position: relative;
+  flex: none;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px 4px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--win);
+  font-size: 12px;
+  color: var(--t2);
+  min-width: 0;
+}
+.mubar .ic {
+  flex: none;
+  color: var(--acc-t);
+}
+.mubar.err .ic {
+  color: var(--yellow);
+}
+.mubar .ln {
+  min-width: 0;
+}
+.mubar b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.mubar a {
+  color: var(--acc-t);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.mubar .sp {
+  flex: 1;
+}
+.mubar .pct {
+  flex: none;
+  color: var(--t2);
+}
+.mubar .btn {
+  flex: none;
+  font-size: 12px;
+}
+/* 装的进度：底边一条 2px --acc */
+.mubar .bar {
+  position: absolute;
+  left: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--acc);
+  transition: width 0.4s;
+}
+/* 标签条右端「增强识别 · 认版面 40%」「增强识别没成功 · 重试」 */
+.acts .txt.mutool {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 260px;
+}
+.acts .txt.mutool .lnk {
+  font-size: 12px;
+  color: var(--t2);
+}
+.acts .txt.mutool .lnk:hover {
+  color: var(--t1);
+}
+/* 说明可以省略号，大小和许可证不省（窄了先截说明） */
+.mubar .size,
+.mubar .lic,
+.mubar .step {
+  flex: none;
+  white-space: nowrap;
+}
+.mubar .size {
+  color: var(--t3);
+}
+.mubar .ln.out {
+  flex: 1 1 0;
+  color: var(--t3);
+}
+/* 后台识别的小字：阶段名可省略，百分比不截 */
+.acts .txt.mutool .mt {
+  min-width: 0;
+}
+.acts .txt.mutool .mp {
+  flex: none;
+}
+.center.compact .acts .txt.mutool {
+  max-width: 180px;
+}
+.acts .txt.mutool + .pager {
+  margin-left: 8px;
+}
+/* 中间窄于 900：先藏大小（放进「安装」的悬停提示），说明句留全 */
+.center.compact .mubar .size {
+  display: none;
 }

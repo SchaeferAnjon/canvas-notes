@@ -219,7 +219,9 @@
 .doc .cm-editor.cm-focused {
   outline: none;
 }
+/* .cm-content 是 flex 子项：不加 min-width:0 它不能比里面最宽的不换行标题更窄，中间栏变窄时正文停在约 500 宽、出横向滚动条（CN-72） */
 .doc .cm-content {
+  min-width: 0;
   padding: 0;
   caret-color: var(--t1);
   user-select: text;
@@ -227,12 +229,10 @@
 .doc .cm-line {
   padding: 0;
 }
-.doc .cm-cursor {
-  border-left: 1.5px solid var(--t1);
-}
-.doc .cm-selectionBackground,
-.doc .cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {
-  background: var(--acc-soft) !important;
+/* 选区：系统选区，只涂选中的字，强调色 24%（CN-66 A；--acc-soft 只有 10%，看不出选了什么） */
+.doc .cm-content::selection,
+.doc .cm-content ::selection {
+  background: color-mix(in srgb, var(--acc) 24%, transparent);
 }
 
 /* ---------- 底栏 Git ---------- */
@@ -366,6 +366,9 @@ button.bi[data-testid='git-changed']:disabled {
 .gdot.warn {
   background: var(--yellow);
 }
+.gdot.err {
+  background: var(--red);
+}
 
 /* ---------- 提示 ---------- */
 .toast-cn {
@@ -489,6 +492,7 @@ button.bi[data-testid='git-changed']:disabled {
 
 /* ---------- 每个标签的内容 ---------- */
 .pane {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -545,8 +549,30 @@ button.bi[data-testid='git-changed']:disabled {
   color: var(--md-heading, inherit);
 }
 .doc.doc .cm-h1 {
-  font: 600 28px/1.3 var(--serif);
+  font: 600 28px/1.3 var(--serif-title);
   padding: 4px 0 8px;
+}
+/* 标题下的元信息行：最前面「所在文件夹 ▾」，点开移到别处（folder-chip.ts） */
+.doc.doc .cm-meta {
+  padding: 0 0 12px;
+}
+.doc.doc .cm-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: 12px/1.5 var(--sans);
+  color: var(--t2);
+  cursor: default;
+}
+.doc.doc .cm-folder:hover {
+  background: var(--fill);
+  color: var(--t1);
 }
 .doc.doc .cm-h2 {
   font: 600 19px/1.35 var(--sans);
@@ -560,6 +586,17 @@ button.bi[data-testid='git-changed']:disabled {
 .doc.doc .cm-h5,
 .doc.doc .cm-h6 {
   font-weight: 600;
+}
+/*
+ * 藏起来的记号（live-preview 的 Decoration.replace({})，画成一个空的 <span contenteditable=false>）两边，
+ * CodeMirror 各插一个 <img class="cm-widgetBuffer"> 给光标用；排在行里的 img 是能断行的地方，
+ * 「**租车要四驱**。」的句号会单独掉到行首（第 5 轮美学）。这两个 img 挪出行内排版（绝对定位、不设位置，
+ * 还停在原处）：不再是断行点，断行和记号不在时一样；CodeMirror 量位置（滚到标题、放光标）照样量得到它。
+ * 不能 display: none：量出来是 0，点目录滚不到标题。链接小块、圆点这些有 class 的部件不动。
+ */
+.cm-live .cm-widgetBuffer:has(+ span[contenteditable='false']:empty:not([class])),
+.cm-live span[contenteditable='false']:empty:not([class]) + .cm-widgetBuffer {
+  position: absolute;
 }
 .doc.doc .cm-strong {
   font-weight: 600;
@@ -585,6 +622,24 @@ button.bi[data-testid='git-changed']:disabled {
   text-decoration: underline;
   text-decoration-color: var(--line2);
   text-underline-offset: 3px;
+}
+/* 高亮 ==文字==（CN-67）：强调色荧光笔，只涂字的下半截，和选区（整个字 24%）分得开 */
+.doc.doc .cm-hl {
+  background: linear-gradient(transparent 38%, color-mix(in srgb, var(--acc) 34%, transparent) 38%, color-mix(in srgb, var(--acc) 34%, transparent) 92%, transparent 92%);
+  border-radius: 2px;
+}
+/* 光标在链接上时「(网址)」收成的域名小块（CN-58） */
+.doc.doc .cm-urlchip {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--fill);
+  font: 12px/1.5 var(--sans);
+  color: var(--t3);
+  text-decoration: none;
+  vertical-align: 1px;
+  cursor: text;
 }
 .doc .cm-wikilink {
   color: var(--acc-t);
@@ -696,6 +751,116 @@ button.bi[data-testid='git-changed']:disabled {
 .doc .cm-layout {
   font: 12px/1.7 var(--mono);
   color: var(--t3);
+}
+
+/* 宽版（「⋯ › 宽版」，CN-26）：版心跟中间栏走，正文最宽 1100 */
+.doc.wide {
+  max-width: 1212px;
+}
+
+/* ---------- 长文档的目录条（CN-26 A）：中间栏右边贴边一列短横线，悬停 0.2 秒展开目录浮层 ---------- */
+.doc-toc-wrap {
+  position: absolute;
+  right: 0;
+  top: 64px;
+  z-index: 6;
+  padding: 0 14px 0 24px;
+}
+.doc-toc {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 9px;
+  padding: 8px 6px;
+  cursor: pointer;
+}
+.doc-toc i {
+  display: block;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--line2);
+}
+.doc-toc i.d0 {
+  width: 16px;
+}
+.doc-toc i.d1 {
+  width: 10px;
+}
+.doc-toc i.d2 {
+  width: 6px;
+}
+.doc-toc i.on {
+  background: var(--t1);
+}
+.doc-tocpop {
+  position: absolute;
+  right: 10px;
+  top: -16px;
+  width: 264px;
+  max-height: min(70vh, 520px);
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  animation: blk-in 0.12s ease;
+}
+.doc-tocpop .hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+  font: 500 12px/1 var(--sans);
+  color: var(--t3);
+}
+.doc-tocpop .to-right {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 12px/1 var(--sans);
+  color: var(--t3);
+  cursor: pointer;
+}
+.doc-tocpop .to-right:hover {
+  color: var(--t1);
+}
+.doc-tocpop .rows {
+  overflow-y: auto;
+}
+.doc-tocpop .r {
+  display: block;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc-tocpop .r.l1 {
+  padding-left: 24px;
+  font-size: 12px;
+}
+.doc-tocpop .r.l2 {
+  padding-left: 36px;
+  font-size: 12px;
+}
+.doc-tocpop .r:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.doc-tocpop .r.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
 }
 
 /* ---------- 源文件：md 原文放在一张白卡里 ---------- */
@@ -927,9 +1092,56 @@ button.bi[data-testid='git-changed']:disabled {
 .commit .files {
   padding: 4px 0 8px 22px;
 }
+/* 历史最上面「还没提交的改动」（不是一次提交，不算 .commit）：虚线圆点，右边「现在提交」 */
+.hist-pending {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 10px;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+.hist-pending .hp {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  column-gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+.hist-pending .hp:hover {
+  background: var(--fill);
+}
+.hist-pending .cdot {
+  grid-row: 1 / 3;
+  width: 8px;
+  height: 8px;
+  margin-top: 6px;
+  border-radius: 999px;
+  border: 1.5px solid var(--yellow);
+}
+.hist-pending .subj {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.hist-pending .when {
+  font-size: 12px;
+  color: var(--t3);
+}
+.hist-pending .btn {
+  flex: none;
+}
 
 /* ---------- 白板（照 Milanote 和原型） ---------- */
 .si .sw,
+.rp-row .sw,
 .tab .sw {
   width: 12px;
   height: 12px;
@@ -1314,7 +1526,7 @@ button.bi[data-testid='git-changed']:disabled {
 }
 .unsorted {
   position: absolute;
-  top: 14px;
+  top: 16px;
   right: 16px;
   z-index: 6;
   width: 208px;
@@ -1481,19 +1693,42 @@ button.bi[data-testid='git-changed']:disabled {
   color: var(--t3);
 }
 
-/* 网页开着时，文档里的光标是一条 2px 李子紫竖线，标出剪进来会落在哪 */
-.web-open .doc .cm-cursor {
-  display: block !important;
-  border-left: 2px solid var(--acc) !important;
+/* 网页开着时：文档有焦点，系统光标是强调色；焦点在网页时 insert-point.ts 画一条 2px 强调色、45% 透明、不闪的插入点，标出剪进来会落在哪 */
+.web-open .doc .cm-content {
+  caret-color: var(--acc);
 }
-.web-open .doc .cm-cursorLayer {
-  animation: none !important;
+.doc .cm-insertpoint {
+  display: none;
 }
-.doc .cm-justclipped {
-  box-shadow: 0 0 0 2px var(--acc-ring);
+.web-open .doc .cm-insertpoint {
+  display: block;
+  border-left: 2px solid var(--acc);
+  opacity: 0.45;
+}
+/* 刚插进来的那一段：左边留白里一道 2px --acc 竖线，1.6 秒后 0.4 秒淡出（insert-flash.ts） */
+.doc .cm-flashbar {
+  position: absolute;
+  left: -14px;
+  width: 2px;
   border-radius: 2px;
+  background: var(--acc);
+  pointer-events: none;
+  z-index: 4;
+  transition: opacity 0.4s ease;
+}
+.doc .cm-flashbar[hidden] {
+  display: none;
+}
+.doc .cm-flashbar.out {
+  opacity: 0;
 }
 
+.si .s-table {
+  flex: 0 1 auto;
+  max-width: 45%;
+  font-size: 12px;
+  color: var(--t3);
+}
 .tag-draft {
   margin-left: auto;
   font-size: 11px;
@@ -1695,6 +1930,23 @@ button.bi[data-testid='git-changed']:disabled {
   font-size: 12px;
   color: var(--t3);
 }
+/* 「✓ 读了第4页 · Claude Code · Opus 5.5」一行：放不下时先省略引擎名，再省略「读了…」，不折成两行碎字 */
+.am .read > .rd,
+.am .read > .by {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.am .read > .rd {
+  flex: 0 1 auto;
+}
+.am .read > .by {
+  flex: 0 1000 auto;
+}
+.am .read > .ci {
+  flex: none;
+}
 .am .txt {
   user-select: text;
 }
@@ -1749,6 +2001,95 @@ button.bi[data-testid='git-changed']:disabled {
   border-left: 2px solid var(--clip-bar);
   color: var(--t2);
 }
+/* 提示块、折叠块（同文档里的样子，CN-59、CN-25） */
+.md .md-callout {
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.md .md-callout-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.md .md-callout-h > .ci,
+.md .md-callout-name {
+  flex: none;
+}
+.md .md-callout-name:only-of-type {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.md .md-callout-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-left: -6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t3);
+}
+/* 高亮 ==文字==、「我的评价」小标签：同文档里的 cm-hl、cm-review-tag */
+.md-hl {
+  color: inherit;
+  background: linear-gradient(transparent 38%, color-mix(in srgb, var(--acc) 34%, transparent) 38%, color-mix(in srgb, var(--acc) 34%, transparent) 92%, transparent 92%);
+  border-radius: 2px;
+}
+.md .md-review-tag {
+  margin-right: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--fill);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+  font-feature-settings: 'halt';
+}
+.md .tone-yellow .ci {
+  color: var(--yellow);
+}
+.md .tone-green .ci {
+  color: var(--green);
+}
+.md .tone-red .ci {
+  color: var(--red);
+}
+.md .tone-acc .ci {
+  color: var(--acc);
+}
+.md .tone-t2 .ci {
+  color: var(--t2);
+}
+/* 折叠块：一行「›  标题」13 --t2（DESIGN.v3 6.5），点开 chevron 转下来 */
+.md .md-fold > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  font-size: 13px;
+  color: var(--t2);
+  cursor: pointer;
+}
+.md .md-fold > summary::-webkit-details-marker {
+  display: none;
+}
+.md .md-fold > summary > .ci {
+  flex: none;
+  transition: transform 0.15s;
+}
+.md .md-fold[open] > summary > .ci {
+  transform: rotate(90deg);
+}
+.md .md-fold > .md {
+  margin-top: 4px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line2);
+}
 .md .md-code {
   margin: 0;
   padding: 8px 10px;
@@ -1787,6 +2128,35 @@ button.bi[data-testid='git-changed']:disabled {
 .am .done {
   margin-top: 6px;
   color: var(--t2);
+}
+/* 做成了、只是没提交上（「卡存好了，提交没成功」）：和 AI 出错那行（.aierr）一样排，图标换 warning --yellow；
+   下面 12 --t3 一行原因、一个「再提交一次」 */
+.am .warn {
+  margin-top: 6px;
+}
+.am .warn .t {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t1);
+}
+.am .warn .ic {
+  flex: none;
+  color: var(--yellow);
+  transform: translateY(1px);
+}
+.am .warn .why {
+  margin: 2px 0 0 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+  text-spacing-trim: trim-start;
+  text-wrap: pretty;
+}
+.am .warn .acts {
+  margin-left: 18px;
 }
 .am .acts {
   display: flex;
@@ -2111,6 +2481,12 @@ body.resizing {
   font-size: 13px;
   color: var(--t2);
 }
+/* 回车没有可打开的：第二行淡一点，说清楚要上网按什么 */
+.pal-none-why {
+  padding: 2px 10px 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
 .pal-row {
   display: flex;
   align-items: center;
@@ -2126,6 +2502,10 @@ body.resizing {
 }
 .pal-row.on {
   background: var(--fill2);
+}
+/* 键盘选不中的（没把握的意思相近）：悬停只给淡一档的底，和选中分开 */
+.pal-row.nokey:hover {
+  background: var(--fill);
 }
 .pal-row .ib {
   width: 26px;
@@ -2201,6 +2581,23 @@ body.resizing {
   flex: none;
   font: 11px var(--sans);
   color: var(--t3);
+}
+/* 「网页」「Claude」两行右边的键帽：⌘↵、⌥↵（CN-41） */
+.pal-row.sr kbd.rt,
+.pal-row.sr kbd.rt2 {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  font: 11px var(--sans);
+  color: var(--t2);
+}
+.pal-row.sr .rt + kbd.rt2 {
+  margin-left: -4px;
+}
+.pal-foot b {
+  font-weight: 600;
+  color: var(--t2);
 }
 .pal-row.sr .col {
   flex: 1;
@@ -2332,25 +2729,18 @@ body.resizing {
 .fr.on {
   background: var(--fill);
 }
-.hdiff {
-  margin: 4px 0 10px;
-  padding: 0;
-  font-size: 12px;
-}
-.hdiff > .meta {
-  display: block;
-  padding: 4px 6px;
+.fr > svg {
+  flex: none;
   color: var(--t3);
 }
-.hdiff .hd-acts {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+/* 历史里现在已经不在原处的文件（挪走、删了）：淡一点，右键「看这一版」 */
+.fr.gone .truncate {
+  color: var(--t3);
 }
-.hdiff .dl {
-  max-height: 420px;
-  overflow: auto;
+.commit .fhint {
+  margin: 2px 10px 0;
+  font-size: 12px;
+  color: var(--t3);
 }
 
 /* ---------- 检查更新：底栏最右端「● 重启更新到 x」/「● 更新没装上」 ---------- */

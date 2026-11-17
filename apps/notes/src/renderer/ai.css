@@ -3,6 +3,57 @@
   display: none;
 }
 
+/* 面板头右端「收起 ⌘J」（CN-22）：AI 开着时右下角的入口藏起来，从这里收起 */
+.aih .ai-collapse {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.aih .ai-collapse:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.aih .ai-collapse kbd {
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+/* 右栏 340 宽、浮窗 380 宽：头里那句要放得下，收起按钮只写「收起」，⌘J 在悬停提示里 */
+@container aih (max-width: 419px) {
+  .aih .ai-collapse kbd {
+    display: none;
+  }
+}
+/* 窗口最窄时右栏让到 250 上下（头的内容宽不到 300）：「收起」只留 × 图标，不被栏边切掉；字在悬停提示里 */
+.aih .ai-collapse .ic {
+  display: none;
+}
+@container aih (max-width: 299px) {
+  .aih .ai-collapse {
+    padding: 0 5px;
+  }
+  .aih .ai-collapse .lb {
+    display: none;
+  }
+  .aih .ai-collapse .ic {
+    display: block;
+  }
+}
+/* 窗口拉到最窄（960）时右栏让到 240：「改动可撤回」也不放，引擎胶囊只留标志和箭头（名字在悬停提示和菜单里） */
+@container aih (max-width: 279px) {
+  .aih .meta {
+    display: none;
+  }
+}
+
 .aieng {
   position: relative;
   flex: none;
@@ -14,14 +65,15 @@
   white-space: nowrap;
   height: 24px;
   padding: 0 8px;
-  border: 1px solid var(--line2);
+  border: 0;
   border-radius: 999px;
-  background: var(--card);
+  /* DESIGN.v3 2.1：引擎胶囊 --fill 底（不做白底突起块，窄时只剩标志也一样） */
+  background: var(--fill);
   font-size: 12px;
   color: var(--t2);
 }
 .aieng .engbtn:hover {
-  background: var(--fill);
+  background: var(--fill2);
 }
 .aieng .engmenu {
   position: absolute;
@@ -96,6 +148,28 @@
   margin-top: 6px;
 }
 
+/* 找重复正在算：「⟳ 正在找重复：已比 3200/7000 篇，找到 12 对 ……… 停下」 */
+.am .dupprog {
+  gap: 6px;
+}
+.am .dupprog .rd {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.am .dupprog .btn {
+  flex: none;
+}
+.am .dups + .dupprog {
+  margin-top: 8px;
+}
+.am .dupmore {
+  display: block;
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--t2);
+}
+
 /* /找重复 的结果：每一对一行，两篇标题能点开，右边相似度，下面一句为什么 */
 .am .dups {
   margin-top: 6px;
@@ -136,4 +210,155 @@
   font-size: 12px;
   line-height: 1.5;
   color: var(--t3);
+}
+
+/* AI 回答里的表格（DESIGN.v3 6.5）：放不下时表自己横着滚，不撑宽面板 */
+.md .md-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.md .md-table table {
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.md .md-table th,
+.md .md-table td {
+  padding: 6px 10px;
+  border: 1px solid var(--line2);
+  text-align: left;
+  vertical-align: top;
+}
+.md .md-table th {
+  font-weight: 500;
+  color: var(--t2);
+  background: var(--fill);
+}
+
+/* AI 没答出来（CN-75）：一行中文 + 下一步，原话收起来 */
+.aierr .t {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t1);
+}
+/* 窄栏里折行时别让最后一两个字单独掉一行 */
+.aierr .t > span {
+  text-wrap: pretty;
+}
+.aierr .t .ic {
+  flex: none;
+  color: var(--red);
+  transform: translateY(1px);
+}
+.aierr .acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.aierr .raw-tg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+  cursor: pointer;
+}
+/* 能点的字 ≥ 4.5：静止 --t2（第 5 轮美学，以前 --t3 天青 3.70） */
+.aierr .raw-tg:hover {
+  color: var(--t1);
+}
+.aierr .raw {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  font: 12px/1.55 var(--mono);
+  color: var(--t2);
+  white-space: pre-wrap;
+  /* 按单词折行，只有一个词长过整行（长网址、Request ID）才在词里断 */
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* 粘贴的图（CN-24）：右下角浮窗的输入框上面一排附件小图，和读 PDF 时框的那块一个样子 */
+.ai.floating .aiin.has-att {
+  flex-wrap: wrap;
+}
+.ai.floating .aiin.hot {
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+.ai.floating .aiin .atts {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ai.floating .aiin .attc,
+.reading-in .attc.pasted {
+  position: relative;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line2);
+  background: #fff;
+}
+.ai.floating .aiin .attc img {
+  display: block;
+  max-width: 140px;
+  max-height: 72px;
+}
+.ai.floating .aiin .attc .lb {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  font-size: 11px;
+  background: rgba(17, 17, 19, 0.72);
+  color: #fff;
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 16px;
+}
+.ai.floating .aiin .attc .rm {
+  position: absolute;
+  right: 2px;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(17, 17, 19, 0.6);
+  color: #fff;
+  display: grid;
+  place-items: center;
+}
+.ai.floating .um-wrap {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: 85%;
+}
+.ai.floating .um-wrap .um {
+  max-width: 100%;
+}
+.um-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.um-imgs img {
+  display: block;
+  max-width: 140px;
+  max-height: 90px;
+  border-radius: 8px;
+  box-shadow: 0 0 0 1px var(--line2);
 }

@@ -83,12 +83,12 @@ describe('没翻成的原因：原话认成 11 种', () => {
   })
 
   it('汇总那句', () => {
-    expect(errorTitle({ code: 'not-logged-in', engine: 'claude', raw: '' })).toBe('Claude Code 还没登录')
-    expect(errorTitle({ code: 'bad-model', engine: 'claude', raw: '' })).toBe('Claude Code 用不了 Haiku 这个模型')
-    expect(errorTitle({ code: 'bad-key', engine: 'deepseek', raw: '' })).toBe('DeepSeek 的 Key 不对')
-    expect(errorTitle({ code: 'rate-limit', engine: 'deepseek', raw: '' })).toBe('问得太快，DeepSeek 让等一会儿')
-    expect(errorTitle({ code: 'timeout', engine: 'codex', raw: 'Codex 等了 60 秒没回应' })).toBe('Codex 60 秒没回应')
-    expect(errorTitle({ code: 'bad-output', raw: 'AI 回的格式不对，漏了 3 段（已经自动重问过一次）' })).toBe('AI 回的格式不对，漏了 3 段')
+    expect(errorTitle({ code: 'not-logged-in', engine: 'claude', raw: '' })).toBe('Claude Code还没登录')
+    expect(errorTitle({ code: 'bad-model', engine: 'claude', raw: '' })).toBe('Claude Code用不了Haiku这个模型')
+    expect(errorTitle({ code: 'bad-key', engine: 'deepseek', raw: '' })).toBe('DeepSeek的Key不对')
+    expect(errorTitle({ code: 'rate-limit', engine: 'deepseek', raw: '' })).toBe('问得太快，DeepSeek让等一会儿')
+    expect(errorTitle({ code: 'timeout', engine: 'codex', raw: 'Codex 等了 60 秒没回应' })).toBe('Codex 60秒没回应')
+    expect(errorTitle({ code: 'bad-output', raw: 'AI 回的格式不对，漏了 3 段（已经自动重问过一次）' })).toBe('AI回的格式不对，漏了 3 段')
     expect(errorTitle({ code: 'other', raw: 'A'.repeat(80) })).toBe('A'.repeat(60) + '…')
     expect(errorTitle({ code: 'none', raw: '' })).toBe('现在没有能翻的')
   })
@@ -218,8 +218,8 @@ describe('翻译用什么：自动按顺序换、指定一个就只用它', () =
     const none = setup({ cli: { gemini: 'login' } })
     const pre = none.r.preflight()
     expect(pre).toMatchObject({ ok: false, error: { code: 'none' } })
-    expect(!pre.ok && pre.error.raw).toBe('Claude Code、Codex、OpenCode 没装，Gemini 没登录，API 都没填 Key')
-    expect(noneReason([{ id: 'deepseek', name: 'DeepSeek', kind: 'api', state: 'badkey' }])).toBe('DeepSeek Key 不对')
+    expect(!pre.ok && pre.error.raw).toBe('Claude Code、Codex、OpenCode没装，Gemini没登录，API都没填Key')
+    expect(noneReason([{ id: 'deepseek', name: 'DeepSeek', kind: 'api', state: 'badkey' }])).toBe('DeepSeek Key不对')
   })
 
   it('指定一个：它不行就直接报，不换别的', async () => {

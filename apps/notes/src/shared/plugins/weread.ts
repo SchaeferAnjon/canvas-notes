@@ -10,6 +10,8 @@ export const WEREAD: PluginManifest = {
   name: '微信读书',
   description: '在右栏网页里读微信读书，用它自带的划线：划的那一段自动插进左边开着的文档（带书名、章节和回到原文的链接）；每本书的划线和想法在后台同步进「素材/微信读书」。',
   permissions: ['page', 'net', 'notes:read', 'notes:write'],
+  // 右竖条「微信读书」一格（CN-36）：书架；没登录时微信读书自己显示扫码页。主进程按 CN_WEREAD_ORIGIN 换成假网站
+  entry: { name: '微信读书', icon: 'book', url: 'https://weread.qq.com/web/shelf' },
 }
 
 export const WEREAD_FOLDER = '素材/微信读书'
@@ -30,6 +32,48 @@ export const normalizeWeread = (raw: unknown): WereadSettings => {
 let webOrigin = 'https://weread.qq.com'
 export const setWereadOrigin = (o: string | null) => (webOrigin = o || 'https://weread.qq.com')
 export const wereadOrigin = () => webOrigin
+
+/**
+ * 书的编号 → 阅读页地址里的那串（/web/reader/<这串>，翻章时后面再接 k<章节>）。做法照 obsidian-weread-plugin 写的：
+ * md5 的头三位 + 类型（纯数字 3，别的 4）+ 2 + md5 的末两位；再接分段（纯数字每 9 位一段转十六进制，别的每个字的编码转十六进制拼一段），
+ * 每段前写两位十六进制的长度，段间一个 g；不够 20 位拿 md5 补；最后三位是前面这些的 md5 头三位。md5 由调用方给（这里不依赖 Node）。
+ */
+export function readerCode(bookId: string, md5: (s: string) => string): string {
+  const h = md5(bookId)
+  const numeric = /^\d*$/.test(bookId)
+  const chunks = numeric ? (bookId.match(/\d{1,9}/g) ?? []).map((x) => parseInt(x, 10).toString(16)) : [[...bookId].map((c) => c.charCodeAt(0).toString(16)).join('')]
+  let out = h.slice(0, 3) + (numeric ? '3' : '4') + '2' + h.slice(-2)
+  out += chunks.map((c) => c.length.toString(16).padStart(2, '0') + c).join('g')
+  if (out.length < 20) out += h.slice(0, 20 - out.length)
+  return out + md5(out).slice(0, 3)
+}
+
+/**
+ * 阅读页地址 → 书的编号：把那串拆回去，再编一次对得上才算（拆不出、对不上是 null）。
+ * 真网站上阅读页的 __INITIAL_STATE__.reader.bookId 不可靠（2026-11-17 用真账号量：点不同的书，它报的是同一本），所以先看地址。
+ */
+export function bookIdOfReader(url: string | null | undefined, md5: (s: string) => string): string | null {
+  if (!isReader(url)) return null
+  const code = new URL(url!).pathname.slice('/web/reader/'.length).split('k')[0]!
+  if (!/^[0-9a-f]{6,}[0-9a-fg]*$/.test(code) || code.length < 9) return null
+  const type = code[3]
+  // 前 7 位：md5 头三位、类型、2、md5 末两位
+  let pos = 7
+  const chunks: string[] = []
+  while (pos < code.length - 3) {
+    const len = parseInt(code.slice(pos, pos + 2), 16)
+    if (!len) return null
+    chunks.push(code.slice(pos + 2, pos + 2 + len))
+    pos += 2 + len
+    if (code[pos] !== 'g') break
+    pos++
+  }
+  let id: string
+  if (type === '3') id = chunks.map((c) => String(parseInt(c, 16))).join('')
+  else if (type === '4') id = (chunks.join('').match(/../g) ?? []).map((x) => String.fromCharCode(parseInt(x, 16))).join('')
+  else return null
+  return id && readerCode(id, md5) === code ? id : null
+}
 
 /** 是不是微信读书的阅读页（/web/reader/<书的编号>） */
 export function isReader(url: string | null | undefined): boolean {
@@ -85,7 +129,7 @@ type Raw = Record<string, unknown>
 const str = (x: unknown) => (typeof x === 'string' ? x : typeof x === 'number' ? String(x) : '')
 const num = (x: unknown) => (typeof x === 'number' ? x : Number(x) || 0)
 
-/** /book/bookmarklist 的回答：updated 里每条划线；章节名在条目里或者 chapters 里 */
+/** /web/book/bookmarklist 的回答：updated 里每条划线；章节名在条目里或者 chapters 里 */
 export function parseBookmarks(raw: unknown, bookId: string): { marks: Mark[]; book: BookInfo | null } {
   const j = (raw ?? {}) as { updated?: Raw[]; chapters?: Raw[]; book?: Raw }
   const chapters = new Map((j.chapters ?? []).map((c) => [num(c.chapterUid), str(c.title)]))
@@ -104,7 +148,7 @@ export function parseBookmarks(raw: unknown, bookId: string): { marks: Mark[]; b
   return { marks, book: b && str(b.title) ? { bookId: str(b.bookId) || bookId, title: str(b.title), author: str(b.author) } : null }
 }
 
-/** /review/list?mine=1 的回答：想法（对着一段原文）和书评 */
+/** /web/review/list?mine=1 的回答：想法（对着一段原文）和书评 */
 export function parseReviews(raw: unknown): Thought[] {
   const j = (raw ?? {}) as { reviews?: { review?: Raw }[] }
   return (j.reviews ?? [])
@@ -120,7 +164,7 @@ export function parseReviews(raw: unknown): Thought[] {
     }))
 }
 
-/** /user/notebooks 的回答：有划线或想法的书 */
+/** /api/user/notebook 的回答：有划线或想法的书 */
 export function parseNotebooks(raw: unknown): (BookInfo & { marks: number; reviews: number; updated: number })[] {
   const j = (raw ?? {}) as { books?: Raw[] }
   return (j.books ?? [])
@@ -130,7 +174,8 @@ export function parseNotebooks(raw: unknown): (BookInfo & { marks: number; revie
         bookId: str(b.bookId) || str(book.bookId),
         title: str(book.title),
         author: str(book.author),
-        marks: num(b.bookmarkCount ?? b.noteCount),
+        // 网页「笔记」页上的划线数是 noteCount；bookmarkCount 是另一种计数（真账号上划了 2 条时它是 0）
+        marks: num(b.noteCount ?? b.bookmarkCount),
         reviews: num(b.reviewCount),
         updated: num(b.sort ?? b.updateTime),
       }
@@ -216,14 +261,48 @@ export function bookMd(book: BookInfo, marks: Mark[], thoughts: Thought[], reade
 
 const rangeStart = (r: string) => Number(r.split('-')[0]) || 0
 
+/** 右栏网页里微信读书登录了没有：in 有登录（右栏 persist:web 里有 wr_vid、wr_skey）；expired 有但微信读书说过期了；out 没有 */
+export interface WereadLogin {
+  state: 'in' | 'expired' | 'out'
+  /** 微信读书的昵称、头像（取得到才有） */
+  name?: string
+  avatar?: string
+}
+
 /** 设置页里显示的同步状态 */
 export interface WereadStatus {
   /** ok / 没登录 / 出错 / 还没同步过 */
   state: 'ok' | 'login' | 'error' | 'never'
+  login: WereadLogin
   /** 上次同步完的时间（毫秒） */
   lastSync: number
   books: number
   marks: number
   error?: string
   syncing: boolean
+}
+
+/** 网页版接口（weread.qq.com，和 obsidian-weread-plugin 一样用网页登录的 cookie）：errCode / errcode 两种写法；-2010 用户不存在、-2012 登录超时 */
+export function apiError(raw: unknown): { login: boolean; message: string } | null {
+  const j = (raw ?? {}) as { errcode?: unknown; errCode?: unknown; errmsg?: unknown; errMsg?: unknown }
+  const code = Number(j.errCode ?? j.errcode ?? 0)
+  if (!code) return null
+  return { login: code === -2010 || code === -2012, message: String(j.errMsg ?? j.errmsg ?? '') || `微信读书出错（${code}）` }
+}
+
+/** 右栏 cookie 里认登录：wr_vid（用户编号）和 wr_skey（登录凭据）都在 */
+export function loginOf(cookies: readonly { name: string; value: string }[]): { vid: string } | null {
+  const get = (n: string) => cookies.find((c) => c.name === n)?.value ?? ''
+  const vid = get('wr_vid')
+  return vid && get('wr_skey') ? { vid } : null
+}
+
+/**
+ * 这次该插进文档的划线：见过这本书就是没见过的那些；
+ * 没见过这本书（打开书那一次没取成）而这次是划线触发的：2 分钟内新建的当成新的，别把刚划的第一条吞掉。
+ */
+export function marksToInsert(marks: Mark[], seen: readonly string[] | undefined, why: string, nowSec: number): Mark[] {
+  if (seen) return newMarks(marks, new Set(seen))
+  if (why === 'open') return []
+  return marks.filter((m) => m.created && nowSec - m.created <= 120)
 }

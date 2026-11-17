@@ -43,7 +43,7 @@ export function ExtensionsPanel(props: { tabId: number; onNotice(t: string): voi
       const bad = r.imported.filter((x) => x.verdict === 'unlikely').length
       props.onNotice(
         r.imported.length
-          ? `从 Chrome「${name}」导入了 ${r.imported.length} 个插件${bad ? `，其中 ${bad} 个多半用不了（看插件面板里的说明）` : ''}${r.skipped.length ? `；${r.skipped.length} 个没导成` : ''}。网页重新载入后插件才进得去。`
+          ? `从Chrome「${name}」导入了${r.imported.length}个插件${bad ? `，其中${bad}个多半用不了（看插件面板里的说明）` : ''}${r.skipped.length ? `；${r.skipped.length}个没导成` : ''}。网页重新载入后插件才进得去。`
           : `Chrome「${name}」没有装插件`,
       )
       props.onReload()
@@ -62,17 +62,17 @@ export function ExtensionsPanel(props: { tabId: number; onNotice(t: string): voi
       <div className="wgroup">内置</div>
       <BuiltinPlugins onNotice={props.onNotice} onSettings={props.onPluginSettings} />
       <div className="wgroup">
-        Chrome 插件
+        Chrome插件
         <span className="sp" />
         <div className="imp">
           <button className="btn btn-sm" disabled={busy} onClick={() => setPicking((v) => !v)}>
             <Codicon name="desktop-download" size={12} className={busy ? 'spin' : ''} />
-            {busy ? '正在导入' : '从 Chrome 导入'}
+            {busy ? '正在导入' : '从Chrome导入'}
           </button>
           {picking && <ProfileMenu label="选 Chrome 用户" title="导入哪个 Chrome 用户装的插件？" onPick={(id, name) => void importFrom(id, name)} onNotice={props.onNotice} onClose={() => setPicking(false)} />}
         </div>
       </div>
-      <p className="hint">从 Chrome 拷一份过来用，Chrome 那边不动。内置浏览器只有一部分 Chrome 插件接口，有的插件功能不全。</p>
+      <p className="hint">从Chrome拷一份过来用，Chrome那边不动。内置浏览器只有一部分Chrome插件接口，有的插件功能不全。</p>
       <div className="wlist" role="list" aria-label="插件列表">
         {list?.length === 0 && <p className="hint">还没有插件。</p>}
         {list?.map((x) => {

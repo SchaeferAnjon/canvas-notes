@@ -8,7 +8,7 @@ describe('书签管家的小工具', () => {
     expect(ago(0, now)).toBe('')
     expect(ago(now - 3600_000, now)).toBe('今天')
     expect(ago(now - 86400_000, now)).toBe('昨天')
-    expect(ago(now - 5 * 86400_000, now)).toBe('5 天前')
+    expect(ago(now - 5 * 86400_000, now)).toBe('5天前')
   })
 })
 

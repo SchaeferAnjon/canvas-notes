@@ -32,7 +32,7 @@ export const themeInfo = (t: ThemeFile): SkinInfo => ({
   tone: t.tone,
   tab: t.tab,
   win: t.vars.win ?? (t.tone === 'dark' ? '#1e1e1e' : '#ffffff'),
-  note: `导入的 VS Code 主题 · ${t.source}`,
+  note: `导入的VS Code主题 · ${t.source}`,
   imported: true,
 })
 
@@ -79,10 +79,10 @@ export function parseJsonc(text: string): unknown {
 export function loadThemeChain(entry: string, load: (path: string) => string): VsTheme {
   const seen = new Set<string>()
   const read = (path: string): VsTheme => {
-    if (seen.has(path)) throw new Error(`主题文件互相 include：${path}`)
+    if (seen.has(path)) throw new Error(`主题文件互相include：${path}`)
     seen.add(path)
     const raw = parseJsonc(load(path))
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${path} 不是 VS Code 主题文件`)
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${path}不是VS Code主题文件`)
     const t = raw as VsTheme
     if (typeof t.include !== 'string') return t
     const base = read(joinPosix(dirOf(path), t.include))
@@ -212,12 +212,16 @@ export function convertTheme(t: VsTheme, opts: { name?: string; uiTheme?: string
   const tabbar = solid(pick('editorGroupHeader.tabsBackground'), side)
   const tabOn = solid(pick('tab.activeBackground'), win)
   const tab: TabMark = pick('tab.activeBorderTop') ? 'top' : pick('tab.activeBorder') ? 'bottom' : 'fill'
+  // 主题里的色不够清楚就按 --t1 和底色混，从 mixT 往字色那边推，推到够清楚为止（DESIGN.v3：--t2 ≥ 4.5:1、--t3 ≥ 3:1）
   const readable = (k: Rgba | null, mixT: number, min: number): Rgba => {
     const x = k ? over(k, win) : null
-    return x && contrast(x, win) >= min ? x : mix(win, t1, mixT)
+    if (x && contrast(x, win) >= min) return x
+    let t = mixT
+    while (contrast(mix(win, t1, t), win) < min && t < 1) t = Math.min(1, t + 0.05)
+    return mix(win, t1, t)
   }
   const t2 = readable(pick('descriptionForeground'), 0.6, 4.5)
-  const t3 = readable(pick('disabledForeground'), 0.4, 2.2)
+  const t3 = readable(pick('disabledForeground'), 0.4, 3)
   const status = solid(pick('statusBar.background'), bar)
   const stFg = pick('statusBar.foreground')
   const statusT = stFg && contrast(over(stFg, status), status) >= 4.5 ? over(stFg, status) : contrast(t1, status) >= 4.5 ? t1 : luminance(status) < 0.4 ? white : black

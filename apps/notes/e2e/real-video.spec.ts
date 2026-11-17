@@ -85,7 +85,8 @@ test('真 B 站（不登录）：视频条出来，字幕菜单说要登录；�
     await guest(page, `(() => { const v = document.querySelector('video'); v.muted = true; v.currentTime = 60; v.play(); return true })()`)
     await page.waitForTimeout(3000)
     await strip(page).getByRole('button', { name: '记下这一刻' }).click()
-    await expect(page.locator('.vtoast')).toContainText('记进了', { timeout: 30_000 })
+    // 中间没开文档：新建《视频标题》开在中间（CN-70）
+    await expect(page.locator('.vtoast')).toContainText(/记进了|新建了/, { timeout: 30_000 })
     expect(readdirSync(join(vault, '附件/视频')).some((d) => d.startsWith('bilibili-BV1ys411472E'))).toBe(true)
     await strip(page).getByRole('button', { name: '字幕' }).click()
     await shot(run, 'real-bili-menu')

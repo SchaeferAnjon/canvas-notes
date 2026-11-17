@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildTree, type FileEntry, folderProgress, matchFiles, parseProgress } from '../src/shared/files'
+import { buildTree, type FileEntry, fixedFolder, folderProgress, matchFiles, parseProgress, subtree } from '../src/shared/files'
 
 vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }))
 
@@ -50,6 +50,44 @@ describe('目录树', () => {
     expect(tree[1]!.children.map((n) => [n.name, n.kind])).toEqual([['canvas', 'dir']])
   })
 
+  it('六种排法：修改时间、创建时间、名字各有正反；文件夹排在前面（按时间排时算里面最新的那个）', () => {
+    const files: FileEntry[] = [
+      { path: '写作/旧.md', kind: 'md', mtimeMs: 100, ctimeMs: 10 },
+      { path: '写作/新.md', kind: 'md', mtimeMs: 300, ctimeMs: 5 },
+      { path: '写作/中.md', kind: 'md', mtimeMs: 200, ctimeMs: 30 },
+      { path: '写作/旅行', kind: 'dir', mtimeMs: 0 },
+      { path: '写作/书评/a.md', kind: 'md', mtimeMs: 250, ctimeMs: 1 },
+    ]
+    const names = (o: Parameters<typeof buildTree>[1]) => buildTree(files, o)[0]!.children.map((n) => n.name)
+    expect(names({ sort: 'name-asc' })).toEqual(['旅行', '书评', '旧.md', '新.md', '中.md'])
+    expect(names({ sort: 'name-desc' })).toEqual(['书评', '旅行', '中.md', '新.md', '旧.md'])
+    expect(names({ sort: 'mtime-desc' })).toEqual(['书评', '旅行', '新.md', '中.md', '旧.md'])
+    expect(names({ sort: 'mtime-asc' })).toEqual(['旅行', '书评', '旧.md', '中.md', '新.md'])
+    expect(names({ sort: 'ctime-desc' })).toEqual(['书评', '旅行', '中.md', '旧.md', '新.md'])
+    expect(names({ sort: 'ctime-asc' })).toEqual(['旅行', '书评', '新.md', '旧.md', '中.md'])
+    // 文件夹不排在前面：和文件一起按时间排
+    expect(names({ sort: 'mtime-desc', foldersFirst: false })).toEqual(['新.md', '书评', '中.md', '旧.md', '旅行'])
+    expect(fixedFolder('写作')).toBe(true)
+    expect(fixedFolder('写作/旅行')).toBe(false)
+  })
+
+  it('篇数：每个文件夹里（含子文件夹）有几个文件；置顶的排在最前（文件夹写成「写作/」），关了就照常排', () => {
+    const files = [f('写作/a.md'), f('写作/b/c.md'), f('写作/b/d.pdf', 'pdf'), f('课程/x.md'), f('收件箱/y.md'), f('空的', 'dir')]
+    const t = buildTree(files, { pins: new Set(['收件箱/', '写作/b.md']) })
+    expect(t.map((n) => [n.name, n.count, !!n.pinned])).toEqual([['收件箱', 1, true], ['课程', 1, false], ['写作', 3, false], ['空的', 0, false]])
+    expect(t[2]!.children.map((n) => [n.name, n.count])).toEqual([['b', 2], ['a.md', 1]])
+    expect(buildTree(files, { pins: new Set(['收件箱/']), pinsFirst: false }).map((n) => n.name)).toEqual(['课程', '写作', '收件箱', '空的'])
+  })
+
+  it('类型筛选：只留这类文件，里面没有这类文件的文件夹（含空文件夹）不画；篇数跟着变', () => {
+    const files = [f('写作/a.md'), f('写作/b/c.md'), f('写作/b/d.pdf', 'pdf'), f('课程/x.md'), f('空的', 'dir'), f('写作/b', 'dir')]
+    const t = buildTree(files, { keep: (x) => x.kind === 'pdf' })
+    expect(t.map((n) => [n.name, n.count])).toEqual([['写作', 1]])
+    expect(t[0]!.children[0]!.entry?.kind).toBe('dir')
+    expect(subtree(buildTree(files), '写作/b').map((n) => n.name)).toEqual(['c.md', 'd.pdf'])
+    expect(subtree(buildTree(files), '没有')).toEqual([])
+  })
+
   it('课程文件夹：课件问完了几份 / 一共几份', () => {
     const [course] = buildTree([f('课/第1讲.pdf', 'pdf', 0, { asked: 10, pages: 10 }), f('课/第2讲.pdf', 'pdf', 0, { asked: 3, pages: 12 }), f('课/第3讲.pdf', 'pdf'), f('课/笔记.md')])
     expect(folderProgress(course!)).toEqual({ done: 1, total: 3 })
@@ -80,5 +118,34 @@ describe('列出库里的文件（主进程）', () => {
     expect(all.find((e) => e.path.endsWith('第3讲 线性映射.pdf'))!.progress).toEqual({ asked: 5, pages: 10 })
     expect(all.find((e) => e.path.endsWith('第4讲.pdf'))!.progress).toBeUndefined()
     expect(all.find((e) => e.path.endsWith('旋转矩阵.html'))!.lecture).toBe(3)
+  })
+
+  it('软件汇总的「我的疑惑」：标成自动汇总、数条数；同一文件夹每篇读 PDF 笔记记上几条疑惑、在哪一段（CN-56）', async () => {
+    const { listEntries } = await import('../src/main/files')
+    const { doubtsNote } = await import('@cn/format')
+    root = mkdtempSync(join(tmpdir(), 'cn-files-'))
+    mkdirSync(join(root, '课程/ecp'), { recursive: true })
+    for (const n of ['Lecture05', 'Lecture06']) {
+      writeFileSync(join(root, `课程/ecp/${n}.pdf`), '%PDF')
+      writeFileSync(join(root, `课程/ecp/${n} 笔记.md`), '# 笔记\n')
+    }
+    const sec = (page: number) => ({ id: `s${page}`, page, title: '小标题', doubts: [`问题 ${page}`], good: '', time: '20:50' }) as never
+    const items = [
+      { id: 'a', pdf: '课程/ecp/Lecture05.pdf', lecture: 5, section: sec(5) },
+      { id: 'b', pdf: '课程/ecp/Lecture05.pdf', lecture: 5, section: sec(10) },
+      { id: 'c', pdf: '课程/ecp/Lecture06.pdf', lecture: 6, section: sec(2) },
+    ]
+    writeFileSync(join(root, '课程/ecp/我的疑惑.md'), doubtsNote('课程/ecp', 'ecp', items, new Set()))
+    // 自己起名叫「我的疑惑」、不是软件写的：不算
+    mkdirSync(join(root, '写作'))
+    writeFileSync(join(root, '写作/我的疑惑.md'), '# 我自己的疑惑\n')
+    const all = await listEntries(root)
+    const at = (p: string) => all.find((e) => e.path === p)!
+    expect(at('课程/ecp/我的疑惑.md').auto).toEqual({ count: 3 })
+    expect(at('写作/我的疑惑.md').auto).toBeUndefined()
+    expect(at('课程/ecp/Lecture05 笔记.md').doubts).toEqual({ n: 2, summary: '课程/ecp/我的疑惑.md', heading: '第 5 讲 · Lecture05' })
+    expect(at('课程/ecp/Lecture06 笔记.md').doubts).toEqual({ n: 1, summary: '课程/ecp/我的疑惑.md', heading: '第 6 讲 · Lecture06' })
+    // 树里：我的疑惑排课程第一行
+    expect(buildTree(all)[0]!.children[0]!.children.map((n) => n.name)[0]).toBe('我的疑惑.md')
   })
 })

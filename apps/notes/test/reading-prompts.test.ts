@@ -46,6 +46,15 @@ describe('问 AI 的话', () => {
     expect(fullTextOf(pages)).toBe('--- 第 5 页 ---\n# Example 3.4 Rotation\n--- 第 6 页 ---\nRotate the plane.\n')
     expect(fullTextOf(pages, 40)).toContain('后面的页太长')
   })
+  it('视频问答块「接着问」：说附的图是那一帧，带上那一问、当时的回答和前后字幕', () => {
+    const t: ReadingThread = { id: 'x', page: 0, quote: '框里这两个箭头为什么能决定整个网格怎么动？', web: { url: 'https://www.youtube.com/watch?v=abc', title: '线性变换', t: 6, answer: '框里是 i 帽和 j 帽变换后的位置。' }, createdAt: 0 }
+    const p = askPrompt({ pdfName: '线性变换', page: 0, pages: 0, pageText: '', question: '那第三个箭头呢', thread: t, web: t.web!, subs: '00:05 the basis vectors', digest: '', hasImage: true })
+    expect(p).toContain('在 00:06 那一帧框了一块问过：「框里这两个箭头为什么能决定整个网格怎么动？」')
+    expect(p).toContain('附上的图是 00:06 那一帧')
+    expect(p).toContain('<answer>\n框里是 i 帽和 j 帽变换后的位置。\n</answer>')
+    expect(p).toContain('<subs>\n00:05 the basis vectors\n</subs>')
+    expect(p.endsWith('他说：那第三个箭头呢')).toBe(true)
+  })
   it('笔记摘要一段一行', () => {
     expect(noteDigest([{ id: 'x', file: 'a.pdf', page: 4, title: '列', good: '列就是\n基向量去哪', figures: [], doubts: [], points: [], failed: [], rounds: 1, links: [] }])).toBe('- 第 4 页「列」：列就是 基向量去哪')
   })
@@ -82,7 +91,7 @@ describe('收笔记段', () => {
 describe('回答上面那一行', () => {
   it('提到的别的页笔记里弄懂过，就说用到了；没弄懂过的、这一页自己不算', () => {
     const sec = (page: number) => ({ id: String(page), file: 'a.pdf', page, title: '', good: '', figures: [], doubts: [], points: [], failed: [], rounds: 1, links: [] })
-    expect(readLine(5, '用你在 [第 4 页](#page=4) 弄懂的，再看 [第 7 页](#page=7) 和 [第 5 页](#page=5)', [sec(4), sec(5)])).toBe('读了第 5 页 · 用到第 4 页你弄懂的那条')
-    expect(readLine(5, '没提别的页', [sec(4)])).toBe('读了第 5 页')
+    expect(readLine(5, '用你在 [第 4 页](#page=4) 弄懂的，再看 [第 7 页](#page=7) 和 [第 5 页](#page=5)', [sec(4), sec(5)])).toBe('读了第5页 · 用到第4页你弄懂的那条')
+    expect(readLine(5, '没提别的页', [sec(4)])).toBe('读了第5页')
   })
 })

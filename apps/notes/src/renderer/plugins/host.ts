@@ -41,6 +41,11 @@ export function usePlugins(): PluginInfo[] {
 
 export const pluginInfo = (id: string) => list.find((p) => p.id === id)
 
+/** 插件在右竖条的那一格要开的网址，和「已经开着就切过去」认的网站（网址的 origin） */
+export function entryTarget(e: NonNullable<PluginInfo['entry']>): { url: string; reuse: string } {
+  return { url: e.url, reuse: new URL(e.url).origin + '/' }
+}
+
 export async function setPluginEnabled(id: string, on: boolean) {
   setList(await window.cnPlugins.setEnabled(id, on))
 }

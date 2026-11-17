@@ -72,7 +72,8 @@ for (const f of ['a', 'b'] as const) {
       await note.hover()
       await expect(page.getByTestId('tooltip')).toHaveText('收件箱 · 今晚梦游时归类、起名')
 
-      // 回到第一个标签：滚回开头，只画右边渐隐
+      // 回到第一个标签：像人一样先把标签条滚回开头再点（不靠 Playwright 自己把它滚到正中：白板标签的动作区多一颗缩放，换标签时标签条宽度会变），只画右边渐隐
+      await page.getByTestId('tab-list').evaluate((l) => (l.scrollLeft = 0))
       await page.locator('.tab', { hasText: NAMES[0]! }).locator('.tl').click()
       await expect(tabOn(page)).toHaveText(NAMES[0]!)
       await expect.poll(async () => (await activeFit(page)).left).toBeGreaterThanOrEqual(0)
@@ -107,7 +108,7 @@ test('右栏 340 宽的边读边问 AI：头里那句换成「改动可撤回」
     await expect(hint.locator('.long')).toBeHidden()
     expect(await hint.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
     await hint.hover()
-    await expect(page.getByTestId('tooltip')).toHaveText('AI 的改动都是 Git 提交，随时可撤回')
+    await expect(page.getByTestId('tooltip')).toHaveText('AI的改动都是Git提交，随时可撤回')
 
     await open(page, NAMES[0]!)
     await page.keyboard.press('Meta+j')

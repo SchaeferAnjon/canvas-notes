@@ -107,15 +107,15 @@ const MAX_DEPTH = 8
 /** AI 的回答 → 认出来的树；回答不对时说清楚 */
 export function parseRecognition(answer: string): Recognition {
   const json = firstJson(answer)
-  if (!json) throw new Error('AI 没按要求回答（没有 JSON），再试一次')
+  if (!json) throw new Error('AI没按要求回答（没有JSON），再试一次')
   let data: unknown
   try {
     data = JSON.parse(json)
   } catch {
-    throw new Error('AI 回的 JSON 读不懂，再试一次')
+    throw new Error('AI回的JSON读不懂，再试一次')
   }
   const o = data as Record<string, unknown>
-  if (!o || typeof o !== 'object') throw new Error('AI 回的不是一段 JSON 对象')
+  if (!o || typeof o !== 'object') throw new Error('AI回的不是一段JSON对象')
   if (o.mindmap === false) return { ok: false, reason: 'not-map', message: '这张看着不像导图。' }
   if (o.legible === false) return { ok: false, reason: 'blurry', message: '字太糊，认不出来。' }
   let count = 0

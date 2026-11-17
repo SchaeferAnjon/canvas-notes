@@ -191,7 +191,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
     await run(async () => {
       const r = await window.cnPlugins.call<{ paths: string[]; commit: string | null }>(ID, 'toVault', ids)
       setPicked(new Set())
-      notice(`存进收件箱 ${r.paths.length} 篇${r.commit ? `，一次提交 ${r.commit.slice(0, 7)}` : ''}`)
+      notice(`存进收件箱${r.paths.length}篇${r.commit ? `，一次提交${r.commit.slice(0, 7)}` : ''}`)
     })
   }
 
@@ -248,7 +248,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
     <div ref={root} className="wpop bk" role="dialog" aria-label="书签管家">
       <div className="wlib-head">
         <b>书签管家</b>
-        <span className="bk-count num">{rows.length} 个</span>
+        <span className="bk-count num">{`${rows.length}个`}</span>
         <span className="sp" />
         <button className="iconbtn" aria-label="关上书签管家" onClick={props.onClose}>
           <Codicon name="close" size={13} />
@@ -357,7 +357,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
                       #{t}
                     </em>
                   ))}
-                  {sort === 'visited' ? ` · ${b.lastVisit ? '上次 ' + ago(b.lastVisit) : '没打开过'}` : ''}
+                  {sort === 'visited' ? ` · ${b.lastVisit ? '上次' + ago(b.lastVisit) : '没打开过'}` : ''}
                 </span>
                 {b.note && <span className="bk-note truncate">{b.note}</span>}
               </button>
@@ -374,7 +374,7 @@ export function BookmarkKeeper(props: { page: WebPage | null; mode?: 'this-page'
 
       {picked.size > 0 && (
         <div className="bk-foot">
-          <span>选了 {picked.size} 个</span>
+          <span>{`选了${picked.size}个`}</span>
           <button className="btn btn-sm btn-ghost" onClick={() => setPicked(new Set())}>
             不选了
           </button>

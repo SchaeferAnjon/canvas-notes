@@ -2,19 +2,20 @@
  * 界面这边的内置插件表，和网页面板、⌘F、插件面板、设置页的接头。
  * 加一个内置插件：在 PLUGINS 里加一行（主进程那半加到 main/plugins/index.ts）。
  */
-import { Codicon } from '@cn/design'
+import { Codicon, type CodiconName } from '@cn/design'
 import { PERMISSION_LABEL, type PluginInfo } from '../../shared/plugins'
 import type { CSSProperties } from 'react'
 import type { PaletteCommand } from '../Palette'
 import { Toggle } from '../Settings'
+import { adblock } from './adblock'
 import { bookmarks } from './bookmarks'
-import { errText, setPluginEnabled, setPluginSettings, usePlugins, webHost } from './host'
+import { entryTarget, errText, setPluginEnabled, setPluginSettings, usePlugins, webHost } from './host'
 import { translate } from './translate'
 import { weread } from './weread'
 import type { RendererPlugin, WebPage } from './types'
 import './plugins.css'
 
-export const PLUGINS: RendererPlugin[] = [translate, bookmarks, weread]
+export const PLUGINS: RendererPlugin[] = [translate, bookmarks, weread, adblock]
 
 const byId = (id: string) => PLUGINS.find((p) => p.id === id)
 
@@ -46,6 +47,20 @@ function PluginButton({ p, page, open, onPopup, small }: { p: RendererPlugin; pa
     </button>
   )
   return small ? btn : <span className="imp plug-btn">{btn}</span>
+}
+
+/**
+ * 右边竖条上插件的格子（「网页」下面，比如微信读书，CN-36）：开着的插件里声明了 entry 的才有。
+ * 点了右栏打开它的网址，已经开着这个网站就切过去；它亮着（右栏网页正在看这个网站）时再点 = 收起右栏，和竖条别的格一样。
+ */
+export function usePluginEntries(cur: { webOpen: boolean; url: string | null }, act: { open(url: string, reuse: string): void; close(): void }) {
+  const list = usePlugins()
+  return list.flatMap((i) => {
+    if (!i.enabled || !i.entry) return []
+    const t = entryTarget(i.entry)
+    const on = cur.webOpen && !!cur.url?.startsWith(t.reuse)
+    return [{ id: `plugin-${i.id}`, label: i.entry.name, icon: i.entry.icon as CodiconName, on, onClick: () => (on ? act.close() : act.open(t.url, t.reuse)) }]
+  })
 }
 
 /** 某个内置插件开着没有 */

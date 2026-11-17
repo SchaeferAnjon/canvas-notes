@@ -343,14 +343,14 @@ function Pill(props: { kind: 'growing' | 'done'; total: number; unsure: number; 
       {props.kind === 'growing' ? (
         <>
           <span className="pd" />
-          正在放上白板 · {props.shown} / {props.total} 个
+          {`正在放上白板 · ${props.shown} / ${props.total}个`}
         </>
       ) : (
         <>
           <Codicon name="check" size={14} />
           {props.unsure ? (
             <span>
-              放好了 {props.total} 个节点，<b className="yel">{props.unsure} 个拿不准</b>，点「?」对照照片改 · {where}
+              {`放好了${props.total}个节点，`}<b className="yel">{`${props.unsure}个拿不准`}</b>，点「?」对照照片改 · {where}
             </span>
           ) : (
             <span>做好了，{where}{props.inbox ? ' · 今晚梦游时归类、起名' : ''}</span>
@@ -417,7 +417,7 @@ function FixPop(props: { overlay: HTMLElement; anchor: HTMLElement | null; node:
   return createPortal(
     <div className="mm-fix" role="dialog" aria-label="照片上这块写的是？" style={pos ?? { visibility: 'hidden' }} onPointerDown={(e) => e.stopPropagation()}>
       <h4>照片上这块写的是？</h4>
-      <p className="help">左边照片上框出来的就是这一块。字写得潦草，AI 读成了「{props.node.text}」。</p>
+      <p className="help">左边照片上框出来的就是这一块。字写得潦草，AI读成了「{props.node.text}」。</p>
       <input
         ref={input}
         aria-label="改成"
@@ -431,7 +431,7 @@ function FixPop(props: { overlay: HTMLElement; anchor: HTMLElement | null; node:
         }}
       />
       <div className="guess">
-        <span className="help">AI 猜：</span>
+        <span className="help">AI猜：</span>
         {guesses.map((g) => (
           <button key={g} className="chip" onClick={() => setV(g)}>
             {g}
@@ -443,7 +443,7 @@ function FixPop(props: { overlay: HTMLElement; anchor: HTMLElement | null; node:
           取消
         </button>
         <button className="btn btn-primary btn-sm" disabled={!v.trim()} onClick={() => props.onOk(v)}>
-          改好了 <span className="kbd-in">↵</span>
+          改好了<span className="kbd-in">↵</span>
         </button>
       </div>
     </div>,

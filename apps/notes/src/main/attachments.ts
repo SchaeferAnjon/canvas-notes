@@ -1,12 +1,13 @@
 /**
  * 附件：文档里插图片时把文件拷进库的「附件/」，笔记里写相对链接；
  * 界面用 cn-file://vault/<库里的路径> 显示库里的图片（只认库里的图片文件）；
- * cn-file://app/backgrounds/<文件名> 是设置里自己选的窗口背景（存在软件设置目录）。
+ * cn-file://app/backgrounds/<文件名> 是设置里自己选的窗口背景，cn-file://app/pasted/<文件名> 是 AI 输入框里粘贴的图，cn-file://app/thumbs/<文件名> 是课件封面（都存在软件设置目录）。
  */
 import { dialog, ipcMain, net, protocol, type BrowserWindow } from 'electron'
 import { copyFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { attachmentDir } from '@cn/format'
 import { EXT_SCHEME } from '../shared/bookmarkkeeper'
 import type { Vault } from './vault'
 
@@ -70,16 +71,19 @@ export function registerAttachments(getVault: () => Vault, getWin: () => Browser
       return dreamHtml(rel).then((t) => (t === null ? new Response('梦游报告里没有这个文件', { status: 404 }) : new Response(t, { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': HTML_CSP } })))
     if (!IMAGE_EXT.includes(extname(rel).slice(1).toLowerCase())) return new Response('不认识的文件', { status: 404 })
     if (url.host === 'vault') return net.fetch(pathToFileURL(getVault().abs(rel)).toString())
-    if (url.host === 'app' && parts.length === 2 && parts[0] === 'backgrounds' && !/[\\/]|^\.\.?$/.test(parts[1]!))
-      return net.fetch(pathToFileURL(join(appDir, 'backgrounds', parts[1]!)).toString())
+    // 设置目录里的：自己选的窗口背景、AI 输入框里粘贴的图
+    if (url.host === 'app' && parts.length === 2 && (parts[0] === 'backgrounds' || parts[0] === 'pasted' || parts[0] === 'thumbs') && !/[\\/]|^\.\.?$/.test(parts[1]!))
+      return net.fetch(pathToFileURL(join(appDir, parts[0], parts[1]!)).toString())
     return new Response('不认识的文件', { status: 404 })
   })
-  ipcMain.handle('attach:pickImage', async () => {
+  ipcMain.handle('attach:pickImage', async (_e, note: unknown) => {
     const vault = getVault()
     const win = getWin()
     const opts = { title: '插入图片', buttonLabel: '插入', properties: ['openFile' as const], filters: [{ name: '图片', extensions: IMAGE_EXT }] }
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     if (r.canceled || !r.filePaths[0]) return null
-    return copyIntoVault(vault, r.filePaths[0])
+    // 拷进这篇自己的附件文件夹（CN-40 A）
+    const folder = typeof note === 'string' && /\.md$/i.test(note) && !note.split('/').includes('..') ? attachmentDir(note) : ATTACHMENTS
+    return copyIntoVault(vault, r.filePaths[0], folder)
   })
 }

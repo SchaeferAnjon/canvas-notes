@@ -1,10 +1,12 @@
 /** 主进程和界面之间的接口，preload 按这个暴露成 window.cn */
 
 import type { AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from './agent'
+import type { AiFeature, AiPrefs } from './ai-features'
 import type { Appearance, AppSettings } from './appearance'
 import type { ThemeFile } from './vscode-theme'
 import type { HomeConfig } from './home'
 import type { NoteKind } from './layout'
+import type { DiffResult, DiffSource } from './diff'
 
 export interface VaultInfo {
   path: string
@@ -22,10 +24,14 @@ export interface NoteFile {
   topic?: string
   /** 收件箱和素材才有：前几行 */
   preview?: string
+  /** 每篇都有：开头一行正文（去掉第一行的标题），「最近」页和文件夹首页的一行预览 */
+  excerpt?: string
   /** frontmatter 里的 source（剪藏来源） */
   source?: string
   /** frontmatter 里 draft: true（AI 写的草稿） */
   draft?: boolean
+  /** 数据库的一条（它所在的文件夹是库里某个数据库的数据源）：数据源文件夹的名字，「最近」里标出是哪个表的 */
+  table?: string
   /** frontmatter 里 type: board 的是白板 */
   /** nodes：导图白板的节点数（导图的节点不算卡片） */
   board?: { color: string; cards: number; icon?: string; thumb: ThumbRect[]; nodes?: number }
@@ -38,7 +44,8 @@ export interface OpenedNote {
 }
 
 export type WriteResult =
-  | { ok: true }
+  /** recreated：文件已经不在了，字存回了这个位置（文件夹没了也建回来） */
+  | { ok: true; recreated?: string }
   /** 磁盘上的已经不是 base 了：先合并再写 */
   | { ok: false; diskText: string }
 
@@ -52,15 +59,20 @@ export interface GitState {
   hasRemote: boolean
   /** 上次同步成功的时间（毫秒） */
   lastSync: number | null
+  /** 最近一次同步没成功：什么时候、中文原因（之后成功了就是 null） */
+  syncError: { at: number; text: string } | null
   /** 自动提交的间隔（分钟） */
   autoCommitMinutes: number
+  /** 最近一次自动提交没成功：什么时候、中文原因（之后提交上了就是 null） */
+  autoCommitError: { at: number; text: string } | null
 }
 
 export interface CommitInfo {
   hash: string
   date: string
   subject: string
-  files: { path: string; added: number; removed: number }[]
+  /** exists：这个路径现在库里还有文件（历史面板右键「打开」能不能点）；只有 history() 给 */
+  files: { path: string; added: number; removed: number; exists?: boolean }[]
 }
 
 export type SyncOutcome =
@@ -77,10 +89,12 @@ export interface CnApi {
   writeNote(path: string, text: string, base: string): Promise<WriteResult>
   /** 把冲突的那一版另存一份，返回新文件的相对路径 */
   saveConflictCopy(path: string, text: string): Promise<string>
+  /** 写不进去时把编辑器里的字另存一篇（into：上次另存的那篇，覆盖它）；返回另存的相对路径 */
+  rescueNote(path: string, text: string, into?: string): Promise<string>
   /** 在 folder（'' 是库根目录）里新建一篇，名字重了自动加序号；返回相对路径 */
   createNote(folder: string, name: string, text: string): Promise<string>
-  /** 改名（同一个文件夹里），别的笔记里的 [[旧名]] 一起改；返回新路径 */
-  renameNote(path: string, newName: string): Promise<string>
+  /** 改名（同一个文件夹里），别的笔记里的 [[旧名]] 一起改；返回新路径。free：重名时加「 2」，不报错（第一行标题跟着改名时用） */
+  renameNote(path: string, newName: string, free?: boolean): Promise<string>
   /** 新建白板，返回相对路径 */
   createBoard(folder: string, name: string): Promise<string>
   /** 移到废纸篓（Git 里也算删除，能从历史找回） */
@@ -102,8 +116,10 @@ export interface CnApi {
   /** 问 AI 一次；id 用来中途停 */
   aiAsk(id: number, system: string, prompt: string): Promise<string>
   aiStop(id: number): Promise<void>
-  /** AI 改文件：一次提交（提交说明前面加「AI：」）；没有改动返回 null */
-  aiChange(change: AiChange): Promise<CommitInfo | null>
+  /** AI 改文件：一次提交（提交说明前面加「AI：」）；没有改动返回 null；写进文件了、只是没提交上返回 AiCommitFailed */
+  aiChange(change: AiChange): Promise<CommitInfo | null | AiCommitFailed>
+  /** 「再提交一次」：只提交 AI 那次改的文件，用原来的提交说明 */
+  aiCommit(paths: string[], message: string): Promise<CommitInfo | null>
   /** 撤回 AI 的那次提交（反向提交），返回新的提交 */
   aiRevert(hash: string): Promise<CommitInfo | null>
   search(q: string): Promise<SearchHit[]>
@@ -118,9 +134,8 @@ export interface CnApi {
   sync(): Promise<SyncOutcome>
   history(limit: number): Promise<CommitInfo[]>
   /** 某次提交里某个文件改了什么；exists：这个文件现在还在不在 */
-  commitFileDiff(hash: string, path: string): Promise<{ diff: DreamDiffFile | null; exists: boolean }>
-  /** 选一张图片拷进库的「附件/」，返回库里的相对路径；取消返回 null */
-  pickImage(): Promise<string | null>
+  /** 选一张图片拷进这篇笔记的附件文件夹（`附件/<笔记路径>/`），返回库里的相对路径；取消返回 null */
+  pickImage(note?: string): Promise<string | null>
   /** 软件设置（外观、自动提交间隔），存在软件设置目录 */
   settings(): Promise<AppSettings>
   setSettings(patch: { appearance?: Partial<Appearance>; autoCommitMinutes?: number; archiveDays?: number; autoUpdate?: boolean }): Promise<AppSettings>
@@ -143,8 +158,15 @@ export interface CnApi {
   gitRemote(): Promise<{ name: string; url: string } | null>
   /** 设远程地址（只改本机配置，不联网） */
   setGitRemote(url: string): Promise<{ name: string; url: string } | null>
+  /** 提交署名（全局或库里设的；local：写在这个库里）；缺名字或邮箱是 null */
+  gitIdentity(): Promise<{ name: string; email: string; local: boolean } | null>
+  /** 改这个库的提交署名（只写库里的 .git/config），返回改后的 */
+  setGitIdentity(name: string, email: string): Promise<{ name: string; email: string; local: boolean } | null>
   /** 库里的文件被外部改了（同步、AI、别的软件）。自己刚写的不报。 */
   onNoteChanged(cb: (path: string, text: string) => void): () => void
+  /** 开着的笔记在外面改了名（访达、同步盘；内容一样）：标签、编辑器跟到新路径 */
+  /** own：软件自己挪的（梦游收下、撤回），不是在外面改的 */
+  onNoteRenamed(cb: (from: string, to: string, own: boolean) => void): () => void
   /** 文件增删 */
   onFilesChanged(cb: () => void): () => void
   updateStatus(): Promise<UpdateState>
@@ -165,11 +187,19 @@ export interface CnApi {
 
   // ---------- AI 浮窗（类型见 shared/agent.ts） ----------
   /** 本机找到的 AI 命令行和现在选的那家 */
-  aiEngines(): Promise<{ engines: EngineInfo[]; current: EngineId }>
+  aiEngines(): Promise<{ engines: EngineInfo[]; current: EngineId; label: string }>
+  /** AI 浮窗、边读边问头上的引擎菜单：改「AI 对话」用哪家（= 设置 › AI 里那一行），不动默认 */
   aiSetEngine(id: EngineId): Promise<void>
+  /** 设置 › AI 改了（设置页、引擎菜单）：开着的 AI 面板重新取用哪家 */
+  onAiPrefsChanged(cb: () => void): () => void
+  /** 设置 › AI：默认和每个功能用哪家哪个模型，各功能现在实际用的名字（CN-44） */
+  aiPrefs(): Promise<AiPrefsView>
+  aiSetPrefs(p: AiPrefs): Promise<AiPrefsView>
   /** 跑一轮对话：AI 能用工具操纵网页、白板、文档；字和工具步骤从 onAiEvent 边做边来 */
   aiTurn(req: TurnRequest): Promise<TurnResult>
   aiTurnStop(id: number): Promise<void>
+  /** AI 输入框里粘贴 / 拖进来的图：存进软件设置目录，返回名字（发问时带上，界面用 cn-file://app/pasted/<名字> 显示） */
+  aiPaste(bytes: Uint8Array, mime: string): Promise<string>
   /** 对话记录存在软件设置目录（不进库），关了再开还在 */
   aiChatLoad(): Promise<StoredMsg[]>
   aiChatSave(msgs: StoredMsg[]): Promise<void>
@@ -181,6 +211,10 @@ export interface CnApi {
 
   /** 找重复：整个库里讲同一件事的笔记对，像的在前。只给建议，不改文件（AI 的 /找重复 调它，参数是 { webUrl }，用不上） */
   findDuplicates(arg?: { webUrl: string | null }): Promise<DuplicatePair[]>
+  /** 找重复算的时候：已比完几篇（共几篇；total 是 0 时还在读、切字）、这次新找到的几对 */
+  onDuplicatesProgress(cb: (p: { done: number; total: number; pairs: DuplicatePair[] }) => void): () => void
+  /** 找重复「停下」：直接结束算的那个进程，findDuplicates 报「停下了」 */
+  stopDuplicates(): Promise<void>
   /** 梦游：最近一份报告，没梦游过是 null */
   dreamReport(): Promise<DreamReport | null>
   /** 现在梦游（不等闲时），跑完返回新报告；正在跑时等它跑完（AI 的 /现在梦游 调它，参数是 { webUrl }，用不上） */
@@ -201,7 +235,8 @@ export interface CnApi {
   dreamRedo(ids: string[], feedback: string): Promise<{ report: DreamReport; changed: number }>
   dreamRedoStop(): Promise<void>
   /** 这一条改了什么（那个提交的 diff） */
-  dreamDiff(id: string): Promise<DreamDiffFile[]>
+  /** 对比标签要的两版全文（历史的一次提交、梦游的一条、可能重复的两篇、某次提交时的一个文件） */
+  diffFiles(src: DiffSource): Promise<DiffResult>
   /** 梦游开始、跑完、报告变了 */
   onDream(cb: (report: DreamReport | null, running: boolean) => void): () => void
 }
@@ -216,17 +251,19 @@ export interface DuplicatePair {
 
 /** file：归类和改名（收件箱里的挪进课程、项目、生活、写作、素材，顺手起好名字） */
 /** viz：今天卡得最久的几处做的可视化（新的 HTML，挂到读 PDF 笔记那一段） */
-export type DreamGroup = 'file' | 'viz' | 'link' | 'dup' | 'week'
+export type DreamGroup = 'attach' | 'file' | 'viz' | 'link' | 'dup' | 'week'
 
 export interface DreamItem {
   id: string
   group: DreamGroup
   /** 一行标题：哪篇 */
   title: string
-  /** 第二行：→ 素材/旅行、↔ [[x]]、相似度 72% */
+  /** 第二行：→ 素材/旅行、↔ [[x]]、相似度72% */
   sub: string
   /** 为什么这么改 */
   why: string
+  /** 哪家哪个模型做的（可视化写：「Claude Code · Opus 5.5」） */
+  by?: string
   /** dream 分支上的提交；可能重复的只是提醒，没有提交 */
   commit: string | null
   /** 涉及的文件（相对路径） */
@@ -240,6 +277,15 @@ export interface DreamItem {
   redo?: string
   /** 重做时在分支上多出的提交，收下时跟在 commit 后面一起合进来 */
   redoCommits?: string[]
+  /** 梦游动手时自己记下的「改了什么」，每个文件一句人话（侧栏只列这一句，点了开对比标签） */
+  changes?: { path: string; text: string }[]
+  /** 老图挪进各篇自己的附件文件夹：每张从哪到哪、不挪的和原因、改了几处链接（预览标签按笔记分组列出来） */
+  oldImages?: {
+    moves: { from: string; to: string; note: string; section: string }[]
+    kept: { path: string; why: 'shared' | 'unused' | 'inbox' | 'clash'; notes: string[] }[]
+    /** 每篇举一处链接改动 */
+    examples: { note: string; before: string; after: string; count: number }[]
+  }
 }
 
 export interface DreamReport {
@@ -276,19 +322,17 @@ export interface UpdateState {
   inApps: boolean
 }
 
-export interface DreamDiffFile {
-  path: string
-  /** 挪动时的旧路径 */
-  from?: string
-  status: 'new' | 'changed' | 'moved' | 'deleted'
-  /** a 加的行、d 删的行、c 上下文、gap 中间省略 */
-  lines: { k: 'a' | 'd' | 'c' | 'gap'; t: string }[]
-}
-
 export interface Clip {
   text: string
   url: string
   title: string
+}
+
+/** AI 的改动写进文件了、只是没提交上：中文原因，和那次改了的文件、提交说明（「再提交一次」照原样提交，提交上了照样能撤回） */
+export interface AiCommitFailed {
+  failed: string
+  paths: string[]
+  message: string
 }
 
 export interface AiChange {
@@ -326,4 +370,12 @@ export interface ThumbRect {
   w: number
   h: number
   k: 'n' | 'c' | 'i' | 'l' | 'm'
+}
+
+/** 设置 › AI 那一页要的 */
+export interface AiPrefsView {
+  prefs: AiPrefs
+  /** 各功能实际用的「Claude Code · Opus 5.5」 */
+  labels: Record<AiFeature, string>
+  engines: EngineInfo[]
 }

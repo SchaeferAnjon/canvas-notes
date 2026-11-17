@@ -1,4 +1,5 @@
 import { titleOf } from '../shared/layout'
+import { app } from './ctx/actions'
 
 /** 右键「重命名」后原地改名的输入框：回车或点别处改，esc 不改 */
 export function RenameInput(props: { path: string; onDone(): void; onRename(path: string, name: string): void }) {
@@ -22,4 +23,9 @@ export function RenameInput(props: { path: string; onDone(): void; onRename(path
       }}
     />
   )
+}
+
+/** 文件夹原地改名（左栏课程列表、素材主题、目录树）：库里指向它的链接主进程一起改 */
+export function FolderRename(props: { folder: string; onDone(): void }) {
+  return <RenameInput path={props.folder} onDone={props.onDone} onRename={(f, name) => void app().renameFolder(f, name)} />
 }

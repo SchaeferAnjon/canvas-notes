@@ -9,6 +9,7 @@ import {
   newId,
   num,
   parseBoard,
+  reconcile,
   parseLinks,
   placeLoose,
   serializeBoard,
@@ -41,6 +42,7 @@ import {
   TODO_BODY,
 } from './board-drop'
 import { CardBody, classify, TODO } from './CardBody'
+import { sayMerged, saySameSpot } from './conflict-say'
 import { openVideo } from './video/actions'
 import { boardMomentStats } from './video/board'
 import { momentsTitle, videoKeyOfCard, videoUrlOfCard } from './video/BoardCards'
@@ -50,6 +52,7 @@ import { MindmapLayer } from './mindmap/MindmapLayer'
 import { app } from './ctx/actions'
 import { align, duplicateCard, intoNewColumn, takeOut, tidyGrid } from './ctx/board-ops'
 import { type MenuEntry, showMenu } from './ctx/menu'
+import { clampZoom, fitZoom, stepZoom, wheelZoom } from './board-zoom'
 
 type Drag =
   | { type: 'block'; id: string; start: Pt; origin: Pt; moved: boolean; delta: Pt }
@@ -57,6 +60,11 @@ type Drag =
   | { type: 'loose'; key: string; text: string; inboxPath?: string; at: Pt; client: Pt }
   /** 从工具板按住拖出来的新东西；over：现在松手会落在画布上（不在工具板、浮层上，也不在画布外） */
   | { type: 'pal'; kind: PalKind; start: Pt; client: Pt; moved: boolean; over: boolean; map?: boolean }
+
+/** 左边竖着的工具板（左 16、宽 64）占的地方：画布整体往右让这么多，从 x=0 摆起的列、卡不被它盖住（第 2 轮写作区存疑） */
+const PAL_ROOM = 96
+/** 上边让出的高：右上「N未整理」（上 16、高 32）下面再空 16，从 y=0 摆起的卡不贴标签条、不被它压住（第 3 轮美学） */
+const TOP_ROOM = 64
 
 const PAL: { kind: PalKind; label: string; title: string; icon: CodiconName }[] = [
   { kind: 'card', label: '卡片', title: '新卡片', icon: 'note' },
@@ -70,7 +78,15 @@ export interface BoardViewProps {
   /** 这块白板的文件：拖进来的图片按它算相对路径 */
   notePath: string
   notes: NoteFile[]
+  /** 画布上真正的比例 = zoom × 让位系数（AI 浮窗或右栏开着时 0.8） */
   scale: number
+  /** 用户自己选的比例（board-zoom.ts），改了交给 onZoom（NoteTab 记在本机） */
+  zoom: number
+  onZoom(z: number): void
+  /** 这个标签在前面：⌘+ / ⌘− / ⌘0 / ⇧⌘1 才归它 */
+  active: boolean
+  /** 标签条右端「80% ▾」菜单用：放大、缩小、100%、适合窗口 */
+  zoomApi?: React.MutableRefObject<BoardZoomApi | null>
   readOnly: boolean
   onChange(text: string): void
   onUndo(): void
@@ -78,6 +94,25 @@ export interface BoardViewProps {
   onOpen(path: string): void
   onCreateSubBoard(): Promise<string | null>
   onNotice(t: string): void
+  /** 卡片正在改字时登记「把框里的字存回去」（关标签、关窗口、退出时叫，和点别处一样）；改完登记 null */
+  onDraft?(flush: (() => void) | null): void
+}
+
+/** 改字框开着时向 NoteDoc 登记：关标签、退出前先把框里的字存回去 */
+function useDraft(onDraft: BoardViewProps['onDraft'], flush: () => void) {
+  const f = useRef(flush)
+  f.current = flush
+  useEffect(() => {
+    onDraft?.(() => f.current())
+    return () => onDraft?.(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+}
+
+export interface BoardZoomApi {
+  step(dir: 1 | -1): void
+  set(z: number): void
+  fit(): void
 }
 
 export function BoardView(props: BoardViewProps) {
@@ -118,6 +153,89 @@ export function BoardView(props: BoardViewProps) {
     },
     [props, text],
   )
+
+  // ---------- 缩放（CN-20）：以鼠标（键盘、菜单是画面正中）为中心，缩完把那一点留在原处 ----------
+  const factor = props.zoom > 0 ? scale / props.zoom : 1
+  /** 画布左边给工具板让出的宽（只读时没有工具板，不让） */
+  const room = props.readOnly ? 0 : PAL_ROOM
+  const roomTop = TOP_ROOM
+  const liveZoom = useRef(props.zoom)
+  const pendingScroll = useRef<{ left: number; top: number } | null>(null)
+  const zoomTo = (next: number, anchor?: { x: number; y: number }) => {
+    const w = wrap.current
+    const z = clampZoom(next)
+    if (!w || z === liveZoom.current) return
+    const oldS = liveZoom.current * factor
+    const newS = z * factor
+    const r = w.getBoundingClientRect()
+    const ax = anchor ? anchor.x - r.left : w.clientWidth / 2
+    const ay = anchor ? anchor.y - r.top : w.clientHeight / 2
+    const from = pendingScroll.current ?? { left: w.scrollLeft, top: w.scrollTop }
+    // 画布左边让出了 room（不随缩放变），换算时扣掉
+    pendingScroll.current = { left: ((from.left + ax - room) / oldS) * newS - ax + room, top: ((from.top + ay - roomTop) / oldS) * newS - ay + roomTop }
+    liveZoom.current = z
+    props.onZoom(z)
+  }
+  const fit = () => {
+    const w = wrap.current
+    if (!w) return
+    const all = Object.values(rects)
+    const box = all.length
+      ? (() => {
+          const x = Math.min(...all.map((r) => r.x))
+          const y = Math.min(...all.map((r) => r.y))
+          return { x, y, w: Math.max(...all.map((r) => r.x + r.w)) - x, h: Math.max(...all.map((r) => r.y + r.h)) - y }
+        })()
+      : null
+    const z = fitZoom(box, { w: w.clientWidth - room, h: w.clientHeight - roomTop }, factor)
+    const s = z * factor
+    const to = box ? { left: Math.max(0, (box.x - 40) * s), top: Math.max(0, (box.y - 40) * s) } : { left: 0, top: 0 }
+    if (z === liveZoom.current) return void ((w.scrollLeft = to.left), (w.scrollTop = to.top))
+    pendingScroll.current = to
+    liveZoom.current = z
+    props.onZoom(z)
+  }
+  const zoomRef = useRef({ zoomTo, fit })
+  zoomRef.current = { zoomTo, fit }
+  if (props.zoomApi) props.zoomApi.current = { step: (d) => zoomTo(stepZoom(liveZoom.current, d)), set: (z) => zoomTo(z), fit }
+  useLayoutEffect(() => {
+    liveZoom.current = props.zoom
+    const p = pendingScroll.current
+    pendingScroll.current = null
+    if (p && wrap.current) {
+      wrap.current.scrollLeft = p.left
+      wrap.current.scrollTop = p.top
+    }
+  }, [scale, props.zoom])
+  // 触控板捏合（Chromium 当成按着 ctrl 的滚轮）、按住 ⌘ 滚轮
+  useEffect(() => {
+    const w = wrap.current
+    if (!w) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      zoomRef.current.zoomTo(wheelZoom(liveZoom.current, e.deltaY), { x: e.clientX, y: e.clientY })
+    }
+    w.addEventListener('wheel', onWheel, { passive: false })
+    return () => w.removeEventListener('wheel', onWheel)
+  }, [])
+  // ⌘+ / ⌘− / ⌘0 / ⇧⌘1：拦住，不然软件菜单把整个窗口缩放了
+  useEffect(() => {
+    if (!props.active) return
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey || e.altKey || e.ctrlKey) return
+      const z = zoomRef.current
+      if (e.key === '=' || e.key === '+') z.zoomTo(stepZoom(liveZoom.current, 1))
+      else if (e.key === '-' || e.key === '_') z.zoomTo(stepZoom(liveZoom.current, -1))
+      else if (e.key === '0' && !e.shiftKey) z.zoomTo(1)
+      else if (e.code === 'Digit1' && e.shiftKey) z.fit()
+      else return
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [props.active])
 
   // 量每张卡和列在画布上的位置，连线和落点都靠它
   useLayoutEffect(() => {
@@ -202,6 +320,46 @@ export function BoardView(props: BoardViewProps) {
     if (i === -1) return
     if (body.trim() === '' && doc.blocks[i]!.kind === 'card') return removeBlocks(new Set([id]))
     commit({ ...doc, blocks: doc.blocks.map((b, j) => (j === i ? withContent(b, body) : b)) })
+  }
+
+  /**
+   * 改卡的框开着时外面（同步盘、另一台机器、AI）改了这块白板：存下时和文档白板「改字」弹层、文档里打字一样三方合并
+   * （第 5 轮：以前拿框里的字直接写进现在的白板，外面改的同一张卡整段没了，没副本、没提示）。
+   * 底 = 打开框时的全文，我的 = 底里换掉这张卡，外面的 = 现在的全文；同一处合不了就留我的，外面那版存成冲突副本并在底栏说
+   */
+  const editBase = useRef<{ id: string; text: string } | null>(null)
+  useEffect(() => {
+    if (!editing) editBase.current = null
+    // 新建的卡：写进文件后才轮到这里，等这张卡出现在白板里再记
+    else if (editBase.current?.id !== editing && parseBoard(text).blocks.some((b) => attr(b, 'id') === editing)) editBase.current = { id: editing, text }
+  }, [editing, text])
+  function saveEdited(id: string, body: string) {
+    const base = editBase.current?.id === id ? editBase.current.text : null
+    editBase.current = null
+    if (base === null || base === text) return setContent(id, body)
+    const baseDoc = parseBoard(base)
+    const i = baseDoc.blocks.findIndex((b) => attr(b, 'id') === id)
+    if (i === -1) return setContent(id, body)
+    const mine = serializeBoard(
+      body.trim() === '' && baseDoc.blocks[i]!.kind === 'card'
+        ? { ...baseDoc, blocks: baseDoc.blocks.filter((_, j) => j !== i) }
+        : { ...baseDoc, blocks: baseDoc.blocks.map((b, j) => (j === i ? withContent(b, body) : b)) },
+    )
+    if (props.readOnly) return
+    const r = reconcile(base, mine, text)
+    if (r.kind === 'none') return
+    if (r.kind === 'update') {
+      if (r.text !== text) props.onChange(r.text)
+      if (r.merged) props.onNotice(sayMerged(props.notePath))
+      return
+    }
+    const theirs = text
+    const others = r.text !== mine
+    props.onChange(r.text)
+    void window.cn.saveConflictCopy(props.notePath, theirs).then(
+      (copy) => props.onNotice(saySameSpot(props.notePath, others, { path: copy })),
+      (e) => props.onNotice(saySameSpot(props.notePath, others, { error: String((e as Error).message ?? e) })),
+    )
   }
 
   function setBlockAttrs(id: string, changes: Record<string, string | number | undefined>) {
@@ -591,18 +749,20 @@ export function BoardView(props: BoardViewProps) {
         {editing === id && info.kind === 'todo' ? (
           <TodoEditor
             initial={body}
+            onDraft={props.onDraft}
             focusLine={editRow.current}
             onDone={(v) => {
               setEditing(null)
-              if (v !== null) setContent(id, v)
+              if (v !== null) saveEdited(id, v)
             }}
           />
         ) : editing === id ? (
           <CardEditor
             initial={body}
+            onDraft={props.onDraft}
             onDone={(v) => {
               setEditing(null)
-              if (v !== null) setContent(id, v)
+              if (v !== null) saveEdited(id, v)
               else if (body.trim() === '') removeBlocks(new Set([id]))
             }}
           />
@@ -621,7 +781,7 @@ export function BoardView(props: BoardViewProps) {
             }}
           />
         )}
-        {attr(b, 'ai') && editing !== id && <div className="aifoot">AI 总结的 · {attr(b, 'ai')}</div>}
+        {attr(b, 'ai') && editing !== id && <div className="aifoot">AI总结的 · {attr(b, 'ai')}</div>}
         {!props.readOnly && editing !== id && (
           <span
             className="handle"
@@ -685,7 +845,7 @@ export function BoardView(props: BoardViewProps) {
         setEditing(id)
       }}
     >
-      <div className="plane" ref={plane} style={{ width: extent.w, height: extent.h, transform: `scale(${scale})` }}>
+      <div className="plane" ref={plane} style={{ width: extent.w, height: extent.h, marginLeft: room, marginTop: roomTop, transform: `scale(${scale})` }}>
         <svg className="wires" width={extent.w} height={extent.h}>
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -778,7 +938,7 @@ export function BoardView(props: BoardViewProps) {
                     })
                   }
                 >
-                  {open ? '收起，只摆最近 3 个' : `还有 ${members.length - 3} 个，按时间排`}
+                  {open ? '收起，只摆最近3个' : `还有${members.length - 3}个，按时间排`}
                 </button>
               )}
               {members.length === 0 && <div className="col-empty">把卡片拖进来</div>}
@@ -827,7 +987,9 @@ export function BoardView(props: BoardViewProps) {
 
       <div className={'unsorted' + (unsortedOpen ? ' open' : '')} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
         <button className="h" onClick={() => setUnsortedOpen((v) => !v)} data-testid="unsorted">
-          <b className="num">{unsortedCount}</b> 未整理
+          <span className="num">
+            <b>{unsortedCount}</b>未整理
+          </span>
           <Codicon name="chevron-down" size={14} />
         </button>
         {unsortedOpen && (
@@ -876,7 +1038,7 @@ function PalGhost(props: { kind: PalKind; client: Pt; over: boolean; scale: numb
       <div className={cls + ' bcol'} style={style} data-testid="pal-ghost" data-kind={kind}>
         <h3>
           新的列
-          <span className="meta num">0 张卡片</span>
+          <span className="meta num">0张卡片</span>
         </h3>
         <div className="col-empty">把卡片拖进来</div>
       </div>
@@ -894,7 +1056,7 @@ function PalGhost(props: { kind: PalKind; client: Pt; over: boolean; scale: numb
           <span className="sq" />
           <span>
             <b>子白板</b>
-            <span className="meta num">0 张卡片</span>
+            <span className="meta num">0张卡片</span>
           </span>
         </div>
       )}
@@ -941,9 +1103,8 @@ function ColumnTitle(props: { title: string; count: number; sub?: string; unit?:
     <h3 onPointerDown={props.onDown} onDoubleClick={(e) => (e.stopPropagation(), setEdit(true))}>
       {props.title}
       {props.sub && <span className="col-sub">{props.sub}</span>}
-      <span className="meta num">
-        {props.count} {props.unit ?? '张卡片'}
-      </span>
+      {/* 数和单位写成一个文本节点（DESIGN.md 字体那条，统一写法） */}
+      <span className="meta num">{`${props.count}${props.unit ?? '张卡片'}`}</span>
     </h3>
   )
 }
@@ -954,7 +1115,7 @@ function isWholeDoc(text: string, body: string): boolean {
 }
 
 /** 待办卡片的编辑：标题一行，下面每条一行勾选框加输入框；回车加一条，空着按退格删这条，esc 不改，点别处存 */
-function TodoEditor(props: { initial: string; focusLine: number | null; onDone(v: string | null): void }) {
+function TodoEditor(props: { initial: string; focusLine: number | null; onDraft: BoardViewProps['onDraft']; onDone(v: string | null): void }) {
   const lines = props.initial.split('\n')
   const head = lines[0] && !TODO.test(lines[0]) ? lines[0].replace(/^#+\s*|\*\*/g, '').trim() : ''
   const [title, setTitle] = useState(head)
@@ -981,6 +1142,7 @@ function TodoEditor(props: { initial: string; focusLine: number | null; onDone(v
     const out = [t.trim() ? `**${t.trim()}**` : null, ...(kept.length ? kept : [{ done: false, text: '' }]).map((r) => `- [${r.done ? 'x' : ' '}] ${r.text.trim()}`)]
     props.onDone(out.filter((l) => l !== null).join('\n'))
   }
+  useDraft(props.onDraft, () => finish(true))
 
   useLayoutEffect(() => {
     const inputs = box.current!.querySelectorAll<HTMLInputElement>('input[type=text]')
@@ -1007,9 +1169,10 @@ function TodoEditor(props: { initial: string; focusLine: number | null; onDone(v
         if (!box.current!.contains(e.relatedTarget as Node | null)) finish(true)
       }}
       onKeyDown={(e) => {
+        if (closesTab(e)) return
         e.stopPropagation()
-        if (e.key === 'Escape') (e.preventDefault(), finish(false))
-        if (e.key === 'Enter' && e.metaKey) (e.preventDefault(), finish(true))
+        // Esc 收起并存下，和文字卡一样（第 4 轮）
+        if (e.key === 'Escape' || (e.key === 'Enter' && e.metaKey)) (e.preventDefault(), finish(true), backToBoard(e.currentTarget))
       }}
     >
       <input
@@ -1053,7 +1216,15 @@ function TodoEditor(props: { initial: string; focusLine: number | null; onDone(v
   )
 }
 
-function CardEditor(props: { initial: string; onDone(v: string | null): void }) {
+/** 用键盘收起改卡（Esc、⌘↵）后焦点回到白板：接着按 ⌘Z 撤回、退格删卡都在白板上 */
+function backToBoard(from: HTMLElement) {
+  from.closest<HTMLElement>('.board')?.focus({ preventScroll: true })
+}
+
+/** ⌘W：改卡的框开着也照样关标签（以前框把所有键都拦下，⌘W 没反应，标签不关、字也不存） */
+const closesTab = (e: React.KeyboardEvent) => e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'w'
+
+function CardEditor(props: { initial: string; onDraft: BoardViewProps['onDraft']; onDone(v: string | null): void }) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const done = useRef(false)
   const finish = (v: string | null) => {
@@ -1061,6 +1232,7 @@ function CardEditor(props: { initial: string; onDone(v: string | null): void }) 
     done.current = true
     props.onDone(v)
   }
+  useDraft(props.onDraft, () => ref.current && finish(ref.current.value))
   useLayoutEffect(() => {
     const t = ref.current!
     t.focus()
@@ -1081,9 +1253,18 @@ function CardEditor(props: { initial: string; onDone(v: string | null): void }) 
       }}
       onBlur={(e) => finish(e.currentTarget.value)}
       onKeyDown={(e) => {
+        // ⌘W 交给软件关标签（关之前先把框里的字存回去）；别的键都留在框里
+        if (closesTab(e)) return
         e.stopPropagation()
-        if (e.key === 'Escape') (e.preventDefault(), finish(null))
-        if (e.key === 'Enter' && e.metaKey) (e.preventDefault(), finish(e.currentTarget.value))
+        // Esc 收起并存下（第 4 轮：以前直接丢掉打的字；文档白板的「改字」弹层 Esc 是存下，两处一样；改错了 ⌘Z 撤回）。
+        // 新建的空卡一个字没打就按 Esc：照旧当没建（null，卡拿掉）
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          const v = e.currentTarget.value
+          finish(v.trim() === '' && props.initial.trim() === '' ? null : v)
+          backToBoard(e.currentTarget)
+        }
+        if (e.key === 'Enter' && e.metaKey) (e.preventDefault(), finish(e.currentTarget.value), backToBoard(e.currentTarget))
       }}
     />
   )

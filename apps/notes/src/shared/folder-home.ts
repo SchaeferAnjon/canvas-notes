@@ -5,9 +5,10 @@
  */
 import type { Cover } from './home'
 
-export type FolderKind = 'course' | 'project' | 'life' | 'writing'
+/** folder：别的文件夹（2026-11-17 起每个文件夹都有首页：默认没有组件，只有下面的内容；编辑首页能加组件） */
+export type FolderKind = 'course' | 'project' | 'life' | 'writing' | 'folder'
 
-export const KIND_LABEL: Record<FolderKind, string> = { course: '课程', project: '项目', life: '生活', writing: '写作' }
+export const KIND_LABEL: Record<FolderKind, string> = { course: '课程', project: '项目', life: '生活', writing: '写作', folder: '文件夹' }
 
 /** 哪些文件夹有首页：课程、项目下面一层；生活、写作本身。课程/、项目/ 这两层只展开 */
 export function folderKind(folder: string): FolderKind | null {
@@ -20,6 +21,12 @@ export function folderKind(folder: string): FolderKind | null {
   return null
 }
 
+/** 首页用哪一套：课程、项目、生活、写作是带组件的；别的文件夹是 folder；不是库里正常的文件夹是 null */
+export function homeKindOf(folder: string): FolderKind | null {
+  if (!folder || folder.split('/').some((x) => x === '' || x === '.' || x === '..' || x.startsWith('.'))) return null
+  return folderKind(folder) ?? 'folder'
+}
+
 /** 左栏「文件夹」里一行：哪个文件夹、什么类、它首页选的图标和颜色 */
 export interface FolderEntry {
   folder: string
@@ -28,7 +35,7 @@ export interface FolderEntry {
   color: string | null
 }
 
-const KIND_ORDER: FolderKind[] = ['course', 'project', 'life', 'writing']
+const KIND_ORDER: FolderKind[] = ['course', 'project', 'life', 'writing', 'folder']
 /** 按 课程、项目、生活、写作 排，同类按名字 */
 export const sortFolders = <T extends { folder: string }>(list: T[]): T[] =>
   [...list].sort((a, b) => KIND_ORDER.indexOf(folderKind(a.folder)!) - KIND_ORDER.indexOf(folderKind(b.folder)!) || a.folder.localeCompare(b.folder, 'zh-CN'))
@@ -81,8 +88,8 @@ export type FSize = 1 | 2 | 4
 
 /** 组件库：名字、一句说明、默认宽、分类（课程的、通用的、按条件列出的） */
 export const FWIDGETS: { type: FWidget; name: string; desc: string; size: FSize; cat: 'course' | 'common' | 'cond' }[] = [
-  { type: 'slides', name: '课件进度', desc: '每份 PDF 问到第几页，点了接着读', size: 2, cat: 'course' },
-  { type: 'review', name: '今天要复习', desc: 'Anki 里这门课今天到期几张', size: 1, cat: 'course' },
+  { type: 'slides', name: '课件进度', desc: '每份PDF的封面和问到第几页，点了接着读', size: 4, cat: 'course' },
+  { type: 'review', name: '今天要复习', desc: 'Anki里这门课今天到期几张', size: 1, cat: 'course' },
   { type: 'exam', name: '考试倒计时', desc: '填个日期，还有几天；下次上课', size: 1, cat: 'course' },
   { type: 'notes', name: '笔记和导图', desc: '这门课的笔记和导图，按第几讲排', size: 2, cat: 'course' },
   { type: 'doubts', name: '我的疑惑', desc: '读课件时问过的，按讲排', size: 2, cat: 'course' },
@@ -92,11 +99,11 @@ export const FWIDGETS: { type: FWidget; name: string; desc: string; size: FSize;
   { type: 'links', name: '快捷链接', desc: '课程网站、老师邮箱、提交页', size: 1, cat: 'common' },
   { type: 'board', name: '嵌一块白板', desc: '这个文件夹的总导图', size: 2, cat: 'common' },
   { type: 'text', name: '自由文本', desc: '老师、教室、考试范围', size: 2, cat: 'common' },
-  { type: 'recent', name: '最近改的', desc: '这个文件夹里最近动过的 5 个', size: 2, cat: 'common' },
+  { type: 'recent', name: '最近改的', desc: '这个文件夹里最近动过的5个', size: 2, cat: 'common' },
   { type: 'progress', name: '进度', desc: '阶段和百分比', size: 2, cat: 'common' },
   { type: 'calendar', name: '日历', desc: '本月，有事的日子标一个点', size: 2, cat: 'common' },
   { type: 'drafts', name: '草稿', desc: '草稿 是 是 的', size: 2, cat: 'cond' },
-  { type: 'clips', name: '素材', desc: '剪藏和书摘，只列书名和条数', size: 2, cat: 'common' },
+  { type: 'clips', name: '素材', desc: '剪藏和书摘，只列主题和篇数', size: 2, cat: 'common' },
   { type: 'list', name: '按条件列出', desc: '自己定条件：类型、第几讲、改过……', size: 2, cat: 'cond' },
 ]
 export const wInfo = (t: FWidget) => FWIDGETS.find((w) => w.type === t)!
@@ -133,7 +140,48 @@ export interface PropFile {
   path: string
   mtimeMs: number
   props: Record<string, string>
+  /** md 里除了开头的「# 标题」什么都没写（新建了还没写的「未命名」） */
+  blank?: boolean
+  /** md 正文（去掉属性和开头的「# 标题」）有几个字，不算空白 */
+  chars?: number
+  /** 数据库的一条（所在文件夹或它上面某一层是某个数据库的数据源）：不算草稿也不算写完 */
+  entry?: boolean
+  /** 数据库主笔记（除了标题只有数据库块）：不算草稿也不算写完 */
+  db?: boolean
 }
+
+const bodyOf = (text: string) => text.replace(/^---\n[\s\S]*?\n---(?:\n|$)/, '').replace(/^\s*# [^\n]*(?:\n|$)/, '')
+
+/** 数据库主笔记：去掉属性、标题后只有 ```base 块（第 5 轮：写作首页把它算成草稿排第一） */
+export function onlyBase(text: string): boolean {
+  const body = bodyOf(text)
+  return /```base\b/.test(body) && body.replace(/^```base\b[\s\S]*?^```[ \t]*$/gm, '').trim() === ''
+}
+
+/** md 正文是不是空的：去掉 frontmatter 和开头的「# 标题」那一行后只剩空白 */
+export function blankNote(text: string): boolean {
+  return bodyOf(text).trim() === ''
+}
+
+/**
+ * md 正文有几个字（不算空白）：写作首页分「草稿」和「写完的」。
+ * 只算写的字：图片（连地址）、注释（白板的位置行）、网址、双链（[[…]]、![[…]]）、代码块不算，链接只算链接上的字
+ * （第 4 轮：只有一串双链、只有代码块的笔记被算成「这个月写完的」文章）
+ */
+export const bodyChars = (text: string) =>
+  Array.from(
+    bodyOf(text)
+      .replace(/^ {0,3}(```|~~~)[^\n]*\n[\s\S]*?^ {0,3}\1[^\n]*$/gm, '')
+      .replace(/!?\[\[[^\]\n]*\]\]/g, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/<?https?:\/\/[^\s>]+>?/g, '')
+      .replace(/\s+/g, ''),
+  ).length
+
+/** 正文不到这么多字、又没标「草稿: 否」的算草稿（只写了一行的新笔记、刚挪进来的一句话不算「写完的」） */
+export const DONE_CHARS = 100
 
 const DAY = 86400_000
 function startOf(span: string, now: Date): number {
@@ -143,8 +191,18 @@ function startOf(span: string, now: Date): number {
   return d.getTime()
 }
 
+/**
+ * 一个文件的「类型」：写了就用写的；没写的 md 算「笔记」（自己手写、别处导进来的笔记也进「笔记和导图」），
+ * 白板（type: board）算「白板」
+ */
+export function typeOfFile(f: PropFile): string {
+  if (f.props['类型']) return f.props['类型']
+  if (!/\.md$/i.test(f.path)) return ''
+  return f.props.type === 'board' ? '白板' : '笔记'
+}
+
 export function matchRule(f: PropFile, r: CondRule, now: Date): boolean {
-  const v = f.props[r.prop] ?? ''
+  const v = r.prop === '类型' ? typeOfFile(f) : (f.props[r.prop] ?? '')
   switch (r.prop) {
     case '类型':
     case '课程': {
@@ -161,7 +219,8 @@ export function matchRule(f: PropFile, r: CondRule, now: Date): boolean {
     case '改过':
       return f.mtimeMs >= startOf(r.value, now) && f.mtimeMs <= now.getTime() + DAY
     case '草稿':
-      return (/^(true|是|yes)$/i.test(f.props.draft ?? f.props['草稿'] ?? '')) === (r.value !== '否')
+      // 数据库的条目、白板既不是草稿也不是写完的文章
+      return !f.entry && !f.db && f.props.type !== 'board' && isDraft(f) === (r.value !== '否')
     case '来源':
       return v.includes(r.value)
   }
@@ -177,26 +236,38 @@ export function runCond(files: PropFile[], c: Cond, now = new Date()): PropFile[
   return hit
 }
 
-const isDraft = (f: PropFile) => /^(true|是|yes)$/i.test(f.props.draft ?? f.props['草稿'] ?? '')
+/**
+ * 草稿：标了「草稿: 是」的；没标的，正文空着或不到 DONE_CHARS 个字的也算（不然只写了一行的「未命名」、刚挪进来的一句话都算成「这个月写完的」）。
+ * 标了「草稿: 否」就算写完，不管多短
+ */
+function isDraft(f: PropFile): boolean {
+  const mark = f.props.draft ?? f.props['草稿'] ?? ''
+  if (/^(true|是|yes)$/i.test(mark)) return true
+  if (/^(false|否|no)$/i.test(mark)) return false
+  return !!f.blank || (f.chars !== undefined && f.chars < DONE_CHARS)
+}
 
 /** 首页标题下那一句：「课程 · 5 讲 · 12 个文件 · 问到第 3 讲」「项目 · 9 个文件 · 这周改了 3 个」「写作 · 2 篇草稿 · 这个月写完 1 篇」 */
 export function leadOf(kind: FolderKind, files: PropFile[], now = new Date()): string {
   if (!files.length) return `${KIND_LABEL[kind]} · 还没有文件`
-  const n = `${files.length} 个文件`
+  const n = `${files.length}个文件`
   if (kind === 'course') {
-    const lectures = new Set(files.map((f) => Number(f.props['第几讲'])).filter((x) => x > 0))
+    // 几讲：认得出第几讲的按讲数；认不出的课件 PDF（名字里没有「第 N 讲」「Lecture N」）每份也算一讲，和左栏「0/5 讲」数得一样
+    const lectures = new Set(files.map((f) => Number(f.props['第几讲'])).filter((x) => x > 0)).size + files.filter((f) => f.props['类型'] === '课件' && !(Number(f.props['第几讲']) > 0)).length
     const asked = Math.max(0, ...files.filter((f) => Number(f.props['问到']) > 0).map((f) => Number(f.props['第几讲']) || 0))
-    return ['课程', ...(lectures.size ? [`${lectures.size} 讲`] : []), n, ...(asked ? [`问到第 ${asked} 讲`] : [])].join(' · ')
+    return ['课程', ...(lectures ? [`${lectures}讲`] : []), n, ...(asked ? [`问到第${asked}讲`] : [])].join(' · ')
   }
   if (kind === 'project') {
     const week = files.filter((f) => f.mtimeMs >= startOf('这周', now)).length
-    return `项目 · ${n}${week ? ` · 这周改了 ${week} 个` : ''}`
+    return `项目 · ${n}${week ? ` · 这周改了${week}个` : ''}`
   }
   if (kind === 'writing') {
-    const done = files.filter((f) => !isDraft(f) && f.mtimeMs >= startOf('这个月', now)).length
-    return `写作 · ${files.filter(isDraft).length} 篇草稿${done ? ` · 这个月写完 ${done} 篇` : ''}`
+    const own = files.filter((f) => !f.entry && !f.db && f.props.type !== 'board' && /\.md$/i.test(f.path))
+    const done = own.filter((f) => !isDraft(f) && f.mtimeMs >= startOf('这个月', now)).length
+    return `写作 · ${own.filter(isDraft).length}篇草稿${done ? ` · 这个月写完${done}篇` : ''}`
   }
-  return `生活 · ${n}`
+  if (kind === 'life') return `生活 · ${n}`
+  return n
 }
 
 export const NOTES_COND: Cond = {
@@ -263,6 +334,7 @@ const DEFAULTS: Record<FolderKind, { icon: string; order: FWidget[]; hidden: FWi
   project: { icon: 'briefcase', order: ['todo', 'progress', 'recent', 'links', 'text'], hidden: [], cover: { kind: 'builtin', id: 'mist' } },
   writing: { icon: 'pen-line', order: ['drafts', 'clips', 'recent', 'list'], hidden: [], cover: { kind: 'builtin', id: 'paper' } },
   life: { icon: 'coffee', order: ['todo', 'calendar', 'recent', 'text'], hidden: [], cover: { kind: 'builtin', id: 'kirkjufell' } },
+  folder: { icon: 'folder', order: [], hidden: [], cover: { kind: 'builtin', id: 'mist' } },
 }
 
 function seed(t: FWidget, kind: FolderKind): WidgetData {

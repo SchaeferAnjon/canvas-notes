@@ -2,6 +2,8 @@
  * 调系统 git 命令（SSH、钥匙串直接能用）。每个调用都有超时；git 报错原样抛出。
  */
 import { execFile } from 'node:child_process'
+import { stat, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 
 export class GitError extends Error {
   constructor(
@@ -75,6 +77,8 @@ export interface FileStatus {
   path: string
   /** 两个字母的状态，同 git status --porcelain：' M'、'??'、'A ' 等 */
   code: string
+  /** 改名（R）、复制（C）的旧路径 */
+  from?: string
 }
 
 export async function status(dir: string): Promise<FileStatus[]> {
@@ -92,17 +96,51 @@ export function parseStatus(out: string): FileStatus[] {
     const p = parts[i]!
     if (!p) continue
     const code = p.slice(0, 2)
-    items.push({ path: p.slice(3), code })
-    if (code[0] === 'R' || code[0] === 'C') i++ // 改名时下一段是旧路径
+    // 改名时下一段是旧路径
+    if (code[0] === 'R' || code[0] === 'C') items.push({ path: p.slice(3), code, from: parts[++i]! })
+    else items.push({ path: p.slice(3), code })
   }
   return items
 }
 
+/** 别的 git 进程正占着 index.lock */
+export const isLocked = (e: unknown) => e instanceof GitError && /index\.lock|Unable to create .*\.lock|another git process/i.test(e.stderr || e.message)
+
+/**
+ * 要写 index 的那一步（add、commit）撞上别的 git 进程正占着 index.lock（终端、编辑器、测试里不带 --no-optional-locks 的
+ * git status 都会短暂占着，软件自己两处同时提交也会）：等一下这一步再来，最多 6 次（共约 1.8 秒）。
+ * 不等的话 add 已经暂存、commit 却失败，暂存的改动就一直挂着没提交（删文件夹后留下「D 写作/冰岛/.gitkeep」）。
+ * 只重来撞锁的那一步：add 成功后整段重来，已经暂存的删除再 add 会报「pathspec did not match」。
+ * 锁一直不放（上次 git 崩了留下的）照样报错。
+ */
+async function gitLocking(dir: string, args: string[]): Promise<string> {
+  for (let i = 0; ; i++) {
+    try {
+      return await git(dir, args)
+    } catch (e) {
+      if (!isLocked(e) || i >= 5) throw e
+      await new Promise((r) => setTimeout(r, 120 * (i + 1)))
+    }
+  }
+}
+
 /** 把所有改动提交成一次；没有改动时返回 null */
 export async function commitAll(dir: string, message: string): Promise<string | null> {
-  await git(dir, ['add', '-A'])
+  await gitLocking(dir, ['add', '-A'])
   if ((await status(dir)).length === 0) return null
-  await git(dir, ['commit', '-q', '-m', message])
+  await gitLocking(dir, ['commit', '-q', '-m', message])
+  return (await git(dir, ['rev-parse', 'HEAD'])).trim()
+}
+
+/**
+ * 工作区里没提交的都提交，说明按改了什么写：先暂存再看状态，git 才认得出改名（「挪了 1 个文件：a → b」，
+ * 不是「新增 1 个文件：b；删除 1 个：a」）。没有要提交的返回 null
+ */
+export async function commitPending(dir: string): Promise<string | null> {
+  await gitLocking(dir, ['add', '-A'])
+  const st = await status(dir)
+  if (!st.length) return null
+  await gitLocking(dir, ['commit', '-q', '-m', describeChanges(st)])
   return (await git(dir, ['rev-parse', 'HEAD'])).trim()
 }
 
@@ -160,12 +198,89 @@ export async function setRemote(dir: string, url: string): Promise<void> {
   else await git(dir, ['remote', 'add', 'origin', u])
 }
 
-/** 提交说明：「更新 3 个文件：所思所想、旅行、收件箱/2026-11-15 1403」 */
+export interface Identity {
+  name: string
+  email: string
+  /** 写在这个库自己的配置里（.git/config），不是全局的 */
+  local: boolean
+}
+
+/** 读一项配置；没设返回 null（git config --get 没找到时退出码是 1） */
+async function configGet(dir: string, key: string, scope: string[] = []): Promise<string | null> {
+  try {
+    return (await git(dir, ['config', ...scope, '--get', key])).trim() || null
+  } catch (e) {
+    if (e instanceof GitError) return null
+    throw e
+  }
+}
+
+/** 提交用的署名（全局、系统、库里哪层设的都算）；名字或邮箱缺一样就是 null */
+export async function identity(dir: string): Promise<Identity | null> {
+  const [name, email, localName, localEmail] = await Promise.all([
+    configGet(dir, 'user.name'),
+    configGet(dir, 'user.email'),
+    configGet(dir, 'user.name', ['--local']),
+    configGet(dir, 'user.email', ['--local']),
+  ])
+  if (!name || !email) return null
+  return { name, email, local: !!(localName && localEmail) }
+}
+
+/** 给这个库设署名（只写 .git/config，不碰全局） */
+export async function setIdentity(dir: string, name: string, email: string): Promise<void> {
+  const n = name.trim()
+  const m = email.trim()
+  if (!n || /[<>\n]/.test(n)) throw new Error('名字不能空着，也不能有尖括号')
+  if (!/^[^\s<>@]+@[^\s<>@]+$/.test(m)) throw new Error('邮箱要写成「名字@地方」的样子')
+  await git(dir, ['config', '--local', 'user.name', n])
+  await git(dir, ['config', '--local', 'user.email', m])
+}
+
+/**
+ * 这台 Mac 上 git 没有署名（新 Mac 常见：全局、库里都没设）时，所有提交都会报「作者身份未知」。
+ * 缺哪样就在这个库里补哪样（fallback 是软件猜的名字和邮箱），返回补了什么；已经有就什么都不做、返回 null
+ */
+export async function ensureIdentity(dir: string, fallback: { name: string; email: string }): Promise<{ name?: string; email?: string } | null> {
+  const [name, email] = await Promise.all([configGet(dir, 'user.name'), configGet(dir, 'user.email')])
+  if (name && email) return null
+  const set: { name?: string; email?: string } = {}
+  if (!name) await git(dir, ['config', '--local', 'user.name', (set.name = fallback.name)])
+  if (!email) await git(dir, ['config', '--local', 'user.email', (set.email = fallback.email)])
+  return set
+}
+
+/**
+ * 提交说明：「更新 3 个文件：所思所想、旅行、收件箱/2026-11-15 1403」；新加的写「新增」，删掉的写「删除」，
+ * 挪走的（这边删了、别处新加了同名的）写「挪了 1 个：删测/丁 → 写作/丁」；几样都有时按 更新、新增、挪了、删除 分开写，
+ * 第一样写「个文件」（「更新 2 个文件：甲、乙；删除 1 个：丙」）
+ */
 export function describeChanges(files: FileStatus[]): string {
-  const names = files.map((f) => f.path.replace(/\.md$/i, ''))
-  const shown = names.slice(0, 3).join('、') + (names.length > 3 ? ' 等' : '')
-  const allNew = files.every((f) => f.code === '??' || f.code[0] === 'A')
-  return `${allNew ? '新增' : '更新'} ${files.length} 个文件：${shown}`
+  const name = (p: string) => p.replace(/\.md$/i, '')
+  const list = (fs: string[]) => fs.slice(0, 3).join('、') + (fs.length > 3 ? ' 等' : '')
+  const base = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+  const isNew = (f: FileStatus) => f.code === '??' || f.code[0] === 'A'
+  const gone = files.filter((f) => f.code.includes('D'))
+  const added = files.filter((f) => !f.code.includes('D') && isNew(f))
+  // 挪走：这边删了、别处新加了同名的（或者 git 自己认出的改名）
+  const moves: string[] = files.filter((f) => f.code[0] === 'R' && f.from).map((f) => `${name(f.from!)} → ${name(f.path)}`)
+  const paired = new Set<FileStatus>()
+  for (const g of gone) {
+    const to = added.find((a) => !paired.has(a) && base(a.path) === base(g.path))
+    if (!to) continue
+    paired.add(g).add(to)
+    moves.push(`${name(g.path)} → ${name(to.path)}`)
+  }
+  const groups: [string, string[]][] = [
+    ['更新', files.filter((f) => !f.code.includes('D') && !isNew(f) && f.code[0] !== 'R').map((f) => name(f.path))],
+    ['新增', added.filter((f) => !paired.has(f)).map((f) => name(f.path))],
+    ['挪了', moves],
+    ['删除', gone.filter((f) => !paired.has(f)).map((f) => name(f.path))],
+  ]
+  return groups
+    .filter(([, fs]) => fs.length)
+    .map(([what, fs], i) => `${what} ${fs.length} 个${i === 0 ? '文件' : ''}：${list(fs)}`)
+    .join('；')
 }
 
 /** 从 since 起的提交数 */
@@ -230,25 +345,59 @@ async function revParse(dir: string, ref: string): Promise<string | null> {
 /** 只提交这几个路径（新建、修改、删除都算）；返回提交号，没有改动返回 null */
 export async function commitPaths(dir: string, paths: string[], message: string): Promise<string | null> {
   if (!paths.length) return null
-  await git(dir, ['add', '-A', '--', ...paths])
+  // 已经暂存了删除的（文件不在了、index 里也没了）不再 add：add 会报「pathspec did not match」，整次提交失败
+  const inIndex = new Set((await git(dir, ['ls-files', '-z', '--', ...paths])).split('\0'))
+  const onDisk = await Promise.all(paths.map((p) => stat(join(dir, p)).then(() => true, () => false)))
+  const toAdd = paths.filter((p, i) => onDisk[i] || inIndex.has(p))
+  if (toAdd.length) await gitLocking(dir, ['add', '-A', '--', ...toAdd])
   const staged = (await git(dir, ['diff', '--cached', '--name-only', '-z', '--', ...paths])).split('\0').filter(Boolean)
   if (!staged.length) return null
-  await git(dir, ['commit', '-q', '-m', message, '--', ...paths])
+  await gitLocking(dir, ['commit', '-q', '-m', message, '--', ...paths])
   return (await git(dir, ['rev-parse', 'HEAD'])).trim()
 }
 
-/** 撤回一次提交：再做一次反向提交，返回新的提交号 */
-export async function revert(dir: string, hash: string): Promise<string> {
+export interface RevertOptions {
+  /** 提交说明（不给是「撤回」+ 原来那次的说明，比如「撤回AI：加一行」） */
+  message?: string
+  /**
+   * 按行合不了的文件再试一次：base 是要撤回的那次提交里的样子，ours 是现在的，theirs 是那次提交之前的；
+   * 返回合好的字，合不了给 null
+   */
+  resolve?(base: string, ours: string, theirs: string, path: string): string | null
+  /** 还是合不了时报的那句（files 是合不了的文件） */
+  conflict?(files: string[]): string
+}
+
+/** 撤回一次提交：再做一次反向提交，返回新的提交号。合不了就退回撤回之前，什么都不动 */
+export async function revert(dir: string, hash: string, o: RevertOptions = {}): Promise<string> {
   if (!/^[0-9a-f]{7,40}$/.test(hash)) throw new Error('提交号不对')
-  try {
-    await git(dir, ['revert', '--no-edit', hash])
-  } catch (e) {
-    if (e instanceof GitError) {
-      await git(dir, ['revert', '--abort']).catch(() => undefined)
-      throw new Error('撤回不了：那之后这几处又被改过了，需要手动处理。')
-    }
-    throw e
+  const fail = async (files: string[]) => {
+    await git(dir, ['revert', '--abort']).catch(() => undefined)
+    return new Error(o.conflict?.(files) ?? '撤回不了：那之后这几处又被改过了，需要手动处理。')
   }
+  // 不给说明：用中文「撤回」接上原来那次的说明（AI、剪藏、导入、视频的撤回都走这里；git 自己的是英文「Revert "…"」）
+  const message = o.message ?? `撤回${(await git(dir, ['log', '-1', '--format=%s', hash])).trim()}`
+  try {
+    if (!o.resolve) {
+      // 不用按字合并的：照旧一步撤回（git 要求暂存区干净，不会把别的东西带进来），再把说明换成中文
+      await git(dir, ['revert', '--no-edit', hash])
+    } else await git(dir, ['revert', '--no-commit', hash])
+  } catch (e) {
+    if (!(e instanceof GitError)) throw e
+    const files = (await git(dir, ['diff', '--name-only', '--diff-filter=U', '-z'])).split('\0').filter(Boolean)
+    if (!o.resolve || !files.length) throw await fail(files)
+    const merged: [string, string][] = []
+    for (const f of files) {
+      const stage = (n: number) => git(dir, ['show', `:${n}:${f}`]).catch(() => null)
+      const [base, ours, theirs] = await Promise.all([stage(1), stage(2), stage(3)])
+      const text = base !== null && ours !== null && theirs !== null ? o.resolve(base, ours, theirs, f) : null
+      if (text === null) throw await fail(files)
+      merged.push([f, text])
+    }
+    for (const [f, text] of merged) await writeFile(join(dir, f), text)
+    await git(dir, ['add', '--', ...files])
+  }
+  await git(dir, o.resolve ? ['commit', '-q', '-m', message] : ['commit', '--amend', '-q', '-m', message])
   return (await git(dir, ['rev-parse', 'HEAD'])).trim()
 }
 

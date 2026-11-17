@@ -44,6 +44,10 @@ export function setupBilingual(deps: { vault(): Vault | null; send(ch: string, .
           blocks.push({ kind: b.kind, path: rel })
         } else if ((b.kind === 'formula' || b.kind === 'figure') && 'url' in b && typeof b.url === 'string' && /^https?:/i.test(b.url)) {
           blocks.push({ kind: b.kind, path: b.url })
+        } else if (b.kind === 'math' && 'tex' in b && typeof b.tex === 'string' && b.tex.length < 20_000) {
+          blocks.push({ kind: 'math', tex: b.tex })
+        } else if (b.kind === 'table' && 'md' in b && typeof b.md === 'string' && b.md.length < 200_000) {
+          blocks.push({ kind: 'table', md: b.md })
         } else if ((b.kind === 'heading' || b.kind === 'text') && 'text' in b && typeof b.text === 'string') {
           blocks.push({ kind: b.kind, text: b.text, tr: typeof b.tr === 'string' ? b.tr : null })
         }

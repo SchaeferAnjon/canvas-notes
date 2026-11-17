@@ -1,6 +1,6 @@
 import { Codicon } from '@cn/design'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { type FileEntry, fileName, folderOfPath, hasFolderHome, matchFiles, progressDone } from '../../shared/files'
+import { type FileEntry, fileName, folderOfPath, matchFiles, progressDone } from '../../shared/files'
 import { fileIcon } from '../Palette'
 import { recentFiles, useVaultFiles } from '../files/store'
 
@@ -24,7 +24,7 @@ export function Progress(props: { p: FileEntry['progress'] }) {
 export function QuickOpen(props: { onOpen(path: string): void; onOpenFolder?(path: string): void; onClose(): void }) {
   const all = useVaultFiles().files
   // 文件夹只列有首页的（课程/<课>、项目/<项目>、生活、写作），点了开首页
-  const files = useMemo(() => all.filter((f) => f.kind !== 'dir' || (props.onOpenFolder && hasFolderHome(f.path))), [all, props.onOpenFolder])
+  const files = useMemo(() => all.filter((f) => f.kind !== 'dir' || !!props.onOpenFolder), [all, props.onOpenFolder])
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const list = useRef<HTMLDivElement>(null)
@@ -87,7 +87,7 @@ export function QuickOpen(props: { onOpen(path: string): void; onOpenFolder?(pat
               </span>
             </button>
           ))}
-          {more > 0 && <div className="pal-none more">还有 {more} 个，多打几个字</div>}
+          {more > 0 && <div className="pal-none more">{`还有${more}个，多打几个字`}</div>}
         </div>
         <div className="pal-foot">↑↓ 选择 · ↵ 打开 · esc 关闭</div>
       </div>

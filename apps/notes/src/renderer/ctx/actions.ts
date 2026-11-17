@@ -14,8 +14,10 @@ export interface AppActions {
   openWikilink(target: string, here?: boolean): void
   /** PDF / HTML 在右栏下格开它的 AI（边读边问） */
   openReading(path: string): void
-  /** 右栏网页开一个新标签 */
-  openInWeb(url: string): void
+  /** 右栏网页开一个新标签；reuse：已经开着这个网站（网址以它开头）的标签就切过去 */
+  openInWeb(url: string, reuse?: string): void
+  /** B 的设置是居中弹窗，要看右栏时先关掉；A 的设置是中间的一个标签，不动 */
+  closeSettingsDialog(): void
   /** 中间栏开成宽网页标签 */
   openWide(url: string, title?: string): void
   /** 这段字作为引文放进 AI 输入框 */
@@ -32,11 +34,21 @@ export interface AppActions {
   trash(path: string): Promise<void>
   togglePin(path: string, pin: boolean): Promise<void>
   pins(): string[]
-  /** 一级文件夹（「移到」子菜单） */
+  /** 一级文件夹和有首页的文件夹 */
   folders(): string[]
-  /** 有首页的文件夹 */
-  hasFolderHome(folder: string): boolean
+  /** 库里的每个文件夹（「移到」菜单，ctx/move-menu.ts） */
+  allFolders(): string[]
   openFolderHome(folder: string): void
+  /** 当前标签换成这个文件夹的首页（右键「打开首页」）；已经开着就切过去 */
+  openFolderHere(folder: string): void
+  /** 文件夹改名（链接、置顶、开着的标签一起换）；出错在底栏说，返回新文件夹或 null */
+  renameFolder(folder: string, name: string): Promise<string | null>
+  /** 文件夹移到废纸篓：先弹系统确认，里面开着的标签一起关 */
+  trashFolder(folder: string): Promise<void>
+  /** 文件夹挪进另一个文件夹（链接、置顶、左栏、开着的标签跟着换） */
+  moveFolder(folder: string, parent: string): Promise<void>
+  /** 文件夹摘到活动栏单独一格，并切到它 */
+  putOnLeft(folder: string): void
   /** 挪到另一个文件夹（开着的标签跟着换路径） */
   moveNote(path: string, folder: string): Promise<void>
   /** 库里的相对路径 → 绝对路径（拷贝路径） */

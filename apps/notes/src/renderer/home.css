@@ -221,8 +221,12 @@
   margin: 10px 0 0;
   line-height: 1.6;
 }
-/* 在窄的中间栏里（右栏开着）两列 */
-@container home (max-width: 760px) {
+/* 量的是真正给组件的那一块（.hwrap 的内容宽）：右栏开着、AI 浮着让出浮窗宽 + 28 以后都按剩下的宽换列。
+   4 列 → 窄于 680 两列 → 窄于 400 一列（两列时一格不到 193，时钟日期、「条没整理」开始折行） */
+.homev .hwrap {
+  container: home / inline-size;
+}
+@container home (max-width: 680px) {
   .wgrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -230,8 +234,14 @@
     grid-column: span 2;
   }
 }
-.homev .body {
-  container: home / inline-size;
+@container home (max-width: 400px) {
+  .wgrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .wd.s2,
+  .wd.s4 {
+    grid-column: span 1;
+  }
 }
 
 /* ---------- 编辑首页 ---------- */
@@ -352,6 +362,9 @@
 .clock .dt {
   color: var(--t2);
   margin-top: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .wk-big {
   display: flex;
@@ -456,9 +469,8 @@
   color: var(--t1);
 }
 
-/* 积累墙：52 周，每格 12 × 12、间距 3、圆角 3 */
+/* 积累墙：52 周（放不下时只画放得下的整周，HomeView Wall），每格 12 × 12、间距 3、圆角 3 */
 .wd.w-wall {
-  container-type: inline-size;
   overflow: hidden;
   min-height: 0;
 }
@@ -484,11 +496,6 @@
   gap: 3px;
   margin-top: 14px;
   justify-content: space-between;
-}
-@container (max-width: 790px) {
-  .hgrid {
-    justify-content: end;
-  }
 }
 .hgrid i {
   border-radius: 3px;
@@ -568,9 +575,20 @@
   font-weight: 500;
   font-size: 12px;
 }
+/* 「22张卡片 · 10月31日」一行：放不下时日期那段（连同前面的点）整段掉到看不见的第二行，不折成「10/月31日」 */
 .th .n > span {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.25em;
+  height: 1.5em;
+  line-height: 1.5;
+  overflow: hidden;
   font-size: 12px;
   color: var(--t3);
+  white-space: nowrap;
+}
+.th .n > span > span {
+  min-width: 0;
 }
 .th.new {
   border-style: dashed;
@@ -767,4 +785,13 @@
 }
 .home-b.editing .wgrid > .w-clock:first-child {
   outline-color: rgba(255, 255, 255, 0.5);
+}
+
+/* 整页背景用着窗口背景那张图：换封面变灰（还能点，点了说为什么） */
+.cbtn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: default;
+}
+.cbtn[aria-disabled='true']:hover {
+  background: rgba(17, 17, 19, 0.55);
 }

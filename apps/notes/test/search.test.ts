@@ -49,6 +49,13 @@ describe('切段和找字', () => {
     expect(mdChunks('收件箱/空.md', '')).toEqual([{ text: '空', snippet: '' }])
   })
 
+  it('「意思相近」的摘要不露数据库块的 YAML（和左栏摘要同一个 dropDataBlocks）', () => {
+    const md = '# 读书\n\n只列在读的。\n\n```base\nfilters:\n  and:\n    - file.inFolder("写作/书单")\n    - 状态 == "在读"\nviews:\n  - type: table\n    name: 表格\n```\n'
+    const cs = mdChunks('写作/读书.md', md)
+    expect(cs.map((c) => c.snippet)).toEqual(['只列在读的。'])
+    expect(hitSnippet(md, ['在读'])).toBe('读书 只列在读的。')
+  })
+
   it('PDF 每页一段，图不算，带页码', () => {
     const cs = pdfChunks('课程/第3讲.pdf', [[block(1, 1, 'Linear maps', 'heading'), block(1, 2, 'A map T')], [block(2, 1, '', 'image')], [block(3, 1, 'Rotation')]])
     expect(cs.map((c) => [c.page, c.text])).toEqual([

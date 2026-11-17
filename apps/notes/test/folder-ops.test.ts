@@ -1,0 +1,199 @@
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { afterEach, describe, expect, it } from 'vitest'
+import { resolveLink } from '@cn/format'
+import { fixedFolder, GITKEEP, makeFolder, moveFolder, renameFolder, testTrash, trashFolder } from '../src/main/folder-ops'
+import { Vault } from '../src/main/vault'
+
+const roots: string[] = []
+afterEach(() => {
+  for (const r of roots.splice(0)) rmSync(r, { recursive: true, force: true })
+})
+
+const g = (root: string, ...args: string[]) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8' })
+
+/** 一个提交好的临时库 */
+function vaultWith(files: Record<string, string>) {
+  const base = mkdtempSync(join(tmpdir(), 'cn-fops-'))
+  roots.push(base)
+  const root = join(base, '库')
+  const trash = join(base, 'trash')
+  mkdirSync(trash)
+  execFileSync('git', ['init', '-q', '-b', 'main', root])
+  g(root, 'config', 'user.name', 'T')
+  g(root, 'config', 'user.email', 't@example.com')
+  for (const [p, t] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, p)), { recursive: true })
+    writeFileSync(join(root, p), t)
+  }
+  g(root, 'add', '-A')
+  g(root, 'commit', '-q', '-m', '样本')
+  return { root, trash, v: new Vault(root) }
+}
+
+const commits = (root: string) => Number(g(root, 'rev-list', '--count', 'HEAD').trim())
+const lastMsg = (root: string) => g(root, 'log', '-1', '--format=%s').trim()
+const status = (root: string) => g(root, 'status', '--porcelain', '--untracked-files=all').trim()
+
+/** 库里每篇 md 的每个相对链接、带路径的双链都指向真有的文件（点得开） */
+function brokenLinks(root: string): string[] {
+  const bad: string[] = []
+  const walk = (dir: string) => {
+    for (const e of readdirSync(join(root, dir), { withFileTypes: true })) {
+      if (e.name === '.git') continue
+      const rel = dir ? `${dir}/${e.name}` : e.name
+      if (e.isDirectory()) walk(rel)
+      else if (rel.endsWith('.md')) {
+        const text = readFileSync(join(root, rel), 'utf8')
+        for (const m of text.matchAll(/\]\(([^)\s]+)\)/g)) {
+          const url = m[1]!.replace(/[#?].*$/, '')
+          if (/^[a-z]+:/i.test(url)) continue
+          const abs = resolveLink(rel, url)
+          if (!abs || !existsSync(join(root, abs))) bad.push(`${rel} → ${m[1]}`)
+        }
+        for (const m of text.matchAll(/\[\[([^\]|#]+\/[^\]|#]*)/g)) if (!existsSync(join(root, m[1]! + '.md')) && !existsSync(join(root, m[1]!))) bad.push(`${rel} → [[${m[1]}`)
+      }
+    }
+  }
+  walk('')
+  return bad
+}
+
+const SAMPLE = {
+  '课程/ecp/Lecture05.pdf': '%PDF-1.4\n',
+  '课程/ecp/图 1.png': 'png',
+  '课程/ecp/Lecture05 笔记.md': '# Lecture05 笔记\n\n[第 5 页](Lecture05.pdf#page=5) · [完整对话](../../.canvas-notes/对话/Lecture05-p5-1.md)\n\n![图](图%201.png)\n',
+  '.canvas-notes/对话/Lecture05-p5-1.md': '# 完整对话\n\n[回到第 5 页](../../课程/ecp/Lecture05.pdf#page=5)\n',
+  '.canvas-notes/置顶.json': JSON.stringify(['课程/ecp/Lecture05 笔记.md', '复习.md'], null, 2) + '\n',
+  '复习.md': '# 复习\n\n[[课程/ecp/Lecture05 笔记]] · [讲义](课程/ecp/Lecture05.pdf#page=2) · ![图](课程/ecp/图%201.png) · [[Lecture05 笔记]]\n',
+  '写作/读后感.md': '# 读后感\n\n见 [笔记](../课程/ecp/Lecture05%20笔记.md)。\n',
+  '写作/无关.md': '# 无关\n\n[网页](https://example.com/课程/ecp)\n',
+}
+
+describe('文件夹改名', () => {
+  it('有文件的课程改名：库里所有链接还点得开，置顶跟着换，一次提交，git 干净', async () => {
+    const { root, v } = vaultWith(SAMPLE)
+    expect(brokenLinks(root)).toEqual([])
+    const n0 = commits(root)
+    const moved: string[] = []
+    const r = await renameFolder(v, '课程/ecp', 'ECP 经济学', (from, to) => moved.push(`${from} → ${to}`))
+    expect(r.to).toBe('课程/ECP 经济学')
+    expect(existsSync(join(root, '课程/ecp'))).toBe(false)
+    expect(existsSync(join(root, '课程/ECP 经济学/Lecture05.pdf'))).toBe(true)
+    expect(brokenLinks(root)).toEqual([])
+    expect(readFileSync(join(root, '复习.md'), 'utf8')).toBe('# 复习\n\n[[课程/ECP 经济学/Lecture05 笔记]] · [讲义](课程/ECP%20经济学/Lecture05.pdf#page=2) · ![图](课程/ECP%20经济学/图%201.png) · [[Lecture05 笔记]]\n')
+    // 里面的笔记链接本来就是相对的：一个字不动
+    expect(readFileSync(join(root, '课程/ECP 经济学/Lecture05 笔记.md'), 'utf8')).toBe(SAMPLE['课程/ecp/Lecture05 笔记.md'])
+    // 没提到这个文件夹的不碰
+    expect(readFileSync(join(root, '写作/无关.md'), 'utf8')).toBe(SAMPLE['写作/无关.md'])
+    expect(JSON.parse(readFileSync(join(root, '.canvas-notes/置顶.json'), 'utf8'))).toEqual(['课程/ECP 经济学/Lecture05 笔记.md', '复习.md'])
+    expect(r.relinked.sort()).toEqual(['.canvas-notes/对话/Lecture05-p5-1.md', '写作/读后感.md', '复习.md'])
+    expect(moved).toContain('课程/ecp/Lecture05.pdf → 课程/ECP 经济学/Lecture05.pdf')
+    expect(commits(root)).toBe(n0 + 1)
+    expect(lastMsg(root)).toBe('文件夹改名：课程/ecp → 课程/ECP 经济学')
+    expect(status(root)).toBe('')
+    // 撤回这一次提交，回到原样
+    g(root, 'revert', '--no-edit', 'HEAD')
+    expect(readFileSync(join(root, '复习.md'), 'utf8')).toBe(SAMPLE['复习.md'])
+    expect(existsSync(join(root, '课程/ecp/Lecture05.pdf'))).toBe(true)
+  })
+
+  it('用户没提交的字先单独提交：改名那次提交里只有改名', async () => {
+    const { root, v } = vaultWith(SAMPLE)
+    writeFileSync(join(root, '复习.md'), SAMPLE['复习.md'] + '\n刚打的字\n')
+    writeFileSync(join(root, '写作/无关.md'), '# 无关\n\n别的地方在打字\n')
+    const n0 = commits(root)
+    await renameFolder(v, '课程/ecp', 'ecp2')
+    expect(commits(root)).toBe(n0 + 2)
+    const diff = g(root, 'show', 'HEAD', '--', '复习.md')
+    expect(diff).not.toContain('+刚打的字')
+    expect(diff).toContain('+[[课程/ecp2/Lecture05 笔记]]')
+    expect(readFileSync(join(root, '复习.md'), 'utf8')).toContain('刚打的字')
+    // 跟这个文件夹无关的改动不提交，留给用户
+    expect(status(root)).toBe('M 写作/无关.md')
+  })
+
+  it('最外层固定的文件夹、重名、坏名字不改', async () => {
+    const { v } = vaultWith({ ...SAMPLE, '课程/线代/a.md': '# a\n' })
+    expect(fixedFolder('生活')).toBe(true)
+    expect(fixedFolder('课程/生活')).toBe(false)
+    await expect(renameFolder(v, '写作', '写字')).rejects.toThrow('固定的文件夹')
+    await expect(renameFolder(v, '课程/ecp', '线代')).rejects.toThrow('已经有「线代」了')
+    await expect(renameFolder(v, '课程/ecp', '../外面')).rejects.toThrow('不能有')
+    await expect(renameFolder(v, '../外面', 'x')).rejects.toThrow('文件夹不对')
+  })
+
+  it('里面笔记的附件（附件/<笔记路径>/）跟着挪，指向它们的链接也换', async () => {
+    const { root, v } = vaultWith({
+      ...SAMPLE,
+      '附件/课程/ecp/Lecture05 笔记/截图 1.png': 'png',
+      '课程/ecp/Lecture05 笔记.md': '# Lecture05 笔记\n\n![截图](../../附件/课程/ecp/Lecture05%20笔记/截图%201.png)\n',
+      '复习.md': '# 复习\n\n![同一张](附件/课程/ecp/Lecture05%20笔记/截图%201.png)\n',
+    })
+    await renameFolder(v, '课程/ecp', '经济学')
+    expect(existsSync(join(root, '附件/课程/经济学/Lecture05 笔记/截图 1.png'))).toBe(true)
+    expect(existsSync(join(root, '附件/课程/ecp'))).toBe(false)
+    expect(brokenLinks(root)).toEqual([])
+    expect(readFileSync(join(root, '课程/经济学/Lecture05 笔记.md'), 'utf8')).toContain('](../../附件/课程/经济学/Lecture05%20笔记/截图%201.png)')
+    expect(status(root)).toBe('')
+  })
+
+  it('数据库的数据源文件夹改名、挪走：```base 里的 file.inFolder 跟着换，和链接同一次提交', async () => {
+    const base = (f: string) => '```base\nfilters:\n  and:\n    - file.inFolder("' + f + '")\nviews:\n  - type: table\n    name: 表格\n```'
+    const { root, v } = vaultWith({ '项目/表.md': `# 表\n\n${base('项目/库')}\n`, '项目/库/一号.md': '---\n状态: 进行中\n---\n', '写作/a.md': '# a\n' })
+    const n0 = commits(root)
+    const r1 = await moveFolder(v, '项目/库', '写作')
+    expect(r1.to).toBe('写作/库')
+    expect(readFileSync(join(root, '项目/表.md'), 'utf8')).toBe(`# 表\n\n${base('写作/库')}\n`)
+    expect(r1.relinked).toEqual(['项目/表.md'])
+    expect(commits(root)).toBe(n0 + 1)
+    expect(status(root)).toBe('')
+    const r2 = await renameFolder(v, '写作/库', '项目库')
+    expect(r2.to).toBe('写作/项目库')
+    expect(readFileSync(join(root, '项目/表.md'), 'utf8')).toBe(`# 表\n\n${base('写作/项目库')}\n`)
+    expect(status(root)).toBe('')
+  })
+
+  it('只改大小写也行', async () => {
+    const { root, v } = vaultWith(SAMPLE)
+    const r = await renameFolder(v, '课程/ecp', 'ECP')
+    expect(readdirSync(join(root, '课程'))).toEqual(['ECP'])
+    expect(r.to).toBe('课程/ECP')
+    expect(brokenLinks(root)).toEqual([])
+  })
+})
+
+describe('新建文件夹', () => {
+  it('放 .gitkeep、提交，git 干净；重名加序号', async () => {
+    const { root, v } = vaultWith({ '写作/a.md': '# a\n' })
+    expect(await makeFolder(v, '写作', ' 旅行 ')).toBe('写作/旅行')
+    expect(readdirSync(join(root, '写作/旅行'))).toEqual([GITKEEP])
+    expect(lastMsg(root)).toBe('新建文件夹：写作/旅行')
+    expect(status(root)).toBe('')
+    expect(await makeFolder(v, '写作', '旅行')).toBe('写作/旅行 2')
+    expect(await makeFolder(v, '', '读书')).toBe('读书')
+    await expect(makeFolder(v, '写作', 'a/b')).rejects.toThrow('不能有')
+  })
+})
+
+describe('文件夹移到废纸篓', () => {
+  it('连里面的文件挪走，置顶拿掉，一次提交，能撤回', async () => {
+    const { root, trash, v } = vaultWith(SAMPLE)
+    const n = await trashFolder(v, '课程/ecp', testTrash(trash))
+    expect(n).toBe(3)
+    expect(existsSync(join(root, '课程/ecp'))).toBe(false)
+    expect(readdirSync(trash)).toHaveLength(1)
+    expect(JSON.parse(readFileSync(join(root, '.canvas-notes/置顶.json'), 'utf8'))).toEqual(['复习.md'])
+    expect(lastMsg(root)).toBe('移到废纸篓：课程/ecp（3 个文件）')
+    expect(status(root)).toBe('')
+    g(root, 'revert', '--no-edit', 'HEAD')
+    expect(existsSync(join(root, '课程/ecp/Lecture05 笔记.md'))).toBe(true)
+  })
+
+  it('固定的文件夹不删', async () => {
+    const { trash, v } = vaultWith(SAMPLE)
+    await expect(trashFolder(v, '课程', testTrash(trash))).rejects.toThrow('固定的文件夹')
+  })
+})

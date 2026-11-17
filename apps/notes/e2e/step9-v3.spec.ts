@@ -40,8 +40,8 @@ test('四条栏：左右两条图标栏只放图标、悬停出名字，点亮�
     const rail = page.getByRole('navigation', { name: '右栏' })
     const left = page.getByRole('navigation', { name: '左栏' })
     const names = (nav: typeof rail) => nav.getByRole('button').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(await names(rail)).toEqual(['大纲 · 这一页没有大纲', '网页', '历史', '打开 AI'])
-    expect(await names(left)).toEqual(['文件', '最近', '课程和文件夹首页', '收件箱', '梦游报告', '库', '设置和外观'])
+    expect(await names(rail)).toEqual(['大纲 · 这一页没有大纲', '网页', '微信读书', '历史', '打开 AI'])
+    expect(await names(left)).toEqual(['文件', '最近', '课程', '收件箱', '梦游报告', '库', '设置和外观'])
     // 图标栏贴着窗口右边，B 里 44 宽
     const box = (await rail.boundingBox())!
     const width = await page.evaluate(() => window.innerWidth)
@@ -318,7 +318,7 @@ test('设置页：⌘, 打开，改自动提交间隔马上生效（关掉就不
   const run = await launch(files, { CN_MINUTE_MS: '300' })
   const { page, vault, userData } = run
   try {
-    await openSettings(page, 'Git 和同步')
+    await openSettings(page, 'Git和同步')
     const sel = settingsDialog(page).getByRole('combobox', { name: '自动提交间隔' })
     await expect(sel).toHaveValue('10')
     await sel.selectOption('0')
@@ -335,7 +335,7 @@ test('设置页：⌘, 打开，改自动提交间隔马上生效（关掉就不
 
     // 远程地址：只改本机配置
     await settingsDialog(page).getByRole('textbox', { name: '远程地址' }).fill('https://example.com/me/notes.git')
-    await settingsDialog(page).getByRole('button', { name: '存' }).click()
+    await settingsDialog(page).getByRole('button', { name: '保存' }).click()
     const remoteUrl = () => {
       try {
         return execFileSync('git', ['-C', vault, 'remote', 'get-url', 'origin'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
@@ -365,10 +365,9 @@ test('设置页：AI 默认引擎和 AI 浮窗是同一个；库页能换到别�
   writeFileSync(join(other, '别处.md'), '# 别处\n')
   try {
     await openSettings(page, 'AI')
-    const engines = settingsDialog(page).getByRole('radiogroup', { name: 'AI 引擎' }).getByRole('radio')
-    await expect(engines).toHaveCount(4)
-    await settingsDialog(page).getByRole('radio', { name: /Codex/ }).click()
-    await expect(settingsDialog(page).getByRole('radio', { name: /Codex/ })).toHaveAttribute('aria-checked', 'true')
+    await settingsDialog(page).getByTestId('ai-default-pick').click()
+    await settingsDialog(page).getByRole('menu', { name: '默认用哪个' }).getByRole('menuitemradio', { name: /Codex/ }).click()
+    await expect(settingsDialog(page).getByTestId('ai-default')).toContainText('Codex')
     await page.keyboard.press('Escape')
     await page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
     await expect(page.getByRole('complementary', { name: 'AI 对话' }).getByTestId('ai-engine')).toHaveText('Codex')

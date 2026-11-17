@@ -31,7 +31,7 @@ test('PDF：选了字右键「拷贝」「讲解一下」；问过的页右键�
     await page.locator('.pal-row', { hasText: '第3讲 线性映射' }).first().click()
     await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
     await expect(pdfPage(page, 1).locator('canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
-    await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文 5 页')
+    await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
 
     let sb = await selectSpan(page)
     await page.mouse.click(sb.x + sb.width / 2, sb.y + sb.height / 2, { button: 'right' })
@@ -46,7 +46,7 @@ test('PDF：选了字右键「拷贝」「讲解一下」；问过的页右键�
     await page.mouse.click(sb.x + sb.width / 2, sb.y + sb.height / 2, { button: 'right' })
     await pickMenu(run, '讲解一下')
     await expect(ai(page).locator('.uq').last()).toContainText('scalar')
-    await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记 · 第 2 页', { timeout: 15_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记 · 第2页', { timeout: 15_000 })
 
     // 第 2 页问过了：页面上右键有「跳到笔记」
     await pdfPage(page, 2).click({ button: 'right', position: { x: 8, y: 8 } })

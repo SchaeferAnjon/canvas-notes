@@ -53,6 +53,9 @@ describe('导入 VS Code 主题（spec 6.1）', () => {
     expect(t.vars.fill2).toMatch(/^rgba\(/)
     expect(contrast(c(t.vars.t1!), c(t.vars.win!))).toBeGreaterThanOrEqual(7)
     expect(contrast(c(t.vars.t2!), c(t.vars.win!))).toBeGreaterThanOrEqual(4.5)
+    // 更弱的字（时间、说明）也 ≥ 3:1，还比 --t2 淡
+    expect(contrast(c(t.vars.t3!), c(t.vars.win!))).toBeGreaterThanOrEqual(3)
+    expect(contrast(c(t.vars.t3!), c(t.vars.win!))).toBeLessThan(contrast(c(t.vars.t2!), c(t.vars.win!)))
     // 底栏的字在底栏上看得清
     expect(contrast(c(t.vars['status-t']!), c(t.vars.status!))).toBeGreaterThanOrEqual(4.5)
   })
@@ -109,7 +112,7 @@ describe('导入 VS Code 主题（spec 6.1）', () => {
 
   it('include 互相引用时报错，不死循环', () => {
     const files: Record<string, string> = { 'a.json': '{"include":"./b.json"}', 'b.json': '{"include":"./a.json"}' }
-    expect(() => loadThemeChain('a.json', (p) => files[p]!)).toThrow(/互相 include/)
+    expect(() => loadThemeChain('a.json', (p) => files[p]!)).toThrow(/互相include/)
   })
 
   it('id：名字转成 vsc-字母数字，中文名用一段散列', () => {
@@ -207,6 +210,6 @@ describe('导入的文件和设置目录', () => {
     dir = mkdtempSync(join(tmpdir(), 'cn-theme-'))
     const src = join(dir, 'x.json')
     writeFileSync(src, '[1, 2]')
-    expect(() => themesFromFile(src)).toThrow(/不是 VS Code 主题文件/)
+    expect(() => themesFromFile(src)).toThrow(/不是VS Code主题文件/)
   })
 })

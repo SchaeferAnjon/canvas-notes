@@ -30,20 +30,21 @@ test('打开 HTML：沙箱里跑，右栏是它的 AI；「框一块」拖一个
     await acts(page).getByRole('button', { name: '更多' }).click()
     await expect(acts(page).getByRole('menu', { name: '更多' })).toContainText('在隔离环境里运行 · 不联网')
     await acts(page).getByRole('button', { name: '更多' }).click()
-    await expect(acts(page).getByTestId('page-note')).toHaveText('可视化 · 第 3 讲')
+    await expect(acts(page).getByTestId('page-note')).toHaveText('可视化 · 第3讲')
     // 读 HTML 时右栏是它的 AI，右下角不浮 AI
-    await expect.poll(() => railItems(page)).toEqual(['AI', '笔记', '大纲', '网页', '历史'])
+    // 读 PDF：竖条上只多「笔记」；AI 开着时右下角的圆钮藏起来，屏上只有一个 AI（CN-22）
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
     await expect(ai(page)).toBeVisible()
     await expect(ai(page).getByTestId('reading-sees')).toContainText('旋转矩阵.html')
     // 读 PDF / HTML 时右下角的 AI 入口开关的是右栏的 AI，不再浮在中间
-    await expect(page.getByRole('navigation', { name: '右栏' }).locator('.ai-fab')).toHaveAttribute('data-tip', 'AI 在右栏（读 PDF 时）')
+    await expect(page.getByRole('navigation', { name: '右栏' }).locator('.ai-fab')).toHaveCount(0)
     await expect(page.locator('main.center').getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
     // 没开框选层时 HTML 自己能拖
     await page.frameLocator('[data-testid="html-frame"]').getByRole('slider', { name: '角度' }).fill('90')
 
     // 点「框一块」，拖一个框：框下面黑色工具条，输入框里有截图
     await acts(page).getByRole('button', { name: '框一块问' }).click()
-    await expect(pane(page).getByText('拖一个框问 AI · esc 取消')).toBeVisible()
+    await expect(pane(page).getByText('拖一个框问AI · esc 取消')).toBeVisible()
     const b = (await page.frameLocator('[data-testid="html-frame"]').locator('#box').boundingBox())!
     await page.mouse.move(b.x - 6, b.y - 6)
     await page.mouse.down()
@@ -69,7 +70,7 @@ test('打开 HTML：沙箱里跑，右栏是它的 AI；「框一块」拖一个
     await expect(page.getByRole('complementary', { name: '笔记', exact: true }).locator('.pgc', { hasText: '旋转矩阵.html' }).first()).toBeVisible()
 
     // 问这一屏：整屏直接发
-    await rail(page).getByRole('button', { name: 'AI', exact: true }).click()
+    await rail(page).getByRole('button', { name: '打开 AI' }).click()
     await acts(page).getByRole('button', { name: '问这一屏' }).click()
     await expect(ai(page).locator('.um').last()).toHaveText('给我讲解一下这一屏')
     await expect(ai(page).locator('.um-wrap .att img').last()).toBeVisible()

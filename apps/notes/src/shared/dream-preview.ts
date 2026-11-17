@@ -89,6 +89,6 @@ export function searchGroup(items: DreamItem[], q: string): DreamItem[] {
 
 /** 预览条上的一句：「3 处挪动和改名」/ 大批量「292 条，分到 5 个文件夹」 */
 export function previewLine(moves: Moved[]): string {
-  if (moves.length > BULK) return `${moves.length} 条，分到 ${new Set(moves.map((m) => folderOf(m.to))).size} 个文件夹`
-  return `${moves.length} 处挪动和改名`
+  if (moves.length > BULK) return `${moves.length}条，分到${new Set(moves.map((m) => folderOf(m.to))).size}个文件夹`
+  return `${moves.length}处挪动和改名`
 }

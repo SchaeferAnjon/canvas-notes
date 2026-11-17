@@ -72,6 +72,12 @@ export function activate(s: WebTabs, id: string, owner: string | null): WebTabs 
   return { ...s, active: id, owners }
 }
 
+/** 开一个网址；reuse 给了而已经有标签开着这个网站（网址以它开头）：切过去，接着上次看的地方（微信读书入口） */
+export function openOrSwitch(s: WebTabs, url: string, reuse: string | undefined, owner: string | null): WebTabs {
+  const hit = reuse ? (s.tabs.find((t) => t.id === s.active && t.url.startsWith(reuse)) ?? s.tabs.find((t) => t.url.startsWith(reuse))) : undefined
+  return hit ? activate(s, hit.id, owner) : openTab(s, url, { owner })
+}
+
 /** 换了中间栏的标签：它上次看的网页还开着就切过去 */
 export function followOwner(s: WebTabs, owner: string | null): WebTabs {
   const id = owner ? s.owners[owner] : undefined

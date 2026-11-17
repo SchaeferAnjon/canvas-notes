@@ -55,7 +55,7 @@ test('AI 只在右下角：圆形入口打开浮窗，切引擎记住选择，�
   try {
     // 右边竖条里没有 AI
     await page.locator('.nav .si', { hasText: '随笔' }).click()
-    await expect.poll(() => railItems(page)).toEqual(['大纲', '网页', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['大纲', '网页', '微信读书', '历史'])
     const fab = page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' })
     await expect(fab).toBeVisible()
     await fab.click()
@@ -80,7 +80,7 @@ test('AI 只在右下角：圆形入口打开浮窗，切引擎记住选择，�
     await expect(ai(page)).toBeHidden()
     await expect(fab).toBeVisible()
     await page.keyboard.press('Meta+j')
-    await expect(ai(page).getByTestId('ai-msg')).toHaveText(['这是测试回答（Codex）。'])
+    await expect(ai(page).getByTestId('ai-msg').locator('.txt')).toHaveText(['这是测试回答（Codex）。'])
     await page.waitForTimeout(500)
 
     // 重开软件（同一个设置目录）：引擎还是 Codex，对话还在，不在库里
@@ -88,13 +88,14 @@ test('AI 只在右下角：圆形入口打开浮窗，切引擎记住选择，�
     const app = await electron.launch({
       executablePath: electronPath as unknown as string,
       args: [join(__dirname, '../out/main/index.js')],
-      env: { ...process.env, CN_VAULT: vault, CN_USER_DATA: join(root, 'user-data'), CN_AI_FAKE: '1' },
+      // 测试实例：窗口不出现在屏幕上（CN_E2E）
+      env: { ...process.env, CN_VAULT: vault, CN_USER_DATA: join(root, 'user-data'), CN_AI_FAKE: '1', CN_E2E: '1', CN_NO_AX: '1', CN_QUICK_KEY: 'Alt+Command+Shift+F19' },
     })
     try {
       const p2 = await app.firstWindow()
       await p2.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
       await expect(ai(p2).getByTestId('ai-engine')).toHaveText('Codex')
-      await expect(ai(p2).getByTestId('ai-msg')).toHaveText(['这是测试回答（Codex）。'])
+      await expect(ai(p2).getByTestId('ai-msg').locator('.txt')).toHaveText(['这是测试回答（Codex）。'])
       await expect(ai(p2).locator('.um')).toHaveText(['你好'])
       expect(gitOut(vault, 'status', '--porcelain', '--untracked-files=all')).toBe('')
       // 新对话清空
@@ -120,7 +121,7 @@ test('白板上让 AI 加卡片并排整齐：文件里对、一次提交、撤�
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg.locator('.txt')).toHaveText('我加 3 张卡片，再按网格排整齐。好了。')
     // 字是边生成边出的，这一轮做完（提交好）才出改动预览
-    await expect(msg.getByTestId('ai-change')).toContainText('改了 1 个文件')
+    await expect(msg.getByTestId('ai-change')).toContainText('改了1个文件')
     await expect(msg.getByTestId('ai-step')).toHaveText(['看白板上有什么', '加卡片「订机票」', '加卡片「订租车」', '加卡片「看极光」', '按网格排整齐'])
     await expect(msg.locator('.tstep.ok')).toHaveCount(5)
 
@@ -150,7 +151,7 @@ test('白板上让 AI 加卡片并排整齐：文件里对、一次提交、撤�
     expect(commits(vault)).toBe(before + 1)
     expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('AI：在白板上加卡片「订机票」「订租车」「看极光」，再排整齐')
     expect(gitOut(vault, 'show', '--name-only', '--format=', 'HEAD')).toBe('旅行计划.md')
-    await expect(msg.getByTestId('ai-change')).toContainText('改了 1 个文件')
+    await expect(msg.getByTestId('ai-change')).toContainText('改了1个文件')
     expect(gitOut(vault, 'status', '--porcelain')).toBe('')
 
     // 撤回：文件回到原样，白板上的新卡片没了
@@ -202,7 +203,7 @@ test('文档里让 AI 在光标处插入：用户没提交的字先单独提交�
     await send(page, '在光标处插入「AI 写的一段」')
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg.locator('.txt')).toHaveText('插好了。')
-    await expect(msg.getByTestId('ai-change')).toContainText('改了 1 个文件')
+    await expect(msg.getByTestId('ai-change')).toContainText('改了1个文件')
     await expect(msg.getByTestId('ai-step')).toHaveText(['读文档', '插入「AI 写的一段」'])
     await expect(pane(page).locator('.cm-content')).toContainText('AI 写的一段')
     expect(readFileSync(join(vault, '随笔.md'), 'utf8')).toBe('# 随笔\n\n第一段。用户加的\n\nAI 写的一段\n\n第二段。\n')
@@ -224,11 +225,11 @@ test('/找重复：每一对列出来（两篇能点开、相似度、为什么�
     await page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
     await send(page, '/找重复')
     const msg = ai(page).getByTestId('ai-msg').last()
-    await expect(msg.locator('.txt')).toHaveText('找到 1 对可能重复的，像的在前：')
+    await expect(msg.locator('.txt')).toHaveText('找到1对可能重复的，像的在前：')
     const dup = msg.getByTestId('ai-dups').locator('.dup')
     await expect(dup).toHaveCount(1)
     await expect(dup.locator('.pair')).toHaveText(/^巴黎自由行全景指南↔巴黎深度漫游指南\d+%$/)
-    await expect(dup.locator('.why')).toHaveText(/^两篇约 \d+% 的字句相同，都有「.+」$/)
+    await expect(dup.locator('.why')).toHaveText(/^两篇约\d+%的字句相同，都有「.+」$/)
     expect(gitStatus(vault)).toBe('')
     await page.screenshot({ path: test.info().outputPath('ai-dups.png') })
     await dup.getByRole('button', { name: '巴黎深度漫游指南' }).click()
@@ -253,12 +254,12 @@ test('/现在梦游：跑完说整理了几条、分几组，按钮在右栏打�
     await page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
     await send(page, '/现在梦游')
     const msg = ai(page).getByTestId('ai-msg').last()
-    await expect(msg.locator('.txt')).toContainText('梦游跑完了：整理了 6 条，分 4 组（归类和改名 3 · 补上的双链 1 · 可能重复 1 · 本周小结 1）。改动在 dream/', { timeout: 30_000 })
+    await expect(msg.locator('.txt')).toContainText('梦游跑完了：整理了6条，分4组（归类和改名3 · 补上的双链1 · 可能重复1 · 本周小结1）。改动在dream/', { timeout: 30_000 })
     expect(gitStatus(vault)).toBe('')
     await expect(page.getByRole('complementary', { name: '梦游报告' })).toHaveCount(0)
     await msg.getByRole('button', { name: '打开梦游报告' }).click()
     const panel = page.getByRole('complementary', { name: '梦游报告' })
-    await expect(panel.getByTestId('dream-summary')).toContainText('整理了 6 处')
+    await expect(panel.getByTestId('dream-summary')).toContainText('整理了6处')
     await page.screenshot({ path: test.info().outputPath('ai-dream.png') })
     // AI 浮窗还在右下角；关了再开，按钮还在
     await expect(ai(page)).toBeVisible()

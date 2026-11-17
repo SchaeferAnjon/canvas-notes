@@ -21,10 +21,12 @@ module.exports = {
   files: ['out/**', 'package.json', '!**/node_modules/onnxruntime-node/bin/napi-v*/{win32,linux}/**', '!**/node_modules/pdfjs-dist/{web,image_decoders,build}/**', '!**/node_modules/@napi-rs/**', '!**/*.map'],
   // 原生库（.node、.dylib）不能放在 asar 里
   asarUnpack: ['**/node_modules/onnxruntime-node/**'],
-  // 新网页标签用的 BookmarkKeeper（MIT）：电脑上没装它时用包里这一份（scripts/vendor-bookmarkkeeper.mjs 拷进来的）
+  // 新网页标签用的 BookmarkKeeper（MIT）：软件只用包里这一份（汉化过，见 resources/bookmarkkeeper/SOURCE.json）
   extraResources: [
     { from: 'resources/bookmarkkeeper', to: 'bookmarkkeeper' },
     { from: 'resources/models/multilingual-e5-small', to: 'models/multilingual-e5-small' },
+    // 没字幕的视频生成字幕时下载音频用（scripts/fetch-ytdlp.mjs 下好，软件里 main/video/index.ts 的 bundledYtDlp 找它）
+    { from: 'resources/bin', to: 'bin' },
   ],
   // 检查更新（src/main/updater.ts）查这个仓库的 Release 里的 latest-mac.yml。只有发布包写 publish：
   // 打包时会把 app-update.yml 放进包里，软件看到它才查更新；本机自己打的包没有它，不查。Release 还是由 scripts/release.mjs --publish 用 gh 建

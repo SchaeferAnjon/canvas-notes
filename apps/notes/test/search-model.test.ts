@@ -41,6 +41,67 @@ describe.skipIf(!have)('本机小模型按意思找', () => {
     expect((await ix.meaning('矩阵怎么变换')).map((h) => h.path)).not.toContain('生活/购物.md')
   })
 
+  it('第 2 轮：索引还没建完时搜一篇笔记的名字，那篇还没算进来，几十篇只写「随便写点。」的不沾边笔记也不算意思相近', async () => {
+    const vault = join(root, '杂库')
+    const put = (p: string, t: string) => {
+      mkdirSync(join(vault, p, '..'), { recursive: true })
+      writeFileSync(join(vault, p), t)
+    }
+    put('随手记.md', '# 随手记\n\n正文。\n')
+    for (let i = 0; i < 40; i++) put(`杂/笔记${i}.md`, `# 笔记${i}\n\n` + '随便写点。\n'.repeat(30))
+    // 第二次建索引时卡住（模拟大库建到一半：新的那篇还没算进来）
+    let hold: Promise<void> | null = null
+    let release = () => {}
+    const gated: Embedder = { ...e5, embed: async (t, k) => (k === 'passage' && hold && t.some((x) => x.includes('核和像')) && (await hold), e5.embed(t, k)) }
+    let phase = ''
+    const ix = new Indexer({ root: vault, userData: join(root, 'ud3'), indexDir: join(root, 'ud3', 'search'), embedder: gated, readPdf: readPdfText, onStatus: (s) => (phase = s.phase) })
+    await ix.scan()
+    put('线性代数复习.md', '# 线性代数复习\n\n核和像。\n')
+    hold = new Promise<void>((r) => (release = r))
+    const building = ix.scan()
+    await expect.poll(() => phase).toBe('embed')
+    // 建到一半：「线性代数复习」还不在索引里，不沾边的不拿来凑
+    expect(await ix.meaning('线性代数复习')).toEqual([])
+    hold = null
+    release()
+    await building
+    // 建完：最像的就是那篇，不沾边的照样不在
+    const hits = await ix.meaning('线性代数复习')
+    expect(hits[0]!.path).toBe('线性代数复习.md')
+    expect(hits.filter((h) => h.path.startsWith('杂/'))).toEqual([])
+  }, 60_000)
+
+  it('第 3 轮：意思相近「有把握」（sure）才能当 ⌘K 回车的默认：不沾边的词列出来也不带 sure，沾边的带', async () => {
+    const vault = join(root, '门槛库')
+    const put = (p: string, t: string) => {
+      mkdirSync(join(vault, p, '..'), { recursive: true })
+      writeFileSync(join(vault, p), t)
+    }
+    put('随手记.md', '# 随手记\n\n正文。\n')
+    put('readme.md', '# readme\n\n说明。\n')
+    put('Node.js.md', '# Node.js\n\n事件循环。\n')
+    put('v0.4.0 发版.md', '# v0.4.0 发版\n\n清单。\n')
+    put('课程/线性代数/第3讲 笔记.md', '# 线性映射\n\n满足 T(u+v)=T(u)+T(v) 和 T(cv)=cT(v) 的映射叫线性映射，每个线性映射在一组基下都能写成一个矩阵。\n')
+    put('生活/周末.md', '周末去爬山，带上水和三明治，山顶看日落。\n')
+    put('项目/周报.md', '这周把登录页改完了，下周做支付。\n')
+    for (let i = 0; i < 40; i++) put(`杂/笔记${i}.md`, `# 笔记${i}\n\n` + '随便写点。\n'.repeat(30))
+    const ix = new Indexer({ root: vault, userData: join(root, 'ud4'), indexDir: join(root, 'ud4', 'search'), embedder: e5, readPdf: readPdfText, onStatus: () => undefined })
+    await ix.scan()
+    // 报告里回车打开了《readme》《随手记》《v0.4.0 发版》的几个词：照样可以列，但一条都不带 sure
+    for (const q of ['特斯拉股价', '老布什abc', '没有这个qq', '股票', '篮球比赛'])
+      expect((await ix.meaning(q)).filter((h) => h.sure).map((h) => h.path), q).toEqual([])
+    for (const [q, path] of [
+      ['矩阵怎么变换', '课程/线性代数/第3讲 笔记.md'],
+      ['周末去哪玩', '生活/周末.md'],
+      ['发版清单', 'v0.4.0 发版.md'],
+      ['javascript 事件循环', 'Node.js.md'],
+      ['支付功能进度', '项目/周报.md'],
+    ]) {
+      const hits = await ix.meaning(q!)
+      expect(hits[0], q).toMatchObject({ path, sure: true })
+    }
+  }, 60_000)
+
   it.skipIf(!process.env.CN_BENCH)('1000 篇：建索引多久、查一次多久', async () => {
     const vault = join(root, '大库')
     makeBigVault(vault, 1000)

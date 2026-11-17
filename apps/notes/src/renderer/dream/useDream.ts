@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { DreamGroup, DreamReport } from '../../shared/api'
+import type { DreamGroup, DreamItem, DreamReport } from '../../shared/api'
+import { clock, when } from '../../shared/when'
 
 /** 最近一份梦游报告，主进程一有变化就推过来 */
 export function useDream() {
@@ -17,7 +18,11 @@ export function useDream() {
 
 export const pendingOf = (r: DreamReport | null) => r?.items.filter((i) => i.state === 'pending').length ?? 0
 
+/** 梦游这几条收下、撤回时要改、要挪的文件：挪动的两头、挪老图时改了链接的笔记 */
+export const dreamPaths = (items: DreamItem[]) => items.flatMap((i) => [...i.files, ...(i.move ? [i.move.from, i.move.to] : []), ...(i.oldImages?.moves.map((m) => m.note) ?? [])])
+
 export const GROUPS: Record<DreamGroup, string> = {
+  attach: '附件',
   file: '归类和改名',
   viz: '可视化',
   link: '补上的双链',
@@ -25,22 +30,20 @@ export const GROUPS: Record<DreamGroup, string> = {
   week: '本周小结',
 }
 
-const hm = (t: number) => {
-  const d = new Date(t)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
-/** 「昨夜 02:40 到 03:18」「今天 14:03 到 14:05」「11-12 02:40 到 03:18」 */
+/**
+ * 梦游的时间：「昨夜 02:40到03:18」「今天 14:03到14:05」「周四 02:40到03:18」（「到」两边不手打空格，间距交给 autospace）；
+ * 刚跑完的（十分钟内）写「刚才 04:00」；起止同一分钟只写一个时间。哪一天照全软件的 when()。
+ */
 export function dreamWhen(r: DreamReport, now = new Date()): string {
-  const s = new Date(r.started)
+  const span = clock(r.started) === clock(r.finished) ? clock(r.started) : `${clock(r.started)}到${clock(r.finished)}`
+  if (now.getTime() - r.finished < 10 * 60_000 && r.finished <= now.getTime()) return `刚才 ${span}`
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const h = s.getHours()
-  const md = `${String(s.getMonth() + 1).padStart(2, '0')}-${String(s.getDate()).padStart(2, '0')}`
+  const h = new Date(r.started).getHours()
   let day: string
   if (r.started >= today) day = h < 6 ? '昨夜' : '今天'
   else if (r.started >= today - 86400_000) day = h >= 21 ? '昨夜' : '昨天'
-  else day = md
-  return `${day} ${hm(r.started)} 到 ${hm(r.finished)}`
+  else day = when(r.started, { now: now.getTime() })
+  return `${day} ${span}`
 }
 
 export const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')

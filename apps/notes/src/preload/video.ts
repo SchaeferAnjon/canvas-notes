@@ -317,6 +317,10 @@ ipcRenderer.on('video:cmd', (_e, cmd: string, arg: unknown) => {
   if (cmd === 'seek' && typeof arg === 'number') {
     v.currentTime = Math.max(0, arg)
     if (v.paused) void v.play().catch(() => undefined)
+  } else if (cmd === 'still' && typeof arg === 'number') {
+    // 「接着问」：跳回那一秒停住
+    v.pause()
+    v.currentTime = Math.max(0, arg)
   } else if (cmd === 'toggle') {
     if (v.paused) void v.play().catch(() => undefined)
     else v.pause()

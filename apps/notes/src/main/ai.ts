@@ -3,16 +3,17 @@
  * 用的是这台 Mac 上已经登录的 AI 命令行（AI 浮窗头部选的那家），不另存密钥。
  * CN_AI_FAKE=1 时不调模型，按命令给固定的回答（端到端测试用）。
  */
+import type { AiFeature } from '../shared/ai-features'
 import { ask as engineAsk, askFast as engineAskFast } from './agent'
 
-/** 用 AI 浮窗里选的引擎问一次（不给工具），onText 边生成边给；CN_AI_FAKE=1 时给固定回答 */
-export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void = () => {}): Promise<string> {
+/** 用设置 › AI 里这个功能选的引擎问一次（不给工具；/ 命令是 AI 对话，梦游是梦游），onText 边生成边给；CN_AI_FAKE=1 时给固定回答 */
+export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void = () => {}, feature: AiFeature = 'chat'): Promise<string> {
   if (process.env.CN_AI_FAKE === '1') {
     const out = fake(prompt)
     onText(out)
     return out
   }
-  return engineAsk(system, prompt, signal, onText)
+  return engineAsk(system, prompt, signal, onText, feature)
 }
 
 /** 用快模型问一次（翻译用）：Claude Code 的 Haiku；CN_AI_FAKE=1 时给固定回答 */
@@ -80,7 +81,7 @@ function fakeFiling(prompt: string) {
       out.push({ path, folder, name: null, why: `旧笔记在「${orig}」里，放进 ${folder}。` })
     } else if (course) {
       const map = /类型: 导图/.test(props)
-      out.push({ path, folder: `课程/${course}`, name: map ? `第${lecture ?? '?'}讲 ${course} 导图` : null, why: `属性里写着课程「${course}」${lecture ? `、第 ${lecture} 讲` : ''}，放进这门课。` })
+      out.push({ path, folder: `课程/${course}`, name: map ? `第${lecture ?? '?'}讲 ${course} 导图` : null, why: `属性里写着课程「${course}」${lecture ? `、第${lecture}讲` : ''}，放进这门课。` })
     } else if (/极光|冰洞|巴黎/.test(text)) out.push({ path, folder: '素材/旅行', name: null, why: '都是旅行的事' })
     else if (/花市|周末|买菜|房租/.test(text)) out.push({ path, folder: '生活', name: text.replace(/\s+/g, '').slice(0, 6), why: '日常的事，放生活' })
   }

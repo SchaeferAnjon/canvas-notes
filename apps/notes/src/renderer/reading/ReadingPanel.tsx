@@ -10,12 +10,13 @@ export type Lower = 'ai' | 'notes'
 export function ReadingPanel(props: {
   pdf: string
   which: Lower
-  onWhich(w: Lower): void
+  onWhich(w: Lower | null): void
   onOpenNote(path: string): void
   onOpenLink(target: string): void
   onOpenHtml(path: string): void
   onOpenDoubts(folder: string): void
   onOpenWeb(url: string): void
+  onNotice(text: string): void
 }) {
   const { pdf } = props
   // 笔记在别处改了（中间栏当文档改、梦游、同步）：重新读
@@ -38,6 +39,8 @@ export function ReadingPanel(props: {
           R.focusSection(pdf, id)
         }}
         onOpenHtml={props.onOpenHtml}
+        onNotice={props.onNotice}
+        onCollapse={() => props.onWhich(null)}
       />
       <ReadingNotes
         pdf={pdf}

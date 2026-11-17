@@ -3,7 +3,7 @@
  * 读的就是库里那篇「… 笔记.md」，按段显示；一段默认收成一行，只展开刚问的、跳到的和自己点开的。
  */
 import { Codicon } from '@cn/design'
-import { type AskSection, prop } from '@cn/format'
+import { type AskSection, cropCaption, prop } from '@cn/format'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as R from './store'
 
@@ -68,7 +68,7 @@ export function ReadingNotes(props: {
   const text = r.note.text
   const lec = prop(text, '第几讲')
   const progress = prop(text, '进度')
-  const props2 = [prop(text, '类型'), prop(text, '课程'), lec && `第 ${lec} 讲`].filter(Boolean) as string[]
+  const props2 = [prop(text, '类型'), prop(text, '课程'), lec && `第${lec}讲`].filter(Boolean) as string[]
 
   return (
     <aside className="right reading-notes" aria-label="笔记" hidden={props.hidden}>
@@ -86,7 +86,7 @@ export function ReadingNotes(props: {
         {!text && !writingNew.length ? (
           <div className="nempty">
             <p>还没有笔记。</p>
-            <p>在左边 PDF 上框一块问 AI，问完它在后台记一段：你框的图、你卡在哪、讲通的讲法和要点。</p>
+            <p>在左边PDF上框一块问AI，问完它在后台记一段：你框的图、你卡在哪、讲通的讲法和要点。</p>
           </div>
         ) : (
           <>
@@ -98,12 +98,12 @@ export function ReadingNotes(props: {
                   </span>
                 ))}
                 <span className="chip">来源 {nameOf(pdf)}</span>
-                {progress && <span className="chip num">问到 {progress} 页</span>}
+                {progress && <span className="chip num">{`问到${progress}页`}</span>}
               </div>
             )}
             <div className="nsum">
               <span className="num">
-                {sections.length} 段 · 疑惑 {doubts} 条
+                {`${sections.length}段 · 疑惑${doubts}条`}
               </span>
               <span className="sp" />
               <button className="lnk" onClick={() => props.onOpenDoubts(pdf.includes('/') ? pdf.slice(0, pdf.lastIndexOf('/')) : '')}>
@@ -114,7 +114,7 @@ export function ReadingNotes(props: {
             <label className="nfind">
               <Codicon name="search" size={14} />
               <input placeholder="在这份笔记里找" aria-label="在这份笔记里找" value={q} onChange={(e) => setQ(e.target.value)} />
-              <span className="num">{t ? `${shown.length} 段` : '只展开最近问的，其余收成一行'}</span>
+              <span className="num">{t ? `${shown.length}段` : '只展开最近问的，其余收成一行'}</span>
             </label>
             {writingNew.map((id) => {
               const th = r.state.threads.find((x) => x.id === id)
@@ -122,7 +122,7 @@ export function ReadingNotes(props: {
                 <section key={id} className="ns writing" data-sec={id}>
                   <div className="nsh">
                     <span className="pgc">
-                      <Codicon name="book" size={12} />第 {th?.page} 页
+                      <Codicon name="book" size={12} />{`第${th?.page ?? ''}页`}
                     </span>
                     <h3>正在记…</h3>
                     <Codicon name="loading" size={14} className="spin" />
@@ -131,12 +131,12 @@ export function ReadingNotes(props: {
                     <div className="figs">
                       <div className="fig">
                         <div className="im">
-                          <img src={vaultImg(th.crop)} alt="我框的" style={{ maxWidth: 220, maxHeight: 130 }} />
+                          <img src={vaultImg(th.crop)} alt={cropCaption(th)} style={{ maxWidth: 220, maxHeight: 130 }} />
                         </div>
                       </div>
                     </div>
                   )}
-                  <p className="wnote">AI 在后台写这一段，你可以接着问</p>
+                  <p className="wnote">AI在后台写这一段，你可以接着问</p>
                 </section>
               )
             })}
@@ -198,7 +198,7 @@ function Section(p: {
     </button>
   ) : (
     <button className="pgc" title="翻到这一页，框过的那块闪一下" onClick={(e) => (e.stopPropagation(), p.onJump())}>
-      <Codicon name="book" size={12} />第 {s.page} 页
+      <Codicon name="book" size={12} />{`第${s.page}页`}
     </button>
   )
   if (!p.open)
@@ -209,7 +209,7 @@ function Section(p: {
           {chip}
           <h3 className="truncate">{s.title}</h3>
           <span className="tm num">
-            {s.doubts.length} 条疑惑{s.time ? ` · ${s.time}` : ''}
+            {`${s.doubts.length}条疑惑${s.time ? ` · ${s.time}` : ''}`}
           </span>
         </div>
       </section>
@@ -229,9 +229,9 @@ function Section(p: {
           {s.crop && (
             <div className="fig">
               <button className="im" title="点一下回到原处" onClick={p.onJump}>
-                <img src={vaultImg(s.crop)} alt="我框的" style={{ maxWidth: 220, maxHeight: 130 }} />
+                <img src={vaultImg(s.crop)} alt={cropCaption(s)} style={{ maxWidth: 220, maxHeight: 130 }} />
               </button>
-              <div className="fc">我框的</div>
+              <div className="fc">{cropCaption(s)}</div>
             </div>
           )}
           {s.figures.map((f) => (
@@ -259,7 +259,7 @@ function Section(p: {
         <div className="good">
           <div className="lab2">
             <Codicon name="check" size={12} />
-            讲通的讲法 {s.goodVersion && <span className="ver">第 {s.goodVersion} 版</span>}
+            讲通的讲法{s.goodVersion && <span className="ver">{`第${s.goodVersion}版`}</span>}
           </div>
           <p>{s.good}</p>
         </div>
@@ -277,7 +277,7 @@ function Section(p: {
             <details key={f.version}>
               <summary>
                 <Codicon name="chevron-right" size={12} />
-                没讲通 · 第 {f.version} 版：{f.line}
+                {`没讲通 · 第${f.version}版：${f.line}`}
               </summary>
               <div className="body2">{f.text}</div>
             </details>
@@ -298,7 +298,7 @@ function Section(p: {
       <div className="nsf">
         <button className="lnk" onClick={p.onConvo}>
           <Codicon name="comment" size={12} />
-          完整对话 · {s.rounds} 轮
+          {`完整对话 · ${s.rounds}轮`}
         </button>
         {s.links.map((l) => (
           <button key={l} className="lnk wl" title="双链，跳到那篇" onClick={() => p.onLink(l.split('#')[0]!)}>

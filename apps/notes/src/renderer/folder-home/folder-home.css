@@ -16,15 +16,30 @@
   margin-top: -28px;
   position: relative;
   z-index: 2;
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--card);
-  box-shadow: var(--shadow);
+  box-shadow: 0 0 0 3px var(--win), var(--shadow);
   display: grid;
   place-items: center;
   color: var(--t2);
 }
-.fh-ico.colored {
-  color: #fff;
+/* 别的文件夹（没有封面）：图标方块 44、淡底，不压在封面上 */
+.fhome.plain .hwrap {
+  padding-top: 28px;
+}
+.fhome.plain .fh-title {
+  align-items: center;
+}
+.fhome.plain .fh-ico {
+  width: 44px;
+  height: 44px;
+  margin-top: 0;
+  border-radius: 10px;
+  background: var(--fill);
+  box-shadow: none;
+}
+.fhome.plain .fh-tx {
+  padding-top: 0;
 }
 .fh-tx {
   flex: 1;
@@ -37,10 +52,17 @@
 }
 .fh-tx p {
   margin: 2px 0 0;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--t2);
+  /* 放不下时整行省略，不折成两行（窄窗口） */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.fh-title .sp,
+/* 名字和头上那句占满左边，空白不和它平分 */
+.fh-title > .sp {
+  flex: none;
+}
 .fh-ebar .sp,
 .fhome .wk .sp {
   flex: 1;
@@ -211,6 +233,13 @@ button.fw-row:hover {
   color: var(--t2);
   flex: none;
 }
+/* 同名的几篇：名字后面淡淡写在哪个子文件夹 */
+.fw-row .fw-in {
+  flex: 0 1 auto;
+  max-width: 45%;
+  font-size: 12px;
+  color: var(--t3);
+}
 .fw-row .r .ok {
   color: var(--green);
 }
@@ -336,24 +365,141 @@ button.fw-row:hover {
   vertical-align: -2px;
   margin-right: 3px;
 }
-/* 课件进度：72 宽的进度条 */
-.fw-bar {
-  width: 72px;
-  height: 4px;
-  flex: none;
-  margin-left: 8px;
-  border-radius: 2px;
-  background: var(--fill2);
-  overflow: hidden;
+/* 课件进度（CN-21 方向 A）：一排封面，最多 4 格；封面底边 3px 进度条，读完变灰；最后一格虚线框收拖进来的 PDF（CN-2） */
+.fw-covers {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
 }
-.fw-bar > i {
+.wd.s1 .fw-covers,
+.wd.s2 .fw-covers {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.fw-cover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--t1);
+  text-align: left;
+}
+.fw-cover .cv {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line2);
+  color: var(--t3);
+  transition: box-shadow 0.15s;
+}
+.fw-cover:hover .cv {
+  box-shadow: 0 0 0 1px var(--line2), var(--shadow);
+}
+[data-tone='dark'] .fw-cover .cv img {
+  filter: brightness(0.92);
+}
+.fw-cover .cv img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+.fw-cover .cv .wait {
+  opacity: 0.5;
+}
+.fw-cover .pg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--fill2);
+}
+.fw-cover .pg > i {
   display: block;
   height: 100%;
-  background: var(--t2);
+  background: var(--acc);
+}
+.fw-cover .pg.done > i {
+  background: var(--t3);
+}
+.fw-cover .nm {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+.fw-cover .nm .r {
+  margin-left: auto;
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fw-cover .nm .r .ci {
+  vertical-align: -2px;
+  margin-right: 3px;
+}
+.fw-dropcell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  aspect-ratio: 16 / 9;
+  border: 1px dashed var(--line2);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+  text-align: center;
 }
 .fw-resume {
-  align-self: flex-start;
-  margin-top: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.fw-resume:hover {
+  color: var(--t1);
+}
+/* 拖着 PDF 经过课程主页：课件进度卡外圈亮、盖一层底，正中写松手收进哪门课 */
+.fhome .wd.drop-hot {
+  box-shadow: var(--shadow), 0 0 0 2px var(--acc-ring);
+}
+.fw-dropover {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--win) 82%, transparent);
+  pointer-events: none;
+}
+.fw-dropover b {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--t1);
+}
+.fw-dropover span {
+  font-size: 12px;
+  color: var(--t2);
 }
 .fw-more {
   align-self: flex-start;

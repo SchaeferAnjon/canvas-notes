@@ -41,7 +41,8 @@ export async function launch(
   }
   prepare?.(vault)
   execFileSync('git', ['-C', vault, 'add', '-A'])
-  execFileSync('git', ['-C', vault, 'commit', '-q', '-m', '样本'])
+  // 署名直接写在这一次提交上：prepare 去掉了库里的署名（测「这台 Mac 上 git 没有署名」）时照样提交得上
+  execFileSync('git', ['-C', vault, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', '样本'])
 
   const launchedAt = Date.now()
   const app = await electron.launch({
@@ -57,6 +58,7 @@ export async function launch(
       CN_NO_AX: '1',
       CN_QUICK_KEY: 'Alt+Command+Shift+F19',
       CN_TRASH_DIR: trash,
+      CN_ICLOUD_CONTAINER: join(root, 'icloud'),
       ...env,
     },
   })
@@ -110,8 +112,8 @@ export const railItems = (page: Page) =>
     .locator('button.ab')
     .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/ · .*/, '')))
 
-/** 右栏网页面板地址栏右边的「⋯」里点一项（书签和历史、导入 Chrome 登录、插件） */
-export async function webMore(page: Page, item: '书签和历史' | '导入 Chrome 登录' | '插件') {
+/** 右栏网页面板地址栏右边的「⋯」里点一项（书签和历史、导入Chrome登录、插件） */
+export async function webMore(page: Page, item: '书签和历史' | '导入Chrome登录' | '插件') {
   const web = page.getByRole('complementary', { name: '网页' })
   await web.getByRole('button', { name: '更多', exact: true }).click()
   await web.getByRole('menu', { name: '更多', exact: true }).getByRole('menuitem', { name: new RegExp('^' + item) }).click()
@@ -121,7 +123,7 @@ export async function webMore(page: Page, item: '书签和历史' | '导入 Chro
 export async function starItem(page: Page) {
   const web = page.getByRole('complementary', { name: '网页' })
   await web.getByRole('button', { name: '更多', exact: true }).click()
-  return web.getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox')
+  return web.getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox').filter({ hasText: /书签|收藏/ })
 }
 
 /** 当前标签的内容区 */
@@ -130,8 +132,8 @@ export const pane = (page: Page) => page.locator('.pane:not([hidden])')
 /** 标签条右端：当前这一页的动作（属性、白板 / 文档 / 源文件、页码、问这一页、更多……） */
 export const acts = (page: Page) => page.getByTestId('tab-acts')
 
-/** 左边图标栏换到某一页（文件、最近、课程和文件夹首页、收件箱、梦游报告）；已经开着就不再点（再点是收起） */
-export async function leftView(page: Page, name: '文件' | '最近' | '课程和文件夹首页' | '收件箱' | '梦游报告') {
+/** 左边图标栏换到某一页（文件、最近、摘在左边的课程、收件箱和别的文件夹、梦游报告）；已经开着就不再点（再点是收起） */
+export async function leftView(page: Page, name: '文件' | '最近' | '课程' | '收件箱' | '梦游报告' | (string & {})) {
   const b = page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name, exact: true })
   if ((await b.getAttribute('aria-pressed')) !== 'true') await b.click()
   await expect(b).toHaveAttribute('aria-pressed', 'true')
@@ -168,14 +170,16 @@ export const tabOn = (page: Page) => page.getByTestId('tab-on')
 /** 左栏点一篇；白板默认以白板样式打开，这里切到文档，好打字 */
 export async function openNote(page: Page, title: string) {
   const exact = new RegExp('^' + title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$')
-  await expect(page.getByTestId('all-count')).not.toHaveText('0 篇')
   const row = page.locator('.nav .si').filter({ has: page.locator('.truncate', { hasText: exact }) })
-  if (await row.count()) await row.click()
+  // 笔记列表是读出来的：等左栏「最近」有了第一行（或空库的那一句）
+  await expect(page.locator('aside.side .nav .si, aside.side .s-none').first()).toBeVisible()
+  if (await row.count()) await row.first().click()
   else {
-    // 左栏只放这周动过的前几篇；其余从「全部笔记」里筛出来打开
-    await page.locator('.sall .si', { hasText: '全部笔记' }).click()
+    // 左栏「最近」只列今天、这周的，更早的按月收起；从中间的「最近」整页里筛出来打开
+    await leftView(page, '最近')
+    await page.locator('aside.side').getByRole('button', { name: '在中间打开' }).click()
     await pane(page).getByRole('textbox', { name: '筛选' }).fill(title)
-    await pane(page).getByRole('list', { name: '全部笔记' }).getByRole('listitem').filter({ has: page.locator('.t', { hasText: exact }) }).getByRole('button').click()
+    await pane(page).getByRole('list', { name: '最近的笔记' }).getByRole('listitem').filter({ has: page.locator('.t', { hasText: exact }) }).getByRole('button').click()
   }
   await expect(tabOn(page)).toHaveText(title)
   const doc = acts(page).getByRole('tab', { name: '文档' })
@@ -229,4 +233,23 @@ export async function pickFromNoteMenu(run: Running, label: string) {
 export function age(vault: string, rel: string, days: number) {
   const t = (Date.now() - days * 86400_000) / 1000
   utimesSync(join(vault, rel), t, t)
+}
+
+/**
+ * 慢盘：主进程每次读、写 md 先等这么多毫秒（机器忙、盘慢、同步盘拦着时一样）。
+ * 写慢：自动保存的那次写还在路上，量「关标签、改名、退出」等没等它写完；读慢：量标签出来了编辑器还没好的那一会儿
+ */
+export async function slowDisk(run: Running, ms: { read?: number; write?: number }) {
+  await run.app.evaluate((_e, ms) => {
+    const fsp = process.getBuiltinModule('node:fs/promises') as unknown as Record<'readFile' | 'writeFile', (p: unknown, ...rest: unknown[]) => Promise<unknown>>
+    for (const name of ['readFile', 'writeFile'] as const) {
+      const wait = name === 'readFile' ? ms.read : ms.write
+      if (!wait) continue
+      const orig = fsp[name]
+      fsp[name] = async (p, ...rest) => {
+        if (String(p).endsWith('.md')) await new Promise((r) => setTimeout(r, wait))
+        return orig(p, ...rest)
+      }
+    }
+  }, ms)
 }

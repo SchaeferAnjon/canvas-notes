@@ -25,6 +25,8 @@ export interface PluginManifest {
   /** 一句话说明，插件面板里显示 */
   description: string
   permissions: PluginPermission[]
+  /** 右边竖条上的一格（在「网页」下面）：点开右栏打开 url，已经开着这个网站就切过去；插件关着时不出现 */
+  entry?: { name: string; icon: string; url: string }
 }
 
 /** 界面拿到的一个插件：说明 + 开没开 + 设置 */

@@ -2,8 +2,8 @@
  * 搜索用的纯计算：md 和 PDF 切成一段一段（按意思搜时每段算一个向量），PDF 每页的文字里找字。
  * 不碰文件、不碰模型，单元测试直接测。
  */
-import type { PdfBlock, Rect } from '@cn/format'
-import { titleOf } from '../../shared/layout'
+import { blockPlain, type PdfBlock, type Rect } from '@cn/format'
+import { dropDataBlocks, titleOf } from '../../shared/layout'
 import { type PdfTextHit, snippetAt } from '../../shared/search'
 
 /** 一段：text 给模型算向量（带上标题），snippet 是结果里显示的那一小段 */
@@ -16,9 +16,9 @@ export interface Chunk {
 /** 一段最多多少字：e5 一次最多 512 个词元，中文大约一字一个，留点余量 */
 const CHUNK_CHARS = 360
 
-/** md 变成读得懂的纯文字：去掉 frontmatter、注释、图片、链接的网址和 md 记号 */
+/** md 变成读得懂的纯文字：去掉 frontmatter、注释、数据库块（和左栏摘要同一个 dropDataBlocks）、图片、链接的网址和 md 记号 */
 export function mdPlain(md: string): string {
-  return md
+  return dropDataBlocks(md)
     .replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---\r?\n?/, '')
     .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<details>|<\/details>|<summary>|<\/summary>/g, '')
@@ -83,7 +83,7 @@ export function pdfChunks(path: string, pages: PdfBlock[][]): Chunk[] {
   const title = titleOf(path).replace(/\.pdf$/i, '')
   const out: Chunk[] = []
   pages.forEach((blocks, i) => {
-    const paras = blocks.filter((b) => b.kind !== 'image' && b.text.trim()).map((b) => b.text.trim())
+    const paras = blocks.map((b) => blockPlain(b).trim()).filter(Boolean)
     for (const p of pack(paras, CHUNK_CHARS * 1.5)) out.push({ text: `${title}\n${p}`, snippet: short(p), page: i + 1 })
   })
   return out
@@ -94,7 +94,7 @@ export function pdfTextHits(path: string, pages: PdfBlock[][], sizes: [number, n
   if (!words.length) return []
   const out: PdfTextHit[] = []
   for (let i = 0; i < pages.length && out.length < limit; i++) {
-    const blocks = pages[i]!.filter((b) => b.kind !== 'image')
+    const blocks = pages[i]!.filter((b) => b.kind !== 'image').map((b) => (b.kind === 'table' ? { ...b, text: blockPlain(b) } : b))
     const text = blocks.map((b) => b.text).join('\n')
     const low = text.toLowerCase()
     if (!words.every((w) => low.includes(w))) continue

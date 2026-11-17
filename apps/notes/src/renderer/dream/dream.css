@@ -112,6 +112,7 @@
 .dd {
   margin: 2px 0 8px 34px;
   padding: 4px 8px 10px 0;
+  container: dd / inline-size;
 }
 .dd .pv-k {
   font-size: 12px;
@@ -123,6 +124,15 @@
   line-height: 1.6;
   margin: 4px 0 10px;
 }
+/* 哪家哪个模型做的（CN-54）：12 --t3，前面各家的标志 */
+.dd .pv-by {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: -6px 0 10px;
+  font-size: 12px;
+  color: var(--t3);
+}
 .dd .dpair {
   display: flex;
   flex-wrap: wrap;
@@ -132,71 +142,38 @@
 .dd .dpair .btn {
   max-width: 100%;
 }
-.dfile + .dfile {
-  margin-top: 8px;
-}
-.dfn {
+.dd .dchg {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  font: 11px var(--mono);
-  color: var(--t2);
-  margin-bottom: 4px;
-  min-width: 0;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t1);
+  cursor: pointer;
 }
-.dfn .k {
+.dd .dchg:hover {
+  background: var(--fill2);
+}
+.dd .dchg > svg {
   flex: none;
-  margin-left: auto;
-  font: 11px var(--sans);
+  margin-top: 2px;
   color: var(--t3);
-  background: var(--fill);
-  border-radius: 4px;
-  padding: 0 5px;
 }
-:is(.dd, .hdiff) .dl {
-  background: var(--card);
-  border-radius: 10px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
-  font: 11.5px/1.7 var(--mono);
-  user-select: text;
+.dd .dchg .tx {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
-:is(.dd, .hdiff) .dl div {
-  padding: 2px 12px 2px 26px;
-  position: relative;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-:is(.dd, .hdiff) .dl div::before {
-  position: absolute;
-  left: 10px;
-  color: var(--t3);
+.dd .dchg .p {
   font: 11px var(--mono);
-  top: 3px;
-}
-:is(.dd, .hdiff) .dl .a {
-  background: color-mix(in srgb, var(--green) 12%, transparent);
-}
-:is(.dd, .hdiff) .dl .a::before {
-  content: '+';
-  color: var(--green);
-}
-:is(.dd, .hdiff) .dl .d {
-  background: color-mix(in srgb, var(--red) 10%, transparent);
-  color: var(--t2);
-  text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--red) 50%, transparent);
-}
-:is(.dd, .hdiff) .dl .d::before {
-  content: '−';
-  color: var(--red);
-}
-:is(.dd, .hdiff) .dl .c {
-  color: var(--t2);
-}
-:is(.dd, .hdiff) .dl .gap {
   color: var(--t3);
-  background: var(--fill);
 }
 .dd .pv-acts {
   display: flex;
@@ -216,6 +193,30 @@
   background: color-mix(in srgb, var(--green) 12%, transparent);
   color: var(--green);
   font-size: 12px;
+}
+/* 收下后带提交号：一行，说明在前、放不下省略，提交号不折行 */
+.dd .pv-state.has-commit {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+.dd .pv-state.has-commit code {
+  flex: none;
+  font: 11px var(--mono);
+}
+/* 窄时（左栏默认宽 252 就放不下「已收下，合进main · 提交号」）短写成「已收下 · 提交号」，整句在悬停提示里 */
+.dd .pv-state .short {
+  display: none;
+  flex: none;
+}
+@container dd (max-width: 199px) {
+  .dd .pv-state .long {
+    display: none;
+  }
+  .dd .pv-state .short {
+    display: inline;
+  }
 }
 .dd .pv-state.drop {
   color: var(--t2);
@@ -499,12 +500,19 @@
   justify-content: flex-end;
   gap: 6px;
 }
-.pv-toast {
+.pv-toast-box {
   position: absolute;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: 16px;
-  transform: translateX(-50%);
   z-index: 46;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  container: pvtoast / inline-size;
+}
+.pv-toast {
+  pointer-events: auto;
   height: 40px;
   padding: 0 6px 0 14px;
   border-radius: 12px;
@@ -523,6 +531,19 @@
 .pv-toast > span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 收下的提示：中间放不下「收下了N处，已提交到main 提交号 撤回 ×」时短写成「已收下 · 提交号」，整句在悬停提示里 */
+.pv-toast > .short {
+  display: none;
+  flex: none;
+}
+@container pvtoast (max-width: 520px) {
+  .pv-toast.has-short > .long {
+    display: none;
+  }
+  .pv-toast.has-short > .short {
+    display: inline;
+  }
 }
 .pv-toast code {
   font: 11px var(--mono);
@@ -571,4 +592,209 @@
   font-size: 12px;
   flex: none;
   max-width: 50%;
+}
+
+/* 挪老图那一条（four-items 4a）：两行例子放在一块 --fill 底的等宽小框里，下面一行灰字说不挪的 */
+.dd .dimg {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  display: flex;
+  flex-direction: column;
+  font: 11.5px/1.7 var(--mono);
+  color: var(--t2);
+}
+.dd .dimg .to {
+  color: var(--t1);
+}
+.dd .dimg .more {
+  margin-top: 2px;
+  /* 数量那一行不是路径：照常的无衬线（等宽只给路径，DESIGN.md 等宽白名单） */
+  font: 12px/1.6 var(--sans);
+  color: var(--t3);
+}
+.dd .dkeep {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* 梦游预览 · 挪老图（four-items 4b）：中间栏标签 */
+.oi-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 28px 40px 80px;
+}
+.oi h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font: 600 22px/1.35 var(--serif);
+  color: var(--t1);
+}
+.oi-sub {
+  margin: 6px 0 14px;
+  font-size: 13px;
+  color: var(--t2);
+}
+.oi-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.oi-bar .sp {
+  flex: 1;
+}
+.oi-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.oi-chip b {
+  font-weight: 600;
+  color: var(--t1);
+}
+.oi-chip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--t3);
+}
+.oi-chip i.ok {
+  background: var(--green);
+}
+.oi-chip i.warn {
+  background: var(--yellow);
+}
+.oi-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  width: 260px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--t3);
+}
+.oi-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+}
+.oi-group {
+  border-bottom: 1px solid var(--line);
+  padding: 4px 0 8px;
+}
+.oi-gh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 13px;
+  text-align: left;
+  color: var(--t1);
+  cursor: pointer;
+}
+.oi-gh b {
+  font-weight: 600;
+}
+.oi-gh .meta,
+.oi-more {
+  font-size: 12px;
+  color: var(--t3);
+}
+.oi-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 17em) 16px minmax(0, 1fr) minmax(0, max-content);
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 3px 0 3px 22px;
+  font: 12px/1.5 var(--mono);
+}
+.oi-kept .oi-row {
+  grid-template-columns: 56px minmax(0, 17em) minmax(0, 1fr);
+}
+.oi-thumb {
+  width: 56px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--line);
+  background: var(--fill);
+}
+.oi-from {
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oi-arrow {
+  color: var(--t3);
+}
+.oi-to,
+.oi-kp {
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oi-to em {
+  font-style: normal;
+  color: var(--acc-t);
+}
+.oi-sec {
+  justify-self: end;
+  font: 12px var(--sans);
+  color: var(--t3);
+}
+.oi-why {
+  font: 12px var(--sans);
+  color: var(--t2);
+}
+.oi-link {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0 22px;
+  font-size: 12px;
+}
+.oi-link code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font: 11.5px var(--mono);
+}
+.oi-link code.del {
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
+.oi-link code.add {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+}
+.oi-link .meta {
+  color: var(--t3);
 }

@@ -9,13 +9,14 @@ import { askFast } from '../ai'
 import { fastEngine } from '../agent'
 import type { Vault } from '../vault'
 import { isOurWebview, ourWebviews } from '../web'
+import { adblockPlugin } from './adblock'
 import { bookmarksPlugin } from './bookmarks'
 import { fakeCli, realCli } from './translate/cli'
 import { type CallContext, type MainPlugin, PluginRegistry } from './host'
 import { translatePlugin } from './translate'
 import { wereadPlugin } from './weread'
 
-const PLUGINS: MainPlugin<never>[] = [translatePlugin as MainPlugin<never>, bookmarksPlugin as MainPlugin<never>, wereadPlugin as MainPlugin<never>]
+const PLUGINS: MainPlugin<never>[] = [translatePlugin as MainPlugin<never>, bookmarksPlugin as MainPlugin<never>, wereadPlugin as MainPlugin<never>, adblockPlugin as MainPlugin<never>]
 
 export function setupPlugins(d: { window(): BrowserWindow | null; vault(): Vault | null }) {
   const dir = join(app.getPath('userData'), 'plugins')

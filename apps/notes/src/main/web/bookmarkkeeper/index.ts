@@ -12,16 +12,17 @@ import { app, type BrowserWindow, ipcMain, type IpcMainEvent, type IpcMainInvoke
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { extname, join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { EXT_ORIGIN, EXT_SCHEME, isExtUrl, NEWTAB_URL, type NewTabInfo, type TabMirror } from '../../../shared/bookmarkkeeper'
 import { type ExtTheme, sanitizeExtTheme } from '../../../shared/ext-theme'
 import { chromeRoot } from '../../chrome-import'
+import { ChromeFavicons, type Icon, iconLinks, iconOk, NotedIcons } from '../favicon-source'
 import type { Bookmarks } from '../library'
 import { BookmarkTree } from './bookmark-tree'
 import { ICLOUD_CONTAINER, machineIdFrom, QuickBridge } from './quick-store'
 import { findSource, type Source } from './source'
+import { E2E } from '../../test-mode'
 
 interface Deps {
   ses: Session
@@ -58,9 +59,12 @@ const storageFile = () => join(app.getPath('userData'), 'web', 'bookmarkkeeper',
 type Storage = { local: Record<string, unknown>; sync: Record<string, unknown> }
 let storage: Storage | null = null
 const aborts = new Map<string, AbortController>()
-/** 网页报上来的网站图标：网站 → 图标网址 */
-const notedIcons = new Map<string, string>()
-const iconCache = new Map<string, Promise<{ body: Buffer; type: string } | null>>()
+/** 网页报上来的网站图标：网站 → 图标网址（存在 userData/web/icons.json，重开软件还在） */
+let notedIcons: NotedIcons | null = null
+const noted = () => (notedIcons ??= new NotedIcons(join(app.getPath('userData'), 'web', 'icons.json')))
+/** Chrome 自己的图标库；测试实例没指定假的 Chrome（CN_CHROME_ROOT）时不读，不碰真的 Chrome */
+const chromeIcons = new ChromeFavicons(() => (process.env.CN_E2E === '1' && !process.env.CN_CHROME_ROOT ? null : chromeRoot()))
+const iconCache = new Map<string, Promise<Icon | null>>()
 
 const sendApp = (channel: string, ...args: unknown[]) => deps.window()?.webContents.send(channel, ...args)
 
@@ -96,7 +100,7 @@ function serveFile(url: URL): Response | Promise<Response> {
   )
 }
 
-/** Chrome 的 _favicon 接口：网页报过的图标 → 网站的 /favicon.ico → 地球 */
+/** Chrome 的 _favicon 接口：网页报过的图标 → Chrome 的图标库 → 网页里写的图标 → 网站的 /favicon.ico → 地球（顺序和为什么见 favicon-source.ts） */
 function favicon(pageUrl: string): Promise<Response> {
   let origin = ''
   let host = ''
@@ -110,46 +114,65 @@ function favicon(pageUrl: string): Promise<Response> {
   if (!origin) return Promise.resolve(globe())
   let p = iconCache.get(origin)
   if (!p) {
-    p = loadIcon([notedIcons.get(host), origin + '/favicon.ico'].filter((x): x is string => !!x))
+    p = loadIcon(pageUrl, origin, host)
     iconCache.set(origin, p)
   }
   return p.then((icon) => (icon ? new Response(new Uint8Array(icon.body), { headers: { 'content-type': icon.type, 'cache-control': 'max-age=3600' } }) : globe()))
 }
 
-async function loadIcon(urls: string[]): Promise<{ body: Buffer; type: string } | null> {
-  for (const url of urls) {
-    if (url.startsWith('data:image/')) {
-      const m = /^data:(image\/[\w+.-]+)(;base64)?,(.*)$/s.exec(url)
-      if (m) return { type: m[1]!, body: m[2] ? Buffer.from(m[3]!, 'base64') : Buffer.from(decodeURIComponent(m[3]!)) }
-      continue
-    }
-    const ac = new AbortController()
-    const timer = setTimeout(() => ac.abort(), 5000)
-    try {
-      const res = await deps.ses.fetch(url, { signal: ac.signal })
-      if (!res.ok) continue
-      const body = Buffer.from(await res.arrayBuffer())
-      const type = res.headers.get('content-type') ?? ''
-      const ico = body.length > 4 && body[0] === 0 && body[1] === 0 && body[2] === 1 && body[3] === 0
-      if (body.length && body.length < 512 * 1024 && (type.startsWith('image/') || ico)) return { body, type: type.startsWith('image/') ? type : 'image/x-icon' }
-    } catch {
-      // 网络不通、超时：试下一个，都不行给地球
-    } finally {
-      clearTimeout(timer)
+async function loadIcon(pageUrl: string, origin: string, host: string): Promise<Icon | null> {
+  const n = noted().get(host)
+  const fromPage = n ? await fetchIcon(n) : null
+  if (fromPage) return fromPage
+  const fromChrome = await chromeIcons.lookup(pageUrl).catch((e: Error) => (console.warn('[favicon] Chrome 的图标库读不了', e.message), null))
+  if (fromChrome) return fromChrome
+  for (const page of [...new Set([pageUrl, origin + '/'])]) {
+    for (const link of iconLinks(await fetchHtml(page), page)) {
+      const icon = await fetchIcon(link)
+      if (icon) return icon
     }
   }
-  return null
+  return fetchIcon(origin + '/favicon.ico')
 }
 
-/** webview 的 page-favicon-updated 报上来的（右栏开过的网站，图标比 /favicon.ico 准） */
+/** 取一张图标并验过（画不出来的、其实是网页的都不算），5 秒没回就算了 */
+async function fetchIcon(url: string): Promise<Icon | null> {
+  if (url.startsWith('data:image/')) {
+    const m = /^data:(image\/[\w+.-]+)(;base64)?,(.*)$/s.exec(url)
+    if (!m) return null
+    const body = m[2] ? Buffer.from(m[3]!, 'base64') : Buffer.from(decodeURIComponent(m[3]!))
+    const type = iconOk(body, m[1]!)
+    return type ? { body, type } : null
+  }
+  try {
+    const res = await deps.ses.fetch(url, { signal: AbortSignal.timeout(5000) })
+    if (!res.ok) return null
+    const body = Buffer.from(await res.arrayBuffer())
+    const type = iconOk(body, res.headers.get('content-type') ?? '')
+    return type ? { body, type } : null
+  } catch {
+    // 网络不通、超时：试下一处
+    return null
+  }
+}
+
+/** 网页的 HTML（只要前 256 KB，找 <link rel=icon>）；不是网页、取不到都是空 */
+async function fetchHtml(url: string): Promise<string> {
+  try {
+    const res = await deps.ses.fetch(url, { signal: AbortSignal.timeout(5000) })
+    if (!res.ok || !(res.headers.get('content-type') ?? '').includes('html')) return ''
+    return Buffer.from(await res.arrayBuffer()).subarray(0, 256 * 1024).toString('utf8')
+  } catch {
+    return ''
+  }
+}
+
+/** webview 的 page-favicon-updated 报上来的（右栏开过的网站，图标比 /favicon.ico 准），记进 icons.json */
 export function noteIcon(pageUrl: string, icons: string[]) {
   try {
-    const { host } = new URL(pageUrl)
+    const { host, origin } = new URL(pageUrl)
     const icon = icons.find((i) => /^(https?:|data:image\/)/.test(i))
-    if (host && icon && notedIcons.get(host) !== icon) {
-      notedIcons.set(host, icon)
-      iconCache.delete(new URL(pageUrl).origin)
-    }
+    if (host && icon && noted().set(host, icon)) iconCache.delete(origin)
   } catch {
     // 不是网址
   }
@@ -368,11 +391,11 @@ function machineId(): Promise<string> {
 
 export async function setupBookmarkKeeper(d: Deps): Promise<void> {
   deps = d
+  // 退出时删掉 Chrome 图标库的临时拷贝
+  app.on('will-quit', () => void chromeIcons.dispose())
   const dir = join(app.getPath('userData'), 'web')
   source = findSource({
     env: process.env.CN_BOOKMARKKEEPER_DIR,
-    chromeRoot: chromeRoot(),
-    projects: join(homedir(), 'Documents', 'Projects', 'bookmark'),
     // 打包后在 Contents/Resources/bookmarkkeeper（electron-builder.cjs 的 extraResources）
     bundled: app.isPackaged ? join(process.resourcesPath, 'bookmarkkeeper') : join(__dirname, '../../resources/bookmarkkeeper'),
   })
@@ -380,8 +403,8 @@ export async function setupBookmarkKeeper(d: Deps): Promise<void> {
   tree = new BookmarkTree(d.bookmarks, join(dir, 'folders.json'), notifyBookmarksChanged)
   const writer = `${await machineId()}-canvasnotes`
   quick = new QuickBridge({
-    // 测试用 CN_ICLOUD_CONTAINER 指向临时目录，不碰真的 iCloud
-    container: process.env.CN_ICLOUD_CONTAINER || ICLOUD_CONTAINER,
+    // 测试用 CN_ICLOUD_CONTAINER 指向临时目录；测试模式没给就放在测试实例自己的数据目录里，绝不碰真的 iCloud
+    container: process.env.CN_ICLOUD_CONTAINER || (E2E ? join(app.getPath('userData'), 'icloud-test') : ICLOUD_CONTAINER),
     localDir: join(dir, 'bookmarkkeeper', 'QuickLinks'),
     writer: () => writer,
   })

@@ -12,6 +12,10 @@ export interface StoredSettings extends Partial<AppSettings> {
   quickHint?: boolean
   /** 检查更新上次查到「已是最新」的时间（毫秒） */
   updateCheckedAt?: number
+  /** PDF 精读增强：设置里填的 mineru-kit 路径（找 MinerU 时排第一） */
+  mineruPath?: string
+  /** PDF 精读增强：点过「不再提示」是 false */
+  mineruHint?: boolean
 }
 
 export class SettingsFile {

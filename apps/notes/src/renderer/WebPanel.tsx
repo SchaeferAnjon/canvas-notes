@@ -1,5 +1,6 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { useKeepPopsInside } from './shell/keep-inside'
+import { revealLeft } from './shell/tab-scroll'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 import type { Clip } from '../shared/api'
 import { isExtUrl, type NewTabInfo } from '../shared/bookmarkkeeper'
@@ -16,9 +17,10 @@ import type { WebPage } from './plugins/types'
 import { setWebHost } from './plugins/host'
 import { clipSuffix } from './plugins/translate/shared'
 import { ProfileMenu } from './web/ProfileMenu'
-import { activate, closeTab, followOwner, loadWebTabs, newTabId, openTab, saveWebTabs, updateTab, type WebTabs } from './web/web-tabs'
+import { activate, closeTab, followOwner, loadWebTabs, newTabId, openOrSwitch, openTab, saveWebTabs, updateTab, type WebTabs } from './web/web-tabs'
 import { type NavState, WebView, type WebviewEl } from './web/WebView'
 import { syncExtTheme } from './web/ext-theme'
+import { onPageOutside } from './web/page-outside'
 import './web/web.css'
 import { videoOf } from '../shared/video'
 import { useVideoKeys } from './video/keys'
@@ -51,7 +53,7 @@ export function WebPanel(props: {
   owner: string | null
   clipMode: ClipMode
   /** 别处要开一个网页（⌘K 里打的网址）：seq 变了就开一个新标签 */
-  openRequest: { url: string; seq: number } | null
+  openRequest: { url: string; seq: number; reuse?: string } | null
   onShow(): void
   onUrl(url: string | null): void
   onClip(c: Clip): void
@@ -59,6 +61,8 @@ export function WebPanel(props: {
   onClose(): void
   /** 在中间栏开成宽标签 */
   onOpenWide(url: string, title: string): void
+  /** 标题栏的「移到中间」调这里：右栏把当前网页开成中间的宽标签 */
+  moveToCenter: React.MutableRefObject<(() => void) | null>
   /** 中间栏开着的宽网页标签（新标签页的「打开的标签」里也列出来） */
   wideTabs: { id: string; url: string; title?: string }[]
   onActivateWide(id: string): void
@@ -75,6 +79,11 @@ export function WebPanel(props: {
   const pending = useRef(new Map<string, number>())
   const [nav, setNav] = useState<Record<string, NavState>>({})
   const [address, setAddress] = useState('')
+  /**
+   * 地址栏回车后、网页还没真去到那里的标签：标签 id → 要去的网址和等没等到它开始载入。
+   * 第一次去网站时要等拦广告规则（最多 3 秒），这期间网页那边什么事件都没有：地址栏留着这个网址、重新载入的图标转着
+   */
+  const [going, setGoing] = useState<Record<string, { url: string; started: boolean }>>({})
   /** 地址框有焦点时显示完整网址 */
   const [addrFocus, setAddrFocus] = useState(false)
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([])
@@ -90,6 +99,7 @@ export function WebPanel(props: {
 
   const active = st.tabs.find((t) => t.id === st.active) ?? null
   const activeNav = active ? nav[active.id] : undefined
+  const activeGoing = active ? going[active.id] : undefined
   const activeWc = active ? wcIds[active.id] : undefined
   /** 当前的 http(s) 网页（新标签页、插件页面不算）：星星、剪藏、移到中间、AI、插件都只管它 */
   const webUrl = active && /^https?:/.test(active.url) ? active.url : ''
@@ -103,8 +113,11 @@ export function WebPanel(props: {
   /** 网页标签实际要载入的地址 */
   const srcOf = (t: { url: string }) => t.url || newtabUrl
   // 右栏开着却一个网页标签也没有（第一次打开、关掉了最后一个）：开一个新标签页，和以前直接显示书签首页一样
+  // （别处正要开一个网址时不开：比如「放回右栏」，不然多一个空的新网页）
+  const handledOpen = useRef<number | null>(null)
   useEffect(() => {
-    if (!props.hidden && newtabUrl && !st.tabs.length) setSt((s) => (s.tabs.length ? s : openTab(s, '', { owner: cb.current.owner })))
+    const opening = !!props.openRequest && props.openRequest.seq !== handledOpen.current
+    if (!props.hidden && newtabUrl && !st.tabs.length && !opening) setSt((s) => (s.tabs.length ? s : openTab(s, '', { owner: cb.current.owner })))
   }, [props.hidden, newtabUrl, st.tabs.length])
   const pluginPopup = menu?.startsWith('plugin:') ? menu.slice(7) : null
 
@@ -120,13 +133,28 @@ export function WebPanel(props: {
   useEffect(() => setSt((s) => followOwner(s, props.owner)), [props.owner])
 
   // 当前网页换了：地址栏、AI 看得到的网址、插件的「当前标签」、拖图片的来源
+  // 地址栏里打过字时，网页那边的载入、跳转都不改地址栏，像 Chrome；换了标签才换。点进去还没打字时照常跟上，
+  // 换完重新全选——不然值被换掉、全选没了、光标跑到末尾，接着打的字就接在旧网址后面（「…/web/shelfhttp://…」）
+  const addrEdited = useRef(false)
+  const shownTab = useRef<string | null>(null)
   useEffect(() => {
-    // 刚打开右栏时自己开的新标签页不能把正在地址栏里打的字清掉
-    const typing = !webUrl && document.activeElement === addr.current && !!addr.current?.value
-    if (!typing) setAddress(webUrl ? decodeUrl(webUrl) : '')
+    // 还没有标签时打的字（刚打开右栏，自己开的新标签页随后才出来）也算同一个
+    const sameTab = shownTab.current === null || shownTab.current === (active?.id ?? null)
+    shownTab.current = active?.id ?? null
+    const focused = document.activeElement === addr.current
+    // 打过字（或还没有标签时就在打）才不冲掉；点进去还没打字时照常跟上网页，换完重新全选，接着打的字替换它
+    const typing = sameTab && focused && (addrEdited.current || (!webUrl && !!addr.current?.value))
+    if (!typing) {
+      const next = webUrl ? decodeUrl(webUrl) : activeGoing ? decodeUrl(activeGoing.url) : ''
+      setAddress(next)
+      if (focused && addr.current) {
+        addr.current.value = next
+        addr.current.select()
+      }
+    }
     cb.current.onUrl(webUrl || null)
     setCurrentPage(webUrl ? { url: webUrl, title: active!.title } : null)
-  }, [active?.id, webUrl, active?.title])
+  }, [active?.id, webUrl, active?.title, activeGoing?.url])
 
   // 开着哪些网页标签告诉主进程：BookmarkKeeper 新标签页的「打开的标签」、关掉、切过去都按这个
   const sentTabs = useRef('')
@@ -146,7 +174,9 @@ export function WebPanel(props: {
 
   useEffect(() => {
     const r = props.openRequest
-    if (r) setSt((s) => openTab(s, r.url, { owner: cb.current.owner }))
+    if (!r) return
+    handledOpen.current = r.seq
+    setSt((s) => openOrSwitch(s, r.url, r.reuse, cb.current.owner))
   }, [props.openRequest?.seq])
 
   function newTab(focus = true) {
@@ -225,8 +255,10 @@ export function WebPanel(props: {
 
   function go(input: string) {
     const u = toUrl(input)
+    addrEdited.current = false
     setAddress(decodeUrl(u))
     const w = active ? views.current.get(active.id) : undefined
+    if (active && w) setGoing((g) => ({ ...g, [active.id]: { url: u, started: false } }))
     if (w) w.go(u)
     else if (active) setSt((s) => updateTab(s, active.id, { url: u, title: '' }))
     else setSt((s) => openTab(s, u, { owner: cb.current.owner }))
@@ -238,7 +270,7 @@ export function WebPanel(props: {
     setImporting(true)
     try {
       const r = await window.cn.importChrome(id)
-      props.onNotice(`导入了 ${r.imported} 个登录信息${r.expired ? `，${r.expired} 个已过期没导` : ''}。网页重新载入后就是登录状态。`)
+      props.onNotice(`导入了${r.imported}个登录信息${r.expired ? `，${r.expired}个已过期没导` : ''}。网页重新载入后就是登录状态。`)
       if (active) views.current.get(active.id)?.reload()
     } catch (e) {
       props.onNotice(errText(e))
@@ -259,14 +291,23 @@ export function WebPanel(props: {
     }
   }
 
-  // 弹层（书签和历史、插件、选 Chrome 用户）点外面就收起
+  // 右栏所有弹层（⋯、翻译菜单、书签和历史、插件、选 Chrome 用户、书签小卡）都在这一处收起：
+  // 点软件里弹层外面、按 Esc；点网页正文、在网页里按 Esc（网页预加载报过来，CN-43）
   useEffect(() => {
     if (!menu) return
     const onDown = (e: PointerEvent) => {
       if (!(e.target as HTMLElement).closest('.right.web .imp, .right.web .addr .star')) setMenu(null)
     }
+    // 书签小卡里自己的右键菜单先收（它 preventDefault 了这一下）
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && !e.defaultPrevented && setMenu(null)
     window.addEventListener('pointerdown', onDown, true)
-    return () => window.removeEventListener('pointerdown', onDown, true)
+    window.addEventListener('keydown', onKey)
+    const offPage = onPageOutside(() => setMenu(null))
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true)
+      window.removeEventListener('keydown', onKey)
+      offPage()
+    }
   }, [menu])
 
   useEffect(() => {
@@ -305,6 +346,32 @@ export function WebPanel(props: {
     close(active.id)
     if (left === 0) props.onClose()
   }
+
+  // 标签多了横着滚：当前标签整个露着（换标签、开关标签、改标题时，右栏被窗口挤窄时也是；同中间标签条的 revealLeft）
+  const tabList = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = tabList.current
+    if (!el) return
+    const reveal = () => {
+      const tab = el.querySelector<HTMLElement>('.tab.on')
+      if (!tab) return
+      const tabLeft = tab.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft
+      const next = revealLeft(el.scrollLeft, el.clientWidth, el.scrollWidth, tabLeft, tab.offsetWidth)
+      if (next !== Math.round(el.scrollLeft)) el.scrollLeft = next
+    }
+    reveal()
+    const ro = new ResizeObserver(reveal)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [st.active, st.tabs.length, active?.title])
+
+  const openWideRef = useRef(openWide)
+  openWideRef.current = openWide
+  useEffect(() => {
+    const slot = props.moveToCenter
+    slot.current = () => openWideRef.current()
+    return () => void (slot.current = null)
+  }, [])
 
   const openUrl = (u: string, newOne: boolean) => {
     if (newOne || !active) setSt((s) => openTab(s, u, { owner: cb.current.owner }))
@@ -351,14 +418,14 @@ export function WebPanel(props: {
         const id = Object.entries(wcIdsRef.current).find(([, v]) => v === wcId)?.[0]
         return (id && views.current.get(id)?.getBoundingClientRect()) || null
       },
-      openAt(url, t) {
+      openAt(url, t, still) {
         const ref = videoOf(url)
         cb.current.onShow()
         const hit = ref && stRef.current.tabs.find((x) => videoOf(x.url)?.key === ref.key)
         if (hit) {
           setSt((s) => activate(s, hit.id, cb.current.owner))
           const wc = wcIdsRef.current[hit.id]
-          if (t !== null && wc !== undefined) setTimeout(() => views.current.get(hit.id)?.send('video:cmd', 'seek', t), 50)
+          if (t !== null && wc !== undefined) setTimeout(() => views.current.get(hit.id)?.send('video:cmd', still ? 'still' : 'seek', t), 50)
           return
         }
         const u = new URL(url)
@@ -367,6 +434,10 @@ export function WebPanel(props: {
         setSt((s) => openTab(s, u.toString(), { owner: cb.current.owner }))
       },
       activeWc: () => pageRef.current?.wcId ?? null,
+      focus(wcId) {
+        const id = Object.entries(wcIdsRef.current).find(([, v]) => v === wcId)?.[0]
+        if (id) views.current.get(id)?.focus()
+      },
     })
     return () => setVideoHost(null)
   }, [])
@@ -393,34 +464,22 @@ export function WebPanel(props: {
   return (
     <aside className="right web" aria-label="网页" hidden={props.hidden} ref={root}>
       <div className="tabs wtabs" role="tablist" aria-label="网页标签">
-        {st.tabs.map((t) => (
-          <div key={t.id} className={'tab' + (t.id === st.active ? ' on' : '')} role="tab" aria-selected={t.id === st.active} title={t.url ? decodeUrl(t.url) : '新网页'}>
-            <button className="tl" onClick={() => setSt((s) => activate(s, t.id, cb.current.owner))}>
-              {/^https?:/.test(t.url) ? <Favicon url={t.url} size={14} /> : <Codicon name="globe" size={13} />}
-              <span className="truncate">{(!t.url || t.url === newtabUrl ? '' : t.title) || (/^https?:/.test(t.url) ? hostOf(t.url) : '新网页')}</span>
-            </button>
-            <button className="x" aria-label="关闭网页标签" title="关闭网页标签 ⌘W" onClick={() => close(t.id)}>
-              <Codicon name="close" size={12} />
-            </button>
-          </div>
-        ))}
-        <button className="iconbtn wnew" aria-label="新网页" title="新网页 ⌘T（书签管家的新标签页）" onClick={() => newTab()}>
+        <div className="wtlist" ref={tabList}>
+          {st.tabs.map((t) => (
+            <div key={t.id} className={'tab' + (t.id === st.active ? ' on' : '')} role="tab" aria-selected={t.id === st.active} title={t.url ? decodeUrl(t.url) : '新网页'}>
+              <button className="tl" onClick={() => setSt((s) => activate(s, t.id, cb.current.owner))}>
+                {/^https?:/.test(t.url) ? <Favicon url={t.url} size={14} /> : <Codicon name="globe" size={13} />}
+                <span className="truncate">{(!t.url || t.url === newtabUrl ? (going[t.id] ? hostOf(going[t.id]!.url) : '') : t.title) || (/^https?:/.test(t.url) ? hostOf(t.url) : '新网页')}</span>
+              </button>
+              <button className="x" aria-label="关闭网页标签" title="关闭网页标签 ⌘W" onClick={() => close(t.id)}>
+                <Codicon name="close" size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+        {/* + 固定在标签条最右，标签多了横着滚它也不动；收起右栏用竖条上的「网页」、标题栏最右或 ⌥⌘\（「移到中间」在标题栏） */}
+        <button className="iconbtn wnew" aria-label="新网页" data-tip="新网页（书签管家的新标签页）" data-key="⌘T" data-side="below-left" onClick={() => newTab()}>
           <Codicon name="add" size={14} />
-        </button>
-        <span className="sp" />
-        {webUrl && (
-          <button
-            className={'wtool wwide' + (st.tabs.length >= 3 ? ' tight' : '')}
-            aria-label="移到中间"
-            title="开成宽标签，右栏空出来"
-            onClick={openWide}
-          >
-            <Codicon name="layout-sidebar-left" size={14} />
-            <span>移到中间</span>
-          </button>
-        )}
-        <button className="iconbtn wtool" aria-label="收起网页" title="收起网页（网页还开着，竖条上再点「网页」回来）" onClick={props.onClose}>
-          <Codicon name="close" size={14} />
         </button>
       </div>
       <div className="rhead">
@@ -431,7 +490,7 @@ export function WebPanel(props: {
           <Codicon name="arrow-right" size={14} />
         </button>
         <button className="iconbtn" aria-label="重新载入" title="重新载入" disabled={!active || !srcOf(active)} onClick={() => active && views.current.get(active.id)?.reload()}>
-          <Codicon name="refresh" size={14} className={activeNav?.loading ? 'spin' : ''} />
+          <Codicon name="refresh" size={14} className={activeNav?.loading || activeGoing ? 'spin' : ''} />
         </button>
         <form
           className="addr"
@@ -449,14 +508,31 @@ export function WebPanel(props: {
             aria-label="网址"
             placeholder="输入网址或要搜的词"
             value={addrFocus ? address : address.replace(/^https?:\/\//, '')}
-            onChange={(e) => setAddress(e.target.value)}
+            onChange={(e) => ((addrEdited.current = true), setAddress(e.target.value))}
+            onKeyDown={(e) => {
+              // esc：打的字不要了，还原成正在看的网址并全选（和浏览器一样）；没打字时再按 esc 离开地址栏
+              if (e.key !== 'Escape' || e.nativeEvent.isComposing) return
+              e.preventDefault()
+              const el = e.currentTarget
+              if (!addrEdited.current) return el.blur()
+              addrEdited.current = false
+              const now = webUrl ? decodeUrl(webUrl) : ''
+              el.value = now
+              setAddress(now)
+              el.select()
+            }}
             onFocus={(e) => {
               // 先当场换成完整网址再全选，React 重画时值不变，选区和接着打的字都不会被冲掉
               e.currentTarget.value = address
               e.currentTarget.select()
               setAddrFocus(true)
             }}
-            onBlur={() => setAddrFocus(false)}
+            onBlur={() => {
+              // 没打字就离开：补回现在的网址（有焦点时没跟着网页更新）
+              if (!addrEdited.current) setAddress(webUrl ? decodeUrl(webUrl) : '')
+              addrEdited.current = false
+              setAddrFocus(false)
+            }}
             // 网址放不下时末尾是省略号（.addr input），悬停用软件自己的提示看完整网址；打字时不提示
             data-side="below"
             onMouseOver={(e) => {
@@ -571,6 +647,14 @@ export function WebPanel(props: {
                 }}
                 onNav={(n) => {
                   setNav((m) => ({ ...m, [t.id]: n }))
+                  // 真去到网页了，或者开始载入后又停了（没打开、取消了）：不再替它留着网址、转圈
+                  setGoing((g) => {
+                    const x = g[t.id]
+                    if (!x) return g
+                    if (!/^https?:/.test(n.url) && !(x.started && !n.loading)) return n.loading && !x.started ? { ...g, [t.id]: { ...x, started: true } } : g
+                    const { [t.id]: _done, ...rest } = g
+                    return rest
+                  })
                   // 从新标签页（插件页面）跳到网页：标题先清掉，免得载不出来时还挂着「新标签页 · 书签管家」
                   if (/^https?:/.test(n.url) || isExtUrl(n.url))
                     setSt((s) => {
@@ -593,8 +677,8 @@ export function WebPanel(props: {
               <p>输入网址打开一个网页。选中一段文字，就能剪进笔记；网页里的图片能直接拖到白板上。</p>
               <p className="sub">
                 {keeperOn && newtab && !newtab.url
-                  ? '新网页标签本来显示书签管家（BookmarkKeeper）的新标签页，但这台电脑上没找到它的文件：Chrome 里没装，软件里自带的那份也不在。'
-                  : '网站要登录的话，先点右上角「⋯」里的「导入 Chrome 登录」，把 Chrome 的登录状态导进来。'}
+                  ? '新网页标签本来显示书签管家（BookmarkKeeper）的新标签页，但软件自带的那份文件不在（安装包不完整，重装一次软件）。'
+                  : '网站要登录的话，先点右上角「⋯」里的「导入Chrome登录」，把Chrome的登录状态导进来。'}
               </p>
             </div>
           )}
@@ -660,7 +744,7 @@ function MoreMenu(props: {
       </div>
       <div role="group" aria-label="浏览器">
         {item('插件…', 'extensions', () => props.onPick('extensions'))}
-        {item('导入 Chrome 登录…', 'sign-in', () => props.onPick('login'), undefined, props.importing)}
+        {item('导入Chrome登录…', 'sign-in', () => props.onPick('login'), undefined, props.importing)}
       </div>
     </div>
   )

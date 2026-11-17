@@ -76,7 +76,8 @@ export class VectorIndex {
    * 和 q 最像的几处：同一篇 md 只留最像的一段，PDF 每页只留一段。
    * 只留「够像」的：不低于 min，也不比第一名低出 near 以上（这个模型的分数都挤在 0.75 到 0.9 之间，看相对高低更准）
    */
-  search(q: Float32Array, o: { limit: number; min: number; near: number }): MeaningHit[] {
+  /** anchor：已知最像的能有多像（索引没建完时给，见 Indexer.meaning），比库里找到的最像的还高就按它卡 */
+  search(q: Float32Array, o: { limit: number; min: number; near: number; anchor?: number }): MeaningHit[] {
     const best = new Map<string, MeaningHit>()
     const d = this.dims
     for (const [path, f] of this.files) {
@@ -91,7 +92,7 @@ export class VectorIndex {
       })
     }
     const all = [...best.values()].sort((a, b) => b.score - a.score)
-    const top = all[0]?.score ?? 0
+    const top = Math.max(all[0]?.score ?? 0, o.anchor ?? 0)
     return all.filter((h) => h.score >= o.min && h.score >= top - o.near).slice(0, o.limit)
   }
 

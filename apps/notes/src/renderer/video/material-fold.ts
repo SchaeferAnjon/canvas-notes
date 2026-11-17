@@ -66,7 +66,7 @@ class FoldWidget extends WidgetType {
     const b = document.createElement('button')
     b.type = 'button'
     b.className = 'cm-vfold'
-    b.textContent = this.open ? '▴ 收起这一章' : `▸ 展开 · ${this.lines} 行`
+    b.textContent = this.open ? '▴ 收起这一章' : `▸ 展开 · ${this.lines}行`
     b.addEventListener('mousedown', (e) => {
       e.preventDefault()
       view.dispatch({ effects: toggle.of(this.at) })

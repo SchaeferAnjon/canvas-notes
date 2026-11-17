@@ -20,13 +20,15 @@ export function useBoardImageDrop(opts: {
   const o = useRef(opts)
   o.current = opts
 
-  async function place(dt: DataTransfer, at: Pt | null) {
+  async function place(dt: DataTransfer, at: Pt | null, paste = false) {
     // imagesFrom 在第一个 await 之前就把 DataTransfer 读完了（事件过后就读不到）
-    const cands = await imagesFrom(dt)
-    if (!cands.length) return
+    const found = await imagesFrom(dt)
+    if (!found.length) return
+    // 剪贴板里的截图（文件名都叫 image.png）：起名「截图 N」、说明留空，和文档里一样（CN-40）
+    const cands = paste ? found.map((c) => ({ ...c, alt: '', shot: true })) : found
     const { md, errors } = await saveImages(o.current.notePath, cands)
     if (md.length) o.current.addCards(md, at ?? o.current.freeSpot())
-    if (errors.length) o.current.onNotice(`有 ${errors.length} 张图没存成：${errors[0]}`)
+    if (errors.length) o.current.onNotice(`有${errors.length}张图没存成：${errors[0]}`)
   }
 
   return {
@@ -52,7 +54,7 @@ export function useBoardImageDrop(opts: {
         if (o.current.readOnly || editable(e.target) || !e.clipboardData) return
         if (!Array.from(e.clipboardData.items).some((i) => i.kind === 'file' && i.type.startsWith('image/'))) return
         e.preventDefault()
-        void place(e.clipboardData, null)
+        void place(e.clipboardData, null, true)
       },
     },
   }

@@ -79,7 +79,7 @@ test('网页阅读视图：翻译菜单「在中间栏左右对照读」开成�
     await expect(flow.locator('.fc.formula img')).toHaveAttribute('src', `${base}/math.png`)
     await expect(flow.locator('.fc.formula pre')).toHaveText('R = [[cos t, -sin t], [sin t, cos t]]')
     await expect(flow.locator('.fc.figure img')).toHaveAttribute('src', `${base}/fig.png`)
-    await expect(pane.getByTestId('bi-status')).toHaveText('译文 4/4 段')
+    await expect(pane.getByTestId('bi-status')).toHaveText('译文4/4段')
 
     // 只看译文
     await acts(page).getByRole('radio', { name: '只看译文' }).click()
@@ -90,7 +90,7 @@ test('网页阅读视图：翻译菜单「在中间栏左右对照读」开成�
     // 存成双语笔记：收件箱，来源是网址，一次提交
     await pane.getByRole('button', { name: '存成双语笔记' }).click()
     const note = '收件箱/Rotation matrix - Wikipedia 双语.md'
-    await expect(page.getByText(`已存成 ${note} · 带原网址`)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(`已存成${note} · 带原网址`)).toBeVisible({ timeout: 15_000 })
     const md = readFileSync(join(vault, note), 'utf8')
     expect(md).toContain(`来源: ${base}/wiki/Rotation_matrix`)
     expect(md).toContain(`[回到网页](${base}/wiki/Rotation_matrix)`)

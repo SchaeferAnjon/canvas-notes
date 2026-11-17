@@ -82,7 +82,10 @@ const blockKeys = Prec.high(
 
 // ---------- 块菜单 ----------
 
-type MenuAction = 'up' | 'down' | 'dup' | 'del' | BlockTarget
+/** 块菜单「在源文件里改这一块」：NoteTab 接住，切到源文件并选中这一段 */
+export const EDIT_SOURCE = 'cn-edit-source'
+
+type MenuAction = 'up' | 'down' | 'dup' | 'del' | 'source' | BlockTarget
 
 interface MenuItem {
   id: MenuAction
@@ -96,6 +99,8 @@ const ACTIONS: MenuItem[] = [
   { id: 'down', label: '下移', icon: 'arrow-down', keys: '⌥⇧↓' },
   { id: 'dup', label: '复制一份', icon: 'copy' },
   { id: 'del', label: '删除', icon: 'trash' },
+  // 画成卡片的块（视频卡、时刻块、图片、数据库）在文档里不露原文：要改原文从这里去「源文件」（CN-86）
+  { id: 'source', label: '在源文件里改这一块', icon: 'code' },
 ]
 
 const TARGETS: MenuItem[] = [
@@ -182,11 +187,12 @@ class Handles {
     flushSync(() =>
       this.barRoot.render(
         <>
-          <button className="blk-add" aria-label="在下面加一块" title="在下面加一块" onMouseDown={(e) => e.preventDefault()} onClick={() => this.add()}>
+          <button className="blk-add" tabIndex={-1} aria-label="在下面加一块" title="在下面加一块" onMouseDown={(e) => e.preventDefault()} onClick={() => this.add()}>
             <Codicon name="add" size={14} />
           </button>
           <button
             className="blk-grip"
+            tabIndex={-1}
             aria-label="拖动挪块，点一下出菜单"
             title="拖动挪块，点一下出菜单"
             onMouseDown={(e) => this.gripDown(e.nativeEvent)}
@@ -460,6 +466,11 @@ class Handles {
     const text = this.view.state.doc.toString()
     const bs = this.blocks
     this.closeMenu(true)
+    if (a === 'source') {
+      const b = bs[i]
+      if (b) this.view.dom.dispatchEvent(new CustomEvent(EDIT_SOURCE, { bubbles: true, detail: { from: b.from, to: b.to } }))
+      return
+    }
     const edit =
       a === 'up'
         ? shiftMdBlock(text, i, -1, bs)

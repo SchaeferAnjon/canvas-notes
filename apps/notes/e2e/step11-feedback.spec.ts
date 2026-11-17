@@ -61,14 +61,20 @@ test('待办：双击是一条条输入框，回车加一条、退格删空的�
     await expect(todo.locator('.td')).toHaveCount(2)
     await expect(todo.locator('.td.done')).toHaveText('订机票')
 
-    // 双击第二条：光标落在第二条；esc 不改
+    // 双击第二条：光标落在第二条；Esc 收起也存下（第 4 轮 29c80e1，和文字卡、文档白板「改字」一样），不要的字 ⌘Z 撤回
+    const saved = read(vault, '计划.md')
     await todo.locator('.td', { hasText: '订租车' }).dblclick()
     await expect(todo.getByRole('textbox', { name: '待办事项' }).nth(1)).toBeFocused()
     await page.keyboard.type('不要的字')
     await page.keyboard.press('Escape')
+    await expect(todo.getByRole('textbox', { name: '待办事项' })).toHaveCount(0)
+    await expect(todo.locator('.td').nth(1)).toHaveText('订租车不要的字')
     await waitSaved(page)
-    expect(read(vault, '计划.md')).toContain('- [ ] 订租车\n')
-    expect(read(vault, '计划.md')).not.toContain('不要的字')
+    expect(read(vault, '计划.md')).toBe(saved.replace('- [ ] 订租车\n', '- [ ] 订租车不要的字\n'))
+    await page.keyboard.press('Meta+z')
+    await expect(todo.locator('.td').nth(1)).toHaveText('订租车')
+    await waitSaved(page)
+    expect(read(vault, '计划.md')).toBe(saved)
   } finally {
     await run.close()
   }
@@ -104,7 +110,7 @@ test('整页剪藏从「未整理」拖上白板：是一张标题加摘要的�
   }
 })
 
-test('历史：点文件在下面展开这次改了什么，能打开这篇', async () => {
+test('历史：点文件中间开对比标签看这次改了什么，双击打开这篇', async () => {
   const run = await launch({ '甲.md': '# 甲\n\n第一行\n' })
   const { page, vault } = run
   try {
@@ -114,10 +120,11 @@ test('历史：点文件在下面展开这次改了什么，能打开这篇', as
     await gitAct(page, '历史')
     const hist = page.getByRole('complementary', { name: '历史' })
     await hist.locator('.commit.open .fr', { hasText: '甲.md' }).click()
-    const diff = hist.getByTestId('history-diff')
-    await expect(diff.locator('.dl .a', { hasText: '新加的一行' })).toHaveCount(1)
-    await diff.getByRole('button', { name: '打开这篇' }).click()
-    await expect(page.getByRole('tab', { name: /^甲/ })).toHaveAttribute('aria-selected', 'true')
+    const diff = page.locator('[data-testid="diff-tab"]:not([hidden])')
+    await expect(diff.locator('[data-file="甲.md"] .dv-sum')).toHaveText('末尾加了一行「新加的一行」')
+    await expect(diff.locator('.cm-changedLine', { hasText: '新加的一行' }).first()).toBeVisible()
+    await hist.locator('.commit.open .fr', { hasText: '甲.md' }).dblclick()
+    await expect(page.locator('.tabs .tab', { hasText: /^甲$/ })).toHaveAttribute('aria-selected', 'true')
   } finally {
     await run.close()
   }
@@ -163,11 +170,11 @@ test('/整理当前白板 是一条命令，交给 AI 动手；不认识的 / �
     await box.fill('/整理当前白板')
     await box.press('Enter')
     await expect(ai).toContainText('按列排整齐了')
-    await expect(ai).toContainText('改了 1 个文件') // 这一轮跑完才能发下一句
+    await expect(ai).toContainText('改了1个文件') // 这一轮跑完才能发下一句
     await expect(ai).not.toContainText('没有叫')
 
     await box.fill('/随便说点什么')
-    await expect(ai).toContainText('回车直接交给 AI 去做')
+    await expect(ai).toContainText('回车直接交给AI去做')
     await box.press('Enter')
     await expect(ai).toContainText('这是测试回答')
     await expect(ai).not.toContainText('没有叫「随便说点什么」的命令')

@@ -23,6 +23,11 @@ export interface MeaningHit {
   snippet: string
   /** 余弦相似度 */
   score: number
+  /**
+   * 够有把握：比这句话和几句空泛的套话（「正文。」这类）像得多（见 indexer SURE）。
+   * 字面没结果时只有它能当 ⌘K 回车的默认；不沾边的照样列出来，但不默认选中
+   */
+  sure?: boolean
 }
 
 /**

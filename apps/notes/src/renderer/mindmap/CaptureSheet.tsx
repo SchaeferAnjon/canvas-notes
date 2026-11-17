@@ -4,6 +4,7 @@
  * 核对：左边照片框出每个认出的节点，右边大纲直接改，拿不准的标黄；「做成白板导图」后白板上一个个长出来。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { AiError } from '../ai-error'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { CAMERA_LABEL, fromRows, indentRows, rowKey, toRows, type CameraKind, type PhotoFrom, type Row, type StagedPhoto } from '../../shared/mindmap'
@@ -23,9 +24,9 @@ export function CaptureHost(props: { notes: NoteFile[]; onPlaced(path: string): 
 
 const CAM_ICON: Record<CameraKind, CodiconName> = { iphone: 'device-mobile', mac: 'vm', desk: 'lightbulb' }
 const HINT: Record<CameraKind, string> = {
-  iphone: '把 iPhone 横着举在导图正上方，四角都在框里。',
+  iphone: '把iPhone横着举在导图正上方，四角都在框里。',
   mac: '把纸举到摄像头前，四角都在框里；字小的话离近一点。',
-  desk: '用 iPhone 夹在屏幕上方，纸平放在键盘前面。',
+  desk: '用iPhone夹在屏幕上方，纸平放在键盘前面。',
 }
 const FROM_PILL: Record<Exclude<PhotoFrom, CameraKind>, string> = { file: '从照片选的', paste: '粘贴的照片', airdrop: '隔空投送来的' }
 
@@ -340,16 +341,20 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
               {check.phase === 'reading' && (
                 <div className="mm-reading" role="status">
                   <span className="pd" />
-                  正在认这张导图 · 一般要 10 到 30 秒
+                  正在认这张导图 · 一般要10到30秒
                   <button className="btn btn-ghost btn-sm" onClick={() => reading.current !== null && void window.cnMap.stop(reading.current)}>
-                    停下 <span className="kbd-in">esc</span>
+                    停下<span className="kbd-in">esc</span>
                   </button>
                 </div>
               )}
               {(check.phase === 'fail' || check.phase === 'error') && (
                 <div className="mm-fail" role="alert">
                   <b>{check.phase === 'fail' ? check.message : '没认成'}</b>
-                  <p>{check.phase === 'fail' ? (check.reason === 'blurry' ? '重拍一张？离近一点、别反光。' : '换一张导图的照片再试，或者再认一次。') : check.message}</p>
+                  {check.phase === 'fail' ? (
+                    <p>{check.reason === 'blurry' ? '重拍一张？离近一点、别反光。' : '换一张导图的照片再试，或者再认一次。'}</p>
+                  ) : (
+                    <AiError raw={check.message} engine={{ id: 'claude', label: 'Claude Code' }} />
+                  )}
                   <div>
                     <button className="btn btn-sm" onClick={() => photo && void recognize(photo)}>
                       再认一次
@@ -369,10 +374,10 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
               {note ??
                 (check.phase === 'done' ? (
                   <>
-                    认出 {counts.all} 个节点
+                    {`认出${counts.all}个节点`}
                     {counts.unsure ? (
                       <>
-                        ，<b className="yel">{counts.unsure} 个拿不准</b>
+                        ，<b className="yel">{`${counts.unsure}个拿不准`}</b>
                       </>
                     ) : (
                       '，都核对过了'
@@ -432,7 +437,7 @@ function CamNote(props: { kind: CameraKind; state: ReturnType<typeof useCamera>[
     return (
       <div className="note">
         还没允许用摄像头
-        <small>在系统设置的「隐私与安全性 › 摄像头」里打开 Canvas Notes，再回来。</small>
+        <small>在系统设置的「隐私与安全性 › 摄像头」里打开Canvas Notes，再回来。</small>
         <button className="btn btn-sm" onClick={() => void window.cnMap.cameraSettings()}>
           去系统设置允许
         </button>
@@ -449,28 +454,28 @@ function CamNote(props: { kind: CameraKind; state: ReturnType<typeof useCamera>[
   if (kind === 'iphone')
     return (
       <div className="note">
-        iPhone 没连上
+        iPhone没连上
         <small>
-          解锁 iPhone，和这台 Mac 登同一个 Apple 账户，
+          解锁iPhone，和这台Mac登同一个Apple账户，
           <br />
-          开蓝牙和 Wi‑Fi
+          开蓝牙和Wi‑Fi
         </small>
       </div>
     )
   if (kind === 'desk')
     return (
       <div className="note" data-testid="desk-unsupported">
-        这台 Mac 用不了桌上视角
-        <small>Mac 自带的摄像头没有桌上视角；iPhone 连着时系统有桌上视角，但这个软件读不到那一路画面。把 iPhone 横着举在纸的正上方，用「iPhone」拍，效果一样。</small>
+        这台Mac用不了桌上视角
+        <small>Mac自带的摄像头没有桌上视角；iPhone连着时系统有桌上视角，但这个软件读不到那一路画面。把iPhone横着举在纸的正上方，用「iPhone」拍，效果一样。</small>
         <button className="btn btn-sm" onClick={props.onIphone}>
           <Codicon name="device-mobile" size={12} />
-          用 iPhone 拍
+          用iPhone拍
         </button>
       </div>
     )
   return (
     <div className="note">
-      没找到 Mac 摄像头
+      没找到Mac摄像头
       <small>外接的摄像头插好再试一次。</small>
     </div>
   )
@@ -522,7 +527,7 @@ function Outline(props: { rows: Row[]; sel: string | null; onSel(k: string): voi
   const set = (i: number, patch: Partial<Row>) => props.onRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   return (
     <div className="mm-rows" ref={box} aria-label="大纲">
-      <p className="mm-tip">大纲：点一行，左边照片框出这一块；直接改字，Tab 缩进</p>
+      <p className="mm-tip">大纲：点一行，左边照片框出这一块；直接改字，Tab缩进</p>
       {rows.map((r, i) => {
         const level = r.depth === 0 ? 'c' : r.depth === 1 ? 'l1' : 'l2'
         return (

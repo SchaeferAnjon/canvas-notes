@@ -5,21 +5,29 @@
  * PDF 和网页阅读视图用同一个组件（spec 2.2、2.4）。
  */
 import { Codicon } from '@cn/design'
-import { biKind, type BiKind, translatable } from '@cn/format'
+import { biKind, type BiKind, type PdfBlock, tableRows, translatable } from '@cn/format'
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { MathBlock, MathText, TableView } from '../math'
 import { hashOf, request, toggleOrig, useBi } from './store'
 import './bilingual.css'
 
 export interface FlowBlock {
   id: string
-  kind: 'heading' | 'text' | 'image'
+  /** table（text 是表格 HTML）、formula（text 是 LaTeX）、caption 只有 PDF 精读增强（MinerU）认得出 */
+  kind: PdfBlock['kind']
   text: string
+  /** MinerU 认的：字里的 $…$ 是行内公式，要渲染 */
+  math?: true
   /** 公式、图：给一张小图的网址（用到时才要） */
   crop?: () => Promise<string>
   /** 裁图显示多宽（CSS 像素，不超过版心） */
   w?: number
   /** 定死是公式 / 图（网页里抽出来的公式、代码、表格），不按字猜 */
   fixed?: 'formula' | 'figure'
+  /** PDF：这块在原页上的上沿（页面单位），并排时右边译文对齐到这里 */
+  top?: number
+  /** PDF：一格一格的短标签，整块照原页裁 */
+  stack?: true
 }
 
 export const kindOf = (b: FlowBlock): BiKind => b.fixed ?? biKind(b)
@@ -112,15 +120,18 @@ export function ReflowView(props: {
           )}
           {g.blocks.map((b) => {
             const kind = kindOf(b)
-            if (kind === 'formula' || kind === 'figure') return <CropBlock key={b.id} b={b} kind={kind} show={vis.has(g.key)} />
+            // MinerU 认出的公式渲染、表格画成表（拆不出格子的退回照原页裁）
+            if (kind === 'formula' && b.kind === 'formula') return <RenderedBlock key={b.id} b={b} kind="formula" />
+            if (kind === 'table' && tableRows(b.text).length) return <RenderedBlock key={b.id} b={b} kind="table" />
+            if (kind === 'formula' || kind === 'figure' || kind === 'table') return <CropBlock key={b.id} b={b} kind={kind} show={vis.has(g.key)} />
             const h = hashOf(b.text)
             const tr = bi.tr[h]
             const canTr = toTranslate([b]).length > 0
             const showOrig = props.mode === 'bi' || !!bi.showOrig[h] || !canTr
             return (
               <div key={b.id} className={'fb ' + kind + (props.staged === b.id ? ' staged' : '')} data-block={b.id}>
-                {showOrig && <p className="o">{b.text}</p>}
-                {canTr && <TrLine tr={tr} />}
+                {showOrig && <p className="o">{b.math ? <MathText text={b.text} /> : b.text}</p>}
+                {canTr && <TrLine tr={tr} math={b.math} />}
                 <span className="fbact" onPointerDown={(e) => e.stopPropagation()}>
                   {props.mode === 'tr' && (
                     <button type="button" className={bi.showOrig[h] ? 'on' : ''} aria-label="显示原文" title="显示原文" onClick={() => toggleOrig(props.srcKey, b.text)}>
@@ -149,8 +160,8 @@ export function ReflowView(props: {
   )
 }
 
-function TrLine({ tr }: { tr: { state: string; text?: string; error?: string } | undefined }) {
-  if (tr?.state === 'ok' || (tr?.state === 'wait' && tr.text)) return <p className={'t' + (tr.state === 'wait' ? ' re' : '')}>{tr.text}</p>
+function TrLine({ tr, math }: { tr: { state: string; text?: string; error?: string } | undefined; math?: true }) {
+  if (tr?.state === 'ok' || (tr?.state === 'wait' && tr.text)) return <p className={'t' + (tr.state === 'wait' ? ' re' : '')}>{math ? <MathText text={tr.text!} /> : tr.text}</p>
   if (tr?.state === 'err')
     return (
       <p className="t err" role="note">
@@ -162,6 +173,15 @@ function TrLine({ tr }: { tr: { state: string; text?: string; error?: string } |
       <i />
       <i />
     </p>
+  )
+}
+
+/** PDF 精读增强认出的公式（KaTeX 渲染）和表格（画成表），不翻译 */
+function RenderedBlock({ b, kind }: { b: FlowBlock; kind: 'formula' | 'table' }) {
+  return (
+    <figure className={'fc ' + kind + ' rendered'} data-block={b.id}>
+      <div className="fci">{kind === 'formula' ? <MathBlock latex={b.text} /> : <TableView html={b.text} />}</div>
+    </figure>
   )
 }
 

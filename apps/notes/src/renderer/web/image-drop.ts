@@ -52,6 +52,8 @@ export interface ImageCandidate {
   alt: string
   /** 来自网页：写一行来源 */
   source?: { title: string; url: string }
+  /** 剪贴板里的截图：起名「截图 N」，说明留空（CN-40） */
+  shot?: boolean
 }
 
 const IMG_EXT = /\.(png|jpe?g|gif|webp|svg|avif|bmp)(?:[?#].*)?$/i
@@ -142,7 +144,8 @@ export async function saveImages(notePath: string, cands: ImageCandidate[], sep 
   const errors: string[] = []
   for (const c of cands) {
     try {
-      const { path } = await window.cnWeb.saveImage(c.src, c.alt || undefined)
+      // 存进这篇笔记自己的附件文件夹 附件/<笔记路径>/（CN-40 A）
+      const { path } = await window.cnWeb.saveImage(c.src, c.alt || undefined, { note: notePath, shot: c.shot })
       md.push(imageMarkdown(notePath, path, c, sep))
     } catch (e) {
       errors.push(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))

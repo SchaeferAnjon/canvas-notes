@@ -30,7 +30,8 @@ test('AI 回答右键：「拷贝为 Markdown」「插进文档」插到光标�
 
     await msg.locator('.txt').click({ button: 'right' })
     await pickMenu(run, '插进文档')
-    await expect.poll(() => readFileSync(join(vault, '随笔.md'), 'utf8')).toBe('# 随笔\n\n第一段。\n\n这是测试回答（Claude Code）。\n')
+    // 插完光标落在下面新的空段落（CN-17），文件末尾多一个空行
+    await expect.poll(() => readFileSync(join(vault, '随笔.md'), 'utf8')).toBe('# 随笔\n\n第一段。\n\n这是测试回答（Claude Code）。\n\n')
 
     await msg.locator('.txt').click({ button: 'right' })
     await pickMenu(run, '存成卡片')

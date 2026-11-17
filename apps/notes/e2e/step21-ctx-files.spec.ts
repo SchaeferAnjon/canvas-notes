@@ -17,7 +17,10 @@ test('左栏笔记：右键「移到 › 文件夹」真的挪了文件、开着
     await row(page, '日记').click({ button: 'right' })
     const m = await openedMenu(run)
     expect(menuLabels(m)).toEqual(['打开', '在新标签打开', '重命名', '移到', '置顶', '在访达中显示', '拷贝路径', '拷贝双链', '移到废纸篓'])
-    expect(menuLabels(m.find((i) => i.label === '移到')!.submenu!)).toEqual(['课程', '课程/线性代数'])
+    // 每一层文件夹都能选：有子文件夹的点开是「放进「课程」」和它的子文件夹
+    const move = m.find((i) => i.label === '移到')!.submenu!
+    expect(menuLabels(move)).toEqual(['课程'])
+    expect(menuLabels(move[0]!.submenu!)).toEqual(['放进「课程」', '线性代数'])
     await pickMenu(run, '拷贝双链')
     await expect.poll(() => clipboardText(run)).toBe('[[日记]]')
 
@@ -26,10 +29,10 @@ test('左栏笔记：右键「移到 › 文件夹」真的挪了文件、开着
     await expect.poll(() => clipboardText(run)).toBe(join(vault, '日记.md'))
 
     await row(page, '日记').click({ button: 'right' })
-    await pickMenu(run, '移到 › 课程')
+    await pickMenu(run, '移到 › 课程 › 放进「课程」')
     await expect.poll(() => existsSync(join(vault, '课程', '日记.md'))).toBe(true)
     expect(existsSync(join(vault, '日记.md'))).toBe(false)
-    await expect(page.getByTestId('toast')).toContainText('挪到了 课程')
+    await expect(page.getByTestId('toast')).toContainText('挪到了课程')
     // 开着的标签还在，换成了新路径：接着打字存进新文件
     await expect(tabOn(page)).toHaveText('日记')
     await expect(page.locator('.pane:not([hidden])')).toHaveAttribute('data-path', '课程/日记.md')
@@ -47,11 +50,10 @@ test('目录树：文件夹右键「新建笔记」建在那个文件夹里；�
     const tree = page.getByRole('tree', { name: '全部文件' })
     await tree.getByRole('treeitem', { name: /线性代数/ }).click({ button: 'right' })
     const m = await openedMenu(run)
-    expect(menuLabels(m)).toEqual(['新建笔记', '新建白板', '打开首页', '在访达中显示', '拷贝路径'])
+    expect(menuLabels(m)).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '设图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
     await pickMenu(run, '新建笔记')
     await expect.poll(() => readdirSync(join(vault, '课程', '线性代数')).sort()).toContain('未命名.md')
-    await expect(page.getByRole('textbox', { name: '笔记名字' })).toBeVisible()
-    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('tab-on')).toHaveText('未命名')
 
     await tree.getByRole('treeitem', { name: /第一讲/ }).click({ button: 'right' })
     await pickMenu(run, '重命名')

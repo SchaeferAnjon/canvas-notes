@@ -3,7 +3,7 @@
  * 「送 N 张」走 AnkiConnect，送过的不重复送。卡用和 Anki Learn 同一种「学习卡 · 问答」，牌组「知识」。
  */
 import { Codicon } from '@cn/design'
-import { questionOf } from '@cn/format'
+import { cropCaption, questionOf } from '@cn/format'
 import { useEffect, useState } from 'react'
 import type { DoubtsView } from '../../shared/reading'
 
@@ -40,9 +40,9 @@ export function AnkiDialog(props: { view: DoubtsView; items: Item[]; onClose(): 
       const failed = Object.keys(r.failed).length
       if (failed && !r.added.length && !r.duplicates.length) return setError(`一张也没送进去：${Object.values(r.failed)[0]}`)
       props.onSent(
-        `已送进 Anki · ${r.added.length} 张卡片（牌组「${r.deck}」）` +
-          (r.duplicates.length ? `，${r.duplicates.length} 张 Anki 里已经有了` : '') +
-          (failed ? `，${failed} 张没送进去` : ''),
+        `已送进Anki · ${r.added.length}张卡片（牌组「${r.deck}」）` +
+          (r.duplicates.length ? `，${r.duplicates.length}张Anki里已经有了` : '') +
+          (failed ? `，${failed}张没送进去` : ''),
       )
     } catch (e) {
       setError(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
@@ -55,21 +55,21 @@ export function AnkiDialog(props: { view: DoubtsView; items: Item[]; onClose(): 
     <div className="pal-back" onMouseDown={props.onClose}>
       <div className="ankidlg" role="dialog" aria-label="送进 Anki" onMouseDown={(e) => e.stopPropagation()}>
         <div className="adh">
-          <b>送进 Anki</b>
+          <b>送进Anki</b>
           <span className="sp" />
           <button className="iconbtn" aria-label="关闭" onClick={props.onClose}>
             <Codicon name="close" size={14} />
           </button>
         </div>
         <p className="adsub">
-          牌组「知识」，标签「{props.view.course || '我的疑惑'}」· 这次送 {n} 张，送过的不重复送。每张卡背面带页码，点了回到 PDF。卡的样子和 Anki Learn 做的一样。
+          {`牌组「知识」，标签「${props.view.course || '我的疑惑'}」· 这次送${n}张，送过的不重复送。每张卡背面带页码，点了回到PDF。卡的样子和Anki Learn做的一样。`}
         </p>
         {it && (
           <div className="adcards">
             <div className="adcard">
               <span className="adk">正面</span>
               <div className="adq">{questionOf(it.section)}</div>
-              {it.section.crop && <img src={vaultImg(it.section.crop)} alt="我框的" />}
+              {it.section.crop && <img src={vaultImg(it.section.crop)} alt={cropCaption(it.section)} />}
             </div>
             <div className="adcard">
               <span className="adk">背面</span>
@@ -82,7 +82,7 @@ export function AnkiDialog(props: { view: DoubtsView; items: Item[]; onClose(): 
                 </ul>
               )}
               <div className="adsrc">
-                第 {it.section.page} 页 · {stem(it.pdf)}.pdf
+                {`第${it.section.page}页 · ${stem(it.pdf)}.pdf`}
               </div>
             </div>
           </div>
@@ -97,7 +97,7 @@ export function AnkiDialog(props: { view: DoubtsView; items: Item[]; onClose(): 
             <Codicon name="chevron-left" size={14} />
           </button>
           <span className="num">
-            第 {i + 1} 张，共 {n} 张
+            {`第${i + 1}张，共${n}张`}
           </span>
           <button className="iconbtn" aria-label="下一张" disabled={i >= n - 1} onClick={() => setI(i + 1)}>
             <Codicon name="chevron-right" size={14} />
@@ -107,7 +107,7 @@ export function AnkiDialog(props: { view: DoubtsView; items: Item[]; onClose(): 
             取消
           </button>
           <button className="btn btn-sm btn-primary" disabled={busy || !n} onClick={() => void send()}>
-            {busy ? '正在送…' : `送 ${n} 张`}
+            {busy ? '正在送…' : `送${n}张`}
           </button>
         </div>
       </div>

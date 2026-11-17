@@ -42,7 +42,7 @@ export function ImportHost(props: { onOpenInbox(): void; onDreamNow(): void; onN
       const hash = await window.cnImport.undo(r.commit!)
       setProgress(null)
       setDoneToast(null)
-      props.onNotice(`撤回了这次导入 · 新提交 ${hash.slice(0, 7)} · ${r.notes} ${r.source === '备忘录' ? '条' : '篇'}都拿走了`)
+      props.onNotice(`撤回了这次导入 · 新提交${hash.slice(0, 7)} · ${r.notes} ${r.source === '备忘录' ? '条' : '篇'}都拿走了`)
     } catch (e) {
       props.onNotice(errText(e))
     }
@@ -71,7 +71,7 @@ export function ImportHost(props: { onOpenInbox(): void; onDreamNow(): void; onN
         <div className="imp-pill" role="status" data-testid="import-pill">
           <span className="pd" />
           <span>
-            正在导入{kind === 'notes' ? '备忘录' : '旧笔记'} · <span className="num">{progress.done}</span> / <span className="num">{progress.total || '…'}</span>
+            {`正在导入${kind === 'notes' ? '备忘录' : '旧笔记'} ·`} <span className="num">{progress.done}</span> / <span className="num">{progress.total || '…'}</span>
           </span>
           <span className="bar" aria-hidden>
             <i style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 4}%` }} />
@@ -85,7 +85,7 @@ export function ImportHost(props: { onOpenInbox(): void; onDreamNow(): void; onN
         <div className="toast-cn with-act imp-done-toast" role="status" data-testid="import-toast">
           <Codicon name="check" size={14} className="ok" />
           <span>
-            导入了 {doneToast.notes} {doneToast.source === '备忘录' ? '条' : '篇'}，在 {doneToast.dir}
+            {`导入了${doneToast.notes}${doneToast.source === '备忘录' ? '条' : '篇'}，在${doneToast.dir}`}
           </span>
           {doneToast.commit && (
             <button className="btn btn-ghost btn-sm" onClick={() => void undo(doneToast)}>
@@ -194,7 +194,7 @@ function Sources(props: { busy: boolean; error: string | null; onPick(k: ImportK
   return (
     <>
       <div className="imp-body">
-        <p className="imp-lead">旧笔记先进收件箱，原来的文件夹记在「原文件夹」里；今晚梦游时 AI 分进课程、项目、生活、写作，起好名字，你点「预览」看过再收下。</p>
+        <p className="imp-lead">旧笔记先进收件箱，原来的文件夹记在「原文件夹」里；今晚梦游时AI分进课程、项目、生活、写作，起好名字，你点「预览」看过再收下。</p>
         <button className="imp-src" disabled={props.busy} onClick={() => props.onPick('notes')}>
           <span className="vi">
             <Codicon name="note" size={18} />
@@ -210,8 +210,8 @@ function Sources(props: { busy: boolean; error: string | null; onPick(k: ImportK
             <Codicon name="folder-opened" size={18} />
           </span>
           <span className="tx">
-            <b>Markdown 文件夹</b>
-            <span>旧的 Obsidian 库或别的放 md 的文件夹：图片附件一起拷，[[链接]] 照样能点</span>
+            <b>Markdown文件夹</b>
+            <span>旧的Obsidian库或别的放md的文件夹：图片附件一起拷，[[链接]] 照样能点</span>
           </span>
           <Codicon name="chevron-right" size={16} className="chev" />
         </button>
@@ -270,28 +270,28 @@ function Folders(props: { scan: ImportScan; picked: Set<string>; onPicked(s: Set
           <label className="imp-row all">
             <input type="checkbox" checked={all} onChange={() => props.onPicked(all ? new Set() : new Set(scan.folders.map((f) => f.id)))} />
             <span className="nm">全部文件夹</span>
-            <span className="ct num">{scan.folders.reduce((s, f) => s + f.notes, 0)} {unit}</span>
+            <span className="ct num">{scan.folders.reduce((s, f) => s + f.notes, 0)}{unit}</span>
           </label>
           {scan.folders.map((f) => (
             <label key={f.id} className="imp-row" style={{ paddingLeft: 10 + f.depth * 18 }}>
               <input type="checkbox" checked={picked.has(f.id)} onChange={() => toggle(f)} aria-label={f.path || f.name} />
               <Codicon name="folder" size={14} className="fi" />
               <span className="nm">{f.name}</span>
-              {f.locked > 0 && <span className="tag">{f.locked} {unit}上锁</span>}
-              {f.already > 0 && <span className="tag">{f.already} {unit}导过</span>}
+              {f.locked > 0 && <span className="tag">{`${f.locked}${unit}上锁`}</span>}
+              {f.already > 0 && <span className="tag">{`${f.already}${unit}导过`}</span>}
               {/* 只装子文件夹的那层不写「0 条」 */}
               <span className="ct num">
-                {f.notes > 0 && `${f.notes} ${unit}`}
+                {f.notes > 0 && `${f.notes}${unit}`}
                 {f.notes > 0 && f.attachments > 0 && ' · '}
-                {f.attachments > 0 && <em>{f.attachments} 个附件</em>}
+                {f.attachments > 0 && <em>{`${f.attachments}个附件`}</em>}
               </span>
             </label>
           ))}
         </div>
         {(t.locked > 0 || t.already > 0) && (
           <p className="imp-note">
-            {t.locked > 0 && `上了锁的 ${t.locked} ${unit}读不了，会跳过（在备忘录里去掉锁再导一次就行）。`}
-            {t.already > 0 && `以前导过的 ${t.already} ${unit}这次跳过，不会多出一份。`}
+            {t.locked > 0 && `上了锁的${t.locked}${unit}读不了，会跳过（在备忘录里去掉锁再导一次就行）。`}
+            {t.already > 0 && `以前导过的${t.already}${unit}这次跳过，不会多出一份。`}
           </p>
         )}
         {props.error && (
@@ -302,15 +302,15 @@ function Folders(props: { scan: ImportScan; picked: Set<string>; onPicked(s: Set
       </div>
       <div className="mm-ft">
         <span className="help" data-testid="import-summary">
-          选了 {t.folders} 个文件夹 · <b className="num">{t.notes}</b> {unit}
-          {t.attachments > 0 && ` · ${t.attachments} 个图片和附件`}
+          {`选了${t.folders}个文件夹 ·`} <b className="num">{t.notes}</b>{unit}
+          {t.attachments > 0 && ` · ${t.attachments}个图片和附件`}
         </span>
         <button className="btn" onClick={props.onClose}>
           取消
         </button>
         <button className="btn btn-primary" disabled={!t.notes} onClick={props.onStart}>
           <Codicon name="inbox" size={14} />
-          导入 {t.notes} {unit}
+          {`导入${t.notes}${unit}`}
         </button>
       </div>
     </>
@@ -331,15 +331,15 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
             </span>
             <div>
               <b>
-                从{fromOf(r, props.kind)}导入了 {r.notes} {unit}
+                {`从${fromOf(r, props.kind)}导入了${r.notes}${unit}`}
               </b>
               <span>
-                进了 <span className="mono">{r.dir}/</span>
-                {r.attachments > 0 && ` · ${r.attachments} 个图片和附件（${mb(r.bytes)}）`}
+                进了<span className="mono">{r.dir}/</span>
+                {r.attachments > 0 && ` · ${r.attachments}个图片和附件（${mb(r.bytes)}）`}
                 {r.commit && (
                   <>
                     {' '}
-                    · 提交 <span className="mono">{r.commit.slice(0, 7)}</span>
+                    · 提交<span className="mono">{r.commit.slice(0, 7)}</span>
                   </>
                 )}
               </span>
@@ -347,7 +347,7 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
           </div>
           {(r.lost.length > 0 || r.skipped.already > 0) && (
             <ul className="imp-lost" aria-label="没导全的">
-              {r.skipped.already > 0 && <li>以前导过的 {r.skipped.already} {unit}跳过了</li>}
+              {r.skipped.already > 0 && <li>{`以前导过的${r.skipped.already}${unit}跳过了`}</li>}
               {r.lost.map((l) => (
                 <li key={l}>{l}</li>
               ))}
@@ -355,7 +355,7 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
           )}
           <div className="imp-next">
             <Codicon name="wand" size={14} />
-            <p>接下来：梦游会把它们分进课程、项目、生活、写作，起好名字，拿不准的留在收件箱。改好的在梦游报告里点「预览」看，不对就跟 AI 说哪里不对，满意了再收下。</p>
+            <p>接下来：梦游会把它们分进课程、项目、生活、写作，起好名字，拿不准的留在收件箱。改好的在梦游报告里点「预览」看，不对就跟AI说哪里不对，满意了再收下。</p>
           </div>
         </div>
         <div className="mm-ft">
@@ -403,7 +403,7 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
         <div className="imp-prog" role="status" data-testid="import-progress">
           <div className="line">
             <b>
-              {label} · <span className="num">{p.done}</span> / <span className="num">{p.total || '…'}</span> {unit}
+              {label} · <span className="num">{p.done}</span> / <span className="num">{p.total || '…'}</span>{unit}
             </b>
             {'title' in p && p.title && <span className="cur">{p.title}</span>}
           </div>
