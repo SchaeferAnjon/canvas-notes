@@ -15,7 +15,7 @@ import { moveCursor, openCursor, saveCursor, savedCursor } from './open-cursor'
 import { PropsButton } from './mindmap/PropsButton'
 import { NoteDoc, type SaveState, type ViewMode } from './note-doc'
 import { ActBtn, noteLeavers, noteRenamers, PageNote, TabActs } from './shell/TabActs'
-import { takeTyping } from './new-note-hold'
+import { takeStray, takeTyping } from './new-note-hold'
 
 export interface NoteTabProps {
   /** 标签 id：标签上改名时按它找到这一篇的改名 */
@@ -49,6 +49,13 @@ export interface NoteTabProps {
 /** 新建的笔记先读好再开标签：标签一出来编辑器就在、光标就在标题里（机器慢时不再有「标签出来了、编辑器还没好」那一会儿，那时打的头几个字会丢） */
 const preread = new Map<string, OpenedNote>()
 export const primeNote = (note: OpenedNote) => void preread.set(note.path, note)
+
+/** 编辑器拿焦点；新建笔记的期间换到这一篇、编辑器还没好时打的字（new-note-hold.ts 接着的）放在光标处 */
+function focusTaking(d: NoteDoc) {
+  d.view.focus()
+  const stray = takeStray()
+  if (stray && !d.readOnly) d.view.dispatch(d.view.state.replaceSelection(stray), { userEvent: 'input.type', scrollIntoView: true })
+}
 
 export function NoteTab(props: NoteTabProps) {
   const { path, active, fresh } = props
@@ -124,7 +131,8 @@ export function NoteTab(props: NoteTabProps) {
         // 新建的文档：光标进标题，「未命名」全选，打字就替换
         const h = headingOf(note.text)
         const line = h ? d.view.state.doc.line(h.line) : null
-        d.view.focus()
+        // 建的时候用户换到了别的标签，新笔记在后台开：不抢焦点（第 6 轮）
+        if (cb.current.active) d.view.focus()
         // 点了新建到这会儿（盘慢时一两秒）打的字：第一行换掉「未命名」，回车后面的是正文
         const early = takeTyping(note.path)
         if (line && early) {
@@ -135,7 +143,7 @@ export function NoteTab(props: NoteTabProps) {
       } else {
         // 已有的笔记：放回上次离开的地方，没记过放在正文开头（标题下第一段末尾）；不落在藏着的「# 」前面
         if (!note.readOnly) d.view.dispatch({ selection: { anchor: openCursor(note.text, savedCursor(note.path)) }, scrollIntoView: true })
-        d.view.focus()
+        if (cb.current.active) focusTaking(d)
       }
       off = window.cn.onNoteChanged((p, text) => {
         if (d && p === d.path) void d.applyRemote(text)
@@ -223,7 +231,7 @@ export function NoteTab(props: NoteTabProps) {
   }, [])
 
   useEffect(() => {
-    if (active && !renaming && mode !== 'board') doc.current?.view.focus()
+    if (active && !renaming && mode !== 'board' && doc.current) focusTaking(doc.current)
   }, [active, renaming, mode])
 
   useEffect(() => {
@@ -277,8 +285,10 @@ export function NoteTab(props: NoteTabProps) {
       <TabActs active={active}>
         <span className={'txt' + (state === 'failed' ? ' failed' : '')} hidden={state === 'saved'} data-testid="save-state" data-state={state}>
           {state === 'failed' && <i className="gdot err" />}
-          {state === 'saving' ? '正在保存' : state === 'saved' ? '' : state === 'failed' ? '没存上' : '未保存'}
+          {state === 'saving' ? '正在保存' : state === 'saved' ? '' : state === 'failed' ? '写不进去，字只在内存里' : '未保存'}
         </span>
+        {/* 原文件写不进去、字另存到了这一篇（标签跟过来了）：说清楚这篇是什么 */}
+        {doc.current?.rescuedFrom && doc.current.path === path && <PageNote strong tip={`原文件 ${doc.current.rescuedFrom} 写不进去（锁成了只读或盘满了），打的字都存在这一篇`}>原文件写不进去，字在这里</PageNote>}
         {readOnly && (
           <span className="txt warn" data-testid="page-note" title="文件里有软件读不懂的字节，为了不改坏它，不保存">
             只读

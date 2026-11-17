@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { commitAll, commitPaths, currentBranch, git, gitPath, init, isRepo, log, parseStatus, remote, revert, setRemote, status } from '../src'
+import { commitAll, commitPaths, currentBranch, git, gitPath, init, isRepo, lastCommitOf, log, parseStatus, remote, revert, revertPaths, setRemote, status } from '../src'
 
 let dir: string
 beforeEach(async () => {
@@ -61,6 +61,38 @@ it('只提交 AI 改的那几个文件；撤回是一次反向提交', async () 
   expect(readFileSync(join(dir, 'b.md'), 'utf8')).toBe('b 用户正在改\n')
   // 撤回的说明是中文「撤回」+ 原来那次的说明（以前是 git 自己的英文「Revert "…"」）
   expect((await log(dir, 1))[0]!.subject).toBe('撤回AI：加一行')
+})
+
+it('自动提交把 AI 改的和别处的字一起收进去了：找得到是哪次，只撤回 AI 的那几个文件，别处的字和之后的改动不动', async () => {
+  writeFileSync(join(dir, '白板.md'), '卡一\n')
+  writeFileSync(join(dir, '日记.md'), '今天\n')
+  await commitAll(dir, '起点')
+  // AI 改了白板、加了一篇；用户在日记里接着写；自动提交一次全收走
+  writeFileSync(join(dir, '白板.md'), '卡一\nAI 的卡\n')
+  writeFileSync(join(dir, 'AI新的.md'), 'AI 写的\n')
+  writeFileSync(join(dir, '日记.md'), '今天\n下午\n')
+  const auto = await commitAll(dir, '更新 3 个文件')
+  expect(await commitPaths(dir, ['白板.md', 'AI新的.md'], 'AI：存成卡片')).toBeNull()
+  expect(await lastCommitOf(dir, ['白板.md', 'AI新的.md'])).toBe(auto)
+  expect((await log(dir, 1, auto!))[0]!.subject).toBe('更新 3 个文件')
+  // 之后日记又写了一句（没提交）
+  writeFileSync(join(dir, '日记.md'), '今天\n下午\n晚上\n')
+  const r = await revertPaths(dir, auto!, ['白板.md', 'AI新的.md'], '撤回AI：存成卡片')
+  expect(readFileSync(join(dir, '白板.md'), 'utf8')).toBe('卡一\n')
+  expect(existsSync(join(dir, 'AI新的.md'))).toBe(false)
+  expect(readFileSync(join(dir, '日记.md'), 'utf8')).toBe('今天\n下午\n晚上\n')
+  const [c] = await log(dir, 1)
+  expect(c!.hash).toBe(r)
+  expect(c!.subject).toBe('撤回AI：存成卡片')
+  expect(c!.files.map((f) => f.path).sort()).toEqual(['AI新的.md', '白板.md'])
+  expect(await status(dir)).toEqual([{ code: ' M', path: '日记.md' }])
+  // 白板之后又被改过同一处：打不回去，什么都不动
+  writeFileSync(join(dir, '白板.md'), '卡一\nAI 的卡\n')
+  const again = await commitAll(dir, '又加回来')
+  writeFileSync(join(dir, '白板.md'), '卡一改了\nAI 的卡改了\n')
+  await commitAll(dir, '又改')
+  await expect(revertPaths(dir, again!, ['白板.md'], '撤回')).rejects.toThrow('撤回不了')
+  expect(readFileSync(join(dir, '白板.md'), 'utf8')).toBe('卡一改了\nAI 的卡改了\n')
 })
 
 it('提交时别的 git 进程正占着 index.lock（终端、编辑器里的 git status 会短暂占着）：等它放开再提交，不丢下一个暂存了没提交的删除', async () => {

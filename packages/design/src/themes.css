@@ -27,6 +27,11 @@
   color: var(--t1);
   /* 强调色底上的字、四条栏之间的分区线：多数主题是白字、细线 */
   --acc-on: #ffffff;
+  /* 红色的字（「写不进去，字只在内存里」）：--red 是点的颜色，12px 字不够 4.5 的几套另给深一点 / 亮一点的；
+     A 底栏上那一项：多数主题照旧在底栏上写红字，底栏是彩色一条的另给红底白字 */
+  --red-t: var(--red);
+  --status-err-bg: transparent;
+  --status-err-t: var(--red-t);
   --seam: var(--line);
   --bgart: none;
   --blur: none;
@@ -71,6 +76,7 @@
   --green: #1f8a4c;
   --yellow: #a86b00;
   --red: #cf3440;
+  --red-t: #be303b;
   --wire: #afc1b9;
   --w0: rgba(23, 70, 50, 0.05);
   --w1: rgba(23, 70, 50, 0.14);
@@ -119,6 +125,11 @@
   --green: #1c8a4e;
   --yellow: #a86b00;
   --red: #cf3440;
+  --red-t: #c7323d;
+  /* A 的底栏是深蓝一条：「写不进去」那一项红底白字 */
+  --status-err-bg: #cf3440;
+  --status-err-t: #ffffff;
+  --status-err-dot: none;
   --wire: #adc1cb;
   --w0: rgba(15, 70, 100, 0.05);
   --w1: rgba(15, 70, 100, 0.14);
@@ -167,6 +178,7 @@
   --green: #2e8a57;
   --yellow: #a86500;
   --red: #c8302f;
+  --red-t: #c42f2e;
   --wire: #d2b5bd;
   --w0: rgba(120, 40, 60, 0.05);
   --w1: rgba(120, 40, 60, 0.14);
@@ -215,6 +227,7 @@
   --green: #1f8a4c;
   --yellow: #a86b00;
   --red: #cf3440;
+  --red-t: #b62e38;
   --wire: #c1b5cc;
   --w0: rgba(70, 40, 100, 0.05);
   --w1: rgba(70, 40, 100, 0.14);
@@ -362,6 +375,11 @@
   --green: #859900;
   --yellow: #b58900;
   --red: #dc322f;
+  --red-t: #e56765;
+  /* A 的底栏是深青一条：「写不进去」那一项红底白字 */
+  --status-err-bg: #dc322f;
+  --status-err-t: #ffffff;
+  --status-err-dot: none;
   --wire: #315259;
   --w0: rgba(147, 161, 161, 0.06);
   --w1: rgba(147, 161, 161, 0.16);

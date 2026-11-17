@@ -100,6 +100,18 @@
 .di.done .st {
   color: var(--green);
 }
+/* 上次收下时合不上、留着的：红点 + --t2 字，整句换行显示（只是提醒，不像「写不进去」那样用红字） */
+.di .tx .dconf {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+  white-space: normal;
+}
+.di .tx .dconf .gdot {
+  flex: none;
+  transform: translateY(-1px);
+}
 .di.done .tx b,
 .di.drop .tx b {
   color: var(--t3);

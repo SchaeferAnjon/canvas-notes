@@ -9,7 +9,6 @@ import {
   newId,
   num,
   parseBoard,
-  reconcile,
   parseLinks,
   placeLoose,
   serializeBoard,
@@ -42,7 +41,8 @@ import {
   TODO_BODY,
 } from './board-drop'
 import { CardBody, classify, TODO } from './CardBody'
-import { sayMerged, saySameSpot } from './conflict-say'
+import { sayCardBack, sayMerged, saySameSpot } from './conflict-say'
+import { cardSave, keepEditing } from './board-edit'
 import { openVideo } from './video/actions'
 import { boardMomentStats } from './video/board'
 import { momentsTitle, videoKeyOfCard, videoUrlOfCard } from './video/BoardCards'
@@ -117,7 +117,13 @@ export interface BoardZoomApi {
 
 export function BoardView(props: BoardViewProps) {
   const { text, notes, scale } = props
-  const doc = useMemo(() => parseBoard(text), [text])
+  const [editing, setEditing] = useState<string | null>(null)
+  /**
+   * 改卡的框开着时外面（同步盘、另一台机器、AI）改了这块白板：存下时三方合并（board-edit.ts 的 cardSave）。
+   * 记开框时的全文；正在改的卡被外面删了，照它画回去，框不卸掉，打的字留着（keepEditing）
+   */
+  const editBase = useRef<{ id: string; text: string } | null>(null)
+  const doc = useMemo(() => keepEditing(parseBoard(text), editBase.current?.id === editing ? editBase.current.text : null, editing), [text, editing])
   const links = useMemo(() => parseLinks(doc), [doc])
   /** 导图白板：正文里的列表画成导图（mindmap/MindmapLayer），列表和原照片不算「未整理」 */
   const mindmap = isMindmap(text)
@@ -133,7 +139,6 @@ export function BoardView(props: BoardViewProps) {
   const [rects, setRects] = useState<Record<string, Rect>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [selLink, setSelLink] = useState<string | null>(null)
-  const [editing, setEditing] = useState<string | null>(null)
   /** 双击的是待办里第几行（文件里的行号） */
   const editRow = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -323,11 +328,9 @@ export function BoardView(props: BoardViewProps) {
   }
 
   /**
-   * 改卡的框开着时外面（同步盘、另一台机器、AI）改了这块白板：存下时和文档白板「改字」弹层、文档里打字一样三方合并
-   * （第 5 轮：以前拿框里的字直接写进现在的白板，外面改的同一张卡整段没了，没副本、没提示）。
-   * 底 = 打开框时的全文，我的 = 底里换掉这张卡，外面的 = 现在的全文；同一处合不了就留我的，外面那版存成冲突副本并在底栏说
+   * 改卡的框存下：开框以后外面改过这块白板就合并（第 5 轮：以前拿框里的字直接写进现在的白板，外面改的同一张卡整段没了）。
+   * 外面只挪了这张卡、改的是别的卡：两边都留，不出副本；外面也改了这张卡的字、删了这张卡：留我的，外面那版存成冲突副本并在底栏说
    */
-  const editBase = useRef<{ id: string; text: string } | null>(null)
   useEffect(() => {
     if (!editing) editBase.current = null
     // 新建的卡：写进文件后才轮到这里，等这张卡出现在白板里再记
@@ -336,29 +339,20 @@ export function BoardView(props: BoardViewProps) {
   function saveEdited(id: string, body: string) {
     const base = editBase.current?.id === id ? editBase.current.text : null
     editBase.current = null
-    if (base === null || base === text) return setContent(id, body)
-    const baseDoc = parseBoard(base)
-    const i = baseDoc.blocks.findIndex((b) => attr(b, 'id') === id)
-    if (i === -1) return setContent(id, body)
-    const mine = serializeBoard(
-      body.trim() === '' && baseDoc.blocks[i]!.kind === 'card'
-        ? { ...baseDoc, blocks: baseDoc.blocks.filter((_, j) => j !== i) }
-        : { ...baseDoc, blocks: baseDoc.blocks.map((b, j) => (j === i ? withContent(b, body) : b)) },
-    )
+    if (base === null || base === text || !parseBoard(base).blocks.some((b) => attr(b, 'id') === id)) return setContent(id, body)
     if (props.readOnly) return
-    const r = reconcile(base, mine, text)
+    const r = cardSave(base, text, id, body)
     if (r.kind === 'none') return
     if (r.kind === 'update') {
-      if (r.text !== text) props.onChange(r.text)
+      props.onChange(r.text)
       if (r.merged) props.onNotice(sayMerged(props.notePath))
       return
     }
-    const theirs = text
-    const others = r.text !== mine
     props.onChange(r.text)
-    void window.cn.saveConflictCopy(props.notePath, theirs).then(
-      (copy) => props.onNotice(saySameSpot(props.notePath, others, { path: copy })),
-      (e) => props.onNotice(saySameSpot(props.notePath, others, { error: String((e as Error).message ?? e) })),
+    const say = (copy: { path: string } | { error: string }) => (r.deleted ? sayCardBack(copy) : saySameSpot(props.notePath, r.others, copy))
+    void window.cn.saveConflictCopy(props.notePath, r.theirs).then(
+      (copy) => props.onNotice(say({ path: copy })),
+      (e) => props.onNotice(say({ error: String((e as Error).message ?? e) })),
     )
   }
 

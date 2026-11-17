@@ -215,9 +215,9 @@ export function Popover(props: { anchor: HTMLElement; onClose(): void; label: st
   )
 }
 
-export function MenuItem(props: { icon?: CodiconName; label: React.ReactNode; right?: React.ReactNode; onClick?(): void; disabled?: boolean }) {
+export function MenuItem(props: { icon?: CodiconName; label: React.ReactNode; right?: React.ReactNode; onClick?(): void; disabled?: boolean; className?: string; title?: string }) {
   return (
-    <button className="mi" role="menuitem" disabled={props.disabled} onClick={props.onClick}>
+    <button className={props.className ? `mi ${props.className}` : 'mi'} role="menuitem" disabled={props.disabled} onClick={props.onClick} title={props.title}>
       {props.icon ? <Codicon name={props.icon} /> : <i className="mi-sp" />}
       <span className="truncate">{props.label}</span>
       {props.right !== undefined && <span className="r">{props.right}</span>}

@@ -594,8 +594,12 @@ button.bi[data-testid='git-changed']:disabled {
  * 还停在原处）：不再是断行点，断行和记号不在时一样；CodeMirror 量位置（滚到标题、放光标）照样量得到它。
  * 不能 display: none：量出来是 0，点目录滚不到标题。链接小块、圆点这些有 class 的部件不动。
  */
-.cm-live .cm-widgetBuffer:has(+ span[contenteditable='false']:empty:not([class])),
-.cm-live span[contenteditable='false']:empty:not([class]) + .cm-widgetBuffer {
+/*
+ * 例外：位置行藏在上面那个空行里（layout-lines.ts 给这一行 cm-cardgap）。空行里没有字，只剩藏起来的部件，
+ * 两个 img 再挪出排版这一行就是 0 高，上一段和摆着的那段挤在一起、↓ 停不进去（第 6 轮）。这一行的 img 照旧排在行里撑起一行高
+ */
+.cm-live .cm-line:not(.cm-cardgap) .cm-widgetBuffer:has(+ span[contenteditable='false']:empty:not([class])),
+.cm-live .cm-line:not(.cm-cardgap) span[contenteditable='false']:empty:not([class]) + .cm-widgetBuffer {
   position: absolute;
 }
 .doc.doc .cm-strong {

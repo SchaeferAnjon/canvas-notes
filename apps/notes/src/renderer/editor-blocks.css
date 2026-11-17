@@ -497,6 +497,8 @@
   color: var(--t2);
   border-radius: 8px;
   background: var(--fill);
+  /* 行首的全角开括号「（」「《」只占半个字，墨迹和别的行的字左边齐（第二行起以括号开头不像缩进了半个字） */
+  text-spacing-trim: trim-start;
 }
 /* <summary> 写成好几行：标题条连成一块，后面几行的字和第一行的字对齐（chevron 14 + 右边 9） */
 .doc.doc .cm-fold-hl-top {

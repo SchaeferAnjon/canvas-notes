@@ -26,11 +26,17 @@ export function reconcile(base: string, local: string, remote: string): Reconcil
   return { kind: 'update', text: m.text, merged: true }
 }
 
-/** 「旅行.md」→「旅行（冲突 2026-11-15 14.03）.md」；n > 1 时加序号 */
+const pad2 = (x: number) => String(x).padStart(2, '0')
+
+/** 文件名里的时间「18-20」：冲突副本、写不进去另存的那篇共用（文件名里不放冒号，也不用点） */
+export function clockStamp(when: Date): string {
+  return `${pad2(when.getHours())}-${pad2(when.getMinutes())}`
+}
+
+/** 「旅行.md」→「旅行（冲突 2026-11-15 14-03）.md」；n > 1 时加序号 */
 export function conflictCopyName(fileName: string, when: Date, n = 1): string {
   const dot = fileName.toLowerCase().endsWith('.md') ? fileName.length - 3 : fileName.length
-  const p = (x: number) => String(x).padStart(2, '0')
-  const stamp = `${when.getFullYear()}-${p(when.getMonth() + 1)}-${p(when.getDate())} ${p(when.getHours())}.${p(when.getMinutes())}`
+  const stamp = `${when.getFullYear()}-${pad2(when.getMonth() + 1)}-${pad2(when.getDate())} ${clockStamp(when)}`
   const suffix = n > 1 ? ` ${n}` : ''
   return `${fileName.slice(0, dot)}（冲突 ${stamp}${suffix}）${fileName.slice(dot)}`
 }

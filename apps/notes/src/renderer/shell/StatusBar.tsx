@@ -1,7 +1,7 @@
 import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import type { FrameStyle } from '../../shared/appearance'
-import type { GitState } from '../../shared/api'
+import type { GitState, StrandedNote } from '../../shared/api'
 import { when } from '../../shared/when'
 import { MenuItem, Popover } from './Shell'
 
@@ -38,8 +38,10 @@ export function StatusBar(props: {
   ai?: React.ReactNode
   /** 提示（带撤回）：出在底栏正中，不压内容 */
   toast?: React.ReactNode
-  /** 写不进去、字另存了的那几篇（rescued：另存的那篇）：有就不说「都提交了」 */
-  unsaved?: { path: string; rescued: string | null }[]
+  /** 哪都写不进去、字只在内存里的那几篇（stash：设置目录里的备份）：有就不说「都提交了」，醒目地说出来 */
+  unsaved?: StrandedNote[]
+  /** 在访达里显示那份备份 */
+  onRevealStash?(file: string): void
 }) {
   const { git, frame } = props
   const [busy, setBusy] = useState<'commit' | 'sync' | null>(null)
@@ -84,10 +86,10 @@ export function StatusBar(props: {
         </span>
       )}
       {git && (
-        <button className="bi" data-testid="git-changed" onClick={(e) => setPop(pop?.kind === 'changes' ? null : { kind: 'changes', el: e.currentTarget })} disabled={frame === 'a' && !changed && !unsaved.length}>
-          {/* 默认状态不挂标记（DESIGN.md）：都提交了只写字，有改动才出黄点；有写不进去的篇先说它（字不在原文件里，不能说都提交了） */}
+        <button className={'bi' + (unsaved.length ? ' err' : '')} data-testid="git-changed" onClick={(e) => setPop(pop?.kind === 'changes' ? null : { kind: 'changes', el: e.currentTarget })} disabled={frame === 'a' && !changed && !unsaved.length}>
+          {/* 默认状态不挂标记（DESIGN.md）：都提交了只写字，有改动才出黄点；有写不进去的篇先说它（字只在内存里，不能说都提交了） */}
           {(changed > 0 || unsaved.length > 0) && <i className={'gdot ' + (unsaved.length ? 'err' : 'warn')} />}
-          {unsaved.length ? <span className="num">{`${unsaved.length}篇没存上`}</span> : changed ? <span className="num">{`${changed}处没提交`}</span> : '都提交了'}
+          {unsaved.length ? <span className="num err">{`${unsaved.length}篇写不进去，字只在内存里`}</span> : changed ? <span className="num">{`${changed}处没提交`}</span> : '都提交了'}
         </button>
       )}
       {frame === 'a' && commitBtn('bi')}
@@ -116,16 +118,20 @@ export function StatusBar(props: {
 
       {pop?.kind === 'changes' && git && (
         <Popover anchor={pop.el} label="没提交的改动" onClose={() => setPop(null)}>
-          {unsaved.length > 0 && <div className="mh">没存上 · 字另存了一篇，原文件写不进去</div>}
-          {unsaved.map((u) => (
-            <MenuItem
-              key={'u' + u.path}
-              icon="warning"
-              label={u.path}
-              right={u.rescued ? `字在《${u.rescued.replace(/^.*\//, '').replace(/\.md$/i, '')}》` : '没存上'}
-              onClick={() => (setPop(null), props.onOpen(u.rescued ?? u.path))}
-            />
-          ))}
+          {unsaved.length > 0 && <div className="mh">写不进去 · 字只在内存里，先别退出</div>}
+          {unsaved.map((u) => {
+            return (
+              <MenuItem
+                key={'u' + u.path}
+                className="unsaved"
+                icon="warning"
+                label={u.path}
+                right={u.stash ? '有备份' : '没备份'}
+                title={`${u.path} · ${u.stash ? `字备份在 ${u.stash}，点了在访达里显示` : '备份也没写进去'}`}
+                onClick={() => (setPop(null), u.stash ? props.onRevealStash?.(u.stash) : props.onOpen(u.path))}
+              />
+            )
+          })}
           <div className="mh">{changed ? <>没提交的改动 · <span className="num">{`${changed}个文件`}</span></> : unsaved.length ? '别的都提交了' : '都提交了'}</div>
           {changed > 0 && git.autoCommitError && (
             <div className="mwarn" role="status" data-testid="autocommit-error">

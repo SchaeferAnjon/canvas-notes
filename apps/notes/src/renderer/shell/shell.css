@@ -489,6 +489,15 @@
 .status .pv-bar .btn svg {
   color: inherit;
 }
+/* 按钮里的 esc 键帽不画框、不变淡，只留字（按钮已有一圈描边，键帽再画框就是两层框叠着；变淡后天青上只有 2.65）。
+   字比按钮名小一号，和按钮名同色（十套主题都 ≥ 4.5）；离按钮名只隔按钮自己的 gap 6 */
+.status .pv-bar .kbd-in {
+  height: auto;
+  padding: 0;
+  margin-left: 0;
+  border: 0;
+  opacity: 1;
+}
 .pv-bar .pv-short {
   display: none;
 }
@@ -631,6 +640,20 @@ body.resizing-left .win > .vsplit {
   font-size: 12px;
   color: var(--t3);
   white-space: nowrap;
+}
+/* 「N篇写不进去，字只在内存里」那几行：名字先保住（不缩，最宽留出右边「有备份」那么宽），右边写不下就省略（悬停 title 给全：备份在哪），整行不伸出弹层。
+   右边最窄 = padding 8 + 三个 12 号字 = 44；名字最宽 = 整行 − 图标 16 − 两个间隔 8 − 44。
+   离名字 8 + 8 = 16，比别的行的 8 + 12 少 4px，多给名字 */
+.shell-menu .mi.unsaved .truncate {
+  flex: none;
+  max-width: calc(100% - 76px);
+}
+.shell-menu .mi.unsaved .r {
+  flex: 0 1 auto;
+  min-width: 44px;
+  padding-left: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .shell-menu .mi .mi-sp {
   width: 16px;
@@ -1077,11 +1100,19 @@ body.resizing-left .win > .vsplit {
 .acts .txt.warn {
   color: var(--yellow);
 }
-/* 写不进去：红点（同底栏 .gdot）+ --t2 字；黄字在几套浅色主题上对比不够 */
-.acts .txt.failed {
+/* 哪都写不进去、字只在内存里：红点（同底栏 .gdot）+ 红字（--red-t，十套主题都 ≥ 4.5），要醒目（只是另存了的不走这里）。
+   整句不截：中间窄时也不按页面说明的 140 / 220 省略 */
+.acts .txt.failed,
+.center.compact .acts .txt.failed {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  color: var(--red-t);
+  font-weight: 500;
+  max-width: none;
+}
+/* 原文件写不进去、字在这一篇：说的是这篇是什么，比别的页面说明重要，用 --t2 */
+.acts .txt.pnote.t2 {
   color: var(--t2);
 }
 .acts .txt[hidden] {
@@ -1477,4 +1508,21 @@ body.resizing-left .win > .vsplit {
 .frame-b > .side .ftree .ft-row {
   height: 28px;
   gap: 6px;
+}
+/* 底栏：有篇写不进去、字只在内存里（红点后面红字）。A 的底栏是彩色一条的主题（天青、深湖）这一项红底白字、不要点 */
+.status .bi .num.err {
+  color: var(--red-t);
+  font-weight: 500;
+}
+.frame-a > .status .bi.err {
+  background: var(--status-err-bg);
+}
+.frame-a > .status button.bi.err:hover:not(:disabled) {
+  background: linear-gradient(rgba(127, 127, 127, 0.16), rgba(127, 127, 127, 0.16)), var(--status-err-bg);
+}
+.frame-a > .status .bi.err .num.err {
+  color: var(--status-err-t);
+}
+.frame-a > .status .bi.err .gdot {
+  display: var(--status-err-dot, block);
 }

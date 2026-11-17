@@ -38,6 +38,17 @@ describe('自带的十套主题', () => {
     expect(v['color-scheme'] ?? css.match(new RegExp(`\\[data-skin='${id}'\\] \\{\\s*color-scheme: (\\w+)`))?.[1]).toBe(s.tone)
   })
 
+  // 「写不进去，字只在内存里」是红字（第 6 轮）：12px 也要 ≥ 4.5。--red 是点的颜色，字用 --red-t（没给就是 --red）；
+  // A 的底栏是彩色一条的主题（天青、深湖）那一项换成红底白字（--status-err-bg / --status-err-t，照 VS Code 的 errorBackground）
+  it.each(SKINS.map((s) => [s.id] as const))('%s：红字对编辑区、侧栏、标签条、两种底栏都 ≥ 4.5', (id) => {
+    const v = blocks.get(id)!
+    const red = hex(v['red-t'] ?? v.red)
+    for (const k of ['win', 'side', 'tabbar', 'tab-on', 'title']) expect(contrast(red, hex(v[k])), `${id} --red-t 对 ${k}`).toBeGreaterThanOrEqual(4.5)
+    const errBg = v['status-err-bg'] ?? v.status
+    const errT = v['status-err-t'] ?? v['red-t'] ?? v.red
+    expect(contrast(hex(errT), hex(errBg)), `${id} A 底栏的写不进去`).toBeGreaterThanOrEqual(4.5)
+  })
+
   // 「更弱」的字（时间、篇数、说明、占位）也要看得清（第 2 轮美学：天青 2.65、深湖 2.87 读着费劲）：
   // 对每一块实底，和选中行、悬停行（--fill2 / --fill 叠在 --win、--side、--pop、--card 上）都 ≥ 3:1；还得比 --t2 淡
   it.each(SKINS.map((s) => [s.id] as const))('%s：--t3 对各块底色、选中和悬停的行 ≥ 3:1，仍比 --t2 淡', (id) => {

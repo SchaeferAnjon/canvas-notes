@@ -55,8 +55,11 @@ export function guardScreen(): void {
     skip('存储面板')
     return { canceled: true, filePath: '' }
   }) as typeof dialog.showSaveDialog
-  dialog.showMessageBox = (async () => {
+  // 记「提示框」，再记一条带问的那句（「提示框：有 1 篇写不进去，字只在内存里」），测试看问的是什么
+  dialog.showMessageBox = (async (...args: unknown[]) => {
+    const opts = args.find((a): a is Electron.MessageBoxOptions => !!a && typeof (a as { message?: unknown }).message === 'string')
     skip('提示框')
+    if (opts) g.cnScreen.push(`提示框：${opts.message}`)
     return { response: 0, checkboxChecked: false }
   }) as typeof dialog.showMessageBox
   dialog.showErrorBox = (title) => skip(`出错框 ${title}`)

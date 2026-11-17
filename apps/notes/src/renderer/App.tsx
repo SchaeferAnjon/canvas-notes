@@ -1,6 +1,6 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { Clip, DreamItem, DreamReport, GitState, NoteFile, VaultInfo } from '../shared/api'
+import type { Clip, DreamItem, DreamReport, GitState, NoteFile, StrandedNote, VaultInfo } from '../shared/api'
 import { CLIPS, clipMarkdown, INBOX, titleOf } from '../shared/layout'
 import { AiPanel } from './AiPanel'
 import { EngineLogo } from './engine-logo'
@@ -334,20 +334,35 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       refreshGit()
     })
   }, [refreshNotes, refreshGit])
-  /** 写不进去、字另存了的那几篇（底栏「N篇没存上」） */
-  const [unsaved, setUnsaved] = useState<{ path: string; rescued: string | null }[]>([])
-  useEffect(() => NoteDoc.onFailing(() => setUnsaved([...NoteDoc.failing].map((d) => ({ path: d.path, rescued: d.rescued })))), [])
-  // 第一次写不进去：一句说清，带「打开另存的」（和「在历史里看」一样跟着这一句，停 10 秒）
+  /** 哪都写不进去、字只在内存里的那几篇（底栏「N篇写不进去，字只在内存里」；stash：设置目录里的备份） */
+  const [unsaved, setUnsaved] = useState<StrandedNote[]>([])
+  useEffect(() => NoteDoc.onFailing(() => setUnsaved([...NoteDoc.failing].map((d) => ({ path: d.path, stash: d.stash })))), [])
+  // 原文件写不进去、字另存成了一篇：编辑器已经指向那篇，标签跟过去（标签上标明「原文件写不进去，字在这里」）；
+  // 提示条说清楚，带「打开另存的」（标签在后台时切过去）
   useEffect(
     () =>
-      NoteDoc.onRescued((d, why) => {
-        const to = d.rescued
-        const text = `「${titleOf(d.path)}」没存上：${why}，字另存了一篇`
+      NoteDoc.onRescued((d, from, why) => {
+        const to = d.path
+        setTabState((s) => ({ ...s, tabs: s.tabs.map((t) => (t.type === 'note' && t.path === from ? { ...t, path: to } : t)) }))
+        refreshNotes()
+        const text = `「${titleOf(from)}」写不进去：${why}。字另存成了「${titleOf(to)}」，以后都存在那篇`
         setNotice(text)
         setNoticeUndo(null)
-        setNoticeAct(to ? { text, label: '打开另存的', icon: 'go-to-file', run: () => openNote(to) } : null)
+        setNoticeAct({ text, label: '打开另存的', icon: 'go-to-file', run: () => openNote(to) })
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  )
+  // 哪都写不进去：字只在内存里，备份进了设置目录。一句说清，先别退出；带「在访达中显示」（看备份）
+  useEffect(
+    () =>
+      NoteDoc.onStranded((d, why) => {
+        const stash = d.stash
+        const text = `「${titleOf(d.path)}」写不进去，字只在内存里：${why}。${stash ? '备了一份在软件设置目录，' : '备份也没写进去，'}先别退出`
+        setNotice(text)
+        setNoticeUndo(null)
+        setNoticeAct(stash ? { text, label: '在访达中显示', icon: 'folder-opened', run: () => void window.cn.revealStash(stash) } : null)
+      }),
     [],
   )
   // 开着的笔记改了名、挪了地方：标签跟到新名字（编辑器跟着标签的路径走）。
@@ -482,7 +497,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           ? () => {
               // 撤回也是软件自己改开着的那篇：提示条说撤回了，不说外部改动
               NoteDoc.expectOwnChange(undo!.touched)
-              void window.cn.dreamUndo({ ids: [undo!.id], taken }).then(
+              void NoteDoc.saveAll().then(() => window.cn.dreamUndo({ ids: [undo!.id], taken })).then(
                 (u) => (dream.setReport(u.report), setNotice(undo!.done), refreshNotes(), refreshGit()),
                 undoFailed,
               )
@@ -509,7 +524,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const open = [...NoteDoc.open].some((d) => touched.includes(d.path))
     expectDreamChange([it])
     const text = it.oldImages ? (open ? '梦游挪了图，链接已更新' : `老图挪好了，一次提交进了${base}`) : it.commit ? `收下了，一次提交进了${base}` : '看过了，没改任何文件'
-    return dreamAct(() => window.cn.dreamTake(it.id), text, { id: it.id, done: it.oldImages ? '撤回了，老图回到了原处' : '撤回了，又回到待看', touched })
+    // 编辑器里刚打、还没自动保存的字先存盘，和梦游的改动一起合（不然收下后那次保存把梦游改的当成「外面改了」，另出冲突副本）
+    return dreamAct(async () => (await NoteDoc.saveAll(), window.cn.dreamTake(it.id)), text, { id: it.id, done: it.oldImages ? '撤回了，老图回到了原处' : '撤回了，又回到待看', touched })
   }
   const dreamDrop = (it: DreamItem) => dreamAct(() => window.cn.dreamDrop(it.id), it.oldImages ? '这一条丢掉了，老图都留在原处' : `丢掉了，这条改动不会进${dream.report?.base ?? 'main'}`)
   /** 对比标签（CN-48）：已经开着同一个就切过去；不然换掉还没固定的那个预览标签（斜体），都没有就新开一个 */
@@ -608,12 +624,22 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const creating = useRef(false)
   /** 这次新建、还没写过东西的笔记：关掉标签时还是空的就不留 */
   const freshNotes = useRef(new Set<string>())
+  /** 正在新建时换了标签：之后打的字归换到的那篇，新笔记在后台开（new-note-hold.ts） */
+  const activeNow = useRef(active)
+  activeNow.current = active
+  const holdNow = useRef<{ hold: ReturnType<typeof holdTyping>; from: string | null } | null>(null)
+  useEffect(() => {
+    const h = holdNow.current
+    if (h && active !== h.from) h.hold.release()
+  }, [active])
   /** 新建笔记（⌘N、左栏按钮、文件夹右键都走这里，关掉时还空着就进废纸篓）；folder 不给就按 newNoteWhere */
   const newNote = useCallback(async (folder?: string) => {
     if (creating.current) return
     creating.current = true
     // 盘慢时建好、读好要一两秒：键盘先从原来那篇拿走，这中间打的字交给新笔记（不然进了原来那篇）
     const hold = holdTyping()
+    const from = activeNow.current
+    holdNow.current = { hold, from }
     try {
       const path = await window.cn.createNote(folder ?? newNoteWhere.current(), '未命名', '# 未命名\n\n')
       freshNotes.current.add(path)
@@ -621,12 +647,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       primeNote(await window.cn.readNote(path))
       hold.handTo(path)
       refreshNotes()
-      openNote(path, true)
+      // 建的时候用户换到了别的标签：新笔记在后台开一个标签，不切过去、不抢焦点（第 6 轮）
+      if (activeNow.current !== from) setTabs((ts) => [...ts, { id: newId(), type: 'note', path, fresh: true }])
+      else openNote(path, true)
     } catch (e) {
       hold.drop()
       setNotice(errText(e))
     } finally {
       creating.current = false
+      holdNow.current = null
     }
   }, [openNote, refreshNotes])
   /**
@@ -1939,6 +1968,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         onHistory={() => setRight('history')}
         onOpen={(p) => openNote(p)}
         unsaved={unsaved}
+        onRevealStash={(f) => void window.cn.revealStash(f)}
         vaultPath={vault.path}
         update={<UpdateBarItem st={update} onInstall={installUpdate} onOpenSettings={() => openSettings('update')} />}
         ai={frame === 'a' ? aiCorner : undefined}

@@ -82,7 +82,8 @@ export interface StoredMsg {
   /** 「再提交一次」点过几次（又没成时写「第 N 次也没提交上」） */
   tries?: number
   steps?: ToolStep[]
-  change?: { commit: CommitInfo; kinds: Record<string, string>; reverted?: CommitInfo }
+  /** AI 改动的那次提交；only：那次是自动提交（「再提交一次」时已经被收进去了），只算、只撤回 AI 改的这几个文件，撤回说明用 message */
+  change?: { commit: CommitInfo; kinds: Record<string, string>; reverted?: CommitInfo; only?: { paths: string[]; message: string } }
   moves?: { path: string; topic: string }[]
   /** /找重复 的结果：两篇的路径、相似度（0 到 1）、为什么 */
   dups?: { a: string; b: string; score: number; why: string }[]

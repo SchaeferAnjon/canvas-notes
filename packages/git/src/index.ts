@@ -2,8 +2,8 @@
  * 调系统 git 命令（SSH、钥匙串直接能用）。每个调用都有超时；git 报错原样抛出。
  */
 import { execFile } from 'node:child_process'
-import { stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { rm, stat, writeFile } from 'node:fs/promises'
+import { isAbsolute, join } from 'node:path'
 
 export class GitError extends Error {
   constructor(
@@ -151,10 +151,12 @@ export interface Commit {
   files: { path: string; added: number; removed: number }[]
 }
 
-export async function log(dir: string, limit = 50): Promise<Commit[]> {
+/** rev：从哪次提交往前数（不给是 HEAD） */
+export async function log(dir: string, limit = 50, rev?: string): Promise<Commit[]> {
+  if (rev !== undefined && !/^[0-9a-f]{7,40}$/.test(rev)) throw new Error('提交号不对')
   let out: string
   try {
-    out = await git(dir, ['log', `-n${limit}`, '--format=%x1e%H%x1f%aI%x1f%s', '--numstat', '-z'])
+    out = await git(dir, ['log', `-n${limit}`, '--format=%x1e%H%x1f%aI%x1f%s', '--numstat', '-z', ...(rev ? [rev] : [])])
   } catch (e) {
     // 还没有任何提交
     if (e instanceof GitError && /does not have any commits|bad default revision/.test(e.stderr)) return []
@@ -399,6 +401,42 @@ export async function revert(dir: string, hash: string, o: RevertOptions = {}): 
   }
   await git(dir, o.resolve ? ['commit', '-q', '-m', message] : ['commit', '--amend', '-q', '-m', message])
   return (await git(dir, ['rev-parse', 'HEAD'])).trim()
+}
+
+/** 最近一次改到这几个路径的提交号；从没提交过返回 null */
+export async function lastCommitOf(dir: string, paths: string[]): Promise<string | null> {
+  if (!paths.length) return null
+  try {
+    return (await git(dir, ['log', '-1', '--format=%H', '--', ...paths])).trim() || null
+  } catch (e) {
+    if (e instanceof GitError && /does not have any commits|bad default revision/.test(e.stderr)) return null
+    throw e
+  }
+}
+
+/**
+ * 只撤回一次提交里 paths 这几个文件的改动（自动提交把 AI 改的和别处正写着的字一起收进去了，撤回只撤 AI 的那几个）：
+ * 把那几个文件的改动反着打回去，再只提交它们，返回新的提交号。那之后这几个文件又被改过、打不回去：什么都不动，报「撤回不了」
+ */
+export async function revertPaths(dir: string, hash: string, paths: string[], message: string): Promise<string> {
+  if (!/^[0-9a-f]{7,40}$/.test(hash)) throw new Error('提交号不对')
+  const patch = await git(dir, ['diff', '--binary', '-M', `${hash}^`, hash, '--', ...paths])
+  if (!patch.trim()) throw new Error('那次提交里没有这几个文件的改动')
+  const rel = (await git(dir, ['rev-parse', '--git-path', 'cn-revert.patch'])).trim()
+  const file = isAbsolute(rel) ? rel : join(dir, rel)
+  await writeFile(file, patch)
+  try {
+    // 不加 --3way：打不上就整个不动（git apply 要么全打上，要么一个文件都不改）
+    await git(dir, ['apply', '-R', file])
+  } catch (e) {
+    if (!(e instanceof GitError)) throw e
+    throw new Error('撤回不了：那之后这几处又被改过了，需要手动处理。')
+  } finally {
+    await rm(file, { force: true })
+  }
+  const done = await commitPaths(dir, paths, message)
+  if (!done) throw new Error('那次提交里没有这几个文件的改动')
+  return done
 }
 
 /** since 以来每次提交的时间（毫秒）和改了哪些文件，新的在前 */

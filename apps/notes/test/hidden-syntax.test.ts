@@ -7,20 +7,27 @@
  * - ←→ 先跑 stepOver，再照 CodeMirror 的 moveByChar 挪一个字、跨过 atomicRanges；
  * - ↑↓、Home、End、Ctrl+A、Ctrl+E、点：落在哪儿取决于排版，这里把每一个位置都当落点试一遍（从上面来、从下面来、点的）。
  * 真键盘在 e2e/r5-hidden.spec.ts 里再按一遍。
+ *
+ * 第 6 轮：挪行、Ctrl+T、⌘/ 这些没列在上面的键从旁边漏过去。后半截把文档里真有的每一套键（CodeMirror 自带、markdown、我们自己的）
+ * 从编辑器里取出来，除了只挪光标的，每个键对每种藏起来的语法按一遍；新加的键、CodeMirror 升级多出来的键自动进表。
  */
+import * as cmds from '@codemirror/commands'
 import { deleteCharBackward, deleteCharForward, history, insertNewlineAndIndent, undo } from '@codemirror/commands'
 import { insertNewlineContinueMarkup, markdown } from '@codemirror/lang-markdown'
-import { EditorSelection, EditorState, type Extension, Transaction, type TransactionSpec } from '@codemirror/state'
-import { EditorView } from '@codemirror/view'
+import { EditorSelection, EditorState, type Extension, type SelectionRange, Transaction, type TransactionSpec } from '@codemirror/state'
+import { EditorView, keymap } from '@codemirror/view'
 import { describe, expect, it } from 'vitest'
-import { backspaceSelectsBlock } from '../src/renderer/atomic-blocks'
-import { enterInQuote } from '../src/renderer/doc-keys'
+import { atomicBlocks, backspaceSelectsBlock } from '../src/renderer/atomic-blocks'
+import { docKeys, enterInQuote } from '../src/renderer/doc-keys'
+import { highlightKeys } from '../src/renderer/highlight'
+import { noteKeys } from '../src/renderer/note-keys'
 import { editorHost } from '../src/renderer/editor-host'
 import { enterInFoldTitle, foldBlock, foldBlocks, toggleFold } from '../src/renderer/fold-block'
 import { type Hidden, hiddenGuard, hiddenOk, hiddenRanges, stepOver } from '../src/renderer/hidden-syntax'
 import { backspaceOverLayout, deleteOverLayout, layoutLines } from '../src/renderer/layout-lines'
 import { mdWidgets } from '../src/renderer/md-widgets'
 import { propsBlock } from '../src/renderer/mindmap/props-block'
+import { baseBlock } from '../src/renderer/base/base-block'
 
 // 时刻块的模块一加载就要 window（视频测试站地址）
 ;(globalThis as { window?: unknown }).window ??= {}
@@ -34,6 +41,7 @@ const extensions: Extension[] = [
   foldBlock,
   mdWidgets,
   videoDocWidgets,
+  baseBlock,
   hiddenGuard,
   history(),
 ]
@@ -64,6 +72,11 @@ interface Sample {
 
 const MOMENT = '<!-- moment video=youtube:kYB8IZa5AuE t=10 -->\n[▶ 00:10 · 讲到这里](https://www.youtube.com/watch?v=kYB8IZa5AuE&t=10s)'
 
+const VIDEO = '<!-- video video=youtube:7CVYBBX_zxA -->\n![视频标题](附件/c.png)\n[视频标题](https://www.youtube.com/watch?v=7CVYBBX_zxA)\nIC实验室 · 08:55'
+const MOMENT_QUOTE =
+  '<!-- moment video=youtube:7CVYBBX_zxA t=1.1 -->\n![00:01](附件/c.png)\n[▶ 00:01 · 视频标题](https://www.youtube.com/watch?v=7CVYBBX_zxA&t=1s)\n> **00:01 原文一句**'
+const BASE = '```base\nfilters:\n  and:\n    - file.inFolder("测/库")\nviews:\n  - type: table\n```'
+
 const samples: Sample[] = [
   { name: '位置行（中间一段）', doc: '# 删除键\n\n第一段卡片。\n\n第二段卡片。\n\n<!-- card id=d2 x=900 y=200 -->\n收尾一段。\n' },
   { name: '位置行（没有标题，第一行）', doc: '<!-- card id=d1 x=1 y=2 -->\n没有标题的第一段。\n\n第二段。\n' },
@@ -79,6 +92,11 @@ const samples: Sample[] = [
   { name: '收着的提示块', doc: '# 提示\n\n> [!ai]- 讲解\n> 正文一\n> 正文二\n\n后面。\n' },
   { name: '时刻块', doc: `# 视频笔记\n\n前面。\n\n${MOMENT}\n\n后面。\n` },
   { name: '图片', doc: '# 图\n\n前一段。\n\n![说明](附件/a.png)\n\n后一段。\n' },
+  { name: '展开的提示块', doc: '# 块\n\n上一段。\n\n> [!tip] 提示标题\n> 提示正文。\n\n下一段。\n' },
+  { name: '展开的提示块（能收起）', doc: '# 块\n\n上一段。\n\n> [!ai]+ 讲解\n> 正文一\n\n下一段。\n' },
+  { name: '视频卡', doc: `# 块\n\n上一段。\n\n${VIDEO}\n\n下一段。\n` },
+  { name: '时刻块（带原文）', doc: `# 块\n\n上一段。\n\n${MOMENT_QUOTE}\n\n下一段。\n` },
+  { name: '数据库块', doc: `# 块\n\n上一段。\n\n${BASE}\n\n下一段。\n` },
 ]
 
 function open(sample: Sample): View {
@@ -112,7 +130,8 @@ function expectIntact(before: EditorState, after: EditorState, where: string) {
   }
   const want = new Map<string, number>()
   for (const p of pieces(before)) want.set(p, (want.get(p) ?? 0) + 1)
-  for (const [core, n] of want) expect(lines(core), `${where}：「${core}」`).toBeGreaterThanOrEqual(n)
+  // 只藏一个换行的（展开的提示块下面那个）去掉换行是空的：它留没留住由空行数（shapes）看
+  for (const [core, n] of want) if (core) expect(lines(core), `${where}：「${core}」`).toBeGreaterThanOrEqual(n)
   expect(hiddenRanges(after).length, `${where}：藏着的块少了`).toBeGreaterThanOrEqual(hiddenRanges(before).length)
 }
 
@@ -354,5 +373,198 @@ describe('报告里的几条，按原样走一遍', () => {
     v.dispatch({ selection: { anchor: doc.indexOf('写作') + 2 }, annotations: hiddenOk.of(true) })
     typeAt(v, '课')
     expect(v.state.doc.toString()).toBe(doc.replace('写作', '写作课'))
+  })
+})
+
+// ---------- 第 6 轮：第 5 轮看守没覆盖到的编辑路径 ----------
+
+/** 文档模式里真有的几套键（优先级和 note-doc.ts、doc-editing.ts 里一样） */
+const withKeys: Extension[] = [...extensions, docKeys, atomicBlocks, highlightKeys, keymap.of(noteKeys)]
+
+function openKeys(sample: Sample): View {
+  const v = fakeView(EditorState.create({ doc: sample.doc, extensions: withKeys }))
+  for (const i of sample.open ?? []) v.dispatch({ effects: toggleFold.of(foldBlocks(v.state.doc.toString())[i]!.from) })
+  v.dispatch({ selection: { anchor: v.state.doc.length }, userEvent: 'select' })
+  return v
+}
+
+/** 键名统一成 mac 上的写法：Mod 是 Cmd，修饰键排好序 */
+function keyName(name: string): string {
+  const parts = name.split(/-(?!$)/)
+  const key = parts.pop()!
+  const mods = parts.map((m) => (m === 'Mod' || m === 'Meta' ? 'Cmd' : m)).sort()
+  return [...mods, key].join('-')
+}
+
+type Cmd = (v: EditorView) => boolean
+/** 每个键在 mac 上会依次试的命令（先试优先级高的，第一个返回 true 的算数），和 CodeMirror 的 keymap 一样 */
+function chains(state: EditorState): Map<string, Cmd[]> {
+  const out = new Map<string, Cmd[]>()
+  const add = (name: string, f: Cmd | undefined) => {
+    if (!f) return
+    const k = keyName(name)
+    out.set(k, [...(out.get(k) ?? []), f])
+  }
+  for (const set of state.facet(keymap))
+    for (const b of set) {
+      const name = b.mac ?? b.key
+      if (!name) continue
+      add(name, b.run as Cmd | undefined)
+      add('Shift-' + name, b.shift as Cmd | undefined)
+    }
+  return out
+}
+
+/** 只挪光标、选区的命令（光标停哪由前面「每个位置当落点」那组测）；别的键都当会改文档，对每种藏起来的语法按一遍 */
+const NAV = new Set<unknown>(
+  Object.entries(cmds)
+    .filter(([n]) => /^(cursor|select|addCursor|simplifySelection|toggleTabFocusMode)/.test(n))
+    .map(([, f]) => f),
+)
+
+/** 没有屏幕时 CodeMirror 量排版的那几个：照一行一行、没有折行算 */
+function withLayout(v: View): View {
+  const line = (pos: number) => v.state.doc.lineAt(pos)
+  Object.defineProperty(v, 'lineWrapping', { value: false })
+  Object.defineProperty(v, 'lineBlockAt', { value: (pos: number) => ({ from: line(pos).from, to: line(pos).to }) })
+  Object.defineProperty(v, 'moveToLineBoundary', { value: (r: SelectionRange, forward: boolean) => EditorSelection.cursor(forward ? line(r.head).to : line(r.head).from) })
+  Object.defineProperty(v, 'moveVertically', {
+    value: (r: SelectionRange, forward: boolean) => {
+      const l = line(r.head)
+      const n = l.number + (forward ? 1 : -1)
+      if (n < 1 || n > v.state.doc.lines) return EditorSelection.cursor(forward ? v.state.doc.length : 0)
+      const to = v.state.doc.line(n)
+      return EditorSelection.cursor(Math.min(to.to, to.from + r.head - l.from))
+    },
+  })
+  return v
+}
+
+/** 藏着的每一段（去掉两头换行）连同它边上留住几个空行：按完以后应该一模一样（没被拆开、没并进正文、正文没被藏进去） */
+const shapes = (s: EditorState) =>
+  hiddenRanges(s)
+    .map((h) => `${s.doc.sliceString(h.from, h.to).replace(/^\n+|\n+$/g, '')}｜空行${h.glue?.length ?? 0}`)
+    .sort()
+
+const press = (v: View, chain: Cmd[]) => {
+  for (const f of chain) if (f(v)) return
+}
+
+describe('每个会改文档的键（CodeMirror 自带的、markdown 的、我们自己的）× 每种藏起来的语法', () => {
+  const all = chains(EditorState.create({ doc: '', extensions: withKeys }))
+  const tested = [...all].filter(([, chain]) => !chain.some((f) => NAV.has(f)))
+
+  it('键表里有挪行、复制行、对调、缩进、删行、⌘/ 这些（CodeMirror 升级换了键名时这里先报）', () => {
+    const names = tested.map(([k]) => k)
+    for (const k of ['Alt-ArrowUp', 'Alt-ArrowDown', 'Alt-Shift-ArrowUp', 'Alt-Shift-ArrowDown', 'Ctrl-t', 'Ctrl-o', 'Ctrl-k', 'Cmd-/', 'Ctrl-A', 'Cmd-[', 'Cmd-]', 'Alt-Cmd-\\', 'Cmd-Shift-k', 'Cmd-Enter', 'Enter', 'Shift-Enter', 'Backspace', 'Delete', 'Ctrl-d', 'Ctrl-h', 'Alt-Backspace', 'Cmd-Backspace', 'Tab'])
+      expect(names, k).toContain(k)
+  })
+
+  it('⌘/、⇧⌃A 在笔记里不做事：不包成 <!-- … -->', () => {
+    for (const k of ['Cmd-/', 'Ctrl-A']) {
+      const doc = '# 注释键\n\n第一段。\n\n<!-- card id=d2 x=900 y=200 -->\n第二段摆着。\n\n第三段。\n'
+      const v = withLayout(openKeys({ name: '', doc }))
+      v.dispatch({ selection: EditorSelection.range(doc.indexOf('第一段'), doc.indexOf('第二段摆着') + 6), userEvent: 'select' })
+      press(v, all.get(k)!)
+      expect(v.state.doc.toString(), k).toBe(doc)
+      v.dispatch({ selection: { anchor: doc.indexOf('第二段摆着') + 2 }, userEvent: 'select' })
+      press(v, all.get(k)!)
+      expect(v.state.doc.toString(), k).toBe(doc)
+    }
+  })
+
+  describe.each(samples)('$name', (sample) => {
+    it.each(tested.map(([k]) => k))('%s：藏着的原样、没并进正文，光标在能停的地方，⌘Z 回到原样', (k) => {
+      const chain = all.get(k)!
+      const v0 = openKeys(sample)
+      const want = shapes(v0.state)
+      for (const at of stops(v0.state)) {
+        for (const times of [1, 2]) {
+          const v = withLayout(openKeys(sample))
+          v.dispatch({ selection: { anchor: at }, userEvent: 'select' })
+          for (let i = 0; i < times; i++) {
+            // 退格碰到整块先选中，再按就是有意删掉这一块
+            const sel = v.state.selection.main
+            if (!sel.empty && hiddenRanges(v.state).some((h) => h.unit && h.unit.from === sel.from && h.unit.to === sel.to)) break
+            press(v, chain)
+          }
+          const where = `${sample.name} 从 ${at} 按 ${k} ${times} 下：${JSON.stringify(v.state.doc.toString())}`
+          if (v.state.selection.main.empty) expect(badCursor(v.state, v.state.selection.main.head), where).toBe(false)
+          expectIntact(v0.state, v.state, where)
+          if (v.state.selection.main.empty) expect(shapes(v.state), where).toEqual(want)
+          for (let i = 0; i < 6; i++) undo(v)
+          expect(v.state.doc.toString(), where + ' 再 ⌘Z').toBe(sample.doc)
+        }
+      }
+    })
+  })
+})
+
+describe('第 6 轮报告里的几条，按原样走一遍', () => {
+  const CALLOUT = '# 块\n\n上一段。\n\n> [!tip] 提示标题\n> 提示正文。\n\n下一段。\n'
+  const IMG = '# 块\n\n上一段。\n\n![图](附件/c.png)\n\n下一段。\n'
+  const keys6 = chains(EditorState.create({ doc: '', extensions: withKeys }))
+  const key = (v: View, k: string) => press(v, keys6.get(k)!)
+
+  it('展开的提示块下面的空行里打字、粘贴：另起一段，空行留着，下一段不并进提示块', () => {
+    const v = openKeys({ name: '', doc: CALLOUT })
+    v.dispatch({ selection: { anchor: CALLOUT.indexOf('\n\n下一段') + 1 }, userEvent: 'select' })
+    for (const ch of '新打的字') typeAt(v, ch)
+    expect(v.state.doc.toString()).toBe(CALLOUT.replace('\n\n下一段', '\n\n新打的字\n下一段'))
+    const p = openKeys({ name: '', doc: CALLOUT })
+    p.dispatch({ selection: { anchor: CALLOUT.indexOf('\n\n下一段') + 1 }, userEvent: 'select' })
+    keys['粘贴']!(p)
+    expect(p.state.doc.toString()).toBe(CALLOUT.replace('\n\n下一段', '\n\n贴\n\n进来\n下一段'))
+  })
+
+  it('⌥↑ / ⌥↓ 挨着提示块、图片、视频卡、时刻块：块不和正文并在一起（不挪）', () => {
+    for (const doc of [CALLOUT, IMG, `# 块\n\n上一段。\n\n${VIDEO}\n\n下一段。\n`, `# 块\n\n上一段。\n\n${MOMENT_QUOTE}\n\n下一段。\n`]) {
+      const up = withLayout(openKeys({ name: '', doc }))
+      up.dispatch({ selection: { anchor: doc.indexOf('下一段') }, userEvent: 'select' })
+      key(up, 'Alt-ArrowUp')
+      expect(up.state.doc.toString()).toBe(doc)
+      const down = withLayout(openKeys({ name: '', doc }))
+      down.dispatch({ selection: { anchor: doc.indexOf('上一段。') + 4 }, userEvent: 'select' })
+      key(down, 'Alt-ArrowDown')
+      expect(down.state.doc.toString()).toBe(doc)
+    }
+  })
+
+  it('Ctrl+T：摆在白板上的段落段首、图片下一段段首都不对调；普通两个字照常对调', () => {
+    const placed = '# 拖出\n\n第一段。\n\n<!-- card id=d2 x=900 y=200 -->\n第二段摆着。\n'
+    const v = withLayout(openKeys({ name: '', doc: placed }))
+    v.dispatch({ selection: { anchor: placed.indexOf('第二段') }, userEvent: 'select' })
+    key(v, 'Ctrl-t')
+    expect(v.state.doc.toString()).toBe(placed)
+    const img = withLayout(openKeys({ name: '', doc: IMG }))
+    img.dispatch({ selection: { anchor: IMG.indexOf('下一段') }, userEvent: 'select' })
+    key(img, 'Ctrl-t')
+    expect(img.state.doc.toString()).toBe(IMG)
+    img.dispatch({ selection: { anchor: IMG.indexOf('下一段') + 1 }, userEvent: 'select' })
+    key(img, 'Ctrl-t')
+    expect(img.state.doc.toString()).toBe(IMG.replace('下一段', '一下段'))
+  })
+
+  it('点图片（选中这一块）再打字：整串字落在图片下面一段，光标跟着字走', () => {
+    const doc = '# 一图\n\n上一段。\n\n![图一](附件/c.png)\n\n下一段。\n'
+    const from = doc.indexOf('![')
+    const to = doc.indexOf(')\n') + 1
+    // 浏览器把第一个字当成换掉选区（replaceSelection）
+    const v = openKeys({ name: '', doc })
+    v.dispatch({ selection: EditorSelection.range(from, to), userEvent: 'select.pointer' })
+    for (const ch of 'xyz') typeAt(v, ch)
+    expect(v.state.doc.toString()).toBe(doc.replace('\n\n下一段', '\n\nxyz\n下一段'))
+    // 也可能直接插在块后面的空行里（报告里看到的）：后面的字跟着
+    const w = openKeys({ name: '', doc })
+    w.dispatch({ selection: EditorSelection.range(from, to), userEvent: 'select.pointer' })
+    w.dispatch({ changes: { from: to + 1, insert: 'x' }, userEvent: 'input.type' })
+    for (const ch of 'yz') typeAt(w, ch)
+    expect(w.state.doc.toString()).toBe(doc.replace('\n\n下一段', '\n\nxyz\n下一段'))
+    // 块下面紧挨着正文（数据库块的 ``` 下面直接一段）：字前后各空一行
+    const tight = `# 表\n\n${BASE}\n下一段。\n`
+    const t = openKeys({ name: '', doc: tight })
+    t.dispatch({ selection: EditorSelection.range(tight.indexOf('```'), tight.lastIndexOf('```') + 3), userEvent: 'select.pointer' })
+    for (const ch of 'ab') typeAt(t, ch)
+    expect(t.state.doc.toString()).toBe(`# 表\n\n${BASE}\n\nab\n\n下一段。\n`)
   })
 })

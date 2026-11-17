@@ -143,11 +143,37 @@ function selectionEndOk(cs: readonly Cluster[], pos: number): boolean {
   return true
 }
 
-/** 只看用户自己的编辑：打字、回车、粘贴、拖放、补全、各种删除、挪行复制行 */
-function userEdit(tr: Transaction): boolean {
+/**
+ * 用户自己的编辑分两类：
+ * - edit：打字、回车、粘贴、拖放、补全、各种删除（含拖着挪字的 move.drop）。改写成不碰藏着的字：落进去的挪到旁边，跨过去的只删看得见的；
+ * - whole：整行、整字搬动的命令（挪行 ⌥↑↓、复制行 ⇧⌥↑↓、对调两个字 Ctrl+T、缩进 ⌘[ ⌘]、注释）。改写不成「做一半」：
+ *   碰到藏着的（连同块边上留住的空行），或者做完后藏着的语法变了样（块并进正文、正文被藏进块里），这一下整个不做。
+ * 第 6 轮：以前只认 input / delete / move.line 几种，Ctrl+T（move.character）、⌥↑ 挪过块边上的空行（只看了 from/to，没看 glue）、
+ * ⌘/（toggleComment 不带 userEvent）都从旁边漏过去，把图片、视频卡、提示块、位置行拆成原文。
+ * 没带 userEvent 的（软件自己改的、外面改了文件、白板写回）不归这里管；CodeMirror 自带键里不带 userEvent 的只有两个注释命令，
+ * 文档里不用它们（note-doc.ts）。每个会改文档的键都在 test/hidden-syntax.test.ts 里按一遍
+ */
+export type EditKind = 'edit' | 'whole'
+const EDIT_EVENTS = ['input.type', 'input.paste', 'input.drop', 'input.complete', 'move.drop']
+const WHOLE_EVENTS = ['move.line', 'move.character', 'input.copyline', 'input.indent', 'indent', 'delete.dedent', 'comment']
+
+export function editKind(tr: Transaction): EditKind | null {
   const ev = tr.annotation(Transaction.userEvent)
-  if (!ev) return false
-  return ev === 'input' || tr.isUserEvent('delete') || ['input.type', 'input.paste', 'input.drop', 'input.complete', 'input.indent', 'input.copyline', 'move.line'].some((e) => tr.isUserEvent(e))
+  if (!ev) return null
+  if (WHOLE_EVENTS.some((e) => tr.isUserEvent(e))) return 'whole'
+  if (ev === 'input' || tr.isUserEvent('delete') || EDIT_EVENTS.some((e) => tr.isUserEvent(e))) return 'edit'
+  return null
+}
+
+/**
+ * 藏着的语法现在的样子：每一段藏着的字（去掉两头换行）和它边上留住的空行有几个。整行搬动前后不一样，就是把块拆了、
+ * 并进正文了、或者把正文藏进去了
+ */
+function shape(state: EditorState, prev: EditorState): string {
+  return hiddenRanges(state, prev)
+    .map((h) => `${state.doc.sliceString(h.from, h.to).replace(/^\n+|\n+$/g, '')}\u0000${h.glue?.length ?? 0}`)
+    .sort()
+    .join('\u0001')
 }
 
 function bypass(tr: Transaction): boolean {
@@ -169,32 +195,44 @@ function subtract(pieces: [number, number][], h: number, k: number): [number, nu
 
 /** 编辑：改到藏着的字就改写这次改动 */
 const guardChanges = EditorState.transactionFilter.of((tr) => {
-  if (!tr.docChanged || bypass(tr) || !userEdit(tr)) return tr
+  if (!tr.docChanged || bypass(tr)) return tr
+  const kind = editKind(tr)
+  if (!kind) return tr
   const start = tr.startState
   const hs = hiddenRanges(start)
   if (!hs.length) return tr
   const len = start.doc.length
-  // 挪行、复制行：碰到藏着的就不挪（整段搬动会把位置行、折叠标签拆散）
-  if (tr.isUserEvent('move.line') || tr.isUserEvent('input.copyline')) {
+  // 整行搬动：碰到藏着的、块边上留住的空行，或者做完藏着的变了样，就整个不做
+  if (kind === 'whole') {
     let hit = false
+    const touch = (fromA: number, toA: number, a: number, z: number) => (fromA < z && toA > a) || (fromA === toA && fromA > a && fromA < z)
     tr.changes.iterChanges((fromA, toA) => {
-      if (hs.some((h) => (fromA < h.to && toA > h.from) || (fromA === toA && fromA > h.from && fromA < h.to))) hit = true
+      if (hs.some((h) => touch(fromA, toA, h.from, h.to) || (h.glue ?? []).some((g) => touch(fromA, toA, g.from, g.to)))) hit = true
     })
-    return hit ? [] : tr
+    return hit || shape(tr.state, start) !== shape(start, start) ? [] : tr
   }
   const specs: { from: number; to?: number; insert?: string }[] = []
-  /** 后面补了换行的插入点：光标停在打的字后面，不跑到补的换行后面 */
-  const padded: number[] = []
+  /** 打的字插在哪（改写后的位置，按改动的先后）、后面补了几个换行：光标停在打的字后面，不跑到补的换行后面 */
+  const inserts: { at: number; len: number; tail: number }[] = []
   let changed = false
   tr.changes.iterChanges((fromA, toA, _fromB, _toB, ins) => {
     let text = ins.toString()
+    let tail = 0
+    // 选中了一整块（点了图片、退格先选中了视频卡）再打字、粘贴：块留着，字另起一段接在块下面
+    // （第 6 轮：选区换成第一个字后光标回到块前面，第一个字落在块下面，后面的字跑到块上面、并进上一段）
+    const block = text && fromA < toA ? hs.find((h) => h.side === 'near' && h.unit && h.unit.from === fromA && h.unit.to === toA) : undefined
     // 这次删除盖住了一整块的：那一块不护着
-    const keep = hs.filter((h) => !(h.unit && fromA < toA && fromA <= h.unit.from && toA >= h.unit.to))
-    let pieces: [number, number][] = fromA < toA ? [[fromA, toA]] : []
+    const keep = hs.filter((h) => !(h.unit && !block && fromA < toA && fromA <= h.unit.from && toA >= h.unit.to))
+    let pieces: [number, number][] = fromA < toA && !block ? [[fromA, toA]] : []
     for (const h of keep) if (h.from < toA && h.to > fromA) pieces = subtract(pieces, h.from, h.to)
     for (const h of keep) for (const g of h.glue ?? []) if (g.from < toA && g.to > fromA) pieces = subtract(pieces, g.from, g.to)
-    if (pieces.length !== (fromA < toA ? 1 : 0) || (pieces[0] && (pieces[0][0] !== fromA || pieces[0][1] !== toA))) changed = true
-    let at = pieces.length ? pieces[0]![0] : fromA
+    if (block || pieces.length !== (fromA < toA ? 1 : 0) || (pieces[0] && (pieces[0][0] !== fromA || pieces[0][1] !== toA))) changed = true
+    let at = block ? block.to : pieces.length ? pieces[0]![0] : fromA
+    if (block && at < len && start.doc.lineAt(at).text !== '') {
+      // 块下面紧挨着正文：上下各空一行，字不和块、不和下面那段并在一起
+      text = '\n' + text + '\n\n'
+      tail = 2
+    }
     if (text) {
       const cs = clusters(keep)
       // 插的位置被删掉的那几段里的点不算挡着（删掉后它就不在了），只看留下来的
@@ -217,7 +255,7 @@ const guardChanges = EditorState.transactionFilter.of((tr) => {
       const blank = start.doc.lineAt(at).text === ''
       if (blank && keep.some((h) => h.sep && h.from === at) && !text.endsWith('\n')) {
         text += '\n'
-        padded.push(at)
+        tail = 1
         changed = true
       }
       if (blank && keep.some((h) => h.sep && h.to === at) && !text.startsWith('\n')) {
@@ -240,15 +278,15 @@ const guardChanges = EditorState.transactionFilter.of((tr) => {
       } else specs.push({ from: a, to: z })
     }
     if (!inserted) specs.push({ from: at, insert: text })
+    if (text) inserts.push({ at, len: text.length, tail })
   })
   if (!changed) return tr
   const changes = ChangeSet.of(specs as ChangeSpec, start.doc.length)
-  const ends = new Set(padded.map((p) => changes.mapPos(p, 1)))
+  // 光标：每个选区打的字（一个选区一处）后面；删除照旧落在删掉的地方
+  const ranges = start.selection.ranges
+  const typed = inserts.length === ranges.length ? inserts.map((i) => changes.mapPos(i.at, -1) + i.len - i.tail) : null
   const selection = EditorSelection.create(
-    start.selection.ranges.map((r) => {
-      const p = changes.mapPos(r.empty ? r.head : r.from, 1)
-      return EditorSelection.cursor(ends.has(p) ? p - 1 : p)
-    }),
+    ranges.map((r, i) => EditorSelection.cursor(typed ? typed[i]! : changes.mapPos(r.empty ? r.head : r.from, 1))),
     start.selection.mainIndex,
   )
   const spec: TransactionSpec = {

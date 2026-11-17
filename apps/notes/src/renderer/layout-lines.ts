@@ -8,7 +8,7 @@
  * （第 4 轮：屏上露出「Y<!-- card … -->」，卡在白板上弹回列里）。并到上面那行末尾后，下面那段的行首就是它自己的行首；
  * 光标、编辑不进藏着的那段由 hidden-syntax.ts 统一看守（这里只交上范围）
  */
-import { type ChangeSpec, type EditorState, Prec, type Range, StateField, type Text } from '@codemirror/state'
+import { ChangeSet, type ChangeSpec, EditorSelection, EditorState, Prec, type Range, StateField, type Text } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap } from '@codemirror/view'
 import { fmValue } from '@cn/format'
 import { type Hidden, hiddenOk, hiddenRanges, hiddenSyntax } from './hidden-syntax'
@@ -32,8 +32,11 @@ function build(state: EditorState): DecorationSet {
     if (!line.text.startsWith('<!--') || !CARD_LINE.test(line.text)) continue
     // 第一行上面没有行可并：藏「这一行 + 换行」，光标停在下一行行首
     out.push(n > 1 ? Decoration.replace({}).range(line.from - 1, line.to) : Decoration.replace({}).range(line.from, line.to + 1))
+    // 上面是空行：这一行里只剩藏起来的部件，撑不起高度（光标用的两个 img 挪出了排版，app.css），
+    // 给它一个空字撑成普通空行的高，↓ 能停、点得进（第 6 轮：两段挤在一起，看不出是两段）
+    if (n > 1 && doc.line(n - 1).text === '') out.push(Decoration.line({ class: 'cm-cardgap' }).range(doc.line(n - 1).from))
   }
-  return Decoration.set(out)
+  return Decoration.set(out, true)
 }
 
 /** 位置行连着它那一段：段尾（下面第一个空行前） */
@@ -123,8 +126,40 @@ export function deleteOverLayout(view: EditorView): boolean {
   return true
 }
 
+/**
+ * 粘贴进文档的字里带着位置行：去掉。在文档里选中、复制了摆在白板上的一段，藏着的位置行跟着进了剪贴板；
+ * 贴到别处同一张卡出现两次，贴到另一段段首两条位置行叠在一起（第 6 轮存疑），白板上卡跳来跳去。白板（type: board）里照原样贴
+ */
+const pasteDropsLayout = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || !tr.isUserEvent('input.paste') || isBoard(tr.startState.doc)) return tr
+  let hit = false
+  const specs: { from: number; to: number; insert: string }[] = []
+  tr.changes.iterChanges((fromA, toA, _fromB, _toB, ins) => {
+    const text = ins.toString()
+    const clean = text
+      .split('\n')
+      .filter((l) => !(l.startsWith('<!--') && CARD_LINE.test(l)))
+      .join('\n')
+    if (clean !== text) hit = true
+    specs.push({ from: fromA, to: toA, insert: clean })
+  })
+  if (!hit) return tr
+  const changes = ChangeSet.of(specs, tr.startState.doc.length)
+  // 光标在每处贴进来的字后面（hidden-syntax 可能已经把插的位置挪开了，不按原来的选区算）
+  const ins = specs.filter((s) => s.insert)
+  const ranges = tr.startState.selection.ranges
+  const ends = ins.length === ranges.length ? ins.map((s) => changes.mapPos(s.from, -1) + s.insert.length) : ranges.map((r) => changes.mapPos(r.to, 1))
+  return {
+    changes,
+    selection: EditorSelection.create(ends.map((p) => EditorSelection.cursor(p))),
+    userEvent: 'input.paste',
+    scrollIntoView: true,
+  }
+})
+
 export const layoutLines = [
   field,
+  pasteDropsLayout,
   Prec.high(
     keymap.of([
       { key: 'Backspace', run: backspaceOverLayout },

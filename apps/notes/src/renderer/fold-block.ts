@@ -233,6 +233,8 @@ function build(state: EditorState, over: Map<number, boolean>): Pick<FoldState, 
   const depthAt = (pos: number) => openBodies.filter(([a, z]) => pos > a && pos < z).length
   /** 不画成正文行的：里层展开的标题行、里层的 </details> 行、里层收着的整块 */
   const notBody: [number, number][] = []
+  /** 收着的提示块（第一行行首）：下面的空行已经由它自己登记 */
+  const foldedCallouts = new Set<number>()
   for (const b of foldBlocks(doc.toString())) {
     if (b.from < hiddenTo) continue
     const folded = over.get(b.from) ?? b.folded
@@ -276,6 +278,7 @@ function build(state: EditorState, over: Map<number, boolean>): Pick<FoldState, 
     }
     out.push(Decoration.widget({ widget: new CalloutToggle(folded, b.from), side: -1 }).range(b.headTo))
     if (folded) {
+      foldedCallouts.add(b.from)
       out.push(Decoration.line({ class: 'cm-callout-folded' }).range(b.from))
       const r = Decoration.replace({}).range(b.headTo, b.to)
       out.push(r)
@@ -306,7 +309,12 @@ function build(state: EditorState, over: Map<number, boolean>): Pick<FoldState, 
     if (!c) continue
     let last = n
     while (last < doc.lines && doc.line(last + 1).text.trim() !== '') last++
-    hidden.push({ from: l.from > 0 ? l.from - 1 : 0, to: l.from + c.prefix, fromOk: l.from > 0, toOk: true, side: 'to', unit: { from: l.from, to: doc.line(last).to } })
+    const unit = { from: l.from, to: doc.line(last).to }
+    hidden.push({ from: l.from > 0 ? l.from - 1 : 0, to: l.from + c.prefix, fromOk: l.from > 0, toOk: true, side: 'to', unit })
+    // 展开着的提示块（收着的上面登记过了）上下的空行和图片一样留住：下面空行里打字、粘贴另起一段，⌥↑ ⌥↓ 不把正文挪得贴着块，
+    // 删不掉这两个空行（第 6 轮：md 的懒续行把空行里打的字连同下一段并进提示块，文档、白板上都成了提示块的正文）
+    if (!foldedCallouts.has(l.from) && unit.to < len)
+      hidden.push({ from: unit.to, to: unit.to + 1, fromOk: true, toOk: true, side: 'from', unit, sep: true, glue: blankGlue(doc, unit.from, unit.to) })
     calloutTitles.push({ from: l.from + c.prefix, to: l.to })
     n = last
   }
@@ -385,6 +393,21 @@ export function enterInFoldTitle(view: EditorView): boolean {
 }
 
 /**
+ * 光标在收着的提示块标题那一行上按回车、⇧回车、⌘回车、Ctrl+O：在块下面新起一段，光标过去（收着的块当一整块，和 Notion 收着的开关块一样）。
+ * 第 6 轮按键表找出来的：断在标题里，「> [!ai]- 」后面的标题字掉进藏着的正文看不见了；⌘回车在标题下面空一行，正文脱离提示块露出来
+ */
+export function enterInFoldedCallout(view: EditorView): boolean {
+  const { state } = view
+  const sel = state.selection.main
+  if (!sel.empty || state.readOnly) return false
+  const over = state.field(foldField).over
+  const b = foldBlocks(state.doc.toString()).find((x) => x.kind === 'callout' && (over.get(x.from) ?? x.folded) && sel.head >= x.from && sel.head <= x.headTo)
+  if (!b) return false
+  view.dispatch({ changes: { from: b.to, insert: '\n\n' }, selection: { anchor: b.to + 2 }, userEvent: 'input', annotations: hiddenOk.of(true), scrollIntoView: true })
+  return true
+}
+
+/**
  * 往展开着的折叠块标题、提示块标题里粘贴、拖进带换行的字：换行换成空格（标题里断行、空行会把 <summary> 拆坏，整块露成 HTML；
  * 提示块标题断开后正文跑出块外；
  * 回车由 enterInFoldTitle 管）
@@ -445,4 +468,17 @@ const noBlankInTitle = EditorState.transactionFilter.of((tr) => {
 })
 
 // markdown() 自己的回车是 Prec.high、排在前面：要 highest 才先轮到（不在标题上时不管）
-export const foldBlock = [foldField, oneLineTitle, noBlankInTitle, Prec.highest(keymap.of([{ key: 'Enter', run: enterInFoldTitle }]))]
+// ⇧回车和回车一样（第 6 轮：⇧回车走 CodeMirror 自带的换行，在折叠标题里断行）
+const enter = (v: EditorView) => enterInFoldTitle(v) || enterInFoldedCallout(v)
+export const foldBlock = [
+  foldField,
+  oneLineTitle,
+  noBlankInTitle,
+  Prec.highest(
+    keymap.of([
+      { key: 'Enter', run: enter, shift: enter },
+      { key: 'Mod-Enter', run: enterInFoldedCallout },
+      { mac: 'Ctrl-o', run: enterInFoldedCallout },
+    ]),
+  ),
+]

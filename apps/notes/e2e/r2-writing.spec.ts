@@ -142,6 +142,8 @@ test('白板改字弹层开着时外面改了同一段：存好后文件里是�
     expect(file()).toBe(NOTE.replace('外面加的一段。', '外面加的一段。ABC'))
     const copies = readdirSync(vault).filter((f) => f.startsWith('外改（冲突 '))
     expect(copies).toHaveLength(1)
+    // 时间和写不进去另存的「没存上的字 18-20」同一写法（第 6 轮）
+    expect(copies[0]).toMatch(/^外改（冲突 \d{4}-\d\d-\d\d \d\d-\d\d）\.md$/)
     expect(readFileSync(join(vault, copies[0]!), 'utf8')).toBe(theirs)
     // 提示里的副本名和左栏、最近里一样不带 .md（第 3 轮美学）
     await expect(page.locator('.db-toast')).toContainText(`外面那版存成《${copies[0]!.replace(/\.md$/, '')}》`)

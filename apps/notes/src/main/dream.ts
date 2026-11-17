@@ -366,39 +366,64 @@ async function keepTimes(root: string, moves: { from: string; to: string }[]): P
   }
 }
 
-/** 收下一条：用户没提交的改动先提交，再 cherry-pick；冲突就退回，告诉用户 */
-async function cherryPick(root: string, it: DreamItem): Promise<void> {
-  if (!it.commit) {
-    it.state = 'taken'
-    return
-  }
-  const pending = await git.status(root)
-  if (pending.length) await git.commitAll(root, git.describeChanges(pending))
-  const restore = await keepTimes(root, it.move ? [it.move] : [])
+/**
+ * cherry-pick 一个提交。git 合不上的文件再用 merge3Fine 合一次：同一行两边改的不是同一处、两边都只往末尾加了几行（用户末尾打了一句、
+ * 梦游补「相关：[[…]]」）都合得上，合上了照常提交（说明、作者用原来那次的）。这次的改动 main 上已经有了也算收下（不多一次空提交）。
+ * 合不上就退回到 pick 之前，返回为什么（「你后来删了这篇」）；title 是这一条的标题，原因里的文件就是它时不重复写名字
+ */
+async function pickOne(root: string, commit: string, title: string): Promise<string | null> {
   try {
     // 不按「整个文件夹挪走了」去猜：丢掉的那几条挪动会让 git 以为 素材/旅行/ 整个挪回了收件箱
-    await git.git(root, ['-c', 'merge.directoryRenames=false', 'cherry-pick', it.commit])
+    await git.git(root, ['-c', 'merge.directoryRenames=false', 'cherry-pick', commit])
+    return null
   } catch (e) {
     if (!(e instanceof git.GitError)) throw e
-    // 这条的改动 main 上已经有了：算收下，不多一次空提交
-    if (/empty|nothing to commit/i.test(e.stderr + e.message)) {
-      await git.git(root, ['cherry-pick', '--skip']).catch(() => git.git(root, ['cherry-pick', '--abort']).catch(() => undefined))
-      it.state = 'taken'
-      return
+    const files = (await git.git(root, ['diff', '--name-only', '--diff-filter=U', '-z'])).split('\0').filter(Boolean)
+    if (!files.length) {
+      if (/empty|nothing to commit/i.test(e.stderr + e.message)) {
+        await git.git(root, ['cherry-pick', '--skip']).catch(() => git.git(root, ['cherry-pick', '--abort']).catch(() => undefined))
+        return null
+      }
+      await git.git(root, ['cherry-pick', '--abort']).catch(() => undefined)
+      throw e
     }
-    await git.git(root, ['cherry-pick', '--abort']).catch(() => undefined)
-    throw new Error(`「${it.title}」和你后来的改动冲突了，没收下。可以丢掉这条。`)
+    const name = (f: string) => (titleOf(f) === title ? '这篇' : `「${titleOf(f)}」`)
+    const merged: [string, string][] = []
+    let why: string | null = null
+    for (const f of files) {
+      const stage = (n: number) => git.git(root, ['show', `:${n}:${f}`]).catch(() => null)
+      const [base, ours, theirs] = await Promise.all([stage(1), stage(2), stage(3)])
+      if (ours === null) why = `你后来删了${name(f)}`
+      else if (base === null) why = `你后来也建了一篇${name(f)}`
+      else if (theirs === null) why = `${name(f)}后来又改过，合不上`
+      else {
+        const m = merge3Fine(base, ours, theirs)
+        if (m.conflict) why = `你后来在${name(f)}里改的和它要改的是同一处`
+        else merged.push([f, m.text])
+      }
+      if (why) break
+    }
+    if (why) {
+      await git.git(root, ['cherry-pick', '--abort']).catch(() => undefined)
+      return why
+    }
+    for (const [f, text] of merged) await writeFile(join(root, f), text)
+    await git.git(root, ['add', '--', ...files])
+    if (!(await git.git(root, ['diff', '--cached', '--name-only'])).trim()) {
+      await git.git(root, ['cherry-pick', '--skip'])
+      return null
+    }
+    await git.git(root, ['commit', '-q', '-C', commit])
+    return null
   }
-  await restore()
-  it.state = 'taken'
-  it.taken = await head(root)
 }
 
+/** 收下一条：和一组、全部收下走同一条路；合不上就退回，说是哪条、为什么 */
 export async function takeItem(root: string, r: DreamReport, id: string): Promise<void> {
   const it = find(r, id)
   if (it.state !== 'pending') return
-  await cherryPick(root, it)
-  await closeIfDone(root, r)
+  await takeMany(root, r, [id])
+  if (it.state === 'pending' && it.conflict) throw new Error(`「${it.title}」没收下：${it.conflict}。可以丢掉这条。`)
 }
 
 export async function dropItem(root: string, r: DreamReport, id: string): Promise<void> {
@@ -433,8 +458,9 @@ export async function takeAll(root: string, r: DreamReport): Promise<string | nu
 }
 
 /**
- * 收下几条（一组、预览条上的「收下这 N 处」、全部收下）：按提交顺序 cherry-pick --no-commit，合成一次提交进当前分支。
- * 只有一条、又没重做过时照旧 cherry-pick（提交说明就是那一条的）。冲突就整个退回，告诉用户。返回那次提交号。
+ * 收下几条（一条、一组、预览条上的「收下这 N 处」、全部收下）：用户没提交的改动先提交，再按提交顺序一条条 cherry-pick；
+ * 合不上的那条退回、记下为什么（item.conflict），留着待看，别的照收（第 6 轮：以前碰到一条冲突就一条都不收，也不说是哪条）。
+ * 收下的几条合成一次提交进当前分支；只收下一条、又没重做过时保留那一条自己的提交（说明就是那一条的）。返回那次提交号
  */
 export async function takeMany(root: string, r: DreamReport, ids: string[]): Promise<string | null> {
   const order = (r as DreamReportInternal).commitOrder ?? r.items.map((i) => i.id)
@@ -445,41 +471,43 @@ export async function takeMany(root: string, r: DreamReport, ids: string[]): Pro
     .sort((a, b) => rank(a) - rank(b))
   if (!items.length) return null
   try {
-    if (items.length === 1 && !items[0]!.redoCommits?.length) {
-      await cherryPick(root, items[0]!)
-      return items[0]!.taken ?? null
-    }
-    const commits = items.flatMap((i) => (i.commit ? [i.commit, ...(i.redoCommits ?? [])] : []))
-    if (!commits.length) {
-      for (const i of items) i.state = 'taken'
-      return null
-    }
-    const pending = await git.status(root)
-    if (pending.length) await git.commitAll(root, git.describeChanges(pending))
-    const restore = await keepTimes(root, items.flatMap((i) => (i.move ? [i.move] : [])))
-    try {
-      // 导入几百条后一次收下几百个提交，机器忙时 30 秒不够
-      await git.git(root, ['-c', 'merge.directoryRenames=false', 'cherry-pick', '--no-commit', ...commits], { timeoutMs: 5 * 60_000 })
-    } catch (e) {
-      if (!(e instanceof git.GitError)) throw e
-      await git.git(root, ['cherry-pick', '--abort']).catch(() => undefined)
-      await git.git(root, ['reset', '-q', '--hard', 'HEAD'])
-      throw new Error(`这 ${items.length} 处里有和你后来的改动冲突的，一处都没收下。可以一条条收下，冲突的那条丢掉。`)
-    }
-    const staged = (await git.git(root, ['diff', '--cached', '--name-only'])).trim()
-    if (!staged) {
-      for (const i of items) i.state = 'taken'
-      return null
-    }
+    const ok = items.filter((i) => !i.commit)
     const real = items.filter((i) => i.commit)
-    const files = real.filter((i) => i.group === 'file').length
-    const message = files === real.length ? `收下梦游的归类和改名：${files} 处` : `收下梦游的整理：${real.length} 处`
-    await git.git(root, ['commit', '-q', '-m', message], { timeoutMs: 5 * 60_000 })
-    await restore()
-    const hash = await head(root)
-    for (const i of items) {
+    let hash: string | null = null
+    if (real.length) {
+      const pending = await git.status(root)
+      if (pending.length) await git.commitAll(root, git.describeChanges(pending))
+      const start = await head(root)
+      const restore = await keepTimes(root, real.flatMap((i) => (i.move ? [i.move] : [])))
+      for (const it of real) {
+        const before = await head(root)
+        let why: string | null = null
+        for (const c of [it.commit!, ...(it.redoCommits ?? [])]) if ((why = await pickOne(root, c, it.title))) break
+        if (!why) {
+          delete it.conflict
+          ok.push(it)
+          continue
+        }
+        // 重做过的那几个提交前面的已经进来了：一起退回
+        if ((await head(root)) !== before) await git.git(root, ['reset', '-q', '--hard', before])
+        it.conflict = why
+      }
+      const taken = ok.filter((i) => i.commit)
+      if ((await head(root)) !== start) {
+        if (taken.length > 1 || taken.some((i) => i.redoCommits?.length)) {
+          const files = taken.filter((i) => i.group === 'file').length
+          const message = files === taken.length ? `收下梦游的归类和改名：${files} 处` : `收下梦游的整理：${taken.length} 处`
+          await git.git(root, ['reset', '-q', '--soft', start])
+          // 导入几百条后一次收下几百个提交，机器忙时 30 秒不够
+          await git.git(root, ['commit', '-q', '-m', message], { timeoutMs: 5 * 60_000 })
+        }
+        hash = await head(root)
+      }
+      await restore()
+    }
+    for (const i of ok) {
       i.state = 'taken'
-      if (i.commit) i.taken = hash
+      if (i.commit && hash) i.taken = hash
     }
     return hash
   } finally {
@@ -561,21 +589,43 @@ async function goneSince(root: string, taken: string, items: DreamItem[]): Promi
 }
 
 /**
- * 收下那次以后新加的文件里，哪一篇是 gone 改了名、又添了字变来的：原来那篇的每一行（去掉空行）八成以上还在它里面。
- * 好几篇都像时取留下最多的那篇；都不像是 null
+ * 收下那次以后新加的文件里，哪一篇是 gone 改了名、又改了字变来的。按内容认，两种都算：
+ * - 原来那篇的每一行（去掉空行）八成以上原样还在它里面（改名时在后面添了几句）；
+ * - 按字比，原来正文（去掉 front matter）的字八成以上还在、顺序不变（改名时顺手改了几个字、在句子中间插了一段）。
+ *   收件箱的随手记只有一两行正文，改一个字整行就不算「原样还在」了（第 6 轮）。
+ * 好几篇都像时取最像的那篇；都不像是 null
  */
 async function grewInto(root: string, taken: string, gone: string): Promise<string | null> {
   const lines = (t: string) => t.split('\n').map((l) => l.trim()).filter(Boolean)
-  const old = lines(await git.git(root, ['show', `${taken}:${gone}`]))
+  const before = await git.git(root, ['show', `${taken}:${gone}`])
+  const old = lines(before)
   if (!old.length) return null
   const added = (await git.git(root, ['diff', '--no-renames', '--diff-filter=A', '--name-only', '-z', taken, 'HEAD'])).split('\0').filter((p) => p && extname(p) === extname(gone))
   let best: { path: string; share: number } | null = null
   for (const p of added) {
-    const now = new Set(lines(await git.git(root, ['show', `HEAD:${p}`])))
-    const share = old.filter((l) => now.has(l)).length / old.length
+    const text = await git.git(root, ['show', `HEAD:${p}`])
+    const now = new Set(lines(text))
+    const share = Math.max(old.filter((l) => now.has(l)).length / old.length, kept(body(before), body(text)))
     if (share >= 0.8 && (!best || share > best.share)) best = { path: p, share }
   }
   return best?.path ?? null
+}
+
+/** 去掉开头的 front matter（随手记的 created: 这几行，篇篇都差不多，不拿来比像不像） */
+const body = (t: string) => t.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/\s+/g, '')
+
+/** a 的字有几成按原来的顺序还在 b 里（最长公共子序列 ÷ a 的长度）；太长的不算（撤回认改名只看短笔记，长的 git 自己认得出） */
+function kept(a: string, b: string): number {
+  const x = [...a]
+  const y = [...b]
+  if (!x.length || x.length * y.length > 4_000_000) return 0
+  let prev = new Array<number>(y.length + 1).fill(0)
+  for (const c of x) {
+    const cur = new Array<number>(y.length + 1).fill(0)
+    for (let j = 1; j <= y.length; j++) cur[j] = c === y[j - 1] ? prev[j - 1]! + 1 : Math.max(prev[j]!, cur[j - 1]!)
+    prev = cur
+  }
+  return prev[y.length]! / x.length
 }
 
 /** 分支和临时检出删了（都处理完以后又撤回）：按最后一次提交重新建出来，好接着重做 */

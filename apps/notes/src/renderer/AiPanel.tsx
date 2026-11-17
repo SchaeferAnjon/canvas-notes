@@ -311,12 +311,19 @@ export function AiPanel(props: {
     const tries = (m.tries ?? 1) + 1
     try {
       const c = m.retry ? await window.cn.aiCommit(m.retry.paths, m.retry.message) : await window.cn.commit()
+      const did = lead.replace(/，提交没成功$/, '')
+      // 自动提交抢先把 AI 改的收进去了：照实说，下面照样给「撤回」，只撤回那次里 AI 改的几个文件（第 6 轮）
+      const taken = c && 'taken' in c ? c.taken : null
       patch(m.id, {
         warn: undefined,
         retry: undefined,
         tries: undefined,
-        done: c ? `${lead.replace(/，提交没成功$/, '')}，提交好了` : '没有要提交的改动了',
-        ...(c && m.retry ? { change: { commit: c, kinds: m.retry.kinds } } : {}),
+        done: taken ? `${did}，已经由自动提交收进去了` : c ? `${did}，提交好了` : '没有要提交的改动了',
+        ...(taken && m.retry
+          ? { change: { commit: taken, kinds: m.retry.kinds, only: { paths: m.retry.paths, message: m.retry.message } } }
+          : c && !('taken' in c) && m.retry
+            ? { change: { commit: c, kinds: m.retry.kinds } }
+            : {}),
       })
     } catch (e) {
       patch(m.id, { warn: `${lead}：第${tries}次也没提交上，${errText(e)}`, tries })
@@ -326,7 +333,7 @@ export function AiPanel(props: {
 
   async function revert(id: number, c: Change) {
     try {
-      const r = await window.cn.aiRevert(c.commit.hash)
+      const r = await window.cn.aiRevert(c.commit.hash, c.only)
       if (r) patch(id, { change: { ...c, reverted: r } })
       props.onChanged()
     } catch (e) {
@@ -942,7 +949,7 @@ function ChangeBlock({ change, onRevert, onHistory }: { change: Change; onRevert
         </div>
       ))}
       <div className="ft">
-        {change.reverted ? '又做了一次反向提交，文件回到了AI改之前' : '已提交到main'}
+        {change.reverted ? '又做了一次反向提交，文件回到了AI改之前' : change.only ? '自动提交收进去的' : '已提交到main'}
         <button className="lnk" onClick={onHistory}>
           在历史里看
         </button>

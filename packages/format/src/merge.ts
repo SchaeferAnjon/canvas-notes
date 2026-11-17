@@ -20,9 +20,31 @@ export function merge3(base: string, local: string, remote: string): MergeResult
   return { text: lines.join('\n'), conflict: false }
 }
 
+type Region = ReturnType<typeof diff3Merge<string>>[number]
+
+/**
+ * 两边都只往文件末尾加了字（用户在末尾打了一句、梦游在末尾补一行双链、同步来的在末尾添了一段）：两边的都留下，local 在前。
+ * 第 i 段冲突后面只剩空行才算末尾；local、remote 都得原样留着 base 那几行、只在后面接着写。
+ * 两边都在同一行行尾接着打（谁也没换行）分不清谁该在前，不合。合不了返回 null
+ */
+function tailBoth(regions: Region[], i: number): string[] | null {
+  if (!regions.slice(i + 1).every((r) => !r.conflict && r.ok!.every((l) => l === ''))) return null
+  const c = regions[i]!.conflict!
+  const [a, o, b] = [c.a, c.o, c.b].map((l) => l.join('\n')) as [string, string, string]
+  if (!a.startsWith(o) || !b.startsWith(o)) return null
+  const aRest = a.slice(o.length)
+  const bRest = b.slice(o.length)
+  if (!aRest) return b.split('\n')
+  if (!bRest) return a.split('\n')
+  // base 这一段是整行插进来的（o 为空行数）：两边各是整行，中间换行；不然要有一边是另起一行
+  const lineBreak = aRest.endsWith('\n') || bRest.startsWith('\n')
+  if (!lineBreak && c.o.length) return null
+  return (o + aRest + (lineBreak ? '' : '\n') + bRest).split('\n')
+}
+
 /**
  * 三方合并，两边改了同一处时那几行留 local（编辑器里正在写的）；别处 remote 改的照样合进来。
- * conflict 说有没有这种「留了 local」的地方（有就把 remote 另存冲突副本）。
+ * conflict 说有没有这种「留了 local」的地方（有就把 remote 另存冲突副本）。两边都只往末尾加的不算（tailBoth）。
  */
 export function merge3Ours(base: string, local: string, remote: string): MergeResult {
   if (local === remote || remote === base) return { text: local, conflict: false }
@@ -30,8 +52,13 @@ export function merge3Ours(base: string, local: string, remote: string): MergeRe
   const regions = diff3Merge(local.split('\n'), base.split('\n'), remote.split('\n'), { excludeFalseConflicts: true })
   const lines: string[] = []
   let conflict = false
-  for (const r of regions) {
+  for (const [i, r] of regions.entries()) {
     if (r.conflict) {
+      const both = tailBoth(regions, i)
+      if (both) {
+        lines.push(...both)
+        continue
+      }
       conflict = true
       lines.push(...r.conflict.a)
     } else lines.push(...r.ok!)
@@ -54,7 +81,7 @@ export function merge3Fine(base: string, local: string, remote: string): MergeRe
   if (remote === base) return { text: local, conflict: false }
   const regions = diff3Merge(local.split('\n'), base.split('\n'), remote.split('\n'), { excludeFalseConflicts: true })
   const lines: string[] = []
-  for (const r of regions) {
+  for (const [i, r] of regions.entries()) {
     if (!r.conflict) {
       lines.push(...r.ok!)
       continue
@@ -62,7 +89,13 @@ export function merge3Fine(base: string, local: string, remote: string): MergeRe
     const [a, o, b] = [r.conflict.a, r.conflict.o, r.conflict.b].map((l) => l.join('\n'))
     if (a!.length + o!.length + b!.length > FINE_MAX) return { text: local, conflict: true }
     const fine = diff3Merge(tokens(a!), tokens(o!), tokens(b!), { excludeFalseConflicts: true })
-    if (fine.some((f) => f.conflict)) return { text: local, conflict: true }
+    if (fine.some((f) => f.conflict)) {
+      // 两边都只往末尾加：都留下（用户末尾打的一句、梦游补的「相关：[[…]]」）
+      const both = tailBoth(regions, i)
+      if (!both) return { text: local, conflict: true }
+      lines.push(...both)
+      continue
+    }
     lines.push(...fine.flatMap((f) => f.ok!).join('').split('\n'))
   }
   return { text: lines.join('\n'), conflict: false }

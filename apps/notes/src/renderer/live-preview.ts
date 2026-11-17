@@ -94,7 +94,7 @@ class CalloutIcon extends WidgetType {
   eq(o: CalloutIcon) {
     return o.icon === this.icon && o.label === this.label
   }
-  toDOM() {
+  toDOM(view: EditorView) {
     const s = document.createElement('span')
     s.className = 'cm-callout-icon'
     s.appendChild(codiconEl(this.icon, 14))
@@ -104,6 +104,16 @@ class CalloutIcon extends WidgetType {
       t.textContent = this.label
       s.appendChild(t)
     }
+    // 点图标（和没写标题时的类型名）：光标放在标题字最前面。第 6 轮：浏览器自己把光标放进部件里，
+    // CodeMirror 量出来是第 0 个字，打的字跑到整篇最前面、标题成了正文，页面滚到最上面
+    s.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
+      e.preventDefault()
+      const line = view.state.doc.lineAt(view.posAtDOM(s))
+      const c = parseCallout(line.text)
+      view.focus()
+      view.dispatch({ selection: { anchor: line.from + (c?.prefix ?? 0) }, userEvent: 'select.pointer' })
+    })
     return s
   }
 }

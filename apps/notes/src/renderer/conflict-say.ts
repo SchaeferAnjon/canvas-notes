@@ -13,3 +13,10 @@ export function saySameSpot(path: string, others: boolean, copy: { path: string 
   if (!copy) return head
   return 'path' in copy ? `${head}，外面那版存成《${titleOf(copy.path)}》` : `${head}，外面那版没存成副本（${copy.error}）`
 }
+
+/** 真白板上正改着的卡被外面删了：卡连同打的字放回去，外面那版存成冲突副本（第 6 轮：以前框当场消失、字哪儿都没有） */
+export function sayCardBack(copy: { path: string } | { error: string }): string {
+  // 正看着的就是这块白板，不再写它的名字；底栏放得下（第 6 轮设计复审）
+  const head = '外面删了你正在改的卡：已放回'
+  return 'path' in copy ? `${head}，外面那版存成《${titleOf(copy.path)}》` : `${head}，外面那版没存成副本（${copy.error}）`
+}

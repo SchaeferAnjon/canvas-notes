@@ -10,7 +10,8 @@ import type { DreamReport, NoteFile } from '../../shared/api'
 import { type Moved, pendingMoves, previewLine, previewOf } from '../../shared/dream-preview'
 import { titleOf } from '../../shared/layout'
 import { expectDreamChange } from './own-change'
-import { errText } from './useDream'
+import { errText, takenSay } from './useDream'
+import { NoteDoc } from '../note-doc'
 
 interface Toast {
   text: string
@@ -77,10 +78,19 @@ export function useDreamPreview(
     async take(ids: string[]) {
       // 收下是软件自己挪、改名：开着的那篇标签跟过去，不说「在外面改名」
       own(ids)
-      const r = await run(() => window.cn.dreamTakeMany(ids))
+      // 编辑器里刚打、还没自动保存的字先存盘，和梦游的改动一起合
+      const r = await run(async () => (await NoteDoc.saveAll(), window.cn.dreamTakeMany(ids)))
       if (!r) return
       dream.setReport(r.report)
-      setToast({ text: `收下了${n(ids)}，已提交到${r.report.base}`, short: '已收下 ·', commit: r.commit, ...(r.commit ? { undo: { ids, taken: r.commit } } : {}) })
+      // 合不上的那几条留着待看：提示说收下了几处、哪条没收下、为什么；撤回只撤收下的
+      const took = ids.filter((id) => r.report.items.find((i) => i.id === id)?.state === 'taken')
+      const stuck = takenSay(ids, r.report)
+      if (!took.length) {
+        setToast(null)
+        onNotice(stuck ?? '一处都没收下')
+        return
+      }
+      setToast({ text: stuck ?? `收下了${n(took)}，已提交到${r.report.base}`, short: '已收下 ·', commit: r.commit, ...(r.commit ? { undo: { ids: took, taken: r.commit } } : {}) })
     },
     async drop(ids: string[]) {
       const r = await run(() => window.cn.dreamDropMany(ids))
@@ -93,6 +103,7 @@ export function useDreamPreview(
       setBusy(true)
       let r: Awaited<ReturnType<typeof window.cn.dreamUndo>>
       try {
+        await NoteDoc.saveAll()
         r = await window.cn.dreamUndo(u)
       } catch (e) {
         setToast(null)

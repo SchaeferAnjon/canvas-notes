@@ -103,7 +103,8 @@ for (const when of ['后台', '当前'] as const)
     }
   })
 
-test('保存一直没成功（文件写不进去）：编辑器说「没存上」，底栏不说「都提交了」；退出时打的字另存下来、不记「存完」', async () => {
+// 第 6 轮重做：原文件写不进去时另存成一篇，编辑器从此指向那篇（只有一个落盘目标）；哪都写不进去的情形见 r6-read-ai.spec.ts
+test('保存一直没成功（文件写不进去）：字另存成一篇，标签换到那篇、标明原文件写不进去；底栏不说「都提交了」；退出时字在另存那篇里', async () => {
   const run = await launch({ '随手记.md': '# 随手记\n\n正文。\n' }, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   const file = join(vault, '随手记.md')
@@ -114,33 +115,23 @@ test('保存一直没成功（文件写不进去）：编辑器说「没存上�
     // 像别的程序把这个文件锁成只读：写不进去
     chmodSync(file, 0o444)
     await typeAtEnd(page, '写不进去的字。')
-    await expect(saveState(page)).toHaveAttribute('data-state', 'failed', { timeout: 10_000 })
-    await expect(saveState(page)).toContainText('没存上')
-    await expect(page.getByTestId('git-changed')).not.toHaveText('都提交了')
-    await expect(page.getByTestId('git-changed')).toContainText('没存上')
-    // 打的字另存成了一篇，库里找得到
-    await expect.poll(() => withText(vault, '写不进去的字。').length, { timeout: 10_000 }).toBeGreaterThan(0)
     const toast = page.getByTestId('toast')
-    await expect(toast).toContainText('「随手记」没存上：文件不让写（可能锁成了只读），字另存了一篇')
+    await expect(toast).toContainText('「随手记」写不进去：文件不让写（可能锁成了只读）。字另存成了「随手记（没存上的字', { timeout: 10_000 })
+    // 打的字另存成了一篇，库里找得到；原文件一字不动
+    await expect.poll(() => withText(vault, '写不进去的字。').length, { timeout: 10_000 }).toBe(1)
+    expect(readFileSync(file, 'utf8')).toBe('# 随手记\n\n正文。\n')
     // 另存的那篇左栏列得出来，名字里的时间是「16-43」
     await expect(page.locator('aside.side .nav .si', { hasText: /没存上的字 \d\d-\d\d/ })).toHaveCount(1)
-    // 标签右上：红点 + 「没存上」
-    await expect(saveState(page).locator('.gdot.err')).toBeVisible()
-    await shotWindow(run, 'r5-save-failed')
-    // 底栏弹层：没存上的那篇，右边写字在哪
-    await page.getByTestId('git-changed').click()
-    const pop = page.getByRole('dialog', { name: '没提交的改动' })
-    await expect(pop).toContainText('没存上 · 字另存了一篇')
-    await expect(pop.getByRole('menuitem', { name: /随手记\.md/ })).toContainText(/字在《随手记（没存上的字 \d\d-\d\d）》/)
-    await shotWindow(run, 'r5-save-failed-pop')
-    await page.keyboard.press('Escape')
-    // 提示条上「打开另存的」：打开另存的那篇，里面有刚打的字
-    await toast.getByRole('button', { name: '打开另存的' }).click()
+    // 标签换到另存那篇，标明原文件写不进去；字已经在那篇里了
     await expect(tabOn(page)).toHaveText(/随手记（没存上的字 \d\d-\d\d）/)
+    await expect(acts(page).getByTestId('page-note')).toHaveText('原文件写不进去，字在这里')
+    await expect(saveState(page)).toHaveAttribute('data-state', 'saved')
+    await expect(page.getByTestId('git-changed')).not.toHaveText('都提交了')
+    await shotWindow(run, 'r5-save-failed')
     await expect.poll(() => editorText(page)).toContain('写不进去的字。')
     await quit(run)
-    expect(withText(vault, '写不进去的字。').length).toBeGreaterThan(0)
-    expect(readFileSync(join(run.userData, 'quit.log'), 'utf8')).not.toMatch(/存完/)
+    expect(withText(vault, '写不进去的字。')).toEqual([expect.stringMatching(/^随手记（没存上的字 \d\d-\d\d）\.md$/)])
+    expect(readFileSync(join(run.userData, 'quit.log'), 'utf8')).toMatch(/存完（原文件写不进去，字在另存的那篇/)
   } finally {
     if (existsSync(file)) chmodSync(file, 0o644)
     await run.close().catch(() => undefined)

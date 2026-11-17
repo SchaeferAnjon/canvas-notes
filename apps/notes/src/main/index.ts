@@ -1,10 +1,10 @@
 import { app, autoUpdater as nativeUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, renameSync, statSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
-import { extname, join, resolve } from 'node:path'
+import { dirname, extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
-import type { Activity, AiChange, AiCommitFailed, GitState, VaultInfo } from '../shared/api'
+import type { Activity, AiChange, AiCommitFailed, GitState, StrandedNote, VaultInfo } from '../shared/api'
 import { activeSkin, type AppSettings, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { isExtUrl } from '../shared/bookmarkkeeper'
@@ -233,9 +233,22 @@ function registerIpc() {
     if (typeof text !== 'string' || typeof base !== 'string') throw new Error('写入参数不对')
     return needVault().write(path, text, base)
   })
-  ipcMain.handle('note:rescue', (_e, path: string, text: string, into: unknown) => {
+  ipcMain.handle('note:rescue', (_e, path: string, text: string) => {
     if (typeof path !== 'string' || typeof text !== 'string') throw new Error('写入参数不对')
-    return needVault().rescue(path, text, typeof into === 'string' ? into : undefined)
+    return needVault().rescue(path, text)
+  })
+  // 库里哪都写不进去（盘满了、没有写权限）：字备份进软件自己的设置目录，同一篇一直写同一个备份
+  ipcMain.handle('note:stash', (_e, path: unknown, text: unknown, into: unknown) => {
+    if (typeof path !== 'string' || typeof text !== 'string') throw new Error('写入参数不对')
+    const dir = stashDir()
+    const name = typeof into === 'string' && dirname(into) === dir ? into : join(dir, `${path.replace(/\.md$/i, '').replace(/\//g, '／')} ${stashStamp(new Date())}.md`)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(name, text)
+    return name
+  })
+  ipcMain.handle('note:revealStash', (_e, file: unknown) => {
+    if (typeof file !== 'string' || dirname(file) !== stashDir()) throw new Error('不是没存上的字的备份')
+    shell.showItemInFolder(file)
   })
   ipcMain.handle('note:conflictCopy', (_e, path: string, text: string) => {
     if (typeof text !== 'string') throw new Error('写入参数不对')
@@ -352,12 +365,20 @@ function registerIpc() {
       throw new Error(commitErrorText(e.message))
     }
     win?.webContents.send('files:changed')
-    if (!hash) return null
-    return (await git.log(v.root, 1))[0] ?? null
+    if (hash) return (await git.log(v.root, 1))[0] ?? null
+    // 没有要提交的：自动提交（或「现在提交」）已经把这几个文件收进去了。告诉界面是哪一次，撤回时只撤这几个文件
+    // （第 6 轮：以前只说「没有要提交的改动了」，没有撤回）
+    const at = await git.lastCommitOf(v.root, paths)
+    const taken = at ? (await git.log(v.root, 1, at))[0] : undefined
+    return taken ? { taken: { ...taken, files: taken.files.filter((f) => paths.includes(f.path)) } } : null
   })
-  ipcMain.handle('ai:revert', async (_e, hash: string) => {
+  ipcMain.handle('ai:revert', async (_e, hash: string, only?: { paths: string[]; message: string }) => {
     const v = needVault()
-    await git.revert(v.root, hash)
+    // 自动提交收进去的：只撤回 AI 改的那几个文件，同一次里别处的字不动
+    if (only) {
+      if (!Array.isArray(only.paths) || only.paths.some((p) => typeof p !== 'string') || typeof only.message !== 'string') throw new Error('撤回参数不对')
+      await git.revertPaths(v.root, hash, only.paths, `撤回${only.message}`)
+    } else await git.revert(v.root, hash)
     return (await git.log(v.root, 1))[0] ?? null
   })
   ipcMain.handle('git:state', async (): Promise<GitState> => {
@@ -527,7 +548,9 @@ function createWindow() {
     quitLog('窗口 close')
     if (notesSaved || quitStarted) return
     e.preventDefault()
-    void saveOpenNotes([w]).then(() => {
+    void saveOpenNotes([w]).then(async ({ stranded }) => {
+      // 有篇的字只在内存里：关了窗口编辑器就没了，先问
+      if (!(await confirmStranded(stranded))) return quitLog('没关窗口：有篇写不进去，用户先不关')
       notesSaved = true
       if (!w.isDestroyed()) w.close()
     })
@@ -730,27 +753,66 @@ function quietErrorsWhileQuitting() {
   })
 }
 
+/** 存的结果：problems 没存好的（写不进去只在内存里的篇、保存出错、5 秒没完）；stranded 哪都写不进去、字只在内存里的篇；rescued 原文件写不进去、字在另存那篇的 */
+interface SavedNotes {
+  problems: string[]
+  stranded: StrandedNote[]
+  rescued: string[]
+}
+
 /**
  * 编辑器里还没自动保存的字（停手 0.8 秒才存）先写到磁盘；网页卡住时最多等 5 秒。
- * 返回没存好的：写不进去另存了的篇、保存出错、5 秒没完；全存好是空的
+ * 写不进去的篇另存了的照实记另存到哪；哪都写不进去的（字只在内存里）单独回给调的人，退出、关窗口前要用户确认
  */
-async function saveOpenNotes(wins = BrowserWindow.getAllWindows()): Promise<string[]> {
+async function saveOpenNotes(wins = BrowserWindow.getAllWindows()): Promise<SavedNotes> {
   let timer: NodeJS.Timeout | undefined
-  const problems = await Promise.race([
+  const each = await Promise.race([
     Promise.all(
       wins
         .filter((w) => !w.isDestroyed())
         .map((w) =>
           w.webContents.executeJavaScript('window.cnSaveAll && window.cnSaveAll()').then(
-            (failed: unknown) => (Array.isArray(failed) ? failed.map((p) => `${String(p)} 写不进去，字另存了`) : []),
-            (e) => (console.error('退出前保存失败', e), [`保存出错：${String((e as Error)?.message ?? e)}`]),
+            (r: unknown): SavedNotes => {
+              const s = (r ?? {}) as Partial<SavedNotes>
+              const stranded = Array.isArray(s.stranded) ? s.stranded : []
+              return { problems: stranded.map((x) => `${x.path} 写不进去，字只在内存里`), stranded, rescued: Array.isArray(s.rescued) ? s.rescued : [] }
+            },
+            (e): SavedNotes => (console.error('退出前保存失败', e), { problems: [`保存出错：${String((e as Error)?.message ?? e)}`], stranded: [], rescued: [] }),
           ),
         ),
-    ).then((all) => all.flat()),
-    new Promise<string[]>((r) => (timer = setTimeout(() => (console.error('退出前保存 5 秒没完，接着退出'), r(['5 秒没存完'])), 5000))),
+    ),
+    new Promise<SavedNotes[]>((r) => (timer = setTimeout(() => (console.error('退出前保存 5 秒没完，接着退出'), r([{ problems: ['5 秒没存完'], stranded: [], rescued: [] }])), 5000))),
   ])
   clearTimeout(timer)
-  return problems
+  return { problems: each.flatMap((x) => x.problems), stranded: each.flatMap((x) => x.stranded), rescued: each.flatMap((x) => x.rescued) }
+}
+
+/**
+ * 有篇哪都写不进去、字只在内存里（盘满了、没有写权限）：退出、关窗口前问一句，用户点「仍然退出」才走（测试模式下记进 cnScreen）。
+ * 返回要不要接着退
+ */
+async function confirmStranded(stranded: StrandedNote[]): Promise<boolean> {
+  if (!stranded.length) return true
+  const home = app.getPath('home')
+  const where = stranded.map((s) => `《${titleOf(s.path)}》：${s.stash ? s.stash.replace(home, '~') : '备份也没写进去'}`)
+  const opts: Electron.MessageBoxOptions = {
+    type: 'warning',
+    message: `有 ${stranded.length} 篇写不进去，字只在内存里`,
+    detail: `原文件和它旁边都写不进去（磁盘满了，或者没有写权限）。字备了一份在：\n${where.join('\n')}\n\n先腾出空间或改好权限，回到那篇再打一个字就会存上。现在退出，编辑器里的字只剩这份备份。`,
+    buttons: ['先不退出', '仍然退出'],
+    defaultId: 0,
+    cancelId: 0,
+  }
+  const r = win && !win.isDestroyed() ? await dialog.showMessageBox(win, opts) : await dialog.showMessageBox(opts)
+  return r.response === 1
+}
+
+/** 没存上的字的备份放这里（软件自己的设置目录，不在库里，不进 Git） */
+const stashDir = () => join(app.getPath('userData'), '没存上的字')
+/** 2026-11-17 18.25 */
+function stashStamp(d: Date): string {
+  const p = (x: number) => String(x).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}.${p(d.getMinutes())}`
 }
 
 
@@ -774,8 +836,15 @@ app.on('before-quit', (e) => {
   e.preventDefault()
   if (savingForQuit) return
   savingForQuit = true
-  void saveOpenNotes().then((problems) => {
-    quitLog(problems.length ? `没存好：${problems.join('；')}` : '存完')
+  void saveOpenNotes().then(async ({ problems, stranded, rescued }) => {
+    // 有篇的字只在内存里：先问，用户说先不退出就停下（字还在编辑器里，腾出空间后接着存）
+    if (!(await confirmStranded(stranded))) {
+      quitLog(`没退出：${stranded.map((s) => s.path).join('、')} 写不进去，用户先不退出`)
+      savingForQuit = false
+      quitStarted = false
+      return
+    }
+    quitLog(problems.length ? `没存好：${problems.join('；')}` : `存完${rescued.length ? `（原文件写不进去，字在另存的那篇：${rescued.join('；')}）` : ''}`)
     quitting = true
     try {
       if (vault) commitPendingSync(vault.root)

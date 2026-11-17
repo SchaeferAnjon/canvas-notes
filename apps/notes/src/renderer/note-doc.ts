@@ -1,4 +1,4 @@
-import { defaultKeymap, history, historyKeymap, redo, undo } from '@codemirror/commands'
+import { history, redo, undo } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { Compartment, EditorState, type Extension, Prec, Transaction } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
@@ -8,7 +8,7 @@ import { titleOf } from '../shared/layout'
 import { sayMerged, saySameSpot } from './conflict-say'
 import { editorMenu } from './ctx/editor-menu'
 import { docEditing } from './doc-editing'
-import { enterAfterTitle } from './title-follow'
+import { noteKeys } from './note-keys'
 import { folderChip, setNotePath } from './folder-chip'
 import { flashRange, insertBlockAt, insertFlash } from './insert-flash'
 import { insertPoint } from './insert-point'
@@ -20,7 +20,10 @@ import { videoDocWidgets } from './video/doc-widgets'
 import { askPending } from './video/ask-pending'
 import { materialFold } from './video/material-fold'
 
-/** failed：写不进去（文件被锁成只读、盘满了），字另存了一篇，下次改动再试 */
+/**
+ * failed：哪都写不进去（原文件、它旁边、库最外层都不让写，像盘满了），字只在内存里（另备了一份在软件设置目录），下次改动再试。
+ * 只是原文件写不进去、另存成了一篇的不算 failed：编辑器从此指向另存的那篇，照常 saved / dirty
+ */
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'failed'
 
 /** 白板：卡片摆在画布上；文档：实时预览；源文件：md 原文 */
@@ -50,10 +53,12 @@ function writeErrorText(e: unknown): string {
   return m
 }
 
-/** 失败的那几篇变了就叫这些（底栏「N篇没存上」） */
+/** 字只在内存里的那几篇变了就叫这些（底栏「N篇写不进去，字只在内存里」） */
 const failingListeners = new Set<() => void>()
-/** 第一次写不进去、字另存了：叫这些（App 出带「打开另存的」的提示条） */
-const rescueListeners = new Set<(doc: NoteDoc, why: string) => void>()
+/** 原文件写不进去、字另存成了一篇、编辑器换到了那篇：叫这些（App 把标签跟过去，出带「打开另存的」的提示条） */
+const rescueListeners = new Set<(doc: NoteDoc, from: string, why: string) => void>()
+/** 第一次哪都写不进去、字只在内存里：叫这些（App 出提示条） */
+const strandedListeners = new Set<(doc: NoteDoc, why: string) => void>()
 
 /** NoteDoc.expectOwnChange 记下的：路径 → 到几点为止算软件自己改的 */
 const ownChange = new Map<string, number>()
@@ -67,15 +72,19 @@ export class NoteDoc {
   /** 所有打开着的笔记：改名前要先都存一遍，别处的 [[旧名]] 才改得到 */
   static readonly open = new Set<NoteDoc>()
 
-  /** 写不进去、字另存了的那几篇（底栏不说「都提交了」，退出时不记「存完」） */
+  /** 哪都写不进去、字只在内存里的那几篇（底栏不说「都提交了」，退出前要用户确认，不记「存完」） */
   static readonly failing = new Set<NoteDoc>()
   static onFailing(cb: () => void): () => void {
     failingListeners.add(cb)
     return () => failingListeners.delete(cb)
   }
-  static onRescued(cb: (doc: NoteDoc, why: string) => void): () => void {
+  static onRescued(cb: (doc: NoteDoc, from: string, why: string) => void): () => void {
     rescueListeners.add(cb)
     return () => rescueListeners.delete(cb)
+  }
+  static onStranded(cb: (doc: NoteDoc, why: string) => void): () => void {
+    strandedListeners.add(cb)
+    return () => strandedListeners.delete(cb)
   }
 
   /** 软件自己（或外面）把 from 挪到了 to：开着的编辑器马上换路径，紧接着到的新内容、要存的字都按新路径走 */
@@ -141,10 +150,18 @@ export class NoteDoc {
   /** 保存途中收到的外部改动，等这次保存完再处理 */
   private pendingRemote: string | null = null
   private destroyed = false
-  /** 写不进去时另存的那篇（再失败覆盖它） */
-  private rescuedTo: string | null = null
-  get rescued(): string | null {
-    return this.rescuedTo
+  /**
+   * 原文件写不进去、字另存到了现在这篇：原来那篇的路径（标签上标明「原文件写不进去，字在这里」）。
+   * 一篇笔记的字任何时刻只有一个落盘目标：另存以后保存、退出时的保存都只写现在这篇（照常先比后写），不再碰原文件
+   */
+  private rescuedFromPath: string | null = null
+  get rescuedFrom(): string | null {
+    return this.rescuedFromPath
+  }
+  /** 哪都写不进去时，字在软件设置目录里的备份（绝对路径；备份也没写进去是 null） */
+  private stashPath: string | null = null
+  get stash(): string | null {
+    return this.stashPath
   }
 
   constructor(
@@ -204,19 +221,7 @@ export class NoteDoc {
                 return true
               },
             },
-            {
-              // 新建的笔记：标题末尾回车，光标到标题下空一行的正文处（title-follow.ts）
-              key: 'Enter',
-              run: (v) => {
-                const sel = v.state.selection.main
-                const to = sel.empty ? enterAfterTitle(v.state.doc.toString(), sel.head) : null
-                if (to === null) return false
-                v.dispatch({ selection: { anchor: to }, scrollIntoView: true, userEvent: 'select' })
-                return true
-              },
-            },
-            ...defaultKeymap,
-            ...historyKeymap,
+            ...noteKeys,
           ]),
           EditorView.updateListener.of((u) => {
             if ((u.selectionSet || u.focusChanged) && !u.view.composing) {
@@ -329,15 +334,36 @@ export class NoteDoc {
   }
 
   /**
-   * 写不进去：字不能只留在编辑器里（退出就没了）。另存一篇、说清楚，状态写「没存上」；下次改动再试原来的文件。
-   * 另存也失败才往外抛（调的人照实记，退出时不当「存完」）
+   * 写不进去：字不能只留在编辑器里（退出就没了）。
+   * 原文件写不进去：另存成新的一篇，编辑器从此指向那篇（标签跟过去），以后只写那篇。
+   * 另存也写不进去（盘满了、哪都没有写权限），或者另存的那篇也写不进去了：字备份进软件设置目录，状态写「写不进去，字只在内存里」；
+   * 下次改动再试现在这篇（腾出空间后就存上）
    */
   private async writeFailed(e: unknown) {
+    let why = writeErrorText(e)
+    if (!this.rescuedFromPath) {
+      const from = this.path
+      const text = this.text
+      try {
+        const to = await window.cn.rescueNote(from, text)
+        this.rescuedFromPath = from
+        this.base = text
+        this.path = to
+        this.setFailing(false)
+        this.events.onSaved()
+        for (const cb of rescueListeners) cb(this, from, why)
+        // 另存途中又打的字：照常存进另存的那篇
+        if (this.text !== this.base) this.scheduleSave()
+        return
+      } catch (e2) {
+        why = /ENOSPC/.test(String(e2)) ? '磁盘满了' : '原文件和它旁边都写不进去（磁盘满了，或者没有写权限）'
+      }
+    }
     const first = !NoteDoc.failing.has(this)
-    this.rescuedTo = await window.cn.rescueNote(this.path, this.text, this.rescuedTo ?? undefined)
+    // 备份也写不进去（设置目录也在满了的盘上）：照实说，不假装有备份
+    this.stashPath = await window.cn.stashNote(this.path, this.text, this.stashPath ?? undefined).catch(() => null)
     this.setFailing(true)
-    this.events.onState('failed')
-    if (first) for (const cb of rescueListeners) cb(this, writeErrorText(e))
+    if (first) for (const cb of strandedListeners) cb(this, why)
   }
 
   /** 编辑器里的字和磁盘对上为止：一轮写完再看一次，途中新打的接着写 */

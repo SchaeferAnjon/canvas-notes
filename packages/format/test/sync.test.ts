@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyChanges, conflictCopyName, merge3, merge3Fine, reconcile, textChanges } from '../src'
+import { applyChanges, clockStamp, conflictCopyName, merge3, merge3Fine, reconcile, textChanges } from '../src'
 
 // 规矩 2：正在编辑时外部改动进来，正在打的字不丢；冲突的那一版另存一份冲突副本。
 describe('外部改动不丢正在打的字', () => {
@@ -51,10 +51,15 @@ describe('外部改动不丢正在打的字', () => {
     expect(merge3(base, local, both)).toEqual({ text: local, conflict: false })
   })
 
-  it('冲突副本的名字', () => {
+  it('冲突副本的名字：时间和另存的「没存上的字 14-03」同一写法', () => {
     const d = new Date(2026, 10, 15, 14, 3)
-    expect(conflictCopyName('旅行.md', d)).toBe('旅行（冲突 2026-11-15 14.03）.md')
-    expect(conflictCopyName('旅行.md', d, 2)).toBe('旅行（冲突 2026-11-15 14.03 2）.md')
+    expect(conflictCopyName('旅行.md', d)).toBe('旅行（冲突 2026-11-15 14-03）.md')
+    expect(conflictCopyName('旅行.md', d, 2)).toBe('旅行（冲突 2026-11-15 14-03 2）.md')
+  })
+
+  it('文件名里的时间：时-分两位，中间一横（文件名里不用冒号，也不用点）', () => {
+    expect(clockStamp(new Date(2026, 10, 15, 9, 5))).toBe('09-05')
+    expect(clockStamp(new Date(2026, 10, 15, 18, 20))).toBe('18-20')
   })
 })
 
@@ -111,5 +116,29 @@ describe('merge3Fine：同一行两边改的不是同一处，按字合并', () 
   })
   it('按行合得了的照按行合（不进按字那一步）', () => {
     expect(merge3Fine('a\nb\nc\n', 'A\nb\nc\n', 'a\nb\nC\n')).toEqual({ text: 'A\nb\nC\n', conflict: false })
+  })
+})
+
+describe('两边都只往末尾加了字（第 6 轮）：两边的都留下，编辑器里的在前，不算冲突', () => {
+  const base = '---\ncreated: 2026-11-14 21:20\n---\n极光要看太阳风和云量。维克附近光污染少。\n'
+  const link = base + '\n相关：[[极光预报]]\n'
+  it('用户在末尾空行上打了一句（没回车）、梦游在末尾补一行双链', () => {
+    const local = base + '维克的黑沙滩也能看。'
+    const want = base + '维克的黑沙滩也能看。\n相关：[[极光预报]]\n'
+    expect(merge3Fine(base, local, link)).toEqual({ text: want, conflict: false })
+    expect(reconcile(base, local, link)).toEqual({ kind: 'update', text: want, merged: true })
+  })
+  it('两边各在末尾加一整行', () => {
+    expect(merge3Fine('a\nb\n', 'a\nb\n本地\n', 'a\nb\n外面\n')).toEqual({ text: 'a\nb\n本地\n外面\n', conflict: false })
+    expect(reconcile('a\nb\n', 'a\nb\n本地\n', 'a\nb\n外面\n')).toEqual({ kind: 'update', text: 'a\nb\n本地\n外面\n', merged: true })
+  })
+  it('用户在最后一行行尾接着打、外面在末尾另起一行', () => {
+    expect(reconcile('a\nb', 'a\nb接着打', 'a\nb\n外面加的\n')).toEqual({ kind: 'update', text: 'a\nb接着打\n外面加的\n', merged: true })
+  })
+  it('两边都在最后一行行尾接着打：还是冲突（分不清谁该在前）', () => {
+    expect(merge3Fine('a\nb', 'a\nb本地', 'a\nb外面')).toEqual({ text: 'a\nb本地', conflict: true })
+  })
+  it('不在末尾的同一处照旧算冲突', () => {
+    expect(merge3Fine('a\nb\nc\n', 'a\nb\n本地\nc\n', 'a\nb\n外面\nc\n')).toEqual({ text: 'a\nb\n本地\nc\n', conflict: true })
   })
 })

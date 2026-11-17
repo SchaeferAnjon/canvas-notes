@@ -18,15 +18,16 @@ export function TabActs(props: { active: boolean; children: React.ReactNode }) {
  * 被省略时悬停用软件自己的提示看全句（鼠标移上来那一刻量，挂上 data-tip 给 Tooltips）
  * 中间窄于 640 时整句藏起来（.center.narrow .pnote），把位置让给标签
  */
-export function PageNote(props: { children: React.ReactNode }) {
+export function PageNote(props: { children: React.ReactNode; tip?: string; /** 比别的页面说明重要（「原文件写不进去，字在这里」）：--t2 */ strong?: boolean }) {
   return (
     <span
-      className="txt pnote"
+      className={'txt pnote' + (props.strong ? ' t2' : '')}
       data-testid="page-note"
       data-side="below"
       onMouseOver={(e) => {
         const el = e.currentTarget
-        if (el.scrollWidth > el.clientWidth) el.dataset.tip = el.textContent ?? ''
+        if (props.tip) el.dataset.tip = props.tip
+        else if (el.scrollWidth > el.clientWidth) el.dataset.tip = el.textContent ?? ''
         else delete el.dataset.tip
       }}
     >

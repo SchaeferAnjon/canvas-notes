@@ -154,15 +154,52 @@ describe('梦游', { timeout: 30_000 }, () => {
     expect(movesOf(before, r.items)).toEqual([{ from: '素材/旅行/极光.md', to: '收件箱/极光.md' }])
   })
 
-  it('那篇在 main 上又被改到同一处：收下时退回，告诉用户冲突了，main 干干净净', async () => {
+  it('那篇在 main 上末尾也加了一句（第 6 轮）：两边都只往末尾加，合得上，收下后两句都在', async () => {
     const r = await dream()
-    writeFileSync(join(root, '收件箱/极光.md'), DREAM_VAULT['收件箱/极光.md'] + '用户后来加的一行\n')
+    writeFileSync(join(root, '收件箱/极光.md'), DREAM_VAULT['收件箱/极光.md'] + '用户后来加的一行')
     const link = r.items.find((i) => i.group === 'link')!
-    await expect(takeItem(root, r, link.id)).rejects.toThrow('冲突')
+    await takeItem(root, r, link.id)
+    expect(link.state).toBe('taken')
+    expect(readFileSync(join(root, '收件箱/极光.md'), 'utf8')).toBe(DREAM_VAULT['收件箱/极光.md'] + '用户后来加的一行\n相关：[[极光预报]]\n')
+    expect(g(root, 'status', '--porcelain')).toBe('')
+    expect(g(root, 'log', '-1', '--format=%s').trim()).toBe('梦游：「极光」补上 [[极光预报]]')
+    expect(existsSync(join(root, '.git/CHERRY_PICK_HEAD'))).toBe(false)
+  })
+
+  it('那篇在 main 上删了：收下时退回，说是哪条、为什么，main 干干净净', async () => {
+    const r = await dream()
+    rmSync(join(root, '收件箱/极光.md'))
+    const link = r.items.find((i) => i.group === 'link')!
+    await expect(takeItem(root, r, link.id)).rejects.toThrow('「极光」没收下：你后来删了这篇')
     expect(link.state).toBe('pending')
     expect(g(root, 'status', '--porcelain')).toBe('')
-    expect(readFileSync(join(root, '收件箱/极光.md'), 'utf8')).toContain('用户后来加的一行')
     expect(existsSync(join(root, '.git/CHERRY_PICK_HEAD'))).toBe(false)
+  })
+
+  it('全部收下碰到合不上的（第 6 轮）：能收的都收、一次提交；合不上的那几条留着待看，各自记下为什么', async () => {
+    const r = (await dream()) as DreamReportInternal
+    rmSync(join(root, '收件箱/极光.md'))
+    // 周记这一篇用户自己也建了一篇同名的，写的是别的
+    mkdirSync(join(root, '周记'), { recursive: true })
+    writeFileSync(join(root, '周记/2026-W46.md'), '# 这周\n\n我自己写的小结。\n')
+    const before = count()
+    await takeAll(root, r)
+    const state = Object.fromEntries(r.items.map((i) => [`${i.title} ${i.sub}`, i.state]))
+    expect(Object.values(state).filter((s) => s === 'taken')).toHaveLength(3)
+    const left = r.items.filter((i) => i.state === 'pending')
+    expect(left.map((i) => i.group).sort()).toEqual(['file', 'link', 'week'])
+    for (const i of left.filter((x) => x.title === '极光')) expect(i.conflict).toBe('你后来删了这篇')
+    expect(left.find((i) => i.group === 'week')!.conflict).toBe('你后来也建了一篇「2026-W46」')
+    expect(r.items.filter((i) => i.state === 'taken').every((i) => !i.conflict)).toBe(true)
+    // 删掉的那篇：用户删的提交 + 收下的一次提交
+    expect(count()).toBe(before + 2)
+    expect(g(root, 'log', '-1', '--format=%s').trim()).toBe('收下梦游的归类和改名：2 处')
+    expect(existsSync(join(root, '素材/旅行/冰洞.md'))).toBe(true)
+    expect(existsSync(join(root, '素材/旅行/巴黎自由行全景指南.md'))).toBe(true)
+    expect(readFileSync(join(root, '周记/2026-W46.md'), 'utf8')).toBe('# 这周\n\n我自己写的小结。\n')
+    expect(g(root, 'status', '--porcelain')).toBe('')
+    expect(existsSync(join(root, '.git/CHERRY_PICK_HEAD'))).toBe(false)
+    expect(r.closed).toBeFalsy()
   })
 
   it('AI 想把作品挪走、主题名带路径的，都不做；AI 不可用时其他组照做，报告里说一句', async () => {
@@ -261,6 +298,32 @@ describe('梦游', { timeout: 30_000 }, () => {
     await expect(undo(root, r, [it.id], it.taken)).rejects.toThrow('撤回不了：「冰洞」收下以后改名成了「冰岛冰洞」，什么都没动')
     expect(existsSync(renamed)).toBe(true)
     expect(g(root, 'status', '--porcelain')).toBe('')
+  })
+
+  // 第 6 轮：收件箱随手记只有 4 行（3 行 front matter），改一行就只剩 75% 的行原样在；按字比还在九成以上
+  for (const [how, edit] of [
+    ['把「提前两周订」改成「提前三周订」', (t: string) => t.replace('提前两周订', '提前三周订')],
+    ['在「冰洞只在冬天开放」后面插一段、末尾再添一句', (t: string) => t.replace('冰洞只在冬天开放，', '冰洞只在冬天开放（十一月到三月，暖冬会提前关），') + '记得带备用手套。\n'],
+  ] as const)
+    it(`收下归类后在外面改名、同时${how}再撤回：按内容相似认出是改名，说「改名成了」`, async () => {
+      const r = (await dream()) as DreamReportInternal
+      const it = r.items.find((i) => i.group === 'file' && i.files[0] === '收件箱/冰洞.md')!
+      await takeItem(root, r, it.id)
+      const to = join(root, it.move!.to)
+      const renamed = join(dirname(to), '冰岛冰洞.md')
+      writeFileSync(renamed, edit(readFileSync(to, 'utf8')))
+      rmSync(to)
+      await expect(undo(root, r, [it.id], it.taken)).rejects.toThrow('撤回不了：「冰洞」收下以后改名成了「冰岛冰洞」，什么都没动')
+      expect(existsSync(renamed)).toBe(true)
+    })
+
+  it('收下归类后在外面删了、另建了一篇不相干的短笔记再撤回：还说「被删了」，不把不相干的那篇当成改名', async () => {
+    const r = (await dream()) as DreamReportInternal
+    const it = r.items.find((i) => i.group === 'file' && i.files[0] === '收件箱/冰洞.md')!
+    await takeItem(root, r, it.id)
+    rmSync(join(root, it.move!.to))
+    writeFileSync(join(root, '素材/旅行/蓝湖.md'), '---\ncreated: 2026-11-16 09:00\n---\n蓝湖要提前订票，下午人少。\n')
+    await expect(undo(root, r, [it.id], it.taken)).rejects.toThrow('撤回不了：「冰洞」收下以后被删了，什么都没动')
   })
 
   it('导入几百条旧笔记：双链最多补 LINK_MAX 处、重复最多列 DUP_MAX 对，挑最像的，剩下的报告里说一句', async () => {

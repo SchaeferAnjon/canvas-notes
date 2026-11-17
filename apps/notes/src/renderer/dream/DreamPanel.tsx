@@ -10,7 +10,8 @@ import { titleOf } from '../../shared/layout'
 import './dream.css'
 import type { DreamPreview } from './preview'
 import { expectDreamChange } from './own-change'
-import { dreamWhen, errText, GROUPS, pendingOf } from './useDream'
+import { NoteDoc } from '../note-doc'
+import { dreamWhen, errText, GROUPS, pendingOf, takenSay } from './useDream'
 
 const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', dup: 'copy', week: 'edit' }
 
@@ -157,6 +158,7 @@ export function DreamPanel(props: {
                   <span className="tx">
                     <b>{it.title}</b>
                     <span>{it.sub}</span>
+                    <Stuck item={it} />
                   </span>
                   <span className="st">{it.state === 'taken' ? (it.commit ? '已收下' : '看过了') : it.state === 'dropped' ? '已丢掉' : ''}</span>
                 </button>
@@ -187,12 +189,14 @@ export function DreamPanel(props: {
           <button
             className="btn"
             disabled={busy || props.acting || !left}
-            onClick={() =>
+            onClick={() => {
+              const ids = items.filter((i) => i.state === 'pending').map((i) => i.id)
               void act(
-                () => (expectDreamChange(items.filter((i) => i.state === 'pending')), window.cn.dreamTakeAll()),
-                (r) => props.onNotice(`剩下的都收下了，${r.branch}已合进${r.base}`),
+                // 编辑器里刚打、还没自动保存的字先存盘，和梦游的改动一起合（不然收下后那次保存把梦游改的当成「外面改了」）
+                async () => (expectDreamChange(items.filter((i) => i.state === 'pending')), await NoteDoc.saveAll(), window.cn.dreamTakeAll()),
+                (r) => props.onNotice(takenSay(ids, r) ?? `剩下的都收下了，${r.branch}已合进${r.base}`),
               )
-            }
+            }}
           >
             <Codicon name="check" size={14} />
             全部收下
@@ -200,6 +204,18 @@ export function DreamPanel(props: {
         </div>
       )}
     </aside>
+  )
+}
+
+/** 上次收下时合不上、留着没收的那条：红点 + 为什么（「没收下：你后来删了这篇」） */
+function Stuck(props: { item: DreamItem }) {
+  const { item } = props
+  if (item.state !== 'pending' || !item.conflict) return null
+  return (
+    <span className="dconf" data-testid="dream-conflict">
+      <i className="gdot err" />
+      {`没收下：${item.conflict}`}
+    </span>
   )
 }
 
@@ -378,6 +394,7 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
         <span className="tx">
           <b>{it.title}</b>
           <span>{it.sub}</span>
+          <Stuck item={it} />
         </span>
         {status(it)}
       </button>

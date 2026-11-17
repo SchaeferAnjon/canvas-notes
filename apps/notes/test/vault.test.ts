@@ -103,6 +103,16 @@ it('速记进收件箱，带创建时间；列表里分出收件箱、素材、�
   await expect(v.capture('   ')).rejects.toThrow('空的')
 })
 
+it('只有数据库表的笔记：摘要写「数据库」，不当空的（第 6 轮：文件夹首页写成「空的」）', async () => {
+  writeFileSync(join(root, '清单.md'), '# 清单\n\n```base\nfilters:\n  and:\n    - file.inFolder("写作/清单")\nviews:\n  - type: table\n```\n')
+  writeFileSync(join(root, '空的.md'), '# 空的\n\n')
+  writeFileSync(join(root, '有字.md'), '# 有字\n\n前面一句。\n\n```base\nviews:\n  - type: table\n```\n')
+  const byPath = Object.fromEntries((await v.list()).map((n) => [n.path, n]))
+  expect(byPath['清单.md']!.excerpt).toBe('数据库')
+  expect(byPath['空的.md']!.excerpt).toBeUndefined()
+  expect(byPath['有字.md']!.excerpt).toBe('前面一句。')
+})
+
 it('分区和预览', () => {
   expect(kindOf('收件箱/a.md')).toEqual({ kind: 'inbox' })
   expect(kindOf('素材/a.md')).toEqual({ kind: 'clip', topic: '未分主题' })
@@ -163,9 +173,15 @@ it('软件自己挪走又改了字（梦游全部收下）：followOwnMove 之�
   expect(existsSync(join(root, '极光.md'))).toBe(false)
 })
 
-it('写不进去时另存一篇在旁边；同一篇再失败覆盖上次另存的那篇', async () => {
-  const first = await v.rescue('收件箱/极光.md', '一\n')
-  expect(first).toMatch(/^收件箱\/极光（没存上的字 \d\d-\d\d）\.md$/)
-  expect(await v.rescue('收件箱/极光.md', '一二\n', first)).toBe(first)
-  expect(readFileSync(join(root, first), 'utf8')).toBe('一二\n')
+it('写不进去时另存一篇在旁边；每次都是新的一篇，绝不覆盖已有的文件（另存那篇以后由编辑器照常先比后写）', async () => {
+  vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 10, 17, 18, 20) })
+  const first = await v.rescue('收件箱/极光.md', '一\n').finally(() => vi.useRealTimers())
+  // 时间和冲突副本同一个写法（「18-20」，clockStamp）
+  expect(first).toBe('收件箱/极光（没存上的字 18-20）.md')
+  // 用户在另存那篇里接着写了；再另存一次（旧版会多传上次那篇的路径，整篇覆盖它，把接着写的冲掉）
+  writeFileSync(join(root, first), '一\n在另存那篇里接着写的。\n')
+  const second = await (v.rescue as (rel: string, text: string, into?: string) => Promise<string>)('收件箱/极光.md', '一二\n', first)
+  expect(second).not.toBe(first)
+  expect(readFileSync(join(root, first), 'utf8')).toBe('一\n在另存那篇里接着写的。\n')
+  expect(readFileSync(join(root, second), 'utf8')).toBe('一二\n')
 })

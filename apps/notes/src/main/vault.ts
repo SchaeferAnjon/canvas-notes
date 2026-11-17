@@ -2,7 +2,7 @@ import { existsSync, watch, type FSWatcher, type Stats } from 'node:fs'
 import { safeName } from '../shared/file-name'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
-import { attachmentDir, attr, baseFoldersIn, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, isMindmap, num, parseBoard, parseMindmap, relinkMovedNote } from '@cn/format'
+import { attachmentDir, attr, baseFoldersIn, clockStamp, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, isMindmap, num, parseBoard, parseMindmap, relinkMovedNote } from '@cn/format'
 import type { NoteFile, OpenedNote, SearchHit, ThumbRect, WriteResult } from '../shared/api'
 import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
 import { hitSnippet } from './search/chunks'
@@ -436,20 +436,13 @@ export class Vault {
   }
 
   /**
-   * 写不进去（文件被锁成只读、盘满了……）：编辑器里的字另存一篇，放在原来那篇旁边（那里也写不进去就放库的最外层）。
-   * 同一篇再失败时给 into，覆盖上次另存的那篇，不一次多一篇。返回另存的相对路径。
-   * 不记进 known：让监听照常报「文件变了」，左栏、⌘O 列出这一篇
+   * 写不进去（文件被锁成只读、盘满了……）：编辑器里的字另存成新的一篇，放在原来那篇旁边（那里也写不进去就放库的最外层）。
+   * 只建新文件，绝不覆盖已有的：另存以后编辑器就指向这一篇，往后照常先比后写（write）。返回另存的相对路径。
+   * 不记进 known：让监听照常报「文件变了」，左栏、⌘O 列出这一篇（新出现的文件只报文件变了，不当外部改动送进编辑器）
    */
-  async rescue(rel: string, text: string, into?: string): Promise<string> {
-    if (into && existsSync(this.abs(into))) {
-      await writeFile(this.abs(into), encodeNote(text, DEFAULT_META))
-      this.reindex(into, text)
-      return into
-    }
+  async rescue(rel: string, text: string): Promise<string> {
     const name = basename(rel).replace(/\.md$/i, '')
-    const now = new Date()
-    const p = (x: number) => String(x).padStart(2, '0')
-    const stamp = `${p(now.getHours())}-${p(now.getMinutes())}`
+    const stamp = clockStamp(new Date())
     let lastError: unknown
     for (const dir of [dirname(this.abs(rel)), this.root]) {
       for (let n = 1; n < 50; n++) {
@@ -612,6 +605,8 @@ function describe(rel: string, st: Stats, text: string): NoteFile {
   }
   const excerpt = previewOf(text.replace(/^(---\n[\s\S]*?\n---\n)?\s*#\s+[^\n]*\n?/, '$1'), 80)
   if (excerpt) file.excerpt = excerpt
+  // 只有数据库表（```base 块）：摘要里去掉了数据库块就什么都不剩，文件夹首页写成「空的」（第 6 轮）
+  else if (/^(`{3,}|~{3,})[ \t]*base\b/m.test(text)) file.excerpt = '数据库'
   if (kind !== 'work') {
     file.preview = previewOf(text)
     const fm = /^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? ''

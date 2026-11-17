@@ -89,8 +89,12 @@ export interface CnApi {
   writeNote(path: string, text: string, base: string): Promise<WriteResult>
   /** 把冲突的那一版另存一份，返回新文件的相对路径 */
   saveConflictCopy(path: string, text: string): Promise<string>
-  /** 写不进去时把编辑器里的字另存一篇（into：上次另存的那篇，覆盖它）；返回另存的相对路径 */
-  rescueNote(path: string, text: string, into?: string): Promise<string>
+  /** 写不进去时把编辑器里的字另存成新的一篇（只建新文件，不覆盖已有的）；返回另存的相对路径 */
+  rescueNote(path: string, text: string): Promise<string>
+  /** 库里哪都写不进去：字备份进软件设置目录（into：这一篇上次的备份，接着写它）；返回备份的绝对路径 */
+  stashNote(path: string, text: string, into?: string): Promise<string>
+  /** 在访达里显示没存上的字的备份 */
+  revealStash(file: string): Promise<void>
   /** 在 folder（'' 是库根目录）里新建一篇，名字重了自动加序号；返回相对路径 */
   createNote(folder: string, name: string, text: string): Promise<string>
   /** 改名（同一个文件夹里），别的笔记里的 [[旧名]] 一起改；返回新路径。free：重名时加「 2」，不报错（第一行标题跟着改名时用） */
@@ -118,10 +122,13 @@ export interface CnApi {
   aiStop(id: number): Promise<void>
   /** AI 改文件：一次提交（提交说明前面加「AI：」）；没有改动返回 null；写进文件了、只是没提交上返回 AiCommitFailed */
   aiChange(change: AiChange): Promise<CommitInfo | null | AiCommitFailed>
-  /** 「再提交一次」：只提交 AI 那次改的文件，用原来的提交说明 */
-  aiCommit(paths: string[], message: string): Promise<CommitInfo | null>
-  /** 撤回 AI 的那次提交（反向提交），返回新的提交 */
-  aiRevert(hash: string): Promise<CommitInfo | null>
+  /**
+   * 「再提交一次」：只提交 AI 那次改的文件，用原来的提交说明。
+   * 这几个文件已经被自动提交（或「现在提交」）收进去了：返回那一次（taken，files 只留 AI 改的这几个）；什么都没有返回 null
+   */
+  aiCommit(paths: string[], message: string): Promise<CommitInfo | null | { taken: CommitInfo }>
+  /** 撤回 AI 的那次提交（反向提交），返回新的提交；only：那次是自动提交，只撤回 AI 改的这几个文件，说明用「撤回」+ AI 的说明 */
+  aiRevert(hash: string, only?: { paths: string[]; message: string }): Promise<CommitInfo | null>
   search(q: string): Promise<SearchHit[]>
   /** 置顶的笔记（库里 .canvas-notes/置顶.json），按置顶的先后 */
   pins(): Promise<string[]>
@@ -271,6 +278,8 @@ export interface DreamItem {
   state: 'pending' | 'taken' | 'dropped'
   /** 收下后在当前分支上的提交号 */
   taken?: string
+  /** 上次收下时合不上、留着没收：为什么（「你后来删了这篇」）；列表上标出来，收下了就清掉 */
+  conflict?: string
   /** 归类和改名：从哪挪到哪（按用户说的重做过的是重做后的） */
   move?: { from: string; to: string }
   /** 按用户说的重做过：他说的那句话 */
@@ -378,4 +387,10 @@ export interface AiPrefsView {
   /** 各功能实际用的「Claude Code · Opus 5.5」 */
   labels: Record<AiFeature, string>
   engines: EngineInfo[]
+}
+
+/** 哪都写不进去、字只在内存里的一篇：stash 是软件设置目录里的备份（备份也没写进去是 null） */
+export interface StrandedNote {
+  path: string
+  stash: string | null
 }

@@ -93,3 +93,23 @@ describe('光标进不去藏着的位置行（第 4 轮：←、Home 两下、Ct
     expect(b.selection.main.head).toBe(board.indexOf('<!--'))
   })
 })
+
+describe('粘贴进文档的字里带着位置行（从文档里复制了摆在白板上的一段，藏着的位置行跟着进了剪贴板）', () => {
+  const doc = '# 粘贴\n\n第一段。\n\n<!-- card id=d2 x=900 y=200 -->\n第二段摆着。\n'
+  const paste = (d: string, at: number, text: string) =>
+    EditorState.create({ doc: d, selection: { anchor: at }, extensions: [layoutLines, hiddenGuard] }).update({ changes: { from: at, insert: text }, selection: { anchor: at + text.length }, userEvent: 'input.paste' }).state
+
+  it('去掉位置行：不叠两条位置行、同一张卡不出现两次，光标在贴进来的字后面（第 6 轮存疑）', () => {
+    const at = doc.indexOf('第二段')
+    const s = paste(doc, at, '<!-- card id=d2 x=900 y=200 -->\n第二段摆着。\n\n')
+    expect(s.doc.toString()).toBe('# 粘贴\n\n第一段。\n\n<!-- card id=d2 x=900 y=200 -->\n第二段摆着。\n\n第二段摆着。\n')
+    expect(s.selection.main.head).toBe(at + '第二段摆着。\n\n'.length)
+    expect(s.doc.toString().match(/card id=d2/g)).toHaveLength(1)
+  })
+
+  it('白板（type: board）里照原样贴：那里位置行是看得见的', () => {
+    const board = '---\ntype: board\n---\n\n<!-- card id=c1 x=0 y=0 -->\n卡片\n'
+    const s = paste(board, board.length, '<!-- card id=c9 x=1 y=1 -->\n贴的\n')
+    expect(s.doc.toString()).toBe(board + '<!-- card id=c9 x=1 y=1 -->\n贴的\n')
+  })
+})

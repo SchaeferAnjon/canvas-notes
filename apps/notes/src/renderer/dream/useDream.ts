@@ -47,3 +47,16 @@ export function dreamWhen(r: DreamReport, now = new Date()): string {
 }
 
 export const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
+/**
+ * 收下几条后有合不上、留着的：一句说收下了几处、哪几条没收下、为什么（第 6 轮：以前一条冲突就整批不收、也不说是哪条）。
+ * 都收下了是 null（调的人说自己那句）
+ */
+export function takenSay(ids: string[], r: DreamReport): string | null {
+  const asked = r.items.filter((i) => ids.includes(i.id))
+  const stuck = asked.filter((i) => i.state === 'pending' && i.conflict)
+  if (!stuck.length) return null
+  const taken = asked.filter((i) => i.state === 'taken').length
+  const why = [...new Set(stuck.map((i) => `「${i.title}」${i.conflict}`))].join('；')
+  return `${taken ? `收下了${taken}处；` : '一处都没收下；'}${stuck.length}处没收下：${why}`
+}
