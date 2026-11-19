@@ -13,6 +13,7 @@ export const menuApi: CnMenuApi = {
   reveal: (path) => ipcRenderer.invoke('ctx:reveal', path),
   openExternal: (url) => ipcRenderer.invoke('ctx:open-external', url),
   moveNote: (path, folder) => ipcRenderer.invoke('ctx:move', path, folder),
+  moveMany: (paths, folder) => ipcRenderer.invoke('ctx:move-many', paths, folder),
   clipboardHas: () => ipcRenderer.invoke('ctx:clipboard-has'),
   readClipboardText: () => ipcRenderer.invoke('ctx:clipboard-text'),
   pin: (path, on) => ipcRenderer.invoke('ctx:pin', path, on),

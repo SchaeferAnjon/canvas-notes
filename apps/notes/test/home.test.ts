@@ -8,9 +8,10 @@ describe('首页设置', () => {
     expect(normalizeHome({ order: 'x', cover: { kind: 'file', path: '/etc/passwd' }, coverY: 'abc' })).toEqual(DEFAULT_HOME)
   })
 
-  it('不认识的组件丢掉、重复的去掉，文件里没写到的新组件收着', () => {
+  it('不认识的组件丢掉、重复的去掉，文件里没写到的新组件收着；「分类」是用户点名要的（方向 C），老文件里没有就放到最前面', () => {
     const c = normalizeHome({ order: ['wall', 'clock', 'clock', 'weather'], hidden: ['inbox'] })
-    expect(c.order).toEqual(['wall', 'clock'])
+    expect(c.order).toEqual(['cats', 'wall', 'clock'])
+    expect(normalizeHome({ order: ['wall'], hidden: ['cats'] }).order).toEqual(['wall'])
     expect(c.hidden).toEqual(['inbox', 'week', 'boards', 'dream', 'recent', 'flip'])
   })
 
@@ -29,8 +30,8 @@ describe('首页设置', () => {
   })
 
   it('挪组件：插到另一个前面，或者挪到最后', () => {
-    expect(moveWidget(DEFAULT_HOME, 'wall', 'clock').order).toEqual(['wall', 'clock', 'week', 'inbox', 'boards', 'dream'])
-    expect(moveWidget(DEFAULT_HOME, 'clock', null).order).toEqual(['week', 'inbox', 'boards', 'dream', 'wall', 'clock'])
+    expect(moveWidget(DEFAULT_HOME, 'wall', 'clock').order).toEqual(['cats', 'wall', 'clock', 'week', 'inbox', 'boards', 'dream'])
+    expect(moveWidget(DEFAULT_HOME, 'clock', null).order).toEqual(['cats', 'week', 'inbox', 'boards', 'dream', 'wall', 'clock'])
     expect(moveWidget(DEFAULT_HOME, 'recent', 'clock')).toBe(DEFAULT_HOME)
   })
 

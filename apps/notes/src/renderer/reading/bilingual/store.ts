@@ -1,5 +1,5 @@
 /**
- * 双语对照读的译文（PDF 和网页阅读视图共用）：按段落指纹记着每段译文；看得到的先翻（几段合一次请求），
+ * 网页阅读视图双语对照读的译文：按段落指纹记着每段译文；看得到的先翻（几段合一次请求），
  * 翻译走双语翻译插件的 translateBlocks（同一个缓存、引擎、术语表、语言）。缓存在主进程，这里只是这次开着时的。
  * 照 ParaRead 的 ReflowView：视口上下两屏内的段排队；「重新翻译」不读缓存；只看译文时每段能临时「显示原文」。
  */
@@ -14,10 +14,6 @@ export interface Tr {
   text?: string
   error?: string
 }
-
-/** 原文 / 对照 / 只看译文；对照时的版式 并排 / 重排 */
-export type BiMode = 'orig' | 'bi' | 'tr'
-export type BiLayout = 'side' | 'flow'
 
 interface Source {
   /** 段落指纹 → 译文 */
@@ -134,31 +130,3 @@ export function toggleOrig(key: string, text: string) {
   else s.showOrig[h] = true
   emit()
 }
-
-// ---------------------------------------------------------------- 选的显示（每份 PDF 记着）
-
-const modeKey = (key: string) => `cn.bi:${key}`
-
-export function savedMode(key: string): { mode: BiMode; layout?: BiLayout } {
-  try {
-    const v = JSON.parse(localStorage.getItem(modeKey(key)) ?? 'null') as { mode?: unknown; layout?: unknown } | null
-    const mode = v?.mode === 'bi' || v?.mode === 'tr' ? v.mode : 'orig'
-    return { mode, ...(v?.layout === 'side' || v?.layout === 'flow' ? { layout: v.layout } : {}) }
-  } catch {
-    return { mode: 'orig' }
-  }
-}
-
-export function saveMode(key: string, v: { mode: BiMode; layout?: BiLayout }) {
-  try {
-    localStorage.setItem(modeKey(key), JSON.stringify(v))
-  } catch {
-    // 记不住只是下次回到原文
-  }
-}
-
-/** ⌥A 轮流：原文 → 对照 → 只看译文 → 原文 */
-export const nextMode = (m: BiMode): BiMode => (m === 'orig' ? 'bi' : m === 'bi' ? 'tr' : 'orig')
-
-/** 没手选过版式时：右栏 AI 开着、中间栏窄于 1100 → 重排；不然并排 */
-export const autoLayout = (aiOpen: boolean, width: number): BiLayout => (aiOpen && width < 1100 ? 'flow' : 'side')

@@ -161,8 +161,9 @@ test('右竖条「微信读书」：在网页下面；点开书架，再点收�
   const { page } = run
   try {
     await cookieLogin(run)
-    const labels = () => rail(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/ · .*/, '')))
-    await expect.poll(labels).toEqual(['大纲', '网页', '微信读书', '历史'])
+    // 名字后面的快捷键、变淡时说的为什么都不算（右图标栏方向 A：「笔记」一直在最上面，用不上时变淡）
+    const labels = () => rail(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/ · .*/, '').replace(/（.*）$/, '')))
+    await expect.poll(labels).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
     await entry(page).click()
     await expect(web(page)).toBeVisible()
     await expect.poll(() => guest(page, `document.getElementById('shelf')?.textContent ?? ''`)).toBe('我的书架')
@@ -196,7 +197,7 @@ test('右竖条「微信读书」：在网页下面；点开书架，再点收�
     await page.getByRole('button', { name: '插件' }).click()
     await page.getByRole('region', { name: '微信读书' }).getByRole('switch', { name: '启用 微信读书' }).click()
     await page.keyboard.press('Escape')
-    await expect.poll(labels).toEqual(['大纲', '网页', '历史'])
+    await expect.poll(labels).toEqual(['笔记', '大纲', '网页', '历史'])
   } finally {
     await run.close()
   }
@@ -255,7 +256,7 @@ test('阅读页的 __INITIAL_STATE__ 写的是别的书（真网站上这样）�
   }
 })
 
-test('插不进去时右下角说原因：没登录（带「去登录」）、没认出这本书（网页改版了）', async () => {
+test('插不进去时中间岛底部说原因：没登录（带「去登录」）、没认出这本书（网页改版了）', async () => {
   const run = await launch({ '读书笔记.md': '# 读书笔记\n\n' }, env())
   const { page } = run
   try {
@@ -263,7 +264,7 @@ test('插不进去时右下角说原因：没登录（带「去登录」）、�
     await openReader(page)
     await highlight(page, 1, 8)
     const toast = page.locator('#wr-toast')
-    await expect(toast).toHaveText('没登录微信读书 · 去登录')
+    await expect(toast.locator('.t')).toHaveText('没登录微信读书')
     await expect(toast.getByRole('button', { name: '去登录' })).toBeVisible()
     await shot(run, 'weread-toast-login')
     // 点「去登录」：右栏切到微信读书（这里已经开着它的阅读页，就是这一页），提示收起

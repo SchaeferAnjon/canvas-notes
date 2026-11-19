@@ -1,10 +1,11 @@
-import { contentBlocks, parseTable, resolveLink, toggleTask, type MdBlock } from '@cn/format'
+import { contentBlocks, imageEmbed, resolveLink, splitImageAlt, toggleTask, type MdBlock } from '@cn/format'
 import { syntaxTree } from '@codemirror/language'
 import { type EditorState, type Range, StateField, type Text } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { editorHost } from './editor-host'
 import { type Hidden, hiddenSyntax, wholeBlock } from './hidden-syntax'
 import { inVideoBlock } from './video/block-head'
+import { editCell, tableCellFlush, tableEditField, TableWidget } from './table-edit'
 
 /**
  * 文档模式里画成控件的 md：待办的勾选框、表格、图片。
@@ -63,19 +64,31 @@ function taskDecos(view: EditorView): DecorationSet {
   return Decoration.set(out, true)
 }
 
+/** 只有换成勾选框的「- [x] 」是一整颗（光标一下跨过去）；勾上的那条的字（划线的 mark）不是：不然退格一下整条字全删了 */
+function boxesOf(decos: DecorationSet): DecorationSet {
+  const out: Range<Decoration>[] = []
+  for (const it = decos.iter(); it.value; it.next()) if (it.value.point) out.push(it.value.range(it.from, it.to))
+  return Decoration.set(out, true)
+}
+
 const tasks = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
+    boxes: DecorationSet
     constructor(view: EditorView) {
       this.decorations = taskDecos(view)
+      this.boxes = boxesOf(this.decorations)
     }
     update(u: ViewUpdate) {
-      if (u.docChanged || u.viewportChanged || syntaxTree(u.startState) !== syntaxTree(u.state)) this.decorations = taskDecos(u.view)
+      if (u.docChanged || u.viewportChanged || syntaxTree(u.startState) !== syntaxTree(u.state)) {
+        this.decorations = taskDecos(u.view)
+        this.boxes = boxesOf(this.decorations)
+      }
     }
   },
   {
     decorations: (v) => v.decorations,
-    provide: (p) => EditorView.atomicRanges.of((view) => view.plugin(p)?.decorations ?? Decoration.none),
+    provide: (p) => EditorView.atomicRanges.of((view) => view.plugin(p)?.boxes ?? Decoration.none),
   },
 )
 
@@ -97,49 +110,6 @@ const taskInput = EditorView.inputHandler.of((view, from, to, text) => {
 
 // ---------- 表格、图片 ----------
 
-class TableWidget extends WidgetType {
-  constructor(
-    readonly src: string,
-    readonly block: MdBlock,
-  ) {
-    super()
-  }
-  eq(o: TableWidget) {
-    return o.src === this.src && o.block.from === this.block.from
-  }
-  toDOM(view: EditorView) {
-    const t = parseTable(this.src, { ...this.block, from: 0, to: this.src.length })
-    const wrap = document.createElement('div')
-    wrap.className = 'cm-table'
-    const table = document.createElement('table')
-    const cell = (tag: 'th' | 'td', c: { text: string; from: number; to: number }, k: number) => {
-      const el = document.createElement(tag)
-      el.textContent = c.text
-      const a = t.align[k]
-      if (a) el.style.textAlign = a
-      el.addEventListener('mousedown', (e) => {
-        e.preventDefault()
-        const at = this.block.from + c.to
-        view.focus()
-        view.dispatch({ selection: { anchor: at }, scrollIntoView: true })
-      })
-      return el
-    }
-    const thead = table.createTHead().insertRow()
-    t.head.forEach((c, k) => thead.appendChild(cell('th', c, k)))
-    const body = table.createTBody()
-    for (const r of t.rows) {
-      const tr = body.insertRow()
-      r.forEach((c, k) => tr.appendChild(cell('td', c, k)))
-    }
-    wrap.appendChild(table)
-    return wrap
-  }
-  ignoreEvent() {
-    return true
-  }
-}
-
 const IMAGE = /!\[([^\]\n]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\s*\)/
 
 class ImageWidget extends WidgetType {
@@ -147,22 +117,30 @@ class ImageWidget extends WidgetType {
     readonly src: string,
     readonly alt: string,
     readonly from: number,
+    /** Obsidian 写法 ![[图.png|300]]：| 后面那截是宽或说明，就地改说明只认 ![说明](…)，这种不给改 */
+    readonly embed = false,
   ) {
     super()
   }
   eq(o: ImageWidget) {
-    return o.src === this.src && o.alt === this.alt && o.from === this.from
+    return o.src === this.src && o.alt === this.alt && o.from === this.from && o.embed === this.embed
   }
   toDOM(view: EditorView) {
     const fig = document.createElement('div')
     fig.className = 'cm-image'
     const img = document.createElement('img')
-    img.alt = this.alt
+    // 「我框的|268」：说明只露前半，图照写着的宽显示（读 PDF 的笔记写的是框在 PDF 上 100% 时的宽，Obsidian 的写法）
+    const { caption, width } = splitImageAlt(this.embed && /^\d/.test(this.alt) ? '|' + this.alt : this.alt)
+    img.alt = caption
     img.draggable = false
     img.src = this.src
+    if (width) {
+      img.style.width = `${width}px`
+      img.style.maxWidth = '100%'
+    }
     img.addEventListener('error', () => {
       fig.classList.add('broken')
-      fig.textContent = `图片打不开：${this.alt || this.src}`
+      fig.textContent = `图片打不开：${caption || (this.embed ? decodeURIComponent(new URL(this.src).pathname.slice(1)) : this.src)}`
     })
     fig.appendChild(img)
     // 库里的图：悬停时右上角写它存在哪（附件 / 未命名 3 / 截图 1.png），能在访达中显示（CN-40）
@@ -186,10 +164,11 @@ class ImageWidget extends WidgetType {
     }
     // 说明（alt）写在图下面一行（DESIGN.v3 6.5）；没写说明时什么都不显示，悬停才出一行灰字「加说明…」，点了就地写
     const cap = document.createElement('div')
-    cap.className = 'cm-image-cap' + (this.alt.trim() ? '' : ' add')
-    cap.textContent = this.alt.trim() || '加说明…'
+    cap.className = 'cm-image-cap' + (caption.trim() ? '' : ' add')
+    cap.textContent = caption.trim() || '加说明…'
+    if (this.embed && !caption.trim()) cap.hidden = true
     cap.addEventListener('mousedown', (e) => {
-      if (e.button !== 0 || view.state.readOnly) return
+      if (e.button !== 0 || view.state.readOnly || this.embed) return
       e.preventDefault()
       e.stopPropagation()
       this.editCaption(view, cap)
@@ -205,11 +184,12 @@ class ImageWidget extends WidgetType {
     })
     return fig
   }
-  /** 就地改说明：回车写进 ![说明](…)，Esc 不改 */
+  /** 就地改说明：回车写进 ![说明](…)，Esc 不改；写着宽度（「|268」）的改的是前半，宽度留着 */
   private editCaption(view: EditorView, cap: HTMLElement) {
+    const { caption, size } = splitImageAlt(this.alt)
     const input = document.createElement('input')
     input.className = 'cm-image-capin'
-    input.value = this.alt
+    input.value = caption
     input.placeholder = '加说明…'
     input.setAttribute('aria-label', '图片说明')
     cap.replaceChildren(input)
@@ -222,11 +202,11 @@ class ImageWidget extends WidgetType {
       const v = input.value.replace(/[[\]\n]/g, ' ').trim()
       const at = this.from
       const alt = view.state.doc.sliceString(at, at + 2 + this.alt.length + 1)
-      if (save && v !== this.alt && alt === `![${this.alt}]`) view.dispatch({ changes: { from: at + 2, to: at + 2 + this.alt.length, insert: v }, userEvent: 'input.caption' })
+      if (save && v !== caption && alt === `![${this.alt}]`) view.dispatch({ changes: { from: at + 2, to: at + 2 + this.alt.length, insert: v + size }, userEvent: 'input.caption' })
       else {
         cap.classList.remove('editing')
-        cap.classList.toggle('add', !this.alt.trim())
-        cap.textContent = this.alt.trim() || '加说明…'
+        cap.classList.toggle('add', !caption.trim())
+        cap.textContent = caption.trim() || '加说明…'
       }
       view.focus()
     }
@@ -244,17 +224,14 @@ class ImageWidget extends WidgetType {
   }
 }
 
+/** ![[图.png]] 里写的名字或路径 → 能显示的地址：主进程照 Obsidian 的找法定到库里哪个文件（attachments.ts） */
+export const embedImageSrc = (notePath: string, target: string) => `cn-file://embed/${target.split('/').map(encodeURIComponent).join('/')}?from=${encodeURIComponent(notePath)}`
+
 /** 笔记里写的图片地址 → 能显示的地址：库里的文件走 cn-file://，网址原样 */
 export function imageSrc(notePath: string, url: string): string {
   if (/^(https?:|data:)/.test(url)) return url
   const p = resolveLink(notePath, url)
   return p ? 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/') : url
-}
-
-function touches(state: EditorState, b: MdBlock): boolean {
-  const from = state.doc.lineAt(b.from).from
-  const to = state.doc.lineAt(b.to).to
-  return state.selection.ranges.some((r) => r.from <= to && r.to >= from)
 }
 
 /** 光标一动就要重画，块按文字缓存，文字没变不重找 */
@@ -267,9 +244,10 @@ function blockWidgets(state: EditorState): DecorationSet {
   if (!blocks) blockCache.set(state.doc, (blocks = contentBlocks(state.doc.toString())))
   for (const b of blocks) {
     if (b.kind === 'table') {
-      if (touches(state, b)) continue
+      // 光标在哪都画成表格（方向 A：不露「| a | b |」），点格子就地改（table-edit.ts）
       const src = state.doc.sliceString(b.from, b.to)
-      out.push(Decoration.replace({ widget: new TableWidget(src, b), block: true }).range(b.from, b.to))
+      const ed = state.field(tableEditField, false)
+      out.push(Decoration.replace({ widget: new TableWidget(src, b.from, ed && ed.table === b.from ? { row: ed.row, col: ed.col, all: ed.all } : null), block: true }).range(b.from, b.to))
     } else if (b.kind === 'image') {
       // 视频块里的截图由 video/doc-widgets 画
       if (inVideoBlock(state, b.from)) continue
@@ -277,6 +255,11 @@ function blockWidgets(state: EditorState): DecorationSet {
       if (!m) continue
       // 光标在哪都画成图，不露 ![说明](附件/…) 原文（CN-86、CN-40）
       out.push(Decoration.replace({ widget: new ImageWidget(imageSrc(path, m[2]!), m[1]!, b.from), block: true }).range(b.from, b.to))
+    } else if (b.kind === 'paragraph') {
+      // Obsidian 写法 ![[图.png]]、![[图.png|300]] 单独一行：一样画成图
+      const em = imageEmbed(state.doc.sliceString(b.from, b.to))
+      if (!em || inVideoBlock(state, b.from)) continue
+      out.push(Decoration.replace({ widget: new ImageWidget(embedImageSrc(path, em.target), em.alt, b.from, true), block: true }).range(b.from, b.to))
     }
   }
   return Decoration.set(out, true)
@@ -284,21 +267,21 @@ function blockWidgets(state: EditorState): DecorationSet {
 
 const widgets = StateField.define<DecorationSet>({
   create: blockWidgets,
-  update: (v, tr) => (tr.docChanged || tr.selection ? blockWidgets(tr.state) : v),
+  update: (v, tr) => (tr.docChanged || tr.effects.some((e) => e.is(editCell)) ? blockWidgets(tr.state) : v),
   provide: (f) => [
     EditorView.decorations.from(f),
-    // 图片是一整块（表格点进去要改格子，不算）
+    // 图片、表格是一整块（表格的格子在部件里就地改）
     EditorView.atomicRanges.of((view) => {
       const out: Range<Decoration>[] = []
-      view.state.field(f).between(0, view.state.doc.length, (from, to, d) => void (d.spec.widget instanceof ImageWidget && out.push(d.range(from, to))))
+      view.state.field(f).between(0, view.state.doc.length, (from, to, d) => void ((d.spec.widget instanceof ImageWidget || d.spec.widget instanceof TableWidget) && out.push(d.range(from, to))))
       return Decoration.set(out)
     }),
     hiddenSyntax.of((state) => {
       const out: Hidden[] = []
-      state.field(f).between(0, state.doc.length, (from, to, d) => void (d.spec.widget instanceof ImageWidget && out.push(wholeBlock(state.doc, from, to, true))))
+      state.field(f).between(0, state.doc.length, (from, to, d) => void ((d.spec.widget instanceof ImageWidget || d.spec.widget instanceof TableWidget) && out.push(wholeBlock(state.doc, from, to, true))))
       return out
     }),
   ],
 })
 
-export const mdWidgets = [tasks, taskInput, widgets]
+export const mdWidgets = [tableEditField, tableCellFlush, tasks, taskInput, widgets]

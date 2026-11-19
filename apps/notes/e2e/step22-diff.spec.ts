@@ -220,7 +220,7 @@ test('CN-57/63 梦游报告：每处改动一行人话（不再铺源码），�
     // 可能重复：两篇并排
     await panel.getByTestId('dream-item').filter({ hasText: '相似度' }).click()
     await detail.getByTestId('dream-change').click()
-    await expect(diffTab(page).locator('.dv-cols > span')).toHaveText(['收件箱/巴黎自由行全景指南.md', '素材/巴黎/巴黎深度漫游指南.md'])
+    await expect(diffTab(page).locator('.dv-cols > span')).toHaveText(['剪藏/巴黎/巴黎深度漫游指南.md', '收件箱/巴黎自由行全景指南.md'])
   } finally {
     await run.close()
   }

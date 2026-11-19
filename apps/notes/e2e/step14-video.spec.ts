@@ -1,6 +1,6 @@
 // 看视频（2026-11-16，方向 A「视频条」）：右栏视频页地址栏下面的视频条和刻度；双语字幕（字幕从播放器自己的请求里读，翻译走双语翻译插件）；
 // ⌥S 记下这一刻（文档插光标处、白板进「时刻」列、什么都没开进收件箱），每次一次提交、能撤回；⌥D 框一块问，AI 浮窗里答，答完自动记进笔记和「视频里的疑惑」；
-// 字幕全文存进「素材/视频」带 AI 摘要；文档里点时刻块的时间跳回那一秒；白板上的视频卡、时刻卡；设置里改快捷键。
+// 字幕全文存进「剪藏/视频」带 AI 摘要；文档里点时刻块的时间跳回那一秒；白板上的视频卡、时刻卡；设置里改快捷键。
 // 视频站是本机假的（e2e/fixtures/fake-video.ts，当成 YouTube），AI 是假的（CN_AI_FAKE）。
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
@@ -181,14 +181,14 @@ test('白板开着时 ⌥S：时刻进这个视频的「时刻」列（没有视
   }
 })
 
-test('什么都没开（首页）：新建「收件箱/<视频标题>.md」在中间打开，同一个视频都进这一篇，第一次先放视频卡；字幕全文存进「素材/视频」带 AI 摘要和记下的时刻', async () => {
+test('什么都没开（首页）：新建「收件箱/<视频标题>.md」在中间打开，同一个视频都进这一篇，第一次先放视频卡；字幕全文存进「剪藏/视频」带 AI 摘要和记下的时刻', async () => {
   const run = await launch({ 'a.md': '# a\n' }, env())
   const { page, vault } = run
   try {
     await openVideo(page)
     await expect(strip(page).getByRole('button', { name: /^记到 / })).toHaveAttribute('aria-label', '记到 新建《Linear transformations and matrices》')
     await expect(strip(page).getByRole('button', { name: '字幕' })).toContainText('英→中', { timeout: 15_000 })
-    const matPath = '素材/视频/Linear transformations and matrices.md'
+    const matPath = '剪藏/视频/Linear transformations and matrices.md'
     await expect.poll(() => existsSync(join(vault, matPath)) && read(vault, matPath).includes('## AI 摘要\n- [00:00]'), { timeout: 15_000 }).toBe(true)
     await expect.poll(() => read(vault, matPath)).toContain(`[00:03](${base}/watch?v=${FAKE_VIDEO_ID}&t=3s) A matrix moves every vector.\n译文：A matrix moves every vector.`)
     const m0 = read(vault, matPath)
@@ -253,7 +253,7 @@ test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；不
     await ask.getByRole('textbox', { name: '想问什么' }).press('Enter')
     // 不弹浮窗，就地答进文档（CN-84）：底部提示「AI 讲完了，记进…」
     await expect(page.getByText('AI讲完了，记进《第3讲 笔记》和「视频里的疑惑」')).toBeVisible({ timeout: 15_000 })
-    await expect(page.locator('main.center').getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
+    await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
     await shot(run, 'video-asked')
     await waitSaved(page)
     const md = await editorText(page)
@@ -420,7 +420,7 @@ test('字幕全文那一篇：章节默认收起（「▸ 展开 · N 行」）�
       return `[${mm}](https://www.youtube.com/watch?v=abcdefghijk&t=${t}s) Line ${t}.\n第 ${t} 秒的译文。\n`
     }).join('\n')
   const doc = `---\ntype: video\nsource: https://www.youtube.com/watch?v=abcdefghijk\nsite: youtube\nchannel: C\nduration: 600\nsubtitles: en · 人工字幕\ntranslated: zh-CN\n---\n# 一集很长的课\n\n## AI 摘要\n- [00:10](https://www.youtube.com/watch?v=abcdefghijk&t=10s) 开场。\n\n## 记下的时刻\n还没有。\n\n## 00:00 开场\n${lines(0, 30)}\n## 05:00 第二章\n${lines(300, 40)}`
-  const run = await launch({ '素材/视频/一集很长的课.md': doc }, env())
+  const run = await launch({ '剪藏/视频/一集很长的课.md': doc }, env())
   const { page, vault } = run
   try {
     await openNote(page, '一集很长的课')
@@ -440,7 +440,7 @@ test('字幕全文那一篇：章节默认收起（「▸ 展开 · N 行」）�
     await expect(pane(page).getByText('Line 300.')).toBeVisible()
     await shot(run, 'video-material')
     await page.waitForTimeout(1000)
-    expect(read(vault, '素材/视频/一集很长的课.md')).toBe(doc)
+    expect(read(vault, '剪藏/视频/一集很长的课.md')).toBe(doc)
   } finally {
     await run.close()
   }

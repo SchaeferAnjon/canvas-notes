@@ -3,8 +3,8 @@
  * 还有文档标签条右端的「更多」，都是这一份。
  */
 import { fixedFolder } from '../../shared/files'
-import { folderPinKey, takeLeft } from '../../shared/left'
-import { leftConfig, updateLeft } from '../files/left-store'
+import { folderPinKey } from '../../shared/left'
+import { leftConfig } from '../files/left-store'
 import { titleOf } from '../../shared/layout'
 import { app } from './actions'
 import { copy, type MenuEntry, menuAt } from './menu'
@@ -38,7 +38,7 @@ export function fileMenu(path: string, on: { rename?(): void } = {}): MenuEntry[
 
 /**
  * 文件夹的右键（目录树、左栏、文件夹首页里的子文件夹卡片；2026-11-17 左栏重组，小样 2b）。
- * rename：这个地方能原地改名时给；newFolder：能在这里原地新建文件夹时给（目录树）；look：能贴着这一行弹「设图标和颜色」时给。
+ * rename：这个地方能原地改名时给；newFolder：能在这里原地新建文件夹时给（目录树）；look：能贴着这一行弹「换图标和颜色」时给。
  * 最外层固定的文件夹（课程、生活、写作……）没有重命名、移到和移到废纸篓。
  */
 export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): void; look?(): void } = {}): MenuEntry[] {
@@ -58,8 +58,8 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
     { label: '在新标签打开首页', run: () => a.openFolderHome(folder) },
     '-',
     pinned ? { label: '取消置顶', run: () => a.togglePin(folderPinKey(folder), false) } : { label: '置顶', run: () => a.togglePin(folderPinKey(folder), true) },
-    onLeft ? { label: '从左边拿下来', run: () => updateLeft((c) => takeLeft(c, folder)) } : { label: '放到左边', run: () => a.putOnLeft(folder) },
-    on.look && { label: '设图标和颜色…', run: () => on.look!() },
+    onLeft ? { label: '从左边拿下', run: () => a.takeOffLeft(folder) } : { label: '放到左边', run: () => a.putOnLeft(folder) },
+    on.look && { label: '换图标和颜色…', run: () => on.look!() },
     '-',
     !fixed && on.rename && { label: '重命名…', accel: 'F2', run: () => on.rename!() },
     !fixed && targets.length > 0 && { label: '移到', submenu: targets },

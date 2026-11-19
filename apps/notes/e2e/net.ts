@@ -32,7 +32,6 @@ export function tempHome(): Record<string, string> {
   mkdirSync(join(h, 'chrome'), { recursive: true })
   return {
     HOME: h,
-    CN_MINERU_HOME: h,
     CN_CHROME_ROOT: join(h, 'chrome'),
     CN_AIRDROP_DIR: join(h, 'Downloads'),
     CN_ICLOUD_CONTAINER: join(h, 'icloud'),

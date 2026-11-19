@@ -28,6 +28,7 @@ import { backspaceOverLayout, deleteOverLayout, layoutLines } from '../src/rende
 import { mdWidgets } from '../src/renderer/md-widgets'
 import { propsBlock } from '../src/renderer/mindmap/props-block'
 import { baseBlock } from '../src/renderer/base/base-block'
+import { reviewSyntax } from '../src/renderer/review'
 
 // 时刻块的模块一加载就要 window（视频测试站地址）
 ;(globalThis as { window?: unknown }).window ??= {}
@@ -42,6 +43,7 @@ const extensions: Extension[] = [
   mdWidgets,
   videoDocWidgets,
   baseBlock,
+  reviewSyntax,
   hiddenGuard,
   history(),
 ]
@@ -97,6 +99,8 @@ const samples: Sample[] = [
   { name: '视频卡', doc: `# 块\n\n上一段。\n\n${VIDEO}\n\n下一段。\n` },
   { name: '时刻块（带原文）', doc: `# 块\n\n上一段。\n\n${MOMENT_QUOTE}\n\n下一段。\n` },
   { name: '数据库块', doc: `# 块\n\n上一段。\n\n${BASE}\n\n下一段。\n` },
+  { name: '引文下面的想法和评价（标签藏起来）', doc: '# 书摘\n\n> 接到叔叔谋反的消息。\n\n微信读书的想法：御驾亲征。\n\n我的评价：这一脚。\n\n下一段。\n' },
+  { name: '引文下面空着的评价', doc: '# 书摘\n\n> 见面后，叔侄俩开聊。\n\n我的评价：\n\n下一段。\n' },
 ]
 
 function open(sample: Sample): View {
@@ -113,13 +117,19 @@ function open(sample: Sample): View {
 /** 藏着的每一段的原文（去掉两头的换行和空行） */
 const pieces = (s: EditorState) => hiddenRanges(s).map((h) => s.doc.sliceString(h.from, h.to).replace(/^\n+|\n+$/g, ''))
 
+/** 评价的标签跟着整段删掉（⌘⇧K 删掉评价这一行）：这一段整个没了，不算改坏（标签是这一段自己的开头，不是隔开块的语法） */
+function reviewsGone(before: EditorState, after: EditorState): Hidden[] {
+  const text = after.doc.toString()
+  return hiddenRanges(before).filter((h) => h.unit && /^\n?(\*\*)?(我的评价|微信读书的想法)/.test(before.doc.sliceString(h.from, h.to)) && !text.includes(before.doc.sliceString(h.unit.from, h.unit.to).replace(/^\n+/, '')))
+}
+
 /** 改完以后：原来藏着的每一段都还整行整行地在（出现次数不少），藏着的块一个没少（没露成原文） */
 function expectIntact(before: EditorState, after: EditorState, where: string) {
   const text = after.doc.toString()
-  // 整行：前面是行首（</summary> 接在标题字后面，不算）、后面是行尾（<summary>、提示块的「> [!ai]- 」后面接标题字，不算）
+  // 整行：前面是行首（</summary> 接在标题字后面，不算）、后面是行尾（<summary>、提示块的「> [!ai]- 」、评价的「我的评价：」后面接字，不算）
   const lines = (core: string) => {
     const needL = !core.startsWith('</summary>')
-    const needR = !(/<summary>$/i.test(core) || /^>\s*\[!/.test(core))
+    const needR = !(/<summary>$/i.test(core) || /^>\s*\[!/.test(core) || /^(\*\*)?(我的评价|微信读书的想法)/.test(core))
     let n = 0
     for (let i = text.indexOf(core); i >= 0; i = text.indexOf(core, i + 1)) {
       const okL = !needL || i === 0 || text[i - 1] === '\n'
@@ -129,10 +139,13 @@ function expectIntact(before: EditorState, after: EditorState, where: string) {
     return n
   }
   const want = new Map<string, number>()
+  const gone = reviewsGone(before, after)
+  const goneCores = gone.map((h) => before.doc.sliceString(h.from, h.to).replace(/^\n+|\n+$/g, ''))
   for (const p of pieces(before)) want.set(p, (want.get(p) ?? 0) + 1)
+  for (const c of goneCores) want.set(c, (want.get(c) ?? 1) - 1)
   // 只藏一个换行的（展开的提示块下面那个）去掉换行是空的：它留没留住由空行数（shapes）看
   for (const [core, n] of want) if (core) expect(lines(core), `${where}：「${core}」`).toBeGreaterThanOrEqual(n)
-  expect(hiddenRanges(after).length, `${where}：藏着的块少了`).toBeGreaterThanOrEqual(hiddenRanges(before).length)
+  expect(hiddenRanges(after).length, `${where}：藏着的块少了`).toBeGreaterThanOrEqual(hiddenRanges(before).length - gone.length)
 }
 
 function clustersOf(s: EditorState): Hidden[][] {
@@ -365,6 +378,35 @@ describe('报告里的几条，按原样走一遍', () => {
     expect(del.state.sliceDoc(del.state.selection.main.from, del.state.selection.main.to)).toBe('![说明](附件/a.png)')
   })
 
+  it('挨着块打一个字再删掉：守卫补的换行跟着拿掉，文件一个字节都不多（规矩 1：打一个字再删掉）', () => {
+    const doc = '# 图\n\n前一段。\n\n![说明](附件/a.png)\n\n后一段。\n'
+    for (const at of [doc.indexOf('\n\n![') + 1, doc.indexOf(')\n\n') + 2]) {
+      const v = open({ name: '', doc })
+      v.dispatch({ selection: { anchor: at }, userEvent: 'select' })
+      typeAt(v, 'x')
+      expect(v.state.doc.toString()).not.toBe(doc)
+      keys['退格']!(v)
+      expect(v.state.doc.toString()).toBe(doc)
+    }
+    // 打两个字：退格一下只删一个字，第二下连补的换行一起拿掉
+    const v = open({ name: '', doc })
+    v.dispatch({ selection: { anchor: doc.indexOf('\n\n![') + 1 }, userEvent: 'select' })
+    typeAt(v, 'A')
+    typeAt(v, 'B')
+    keys['退格']!(v)
+    expect(v.state.doc.toString()).toBe('# 图\n\n前一段。\nA\n\n![说明](附件/a.png)\n\n后一段。\n')
+    keys['退格']!(v)
+    expect(v.state.doc.toString()).toBe(doc)
+    // 收着的折叠块前面（rule1 的样本 html-and-tables.md）：一样
+    const fold = '| a | b |\n|---|:-:|\n| 1 | 2 |\n\n<details><summary>折叠</summary>\n\n里面\n\n</details>\n'
+    const f = open({ name: '', doc: fold })
+    f.dispatch({ selection: { anchor: fold.indexOf('<details>') }, userEvent: 'select' })
+    typeAt(f, 'x')
+    expect(f.state.doc.toString()).not.toBe(fold)
+    keys['退格']!(f)
+    expect(f.state.doc.toString()).toBe(fold)
+  })
+
   it('点属性表的一行进原文（软件有意的，带 hiddenOk）：光标进得去，能改；没带的程序挪光标照样挪出来', () => {
     const doc = '---\n课程: 写作\n---\n# 标题\n\n正文。\n'
     const v = open({ name: '', doc })
@@ -491,7 +533,7 @@ describe('每个会改文档的键（CodeMirror 自带的、markdown 的、我�
           const where = `${sample.name} 从 ${at} 按 ${k} ${times} 下：${JSON.stringify(v.state.doc.toString())}`
           if (v.state.selection.main.empty) expect(badCursor(v.state, v.state.selection.main.head), where).toBe(false)
           expectIntact(v0.state, v.state, where)
-          if (v.state.selection.main.empty) expect(shapes(v.state), where).toEqual(want)
+          if (v.state.selection.main.empty && !reviewsGone(v0.state, v.state).length) expect(shapes(v.state), where).toEqual(want)
           for (let i = 0; i < 6; i++) undo(v)
           expect(v.state.doc.toString(), where + ' 再 ⌘Z').toBe(sample.doc)
         }

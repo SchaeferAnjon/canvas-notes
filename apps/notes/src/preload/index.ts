@@ -5,7 +5,6 @@ import { importApi } from './importer'
 import { mapApi } from './mindmap'
 import { pluginsApi } from './plugins'
 import { readingApi } from './reading'
-import { mineruApi } from './mineru'
 import { searchApi } from './search'
 import type { CnFilesApi } from '../shared/files'
 import type { CnAttachApi } from '../shared/attach'
@@ -44,7 +43,10 @@ const api: CnApi = {
   gitState: () => ipcRenderer.invoke('git:state'),
   commit: () => ipcRenderer.invoke('git:commit'),
   sync: () => ipcRenderer.invoke('git:sync'),
-  history: (limit) => ipcRenderer.invoke('git:history', limit),
+  history: (limit, opts) => ipcRenderer.invoke('git:history', limit, opts),
+  restorable: (hash) => ipcRenderer.invoke('git:restorable', hash),
+  restoreDeleted: (hash, only) => ipcRenderer.invoke('git:restore', hash, only),
+  undoRestore: (commit) => ipcRenderer.invoke('git:restore-undo', commit),
   pickImage: (note) => ipcRenderer.invoke('attach:pickImage', note),
   settings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
@@ -96,8 +98,10 @@ const api: CnApi = {
     ipcRenderer.on('files:changed', h)
     return () => ipcRenderer.removeListener('files:changed', h)
   },
-  aiEngines: () => ipcRenderer.invoke('ai:engines'),
+  aiEngines: (again) => ipcRenderer.invoke('ai:engines', again === true),
+  aiPickCli: (id) => ipcRenderer.invoke('ai:cli:pick', id),
   aiSetEngine: (id) => ipcRenderer.invoke('ai:engine:set', id),
+  aiSetChatPick: (pick) => ipcRenderer.invoke('ai:chat:set', pick),
   aiPrefs: () => ipcRenderer.invoke('ai:prefs'),
   aiSetPrefs: (p) => ipcRenderer.invoke('ai:prefs:set', p),
   onAiPrefsChanged(cb) {
@@ -108,13 +112,22 @@ const api: CnApi = {
   aiTurn: (req) => ipcRenderer.invoke('ai:turn', req),
   aiTurnStop: (id) => ipcRenderer.invoke('ai:turn:stop', id),
   aiPaste: (bytes, mime) => ipcRenderer.invoke('ai:paste', bytes, mime),
-  aiChatLoad: () => ipcRenderer.invoke('ai:chat:load'),
-  aiChatSave: (msgs) => ipcRenderer.invoke('ai:chat:save', msgs),
-  aiChatClear: () => ipcRenderer.invoke('ai:chat:clear'),
+  aiPickImages: (room) => ipcRenderer.invoke('ai:paste:pick', room),
+  aiChatPick: (place) => ipcRenderer.invoke('ai:chat:pick', place),
+  aiChatSetPick: (place, pick) => ipcRenderer.invoke('ai:chat:pick:set', place, pick),
+  aiChatLoad: (place) => ipcRenderer.invoke('ai:chat:load', place),
+  aiChatSave: (place, label, msgs) => ipcRenderer.invoke('ai:chat:save', place, label, msgs),
+  aiChatClear: (place) => ipcRenderer.invoke('ai:chat:clear', place),
+  aiChats: () => ipcRenderer.invoke('ai:chats'),
   onAiEvent(cb) {
     const h = (_e: unknown, id: number, ev: Parameters<typeof cb>[1]) => cb(id, ev)
     ipcRenderer.on('ai:event', h)
     return () => ipcRenderer.removeListener('ai:event', h)
+  },
+  onAiAct(cb) {
+    const h = (_e: unknown, a: Parameters<typeof cb>[0]) => cb(a)
+    ipcRenderer.on('ai:act', h)
+    return () => ipcRenderer.removeListener('ai:act', h)
   },
   onAiCall(cb) {
     const h = (_e: unknown, id: number, op: Parameters<typeof cb>[1], arg: unknown) => cb(id, op, arg)
@@ -153,9 +166,8 @@ contextBridge.exposeInMainWorld('cnPlugins', pluginsApi)
 contextBridge.exposeInMainWorld('cnMap', mapApi)
 contextBridge.exposeInMainWorld('cnFolder', folderApi)
 contextBridge.exposeInMainWorld('cnReading', readingApi)
-contextBridge.exposeInMainWorld('cnMineru', mineruApi)
 contextBridge.exposeInMainWorld('cnSearch', searchApi)
-contextBridge.exposeInMainWorld('cnFiles', { all: () => ipcRenderer.invoke('files:all') } satisfies CnFilesApi)
+contextBridge.exposeInMainWorld('cnFiles', { all: () => ipcRenderer.invoke('files:all'), attachments: () => ipcRenderer.invoke('files:attachments') } satisfies CnFilesApi)
 contextBridge.exposeInMainWorld('cnVideo', videoApi)
 contextBridge.exposeInMainWorld('cnImport', importApi)
 contextBridge.exposeInMainWorld('cnMenu', menuApi)

@@ -151,8 +151,11 @@ export interface CardInput {
   id: string
   pdf: string
   course: string
+  /** 这一条看到的那一段（新格式：doubts 是这一问的原话，good 是它回答原文的开头一段） */
   section: AskSection
   question: string
+  /** 旁支里问的：被问的那一句（卡背面「原文」那一栏） */
+  quote?: string
   /** 截图在 Anki 媒体库里的文件名（storeMediaFile 回的） */
   image?: string
 }
@@ -166,7 +169,8 @@ export function fieldsFor(c: CardInput): Record<string, string> {
     Question: html(c.question),
     Answer: html(s.good),
     More: s.points.length > 1 ? `<ul>${s.points.map((p) => `<li>${html(p)}</li>`).join('')}</ul>` : html(s.points[0] ?? ''),
-    Quote: s.doubts.length > 1 ? html(s.doubts.slice(1).join('\n')) : '',
+    // 旁支那一问：被问的那句；以前的笔记：AI 写的另几条疑惑
+    Quote: c.quote ? html(c.quote) : s.doubts.length > 1 ? html(s.doubts.slice(1).join('\n')) : '',
     Image: c.image ? `<img class="lead" src="${esc(c.image)}">` : '',
     Label: esc(`Canvas Notes · ${c.course || stem(c.pdf)}`),
     Source: esc(`${stem(c.pdf)} · 第 ${s.page} 页`),

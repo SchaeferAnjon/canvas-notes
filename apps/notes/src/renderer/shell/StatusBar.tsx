@@ -36,6 +36,10 @@ export function StatusBar(props: {
   update?: React.ReactNode
   /** A：底栏最右的 AI 入口 */
   ai?: React.ReactNode
+  /** A：右端「译 · Claude Code」（翻译用哪个 AI） */
+  translate?: React.ReactNode
+  /** A：右端通知铃（AI 入口左边） */
+  bell?: React.ReactNode
   /** 提示（带撤回）：出在底栏正中，不压内容 */
   toast?: React.ReactNode
   /** 哪都写不进去、字只在内存里的那几篇（stash：设置目录里的备份）：有就不说「都提交了」，醒目地说出来 */
@@ -108,12 +112,14 @@ export function StatusBar(props: {
         </button>
       )}
       <div className="st-toast">{props.toast}</div>
+      {props.translate}
       {props.update}
       {git && (
         <span className="bi" data-testid="week-commits">
           <span className="num">{`本周${git.weekCommits}次提交`}</span>
         </span>
       )}
+      {props.bell}
       {props.ai}
 
       {pop?.kind === 'changes' && git && (

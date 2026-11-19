@@ -39,6 +39,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     chunk(sid, `开头是系统提示 ${prompt.startsWith('系统') ? '是' : '否'}`)
     const imgs = m.params.prompt.filter((b) => b.type === 'image')
     if (imgs.length) chunk(sid, `；图 ${imgs.map((b) => `${b.mimeType}:${b.data}`).join(',')}`)
+    if (process.env.FAKE_ACP_ECHO) chunk(sid, `；话 ${prompt.replace(/\n/g, '/')}`)
     return send({ id: m.id, result: { stopReason: 'end_turn' } })
   }
 })

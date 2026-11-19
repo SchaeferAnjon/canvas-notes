@@ -21,7 +21,7 @@ describe('梦游预览', () => {
   const items = [
     item('1', '收件箱/导图 11-15 21∶40.md', '课程/线性代数/第3讲 线性映射 导图.md'),
     item('2', '收件箱/一条速记.md', '生活/周末去花市.md', 'pending', { redo: '速记放 生活' }),
-    item('3', '收件箱/剪的.md', '素材/旅行/剪的.md'),
+    item('3', '收件箱/剪的.md', '剪藏/旅行/剪的.md'),
     item('4', '收件箱/已收下.md', '写作/已收下.md', 'taken'),
     { id: '5', group: 'link', title: '', sub: '', why: '', commit: 'c5', files: [], state: 'pending' } as DreamItem,
   ]
@@ -38,11 +38,11 @@ describe('梦游预览', () => {
     expect(pv.notes.map((n) => [n.path, n.kind, n.topic])).toEqual([
       ['课程/线性代数/第3讲 线性映射 导图.md', 'work', undefined],
       ['生活/周末去花市.md', 'work', undefined],
-      ['素材/旅行/剪的.md', 'clip', '旅行'],
+      ['剪藏/旅行/剪的.md', 'clip', '旅行'],
       ['所思所想.md', 'work', undefined],
     ])
     expect(pv.notes[0]!.board).toBeDefined()
-    expect([...pv.marks.keys()]).toEqual(['课程/线性代数/第3讲 线性映射 导图.md', '生活/周末去花市.md', '素材/旅行/剪的.md'])
+    expect([...pv.marks.keys()]).toEqual(['课程/线性代数/第3讲 线性映射 导图.md', '生活/周末去花市.md', '剪藏/旅行/剪的.md'])
     expect(pv.ghosts.map((g) => g.from)).toEqual(['收件箱/导图 11-15 21∶40.md', '收件箱/一条速记.md', '收件箱/剪的.md'])
     // 笔记列表里没有的（还没刷新）不画影子
     expect(previewOf([], moves).ghosts).toEqual([])

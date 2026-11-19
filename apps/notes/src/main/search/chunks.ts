@@ -94,7 +94,7 @@ export function pdfTextHits(path: string, pages: PdfBlock[][], sizes: [number, n
   if (!words.length) return []
   const out: PdfTextHit[] = []
   for (let i = 0; i < pages.length && out.length < limit; i++) {
-    const blocks = pages[i]!.filter((b) => b.kind !== 'image').map((b) => (b.kind === 'table' ? { ...b, text: blockPlain(b) } : b))
+    const blocks = pages[i]!.filter((b) => b.kind !== 'image')
     const text = blocks.map((b) => b.text).join('\n')
     const low = text.toLowerCase()
     if (!words.every((w) => low.includes(w))) continue

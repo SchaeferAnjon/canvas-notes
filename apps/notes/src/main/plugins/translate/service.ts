@@ -1,8 +1,8 @@
 /**
- * 翻译服务：网页、PDF 左右对照读（以后）都用这一个。给一串块（标题、段落、列表项…），按设置挑引擎、带上课程术语表，
+ * 翻译服务：网页、网页阅读视图、视频字幕、右键翻译这段都用这一个。给一串块（标题、段落、列表项…），按设置挑引擎、带上课程术语表，
  * 翻好一块回一块（缓存里有的马上回）。不碰 Electron，能单独测。
  *
- * PDF 那边这样用（主进程）：
+ * 主进程里（视频字幕）这样用：
  *   const tr = translateService()
  *   await tr?.translateBlocks([{ id: 'p1-3', text: '…' }], { target: 'zh-CN', course: '线性代数' }, (r) => …, signal)
  * 界面那边用 renderer/plugins/translate/api.ts 的 translateBlocks（同一件事走 ipc）。
@@ -111,6 +111,6 @@ export class TranslateService {
 
 let current: TranslateService | null = null
 
-/** 主进程里别的地方（PDF 对照读）拿翻译服务；双语翻译插件关着时也在（插件开关只管网页里的按钮） */
+/** 主进程里别的地方（视频字幕）拿翻译服务；双语翻译插件关着时也在（插件开关只管网页里的按钮） */
 export const translateService = () => current
 export const setTranslateService = (s: TranslateService) => (current = s)

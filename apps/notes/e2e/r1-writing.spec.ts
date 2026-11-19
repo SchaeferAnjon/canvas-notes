@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readdirSync, readFileSync, renameSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
-import { acts, launch, leftView, openNote, pane, rail, waitSaved, widenRight } from './app'
+import { acts, editorText, launch, leftView, openNote, pane, rail, waitSaved, widenRight } from './app'
 import { armMenus, openedMenu, pickMenu } from './menu'
 import { solidPng } from './fixtures/png'
 
@@ -116,7 +116,7 @@ test('文档白板：双击改字后按 Esc 存下（⌘Z 撤回），没改直�
     await cardIn(page, '住哪', '第一晚').dblclick()
     const dlg = page.getByRole('dialog', { name: '全文' })
     await dlg.getByRole('button', { name: '改字' }).click()
-    const box = dlg.getByRole('textbox', { name: '这张卡的原文' })
+    const box = dlg.getByRole('textbox', { name: '这张卡的字' })
     await box.press('End')
     await page.keyboard.type('还要订第二晚。')
     await page.keyboard.press('Escape')
@@ -165,11 +165,11 @@ test('文档白板能缩放：⌘− ⌘0、按住 ⌘ 滚轮，列宽跟着变'
   }
 })
 
-test('文档白板拖到空白处后切回文档：位置行藏起来，源文件里看得到', async () => {
+test('文档白板拖到空白处后切回文档：位置行藏起来，文件里照样有', async () => {
   const run = await docBoard()
   const { page, file } = run
   try {
-    // 拖到空白处：文档里多一行位置；切回文档看不到这一行，源文件里看得到
+    // 拖到空白处：文档里多一行位置；切回文档看不到这一行，编辑器里的原文照样有
     const p = (await cardIn(page, '住哪', '第一晚').boundingBox())!
     const bb = (await board(page).boundingBox())!
     await dragTo(page, { x: p.x + 40, y: p.y + 20 }, { x: bb.x + 300, y: bb.y + bb.height - 150 })
@@ -184,10 +184,8 @@ test('文档白板拖到空白处后切回文档：位置行藏起来，源文�
     // 那一段照常是正文的样子（不是灰色等宽）
     await expect(pane(page).locator('.cm-line', { hasText: '第一晚住雷克雅未克。' })).not.toHaveClass(/cm-layout/)
     await page.screenshot({ path: 'test-results/r1-doc-no-card-line.png' })
-    await acts(page).getByRole('tab', { name: '源文件' }).click()
-    await expect(content).toContainText('<!-- card id=d1')
+    expect(await editorText(page)).toContain('<!-- card id=d1')
     // 打开再保存不变
-    await acts(page).getByRole('tab', { name: '文档' }).click()
     await page.waitForTimeout(1200)
     expect(file()).toMatch(/\n<!-- card id=d1 x=\d+ y=\d+ -->\n第一晚住雷克雅未克。\n/)
   } finally {
@@ -207,6 +205,9 @@ test('同一文件夹已经有「未命名」时新建：写标题回车照样�
     await page.keyboard.type('冰岛第二稿')
     await page.keyboard.press('Enter')
     await expect(tabOn).toHaveText('冰岛第二稿')
+    // 打正文之前先看清楚：焦点还在这篇的正文、光标已经不在标题那一行（左栏报过机器忙时字偶尔落到标题前面；再出现时这里会说是哪一种）
+    await expect(pane(page).locator('.cm-content')).toBeFocused()
+    expect(await page.evaluate(() => getSelection()?.anchorNode?.parentElement?.closest('.cm-line')?.textContent ?? '(光标不在任何一行里)')).not.toContain('冰岛第二稿')
     await page.keyboard.type('正文。')
     await waitSaved(page)
     expect(readFileSync(join(vault, '收件箱/冰岛第二稿.md'), 'utf8')).toBe('# 冰岛第二稿\n\n正文。')
@@ -356,15 +357,16 @@ test('数据库开着筛选点「新一条」：新的那条先留在表底，�
     await expect(added).toContainText('新 · 不在当前筛选里')
     await expect(db.locator('tbody tr').last()).toContainText('未命名')
     // 底下的条数和表里对得上
-    await expect(db.locator('.base-foot')).toContainText('1条，另有1条刚建的不在筛选里（筛掉1条）')
+    await expect(db.locator('.base-foot')).toHaveText('另有1条刚建的不在筛选里 · 每条是「书单」里的一篇笔记')
     // 筛选面板底下不写开发者的词
     await db.getByRole('button', { name: '筛选' }).click()
     await expect(db.getByRole('dialog', { name: '筛选' })).not.toContainText('filters')
     await expect(db.getByRole('dialog', { name: '筛选' })).not.toContainText('代码块')
     await page.keyboard.press('Escape')
     // 改成在读：满足筛选，标签去掉
+    // 「状态」是选项列：点格子弹选项小框，挑「在读」
     await added.locator('td').nth(1).click()
-    const cell = db.getByRole('textbox', { name: '未命名 · 状态' })
+    const cell = db.getByRole('dialog', { name: '未命名 · 状态' }).getByRole('textbox', { name: '找一个，或者打一个新的' })
     await cell.fill('在读')
     await cell.press('Enter')
     await expect(db.locator('tbody tr', { hasText: '未命名' })).not.toContainText('不在当前筛选里')
@@ -420,7 +422,7 @@ test('「移到」能选子文件夹（右键、标题下所在文件夹 ▾）�
     await tree.getByRole('treeitem', { name: /冰岛稿/ }).click({ button: 'right' })
     const m = await openedMenu(run)
     const move = m.find((i) => i.label === '移到')!.submenu!
-    expect(move.map((i) => i.label)).toEqual(['库的最外层', '写作'])
+    expect(move.map((i) => i.label)).toEqual(['测试库', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
     expect(move.find((i) => i.label === '写作')!.submenu!.map((i) => i.label)).toEqual(['放进「写作」', '—', '书评', '游记'])
     await pickMenu(run, '移到 › 写作 › 游记')
     await expect.poll(() => existsSync(join(vault, '写作/游记/冰岛稿.md'))).toBe(true)
@@ -430,7 +432,7 @@ test('「移到」能选子文件夹（右键、标题下所在文件夹 ▾）�
     await openNote(page, '冰岛稿')
     await pane(page).getByRole('button', { name: /所在文件夹：写作\/游记/ }).click()
     const chip = await openedMenu(run)
-    expect(chip.map((i) => i.label)).toEqual(['库的最外层', '收件箱', '写作'])
+    expect(chip.map((i) => i.label)).toEqual(['测试库', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
     expect(chip.find((i) => i.label === '写作')!.submenu!.map((i) => i.label)).toEqual(['放进「写作」', '—', '书评'])
     await pickMenu(run, '写作 › 书评')
     await expect.poll(() => existsSync(join(vault, '写作/书评/冰岛稿.md'))).toBe(true)
@@ -529,7 +531,7 @@ test('提示块：斜杠菜单能插（选类型），标题回车写正文，�
     await acts(page).getByRole('tab', { name: '白板' }).click()
     const db = pane(page).getByTestId('doc-board')
     await expect(db.locator('.db-card[data-kind="details"]')).toHaveCount(1)
-    await expect(db.locator('.db-card[data-kind="details"] summary')).toHaveText('我的折叠标题二')
+    await expect(db.locator('.db-card[data-kind="details"] .det .nm')).toHaveText('我的折叠标题二')
     for (const raw of ['<details', '</summary>', '</details>']) await expect(db).not.toContainText(raw)
   } finally {
     await run.close()
@@ -568,8 +570,7 @@ test('删笔记：刚打的字删之前先提交进 Git；「撤回」停 10 秒
     await page.mouse.move(10, 400)
     // ⌘Z 撤回
     await page.keyboard.press('Meta+z')
-    await expect.poll(() => existsSync(join(vault, '写作/冰岛旅游 3.md'))).toBe(true)
-    expect(readFileSync(join(vault, '写作/冰岛旅游 3.md'), 'utf8')).toContain('刚打的一句')
+    await expect.poll(() => existsSync(join(vault, '写作/冰岛旅游 3.md')) && readFileSync(join(vault, '写作/冰岛旅游 3.md'), 'utf8')).toContain('刚打的一句')
     await expect.poll(() => existsSync(join(vault, '附件/写作/冰岛旅游 3/截图 1.png'))).toBe(true)
     await expect(page.getByTestId('tab-on')).toHaveText('冰岛旅游 3')
   } finally {
@@ -650,7 +651,7 @@ test('⌘K 搜索：结果回来之前不闪「都没有」，先写「在找…
   }
 })
 
-test('写作首页「素材」里每个主题的篇数和那个主题文件夹首页上写的一样（PDF 也算），单位都是「篇」', async () => {
+test('「剪藏」组件里每个主题的篇数和那个主题文件夹首页上写的一样（PDF 也算），单位都是「篇」；老库的「素材」打开时已改成「剪藏」', async () => {
   const run = await launch({
     '写作/a.md': '# a\n\n正文。\n',
     '素材/冰岛旅行/一.md': '# 一\n\n剪的。\n',
@@ -662,11 +663,17 @@ test('写作首页「素材」里每个主题的篇数和那个主题文件夹�
     await leftView(page, '文件')
     const tree = page.getByRole('tree', { name: '全部文件' })
     await tree.getByRole('treeitem', { name: /写作/ }).first().click()
+    await page.getByTestId('tab-acts').getByRole('button', { name: '编辑首页' }).click()
+    await page.getByTestId('folder-home').getByRole('button', { name: '加组件' }).click()
+    const lib = page.getByRole('dialog', { name: '加组件' })
+    await lib.getByRole('button', { name: '加上 剪藏' }).click()
+    await lib.getByRole('button', { name: '完成' }).click()
+    await page.getByTestId('tab-acts').getByRole('button', { name: '完成' }).click()
     const row = page.getByTestId('folder-home').locator('.fw-row', { hasText: '冰岛旅行' })
     await expect(row).toContainText('3篇')
-    await tree.getByRole('treeitem', { name: /素材/ }).first().click()
+    await tree.getByRole('treeitem', { name: /剪藏/ }).first().locator('.ft-tw').click()
     await tree.getByRole('treeitem', { name: /冰岛旅行/ }).first().click()
-    await expect(page.getByTestId('folder-home').locator('.fh-tx p')).toHaveText(/^素材 \/ 冰岛旅行 · 3篇/)
+    await expect(page.getByTestId('folder-home').locator('.fh-tx p')).toHaveText(/^剪藏 \/ 冰岛旅行 · 3篇/)
   } finally {
     await run.close()
   }

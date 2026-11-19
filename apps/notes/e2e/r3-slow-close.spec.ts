@@ -143,7 +143,7 @@ test('文档白板「改字」弹层开着、外面改了同一段时按 ⌘W：
     await board.locator('.db-card', { hasText: '卡二' }).dblclick()
     const dlg = page.getByRole('dialog', { name: '全文' })
     await dlg.getByRole('button', { name: '改字' }).click()
-    await dlg.getByRole('textbox', { name: '这张卡的原文' }).press('End')
+    await dlg.getByRole('textbox', { name: '这张卡的字' }).press('End')
     await page.keyboard.type('我加的')
     const theirs = NOTE.replace('卡二。', '卡二外面改了。')
     writeFileSync(path, theirs)

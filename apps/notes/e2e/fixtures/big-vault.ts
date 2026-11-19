@@ -83,7 +83,7 @@ export function makeBigVault(root: string, count = 7000, now = Date.now(), seed 
   }
   for (let i = 0; i < clips; i++) {
     stats.clips++
-    put(`素材/${pick(TOPICS)}/${para(3)} ${i}.md`, `---\ncreated: 2025-05-01 09:00\nsource: https://example.com/a/${i}\n---\n> ${para(40)}\n—— [来源 ${i}](https://example.com/a/${i})\n`, age())
+    put(`剪藏/${pick(TOPICS)}/${para(3)} ${i}.md`, `---\ncreated: 2025-05-01 09:00\nsource: https://example.com/a/${i}\n---\n> ${para(40)}\n—— [来源 ${i}](https://example.com/a/${i})\n`, age())
   }
   return stats
 }

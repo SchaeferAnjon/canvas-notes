@@ -40,6 +40,10 @@
   /* 下面的空白也算目录树：右键能新建 */
   min-height: 100%;
 }
+/* 框选时焦点在树上（为了 Esc、⌘⌫），树本身不画焦点框；行有自己的 */
+.ftree:focus {
+  outline: none;
+}
 .ftree .ft-row {
   height: 28px;
   gap: 6px;
@@ -97,9 +101,23 @@
 }
 .ftree .ft-row.ft-fit > .ft-tw {
   height: 28px;
+  align-items: center;
 }
 .ftree .ft-row.ft-fit > .truncate {
   max-width: calc(100% - 38px);
+}
+/* 「附件」筛选里笔记那一行：右边「4张」一直在，不折到藏起来的第二行；名字让位、末尾省略（缩进多深都一样） */
+.ftree .ft-row.ft-fit.att {
+  flex-wrap: nowrap;
+}
+.ftree .ft-row.ft-fit.att > .truncate {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+/* 梦游预览里挪来的那行：「新」是要紧的，不掉到第二行，名字让位、末尾省略 */
+.ftree .ft-row.ft-fit:has(> .pv-mark) {
+  flex-wrap: nowrap;
 }
 /* 白板的颜色方块和 16 的图标占同样的宽 */
 .ftree .ft-sw {
@@ -163,4 +181,104 @@
 .ftree .ft-doubts:hover {
   background: var(--fill2);
   color: var(--t1);
+}
+
+/* 树的第一行是库本身（CN-104）：库图标 + 库名 + 一共几个，最外层挂在它下面 */
+.ftree .ft-root {
+  font-weight: 500;
+}
+.ftree .ft-root > svg {
+  color: var(--t2);
+}
+/* 最外层分组（方案 3「分两组」）：组名 12/500 --t3，后面一条 1px --line 横线 */
+.ftree .ft-gh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+  user-select: none;
+}
+.ftree .ft-gh .ln {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+/* 选了好几个（CN-105）：选中的底和开着的那一行一样（--fill2） */
+.ftree {
+  position: relative;
+}
+.ftree .ft-row.sel {
+  background: var(--fill2);
+}
+/* 框选：强调色细边、10% 底 */
+.ftree .ft-lasso {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid var(--acc);
+  border-radius: 2px;
+  background: var(--acc-soft);
+  pointer-events: none;
+}
+/* 选了两个以上：左栏底部浮出「已选 N 个 · 移到… · 删除」 */
+.side {
+  position: relative;
+}
+.ft-selbar {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  z-index: 3;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px 0 12px;
+  border-radius: 8px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 12px;
+  color: var(--t1);
+  -webkit-app-region: no-drag;
+}
+.ft-selbar > svg {
+  color: var(--t2);
+  margin-right: 4px;
+}
+.ft-selbar b {
+  margin-right: auto;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ft-selbar .act {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.ft-selbar .act:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+/* 附件：图片 file-media；「附件」筛选里笔记下面的一张是 20 × 16 的小图 + 名字 + 大小 */
+.ftree .ft-att {
+  color: var(--t1);
+}
+.ftree .ft-thumb {
+  width: 20px;
+  height: 16px;
+  flex: none;
+  border-radius: 3px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--line2);
 }

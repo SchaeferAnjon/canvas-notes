@@ -309,7 +309,7 @@ export function convertTheme(t: VsTheme, opts: { name?: string; uiTheme?: string
     w4: rgbaStr(t1, 0.75),
     'r-card': '10px',
     'r-wid': '14px',
-    'seg-on': dark ? rgbaStr(t1, 0.13) : '#ffffff',
+    'seg-on': fill2,
   }
   // 源文件和文档里的标题、粗体、斜体、引用、代码跟着主题的语法色（找不到就跟正文一样）
   const mdVars: [string, string[]][] = [

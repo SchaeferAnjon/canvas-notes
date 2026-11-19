@@ -20,9 +20,24 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
   if (m.id !== undefined && !m.method) return waiting.get(m.id)?.(m.result)
   if (m.method === 'initialize') return send({ id: m.id, result: { userAgent: 'fake' } })
   if (m.method === 'initialized') return
+  // 模型列表分两页给；默认的那个在第二页（CN-91）
+  if (m.method === 'model/list') {
+    const effort = (e) => ({ reasoningEffort: e, description: `${e} effort` })
+    const luna = { id: 'gpt-6-luna', model: 'gpt-6-luna', displayName: 'GPT-6-Luna', hidden: false, isDefault: false, defaultReasoningEffort: 'medium', supportedReasoningEfforts: ['low', 'medium', 'high'].map(effort) }
+    const hidden = { ...luna, id: 'old', model: 'old', displayName: 'Old', hidden: true }
+    const terra = { id: 'gpt-6.1-terra', model: 'gpt-6.1-terra', displayName: 'GPT-6.1 Terra', hidden: false, isDefault: true, defaultReasoningEffort: 'low', supportedReasoningEfforts: ['low', 'high', 'xhigh', 'ultra'].map(effort) }
+    if (!m.params.cursor) return send({ id: m.id, result: { data: [luna, hidden], nextCursor: 'p2' } })
+    return send({ id: m.id, result: { data: [terra], nextCursor: null } })
+  }
   if (m.method === 'thread/start') {
     instructions = m.params.developerInstructions
     return send({ id: m.id, result: { thread: { id: `th${++threads}` }, sandbox: m.params.sandbox } })
+  }
+  // 旁支：从一个线程整段分叉出新线程（找不到的线程报错）
+  if (m.method === 'thread/fork') {
+    if (m.params.threadId === 'gone') return send({ id: m.id, error: { code: -32600, message: `thread not found: ${m.params.threadId}` } })
+    instructions = m.params.developerInstructions
+    return send({ id: m.id, result: { thread: { id: `${m.params.threadId}-fork` }, sandbox: m.params.sandbox } })
   }
   if (m.method === 'turn/start') {
     const threadId = m.params.threadId
@@ -37,6 +52,8 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     delta(`系统提示 ${instructions}`)
     const imgs = m.params.input.filter((i) => i.type === 'localImage')
     if (imgs.length) delta(`；图 ${imgs.map((i) => i.path).join(',')}`)
+    if (m.params.model || m.params.effort) delta(`；模型 ${m.params.model ?? '没给'}；effort ${m.params.effort ?? '没给'}`)
+    if (process.env.FAKE_CODEX_ECHO) delta(`；话 ${m.params.input[0].text.replace(/\n/g, '/')}`)
     // 别的线程的字不该混进来
     send({ method: 'item/agentMessage/delta', params: { threadId: 'other', turnId: 'x', itemId: 'x', delta: '串了' } })
     send({ method: 'turn/completed', params: { threadId, turn: { id: 'u1', status: 'completed' } } })

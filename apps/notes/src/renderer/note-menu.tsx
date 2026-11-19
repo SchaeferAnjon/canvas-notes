@@ -1,3 +1,4 @@
+import { composing } from './ime'
 import { titleOf } from '../shared/layout'
 import { app } from './ctx/actions'
 
@@ -18,6 +19,7 @@ export function RenameInput(props: { path: string; onDone(): void; onRename(path
         if (v && v !== titleOf(path)) props.onRename(path, v)
       }}
       onKeyDown={(e) => {
+        if (composing(e)) return
         if (e.key === 'Enter') (e.preventDefault(), e.currentTarget.blur())
         if (e.key === 'Escape') (e.preventDefault(), (e.currentTarget.value = titleOf(path)), e.currentTarget.blur())
       }}

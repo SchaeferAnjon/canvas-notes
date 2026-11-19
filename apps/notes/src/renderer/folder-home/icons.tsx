@@ -18,24 +18,25 @@ const BY_KEY: Record<string, CodiconName> = {
 }
 export const folderIcon = (name: string) => BY_KEY[name] ?? 'folder'
 
-/** 每种组件头上的小图标（组件库、抽屉里也用） */
+/** 每种组件头上的小图标（组件库、抽屉里也用；CN-103 加组件小样里的那一套） */
 const WIDGET: Record<FWidget, CodiconName> = {
+  courses: 'folder-library',
   slides: 'book',
   review: 'layers',
   exam: 'flag',
-  notes: 'file-text',
+  notes: 'note',
   doubts: 'question',
-  viz: 'file-code',
+  viz: 'graph',
   cal: 'calendar',
   todo: 'checklist',
   links: 'link',
   board: 'layout',
   text: 'list-flat',
   recent: 'history',
-  progress: 'graph',
+  progress: 'graph-line',
   calendar: 'calendar',
   drafts: 'edit',
-  clips: 'book',
-  list: 'list-filter',
+  clips: 'quote',
+  list: 'filter',
 }
 export const widgetIcon = (t: FWidget) => WIDGET[t]

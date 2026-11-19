@@ -823,7 +823,7 @@
   color: var(--t3);
 }
 
-/* ---------- 属性：文档顶上一张表（标题下面，上下 1px 线） ---------- */
+/* ---------- 属性表：只在历史对比的文档看法里画（标题下面，上下 1px 线）；编辑器里不画（CN-122） ---------- */
 .cm-props {
   margin: 4px 0 22px;
   padding: 8px 0;
@@ -835,15 +835,17 @@
   display: flex;
   align-items: center;
   height: 30px;
-  margin: 0 -8px;
-  padding: 0 8px;
   border-radius: 6px;
   font-size: 13px;
   line-height: 1;
   cursor: text;
 }
+/* 悬停底左右各伸出 8：用阴影画，不占位（以前每行 margin: 0 -8px 把编辑区撑出横向滚动条，文末多一条灰条，CN-119） */
 .cm-props .pr:hover {
   background: var(--fill);
+  box-shadow:
+    -8px 0 0 var(--fill),
+    8px 0 0 var(--fill);
 }
 .cm-props .k {
   width: 84px;
@@ -862,5 +864,12 @@
 .cm-props .ai {
   margin-left: auto;
   font-size: 12px;
+  color: var(--t3);
+}
+
+/* ---------- 书摘标题下一行摘要（CN-122，props-block.ts 的 BookMetaLine；小样 .meta：12 --t3，标题下 6、到第一个小标题 26） ---------- */
+.doc.doc .cm-bookmeta span {
+  display: block;
+  font: 12px/18px var(--sans);
   color: var(--t3);
 }

@@ -1,5 +1,5 @@
 /**
- * 中间栏「<标题> · 阅读视图」：右栏网页用 Readability 抽出正文，用和 PDF 同一个重排组件对照读（spec 2.4）。
+ * 中间栏「<标题> · 阅读视图」：右栏网页用 Readability 抽出正文，对照读（spec 2.4）。
  * 工具栏右端「对照 / 只看译文」（⌥A 轮流）；双语工具条「英文 → 中文 · 域名」+「存成双语笔记」（进收件箱，带原网址）；
  * 头上「回到网页」胶囊在右栏打开原网页。
  */
@@ -124,15 +124,12 @@ export function WebReadTab(props: { url: string; title: string; active: boolean;
         <>
           <BiBar
             langs={`${langsLine(want.slice(0, 40).map((b) => b.text).join(' '))} · ${page.site}`}
-            layout={null}
             status={`${busy ? '正在翻 · ' : ''}译文${done}/${want.length}段`}
             busy={busy}
-            course={null}
             saved={saved}
             saving={saving}
             onSave={() => void save()}
             onOpenSaved={props.onOpenNote}
-            onOpenGlossary={props.onOpenNote}
           />
           <div className="pdfbody">
             <ReflowView srcKey={key} groups={groups} mode={mode} course={null} />

@@ -164,7 +164,7 @@ async function allButtonsReadableOnHover(page: Page, scope: Locator, where: stri
 // ---------------------------------------------------------------- 首页 + AI 浮窗
 
 for (const L of LOOKS) {
-  test(`首页开着 AI 浮窗（${L.tag}）：组件按让出浮窗后剩下的宽换列，1100 / 1300 / 1600 下没有字折成两半、没有东西伸出卡片`, async () => {
+  test(`首页开着 AI（${L.tag}，AI 在右栏那一格）：组件按剩下的宽换列，1100 / 1300 / 1600 下没有字折成两半、没有东西伸出卡片`, async () => {
     const run = await launch(LEFT_VAULT, { CN_AI_FAKE: '1' }, (v) => (withTimes(v), look(L)(v)))
     const { page } = run
     try {
@@ -178,8 +178,8 @@ for (const L of LOOKS) {
         await page.waitForTimeout(500)
         const m = await page.evaluate(HOME_MEASURE)
         console.log(`[${L.tag} ${w}] 不开AI 内容宽${closed.inner} ${closed.cols}列 · 开AI 内容宽${m.inner} ${m.cols}列 ${m.cardW.join(' ')}`)
-        // 让出浮窗：组件区右边在浮窗左边之外（不被浮窗盖住）
-        const gap = await page.evaluate(() => (document.querySelector('.ai.floating') as HTMLElement).getBoundingClientRect().left - (document.querySelector('[data-testid="home"] .wgrid') as HTMLElement).getBoundingClientRect().right)
+        // AI 在右栏：组件区右边在 AI 那一格左边之外（不被盖住）
+        const gap = await page.evaluate(() => (document.querySelector('.ai.aicell:not([hidden])') as HTMLElement).getBoundingClientRect().left - (document.querySelector('[data-testid="home"] .wgrid') as HTMLElement).getBoundingClientRect().right)
         expect(gap).toBeGreaterThanOrEqual(0)
         expect(m.inner).toBeLessThan(closed.inner)
         expect(m.cols).toBe(m.inner > 680 ? 4 : m.inner > 400 ? 2 : 1)
@@ -297,7 +297,7 @@ test('全软件自己定了底色的按钮（黑色实心、梦游预览条、�
       const toast = page.getByTestId('toast')
       await expect(toast.getByRole('button', { name: '撤回' })).toBeVisible()
       rows.push(...(await allButtonsReadableOnHover(page, toast, `${L.tag} 底栏提示`)))
-      // 预览条：跟 AI 说、退出预览、丢掉、收下这 N 处
+      // 预览条：跟 AI 说、丢掉、收下这 N 处、退出预览
       await panel.getByRole('button', { name: '预览' }).click()
       const bar = page.getByTestId('preview-bar')
       await expect(bar).toBeVisible()

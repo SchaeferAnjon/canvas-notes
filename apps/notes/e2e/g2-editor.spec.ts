@@ -126,7 +126,7 @@ test('CN-86 光标从下面走进问答块也一直是卡片：↑ 跨过整块�
     expect(await pane(page).locator('.cm-scroller').evaluate((e) => [e.scrollLeft, e.scrollWidth - e.clientWidth])).toEqual([0, 0])
     await page.keyboard.press('Backspace')
     await expect(ask).toHaveCount(0)
-    // 块菜单「在源文件里改这一块」：切到源文件、选中这一块的原文
+    // 块菜单「改写法」（方向 A 块上露写法）：只在这一块露出它的原文，esc 收回、「完成」写回
     const card = pane(page).locator('[data-part="时刻块"]')
     await expect(async () => {
       const box = (await card.boundingBox())!
@@ -135,14 +135,21 @@ test('CN-86 光标从下面走进问答块也一直是卡片：↑ 跨过整块�
       await pane(page).locator('.blk-bar:not([hidden]) .blk-grip').click({ timeout: 1000 })
       await expect(page.getByRole('menu', { name: '块菜单' })).toBeVisible({ timeout: 1000 })
     }).toPass({ timeout: 10_000 })
-    await page.getByRole('menu', { name: '块菜单' }).getByRole('menuitem', { name: '在源文件里改这一块' }).click()
-    await expect(acts(page).getByRole('tab', { name: '源文件' })).toHaveAttribute('aria-selected', 'true')
-    await expect.poll(() => page.evaluate(() => document.getSelection()?.toString() ?? '')).toContain('<!-- moment video=youtube:7CVYBBX_zxA t=1.1 -->')
-    await acts(page).getByRole('tab', { name: '文档' }).click()
+    const bmenu = page.getByRole('menu', { name: '块菜单' })
+    await expect(bmenu.getByRole('menuitem')).toHaveText(['改写法', '复制一块⌘D', '问 AI 这一块', '删除⌫'])
+    await bmenu.getByRole('menuitem', { name: '改写法' }).click()
+    const raw = pane(page).getByRole('textbox', { name: '这一块的写法' })
+    await expect(raw).toBeFocused()
+    expect(await raw.inputValue()).toContain('<!-- moment video=youtube:7CVYBBX_zxA t=1.1 -->')
+    await expect(pane(page).locator('[data-part="时刻块"]')).toHaveCount(0)
+    // 改一个字点「完成」：写回这一块
+    await raw.fill((await raw.inputValue()).replace('t=1.1 -->', 't=1.2 -->'))
+    await pane(page).getByRole('button', { name: '完成' }).click()
+    await expect(card).toBeVisible()
     await waitSaved(page)
     const md = readFileSync(join(vault, '未命名 3.md'), 'utf8')
     expect(md).not.toContain('moment-ask')
-    expect(md).toContain('<!-- moment video=youtube:7CVYBBX_zxA t=1.1 -->')
+    expect(md).toContain('<!-- moment video=youtube:7CVYBBX_zxA t=1.2 -->')
   } finally {
     await run.close()
   }
@@ -285,7 +292,8 @@ test('CN-38 引文下面写了「我的评价」才连上一道弯钩和小标�
   try {
     await openNote(page, '读书')
     await expect(pane(page).locator('.cm-review')).toHaveCount(1)
-    await expect(pane(page).locator('.cm-review-tag')).toHaveText('我的评价：')
+    // 小标签只写「我的评价」，文件里的冒号藏起来（CN-121 方向 A 小样）
+    await expect(pane(page).locator('.cm-review-tag')).toHaveText('我的评价')
     await expect(pane(page).locator('.cm-review-gap')).toHaveCount(1)
     const shown = await shownText(page)
     expect(shown).not.toMatch(/写点想法|写评价/)
@@ -369,7 +377,10 @@ test('CN-66 / CN-67 拖选只涂选中的字（强调色 24%），什么都不�
     await page.mouse.up()
     await page.keyboard.press('Meta+j')
     const box = page.getByRole('textbox', { name: '问 AI' })
-    await expect(box).toHaveValue('> 万物之逆旅\n\n')
+    // 第 2b 段（多段引用方向 B）：这段成为输入框顶上那一排的第一块引用（来源「《读书》」），字里是编号，光标在它后面
+    await expect(box).toHaveValue('①')
+    await expect(page.getByTestId('ai-mat').locator('.ct')).toHaveText('万物之逆旅')
+    await expect(page.getByTestId('ai-mat').locator('.cs')).toHaveText('《读书》')
     await expect(box).toBeFocused()
     await page.waitForTimeout(500)
     await expect(page.getByTestId('ai-msg')).toHaveCount(0)
@@ -508,14 +519,16 @@ test('CN-19 打 /数据库 插一个 ```base 表格：每条是一篇 md；新�
     await expect.poll(file).toContain('```base\nfilters:\n  and:\n    - file.inFolder("未命名数据库")')
     expect(existsSync(join(vault, '未命名数据库', '第一条.md'))).toBe(true)
     await expect(db.locator('tbody tr')).toHaveCount(1)
-    await expect(db.locator('.base-foot')).toContainText('1条 · 每条是「未命名数据库/」文件夹里的一篇md')
+    await expect(db.locator('.base-foot')).toHaveText('每条是「未命名数据库」里的一篇笔记')
+    await expect(db.locator('.base-count')).toHaveText('表格 · 1 条')
     // 新一条
     await db.getByRole('button', { name: '新一条' }).click()
     await expect(db.locator('tbody tr')).toHaveCount(2)
     expect(existsSync(join(vault, '未命名数据库', '未命名.md'))).toBe(true)
     // 就地改属性：写进那一篇的 frontmatter
+    // 「状态」是选项列（照 Notion）：点格子弹选项小框，打一个新的回车就建、写进去
     await db.locator('tbody tr', { hasText: '第一条' }).locator('td').nth(1).click()
-    const cell = db.getByRole('textbox', { name: '第一条 · 状态' })
+    const cell = db.getByRole('dialog', { name: '第一条 · 状态' }).getByRole('textbox', { name: '找一个，或者打一个新的' })
     await cell.fill('在读')
     await cell.press('Enter')
     await expect.poll(() => readFileSync(join(vault, '未命名数据库', '第一条.md'), 'utf8')).toMatch(/^---\n状态: 在读\n日期: \d{4}-\d{2}-\d{2}\n---\n$/)
@@ -582,8 +595,8 @@ test('数据库表头：筛选面板（全部 / 任一）、筛选小标签 ×�
     await row(1).getByRole('spinbutton', { name: '值' }).fill('8')
     await expect.poll(file).toContain('    - 状态 == "在读"\n    - 评分 >= 8\nviews:')
     await expect(db.locator('tbody tr')).toHaveCount(2)
-    await expect(db.locator('.base-foot')).toContainText('2条（筛掉4条）')
-    await expect(db.getByRole('button', { name: '筛选' })).toHaveText('筛选2')
+    await expect(db.locator('.base-count')).toHaveText('表格 · 2 条')
+    await expect(db.getByRole('button', { name: '筛选' })).toHaveText('筛选')
     await page.screenshot({ path: 'test-results/g2-19-filter.png' })
     // 任一满足：写成 and 里套 or（数据源文件夹照样要满足）
     await panel.getByRole('combobox', { name: '全部还是任一' }).selectOption('or')

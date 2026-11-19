@@ -229,7 +229,14 @@ export function attachWebview(wc: WebContents, win: BrowserWindow) {
   // 书签管家新标签页里的网站图标用右栏开过的网站报的图标
   wc.on('page-favicon-updated', (_e, icons) => noteIcon(wc.getURL(), icons))
   wc.on('before-input-event', (e, input) => {
-    if (input.type !== 'keyDown' || !input.meta || input.alt || input.control) return
+    if (input.type !== 'keyDown' || !input.meta || input.control) return
+    // ⌘\ 收左栏、⌥⌘\ 收右栏（CN-125）：网页有焦点时也要能用；按着 ⌥ 时 key 不是「\」，认按键的位置
+    if (input.code === 'Backslash') {
+      e.preventDefault()
+      send('app:key', input.alt ? 'alt+\\' : '\\')
+      return
+    }
+    if (input.alt) return
     const k = input.key.toLowerCase()
     if (k === 't' || k === 'w' || k === 'l') {
       e.preventDefault()

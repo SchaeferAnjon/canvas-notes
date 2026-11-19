@@ -1,8 +1,42 @@
 /**
- * 一份 PDF 一篇笔记（「第3讲 线性映射 笔记.md」，和 PDF 在同一个文件夹）：每框一块问一轮，AI 在后台补一段。
- * 笔记是普通 md，用户能自己改；这里负责写一段、读回来（右栏「笔记」按段显示）、按「完整对话」的路径找到同一段替换。
+ * 一份 PDF 一篇笔记（「第3讲 线性映射 笔记.md」，和 PDF 在同一个文件夹）：每框一块问一轮，问完在后台记一段。
+ * 笔记是普通 md，用户能自己改；这里负责写一段、读回来（右栏「笔记」显示成一篇长文档）、按这一段的身份找到同一段替换。
  *
- * 一段的样子（链接都相对这篇笔记所在的文件夹，和文档里插图片一样，别的 md 软件也打得开）：
+ * 现在写的一段（CN-93、94、95、96：问题照发出去的原话、回答照 AI 的原文、旁支挂在被问那一问的回答后面、末尾一句小结）：
+ *
+ *   ## 第 28 页 · LIF 神经元的三条公式
+ *   [第 28 页](Lecture05.pdf#page=28&rect=0.06,0.3,0.89,0.6) · 20:21 <!-- cn:thread=Lecture05-p28-1 -->
+ *
+ *   ![我框的|268](../../附件/Lecture05/p28-1.png)
+ *
+ *   > [!question] 给我讲解一下
+ *
+ *   （AI 回答原文；标题降到 ### 以下，不把这一段切开）
+ *
+ *   > [!side] 为什么减掉门槛，而不是清零？
+ *   > > 水位一到门槛 Vth 就发一个 spike，同时把水位减掉一个门槛的量
+ *   >
+ *   > （旁支回答原文）
+ *
+ *   > [!side] 同一条旁支接着问的（不带引用句）
+ *   >
+ *   > （回答）
+ *
+ *   > [!question] 主对话里接着问的原话
+ *
+ *   （回答原文）
+ *
+ *   > [!recap] 一句小结
+ *
+ *   [^p28-1-1]: 「多段引用的那段字」 AI的回答 · 第28页
+ *   [^p28-1-2]: ![粘贴的图|180](../../附件/Lecture05/p28-1-m2.png)
+ *
+ *   [可视化 · 标题](….html) · [[双链]]
+ *
+ * 身份是第二行行尾的注释（.canvas-notes/对话/ 下那一处的名字，和以前「完整对话」的路径同一个），不再写完整对话的链接；
+ * 我框的图写宽度（框在 PDF 上 100% 时的宽，CN-111）；多段引用的 ①② 写成脚注，标签带这一处的页和序号，一篇笔记里不撞。
+ *
+ * 以前写的一段（照旧读得回来、照旧显示，不自动改写；同一处再问时整段换成上面的样子）：
  *
  *   ## 第 5 页 · 旋转矩阵每个数从哪来
  *   [第 5 页](第3讲%20线性映射.pdf#page=5&rect=0.05,0.29,0.52,0.36) · 10:20
@@ -50,8 +84,29 @@ export interface FailedTry {
   text: string
 }
 
+/** 多段引用带的一块材料（这一段末尾的脚注）：引用的字和来源，或一张图（库里的路径） */
+export type AskMat = { kind: 'quote'; text: string; src: string } | { kind: 'image'; path: string; src: string }
+
+/** 一问一答：问题是发出去的原话（带的材料在字里是 ①②），回答是 AI 的原文 */
+export interface AskTurn {
+  q: string
+  a: string
+  mats?: AskMat[]
+}
+
+/** 一条旁支：在回答里选中的那一句，和在旁支里问的几问 */
+export interface AskSide {
+  quote: string
+  turns: AskTurn[]
+}
+
+/** 主对话里的一问：后面挂着在它的回答里开的旁支 */
+export interface AskQa extends AskTurn {
+  sides: AskSide[]
+}
+
 export interface AskSection {
-  /** 完整对话文件在库里的路径，也是这一段的身份 */
+  /** 这一处的身份：.canvas-notes/对话/<名字>.md（以前是完整对话文件的路径，现在写成第二行行尾的注释） */
   id: string
   /** PDF 在库里的路径 */
   file: string
@@ -86,6 +141,16 @@ export interface AskSection {
    * 视频问答块「接着问」的：label 是「▶ 00:06 · 视频名」，t 是那一问在视频第几秒（AI 那块写「看了 00:06 这一帧」）
    */
   web?: { url: string; label: string; t?: number }
+  /**
+   * 新格式（有它就是新格式）：主对话里问的每一问，旁支挂在被问的那一问下面。
+   * 这时上面几个旧字段是从它算出来的（withDerived），给还没换的地方用：doubts 是每一问的原话（主问题 + 旁支问题），
+   * good 是第一个回答的开头一段，rounds 是一共问了几问；points、failed 是空的
+   */
+  qas?: AskQa[]
+  /** 这一轮的一句小结（每答完一次重写，CN-96） */
+  recap?: string
+  /** 我框的图在 PDF 上 100% 时的宽（CSS 像素），图按这个宽显示（CN-111） */
+  cropW?: number
 }
 
 export const CONVO_DIR = '.canvas-notes/对话'
@@ -189,6 +254,7 @@ export function cropCaption(s: { rect?: unknown; web?: unknown }): string {
 
 /** note：这一段写进的那篇笔记在库里的路径（链接相对它） */
 export function renderSection(s: AskSection, note: string): string {
+  if (s.qas) return renderDoc(s, note)
   const out: string[] = []
   out.push(`## ${s.page > 0 ? `第 ${s.page} 页 · ` : ''}${oneLine(s.title) || '没起标题'}`)
   const back = s.web
@@ -227,11 +293,12 @@ function anchorFrom(note: string, pdf: string, page: number, rect?: Rect): strin
   return linkFrom(note, pdf) + href.slice(href.indexOf('#'))
 }
 
-/** 一段 md 里能认出的东西；认不出完整对话链接的段（用户自己写的）返回 null */
+/** 一段 md 里能认出的东西；认不出这一段身份（第二行行尾的注释，或以前的完整对话链接）的段（用户自己写的）返回 null */
 export function parseSection(chunk: string, note: string): AskSection | null {
   const lines = chunk.replace(/\r\n/g, '\n').split('\n')
   const head = /^##\s+(?:第\s*(\d+)\s*页\s*·\s*)?(.*)$/.exec(lines[0] ?? '')
   if (!head) return null
+  if (THREAD_NOTE.test(lines[1] ?? '')) return parseDoc(lines, head, note)
   const convo = /\[完整对话(?:\s*·\s*(\d+)\s*轮)?\]\(([^)]+)\)/.exec(chunk)
   if (!convo) return null
   const s: AskSection = {
@@ -317,6 +384,282 @@ export function parseSection(chunk: string, note: string): AskSection | null {
     if (v) s.viz = { title: v[1]!, path: linkTo(note, v[2]!) }
   }
   return s
+}
+
+// ---------------------------------------------------------------- 新格式：一篇长文档里的一段（CN-93–96）
+
+/** 第二行行尾那条注释：这一段的身份 */
+const THREAD_NOTE = /\s*<!--\s*cn:thread=(.+?)\s*-->\s*$/
+
+/** 身份 ↔ 注释里的名字：.canvas-notes/对话/Lecture05-p28-1.md ↔ Lecture05-p28-1 */
+export const threadName = (id: string) => baseName(id).replace(/\.md$/i, '')
+export const threadId = (name: string) => `${CONVO_DIR}/${name}.md`
+
+/** 输入框里材料的编号（和 apps 的 shared/materials.ts 同一串，format 不依赖软件那边） */
+const MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
+
+/** 脚注标签的前半截：这一处的页和序号（p28-1），一篇笔记里各段不撞；没有页的（视频）用整个名字 */
+const footTag = (id: string) => {
+  const name = threadName(id)
+  return /(?:^|-)(p\d+-\d+)$/.exec(name)?.[1] ?? name.replace(/[\s\]^[]+/g, '')
+}
+
+/** 问题的字：去掉头尾空白，几段并成一行一行（提示块的头一行放第一行，后面的接着 > 写） */
+export const cleanQuestion = (q: string) => q.trim().split(/\s*\n\s*/).filter(Boolean).join('\n')
+
+/** 字里的 ①② 换成脚注引用（编号接着这一段前面几问往后数）；字里没有的那几块，引用接在最后 */
+function withRefs(q: string, count: number, base: number, tag: string): string {
+  const seen = new Set<number>()
+  let out = ''
+  for (const ch of q) {
+    const n = MARKS.indexOf(ch) + 1
+    if (n && n <= count) {
+      out += `[^${tag}-${base + n}]`
+      seen.add(n)
+    } else out += ch
+  }
+  for (let n = 1; n <= count; n++) if (!seen.has(n)) out += `[^${tag}-${base + n}]`
+  return out
+}
+
+/**
+ * 回答里的标题降到 ### 以下（这一段自己是 ##，回答里的 # 、## 会把这一段切开）；代码块里的不动。
+ * 最浅的一级降到 ###，别的跟着降，最深 ######
+ */
+export function demoteHeadings(md: string): string {
+  const lines = md.split('\n')
+  let fence = false
+  let min = 7
+  const heads: number[] = []
+  lines.forEach((l, i) => {
+    if (/^\s*(```|~~~)/.test(l)) fence = !fence
+    else if (!fence) {
+      const h = /^(#{1,6})\s/.exec(l)
+      if (h) {
+        heads.push(i)
+        min = Math.min(min, h[1]!.length)
+      }
+    }
+  })
+  if (min >= 3) return md
+  const by = 3 - min
+  for (const i of heads) lines[i] = lines[i]!.replace(/^(#{1,6})/, (h) => '#'.repeat(Math.min(6, h.length + by)))
+  return lines.join('\n')
+}
+
+/** 回答原文的开头一段（送 Anki 的背面、我的疑惑那一行）：跳过标题，取第一段（列表、公式块也算一段） */
+export function answerLead(md: string): string {
+  for (const block of md.trim().split(/\n\s*\n/)) {
+    const rest = block
+      .split('\n')
+      .filter((l) => !/^#{1,6}\s/.test(l))
+      .join('\n')
+      .trim()
+    if (rest) return rest
+  }
+  return ''
+}
+
+/** 新格式的一段：旧字段从一问一答算出来（给还没换的地方用：白板的问答卡、梦游、我的疑惑的旧数法） */
+export function withDerived(s: AskSection): AskSection {
+  if (!s.qas) return s
+  const turns = s.qas.flatMap((qa) => [qa, ...qa.sides.flatMap((d) => d.turns)])
+  return { ...s, doubts: turns.map((t) => t.q), good: answerLead(s.qas[0]?.a ?? ''), points: [], failed: [], rounds: turns.length }
+}
+
+/** 一问的提示块头：「> [!question] 第一行」，后面几行接着「> 」 */
+function calloutHead(kind: 'question' | 'side', q: string): string[] {
+  const [first = '', ...rest] = q.split('\n')
+  return [`> [!${kind}] ${first}`, ...rest.map((l) => `> ${l}`)]
+}
+
+function renderDoc(s: AskSection, note: string): string {
+  const out: string[] = []
+  out.push(`## ${s.page > 0 ? `第 ${s.page} 页 · ` : ''}${oneLine(s.title) || '没起标题'}`)
+  const back = s.web
+    ? `[${alt(s.web.label) || '网页'}](${/^https?:/i.test(s.web.url) ? s.web.url.replace(/[()\s]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')) : linkFrom(note, s.web.url)})`
+    : `[第 ${s.page} 页](${anchorFrom(note, s.file, s.page, s.rect)})`
+  out.push(`${back}${s.time ? ` · ${s.time}` : ''} <!-- cn:thread=${threadName(s.id)} -->`)
+  const imgs: string[] = []
+  if (s.crop) imgs.push(`![${cropCaption(s)}${s.cropW ? `|${Math.round(s.cropW)}` : ''}](${linkFrom(note, s.crop)})`)
+  for (const f of s.figures) imgs.push(`![${alt(f.caption) || '图'}](${linkFrom(note, f.path)})`)
+  if (imgs.length) out.push('', imgs.join('\n\n'))
+  const tag = footTag(s.id)
+  const defs: string[] = []
+  /** 这一问的问题（字里的编号换成脚注引用），脚注的定义收到这一段末尾 */
+  const ask = (t: AskTurn): string => {
+    const mats = t.mats ?? []
+    const q = withRefs(cleanQuestion(t.q), mats.length, defs.length, tag)
+    for (const m of mats) {
+      const label = `[^${tag}-${defs.length + 1}]: `
+      defs.push(label + (m.kind === 'quote' ? `「${oneLine(m.text)}」 ${oneLine(m.src)}` : `![${alt(m.src) || '图'}|180](${linkFrom(note, m.path)})`))
+    }
+    return q
+  }
+  for (const qa of s.qas ?? []) {
+    out.push('', calloutHead('question', ask(qa)).join('\n'))
+    if (qa.a.trim()) out.push('', qa.a.trim())
+    for (const side of qa.sides) {
+      side.turns.forEach((t, i) => {
+        const lines = calloutHead('side', ask(t))
+        if (i === 0) lines.push(`> > ${oneLine(side.quote)}`)
+        if (t.a.trim()) lines.push('>', quote(t.a))
+        out.push('', lines.join('\n'))
+      })
+    }
+  }
+  if (s.recap?.trim()) out.push('', `> [!recap] ${oneLine(s.recap)}`)
+  if (defs.length) out.push('', defs.join('\n'))
+  const foot = [...(s.viz ? [`[可视化 · ${alt(s.viz.title)}](${linkFrom(note, s.viz.path)})`] : []), ...s.links.map((l) => `[[${oneLine(l)}]]`)]
+  if (foot.length) out.push('', foot.join(' · '))
+  return out.join('\n') + '\n'
+}
+
+const FOOT_DEF = /^\[\^([^\]\s]+)\]:\s?(.*)$/
+const FOOT_LINE = /^(?:\[可视化 · [^\]]*\]\([^)]+\)|\[\[[^\]]+\]\])(?:\s*·\s*(?:\[可视化 · [^\]]*\]\([^)]+\)|\[\[[^\]]+\]\]))*\s*$/
+const STRUCT = /^>\s*\[!(question|side|recap)\]\s?(.*)$/
+const IMAGE_LINE = /^!\[([^\]]*)\]\(([^)]+)\)\s*$/
+
+/** 一段的头几行：第二行（去掉行尾的身份注释）是回到 PDF 的链接，或网页、HTML 的链接 */
+function readBack(s: AskSection, line: string, pageInHead: boolean, note: string) {
+  const a0 = /^\[第\s*\d+\s*页\]\(([^)]+)\)(?:\s*·\s*(\d{1,2}:\d{2}))?\s*$/.exec(line)
+  if (a0) {
+    const a = parsePdfAnchor(a0[1]!)
+    if (a) {
+      s.file = linkTo(note, encodePath(a.file))
+      s.page = a.page
+      if (a.rect) s.rect = a.rect
+    }
+    if (a0[2]) s.time = a0[2]
+    return
+  }
+  const w = /^\[([^\]]*)\]\(((?:https?:[^)\s]+)|[^)\s]*\.html?)\)(?:\s*·\s*(\d{1,2}:\d{2}))?\s*$/i.exec(line)
+  if (!w) return
+  s.web = { label: w[1]!, url: /^https?:/i.test(w[2]!) ? w[2]!.replace(/%2[089]/gi, (c) => decodeURIComponent(c)) : linkTo(note, w[2]!) }
+  const vt = /^▶ (?:(\d+):)?(\d+):(\d{2}) · /.exec(w[1]!)
+  if (vt) s.web.t = Number(vt[1] ?? 0) * 3600 + Number(vt[2]) * 60 + Number(vt[3])
+  if (!pageInHead) s.page = 0
+  if (w[3]) s.time = w[3]
+}
+
+/** 一串行去掉头尾的空行 */
+const trimLines = (ls: string[]) => ls.join('\n').replace(/^\s*\n/, '').trim()
+
+function parseDoc(lines: string[], head: RegExpExecArray, note: string): AskSection {
+  const id = THREAD_NOTE.exec(lines[1]!)!
+  const s: AskSection = { id: threadId(id[1]!), file: '', page: Number(head[1] ?? 1), title: head[2]!.trim(), figures: [], doubts: [], good: '', points: [], failed: [], rounds: 0, links: [], qas: [], recap: '' }
+  readBack(s, lines[1]!.replace(THREAD_NOTE, ''), !!head[1], note)
+  const qas = s.qas!
+  const defs = new Map<string, AskMat>()
+  let recap: string | null = null
+  const tail: string[] = []
+  let cur: AskQa | null = null
+  let ans: string[] | null = null
+  let fence = false
+  const flush = () => {
+    if (cur && ans) cur.a = trimLines(ans)
+    ans = null
+  }
+  let i = 2
+  while (i < lines.length) {
+    const l = lines[i]!
+    if (recap !== null) {
+      tail.push(l)
+      i++
+      continue
+    }
+    if (ans && /^\s*(```|~~~)/.test(l)) fence = !fence
+    const c = fence ? null : STRUCT.exec(l)
+    if (!c) {
+      if (ans) ans.push(l)
+      else if (!cur) {
+        // 第一问之前：我框的图（写着宽度）、配的图
+        const im = IMAGE_LINE.exec(l)
+        if (im) {
+          const [, cap = '', w] = /^(.*?)(?:\|(\d+))?$/.exec(im[1]!)!
+          const path = linkTo(note, im[2]!)
+          if ((cap === '我框的' || cap === WHOLE_PAGE) && !s.crop) {
+            s.crop = path
+            if (w) s.cropW = Number(w)
+          } else s.figures.push({ path, caption: im[1]! })
+        }
+      }
+      i++
+      continue
+    }
+    flush()
+    const body: string[] = []
+    i++
+    while (i < lines.length && /^>/.test(lines[i]!)) body.push(lines[i++]!)
+    if (c[1] === 'question') {
+      cur = { q: [c[2]!.trim(), ...body.map((b) => b.replace(/^>\s?/, '').trim())].filter(Boolean).join('\n'), a: '', sides: [] }
+      qas.push(cur)
+      ans = []
+    } else if (c[1] === 'side') {
+      const q = [c[2]!.trim()]
+      const quoteLines: string[] = []
+      const a: string[] = []
+      let sep = false
+      for (const b of body) {
+        if (sep) a.push(b.replace(/^>\s?/, ''))
+        else if (/^>\s*$/.test(b)) sep = true
+        else {
+          const qq = /^>\s?>\s?(.*)$/.exec(b)
+          if (qq) quoteLines.push(qq[1]!)
+          else q.push(b.replace(/^>\s?/, '').trim())
+        }
+      }
+      const turn: AskTurn = { q: q.filter(Boolean).join('\n'), a: trimLines(a) }
+      if (!cur) {
+        cur = { q: '', a: '', sides: [] }
+        qas.push(cur)
+      }
+      const last = cur.sides[cur.sides.length - 1]
+      if (quoteLines.length || !last) cur.sides.push({ quote: quoteLines.join(' ').trim(), turns: [turn] })
+      else last.turns.push(turn)
+    } else recap = [c[2]!, ...body.map((b) => b.replace(/^>\s?/, ''))].join(' ').trim()
+  }
+  flush()
+  // 小结后面：脚注的定义、最后一行可视化和双链（没有小结时从最后一个回答的末尾剥下来）
+  let rest = tail
+  if (recap === null && cur) {
+    const own = (cur as AskQa).a.split('\n')
+    let k = own.length
+    while (k > 0 && (!own[k - 1]!.trim() || FOOT_DEF.test(own[k - 1]!) || FOOT_LINE.test(own[k - 1]!))) k--
+    rest = own.slice(k)
+    ;(cur as AskQa).a = trimLines(own.slice(0, k))
+  }
+  for (const l of rest) {
+    const d = FOOT_DEF.exec(l)
+    if (d) {
+      const body = d[2]!.trim()
+      const im = /^!\[([^\]]*?)(?:\|\d+)?\]\(([^)]+)\)$/.exec(body)
+      const qt = /^「(.*)」\s(.*)$/.exec(body)
+      if (im) defs.set(d[1]!, { kind: 'image', path: linkTo(note, im[2]!), src: im[1]! })
+      else if (qt) defs.set(d[1]!, { kind: 'quote', text: qt[1]!, src: qt[2]!.trim() })
+      continue
+    }
+    if (FOOT_LINE.test(l)) {
+      for (const m of l.matchAll(/\[\[([^\]]+)\]\]/g)) s.links.push(m[1]!)
+      const v = /\[可视化 · ([^\]]*)\]\(([^)]+)\)/.exec(l)
+      if (v) s.viz = { title: v[1]!, path: linkTo(note, v[2]!) }
+    }
+  }
+  // 问题里的脚注引用换回 ①②，那几块材料按编号排回这一问
+  const unref = (t: AskTurn) => {
+    const labels = [...new Set([...t.q.matchAll(/\[\^([^\]\s]+)\]/g)].map((m) => m[1]!).filter((l) => defs.has(l)))]
+    if (!labels.length) return
+    const num = (l: string) => Number(/-(\d+)$/.exec(l)?.[1] ?? 0)
+    labels.sort((a, b) => num(a) - num(b))
+    t.q = t.q.replace(/\[\^([^\]\s]+)\]/g, (m, l: string) => (labels.includes(l) ? MARKS[labels.indexOf(l)]! : m))
+    t.mats = labels.map((l) => defs.get(l)!)
+  }
+  for (const qa of qas) {
+    unref(qa)
+    for (const d of qa.sides) d.turns.forEach(unref)
+  }
+  s.recap = recap ?? ''
+  return withDerived(s)
 }
 
 function decode(p: string): string {

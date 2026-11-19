@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { launch, acts, tabOn, openNote, rail, railItems } from './app'
+import { launch, acts, openAi, tabOn, openNote, rail, railItems } from './app'
 import { solidPng } from './fixtures/png'
 import { LECTURE, lecturePdf } from './fixtures/pdf'
 import { readFileSync } from 'node:fs'
@@ -20,6 +20,7 @@ async function openPdf(page: Page) {
   await page.locator('.pal-row', { hasText: '第3讲 线性映射' }).first().click()
   await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
   await expect(pdfPage(page, 1).locator('canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
+  await openAi(page)
   await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
 }
 
@@ -150,18 +151,19 @@ async function pasteImage(page: Page, selector: string, n = 1) {
   )
 }
 
-test('CN-24：读 PDF 的输入框和右下角浮窗都能 ⌘V 粘图：输入框上面一张附件小图「粘贴的图」，发出去 AI 收到这张图；最多 4 张', async () => {
+test('CN-24：读 PDF 的输入框和别处的 AI 对话都能 ⌘V 粘图：输入框上面一张附件小图「粘贴的图」，发出去 AI 收到这张图；最多 4 张', async () => {
   const run = await launch({ ...files, '随手记.md': '# 随手记\n\n一段字。\n' }, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
     await openPdf(page)
     await pasteImage(page, '.reading-in textarea')
-    const att = ai(page).getByTestId('pasted-att')
+    // 第 2b 段（多段引用方向 B）：粘的图是输入框顶上那一排的一块材料（来源「粘贴的图」），字里在光标处多一个编号
+    const att = ai(page).getByTestId('ai-mat')
     await expect(att).toHaveCount(1)
-    await expect(att).toContainText('粘贴的图')
+    await expect(att).toHaveAttribute('data-src', '粘贴的图')
     await expect(att.locator('img')).toHaveJSProperty('complete', true)
     expect(await att.locator('img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(40)
-    await expect(box(page)).toHaveValue('')
+    await expect(box(page)).toHaveValue('①')
     await expect(box(page)).toBeFocused()
     await box(page).fill('这张截图讲的是什么')
     await box(page).press('Enter')
@@ -173,68 +175,76 @@ test('CN-24：读 PDF 的输入框和右下角浮窗都能 ⌘V 粘图：输入�
     await pasteImage(page, '.reading-in textarea', 5)
     await expect(att).toHaveCount(4)
     await expect(page.getByText('最多4张')).toBeVisible()
-    await att.first().getByRole('button', { name: '不要这张图了' }).click()
+    await att.first().getByRole('button', { name: '删掉这块' }).click()
     await expect(att).toHaveCount(3)
 
-    // 右下角浮窗：开一篇文档，⌘J，粘图，发出去
+    // 别处的 AI 对话（同一格，AI 开着就还开着）：开一篇文档，粘图，发出去
     await openNote(page, '随手记')
-    await page.keyboard.press('Meta+j')
+    await openAi(page)
     const float = page.getByRole('complementary', { name: 'AI 对话' })
     await expect(float).toBeVisible()
-    await pasteImage(page, '.ai.floating textarea')
-    await expect(float.getByTestId('pasted-att')).toHaveCount(1)
+    await pasteImage(page, '.ai:not(.reading-ai):not([hidden]) textarea')
+    await expect(float.getByTestId('ai-mat')).toHaveCount(1)
     await float.getByRole('textbox', { name: '问 AI' }).fill('看看这张')
     await float.getByRole('textbox', { name: '问 AI' }).press('Enter')
     await expect(float.getByTestId('ai-msg').last()).toContainText('图 1 张', { timeout: 15_000 })
-    await expect(float.getByTestId('pasted-att')).toHaveCount(0)
-    await expect(float.locator('.um-imgs img')).toBeVisible()
+    await expect(float.getByTestId('ai-mat')).toHaveCount(0)
+    await expect(float.locator('.um.mq .fni img[alt="粘贴的图"]')).toBeVisible()
     // 从访达拖一张图进输入区：一样变成附件小图
     const png = [...solidPng(20, 20, [10, 120, 90])]
     await page.evaluate((bytes) => {
-      const el = document.querySelector('.ai.floating .aiin')!
+      const el = document.querySelector('.ai:not(.reading-ai):not([hidden]) .aiin')!
       const dt = new DataTransfer()
       dt.items.add(new File([new Uint8Array(bytes)], '拖进来.png', { type: 'image/png' }))
       el.dispatchEvent(new DragEvent('dragover', { dataTransfer: dt, bubbles: true, cancelable: true }))
       el.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }))
     }, png)
-    await expect(float.getByTestId('pasted-att')).toHaveCount(1)
+    await expect(float.getByTestId('ai-mat')).toHaveCount(1)
   } finally {
     await run.close()
   }
 })
 
-test('CN-22：读 PDF 时同一屏只有一个 AI：竖条上没有 AI，AI 开着时圆钮藏起来、面板头上「收起 ⌘J」；收起后圆钮在窗口右下角', async () => {
+test('CN-22 / D 组方向 A：读 PDF 时 AI 在右栏那一格，竖条上没有 AI；右下角的圆钮一直在、开着时多一圈强调色；面板头上「收起 ⌘J」；圆钮在窗口右下角', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
     await openPdf(page)
     await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
-    const fab = rail(page).getByRole('button', { name: '打开 AI' })
+    const fab = rail(page).locator('.ai-fab')
     await expect(ai(page)).toBeVisible()
-    await expect(fab).toHaveCount(0)
-    // 屏上带 sparkle 的 AI 东西只有面板一个
-    await expect(page.locator('.abar .ab[aria-label="AI"], .ai-fab, .ai-corner')).toHaveCount(0)
+    await expect(fab).toBeVisible()
+    await expect(fab).toHaveClass(/\bon\b/)
+    await expect(fab).toHaveAttribute('aria-label', '收起 AI')
+    // 屏上的 AI 入口只有这个圆钮：右图标栏里没有 AI 那一格，A 款底栏那一项不在 B 里
+    await expect(page.locator('.abar .ab[aria-label="AI"], .ai-corner')).toHaveCount(0)
     const collapse = ai(page).getByRole('button', { name: '收起 AI' })
     await expect(collapse).toHaveText('收起 ⌘J')
     await collapse.click()
     await expect(ai(page)).toHaveCount(0)
     await expect(fab).toBeVisible()
+    await expect(fab).not.toHaveClass(/\bon\b/)
+    await expect(fab).toHaveAttribute('aria-label', '打开 AI')
     // 圆钮钉在窗口右下角
     const fb = (await fab.boundingBox())!
     const vw = await page.evaluate(() => [window.innerWidth, window.innerHeight])
     expect(vw[0]! - (fb.x + fb.width)).toBeLessThan(16)
     expect(vw[1]! - (fb.y + fb.height)).toBeLessThan(48)
-    // 点圆钮开回来，圆钮又藏起来；⌘J 一样
+    // 点圆钮开回来，再点收起；⌘J 一样
     await fab.click()
     await expect(ai(page)).toBeVisible()
-    await expect(fab).toHaveCount(0)
+    await expect(fab).toHaveClass(/\bon\b/)
+    await fab.click()
+    await expect(ai(page)).toHaveCount(0)
+    await page.keyboard.press('Meta+j')
+    await expect(ai(page)).toBeVisible()
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toHaveCount(0)
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toBeVisible()
-    // 右栏下格换成笔记：AI 没开着，圆钮回来，点它换回 AI
+    // 那一格换成笔记：圆钮不亮，点它换回 AI
     await rail(page).getByRole('button', { name: '笔记' }).click()
-    await expect(fab).toBeVisible()
+    await expect(fab).not.toHaveClass(/\bon\b/)
     await fab.click()
     await expect(ai(page)).toBeVisible()
   } finally {
@@ -248,7 +258,7 @@ const pngSize = (buf: Buffer) => [buf.readUInt32BE(16), buf.readUInt32BE(20)] as
 // 第 1 页下半是一张矢量画的图（一堆小色块，没有图片块），老办法挑不出图
 const VECTOR = lecturePdf([{ title: 'Computation Stack', lines: ['The stack has nine layers from applications to physics.'], heavy: 400 }, { title: 'Next', lines: ['More.'] }])
 
-test('CN-60：AI 回答里给配图的框，笔记按框从重新画的页面裁图（矢量画的图也裁得到）；框不合理就退回按图片块挑', async () => {
+test('CN-60：AI 回答里给配图的框，笔记按框从重新画的页面裁图（矢量画的图也裁得到）；框是整页不算配图（后台只写标题和小结，不再另挑图，CN-94）', async () => {
   const run = await launch({ '课程/ecp/Lecture05.pdf': VECTOR, [PDF]: LECTURE }, { CN_AI_FAKE: '1', CN_FAKE_FIGURE_MARK: '〔配图 0.03,0.52,0.94,0.42 · 测试结构图〕' })
   const { page, vault } = run
   try {
@@ -256,6 +266,7 @@ test('CN-60：AI 回答里给配图的框，笔记按框从重新画的页面裁
     await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('Lecture05')
     await page.locator('.pal-row', { hasText: 'Lecture05' }).first().click()
     await expect(tabOn(page)).toHaveText('Lecture05.pdf')
+    await openAi(page)
     await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文2页', { timeout: 15_000 })
     await acts(page).getByRole('button', { name: /问这一页/ }).click()
     const msg = ai(page).getByTestId('reading-msg').last()
@@ -271,7 +282,7 @@ test('CN-60：AI 回答里给配图的框，笔记按框从重新画的页面裁
     await run.close()
   }
 
-  // 框是整页：不算，退回 AI 从图片块里挑的那张（第 3 讲第 3 页有一张图）
+  // 框是整页：不算配图；后台不再从图片块里另挑（CN-94：后台只剩标题和小结），这一段只有附的整页截图
   const run2 = await launch({ [PDF]: LECTURE }, { CN_AI_FAKE: '1', CN_FAKE_FIGURE_MARK: '〔配图 0,0,1,1 · 整页〕' })
   try {
     await openPdf(run2.page)
@@ -281,10 +292,10 @@ test('CN-60：AI 回答里给配图的框，笔记按框从重新画的页面裁
     await acts(run2.page).getByRole('button', { name: /问这一页/ }).click()
     await expect(ai(run2.page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 15_000 })
     const md = readFileSync(join(run2.vault, '课程/线性代数/第3讲 线性映射 笔记.md'), 'utf8')
-    expect(md).toContain('![第 3 页 · 这页的图](../../附件/第3讲%20线性映射/p3-1-fig.png)')
-    // AI 给的「整页」框没被当配图（附的整页截图本身写「整页」，见 CN-60 之后的改动）
+    expect(md).not.toContain('-fig.png')
+    // AI 给的「整页」框没被当配图（附的整页截图本身写「整页」，宽是这一页 100% 时的宽，CN-111）
     expect(md).not.toContain('第 3 页 · 整页')
-    expect(md).toContain('![整页](../../附件/第3讲%20线性映射/p3-1.png)')
+    expect(md).toContain('![整页|612](../../附件/第3讲%20线性映射/p3-1.png)')
   } finally {
     await run2.close()
   }

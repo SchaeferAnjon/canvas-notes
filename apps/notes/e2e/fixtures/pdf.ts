@@ -76,7 +76,7 @@ export const LECTURE = lecturePdf([
   { title: '3.6 Summary', lines: ['A matrix is a linear map written in a basis.', 'Its columns say where the basis vectors go.'] },
 ])
 
-/** 双语对照读用：正文、公式（单独一段）、图 */
+/** 正文、公式（单独一段）、图 */
 export const ROTATION = lecturePdf([
   { title: 'Lecture 3 Linear Maps', lines: ['A linear map sends sums to sums and scalings to scalings.', 'We write T for a map between vector spaces.'] },
   {

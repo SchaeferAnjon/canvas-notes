@@ -37,7 +37,8 @@ test('CN-56 目录树：「我的疑惑」排课程第一行、标「自动汇�
     await shotTone(page)
     await leftView(page, '文件')
     await item(page, 'ecp').getByRole('button', { name: '展开 ecp' }).click()
-    const rows = tree(page).getByRole('treeitem', { level: 3 })
+    // 树的第一行是库本身（CN-106）：课程第 2 层、ecp 第 3 层，ecp 里面是第 4 层
+    const rows = tree(page).getByRole('treeitem', { level: 4 })
     await expect(rows.first()).toHaveText(/^我的疑惑自动汇总$/)
     await expect(item(page, '我的疑惑').locator('.ft-auto')).toHaveText('自动汇总')
     // 汇总和下面的笔记之间一条细线

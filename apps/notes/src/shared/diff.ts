@@ -5,8 +5,8 @@
 
 /** 对比的是什么 */
 export type DiffSource =
-  /** 一次提交改的所有文件（focus：侧栏点的那个文件，打开时滚到它） */
-  | { kind: 'commit'; hash: string; focus?: string }
+  /** 一次提交改的所有文件（focus：侧栏点的那个文件，打开时滚到它；hide：不列软件自己的设置文件，历史 ⋯ 里的开关，CN-116） */
+  | { kind: 'commit'; hash: string; focus?: string; hide?: boolean }
   /** 那次提交时这个文件的样子（右键「看这一版」：只读，文件挪走、删了也能看） */
   | { kind: 'version'; hash: string; path: string }
   /** 梦游报告里的一条：main 上的和梦游改后的 */
@@ -66,7 +66,8 @@ export function sizeText(bytes: number): string {
 }
 
 export const baseName = (p: string) => p.split('/').pop() ?? p
-const dirName = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '库的最外层')
+/** 文件在哪个文件夹；最外层写库名（CN-106，库名由调的人给，没给时写「最外层」） */
+const dirName = (p: string, vault = '最外层') => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : vault)
 const clip = (s: string, n = 24) => {
   const t = s.trim().replace(/\s+/g, ' ')
   return Array.from(t).length > n ? Array.from(t).slice(0, n).join('') + '…' : t
@@ -132,11 +133,12 @@ const LINK = /\[\[([^\]|#\n]+)[^\]]*\]\]|\[([^\]\n]+)\]\([^)\s]+\)/
  * 改了什么的一句人话（历史里不是梦游做的那些按 diff 拼）：
  * 新建 / 删了 / 挪到；只加了一行写出那一行（末尾的写「末尾加了一行」）；加了链接；加了 N 行；改了「某标题」那段；删了「某标题」那段
  */
-export function summarize(e: Pick<DiffEntry, 'path' | 'from' | 'status' | 'kind' | 'size'>, hunks: Hunk[], after: string | null): string {
+/** vault：库名（挪到最外层时写它，CN-106） */
+export function summarize(e: Pick<DiffEntry, 'path' | 'from' | 'status' | 'kind' | 'size'>, hunks: Hunk[], after: string | null, vault?: string): string {
   const name = baseName(e.path)
   if (e.status === 'new') return e.kind === 'md' ? `新建「${name.replace(/\.md$/i, '')}」` : e.kind === 'image' ? `新图片「${name}」` : `新建「${name}」· ${sizeText(e.size)}`
   if (e.status === 'deleted') return `删了「${name.replace(/\.md$/i, '')}」`
-  const moved = e.status === 'moved' && e.from ? (dirName(e.from) === dirName(e.path) ? `改名「${baseName(e.from).replace(/\.md$/i, '')}」→「${name.replace(/\.md$/i, '')}」` : `从 ${dirName(e.from)} 挪到 ${dirName(e.path)}`) : ''
+  const moved = e.status === 'moved' && e.from ? (dirName(e.from) === dirName(e.path) ? `改名「${baseName(e.from).replace(/\.md$/i, '')}」→「${name.replace(/\.md$/i, '')}」` : `从 ${dirName(e.from, vault)} 挪到 ${dirName(e.path, vault)}`) : ''
   if (e.kind !== 'md' && e.kind !== 'text') return moved || (e.kind === 'image' ? '换了一张图' : `改了 · ${sizeText(e.size)}`)
   const change = mdChange(hunks, after ?? '')
   return [moved, change].filter(Boolean).join('，') || '内容没变'

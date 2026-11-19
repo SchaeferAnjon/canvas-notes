@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { decodeNote, encodeNote } from '../src'
+import { decodeNote, encodeNote, parseReadingNote, upsertSection } from '../src'
 import { FIXTURES } from './fixtures'
+
+describe('读 PDF 的笔记（一篇长文档）读回来再写回去不变', () => {
+  it('每一段（新格式、旧格式）原样写回，文件一个字节都不变；自己写的那段不算', () => {
+    const name = 'Lecture05 笔记.md'
+    const { text } = decodeNote(FIXTURES[name]!)
+    const sections = parseReadingNote(text, name)
+    expect(sections.map((s) => [s.page, !!s.qas])).toEqual([
+      [28, true],
+      [30, false],
+    ])
+    let md = text
+    for (const s of sections) md = upsertSection(md, s, name)
+    expect(md).toBe(text)
+  })
+})
 
 // 规矩 1：一篇笔记打开、什么都不改、保存，文件一个字节都不变。
 describe('打开再保存文件不变', () => {

@@ -1,4 +1,4 @@
-import { type AskSection, newReadingNote, renderSection } from '@cn/format'
+import { type AskSection, newReadingNote, renderSection, withDerived } from '@cn/format'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
@@ -83,6 +83,37 @@ describe('我的疑惑（库里）', () => {
     expect(readFileSync(join(root, '课程/线性代数/我的疑惑.md'), 'utf8')).toContain('- **旋转矩阵怎么来的** [第 5 页](第3讲%20线性映射.pdf#page=5) · 已送 Anki')
     expect(await writeDoubtsNote(v, '收件箱')).toBeNull()
   })
+  it('新格式的笔记一问一条：主对话、旁支里问的原话各一条（「还是不懂」并进上一问），旁支那条带着被问的那句；左栏「疑惑 N」按我的疑惑.md 的条数', async () => {
+    const pdf2 = '课程/线性代数/第4讲 特征值.pdf'
+    const note2 = '课程/线性代数/第4讲 特征值 笔记.md'
+    writeFileSync(join(root, pdf2), '%PDF')
+    const doc = withDerived(
+      sec({
+        id: '.canvas-notes/对话/第4讲 特征值-p3-1.md',
+        file: pdf2,
+        page: 3,
+        qas: [
+          { q: '给我讲解一下', a: '**特征向量**转完方向不变。\n\n后面。', sides: [{ quote: '转完方向不变', turns: [{ q: '为什么方向不变？', a: '因为只被拉长。' }] }] },
+          { q: '还是不懂', a: '换个方式：看图。', sides: [] },
+        ],
+        recap: '特征向量转完方向不变。',
+      }),
+    )
+    writeFileSync(join(root, note2), newReadingNote(pdf2) + '\n' + renderSection(doc, note2))
+    const items = (await collectDoubts(v, '课程/线性代数')).filter((i) => i.pdf === pdf2)
+    expect(items.map((i) => [i.section.doubts[0], i.section.good, i.quote ?? '', i.lecture])).toEqual([
+      ['给我讲解一下', '换个方式：看图。', '', 4],
+      ['为什么方向不变？', '因为只被拉长。', '转完方向不变', 4],
+    ])
+    expect(items[0]!.id).toBe('.canvas-notes/对话/第4讲 特征值-p3-1.md')
+    await writeDoubtsNote(v, '课程/线性代数')
+    const md = readFileSync(join(root, '课程/线性代数/我的疑惑.md'), 'utf8')
+    expect(md).toContain('## 第4讲 特征值\n\n- **给我讲解一下** [第 3 页](第4讲%20特征值.pdf#page=3)\n  换个方式：看图。\n- **为什么方向不变？** [第 3 页](第4讲%20特征值.pdf#page=3)\n  因为只被拉长。')
+    const { doubtsIndex } = await import('../src/shared/files')
+    const { notePathFor } = await import('@cn/format')
+    const idx = doubtsIndex('课程/线性代数/我的疑惑.md', md, notePathFor, (_from, link) => '课程/线性代数/' + decodeURIComponent(link))
+    expect(idx.notes.get(note2)!.n).toBe(2)
+  })
 })
 
 describe('送进 Anki（AnkiConnect）', () => {
@@ -141,6 +172,10 @@ describe('送进 Anki（AnkiConnect）', () => {
       Source: '第3讲 线性映射 · 第 5 页',
       ID: noteId('a'),
     })
+    // 旁支里问的那条：「原文」那一栏是被问的那句
+    const { fieldsFor } = await import('../src/main/reading/anki')
+    expect(fieldsFor({ ...card('d', '为什么方向不变？'), quote: '转完方向不变' }).Quote).toBe('转完方向不变')
+    expect(fieldsFor({ ...card('d', '为什么方向不变？'), section: { ...sec({}), doubts: ['为什么方向不变？'], points: [], good: '因为只被拉长。' } }).More).toBe('')
     expect(added.fields.Link).toBe('canvas-notes://open?file=%E8%AF%BE%E7%A8%8B%2F%E7%BA%BF%E6%80%A7%E4%BB%A3%E6%95%B0%2F%E7%AC%AC3%E8%AE%B2%20%E7%BA%BF%E6%80%A7%E6%98%A0%E5%B0%84.pdf&amp;page=5&amp;rect=0.1,0.2,0.3,0.4')
     // 第二次：笔记类型已经有了，牌组按 id 认
     calls.length = 0

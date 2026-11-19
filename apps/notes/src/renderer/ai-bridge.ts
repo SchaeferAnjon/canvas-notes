@@ -6,6 +6,8 @@ import { useEffect, useRef } from 'react'
 import type { AgentContext, BridgeOp } from '../shared/agent'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
+import { folderCount } from './ai-place'
+import { vaultFiles } from './files/store'
 import { NoteDoc, type ViewMode } from './note-doc'
 import type { Tab } from './tabs'
 
@@ -46,7 +48,7 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
                 : t.type === 'archive'
                   ? { type: 'none', title: '归档' }
                   : t.type === 'folder'
-                    ? { type: 'none', title: `${t.folder}的首页` }
+                    ? { type: 'folder', title: t.folder.split('/').pop() || t.folder, path: t.folder, count: folderCount(t.folder, vaultFiles()) }
                     : t.type === 'diff'
                       ? { type: 'none', title: `对比：${t.title}` }
                       : t.type === 'oldimages'
@@ -86,8 +88,25 @@ function measure(path: string): Record<string, { w: number; h: number }> {
   return out
 }
 
+/** 这一篇的白板（真白板或文档切成的白板）现在在不在屏幕上：AI 动手时在才画指针、一步步放慢（DESIGN.v3 2.3） */
+function onScreen(path: string): boolean {
+  const pane = [...document.querySelectorAll<HTMLElement>('.pane:not([hidden])')].find((p) => p.dataset.path === path)
+  return !!pane?.querySelector('[data-testid="board"], [data-testid="doc-board"]')
+}
+
+/** 软件现在的强调色（网页里的 AI 指针、剪下的竖线跟着主题） */
+function accent(): { acc: string; accBg: string; ring: string } {
+  const cs = getComputedStyle(document.documentElement)
+  const v = (k: string) => cs.getPropertyValue(k).trim()
+  return { acc: v('--acc'), accBg: v('--acc-bg') || v('--acc'), ring: v('--acc-ring') }
+}
+
 async function handle(s: BridgeState, op: BridgeOp, arg: unknown): Promise<unknown> {
   switch (op) {
+    case 'onScreen':
+      return onScreen(String(arg))
+    case 'accent':
+      return accent()
     case 'saveAll':
       return NoteDoc.saveAll()
     case 'context':

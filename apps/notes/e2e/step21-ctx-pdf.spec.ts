@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { launch, tabOn } from './app'
+import { launch, openAi, tabOn } from './app'
 import { LECTURE } from './fixtures/pdf'
 import { armMenus, clipboardText, menuLabels, openedMenu, pickMenu } from './menu'
 
@@ -31,7 +31,15 @@ test('PDF：选了字右键「拷贝」「讲解一下」；问过的页右键�
     await page.locator('.pal-row', { hasText: '第3讲 线性映射' }).first().click()
     await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
     await expect(pdfPage(page, 1).locator('canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
+    await openAi(page)
     await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
+    // 打开 PDF 时 AI 不再自己打开（AI 只住右栏），这里点开 AI 中间栏变窄、页面按新宽度重画：等第 2 页画好、宽度不再变再去选字
+    await expect.poll(async () => {
+      const w1 = await pdfPage(page, 2).evaluate((e) => e.getBoundingClientRect().width)
+      await page.waitForTimeout(250)
+      const w2 = await pdfPage(page, 2).evaluate((e) => e.getBoundingClientRect().width)
+      return w1 === w2 && (await pdfPage(page, 2).locator('canvas[data-ready="1"]').count()) === 1
+    }).toBe(true)
 
     let sb = await selectSpan(page)
     await page.mouse.click(sb.x + sb.width / 2, sb.y + sb.height / 2, { button: 'right' })

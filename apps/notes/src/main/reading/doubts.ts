@@ -4,7 +4,7 @@
  */
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { courseOf, type DoubtItem, DOUBTS_NAME, doubtsNote, lectureOf, notePathFor, parseReadingNote, prop } from '@cn/format'
+import { courseOf, type DoubtItem, doubtItems, DOUBTS_NAME, doubtsNote, lectureOf, notePathFor, parseReadingNote, prop } from '@cn/format'
 import type { Vault } from '../vault'
 
 export const ANKI_STATE = '.canvas-notes/anki.json'
@@ -38,7 +38,7 @@ export function courseName(folder: string): string {
   return courseOf(folder + '/x') ?? (folder.split('/').pop() || '')
 }
 
-/** 这个文件夹（只看这一层）里每份 PDF 的笔记里问过的每一处 */
+/** 这个文件夹（只看这一层）里每份 PDF 的笔记里问过的：新格式一问一条（原话，主问题 + 旁支问题），以前的笔记一处一条 */
 export async function collectDoubts(v: Vault, folder: string): Promise<DoubtItem[]> {
   const out: DoubtItem[] = []
   let names: string[]
@@ -60,7 +60,7 @@ export async function collectDoubts(v: Vault, folder: string): Promise<DoubtItem
     }
     const lec = Number(prop(text, '第几讲'))
     const lecture = Number.isFinite(lec) && lec > 0 ? lec : lectureOf(pdf)
-    for (const section of parseReadingNote(text, note)) out.push({ id: section.id, pdf, ...(lecture !== undefined ? { lecture } : {}), section })
+    for (const section of parseReadingNote(text, note)) out.push(...doubtItems(pdf, section, lecture))
   }
   return out
 }

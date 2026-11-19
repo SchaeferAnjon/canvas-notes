@@ -5,11 +5,13 @@
 import { dateText, when } from '../../shared/when'
 import { Codicon } from '@cn/design'
 import { onFileMenu } from '../ctx/file-menu'
-import { useState } from 'react'
+import { fileIcon } from '../Palette'
+import { useEffect, useMemo, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { type Cond, type FolderHome, type PropFile, runCond, setWidget, type WidgetData } from '../../shared/folder-home'
+import { progressDone } from '../../shared/files'
 import { CLIPS, kindOf, titleOf } from '../../shared/layout'
-import { vaultFiles } from '../files/store'
+import { useVaultFiles, vaultFiles } from '../files/store'
 import { type DoubtItem, questionOf } from '@cn/format'
 import { useCover } from './slide-covers'
 import { openFolderHome } from './store'
@@ -36,8 +38,11 @@ export interface WCtx {
 }
 
 const EMPTY: Record<string, string> = {
+  courses: '还没有课。左栏「课程」头上新建一门。',
   slides: '把PDF拖到这张卡上，就收进这门课；问到第几页也会记在这里。',
   review: 'Anki里还没有这门课的牌组。在「我的疑惑」里送一次就有了。',
+  reviews: 'Anki里还没有这几门课的牌组。在每门课的「我的疑惑」里送一次就有了。',
+  exams: '还没有哪门课填了考试日期。在那门课的首页点「考试倒计时」填。',
   exam: '还没填考试日期。点一下填。',
   notes: '还没有笔记和导图。读课件时问AI，笔记会自己写好放进来。',
   doubts: '还没有疑惑。读课件时问过的都会记在这里。',
@@ -49,7 +54,7 @@ const EMPTY: Record<string, string> = {
   recent: '这里还没动过东西。',
   progress: '还没定阶段。',
   drafts: '没有草稿。',
-  clips: '还没有素材。',
+  clips: '还没有剪藏。',
   list: '没有符合条件的文件。改一改条件，或者等这个文件夹里多一些东西。',
 }
 
@@ -65,6 +70,9 @@ function Rows(props: { c: WCtx; list: PropFile[]; limit: number; right?(f: PropF
   const { c } = props
   // 同名的几篇（各个子文件夹里的「未命名」）：名字后面淡淡写在哪个子文件夹，分得出是哪篇
   const shown = props.list.slice(0, props.limit)
+  // 白板画它自己的颜色方块（和树、左栏「最近」一样）
+  const boardColor = new Map(c.notes.flatMap((n) => (n.board ? [[n.path, n.board.color] as const] : [])))
+  const digests = new Set(c.notes.flatMap((n) => (n.digest ? [n.path] : [])))
   const dup = new Set(shown.map((f) => name(f.path)).filter((n, i, a) => a.indexOf(n) !== i))
   const sub = (p: string) => {
     const dir = p.slice(0, p.lastIndexOf('/'))
@@ -74,7 +82,7 @@ function Rows(props: { c: WCtx; list: PropFile[]; limit: number; right?(f: PropF
     <>
       {shown.map((f) => (
         <button key={f.path} className="fw-row" onClick={() => c.onOpen(f.path)} onContextMenu={(e) => onFileMenu(e, f.path)}>
-          <Codicon name={f.entry ? 'database' : f.props['类型'] === '导图' ? 'type-hierarchy' : 'file-text'} size={14} />
+          {boardColor.has(f.path) ? <i className="sw" style={{ background: boardColor.get(f.path) }} /> : <Codicon name={f.entry ? 'database' : /\.pdf$/i.test(f.path) ? 'file-pdf' : f.props['类型'] === '导图' ? 'type-hierarchy' : fileIcon(f.path, false, digests.has(f.path))} size={14} />}
           <span className="truncate">{name(f.path)}</span>
           {/* 数据库的一条写表名（和左栏「最近」一样）；同名的几篇写在哪个子文件夹 */}
           {f.entry ? (
@@ -157,10 +165,13 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
       const list = inFolder.filter((f) => f.props['类型'] === '可视化')
       return list.length ? <Viz c={c} list={list} /> : <p className="fw-empty">{EMPTY.viz}</p>
     }
+    case 'courses':
+      return <Courses c={c} />
     case 'review':
-      return <p className="fw-empty">{EMPTY.review}</p>
+      return <p className="fw-empty">{c.folder === '课程' ? EMPTY.reviews : EMPTY.review}</p>
     case 'exam':
-      return <Exam w={w} set={set} />
+      // 「课程」这一页：几门课里最近的那场考试
+      return c.folder === '课程' ? <NextExam c={c} /> : <Exam w={w} set={set} />
     case 'todo':
       return <Todos c={c} w={w} set={set} />
     case 'links':
@@ -168,7 +179,7 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
     case 'text':
       return <FreeText w={w} set={set} />
     case 'recent':
-      return inFolder.length ? <Rows c={c} list={inFolder} limit={5} right={(f) => when(f.mtimeMs)} /> : <p className="fw-empty">{EMPTY.recent}</p>
+      return inFolder.length ? <Rows c={c} list={inFolder} limit={4} right={(f) => when(f.mtimeMs)} /> : <p className="fw-empty">{EMPTY.recent}</p>
     case 'board': {
       const boards = c.notes.filter((n) => n.board && n.path.startsWith(c.folder + '/'))
       const b = boards.find((n) => n.path === w.board) ?? boards[0]
@@ -272,14 +283,11 @@ function Slides(props: { c: WCtx; list: PropFile[] }) {
         {shown.map((f) => (
           <SlideCover key={f.path} c={c} f={f} />
         ))}
+        {/* 格子里只放加号和一行「拖 PDF」，整句放悬停提示（CN-113：中间栏窄时两行字折成三四行） */}
         {!c.editing && (
-          <div className="fw-dropcell" aria-hidden>
-            <Codicon name="add" size={16} />
-            <span>
-              拖PDF到这里
-              <br />
-              {`收进${course}`}
-            </span>
+          <div className="fw-dropcell" data-testid="slides-dropcell" data-tip={`把PDF拖到这张卡上，就收进${course}`} data-side="below">
+            <Codicon name="add" size={14} />
+            <span>拖PDF</span>
           </div>
         )}
       </div>
@@ -318,6 +326,85 @@ function SlideCover({ c, f }: { c: WCtx; f: PropFile }) {
         </span>
       </span>
     </button>
+  )
+}
+
+/**
+ * 「课程」这一页的在上的课（方案 v2 分类与入口的小样）：每门课一行，书架图标、名字、一条进度、「1/5讲」（问完了几份课件 / 一共几份）；
+ * 点一行开那门课的首页
+ */
+function Courses(props: { c: WCtx }) {
+  const { files } = useVaultFiles()
+  const list = useMemo(() => {
+    const courses = files.filter((f) => f.kind === 'dir' && f.path.startsWith('课程/') && !f.path.slice(3).includes('/')).map((f) => f.path)
+    const prog = new Map<string, { done: number; total: number }>()
+    for (const f of files) {
+      if (f.kind !== 'pdf' || !f.path.startsWith('课程/')) continue
+      const course = f.path.split('/').slice(0, 2).join('/')
+      const p = prog.get(course) ?? { done: 0, total: 0 }
+      p.total++
+      if (progressDone(f.progress)) p.done++
+      prog.set(course, p)
+    }
+    return courses.sort((a, b) => a.localeCompare(b, 'zh')).map((f) => ({ folder: f, ...(prog.get(f) ?? { done: 0, total: 0 }) }))
+  }, [files])
+  if (!list.length) return <p className="fw-empty">{EMPTY.courses}</p>
+  return (
+    <>
+      {list.slice(0, 6).map((x) => (
+        <button key={x.folder} className="fw-row fw-course" onClick={() => openFolderHome(x.folder)}>
+          <Codicon name="folder-library" size={14} />
+          <span className="truncate">{x.folder.slice(3)}</span>
+          {x.total > 0 && (
+            <>
+              <i className="fw-bar" aria-hidden>
+                <i style={{ width: `${(x.done / x.total) * 100}%` }} />
+              </i>
+              <span className="r num">{`${x.done}/${x.total}讲`}</span>
+            </>
+          )}
+        </button>
+      ))}
+      <More n={list.length} shown={6} unit="门" onAll={props.c.onAll} />
+    </>
+  )
+}
+
+/** 「课程」这一页的考试倒计时：各门课首页里填的考试，挑最近的一场「23 天 · 机器学习 期中考试」，点了开那门课 */
+function NextExam(props: { c: WCtx }) {
+  const { files } = useVaultFiles()
+  const courses = useMemo(() => files.filter((f) => f.kind === 'dir' && f.path.startsWith('课程/') && !f.path.slice(3).includes('/')).map((f) => f.path), [files])
+  const [next, setNext] = useState<{ folder: string; days: number; label: string; date: Date } | null | undefined>(undefined)
+  useEffect(() => {
+    let stale = false
+    void Promise.all(courses.map((f) => window.cnFolder.get(f).then((r) => ({ f, ws: Object.values(r.home.widgets) })))).then((all) => {
+      if (stale) return
+      const today = new Date(new Date().toDateString()).getTime()
+      let best: { folder: string; days: number; label: string; date: Date } | null = null
+      for (const { f, ws } of all)
+        for (const w of ws) {
+          if (w.type !== 'exam' || !w.date) continue
+          const d = new Date(`${w.date}T00:00`)
+          const days = Math.round((d.getTime() - today) / 86400_000)
+          if (!Number.isFinite(days) || days < 0) continue
+          if (!best || days < best.days) best = { folder: f, days, label: w.label || '考试', date: d }
+        }
+      setNext(best)
+    })
+    return () => {
+      stale = true
+    }
+  }, [courses])
+  if (next === undefined) return null
+  if (!next) return <p className="fw-empty">{EMPTY.exams}</p>
+  return (
+    <div className="fw-exam">
+      <button className="fw-exam-n" onClick={() => openFolderHome(next.folder)} title="点一下开那门课">
+        <span className="big num">{next.days}</span>
+        <small>{`天 · ${next.folder.slice(3)}${next.label}`}</small>
+        <span className="sub">{`${dateText(next.date.getTime())} · 星期${WEEK[next.date.getDay()]}`}</span>
+      </button>
+    </div>
   )
 }
 

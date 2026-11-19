@@ -1,16 +1,18 @@
 /**
- * 方向 B 的两个大窗口：加组件（860 × 600，左边分类、右边三列卡片）和按条件列出（900 × 600，左边条件、右边真尺寸预览）。
+ * 方向 B 的两个大窗口：加组件（860 × 600，一个能滚的列表，按「这门课的 / 通用 / 按条件列出」分组，CN-103）
+ * 和按条件列出（900 × 600，左边条件、右边真尺寸预览）。
  */
 import { Codicon } from '@cn/design'
 import { type ReactNode, useEffect, useState } from 'react'
 import { type Cond, COND_OPS, COND_PRESETS, type CondProp, type FolderHome, type FolderKind, type FWidget, FWIDGETS } from '../../shared/folder-home'
 import { widgetIcon } from './icons'
 
-const CATS = [
-  ['course', '课程'],
+/** 组件库的组（CN-103）：组名后面是几个、一条细线；「这门课的」只在课程页，「课程这一页的」只在「课程」这个分类的首页 */
+const GROUPS = [
+  ['courses', '课程这一页的'],
+  ['course', '这门课的'],
   ['common', '通用'],
   ['cond', '按条件列出'],
-  ['all', '全部'],
 ] as const
 
 /** esc 关掉 */
@@ -23,12 +25,38 @@ function useEsc(close: () => void) {
 }
 
 export function WidgetLibrary(props: { title: string; home: FolderHome; kind: FolderKind; onAdd(type: FWidget, cond?: Cond): void; onClose(): void }) {
-  const [cat, setCat] = useState<(typeof CATS)[number][0]>(props.kind === 'course' ? 'course' : 'common')
   const [q, setQ] = useState('')
   useEsc(props.onClose)
   const on = new Set(props.home.order.map((id) => props.home.widgets[id]!.type))
-  const items = FWIDGETS.filter((w) => (props.kind === 'course' || w.cat !== 'course') && (cat === 'all' || w.cat === cat) && (!q || (w.name + w.desc).includes(q)))
-  const presets = cat === 'cond' || cat === 'all' ? COND_PRESETS.filter((c) => !q || c.name.includes(q)) : []
+  const hit = (s: string) => !q || s.includes(q)
+  const row = (key: string, icon: FWidget, name: string, desc: string, added: boolean, add: () => void, testid?: string) => (
+    <div key={key} className="lw" data-testid={testid}>
+      <span className="ic">
+        <Codicon name={widgetIcon(icon)} size={16} />
+      </span>
+      <span className="tx">
+        <b>{name}</b>
+        <span>{desc}</span>
+      </span>
+      {added ? (
+        <em>已在页面上</em>
+      ) : (
+        <button className="add" aria-label={`加上 ${name}`} onClick={add}>
+          <Codicon name="add" size={12} />
+          加上
+        </button>
+      )}
+    </div>
+  )
+  const groups = GROUPS.filter(([k]) => (k === 'course' ? props.kind === 'course' : k === 'courses' ? props.kind === 'courses' : true)).map(([k, title]) => {
+    const rows = FWIDGETS.filter((w) => w.cat === k && hit(w.name + w.desc)).map((w) =>
+      row(w.type, w.type, w.name, w.desc, on.has(w.type) && w.type !== 'list', () => props.onAdd(w.type), `lib-${w.type}`),
+    )
+    // 按条件列出的预设跟在「按条件列出」后面
+    if (k === 'cond') for (const c of COND_PRESETS) if (hit(c.name + '预设')) rows.push(row('preset:' + c.name, 'list', c.name, '预设', false, () => props.onAdd('list', c)))
+    return { k, title, rows }
+  })
+  const total = groups.reduce((n, g) => n + g.rows.length, 0)
   return (
     <div className="fh-scrim" onMouseDown={(e) => e.target === e.currentTarget && props.onClose()}>
       <div className="fh-win lib" role="dialog" aria-label="加组件">
@@ -44,55 +72,19 @@ export function WidgetLibrary(props: { title: string; home: FolderHome; kind: Fo
             <Codicon name="close" size={16} />
           </button>
         </div>
-        <div className="bd">
-          <nav aria-label="分类">
-            {CATS.filter(([k]) => props.kind === 'course' || k !== 'course').map(([k, n]) => (
-              <button key={k} className={cat === k ? 'on' : ''} onClick={() => setCat(k)}>
-                {n}
-              </button>
+        <div className="bd lib-list">
+          {groups
+            .filter((g) => g.rows.length)
+            .map((g) => (
+              <section key={g.k} className="lg" role="group" aria-label={g.title}>
+                <div className="gh">
+                  <span className="num">{`${g.title}${g.rows.length}`}</span>
+                  <span className="ln" />
+                </div>
+                <div className="rows">{g.rows}</div>
+              </section>
             ))}
-          </nav>
-          <div className="cards">
-            {items.map((w) => (
-              <div key={w.type} className="card" data-testid={`lib-${w.type}`}>
-                <div className="pv">
-                  <Codicon name={widgetIcon(w.type)} size={18} />
-                </div>
-                <div className="tx">
-                  <b>{w.name}</b>
-                  <span>{w.desc}</span>
-                </div>
-                <div className="ac">
-                  {on.has(w.type) && w.type !== 'list' ? (
-                    <em>已在页面上</em>
-                  ) : (
-                    <button className="btn btn-sm" onClick={() => props.onAdd(w.type)}>
-                      <Codicon name="add" size={12} />
-                      加上
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {presets.map((c) => (
-              <div key={c.name} className="card">
-                <div className="pv">
-                  <Codicon name={widgetIcon('list')} size={18} />
-                </div>
-                <div className="tx">
-                  <b>{c.name}</b>
-                  <span>按条件列出的预设</span>
-                </div>
-                <div className="ac">
-                  <button className="btn btn-sm" aria-label={`加上 ${c.name}`} onClick={() => props.onAdd('list', c)}>
-                    <Codicon name="add" size={12} />
-                    加上
-                  </button>
-                </div>
-              </div>
-            ))}
-            {items.length + presets.length === 0 && <p className="none">没有叫「{q}」的组件</p>}
-          </div>
+          {total === 0 && <p className="none">没有叫「{q}」的组件</p>}
         </div>
         <div className="ft">
           <span className="help">加上的组件放在最后，闪一下；删掉组件不删任何文件。</span>

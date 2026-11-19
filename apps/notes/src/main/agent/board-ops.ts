@@ -203,10 +203,27 @@ export type ArrangeMode = 'grid' | 'columns'
  * 列里的卡片跟着列走，不单独动。
  */
 export function arrange(text: string, mode: ArrangeMode, opts: { per?: number; sizes?: Record<string, Size> } = {}): string {
+  let out = text
+  for (const s of arrangeSteps(text, mode, opts)) out = placeAt(out, s.id, s.x, s.y)
+  return out
+}
+
+/** 只改一张卡（或一列）的坐标；列里的卡跟着列走，不单独动 */
+export function placeAt(text: string, id: string, x: number, y: number): string {
+  const doc = parseBoard(text)
+  const i = index(doc, id)
+  return serializeBoard({ ...doc, blocks: doc.blocks.map((b, j) => (j === i ? withAttrs(b, { x: Math.round(x), y: Math.round(y) }) : b)) })
+}
+
+/**
+ * 排整齐要挪的每一样，按阅读顺序：AI 动手时一张一张挪（指针先去拿、那张外圈亮一下，DESIGN.v3 2.3），
+ * 停下时已经挪了的留着；位置没变的不算一步
+ */
+export function arrangeSteps(text: string, mode: ArrangeMode, opts: { per?: number; sizes?: Record<string, Size> } = {}): { id: string; x: number; y: number }[] {
   const doc = parseBoard(text)
   const sizes = opts.sizes ?? {}
   const ids = topLevel(doc)
-  if (!ids.length) return text
+  if (!ids.length) return []
   const pos = new Map(ids.map((id) => [id, { x: num(doc.blocks[index(doc, id)]!, 'x', 0), y: num(doc.blocks[index(doc, id)]!, 'y', 0) }]))
   // 阅读顺序：上下差不到 40px 的算同一行
   const order = [...ids].sort((a, b) => {
@@ -234,12 +251,10 @@ export function arrange(text: string, mode: ArrangeMode, opts: { per?: number; s
       heights[c] = heights[c]! + size.get(id)!.h + GAP
     }
   }
-  const next: BoardDoc = {
-    ...doc,
-    blocks: doc.blocks.map((b) => {
-      const p = placed.get(attr(b, 'id') ?? '')
-      return p ? withAttrs(b, { x: Math.round(p.x), y: Math.round(p.y) }) : b
-    }),
-  }
-  return serializeBoard(next)
+  return order
+    .map((id) => ({ id, x: Math.round(placed.get(id)!.x), y: Math.round(placed.get(id)!.y) }))
+    .filter((s) => {
+      const b = doc.blocks[index(doc, s.id)]!
+      return attr(b, 'x') !== String(s.x) || attr(b, 'y') !== String(s.y)
+    })
 }

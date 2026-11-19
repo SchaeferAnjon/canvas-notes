@@ -1,6 +1,7 @@
 /**
- * 文档里的 ```base 代码块画成数据库表格（CN-19 A），一整块：光标跨过去、下面行首退格先选中它；
- * 要改数据源、列去「源文件」。点列头换排序时只改代码块里 sort 那几行。
+ * 文档里的 ```base 代码块画成数据库表格（CN-19 A，照 Notion 做全），一整块：光标跨过去、下面行首退格先选中它。
+ * 表头上的操作（加列、改类型、改列名、排序、筛选、隐藏、列宽、计算）只改代码块里对应那几行；
+ * 要直接改写法点块头上的「改写法」，只在这一块露出 YAML（方向 A「块上露写法」）。
  * 斜杠菜单「数据库」插这个块，同时在旁边建一个放每条记录的文件夹。
  */
 import { baseYaml, parseBase, setBaseFilters, setBaseOrder, setBaseSort } from '@cn/format'
@@ -59,8 +60,9 @@ class BaseWidget extends WidgetType {
       sort: (prop, desc) => write((src) => setBaseSort(src, prop, desc)),
       filters: (match, conds) => write((src) => setBaseFilters(src, match, conds)),
       order: (columns) => write((src) => setBaseOrder(src, columns)),
+      src: (next) => write(next),
     }
-    flushSync(() => root.render(<BaseTable spec={parseBase(this.src)} edit={edit} anchor={el} />))
+    flushSync(() => root.render(<BaseTable spec={parseBase(this.src)} src={this.src} edit={edit} anchor={el} />))
   }
   destroy(dom: HTMLElement) {
     const root = (dom as HTMLElement & { _root?: Root })._root

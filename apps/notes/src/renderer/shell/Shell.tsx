@@ -1,6 +1,7 @@
 import { Codicon, type CodiconName } from '@cn/design'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { menuAt } from '../ctx/menu'
 
 /**
  * 主界面框架（task-mzstv，设计稿 design-frame/spec.md）：上面标题栏只管「开着什么、找东西」，
@@ -15,8 +16,10 @@ export interface BarItem {
   key?: string
   icon: CodiconName
   on?: boolean
-  /** 这一页用不上（比如首页没有大纲）：图标变淡，照样能点 */
+  /** 这一页用不上（比如首页没有大纲、不读 PDF 时的笔记）：图标原地变淡，不挪位置 */
   dim?: boolean
+  /** 变淡时点它：不打开，旁边说一句为什么（右图标栏方向 A） */
+  why?: string
   badge?: number
   /** 收件箱堆多了：数字胶囊变琥珀 */
   warn?: boolean
@@ -29,18 +32,65 @@ export interface BarItem {
   onContextMenu?(e: React.MouseEvent<HTMLButtonElement>): void
   /** 按住拖上拖下排顺序（摘出来的文件夹）：key 是自己，onDrop(拖的, 放到谁前面) */
   drag?: { key: string; onDrop(from: string, before: string): void }
+  /** 窗口矮、放不下时能收进「⋯」的（摘出来的分类和文件夹，从最后一格往前收） */
+  fold?: boolean
 }
 
-/** 一条图标栏：只放图标，悬停才出名字；亮着的那个再点一下 = 收起那一侧 */
+/**
+ * 一条图标栏：只放图标，悬停才出名字；亮着的那个再点一下 = 收起那一侧。
+ * 窗口矮、一列放不下时，能收的格子（fold）从最后往前收进一格「⋯」，点开是这几格的菜单（方案 v2 分类与入口 A2 第 3 条）
+ */
 export function ActivityBar(props: { side: 'left' | 'right'; label: string; groups: BarItem[][]; bottom?: React.ReactNode }) {
   const tipSide = props.side === 'left' ? 'right' : 'left'
+  const nav = useRef<HTMLElement>(null)
+  /** 收进「⋯」的格子数 */
+  const [folded, setFolded] = useState(0)
+  const foldable = props.groups.flat().filter((it) => it.fold)
+  const hide = new Set(folded ? foldable.slice(-folded).map((it) => it.id) : [])
+  const key = foldable.map((it) => it.id).join('|')
+  // 量：放不下就再收一格（直到放得下或者都收完）；窗口变高、格子变了重新从 0 量
+  useLayoutEffect(() => {
+    const el = nav.current
+    if (!el) return
+    if (el.scrollHeight > el.clientHeight + 1 && folded < foldable.length) setFolded(folded + 1)
+  })
+  useEffect(() => {
+    const el = nav.current
+    if (!el) return
+    let h = el.clientHeight
+    const ro = new ResizeObserver(() => {
+      if (el.clientHeight !== h) ((h = el.clientHeight), setFolded(0))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  useEffect(() => setFolded(0), [key])
+  const groups = props.groups.map((g) => g.filter((it) => !hide.has(it.id)))
+  const lastFoldGroup = folded ? props.groups.findIndex((g) => g.includes(foldable[foldable.length - folded]!)) : -1
+  const moreBtn = (
+    <button
+      key="ab-more"
+      className="ab"
+      aria-label={`还有${folded}个`}
+      data-tip={`还有${folded}个：${foldable.slice(-folded).map((it) => it.label).join('、')}`}
+      data-side={tipSide}
+      data-testid="ab-more"
+      onClick={(e) => void menuAt(e, foldable.slice(-folded).map((it) => ({ label: it.label, checked: it.on, run: () => it.onClick(e) })))}
+    >
+      <Codicon name="ellipsis" size={0} />
+    </button>
+  )
+  /** 点了变淡的那格：旁边说一句为什么（点别处、按 esc 收起） */
+  const [say, setSay] = useState<{ id: string; text: string; el: HTMLElement } | null>(null)
   return (
-    <nav className={'abar ' + props.side} aria-label={props.label}>
-      {props.groups
-        .filter((g) => g.length)
-        .map((g, i) => (
+    <nav ref={nav} className={'abar ' + props.side} aria-label={props.label}>
+      {say && <Say text={say.text} anchor={say.el} side={tipSide} onClose={() => setSay(null)} />}
+      {groups
+        .map((g, i) => [g, i] as const)
+        .filter(([g, i]) => g.length || i === lastFoldGroup)
+        .map(([g, i], k) => (
           <div className="abg" key={i}>
-            {i > 0 && <i className="ab-sep" />}
+            {k > 0 && <i className="ab-sep" />}
             {g.map((it) => (
               <button
                 key={it.id}
@@ -51,7 +101,8 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
                 data-key={it.key}
                 data-side={tipSide}
                 data-testid={`ab-${it.tid ?? it.id}`}
-                onClick={it.onClick}
+                data-saying={say?.id === it.id || undefined}
+                onClick={it.dim && it.why ? (e) => setSay({ id: it.id, text: it.why!, el: e.currentTarget }) : it.onClick}
                 onContextMenu={it.onContextMenu}
                 draggable={!!it.drag}
                 onDragStart={it.drag ? (e) => (e.dataTransfer.setData('application/x-cn-left', it.drag!.key), (e.dataTransfer.effectAllowed = 'move')) : undefined}
@@ -71,11 +122,40 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
                 {it.dot && <i className="dot" data-testid={`${it.id}-dot`} />}
               </button>
             ))}
+            {i === lastFoldGroup && moreBtn}
           </div>
         ))}
       <div className="grow" />
       {props.bottom}
     </nav>
+  )
+}
+
+/** 图标栏上一格旁边说的一句（点了变淡的那格时）：贴在格子朝里的一侧，竖着居中；点别处、按 esc 收起 */
+function Say(props: { text: string; anchor: HTMLElement; side: 'left' | 'right'; onClose(): void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const r = props.anchor.getBoundingClientRect()
+    el.style.left = `${props.side === 'left' ? r.left - el.offsetWidth - 8 : r.right + 8}px`
+    el.style.top = `${r.top + r.height / 2 - el.offsetHeight / 2}px`
+  }, [props.anchor, props.text])
+  useEffect(() => {
+    const down = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && !props.anchor.contains(e.target as Node) && props.onClose()
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose()
+    document.addEventListener('mousedown', down, true)
+    document.addEventListener('keydown', key)
+    return () => {
+      document.removeEventListener('mousedown', down, true)
+      document.removeEventListener('keydown', key)
+    }
+  }, [props])
+  return createPortal(
+    <div ref={ref} className="ab-say" role="status" data-testid="bar-say">
+      {props.text}
+    </div>,
+    document.body,
   )
 }
 
@@ -160,17 +240,41 @@ export function ViewHead(props: { title: string; sub?: React.ReactNode; children
   )
 }
 
-export function HeadBtn(props: { icon: CodiconName; label: string; keys?: string; on?: boolean; /** 正在做（新建笔记建好、读好之前） */ busy?: boolean; onClick(e: React.MouseEvent<HTMLButtonElement>): void; className?: string; children?: React.ReactNode }) {
+export function HeadBtn(props: {
+  icon: CodiconName
+  /** 不用 Codicon 时画这个（「问AI」画正在用的那家的标志，CN-127） */
+  glyph?: React.ReactNode
+  label: string
+  keys?: string
+  on?: boolean
+  /** 正在做（新建笔记建好、读好之前） */
+  busy?: boolean
+  onClick(e: React.MouseEvent<HTMLButtonElement>): void
+  className?: string
+  children?: React.ReactNode
+}) {
   return (
     <button className={'ib' + (props.on ? ' on' : '') + (props.className ? ' ' + props.className : '')} aria-label={props.label} aria-pressed={props.on} aria-busy={props.busy || undefined} data-tip={props.label} data-key={props.keys} data-side="below" onClick={props.onClick}>
-      <Codicon name={props.icon} />
+      {props.glyph ?? <Codicon name={props.icon} />}
       {props.children}
     </button>
   )
 }
 
 /** 小弹出菜单（库、设置、改动、后台）：贴着点它的那个按钮，点外面关 */
-export function Popover(props: { anchor: HTMLElement; onClose(): void; label: string; children: React.ReactNode; className?: string; /** right：贴在点它那一行的右边（目录树里的文件夹） */ side?: 'right' }) {
+export function Popover(props: {
+  anchor: HTMLElement
+  onClose(): void
+  label: string
+  children: React.ReactNode
+  className?: string
+  /** right：贴在点它那一行的右边（目录树里的文件夹） */
+  side?: 'right'
+  /** end：右边和按钮的右边对齐（标签条右端「12 ⌄」、历史头上的 ⋯） */
+  align?: 'end'
+  /** 离 anchor 下沿多远（默认 4） */
+  gap?: number
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   useEffect(() => {
@@ -180,8 +284,8 @@ export function Popover(props: { anchor: HTMLElement; onClose(): void; label: st
       const r = props.anchor.getBoundingClientRect()
       const w = el.offsetWidth
       const h = el.offsetHeight
-      let left = r.left
-      let top = r.bottom + 4
+      let left = props.align === 'end' ? r.right - w : r.left
+      let top = r.bottom + (props.gap ?? 4)
       if (props.side === 'right') ((left = r.right + 8), (top = Math.min(r.top + r.height / 2 - h / 2, innerHeight - h - 8)))
       else if (props.anchor.closest('.abar.left')) ((left = r.right + 6), (top = Math.min(r.top, innerHeight - h - 8)))
       else if (props.anchor.closest('.abar.right')) ((left = r.left - w - 6), (top = Math.min(r.top, innerHeight - h - 8)))
@@ -245,7 +349,8 @@ export function Tooltips() {
     const over = (e: MouseEvent) => {
       const el = (e.target as Element | null)?.closest?.('[data-tip]')
       if (el === cur) return
-      if (!el) return hide()
+      // 图标栏上正说着「为什么变淡」的那格：不再叠一个悬停提示
+      if (!el || el.hasAttribute('data-saying')) return hide()
       hide()
       const delay = Date.now() - lastHide < 600 ? 0 : 400
       timer = window.setTimeout(() => {

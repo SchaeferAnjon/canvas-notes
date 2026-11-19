@@ -5,6 +5,7 @@
  * - 界面交来要哪几项（shared/ctx-menu.ts 的 CtxItem），点了哪项回给界面；编辑项、拼写建议在这里直接对网页做。
  * - 界面没接管的右键（输入框、选了字）这里兜底给标准编辑菜单；右栏网页里的右键转给界面，由界面拼菜单。
  */
+import { moveMany } from './folder-ops'
 import { BrowserWindow, clipboard, ipcMain, Menu, type MenuItemConstructorOptions, shell, webContents as allWebContents, type WebContents } from 'electron'
 import { EDIT_ACCEL, EDIT_LABEL, type CtxItem, type CtxParams, fallbackItems, tidy, validItems } from '../shared/ctx-menu'
 import { pinNote, repin } from './pins'
@@ -137,6 +138,14 @@ export function setupCtxMenu(needVault: () => Vault, onMoved: () => void) {
     const v = needVault()
     v.abs(path)
     await pinNote(v, path, on)
+  })
+  // 文件树里选了好几个一起挪（CN-105）：一次提交，链接跟着改
+  ipcMain.handle('ctx:move-many', async (_e, paths: unknown, folder: unknown) => {
+    try {
+      return await moveMany(needVault(), paths, folder)
+    } finally {
+      onMoved()
+    }
   })
   ipcMain.handle('ctx:move', async (_e, path: unknown, folder: unknown) => {
     if (typeof path !== 'string' || typeof folder !== 'string' || !/\.md$/i.test(path)) throw new Error('参数不对')

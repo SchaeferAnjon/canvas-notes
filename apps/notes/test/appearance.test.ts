@@ -96,6 +96,16 @@ describe('设置文件', () => {
     expect(f.setApp({ appearance: { skin: 'nope' as never } }).appearance.skin).toBe('mint')
   })
 
+  it('以前设置文件里留着的旧字段（mineruPath、mineruHint）读到时不管它，照常读出设置、照常改', () => {
+    dir = mkdtempSync(join(tmpdir(), 'cn-settings-'))
+    const path = join(dir, 'settings.json')
+    writeFileSync(path, JSON.stringify({ lastVault: '/x/库', mineruPath: '/Users/x/.mineru-venv/bin/mineru-kit', mineruHint: false, autoCommitMinutes: 15 }))
+    const f = new SettingsFile(path)
+    expect(f.app().autoCommitMinutes).toBe(15)
+    expect(f.read().lastVault).toBe('/x/库')
+    expect(f.setApp({ autoCommitMinutes: 30 }).autoCommitMinutes).toBe(30)
+  })
+
   it('没有设置文件时是默认值', () => {
     dir = mkdtempSync(join(tmpdir(), 'cn-settings-'))
     expect(new SettingsFile(join(dir, 'settings.json')).app()).toEqual(DEFAULT_SETTINGS)

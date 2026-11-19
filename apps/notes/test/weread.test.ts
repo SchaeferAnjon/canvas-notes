@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
-import { apiError, bookFile, bookIdOfReader, bookMd, isReader, isWeread, loginOf, marksToInsert, newMarks, normalizeWeread, parseBookmarks, parseNotebooks, parseReviews, quoteMd, readerCode } from '../src/shared/plugins/weread'
+import { apiError, bookFile, bookIdOfReader, isReader, isWeread, loginOf, marksToInsert, mergeBook, newMarks, normalizeWeread, parseBookmarks, parseNotebooks, parseReviews, quoteMd, readerCode } from '../src/shared/plugins/weread'
 
 const LIST = {
   synckey: 1,
@@ -51,24 +51,22 @@ describe('微信读书', () => {
     // 只有 bookmarkCount 的旧写法也认
     expect(parseNotebooks({ books: [{ bookId: '2', book: { title: 'C' }, bookmarkCount: 3 }] })[0]!.marks).toBe(3)
   })
-  it('一本书的素材：按章节排、想法跟在它那一段后面、书评单独一节', () => {
+  it('一本书的书摘：中文键、按章节排、想法挂在它那一段下面、书评单独一节；放在「阅读」里', () => {
     const { marks, book } = parseBookmarks(LIST, '900001')
     const thoughts = parseReviews({ reviews: [{ review: { reviewId: 'r1', abstract: '努力是有代价的。', content: '所以要省着用。' } }, { review: { reviewId: 'r2', content: '好书。', type: 4 } }] })
-    const md = bookMd(book!, marks, thoughts, 'https://weread.qq.com/web/reader/abc')
+    const md = mergeBook(null, { book: book!, marks, thoughts, url: 'https://weread.qq.com/web/reader/abc', written: [], now: new Date(2026, 10, 17, 21, 25).getTime() }).text
     expect(md).toBe(
       [
         '---',
-        'type: weread',
-        'title: 思考，快与慢',
-        'author: 丹尼尔·卡尼曼',
+        '类型: 书摘',
+        '作者: 丹尼尔·卡尼曼',
+        '来源: https://weread.qq.com/web/reader/abc',
+        '划线: 2',
+        '想法: 1',
         'bookId: 900001',
-        'source: https://weread.qq.com/web/reader/abc',
-        'marks: 2',
-        'thoughts: 1',
+        'updated: 2026-11-17 21:25',
         '---',
         '# 思考，快与慢',
-        '',
-        '丹尼尔·卡尼曼 · 微信读书里的划线和想法，软件自动同步，改这里不会改回微信读书。',
         '',
         '## 第1章 两个系统',
         '',
@@ -79,7 +77,7 @@ describe('微信读书', () => {
         '',
         '> 努力是有代价的。',
         '',
-        '想法：所以要省着用。',
+        '微信读书的想法：所以要省着用。',
         '',
         '## 书评',
         '',
@@ -87,7 +85,7 @@ describe('微信读书', () => {
         '',
       ].join('\n'),
     )
-    expect(bookFile('a/b: c?')).toBe('素材/微信读书/a b c.md')
+    expect(bookFile('a/b: c?')).toBe('阅读/a b c.md')
   })
   it('阅读页地址 ↔ 书的编号：拆得回来、编得回去；翻章时后面接的 k… 不影响；对不上的（假网站、乱写的）不认', () => {
     const md5 = (t: string) => createHash('md5').update(t).digest('hex')

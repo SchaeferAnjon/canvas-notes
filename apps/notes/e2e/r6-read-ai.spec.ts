@@ -296,7 +296,7 @@ for (const how of ['全部收下', '单条收下双链'] as const)
       expect(Date.now() - t).toBeLessThan(200)
       if (how === '全部收下') await expect(page.getByTestId('toast')).toContainText('剩下的都收下了', { timeout: 20_000 })
       else await expect(link.locator('.st')).toHaveText('已收下', { timeout: 20_000 })
-      const at = how === '全部收下' ? '素材/旅行/极光.md' : '收件箱/极光.md'
+      const at = how === '全部收下' ? '剪藏/旅行/极光.md' : '收件箱/极光.md'
       await expect.poll(() => (existsSync(join(vault, at)) ? readFileSync(join(vault, at), 'utf8') : '')).toMatch(/维克的黑沙滩也能看。[\s\S]*相关：\[\[极光预报\]\]/)
       await expect(saveState(page)).toHaveAttribute('data-state', 'saved', { timeout: 10_000 })
       await expect.poll(() => editorText(page)).toMatch(/维克的黑沙滩也能看。[\s\S]*相关：\[\[极光预报\]\]/)
@@ -325,7 +325,7 @@ test('梦游：在《极光》末尾添了一句、等自动保存后点「全�
     await dreamPanel(page).getByRole('button', { name: '全部收下' }).click()
     await expect(page.getByTestId('toast')).toContainText('剩下的都收下了', { timeout: 20_000 })
     await expect(dreamPanel(page).getByTestId('dream-left')).toContainText('都看完了')
-    expect(readFileSync(join(vault, '素材/旅行/极光.md'), 'utf8')).toMatch(/维克的黑沙滩也能看。[\s\S]*相关：\[\[极光预报\]\]/)
+    expect(readFileSync(join(vault, '剪藏/旅行/极光.md'), 'utf8')).toMatch(/维克的黑沙滩也能看。[\s\S]*相关：\[\[极光预报\]\]/)
     expect(conflictCopies(vault)).toEqual([])
   } finally {
     await run.close()
@@ -346,8 +346,8 @@ test('梦游：《极光》在外面删了再点「全部收下」：能收的�
     await expect(toast).toContainText('「极光」')
     await expect(toast).toContainText('删了')
     // 能收的都收了：冰洞、巴黎挪走，周记写了
-    expect(existsSync(join(vault, '素材/旅行/冰洞.md'))).toBe(true)
-    expect(existsSync(join(vault, '素材/旅行/巴黎自由行全景指南.md'))).toBe(true)
+    expect(existsSync(join(vault, '剪藏/旅行/冰洞.md'))).toBe(true)
+    expect(existsSync(join(vault, '剪藏/旅行/巴黎自由行全景指南.md'))).toBe(true)
     expect(allFiles(vault).some((f) => f.startsWith('周记/'))).toBe(true)
     // 极光那两条留着待看，列表上标出为什么
     await expect(dreamPanel(page).getByTestId('dream-left')).toContainText('还剩2条')
@@ -370,9 +370,9 @@ test('收下《冰洞》后在外面改名成「冰岛冰洞」、同时把「�
     await dreamPanel(page).getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
     const pv = page.getByTestId('preview-toast')
     await expect(pv).toContainText('收下了1处')
-    const taken = join(vault, '素材/旅行/冰洞.md')
+    const taken = join(vault, '剪藏/旅行/冰洞.md')
     await expect.poll(() => existsSync(taken)).toBe(true)
-    const renamed = join(vault, '素材/旅行/冰岛冰洞.md')
+    const renamed = join(vault, '剪藏/旅行/冰岛冰洞.md')
     writeFileSync(renamed, readFileSync(taken, 'utf8').replace('提前两周订', '提前三周订'))
     rmSync(taken)
     await page.waitForTimeout(2500)

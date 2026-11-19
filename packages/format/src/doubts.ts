@@ -1,20 +1,74 @@
 /**
  * 我的疑惑：一个文件夹（一门课）里所有读 PDF 笔记问过的地方汇成一个清单，按讲分组。
- * 每一处是一条：问题（我的疑惑第一行）、讲通的讲法、页码、我框的图。考前看这个，也从这里送进 Anki。
+ * 新格式的笔记一问一条（CN-93）：主对话里问的、旁支里问的，问题都是发出去的原话，下面是回答原文的开头一段；
+ * 「还是不懂」「换个方式讲」不另算一条，并进上一问（回答用最后讲的那一版）。以前的笔记一处一条（AI 写的疑惑、讲通的讲法）。
+ * 左栏的「疑惑 N」、送 Anki 的张数都按这个数。考前看这个，也从这里送进 Anki。
  * 清单另存成 `<文件夹>/我的疑惑.md`（随笔记一起更新、跟着 Git 走），是给人看的副本，数据以各篇笔记为准。
  */
-import { type AskSection, lectureOf, linkFrom } from './reading-note'
+import { answerLead, type AskSection, lectureOf, linkFrom } from './reading-note'
 import { formatPdfAnchor } from './pdf-link'
 import { setProp } from './props'
 
 export interface DoubtItem {
-  /** 笔记里那一段的身份（完整对话的路径） */
+  /** 这一条的身份：一处的第一问就是那一段的身份（以前送过 Anki 的记号对得上），后面几问是「身份#问题的指纹」 */
   id: string
   /** PDF 在库里的路径 */
   pdf: string
   /** 第几讲（没有就按文件名排） */
   lecture?: number
+  /**
+   * 这一条看到的那一段：新格式里 doubts 只有这一问的原话、good 是它回答的开头一段（页码、我框的图还是那一段的）
+   */
   section: AskSection
+  /** 旁支里问的：被问的那一句 */
+  quote?: string
+}
+
+/** 「还是不懂」「换个方式讲」这种整句：是接着上一问再讲一遍，不是新的一问 */
+const AGAIN = /^(还是不懂|没懂|不懂|看不懂|听不懂|没听懂|不明白|还是不明白|换个方式讲|换种方式讲|换个讲法|换个角度讲?|再讲一遍|没看懂)[。！!？?…~～\s]*$/
+export const askedAgain = (q: string) => AGAIN.test(q.trim())
+
+/** 问题的指纹（FNV-1a，36 进制） */
+function hash(s: string): string {
+  let h = 0x811c9dc5
+  for (const ch of s) {
+    h ^= ch.codePointAt(0)!
+    h = Math.imul(h, 0x01000193) >>> 0
+  }
+  return h.toString(36)
+}
+
+/** 笔记里的一段 → 我的疑惑里的几条（新格式一问一条，旧格式一处一条） */
+export function doubtItems(pdf: string, s: AskSection, lecture?: number): DoubtItem[] {
+  const base = { pdf, ...(lecture !== undefined ? { lecture } : {}) }
+  if (!s.qas) return [{ id: s.id, ...base, section: s }]
+  const out: DoubtItem[] = []
+  const used = new Set<string>()
+  const add = (q: string, a: string, quote?: string): number => {
+    let id = out.length ? `${s.id}#${hash(`${quote ?? ''}\n${q}`)}` : s.id
+    for (let k = 2; used.has(id); k++) id = `${s.id}#${hash(`${quote ?? ''}\n${q}`)}-${k}`
+    used.add(id)
+    out.push({ id, ...base, section: { ...s, doubts: [q], good: answerLead(a), points: [], failed: [] }, ...(quote !== undefined ? { quote } : {}) })
+    return out.length - 1
+  }
+  /** 再讲一遍：那一条的回答换成这一版 */
+  const again = (k: number, a: string) => {
+    const it = out[k]!
+    it.section = { ...it.section, good: answerLead(a) }
+  }
+  let main = -1
+  for (const qa of s.qas) {
+    if (main >= 0 && AGAIN.test(qa.q.trim())) again(main, qa.a)
+    else if (qa.q.trim()) main = add(qa.q, qa.a)
+    for (const side of qa.sides) {
+      let prev = -1
+      for (const t of side.turns) {
+        if (prev >= 0 && AGAIN.test(t.q.trim())) again(prev, t.a)
+        else prev = add(t.q, t.a, side.quote)
+      }
+    }
+  }
+  return out
 }
 
 export interface DoubtGroup {
@@ -30,7 +84,7 @@ export const DOUBTS_NAME = '我的疑惑.md'
 
 const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 
-/** 这一条的问题：我的疑惑第一行，没有就是小标题 */
+/** 这一条的问题：新格式是发出去的原话，旧格式是我的疑惑第一行；没有就是小标题 */
 export const questionOf = (s: AskSection) => s.doubts[0] ?? s.title
 
 /** 按讲（再按 PDF 名）分组，组里按页、再按问的时间排 */

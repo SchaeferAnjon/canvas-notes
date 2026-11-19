@@ -105,7 +105,7 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
       http && { label: '剪成卡片', run: () => a.clip(clip, 'inbox') },
       http && doc && { label: '剪进文档', run: () => a.clip(clip, 'doc') },
       { label: '翻译', run: () => translateAt(sel, { x: page.rect().left + p.x, y: page.rect().top + p.y }) },
-      { label: '问 AI', run: () => a.askAi(sel) },
+      { label: '问 AI', run: () => a.askAi(sel, title ? `网页《${title}》` : '网页') },
       '-',
     )
   }

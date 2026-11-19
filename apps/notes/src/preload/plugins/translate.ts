@@ -409,6 +409,7 @@ function report() {
       failed,
       menuSeq,
       pdfSeq,
+      ...(isPdf() ? { pdf: true } : {}),
       ...(lastError ? { error: lastError } : {}),
       ...(blocked ? { blocked } : {}),
       ...(retryAt ? { retryAt } : {}),

@@ -76,8 +76,9 @@ test('网页上框着问：中间开着文档就插到光标处（带网址和�
     await expect(ai(page).getByTestId('reading-sees')).toContainText('网页 · Rotation matrix')
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
     await expect(ai(page).getByRole('textbox')).toHaveValue('给我讲解一下')
-    // 竖条上只有 AI（网页上问的没有一篇自己的笔记）
-    await expect.poll(() => railItems(page)).toEqual(['大纲', '网页', '微信读书', '历史'])
+    // 网页上问的没有一篇自己的笔记：「笔记」在原位变淡（右图标栏方向 A）
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
+    await expect(rail(page).getByRole('button', { name: /^笔记/ })).toHaveClass(/\bdim\b/)
     await ai(page).getByRole('textbox').press('Enter')
     await expect(ai(page).locator('.um').last()).toHaveText('给我讲解一下')
     await expect(ai(page).getByText('读了网页这一段')).toBeVisible()
@@ -87,11 +88,12 @@ test('网页上框着问：中间开着文档就插到光标处（带网址和�
     expect(md).toContain('我的草稿。')
     expect(md).toMatch(/## 测试小标题 p\d+\n\[127\.0\.0\.1\]\(http:\/\/127\.0\.0\.1:\d+\/wiki\/Rotation_matrix#later\) · \d\d:\d\d/)
     expect(md).toContain('![我框的](附件/网页/127.0.0.1-p1-1.png)')
-    expect(md).toMatch(/\[完整对话 · 1 轮\]\(\.canvas-notes\/对话\/网页-127\.0\.0\.1-p1-1\.md\)/)
+    // 身份写在第二行行尾，完整对话不再另写一份（CN-93）
+    expect(md).toMatch(/\) · \d\d:\d\d <!-- cn:thread=网页-127\.0\.0\.1-p1-1 -->\n/)
+    expect(md).not.toContain('完整对话')
     expect(gitOut(vault, 'log', '-1', '--format=%s')).toMatch(/^笔记：网页「Rotation matrix」· 测试小标题 p\d+ → 线性代数 草稿$/)
     expect(gitStatus(vault)).toBe('')
-    const convo = readFileSync(join(vault, '.canvas-notes/对话/网页-127.0.0.1-p1-1.md'), 'utf8')
-    expect(convo).toContain('[回到 127.0.0.1](http://127.0.0.1')
+    expect(existsSync(join(vault, '.canvas-notes/对话'))).toBe(false)
 
     // 关掉文档：再框一块，记进收件箱
     await page.locator('main.center .tab', { hasText: '线性代数 草稿' }).getByRole('button', { name: '关闭标签' }).click()

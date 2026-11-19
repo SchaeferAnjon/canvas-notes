@@ -52,7 +52,8 @@ test('真白板上正改着一张卡，外面把这张卡删了：框不消失�
     await page.waitForTimeout(2000)
     // 框还在、焦点还在，接着打的字也进框里
     await expect(box).toBeFocused()
-    await expect(box).toHaveValue('## 十二月正在写的一大段字')
+    // 卡里是排好的样子：## 不露
+    await expect(box).toHaveText('十二月正在写的一大段字')
     await page.keyboard.type('还在')
     await shotWindow(run, 'r6-board-deleted-editing')
     await page.keyboard.press('Escape')
@@ -212,18 +213,18 @@ test('点提示块标题左边的图标再打字：字进提示块标题，笔�
   }
 })
 
-test('白板上摆过的段落：和上一段之间的空行有一行高，↓ 停得进去、点得进去，打的字在空行里', async () => {
+test('白板上摆过的段落：和上一段之间的空行和普通空行一样高（块间 12），↓ 停得进去、点得进去，打的字在空行里', async () => {
   const DOC = '# 拖出\n\n第一段文字。\n\n<!-- card id=d2 x=900 y=200 -->\n第二段文字。\n\n第三段文字。\n'
   const run = await launch({ '拖出.md': DOC })
   const { page } = run
   try {
     await shotTone(page)
     await openNote(page, '拖出')
-    // 第一段和摆着的第二段之间那一行（藏着位置行的空行），和第二、三段之间的普通空行一样高
+    // 第一段和摆着的第二段之间那一行（藏着位置行的空行），和第二、三段之间的普通空行一样高（竖向疏密：块和块之间压成 12）
     const gap = line(page, '第二段文字').locator('xpath=preceding-sibling::div[1]')
     const plain = await line(page, '第二段文字').evaluate((el) => (el.nextElementSibling as HTMLElement).getBoundingClientRect().height)
     const h = await gap.evaluate((el) => el.getBoundingClientRect().height)
-    expect(plain).toBeGreaterThan(15)
+    expect(plain).toBe(12)
     expect(Math.abs(h - plain)).toBeLessThan(2)
     await shotWindow(run, 'r6-placed-gap')
     // ↓ 从上一段末尾进空行
@@ -325,6 +326,8 @@ test('AI 存卡提交没成功，之后自动提交先把卡收进去了：「�
     await expect.poll(() => vaultGit(vault, ['status', '--porcelain']), { timeout: 20_000 }).toBe('')
     const auto = vaultGit(vault, ['log', '-1', '--format=%H %s'])
     expect(auto).not.toContain('AI：')
+    // AI 对话跟着地方走（D 组 CN-132）：回到白板那段对话里点「再提交一次」
+    await page.locator('.tab', { hasText: '冰岛自驾' }).locator('.tl').click()
     await warn.getByRole('button', { name: '再提交一次' }).click()
     await expect(msg.locator('.done')).toHaveText('卡存好了，已经由自动提交收进去了', { timeout: 15_000 })
     const change = msg.getByTestId('ai-change')

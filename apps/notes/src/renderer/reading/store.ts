@@ -3,11 +3,12 @@
  * 对话、问过的地方、框好还没发的那块、笔记读回来的段、要跳到哪、要看笔记哪一段。
  * 存盘的部分（看到哪页、对话）交给主进程存在软件设置目录；笔记本身在库里。
  */
-import { type AskSection, blocksText, decorativeImages, documentBlocks, type FigureBox, locateFigure, mineruFigure, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect, remapBlockIds, toPageRect } from '@cn/format'
-import type { MineruJob } from '../../shared/mineru'
+import { type AskSection, blocksText, decorativeImages, documentBlocks, type FigureBox, locateFigure, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect, toPageRect } from '@cn/format'
 import { useSyncExternalStore } from 'react'
 import type { EngineId } from '../../shared/agent'
-import { type ReadingMsg, type ReadingState, type ReadingThread, readLine, withoutVizMark } from '../../shared/reading'
+import { type AiPick, convPick, hasEffort, pickLabel } from '../../shared/ai-features'
+import { imageNames, type Material, shiftMarks } from '../../shared/materials'
+import { type ReadingMsg, type ReadingSide, type ReadingState, type ReadingThread, readLine, withoutVizMark } from '../../shared/reading'
 import { titleOf } from '../../shared/layout'
 import { fmtTime } from '../../shared/video'
 import { pageText, pdfDoc, renderCrop } from './pdf'
@@ -20,9 +21,10 @@ export interface Pending {
   page: number
   rect?: Rect
   quote?: string
-  /** 截好的图（blob 网址和字节）；选字问的没有 */
+  /** 截好的图（blob 网址和字节）；选字问的没有。截图是框在 PDF 上 100% 时的 2 倍，w 是 100% 时的宽（CN-111） */
   url?: string
   png?: Uint8Array
+  w?: number
   /** 库里已经有的图（视频问答块「接着问」：那一问框的那一帧），直接附上，不另存 */
   image?: string
   /** 改问法：输入框不预填「给我讲解一下」 */
@@ -39,11 +41,12 @@ export const ASK_PAGE = 'cn:reading-ask-page'
 /** 来源是右栏网页（中间栏没开 PDF、HTML 时框着问）：「web:<网址>」 */
 export const isWebSrc = (src: string) => src.startsWith('web:')
 
-/** 排着的一问。page：答的时候按 ⌘↵ 排上的，发出时和平时的 ⌘↵ 一样带上那一页 */
+/** 排着的一问。page：答的时候按 ⌘↵ 排上的，发出时和平时的 ⌘↵ 一样带上那一页；mats：带的材料（字里的 ①② 是它们的位置） */
 export interface Queued {
   text: string
   pasted: string[]
   page?: number
+  mats?: Material[]
 }
 
 export interface Reading {
@@ -66,8 +69,13 @@ export interface Reading {
    * 连排几句都留着（第 3 轮：第二句把第一句顶掉、哪里都找不回来）
    */
   queued: Queued[]
-  /** 排着的那几问不发了（点了停下、点了「不发了」、换了一块）：它们的字和贴的图接回输入框（输入框里已经有的字不动） */
-  restore: { text: string; pasted: string[]; seq: number } | null
+  /** 排着的那几问不发了（点了停下、点了「不发了」、换了一块）：它们的字和材料接回输入框（输入框里已经有的字不动） */
+  restore: { text: string; mats: Material[]; seq: number } | null
+  /**
+   * 从外面加进输入框的材料（多段引用方向 B）：PDF 上框一块「引用这块」、右栏网页选字「问 AI」。输入框（ReadingAi）拿走一块删一块；
+   * doc：别处选字带进来的，成为第一块（已经有一块就换掉它）
+   */
+  incoming: { mat: Material; doc: boolean; seq: number }[]
   note: { path: string; text: string; sections: AskSection[] }
   /** 让 PDF 翻过去、框闪两下 */
   jump: { page: number; rect?: Rect; seq: number } | null
@@ -77,19 +85,28 @@ export interface Reading {
   convo: { id: string; seq: number } | null
   /** 有新记的笔记还没看（竖条「笔记」上的小点） */
   fresh: boolean
-  /** 刚记好的那一段（笔记里外圈亮 2 秒） */
-  justWritten: string | null
   /** 正在后台写的几段 */
   writing: string[]
   /** 发出去过几次：输入框看到它变了就清掉预填的字（不管是从哪里发的） */
   sent: number
-  /** 块是谁认的：pdf.js 拼的，还是 PDF 精读增强（MinerU） */
-  layout: 'pdfjs' | 'mineru'
-  /** PDF 精读增强在后台识别这一份的进度（没装、没在识别是 null） */
-  mineru: MineruJob | null
-  /** 换成 MinerU 的块后，AI 提过的旧图编号 → 新编号（下一问告诉 AI 一次） */
-  renamed: Record<string, string> | null
+  /** 右栏下格的旁支（CN-90 方向 A）：开着哪一条、收没收成一条头、拖到的高低、收着时来了几条新回答 */
+  side: SideUi
+  /** 正在答的旁支：旁支编号 → 那条回答的 id */
+  sideRunning: Record<string, number>
+  /** 让笔记滚到那条旁支（「在笔记里看」、笔记里点小标） */
+  sideFocus: { thread: string; quote: string; seq: number } | null
 }
+
+/** 下格的样子：share 是拖过的高低（占 AI 那一格的比例，null 是默认 55%，双击回默认） */
+export interface SideUi {
+  open: string | null
+  fold: boolean
+  share: number | null
+  unread: number
+}
+
+/** 旁支里空着回车问的那句 */
+export const ASK_THIS = '讲讲这句'
 
 const docs = new Map<string, Reading>()
 const subs = new Set<() => void>()
@@ -112,17 +129,17 @@ const blank = (pdf: string): Reading => ({
   running: null,
   queued: [],
   restore: null,
+  incoming: [],
   note: { path: notePathFor(pdf), text: '', sections: [] },
   jump: null,
   focus: null,
   convo: null,
   fresh: false,
-  justWritten: null,
   writing: [],
   sent: 0,
-  layout: 'pdfjs',
-  mineru: null,
-  renamed: null,
+  side: { open: null, fold: false, share: null, unread: 0 },
+  sideRunning: {},
+  sideFocus: null,
 })
 
 export function get(pdf: string): Reading {
@@ -151,13 +168,37 @@ export function useReading(pdf: string | null): Reading | null {
   return pdf ? get(pdf) : null
 }
 
-/** 右栏 AI 头上选的引擎（框好直接点「讲解一下」时也用它） */
+/** 「AI 对话」现在用的那家（做个可视化、后台记笔记跟它）；每问一次按设置 › AI「AI 对话」那一行更新 */
 let engineNow: EngineId = 'claude'
-/** 「Claude Code · Opus 5.5」：回答上面那一行写是哪家哪个模型答的（CN-54） */
-let byNow = ''
-export const setEngine = (e: EngineId, by?: string) => {
-  engineNow = e
-  if (by !== undefined) byNow = by
+
+/** 外面（PDF 上「引用这块」、右栏网页「问 AI」）加一块材料进这份 PDF 的输入框；输入框开着就马上拿走 */
+export function addMaterial(pdf: string, mat: Material, o: { doc?: boolean } = {}) {
+  update(pdf, (r) => ({ incoming: [...r.incoming, { mat, doc: !!o.doc, seq: nextSeq() }] }))
+}
+
+/** 输入框拿走等着的材料 */
+export function takeIncoming(pdf: string): Reading['incoming'] {
+  const got = get(pdf).incoming
+  if (got.length) update(pdf, () => ({ incoming: [] }))
+  return got
+}
+
+/** 输入框底行换了模型、effort（CN-91 方向 C）：只管这份 PDF 的对话，记在它的对话记录里 */
+export function setPick(pdf: string, pick: AiPick) {
+  update(pdf, (r) => ({ state: { ...r.state, pick } }))
+  save(pdf)
+}
+
+/**
+ * 这一问用的哪家、哪个模型、哪一档和回答头上那一行（CN-91）：哪家跟设置 › AI「AI 对话」那一行，
+ * 这份 PDF 的对话自己选过模型、effort 就用自己的（ReadingAi 底行那三颗显示的就是它）
+ */
+async function pickNow(pdf: string): Promise<{ pick: AiPick; by: string; req: { model?: string; effort?: string } }> {
+  const ai = await window.cn.aiEngines()
+  const pick = convPick(ai.engines, ai.chat, get(pdf).state.pick)
+  engineNow = pick.engine
+  const models = ai.engines.find((e) => e.id === pick.engine)?.models
+  return { pick, by: pickLabel(pick, models), req: hasEffort(pick.engine) ? { model: pick.model ?? '', ...(pick.effort ? { effort: pick.effort } : {}) } : {} }
 }
 
 /** ⌘J、右下角圆钮打开的 AI：打开后光标进输入框（打开 PDF 时自己出来的那次不抢焦点） */
@@ -182,36 +223,50 @@ function save(pdf: string) {
   saveTimers.set(
     pdf,
     setTimeout(() => {
+      saveTimers.delete(pdf)
       const r = get(pdf)
       if (r.loaded) void window.cnReading.saveState(r.state)
     }, 300),
   )
 }
 
+/**
+ * 还没存的现在就存：AI 对话菜单列「最近在别处问的」之前（刚问完的那份 PDF 也要列得出来）；
+ * 退出软件、关窗口前（main.tsx 的 cnSaveAll）和页面卸载前：不然答完 300 毫秒内退出，存下的是半截回答
+ */
+export async function flushSaves(all = false) {
+  const pending = [...saveTimers.keys()]
+  for (const pdf of pending) clearTimeout(saveTimers.get(pdf))
+  saveTimers.clear()
+  // 退出、卸载时读进来的每一份都存：边答边显示的字（还没答完、没排上存盘的）也在
+  const list = all ? [...docs.keys()] : pending
+  await Promise.all(list.map((pdf) => (get(pdf).loaded ? window.cnReading.saveState(get(pdf).state) : undefined)))
+}
+// 页面卸载（重载、关窗口）：发出去的存盘请求在卸载前就交给了主进程
+if (typeof window !== 'undefined') window.addEventListener('beforeunload', () => void flushSaves(true))
+
 let listening = false
+
+/** 上次关软件时没答完的那条记成停下了；正在记笔记、做可视化的记成没做完 */
+const settled = (m: ReadingMsg): ReadingMsg =>
+  m.role === 'ai' && !m.text && !m.error
+    ? { ...m, error: '没答完（软件关了）' }
+    : m.note === 'writing' || m.viz?.state === 'making'
+      ? { ...m, ...(m.note === 'writing' ? { note: undefined } : {}), ...(m.viz?.state === 'making' ? { viz: { state: 'error' as const, error: '软件关了，没做完' } } : {}) }
+      : m
 
 export async function load(pdf: string) {
   if (!listening) {
     listening = true
     window.cnReading.onAsk((id, e) => onAskText(id, e.delta))
-    window.cnMineru.onJob(onMineruJob)
-    // 刚装好 PDF 精读增强：开着的 PDF 接着用它识别
-    window.cnMineru.onInstalled(() => {
-      for (const [p, r] of docs) if (r.layout === 'pdfjs' && r.readN === r.pages && r.pages) void enhance(p)
-    })
   }
   if (get(pdf).loaded) return
   const [state, note] = await Promise.all([window.cnReading.state(pdf), window.cnReading.readNote(pdf)])
-  // 上次关软件时没答完的那条记成停下了
-  const msgs = state.msgs.map((m) =>
-    m.role === 'ai' && !m.text && !m.error
-      ? { ...m, error: '没答完（软件关了）' }
-      : m.note === 'writing' || m.viz?.state === 'making'
-        ? { ...m, ...(m.note === 'writing' ? { note: undefined } : {}), ...(m.viz?.state === 'making' ? { viz: { state: 'error' as const, error: '软件关了，没做完' } } : {}) }
-        : m,
-  )
+  const msgs = state.msgs.map(settled)
+  // 旁支照旧在（CN-90）：没问过的空旁支不留
+  const sides = (state.sides ?? []).filter((s) => s.msgs.length).map((s) => ({ ...s, msgs: s.msgs.map(settled) }))
   const last = [...msgs].reverse().find((m) => m.role === 'user')
-  update(pdf, () => ({ loaded: true, state: { ...state, msgs }, activeThread: last?.thread ?? null, note: { ...note, sections: parseReadingNote(note.text, note.path) } }))
+  update(pdf, () => ({ loaded: true, state: { ...state, msgs, sides }, activeThread: last?.thread ?? null, note: { ...note, sections: parseReadingNote(note.text, note.path) } }))
 }
 
 export async function reloadNote(pdf: string) {
@@ -239,9 +294,7 @@ export async function readAll(pdf: string, hash: string, pages: number) {
   // 读过的（按内容指纹缓存着）直接拿来
   const cached = await window.cnReading.getText(hash)
   if (cached && cached.length === pages) {
-    const byMineru = cached.some((p) => p.some((b) => b.by === 'mineru'))
-    update(pdf, () => ({ blocks: Object.fromEntries(cached.map((b, i) => [i + 1, b])), readN: pages, layout: byMineru ? 'mineru' : 'pdfjs' }))
-    if (!byMineru) void enhance(pdf)
+    update(pdf, () => ({ blocks: Object.fromEntries(cached.map((b, i) => [i + 1, b])), readN: pages }))
     return
   }
   const doc = pdfDoc(pdf)
@@ -255,42 +308,6 @@ export async function readAll(pdf: string, hash: string, pages: number) {
   const all = documentBlocks(texts)
   update(pdf, (r) => ({ blocks: Object.fromEntries(all.map((b, i) => [i + 1, b])), readN: pages, hash: r.hash }))
   await window.cnReading.setText(hash, pdf, all, texts.map((t) => [t.width, t.height]))
-  void enhance(pdf)
-}
-
-// ---------- PDF 精读增强（MinerU）：pdf.js 的块先出，它在后台认完再换 ----------
-
-/** 有能用的 MinerU 就排进后台识别；没装、测试实例里关着返回 null，什么都不变。fresh：「重试」 */
-export async function enhance(pdf: string, fresh = false) {
-  const r = get(pdf)
-  if (!/\.pdf$/i.test(pdf) || !r.pages || r.layout === 'mineru') return
-  const job = await window.cnMineru.enhance(pdf, r.pages, fresh)
-  if (job) onMineruJob(job)
-  else update(pdf, () => ({ mineru: null }))
-}
-
-function onMineruJob(j: MineruJob) {
-  for (const [pdf, r] of docs) {
-    if (r.hash !== j.hash) continue
-    update(pdf, () => ({ mineru: j }))
-    if (j.status === 'done' && r.layout !== 'mineru') void swapIn(pdf)
-  }
-}
-
-/** 换成 MinerU 的块：AI 已经在会话里看过的旧图编号，按框的重叠对到新块，下一问告诉它 */
-async function swapIn(pdf: string) {
-  const r = get(pdf)
-  const pages = await window.cnReading.getText(r.hash)
-  if (!pages || pages.length !== r.pages || !pages.some((p) => p.some((b) => b.by === 'mineru'))) return
-  const asked = r.state.msgs.some((m) => m.role === 'ai' && m.text)
-  const seen = new Set(Object.values(r.blocks).flatMap((p) => p.filter((b) => b.kind === 'image').map((b) => b.id)))
-  const map = Object.fromEntries(Object.entries(remapBlockIds(r.blocks, pages)).filter(([a]) => seen.has(a)))
-  update(pdf, (x) => ({
-    blocks: Object.fromEntries(pages.map((b, i) => [i + 1, b])),
-    readN: x.pages,
-    layout: 'mineru',
-    renamed: asked && Object.keys(map).length ? { ...(x.renamed ?? {}), ...map } : x.renamed,
-  }))
 }
 
 /** 某一页的块：全文读到了就用，没读到现读这一页 */
@@ -333,9 +350,20 @@ export function stage(pdf: string, p: Pending, sentAt?: number) {
   update(pdf, (x) => ({ pending: p, ...(keep ? {} : dropQueue(x)) }))
 }
 
-/** 排着的这几问不发了：字（一问一段，空一行）和贴的图交回输入框 */
-const giveBack = (qs: Queued[]): Reading['restore'] =>
-  qs.length ? { text: qs.map((q) => q.text).join('\n\n'), pasted: qs.flatMap((q) => q.pasted), seq: nextSeq() } : null
+/** 排着的这几问不发了：字（一问一段，空一行）和材料交回输入框；后一问字里的编号接着前一问的往后数 */
+function giveBack(qs: Queued[]): Reading['restore'] {
+  if (!qs.length) return null
+  let n = 0
+  const texts: string[] = []
+  const mats: Material[] = []
+  for (const q of qs) {
+    const own = q.mats ?? []
+    texts.push(shiftMarks(q.text, own.length, n))
+    mats.push(...own)
+    n += own.length
+  }
+  return { text: texts.join('\n\n'), mats, seq: nextSeq() }
+}
 const dropQueue = (x: Reading): Partial<Reading> => (x.queued.length ? { queued: [], restore: giveBack(x.queued) } : {})
 
 /** 输入框上排着的那一行的「不发了」：只这一问不发，字回输入框，别的照排 */
@@ -360,24 +388,24 @@ export function closed(pdf: string) {
   update(pdf, () => ({ pending: null, queued: [], restore: null }))
 }
 
-/** 截一块：按 PDF 本身重新画，不受屏幕上的缩放影响 */
+/** 截一块：按 PDF 本身重新画，不受屏幕上的缩放影响；按 PDF 100% 的 2 倍画（笔记里按 100% 的宽显示，CN-111） */
 export async function cropOf(pdf: string, page: number, rect?: Rect) {
   const doc = pdfDoc(pdf)
   if (!doc) throw new Error('PDF还没打开')
-  return renderCrop(doc, page, rect)
+  return renderCrop(doc, page, rect, undefined, 2)
 }
 
 /**
  * 发出去：有框好的那块就新开一处；没有就接着上一处追问（还没问过的话，问的是正在看的这一页）。
  * 回答出来以后在后台记进笔记，不让人等。
  */
-export async function send(pdf: string, text: string, pasted: string[] = [], o: { page?: number } = {}) {
-  const engine = engineNow
+export async function send(pdf: string, text: string, pasted: string[] = [], o: { page?: number; mats?: Material[] } = {}) {
   const r = get(pdf)
-  if (!text.trim()) return
+  const mats = o.mats ?? []
+  if (!text.trim() && !mats.length) return
   if (r.running !== null) {
     // 还在答上一问：排在队尾，答完依次发（CN-28/30）。点浮条按钮、输入框回车、⌘↵ 都走这里
-    update(pdf, (x) => ({ queued: [...x.queued, { text: text.trim(), pasted, ...(o.page ? { page: o.page } : {}) }] }))
+    update(pdf, (x) => ({ queued: [...x.queued, { text: text.trim(), pasted, ...(o.page ? { page: o.page } : {}), ...(mats.length ? { mats } : {}) }] }))
     return
   }
   // 一开始就记下「在发了」（不等建对话、存截图那几步）：连点两下第二下进不来；
@@ -386,7 +414,7 @@ export async function send(pdf: string, text: string, pasted: string[] = [], o: 
   const p = r.pending
   update(pdf, (x) => ({ running: aiId, sent: x.sent + 1, pending: null }))
   try {
-    await ask(pdf, aiId, engine, p, text, pasted)
+    await ask(pdf, aiId, p, text, pasted, mats)
   } finally {
     if (p?.url) URL.revokeObjectURL(p.url)
     update(pdf, () => ({ running: null }))
@@ -396,7 +424,7 @@ export async function send(pdf: string, text: string, pasted: string[] = [], o: 
   if (!q) return
   update(pdf, () => ({ queued: rest }))
   if (q.page) void sendWithPage(pdf, q)
-  else void send(pdf, q.text, q.pasted)
+  else void send(pdf, q.text, q.pasted, q.mats ? { mats: q.mats } : {})
 }
 
 /**
@@ -406,20 +434,25 @@ async function sendWithPage(pdf: string, q: Queued) {
   if (/\.pdf$/i.test(pdf)) {
     try {
       const c = await cropOf(pdf, q.page!)
-      update(pdf, () => ({ pending: { page: q.page!, url: c.url, png: c.png, direct: true } }))
+      update(pdf, () => ({ pending: { page: q.page!, url: c.url, png: c.png, w: c.cssW, direct: true } }))
     } catch {
       // PDF 已经关了、还没打开：只发字，不丢这一问
     }
-    return send(pdf, q.text, q.pasted)
+    return send(pdf, q.text, q.pasted, q.mats ? { mats: q.mats } : {})
   }
   const ask = new CustomEvent<{ src: string; text: string; taken?: boolean }>(ASK_PAGE, { detail: { src: pdf, text: q.text } })
   window.dispatchEvent(ask)
-  if (!ask.detail.taken) return send(pdf, q.text, q.pasted)
+  if (!ask.detail.taken) return send(pdf, q.text, q.pasted, q.mats ? { mats: q.mats } : {})
 }
 
-async function ask(pdf: string, aiId: number, engine: EngineId, p: Pending | null, text: string, pasted: string[]) {
+async function ask(pdf: string, aiId: number, p: Pending | null, text: string, pasted: string[], mats: Material[]) {
   const r = get(pdf)
   const now = Date.now()
+  // 谁来答、模型、effort：这份 PDF 的对话选的（没选过用「AI 对话」那一行），回答头上写全
+  const { pick, by, req } = await pickNow(pdf)
+  const engine = pick.engine
+  // 材料里的图和粘贴的图一样附上（按顺序，排在框的那块后面）
+  const images = [...pasted, ...imageNames(mats).filter((n) => !pasted.includes(n))]
   let thread: ReadingThread | undefined
   let image: string | undefined
   if (p) {
@@ -427,7 +460,7 @@ async function ask(pdf: string, aiId: number, engine: EngineId, p: Pending | nul
     if (p.image) image = p.image
     else if (p.png) image = await window.cnReading.saveCrop(pdf, p.page, p.png)
     // 视频「接着问」附的那一帧文档里那块问答已经有了，笔记里不再放一遍
-    thread = { id, page: p.page, ...(p.rect ? { rect: p.rect } : {}), ...(p.quote ? { quote: p.quote } : {}), ...(image && !p.image ? { crop: image } : {}), ...(p.web ? { web: p.web } : {}), createdAt: now }
+    thread = { id, page: p.page, ...(p.rect ? { rect: p.rect } : {}), ...(p.quote ? { quote: p.quote } : {}), ...(image && !p.image ? { crop: image, ...(p.w ? { cropW: p.w } : {}) } : {}), ...(p.web ? { web: p.web } : {}), createdAt: now }
     // 网页那边的框和工具条收起来
     if (p.web && /^https?:/i.test(p.web.url)) clearWebBox(webHost()?.view() ?? null)
   } else {
@@ -438,8 +471,18 @@ async function ask(pdf: string, aiId: number, engine: EngineId, p: Pending | nul
     }
   }
   const th = thread
-  const userMsg: ReadingMsg = { id: nextSeq(), role: 'user', thread: th.id, text: text.trim(), time: now, page: th.page, ...(image ? { image } : {}), ...(pasted.length ? { pasted } : {}) }
-  const aiMsg: ReadingMsg = { id: aiId, role: 'ai', thread: th.id, text: '', time: now, page: th.page, engine, read: readOf(th, ''), ...(byNow ? { by: byNow } : {}) }
+  const userMsg: ReadingMsg = {
+    id: nextSeq(),
+    role: 'user',
+    thread: th.id,
+    text: text.trim(),
+    time: now,
+    page: th.page,
+    ...(image ? { image } : {}),
+    ...(pasted.length ? { pasted } : {}),
+    ...(mats.length ? { mats } : {}),
+  }
+  const aiMsg: ReadingMsg = { id: aiId, role: 'ai', thread: th.id, text: '', time: now, page: th.page, engine, read: readOf(th, ''), by }
   update(pdf, (x) => ({
     activeThread: th.id,
     state: { ...x.state, threads: x.state.threads.some((t) => t.id === th.id) ? x.state.threads : [...x.state.threads, th], msgs: [...x.state.msgs, userMsg, aiMsg] },
@@ -454,12 +497,13 @@ async function ask(pdf: string, aiId: number, engine: EngineId, p: Pending | nul
     thread: th,
     text: text.trim(),
     images: image ? [image] : [],
-    ...(pasted.length ? { pasted } : {}),
+    ...(images.length ? { pasted: images } : {}),
     pageText: blocksText(blocks),
     pages: get(pdf).pages,
-    ...(get(pdf).renamed ? { renamed: get(pdf).renamed! } : {}),
+    ...req,
+    // 引用的材料（多段引用方向 B）：主进程交给引擎时照旧是 ①②、后面按同一套编号列出每块；后面记笔记也用它
+    ...(mats.length ? { mats } : {}),
   })
-  if (get(pdf).renamed) update(pdf, () => ({ renamed: null }))
   const full = res.text || get(pdf).state.msgs.find((m) => m.id === aiId)?.text || ''
   const { text: answer, viz, figure } = withoutVizMark(full)
   // 配图的框：附的是框的那块就换成整页上的比例（附的是整页就原样）
@@ -468,18 +512,201 @@ async function ask(pdf: string, aiId: number, engine: EngineId, p: Pending | nul
   if (!res.error && res.text.trim()) void writeNote(pdf, th.id, aiId, engine)
 }
 
-/** 边生成边显示：主进程一小段一小段给字 */
+/** 边生成边显示：主进程一小段一小段给字（主对话的，或者旁支的） */
 export function onAskText(id: number, delta: string) {
   for (const [pdf, r] of docs) {
-    if (r.running !== id) continue
-    update(pdf, (x) => ({ state: { ...x.state, msgs: x.state.msgs.map((m) => (m.id === id ? { ...m, text: m.text + delta } : m)) } }))
+    if (r.running === id) update(pdf, (x) => ({ state: { ...x.state, msgs: x.state.msgs.map((m) => (m.id === id ? { ...m, text: m.text + delta } : m)) } }))
+    const side = Object.entries(r.sideRunning).find(([, v]) => v === id)?.[0]
+    if (side) patchSideMsg(pdf, side, id, (m) => ({ text: m.text + delta }), false)
   }
 }
 
-/** 新对话：AI 换一个新会话（重新读全文）；问过的、笔记都留着 */
+// ---------- 旁支（CN-90 方向 A「照 Dispatch 旁支」） ----------
+
+const sidesOf = (r: Reading) => r.state.sides ?? []
+const setSides = (pdf: string, f: (sides: ReadingSide[]) => ReadingSide[]) => update(pdf, (r) => ({ state: { ...r.state, sides: f(sidesOf(r)) } }))
+
+/** 旁支里的一条消息改一下（边答边显示时不存盘，答完存） */
+function patchSideMsg(pdf: string, side: string, id: number, p: (m: ReadingMsg) => Partial<ReadingMsg>, store = true) {
+  setSides(pdf, (all) => all.map((s) => (s.id === side ? { ...s, msgs: s.msgs.map((m) => (m.id === id ? { ...m, ...p(m) } : m)) } : s)))
+  if (store) save(pdf)
+}
+
+/** 旁支的名字：改过的；没改过用问的第一句（空着问的「讲讲这句」不算），再没有用那一句的开头；还没问过是「新旁支」 */
+export function sideName(s: ReadingSide): string {
+  if (s.name?.trim()) return s.name.trim()
+  // 第一问的原话当名字；末尾的问号、句号不要（格头「名字 · 来自第 N 页」里全角问号再加「 · 」空得太宽）
+  const first = s.msgs
+    .find((m) => m.role === 'user')
+    ?.text.replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[？?。！!，,、；;：:]+$/, '')
+  if (!first) return '新旁支'
+  if (first !== ASK_THIS) return first.length > 16 ? first.slice(0, 16) + '…' : first
+  return `「${s.quote.length > 8 ? s.quote.slice(0, 8) + '…' : s.quote}」`
+}
+
+/** 旁支问了几问 */
+export const sideAsks = (s: ReadingSide) => s.msgs.filter((m) => m.role === 'user').length
+
+/**
+ * 一处的旁支按笔记里的顺序排（小标上的数字）：先按被问的那条回答在主对话里的先后，同一条回答里按开的先后。
+ * 笔记里旁支挂在被问那一问后面，数字和笔记里一样
+ */
+export function sidesInOrder(r: Reading, thread: string): ReadingSide[] {
+  const at = (s: ReadingSide) => r.state.msgs.findIndex((m) => m.id === s.msg)
+  return sidesOf(r)
+    .filter((s) => s.thread === thread)
+    .sort((a, b) => at(a) - at(b) || a.createdAt - b.createdAt)
+}
+
+/** 没问过的空旁支不留（keep 那条除外：刚开、光标在它的输入框里） */
+const dropEmpty = (all: ReadingSide[], keep: string | null) => all.filter((s) => s.msgs.length || s.id === keep)
+
+/**
+ * 在主对话的回答里选中一句开一条旁支：下格打开、光标在旁支的输入框里；question 给了（小框里先打了问题）直接问
+ */
+export function openSide(pdf: string, at: { msg: number; quote: string }, question?: string, mats?: Material[]): string | undefined {
+  const r = get(pdf)
+  const msg = r.state.msgs.find((m) => m.id === at.msg)
+  if (!msg) return undefined
+  const side: ReadingSide = { id: `side-${nextSeq().toString(36)}`, thread: msg.thread, msg: at.msg, quote: at.quote.replace(/\s+/g, ' ').trim(), msgs: [], createdAt: Date.now() }
+  update(pdf, (x) => ({ state: { ...x.state, sides: [...dropEmpty(sidesOf(x), null), side] }, side: { ...x.side, open: side.id, fold: false, unread: 0 } }))
+  save(pdf)
+  wantSideFocus = true
+  if (question?.trim() || mats?.length) void sendSide(pdf, side.id, question ?? '', mats ?? [])
+  return side.id
+}
+
+/** 切到一条旁支（⋯ 里点一条、点小标）；null 是关掉下格。切走时没问过的空旁支不留 */
+export function showSide(pdf: string, id: string | null) {
+  update(pdf, (x) => ({ state: { ...x.state, sides: dropEmpty(sidesOf(x), id) }, side: { ...x.side, open: id, fold: false, unread: 0 } }))
+  save(pdf)
+  if (id) wantSideFocus = true
+}
+
+export const closeSide = (pdf: string) => showSide(pdf, null)
+
+/** 点格头：收成一条头（29 高）/ 展开；展开时没看的回答算看过了 */
+export function foldSide(pdf: string, fold: boolean) {
+  update(pdf, (x) => ({ side: { ...x.side, fold, ...(fold ? {} : { unread: 0 }) } }))
+}
+
+/** 拖两格之间的线：下格占 AI 那一格的比例；null 是回默认（双击） */
+export function setSideShare(pdf: string, share: number | null) {
+  update(pdf, (x) => ({ side: { ...x.side, share } }))
+}
+
+export function renameSide(pdf: string, id: string, name: string) {
+  setSides(pdf, (all) => all.map((s) => (s.id === id ? { ...s, name: name.trim() || undefined } : s)))
+  save(pdf)
+}
+
+/** 删掉一条旁支：对话记录里拿掉，笔记里那一处跟着重写（这条旁支的问答不在了） */
+export function deleteSide(pdf: string, id: string) {
+  const side = sidesOf(get(pdf)).find((s) => s.id === id)
+  if (!side) return
+  const running = get(pdf).sideRunning[id]
+  if (running !== undefined) void window.cnReading.stop(running)
+  update(pdf, (x) => ({ state: { ...x.state, sides: sidesOf(x).filter((s) => s.id !== id) }, side: x.side.open === id ? { ...x.side, open: null, fold: false } : x.side }))
+  save(pdf)
+  if (side.msgs.some((m) => m.role === 'ai' && m.text.trim()) && get(pdf).note.sections.some((s) => s.id === side.thread)) void writeNote(pdf, side.thread, null, engineNow)
+}
+
+/** 「在笔记里看」、笔记里点小标：笔记滚到那条旁支 */
+export function focusSide(pdf: string, thread: string, quote: string) {
+  update(pdf, () => ({ sideFocus: { thread, quote, seq: nextSeq() }, fresh: false }))
+}
+
+/** 打开旁支以后光标进旁支的输入框（选中一句点「问这句」、点小标、⋯ 里切过去） */
+let wantSideFocus = false
+export function takeSideFocus(): boolean {
+  const w = wantSideFocus
+  wantSideFocus = false
+  return w
+}
+
+/** 那一轮的问答原文：分叉不了的时候（Gemini、OpenCode，或者那一轮在「新对话」之前）放在旁支第一问前面 */
+function roundHistory(r: Reading, side: ReadingSide): string {
+  const th = r.state.threads.find((t) => t.id === side.thread)
+  const msgs = r.state.msgs.filter((m) => m.thread === side.thread && m.text.trim() && !m.error)
+  return `【那一轮】${th && th.page > 0 ? `第 ${th.page} 页` : ''}\n${msgs.map((m) => `${m.role === 'user' ? '他问' : '你答'}：${withoutVizMark(m.text).text.slice(0, 3000)}`).join('\n')}`
+}
+
+/** 旁支里问一句：空着就是「讲讲这句」。旁支不往主对话里加东西；答完记进笔记（挂在被问那一问的回答后面） */
+export async function sendSide(pdf: string, id: string, text: string, mats: Material[] = []) {
+  const r = get(pdf)
+  const side = sidesOf(r).find((s) => s.id === id)
+  if (!side || r.sideRunning[id] !== undefined) return
+  const th = r.state.threads.find((t) => t.id === side.thread)
+  if (!th) return
+  // 空着发：还没问过就是「讲讲这句」，问过以后不发
+  const q = text.trim() || (side.msgs.some((m) => m.role === 'user') ? '' : ASK_THIS)
+  if (!q) return
+  const now = Date.now()
+  const { pick, by, req } = await pickNow(pdf)
+  const aiId = nextSeq()
+  const user: ReadingMsg = { id: nextSeq(), role: 'user', thread: th.id, text: q, time: now, ...(mats.length ? { mats } : {}) }
+  const ai: ReadingMsg = { id: aiId, role: 'ai', thread: th.id, text: '', time: now, engine: pick.engine, by }
+  setSides(pdf, (all) => all.map((s) => (s.id === id ? { ...s, msgs: [...s.msgs, user, ai] } : s)))
+  update(pdf, (x) => ({ sideRunning: { ...x.sideRunning, [id]: aiId } }))
+  save(pdf)
+  const cur = get(pdf)
+  const parent = cur.state.msgs.findIndex((m) => m.id === side.msg)
+  const ask = cur.state.msgs
+    .slice(0, parent < 0 ? 0 : parent)
+    .reverse()
+    .find((m) => m.role === 'user' && m.thread === th.id)?.text
+  const title = cur.note.sections.find((s) => s.id === th.id)?.title
+  const parentTime = cur.state.msgs[parent]?.time ?? 0
+  const images = imageNames(mats)
+  let res: { text: string; error?: string }
+  try {
+    res = await window.cnReading.ask({
+      id: aiId,
+      pdf,
+      hash: cur.hash,
+      engine: pick.engine,
+      thread: th,
+      text: q,
+      images: [],
+      ...(images.length ? { pasted: images } : {}),
+      pageText: '',
+      pages: cur.pages,
+      ...req,
+      side: { id, history: roundHistory(cur, side), quote: side.quote, ...(ask ? { ask } : {}), ...(title ? { title } : {}), ...(cur.state.newChatAt && parentTime < cur.state.newChatAt ? { fresh: true } : {}) },
+      ...(mats.length ? { mats } : {}),
+    })
+  } catch (e) {
+    res = { text: '', error: noteErr(e) }
+  }
+  const sofar = sidesOf(get(pdf)).find((s) => s.id === id)?.msgs.find((m) => m.id === aiId)?.text ?? ''
+  const full = withoutVizMark(res.text || sofar).text
+  patchSideMsg(pdf, id, aiId, () => ({ text: full, ...(res.error ? { error: res.error } : {}) }))
+  update(pdf, (x) => {
+    const { [id]: _done, ...rest } = x.sideRunning
+    void _done
+    // 收成一条头时答完：头上写「1 条新回答」；开着的时候看得到，不算没看
+    const unseen = x.side.open === id && x.side.fold
+    return { sideRunning: rest, side: unseen ? { ...x.side, unread: x.side.unread + 1 } : x.side }
+  })
+  if (!res.error && full.trim()) void writeNote(pdf, th.id, null, pick.engine)
+}
+
+/** 停下旁支正在答的那一问 */
+export function stopSide(pdf: string, id: string) {
+  const ai = get(pdf).sideRunning[id]
+  if (ai !== undefined) void window.cnReading.stop(ai)
+}
+
+/** 新对话：AI 换一个新会话（重新读全文），选的模型和 effort 回到「AI 对话」那一行；问过的、笔记都留着 */
 export async function newChat(pdf: string) {
   await window.cnReading.forget(pdf)
-  update(pdf, (r) => ({ activeThread: null, state: { ...r.state, newChatAt: Date.now() } }))
+  update(pdf, (r) => {
+    const { pick: _pick, ...state } = r.state
+    void _pick
+    return { activeThread: null, state: { ...state, newChatAt: Date.now() } }
+  })
   save(pdf)
 }
 
@@ -500,55 +727,80 @@ function readOf(th: ReadingThread, answer: string, sections: AskSection[] = []):
 
 // ---------- 后台记笔记 ----------
 
-async function writeNote(pdf: string, threadId: string, aiId: number, engine: EngineId) {
-  patchMsg(pdf, aiId, { note: 'writing' })
+/** 同一处连着记了几次（主对话、旁支差不多同时答完）：标题小结写好时已经有更新的一次在记了，这一次不再写（那一次带着全部的问答） */
+const noteGen = new Map<string, number>()
+
+/**
+ * 记进笔记（CN-93–96）：问题原话、回答原文、旁支挂在被问那一问后面，主进程照这一处的对话收成一段。
+ * 这一段已经在笔记里时，答完马上先写一次（问答马上长出来），再让快的模型写这一轮的标题和一句小结，写好再写一次、提交。
+ * aiId：主对话那条回答（下面「已记进笔记」那一行跟着变）；旁支答完、删掉旁支时是 null
+ */
+async function writeNote(pdf: string, threadId: string, aiId: number | null, engine: EngineId) {
+  const key = `${pdf}\0${threadId}`
+  const gen = (noteGen.get(key) ?? 0) + 1
+  noteGen.set(key, gen)
+  if (aiId !== null) patchMsg(pdf, aiId, { note: 'writing' })
   update(pdf, (r) => ({ writing: [...r.writing.filter((w) => w !== threadId), threadId] }))
-  try {
+  /** 这一处现在的问答（每次写都用最新的，不用开始时的那一份） */
+  const now = () => {
     const r = get(pdf)
-    const thread = r.state.threads.find((t) => t.id === threadId)!
-    const blocks = isWebSrc(pdf) || thread.web ? [] : await figureBlocks(pdf, thread.page)
-    const msgs = r.state.msgs.filter((m) => m.thread === threadId)
-    const sum = await window.cnReading.summarize({ pdf, engine, thread, msgs, blocks })
-    let figurePng: Uint8Array | undefined
-    const section = sum.section
-    // 提示块头上写是哪家哪个模型讲的（CN-76、CN-54）
-    const by = [...msgs].reverse().find((m) => m.role === 'ai' && m.by)?.by
-    if (by) section.by = by
-    const fig = isWebSrc(pdf) || thread.web ? null : await pickFigure(pdf, thread.page, msgs, blocks, sum.figure)
-    if (fig) {
-      const doc = pdfDoc(pdf)!
-      const crop = await renderCrop(doc, thread.page, clamp(fig.rect), 600)
-      URL.revokeObjectURL(crop.url)
-      figurePng = crop.png
-      section.figures = [{ path: '', caption: `第 ${thread.page} 页 · ${fig.caption}` }]
+    return { thread: r.state.threads.find((t) => t.id === threadId)!, msgs: r.state.msgs.filter((m) => m.thread === threadId), sides: sidesOf(r).filter((s) => s.thread === threadId && s.msgs.length) }
+  }
+  try {
+    let cur = now()
+    const thread = cur.thread
+    const web = isWebSrc(pdf)
+    const old = get(pdf).note.sections.find((s) => s.id === threadId)
+    const pages = /\.pdf$/i.test(pdf) ? get(pdf).pages : 0
+    if (old && !web) {
+      await window.cnReading.writeSection({ pdf, thread, msgs: cur.msgs, sides: cur.sides, pages, commit: false })
+      await reloadNote(pdf)
+      update(pdf, () => ({ fresh: true }))
     }
-    if (isWebSrc(pdf)) {
+    const blocks = web || thread.web ? [] : await figureBlocks(pdf, thread.page)
+    const sum = await window.cnReading.summarize({ pdf, engine, thread, msgs: cur.msgs, sides: cur.sides, blocks, ...(old?.title ? { title: old.title } : {}) })
+    if (noteGen.get(key) !== gen) {
+      if (aiId !== null) patchMsg(pdf, aiId, { note: 'done' })
+      return
+    }
+    cur = now()
+    // 配图（CN-60）：AI 回答里给的框；这一段已经配过图就不再截
+    let figure: { figurePng: Uint8Array; figureCaption: string } | null = null
+    if (!web && !thread.web && !old?.figures.length) {
+      const fig = await pickFigure(pdf, thread.page, cur.msgs)
+      if (fig) {
+        const crop = await renderCrop(pdfDoc(pdf)!, thread.page, clamp(fig.rect), 600)
+        URL.revokeObjectURL(crop.url)
+        figure = { figurePng: crop.png, figureCaption: `第 ${thread.page} 页 · ${fig.caption}` }
+      }
+    }
+    if (web) {
       // 网页上问的：中间栏开着文档插到光标处，没开进收件箱
       const c = centerNow()
       const doc = c?.center.kind === 'doc' ? c.doc() : null
       const target = doc && c?.center.kind === 'doc' && doc.path === c.center.path && !doc.readOnly ? ({ kind: 'doc', path: doc.path } as const) : ({ kind: 'inbox' } as const)
-      const res = await window.cnReading.writeSection({ pdf, section, thread, msgs, pages: 0, target })
+      const res = await window.cnReading.writeSection({ pdf, title: sum.title, recap: sum.recap, thread, msgs: cur.msgs, sides: cur.sides, pages: 0, target })
       if (res.markdown !== undefined) {
         const d = centerNow()?.doc()
         if (!d || d.path !== res.note) throw new Error('那篇文档关了，没记进去')
         d.insertAtCursor(res.markdown.trimEnd(), { focus: false })
         await d.save()
         const from = thread.web?.t !== undefined ? `视频「${thread.web.title} · ${fmtTime(thread.web.t)}」` : `网页「${thread.web?.title ?? ''}」`
-        await window.cnReading.commit([res.note, ...(res.files ?? [])], `笔记：${from}· ${section.title} → ${titleOf(res.note)}`)
+        await window.cnReading.commit([res.note, ...(res.files ?? [])], `笔记：${from}· ${sum.title} → ${titleOf(res.note)}`)
         centerNow()?.refresh()
       }
-      patchMsg(pdf, aiId, { note: 'done', noteTo: res.markdown !== undefined ? `《${titleOf(res.note)}》` : `收件箱《${titleOf(res.note)}》` })
+      if (aiId !== null) patchMsg(pdf, aiId, { note: 'done', noteTo: res.markdown !== undefined ? `《${titleOf(res.note)}》` : `收件箱《${titleOf(res.note)}》` })
       return
     }
-    await window.cnReading.writeSection({ pdf, section, thread, msgs, pages: /\.pdf$/i.test(pdf) ? get(pdf).pages : 0, ...(figurePng ? { figurePng } : {}) })
+    await window.cnReading.writeSection({ pdf, title: sum.title, recap: sum.recap, thread, msgs: cur.msgs, sides: cur.sides, pages, ...(figure ?? {}) })
     await reloadNote(pdf)
-    patchMsg(pdf, aiId, { note: 'done', ...(thread.web && /^https?:/i.test(thread.web.url) ? { noteTo: `网页（记在${titleOf(get(pdf).note.path)}里）` } : {}) })
-    update(pdf, () => ({ fresh: true, justWritten: threadId }))
-    setTimeout(() => update(pdf, (x) => (x.justWritten === threadId ? { justWritten: null } : {})), 2000)
+    if (aiId !== null) patchMsg(pdf, aiId, { note: 'done', ...(thread.web && /^https?:/i.test(thread.web.url) ? { noteTo: `网页（记在${titleOf(get(pdf).note.path)}里）` } : {}) })
+    update(pdf, () => ({ fresh: true }))
   } catch (e) {
-    patchMsg(pdf, aiId, { note: 'error', noteError: noteErr(e) })
+    if (aiId !== null) patchMsg(pdf, aiId, { note: 'error', noteError: noteErr(e) })
+    else console.error('旁支没记进笔记', e)
   } finally {
-    update(pdf, (r) => ({ writing: r.writing.filter((w) => w !== threadId) }))
+    if (noteGen.get(key) === gen) update(pdf, (r) => ({ writing: r.writing.filter((w) => w !== threadId) }))
   }
 }
 
@@ -561,30 +813,12 @@ function noteErr(e: unknown): string {
 }
 
 /**
- * 笔记配哪张图（CN-60）：先看 AI 回答里给的框（矢量画的图也框得到），框不合理或没给就退回 AI 从图片块里挑的那张。
- * 取框是可替换的一层（format 的 locateFigure）：以后装了 MinerU 增强包，它给的版面块排在最前面。
+ * 笔记配哪张图（CN-60）：AI 回答里给的框（矢量画的图也框得到）；框不合理或没给就不配（记笔记那一步只写标题和小结，不再挑图）
  */
-async function pickFigure(pdf: string, page: number, msgs: ReadingMsg[], blocks: PdfBlock[], fromBlocks?: { block: string; caption: string }): Promise<FigureBox | null> {
-  const doc = pdfDoc(pdf)
-  if (!doc) return null
+async function pickFigure(pdf: string, page: number, msgs: ReadingMsg[]): Promise<FigureBox | null> {
+  if (!pdfDoc(pdf) || page < 1) return null
   const fromAi = [...msgs].reverse().find((m) => m.role === 'ai' && m.fig)?.fig ?? null
-  const vp = (await doc.getPage(page)).getViewport({ scale: 1 })
-  const hit = await locateFigure([
-    // 装了 PDF 精读增强：它认出的图、表的框最准（矢量图也框得到）；挑哪一个看 AI 回答里的框，没有就看记笔记时 AI 挑的块
-    {
-      name: 'MinerU 的图框',
-      locate: () => {
-        const f = mineruFigure(blocks, { w: vp.width, h: vp.height }, { rect: fromAi?.rect ?? null, block: fromBlocks?.block ?? null })
-        return f ? { rect: f.rect, caption: fromAi?.caption || fromBlocks?.caption || f.caption || '这页的图' } : null
-      },
-    },
-    { name: 'AI 回答里的框', locate: () => fromAi },
-  ])
-  if (hit) return hit
-  const b = fromBlocks && blocks.find((x) => x.id === fromBlocks.block)
-  if (!b) return null
-  const pad = 4
-  return { rect: [(b.x - pad) / vp.width, (b.y - pad) / vp.height, (b.w + pad * 2) / vp.width, (b.h + pad * 2) / vp.height], caption: fromBlocks.caption }
+  return locateFigure([{ name: 'AI 回答里的框', locate: () => fromAi }])
 }
 
 function clamp(r: Rect): Rect {
@@ -607,8 +841,7 @@ export async function makeViz(pdf: string, aiId: number) {
     const v = await window.cnReading.viz({ pdf, engine: engineNow, thread, msgs, pageText: blocksText(blocks) })
     patchMsg(pdf, aiId, { viz: { state: 'done', path: v.path, title: v.title } })
     await reloadNote(pdf)
-    update(pdf, () => ({ fresh: true, justWritten: thread.id }))
-    setTimeout(() => update(pdf, (x) => (x.justWritten === thread.id ? { justWritten: null } : {})), 2000)
+    update(pdf, () => ({ fresh: true }))
   } catch (e) {
     patchMsg(pdf, aiId, { viz: { state: 'error', error: noteErr(e) } })
   }

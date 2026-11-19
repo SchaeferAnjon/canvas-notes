@@ -2,7 +2,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { acts, launch, openNote, tabOn } from './app'
+import { acts, launch, openAi, openNote, tabOn } from './app'
 import { solidPng } from './fixtures/png'
 import { shotPart, shotTone, shotWindow } from './shots'
 import { LECTURE } from './fixtures/pdf'
@@ -24,6 +24,7 @@ async function openPdf(page: Page) {
   await page.locator('.pal-row', { hasText: '第3讲 线性映射' }).first().click()
   await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
   await expect(pdfPage(page, 1).locator('canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
+  await openAi(page)
   await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
 }
 
@@ -178,7 +179,7 @@ test('AI 面板头上换引擎只改「AI 对话」那一行：设置 › AI 的
     const eng = ai(page).getByRole('button', { name: '选 AI 引擎' })
     await expect(eng).toHaveText('Claude Code')
     await eng.click()
-    await ai(page).getByRole('menu', { name: 'AI 引擎' }).getByRole('menuitemradio').filter({ hasText: 'Gemini' }).click()
+    await page.getByRole('menu', { name: 'AI 引擎' }).getByRole('menuitemradio').filter({ hasText: 'Gemini' }).click()
     await expect(eng).toHaveText('Gemini')
 
     await openAiSettings(page)
@@ -209,12 +210,12 @@ test('设置里改「AI 对话」：开着的读 PDF 面板和文档浮窗马上
     await box(page).fill('你用的什么模型')
     await box(page).press('Enter')
     await answered(page, 1)
-    await expect(ai(page).getByTestId('reading-msg').last().locator('.txt')).toHaveText('模型：sonnet')
+    await expect(ai(page).getByTestId('reading-msg').last().locator('.txt')).toHaveText('模型：sonnet，effort：high')
     await expect(ai(page).getByTestId('reading-msg').last().locator('.read')).toContainText('· Claude Code · Sonnet')
 
-    // 文档里的浮窗开着时去设置改「AI 对话」成 Codex：浮窗头上马上是 Codex
+    // 文档里的 AI 对话开着时（同一格，开着就还开着）去设置改「AI 对话」成 Codex：马上是 Codex
     await openNote(page, '随手记')
-    await page.keyboard.press('Meta+j')
+    await openAi(page)
     const float = page.getByRole('complementary', { name: 'AI 对话' })
     await expect(float.getByTestId('ai-engine')).toHaveText('Claude Code')
     await openAiSettings(page)
@@ -254,14 +255,15 @@ test('只贴一张图不打字：发送键能点，回车发出「这张图讲�
   try {
     await openPdf(page)
     await pasteImage(page, '.reading-in textarea')
-    await expect(ai(page).getByTestId('pasted-att')).toHaveCount(1)
+    await expect(ai(page).getByTestId('ai-mat')).toHaveCount(1)
+    await expect(box(page)).toHaveValue('①')
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeEnabled()
     await box(page).press('Enter')
     await answered(page, 1)
-    await expect(userMsgs(page).last()).toHaveText('这张图讲的是什么')
+    await expect(userMsgs(page).last().locator('.mt')).toHaveText('这张图讲的是什么')
     await expect(ai(page).locator('.um-wrap').last().locator('img[alt="粘贴的图"]')).toBeVisible()
     await expect(ai(page).getByTestId('reading-msg').last().locator('.txt')).toContainText('图 1 张')
-    await expect(ai(page).getByTestId('pasted-att')).toHaveCount(0)
+    await expect(ai(page).getByTestId('ai-mat')).toHaveCount(0)
     // 什么都没有：发送键灰着
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeDisabled()
   } finally {
@@ -285,12 +287,11 @@ test('AI 出错的那条头上没有「✓ 读了第几页」，只有红字说�
   }
 })
 
-test('读 PDF 时 ⌘J 收起再 ⌘J 打开 AI：光标在输入框里，直接打字；打开 PDF 时 AI 自己出来不抢焦点', async () => {
+test('读 PDF 时 ⌘J 收起再 ⌘J 打开 AI：光标在输入框里，直接打字', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
     await openPdf(page)
-    await expect(box(page)).not.toBeFocused()
     // ⌘J 收起、再 ⌘J 打开：光标在输入框里，直接打字
     await page.locator('.pdfpane:not([hidden]) .pdfpage[data-page="1"]').click({ position: { x: 20, y: 20 } })
     await page.keyboard.press('Meta+j')

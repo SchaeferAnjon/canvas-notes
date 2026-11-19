@@ -37,7 +37,7 @@ test('CN-1、CN-3：课程列表右键有菜单；有文件的课程改名，链
     await armMenus(run)
     await leftView(page, '课程')
     await sideRow(page, 'ecp').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '打开首页', '在新标签打开首页', '置顶', '放到左边', '设图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '换图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
     await pickMenu(run, '在访达中显示')
     await expect.poll(() => screen(run)).toContain(`在访达中显示 ${join(vault, '课程/ecp')}`)
 
@@ -78,21 +78,22 @@ test('CN-1、CN-3：课程列表右键有菜单；有文件的课程改名，链
     await page.getByRole('tab', { name: /Lecture05 笔记/ }).getByRole('button').first().click()
     await expect(page.locator('.pane:not([hidden])')).toHaveAttribute('data-path', '课程/ECP/Lecture05 笔记.md')
 
-    // 文件夹标签上 F2 也能改
+    // 文件夹标签上 F2 也能改（焦点在树上时 F2 是树里原地改名）
     await sideRow(page, 'ECP').click()
-    await page.locator('body').press('F2')
+    await page.locator('.tab.on .tl').click()
+    await page.keyboard.press('F2')
     await expect(page.getByRole('textbox', { name: '文件夹名字' }).first()).toBeVisible()
     await page.keyboard.press('Escape')
 
-    // 生活、写作是固定的：双击说一句，不进改名（「课程」一格只列课程，写作从「文件」里开）
+    // 生活、写作是软件自带的分类：双击说一句，不进改名（写作从「文件」里开）；分类默认在左边，右键是「从左边拿下」
     await leftView(page, '文件')
     await item(page, '写作').click()
     await expect(tabOn(page)).toHaveText('写作')
     await pane(page).locator('h2', { hasText: '写作' }).dblclick()
-    await expect(page.getByTestId('toast')).toContainText('固定的文件夹')
+    await expect(page.getByTestId('toast')).toContainText('「写作」是软件自带的分类，不改名')
     await expect(page.getByRole('textbox', { name: '文件夹名字' })).toHaveCount(0)
     await item(page, '写作').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '设图标和颜色…', '在访达中显示', '拷贝路径'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
     await pickMenu(run, '打开首页')
     await leftView(page, '课程')
 
@@ -152,21 +153,22 @@ test('CN-5：文件树工具栏六个按钮；在选中的文件夹里新建文�
     await item(page, 'Lecture05 笔记').click()
     await expect(tabOn(page)).toHaveText('Lecture05 笔记')
     await head.getByRole('button', { name: '全部收起' }).click()
-    await expect(tree(page).locator('[aria-expanded="true"]')).toHaveCount(0)
+    await expect(tree(page).locator('.ft-root')).toHaveAttribute('aria-expanded', 'true')
+    await expect(tree(page).locator('.ft-row:not(.ft-root)[aria-expanded="true"]')).toHaveCount(0)
     await expect(item(page, 'Lecture05 笔记')).toHaveCount(0)
     await head.getByRole('button', { name: '定位当前文件' }).click()
     await expect(item(page, 'Lecture05 笔记')).toBeVisible()
 
     // 文件夹右键：固定的没有重命名、删除；别的有，还能原地新建文件夹
     await item(page, '课程').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '从左边拿下来', '设图标和颜色…', '在访达中显示', '拷贝路径'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
     await pickMenu(run, '新建文件夹')
     await tree(page).getByRole('textbox', { name: '新文件夹的名字' }).fill('数学')
     await tree(page).getByRole('textbox', { name: '新文件夹的名字' }).press('Enter')
     await expect.poll(() => existsSync(join(vault, '课程/数学/.gitkeep'))).toBe(true)
     await tree(page).getByRole('button', { name: '展开 写作' }).click()
     await item(page, '旅行').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '设图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '换图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
     await pickMenu(run, '重命名…')
     await tree(page).getByRole('textbox', { name: '新名字' }).fill('冰岛')
     await tree(page).getByRole('textbox', { name: '新名字' }).press('Enter')
@@ -190,7 +192,9 @@ for (const frame of ['a', 'b'] as const) {
     try {
       await leftView(page, '文件')
       const sideW = () => page.locator('.win').evaluate((el) => Number.parseFloat(getComputedStyle(el).gridTemplateColumns.split(' ')[1]!))
-      expect(await sideW()).toBe(252)
+      // 默认：A 252；B 248（含岛右边 6 的缝，DESIGN.v3 1.3）
+      const def = frame === 'a' ? 252 : 248
+      expect(await sideW()).toBe(def)
       const sash = page.getByRole('separator', { name: '拖动调整左栏宽度' })
       const drag = async (dx: number) => {
         const b = (await sash.boundingBox())!
@@ -200,7 +204,7 @@ for (const frame of ['a', 'b'] as const) {
         await page.mouse.up()
       }
       await drag(60)
-      await expect.poll(sideW).toBe(312)
+      await expect.poll(sideW).toBe(def + 60)
       await drag(400)
       await expect.poll(sideW).toBe(400)
       await drag(-600)
@@ -213,10 +217,10 @@ for (const frame of ['a', 'b'] as const) {
       await expect(page.locator('.vault b')).toHaveText('测试库')
       await expect.poll(sideW).toBe(300)
       await sash.dblclick()
-      await expect.poll(sideW).toBe(252)
+      await expect.poll(sideW).toBe(def)
       await page.reload()
       await expect(page.locator('.vault b')).toHaveText('测试库')
-      await expect.poll(sideW).toBe(252)
+      await expect.poll(sideW).toBe(def)
       // 收起左栏时没有分隔线
       await page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name: '文件', exact: true }).click()
       await expect(sash).toHaveCount(0)
@@ -323,12 +327,15 @@ test('CN-50 和图标栏：底栏库名只显示（悬停看路径、点了没�
         probe.style.color = 'var(--acc)'
         document.body.append(probe)
         const acc = getComputedStyle(probe).color
+        probe.style.color = 'color-mix(in srgb, var(--acc) 40%, #fff)'
+        const light = getComputedStyle(probe).color
         probe.remove()
-        return { bg: s.backgroundColor, shadow: s.boxShadow, line: b.backgroundColor, w: b.width, left: el.getBoundingClientRect().left + Number.parseFloat(b.left), acc }
+        return { bg: s.backgroundColor, shadow: s.boxShadow, line: b.backgroundColor, w: b.width, left: el.getBoundingClientRect().left + Number.parseFloat(b.left), acc, light }
       })
       expect(look.bg).toBe('rgba(0, 0, 0, 0)')
       expect(look.shadow).toBe('none')
-      expect(look.line).toBe(look.acc)
+      // B 铺着照片：竖线浅一档（--acc 压在照片上不到 3:1）；A 是 --acc
+      expect(look.line).toBe(frame === 'b' ? look.light : look.acc)
       expect(look.w).toBe('2px')
       // 竖线贴着窗口左边（图标栏的外沿）
       expect(Math.abs(Math.round(look.left))).toBe(0)
@@ -436,7 +443,7 @@ test('CN-11：新建笔记默认进收件箱；目录树里点过文件夹、开
     await expect(chip).toHaveText('收件箱')
     await chip.click()
     const moveTo = await openedMenu(run)
-    expect(menuLabels(moveTo)).toEqual(['库的最外层', '课程', '写作'])
+    expect(menuLabels(moveTo)).toEqual(['测试库', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
     expect(menuLabels(moveTo.find((i) => i.label === '课程')!.submenu!)).toEqual(['放进「课程」', 'ecp'])
     await pickMenu(run, '写作')
     await expect.poll(() => existsSync(join(vault, '写作/未命名.md'))).toBe(true)
@@ -450,7 +457,9 @@ test('CN-11：新建笔记默认进收件箱；目录树里点过文件夹、开
     await page.keyboard.press('Meta+n')
     await expect(tabOn(page)).toHaveText('未命名')
     await expect.poll(() => existsSync(join(vault, '课程/ecp/未命名.md'))).toBe(true)
-    await expect(pane(page).locator('.cm-folder')).toHaveText('课程/ecp')
+    // 只写所在的那一层，整条路径在悬停提示里
+    await expect(pane(page).locator('.cm-folder')).toHaveText('ecp')
+    await expect(pane(page).locator('.cm-folder')).toHaveAttribute('data-tip', '课程 / ecp · 移到…')
 
     // 点了一篇文件（不再选着文件夹）、开着的不是文件夹首页：回到收件箱
     await item(page, '去冰岛之前').click()

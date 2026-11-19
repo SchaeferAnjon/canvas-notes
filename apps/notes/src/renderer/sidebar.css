@@ -33,6 +33,10 @@
   font-size: 12px;
   color: var(--yellow);
 }
+/* 摘出来的收件箱堆多了：底下那一行（在「在「文件」里看位置」上面） */
+.sall.s-warn .si.s-tidy {
+  padding-left: 10px;
+}
 .si.s-tidy > svg {
   color: inherit;
 }
@@ -48,6 +52,21 @@
 }
 .sall .si .c {
   margin-left: auto;
+}
+.sall.s-loc {
+  padding: 0;
+}
+.sall.s-loc .si {
+  height: 36px;
+  gap: 6px;
+  padding: 0 14px;
+  border-radius: 0;
+  font-size: 12px;
+  color: var(--t2);
+}
+.sall.s-loc .si .c {
+  font: 11px var(--mono);
+  color: var(--t3);
 }
 .side .si .c {
   flex: none;

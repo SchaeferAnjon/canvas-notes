@@ -1,3 +1,4 @@
+import { composing } from '../ime'
 /**
  * 梦游预览（设计稿 design-mindmap 方向 B 第 8 节）：点报告里的「预览」，左栏（以后是目录树、文件夹首页）换成改好以后的样子，
  * 中间栏顶上一条「正在预览梦游的整理」：跟 AI 说哪里不对、退出预览、丢掉、收下这 N 处。
@@ -189,14 +190,15 @@ export function PreviewOverlay(props: { pv: DreamPreview }) {
                 <Codicon name="sparkle" size={14} />
                 <span className="pv-lb">跟AI说哪里不对</span>
               </button>
-              <button className="btn btn-ghost btn-xs" onClick={() => pv.setOn(false)}>
-                退出预览<span className="kbd-in">esc</span>
-              </button>
+              {/* 顺序照设计稿（主界面 design/frame）：跟 AI 说哪里不对 ｜ 丢掉 ｜ 收下这 N 处 ｜ 退出预览 esc */}
               <button className="btn btn-xs" disabled={pv.busy || !ids.length} onClick={() => void pv.drop(ids)}>
                 丢掉
               </button>
               <button className="btn btn-primary btn-xs" disabled={pv.busy || !ids.length} onClick={() => void pv.take(ids)}>
                 {pv.moves.length > 12 ? '收下全部' : `收下这${ids.length}处`}
+              </button>
+              <button className="btn btn-ghost btn-xs" onClick={() => pv.setOn(false)}>
+                退出预览<span className="kbd-in">esc</span>
               </button>
             </>
           )}
@@ -250,6 +252,7 @@ function FeedbackPop(props: { pv: DreamPreview }) {
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
+          if (composing(e)) return
           if (e.key === 'Enter' && e.metaKey) (e.preventDefault(), send())
           if (e.key === 'Escape') (e.preventDefault(), e.stopPropagation(), pv.closeFeedback())
         }}

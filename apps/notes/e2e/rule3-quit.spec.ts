@@ -59,7 +59,7 @@ test('白板「改字」弹层开着、打的字没点存好就 ⌘Q：先把弹
     await pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '卡二' }).dblclick()
     const dlg = page.getByRole('dialog', { name: '全文' })
     await dlg.getByRole('button', { name: '改字' }).click()
-    await dlg.getByRole('textbox', { name: '这张卡的原文' }).press('End')
+    await dlg.getByRole('textbox', { name: '这张卡的字' }).press('End')
     await page.keyboard.type('弹层里没存的字')
     await run.close({ keep: true })
     expect(readFileSync(join(vault, '弹层.md'), 'utf8')).toBe('# 弹层\n\n## 一\n\n卡一。\n\n## 二\n\n卡二。弹层里没存的字\n')

@@ -248,7 +248,7 @@ export const translatePlugin: MainPlugin<TranslateSettings> = {
       return { path, count: terms.length, engine: router.label(r.engine) }
     })
 
-    // ---------------------------------------------------------------- 给别处用：一串块进、一块块译文出（PDF 对照读）
+    // ---------------------------------------------------------------- 给别处用：一串块进、一块块译文出（网页阅读视图、右键翻译这段）
 
     const reqs = new Map<number, AbortController>()
     host.handle('blocks', async (_ctx, arg) => {

@@ -25,6 +25,11 @@ describe('自带的十套主题', () => {
     for (const [id, v] of blocks) for (const k of NEED) expect(v[k], `${id} --${k}`).toBeTruthy()
   })
 
+  // 分段控件的选中格是淡底（偏好「图标别做白底突起块」：统一底色上只放符号，选中靠颜色和细指示），和选中行同一个 --fill2
+  it('分段选中格 --seg-on 每套都是 --fill2，不是白底', () => {
+    for (const [id, v] of blocks) expect(v['seg-on'], id).toBe('var(--fill2)')
+  })
+
   it.each(SKINS.map((s) => [s.id, s] as const))('%s：正文对底 ≥ 7:1，次要字 ≥ 4.5:1，底栏的字、强调底上的字看得清，--win 和窗口底色一致', (id, s) => {
     const v = blocks.get(id)!
     const win = hex(v.win)

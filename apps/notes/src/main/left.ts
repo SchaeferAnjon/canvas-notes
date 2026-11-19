@@ -1,6 +1,6 @@
 /** 左栏摘了哪些文件夹、文件夹的图标和颜色：库里的 .canvas-notes/左栏.json（和置顶同一个文件夹，跟着 Git 走） */
 import { readFile } from 'node:fs/promises'
-import { type LeftConfig, leftJson, LEFT_FILE, normalizeLeft, remapLeft, sameAsDefault } from '../shared/left'
+import { cleanLeft, type LeftConfig, leftJson, LEFT_FILE, normalizeLeft, remapLeft, sameAsDefault } from '../shared/left'
 import { writeFileAtomic } from './atomic'
 import type { Vault } from './vault'
 
@@ -16,8 +16,7 @@ export async function readLeft(vault: Vault): Promise<LeftConfig> {
 
 /** 界面交来的整份设置（{ left, looks }）：先过一遍 normalize 再写 */
 export async function writeLeft(vault: Vault, raw: unknown): Promise<LeftConfig> {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<LeftConfig>
-  const c = normalizeLeft({ 左边: r.left ?? [], 图标: r.looks ?? {} })
+  const c = cleanLeft((raw && typeof raw === 'object' ? raw : {}) as Partial<LeftConfig>)
   const text = leftJson(c)
   const p = vault.abs(LEFT_FILE)
   const cur = await readFile(p, 'utf8').catch((e: NodeJS.ErrnoException) => {

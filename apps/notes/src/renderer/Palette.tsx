@@ -18,13 +18,17 @@ export interface PaletteCommand {
 
 const nameOf = (p: string) => p.split('/').pop() ?? p
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
-/** 文件的图标：PDF 是书，白板是格子，我的疑惑是问号，HTML 是代码文件 */
-export function fileIcon(path: string, board = false): CodiconName {
+/**
+ * 文件的图标：PDF 是书，白板是格子，书摘（bookId）是引号，我的疑惑是问号，HTML 是代码文件，别的笔记（剪来的也一样）是文档。
+ * 树、左栏「最近」、文件夹首页、「最近」页、⌘K 都用这一个，同一篇在哪都是同一个图标
+ */
+export function fileIcon(path: string, board = false, digest = false): CodiconName {
   const low = path.toLowerCase()
   if (low.endsWith('.pdf')) return 'file-pdf'
   if (low.endsWith('.html') || low.endsWith('.htm')) return 'file-code'
   if (/\.(png|jpe?g|gif|webp|svg|heic|bmp)$/.test(low)) return 'file-media'
   if (board) return 'layout'
+  if (digest) return 'quote'
   if (nameOf(path) === '我的疑惑.md') return 'question'
   return 'file-text'
 }
@@ -170,6 +174,7 @@ export function Palette(props: {
   }
 
   const boards = useMemo(() => new Set(props.notes.filter((n) => n.board).map((n) => n.path)), [props.notes])
+  const digests = useMemo(() => new Set(props.notes.filter((n) => n.digest).map((n) => n.path)), [props.notes])
   const rows = useMemo(() => {
     const t = q.trim()
     const looksUrl = looksLikeUrl(t)
@@ -324,7 +329,7 @@ export function Palette(props: {
               <div key={i}>
                 {meaningHead}
                 {head}
-                <RowView row={r} on={i === idx} nokey={!cursorAt(rows, i)} words={words} q={t} claude={claude} boards={boards} onHover={() => {
+                <RowView row={r} on={i === idx} nokey={!cursorAt(rows, i)} words={words} q={t} claude={claude} boards={boards} digests={digests} onHover={() => {
                     // 没把握的意思相近：鼠标悬停也不当选中（回车不开它），只能点
                     const c = cursorAt(rows, i)
                     if (c) setSel(c)
@@ -341,7 +346,7 @@ export function Palette(props: {
   )
 }
 
-function RowView(p: { row: Row<PaletteCommand>; on: boolean; /** 键盘选不中（没把握的意思相近）：只有悬停的淡底，点了才开 */ nokey?: boolean; words: string[]; q: string; claude: ClaudeState; boards: Set<string>; onHover(): void; onPick(): void }) {
+function RowView(p: { row: Row<PaletteCommand>; on: boolean; /** 键盘选不中（没把握的意思相近）：只有悬停的淡底，点了才开 */ nokey?: boolean; words: string[]; q: string; claude: ClaudeState; boards: Set<string>; digests: Set<string>; onHover(): void; onPick(): void }) {
   const r = p.row
   const cls = 'pal-row sr' + (p.on ? ' on' : '') + (p.nokey ? ' nokey' : '') + (r.kind === 'more' ? ' more' : '') + (r.kind === 'found' ? ' two' : '') + (r.kind === 'claude' ? ' ask' : '')
   let body
@@ -357,7 +362,7 @@ function RowView(p: { row: Row<PaletteCommand>; on: boolean; /** 键盘选不中
   else if (r.kind === 'note')
     body = (
       <>
-        <Codicon name={fileIcon(r.path, p.boards.has(r.path))} size={16} className="i" />
+        <Codicon name={fileIcon(r.path, p.boards.has(r.path), p.digests.has(r.path))} size={16} className="i" />
         <span className="nm">{titleOf(r.path)}</span>
         <span className="lc">{folderOf(r.path)}</span>
         {r.snippet && (
@@ -381,7 +386,7 @@ function RowView(p: { row: Row<PaletteCommand>; on: boolean; /** 键盘选不中
     const h = r.hit
     body = (
       <>
-        <Codicon name={fileIcon(h.path, p.boards.has(h.path))} size={16} className="i" />
+        <Codicon name={fileIcon(h.path, p.boards.has(h.path), p.digests.has(h.path))} size={16} className="i" />
         <span className="nm">{/\.pdf$/i.test(h.path) ? nameOf(h.path) : titleOf(h.path)}</span>
         <span className="lc">{h.page ? `第${h.page}页` : folderOf(h.path)}</span>
         <span className="sn">
@@ -402,7 +407,7 @@ function RowView(p: { row: Row<PaletteCommand>; on: boolean; /** 键盘选不中
   else if (r.kind === 'found')
     body = (
       <>
-        <Codicon name={fileIcon(r.found.path, p.boards.has(r.found.path))} size={16} className="i" />
+        <Codicon name={fileIcon(r.found.path, p.boards.has(r.found.path), p.digests.has(r.found.path))} size={16} className="i" />
         <span className="col">
           <span className="nm">
             {/\.(pdf|html?)$/i.test(r.found.path) ? nameOf(r.found.path) : titleOf(r.found.path)}

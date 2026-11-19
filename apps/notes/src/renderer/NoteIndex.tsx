@@ -7,6 +7,7 @@ import { titleOf } from '../shared/layout'
 import { type ArchiveDays, isArchived } from '../shared/sidebar'
 import { RenameInput } from './note-menu'
 import { onFileMenu } from './ctx/file-menu'
+import { fileIcon } from './Palette'
 import './note-index.css'
 
 type Kind = 'any' | 'work' | 'board' | 'clip' | 'inbox'
@@ -14,7 +15,7 @@ const KINDS: [Kind, string][] = [
   ['any', '全部'],
   ['work', '文档'],
   ['board', '白板'],
-  ['clip', '素材'],
+  ['clip', '剪藏'],
   ['inbox', '收件箱'],
 ]
 const kindOf = (n: NoteFile): Kind => (n.board ? 'board' : n.kind)
@@ -142,7 +143,7 @@ export function NoteIndex(props: {
                     onClick={() => props.onOpen(n.path)}
                     onContextMenu={(e) => onFileMenu(e, n.path, { rename: () => setRenaming(n.path) })}
                   >
-                    {n.board ? <i className="sw" style={{ background: n.board.color }} /> : <Codicon name={n.kind === 'inbox' ? 'inbox' : n.kind === 'clip' ? 'quote' : 'file-text'} size={16} />}
+                    {n.board ? <i className="sw" style={{ background: n.board.color }} /> : <Codicon name={fileIcon(n.path, false, n.digest)} size={16} />}
                     {renaming === n.path ? (
                       <RenameInput path={n.path} onDone={() => setRenaming(null)} onRename={props.onRename} />
                     ) : (

@@ -1,6 +1,8 @@
+import { composing } from '../ime'
 /**
  * 中间栏的 PDF 标签：一页一页往下滚（只画看得到的几页），文字层能选字；
- * 拖一个框就问（框完右栏 AI 输入框里就有这块截图，回车就发），⌘↵ 问整页；
+ * 拖一个框就问（框完右栏 AI 输入框顶上那一排第一张就是这块截图，回车就发），没框时 ⌘↵ 问整页、框着时 ⌘↵ 是改问法（CN-92 方向 A）；
+ * 框好的工具条「讲解一下 ↵ · 翻译 + 讲一讲 · 改问法 ⌘↵ · 引用这块 ⇧⌘L · ×」，点外面就收（CN-97）；
  * 页边「这里问过」的小标记，点了右栏切到笔记那一段；从笔记点回来，翻到那页、框闪两下。
  * 照 design/pdf 方向 A（右栏切换）的 spec 1.2–1.4。
  */
@@ -8,15 +10,11 @@ import { Codicon } from '@cn/design'
 import { menuAt } from '../ctx/menu'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { courseOf, decorations } from '@cn/format'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { closePdf, loadPdf, type PdfDoc, pdfjs } from './pdf'
 import * as R from './store'
-import { BiBar, SideCol } from './bilingual/BiParts'
-import { type FlowBlock, type FlowGroup, ReflowView } from './bilingual/ReflowView'
-import { autoLayout, type BiLayout, type BiMode, langsLine, nextMode, saveMode, savedMode, useBi } from './bilingual/store'
-import { biStatus, blockRect, bodyBlocks, savePdfBilingual } from './bilingual/pdf-bilingual'
-import { MineruBar, MineruTool, useMineruStatus } from './MineruBar'
+import type { Material } from '../../shared/materials'
+import { useDismiss } from '../use-dismiss'
 
 interface Size {
   w: number
@@ -51,10 +49,6 @@ export function PdfTab(props: {
   /** 点了页边标记：右栏切到笔记那一段 */
   onShowNote(id: string): void
   onNotice(text: string): void
-  /** 右栏 AI 开着（对照的默认版式看它） */
-  aiOpen: boolean
-  /** 打开库里的一篇（存好的双语笔记、术语表） */
-  onOpenNote(path: string): void
 }) {
   const { path } = props
   const r = R.useReading(path)!
@@ -73,40 +67,20 @@ export function PdfTab(props: {
   const [page, setPage] = useState(1)
   const [pageEdit, setPageEdit] = useState(false)
   const [more, setMore] = useState(false)
-  const [biMenu, setBiMenu] = useState(false)
-  /** 对照读按钮：上次用的是对照还是只看译文 */
-  const lastBi = useRef<BiMode>('bi')
   const [drag, setDrag] = useState<Drag | null>(null)
   const [boxed, setBoxed] = useState<Boxed | null>(null)
+  /** 框好的工具条开着（框还在、工具条收了：点进了输入框、按了改问法） */
+  const [capOpen, setCapOpen] = useState(false)
+  const capRef = useRef<HTMLDivElement>(null)
+  /** 第几块框（每框一块、取消一块加一）：截图截好时已经不是这一块了就丢掉 */
+  const boxSeq = useRef(0)
+  /** 工具条伸出这一页右边多少（往左挪回来） */
+  const [capShift, setCapShift] = useState(0)
   const [flash, setFlash] = useState<{ page: number; rect?: Rect; seq: number } | null>(null)
   const [hoverThread, setHoverThread] = useState<string | null>(null)
   const [plusOpen, setPlusOpen] = useState<number | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const restored = useRef(false)
-  // ---------- 双语：原文 / 对照 / 只看译文；对照时 并排 / 重排 ----------
-  const [bi, setBi] = useState<{ mode: BiMode; layout?: BiLayout }>(() => savedMode(path))
-  /** 没手选过版式时，进对照那一刻定下来的（之后 AI 开合不换，框不跳） */
-  const [autoLay, setAutoLay] = useState<BiLayout>('side')
-  const [hoverBlock, setHoverBlock] = useState<{ page: number; id: string } | null>(null)
-  const [flowScroll, setFlowScroll] = useState<{ key: string; seq: number } | null>(null)
-  const [flowFlash, setFlowFlash] = useState<{ key: string; seq: number } | null>(null)
-  const [stagedBlock, setStagedBlock] = useState<string | null>(null)
-  const [saving, setSaving] = useState<string | null>(null)
-  const [saved, setSaved] = useState<string | null>(null)
-  const course = courseOf(path) ?? null
-  const trBi = useBi(path)
-  // PDF 精读增强：哪都找不到 MinerU 时工具条下面一行提示；后台认完换上它的块时底栏说一声
-  const mineru = useMineruStatus()
-  const wasLayout = useRef(r.layout)
-  useEffect(() => {
-    if (wasLayout.current === 'pdfjs' && r.layout === 'mineru' && props.active) props.onNotice('已换成PDF精读增强认的版面：表格、公式、图注')
-    wasLayout.current = r.layout
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [r.layout])
-  const layout: BiLayout = bi.layout ?? autoLay
-  const flow = bi.mode === 'tr' || (bi.mode === 'bi' && layout === 'flow')
-  const side = bi.mode === 'bi' && layout === 'side'
-
   // 标签关了：排着的那一问不发、不记笔记（正在答的照常答完）
   useEffect(() => () => R.closed(path), [path])
 
@@ -149,8 +123,8 @@ export function PdfTab(props: {
   }, [])
 
   const maxW = sizes ? Math.max(...sizes.map((s) => s.w)) : 600
-  // 适合宽度：左边留 40 写页码、右边 52 放标记；并排时原页占 0.56、最宽 640，右边是译文
-  const fit = width ? (side ? Math.min((width - 40 - 52) * 0.56, 640) : width - 40 - 52) / maxW : 1
+  // 适合宽度：左边留 40 写页码、右边 52 放标记
+  const fit = width ? (width - 40 - 52) / maxW : 1
   const scale = Math.max(0.25, Math.min(fit * zoom, 6))
 
   const pageTop = useCallback(
@@ -241,13 +215,6 @@ export function PdfTab(props: {
   // ---------- 从笔记跳回来：翻到那页，框的上沿停在视口上方约 80，框闪两下 ----------
   useEffect(() => {
     const j = r.jump
-    if (j && flow) {
-      // 重排里没有原页：滚到那一页的段组，外圈闪一下
-      setFlowScroll({ key: `p${j.page}`, seq: j.seq })
-      setFlowFlash({ key: `p${j.page}`, seq: j.seq })
-      const t = setTimeout(() => setFlowFlash((f) => (f?.seq === j.seq ? null : f)), 1900)
-      return () => clearTimeout(t)
-    }
     if (!j || !sizes || !scroller.current) return
     const p = Math.min(Math.max(1, j.page), sizes.length)
     const y = pageTop(p) + (j.rect ? j.rect[1] * sizes[p - 1]!.h * scale : 0) - 80
@@ -258,13 +225,31 @@ export function PdfTab(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r.jump?.seq, sizes])
 
-  // 发出去了（右栏回车）：实线框收起来
+  // 发出去了（右栏回车、工具条按钮）：实线框和工具条马上收起来
   useEffect(() => {
     if (!r.pending) {
       setBoxed(null)
-      setStagedBlock(null)
+      setCapOpen(false)
     }
   }, [r.pending])
+  // 改问法了（工具条、⌘↵）：工具条收起，框和图留着（CN-92 方向 A）
+  useEffect(() => {
+    if (r.pending?.blank) setCapOpen(false)
+  }, [r.pending?.blank])
+  // 工具条点外面就收（CN-97）：点进 AI 输入框（和它弹出来的菜单）只收工具条，框和图留着；点 PDF 空白处、标签条、右栏空白处连框一起取消；
+  // esc：焦点在输入框里、输入框里是自己打的字时只收工具条，别的连框和图一起取消；窗口失焦（切到别的软件、点进右栏网页）什么都不动，回来还在
+  useDismiss(capOpen, [capRef], (why, target, event) => {
+    if (why === 'blur') return
+    const el = target instanceof Element ? target : null
+    if (why === 'outside' && el?.closest('[data-composer], [data-composer-pop]')) return setCapOpen(false)
+    // 右键（在选着的字上要右键菜单「拷贝」「讲解一下」）：只收工具条，框和选着的字留着
+    if (why === 'outside' && event instanceof PointerEvent && event.button !== 0) return setCapOpen(false)
+    if (why === 'esc') {
+      const t = document.activeElement
+      if (t instanceof HTMLTextAreaElement && t.closest('[data-composer]') && t.dataset.own === '1') return setCapOpen(false)
+    }
+    cancelBox()
+  })
 
   // ---------- 框一块 ----------
   const pageAt = (target: EventTarget | null) => (target as Element | null)?.closest('.pdfpage') as HTMLElement | null
@@ -309,13 +294,21 @@ export function PdfTab(props: {
     }
     const rect: Rect = [Math.min(d.x0, d.x1) / pw, Math.min(d.y0, d.y1) / ph, w / pw, h / ph]
     setBoxed({ page: d.page, rect })
+    setCapOpen(true)
+    blankNext.current = false
     props.onAsk()
     const sentAt = R.get(path).sent
+    const mine = ++boxSeq.current
     try {
       const c = await R.cropOf(path, d.page, rect)
-      R.stage(path, { page: d.page, rect, url: c.url, png: c.png }, sentAt)
+      // 截好之前已经取消了这块（点了空白处、esc、×）或者又框了一块：晚到的截图丢掉，不再放回去
+      if (mine !== boxSeq.current) return URL.revokeObjectURL(c.url)
+      // 截好之前已经按了改问法（手快）：截好的这块直接是改问法的样子
+      R.stage(path, { page: d.page, rect, url: c.url, png: c.png, w: c.cssW, ...(blankNext.current ? { blank: true } : {}) }, sentAt)
+      blankNext.current = false
     } catch (e) {
       setBoxed(null)
+      setCapOpen(false)
       props.onNotice(String((e as Error).message ?? e))
     }
   }
@@ -337,7 +330,9 @@ export function PdfTab(props: {
   /** 选中一段字：工具条出在选区上方，问的时候截图换成引文 */
   function onSelectionEnd() {
     const b = selectionBox()
-    if (b) setBoxed(b)
+    if (!b) return
+    setBoxed(b)
+    setCapOpen(true)
   }
 
   /** 右键（DESIGN.v3 9.2）：选了字是拷贝、问 AI、翻译 + 讲一讲；页面上是问这一页、跳到笔记、在访达中显示 */
@@ -361,14 +356,43 @@ export function PdfTab(props: {
   }
 
   function cancelBox() {
+    boxSeq.current++
     setBoxed(null)
+    setCapOpen(false)
     R.unstage(path)
     window.getSelection()?.removeAllRanges()
   }
 
+  /**
+   * 引用这块（⇧⌘L，多段引用方向 B）：框的图成为 AI 输入框顶上那一排的一块材料（来源「第28页 · 我框的」），选着的一段字成为一块引用（「第28页」）；
+   * 框和工具条收起，可以接着框下一块
+   */
+  async function capQuote(b = boxed) {
+    if (!b) return
+    props.onAsk()
+    if (b.quote) {
+      cancelBox()
+      R.addMaterial(path, { kind: 'quote', text: b.quote, src: `第${b.page}页` })
+      return
+    }
+    // 截图还在截的话等它好（最多 5 秒）
+    for (let i = 0; i < 125 && !R.get(path).pending?.png; i++) await new Promise((res) => setTimeout(res, 40))
+    const png = R.get(path).pending?.png
+    cancelBox()
+    if (!png) return props.onNotice('这块还没截好，再框一次')
+    try {
+      const mat: Material = { kind: 'image', name: await window.cn.aiPaste(png, 'image/png'), src: `第${b.page}页 · 我框的`, page: b.page }
+      R.addMaterial(path, mat)
+    } catch (e) {
+      props.onNotice(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    }
+  }
+
   /** 已经点过「讲解一下」「翻译 + 讲一讲」的那一块：手快连点两下，第二下不再发（CN-28） */
   const asking = useRef<Boxed | null>(null)
-  /** 工具条上的按钮：讲解一下 / 翻译 + 讲一讲 直接发（AI 还在答就排在后面）；改问法 只放好图，光标进输入框 */
+  /** 框的这块还在截就按了改问法：截好时直接放成改问法的样子 */
+  const blankNext = useRef(false)
+  /** 工具条上的按钮：讲解一下 / 翻译 + 讲一讲 直接发（AI 还在答就排在后面）；改问法（⌘↵）只放好图、工具条收起，光标进输入框 */
   async function capAsk(kind: 'explain' | 'translate' | 'rephrase', b = boxed) {
     if (!b) return
     if (kind !== 'rephrase') {
@@ -380,7 +404,9 @@ export function PdfTab(props: {
     else if (kind === 'rephrase') {
       const pend = R.get(path).pending
       if (pend) R.stage(path, { ...pend, blank: true })
+      else blankNext.current = true
     }
+    if (kind === 'rephrase') setCapOpen(false)
     window.getSelection()?.removeAllRanges()
     if (kind === 'rephrase') return
     // 截图还在截的话等它好；5 秒还没好就不带图问这一块（框的位置还在），晚到的截图丢掉
@@ -389,16 +415,16 @@ export function PdfTab(props: {
     await R.send(path, kind === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲')
   }
 
-  /** 问这一页：整页当一个框，直接发出；text：输入框里自己打的那句（不给是「给我讲解一下这一页」） */
+  /** 问这一页：整页当一个框，直接发出；text：输入框里自己打的那句（不给是「给我讲解一下这一页」），mats：输入框里带的材料 */
   const pageAsking = useRef(false)
-  async function askPage(n = page, text = '给我讲解一下这一页') {
+  async function askPage(n = page, text = '给我讲解一下这一页', mats: Material[] = []) {
     if (!doc || R.get(path).running !== null || pageAsking.current) return
     pageAsking.current = true
     props.onAsk()
     try {
       const c = await R.cropOf(path, n)
-      R.stage(path, { page: n, url: c.url, png: c.png, direct: true })
-      await R.send(path, text)
+      R.stage(path, { page: n, url: c.url, png: c.png, w: c.cssW, direct: true })
+      await R.send(path, text, [], mats.length ? { mats } : {})
     } catch (e) {
       props.onNotice(String((e as Error).message ?? e))
     } finally {
@@ -406,22 +432,26 @@ export function PdfTab(props: {
     }
   }
 
-  // ⌘↵ 问这一页（在 AI 输入框里也一样）；esc 取消框
+  // ⌘↵：框着一块是改问法（CN-92 方向 A），没框问这一页（在 AI 输入框里也一样，那边先接）；⇧⌘L 引用这块；esc 取消框
   useEffect(() => {
     if (!props.active) return
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Enter' && e.metaKey && !e.isComposing) {
         e.preventDefault()
-        void askPage()
+        if (boxed) void capAsk('rephrase')
+        else void askPage()
+      } else if (e.metaKey && e.shiftKey && e.code === 'KeyL' && boxed) {
+        e.preventDefault()
+        void capQuote()
       } else if (e.key === 'Escape' && boxed && !(e.target as Element)?.closest?.('textarea')) cancelBox()
       else if (e.metaKey && (e.key === '=' || e.key === '+')) (e.preventDefault(), setZoom((z) => Math.min(4, z * 1.15)))
       else if (e.metaKey && e.key === '-') (e.preventDefault(), setZoom((z) => Math.max(0.4, z / 1.15)))
       else if (e.metaKey && e.key === '0') (e.preventDefault(), setZoom(1))
     }
-    // 输入框里打了自己的问题再按 ⌘↵：带上这一页问这句（ReadingAi 发来）
+    // 输入框里打了自己的问题再按 ⌘↵：带上这一页问这句（ReadingAi 发来，带着输入框里的材料）
     const onAskPage = (e: Event) => {
-      const d = (e as CustomEvent<{ src: string; text: string }>).detail
-      if (d.src === path) void askPage(page, d.text)
+      const d = (e as CustomEvent<{ src: string; text: string; mats?: Material[] }>).detail
+      if (d.src === path) void askPage(page, d.text, d.mats ?? [])
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener(R.ASK_PAGE, onAskPage)
@@ -436,156 +466,29 @@ export function PdfTab(props: {
     scroller.current.scrollTop = pageTop(Math.min(Math.max(1, Math.round(n)), sizes.length)) - 8
   }
 
-  // ---------- 双语 ----------
   const rounds = (id: string) => r.state.msgs.filter((m) => m.thread === id && m.role === 'user').length
-  /** 换显示：进对照时没手选过版式就按当下定一个；换完回到同一页 */
-  function setMode(mode: BiMode) {
-    if (mode === bi.mode) return
-    if (mode !== 'orig') lastBi.current = mode
-    if (mode !== 'orig' && bi.mode === 'orig' && !bi.layout) setAutoLay(autoLayout(props.aiOpen, width))
-    const next = { ...bi, mode }
-    setBi(next)
-    saveMode(path, next)
-    setFlowScroll({ key: `p${page}`, seq: Date.now() })
-  }
-  function setLayout(l: BiLayout) {
-    const next = { ...bi, layout: l }
-    setBi(next)
-    saveMode(path, next)
-    setFlowScroll({ key: `p${page}`, seq: Date.now() })
-  }
-  // 从重排回到有原页的版式：翻到刚才看的那页
-  const wasFlow = useRef(flow)
-  useLayoutEffect(() => {
-    if (wasFlow.current && !flow) goPage(page)
-    wasFlow.current = flow
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [flow])
-
-  // ⌥A 轮流切（焦点在软件里、不在输入框时）；比网页翻译的 ⌥A 先接，PDF 开着时切的是 PDF
-  useEffect(() => {
-    if (!props.active) return
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.code !== 'KeyA') return
-      const el = document.activeElement as HTMLElement | null
-      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
-      e.preventDefault()
-      e.stopImmediatePropagation()
-      setMode(nextMode(bi.mode))
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  })
-
-  /** 每页的块，带公式、图的裁图 */
-  const flowBlocks = useMemo(() => {
-    const out: Record<number, FlowBlock[]> = {}
-    if (!sizes) return out
-    // Logo、校徽、页角色块：同一个位置 3 页以上都有的、很小的图，不进对照
-    const decor = decorations(r.blocks, sizes)
-    for (const [k, list] of Object.entries(r.blocks)) {
-      const n = Number(k)
-      const sz = sizes[n - 1]
-      if (!sz) continue
-      out[n] = bodyBlocks(list, sz, decor).map((b) => ({
-          id: b.id,
-          kind: b.kind,
-          text: b.text,
-          top: b.y,
-          ...(b.stack ? { stack: b.stack } : {}),
-          ...(b.by === 'mineru' ? { math: true as const } : {}),
-          // 裁图按原页大约 1.25 倍显示（MinerU 认出的表格拆不出格子时也照原页裁）
-          ...(b.kind === 'image' || b.kind === 'text' || b.kind === 'table' ? { crop: () => cropUrl(path, n, blockRect(b, sz)), w: Math.round((b.w + 6) * 1.25) } : {}),
-        }))
-    }
-    return out
-  }, [r.blocks, sizes, path])
-
-  const groups: FlowGroup[] = useMemo(
-    () =>
-      (sizes ?? []).map((_, i) => {
-        const n = i + 1
-        const asked = r.state.threads.filter((t) => t.page === n)
-        return {
-          key: `p${n}`,
-          blocks: flowBlocks[n] ?? [],
-          ...(flowBlocks[n] ? {} : { loading: `正在读第${n}页…` }),
-          head: (
-            <>
-              <button type="button" className="pgc" title="切回原文看这一页" onClick={() => (setMode('orig'), setTimeout(() => goPage(n), 0))}>
-                <Codicon name="book" size={12} />{`第${n}页`}
-              </button>
-              {asked.slice(0, 3).map((t) => (
-                <button key={t.id} type="button" className="mk num" title={`这里问过 ${rounds(t.id)} 轮 · 点一下看笔记`} onClick={() => props.onShowNote(t.id)}>
-                  <Codicon name="comment" size={12} />
-                  {rounds(t.id)}
-                </button>
-              ))}
-            </>
-          ),
-        }
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sizes, flowBlocks, r.state.threads, r.state.msgs],
-  )
-
-  /** 重排里「问这段」：那段照原页裁下来，进 AI 输入框 */
-  async function askBlock(b: FlowBlock, key: string) {
-    const n = Number(key.slice(1))
-    const blk = r.blocks[n]?.find((x) => x.id === b.id)
-    const sz = sizes?.[n - 1]
-    if (!blk || !sz || r.running !== null) return
-    const rect = blockRect(blk, sz)
-    setStagedBlock(b.id)
-    props.onAsk()
-    const sentAt = R.get(path).sent
-    try {
-      const c = await R.cropOf(path, n, rect)
-      R.stage(path, { page: n, rect, url: c.url, png: c.png }, sentAt)
-    } catch (e) {
-      setStagedBlock(null)
-      props.onNotice(String((e as Error).message ?? e))
-    }
-  }
-
-  /** 并排时在左边原页上移动：对应的那段译文亮 */
-  function hoverPage(e: React.PointerEvent) {
-    if (!side || drag || !sizes || (e.target as Element).closest('.bicol')) return
-    const pageEl = pageAt(e.target)
-    if (!pageEl) return setHoverBlock(null)
-    const n = Number(pageEl.dataset.page)
-    const b = pageEl.getBoundingClientRect()
-    const x = ((e.clientX - b.left) / b.width) * sizes[n - 1]!.w
-    const y = ((e.clientY - b.top) / b.height) * sizes[n - 1]!.h
-    const hit = r.blocks[n]?.find((k) => k.kind !== 'image' && x >= k.x - 2 && x <= k.x + k.w + 2 && y >= k.y - 2 && y <= k.y + k.h + 2)
-    setHoverBlock((old) => (hit ? (old?.id === hit.id ? old : { page: n, id: hit.id }) : null))
-  }
-
-  async function saveBi() {
-    if (!sizes || saving) return
-    try {
-      const res = await savePdfBilingual(path, sizes, course, (t) => setSaving(t))
-      setSaved(res.path)
-      props.onNotice(`已存成${res.path} · 每页带回到PDF的链接`)
-    } catch (e) {
-      props.onNotice(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
-    } finally {
-      setSaving(null)
-    }
-  }
-
-  const status = sizes ? biStatus(trBi, flowBlocks, sizes.length) : null
 
   // ---------- 页边标记：每处问过的地方一颗，一页超过 3 颗时第 3 颗是 +N ----------
   const current = r.focus?.id ?? null
   const fresh = r.state.threads.length ? r.state.threads.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)) : null
 
   const cap = boxed && sizes ? capPos(boxed, sizes[boxed.page - 1]!, scale) : null
+  // 工具条比框宽、框靠右时伸出看得见的这一栏：往左挪回来，最多挪到这一栏的左边（页边的空处也用上）
+  useLayoutEffect(() => {
+    const el = capRef.current
+    const view = scroller.current
+    if (!el || !view) return setCapShift(0)
+    const r = el.getBoundingClientRect()
+    const left = r.left - capShift
+    const v = view.getBoundingClientRect()
+    const over = left + r.width - (v.right - 8)
+    setCapShift(over > 0 ? -Math.max(0, Math.min(over, left - (v.left + 8))) : 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capOpen, cap?.left, cap?.top, boxed?.quote, width])
 
   return (
     <section className="pane pdfpane" hidden={!props.active} data-path={path}>
       <TabActs active={props.active}>
-        <MineruTool job={r.mineru} onRetry={() => void R.enhance(path, true)} />
         {sizes && (
           <div className="pager num" data-testid="pdf-pager">
             {pageEdit ? (
@@ -596,6 +499,7 @@ export function PdfTab(props: {
                 onFocus={(e) => e.currentTarget.select()}
                 onBlur={() => setPageEdit(false)}
                 onKeyDown={(e) => {
+                  if (composing(e)) return
                   if (e.key === 'Enter') {
                     goPage(Number(e.currentTarget.value))
                     setPageEdit(false)
@@ -609,34 +513,6 @@ export function PdfTab(props: {
             )}
           </div>
         )}
-        {/* 对照读：点一下按上次的方式开 / 关，小箭头里选 原文 / 对照 / 只看译文（按钮带菜单） */}
-        <div className={'split-btn' + (bi.mode !== 'orig' ? ' on' : '')} data-testid="bi-mode" data-mode={bi.mode}>
-          <ActBtn
-            icon="split-horizontal"
-            label={bi.mode === 'orig' ? '对照读' : '回到原文'}
-            keys="⌥A"
-            on={bi.mode !== 'orig'}
-            className="bimain"
-            onClick={() => setMode(bi.mode === 'orig' ? lastBi.current : 'orig')}
-          />
-          <ActBtn icon="chevron-down" label="原文 / 对照 / 只看译文" className="bichev" aria-expanded={biMenu} onClick={() => setBiMenu((v) => !v)} />
-          {biMenu && (
-            <div className="menu" role="radiogroup" aria-label="原文 对照 只看译文" onMouseLeave={() => setBiMenu(false)}>
-              {(
-                [
-                  ['orig', '原文'],
-                  ['bi', '对照'],
-                  ['tr', '只看译文'],
-                ] as const
-              ).map(([m, name]) => (
-                <button key={m} type="button" role="radio" aria-checked={bi.mode === m} className={bi.mode === m ? 'on' : ''} onClick={() => (setMode(m), setBiMenu(false))}>
-                  <Codicon name={bi.mode === m ? 'check' : 'blank'} size={12} />
-                  {name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
         <ActBtn icon="comment-discussion-sparkle" label="问这一页" keys="⌘↵" disabled={!doc || r.running !== null} onClick={() => void askPage()} />
         <div className="pdfmore">
           <ActBtn icon="ellipsis" label="更多" aria-expanded={more} onClick={() => setMore((v) => !v)} />
@@ -662,50 +538,16 @@ export function PdfTab(props: {
           )}
         </div>
       </TabActs>
-      <MineruBar status={mineru} />
-      {bi.mode !== 'orig' && status && (
-        <BiBar
-          langs={langsLine(Object.values(r.blocks).flat().slice(0, 40).map((b) => b.text).join(' '))}
-          layout={bi.mode === 'bi' ? layout : null}
-          onLayout={setLayout}
-          status={status.text}
-          busy={status.busy}
-          course={course}
-          saved={saved}
-          saving={saving}
-          onSave={() => void saveBi()}
-          onOpenSaved={props.onOpenNote}
-          onOpenGlossary={props.onOpenNote}
-        />
-      )}
       <div className="pdfbody">
-        {flow && (
-          <ReflowView
-            srcKey={path}
-            groups={groups}
-            mode={bi.mode === 'tr' ? 'tr' : 'bi'}
-            course={course}
-            onAsk={(b, k) => void askBlock(b, k)}
-            staged={stagedBlock}
-            scrollTo={flowScroll}
-            flash={flowFlash}
-            onTopGroup={(k) => {
-              const n = Number(k.slice(1))
-              setPage(n)
-              R.setPage(path, n)
-            }}
-          />
-        )}
         {error && <div className="pdferr">打不开这份PDF：{error}</div>}
         <div
-          className={'pdfv' + (drag ? ' drawing' : '') + (side ? ' side' : '')}
-          hidden={flow}
+          className={'pdfv' + (drag ? ' drawing' : '')}
           ref={scroller}
           tabIndex={0}
           onScroll={onScroll}
           onPointerDown={onPointerDown}
           onContextMenu={onContext}
-          onPointerMove={(e) => (onPointerMove(e), hoverPage(e))}
+          onPointerMove={onPointerMove}
           onPointerUp={() => void onPointerUp()}
           data-testid="pdf-view"
         >
@@ -715,7 +557,7 @@ export function PdfTab(props: {
             const shown = threads.length > 3 ? threads.slice(0, 2) : threads
             const extra = threads.length > 3 ? threads.slice(2) : []
             return (
-              <div key={n} className={side ? 'birow' : 'pdfrow'} style={{ marginTop: n === 1 ? PAD_TOP : 0 }}>
+              <div key={n} className="pdfrow" style={{ marginTop: n === 1 ? PAD_TOP : 0 }}>
               <div className="pdfslot" style={{ width: s.w * scale, height: s.h * scale }}>
                 <span className="pno num">{n}</span>
                 <PageView doc={doc!} n={n} w={s.w * scale} h={s.h * scale} scale={scale} render={!!doc && visible.has(n)} />
@@ -726,10 +568,6 @@ export function PdfTab(props: {
                     t.rect ? <div key={t.id} className={'fr asked' + (hoverThread === t.id ? ' show' : '')} style={pct(t.rect)} /> : null,
                   )}
                   {flash?.page === n && <div key={flash.seq} className={'fr flash' + (flash.rect ? '' : ' whole')} style={flash.rect ? pct(flash.rect) : undefined} data-testid="pdf-flash" />}
-                  {side && hoverBlock?.page === n && (() => {
-                    const hb = r.blocks[n]?.find((k) => k.id === hoverBlock.id)
-                    return hb ? <div className="fr hl" style={pct(blockRect(hb, s, 2))} /> : null
-                  })()}
                 </div>
                 {shown.map((t) => (
                   <button
@@ -761,10 +599,17 @@ export function PdfTab(props: {
                     ))}
                   </div>
                 )}
-                {cap && boxed?.page === n && !r.queued.length && (
-                  <div className="cap" style={{ left: cap.left, top: cap.top }} role="toolbar" aria-label="框好的这块" onPointerDown={(e) => e.stopPropagation()}>
-                    <button onClick={() => void capAsk('explain')}>
-                      讲解一下<span className="k">↵</span>
+                {capOpen && cap && boxed?.page === n && !r.queued.length && (
+                  <div
+                    ref={capRef}
+                    className="cap capbar"
+                    style={{ left: cap.left, top: cap.top, ...(capShift ? { translate: `${capShift}px 0` } : {}) }}
+                    role="toolbar"
+                    aria-label="框好的这块"
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <button className="main" onClick={() => void capAsk('explain')}>
+                      讲解一下<kbd>↵</kbd>
                     </button>
                     <button onClick={() => void capAsk('translate')}>
                       <Codicon name="whole-word" size={14} />
@@ -772,27 +617,20 @@ export function PdfTab(props: {
                     </button>
                     <button onClick={() => void capAsk('rephrase')}>
                       <Codicon name="edit" size={14} />
-                      改问法
+                      改问法<kbd>⌘↵</kbd>
                     </button>
-                    <span className="sep" />
-                    <button aria-label="取消" onClick={cancelBox}>
+                    <button onClick={() => void capQuote()}>
+                      <Codicon name="quote" size={14} />
+                      {boxed.quote ? '引用这段' : '引用这块'}
+                      <kbd>⇧⌘L</kbd>
+                    </button>
+                    <span className="sepv" />
+                    <button aria-label="取消" data-tip="取消 esc" data-side="below" onClick={cancelBox}>
                       <Codicon name="close" size={14} />
                     </button>
                   </div>
                 )}
               </div>
-              {side && (
-                <SideCol
-                  srcKey={path}
-                  blocks={flowBlocks[n]}
-                  course={course}
-                  height={s.h * scale}
-                  scale={scale}
-                  visible={visible.has(n)}
-                  hover={hoverBlock?.page === n ? hoverBlock.id : null}
-                  onHover={(id) => setHoverBlock(id ? { page: n, id } : null)}
-                />
-              )}
               </div>
             )
           })}
@@ -802,12 +640,12 @@ export function PdfTab(props: {
   )
 }
 
-/** 工具条放在框下面 8；下面放不下就放上面 */
+/** 工具条（34 高）放在框下面 8；下面放不下就放上面 */
 function capPos(b: Boxed, s: Size, scale: number) {
   const ph = s.h * scale
   const top = (b.rect[1] + b.rect[3]) * ph + 8
-  const above = b.rect[1] * ph - 40
-  return { left: Math.max(0, b.rect[0] * s.w * scale), top: b.quote || top + 32 > ph ? Math.max(0, above) : top }
+  const above = b.rect[1] * ph - 42
+  return { left: Math.max(0, b.rect[0] * s.w * scale), top: b.quote || top + 34 > ph ? Math.max(0, above) : top }
 }
 
 function where(rect?: Rect) {
@@ -819,19 +657,6 @@ function where(rect?: Rect) {
 const px = (d: Drag) => ({ left: Math.min(d.x0, d.x1), top: Math.min(d.y0, d.y1), width: Math.abs(d.x1 - d.x0), height: Math.abs(d.y1 - d.y0) })
 const pct = (r: Rect) => ({ left: `${r[0] * 100}%`, top: `${r[1] * 100}%`, width: `${r[2] * 100}%`, height: `${r[3] * 100}%` })
 const clamp = (v: number, a: number, b: number) => Math.min(Math.max(v, a), b)
-
-/** 公式、图的裁图（重排里用；同一块只裁一次） */
-const crops = new Map<string, Promise<string>>()
-function cropUrl(pdf: string, page: number, rect: Rect): Promise<string> {
-  const k = `${pdf}\0${page}\0${rect.join(',')}`
-  let p = crops.get(k)
-  if (!p) {
-    p = R.cropOf(pdf, page, rect).then((c) => c.url)
-    p.catch(() => crops.delete(k))
-    crops.set(k, p)
-  }
-  return p
-}
 
 function same(a: Set<number>, b: Set<number>) {
   if (a.size !== b.size) return false

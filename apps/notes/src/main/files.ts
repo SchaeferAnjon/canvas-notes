@@ -1,15 +1,17 @@
 /**
- * 库里的全部文件：md、PDF、HTML 和文件夹（⌘O、目录树用）。PDF 带上问到第几页（旁边笔记的属性「进度」）。
- * 只读每篇笔记开头一小段找属性，几千个文件也快。
+ * 库里的全部文件：md、PDF、HTML、附件/ 里的图和别的文件、文件夹（⌘O、目录树用）。PDF 带上问到第几页（旁边笔记的属性「进度」）。
+ * 只读每篇笔记开头一小段找属性，几千个文件也快。附件/ 在树里看得到（four-items 1a、CN-104）。
+ * 「附件」筛选要的「哪篇笔记用哪些附件」另外算（attachIndex，只在选了「附件」时读全库）。
  */
 import { ipcMain } from 'electron'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
-import { DOUBTS_NAME, notePathFor, prop, resolveLink } from '@cn/format'
-import { doubtsIndex, type FileEntry, type FileKind, fileName, parseProgress } from '../shared/files'
+import { ATTACHMENTS_DIR, attachmentDir, decodeNote, DOUBTS_NAME, linkedPaths, notePathFor, prop, resolveLink } from '@cn/format'
+import { type AttachIndex, doubtsIndex, type FileEntry, type FileKind, fileName, parseProgress } from '../shared/files'
 import type { Vault } from './vault'
 
-const SKIP_DIRS = new Set(['node_modules', '附件'])
+const SKIP_DIRS = new Set(['node_modules'])
+const IMAGE = /\.(png|jpe?g|gif|webp|svg|heic|bmp|avif)$/i
 /** 软件汇总的两篇的名字（还要 front matter 写着「生成: 软件」才算） */
 const AUTO_NAMES = new Set([DOUBTS_NAME, '视频里的疑惑.md'])
 
@@ -46,11 +48,13 @@ export async function listEntries(root: string): Promise<FileEntry[]> {
         await walk(abs)
         continue
       }
-      const kind = ent.isFile() ? kindOf(ent.name) : null
+      // 附件/ 里别的文件也列出来（图、附件）；md、PDF、HTML 照常能开
+      const inAttach = path.startsWith(ATTACHMENTS_DIR + '/')
+      const kind = ent.isFile() ? (kindOf(ent.name) ?? (inAttach ? (IMAGE.test(ent.name) ? 'img' : 'att') : null)) : null
       if (!kind) continue
       try {
         const st = await stat(abs)
-        out.push({ path, kind, mtimeMs: st.mtimeMs, ctimeMs: st.birthtimeMs })
+        out.push({ path, kind, mtimeMs: st.mtimeMs, ctimeMs: st.birthtimeMs, ...(kind === 'img' || kind === 'att' ? { bytes: st.size } : {}) })
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
       }
@@ -88,10 +92,40 @@ export async function listEntries(root: string): Promise<FileEntry[]> {
   return out
 }
 
+/**
+ * 「附件」筛选（CN-104）：每篇笔记用到的附件（自己的附件文件夹 附件/<笔记路径>/ 里的，加上文中引用的 附件/ 里的），
+ * 和没有哪篇在用的附件。files 是 listEntries 的结果
+ */
+export async function attachIndex(root: string, files: FileEntry[]): Promise<AttachIndex> {
+  const atts = files.filter((f) => f.kind !== 'dir' && f.path.startsWith(ATTACHMENTS_DIR + '/'))
+  const byPath = new Map(atts.map((f) => [f.path, f]))
+  const used = new Set<string>()
+  const notes: AttachIndex['notes'] = []
+  for (const n of files) {
+    if (n.kind !== 'md' || n.path.startsWith(ATTACHMENTS_DIR + '/')) continue
+    const dir = attachmentDir(n.path) + '/'
+    const mine = new Set(atts.filter((f) => f.path.startsWith(dir)).map((f) => f.path))
+    const text = decodeNote(await readFile(join(root, n.path))).text
+    for (const p of linkedPaths(text, n.path)) if (byPath.has(p)) mine.add(p)
+    if (!mine.size) continue
+    for (const p of mine) used.add(p)
+    // 自己附件文件夹里的在前，文中用到的别处的在后
+    const own = (p: string) => (p.startsWith(dir) ? 0 : 1)
+    notes.push({ note: n.path, items: [...mine].sort((a, b) => own(a) - own(b) || a.localeCompare(b, 'zh-CN', { numeric: true })).map((p) => ({ path: p, bytes: byPath.get(p)!.bytes ?? 0 })) })
+  }
+  const orphans = atts.filter((f) => !used.has(f.path)).map((f) => ({ path: f.path, bytes: f.bytes ?? 0 }))
+  return { notes, orphans }
+}
+
 export function registerFiles(vault: () => Vault | null) {
   ipcMain.handle('files:all', () => {
     const v = vault()
     if (!v) throw new Error('还没有打开库')
     return listEntries(v.root)
+  })
+  ipcMain.handle('files:attachments', async () => {
+    const v = vault()
+    if (!v) throw new Error('还没有打开库')
+    return attachIndex(v.root, await listEntries(v.root))
   })
 }

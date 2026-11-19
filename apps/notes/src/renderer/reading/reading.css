@@ -62,6 +62,8 @@
   flex: 1;
   min-height: 0;
   display: flex;
+  /* 框好一块的工具条按这一栏的宽收：窄了先藏键帽 */
+  container-type: inline-size;
 }
 .pdfpane .pdfv {
   flex: 1;
@@ -175,53 +177,23 @@
 }
 
 /* 框下面的黑色胶囊工具条 */
+/* 框好一块、选中一段的工具条：样子是 composer.css 的 .capbar（照 CN-92 小样：34 高、圆角 9、13px 白字），这里只管位置 */
 .pdfpane .cap {
   position: absolute;
   z-index: 6;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 32px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--solid);
-  color: var(--solid-t);
-  font-size: 12px;
-  white-space: nowrap;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  cursor: default;
   animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+/* 中间栏窄（右栏拉宽、窗口窄）时五颗加键帽放不下：先藏键帽（键写在输入框底行的提示里），工具条整个露着 */
+@container (max-width: 599.98px) {
+  .pdfpane .cap kbd {
+    display: none;
+  }
 }
 @keyframes cap-in {
   from {
     opacity: 0;
     transform: translateY(-4px);
   }
-}
-.pdfpane .cap button {
-  height: 24px;
-  border: 0;
-  border-radius: 999px;
-  padding: 0 10px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  color: inherit;
-  font-size: 12px;
-}
-.pdfpane .cap button:hover {
-  background: rgba(127, 127, 127, 0.25);
-}
-.pdfpane .cap .k {
-  opacity: 0.6;
-  font-size: 11px;
-}
-.pdfpane .cap .sep {
-  width: 1px;
-  height: 14px;
-  background: currentColor;
-  opacity: 0.2;
 }
 
 /* 页边标记：页右边外 8，和框的上沿齐平 */
@@ -369,31 +341,11 @@
   min-width: 0;
   overflow: hidden;
 }
-.reading-ai .aih,
-.reading-notes .aih {
-  -webkit-app-region: drag;
-}
-.reading-ai .aih button,
-.reading-notes .aih button {
-  -webkit-app-region: no-drag;
-}
-.reading-ai .aih b,
-.reading-notes .aih b {
-  font-size: 13px;
-}
-.reading-notes .aih .meta {
-  min-width: 0;
-}
-.reading-ai .sees {
-  padding: 8px 16px;
-}
 .reading-ai .sees .chip .ok,
 .reading-ai .am .read .ok {
   color: var(--green);
 }
 .reading-ai .msgs {
-  padding: 12px 16px 16px;
-  gap: 14px;
   /* 右栏下格可能很矮（700 高的窗口、上格开着视频、输入框上面挂着待问块）：按它的高收空状态 */
   container-type: size;
 }
@@ -445,7 +397,6 @@
   background: #fff;
 }
 [data-tone='dark'] .reading-ai .um-wrap .att,
-[data-tone='dark'] .reading-in .attc,
 [data-tone='dark'] .reading-notes .fig .im {
   filter: brightness(0.92);
 }
@@ -453,6 +404,26 @@
   display: block;
   max-width: 200px;
   max-height: 120px;
+}
+/* 框的那块在这一问的气泡里（照小样 .um .th）：气泡内边距 6，图圆角 6、1px --line、下面空 6，字左右再让 6 */
+.reading-ai .um.wimg,
+.reading-ai .um.mq:has(> .att) {
+  padding: 6px;
+}
+.reading-ai .um .att {
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.reading-ai .um.wimg .att {
+  margin-bottom: 6px;
+}
+.reading-ai .um.wimg .ut,
+.reading-ai .um.mq:has(> .att) > .mt,
+.reading-ai .um.mq:has(> .att) > .fnl {
+  margin: 0 6px;
+}
+.reading-ai .um.wimg .ut {
+  margin-bottom: 2px;
 }
 .reading-ai .um-wrap .uq {
   max-width: 100%;
@@ -515,68 +486,6 @@
   background: var(--fill);
 }
 
-/* 输入框：框好的那块在上面，外圈 1.5px 强调色 */
-.aiin.reading-in {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  margin: 0 12px 12px;
-  padding: 8px 8px 8px 12px;
-  border: 0;
-  box-shadow:
-    0 0 0 1px var(--line2),
-    0 1px 2px rgba(0, 0, 0, 0.04);
-}
-.aiin.reading-in.hot {
-  box-shadow: 0 0 0 1.5px var(--acc-ring);
-}
-.reading-in .atts {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 6px;
-}
-.reading-in .attc {
-  position: relative;
-  border-radius: 6px;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px var(--line2);
-  background: #fff;
-}
-.reading-in .attc img {
-  display: block;
-  max-width: 140px;
-  max-height: 72px;
-}
-.reading-in .attwait {
-  display: block;
-  width: 96px;
-  height: 56px;
-  background: var(--fill);
-}
-.reading-in .attc .lb {
-  position: absolute;
-  left: 4px;
-  bottom: 4px;
-  font-size: 11px;
-  background: rgba(17, 17, 19, 0.72);
-  color: #fff;
-  border-radius: 4px;
-  padding: 0 4px;
-  line-height: 16px;
-}
-.reading-in .rm {
-  position: absolute;
-  right: 2px;
-  top: 2px;
-  width: 18px;
-  height: 18px;
-  border: 0;
-  border-radius: 50%;
-  background: rgba(17, 17, 19, 0.6);
-  color: #fff;
-  display: grid;
-  place-items: center;
-}
 /* 排着的几问：一问一行，叠在附件右边 */
 /* 排着的几问：附图下面、输入框上面自己占一整块（第 3 轮美学：放在附图那一行里只剩 183 宽） */
 .reading-in .queue {
@@ -614,100 +523,6 @@
   color: var(--t1);
   background: var(--fill);
 }
-.reading-in .attq {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 4px 30px 4px 8px;
-  border-radius: 6px;
-  background: var(--fill);
-  font-size: 12px;
-  color: var(--t2);
-}
-.reading-in .attq .lb {
-  flex: none;
-  color: var(--t3);
-}
-.reading-in .attq .q {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* 视频「接着问」：左边那一帧的小图，右边第一行「00:06 · 视频名」，第二行问过的那句，各自一行省略 */
-.reading-in .attq .col {
-  display: contents;
-}
-.reading-in .attq.two {
-  gap: 8px;
-}
-.reading-in .attq.two .col {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.reading-in .attq.two .frame {
-  flex: none;
-  width: 48px;
-  height: 27px;
-  object-fit: cover;
-  border-radius: 4px;
-}
-.reading-in .attq.two .lb {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.reading-in .attq.two .q {
-  color: var(--t2);
-  /* 开头的「占半个字的空白，不然第二行看着比第一行往里缩 */
-  text-spacing-trim: trim-start;
-}
-.reading-in .attq .rm {
-  top: 50%;
-  transform: translateY(-50%);
-}
-.reading-in .crow {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-}
-.reading-in textarea {
-  flex: 1;
-  min-width: 0;
-  /* 跟着字变高，最多 6 行再滚（排着的几问接回来时都看得见） */
-  field-sizing: content;
-  min-height: 40px;
-  max-height: 120px;
-  border: 0;
-  outline: none;
-  background: none;
-  resize: none;
-  font: 13px/20px var(--sans);
-  color: var(--t1);
-  padding: 0;
-}
-.reading-in textarea::placeholder {
-  color: var(--t3);
-}
-.reading-in textarea::selection {
-  background: var(--acc-soft);
-}
-.reading-in .send {
-  width: 28px;
-  height: 28px;
-}
-.reading-in .chint {
-  display: flex;
-  gap: 10px;
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--t3);
-}
 
 /* ---------- 笔记 ---------- */
 .reading-notes .notes {
@@ -726,180 +541,10 @@
 .reading-notes .nempty p {
   margin: 0 0 4px;
 }
-.reading-notes .props {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px 0 2px;
-}
-.reading-notes .chip {
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: var(--fill);
-  font-size: 12px;
-  color: var(--t1);
-  white-space: nowrap;
-}
-.reading-notes .nsum {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 0 8px;
-  border-bottom: 1px solid var(--line);
-  font-size: 12px;
-  color: var(--t2);
-}
-.reading-notes .nfind {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 28px;
-  margin: 10px 0 2px;
-  padding: 0 10px;
-  border-radius: 999px;
-  background: var(--fill);
-  font-size: 12px;
-  color: var(--t3);
-}
-.reading-notes .nfind input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: none;
-  font-size: 12px;
-  color: var(--t1);
-}
-.reading-notes .nfind input::placeholder {
-  color: var(--t3);
-}
-.reading-notes .nfind .num {
-  white-space: nowrap;
-}
-.reading-notes .ns {
-  position: relative;
-  padding: 16px 0 18px;
-  border-bottom: 1px solid var(--line);
-}
-.reading-notes .ns.row1 {
-  padding: 0;
-}
-.reading-notes .ns.row1 .nsh {
-  height: 40px;
-  margin: 0;
-  cursor: default;
-}
-.reading-notes .ns.row1 .nsh:hover h3 {
-  color: var(--t1);
-}
-.reading-notes .ns.row1 h3 {
-  font-size: 13px;
-  font-weight: 500;
-}
-.reading-notes .ns.row1 .fold {
-  color: var(--t3);
-  margin: 0 2px 0 4px;
-}
-.reading-notes .ns.flash {
-  animation: note-ring 2s ease-out;
-  border-radius: 10px;
-}
-.reading-notes .ns.writing {
-  opacity: 0.55;
-}
-.reading-notes .nsh {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  min-width: 0;
-}
-.reading-notes .nsh .iconbtn.fold {
-  width: 20px;
-  height: 20px;
-  color: var(--t3);
-}
-.reading-notes .nsh h3 {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.35;
-}
-.reading-notes .nsh .tm {
-  flex: none;
-  font-size: 11px;
-  color: var(--t3);
-}
-.reading-notes .pgc {
-  flex: none;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--fill);
-  font-size: 12px;
-  color: var(--t2);
-  white-space: nowrap;
-}
-.reading-notes button.pgc:hover {
-  background: var(--fill2);
-  color: var(--t1);
-}
-.reading-notes .figs {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.reading-notes .fig {
-  flex: none;
-  min-width: 0;
-}
-.reading-notes .fig .im {
-  display: block;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px var(--line2);
-  background: #fff;
-}
-.reading-notes .fig .im img {
-  display: block;
-}
-/* 两张以上：两列网格，图按格子宽缩，不再一排伸出右栏被边缘切断 */
-.reading-notes .figs:has(.fig + .fig) {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.reading-notes .figs:has(.fig + .fig) .im {
-  width: fit-content;
-  max-width: 100%;
-}
-.reading-notes .figs:has(.fig + .fig) .im img {
-  max-width: 100% !important;
-  height: auto;
-}
-.reading-notes .figs .fc {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.reading-notes .fig .im:hover {
-  box-shadow: 0 0 0 1.5px var(--acc-ring);
-}
-.reading-notes .fig .fc {
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--t3);
+/* 一篇长文档的样子在 side.css（.nbar、.rnd、.qs、.nside、.recap、我框的图按 100% 的宽）；下面是还在记的那一段、以前格式的一段照旧显示的那几块。
+   笔记里还没有的那一段（正在记…）淡一点；已经在笔记里、正在重写标题小结的那一段不淡（头上转圈就够，整段变淡一闪一闪的） */
+.reading-notes .rnd.pend {
+  opacity: 0.6;
 }
 .reading-notes .wnote {
   margin: 0;
@@ -1013,16 +658,15 @@
   color: var(--acc-t);
 }
 
-/* ---------- 右栏两格：上格网页 / 梦游 / 历史 46%，下格 AI 或笔记 ---------- */
-.win.rsplit .right:not(.reading-ai):not(.reading-notes) {
+/* ---------- 右栏两格（D 组方向 A）：上格网页 / 大纲 / 历史 / 插件那一格，下格 AI（或读 PDF 的笔记），各一半高 ---------- */
+.win.rsplit > .right:not(.abar):not(.aicell) {
   align-self: start;
-  height: 46%;
+  height: 50%;
   border-bottom: 1px solid var(--line);
 }
-.win.rsplit .right.reading-ai,
-.win.rsplit .right.reading-notes {
+.win.rsplit > .right.aicell {
   align-self: end;
-  height: 54%;
+  height: 50%;
 }
 
 /* ---------- 第 2 段：进度、做个可视化、我的疑惑、送 Anki、HTML 标签 ---------- */
@@ -1508,145 +1152,15 @@
   border: 1.5px solid var(--acc);
   background: var(--acc-soft);
 }
+/* HTML 上框一块的工具条：和 PDF 同一个样子（composer.css 的 .capbar），这里只管位置 */
 .htmlpane .cap {
   position: absolute;
   z-index: 6;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 32px;
-  padding: 0 4px;
-  border-radius: 999px;
-  background: var(--solid);
-  color: var(--solid-t);
-  font-size: 12px;
-  white-space: nowrap;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
-  cursor: default;
   animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
-.htmlpane .cap button {
-  height: 24px;
-  border: 0;
-  border-radius: 999px;
-  padding: 0 10px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  color: inherit;
-  font-size: 12px;
-}
-.htmlpane .cap button:hover {
-  background: rgba(127, 127, 127, 0.25);
-}
-.htmlpane .cap .k {
-  opacity: 0.6;
-  font-size: 11px;
-}
-.htmlpane .cap .sep {
-  width: 1px;
-  height: 14px;
-  background: currentColor;
-  opacity: 0.2;
-}
 
-/* ---------- PDF 精读增强（MinerU）：哪都找不到时工具条下面一行提示，不弹框 ---------- */
-.mubar {
+/* 一页一行 */
+.pdfpane .pdfrow {
   position: relative;
   flex: none;
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px 4px 20px;
-  border-bottom: 1px solid var(--line);
-  background: var(--win);
-  font-size: 12px;
-  color: var(--t2);
-  min-width: 0;
-}
-.mubar .ic {
-  flex: none;
-  color: var(--acc-t);
-}
-.mubar.err .ic {
-  color: var(--yellow);
-}
-.mubar .ln {
-  min-width: 0;
-}
-.mubar b {
-  font-weight: 500;
-  color: var(--t1);
-}
-.mubar a {
-  color: var(--acc-t);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-.mubar .sp {
-  flex: 1;
-}
-.mubar .pct {
-  flex: none;
-  color: var(--t2);
-}
-.mubar .btn {
-  flex: none;
-  font-size: 12px;
-}
-/* 装的进度：底边一条 2px --acc */
-.mubar .bar {
-  position: absolute;
-  left: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--acc);
-  transition: width 0.4s;
-}
-/* 标签条右端「增强识别 · 认版面 40%」「增强识别没成功 · 重试」 */
-.acts .txt.mutool {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 260px;
-}
-.acts .txt.mutool .lnk {
-  font-size: 12px;
-  color: var(--t2);
-}
-.acts .txt.mutool .lnk:hover {
-  color: var(--t1);
-}
-/* 说明可以省略号，大小和许可证不省（窄了先截说明） */
-.mubar .size,
-.mubar .lic,
-.mubar .step {
-  flex: none;
-  white-space: nowrap;
-}
-.mubar .size {
-  color: var(--t3);
-}
-.mubar .ln.out {
-  flex: 1 1 0;
-  color: var(--t3);
-}
-/* 后台识别的小字：阶段名可省略，百分比不截 */
-.acts .txt.mutool .mt {
-  min-width: 0;
-}
-.acts .txt.mutool .mp {
-  flex: none;
-}
-.center.compact .acts .txt.mutool {
-  max-width: 180px;
-}
-.acts .txt.mutool + .pager {
-  margin-left: 8px;
-}
-/* 中间窄于 900：先藏大小（放进「安装」的悬停提示），说明句留全 */
-.center.compact .mubar .size {
-  display: none;
 }

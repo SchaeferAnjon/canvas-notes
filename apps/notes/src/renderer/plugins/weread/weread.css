@@ -1,43 +1,64 @@
-/* 微信读书：右下角一行提示（底栏上面、竖条左边），设置里的同步状态。变量都来自 DESIGN.md */
+/* 微信读书的提示（CN-118，照小样）：中间岛底部居中、离底 16，深色底 #1d2730 白字 13/1.5，圆角 10，内边距 8/10/8/14，
+   左边对勾 14（#9fd8ea），右边动作（看一眼、去登录）26 高、白 14% 底、圆角 6；整句不截，太长折行。浅色深色同一个样子 */
 .wr-toast {
-  position: fixed;
-  right: 72px;
-  bottom: 48px;
-  max-width: 360px;
-  padding: 8px 14px;
-  border-radius: 999px;
-  background: var(--pop);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  box-shadow: var(--shadow-up);
-  color: var(--t1);
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translate(-50%, 8px);
+  width: max-content;
+  max-width: calc(100% - 32px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 10px;
+  background: #1d2730;
+  color: #fff;
   font: 400 13px/1.5 var(--sans);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  z-index: 80;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  z-index: 50;
   opacity: 0;
-  transform: translateY(6px);
-  transition:
-    opacity 0.18s,
-    transform 0.18s;
   pointer-events: none;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+}
+/* 中间岛不在（设置页之类）：贴着窗口底部 */
+.wr-toast.loose {
+  position: fixed;
+  bottom: 48px;
 }
 .wr-toast.on {
   opacity: 1;
-  transform: none;
-}
-/* 带一个动作（去登录）：能点 */
-.wr-toast.act.on {
+  transform: translate(-50%, 0);
   pointer-events: auto;
 }
-.wr-toast button {
+.wr-toast .wr-ic {
+  flex: none;
+  color: #9fd8ea;
+}
+.wr-toast .wr-ic.warn {
+  color: #f2c36b;
+}
+.wr-toast .t {
+  min-width: 0;
+}
+.wr-toast .a {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
   border: 0;
-  padding: 0;
-  background: none;
-  color: var(--acc-t);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
+}
+.wr-toast .a:hover {
+  background: rgba(255, 255, 255, 0.22);
 }
 
 /* 设置 › 插件 › 微信读书：登录和同步一块（CN-53）。--fill 底圆角 10，头像 32，两行字 13 / 12，右边一个按钮 */

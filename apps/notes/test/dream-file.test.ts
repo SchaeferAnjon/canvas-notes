@@ -8,9 +8,9 @@ import { type Ask, type DreamReportInternal, dropMany, redo, runDream, takeAll, 
 import { diffOf } from '../src/main/diff'
 
 describe('归类和改名：纯函数', () => {
-  it('去处只能是 课程/<课>、项目/<项目>、生活、写作、素材/<主题>', () => {
-    for (const ok of ['课程/线性代数', '项目/毕业设计', '生活', '写作', '素材/旅行']) expect(validFolder(ok)).toBe(true)
-    for (const bad of ['课程', '课程/a/b', '../外面', '收件箱', '素材/../x', '课程/.git', '我写的', '写作/草稿', '/生活', '课程/ 空格']) expect(validFolder(bad)).toBe(false)
+  it('去处只能是 课程/<课>、项目/<项目>、生活、写作、剪藏/<主题>', () => {
+    for (const ok of ['课程/线性代数', '项目/毕业设计', '生活', '写作', '剪藏/旅行']) expect(validFolder(ok)).toBe(true)
+    for (const bad of ['课程', '课程/a/b', '../外面', '收件箱', '剪藏/../x', '课程/.git', '我写的', '写作/草稿', '/生活', '课程/ 空格']) expect(validFolder(bad)).toBe(false)
   })
 
   it('新名字去掉文件名里不能有的字符；读方案只认收件箱里有的、去处合规的、第一次的', () => {
@@ -48,7 +48,7 @@ describe('归类和改名：纯函数', () => {
   })
 
   it('库里已有的去处', () => {
-    expect(foldersOf(['课程/线性代数/a.md', '课程/a.md', '生活/x.md', '素材/旅行/y.md', '写作/z.md', '我写的.md', '项目/毕设/p/q.md'])).toEqual(['课程/线性代数', '生活', '素材/旅行', '项目/毕设', '写作'])
+    expect(foldersOf(['课程/线性代数/a.md', '课程/a.md', '生活/x.md', '剪藏/旅行/y.md', '写作/z.md', '我写的.md', '项目/毕设/p/q.md', '阅读/人类简史.md', '周记/第46周.md'])).toEqual(['剪藏/旅行', '课程/线性代数', '生活', '项目/毕设', '写作', '阅读', '周记'])
   })
 })
 

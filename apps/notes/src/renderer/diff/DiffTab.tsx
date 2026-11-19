@@ -15,7 +15,7 @@ import { BIG_LINES, type DiffEntry, type DiffResult, type DiffSource, sizeText }
 import { blocksField, editorHost } from '../editor-host'
 import { livePreview } from '../live-preview'
 import { mdWidgets } from '../md-widgets'
-import { propsBlock } from '../mindmap/props-block'
+import { propsBlock, showPropsTable } from '../mindmap/props-block'
 import { fileIcon } from '../Palette'
 import { ActBtn, PageNote, TabActs } from '../shell/TabActs'
 import './diff.css'
@@ -54,7 +54,7 @@ function baseExt(path: string, look: Look, md: boolean): Extension[] {
     phrases,
     ...(md ? [markdown({ base: markdownLanguage })] : []),
     // 文档：用编辑器现成的实时预览画（标题是标题、链接是链接、图片是图片）
-    ...(md && look === 'doc' ? [livePreview, propsBlock, editorHost.of({ path: () => path, notice: () => {} }), blocksField, mdWidgets] : []),
+    ...(md && look === 'doc' ? [livePreview, propsBlock, showPropsTable.of(true), editorHost.of({ path: () => path, notice: () => {} }), blocksField, mdWidgets] : []),
   ]
 }
 

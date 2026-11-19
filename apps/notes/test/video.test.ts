@@ -195,9 +195,9 @@ describe('存进笔记', () => {
   it('记到哪：文档插光标处，白板进时刻列，字幕全文记进上一篇文档；中间没开文档就新建「收件箱/<视频标题>.md」开在中间（CN-70）；明确选了收件箱才只追加', () => {
     expect(destFor({ kind: 'doc', path: 'a.md', title: 'a' }, null, 'V')).toEqual({ kind: 'doc', path: 'a.md', title: 'a' })
     expect(destFor({ kind: 'board', path: 'b.md', title: 'b' }, null, 'V').kind).toBe('board')
-    expect(destFor({ kind: 'material', path: '素材/视频/V.md', title: 'V' }, { path: 'a.md', title: 'a' }, 'V')).toEqual({ kind: 'doc', path: 'a.md', title: 'a' })
+    expect(destFor({ kind: 'material', path: '剪藏/视频/V.md', title: 'V' }, { path: 'a.md', title: 'a' }, 'V')).toEqual({ kind: 'doc', path: 'a.md', title: 'a' })
     expect(destFor({ kind: 'none' }, null, 'Linear: transformations?')).toEqual({ kind: 'new', path: '收件箱/Linear transformations.md', title: 'Linear transformations' })
-    expect(destFor({ kind: 'material', path: '素材/视频/V.md', title: 'V' }, null, 'V').kind).toBe('new')
+    expect(destFor({ kind: 'material', path: '剪藏/视频/V.md', title: 'V' }, null, 'V').kind).toBe('new')
     expect(destFor({ kind: 'doc', path: 'a.md', title: 'a' }, null, 'V', true)).toEqual({ kind: 'inbox', path: '收件箱/V.md', title: 'V' })
   })
   it('「未命名」「未命名 3」算没起过名字；别的不算（CN-80）', () => {

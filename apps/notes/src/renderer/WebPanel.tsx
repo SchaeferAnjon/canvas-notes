@@ -26,6 +26,7 @@ import { videoOf } from '../shared/video'
 import { useVideoKeys } from './video/keys'
 import { setVideoHost } from './video/store'
 import { VideoStrip } from './video/VideoStrip'
+import { AiActLayer } from './ai-act'
 
 export type ClipMode = { mode: 'inbox' | 'doc'; target?: string }
 
@@ -70,6 +71,10 @@ export function WebPanel(props: {
   onOpenNote(path: string): void
   /** 打开设置 · 插件 */
   onPluginSettings(): void
+  /** ⌘W 在右栏网页这一格（App 认的当前栏）：关当前网页标签 */
+  closeActive: React.MutableRefObject<(() => void) | null>
+  /** 用户关了一个网页标签（×、⌘W）：App 在底栏说一句，undo 放回原处；last：关的是最后一个，网页这格收起了 */
+  onClosedTab(c: { title: string; last: boolean; undo(): void }): void
 }) {
   const [st, setSt] = useState<WebTabs>(loadWebTabs)
   const views = useRef(new Map<string, WebviewEl>())
@@ -93,6 +98,8 @@ export function WebPanel(props: {
   const [clipped, setClipped] = useState<{ path: string; undone?: boolean; extra?: string } | null>(null)
   const addr = useRef<HTMLInputElement>(null)
   const root = useRef<HTMLElement>(null)
+  /** 网页叠放的那一格：AI 在网页里动手时外圈画在它上面 */
+  const stack = useRef<HTMLDivElement>(null)
   useKeepPopsInside(root)
   const cb = useRef(props)
   cb.current = props
@@ -191,6 +198,35 @@ export function WebPanel(props: {
     setSt((s) => closeTab(s, id))
   }
 
+  /**
+   * 用户关一个网页标签（×、⌘W，CN-98 方向 A）：最后一个关掉，网页这一格收起（同 Chrome、Safari 关最后一个标签）；
+   * App 在底栏说一句，「撤回」把它放回原来的位置（网页重新载入）
+   */
+  function closeByUser(id: string) {
+    const s = stRef.current
+    const i = s.tabs.findIndex((t) => t.id === id)
+    const tab = s.tabs[i]
+    if (!tab) return
+    const last = s.tabs.length === 1
+    const title = (!tab.url || tab.url === newtabUrl ? '' : tab.title) || (/^https?:/.test(tab.url) ? hostOf(tab.url) : '新网页')
+    close(id)
+    if (last) cb.current.onClose()
+    cb.current.onClosedTab({
+      title,
+      last,
+      undo: () =>
+        setSt((cur) => {
+          if (cur.tabs.some((t) => t.id === tab.id)) return activate(cur, tab.id, cb.current.owner)
+          const tabs = [...cur.tabs.slice(0, i), tab, ...cur.tabs.slice(i)]
+          return activate({ ...cur, tabs }, tab.id, cb.current.owner)
+        }),
+    })
+  }
+  props.closeActive.current = () => {
+    const cur = stRef.current.active
+    if (cur) closeByUser(cur)
+  }
+
   // 主进程转过来的：新窗口链接 / 插件开标签、插件切换关闭标签、网页焦点时的快捷键
   useEffect(() => {
     const offOpen = window.cnWeb.onOpenTab(({ url, reqId, background }) => {
@@ -220,7 +256,7 @@ export function WebPanel(props: {
       const id = tabOf(wc)
       if (!id) return
       if (k === 't') newTab()
-      else if (k === 'w') close(id)
+      else if (k === 'w') closeRef.current(id)
       else addr.current?.focus()
     })
     // 焦点在右栏（地址栏、标签条）时的 ⌘T、⌘W、⌘L；网页里的按键由主进程转过来
@@ -234,7 +270,7 @@ export function WebPanel(props: {
         e.preventDefault()
         e.stopImmediatePropagation()
         const cur = stRef.current.active
-        if (cur) close(cur)
+        if (cur) closeRef.current(cur)
       } else if (inside && e.key === 'l') {
         e.preventDefault()
         addr.current?.focus()
@@ -250,6 +286,9 @@ export function WebPanel(props: {
   }, [])
   const wcIdsRef = useRef(wcIds)
   wcIdsRef.current = wcIds
+  /** 主进程转过来的按键、窗口上的 ⌘W 只挂一次：用这个拿到最新的 closeByUser */
+  const closeRef = useRef(closeByUser)
+  closeRef.current = closeByUser
   const stRef = useRef(st)
   stRef.current = st
 
@@ -353,10 +392,15 @@ export function WebPanel(props: {
     const el = tabList.current
     if (!el) return
     const reveal = () => {
-      const tab = el.querySelector<HTMLElement>('.tab.on')
-      if (!tab) return
-      const tabLeft = tab.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft
-      const next = revealLeft(el.scrollLeft, el.clientWidth, el.scrollWidth, tabLeft, tab.offsetWidth)
+      const tabs = [...el.querySelectorAll<HTMLElement>(':scope > .tab')]
+      const i = tabs.findIndex((t) => t.classList.contains('on'))
+      if (i < 0) return
+      const r = el.getBoundingClientRect()
+      const boxes = tabs.map((t) => {
+        const b = t.getBoundingClientRect()
+        return { left: b.left - r.left + el.scrollLeft, width: b.width }
+      })
+      const next = revealLeft(el.scrollLeft, el.clientWidth, boxes, i)
       if (next !== Math.round(el.scrollLeft)) el.scrollLeft = next
     }
     reveal()
@@ -471,7 +515,7 @@ export function WebPanel(props: {
                 {/^https?:/.test(t.url) ? <Favicon url={t.url} size={14} /> : <Codicon name="globe" size={13} />}
                 <span className="truncate">{(!t.url || t.url === newtabUrl ? (going[t.id] ? hostOf(going[t.id]!.url) : '') : t.title) || (/^https?:/.test(t.url) ? hostOf(t.url) : '新网页')}</span>
               </button>
-              <button className="x" aria-label="关闭网页标签" title="关闭网页标签 ⌘W" onClick={() => close(t.id)}>
+              <button className="x" aria-label="关闭网页标签" title="关闭网页标签 ⌘W" onClick={() => closeByUser(t.id)}>
                 <Codicon name="close" size={12} />
               </button>
             </div>
@@ -625,7 +669,7 @@ export function WebPanel(props: {
         </div>
       )}
       <div className="rbody webbody">
-        <div className="wstack">
+        <div className="wstack" ref={stack}>
           {st.tabs.map((t) => {
             const src = srcOf(t)
             return src ? (
@@ -672,6 +716,8 @@ export function WebPanel(props: {
               />
             ) : null
           })}
+          {/* AI 在网页里动手：网页外圈和顶上提示条（指针、亮的那段、「✂ 剪成卡片」画在网页里，main/agent/web.ts） */}
+          <AiActLayer area="web" host={stack} />
           {(!active || !srcOf(active)) && (
             <div className="webstart">
               <p>输入网址打开一个网页。选中一段文字，就能剪进笔记；网页里的图片能直接拖到白板上。</p>

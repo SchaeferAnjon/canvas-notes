@@ -1,6 +1,6 @@
 // 设置 › AI（CN-44 方向 A）：默认一行 + 各功能一个下拉，选了真的按它跑；回答上面写是哪家哪个模型答的（CN-54）
 import { expect, test, type Page } from '@playwright/test'
-import { launch, openNote, tabOn } from './app'
+import { launch, openAi, openNote, tabOn } from './app'
 import { LECTURE } from './fixtures/pdf'
 
 const files = { '随手记.md': '# 随手记\n\n一段字。\n', '课程/线代/第3讲.pdf': LECTURE }
@@ -39,27 +39,27 @@ test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对�
     await expect(row(page, 'chat').getByTestId('ai-pick-chat')).toContainText('Claude CodeSonnet')
     await page.keyboard.press('Escape')
 
-    // 右下角浮窗：真的用 Sonnet 答，回答上面一行写着
+    // 右栏 AI 那一格（别处的对话）：真的用 Sonnet 答，回答上面一行写着
     await openNote(page, '随手记')
-    await page.keyboard.press('Meta+j')
+    await openAi(page)
     const float = page.getByRole('complementary', { name: 'AI 对话' })
     await float.getByRole('textbox', { name: '问 AI' }).fill('你用的什么模型')
     await float.getByRole('textbox', { name: '问 AI' }).press('Enter')
     const msg = float.getByTestId('ai-msg').last()
-    await expect(msg.locator('.txt')).toHaveText('模型：sonnet（Claude Code）', { timeout: 15_000 })
-    await expect(msg.locator('.read')).toHaveText('Claude Code · Sonnet')
-    await page.keyboard.press('Meta+j')
+    await expect(msg.locator('.txt')).toHaveText('模型：sonnet，effort：high（Claude Code）', { timeout: 15_000 })
+    await expect(msg.locator('.read')).toHaveText('Claude Code · Sonnet · High')
 
     // 边读边问：同一个
     await page.keyboard.press('Meta+k')
     await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('第3讲')
     await page.locator('.pal-row', { hasText: '第3讲' }).first().click()
     await expect(tabOn(page)).toHaveText('第3讲.pdf')
+    // AI 那一格开着就还开着，换成读 PDF 的 AI
     const ai = page.getByRole('complementary', { name: '边读边问 AI' })
     await ai.getByRole('textbox', { name: '问 AI' }).fill('这一页你用的什么模型')
     await ai.getByRole('textbox', { name: '问 AI' }).press('Enter')
     const rm = ai.getByTestId('reading-msg').last()
-    await expect(rm.locator('.txt')).toHaveText('模型：sonnet', { timeout: 15_000 })
+    await expect(rm.locator('.txt')).toHaveText('模型：sonnet，effort：high', { timeout: 15_000 })
     await expect(rm.locator('.read')).toContainText('· Claude Code · Sonnet')
 
     // AI 对话改回跟默认，默认换成 Codex：浮窗换成 Codex（它自己的默认模型，不传模型）
@@ -73,12 +73,12 @@ test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对�
     await expect(row(page, 'vision').getByTestId('ai-pick-vision')).toContainText('Claude Code')
     await page.keyboard.press('Escape')
     await openNote(page, '随手记')
-    await page.keyboard.press('Meta+j')
+    await openAi(page)
     await expect(float.getByTestId('ai-engine')).toHaveText('Codex')
     await float.getByRole('textbox', { name: '问 AI' }).fill('现在用的什么模型')
     await float.getByRole('textbox', { name: '问 AI' }).press('Enter')
-    await expect(float.getByTestId('ai-msg').last().locator('.txt')).toHaveText('模型：没指定（Codex）', { timeout: 15_000 })
-    await expect(float.getByTestId('ai-msg').last().locator('.read')).toHaveText('Codex')
+    await expect(float.getByTestId('ai-msg').last().locator('.txt')).toHaveText('模型：没指定，effort：high（Codex）', { timeout: 15_000 })
+    await expect(float.getByTestId('ai-msg').last().locator('.read')).toHaveText('Codex · High')
   } finally {
     await run.close()
   }

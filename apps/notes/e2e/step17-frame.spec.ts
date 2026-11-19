@@ -4,7 +4,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { acts, launch, rail, tabOn } from './app'
+import { acts, launch, openNote, rail, tabOn } from './app'
 import { ICELAND } from './fixtures/board'
 
 const frameA = (vault: string) => {
@@ -25,7 +25,7 @@ test('A 照 VS Code：面包屑以库名打头，点最后一节改名；F2 改�
     await page.getByRole('treeitem', { name: /思考快与慢/ }).click()
     await expect(tabOn(page)).toHaveText('思考快与慢')
     await expect(crumbs(page)).toHaveText(/测试库.*读书笔记.*思考快与慢/)
-    // 页面里没有标题行；白板 / 文档 / 源文件在标签条右端，A 只有图标
+    // 页面里没有标题行；白板 / 文档在标签条右端，A 只有图标
     await expect(page.locator('.pane:not([hidden]) .tool')).toHaveCount(0)
     await expect(acts(page).getByRole('tab', { name: '文档' })).toHaveAttribute('aria-selected', 'true')
     await expect(acts(page).locator('.seg .lb').first()).toBeHidden()
@@ -126,3 +126,69 @@ test('右栏里的弹层不出右栏：网页「⋯」菜单整个在右栏里�
     await run.close()
   }
 })
+
+// 分段控件的选中格是淡底（偏好「图标别做白底突起块」，照标签条小样 proposals2/D-读书与AI入口/v2/tabs/proto-a.html 的 .act.on）：
+// 标签条右端「白板 / 文档」外面不套底，选中格 --fill2 底 + --t1 字，不带阴影和描边；别处的分段（归档、翻译、对比页、视频字幕、文件夹首页弹窗、网页书签）
+// 统一成左栏「全部 文档 白板 剪藏」那一排的样子：外面不套 --fill 胶囊、不画内描边，每格和左栏的格子一样高、一样圆角、选中一样淡底 500 字重
+for (const [frame, skin] of [['b', 'sky'], ['b', 'petrol'], ['a', 'sky'], ['a', 'petrol']] as const)
+  test(`分段选中格是淡底、不是白底突起块（${frame.toUpperCase()} · ${skin}）`, async () => {
+    const run = await launch({ '思考快与慢.md': '# 思考快与慢\n\n两个系统。\n' }, { CN_AI_FAKE: '1' }, (vault) => {
+      const ud = join(dirname(vault), 'user-data')
+      mkdirSync(ud, { recursive: true })
+      writeFileSync(join(ud, 'settings.json'), JSON.stringify({ appearance: { followSystem: false, frame, skin } }))
+    })
+    const { page } = run
+    try {
+      await openNote(page, '思考快与慢')
+      const on = acts(page).getByRole('tab', { name: '文档' })
+      await expect(on).toHaveAttribute('aria-selected', 'true')
+      const look = await on.evaluate((b) => {
+        const probe = document.createElement('i')
+        b.parentElement!.appendChild(probe)
+        probe.style.background = 'var(--fill2)'
+        const fill2 = getComputedStyle(probe).backgroundColor
+        probe.style.background = 'var(--t1)'
+        const t1 = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        const s = getComputedStyle(b)
+        // 别处的分段：同一套 .seg 样式
+        const seg = document.createElement('div')
+        seg.className = 'seg'
+        seg.setAttribute('role', 'radiogroup')
+        seg.innerHTML = '<button role="radio" aria-checked="true" class="on">甲</button><button role="radio" aria-checked="false">乙</button>'
+        document.querySelector('.win')!.appendChild(seg)
+        const g = getComputedStyle(seg.querySelector('button.on')!)
+        const gs = getComputedStyle(seg)
+        const pick = (c: CSSStyleDeclaration) => ({ bg: c.backgroundColor, shadow: c.boxShadow, color: c.color, weight: c.fontWeight, h: c.height, radius: c.borderRadius, size: c.fontSize })
+        const other = { ...pick(g), box: gs.backgroundColor, boxShadow: gs.boxShadow, pad: gs.padding }
+        seg.remove()
+        // 左栏那一排（TypeChips）
+        const chips = document.createElement('div')
+        chips.className = 'tchips'
+        chips.innerHTML = '<button class="chip on">甲</button><button class="chip">乙</button>'
+        document.querySelector('.win')!.appendChild(chips)
+        const left = pick(getComputedStyle(chips.querySelector('.chip.on')!))
+        chips.remove()
+        const box = getComputedStyle(b.parentElement!)
+        return { bg: s.backgroundColor, color: s.color, shadow: s.boxShadow, box: box.backgroundColor, boxShadow: box.boxShadow, fill2, t1, other, left }
+      })
+      expect(look.bg).toBe(look.fill2)
+      expect(look.color).toBe(look.t1)
+      expect(look.shadow).toBe('none')
+      expect(look.box).toBe('rgba(0, 0, 0, 0)')
+      // 外面也不画一圈细线（家族 ui.css 的 .seg 带一圈内描边）
+      expect(look.boxShadow).toBe('none')
+      expect(look.other.bg).toBe(look.fill2)
+      expect(look.other.shadow).toBe('none')
+      // 别处的分段和左栏那一排一个样子：外面没有底、没有描边，格子同高同圆角同字重
+      expect(look.other.box).toBe('rgba(0, 0, 0, 0)')
+      expect(look.other.boxShadow).toBe('none')
+      expect(look.other.pad).toBe('0px')
+      const { box: _b, boxShadow: _s, pad: _p, ...cell } = look.other
+      expect(cell).toEqual(look.left)
+      // 没选中的那一格平时透明
+      expect(await acts(page).getByRole('tab', { name: '白板' }).evaluate((b) => getComputedStyle(b).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+    } finally {
+      await run.close()
+    }
+  })

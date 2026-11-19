@@ -45,7 +45,7 @@ export function saneFigure(r: Rect): boolean {
 }
 
 /**
- * 取框这一层（以后接 MinerU 时由它给版面块）：按顺序问每一种办法，第一个给出合理框的算数。
+ * 取框这一层：按顺序问每一种办法，第一个给出合理框的算数。
  * 现在只有一种：AI 回答里的那一行。
  */
 export interface FigureSource {

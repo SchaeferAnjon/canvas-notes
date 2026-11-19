@@ -13,10 +13,10 @@ import { EngineLogo } from './engine-logo'
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 const ROWS: { f: AiFeature | 'translate'; name: string; desc: string; icon: CodiconName }[] = [
-  { f: 'chat', name: 'AI对话', desc: '右下角浮窗、读PDF时右栏的边读边问', icon: 'comment-discussion-sparkle' },
+  { f: 'chat', name: 'AI对话', desc: '右栏AI那一格，读PDF时的边读边问也是它', icon: 'comment-discussion-sparkle' },
   { f: 'dream', name: '梦游', desc: '夜里整理收件箱、写报告、做可视化', icon: 'wand' },
   { f: 'vision', name: '看图问', desc: '视频框一块问、拍导图识别（要能看图）', icon: 'device-camera' },
-  { f: 'translate', name: '翻译', desc: '网页和PDF的双语翻译、右键翻译这段', icon: 'whole-word' },
+  { f: 'translate', name: '翻译', desc: '网页和视频字幕的双语翻译、右键翻译这段', icon: 'whole-word' },
   { f: 'quick', name: '小活', desc: '视频摘要、起名、插件里的快问', icon: 'note' },
 ]
 
@@ -232,7 +232,7 @@ export function AiSettingsPage(props: { onNotice(t: string): void; onPlugins(): 
           )
         })}
       </div>
-      <p className="note">AI改的每一处都是一次提交，浮窗里能撤回；它不能自己写文件、跑命令，只能用软件给它的工具。</p>
+      <p className="note">AI改的每一处都是一次提交，AI那一格里能撤回；它不能自己写文件、跑命令，只能用软件给它的工具。</p>
     </div>
   )
 }

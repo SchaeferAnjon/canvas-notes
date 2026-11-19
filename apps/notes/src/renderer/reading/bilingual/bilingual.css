@@ -1,12 +1,8 @@
 /*
- * 双语对照读（design/pdf spec 2.2–2.4）：工具栏三段、双语工具条、并排的译文栏、重排 / 只看译文、术语表小卡。
+ * 网页阅读视图的双语对照读（design/pdf spec 2.4）：工具栏两段、双语工具条、对照 / 只看译文。
  * 变量只用 DESIGN.md 里的；字号档 11/12/13/14/15。
  */
 
-/* 工具栏里的「原文 / 对照 / 只看译文」 */
-.pdfpane .seg.biseg button {
-  padding: 0 10px;
-}
 
 /* 双语工具条：40 高，吸在页面区顶上 */
 .bibar {
@@ -25,12 +21,6 @@
 .bibar .tl {
   flex: none;
   color: var(--t2);
-}
-.bibar .seg {
-  height: 24px;
-}
-.bibar .seg button {
-  padding: 0 10px;
 }
 .bibar .sp {
   flex: 1;
@@ -51,133 +41,7 @@
   flex: none;
   font-size: 12px;
 }
-.bigloss {
-  position: relative;
-  flex: none;
-}
-.glosspop {
-  position: absolute;
-  right: 0;
-  top: 32px;
-  z-index: 40;
-  width: 280px;
-  border-radius: 12px;
-  background: var(--pop);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  box-shadow: var(--shadow-up);
-  padding: 6px 0 0;
-  animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-.glosspop .gl-list {
-  max-height: 300px;
-  overflow: auto;
-  padding: 0 6px;
-}
-.glosspop .gl-row {
-  height: 26px;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  align-items: center;
-  padding: 0 8px;
-  border-radius: 6px;
-  font-size: 12px;
-}
-.glosspop .gl-row:hover {
-  background: var(--fill);
-}
-.glosspop .gl-row .s {
-  color: var(--t2);
-}
-.glosspop .gl-row .d {
-  color: var(--t1);
-}
-.glosspop .gl-empty {
-  margin: 8px;
-  font-size: 12px;
-  color: var(--t3);
-}
-.glosspop .gl-foot {
-  margin-top: 6px;
-  padding: 8px 14px 10px;
-  border-top: 1px solid var(--line);
-  font-size: 11px;
-  color: var(--t3);
-}
-.glosspop .lnk {
-  border: 0;
-  padding: 0;
-  background: none;
-  font: inherit;
-  color: var(--acc-t);
-}
-
-/* ---------- 并排：每页一行，左原页、右这页的译文，上沿对齐 ---------- */
-.pdfpane .pdfrow {
-  position: relative;
-  flex: none;
-}
-.pdfpane .birow {
-  position: relative;
-  flex: none;
-  display: flex;
-  align-items: flex-start;
-  gap: 60px;
-  width: 100%;
-}
-.pdfpane .pdfv.side {
-  align-items: stretch;
-}
-.pdfpane .bicol {
-  flex: 1;
-  min-width: 0;
-  max-width: 560px;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 2px 4px 2px 0;
-  cursor: default;
-}
-.pdfpane .bicol.aligned {
-  /* 每行上面空多少由 SideCol 按原页那段的位置算（对齐原页），不用 flex 的 gap */
-  gap: 0;
-}
-.pdfpane .bicol .sb {
-  margin: 0;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 14px;
-  line-height: 1.75;
-  color: var(--t1);
-  transition: background 0.12s;
-}
-.pdfpane .bicol .sb.h {
-  font-weight: 600;
-}
-.pdfpane .bicol .sb.on {
-  background: var(--acc-soft);
-}
-.pdfpane .bicol .sb.err {
-  color: var(--t3);
-  font-size: 12px;
-}
-.pdfpane .bicol .skip {
-  margin: 0;
-  padding: 0 8px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--t3);
-}
-.pdfpane .fr.hl {
-  background: var(--acc-soft);
-  border-radius: 3px;
-}
 /* 还没翻回来的：两条淡灰的占位线 */
-.pdfpane .bicol .wait,
 .reflow .t.wait i {
   display: block;
   height: 10px;
@@ -185,9 +49,6 @@
   border-radius: 999px;
   background: var(--fill2);
   animation: bi-wait 1.4s ease-in-out infinite;
-}
-.pdfpane .bicol .wait {
-  width: 70%;
 }
 .reflow .t.wait i:last-child {
   width: 55%;
@@ -214,9 +75,6 @@
   border-bottom: 1px solid var(--line);
   border-radius: 10px;
 }
-.reflow .fgrp.flash {
-  animation: pdf-flash 1.9s ease-out forwards;
-}
 .reflow .fh {
   display: flex;
   align-items: center;
@@ -239,10 +97,6 @@
   color: var(--t1);
   background: var(--fill2);
 }
-.reflow .fh .mk {
-  position: static;
-  transform: none;
-}
 .reflow .fload {
   display: flex;
   align-items: center;
@@ -259,10 +113,6 @@
 }
 .reflow .fb:hover {
   background: var(--fill);
-}
-.reflow .fb.staged {
-  background: var(--acc-soft);
-  box-shadow: 0 0 0 1.5px var(--acc-ring);
 }
 .reflow .fb .o {
   margin: 0 0 4px;
@@ -375,74 +225,7 @@
   color: var(--t3);
 }
 @media (prefers-reduced-motion: reduce) {
-  .reflow .fgrp.flash,
-  .pdfpane .bicol .wait,
   .reflow .t.wait i {
     animation: none;
   }
-}
-/* PDF 精读增强认出的：图注（跟着图，小一号）、公式（KaTeX 渲染）、表格（画成表） */
-.reflow .fb.caption .o {
-  font-size: 12px;
-}
-.reflow .fb.caption .t {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--t2);
-}
-.pdfpane .bicol .sb.cap {
-  font-size: 12px;
-  color: var(--t2);
-}
-.reflow .fc.rendered .fci {
-  display: block;
-  padding: 10px 12px;
-  background: var(--card);
-  color: var(--t1);
-  filter: none;
-  overflow-x: auto;
-}
-.reflow .fc.formula.rendered .fci {
-  text-align: center;
-}
-/* 表格不套框：左边和正文对齐，宽表横着滚 */
-.reflow .fc.table.rendered .fci {
-  padding: 0;
-  background: none;
-  box-shadow: none;
-  border-radius: 0;
-}
-.reflow .mblock {
-  font-size: 15px;
-}
-.reflow .mblock .katex-display {
-  margin: 0;
-}
-.reflow .mtable table {
-  border-collapse: collapse;
-  margin: 0;
-  font-size: 13px;
-  line-height: 1.5;
-  font-variant-numeric: tabular-nums;
-}
-.reflow .mtable th,
-.reflow .mtable td {
-  padding: 6px 10px;
-  border: 1px solid var(--line2);
-  text-align: left;
-  vertical-align: middle;
-}
-.reflow .mtable .n {
-  text-align: right;
-}
-.reflow .mtable th {
-  font-weight: 500;
-  color: var(--t2);
-  background: var(--fill);
-}
-.reflow .mi .katex {
-  font-size: 1.05em;
-}
-[data-tone='dark'] .reflow .fc.rendered .fci {
-  filter: none;
 }

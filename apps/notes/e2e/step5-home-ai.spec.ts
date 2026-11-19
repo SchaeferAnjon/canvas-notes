@@ -149,28 +149,28 @@ test('AI：/整理收件箱 列出要挪去的主题，点同意一次挪好、�
     await ai(page).getByRole('button', { name: '/整理收件箱' }).click()
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg.locator('.mv')).toHaveCount(2)
-    await expect(msg).toContainText('→ 素材/旅行')
+    await expect(msg).toContainText('→ 剪藏/旅行')
     await msg.getByRole('button', { name: '同意，挪过去' }).click()
     await expect(msg).toContainText('挪好了2条')
-    expect(existsSync(join(vault, '素材', '旅行', '冰洞.md'))).toBe(true)
+    expect(existsSync(join(vault, '剪藏', '旅行', '冰洞.md'))).toBe(true)
     expect(existsSync(join(vault, '收件箱', '冰洞.md'))).toBe(false)
-    // 文件树里 素材 › 旅行 两篇
+    // 文件树里 剪藏 › 旅行 两篇
     await leftView(page, '文件')
     const tree = page.getByRole('tree', { name: '全部文件' })
     const row = (name: string) => tree.getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: new RegExp(`^${name}$`) }) })
-    if ((await row('素材').getAttribute('aria-expanded')) !== 'true') await row('素材').locator('.ft-tw').click()
+    if ((await row('剪藏').getAttribute('aria-expanded')) !== 'true') await row('剪藏').locator('.ft-tw').click()
     await expect(row('旅行').locator('.ft-count')).toHaveText('2')
     expect(lastSubject(vault)).toBe('AI：整理收件箱：挪了 2 条')
     await msg.getByRole('button', { name: '撤回' }).click()
     await expect(msg.getByTestId('ai-change')).toContainText('已撤回')
     expect(existsSync(join(vault, '收件箱', '冰洞.md'))).toBe(true)
-    expect(existsSync(join(vault, '素材', '旅行', '冰洞.md'))).toBe(false)
+    expect(existsSync(join(vault, '剪藏', '旅行', '冰洞.md'))).toBe(false)
   } finally {
     await run.close()
   }
 })
 
-test('AI：/翻译 选中的那段；@ 引用笔记加进「看得到」；⌘J 开关；右栏开着时 AI 还浮在中间栏右下角', async () => {
+test('AI：/翻译 选中的那段；@ 引用笔记加进「看得到」；⌘J 开关；右栏开着历史时 AI 在右栏下半格（历史在上，各一半）', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -193,17 +193,20 @@ test('AI：/翻译 选中的那段；@ 引用笔记加进「看得到」；⌘J 
 
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toBeHidden()
-    // 右栏开着时再开 AI：还是浮在中间栏右下角，右栏的历史照样开着；顶栏切换里没有 AI
+    // 右栏开着历史时再开 AI（AI 只住右栏，第 2a 段）：历史在上、AI 在下，各一半高，同一列；竖条里没有 AI
     await rail(page).getByRole('button', { name: '历史' }).click()
-    await expect.poll(() => railItems(page)).toEqual(['大纲', '网页', '微信读书', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toBeVisible()
-    await expect(ai(page)).toHaveClass(/floating/)
-    await expect(page.getByRole('complementary', { name: '历史' })).toBeVisible()
+    const history = page.getByRole('complementary', { name: '历史' })
+    await expect(history).toBeVisible()
     const center = (await page.locator('main.center').boundingBox())!
     const panel = (await ai(page).boundingBox())!
-    // 浮窗右边离中间的岛 12（spec 第 2 节）
-    expect(Math.round(center.x + center.width - (panel.x + panel.width))).toBe(12)
+    const top = (await history.boundingBox())!
+    expect(panel.x).toBeGreaterThanOrEqual(center.x + center.width)
+    expect(Math.abs(top.x - panel.x)).toBeLessThanOrEqual(1)
+    expect(top.y).toBeLessThan(panel.y)
+    expect(Math.abs(top.height - panel.height)).toBeLessThanOrEqual(2)
   } finally {
     await run.close()
   }

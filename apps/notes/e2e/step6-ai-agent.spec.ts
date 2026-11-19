@@ -4,7 +4,7 @@ import { readFileSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { dirname, join } from 'node:path'
 import electronPath from 'electron'
-import { gitStatus, launch, pane, rail, waitSaved, tabOn, railItems } from './app'
+import { gitStatus, launch, openAi, pane, rail, waitSaved, tabOn, railItems } from './app'
 import { DREAM_VAULT } from './fixtures/dream'
 
 const ai = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
@@ -48,26 +48,29 @@ test.beforeAll(async () => {
 })
 test.afterAll(() => server.close())
 
-test('AI 只在右下角：圆形入口打开浮窗，切引擎记住选择，关了再开、重开软件对话都还在', async () => {
+test('AI 只住右栏：右下角的圆钮打开右栏 AI 那一格，切引擎记住选择，关了再开、重开软件对话都还在', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   const root = dirname(vault)
   try {
     // 右边竖条里没有 AI
     await page.locator('.nav .si', { hasText: '随笔' }).click()
-    await expect.poll(() => railItems(page)).toEqual(['大纲', '网页', '微信读书', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
     const fab = page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' })
     await expect(fab).toBeVisible()
     await fab.click()
     await expect(ai(page)).toBeVisible()
-    await expect(fab).toBeHidden()
+    // 圆钮一直在（D 组方向 A），开着时写「收起 AI」、多一圈强调色
+    await expect(rail(page).locator('.ai-fab')).toHaveAttribute('aria-label', '收起 AI')
+    await expect(rail(page).locator('.ai-fab')).toHaveClass(/\bon\b/)
 
     // 切引擎
     const eng = ai(page).getByTestId('ai-engine')
     await expect(eng).toHaveText('Claude Code')
     await eng.click()
-    const items = ai(page).getByRole('menuitemradio')
-    await expect(items).toHaveText(['Claude Code', 'Codex', 'Gemini', 'OpenCode'])
+    // 第 2b 段（CN-91 方向 C）：菜单挂在 body 上，每行右边写在哪找到
+    const items = page.getByRole('menu', { name: 'AI 引擎' }).getByRole('menuitemradio')
+    await expect(items).toHaveText(['Claude Code~/.local/bin', 'Codex/opt/homebrew/bin', 'Gemini/opt/homebrew/bin', 'OpenCode~/.opencode/bin'])
     await items.filter({ hasText: 'Codex' }).click()
     await expect(eng).toHaveText('Codex')
     await send(page, '你好')
@@ -83,7 +86,7 @@ test('AI 只在右下角：圆形入口打开浮窗，切引擎记住选择，�
     await expect(ai(page).getByTestId('ai-msg').locator('.txt')).toHaveText(['这是测试回答（Codex）。'])
     await page.waitForTimeout(500)
 
-    // 重开软件（同一个设置目录）：引擎还是 Codex，对话还在，不在库里
+    // 重开软件（同一个设置目录）：AI 那一格还开着（开关记在本机），引擎还是 Codex，对话还在，不在库里
     await run.app.close()
     const app = await electron.launch({
       executablePath: electronPath as unknown as string,
@@ -93,7 +96,8 @@ test('AI 只在右下角：圆形入口打开浮窗，切引擎记住选择，�
     })
     try {
       const p2 = await app.firstWindow()
-      await p2.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()
+      await expect(ai(p2)).toBeVisible()
+      await expect(rail(p2).locator('.ai-fab')).toHaveAttribute('aria-label', '收起 AI')
       await expect(ai(p2).getByTestId('ai-engine')).toHaveText('Codex')
       await expect(ai(p2).getByTestId('ai-msg').locator('.txt')).toHaveText(['这是测试回答（Codex）。'])
       await expect(ai(p2).locator('.um')).toHaveText(['你好'])
@@ -119,7 +123,8 @@ test('白板上让 AI 加卡片并排整齐：文件里对、一次提交、撤�
     await page.keyboard.press('Meta+j')
     await send(page, '在白板上加卡片「订机票」「订租车」「看极光」，再排整齐')
     const msg = ai(page).getByTestId('ai-msg').last()
-    await expect(msg.locator('.txt')).toHaveText('我加 3 张卡片，再按网格排整齐。好了。')
+    // 白板开在屏幕上时 AI 一张一张拿、一张一张挪，人看得清（DESIGN.v3 2.3，每张约 1 秒）
+    await expect(msg.locator('.txt')).toHaveText('我加 3 张卡片，再按网格排整齐。好了。', { timeout: 30_000 })
     // 字是边生成边出的，这一轮做完（提交好）才出改动预览
     await expect(msg.getByTestId('ai-change')).toContainText('改了1个文件')
     await expect(msg.getByTestId('ai-step')).toHaveText(['看白板上有什么', '加卡片「订机票」', '加卡片「订租车」', '加卡片「看极光」', '按网格排整齐'])
@@ -182,7 +187,7 @@ test('网页上让 AI 打开网址并读出标题：右栏自动打开，地址�
     const web = page.getByRole('complementary', { name: '网页' })
     await expect(web).toBeVisible()
     await expect(web.getByRole('textbox', { name: '网址' })).toHaveValue(url.replace(/^http:\/\//, ''))
-    // 「看得到」里有这个网页；AI 浮窗还在中间栏右下角
+    // 「看得到」里有这个网页；AI 还在右栏，网页在上、AI 在下
     await expect(page.getByTestId('ai-sees')).toContainText('网页：127.0.0.1')
     await expect(ai(page)).toBeVisible()
   } finally {
@@ -228,7 +233,8 @@ test('/找重复：每一对列出来（两篇能点开、相似度、为什么�
     await expect(msg.locator('.txt')).toHaveText('找到1对可能重复的，像的在前：')
     const dup = msg.getByTestId('ai-dups').locator('.dup')
     await expect(dup).toHaveCount(1)
-    await expect(dup.locator('.pair')).toHaveText(/^巴黎自由行全景指南↔巴黎深度漫游指南\d+%$/)
+    // 一对两篇按路径先后：「剪藏/巴黎/…」排在「收件箱/…」前面（以前「素材/…」排在后面）
+    await expect(dup.locator('.pair')).toHaveText(/^巴黎深度漫游指南↔巴黎自由行全景指南\d+%$/)
     await expect(dup.locator('.why')).toHaveText(/^两篇约\d+%的字句相同，都有「.+」$/)
     expect(gitStatus(vault)).toBe('')
     await page.screenshot({ path: test.info().outputPath('ai-dups.png') })

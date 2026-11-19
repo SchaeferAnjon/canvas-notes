@@ -39,7 +39,7 @@ export function TrControl({ page, open, onPopup }: { page: WebPage | null; open:
   const on = !!st?.on
   const err = on && !!(st.blocked || st.failed)
 
-  // 一开就发现没有能用的：直接打开菜单说原因；PDF：说去 PDF 阅读器
+  // 一开就发现没有能用的：直接打开菜单说原因；PDF（按 ⌥A 开的；地址栏里没有这一对）：说翻不了，去库里的 PDF 阅读器框一块问
   useEffect(() => {
     if (!page || !st) return
     if (st.menuSeq > (seenMenu.get(page.wcId) ?? 0)) {
@@ -48,7 +48,7 @@ export function TrControl({ page, open, onPopup }: { page: WebPage | null; open:
     }
     if (st.pdfSeq > (seenPdf.get(page.wcId) ?? 0)) {
       seenPdf.set(page.wcId, st.pdfSeq)
-      webHost()?.notice('这是PDF：网页里的双语翻译翻不了它。把它存进库，用PDF阅读器打开，在那里对照读')
+      webHost()?.notice('这是PDF，网页里的双语翻译翻不了它。放进库里用PDF阅读器打开，框一块点「翻译 + 讲一讲」')
     }
   }, [page, st, onPopup])
 
@@ -68,6 +68,8 @@ export function TrControl({ page, open, onPopup }: { page: WebPage | null; open:
   // 网页里「加进术语表」之后：在中间栏打开那张表
   useEffect(() => window.cnPlugins.on(ID, 'openNote', (p) => webHost()?.openNote((p as { path: string }).path)), [])
 
+  // 浏览器自己的 PDF 查看器：网页翻译翻不了，不给这一项（PDF 双语对照 2026-11-18 用户定删掉）
+  if (st?.pdf) return null
   const short = SHORT[st?.target ?? s.target] ?? ''
   return (
     <span className={'trctl imp' + (err ? ' err' : on ? ' on' : '')}>

@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { acts, launch, leftView, openNote, rail, tabOn } from './app'
+import { acts, launch, leftView, openAi, openNote, rail, tabOn } from './app'
 import { measureGaps, USER_TEXT, type Gap } from './cjk-gap'
 import { LEFT_VAULT, withTimes } from './fixtures/left-vault'
 import { LECTURE } from './fixtures/pdf'
@@ -40,9 +40,9 @@ test('中文和数字、西文挨着：空隙全靠 autospace（量到 1–2.5px
     await expect(page.getByTestId('week-commits')).toBeVisible()
     expect.soft(await gaps(page, '.status')).toEqual([])
 
-    // 文件夹首页：头上「素材 / 冰岛旅行 · 18篇」、「文件夹3」「再显示3篇」
+    // 文件夹首页：头上「剪藏 / 冰岛旅行 · 18篇」、「文件夹3」「再显示3篇」
     await leftView(page, '文件')
-    await expand(page, '素材')
+    await expand(page, '剪藏')
     await row(page, '冰岛旅行').click()
     await expect(tabOn(page)).toHaveText('冰岛旅行')
     await expect(page.getByTestId('folder-content').locator('.fc-more').first()).toBeVisible()
@@ -52,6 +52,7 @@ test('中文和数字、西文挨着：空隙全靠 autospace（量到 1–2.5px
     await expand(page, '课程')
     await expand(page, '线性代数')
     await row(page, '第4讲 特征值').click()
+    await openAi(page)
     const r = page.getByRole('complementary', { name: '边读边问 AI' })
     await expect(r.getByTestId('reading-sees')).toContainText('读过全文', { timeout: 20_000 })
     expect.soft(await gaps(page, '[data-testid="reading-sees"]')).toEqual([])
@@ -62,7 +63,7 @@ test('中文和数字、西文挨着：空隙全靠 autospace（量到 1–2.5px
     await rail(page).getByRole('button', { name: /^历史/ }).click()
     const h = page.getByRole('complementary', { name: '历史' })
     await expect(h).toContainText('每10分钟自动提交', { timeout: 10_000 })
-    expect.soft(await gaps(page, 'aside.right')).toEqual([])
+    expect.soft(await gaps(page, 'aside.right[aria-label="历史"]')).toEqual([])
 
     // ⌘K：组头「文字 · 笔记和PDF里的字」
     await page.keyboard.press('Meta+k')
@@ -106,7 +107,7 @@ test('窄窗文件夹首页：卡片底下的「没开始」「2篇 · 10月8日
     ] as const) {
       await size(w, h)
       await leftView(page, '文件')
-      await expand(page, '素材')
+      await expand(page, '剪藏')
       await row(page, '冰岛旅行').click()
       await expect(tabOn(page)).toHaveText('冰岛旅行')
       await expect(page.getByTestId('folder-content').locator('.fc-tcard').first()).toBeVisible()
@@ -145,6 +146,7 @@ test('窗口最窄 960、读 PDF 又开着网页：右栏 250 上下时 AI 头�
     await expand(page, '课程')
     await expand(page, '线性代数')
     await row(page, '第4讲 特征值').click()
+    await openAi(page)
     await expect(ai.getByTestId('reading-sees')).toContainText('读过全文', { timeout: 20_000 })
     // 问一页，等它答完：回答头上「✓ 读了第1页 · 引擎 · 模型」
     await acts(page).getByRole('button', { name: /问这一页/ }).click()
@@ -160,14 +162,15 @@ test('窗口最窄 960、读 PDF 又开着网页：右栏 250 上下时 AI 头�
     }
     await size(960, 700)
     await page.waitForTimeout(900)
-    const right = (await page.locator('.win > .right').first().boundingBox())!
+    const right = (await page.locator('.win > .right:not(.abar):not([hidden])').first().boundingBox())!
     expect(right.width).toBeLessThan(300)
-    // AI 头：「收起」整个在栏里（只留 × 图标）
+    // AI 头：「收起 ⌘J」整个在栏里（D 组小样的头：对话胶囊先缩，这颗不缩、没有 × 图标）
     const collapse = ai.locator('.aih .ai-collapse')
     const cb = (await collapse.boundingBox())!
     const aside = (await ai.boundingBox())!
     expect(inside(cb, aside), `收起 ${cb.x}+${cb.width} 栏 ${aside.x}+${aside.width}`).toBe(true)
-    await expect(collapse.locator('svg.ic')).toBeVisible()
+    await expect(collapse).toHaveText('收起 ⌘J')
+    expect(await ai.locator('.aih').evaluate((h) => h.scrollWidth <= h.clientWidth)).toBe(true)
     // 当前网页标签整个在标签条里
     const list = (await web.locator('.wtlist').boundingBox())!
     const on = (await web.locator('.wtabs .tab.on').boundingBox())!
@@ -197,16 +200,22 @@ test('文档切白板：提示块那张卡整张是提示块的底，里面不�
     await page.screenshot({ path: 'test-results/r2-callout-card.png' })
     for (const c of await cards.all()) {
       const m = await c.evaluate((card) => {
-        const box = card.querySelector<HTMLElement>('.md-callout')!
+        const box = card.querySelector<HTMLElement>('.cl')!
         const cs = getComputedStyle(box)
-        const icon = card.querySelector('.md-callout-h svg')!.getBoundingClientRect()
-        return { cardBg: getComputedStyle(card).backgroundImage, innerBg: cs.backgroundColor, innerPad: cs.padding, iconLeft: Math.round(icon.left - card.getBoundingClientRect().left) }
+        const icon = card.querySelector('.cl .ct svg')!.getBoundingClientRect()
+        const plain = document.createElement('div')
+        plain.style.background = 'var(--card)'
+        card.parentElement!.appendChild(plain)
+        const cardColor = getComputedStyle(plain).backgroundColor
+        plain.remove()
+        return { cardBg: getComputedStyle(card).backgroundColor, cardColor, innerBg: cs.backgroundColor, innerPad: cs.padding, iconLeft: Math.round(icon.left - card.getBoundingClientRect().left) }
       })
-      expect(m.cardBg).toContain('gradient')
+      // 整张卡就是提示块的底（比普通卡深一点），里面那一层没有底、没有内边距（照 doc-to-board 小样：卡的内边距 14/16）
+      expect(m.cardBg).not.toBe(m.cardColor)
       expect(m.innerBg).toBe('rgba(0, 0, 0, 0)')
       expect(m.innerPad).toBe('0px')
-      // 图标离卡的左边就是卡的内边距 14（再加 1px 边），不再多一层 12
-      expect(m.iconLeft).toBeLessThanOrEqual(16)
+      // 图标离卡的左边就是卡的内边距 16，不再多一层 12
+      expect(m.iconLeft).toBeLessThanOrEqual(17)
     }
   } finally {
     await run.close()

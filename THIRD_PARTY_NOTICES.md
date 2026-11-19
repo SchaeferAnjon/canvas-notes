@@ -123,12 +123,6 @@ SOFTWARE.
 | vik.jpg | https://commons.wikimedia.org/wiki/File:Vík_í_Mýrdal_-_Víkurkirkja_-_Jeff_Sheldon_2014-11-05_(Unsplash_4IPe3tnBKK0).jpg | Jeff Sheldon |
 | myvatn.jpg | https://commons.wikimedia.org/wiki/File:Mývatn,_Iceland_(Unsplash).jpg | Jan |
 
-## PDF 精读增强：MinerU（可选，运行时由用户下载，不随安装包分发）
-
-MinerU（https://github.com/opendatalab/MinerU ，3.1 起是 Apache-2.0 加附加条款，见它的 LICENSE.md；4.x 的模型是 Apache-2.0）不在安装包里，软件里也没有它的任何代码。用到 PDF 时软件只找本机已经装好的 `mineru-kit`，找到就作为子进程调用（只用本机模型，不加 `--remote`）；找不到时用户在 PDF 工具条下面那行提示里点「安装」，才由 uv（https://github.com/astral-sh/uv ，Apache-2.0 / MIT，同样运行时下载）从 PyPI 装进 `~/.mineru-venv`，模型由 MinerU 自己下载到 `~/.mineru/models`。
-
-`apps/notes/src/main/mineru/`（找、装、跑）和 `packages/format/src/mineru.ts`（middle_json 换成块）来自同一作者的 ParaRead（`src/main/mineru.ts`、`mineruInstall.ts`、`platform.ts`、`layout.ts`），在此以 GPL-3.0-or-later 提供。
-
 ## 随包分发的其他库（许可证按 `pnpm licenses list` 核过，2026-11-15）
 
 界面、预加载脚本和主进程打进包里的：
@@ -139,7 +133,7 @@ MinerU（https://github.com/opendatalab/MinerU ，3.1 起是 Apache-2.0 加附�
 | React、react-dom、scheduler | MIT |
 | CodeMirror 6（@codemirror/*、@lezer/*、style-mod、w3c-keyname、crelt、@marijn/find-cluster-break） | MIT |
 | pdfjs-dist（见上面「读 PDF」） | Apache-2.0 |
-| KaTeX 0.19.0（https://github.com/KaTeX/KaTeX ，含它的字体）：PDF 精读增强认出的公式、表格里的上下标渲染 | MIT |
+| KaTeX 0.19.0（https://github.com/KaTeX/KaTeX ，含它的字体）：AI 回答和读 PDF 笔记里的公式渲染 | MIT |
 | node-diff3 | MIT |
 | @mixmark-io/domino（turndown 的依赖） | BSD-2-Clause |
 | electron-chrome-extensions 的依赖（debug、ms） | MIT |

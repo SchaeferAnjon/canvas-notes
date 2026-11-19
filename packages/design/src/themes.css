@@ -85,7 +85,7 @@
   --w4: rgba(23, 70, 50, 0.72);
   --r-card: 10px;
   --r-wid: 14px;
-  --seg-on: #ffffff;
+  --seg-on: var(--fill2);
 }
 
 /* ---------- 天青 · 浅（Light Owl / VS Code Light+）：底栏一条青色，卡片只描边，当前标签下沿 ---------- */
@@ -138,7 +138,7 @@
   --w4: rgba(15, 70, 100, 0.72);
   --r-card: 8px;
   --r-wid: 10px;
-  --seg-on: #ffffff;
+  --seg-on: var(--fill2);
 }
 
 /* ---------- 樱花 · 浅（Horizon Bright）：当前标签整块染色，卡片软投影，圆角大一号 ---------- */
@@ -187,7 +187,7 @@
   --w4: rgba(120, 40, 60, 0.72);
   --r-card: 12px;
   --r-wid: 16px;
-  --seg-on: #ffffff;
+  --seg-on: var(--fill2);
 }
 
 /* ---------- 丁香 · 浅（Noctis Lilac，强调换成李子紫） ---------- */
@@ -236,7 +236,7 @@
   --w4: rgba(70, 40, 100, 0.72);
   --r-card: 10px;
   --r-wid: 14px;
-  --seg-on: #ffffff;
+  --seg-on: var(--fill2);
 }
 
 /* ---------- 石白 · 浅（照 Dispatch Light）：没有分隔线、只靠两层底色；黑按钮，当前标签只靠白底 ---------- */
@@ -284,7 +284,7 @@
   --w4: rgba(28, 25, 23, 0.72);
   --r-card: 10px;
   --r-wid: 12px;
-  --seg-on: #ffffff;
+  --seg-on: var(--fill2);
   --acc-on: #fafaf9;
   --seam: transparent;
 }
@@ -334,7 +334,7 @@
   --w4: rgba(211, 198, 170, 0.78);
   --r-card: 10px;
   --r-wid: 14px;
-  --seg-on: rgba(211, 198, 170, 0.13);
+  --seg-on: var(--fill2);
   --acc-on: #232a2e;
 }
 
@@ -388,7 +388,7 @@
   --w4: rgba(147, 161, 161, 0.78);
   --r-card: 8px;
   --r-wid: 10px;
-  --seg-on: rgba(147, 161, 161, 0.13);
+  --seg-on: var(--fill2);
   --acc-on: #002b36;
 }
 
@@ -437,7 +437,7 @@
   --w4: rgba(255, 241, 243, 0.78);
   --r-card: 12px;
   --r-wid: 16px;
-  --seg-on: rgba(255, 241, 243, 0.13);
+  --seg-on: var(--fill2);
   --acc-on: #211c1c;
 }
 
@@ -486,7 +486,7 @@
   --w4: rgba(230, 225, 207, 0.78);
   --r-card: 8px;
   --r-wid: 10px;
-  --seg-on: rgba(230, 225, 207, 0.13);
+  --seg-on: var(--fill2);
   --acc-on: #0b0e14;
 }
 
@@ -535,7 +535,7 @@
   --w4: rgba(255, 255, 255, 0.78);
   --r-card: 10px;
   --r-wid: 12px;
-  --seg-on: rgba(255, 255, 255, 0.13);
+  --seg-on: var(--fill2);
   --acc-on: #1c1917;
   --seam: transparent;
 }

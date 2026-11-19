@@ -80,7 +80,7 @@ test('待办：双击是一条条输入框，回车加一条、退格删空的�
   }
 })
 
-test('整页剪藏从「未整理」拖上白板：是一张标题加摘要的卡片，那篇挪进素材，双击打开全文', async () => {
+test('整页剪藏从「未整理」拖上白板：是一张标题加摘要的卡片，那篇挪进剪藏，双击打开全文', async () => {
   const long = Array.from({ length: 30 }, (_, i) => `第 ${i + 1} 段，[链接](https://zh.wikipedia.org/wiki/%E5%86%B0 "冰") ![图](https://x.org/a.jpg)`).join('\n\n')
   const run = await launch({ '冰岛.md': '---\ntype: board\n---\n' })
   const { page, vault } = run
@@ -100,7 +100,7 @@ test('整页剪藏从「未整理」拖上白板：是一张标题加摘要的�
     await expect(card).toContainText('zh.wikipedia.org')
     await expect(card).not.toContainText('](')
     await expect.poll(() => existsSync(join(vault, '收件箱', '雷克雅未克.md'))).toBe(false)
-    expect(existsSync(join(vault, '素材', '冰岛', '雷克雅未克.md'))).toBe(true)
+    expect(existsSync(join(vault, '剪藏', '冰岛', '雷克雅未克.md'))).toBe(true)
     await waitSaved(page)
     expect(read(vault, '冰岛.md')).toMatch(/<!-- card id=\w+ x=\d+ y=\d+ w=280 -->\n\[\[雷克雅未克\]\]\n/)
     await card.dblclick()
@@ -145,9 +145,9 @@ test('⌘K 输入条在列表很长时也不被压扁；红绿灯旁的按钮收
     await expect(page.locator('.side')).toBeVisible()
     await page.getByRole('button', { name: '收起左栏' }).click()
     await expect(page.locator('.side')).toBeHidden()
-    // 中间的岛左边贴着左图标栏
+    // 中间的岛左边离左图标栏 6（B 浮岛：岛和图标栏之间也留缝，同小样 .isl.mid left:50px；书摘区设计复审 2026-11-18）
     const bar = (await page.getByRole('navigation', { name: '左栏' }).boundingBox())!
-    expect(Math.abs((await page.locator('main.center').boundingBox())!.x - (bar.x + bar.width))).toBeLessThan(2)
+    expect(Math.abs((await page.locator('main.center').boundingBox())!.x - (bar.x + bar.width) - 6)).toBeLessThan(1)
     await page.getByRole('button', { name: '展开左栏' }).click()
     await expect(page.locator('.side')).toBeVisible()
     await page.keyboard.press('Meta+\\')

@@ -1,3 +1,4 @@
+import { composing } from './ime'
 import {
   appendBlock,
   attr,
@@ -53,6 +54,9 @@ import { app } from './ctx/actions'
 import { align, duplicateCard, intoNewColumn, takeOut, tidyGrid } from './ctx/board-ops'
 import { type MenuEntry, showMenu } from './ctx/menu'
 import { clampZoom, fitZoom, stepZoom, wheelZoom } from './board-zoom'
+import { AiActLayer } from './ai-act'
+import type { EditorView } from '@codemirror/view'
+import { UnitEditor } from './doc-board/unit-editor'
 
 type Drag =
   | { type: 'block'; id: string; start: Pt; origin: Pt; moved: boolean; delta: Pt }
@@ -753,6 +757,8 @@ export function BoardView(props: BoardViewProps) {
         ) : editing === id ? (
           <CardEditor
             initial={body}
+            notePath={props.notePath}
+            onNotice={props.onNotice}
             onDraft={props.onDraft}
             onDone={(v) => {
               setEditing(null)
@@ -1003,6 +1009,8 @@ export function BoardView(props: BoardViewProps) {
           {previewOf(drag.text, 60)}
         </div>
       )}
+      {/* AI 在这块白板上动手：外圈、顶上「AI 正在整理这块白板 · 停下 esc」、AI 指针、正在挪的那张外圈（DESIGN.v3 2.3） */}
+      <AiActLayer area="board" path={props.notePath} host={outer} />
     </div>
   )
 
@@ -1088,6 +1096,7 @@ function ColumnTitle(props: { title: string; count: number; sub?: string; unit?:
           if (t && t !== props.title) props.onRename(t)
         }}
         onKeyDown={(e) => {
+          if (composing(e)) return
           if (e.key === 'Enter') (e.preventDefault(), e.currentTarget.blur())
           if (e.key === 'Escape') (e.preventDefault(), (e.currentTarget.value = props.title), e.currentTarget.blur())
         }}
@@ -1165,6 +1174,7 @@ function TodoEditor(props: { initial: string; focusLine: number | null; onDraft:
       onKeyDown={(e) => {
         if (closesTab(e)) return
         e.stopPropagation()
+        if (composing(e)) return
         // Esc 收起并存下，和文字卡一样（第 4 轮）
         if (e.key === 'Escape' || (e.key === 'Enter' && e.metaKey)) (e.preventDefault(), finish(true), backToBoard(e.currentTarget))
       }}
@@ -1218,49 +1228,64 @@ function backToBoard(from: HTMLElement) {
 /** ⌘W：改卡的框开着也照样关标签（以前框把所有键都拦下，⌘W 没反应，标签不关、字也不存） */
 const closesTab = (e: React.KeyboardEvent) => e.metaKey && !e.altKey && !e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === 'w'
 
-function CardEditor(props: { initial: string; onDraft: BoardViewProps['onDraft']; onDone(v: string | null): void }) {
-  const ref = useRef<HTMLTextAreaElement>(null)
+/**
+ * 双击卡片改字：在排好的样子上就地改（和文档、文档切成的白板同一套所见即所得，doc-board/unit-editor.tsx），
+ * 剪藏卡的出处链接、加粗、双链都不露写法（偏好：剪藏卡片别露原文、只文档白板不露源码）。
+ * 点别处、Esc、⌘↵ 都存下；⌘W 交给软件关标签（关之前先把框里的字存回去）
+ */
+function CardEditor(props: { initial: string; notePath: string; onNotice(t: string): void; onDraft: BoardViewProps['onDraft']; onDone(v: string | null): void }) {
+  const box = useRef<HTMLDivElement>(null)
+  const value = useRef(props.initial)
   const done = useRef(false)
   const finish = (v: string | null) => {
     if (done.current) return
     done.current = true
     props.onDone(v)
   }
-  useDraft(props.onDraft, () => ref.current && finish(ref.current.value))
-  useLayoutEffect(() => {
-    const t = ref.current!
-    t.focus()
-    t.setSelectionRange(t.value.length, t.value.length)
-    t.style.height = t.scrollHeight + 'px'
-  }, [])
+  useDraft(props.onDraft, () => finish(value.current))
+  // Esc 收起并存下（第 4 轮：以前直接丢掉打的字；文档白板的「改字」弹层 Esc 是存下，两处一样；改错了 ⌘Z 撤回）。
+  // 新建的空卡一个字没打就按 Esc：照旧当没建（null，卡拿掉）。
+  // 编辑器只在打开时建一次，键里调的是这一次渲染的 finish（onDone 里要用白板现在的字，外面改过时才按三方合并）
+  const live = useRef({ finish, initial: props.initial })
+  live.current = { finish, initial: props.initial }
+  const keys = useRef([
+    {
+      key: 'Escape',
+      run: (v0: EditorView) => {
+        if (v0.composing) return false
+        const v = value.current
+        const el = box.current!
+        live.current.finish(v.trim() === '' && live.current.initial.trim() === '' ? null : v)
+        backToBoard(el)
+        return true
+      },
+    },
+    {
+      key: 'Mod-Enter',
+      run: (v0: EditorView) => {
+        if (v0.composing) return false
+        const el = box.current!
+        live.current.finish(value.current)
+        backToBoard(el)
+        return true
+      },
+    },
+  ]).current
   return (
-    <textarea
-      ref={ref}
+    <div
+      ref={box}
       className="card-edit"
-      aria-label="卡片内容"
-      defaultValue={props.initial}
       onPointerDown={(e) => e.stopPropagation()}
-      onInput={(e) => {
-        const t = e.currentTarget
-        t.style.height = 'auto'
-        t.style.height = t.scrollHeight + 'px'
-      }}
-      onBlur={(e) => finish(e.currentTarget.value)}
+      // 焦点离开这张卡（点了白板、别的卡、别的地方）才收起；焦点进了卡里表格的格子不算
+      onBlur={(e) => !box.current!.contains(e.relatedTarget as Node | null) && finish(value.current)}
       onKeyDown={(e) => {
-        // ⌘W 交给软件关标签（关之前先把框里的字存回去）；别的键都留在框里
+        // ⌘W 交给软件关标签；别的键都留在卡里（白板的退格删卡、⌘D 复制这些不接）
         if (closesTab(e)) return
         e.stopPropagation()
-        // Esc 收起并存下（第 4 轮：以前直接丢掉打的字；文档白板的「改字」弹层 Esc 是存下，两处一样；改错了 ⌘Z 撤回）。
-        // 新建的空卡一个字没打就按 Esc：照旧当没建（null，卡拿掉）
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          const v = e.currentTarget.value
-          finish(v.trim() === '' && props.initial.trim() === '' ? null : v)
-          backToBoard(e.currentTarget)
-        }
-        if (e.key === 'Enter' && e.metaKey) (e.preventDefault(), finish(e.currentTarget.value), backToBoard(e.currentTarget))
       }}
-    />
+    >
+      <UnitEditor text={props.initial} notePath={props.notePath} label="卡片内容" keys={keys} className="card-ed" onChange={(t) => (value.current = t)} onNotice={props.onNotice} />
+    </div>
   )
 }
 

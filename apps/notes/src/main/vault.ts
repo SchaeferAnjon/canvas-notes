@@ -7,6 +7,7 @@ import type { NoteFile, OpenedNote, SearchHit, ThumbRect, WriteResult } from '..
 import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
 import { hitSnippet } from './search/chunks'
 import { mindmapThumb } from '../shared/mindmap-layout'
+import { isBookDigest } from '../shared/plugins/weread'
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 
@@ -436,7 +437,7 @@ export class Vault {
   }
 
   /**
-   * 写不进去（文件被锁成只读、盘满了……）：编辑器里的字另存成新的一篇，放在原来那篇旁边（那里也写不进去就放库的最外层）。
+   * 写不进去（文件被锁成只读、盘满了……）：编辑器里的字另存成新的一篇，放在原来那篇旁边（那里也写不进去就放最外层）。
    * 只建新文件，绝不覆盖已有的：另存以后编辑器就指向这一篇，往后照常先比后写（write）。返回另存的相对路径。
    * 不记进 known：让监听照常报「文件变了」，左栏、⌘O 列出这一篇（新出现的文件只报文件变了，不当外部改动送进编辑器）
    */
@@ -575,6 +576,7 @@ function describe(rel: string, st: Stats, text: string): NoteFile {
   const file: NoteFile = { path: rel, mtimeMs: st.mtimeMs, createdMs: st.birthtimeMs, kind }
   if (topic) file.topic = topic
   if (fmValue(text, 'draft') === 'true') file.draft = true
+  if (isBookDigest(text.slice(0, 20000))) file.digest = true
   if (fmValue(text, 'type') === 'board') {
     const blocks = parseBoard(text).blocks
     const cards = blocks.filter((b) => b.kind === 'card').length

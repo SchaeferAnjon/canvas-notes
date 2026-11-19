@@ -284,6 +284,8 @@ test('AI 存卡提交没成功，别处又打了字：「再提交一次」只�
     await waitSaved(page)
 
     rmSync(join(vault, '.git/index.lock'))
+    // AI 对话跟着地方走（D 组 CN-132）：回到白板那段对话里点「再提交一次」
+    await page.locator('.tab', { hasText: '冰岛自驾' }).locator('.tl').click()
     await warn.getByRole('button', { name: '再提交一次' }).click()
     await expect(msg.locator('.done')).toHaveText('卡存好了，提交好了', { timeout: 15_000 })
     const change = msg.getByTestId('ai-change')

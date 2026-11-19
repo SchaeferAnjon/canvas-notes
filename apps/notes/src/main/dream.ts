@@ -1,7 +1,7 @@
 /**
  * 梦游：在单独的分支 dream/MM-DD 上整理，每条建议是分支上的一个提交，用户逐条收下（cherry-pick）或丢掉。
  * 用 git worktree 在临时目录检出这个分支，不碰用户正在用的工作目录。
- * 只动 收件箱/、素材/、周记/；用户自己写的作品一个字都不改（每次提交前检查）。
+ * 只动 收件箱/、剪藏/、阅读/、周记/；用户自己写的作品一个字都不改（每次提交前检查）。
  * 归类和改名例外：收件箱里的东西可以挪出去（课程/、项目/、生活/、写作/），改名时别的笔记里指向它的 [[旧名]] 跟着换，
  * 这两样提交前也逐个核对（挪的源头在收件箱、别处只多了换名的双链）。
  * 可视化也是例外（dream-viz.ts）：今天卡得最久的几处各做一个 HTML 放进课程文件夹、挂到读 PDF 笔记那一段的脚上，只动这两个文件。
@@ -21,7 +21,8 @@ import { makeDreamViz } from './dream-viz'
 import { foldersOf, movedText, parsePlan, planInBatches, redoPrompt, relinkText, targetOf, type FilePlan } from './dream-file'
 
 /** 梦游能动的文件夹 */
-export const DREAM_FOLDERS = [INBOX, CLIPS, '周记']
+/** 梦游能动的：收件箱、剪藏、周记，和「阅读」（微信读书同步的书摘以前在 素材/微信读书 下面，2026-11-18 挪成最外层的分类，照旧能补双链） */
+export const DREAM_FOLDERS = [INBOX, CLIPS, '阅读', '周记']
 /** 一晚最多补几处双链、列几对可能重复（导入几百条旧笔记时不铺满报告） */
 export const LINK_MAX = 30
 export const DUP_MAX = 20
@@ -187,7 +188,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
       report.notes.push(`老图没挪：${(e as Error).message}`)
     }
     const inbox = files.filter((f) => f.startsWith(INBOX + '/'))
-    const loose = files.filter((f) => f.startsWith(INBOX + '/') || f.startsWith(CLIPS + '/'))
+    const loose = files.filter((f) => f.startsWith(INBOX + '/') || f.startsWith(CLIPS + '/') || f.startsWith('阅读/'))
 
     // 3. 本周小结（新文件，和别的提交互不相干）
     const week = isoWeek(now)
@@ -221,7 +222,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
       }
     }
 
-    // 4. 补双链：收件箱和素材里的笔记，和库里另一篇讲到同一件事就在末尾加「相关：[[那篇]]」
+    // 4. 补双链：收件箱、剪藏、阅读里的笔记，和库里另一篇讲到同一件事就在末尾加「相关：[[那篇]]」
     // 先算出每篇最像的那篇，再按像的程度挑前 LINK_MAX 处（导入几百条时一晚上不铺几百条）。
     // 几千篇的库要算几分钟：交给 similar（软件里在单独的进程算，主进程不卡，退出时直接停掉）
     const cands = await similar.links([...texts], loose)
@@ -373,7 +374,7 @@ async function keepTimes(root: string, moves: { from: string; to: string }[]): P
  */
 async function pickOne(root: string, commit: string, title: string): Promise<string | null> {
   try {
-    // 不按「整个文件夹挪走了」去猜：丢掉的那几条挪动会让 git 以为 素材/旅行/ 整个挪回了收件箱
+    // 不按「整个文件夹挪走了」去猜：丢掉的那几条挪动会让 git 以为 剪藏/旅行/ 整个挪回了收件箱
     await git.git(root, ['-c', 'merge.directoryRenames=false', 'cherry-pick', commit])
     return null
   } catch (e) {
@@ -582,7 +583,8 @@ async function goneSince(root: string, taken: string, items: DreamItem[]): Promi
     const was = titleOf(i.move.to)
     // 短到底栏一行放得下（960 宽）；怎么办交给提示后面的「在历史里看」
     if (!now) return `撤回不了：「${was}」收下以后被删了，什么都没动`
-    const where = titleOf(now) === was ? `挪到了${now.includes('/') ? now.slice(0, now.lastIndexOf('/')) : '库的最外层'}` : `改名成了「${titleOf(now)}」`
+    // 最外层写库名（CN-106）
+    const where = titleOf(now) === was ? `挪到了${now.includes('/') ? now.slice(0, now.lastIndexOf('/')) : basename(root)}` : `改名成了「${titleOf(now)}」`
     return `撤回不了：「${was}」收下以后${where}，什么都没动`
   }
   return null
@@ -665,7 +667,7 @@ export async function redo(root: string, r: DreamReportInternal, ids: string[], 
     it.redoCommits = [...(it.redoCommits ?? []), c]
     it.move = { from: it.move!.from, to: moved.to }
     it.files = [it.move.from, moved.to]
-    it.changes = [{ path: moved.to, text: `按你说的挪到 ${dirname(moved.to) === '.' ? '库的最外层' : dirname(moved.to)}` }]
+    it.changes = [{ path: moved.to, text: `按你说的挪到 ${dirname(moved.to) === '.' ? basename(root) : dirname(moved.to)}` }]
     it.redo = text
     it.why = `你说「${text}」，${plan.why || '按你说的重做了'}`
     if (moved.to === it.move.from) {

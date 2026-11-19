@@ -2,6 +2,7 @@
  * 右键菜单里要用到的整个软件的动作（开标签、右栏开网页、问 AI、通知……）。
  * 菜单分散在编辑器、白板、网页、目录树里，不一层层传 props：App 每次渲染把这些登记在这里。
  */
+import type { CodiconName } from '@cn/design'
 import type { Clip } from '../../shared/api'
 import type { NoteDoc } from '../note-doc'
 
@@ -20,9 +21,10 @@ export interface AppActions {
   closeSettingsDialog(): void
   /** 中间栏开成宽网页标签 */
   openWide(url: string, title?: string): void
-  /** 这段字作为引文放进 AI 输入框 */
-  askAi(text: string): void
-  notice(text: string): void
+  /** 这段字成为 AI 输入框顶上那一排的第一块引用（src：来源，不给是当前这一页「《文档标题》」），光标在它后面 */
+  askAi(text: string, src?: string): void
+  /** icon：提示前面的小图标（比如 info） */
+  notice(text: string, icon?: CodiconName): void
   /** 中间开着的文档（不是白板、不是只读）：剪进文档、插进文档用 */
   doc(): NoteDoc | null
   /** 剪一段：inbox 进收件箱成一张卡，doc 插到中间文档的光标处 */
@@ -32,6 +34,10 @@ export interface AppActions {
   newNote(folder: string): Promise<void>
   newBoard(folder: string): Promise<void>
   trash(path: string): Promise<void>
+  /** 文件树里选了好几个一起删（CN-105）：一个确认框（有图时带「连同 N 张图」），删完底部能撤回 */
+  trashMany(paths: string[]): Promise<void>
+  /** 好几个一起挪进 folder（CN-105）：一次提交，链接跟着改 */
+  moveMany(paths: string[], folder: string): Promise<void>
   togglePin(path: string, pin: boolean): Promise<void>
   pins(): string[]
   /** 一级文件夹和有首页的文件夹 */
@@ -49,6 +55,8 @@ export interface AppActions {
   moveFolder(folder: string, parent: string): Promise<void>
   /** 文件夹摘到活动栏单独一格，并切到它 */
   putOnLeft(folder: string): void
+  /** 从活动栏拿下（文件夹本身不动），底部能撤回 */
+  takeOffLeft(folder: string): void
   /** 挪到另一个文件夹（开着的标签跟着换路径） */
   moveNote(path: string, folder: string): Promise<void>
   /** 库里的相对路径 → 绝对路径（拷贝路径） */

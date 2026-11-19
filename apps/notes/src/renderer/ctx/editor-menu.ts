@@ -1,5 +1,5 @@
 /**
- * 文档（文档和源文件两种看法）的右键菜单（DESIGN.v3 9.2）：
+ * 文档的右键菜单（DESIGN.v3 9.2）：
  * 点在链接、双链、图上先给它们的几项；下面是编辑、格式、转成、问 AI / 翻译、复制为 Markdown。
  */
 import { redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/commands'
@@ -7,6 +7,7 @@ import { blockIndexAt, type BlockTarget, convertible, convertMdBlock, findBlocks
 import type { EditorView } from '@codemirror/view'
 import { applyBlockEdit } from '../block-handles'
 import { HIGHLIGHT_KEY, inHighlight, toggleHighlight } from '../highlight'
+import { toggleFormat } from '../wysiwyg'
 import { app } from './actions'
 import { copy, type MenuEntry, menuAt } from './menu'
 import { translateAt } from './translate'
@@ -36,18 +37,15 @@ export function linkAt(line: string, at: number): LinkHit | null {
   )
 }
 
-/** 选中的字两边包上记号（加粗 **、斜体 *）；已经包着就拿掉 */
-export function toggleWrap(view: EditorView, mark: string) {
-  const { from, to } = view.state.selection.main
-  if (from === to) return
-  const doc = view.state.doc
-  const n = mark.length
-  if (doc.sliceString(from - n, from) === mark && doc.sliceString(to, to + n) === mark) {
-    view.dispatch({ changes: [{ from: from - n, to: from }, { from: to, to: to + n }], selection: { anchor: from - n, head: to - n }, userEvent: 'input.format' })
-  } else {
-    view.dispatch({ changes: [{ from, insert: mark }, { from: to, insert: mark }], selection: { anchor: from + n, head: to + n }, userEvent: 'input.format' })
-  }
-  view.focus()
+/**
+ * 打开文档里的一个链接：网址在右栏网页开（同一个网址已经开着就切过去），wide 时在中间栏开；
+ * 库里文件的链接（附件/…pdf）开那个文件
+ */
+export function openLinkHit(notePath: string, url: string, text: string, wide: boolean) {
+  const a = app()
+  if (/^https?:/i.test(url)) return wide ? a.openWide(url, text) : a.openInWeb(url, url)
+  const local = resolveLink(notePath, url)
+  if (local) a.openFile(local)
 }
 
 /** 选中的字变成 [字](网址)：剪贴板里是网址就用它，不然光标停在括号里等人填 */
@@ -135,10 +133,12 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
     { edit: 'paste', enabled: editable },
     { label: '全选', accel: 'CommandOrControl+A', run: () => (selectAll(view), view.focus()) },
     '-',
-    editable && !sel.empty && { label: '加粗', run: () => toggleWrap(view, '**') },
-    editable && !sel.empty && { label: '斜体', run: () => toggleWrap(view, '*') },
+    // 格式一组，快捷键写在右边（CN-67 A）；「转成」另起一组
+    editable && !sel.empty && { label: '加粗', accel: 'CommandOrControl+B', run: () => (toggleFormat('StrongEmphasis')(view), view.focus()) },
+    editable && !sel.empty && { label: '斜体', accel: 'CommandOrControl+I', run: () => (toggleFormat('Emphasis')(view), view.focus()) },
     editable && (!sel.empty || hl) && { label: hl ? '取消高亮' : '高亮', accel: HIGHLIGHT_KEY, run: () => toggleHighlight(view) },
-    editable && !sel.empty && !hit && { label: '加链接', run: () => addLink(view) },
+    editable && !sel.empty && !hit && { label: '加链接', accel: 'CommandOrControl+K', run: () => addLink(view) },
+    '-',
     canConvert && { label: '转成', submenu: TARGETS.map(([t, label]) => ({ label, run: () => applyBlockEdit(view, convertMdBlock(view.state.doc.toString(), bi, t), 0, 'move.block') })) },
     '-',
     plain.trim() ? { label: selText.trim() ? '问 AI 这段' : '问 AI 这一块', accel: selText.trim() ? 'CommandOrControl+J' : undefined, run: () => a.askAi(plain) } : null,

@@ -54,6 +54,30 @@ if (/^\/web\/reader\//.test(location.pathname)) {
   // 单页应用里翻章：网址变了再报一次
   setInterval(() => void report(), 2000)
   onPluginState(() => void report())
+  // CN-120：阅读页里按 Tab，焦点跳到阅读区外面藏着的按钮（右边那排竖着的工具），浏览器为了让它露出来把阅读区（overflow: hidden，
+  // 自己滚不动的）横着滚开，整页往左错开、每行开头的字被切掉。焦点不在输入框里时拦下 Tab；万一还是被滚开（网页自己挪焦点），横向滚动复位
+  document.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== 'Tab' || !pluginEnabled(ID)) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+      e.preventDefault()
+    },
+    true,
+  )
+  document.addEventListener(
+    'scroll',
+    (e) => {
+      if (!pluginEnabled(ID)) return
+      const el = e.target === document ? document.scrollingElement : e.target
+      if (!(el instanceof Element) || el.scrollLeft === 0) return
+      const ox = getComputedStyle(el).overflowX
+      const root = el === document.scrollingElement && getComputedStyle(document.body).overflowX
+      if (ox === 'hidden' || ox === 'clip' || root === 'hidden' || root === 'clip') el.scrollLeft = 0
+    },
+    true,
+  )
   let timer: ReturnType<typeof setTimeout> | undefined
   document.addEventListener(
     'mouseup',

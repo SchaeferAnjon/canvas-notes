@@ -392,7 +392,7 @@ describe('课程术语表', () => {
   })
 })
 
-describe('给 PDF 对照读用的接口：一串块进、一块块译文出', () => {
+describe('给网页阅读视图、右键翻译用的接口：一串块进、一块块译文出', () => {
   it('切批：最多 12 块、1200 字；按顺序', () => {
     const list = Array.from({ length: 30 }, (_, i) => ({ text: 'x'.repeat(i === 3 ? 2000 : 10) }))
     const b = batches(list)

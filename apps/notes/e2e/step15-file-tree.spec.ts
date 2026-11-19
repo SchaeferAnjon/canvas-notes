@@ -32,8 +32,9 @@ test('全部文件：整个库的树，PDF 和课程旁边是进度；点文件�
     await expect(sideTab(page, '最近')).toHaveAttribute('aria-pressed', 'true')
     await expect(tree(page)).toHaveCount(0)
     await sideTab(page, '全部文件').click()
-    // 顶层按 课程 / 生活 / 收件箱 排；课程默认展开；原来的分组都让开了
-    await expect(tree(page).getByRole('treeitem', { level: 1 }).locator('.truncate')).toHaveText(['课程', '生活', '收件箱'])
+    // 第一行是库本身；最外层是八个分类，按分类表的先后（还没建的也在）；原来的分组都让开了
+    await expect(tree(page).getByRole('treeitem', { level: 1 }).locator('.truncate')).toHaveText(['测试库'])
+    await expect(tree(page).getByRole('treeitem', { level: 2 }).locator('.truncate')).toHaveText(['收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
     await expect(page.locator('aside.side').getByRole('group', { name: '最近的白板' })).toBeHidden()
     await expect(page.locator('aside.side .sall')).toBeHidden()
     // 线性代数：3 份课件问完 1 份
@@ -41,7 +42,7 @@ test('全部文件：整个库的树，PDF 和课程旁边是进度；点文件�
 
     // 点箭头只展开（不开首页）：我的疑惑在最上，同一讲课件和笔记挨着，第 10 讲排在第 3 讲后面；名字不带扩展名
     await item(page, '线性代数').getByRole('button', { name: '展开 线性代数' }).click()
-    await expect(tree(page).getByRole('treeitem', { level: 3 })).toHaveText([/^我的疑惑/, /^第2讲 向量空间/, /^第2讲 向量空间 笔记/, /^第3讲 线性映射PDF3\/5/, /^第3讲 线性映射 笔记/, /^第10讲 二次型/, /^旋转矩阵/])
+    await expect(tree(page).getByRole('treeitem', { level: 4 })).toHaveText([/^我的疑惑/, /^第2讲 向量空间/, /^第2讲 向量空间 笔记/, /^第3讲 线性映射PDF3\/5/, /^第3讲 线性映射 笔记/, /^第10讲 二次型/, /^旋转矩阵/])
     await expect(page.locator('.tab', { hasText: '线性代数' })).toHaveCount(0)
     // 问完的是绿勾，问了一些写 3/5，没开始什么都不写
     await expect(item(page, '第2讲 向量空间').first().locator('.done')).toBeVisible()
@@ -99,12 +100,13 @@ test('梦游预览时目录树画成改好以后的样子：挪来的标「新�
     await panel.getByRole('region', { name: '归类和改名' }).getByRole('button', { name: '预览' }).click()
     await expect(page.getByTestId('preview-bar')).toBeVisible()
 
-    // 树里：生活/周末去花市买 是挪来的（标「新」），收件箱里原来那篇留划掉的影子
-    await expect(tree(page).getByRole('treeitem', { level: 1 }).locator('.truncate')).toHaveText(['课程', '生活', '收件箱'])
-    await item(page, '生活').getByRole('button', { name: '展开 生活' }).click()
+    // 树里：生活/周末去花市买 是挪来的（标「新」），收件箱里原来那篇留划掉的影子；预览时只画有东西的分类。
+    // 有改动的文件夹进预览时自己展开（设计复审 2026-11-18：不展开就一处改动都看不到），不用点
+    await expect(tree(page).getByRole('treeitem', { level: 2 }).locator('.truncate')).toHaveText(['收件箱', '课程', '生活'])
+    await expect(item(page, '生活')).toHaveAttribute('aria-expanded', 'true')
+    await expect(item(page, '收件箱')).toHaveAttribute('aria-expanded', 'true')
     const moved = item(page, '周末去花市买')
     await expect(moved.locator('.tag-new')).toHaveText('新')
-    await item(page, '收件箱').getByRole('button', { name: '展开 收件箱' }).click()
     await expect(tree(page).locator('.pv-ghost')).toHaveText('一条速记挪到生活')
     await expect(item(page, '说不好的')).toBeVisible()
     // 点挪来的那篇：开的是它现在（还在收件箱里）的那篇

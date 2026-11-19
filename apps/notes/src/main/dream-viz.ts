@@ -8,7 +8,7 @@
 import { sizeText } from '../shared/diff'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import { type AskSection, lectureOf, parseReadingNote, prop, upsertSection } from '@cn/format'
+import { answerLead, askedAgain, type AskSection, lectureOf, parseReadingNote, prop, upsertSection } from '@cn/format'
 import * as git from '@cn/git'
 import type { DreamItem } from '../shared/api'
 import { extractHtml, VIZ_SYSTEM, vizFileStem, vizTitle, withVizMeta } from './reading/prompts'
@@ -25,8 +25,13 @@ export interface StuckSpot {
   score: number
 }
 
-/** 一处卡得多久：问了几轮 + 没讲通的版本数 ×2 + 疑惑条数 */
-export const stuckScore = (s: AskSection) => s.rounds + s.failed.length * 2 + s.doubts.length
+/**
+ * 「还是不懂」了几次：新格式数主对话里那几句原话（「还是不懂」「换个方式讲」），以前的笔记数没讲通的版本
+ */
+const againOf = (s: AskSection) => (s.qas ? s.qas.slice(1).filter((qa) => askedAgain(qa.q)).length : s.failed.length)
+
+/** 一处卡得多久：问了几轮 + 还是不懂的次数 ×2 + 疑惑条数（新格式：问的每一问，主问题 + 旁支问题） */
+export const stuckScore = (s: AskSection) => s.rounds + againOf(s) * 2 + s.doubts.length
 
 /** 今天的提交里记过的读 PDF 笔记段：「笔记：<PDF 名> 第 N 页 · <小标题>」 */
 export function todaysSections(subjects: string[]): { stem: string; page: number; title: string }[] {
@@ -53,25 +58,39 @@ export function stuckSpots(texts: Map<string, string>, today: { stem: string; pa
     for (const s of parseReadingNote(text, path)) {
       if (s.viz || s.web) continue
       if (!want.has(`${stem}\0${s.page}\0${s.title}`)) continue
-      if (s.rounds < 2 && !s.failed.length) continue
+      if (s.rounds < 2 && !againOf(s)) continue
       spots.push({ note: path, pdf: dir + src, section: s, score: stuckScore(s) })
     }
   }
   return spots.sort((a, b) => b.score - a.score || a.section.page - b.section.page).slice(0, max)
 }
 
-/** 给 AI 的话：这一处他问了什么、哪几版没讲通、最后讲通的讲法 */
+/**
+ * 给 AI 的话：这一处他问了什么（新格式是问的原话，主问题 + 旁支问题）、这一轮的小结和最后讲的那一版；
+ * 以前的笔记：AI 写的疑惑、哪几版没讲通、最后讲通的讲法
+ */
 export function dreamVizPrompt(spot: StuckSpot): string {
   const s = spot.section
   const name = spot.pdf.split('/').pop()!.replace(/\.pdf$/i, '')
-  return `命令：梦游可视化
-PDF「${name}」第 ${s.page} 页「${s.title}」，他今天在这里卡了很久（问了 ${s.rounds} 轮${s.failed.length ? `，${s.failed.length} 次说还是不懂` : ''}）。
+  const again = againOf(s)
+  const head = `命令：梦游可视化
+PDF「${name}」第 ${s.page} 页「${s.title}」，他今天在这里卡了很久（问了 ${s.rounds} 轮${again ? `，${again} 次说还是不懂` : ''}）。`
+  const body = s.qas
+    ? `
+他问的（原话）：
+${s.doubts.map((d) => `- ${d}`).join('\n') || '- （没记）'}
 
+这一轮的小结：${s.recap || '（没有）'}
+最后讲的那一版：${answerLead(s.qas[s.qas.length - 1]?.a ?? '') || '（没有）'}
+`
+    : `
 他的疑惑：
 ${s.doubts.map((d) => `- ${d}`).join('\n') || '- （没记）'}
 ${s.failed.length ? `\n没讲通的讲法：\n${s.failed.map((f) => `- 第 ${f.version} 版：${f.line}`).join('\n')}\n` : ''}
 最后讲通的讲法：${s.good || '（还没讲通）'}
-${s.points.length ? `\n要点：\n${s.points.map((p) => `- ${p}`).join('\n')}\n` : ''}
+${s.points.length ? `\n要点：\n${s.points.map((p) => `- ${p}`).join('\n')}\n` : ''}`
+  return `${head}
+${body}
 做一个单文件 HTML 可视化，让他明天自己拖一拖、点一点就看懂这一处。要求：
 - 一个完整的 HTML 文件，<!doctype html> 开头；CSS 和 JS 都写在文件里，不引任何外部文件、字体、图片，不联网。
 - 能动手：滑块、拖动的点、按钮，动的时候数字和图一起变；关键的数写在图旁边。
@@ -127,7 +146,7 @@ export async function makeDreamViz(o: {
       out.push({
         title,
         sub: `新文件 ${rel} · 挂到「${spot.note.split('/').pop()!.replace(/\.md$/, '')}」第${s.page}页`,
-        why: `你今天在第${s.page}页「${s.title}」问了${s.rounds}轮${s.failed.length ? `、${s.failed.length}次还是不懂` : ''}。做了一个能拖的小网页，收下才进课程文件夹`,
+        why: `你今天在第${s.page}页「${s.title}」问了${s.rounds}轮${againOf(s) ? `、${againOf(s)}次还是不懂` : ''}。做了一个能拖的小网页，收下才进课程文件夹`,
         commit: c,
         files: [rel, spot.note],
         ...(o.by ? { by: o.by } : {}),

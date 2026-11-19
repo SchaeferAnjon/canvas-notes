@@ -4,7 +4,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { acts, launch, leftView, openNote, pane, rail, tabOn, waitSaved, type Running } from './app'
+import { acts, launch, leftView, openAi, openNote, pane, rail, tabOn, waitSaved, type Running } from './app'
 import { LECTURE } from './fixtures/pdf'
 import { solidPng } from './fixtures/png'
 import { shotPart, shotTone, shotWindow } from './shots'
@@ -122,6 +122,7 @@ async function openPdf(page: Page) {
   await page.locator('.pal-row', { hasText: '第3讲 线性映射' }).first().click()
   await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
   await expect(pdfPage(page, 1).locator('canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
+  await openAi(page)
   await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
 }
 
@@ -343,7 +344,7 @@ test('梦游报告里直接点「收下」：和预览标签一样有提示条�
   }
 })
 
-test('「问这一页」的整页图：右栏笔记面板里图下面写「整页」，不写「我框的」', async () => {
+test('「问这一页」的整页图：右栏笔记里那一轮第二行写「· 整页」，不写「我框的」', async () => {
   const run = await launch(pdfFiles, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -355,8 +356,8 @@ test('「问这一页」的整页图：右栏笔记面板里图下面写「整�
     await expect(msg.locator('.noted')).toContainText('已记进笔记', { timeout: 15_000 })
     await msg.locator('.noted .lnk').click()
     const notes = page.getByRole('complementary', { name: '笔记', exact: true })
-    await expect(notes.locator('.fig .fc').first()).toHaveText('整页')
-    await expect(notes.locator('.fig img').first()).toHaveAttribute('alt', '整页')
+    await expect(notes.locator('.rnd .loc').first()).toHaveText('第 1 页 ›· 整页')
+    await expect(notes.locator('.rnd .crop img').first()).toHaveAttribute('alt', '整页')
     await shotWindow(run, 'r2-whole-page')
   } finally {
     await run.close()

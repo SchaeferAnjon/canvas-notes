@@ -133,7 +133,10 @@ test('文档：网址右键「拷贝链接」；段落「问 AI」把引文放�
 
     await ed.locator('.cm-line', { hasText: '第二段文字' }).click({ button: 'right' })
     await pickMenu(run, '问 AI 这一块')
-    await expect(page.getByRole('textbox', { name: '问 AI' })).toHaveValue('> 第二段文字\n\n')
+    // 第 2b 段：这一块成为 AI 输入框顶上那一排的第一块引用（来源「《读书》」），字里是编号 ①
+    await expect(page.getByRole('textbox', { name: '问 AI' })).toHaveValue('①')
+    await expect(page.getByTestId('ai-mat').locator('.ct')).toHaveText('第二段文字')
+    await expect(page.getByTestId('ai-mat').locator('.cs')).toHaveText('《读书》')
     await expect(page.getByRole('textbox', { name: '问 AI' })).toBeFocused()
 
     await ed.locator('.cm-line', { hasText: '第三段' }).click({ button: 'right' })

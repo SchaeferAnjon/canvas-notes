@@ -7,7 +7,6 @@
  * 字号明显大于正文的短行当标题。
  */
 
-import { tableText } from './mineru'
 
 export interface PdfTextItem {
   str: string
@@ -46,21 +45,15 @@ export interface PdfBlock {
   /** 「p5-b3」：第 5 页第 3 块，AI 回答里拿它指图 */
   id: string
   page: number
-  /**
-   * table、formula、caption 只有 MinerU（PDF 精读增强）认得出：table 的 text 是表格 HTML，formula 的 text 是 LaTeX，
-   * caption 是图注、表注（紧跟着它的图、表）。pdf.js 拼的块只有前三种。
-   */
-  kind: 'heading' | 'text' | 'image' | 'table' | 'formula' | 'caption'
+  kind: 'heading' | 'text' | 'image'
   text: string
   /** 外框：左、上、宽、高（页面单位，左上角量） */
   x: number
   y: number
   w: number
   h: number
-  /** 一格一格的短标签（彩色表、流程框），行之间用换行连着；对照读里整块照原页裁 */
+  /** 一格一格的短标签（彩色表、流程框），行之间用换行连着 */
   stack?: true
-  /** MinerU 认的块（不是 pdf.js 拼的）：图框准，配图优先用它 */
-  by?: 'mineru'
 }
 
 /** 同一基线的文字项拼成行；行内按 x 排序，间距大于字宽的一小截补空格 */
@@ -153,7 +146,7 @@ export function pageBlocks(p: PdfPageText, page: number, body = bodySize([p])): 
     const top = Math.min(...para.map((l) => l.y - l.h))
     const right = Math.max(...para.map((l) => l.x + l.w))
     const bottom = Math.max(...para.map((l) => l.y + l.h * 0.25))
-    // 一格一格的短标签（三行以上、每行短、行首都是大写或数字、没有句读）：行之间留着换行，不拼成一句（对照读里整块照原页裁）
+    // 一格一格的短标签（三行以上、每行短、行首都是大写或数字、没有句读）：行之间留着换行，不拼成一句
     const texts = para.map((l) => l.text)
     const stack = kind === 'text' && texts.length >= 3 && texts.every((t) => t.length <= 40 && /^[A-Z0-9一-鿿]/.test(t) && !/[.,;:!?。，；：-]$/.test(t))
     out.push({ id: '', page, kind, text: stack ? texts.join('\n') : joinLines(texts), x, y: top, w: right - x, h: bottom - top, ...(stack ? { stack: true as const } : {}) })
@@ -229,35 +222,18 @@ export function decorativeImages(blocks: PdfBlock[], page: { w: number; h: numbe
   return out
 }
 
-/**
- * 一页的块写成给 AI 看的文字：标题前加 #，图写成「[图 p5-b3]」；
- * MinerU 认出的表格写成「[表 p5-b2]」加一行行格子，公式写成 $$LaTeX$$，图注照写
- */
+/** 一页的块写成给 AI 看的文字：标题前加 #，图写成「[图 p5-b3]」 */
 export function blocksText(blocks: PdfBlock[]): string {
-  return blocks
-    .map((b) =>
-      b.kind === 'heading'
-        ? `# ${b.text}`
-        : b.kind === 'image'
-          ? `[图 ${b.id}]`
-          : b.kind === 'table'
-            ? `[表 ${b.id}]\n${tableText(b.text)}`
-            : b.kind === 'formula'
-              ? `$$${b.text}$$`
-              : b.text,
-    )
-    .join('\n')
+  return blocks.map((b) => (b.kind === 'heading' ? `# ${b.text}` : b.kind === 'image' ? `[图 ${b.id}]` : b.text)).join('\n')
 }
 
-/** 块里能搜、能读的字：表格去掉标签只留格子，图没有字 */
+/** 块里能搜、能读的字：图没有字 */
 export function blockPlain(b: Pick<PdfBlock, 'kind' | 'text'>): string {
-  if (b.kind === 'image') return ''
-  if (b.kind === 'table') return tableText(b.text)
-  return b.text
+  return b.kind === 'image' ? '' : b.text
 }
 
-/** 能当配图的块：图，和 MinerU 认出的表 */
-export const isFigureBlock = (b: Pick<PdfBlock, 'kind'>) => b.kind === 'image' || b.kind === 'table'
+/** 能当配图的块：图 */
+export const isFigureBlock = (b: Pick<PdfBlock, 'kind'>) => b.kind === 'image'
 
 /** 段落的指纹（翻译缓存按它对上）：去掉空白后的 FNV-1a */
 export function blockHash(text: string): string {

@@ -88,6 +88,8 @@ describe('导入 VS Code 主题（spec 6.1）', () => {
 
   it('什么颜色都没写：浅色给 VS Code 的默认底，全部变量都有值', () => {
     const t = convertTheme({ type: 'light' }, { source: 'empty.json' })
+    // 分段选中格是淡底，和选中行一样（不是白底突起块）
+    expect(t.vars['seg-on']).toBe(t.vars.fill2)
     expect(t.name).toBe('Empty')
     expect(t.vars.win).toBe('#ffffff')
     for (const k of ['title', 'bar', 'side', 'tabbar', 'tab-on', 'status', 'status-t', 't1', 't2', 't3', 'line', 'line2', 'fill', 'fill2', 'pop', 'card', 'acc', 'acc-bg', 'acc-on', 'green', 'yellow', 'red', 'board', 'dotc', 'clip', 'glass', 'shadow', 'shadow-up']) {

@@ -5,7 +5,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { join } from 'node:path'
-import { acts, launch, leftView, openNote, pane, rail, tabOn, waitSaved } from './app'
+import { acts, launch, leftView, openAi, openNote, pane, rail, tabOn, waitSaved } from './app'
 import { DREAM_VAULT } from './fixtures/dream'
 import { FAKE_VIDEO_ID, startFakeVideoSite } from './fixtures/fake-video'
 import { measureGaps } from './cjk-gap'
@@ -107,7 +107,7 @@ test('白板画布上边也让出一截：从 y=0 摆起的列不贴标签条，
   }
 })
 
-test('数和单位、中文和西文写在一个文本节点里，autospace 才起作用：白板列头「1张卡片」、文档白板「2列 · 3张」和列头「2张」、课程首页「收进ecp」都量到 1–2.5px', async () => {
+test('数和单位、中文和西文写在一个文本节点里，autospace 才起作用：白板列头「1张卡片」、文档白板列头「2张」、课程首页「拖PDF」都量到 1–2.5px', async () => {
   const doc = '# 计划\n\n## 第一节\n\n一段。\n\n两段。\n\n## 第二节\n\n三段。\n'
   const board = '---\ntype: board\ncolor: #4A7FA7\n---\n写作计划。\n\n<!-- column id=c1 x=0 y=0 w=300 title=十一月 -->\n<!-- card id=k1 in=c1 -->\n第一张\n'
   const run = await launch({ '计划.md': doc, '写作计划.md': board, '课程/ecp/Lecture05.pdf': LECTURE })
@@ -120,13 +120,13 @@ test('数和单位、中文和西文写在一个文本节点里，autospace 才�
     await openNote(page, '计划')
     await acts(page).getByRole('tab', { name: '白板' }).click()
     const db = pane(page).getByTestId('doc-board')
-    await expect(db.locator('.db-tools > span').first()).toHaveText('2列 · 3张')
-    expect(await gaps('.pane:not([hidden]) .db-tools > span')).toEqual([])
+    // 右上原来的「2列 · 3张」换成了小样里的「收件箱 N ⌄」（BUILD2），列头的数还在
+    await expect(db.locator('h3 .meta').first()).toHaveText('2张')
     expect(await gaps('.pane:not([hidden]) [data-testid="doc-board"] h3 .meta')).toEqual([])
     await leftView(page, '课程')
-    await page.locator('aside.side').getByRole('button', { name: /ecp/ }).click()
+    await page.locator('aside.side').getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: /^ecp$/ }) }).click()
     await expect(tabOn(page)).toHaveText('ecp')
-    await expect(pane(page).locator('.fw-dropcell')).toContainText('收进ecp')
+    await expect(pane(page).locator('.fw-dropcell')).toContainText('拖PDF')
     expect(await gaps('.pane:not([hidden]) .fw-dropcell')).toEqual([])
   } finally {
     await run.close()
@@ -222,7 +222,7 @@ test('窗口 700 高、上格开着视频时点「接着问」：下格 AI 的�
     const more = pane(page).locator('[data-part="问答块"]').getByRole('button', { name: '接着问' })
     await more.scrollIntoViewIfNeeded()
     await more.click()
-    await expect(reading(page).locator('.attq')).toBeVisible()
+    await expect(reading(page).getByTestId('reading-att')).toBeVisible()
     await expect(reading(page).locator('.ai-empty')).toHaveCount(1)
     // 1600×1000：大标题和那一句都露着
     await page.waitForTimeout(300)
@@ -255,6 +255,7 @@ test('读 PDF 框了一块再点「讲解一下」排队：排队那一行自己
     await page.locator('.pal-row', { hasText: '第3讲 线性映射' }).first().click()
     await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
     await expect(pdfPage(1).locator('canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
+    await openAi(page)
     await expect(reading(page).getByTestId('reading-sees')).toContainText('读过全文5页')
     // AI 在答这一页时，在第 4 页框一块，点浮条「讲解一下」
     await acts(page).getByRole('button', { name: /问这一页/ }).click()
@@ -313,7 +314,7 @@ test('中间窄（1100 开着右栏）时开「还没提交的改动」：标签
   }
 })
 
-test('写作首页「素材」组件：一行是一个主题文件夹，用文件夹图标；点了开那个文件夹的首页', async () => {
+test('「剪藏」组件（写作首页上加的）：一行是一个主题文件夹，用文件夹图标；点了开那个文件夹的首页', async () => {
   const run = await launch({
     '写作/a.md': '# a\n\n正文。\n',
     '素材/冰岛旅行/一.md': '# 一\n\n剪的。\n',
@@ -325,6 +326,12 @@ test('写作首页「素材」组件：一行是一个主题文件夹，用文�
     await leftView(page, '文件')
     const tree = page.getByRole('tree', { name: '全部文件' })
     await tree.getByRole('treeitem', { name: /写作/ }).first().click()
+    await acts(page).getByRole('button', { name: '编辑首页' }).click()
+    await page.getByTestId('folder-home').getByRole('button', { name: '加组件' }).click()
+    const lib = page.getByRole('dialog', { name: '加组件' })
+    await lib.getByRole('button', { name: '加上 剪藏' }).click()
+    await lib.getByRole('button', { name: '完成' }).click()
+    await acts(page).getByRole('button', { name: '完成' }).click()
     const row = page.getByTestId('fw-clips').locator('.fw-row', { hasText: '冰岛旅行' })
     await expect(row).toContainText('1篇')
     const icon = await row.locator('svg.ci').evaluate((s) => s.innerHTML)

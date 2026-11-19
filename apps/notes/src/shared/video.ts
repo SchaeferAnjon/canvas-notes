@@ -425,9 +425,9 @@ export function parseVideoCard(text: string): { ref: VideoRef; url: string; titl
   return { ref, url: link[2]!, title: link[1]!, cover: img?.[1] ?? null, meta }
 }
 
-// ---------------------------------------------------------------- 字幕全文进素材
+// ---------------------------------------------------------------- 字幕全文进剪藏
 
-export const VIDEO_FOLDER = '素材/视频'
+export const VIDEO_FOLDER = '剪藏/视频'
 
 export interface Chapter {
   start: number

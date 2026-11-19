@@ -24,12 +24,14 @@ test('新建笔记：点加号、在第一行写标题、回车接着打字，�
     await waitSaved(page)
     expect(readFileSync(join(vault, '收件箱/冰岛自驾.md'), 'utf8')).toBe('# 冰岛自驾\n\n先订 2.27 的住处。')
     expect(existsSync(join(vault, '收件箱/未命名.md'))).toBe(false)
-    // 新建的笔记进收件箱（CN-11）：在左栏收件箱页里
+    // 新建的笔记进收件箱（CN-11）：在左栏收件箱那一枝里（这一格同时在中间开收件箱的首页）
     await leftView(page, '收件箱')
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾' })).toBeVisible()
     await expect(bar(page).getByTestId('git-changed')).toContainText('1处没提交')
 
-    // 再双击标签改一次名
+    // 回到那篇，再双击标签改一次名
+    await page.locator('.tab', { hasText: '冰岛自驾' }).locator('.tl').click()
+    await expect(tabOn(page)).toHaveText('冰岛自驾')
     await tabOn(page).dblclick()
     await page.keyboard.type('冰岛自驾攻略')
     await page.keyboard.press('Enter')
@@ -47,7 +49,7 @@ test('新建笔记：点加号、在第一行写标题、回车接着打字，�
   }
 })
 
-test('文档模式藏起 md 记号，源文件显示原文；⌘ 点双链打开那篇', async () => {
+test('文档模式藏起 md 记号（光标点进去也不露，方向 A），编辑器里的原文一字不差；⌘ 点双链打开那篇', async () => {
   const md = '# 所思所想\n\n**财富**靠专长，见 [[工作流]]。\n\n> 引文\n> —— [标题](https://nav.al/rich)\n\n最后一行\n'
   const run = await launch({ '所思所想.md': md, '工作流.md': '# 工作流\n' })
   const { page, vault } = run
@@ -60,16 +62,14 @@ test('文档模式藏起 md 记号，源文件显示原文；⌘ 点双链打开
     expect(shown).not.toContain('**')
     expect(shown).not.toContain('https://')
     await expect(pane(page).locator('.cm-h1')).toHaveText('所思所想')
-    // 打开时什么记号都不露；光标点进加粗的那几个字，只露这一处的记号（小一号、淡色），同一行别的不露
+    // 打开时什么记号都不露；光标点进加粗的那几个字也不露（文档方向 A：平时一个记号都看不到）
     await expect(pane(page).locator('.cm-mdmark')).toHaveCount(0)
     await pane(page).locator('.cm-strong', { hasText: '财富' }).click()
-    await expect(pane(page).locator('.cm-line', { hasText: '财富' }).locator('.cm-mdmark')).toHaveText(['**', '**'])
-    await expect(pane(page).locator('.cm-line', { hasText: '财富' })).toContainText('**财富**')
-    // 源文件就是原文
+    await expect(pane(page).locator('.cm-line', { hasText: '财富' }).locator('.cm-mdmark')).toHaveCount(0)
+    await expect(pane(page).locator('.cm-line', { hasText: '财富' })).not.toContainText('**')
+    // 编辑器里的原文和文件一字不差（没有「源文件」看法了）
     expect(await editorText(page)).toBe(md)
-    await acts(page).getByRole('tab', { name: '源文件' }).click()
-    await expect(pane(page).locator('.cm-wikilink')).toHaveCount(0)
-    await acts(page).getByRole('tab', { name: '文档' }).click()
+    await expect(acts(page).getByRole('tab', { name: '源文件' })).toHaveCount(0)
     // ⌘ 点双链
     await pane(page).locator('.cm-line', { hasText: '最后一行' }).click()
     await pane(page).locator('.cm-wikilink').click({ modifiers: ['Meta'] })

@@ -507,7 +507,8 @@
 /* 块部件不用上下外边距：CodeMirror 量块高时不算外边距，点哪行会落到下一行（CN-64）。外层 .cm-vwrap 用内边距留缝，
    也是容器查询的容器：正文窄于 420 时截图放上面、字放下面（CN-72） */
 .cm-vwrap {
-  padding: 6px 0;
+  /* 上下不留内边距：和前后的距离由块和块之间那一行给（block-gaps.ts）；选中底画在外面一层 */
+  padding: 0;
   container-type: inline-size;
 }
 .cm-vmoment {

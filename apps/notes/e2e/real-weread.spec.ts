@@ -3,7 +3,7 @@
 // 1. 用软件的「⋯ › 导入 Chrome 登录」把 Chrome 的登录导进这个测试实例的临时设置目录（macOS 会问一次钥匙串，要人点「允许」；
 //    CN_REAL_CHROME_PROFILE 指定 Chrome 用户，不给用第一个）；
 // 2. 右竖条「微信读书」打开 weread.qq.com，设置 › 插件 › 微信读书显示「已登录」；
-// 3. 网页「笔记」页上这本书的划线数（网页自己问笔记本接口的 noteCount）和插件用网页版划线接口同步进素材的条数一样；
+// 3. 网页「笔记」页上这本书的划线数（网页自己问笔记本接口的 noteCount）和插件用网页版划线接口同步进阅读的条数一样；
 // 4. 把这本书已有的最新一条划线走一遍「插进左边开着的文档」（插进临时库里的文档），不在账号里新划线、不删不改。
 // 临时库和设置目录测完就删（launch 的 close）；cookie、昵称、头像、书的内容都不打印、不截图（截图前打码）。
 import { expect, test } from '@playwright/test'
@@ -51,7 +51,7 @@ test('真的微信读书：导入 Chrome 登录后设置显示已登录；网页
       await acct.screenshot({ path: join(process.env.CN_SHOTS, 'real-weread-settings.png'), mask: [acct.locator('.wr-av'), acct.locator('b')] })
     await page.keyboard.press('Meta+,')
 
-    // ---- 2. 书架上一本有划线的书：网页自己问到的条数 = 插件同步进素材的条数 ----
+    // ---- 2. 书架上一本有划线的书：网页自己问到的条数 = 插件同步进阅读的条数 ----
     // 网页「笔记」页上每本书的划线数：网页自己问笔记本接口（/api/user/notebook）拿到的 noteCount（真账号上 bookmarkCount 是另一种计数）
     const book = await guest<{ bookId: string; shown: number } | null>(`(async () => {
       const nb = await (await fetch('/api/user/notebook', { credentials: 'include' })).json()
@@ -61,12 +61,12 @@ test('真的微信读书：导入 Chrome 登录后设置显示已登录；网页
     expect(book, '书架上没有带划线的书').toBeTruthy()
     const st = await page.evaluate(() => window.cnPlugins.call<{ state: string }>('weread', 'syncAll'))
     expect(st.state).toBe('ok')
-    const dir = join(vault, '素材', '微信读书')
+    const dir = join(vault, '阅读')
     const file = readdirSync(dir).find((f) => readFileSync(join(dir, f), 'utf8').includes(`bookId: ${book!.bookId}\n`))
-    expect(file, '这本书没同步进素材').toBeTruthy()
-    const synced = Number(/^marks: (\d+)$/m.exec(readFileSync(join(dir, file!), 'utf8'))?.[1])
+    expect(file, '这本书没同步进阅读').toBeTruthy()
+    const synced = Number(/^划线: (\d+)$/m.exec(readFileSync(join(dir, file!), 'utf8'))?.[1])
     // 只打数字，不打书名、划线内容
-    console.log('[real-weread] 网页笔记页上这本书的划线数', book!.shown, '· 插件用网页版接口同步进素材的', synced)
+    console.log('[real-weread] 网页笔记页上这本书的划线数', book!.shown, '· 插件用网页版接口同步进阅读的', synced)
     expect(synced).toBe(book!.shown)
 
     // ---- 3. 已有的一条划线走一遍「插进左边开着的文档」----

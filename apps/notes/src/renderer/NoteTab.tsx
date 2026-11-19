@@ -1,19 +1,21 @@
 import { Codicon } from '@cn/design'
 import { fmValue, isMindmap } from '@cn/format'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile, OpenedNote } from '../shared/api'
 import { nameNotice, safeName } from '../shared/file-name'
 import { titleOf } from '../shared/layout'
-import { EDIT_SOURCE } from './block-handles'
 import { BoardView, type BoardZoomApi } from './BoardView'
 import { loadZoom, saveZoom } from './board-zoom'
 import { type MenuEntry, showMenu } from './ctx/menu'
 import { DocBoardView } from './doc-board/DocBoardView'
+import { AiActLayer } from './ai-act'
 import { DocToc, isWide, setWide } from './doc-toc'
 import { followsTitle, headingOf, titleRename } from './title-follow'
 import { moveCursor, openCursor, saveCursor, savedCursor } from './open-cursor'
 import { PropsButton } from './mindmap/PropsButton'
 import { NoteDoc, type SaveState, type ViewMode } from './note-doc'
+import { setNoteMeta } from './folder-chip'
+import { setBoards } from './board-link'
 import { ActBtn, noteLeavers, noteRenamers, PageNote, TabActs } from './shell/TabActs'
 import { takeStray, takeTyping } from './new-note-hold'
 
@@ -46,6 +48,10 @@ export interface NoteTabProps {
   onOpenLink(target: string): void
 }
 
+/** 文件名是软件起的「未命名」「未命名 N」 */
+const untitledTitle = (t: string) => /^未命名( \d+)?$/.test(t)
+const untitled = (path: string) => untitledTitle(titleOf(path))
+
 /** 新建的笔记先读好再开标签：标签一出来编辑器就在、光标就在标题里（机器慢时不再有「标签出来了、编辑器还没好」那一会儿，那时打的头几个字会丢） */
 const preread = new Map<string, OpenedNote>()
 export const primeNote = (note: OpenedNote) => void preread.set(note.path, note)
@@ -72,6 +78,7 @@ export function NoteTab(props: NoteTabProps) {
   /** 宽版：版心跟中间栏走、最宽 1100（CN-26），记在这一篇上 */
   const [wide, setWideState] = useState(() => isWide(path))
   const bodyRef = useRef<HTMLDivElement>(null)
+  const paneRef = useRef<HTMLElement>(null)
   const renaming = props.renaming
   /** 白板缩放：每块白板自己的比例记在本机（不写进文件） */
   const [zoom, setZoomState] = useState(() => loadZoom(path))
@@ -121,9 +128,21 @@ export function NoteTab(props: NoteTabProps) {
         },
       })
       doc.current = d
+      // 标题下一行：新建的写「刚建」，旧的写改于什么时候（文件的修改时间）
+      const f = cb.current.notes.find((n) => n.path === note.path)
+      d.view.dispatch({ effects: setNoteMeta.of({ fresh: wasFresh.current, ...(f ? { mtime: f.mtimeMs } : {}) }) })
       setText(note.text)
-      follow.current = !note.readOnly && followsTitle(note.text, firstPath.current)
+      // 文件名还是软件起的「未命名」「未命名 N」也跟（CN-12：以前建的笔记标题改了、文件名停在「未命名」）
+      follow.current = !note.readOnly && (followsTitle(note.text, firstPath.current) || untitled(firstPath.current))
       lastTitle.current = headingOf(note.text)?.title ?? ''
+      // 打开时标题已经不是「未命名…」：当场按标题改一次名（重名加「 2」），底栏说一句
+      if (follow.current && !wasFresh.current && untitled(firstPath.current) && lastTitle.current && !untitledTitle(lastTitle.current)) {
+        const from = titleOf(firstPath.current)
+        lastTitle.current = ''
+        void followTitle().then(() => {
+          if (pathNow.current !== firstPath.current) cb.current.onNotice(`《${from}》按第一行标题改名为《${titleOf(pathNow.current)}》`)
+        })
+      }
       const board = fmValue(note.text, 'type') === 'board'
       if (board && !picked.current) setMode('board')
       if (wasFresh.current && board) cb.current.onWantRename()
@@ -174,6 +193,21 @@ export function NoteTab(props: NoteTabProps) {
     lastPath.current = path
   }, [path])
 
+  // 独占一行的 [[白板]] 画成白板卡：库里白板的颜色、卡片数（board-link.ts）
+  const boards = useMemo(
+    () => new Map(props.notes.flatMap((n) => (n.board ? [[titleOf(n.path).toLowerCase(), { path: n.path, color: n.board.color, cards: n.board.nodes ?? n.board.cards, icon: n.board.icon }] as const] : []))),
+    [props.notes],
+  )
+  useEffect(() => {
+    doc.current?.view.dispatch({ effects: setBoards.of(boards) })
+  }, [boards, text === null])
+
+  // 存了盘、外面改了：左栏的列表重读，标题下一行的「改于…」跟着换
+  const mtime = props.notes.find((n) => n.path === path)?.mtimeMs
+  useEffect(() => {
+    if (mtime !== undefined) doc.current?.view.dispatch({ effects: setNoteMeta.of({ mtime }) })
+  }, [mtime])
+
   // 切到别的标签：光标在标题上也算离开了
   useEffect(() => {
     if (!active) void followTitle()
@@ -206,29 +240,6 @@ export function NoteTab(props: NoteTabProps) {
       cb.current.onNotice(String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     }
   }
-
-  useEffect(() => {
-    doc.current?.setMode(mode)
-  }, [mode])
-
-  // 块菜单「在源文件里改这一块」：切到源文件，选中这一段
-  useEffect(() => {
-    const el = host.current
-    if (!el) return
-    const on = (e: Event) => {
-      const { from, to } = (e as CustomEvent<{ from: number; to: number }>).detail
-      picked.current = true
-      setMode('source')
-      requestAnimationFrame(() => {
-        const v = doc.current?.view
-        if (!v) return
-        v.focus()
-        v.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true })
-      })
-    }
-    el.addEventListener(EDIT_SOURCE, on)
-    return () => el.removeEventListener(EDIT_SOURCE, on)
-  }, [])
 
   useEffect(() => {
     if (active && !renaming && mode !== 'board' && doc.current) focusTaking(doc.current)
@@ -281,7 +292,7 @@ export function NoteTab(props: NoteTabProps) {
   }
 
   return (
-    <section className="pane" hidden={!active} data-path={path}>
+    <section className="pane" hidden={!active} data-path={path} ref={paneRef}>
       <TabActs active={active}>
         <span className={'txt' + (state === 'failed' ? ' failed' : '')} hidden={state === 'saved'} data-testid="save-state" data-state={state}>
           {state === 'failed' && <i className="gdot err" />}
@@ -323,7 +334,6 @@ export function NoteTab(props: NoteTabProps) {
             [
               ['board', 'layout', '白板'],
               ['doc', 'file-text', '文档'],
-              ['source', 'code', '源文件'],
             ] as const
           ).map(([m, icon, name]) => (
             <button key={m} className={mode === m ? 'on' : ''} onClick={() => ((picked.current = true), setMode(m))} role="tab" aria-selected={mode === m} aria-label={name} data-tip={name} data-side="below">
@@ -376,6 +386,8 @@ export function NoteTab(props: NoteTabProps) {
       <div className="body" hidden={mode === 'board'} ref={bodyRef}>
         <div className={'doc ' + mode + (wide ? ' wide' : '')} ref={host} />
       </div>
+      {/* AI 在这篇文档里动手（插入、改写）：外圈和顶上「AI 正在改这篇 · 停下 esc」（DESIGN.v3 2.3）；白板看法里由白板自己画 */}
+      {mode !== 'board' && <AiActLayer area="doc" path={path} host={paneRef} />}
       {mode === 'doc' && text !== null && <DocToc text={text} doc={() => doc.current} scroller={() => bodyRef.current} onOpenOutline={() => cb.current.onOpenOutline()} />}
       {/* 普通文档切到白板：按节摆成列（方向 A，doc-board/）；type: board 的白板和导图照旧 */}
       {mode === 'board' && text !== null && fmValue(text, 'type') !== 'board' && !isMindmap(text) && (
@@ -392,6 +404,12 @@ export function NoteTab(props: NoteTabProps) {
           onChange={(t) => doc.current?.setText(t)}
           onDraft={(f) => doc.current && (doc.current.draft = f)}
           onNotice={(t) => cb.current.onNotice(t)}
+          onCreateSubBoard={async () => {
+            const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+            const p = await window.cn.createBoard(dir, '未命名白板')
+            cb.current.onOpenPath(p, true)
+            return titleOf(p)
+          }}
           onOpenDoc={(pos) => {
             picked.current = true
             setMode('doc')

@@ -1,6 +1,6 @@
 // 假的 claude 命令行（claude -p --output-format stream-json）：测引擎接法用，不联网。
 // 话从标准输入读，一行一个 JSON 事件写到标准输出，和真的一样；--mcp-config 给了就真去调一次 MCP 服务的 board_list。
-import { readFileSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 
 const argv = process.argv.slice(2)
 const flag = (name) => {
@@ -16,6 +16,8 @@ process.stdin.on('data', (d) => (prompt += d))
 process.stdin.on('end', () => void main())
 
 async function main() {
+  // e2e 看软件真的给了哪些参数（像 ps 看子进程）：一次一行
+  if (process.env.FAKE_CLAUDE_ARGV) appendFileSync(process.env.FAKE_CLAUDE_ARGV, JSON.stringify(argv) + '\n')
   // 带图时话是 stream-json 的一条用户消息：取出文字，图记个数和类型
   if (flag('--input-format') === 'stream-json') {
     const msg = JSON.parse(prompt.trim())
@@ -32,7 +34,8 @@ async function main() {
     out({ type: 'result', subtype: 'success', is_error: true, result: 'Not logged in · Please run /login', session_id: 'x' })
     process.exit(1)
   }
-  const session = resume ?? 'c-new'
+  // --fork-session：从 resume 那个会话分叉，另起一个会话号
+  const session = resume ? (has('--fork-session') ? `${resume}-fork` : resume) : 'c-new'
   out({ type: 'system', subtype: 'init', session_id: session, tools: (flag('--tools') ?? '').split(',').filter(Boolean) })
   if (prompt.includes('等着')) {
     if (process.env.FAKE_CLAUDE_PIDFILE) writeFileSync(process.env.FAKE_CLAUDE_PIDFILE, String(process.pid))
@@ -78,11 +81,15 @@ async function main() {
   parts.push(
     `禁止 ${flag('--disallowedTools')}`,
     `权限 ${flag('--permission-mode')}`,
-    `设置 ${argv.includes('--setting-sources=') ? '不读' : '读'}`,
+    `设置 ${argv.includes('--setting-sources=') ? '不读' : `读 ${flag('--setting-sources') ?? '全部'}`}`,
     `只接我们的 MCP ${has('--strict-mcp-config') ? '是' : '否'}`,
     `接着聊 ${resume ?? '否'}`,
     `系统提示 ${flag('--system-prompt')}`,
     `话 ${prompt.replace(/\n/g, '/')}`,
+    `effort ${flag('--effort') ?? '没给'}`,
+    `附加系统提示 ${flag('--append-system-prompt') ?? '没给'}`,
+    `额外设置 ${flag('--settings') ?? '没给'}`,
+    `分叉 ${has('--fork-session') ? '是' : '否'}`,
   )
   // 调完工具另起一个文字块
   block()

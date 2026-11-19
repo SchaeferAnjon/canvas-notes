@@ -32,13 +32,19 @@
   background: var(--fill);
   color: var(--t1);
 }
+/* 「文件夹 3 ——」：小字、后面一条 1px 线（方案 v2 文件夹封面小样的 .sec） */
 .fc-g {
   display: flex;
-  gap: 6px;
-  margin: 16px 0 8px;
+  align-items: center;
+  gap: 8px;
+  margin: 26px 0 10px;
   font-size: 12px;
-  font-weight: 500;
   color: var(--t3);
+}
+.fc-g .ln {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
 }
 .fc-none {
   margin: 18px 0;
@@ -49,7 +55,7 @@
 .fc-fgrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 .fc-fcard {
   display: flex;
@@ -275,4 +281,14 @@
 }
 .center.narrow .fc-vis.two {
   display: block;
+}
+
+/* 历史里刚放回的文件夹：一圈 --acc-ring 约 2 秒（CN-108 小样 .home .w.flash） */
+.fc-fcard.flash {
+  animation: fc-flash 2s steps(1, end);
+}
+@keyframes fc-flash {
+  0% {
+    box-shadow: 0 0 0 1.5px var(--acc-ring), var(--shadow);
+  }
 }

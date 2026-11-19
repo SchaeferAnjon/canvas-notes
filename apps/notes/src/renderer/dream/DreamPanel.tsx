@@ -1,3 +1,4 @@
+import { folderLabel } from '../vault-name'
 import { Codicon, type CodiconName } from '@cn/design'
 import { engineOfLabel } from '../../shared/ai-features'
 import { EngineLogo } from '../engine-logo'
@@ -311,7 +312,7 @@ function Detail(props: {
           <Codicon name={fileIcon(f.path)} size={14} />
           <span className="tx">
             <span>{f.kind === 'md' && f.status !== 'new' ? `${titleOf(f.path)}：${f.summary}` : f.summary}</span>
-            {(f.status === 'new' || f.status === 'moved') && <span className="p">{dir(f.path) || '库的最外层'}</span>}
+            {(f.status === 'new' || f.status === 'moved') && <span className="p">{folderLabel(dir(f.path))}</span>}
           </span>
         </button>
       ))}

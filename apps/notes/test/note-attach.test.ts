@@ -46,30 +46,32 @@ describe('一篇笔记的附件', () => {
     const a = await noteAttachments(v, NOTE, true)
     expect(a.dir).toBe(DIR)
     expect(a.dirExists).toBe(true)
-    expect(a.items.map((i) => [i.path.split('/').pop(), i.where, i.own, i.sharedWith ?? null])).toEqual([
-      ['截图 2.png', '第 1 段', true, null],
-      ['截图 1.png', '为什么要先看符号', true, null],
-      ['旧图.png', '为什么要先看符号', false, null],
-      ['别人也用.png', null, true, ['复习.md']],
-      ['没用到.png', null, true, null],
+    expect(a.items.map((i) => [i.path.split('/').pop(), i.where, i.own, i.mine, i.sharedWith ?? null])).toEqual([
+      ['截图 2.png', '第 1 段', true, true, null],
+      ['截图 1.png', '为什么要先看符号', true, true, null],
+      ['旧图.png', '为什么要先看符号', false, true, null],
+      ['别人也用.png', null, true, true, ['复习.md']],
+      ['没用到.png', null, true, true, null],
     ])
     expect(a.bytes).toBe(2000 + 3000 + 10 + 20 + 40)
     expect(sizeText(1.8 * 1024 * 1024)).toBe('1.8 MB')
     expect(sizeText(640 * 1024)).toBe('640 KB')
   })
 
-  it('删笔记连同图：只删自己文件夹里、别的笔记没在用的；文件夹外的老图不动；撤回全放回原处、置顶也回来', async () => {
+  it('删笔记连同图：跟着这篇走的（自己文件夹里的、文中用到的 附件/ 别处的）一起删，别的笔记也在用的留下；撤回全放回原处、置顶也回来', async () => {
     const v = new Vault(root)
     const r = await trashNoteWith(v, NOTE, true, stage, toTrash)
-    expect(r.images).toBe(3)
+    // 以前只删自己文件夹里的：读 PDF 的截图、视频时刻、梦游挪走以前存的图都不在 附件/<笔记路径>/，删笔记时不问也不删（用户 11-18 报「删东西的时候没见这个弹窗」）
+    expect(r.images).toBe(4)
     expect(r.kept).toBe(1)
     expect(existsSync(join(root, NOTE))).toBe(false)
     expect(readdirSync(join(root, DIR))).toEqual(['别人也用.png'])
-    expect(existsSync(join(root, '附件/旧图.png'))).toBe(true)
-    expect(readdirSync(trash)).toHaveLength(4)
+    expect(existsSync(join(root, '附件/旧图.png'))).toBe(false)
+    expect(readdirSync(trash)).toHaveLength(5)
     expect(JSON.parse(readFileSync(join(root, '.canvas-notes/置顶.json'), 'utf8'))).toEqual([])
     await undoTrash(v, r.id, stage)
     expect(readFileSync(join(root, NOTE), 'utf8')).toBe(TEXT)
+    expect(existsSync(join(root, '附件/旧图.png'))).toBe(true)
     expect(readdirSync(join(root, DIR)).sort()).toEqual(['别人也用.png', '截图 1.png', '截图 2.png', '没用到.png'])
     expect(JSON.parse(readFileSync(join(root, '.canvas-notes/置顶.json'), 'utf8'))).toEqual([NOTE])
     await expect(undoTrash(v, r.id, stage)).rejects.toThrow('撤回不了了')
@@ -84,9 +86,29 @@ describe('一篇笔记的附件', () => {
     rmSync(join(root, DIR, '别人也用.png'))
     rmSync(join(root, '复习.md'))
     const r2 = await trashNoteWith(v, NOTE, true, stage, toTrash)
-    expect(r2.images).toBe(3)
+    expect(r2.images).toBe(4)
     expect(existsSync(join(root, '附件/课程'))).toBe(false)
-    expect(existsSync(join(root, '附件/旧图.png'))).toBe(true)
+    expect(existsSync(join(root, '附件/旧图.png'))).toBe(false)
+  })
+
+  it('首页和文件夹的封面（附件/封面/）不跟着笔记删；读 PDF 时记的完整对话也链着的截图算别人在用；别处的文件夹删空了也收掉', async () => {
+    const v = new Vault(root)
+    put('读书.md', '# 读书\n\n![](附件/封面/海.jpg)\n\n![](附件/视频/yt-1/01-02.jpg)\n\n![](附件/读书资料/p3-1.png)\n')
+    put('附件/封面/海.jpg', Buffer.alloc(5))
+    put('附件/视频/yt-1/01-02.jpg', Buffer.alloc(6))
+    put('附件/读书资料/p3-1.png', Buffer.alloc(7))
+    put('.canvas-notes/对话/读书资料 第3页.md', '# 对话\n\n![](../../附件/读书资料/p3-1.png)\n')
+    const a = await noteAttachments(v, '读书.md', true)
+    expect(a.items.map((i) => [i.path, i.mine, i.sharedWith ?? null])).toEqual([
+      ['附件/封面/海.jpg', false, null],
+      ['附件/视频/yt-1/01-02.jpg', true, null],
+      ['附件/读书资料/p3-1.png', true, ['.canvas-notes/对话/读书资料 第3页.md']],
+    ])
+    const r = await trashNoteWith(v, '读书.md', true, stage, toTrash)
+    expect([r.images, r.kept]).toEqual([1, 1])
+    expect(existsSync(join(root, '附件/封面/海.jpg'))).toBe(true)
+    expect(existsSync(join(root, '附件/视频'))).toBe(false)
+    expect(existsSync(join(root, '附件/读书资料/p3-1.png'))).toBe(true)
   })
 
   it('不是 md、跳出库的拒绝', async () => {

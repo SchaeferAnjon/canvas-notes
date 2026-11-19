@@ -74,6 +74,29 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(bar(page).getByRole('button', { name: '收下这2处' })).toHaveClass(/btn-primary/)
       // 点「预览」左栏换到「文件」页；「最近」页里也是改好后的样子
       await expect(page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name: '文件', exact: true })).toHaveAttribute('aria-pressed', 'true')
+      await expect(page.getByRole('complementary', { name: '文件' })).toHaveClass(/previewing/)
+      // 预览条的按钮照设计稿（design/frame）的顺序：跟 AI 说哪里不对 ｜ 丢掉 ｜ 收下这 N 处 ｜ 退出预览 esc
+      await expect(bar(page).getByRole('button')).toHaveText([/跟AI说哪里不对/, '丢掉', '收下这2处', /退出预览/])
+      // 「文件」页里有改动的文件夹都展开着：挪来的标「新」、原处的影子行一眼看得到（设计复审第 3 条）
+      const files = page.getByRole('complementary', { name: '文件' })
+      const moved = files.locator('.ft-row', { hasText: '第3讲 线性代数 导图' })
+      await expect(moved.locator('.tag-new')).toHaveText('新')
+      // 「新」和名字在同一行里露着（行是 overflow: hidden 的折行布局：不能掉到第二行，也不能把行里的名字滚走）
+      const fit = await moved.evaluate((r) => {
+        const b = r.getBoundingClientRect()
+        const t = r.querySelector('.tag-new')!.getBoundingClientRect()
+        const n = r.querySelector('.truncate')!.getBoundingClientRect()
+        return { scroll: r.scrollTop, tagIn: t.top >= b.top && t.bottom <= b.bottom, nameIn: n.top >= b.top && n.bottom <= b.bottom }
+      })
+      expect(fit).toEqual({ scroll: 0, tagIn: true, nameIn: true })
+      await expect(files.locator('.pv-ghost').first()).toBeVisible()
+      // 开头的呼吸点是条上的字色（强调色底上是白的，不和底同色）；B 的底栏只剩预览胶囊，后面不留磨砂底
+      const dot = await bar(page).locator('.pd').evaluate((d) => [getComputedStyle(d).backgroundColor, getComputedStyle(d.closest('.pv-bar')!).color])
+      expect(dot[0]).toBe(dot[1])
+      expect(await page.locator('footer.status').evaluate((f) => getComputedStyle(f).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
+      // 截图前鼠标挪开（点「预览」的位置换成了目录树的一行，不然那行带着悬停底色）
+      await page.mouse.move(900, 600)
+      await shot(page, `dream-preview-files-${tone}`)
       await leftView(page, '最近')
       await expect(side(page)).toHaveClass(/previewing/)
       const newMap = side(page).locator('.si', { hasText: '第3讲 线性代数 导图' })
@@ -162,7 +185,7 @@ test('大批量：40 条按去处分组、默认收起，组里只露 5 条和�
     const file = panel(page).getByRole('region', { name: '归类和改名' })
     await expect(file.locator('.dg')).toHaveText('归类和改名40条 · 2组预览')
     const groups = file.getByTestId('dream-bulk')
-    await expect(groups.locator('.dbulk-h .tx')).toHaveText(['生活30条挪进来 · 改了30个名字', '素材/旅行10条挪进来 · 改了0个名字'])
+    await expect(groups.locator('.dbulk-h .tx')).toHaveText(['生活30条挪进来 · 改了30个名字', '剪藏/旅行10条挪进来 · 改了0个名字'])
     // 默认收起：一条都不铺开
     await expect(file.getByTestId('dream-item')).toHaveCount(0)
     await groups.first().locator('.dbulk-h').click()
@@ -188,10 +211,37 @@ test('大批量：40 条按去处分组、默认收起，组里只露 5 条和�
     await groups.nth(1).getByRole('button', { name: '收下这组', exact: true }).click()
     await expect(toast(page)).toContainText('收下了10处，已提交到main')
     expect(Number(git(vault, 'rev-list', '--count', 'HEAD').trim())).toBe(before + 1)
-    expect(existsSync(join(vault, '素材/旅行/剪 7.md'))).toBe(true)
+    expect(existsSync(join(vault, '剪藏/旅行/剪 7.md'))).toBe(true)
     expect(existsSync(join(vault, '收件箱/备忘 7.md'))).toBe(true)
     await expect(bar(page)).toContainText('30条，分到1个文件夹')
     expect(gitStatus(vault)).toBe('')
+  } finally {
+    await run.close()
+  }
+})
+
+test('收件箱堆了 30 条：点「预览」后第一处「新」滚进左栏视野，不用自己往下翻', async () => {
+  const many = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`收件箱/说不好的 ${String(i + 1).padStart(2, '0')}.md`, `---\ncreated: 2026-11-15 20:30\n---\n一句说不好放哪的话 ${i + 1}。\n`]))
+  const run = await launch({ ...VAULT, ...many }, { CN_AI_FAKE: '1' })
+  const { page } = run
+  try {
+    await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))
+    await dreamNow(page)
+    await panel(page).getByRole('region', { name: '归类和改名' }).getByRole('button', { name: '预览' }).click()
+    await expect(bar(page)).toBeVisible()
+    const files = page.getByRole('complementary', { name: '文件' })
+    const moved = files.locator('.ft-row', { hasText: '第3讲 线性代数 导图' })
+    await expect(moved.locator('.tag-new')).toHaveText('新')
+    // 这一行整个在左栏能滚的那一块的可见区里
+    const seen = () =>
+      moved.evaluate((r) => {
+        let sc: HTMLElement | null = r.parentElement
+        while (sc && !(sc.scrollHeight > sc.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement
+        const b = r.getBoundingClientRect()
+        const v = (sc ?? document.documentElement).getBoundingClientRect()
+        return b.top >= v.top - 1 && b.bottom <= v.bottom + 1
+      })
+    await expect.poll(seen).toBe(true)
   } finally {
     await run.close()
   }

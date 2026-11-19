@@ -6,8 +6,8 @@ import { lecturePdf } from './fixtures/pdf'
 import { acts, gitStatus, launch, pane, rail, tabOn, leftView } from './app'
 
 // 文件夹首页（task-xfrgu 第 3 段，设计稿 design-mindmap 方向 B 第 9 节）：
-// 左栏「文件夹」点一门课开它的首页 → 课件进度、笔记和导图（头上「拍一张」）、我的疑惑…… → 编辑首页：拖动、换宽、收起、删除、
-// 组件库加组件、按条件列出改条件 → 「⋯」设为课程模板 → 左栏 + 新建一门课（用模板、标题能改）→ 恢复默认；
+// 左栏「课程」那一枝点一门课开它的首页 → 课件进度、笔记和导图（头上「拍一张」）、我的疑惑…… → 编辑首页：拖动、换宽、收起、删除、
+// 组件库加组件、按条件列出改条件 → 「⋯」设为课程模板 → ⌘K 新建一门课（用模板、标题能改）→ 恢复默认；
 // 梦游预览时挪进来的导图在首页标「新」；文件夹里东西多了只露几条。
 
 const SHOTS = process.env.CN_SHOTS_DIR
@@ -51,8 +51,16 @@ function darkSettings(vault: string) {
   writeFileSync(join(ud, 'settings.json'), JSON.stringify({ appearance: { followSystem: false, skin: 'pine' } }))
 }
 
-/** 左栏「课程」一格（默认摘在左边）：每门课一行 */
-const folders = (page: Page) => page.locator('aside.side').getByRole('navigation', { name: '课程' })
+/** 左栏「课程」一格（默认摘在左边）：左栏是课程那一枝目录树，每门课一行（2026-11-18） */
+const courseRow = (page: Page, name: string) => page.locator('aside.side').getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: new RegExp(`^${name}$`) }) })
+const courseNames = (page: Page) => page.locator('aside.side').getByRole('treeitem', { level: 1 }).locator('.truncate')
+/** ⌘K「新建一门课」 */
+async function newCourse(page: Page) {
+  await page.keyboard.press('Meta+k')
+  const pal = page.getByRole('dialog', { name: '搜索和命令' })
+  await pal.getByRole('textbox').fill('新建一门课')
+  await pal.getByRole('option').filter({ hasText: /^新建一门课/ }).first().click()
+}
 /** 项目、生活、写作这些从「文件」树里点开（每个文件夹点名字都开首页） */
 async function openInTree(page: Page, path: string) {
   await leftView(page, '文件')
@@ -84,15 +92,14 @@ for (const tone of ['light', 'dark'] as const) {
     const run = await launch(VAULT, {}, tone === 'dark' ? darkSettings : undefined)
     const { page, vault } = run
     try {
-      // 左栏「课程和文件夹首页」：课程、项目、生活、写作，有首页的都在，按课程 / 项目 / 其他分组
+      // 左栏「课程」一格：左栏是课程那一枝（每门课一行），中间开「课程」这个分类的首页
       await leftView(page, '课程')
-      // 「课程」一格只列课程（项目、生活、写作在「文件」里，每个文件夹都有首页）
-      await expect(folders(page).locator('.si .truncate')).toHaveText(['概率论', '线性代数'])
-      await folders(page).locator('.si', { hasText: '线性代数' }).click()
+      await expect(courseNames(page)).toHaveText(['概率论', '线性代数'])
+      await courseRow(page, '线性代数').click()
       await expect(page.locator('.tab.on')).toHaveText('线性代数')
-      await expect(folders(page).locator('.si.on')).toContainText('线性代数')
+      await expect(courseRow(page, '线性代数')).toHaveAttribute('aria-selected', 'true')
       await expect(home(page).locator('.fh-title h2')).toHaveText('线性代数')
-      await expect(home(page).locator('.fh-title p')).toHaveText('课程 · 4讲 · 10个文件 · 问到第3讲')
+      await expect(home(page).locator('.fh-title p')).toHaveText(/^课程 \/ 线性代数 · 4讲 · 10篇 · 改于/)
       // 默认的课程首页
       await expect.poll(() => order(page)).toEqual(['slides', 'review', 'exam', 'notes', 'doubts', 'viz', 'todo', 'links', 'cal'])
       // 课件进度：每份 PDF 一张封面，按第几讲；问到第几页读笔记的「进度」，还没问过的写「没开始」；头上「接着读」问到一半的那份
@@ -172,14 +179,14 @@ for (const tone of ['light', 'dark'] as const) {
       // ---------- 组件库 ----------
       await home(page).getByRole('button', { name: '加组件' }).click()
       const lib = page.getByRole('dialog', { name: '加组件' })
-      await expect(lib.getByRole('navigation', { name: '分类' }).getByRole('button')).toHaveText(['课程', '通用', '按条件列出', '全部'])
+      // 一个列表三组（CN-102）：这门课的 / 通用 / 按条件列出
+      expect(await lib.getByRole('group').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).toEqual(['这门课的', '通用', '按条件列出'])
       await expect(lib.getByTestId('lib-slides')).toContainText('已在页面上')
       await shot(page, `fh-lib-${tone}`)
-      await lib.getByRole('button', { name: '通用' }).click()
       await lib.getByTestId('lib-todo').getByRole('button', { name: '加上' }).click()
       await expect(lib.getByTestId('lib-todo')).toContainText('已在页面上')
       await lib.getByRole('textbox', { name: '找组件' }).fill('文本')
-      await expect(lib.locator('.card')).toHaveCount(1)
+      await expect(lib.locator('.lw')).toHaveCount(1)
       await lib.getByTestId('lib-text').getByRole('button', { name: '加上' }).click()
       await lib.getByRole('button', { name: '完成' }).click()
       await expect(lib).toHaveCount(0)
@@ -211,14 +218,14 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(w(page, 'notes').locator('.fw-table tbody tr td').first()).toHaveText('第2讲 导图')
       await expect.poll(() => homeJson(vault, '课程/线性代数').widgets.notes.cond).toMatchObject({ rules: [{ prop: '类型', op: '是其中', value: '导图' }], view: 'table' })
 
-      // 图标和颜色（和树上右键「设图标和颜色…」同一个弹层）：首页的图标方块和左栏那一行一起变
+      // 图标和颜色（和树上右键「换图标和颜色…」同一个弹层）：首页的图标方块和左栏那一行一起变
       await home(page).getByRole('button', { name: '图标和颜色' }).click()
-      const icons = page.getByRole('dialog', { name: '设图标和颜色' })
+      const icons = page.getByRole('dialog', { name: '换图标和颜色' })
       await icons.getByRole('option', { name: 'beaker' }).click()
       await icons.getByRole('option', { name: '天青', exact: true }).click()
       await expect(home(page).locator('.fh-ico')).toHaveCSS('color', 'rgb(46, 127, 163)')
       await expect(home(page).locator('.fh-ico')).toHaveAttribute('data-icon', 'beaker')
-      await expect(folders(page).locator('.si', { hasText: '线性代数' }).locator('.fglyph')).toHaveCSS('color', 'rgb(46, 127, 163)')
+      await expect(courseRow(page, '线性代数').locator('.fglyph')).toHaveCSS('color', 'rgb(46, 127, 163)')
       await home(page).getByRole('button', { name: '图标和颜色' }).click()
 
       await acts(page).getByRole('button', { name: '完成' }).click()
@@ -237,8 +244,8 @@ for (const tone of ['light', 'dark'] as const) {
       // 模板管组件、排法和外观；图标和颜色是每个文件夹自己的（在 .canvas-notes/左栏.json）
       expect(JSON.parse(readFileSync(join(vault, '课程/.首页模板.json'), 'utf8')).order[0]).toBe('exam')
 
-      // ---------- 左栏 + 新建一门课：用模板，进编辑，标题能改 ----------
-      await page.locator('aside.side').getByRole('button', { name: '新建一门课' }).click()
+      // ---------- ⌘K 新建一门课：用模板，进编辑，标题能改 ----------
+      await newCourse(page)
       await expect(page.locator('.tab.on')).toHaveText('新的课程')
       await expect(toast(page)).toHaveText('建了课程/新的课程 · 首页用的是「课程模板」')
       await expect(home(page).getByRole('toolbar', { name: '编辑首页' })).toBeVisible()
@@ -251,14 +258,14 @@ for (const tone of ['light', 'dark'] as const) {
       await name.press('Enter')
       await expect(page.locator('.tab.on')).toHaveText('数值分析')
       await expect(home(page)).toHaveAttribute('data-folder', '课程/数值分析')
-      await expect(folders(page).locator('.si', { hasText: '数值分析' })).toBeVisible()
+      await expect(courseRow(page, '数值分析')).toBeVisible()
       expect(existsSync(join(vault, '课程/数值分析'))).toBe(true)
       expect(existsSync(join(vault, '课程/新的课程'))).toBe(false)
       await expect.poll(() => order(page)).toEqual(['exam', 'slides', 'review', 'notes', 'doubts', 'viz', 'cal', 'links', 'todo', 'text'])
       await expect(home(page).locator('.fh-ico')).toHaveAttribute('data-icon', 'folder-library')
 
       // ---------- 恢复默认（有模板用模板）：先在线性代数删一个，恢复后回来 ----------
-      await folders(page).locator('.si', { hasText: '线性代数' }).click()
+      await courseRow(page, '线性代数').click()
       await acts(page).getByRole('button', { name: '编辑首页' }).click()
       await w(page, 'doubts').getByRole('button', { name: '删掉我的疑惑' }).click()
       await expect(w(page, 'doubts')).toHaveCount(0)
@@ -283,23 +290,23 @@ for (const tone of ['light', 'dark'] as const) {
   })
 }
 
-test('文件夹首页：项目、生活、写作各是自己的默认组件；东西多了只露几条', async () => {
+test('文件夹首页：项目、生活、写作默认「最近改的」「待办」；东西多了只露几条', async () => {
   const many: Record<string, string> = {}
   for (let i = 1; i <= 400; i++) many[`课程/线性代数/第${(i % 12) + 1}讲 笔记 ${i}.md`] = note('笔记', (i % 12) + 1, `第${(i % 12) + 1}讲 笔记 ${i}`)
   const run = await launch({ ...VAULT, ...many })
   const { page } = run
   try {
     await openInTree(page, '项目/毕业论文')
-    await expect.poll(() => order(page)).toEqual(['todo', 'progress', 'recent', 'links', 'text'])
-    await expect(home(page).locator('.fh-title p')).toHaveText('项目 · 1个文件 · 这周改了1个')
+    await expect.poll(() => order(page)).toEqual(['recent', 'todo'])
+    await expect(home(page).locator('.fh-title p')).toHaveText(/^项目 \/ 毕业论文 · 1篇 · 改于/)
     await expect(w(page, 'recent').locator('.fw-row .truncate')).toHaveText(['大纲'])
     await shot(page, 'fh-project-light')
     await openInTree(page, '写作')
-    await expect.poll(() => order(page)).toEqual(['drafts', 'clips', 'recent', 'list'])
-    await expect(w(page, 'drafts').locator('.fw-row .truncate')).toHaveText(['一篇草稿'])
+    await expect.poll(() => order(page)).toEqual(['recent', 'todo'])
+    await expect(w(page, 'recent').locator('.fw-row .truncate')).toHaveText(['一篇草稿'])
     await shot(page, 'fh-writing-light')
     await openInTree(page, '生活')
-    await expect.poll(() => order(page)).toEqual(['todo', 'calendar', 'recent', 'text'])
+    await expect.poll(() => order(page)).toEqual(['recent', 'todo'])
     // 待办能直接加、勾掉
     await w(page, 'todo').getByRole('textbox', { name: '加一条待办' }).fill('交房租')
     await w(page, 'todo').getByRole('textbox', { name: '加一条待办' }).press('Enter')
@@ -309,7 +316,7 @@ test('文件夹首页：项目、生活、写作各是自己的默认组件；�
 
     // 400 篇笔记：笔记和导图只露 4 条，最近改的 5 条，其余一句「全部 N 份」
     await leftView(page, '课程')
-    await folders(page).locator('.si', { hasText: '线性代数' }).click()
+    await courseRow(page, '线性代数').click()
     await expect(w(page, 'notes').locator('.wk .n')).toHaveText('406')
     await expect(w(page, 'notes').locator('.fw-row')).toHaveCount(4)
     await expect(w(page, 'notes').locator('.fw-more')).toHaveText('全部406篇 · 打开列表看')
@@ -338,8 +345,8 @@ test('文件夹首页：梦游预览时，挪进这门课的导图在首页标�
     await expect(page.getByTestId('preview-bar')).toBeVisible()
     // 左栏：只在预览里才有的「微积分」标「新」（预览时左栏先换到「文件」页，再切过来）
     await leftView(page, '课程')
-    await expect(folders(page).locator('.si', { hasText: '微积分' }).locator('.tag-new')).toHaveText('新')
-    await folders(page).locator('.si', { hasText: '线性代数' }).click()
+    await expect(courseRow(page, '微积分').locator('.tag-new')).toHaveText('新')
+    await courseRow(page, '线性代数').click()
     await expect(home(page)).toHaveClass(/previewing/)
     const row = w(page, 'notes').locator('.fw-row', { hasText: '第3讲 线性代数 导图' })
     await expect(row.locator('.tag-new')).toHaveText('新')
@@ -351,7 +358,7 @@ test('文件夹首页：梦游预览时，挪进这门课的导图在首页标�
     await page.getByTestId('preview-bar').getByRole('button', { name: /退出预览/ }).click()
     await page.locator('.tab', { hasText: '线性代数' }).locator('.tl').click()
     await expect(w(page, 'notes').locator('.tag-new')).toHaveCount(0)
-    await expect(folders(page).locator('.si', { hasText: '微积分' })).toHaveCount(0)
+    await expect(courseRow(page, '微积分')).toHaveCount(0)
   } finally {
     await run.close()
   }

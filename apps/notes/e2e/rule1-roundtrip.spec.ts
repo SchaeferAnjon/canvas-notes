@@ -14,6 +14,9 @@ test('打开再保存文件不变：每个样本打开、⌘S、打一个字再�
       const title = name.replace(/\.md$/, '')
       await openNote(page, title)
       await pane(page).locator('.cm-content').click()
+      // 点到的地方可能是表格（表格的格子自己接字，回车或点开才写进文档）：焦点放回正文，光标到文末再打字
+      await pane(page).locator('.cm-content').focus()
+      await page.keyboard.press('Meta+ArrowDown')
       await page.keyboard.press('Meta+s')
       if (!decodeNote(bytes).meta.readOnly) {
         await page.keyboard.type('x')
@@ -28,8 +31,9 @@ test('打开再保存文件不变：每个样本打开、⌘S、打一个字再�
       }
       expect(Buffer.from(readFileSync(join(vault, name))).equals(Buffer.from(bytes)), name).toBe(true)
     }
-    // 关掉所有标签（关的时候会再保存一次），之后仍然一个字节都不变
-    while ((await page.locator('.tab').count()) > 0) await page.locator('.tab.on .x').click()
+    // 关掉所有标签（关的时候会再保存一次），之后仍然一个字节都不变；关完回到首页（只剩首页时不再关）
+    const tabs = page.getByTestId('tab-list').locator('.tab')
+    while (!((await tabs.count()) === 1 && (await page.getByTestId('tab-on').textContent()) === '首页')) await page.locator('.tab.on .x').click()
     await page.waitForTimeout(1200)
     expect(gitStatus(vault)).toBe('')
   } finally {

@@ -58,8 +58,8 @@ const selectedLayer = layer({
     const baseTop = sc.top - view.scrollDOM.scrollTop
     const top = view.documentTop + view.lineBlockAt(b.from).top - baseTop
     const bottom = view.documentTop + view.lineBlockAt(b.to).bottom - baseTop
-    // 和正文一样宽：宽出去会让 .cm-scroller 多出横向滚动，选中时整篇往左滚一截
-    return [new RectangleMarker('cm-blk-selbg', content.left - baseLeft, top, content.width, bottom - top)]
+    // 比版心左右各宽出 8、上下各 4（和块菜单的选中底一样）：.cm-scroller 左右让出了 8（editor-blocks.css），不会多出横向滚动
+    return [new RectangleMarker('cm-blk-selbg', content.left - baseLeft - 8, top - 4, content.width + 16, bottom - top + 8)]
   },
   update: (u) => u.selectionSet || u.docChanged || u.geometryChanged,
 })

@@ -61,6 +61,17 @@ export function useVaultFiles(): { files: FileEntry[]; loaded: boolean } {
   return { files, loaded }
 }
 
+/** 只看现在知道的文件、跟着变，自己不去列（AI「看得到」的文件夹篇数：文件夹首页开着时它在列） */
+export function useKnownFiles(): readonly FileEntry[] {
+  return useSyncExternalStore(
+    (cb) => {
+      subs.add(cb)
+      return () => subs.delete(cb)
+    },
+    () => files,
+  )
+}
+
 // ---------- 最近打开 ----------
 
 const RECENT_KEY = 'cn.recentFiles'
@@ -87,9 +98,22 @@ export function fileOpened(path: string) {
 // ---------- 换到「文件」时要定位的（摘出来的文件夹「在「文件」里看位置」） ----------
 
 let reveal: string | null = null
-/** 下一次「文件」那棵树出来时展开到这里、一圈外圈 */
-export function requestReveal(path: string) {
+/** 开着的那棵「文件」树（开着时马上定位，不用等下一次出来） */
+let revealNow: ((path: string, open?: boolean, more?: string[]) => void) | null = null
+/**
+ * 下一次「文件」那棵树出来时展开到这里、一圈外圈；树正开着就马上。
+ * open：这个文件夹自己也展开；more：一起亮的几行（历史里「放回」整个文件夹以后：文件夹和放回的几篇都亮约 2 秒，同 CN-108 小样）
+ */
+export function requestReveal(path: string, open = false, more?: string[]) {
+  if (revealNow) return revealNow(path, open, more)
   reveal = path
+}
+/** 开着的「文件」树登记自己；返回撤销登记 */
+export function onReveal(f: (path: string, open?: boolean, more?: string[]) => void): () => void {
+  revealNow = f
+  return () => {
+    if (revealNow === f) revealNow = null
+  }
 }
 /** 树拿走这个请求（拿一次就没了） */
 export function takeReveal(): string | null {
@@ -107,4 +131,23 @@ export const treePicked = () => picked
 
 export function setTreePicked(folder: string | null) {
   picked = folder
+}
+
+// ---------- 刚放回的（历史里「放回」以后，文件夹首页那张卡写「刚放回」、亮一圈约 2 秒，CN-108 小样） ----------
+
+let restored: ReadonlyMap<string, number> = new Map()
+const restoredSubs = new Set<() => void>()
+/** 放回了这几个文件（撤回放回时 back=false 去掉） */
+export function markRestored(paths: string[], back = true) {
+  const next = new Map(restored)
+  for (const p of paths) back ? next.set(p, Date.now()) : next.delete(p)
+  restored = next
+  for (const f of restoredSubs) f()
+}
+/** 放回过的文件 → 放回的时间（这次开软件以来） */
+export function useRestored(): ReadonlyMap<string, number> {
+  return useSyncExternalStore(
+    (f) => (restoredSubs.add(f), () => void restoredSubs.delete(f)),
+    () => restored,
+  )
 }

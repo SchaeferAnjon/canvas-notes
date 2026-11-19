@@ -1,19 +1,27 @@
 /**
- * 文件夹首页（设计稿 design-mindmap 第 9 节）：每门课（课程/<课>/）、每个项目（项目/<项目>/）、生活/、写作/ 各有一页，
- * 复用主页的组件网格。页面只是看法：删组件、换排法、恢复默认都不删不挪任何文件。
+ * 文件夹首页（设计稿 design-mindmap 第 9 节；2026-11-18 起每个文件夹都是同一个样子：横幅封面、名字、一行「种类 · 篇数 · 改于」，
+ * 下面组件和「里面有什么」，方案 B-左栏与文件夹 v2「文件夹封面」方向 A）：复用主页的组件网格。
+ * 页面只是看法：删组件、换排法、恢复默认都不删不挪任何文件。
  * 设置存在那个文件夹里的 .首页.json（跟着 Git 走）；模板存在 课程/.首页模板.json、项目/.首页模板.json。纯函数，主线和界面都用。
  */
+import { categoryOf, isCategory } from './categories'
 import type { Cover } from './home'
+import { type FolderColor, FOLDER_COLORS } from './left'
+import { when } from './when'
 
-/** folder：别的文件夹（2026-11-17 起每个文件夹都有首页：默认没有组件，只有下面的内容；编辑首页能加组件） */
-export type FolderKind = 'course' | 'project' | 'life' | 'writing' | 'folder'
+/**
+ * courses：「课程」这个分类本身（在上的课、今天要复习、考试倒计时）；course：每门课；
+ * project、life、writing：项目下面一层、生活、写作；folder：别的文件夹（默认最近改的、待办两块，编辑首页能再加）
+ */
+export type FolderKind = 'courses' | 'course' | 'project' | 'life' | 'writing' | 'folder'
 
-export const KIND_LABEL: Record<FolderKind, string> = { course: '课程', project: '项目', life: '生活', writing: '写作', folder: '文件夹' }
+export const KIND_LABEL: Record<FolderKind, string> = { courses: '课程', course: '课程', project: '项目', life: '生活', writing: '写作', folder: '文件夹' }
 
-/** 哪些文件夹有首页：课程、项目下面一层；生活、写作本身。课程/、项目/ 这两层只展开 */
+/** 有自己那套组件的文件夹：「课程」本身、课程和项目下面一层、生活、写作 */
 export function folderKind(folder: string): FolderKind | null {
   const p = folder.split('/')
   if (p.some((x) => x === '' || x === '.' || x === '..' || x.startsWith('.'))) return null
+  if (p.length === 1 && p[0] === '课程') return 'courses'
   if (p.length === 2 && p[0] === '课程') return 'course'
   if (p.length === 2 && p[0] === '项目') return 'project'
   if (p.length === 1 && p[0] === '生活') return 'life'
@@ -35,7 +43,7 @@ export interface FolderEntry {
   color: string | null
 }
 
-const KIND_ORDER: FolderKind[] = ['course', 'project', 'life', 'writing', 'folder']
+const KIND_ORDER: FolderKind[] = ['courses', 'course', 'project', 'life', 'writing', 'folder']
 /** 按 课程、项目、生活、写作 排，同类按名字 */
 export const sortFolders = <T extends { folder: string }>(list: T[]): T[] =>
   [...list].sort((a, b) => KIND_ORDER.indexOf(folderKind(a.folder)!) - KIND_ORDER.indexOf(folderKind(b.folder)!) || a.folder.localeCompare(b.folder, 'zh-CN'))
@@ -66,6 +74,7 @@ export const homeFileOf = (folder: string) => `${folder}/.首页.json`
 export const templateFileOf = (kind: FolderKind) => (kind === 'course' ? '课程/.首页模板.json' : kind === 'project' ? '项目/.首页模板.json' : null)
 
 export type FWidget =
+  | 'courses'
   | 'slides'
   | 'review'
   | 'exam'
@@ -86,25 +95,29 @@ export type FWidget =
 
 export type FSize = 1 | 2 | 4
 
-/** 组件库：名字、一句说明、默认宽、分类（课程的、通用的、按条件列出的） */
-export const FWIDGETS: { type: FWidget; name: string; desc: string; size: FSize; cat: 'course' | 'common' | 'cond' }[] = [
-  { type: 'slides', name: '课件进度', desc: '每份PDF的封面和问到第几页，点了接着读', size: 4, cat: 'course' },
-  { type: 'review', name: '今天要复习', desc: 'Anki里这门课今天到期几张', size: 1, cat: 'course' },
-  { type: 'exam', name: '考试倒计时', desc: '填个日期，还有几天；下次上课', size: 1, cat: 'course' },
-  { type: 'notes', name: '笔记和导图', desc: '这门课的笔记和导图，按第几讲排', size: 2, cat: 'course' },
-  { type: 'doubts', name: '我的疑惑', desc: '读课件时问过的，按讲排', size: 2, cat: 'course' },
+/**
+ * 组件库：名字、一句说明（加组件窗口里一行放得下，CN-103）、默认宽、组（「课程」页的、每门课的、通用的、按条件列出的）。
+ * 草稿的说明和 DONE_CHARS 一致（CN-114）
+ */
+export const FWIDGETS: { type: FWidget; name: string; desc: string; size: FSize; cat: 'courses' | 'course' | 'common' | 'cond' }[] = [
+  { type: 'courses', name: '在上的课', desc: '每门课问完了几讲', size: 4, cat: 'courses' },
+  { type: 'slides', name: '课件进度', desc: '每份PDF问到第几页', size: 4, cat: 'course' },
+  { type: 'review', name: '今天要复习', desc: 'Anki里今天到期几张', size: 1, cat: 'course' },
+  { type: 'exam', name: '考试倒计时', desc: '填个日期，还有几天', size: 1, cat: 'course' },
+  { type: 'notes', name: '笔记和导图', desc: '按第几讲排', size: 2, cat: 'course' },
+  { type: 'doubts', name: '我的疑惑', desc: '读课件时问过的', size: 2, cat: 'course' },
   { type: 'viz', name: '可视化', desc: '做好的可视化，缩略图墙', size: 2, cat: 'course' },
   { type: 'cal', name: '学习日历', desc: '这学期每天问了多少', size: 4, cat: 'course' },
   { type: 'todo', name: '待办', desc: '作业、要交的', size: 1, cat: 'common' },
-  { type: 'links', name: '快捷链接', desc: '课程网站、老师邮箱、提交页', size: 1, cat: 'common' },
+  { type: 'links', name: '快捷链接', desc: '课程网站、老师邮箱', size: 1, cat: 'common' },
   { type: 'board', name: '嵌一块白板', desc: '这个文件夹的总导图', size: 2, cat: 'common' },
   { type: 'text', name: '自由文本', desc: '老师、教室、考试范围', size: 2, cat: 'common' },
-  { type: 'recent', name: '最近改的', desc: '这个文件夹里最近动过的5个', size: 2, cat: 'common' },
+  { type: 'recent', name: '最近改的', desc: '最近动过的4个', size: 2, cat: 'common' },
   { type: 'progress', name: '进度', desc: '阶段和百分比', size: 2, cat: 'common' },
-  { type: 'calendar', name: '日历', desc: '本月，有事的日子标一个点', size: 2, cat: 'common' },
-  { type: 'drafts', name: '草稿', desc: '草稿 是 是 的', size: 2, cat: 'cond' },
-  { type: 'clips', name: '素材', desc: '剪藏和书摘，只列主题和篇数', size: 2, cat: 'common' },
-  { type: 'list', name: '按条件列出', desc: '自己定条件：类型、第几讲、改过……', size: 2, cat: 'cond' },
+  { type: 'calendar', name: '日历', desc: '有事的日子标一个点', size: 2, cat: 'common' },
+  { type: 'clips', name: '剪藏', desc: '只列主题和篇数', size: 2, cat: 'common' },
+  { type: 'drafts', name: '草稿', desc: '正文不到100字的笔记', size: 2, cat: 'cond' },
+  { type: 'list', name: '按条件列出', desc: '自己定条件：类型、第几讲…', size: 2, cat: 'cond' },
 ]
 export const wInfo = (t: FWidget) => FWIDGETS.find((w) => w.type === t)!
 
@@ -198,6 +211,8 @@ function startOf(span: string, now: Date): number {
 export function typeOfFile(f: PropFile): string {
   if (f.props['类型']) return f.props['类型']
   if (!/\.md$/i.test(f.path)) return ''
+  // 以前微信读书同步写的 type: weread（还没同步成「类型: 书摘」的旧书摘，CN-131）
+  if (f.props.type === 'weread') return '书摘'
   return f.props.type === 'board' ? '白板' : '笔记'
 }
 
@@ -247,27 +262,19 @@ function isDraft(f: PropFile): boolean {
   return !!f.blank || (f.chars !== undefined && f.chars < DONE_CHARS)
 }
 
-/** 首页标题下那一句：「课程 · 5 讲 · 12 个文件 · 问到第 3 讲」「项目 · 9 个文件 · 这周改了 3 个」「写作 · 2 篇草稿 · 这个月写完 1 篇」 */
-export function leadOf(kind: FolderKind, files: PropFile[], now = new Date()): string {
-  if (!files.length) return `${KIND_LABEL[kind]} · 还没有文件`
-  const n = `${files.length}个文件`
-  if (kind === 'course') {
-    // 几讲：认得出第几讲的按讲数；认不出的课件 PDF（名字里没有「第 N 讲」「Lecture N」）每份也算一讲，和左栏「0/5 讲」数得一样
-    const lectures = new Set(files.map((f) => Number(f.props['第几讲'])).filter((x) => x > 0)).size + files.filter((f) => f.props['类型'] === '课件' && !(Number(f.props['第几讲']) > 0)).length
-    const asked = Math.max(0, ...files.filter((f) => Number(f.props['问到']) > 0).map((f) => Number(f.props['第几讲']) || 0))
-    return ['课程', ...(lectures ? [`${lectures}讲`] : []), n, ...(asked ? [`问到第${asked}讲`] : [])].join(' · ')
-  }
-  if (kind === 'project') {
-    const week = files.filter((f) => f.mtimeMs >= startOf('这周', now)).length
-    return `项目 · ${n}${week ? ` · 这周改了${week}个` : ''}`
-  }
-  if (kind === 'writing') {
-    const own = files.filter((f) => !f.entry && !f.db && f.props.type !== 'board' && /\.md$/i.test(f.path))
-    const done = own.filter((f) => !isDraft(f) && f.mtimeMs >= startOf('这个月', now)).length
-    return `写作 · ${own.filter(isDraft).length}篇草稿${done ? ` · 这个月写完${done}篇` : ''}`
-  }
-  if (kind === 'life') return `生活 · ${n}`
-  return n
+/**
+ * 首页名字下面那一行（每个文件夹同一个样子，方案 v2「文件夹封面」）：
+ * 分类「分类 · 2门课 · 5篇 · 改于今天 22:46」；每门课「课程 / ecpc · 1讲 · 3篇 · 改于今天 10:34」；别的「项目 / 冰岛旅行 · 4篇 · 改于今天 10:34」。
+ * files 是这个文件夹里（含子文件夹）的 md、PDF、HTML；courses 是「课程」下面有几门课
+ */
+export function folderLead(folder: string, files: PropFile[], opts: { courses?: number; now?: number } = {}): string {
+  const kind = homeKindOf(folder)
+  const head = isCategory(folder) ? ['分类', ...(opts.courses ? [`${opts.courses}门课`] : [])] : [folder.split('/').join(' / ')]
+  if (!files.length) return [...head, '还没有文件'].join(' · ')
+  // 几讲：认得出第几讲的按讲数；认不出的课件 PDF（名字里没有「第 N 讲」「Lecture N」）每份也算一讲，和左栏「0/5 讲」数得一样
+  const lectures = kind === 'course' ? new Set(files.map((f) => Number(f.props['第几讲'])).filter((x) => x > 0)).size + files.filter((f) => f.props['类型'] === '课件' && !(Number(f.props['第几讲']) > 0)).length : 0
+  const t = files.reduce((m, f) => Math.max(m, f.mtimeMs), 0)
+  return [...head, ...(lectures ? [`${lectures}讲`] : []), `${files.length}篇`, `改于${when(t, { time: true, now: opts.now })}`].join(' · ')
 }
 
 export const NOTES_COND: Cond = {
@@ -310,9 +317,15 @@ export interface WidgetData {
   stages?: { name: string; pct: number }[]
 }
 
+/**
+ * 文件夹的封面（方向 A 横幅）：自带的照片、从电脑选的（附件/封面/）、八个低饱和色铺的渐变；
+ * none =「去掉图片」，回到这个文件夹自己的颜色（没设过颜色用它所在分类的颜色）
+ */
+export type FolderCover = Cover | { kind: 'color'; color: FolderColor } | { kind: 'none' }
+
 export interface FolderHome {
   style: 'a' | 'b'
-  cover: Cover
+  cover: FolderCover
   coverY: number
   /** Lucide 图标名（sigma、atom、flask…） */
   icon: string
@@ -329,12 +342,35 @@ export interface FolderHome {
 export const ICONS = ['sigma', 'atom', 'flask-conical', 'graduation-cap', 'book-open', 'code', 'briefcase', 'pen-line', 'coffee', 'leaf', 'music', 'globe'] as const
 export const COLORS = ['#7C8A9E', '#8E7C9E', '#9E7C86', '#9E8C70', '#7C9E8A', '#6F8FA8', '#A08A6A'] as const
 
-const DEFAULTS: Record<FolderKind, { icon: string; order: FWidget[]; hidden: FWidget[]; cover: Cover }> = {
-  course: { icon: 'sigma', order: ['slides', 'review', 'exam', 'notes', 'doubts', 'viz', 'todo', 'links', 'cal'], hidden: ['board', 'text'], cover: { kind: 'builtin', id: 'myvatn' } },
-  project: { icon: 'briefcase', order: ['todo', 'progress', 'recent', 'links', 'text'], hidden: [], cover: { kind: 'builtin', id: 'mist' } },
-  writing: { icon: 'pen-line', order: ['drafts', 'clips', 'recent', 'list'], hidden: [], cover: { kind: 'builtin', id: 'paper' } },
-  life: { icon: 'coffee', order: ['todo', 'calendar', 'recent', 'text'], hidden: [], cover: { kind: 'builtin', id: 'kirkjufell' } },
-  folder: { icon: 'folder', order: [], hidden: [], cover: { kind: 'builtin', id: 'mist' } },
+/**
+ * 默认组件：每门课那一套不动；「课程」这个分类是在上的课、今天要复习、考试倒计时；
+ * 别的（项目、生活、写作、普通文件夹）只放最基础的两块：最近改的、待办（用户原话「课程默认多放几个，别的只放最基础的」）
+ */
+const BASIC = { order: ['recent', 'todo'] as FWidget[], hidden: [] as FWidget[], sizes: { todo: 2 } as Record<string, FSize> }
+const DEFAULTS: Record<FolderKind, { icon: string; order: FWidget[]; hidden: FWidget[]; sizes?: Record<string, FSize> }> = {
+  courses: { icon: 'folder', order: ['courses', 'review', 'exam'], hidden: [], sizes: { review: 2, exam: 2 } },
+  course: { icon: 'sigma', order: ['slides', 'review', 'exam', 'notes', 'doubts', 'viz', 'todo', 'links', 'cal'], hidden: ['board', 'text'] },
+  project: { icon: 'briefcase', ...BASIC },
+  writing: { icon: 'pen-line', ...BASIC },
+  life: { icon: 'coffee', ...BASIC },
+  folder: { icon: 'folder', ...BASIC },
+}
+
+/** 没换过时的封面：分类用分类表里的（照片或自己的颜色）；每门课照旧是米湖极光；别的是自己的颜色铺的渐变 */
+export function defaultCover(folder: string | undefined): FolderCover {
+  const cat = folder ? categoryOf(folder) : undefined
+  if (cat) return cat.cover
+  if (folder && folderKind(folder) === 'course') return { kind: 'builtin', id: 'myvatn' }
+  return { kind: 'none' }
+}
+
+/**
+ * 封面没图时铺的渐变（方向 A：「没选图时用文件夹自己的颜色铺渐变」）：
+ * 颜色是这个文件夹自己设的、它所在分类的，都没有是石板
+ */
+export function coverGradient(color: FolderColor): string {
+  const c = FOLDER_COLORS[color]
+  return `linear-gradient(120deg, color-mix(in srgb, ${c} 88%, #fff 12%), color-mix(in srgb, ${c} 55%, #0b1a24 45%))`
 }
 
 function seed(t: FWidget, kind: FolderKind): WidgetData {
@@ -344,11 +380,12 @@ function seed(t: FWidget, kind: FolderKind): WidgetData {
   return { type: t }
 }
 
-export function defaultFolderHome(kind: FolderKind): FolderHome {
+/** folder：分类、每门课的默认封面不一样；不给时是自己颜色的渐变 */
+export function defaultFolderHome(kind: FolderKind, folder?: string): FolderHome {
   const d = DEFAULTS[kind]
   const widgets: Record<string, WidgetData> = {}
   for (const t of [...d.order, ...d.hidden]) widgets[t] = seed(t, kind)
-  return { style: 'a', cover: d.cover, coverY: 50, icon: d.icon, color: null, order: [...d.order], hidden: [...d.hidden], sizes: {}, widgets }
+  return { style: 'a', cover: defaultCover(folder), coverY: 40, icon: d.icon, color: null, order: [...d.order], hidden: [...d.hidden], sizes: { ...(d.sizes ?? {}) }, widgets }
 }
 
 const isType = (v: unknown): v is FWidget => FWIDGETS.some((w) => w.type === v)
@@ -386,9 +423,11 @@ function normWidget(raw: unknown): WidgetData | null {
   return w
 }
 
+const isFolderColor = (v: unknown): v is FolderColor => typeof v === 'string' && v in FOLDER_COLORS
+
 /** 读出来的可能被手改过、合并冲突过：不认识的丢掉，少的补默认 */
-export function normalizeFolderHome(raw: unknown, kind: FolderKind): FolderHome {
-  const d = defaultFolderHome(kind)
+export function normalizeFolderHome(raw: unknown, kind: FolderKind, folder?: string): FolderHome {
+  const d = defaultFolderHome(kind, folder)
   if (!raw || typeof raw !== 'object') return d
   const r = raw as Record<string, unknown>
   const widgets: Record<string, WidgetData> = {}
@@ -406,19 +445,27 @@ export function normalizeFolderHome(raw: unknown, kind: FolderKind): FolderHome 
   const rs = (r.sizes && typeof r.sizes === 'object' ? r.sizes : {}) as Record<string, unknown>
   for (const [id, s] of Object.entries(rs)) if (widgets[id] && (s === 1 || s === 2 || s === 4)) sizes[id] = s
   const c = (r.cover ?? {}) as Record<string, unknown>
-  const cover: Cover = c.kind === 'file' && typeof c.path === 'string' && !c.path.split('/').includes('..') && /\.(png|jpe?g|webp|gif|avif)$/i.test(c.path) ? { kind: 'file', path: c.path } : c.kind === 'builtin' && typeof c.id === 'string' ? (c as Cover) : d.cover
+  const cover: FolderCover =
+    c.kind === 'file' && typeof c.path === 'string' && !c.path.split('/').includes('..') && /\.(png|jpe?g|webp|gif|avif)$/i.test(c.path)
+      ? { kind: 'file', path: c.path }
+      : c.kind === 'builtin' && typeof c.id === 'string'
+        ? (c as Cover)
+        : c.kind === 'color' && isFolderColor(c.color)
+          ? { kind: 'color', color: c.color }
+          : c.kind === 'none'
+            ? { kind: 'none' }
+            : d.cover
   const y = Number(r.coverY)
-  return {
-    style: r.style === 'b' ? 'b' : 'a',
+  const look = {
+    style: r.style === 'b' ? ('b' as const) : ('a' as const),
     cover,
     coverY: Number.isFinite(y) ? Math.min(100, Math.max(0, Math.round(y))) : d.coverY,
     icon: (ICONS as readonly string[]).includes(r.icon as string) ? (r.icon as string) : d.icon,
     color: (COLORS as readonly string[]).includes(r.color as string) ? (r.color as string) : null,
-    order,
-    hidden,
-    sizes,
-    widgets,
   }
+  // 只写了封面这些、根本没有「widgets」这一项（手写的、只存了封面的）：组件照默认的；写了空的才是真不要组件
+  if (!('widgets' in r)) return { ...d, ...look }
+  return { ...look, order, hidden, sizes, widgets }
 }
 
 export const folderHomeJson = (h: FolderHome) => JSON.stringify(h, null, 2) + '\n'

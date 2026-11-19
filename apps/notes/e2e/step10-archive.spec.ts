@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { age, gitStatus, launch, pane, pickFromNoteMenu, waitSaved, tabOn, leftView } from './app'
+import { age, gitStatus, launch, pane, pickFromNoteMenu, waitSaved, tabOn, leftView, openInboxTab } from './app'
 import { ICELAND } from './fixtures/board'
 import { makeBigVault, type BigVaultStats } from './fixtures/big-vault'
 
@@ -183,25 +183,25 @@ test('归档天数在设置 › 库 里改：30 天、不自动归档、180 天�
   }
 })
 
-test('收件箱超过 20 条：左栏计数和首页收件箱组件变提醒样式，多一个「让 AI 分一分」，点了就让 AI 整理收件箱；20 条时不提醒', async () => {
+test('收件箱超过 20 条：活动栏计数和首页收件箱组件变提醒样式，左栏收件箱那一枝底下多一行「让 AI 分一分」，点了就让 AI 整理收件箱；20 条时不提醒', async () => {
   const inbox = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`收件箱/第 ${i + 1} 条.md`, `---\ncreated: 2026-11-0${1 + (i % 9)} 10:00\n---\n第 ${i + 1} 条速记\n`]))
   const run = await launch({ ...inbox(20), '这周写的.md': '# 这周写的\n' }, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   try {
     await expect(page.getByTestId('inbox-count')).toHaveText('20')
     await expect(page.getByTestId('inbox-count')).not.toHaveClass(/warn/)
-    // 收件箱页头的「让 AI 分一分」平时只是一颗图标，不提醒
-    await leftView(page, '收件箱')
-    await expect(side(page).getByRole('button', { name: '让AI分一分' })).not.toHaveClass(/s-tidy/)
     await expect(page.getByTestId('widget-inbox')).not.toHaveClass(/warn/)
+    // 20 条：左栏收件箱那一枝底下没有提醒那一行
+    await leftView(page, '收件箱')
+    await expect(side(page).locator('.s-tidy')).toHaveCount(0)
 
-    // 再速记一条：21 条
-    await side(page).getByRole('button', { name: '在中间打开整个收件箱' }).click()
+    // 再速记一条：21 条（收件箱整页在中间，⌘K「打开收件箱」）
+    await openInboxTab(page)
     await pane(page).getByRole('textbox', { name: '速记' }).fill('第 21 条速记')
     await pane(page).getByRole('textbox', { name: '速记' }).press('Enter')
     await expect(page.getByTestId('inbox-count')).toHaveText('21')
     await expect(page.getByTestId('inbox-count')).toHaveClass(/warn/)
-    const tidy = side(page).getByRole('button', { name: '收件箱堆了21条，让AI按主题分进素材' })
+    const tidy = side(page).getByRole('button', { name: '收件箱堆了21条，让AI按主题分进剪藏' })
     await expect(tidy).toHaveClass(/s-tidy/)
     await expect(tidy).toContainText('让AI分一分')
     await page.getByRole('banner').getByRole('button', { name: '首页' }).click()
@@ -211,7 +211,7 @@ test('收件箱超过 20 条：左栏计数和首页收件箱组件变提醒样�
     await expect(w.getByRole('button', { name: '让AI分一分' })).toHaveClass(/btn-primary/)
     await page.screenshot({ path: shot('inbox-warn-home.png') })
 
-    // 左栏收件箱页头的「让 AI 分一分」：打开 AI，跑 /整理收件箱
+    // 左栏收件箱底下那一行「让 AI 分一分」：打开 AI，跑 /整理收件箱
     await tidy.click()
     const ai = page.getByRole('complementary', { name: 'AI 对话' })
     await expect(ai).toBeVisible()
@@ -243,9 +243,9 @@ test('7000 篇的库：启动、左栏（最近、文件树）、文件夹首页
     expect(rows).toBeLessThanOrEqual(2 * 100 + 20)
     expect(await side(page).locator('.s-fold').count()).toBeGreaterThan(0)
 
-    // 收件箱页头：堆多了的「让 AI 分一分」
+    // 收件箱那一枝底下：堆多了的「让 AI 分一分」
     await leftView(page, '收件箱')
-    await expect(side(page).getByRole('button', { name: /让AI按主题分进素材/ })).toBeVisible()
+    await expect(side(page).getByRole('button', { name: /让AI按主题分进剪藏/ })).toBeVisible()
 
     // 文件树：只画展开了的，一个文件夹先列 100 个
     let t = Date.now()

@@ -13,19 +13,34 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { EngineId } from '../../shared/agent'
+import { effortOption, type ModelOption } from '../../shared/ai-features'
 import { cliEnv, findCli, INSTALL_HINT } from './cli'
 import { RpcProcess } from './jsonrpc'
 
 export interface EngineRun {
   prompt: string
   system: string
+  /**
+   * system 附在命令行自己的系统提示后面，不整个换掉（CN-89，读 PDF 讲解）：Claude Code 用 --append-system-prompt，
+   * 读用户自己的设置（~/.claude 里的 CLAUDE.md、讲解偏好）但关掉 hooks（不让每问一次都跑用户的开场钩子），MCP 仍只接我们给的。
+   * 不给（AI 浮窗动手、/ 命令、梦游）：--system-prompt 整个换掉、一个设置都不读。Codex、ACP 本来就是附在后面
+   */
+  appendSystem?: boolean
   cwd: string
   /** 不给就是只聊天、不用工具（/总结、/翻译 这类命令） */
   mcp?: { url: string; token: string; tools: string[] }
   /** 上一轮的会话号，接着聊 */
   session?: string
-  /** 换模型（翻译这类要快的活用便宜的；只有 Claude Code 认） */
+  /**
+   * 旁支（CN-90）：不接着 session 聊，从它整段分叉出一个新会话再问（返回的 session 是新的）。
+   * Claude Code：--resume <session> --fork-session（命令行只能整段分叉，和 Dispatch 一样从最后一个回答分）；Codex：thread/fork；
+   * Gemini、OpenCode 没有分叉：开新会话、history（调用方给的那一轮问答原文）放在第一问前面。分叉不了（会话没了）也是这样
+   */
+  fork?: boolean
+  /** 换模型：Claude Code 的 --model（翻译这类要快的活用便宜的）、Codex 的 turn/start model（CN-91）；Gemini、OpenCode 不认 */
   model?: string
+  /** 想多久（CN-91）：Claude Code 的 --effort、Codex 的 turn/start effort；不给用命令行自己的默认档；Gemini、OpenCode 没有 */
+  effort?: string
   /** 会话接不上（软件重开过）时补在前面的最近几轮对话 */
   history?: string
   /** 跟着这段话一起给的图（读 PDF 时框的那块）：data 是 base64，path 是本机的绝对路径（Codex 只认文件） */
@@ -83,16 +98,19 @@ const CLAUDE_READ_TOOLS = ['Read', 'Glob', 'Grep']
 const CLAUDE_DENIED = ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']
 
 /** claude -p 的参数（以 claude --help 为准，2.1.323 核过）。mcpConfig：写着我们 MCP 服务和令牌的 json 文件，只在给工具时有 */
-export function claudeArgs(r: Pick<EngineRun, 'system' | 'mcp' | 'model' | 'images' | 'keepSession' | 'readOnly'>, resume?: string, mcpConfig?: string): string[] {
+export function claudeArgs(r: Pick<EngineRun, 'system' | 'appendSystem' | 'mcp' | 'model' | 'effort' | 'images' | 'keepSession' | 'readOnly' | 'fork'>, resume?: string, mcpConfig?: string): string[] {
   const args = [
     '-p',
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
     '--model', r.model ?? CLAUDE_MODEL,
-    '--system-prompt', r.system,
-    // 不读用户的设置（hooks、权限、插件），MCP 只接我们给的
-    '--setting-sources=',
+    ...(r.appendSystem
+      ? // 读 PDF 讲解：留 Claude Code 自己的系统提示，读 PDF 那几条附在后面；读用户的设置（CLAUDE.md），hooks 关掉
+        ['--append-system-prompt', r.system, '--setting-sources', 'user', '--settings', JSON.stringify({ disableAllHooks: true })]
+      : // 不读用户的设置（hooks、权限、插件）
+        ['--system-prompt', r.system, '--setting-sources=']),
+    // MCP 只接我们给的
     '--strict-mcp-config',
     // 没明着放行的一律拒绝，不会停下来问
     '--permission-mode', 'dontAsk',
@@ -109,9 +127,12 @@ export function claudeArgs(r: Pick<EngineRun, 'system' | 'mcp' | 'model' | 'imag
     args.push('--tools', '', '--max-turns', '1')
     if (!r.keepSession) args.push('--no-session-persistence')
   }
+  if (r.effort) args.push('--effort', r.effort)
   // 带图：话改成 stream-json 的一条用户消息（图是 image 内容块），见 code.claude.com/docs/en/agent-sdk/streaming-vs-single-mode
   if (r.images?.length) args.push('--input-format', 'stream-json')
   if (resume) args.push('--resume', resume)
+  // 旁支：从这个会话分叉，另起一个会话号（原来的会话不动）
+  if (resume && r.fork) args.push('--fork-session')
   return args
 }
 
@@ -302,16 +323,26 @@ export function codexEngine(command?: string, prefix: string[] = []): Engine {
     dispose: () => proc?.close(),
     async run(r) {
       const p = await ensure(r.cwd, r.mcp)
-      let threadId = r.session && live.has(r.session) ? r.session : undefined
+      const opts = { cwd: r.cwd, sandbox: 'read-only', approvalPolicy: 'never', developerInstructions: r.system }
+      let threadId: string | undefined
       let fresh = false
-      if (!threadId && r.session) {
+      if (r.fork && r.session) {
+        // 旁支：从主对话的线程整段分叉出一个新线程（找不到那个线程就开新的，补上那一轮）
         threadId = await p
-          .request<{ thread: { id: string } }>('thread/resume', { threadId: r.session, cwd: r.cwd, sandbox: 'read-only', approvalPolicy: 'never', developerInstructions: r.system })
+          .request<{ thread: { id: string } }>('thread/fork', { threadId: r.session, ...opts })
           .then((x) => x.thread.id)
           .catch(() => undefined)
+      } else {
+        threadId = r.session && live.has(r.session) ? r.session : undefined
+        if (!threadId && r.session) {
+          threadId = await p
+            .request<{ thread: { id: string } }>('thread/resume', { threadId: r.session, ...opts })
+            .then((x) => x.thread.id)
+            .catch(() => undefined)
+        }
       }
       if (!threadId) {
-        const t = await p.request<{ thread: { id: string } }>('thread/start', { cwd: r.cwd, sandbox: 'read-only', approvalPolicy: 'never', developerInstructions: r.system })
+        const t = await p.request<{ thread: { id: string } }>('thread/start', opts)
         threadId = t.thread.id
         fresh = true
       }
@@ -346,7 +377,8 @@ export function codexEngine(command?: string, prefix: string[] = []): Engine {
       r.signal.addEventListener('abort', stop)
       try {
         const input: unknown[] = [{ type: 'text', text: withHistory(r, fresh), text_elements: [] }, ...(r.images ?? []).map((i) => ({ type: 'localImage', path: i.path }))]
-        const t = await p.request<{ turn: { id: string } }>('turn/start', { threadId, input })
+        // 模型、effort 只管这一问（turn/start 的覆盖也管这个线程后面几问，所以每问都带上选的）
+        const t = await p.request<{ turn: { id: string } }>('turn/start', { threadId, input, ...(r.model ? { model: r.model } : {}), ...(r.effort ? { effort: r.effort } : {}) })
         turnId = t.turn.id
         if (r.signal.aborted) stop()
         await done
@@ -356,6 +388,47 @@ export function codexEngine(command?: string, prefix: string[] = []): Engine {
       if (r.signal.aborted) throw aborted()
       return { text: text.trim(), session: threadId }
     },
+  }
+}
+
+/** model/list 里用得到的几样（codex 0.163.0 的 `codex app-server generate-ts` 核过） */
+interface CodexModel {
+  model?: unknown
+  displayName?: unknown
+  hidden?: unknown
+  isDefault?: unknown
+  defaultReasoningEffort?: unknown
+  supportedReasoningEfforts?: { reasoningEffort?: unknown }[]
+}
+
+/**
+ * Codex 有哪些模型（CN-91）：另起一个 app-server 问 model/list（翻页取全，藏起来的不要），每个模型带它认的几档 effort 和默认档，默认的那个排第一。
+ * 问不到就报错，调用的地方退回只有「Codex 默认模型」一项。command、prefix 只在测试里给（假的 app-server）
+ */
+export async function codexModelList(command?: string, prefix: string[] = []): Promise<ModelOption[]> {
+  const p = new RpcProcess(command ?? need('codex'), [...prefix, 'app-server', '-c', 'mcp_servers={}'], { cwd: homedir(), env: cliEnv() }, false)
+  try {
+    await p.request('initialize', { clientInfo: { name: APP.name, title: APP.name, version: APP.version }, capabilities: null }, 15_000)
+    p.notify('initialized', undefined)
+    const all: CodexModel[] = []
+    let cursor: string | null = null
+    for (let page = 0; page < 10; page++) {
+      const r: { data?: unknown; nextCursor?: unknown } = await p.request('model/list', { includeHidden: false, ...(cursor ? { cursor } : {}) }, 15_000)
+      if (Array.isArray(r.data)) all.push(...(r.data as CodexModel[]))
+      cursor = typeof r.nextCursor === 'string' && r.nextCursor ? r.nextCursor : null
+      if (!cursor) break
+    }
+    return all
+      .filter((m) => typeof m.model === 'string' && m.model && m.hidden !== true)
+      .sort((a, b) => Number(b.isDefault === true) - Number(a.isDefault === true))
+      .map((m) => ({
+        id: m.model as string,
+        label: typeof m.displayName === 'string' && m.displayName ? m.displayName : (m.model as string),
+        efforts: (m.supportedReasoningEfforts ?? []).flatMap((e) => (typeof e?.reasoningEffort === 'string' ? [effortOption(e.reasoningEffort)] : [])),
+        ...(typeof m.defaultReasoningEffort === 'string' ? { defaultEffort: m.defaultReasoningEffort } : {}),
+      }))
+  } finally {
+    p.close()
   }
 }
 
@@ -422,7 +495,8 @@ export function acpEngine(o: AcpOptions): Engine {
     async run(r) {
       if (o.loggedIn && !o.loggedIn()) throw new Error(o.loginHint)
       const p = await ensure(r.cwd)
-      let sessionId = r.session && live.has(r.session) ? r.session : undefined
+      // 旁支：ACP 没有分叉，开新会话（history 是那一轮的问答，放在第一问前面）
+      let sessionId = r.session && live.has(r.session) && !r.fork ? r.session : undefined
       const fresh = !sessionId
       if (!sessionId) {
         const mcpServers = r.mcp ? [{ type: 'http', name: MCP_NAME, url: r.mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${r.mcp.token}` }] }] : []

@@ -35,8 +35,53 @@ it('白板卡片和文档同一套行内写法：==高亮== 画成荧光底、~~
   expect(html).not.toContain('~~')
   expect(html).toContain('<mark class="md-hl">出门永远带防风外套</mark>')
   expect(html).toContain('<s>两驱</s>')
-  // 冒号并进小标签：「我的评价：」一体，不画成「我的评价 ：」（第 3 轮美学）
-  expect(html).toContain('<span class="md-review-tag">我的评价：</span>这句话')
+  // 小标签和文档里一样（书摘的新样子，review.ts）：文件里的冒号不画；没挂在引文下面，不画弯钩
+  expect(html).toContain('<div class="md-attached" data-kind="me"><span class="md-review-tag">我的评价</span>这句话')
+})
+
+it('引文下面挂着的「微信读书的想法：」「我的评价」：标签小块，挂在引文下面的画弯钩（hooked），一段接一段；「微信读书的想法」不带冒号、中间隔了别的段落都不算', () => {
+  const html = renderToStaticMarkup(
+    <Markdown text={'> 接到叔叔谋反的消息。\n\n微信读书的想法：御驾亲征这一下。\n\n**我的评价**：先动手的人说了算。\n\n别的一段。\n\n我的评价：没挂在引文下面。\n\n微信读书的想法 不带冒号'} />,
+  )
+  expect(html).toContain('<blockquote class="md-quote">接到叔叔谋反的消息。</blockquote>')
+  expect(html).toContain('<div class="md-attached hooked" data-kind="wr"><span class="md-review-tag wr">微信读书的想法</span>御驾亲征这一下。</div>')
+  expect(html).toContain('<div class="md-attached hooked" data-kind="me"><span class="md-review-tag">我的评价</span>先动手的人说了算。</div>')
+  expect(html).toContain('<div class="md-attached" data-kind="me"><span class="md-review-tag">我的评价</span>没挂在引文下面。</div>')
+  expect(html).toContain('<p class="md-p">微信读书的想法 不带冒号</p>')
+  // 开头就是标签段：前面没有引文，不画弯钩
+  expect(renderToStaticMarkup(<Markdown text={'我的评价：开头一段'} />)).toContain('<div class="md-attached" data-kind="me">')
+})
+
+it('CN-89 AI 回答里的公式用 KaTeX 排：行内 $…$、单独成行的 $$…$$（一行写完或上下两行 $$ 夹着）；不露 $ 记号', () => {
+  const md = '水位 $V(t)$ 按 $\\tau \\frac{dV}{dt} = -V$ 漏掉。\n\n$$V(t) = V_0 e^{-t/\\tau}$$\n\n多行的：\n\n$$\n\\sum_{i=1}^{n} w_i x_i\n$$\n\n- 列表里 **加粗 $x^2$** 也排\n\n| 量 | 公式 |\n|---|---|\n| 门槛 | $V_{th}$ |'
+  const html = renderToStaticMarkup(<Markdown text={md} math />)
+  // 行内两个、单独成行两个（一行写完的、上下两行夹着的），列表里加粗里一个，表格里一个
+  expect(html.match(/class="mi"/g)?.length).toBe(4)
+  expect(html.match(/class="mblock"/g)?.length).toBe(2)
+  expect(html.match(/class="katex-display"/g)?.length).toBe(2)
+  expect(html).toContain('<b>加粗 <span class="mi">')
+  expect(html).not.toMatch(/\$[^<]*\$/)
+  expect(html).toContain('<annotation encoding="application/x-tex">V(t) = V_0 e^{-t/\\tau}</annotation>')
+  expect(html).toContain('<annotation encoding="application/x-tex">\\sum_{i=1}^{n} w_i x_i</annotation>')
+})
+
+it('CN-89 公式紧挨着汉字（AI 没打空格）时两边留 1/8 字宽（DESIGN.md「字体」的中西文间距；KaTeX 是 inline-block，autospace 加不上）；打了空格、挨着英文或标点的不加', () => {
+  const html = renderToStaticMarkup(<Markdown text={'水位一到门槛$V_{th}$就发，门槛 $V_{th}$ 照旧，a$x$b，（$y$）'} math />)
+  const spans = [...html.matchAll(/<span class="(mi[^"]*)"/g)].map((m) => m[1])
+  expect(spans).toEqual(['mi gl gr', 'mi', 'mi', 'mi'])
+})
+
+it('CN-89 公式：钱数「$5 和 $10」、代码里的 $HOME、没配上的半截 $ 都照原样；边生成边显示只到 $$ 开头时先按字显示；不传 math（白板卡片这些自己写的字）不排', () => {
+  const html = renderToStaticMarkup(<Markdown text={'一杯 $5，两杯 $10，`echo $HOME` 照旧。还没写完的 $x'} math />)
+  expect(html).not.toContain('class="mi"')
+  expect(html).toContain('一杯 $5，两杯 $10，<code>echo $HOME</code> 照旧。还没写完的 $x')
+  const half = renderToStaticMarkup(<Markdown text={'公式：\n\n$$\nV = IR'} math />)
+  expect(half).not.toContain('mblock')
+  expect(half).toContain('V = IR')
+  const off = renderToStaticMarkup(<Markdown text={'卡片里写 $x$'} />)
+  expect(off).toContain('卡片里写 $x$')
+  // 坏的 LaTeX 不抛错：照原样显示成红字（KaTeX 自己的 katex-error）
+  expect(renderToStaticMarkup(<Markdown text={'坏的 $\\frac{a$ 公式'} math />)).toContain('坏的')
 })
 
 it('AI 讲解的提示块：卡头「AI 讲解」一截，后面的引擎 · 模型 · 看了什么单独一截（淡一号、一行省略）', () => {

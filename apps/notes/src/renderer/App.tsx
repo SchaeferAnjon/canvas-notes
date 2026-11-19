@@ -1,10 +1,10 @@
+import { composing } from './ime'
 import { Codicon, type CodiconName } from '@cn/design'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Clip, DreamItem, DreamReport, GitState, NoteFile, StrandedNote, VaultInfo } from '../shared/api'
 import { CLIPS, clipMarkdown, INBOX, titleOf } from '../shared/layout'
-import { AiPanel } from './AiPanel'
-import { EngineLogo } from './engine-logo'
-import type { EngineId } from '../shared/agent'
+import { AiDock, type AiView } from './AiDock'
+import { EngineLogo, useChatEngine } from './engine-logo'
 import { contextOf, useAiBridge } from './ai-bridge'
 import { DreamPanel } from './dream/DreamPanel'
 import { PreviewOverlay, useDreamPreview } from './dream/preview'
@@ -12,9 +12,10 @@ import { expectDreamChange } from './dream/own-change'
 import { dreamPaths, pendingOf, useDream } from './dream/useDream'
 import { ActivityBar, type BarItem, MenuItem, Popover, TitleBar, Tooltips } from './shell/Shell'
 import { StatusBar } from './shell/StatusBar'
+import { BellItem, logNotice, TranslateItem } from './shell/StatusExtras'
 import { OutlineView } from './shell/OutlineView'
 import { ActsSlot, noteLeavers, noteRenamers } from './shell/TabActs'
-import { revealLeft, tabEdges } from './shell/tab-scroll'
+import { revealLeft, snapLeft, tabEdges, tabTail } from './shell/tab-scroll'
 import { onFileMenu } from './ctx/file-menu'
 import { app, setAppActions } from './ctx/actions'
 import { copy, type MenuEntry, menuAt, setMenuNotice } from './ctx/menu'
@@ -35,11 +36,15 @@ import { holdTyping } from './new-note-hold'
 import { COURSES, INBOX_DIR, Sidebar, type SideView, viewName } from './Sidebar'
 import { INBOX_WARN } from '../shared/sidebar'
 import { NoteDoc } from './note-doc'
+import { isBookDigest } from '../shared/plugins/weread'
 import { Palette, type PaletteCommand } from './Palette'
 import { QuickOpen } from './search/QuickOpen'
-import { fileOpened, refreshVaultFiles, requestReveal, treePicked, vaultFiles } from './files/store'
+import { fileOpened, markRestored, refreshVaultFiles, requestReveal, treePicked, vaultFiles } from './files/store'
 import { allFolders } from './ctx/move-menu'
 import { loadLeft, setHomeLooks, updateLeft, useLeft } from './files/left-store'
+import { loadDescs } from './files/category-store'
+import { setVaultName } from './vault-name'
+import { CATEGORY_NAMES, groupLeft } from '../shared/categories'
 import { FolderGlyph, LookPicker } from './files/look'
 import { dropLeft, moveLeft, putLeft, takeLeft } from '../shared/left'
 import { usePluginCommands, usePluginEntries } from './plugins'
@@ -47,7 +52,7 @@ import { setActiveFile } from './plugins/host'
 import { Settings, type SettingsPage } from './Settings'
 import { homeWinBg, useAppSettings } from './theme'
 import { fixedFolder } from '../shared/files'
-import { CENTER_MIN, fitPanels, loadSideW, RIGHT_MIN, SIDE_DEFAULT, SideSash } from './shell/SideSash'
+import { CENTER_MIN, fitPanels, loadSideW, RIGHT_DEFAULT, RIGHT_MIN, SIDE_DEFAULT, SideSash } from './shell/SideSash'
 import { loadTabs, newId, retargetTabs, saveTabs, type Tab, tabsOutside } from './tabs'
 import { type ClipMode, hostOf, WebPanel } from './WebPanel'
 import { WebTab } from './web/WebTab'
@@ -60,10 +65,9 @@ import { DoubtsTab } from './reading/DoubtsTab'
 import { HtmlTab } from './reading/HtmlTab'
 import { WebReadTab } from './reading/WebReadTab'
 import { onOpenWebRead, onWebBox } from './reading/web-bridge'
-import { type Lower, ReadingPanel } from './reading/ReadingPanel'
 import * as Reading from './reading/store'
 import type { PdfFile } from '../shared/reading'
-import { defaultFolderHome, type FolderEntry, folderKind, foldersOfPaths, sortFolders } from '../shared/folder-home'
+import type { FolderEntry } from '../shared/folder-home'
 import { FolderHomeView } from './folder-home/FolderHomeView'
 import { onOpenFolderHome, openFolderHome } from './folder-home/store'
 import { type AskFrom, setCenter, videoHost } from './video/store'
@@ -74,11 +78,41 @@ import { VIDEO_FOLDER, videoOf } from '../shared/video'
 import './shell/shell.css'
 
 type Right = 'web' | 'history' | 'outline' | null
+/** 当前栏（CN-98 方向 A）：左栏、中间、右栏上格、右栏下格（AI 那一格：AI 或读 PDF 的笔记，上格没开时占整栏） */
+type Pane = 'left' | 'center' | 'rt' | 'rb'
+/** AI 那一格：'1' 开着、'0' 收着、'notes' 收着时点竖条「笔记」只开了笔记 */
+type AiCell = '0' | '1' | 'notes'
+const RIGHT_NAME: Record<Exclude<Right, null>, string> = { web: '网页', history: '历史', outline: '大纲' }
+
+/**
+ * 点了哪、焦点到了哪是哪一栏：按窗口里那一块（.win 的直接子元素）认，不靠 document.activeElement
+ * （历史、大纲这类格子拿不到焦点）。图标栏、标题栏、底栏不算（点它们不换当前栏）
+ */
+function paneOf(target: EventTarget | null): Pane | null {
+  const el = target instanceof Element ? target : null
+  if (!el) return null
+  const top = el.closest('.win > *')
+  if (!top) return null
+  if (top.matches('.side')) return 'left'
+  if (top.matches('main.center')) return 'center'
+  if (top.matches('.right.aicell')) return 'rb'
+  if (top.matches('aside.right')) return 'rt'
+  return null
+}
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 /** 标签上能改名的：笔记；文件夹首页（最外层固定的生活、写作除外） */
 const canRenameTab = (t: Tab) => t.type === 'note' || (t.type === 'folder' && !fixedFolder(t.folder))
+
+/** 标签条里每个标签在内容里的左边和宽（量 getBoundingClientRect，缩放、小数都对得上） */
+function tabBoxes(el: HTMLElement) {
+  const r = el.getBoundingClientRect()
+  return [...el.querySelectorAll<HTMLElement>(':scope > .tab')].map((t) => {
+    const b = t.getBoundingClientRect()
+    return { left: b.left - r.left + el.scrollLeft, width: b.width }
+  })
+}
 
 export function App() {
   const [vault, setVault] = useState<VaultInfo | null | undefined>(undefined)
@@ -115,37 +149,51 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const [notes, setNotes] = useState<NoteFile[]>([])
   /** 置顶的笔记（库里 .canvas-notes/置顶.json） */
   const [pins, setPins] = useState<string[]>([])
+  // 库名：最外层写库名（CN-106）；子组件、编辑器里的位置条从 vault-name 拿
+  setVaultName(vault.name)
   const [{ tabs, active }, setTabState] = useState(() => {
     const t = loadTabs(vault.path)
+    // 打开时整理了顶级分类（素材/ → 剪藏/、素材/微信读书/ → 阅读/）：上次开着的标签换成新路径
+    for (const m of vault.organized ?? []) t.tabs = retargetTabs(t.tabs, m.from, m.to)
     if (t.tabs.length) return t
     const home: Tab = { id: newId(), type: 'home' }
     return { tabs: [home], active: home.id }
   })
-  /** AI 只浮在中间栏右下角（⌘J 开关），不进右栏；读 PDF 时例外，AI 在右栏下格 */
-  const [aiFloat, setAiFloat] = useState(false)
-  /** 读 PDF 时右栏下格开着 AI 还是笔记（竖条上面那组），记在本机 */
-  const [lower, setLowerState] = useState<Lower | null>(() => {
+  /**
+   * AI 那一格开着没有（D 组方向 A「只住右栏」）：AI 永远是右栏的一格，⌘J、右下角圆钮（A 是底栏最右一项）开关，记在本机（cn.aiOpen）。
+   * 打开 PDF 不再自己把它打开；框一块、点工具条、右键「问 AI」、AI 命令才打开。
+   * 'notes'：收着时点竖条「笔记」，只开了笔记（右图标栏方向 A）：换到不是 PDF 的页这一格收起，回到 PDF 又是笔记；一换成 AI 就是 '1'
+   */
+  const [aiCell, setAiCellState] = useState<AiCell>(() => {
     try {
-      const v = localStorage.getItem('cn.readingLower')
-      return v === 'none' ? null : v === 'notes' ? 'notes' : 'ai'
+      const v = localStorage.getItem('cn.aiOpen')
+      return v === '1' || v === 'notes' ? v : '0'
     } catch {
-      return 'ai'
+      return '0'
     }
   })
-  const setLower = (l: Lower | null) => {
-    setLowerState(l)
+  const setAiCell = (v: AiCell) => {
+    setAiCellState(v)
     try {
-      localStorage.setItem('cn.readingLower', l ?? 'none')
+      localStorage.setItem('cn.aiOpen', v)
     } catch {
       // 记不住不影响使用
     }
+  }
+  const setAiOpen = (v: boolean) => setAiCell(v ? '1' : '0')
+  /** 读 PDF / HTML 时这一格显示 AI 还是笔记（竖条「笔记」切换，再点回到点之前的样子） */
+  const [aiView, setAiView] = useState<AiView>(() => (aiCell === 'notes' ? 'notes' : 'ai'))
+  /** 打开 AI 那一格、显示 AI（不是笔记） */
+  const openAi = () => {
+    setAiView('ai')
+    setAiOpen(true)
   }
   /** 库里的 PDF（⌘K 里能搜到、能打开） */
   const [pdfs, setPdfs] = useState<PdfFile[]>([])
   /** 有首页的文件夹：左栏「文件夹」、标签图标 */
   const [folders, setFolders] = useState<FolderEntry[]>([])
   /** 左栏收起来了（红绿灯旁的按钮或 ⌘\\），记在本机 */
-  /** 左栏宽度：拖过才有（没拖过用 CSS 里的默认 252）；记在本机 */
+  /** 左栏宽度：拖过才有（没拖过用 CSS 里的默认：A 252，B 248）；记在本机 */
   const [sideW, setSideW] = useState(loadSideW)
   const [sidebarHidden, setSidebarHidden] = useState(() => {
     try {
@@ -168,7 +216,10 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       // 2026-11-17 以前的「课程和文件夹首页」「收件箱」是现在摘在左边的课程、收件箱两格
       if (v === 'folders') return `dir:${COURSES}`
       if (v === 'inbox') return `dir:${INBOX_DIR}`
-      return v === 'files' || v === 'recent' || v === 'dream' || v?.startsWith('dir:') ? (v as SideView) : 'recent'
+      // 整理了顶级分类：摘在左边的「素材/微信读书」这一格现在是「阅读」
+      let view = v
+      for (const m of vault.organized ?? []) if (view && (view === `dir:${m.from}` || view.startsWith(`dir:${m.from}/`))) view = `dir:${m.to}${view.slice(4 + m.from.length)}`
+      return view === 'files' || view === 'recent' || view === 'dream' || view?.startsWith('dir:') ? (view as SideView) : 'recent'
     } catch {
       return 'recent'
     }
@@ -177,7 +228,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const leftCfg = useLeft()
   useEffect(() => {
     void loadLeft()
-    return window.cn.onFilesChanged(() => void loadLeft())
+    void loadDescs()
+    return window.cn.onFilesChanged(() => (void loadLeft(), void loadDescs()))
   }, [])
   // 摘出来的那一格被拿下来了：左栏回到「文件」
   const shownView: SideView = leftView.startsWith('dir:') && !leftCfg.left.includes(leftView.slice(4)) ? 'files' : leftView
@@ -192,9 +244,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   }
   /** 删笔记的确认框（有自己的附件时才问） */
   const [trashAsk, setTrashAsk] = useState<TrashAsk | null>(null)
-  /** 活动栏右键「设图标和颜色…」：贴着那一格弹 */
+  /** 活动栏右键「换图标和颜色…」：贴着那一格弹 */
   const [barLook, setBarLook] = useState<{ folder: string; el: HTMLElement } | null>(null)
-  /** 摘出来的文件夹底下「在「文件」里看位置」、活动栏右键「在「文件」里显示」：换到「文件」，展开到它，一圈外圈 */
+  /** 摘出来的文件夹底下、活动栏右键「在「文件」里看位置」：换到「文件」，展开到它，一圈外圈 */
   const showInFiles = (folder: string) => {
     requestReveal(folder)
     openLeft('files')
@@ -205,7 +257,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     openLeft(`dir:${folder}`)
   }
   /** 图标栏上点亮着的那个 = 收起左栏 */
-  const toggleLeft = (v: SideView) => (!sidebarHidden && shownView === v ? setSidebarHidden(true) : openLeft(v))
+  const toggleLeft = (v: SideView) => (!sidebarHidden && shownView === v ? setSidebarHidden(true) : (openLeft(v), setPane('left')))
   /** 库菜单、设置菜单（左下角）：贴着点它的按钮弹出 */
   const [menu, setMenu] = useState<{ kind: 'vault' | 'gear'; el: HTMLElement } | null>(null)
   const [git, setGit] = useState<GitState | null>(null)
@@ -213,18 +265,31 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const [actsEl, setActsEl] = useState<HTMLDivElement | null>(null)
   /** 正在标签上改名的那个标签（双击标签、F2、面包屑最后一节、「更多 › 改名」） */
   const [renaming, setRenaming] = useState<string | null>(null)
-  /** AI 用的是哪个引擎（A 的底栏 AI 项写它的名字） */
-  const [aiEngine, setAiEngine] = useState('Claude Code')
-  const [aiEngineId, setAiEngineId] = useState<EngineId>('claude')
+  /** AI 对话用的是哪家：右下角圆钮、A 底栏那一项画它的标志、写它的名字（设置里一换当场跟着换，CN-127） */
+  const chatEngine = useChatEngine()
   /** 方向 A：设置开成中间的一个标签，这个标签在前面时为 true */
   const [settingsFront, setSettingsFront] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   /** 提示后面带的「撤回」：只跟着那一句（别处换了提示就不显示） */
-  const [noticeUndo, setNoticeUndo] = useState<{ text: string; run(): void } | null>(null)
+  /** noKey：⌘Z 不当成点「撤回」（关标签、收起一格的撤回：⌘Z 留给文档里撤字） */
+  const [noticeUndo, setNoticeUndo] = useState<{ text: string; run(): void; noKey?: boolean } | null>(null)
   const noticeWithUndo = (text: string, run?: () => void) => {
     setNotice(text)
     setNoticeUndo(run ? { text, run } : null)
   }
+  /** 从左边拿下（活动栏右键、树上文件夹右键）：底部能撤回（放回原来的位置） */
+  const takeOffLeft = (f: string) => {
+    const before = leftCfg
+    void updateLeft((c) => takeLeft(c, f))
+    noticeWithUndo(`「${f.split('/').pop()}」从左边拿下了；右键文件夹「放到左边」能放回`, () => void updateLeft(() => before))
+  }
+  /** 关标签、收起一格（CN-98）：提示条带「撤回」，⌘Z 不当成点它（留给文档里撤字） */
+  const noticeClosed = (text: string, run: () => void) => {
+    setNotice(text)
+    setNoticeUndo({ text, run, noKey: true })
+  }
+  /** 提示前面的小图标（放回了：绿色对勾；说明：info）：也只跟着那一句（CN-108 小样） */
+  const [noticeIcon, setNoticeIcon] = useState<{ text: string; icon: CodiconName; ok?: boolean } | null>(null)
   /** 提示后面带的别的按钮（撤回失败后的「在历史里看」）：也只跟着那一句 */
   const [noticeAct, setNoticeAct] = useState<{ text: string; label: string; icon: CodiconName; run(): void } | null>(null)
   /** 梦游撤不回：说原因，「撤回」换成「在历史里看」（打开右栏历史，那次收下在里面） */
@@ -234,12 +299,46 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     setNoticeUndo(null)
     setNoticeAct({ text, label: '在历史里看', icon: 'history', run: () => setRight('history') })
   }
-  /** 右键「问 AI」放进输入框的引文 */
-  const [aiDraft, setAiDraft] = useState<{ text: string; seq: number } | null>(null)
+  /** ⌘J、右键「问 AI」带进 AI 输入框的那一段（成为第一块引用，src 是来源「《文档标题》」） */
+  const [aiDraft, setAiDraft] = useState<{ text: string; src: string; seq: number } | null>(null)
   const [right, setRight] = useState<Right>(null)
   const historyOpen = right === 'history'
-  const toggleRight = (r: Exclude<Right, null>) => setRight((v) => (v === r ? null : r))
+  /** 当前栏（CN-98）：点哪一栏、焦点到哪一栏就是它；⌘W 关的是它里面的东西 */
+  const [pane, setPaneState] = useState<Pane>('center')
+  const paneNow = useRef<Pane>('center')
+  const setPane = (p: Pane) => {
+    paneNow.current = p
+    setPaneState(p)
+  }
+  useEffect(() => {
+    const on = (e: Event) => {
+      const p = paneOf(e.target)
+      if (p && p !== paneNow.current) setPane(p)
+    }
+    // 点进右栏网页正文：宿主页面收不到 pointerdown、focusin，只有窗口的 blur，焦点落到 <webview> 上
+    let t = 0
+    const onBlur = (e: FocusEvent) => {
+      if (e.target !== window) return
+      clearTimeout(t)
+      t = window.setTimeout(() => {
+        const a = document.activeElement
+        if (a?.tagName === 'WEBVIEW') on({ target: a } as unknown as Event)
+      })
+    }
+    window.addEventListener('pointerdown', on, true)
+    window.addEventListener('focusin', on, true)
+    window.addEventListener('blur', onBlur)
+    return () => (clearTimeout(t), window.removeEventListener('pointerdown', on, true), window.removeEventListener('focusin', on, true), window.removeEventListener('blur', onBlur))
+  }, [])
+  /** 竖条上点开一格：它就是当前栏（再点是收起） */
+  const toggleRight = (r: Exclude<Right, null>) => {
+    if (right !== r) setPane('rt')
+    setRight((v) => (v === r ? null : r))
+  }
   const lastRight = useRef<Exclude<Right, null>>('outline')
+  /** 标题栏按钮、⌥⌘\ 收起右栏时开着的（上格和 AI 那一格）：再按一下照原样开回来 */
+  const rightShut = useRef<{ right: Right; ai: AiCell | null } | null>(null)
+  const toggleRightRef = useRef<() => void>(() => undefined)
   useEffect(() => {
     if (right) lastRight.current = right
   }, [right])
@@ -290,12 +389,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
 
   /** 让 AI 一打开就跑的命令（首页「让 AI 分一分」、⌘K 里的 AI 命令） */
   const [aiAuto, setAiAuto] = useState<{ text: string; seq: number } | null>(null)
-  /** 右栏宽度，能拖；记在本机 */
+  /** 右栏宽度，能拖；记在本机（只记用户拖过的）。默认 380：AI、读 PDF 的小样都按 380 画，340 时引擎名、快捷键提示、旁支头被挤掉 */
   const [rightW, setRightW] = useState(() => {
     try {
-      return Number(localStorage.getItem('cn.rightW')) || 340
+      return Number(localStorage.getItem('cn.rightW')) || RIGHT_DEFAULT
     } catch {
-      return 340
+      return RIGHT_DEFAULT
     }
   })
   /** 窗口宽度：窗口变窄时左右栏跟着让（fitPanels），中间正在写的不被挤没 */
@@ -376,7 +475,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         setTabState((s) => ({ ...s, tabs: s.tabs.map((t) => (t.type === 'note' && t.path === from ? { ...t, path: to } : t)) }))
         refreshNotes()
         if (NoteDoc.takeOwnMove(from, to) || own) return
-        const dir = to.includes('/') ? to.slice(0, to.lastIndexOf('/')) : '库的最外层'
+        const dir = to.includes('/') ? to.slice(0, to.lastIndexOf('/')) : vault.name
         setNotice(titleOf(from) === titleOf(to) ? `「${titleOf(to)}」在外面挪到了${dir}，标签跟过去了` : `「${titleOf(from)}」在外面改名成了「${titleOf(to)}」，标签跟过去了`)
       }),
     [],
@@ -389,10 +488,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   /** 现在的提示（异步的删除接着记连删时读） */
   const noticeNow = useRef(notice)
   noticeNow.current = notice
+  // 说过的每一句记进通知铃（A 底栏右端），提示条收了还能再看
+  useEffect(() => {
+    if (notice) logNotice(notice)
+  }, [notice])
   /** 鼠标停在提示条上：不计时（读完再点「撤回」） */
   const [noticeHover, setNoticeHover] = useState(false)
   const undoable = !!notice && noticeUndo?.text === notice
-  const actable = !!notice && !undoable && noticeAct?.text === notice
+  // 「放回」那句两个都带：「打开文件夹」「撤回」
+  const actable = !!notice && noticeAct?.text === notice
   useEffect(() => {
     if (!notice || noticeHover) return
     // 带「撤回」的停 10 秒，别的 6 秒
@@ -410,7 +514,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   // 提示条带着「撤回」时，⌘Z 就是点它（删笔记后马上反悔）；输入框里照常撤字。
   // 提示出来以后在文档里打过字：⌘Z 先撤打的字（恢复的那篇里接着写了几个字再 ⌘Z，多半是想撤字，不是再恢复下一篇）
   useEffect(() => {
-    if (!undoable) return
+    if (!undoable || noticeUndo?.noKey) return
     let typed = false
     const onInput = (e: Event) => {
       const t = (e as InputEvent).inputType
@@ -595,7 +699,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const i = tabs.findIndex((x) => x.id === t.id)
     const path = 'path' in t ? t.path : null
     return [
-      { label: '关闭', accel: 'CommandOrControl+W', run: () => closeTab(t.id) },
+      { label: '关闭', accel: 'CommandOrControl+W', run: () => closeByUser(t.id) },
       { label: '关闭其他', enabled: tabs.length > 1, run: () => (leaveTabs(tabs.filter((x) => x.id !== t.id)), setTabState({ tabs: tabs.filter((x) => x.id === t.id), active: t.id })) },
       { label: '关闭右侧', enabled: i < tabs.length - 1, run: () => (leaveTabs(tabs.slice(i + 1)), setTabState((s) => ({ tabs: s.tabs.slice(0, i + 1), active: s.tabs.slice(0, i + 1).some((x) => x.id === s.active) ? s.active : t.id }))) },
       { label: '关闭全部', run: () => (leaveTabs(tabs), setTabState({ tabs: [], active: null })) },
@@ -617,6 +721,45 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       return { tabs, active: next }
     })
   }
+
+  /**
+   * 用户关一个标签（×、⌘W、右键「关闭」、标签列表里的 ×）：提示条「关掉了「…」」带「撤回」，撤回放回原来的位置、切过去
+   * （笔记关的时候跟着标题改了名的，撤回开改名以后的那篇）。只剩一个首页时不关（标签关完就是首页）。
+   * 刚新建、还空着的笔记关掉就扔了，不说
+   */
+  function closeByUser(id: string) {
+    const i = tabs.findIndex((x) => x.id === id)
+    const t = tabs[i]
+    if (!t) return
+    if (tabs.length === 1 && t.type === 'home') return
+    const blank = t.type === 'note' && freshNotes.current.has(t.path) && [...NoteDoc.open].find((d) => d.path === t.path)?.view.state.doc.toString().trim() === `# ${titleOf(t.path)}`
+    const left = leaveTabs([t])
+    setTabState((s) => {
+      const k = s.tabs.findIndex((x) => x.id === id)
+      const rest = s.tabs.filter((x) => x.id !== id)
+      return { tabs: rest, active: s.active === id ? (rest[Math.min(k, rest.length - 1)]?.id ?? null) : s.active }
+    })
+    if (blank) return
+    noticeClosed(`关掉了「${tabName(t)}」`, () =>
+      void (left.get(t.id) ?? Promise.resolve(null)).then((now) => {
+        const back: Tab = t.type === 'note' && now ? { ...t, path: now, fresh: false } : t
+        setTabState((s) => {
+          if (s.tabs.some((x) => x.id === back.id)) return { ...s, active: back.id }
+          // 关完以后自己开的那个首页：撤回时换回来
+          const base = s.tabs.length === 1 && s.tabs[0]!.id === autoHome.current ? [] : s.tabs
+          return { tabs: [...base.slice(0, i), back, ...base.slice(i)], active: back.id }
+        })
+      }),
+    )
+  }
+  /** 标签关完了（⌘W 关到最后一个、右键「关闭全部」、删了开着的那篇）：回到首页，不留一块空白（用户 2026-11-18 补的） */
+  const autoHome = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    if (tabs.length) return
+    const home: Tab = { id: newId(), type: 'home' }
+    autoHome.current = home.id
+    setTabState({ tabs: [home], active: home.id })
+  }, [tabs.length])
 
   /** 新建笔记放哪（CN-11）：目录树里点过的文件夹；开着的文件夹首页；都不是就进收件箱，梦游再建议归类 */
   const newNoteWhere = useRef<() => string>(() => INBOX)
@@ -662,29 +805,38 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
    * 要关掉的标签里的笔记：先让它按标题改名（写了标题没回车就 ⌘W 也改），再看新建的是不是还空着。
    * 在标签从界面上拿掉之前叫（编辑器还在，NoteTab 登记的 leave 还能拿到）
    */
-  function leaveTabs(closing: Tab[]) {
+  function leaveTabs(closing: Tab[]): Map<string, Promise<string | null>> {
+    /** 标签 id → 关掉以后那篇在哪（跟着标题改了名就是新名字）；空的新笔记扔了是 null */
+    const out = new Map<string, Promise<string | null>>()
     for (const t of closing) {
       if (t.type !== 'note') continue
       const fresh = freshNotes.current.has(t.path)
       const leave = noteLeavers.get(t.id)
-      void (async () => {
+      const done = (async () => {
         const now = leave ? await leave() : t.path
-        if (!fresh) return
+        if (!fresh) return now
         // 跟着标题改了名：写过标题，不是空的
-        if (now !== t.path) freshNotes.current.delete(t.path)
-        else await dropIfBlank(t.path)
-      })().catch((e) => setNotice(errText(e)))
+        if (now !== t.path) {
+          freshNotes.current.delete(t.path)
+          return now
+        }
+        return (await dropIfBlank(t.path)) ? null : now
+      })()
+      done.catch((e) => setNotice(errText(e)))
+      out.set(t.id, done.catch(() => t.path))
     }
+    return out
   }
   /** 关掉一篇新建的笔记：只有「# 未命名」那一行（没写标题、没写正文）就移到废纸篓，收件箱和「最近」里不堆空的「未命名」 */
-  async function dropIfBlank(path: string) {
+  async function dropIfBlank(path: string): Promise<boolean> {
     freshNotes.current.delete(path)
     // 等标签里的编辑器把没存的字存完（关标签时它先存再收）
     await NoteDoc.saveAll()
     const note = await window.cn.readNote(path)
-    if (note.text.trim() !== `# ${titleOf(path)}`) return
+    if (note.text.trim() !== `# ${titleOf(path)}`) return false
     await window.cn.trashNote(path)
     refreshNotes()
+    return true
   }
 
   const newBoard = useCallback(async () => {
@@ -733,19 +885,48 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
    */
   const tlistRef = useRef<HTMLDivElement>(null)
   const [tabFade, setTabFade] = useState({ left: false, right: false })
+  /** 标签放不下（要滚）：这时右端才有「N ⌄」 */
+  const [tabsOver, setTabsOver] = useState(false)
   const syncTabs = useCallback(() => {
     const el = tlistRef.current
     if (!el) return
-    const tab = el.querySelector<HTMLElement>('.tab.on')
-    if (tab) {
-      const tabLeft = tab.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft
-      const next = revealLeft(el.scrollLeft, el.clientWidth, el.scrollWidth, tabLeft, tab.offsetWidth)
+    // 标签多了方向 A：标签照原来的宽排、名字是全的（最宽 280，再长打省略号），放不下就横着滚
+    const gap = parseFloat(getComputedStyle(el).columnGap) || 0
+    const onAt = [...el.querySelectorAll<HTMLElement>(':scope > .tab')].findIndex((t) => t.classList.contains('on'))
+    // 停在标签边上（方向 A）：滚到最右时左端也停在某个标签开头，差的那一段补在标签后面（.tlist[data-tail]::after）
+    const boxes = tabBoxes(el)
+    const tail = tabTail(boxes, el.clientWidth)
+    if (tail > 0) {
+      // 补的那一段本身也算一个标签条里的东西，前面带着标签之间的间隔（B 2）：只补剩下的
+      el.style.setProperty('--tab-tail', `${Math.max(0, tail - gap)}px`)
+      el.setAttribute('data-tail', '')
+    } else el.removeAttribute('data-tail')
+    if (onAt >= 0) {
+      const next = revealLeft(el.scrollLeft, el.clientWidth, boxes, onAt)
       if (next !== Math.round(el.scrollLeft)) el.scrollLeft = next
     }
     const e = tabEdges(el.scrollLeft, el.scrollWidth, el.clientWidth)
     setTabFade((f) => (f.left === e.left && f.right === e.right ? f : e))
+    // 右端「N ⌄」只在放不下时画：它自己也占地方，量的时候把它让出来的宽算回标签条
+    const last = boxes[boxes.length - 1]
+    const more = el.parentElement?.nextElementSibling
+    const room = el.clientWidth + (more instanceof HTMLElement && more.dataset.testid === 'tab-more' ? more.offsetWidth + (parseFloat(getComputedStyle(more).marginLeft) || 0) + (parseFloat(getComputedStyle(more).marginRight) || 0) : 0)
+    const over = !!last && last.left + last.width > room + 0.5
+    setTabsOver((o) => (o === over ? o : over))
   }, [])
-  useLayoutEffect(syncTabs, [shown, settingsFront, tabs.length, syncTabs])
+  useLayoutEffect(syncTabs, [shown, settingsFront, tabs, syncTabs])
+  /**
+   * 滚一下、点两端的箭头：挪一整个标签，停在标签边上（标签多了方向 A）。滚着的那一下还没停时接着按，从要停的地方往下算
+   */
+  const snapTo = useRef<{ left: number; until: number } | null>(null)
+  const snapTabs = useCallback((dir: 1 | -1) => {
+    const el = tlistRef.current
+    if (!el) return
+    const base = snapTo.current && snapTo.current.until > performance.now() ? snapTo.current.left : el.scrollLeft
+    const left = snapLeft(base, el.clientWidth, tabBoxes(el), dir)
+    snapTo.current = { left, until: performance.now() + 400 }
+    el.scrollTo({ left, behavior: 'smooth' })
+  }, [])
   useEffect(() => {
     const el = tlistRef.current
     if (!el) return
@@ -755,9 +936,32 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       const e = tabEdges(el.scrollLeft, el.scrollWidth, el.clientWidth)
       setTabFade((f) => (f.left === e.left && f.right === e.right ? f : e))
     }
+    // 鼠标滚轮一格、触控板每划 60 挪一整个标签；横着竖着都算
+    let acc = 0
+    let last = 0
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth + 1) return
+      e.preventDefault()
+      const d = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      if (!d) return
+      const now = performance.now()
+      if (now - last > 250) {
+        acc = 0
+        last = now
+        return snapTabs(d > 0 ? 1 : -1)
+      }
+      acc += d
+      if (Math.abs(acc) < 60) return
+      snapTabs(acc > 0 ? 1 : -1)
+      acc = 0
+      last = now
+    }
     el.addEventListener('scroll', onScroll, { passive: true })
-    return () => (ro.disconnect(), el.removeEventListener('scroll', onScroll))
-  }, [syncTabs])
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => (ro.disconnect(), el.removeEventListener('scroll', onScroll), el.removeEventListener('wheel', onWheel))
+  }, [syncTabs, snapTabs])
+  /** 标签条右端「12 ⌄」：列出开着的全部标签 */
+  const [tabsMenu, setTabsMenu] = useState<HTMLElement | null>(null)
   /** 中间窄于 640 时 B 的标签条右端动作只留图标，把位置让给标签 */
   const centerRef = useRef<HTMLElement>(null)
   const [centerNarrow, setCenterNarrow] = useState(false)
@@ -805,7 +1009,19 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   /** ⌘K「我的疑惑」开哪个文件夹：正在读的 PDF 的，没有就最近打开过的 PDF 的 */
   const lastPdf = readingPdf ?? tabs.flatMap((t) => (t.type === 'pdf' ? [t.path] : [])).pop() ?? null
   const doubtsFolder = lastPdf === null ? null : dirOfPath(lastPdf)
-  const lowerOpen = readingPdf ? lower : null
+  /** 这一页有边读边记的笔记（PDF、HTML；右栏网页上框着问的没有） */
+  const notesOk = !!readingPdf && !Reading.isWebSrc(readingPdf)
+  /** 这一格现在显示笔记（只在读 PDF / HTML 时有笔记）；别的时候都是 AI */
+  const notesView = aiView === 'notes' && notesOk
+  /** 这一格开着、看得见（只开了笔记的，到了没有笔记的页收起） */
+  const aiOpen = aiCell === '1' || (aiCell === 'notes' && notesOk)
+  /** AI 看得见：这一格开着、显示的不是笔记 */
+  const aiShown = aiOpen && !notesView
+  /** 竖条「笔记」、页边标记：这一格换成笔记；收着时只开笔记（'notes'），开着 AI 时还算开着 AI */
+  const openNotes = () => {
+    setAiView('notes')
+    if (!aiOpen) setAiCell('notes')
+  }
   const reading = Reading.useReading(readingPdf)
   /** 视频框一块问正在答的（底栏「AI 在记笔记 · 未命名 3」，CN-84） */
   const askJobs = useAskJobs()
@@ -822,17 +1038,21 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         const d = activeDoc.current
         const sel = d?.view.hasFocus ? d.view.state.selection.main : null
         const picked = sel && !sel.empty ? d!.view.state.sliceDoc(sel.from, sel.to).trim() : ''
-        if (picked && !(readingPdf ? lower === 'ai' : aiFloat)) app().askAi(picked)
+        if (picked && !aiShown) app().askAi(picked)
         else toggleAi()
       }
-      else if (key === 'w' && active) closeTab(active)
+      else if (key === 'w') closeHereRef.current()
       else if (key === ',') openSettings('look', true)
       else if (key === '\\') setSidebarHidden((h) => !h)
+      // ⌥⌘\ 开关右栏（CN-125；网页有焦点时主进程转过来的也是这个）
+      else if (key === 'alt+\\') toggleRightRef.current()
       else return false
       return true
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey && !e.altKey && !e.ctrlKey && run(e.key)) e.preventDefault()
+      // ⌥ 按着时 e.key 不是「\」（是「«」之类），认按键的位置
+      if (e.metaKey && e.altKey && !e.ctrlKey && e.code === 'Backslash') (e.preventDefault(), run('alt+\\'))
+      else if (e.metaKey && !e.altKey && !e.ctrlKey && run(e.key)) e.preventDefault()
       // ⌥⌘O：右栏打开大纲（文档右边目录浮层的头一行，CN-26）
       else if (e.metaKey && e.altKey && !e.ctrlKey && e.code === 'KeyO') (e.preventDefault(), setRight('outline'))
       // F2：改当前笔记的名字（焦点在输入框里时不抢；在目录树里是改树上选着的那一行）
@@ -847,10 +1067,10 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       window.removeEventListener('keydown', onKey)
       offApp()
     }
-  }, [newNote, active, activeTab, right, aiFloat, readingPdf, lower, settingsPage, settingsFront, settings.appearance.frame])
+  }, [newNote, active, activeTab, right, aiOpen, aiShown, readingPdf, settingsPage, settingsFront, settings.appearance.frame])
 
   function runAi(text: string) {
-    setAiFloat(true)
+    openAi()
     setAiAuto((a) => ({ text, seq: (a?.seq ?? 0) + 1 }))
   }
 
@@ -880,40 +1100,75 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     }
   }
 
-  /** 删一篇（md 连同只有它在用的图，能撤回；PDF、HTML 直接进废纸篓） */
+  /** 删一篇（md 连同只有它在用的图，能撤回；PDF、HTML 直接进废纸篓）。右键、⌘⌫、标签的「⋯」、属性里都走这里 */
   async function trash(path: string) {
+    return trashMany([path])
+  }
+
+  /**
+   * 删一个或好几个（文件树里选了好几个，CN-105）：跟着要删的笔记走的图（自己附件文件夹里的、文中用到的 附件/ 别处的）
+   * 先问连不连一起删（别的笔记也在用的，后台查完再说）；一篇、没有图时不问直接删，好几个时总要问一次。
+   * 笔记删完底部能撤回；PDF、HTML 进废纸篓；文件夹整个进废纸篓、一次提交（历史里能撤回）
+   */
+  async function trashMany(paths: string[]) {
     try {
       await NoteDoc.saveAll()
-      const closeTabs = () =>
-        setTabState((s) => {
-          // 文档、PDF、HTML 开着的标签一起关
-          const tabs = s.tabs.filter((t) => !('path' in t && t.path === path))
-          return { tabs, active: tabs.some((t) => t.id === s.active) ? s.active : (tabs[tabs.length - 1]?.id ?? null) }
-        })
-      if (!/\.md$/i.test(path)) {
-        closeTabs()
-        await window.cn.trashNote(path)
-        setNotice(`「${titleOf(path)}」移到了废纸篓，在访达的废纸篓里能找回`)
-      } else {
-        // 自己附件文件夹里有图：先问连不连图一起删（别的笔记也在用的，后台查完再告诉）；没有就直接删
-        const a = await window.cnAttach.of(path, false)
-        const own = a.items.filter((i) => i.own)
-        let withImages = false
-        if (own.length) {
-          const shared = window.cnAttach.of(path, true).then((x) => x.items.filter((i) => i.own && i.sharedWith?.length).length)
-          const answer = await new Promise<boolean | null>((done) => setTrashAsk({ path, dir: a.dir, own, shared, done }))
-          setTrashAsk(null)
-          if (answer === null) return
-          withImages = answer
-        }
-        closeTabs()
-        const r = await window.cnAttach.trashNote(path, withImages)
-        // 上一篇的「已删除 · 撤回」还在：接着记，⌘Z 从这篇起一篇篇往回恢复（像访达）
-        if (noticeNow.current === null || noticeNow.current !== trashNotice.current) trashChain.current = []
-        trashChain.current.push({ path, id: r.id })
-        const n = trashChain.current.length
-        showTrashUndo(`已删除《${titleOf(path)}》${r.images ? `和${r.images}张图` : ''}${n > 1 ? `（连着删了${n}篇，撤回从这篇起依次恢复）` : ''}`)
+      const dirs = new Set(vaultFiles().filter((f) => f.kind === 'dir').map((f) => f.path))
+      // 选着的在另一个选着的文件夹里面：删外面那个就够了
+      const top = paths.filter((p) => !paths.some((d) => d !== p && dirs.has(d) && p.startsWith(d + '/')))
+      const folderList = top.filter((p) => dirs.has(p))
+      const notesMd = top.filter((p) => !dirs.has(p) && /\.md$/i.test(p))
+      const others = top.filter((p) => !dirs.has(p) && !/\.md$/i.test(p))
+      const atts = await Promise.all(notesMd.map((p) => window.cnAttach.of(p, false)))
+      const own = atts.flatMap((a) => a.items.filter((i) => i.mine))
+      let withImages = false
+      if (own.length || top.length > 1) {
+        const shared = Promise.all(notesMd.map((p) => window.cnAttach.of(p, true))).then((xs) => xs.reduce((n, x) => n + x.items.filter((i) => i.mine && i.sharedWith?.length).length, 0))
+        const where = [...new Set(own.map((i) => i.path.slice(0, i.path.lastIndexOf('/'))))]
+        const answer = await new Promise<boolean | null>((done) => setTrashAsk({ paths: top, dirs: where, own, shared, done }))
+        setTrashAsk(null)
+        if (answer === null) return
+        withImages = answer
       }
+      const gone = (p: string) => top.some((x) => p === x || p.startsWith(x + '/'))
+      setTabState((s) => {
+        // 文档、PDF、HTML、文件夹首页开着的标签一起关
+        const tabs = s.tabs.filter((t) => !(('path' in t && gone(t.path)) || ('folder' in t && gone(t.folder))))
+        return { tabs, active: tabs.some((t) => t.id === s.active) ? s.active : (tabs[tabs.length - 1]?.id ?? null) }
+      })
+      let images = 0
+      // 上一篇的「已删除 · 撤回」还在：接着记，⌘Z 从这篇起一篇篇往回恢复（像访达）
+      if (noticeNow.current === null || noticeNow.current !== trashNotice.current) trashChain.current = []
+      for (const p of notesMd) {
+        const r = await window.cnAttach.trashNote(p, withImages)
+        images += r.images
+        trashChain.current.push({ path: p, id: r.id })
+      }
+      for (const p of others) await window.cn.trashNote(p)
+      let inFolders = 0
+      for (const f of folderList) inFolders += (await window.cnFolder.trash(f, top.length > 1)) ?? 0
+      const n = trashChain.current.length
+      const img = images ? `和${images}张图` : ''
+      if (top.length === 1 && notesMd.length === 1) showTrashUndo(`已删除《${titleOf(notesMd[0]!)}》${img}${n > 1 ? `（连着删了${n}篇，撤回从这篇起依次恢复）` : ''}`)
+      else if (top.length === 1 && others.length === 1) setNotice(`「${titleOf(others[0]!)}」移到了废纸篓，在访达的废纸篓里能找回`)
+      else if (top.length === 1 && folderList.length === 1) setNotice(`「${folderList[0]!.split('/').pop()}」${inFolders ? `和里面${inFolders}个文件` : ''}移到了废纸篓，历史里能撤回`)
+      else if (notesMd.length) showTrashUndo(`已删除${top.length}个${img}${folderList.length ? '，文件夹在历史里能撤回' : ''}`)
+      else setNotice(`${top.length}个移到了废纸篓${folderList.length ? '，文件夹在历史里能撤回' : ''}`)
+      refreshNotes()
+      refreshGit()
+    } catch (e) {
+      setNotice(errText(e))
+    }
+  }
+
+  /** 好几个一起挪（CN-105）：一次提交；开着的标签跟着换路径 */
+  async function moveMany(paths: string[], folder: string) {
+    try {
+      await NoteDoc.saveAll()
+      const r = await window.cnMenu.moveMany(paths, folder)
+      setTabState((s) => ({ ...s, tabs: r.moves.reduce((tabs, m) => retargetTabs(tabs, m.from, m.to), s.tabs) }))
+      const where = folder ? `「${folder}」` : `「${vault.name}」最外层`
+      setNotice(r.moves.length ? `${r.moves.length}个挪进了${where}，库里指向它们的链接一起改好了${r.skipped.length ? `；${r.skipped.length}个PDF、HTML没挪` : ''}` : `都已经在${where}里了`)
       refreshNotes()
       refreshGit()
     } catch (e) {
@@ -963,6 +1218,44 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     }
   }
 
+  /**
+   * 历史里「放回」（CN-108 方向 A）：那次删掉、现在又不在的文件取回原处，一次提交「放回：…」。
+   * 提示条「放回了「课程/ecp」里的 4 个文件 · 打开文件夹 · 撤回」；目录树正开着时那一处亮一下。返回放回那次的提交号
+   */
+  async function restoreFromHistory(hash: string, only?: string[]): Promise<string | null> {
+    try {
+      await NoteDoc.saveAll()
+      const r = await window.cn.restoreDeleted(hash, only)
+      refreshNotes()
+      refreshGit()
+      const shown = (p: string) => (/\.md$/i.test(p) ? titleOf(p) : p.split('/').pop()!)
+      const first = r.files[0]!.to
+      const many = r.files.length > 1
+      const renamed = r.files.filter((f) => f.from !== f.to)
+      const text =
+        (many ? `放回了「${r.folder || '库的最外层'}」里的${r.files.length}个文件` : `放回了「${shown(first)}」`) +
+        (renamed.length === 1 ? `，原处已经有同名的，放成了「${shown(renamed[0]!.to)}」` : renamed.length ? `，${renamed.length}个原处已经有同名的，名字后面加了数字` : '')
+      setNotice(text)
+      setNoticeIcon({ text, icon: 'check', ok: true })
+      markRestored(r.files.map((f) => f.to))
+      setNoticeUndo({
+        text,
+        run: () =>
+          void window.cn.undoRestore(r.commit).then(
+            () => (markRestored(r.files.map((f) => f.to), false), refreshNotes(), refreshGit(), setNotice('撤回了，又回到删掉的样子')),
+            (e) => setNotice(errText(e)),
+          ),
+      })
+      setNoticeAct(many && r.folder ? { text, label: '打开文件夹', icon: 'folder-opened', run: () => openFolder(r.folder!) } : { text, label: '打开', icon: 'go-to-file', run: () => openFile(first) })
+      // 目录树里放回的那一处亮约 2 秒（列表读回来以后）
+      setTimeout(() => (many && r.folder ? requestReveal(r.folder, true, r.files.map((f) => f.to)) : requestReveal(first)), 400)
+      return r.commit
+    } catch (e) {
+      setNotice(errText(e))
+      return null
+    }
+  }
+
   /** 文件夹移到废纸篓：主进程先弹系统确认；里面开着的标签一起关 */
   async function trashFolder(folder: string) {
     try {
@@ -1002,7 +1295,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     { name: '看历史', hint: '每次提交改了哪些文件', icon: 'history', run: () => setRight('history') },
     { name: '现在提交', icon: 'git-commit', run: () => void commit() },
     { name: '同步', icon: 'refresh', run: () => void sync() },
-    { name: '问AI', icon: 'sparkle', keys: '⌘J', run: () => setAiFloat(true) },
+    { name: '问AI', icon: 'sparkle', keys: '⌘J', run: () => openAi() },
     ...(doubtsFolder !== null ? [{ name: '我的疑惑', hint: doubtsFolder || '库的根目录', icon: 'question' as const, run: () => openDoubts(doubtsFolder) }] : []),
     { name: '整理收件箱', hint: 'AI', icon: 'sparkle', run: () => runAi('/整理收件箱') },
     { name: '总结这块白板', hint: 'AI', icon: 'sparkle', run: () => runAi('/总结这块白板') },
@@ -1076,7 +1369,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           // 先截图再开 AI：右栏下格一开，网页就变矮了
           const shot = e.action === 'stage' || !Reading.get(src).pending?.web ? await window.cnReading.capture(e.wcId, e.box.rect) : null
           if (!doc) setWebAsk(src)
-          setLower('ai')
+          openAi()
           await Reading.load(src)
           if (shot) {
             const png = shot
@@ -1095,14 +1388,13 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     [],
   )
 
+  /** ⌘J、右下角圆钮：AI 看得见就收起；笔记开着就换回 AI；没开就打开 */
   function toggleAi() {
-    if (readingPdf) {
-      if (lower !== 'ai') Reading.wantAiFocus()
-      setLower(lower === 'ai' ? null : 'ai')
-    }
-    // 右栏开着视频：AI 开在右栏下格（和读 PDF 一样，不压中间栏的文档，CN-84）
-    else if (right === 'web' && videoOf((active && webUrl[active]) || '')) askInRight()
-    else setAiFloat((v) => !v)
+    if (aiShown) return setAiOpen(false)
+    // 右栏开着视频、还没在问它：这一格问的是这个视频（和读 PDF 一样，CN-84）
+    if (!readingPdf && right === 'web' && videoOf((active && webUrl[active]) || '')) return askInRight()
+    if (readingPdf) Reading.wantAiFocus()
+    openAi()
   }
 
   /** 右栏网页（视频）下格开 AI；from 给了（问答块上「接着问」）就把那一问放进输入框当引文，标「00:06 · 视频名」 */
@@ -1112,15 +1404,14 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     // 「接着问」：右栏开着的就是这个视频就接着用它；不是（或右栏没开网页）先把视频开到那一秒
     const same = !!from && videoOf(cur)?.key === videoOf(from.url)?.key
     const u = from && !same ? from.url : cur
-    if (!/^https?:/i.test(u)) return setAiFloat(true)
+    if (!/^https?:/i.test(u)) return openAi()
     // 同一个视频：跳回那一秒停住，看着那一帧追问
     if (from) videoHost()?.openAt(from.url, from.t, same)
     const src = `web:${u}`
-    if (lower !== 'ai' || webAsk !== src) Reading.wantAiFocus()
-    setAiFloat(false)
+    if (!aiShown || webAsk !== src) Reading.wantAiFocus()
     setWebAsk(src)
     setRight('web')
-    setLower('ai')
+    openAi()
     if (from)
       void Reading.load(src).then(() =>
         Reading.stage(src, {
@@ -1139,23 +1430,13 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   useEffect(() => {
     if (pv.on) openLeft('files')
   }, [pv.on])
-  // 预览时梦游挪进新课程、新项目：左栏「文件夹」先多一行，标「新」
-  const sideFolders: (FolderEntry & { fresh?: boolean })[] = !pv.on
-    ? folders
-    : sortFolders([
-        ...folders,
-        ...foldersOfPaths(pv.moves.map((m) => m.to))
-          .filter((f) => !folders.some((x) => x.folder === f))
-          .map((f) => {
-            const kind = folderKind(f)!
-            return { folder: f, kind, icon: defaultFolderHome(kind).icon, color: null, fresh: true }
-          }),
-      ])
   useEffect(() => setHomeLooks(folders), [folders])
   const tabIcon = (t: Tab) => {
-    if (t.type === 'folder') return <FolderGlyph folder={t.folder} size={15} />
+    if (t.type === 'folder') return <FolderGlyph folder={t.folder} mono size={15} />
     const board = t.type === 'note' ? notes.find((n) => n.path === t.path)?.board : null
     if (board) return <i className="sw" style={{ background: board.color }} />
+    // 书摘（微信读书同步来的，frontmatter 有 bookId）：quote，和「阅读」首页标签的 book 分得开（DESIGN.v3 1.7）
+    if (t.type === 'note' && isDigestTab(t.path)) return <Codicon name="quote" size={15} />
     return <Codicon name={TAB_ICON[t.type]} size={15} />
   }
   // AI 动手时要的：现在看的是什么、编辑器、打开右栏网页
@@ -1184,8 +1465,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       center: center as Parameters<typeof setCenter>[0]['center'],
       lastDoc: kind === 'material' ? prev : lastDoc.current,
       doc: () => activeDoc.current,
-      aiOpen: aiFloat,
-      openAi: () => setAiFloat(true),
+      aiOpen: aiShown,
+      openAi: () => openAi(),
       askInRight: (from) => askInRightRef.current(from),
       notice: setNotice,
       refresh: () => {
@@ -1198,7 +1479,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       },
       openAiSettings: () => openSettings('ai'),
     })
-  }, [activeTab, activeMode, aiFloat, refreshNotes, refreshGit, openNote])
+  }, [activeTab, activeMode, aiShown, refreshNotes, refreshGit, openNote])
   const clipMode: ClipMode =
     activeTab?.type === 'note' && activeMode !== 'board' ? { mode: 'doc', target: titleOf(activeTab.path) } : { mode: 'inbox' }
 
@@ -1246,23 +1527,25 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     },
     openReading(path) {
       openFile(path)
-      setLower('ai')
+      openAi()
     },
     openInWeb,
     openWide,
     closeSettingsDialog: () => !settingsTab && setSettingsPage(null),
-    askAi(text) {
+    askAi(text, src) {
+      // 来源：给了用给的（右栏网页「网页《标题》」），不然是当前这一页「《文档标题》」
+      const from = src ?? (activeTab && 'path' in activeTab && activeTab.path ? `《${titleOf(activeTab.path)}》` : '选中的字')
       if (readingDoc) {
-        // 读 PDF / HTML 时 AI 在右栏下格：引文放进那边的输入框
-        setLower('ai')
-        Reading.stage(readingDoc, { page: Reading.get(readingDoc).state.page ?? 1, quote: text.slice(0, 2000), blank: true })
+        // 读 PDF / HTML 时那一格是读 PDF 的 AI：这段字成为那边输入框的第一块引用
+        openAi()
+        Reading.addMaterial(readingDoc, { kind: 'quote', text: text.trim().slice(0, 20_000), src: from }, { doc: true })
         return
       }
       setWebAsk(null)
-      setAiFloat(true)
-      setAiDraft((d) => ({ text, seq: (d?.seq ?? 0) + 1 }))
+      openAi()
+      setAiDraft((d) => ({ text, src: from, seq: (d?.seq ?? 0) + 1 }))
     },
-    notice: (t) => noticeWithUndo(t),
+    notice: (t, icon) => (noticeWithUndo(t), setNoticeIcon(icon ? { text: t, icon } : null)),
     doc: () => (clipMode.mode === 'doc' && activeDoc.current && !activeDoc.current.readOnly ? activeDoc.current : null),
     async clip(c, to) {
       const doc = activeDoc.current
@@ -1286,6 +1569,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       openNote(path, true)
     },
     trash,
+    trashMany,
+    moveMany,
     async togglePin(path, on) {
       await window.cnMenu.pin(path, on)
       refreshNotes()
@@ -1301,15 +1586,17 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     allFolders: () =>
       allFolders(
         [...notes.map((n) => n.path), ...pdfs.map((x) => x.path)],
-        [...folders.map((f) => f.folder), ...vaultFiles().filter((f) => f.kind === 'dir').map((f) => f.path)],
+        // 附件文件夹不当「移到」的去处（附件跟着笔记走）；整套分类总在（还没建的挪进去时建）
+        [...CATEGORY_NAMES, ...folders.map((f) => f.folder), ...vaultFiles().filter((f) => f.kind === 'dir' && f.path !== '附件' && !f.path.startsWith('附件/')).map((f) => f.path)],
       ),
     putOnLeft,
+    takeOffLeft,
     async moveFolder(folder, parent) {
       try {
         await NoteDoc.saveAll()
         const to = await window.cnFolder.move(folder, parent)
         setTabState((s) => ({ ...s, tabs: retargetTabs(s.tabs, folder, to) }))
-        setNotice(`「${folder.split('/').pop()}」挪到了${parent || '库的最外层'}，库里指向它的链接一起改好了`)
+        setNotice(`「${folder.split('/').pop()}」挪到了${parent || vault.name}，库里指向它的链接一起改好了`)
         refreshNotes()
         refreshGit()
       } catch (e) {
@@ -1320,7 +1607,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       await NoteDoc.saveAll()
       const to = await window.cnMenu.moveNote(path, folder)
       setTabs((x) => x.map((t) => (t.type === 'note' && t.path === path ? { ...t, path: to } : t)))
-      const where = folder || '库的最外层'
+      const where = folder || vault.name
       // 那里已经有同名的：存成了「X 2」，说出新名字（不悄悄改名）
       setNotice(titleOf(to) === titleOf(path) ? `「${titleOf(path)}」挪到了${where}` : `${where}里已经有一篇叫「${titleOf(path)}」，这篇挪过去存成「${titleOf(to)}」`)
       refreshNotes()
@@ -1344,65 +1631,122 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const frame = settings.appearance.frame
   // 梦游预览时数的是改好以后的收件箱
   const inboxCount = (pv.on ? pv.preview.notes : notes).filter((n) => n.kind === 'inbox').length
-  /** 标题栏最右的按钮：右栏开着就全收起；关着就开回上次那页（没有就开大纲） */
-  const toggleRightBar = () => {
-    if (right || lowerOpen) {
+  /**
+   * ⌘W、菜单「文件 › 关闭」（CN-98 方向 A「关这一格」）：当前栏有标签就关当前标签，没有标签就收起这一格。
+   * 中间、左栏：关中间的当前标签（左栏只是导航）；右栏网页：关当前网页标签，最后一个关掉网页这格收起；
+   * 历史、大纲、右栏下格（AI 那一格：AI 或读 PDF 的笔记）：收起这一格。每次都在底栏说一句，带「撤回」。B 的设置弹窗开着时关它
+   */
+  const closeHereRef = useRef<() => void>(() => undefined)
+  closeHereRef.current = () => {
+    if (settingsPage && !settingsTab) return setSettingsPage(null)
+    if (livePane === 'rt' && right === 'web') return webClose.current?.()
+    if (livePane === 'rt' && right) {
+      const was = right
       setRight(null)
-      if (readingPdf) setLower(null)
-    } else setRight(lastRight.current)
+      return noticeClosed(`收起了「${RIGHT_NAME[was]}」`, () => (setRight(was), setPane('rt')))
+    }
+    if (livePane === 'rb' && aiOpen) {
+      const cell = aiCell
+      const view: AiView = notesView ? 'notes' : 'ai'
+      setAiOpen(false)
+      return noticeClosed(`收起了右栏下格「${view === 'ai' ? 'AI' : '笔记'}」`, () => (setAiView(view), setAiCell(cell), setPane('rb')))
+    }
+    if (settingsTab && settingsFront) {
+      setSettingsPage(null)
+      return setNotice('关掉了「设置」')
+    }
+    if (active) closeByUser(active)
   }
-  const rightOpen = right !== null || !!lowerOpen
-  // 两条图标栏，加上 B 右栏和中间之间 6 的缝（shell.css：右栏那一列是右栏宽 + 缝）：不算进去中间就少 6，变成 414
-  const chromeW = 2 * (frame === 'a' ? 48 : 44) + (frame === 'b' && rightOpen ? 6 : 0)
-  const fit = fitPanels(winW, chromeW, sidebarHidden ? 0 : (sideW ?? SIDE_DEFAULT), rightOpen ? rightW : 0)
-  const aiOn = readingPdf ? lowerOpen === 'ai' : aiFloat
-  const aiLabel = readingPdf ? 'AI在右栏（读PDF时）' : 'AI'
+  /** 右栏网页：关当前网页标签（WebPanel 交进来） */
+  const webClose = useRef<(() => void) | null>(null)
+
+  /** 标题栏最右的按钮、⌥⌘\：右栏开着就全收起（AI 那一格一起）；关着就开回收起前开着的（没有就开上次那页，再没有开大纲） */
+  const toggleRightBar = () => {
+    if (right || aiOpen) {
+      rightShut.current = { right, ai: aiOpen ? aiCell : null }
+      setRight(null)
+      // 只开了笔记、这一页没有笔记（看不见）的不动：回到 PDF 照样是笔记
+      if (aiOpen) setAiOpen(false)
+      return
+    }
+    const s = rightShut.current
+    rightShut.current = null
+    if (s?.ai) setAiCell(s.ai)
+    if (s?.right) setRight(s.right)
+    // 开回来的这一页上什么都看不见（只开了笔记，现在不是 PDF）：开上次那页
+    else if (!(s?.ai === '1' || (s?.ai === 'notes' && notesOk))) setRight(lastRight.current)
+  }
+  toggleRightRef.current = toggleRightBar
+  const rightOpen = right !== null || aiOpen
+  /** 当前栏那一格收起了：上格没了落到下格（AI 那一格），下格没了落到上格，都没了回中间 */
+  const livePane: Pane =
+    pane === 'left' && sidebarHidden ? 'center'
+    : pane === 'rt' && !right ? (aiOpen ? 'rb' : 'center')
+    : pane === 'rb' && !aiOpen ? (right ? 'rt' : 'center')
+    : pane
+  // 两条图标栏，加上 B 的缝：右边总有一道 6（右栏开着在右栏左边，shell.css 右栏那一列是右栏宽 + 缝；关着在中间岛右边），
+  // 左栏收起时中间岛左边也有一道 6（左栏开着时那道缝算在左栏宽里）。不算进去中间就少 6，变成 414
+  const chromeW = 2 * (frame === 'a' ? 48 : 44) + (frame === 'b' ? 6 + (sidebarHidden ? 6 : 0) : 0)
+  const fit = fitPanels(winW, chromeW, sidebarHidden ? 0 : (sideW ?? SIDE_DEFAULT[frame]), rightOpen ? rightW : 0)
   const noOutline = !activeTab || !['note', 'pdf'].includes(activeTab.type)
-  // 活动栏（左栏按维度组织）：上面「文件」按位置、「最近」按时间；分隔线下面是摘出来的文件夹（单色符号，能右键、能拖着排）；再下面梦游
+  // 活动栏（左栏按维度组织）：上面「文件」按位置、「最近」按时间；分隔线下面是摘出来的文件夹：默认整套顶级分类，
+  // 按「收件箱 | 读进来的 | 自己写的 | 自己摘的」分段（方案 v2 分类与入口方向 A、分类方案 3），单色符号，能右键、能拖着排；再下面梦游
   const barItem = (id: SideView, label: string, icon: BarItem['icon'], extra: Partial<BarItem> = {}): BarItem => ({ id, label, icon, on: !sidebarHidden && shownView === id, onClick: () => toggleLeft(id), ...extra })
   const viewItems: BarItem[] = [barItem('files', '文件', 'files', { key: '⇧⌘E' }), barItem('recent', '最近', 'clockface', { key: '⇧⌘R' })]
-  const dirItems: BarItem[] = leftCfg.left.map((f) =>
+  const dirItem = (f: string): BarItem =>
     barItem(`dir:${f}`, viewName(`dir:${f}`), 'folder', {
       glyph: <FolderGlyph folder={f} mono size={0} />,
       ...(f === INBOX_DIR ? { badge: inboxCount, warn: inboxCount > INBOX_WARN, tid: 'inbox' } : {}),
+      // 点一格：左栏是它那一枝，中间开它的首页；亮着的再点一下收起左栏
+      onClick: () => (!sidebarHidden && shownView === `dir:${f}` ? setSidebarHidden(true) : (openLeft(`dir:${f}`), openFolder(f))),
       onContextMenu: (e) => {
         const el = e.currentTarget
         void menuAt(e, [
-          { label: '打开首页', run: () => openFolder(f) },
-          { label: '在「文件」里显示', run: () => showInFiles(f) },
+          { label: '从左边拿下', run: () => takeOffLeft(f) },
+          { label: '在「文件」里看位置', run: () => showInFiles(f) },
           '-',
-          { label: '设图标和颜色…', run: () => setBarLook({ folder: f, el }) },
-          { label: '上移', enabled: leftCfg.left.indexOf(f) > 0, run: () => updateLeft((c) => moveLeft(c, f, -1)) },
-          { label: '下移', enabled: leftCfg.left.indexOf(f) < leftCfg.left.length - 1, run: () => updateLeft((c) => moveLeft(c, f, 1)) },
-          '-',
-          { label: '从左边拿下来', run: () => updateLeft((c) => takeLeft(c, f)) },
+          { label: '换图标和颜色…', run: () => setBarLook({ folder: f, el }) },
+          // 只在这一段里挪（moveLeft）：段里第一个没有上移、最后一个没有下移
+          { label: '上移', enabled: moveLeft(leftCfg, f, -1) !== leftCfg, run: () => updateLeft((c) => moveLeft(c, f, -1)) },
+          { label: '下移', enabled: moveLeft(leftCfg, f, 1) !== leftCfg, run: () => updateLeft((c) => moveLeft(c, f, 1)) },
         ])
       },
       drag: { key: f, onDrop: (from, before) => void updateLeft((c) => dropLeft(c, from, before)) },
-    }),
-  )
+      fold: true,
+    })
+  const dirGroups: BarItem[][] = groupLeft(leftCfg.left).map((g) => g.map(dirItem))
   const dreamItems: BarItem[] = [barItem('dream', '梦游报告', 'wand', { dot: pendingOf(dream.report) > 0 })]
-  // 读 PDF 时竖条上只多「笔记」；AI 只有右下角那一个入口（CN-22 方向 A）
-  const readingItems: BarItem[] = readingPdf
-    ? [
-        ...(Reading.isWebSrc(readingPdf) ? [] : [{ id: 'notes', label: '笔记', key: undefined, icon: 'note' as const, on: lowerOpen === 'notes', dot: !!reading?.fresh && lowerOpen !== 'notes', onClick: () => setLower(lower === 'notes' ? null : 'notes') }]),
-      ]
-    : []
+  // 「笔记」一直在最上面（右图标栏方向 A「原地变淡」）：读 PDF / HTML 时把 AI 那一格换成笔记（D 组方向 A），再点回到点之前的样子
+  // （开着 AI 就回到 AI，收着就收起）；别的页变淡，点了说为什么；换页面五格一点都不挪。AI 只有右下角那一个入口（CN-22 方向 A）
+  const notesOn = aiOpen && notesView
+  const readingItems: BarItem[] = [
+    {
+      id: 'notes',
+      label: notesOk ? '笔记' : '笔记（打开 PDF 时才有边读边记的笔记）',
+      icon: 'note' as const,
+      dim: !notesOk,
+      why: '打开 PDF 时才有边读边记的笔记',
+      on: notesOn,
+      dot: notesOk && !!reading?.fresh && !notesOn,
+      onClick: () => (notesOn ? (aiCell === 'notes' ? setAiOpen(false) : setAiView('ai')) : (setPane('rb'), openNotes())),
+    },
+  ]
   const rightItems: BarItem[] = [
-    { id: 'outline', label: noOutline ? '大纲 · 这一页没有大纲' : '大纲', icon: 'list-tree' as const, dim: noOutline, on: right === 'outline', onClick: () => toggleRight('outline') },
+    { id: 'outline', label: noOutline ? '大纲（这一页没有标题，没有大纲）' : '大纲', icon: 'list-tree' as const, dim: noOutline, why: '这一页没有标题，没有大纲', on: right === 'outline', onClick: () => toggleRight('outline') },
     { id: 'web', label: '网页', icon: 'globe' as const, on: right === 'web' && !pluginEntries.some((e) => e.on), onClick: () => toggleRight('web') },
     ...pluginEntries,
     { id: 'history', label: '历史', icon: 'history' as const, on: right === 'history', onClick: () => toggleRight('history') },
   ]
-  // AI 开着时右下角的入口藏起来，屏上只有一个 AI 的东西；面板头上「收起 ⌘J」收起它
-  const aiCorner = aiOn ? null : frame === 'a' ? (
-      <button className={'bi ai-corner' + (aiOn ? ' on' : '')} aria-label={aiFloat && !readingPdf ? 'AI ⌘J' : '打开 AI'} aria-pressed={aiOn} data-tip={aiLabel} data-key="⌘J" data-side="above-left" onClick={toggleAi}>
-        <EngineLogo id={aiEngineId} size={14} />
-        {aiEngine}
+  // AI 的入口一直在（D 组方向 A）：B 是右图标栏最下面的圆钮（窗口右下角），A 是底栏最右一项；画正在用的那家的标志（CN-127），AI 开着时多一圈强调色
+  const aiCorner =
+    frame === 'a' ? (
+      <button className={'bi ai-corner' + (aiShown ? ' on' : '')} aria-label={aiShown ? '收起 AI' : '打开 AI'} aria-pressed={aiShown} data-tip="AI" data-key="⌘J" data-side="above-left" onClick={toggleAi}>
+        <EngineLogo id={chatEngine.id} size={14} />
+        {chatEngine.label}
       </button>
     ) : (
-      <button className={'ai-fab' + (aiOn ? ' on' : '')} aria-label={aiFloat && !readingPdf ? 'AI ⌘J' : '打开 AI'} aria-pressed={aiOn} data-tip={aiLabel} data-key="⌘J" data-side="left" onClick={toggleAi}>
-        <Codicon name="sparkle" size={18} />
+      <button className={'ai-fab' + (aiShown ? ' on' : '')} aria-label={aiShown ? '收起 AI' : '打开 AI'} aria-pressed={aiShown} data-tip="AI" data-key="⌘J" data-side="left" onClick={toggleAi}>
+        <EngineLogo id={chatEngine.id} size={18} />
       </button>
     )
 
@@ -1412,13 +1756,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         'win frame-' + frame +
         (sidebarHidden ? ' side-hidden' : '') +
         (rightOpen ? ' with-right' : '') +
-        (right && lowerOpen ? ' rsplit' : '') +
+        (right && aiOpen ? ' rsplit' : '') +
         (right === 'web' ? ' web-open' : '') +
-        (pv.on ? ' previewing' : '') +
-        (aiFloat && !right && !readingPdf ? ' ai-float' : '') +
-        (aiFloat && !readingPdf ? ' ai-on' : '')
+        (pv.on ? ' previewing' : '')
       }
-      style={{ '--right-w': `${fit.right}px`, ...(!sidebarHidden && (sideW || fit.side !== SIDE_DEFAULT) ? { '--side-w': `${fit.side}px` } : {}) } as React.CSSProperties}
+      data-pane={livePane}
+      style={{ '--right-w': `${fit.right}px`, ...(!sidebarHidden && (sideW || fit.side !== SIDE_DEFAULT[frame]) ? { '--side-w': `${fit.side}px` } : {}) } as React.CSSProperties}
     >
       {!sidebarHidden && <SideSash frame={frame} rightW={fit.right + chromeW - 2 * (frame === 'a' ? 48 : 44)} width={sideW} onWidth={setSideW} />}
       {rightOpen && (
@@ -1448,6 +1791,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         />
       )}
       <Tooltips />
+      <PaneMark pane={livePane} />
       <TitleBar
         leftOpen={!sidebarHidden}
         rightOpen={rightOpen}
@@ -1484,7 +1828,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       <ActivityBar
         side="left"
         label="左栏"
-        groups={[viewItems, dirItems, dreamItems]}
+        groups={[viewItems, ...dirGroups, dreamItems]}
         bottom={
           <>
             <button className="ab" aria-label="库" data-tip={`库：${vault.name}`} data-key="换库、在访达里显示" data-side="right" onClick={(e) => setMenu({ kind: 'vault', el: e.currentTarget })}>
@@ -1550,7 +1894,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           onOpenInbox={openInbox}
           onOpenRecent={openRecent}
           onOpenArchive={openArchive}
-          onAskAi={() => setAiFloat(true)}
+          onAskAi={() => openAi()}
           onShowInFiles={showInFiles}
           pins={pins}
           archiveDays={settings.archiveDays}
@@ -1559,16 +1903,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           onNewBoard={() => void newBoard()}
           onOpenFile={openFile}
           onRename={(p, n) => void renameFromSidebar(p, n)}
-          folders={sideFolders}
           onOpenFolder={(f) => openFolder(f)}
-          onNewCourse={() => void newCourse()}
         />
       )}
 
       <ActsSlot.Provider value={actsEl}>
       <main className={'center' + (pv.on ? ' previewing' : '') + (centerNarrow ? ' narrow' : '') + (centerCompact ? ' compact' : '')} ref={centerRef}>
         <div className="tabs">
-          <div className={'tlist' + (tabFade.left ? ' fl' : '') + (tabFade.right ? ' fr' : '')} role="tablist" ref={tlistRef} data-testid="tab-list">
+          <div className="tstrip">
+          <div className={'tlist' + (tabFade.left ? ' more-l' : '') + (tabFade.right ? ' more-r' : '')} role="tablist" ref={tlistRef} data-testid="tab-list">
             {tabs.map((t) => {
               const on = t.id === shown
               const name = tabName(t)
@@ -1593,6 +1936,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                         onFocus={(e) => e.currentTarget.select()}
                         onBlur={(e) => void renameTab(t.id, e.currentTarget.value)}
                         onKeyDown={(e) => {
+                          if (composing(e)) return
                           // 拦住这个键，不然焦点回到正文后回车会打进正文
                           if (e.key === 'Enter' || e.key === 'Escape') e.preventDefault()
                           if (e.key === 'Enter') e.currentTarget.blur()
@@ -1606,9 +1950,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                       <span className="truncate">{name}</span>
                     </button>
                   )}
-                  <button className="x" aria-label="关闭标签" onClick={() => closeTab(t.id)}>
-                    <Codicon name="close" size={14} />
-                  </button>
+                  {/* 只剩一个首页时不能关（标签关完就是首页）：不画 × */}
+                  {!(tabs.length === 1 && t.type === 'home') && (
+                    <button className="x" aria-label="关闭标签" onClick={() => closeByUser(t.id)}>
+                      <Codicon name="close" size={14} />
+                    </button>
+                  )}
                 </div>
               )
             })}
@@ -1624,6 +1971,58 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               </div>
             )}
           </div>
+          {/* 两端还藏着标签：淡出加一个小箭头，点一下挪一整个标签（标签多了方向 A） */}
+          {tabFade.left && (
+            <button className="tedge l" aria-label="往左看标签" data-testid="tab-edge-left" onClick={() => snapTabs(-1)}>
+              <Codicon name="chevron-left" size={13} />
+            </button>
+          )}
+          {tabFade.right && (
+            <button className="tedge r" aria-label="往右看标签" data-testid="tab-edge-right" onClick={() => snapTabs(1)}>
+              <Codicon name="chevron-right" size={13} />
+            </button>
+          )}
+          </div>
+          {(tabsOver || tabsMenu) && <button className={'tmore' + (tabsMenu ? ' open' : '')} aria-label="开着的标签" aria-expanded={!!tabsMenu} data-tip="开着的标签" data-side="below" data-testid="tab-more" onClick={(e) => setTabsMenu(tabsMenu ? null : e.currentTarget)}>
+            <Codicon name="list-flat" size={13} />
+            <span className="num">{`${tabs.length + (settingsTab ? 1 : 0)}`}</span>
+            <Codicon name="chevron-down" size={11} />
+          </button>}
+          {tabsMenu && (
+            <Popover anchor={tabsMenu} label="开着的标签" className="pop12 tabs-pop" align="end" onClose={() => setTabsMenu(null)}>
+              <div className="mh">{`开着的${tabs.length + (settingsTab ? 1 : 0)}个标签`}</div>
+              <div className="tl-rows" role="menu" aria-label="开着的标签">
+                {tabs.map((t) => (
+                  <div
+                    key={t.id}
+                    className={'tl-row' + (t.id === shown ? ' on' : '')}
+                    role="menuitemradio"
+                    aria-checked={t.id === shown}
+                    onClick={() => (setTabs((x) => x, t.id), setSettingsFront(false), setTabsMenu(null))}
+                  >
+                    <span className="ck">{t.id === shown && <Codicon name="check" size={12} />}</span>
+                    {tabIcon(t)}
+                    <span className="truncate">{tabName(t)}</span>
+                    {!(tabs.length === 1 && t.type === 'home') && (
+                      <button className="x" aria-label={`关闭「${tabName(t)}」`} onClick={(e) => (e.stopPropagation(), closeByUser(t.id))}>
+                        <Codicon name="close" size={11} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {settingsTab && (
+                  <div className={'tl-row' + (settingsFront ? ' on' : '')} role="menuitemradio" aria-checked={settingsFront} onClick={() => (setSettingsFront(true), setTabsMenu(null))}>
+                    <span className="ck">{settingsFront && <Codicon name="check" size={12} />}</span>
+                    <Codicon name="settings-gear" size={13} />
+                    <span className="truncate">设置</span>
+                    <button className="x" aria-label="关闭「设置」" onClick={(e) => (e.stopPropagation(), setSettingsPage(null))}>
+                      <Codicon name="close" size={11} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </Popover>
+          )}
           <div className="acts" id="tab-acts" data-testid="tab-acts" ref={setActsEl} />
         </div>
 
@@ -1651,16 +2050,6 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           />
         )}
 
-        {tabs.length === 0 && (
-          <div className="empty">
-            <p>从左边选一篇，或者</p>
-            <button className="btn btn-primary" onClick={() => void newNote()}>
-              <Codicon name="file-text" size={14} />
-              新建笔记
-            </button>
-          </div>
-        )}
-
         {tabs.map((t) =>
           t.type === 'note' ? (
             <NoteTab
@@ -1674,7 +2063,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               active={t.id === shown}
               fresh={!!t.fresh}
               notes={notes}
-              rightOpen={right !== null || aiFloat}
+              rightOpen={rightOpen}
               onDoc={(d) => (activeDoc.current = d)}
               onMode={setActiveMode}
               onOpenPath={(p, fresh) => {
@@ -1698,14 +2087,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               key={t.id}
               path={t.path}
               active={t.id === shown}
-              onAsk={() => setLower('ai')}
+              onAsk={() => openAi()}
               onShowNote={(id) => {
-                setLower('notes')
+                openNotes()
                 Reading.focusSection(t.path, id)
               }}
               onNotice={setNotice}
-              aiOpen={lowerOpen === 'ai'}
-              onOpenNote={(p) => openNote(p)}
             />
           ) : t.type === 'doubts' ? (
             <DoubtsTab
@@ -1747,7 +2134,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               onNotice={setNotice}
             />
           ) : t.type === 'html' ? (
-            <HtmlTab key={t.id} path={t.path} dream={!!t.dream} by={t.dream ? dream.report?.items.find((i) => i.files.includes(t.path))?.by : undefined} active={t.id === shown} onAsk={() => setLower('ai')} onNotice={setNotice} />
+            <HtmlTab key={t.id} path={t.path} dream={!!t.dream} by={t.dream ? dream.report?.items.find((i) => i.files.includes(t.path))?.by : undefined} active={t.id === shown} onAsk={() => openAi()} onNotice={setNotice} />
           ) : t.type === 'folder' ? (
             t.id === shown && (
               <FolderHomeView
@@ -1778,7 +2165,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               onUrl={(url, title) => setTabs((x) => x.map((y) => (y.id === t.id && y.type === 'web' && (y.url !== url || y.title !== title) ? { ...y, url, title } : y)))}
               onClip={(c) => void clip(c)}
               onNotice={setNotice}
-              onClose={() => closeTab(t.id)}
+              onClose={() => closeByUser(t.id)}
             />
           ) : t.type === 'home' ? (
             t.id === shown && (
@@ -1799,6 +2186,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 onNewBoard={() => void newBoard()}
                 onOpenWeb={() => setRight('web')}
                 onChooseFolder={() => void switchVault()}
+                onOpenCategory={(name) => {
+                  // 方向 C 的分类卡：开它的首页；左栏不在「文件」时换到它那一枝（和点活动栏那一格一样）
+                  openFolder(name)
+                  if (shownView !== 'files' && leftCfg.left.includes(name)) openLeft(`dir:${name}`)
+                }}
                 onNotice={setNotice}
               />
             )
@@ -1852,27 +2244,6 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           ) : null,
         )}
 
-        {/* 一直挂着、关上只是藏起来：正在生成的那一轮不断，再打开对话还在 */}
-        <AiPanel
-          open={aiFloat && !readingPdf}
-          tab={activeTab}
-          mode={activeMode}
-          doc={() => activeDoc.current}
-          notes={notes}
-          webUrl={aiState.webUrl}
-          context={(mentions) => contextOf(aiState, mentions)}
-          onClose={() => setAiFloat(false)}
-          onOpen={(p) => openNote(p)}
-          onShowHistory={() => setRight('history')}
-          onShowDream={() => openLeft('dream')}
-          autoRun={aiAuto}
-          draft={aiDraft}
-          onEngine={(label, id) => (setAiEngine(label), setAiEngineId(id))}
-          onChanged={() => {
-            refreshNotes()
-            refreshGit()
-          }}
-        />
         <PreviewOverlay pv={pv} />
         <ImportHost
           onOpenInbox={openInbox}
@@ -1895,8 +2266,40 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       </main>
       </ActsSlot.Provider>
 
+      {/* 右栏 AI 那一格（AiDock.tsx）：在右栏另外几页前面画，开着网页时它在下半格 */}
+      <AiDock
+        open={aiOpen}
+        view={notesView ? 'notes' : 'ai'}
+        reading={readingPdf}
+        onView={(v) => (setAiView(v), setAiOpen(true))}
+        onClose={() => setAiOpen(false)}
+        chat={{
+          tab: activeTab,
+          mode: activeMode,
+          doc: () => activeDoc.current,
+          notes,
+          webUrl: aiState.webUrl,
+          webOpen: right === 'web',
+          context: (mentions) => contextOf(aiState, mentions),
+          onOpen: (p) => openNote(p),
+          onShowHistory: () => setRight('history'),
+          onShowDream: () => openLeft('dream'),
+          autoRun: aiAuto,
+          draft: aiDraft,
+          onChanged: () => {
+            refreshNotes()
+            refreshGit()
+          },
+        }}
+        onOpenNote={(p) => openNote(p)}
+        onOpenLink={openLink}
+        onOpenHtml={openHtml}
+        onOpenDoubts={openDoubts}
+        onOpenWeb={openInWeb}
+        onNotice={setNotice}
+      />
       {right === 'outline' && <OutlineView tab={activeTab} doc={() => activeDoc.current} onClose={() => setRight(null)} onPdfPage={(f, page) => openPdfAt(f, page)} />}
-      {historyOpen && <HistoryPanel version={gitVersion} changes={git?.changes ?? []} autoMinutes={git?.autoCommitMinutes ?? 0} onCommit={commit} onClose={() => setRight(null)} onOpenDiff={openDiff} />}
+      {historyOpen && <HistoryPanel version={gitVersion} changes={git?.changes ?? []} autoMinutes={git?.autoCommitMinutes ?? 0} onCommit={commit} onClose={() => setRight(null)} onOpenDiff={openDiff} onRestore={restoreFromHistory} onNotice={setNotice} />}
       <WebPanel
         hidden={right !== 'web'}
         owner={active}
@@ -1917,22 +2320,10 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         onCloseWide={closeTab}
         onOpenNote={(p) => openNote(p)}
         onPluginSettings={() => openSettings('plugins')}
+        closeActive={webClose}
+        onClosedTab={(c) => noticeClosed(c.last ? `关掉了网页「${c.title}」，网页这格收起了` : `关掉了网页「${c.title}」`, () => (c.undo(), setRight('web'), setPane('rt')))}
       />
 
-      {readingPdf && lowerOpen && (
-        <ReadingPanel
-          key={readingPdf}
-          pdf={readingPdf}
-          which={lowerOpen}
-          onWhich={setLower}
-          onOpenNote={(p) => openNote(p)}
-          onOpenLink={openLink}
-          onOpenHtml={openHtml}
-          onOpenDoubts={openDoubts}
-          onOpenWeb={openInWeb}
-          onNotice={setNotice}
-        />
-      )}
 
 
       <ActivityBar side="right" label="右栏" groups={[readingItems, rightItems]} bottom={frame === 'b' ? aiCorner : undefined} />
@@ -1972,16 +2363,13 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         vaultPath={vault.path}
         update={<UpdateBarItem st={update} onInstall={installUpdate} onOpenSettings={() => openSettings('update')} />}
         ai={frame === 'a' ? aiCorner : undefined}
+        translate={frame === 'a' ? <TranslateItem /> : undefined}
+        bell={frame === 'a' ? <BellItem /> : undefined}
         toast={
           notice && (
           <div className={'toast-cn' + (undoable || actable ? ' with-act' : '')} role="status" data-testid="toast" onMouseEnter={() => setNoticeHover(true)} onMouseLeave={() => setNoticeHover(false)}>
+            {noticeIcon?.text === notice && <Codicon name={noticeIcon.icon} size={14} className={'tl-ic' + (noticeIcon.ok ? ' ok' : '')} />}
             <span data-tip={notice}>{notice}</span>
-            {undoable && (
-              <button className="btn btn-ghost btn-sm" data-tip="撤回" data-key="⌘Z" onClick={runNoticeUndo}>
-                <Codicon name="discard" size={14} />
-                撤回
-              </button>
-            )}
             {actable && (
               <button
                 className="btn btn-ghost btn-sm"
@@ -1996,12 +2384,51 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 {noticeAct!.label}
               </button>
             )}
+            {undoable && (
+              <button className="btn btn-ghost btn-sm" data-tip="撤回" data-key={noticeUndo!.noKey ? undefined : '⌘Z'} onClick={runNoticeUndo}>
+                <Codicon name="discard" size={14} />
+                撤回
+              </button>
+            )}
           </div>
         )
         }
       />
     </div>
   )
+}
+
+/**
+ * 当前栏里没有标签的格子（历史、大纲、右栏下格的笔记 / AI、左栏）：标题下面一道 2px 强调色，贴在格子头的底边（CN-98）。
+ * 量着标题和格子头摆，每次画完都对一下（拖宽右栏、换左栏那一页都跟着）
+ */
+const PANE_TITLE: Partial<Record<Pane, string>> = {
+  left: '.win > .side .vh h2 .t, .win > .side .rhead > b',
+  rt: '.win > aside.right.outline .vh h2 .t, .win > aside.right:not(.web):not(.outline):not(.aicell) .rhead > b',
+  rb: '.win > aside.right.aicell:not([hidden]) .aih > b',
+}
+function PaneMark({ pane }: { pane: Pane }) {
+  const ref = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const mark = ref.current
+    if (!mark) return
+    const place = () => {
+      const sel = PANE_TITLE[pane]
+      const t = sel ? document.querySelector<HTMLElement>(sel) : null
+      const head = t?.closest<HTMLElement>('.rhead, .vh, .aih')
+      if (!t || !head) return void (mark.hidden = true)
+      const a = t.getBoundingClientRect()
+      const h = head.getBoundingClientRect()
+      mark.hidden = false
+      mark.style.left = `${a.left - 2}px`
+      mark.style.width = `${a.width + 4}px`
+      mark.style.top = `${h.bottom - 2}px`
+    }
+    place()
+    window.addEventListener('resize', place)
+    return () => window.removeEventListener('resize', place)
+  })
+  return <i ref={ref} className="pane-mark" data-testid="pane-mark" data-pane={pane} hidden />
 }
 
 /** 标签上写的名字 */
@@ -2036,6 +2463,12 @@ function tabName(t: Tab): string {
     case 'oldimages':
       return '梦游预览 · 挪老图'
   }
+}
+
+/** 这个标签开着的是书摘吗：看开着的那份文档开头的属性（认 bookId，不看路径；读开头 4000 字就够看到属性） */
+function isDigestTab(path: string): boolean {
+  const d = [...NoteDoc.open].find((x) => x.path === path)
+  return !!d && isBookDigest(d.view.state.doc.sliceString(0, Math.min(d.view.state.doc.length, 4000)))
 }
 
 /** 标的图标在 Desk 里画（白板用它自己的颜色方块、文件夹用它的图标） */

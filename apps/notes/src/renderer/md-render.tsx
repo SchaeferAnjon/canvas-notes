@@ -1,7 +1,8 @@
 import { Codicon } from '@cn/design'
-import { detailsHead } from '@cn/format'
+import { detailsHead, wikiLabel } from '@cn/format'
 import type { ReactNode } from 'react'
 import { parseCallout } from './callout'
+import { MathBlock, MathInline } from './reading/math'
 
 /** 和第 from 行之前那个折叠块配对的 </details> 在第几行（里面套着的折叠块数着开、关跳过）；没有是 -1 */
 function detailsClose(lines: string[], from: number): number {
@@ -20,14 +21,53 @@ function detailsClose(lines: string[], from: number): number {
 }
 
 /**
+ * 引文下面挂的一段「我的评价：」「微信读书的想法：」（和文档里 review.ts 的 tagOf 一个认法：「微信读书的想法」要带冒号）：
+ * 哪种、标签连冒号多长
+ */
+export function reviewTag(line: string): { wr: boolean; len: number } | null {
+  const m = /^(\*\*)?(我的评价|微信读书的想法)(\*\*)?([：:])?(\*\*)?[ \t]*/.exec(line)
+  if (!m) return null
+  const wr = m[2] === '微信读书的想法'
+  if (wr && !m[4]) return null
+  return { wr, len: m[0].length }
+}
+
+/**
+ * 「我的评价」「微信读书的想法」一段：前面一个小标签（文件里的冒号不画），挂在引文下面时从引文竖线拐下来一道弯钩（hooked）。
+ * 和文档里（review.css 的 cm-review-tag）一个样子，卡片里小一号
+ */
+export function Attached({ wr, children, hooked, clamp }: { wr: boolean; children: ReactNode; hooked: boolean; clamp?: string }) {
+  const tag = <span className={'md-review-tag' + (wr ? ' wr' : '')}>{wr ? '微信读书的想法' : '我的评价'}</span>
+  return (
+    <div className={'md-attached' + (hooked ? ' hooked' : '')} data-kind={wr ? 'wr' : 'me'}>
+      {clamp ? (
+        <div className={clamp}>
+          {tag}
+          {children}
+        </div>
+      ) : (
+        <>
+          {tag}
+          {children}
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
  * AI 回答里的 md 显示成排好的样子：标题、列表、引用、代码块、分隔线、段落，行内的加粗、斜体、代码、链接、双链。
  * 全部走 React 元素（不拼 HTML）；边生成边显示时半截的 md 也照常显示。
+ * math：公式用 KaTeX 排（CN-89，AI 回答才开）：行内 $…$，单独成行的 $$…$$（一行写完，或上下两行 $$ 夹着）；
+ * 白板卡片这些自己写的字不开（「$5 和 $10」这样的钱数不该变成公式）
  */
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, math = false }: { text: string; math?: boolean }) {
   const lines = text.replace(/\r\n/g, '\n').split('\n')
   const out: ReactNode[] = []
   let i = 0
   const key = () => out.length
+  /** 最后一块引文（或者挂在引文下面的评价）在 out 里的位置：紧跟着它、以标签开头的一段挂上去，画弯钩 */
+  let hookable = -1
   while (i < lines.length) {
     const line = lines[i]!
     const fence = /^\s*(```|~~~)/.exec(line)
@@ -47,12 +87,20 @@ export function Markdown({ text }: { text: string }) {
       i++
       continue
     }
+    // 单独成行的公式：$$…$$ 一行写完，或者 $$ 一行开头、$$ 一行结尾（边生成边显示还没到结尾时先按字显示）
+    const one = math ? /^\s*\$\$(.+?)\$\$\s*$/.exec(line) : null
+    const end = math && !one && /^\s*\$\$\s*$/.test(line) ? lines.findIndex((l, k) => k > i && /^\s*\$\$\s*$/.test(l)) : -1
+    if (one || end !== -1) {
+      out.push(<MathBlock key={key()} latex={(one ? one[1]! : lines.slice(i + 1, end).join('\n')).trim()} />)
+      i = one ? i + 1 : end + 1
+      continue
+    }
     const h = /^(#{1,6})\s+(.*)$/.exec(line)
     if (h) {
       const level = Math.min(h[1]!.length, 3)
       out.push(
         <div key={key()} className={`md-h md-h${level}`}>
-          {inline(h[2]!, key())}
+          {inline(h[2]!, key(), math)}
         </div>,
       )
       i++
@@ -71,9 +119,9 @@ export function Markdown({ text }: { text: string }) {
         <details key={key()} className="md-fold" open={det.open}>
           <summary>
             <Codicon name="chevron-right" size={14} />
-            <span>{inline(det.title, key())}</span>
+            <span>{inline(det.title, key(), math)}</span>
           </summary>
-          <Markdown text={lines.slice(i + det.lines, close).join('\n')} />
+          <Markdown text={lines.slice(i + det.lines, close).join('\n')} math={math} />
         </details>,
       )
       i = close + 1
@@ -100,16 +148,17 @@ export function Markdown({ text }: { text: string }) {
                 <span className="md-callout-name">{title}</span>
               )}
             </div>
-            {body.length > 1 && <Markdown text={body.slice(1).join('\n')} />}
+            {body.length > 1 && <Markdown text={body.slice(1).join('\n')} math={math} />}
           </div>,
         )
         continue
       }
       out.push(
         <blockquote key={key()} className="md-quote">
-          {joinLines(body, key())}
+          {joinLines(body, key(), math)}
         </blockquote>,
       )
+      hookable = out.length - 1
       continue
     }
     // 表格：表头行下面紧跟分隔行 |---|:---:| 才算；边生成边显示时分隔行还没到，先按段落显示
@@ -128,7 +177,7 @@ export function Markdown({ text }: { text: string }) {
               <tr>
                 {head.map((c, j) => (
                   <th key={j} style={st(j)}>
-                    {inline(c, `${k}-h${j}`)}
+                    {inline(c, `${k}-h${j}`, math)}
                   </th>
                 ))}
               </tr>
@@ -138,7 +187,7 @@ export function Markdown({ text }: { text: string }) {
                 <tr key={r}>
                   {head.map((_, j) => (
                     <td key={j} style={st(j)}>
-                      {inline(row[j] ?? '', `${k}-${r}-${j}`)}
+                      {inline(row[j] ?? '', `${k}-${r}-${j}`, math)}
                     </td>
                   ))}
                 </tr>
@@ -179,7 +228,7 @@ export function Markdown({ text }: { text: string }) {
           {items.map((it, j) => (
             <li key={j} style={it.indent ? { marginLeft: Math.min(it.indent, 8) * 6 } : undefined} className={it.done === undefined ? undefined : it.done ? 'md-task done' : 'md-task'}>
               {it.done !== undefined && <span className="md-box">{it.done ? '✓' : ''}</span>}
-              {inline(it.text, `${key()}-${j}`)}
+              {inline(it.text, `${key()}-${j}`, math)}
             </li>
           ))}
         </List>,
@@ -195,13 +244,22 @@ export function Markdown({ text }: { text: string }) {
     )
       para.push(lines[i++]!)
     if (!para.length) para.push(lines[i++]!)
-    // 「我的评价」开头的一段：前面一个小标签（同文档里的 cm-review-tag）；后面紧跟的冒号并进标签，「我的评价：」一体
-    const review = /^(\*\*)?我的评价([：:])?(\*\*)?([：:])?/.exec(para[0]!)
-    if (review) para[0] = para[0]!.slice(review[0].length)
+    // 「我的评价」「微信读书的想法：」开头的一段：前面一个小标签（同文档里的 cm-review-tag，冒号不画）；跟在引文下面就从竖线拐一道弯钩
+    const tag = reviewTag(para[0]!)
+    if (tag) {
+      para[0] = para[0]!.slice(tag.len)
+      const hooked = hookable >= 0 && hookable === out.length - 1
+      out.push(
+        <Attached key={key()} wr={tag.wr} hooked={hooked}>
+          {joinLines(para, key(), math)}
+        </Attached>,
+      )
+      if (hooked) hookable = out.length - 1
+      continue
+    }
     out.push(
       <p key={key()} className="md-p">
-        {review && <span className="md-review-tag">{`我的评价${review[2] ?? review[4] ?? ''}`}</span>}
-        {joinLines(para, key())}
+        {joinLines(para, key(), math)}
       </p>,
     )
   }
@@ -219,27 +277,41 @@ function cells(l: string): string[] {
     .map((c) => c.trim().replace(/\\\|/g, '|'))
 }
 
-function joinLines(lines: string[], k: number): ReactNode[] {
-  return lines.flatMap((l, j) => (j ? [<br key={`${k}-br${j}`} />, ...inline(l, `${k}-${j}`)] : inline(l, `${k}-${j}`)))
+function joinLines(lines: string[], k: number, math: boolean): ReactNode[] {
+  return lines.flatMap((l, j) => (j ? [<br key={`${k}-br${j}`} />, ...inline(l, `${k}-${j}`, math)] : inline(l, `${k}-${j}`, math)))
 }
 
 const INLINE = /(!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)|\*\*[^*]+\*\*|==[^=\s](?:[^=]*[^=\s])?==|~~[^~]+~~|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)\s]+(?:\s+"[^"]*")?\))/g
+/**
+ * 开了公式时多认两样：$$…$$ 和 $…$。$ 后面紧跟非空白、收尾的 $ 前面也是非空白、后面不跟数字才算（pandoc 的规矩），
+ * 「$5 和 $10」这样的钱数不当公式；代码里的 $ 先被 `…` 吃掉
+ */
+const MATH = String.raw`\$\$[^$\n]+?\$\$|\$[^\s$](?:[^$\n]*?[^\s$])?\$(?!\d)`
+const INLINE_MATH = new RegExp(`(${MATH}|${INLINE.source.slice(1, -1)})`, 'g')
+/** 汉字、假名、谚文（中西文之间要留 1/8 字宽的那一边；标点不算） */
+const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
 
-export function inline(s: string, keyBase: string | number = ''): ReactNode[] {
+export function inline(s: string, keyBase: string | number = '', math = false): ReactNode[] {
   const out: ReactNode[] = []
   let last = 0
-  for (const m of s.matchAll(INLINE)) {
+  for (const m of s.matchAll(math ? INLINE_MATH : INLINE)) {
     if (m.index! > last) out.push(s.slice(last, m.index))
     const t = m[0]
     const key = `${keyBase}-${m.index}`
     // 正文中间的图片只留说明文字：卡片里放大图会把卡片撑得很长
     if (t.startsWith('![')) out.push(<span key={key} className="img-alt">{t.slice(2, t.indexOf(']')) || '图片'}</span>)
-    else if (t.startsWith('**')) out.push(<b key={key}>{t.slice(2, -2)}</b>)
+    else if (t.startsWith('$')) {
+      // 紧挨着汉字（AI 没打空格）：那一边留 1/8 字宽（KaTeX 是 inline-block，text-autospace 加不上）
+      const gap = `${CJK.test(s[m.index! - 1] ?? '') ? ' gl' : ''}${CJK.test(s[m.index! + t.length] ?? '') ? ' gr' : ''}`
+      out.push(<MathInline key={key} latex={t.replace(/^\$\$?|\$\$?$/g, '').trim()} gap={gap} />)
+    }
+    // 加粗里面的公式、代码照常排
+    else if (t.startsWith('**')) out.push(<b key={key}>{inline(t.slice(2, -2), key, math)}</b>)
     // 高亮、删除线：和文档里（live-preview 的 cm-hl、cm-strike）一个样子
     else if (t.startsWith('==')) out.push(<mark key={key} className="md-hl">{t.slice(2, -2)}</mark>)
     else if (t.startsWith('~~')) out.push(<s key={key}>{t.slice(2, -2)}</s>)
     else if (t.startsWith('`')) out.push(<code key={key}>{t.slice(1, -1)}</code>)
-    else if (t.startsWith('[[')) out.push(<span key={key} className="wl">{t.slice(2, -2).split('|').pop()}</span>)
+    else if (t.startsWith('[[')) out.push(<span key={key} className="wl">{wikiLabel(t.slice(2, -2))}</span>)
     // 读 PDF 时 AI 回答里的「[第 4 页](#page=4)」：点了 PDF 翻过去（右栏 AI 接住点击）
     else if (/\]\(#page=\d+\)$/.test(t)) out.push(<a key={key} className="pg" data-page={/#page=(\d+)/.exec(t)![1]}>{t.slice(1, t.indexOf(']'))}</a>)
     else if (t.startsWith('[')) out.push(<u key={key}>{t.slice(1, t.indexOf(']'))}</u>)

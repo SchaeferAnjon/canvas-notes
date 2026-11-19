@@ -90,7 +90,7 @@ test('拖把手挪块：整块挪过去，块之间一个空行；紧凑列表�
   }
 })
 
-test('点把手出块菜单：转换成标题、待办、引用，复制一份，删除，上下移；⌥⇧↑↓ 挪光标所在的块', async () => {
+test('点把手出块菜单（DESIGN.v3 6.4）：转成标题、待办、引用，复制一块，删除；⌥⇧↑↓ 挪光标所在的块', async () => {
   const md = '# 笔记\n\n甲段\n\n乙段\n\n丙段\n'
   const run = await launch({ '笔记.md': md })
   const { page, vault } = run
@@ -106,22 +106,24 @@ test('点把手出块菜单：转换成标题、待办、引用，复制一份�
   }
   try {
     await openNote(page, '笔记')
-    await pick('乙段', '二级标题')
+    await pick('乙段', '转成标题')
     await waitSaved(page)
     expect(read(vault, '笔记.md')).toBe('# 笔记\n\n甲段\n\n## 乙段\n\n丙段\n')
     await expect(pane(page).locator('.cm-h2')).toHaveText(/乙段/)
 
-    await pick('甲段', '待办')
+    await pick('甲段', '转成待办')
     await waitSaved(page)
     expect(read(vault, '笔记.md')).toBe('# 笔记\n\n- [ ] 甲段\n\n## 乙段\n\n丙段\n')
 
-    await pick('丙段', '引用')
-    await pick('丙段', '复制一份')
+    await pick('丙段', '转成引用')
+    await pick('丙段', '复制一块')
     await waitSaved(page)
     expect(read(vault, '笔记.md')).toBe('# 笔记\n\n- [ ] 甲段\n\n## 乙段\n\n> 丙段\n\n> 丙段\n')
 
     await pick('乙段', '删除')
-    await pick('甲段', '下移')
+    // 下移：菜单里没有了（照稿），键盘 ⌥⇧↓ 照旧
+    await line(page, '甲段').click()
+    await page.keyboard.press('Alt+Shift+ArrowDown')
     await waitSaved(page)
     expect(read(vault, '笔记.md')).toBe('# 笔记\n\n> 丙段\n\n- [ ] 甲段\n\n> 丙段\n')
 
@@ -163,9 +165,9 @@ test('/ 菜单：插入标题、待办、表格、链接到笔记、日期；打
     // 打 / 弹出菜单；Esc 关掉，/ 留着当普通字
     await page.keyboard.type('/')
     await expect(slash(page)).toBeVisible()
-    // 16 项 + 数据库（CN-19）
-    // 第 1 轮加了「提示块 · 说明」「折叠块」（提示块别的类型打字筛选时才列）
+    // DESIGN.v3 6.3 的四组 15 项 + 提示块 · 说明、折叠块、日期、数据库（提示块别的类型打字筛选时才列）
     await expect(slash(page).getByRole('option')).toHaveCount(19)
+    await expect(slash(page).locator('.slash-g')).toHaveText(['基本', '图片和表格', '链接', 'AI'])
     await page.keyboard.press('Escape')
     await expect(slash(page)).toBeHidden()
     await page.keyboard.press('Backspace')
@@ -179,9 +181,9 @@ test('/ 菜单：插入标题、待办、表格、链接到笔记、日期；打
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
 
-    // 中文筛选、↓ 选第二个：「待办」筛出「待办列表」一个
+    // 中文筛选：「待办」筛出「待办」一个
     await page.keyboard.type('/待办')
-    await expect(slash(page).getByRole('option', { name: /待办列表/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(slash(page).getByRole('option', { name: /^待办/ })).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Enter')
     await page.keyboard.type('买菜')
     await page.keyboard.press('Enter')
@@ -189,20 +191,21 @@ test('/ 菜单：插入标题、待办、表格、链接到笔记、日期；打
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
 
-    // ↑↓ 选：「列表」筛出 待办 / 无序 / 有序，↓ 两次是有序列表
+    // ↑↓ 选：「列表」筛出 列表（圆点）/ 编号列表，↓ 一次是编号列表
     await page.keyboard.type('/列表')
-    await expect(slash(page).getByRole('option')).toHaveCount(3)
+    await expect(slash(page).getByRole('option')).toHaveCount(2)
     await page.keyboard.press('ArrowDown')
-    await page.keyboard.press('ArrowDown')
-    await expect(slash(page).getByRole('option', { name: /有序列表/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(slash(page).getByRole('option', { name: /编号列表/ })).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Enter')
     await page.keyboard.type('第一步')
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
 
-    // 链接到笔记：插入 [[ ]] 并弹出笔记列表，打字筛选
+    // 链接到笔记：插入 [[ ]] 并弹出笔记列表，打字筛选（「/链接」先列白板链接，↓ 选链接到笔记）
     await page.keyboard.type('/链接')
+    await page.keyboard.press('ArrowDown')
+    await expect(slash(page).getByRole('option', { name: /链接到笔记/ })).toHaveAttribute('aria-selected', 'true')
     await page.keyboard.press('Enter')
     const notes = page.getByRole('listbox', { name: '链接到笔记' })
     await expect(notes).toBeVisible()
@@ -221,12 +224,18 @@ test('/ 菜单：插入标题、待办、表格、链接到笔记、日期；打
     await page.keyboard.type('/日期')
     await page.keyboard.press('Enter')
 
-    // 表格：插入 3×3，第一格选中，直接打字换掉
+    // 表格：插入 3×3（光标停在表格前面那一行）
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
     await page.keyboard.type('/表格')
     await page.keyboard.press('Enter')
-    await page.keyboard.type('名字')
+    // 点第一格就地改（方向 A：表格不露「|」，格子里直接打字）
+    const t0 = pane(page).locator('.cm-table table')
+    await t0.locator('th').first().click()
+    const cell = pane(page).locator('.cm-cellin')
+    await expect(cell).toBeFocused()
+    await cell.fill('名字')
+    await cell.press('Escape')
     await page.keyboard.press('Meta+s')
     await waitSaved(page)
 
@@ -256,24 +265,29 @@ test('/ 菜单：插入标题、待办、表格、链接到笔记、日期；打
       ].join('\n'),
     )
 
-    // 光标离开表格，文档里显示成表格
+    // 光标在哪都显示成表格（不露「|」）
     await line(page, '开头一段').click()
     const table = pane(page).locator('.cm-table table')
     await expect(table).toBeVisible()
     await expect(table.locator('th')).toHaveText(['名字', '列 2', '列 3'])
     await expect(table.locator('tbody tr')).toHaveCount(2)
-    // 点一格，回到 md 原文接着改
+    // 点一格就地改，Tab 跳下一格
     await table.locator('th').nth(1).click()
-    await expect(table).toBeHidden()
+    await expect(table).toBeVisible()
+    await expect(pane(page).locator('.cm-cellin')).toBeFocused()
+    await page.keyboard.press('End')
     await page.keyboard.type('数量')
+    await page.keyboard.press('Tab')
+    await page.keyboard.type('单位')
+    await page.keyboard.press('Escape')
     await waitSaved(page)
-    expect(read(vault, '写作.md')).toContain('| 名字 | 列 2数量 | 列 3 |')
+    expect(read(vault, '写作.md')).toContain('| 名字 | 列 2数量 | 单位 |')
   } finally {
     await run.close()
   }
 })
 
-test('「+」在下面加一块并打开 / 菜单；Esc 把加出来的空行拿掉', async () => {
+test('「+」打开插入菜单（不写「/」）；Esc 什么都不留；打字筛选、回车插在这一块后面', async () => {
   const md = '# 加块\n\n第一段\n\n第二段\n'
   const run = await launch({ '加块.md': md })
   const { page, vault } = run
@@ -286,7 +300,7 @@ test('「+」在下面加一块并打开 / 菜单；Esc 把加出来的空行拿
     expect(read(vault, '加块.md')).toBe(md)
 
     await clickAdd(page, '第一段')
-    await page.keyboard.type('三级')
+    await page.keyboard.type('h3')
     await page.keyboard.press('Enter')
     await page.keyboard.type('中间的小标题')
     await waitSaved(page)
@@ -338,19 +352,23 @@ test('/ 白板 新建子白板并插入链接；/ 图片 拷进附件并显示�
     await page.keyboard.press('End')
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
+    // 「白板链接」：从库里的白板里挑，第一行「新建白板」
     await page.keyboard.type('/白板')
+    await page.keyboard.press('Enter')
+    const boards = page.getByRole('listbox', { name: '白板链接' })
+    await expect(boards.getByRole('option').first()).toContainText('新建白板')
     await page.keyboard.press('Enter')
     await expect(page.locator('.nav .si', { hasText: '未命名白板' })).toBeVisible()
     await waitSaved(page)
-    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n[[未命名白板]]\n')
+    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n[[未命名白板]]\n\n\n')
     expect(read(vault, '未命名白板.md')).toContain('type: board')
 
     // 系统的选文件对话框换成直接给一张图（主进程里替换 dialog）
     await run.app.evaluate(({ dialog }, file) => {
       dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [file] })) as typeof dialog.showOpenDialog
     }, join(tmp, '猫 咪.png'))
-    await page.keyboard.press('Enter')
-    await page.keyboard.press('Enter')
+    // 白板链接画成一张卡，光标已经在卡下面新起的一段
+    await expect(pane(page).locator('[data-part="白板链接"]')).toContainText('未命名白板')
     await page.keyboard.type('/图片')
     await page.keyboard.press('Enter')
     // 拷进这篇自己的附件文件夹 附件/<笔记名>/，说明默认空（CN-40）
@@ -423,7 +441,9 @@ test('挪块和插入之后：外部改动合并进来，正在打的字不丢�
     )
     expect(readdirSync(vault).filter((f) => f.includes('冲突'))).toHaveLength(0)
 
-    while ((await page.locator('.tab').count()) > 0) await page.locator('.tab.on .x').click()
+    // 关掉所有标签；关完回到首页，只剩首页时不再关（它也没有 ×）
+    const tabs = page.getByTestId('tab-list').getByRole('tab')
+    while (!((await tabs.count()) === 1 && (await page.getByTestId('tab-on').textContent()) === '首页')) await page.locator('.tab.on .x').click()
     await page.waitForTimeout(1200)
     expect(gitStatus(vault)).toBe(' M 旅行.md\n')
   } finally {

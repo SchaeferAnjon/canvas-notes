@@ -220,7 +220,6 @@ export class Indexer {
     const data = new Uint8Array(await readFile(abs))
     const hash = pdfHash(data)
     const cachePath = textCachePath(this.o.userData, hash)
-    // 有 MinerU 认好的（m1）用它，没有用 pdf.js 拼的
     const c = readTextCache(this.o.userData, hash)
     if (c?.sizes) return { pages: c.pages, sizes: c.sizes }
     const r = await this.o.readPdf(abs)

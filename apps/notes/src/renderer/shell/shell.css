@@ -34,8 +34,7 @@
   grid-column: 3;
   grid-row: 2;
 }
-.win > .right:not(.abar),
-.win > .ai.docked {
+.win > .right:not(.abar) {
   grid-column: 4;
   grid-row: 2;
   padding-top: 0;
@@ -162,6 +161,9 @@
   align-items: center;
   z-index: 4;
   -webkit-app-region: no-drag;
+  /* 窗口矮时不撑高这一行：放不下的分类收进「⋯」（ActivityBar 量 scrollHeight > clientHeight） */
+  min-height: 0;
+  overflow: hidden;
 }
 .abar.left {
   grid-column: 1;
@@ -213,6 +215,21 @@
 }
 .ab.dim {
   opacity: 0.4;
+}
+/* 点了变淡的那格时旁边说的一句（右图标栏方向 A：「打开 PDF 时才有边读边记的笔记」） */
+.ab-say {
+  position: fixed;
+  z-index: 210;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: var(--pop);
+  box-shadow:
+    0 0 0 1px var(--line2),
+    0 6px 16px -6px rgba(0, 0, 0, 0.2);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t1);
+  white-space: nowrap;
 }
 .ab .sr {
   position: absolute;
@@ -296,6 +313,10 @@
   color: var(--t3);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.side .vh h2 .sub {
+  font-weight: inherit;
+  color: inherit;
 }
 .ib {
   height: 24px;
@@ -477,6 +498,10 @@
 }
 .status .pv-bar .btn {
   height: 20px;
+}
+/* 开头的呼吸点：用条上的字色（强调色底上是白的，设计稿 design/frame 的 .pv-msg .pd），不然和底同色看不见 */
+.status .pv-bar .pd {
+  background: currentColor;
 }
 /* 底栏里的预览条：宽度由内容定（浮在中间栏时的 max-width 在这里会让说明被省略号截掉） */
 .status .pv-bar {
@@ -677,6 +702,55 @@ body.resizing-left .win > .vsplit {
   color: var(--t3);
 }
 
+/* 方案小样里的弹层（标签条「12 ⌄」、历史 ⋯）：圆角 12、内边距 6、每行 30 高圆角 8（DESIGN.md 圆角：12 弹层、8 菜单项） */
+.shell-menu.pop12 {
+  padding: 6px;
+  border-radius: 12px;
+}
+.shell-menu.pop12 .mh {
+  padding: 4px 8px;
+}
+.shell-menu.pop12 .mi,
+.shell-menu.pop12 .pi {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+}
+.shell-menu .pi {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: none;
+  color: var(--t1);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+.shell-menu .pi:hover {
+  background: var(--fill2);
+}
+.shell-menu .pi > .ci {
+  flex: none;
+  color: var(--t2);
+}
+.shell-menu .pi .ck {
+  margin-left: auto;
+  color: var(--acc);
+}
+.shell-menu .pnote {
+  margin: 0;
+  padding: 2px 8px 6px 30px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+/* 历史 ⋯ 的开关：290 宽 */
+.shell-menu.hist-more {
+  width: 290px;
+}
+
 /* ---------- 设置：界面风格的两张小图 ---------- */
 .fr-pv {
   display: grid;
@@ -753,6 +827,57 @@ body.resizing-left .win > .vsplit {
   opacity: 1;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc-on) 40%, transparent);
 }
+/* A 底栏右端：「译 · Claude Code」、通知铃（有没看过的提示时右上一个 6px 强调色小点） */
+.status .bi.bell {
+  position: relative;
+}
+.status .bi.bell .bdot {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+.shell-menu .tr-eng {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.shell-menu.notices {
+  width: 360px;
+}
+.shell-menu.notices .nlist {
+  max-height: 320px;
+  overflow: auto;
+}
+.shell-menu.notices .nrow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t1);
+}
+.shell-menu.notices .nrow .t {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.shell-menu.notices .nrow .when {
+  flex: none;
+  font-size: 11px;
+  color: var(--t3);
+}
+.shell-menu.notices .nempty {
+  margin: 0;
+  padding: 6px 10px 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
 .status .ai-corner {
   padding: 0 10px;
   font-weight: 500;
@@ -764,6 +889,8 @@ body.resizing-left .win > .vsplit {
 /* ======================= 方向 B：浮岛书桌 ======================= */
 .frame-b {
   --abar-w: 44px;
+  /* 左栏这一列 248（含岛右边 6 的缝），DESIGN.v3 1.3 */
+  --side-w: 248px;
   --title-h: 40px;
   --status-h: 30px;
   --gap: 6px;
@@ -787,7 +914,7 @@ body.resizing-left .win > .vsplit {
 .frame-b .ab {
   width: 34px;
   height: 34px;
-  margin: 3px 0;
+  margin: 2px 0;
   border-radius: 8px;
 }
 .frame-b .ab .ci {
@@ -804,6 +931,9 @@ body.resizing-left .win > .vsplit {
 }
 .frame-b .abar.right .ab.on::before {
   right: -5px;
+}
+[data-frame='b'][data-winbg='photo'] .frame-b .abar .ab.on::before {
+  background: color-mix(in srgb, var(--acc) 40%, #fff);
 }
 .frame-b .ab .badge {
   right: -4px;
@@ -857,15 +987,28 @@ body.resizing-left .win > .vsplit {
 .frame-b > .center {
   background: var(--win);
 }
+/* 左栏收起、右栏关着时，中间岛和图标栏之间也留 6 的缝（同小样 .isl.mid left:50px / right:50px），不贴着图标栏 */
+.frame-b.side-hidden > .center {
+  margin-left: var(--gap);
+}
+.frame-b:not(.with-right) > .center {
+  margin-right: var(--gap);
+}
 .frame-b > .right:not(.abar) {
   margin-left: var(--gap);
 }
-.frame-b.rsplit > .right:not(.reading-ai):not(.reading-notes) {
-  height: calc(46% - 3px);
+/* 右栏两格时是一块岛（D 组方向 A）：上格网页、大纲、历史，下格 AI，各一半高，中间一条 1px --line2；上格不投影（落在 AI 头上），外圈只画上左右三边 */
+.frame-b.rsplit > .right:not(.abar):not(.aicell) {
+  height: 50%;
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
+  box-shadow: 0 0 0 1px var(--line);
+  clip-path: inset(-1px -1px 0 -1px round 11px 11px 0 0);
 }
-.frame-b.rsplit > .right.reading-ai,
-.frame-b.rsplit > .right.reading-notes {
-  height: calc(54% - 3px);
+.frame-b.rsplit > .right.aicell {
+  height: 50%;
+  border-radius: 0 0 10px 10px;
+  border-top: 1px solid var(--line2);
 }
 .frame-b > .status {
   grid-column: 2 / 5;
@@ -888,6 +1031,13 @@ body.resizing-left .win > .vsplit {
 .frame-b .status button.bi:hover:not(:disabled) {
   background: var(--fill2);
   color: var(--t1);
+}
+/* 预览时整条底栏只剩预览胶囊（设计稿：.win.previewing .status 透明），胶囊后面不留一段空的磨砂底 */
+.frame-b.previewing > .status {
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 .frame-b.previewing .status .pv-slot {
   background: var(--acc-bg);
@@ -921,7 +1071,10 @@ body.resizing-left .win > .vsplit {
 .frame-b .vsplit {
   right: calc(var(--right-w) + var(--abar-w) - 3px);
 }
-/* B 的 AI：右图标栏最下面的圆按钮，正好在窗口右下角 */
+/* B 的 AI：右图标栏最下面的圆按钮，在窗口右下角；下沿比右栏岛的下沿高 4（D 组小样：不落到底栏那一行） */
+.frame-b .abar.right {
+  padding-bottom: calc(var(--status-h) + 4px);
+}
 .abar .ai-fab {
   position: static;
   width: 34px;
@@ -949,6 +1102,13 @@ body.resizing-left .win > .vsplit {
   backdrop-filter: none;
   -webkit-app-region: no-drag;
 }
+/* 标签和两端的箭头：标签在 .tlist 里横着滚，箭头压在 .tstrip 两端不跟着滚 */
+.tabs .tstrip {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
 .tabs .tlist {
   flex: 1;
   min-width: 0;
@@ -960,20 +1120,132 @@ body.resizing-left .win > .vsplit {
 .tabs .tlist::-webkit-scrollbar {
   display: none;
 }
-/* 能滚的那一侧 24 的渐隐，看得出后面还有标签（照 VS Code）；App 量好了挂 .fl / .fr */
-.tabs .tlist.fl {
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px);
-  mask-image: linear-gradient(to right, transparent, #000 24px);
+/* 滚到最右时左端也停在标签开头（标签多了方向 A「停在标签边上」）：差的那一段空补在最后一个标签后面，App 量好写进 --tab-tail */
+.tabs .tlist[data-tail]::after {
+  content: '';
+  flex: none;
+  width: var(--tab-tail, 0px);
 }
-.tabs .tlist.fr {
-  -webkit-mask-image: linear-gradient(to left, transparent, #000 24px);
-  mask-image: linear-gradient(to left, transparent, #000 24px);
+/* 两端还藏着标签（标签多了方向 A）：那一头 40 的淡出（最外 8 全淡），加一个小箭头；App 量好了挂 .more-l / .more-r
+   （不叫 .fr：那是历史文件行的类，挂上标签条就窄了 20，ResizeObserver 又把它滚回当前标签） */
+.tabs .tlist.more-l {
+  -webkit-mask-image: linear-gradient(to right, transparent 8px, #000 40px);
+  mask-image: linear-gradient(to right, transparent 8px, #000 40px);
 }
-.tabs .tlist.fl.fr {
-  -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
-  mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent);
+.tabs .tlist.more-r {
+  -webkit-mask-image: linear-gradient(to left, transparent 8px, #000 40px);
+  mask-image: linear-gradient(to left, transparent 8px, #000 40px);
 }
-/* 标签不压缩：最窄 96、最宽 200，多了 .tlist 横着滚（照 VS Code） */
+.tabs .tlist.more-l.more-r {
+  -webkit-mask-image: linear-gradient(to right, transparent 8px, #000 40px, #000 calc(100% - 40px), transparent calc(100% - 8px));
+  mask-image: linear-gradient(to right, transparent 8px, #000 40px, #000 calc(100% - 40px), transparent calc(100% - 8px));
+}
+.tabs .tedge {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  width: 22px;
+  height: 24px;
+  margin-top: -12px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: var(--tabbar);
+  color: var(--t2);
+}
+.frame-b .tabs .tedge {
+  background: var(--win);
+}
+.tabs .tedge:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.tabs .tedge.l {
+  left: 2px;
+}
+.tabs .tedge.r {
+  right: 2px;
+}
+/* 标签条右端「12 ⌄」：列出开着的全部标签 */
+.tabs .tmore {
+  flex: none;
+  align-self: center;
+  height: 26px;
+  margin: 0 4px;
+  padding: 0 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+  font-size: 12px;
+}
+.frame-b .tabs .tmore {
+  margin-bottom: 4px;
+}
+.tabs .tmore:hover,
+.tabs .tmore.open {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.shell-menu.tabs-pop {
+  width: 280px;
+  max-width: 280px;
+}
+.tabs-pop .mh {
+  padding: 4px 8px;
+}
+.tabs-pop .tl-rows {
+  max-height: 480px;
+  overflow: auto;
+}
+.tabs-pop .tl-row {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border-radius: 8px;
+  white-space: nowrap;
+  color: var(--t1);
+}
+.tabs-pop .tl-row:hover {
+  background: var(--fill);
+}
+.tabs-pop .tl-row .ck {
+  width: 14px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+}
+.tabs-pop .tl-row > .ci,
+.tabs-pop .tl-row > svg {
+  flex: none;
+  color: var(--t2);
+}
+.tabs-pop .tl-row .truncate {
+  flex: 1;
+  min-width: 0;
+}
+.tabs-pop .tl-row .x {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--t3);
+}
+.tabs-pop .tl-row .x:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+/* 标签不压缩（标签多了方向 A）：照原来的宽排，最窄 96、最宽 280（再长的名字打省略号），多了 .tlist 横着滚（照 VS Code） */
 .win .tabs .tab,
 .win .tabs .tab[aria-selected='true'] {
   flex: 0 0 auto;
@@ -981,7 +1253,7 @@ body.resizing-left .win > .vsplit {
   top: 0;
   height: auto;
   min-width: 96px;
-  max-width: 200px;
+  max-width: 280px;
   display: flex;
   align-items: center;
   gap: 0;
@@ -1069,6 +1341,27 @@ body.resizing-left .win > .vsplit {
   color: var(--acc-t);
 }
 
+/* 当前栏（CN-98 方向 A）：中间不是当前栏时，当前标签的标记变 --line2（整块染色的主题回到 --fill2 底、正文色） */
+[data-tabmark] .win:not([data-pane='center']) > .center > .tabs .tab.on::before {
+  background: var(--line2);
+}
+[data-tabmark='fill'] .win:not([data-pane='center']) > .center > .tabs .tab.on {
+  background: linear-gradient(var(--fill2), var(--fill2)), var(--tab-on);
+  color: var(--t1);
+}
+/* 没有标签的格子是当前栏：标题下面一道 2px 强调色，贴在格子头的底边（App 的 PaneMark 量着摆） */
+.pane-mark {
+  position: fixed;
+  z-index: 20;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--acc);
+  pointer-events: none;
+}
+.pane-mark[hidden] {
+  display: none;
+}
+
 /* 标签条右端：这一页的动作 */
 .tabs > .acts {
   flex: none;
@@ -1151,19 +1444,21 @@ body.resizing-left .win > .vsplit {
 .acts .seg .lb {
   display: none;
 }
+/* 标签条右端「白板 / 文档」：照标签条小样 .act，外面不套底，每格和别的动作一样 26 高圆角 6；选中 --fill2 底 + --t1 字，悬停 --fill */
 .win .acts .seg {
   height: auto;
   display: flex;
-  gap: 1px;
-  padding: 2px;
-  border-radius: 6px;
-  background: var(--fill);
+  gap: 4px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
 }
 .win .acts .seg button {
-  height: 22px;
+  height: 26px;
   padding: 0 7px;
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -1173,10 +1468,13 @@ body.resizing-left .win > .vsplit {
   font-weight: 400;
   color: var(--t2);
 }
+.win .acts .seg button:not(.on):hover {
+  background: var(--fill);
+}
 .win .acts .seg button.on {
-  background: var(--tab-on);
+  background: var(--seg-on);
   color: var(--t1);
-  box-shadow: 0 0 0 1px var(--line2);
+  box-shadow: none;
 }
 .acts .pager button {
   height: 24px;
@@ -1215,7 +1513,7 @@ body.resizing-left .win > .vsplit {
   width: 12px;
   height: 12px;
 }
-/* 标签条右端弹出的菜单（PDF「更多」、对照读、HTML「更多」）：往下、靠右；和软件里别的菜单一个样子：
+/* 标签条右端弹出的菜单（PDF「更多」、阅读视图的对照、HTML「更多」）：往下、靠右；和软件里别的菜单一个样子：
    --pop 底、圆角 12、--shadow-up、内边距 4，每项 28 高、圆角 8、没有边框，悬停 --fill，当前那项一个 12 的勾 --acc */
 .acts .split-btn > .menu,
 .acts .pdfmore > .menu {
@@ -1337,6 +1635,14 @@ body.resizing-left .win > .vsplit {
 .status .st-toast .toast-cn > span {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 提示前面的小图标：放回了是绿色对勾（往提示条的字色混一半，深浅底上都看得清），说明是 info */
+.status .st-toast .toast-cn .tl-ic {
+  flex: none;
+  margin-right: -2px;
+}
+.status .st-toast .toast-cn .tl-ic.ok {
+  color: color-mix(in srgb, var(--green) 55%, var(--solid-t));
 }
 .status .st-toast .toast-cn:not(.with-act) {
   padding-right: 10px;

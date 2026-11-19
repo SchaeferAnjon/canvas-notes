@@ -45,6 +45,8 @@ export const translate: RendererPlugin = {
     const st = page ? pageStateOf<TrPageState>(page.wcId, ID) : undefined
     const on = !!st?.on
     const run = () => toggleTranslate(webHost()?.page() ?? null)
+    // PDF 上不给（网页翻译翻不了 PDF）
+    if (st?.pdf) return []
     return [
       { name: on ? '恢复原文' : '双语翻译这个网页', hint: on ? '双语翻译 · 拿掉译文' : '双语翻译 · 每段下面加译文', icon: 'whole-word', keys: '⌥A', run },
       { name: '翻成…', hint: '双语翻译 · 换语言', icon: 'whole-word', run: openMenu },

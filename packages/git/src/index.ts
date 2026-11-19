@@ -151,12 +151,27 @@ export interface Commit {
   files: { path: string; added: number; removed: number }[]
 }
 
-/** rev：从哪次提交往前数（不给是 HEAD） */
-export async function log(dir: string, limit = 50, rev?: string): Promise<Commit[]> {
+/**
+ * 软件自己的文件（CN-116）：`.canvas-notes/` 下面的全部（首页、左栏、置顶、对话、字幕）、各文件夹的 `.首页.json` 和
+ * 首页模板 `.首页模板.json`、空文件夹的 `.gitkeep`。提交说明不写它们，历史默认不列
+ */
+export function isInternalPath(p: string): boolean {
+  const base = p.slice(p.lastIndexOf('/') + 1)
+  return p === '.canvas-notes' || p.startsWith('.canvas-notes/') || base === '.首页.json' || base === '.首页模板.json' || base === '.gitkeep'
+}
+
+/**
+ * 读历史时排除的路径（git 自己跳过只动了这些的提交，「最近100次」全是用户的改动；混着的提交只列用户的文件）。
+ * `.gitkeep` 不排除：新建文件夹那次只有它，历史里列成「课程/ecpc/」一行
+ */
+export const HIDE_INTERNAL = ['.', ':(exclude).canvas-notes', ':(exclude)*/.首页.json', ':(exclude)*/.首页模板.json']
+
+/** rev：从哪次提交往前数（不给是 HEAD）；paths：只看这些路径（git 的 pathspec，比如 HIDE_INTERNAL） */
+export async function log(dir: string, limit = 50, rev?: string, paths?: readonly string[]): Promise<Commit[]> {
   if (rev !== undefined && !/^[0-9a-f]{7,40}$/.test(rev)) throw new Error('提交号不对')
   let out: string
   try {
-    out = await git(dir, ['log', `-n${limit}`, '--format=%x1e%H%x1f%aI%x1f%s', '--numstat', '-z', ...(rev ? [rev] : [])])
+    out = await git(dir, ['log', `-n${limit}`, '--format=%x1e%H%x1f%aI%x1f%s', '--numstat', '-z', ...(rev ? [rev] : []), ...(paths ? ['--', ...paths] : [])])
   } catch (e) {
     // 还没有任何提交
     if (e instanceof GitError && /does not have any commits|bad default revision/.test(e.stderr)) return []
@@ -171,9 +186,17 @@ export async function log(dir: string, limit = 50, rev?: string): Promise<Commit
     const [hash, date, subject] = head.split('\x1f') as [string, string, string]
     const files: Commit['files'] = []
     const rest = nl === -1 ? '' : rec.slice(nl + 1)
-    for (const entry of rest.split('\0')) {
-      const m = entry.trim().match(/^(\d+|-)\t(\d+|-)\t(.+)$/)
-      if (m) files.push({ path: m[3]!, added: m[1] === '-' ? 0 : Number(m[1]), removed: m[2] === '-' ? 0 : Number(m[2]) })
+    const parts = rest.split('\0')
+    for (let i = 0; i < parts.length; i++) {
+      const m = parts[i]!.trimStart().match(/^(\d+|-)\t(\d+|-)\t(.*)$/)
+      if (!m) continue
+      // 挪了、改了名的：-z 下这一条路径是空的，后面跟着旧路径、新路径两段；记新路径
+      let path = m[3]!
+      if (!path) {
+        path = parts[i + 2] ?? ''
+        i += 2
+      }
+      if (path) files.push({ path, added: m[1] === '-' ? 0 : Number(m[1]), removed: m[2] === '-' ? 0 : Number(m[2]) })
     }
     commits.push({ hash, date, subject, files })
   }
@@ -252,12 +275,33 @@ export async function ensureIdentity(dir: string, fallback: { name: string; emai
   return set
 }
 
+/** 只动了软件自己的文件时，这一处的人话（「改了左栏设置」「改了「ecp」的首页」「新建文件夹：课程/ecpc」） */
+function internalSay(f: FileStatus): string {
+  const p = f.path
+  const dir = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : ''
+  const last = dir.slice(dir.lastIndexOf('/') + 1)
+  const base = p.slice(p.lastIndexOf('/') + 1)
+  if (base === '.gitkeep') return f.code.includes('D') ? `删了文件夹：${dir}` : `新建文件夹：${dir}`
+  if (base === '.首页.json') return `改了「${last}」的首页`
+  if (base === '.首页模板.json') return `改了「${last}」的首页模板`
+  if (p === '.canvas-notes/左栏.json') return '改了左栏设置'
+  if (p === '.canvas-notes/置顶.json') return '改了置顶'
+  if (p === '.canvas-notes/首页.json') return '改了首页'
+  if (p === '.canvas-notes/anki.json') return '记了送进Anki的疑惑'
+  if (p.startsWith('.canvas-notes/对话/')) return '存了AI对话'
+  if (p.startsWith('.canvas-notes/字幕/')) return '存了字幕'
+  return '改了软件设置'
+}
+
 /**
  * 提交说明：「更新 3 个文件：所思所想、旅行、收件箱/2026-11-15 1403」；新加的写「新增」，删掉的写「删除」，
  * 挪走的（这边删了、别处新加了同名的）写「挪了 1 个：删测/丁 → 写作/丁」；几样都有时按 更新、新增、挪了、删除 分开写，
- * 第一样写「个文件」（「更新 2 个文件：甲、乙；删除 1 个：丙」）
+ * 第一样写「个文件」（「更新 2 个文件：甲、乙；删除 1 个：丙」）。
+ * 软件自己的文件（isInternalPath）不写进说明、不算个数；只动了它们时写人话「改了左栏设置」（CN-116）
  */
-export function describeChanges(files: FileStatus[]): string {
+export function describeChanges(all: FileStatus[]): string {
+  const files = all.filter((f) => !isInternalPath(f.path))
+  if (!files.length) return [...new Set(all.map(internalSay))].join('；')
   const name = (p: string) => p.replace(/\.md$/i, '')
   const list = (fs: string[]) => fs.slice(0, 3).join('、') + (fs.length > 3 ? ' 等' : '')
   const base = (p: string) => p.slice(p.lastIndexOf('/') + 1)

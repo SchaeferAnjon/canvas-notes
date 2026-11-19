@@ -7,9 +7,10 @@ import {
   type Cond,
   foldersOfPaths,
   defaultFolderHome,
+  DRAFTS_COND,
   folderKind,
+  folderLead,
   hideW,
-  leadOf,
   moveW,
   normalizeFolderHome,
   NOTES_COND,
@@ -22,19 +23,20 @@ import {
 } from '../src/shared/folder-home'
 
 describe('文件夹首页：哪些文件夹有', () => {
-  it('课程、项目下面一层，生活、写作本身', () => {
+  it('「课程」本身、课程和项目下面一层、生活、写作本身有自己那套组件', () => {
+    expect(folderKind('课程')).toBe('courses')
     expect(folderKind('课程/线性代数')).toBe('course')
     expect(folderKind('项目/毕业设计')).toBe('project')
     expect(folderKind('生活')).toBe('life')
     expect(folderKind('写作')).toBe('writing')
-    for (const no of ['课程', '项目', '素材', '收件箱', '课程/a/b', '生活/x', '课程/..', '课程/.git', '']) expect(folderKind(no)).toBeNull()
+    for (const no of ['项目', '剪藏', '收件箱', '课程/a/b', '生活/x', '课程/..', '课程/.git', '']) expect(folderKind(no)).toBeNull()
     expect(templateFileOf('course')).toBe('课程/.首页模板.json')
     expect(templateFileOf('life')).toBeNull()
   })
 
   it('从文件路径认出文件夹（预览里挪进来的新课也算），按 课程、项目、生活、写作 排', () => {
-    const paths = ['写作/草稿.md', '课程/线性代数/a.md', '课程/线性代数/b.pdf', '生活/x.md', '项目/论文/c.md', '课程/概率论/第1讲.md', '收件箱/d.md', '课程/e.md', '素材/AI/f.md', '课程/线性代数/图/g.png']
-    expect(foldersOfPaths(paths)).toEqual(['课程/概率论', '课程/线性代数', '项目/论文', '生活', '写作'])
+    const paths = ['写作/草稿.md', '课程/线性代数/a.md', '课程/线性代数/b.pdf', '生活/x.md', '项目/论文/c.md', '课程/概率论/第1讲.md', '收件箱/d.md', '课程/e.md', '剪藏/AI/f.md', '课程/线性代数/图/g.png']
+    expect(foldersOfPaths(paths)).toEqual(['课程', '课程/概率论', '课程/线性代数', '项目/论文', '生活', '写作'])
   })
 
   it('新课的名字：不能空、不能带斜杠冒号、不能点开头', () => {
@@ -44,14 +46,36 @@ describe('文件夹首页：哪些文件夹有', () => {
 })
 
 describe('文件夹首页：设置', () => {
-  it('默认组件照 spec 9.5 的表', () => {
+  it('默认组件：每门课那套不动；「课程」是在上的课、今天要复习、考试倒计时；别的只放最近改的、待办两块（一样宽）', () => {
     const c = defaultFolderHome('course')
     expect(c.order).toEqual(['slides', 'review', 'exam', 'notes', 'doubts', 'viz', 'todo', 'links', 'cal'])
     expect(c.hidden).toEqual(['board', 'text'])
     expect(c.widgets.notes!.cond).toEqual(NOTES_COND)
-    expect(defaultFolderHome('project').order).toEqual(['todo', 'progress', 'recent', 'links', 'text'])
-    expect(defaultFolderHome('writing').order).toEqual(['drafts', 'clips', 'recent', 'list'])
-    expect(defaultFolderHome('life').order).toEqual(['todo', 'calendar', 'recent', 'text'])
+    expect(defaultFolderHome('courses').order).toEqual(['courses', 'review', 'exam'])
+    expect(defaultFolderHome('courses').sizes).toEqual({ review: 2, exam: 2 })
+    for (const k of ['project', 'writing', 'life', 'folder'] as const) {
+      expect(defaultFolderHome(k).order).toEqual(['recent', 'todo'])
+      expect(defaultFolderHome(k).sizes).toEqual({ todo: 2 })
+    }
+  })
+
+  it('封面：分类用分类表里的（照片或自己的颜色），每门课照旧米湖极光，别的是自己颜色的渐变；换成颜色、去掉图片读回来不变', () => {
+    expect(defaultFolderHome('folder', '收件箱').cover).toEqual({ kind: 'color', color: 'slate' })
+    expect(defaultFolderHome('courses', '课程').cover).toEqual({ kind: 'builtin', id: 'aurora' })
+    expect(defaultFolderHome('folder', '剪藏').cover).toEqual({ kind: 'builtin', id: 'icebergs' })
+    expect(defaultFolderHome('course', '课程/线性代数').cover).toEqual({ kind: 'builtin', id: 'myvatn' })
+    expect(defaultFolderHome('project', '项目/冰岛旅行').cover).toEqual({ kind: 'none' })
+    expect(normalizeFolderHome({ cover: { kind: 'color', color: 'green' } }, 'folder', '写作/游记').cover).toEqual({ kind: 'color', color: 'green' })
+    expect(normalizeFolderHome({ cover: { kind: 'color', color: '#f00' } }, 'folder', '写作/游记').cover).toEqual({ kind: 'none' })
+    expect(normalizeFolderHome({ cover: { kind: 'none' } }, 'courses', '课程').cover).toEqual({ kind: 'none' })
+  })
+
+  it('只写了封面、没有组件这一项的 .首页.json：组件照默认的（写了空的才是真不要）', () => {
+    const only = normalizeFolderHome({ cover: { kind: 'builtin', id: 'kirkjufell' }, coverY: 30 }, 'project', '项目/冰岛旅行')
+    expect(only.cover).toEqual({ kind: 'builtin', id: 'kirkjufell' })
+    expect(only.coverY).toBe(30)
+    expect(only.order).toEqual(defaultFolderHome('project', '项目/冰岛旅行').order)
+    expect(normalizeFolderHome({ widgets: {}, order: [] }, 'project', '项目/冰岛旅行').order).toEqual([])
   })
 
   it('坏文件回到默认；不认识的组件、坏条件、坏链接丢掉；组件表里有、排列里没有的收着', () => {
@@ -101,14 +125,14 @@ describe('文件夹首页：设置', () => {
     expect([a.id, b.id]).toEqual(['list', 'list-2'])
     h = b.home
     expect(h.order.slice(-2)).toEqual(['list', 'list-2'])
-    h = moveW(h, 'list-2', 'todo')
+    h = moveW(h, 'list-2', 'recent')
     expect(h.order[0]).toBe('list-2')
-    h = hideW(h, 'calendar')
-    expect(h.hidden).toEqual(['calendar'])
-    h = showW(h, 'calendar')
-    expect(h.order.at(-1)).toBe('calendar')
+    h = hideW(h, 'recent')
+    expect(h.hidden).toEqual(['recent'])
+    h = showW(h, 'recent')
+    expect(h.order.at(-1)).toBe('recent')
     h = resizeW(h, 'todo')
-    expect(h.sizes.todo).toBe(2)
+    expect(h.sizes.todo).toBe(4)
     h = removeWidget(h, 'todo')
     expect(h.widgets.todo).toBeUndefined()
     expect(h.order).not.toContain('todo')
@@ -136,15 +160,21 @@ describe('按条件列出', () => {
     expect(runCond(files, week, now).map((x) => x.path)).toEqual(['课程/线性代数/草稿.md', '课程/线性代数/第3讲 导图.md'])
     expect(runCond(files, { ...week, rules: [] }, now)).toHaveLength(5)
   })
-  it('标题下那一句：几讲、几个文件、问到第几讲；项目这周改了几个；写作几篇草稿、这个月写完几篇', () => {
-    expect(leadOf('course', files, now)).toBe('课程 · 4讲 · 5个文件')
-    expect(leadOf('course', [...files, f('课程/线性代数/第4讲.pdf', { 类型: '课件', 第几讲: '4', 问到: '7', 页数: '10' })], now)).toBe('课程 · 5讲 · 6个文件 · 问到第4讲')
-    expect(leadOf('course', [], now)).toBe('课程 · 还没有文件')
+  it('名字下面那一行（每个文件夹一个样子）：分类「分类 · 2门课 · 5篇 · 改于…」，每门课「课程 / 线性代数 · 4讲 · 5篇 · 改于…」，别的「路径 · N篇 · 改于…」', () => {
+    const t = now.getTime()
+    expect(folderLead('课程/线性代数', files, { now: t })).toBe('课程 / 线性代数 · 4讲 · 5篇 · 改于今天 12:00')
     // 名字认不出第几讲的课件 PDF 也算一讲（左栏按 PDF 数「0/5 讲」，两处对得上）
-    expect(leadOf('course', [...files, f('课程/线性代数/坏的.pdf', { 类型: '课件' })], now)).toBe('课程 · 5讲 · 6个文件')
-    expect(leadOf('project', files, now)).toBe('项目 · 5个文件 · 这周改了1个')
-    expect(leadOf('writing', files, now)).toBe('写作 · 1篇草稿 · 这个月写完2篇')
-    expect(leadOf('life', files, now)).toBe('生活 · 5个文件')
+    expect(folderLead('课程/线性代数', [...files, f('课程/线性代数/坏的.pdf', { 类型: '课件' })], { now: t })).toBe('课程 / 线性代数 · 5讲 · 6篇 · 改于今天 12:00')
+    expect(folderLead('课程', files, { courses: 2, now: t })).toBe('分类 · 2门课 · 5篇 · 改于今天 12:00')
+    expect(folderLead('写作', files.slice(0, 2), { now: t })).toBe('分类 · 2篇 · 改于今天 12:00')
+    expect(folderLead('项目/冰岛旅行', files.slice(0, 1), { now: t })).toBe('项目 / 冰岛旅行 · 1篇 · 改于今天 12:00')
+    expect(folderLead('项目/冰岛旅行', [], { now: t })).toBe('项目 / 冰岛旅行 · 还没有文件')
+  })
+  it('以前微信读书同步的书摘（type: weread、没写「类型」）算书摘，不算笔记（CN-131）', () => {
+    const book = f('素材/微信读书/思考，快与慢.md', { type: 'weread', bookId: '900001' }, 1)
+    const c: Cond = { ...NOTES_COND, rules: [{ prop: '类型', op: '是其中', value: '书摘' }] }
+    expect(runCond([book], c, now).map((x) => x.path)).toEqual(['素材/微信读书/思考，快与慢.md'])
+    expect(runCond([book], NOTES_COND, now)).toEqual([])
   })
   it('没写类型的 md 算笔记，进「笔记和导图」；白板不算', () => {
     const hand = f('课程/ecp/Lecture05 笔记.md', { 进度: '5/5' }, 1)
@@ -154,7 +184,7 @@ describe('按条件列出', () => {
   it('新建了还没写字的「未命名」算草稿，不算「这个月写完」', () => {
     const blank = (p: string): PropFile => ({ ...f(p, {}, 0), blank: true })
     const all = [...files, blank('写作/未命名.md'), blank('写作/未命名 2.md')]
-    expect(leadOf('writing', all, now)).toBe('写作 · 3篇草稿 · 这个月写完2篇')
+    expect(runCond(all, DRAFTS_COND, now).map((x) => x.path).sort()).toEqual(['写作/未命名 2.md', '写作/未命名.md', '课程/线性代数/草稿.md'])
     expect(blankNote('# 未命名\n\n')).toBe(true)
     expect(blankNote('---\n草稿: 否\n---\n# 未命名\n')).toBe(true)
     expect(blankNote('')).toBe(true)
@@ -167,7 +197,7 @@ describe('按条件列出', () => {
     const done = { ...f('写作/长文.md', {}, 0), chars: bodyChars(`# 长文\n\n${long}\n`) }
     expect(pic.chars).toBe(0)
     expect(bodyChars('<!-- card id=c1 x=0 y=0 w=280 -->\n短\n[看这里](https://example.com/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t) https://example.com/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')).toBe(4)
-    expect(leadOf('writing', [board, pic, done], now)).toBe('写作 · 1篇草稿 · 这个月写完1篇')
+    expect(runCond([board, pic, done], DRAFTS_COND, now).map((x) => x.path)).toEqual(['写作/截图一张.md'])
     // 第 4 轮：只有双链（[[…]]、![[…]]）、只有代码块的不算写了字
     const links = Array.from({ length: 30 }, (_, i) => `[[参考笔记第${i}篇]]`).join(' ')
     expect(bodyChars(`# 双链多\n\n${links}\n\n![[配图.png]]\n`)).toBe(0)

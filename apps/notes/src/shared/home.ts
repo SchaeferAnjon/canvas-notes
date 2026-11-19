@@ -7,11 +7,13 @@ export const HOME_FILE = '.canvas-notes/首页.json'
 /** 从电脑选的封面拷到这里 */
 export const COVER_DIR = '附件/封面'
 
-export type WidgetId = 'clock' | 'week' | 'inbox' | 'wall' | 'boards' | 'dream' | 'recent' | 'flip'
+export type WidgetId = 'cats' | 'clock' | 'week' | 'inbox' | 'wall' | 'boards' | 'dream' | 'recent' | 'flip'
 /** 组件宽度只有三档：1 列（窄）、2 列（宽）、4 列（整行） */
 export type WidgetSize = 1 | 2 | 4
 
 export const WIDGETS: { id: WidgetId; name: string; size: WidgetSize; fixed?: boolean }[] = [
+  /** 顶级分类：八张带封面的卡（2026-11-18 入口方向 C「首页分类卡」） */
+  { id: 'cats', name: '分类', size: 4, fixed: true },
   { id: 'clock', name: '时钟', size: 1 },
   { id: 'week', name: '本周积累', size: 2 },
   { id: 'inbox', name: '收件箱', size: 1 },
@@ -47,7 +49,7 @@ export interface HomeConfig {
 export const DEFAULT_HOME: HomeConfig = {
   cover: { kind: 'builtin', id: 'aurora' },
   coverY: 62,
-  order: ['clock', 'week', 'inbox', 'boards', 'dream', 'wall'],
+  order: ['cats', 'clock', 'week', 'inbox', 'boards', 'dream', 'wall'],
   hidden: ['recent', 'flip'],
   sizes: {},
 }
@@ -72,8 +74,12 @@ export function normalizeHome(raw: unknown): HomeConfig {
   const take = (v: unknown) => (Array.isArray(v) ? v : []).filter((x): x is WidgetId => isWidget(x) && !seen.has(x) && !!seen.add(x))
   const order = take(r.order)
   const hidden = take(r.hidden)
-  // 新版本加的组件（文件里两边都没有）先收着，等用户自己放出来
-  for (const id of IDS) if (!seen.has(id)) (DEFAULT_HOME.order.includes(id) && !Array.isArray(r.order) ? order : hidden).push(id)
+  // 新版本加的组件（文件里两边都没有）先收着，等用户自己放出来；「分类」是用户点名要的（方向 C），排到最前面
+  for (const id of IDS) {
+    if (seen.has(id)) continue
+    if (id === 'cats') order.unshift(id)
+    else (DEFAULT_HOME.order.includes(id) && !Array.isArray(r.order) ? order : hidden).push(id)
+  }
   const sizes: HomeConfig['sizes'] = {}
   const rs = (r.sizes && typeof r.sizes === 'object' ? r.sizes : {}) as Record<string, unknown>
   for (const w of WIDGETS) {

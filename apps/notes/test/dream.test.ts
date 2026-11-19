@@ -19,7 +19,7 @@ const fakeAsk: Ask = async (_s, prompt) => {
   if (prompt.startsWith('命令：本周小结')) return '这周在准备冰岛。'
   if (prompt.startsWith('命令：归类和改名')) {
     const paths = [...prompt.matchAll(/^路径：(.+)$/gm)].map((m) => m[1]!)
-    return '```json\n' + JSON.stringify(paths.map((path) => ({ path, folder: '素材/旅行', name: null, why: '都是旅行的事' }))) + '\n```'
+    return '```json\n' + JSON.stringify(paths.map((path) => ({ path, folder: '剪藏/旅行', name: null, why: '都是旅行的事' }))) + '\n```'
   }
   throw new Error('没想到的提问')
 }
@@ -70,15 +70,15 @@ describe('梦游', { timeout: 30_000 }, () => {
     expect(link.why).toMatch(/两篇都讲到「.*云量低于三成.*」/)
     const dup = r.items.find((i) => i.group === 'dup')!
     expect(dup.commit).toBeNull()
-    expect(dup.files.sort()).toEqual(['收件箱/巴黎自由行全景指南.md', '素材/巴黎/巴黎深度漫游指南.md'])
+    expect(dup.files.sort()).toEqual(['剪藏/巴黎/巴黎深度漫游指南.md', '收件箱/巴黎自由行全景指南.md'])
     expect(r.items.find((i) => i.group === 'week')!.files).toEqual([`周记/${isoWeek(new Date(2026, 10, 15))}.md`])
     expect(isoWeek(new Date(2026, 10, 15))).toBe('2026-W46')
 
-    // 分支上的每个提交只碰 收件箱/ 素材/ 周记/
+    // 分支上的每个提交只碰 收件箱/ 剪藏/ 周记/
     const commits = g(root, 'rev-list', 'main..dream/11-15').trim().split('\n')
     expect(commits).toHaveLength(5)
     for (const c of commits) {
-      for (const f of g(root, 'show', '--format=', '--name-only', '--no-renames', c).trim().split('\n')) expect(f).toMatch(/^(收件箱|素材|周记)\//)
+      for (const f of g(root, 'show', '--format=', '--name-only', '--no-renames', c).trim().split('\n')) expect(f).toMatch(/^(收件箱|剪藏|阅读|周记)\//)
     }
     // 临时检出在 scratch 里，用户的目录没切分支
     expect(existsSync(r.worktree!)).toBe(true)
@@ -104,7 +104,7 @@ describe('梦游', { timeout: 30_000 }, () => {
 
     const ice = r.items.find((i) => i.group === 'file' && i.files[0] === '收件箱/冰洞.md')!
     expect(ice.sub).toBe('从收件箱挪来 · 原名「冰洞」')
-    expect(ice.move).toEqual({ from: '收件箱/冰洞.md', to: '素材/旅行/冰洞.md' })
+    expect(ice.move).toEqual({ from: '收件箱/冰洞.md', to: '剪藏/旅行/冰洞.md' })
     expect(ice.why).toBe('都是旅行的事')
     await dropItem(root, r, ice.id)
     expect(ice.state).toBe('dropped')
@@ -114,9 +114,9 @@ describe('梦游', { timeout: 30_000 }, () => {
     await takeAll(root, r)
     expect(r.items.filter((i) => i.state === 'pending')).toEqual([])
     // 极光的双链先收下了，再挪：挪过去的文件带着那一行
-    expect(readFileSync(join(root, '素材/旅行/极光.md'), 'utf8')).toContain('相关：[[极光预报]]')
+    expect(readFileSync(join(root, '剪藏/旅行/极光.md'), 'utf8')).toContain('相关：[[极光预报]]')
     expect(existsSync(join(root, '收件箱/极光.md'))).toBe(false)
-    expect(existsSync(join(root, '素材/旅行/巴黎自由行全景指南.md'))).toBe(true)
+    expect(existsSync(join(root, '剪藏/旅行/巴黎自由行全景指南.md'))).toBe(true)
     expect(readFileSync(join(root, '周记/2026-W46.md'), 'utf8')).toContain('这周在准备冰岛。')
     expect(existsSync(join(root, '收件箱/冰洞.md'))).toBe(true)
     // 双链收下时一个提交；剩下的（挪 2 + 小结 1）全部收下是一次提交
@@ -135,7 +135,7 @@ describe('梦游', { timeout: 30_000 }, () => {
     const move = r.items.find((i) => i.group === 'file' && i.files[0] === '收件箱/极光.md')!
     await takeItem(root, r, move.id)
     await takeItem(root, r, r.items.find((i) => i.group === 'link')!.id)
-    expect(readFileSync(join(root, '素材/旅行/极光.md'), 'utf8')).toBe(DREAM_VAULT['收件箱/极光.md'] + '\n相关：[[极光预报]]\n')
+    expect(readFileSync(join(root, '剪藏/旅行/极光.md'), 'utf8')).toBe(DREAM_VAULT['收件箱/极光.md'] + '\n相关：[[极光预报]]\n')
   })
 
   it('收下、全部收下、撤回挪了哪几篇（开着的那篇跟过去用）：一条条收下和全部收下说的一样，撤回反过来', async () => {
@@ -145,13 +145,13 @@ describe('梦游', { timeout: 30_000 }, () => {
     let before = snap()
     await takeAll(root, r)
     const all = movesOf(before, r.items)
-    expect(all).toContainEqual({ from: '收件箱/极光.md', to: '素材/旅行/极光.md' })
-    expect(all).toContainEqual({ from: '收件箱/冰洞.md', to: '素材/旅行/冰洞.md' })
+    expect(all).toContainEqual({ from: '收件箱/极光.md', to: '剪藏/旅行/极光.md' })
+    expect(all).toContainEqual({ from: '收件箱/冰洞.md', to: '剪藏/旅行/冰洞.md' })
     // 补双链那条没挪文件，不算
     expect(all.filter((m) => m.from === '收件箱/极光.md')).toHaveLength(1)
     before = snap()
     await undo(root, r, [ji.id], ji.taken!)
-    expect(movesOf(before, r.items)).toEqual([{ from: '素材/旅行/极光.md', to: '收件箱/极光.md' }])
+    expect(movesOf(before, r.items)).toEqual([{ from: '剪藏/旅行/极光.md', to: '收件箱/极光.md' }])
   })
 
   it('那篇在 main 上末尾也加了一句（第 6 轮）：两边都只往末尾加，合得上，收下后两句都在', async () => {
@@ -194,8 +194,8 @@ describe('梦游', { timeout: 30_000 }, () => {
     // 删掉的那篇：用户删的提交 + 收下的一次提交
     expect(count()).toBe(before + 2)
     expect(g(root, 'log', '-1', '--format=%s').trim()).toBe('收下梦游的归类和改名：2 处')
-    expect(existsSync(join(root, '素材/旅行/冰洞.md'))).toBe(true)
-    expect(existsSync(join(root, '素材/旅行/巴黎自由行全景指南.md'))).toBe(true)
+    expect(existsSync(join(root, '剪藏/旅行/冰洞.md'))).toBe(true)
+    expect(existsSync(join(root, '剪藏/旅行/巴黎自由行全景指南.md'))).toBe(true)
     expect(readFileSync(join(root, '周记/2026-W46.md'), 'utf8')).toBe('# 这周\n\n我自己写的小结。\n')
     expect(g(root, 'status', '--porcelain')).toBe('')
     expect(existsSync(join(root, '.git/CHERRY_PICK_HEAD'))).toBe(false)
@@ -206,7 +206,7 @@ describe('梦游', { timeout: 30_000 }, () => {
     const works = worksHash(root)
     const bad: Ask = async (_s, prompt) => {
       if (prompt.startsWith('命令：本周小结')) throw new Error('AI 没有回答')
-      return '```json\n' + JSON.stringify([{ path: '所思所想.md', folder: '素材/旅行' }, { path: '收件箱/冰洞.md', folder: '../外面' }, { path: '收件箱/极光.md', folder: '素材/a/b' }]) + '\n```'
+      return '```json\n' + JSON.stringify([{ path: '所思所想.md', folder: '剪藏/旅行' }, { path: '收件箱/冰洞.md', folder: '../外面' }, { path: '收件箱/极光.md', folder: '剪藏/a/b' }]) + '\n```'
     }
     const r = await dream(bad)
     expect(r.items.filter((i) => i.group === 'file')).toEqual([])
@@ -236,7 +236,7 @@ describe('梦游', { timeout: 30_000 }, () => {
     const want = (it: { move?: { from: string } }) => at('一二三'.indexOf(/旧笔记 (.)/.exec(it.move!.from)![1]!))
     expect(mtime('收件箱/导入/备忘录/生活/旧笔记 一.md')).toBe(at(0))
     // 都归进「生活」（算我写的，才看得出进没进「这周动过的」）
-    const toLife: Ask = async (s, prompt) => (prompt.startsWith('命令：归类和改名') ? (await fakeAsk(s, prompt)).replaceAll('素材/旅行', '生活') : fakeAsk(s, prompt))
+    const toLife: Ask = async (s, prompt) => (prompt.startsWith('命令：归类和改名') ? (await fakeAsk(s, prompt)).replaceAll('剪藏/旅行', '生活') : fakeAsk(s, prompt))
     const r = (await dream(toLife)) as DreamReportInternal
     const file = r.items.filter((i) => i.group === 'file' && i.move!.from.includes('旧笔记'))
     expect(file).toHaveLength(3)
@@ -269,8 +269,8 @@ describe('梦游', { timeout: 30_000 }, () => {
     // a 改名（像访达里改），b 挪去别的文件夹，c 删了
     const renamed = a!.move!.to.replace(/\.md$/, '攻略.md')
     execFileSync('mv', [join(root, a!.move!.to), join(root, renamed)])
-    mkdirSync(join(root, '素材/别处'), { recursive: true })
-    execFileSync('mv', [join(root, b!.move!.to), join(root, '素材/别处', b!.move!.to.split('/').pop()!)])
+    mkdirSync(join(root, '剪藏/别处'), { recursive: true })
+    execFileSync('mv', [join(root, b!.move!.to), join(root, '剪藏/别处', b!.move!.to.split('/').pop()!)])
     rmSync(join(root, c!.move!.to))
     const title = (p: string) => p.split('/').pop()!.replace(/\.md$/, '')
     const before = count()
@@ -279,7 +279,7 @@ describe('梦游', { timeout: 30_000 }, () => {
     expect(count()).toBe(before + 1)
     expect(g(root, 'log', '-1', '--format=%s').trim()).toMatch(/^挪了 \d+ 个文件：/)
     expect(g(root, 'log', '-1', '--format=%s')).toContain(`${a!.move!.to.replace(/\.md$/, '')} → ${renamed.replace(/\.md$/, '')}`)
-    await expect(undo(root, r, [b!.id], b!.taken)).rejects.toThrow(`撤回不了：「${title(b!.move!.to)}」收下以后挪到了素材/别处，什么都没动`)
+    await expect(undo(root, r, [b!.id], b!.taken)).rejects.toThrow(`撤回不了：「${title(b!.move!.to)}」收下以后挪到了剪藏/别处，什么都没动`)
     await expect(undo(root, r, [c!.id], c!.taken)).rejects.toThrow(`撤回不了：「${title(c!.move!.to)}」收下以后被删了，什么都没动`)
     expect(g(root, 'status', '--porcelain')).toBe('')
     expect(existsSync(join(root, '.git/REVERT_HEAD'))).toBe(false)
@@ -322,7 +322,7 @@ describe('梦游', { timeout: 30_000 }, () => {
     const it = r.items.find((i) => i.group === 'file' && i.files[0] === '收件箱/冰洞.md')!
     await takeItem(root, r, it.id)
     rmSync(join(root, it.move!.to))
-    writeFileSync(join(root, '素材/旅行/蓝湖.md'), '---\ncreated: 2026-11-16 09:00\n---\n蓝湖要提前订票，下午人少。\n')
+    writeFileSync(join(root, '剪藏/旅行/蓝湖.md'), '---\ncreated: 2026-11-16 09:00\n---\n蓝湖要提前订票，下午人少。\n')
     await expect(undo(root, r, [it.id], it.taken)).rejects.toThrow('撤回不了：「冰洞」收下以后被删了，什么都没动')
   })
 
@@ -350,7 +350,7 @@ describe('梦游', { timeout: 30_000 }, () => {
 
   it('没什么可整理时不留分支', async () => {
     rmSync(join(root, '收件箱'), { recursive: true })
-    rmSync(join(root, '素材'), { recursive: true })
+    rmSync(join(root, '剪藏'), { recursive: true })
     g(root, 'add', '-A')
     g(root, 'commit', '-qm', '清空')
     const r = await dream(async () => '')
@@ -371,10 +371,10 @@ describe('diff -U0 片段解析', () => {
       '@@ -0,0 +1,2 @@',
       '+# 2026-W46 小结',
       '+这周。',
-      'diff --git a/收件箱/冰 洞.md b/素材/旅行/冰 洞.md',
+      'diff --git a/收件箱/冰 洞.md b/剪藏/旅行/冰 洞.md',
       'similarity index 90%',
       'rename from 收件箱/冰 洞.md',
-      'rename to 素材/旅行/冰 洞.md',
+      'rename to 剪藏/旅行/冰 洞.md',
       '@@ -3 +3 @@',
       '-旧的',
       '+新的',
@@ -383,7 +383,7 @@ describe('diff -U0 片段解析', () => {
     expect(parseHunks(out)).toEqual(
       new Map([
         ['周记/2026-W46.md', [{ oldStart: 0, newStart: 1, del: [], add: ['# 2026-W46 小结', '这周。'] }]],
-        ['素材/旅行/冰 洞.md', [{ oldStart: 3, newStart: 3, del: ['旧的'], add: ['新的'] }]],
+        ['剪藏/旅行/冰 洞.md', [{ oldStart: 3, newStart: 3, del: ['旧的'], add: ['新的'] }]],
       ]),
     )
   })
@@ -396,7 +396,7 @@ describe('同一个视频散在几篇里（CN-80）', () => {
       ['又贵又难吃的赛百味.md', `---\n视频: https://www.youtube.com/watch?v=subway00001\n---\n\n# 赛百味\n`],
       ['写作/快餐.md', `# 快餐\n\n${moment('subway00001')}\n`],
       ['课程/a.md', `# a\n\n${moment('other000001')}\n`],
-      ['素材/视频/赛百味为什么又贵又难吃.md', `# x\n\n${moment('subway00001')}\n`],
+      ['剪藏/视频/赛百味为什么又贵又难吃.md', `# x\n\n${moment('subway00001')}\n`],
       ['视频里的疑惑.md', `---\n生成: 软件\n---\n\n${moment('subway00001')}\n`],
     ])
     expect(sameVideoNotes(texts)).toEqual([{ key: 'youtube:subway00001', title: '赛百味为什么又贵又难吃', files: ['写作/快餐.md', '又贵又难吃的赛百味.md'] }])

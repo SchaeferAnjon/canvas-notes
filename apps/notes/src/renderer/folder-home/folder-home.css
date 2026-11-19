@@ -1,63 +1,175 @@
-/* 文件夹首页（design-mindmap 方向 B 第 9 节）：在主页 home.css 的网格上改几处，下面是自己的部分 */
+/* 文件夹首页（design-mindmap 方向 B 第 9 节）：在主页 home.css 的网格上改几处，下面是自己的部分。
+   2026-11-18 每个文件夹一个样子（方案 v2「文件夹封面」方向 A）：150 高横幅，64 的图标方块压在横幅下沿，
+   宋体 28 名字 + 13 一行「种类 · 篇数 · 改于」，分类多一行「放什么：」；内容区最宽 1040 */
 .fhome .cover {
-  height: 160px;
+  height: 150px;
+}
+.fhome .hwrap {
+  max-width: 1040px;
 }
 .fh-title {
   display: flex;
-  align-items: flex-end;
-  gap: 16px;
-  margin: 0 0 18px;
+  align-items: flex-start;
+  gap: 14px;
   position: relative;
 }
 .fh-ico {
-  width: 56px;
-  height: 56px;
+  width: 64px;
+  height: 64px;
   flex: none;
-  margin-top: -28px;
+  margin-top: -32px;
   position: relative;
   z-index: 2;
-  border-radius: 12px;
-  background: var(--card);
+  border-radius: 14px;
+  background: var(--win);
   box-shadow: 0 0 0 3px var(--win), var(--shadow);
   display: grid;
   place-items: center;
   color: var(--t2);
 }
-/* 别的文件夹（没有封面）：图标方块 44、淡底，不压在封面上 */
-.fhome.plain .hwrap {
-  padding-top: 28px;
-}
-.fhome.plain .fh-title {
-  align-items: center;
-}
-.fhome.plain .fh-ico {
-  width: 44px;
-  height: 44px;
-  margin-top: 0;
-  border-radius: 10px;
-  background: var(--fill);
-  box-shadow: none;
-}
-.fhome.plain .fh-tx {
-  padding-top: 0;
-}
 .fh-tx {
   flex: 1;
   min-width: 0;
-  padding-top: 14px;
+  padding-top: 12px;
 }
 .fh-tx h2 {
   margin: 0;
-  font: 600 28px/1.25 var(--serif);
+  font: 600 28px/1.25 var(--serif-title);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .fh-tx p {
-  margin: 2px 0 0;
-  font-size: 12px;
+  margin: 3px 0 0;
+  font-size: 13px;
   color: var(--t2);
   /* 放不下时整行省略，不折成两行（窄窗口） */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 分类的「放什么：」一行，点一下就能改（写进 .canvas-notes/分类.json） */
+.fh-desc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--t2);
+}
+.fh-desc .q {
+  flex: none;
+  color: var(--t3);
+}
+.fh-desc .ed {
+  min-width: 0;
+  padding: 2px 6px;
+  margin-left: -6px;
+  border-radius: 6px;
+  cursor: text;
+}
+.fh-desc .ed:hover {
+  background: var(--fill);
+}
+/* 悬停时句子后面一支笔（12 --t3，空 6） */
+.fh-desc .ed .pen {
+  margin-left: 6px;
+  vertical-align: -1px;
+  color: var(--t3);
+  opacity: 0;
+}
+.fh-desc .ed:hover .pen,
+.fh-desc .ed:focus-visible .pen {
+  opacity: 1;
+}
+.fh-desc input {
+  flex: 1;
+  max-width: 640px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  outline: 0;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+  font-size: 13px;
+  color: var(--t1);
+}
+.fhome .hwrap > .wgrid {
+  margin-top: 20px;
+  gap: 12px;
+}
+.fhome .wd {
+  min-height: 132px;
+  padding: 14px 16px;
+}
+.fhome .fh-ebar {
+  margin-top: 14px;
+}
+/* 换封面（文件夹）：420 宽，图片八张、颜色八个、从电脑选一张…、去掉图片 */
+/* 贴着「换封面」那颗按钮：下面 6、右边和它对齐（小样 coverGallery），按钮一直露着 */
+.fh-bn .cpick {
+  position: relative;
+  display: inline-flex;
+}
+.gal.fgal {
+  top: calc(100% + 6px);
+  right: 0;
+  padding: 10px 12px 12px;
+}
+.fgal .ft-hd {
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.fgal .ft-hd b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.fgal .ft-hd .r {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fgal .gh2 {
+  margin: 10px 0 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fgal .fgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.fgal .th {
+  height: 56px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: center / cover;
+  box-shadow: 0 0 0 1px var(--line);
+  cursor: pointer;
+}
+.fgal .th.sw {
+  height: 32px;
+}
+.fgal .th:hover {
+  box-shadow: 0 0 0 2px var(--acc-ring);
+}
+.fgal .th.on {
+  box-shadow: 0 0 0 2px var(--acc);
+}
+.fgal .row {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+/* 调整位置：中间一颗「上下拖动图片」 */
+.fhome .cover .hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 /* 名字和头上那句占满左边，空白不和它平分 */
 .fh-title > .sp {
@@ -174,7 +286,9 @@
   height: 18px;
   background: var(--line2);
 }
+/* 组件头右边的数（「2门」「6」）：12 --t3，靠右（小样 .wh .r） */
 .fhome .wk .n {
+  font-size: 12px;
   color: var(--t3);
   margin-left: 6px;
 }
@@ -210,16 +324,17 @@
   border-radius: 2px;
   background: var(--acc);
 }
+/* 组件里的一行：28 高、不画行间线，悬停 --fill 圆角 6（方案 v2 文件夹封面、分类小样的 .wrow；以前方向 B 的行间细线不要了） */
 .fw-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  height: 30px;
+  width: calc(100% + 8px);
+  height: 28px;
+  margin: 0 -4px;
   padding: 0 4px;
   border: 0;
-  border-top: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: 6px;
   background: none;
   font-size: 13px;
   color: var(--t1);
@@ -227,7 +342,13 @@
 }
 button.fw-row:hover {
   background: var(--fill);
-  border-radius: 6px;
+}
+.fw-row > .sw {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 0 1px;
+  border-radius: 3px;
 }
 .fw-row > .ci {
   color: var(--t2);
@@ -453,7 +574,7 @@ button.fw-row:hover {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 4px;
   aspect-ratio: 16 / 9;
   border: 1px dashed var(--line2);
   border-radius: 8px;
@@ -461,6 +582,35 @@ button.fw-row:hover {
   line-height: 1.5;
   color: var(--t3);
   text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+}
+/* 封面下面一行名字优先（CN-113）：放不下时「问到 / 没开始」整段折到第二行、被藏起来，不露半截字，名字也不先被缩成「L…」 */
+.fw-cover .nm {
+  flex-wrap: wrap;
+  height: 19.5px;
+  overflow: hidden;
+}
+.fw-cover .nm > .truncate {
+  flex: 0 1 auto;
+}
+/* 「课程」这一页的在上的课：一条进度 80 × 4，右边「1/5讲」 */
+.fw-course .fw-bar {
+  flex: none;
+  width: 80px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--fill2);
+  overflow: hidden;
+}
+.fw-course .fw-bar > i {
+  display: block;
+  height: 100%;
+  background: var(--acc);
+}
+.fw-course .r {
+  width: 56px;
+  text-align: right;
 }
 .fw-resume {
   display: inline-flex;
@@ -504,22 +654,23 @@ button.fw-row:hover {
 .fw-more {
   align-self: flex-start;
 }
+/* 名字原地改：--fill 底、不描边、圆角 6、左右 6（往左挪 6，字不跳），320 宽，字和标题一样（小样 .fh-head h1 input） */
+.fh-tx .fh-name {
+  font: 600 28px/1.25 var(--serif-title);
+}
 .fh-name {
-  width: 100%;
-  max-width: 420px;
-  margin: 0;
+  width: 320px;
+  max-width: 100%;
+  margin: 0 0 0 -6px;
   padding: 0 6px;
-  border: 1px solid var(--line2);
-  border-radius: 8px;
-  background: var(--card);
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
   color: var(--t1);
-  font: 600 28px/1.25 var(--serif);
+  font: inherit;
   outline: none;
 }
-.fh-name:focus {
-  border-color: var(--acc);
-  box-shadow: 0 0 0 3px var(--acc-ring);
-}
+
 .fw-empty {
   margin: 4px 0;
   font-size: 12px;
@@ -775,79 +926,94 @@ button.fw-row:hover {
   min-height: 0;
   display: flex;
 }
-.fh-win.lib nav {
-  width: 168px;
-  flex: none;
-  padding: 12px 8px;
-  border-right: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.fh-win.lib nav button {
-  height: 30px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  text-align: left;
-  font-size: 13px;
-  color: var(--t2);
-}
-.fh-win.lib nav button.on {
-  background: var(--fill2);
-  color: var(--t1);
-}
-.fh-win.lib .cards {
-  flex: 1;
+/* 加组件（CN-102、CN-103）：整个窗口一个能滚的列表，组名 + 数 + 一条细线，每项一行三列；
+   行按内容高（以前是定高网格，卡片被压到 145、「加上」露出 0 点） */
+.fh-win.lib .bd.lib-list {
+  display: block;
   overflow: auto;
-  padding: 16px;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-  align-content: start;
+  padding: 4px 20px 16px;
 }
-.fh-win.lib .card {
+.fh-win.lib .gh {
   display: flex;
-  flex-direction: column;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px var(--line);
-  background: var(--card);
+  align-items: center;
+  gap: 8px;
+  margin: 14px 0 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
 }
-.fh-win.lib .card .pv {
+.fh-win.lib .gh .ln {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+.fh-win.lib .rows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.fh-win.lib .lw {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+  min-width: 0;
+}
+.fh-win.lib .lw .ic {
   flex: none;
-  height: 96px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   background: var(--fill);
   display: grid;
   place-items: center;
   color: var(--t2);
 }
-.fh-win.lib .card .tx {
+.fh-win.lib .lw .tx {
   flex: 1;
-  padding: 10px 12px;
+  min-width: 0;
 }
-.fh-win.lib .card b {
+.fh-win.lib .lw b {
   display: block;
   font-size: 13px;
   font-weight: 500;
 }
-.fh-win.lib .card .tx span {
+.fh-win.lib .lw .tx span {
   display: block;
   font-size: 12px;
-  line-height: 1.45;
   color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.fh-win.lib .card .ac {
-  padding: 0 12px 12px;
+.fh-win.lib .lw .add {
+  flex: none;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line2);
+  font-size: 12px;
+  color: var(--t1);
 }
-.fh-win.lib .card em {
+.fh-win.lib .lw .add:hover {
+  background: var(--fill);
+}
+.fh-win.lib .lw em {
+  flex: none;
   font-size: 12px;
   font-style: normal;
   color: var(--t3);
 }
 .fh-win.lib .none {
-  grid-column: 1 / -1;
   font-size: 12px;
   color: var(--t3);
 }
@@ -970,4 +1136,7 @@ button.fw-row:hover {
   background: color-mix(in srgb, var(--pop) 74%, transparent);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
   backdrop-filter: blur(24px) saturate(150%);
+}
+.fw-course > .truncate {
+  flex: 1;
 }

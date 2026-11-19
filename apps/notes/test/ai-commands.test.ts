@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DreamItem, DreamReport } from '../src/shared/api'
-import { dreamSummary, dropQuote, quoteOf } from '../src/renderer/ai-commands'
+import { dreamSummary } from '../src/renderer/ai-commands'
 
 const LABELS = { file: '归类和改名', link: '补上的双链', dup: '可能重复', week: '本周小结' }
 const item = (group: DreamItem['group'], n: number): DreamItem => ({ id: `${group}${n}`, group, title: 't', sub: 's', why: 'w', commit: null, files: [], state: 'pending' })
@@ -24,22 +24,5 @@ describe('/现在梦游 跑完的一句话', () => {
 
   it('没什么要整理的；有一组没做成时把说明带上', () => {
     expect(dreamSummary(report([], ['AI 不可用，收件箱没分类']), LABELS).text).toBe('梦游跑完了，没什么要整理的。\nAI 不可用，收件箱没分类')
-  })
-})
-
-describe('⌘J 的引文', () => {
-  const q = quoteOf('第一段甲。\n第二段 **粗体**。\n第三段甲。')
-  it('原样的引文拿掉，问题留着', () => {
-    expect(dropQuote(q + '这三段怎么合', q)).toBe('这三段怎么合')
-  })
-  it('引文里删过几个字、末尾接着打了问题：引文那几行照样拿掉', () => {
-    expect(dropQuote(q.replace(' **粗体**', '') + '这句通顺吗', q)).toBe('这句通顺吗')
-  })
-  it('在引文最前面打了字：留下前面打的字', () => {
-    expect(dropQuote('先问：' + q, q)).toBe('先问：')
-    expect(dropQuote('先问：' + q.replace('第一段', '一段') + '帮我改', q)).toBe('先问：\n\n帮我改')
-  })
-  it('没有引文：原样', () => {
-    expect(dropQuote('帮我改得口语一点', q)).toBe('帮我改得口语一点')
   })
 })

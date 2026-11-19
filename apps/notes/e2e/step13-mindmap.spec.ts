@@ -297,16 +297,11 @@ test('白板上改导图：对照照片改拿不准的、Tab 加子节点、删�
     await acts(page).getByRole('tab', { name: '文档' }).click()
     await expect(pane(page).locator('.cm-content')).toContainText('线性映射')
     await expect(pane(page).locator('.cm-content')).not.toContainText('box=0.669')
-    // 属性在标题下面一张表，frontmatter 原文藏起来
-    const table = pane(page).locator('.cm-props')
-    await expect(table.locator('.pr')).toHaveCount(5)
-    await expect(table.locator('.pr', { hasText: '课程' })).toHaveText('课程线性代数AI填的')
-    await expect(pane(page).locator('.cm-content')).not.toContainText('type: board')
-    await shot(page, 'map-doc-light')
-    // 点一行：露出原文，光标在那一行
-    await table.locator('.pr', { hasText: '第几讲' }).click()
-    await expect(pane(page).locator('.cm-content')).toContainText('第几讲: 3')
+    // 属性不在正文里画表（CN-122，属性只在标签条「属性」里看和改），frontmatter 原文藏起来
     await expect(pane(page).locator('.cm-props')).toHaveCount(0)
+    await expect(pane(page).locator('.cm-content')).not.toContainText('type: board')
+    await expect(pane(page).locator('.cm-content')).not.toContainText('第几讲: 3')
+    await shot(page, 'map-doc-light')
     await acts(page).getByRole('tab', { name: '白板' }).click()
     await expect(board(page).locator('.mm-node')).toHaveCount(11)
     expect(read()).toBe(MAP)

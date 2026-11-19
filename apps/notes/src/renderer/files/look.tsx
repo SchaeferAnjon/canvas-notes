@@ -1,6 +1,6 @@
 /**
  * 文件夹的图标和颜色（2026-11-17 左栏重组）：树上那一行、文件夹首页的头、活动栏（只用单色符号）都用同一个。
- * 「设图标和颜色…」是贴在那一行右边的小弹层：先摆 32 个常用的 Codicons，上面能搜整套；8 个低饱和色；改了马上生效。
+ * 「换图标和颜色…」是贴在那一行右边的小弹层：先摆 32 个常用的 Codicons，上面能搜整套；8 个低饱和色；改了马上生效。
  */
 import { Codicon, hasCodicon } from '@cn/design'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -58,7 +58,7 @@ export function FolderBadge(props: { folder: string; size?: number }) {
   )
 }
 
-/** 「设图标和颜色…」弹层 */
+/** 「换图标和颜色…」弹层 */
 export function LookPicker(props: { folder: string; anchor: HTMLElement; onClose(): void }) {
   const cfg = useLeft()
   const look = folderLook(props.folder)
@@ -82,7 +82,7 @@ export function LookPicker(props: { folder: string; anchor: HTMLElement; onClose
   const icons = found ?? [...PICK_ICONS]
   const name = props.folder.split('/').pop()!
   return (
-    <Popover anchor={props.anchor} label="设图标和颜色" onClose={props.onClose} side="right" className="lookpick">
+    <Popover anchor={props.anchor} label="换图标和颜色" onClose={props.onClose} side="right" className="lookpick">
       <div className="lp-hd">
         <FolderBadge folder={props.folder} size={32} />
         <b className="truncate">{name}</b>

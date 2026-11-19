@@ -6,7 +6,7 @@ import { when } from '../shared/when'
 import { imageSrc } from './md-widgets'
 import { parseMoment, parseVideoCard, videoOf } from '../shared/video'
 import { MomentCard, VideoCard } from './video/BoardCards'
-import { inline, Markdown } from './md-render'
+import { Attached, inline, Markdown, reviewTag } from './md-render'
 
 /**
  * 卡片里的 md 显示成什么样。只认卡片里常见的写法，全部走 React 元素（不拼 HTML）。
@@ -176,10 +176,20 @@ export function CardBody(props: {
     )
   }
   if (info.kind === 'clip') {
-    const quote = lines.filter((l) => !SOURCE.test(l.trim()) && l.trim() !== '').map((l) => l.replace(/^>\s?/, ''))
+    const { quote, items, more } = splitClip(lines)
     return (
       <>
         <div className="q">{paragraphs(quote)}</div>
+        {items.length > 0 && (
+          <div className="rvs">
+            {items.map((it, j) => (
+              <Attached key={j} wr={it.wr} hooked>
+                {inline(it.text, j)}
+              </Attached>
+            ))}
+            {more.length > 0 && <div className="more">{paragraphs(more)}</div>}
+          </div>
+        )}
         <div className="src">
           <span className="fav"><Codicon name="globe" size={12} /></span>
           <span className="truncate">{domainOf(info.source!.url)}</span>
@@ -193,6 +203,34 @@ export function CardBody(props: {
       <Markdown text={text} />
     </div>
   )
+}
+
+/**
+ * 剪下来的引文卡：引文的几行、挂在下面的「微信读书的想法」「我的评价」几段（和文档里一样画成标签加弯钩，不混进引文），
+ * 再往下自己写的字（more，照普通段落画），出处行不算
+ */
+function splitClip(lines: string[]): { quote: string[]; items: { wr: boolean; text: string }[]; more: string[] } {
+  const quote: string[] = []
+  const items: { wr: boolean; text: string }[] = []
+  const more: string[] = []
+  let cur: { wr: boolean; text: string } | null = null
+  for (const raw of lines) {
+    if (SOURCE.test(raw.trim())) continue
+    const l = raw.replace(/^>\s?/, '')
+    if (!l.trim()) {
+      cur = null
+      if (more.length) more.push('')
+      continue
+    }
+    const tag = more.length ? null : reviewTag(l)
+    if (tag) {
+      cur = { wr: tag.wr, text: l.slice(tag.len) }
+      items.push(cur)
+    } else if (cur) cur.text += '\n' + l
+    else if (!items.length) quote.push(l)
+    else more.push(l)
+  }
+  return { quote, items, more }
 }
 
 /** 按空行分段，# 开头的是小标题，> 开头的是引文 */

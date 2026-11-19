@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detailsHead, moveUnit, placeUnit, resetLayout, splitDoc, unplaceUnit } from '../src/doc-board'
+import { addSection, appendPlaced, detailsHead, insertInColumn, moveUnit, placeUnit, renameColumn, resetLayout, splitDoc, unplaceUnit } from '../src/doc-board'
 
 export const LECTURE = `# Lecture05 笔记
 
@@ -159,6 +159,108 @@ describe('文档切到白板：分卡（方向 A）', () => {
     expect(at('<details>\n\n正文')).toBeNull()
   })
 
+  it('富内容：$$ 公式（连着的几段合成一张）、单独一行的 ![[…]] 和 [[…]] 各是一种卡；书摘提示块是素材卡，后面的「我的评价」跟着它', () => {
+    const t = `# 富内容
+
+## 一
+
+![[Lecture05.pdf#page=3]]
+
+$$
+I = \\frac{a}{b}
+$$
+
+$$
+P = \\min(\\pi, \\beta I)
+$$
+
+[[冰岛自驾]]
+
+[[Lecture05 可视化|加速器为何又快又省]]
+
+![[我的疑惑]]
+
+> [!quote] [《在冰岛开车》 · 第二章 天气](weread://book/1)
+> 在冰岛，天气不是闲聊的话题。
+
+> 冰洞每年的形状都不一样。
+—— [《在冰岛开车》 · 第五章 冰洞](https://weread.qq.com/web/reader/1)
+
+我的评价：所以要跟向导进。
+
+> [!note] 这讲的主线
+> 加速器省电。
+
+<!-- 别的软件留下的注释 -->
+
+公式如下：
+
+$$
+E = mc^2
+$$
+`
+    const b = splitDoc(t)
+    expect(b.columns[0]!.cards.map((u) => u.kind)).toEqual(['embed', 'math', 'link', 'link', 'embed', 'quote', 'quote', 'callout', 'math'])
+    const [, math, , , , , quote2, , lead] = b.columns[0]!.cards
+    expect(math!.text).toBe('$$\nI = \\frac{a}{b}\n$$\n\n$$\nP = \\min(\\pi, \\beta I)\n$$')
+    expect(quote2!.text.endsWith('我的评价：所以要跟向导进。')).toBe(true)
+    // 冒号那句带着公式：卡的种类按公式算，开头那句单独记下来
+    expect(lead!.text.slice(0, lead!.lead)).toBe('公式如下：')
+    expect(b.total).toBe(9)
+  })
+
+  it('微信读书同步来的书摘：引文下面挂着的「微信读书的想法：」「我的评价：」（一段接一段）和引文一张卡，挪的时候一起走；没挂在引文下面的段落、不带冒号的「微信读书的想法」不算', () => {
+    const t = [
+      '---',
+      '类型: 书摘',
+      'bookId: 3300064831',
+      '---',
+      '# 趣说明朝276年',
+      '',
+      '## 3 作死小能手朱高煦',
+      '',
+      '> 接到叔叔谋反的消息，朱瞻基立刻下令御驾亲征。',
+      '',
+      '微信读书的想法：御驾亲征这一下，比朝堂上吵三个月都管用。',
+      '',
+      '我的评价：先动手的人说了算。',
+      '',
+      '> 见面后，叔侄俩开聊。',
+      '',
+      '微信读书的想法 不带冒号的不算',
+      '',
+      '我自己的想法：这一家子打架都这么接地气',
+      '',
+      '## 4 来自亲爹的愤怒',
+      '',
+      '> 永乐皇帝朱棣去世以后，他的大儿子朱高炽当了皇帝。',
+      '',
+      '**我的评价**：加粗的标签也认',
+      '',
+    ].join('\n')
+    const b = splitDoc(t)
+    expect(cardsOf(t)).toEqual([
+      ['3 作死小能手朱高煦', ['quote', 'quote', 'text', 'text']],
+      ['4 来自亲爹的愤怒', ['quote']],
+    ])
+    const first = b.columns[0]!.cards[0]!
+    expect(first.text).toBe('> 接到叔叔谋反的消息，朱瞻基立刻下令御驾亲征。\n\n微信读书的想法：御驾亲征这一下，比朝堂上吵三个月都管用。\n\n我的评价：先动手的人说了算。')
+    expect(b.columns[1]!.cards[0]!.text.endsWith('**我的评价**：加粗的标签也认')).toBe(true)
+    // 挪进下一章：引文和挂着的两段一起走，别的字一个不动
+    const out = moveUnit(t, first, b.columns[1]!, null)
+    expect(out.length).toBe(t.length)
+    expect(out).toContain('## 4 来自亲爹的愤怒\n\n> 永乐皇帝朱棣去世以后，他的大儿子朱高炽当了皇帝。\n\n**我的评价**：加粗的标签也认\n\n> 接到叔叔谋反的消息，朱瞻基立刻下令御驾亲征。\n\n微信读书的想法：御驾亲征这一下，比朝堂上吵三个月都管用。\n\n我的评价：先动手的人说了算。\n')
+    expect(cardsOf(out)).toEqual([
+      ['3 作死小能手朱高煦', ['quote', 'text', 'text']],
+      ['4 来自亲爹的愤怒', ['quote', 'quote']],
+    ])
+  })
+
+  it('问过 AI 的一节用 [!ai] 写讲通的讲法（新写法）也是问答卡', () => {
+    const t = '# 笔记\n\n## 第 5 页 · 旋转矩阵\n[第 5 页](a.pdf#page=5) · 10:20\n\n> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了第 5 页\n> 先看图。\n\n[完整对话 · 1 轮](../c.md)\n'
+    expect(cardsOf(t)).toEqual([['问过 AI', ['ask']]])
+  })
+
   it('用 # 分节的文档：# 就是列', () => {
     expect(cardsOf('# 一\n\n甲\n\n# 二\n\n乙\n')).toEqual([
       ['一', ['text']],
@@ -213,6 +315,34 @@ describe('文档切到白板：写回', () => {
     const back = moveUnit(moved, splitDoc(moved).placed[0]!, splitDoc(moved).columns[1]!, null)
     expect(back).not.toContain('<!-- card')
     expect(cardsOf(back)[1]).toEqual(['路线', ['video', 'text', 'quote']])
+  })
+
+  it('工具板、收件箱拖上来的新卡：放进列就插进那一节的落点，放在空白处就加在文末带一行位置；新列是新的一节；改列名只改标题那行', () => {
+    const b = splitDoc(TRAVEL)
+    // 放进「出发前」这一节、引文前面
+    const a = insertInColumn(TRAVEL, b.columns[0]!, b.columns[0]!.cards[2]!, '- [ ] 换钱')
+    expect(a).toBe(TRAVEL.replace('> 冰岛的天气', '- [ ] 换钱\n\n> 冰岛的天气'))
+    // 放在这一节末尾
+    const end = insertInColumn(TRAVEL, b.columns[1]!, null, '新的一段')
+    expect(end).toBe(TRAVEL.replace(/\n$/, '') + '\n\n新的一段\n')
+    expect(() => insertInColumn(LECTURE, splitDoc(LECTURE).columns[2]!, null, 'x')).toThrow('问过 AI')
+    // 空白处：文末，一行位置只管它
+    const placed = appendPlaced(TRAVEL, '记得带转换插头', 320.6, 40)
+    expect(placed).toBe(TRAVEL + '\n<!-- card id=d1 x=321 y=40 -->\n记得带转换插头\n')
+    const p = splitDoc(placed)
+    expect(p.placed.map((u) => [u.text, u.section])).toEqual([['记得带转换插头', '路线']])
+    expect(p.columns[1]!.cards.map((u) => u.kind)).toEqual(['video', 'text'])
+    // 新的一列：插在「路线」前面；没给就在文末；级别跟着文档
+    const col = addSection(TRAVEL, '新的列', b.columns[1]!, b.level)
+    expect(splitDoc(col).columns.map((c) => c.title)).toEqual(['出发前', '新的列', '路线'])
+    expect(col).toBe(TRAVEL.replace('## 路线', '## 新的列\n\n## 路线'))
+    expect(splitDoc(addSection(TRAVEL, '预算', null, 2)).columns.map((c) => c.title)).toEqual(['出发前', '路线', '预算'])
+    expect(splitDoc('# 一\n\n甲\n\n# 二\n\n乙\n').level).toBe(1)
+    // 改列名：只换标题那行的字
+    expect(renameColumn(TRAVEL, b.columns[1]!, '怎么走')).toBe(TRAVEL.replace('## 路线', '## 怎么走'))
+    // 空的不写
+    expect(insertInColumn(TRAVEL, b.columns[0]!, null, '  \n')).toBe(TRAVEL)
+    expect(appendPlaced(TRAVEL, '', 1, 1)).toBe(TRAVEL)
   })
 
   it('文档里的位置行只管后面那一张卡（后面的段落不会被吞进去）', () => {

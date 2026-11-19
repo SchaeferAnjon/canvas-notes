@@ -611,6 +611,60 @@ export function parseTable(text: string, b: MdBlock): ParsedTable {
   return { head: cells(lines[0]!), align, rows: lines.slice(2).map(cells) }
 }
 
+/** 表格一行里每一格两条竖线之间的原文范围（相对这一行；最后一个 | 后面的空白不算一格） */
+function cellSpans(s: string): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = []
+  let i = 0
+  while (i < s.length && (s[i] === ' ' || s[i] === '\t')) i++
+  if (s[i] === '|') i++
+  let start = i
+  for (; i <= s.length; i++) {
+    if (i < s.length && s[i] === '\\') {
+      i++
+      continue
+    }
+    if (i === s.length || s[i] === '|') {
+      if (i === s.length && s.slice(start, i).trim() === '' && out.length > 0) break
+      out.push({ from: start, to: i })
+      start = i + 1
+    }
+  }
+  return out
+}
+
+/** 一格里写的字：竖线转义、换行换成空格 */
+const cellText = (v: string) => v.replace(/\r?\n/g, ' ').replace(/(?<!\\)\|/g, '\\|').trim()
+
+/**
+ * 改表格的一格（row = -1 是表头，0 起是下面的行）：只换这一格两条竖线之间的字，写成「 字 」，这一行别的地方原样。
+ * 这一行格子不够（col 超出）就在后面补空格子。
+ */
+export function setTableCell(text: string, b: MdBlock, row: number, col: number, value: string): string {
+  const lines = splitLines(text, b.from, b.to)
+  const line = lines[row < 0 ? 0 : row + 2]
+  if (!line) return text
+  let s = line.text
+  let spans = cellSpans(s)
+  while (spans.length <= col) {
+    s = s.replace(/\s*$/, '')
+    if (!s.endsWith('|')) s += ' |'
+    s += '  |'
+    spans = cellSpans(s)
+  }
+  const sp = spans[col]!
+  const v = cellText(value)
+  const next = s.slice(0, sp.from) + (v ? ` ${v} ` : '  ') + s.slice(sp.to)
+  return text.slice(0, line.from) + next + text.slice(line.to)
+}
+
+/** 表格最后加一行空格子（格数同表头）；返回新文字 */
+export function addTableRow(text: string, b: MdBlock): string {
+  const lines = splitLines(text, b.from, b.to)
+  const n = Math.max(1, cellSpans(lines[0]!.text).length)
+  const row = '| ' + Array.from({ length: n }, () => '').join(' | ') + ' |'
+  return text.slice(0, b.to) + '\n' + row + text.slice(b.to)
+}
+
 /** 从笔记 notePath 指向库里 target 的相对链接（都是相对库根目录、用 / 分隔），空格写成 %20 */
 export function relativeLink(notePath: string, target: string): string {
   const from = notePath.split('/').slice(0, -1)

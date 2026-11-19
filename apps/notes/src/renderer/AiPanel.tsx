@@ -3,28 +3,33 @@ import { onMessageMenu } from './ctx/message-menu'
 import { fmValue, isMindmap, resetLayout, splitDoc } from '@cn/format'
 import { Markdown } from './md-render'
 import { AiError } from './ai-error'
-import { PastedThumbs, pastedUrl, usePastedImages } from './paste-images'
-import { EngineLogo } from './engine-logo'
+import { pastedUrl } from './paste-images'
+import { AiHead, AwayBar, Chip, type DockNav, Sees } from './ai-head'
+import { AiInput, MatMsg, QuoteCap, sendText, useComposer, useConvPick } from './composer'
+import * as C from './ai-chats'
+import { folderCount, HANDS, type Place, seenOf } from './ai-place'
+import { type FolderSug, fileInPrompt, folderSugs, folderSumPrompt, newTarget, parseFileIn, skeleton, sumTargets } from './folder-ai'
+import { useKnownFiles } from './files/store'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { AgentContext, EngineId, EngineInfo, StoredMsg, ToolStep } from '../shared/agent'
+import type { AgentContext, StoredMsg, ToolStep } from '../shared/agent'
+import { imageNames, type Material } from '../shared/materials'
 import type { CommitInfo, DuplicatePair, NoteFile } from '../shared/api'
-import { titleOf } from '../shared/layout'
+import { CLIPS, titleOf } from '../shared/layout'
 import './ai.css'
 import {
   articlePrompt,
   askPrompt,
   COMMANDS,
   draftText,
-  dropQuote,
   inboxPrompt,
   parseMoves,
-  quoteOf,
   dreamSummary,
   PENDING_COMMANDS,
   TIDY_BOARD,
   summaryPrompt,
   SYSTEM,
   topicFolder,
+  today,
   translatePrompt,
   withSummaryCard,
 } from './ai-commands'
@@ -32,19 +37,10 @@ import { GROUPS } from './dream/useDream'
 import type { NoteDoc, ViewMode } from './note-doc'
 import type { Tab } from './tabs'
 
-type Action = { label: string; primary?: boolean; run(): Promise<void> | void }
+type Msg = C.Msg
+type Action = NonNullable<Msg['actions']>[number]
 
 type Change = NonNullable<StoredMsg['change']>
-
-/** 存下来的部分 + 只在这次打开时有的（还在生成、按钮） */
-type Msg = StoredMsg & {
-  pending?: boolean
-  /** 流式的字往这条里写 */
-  live?: boolean
-  actions?: Action[]
-  /** 找重复正在算：已比几篇、共几篇（total 是 0 时还在读全库、切字） */
-  dupProgress?: { done: number; total: number }
-}
 
 const ICONS: Record<string, CodiconName> = {
   整理收件箱: 'inbox',
@@ -57,6 +53,8 @@ const ICONS: Record<string, CodiconName> = {
 }
 
 let seq = Date.now()
+
+const lastSeg = (p: string) => p.split('/').pop() || p
 
 /**
  * 做成了、只是没提交上：黄色 warning 图标 + 一行说明（「卡存好了，提交没成功」），下面 12 号淡字写原因，再一个「再提交一次」。
@@ -92,13 +90,22 @@ class CommitFailed extends Error {
   }
 }
 
-export function AiPanel(props: {
-  open: boolean
+export interface AiPanelProps {
+  /** 这一格没开、或在读 PDF（格里是读 PDF 的 AI）：藏起来，不卸下（正在生成的那一轮不断） */
+  hidden: boolean
+  /** 这段对话是哪个地方的（头上胶囊写它的名字）：这里的，或者对话菜单里点开的别处的（nav.away） */
+  place: Place
+  /** 对话菜单、「这是在…问的 · 回到…」 */
+  nav: DockNav
+  /** 开着的这篇是书摘（「看得到」写「书摘：书名」） */
+  digest: boolean
   tab: Tab | null
   mode: ViewMode
   doc(): NoteDoc | null
   notes: NoteFile[]
   webUrl: string | null
+  /** 右栏开着网页（「看得到」多一颗网页，能动手换成网页的） */
+  webOpen: boolean
   /** 现在看的是什么（当前标签、右栏网页、选中的字），每一轮发给 AI */
   context(mentions: string[]): AgentContext
   onClose(): void
@@ -109,134 +116,66 @@ export function AiPanel(props: {
   onChanged(): void
   /** 一打开就跑这条（seq 变了再跑一次） */
   autoRun?: { text: string; seq: number } | null
-  /** 右键「问 AI」：这段字作为引文放进输入框，光标进去，不自动发（seq 变了再放一次） */
-  draft?: { text: string; seq: number } | null
-  /** 现在用的引擎名字（A 的底栏 AI 项写它） */
-  onEngine?(label: string, id: EngineId): void
-}) {
-  const [msgs, setMsgs] = useState<Msg[]>([])
-  const [loaded, setLoaded] = useState(false)
-  const [input, setInput] = useState('')
+  /**
+   * 文档里选字 ⌘J、右键「问 AI」：这段字成为输入框顶上那一排的第一块引用（src 是来源「《文档标题》」），光标在它后面，不自动发
+   * （seq 变了再放一次；同一个标签再来一次换掉它，换了标签拿掉它）
+   */
+  draft?: { text: string; src: string; seq: number } | null
+}
+
+export function AiPanel(props: AiPanelProps) {
+  const place = props.place
+  // 每个地方各存各的对话（D 组 CN-132，ai-chats.ts）；正在答的那一轮全软件一个，记着是哪个地方的
+  const { msgs, loaded, pick: ownPick } = C.useChat(place)
+  const turn = C.runningNow()
+  /** 这个地方正在答的那一轮 */
+  const running = turn?.key === place.key ? turn.id : null
+  /** 别的地方在答（主进程一次只跑一轮 AI 动手）：这里先不发，发送键说为什么 */
+  const busyElsewhere = !!turn && turn.key !== place.key
+  /** 输入框上面一行提示（「最多4张」、加图没成的原因），3 秒后收起 */
   const [pasteNote, setPasteNote] = useState<string | null>(null)
-  const paste = usePastedImages((t) => {
+  const showNote = (t: string) => {
     setPasteNote(t)
     setTimeout(() => setPasteNote((x) => (x === t ? null : x)), 3000)
-  })
+  }
+  // 输入框的字和顶上那一排材料（第 2b 段，composer.tsx）
+  const c = useComposer(showNote)
+  const input = c.text
+  const setInput = c.setText
+  // 谁来答 · 模型 · effort（CN-91 方向 C）：模型和 effort 记在这个地方的对话里，没选过用设置 › AI「AI 对话」那一行
+  const cp = useConvPick(ownPick, (p) => C.setPick(place.key, p), showNote)
+  const engine = cp.pick.engine
+  const engines = cp.engines
   const [menuIdx, setMenuIdx] = useState(0)
   const [mentions, setMentions] = useState<string[]>([])
-  const [running, setRunning] = useState<number | null>(null)
-  const [engines, setEngines] = useState<EngineInfo[]>([])
-  const [engine, setEngine] = useState<EngineId>('claude')
-  const [engineMenu, setEngineMenu] = useState(false)
-  /** 现在 AI 对话用的「Claude Code · Opus 5.5」 */
-  const [by, setBy] = useState('')
-  // 引擎菜单开着时按 Esc 收起（只收菜单，不关 AI 浮窗）
-  useEffect(() => {
-    if (!engineMenu) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
-      setEngineMenu(false)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [engineMenu])
   const list = useRef<HTMLDivElement>(null)
   /** 对话列表停在最底下（新的字、进度出来时跟着滚） */
   const pinned = useRef(true)
-  const box = useRef<HTMLTextAreaElement>(null)
+  const box = c.ta
 
   const notePath = props.tab?.type === 'note' ? props.tab.path : null
   const noteFile = props.notes.find((n) => n.path === notePath)
   const isBoard = !!noteFile?.board || props.mode === 'board'
   const inbox = props.notes.filter((n) => n.kind === 'inbox')
   const engineLabel = engines.find((e) => e.id === engine)?.label ?? 'Claude Code'
-  useEffect(() => props.onEngine?.(engineLabel, engine), [engineLabel, engine])
-
-  // 对话记录和选的引擎：存在软件设置目录，关了再开、重开软件都还在
-  useEffect(() => {
-    void window.cn.aiChatLoad().then((m) => {
-      setMsgs(m)
-      setLoaded(true)
-    })
-    const loadEngines = () =>
-      void window.cn.aiEngines().then((r) => {
-        setEngines(r.engines)
-        setEngine(r.current)
-        setBy(r.label)
-      })
-    loadEngines()
-    // 设置 › AI 里改了「AI 对话」（或读 PDF 右栏头上换了）：开着的浮窗马上跟着换
-    return window.cn.onAiPrefsChanged(loadEngines)
-  }, [])
-  useEffect(() => {
-    if (!loaded) return
-    const t = setTimeout(() => void window.cn.aiChatSave(msgs.map(stored)), 300)
-    return () => clearTimeout(t)
-  }, [msgs, loaded])
-
-  // 边生成边显示：字和工具步骤按编号写进那条消息
-  useEffect(
-    () =>
-      window.cn.onAiEvent((id, e) =>
-        setMsgs((x) =>
-          x.map((m) => {
-            if (m.id !== id || m.role !== 'ai' || !m.live) return m
-            if (e.type === 'text') return { ...m, text: (m.text ?? '') + e.delta }
-            const steps = [...(m.steps ?? [])]
-            const i = steps.findIndex((s) => s.id === e.id)
-            const step: ToolStep = { id: e.id, label: e.label, status: e.status, ...(e.detail ? { detail: e.detail } : {}) }
-            if (i === -1) steps.push(step)
-            else steps[i] = step
-            return { ...m, steps }
-          }),
-        ),
-      ),
-    [],
-  )
 
   useEffect(() => {
-    if (props.open) {
-      box.current?.focus()
-      // 设置页「AI」里可能换过默认引擎
-      void window.cn.aiEngines().then((r) => (setEngine(r.current), setBy(r.label)))
-    } else setEngineMenu(false)
-  }, [props.open])
+    if (!props.hidden) box.current?.focus()
+  }, [props.hidden])
   const draftSeq = useRef(0)
-  /** 引文是在哪个标签带进来的：换了标签就把它从输入框拿掉（自己接着打的问题留着），不拿上一篇的话问这一篇 */
-  const quoteFrom = useRef<{ tab: string | null; quote: string } | null>(null)
+  // 文档里带进来的那一块跟着那个标签：换了标签就拿掉它（和它在字里的编号），自己接着打的问题留着，不拿上一篇的话问这一篇
   useEffect(() => {
-    const q = quoteFrom.current
-    if (!q || q.tab === (props.tab?.id ?? null)) return
-    quoteFrom.current = null
-    // 引文改过几个字、前面打过字也认得出来：「>」开头的那几行拿掉，自己打的问题留着
-    setInput((v) => dropQuote(v, q.quote))
+    c.dropDocQuotes(props.tab?.id ?? null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.tab?.id])
   useEffect(() => {
     const d = props.draft
     if (!d || d.seq === draftSeq.current) return
     draftSeq.current = d.seq
-    // 已经打了问题：引文放在问题上面，不盖掉人自己打的字（上一段引文换成这一段）
-    const quote = quoteOf(d.text)
-    const old = quoteFrom.current?.quote
-    setInput((v) => quote + (old ? dropQuote(v, old) : v).replace(/^\n+/, ''))
-    quoteFrom.current = { tab: props.tab?.id ?? null, quote }
-    // 浮窗刚打开，等它画出来再把光标放到最后
-    requestAnimationFrame(() => {
-      const t = box.current
-      if (!t) return
-      t.focus()
-      t.setSelectionRange(t.value.length, t.value.length)
-    })
+    // 成为第一块引用，光标在它后面；已经打了的问题留着（在编号后面），同一个标签里再来一次换掉这一块
+    c.add({ kind: 'quote', text: d.text.trim().slice(0, 20_000), src: d.src }, { doc: { tab: props.tab?.id ?? null } })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.draft?.seq])
-  // 输入框跟着字变高（最多约 6 行再滚）：打字、带进引文、换篇拿掉引文都走这里
-  useLayoutEffect(() => {
-    const t = box.current
-    if (!t) return
-    t.style.height = 'auto'
-    t.style.height = Math.min(t.scrollHeight, 140) + 'px'
-  }, [input, props.open])
   const ranSeq = useRef(0)
   useEffect(() => {
     const a = props.autoRun
@@ -260,17 +199,34 @@ export function AiPanel(props: {
     : []
   const menuLen = slash ? cmdItems.length : at ? atItems.length : 0
 
-  const suggestions = useMemo(() => {
-    if (props.tab?.type === 'inbox') return ['整理收件箱', '找重复']
-    if (isBoard) return ['总结这块白板', '写成文章', '整理收件箱']
-    if (notePath) return ['总结这块白板', '翻译']
-    if (props.webUrl) return ['剪藏当前网页', '整理收件箱']
-    return ['整理收件箱', '现在梦游']
-  }, [props.tab, isBoard, notePath, props.webUrl])
+  /**
+   * 空对话里的建议：这一页能用的 / 命令（文档不出名字写着「白板」的），右栏开着网页时「剪藏当前网页」排第一（和能动手一样），最多三颗。
+   * 文件夹页照小样给这个文件夹的（总结、挪进来、照上一篇开一篇，folder-ai.ts），做不到的不放
+   */
+  function suggestions(folder: string | null): { text: string; icon: CodiconName; go(): void }[] {
+    const cmd = (name: string) => ({ text: '/' + name, icon: ICONS[name] ?? 'sparkle', go: () => void run('/' + name) })
+    const web = props.webOpen && props.webUrl ? [cmd('剪藏当前网页')] : []
+    const own =
+      folder !== null
+        ? folderSugs(folder, props.notes, today()).map((s) => ({ text: s.text, icon: s.icon, go: () => void runFolder(folder, s) }))
+        : (props.tab?.type === 'inbox'
+            ? ['整理收件箱', '找重复']
+            : isBoard
+              ? ['总结这块白板', '写成文章', '整理收件箱']
+              : notePath
+                ? ['翻译', '整理收件箱']
+                : ['整理收件箱', '现在梦游']
+          ).map(cmd)
+    return [...web, ...own].slice(0, 3)
+  }
 
   // ---------- 跑命令 ----------
-  const push = (m: Msg) => ((pinned.current = true), setMsgs((x) => [...x, m]))
-  const patch = (id: number, p: Partial<Msg>) => setMsgs((x) => x.map((m) => (m.id === id && m.role === 'ai' ? { ...m, ...p } : m)))
+  // 加进这一轮开始时那个地方的对话（答的时候换了页面也写回原处）；改一条按编号找，在哪个地方都一样
+  const push = (m: Msg) => {
+    pinned.current = true
+    C.update(place.key, (x) => [...x, { ...m, time: Date.now() }], place.label)
+  }
+  const patch = (id: number, p: Partial<Msg>) => C.patch(id, p)
 
   async function noteText(path: string): Promise<string> {
     const d = props.doc()
@@ -341,21 +297,23 @@ export function AiPanel(props: {
     }
   }
 
-  async function run(raw: string) {
-    const text = raw.trim()
-    if (!text || running !== null) return
-    setInput('')
-    setEngineMenu(false)
-    // 粘贴的图跟着这句一起交给引擎（/ 命令不带图）
-    const pasted = /^\//.test(text) ? [] : paste.list.map((p) => p.name)
-    if (pasted.length) paste.clear()
-    push({ id: seq++, role: 'user', text, ...(pasted.length ? { pasted } : {}) })
+  /** mats：这一句带的材料（输入框顶上那一排，多段引用方向 B）；「再问一次」这些只带字 */
+  async function run(raw: string, mats: Material[] = []) {
+    // 只贴了图、字里除了编号没别的字：问「这张图讲的是什么」（同读 PDF，CN-24）
+    const text = sendText(raw, mats)
+    if ((!text && !mats.length) || C.runningNow()) return
+    // / 命令只看字：材料留在输入框里
+    const cmdLine = /^\//.test(text)
+    const own = cmdLine ? [] : mats
+    if (own.length) c.clear()
+    else setInput('')
+    push({ id: seq++, role: 'user', text, ...(own.length ? { mats: own } : {}) })
     const id = seq++
     const cmd = /^\/(\S+)/.exec(text)?.[1]
     push({ id, role: 'ai', pending: true })
     // 找重复（大库要算十几秒）不占着对话：算的时候照样能发新问题，它在自己那条消息里报进度、能单独停下
     if (cmd === '找重复') return void findDuplicates(id)
-    setRunning(id)
+    C.setRunning({ id, key: place.key, label: place.label })
     try {
       // 不是现成的命令：去掉斜杠，当成一句话交给 AI 去做
       if (cmd && !COMMANDS.some((c) => c.name === cmd)) return await agentTurn(id, text.slice(1))
@@ -429,35 +387,112 @@ export function AiPanel(props: {
         patch(id, { pending: false, text: reply })
         return
       }
-      await agentTurn(id, text, pasted)
+      await agentTurn(id, text, own)
     } catch (e) {
       if (e instanceof CommitFailed) patch(id, { pending: false, warn: `改好了，提交没成功：${e.message}`, retry: e.retry })
       else patch(id, { pending: false, error: errText(e) })
     } finally {
-      setRunning(null)
+      C.setRunning(null)
     }
   }
 
-  /** 直接说的话：交给选好的引擎，它能用工具操纵网页、白板、文档 */
-  async function agentTurn(id: number, text: string, pasted: string[] = []) {
-    patch(id, { live: true, engine, text: '', ...(by ? { by } : {}) })
-    const ctx = props.context(mentions)
+  /** 文件夹页的建议（D 组小样）：问的那句照原话进对话，下面是做的结果 */
+  async function runFolder(folder: string, s: FolderSug) {
+    if (C.runningNow()) return
+    push({ id: seq++, role: 'user', text: s.text })
+    const id = seq++
+    push({ id, role: 'ai', pending: true })
+    C.setRunning({ id, key: place.key, label: place.label })
     try {
-      const r = await window.cn.aiTurn({ id, engine, text, context: ctx, ...(pasted.length ? { pasted } : {}) })
-      setMsgs((x) =>
-        x.map((m) =>
-          m.id === id && m.role === 'ai'
-            ? {
-                ...m,
-                pending: false,
-                live: false,
-                text: r.text || m.text || undefined,
-                ...(r.error ? { error: r.error } : {}),
-                ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds } } : {}),
-              }
-            : m,
-        ),
-      )
+      if (s.kind === 'sum') await folderSum(id, folder)
+      else if (s.kind === 'file') await fileIn(id, folder)
+      else await newInFolder(id, folder)
+    } catch (e) {
+      if (e instanceof CommitFailed) patch(id, { pending: false, warn: `改好了，提交没成功：${e.message}`, retry: e.retry })
+      else patch(id, { pending: false, error: errText(e) })
+    } finally {
+      C.setRunning(null)
+    }
+  }
+
+  /** 把这周的周记总结成三句话：周记读这周那篇，别的文件夹读最近改的几篇 */
+  async function folderSum(id: number, folder: string) {
+    const list = sumTargets(folder, props.notes)
+    if (!list.length) return patch(id, { pending: false, text: '这个文件夹里还没有文档。' })
+    const items = await Promise.all(list.map(async (n) => ({ path: n.path, text: await noteText(n.path) })))
+    patch(id, { read: list.length === 1 ? `读了「${titleOf(list[0]!.path)}」` : `读了文件夹「${lastSeg(folder)}」${list.length}篇` })
+    const reply = await askAi(id, folderSumPrompt(folder, items), true)
+    patch(id, { pending: false, text: reply })
+  }
+
+  /** 收件箱里和这个文件夹有关的挪进来：AI 挑，列出来，你点同意才挪，一次提交可撤回 */
+  async function fileIn(id: number, folder: string) {
+    const name = lastSeg(folder)
+    if (!inbox.length) return patch(id, { pending: false, text: '收件箱是空的，没有要挪的。' })
+    const items = await Promise.all(inbox.map(async (n) => ({ path: n.path, text: (await window.cn.readNote(n.path)).text })))
+    const have = props.notes.filter((n) => n.path.startsWith(folder + '/')).map((n) => titleOf(n.path)).slice(0, 50)
+    const read = `读了收件箱${inbox.length}条`
+    patch(id, { read })
+    const paths = parseFileIn(await askAi(id, fileInPrompt(folder, items, have), false), inbox)
+    if (!paths.length) return patch(id, { pending: false, text: `收件箱里没找到和${name}有关的，先都留着。` })
+    patch(id, {
+      pending: false,
+      text: `和${name}有关的${paths.length}条，挪进「${folder}」：`,
+      moves: paths.map((p) => ({ path: p, topic: name, to: folder })),
+      actions: [
+        {
+          label: '同意，挪过去',
+          primary: true,
+          run: async () => {
+            const kinds: Record<string, string> = {}
+            for (const p of paths) kinds[`${folder}/${p.split('/').pop()}`] = '移动'
+            await applyChange(id, { message: `把收件箱里${paths.length}条挪进「${folder}」`, moves: paths.map((p) => ({ from: p, toFolder: folder })) }, kinds)
+            patch(id, { actions: [], done: `挪好了${paths.length}条` })
+          },
+        },
+      ],
+    })
+  }
+
+  /** 照上周的样子开一篇：属性和小节照最新那篇，内容空着；开好就打开它（不问 AI） */
+  async function newInFolder(id: number, folder: string) {
+    const t = newTarget(folder, props.notes, today())
+    if (!t) return patch(id, { pending: false, error: '认不出下一篇叫什么' })
+    const from = titleOf(t.from.path)
+    const text = skeleton(await noteText(t.from.path), from, t.name, today())
+    const commit = await applyChange(id, { message: `照「${from}」开一篇「${t.name}」`, writes: [{ path: t.path, text, create: true }] }, {})
+    const path = commit?.files.find((f) => f.path.endsWith('.md'))?.path ?? t.path
+    if (commit) patch(id, { change: { commit, kinds: { [path]: '新' } } })
+    patch(id, { pending: false, read: `照「${from}」的属性和小节`, text: `开好了「${titleOf(path)}」，内容空着等你写。` })
+    props.onOpen(path)
+  }
+
+  /** 直接说的话：交给选好的引擎，它能用工具操纵网页、白板、文档；mats 是带的材料（字里的 ①② 照旧，后面按同一套编号列出每块，图叫「图②」，图一起附上） */
+  async function agentTurn(id: number, text: string, mats: Material[] = []) {
+    // 回答头上写全「Claude Code · Opus 5.5 · High」：这个对话这一问用的
+    patch(id, { live: true, engine, text: '', by: cp.label })
+    const ctx = props.context(mentions)
+    const pasted = imageNames(mats)
+    try {
+      // 接着这个地方自己的会话（D 组 CN-132）；模型和 effort 是这个对话选的（CN-91）
+      const r = await window.cn.aiTurn({
+        id,
+        engine,
+        text,
+        context: ctx,
+        place: { key: place.key, label: place.label },
+        ...cp.req,
+        ...(pasted.length ? { pasted } : {}),
+        ...(mats.length ? { mats } : {}),
+      })
+      C.patch(id, (m) => ({
+        ...m,
+        pending: false,
+        live: false,
+        text: r.text || m.text || undefined,
+        ...(r.error ? { error: r.error } : {}),
+        ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds } } : {}),
+      }))
       if (r.commit) props.onChanged()
     } finally {
       patch(id, { live: false })
@@ -552,18 +587,10 @@ export function AiPanel(props: {
     void window.cn.aiTurnStop(running)
   }
 
-  function pickEngine(e: EngineInfo) {
-    if (!e.path) return
-    setEngine(e.id)
-    setEngineMenu(false)
-    void window.cn.aiSetEngine(e.id).then(() => window.cn.aiEngines().then((r) => setBy(r.label)))
-    box.current?.focus()
-  }
-
+  /** 新对话：这个地方的对话清掉（会话号一起清） */
   function newChat() {
-    setMsgs([])
+    C.clear(place.key)
     setMentions([])
-    void window.cn.aiChatClear()
   }
 
   // ---------- 输入 ----------
@@ -590,82 +617,56 @@ export function AiPanel(props: {
     }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      void run(input)
+      void run(input, c.plain())
     } else if (e.key === 'Escape') {
       props.onClose()
     }
   }
 
-  const sees: { label: string; on?: boolean }[] = []
-  if (notePath) sees.push({ label: `${isBoard ? '白板' : '文档'}：${titleOf(notePath)}`, on: true })
-  if (props.tab?.type === 'inbox') sees.push({ label: `收件箱${inbox.length}条`, on: true })
-  if (props.webUrl) sees.push({ label: `网页：${hostOf(props.webUrl)}` })
-  for (const m of mentions) sees.push({ label: `@${titleOf(m)}` })
-  // 它在这一页能替你做的动作（右栏网页开着时排最前，最可能是要它动网页）
-  const hands = props.webUrl
-    ? '滚动、选中、剪藏网页'
-    : notePath
-      ? isBoard
-        ? '挪卡片、排成列、合并'
-        : '改写、插入、挪块'
-      : props.tab?.type === 'home' || props.tab?.type === 'inbox'
-        ? '整理收件箱、开白板'
-        : null
+  // 看得到（D 组 CN-132）：这一页（文件夹页「文件夹：周记 · 1篇」、首页「首页」……不再写「没打开笔记」），右栏开着网页再多一颗网页，@ 点名的笔记
+  const files = useKnownFiles()
+  const folder = props.tab?.type === 'folder' ? props.tab.folder : props.tab?.type === 'topic' ? `${CLIPS}/${props.tab.topic}` : null
+  const count = useMemo(() => (folder === null ? 0 : folderCount(folder, files)), [folder, files])
+  const seen = seenOf(props.tab, { board: isBoard, digest: props.digest, inbox: inbox.length, count: () => count })
+  const web = props.webOpen ? props.webUrl : null
+  // 空对话放不下时一级级收：先藏大标题；还放不下就只留前两颗建议、大标题放得下再画回来；再不行两样都收
+  // （按这一格实际放不放得下量，不按固定高度：建议有两颗有三颗、那句有一行有两行）
+  const empty = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = empty.current
+    const box = list.current
+    if (!el || !box) return
+    const fit = () => {
+      for (const level of [[], ['tight1'], ['tight2'], ['tight1', 'tight2']]) {
+        el.classList.remove('tight1', 'tight2')
+        el.classList.add(...level)
+        if (box.scrollHeight <= box.clientHeight) return
+      }
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(box)
+    return () => ro.disconnect()
+  })
+  const sees: { label: string; on?: boolean }[] = [{ label: seen.see, on: true }, ...(web ? [{ label: `网页：${hostOf(web)}` }] : []), ...mentions.map((m) => ({ label: `@${titleOf(m)}` }))]
+  // 它在这一页能替你做的动作（右栏网页开着时是网页的，最可能是要它动网页）
+  const hands = web ? HANDS.web : seen.hands
 
   return (
-    <aside className="ai floating" aria-label="AI 对话" hidden={!props.open}>
-      <div className="aih">
-        <b>AI</b>
-        <div className="aieng">
-          <button className="engbtn" aria-label="选 AI 引擎" aria-haspopup="menu" aria-expanded={engineMenu} onClick={() => setEngineMenu((v) => !v)} data-testid="ai-engine">
-            <EngineLogo id={engine} />
-            {engineLabel}
-            <Codicon name="chevron-down" size={12} />
-          </button>
-          {engineMenu && (
-            <div className="engmenu" role="menu" aria-label="AI 引擎">
-              <div className="mh">用这台Mac上已经登录的</div>
-              {engines.map((e) => (
-                <button key={e.id} role="menuitemradio" aria-checked={e.id === engine} disabled={!e.path} title={e.hint ?? e.path ?? ''} onClick={() => pickEngine(e)}>
-                  <span className="ck">{e.id === engine && <Codicon name="check" size={12} />}</span>
-                  <EngineLogo id={e.id} />
-                  <b>{e.label}</b>
-                  <span>{e.path ? '' : '没装'}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        {/* 头里放不下整句（右栏 340 宽、引擎胶囊带标志）就换成短的「改动可撤回」，悬停看全句 */}
-        <span className="meta" data-testid="ai-undo-hint" data-tip="AI的改动都是Git提交，随时可撤回" data-side="below">
-          <span className="long">改动都是提交，可撤回</span>
-          <span className="short">改动可撤回</span>
-        </span>
-        <span className="sp" />
-        <button className="iconbtn" aria-label="新对话" title="新对话" onClick={newChat}>
-          <Codicon name="add" size={14} />
-        </button>
-        <button className="ai-collapse" aria-label="收起 AI" data-tip="收起AI" data-key="⌘J" data-side="below" onClick={props.onClose}>
-          <Codicon name="close" size={14} className="ic" />
-          <span className="lb">收起</span> <kbd>⌘J</kbd>
-        </button>
-      </div>
-      <div className="sees" data-testid="ai-sees">
-        <span className="k">看得到</span>
-        {sees.length === 0 && <span className="chip">没打开笔记</span>}
+    <aside className="right aicell ai" aria-label="AI 对话" hidden={props.hidden}>
+      <AiHead label={place.label} nav={props.nav} newTip="新对话" newDisabled={running !== null} onNew={newChat} onCollapse={props.onClose} />
+      {props.nav.away ? (
+        <AwayBar nav={props.nav} />
+      ) : (
+      <Sees testid="ai-sees">
         {sees.map((s) => (
-          <span key={s.label} className="chip">
-            {s.on && <i className="dot" />}
+          <Chip key={s.label} on={s.on}>
             {s.label}
-          </span>
+          </Chip>
         ))}
-        {hands && (
-          <span className="chip hands">
-            <Codicon name="cursor" size={12} />
-            能动手：{hands}
-          </span>
-        )}
-      </div>
+        {hands && <Chip hands>{`能动手：${hands}`}</Chip>}
+      </Sees>
+      )}
       <div
         className="msgs"
         ref={list}
@@ -674,17 +675,26 @@ export function AiPanel(props: {
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
         }}
       >
-        {msgs.length === 0 && (
-          <div className="ai-empty">
-            <h2>想让AI做什么？</h2>
-            <p>输入 / 选命令，@ 点名一篇笔记，或者直接说：它能替你点网页、整理白板、改文档。</p>
-            <div className="sugg">
-              {suggestions.map((s) => (
-                <button key={s} onClick={() => void run('/' + s)}>
-                  <Codicon name={ICONS[s] ?? 'sparkle'} size={14} />/{s}
-                </button>
-              ))}
-            </div>
+        {/* 空对话（D 组小样）：这是哪里的对话、别处问过的在头上菜单里；下面是这一页能用的命令 */}
+        {loaded && msgs.length === 0 && (
+          <div className="ai-empty" ref={empty}>
+            <h2>想让它做什么？</h2>
+            {/* 「⌄」字画出来像个下标 v：换成和头上对话胶囊同一个 chevron-down 图标 */}
+            {/* 名字最后一个字、⌄ 和「」里。」不折开：中文的收尾括号不落到行首，⌄ 不单独挂在行尾 */}
+            <p>
+              {`这里是「${place.label}」的对话；别处问过的在上面「${[...place.label].slice(0, -1).join('')}`}
+              <span className="nobr">
+                {[...place.label].slice(-1).join('')}
+                <Codicon name="chevron-down" size={12} className="cv" />
+                {'」里。'}
+              </span>
+            </p>
+            {suggestions(folder).map((s) => (
+              <button key={s.text} className="sug" onClick={s.go}>
+                <Codicon name={s.icon} size={14} />
+                <span className="truncate">{s.text}</span>
+              </button>
+            ))}
           </div>
         )}
         {msgs.map((m, i) =>
@@ -697,12 +707,16 @@ export function AiPanel(props: {
                   ))}
                 </div>
               )}
-              <div className="um" onContextMenu={(e) => onMessageMenu(e, m.text ?? '')}>
-                {m.text}
-              </div>
+              {m.mats?.length ? (
+                <MatMsg text={m.text ?? ''} mats={m.mats} onContextMenu={(e) => onMessageMenu(e, m.text ?? '')} />
+              ) : (
+                <div className="um" onContextMenu={(e) => onMessageMenu(e, m.text ?? '')}>
+                  {m.text}
+                </div>
+              )}
             </div>
           ) : (
-            <div key={m.id} className="am" data-testid="ai-msg" data-engine={m.engine} onContextMenu={(e) => !m.pending && onMessageMenu(e, m.text ?? '')}>
+            <div key={m.id} className="am" data-testid="ai-msg" data-engine={m.engine} data-src="AI的回答" onContextMenu={(e) => !m.pending && onMessageMenu(e, m.text ?? '')}>
               {(m.read || m.by) && (
                 <div className="read">
                   {m.read && <Codicon name="check" size={12} />}
@@ -724,7 +738,7 @@ export function AiPanel(props: {
                   engine={{ id: m.engine ?? engine, label: engines.find((e) => e.id === (m.engine ?? engine))?.label }}
                   {...(() => {
                     const q = msgs[i - 1]?.role === 'user' ? msgs[i - 1]!.text : undefined
-                    return q && running === null
+                    return q && !C.runningNow()
                       ? {
                           onRetry: () => void run(q),
                           onRephrase: () => {
@@ -738,15 +752,18 @@ export function AiPanel(props: {
               )}
               {m.text && (
                 <div className="txt">
-                  <Markdown text={m.text} />
+                  <Markdown text={m.text} math />
                 </div>
               )}
               {m.moves && (
                 <div className="moves">
                   {m.moves.map((x) => (
                     <div key={x.path} className="mv">
-                      <span className="truncate">{titleOf(x.path)}</span>
-                      <span className="to">→ {topicFolder(x.topic)}</span>
+                      {/* 名字放不下整行省略号（不在词中间断行），悬停看全名 */}
+                      <span className="truncate" title={titleOf(x.path)}>
+                        {titleOf(x.path)}
+                      </span>
+                      <span className="to">→ {x.to ?? topicFolder(x.topic)}</span>
                     </div>
                   ))}
                 </div>
@@ -845,24 +862,35 @@ export function AiPanel(props: {
           ),
         )}
       </div>
-      <div className={'aiin' + (paste.list.length ? ' has-att' : '') + (paste.dragging ? ' hot' : '')} {...paste.dropProps}>
-        {paste.list.length > 0 && (
-          <div className="atts">
-            <PastedThumbs list={paste.list} onRemove={paste.remove} />
-          </div>
-        )}
+      {/* 回答里选一段：「引用 ⇧⌘L · 拷贝」，引用成为输入框顶上那一排的一块 */}
+      <QuoteCap list={list} active={!props.hidden} onQuote={(text, src) => c.add({ kind: 'quote', text, src })} />
+      <AiInput
+        c={c}
+        placeholder={`跟${engines.find((e) => e.id === engine)?.label ?? 'Claude Code'}说，/ 选命令，@ 引用笔记`}
+        hint="↵ 发送"
+        picks={cp.picks}
+        running={running !== null}
+        sendDisabled={(!input.trim() && !c.mats.length) || busyElsewhere}
+        sendTip={busyElsewhere ? `「${turn!.label}」那边还在答，答完再发` : undefined}
+        onSend={() => void run(input, c.plain())}
+        onStop={stop}
+        onKeyDown={onKey}
+        onChange={() => setMenuIdx(0)}
+        onNotice={showNote}
+        list={list}
+      >
         {pasteNote && <div className="nocmd">{pasteNote}</div>}
         {menuLen > 0 && (
           <div className="cmdmenu" role="listbox" aria-label={slash ? '命令' : '引用笔记'}>
             {slash
-              ? cmdItems.map((c, i) => (
-                  <button key={c.name} role="option" aria-selected={i === menuIdx} className={i === menuIdx ? 'on' : ''} onMouseDown={(e) => (e.preventDefault(), pick(i))}>
+              ? cmdItems.map((it, i) => (
+                  <button key={it.name} role="option" aria-selected={i === menuIdx} className={i === menuIdx ? 'on' : ''} onMouseDown={(e) => (e.preventDefault(), pick(i))}>
                     <span className="ib">
-                      <Codicon name={ICONS[c.name] ?? 'sparkle'} size={14} />
+                      <Codicon name={ICONS[it.name] ?? 'sparkle'} size={14} />
                     </span>
                     <span>
-                      <b>{c.name}</b>
-                      <span>{c.desc}</span>
+                      <b>{it.name}</b>
+                      <span>{it.desc}</span>
                     </span>
                   </button>
                 ))
@@ -881,29 +909,7 @@ export function AiPanel(props: {
           </div>
         )}
         {slash && cmdItems.length === 0 && <div className="nocmd">没有这条命令，回车直接交给AI去做</div>}
-        <textarea
-          ref={box}
-          rows={1}
-          aria-label="问 AI"
-          placeholder={`跟${engineLabel}说，/ 选命令，@ 引用笔记`}
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value)
-            setMenuIdx(0)
-          }}
-          onKeyDown={onKey}
-          onPaste={paste.onPaste}
-        />
-        {running !== null ? (
-          <button className="send" aria-label="停下" onClick={stop}>
-            <Codicon name="primitive-square" size={12} />
-          </button>
-        ) : (
-          <button className="send" aria-label="发送" disabled={!input.trim()} onClick={() => void run(input)}>
-            <Codicon name="arrow-up" size={14} />
-          </button>
-        )}
-      </div>
+      </AiInput>
     </aside>
   )
 }
@@ -914,15 +920,6 @@ const DUP_PAGE = 50
 /** 找重复的一对对：像的在前 */
 const byScore = (pairs: DuplicatePair[]) => pairs.sort((x, y) => y.score - x.score || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
 
-
-/** 存盘时去掉只在这次打开时有的东西；没做完的那条记成停下了 */
-function stored(m: Msg): StoredMsg {
-  const { pending, live, actions, dupProgress, ...rest } = m
-  void live
-  void actions
-  void dupProgress
-  return pending && !rest.text && !rest.error ? { ...rest, error: '没做完（软件关了）' } : rest
-}
 
 function ChangeBlock({ change, onRevert, onHistory }: { change: Change; onRevert(): void; onHistory(): void }) {
   const c: CommitInfo = change.commit

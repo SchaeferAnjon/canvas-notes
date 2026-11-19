@@ -48,7 +48,7 @@ test('CN-21：课件进度一排封面（第一页），缓存在软件设置目
   const { page, vault, userData } = run
   try {
     await leftView(page, '课程')
-    await page.locator('aside.side').getByRole('navigation', { name: '课程' }).locator('.si', { hasText: 'ecp' }).click()
+    await page.locator('aside.side').getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: /^ecp$/ }) }).click()
     await expect(home(page)).toBeVisible()
     // 封面：两份都画出第一页（按 Lecture 几排），图真的出来了
     const covers = slides(page).getByTestId('slide-cover')
@@ -58,7 +58,8 @@ test('CN-21：课件进度一排封面（第一页），缓存在软件设置目
       await expect(img).toBeVisible({ timeout: 15_000 })
       await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.complete && el.naturalWidth)).toBeGreaterThan(300)
     }
-    await expect(slides(page).locator('.fw-dropcell')).toContainText('拖PDF到这里收进ecp')
+    await expect(slides(page).locator('.fw-dropcell')).toHaveText('拖PDF')
+    await expect(slides(page).locator('.fw-dropcell')).toHaveAttribute('data-tip', '把PDF拖到这张卡上，就收进ecp')
     // 封面缓存在软件设置目录，库里干干净净
     expect(readdirSync(join(userData, 'thumbs')).filter((n) => n.endsWith('.png'))).toHaveLength(2)
     expect(gitStatus(vault)).toBe('')
@@ -112,7 +113,7 @@ test('一次拖两份 PDF 进课件进度：两份都在卡上标「新」，不
   try {
     await shotTone(page)
     await leftView(page, '课程')
-    await page.locator('aside.side').getByRole('navigation', { name: '课程' }).locator('.si', { hasText: 'ecp' }).click()
+    await page.locator('aside.side').getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: /^ecp$/ }) }).click()
     await expect(home(page)).toBeVisible()
     const covers = slides(page).getByTestId('slide-cover')
     await expect(covers).toHaveCount(2)
@@ -127,9 +128,10 @@ test('一次拖两份 PDF 进课件进度：两份都在卡上标「新」，不
     await expect(covers.locator('.nm .truncate')).toHaveText(['补充材料', 'Lecture06', 'Lecture07'])
     await expect(covers.locator('.tag-new')).toHaveCount(3)
     await shotWindow(run, 'r1-slides-dropped')
-    // 左栏「0/5 讲」和抬头「5 讲」对得上（补充材料认不出第几讲，也算一讲）
-    await expect(page.locator('aside.side').getByRole('navigation', { name: '课程' }).locator('.si', { hasText: 'ecp' })).toContainText('0/5讲')
-    await expect(home(page)).toContainText('课程 · 5讲')
+    // 抬头「5讲」和「课程」首页「在上的课」那一行「0/5讲」对得上（补充材料认不出第几讲，也算一讲）
+    await expect(home(page).getByTestId('folder-lead')).toContainText('课程 / ecp · 5讲')
+    await page.locator('.tab', { hasText: /^课程/ }).locator('.tl').click()
+    await expect(page.getByTestId('fw-courses').locator('.fw-row', { hasText: 'ecp' })).toContainText('0/5讲')
   } finally {
     await run.close()
     rmSync(outside, { recursive: true, force: true })

@@ -41,6 +41,22 @@ it('状态、提交、历史里有改了哪些文件（中文文件名不转义�
   expect(commits[1]!.files.map((f) => f.path).sort()).toEqual(['b.md', '所思所想.md'])
 })
 
+it('挪了文件夹的那次提交：历史里列出挪到的新路径（以前改名那一条被丢掉，AI 挪完写「改了0个文件」）', async () => {
+  mkdirSync(join(dir, '收件箱'))
+  writeFileSync(join(dir, '收件箱/票.md'), '# 票\n机票订好了。\n')
+  writeFileSync(join(dir, 'b.md'), 'b\n')
+  await commitAll(dir, '起点')
+  mkdirSync(join(dir, '周记'))
+  const { renameSync } = await import('node:fs')
+  renameSync(join(dir, '收件箱/票.md'), join(dir, '周记/票.md'))
+  writeFileSync(join(dir, 'b.md'), 'b\n改了\n')
+  await commitPaths(dir, ['收件箱/票.md', '周记/票.md', 'b.md'], 'AI：挪进周记')
+  expect((await log(dir, 1))[0]!.files).toEqual([
+    { path: 'b.md', added: 1, removed: 0 },
+    { path: '周记/票.md', added: 0, removed: 0 },
+  ])
+})
+
 it('只提交 AI 改的那几个文件；撤回是一次反向提交', async () => {
   writeFileSync(join(dir, 'a.md'), 'a\n')
   writeFileSync(join(dir, 'b.md'), 'b\n')

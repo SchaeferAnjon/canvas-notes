@@ -14,7 +14,7 @@ import { fixedFolder } from '../shared/files'
 import { PINS_FILE } from '../shared/sidebar'
 import { LEFT_FILE } from '../shared/left'
 import { relookAll } from './left'
-import { repinAll } from './pins'
+import { repin, repinAll } from './pins'
 import type { Vault } from './vault'
 
 export { fixedFolder }
@@ -45,13 +45,13 @@ export async function countFiles(v: Vault, folder: string): Promise<number> {
 }
 
 /** 这几处用户还没提交的字先单独提交，后面那次提交里只有这一步的改动（撤回才不带走用户的字） */
-async function commitPendingUnder(root: string, inside: (p: string) => boolean) {
+export async function commitPendingUnder(root: string, inside: (p: string) => boolean) {
   const pending = (await git.status(root)).filter((s) => inside(s.path))
   if (pending.length) await git.commitPaths(root, pending.map((s) => s.path), git.describeChanges(pending))
 }
 
 /** 提交这一步碰过的路径（用 status 里真有的路径，删掉的、新建的都在） */
-async function commitTouched(root: string, inside: (p: string) => boolean, message: string): Promise<string | null> {
+export async function commitTouched(root: string, inside: (p: string) => boolean, message: string): Promise<string | null> {
   const paths = (await git.status(root)).filter((s) => inside(s.path)).map((s) => s.path)
   return git.commitPaths(root, paths, message)
 }
@@ -109,7 +109,7 @@ export async function renameFolder(v: Vault, folder: unknown, name: unknown, mov
   return relocate(v, from, to, `文件夹改名：${from} → ${to}`, moved)
 }
 
-/** 文件夹挪进另一个文件夹（右键「移到 ›」；parent 是 '' 挪到库的最外层）：链接、置顶、左栏一起换，一次提交 */
+/** 文件夹挪进另一个文件夹（右键「移到 ›」；parent 是 '' 挪到最外层）：链接、置顶、左栏一起换，一次提交 */
 export async function moveFolder(v: Vault, folder: unknown, parent: unknown, moved?: (from: string, to: string) => void): Promise<RenameResult> {
   const from = needFolder(folder)
   if (typeof parent !== 'string') throw new Error('文件夹不对')
@@ -118,29 +118,55 @@ export async function moveFolder(v: Vault, folder: unknown, parent: unknown, mov
   if (parent === from || parent.startsWith(from + '/')) throw new Error('不能挪进它自己里面')
   const to = join2(parent, from.split('/').pop()!)
   if (to === from) return { to, relinked: [], commit: null }
-  if (await exists(v.abs(to))) throw new Error(`「${parent || '库的最外层'}」里已经有「${from.split('/').pop()}」了`)
+  if (await exists(v.abs(to))) throw new Error(`「${parent || v.name}」里已经有「${from.split('/').pop()}」了`)
   return relocate(v, from, to, `移动文件夹：${from} → ${to}`, moved)
 }
 
 async function relocate(v: Vault, from: string, to: string, message: string, moved?: (from: string, to: string) => void): Promise<RenameResult> {
-  if (!(await stat(v.abs(from)).catch(() => null))?.isDirectory()) throw new Error(`没有这个文件夹：${from}`)
+  const plan = await planRelocate(v, from, to)
+  // 先把会碰到的笔记里没提交的字提交掉：提到旧文件夹名的、文件夹里的、置顶
+  await commitPendingUnder(v.root, plan.touches)
+  const relinked = await relocateNow(v, plan, moved)
+  const touched = new Set(relinked)
+  const commit = await commitTouched(v.root, (p) => plan.inFolder(p) || touched.has(p) || p === PINS_FILE || p === LEFT_FILE, message)
+  return { to, relinked, commit }
+}
 
-  // 里面笔记的附件按笔记路径放在 附件/<文件夹>/…：一起挪，链接一起换
+/** 挪一个文件夹要碰到哪些：文件夹里的、它的附件文件夹、提到它名字的笔记、置顶、左栏 */
+export interface RelocatePlan {
+  from: string
+  to: string
+  inFolder(p: string): boolean
+  /** 会被改到的路径（挪之前先把这些上面没提交的字提交掉） */
+  touches(p: string): boolean
+  candidates: Set<string>
+}
+
+export async function planRelocate(v: Vault, from: string, to: string): Promise<RelocatePlan> {
+  if (!(await stat(v.abs(from)).catch(() => null))?.isDirectory()) throw new Error(`没有这个文件夹：${from}`)
+  const attFrom = `${ATTACHMENTS_DIR}/${from}`
+  const attTo = `${ATTACHMENTS_DIR}/${to}`
+  const seg = from.split('/').pop()!
+  const mentions = (t: string) => t.includes(seg) || t.includes(seg.replace(/ /g, '%20')) || t.includes(encodeURI(seg))
+  const under = (p: string, d: string) => p === d || p.startsWith(d + '/')
+  const inFolder = (p: string) => [from, to, attFrom, attTo].some((d) => under(p, d))
+  const candidates = new Set<string>()
+  for (const p of await allMd(v)) if (inFolder(p) || mentions(decodeNote(await readFile(v.abs(p))).text)) candidates.add(p)
+  return { from, to, inFolder, candidates, touches: (p) => inFolder(p) || candidates.has(p) || p === PINS_FILE || p === LEFT_FILE }
+}
+
+/**
+ * 挪过去：文件夹和它的附件文件夹（附件/<文件夹>/…）一起挪，库里写着旧路径的相对链接、带路径的双链、置顶、左栏跟着换。
+ * 不提交（调的人自己提交）；返回改了链接的笔记（新路径）
+ */
+export async function relocateNow(v: Vault, plan: RelocatePlan, moved?: (from: string, to: string) => void): Promise<string[]> {
+  const { from, to, candidates } = plan
   const attFrom = `${ATTACHMENTS_DIR}/${from}`
   const attTo = `${ATTACHMENTS_DIR}/${to}`
   const inner = folderMap(from, to)
   const att = folderMap(attFrom, attTo)
   let attOk = false
   const map = (p: string) => inner(p) ?? (attOk ? att(p) : null)
-  const seg = from.split('/').pop()!
-  const mentions = (t: string) => t.includes(seg) || t.includes(seg.replace(/ /g, '%20')) || t.includes(encodeURI(seg))
-  const under = (p: string, d: string) => p === d || p.startsWith(d + '/')
-  const inFolder = (p: string) => [from, to, attFrom, attTo].some((d) => under(p, d))
-  // 先把会碰到的笔记里没提交的字提交掉：提到旧文件夹名的、文件夹里的、置顶
-  const before = await allMd(v)
-  const candidates = new Set<string>()
-  for (const p of before) if (inFolder(p) || mentions(decodeNote(await readFile(v.abs(p))).text)) candidates.add(p)
-  await commitPendingUnder(v.root, (p) => inFolder(p) || candidates.has(p) || p === PINS_FILE || p === LEFT_FILE)
 
   const files: string[] = []
   const walk = async (dir: string) => {
@@ -173,9 +199,7 @@ async function relocate(v: Vault, from: string, to: string, message: string, mov
   }
   await repinAll(v, (p) => map(p) ?? undefined)
   await relookAll(v, (p) => inner(p) ?? undefined)
-  const touched = new Set(relinked)
-  const commit = await commitTouched(v.root, (p) => inFolder(p) || touched.has(p) || p === PINS_FILE || p === LEFT_FILE, message)
-  return { to, relinked, commit }
+  return relinked
 }
 
 /**
@@ -199,3 +223,116 @@ export async function trashFolder(v: Vault, folder: unknown, put: (abs: string) 
 export const testTrash = (dir: string) => async (abs: string) => {
   await rename(abs, join(dir, `${Date.now()}-${abs.split('/').pop()}`))
 }
+
+/**
+ * 文件树里选了好几个，一起挪进一个文件夹（CN-105）：笔记（md）连它的附件文件夹、文件夹连它里面的和附件一起挪，
+ * 库里别的笔记里指向它们的相对链接、置顶、左栏跟着改，一次提交。选了的东西在另一个选了的文件夹里面时只挪外面那个。
+ * PDF、HTML 和单个右键一样不挪（返回 skipped）。返回每个挪了的（旧 → 新）
+ */
+export async function moveMany(v: Vault, paths: unknown, folder: unknown, moved?: (from: string, to: string) => void): Promise<{ moves: { from: string; to: string }[]; skipped: string[]; commit: string | null }> {
+  const plan = await planMoveMany(v, paths, folder)
+  if (!plan.dirs.length && !plan.notes.length) return { moves: [], skipped: plan.skipped, commit: null }
+  // 会被改到的：挪的这些（和它们的附件文件夹）、提到它们名字的笔记、置顶、左栏；先把上面没提交的字提交掉
+  await commitPendingUnder(v.root, plan.touches)
+  const { moves, touched } = await moveManyNow(v, plan, moved)
+  const names = moves.map((m) => m.from.split('/').pop()!.replace(/\.md$/i, ''))
+  const commit = await commitTouched(v.root, touched, `移动 ${moves.length} 个：${names.slice(0, 5).join('、')}${names.length > 5 ? ' 等' : ''} → ${plan.folder || v.name}`)
+  return { moves, skipped: plan.skipped, commit }
+}
+
+/** 好几个一起挪的打算：挪哪些文件夹、哪几篇笔记，会碰到哪些路径（挪之前先提交这些上面没提交的字） */
+export interface MovePlan {
+  folder: string
+  dirs: string[]
+  notes: string[]
+  skipped: string[]
+  candidates: Set<string>
+  touches(p: string): boolean
+}
+
+export async function planMoveMany(v: Vault, paths: unknown, folder: unknown): Promise<MovePlan> {
+  if (!Array.isArray(paths) || !paths.length || paths.some((p) => typeof p !== 'string')) throw new Error('要挪的不对')
+  if (typeof folder !== 'string') throw new Error('文件夹不对')
+  if (folder) needFolder(folder)
+  const list = [...new Set(paths as string[])]
+  for (const p of list) v.abs(p)
+  const inside = (p: string, d: string) => p.startsWith(d + '/')
+  const top = list.filter((p) => !list.some((d) => d !== p && inside(p, d)))
+  const dirs: string[] = []
+  const notes: string[] = []
+  const skipped: string[] = []
+  for (const p of top) {
+    const st = await stat(v.abs(p)).catch(() => null)
+    if (!st) continue
+    if (st.isDirectory()) {
+      if (fixedFolder(p)) throw new Error(`「${p}」是固定的文件夹，不挪`)
+      if (folder === p || inside(folder, p)) throw new Error(`不能把「${p.split('/').pop()}」挪进它自己里面`)
+      if (parentOf(p) !== folder) dirs.push(p)
+    } else if (/\.md$/i.test(p)) {
+      if (parentOf(p) !== folder) notes.push(p)
+    } else skipped.push(p)
+  }
+  for (const d of dirs) if (await exists(v.abs(join2(folder, d.split('/').pop()!)))) throw new Error(`「${folder || v.name}」里已经有「${d.split('/').pop()}」了`)
+  const stems = [...notes.map((p) => fileStem(p)), ...dirs.map((d) => d.split('/').pop()!)]
+  const mentions = (t: string) => stems.some((s) => t.includes(s) || t.includes(s.replace(/ /g, '%20')) || t.includes(encodeURI(s)))
+  const under = (p: string, d: string) => p === d || p.startsWith(d + '/')
+  const olds = [...notes, ...notes.map((p) => `${ATTACHMENTS_DIR}/${p.replace(/\.md$/i, '')}`), ...dirs, ...dirs.map((d) => `${ATTACHMENTS_DIR}/${d}`)]
+  const candidates = new Set<string>()
+  if (dirs.length || notes.length) for (const p of await allMd(v)) if (olds.some((d) => under(p, d)) || mentions(decodeNote(await readFile(v.abs(p))).text)) candidates.add(p)
+  return { folder, dirs, notes, skipped, candidates, touches: (p) => olds.some((d) => under(p, d)) || candidates.has(p) || p === PINS_FILE || p === LEFT_FILE }
+}
+
+/**
+ * 照打算挪（不提交）：文件夹整个挪（附件文件夹跟着），笔记用 vault.move（附件文件夹、它自己的链接跟着），
+ * 别的笔记里指向它们的相对链接改好。返回挪了哪些、这一步碰过哪些路径（提交用）
+ */
+export async function moveManyNow(v: Vault, plan: MovePlan, moved?: (from: string, to: string) => void): Promise<{ moves: { from: string; to: string }[]; touched(p: string): boolean }> {
+  const { folder, dirs, notes, candidates } = plan
+  const under = (p: string, d: string) => p === d || p.startsWith(d + '/')
+  const olds = [...notes, ...notes.map((p) => `${ATTACHMENTS_DIR}/${p.replace(/\.md$/i, '')}`), ...dirs, ...dirs.map((d) => `${ATTACHMENTS_DIR}/${d}`)]
+  const moves: { from: string; to: string }[] = []
+  const touched = new Set<string>()
+  for (const d of dirs) {
+    const plan = await planRelocate(v, d, join2(folder, d.split('/').pop()!))
+    for (const r of await relocateNow(v, plan, moved)) touched.add(r)
+    moves.push({ from: d, to: plan.to })
+  }
+  // 挪过的文件夹里的笔记现在在新地方：后面按新路径读
+  const remap = (p: string) => {
+    for (const m of moves) if (under(p, m.from)) return m.to + p.slice(m.from.length)
+    return p
+  }
+  for (const p of notes) {
+    const to = await v.move(remap(p), folder)
+    await repin(v, remap(p), to)
+    moved?.(p, to)
+    moves.push({ from: p, to })
+  }
+  // 别的笔记里指向挪走的笔记、它们的附件的相对链接：按新位置改（挪走的笔记自己的链接 vault.move 改过了）
+  const noteMoves = moves.filter((m) => /\.md$/i.test(m.from))
+  const map = (p: string): string | null => {
+    for (const m of noteMoves) {
+      if (p === m.from) return m.to
+      const af = `${ATTACHMENTS_DIR}/${m.from.replace(/\.md$/i, '')}`
+      if (under(p, af)) return `${ATTACHMENTS_DIR}/${m.to.replace(/\.md$/i, '')}` + p.slice(af.length)
+    }
+    return null
+  }
+  const movedNow = new Set(noteMoves.map((m) => m.to))
+  for (const c of candidates) {
+    const now = remap(c)
+    if (movedNow.has(now) || noteMoves.some((m) => m.from === c)) continue
+    const bytes = await readFile(v.abs(now)).catch(() => null)
+    if (!bytes) continue
+    const { text, meta } = decodeNote(bytes)
+    if (meta.readOnly) continue
+    const next = remapLinks(text, now, now, map)
+    if (next === text) continue
+    await writeFile(v.abs(now), encodeNote(next, meta))
+    touched.add(now)
+  }
+  const news = moves.flatMap((m) => [m.to, `${ATTACHMENTS_DIR}/${m.to.replace(/\.md$/i, '')}`])
+  return { moves, touched: (p) => olds.some((d) => under(p, d)) || news.some((d) => under(p, d)) || touched.has(p) || p === PINS_FILE || p === LEFT_FILE }
+}
+
+const fileStem = (p: string) => p.split('/').pop()!.replace(/\.md$/i, '')

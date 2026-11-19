@@ -1,23 +1,28 @@
 /**
  * 读 PDF 边读边问的提示词，和把 AI 收好的笔记段读回来（纯函数，单元测试测）。
  */
-import { type AskSection, blocksText, isFigureBlock, type PdfBlock } from '@cn/format'
-import { type ReadingMsg, type ReadingThread, VIZ_MARK } from '../../shared/reading'
+import { answerLead, type AskSection, blocksText, type PdfBlock } from '@cn/format'
+import { MATH_RULE, type ReadingMsg, type ReadingThread, VIZ_MARK, withoutVizMark } from '../../shared/reading'
 import { fmtTime } from '../../shared/video'
 
-export const TUTOR_SYSTEM = `你是一个耐心、讲话直白的老师，在 Canvas Notes 笔记软件里陪一个人读 PDF 课件。他读到哪里不懂，就在 PDF 上框一块（发给你的图片）或者整页问你，一直问到懂为止。
+/**
+ * 读 PDF 讲解的那几条（CN-89）：Claude Code 不再整个换掉它自己的系统提示，这几条用 --append-system-prompt 附在后面（engines.ts 的 appendSystem）；
+ * Codex 放在 developerInstructions，Gemini、OpenCode 放在会话第一段话前面。前四行照 A 组方案 notes.md「回答讲透」原样写，
+ * 后面是原来就有用的几条（框了图的那一问还让 AI 写配图的框，在每一问的话里：FIGURE_ASK）
+ */
+export const TUTOR_SYSTEM = `你在 Canvas Notes 里陪一个人读 PDF 课件。他在 PDF 上框一块、或在你的回答里选一句来问你。
+把这件事真讲明白：先一句话说清它是什么，再按一条线讲下去：为什么要有它、每一项在干什么、拿一个具体数字或例子走一遍。需要时用小标题和列表。
+长短看问题：整块的「讲解一下」要讲透，不怕长；旁支里的小追问简短回答。
+${MATH_RULE}提到别的页写成 [第 4 页](#page=4)。
+他笔记里已经弄懂的（每次会附上），直接拿来用（「用你在第 4 页弄懂的那条」），不要重新讲一遍。
+他说「还是不懂」「换个方式讲」：上一版就是没讲通，换一个完全不同的角度（比方、画面、具体数字、反例），不要换个说法重复。
+如果一个能拖能点的小可视化（几何、函数图像、变换、过程演示）会明显帮他懂，在回答最后单独一行写 ${VIZ_MARK}；用不上就不写。`
 
-怎么讲：
-- 先看他框的那块图，结合这一页的文字和整份 PDF 的内容讲。图里的公式、记号照图里的意思讲。
-- 用中文，具体、直白，多用一个小例子或具体数字，少用术语堆砌。公式用普通文字和 Unicode（θ、e₁、≤），不要 LaTeX。
-- 提到别的页写成链接，比如 [第 4 页](#page=4)，他点了 PDF 会翻过去。
-- 他笔记里已经弄懂的（每次会附上），直接拿来用（「用你在第 4 页弄懂的那条」），不要重新讲一遍。
-- 他说「还是不懂」「换个方式讲」：上一版就是没讲通，换一个完全不同的角度（比方、画面、具体数字、反例），不要换个说法重复。
-- 一次回答控制在 300 字以内，除非他要详细的。不客套，不说「好问题」，不在结尾问「还有什么问题吗」。
-- 如果一个能拖能点的小可视化（几何、函数图像、变换、过程演示）会明显帮他懂，在回答最后单独一行写 ${VIZ_MARK}；用不上就不写。`
-
-/** 用户说这些话，表示上一版没讲通 */
-export const CONFUSED = /还是不懂|没懂|不懂|看不懂|听不懂|没听懂|不明白|换个方式|换种方式|换个讲法|换个角度|再讲一遍|没看懂/
+/**
+ * 讲法改过就加一：claude 默认记下一个会话第一次用的系统提示、以后接着聊都用记下的那份（--system-prompt-snapshot），
+ * 旧会话接着聊还是旧讲法（「300 字以内」）。版本不对的会话不再接着聊，开新会话、补上全文和最近几轮（和会话接不上一样）
+ */
+export const TUTOR_VERSION = 3
 
 export function askPrompt(o: {
   pdfName: string
@@ -39,8 +44,6 @@ export function askPrompt(o: {
   subs?: string
   /** 来源是库里的一份 HTML（可视化） */
   html?: boolean
-  /** 版面换成了 PDF 精读增强认的：之前给过的块编号 → 新编号 */
-  renamed?: Record<string, string>
 }): string {
   const out: string[] = []
   if (o.web && /^https?:/i.test(o.web.url) && o.web.t !== undefined) {
@@ -67,8 +70,6 @@ export function askPrompt(o: {
   }
   if (o.fullText) out.push(`这是整份 PDF「${o.pdfName}」的文字（共 ${o.pages} 页，「# 」开头的是标题，[图 p5-b3] 是图的位置），先通读一遍，后面他会一处一处问：\n<pdf>\n${o.fullText}\n</pdf>`)
   else if (o.fullPending) out.push(`（整份 PDF「${o.pdfName}」的文字还在读，这一轮先看这一页。）`)
-  const renamed = Object.entries(o.renamed ?? {}).slice(0, 60)
-  if (renamed.length) out.push(`（这份 PDF 的版面换成了更准的识别结果，表格、公式现在是单独的块。之前给你的图编号对应到：${renamed.map(([a, b]) => `${a} → ${b}`).join('、')}；以后用新编号。）`)
   if (o.digest) out.push(`他笔记里已经弄懂的：\n${o.digest}`)
   out.push(`他现在在看第 ${o.page} 页（共 ${o.pages} 页）。这一页的文字：\n<page>\n${o.pageText || '（这一页没有能选的字，是图片或扫描件）'}\n</page>`)
   const where = o.thread.quote ? `他选中了这段字：「${o.thread.quote}」。` : o.hasImage ? (o.thread.rect ? '他在这一页上框了一块，就是附上的图。' : '附上的图是整页。') : '这是他接着刚才那处在追问。'
@@ -93,39 +94,27 @@ export function fullTextOf(pages: PdfBlock[][], max = 150_000): string {
   return out
 }
 
-/** 笔记里已经弄懂的，给 AI 一行一段 */
+/** 笔记里已经弄懂的，给 AI 一行一段：新格式用每轮的小结，以前的笔记用讲通的讲法 */
 export function noteDigest(sections: AskSection[]): string {
   return sections
-    .map((s) => `- 第 ${s.page} 页「${s.title}」：${s.good.replace(/\s+/g, ' ').slice(0, 160)}`)
+    .map((s) => `- 第 ${s.page} 页「${s.title}」：${(s.qas ? s.recap || s.good : s.good).replace(/\s+/g, ' ').slice(0, 160)}`)
     .join('\n')
 }
 
-/** 一处的几版讲法：第几个 AI 回答是第几版；后面紧跟着「还是不懂」的那几版是没讲通的 */
-export function versionsOf(msgs: ReadingMsg[]): { answers: ReadingMsg[]; failed: number[] } {
-  const answers: ReadingMsg[] = []
-  const failed: number[] = []
-  for (let i = 0; i < msgs.length; i++) {
-    const m = msgs[i]!
-    if (m.role !== 'ai' || !m.text.trim() || m.error) continue
-    answers.push(m)
-    const next = msgs.slice(i + 1).find((x) => x.role === 'user')
-    if (next && CONFUSED.test(next.text)) failed.push(answers.length)
-  }
-  return { answers, failed }
+/**
+ * 旁支里问的话（CN-90）：第一问告诉 AI 被问的那句和它所在的那一轮（Claude Code 的分叉只能整段分，AI 要知道问的是哪一轮的哪一句）；
+ * 接着问的只说接着这条旁支（会话接着旁支自己的）
+ */
+export function sidePrompt(o: { first: boolean; quote: string; page: number; title?: string; ask?: string; question: string }): string {
+  if (!o.first) return `（接着这条旁支问，问的还是「${o.quote}」这句。）\n他说：${o.question}`
+  const round = `那一轮在${o.page > 0 ? `第 ${o.page} 页` : '这里'}${o.title ? `「${o.title}」` : ''}${o.ask ? `，他问的是：${o.ask}` : ''}`
+  return `（这是一条旁支：他在你前面的一个回答里选中了一句另问，问完回到主对话，主对话照旧。）\n${round}\n他选中的那句：「${o.quote}」\n他说：${o.question}`
 }
 
-export const SUMMARY_SYSTEM = `你帮一个人把他和 AI 老师关于 PDF 课件某一处的问答，收成他自己的学习笔记的一段。只输出一个 JSON 对象，不要别的字，不要代码块。`
+export const SUMMARY_SYSTEM = `你帮一个人给他和 AI 老师关于 PDF 课件某一处的问答起一个笔记小标题、写一句小结。只输出一个 JSON 对象，不要别的字，不要代码块。`
 
-export function summarizePrompt(o: { pdfName: string; thread: ReadingThread; msgs: ReadingMsg[]; blocks: PdfBlock[]; failed: number[]; titles: string[] }): string {
-  const { answers } = versionsOf(o.msgs)
-  const convo = o.msgs
-    .filter((m) => m.text.trim() && !m.error)
-    .map((m) => {
-      if (m.role === 'user') return `【他】${m.text}`
-      return `【AI 第 ${answers.indexOf(m) + 1} 版】${m.text}`
-    })
-    .join('\n\n')
-  const figures = o.blocks.filter(isFigureBlock).map((b) => b.id)
+/** 这一轮（主对话 + 旁支）给快的模型看：问题原话、回答原文（拼好的字见 section.ts 的 roundText） */
+export function summarizePrompt(o: { pdfName: string; thread: ReadingThread; round: string; blocks: PdfBlock[]; title?: string }): string {
   const w = o.thread.web
   const head = w
     ? `${/^https?:/i.test(w.url) ? `网页「${w.title}」（${w.url}）` : `可视化「${w.title}」`}，他框了一块问。
@@ -138,33 +127,19 @@ ${w.text || blocksText(o.blocks) || '（没有能读的字）'}`
 ${blocksText(o.blocks) || '（没有能选的字）'}`
   return `${head}
 
-问答：
-${convo}
-
-${o.failed.length ? `其中第 ${o.failed.join('、')} 版之后他说没懂，这几版算没讲通；最后一版是讲通的。` : '最后一版是讲通的。'}
-
-库里别的笔记的标题（双链只能从这里挑：讲的是同一个知识点的才挑，最多 2 个；拿不准就空着）：
-${o.titles.slice(0, 200).join('、') || '（没有）'}
+这一轮的问答（【他】是他发出去的原话，【AI】是回答；【旁支】是他在回答里选中一句另问的）：
+${o.round || '（还没有）'}
 
 输出 JSON：
 {
-  "title": "这一处讲的是什么，16 个字以内，像笔记小标题",
-  "doubts": ["用他自己的口吻写他卡在哪，一行一条；他只说了「给我讲解一下」的，写成具体卡在哪，比如「整块没看懂：旋转矩阵的四个数是怎么来的」；追问一次加一条"],
-  "good": "讲通的那一版讲法，保留它的讲法和例子，压成 2 到 5 句",
-  "points": ["2 到 3 条要点，每条一句短话"],
-  "failed": [${o.failed.map((v) => `{"version": ${v}, "line": "第 ${v} 版用了什么讲法，一句话，比如「用公式推，没听懂」"}`).join(', ')}],
-  "figure": ${figures.length ? `"这一页最重要的一张图，从 ${figures.join('、')} 里挑一个；都不重要就写 null"` : 'null'},
-  "figureCaption": "那张图是什么，10 个字以内",
-  "links": ["从上面的标题里原样抄，没有就空数组"]
+  "title": "这一处讲的是什么，16 个字以内，像笔记小标题${o.title ? `（已经有小标题「${o.title}」：讲的还是这个就原样照抄）` : ''}",
+  "recap": "一句小结，40 个字以内：这一轮讲明白了什么；接着问了、旁支里另问了什么也带一句"
 }`
 }
 
-/** AI 收好的 JSON 读回来；读不出来时用对话本身兜一段（笔记照样记上，不让这一轮白问） */
-export function parseSummary(
-  raw: string,
-  o: { thread: ReadingThread; msgs: ReadingMsg[]; failed: number[]; titles: string[]; blocks: PdfBlock[] },
-): { title: string; doubts: string[]; good: string; points: string[]; failedLines: Record<number, string>; figure?: string; figureCaption?: string; links: string[] } {
-  const { answers } = versionsOf(o.msgs)
+/** AI 写的 JSON 读回来；读不出来时标题用原来的（或问的话），小结用最后一个回答的开头（笔记照样记上，不让这一轮白问） */
+export function parseSummary(raw: string, o: { thread: ReadingThread; msgs: ReadingMsg[]; title?: string }): { title: string; recap: string } {
+  const answers = o.msgs.filter((m) => m.role === 'ai' && m.text.trim() && !m.error)
   const last = answers[answers.length - 1]?.text ?? ''
   const asked = o.msgs.filter((m) => m.role === 'user').map((m) => m.text.trim())
   let j: Record<string, unknown> = {}
@@ -177,26 +152,10 @@ export function parseSummary(
       j = {}
     }
   }
-  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
-  const list = (v: unknown) => (Array.isArray(v) ? v.map(str).filter(Boolean) : [])
-  const failedLines: Record<number, string> = {}
-  if (Array.isArray(j.failed))
-    for (const f of j.failed as { version?: unknown; line?: unknown }[]) {
-      const v = Number(f?.version)
-      if (o.failed.includes(v) && str(f?.line)) failedLines[v] = str(f.line)
-    }
-  for (const v of o.failed) failedLines[v] ??= oneLine(answers[v - 1]?.text ?? '', 30)
-  const figureIds = new Set(o.blocks.filter(isFigureBlock).map((x) => x.id))
-  const figure = str(j.figure)
-  const titles = new Set(o.titles)
+  const str = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '')
   return {
-    title: str(j.title).slice(0, 40) || oneLine(asked.find((q) => !/^给我讲解一下$/.test(q)) ?? `第 ${o.thread.page} 页`, 16),
-    doubts: list(j.doubts).length ? list(j.doubts) : asked,
-    good: str(j.good) || last,
-    points: list(j.points).slice(0, 4),
-    failedLines,
-    ...(figureIds.has(figure) ? { figure, figureCaption: str(j.figureCaption) || '这页的图' } : {}),
-    links: list(j.links).filter((l) => titles.has(l)).slice(0, 2),
+    title: str(j.title).slice(0, 40) || o.title || oneLine(asked.find((q) => !/^给我讲解一下/.test(q)) ?? `第 ${o.thread.page} 页`, 16),
+    recap: oneLine(str(j.recap), 80) || oneLine(answerLead(withoutVizMark(last).text).replace(/[*_`#>$]/g, ''), 40),
   }
 }
 

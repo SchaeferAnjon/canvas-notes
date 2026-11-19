@@ -4,7 +4,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import electronPath from 'electron'
-import { launch, rail, acts, tabOn, railItems } from './app'
+import { launch, openAi, rail, acts, tabOn, railItems } from './app'
 import { LECTURE } from './fixtures/pdf'
 
 const PDF = '课程/线性代数/第3讲 线性映射.pdf'
@@ -40,18 +40,19 @@ async function drawBox(page: Page, n: number, a: [number, number], b: [number, n
   if (meta) await page.keyboard.up('Meta')
 }
 
-test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（图、疑惑、讲通的讲法），一次提交；页边标记和笔记互相跳', async () => {
+test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图、问题原话、回答原文、小结），一次提交；页边标记和笔记互相跳', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   try {
     await openPdf(page)
-    // 读 PDF：竖条上面多了 AI、笔记；右下角没有浮着的 AI；右栏开着 AI
-    // 读 PDF：竖条上只多「笔记」；AI 开着时右下角的圆钮藏起来，屏上只有一个 AI（CN-22）
+    // 读 PDF：竖条上只多「笔记」；AI 只住右栏（第 2a 段）：打开 PDF 不再自己把 AI 打开，右下角的圆钮一直在，点了开右栏 AI 那一格
     await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
-    // 读 PDF / HTML 时右下角的 AI 入口开关的是右栏的 AI，不再浮在中间
-    await expect(page.getByRole('navigation', { name: '右栏' }).locator('.ai-fab')).toHaveCount(0)
-    await expect(page.locator('main.center').getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
+    await expect(ai(page)).toBeHidden()
+    await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
+    await expect(rail(page).getByRole('button', { name: '打开 AI' })).toBeVisible()
+    await rail(page).getByRole('button', { name: '打开 AI' }).click()
     await expect(ai(page)).toBeVisible()
+    await expect(rail(page).locator('.ai-fab')).toHaveClass(/\bon\b/)
     await expect(acts(page).getByTestId('pdf-pager')).toHaveText('1 / 5')
     // AI 先把整份读一遍
     await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
@@ -75,22 +76,21 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（图、疑惑
     await expect(um.locator('.um')).toHaveText('给我讲解一下')
     const msg = ai(page).getByTestId('reading-msg').last()
     await expect(msg.locator('.txt')).toContainText('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
-    await expect(msg.locator('.read')).toHaveText('读了第3页 · Claude Code · Opus 5.5')
+    await expect(msg.locator('.read')).toHaveText('读了第3页 · Claude Code · Opus 5.5 · High')
     // 不让人等：先「正在记进笔记…」，写好「已记进笔记 · 第 3 页」，竖条「笔记」上一个小点
     await expect(msg.locator('.noted')).toContainText('已记进笔记 · 第3页', { timeout: 15_000 })
     await expect(rail(page).getByTestId('notes-dot')).toBeVisible()
 
-    // 库里：笔记、截图、AI 挑的图、完整对话，一次提交
+    // 库里：笔记（我框的图、问题原话、回答原文、小结）、截图，一次提交；完整对话不再另写一份（CN-93、94、96）
     const md = readFileSync(join(vault, NOTE), 'utf8')
     expect(md).toContain('类型: 笔记\n课程: 线性代数\n第几讲: 3\n来源: "[[第3讲 线性映射.pdf]]"')
     expect(md).toContain('AI填的: 课程, 第几讲')
     expect(md).toContain('## 第 3 页 · 测试小标题 p3\n[第 3 页](第3讲%20线性映射.pdf#page=3&rect=')
-    expect(md).toContain('![我框的](../../附件/第3讲%20线性映射/p3-1.png)\n\n![第 3 页 · 这页的图](../../附件/第3讲%20线性映射/p3-1-fig.png)')
-    expect(md).toContain('> [!question] 我的疑惑\n> 整块没看懂：第 3 页框的这块')
-    expect(md).toContain('[完整对话 · 1 轮](../../.canvas-notes/对话/第3讲%20线性映射-p3-1.md)')
+    expect(md).toMatch(/ <!-- cn:thread=第3讲 线性映射-p3-1 -->\n\n!\[我框的\|\d+\]\(\.\.\/\.\.\/附件\/第3讲%20线性映射\/p3-1\.png\)\n\n> \[!question\] 给我讲解一下\n\n这是讲解（第 3 页，图 1 张，读过全文，新会话）。/)
+    expect(md).toContain('> [!recap] 测试小结：主对话问了 1 句。')
+    expect(md).not.toMatch(/我的疑惑|整块没看懂|讲通的讲法|完整对话/)
     expect(existsSync(join(vault, '附件/第3讲 线性映射/p3-1.png'))).toBe(true)
-    expect(existsSync(join(vault, '附件/第3讲 线性映射/p3-1-fig.png'))).toBe(true)
-    expect(readFileSync(join(vault, '.canvas-notes/对话/第3讲 线性映射-p3-1.md'), 'utf8')).toContain('### 我 · ')
+    expect(existsSync(join(vault, '.canvas-notes/对话'))).toBe(false)
     expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('笔记：第3讲 线性映射 第 3 页 · 测试小标题 p3')
     expect(gitOut(vault, 'status', '--porcelain', '--untracked-files=all')).toBe('')
 
@@ -98,7 +98,7 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（图、疑惑
     const mk = pdfPane(page).getByRole('button', { name: '第 3 页这里问过 1 轮' })
     await expect(mk).toBeVisible()
 
-    // 还是不懂：接着同一处问，AI 换个讲法；笔记里讲通的讲法换成第 2 版，第 1 版收成一行
+    // 还是不懂：接着同一处问，AI 换个讲法；笔记里多一个问题条（原话）和这一版回答，小结重写
     await msg.getByRole('button', { name: '还是不懂' }).click()
     const msg2 = ai(page).getByTestId('reading-msg').last()
     await expect(msg2.locator('.txt')).toContainText('换个方式讲（第 3 页，图 0 张，读过全文，接着聊）')
@@ -106,10 +106,8 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（图、疑惑
     await expect(pdfPane(page).getByRole('button', { name: '第 3 页这里问过 2 轮' })).toBeVisible()
     const md2 = readFileSync(join(vault, NOTE), 'utf8')
     expect(md2.match(/^## /gm)?.length).toBe(1)
-    // AI 讲的放进 [!ai] 提示块，头上写哪家哪个模型、看了第几页（CN-76）
-    expect(md2).toContain('> [!ai] AI 讲解（第 2 版） · Claude Code · Opus 5.5 · 看了第 3 页\n> 第 2 版：换成画面来讲，这次讲通了。\n>\n> - 要点一：列就是基向量去哪')
-    expect(md2).toContain('<details><summary>没讲通 · 第 1 版：第 1 版用公式推，没听懂</summary>')
-    expect(md2).toContain('[完整对话 · 2 轮]')
+    expect(md2).toContain('> [!question] 还是不懂\n\n换个方式讲（第 3 页，图 0 张，读过全文，接着聊）：先别看公式，看图。\n\n> [!recap] 测试小结：主对话问了 2 句。\n')
+    expect(md2).not.toMatch(/\[!ai\]|没讲通|完整对话/)
 
     // AI 回答里的「第 2 页」：点了 PDF 翻过去
     await ai(page).getByTestId('reading-msg').first().locator('a.pg', { hasText: '第 2 页' }).click()
@@ -120,17 +118,15 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（图、疑惑
     await expect(notes(page)).toBeVisible()
     await expect(ai(page)).toBeHidden()
     await expect(rail(page).getByTestId('notes-dot')).toHaveCount(0)
-    const sec = notes(page).getByTestId('note-section')
-    await expect(sec.locator('h3')).toHaveText('测试小标题 p3')
-    await expect(sec.locator('.doubt')).toContainText('整块没看懂：第 3 页框的这块')
-    await expect(sec.locator('.doubt')).toContainText('还是不懂')
-    await expect(sec.locator('.good')).toContainText('讲通的讲法第2版')
-    await expect(sec.locator('.bad summary')).toHaveText('没讲通 · 第1版：第 1 版用公式推，没听懂')
-    await expect(sec.locator('.fig img')).toHaveCount(2)
-    await expect(notes(page).locator('.props .chip')).toHaveText(['笔记', '线性代数', '第3讲', '来源 第3讲 线性映射.pdf', '问到3/5页'])
+    const sec = notes(page).getByTestId('note-round')
+    await expect(sec.locator('.rh h3')).toHaveText('测试小标题 p3')
+    await expect(sec.locator('.qs')).toHaveText(['给我讲解一下', '还是不懂'])
+    await expect(sec.locator('.am').first()).toContainText('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
+    await expect(sec.locator('.recap span')).toHaveText('测试小结：主对话问了 2 句。')
+    await expect(sec.locator('.crop img')).toHaveCount(1)
 
-    // 笔记 → PDF：点页码，翻到第 3 页，框过的那块闪一下
-    await sec.getByRole('button', { name: '第 3 页' }).first().click()
+    // 笔记 → PDF：点「第 3 页 ›」，翻到第 3 页，框过的那块闪一下
+    await sec.getByRole('button', { name: '第 3 页 ›' }).click()
     await expect(pdfPane(page).getByTestId('pdf-flash')).toBeVisible()
     await expect(acts(page).getByTestId('pdf-pager')).toHaveText('3 / 5')
     await expect(pdfPane(page).getByTestId('pdf-flash')).toHaveCount(0, { timeout: 4000 })
@@ -139,28 +135,45 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（图、疑惑
     await rail(page).getByRole('button', { name: '打开 AI' }).click()
     await pdfPane(page).getByRole('button', { name: '第 3 页这里问过 2 轮' }).click()
     await expect(notes(page)).toBeVisible()
-    await expect(notes(page).locator('section.ns.flash')).toBeVisible()
+    await expect(notes(page).locator('section.rnd.flash')).toBeVisible()
     await expect(pdfPane(page).getByRole('button', { name: '第 3 页这里问过 2 轮' })).toHaveClass(/cur/)
 
-    // 「完整对话 · 2 轮」：回到 AI 那次对话
-    await sec.getByRole('button', { name: '完整对话 · 2轮' }).click()
+    // 再点竖条「笔记」回到 AI（笔记里就是问答原文，不再有「完整对话」那个入口）
+    await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(ai(page)).toBeVisible()
-    await expect(ai(page).locator('.um-wrap.flash')).toBeVisible()
 
-    // 面板头上「收起 ⌘J」收起右栏；别的标签（文档）里 AI 还在右下角浮着
+    // 面板头上「收起 ⌘J」收起右栏
     await ai(page).getByRole('button', { name: '收起 AI' }).click()
     await expect(ai(page)).toHaveCount(0)
     await expect(page.locator('.win')).not.toHaveClass(/with-right/)
 
-    // 笔记「在中间打开」：就是普通文档，相对链接的截图照常显示；这时 AI 回到右下角浮着，竖条上没有 AI、笔记
+    // 笔记「在中间打开」：就是普通文档，相对链接的截图照常显示。AI 收着时点「笔记」只开了笔记：换到这篇文档那一格收起，
+    // 竖条上「笔记」原地变淡（右图标栏方向 A），AI 还是收着
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await notes(page).getByRole('button', { name: '在中间打开' }).click()
     await expect(tabOn(page)).toHaveText('第3讲 线性映射 笔记')
     const img = page.locator('.pane:not([hidden]) img[src*="p3-1.png"]').first()
     await expect(img).toBeVisible()
     expect(await img.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(10)
-    await expect.poll(() => railItems(page)).toEqual(['大纲', '网页', '微信读书', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
+    await expect(rail(page).getByRole('button', { name: /^笔记/ })).toHaveClass(/\bdim\b/)
+    await expect(notes(page)).toHaveCount(0)
+    await expect(page.locator('.win')).not.toHaveClass(/with-right/)
     await expect(page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' })).toBeVisible()
+    // 回到 PDF：笔记又开着
+    await page.getByTestId('tab-list').getByRole('tab', { name: /第3讲 线性映射\.pdf/ }).click()
+    await expect(notes(page)).toBeVisible()
+    // AI 开着时换成笔记（D 组方向 A）：换到文档，那一格换成这篇文档自己的 AI 对话（开着就还开着），回到 PDF 又是笔记
+    await rail(page).getByRole('button', { name: '打开 AI' }).click()
+    await expect(ai(page)).toBeVisible()
+    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await expect(notes(page)).toBeVisible()
+    await page.getByTestId('tab-list').getByRole('tab', { name: /第3讲 线性映射 笔记/ }).click()
+    await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeVisible()
+    await expect(notes(page)).toHaveCount(0)
+    await expect(page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '收起 AI' })).toBeVisible()
+    await page.getByTestId('tab-list').getByRole('tab', { name: /第3讲 线性映射\.pdf/ }).click()
+    await expect(notes(page)).toBeVisible()
   } finally {
     await run.close()
   }
@@ -172,6 +185,7 @@ test('⌘↵ 问整页；选中一段字问；esc 取消框；重开软件回到
   const root = dirname(vault)
   try {
     await openPdf(page)
+    await openAi(page)
     await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
     // 翻到第 4 页，⌘↵ 整页问
     await acts(page).getByTestId('pdf-pager').getByRole('button').click()
@@ -259,9 +273,10 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
   const { page, vault } = run
   try {
     await openPdf(page)
+    await openAi(page)
     await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
-    // 还没问过：不显示问到哪（标签条右端只有页码，问到哪写在 AI「看得到」那一行）
-    await expect(ai(page).getByTestId('pdf-progress')).toHaveCount(0)
+    // 「看得到」照 A 组读 PDF 小样：这份 PDF · 第几页 | 读过全文几页 | 笔记几轮；问到哪不写在这里（笔记的属性行有「问到 3/5 页」），标签条右端只有页码
+    await expect(ai(page).getByTestId('reading-sees').locator('.chip')).toHaveText(['第3讲 线性映射.pdf · 第1页', '读过全文5页'])
     await expect(acts(page).getByTestId('pdf-progress')).toHaveCount(0)
     await drawBox(page, 3, [0.08, 0.25], [0.6, 0.42])
     await expect(ai(page).getByRole('textbox', { name: '问 AI' })).toHaveValue('给我讲解一下')
@@ -270,7 +285,8 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
     await expect(msg.locator('.noted')).toContainText('已记进笔记 · 第3页', { timeout: 15_000 })
     // 回答最后那行标记不显示，换成「做个可视化」
     await expect(msg.locator('.txt')).not.toContainText('〔')
-    await expect(ai(page).getByTestId('pdf-progress')).toHaveText('问到第3页')
+    await expect(ai(page).getByTestId('reading-sees').locator('.chip').last()).toHaveText('笔记1轮')
+    await expect(ai(page).getByTestId('pdf-progress')).toHaveCount(0)
     await expect(acts(page).getByTestId('pdf-pager')).toContainText(' / 5')
     await expect(acts(page).getByTestId('pdf-progress')).toHaveCount(0)
 
@@ -299,31 +315,35 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
     await frame.getByRole('slider', { name: '角度' }).fill('90')
     await expect(frame.locator('#v')).toHaveText('90')
 
-    // 回到 PDF：笔记里有可视化卡，属性行有进度；「全部疑惑」开我的疑惑
+    // 回到 PDF：笔记里有可视化卡；⌘K「我的疑惑」开我的疑惑（问题是原话）
     await page.locator('.tab', { hasText: '第3讲 线性映射.pdf' }).locator('.tl').click()
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(notes(page).getByTestId('viz-card')).toContainText('旋转矩阵 · 拖动角度看基向量')
-    await expect(notes(page).locator('.props .chip').last()).toHaveText('问到3/5页')
-    await notes(page).getByRole('button', { name: '全部疑惑' }).click()
+    await page.keyboard.press('Meta+k')
+    await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('我的疑惑')
+    await expect(page.locator('.pal-row').first().locator('.lc')).toHaveText('课程/线性代数')
+    await page.keyboard.press('Enter')
     const doubts = page.getByTestId('doubts')
     await expect(doubts.locator('.dq-sub')).toContainText('线性代数 · 1条')
     await expect(doubts.getByTestId('doubt-group').locator('.dq-gh b')).toHaveText('第3讲 线性映射')
     const row = doubts.getByTestId('doubt-row')
-    await expect(row.locator('.dq-tx b')).toHaveText('整块没看懂：第 3 页框的这块')
+    await expect(row.locator('.dq-tx b')).toHaveText('给我讲解一下')
     await row.locator('.dq-line').click()
-    await expect(row.locator('.dq-full')).toContainText('先看图，再看公式')
-    expect(readFileSync(join(vault, '课程/线性代数/我的疑惑.md'), 'utf8')).toContain('- **整块没看懂：第 3 页框的这块** [第 3 页]')
+    await expect(row.locator('.dq-full')).toContainText('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
+    expect(readFileSync(join(vault, '课程/线性代数/我的疑惑.md'), 'utf8')).toContain('- **给我讲解一下** [第 3 页]')
 
     // 送进 Anki：预览正反面，送 1 张；送过的标「已送」，一次提交
     await doubts.getByRole('button', { name: '送进Anki · 1张' }).click()
     const dlg = page.getByRole('dialog', { name: '送进 Anki' })
-    await expect(dlg.locator('.adq')).toHaveText('整块没看懂：第 3 页框的这块')
+    await expect(dlg.locator('.adq')).toHaveText('给我讲解一下')
     await expect(dlg.locator('.adsrc')).toHaveText('第3页 · 第3讲 线性映射.pdf')
     await dlg.getByRole('button', { name: '送1张' }).click()
     await expect(page.locator('.toast-cn')).toContainText('已送进Anki · 1张卡片（牌组「知识」）')
     await expect(row.locator('.dq-sent')).toHaveText('已送')
     await expect(doubts.getByRole('button', { name: '送进Anki · 0张' })).toBeDisabled()
-    expect(added.map((n) => [n.deckName, n.fields.Question])).toEqual([['知识', '整块没看懂：第 3 页框的这块']])
+    expect(added.map((n) => [n.deckName, n.fields.Question])).toEqual([['知识', '给我讲解一下']])
+    // 背面：回答原文的开头一段
+    expect(added[0]!.fields.Answer).toContain('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
     expect(added[0]!.fields.Image).toMatch(/^<img class="lead" src="canvasnotes-\w+\.png">$/)
     expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('送进 Anki：线性代数 1 张')
     expect(gitOut(vault, 'status', '--porcelain', '--untracked-files=all')).toBe('')

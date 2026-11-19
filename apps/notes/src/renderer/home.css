@@ -1,6 +1,7 @@
 /* 首页：A 封面长图 + 组件网格；B 整页背景 + 玻璃组件（design/v3/DESIGN.v3.md「5 首页」） */
 .homev .body {
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 .hscroll {
   min-height: 100%;
@@ -189,11 +190,12 @@
 .wd.s4 {
   grid-column: span 4;
 }
+/* 组件头：图标 14 + 名字 13 --t2（方案 v2 小样的 .wh） */
 .wd .wk {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--t2);
 }
 .wd .wk .r {
@@ -221,7 +223,7 @@
   margin: 10px 0 0;
   line-height: 1.6;
 }
-/* 量的是真正给组件的那一块（.hwrap 的内容宽）：右栏开着、AI 浮着让出浮窗宽 + 28 以后都按剩下的宽换列。
+/* 量的是真正给组件的那一块（.hwrap 的内容宽）：右栏开着（AI 也在右栏）以后按剩下的宽换列。
    4 列 → 窄于 680 两列 → 窄于 400 一列（两列时一格不到 193，时钟日期、「条没整理」开始折行） */
 .homev .hwrap {
   container: home / inline-size;
@@ -794,4 +796,65 @@
 }
 .cbtn[aria-disabled='true']:hover {
   background: rgba(17, 17, 19, 0.55);
+}
+
+/* ---------- 分类（入口方向 C「首页分类卡」）：八张卡四列，60 高封面 + 图标名字 + 一行「4篇 · 放什么」 ---------- */
+.ccards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+.ccard {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--t1);
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  transition: box-shadow 0.12s, transform 0.12s;
+}
+.ccard:hover {
+  box-shadow: 0 0 0 1px var(--line2), 0 8px 18px -10px rgba(0, 0, 0, 0.3);
+  transform: translateY(-1px);
+}
+.ccard .cv {
+  display: block;
+  height: 60px;
+  background-size: cover;
+  background-position: center;
+}
+.ccard .cb {
+  display: block;
+  padding: 8px 12px 10px;
+}
+.ccard .cn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.ccard .cn > span {
+  display: inline-flex;
+}
+.ccard .cm {
+  display: block;
+  margin-top: 1px;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@container home (max-width: 680px) {
+  .ccards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }

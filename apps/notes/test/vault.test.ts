@@ -88,17 +88,17 @@ it('改名之后编辑器还拿着旧路径存（回话还没到）：写进新�
   expect(existsSync(join(root, to))).toBe(false)
 })
 
-it('速记进收件箱，带创建时间；列表里分出收件箱、素材、我写的', async () => {
+it('速记进收件箱，带创建时间；列表里分出收件箱、剪藏、我写的', async () => {
   const p = await v.capture('周末去看一下 Raycast\n第二行', new Date(2026, 10, 15, 14, 3))
   expect(p).toBe('收件箱/周末去看一下 Raycast.md')
   expect(readFileSync(join(root, p), 'utf8')).toBe('---\ncreated: 2026-11-15 14:03\n---\n周末去看一下 Raycast\n第二行\n')
-  await v.create('素材/AI 与工具', '剪的', '---\nsource: https://nav.al/rich\n---\n> 原文\n')
+  await v.create('剪藏/AI 与工具', '剪的', '---\nsource: https://nav.al/rich\n---\n> 原文\n')
   writeFileSync(join(root, '所思所想.md'), '# 所思所想\n')
   const list = await v.list()
   const byPath = Object.fromEntries(list.map((n) => [n.path, n]))
   expect(byPath['收件箱/周末去看一下 Raycast.md']).toMatchObject({ kind: 'inbox', preview: '周末去看一下 Raycast 第二行' })
   expect(byPath['收件箱/周末去看一下 Raycast.md']!.createdMs).toBe(new Date(2026, 10, 15, 14, 3).getTime())
-  expect(byPath['素材/AI 与工具/剪的.md']).toMatchObject({ kind: 'clip', topic: 'AI 与工具', source: 'https://nav.al/rich' })
+  expect(byPath['剪藏/AI 与工具/剪的.md']).toMatchObject({ kind: 'clip', topic: 'AI 与工具', source: 'https://nav.al/rich' })
   expect(byPath['所思所想.md']).toMatchObject({ kind: 'work' })
   await expect(v.capture('   ')).rejects.toThrow('空的')
 })
@@ -115,7 +115,9 @@ it('只有数据库表的笔记：摘要写「数据库」，不当空的（第 
 
 it('分区和预览', () => {
   expect(kindOf('收件箱/a.md')).toEqual({ kind: 'inbox' })
-  expect(kindOf('素材/a.md')).toEqual({ kind: 'clip', topic: '未分主题' })
+  expect(kindOf('剪藏/a.md')).toEqual({ kind: 'clip', topic: '未分主题' })
+  // 2026-11-18「素材」改叫「剪藏」：老名字的文件夹打开库时就整理掉了，不再当剪藏
+  expect(kindOf('素材/a.md')).toEqual({ kind: 'work' })
   expect(kindOf('收件箱.md')).toEqual({ kind: 'work' })
   expect(previewOf('---\na: 1\n---\n# 标题\n<!-- card id=a -->\n> 引文 [[笔记|别名]] [链接](http://x)\n**粗**')).toBe('标题 引文 笔记 链接 粗')
   // 导进来的备忘录：勾选清单、列表、表格的记号不露出来

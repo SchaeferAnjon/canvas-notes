@@ -1,0 +1,118 @@
+/*
+ * 引文下面的「我的评价」「微信读书的想法」（review.ts），照小样 proposals2/D-读书与AI入口/v2/review/proto-a.html：
+ * 标签 22 高、内边距 0/7、圆角 6、--fill2 底、12/500 --t2，右边离正文 8；微信读书的想法用微信读书的蓝（13% 底、字 75% 混 --t1）；
+ * 正文和引文的字对齐（左边 18）；从引文竖线拐下来一道 2px --clip-bar 弯钩（宽 12、高 26、圆角 9），上端伸进引文最后一行 6；
+ * 引文到第一段隔 8，两段之间隔 10（隔开的空行压矮，不占整行）。
+ * 「写评价」：引文最后一行右下角，24 高、内边距 0/8、圆角 6、--card 底、1px --line2 描边加一点阴影，comment 13 + 12 字。
+ */
+.doc.doc .cm-review-gap {
+  height: 8px;
+  font-size: 0;
+  line-height: 8px;
+}
+.doc.doc .cm-review-gap.cm-review-gap2 {
+  height: 10px;
+  line-height: 10px;
+}
+.doc.doc .cm-review {
+  position: relative;
+  padding-top: 2px !important;
+  padding-left: 18px !important;
+}
+.doc.doc .cm-review::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: -14px;
+  width: 12px;
+  height: 26px;
+  border-left: 2px solid var(--clip-bar);
+  border-bottom: 2px solid var(--clip-bar);
+  border-bottom-left-radius: 9px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.doc.doc .cm-review-cont {
+  padding-left: 18px !important;
+}
+.doc .cm-review-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  margin-right: 8px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--fill2);
+  font: 500 12px/1 var(--sans);
+  color: var(--t2);
+  vertical-align: 2px;
+  user-select: none;
+}
+.doc .cm-review-tag.wr {
+  --wr: #1b88ee;
+  background: color-mix(in srgb, var(--wr) 13%, transparent);
+  color: color-mix(in srgb, var(--wr) 75%, var(--t1));
+}
+[data-tone='dark'] .doc .cm-review-tag.wr {
+  --wr: #5aa9f0;
+}
+.doc .cm-review-ph {
+  color: var(--t3);
+  pointer-events: none;
+}
+.doc .cm-review-btn {
+  position: absolute;
+  right: 0;
+  bottom: -2px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px var(--line2),
+    0 2px 6px rgba(0, 0, 0, 0.06);
+  font: 12px/1 var(--sans);
+  color: var(--t1);
+  white-space: nowrap;
+  cursor: default;
+}
+.doc .cm-review-btn .ci {
+  flex: none;
+}
+.doc.doc .cm-review-solo {
+  padding-top: 2px !important;
+}
+
+/* 书摘（cm-digest，微信读书同步来的）照小样的疏密：块和块之间的那一个空行压矮（两段之间 12，评价、想法下面 14，章节标题上面 26、下面 10），
+   章节标题不再另加上边距，标题到摘要行 6、摘要行下面不另留白（review.ts 的 digestGaps；光标停在空行上时照常一整行高） */
+.doc.doc .cm-dg-gap {
+  height: 12px;
+  font-size: 0;
+  line-height: 12px;
+}
+.doc.doc .cm-dg-gap.cm-dg-r {
+  height: 14px;
+  line-height: 14px;
+}
+.doc.doc .cm-dg-gap.cm-dg-h {
+  height: 26px;
+  line-height: 26px;
+}
+.doc.doc .cm-dg-gap.cm-dg-ah {
+  height: 10px;
+  line-height: 10px;
+}
+.doc.doc .cm-digest .cm-h2 {
+  padding-top: 0;
+}
+.doc.doc .cm-digest .cm-h1 {
+  padding-bottom: 6px;
+}
+.doc.doc .cm-digest .cm-bookmeta {
+  padding-bottom: 0;
+}

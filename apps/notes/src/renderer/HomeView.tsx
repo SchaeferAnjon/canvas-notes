@@ -1,7 +1,16 @@
+import { CATEGORIES } from '../shared/categories'
+import { buildTree, folderProgress } from '../shared/files'
+import type { FolderCover } from '../shared/folder-home'
+import { useDesc } from './files/category-store'
+import { folderLook, useLeft } from './files/left-store'
+import { AnyCodicon } from './files/look'
+import { useVaultFiles } from './files/store'
+import { folderCoverCss } from './folder-home/cover'
 import { Codicon, type CodiconName } from '@cn/design'
 import { onFileMenu } from './ctx/file-menu'
+import { menuAt } from './ctx/menu'
 import { ActBtn, TabActs } from './shell/TabActs'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Activity, DreamGroup, DreamReport, NoteFile } from '../shared/api'
 import type { HomeStyle } from '../shared/appearance'
 import {
@@ -16,6 +25,8 @@ import {
   sizeOf,
   WIDGETS,
   type BuiltinCover,
+  type Cover,
+  DEFAULT_HOME,
   type HomeConfig,
   type WidgetId,
 } from '../shared/home'
@@ -57,6 +68,7 @@ export function useActivity(version: number) {
 
 const WEEKDAY = '一二三四五六日'
 const ICONS: Record<WidgetId, CodiconName> = {
+  cats: 'folder',
   clock: 'clockface',
   week: 'edit',
   inbox: 'inbox',
@@ -85,8 +97,13 @@ export interface HomeProps {
   onNewBoard(): void
   onOpenWeb(): void
   onChooseFolder(): void
+  /** 首页分类卡（方向 C）：开这一类的首页（左栏不在「文件」时换到它那一枝） */
+  onOpenCategory(name: string): void
   onNotice(t: string): void
 }
+
+/** 两个封面是不是同一张（空库时没换过的默认封面换成深海光） */
+const sameCover = (a: Cover, b: Cover) => (a.kind === 'file' ? b.kind === 'file' && a.path === b.path : b.kind === 'builtin' && a.id === b.id)
 
 /**
  * 首页：两种样式（设置里切换）。A 上面一条封面长图，下面组件网格；B 封面铺满首页，组件是半透明玻璃。
@@ -192,6 +209,7 @@ export function HomeView(props: HomeProps) {
           <Codicon name={ICONS[id]} size={14} />
           {WIDGETS.find((w) => w.id === id)!.name}
           {id === 'wall' && <WallLegend />}
+          {id === 'cats' && <span className="r num">{`${CATEGORIES.length}个 · 点开看它的首页`}</span>}
         </div>
         <Widget id={id} {...props} a={a} act={act} />
       </div>
@@ -207,14 +225,37 @@ export function HomeView(props: HomeProps) {
             完成
           </button>
         ) : (
-          <ActBtn icon="edit" label="编辑首页" onClick={() => setEditing(true)} />
+          <>
+            <ActBtn icon="edit" label="编辑首页" text onClick={() => setEditing(true)} />
+            <ActBtn
+              icon="ellipsis"
+              label="更多"
+              onClick={(e) =>
+                void menuAt(e, [
+                  {
+                    label: '换封面',
+                    run: () => {
+                      if (props.winBg) return props.onNotice('首页现在用窗口背景那张图：设置 › 外观 › 首页样式 里取消「整页背景用窗口背景那张图」，就能换封面')
+                      document.querySelector('.homev:not([hidden]) .hscroll')?.closest('.body')?.scrollTo({ top: 0, behavior: 'smooth' })
+                      setGallery(true)
+                    },
+                  },
+                  { label: '编辑首页', run: () => setEditing(true) },
+                ])
+              }
+            />
+          </>
         )}
       </TabActs>
       <div className="body">
         <div
           className="hscroll"
           style={{
-            ['--cover-img' as string]: props.winBg ? (props.winBg.url ? `url("${props.winBg.url}")` : 'linear-gradient(var(--title), var(--title))') : coverImage(cfg.cover),
+            ['--cover-img' as string]: props.winBg
+              ? props.winBg.url
+                ? `url("${props.winBg.url}")`
+                : 'linear-gradient(var(--title), var(--title))'
+              : coverImage(empty && sameCover(cfg.cover, DEFAULT_HOME.cover) ? { kind: 'builtin', id: 'glow' } : cfg.cover),
             ['--cover-y' as string]: `${props.winBg ? 50 : coverY}%`,
           }}
         >
@@ -301,9 +342,10 @@ export function HomeView(props: HomeProps) {
           <div className="hwrap">
             <div className="hello">
               <div>
-                <h2 data-testid="home-title">{greeting(now)}</h2>
+                {/* 空库（还一篇都没有）：先说这是个新库（第三版空库那屏），不问候「夜深了」 */}
+                <h2 data-testid="home-title">{empty ? '欢迎，这是一个新库' : greeting(now)}</h2>
                 <p className="lead">
-                  {dateText(now.getTime())} · {a.wrote + a.clipped ? `这周攒下了${a.wrote + a.clipped}样东西` : '这周还没攒下东西'}
+                  {empty ? '先存点东西进来，首页会慢慢长出来。' : `${dateText(now.getTime())} · ${a.wrote + a.clipped ? `这周攒下了${a.wrote + a.clipped}样东西` : '这周还没攒下东西'}`}
                 </p>
               </div>
             </div>
@@ -448,9 +490,59 @@ const DREAM_LINES: Record<DreamGroup, [string, CodiconName]> = {
   week: ['篇 本周小结', 'edit'],
 }
 
+/**
+ * 首页的「分类」（方向 C「首页分类卡」）：八张卡四列，上面一条 60 高的封面（和那一类首页的横幅同一张），
+ * 下面图标（染那一类的颜色）+ 名字，再一行「4篇 · 放什么」；课程写「2门课 · 1/2讲」。点一张开那一类的首页
+ */
+function Categories(props: { onOpen(name: string): void }) {
+  const { files } = useVaultFiles()
+  const desc = useDesc()
+  useLeft()
+  const [covers, setCovers] = useState<Record<string, FolderCover>>({})
+  useEffect(() => {
+    let stale = false
+    void Promise.all(CATEGORIES.map((c) => window.cnFolder.get(c.name).then((r) => [c.name, r.home.cover] as const))).then((l) => !stale && setCovers(Object.fromEntries(l)))
+    return () => {
+      stale = true
+    }
+  }, [files])
+  const tree = useMemo(() => buildTree(files.filter((f) => f.kind !== 'img' && f.kind !== 'att')), [files])
+  return (
+    <div className="ccards" data-testid="home-cats">
+      {CATEGORIES.map((c) => {
+        const node = tree.find((n) => n.kind === 'dir' && n.name === c.name)
+        const n = node?.count ?? 0
+        const courses = c.name === '课程' && node ? node.children.filter((x) => x.kind === 'dir') : []
+        const prog = courses.reduce((p, x) => {
+          const fp = folderProgress(x)
+          return fp ? { done: p.done + fp.done, total: p.total + fp.total } : p
+        }, { done: 0, total: 0 })
+        const meta = c.name === '课程' ? [`${courses.length}门课`, ...(prog.total ? [`${prog.done}/${prog.total}讲`] : [])] : [`${n}篇`]
+        const look = folderLook(c.name)
+        return (
+          <button key={c.name} className="ccard" data-testid={`cat-${c.name}`} onClick={() => props.onOpen(c.name)}>
+            <span className="cv" style={{ backgroundImage: folderCoverCss(covers[c.name] ?? c.cover, c.name) }} />
+            <span className="cb">
+              <span className="cn">
+                <span style={look.color ? { color: look.color } : undefined}>
+                  <AnyCodicon name={look.icon} size={14} />
+                </span>
+                {c.name}
+              </span>
+              <span className="cm">{[...meta, desc(c.name)].join(' · ')}</span>
+            </span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumulate>; act: Activity | null }) {
   const { a, act, notes } = props
   switch (props.id) {
+    case 'cats':
+      return <Categories onOpen={props.onOpenCategory} />
     case 'clock':
       return <ClockBody />
     case 'week': {

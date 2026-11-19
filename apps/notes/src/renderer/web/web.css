@@ -311,9 +311,6 @@
 .wlib-head .sp {
   flex: 1;
 }
-.wlib-head .seg button {
-  height: 24px;
-}
 .wsearch {
   display: flex;
   align-items: center;

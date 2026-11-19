@@ -1,9 +1,10 @@
 /**
  * 文件的属性（方向 B）：标签条右端分段控件前一颗「属性」按钮，点开 320 宽的小弹层，一行一个属性，
  * 类型、课程是下拉，别的直接改；AI 填的标着「AI 填的」，用户改过就去掉。改属性不挪文件、不改名。
+ * 按类型列项（CN-123）：书摘列类型、作者、来源、划线、想法，不列课程、第几讲；旧书摘的 type: weread 当书摘，选类型就地换掉那一行（CN-131）。
  */
 import { Codicon } from '@cn/design'
-import { aiFilled, HIDDEN_KEYS, readProps, setPropByUser } from '@cn/format'
+import { aiFilled, fileType, HIDDEN_KEYS, readProps, setPropByUser } from '@cn/format'
 import { useEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { coursesOf } from '../../shared/mindmap'
@@ -12,6 +13,8 @@ import { AttachGrid, AttachList, useAttachments } from '../PropsAttach'
 export const TYPES = ['课件', '笔记', '导图', '可视化', '书摘']
 /** 常用的放前面，没写的也列出来让人填 */
 const COMMON = ['类型', '课程', '第几讲', '来源', '日期']
+/** 这几种类型自己的一套（写没写都列出来）；没列的类型用 COMMON */
+const KEYS_BY_TYPE: Record<string, string[]> = { 书摘: ['类型', '作者', '来源', '划线', '想法'] }
 
 type PropsProps = { path: string; text: string; notes: NoteFile[]; readOnly: boolean; onChange(text: string): void; /** 附件网格里双击一张：跳到文中那一处 */ onJump(offset: number): void }
 
@@ -43,8 +46,11 @@ export function PropsButton(props: PropsProps) {
 function PropsPop(props: PropsProps) {
   const all = readProps(props.text).filter((p) => !HIDDEN_KEYS.has(p.key))
   const ai = aiFilled(props.text)
-  const keys = [...COMMON.filter((k) => all.some((p) => p.key === k) || k === '类型' || k === '课程'), ...all.map((p) => p.key).filter((k) => !COMMON.includes(k))]
-  const value = (k: string) => all.find((p) => p.key === k)?.value ?? ''
+  const type = fileType(props.text) ?? ''
+  const own = Object.hasOwn(KEYS_BY_TYPE, type) ? KEYS_BY_TYPE[type]! : null
+  const head = own ?? COMMON.filter((k) => all.some((p) => p.key === k) || k === '类型' || k === '课程')
+  const keys = [...head, ...all.map((p) => p.key).filter((k) => !head.includes(k) && (own !== null || !COMMON.includes(k)))]
+  const value = (k: string) => (k === '类型' ? type : (all.find((p) => p.key === k)?.value ?? ''))
   const [adding, setAdding] = useState(false)
   const courses = coursesOf(props.notes.map((n) => n.path))
   const set = (k: string, v: string) => props.onChange(setPropByUser(props.text, k, v.trim() === '' ? undefined : v))

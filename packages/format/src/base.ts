@@ -95,7 +95,21 @@ export interface BaseCond {
   value: string
 }
 
-export type ColType = 'text' | 'number' | 'date' | 'check' | 'select'
+/**
+ * 列的类型（照 Notion 的属性类型挑了常用的几种）：文字、数字、选项（单选）、多选、日期、勾选、链接。
+ * 用户选过的写在代码块 properties 里（`properties: 价格: type: number`，Obsidian 只认 displayName，别的键不管）；没选过按值猜（colType）。
+ */
+export type ColType = 'text' | 'number' | 'date' | 'check' | 'select' | 'multi' | 'url'
+
+export const COL_TYPES: { type: ColType; label: string }[] = [
+  { type: 'text', label: '文字' },
+  { type: 'number', label: '数字' },
+  { type: 'select', label: '选项' },
+  { type: 'multi', label: '多选' },
+  { type: 'date', label: '日期' },
+  { type: 'check', label: '勾选' },
+  { type: 'url', label: '链接' },
+]
 
 /** 每种列能选的条件（表头的筛选面板用），value：要不要填值 */
 export const BASE_OPS: Record<ColType, { op: BaseOp; label: string; value: boolean }[]> = {
@@ -125,6 +139,15 @@ export const BASE_OPS: Record<ColType, { op: BaseOp; label: string; value: boole
     { op: 'days', label: '最近 N 天', value: true },
   ],
   check: [{ op: '==', label: '是', value: true }],
+  multi: [
+    { op: 'contains', label: '包含', value: true },
+    { op: 'empty', label: '为空', value: false },
+  ],
+  url: [
+    { op: 'contains', label: '包含', value: true },
+    { op: '==', label: '是', value: true },
+    { op: 'empty', label: '为空', value: false },
+  ],
 }
 
 /** 筛选小标签上的写法：「状态 是 在读」「评分 ≥ 8」「读完 最近 7 天」 */
@@ -152,6 +175,12 @@ export interface BaseSpec {
   /** 列：file.name 是笔记名，其余是属性名；隐藏的列就是这里没有的 */
   columns: string[]
   sort: { prop: string; desc: boolean }[]
+  /** 用户给列选过的类型（properties 里的 type） */
+  types: Record<string, ColType>
+  /** 拖过的列宽（视图里的 columnSize，同 Obsidian） */
+  sizes: Record<string, number>
+  /** 表底计算行（视图里的 summaries，名字同 Obsidian：Sum、Average、Min、Max、Median、Range、Earliest、Latest、Checked、Unchecked、Empty、Filled、Unique） */
+  summaries: Record<string, string>
 }
 
 const asList = (y: Y | undefined): Y[] => (Array.isArray(y) ? y : y === undefined || y === '' ? [] : [y])
@@ -231,7 +260,16 @@ export function parseBase(src: string): BaseSpec {
     .map(asMap)
     .filter((s) => typeof s.property === 'string')
     .map((s) => ({ prop: (s.property as string).replace(/^note\./, ''), desc: String(s.direction ?? '').toUpperCase() === 'DESC' }))
-  return { folder, match, conds, extra, filtersLocked, view: typeof v.name === 'string' && v.name ? v.name : '表格', columns: columns.length ? columns : ['file.name'], sort }
+  const types: Record<string, ColType> = {}
+  for (const [k, cfg] of Object.entries(asMap(y.properties))) {
+    const t = asMap(cfg).type
+    if (typeof t === 'string' && COL_TYPES.some((c) => c.type === t)) types[k.replace(/^note\./, '')] = t as ColType
+  }
+  const sizes: Record<string, number> = {}
+  for (const [k, w] of Object.entries(asMap(v.columnSize))) if (typeof w === 'string' && /^\d+$/.test(w)) sizes[k.replace(/^note\./, '')] = Number(w)
+  const summaries: Record<string, string> = {}
+  for (const [k, f] of Object.entries(asMap(v.summaries))) if (typeof f === 'string' && f) summaries[k.replace(/^note\./, '')] = f
+  return { folder, match, conds, extra, filtersLocked, view: typeof v.name === 'string' && v.name ? v.name : '表格', columns: columns.length ? columns : ['file.name'], sort, types, sizes, summaries }
 }
 
 /** 新建一个数据库代码块的 YAML */
@@ -273,9 +311,255 @@ export function setBaseSort(src: string, prop: string, desc: boolean): string {
   return setViewKey(src, 'sort', [`  - property: ${prop}`, `    direction: ${desc ? 'DESC' : 'ASC'}`])
 }
 
+/** 不排序：拿掉视图里 sort 那几行（没有就原样） */
+export function clearBaseSort(src: string): string {
+  const lines = src.split('\n')
+  const views = lines.findIndex((l) => /^views:\s*$/.test(l))
+  const start = views === -1 ? -1 : lines.findIndex((l, i) => i > views && /^\s+sort:\s*$/.test(l))
+  if (start === -1) return src
+  return [...lines.slice(0, start), ...lines.slice(blockEnd(lines, start))].join('\n')
+}
+
 /** 列：显示哪几列、什么顺序（隐藏一列就是从这里拿掉，Obsidian 也这么存） */
 export function setBaseOrder(src: string, columns: string[]): string {
   return setViewKey(src, 'order', columns.map((c) => `  - ${c}`))
+}
+
+/** 一个映射块（start 那一行开头、往下缩进更深的几行）里，键是 key 的那一行；没有返回 -1 */
+function childLine(lines: string[], start: number, key: string): number {
+  const ind = indentOf(lines[start]!)
+  let childInd = -1
+  for (let i = start + 1; i < lines.length; i++) {
+    const l = lines[i]!
+    if (l.trim() === '') continue
+    if (indentOf(l) <= ind) return -1
+    if (childInd === -1) childInd = indentOf(l)
+    if (indentOf(l) !== childInd) continue
+    const m = /^\s*("(?:[^"\\]|\\.)*"|'[^']*'|[^:]+):/.exec(l)
+    if (m && m[1]!.replace(/^["']|["']$/g, '').replace(/\\"/g, '"') === key) return i
+  }
+  return -1
+}
+
+/** 一块（start 那一行连同下面缩进更深的）到哪一行为止（不含） */
+function blockEnd(lines: string[], start: number): number {
+  const ind = indentOf(lines[start]!)
+  let end = start + 1
+  while (end < lines.length && (lines[end]!.trim() === '' || indentOf(lines[end]!) > ind)) end++
+  return end
+}
+
+/** YAML 里的键：有空格、冒号、引号这些就用双引号包起来 */
+const yamlKey = (k: string) => (/^[^\s:#'"{}[\],&*!|>%@`-][^:#'"{}[\],]*$/.test(k) && !/\s$/.test(k) ? k : `"${k.replace(/"/g, '\\"')}"`)
+
+/**
+ * 设一个两层（或三层）的键：顶层的 properties（列名 → type），或第一个视图里的 columnSize / summaries（列名 → 值）。
+ * value 是 null 时拿掉，拿空了的上一层一起拿掉；别的行原样
+ */
+function setNested(src: string, outer: string, inView: boolean, mid: string, key: string | null, value: string | null): string {
+  const lines = src.split('\n')
+  let oIdx: number
+  let oInd: string
+  if (inView) {
+    const views = lines.findIndex((l) => /^views:\s*$/.test(l))
+    if (views === -1) return src
+    const first = lines.findIndex((l, i) => i > views && /^\s*-\s/.test(l))
+    if (first === -1) return src
+    const vInd = indentOf(lines[first]!) + 2
+    oInd = ' '.repeat(vInd)
+    const end = blockEnd(lines, first)
+    oIdx = lines.findIndex((l, i) => i > first && i < end && l === `${oInd}${outer}:`)
+    if (oIdx === -1) {
+      if (value === null) return src
+      lines.splice(end, 0, `${oInd}${outer}:`)
+      oIdx = end
+    }
+  } else {
+    oInd = ''
+    oIdx = lines.findIndex((l) => l === `${outer}:`)
+    if (oIdx === -1) {
+      if (value === null) return src
+      lines.push(`${outer}:`)
+      oIdx = lines.length - 1
+    }
+  }
+  const cInd = oInd + '  '
+  if (key === null) {
+    const at = childLine(lines, oIdx, mid)
+    if (value === null) {
+      if (at !== -1) lines.splice(at, 1)
+    } else if (at !== -1) lines[at] = `${cInd}${yamlKey(mid)}: ${value}`
+    else lines.splice(blockEnd(lines, oIdx), 0, `${cInd}${yamlKey(mid)}: ${value}`)
+  } else {
+    let mIdx = childLine(lines, oIdx, mid)
+    if (mIdx === -1) {
+      if (value === null) return src
+      const at = blockEnd(lines, oIdx)
+      lines.splice(at, 0, `${cInd}${yamlKey(mid)}:`)
+      mIdx = at
+    }
+    const kIdx = childLine(lines, mIdx, key)
+    if (value === null) {
+      if (kIdx !== -1) lines.splice(kIdx, 1)
+      // 这一列下面空了：连列名一起拿掉
+      if (blockEnd(lines, mIdx) === mIdx + 1) lines.splice(mIdx, 1)
+    } else if (kIdx !== -1) lines[kIdx] = `${cInd}  ${key}: ${value}`
+    else lines.splice(blockEnd(lines, mIdx), 0, `${cInd}  ${key}: ${value}`)
+  }
+  // 外层空了也拿掉
+  if (lines[oIdx] === `${oInd}${outer}:` && blockEnd(lines, oIdx) === oIdx + 1) lines.splice(oIdx, 1)
+  return lines.join('\n')
+}
+
+/** 列的类型写进 properties（null：拿掉，回到按值猜） */
+export function setBaseColType(src: string, prop: string, type: ColType | null): string {
+  return setNested(src, 'properties', false, prop, 'type', type)
+}
+
+/** 拖过的列宽写进视图的 columnSize（null：拿掉） */
+export function setBaseColSize(src: string, prop: string, px: number | null): string {
+  return setNested(src, 'columnSize', true, prop, null, px === null ? null : String(Math.round(px)))
+}
+
+/** 表底这一列算什么（视图的 summaries，名字同 Obsidian；null：不算） */
+export function setBaseSummary(src: string, prop: string, summary: string | null): string {
+  return setNested(src, 'summaries', true, prop, null, summary)
+}
+
+/** 列改名：order、sort、筛选、properties、columnSize、summaries 里的旧名都换成新名 */
+export function renameBaseProp(src: string, from: string, to: string): string {
+  const spec = parseBase(src)
+  let out = setBaseOrder(src, spec.columns.map((c) => (c === from ? to : c)))
+  const s = spec.sort.find((x) => x.prop === from)
+  if (s) out = setBaseSort(out, to, s.desc)
+  if (!spec.filtersLocked && spec.conds.some((c) => c.prop === from)) out = setBaseFilters(out, spec.match, spec.conds.map((c) => (c.prop === from ? { ...c, prop: to } : c)))
+  if (spec.types[from]) out = setBaseColType(setBaseColType(out, from, null), to, spec.types[from]!)
+  if (spec.sizes[from]) out = setBaseColSize(setBaseColSize(out, from, null), to, spec.sizes[from]!)
+  if (spec.summaries[from]) out = setBaseSummary(setBaseSummary(out, from, null), to, spec.summaries[from]!)
+  return out
+}
+
+/** 删掉一列：order、properties、columnSize、summaries 里都拿掉（筛选、排序里用到它的也拿掉） */
+export function dropBaseProp(src: string, prop: string): string {
+  const spec = parseBase(src)
+  let out = setBaseOrder(src, spec.columns.filter((c) => c !== prop))
+  if (!spec.filtersLocked && spec.conds.some((c) => c.prop === prop)) out = setBaseFilters(out, spec.match, spec.conds.filter((c) => c.prop !== prop))
+  out = setBaseColType(out, prop, null)
+  out = setBaseColSize(out, prop, null)
+  out = setBaseSummary(out, prop, null)
+  if (spec.sort.some((x) => x.prop === prop)) {
+    const lines = out.split('\n')
+    const at = lines.findIndex((l) => /^\s+sort:\s*$/.test(l))
+    if (at !== -1) {
+      lines.splice(at, blockEnd(lines, at) - at)
+      out = lines.join('\n')
+    }
+  }
+  return out
+}
+
+/** 多选的值：frontmatter 里写成一行 [a, b]（也认「a, b」） */
+export function listOf(v: string): string[] {
+  const t = v.trim()
+  const inner = /^\[(.*)\]$/.exec(t)?.[1] ?? t
+  return inner
+    .split(',')
+    .map((x) => x.trim().replace(/^["']|["']$/g, ''))
+    .filter(Boolean)
+}
+
+/** 多选写回去的样子：[a, b]（带逗号、引号的值加引号） */
+export function listText(items: string[]): string {
+  return '[' + items.map((x) => (/[,[\]"':#]/.test(x) ? `"${x.replace(/"/g, '\\"')}"` : x)).join(', ') + ']'
+}
+
+/** 表底计算行能选的几种（照 Notion「计算」，名字写成 Obsidian Bases 的 summaries） */
+export const SUMMARIES: Record<ColType, { id: string; label: string }[]> = {
+  text: [
+    { id: 'Filled', label: '有值的条数' },
+    { id: 'Empty', label: '空着的条数' },
+    { id: 'Unique', label: '不同的值' },
+  ],
+  url: [
+    { id: 'Filled', label: '有值的条数' },
+    { id: 'Empty', label: '空着的条数' },
+  ],
+  select: [
+    { id: 'Filled', label: '有值的条数' },
+    { id: 'Empty', label: '空着的条数' },
+    { id: 'Unique', label: '不同的值' },
+  ],
+  multi: [
+    { id: 'Filled', label: '有值的条数' },
+    { id: 'Empty', label: '空着的条数' },
+    { id: 'Unique', label: '不同的值' },
+  ],
+  number: [
+    { id: 'Sum', label: '求和' },
+    { id: 'Average', label: '平均' },
+    { id: 'Median', label: '中位数' },
+    { id: 'Min', label: '最小' },
+    { id: 'Max', label: '最大' },
+    { id: 'Range', label: '最大减最小' },
+    { id: 'Filled', label: '有值的条数' },
+    { id: 'Empty', label: '空着的条数' },
+  ],
+  date: [
+    { id: 'Earliest', label: '最早' },
+    { id: 'Latest', label: '最晚' },
+    { id: 'Range', label: '跨了几天' },
+    { id: 'Filled', label: '有值的条数' },
+    { id: 'Empty', label: '空着的条数' },
+  ],
+  check: [
+    { id: 'Checked', label: '勾了几条' },
+    { id: 'Unchecked', label: '没勾几条' },
+  ],
+}
+
+/** 算表底这一格：values 是这一列每一行的值（原文） */
+export function summarize(id: string, type: ColType, values: string[]): string {
+  const filled = values.filter((v) => v.trim() !== '' && v.trim() !== '[]')
+  const nums = filled.map(Number).filter((n) => !Number.isNaN(n))
+  const round = (n: number) => String(Math.round(n * 100) / 100)
+  switch (id) {
+    case 'Filled':
+      return String(filled.length)
+    case 'Empty':
+      return String(values.length - filled.length)
+    case 'Unique':
+      return String(new Set(type === 'multi' ? filled.flatMap(listOf) : filled.map((v) => v.trim())).size)
+    case 'Sum':
+      return round(nums.reduce((a, b) => a + b, 0))
+    case 'Average':
+      return nums.length ? round(nums.reduce((a, b) => a + b, 0) / nums.length) : ''
+    case 'Median': {
+      if (!nums.length) return ''
+      const s = [...nums].sort((a, b) => a - b)
+      const m = s.length >> 1
+      return round(s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2)
+    }
+    case 'Min':
+      return nums.length ? round(Math.min(...nums)) : ''
+    case 'Max':
+      return nums.length ? round(Math.max(...nums)) : ''
+    case 'Range': {
+      if (type === 'date') {
+        const ds = filled.map((v) => Date.parse(v.slice(0, 10))).filter((n) => !Number.isNaN(n))
+        return ds.length ? `${Math.round((Math.max(...ds) - Math.min(...ds)) / 86400000)}天` : ''
+      }
+      return nums.length ? round(Math.max(...nums) - Math.min(...nums)) : ''
+    }
+    case 'Earliest':
+      return filled.map((v) => v.slice(0, 10)).sort()[0] ?? ''
+    case 'Latest':
+      return filled.map((v) => v.slice(0, 10)).sort().pop() ?? ''
+    case 'Checked':
+      return String(values.filter((v) => /^true$/i.test(v.trim())).length)
+    case 'Unchecked':
+      return String(values.filter((v) => !/^true$/i.test(v.trim())).length)
+  }
+  return ''
 }
 
 /** YAML 列表里的一行：以 ! 开头、带「: 」「 #」的用单引号包起来 */
@@ -312,6 +596,8 @@ export function colType(values: string[]): ColType {
   if (v.every((x) => /^(true|false)$/i.test(x))) return 'check'
   if (v.every((x) => /^-?\d+(\.\d+)?$/.test(x))) return 'number'
   if (v.every((x) => /^\d{4}-\d{2}-\d{2}/.test(x))) return 'date'
+  if (v.every((x) => /^https?:\/\/\S+$/.test(x))) return 'url'
+  if (v.every((x) => /^\[.*\]$/.test(x.trim()))) return 'multi'
   if (new Set(v).size <= Math.max(3, v.length / 2) && v.every((x) => x.length <= 12)) return 'select'
   return 'text'
 }

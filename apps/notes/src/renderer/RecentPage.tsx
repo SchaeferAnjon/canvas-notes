@@ -3,6 +3,7 @@
  * 下面筛选框（标题、文件夹、正文）和类型筛选，按时间分组：今天、这周，更早的按月收起；每篇两行（名字 + 一行预览）。
  * 每组先列 100 篇，多的点「再显示」（别把上万条全铺开）；筛选时各组都展开。
  */
+import { folderLabel } from './vault-name'
 import { when } from '../shared/when'
 import { Codicon } from '@cn/design'
 import { useMemo, useState } from 'react'
@@ -13,6 +14,7 @@ import { RECENT_PAGE, recentOf } from '../shared/recent'
 import type { ArchiveDays } from '../shared/sidebar'
 import { onFileMenu } from './ctx/file-menu'
 import { noteType, type TypeFilter, TypeChips } from './files/type-filter'
+import { fileIcon } from './Palette'
 import { PageNote, TabActs } from './shell/TabActs'
 import './recent-page.css'
 
@@ -100,10 +102,10 @@ export function RecentPage(props: {
                     g.items.slice(0, limit).map((n) => (
                       <div key={n.path} role="listitem">
                         <button className={'rp-row' + (props.activePath === n.path ? ' on' : '')} onClick={() => props.onOpen(n.path)} onContextMenu={(e) => onFileMenu(e, n.path)} title={n.path}>
-                          <span className="ic">{n.board ? <i className="sw" style={{ background: n.board.color }} /> : <Codicon name={noteType(n) === 'clip' ? 'quote' : /(^|\/)我的疑惑\.md$/.test(n.path) ? 'question' : 'file-text'} />}</span>
+                          <span className="ic">{n.board ? <i className="sw" style={{ background: n.board.color }} /> : <Codicon name={fileIcon(n.path, false, n.digest)} />}</span>
                           <span className="ti t">{titleOf(n.path)}</span>
                           <span className="rt">
-                            {folderOfPath(n.path) || '库的最外层'} · <span className="num">{when(n.mtimeMs, { now })}</span>
+                            {folderLabel(folderOfPath(n.path))} · <span className="num">{when(n.mtimeMs, { now })}</span>
                           </span>
                           <span className="pv">{n.board ? `${n.board.cards}张卡片` : n.excerpt || '空的'}</span>
                         </button>

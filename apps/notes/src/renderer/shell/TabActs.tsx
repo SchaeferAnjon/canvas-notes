@@ -3,7 +3,7 @@ import { createContext, useContext } from 'react'
 import { createPortal } from 'react-dom'
 
 /**
- * 每一页自己的动作（属性、白板 / 文档 / 源文件、页码、问这一页、更多……）放在标签条右端（spec 第 3 节），
+ * 每一页自己的动作（属性、白板 / 文档、页码、问这一页、更多……）放在标签条右端（spec 第 3 节），
  * 页面里不再有标题行。页面照常渲染自己的按钮，经 portal 挂进标签条右端的 #tab-acts；只有当前标签挂。
  */
 export const ActsSlot = createContext<HTMLElement | null>(null)

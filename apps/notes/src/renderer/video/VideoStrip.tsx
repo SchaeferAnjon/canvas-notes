@@ -1,3 +1,4 @@
+import { composing } from '../ime'
 /**
  * 方向 A「视频条」：右栏网页原样，只在视频页的地址栏下面多两行。
  * 第一行：字幕开关（点开字幕菜单）、记下这一刻 ⌥S、框一块问 ⌥D、右端「记到 …」；
@@ -229,7 +230,7 @@ function SubMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
         </div>
         <label className="vsearch">
           <Codicon name="search" size={13} />
-          <input aria-label="翻成什么语言" placeholder="搜任何语言，比如 越南语、Deutsch" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && q.trim() && void target(found[0]?.code ?? q.trim())} />
+          <input aria-label="翻成什么语言" placeholder="搜任何语言，比如 越南语、Deutsch" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => !composing(e) && e.key === 'Enter' && q.trim() && void target(found[0]?.code ?? q.trim())} />
         </label>
         <div className="trm-langs vlangs" role="radiogroup" aria-label="翻成">
           {found.map((l) => (

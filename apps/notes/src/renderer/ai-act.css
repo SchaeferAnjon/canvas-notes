@@ -1,0 +1,144 @@
+/* AI 动手看得见（DESIGN.v3.md 2.3）：外圈、顶上提示条、AI 指针、被拿的那样东西的外圈。都不挡鼠标，只有「停下」能点 */
+.ai-act {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  pointer-events: none;
+}
+/* 被操作的那一块：内描 2px --acc-ring */
+.ai-acting {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 2px var(--acc-ring);
+  animation: ai-act-in 0.25s ease-out;
+}
+@keyframes ai-act-in {
+  from {
+    opacity: 0;
+  }
+}
+/* 顶上居中：32 高胶囊，--pop，--shadow-up；8px 紫点呼吸 + 一句 + 小按钮「停下 esc」 */
+.ai-actbar {
+  position: absolute;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  padding: 0 4px 0 12px;
+  border-radius: 999px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+  pointer-events: auto;
+  animation: ai-bar-in 0.25s ease-out;
+}
+@keyframes ai-bar-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
+}
+.ai-actbar .pulse {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--acc);
+  animation: ai-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ai-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+}
+.ai-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 999px;
+  background: var(--card);
+  font: 500 12px var(--sans);
+  color: var(--t1);
+}
+.ai-stop:hover:not(:disabled) {
+  background: var(--fill);
+}
+.ai-stop:disabled {
+  opacity: 0.5;
+}
+.ai-stop kbd {
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+/* AI 指针：20 的箭头，--acc-bg 填色白描边，右下一个「AI」小胶囊（11/500 白字），每次移动 0.55 秒；跟着卡片走时不要过渡 */
+.ai-cursor {
+  position: absolute;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  opacity: 0;
+  transition:
+    left 0.55s cubic-bezier(0.3, 0.8, 0.25, 1),
+    top 0.55s cubic-bezier(0.3, 0.8, 0.25, 1),
+    opacity 0.2s;
+}
+.ai-cursor.on {
+  opacity: 1;
+}
+.ai-cursor.follow {
+  transition: opacity 0.2s;
+}
+.ai-cursor svg {
+  display: block;
+  width: 20px;
+  height: 20px;
+  fill: var(--acc-bg);
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+}
+.ai-cursor span {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--acc-bg);
+  font: 500 11px/1.5 var(--sans);
+  color: #fff;
+  white-space: nowrap;
+}
+/* 正在拿的那样东西：2px --acc-ring 外圈，约 0.5 秒 */
+.ai-grab-ring {
+  position: absolute;
+  z-index: 1;
+  box-shadow: 0 0 0 2px var(--acc-ring);
+  animation: ai-act-in 0.15s ease-out;
+}
+/* AI 动手时卡片、列挪到新位置有过渡（人拖的时候没有，免得拖着发飘） */
+.board.ai-on .bcard,
+.board.ai-on .bcol {
+  transition:
+    left 0.5s cubic-bezier(0.3, 0.8, 0.25, 1),
+    top 0.5s cubic-bezier(0.3, 0.8, 0.25, 1),
+    width 0.5s cubic-bezier(0.3, 0.8, 0.25, 1);
+}
+/* 文档切成的白板：顶上那条说明让位给 AI 的提示条 */
+.db-board.ai-on .db-hint {
+  visibility: hidden;
+}
+/* 右栏网页：外圈画在网页上面（网页是另一个进程画的，叠在它上面） */
+.ai-act-web {
+  z-index: 3;
+}

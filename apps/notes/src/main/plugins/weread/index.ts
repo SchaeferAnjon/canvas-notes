@@ -1,14 +1,15 @@
 /**
  * 微信读书主进程这半：右栏开着微信读书的阅读页时，网页预加载报来是哪本书；
  * 用户用微信读书自带的划线划了一段（我们拦到它「划线」的请求，或者网页里松开鼠标后过一会儿），
- * 就去微信读书网页版的接口（weread.qq.com，带着右栏网页里的登录，和 obsidian-weread-plugin 一样）取这本书的划线，和上次见过的比，新的那一段交给界面插进左边的文档；
- * 每本书的划线、想法、书评在后台同步成「素材/微信读书/<书名>.md」，一本一次提交。
+ * 就去微信读书网页版的接口（weread.qq.com，带着右栏网页里的登录，和 obsidian-weread-plugin 一样）取这本书的划线，和上次见过的比，新的那一段交给界面插进中间开着的文档；
+ * 每本书的划线、想法、书评在后台同步进它的书摘「阅读/<书名>.md」（以前的「素材/微信读书/」里的照样认），只往里加不重写（CN-130），一本一次提交。
  * 只读微信读书，不往它那边写任何东西。界面那半在 renderer/plugins/weread/，网页里那半在 preload/plugins/weread.ts。
  * 以前问的是手机 App 的接口 i.weread.qq.com：网页里登录拿到的 cookie 它不认（回 -2012 登录超时），划线不插、设置里一直「没登录」（CN-37、CN-53）。
  * 登录：右栏 persist:web 里的 wr_vid、wr_skey；接口前先 HEAD 一次网站续 cookie（十分钟一次），说登录超时就再续一次重试。
  * 测试：CN_WEREAD_ORIGIN（假的微信读书网站，网页和接口都在它上面），CN_WEREAD_API 只换接口。
  */
-import { commitPaths } from '@cn/git'
+import { prop } from '@cn/format'
+import { commitPaths, describeChanges, status as gitStatus } from '@cn/git'
 import { type Cookie, session, type WebContents } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
@@ -18,12 +19,15 @@ import {
   type BookInfo,
   bookIdOfReader,
   bookFile,
-  bookMd,
+  type BookMerge,
+  type BookSync,
   isReader,
   loginOf,
   type Mark,
   marksToInsert,
+  mergeBook,
   normalizeWeread,
+  oldBookFile,
   parseBookmarks,
   parseNotebooks,
   parseReviews,
@@ -36,6 +40,7 @@ import {
   type WereadStatus,
 } from '../../../shared/plugins/weread'
 import { onTapped, tap } from '../../web/tap'
+import type { Vault } from '../../vault'
 import type { MainPlugin, PluginHost } from '../host'
 
 const API = () => process.env.CN_WEREAD_API || wereadOrigin()
@@ -87,6 +92,10 @@ interface Saved {
   seen: Record<string, string[]>
   /** 每本书上次同步的时候它在笔记本里的更新时间 */
   synced: Record<string, number>
+  /** 每本书写进过书摘的划线、想法编号：书摘里没有了就是用户删的，不再加回来（CN-130） */
+  written: Record<string, string[]>
+  /** 每本书的书摘写在哪（用户挪了、改了名，下次先看这里） */
+  files: Record<string, string>
   lastSync: number
   books: number
   marks: number
@@ -100,6 +109,9 @@ interface PageBook extends BookInfo {
   chapter: string
 }
 
+/** 编辑器合并完回的话（和 mergeBook 的结果一样） */
+type EditorMerge = BookMerge
+
 export const wereadPlugin: MainPlugin<WereadSettings> = {
   manifest: WEREAD,
   normalizeSettings: normalizeWeread,
@@ -107,7 +119,7 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
     setWereadOrigin(process.env.CN_WEREAD_ORIGIN || null)
     WEREAD.entry = { ...WEREAD.entry!, url: wereadOrigin() + '/web/shelf' }
     const file = join(host.dir, 'state.json')
-    let saved: Saved = { seen: {}, synced: {}, lastSync: 0, books: 0, marks: 0, state: 'never' }
+    let saved: Saved = { seen: {}, synced: {}, written: {}, files: {}, lastSync: 0, books: 0, marks: 0, state: 'never' }
     try {
       saved = { ...saved, ...(JSON.parse(readFileSync(file, 'utf8')) as Partial<Saved>) }
     } catch (e) {
@@ -180,32 +192,111 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
       }
     }
 
-    // ------------------------------------------------------------ 一本书：取划线和想法、写进素材
+    // ------------------------------------------------------------ 一本书：取划线和想法、合并进书摘
 
     async function fetchBook(bookId: string) {
       const list = parseBookmarks(await api('/web/book/bookmarklist', { bookId }), bookId)
       return list
     }
 
+    /**
+     * 这本书的书摘在哪：上次写的那篇、「阅读/<书名>.md」、以前的「素材/微信读书/<书名>.md」，开头的书的编号对得上才算；
+     * 都不是（用户挪走了、改了名）就在库里按书的编号找。text 是现在的字，还没有书摘是 null（path 是要新建的位置）
+     */
+    async function findBook(v: Vault, book: BookInfo): Promise<{ path: string; text: string | null }> {
+      const idOf = (t: string) => prop(t, 'bookId')?.trim()
+      const read = (p: string) => v.read(p).then((n) => n.text, () => null)
+      const tried = new Set<string>()
+      for (const p of [saved.files[book.bookId], bookFile(book.title), oldBookFile(book.title)]) {
+        if (!p || tried.has(p)) continue
+        tried.add(p)
+        const t = await read(p)
+        if (t !== null && idOf(t) === book.bookId) return { path: p, text: t }
+      }
+      for (const hit of await v.search(book.bookId, 20)) {
+        if (tried.has(hit.path)) continue
+        const t = await read(hit.path)
+        if (t !== null && idOf(t) === book.bookId) return { path: hit.path, text: t }
+      }
+      return { path: bookFile(book.title), text: null }
+    }
+
+    /** 等界面回话的合并：编号 → 收到回话 */
+    const asking = new Map<number, (r: EditorMerge | null) => void>()
+    let askSeq = 0
+    /**
+     * 书摘开着（哪个标签都算）：交给那个编辑器合并、存盘（和剪进文档同一条路，正在打的字不丢、不出冲突副本）。
+     * 没开着、5 秒没回话（窗口关着）是 null，在这里写文件
+     */
+    function askEditor(path: string, input: BookSync): Promise<EditorMerge | null> {
+      const id = ++askSeq
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => (asking.delete(id), resolve(null)), 5000)
+        asking.set(id, (r) => {
+          clearTimeout(timer)
+          asking.delete(id)
+          resolve(r)
+        })
+        host.emit('merge', { id, path, input })
+      })
+    }
+    host.handle('merged', (_ctx, arg) => {
+      const a = (arg ?? {}) as { id?: unknown; handled?: unknown; text?: unknown; written?: unknown; added?: unknown }
+      const done = asking.get(Number(a.id))
+      if (!done) return
+      if (a.handled !== true || typeof a.text !== 'string' || !Array.isArray(a.written) || !Array.isArray(a.added)) return done(null)
+      done({ text: a.text, written: a.written.filter((x): x is string => typeof x === 'string'), added: a.added as Mark[] })
+    })
+
     let writing: Promise<unknown> = Promise.resolve()
-    /** 写「素材/微信读书/<书名>.md」：内容没变不写不提交 */
-    function writeBook(book: BookInfo, marks: Mark[], url: string): Promise<boolean> {
+    /**
+     * 同步一本书进它的书摘（CN-130）：只往里加新划线、新想法（mergeBook），用户写的不动；内容没变不写不提交。
+     * 开着的书摘交给编辑器合并；用户在这篇里还没提交的字先单独提交，同步的提交里只有同步加的。
+     * 有新加的划线就告诉界面（提示「已同步到《书名》· 章节」）
+     */
+    function writeBook(book: BookInfo, marks: Mark[], url: string, why: string): Promise<boolean> {
       const run = async () => {
         const v = vault()
         if (!v || !host.settings().sync) return false
         const thoughts = parseReviews(await api('/web/review/list', { bookId: book.bookId, listType: '11', mine: '1', synckey: '0' }).catch((e) => (e instanceof NotLoggedIn ? Promise.reject(e) : { reviews: [] })))
-        const path = bookFile(book.title)
-        const text = bookMd(book, marks, thoughts, url)
-        const cur = await v.read(path).catch(() => null)
-        if (cur?.text === text) return false
-        mkdirSync(v.abs(WEREAD_FOLDER), { recursive: true })
-        const r = await v.write(path, text, cur?.text ?? '')
-        if (!r.ok) return false
+        const found = await findBook(v, book)
+        let path = found.path
+        const input: BookSync = { book, marks, thoughts, url, written: saved.written[book.bookId] ?? [], now: Date.now() }
+        if (found.text !== null) {
+          const pending = (await gitStatus(v.root)).filter((s) => s.path === path)
+          if (pending.length) await commitPaths(v.root, [path], describeChanges(pending))
+        }
+        const viaEditor = found.text === null ? null : await askEditor(path, input)
+        let r: EditorMerge
+        let changed: boolean
+        if (viaEditor) {
+          r = viaEditor
+          changed = r.text !== found.text
+        } else {
+          r = mergeBook(found.text, input)
+          changed = r.text !== found.text
+          // 新书：「阅读」里新建（同名的已经有了、又不是这本书的书摘，加「 2」）
+          if (found.text === null) path = await v.create(WEREAD_FOLDER, path.slice(WEREAD_FOLDER.length + 1, -3), r.text)
+          else if (changed) {
+            const w = await v.write(path, r.text, found.text)
+            // 读和写之间文件又变了：照新的再合一次
+            if (!w.ok) {
+              r = mergeBook(w.diskText, input)
+              changed = r.text !== w.diskText
+              if (changed && !(await v.write(path, r.text, w.diskText)).ok) throw new Error(`《${book.title}》的书摘正被改着，这次没同步上，下次再同步`)
+            }
+          }
+        }
+        saved.written[book.bookId] = r.written
+        saved.files[book.bookId] = path
+        save()
+        if (!changed) return false
         await commitPaths(v.root, [path], `微信读书：同步《${book.title.slice(0, 40)}》${marks.length} 条划线`)
         host.filesChanged()
         saved.lastSync = Date.now()
         save()
         host.emit('status', status())
+        if (r.added.length) host.emit('synced', { path, bookId: book.bookId, title: book.title, added: r.added.map((m) => ({ text: m.text, chapter: m.chapter })), why })
         return true
       }
       const p = writing.then(run, run)
@@ -236,8 +327,9 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
         saved.state = 'ok'
         delete saved.error
         save()
-        if (fresh.length && host.settings().insert) host.emit('highlight', { book: info, url: page.url, marks: fresh, why })
-        if (fresh.length || !seenList) void writeBook(info, marks, page.url).catch(failed)
+        // 插不插进中间的文档由界面看（中间开的是不是普通文档、设置里开没开）；插不了的等同步完说「已同步到《书名》· 章节」
+        if (fresh.length) host.emit('highlight', { book: info, url: page.url, marks: fresh, why, insert: host.settings().insert, sync: host.settings().sync })
+        if (fresh.length || !seenList) void writeBook(info, marks, page.url, why).catch(failed)
       } catch (e) {
         failed(e)
         if (why !== 'open') host.emit('problem', { kind: e instanceof NotLoggedIn ? 'login' : 'error', message: (e as Error).message })
@@ -325,7 +417,7 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
           if (saved.synced[b.bookId] === b.updated && saved.seen[b.bookId]) continue
           const list = await fetchBook(b.bookId)
           saved.seen[b.bookId] = list.marks.map((m) => m.id)
-          await writeBook({ bookId: b.bookId, title: list.book?.title || b.title, author: list.book?.author || b.author }, list.marks, `${wereadOrigin()}/web/bookDetail/${b.bookId}`)
+          await writeBook({ bookId: b.bookId, title: list.book?.title || b.title, author: list.book?.author || b.author }, list.marks, `${wereadOrigin()}/web/bookDetail/${b.bookId}`, 'sync')
           saved.synced[b.bookId] = b.updated
         }
         saved.books = books.length

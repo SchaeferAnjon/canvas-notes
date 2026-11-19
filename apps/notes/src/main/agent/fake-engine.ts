@@ -5,6 +5,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import type { EngineId } from '../../shared/agent'
+import { effortOption, type ModelOption } from '../../shared/ai-features'
 import { type Engine, LABELS } from './engines'
 
 async function mcp(url: string, token: string, method: string, params: unknown, id = 1): Promise<Record<string, unknown>> {
@@ -22,7 +23,46 @@ async function mcp(url: string, token: string, method: string, params: unknown, 
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/** 假的 Codex 模型列表（照 codex 0.163.0 的 model/list 的样子；默认的排第一，两个模型的档不一样） */
+export function fakeCodexModels(): ModelOption[] {
+  return [
+    { id: 'gpt-6.1-terra', label: 'GPT-6.1 Terra', efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultra'].map(effortOption), defaultEffort: 'low' },
+    { id: 'gpt-6-luna', label: 'GPT-6-Luna', efforts: ['low', 'medium', 'high', 'xhigh', 'max'].map(effortOption), defaultEffort: 'medium' },
+  ]
+}
+
+/** 问里有「公式」时的回答：讲 LIF 神经元的三条公式（同 A 组方案小样里那段），行内 $…$、单独成行的 $$…$$ 都有（CN-89） */
+export const FORMULA_ANSWER = [
+  'LIF 神经元用「漏、积、发」三步描述一个神经元。',
+  '',
+  '## 水位怎么变',
+  '',
+  '$$\\tau_m \\frac{dV_m}{dt} = -V_m(t) + I_s(t) + I_b$$',
+  '',
+  '- $\\tau_m$ 是漏得多快，$I_s(t)$ 是这一刻进来的电流，$I_b$ 是常开的底水位。',
+  '- 拿个数走一遍：$\\tau_m = 10$ ms，$V_m = 0.5$，没有输入时一毫秒漏掉 $0.05$。',
+  '',
+  '## 什么时候发',
+  '',
+  '$$',
+  'V_m \\ge V_{th} \\;\\Rightarrow\\; V_m \\leftarrow V_m - V_{th},\\quad s(t) = 1',
+  '$$',
+  '',
+  // 这一句公式两边没打空格（真回答常这样）：界面上紧挨汉字那边留 1/8 字宽
+  '水位一到门槛$V_{th}$就发一个 spike，再减掉一个门槛的量（不是清零），见 [第 4 页](#page=4)。',
+].join('\n')
+
+/** 问的话里带了几块引用的材料（shared/materials.ts 的 withMaterials 写的「我引用的材料…」下面一行一块） */
+function materialCount(q: string): number {
+  const at = q.indexOf('我引用的材料（')
+  return at < 0 ? 0 : (q.slice(at).match(/^[①-⑳] /gm) ?? []).length
+}
+
+/** 问「用的什么模型」时说的：模型和 effort 都说出来（测试看设置、输入框底行选的真的传到了引擎，CN-44、CN-91） */
+const modelSaid = (r: { model?: string; effort?: string }) => `模型：${r.model ?? '没指定'}，effort：${r.effort ?? '没指定'}`
+
 export function fakeEngine(id: EngineId): Engine {
+  let sides = 0
   return {
     id,
     label: LABELS[id],
@@ -39,6 +79,8 @@ export function fakeEngine(id: EngineId): Engine {
         }
       }
       const call = async (name: string, args: Record<string, unknown> = {}) => {
+        // 停下以后不再调工具（真的命令行被停下时进程就结束了）
+        if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
         if (!r.mcp) throw new Error('这一轮没给工具')
         const res = await mcp(r.mcp.url, r.mcp.token, 'tools/call', { name, arguments: args })
         const out = (res.content as { text: string }[])[0]?.text ?? ''
@@ -47,23 +89,13 @@ export function fakeEngine(id: EngineId): Engine {
       }
       if (r.mcp) await mcp(r.mcp.url, r.mcp.token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake', version: '0' } })
 
-      // 读 PDF：后台把一处问答收成笔记的一段（只出 JSON）
+      // 读 PDF：后台的两件小活，这一轮的标题和一句小结（只出 JSON）；小结里写主对话、旁支各问了几句（测试看每答完一次都重写）
       if (r.prompt.includes('输出 JSON：')) {
         await sleep(Number(process.env.CN_FAKE_NOTE_MS ?? 400))
         const page = /第 (\d+) 页/.exec(r.prompt)?.[1] ?? '1'
-        const asked = [...r.prompt.matchAll(/^【他】(.*)$/gm)].map((m) => m[1]!)
-        const failed = [...r.prompt.matchAll(/"version": (\d+)/g)].map((m) => Number(m[1]))
-        const figure = /从 (p\d+-b\d+)/.exec(r.prompt)?.[1] ?? null
-        const json = {
-          title: `测试小标题 p${page}`,
-          doubts: asked.map((q) => (q === '给我讲解一下' ? `整块没看懂：第 ${page} 页框的这块` : q)),
-          good: failed.length ? `第 ${failed.length + 1} 版：换成画面来讲，这次讲通了。` : '先看图，再看公式，这样讲通了。',
-          points: ['要点一：列就是基向量去哪', '要点二：负号来自往左偏'],
-          failed: failed.map((v) => ({ version: v, line: `第 ${v} 版用公式推，没听懂` })),
-          figure,
-          figureCaption: '这页的图',
-          links: [],
-        }
+        const main = (r.prompt.match(/^【他】/gm) ?? []).length
+        const side = (r.prompt.match(/^【他·旁支】/gm) ?? []).length
+        const json = { title: `测试小标题 p${page}`, recap: `测试小结：主对话问了 ${main} 句${side ? `，旁支问了 ${side} 句` : ''}。` }
         return { text: JSON.stringify(json), session: undefined }
       }
       // 读 PDF：做个可视化（一个能拖的小网页）
@@ -104,11 +136,22 @@ export function fakeEngine(id: EngineId): Engine {
       if (r.prompt.includes('他说：')) {
         const q = /他说：([\s\S]*)$/.exec(r.prompt)?.[1]?.trim() ?? ''
         const page = /他现在在看第 (\d+) 页/.exec(r.prompt)?.[1] ?? '?'
-        const seen = [`第 ${page} 页`, `图 ${r.images?.length ?? 0} 张`, r.prompt.includes('<pdf>') || r.history?.includes('<pdf>') ? '读过全文' : '没读全文', r.session ? '接着聊' : '新会话', ...(r.prompt.includes('<answer>') ? ['带了上一问的回答'] : []), ...(r.prompt.includes('<subs>') ? ['带了字幕'] : [])]
+        // 旁支（CN-90）：从给的会话分叉，会话号另起一个；接着聊就还是给的那个
+        const fork = !!(r.fork && r.session)
+        const session = fork ? `fake-side-${id}-${++sides}` : (r.session ?? `fake-read-${id}`)
+        // 引用的材料（多段引用方向 B）：「我引用的材料…」下面一行一块
+        const mats = materialCount(q)
+        const seen = [`第 ${page} 页`, `图 ${r.images?.length ?? 0} 张`, ...(mats ? [`材料 ${mats} 块`] : []), r.prompt.includes('<pdf>') || r.history?.includes('<pdf>') ? '读过全文' : '没读全文', fork ? `旁支，从 ${r.session} 分叉` : r.session ? '接着聊' : '新会话', ...(r.prompt.includes('<answer>') ? ['带了上一问的回答'] : []), ...(r.prompt.includes('<subs>') ? ['带了字幕'] : [])]
         // 测试设置 › AI 选的模型真的传到了引擎（CN-44）
         if (q.includes('用的什么模型')) {
-          await say(`模型：${r.model ?? '没指定'}`)
-          return { text, session: `fake-read-${id}` }
+          await say(modelSaid(r))
+          return { text, session }
+        }
+        // 旁支（CN-90）：回答里写问的是哪一句、从哪分叉；问里有「公式」照样答带 LaTeX 的
+        if (/这是一条旁支|接着这条旁支问/.test(r.prompt) && !q.includes('公式')) {
+          const quote = /他选中的那句：「(.*)」|问的还是「(.*)」这句/.exec(r.prompt)
+          await say(`#### 旁支的回答\n\n这是旁支的回答（${seen.join('，')}）：讲「${(quote?.[1] ?? quote?.[2] ?? '').slice(0, 12)}」，问的是「${q}」。\n\n第二段：门槛减掉，不清零。`)
+          return { text, session }
         }
         // 测试出错的说法（CN-75）：照录屏里的原话报错
         if (q.includes('假装被拦'))
@@ -118,11 +161,14 @@ export function fakeEngine(id: EngineId): Engine {
         // 测试表格（CN-29）：左右对照翻译
         if (q.includes('对照表'))
           await say('翻译：\n\n| 原文 | 译文 |\n|---|---|\n| **physics-inspired** machine learning | 受物理启发的机器学习 |\n| data-driven surrogate models for partial differential equations | 偏微分方程的数据驱动代理模型 |\n| [第 2 页](#page=2) | 见第 2 页 |\n\n就这些。')
+        // 测试公式（CN-89）：行内的、单独成行的 LaTeX，回答区用 KaTeX 排
+        else if (q.includes('公式'))
+          await say(FORMULA_ANSWER)
         else if (/还是不懂|换个方式/.test(q)) await say(`换个方式讲（${seen.join('，')}）：先别看公式，看图。`)
         else await say(`这是讲解（${seen.join('，')}）。用你在 [第 2 页](#page=2) 弄懂的那条：列就是基向量去哪。\n\n〔可以做个可视化〕`)
         // 配图的框（CN-60）：测试里给一个固定的框
         if (process.env.CN_FAKE_FIGURE_MARK && r.images?.length && r.prompt.includes('〔配图')) await say(`\n${process.env.CN_FAKE_FIGURE_MARK}`)
-        return { text, session: `fake-read-${id}` }
+        return { text, session }
       }
 
       // 右下角 AI 浮窗也能演被拦（同读 PDF 那条）：看出错那一句在浮窗里的样子
@@ -135,6 +181,13 @@ export function fakeEngine(id: EngineId): Engine {
         const page = await call('web_read')
         const title = /^标题：(.*)$/m.exec(page)?.[1] ?? ''
         await say(`\n\n打开了，网页标题是「${title}」。`)
+      } else if (/剪/.test(said) && /网页/.test(said)) {
+        // 网页里的几段剪进收件箱：一段一段去找、选中、剪（每段一个 web_clip，指针挨个去拿）
+        const parts = [...said.matchAll(/「([^」]+)」/g)].map((m) => m[1]!)
+        await say(`我把这${parts.length || 1}段剪进收件箱。`)
+        if (!parts.length) await call('web_clip', {})
+        for (const p of parts) await call('web_clip', { text: p })
+        await say('剪好了。')
       } else if (/^整理当前白板/.test(said)) {
         await call('board_list')
         await call('board_arrange', { mode: 'columns' })
@@ -154,7 +207,8 @@ export function fakeEngine(id: EngineId): Engine {
         await call('doc_insert', { text: what })
         await say('插好了。')
       } else {
-        await say(/用的什么模型/.test(said) ? `模型：${r.model ?? '没指定'}（${LABELS[id]}）` : `这是测试回答（${LABELS[id]}${r.images?.length ? `，图 ${r.images.length} 张` : ''}）。`)
+        const mats = materialCount(said)
+        await say(/用的什么模型/.test(said) ? `${modelSaid(r)}（${LABELS[id]}）` : `这是测试回答（${LABELS[id]}${r.images?.length ? `，图 ${r.images.length} 张` : ''}${mats ? `，材料 ${mats} 块` : ''}）。`)
       }
       return { text, session: `fake-${id}` }
     },

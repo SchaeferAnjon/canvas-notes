@@ -85,7 +85,7 @@ async function typeInCardDialog(page: Page, title: string, card: string, typed: 
   await pane(page).getByTestId('doc-board').locator('.db-card', { hasText: card }).dblclick()
   const dlg = page.getByRole('dialog', { name: '全文' })
   await dlg.getByRole('button', { name: '改字' }).click()
-  await dlg.getByRole('textbox', { name: '这张卡的原文' }).press('End')
+  await dlg.getByRole('textbox', { name: '这张卡的字' }).press('End')
   await page.keyboard.type(typed)
 }
 
@@ -212,7 +212,7 @@ test('数据库的数据源文件夹在文件树里拖进别的文件夹、右�
     await page.getByRole('tab', { name: /^表/ }).click()
     await expect(tabOn(page)).toHaveText('表')
     await expect(db.locator('tbody tr')).toHaveCount(2)
-    await expect(db).toContainText('「项目库/」')
+    await expect(db.locator('.base-foot')).toHaveText('每条是「写作/项目库」里的一篇笔记')
   } finally {
     await run.close()
   }
@@ -241,7 +241,7 @@ test('开头的属性只有软件自己用的键（created、source……）：�
   }
 })
 
-test('⌘J：先打好的问题不被引文盖掉（引文放在问题上面）；引文改过几个字、前面打过字，换到别的篇照样拿掉，问题留着', async () => {
+test('⌘J：先打好的问题不被引文盖掉（引文是顶上那一排的第一块，编号在最前面）；再 ⌘J 换掉这一块；前面打过字，换到别的篇照样拿掉，问题留着', async () => {
   const run = await launch({ '引文甲.md': '# 引文甲\n\n第一段甲。\n\n第三段甲。\n', '引文乙.md': '# 引文乙\n\n乙的正文。\n' })
   const { page } = run
   const box = page.getByRole('textbox', { name: '问 AI' })
@@ -258,28 +258,27 @@ test('⌘J：先打好的问题不被引文盖掉（引文放在问题上面）�
     await expect(box).toBeFocused()
     await page.keyboard.type('帮我改得口语一点')
     await page.keyboard.press('Escape')
+    const quote = page.getByTestId('ai-mat')
     await selectLine('第三段甲')
     await page.keyboard.press('Meta+j')
-    await expect(box).toHaveValue('> 第三段甲。\n\n帮我改得口语一点')
-    // 再选一段 ⌘J：换成新的引文，问题还在
+    await expect(box).toHaveValue('①帮我改得口语一点')
+    await expect(quote.locator('.ct')).toHaveText('第三段甲。')
+    // 再选一段 ⌘J：换成新的引文（还是 ①），问题还在
     await page.keyboard.press('Escape')
     await selectLine('第一段甲')
     await page.keyboard.press('Meta+j')
-    await expect(box).toHaveValue('> 第一段甲。\n\n帮我改得口语一点')
-    // 改引文（删两个字）、在最前面打字，再换篇：引文拿掉，打的字留着
+    await expect(quote).toHaveCount(1)
+    await expect(quote.locator('.ct')).toHaveText('第一段甲。')
+    await expect(box).toHaveValue('①帮我改得口语一点')
+    // 在最前面、最后面打字，再换篇：引文和它的编号拿掉，打的字留着
     await box.press('Meta+ArrowUp')
     await page.keyboard.type('先问：')
     await box.press('Meta+ArrowDown')
     await page.keyboard.type('，这句通顺吗')
-    await box.evaluate((el: HTMLTextAreaElement) => {
-      const v = el.value.replace('第一段', '一段')
-      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!
-      set.call(el, v)
-      el.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-    await expect(box).toHaveValue('先问：> 一段甲。\n\n帮我改得口语一点，这句通顺吗')
+    await expect(box).toHaveValue('先问：①帮我改得口语一点，这句通顺吗')
     await openNote(page, '引文乙')
-    await expect(box).toHaveValue('先问：\n\n帮我改得口语一点，这句通顺吗')
+    await expect(box).toHaveValue('先问：帮我改得口语一点，这句通顺吗')
+    await expect(quote).toHaveCount(0)
   } finally {
     await run.close()
   }
@@ -396,7 +395,7 @@ test('外面改了正在改的同一段、又改了别的段：同一段留我�
     await pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '外面加的一段' }).dblclick()
     const dlg = page.getByRole('dialog', { name: '全文' })
     await dlg.getByRole('button', { name: '改字' }).click()
-    await dlg.getByRole('textbox', { name: '这张卡的原文' }).press('End')
+    await dlg.getByRole('textbox', { name: '这张卡的字' }).press('End')
     await page.keyboard.type('我的')
     writeFileSync(join(vault, '合并.md'), NOTE.replace('外面加的一段。', '外面加的一段，手机上补的。').replace('收尾一段。', '收尾一段。外面也改了收尾。'))
     await expect(pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '外面也改了收尾' })).toBeVisible()

@@ -18,7 +18,30 @@
  */
 import { contentBlocks, type MdBlock } from './blocks'
 
-export type UnitKind = 'text' | 'list' | 'todo' | 'quote' | 'callout' | 'code' | 'table' | 'base' | 'image' | 'images' | 'video' | 'moment' | 'ask' | 'details' | 'html' | 'gap'
+/**
+ * 卡的种类。math：$$ 公式（连着的几段合成一张）；embed：单独一行的 ![[…]]（PDF 页、嵌入的笔记、整页剪藏、图）；
+ * link：单独一行的 [[…]]（白板、HTML、别的笔记），白板上画成卡，不露写法
+ */
+export type UnitKind =
+  | 'text'
+  | 'list'
+  | 'todo'
+  | 'quote'
+  | 'callout'
+  | 'code'
+  | 'table'
+  | 'base'
+  | 'image'
+  | 'images'
+  | 'video'
+  | 'moment'
+  | 'ask'
+  | 'details'
+  | 'html'
+  | 'math'
+  | 'embed'
+  | 'link'
+  | 'gap'
 
 export interface DocUnit {
   kind: UnitKind
@@ -28,6 +51,8 @@ export interface DocUnit {
   text: string
   /** 卡上面的一行灰色小标题（这一列里的 ###） */
   sub?: string
+  /** text 开头这么多个字是写在正文前面的那一截（并进来的小标题、冒号结尾那句），后面才是定种类的那一块 */
+  lead?: number
   /** 挂在视频卡下面的时刻 */
   moments?: DocUnit[]
   /** 拖到空白处的：位置行的范围和坐标 */
@@ -54,6 +79,8 @@ export interface DocBoard {
   placed: (DocUnit & { section: string | null })[]
   /** 一共几张卡（超长文档每列少摆几张） */
   total: number
+  /** 列是几级标题（一般是 2，用「#」分节的文档是 1）；白板上新加的列用它 */
+  level: number
 }
 
 const CARD_LINE = /^<!--\s*card\s+(.*?)\s*-->\s*$/
@@ -82,6 +109,21 @@ export function detailsHead(lines: readonly string[], i: number): { title: strin
 }
 const DETAILS_CLOSE = /^\s*<\/details>\s*$/im
 
+/** 单独一段的 $$ 公式 */
+const MATH = /^\$\$[\s\S]*\$\$\s*$/
+/** 单独一行的 ![[…]] 和 [[…]] */
+const EMBED = /^!\[\[[^\]\n]+\]\]\s*$/
+const LINK = /^\[\[[^\]\n]+\]\]\s*$/
+/**
+ * 引文下面隔一个空行、以「我的评价」「微信读书的想法：」开头的几段（文档里画成标签、从引文竖线拐一道弯钩连着，renderer/review.ts 同一个认法）：
+ * 和引文一张卡。「微信读书的想法」要带冒号，「我的评价」不带也认
+ */
+const ATTACHED = /^(\*\*)?(我的评价|微信读书的想法)(\*\*)?([：:])?/
+function attached(t: string): boolean {
+  const m = ATTACHED.exec(t)
+  return !!m && (m[2] === '我的评价' || !!m[4])
+}
+
 function kindOf(text: string, b: MdBlock): UnitKind {
   const t = text.trimStart()
   if (b.kind === 'hr') return 'gap'
@@ -89,7 +131,13 @@ function kindOf(text: string, b: MdBlock): UnitKind {
   if (b.kind === 'table') return 'table'
   if (b.kind === 'image') return 'image'
   if (b.kind === 'list') return b.list === 'task' ? 'todo' : 'list'
-  if (b.kind === 'quote') return /^>\s*\[!/.test(t) ? 'callout' : 'quote'
+  // 书摘、引言写成提示块（> [!quote] [《书》 · 章](…)）：也是别人的字，和普通引文一样是素材卡
+  if (b.kind === 'quote') return /^>\s*\[!(quote|cite)\]/i.test(t) ? 'quote' : /^>\s*\[!/.test(t) ? 'callout' : 'quote'
+  if (b.kind === 'paragraph') {
+    if (MATH.test(t)) return 'math'
+    if (EMBED.test(t)) return 'embed'
+    if (LINK.test(t)) return 'link'
+  }
   if (/^<!--\s*video\b/.test(t)) return 'video'
   if (/^<!--\s*moment(-ask)?\b/.test(t)) return 'moment'
   if (/^<details\b/i.test(t)) return 'details'
@@ -195,8 +243,8 @@ export function splitDoc(text: string): DocBoard {
   for (const s of secs) {
     const name = s.head ? headText(s.head) : null
     const end = s.body.length ? s.body[s.body.length - 1]!.to : s.head!.to
-    // 7. 「问过 AI」的一节：整节一张问答卡，连着的合成一列
-    if (s.head && ASK_HEAD.test(name!) && s.body.some((b) => /^>\s*\[!(question|success)\]/.test(at(b)))) {
+    // 7. 「问过 AI」的一节：整节一张问答卡，连着的合成一列（讲通的讲法以前写 [!success]，现在写 [!ai] 提示块）
+    if (s.head && ASK_HEAD.test(name!) && s.body.some((b) => /^>\s*\[!(question|success|ai)\]/.test(at(b)))) {
       const card: DocUnit = { kind: 'ask', from: s.head.from, to: end, text: text.slice(s.head.from, end) }
       const prev = columns[columns.length - 1]
       if (prev?.ask) {
@@ -236,6 +284,8 @@ export function splitDoc(text: string): DocBoard {
         continue
       }
       const kind = kindOf(t, b)
+      // 别的软件留下的注释（不是卡片、列、视频、时刻的）：白板上什么都不画，不占一张空卡
+      if (kind === 'html' && /^<!--[\s\S]*?-->\s*$/.test(t.trim())) continue
       if (kind === 'gap') {
         col.cards.push({ kind: 'gap', from: b.from, to: b.to, text: t })
         continue
@@ -244,19 +294,26 @@ export function splitDoc(text: string): DocBoard {
       let to = b.to
       let k2 = k
       let unitKind: UnitKind = kind
+      /** 卡上写在正文前面的那一截（并进来的小标题、冒号那句）：卡上先画它，再按种类画后面那一块 */
+      let leadTo = carry ? carry.to : -1
       // 5. 冒号结尾的那句带上下一块
       if (kind === 'text' && /[:：]\s*$/.test(t) && s.body[k + 1] && s.body[k + 1]!.kind !== 'heading' && s.body[k + 1]!.kind !== 'hr') {
         k2 = k + 1
         to = s.body[k2]!.to
         unitKind = kindOf(at(s.body[k2]!), s.body[k2]!)
         if (unitKind === 'image' || unitKind === 'gap') unitKind = 'text'
+        leadTo = b.to
       }
-      // 6. 连着的几张图合成一张图集
+      // 6. 连着的几张图合成一张图集；连着的几段公式合成一张公式卡
       if (kind === 'image') {
         while (s.body[k2 + 1] && kindOf(at(s.body[k2 + 1]!), s.body[k2 + 1]!) === 'image') to = s.body[++k2]!.to
         if (k2 > k) unitKind = 'images'
       }
+      if (kind === 'math') while (s.body[k2 + 1] && kindOf(at(s.body[k2 + 1]!), s.body[k2 + 1]!) === 'math') to = s.body[++k2]!.to
+      // 引文下面挂着的「微信读书的想法」「我的评价」（一段接一段）：和引文一张卡（文档里也是一道弯钩连着）
+      if (kind === 'quote') while (s.body[k2 + 1]?.kind === 'paragraph' && attached(at(s.body[k2 + 1]!))) to = s.body[++k2]!.to
       const unit: DocUnit = { kind: unitKind, from, to, text: text.slice(from, to) }
+      if (leadTo > from) unit.lead = leadTo - from
       // 6. 视频后面紧跟的时刻挂在视频卡下面
       if (kind === 'video') {
         const moments: DocUnit[] = []
@@ -278,7 +335,7 @@ export function splitDoc(text: string): DocBoard {
     }
     columns.push(col)
   }
-  return { title, columns, placed, total }
+  return { title, columns, placed, total, level: colLevel > 6 ? 2 : colLevel }
 }
 
 // ---------- 写回 ----------
@@ -357,6 +414,43 @@ export function unplaceUnit(text: string, unit: DocUnit): string {
 /** 摆回原样：去掉文档里所有卡片和列的位置行，全部回到按节摆 */
 export function resetLayout(text: string): string {
   return text.replace(/^<!--\s*(card|column)\s[^\n]*?-->[ \t]*\n/gm, '')
+}
+
+// ---------- 白板上新加的东西（工具板、收件箱拖上来的） ----------
+
+/** 新的一张卡放进一列：插进那一节的落点（before 这张前面，null 是这一节末尾），前后各空一行 */
+export function insertInColumn(text: string, column: DocColumn, before: DocUnit | null, body: string): string {
+  if (column.ask) throw new Error('「问过 AI」这一列是软件记的，不能往里放')
+  const piece = body.trim()
+  if (!piece) return text
+  return insertBlock(text, before ? span(before).from : column.end, piece)
+}
+
+/** 新的一张卡放在空白处：加在文末，前面一行位置（和拖到空白处的卡一样，只管它这一张） */
+export function appendPlaced(text: string, body: string, x: number, y: number): string {
+  const piece = body.trim()
+  if (!piece) return text
+  const used = usedIds(text)
+  let n = 1
+  while (used.has(`d${n}`)) n++
+  return insertBlock(text.replace(/\n+$/, ''), text.replace(/\n+$/, '').length, `<!-- card id=d${n} x=${Math.round(x)} y=${Math.round(y)} -->\n${piece}`)
+}
+
+/** 新加一列 = 文档里新起一节：插在 before 这一列的标题前面，null 加在文末；level 是列的标题级别 */
+export function addSection(text: string, title: string, before: DocColumn | null, level: number): string {
+  const head = `${'#'.repeat(Math.min(6, Math.max(1, level)))} ${title.replace(/\s*\n\s*/g, ' ').trim()}`
+  if (before?.head) return insertBlock(text, before.head.from, head)
+  return insertBlock(text.replace(/\n+$/, ''), text.replace(/\n+$/, '').length, head)
+}
+
+/** 改列名 = 改这一节的标题那一行（# 的个数不变） */
+export function renameColumn(text: string, column: DocColumn, title: string): string {
+  const h = column.head
+  const t = title.replace(/\s*\n\s*/g, ' ').trim()
+  if (!h || !t) return text
+  const line = text.slice(h.from, h.to)
+  const marks = /^\s*#+/.exec(line)?.[0] ?? '##'
+  return text.slice(0, h.from) + `${marks} ${t}` + text.slice(h.to)
 }
 
 /** AI 整理白板（梦游、/整理当前白板）照的同一套摆法，写进给 AI 的话里 */

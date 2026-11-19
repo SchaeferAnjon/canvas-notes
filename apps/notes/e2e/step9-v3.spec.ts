@@ -33,15 +33,16 @@ async function relaunch(vault: string, userData: string, env: Record<string, str
   return { app, page }
 }
 
-test('四条栏：左右两条图标栏只放图标、悬停出名字，点亮着的那个收起那一侧；右边是大纲、网页、历史，左边是文件、最近、课程、收件箱、梦游报告；梦游有报告时有小点', async () => {
+test('四条栏：左右两条图标栏只放图标、悬停出名字，点亮着的那个收起那一侧；右边是大纲、网页、历史，左边是文件、最近、八个分类、梦游报告；梦游有报告时有小点', async () => {
   const run = await launch({ ...DREAM_VAULT, '冰岛自驾.md': ICELAND }, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
     const rail = page.getByRole('navigation', { name: '右栏' })
     const left = page.getByRole('navigation', { name: '左栏' })
     const names = (nav: typeof rail) => nav.getByRole('button').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(await names(rail)).toEqual(['大纲 · 这一页没有大纲', '网页', '微信读书', '历史', '打开 AI'])
-    expect(await names(left)).toEqual(['文件', '最近', '课程', '收件箱', '梦游报告', '库', '设置和外观'])
+    // 「笔记」一直在最上面，不读 PDF 时和「大纲」一样原地变淡（右图标栏方向 A）；左边是八个分类分段（分类与入口方向 A）
+    expect(await names(rail)).toEqual(['笔记（打开 PDF 时才有边读边记的笔记）', '大纲（这一页没有标题，没有大纲）', '网页', '微信读书', '历史', '打开 AI'])
+    expect(await names(left)).toEqual(['文件', '最近', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活', '梦游报告', '库', '设置和外观'])
     // 图标栏贴着窗口右边，B 里 44 宽
     const box = (await rail.boundingBox())!
     const width = await page.evaluate(() => window.innerWidth)
@@ -52,7 +53,7 @@ test('四条栏：左右两条图标栏只放图标、悬停出名字，点亮�
     await expect(page.getByTestId('tooltip')).toHaveText('网页')
 
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
-    await expect(acts(page).locator('.seg button')).toHaveText(['白板', '文档', '源文件'])
+    await expect(acts(page).locator('.seg button')).toHaveText(['白板', '文档'])
     // 标签条右端只管当前页
     await expect(acts(page).locator('button', { hasText: '网页' })).toHaveCount(0)
 
@@ -169,7 +170,7 @@ test('首页 A / B：设置里切换；A 有封面长条和工具栏，B 封面�
     await expect(tabOn(page)).toHaveText('首页')
     await expect(page.getByTestId('home-cover')).toHaveCSS('height', '220px')
     await expect(page.getByTestId('home-title')).toHaveText(/^(早上好|中午好|下午好|晚上好|夜深了)$/)
-    await expect(page.locator('.wgrid > .wd')).toHaveCount(6)
+    await expect(page.locator('.wgrid > .wd')).toHaveCount(7)
 
     await openSettings(page, '外观')
     await settingsDialog(page).getByRole('radiogroup', { name: '首页样式' }).getByRole('radio', { name: /B · 整页背景/ }).click()
@@ -197,9 +198,10 @@ test('编辑首页：拖把手把梦游报告挪到最前，收起、放回、�
     await page.getByRole('button', { name: '编辑首页' }).click()
     await expect(page.getByRole('button', { name: '完成' })).toBeVisible()
     const order = () => page.locator('.wgrid > .wd').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.widget))
-    await expect.poll(order).toEqual(['clock', 'week', 'inbox', 'boards', 'dream', 'wall'])
+    await expect.poll(order).toEqual(['cats', 'clock', 'week', 'inbox', 'boards', 'dream', 'wall'])
 
-    // 按住梦游报告的把手，拖到时钟上松手：插到时钟前面
+    // 按住梦游报告的把手，拖到时钟上松手：插到时钟前面（最前面是一整行「分类」，先把时钟那一行滚到上面）
+    await page.getByTestId('widget-clock').evaluate((e) => e.scrollIntoView({ block: 'start' }))
     const grip = page.getByRole('button', { name: '拖动梦游报告' })
     const g = (await grip.boundingBox())!
     const c = (await page.getByTestId('widget-clock').boundingBox())!
@@ -208,7 +210,7 @@ test('编辑首页：拖把手把梦游报告挪到最前，收起、放回、�
     await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2, { steps: 12 })
     await expect(page.getByTestId('widget-clock')).toHaveClass(/drop-before/)
     await page.mouse.up()
-    await expect.poll(order).toEqual(['dream', 'clock', 'week', 'inbox', 'boards', 'wall'])
+    await expect.poll(order).toEqual(['cats', 'dream', 'clock', 'week', 'inbox', 'boards', 'wall'])
 
     // 收起收件箱，抽屉里有它；放回最近写的；时钟变宽
     await page.getByTestId('widget-inbox').getByRole('button', { name: '收起' }).click()
@@ -223,7 +225,7 @@ test('编辑首页：拖把手把梦游报告挪到最前，收起、放回、�
     await expect(page.locator('.wgrip')).toHaveCount(0)
 
     await expect.poll(() => existsSync(homeFile(vault)) && JSON.parse(readFileSync(homeFile(vault), 'utf8'))).toMatchObject({
-      order: ['dream', 'clock', 'week', 'boards', 'wall', 'recent'],
+      order: ['cats', 'dream', 'clock', 'week', 'boards', 'wall', 'recent'],
       hidden: ['flip', 'inbox'],
       sizes: { clock: 2 },
     })
@@ -232,7 +234,7 @@ test('编辑首页：拖把手把梦游报告挪到最前，收起、放回、�
     const again = await relaunch(vault, userData)
     try {
       const order2 = () => again.page.locator('.wgrid > .wd').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.widget))
-      await expect.poll(order2).toEqual(['dream', 'clock', 'week', 'boards', 'wall', 'recent'])
+      await expect.poll(order2).toEqual(['cats', 'dream', 'clock', 'week', 'boards', 'wall', 'recent'])
       await expect(again.page.getByTestId('widget-clock')).toHaveClass(/\bs2\b/)
     } finally {
       await again.app.close()

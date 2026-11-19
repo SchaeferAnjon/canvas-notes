@@ -7,7 +7,7 @@ vi.mock('electron', () => ({ dialog: {}, ipcMain: {} }))
 
 const { createFolder, htmlMeta, listFolderHomes, propFiles, readFolderHome, writeFolderHome } = await import('../src/main/folder-home')
 const { Vault } = await import('../src/main/vault')
-const { defaultFolderHome, addWidget, leadOf } = await import('../src/shared/folder-home')
+const { defaultFolderHome, addWidget, DRAFTS_COND, runCond } = await import('../src/shared/folder-home')
 
 const root = mkdtempSync(join(tmpdir(), 'cn-fhome-'))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -22,7 +22,7 @@ describe('文件夹首页存盘', () => {
 
   it('没存过：用默认；存了以后读回来一样，写盘先临时文件再改名', async () => {
     const r = await readFolderHome(v, '课程/线性代数')
-    expect(r).toEqual({ home: defaultFolderHome('course'), saved: false, template: false })
+    expect(r).toEqual({ home: defaultFolderHome('course', '课程/线性代数'), saved: false, template: false })
     const next = addWidget(r.home, 'list', 'course').home
     await writeFolderHome(v, '课程/线性代数', next)
     expect((await readFolderHome(v, '课程/线性代数')).home).toEqual(next)
@@ -38,10 +38,11 @@ describe('文件夹首页存盘', () => {
     expect(r.home.icon).toBe('atom')
   })
 
-  it('每个文件夹都有首页（别的文件夹默认没有组件）；跳出库的、点开头的拒绝', async () => {
+  it('每个文件夹都有首页（「课程」是在上的课那一套，别的文件夹默认最近改的、待办）；跳出库的、点开头的拒绝', async () => {
     const r = await readFolderHome(v, '课程')
     expect(r.saved).toBe(false)
-    expect(r.home.order).toEqual([])
+    expect(r.home.order).toEqual(['courses', 'review', 'exam'])
+    expect((await readFolderHome(v, '课程/线性代数/图')).home.order).toEqual(['recent', 'todo'])
     await expect(writeFolderHome(v, '../外面', {})).rejects.toThrow('没有首页')
     await expect(readFolderHome(v, '.git')).rejects.toThrow('没有首页')
   })
@@ -91,7 +92,7 @@ describe('文件夹首页存盘', () => {
       expect(by('写作/清单库外/六.md').entry).toBeUndefined()
       expect(by('写作/清单表.md').db).toBe(true)
       expect(by('写作/带表的文章.md').db).toBeUndefined()
-      expect(leadOf('writing', files, new Date())).toBe('写作 · 2篇草稿')
+      expect(runCond(files, DRAFTS_COND, new Date()).map((f) => f.path).sort()).toEqual(['写作/带表的文章.md', '写作/清单库外/六.md'])
     } finally {
       rmSync(r2, { recursive: true, force: true })
     }

@@ -118,7 +118,10 @@ test('网页：选了字右键「剪成卡片」进收件箱、「剪进文档�
     await expect.poll(() => clipboardText(run)).toBe('Seek wealth, not money or status.')
     await rightClick(page, 'p1')
     await pickMenu(run, '问 AI')
-    await expect(page.getByRole('textbox', { name: '问 AI' })).toHaveValue('> Seek wealth, not money or status.\n\n')
+    // 第 2b 段：选的字成为 AI 输入框顶上那一排的第一块引用（来源「网页《标题》」），字里是编号 ①
+    await expect(page.getByRole('textbox', { name: '问 AI' })).toHaveValue('①')
+    await expect(page.getByTestId('ai-mat').locator('.ct')).toHaveText('Seek wealth, not money or status.')
+    await expect(page.getByTestId('ai-mat').locator('.cs')).toHaveText(/^网页/)
   } finally {
     await run.close()
   }

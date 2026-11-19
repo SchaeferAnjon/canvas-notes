@@ -8,11 +8,11 @@ import { when } from '../../shared/when'
 import { Codicon } from '@cn/design'
 import { useMemo, useState } from 'react'
 import type { NoteFile, ThumbRect } from '../../shared/api'
-import { buildTree, fileName, subtree, TREE_SORTS, type TreeNode, type TreeSort } from '../../shared/files'
+import { buildTree, fileName, folderProgress, subtree, TREE_SORTS, type TreeNode, type TreeSort } from '../../shared/files'
 import { folderMenu, onFileMenu } from '../ctx/file-menu'
 import { menuAt, showMenu } from '../ctx/menu'
 import { FolderGlyph } from '../files/look'
-import { useVaultFiles } from '../files/store'
+import { useRestored, useVaultFiles } from '../files/store'
 import { fileType, noteType, TypeChips, type TypeFilter } from '../files/type-filter'
 import { fileIcon } from '../Palette'
 import { useCover } from './slide-covers'
@@ -26,6 +26,7 @@ const stem = (name: string) => name.replace(/\.(md|pdf|html?)$/i, '')
 
 export function FolderContent(props: { folder: string; notes: NoteFile[]; onOpen(path: string): void; onOpenFolder(folder: string): void }) {
   const { files } = useVaultFiles()
+  const restored = useRestored()
   const [type, setType] = useState<TypeFilter>('all')
   const [sort, setSort] = useState<TreeSort>('mtime-desc')
   const [more, setMore] = useState<Record<string, number>>({})
@@ -33,7 +34,8 @@ export function FolderContent(props: { folder: string; notes: NoteFile[]; onOpen
   const noteTypes = useMemo(() => new Map(props.notes.flatMap((n) => (noteType(n) === 'doc' ? [] : [[n.path, noteType(n)] as const]))), [props.notes])
   const { here, total } = useMemo(() => {
     const keep = type === 'all' ? undefined : (f: Parameters<typeof fileType>[0]) => fileType(f, noteTypes) === type
-    const all = buildTree(files, { sort, keep })
+    // 附件/ 里的图和文件不在「里面有什么」里列（打开「附件」那个文件夹也只看子文件夹）
+    const all = buildTree(files.filter((f) => f.kind !== 'img' && f.kind !== 'att'), { sort, keep })
     const here = subtree(all, props.folder)
     return { here, total: here.reduce((s, n) => s + n.count, 0) }
   }, [files, sort, type, noteTypes, props.folder])
@@ -78,22 +80,27 @@ export function FolderContent(props: { folder: string; notes: NoteFile[]; onOpen
         <section className="fc-sec" aria-label="文件夹">
           <div className="fc-g">
             <span className="num">{`文件夹${dirs.length}`}</span>
+            <span className="ln" />
           </div>
           <div className="fc-fgrid">
-            {dirs.slice(0, limit('folders')).map((d) => (
-              <button key={d.path} className="fc-fcard" onClick={() => props.onOpenFolder(d.path)} onContextMenu={(e) => void menuAt(e, folderMenu(d.path))}>
-                <FolderGlyph folder={d.path} size={18} />
-                <span className="fx">
-                  <span className="fn">
-                    <span className="truncate">{d.name}</span>
-                    <span className="fm num">
-                      {`${d.count}篇${d.time ? ` · ${when(d.time, { now })}` : ''}`}
+            {dirs.slice(0, limit('folders')).map((d) => {
+              // 历史里刚放回、之后里面没再改过：后面写「刚放回」，放回的那 2 秒亮一圈（CN-108 小样）
+              const back = restoredAt(restored, d.path)
+              const just = back !== undefined && (d.time ?? 0) <= back + 3000
+              return (
+                <button key={d.path} className={'fc-fcard' + (just && now - back! < 2000 ? ' flash' : '')} onClick={() => props.onOpenFolder(d.path)} onContextMenu={(e) => void menuAt(e, folderMenu(d.path))}>
+                  <FolderGlyph folder={d.path} size={18} />
+                  <span className="fx">
+                    <span className="fn">
+                      <span className="truncate">{d.name}</span>
+                      {/* 课程下面每门课写问完几讲（和「在上的课」一样），别的写篇数（方案 v2 小样，不带日期）；刚从历史放回的后面写「刚放回」 */}
+                      <span className="fm num">{`${courseProgress(d) ?? `${d.count}篇`}${just ? ' · 刚放回' : ''}`}</span>
                     </span>
+                    <span className="fp">{firstNames(d)}</span>
                   </span>
-                  <span className="fp">{firstNames(d)}</span>
-                </span>
-              </button>
-            ))}
+                </button>
+              )
+            })}
           </div>
           {moreBtn('folders', dirs, '个')}
         </section>
@@ -105,6 +112,7 @@ export function FolderContent(props: { folder: string; notes: NoteFile[]; onOpen
             <section className="fc-sec" aria-label="白板">
               <div className="fc-g">
                 <span className="num">{`白板${boards.length}`}</span>
+                <span className="ln" />
               </div>
               <div className="fc-tgrid">
                 {boards.slice(0, limit('boards')).map((b) => {
@@ -129,6 +137,7 @@ export function FolderContent(props: { folder: string; notes: NoteFile[]; onOpen
             <section className="fc-sec" aria-label="PDF">
               <div className="fc-g">
                 <span className="num">{`PDF ${pdfs.length}`}</span>
+                <span className="ln" />
               </div>
               <div className="fc-tgrid">
                 {pdfs.slice(0, limit('pdfs')).map((p) => (
@@ -145,13 +154,14 @@ export function FolderContent(props: { folder: string; notes: NoteFile[]; onOpen
         <section className="fc-sec" aria-label="笔记">
           <div className="fc-g">
             <span className="num">{`笔记${docs.length}`}</span>
+            <span className="ln" />
           </div>
           {docs.slice(0, limit('notes')).map((d) => {
             const n = byPath.get(d.path)
             return (
               <button key={d.path} className="fc-row" onClick={() => props.onOpen(d.path)} onContextMenu={(e) => onFileMenu(e, d.path)} title={d.path}>
                 <span className="ic">
-                  <Codicon name={n && noteType(n) === 'clip' ? 'quote' : fileIcon(d.path)} />
+                  <Codicon name={fileIcon(d.path, false, !!n?.digest)} />
                 </span>
                 <span className="ti">{stem(d.name)}</span>
                 <span className="rt num">{when(d.entry?.mtimeMs ?? 0, { now })}</span>
@@ -164,6 +174,13 @@ export function FolderContent(props: { folder: string; notes: NoteFile[]; onOpen
       )}
     </div>
   )
+}
+
+/** 这个文件夹里最近一次放回的时间（没放回过是 undefined） */
+function restoredAt(restored: ReadonlyMap<string, number>, folder: string): number | undefined {
+  let at: number | undefined
+  for (const [p, t] of restored) if (p.startsWith(folder + '/') && (at === undefined || t > at)) at = t
+  return at
 }
 
 /** 子文件夹卡片第二行：里面前几篇的名字 */
@@ -214,4 +231,11 @@ function PdfCard(props: { node: TreeNode; onOpen(): void }) {
       </span>
     </button>
   )
+}
+
+/** 课程下面的一门课（有课件时）：「1/5讲」 */
+function courseProgress(d: TreeNode): string | null {
+  if (!/^课程\/[^/]+$/.test(d.path)) return null
+  const p = folderProgress(d)
+  return p ? `${p.done}/${p.total}讲` : null
 }

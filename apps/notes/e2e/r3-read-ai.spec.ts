@@ -6,7 +6,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
-import { acts, gitStatus, launch, leftView, openNote, pane, rail, tabOn, waitSaved, type Running } from './app'
+import { acts, gitStatus, launch, leftView, openAi, openNote, pane, rail, tabOn, waitSaved, type Running } from './app'
 import { DREAM_VAULT } from './fixtures/dream'
 import { LECTURE } from './fixtures/pdf'
 import { solidPng } from './fixtures/png'
@@ -140,6 +140,7 @@ async function openPdf(page: Page) {
   await page.locator('.pal-row', { hasText: '第3讲 线性映射' }).first().click()
   await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
   await expect(pdfPage(page, 1).locator('canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
+  await openAi(page)
   await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
 }
 async function drawBox(page: Page, n: number, a: [number, number], b: [number, number]) {
@@ -334,7 +335,7 @@ test('梦游报告里收下归类那条、那篇正开着：标签跟过去，�
   }
 })
 
-test('收下挪老图后在图那一行后面打了字，点「撤回」照样撤得回：图回原处、链接改回、打的字留着', async () => {
+test('收下挪老图后在图那一行改了字（给图写说明），点「撤回」照样撤得回：图回原处、链接改回、写的说明留着', async () => {
   const L5 = '# Lecture05 笔记\n\n这一讲讲比较静态。\n\n![](../../附件/image-1.png)\n\n最后一段。\n'
   const run = await launch({ '课程/ecp/Lecture05 笔记.md': L5, '附件/image-1.png': solidPng(64, 40, [80, 140, 120]) }, { CN_AI_FAKE: '1' })
   const { page, vault } = run
@@ -346,20 +347,21 @@ test('收下挪老图后在图那一行后面打了字，点「撤回」照样�
     await dreamPanel(page).getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
     await expect(toast(page)).toContainText('梦游挪了图，链接已更新')
     await expect.poll(() => readFileSync(note, 'utf8')).toContain('../../附件/课程/ecp/Lecture05%20笔记/image-1.png')
-    // 在图那一行后面打字（切到源文件，点图那一行、按 End）
+    // 改图那一行：悬停图片点「加说明…」写一句（文档里只有这样改得到图那一行，没有「源文件」看法）
     await page.waitForTimeout(800)
-    await acts(page).getByRole('tab', { name: '源文件' }).click()
-    await pane(page).locator('.cm-line', { hasText: 'image-1.png' }).click()
-    await page.keyboard.press('End')
-    await page.keyboard.type(' 图：这是比较静态的示意')
+    const img = pane(page).locator('.cm-image')
+    await img.hover()
+    await img.locator('.cm-image-cap').click()
+    await page.keyboard.type('这是比较静态的示意')
+    await page.keyboard.press('Enter')
     await waitSaved(page)
-    await expect.poll(() => readFileSync(note, 'utf8')).toContain('image-1.png) 图：这是比较静态的示意')
+    await expect.poll(() => readFileSync(note, 'utf8')).toContain('![这是比较静态的示意](../../附件/课程/ecp/Lecture05%20笔记/image-1.png)')
     await toast(page).getByRole('button', { name: '撤回' }).click()
     await expect(toast(page)).toContainText('撤回了，老图回到了原处')
     await expect.poll(() => existsSync(join(vault, '附件/image-1.png'))).toBe(true)
     await page.waitForTimeout(1500)
     await waitSaved(page)
-    expect(readFileSync(note, 'utf8')).toBe(L5.replace('image-1.png)', 'image-1.png) 图：这是比较静态的示意'))
+    expect(readFileSync(note, 'utf8')).toBe(L5.replace('![](../../附件/image-1.png)', '![这是比较静态的示意](../../附件/image-1.png)'))
     expect(lastSubject(vault)).toMatch(/^撤回梦游：把 1 张老图/)
     expect(gitStatus(vault)).toBe('')
   } finally {

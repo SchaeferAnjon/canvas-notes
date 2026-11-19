@@ -27,7 +27,7 @@ describe('⌘O 按名字筛', () => {
 })
 
 describe('目录树', () => {
-  it('顶层按 课程 / 项目 / 生活 / 写作 排；文件夹在前；我的疑惑、术语表放最上；同一讲的课件、笔记挨着，讲次按数字排', () => {
+  it('顶层按顶级分类的先后排（收件箱、课程、阅读、剪藏、周记、写作、项目、生活）；文件夹在前；我的疑惑、术语表放最上；同一讲的课件、笔记挨着，讲次按数字排', () => {
     const tree = buildTree([
       f('写作/a.md'),
       f('生活/b.md'),
@@ -42,12 +42,12 @@ describe('目录树', () => {
       f('项目/canvas', 'dir'),
       f('README.md'),
     ])
-    expect(tree.map((n) => n.name)).toEqual(['课程', '项目', '生活', '写作', '别的', 'README.md'])
+    expect(tree.map((n) => n.name)).toEqual(['课程', '写作', '项目', '生活', '别的', 'README.md'])
     const la = tree[0]!.children[0]!
     expect(la.path).toBe('课程/线性代数')
     expect(la.children.map((n) => n.name)).toEqual(['我的疑惑.md', '术语表.md', '第3讲 线性映射.pdf', '第3讲 线性映射 笔记.md', '向量加法.html', '第10讲 二次型.pdf', '旋转矩阵.html'])
     // 空文件夹也在
-    expect(tree[1]!.children.map((n) => [n.name, n.kind])).toEqual([['canvas', 'dir']])
+    expect(tree[2]!.children.map((n) => [n.name, n.kind])).toEqual([['canvas', 'dir']])
   })
 
   it('六种排法：修改时间、创建时间、名字各有正反；文件夹排在前面（按时间排时算里面最新的那个）', () => {
@@ -74,9 +74,11 @@ describe('目录树', () => {
   it('篇数：每个文件夹里（含子文件夹）有几个文件；置顶的排在最前（文件夹写成「写作/」），关了就照常排', () => {
     const files = [f('写作/a.md'), f('写作/b/c.md'), f('写作/b/d.pdf', 'pdf'), f('课程/x.md'), f('收件箱/y.md'), f('空的', 'dir')]
     const t = buildTree(files, { pins: new Set(['收件箱/', '写作/b.md']) })
-    expect(t.map((n) => [n.name, n.count, !!n.pinned])).toEqual([['收件箱', 1, true], ['课程', 1, false], ['写作', 3, false], ['空的', 0, false]])
+    const p = buildTree(files, { pins: new Set(['写作/', '写作/b.md']) })
+    expect(p.map((n) => [n.name, n.count, !!n.pinned])).toEqual([['写作', 3, true], ['收件箱', 1, false], ['课程', 1, false], ['空的', 0, false]])
+    expect(t.map((n) => n.name)).toEqual(['收件箱', '课程', '写作', '空的'])
     expect(t[2]!.children.map((n) => [n.name, n.count])).toEqual([['b', 2], ['a.md', 1]])
-    expect(buildTree(files, { pins: new Set(['收件箱/']), pinsFirst: false }).map((n) => n.name)).toEqual(['课程', '写作', '收件箱', '空的'])
+    expect(buildTree(files, { pins: new Set(['写作/']), pinsFirst: false }).map((n) => n.name)).toEqual(['收件箱', '课程', '写作', '空的'])
   })
 
   it('类型筛选：只留这类文件，里面没有这类文件的文件夹（含空文件夹）不画；篇数跟着变', () => {
@@ -100,7 +102,7 @@ describe('目录树', () => {
 describe('列出库里的文件（主进程）', () => {
   let root: string
   afterEach(() => rmSync(root, { recursive: true, force: true }))
-  it('md、PDF、HTML 和文件夹；PDF 带旁边笔记里的进度；隐藏的、附件不列', async () => {
+  it('md、PDF、HTML、文件夹和 附件/ 里的图（带大小）；PDF 带旁边笔记里的进度；隐藏的、库里别处的图不列', async () => {
     const { listEntries } = await import('../src/main/files')
     root = mkdtempSync(join(tmpdir(), 'cn-files-'))
     for (const d of ['课程/线性代数', '.git', '.canvas-notes', '附件/第3讲']) mkdirSync(join(root, d), { recursive: true })
@@ -113,8 +115,19 @@ describe('列出库里的文件（主进程）', () => {
     writeFileSync(join(root, '.canvas-notes/置顶.json'), '[]')
     const all = await listEntries(root)
     expect(all.map((e) => `${e.kind}:${e.path}`).sort()).toEqual(
-      ['dir:课程', 'dir:课程/线性代数', 'pdf:课程/线性代数/第3讲 线性映射.pdf', 'md:课程/线性代数/第3讲 线性映射 笔记.md', 'pdf:课程/线性代数/第4讲.pdf', 'html:课程/线性代数/旋转矩阵.html'].sort(),
+      [
+        'dir:课程',
+        'dir:课程/线性代数',
+        'pdf:课程/线性代数/第3讲 线性映射.pdf',
+        'md:课程/线性代数/第3讲 线性映射 笔记.md',
+        'pdf:课程/线性代数/第4讲.pdf',
+        'html:课程/线性代数/旋转矩阵.html',
+        'dir:附件',
+        'dir:附件/第3讲',
+        'img:附件/第3讲/p5-1.png',
+      ].sort(),
     )
+    expect(all.find((e) => e.path === '附件/第3讲/p5-1.png')!.bytes).toBe(1)
     expect(all.find((e) => e.path.endsWith('第3讲 线性映射.pdf'))!.progress).toEqual({ asked: 5, pages: 10 })
     expect(all.find((e) => e.path.endsWith('第4讲.pdf'))!.progress).toBeUndefined()
     expect(all.find((e) => e.path.endsWith('旋转矩阵.html'))!.lecture).toBe(3)
@@ -149,3 +162,41 @@ describe('列出库里的文件（主进程）', () => {
     expect(buildTree(all)[0]!.children[0]!.children.map((n) => n.name)[0]).toBe('我的疑惑.md')
   })
 })
+
+describe('文件树最外层按顶级分类分组（方案 3「分两组」）', () => {
+  it('收件箱（没有组名）| 读进来的 课程 阅读 剪藏 | 自己写的 周记 写作 项目 生活 | 不在分类里的；库里还没有的分类画空的一行，筛类型时不画', async () => {
+    const { topGroups } = await import('../src/shared/files')
+    const tree = buildTree([f('写作/a.md'), f('收件箱/b.md'), f('课程/x/c.md'), f('别的/d.md'), f('e.md'), f('附件/e/1.png', 'img')])
+    const g = topGroups(tree, true)
+    expect(g.map((x) => [x.title, x.nodes.map((n) => [n.name, n.count])])).toEqual([
+      ['', [['收件箱', 1]]],
+      ['读进来的', [['课程', 1], ['阅读', 0], ['剪藏', 0]]],
+      ['自己写的', [['周记', 0], ['写作', 1], ['项目', 0], ['生活', 0]]],
+      ['不在分类里的', [['别的', 1], ['附件', 1], ['e.md', 1]]],
+    ])
+    // 筛了类型（只要 md）：没有这一类的分类不画，空的组也不出现
+    const md = buildTree([f('写作/a.md'), f('e.md')], { keep: (x) => x.kind === 'md' })
+    expect(topGroups(md, false).map((x) => [x.title, x.nodes.map((n) => n.name)])).toEqual([
+      ['自己写的', ['写作']],
+      ['不在分类里的', ['e.md']],
+    ])
+  })
+})
+
+describe('「附件」筛选（CN-104）：每篇笔记用到的附件、没有哪篇在用的', () => {
+  let root: string
+  afterEach(() => rmSync(root, { recursive: true, force: true }))
+  it('自己附件文件夹里的、文中用到的 附件/ 别处的都挂在那篇下面；谁都没用的另列', async () => {
+    const { listEntries, attachIndex } = await import('../src/main/files')
+    root = mkdtempSync(join(tmpdir(), 'cn-att-'))
+    for (const d of ['写作', '附件/写作/游记', '附件/视频/yt-1', '附件/老的']) mkdirSync(join(root, d), { recursive: true })
+    writeFileSync(join(root, '写作/游记.md'), '# 游记\n\n![](../附件/视频/yt-1/01-02.jpg)\n')
+    writeFileSync(join(root, '附件/写作/游记/截图 1.png'), 'xx')
+    writeFileSync(join(root, '附件/视频/yt-1/01-02.jpg'), 'xxx')
+    writeFileSync(join(root, '附件/老的/没人用.png'), 'x')
+    const idx = await attachIndex(root, await listEntries(root))
+    expect(idx.notes).toEqual([{ note: '写作/游记.md', items: [{ path: '附件/写作/游记/截图 1.png', bytes: 2 }, { path: '附件/视频/yt-1/01-02.jpg', bytes: 3 }] }])
+    expect(idx.orphans).toEqual([{ path: '附件/老的/没人用.png', bytes: 1 }])
+  })
+})
+

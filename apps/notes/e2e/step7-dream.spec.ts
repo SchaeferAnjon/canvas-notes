@@ -15,7 +15,7 @@ test('找重复：window.cn.findDuplicates 给出讲同一件事的一对和相�
   try {
     const pairs = await page.evaluate(() => window.cn.findDuplicates())
     expect(pairs).toHaveLength(1)
-    expect(pairs[0]).toMatchObject({ a: '收件箱/巴黎自由行全景指南.md', b: '素材/巴黎/巴黎深度漫游指南.md' })
+    expect(pairs[0]).toMatchObject({ a: '剪藏/巴黎/巴黎深度漫游指南.md', b: '收件箱/巴黎自由行全景指南.md' })
     expect(pairs[0]!.score).toBeGreaterThan(0.4)
     expect(pairs[0]!.why).toMatch(/^两篇约\d+%的字句相同，都有「.+」$/)
     expect(gitStatus(vault)).toBe('')
@@ -70,7 +70,7 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     // 2. 丢掉「冰洞」那条挪动：文件留在收件箱，不多提交
     const ice = panel.getByTestId('dream-item').filter({ hasText: '原名「冰洞」' })
     await ice.click()
-    await expect(detail.locator('.pv-move')).toHaveText('挪到素材/旅行/')
+    await expect(detail.locator('.pv-move')).toHaveText('挪到剪藏/旅行/')
     await detail.getByRole('button', { name: '丢掉' }).click()
     await expect(ice).toContainText('已丢掉')
     expect(commits(vault)).toBe(before + 1)
@@ -92,8 +92,8 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     await expect(panel.getByTestId('dream-item').filter({ hasText: '相似度' })).toContainText('看过了')
     expect(commits(vault)).toBe(before + 2)
     expect(lastSubject(vault)).toBe('收下梦游的整理：3 处')
-    expect(readFileSync(join(vault, '素材/旅行/极光.md'), 'utf8')).toContain('相关：[[极光预报]]')
-    expect(existsSync(join(vault, '素材/旅行/巴黎自由行全景指南.md'))).toBe(true)
+    expect(readFileSync(join(vault, '剪藏/旅行/极光.md'), 'utf8')).toContain('相关：[[极光预报]]')
+    expect(existsSync(join(vault, '剪藏/旅行/巴黎自由行全景指南.md'))).toBe(true)
     expect(existsSync(join(vault, '收件箱/冰洞.md'))).toBe(true)
     const week = readdirSync(join(vault, '周记'))
     expect(week).toHaveLength(1)

@@ -1,6 +1,6 @@
 // 发版前第 1 轮（实用 · 读与 AI）存疑几条：窗口变窄 PDF 页码不自己跳；历史里看得到还没提交的改动
 import { expect, test, type Page } from '@playwright/test'
-import { acts, launch, openNote, pane, rail, tabOn } from './app'
+import { acts, launch, openAi, openNote, pane, rail, tabOn } from './app'
 import { LECTURE } from './fixtures/pdf'
 import { shotTone, shotWindow } from './shots'
 
@@ -12,6 +12,7 @@ async function openPdf(page: Page) {
   await page.locator('.pal-row', { hasText: '第3讲' }).first().click()
   await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
   await expect(page.locator('.pdfpane:not([hidden]) canvas[data-ready="1"]').first()).toBeAttached({ timeout: 15_000 })
+  await openAi(page)
 }
 
 test('窗口从 1440 拉到 900 宽：没翻页，PDF 页码还是「1 / 5」，AI「看得到」也是第 1 页', async () => {

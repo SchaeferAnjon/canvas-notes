@@ -340,6 +340,8 @@ export interface TrPageState {
   menuSeq: number
   /** 加一表示「这是 PDF，网页翻译翻不了」 */
   pdfSeq: number
+  /** 这一页是浏览器自己的 PDF 查看器：地址栏和 ⌘K 里不给双语翻译 */
+  pdf?: boolean
 }
 
 /** 「网页本身是英文」里用的叫法 */

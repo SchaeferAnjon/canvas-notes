@@ -1,3 +1,4 @@
+import { composing } from '../../ime'
 /**
  * 设置 › 插件 › 双语翻译（spec 第 5 节）：翻译用什么（自动 / 指定一个、顺序、各家状态、API Key、测试连接、试一句），
  * 默认怎么翻（和网页里菜单是同一份），术语表，缓存。Key 只在主进程：这里只拿得到「有没有、最后 4 位」。
@@ -438,7 +439,7 @@ function KeyBox({ e, onStatuses, reload, onNotice }: { e: EngineStatus; onStatus
               autoComplete="off"
               spellCheck={false}
               onChange={(ev) => setDraft(ev.target.value)}
-              onKeyDown={(ev) => ev.key === 'Enter' && draft.trim() && void save()}
+              onKeyDown={(ev) => !composing(ev) && ev.key === 'Enter' && draft.trim() && void save()}
             />
             <button type="button" className="btn btn-sm btn-primary" disabled={!draft.trim()} onClick={() => void save()}>
               存好

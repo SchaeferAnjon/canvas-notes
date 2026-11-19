@@ -1,7 +1,9 @@
 import type { PdfBlock } from '@cn/format'
 import { describe, expect, it } from 'vitest'
-import { askPrompt, fullTextOf, noteDigest, parseSummary, summarizePrompt, versionsOf } from '../src/main/reading/prompts'
-import { type ReadingMsg, type ReadingThread, readLine } from '../src/shared/reading'
+import { askPrompt, fullTextOf, noteDigest, parseSummary, sidePrompt, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, TUTOR_VERSION } from '../src/main/reading/prompts'
+import { AGENT_SYSTEM } from '../src/main/agent/index'
+import { SYSTEM as COMMAND_SYSTEM } from '../src/renderer/ai-commands'
+import { MATH_RULE, type ReadingMsg, type ReadingThread, readLine, VIZ_MARK } from '../src/shared/reading'
 
 const thread: ReadingThread = { id: '.canvas-notes/对话/L3-p5-1.md', page: 5, rect: [0.1, 0.2, 0.3, 0.4], crop: '附件/L3/p5-1.png', createdAt: 0 }
 let n = 0
@@ -12,19 +14,6 @@ const blocks: PdfBlock[] = [
   { id: 'p5-b2', page: 5, kind: 'image', text: '', x: 0, y: 0, w: 1, h: 1 },
   { id: 'p5-b3', page: 5, kind: 'text', text: 'Rotate the plane.', x: 0, y: 0, w: 1, h: 1 },
 ]
-
-describe('哪几版讲法没讲通', () => {
-  it('回答后面紧跟「还是不懂」「换个方式讲」的那版算没讲通；别的追问不算', () => {
-    const msgs = [u('给我讲解一下'), a('第一版'), u('还是不懂'), a('第二版'), u('那 −sin θ 呢？'), a('第三版'), u('换个方式讲'), a('第四版')]
-    const v = versionsOf(msgs)
-    expect(v.answers.map((m) => m.text)).toEqual(['第一版', '第二版', '第三版', '第四版'])
-    expect(v.failed).toEqual([1, 3])
-  })
-  it('出错的回答不算一版', () => {
-    const v = versionsOf([u('给我讲解一下'), { ...a(''), error: '停下了' }, u('给我讲解一下'), a('好的')])
-    expect(v.answers.length).toBe(1)
-  })
-})
 
 describe('问 AI 的话', () => {
   it('第一次带全文、笔记里懂了的、这一页的字和框的说明', () => {
@@ -55,36 +44,41 @@ describe('问 AI 的话', () => {
     expect(p).toContain('<subs>\n00:05 the basis vectors\n</subs>')
     expect(p.endsWith('他说：那第三个箭头呢')).toBe(true)
   })
-  it('笔记摘要一段一行', () => {
-    expect(noteDigest([{ id: 'x', file: 'a.pdf', page: 4, title: '列', good: '列就是\n基向量去哪', figures: [], doubts: [], points: [], failed: [], rounds: 1, links: [] }])).toBe('- 第 4 页「列」：列就是 基向量去哪')
+  it('笔记摘要一段一行：新格式用每轮小结，以前的笔记用讲通的讲法', () => {
+    const old = { id: 'x', file: 'a.pdf', page: 4, title: '列', good: '列就是\n基向量去哪', figures: [], doubts: [], points: [], failed: [], rounds: 1, links: [] }
+    const doc = { ...old, id: 'y', page: 5, title: '旋转', good: '回答开头', qas: [{ q: '给我讲解一下', a: '回答开头', sides: [] }], recap: '转一个角度：列是基向量转完的位置。' }
+    expect(noteDigest([old, doc])).toBe('- 第 4 页「列」：列就是 基向量去哪\n- 第 5 页「旋转」：转一个角度：列是基向量转完的位置。')
+  })
+  it('旁支的第一问：告诉 AI 被问的那句和它所在的那一轮；接着问的只说接着这条旁支', () => {
+    const first = sidePrompt({ first: true, quote: '水位一到门槛就发一个 spike', page: 28, title: 'LIF 神经元', ask: '给我讲解一下', question: '为什么减掉门槛？' })
+    expect(first).toContain('这是一条旁支')
+    expect(first).toContain('那一轮在第 28 页「LIF 神经元」，他问的是：给我讲解一下')
+    expect(first).toContain('他选中的那句：「水位一到门槛就发一个 spike」')
+    expect(first.endsWith('他说：为什么减掉门槛？')).toBe(true)
+    const more = sidePrompt({ first: false, quote: '水位一到门槛就发一个 spike', page: 28, question: '那门槛是多少？' })
+    expect(more).toBe('（接着这条旁支问，问的还是「水位一到门槛就发一个 spike」这句。）\n他说：那门槛是多少？')
   })
 })
 
-describe('收笔记段', () => {
+describe('后台两件小活：这一轮的标题和一句小结（CN-93、94、96）', () => {
   const msgs = [u('给我讲解一下'), a('用公式推……'), u('还是不懂'), a('看图：……')]
-  const failed = versionsOf(msgs).failed
-  it('提示里有对话（标了第几版）、没讲通的版本、能挑的图和双链', () => {
-    const p = summarizePrompt({ pdfName: '第3讲', thread, msgs, blocks, failed, titles: ['第4讲 特征值'] })
-    expect(p).toContain('【AI 第 1 版】用公式推……')
-    expect(p).toContain('其中第 1 版之后他说没懂')
-    expect(p).toContain('从 p5-b2 里挑一个')
-    expect(p).toContain('第4讲 特征值')
+  it('只要标题（16 字以内）和小结（40 字以内）：不让 AI 写疑惑、讲通的讲法、要点、没讲通的版本，不挑图、不挑双链', () => {
+    const p = summarizePrompt({ pdfName: '第3讲', thread, round: '【他】给我讲解一下\n【AI】用公式推……', blocks })
+    expect(p).toContain('【他】给我讲解一下\n【AI】用公式推……')
+    expect(p).toContain('"title": "这一处讲的是什么，16 个字以内')
+    expect(p).toContain('"recap": "一句小结，40 个字以内')
+    expect(p).not.toMatch(/doubts|good|points|failed|figure|links|疑惑|讲通|要点|双链/)
+    expect(SUMMARY_SYSTEM).not.toMatch(/疑惑|讲通/)
+    // 已经有标题：内容没变就照抄，不每次都换
+    expect(summarizePrompt({ pdfName: '第3讲', thread, round: '…', blocks, title: '旋转矩阵' })).toContain('已经有小标题「旋转矩阵」')
   })
-  it('读回 JSON：图和双链只认存在的，前后有废话也行', () => {
-    const raw = '好的：\n{"title":"旋转矩阵","doubts":["四个数怎么来的"],"good":"看图","points":["一","二"],"failed":[{"version":1,"line":"用公式推"},{"version":9,"line":"乱写"}],"figure":"p5-b2","figureCaption":"单位圆","links":["第4讲 特征值","没有这篇"]}'
-    const r = parseSummary(raw, { thread, msgs, failed, titles: ['第4讲 特征值'], blocks })
-    expect(r).toEqual({ title: '旋转矩阵', doubts: ['四个数怎么来的'], good: '看图', points: ['一', '二'], failedLines: { 1: '用公式推' }, figure: 'p5-b2', figureCaption: '单位圆', links: ['第4讲 特征值'] })
+  it('读回 JSON（前后有废话也行）', () => {
+    expect(parseSummary('好的：\n{"title":"旋转矩阵","recap":"列是基向量转完的位置。"}', { thread, msgs })).toEqual({ title: '旋转矩阵', recap: '列是基向量转完的位置。' })
   })
-  it('AI 没给出 JSON：用对话兜一段（问的话当疑惑，最后一版当讲通的）', () => {
-    const r = parseSummary('出错了', { thread, msgs, failed, titles: [], blocks })
-    expect(r.title).toBe('还是不懂')
-    expect(r.doubts).toEqual(['给我讲解一下', '还是不懂'])
-    expect(r.good).toBe('看图：……')
-    expect(r.failedLines).toEqual({ 1: '用公式推……' })
-    expect(r.figure).toBeUndefined()
-  })
-  it('挑了不是图的块不算', () => {
-    expect(parseSummary('{"figure":"p5-b3"}', { thread, msgs, failed, titles: [], blocks }).figure).toBeUndefined()
+  it('AI 没给出 JSON：标题用原来的或问的话（「给我讲解一下」不算）、小结用最后一个回答的开头', () => {
+    expect(parseSummary('出错了', { thread, msgs })).toEqual({ title: '还是不懂', recap: '看图：……' })
+    expect(parseSummary('出错了', { thread, msgs, title: '旋转矩阵' }).title).toBe('旋转矩阵')
+    expect(parseSummary('{}', { thread, msgs: [u('给我讲解一下'), a('## 标题\n\n' + '长'.repeat(60))] })).toEqual({ title: '第 5 页', recap: '长'.repeat(40) + '…' })
   })
 })
 
@@ -93,5 +87,35 @@ describe('回答上面那一行', () => {
     const sec = (page: number) => ({ id: String(page), file: 'a.pdf', page, title: '', good: '', figures: [], doubts: [], points: [], failed: [], rounds: 1, links: [] })
     expect(readLine(5, '用你在 [第 4 页](#page=4) 弄懂的，再看 [第 7 页](#page=7) 和 [第 5 页](#page=5)', [sec(4), sec(5)])).toBe('读了第5页 · 用到第4页你弄懂的那条')
     expect(readLine(5, '没提别的页', [sec(4)])).toBe('读了第5页')
+  })
+})
+
+describe('CN-89 讲透：读 PDF 的讲法', () => {
+  it('附在 Claude Code 自己的系统提示后面的那几条：notes.md 给的四行原样在前，去掉「300 字以内」「不要 LaTeX」，留着笔记里弄懂的直接用、还是不懂换角度、可视化标记', () => {
+    const lines = TUTOR_SYSTEM.split('\n')
+    expect(lines.slice(0, 4)).toEqual([
+      '你在 Canvas Notes 里陪一个人读 PDF 课件。他在 PDF 上框一块、或在你的回答里选一句来问你。',
+      '把这件事真讲明白：先一句话说清它是什么，再按一条线讲下去：为什么要有它、每一项在干什么、拿一个具体数字或例子走一遍。需要时用小标题和列表。',
+      '长短看问题：整块的「讲解一下」要讲透，不怕长；旁支里的小追问简短回答。',
+      `${MATH_RULE}提到别的页写成 [第 4 页](#page=4)。`,
+    ])
+    expect(TUTOR_SYSTEM).not.toMatch(/300 字|不要 LaTeX|Unicode/)
+    expect(TUTOR_SYSTEM).toContain('他笔记里已经弄懂的（每次会附上），直接拿来用')
+    expect(TUTOR_SYSTEM).toContain('「还是不懂」「换个方式讲」')
+    expect(TUTOR_SYSTEM).toContain(`单独一行写 ${VIZ_MARK}`)
+    // 框了图的那一问照旧让 AI 写配图的框（在每一问的话里）
+    expect(askPrompt({ pdfName: 'L3', page: 5, pages: 10, pageText: '字', question: '给我讲解一下', thread, digest: '', hasImage: true })).toContain('〔配图 左,上,宽,高')
+  })
+})
+
+describe('公式的写法（真 AI 写了 `$dV/dt = $ 输入`，$ 里头结尾留了空格，渲染不认，原样露着；渲染规则不放宽，钱数「$5 和 $6」会误判）', () => {
+  it('发给 AI 的提示词里写明：行内 $…$、$ 里面紧贴公式不留空格，单独一行 $$…$$；读 PDF、AI 对话、/ 命令三处都有', () => {
+    expect(MATH_RULE).toContain('行内写 $…$')
+    expect(MATH_RULE).toContain('开头结尾都不留空格')
+    expect(MATH_RULE).toContain('不写 $ dV/dt $ 或 $dV/dt = $')
+    expect(MATH_RULE).toContain('单独一行的写 $$…$$')
+    for (const p of [TUTOR_SYSTEM, AGENT_SYSTEM, COMMAND_SYSTEM]) expect(p).toContain(MATH_RULE)
+    // 讲法改了：旧会话不再接着用记下的旧系统提示
+    expect(TUTOR_VERSION).toBe(3)
   })
 })

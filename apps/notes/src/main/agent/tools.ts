@@ -26,14 +26,23 @@ export interface ToolHost {
   editNote(path: string, change: (text: string) => string): Promise<void>
   /** 白板在屏幕上时量到的卡片大小 */
   measure(path: string): Promise<Record<string, ops.Size>>
+  /**
+   * AI 去拿白板上的这几样（卡片、列的 id）：白板在屏幕上时「AI」指针先移过去、那几样外圈亮一下，等人看清再动（DESIGN.v3 2.3）。
+   * of：这一下是一长串里的一步（一共几步），步数多时每步短一点
+   */
+  grab?(path: string, ids: string[], of?: number): Promise<void>
+  /** 动完等一下（外圈亮着、卡片滑过去），让人看清挪到了哪；白板不在屏幕上时不等 */
+  settle?(path: string, of?: number): Promise<void>
+  /** 用户按了停下（esc、提示条上的「停下」）：一长串的下一步不做了，当前这一步做完就停 */
+  stopped?(): boolean
   web: {
     open(url: string): Promise<{ url: string; title: string }>
     read(): Promise<WebPage>
     click(target: { ref?: number; text?: string }): Promise<string>
     type(ref: number, text: string, submit: boolean): Promise<string>
     scroll(to: 'down' | 'up' | 'top' | 'bottom'): Promise<string>
-    /** 选中的字或整页进收件箱，返回新文件路径 */
-    clip(whole: boolean): Promise<string>
+    /** 选中的字或整页进收件箱，返回新文件路径；text：先找到含这几个字的那一段、选中它再剪 */
+    clip(whole: boolean, text?: string): Promise<string>
   }
   doc: {
     read(): Promise<{ path: string; text: string; selection: string }>
@@ -79,6 +88,15 @@ async function editBoard(args: Args, host: ToolHost, change: (text: string, size
   const path = await boardPath(args, host)
   const sizes = await host.measure(path)
   await host.editNote(path, (text) => change(text, sizes))
+  return path
+}
+
+/** 改白板上已有的这几样：指针先去拿（白板在屏幕上时），改完等一下让人看清 */
+async function grabbing(args: Args, host: ToolHost, ids: string[], change: (text: string) => string): Promise<string> {
+  const path = await boardPath(args, host)
+  await host.grab?.(path, ids)
+  await editBoard({ ...args, path }, host, (t) => change(t))
+  await host.settle?.(path)
   return path
 }
 
@@ -141,11 +159,14 @@ export const TOOLS: Tool[] = [
     run: async (a, h) => {
       let id = ''
       const text = need<string>(a.text, 'text', 'string')
-      await editBoard(a, h, (t, sizes) => {
+      const path = await editBoard(a, h, (t, sizes) => {
         const r = ops.addCard(t, { text, x: optNum(a.x), y: optNum(a.y), column: opt(a.column), color: opt(a.color) }, sizes)
         id = r.id
         return r.text
       })
+      // 指针移到刚放下的这张，外圈亮一下
+      await h.grab?.(path, [id])
+      await h.settle?.(path)
       return `加好了，卡片 id=${id}`
     },
   },
@@ -156,11 +177,13 @@ export const TOOLS: Tool[] = [
     label: (a) => `加一列「${short(String(a.title ?? ''))}」`,
     run: async (a, h) => {
       let id = ''
-      await editBoard(a, h, (t, sizes) => {
+      const path = await editBoard(a, h, (t, sizes) => {
         const r = ops.addColumn(t, { title: need<string>(a.title, 'title', 'string'), x: optNum(a.x), y: optNum(a.y) }, sizes)
         id = r.id
         return r.text
       })
+      await h.grab?.(path, [id])
+      await h.settle?.(path)
       return `加好了，列 id=${id}`
     },
   },
@@ -170,7 +193,7 @@ export const TOOLS: Tool[] = [
     inputSchema: obj({ id: str('卡片 id'), text: str('新内容（md）'), path: PATH }, ['id', 'text']),
     label: (a) => `改卡片「${short(String(a.text ?? ''))}」`,
     run: async (a, h) => {
-      await editBoard(a, h, (t) => ops.setCardText(t, need<string>(a.id, 'id', 'string'), need<string>(a.text, 'text', 'string')))
+      await grabbing(a, h, [need<string>(a.id, 'id', 'string')], (t) => ops.setCardText(t, need<string>(a.id, 'id', 'string'), need<string>(a.text, 'text', 'string')))
       return '改好了'
     },
   },
@@ -180,7 +203,7 @@ export const TOOLS: Tool[] = [
     inputSchema: obj({ id: str('卡片或列的 id'), x: int('横坐标'), y: int('纵坐标'), path: PATH }, ['id', 'x', 'y']),
     label: (a) => `挪 ${String(a.id ?? '')} 到 (${String(a.x ?? '')}, ${String(a.y ?? '')})`,
     run: async (a, h) => {
-      await editBoard(a, h, (t) => ops.moveTo(t, need<string>(a.id, 'id', 'string'), need<number>(a.x, 'x', 'number'), need<number>(a.y, 'y', 'number')))
+      await grabbing(a, h, [need<string>(a.id, 'id', 'string')], (t) => ops.moveTo(t, need<string>(a.id, 'id', 'string'), need<number>(a.x, 'x', 'number'), need<number>(a.y, 'y', 'number')))
       return '挪好了'
     },
   },
@@ -190,7 +213,7 @@ export const TOOLS: Tool[] = [
     inputSchema: obj({ id: str('卡片 id'), column: str('列 id'), position: int('放在列里第几个（从 0 数）'), path: PATH }, ['id', 'column']),
     label: (a) => `把 ${String(a.id ?? '')} 放进列 ${String(a.column ?? '')}`,
     run: async (a, h) => {
-      await editBoard(a, h, (t) => ops.putInColumn(t, need<string>(a.id, 'id', 'string'), need<string>(a.column, 'column', 'string'), optNum(a.position)))
+      await grabbing(a, h, [need<string>(a.id, 'id', 'string')], (t) => ops.putInColumn(t, need<string>(a.id, 'id', 'string'), need<string>(a.column, 'column', 'string'), optNum(a.position)))
       return '放好了'
     },
   },
@@ -200,7 +223,7 @@ export const TOOLS: Tool[] = [
     inputSchema: obj({ from: str('起点卡片 id'), to: str('终点卡片 id'), path: PATH }, ['from', 'to']),
     label: (a) => `连线 ${String(a.from ?? '')} → ${String(a.to ?? '')}`,
     run: async (a, h) => {
-      await editBoard(a, h, (t) => ops.link(t, need<string>(a.from, 'from', 'string'), need<string>(a.to, 'to', 'string')))
+      await grabbing(a, h, [need<string>(a.from, 'from', 'string'), need<string>(a.to, 'to', 'string')], (t) => ops.link(t, need<string>(a.from, 'from', 'string'), need<string>(a.to, 'to', 'string')))
       return '连好了'
     },
   },
@@ -212,8 +235,30 @@ export const TOOLS: Tool[] = [
     label: (a) => (a.mode === 'columns' ? '按列排整齐' : '按网格排整齐'),
     run: async (a, h) => {
       const mode = a.mode === 'columns' ? 'columns' : 'grid'
-      await editBoard(a, h, (t, sizes) => ops.arrange(t, mode, { per: optNum(a.per), sizes }))
-      return '排好了'
+      if (!h.grab) {
+        await editBoard(a, h, (t, sizes) => ops.arrange(t, mode, { per: optNum(a.per), sizes }))
+        return '排好了'
+      }
+      // 一张一张挪：指针先去拿、那张外圈亮一下，再挪过去；按了停下，挪完手上这张就停（已经挪了的留着，一起提交）
+      const path = await boardPath(a, h)
+      const sizes = await h.measure(path)
+      const steps = ops.arrangeSteps(await h.readNote(path), mode, { per: optNum(a.per), sizes })
+      let n = 0
+      for (const st of steps) {
+        if (h.stopped?.()) break
+        await h.grab(path, [st.id], steps.length)
+        // 拿的时候用户删了这张：跳过
+        await h.editNote(path, (t) => {
+          try {
+            return ops.placeAt(t, st.id, st.x, st.y)
+          } catch {
+            return t
+          }
+        })
+        await h.settle?.(path, steps.length)
+        n++
+      }
+      return n === steps.length ? '排好了' : `停下了：挪了${n}/${steps.length}张`
     },
   },
 
@@ -271,10 +316,11 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'web_clip',
-    description: '把网页里用户选中的字剪进收件箱（带来源）；whole=true 或者没选中时剪整页正文。',
-    inputSchema: obj({ whole: { type: 'boolean', description: '剪整页' } }),
-    label: (a) => (a.whole ? '整页剪进收件箱' : '剪进收件箱'),
-    run: async (a, h) => `剪好了：${await h.web.clip(a.whole === true)}`,
+    description:
+      '把网页里的一段剪进收件箱（带来源）：给 text（那一段里的几个字）就先找到那一段、选中再剪，一次剪一段，要剪几段就调几次；不给 text 剪用户选中的字；whole=true 或者没选中时剪整页正文。',
+    inputSchema: obj({ text: str('要剪的那一段里的几个字（原文照抄，十来个字就够）'), whole: { type: 'boolean', description: '剪整页' } }),
+    label: (a) => (a.whole ? '整页剪进收件箱' : opt(a.text) ? `剪「${short(String(a.text))}」` : '剪进收件箱'),
+    run: async (a, h) => `剪好了：${await h.web.clip(a.whole === true, opt(a.text))}`,
   },
 
   // ---------- 文档 ----------

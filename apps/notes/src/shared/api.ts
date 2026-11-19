@@ -1,7 +1,8 @@
 /** 主进程和界面之间的接口，preload 按这个暴露成 window.cn */
 
-import type { AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from './agent'
-import type { AiFeature, AiPrefs } from './ai-features'
+import type { AiAct, AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from './agent'
+import type { ChatSummary } from './ai-chats'
+import type { AiFeature, AiPick, AiPrefs } from './ai-features'
 import type { Appearance, AppSettings } from './appearance'
 import type { ThemeFile } from './vscode-theme'
 import type { HomeConfig } from './home'
@@ -11,6 +12,10 @@ import type { DiffResult, DiffSource } from './diff'
 export interface VaultInfo {
   path: string
   name: string
+  /** 打开时整理了顶级分类（老库：素材/ → 剪藏/，素材/微信读书/ → 阅读/）：挪了哪些文件夹，界面换开着的标签 */
+  organized?: { from: string; to: string }[]
+  /** 整理顶级分类没成功的原因（库照样打开，底部说一句） */
+  organizeError?: string
 }
 
 export interface NoteFile {
@@ -30,6 +35,8 @@ export interface NoteFile {
   source?: string
   /** frontmatter 里 draft: true（AI 写的草稿） */
   draft?: boolean
+  /** 书摘（微信读书同步来的，frontmatter 有 bookId）：在哪都用 quote 图标 */
+  digest?: boolean
   /** 数据库的一条（它所在的文件夹是库里某个数据库的数据源）：数据源文件夹的名字，「最近」里标出是哪个表的 */
   table?: string
   /** frontmatter 里 type: board 的是白板 */
@@ -73,6 +80,14 @@ export interface CommitInfo {
   subject: string
   /** exists：这个路径现在库里还有文件（历史面板右键「打开」能不能点）；只有 history() 给 */
   files: { path: string; added: number; removed: number; exists?: boolean }[]
+}
+
+/** 历史里「放回」（CN-108）：放回了哪几篇（原处有同名的放成「名字 2」，to 和 from 不同），共同的文件夹，放回那次的提交号 */
+export interface RestoreResult {
+  commit: string
+  files: { from: string; to: string }[]
+  /** 放回了好几篇时它们共同的文件夹（「课程/ecp」；在库的最外层是 ''）；只放回一篇是 null */
+  folder: string | null
 }
 
 export type SyncOutcome =
@@ -139,7 +154,14 @@ export interface CnApi {
   /** 提交所有改动；没有改动时返回 null */
   commit(): Promise<CommitInfo | null>
   sync(): Promise<SyncOutcome>
-  history(limit: number): Promise<CommitInfo[]>
+  /** hideInternal：跳过只动了软件自己设置的提交、不列设置文件（CN-116） */
+  history(limit: number, opts?: { hideInternal?: boolean }): Promise<CommitInfo[]>
+  /** 那次提交删掉的（用户的）文件、其中现在还能放回的（CN-108） */
+  restorable(hash: string): Promise<{ deleted: string[]; available: string[] }>
+  /** 放回那次删掉的文件；only 只放这几篇 */
+  restoreDeleted(hash: string, only?: string[]): Promise<RestoreResult>
+  /** 撤回「放回」那次 */
+  undoRestore(commit: string): Promise<void>
   /** 某次提交里某个文件改了什么；exists：这个文件现在还在不在 */
   /** 选一张图片拷进这篇笔记的附件文件夹（`附件/<笔记路径>/`），返回库里的相对路径；取消返回 null */
   pickImage(note?: string): Promise<string | null>
@@ -193,8 +215,17 @@ export interface CnApi {
   onAppKey(cb: (key: string) => void): () => void
 
   // ---------- AI 浮窗（类型见 shared/agent.ts） ----------
-  /** 本机找到的 AI 命令行和现在选的那家 */
-  aiEngines(): Promise<{ engines: EngineInfo[]; current: EngineId; label: string }>
+  /**
+   * 本机找到的 AI 命令行（每家在哪找到、能选的模型和 effort）和「AI 对话」现在选的：current 是哪家，
+   * chat 是 {哪家, 模型, effort}（effort 没设过是 high），label 是回答头上写的「Claude Code · Opus 5.5 · High」。
+   * again：「重新找一遍」（重新取登录 shell 的 PATH、每家重新跑 --version、Codex 重新问模型列表，跑完再答）
+   */
+  aiEngines(again?: boolean): Promise<{ engines: EngineInfo[]; current: EngineId; label: string; chat: AiPick }>
+  /** 输入框底行换了模型、effort（CN-91）：记成设置 › AI「AI 对话」那一行（和换引擎一样，不动默认、梦游、小活），开着的 AI 面板收到 onAiPrefsChanged */
+  aiSetChatPick(pick: AiPick): Promise<void>
+  /** 「装在别处？指定位置…」（CN-87）：系统选文件框选这家的命令行（或带着它的 App，比如 Codex.app），记在 userData/ai/settings.json、以后排第一个找；
+   *  返回这家现在的样子，取消了是 null；选的不是能运行的文件时报错（「选的不是能运行的 codex：…」） */
+  aiPickCli(id: EngineId): Promise<EngineInfo | null>
   /** AI 浮窗、边读边问头上的引擎菜单：改「AI 对话」用哪家（= 设置 › AI 里那一行），不动默认 */
   aiSetEngine(id: EngineId): Promise<void>
   /** 设置 › AI 改了（设置页、引擎菜单）：开着的 AI 面板重新取用哪家 */
@@ -207,11 +238,22 @@ export interface CnApi {
   aiTurnStop(id: number): Promise<void>
   /** AI 输入框里粘贴 / 拖进来的图：存进软件设置目录，返回名字（发问时带上，界面用 cn-file://app/pasted/<名字> 显示） */
   aiPaste(bytes: Uint8Array, mime: string): Promise<string>
+  /** 输入框底行「+」加图：系统选图框（最多 room 张），选的存进 pasted/；返回名字和原来的文件名，取消是空的 */
+  aiPickImages(room: number): Promise<{ name: string; label: string }[]>
+  /** 这个对话自己选的模型、effort（CN-91 方向 C，只管这个对话）；没选过是 null */
+  aiChatPick(place: string): Promise<AiPick | null>
+  aiChatSetPick(place: string, pick: AiPick | null): Promise<void>
   /** 对话记录存在软件设置目录（不进库），关了再开还在 */
-  aiChatLoad(): Promise<StoredMsg[]>
-  aiChatSave(msgs: StoredMsg[]): Promise<void>
-  aiChatClear(): Promise<void>
+  /** 这个地方的 AI 对话（D 组 CN-132：每个文件、文件夹、首页、收件箱各一份；place 是 renderer/ai-place.ts 的 key） */
+  aiChatLoad(place: string): Promise<StoredMsg[]>
+  /** label：对话菜单里写的名字 */
+  aiChatSave(place: string, label: string, msgs: StoredMsg[]): Promise<void>
+  aiChatClear(place: string): Promise<void>
+  /** 对话菜单：这个库问过的地方，连读 PDF 那一套的，按最后问的时间（新的在前） */
+  aiChats(): Promise<ChatSummary[]>
   onAiEvent(cb: (id: number, e: AiEvent) => void): () => void
+  /** AI 动手看得见：开始动哪一块、去拿哪几样、做完（白板、文档、网页上画外圈、提示条、AI 指针） */
+  onAiAct(cb: (e: AiAct) => void): () => void
   /** 主进程请界面做事（编辑器、标签、右栏），做完用 aiReply 回 */
   onAiCall(cb: (id: number, op: BridgeOp, arg: unknown) => void): () => void
   aiReply(id: number, ok: boolean, value: unknown): Promise<void>

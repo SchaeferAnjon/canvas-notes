@@ -6,7 +6,7 @@
 import { when } from '../shared/when'
 import { execFile } from 'node:child_process'
 import { readFile, stat } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, basename } from 'node:path'
 import * as git from '@cn/git'
 import type { DreamReport } from '../shared/api'
 import { baseName, type DiffEntry, type DiffResult, type DiffSource, fileKindOf, type Hunk, parseHunks, sizeText, summarize } from '../shared/diff'
@@ -19,7 +19,7 @@ const MAX_IMAGE = 8 * 1024 * 1024
 const MIME: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', heic: 'image/heic' }
 
 /** 一个版本里的文件，原样的字节（图片不能当字符串读）；没有这个文件是 null */
-function blob(root: string, rev: string, path: string): Promise<Buffer | null> {
+export function blob(root: string, rev: string, path: string): Promise<Buffer | null> {
   return new Promise((resolve, reject) => {
     execFile('git', ['-c', 'core.quotepath=false', 'show', `${rev}:${path}`], { cwd: root, encoding: 'buffer', maxBuffer: 256 * 1024 * 1024, timeout: 30_000, env: { ...process.env, PATH: git.gitPath(), GIT_TERMINAL_PROMPT: '0' } }, (err, stdout, stderr) => {
       if (!err) return resolve(stdout)
@@ -113,7 +113,7 @@ async function entry(root: string, n: NameStatus, b: Buffer | null, a: Buffer | 
     summary: '',
     exists: await exists(root, n.path),
   }
-  e.summary = said ?? summarize(e, hunks, typeof after === 'string' && kind !== 'image' ? after : null)
+  e.summary = said ?? summarize(e, hunks, typeof after === 'string' && kind !== 'image' ? after : null, basename(root))
   return e
 }
 
@@ -155,7 +155,12 @@ export async function diffOf(root: string, src: DiffSource, report: DreamReport 
       return { note, left: '', right: `${short(hash!)} 那一版 · 只读`, files: [{ ...e, summary: `${short(hash!)} 那次提交时的样子 · ${sizeText(e.size)}` }] }
     }
     const base = parents[0] ?? EMPTY_TREE
-    return { note, left: parents[0] ? `改之前 · ${short(parents[0])}` : '改之前 · 没有', right: `这次提交后 · ${short(hash!)}`, files: await between(root, base, hash!) }
+    const all = await between(root, base, hash!)
+    // 藏起设置文件时只列用户自己的；只建了空文件夹那次（只有 .gitkeep）照样列它
+    const mine = all.filter((f) => !git.isInternalPath(f.path))
+    const keep = all.filter((f) => /(^|\/)\.gitkeep$/.test(f.path))
+    const files = src.kind === 'commit' && src.hide ? (mine.length ? mine : keep.length ? keep : all) : all
+    return { note, left: parents[0] ? `改之前 · ${short(parents[0])}` : '改之前 · 没有', right: `这次提交后 · ${short(hash!)}`, files }
   }
   if (src.kind === 'pair') {
     for (const p of [src.a, src.b]) if (p.startsWith('/') || p.split('/').includes('..')) throw new Error('路径不对')

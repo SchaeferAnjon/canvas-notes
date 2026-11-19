@@ -25,11 +25,11 @@ describe('记笔记时挑配图（CN-60）', () => {
     expect(decorativeImages(all[0]!, PAGE, all).has('p1-b9')).toBe(true)
   })
 
-  it('去掉以后这一页没有图：给 AI 的提示里没有图片候选，figure 写 null', () => {
+  it('去掉以后：给记笔记那一步（起标题、写小结）的这一页的字里没有校徽；那一步也不再挑图（配图只认 AI 回答里给的框）', () => {
     const drop = decorativeImages(pages[2]!, PAGE, pages)
     const blocks = pages[2]!.filter((b) => !drop.has(b.id))
-    const prompt = summarizePrompt({ pdfName: 'Lecture05', thread: { id: 't', page: 3, quote: '', at: 0 } as never, msgs: [], blocks, failed: [], titles: [] })
+    const prompt = summarizePrompt({ pdfName: 'Lecture05', thread: { id: 't', page: 3, quote: '', at: 0 } as never, round: '', blocks })
     expect(prompt).not.toContain('[图 p3-b1]')
-    expect(prompt).toContain('"figure": null')
+    expect(prompt).not.toContain('figure')
   })
 })

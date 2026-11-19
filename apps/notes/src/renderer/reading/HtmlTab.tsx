@@ -10,6 +10,7 @@ import { ActBtn, PageNote, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
 import { useEffect, useRef, useState } from 'react'
 import * as R from './store'
+import type { Material } from '../../shared/materials'
 import './reading.css'
 
 const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
@@ -60,7 +61,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
     if (!r.pending) setBoxed(null)
   }, [r.pending])
 
-  // 按住 ⌘：框选层打开（焦点在 iframe 里时软件收不到按键，用「框一块问」按钮）；esc 取消；⌘↵ 问这一屏
+  // 按住 ⌘：框选层打开（焦点在 iframe 里时软件收不到按键，用「框一块问」按钮）；esc 取消；⌘↵ 框着一块是改问法（同 PDF，CN-92 方向 A），没框问这一屏
   useEffect(() => {
     if (!props.active || !canAsk) return
     const down = (e: KeyboardEvent) => {
@@ -68,17 +69,18 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
       else if (e.key === 'Escape' && (boxed || framing) && !(e.target as Element)?.closest?.('textarea')) cancel()
       else if (e.key === 'Enter' && e.metaKey && !e.isComposing) {
         e.preventDefault()
-        void askScreen()
+        if (boxed) void capAsk('rephrase')
+        else void askScreen()
       }
     }
     const up = (e: KeyboardEvent) => e.key === 'Meta' && setCmd(false)
     const blur = () => setCmd(false)
-    // 输入框里打了自己的问题再按 ⌘↵：带上这一屏问这句（ReadingAi 发来）
+    // 输入框里打了自己的问题再按 ⌘↵：带上这一屏问这句（ReadingAi 发来，带着输入框里的材料）
     const onAskPage = (e: Event) => {
-      const d = (e as CustomEvent<{ src: string; text: string; taken?: boolean }>).detail
+      const d = (e as CustomEvent<{ src: string; text: string; mats?: Material[]; taken?: boolean }>).detail
       if (d.src !== path) return
       d.taken = true
-      void askScreen(d.text)
+      void askScreen(d.text, d.mats ?? [])
     }
     window.addEventListener(R.ASK_PAGE, onAskPage)
     window.addEventListener('keydown', down)
@@ -151,13 +153,13 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
     await R.send(path, kind === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲')
   }
 
-  /** 问这一屏：整个看得到的那屏当一个框，直接发出 */
-  async function askScreen(text = '给我讲解一下这一屏') {
+  /** 问这一屏：整个看得到的那屏当一个框，直接发出；mats：输入框里带的材料 */
+  async function askScreen(text = '给我讲解一下这一屏', mats: Material[] = []) {
     const b = frameRect()
     if (!b || R.get(path).running !== null) return
     try {
       await stageShot(b.left, b.top, b.width, b.height, undefined, true)
-      await R.send(path, text)
+      await R.send(path, text, [], mats.length ? { mats } : {})
     } catch (err) {
       props.onNotice(errText(err))
     }
@@ -208,14 +210,14 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
           )}
           {boxed && !drag && (
             <div
-              className="cap"
+              className="cap capbar"
               role="toolbar"
               aria-label="框好的这块"
               style={{ left: Math.min(boxed.x0, boxed.x1), top: Math.max(boxed.y0, boxed.y1) + 40 > bh ? Math.max(0, Math.min(boxed.y0, boxed.y1) - 40) : Math.max(boxed.y0, boxed.y1) + 8 }}
               onPointerDown={(e) => e.stopPropagation()}
             >
-              <button onClick={() => void capAsk('explain')}>
-                讲解一下<span className="k">↵</span>
+              <button className="main" onClick={() => void capAsk('explain')}>
+                讲解一下<kbd>↵</kbd>
               </button>
               <button onClick={() => void capAsk('translate')}>
                 <Codicon name="whole-word" size={14} />
@@ -223,10 +225,10 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
               </button>
               <button onClick={() => void capAsk('rephrase')}>
                 <Codicon name="edit" size={14} />
-                改问法
+                改问法<kbd>⌘↵</kbd>
               </button>
-              <span className="sep" />
-              <button aria-label="取消" onClick={cancel}>
+              <span className="sepv" />
+              <button aria-label="取消" data-tip="取消 esc" data-side="below" onClick={cancel}>
                 <Codicon name="close" size={14} />
               </button>
             </div>

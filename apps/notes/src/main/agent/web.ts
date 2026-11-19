@@ -132,6 +132,150 @@ export async function scroll(to: 'down' | 'up' | 'top' | 'bottom'): Promise<stri
   return `滚到了 ${r[0]} / ${Math.max(0, r[1])}`
 }
 
+// ---------- AI 动手看得见（DESIGN.v3 2.3）：网页里「AI」小指针、正在选的那段亮一下、剪下的段落标「✂ 剪成卡片」 ----------
+
+/** 软件的强调色（跟着主题，界面量好交过来）：指针、亮的那一圈、剪下的竖线都用它 */
+export interface AccentColors {
+  acc: string
+  accBg: string
+  ring: string
+}
+
+/** 网页里画这些用的样式和指针：只在第一次用时加一次，样式写在网页自己的 <head> 里，名字都带 cn-ai 不和网站打架 */
+const SETUP = (c: AccentColors) => `(() => {
+  const c = ${JSON.stringify(c)}
+  let st = document.getElementById('cn-ai-style')
+  if (!st) { st = document.createElement('style'); st.id = 'cn-ai-style'; (document.head || document.documentElement).appendChild(st) }
+  st.textContent = \`
+    [data-cn-ai-hit]{box-shadow:0 0 0 2px \${c.ring}!important;background:color-mix(in srgb,\${c.acc} 8%,transparent)!important;border-radius:4px!important;transition:box-shadow .25s,background .25s}
+    [data-cn-ai-clip]{position:relative!important}
+    [data-cn-ai-clip]::before{content:'';position:absolute;left:-9px;top:2px;bottom:2px;width:3px;border-radius:2px;background:color-mix(in srgb,\${c.acc} 60%,transparent)}
+    .cn-ai-cliptag{display:inline-flex!important;align-items:center;gap:4px;margin-left:6px;padding:2px 10px;border-radius:999px;background:#111113!important;color:#fff!important;font:12px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif!important;vertical-align:1px;white-space:nowrap;text-decoration:none!important;letter-spacing:0!important}
+    .cn-ai-cliptag svg{width:12px;height:12px;flex:none}
+    #cn-ai-cursor{position:absolute;z-index:2147483647;pointer-events:none;opacity:0;left:40%;top:120px;transition:left .55s cubic-bezier(.3,.8,.25,1),top .55s cubic-bezier(.3,.8,.25,1),opacity .2s}
+    #cn-ai-cursor.on{opacity:1}
+    #cn-ai-cursor svg{display:block;width:20px;height:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.25))}
+    #cn-ai-cursor span{position:absolute;left:16px;top:16px;background:\${c.accBg};color:#fff;font:500 11px/1.5 -apple-system,BlinkMacSystemFont,sans-serif;padding:1px 6px;border-radius:999px;white-space:nowrap}
+  \`
+  if (!document.getElementById('cn-ai-cursor')) {
+    const el = document.createElement('div')
+    el.id = 'cn-ai-cursor'
+    el.innerHTML = '<svg viewBox="0 0 20 20"><path d="M3.5 2.2 16.6 9.4 10.4 10.9 7.4 16.8Z" fill="' + c.accBg + '" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg><span>AI</span>'
+    document.body.appendChild(el)
+  }
+  return true
+})()`
+
+const sleepUntil = async (ms: number, stopped?: () => boolean) => {
+  const end = Date.now() + ms
+  while (Date.now() < end && !stopped?.()) await sleep(Math.min(50, end - Date.now()))
+}
+
+/**
+ * AI 去拿网页里的一段：找到含这几个字的最小那一段（p、li、blockquote、标题……），滚到中间，指针移过去（0.55 秒），
+ * 这一段亮一下（约 0.5 秒），再选中它（后面 web_clip 剪的就是它）。找不到返回 false。
+ */
+export async function pickBlock(text: string, colors: AccentColors, stopped?: () => boolean): Promise<boolean> {
+  const wc = need()
+  await wc.executeJavaScript(SETUP(colors), true)
+  const found = (await wc.executeJavaScript(
+    `(() => {
+      const want = ${JSON.stringify(text.replace(/\s+/g, ' ').trim())}
+      const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim()
+      const all = [...document.querySelectorAll('p, li, blockquote, h1, h2, h3, h4, h5, h6, dd, figcaption, td, div')]
+      const hits = all.filter((el) => norm(el.innerText).includes(want))
+      // 最里面那一层（自己的孩子里没有也含这几个字的）
+      const el = hits.find((h) => !hits.some((o) => o !== h && h.contains(o)))
+      if (!el) return null
+      el.scrollIntoView({ block: 'center' })
+      document.querySelectorAll('[data-cn-ai-hit]').forEach((x) => x.removeAttribute('data-cn-ai-hit'))
+      el.setAttribute('data-cn-ai-pick', '1')
+      return true
+    })()`,
+    true,
+  )) as boolean | null
+  if (!found) return false
+  await sleep(120)
+  // 指针移过去：段落左上往里一点（跟着网页滚，指针放在文档坐标里）
+  await wc.executeJavaScript(
+    `(() => { const el = document.querySelector('[data-cn-ai-pick]'); const cur = document.getElementById('cn-ai-cursor'); if (!el || !cur) return; const r = el.getBoundingClientRect(); cur.style.left = (r.left + scrollX + Math.min(30, r.width / 2)) + 'px'; cur.style.top = (r.top + scrollY + Math.min(10, r.height / 2)) + 'px'; cur.classList.add('on') })()`,
+    true,
+  )
+  await sleepUntil(550, stopped)
+  await wc.executeJavaScript(`(() => { const el = document.querySelector('[data-cn-ai-pick]'); if (el) el.setAttribute('data-cn-ai-hit', '1') })()`, true)
+  await sleepUntil(450, stopped)
+  await wc.executeJavaScript(
+    `(() => { const el = document.querySelector('[data-cn-ai-pick]'); if (!el) return; el.removeAttribute('data-cn-ai-hit'); const s = getSelection(); const r = document.createRange(); r.selectNodeContents(el); s.removeAllRanges(); s.addRange(r) })()`,
+    true,
+  )
+  return true
+}
+
+/** 剪进收件箱的那篇 → 网页里标着它的那一段的编号（撤回后按它去掉标记） */
+const clipMarks = new Map<string, { wc: WebContents; id: string }>()
+let markSeq = 0
+
+/**
+ * 剪下的那一段（AI 刚选的，或用户自己选中的那段所在的块）：左边一道竖线、段尾黑色小胶囊「✂ 剪成卡片」。剪完留着，撤回后去掉（unmarkClips）
+ */
+export async function markClip(path: string, colors: AccentColors): Promise<void> {
+  const wc = webContents()
+  if (!wc) return
+  await wc.executeJavaScript(SETUP(colors), true)
+  const id = `m${++markSeq}`
+  const ok = (await wc.executeJavaScript(
+    `(() => {
+      let el = document.querySelector('[data-cn-ai-pick]')
+      if (!el) {
+        const s = getSelection()
+        let n = s && s.rangeCount ? s.getRangeAt(0).startContainer : null
+        if (n && n.nodeType !== 1) n = n.parentElement
+        el = n ? n.closest('p, li, blockquote, h1, h2, h3, h4, h5, h6, dd, figcaption, td, div') : null
+      }
+      if (!el) return false
+      el.removeAttribute('data-cn-ai-pick')
+      el.setAttribute('data-cn-ai-clip', ${JSON.stringify(id)})
+      const tag = document.createElement('span')
+      tag.className = 'cn-ai-cliptag'
+      tag.setAttribute('data-cn-ai-tag', ${JSON.stringify(id)})
+      tag.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="4.2" cy="4.2" r="2.2"/><circle cx="4.2" cy="11.8" r="2.2"/><path d="M6 5.6 14 12.6M6 10.4 14 3.4"/></svg>剪成卡片'
+      el.appendChild(tag)
+      getSelection()?.removeAllRanges()
+      return true
+    })()`,
+    true,
+  )) as boolean
+  if (ok) clipMarks.set(path, { wc, id })
+}
+
+/** 撤回了：这几篇对应的标记去掉（网页没换页时） */
+export async function unmarkClips(paths: string[]): Promise<void> {
+  for (const p of paths) {
+    const m = clipMarks.get(p)
+    if (!m) continue
+    clipMarks.delete(p)
+    if (m.wc.isDestroyed()) continue
+    await m.wc
+      .executeJavaScript(
+        `(() => { document.querySelectorAll('[data-cn-ai-tag="${m.id}"]').forEach((t) => t.remove()); document.querySelectorAll('[data-cn-ai-clip="${m.id}"]').forEach((e) => e.removeAttribute('data-cn-ai-clip')) })()`,
+        true,
+      )
+      .catch(() => undefined)
+  }
+}
+
+/** 标着的是哪几篇（撤回后看哪几篇已经不在了） */
+export const markedClips = () => [...clipMarks.keys()]
+
+/** 这一轮做完：网页里的 AI 指针收起来（剪下的标记留着） */
+export async function endWebAct(): Promise<void> {
+  const wc = webContents()
+  if (!wc) return
+  await wc
+    .executeJavaScript(`(() => { document.getElementById('cn-ai-cursor')?.classList.remove('on'); document.querySelectorAll('[data-cn-ai-hit],[data-cn-ai-pick]').forEach((e) => (e.removeAttribute('data-cn-ai-hit'), e.removeAttribute('data-cn-ai-pick'))) })()`, true)
+    .catch(() => undefined)
+}
+
 /** 选中的字；whole 或没选中时是整页正文 */
 export async function pageForClip(whole: boolean): Promise<{ text: string; url: string; title: string }> {
   const wc = need()

@@ -124,7 +124,7 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(side(page).getByRole('group', { name: '收件箱 · 挪走的' }).locator('.pv-ghost', { hasText: '第4讲 特征值' })).toHaveText('第4讲 特征值挪到线性代数')
       // 「文件」树里也是改好后的样子：新出现的文件夹「生活」
       await leftView(page, '文件')
-      await expect(page.getByRole('tree', { name: '全部文件' }).getByRole('treeitem', { level: 1 }).locator('.truncate', { hasText: /^生活$/ })).toBeVisible()
+      await expect(page.getByRole('tree', { name: '全部文件' }).getByRole('treeitem', { level: 2 }).locator('.truncate', { hasText: /^生活$/ })).toBeVisible()
       await leftView(page, '最近')
       await shot(page, `import-5-preview-${tone}`)
       await bar(page).getByRole('button', { name: '收下这5处' }).click()

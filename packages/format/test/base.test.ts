@@ -27,6 +27,9 @@ describe('数据库代码块（CN-19 A，写法同 Obsidian Bases）', () => {
       view: '在读的书',
       columns: ['file.name', '作者', '评分'],
       sort: [{ prop: '评分', desc: true }],
+      types: {},
+      sizes: {},
+      summaries: {},
     })
   })
 

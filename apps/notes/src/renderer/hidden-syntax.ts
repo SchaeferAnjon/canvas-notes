@@ -8,7 +8,7 @@
  * - 光标和选区两头停不进去：按挪动的方向跨过去，从行内挪来（End、↑↓、点）的停在它在屏上挨着的那一边。
  * ⌘Z / ⌘⇧Z、外面改了文件、白板写回、软件自己有意改的（带 hiddenOk）不拦。
  */
-import { Annotation, ChangeSet, type ChangeSpec, EditorSelection, EditorState, Facet, Prec, type SelectionRange, type Text, Transaction, type TransactionSpec } from '@codemirror/state'
+import { Annotation, ChangeSet, type ChangeSpec, EditorSelection, EditorState, Facet, Prec, type SelectionRange, StateEffect, StateField, type Text, Transaction, type TransactionSpec } from '@codemirror/state'
 import { type EditorView, keymap } from '@codemirror/view'
 
 export interface Hidden {
@@ -193,6 +193,51 @@ function subtract(pieces: [number, number][], h: number, k: number): [number, nu
   return out
 }
 
+/**
+ * 守卫替人补的换行（挨着块打字另起一行、块下面接着打）：from–to 是这次插进去的整段，a–b 是人打的字。
+ * 人把打的字删光（退格、Delete），补的换行跟着一起拿掉，文件回到打字前的样子（「打开再保存文件不变」：打一个字再删掉，一个字节都不多）
+ */
+interface Pad {
+  from: number
+  to: number
+  a: number
+  b: number
+}
+const padAdded = StateEffect.define<Pad>()
+const padField = StateField.define<Pad | null>({
+  create: () => null,
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(padAdded)) return e.value
+    if (!v) return v
+    let p: Pad = v
+    if (tr.docChanged) {
+      // 只在打的那几个字里改（接着打字、删字）才接着记；别处改了就不管了
+      const cur = p
+      let inside = true
+      tr.changes.iterChanges((fromA, toA) => {
+        if (fromA < cur.a || toA > cur.b) inside = false
+      })
+      if (!inside) return null
+      p = { from: tr.changes.mapPos(cur.from, -1), to: tr.changes.mapPos(cur.to, -1), a: tr.changes.mapPos(cur.a, -1), b: tr.changes.mapPos(cur.b, 1) }
+    }
+    const head = tr.state.selection.main.head
+    return head < p.a || head > p.b ? null : p
+  },
+})
+
+/** 把打的字删光的那一下：连同守卫补的换行一起删，光标回到原处 */
+const dropPad = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || !(tr.isUserEvent('delete.backward') || tr.isUserEvent('delete.forward'))) return tr
+  const p = tr.startState.field(padField, false)
+  if (!p) return tr
+  let inside = true
+  tr.changes.iterChanges((fromA, toA) => {
+    if (fromA < p.a || toA > p.b) inside = false
+  })
+  if (!inside || tr.changes.mapPos(p.a, -1) !== tr.changes.mapPos(p.b, 1)) return tr
+  return { changes: { from: p.from, to: p.to }, selection: { anchor: p.from }, userEvent: tr.annotation(Transaction.userEvent)!, annotations: hiddenOk.of(true) }
+})
+
 /** 编辑：改到藏着的字就改写这次改动 */
 const guardChanges = EditorState.transactionFilter.of((tr) => {
   if (!tr.docChanged || bypass(tr)) return tr
@@ -202,6 +247,17 @@ const guardChanges = EditorState.transactionFilter.of((tr) => {
   const hs = hiddenRanges(start)
   if (!hs.length) return tr
   const len = start.doc.length
+  // 列表项里 Tab / ⇧Tab 缩进、退一级（docKeys 只在列表里做）：只动列表项行首的空白，藏着的列表记号跟着挪、样子不变，照常做
+  if (kind === 'whole' && (tr.isUserEvent('input.indent') || tr.isUserEvent('delete.dedent'))) {
+    let listOnly = true
+    tr.changes.iterChanges((fromA, toA, _fb, _tb, ins) => {
+      const line = start.doc.lineAt(fromA)
+      const lead = /^[ \t]*/.exec(line.text)![0].length
+      const ws = /^[ \t]*$/.test(start.doc.sliceString(fromA, toA)) && /^[ \t]*$/.test(ins.toString())
+      if (!ws || toA > line.from + lead || !/^[ \t]*([-*+]|\d{1,9}[.)])[ \t]/.test(line.text)) listOnly = false
+    })
+    if (listOnly) return tr
+  }
   // 整行搬动：碰到藏着的、块边上留住的空行，或者做完藏着的变了样，就整个不做
   if (kind === 'whole') {
     let hit = false
@@ -214,9 +270,12 @@ const guardChanges = EditorState.transactionFilter.of((tr) => {
   const specs: { from: number; to?: number; insert?: string }[] = []
   /** 打的字插在哪（改写后的位置，按改动的先后）、后面补了几个换行：光标停在打的字后面，不跑到补的换行后面 */
   const inserts: { at: number; len: number; tail: number }[] = []
+  /** 这次只打了一处、守卫在前后补了换行：记下来（人把字删光时一起拿掉） */
+  const padded: { at: number; text: string; typed: string }[] = []
   let changed = false
   tr.changes.iterChanges((fromA, toA, _fromB, _toB, ins) => {
     let text = ins.toString()
+    const typed = text
     let tail = 0
     // 选中了一整块（点了图片、退格先选中了视频卡）再打字、粘贴：块留着，字另起一段接在块下面
     // （第 6 轮：选区换成第一个字后光标回到块前面，第一个字落在块下面，后面的字跑到块上面、并进上一段）
@@ -279,6 +338,7 @@ const guardChanges = EditorState.transactionFilter.of((tr) => {
     }
     if (!inserted) specs.push({ from: at, insert: text })
     if (text) inserts.push({ at, len: text.length, tail })
+    if (typed && text !== typed && !typed.includes('\n') && text.includes(typed) && /^\n*$/.test(text.replace(typed, ''))) padded.push({ at, text, typed })
   })
   if (!changed) return tr
   const changes = ChangeSet.of(specs as ChangeSpec, start.doc.length)
@@ -289,10 +349,17 @@ const guardChanges = EditorState.transactionFilter.of((tr) => {
     ranges.map((r, i) => EditorSelection.cursor(typed ? typed[i]! : changes.mapPos(r.empty ? r.head : r.from, 1))),
     start.selection.mainIndex,
   )
+  let pad: Pad | null = null
+  if (padded.length === 1 && inserts.length === 1) {
+    const { at, text, typed } = padded[0]!
+    const from = changes.mapPos(at, -1)
+    const a = from + text.indexOf(typed)
+    pad = { from, to: from + text.length, a, b: a + typed.length }
+  }
   const spec: TransactionSpec = {
     changes,
     selection,
-    effects: tr.effects,
+    effects: pad ? [...tr.effects, padAdded.of(pad)] : tr.effects,
     scrollIntoView: tr.scrollIntoView,
     annotations: [Transaction.userEvent.of(tr.annotation(Transaction.userEvent)!), ...(tr.annotation(Transaction.addToHistory) === false ? [Transaction.addToHistory.of(false)] : [])],
   }
@@ -351,6 +418,8 @@ export const hiddenGuard = [
   // 别的过滤器（折叠标题去空行）改完以后光标也得在看得见的地方：看光标的放最后跑，改写编辑的最先跑
   Prec.highest(guardSelection),
   Prec.lowest(guardChanges),
+  padField,
+  dropPad,
   Prec.high(
     keymap.of([
       { key: 'ArrowRight', run: stepOver(1, false), shift: stepOver(1, true) },

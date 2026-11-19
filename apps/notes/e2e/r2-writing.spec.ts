@@ -37,7 +37,7 @@ async function editCard(page: Page, colName: string, text: string, typed: string
   await cardIn(page, colName, text).dblclick()
   const dlg = page.getByRole('dialog', { name: '全文' })
   await dlg.getByRole('button', { name: '改字' }).click()
-  const box = dlg.getByRole('textbox', { name: '这张卡的原文' })
+  const box = dlg.getByRole('textbox', { name: '这张卡的字' })
   await box.press('End')
   await page.keyboard.type(typed)
   return dlg
@@ -92,7 +92,7 @@ test('新建笔记写了标题不按回车直接 ⌘W：关之前先按标题改
   }
 })
 
-test('⌘J 带进 AI 的引文跟着那一篇：换到另一篇再 ⌘J，输入框里不留上一篇的引文；自己接着打的问题留着', async () => {
+test('⌘J 带进 AI 的引文跟着那一篇：换到另一篇再 ⌘J，输入框里不留上一篇的引文；自己接着打的问题留着（第 2b 段：引文是顶上那一排的第一块，字里是编号）', async () => {
   const run = await launch({ '黑沙滩.md': '# 黑沙滩\n\n边打字边挪走的一句话。\n', '投稿清单.md': '# 投稿清单\n\n最后一行。\n' })
   const { page } = run
   const box = page.getByRole('textbox', { name: '问 AI' })
@@ -104,9 +104,11 @@ test('⌘J 带进 AI 的引文跟着那一篇：换到另一篇再 ⌘J，输入
   }
   try {
     await openNote(page, '黑沙滩')
+    const quote = page.getByTestId('ai-mat')
     await selectLine('边打字边挪走的一句话')
     await page.keyboard.press('Meta+j')
-    await expect(box).toHaveValue('> 边打字边挪走的一句话。\n\n')
+    await expect(box).toHaveValue('①')
+    await expect(quote.locator('.ct')).toHaveText('边打字边挪走的一句话。')
     await page.keyboard.press('Escape')
     await expect(box).toBeHidden()
     await openNote(page, '投稿清单')
@@ -114,14 +116,18 @@ test('⌘J 带进 AI 的引文跟着那一篇：换到另一篇再 ⌘J，输入
     await page.keyboard.press('Meta+j')
     await expect(box).toBeVisible()
     await expect(box).toHaveValue('')
+    await expect(quote).toHaveCount(0)
     // 带了引文又打了问题，换篇：引文拿掉，问题留着
     await page.keyboard.press('Escape')
     await selectLine('最后一行')
     await page.keyboard.press('Meta+j')
-    await expect(box).toHaveValue('> 最后一行。\n\n')
+    await expect(box).toHaveValue('①')
+    await expect(quote.locator('.ct')).toHaveText('最后一行。')
     await page.keyboard.type('这句怎么改')
+    await expect(box).toHaveValue('①这句怎么改')
     await openNote(page, '黑沙滩')
     await expect(box).toHaveValue('这句怎么改')
+    await expect(quote).toHaveCount(0)
   } finally {
     await run.close()
   }
@@ -171,7 +177,7 @@ test('白板拖卡后文件在外面改过：「撤回」照样撤（外面加�
     const bb = (await board(page).boundingBox())!
     await dragTo(page, { x: p.x + 40, y: p.y + 20 }, { x: bb.x + 700, y: bb.y + bb.height - 150 })
     await expect(board(page).locator('.db-card.placed')).toHaveCount(1)
-    await expect(toast).toContainText('单独摆在这里')
+    await expect(toast).toContainText('只记了位置')
     await waitSaved(page)
   }
   try {
@@ -365,7 +371,16 @@ test('数据库「新一条」名字格直接能起名；条目在左栏「最�
     await expand(page, '写作')
     await treeRow(page, '写作').click()
     const home = page.getByTestId('folder-home')
-    await expect(home.locator('.fh-title p')).toHaveText('写作 · 3篇草稿 · 这个月写完2篇')
+    // 头一行：每个文件夹一个样子「种类 · 篇数 · 改于」，分类写「分类」（写作里一共 7 篇，含数据库的两条）
+    await expect(home.locator('.fh-title p')).toHaveText(/^分类 · 7篇 · 改于/)
+    // 写作首页默认只有「最近改的」「待办」（2026-11-18 方案 v2 / 写作首页走样修）：草稿、「这个月写完的」从组件库加上再看
+    await acts(page).getByRole('button', { name: '编辑首页' }).click()
+    await home.getByRole('button', { name: '加组件' }).click()
+    const lib = page.getByRole('dialog', { name: '加组件' })
+    await lib.getByRole('button', { name: '加上 草稿' }).click()
+    await lib.getByRole('button', { name: '加上 这个月写完的' }).click()
+    await lib.getByRole('button', { name: '完成' }).click()
+    await acts(page).getByRole('button', { name: '完成' }).click()
     const drafts = page.getByTestId('fw-drafts')
     await expect(drafts.locator('.fw-row')).toHaveCount(3)
     await expect(drafts).not.toContainText('冰岛机票')

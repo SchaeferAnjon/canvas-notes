@@ -1,30 +1,27 @@
 import { when } from '../shared/when'
 import { Codicon } from '@cn/design'
+import { fileIcon } from './Palette'
 import { useMemo, useState } from 'react'
 import type { NoteFile } from '../shared/api'
-import type { FolderEntry } from '../shared/folder-home'
-import { folderOfPath, progressDone } from '../shared/files'
 import { titleOf } from '../shared/layout'
 import { RECENT_PAGE, type RecentGroup, recentOf } from '../shared/recent'
 import { type ArchiveDays, INBOX_WARN } from '../shared/sidebar'
-import { FolderRename, RenameInput } from './note-menu'
-import { app } from './ctx/actions'
-import { folderMenu, onFileMenu } from './ctx/file-menu'
-import { menuAt } from './ctx/menu'
+import { RenameInput } from './note-menu'
+import { onFileMenu } from './ctx/file-menu'
 import { GhostRows, MovedMark, type DreamPreview } from './dream/preview'
 import { FileTree } from './files/FileTree'
-import { FolderGlyph, LookPicker } from './files/look'
-import { useVaultFiles } from './files/store'
+import { vaultName } from './vault-name'
 import { noteType, TypeChips, useSideType } from './files/type-filter'
 import { HeadBtn, ViewHead } from './shell/Shell'
 import './sidebar.css'
 import type { Tab } from './tabs'
 import { useNewNoteBusy } from './new-note-hold'
+import { EngineLogo, useChatEngine } from './engine-logo'
 
 /**
  * 左栏（2026-11-17 用户定 `左栏按维度组织`）：「文件」按位置（目录树）、「最近」按时间；
- * 分隔线下面是摘到活动栏的文件夹，各占一格（dir:<文件夹>）：课程是课程列表、收件箱是最新的收件，别的是它自己那一枝目录树。
- * 梦游报告由 App 直接放 DreamPanel。
+ * 分隔线下面是摘到活动栏的文件夹，各占一格（dir:<文件夹>）：都是它自己那一枝目录树（2026-11-18 方向 A「活动栏平铺」：
+ * 收件箱、课程这些顶级分类也一样），底下一行「在「文件」里看位置」。梦游报告由 App 直接放 DreamPanel。
  */
 export type SideView = 'files' | 'recent' | 'dream' | `dir:${string}`
 export const COURSES = '课程'
@@ -53,30 +50,23 @@ export function Sidebar(props: {
   onRename(path: string, name: string): void
   /** 梦游预览开着：notes 已经是改好以后的样子，挪来的行标「新」，收件箱里留影子 */
   preview?: DreamPreview | null
-  /** 有首页的文件夹（课程/<课>、项目/<项目>、生活、写作）；fresh：只在梦游预览里才有的 */
-  folders: (FolderEntry & { fresh?: boolean })[]
   onOpenFolder(folder: string): void
-  onNewCourse(): void
   /** 摘出来的文件夹底下「在「文件」里看位置」 */
   onShowInFiles(folder: string): void
 }) {
   const { notes, active } = props
   const [renaming, setRenaming] = useState<string | null>(null)
-  const [look, setLook] = useState<{ folder: string; el: HTMLElement } | null>(null)
   const boards = useMemo(() => new Map(notes.flatMap((n) => (n.board ? [[n.path, n.board.color] as const] : []))), [notes])
+  const digests = useMemo(() => new Set(notes.flatMap((n) => (n.digest ? [n.path] : []))), [notes])
   const noteTypes = useMemo(() => new Map(notes.flatMap((n) => (noteType(n) === 'doc' ? [] : [[n.path, noteType(n)] as const]))), [notes])
   const activePath = active?.type === 'folder' ? active.folder : active && 'path' in active ? active.path : null
   const isOn = (path: string) => active?.type === 'note' && active.path === path
   const menu = (e: React.MouseEvent, path: string) => onFileMenu(e, path, { rename: () => setRenaming(path) })
-  const folderAt = (e: React.MouseEvent, folder: string) => {
-    const el = e.currentTarget as HTMLElement
-    void menuAt(e, folderMenu(folder, { rename: () => setRenaming(folder), look: () => setLook({ folder, el }) }))
-  }
 
   /** 一行笔记：图标（白板是它的颜色方块）、名字、右边时间或卡片数 */
   const row = (n: NoteFile, right?: React.ReactNode) => (
     <button key={n.path} className={'si' + (isOn(n.path) ? ' on' : '')} onClick={() => props.onOpenNote(n.path)} onContextMenu={(e) => menu(e, n.path)} title={n.path}>
-      {n.board ? <i className="sw" style={{ background: n.board.color }} /> : <Codicon name={n.table ? 'database' : n.kind === 'inbox' ? 'inbox' : n.kind === 'clip' ? 'quote' : /(^|\/)我的疑惑\.md$/.test(n.path) ? 'question' : 'file-text'} />}
+      {n.board ? <i className="sw" style={{ background: n.board.color }} /> : <Codicon name={n.table ? 'database' : fileIcon(n.path, false, n.digest)} />}
       {renaming === n.path ? <RenameInput path={n.path} onDone={() => setRenaming(null)} onRename={props.onRename} /> : <span className="truncate">{titleOf(n.path)}</span>}
       {/* 数据库的一条：后面淡淡写是哪个表的，和普通笔记分得开 */}
       {n.table && renaming !== n.path && <span className="s-table truncate">{n.table}</span>}
@@ -87,12 +77,13 @@ export function Sidebar(props: {
   )
 
   const folder = props.view.startsWith('dir:') ? props.view.slice(4) : null
+  const inboxN = folder === INBOX_DIR ? notes.filter((n) => n.kind === 'inbox').length : 0
   return (
-    <aside className={'side' + (props.preview ? ' previewing' : '') + (props.view === 'files' || (folder && folder !== COURSES && folder !== INBOX_DIR) ? ' tree-mode' : '')} aria-label={viewName(props.view)}>
-      {look && <LookPicker folder={look.folder} anchor={look.el} onClose={() => setLook(null)} />}
+    <aside className={'side' + (props.preview ? ' previewing' : '') + (props.view === 'files' || folder ? ' tree-mode' : '')} aria-label={viewName(props.view)}>
       {props.view === 'files' && (
         <FileTree
           title="文件"
+          vaultName={vaultName()}
           onNewNote={props.onNewNote}
           onNewBoard={props.onNewBoard}
           activePath={activePath}
@@ -102,16 +93,16 @@ export function Sidebar(props: {
           onRename={props.onRename}
           boards={boards}
           noteTypes={noteTypes}
+          digests={digests}
           pins={props.pins}
         />
       )}
       {props.view === 'recent' && <RecentSide {...props} row={row} />}
-      {folder === COURSES && <CourseSide {...props} renaming={renaming} setRenaming={setRenaming} folderAt={folderAt} />}
-      {folder === INBOX_DIR && <InboxSide {...props} row={row} />}
-      {folder && folder !== COURSES && folder !== INBOX_DIR && (
+      {folder && (
         <>
           <FileTree
             key={folder}
+            vaultName={vaultName()}
             title={folder.split('/').pop()!}
             root={folder}
             onNewNote={props.onNewNote}
@@ -123,11 +114,21 @@ export function Sidebar(props: {
             onRename={props.onRename}
             boards={boards}
             noteTypes={noteTypes}
+            digests={digests}
             pins={props.pins}
           />
-          <div className="sall">
+          {/* 收件箱堆多了（超过 20 条）：底下多一行琥珀色「让 AI 分一分」（平时没有，和小样里的样子一样） */}
+          {folder === INBOX_DIR && inboxN > INBOX_WARN && (
+            <div className="sall s-warn">
+              <button className="si s-tidy" aria-label={`收件箱堆了${inboxN}条，让AI按主题分进剪藏`} data-tip="跑 /整理收件箱：只给建议，点同意之前一条都不挪" data-side="right" onClick={props.onTidy}>
+                <Codicon name="sparkle" size={14} />
+                <span className="truncate">{`收件箱堆了${inboxN}条 · 让AI分一分`}</span>
+              </button>
+            </div>
+          )}
+          <div className="sall s-loc">
             <button className="si" onClick={() => props.onShowInFiles(folder)}>
-              <Codicon name="files" />
+              <Codicon name="files" size={14} />
               <span className="truncate">在「文件」里看位置</span>
               <span className="c">{folder}/</span>
             </button>
@@ -143,7 +144,11 @@ type RowFn = (n: NoteFile, right?: React.ReactNode) => React.ReactNode
 /** 「最近」：置顶 → 今天 → 这周 → 按月收起；底下只留「归档」 */
 function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
   const newBusy = useNewNoteBusy()
-  const [type, setType] = useSideType()
+  /** 「问AI」画 AI 对话正在用的那家的标志（CN-127，设置里换了当场跟着换） */
+  const engine = useChatEngine()
+  const [sideType, setType] = useSideType()
+  // 「附件」只在文件树里有：这里当「全部」
+  const type = sideType === 'att' ? 'all' : sideType
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set())
   const [shown, setShown] = useState<Record<string, number>>({})
   const now = Date.now()
@@ -188,7 +193,7 @@ function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
       >
         <HeadBtn icon="new-file" label="新建笔记" keys="⌘N" busy={newBusy} onClick={props.onNewNote} />
         <HeadBtn icon="layout" label="新建白板" onClick={props.onNewBoard} />
-        <HeadBtn icon="sparkle" label="问AI" keys="⌘J" onClick={props.onAskAi} />
+        <HeadBtn icon="sparkle" glyph={<EngineLogo id={engine.id} size={15} />} label="问AI" keys="⌘J" onClick={props.onAskAi} />
         <HeadBtn icon="link-external" label="在中间打开" onClick={props.onOpenRecent} />
       </ViewHead>
       <TypeChips value={type} onChange={setType} className="side-chips" />
@@ -222,82 +227,3 @@ function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
     </>
   )
 }
-
-/** 「课程」（默认摘在左边）：每门课一行，问完了几讲 / 一共几讲；点开课程首页 */
-function CourseSide(props: Parameters<typeof Sidebar>[0] & { renaming: string | null; setRenaming(f: string | null): void; folderAt(e: React.MouseEvent, f: string): void }) {
-  const { files } = useVaultFiles()
-  const courses = props.folders.filter((f) => f.kind === 'course')
-  const progress = useMemo(() => {
-    const out = new Map<string, { done: number; total: number }>()
-    for (const f of files) {
-      if (f.kind !== 'pdf') continue
-      const c = folderOfPath(f.path)
-      const p = out.get(c) ?? { done: 0, total: 0 }
-      p.total++
-      if (progressDone(f.progress)) p.done++
-      out.set(c, p)
-    }
-    return out
-  }, [files])
-  return (
-    <>
-      <ViewHead title="课程" sub={<span className="num">{`${courses.length}门`}</span>}>
-        <HeadBtn icon="new-folder" label="新建一门课" onClick={props.onNewCourse} />
-      </ViewHead>
-      <nav className="nav" aria-label="课程">
-        {courses.map((f) => {
-          const p = progress.get(f.folder)
-          return (
-            <button
-              key={f.folder}
-              className={'si' + (props.active?.type === 'folder' && props.active.folder === f.folder ? ' on' : '')}
-              onClick={() => props.onOpenFolder(f.folder)}
-              onContextMenu={(e) => props.folderAt(e, f.folder)}
-              title={`${f.folder} · 点开首页`}
-            >
-              <FolderGlyph folder={f.folder} />
-              {props.renaming === f.folder ? <FolderRename folder={f.folder} onDone={() => props.setRenaming(null)} /> : <span className="truncate">{f.folder.split('/').pop()}</span>}
-              {f.fresh && <span className="tag-new">新</span>}
-              {p && (
-                <span className="c num">
-                  {`${p.done}/${p.total}讲`}
-                </span>
-              )}
-            </button>
-          )
-        })}
-        {courses.length === 0 && <p className="s-none">还没有课程。点右上角新建一门</p>}
-      </nav>
-    </>
-  )
-}
-
-/** 「收件箱」（默认摘在左边）：只列最新的 60 条（别把上万条全铺开），更多在中间打开 */
-function InboxSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
-  const newBusy = useNewNoteBusy()
-  const inbox = useMemo(() => props.notes.filter((n) => n.kind === 'inbox').sort((a, b) => b.mtimeMs - a.mtimeMs), [props.notes])
-  const warn = inbox.length > INBOX_WARN
-  const now = Date.now()
-  return (
-    <>
-      <ViewHead title="收件箱" sub={<span className="num">{`${inbox.length}条`}</span>}>
-        {/* 新笔记本来就进收件箱：这里也有一颗（建在收件箱里，不看开着的文件夹首页） */}
-        <HeadBtn icon="new-file" label="新建笔记" keys="⌘N" busy={newBusy} onClick={() => void app().newNote(INBOX_DIR)} />
-        <HeadBtn icon="sparkle" label={warn ? `收件箱堆了${inbox.length}条，让AI按主题分进素材` : '让AI分一分'} className={warn ? 's-tidy' : undefined} onClick={props.onTidy}>
-          {warn && <span>让AI分一分</span>}
-        </HeadBtn>
-        <HeadBtn icon="link-external" label="在中间打开整个收件箱" onClick={props.onOpenInbox} />
-      </ViewHead>
-      <nav className="nav" aria-label="笔记">
-        {inbox.slice(0, 60).map((n) => props.row(n, when(n.mtimeMs, { now })))}
-        {inbox.length === 0 && <p className="s-none">收件箱是空的</p>}
-        {inbox.length > 60 && (
-          <button className="si s-more" onClick={props.onOpenInbox}>
-            <span className="num">{`还有${inbox.length - 60}条，在中间打开`}</span>
-          </button>
-        )}
-      </nav>
-    </>
-  )
-}
-

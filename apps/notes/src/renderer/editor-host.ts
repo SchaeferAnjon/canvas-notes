@@ -1,5 +1,6 @@
 import { findBlocks, type MdBlock } from '@cn/format'
-import { Facet, StateField } from '@codemirror/state'
+import { type EditorState, Facet, StateField } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
 import type { ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
@@ -20,6 +21,38 @@ export const blocksField = StateField.define<MdBlock[]>({
   create: (s) => findBlocks(s.doc.toString()),
   update: (v, tr) => (tr.docChanged ? findBlocks(tr.state.doc.toString()) : v),
 })
+
+const drawnCache = new WeakMap<EditorState, MdBlock[]>()
+
+/**
+ * 把手、加号、⌘D、⌥⇧↑↓ 看到的块：md 的顶层块，只是画成一整张卡的东西（时刻块、问答块、视频卡、收着的折叠块）
+ * 在 md 里是好几块（注释、图、链接、引文），这里并成一块：一个把手，复制、删除、拖动、改写法都是整张卡。
+ * 整张卡 = 各自通过 EditorView.atomicRanges 交上来的块部件（spec.block 且有部件），和 atomic-blocks.ts 同一个认法。
+ */
+export function drawnBlocks(view: EditorView): MdBlock[] {
+  const state = view.state
+  const seen = drawnCache.get(state)
+  if (seen) return seen
+  const md = state.field(blocksField)
+  const cards: { from: number; to: number }[] = []
+  for (const f of state.facet(EditorView.atomicRanges)) {
+    f(view).between(0, state.doc.length, (from, to, d) => {
+      if (d.spec.block && d.spec.widget) cards.push({ from, to })
+    })
+  }
+  let out = md
+  if (cards.length) {
+    out = []
+    for (const b of md) {
+      const card = cards.find((c) => b.from < c.to && b.to > c.from)
+      const last = out[out.length - 1]
+      if (card && last && last.from < card.to && last.to > card.from) out[out.length - 1] = { ...last, to: Math.max(last.to, b.to, card.to) }
+      else out.push(card ? { ...b, from: Math.min(b.from, card.from), to: Math.max(b.to, card.to) } : b)
+    }
+  }
+  drawnCache.set(state, out)
+  return out
+}
 
 /**
  * 编辑器里弹出来的小浮层（块菜单、/ 菜单）：一个挂在 body 上的 React 根，

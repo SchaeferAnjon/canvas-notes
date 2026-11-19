@@ -2,24 +2,26 @@
  * 读 PDF 边读边问的主进程这一半：
  * - 把库里的 PDF 交给界面（pdf.js 在界面里画），列出库里的 PDF；
  * - 每份 PDF 本机记着上次看到哪页和对话（userData/reading/，不进库）；
- * - 问 AI：框的那块图 + 这一页的文字 + （这个会话第一次）整份 PDF 的文字 + 笔记里已经懂了的；
- * - 后台记笔记：AI 把这一处的问答收成一段，写进 PDF 旁边的「… 笔记.md」，完整对话写进 .canvas-notes/对话/，一次提交。
+ * - 问 AI：框的那块图 + 这一页的文字 + （这个会话第一次）整份 PDF 的文字 + 笔记里已经懂了的（每轮的小结）；
+ *   旁支（CN-90）从主对话的会话分叉，告诉 AI 被问的那句和它所在的那一轮；
+ * - 后台记笔记：这一处的问答（主对话 + 旁支）照原话、原文收成一段（section.ts），快的模型只写标题和一句小结，
+ *   写进 PDF 旁边的「… 笔记.md」，一次提交。以前另写的完整对话（.canvas-notes/对话/）不再写：笔记里就是问答原文，
+ *   界面里看对话在右栏 AI；那个路径只当这一处的身份用（笔记那一段第二行行尾的注释）。
  */
 import { app, type BrowserWindow, ipcMain, shell } from 'electron'
-import { pastedImages } from '../pasted'
+import { pastedImages, pastedPath } from '../pasted'
+import { checkMaterials, PASTED_NAME, withMaterials } from '../../shared/materials'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import * as git from '@cn/git'
 import {
   type AskSection,
   attachDirFor,
-  clockOf,
   CONVO_DIR,
   lectureOf,
   parsePdfAnchor,
-  conversationMd,
   newReadingNote,
   notePathFor,
   parseReadingNote,
@@ -28,8 +30,8 @@ import {
   setProp,
   ATTACH_DIR,
   dayOf,
-  linkFrom,
   renderSection,
+  threadName,
 } from '@cn/format'
 import { siteOf } from '../../shared/web-reader'
 import { fmtTime, videoOf } from '../../shared/video'
@@ -37,14 +39,16 @@ import { subsAround } from '../video'
 import type { EngineId } from '../../shared/agent'
 import type { CommitInfo } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
-import type { AnkiSendResult, AskEvent, AskRequest, AskResult, DoubtsView, PdfFile, ReadingMsg, ReadingState, SummarizeRequest, SummarizeResult, VizRequest, VizResult, WriteSectionRequest, WriteSectionResult } from '../../shared/reading'
-import { engine, FAST_MODEL, featureLabel, modelOpt } from '../agent'
+import type { AnkiSendResult, AskEvent, AskRequest, AskResult, DoubtsView, PdfFile, ReadingMsg, ReadingSide, ReadingState, ReadingThread, SummarizeRequest, SummarizeResult, VizRequest, VizResult, WriteSectionRequest, WriteSectionResult } from '../../shared/reading'
+import { chatRun, engine, FAST_MODEL, featureLabel, modelOpt } from '../agent'
 import { E2E } from '../test-mode'
 import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
 import type { EngineImage } from '../agent/engines'
 import type { Vault } from '../vault'
-import { askPrompt, extractHtml, fullTextOf, noteDigest, parseSummary, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, versionsOf, VIZ_SYSTEM, vizFileStem, vizPrompt, vizTitle, withVizMeta } from './prompts'
+import { askPrompt, extractHtml, fullTextOf, noteDigest, parseSummary, sidePrompt, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, TUTOR_VERSION, VIZ_SYSTEM, vizFileStem, vizPrompt, vizTitle, withVizMeta } from './prompts'
+import { buildSection, roundText } from './section'
 import { AnkiConnectError, sendCards } from './anki'
+import { readingKey } from './chats'
 import { setupBilingual } from './bilingual'
 import { setupCapture } from './capture'
 import { ANKI_STATE, collectDoubts, courseName, dirOf, readAnkiState, writeAnkiState, writeDoubtsNote } from './doubts'
@@ -89,8 +93,6 @@ function webSource(web: { url: string; title: string; t?: number }): { url: stri
 }
 const attachOf = (p: string) => (isWeb(p) ? `${ATTACH_DIR}/网页` : attachDirFor(p))
 
-/** 读 PDF / HTML 记在本机的进度、会话文件名：库 + 路径的 hash */
-const readingKey = (root: string, pdf: string) => createHash('sha1').update(root + '\0' + pdf).digest('hex').slice(0, 16)
 
 /** 文件挪了（文件夹改名）：本机记着的读到哪、AI 会话跟着换到新路径 */
 export function moveReadingState(root: string, from: string, to: string) {
@@ -130,9 +132,17 @@ export function setupReading(deps: ReadingDeps) {
     renameSync(p + '.tmp', p)
   }
   const statePath = (pdf: string) => join(dir, `${keyOf(pdf)}.json`)
-  /** 会话号只有主进程写：哪家引擎在用哪个会话、哪个会话读过全文 */
-  type Sessions = { sessions: Partial<Record<EngineId, string>>; fullIn: Partial<Record<EngineId, string>> }
+  /**
+   * 会话号只有主进程写：哪家引擎在用哪个会话、哪个会话读过全文；v 是这些会话开的时候用的讲法版本（TUTOR_VERSION）；
+   * sides 是旁支（CN-90）：旁支编号 → 每家引擎旁支自己的会话号（新对话时和主对话的一起忘掉）
+   */
+  type Sessions = { sessions: Partial<Record<EngineId, string>>; fullIn: Partial<Record<EngineId, string>>; v?: number; sides?: Record<string, Partial<Record<EngineId, string>>> }
   const sessionsPath = (pdf: string) => join(dir, `${keyOf(pdf)}.sessions.json`)
+  /** 讲法改过（旧会话里记着旧的系统提示）的会话不再接着聊：当没有会话，开新的、补上全文和最近几轮 */
+  const readSessions = (pdf: string): Sessions => {
+    const s = readJson<Sessions>(sessionsPath(pdf), { sessions: {}, fullIn: {} })
+    return s.v === TUTOR_VERSION ? s : { sessions: {}, fullIn: {}, v: TUTOR_VERSION }
+  }
   const textPath = (hash: string) => textCachePath(app.getPath('userData'), hash)
 
   // ---------- PDF ----------
@@ -207,7 +217,7 @@ export function setupReading(deps: ReadingDeps) {
       .slice(0, 20_000)
     return { ...(title ? { title } : {}), props, text }
   })
-  ipcMain.handle('reading:forget', (_e, pdf: unknown) => writeJson(sessionsPath(needSource(pdf)), { sessions: {}, fullIn: {} }))
+  ipcMain.handle('reading:forget', (_e, pdf: unknown) => writeJson(sessionsPath(needSource(pdf)), { sessions: {}, fullIn: {}, v: TUTOR_VERSION } satisfies Sessions))
   ipcMain.handle('reading:reveal', (_e, pdf: unknown) => shell.showItemInFolder(needVault().abs(needPdf(pdf))))
 
   ipcMain.handle('reading:state', (_e, pdf: unknown): ReadingState => {
@@ -222,11 +232,12 @@ export function setupReading(deps: ReadingDeps) {
 
   /** 已经发出去、还没写成文件的名字（同一页连着框两块不会撞名） */
   const reserved = new Set<string>()
-  const freeName = (make: (n: number) => string) => {
+  /** taken：别的已经用掉的名字（这一处的身份不再是一个文件：笔记里各段、对话记录里的那几处） */
+  const freeName = (make: (n: number) => string, taken?: ReadonlySet<string>) => {
     const v = needVault()
     for (let n = 1; ; n++) {
       const p = make(n)
-      if (!reserved.has(p) && !existsSync(v.abs(p))) {
+      if (!reserved.has(p) && !taken?.has(p) && !existsSync(v.abs(p))) {
         reserved.add(p)
         return p
       }
@@ -244,10 +255,13 @@ export function setupReading(deps: ReadingDeps) {
     return rel
   })
 
-  ipcMain.handle('reading:thread', (_e, pdf: unknown, page: number) => {
+  ipcMain.handle('reading:thread', async (_e, pdf: unknown, page: number) => {
     const p = needSource(pdf)
+    // 以前问过的几处（笔记里的各段、对话记录里的）都算用掉了：完整对话不再写成文件，光看文件在不在会撞到老的那一段
+    const taken = new Set(readJson<ReadingState | null>(statePath(p), null)?.threads.map((t) => t.id) ?? [])
+    if (!isWeb(p)) for (const s of parseReadingNote((await readText(notePathFor(p))) ?? '', notePathFor(p))) taken.add(s.id)
     // 视频没有页码：「视频-youtube-视频号-1.md」
-    return freeName((n) => `${CONVO_DIR}/${nameOf(p)}${isWeb(p) && videoOf(p.slice(4)) ? '' : `-p${Math.max(1, Math.floor(page))}`}-${n}.md`)
+    return freeName((n) => `${CONVO_DIR}/${nameOf(p)}${isWeb(p) && videoOf(p.slice(4)) ? '' : `-p${Math.max(1, Math.floor(page))}`}-${n}.md`, taken)
   })
 
   // ---------- 全文（pdf-blocks 拼好的段落块，按内容指纹缓存） ----------
@@ -256,7 +270,6 @@ export function setupReading(deps: ReadingDeps) {
     if (typeof hash !== 'string' || !Array.isArray(pages) || !Array.isArray(sizes)) throw new Error('全文不对')
     writeJson(textPath(hash), { pdf: p, pages, sizes } satisfies PdfTextCache)
   })
-  // 有 MinerU 认好的（m1）用它，没有用 pdf.js 拼的（b2）
   const textOf = (hash: string) => readTextCache(app.getPath('userData'), hash)?.pages ?? null
   ipcMain.handle('reading:text:get', (_e, hash: string) => (typeof hash === 'string' ? textOf(hash) : null))
 
@@ -293,19 +306,30 @@ export function setupReading(deps: ReadingDeps) {
 
   ipcMain.handle('reading:ask', async (_e, req: AskRequest): Promise<AskResult> => {
     if (!req || typeof req.id !== 'number' || typeof req.text !== 'string' || !IDS.includes(req.engine) || !Array.isArray(req.images)) throw new Error('AI 参数不对')
+    const side = req.side
+    const optStr = (x: unknown) => x === undefined || (typeof x === 'string' && x.length <= 20_000)
+    if (side !== undefined && (!side || typeof side.id !== 'string' || !/^[\w-]{1,80}$/.test(side.id) || typeof side.history !== 'string' || !optStr(side.quote) || !optStr(side.ask) || !optStr(side.title))) throw new Error('AI 参数不对')
     const pdf = needSource(req.pdf)
     const v = needVault()
+    const mats = checkMaterials(req.mats)
     const ac = new AbortController()
     asking.set(req.id, ac)
     let text = ''
     try {
-      const ss = readJson<Sessions>(sessionsPath(pdf), { sessions: {}, fullIn: {} })
-      const session = ss.sessions[req.engine]
+      const ss = readSessions(pdf)
+      // 旁支（CN-90）：有自己的会话就接着聊；第一问从主对话的会话分叉（主对话还没有会话、那一轮在「新对话」之前，就开新的，那一轮补在前面）
+      const mine = side ? ss.sides?.[side.id]?.[req.engine] : undefined
+      const session = mine ?? (side?.fresh ? undefined : ss.sessions[req.engine])
+      const fork = !!side && !mine && !!session
       const pages = textOf(req.hash)
-      const needFull = !session || ss.fullIn[req.engine] !== session
+      // 旁支问的是回答里的一句：不再附整份 PDF 的字（分叉来的会话里本来就有）
+      const needFull = !side && (!session || ss.fullIn[req.engine] !== session)
       const note = isWeb(pdf) ? '' : ((await readText(notePathFor(pdf))) ?? '')
       const state = readJson<ReadingState | null>(statePath(pdf), null)
-      const prompt = askPrompt({
+      // 旁支：告诉 AI 被问的那句和它所在的那一轮（第一问）；接着问只说接着这条旁支。引用的材料照样按 ①② 列出
+      const prompt = side
+        ? sidePrompt({ first: !mine, quote: side.quote ?? req.thread.quote ?? '', page: req.thread.page, ...(side.title ? { title: side.title } : {}), ...(side.ask ? { ask: side.ask } : {}), question: withMaterials(req.text, mats, req.images.length) })
+        : askPrompt({
         pdfName: isWeb(pdf) ? (req.thread.web?.title ?? '网页') : stemOf(pdf),
         ...(req.thread.web ? { web: req.thread.web } : {}),
         ...(req.thread.web?.t !== undefined ? { subs: subsAround(req.thread.web.url, req.thread.web.t) } : {}),
@@ -313,31 +337,36 @@ export function setupReading(deps: ReadingDeps) {
         page: req.thread.page,
         pages: req.pages,
         pageText: req.pageText,
-        question: req.text,
+        // 引用的材料（多段引用方向 B）：字里的 ①②，后面按同一套编号列出每块（图叫「图②」）；框的那块在附图里排第 1，材料里的图接着排
+        question: withMaterials(req.text, mats, req.images.length),
         thread: req.thread,
         ...(needFull && pages ? { fullText: fullTextOf(pages) } : {}),
-        fullPending: !pages && /\.pdf$/i.test(pdf),
+        fullPending: !side && !pages && /\.pdf$/i.test(pdf),
         digest: noteDigest(parseReadingNote(note, notePathFor(pdf))),
-        hasImage: req.images.length + (req.pasted?.length ?? 0) > 0,
-        ...(req.renamed && !needFull ? { renamed: req.renamed } : {}),
+        // 「附上的图是…」说的是框的那块（或整页）；材料里的图在材料那几行里说（以前不带材料的粘贴的图照旧算）
+        hasImage: req.images.length > 0 || (!mats?.length && (req.pasted?.length ?? 0) > 0),
       })
       const r = await engine(req.engine).run({
-        ...modelOpt('chat', req.engine),
+        ...chatRun(req.engine, req),
         prompt,
+        // 讲透（CN-89）：附在 Claude Code 自己的系统提示后面，带上用户自己的 CLAUDE.md；effort 默认 High（chatRun）
         system: TUTOR_SYSTEM,
+        appendSystem: true,
         cwd: v.root,
         session,
+        ...(fork ? { fork: true } : {}),
         keepSession: true,
         images: [...(await imagesOf(req.images)), ...(await pastedImages(req.pasted))],
-        history: historyOf(state?.msgs ?? [], pages && needFull ? '' : pages ? fullTextOf(pages) : ''),
+        history: side ? side.history : historyOf(state?.msgs ?? [], pages && needFull ? '' : pages ? fullTextOf(pages) : ''),
         signal: ac.signal,
         onText: (delta) => {
           text += delta
           send('reading:event', req.id, { type: 'text', delta } satisfies AskEvent)
         },
       })
-      const next: Sessions = readJson<Sessions>(sessionsPath(pdf), { sessions: {}, fullIn: {} })
-      if (r.session) {
+      const next = readSessions(pdf)
+      if (r.session && side) next.sides = { ...next.sides, [side.id]: { ...next.sides?.[side.id], [req.engine]: r.session } }
+      else if (r.session) {
         next.sessions[req.engine] = r.session
         // 有全文时这个会话一定读过了：要么在这一轮的话里，要么会话接不上、新开时补在前面
         if (pages) next.fullIn[req.engine] = r.session
@@ -353,21 +382,24 @@ export function setupReading(deps: ReadingDeps) {
   })
 
   // ---------- 后台记笔记 ----------
-  async function noteTitles(): Promise<string[]> {
-    return (await needVault().list()).map((n) => titleOf(n.path))
+  /** 界面给的旁支（对话记录里的那几条）：只收这一处的，形状不对的不收 */
+  const sidesOf = (sides: unknown, thread: string): ReadingSide[] => {
+    if (sides === undefined) return []
+    if (!Array.isArray(sides)) throw new Error('旁支不对')
+    return (sides as ReadingSide[]).filter((s) => s && s.thread === thread && typeof s.quote === 'string' && Array.isArray(s.msgs))
   }
 
+  // 后台的两件小活（CN-93、94、96）：这一轮的标题和一句小结，给快的模型；问题、回答原样写，不再让 AI 写疑惑、讲通的讲法、要点
   ipcMain.handle('reading:summarize', async (_e, req: SummarizeRequest): Promise<SummarizeResult> => {
     const pdf = needSource(req.pdf)
     const v = needVault()
     const msgs = req.msgs.filter((m) => m.thread === req.thread.id)
-    const { answers, failed } = versionsOf(msgs)
-    const titles = (await noteTitles()).filter((t) => t !== `${stemOf(pdf)} 笔记`)
     const id = IDS.includes(req.engine) ? req.engine : 'claude'
+    const title = typeof req.title === 'string' ? req.title : undefined
     let raw = ''
     try {
       const r = await engine(id).run({
-        prompt: summarizePrompt({ pdfName: req.thread.web?.title ?? stemOf(pdf), thread: req.thread, msgs, blocks: req.blocks, failed, titles }),
+        prompt: summarizePrompt({ pdfName: req.thread.web?.title ?? stemOf(pdf), thread: req.thread, round: roundText(msgs, sidesOf(req.sides, req.thread.id)), blocks: req.blocks, ...(title ? { title } : {}) }),
         system: SUMMARY_SYSTEM,
         cwd: v.root,
         ...(id === 'claude' ? { model: FAST_MODEL } : {}),
@@ -376,30 +408,10 @@ export function setupReading(deps: ReadingDeps) {
       })
       raw = r.text
     } catch (e) {
-      // 收不成就用对话本身兜一段，原因写进日志；这一处问过的照样记上
-      console.error('收笔记段失败', e)
+      // 写不成就用原来的标题、最后一个回答的开头兜着，原因写进日志；这一处问过的照样记上
+      console.error('写标题和小结失败', e)
     }
-    const p = parseSummary(raw, { thread: req.thread, msgs, failed, titles, blocks: req.blocks })
-    const first = msgs[0]
-    const section: AskSection = {
-      id: req.thread.id,
-      file: isWeb(pdf) ? '' : pdf,
-      page: req.thread.page,
-      ...(req.thread.web ? { web: webSource(req.thread.web) } : {}),
-      ...(req.thread.rect ? { rect: req.thread.rect } : {}),
-      title: p.title,
-      time: clockOf(new Date(first?.time ?? req.thread.createdAt)),
-      ...(req.thread.crop ? { crop: req.thread.crop } : {}),
-      figures: [],
-      doubts: p.doubts,
-      good: p.good,
-      ...(failed.length ? { goodVersion: answers.length } : {}),
-      points: p.points,
-      failed: failed.map((ver) => ({ version: ver, line: p.failedLines[ver] ?? '', text: answers[ver - 1]?.text ?? '' })),
-      rounds: msgs.filter((m) => m.role === 'user').length,
-      links: p.links,
-    }
-    return { section, ...(p.figure ? { figure: { block: p.figure, caption: p.figureCaption ?? '' } } : {}) }
+    return parseSummary(raw, { thread: req.thread, msgs, ...(title ? { title } : {}) })
   })
 
   /** 同一篇笔记一次只写一样（连着问几处、可视化做好时排队） */
@@ -450,7 +462,9 @@ export function setupReading(deps: ReadingDeps) {
         pdf: it.pdf,
         course,
         section: it.section,
+        // 问题是发出去的原话（新格式一问一张），旁支那一问带着被问的那句
         question: it.section.doubts[0] ?? it.section.title,
+        ...(it.quote ? { quote: it.quote } : {}),
         ...(it.section.crop ? { png: await readFile(v.abs(it.section.crop)).catch(() => undefined) } : {}),
       })),
     )
@@ -479,7 +493,9 @@ export function setupReading(deps: ReadingDeps) {
     const v = needVault()
     const note = notePathFor(pdf)
     const msgs = req.msgs.filter((m) => m.thread === req.thread.id)
-    const good = parseReadingNote((await readText(note)) ?? '', note).find((x) => x.id === req.thread.id)?.good
+    // 讲到哪了：新格式用这一轮的小结，以前的笔记用讲通的讲法
+    const was = parseReadingNote((await readText(note)) ?? '', note).find((x) => x.id === req.thread.id)
+    const good = was?.qas ? was.recap || was.good : was?.good
     const r = await engine(req.engine).run({
       ...modelOpt('chat', req.engine),
       prompt: vizPrompt({ pdfName: stemOf(pdf), thread: req.thread, msgs, pageText: req.pageText, ...(good ? { good } : {}) }),
@@ -517,35 +533,84 @@ export function setupReading(deps: ReadingDeps) {
     })
   })
 
+  /** 答完马上先写的那一次没提交：等标题、小结写好的那一次一起提交，不当成用户自己改的字先提交掉 */
+  const unsaved = new Set<string>()
+
+  /**
+   * 材料里的图（软件设置目录 pasted/ 里，不在库里）拷进这份 PDF 的附件：<这一处>-<名字前 8 位>.png（同一张拷过不再拷）。
+   * 返回 pasted 名字 → 库里的路径；pasted 里已经没有的那张不写
+   */
+  async function copyMats(pdf: string, thread: ReadingThread, msgs: ReadingMsg[], sides: ReadingSide[]): Promise<Map<string, string>> {
+    const v = needVault()
+    const tag = threadName(thread.id).replace(/^.*-(p\d+-\d+)$/, '$1')
+    const names = new Set<string>()
+    for (const m of [...msgs.filter((x) => x.thread === thread.id), ...sides.flatMap((s) => s.msgs)]) for (const mat of m.mats ?? []) if (mat.kind === 'image' && PASTED_NAME.test(mat.name)) names.add(mat.name)
+    const out = new Map<string, string>()
+    for (const name of names) {
+      const rel = `${attachOf(pdf)}/${tag}-${name.slice(0, 8)}.${name.endsWith('.jpg') ? 'jpg' : 'png'}`
+      const abs = v.abs(rel)
+      if (!existsSync(abs)) {
+        try {
+          await mkdir(dirname(abs), { recursive: true })
+          await copyFile(pastedPath(name), abs)
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue
+          throw e
+        }
+      }
+      out.set(name, rel)
+    }
+    return out
+  }
+
+  /**
+   * 写笔记里这一处的那一段（新格式）：问题原话、回答原文、旁支挂在被问那一问后面；标题和小结用这一次给的，
+   * 没给（答完马上先写的那一次）用笔记里原来那段的。笔记里原来那段的双链、可视化、配的图留着
+   */
   async function writeSection(req: WriteSectionRequest, note: string): Promise<WriteSectionResult> {
     const v = needVault()
     const pdf = req.pdf
-    const s: AskSection = { ...req.section, id: req.thread.id, file: isWeb(pdf) ? '' : pdf, figures: [...req.section.figures] }
-    const viz = pendingViz.get(s.id)
-    if (viz) s.viz = viz
-    const paths = [note, s.id]
+    const th = req.thread
+    const sides = sidesOf(req.sides, th.id)
+    const mats = await copyMats(pdf, th, req.msgs, sides)
+    const paths = [note, ...mats.values()]
+    let fig: { path: string; caption: string } | null = null
     if (req.figurePng instanceof Uint8Array && req.figurePng.length) {
-      const fig = `${attachDirFor(pdf)}/${stemOf(s.id).replace(/^.*-(p\d+-\d+)$/, '$1')}-fig.png`
-      await mkdir(dirname(v.abs(fig)), { recursive: true })
-      await writeFile(v.abs(fig), req.figurePng)
-      const caption = s.figures[0]?.caption
-      s.figures = [{ path: fig, caption: caption || `第 ${s.page} 页的图` }]
-      paths.push(fig)
+      fig = { path: `${attachDirFor(pdf)}/${threadName(th.id).replace(/^.*-(p\d+-\d+)$/, '$1')}-fig.png`, caption: req.figureCaption || `第 ${th.page} 页的图` }
+      await mkdir(dirname(v.abs(fig.path)), { recursive: true })
+      await writeFile(v.abs(fig.path), req.figurePng)
+      paths.push(fig.path)
     }
-    for (const m of req.msgs) if (m.thread === s.id && m.image) paths.push(m.image)
-    if (s.crop) paths.push(s.crop)
-    // 笔记里用户自己没提交的字先单独提交，这次提交里只有 AI 记的这一段
-    const pending = (await git.status(v.root)).filter((x) => x.path === note)
-    if (pending.length) await git.commitPaths(v.root, [note], git.describeChanges(pending))
+    for (const m of req.msgs) if (m.thread === th.id && m.image) paths.push(m.image)
+    if (th.crop) paths.push(th.crop)
+    // 笔记里用户自己没提交的字先单独提交，这次提交里只有记的这一段（答完马上先写、还没提交的那一次不算用户的）
+    if (!unsaved.has(note)) {
+      const pending = (await git.status(v.root)).filter((x) => x.path === note)
+      if (pending.length) await git.commitPaths(v.root, [note], git.describeChanges(pending))
+    }
     // 收件箱这类文件夹可能还没有
     await mkdir(dirname(v.abs(note)), { recursive: true })
+    const fallback = parseSummary('', { thread: th, msgs: req.msgs.filter((m) => m.thread === th.id) })
+    let s: AskSection | null = null
     for (let tries = 0; ; tries++) {
       const cur = await readText(note)
       const base = cur ?? ''
-      // 已经挂上的可视化留着（这一轮 AI 收的那段不知道它）
-      const old = parseReadingNote(base, note).find((x) => x.id === s.id)
-      if (!s.viz && old?.viz) s.viz = old.viz
-      let next = upsertSection(cur ?? (isWeb(pdf) ? newWebNote(req.thread.web) : newReadingNote(pdf)), s, note)
+      const old = parseReadingNote(base, note).find((x) => x.id === th.id) ?? null
+      s = buildSection({
+        pdf,
+        thread: th,
+        msgs: req.msgs,
+        sides,
+        title: req.title ?? old?.title ?? fallback.title,
+        recap: req.recap ?? (old?.qas ? old.recap : undefined) ?? fallback.recap,
+        old,
+        ...(th.web ? { web: webSource(th.web) } : {}),
+        matPath: (n) => mats.get(n) ?? '',
+      })
+      const viz = pendingViz.get(th.id)
+      if (viz) s.viz = viz
+      if (fig) s.figures = [fig]
+      let next = upsertSection(cur ?? (isWeb(pdf) ? newWebNote(th.web) : newReadingNote(pdf)), s, note)
       // 进度：问到第几页（问过的最大页码）/ 一共几页
       if (req.pages > 0) next = setProp(next, '进度', `${Math.max(...parseReadingNote(next, note).map((x) => x.page))}/${req.pages}`)
       const w = await v.write(note, next, base)
@@ -556,36 +621,31 @@ export function setupReading(deps: ReadingDeps) {
       }
       if (tries >= 2) throw new Error('笔记刚被改过，写不进去，等一下再问一轮会再记')
     }
-    const turns = req.msgs
-      .filter((m) => m.thread === s.id && m.text.trim() && !m.error)
-      .map((m: ReadingMsg) => ({ role: m.role, text: m.text, time: clockOf(new Date(m.time)), ...(m.image ? { image: m.image } : {}) }))
-    const convoAbs = v.abs(s.id)
-    await mkdir(dirname(convoAbs), { recursive: true })
-    await writeFile(convoAbs, s.web ? webConversationMd(s, turns) : conversationMd(s.id, pdf, s.page, s.rect, turns))
-    reserved.delete(s.id)
-    pendingViz.delete(s.id)
+    pendingViz.delete(th.id)
+    if (req.commit === false) {
+      unsaved.add(note)
+      return { note, commit: null }
+    }
+    unsaved.delete(note)
     const doubts = isWeb(pdf) ? null : await writeDoubtsNote(v, dirOf(pdf))
     if (doubts) paths.push(doubts)
-    const hash = await git.commitPaths(v.root, [...new Set(paths)], `笔记：${isWeb(pdf) ? (req.thread.web?.title ?? '网页') : stemOf(pdf)}${s.page > 0 ? ` 第 ${s.page} 页` : ''} · ${s.title}`)
+    const hash = await git.commitPaths(v.root, [...new Set(paths)], `笔记：${isWeb(pdf) ? (th.web?.title ?? '网页') : stemOf(pdf)}${th.page > 0 ? ` 第 ${th.page} 页` : ''} · ${s.title}`)
     let commit: CommitInfo | null = null
     if (hash) commit = (await git.log(v.root, 1))[0] ?? null
     send('files:changed')
     return { note, commit }
   }
 
-  /** 网页上问的、中间栏开着文档：完整对话写好，这一段的 md 交回界面插到光标处（界面存好后再一起提交） */
+  /** 网页上问的、中间栏开着文档：这一段的 md（新格式）交回界面插到光标处（界面存好后再一起提交） */
   async function writeWebToDoc(req: WriteSectionRequest, doc: string): Promise<WriteSectionResult> {
     const v = needVault()
     v.abs(doc)
-    const s: AskSection = { ...req.section, id: req.thread.id, file: '', figures: [...req.section.figures] }
-    const turns = req.msgs
-      .filter((m) => m.thread === s.id && m.text.trim() && !m.error)
-      .map((m: ReadingMsg) => ({ role: m.role, text: m.text, time: clockOf(new Date(m.time)), ...(m.image ? { image: m.image } : {}) }))
-    const convoAbs = v.abs(s.id)
-    await mkdir(dirname(convoAbs), { recursive: true })
-    await writeFile(convoAbs, webConversationMd(s, turns))
-    reserved.delete(s.id)
-    const files = [s.id, ...(s.crop ? [s.crop] : []), ...req.msgs.flatMap((m) => (m.thread === s.id && m.image ? [m.image] : []))]
+    const th = req.thread
+    const sides = sidesOf(req.sides, th.id)
+    const mats = await copyMats(req.pdf, th, req.msgs, sides)
+    const fallback = parseSummary('', { thread: th, msgs: req.msgs.filter((m) => m.thread === th.id) })
+    const s = buildSection({ pdf: req.pdf, thread: th, msgs: req.msgs, sides, title: req.title ?? fallback.title, recap: req.recap ?? fallback.recap, ...(th.web ? { web: webSource(th.web) } : {}), matPath: (n) => mats.get(n) ?? '' })
+    const files = [...(s.crop ? [s.crop] : []), ...mats.values(), ...req.msgs.flatMap((m) => (m.thread === th.id && m.image ? [m.image] : []))]
     return { note: doc, commit: null, markdown: renderSection(s, doc), files: [...new Set(files)] }
   }
 
@@ -611,19 +671,6 @@ function newWebNote(web: { url: string; title: string } | undefined): string {
   if (web) t = setProp(t, '来源', web.url)
   t = setProp(t, '日期', dayOf(new Date()))
   return `${t}\n# ${web?.title ?? '网页'} 笔记\n`
-}
-
-/** 网页、HTML 上问的完整对话：头上回到网页（或 HTML）的链接 */
-function webConversationMd(s: AskSection, turns: { role: 'user' | 'ai'; text: string; time?: string; image?: string }[]): string {
-  const w = s.web!
-  const href = /^https?:/i.test(w.url) ? w.url : linkFrom(s.id, w.url)
-  const out = [`# ${w.label} · ${s.title} · 完整对话`, '', `[回到 ${w.label}](${href})`]
-  for (const t of turns) {
-    out.push('', `### ${t.role === 'user' ? '我' : 'AI'}${t.time ? ` · ${t.time}` : ''}`, '')
-    if (t.image) out.push(`![${w.t !== undefined ? `${fmtTime(w.t)} 这一帧` : '我框的'}](${linkFrom(s.id, t.image)})`, '')
-    out.push(t.text.trim())
-  }
-  return out.join('\n') + '\n'
 }
 
 export const VIZ_TIMEOUT = 8 * 60_000

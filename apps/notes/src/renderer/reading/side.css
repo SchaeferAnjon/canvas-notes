@@ -1,0 +1,752 @@
+/*
+ * 旁支（CN-90 方向 A「照 Dispatch 旁支」）和笔记长文档（CN-93–96）。尺寸、颜色照小样 A-AI与读PDF/v2/proto-a.html（kit.css 里
+ * #sash、#sidecol、.ph.sh、.qchip、.sacts、.askbox、.asked、.badge、.doc、.nbar、.rnd、.qs、.side、.recap、.crop），用 DOM 量过。
+ * 笔记里的一条旁支叫 .nside，不叫 .side：.side 是左栏（app.css、frame.css），撞名会带上左栏的底色、右边线、上边 38 的空和拖窗口的区域。
+ */
+
+/* ---------- 右栏 AI 那一格分上下两格 ---------- */
+/* 这一格多高：整栏，或者右栏开着网页、大纲、历史时的下面一半（百分数都按右栏那一格的高算：只用在 height、bottom 上，margin 的百分数按宽算） */
+.win > .right.aicell,
+.win > .side-sash {
+  --room: 100%;
+}
+.win.rsplit > .right.aicell,
+.win.rsplit > .side-sash {
+  --room: 50%;
+}
+/*
+ * 下格（带上面那条线）的高：默认 55%，拖过按 --share；下格最矮 201；上格（主对话）最矮 420，留得出约 13 行回答能读
+ * （真 AI 那一遍：887 高时上格只剩 368、消息区 224，问的那句下面只露两行就是输入框）。两头都放不下时下格的 201 优先、上格让到 32；
+ * 窗口变矮到放不下两头时旁支先收成格头那一条（side.tsx，SIDE_ROOM）。收成一条 29
+ */
+.win > .right.aicell.with-side,
+.win > .side-sash {
+  --pane: max(min(calc(var(--room) - 420px), max(201px, calc(var(--room) * var(--share, 0.55)))), min(201px, calc(var(--room) - 32px)));
+}
+.win > .right.aicell.with-side.side-fold,
+.win > .side-sash.side-fold {
+  --pane: 29px;
+}
+/* 上格：AI 或笔记 */
+.win > aside.right.aicell.with-side:not(.reading-side) {
+  align-self: start;
+  height: calc(var(--room) - var(--pane));
+  transition:
+    height 0.2s ease,
+    bottom 0.2s ease;
+}
+.win.rsplit > aside.right.aicell.with-side:not(.reading-side) {
+  align-self: end;
+  position: relative;
+  bottom: var(--pane);
+}
+/* 下格：旁支 */
+.win > aside.right.aicell.reading-side {
+  align-self: end;
+  height: var(--pane);
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: height 0.2s ease;
+}
+/* 拖着线的时候不动画（跟手） */
+.win:has(> .side-sash.on) > aside.right.aicell {
+  transition: none;
+}
+/* 两格之间那条线：6 高的拖动区，中间 1px --line2；悬停、拖着时 3px 强调色。收成一条时只是一条线，不能拖 */
+.win > .side-sash {
+  grid-column: 4;
+  grid-row: 2;
+  align-self: end;
+  position: relative;
+  bottom: calc(var(--pane) - 3px);
+  z-index: 6;
+  height: 6px;
+  cursor: row-resize;
+  transition: bottom 0.2s ease;
+}
+.win > .side-sash::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 2px;
+  height: 1px;
+  background: var(--line2);
+}
+.win > .side-sash:not(.side-fold):hover::before,
+.win > .side-sash.on::before {
+  top: 1px;
+  height: 3px;
+  background: var(--acc);
+}
+.win > .side-sash.side-fold {
+  cursor: default;
+}
+.win:has(> .side-sash.on) > .side-sash {
+  transition: none;
+}
+/* B 浮岛书桌：上下两格是一块岛（同右栏开着网页时的两格），上格只留 1px 外圈，下格的投影不往上盖 */
+.frame-b > .side-sash {
+  margin-left: var(--gap);
+}
+.frame-b > aside.right.aicell.with-side:not(.reading-side) {
+  border-radius: 10px 10px 0 0;
+  clip-path: inset(-1px -1px 0 -1px round 11px 11px 0 0);
+}
+.frame-b.rsplit > aside.right.aicell.with-side:not(.reading-side) {
+  border-radius: 0;
+  clip-path: inset(-1px -1px 0 -1px);
+}
+.frame-b > aside.right.aicell.reading-side {
+  border-radius: 0 0 10px 10px;
+  clip-path: inset(0 -40px -40px -40px);
+}
+.frame-b.rsplit > aside.right.aicell.reading-side {
+  border-top: 0;
+}
+
+/* ---------- 旁支的格头：28 高、左 20；chevron-down 12（收起时转 -90°）+ comment-discussion 14 +「旁支」500 +「· 名字 · 来自第 28 页」12 --t3；右边 ⋯ 和 × ---------- */
+.reading-side .sh {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px 0 20px;
+  font-size: 13px;
+  color: var(--t1);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+.reading-side .sh:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--acc-ring);
+}
+.reading-side .sh > .ci {
+  flex: none;
+}
+.reading-side .sh .cv {
+  transition: transform 0.15s ease;
+}
+.reading-side.side-fold .sh .cv {
+  transform: rotate(-90deg);
+}
+.reading-side .sh b {
+  flex: none;
+  font-weight: 500;
+}
+.reading-side .sh .s {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 收着时有没看的回答：「· 1 条新回答」 --t1 500 */
+.reading-side .sh .s.new {
+  font-weight: 500;
+  color: var(--t1);
+}
+/* 收着时在答：「· 在答」扫光的灰字 */
+.reading-side .sh .s.shimmer {
+  background: linear-gradient(90deg, var(--t3) 30%, var(--t1) 50%, var(--t3) 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: side-shim 1.2s linear infinite;
+}
+@keyframes side-shim {
+  to {
+    background-position: -200% 0;
+  }
+}
+/* 改名：名字那一处就地换成一格 */
+.reading-side .sh .rn {
+  flex: 0 1 220px;
+  min-width: 60px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  outline: 0;
+  border-radius: 4px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--acc-ring);
+  font: 12px var(--sans);
+  color: var(--t1);
+}
+.reading-side .sh .ibs {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--t2);
+}
+/* ⋯ 和 ×：24 方、圆角 4，平时透明，指着格头或焦点在旁支里时出来 */
+.reading-side .sh .ib {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--t2);
+  opacity: 0;
+}
+.reading-side .sh:hover .ib,
+.reading-side:has(.sbody:focus-within) .sh .ib,
+.reading-side .sh .ib.open {
+  opacity: 1;
+}
+.reading-side .sh .ib:hover,
+.reading-side .sh .ib.open {
+  background: var(--fill);
+  color: var(--t1);
+}
+
+/* ---------- 旁支里：引用片、问答、三个小按钮、输入框 ---------- */
+.reading-side .sbody {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.reading-side .sbody[hidden] {
+  display: none;
+}
+.reading-side .smsgs {
+  padding: 12px 20px 16px;
+  gap: 12px;
+}
+/* 引用片：48 高、圆角 6、1px --line2、--card 底；quote 14 --t3 + 两行（那句话 13 单行省略号、「主对话 · 第 28 页 · 标题」12 --t2）；指着它外圈强调色 */
+.reading-side .qchip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 48px;
+  margin-bottom: -2px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line2);
+  font: inherit;
+  color: var(--t1);
+  text-align: left;
+  cursor: pointer;
+}
+.reading-side .qchip:hover {
+  box-shadow: 0 0 0 1px var(--acc-ring);
+}
+.reading-side .qchip .qi {
+  flex: none;
+  color: var(--t3);
+}
+.reading-side .qchip .qc {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.reading-side .qchip .l1,
+.reading-side .qchip .l2 {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.5;
+}
+.reading-side .qchip .l1 {
+  font-size: 13px;
+}
+.reading-side .qchip .l2 {
+  font-size: 12px;
+  color: var(--t2);
+}
+/* 问的话：右边的气泡（最宽 80%）；回答：正文 */
+.reading-side .um-wrap {
+  align-self: flex-end;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: 80%;
+}
+.reading-side .um-wrap .um {
+  max-width: 100%;
+}
+.reading-side .am .txt {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.reading-side .thinking {
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 答完以后输入框上面三个小按钮：24 高、圆角 4、12px --t2，图标 12 */
+.reading-side .sacts {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 0 20px;
+}
+.reading-side .sacts button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.reading-side .sacts button:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.reading-side .aiin {
+  margin: 8px 20px 12px;
+}
+
+/* ---------- 回答里选中一句：小框（300 宽、圆角 12、内边距 6；上面一格 32 高的问题，分隔线，下面两行 30 高） ---------- */
+/* 家族 ui.css 的 .menu 有 1px 边、弹出时缩放 0.98 的动画：小样的框没有，和输入框底行的菜单（.ai-menu）一样直接出来 */
+.menu.askbox {
+  position: fixed;
+  z-index: 60;
+  display: block;
+  width: 300px;
+  min-width: 0;
+  max-width: none;
+  padding: 6px;
+  border: 0;
+  border-radius: 12px;
+  animation: none;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  color: var(--t1);
+  user-select: none;
+}
+.askbox textarea {
+  display: block;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  outline: 0;
+  resize: none;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 13px/1.5 var(--sans);
+  color: var(--t1);
+}
+.askbox textarea::placeholder {
+  color: var(--t3);
+}
+.askbox .sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+.askbox .it {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font-size: 13px;
+  color: var(--t1);
+  text-align: left;
+  white-space: nowrap;
+}
+.askbox .it:hover {
+  background: var(--fill);
+}
+.askbox .it .ck {
+  flex: none;
+  width: 14px;
+  display: grid;
+  place-items: center;
+}
+.askbox .it .r {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+}
+/* ---------- 问过的那句：--acc 点线（1.5 粗、4 一个点，在字下面约 4），后面一个带数字的小标（17 高、圆角 5、--acc-soft 底 --acc-t 字 11px 500；开着的那条 --acc-bg 底 --acc-on 字） ---------- */
+/* 点线画成底边上重复的点，不用 text-decoration：那条线进不了行内公式（KaTeX 是 inline-block），一句里有公式时会断成几截 */
+.reading-ai .asked,
+.reading-notes .asked {
+  padding-bottom: 2px;
+  background-image: radial-gradient(circle, var(--acc) 0.75px, transparent 0.9px);
+  background-size: 4px 1.5px;
+  background-repeat: repeat-x;
+  background-position: 0 100%;
+}
+/* 指着引用片时、点了引用片回到这句时（亮 1.4 秒）：只换底色，点线留着；不要圆角（一句折成两行、或者有公式时一整块连着） */
+.reading-ai .asked.hov,
+.reading-ai .asked.lit {
+  background-color: color-mix(in srgb, var(--acc) 24%, transparent);
+}
+.reading-ai .badge,
+.reading-notes .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 17px;
+  margin-left: 3px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font-size: 11px;
+  font-weight: 500;
+  font-style: normal;
+  line-height: 1;
+  vertical-align: 1px;
+  cursor: pointer;
+  user-select: none;
+}
+.reading-ai .badge:hover,
+.reading-ai .badge.cur,
+.reading-notes .badge:hover {
+  background: var(--acc-bg);
+  color: var(--acc-on);
+}
+.reading-ai .badge:focus-visible,
+.reading-notes .badge:focus-visible {
+  outline: 2px solid var(--acc-ring);
+  outline-offset: 1px;
+}
+
+/* ---------- 笔记：一篇长文档 ---------- */
+.reading-notes .notes.ndoc {
+  padding: 4px 20px 24px;
+}
+/* 顶上一行：28 高、圆角 8、--fill 底的「在这份笔记里找」，右边「3 轮 · 7 问」 */
+.reading-notes .nbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.reading-notes .nbar .srch {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.reading-notes .nbar .srch input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t1);
+}
+.reading-notes .nbar .srch input::placeholder {
+  color: var(--t3);
+}
+.reading-notes .nbar .num {
+  flex: none;
+}
+/* 一轮：上面一道 --line */
+.reading-notes .rnd {
+  border-top: 1px solid var(--line);
+  padding: 12px 0 10px;
+}
+/* 点了页边标记、「已记进笔记 ›」：外圈亮 2 秒；圈和字之间留 8 的空（卡片别贴边）。刚记好的不亮外圈，新长出来的那几块自己闪（.grow） */
+.reading-notes .rnd.flash {
+  animation: note-ring 2s ease-out;
+  border-radius: 6px;
+  margin-inline: -8px;
+  padding-inline: 8px;
+}
+/* 收成一行：40 高，chevron-right 14 --t3 +「第 27 页 · 标题」500 + 小结的前半句 12 --t3 省略号 + 右边「1 问 · 20:14」 */
+.reading-notes .rnd.fold {
+  padding: 0;
+}
+.reading-notes .rnd.fold .fh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--t1);
+  text-align: left;
+  cursor: pointer;
+}
+.reading-notes .rnd.fold .fh:hover {
+  width: calc(100% + 16px);
+  margin: 0 -8px;
+  padding: 0 8px;
+  background: var(--fill);
+}
+.reading-notes .rnd.fold .cv {
+  flex: none;
+  color: var(--t3);
+}
+.reading-notes .rnd.fold .tt {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.reading-notes .rnd.fold .rc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--t3);
+}
+.reading-notes .rnd.fold .r {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+/* 展开的一轮：标题 15/600 + 右边「4 问 · 20:21 ⌄」；下一行「第 28 页 ›」（--acc-t）「· 我框的」 */
+.reading-notes .rh {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+}
+.reading-notes .rh h3 {
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.reading-notes .rh .r {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.reading-notes .loc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.reading-notes .loc button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.reading-notes .loc button:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+/* 我框的图：按框在 PDF 上 100% 时的宽显示（不超过栏宽），圆角 6、1px --line2、白底（CN-111）；以前的图没记宽度，最高 220 */
+.reading-notes .crop {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line2);
+  background: #fff;
+  vertical-align: top;
+  cursor: pointer;
+}
+.reading-notes .crop img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+.reading-notes .crop img.old {
+  max-height: 220px;
+  width: auto;
+}
+.reading-notes .crop:hover {
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+[data-tone='dark'] .reading-notes .crop img {
+  filter: brightness(0.92);
+}
+.reading-notes .nfig {
+  margin: 8px 0 0;
+}
+.reading-notes .nfig figcaption {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--t3);
+}
+/* 主问题条：--fill2、圆角 6、整栏宽，comment 14 + 原话 500 */
+.reading-notes .qs {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--fill2);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--t1);
+}
+.reading-notes .qs .ci {
+  flex: none;
+  margin-top: 2px;
+  color: var(--t2);
+}
+.reading-notes .qs .fn,
+.reading-notes .qmats .fn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--acc);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: 2px;
+}
+/* 带的材料：问题条下面一行一条 */
+.reading-notes .qmats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: -4px 0 8px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.reading-notes .qmats .fni {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.reading-notes .qmats .fq {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reading-notes .qmats .fs {
+  flex: none;
+  color: var(--t3);
+}
+.reading-notes .qmats img {
+  height: 36px;
+  border-radius: 3px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.reading-notes .am {
+  font-size: 13px;
+  line-height: 1.7;
+}
+/* 旁支：左边距 18、左内边距 12、2px --line2 竖线；被问的那句一行 12 --t3 带 quote；旁支的问题条 78% 宽、--fill */
+.reading-notes .nside {
+  margin: 6px 0 12px 18px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line2);
+}
+.reading-notes .nside .q0 {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.reading-notes .nside .q0 .ci {
+  flex: none;
+  margin-top: 3px;
+}
+.reading-notes .nside .qs {
+  width: 78%;
+  background: var(--fill);
+}
+/* 末尾一句小结：「小结」500 --t1 + 一句 13 --t2 */
+.reading-notes .recap {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0 2px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.reading-notes .recap b {
+  flex: none;
+  font-weight: 500;
+  color: var(--t1);
+}
+/* 新长出来的那一块闪一下（1.6 秒） */
+.reading-notes .grow {
+  animation: note-grow 1.6s ease-out;
+}
+@keyframes note-grow {
+  0% {
+    background: var(--acc-soft);
+    transform: translateY(4px);
+    opacity: 0.2;
+  }
+  25% {
+    opacity: 1;
+    transform: none;
+  }
+  70% {
+    background: var(--acc-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}

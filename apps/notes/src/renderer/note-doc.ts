@@ -1,12 +1,12 @@
 import { history, redo, undo } from '@codemirror/commands'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { Compartment, EditorState, type Extension, Prec, Transaction } from '@codemirror/state'
+import { EditorState, type Extension, Prec, Transaction } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { reconcile, textChanges } from '@cn/format'
 import type { OpenedNote } from '../shared/api'
 import { titleOf } from '../shared/layout'
 import { sayMerged, saySameSpot } from './conflict-say'
-import { editorMenu } from './ctx/editor-menu'
+import { addLink, editorMenu, linkAt, openLinkHit } from './ctx/editor-menu'
 import { docEditing } from './doc-editing'
 import { noteKeys } from './note-keys'
 import { folderChip, setNotePath } from './folder-chip'
@@ -19,6 +19,7 @@ import { docImageDrop } from './web/doc-image-drop'
 import { videoDocWidgets } from './video/doc-widgets'
 import { askPending } from './video/ask-pending'
 import { materialFold } from './video/material-fold'
+import { provisional, provisionalRange } from './tail-line'
 
 /**
  * failed：哪都写不进去（原文件、它旁边、库最外层都不让写，像盘满了），字只在内存里（另备了一份在软件设置目录），下次改动再试。
@@ -26,8 +27,8 @@ import { materialFold } from './video/material-fold'
  */
 export type SaveState = 'saved' | 'dirty' | 'saving' | 'failed'
 
-/** 白板：卡片摆在画布上；文档：实时预览；源文件：md 原文 */
-export type ViewMode = 'board' | 'doc' | 'source'
+/** 白板：卡片摆在画布上；文档：所见即所得（只有这两种看法，没有「源文件」：2026-11-17 用户定，方向 A「块上露写法」） */
+export type ViewMode = 'board' | 'doc'
 
 export interface NoteDocEvents {
   onState(s: SaveState): void
@@ -138,9 +139,6 @@ export class NoteDoc {
     this.notePath = p
     if (!this.destroyed) this.view.dispatch({ effects: setNotePath.of(p) })
   }
-  private mode = new Compartment()
-  /** 文档模式：实时预览 + 块编辑（把手、/ 菜单、待办、表格、图片） */
-  private docMode: Extension
   readonly readOnly: boolean
   /** 上次和磁盘对上的文字 */
   private base: string
@@ -173,7 +171,8 @@ export class NoteDoc {
     this.readOnly = note.readOnly
     this.base = note.text
     NoteDoc.open.add(this)
-    this.docMode = [livePreview, layoutLines, propsBlock, folderChip(note.path), videoDocWidgets, askPending, materialFold, docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) })]
+    /** 文档模式：所见即所得 + 块编辑（把手、/ 菜单、待办、表格、图片） */
+    const docMode: Extension = [livePreview, layoutLines, propsBlock, folderChip(note.path), videoDocWidgets, askPending, materialFold, docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) })]
     this.view = new EditorView({
       parent,
       state: EditorState.create({
@@ -194,18 +193,37 @@ export class NoteDoc {
           history(),
           insertPoint,
           markdown({ base: markdownLanguage }),
-          this.mode.of(this.docMode),
+          docMode,
           insertFlash,
           docImageDrop(
             () => this.path,
             (t) => this.events.onNotice(t),
           ),
           EditorView.domEventHandlers({
-            mousedown: (e) => {
-              const link = (e.target as HTMLElement).closest<HTMLElement>('.cm-wikilink')
-              if (!link || !(e.metaKey || e.ctrlKey)) return false
+            // 选了字按 ⌘K：加链接（右键菜单上写着的快捷键；没选字时 ⌘K 照旧是搜索）
+            keydown: (e, view) => {
+              if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'k' || view.state.selection.main.empty || view.state.readOnly) return false
               e.preventDefault()
-              this.events.onOpenLink(link.dataset.target ?? link.textContent ?? '')
+              e.stopPropagation()
+              void addLink(view)
+              return true
+            },
+            mousedown: (e, view) => {
+              if (!(e.metaKey || e.ctrlKey) || e.button !== 0) return false
+              const wiki = (e.target as HTMLElement).closest<HTMLElement>('.cm-wikilink')
+              if (wiki) {
+                e.preventDefault()
+                this.events.onOpenLink(wiki.dataset.target ?? wiki.textContent ?? '')
+                return true
+              }
+              // ⌘ 点链接：右栏网页开（同一个网址开着就切过去）；⌘⌥ 点：中间栏开（同右键「在中间栏打开」）
+              const pos = view.posAtCoords({ x: e.clientX, y: e.clientY })
+              if (pos === null) return false
+              const line = view.state.doc.lineAt(pos)
+              const hit = linkAt(line.text, pos - line.from)
+              if (hit?.kind !== 'url') return false
+              e.preventDefault()
+              openLinkHit(this.path, hit.url, hit.text, e.altKey)
               return true
             },
           }),
@@ -232,21 +250,27 @@ export class NoteDoc {
             if (u.selectionSet && u.view.hasFocus) this.events.onCursor?.(u.state.selection.main.head)
             if (!u.docChanged) return
             this.events.onText?.(u.state.doc.toString())
-            const fromDisk = u.transactions.every((t) => t.annotation(Transaction.remote))
+            // 外面改的不再写回；文末那一行点进去还没打字时暂时加的换行（tail-line.ts）不存盘
+            const fromDisk = u.transactions.every((t) => t.annotation(Transaction.remote) || t.annotation(provisional))
             if (!fromDisk) this.scheduleSave()
           }),
         ],
       }),
     })
     this.view.dom.addEventListener('contextmenu', this.onContextMenu)
+    // 编辑器外框上挂一个只读的 cnText：端到端测试直接读 md 原文（软件里没有「源文件」看法可切了）
+    Object.defineProperty(this.view.dom, 'cnText', { get: () => this.text })
+    // 按住 ⌘：指着的链接变 --acc-t 加下划线、鼠标变手（点了在右栏开）
+    window.addEventListener('keydown', this.onMeta)
+    window.addEventListener('keyup', this.onMeta)
+    window.addEventListener('blur', this.offMeta)
   }
+
+  private onMeta = (e: KeyboardEvent) => this.view.dom.classList.toggle('cn-meta', e.metaKey || e.ctrlKey)
+  private offMeta = () => this.view.dom.classList.remove('cn-meta')
 
   /** 右键：文档自己的菜单（ctx/editor-menu.ts）。挂在整个编辑器上：图片、表格这些小部件不把事件交给 CodeMirror */
   private onContextMenu = (e: MouseEvent) => editorMenu(this.view, e, this.path)
-
-  setMode(mode: ViewMode) {
-    this.view.dispatch({ effects: this.mode.reconfigure(mode === 'source' ? [] : this.docMode) })
-  }
 
   /** 白板上的操作：整篇换成 text，只改有差别的地方，能用 ⌘Z 撤销 */
   setText(text: string) {
@@ -291,6 +315,13 @@ export class NoteDoc {
     return this.view.state.doc.toString()
   }
 
+  /** 要存盘的字：文末那一行点进去还没打正文时暂时加的换行不算（tail-line.ts），打开再保存文件不变 */
+  private get diskText(): string {
+    const t = this.text
+    const r = provisionalRange(this.view.state)
+    return r ? t.slice(0, r.from) + t.slice(r.to) : t
+  }
+
   private scheduleSave() {
     if (this.readOnly) return
     this.events.onState(NoteDoc.failing.has(this) ? 'failed' : 'dirty')
@@ -323,7 +354,7 @@ export class NoteDoc {
   }
 
   private stateNow(): SaveState {
-    return NoteDoc.failing.has(this) ? 'failed' : this.text === this.base ? 'saved' : 'dirty'
+    return NoteDoc.failing.has(this) ? 'failed' : this.diskText === this.base ? 'saved' : 'dirty'
   }
 
   private setFailing(on: boolean) {
@@ -343,7 +374,7 @@ export class NoteDoc {
     let why = writeErrorText(e)
     if (!this.rescuedFromPath) {
       const from = this.path
-      const text = this.text
+      const text = this.diskText
       try {
         const to = await window.cn.rescueNote(from, text)
         this.rescuedFromPath = from
@@ -353,7 +384,7 @@ export class NoteDoc {
         this.events.onSaved()
         for (const cb of rescueListeners) cb(this, from, why)
         // 另存途中又打的字：照常存进另存的那篇
-        if (this.text !== this.base) this.scheduleSave()
+        if (this.diskText !== this.base) this.scheduleSave()
         return
       } catch (e2) {
         why = /ENOSPC/.test(String(e2)) ? '磁盘满了' : '原文件和它旁边都写不进去（磁盘满了，或者没有写权限）'
@@ -369,7 +400,7 @@ export class NoteDoc {
   /** 编辑器里的字和磁盘对上为止：一轮写完再看一次，途中新打的接着写 */
   private async writeOut(): Promise<void> {
     for (;;) {
-      const local = this.text
+      const local = this.diskText
       if (local === this.base) return
       this.events.onState('saving')
       const r = await window.cn.writeNote(this.path, local, this.base)
@@ -426,6 +457,9 @@ export class NoteDoc {
   }
 
   destroy() {
+    window.removeEventListener('keydown', this.onMeta)
+    window.removeEventListener('keyup', this.onMeta)
+    window.removeEventListener('blur', this.offMeta)
     NoteDoc.open.delete(this)
     this.setFailing(false)
     this.destroyed = true

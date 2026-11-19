@@ -203,7 +203,7 @@ test('打开笔记直接打字：开头是下划线标题、分隔线、属性�
   }
 })
 
-test('展开的折叠块：标题末尾再按 →（光标到藏着的 </summary> 后面）回车，新起的一段和标题之间空一行，粗体照常生效；一行写法也一样', async () => {
+test('展开的折叠块：标题末尾回车，新起的一段和标题之间空一行，粗体照常生效；一行写法也一样（文档方向 A：→ 不在藏着的 </summary> 后面白按一下）', async () => {
   const NOTES: Record<string, string> = {
     折叠甲: '# 折叠甲\n\n<details>\n<summary>标题甲</summary>\n\n第一段里面。\n\n</details>\n\n后面一段。\n',
     折叠辛: '# 折叠辛\n\n<details><summary>标题辛</summary>\n第一段里面。\n</details>\n\n后面一段。\n',
@@ -216,10 +216,9 @@ test('展开的折叠块：标题末尾再按 →（光标到藏着的 </summary
       await pane(page).locator('.cm-fold-head').click()
       const head = pane(page).locator('.cm-line.cm-fold-headline')
       await expect(head).toBeVisible()
-      // 点标题字，End 到标题末尾，再 → 一下：光标跨过藏着的 </summary> 到行尾
+      // 点标题字，End 到标题末尾，回车
       await head.locator('.cm-fold-title').click()
       await page.keyboard.press('End')
-      await page.keyboard.press('ArrowRight')
       await page.keyboard.press('Enter')
       await page.keyboard.type('**加粗**新起')
       await waitSaved(page)
@@ -301,8 +300,17 @@ test('写作首页：数据库主笔记在别的文件夹（生活）时，写�
     const tree = page.getByRole('tree', { name: '全部文件' })
     await tree.getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: /^写作$/ }) }).click()
     const home = page.getByTestId('folder-home')
+    // 头一行：「分类 · 篇数 · 改于」（写作里一共 7 篇，含清单库的三条）
+    await expect(home.locator('.fh-title p')).toHaveText(/^分类 · 7篇 · 改于/)
+    // 写作首页默认只有「最近改的」「待办」（2026-11-18 方案 v2 / 写作首页走样修）：草稿、「这个月写完的」从组件库加上再看
+    await acts(page).getByRole('button', { name: '编辑首页' }).click()
+    await home.getByRole('button', { name: '加组件' }).click()
+    const lib = page.getByRole('dialog', { name: '加组件' })
+    await lib.getByRole('button', { name: '加上 草稿' }).click()
+    await lib.getByRole('button', { name: '加上 这个月写完的' }).click()
+    await lib.getByRole('button', { name: '完成' }).click()
+    await acts(page).getByRole('button', { name: '完成' }).click()
     // 草稿：正文草稿、双链多、代码块；写完的：长文。三个条目两边都不算
-    await expect(home.locator('.fh-title p')).toHaveText('写作 · 3篇草稿 · 这个月写完1篇')
     const drafts = page.getByTestId('fw-drafts')
     await expect(drafts.locator('.fw-row')).toHaveCount(3)
     for (const n of ['一', '二', '三']) await expect(drafts.locator('.fw-row .truncate', { hasText: new RegExp(`^${n}$`) })).toHaveCount(0)
@@ -354,12 +362,13 @@ test('真白板上改卡按 Esc：打的字存下（和文档白板「改字」�
     await card.dblclick()
     const box = pane(page).getByRole('textbox', { name: '卡片内容' })
     await expect(box).toBeFocused()
-    const before = await box.inputValue()
+    // 卡里是排好的样子：## 和 ** 不露
+    await expect(box).not.toContainText('**')
     await page.keyboard.type('自驾')
     await page.keyboard.press('Escape')
     await expect(box).toHaveCount(0)
     await expect(card).toContainText('自驾')
-    await expect.poll(() => readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain(before + '自驾')
+    await expect.poll(() => readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('2.27 和 2.28 两晚住哪还没订，**租车要四驱**。自驾\n')
   } finally {
     await run.close()
   }

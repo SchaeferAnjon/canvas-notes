@@ -145,6 +145,8 @@ export interface CnMenuApi {
   openExternal(url: string): Promise<void>
   /** 库里的笔记挪到另一个文件夹，返回新路径 */
   moveNote(path: string, folder: string): Promise<string>
+  /** 好几个（笔记、文件夹）一起挪进 folder，一次提交；PDF、HTML 不挪（skipped） */
+  moveMany(paths: string[], folder: string): Promise<{ moves: { from: string; to: string }[]; skipped: string[]; commit: string | null }>
   /** 剪贴板里有没有字或图（白板空白处的「粘贴」） */
   clipboardHas(): Promise<{ text: boolean; image: boolean }>
   readClipboardText(): Promise<string>

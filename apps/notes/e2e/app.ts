@@ -106,11 +106,11 @@ export async function launch(
 /** 窗口最右边的竖条（网页、梦游、历史） */
 export const rail = (page: Page) => page.getByRole('navigation', { name: '右栏' })
 
-/** 右图标栏上的几项（不算右下角的 AI 圆按钮；「大纲 · 这一页没有大纲」只取名字） */
+/** 右图标栏上的几项（不算右下角的 AI 圆按钮；变淡的「大纲（这一页没有标题，没有大纲）」只取名字） */
 export const railItems = (page: Page) =>
   rail(page)
     .locator('button.ab')
-    .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/ · .*/, '')))
+    .evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/ · .*|（.*$/, '')))
 
 /** 右栏网页面板地址栏右边的「⋯」里点一项（书签和历史、导入Chrome登录、插件） */
 export async function webMore(page: Page, item: '书签和历史' | '导入Chrome登录' | '插件') {
@@ -126,13 +126,23 @@ export async function starItem(page: Page) {
   return web.getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox').filter({ hasText: /书签|收藏/ })
 }
 
+/**
+ * 打开右栏 AI 那一格（右图标栏最下面的圆钮、A 是底栏最右一项，和点它一样）；已经开着就不点。
+ * AI 只住右栏以后（第 2a 段）打开 PDF 不再自己把 AI 打开，开关记在本机，重开软件照旧
+ */
+export async function openAi(page: Page) {
+  const entry = page.getByRole('button', { name: '打开 AI', exact: true })
+  if (await entry.count()) await entry.first().click()
+  await expect(page.getByRole('button', { name: '收起 AI', exact: true }).first()).toBeVisible()
+}
+
 /** 当前标签的内容区 */
 export const pane = (page: Page) => page.locator('.pane:not([hidden])')
 
-/** 标签条右端：当前这一页的动作（属性、白板 / 文档 / 源文件、页码、问这一页、更多……） */
+/** 标签条右端：当前这一页的动作（属性、白板 / 文档、页码、问这一页、更多……） */
 export const acts = (page: Page) => page.getByTestId('tab-acts')
 
-/** 左边图标栏换到某一页（文件、最近、摘在左边的课程、收件箱和别的文件夹、梦游报告）；已经开着就不再点（再点是收起） */
+/** 左边图标栏换到某一页（文件、最近、摘在左边的分类和别的文件夹、梦游报告；分类和文件夹那一格同时开它的首页）；已经开着就不再点（再点是收起） */
 export async function leftView(page: Page, name: '文件' | '最近' | '课程' | '收件箱' | '梦游报告' | (string & {})) {
   const b = page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name, exact: true })
   if ((await b.getAttribute('aria-pressed')) !== 'true') await b.click()
@@ -148,10 +158,17 @@ export async function widenRight(page: Page, dx: number) {
   await page.mouse.up()
 }
 
-/** 收件箱整个开在中间（左图标栏「收件箱」页头的「在中间打开整个收件箱」） */
+/**
+ * 收件箱的长列表开在中间（⌘K「打开收件箱」）。2026-11-18 起活动栏的「收件箱」一格开的是收件箱这个分类的首页，
+ * 左栏是它那一枝目录树，不再有「在中间打开整个收件箱」那颗按钮
+ */
 export async function openInboxTab(page: Page) {
-  await leftView(page, '收件箱')
-  await page.locator('aside.side').getByRole('button', { name: '在中间打开整个收件箱' }).click()
+  await page.keyboard.press('Meta+k')
+  const pal = page.getByRole('dialog', { name: '搜索和命令' })
+  await pal.getByRole('textbox').fill('打开收件箱')
+  const opt = pal.getByRole('option').filter({ hasText: /^打开收件箱/ }).first()
+  await expect(opt).toBeVisible()
+  await opt.click()
   await expect(page.getByTestId('tab-on')).toHaveText('收件箱')
 }
 
@@ -196,14 +213,11 @@ const lines = (page: Page) =>
     .locator('.cm-content')
     .evaluate((el) => Array.from(el.querySelectorAll('.cm-line'), (l) => l.textContent ?? '').join('\n'))
 
-/** 编辑器里的 md 原文：文档模式会把记号藏起来，所以切到「源文件」读，读完切回去 */
+/** 编辑器里的 md 原文：文档里记号都藏着（没有「源文件」看法），直接读编辑器挂在外框上的 cnText（note-doc.ts） */
 export async function editorText(page: Page): Promise<string> {
-  const seg = acts(page).getByRole('tablist', { name: '看法' })
-  const wasDoc = (await seg.getByRole('tab', { name: '文档' }).getAttribute('aria-selected')) === 'true'
-  if (wasDoc) await seg.getByRole('tab', { name: '源文件' }).click()
-  const t = await lines(page)
-  if (wasDoc) await seg.getByRole('tab', { name: '文档' }).click()
-  return t
+  return pane(page)
+    .locator('.cm-editor')
+    .evaluate((el) => (el as HTMLElement & { cnText: string }).cnText)
 }
 
 /** 编辑器里现在看得到的字（文档模式下记号是藏起来的） */

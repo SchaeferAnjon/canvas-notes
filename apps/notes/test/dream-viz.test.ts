@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { type AskSection, newReadingNote, parseReadingNote, upsertSection } from '@cn/format'
+import { type AskSection, newReadingNote, parseReadingNote, upsertSection, withDerived } from '@cn/format'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { type Ask, runDream, takeItem } from '../src/main/dream'
 import { stuckSpots, todaysSections } from '../src/main/dream-viz'
@@ -115,6 +115,27 @@ describe('梦游做可视化', { timeout: 30_000 }, () => {
     await takeItem(root, r, viz[0]!.id)
     expect(existsSync(join(root, '课程/线性代数/第 5 页.html'))).toBe(true)
     expect(parseReadingNote(readFileSync(join(root, NOTE), 'utf8'), NOTE).find((s) => s.page === 5)!.viz?.title).toBe('第 5 页 · 拖一拖')
+  })
+
+  it('新格式的笔记（一篇长文档）：问了几问、几次「还是不懂」按原话数；给 AI 的话里是问的原话（主问题 + 旁支问题）、这一轮的小结和最后讲的那一版', async () => {
+    const doc = withDerived({
+      ...sec(8, '泰勒展开', 0, 0, { doubts: [], good: '', points: [] }),
+      qas: [
+        { q: '给我讲解一下', a: '展开到一阶。', sides: [{ quote: '展开到一阶', turns: [{ q: '为什么只到一阶？', a: '够用。' }] }] },
+        { q: '还是不懂', a: '换个方式：看图。', sides: [] },
+      ],
+      recap: '泰勒展开就是用多项式逼近；旁支问了为什么只到一阶。',
+    })
+    commitNote([doc], '笔记：第3讲 线性映射 第 8 页 · 泰勒展开')
+    const r = await runDream({ root, scratch: join(base, 'scratch'), ask, trigger: 'manual', now: new Date() })
+    const viz = r.items.filter((i) => i.group === 'viz')
+    expect(viz.map((i) => i.title)).toEqual(['第 8 页 · 拖一拖'])
+    expect(viz[0]!.why).toContain('问了3轮、1次还是不懂')
+    const p8 = prompts.find((p) => p.startsWith('命令：梦游可视化') && p.includes('第 8 页'))!
+    expect(p8).toContain('- 给我讲解一下\n- 为什么只到一阶？\n- 还是不懂')
+    expect(p8).toContain('这一轮的小结：泰勒展开就是用多项式逼近；旁支问了为什么只到一阶。')
+    expect(p8).toContain('最后讲的那一版：换个方式：看图。')
+    expect(p8).not.toContain('没讲通的讲法')
   })
 
   it('AI 没做出网页：写进报告的备注，别的照常', async () => {

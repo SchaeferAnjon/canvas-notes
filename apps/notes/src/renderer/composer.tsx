@@ -1,0 +1,878 @@
+/**
+ * AI 的输入框（第 2b 段）：AI 对话（AiPanel）、读 PDF 的主对话（ReadingAi）共用；第 3 段的旁支也用它，只是不放「谁来答」那颗。
+ * - 外形照小样 .inp：外边距 8 12 12、圆角 12、--card、1px --line2 外圈 + 投影，有焦点时 --acc-ring + --acc-soft；字最多 6 行再在框里滚，不把输入框撑大。
+ * - 底行（CN-91 方向 C「照 Dispatch 三颗」）：「+」加图、谁来答 · 模型 · effort、快捷键提示、发送圆钮。
+ *   模型和 effort 只管这个对话（记在这个对话里），没选过用设置 › AI「AI 对话」那一行；换谁来答改的就是那一行。
+ * - 顶上一排材料（多段引用方向 B「材料一排加编号」）：引用的一段、贴的图收成 44 高的小卡，字里在当时的光标处留一个编号 ①②③；
+ *   点一张看全文，× 删掉，拖着换顺序，字里的编号跟着改。读 PDF 框好的那块是这一排的第一张，不带编号（lead）。
+ * - 发出去的那一条（MatMsg）：字里的编号换成小圆点数字，下面一行一条列出每块。
+ * - 回答里选一段：选区上方黑色浮条「引用 ⇧⌘L · 拷贝」（QuoteCap）；⇧⌘L 有选区就引用。
+ * 弹出来的菜单、看全文的小卡挂在 body 上（右栏有磨砂，fixed 的子元素会另起坐标、被岛的圆角裁掉），都用 use-dismiss：点外面、esc、失焦收起，再点按钮是收起。
+ */
+import { Codicon } from '@cn/design'
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import type { EngineId, EngineInfo } from '../shared/agent'
+import { type AiPick, CLAUDE_DEFAULT, convPick, DEFAULT_EFFORT, effortOption, ENGINE_LABEL, hasEffort, pickLabel } from '../shared/ai-features'
+import { countLine, MAX_MATERIALS, markOf, type Material, numberOf, renumberMarks, shiftMarks } from '../shared/materials'
+import { copy } from './ctx/menu'
+import { EngineLogo } from './engine-logo'
+import { imageFiles, MAX_PASTED, pastedUrl, toBytes } from './paste-images'
+import { useDismiss } from './use-dismiss'
+import './composer.css'
+
+const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
+// ---------- 输入框里的字和材料 ----------
+
+/** 输入框里的一块材料：id 给界面认（拖、删）；doc：文档里 ⌘J、右键「问 AI」带进来的那一块（跟着那个标签：换了标签拿掉，再 ⌘J 换掉它） */
+export type Mat = Material & { id: number; doc?: { tab: string | null } }
+
+let matSeq = 0
+
+export interface Composer {
+  text: string
+  mats: Mat[]
+  ta: RefObject<HTMLTextAreaElement | null>
+  setText(t: string | ((v: string) => string)): void
+  /** 加一块：编号插在光标处，光标落在编号后面；doc：文档里带进来的，是第一块（已经有一块就换掉它） */
+  add(m: Material, o?: { doc?: { tab: string | null } }): boolean
+  remove(id: number): void
+  /** 拖着换顺序：这一块放到第 to 个（从 0 数） */
+  move(id: number, to: number): void
+  /** 换了标签：别的标签带进来的那一块拿掉（自己打的字留着） */
+  dropDocQuotes(tab: string | null): void
+  /** 发出去了：字和材料都清掉 */
+  clear(): void
+  /** 排着的那一问不发了：它的字接在后面（空一行），材料接在后面（字里的编号跟着往后挪） */
+  restore(text: string, mats: Material[]): void
+  /** 粘贴、拖进来的文件：图变成材料；没有图返回 false（字照常粘） */
+  addFiles(files: (File | null)[]): Promise<boolean>
+  /** 底行「+」：系统选图框 */
+  pickImages(): Promise<void>
+  /** 要发出去的材料（去掉界面用的编号） */
+  plain(): Material[]
+}
+
+export function useComposer(onNotice: (text: string) => void): Composer {
+  const st = useRef<{ text: string; mats: Mat[] }>({ text: '', mats: [] })
+  const ta = useRef<HTMLTextAreaElement>(null)
+  const [, render] = useReducer((x: number) => x + 1, 0)
+  const caret = useRef<{ at: number; focus: boolean } | null>(null)
+  const notice = useRef(onNotice)
+  notice.current = onNotice
+  const set = (text: string, mats: Mat[], at?: { at: number; focus: boolean }) => {
+    st.current = { text, mats }
+    if (at) caret.current = at
+    render()
+  }
+  // 改了字、加了一块：等字真的写进输入框再放光标（不然写字会把光标挪到最后）
+  useLayoutEffect(() => {
+    const c = caret.current
+    const t = ta.current
+    if (!c || !t) return
+    caret.current = null
+    const put = () => {
+      if (c.focus) t.focus()
+      t.setSelectionRange(c.at, c.at)
+    }
+    put()
+    // 输入框刚露出来（⌘J 打开 AI 那一格）时第一下可能没落进去：下一帧再放一次
+    if (c.focus)
+      requestAnimationFrame(() => {
+        if (document.activeElement !== t) put()
+      })
+  })
+  const images = () => st.current.mats.filter((m) => m.kind === 'image').length
+
+  const c: Composer = {
+    get text() {
+      return st.current.text
+    },
+    get mats() {
+      return st.current.mats
+    },
+    ta,
+    setText: (t) => set(typeof t === 'function' ? t(st.current.text) : t, st.current.mats),
+    add(m, o = {}) {
+      const { text, mats } = st.current
+      if (o.doc) {
+        const old = mats.findIndex((x) => x.doc)
+        if (old >= 0) {
+          const next = mats.map((x, i) => (i === old ? ({ ...m, id: x.id, doc: o.doc } as Mat) : x))
+          const mark = markOf(old + 1)
+          const i = text.indexOf(mark)
+          set(i >= 0 ? text : mark + text, next, { at: i >= 0 ? i + 1 : 1, focus: true })
+          return true
+        }
+      }
+      if (mats.length >= MAX_MATERIALS) {
+        notice.current(`最多${MAX_MATERIALS}块`)
+        return false
+      }
+      if (m.kind === 'image' && images() >= MAX_PASTED) {
+        notice.current(`最多${MAX_PASTED}张`)
+        return false
+      }
+      const mat = { ...m, id: ++matSeq, ...(o.doc ? { doc: o.doc } : {}) } as Mat
+      // 文档里带进来的是第一块：别的编号往后挪一个，① 放在字的最前面，光标在它后面
+      if (o.doc) set(markOf(1) + shiftMarks(text, mats.length, 1), [mat, ...mats], { at: 1, focus: true })
+      else {
+        const pos = Math.min(ta.current?.selectionStart ?? text.length, text.length)
+        set(text.slice(0, pos) + markOf(mats.length + 1) + text.slice(pos), [...mats, mat], { at: pos + 1, focus: true })
+      }
+      return true
+    },
+    remove(id) {
+      const { text, mats } = st.current
+      const i = mats.findIndex((x) => x.id === id)
+      if (i < 0) return
+      const r = renumberMarks(
+        text,
+        mats.map((_, j) => (j < i ? j + 1 : j === i ? 0 : j)),
+      )
+      set(
+        r.text,
+        mats.filter((x) => x.id !== id),
+        ta.current ? { at: r.at(ta.current.selectionStart), focus: false } : undefined,
+      )
+    },
+    move(id, to) {
+      const { text, mats } = st.current
+      const from = mats.findIndex((x) => x.id === id)
+      if (from < 0 || from === to) return
+      const next = [...mats]
+      const [m] = next.splice(from, 1)
+      next.splice(Math.max(0, Math.min(to, next.length)), 0, m!)
+      const r = renumberMarks(
+        text,
+        mats.map((x) => next.indexOf(x) + 1),
+      )
+      set(r.text, next, ta.current ? { at: ta.current.selectionStart, focus: false } : undefined)
+    },
+    dropDocQuotes(tab) {
+      const { text, mats } = st.current
+      const gone = (x: Mat) => !!x.doc && x.doc.tab !== tab
+      if (!mats.some(gone)) return
+      let k = 0
+      const r = renumberMarks(
+        text,
+        mats.map((x) => (gone(x) ? 0 : ++k)),
+      )
+      set(r.text.replace(/^\n+/, ''), mats.filter((x) => !gone(x)))
+    },
+    clear: () => set('', []),
+    restore(text, add) {
+      const cur = st.current
+      const keep = add.slice(0, MAX_MATERIALS - cur.mats.length)
+      const back = renumberMarks(
+        shiftMarks(text, add.length, cur.mats.length),
+        // 放不下的那几块：字里的编号去掉
+        Array.from({ length: cur.mats.length + add.length }, (_, i) => (i < cur.mats.length + keep.length ? i + 1 : 0)),
+      ).text
+      const joined = cur.text.trim() ? `${cur.text.replace(/\s+$/, '')}\n\n${back}` : back
+      set(joined, [...cur.mats, ...keep.map((m) => ({ ...m, id: ++matSeq }) as Mat)], { at: joined.length, focus: true })
+    },
+    async addFiles(files) {
+      const imgs = imageFiles(files)
+      if (!imgs.length) return false
+      for (const f of imgs) {
+        if (images() >= MAX_PASTED) {
+          notice.current(`最多${MAX_PASTED}张`)
+          break
+        }
+        try {
+          const { bytes, mime } = await toBytes(f)
+          c.add({ kind: 'image', name: await window.cn.aiPaste(bytes, mime), src: '粘贴的图' })
+        } catch (e) {
+          notice.current(errText(e))
+        }
+      }
+      return true
+    },
+    async pickImages() {
+      const room = MAX_PASTED - images()
+      if (room <= 0) return notice.current(`最多${MAX_PASTED}张`)
+      try {
+        for (const g of await window.cn.aiPickImages(room)) c.add({ kind: 'image', name: g.name, src: g.label })
+      } catch (e) {
+        notice.current(errText(e))
+      }
+    },
+    plain: () =>
+      st.current.mats.map((m) => {
+        const { id, doc, ...rest } = m
+        void id
+        void doc
+        return rest as Material
+      }),
+  }
+  return c
+}
+
+/**
+ * 发出去的那句话：字里只有编号（没打别的字）、带的全是图时，问「这张图讲的是什么」（CN-24，编号不留，图在下面那一行里）；
+ * 别的照原样（去掉头尾空白）
+ */
+export function sendText(text: string, mats: readonly Material[]): string {
+  const bare = !text.replace(/[①-⑳\s]/g, '')
+  return bare && mats.length && mats.every((m) => m.kind === 'image') ? '这张图讲的是什么' : text.trim()
+}
+
+/** 底行提示：有材料时「3段引用、2张图 · 字里的 ①② 是它们的位置」 */
+export const matsHint = (mats: readonly Material[]) => `${countLine(mats)} · 字里的 ①② 是它们的位置`
+
+// ---------- 输入框 ----------
+
+/** 顶上那一排的第一张（读 PDF 框好的那块、选中的那段、视频那一帧）：不带编号 */
+export interface Lead {
+  /** 框的图（blob 网址或库里的图）；还在截时是空的 */
+  img?: string | null
+  /** 图左下角的小牌「第28页」，或引用那两行的上面一行 */
+  label: string
+  /** 选中的那段字（有它是引用的样子） */
+  quote?: string
+  alt: string
+  /** × 的说法 */
+  removeLabel: string
+  onRemove(): void
+}
+
+export interface AiInputProps {
+  c: Composer
+  placeholder: string
+  /** 平时底行写的快捷键提示（有材料时换成「几段引用、几张图 · …」） */
+  hint: string
+  /** 比材料那句还要先说的（读 PDF 框着一块时「↵ 讲解一下 · ⌘↵ 改问法 · esc 取消这块」） */
+  hintNow?: string
+  lead?: Lead | null
+  /** 三颗；不给就没有（只留「+」和发送） */
+  picks?: PicksProps | null
+  running: boolean
+  sendDisabled?: boolean
+  sendTip?: string
+  onSend(): void
+  onStop(): void
+  onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>): void
+  onChange?(text: string): void
+  onNotice(text: string): void
+  className?: string
+  /** 输入框里其余的东西（/ 命令菜单、提示一行）：在最上面 */
+  children?: ReactNode
+  /** 那一排下面、字上面（读 PDF 排着的几问） */
+  above?: ReactNode
+  /** 输入框里的字只有预填的（或空着）：PDF 那边按 esc 时据此决定连图一起取消（CN-97） */
+  own?: boolean
+  /** 上面的消息区：输入框长高（材料一排出来）时，原来停在最底下的跟着贴底，不被切掉一截 */
+  list?: RefObject<HTMLElement | null>
+}
+
+export function AiInput(p: AiInputProps) {
+  const { c } = p
+  const [drop, setDrop] = useState(false)
+  const root = useRef<HTMLDivElement>(null)
+  const shelf = !!p.lead || c.mats.length > 0
+  useEffect(() => {
+    const el = root.current
+    const l = p.list?.current
+    if (!el || !l) return
+    const bottom = () => l.scrollHeight - l.scrollTop - l.clientHeight < 48
+    let atBottom = bottom()
+    const onScroll = () => (atBottom = bottom())
+    let h = el.offsetHeight
+    const ro = new ResizeObserver(() => {
+      if (el.offsetHeight !== h && atBottom) l.scrollTop = l.scrollHeight
+      h = el.offsetHeight
+    })
+    l.addEventListener('scroll', onScroll)
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      l.removeEventListener('scroll', onScroll)
+    }
+  }, [p.list])
+  const hint = p.hintNow ?? (c.mats.length ? matsHint(c.mats) : p.hint)
+  return (
+    <div
+      ref={root}
+      className={'aiin' + (p.className ? ' ' + p.className : '') + (drop ? ' hot' : '')}
+      data-testid="ai-input"
+      data-composer=""
+      onDragOver={(e) => {
+        if (![...e.dataTransfer.items].some((i) => i.kind === 'file' && i.type.startsWith('image/'))) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+        setDrop(true)
+      }}
+      onDragLeave={(e) => {
+        if (!(e.currentTarget as Element).contains(e.relatedTarget as Node | null)) setDrop(false)
+      }}
+      onDrop={(e) => {
+        setDrop(false)
+        const files = [...e.dataTransfer.files]
+        if (!imageFiles(files).length) return
+        e.preventDefault()
+        void c.addFiles(files)
+      }}
+    >
+      {p.children}
+      {shelf && <Shelf c={c} lead={p.lead ?? null} />}
+      {p.above}
+      <textarea
+        ref={c.ta}
+        rows={1}
+        aria-label="问 AI"
+        placeholder={p.placeholder}
+        value={c.text}
+        data-own={p.own ? '1' : undefined}
+        onChange={(e) => {
+          c.setText(e.target.value)
+          p.onChange?.(e.target.value)
+        }}
+        onKeyDown={p.onKeyDown}
+        onPaste={(e) => {
+          const files = [...e.clipboardData.items].filter((i) => i.kind === 'file').map((i) => i.getAsFile())
+          if (!imageFiles(files).length) return
+          e.preventDefault()
+          void c.addFiles(files)
+        }}
+      />
+      <div className="ft">
+        <button className="pick add" aria-label="加图" data-tip="加图" data-side="above" onClick={() => void c.pickImages()}>
+          <Codicon name="add" size={14} />
+        </button>
+        {p.picks && <AiPicks {...p.picks} />}
+        <span className="k" data-testid="ai-hint">
+          {hint}
+        </span>
+        {p.running ? (
+          <button className="send" aria-label="停下" onClick={p.onStop}>
+            <Codicon name="primitive-square" size={12} />
+          </button>
+        ) : (
+          <button className="send" aria-label="发送" disabled={p.sendDisabled} data-tip={p.sendTip} data-side="above-left" onClick={p.onSend}>
+            <Codicon name="arrow-up" size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** 顶上那一排：第一张是框好的那块（不带编号），后面是材料 ①②③；点一张看全文，× 删掉，按住拖着换顺序 */
+function Shelf(p: { c: Composer; lead: Lead | null }) {
+  const { c } = p
+  const ref = useRef<HTMLDivElement>(null)
+  const [peek, setPeek] = useState<{ key: string; el: HTMLElement } | null>(null)
+  const [drag, setDrag] = useState<{ id: number; to: number } | null>(null)
+  const press = useRef<{ id: number; x: number; y: number; el: HTMLElement; moved: boolean } | null>(null)
+  const n = c.mats.length
+  // 加了一块：滚到最后，新的那张露出来
+  const before = useRef(n)
+  useLayoutEffect(() => {
+    if (n > before.current && ref.current) ref.current.scrollLeft = ref.current.scrollWidth
+    before.current = n
+  }, [n])
+  // 看全文的那一块没了（删掉、发出去）：小卡收起
+  useEffect(() => {
+    if (peek && peek.key !== 'lead' && !c.mats.some((m) => String(m.id) === peek.key)) setPeek(null)
+    if (peek?.key === 'lead' && !p.lead) setPeek(null)
+  })
+
+  /** 指针在第几张前面（0 到 n） */
+  const slot = (x: number) => [...ref.current!.querySelectorAll<HTMLElement>('[data-mat]')].filter((el) => x > el.getBoundingClientRect().left + el.getBoundingClientRect().width / 2).length
+  const open = (key: string, el: HTMLElement) => setPeek((v) => (v?.key === key ? null : { key, el }))
+  const shown = peek && (peek.key === 'lead' ? p.lead : c.mats.find((m) => String(m.id) === peek.key))
+
+  return (
+    <div className="shelf" ref={ref} data-testid="ai-shelf" aria-label="引用的材料">
+      {p.lead && (
+        <div
+          className={'chipm lead' + (p.lead.quote !== undefined ? ' q' : ' img')}
+          data-testid="reading-att"
+          onClick={(e) => {
+            if (!(e.target as Element).closest('.pxx')) open('lead', e.currentTarget)
+          }}
+        >
+          {p.lead.quote !== undefined ? (
+            <>
+              {p.lead.img && <img className="fr" src={p.lead.img} alt={p.lead.alt} />}
+              <span className="cq">
+                <span className="cs">{p.lead.label}</span>
+                <span className="ct">{p.lead.quote}</span>
+              </span>
+            </>
+          ) : (
+            <span className="lim">
+              {p.lead.img ? <img src={p.lead.img} alt={p.lead.alt} /> : <span className="wait" />}
+              <span className="pg">{p.lead.label}</span>
+            </span>
+          )}
+          <button className="pxx" aria-label={p.lead.removeLabel} data-tip={p.lead.removeLabel} data-side="above" onClick={p.lead.onRemove}>
+            <Codicon name="close" size={11} />
+          </button>
+        </div>
+      )}
+      {c.mats.map((m, i) => (
+        <div
+          key={m.id}
+          data-mat=""
+          data-testid="ai-mat"
+          data-src={m.src}
+          className={'chipm' + (m.kind === 'image' ? ' img' : '') + (drag?.id === m.id ? ' dragging' : '') + (drag && drag.to === i ? ' dropat' : '') + (drag && drag.to === n && i === n - 1 ? ' dropend' : '')}
+          title={m.kind === 'quote' ? `${m.src}：${m.text}` : m.src}
+          onPointerDown={(e) => {
+            if (e.button !== 0 || (e.target as Element).closest('.pxx')) return
+            press.current = { id: m.id, x: e.clientX, y: e.clientY, el: e.currentTarget, moved: false }
+            e.currentTarget.setPointerCapture(e.pointerId)
+          }}
+          onPointerMove={(e) => {
+            const s = press.current
+            if (!s || s.id !== m.id) return
+            if (!s.moved && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 4) return
+            s.moved = true
+            setDrag({ id: m.id, to: slot(e.clientX) })
+          }}
+          onPointerUp={(e) => {
+            const s = press.current
+            press.current = null
+            if (!s || s.id !== m.id) return
+            if (!s.moved) return open(String(m.id), e.currentTarget)
+            const to = slot(e.clientX)
+            setDrag(null)
+            // 放回原处（自己前后）就不动
+            if (to !== i && to !== i + 1) c.move(m.id, to > i ? to - 1 : to)
+          }}
+          onPointerCancel={() => {
+            press.current = null
+            setDrag(null)
+          }}
+        >
+          <span className="nb">{i + 1}</span>
+          {m.kind === 'image' ? (
+            <img src={pastedUrl(m.name)} alt={m.src} draggable={false} />
+          ) : (
+            <span className="cq">
+              <span className="cs">{m.src}</span>
+              <span className="ct">{m.text}</span>
+            </span>
+          )}
+          <button className="pxx" aria-label="删掉这块" data-tip="删掉这块" data-side="above" onClick={() => c.remove(m.id)}>
+            <Codicon name="close" size={11} />
+          </button>
+        </div>
+      ))}
+      {peek && shown && <Peek item={shown} anchor={peek.el} onClose={() => setPeek(null)} />}
+    </div>
+  )
+}
+
+/** 点一张卡：在它上面弹 360 宽的小卡看全文（图看大图 + 来源），点外面、esc 收起 */
+function Peek(p: { item: Mat | Lead; anchor: HTMLElement; onClose(): void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const anchor = useRef<HTMLElement | null>(p.anchor)
+  anchor.current = p.anchor
+  const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null)
+  useLayoutEffect(() => {
+    const r = p.anchor.getBoundingClientRect()
+    setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - 368)), bottom: window.innerHeight - r.top + 8 })
+  }, [p.anchor])
+  // 卡本身也算里面：再点那张卡是收起（Shelf 里切换），不是先收再开
+  useDismiss(true, [ref, anchor], p.onClose)
+  const it = p.item
+  const quote = 'kind' in it ? (it.kind === 'quote' ? it.text : null) : (it.quote ?? null)
+  const img = 'kind' in it ? (it.kind === 'image' ? pastedUrl(it.name) : null) : (it.img ?? null)
+  const src = 'kind' in it ? it.src : it.label
+  return createPortal(
+    <div ref={ref} className="ai-peek" data-testid="ai-peek" data-composer-pop="" role="dialog" aria-label="看全文" style={pos ?? { visibility: 'hidden' }}>
+      {img && <img src={img} alt={src} />}
+      {quote !== null && <div className="pt">{quote}</div>}
+      <div className="ps">{src}</div>
+    </div>,
+    document.body,
+  )
+}
+
+// ---------- 谁来答 · 模型 · effort ----------
+
+export interface PicksProps {
+  engines: EngineInfo[]
+  /** 这一问真正用的（哪家、模型、effort） */
+  pick: AiPick
+  /** 谁来答那一颗：旁支的输入框不放（引擎跟主对话） */
+  engine?: boolean
+  onEngine(id: EngineId): void
+  onModel(id: string): void
+  onEffort(id: string): void
+  onNotice(text: string): void
+}
+
+/**
+ * 这个对话的谁来答 · 模型 · effort（CN-91 方向 C）：哪家跟设置 › AI「AI 对话」那一行（换了就是改那一行）；
+ * 模型和 effort 只管这个对话：own 是这个对话自己选过的（记在这个对话里），没选过用那一行的
+ */
+export function useConvPick(own: AiPick | null | undefined, setOwn: (p: AiPick) => void, onNotice: (t: string) => void) {
+  const [ai, setAi] = useState<{ engines: EngineInfo[]; chat: AiPick } | null>(null)
+  useEffect(() => {
+    let live = true
+    const load = () =>
+      void window.cn.aiEngines().then((r) => {
+        if (live) setAi({ engines: r.engines, chat: r.chat })
+      })
+    load()
+    // 设置 › AI 里改了「AI 对话」、引擎菜单换了家、「指定位置」找到了：马上跟着换
+    const off = window.cn.onAiPrefsChanged(load)
+    return () => {
+      live = false
+      off()
+    }
+  }, [])
+  const engines = ai?.engines ?? []
+  const pick = convPick(engines, ai?.chat ?? { engine: 'claude', model: CLAUDE_DEFAULT, effort: DEFAULT_EFFORT }, own)
+  const info = engines.find((e) => e.id === pick.engine)
+  return {
+    engines,
+    pick,
+    /** 回答头上写的「Claude Code · Opus 5.5 · High」 */
+    label: pickLabel(pick, info?.models),
+    /** 交给引擎的模型和 effort：有这两样的那家才带（空串模型是这家自己的默认模型） */
+    req: hasEffort(pick.engine) ? { model: pick.model ?? '', ...(pick.effort ? { effort: pick.effort } : {}) } : {},
+    picks: {
+      engines,
+      pick,
+      onEngine: (id: EngineId) => void window.cn.aiSetEngine(id),
+      onModel: (id: string) => setOwn({ engine: pick.engine, model: id, ...(pick.effort ? { effort: pick.effort } : {}) }),
+      onEffort: (id: string) => setOwn({ engine: pick.engine, model: pick.model ?? '', effort: id }),
+      onNotice,
+    } satisfies PicksProps,
+  }
+}
+
+type Which = 'engine' | 'model' | 'effort'
+
+export function AiPicks(p: PicksProps) {
+  const [open, setOpen] = useState<Which | null>(null)
+  const info = p.engines.find((e) => e.id === p.pick.engine)
+  const name = info?.label ?? ENGINE_LABEL[p.pick.engine]
+  const models = info?.models ?? []
+  const model = models.find((m) => m.id === (p.pick.model ?? ''))
+  const efforts = (model ?? models[0])?.efforts ?? info?.efforts ?? []
+  const effort = p.pick.effort ?? DEFAULT_EFFORT
+  const toggle = (w: Which) => setOpen((v) => (v === w ? null : w))
+  const close = () => setOpen(null)
+  return (
+    <>
+      {p.engine !== false && (
+        <PickBtn which="engine" open={open} onToggle={toggle} label="选 AI 引擎" tip="谁来答" testid="ai-engine" className="eng" width={320} menuLabel="AI 引擎" onClose={close}
+          menu={<EngineMenu {...p} close={close} />}
+        >
+          <EngineLogo id={p.pick.engine} size={13} />
+          <span className="lb">{name}</span>
+        </PickBtn>
+      )}
+      <PickBtn which="model" open={open} onToggle={toggle} label="选模型" tip="模型" testid="ai-model" width={280} menuLabel="模型" onClose={close}
+        menu={
+          <>
+            <div className="mh">{`${name}的模型`}</div>
+            {models.map((m) => (
+              <button key={m.id} className="it" role="menuitemradio" aria-checked={m.id === (p.pick.model ?? '')} onClick={() => (close(), p.onModel(m.id))}>
+                <span className="ck">{m.id === (p.pick.model ?? '') && <Codicon name="check" size={14} />}</span>
+                <span className="nm">{m.label}</span>
+              </button>
+            ))}
+          </>
+        }
+      >
+        <span className="lb">{model?.label ?? p.pick.model ?? '默认模型'}</span>
+      </PickBtn>
+      {hasEffort(p.pick.engine) && efforts.length > 0 && (
+        <PickBtn which="effort" open={open} onToggle={toggle} label="选想多久（effort）" tip="想多久（effort）" testid="ai-effort" width={280} menuLabel="想多久（effort）" onClose={close}
+          menu={
+            <>
+              <div className="mh">想多久（effort）</div>
+              {efforts.map((e) => (
+                <button key={e.id} className="it" role="menuitemradio" aria-checked={e.id === effort} onClick={() => (close(), p.onEffort(e.id))}>
+                  <span className="ck">{e.id === effort && <Codicon name="check" size={14} />}</span>
+                  <span className="nm">{e.label}</span>
+                  {e.note && <span className="r">{e.note}</span>}
+                </button>
+              ))}
+              <div className="sub">只管这个对话；默认在设置 › AI「AI对话」那一行。</div>
+            </>
+          }
+        >
+          <span className="lb">{effortOption(effort).label}</span>
+        </PickBtn>
+      )}
+    </>
+  )
+}
+
+function PickBtn(p: {
+  which: Which
+  open: Which | null
+  onToggle(w: Which): void
+  onClose(): void
+  label: string
+  tip: string
+  testid: string
+  className?: string
+  width: number
+  menuLabel: string
+  menu: ReactNode
+  children: ReactNode
+}) {
+  const btn = useRef<HTMLButtonElement>(null)
+  const on = p.open === p.which
+  return (
+    <>
+      <button
+        ref={btn}
+        className={'pick' + (p.className ? ' ' + p.className : '') + (on ? ' open' : '')}
+        data-testid={p.testid}
+        aria-label={p.label}
+        aria-haspopup="menu"
+        aria-expanded={on}
+        data-tip={on ? undefined : p.tip}
+        data-side="above"
+        onClick={() => p.onToggle(p.which)}
+      >
+        {p.children}
+        <Codicon name="chevron-down" size={12} className="cv" />
+      </button>
+      {on && (
+        <PickMenu anchor={btn} width={p.width} label={p.menuLabel} onClose={p.onClose}>
+          {p.menu}
+        </PickMenu>
+      )}
+    </>
+  )
+}
+
+/** 往上弹的菜单：左边和按钮对齐（放不下往里挪），离按钮 6；点外面、esc、失焦收起，按钮也算里面（再点是收起） */
+function PickMenu(p: { anchor: RefObject<HTMLButtonElement | null>; width: number; label: string; onClose(): void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null)
+  useLayoutEffect(() => {
+    const r = p.anchor.current!.getBoundingClientRect()
+    setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - p.width - 8)), bottom: window.innerHeight - r.top + 6 })
+  }, [p.anchor, p.width])
+  useDismiss(true, [ref, p.anchor], p.onClose)
+  return createPortal(
+    <div ref={ref} className="ai-menu" role="menu" aria-label={p.label} data-composer-pop="" style={{ width: p.width, ...(pos ?? { visibility: 'hidden' }) }}>
+      {p.children}
+    </div>,
+    document.body,
+  )
+}
+
+/** 谁来答：每行 勾 · 标志 · 名字 · 在哪找到（没找到、运行不了的灰掉不能点）；分隔线下面「装在别处？指定位置…」 */
+function EngineMenu(p: PicksProps & { close(): void }) {
+  const [which, setWhich] = useState(false)
+  async function locate(id: EngineId) {
+    p.close()
+    try {
+      const e = await window.cn.aiPickCli(id)
+      if (e?.path) p.onEngine(id)
+    } catch (err) {
+      p.onNotice(errText(err))
+    }
+  }
+  const row = (e: EngineInfo, onClick: () => void, radio: boolean) => (
+    <button
+      key={e.id}
+      className="it"
+      role={radio ? 'menuitemradio' : 'menuitem'}
+      aria-checked={radio ? e.id === p.pick.engine : undefined}
+      disabled={radio && !e.path}
+      title={e.broken ? `${e.broken}。${e.hint ?? ''}` : (e.hint ?? e.path ?? '')}
+      onClick={onClick}
+    >
+      <span className="ck">{radio && e.id === p.pick.engine && <Codicon name="check" size={14} />}</span>
+      <EngineLogo id={e.id} size={14} />
+      <span className="nm">{e.label}</span>
+      <span className="r">{e.path || !e.broken ? e.where : '运行不了'}</span>
+    </button>
+  )
+  if (which)
+    return (
+      <>
+        <div className="mh">指定哪一家装在哪</div>
+        {p.engines.map((e) => row(e, () => void locate(e.id), false))}
+      </>
+    )
+  return (
+    <>
+      <div className="mh">谁来答</div>
+      {p.engines.map((e) =>
+        row(
+          e,
+          () => {
+            p.close()
+            if (e.id !== p.pick.engine) p.onEngine(e.id)
+          },
+          true,
+        ),
+      )}
+      <div className="sep" />
+      <button
+        className="it dim"
+        role="menuitem"
+        onClick={() => {
+          // 只有一家没找到：直接给它选位置；不然先问是哪一家
+          const missing = p.engines.filter((e) => !e.path)
+          if (missing.length === 1) void locate(missing[0]!.id)
+          else setWhich(true)
+        }}
+      >
+        <span className="ck" />
+        装在别处？指定位置…
+      </button>
+    </>
+  )
+}
+
+// ---------- 发出去的那一条 ----------
+
+/** 字里的 ①② 换成小圆点数字（只换有那么多块的编号） */
+function withDots(text: string, count: number): ReactNode[] {
+  const out: ReactNode[] = []
+  let run = ''
+  for (const ch of text) {
+    const n = numberOf(ch)
+    if (n && n <= count) {
+      if (run) out.push(run)
+      run = ''
+      out.push(
+        <span key={out.length} className="fn">
+          {n}
+        </span>,
+      )
+    } else run += ch
+  }
+  if (run) out.push(run)
+  return out
+}
+
+/** 带材料的那一条：字里的编号是 15 的小圆点数字，下面一行一条列出每块（引用：原文省略号 + 「· 来源」；图：36 高小图 + 来源） */
+export function MatMsg(p: { text: string; mats: Material[]; lead?: ReactNode; onContextMenu?(e: React.MouseEvent<HTMLElement>): void }) {
+  return (
+    <div className="um mq" onContextMenu={p.onContextMenu}>
+      {p.lead}
+      {p.text && <div className="mt">{withDots(p.text, p.mats.length)}</div>}
+      <div className="fnl">
+        {p.mats.map((m, i) => (
+          <div key={i} className="fni" title={m.kind === 'quote' ? m.text : m.src}>
+            <span className="fn">{i + 1}</span>
+            {m.kind === 'image' ? (
+              <>
+                <img src={pastedUrl(m.name)} alt={m.src} />
+                <span className="fs">{m.src}</span>
+              </>
+            ) : (
+              <>
+                <span className="fq">{m.text}</span>
+                <span className="fs">{`· ${m.src}`}</span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ---------- 回答里选一段：「引用 ⇧⌘L · 拷贝」 ----------
+
+/** 选区在 list 里某条 AI 回答的正文里：那段字和这条回答（读它的 data-src 当来源） */
+function answerSelection(list: HTMLElement | null): { text: string; rect: DOMRect; src: string } | null {
+  const sel = window.getSelection()
+  if (!list || !sel || sel.isCollapsed || !sel.rangeCount) return null
+  const at = (n: Node | null) => (n instanceof Element ? n : n?.parentElement)?.closest('.am .txt') ?? null
+  const a = at(sel.anchorNode)
+  if (!a || a !== at(sel.focusNode) || !list.contains(a)) return null
+  const text = sel.toString().replace(/\s+/g, ' ').trim()
+  if (text.length < 2) return null
+  return { text, rect: sel.getRangeAt(0).getBoundingClientRect(), src: a.closest<HTMLElement>('[data-src]')?.dataset.src ?? 'AI的回答' }
+}
+
+/**
+ * AI 回答里选了一段：选区上方黑色浮条「引用 ⇧⌘L · 拷贝」，点「引用」或按 ⇧⌘L 成为一块材料（来源写在回答的 data-src 上）。
+ * 读 PDF 的回答里第 3 段会换成「问这句」那个小框；这里是通用的。active：这一格看得见（藏着的不接 ⇧⌘L）
+ */
+export function QuoteCap(p: { list: RefObject<HTMLElement | null>; active: boolean; onQuote(text: string, src: string): void }) {
+  /** cx：选区横着的中点；浮条画出来量了宽再居中（照小样：选区上方 8、横着居中，放不下往里挪） */
+  const [cap, setCap] = useState<{ text: string; src: string; cx: number; top: number } | null>(null)
+  const [left, setLeft] = useState<number | null>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  const quote = useRef(p.onQuote)
+  quote.current = p.onQuote
+  useDismiss(!!cap, [ref], () => setCap(null))
+  useEffect(() => {
+    const list = p.list.current
+    if (!list || !p.active) return
+    const up = () =>
+      setTimeout(() => {
+        const s = answerSelection(list)
+        if (!s) return setCap(null)
+        // 选区上方 8，横着居中；浮条约 160 宽，放不下往里挪
+        setLeft(null)
+        setCap({ text: s.text, src: s.src, cx: s.rect.left + s.rect.width / 2, top: Math.max(8, s.rect.top - 42) })
+      }, 0)
+    const key = (e: KeyboardEvent) => {
+      if (!(e.metaKey && e.shiftKey && e.code === 'KeyL') || e.isComposing) return
+      const s = answerSelection(list)
+      if (!s) return
+      e.preventDefault()
+      e.stopPropagation()
+      window.getSelection()?.removeAllRanges()
+      setCap(null)
+      quote.current(s.text, s.src)
+    }
+    // 回答区滚了：浮条不跟着跑，收起
+    const scroll = () => setCap(null)
+    list.addEventListener('mouseup', up)
+    list.addEventListener('scroll', scroll)
+    window.addEventListener('keydown', key, true)
+    return () => {
+      list.removeEventListener('mouseup', up)
+      list.removeEventListener('scroll', scroll)
+      window.removeEventListener('keydown', key, true)
+    }
+  }, [p.list, p.active])
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || !cap || left !== null) return
+    const w = el.offsetWidth
+    setLeft(Math.max(8, Math.min(cap.cx - w / 2, window.innerWidth - w - 8)))
+  }, [cap, left])
+  if (!cap) return null
+  return createPortal(
+    <div ref={ref} className="capbar ai-cap" role="toolbar" aria-label="选中的这段" data-composer-pop="" style={{ left: left ?? cap.cx, top: cap.top, ...(left === null ? { visibility: 'hidden' } : {}) }}>
+      <button
+        className="main"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          setCap(null)
+          window.getSelection()?.removeAllRanges()
+          quote.current(cap.text, cap.src)
+        }}
+      >
+        <Codicon name="quote" size={14} />
+        引用<kbd>⇧⌘L</kbd>
+      </button>
+      <span className="sepv" />
+      <button
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          setCap(null)
+          void copy(cap.text)
+        }}
+      >
+        <Codicon name="copy" size={14} />
+        拷贝
+      </button>
+    </div>,
+    document.body,
+  )
+}

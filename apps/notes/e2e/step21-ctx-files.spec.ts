@@ -17,10 +17,10 @@ test('左栏笔记：右键「移到 › 文件夹」真的挪了文件、开着
     await row(page, '日记').click({ button: 'right' })
     const m = await openedMenu(run)
     expect(menuLabels(m)).toEqual(['打开', '在新标签打开', '重命名', '移到', '置顶', '在访达中显示', '拷贝路径', '拷贝双链', '移到废纸篓'])
-    // 每一层文件夹都能选：有子文件夹的点开是「放进「课程」」和它的子文件夹
+    // 每一层文件夹都能选：最外层八个分类都在（还没建的挪进去时建）；有子文件夹的点开是「放进「课程」」和它的子文件夹
     const move = m.find((i) => i.label === '移到')!.submenu!
-    expect(menuLabels(move)).toEqual(['课程'])
-    expect(menuLabels(move[0]!.submenu!)).toEqual(['放进「课程」', '线性代数'])
+    expect(menuLabels(move)).toEqual(['收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
+    expect(menuLabels(move[1]!.submenu!)).toEqual(['放进「课程」', '线性代数'])
     await pickMenu(run, '拷贝双链')
     await expect.poll(() => clipboardText(run)).toBe('[[日记]]')
 
@@ -50,7 +50,7 @@ test('目录树：文件夹右键「新建笔记」建在那个文件夹里；�
     const tree = page.getByRole('tree', { name: '全部文件' })
     await tree.getByRole('treeitem', { name: /线性代数/ }).click({ button: 'right' })
     const m = await openedMenu(run)
-    expect(menuLabels(m)).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '设图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
+    expect(menuLabels(m)).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '换图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
     await pickMenu(run, '新建笔记')
     await expect.poll(() => readdirSync(join(vault, '课程', '线性代数')).sort()).toContain('未命名.md')
     await expect(page.getByTestId('tab-on')).toHaveText('未命名')

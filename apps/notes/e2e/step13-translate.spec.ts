@@ -432,19 +432,34 @@ test('课程术语表：中间栏开着课程里的文件，菜单里「让 AI �
   }
 })
 
-test('PDF：网页翻译不假装在翻，按钮不亮，告诉人去 PDF 阅读器', async () => {
+test('PDF：右栏网页打开 PDF 时没有双语翻译这一项（地址栏、⌘K 都没有）；按 ⌥A 只说一句翻不了、去 PDF 阅读器框一块「翻译 + 讲一讲」（PDF 对照读 2026-11-18 删了，不再指过去）', async () => {
   const run = await launch({ 'a.md': '# a\n' }, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
     await rail(page).getByRole('button', { name: '网页' }).click()
+    // 先在普通网页上：翻译那一对在
     const addr = web(page).getByRole('textbox', { name: '网址' })
+    await addr.fill(`${base}/en`)
+    await addr.press('Enter')
+    await expect(trBtn(page)).toBeVisible()
     await addr.fill(`${base}/doc.pdf`)
     await addr.press('Enter')
     await expect.poll(() => guest(page, 'document.contentType').catch(() => '')).toBe('application/pdf')
-    await trBtn(page).click()
-    await expect(page.locator('.toast-cn')).toContainText('这是PDF：网页里的双语翻译翻不了它')
-    await expect(trBtn(page)).toHaveAttribute('aria-pressed', 'false')
-    await expect(bar(page).locator('.trctl')).not.toHaveClass(/\bon\b/)
+    await expect(bar(page).locator('.trctl')).toHaveCount(0)
+    await page.keyboard.press('Meta+k')
+    const pal = page.getByRole('dialog', { name: '搜索和命令' })
+    await pal.getByRole('textbox').fill('双语翻译')
+    await expect(pal.getByRole('option').filter({ hasText: /双语翻译这个网页/ })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(pal).toBeHidden()
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await page.keyboard.press('Alt+KeyA')
+    await expect(page.locator('.toast-cn')).toHaveText(/这是PDF，网页里的双语翻译翻不了它。放进库里用PDF阅读器打开，框一块点「翻译 \+ 讲一讲」/)
+    await expect(page.locator('.toast-cn')).not.toContainText('对照读')
+    // 回到普通网页：那一对又回来了
+    await addr.fill(`${base}/en`)
+    await addr.press('Enter')
+    await expect(trBtn(page)).toBeVisible()
   } finally {
     await run.close()
   }

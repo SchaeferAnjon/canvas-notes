@@ -1,16 +1,20 @@
 import { syntaxTree } from '@codemirror/language'
 import { type Range, StateField } from '@codemirror/state'
 import { codiconEl } from '@cn/design'
+import { wikiShown } from '@cn/format'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { hiddenLayoutLine } from './layout-lines'
 import { type CalloutHead, parseCallout } from './callout'
 import { highlightsIn } from './highlight'
+import { linkAt, openLinkHit } from './ctx/editor-menu'
+import { editorHost } from './editor-host'
+import { reviewDecos, reviewExtension } from './review'
 
 /**
- * 文档模式的实时预览：记号（# ** * ` > [[ ]] - ```）藏起来、按排版显示。
- * 光标停在哪个记号所在的那一段（一处加粗、一个链接），只露那一处的记号，小一号、淡色；拖选一段时什么都不露，
- * 选中前后每一行的宽高都不变（CN-65、CN-68）。列表圆点永远是圆点。链接的网址收成一颗域名小块，光标走进它才展开（CN-58）。
- * 人还没点、没打字（刚打开时光标停在开头）就什么都不露，打开时不会先看到原文再跳一下（DESIGN.v3 6.5）。
+ * 文档模式的所见即所得（文档方向 A「块上露写法」，2026-11-17 用户定）：记号（# ** * ` > [[ ]] - ``` ==）永远藏着，
+ * 光标停在旁边、拖选一段也不露，选中前后每一行的宽高都不变（CN-65、CN-68）。列表圆点永远是圆点。
+ * 链接的「(网址)」收成一颗域名小块常显（CN-58，小样 A 的样子）；点那颗小块才在这一个链接上露出网址来改（块上露写法），光标走开就收回。
+ * 藏起来的行内记号是「原子」的（光标一下跨过去，wysiwyg.ts 让 ←→ 不白按、退格删的是看得见的字）。
  * 只加装饰，不动文字，所以不影响「打开再保存文件不变」。
  */
 
@@ -41,6 +45,8 @@ const bullet = Decoration.replace({ widget: new Bullet() })
 export function urlLabel(url: string): string {
   try {
     const u = new URL(url)
+    // 微信读书同步来的书摘链接（weread://book/<编号>）：主机名是「book」，没意思，写「微信读书」
+    if (u.protocol === 'weread:') return '微信读书'
     if (u.host) return u.host + (u.pathname.length > 1 || u.search ? '…' : '')
   } catch {
     // 相对路径（附件/…）：只写文件名
@@ -73,7 +79,15 @@ class UrlChip extends WidgetType {
     s.textContent = urlLabel(this.url)
     s.title = this.url
     s.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
       e.preventDefault()
+      // ⌘ 点：右栏打开（⌘⌥ 中间栏）；平时点：光标进网址末尾，这一个链接露出网址来改
+      if (e.metaKey || e.ctrlKey) {
+        const line = view.state.doc.lineAt(Math.min(this.end, view.state.doc.length))
+        const hit = linkAt(line.text, this.end - line.from - 1)
+        return openLinkHit(view.state.facet(editorHost).path(), this.url, hit?.kind === 'url' ? hit.text : this.url, e.altKey)
+      }
+      view.focus()
       view.dispatch({ selection: { anchor: this.end }, userEvent: 'select' })
     })
     return s
@@ -147,10 +161,12 @@ function build(view: EditorView): DecorationSet {
   const decos: Range<Decoration>[] = []
   const live = state.field(touched)
 
-  /** 光标（没有选区时）碰到 from..to（两头算）；拖选时什么记号都不露 */
+  /** 光标（没有选区时）碰到 from..to（两头算）：只用来认「光标在链接的网址里」（点了域名小块），别的记号一律不露 */
   const near = (from: number, to: number) => live && state.selection.ranges.some((r) => r.empty && r.from <= to && r.to >= from)
   /** 链接里收成域名小块的「(网址)」，里面的记号不再单独加装饰 */
   const chips: [number, number][] = []
+  /** 点了域名小块、正在改网址的那一个链接：「](网址)」照原样淡淡露着 */
+  const urlOpen: [number, number][] = []
   const inChip = (from: number, to: number) => chips.some(([a, b]) => from >= a && to <= b)
   const inCode = (pos: number) => {
     for (let n: ReturnType<ReturnType<typeof syntaxTree>['resolveInner']> | null = syntaxTree(state).resolveInner(pos, 1); n; n = n.parent)
@@ -183,33 +199,14 @@ function build(view: EditorView): DecorationSet {
     }
   }
 
-  /**
-   * 引文下面一段以「我的评价」开头的正文：前面一个小标签，从引文竖线拐下来一道弯钩连到它（CN-38 B）。
-   * 没写评价就什么都不画（不放「写点想法」占位：`引用别塞评价占位`）。
-   */
-  function review(quoteTo: number) {
-    const q = doc.lineAt(quoteTo)
-    const gaps: number[] = []
-    let n = q.number + 1
-    while (n <= doc.lines && doc.line(n).text.trim() === '' && gaps.length < 1) gaps.push(n++)
-    if (n > doc.lines) return
-    const l = doc.line(n)
-    // 后面紧跟的冒号并进小标签：「我的评价：」一体（加粗的 ** 在冒号前后都认）
-    const m = /^(\*\*)?我的评价([：:]|\*\*[：:])?/.exec(l.text)
-    if (!m) return
-    for (const g of gaps) decos.push(line('cm-review-gap').range(doc.line(g).from))
-    decos.push(line('cm-review').range(l.from))
-    const at = l.from + (m[1] ? 2 : 0)
-    decos.push(mark('cm-review-tag').range(at, at + 4 + (m[2]?.length ?? 0)))
-  }
   const lineDeco = (from: number, to: number, cls: string) => {
     for (let n = doc.lineAt(from).number; n <= doc.lineAt(to).number; n++) decos.push(line(cls).range(doc.line(n).from))
   }
-  /** 记号：owner（这一处加粗、这个链接……）被光标碰到时淡淡露出来，否则藏起来；后面紧跟的空格一起算 */
-  const markOf = (from: number, to: number, owner: [number, number] = [from, to], withSpace = false) => {
+  /** 记号：一律藏起来（后面紧跟的空格一起算） */
+  const markOf = (from: number, to: number, withSpace = false) => {
     if (withSpace && doc.sliceString(to, to + 1) === ' ') to++
     if (to <= from) return
-    decos.push((near(owner[0], owner[1]) ? shown : hide).range(from, to))
+    decos.push(hide.range(from, to))
   }
 
   const fm = FRONTMATTER.exec(doc.sliceString(0, Math.min(doc.length, 20000)))
@@ -230,10 +227,9 @@ function build(view: EditorView): DecorationSet {
           return
         }
         const parent = node.node.parent
-        const own: [number, number] = parent ? [parent.from, parent.to] : [node.from, node.to]
         switch (name) {
           case 'HeaderMark':
-            if (parent?.name.startsWith('ATXHeading')) markOf(node.from, node.to, undefined, true)
+            if (parent?.name.startsWith('ATXHeading')) markOf(node.from, node.to, true)
             return
           case 'StrongEmphasis':
             decos.push(mark('cm-strong').range(node.from, node.to))
@@ -246,42 +242,46 @@ function build(view: EditorView): DecorationSet {
             return
           case 'EmphasisMark':
           case 'StrikethroughMark':
-            markOf(node.from, node.to, own)
+            markOf(node.from, node.to)
             return
           case 'InlineCode':
             decos.push(mark('cm-icode').range(node.from, node.to))
             return
           case 'CodeMark':
-            if (parent?.name === 'InlineCode') markOf(node.from, node.to, own)
+            if (parent?.name === 'InlineCode') markOf(node.from, node.to)
             return
           case 'Link': {
-            decos.push(mark('cm-link').range(node.from, node.to))
             const url = node.node.getChild('URL')
             const close = node.node.lastChild
-            if (url && close?.name === 'LinkMark' && near(node.from, node.to) && !near(url.from, url.to)) {
-              // 光标在链接文字上：只淡淡露出 [ ]，「(网址)」收成一颗域名小块
-              const open = url.from - 1
-              chips.push([open, close.to])
-              decos.push(Decoration.replace({ widget: new UrlChip(doc.sliceString(url.from, url.to), url.to) }).range(open, close.to))
+            // 链接的字（「[」后面到「]」前面）；「[」「](网址)」另外藏、收成小块
+            const textEnd = url ? url.from - 2 : node.to
+            if (textEnd > node.from + 1) decos.push(mark('cm-link').range(node.from + 1, textEnd))
+            if (url && close?.name === 'LinkMark') {
+              if (near(url.from - 1, close.to)) {
+                // 点了域名小块、光标在网址里：只这一个链接露出「(网址)」来改，光标走开就收回
+                urlOpen.push([url.from - 2, close.to])
+                decos.push(shown.range(url.from - 2, close.to))
+              } else {
+                // 「](网址)」收成一颗域名小块（常显）
+                chips.push([url.from - 2, close.to])
+                decos.push(Decoration.replace({ widget: new UrlChip(doc.sliceString(url.from, url.to), url.to) }).range(url.from - 2, close.to))
+              }
             }
             return
           }
           case 'LinkMark':
           case 'URL':
           case 'LinkTitle':
-            if (parent?.name === 'Link' && !inChip(node.from, node.to)) markOf(node.from, node.to, own)
+            if (parent?.name === 'Link' && !inChip(node.from, node.to) && !urlOpen.some(([a, b]) => node.from >= a && node.to <= b)) markOf(node.from, node.to)
             return
           case 'Blockquote': {
             const c = parent?.name === 'Document' ? parseCallout(doc.lineAt(node.from).text) : null
             if (c) callout(node.from, node.to, c)
-            else {
-              lineDeco(node.from, node.to, 'cm-quote')
-              if (parent?.name === 'Document') review(node.to)
-            }
+            else lineDeco(node.from, node.to, 'cm-quote')
             return
           }
           case 'QuoteMark':
-            markOf(node.from, node.to, undefined, true)
+            markOf(node.from, node.to, true)
             return
           case 'FencedCode':
             fenced(node.from, node.to)
@@ -307,18 +307,14 @@ function build(view: EditorView): DecorationSet {
             return
           }
           case 'HorizontalRule':
-            if (near(node.from, node.to)) lineDeco(node.from, node.to, 'cm-hr')
-            else {
-              decos.push(hide.range(node.from, node.to))
-              lineDeco(node.from, node.to, 'cm-hr cm-hr-line')
-            }
+            decos.push(hide.range(node.from, node.to))
+            lineDeco(node.from, node.to, 'cm-hr cm-hr-line')
             return
           case 'Comment':
-            // 行里的注释（导图节点记着它在照片上的哪一块）：不在光标处时连前面的空格一起藏起来
+            // 行里的注释（导图节点记着它在照片上的哪一块）：连前面的空格一起藏起来
             if (doc.sliceString(node.from, node.from + 4) === '<!--') {
               const a = doc.sliceString(node.from - 1, node.from) === ' ' ? node.from - 1 : node.from
-              if (!near(node.from, node.to)) decos.push(hide.range(a, node.to))
-              else decos.push(shown.range(a, node.to))
+              decos.push(hide.range(a, node.to))
             }
             return
           case 'CommentBlock':
@@ -338,34 +334,39 @@ function build(view: EditorView): DecorationSet {
       const e = from + b
       if (s < fmEnd || inCode(s)) continue
       decos.push(mark('cm-hl').range(s + 2, e - 2))
-      markOf(s, s + 2, [s, e])
-      markOf(e - 2, e, [s, e])
+      markOf(s, s + 2)
+      markOf(e - 2, e)
     }
     for (const m of text.matchAll(WIKILINK)) {
       const start = from + m.index!
       if (start < fmEnd) continue
       const end = start + m[0].length
       const target = m[1]!.split('|')[0]!.split('#')[0]!.split('^')[0]!.trim()
-      decos.push(mark('cm-wikilink', { 'data-target': target }).range(start + 2, end - 2))
-      markOf(start, start + 2, [start, end])
-      markOf(end - 2, end, [start, end])
+      // 只露别名或笔记名（[[课程/ecp/第五讲]] 露「第五讲」），前面的路径、「|」和 .md 跟 [[ ]] 一起藏着，白板卡上同一个认法
+      const shown = wikiShown(m[1]!)
+      decos.push(mark('cm-wikilink', { 'data-target': target }).range(start + 2 + shown.from, start + 2 + shown.to))
+      markOf(start, start + 2 + shown.from)
+      markOf(start + 2 + shown.to, end)
     }
   }
 
   /**
-   * 围栏代码块：--fill 底、圆角 8；光标不在块里时上下两行围栏藏起来，只当 12 高的内边距，
-   * 语言名放在右上角；光标进来时围栏淡淡露出来，照样能改。
+   * 围栏代码块：--fill 底、圆角 8；上下两行围栏永远藏起来，只当 12 高的内边距（光标进不去，wysiwyg.ts），
+   * 语言名放在右上角。
    */
   function fenced(from: number, to: number) {
     const a = doc.lineAt(from)
     const b = doc.lineAt(to)
-    const editing = near(a.from, b.to)
     const m = FENCE.exec(a.text)
     const closed = b.number > a.number && FENCE.test(b.text)
+    // 还没收尾（正在打的「```」，回车才补收尾，wysiwyg.ts）：围栏照原样露着，打的字看得见
+    const editing = !closed
+    const head = state.selection.main.head
+    const inside = head >= a.from && head <= b.to
     for (let n = a.number; n <= b.number; n++) {
       const l = doc.line(n)
       const cls = ['cm-codeblock']
-      if (n === a.number) cls.push('cm-code-top')
+      if (n === a.number) cls.push(inside ? 'cm-code-top cm-code-on' : 'cm-code-top')
       if (n === b.number) cls.push('cm-code-bot')
       const fence = n === a.number || (closed && n === b.number)
       if (fence) cls.push(editing ? 'cm-code-fence' : 'cm-code-fence cm-code-hidden')
@@ -377,29 +378,44 @@ function build(view: EditorView): DecorationSet {
     }
   }
 
+  // 引文下面挂着的「我的评价」「微信读书的想法」：标签小块、弯钩（review.ts）
+  reviewDecos(state, view.visibleRanges, decos)
   return Decoration.set(decos, true)
 }
 
-export const livePreview = [
-  touched,
-  ViewPlugin.fromClass(
-    class {
-      decorations: DecorationSet
-      constructor(view: EditorView) {
-        this.decorations = build(view)
+/** 藏起来的行内记号、换成部件的那几段（域名小块、圆点、提示块图标）：光标一下跨过去（原子） */
+function atomicOf(decos: DecorationSet): DecorationSet {
+  const out: Range<Decoration>[] = []
+  const it = decos.iter()
+  for (; it.value; it.next()) if (it.to > it.from && it.value.point) out.push(it.value.range(it.from, it.to))
+  return Decoration.set(out, true)
+}
+
+export const livePlugin = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet
+    atomic: DecorationSet
+    constructor(view: EditorView) {
+      this.decorations = build(view)
+      this.atomic = atomicOf(this.decorations)
+    }
+    update(u: ViewUpdate) {
+      if (
+        u.docChanged ||
+        u.selectionSet ||
+        u.viewportChanged ||
+        u.startState.field(touched) !== u.state.field(touched) ||
+        syntaxTree(u.startState) !== syntaxTree(u.state)
+      ) {
+        this.decorations = build(u.view)
+        this.atomic = atomicOf(this.decorations)
       }
-      update(u: ViewUpdate) {
-        if (
-          u.docChanged ||
-          u.selectionSet ||
-          u.viewportChanged ||
-          u.startState.field(touched) !== u.state.field(touched) ||
-          syntaxTree(u.startState) !== syntaxTree(u.state)
-        )
-          this.decorations = build(u.view)
-      }
-    },
-    { decorations: (v) => v.decorations },
-  ),
-  EditorView.contentAttributes.of({ class: 'cm-live' }),
-]
+    }
+  },
+  {
+    decorations: (v) => v.decorations,
+    provide: (p) => EditorView.atomicRanges.of((view) => view.plugin(p)?.atomic ?? Decoration.none),
+  },
+)
+
+export const livePreview = [touched, reviewExtension, livePlugin, EditorView.contentAttributes.of({ class: 'cm-live' })]

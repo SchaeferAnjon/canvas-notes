@@ -1,13 +1,39 @@
 /**
- * 文档视图里的属性表（方向 B「文档顶上一块」）：文件开头有给人看的属性（类型、课程、第几讲……）时，
- * frontmatter 原文藏起来，标题下面画一张表（只有软件自己用的键时只藏不画表）：名字 12 `--t2`、值 13、右端「AI 填的」。
- * 点一行，光标落到文件开头那一行，露出原文直接改（和别的 md 记号一样，光标所在处显示原文）。
+ * 文件开头的属性（frontmatter）在文档看法里：原文藏起来。编辑器里不再画属性表（CN-122，用户 2026-11-17：「属性」按钮里有，正文不用再显示），
+ * 属性只在标签条「属性」里看和改；微信读书同步来的书摘，标题下面一行摘要「书摘 · 作者 · 微信读书 N 条划线 · 同步于今天 21:25」
+ * （代替「所在文件夹 ▾」那一行，folder-chip.ts）。
+ * 历史对比的文档看法（diff/DiffTab.tsx，showPropsTable）照旧画表：名字 12 `--t2`、值 13、右端「AI 填的」，改了哪个属性看得见。
  * 只加装饰不动文字，「打开再保存文件不变」不受影响。
  */
 import { aiFilled, HIDDEN_KEYS, readProps, type Prop } from '@cn/format'
-import { type EditorState, type Range, StateField } from '@codemirror/state'
+import { type EditorState, Facet, type Range, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
+import { bookMeta } from '../../shared/plugins/weread'
 import { type Hidden, hiddenOk, hiddenSyntax } from '../hidden-syntax'
+
+/** 画不画属性表：编辑器不画；历史对比的文档看法画（只读，看改了哪个属性） */
+export const showPropsTable = Facet.define<boolean, boolean>({ combine: (v) => v.some(Boolean) })
+
+/** 书摘标题下的一行摘要（CN-122，小样 review/proto-a 的 .meta：12 `--t3`） */
+class BookMetaLine extends WidgetType {
+  constructor(readonly text: string) {
+    super()
+  }
+  eq(o: BookMetaLine) {
+    return o.text === this.text
+  }
+  toDOM() {
+    const box = document.createElement('div')
+    box.className = 'cm-meta cm-bookmeta'
+    const t = document.createElement('span')
+    t.textContent = this.text
+    box.append(t)
+    return box
+  }
+  ignoreEvent() {
+    return false
+  }
+}
 
 const FM = /^---\n[\s\S]*?\n---(?:\n|$)/
 
@@ -85,15 +111,19 @@ function build(state: EditorState): DecorationSet {
   const end = fmEnd(state)
   if (end < 0) return Decoration.none
   if (inside(state, end)) return Decoration.none
-  const props = readProps(text).filter((p) => !HIDDEN_KEYS.has(p.key))
   const decos: Range<Decoration>[] = [Decoration.replace({ block: true }).range(0, end)]
+  // 紧跟着一级标题的话，表和摘要放在标题下面（和设计稿一样）；不然放在原来 frontmatter 的位置
+  const next = end + 1 <= state.doc.length ? state.doc.lineAt(Math.min(state.doc.length, end + 1)) : null
+  const at = next && /^# /.test(next.text) ? next.to : end
+  if (!state.facet(showPropsTable)) {
+    const meta = bookMeta(text)
+    if (meta) decos.push(Decoration.widget({ widget: new BookMetaLine(meta), block: true, side: 1 }).range(at))
+    return Decoration.set(decos, true)
+  }
+  const props = readProps(text).filter((p) => !HIDDEN_KEYS.has(p.key))
   // 只有软件自己用的键（created、source、type……，收件箱、剪藏常见）：整段藏起来，不画表（以前原样露出「---」）
   if (!props.length) return Decoration.set(decos)
-  const table = Decoration.widget({ widget: new PropsTable(props, aiFilled(text)), block: true, side: 1 })
-  // 紧跟着一级标题的话，表放在标题下面（和设计稿一样）；不然放在原来 frontmatter 的位置
-  const next = end + 1 <= state.doc.length ? state.doc.lineAt(Math.min(state.doc.length, end + 1)) : null
-  if (next && /^# /.test(next.text)) decos.push(table.range(next.to))
-  else decos.push(table.range(end))
+  decos.push(Decoration.widget({ widget: new PropsTable(props, aiFilled(text)), block: true, side: 1 }).range(at))
   return Decoration.set(decos, true)
 }
 

@@ -31,14 +31,13 @@ test('打开 HTML：沙箱里跑，右栏是它的 AI；「框一块」拖一个
     await expect(acts(page).getByRole('menu', { name: '更多' })).toContainText('在隔离环境里运行 · 不联网')
     await acts(page).getByRole('button', { name: '更多' }).click()
     await expect(acts(page).getByTestId('page-note')).toHaveText('可视化 · 第3讲')
-    // 读 HTML 时右栏是它的 AI，右下角不浮 AI
-    // 读 PDF：竖条上只多「笔记」；AI 开着时右下角的圆钮藏起来，屏上只有一个 AI（CN-22）
+    // 读 HTML 时右栏 AI 那一格是它的 AI（AI 只住右栏，第 2a 段）：打开不自己开，右下角的圆钮开它；竖条上只多「笔记」
     await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
+    await expect(ai(page)).toBeHidden()
+    await rail(page).getByRole('button', { name: '打开 AI' }).click()
     await expect(ai(page)).toBeVisible()
     await expect(ai(page).getByTestId('reading-sees')).toContainText('旋转矩阵.html')
-    // 读 PDF / HTML 时右下角的 AI 入口开关的是右栏的 AI，不再浮在中间
-    await expect(page.getByRole('navigation', { name: '右栏' }).locator('.ai-fab')).toHaveCount(0)
-    await expect(page.locator('main.center').getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
+    await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
     // 没开框选层时 HTML 自己能拖
     await page.frameLocator('[data-testid="html-frame"]').getByRole('slider', { name: '角度' }).fill('90')
 
@@ -65,9 +64,9 @@ test('打开 HTML：沙箱里跑，右栏是它的 AI；「框一块」拖一个
     expect(md).toContain('![我框的](../../附件/旋转矩阵/p1-1.png)')
     expect(gitOut(vault, 'log', '-1', '--format=%s')).toMatch(/^笔记：旋转矩阵 · 测试小标题/)
     expect(gitStatus(vault)).toBe('')
-    // 笔记里这段的来源是文件名，点了打开 HTML
+    // 笔记里这一轮的来源是文件名「旋转矩阵.html ›」，点了打开 HTML
     await rail(page).getByRole('button', { name: '笔记' }).click()
-    await expect(page.getByRole('complementary', { name: '笔记', exact: true }).locator('.pgc', { hasText: '旋转矩阵.html' }).first()).toBeVisible()
+    await expect(page.getByRole('complementary', { name: '笔记', exact: true }).locator('.rnd .loc button').first()).toHaveText('旋转矩阵.html ›')
 
     // 问这一屏：整屏直接发
     await rail(page).getByRole('button', { name: '打开 AI' }).click()

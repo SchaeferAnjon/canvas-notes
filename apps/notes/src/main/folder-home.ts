@@ -27,6 +27,7 @@ import {
 } from '../shared/folder-home'
 import { writeFileAtomic } from './atomic'
 import { countFiles, GITKEEP, makeFolder, moveFolder, renameFolder, testTrash, trashFolder } from './folder-ops'
+import { readDescs, writeDesc } from './categories'
 import { readLeft, writeLeft } from './left'
 import type { Vault } from './vault'
 
@@ -52,14 +53,14 @@ async function readJson(p: string): Promise<unknown | null> {
 export async function readFolderHome(v: Vault, folder: string): Promise<{ home: FolderHome; saved: boolean; template: boolean }> {
   const kind = kindOf(folder)
   const own = await readJson(v.abs(homeFileOf(folder)))
-  if (own) return { home: normalizeFolderHome(own, kind), saved: true, template: false }
+  if (own) return { home: normalizeFolderHome(own, kind, folder), saved: true, template: false }
   const tf = templateFileOf(kind)
   const tpl = tf ? await readJson(v.abs(tf)) : null
-  return { home: tpl ? normalizeFolderHome(tpl, kind) : defaultFolderHome(kind), saved: false, template: !!tpl }
+  return { home: tpl ? normalizeFolderHome(tpl, kind, folder) : defaultFolderHome(kind, folder), saved: false, template: !!tpl }
 }
 
 export async function writeFolderHome(v: Vault, folder: string, raw: unknown): Promise<FolderHome> {
-  const home = normalizeFolderHome(raw, kindOf(folder))
+  const home = normalizeFolderHome(raw, kindOf(folder), folder)
   const p = v.abs(homeFileOf(folder))
   const text = folderHomeJson(home)
   await writeFileAtomic(p, text)
@@ -207,7 +208,7 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     const kind = kindOf(folder)
     const tf = templateFileOf(kind)
     const tpl = tf ? await readJson(v.abs(tf)) : null
-    const h = await writeFolderHome(v, folder as string, tpl ?? defaultFolderHome(kind))
+    const h = await writeFolderHome(v, folder as string, tpl ?? defaultFolderHome(kind, folder as string))
     changed()
     return h
   })
@@ -255,11 +256,26 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     }
   })
   ipcMain.handle('left:get', () => readLeft(getVault()))
+  ipcMain.handle('cat:descs', () => readDescs(getVault()))
+  ipcMain.handle('cat:setDesc', async (_e, name: unknown, text: unknown) => {
+    const d = await writeDesc(getVault(), name, text)
+    changed()
+    return d
+  })
   ipcMain.handle('left:set', (_e, c: unknown) => writeLeft(getVault(), c))
-  ipcMain.handle('folder:trash', async (_e, folder: unknown) => {
+  // confirmed：界面已经问过了（文件树里选了好几个一起删，一个确认框问完），不再弹系统确认
+  ipcMain.handle('folder:trash', async (_e, folder: unknown, confirmed: unknown) => {
     const v = getVault()
     if (typeof folder !== 'string') throw new Error('文件夹不对')
     const n = await countFiles(v, folder)
+    if (confirmed === true) {
+      const trashDir = process.env.CN_TRASH_DIR
+      try {
+        return await trashFolder(v, folder, trashDir ? testTrash(trashDir) : (abs) => shell.trashItem(abs))
+      } finally {
+        changed()
+      }
+    }
     const win = getWin()
     const ask = {
       type: 'warning' as const,

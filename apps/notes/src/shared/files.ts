@@ -1,9 +1,11 @@
 /**
- * 库里的全部文件（⌘O 按名字跳、左栏「全部文件」目录树用）：md、PDF、HTML 和文件夹。
+ * 库里的全部文件（⌘O 按名字跳、左栏「全部文件」目录树用）：md、PDF、HTML、附件/ 里的图和文件夹。
  * 纯计算（按名字筛、排序、拼成树）放这里，界面和单元测试都用。
  */
+import { CATEGORIES, CATEGORY_GROUPS, CATEGORY_NAMES, type CategoryGroup, categoryRank, isCategory } from './categories'
 
-export type FileKind = 'md' | 'pdf' | 'html' | 'dir'
+/** img：附件/ 里的图片；att：附件/ 里别的文件（附件文件夹在树里看得到，CN-104、four-items 1a） */
+export type FileKind = 'md' | 'pdf' | 'html' | 'img' | 'att' | 'dir'
 
 export interface FileEntry {
   /** 相对库根目录，用 / 分隔 */
@@ -20,11 +22,25 @@ export interface FileEntry {
   auto?: { count: number }
   /** 读 PDF 笔记：这篇在同一文件夹「我的疑惑」里有几条，点了跳到汇总里这一讲那段（heading） */
   doubts?: { n: number; summary: string; heading: string }
+  /** 附件（img、att）：多大，字节 */
+  bytes?: number
+}
+
+/** 附件/ 里的文件：图片、别的附件 */
+export const isAttachKind = (k: FileKind) => k === 'img' || k === 'att'
+
+/** 「附件」筛选（CN-104）：每篇笔记用到哪些附件、没有哪篇在用的附件 */
+export interface AttachIndex {
+  notes: { note: string; items: { path: string; bytes: number }[] }[]
+  orphans: { path: string; bytes: number }[]
 }
 
 export interface CnFilesApi {
   all(): Promise<FileEntry[]>
+  /** 只在选了「附件」筛选时读（要读全库的笔记） */
+  attachments(): Promise<AttachIndex>
 }
+
 
 export const fileName = (p: string) => p.split('/').pop() ?? p
 export const folderOfPath = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
@@ -93,9 +109,9 @@ export interface TreeNode {
   pinned?: boolean
 }
 
-const KIND_ORDER: Record<FileKind, number> = { dir: 0, pdf: 1, md: 2, html: 3 }
-/** 顶层分类按这个先后，别的文件夹按名字排在后面 */
-export const TOP_ORDER = ['课程', '项目', '生活', '写作', '素材', '收件箱']
+const KIND_ORDER: Record<FileKind, number> = { dir: 0, pdf: 1, md: 2, html: 3, img: 4, att: 5 }
+/** 顶层分类按这个先后（shared/categories.ts 的顺序），别的文件夹按名字排在后面 */
+export const TOP_ORDER: readonly string[] = CATEGORY_NAMES
 
 /** 一门课里放在最上面的几篇（考前看的）：软件汇总的两篇在最前 */
 const PINNED = ['我的疑惑.md', '视频里的疑惑.md', '术语表.md']
@@ -238,6 +254,30 @@ export function subtree(nodes: TreeNode[], folder: string): TreeNode[] {
 
 const stem = (name: string) => name.replace(/\.(md|pdf|html?)$/i, '')
 
+/** 文件树最外层的一组：收件箱（没有组名）、读进来的、自己写的、不在分类里的 */
+export interface TopGroup {
+  /** 组名（收件箱那一组是空的，不画组头） */
+  title: CategoryGroup | '不在分类里的'
+  nodes: TreeNode[]
+}
+
+/**
+ * 文件树最外层按顶级分类分组（2026-11-18 方案 3「分两组」）：分类按分类表的先后，库里还没有这个文件夹的
+ * 也画一行空的（all：没筛类型时）；别的文件夹和散文件收在最后一组「不在分类里的」，按原来的排法。空的组不出现。
+ */
+export function topGroups(nodes: TreeNode[], all: boolean): TopGroup[] {
+  const byName = new Map(nodes.filter((n) => n.kind === 'dir' && isCategory(n.name)).map((n) => [n.name, n]))
+  const out: TopGroup[] = CATEGORY_GROUPS.map((g) => ({
+    title: g,
+    nodes: CATEGORIES.filter((c) => c.group === g)
+      .map((c) => byName.get(c.name) ?? (all ? { path: c.name, name: c.name, kind: 'dir' as const, children: [], count: 0, time: 0 } : null))
+      .filter((n): n is TreeNode => !!n)
+      .sort((a, b) => categoryRank(a.name) - categoryRank(b.name)),
+  }))
+  out.push({ title: '不在分类里的', nodes: nodes.filter((n) => !(n.kind === 'dir' && isCategory(n.name))) })
+  return out.filter((g) => g.nodes.length)
+}
+
 /** 第几讲：名字里的「第3讲」，HTML 还看它自己写的 */
 function lectureOfNode(n: TreeNode): number | undefined {
   if (n.entry?.lecture !== undefined) return n.entry.lecture
@@ -265,5 +305,5 @@ export function previewFiles(files: FileEntry[], moves: { from: string; to: stri
   return { files: out, moved, ghosts: moves.filter((m) => moved.has(m.to)) }
 }
 
-/** 最外层这几个是软件认的分类（附件放图），不改名、不删 */
-export const fixedFolder = (folder: string) => !folder.includes('/') && [...TOP_ORDER, '附件'].includes(folder)
+/** 最外层这几个是软件自带的分类（附件放图），不改名、不挪、不删 */
+export const fixedFolder = (folder: string) => !folder.includes('/') && (isCategory(folder) || folder === '附件')

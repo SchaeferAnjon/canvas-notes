@@ -12,7 +12,7 @@ import { BRAND } from '../shared/brand'
 import { commitErrorText, syncErrorText } from '../shared/git-errors'
 import { kindOf, titleOf } from '../shared/layout'
 import { dayKey, logActivity, readActivity } from './activity'
-import { attachWeb, registerAgent } from './agent'
+import { attachWeb, markedClips, moveChatPlace, registerAgent, unmarkClips } from './agent'
 import { ask } from './ai'
 import { registerAttachments, registerFileScheme } from './attachments'
 import { setupPasted } from './pasted'
@@ -23,7 +23,9 @@ import { setupMindmap } from './mindmap'
 import { readAll } from './duplicates'
 import { duplicatesWithProgress, stopSimilar } from './similar'
 import { registerHome } from './home'
+import { organizeCategories } from './categories'
 import { registerFolderHome } from './folder-home'
+import { registerRestore } from './restore'
 import { registerNoteAttach } from './note-attach'
 import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
@@ -36,7 +38,6 @@ import { Vault } from './vault'
 import { macIdentity } from './git-identity'
 import { setupPlugins } from './plugins'
 import { moveReadingState, setupReading } from './reading'
-import { setupMineru } from './mineru'
 import { searchVault, setupSearch } from './search'
 import { registerFiles } from './files'
 import { setupImport } from './import'
@@ -135,6 +136,14 @@ async function openVault(dir: string): Promise<VaultInfo> {
   if (vault && vault.root !== root) await commitPending().catch((e) => console.error('换库前提交失败', e))
   vault?.close()
   vault = new Vault(root)
+  // 老库：「素材/」改名「剪藏/」、「素材/微信读书/」挪到「阅读/」，一次提交（新库、整理过的什么都不做）
+  let organizeError: string | undefined
+  const organized = await organizeCategories(vault, (from, to) => (moveReadingState(root, from, to), moveChatPlace(root, from, to))).catch((e: Error) => {
+    // 库照样打开：没挪完的留在原处，界面底部说一句为什么
+    console.error('整理顶级分类没成功', e)
+    organizeError = String(e.message ?? e)
+    return null
+  })
   scheduleAutoCommit()
   vault.watch(
     (path, text) => win?.webContents.send('note:changed', path, text),
@@ -143,7 +152,7 @@ async function openVault(dir: string): Promise<VaultInfo> {
   )
   settings.patch({ lastVault: root })
   searchVault(root)
-  return { path: root, name: vault.name }
+  return { path: root, name: vault.name, ...(organized ? { organized: organized.moves } : {}), ...(organizeError ? { organizeError } : {}) }
 }
 
 /** 本周一 0 点 */
@@ -263,6 +272,7 @@ function registerIpc() {
     const v = needVault()
     const to = await v.rename(path, newName, free === true)
     await repin(v, path, to)
+    moveChatPlace(v.root, path, to)
     return to
   })
   ipcMain.handle('board:create', (_e, folder: string, name: string) => {
@@ -379,6 +389,9 @@ function registerIpc() {
       if (!Array.isArray(only.paths) || only.paths.some((p) => typeof p !== 'string') || typeof only.message !== 'string') throw new Error('撤回参数不对')
       await git.revertPaths(v.root, hash, only.paths, `撤回${only.message}`)
     } else await git.revert(v.root, hash)
+    // AI 在网页里剪的段落：剪进去的那篇撤回后不在了，网页里那一段的「✂ 剪成卡片」标记跟着去掉（DESIGN.v3 2.3）
+    const gone = markedClips().filter((p) => !existsSync(v.abs(p)))
+    if (gone.length) await unmarkClips(gone)
     return (await git.log(v.root, 1))[0] ?? null
   })
   ipcMain.handle('git:state', async (): Promise<GitState> => {
@@ -482,10 +495,12 @@ function registerIpc() {
   setupPasted(app.getPath('userData'))
   registerSlides(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'))
   registerHome(needVault, () => win)
-  registerFolderHome(needVault, () => win, moveReadingState)
-  ipcMain.handle('git:history', async (_e, limit: number) => {
+  registerFolderHome(needVault, () => win, (root, from, to) => (moveReadingState(root, from, to), moveChatPlace(root, from, to)))
+  registerRestore(needVault, () => win?.webContents.send('files:changed'))
+  ipcMain.handle('git:history', async (_e, limit: number, opts?: { hideInternal?: boolean }) => {
     const root = needVault().root
-    const commits = await git.log(root, Math.min(Math.max(1, Number(limit) || 50), 500))
+    // 藏起软件自己的设置文件（CN-116，历史 ⋯ 里的开关）：git 自己跳过只动了设置的提交，「最近100次」全是用户的改动
+    const commits = await git.log(root, Math.min(Math.max(1, Number(limit) || 50), 500), undefined, opts?.hideInternal ? git.HIDE_INTERNAL : undefined)
     // 每个文件现在还在不在（挪走、删了的右键「打开」灰掉，「看这一版」照样能用）
     const here = new Map<string, boolean>()
     for (const c of commits)
@@ -608,7 +623,6 @@ app.whenReady().then(async () => {
   await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault })
   setupPlugins({ window: () => win, vault: () => vault })
   setupReading({ win: () => win, vault: () => vault })
-  setupMineru({ win: () => win, vault: () => vault, settings })
   setupSearch({ win: () => win, vault: () => vault })
   registerFiles(() => vault)
   setupVideo({ window: () => win, vault: () => vault, ses: web, userData: app.getPath('userData') })
@@ -725,7 +739,16 @@ function buildMenu() {
           { label: '拍一张导图', accelerator: 'Shift+CommandOrControl+C', click: () => win?.webContents.send('map:open') },
           { label: '导入旧笔记…', click: () => win?.webContents.send('import:open') },
           { type: 'separator' },
-          { role: 'close' },
+          // ⌘W 走界面那条路（CN-98）：主窗口里关当前栏里的东西（标签、网页标签、收起历史这一格……），不关整个窗口；别的窗口照旧关掉
+          {
+            label: '关闭',
+            accelerator: 'CommandOrControl+W',
+            click: () => {
+              const w = BrowserWindow.getFocusedWindow()
+              if (!w || w === win) win?.webContents.send('app:key', 'w')
+              else w.close()
+            },
+          },
         ],
       },
       { role: 'editMenu' },

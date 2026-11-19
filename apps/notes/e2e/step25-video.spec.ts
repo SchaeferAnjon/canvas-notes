@@ -2,7 +2,7 @@
 // 视频站是本机假的（e2e/fixtures/fake-video.ts，当成 YouTube，空格播放 / 暂停），AI 是假的（CN_AI_FAKE）
 import { expect, test, type Page } from '@playwright/test'
 import type { Server } from 'node:http'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { launch, openNote, pane, rail, waitSaved } from './app'
 import { FAKE_VIDEO_ID, startFakeVideoSite } from './fixtures/fake-video'
@@ -95,8 +95,8 @@ test('CN-84：问答块上「接着问」：引文标「00:06 · 视频名」不
     const reading = page.getByRole('complementary', { name: '边读边问 AI' })
     await expect(reading).toBeVisible()
     await expect(page.getByRole('complementary', { name: 'AI 对话' })).toHaveCount(0)
-    const q = reading.locator('.attq')
-    await expect(q.locator('.lb')).toHaveText('00:06 · Linear transformations and matrices')
+    const q = reading.getByTestId('reading-att')
+    await expect(q.locator('.cs')).toHaveText('00:06 · Linear transformations and matrices')
     await expect(q).not.toContainText('第 0 页')
     await expect(reading.getByTestId('reading-sees')).toContainText('网页 · Linear transformations and matrices')
     await expect(reading.getByTestId('reading-sees')).not.toContainText('127.0.0.1')
@@ -154,7 +154,7 @@ test('第 2 轮：「接着问」带上那一帧和上一问的回答、前后�
 
     // 待问区里有那一帧
     const reading = page.getByRole('complementary', { name: '边读边问 AI' })
-    await expect(reading.locator('.attq img')).toHaveAttribute('alt', '00:06 这一帧')
+    await expect(reading.getByTestId('reading-att').locator('img')).toHaveAttribute('alt', '00:06 这一帧')
     await shotWindow(run, 'r2-video-follow')
     const box = reading.getByRole('textbox', { name: '问 AI' })
     await box.fill('那第三个箭头呢')
@@ -173,11 +173,11 @@ test('第 2 轮：「接着问」带上那一帧和上一问的回答、前后�
     expect(follow).toContain('看了 00:06 这一帧')
     expect(md).not.toContain('看了网页这一段')
     expect(md).not.toMatch(/\[127\.0\.0\.1\]/)
-    const convo = /\[完整对话 · 1 轮\]\(([^)]+)\)/.exec(follow)![1]!
-    expect(decodeURIComponent(convo)).toMatch(/^\.canvas-notes\/对话\/视频-youtube-/)
-    const convoMd = readFileSync(join(vault, decodeURIComponent(convo)), 'utf8')
-    expect(convoMd).toContain('# ▶ 00:06 · Linear transformations and matrices · ')
-    expect(convoMd).toContain('![00:06 这一帧](')
+    // 身份写在第二行行尾（cn:thread），完整对话不再另写一份（CN-93）；那一帧上面那块问答里已经有了，这一段不再放一遍
+    expect(follow).toMatch(/\) · \d\d:\d\d <!-- cn:thread=视频-youtube-[^\n]+ -->\n\n> \[!question\] 那第三个箭头呢\n/)
+    expect(follow.slice(follow.indexOf('## 测试小标题'))).not.toContain('![')
+    expect(md).not.toContain('完整对话')
+    expect(existsSync(join(vault, '.canvas-notes/对话'))).toBe(false)
   } finally {
     await run.close()
   }

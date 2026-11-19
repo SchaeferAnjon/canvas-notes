@@ -170,7 +170,7 @@ async function boxAsk(page: Page) {
 test('CN-84 B / CN-76：框一块问不弹浮窗，文档里先出占位（esc 停下），答好原地变成 [!ai] 提示块，块下面空一段、光标在那里；「接着问」和 ⌘J 开在右栏下格', async () => {
   const run = await launch({ '看视频的笔记.md': '# 看视频的笔记\n\n我先写的一句。\n' }, { ...env(), CN_AI_FAKE_ASK_MS: '1500' })
   const { page, vault } = run
-  const float = page.locator('main.center').getByRole('complementary', { name: 'AI 对话' })
+  const float = page.getByRole('complementary', { name: 'AI 对话' })
   try {
     await openNote(page, '看视频的笔记')
     await openVideo(page)
@@ -218,7 +218,7 @@ test('CN-84 B / CN-76：框一块问不弹浮窗，文档里先出占位（esc �
     await pane(page).getByText('我先写的一句。').click()
     await pane(page).locator('[data-part="问答块"]').getByRole('button', { name: '接着问' }).click()
     await expect(reading).toBeVisible()
-    await expect(reading.locator('.attq .q')).toHaveText('「框里这两个箭头为什么能决定整个网格怎么动？」')
+    await expect(reading.getByTestId('reading-att').locator('.ct')).toHaveText('框里这两个箭头为什么能决定整个网格怎么动？')
     await expect(float).toBeHidden()
     await shot(run, 'CN-84-followup')
     // ⌘J 收起；右栏开着视频时 ⌘J 开在右栏下格，不是中间栏的浮窗

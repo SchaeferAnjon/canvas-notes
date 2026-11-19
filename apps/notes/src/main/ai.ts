@@ -54,6 +54,17 @@ function fake(prompt: string): string {
       return '这周主要在准备冰岛自驾，收件箱里多了几条极光和巴黎的剪藏，还没整理。'
     case '整理收件箱':
       return '```json\n' + JSON.stringify(names.map((path) => ({ path, topic: '旅行' }))) + '\n```'
+    case '文件夹小结':
+      return '这周主要在读 ECP 的第 5 讲。冰岛的机票订好了。住宿还没定。'
+    case '挪进文件夹': {
+      // 内容里写着这个文件夹名字的那几条
+      const folder = /^文件夹：(.+)$/m.exec(prompt)?.[1]?.split('/').pop() ?? ''
+      const hits = prompt
+        .split(/\n\n(?=路径：)/)
+        .filter((b) => folder && /^内容：[\s\S]*/m.exec(b)?.[0].includes(folder))
+        .map((b) => /^路径：(.+)$/m.exec(b)![1]!)
+      return '```json\n' + JSON.stringify(hits) + '\n```'
+    }
     case '归类和改名':
       return '```json\n' + JSON.stringify(fakeFiling(prompt)) + '\n```'
     case '按反馈重做归类':
@@ -63,7 +74,7 @@ function fake(prompt: string): string {
   }
 }
 
-/** 测试用的归类和改名：有课程属性的进那门课（导图改名「第 N 讲 … 导图」），旅行的进 素材/旅行，琐事进 生活，别的拿不准 */
+/** 测试用的归类和改名：有课程属性的进那门课（导图改名「第 N 讲 … 导图」），旅行的进 剪藏/旅行，琐事进 生活，别的拿不准 */
 function fakeFiling(prompt: string) {
   const out: { path: string; folder: string; name: string | null; why: string }[] = []
   for (const block of prompt.split(/\n\n(?=路径：)/)) {
@@ -82,7 +93,7 @@ function fakeFiling(prompt: string) {
     } else if (course) {
       const map = /类型: 导图/.test(props)
       out.push({ path, folder: `课程/${course}`, name: map ? `第${lecture ?? '?'}讲 ${course} 导图` : null, why: `属性里写着课程「${course}」${lecture ? `、第${lecture}讲` : ''}，放进这门课。` })
-    } else if (/极光|冰洞|巴黎/.test(text)) out.push({ path, folder: '素材/旅行', name: null, why: '都是旅行的事' })
+    } else if (/极光|冰洞|巴黎/.test(text)) out.push({ path, folder: '剪藏/旅行', name: null, why: '都是旅行的事' })
     else if (/花市|周末|买菜|房租/.test(text)) out.push({ path, folder: '生活', name: text.replace(/\s+/g, '').slice(0, 6), why: '日常的事，放生活' })
   }
   return out

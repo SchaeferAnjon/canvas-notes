@@ -1,11 +1,11 @@
 /**
- * 库里的分区，就是几个文件夹：
+ * 库里的分区，就是几个文件夹（顶级分类见 shared/categories.ts）：
  * - 收件箱/        新东西默认进这里（速记、剪藏）
- * - 素材/<主题>/   剪来的东西，按主题分文件夹
+ * - 剪藏/<主题>/   剪来的东西，按主题分文件夹（2026-11-18 以前叫「素材」，打开老库时改名）
  * - 其他 md 文件   我写的
  */
 export const INBOX = '收件箱'
-export const CLIPS = '素材'
+export const CLIPS = '剪藏'
 
 export type NoteKind = 'inbox' | 'clip' | 'work'
 

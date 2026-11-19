@@ -194,7 +194,7 @@ test('粗体、高亮、链接后面的句号不单独掉到行首：文档 900�
   }
 })
 
-test('藏起来的记号旁边光标用的 <img> 挪出行内排版以后：刚打开就停在「**粗体**」后面的光标照样打字，方向键一格一格走过加粗', async () => {
+test('藏起来的记号旁边光标用的 <img> 挪出行内排版以后：刚打开就停在「**粗体**」后面的光标照样打字，方向键一个字一个字走（藏着的 ** 不白按）', async () => {
   const run = await launch({ '光标.md': '# 光标\n\n前面是**粗体**\n' })
   const { page, vault } = run
   try {
@@ -204,8 +204,8 @@ test('藏起来的记号旁边光标用的 <img> 挪出行内排版以后：刚�
     await expect(line).toHaveText('前面是粗体')
     await page.keyboard.type('。')
     await expect.poll(() => readFileSync(join(vault, '光标.md'), 'utf8'), { timeout: 5_000 }).toBe('# 光标\n\n前面是**粗体**。\n')
-    // 往左走：。前 → ** 前 → 体前 → 粗前 → ** 前 → 是前；在「是」前面打一个字
-    for (let i = 0; i < 1 + 2 + 2 + 2 + 1; i++) await page.keyboard.press('ArrowLeft')
+    // 往左走（文档方向 A：藏着的 ** 不占一下）：。前 → 体前 → 粗前 → 是前；在「是」前面打一个字
+    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowLeft')
     await page.keyboard.type('就')
     await expect.poll(() => readFileSync(join(vault, '光标.md'), 'utf8'), { timeout: 5_000 }).toBe('# 光标\n\n前面就是**粗体**。\n')
   } finally {

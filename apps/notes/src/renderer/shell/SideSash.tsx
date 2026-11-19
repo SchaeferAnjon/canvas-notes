@@ -1,17 +1,19 @@
 /**
  * 左栏右边缘的分隔线（DESIGN：左栏 200 到 400 可拖，记住宽度）：拖它改 --side-w，松手记在本机 cn.sideW；
- * 双击回到默认（A、B 都是 252，B 里含岛右边 6 的缝）。中间至少留 420。左栏收起时不出。
+ * 双击回到默认（A 252；B 248，含岛右边 6 的缝，DESIGN.v3 1.3）。中间至少留 420。左栏收起时不出。
  */
 import { useState } from 'react'
 
 export const SIDE_KEY = 'cn.sideW'
 export const SIDE_MIN = 200
 export const SIDE_MAX = 400
-/** 没拖过时的宽（shell.css 的 --side-w） */
-export const SIDE_DEFAULT = 252
+/** 没拖过时的宽（shell.css 的 --side-w：A 252，B 248） */
+export const SIDE_DEFAULT = { a: 252, b: 248 } as const
 export const CENTER_MIN = 420
 /** 右栏拖不窄于 300（App 的右栏分隔线） */
 export const RIGHT_MIN = 300
+/** 右栏没拖过时的宽（A、B 一样；2026-11-19 从 340 改成 380，照 AI 和读 PDF 的小样） */
+export const RIGHT_DEFAULT = 380
 
 export function loadSideW(): number | null {
   try {
@@ -65,7 +67,7 @@ export function SideSash(props: { frame: 'a' | 'b'; rightW: number; width: numbe
       aria-label="拖动调整左栏宽度"
       aria-valuemin={SIDE_MIN}
       aria-valuemax={SIDE_MAX}
-      aria-valuenow={props.width ?? 252}
+      aria-valuenow={props.width ?? SIDE_DEFAULT[props.frame]}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId)
         setDrag(true)

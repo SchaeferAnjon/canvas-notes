@@ -24,7 +24,8 @@ export function Progress(props: { p: FileEntry['progress'] }) {
 export function QuickOpen(props: { onOpen(path: string): void; onOpenFolder?(path: string): void; onClose(): void }) {
   const all = useVaultFiles().files
   // 文件夹只列有首页的（课程/<课>、项目/<项目>、生活、写作），点了开首页
-  const files = useMemo(() => all.filter((f) => f.kind !== 'dir' || !!props.onOpenFolder), [all, props.onOpenFolder])
+  // 附件/ 里的图和文件不开标签，不列；附件文件夹也不列
+  const files = useMemo(() => all.filter((f) => f.kind !== 'img' && f.kind !== 'att' && !(f.kind === 'dir' && (f.path === '附件' || f.path.startsWith('附件/'))) && (f.kind !== 'dir' || !!props.onOpenFolder)), [all, props.onOpenFolder])
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
   const list = useRef<HTMLDivElement>(null)

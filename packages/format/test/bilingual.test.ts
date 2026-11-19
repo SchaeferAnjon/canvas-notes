@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { aiCallout, parseAiCalloutHead, splitAiBody, type AskSection, biKind, decorations, pageBlocks, biNotePathFor, bilingualNote, isFormula, parseReadingNote, prop, renderSection, translatable, upsertSection, webBiNotePath } from '../src'
+import { aiCallout, parseAiCalloutHead, splitAiBody, type AskSection, biKind, pageBlocks, bilingualNote, isFormula, parseReadingNote, prop, renderSection, translatable, upsertSection, webBiNotePath } from '../src'
 
 describe('公式和图不翻译', () => {
   it('认得出公式', () => {
@@ -28,25 +28,8 @@ describe('公式和图不翻译', () => {
   })
 })
 
-describe('对照读不收装饰、不拍扁一格一格的表（CN-31）', () => {
-  const size = { w: 960, h: 540 }
-  const img = (id: string, x: number, y: number, w: number, h: number) => ({ id, kind: 'image' as const, x, y, w, h })
-  it('同一个位置 3 页以上都有的图、面积小于 4% 的图算装饰；正文里的大图不算', () => {
-    const pages = {
-      1: [img('p1-b1', 860, 10, 90, 60), img('p1-b2', 100, 120, 500, 300)],
-      2: [img('p2-b1', 861, 11, 90, 60)],
-      3: [img('p3-b1', 860, 10, 91, 60), img('p3-b2', 600, 200, 300, 280)],
-      4: [img('p4-b1', 20, 480, 300, 50)],
-      5: [img('p5-b1', 20, 480, 300, 50)],
-      6: [img('p6-b1', 20, 481, 300, 50)],
-    }
-    const d = decorations(pages, Array(6).fill(size))
-    // Logo（每页右上，小）、页脚色条（3 页同一位置，不小）是装饰
-    expect([...d].sort()).toEqual(['p1-b1', 'p2-b1', 'p3-b1', 'p4-b1', 'p5-b1', 'p6-b1'])
-    expect(d.has('p1-b2')).toBe(false)
-    expect(d.has('p3-b2')).toBe(false)
-  })
-  it('一格一格的短标签不拼成一句：行之间留换行，标成 stack，对照读里整块照原页裁', () => {
+describe('不拍扁一格一格的表（CN-31）', () => {
+  it('一格一格的短标签不拼成一句：行之间留换行，标成 stack', () => {
     const labels = ['Applications', 'Frameworks', 'Compilers', 'Operating System', 'Hardware']
     const items = labels.map((str, i) => ({ str, x: 600, y: 120 + i * 18, w: 120, h: 13 }))
     const blocks = pageBlocks({ width: 960, height: 540, items }, 1, 13)
@@ -64,41 +47,8 @@ describe('对照读不收装饰、不拍扁一格一格的表（CN-31）', () =>
 })
 
 describe('存成双语笔记', () => {
-  const pdf = '课程/线性代数/第3讲 线性映射.pdf'
-  const note = biNotePathFor(pdf)
-  it('写在 PDF 同一个文件夹', () => {
-    expect(note).toBe('课程/线性代数/第3讲 线性映射 双语.md')
+  it('网页的笔记进收件箱，名字里不能有的字换掉', () => {
     expect(webBiNotePath('Rotation matrix - Wikipedia: a/b')).toBe('收件箱/Rotation matrix - Wikipedia a b 双语.md')
-  })
-  it('属性、每页一节（节头回到 PDF 那页）、原文引用跟译文、公式是裁图', () => {
-    const md = bilingualNote({
-      note,
-      source: { pdf },
-      langs: '英文 → 中文',
-      now: new Date(2026, 10, 16),
-      pages: [
-        {
-          page: 5,
-          blocks: [
-            { kind: 'heading', text: 'Example 3.4 Rotation', tr: '例 3.4 旋转' },
-            { kind: 'text', text: 'Rotate the plane\nby θ:', tr: '把平面旋转 θ：' },
-            { kind: 'formula', path: '附件/第3讲 线性映射/双语/p5-b3.png' },
-            { kind: 'text', text: 'Not yet', tr: null },
-          ],
-        },
-      ],
-    })
-    const props = (k: string) => prop(md, k)
-    expect(props('类型')).toBe('双语')
-    expect(props('课程')).toBe('线性代数')
-    expect(props('第几讲')).toBe('3')
-    expect(props('日期')).toBe('2026-11-16')
-    expect(md).toContain('# 第3讲 线性映射 双语')
-    expect(md).toContain('## [第 5 页](第3讲%20线性映射.pdf#page=5)')
-    expect(md).toContain('### 例 3.4 旋转\n\n> Example 3.4 Rotation')
-    expect(md).toContain('> Rotate the plane by θ:\n\n把平面旋转 θ：')
-    expect(md).toContain('![公式](../../附件/第3讲%20线性映射/双语/p5-b3.png)')
-    expect(md).toContain('> Not yet\n')
   })
   it('网页：来源是网址，头上回到网页', () => {
     const md = bilingualNote({

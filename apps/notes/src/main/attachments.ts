@@ -4,10 +4,10 @@
  * cn-file://app/backgrounds/<文件名> 是设置里自己选的窗口背景，cn-file://app/pasted/<文件名> 是 AI 输入框里粘贴的图，cn-file://app/thumbs/<文件名> 是课件封面（都存在软件设置目录）。
  */
 import { dialog, ipcMain, net, protocol, type BrowserWindow } from 'electron'
-import { copyFile, mkdir, readFile, stat } from 'node:fs/promises'
-import { basename, extname, join } from 'node:path'
+import { copyFile, mkdir, readdir, readFile, stat } from 'node:fs/promises'
+import { basename, extname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { attachmentDir } from '@cn/format'
+import { attachmentDir, pickEmbed } from '@cn/format'
 import { EXT_SCHEME } from '../shared/bookmarkkeeper'
 import type { Vault } from './vault'
 
@@ -55,6 +55,30 @@ export async function copyIntoVault(vault: Vault, src: string, folder: string = 
   }
 }
 
+/** 库里的图片文件（全库列一遍；一篇里几张 ![[…]] 接连来问，3 秒内用同一份） */
+let imagesSeen: { root: string; at: number; paths: Promise<string[]> } | null = null
+async function vaultImages(root: string): Promise<string[]> {
+  const out: string[] = []
+  const walk = async (dir: string) => {
+    for (const ent of await readdir(dir, { withFileTypes: true })) {
+      if (ent.name.startsWith('.') || ent.name === 'node_modules') continue
+      if (ent.isDirectory()) await walk(join(dir, ent.name))
+      else if (ent.isFile() && IMAGE_EXT.includes(extname(ent.name).slice(1).toLowerCase())) out.push(relative(root, join(dir, ent.name)).split(sep).join('/'))
+    }
+  }
+  await walk(root)
+  return out
+}
+
+async function embedPath(vault: Vault, from: string, link: string): Promise<string | null> {
+  const fresh = () => (imagesSeen = { root: vault.root, at: Date.now(), paths: vaultImages(vault.root) })
+  if (!imagesSeen || imagesSeen.root !== vault.root || Date.now() - imagesSeen.at > 3000) fresh()
+  const hit = pickEmbed(await imagesSeen!.paths, from, link)
+  // 没找到、那一份又不是刚列的（图可能刚放进库）：重列一次
+  if (hit || Date.now() - imagesSeen!.at < 300) return hit
+  return pickEmbed(await fresh().paths, from, link)
+}
+
 /** 梦游分支上还没收下的 HTML（梦游做的可视化，收下前预览）：dream-main 交进来怎么读 */
 let dreamHtml: ((rel: string) => Promise<string | null>) | null = null
 export const setDreamHtml = (f: (rel: string) => Promise<string | null>) => (dreamHtml = f)
@@ -71,6 +95,9 @@ export function registerAttachments(getVault: () => Vault, getWin: () => Browser
       return dreamHtml(rel).then((t) => (t === null ? new Response('梦游报告里没有这个文件', { status: 404 }) : new Response(t, { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': HTML_CSP } })))
     if (!IMAGE_EXT.includes(extname(rel).slice(1).toLowerCase())) return new Response('不认识的文件', { status: 404 })
     if (url.host === 'vault') return net.fetch(pathToFileURL(getVault().abs(rel)).toString())
+    // Obsidian 写法的图片 ![[图.png]]：照 Obsidian 的找法定到库里哪个文件（from 是写着它的那篇笔记）
+    if (url.host === 'embed')
+      return embedPath(getVault(), url.searchParams.get('from') ?? '', rel).then((p) => (p ? net.fetch(pathToFileURL(getVault().abs(p)).toString()) : new Response('库里没有这张图', { status: 404 })))
     // 设置目录里的：自己选的窗口背景、AI 输入框里粘贴的图
     if (url.host === 'app' && parts.length === 2 && (parts[0] === 'backgrounds' || parts[0] === 'pasted' || parts[0] === 'thumbs') && !/[\\/]|^\.\.?$/.test(parts[1]!))
       return net.fetch(pathToFileURL(join(appDir, parts[0], parts[1]!)).toString())

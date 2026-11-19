@@ -63,8 +63,8 @@ describe('一次提交的两版', () => {
   it('文件后来挪走、删了：那次提交照样读得到两版，exists 是 false；「看这一版」给那次提交时的全文', async () => {
     put('收件箱/雷克雅未克.md', '# 剪藏整页：雷克雅未克\n\n第一行。\n')
     const h = commit('剪藏整页：雷克雅未克')
-    mkdirSync(join(root, '素材/旅行'), { recursive: true })
-    renameSync(join(root, '收件箱/雷克雅未克.md'), join(root, '素材/旅行/雷克雅未克.md'))
+    mkdirSync(join(root, '剪藏/旅行'), { recursive: true })
+    renameSync(join(root, '收件箱/雷克雅未克.md'), join(root, '剪藏/旅行/雷克雅未克.md'))
     commit('挪走')
     const r = await diffOf(root, { kind: 'commit', hash: h }, null)
     expect(r.files).toEqual([expect.objectContaining({ path: '收件箱/雷克雅未克.md', after: '# 剪藏整页：雷克雅未克\n\n第一行。\n', exists: false })])
@@ -77,11 +77,11 @@ describe('一次提交的两版', () => {
   it('挪动：写「从 A 挪到 B」，旧路径记在 from', async () => {
     put('收件箱/冰洞.md', '# 冰洞\n\n冬天开放。\n')
     commit('样本')
-    mkdirSync(join(root, '素材/旅行'), { recursive: true })
-    renameSync(join(root, '收件箱/冰洞.md'), join(root, '素材/旅行/冰洞.md'))
+    mkdirSync(join(root, '剪藏/旅行'), { recursive: true })
+    renameSync(join(root, '收件箱/冰洞.md'), join(root, '剪藏/旅行/冰洞.md'))
     const h = commit('挪')
     const r = await diffOf(root, { kind: 'commit', hash: h }, null)
-    expect(r.files).toEqual([expect.objectContaining({ path: '素材/旅行/冰洞.md', from: '收件箱/冰洞.md', status: 'moved', summary: '从 收件箱 挪到 素材/旅行', exists: true })])
+    expect(r.files).toEqual([expect.objectContaining({ path: '剪藏/旅行/冰洞.md', from: '收件箱/冰洞.md', status: 'moved', summary: '从 收件箱 挪到 剪藏/旅行', exists: true })])
   })
 
   it('两篇并排（可能重复）：左右是两个文件', async () => {
@@ -146,11 +146,11 @@ describe('改了什么的一句人话', () => {
     expect(summarize(e('changed'), run(base, del), del)).toBe('删了「第 6 页」那段')
   })
   it('git diff --name-status -z：新建、改、删、挪', () => {
-    expect(parseNameStatus('A\0a.md\0M\0b.md\0D\0c.md\0R100\0收件箱/x.md\0素材/x.md\0')).toEqual([
+    expect(parseNameStatus('A\0a.md\0M\0b.md\0D\0c.md\0R100\0收件箱/x.md\0剪藏/x.md\0')).toEqual([
       { status: 'new', path: 'a.md' },
       { status: 'changed', path: 'b.md' },
       { status: 'deleted', path: 'c.md' },
-      { status: 'moved', path: '素材/x.md', from: '收件箱/x.md' },
+      { status: 'moved', path: '剪藏/x.md', from: '收件箱/x.md' },
     ])
   })
 })

@@ -14,8 +14,6 @@ import { PluginsSettings } from './plugins'
 import { VideoKeys } from './video/VideoKeys'
 import './settings.css'
 import { UpdatePage } from './update'
-import { useMineruStatus } from './reading/MineruBar'
-import { MINERU_DISK, MINERU_DOWNLOAD } from '../shared/mineru'
 
 export type SettingsPage = 'look' | 'home' | 'vault' | 'ai' | 'plugins' | 'git' | 'keys' | 'update'
 
@@ -88,7 +86,6 @@ export function Settings(props: {
             <>
               <AiSettingsPage onNotice={props.onNotice} onPlugins={() => props.onPage('plugins')} />
               <SttKey onNotice={props.onNotice} />
-              <MineruSettings onNotice={props.onNotice} />
             </>
           )}
           {props.page === 'plugins' && <PluginsSettings onNotice={props.onNotice} />}
@@ -572,79 +569,6 @@ function SttKey(props: { onNotice(t: string): void }) {
       <p className="note" data-testid="stt-key-state">
         {st?.tail ? `已填 ••••${st.tail}，加密存在这台Mac上` : st?.fromEnv ? '用的是环境变量SONIOX_API_KEY' : '还没填：到soniox.com注册后在控制台拿一个API Key'}
       </p>
-    </>
-  )
-}
-
-/** 设置 › AI 最下面：PDF 精读增强（MinerU）在用哪一份、自己填路径、提示开关 */
-function MineruSettings(props: { onNotice(t: string): void }) {
-  const st = useMineruStatus()
-  const [val, setVal] = useState<string | null>(null)
-  const errText = (err: unknown) => String((err as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-  const f = st?.find ?? null
-  const busy = st ? ['uv', 'python', 'packages', 'models'].includes(st.install.phase) : false
-  const line = !st || !f
-    ? '正在找…'
-    : busy
-      ? `正在装：${st.install.line} · ${st.install.percent}%`
-      : f.state === 'ready'
-        ? `在用${f.from}的MinerU ${f.version}（${f.path}）`
-        : f.state === 'bad'
-          ? `${f.reason}；先照常用PDF自带的文字`
-          : f.state === 'off'
-            ? '测试实例里不找'
-            : `没找到${f.resume ? '（上次没装完）' : ''}：打开PDF时在工具条下面提示安装，下载${MINERU_DOWNLOAD}、占盘${MINERU_DISK}`
-  async function savePath(p: string | null) {
-    try {
-      await window.cnMineru.setPath(p)
-      setVal(null)
-      props.onNotice(p ? '路径存好了，按它重新找了一遍' : '路径清掉了，按默认的地方重新找了一遍')
-    } catch (err) {
-      props.onNotice(errText(err))
-    }
-  }
-  return (
-    <>
-      <h4>
-        PDF精读增强（MinerU） <span>表格、公式、双栏和配图认得更准；不随软件安装，用到PDF时找已有的一份</span>
-      </h4>
-      <form
-        className="pair"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (val !== null) void savePath(val.trim() || null)
-        }}
-      >
-        <span>mineru-kit</span>
-        <input
-          className="field mono"
-          aria-label="mineru-kit 的路径"
-          placeholder={f?.state === 'ready' ? f.path : '不填就在 ~/.mineru-venv、ParaRead装的那份和PATH里找'}
-          value={val ?? ''}
-          onChange={(e) => setVal(e.target.value)}
-        />
-        <button className="btn btn-sm" type="submit" disabled={val === null}>
-          <Codicon name="save" size={14} />
-          保存
-        </button>
-        <button className="btn btn-ghost btn-sm" type="button" onClick={() => void window.cnMineru.refind()}>
-          <Codicon name="refresh" size={14} />
-          重新找
-        </button>
-        {f?.state === 'missing' && !busy && (
-          <button className="btn btn-sm" type="button" onClick={() => void window.cnMineru.install()}>
-            <Codicon name="cloud-download" size={14} />
-            安装
-          </button>
-        )}
-      </form>
-      <p className="note" data-testid="mineru-state">
-        {line}
-      </p>
-      <div className="pair">
-        <Toggle on={!st?.dismissed} label="没找到时提示安装PDF精读增强" onChange={(v) => void window.cnMineru.dismiss(!v)} />
-        <span>没找到时在PDF工具条下面提示安装</span>
-      </div>
     </>
   )
 }
