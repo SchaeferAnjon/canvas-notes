@@ -1,10 +1,11 @@
 /**
- * 软件设置：userData/settings.json。外观、自动提交间隔，还有上次打开的库、速记提示这些零碎。
+ * 软件设置：userData/settings.json。外观、自动提交间隔、梦游，还有上次打开的库、速记提示这些零碎。
  * 首页的设置不在这里，在库里的 .canvas-notes/首页.json（跟着库走）。
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { type AppSettings, normalizeSettings, type SkinInfo } from '../shared/appearance'
+import { type DreamPatch, patchDream } from '../shared/dream-settings'
 
 export interface StoredSettings extends Partial<AppSettings> {
   lastVault?: string
@@ -12,6 +13,15 @@ export interface StoredSettings extends Partial<AppSettings> {
   quickHint?: boolean
   /** 检查更新上次查到「已是最新」的时间（毫秒） */
   updateCheckedAt?: number
+}
+
+/** 界面改设置时给的一处：外观、梦游只给改了的那几项 */
+export interface SettingsPatch {
+  appearance?: Partial<AppSettings['appearance']>
+  autoCommitMinutes?: number
+  archiveDays?: number
+  autoUpdate?: boolean
+  dream?: DreamPatch
 }
 
 export class SettingsFile {
@@ -45,8 +55,8 @@ export class SettingsFile {
     return normalizeSettings(this.read(), this.userSkins())
   }
 
-  /** 改外观、间隔或归档天数：合并后再检查一遍，返回存下的样子 */
-  setApp(p: { appearance?: Partial<AppSettings['appearance']>; autoCommitMinutes?: number; archiveDays?: number; autoUpdate?: boolean }): AppSettings {
+  /** 改外观、间隔、归档天数或梦游：合并后再检查一遍，返回存下的样子 */
+  setApp(p: SettingsPatch): AppSettings {
     const cur = this.app()
     const next = normalizeSettings(
       {
@@ -55,6 +65,7 @@ export class SettingsFile {
         ...(p.archiveDays !== undefined ? { archiveDays: p.archiveDays } : {}),
         ...(p.autoUpdate !== undefined ? { autoUpdate: p.autoUpdate } : {}),
         appearance: { ...cur.appearance, ...(p.appearance ?? {}) },
+        dream: p.dream ? patchDream(cur.dream, p.dream) : cur.dream,
       },
       this.userSkins(),
     )

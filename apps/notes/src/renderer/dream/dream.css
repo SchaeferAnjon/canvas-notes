@@ -20,6 +20,17 @@
   color: var(--t1);
   font-weight: 500;
 }
+.dsum .dauto {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+  color: var(--t1);
+}
+.dsum .dauto .btn {
+  margin-top: 0;
+}
 .dsum .dnote {
   display: block;
   margin-top: 6px;

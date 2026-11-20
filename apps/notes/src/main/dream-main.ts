@@ -1,6 +1,6 @@
 /**
  * 梦游接到软件里：报告存在软件设置目录（JSON），闲时自己跑，界面通过 IPC 收下、丢掉、看 diff。
- * 闲时 = 这台 Mac 超过 15 分钟没人动，且距上次梦游超过 20 小时。测试时用环境变量缩短。
+ * 闲时照设置 › 梦游（默认：这台 Mac 超过 15 分钟没人动、距上次梦游超过 20 小时、上一份报告看完了；能关掉）。测试时用环境变量缩短。
  */
 import { app, ipcMain, powerMonitor } from 'electron'
 import { createHash } from 'node:crypto'
@@ -14,10 +14,13 @@ import { setDreamHtml } from './attachments'
 import { diffOf } from './diff'
 import type { DiffSource } from '../shared/diff'
 import { similarOffThread } from './similar'
-import { type DreamReportInternal, clearStrayDreams, closeIfDone, dropItem, dropMany, movesOf, redo, runDream, takeAll, takeItem, takeMany, undo } from './dream'
+import { type DreamReportInternal, autoTake, clearStrayDreams, closeIfDone, dropItem, dropMany, movesOf, redo, runDream, takeAll, takeItem, takeMany, undo } from './dream'
+import { type DreamSettings, idleDue } from '../shared/dream-settings'
 
-const IDLE_SEC = Number(process.env.CN_DREAM_IDLE_SEC ?? 15 * 60)
-const GAP_MS = Number(process.env.CN_DREAM_GAP_MS ?? 20 * 3600_000)
+/** 测试用：没人动几秒、隔几毫秒算到点（不设就按设置 › 梦游） */
+const envNum = (k: string) => (process.env[k] === undefined ? undefined : Number(process.env[k]))
+const IDLE_SEC = envNum('CN_DREAM_IDLE_SEC')
+const GAP_MS = envNum('CN_DREAM_GAP_MS')
 const CHECK_MS = Number(process.env.CN_DREAM_CHECK_MS) || 5 * 60_000
 
 const dir = () => join(app.getPath('userData'), 'dream')
@@ -54,6 +57,8 @@ export function setupDream(o: {
   exclusive?<T>(f: () => Promise<T>): Promise<T>
   /** 软件自己挪了这几篇：开着的编辑器跟到新路径、重载内容 */
   followMoves?(moves: { from: string; to: string }[]): Promise<void>
+  /** 设置 › 梦游（每次梦游、每次看闲不闲时现读，改了马上算数） */
+  settings(): DreamSettings
 }) {
   // 报告里还没收下的可视化：从梦游分支上读出来预览（只给报告里列着的文件）
   setDreamHtml(async (rel) => {
@@ -93,8 +98,26 @@ export function setupDream(o: {
       }
       // 上次被 ⌘Q 打断留下的半截分支：清掉（开着的报告的分支留着）
       await clearStrayDreams(root, old && !old.closed ? old.branch : null)
-      const r = await runDream({ root, scratch: join(dir(), 'checkouts'), ask: (s, p) => ask(s, p, AbortSignal.timeout(10 * 60_000), undefined, 'dream'), by: featureLabel('dream'), trigger, similar: similarOffThread })
+      const settings = o.settings()
+      const r = await runDream({ root, scratch: join(dir(), 'checkouts'), ask: (s, p) => ask(s, p, AbortSignal.timeout(10 * 60_000), undefined, 'dream'), by: featureLabel('dream'), trigger, similar: similarOffThread, settings })
       await save(root, r)
+      // 改完直接收下：和「全部收下」同一条路（和写笔记排同一个队，挪了的开着的那篇跟过去）；只提醒的留着看
+      if (settings.autoTake && r.items.some((i) => i.commit && i.state === 'pending')) {
+        const before = new Map(r.items.map((i) => [i.id, i.state] as const))
+        const run = async () => {
+          try {
+            await autoTake(root, r)
+          } finally {
+            await o.followMoves?.(movesOf(before, r.items))
+          }
+        }
+        try {
+          await (o.exclusive ? o.exclusive(run) : run())
+        } catch (e) {
+          r.notes.push(`没能直接收下：${(e as Error).message}。改动还在${r.branch}分支上，在这里逐条收下`)
+        }
+        await save(root, r)
+      }
       return view(r)!
     }).finally(() => {
       running = null
@@ -184,14 +207,18 @@ export function setupDream(o: {
     return diffOf(root, checkSource(src), await load(root))
   })
 
-  // 闲时：没人动超过 15 分钟、距上次梦游超过 20 小时、上一份报告看完了
+  // 闲时（设置 › 梦游）：开着自己梦游、没人动够久、距上次够久、（要等的话）上一份报告看完了
   const timer = setInterval(() => {
     const root = o.root()
     if (!root || running) return
-    if (powerMonitor.getSystemIdleTime() < IDLE_SEC) return
+    const s = o.settings()
+    const idleSec = powerMonitor.getSystemIdleTime()
+    const opts = { s, idleSec, now: Date.now(), ...(IDLE_SEC !== undefined ? { idleNeed: IDLE_SEC } : {}), ...(GAP_MS !== undefined ? { gapMs: GAP_MS } : {}) }
+    // 先不读报告看一眼：关着、没闲够就不碰磁盘
+    if (!idleDue({ ...opts, last: null })) return
     void load(root)
       .then((r) => {
-        if (r && (!r.closed || Date.now() - r.finished < GAP_MS)) return
+        if (!idleDue({ ...opts, last: r })) return
         return dream('idle').then(() => undefined)
       })
       .catch((e) => console.error('闲时梦游失败', e))

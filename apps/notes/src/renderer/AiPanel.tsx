@@ -35,6 +35,7 @@ import {
   withSummaryCard,
 } from './ai-commands'
 import { GROUPS } from './dream/useDream'
+import { dreamDoes } from '../shared/dream-settings'
 import type { NoteDoc, ViewMode } from './note-doc'
 import type { Tab } from './tabs'
 
@@ -544,7 +545,8 @@ export function AiPanel(props: AiPanelProps) {
 
   /** 现在梦游：改动在单独的分支上，跑完说整理了几条、分几组，给个按钮打开右栏报告 */
   async function dreamNow(id: number) {
-    patch(id, { read: '正在梦游：整理收件箱、补双链、找重复、写本周小结' })
+    const does = dreamDoes((await window.cn.settings()).dream)
+    patch(id, { read: `正在梦游${does ? `：${does}` : ''}` })
     const report = await window.cn.dreamNow({ webUrl: props.webUrl })
     const s = dreamSummary(report, GROUPS)
     patch(id, { pending: false, read: undefined, text: s.text, dream: { items: s.items, groups: s.groups } })

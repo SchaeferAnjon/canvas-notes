@@ -112,11 +112,13 @@ export async function makeDreamViz(o: {
   notes: string[]
   /** 哪家哪个模型做的（「Claude Code · Opus 5.5」） */
   by?: string
+  /** 最多做几个（设置 › 梦游「一晚最多几个」，默认 3） */
+  max?: number
 }): Promise<Omit<DreamItem, 'id' | 'group' | 'state'>[]> {
   const { wt, now } = o
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const subjects = (await git.git(wt, ['log', `--since=${start.toISOString()}`, '--format=%s'])).split('\n').filter(Boolean)
-  const spots = stuckSpots(o.texts, todaysSections(subjects))
+  const spots = stuckSpots(o.texts, todaysSections(subjects), o.max)
   const out: Omit<DreamItem, 'id' | 'group' | 'state'>[] = []
   const taken = new Set<string>()
   for (const spot of spots) {

@@ -13,6 +13,7 @@ import type { DreamPreview } from './preview'
 import { expectDreamChange } from './own-change'
 import { NoteDoc } from '../note-doc'
 import { dreamWhen, errText, GROUPS, pendingOf, takenSay } from './useDream'
+import { dreamDoes, type DreamSettings } from '../../shared/dream-settings'
 
 const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', dup: 'copy', week: 'edit' }
 
@@ -37,6 +38,8 @@ export function DreamPanel(props: {
   acting: boolean
   /** 归类和改名的预览、收下一组、跟 AI 说 */
   pv: DreamPreview
+  /** 设置 › 梦游：说它会做什么、什么时候自己梦游 */
+  settings: DreamSettings
 }) {
   const { report, running, pv } = props
   const [cur, setCur] = useState<string | null>(null)
@@ -70,6 +73,9 @@ export function DreamPanel(props: {
   }
 
   let group: DreamGroup | null = null
+  const does = dreamDoes(props.settings)
+  /** 改完直接收下的那几条（报告顶上一键撤回） */
+  const auto = report?.autoTaken ? items.filter((i) => i.taken === report.autoTaken) : []
   return (
     <aside className="side dream-panel" aria-label="梦游报告">
       <div className="rhead">
@@ -82,10 +88,10 @@ export function DreamPanel(props: {
         </button>
       </div>
       <div className="dlist">
-        {running && <div className="dsum">正在梦游：整理收件箱、补双链、找重复、写本周小结。改动放在单独的分支上，跑完这里出新报告。</div>}
+        {running && <div className="dsum">{`正在梦游${does ? `：${does}` : ''}。改动放在单独的分支上，跑完这里出新报告。`}</div>}
         {!running && !report && (
           <div className="dsum dempty">
-            <p>还没梦游过。Mac闲着超过15分钟时会自己整理一遍：收件箱分类、补上双链、找出可能重复的、写本周小结。</p>
+            <p>{props.settings.auto ? `还没梦游过。Mac闲着超过${props.settings.idleMinutes}分钟时会自己整理一遍${does ? `：${does}` : ''}。` : '还没梦游过。自己梦游关着（设置 › 梦游），点「现在梦游」才整理。'}</p>
             <p>改动都放在单独的分支上，你点「收下」才进main，你写的正文一个字不动。</p>
             <button className="btn" disabled={busy} onClick={() => void dreamNow()}>
               <AiIcon job="dream" size={14} />
@@ -101,6 +107,15 @@ export function DreamPanel(props: {
               </>
             ) : (
               <>{`${dreamWhen(report)}梦游了一次，没什么要整理的。`}</>
+            )}
+            {auto.length > 0 && (
+              <span className="dauto" data-testid="dream-auto">
+                {`设置里选了改完直接收下：${auto.length}处已合进${report.base}`}
+                <button className="btn btn-sm" disabled={busy || pv.busy} onClick={() => void pv.undo({ ids: auto.map((i) => i.id), taken: report.autoTaken! })}>
+                  <Codicon name="discard" size={14} />
+                  撤回这次收下
+                </button>
+              </span>
             )}
             {report.notes.map((n) => (
               <span key={n} className="dnote">
@@ -265,10 +280,12 @@ function Detail(props: {
       )}
       {item.move && (
         <div className="pv-move">
-          <span>
-            <i>挪到</i>
-            {item.move.to.split('/').slice(0, -1).join('/')}/
-          </span>
+          {item.move.to.split('/').slice(0, -1).join('/') !== item.move.from.split('/').slice(0, -1).join('/') && (
+            <span>
+              <i>挪到</i>
+              {item.move.to.split('/').slice(0, -1).join('/')}/
+            </span>
+          )}
           {titleOf(item.move.from) !== titleOf(item.move.to) && (
             <span>
               <i>改名</i>

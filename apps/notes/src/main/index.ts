@@ -598,6 +598,7 @@ app.whenReady().then(async () => {
   setupMindmap({ win: () => win, vault: () => vault })
   const dreams = setupDream({
     root: () => vault?.root ?? null,
+    settings: () => settings.app().dream,
     send: (ch, ...args) => win?.webContents.send(ch, ...args),
     // 收下、撤回时 git 挪文件、改字：和写笔记排同一个队，挪完开着的那篇跟到新路径、拿新内容重载（单条、一组、全部收下都走这里）
     exclusive: (f) => (vault ? vault.exclusive(f) : f()),

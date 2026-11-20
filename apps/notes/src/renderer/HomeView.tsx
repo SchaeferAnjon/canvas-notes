@@ -1,4 +1,5 @@
 import { CATEGORIES } from '../shared/categories'
+import { dreamDoes, type DreamSettings } from '../shared/dream-settings'
 import { buildTree, folderProgress } from '../shared/files'
 import type { FolderCover } from '../shared/folder-home'
 import { useDesc } from './files/category-store'
@@ -88,6 +89,8 @@ export interface HomeProps {
   version: number
   dream: DreamReport | null
   dreamRunning: boolean
+  /** 设置 › 梦游：卡片上说它会做什么、什么时候自己梦游 */
+  dreamSettings: DreamSettings
   /** 每加一次就进编辑首页（⌘K 里的「编辑首页」） */
   editSeq: number
   onOpenDream(): void
@@ -713,7 +716,7 @@ function DreamBody(props: HomeProps) {
     return (
       <div className="dreamw" data-testid="dream-card">
         <h3>{props.dreamRunning ? '正在梦游，跑完这里出报告' : '第一晚还没到'}</h3>
-        <p>Mac闲着时自己整理收件箱、补双链、找重复、写本周小结。</p>
+        <p>{props.dreamSettings.auto ? `Mac闲着时自己${dreamDoes(props.dreamSettings) || '梦游'}。` : '自己梦游关着（设置 › 梦游），点「现在梦游」才整理。'}</p>
         <p>改动放在单独的分支上，你点收下才算数。</p>
         {!props.dreamRunning && (
           <div className="wgo">

@@ -1,4 +1,5 @@
 import { type ArchiveDays, DEFAULT_ARCHIVE_DAYS, isArchiveDays } from './sidebar'
+import { DEFAULT_DREAM, type DreamSettings, normalizeDream } from './dream-settings'
 
 /**
  * 外观和软件设置（存在软件设置目录 userData/settings.json，首页的设置除外）。
@@ -87,6 +88,8 @@ export interface AppSettings {
   archiveDays: ArchiveDays
   /** 自动检查更新（启动 30 秒后一次，之后每 6 小时） */
   autoUpdate: boolean
+  /** 设置 › 梦游：什么时候梦游、能做哪些事、能动哪些文件夹、改完怎么收（shared/dream-settings.ts） */
+  dream: DreamSettings
 }
 
 export const AUTO_COMMIT_CHOICES = [0, 5, 10, 30, 60] as const
@@ -107,6 +110,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   autoCommitMinutes: 10,
   archiveDays: DEFAULT_ARCHIVE_DAYS,
   autoUpdate: true,
+  dream: DEFAULT_DREAM,
 }
 
 /**
@@ -141,6 +145,7 @@ export function normalizeSettings(raw: unknown, user: readonly SkinInfo[] = []):
     autoCommitMinutes: Number.isFinite(mins) && mins >= 0 && mins <= 24 * 60 ? Math.round(mins) : DEFAULT_SETTINGS.autoCommitMinutes,
     archiveDays: isArchiveDays(r.archiveDays) ? r.archiveDays : DEFAULT_SETTINGS.archiveDays,
     autoUpdate: typeof r.autoUpdate === 'boolean' ? r.autoUpdate : DEFAULT_SETTINGS.autoUpdate,
+    dream: normalizeDream(r.dream),
   }
 }
 

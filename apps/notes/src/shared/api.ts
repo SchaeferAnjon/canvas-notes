@@ -4,6 +4,7 @@ import type { AiAct, AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnReq
 import type { ChatSummary } from './ai-chats'
 import type { AiFeature, AiPick, AiPrefs } from './ai-features'
 import type { Appearance, AppSettings } from './appearance'
+import type { DreamPatch } from './dream-settings'
 import type { ThemeFile } from './vscode-theme'
 import type { HomeConfig } from './home'
 import type { NoteKind } from './layout'
@@ -167,7 +168,7 @@ export interface CnApi {
   pickImage(note?: string): Promise<string | null>
   /** 软件设置（外观、自动提交间隔），存在软件设置目录 */
   settings(): Promise<AppSettings>
-  setSettings(patch: { appearance?: Partial<Appearance>; autoCommitMinutes?: number; archiveDays?: number; autoUpdate?: boolean }): Promise<AppSettings>
+  setSettings(patch: { appearance?: Partial<Appearance>; autoCommitMinutes?: number; archiveDays?: number; autoUpdate?: boolean; dream?: DreamPatch }): Promise<AppSettings>
   /** 从电脑选一张窗口背景，拷进设置目录；取消是 null */
   pickWinBg(): Promise<AppSettings | null>
   /** 导入的 VS Code 主题（设置目录 themes/） */
@@ -361,6 +362,8 @@ export interface DreamReport {
   closed: boolean
   /** 收件箱里 AI 拿不准、留着不动的条数 */
   stay?: number
+  /** 设置里选了「改完直接收下」：梦游完直接收下的那次提交（报告顶上能一键撤回） */
+  autoTaken?: string
 }
 
 /**

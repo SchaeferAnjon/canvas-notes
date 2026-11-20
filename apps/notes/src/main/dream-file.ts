@@ -39,7 +39,30 @@ export interface InboxEntry {
   props: string
 }
 
-export function filePrompt(entries: InboxEntry[], folders: string[]): string {
+/**
+ * 设置 › 梦游 的两个开关怎么组合：both 挪也改名（默认）；move 只挪、名字不改；rename 只在原处改名、不挪
+ */
+export type FileMode = 'both' | 'move' | 'rename'
+
+const listed = (entries: InboxEntry[]) => entries.map((e) => `路径：${e.path}\n${e.props ? `属性：${e.props}\n` : ''}内容：${e.preview}`).join('\n\n')
+
+/** 只改名：问 AI 的话（不给去处，name 必填；名字本来就好的不列） */
+export function renamePrompt(entries: InboxEntry[]): string {
+  return `命令：改名
+
+下面是收件箱里的东西。只起名字，不挪地方：
+- 临时名（「导图 11-15 21∶40」「IMG_2041」「未命名」、速记的开头几个字）改成一看就懂的，课程的带上第几讲（如「第3讲 线性映射 导图」）；名字本来就好的不要列出来。名字短一点，不带扩展名。
+- 没把握的那条就不要列出来。why 用一句话说为什么叫这个名字。
+只输出一个 JSON 代码块：[{"path": "收件箱/…", "name": "新名字", "why": "…"}]
+
+${listed(entries)}`
+}
+
+export function filePrompt(entries: InboxEntry[], folders: string[], mode: 'both' | 'move' = 'both'): string {
+  const name =
+    mode === 'move'
+      ? '- 名字不改：name 一律写 null。'
+      : '- 名字：临时名（「导图 11-15 21∶40」「IMG_2041」「未命名」、速记的开头几个字）改成一看就懂的，课程的带上第几讲（如「第3讲 线性映射 导图」）；名字本来就好就不改（name 写 null）。名字短一点，不带扩展名。'
   return `命令：归类和改名
 
 下面是收件箱里的东西。给每一条找一个去处，必要时起个更好的名字：
@@ -47,11 +70,11 @@ export function filePrompt(entries: InboxEntry[], folders: string[]): string {
 - 课程的笔记、导图、课件放进那门课（属性里有课程的就按它）；读的书和划线放 阅读；从网页、视频、PDF 剪来的原文放 剪藏/<主题>；有终点的事（一次旅行、一次搬家）放 项目/<项目名>；写给别人看的放 写作；每周一篇的放 周记；一直要照看的日常琐事放 生活。
 - 剪藏的主题按大类起（技术、旅行……），已有的主题装得下就放进去，不为一两条另起一个细的。
 - 属性里的「原文件夹」是从旧笔记软件导进来时原来所在的文件夹，可以参考，但以内容为准（旧文件夹常常是乱放的）。
-- 名字：临时名（「导图 11-15 21∶40」「IMG_2041」「未命名」、速记的开头几个字）改成一看就懂的，课程的带上第几讲（如「第3讲 线性映射 导图」）；名字本来就好就不改（name 写 null）。名字短一点，不带扩展名。
-- 没把握的那条就不要列出来，留在收件箱。why 用一句话说为什么放这里、为什么叫这个名字。
-只输出一个 JSON 代码块：[{"path": "收件箱/…", "folder": "课程/线性代数", "name": "新名字或 null", "why": "…"}]
+${name}
+- 没把握的那条就不要列出来，留在收件箱。why 用一句话说为什么放这里${mode === 'move' ? '' : '、为什么叫这个名字'}。
+只输出一个 JSON 代码块：[{"path": "收件箱/…", "folder": "课程/线性代数", "name": ${mode === 'move' ? 'null' : '"新名字或 null"'}, "why": "…"}]
 
-${entries.map((e) => `路径：${e.path}\n${e.props ? `属性：${e.props}\n` : ''}内容：${e.preview}`).join('\n\n')}`
+${listed(entries)}`
 }
 
 /** 一次问 AI 多少条（导入几百条时一次问不完，也容易漏） */
@@ -63,7 +86,7 @@ const PARALLEL = Number(process.env.CN_DREAM_PARALLEL) || 3
  * 收件箱一批批问：第一批先问完，它新开的去处（课程/线性代数）告诉后面几批，免得同一门课起出两个名字；
  * 后面的同时问几批。哪批出错只记一句，别的批照常。返回的方案按收件箱原来的顺序。
  */
-export async function planInBatches(entries: InboxEntry[], folders: string[], ask: (prompt: string) => Promise<string>, note: (text: string) => void): Promise<FilePlan[]> {
+export async function planInBatches(entries: InboxEntry[], folders: string[], ask: (prompt: string) => Promise<string>, note: (text: string) => void, mode: FileMode = 'both'): Promise<FilePlan[]> {
   const known = [...folders]
   const batches: InboxEntry[][] = []
   for (let i = 0; i < entries.length; i += FILE_BATCH) batches.push(entries.slice(i, i + FILE_BATCH))
@@ -71,8 +94,14 @@ export async function planInBatches(entries: InboxEntry[], folders: string[], as
   const one = async (i: number) => {
     const b = batches[i]!
     try {
-      results[i] = parsePlan(await ask(filePrompt(b, known)), b.map((e) => e.path))
-      for (const p of results[i]!) if (!known.includes(p.folder)) known.push(p.folder)
+      const paths = b.map((e) => e.path)
+      if (mode === 'rename') results[i] = parseRenames(await ask(renamePrompt(b)), paths)
+      else {
+        results[i] = parsePlan(await ask(filePrompt(b, known, mode)), paths)
+        // 只挪：AI 顺手起了新名也不用
+        if (mode === 'move') for (const p of results[i]!) p.name = null
+        for (const p of results[i]!) if (!known.includes(p.folder)) known.push(p.folder)
+      }
     } catch (e) {
       const where = batches.length > 1 ? `第 ${i * FILE_BATCH + 1}–${i * FILE_BATCH + b.length} 条` : ''
       note(`收件箱${where}没归类：${(e as Error).message}`)
@@ -119,6 +148,20 @@ export function parsePlan(reply: string, inbox: readonly string[], stay = false)
     if (!(validFolder(folder) || (stay && folder === INBOX))) continue
     const name = cleanName(x.name)
     out.push({ path: x.path, folder, name: name && name !== baseName(x.path) ? name : null, why: typeof x.why === 'string' ? x.why.trim().slice(0, 300) : '' })
+  }
+  return out
+}
+
+/** 读只改名的方案：只认收件箱里真有的、名字真变了的；去处就是它现在的文件夹 */
+export function parseRenames(reply: string, inbox: readonly string[]): FilePlan[] {
+  const raw = jsonBlock(reply)
+  if (!Array.isArray(raw)) throw new Error('AI 没给出能用的整理方案')
+  const out: FilePlan[] = []
+  for (const x of raw as Record<string, unknown>[]) {
+    if (typeof x?.path !== 'string' || !inbox.includes(x.path) || out.some((p) => p.path === x.path)) continue
+    const name = cleanName(x.name)
+    if (!name || name === baseName(x.path)) continue
+    out.push({ path: x.path, folder: x.path.split('/').slice(0, -1).join('/'), name, why: typeof x.why === 'string' ? x.why.trim().slice(0, 300) : '' })
   }
   return out
 }

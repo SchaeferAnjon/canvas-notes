@@ -1900,6 +1900,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           onDrop={dreamDrop}
           acting={dreamBusy}
           pv={pv}
+          settings={settings.dream}
         />
         )
       ) : (
@@ -2065,6 +2066,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             updateReady={update?.phase === 'ready'}
             onInstallUpdate={installUpdate}
             onOpenUrl={(u) => (setSettingsPage(null), openInWeb(u))}
+            onOpenDream={() => (!settingsTab && setSettingsPage(null), openLeft('dream'))}
           />
         )}
 
@@ -2195,6 +2197,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 version={gitVersion}
                 dream={dream.report}
                 dreamRunning={dream.running}
+                dreamSettings={settings.dream}
                 editSeq={homeEditSeq}
                 onOpenDream={() => openLeft('dream')}
                 onDreamNow={dreamNow}
@@ -2362,6 +2365,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           updateReady={update?.phase === 'ready'}
           onInstallUpdate={installUpdate}
           onOpenUrl={(u) => (setSettingsPage(null), openInWeb(u))}
+          onOpenDream={() => (!settingsTab && setSettingsPage(null), openLeft('dream'))}
         />
       )}
 

@@ -85,9 +85,19 @@ function Drop(props: { label: string; button: React.ReactNode; items: { key: str
   )
 }
 
-export function AiSettingsPage(props: { onNotice(t: string): void; onPlugins(): void }) {
+export function AiSettingsPage(props: { onNotice(t: string): void; onPlugins(): void; /** 从梦游页点过来：这一行滚进来、闪一下 */ focus?: AiFeature | null }) {
   const [v, setV] = useState<AiPrefsView | null>(null)
   const [tr, setTr] = useState<TranslateSettings | null>(null)
+  const rows = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!v || !props.focus) return
+    const row = rows.current?.querySelector<HTMLElement>(`[data-feature="${props.focus}"]`)
+    if (!row) return
+    row.scrollIntoView({ block: 'center' })
+    row.classList.add('flash')
+    const t = setTimeout(() => row.classList.remove('flash'), 1600)
+    return () => clearTimeout(t)
+  }, [!!v, props.focus])
   useEffect(() => {
     void window.cn.aiPrefs().then(setV, (e) => props.onNotice(errText(e)))
     void window.cnPlugins.list().then((l) => {
@@ -164,7 +174,7 @@ export function AiSettingsPage(props: { onNotice(t: string): void; onPlugins(): 
       <h4>
         各功能用哪个<span>默认跟着上面走；单独指定的写在这里</span>
       </h4>
-      <div className="aip-rows" role="list" aria-label="各功能用哪个">
+      <div className="aip-rows" role="list" aria-label="各功能用哪个" ref={rows}>
         {ROWS.map((r) => {
           if (r.f === 'translate') {
             if (!tr) return null

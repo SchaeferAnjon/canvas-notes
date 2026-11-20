@@ -1,6 +1,7 @@
 import { when } from '../shared/when'
 import { Codicon, type CodiconName } from '@cn/design'
 import { AiSettingsPage } from './settings-ai'
+import { DreamSettingsPage } from './settings-dream'
 import { AiIcon } from './engine-logo'
 import { useEffect, useRef, useState } from 'react'
 import type { VaultInfo } from '../shared/api'
@@ -16,13 +17,14 @@ import { VideoKeys } from './video/VideoKeys'
 import './settings.css'
 import { UpdatePage } from './update'
 
-export type SettingsPage = 'look' | 'home' | 'vault' | 'ai' | 'plugins' | 'git' | 'keys' | 'update'
+export type SettingsPage = 'look' | 'home' | 'vault' | 'ai' | 'dream' | 'plugins' | 'git' | 'keys' | 'update'
 
 const PAGES: { id: SettingsPage; name: string; icon: CodiconName }[] = [
   { id: 'look', name: '外观', icon: 'symbol-color' },
   { id: 'home', name: '首页', icon: 'home' },
   { id: 'vault', name: '库', icon: 'library' },
   { id: 'ai', name: 'AI', icon: 'comment-discussion' },
+  { id: 'dream', name: '梦游', icon: 'wand' },
   { id: 'plugins', name: '插件', icon: 'extensions' },
   { id: 'git', name: 'Git和同步', icon: 'git-branch' },
   { id: 'keys', name: '快捷键', icon: 'record-keys' },
@@ -50,7 +52,14 @@ export function Settings(props: {
   onOpenUrl(url: string): void
   /** 方向 A：开成中间的一个标签（VS Code 的做法），不是弹窗 */
   asTab?: boolean
+  /** 梦游页的「看报告」：左栏开梦游报告（弹窗先关上） */
+  onOpenDream(): void
 }) {
+  /** 梦游页点「用哪家 AI」那一行：到 AI 页，「梦游」那一行滚进来、闪一下 */
+  const [aiFocus, setAiFocus] = useState<'dream' | null>(null)
+  useEffect(() => {
+    if (props.page !== 'ai') setAiFocus(null)
+  }, [props.page])
   useEffect(() => {
     if (props.asTab) return
     const onKey = (e: KeyboardEvent) => {
@@ -86,10 +95,11 @@ export function Settings(props: {
           {props.page === 'vault' && <VaultPage {...props} />}
           {props.page === 'ai' && (
             <>
-              <AiSettingsPage onNotice={props.onNotice} onPlugins={() => props.onPage('plugins')} />
+              <AiSettingsPage onNotice={props.onNotice} onPlugins={() => props.onPage('plugins')} focus={aiFocus} />
               <SttKey onNotice={props.onNotice} />
             </>
           )}
+          {props.page === 'dream' && <DreamSettingsPage settings={props.settings} onChange={props.onChange} onNotice={props.onNotice} onOpenDream={props.onOpenDream} onAiRow={() => (setAiFocus('dream'), props.onPage('ai'))} />}
           {props.page === 'plugins' && <PluginsSettings onNotice={props.onNotice} />}
           {props.page === 'git' && <GitPage {...props} />}
           {props.page === 'keys' && <KeysPage />}

@@ -1,7 +1,8 @@
 /**
  * 梦游：在单独的分支 dream/MM-DD 上整理，每条建议是分支上的一个提交，用户逐条收下（cherry-pick）或丢掉。
  * 用 git worktree 在临时目录检出这个分支，不碰用户正在用的工作目录。
- * 只动 收件箱/、剪藏/、阅读/、周记/；用户自己写的作品一个字都不改（每次提交前检查）。
+ * 每一步做不做、一晚最多几处、能动哪些文件夹照设置 › 梦游（shared/dream-settings.ts，默认 收件箱/、阅读/、剪藏/、周记/）；
+ * 能动的文件夹以外、用户自己写的作品一个字都不改（每次提交前检查）。
  * 归类和改名例外：收件箱里的东西可以挪出去（课程/、项目/、生活/、写作/），改名时别的笔记里指向它的 [[旧名]] 跟着换，
  * 这两样提交前也逐个核对（挪的源头在收件箱、别处只多了换名的双链）。
  * 可视化也是例外（dream-viz.ts）：今天卡得最久的几处各做一个 HTML 放进课程文件夹、挂到读 PDF 笔记那一段的脚上，只动这两个文件。
@@ -12,21 +13,21 @@ import { basename, dirname, extname, join } from 'node:path'
 import { decodeNote, encodeNote, HIDDEN_KEYS, merge3Fine, readProps } from '@cn/format'
 import * as git from '@cn/git'
 import type { DreamGroup, DreamItem, DreamReport, DuplicatePair } from '../shared/api'
-import { CLIPS, INBOX, previewOf, titleOf } from '../shared/layout'
+import { INBOX, previewOf, titleOf } from '../shared/layout'
 import { VIDEO_FOLDER, videoOf } from '../shared/video'
 import { BRAND } from '../shared/brand'
 import { duplicatesOf, isAutoSummary, type LinkCand, linkCandidates } from './duplicates'
 import { oldImagesOnBranch } from './dream-attach'
 import { makeDreamViz } from './dream-viz'
-import { foldersOf, movedText, parsePlan, planInBatches, redoPrompt, relinkText, targetOf, type FilePlan } from './dream-file'
+import { foldersOf, type FileMode, movedText, parsePlan, planInBatches, redoPrompt, relinkText, targetOf, type FilePlan } from './dream-file'
+import { DEFAULT_DREAM, type DreamSettings, filesOn, inDreamFolders, linkFolders, weekOn } from '../shared/dream-settings'
 
-/** 梦游能动的文件夹 */
-/** 梦游能动的：收件箱、剪藏、周记，和「阅读」（微信读书同步的书摘以前在 素材/微信读书 下面，2026-11-18 挪成最外层的分类，照旧能补双链） */
-export const DREAM_FOLDERS = [INBOX, CLIPS, '阅读', '周记']
-/** 一晚最多补几处双链、列几对可能重复（导入几百条旧笔记时不铺满报告） */
-export const LINK_MAX = 30
-export const DUP_MAX = 20
-const allowed = (p: string) => DREAM_FOLDERS.some((f) => p.startsWith(f + '/'))
+/** 梦游默认能动的：收件箱、阅读（微信读书同步的书摘 2026-11-18 起在这里）、剪藏、周记；设置 › 梦游 里能改 */
+export const DREAM_FOLDERS = DEFAULT_DREAM.folders
+/** 一晚最多补几处双链、列几对可能重复的默认值（导入几百条旧笔记时不铺满报告） */
+export const LINK_MAX = DEFAULT_DREAM.linkMax
+export const DUP_MAX = DEFAULT_DREAM.dupMax
+const allowedDefault = (p: string) => inDreamFolders(DEFAULT_DREAM, p)
 
 export type Ask = (system: string, prompt: string) => Promise<string>
 
@@ -45,6 +46,8 @@ export interface DreamOptions {
   by?: string
   /** 补双链、找重复这两样重活怎么算；不给就在这个进程里算（单元测试） */
   similar?: Similar
+  /** 设置 › 梦游：哪几样做、一晚最多几处、能动哪些文件夹；不给是默认（全做） */
+  settings?: DreamSettings
 }
 
 /** 补双链、找重复：几千篇的库要算几分钟 */
@@ -92,8 +95,8 @@ async function branchExists(root: string, name: string): Promise<boolean> {
 
 const head = async (dir: string) => (await git.git(dir, ['rev-parse', 'HEAD'])).trim()
 
-/** 提交前检查：暂存区里每个路径（挪动的新旧两头都算）都在梦游能动的文件夹里，或者是核对过的那几个（ok） */
-async function commitChecked(wt: string, message: string, ok: ReadonlySet<string> = new Set()): Promise<string> {
+/** 提交前检查：暂存区里每个路径（挪动的新旧两头都算）都在梦游能动的文件夹里（allowed，照设置），或者是核对过的那几个（ok） */
+async function commitChecked(wt: string, message: string, ok: ReadonlySet<string> = new Set(), allowed: (p: string) => boolean = allowedDefault): Promise<string> {
   const staged = (await git.git(wt, ['diff', '--cached', '--name-only', '--no-renames', '-z'])).split('\0').filter(Boolean)
   const bad = staged.filter((p) => !allowed(p) && !ok.has(p))
   if (bad.length) {
@@ -147,6 +150,9 @@ export async function clearStrayDreams(root: string, keep: string | null): Promi
 /** 跑一次梦游，返回报告。改动都在新分支上，当前分支只多一次「先把没提交的改动提交掉」 */
 export async function runDream(o: DreamOptions): Promise<DreamReport> {
   const similar = o.similar ?? inProcess
+  const set = o.settings ?? DEFAULT_DREAM
+  const allowed = (p: string) => inDreamFolders(set, p)
+  const check = (m: string, ok?: ReadonlySet<string>) => commitChecked(wt, m, ok, allowed)
   const { root, ask } = o
   const now = o.now ?? new Date()
   const started = Date.now()
@@ -180,20 +186,24 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
     const files = (await git.git(wt, ['ls-files', '-z', '--', '*.md'])).split('\0').filter(Boolean)
     const texts = new Map<string, string>()
     for (const f of files) texts.set(f, await readText(join(wt, f)))
-    // 2b. 老图挪进各篇自己的附件文件夹（最先做：用的是还没挪动的路径；收件箱里的那几篇等归类以后再挪）
-    try {
-      const it = await oldImagesOnBranch(wt, files, texts, (m, ok) => commitChecked(wt, m, ok))
-      if (it) add('attach', it)
-    } catch (e) {
-      report.notes.push(`老图没挪：${(e as Error).message}`)
+    // 2b. 老图挪进各篇自己的附件文件夹（最先做：用的是还没挪动的路径；收件箱里的那几篇等归类以后再挪）。
+    // 例外：改的是引用这些图的那几篇里的链接（在哪个文件夹都改），提交前逐个核对
+    if (set.steps.attach) {
+      try {
+        const it = await oldImagesOnBranch(wt, files, texts, check)
+        if (it) add('attach', it)
+      } catch (e) {
+        report.notes.push(`老图没挪：${(e as Error).message}`)
+      }
     }
-    const inbox = files.filter((f) => f.startsWith(INBOX + '/'))
-    const loose = files.filter((f) => f.startsWith(INBOX + '/') || f.startsWith(CLIPS + '/') || f.startsWith('阅读/'))
+    // 补双链补在这几个文件夹里的笔记末尾（默认 收件箱、阅读、剪藏；周记只放小结）
+    const linkIn = linkFolders(set)
+    const loose = files.filter((f) => linkIn.some((d) => f.startsWith(d + '/')))
 
     // 3. 本周小结（新文件，和别的提交互不相干）
     const week = isoWeek(now)
     const weekPath = `周记/${week}.md`
-    if (!texts.has(weekPath) && !(await exists(join(wt, weekPath)))) {
+    if (weekOn(set) && !texts.has(weekPath) && !(await exists(join(wt, weekPath)))) {
       try {
         const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7))
         const commits = (await git.log(wt, 200)).filter((c) => Date.parse(c.date) >= monday.getTime())
@@ -213,7 +223,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
             await mkdir(join(wt, '周记'), { recursive: true })
             await writeFile(join(wt, weekPath), `---\nby: 梦游\ncreated: ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}\n---\n# ${week} 小结\n\n${reply}\n`)
             await git.git(wt, ['add', '--', weekPath])
-            const c = await commitChecked(wt, `梦游：写了本周小结 ${weekPath}`)
+            const c = await check(`梦游：写了本周小结 ${weekPath}`)
             add('week', { title: `周记 ${week}`, sub: `新文件 ${weekPath}`, why: '梦游按这周的提交写的，收下前可以改；你写的正文不会动', commit: c, files: [weekPath], changes: [{ path: weekPath, text: `新建 ${weekPath}` }] })
           }
         }
@@ -223,18 +233,18 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
     }
 
     // 4. 补双链：收件箱、剪藏、阅读里的笔记，和库里另一篇讲到同一件事就在末尾加「相关：[[那篇]]」
-    // 先算出每篇最像的那篇，再按像的程度挑前 LINK_MAX 处（导入几百条时一晚上不铺几百条）。
+    // 先算出每篇最像的那篇，再按像的程度挑前 linkMax 处（设置 › 梦游，默认 30）（导入几百条时一晚上不铺几百条）。
     // 几千篇的库要算几分钟：交给 similar（软件里在单独的进程算，主进程不卡，退出时直接停掉）
-    const cands = await similar.links([...texts], loose)
+    const cands = set.steps.link && loose.length ? await similar.links([...texts], loose) : []
     const linked = new Set<string>()
     let links = 0
     for (const c of cands) {
-      if (links >= LINK_MAX) break
+      if (links >= set.linkMax) break
       if (linked.has(`${c.to}→${c.p}`)) continue
       const target = titleOf(c.to)
       await appendLine(join(wt, c.p), `相关：[[${target}]]`)
       await git.git(wt, ['add', '--', c.p])
-      const commit = await commitChecked(wt, `梦游：「${titleOf(c.p)}」补上 [[${target}]]`)
+      const commit = await check(`梦游：「${titleOf(c.p)}」补上 [[${target}]]`)
       linked.add(`${c.p}→${c.to}`)
       links++
       add('link', {
@@ -246,11 +256,11 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
         changes: [{ path: c.p, text: `末尾加了一行 相关：[[${target}]]` }],
       })
     }
-    if (cands.length > LINK_MAX) report.notes.push(`还有 ${cands.length - links} 处能补双链，这次先补最像的 ${links} 处，下次梦游接着补`)
+    if (cands.length > set.linkMax) report.notes.push(`还有 ${cands.length - links} 处能补双链，这次先补最像的 ${links} 处，下次梦游接着补`)
 
-    // 5. 可能重复：只提醒，不改文件，没有提交；最像的 DUP_MAX 对
-    const dups = (await similar.duplicates([...texts].map(([id, text]) => ({ id, text })))).sort((a, b) => b.score - a.score)
-    for (const d of dups.slice(0, DUP_MAX)) {
+    // 5. 可能重复：只提醒，不改文件，没有提交；最像的 dupMax 对
+    const dups = set.steps.dup ? (await similar.duplicates([...texts].map(([id, text]) => ({ id, text })))).sort((a, b) => b.score - a.score) : []
+    for (const d of dups.slice(0, set.dupMax)) {
       add('dup', {
         title: `${titleOf(d.a)} + ${titleOf(d.b)}`,
         sub: `相似度${Math.round(d.score * 100)}%`,
@@ -259,10 +269,10 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
         files: [d.a, d.b],
       })
     }
-    if (dups.length > DUP_MAX) report.notes.push(`还有 ${dups.length - DUP_MAX} 对可能重复的没列出来，⌘K「找重复」能看全部`)
+    if (dups.length > set.dupMax) report.notes.push(`还有 ${dups.length - set.dupMax} 对可能重复的没列出来，⌘K「找重复」能看全部`)
 
     // 5a. 同一个视频记散在两篇以上（CN-80）：提醒合成一篇；只是提醒，不改文件
-    for (const g of sameVideoNotes(texts)) {
+    for (const g of set.steps.video ? sameVideoNotes(texts) : []) {
       add('dup', {
         title: g.files.map((f) => titleOf(f)).join(' + '),
         sub: `同一个视频《${g.title}》· 可以合成一篇`,
@@ -272,21 +282,22 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
       })
     }
 
-    // 5b. 可视化：今天卡得最久的几处（挪动之前做，挂的是笔记现在的路径）
-    for (const it of await makeDreamViz({ wt, texts, ask, now, notes: report.notes, commit: (m, ok) => commitChecked(wt, m, ok), ...(o.by ? { by: o.by } : {}) })) add('viz', it)
+    // 5b. 可视化：今天卡得最久的几处（挪动之前做，挂的是笔记现在的路径）。例外：挂在课程里读 PDF 的笔记上，提交前核对只动了那两个文件
+    if (set.steps.viz) for (const it of await makeDreamViz({ wt, texts, ask, now, max: set.vizMax, notes: report.notes, commit: check, ...(o.by ? { by: o.by } : {}) })) add('viz', it)
 
-    // 6. 归类和改名（挪动放最后：前面补双链改的是挪动前的路径）
-    const inboxAll = (await git.git(wt, ['ls-files', '-z', '--', INBOX + '/'])).split('\0').filter(Boolean)
-    if (inboxAll.length) {
+    // 6. 归类和改名（挪动放最后：前面补双链改的是挪动前的路径）。两个开关各管一样：只挪不改名、只在原处改名
+    const mode: FileMode | null = !filesOn(set) ? null : set.steps.file && set.steps.rename ? 'both' : set.steps.file ? 'move' : 'rename'
+    const inboxAll = mode ? (await git.git(wt, ['ls-files', '-z', '--', INBOX + '/'])).split('\0').filter(Boolean) : []
+    if (mode && inboxAll.length) {
       try {
         const entries = inboxAll.map((p) => {
           const t = texts.get(p)
           const props = t ? readProps(t).filter((x) => !HIDDEN_KEYS.has(x.key)).map((x) => `${x.key}: ${x.value}`).join('；') : ''
           return { path: p, preview: t ? previewOf(t, 300) || titleOf(p) : `（${p.split('.').pop()} 文件）${basename(p)}`, props }
         })
-        const plans = await planInBatches(entries, foldersOf(files), (p) => ask(SYSTEM, p), (n) => report.notes.push(n))
+        const plans = await planInBatches(entries, foldersOf(files), (p) => ask(SYSTEM, p), (n) => report.notes.push(n), mode)
         for (const plan of plans) {
-          const it = await fileOne(wt, plan, texts)
+          const it = await fileOne(wt, plan, texts, allowed)
           add('file', it)
         }
         report.stay = inboxAll.length - plans.length
@@ -447,6 +458,20 @@ export function movesOf(before: Map<string, DreamItem['state']>, items: DreamIte
     else if (was === 'taken' && it.state === 'pending') out.push({ from: it.move.to, to: it.move.from })
   }
   return out
+}
+
+/**
+ * 设置里选了「改完直接收下」：梦游完把有提交的几条一次收下（只提醒的留着看），记下那次提交好在报告里一键撤回。
+ * 合不上的那几条照常留着待看。返回那次提交号
+ */
+export async function autoTake(root: string, r: DreamReport): Promise<string | null> {
+  const hash = await takeMany(
+    root,
+    r,
+    r.items.filter((i) => i.commit && i.state === 'pending').map((i) => i.id),
+  )
+  if (hash) r.autoTaken = hash
+  return hash
 }
 
 /** 剩下的全部收下：一次提交 */
@@ -724,20 +749,23 @@ async function moveOnBranch(wt: string, cur: string, target: string): Promise<{ 
   return { to, ok }
 }
 
-/** 一条归类和改名：挪好、提交，返回报告里那一条 */
-async function fileOne(wt: string, plan: FilePlan, texts: Map<string, string>): Promise<Omit<DreamItem, 'id' | 'group' | 'state'>> {
+/** 一条归类和改名：挪好、提交，返回报告里那一条。去处还在原来的文件夹里就是只改名（设置里关了归类挪动） */
+async function fileOne(wt: string, plan: FilePlan, texts: Map<string, string>, allowed: (p: string) => boolean): Promise<Omit<DreamItem, 'id' | 'group' | 'state'>> {
   const moved = await moveOnBranch(wt, plan.path, targetOf(plan))
   const renamed = titleOf(moved.to) !== titleOf(plan.path)
-  const c = await commitChecked(wt, `梦游：「${titleOf(plan.path)}」挪到 ${plan.folder}${renamed ? `，改名「${titleOf(moved.to)}」` : ''}`, moved.ok)
+  const stays = dirname(moved.to) === dirname(plan.path)
+  const was = titleOf(plan.path)
+  const now = titleOf(moved.to)
+  const c = await commitChecked(wt, stays ? `梦游：「${was}」改名「${now}」` : `梦游：「${was}」挪到 ${plan.folder}${renamed ? `，改名「${now}」` : ''}`, moved.ok, allowed)
   const t = texts.get(plan.path)
   return {
-    title: titleOf(moved.to),
-    sub: `从收件箱挪来 · 原名「${titleOf(plan.path)}」`,
-    why: plan.why || (t ? `AI 读了内容，放进「${plan.folder}」` : `按文件名放进「${plan.folder}」`),
+    title: now,
+    sub: stays ? `改名 · 原名「${was}」` : `从收件箱挪来 · 原名「${was}」`,
+    why: plan.why || (stays ? 'AI 读了内容，起了个一看就懂的名字' : t ? `AI 读了内容，放进「${plan.folder}」` : `按文件名放进「${plan.folder}」`),
     commit: c,
     files: [plan.path, moved.to],
     move: { from: plan.path, to: moved.to },
-    changes: [{ path: moved.to, text: `从 收件箱 挪到 ${plan.folder}${renamed ? `，改名「${titleOf(moved.to)}」` : ''}` }],
+    changes: [{ path: moved.to, text: stays ? `改名「${now}」` : `从 收件箱 挪到 ${plan.folder}${renamed ? `，改名「${now}」` : ''}` }],
   }
 }
 
