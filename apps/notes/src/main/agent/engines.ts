@@ -3,7 +3,10 @@
  * - Claude Code：claude -p --output-format stream-json（一轮一个进程，--resume 接着聊）
  * - Codex：codex app-server（JSON-RPC，一行一条）
  * - Gemini CLI：gemini --acp；OpenCode：opencode acp（都是 ACP）
- * 都不许 AI 自己写文件、跑命令：改笔记只能走我们的工具，这样每一轮的改动都知道是哪几个文件，能一次提交、一键撤回。
+ * 两种模式（2026-11-19 用户要的，默认全能）：
+ * - 全能模式开着（EngineRun.omni）：和用户在终端里用这家命令行一样能干：读写这台 Mac 上的文件、跑命令、上网、开子 Agent，不停下来问
+ *   （软件里没法弹命令行自己的权限确认）。我们的 MCP 工具照样给；AI 自己改了库里的文件，这一轮结束由 agent/index.ts 一起提交。
+ * - 关着：AI 自己不能写文件、跑命令、上网，改笔记只能走我们的工具（新建、改写、改名、挪、删都有），库里的文件能只读翻。
  *
  * 各家怎么接参照了 Claudian（github.com/yishentu/claudian，MIT，版权 (c) 2025 Yishen Tu）的
  * src/providers/claude、src/providers/codex、src/providers/acp，许可声明见仓库根目录 THIRD_PARTY_NOTICES.md。
@@ -51,8 +54,28 @@ export interface EngineRun {
   readOnly?: boolean
   /** AI 每调一次工具报一声（「让 Claude 帮我找」把过程显示出来） */
   onTool?(name: string, input: Record<string, unknown>): void
+  /**
+   * 全能模式（2026-11-19，默认开）：给了 mcp 时才看它。开着：这家命令行自带的工具全给、不停下来问（bypassPermissions、danger-full-access、yolo）；
+   * 关着：只给我们的工具和库里只读翻文件
+   */
+  omni?: boolean
+  /** 这家命令行自己的工具（不是我们 MCP 的）开始、做完：对话里的步骤行（全能模式下跑命令、写文件、上网搜这些） */
+  onStep?(s: EngineStep): void
   signal: AbortSignal
   onText(delta: string): void
+}
+
+/**
+ * 命令行自己的一步。各家的叫法统一成 Claude Code 的：Bash（跑命令）、Read、Write、Edit、Glob、Grep、WebSearch、WebFetch、Task（子 Agent）……
+ * input 也照 Claude Code 的字段（command、file_path、pattern、query、url、description）；id 是这家给的，开始和做完对得上
+ */
+export interface EngineStep {
+  id: string
+  tool: string
+  input: Record<string, unknown>
+  status: 'run' | 'ok' | 'err'
+  /** 出错时的原因（第一行） */
+  detail?: string
 }
 
 export interface EngineImage {
@@ -96,9 +119,22 @@ export const CLAUDE_MODEL = process.env.CN_AI_MODEL || 'claude-opus-5-5'
 const CLAUDE_READ_TOOLS = ['Read', 'Glob', 'Grep']
 /** 自带的写文件、跑命令、上网、开子 Agent 再明着禁一遍（--tools 已经不给了） */
 const CLAUDE_DENIED = ['Bash', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'WebFetch', 'WebSearch', 'Task']
+/** 全能模式只拿掉问人的那个：软件里没有地方答它的选择题（要问就写在回答里） */
+const CLAUDE_OMNI_DENIED = ['AskUserQuestion']
+/** Claude Code 自己的、不是在动手的那几步（真跑见过 ToolSearch：用 MCP 工具前先把工具说明拿进来），不报成步骤行 */
+const CLAUDE_QUIET = new Set(['ToolSearch'])
 
-/** claude -p 的参数（以 claude --help 为准，2.1.323 核过）。mcpConfig：写着我们 MCP 服务和令牌的 json 文件，只在给工具时有 */
-export function claudeArgs(r: Pick<EngineRun, 'system' | 'appendSystem' | 'mcp' | 'model' | 'effort' | 'images' | 'keepSession' | 'readOnly' | 'fork'>, resume?: string, mcpConfig?: string): string[] {
+/**
+ * claude -p 的参数（以 claude --help 为准，2.1.323 核过）。mcpConfig：写着我们 MCP 服务和令牌的 json 文件，只在给工具时有。
+ *
+ * 全能模式（给了 mcp 且 omni）：--permission-mode bypassPermissions（不停下来问，和 --dangerously-skip-permissions 一样），自带工具全给，
+ * 只拿掉问人的 AskUserQuestion；不限轮数（和终端里一样，用户随时能停）；系统提示附在 Claude Code 自己的后面（它自己那份教它用好
+ * Bash、Write 这些）。设置：AI 对话一个都不读（--setting-sources=）：用户的 CLAUDE.md 是写给终端里干活的 Agent 的（任务看板、
+ * 派子 Agent、交付页），有了 Bash 它会真去建任务、派子 Agent；hooks 每问一次都会跑；用户的 MCP（邮件、日历、交易账户）在不问人的
+ * 模式下会直接动手。读 PDF 照 CN-89 读用户设置（讲解偏好），hooks 照样关掉。两种都 --strict-mcp-config：MCP 只接我们的。
+ */
+export function claudeArgs(r: Pick<EngineRun, 'system' | 'appendSystem' | 'mcp' | 'model' | 'effort' | 'images' | 'keepSession' | 'readOnly' | 'fork' | 'omni'>, resume?: string, mcpConfig?: string): string[] {
+  const omni = !!(r.omni && r.mcp && mcpConfig)
   const args = [
     '-p',
     '--output-format', 'stream-json',
@@ -108,15 +144,21 @@ export function claudeArgs(r: Pick<EngineRun, 'system' | 'appendSystem' | 'mcp' 
     ...(r.appendSystem
       ? // 读 PDF 讲解：留 Claude Code 自己的系统提示，读 PDF 那几条附在后面；读用户的设置（CLAUDE.md），hooks 关掉
         ['--append-system-prompt', r.system, '--setting-sources', 'user', '--settings', JSON.stringify({ disableAllHooks: true })]
-      : // 不读用户的设置（hooks、权限、插件）
-        ['--system-prompt', r.system, '--setting-sources=']),
+      : omni
+        ? // 全能模式的 AI 对话：留 Claude Code 自己的系统提示，我们的附在后面；一个用户设置都不读
+          ['--append-system-prompt', r.system, '--setting-sources=']
+        : // 不读用户的设置（hooks、权限、插件）
+          ['--system-prompt', r.system, '--setting-sources=']),
     // MCP 只接我们给的
     '--strict-mcp-config',
-    // 没明着放行的一律拒绝，不会停下来问
-    '--permission-mode', 'dontAsk',
-    '--disallowedTools', CLAUDE_DENIED.join(','),
+    ...(omni
+      ? // 全能模式：不停下来问；自带工具全给，只拿掉问人的那个
+        ['--permission-mode', 'bypassPermissions', '--disallowedTools', CLAUDE_OMNI_DENIED.join(',')]
+      : // 没明着放行的一律拒绝，不会停下来问
+        ['--permission-mode', 'dontAsk', '--disallowedTools', CLAUDE_DENIED.join(',')]),
   ]
-  if (r.mcp && mcpConfig) {
+  if (omni) args.push('--mcp-config', mcpConfig!)
+  else if (r.mcp && mcpConfig) {
     const ours = r.mcp.tools.map((t) => `mcp__${MCP_NAME}__${t}`)
     args.push('--tools', CLAUDE_READ_TOOLS.join(','), '--mcp-config', mcpConfig, '--allowedTools', ours.join(','), '--max-turns', '40')
   } else if (r.readOnly) {
@@ -159,7 +201,15 @@ interface ClaudeLine {
   is_error?: boolean
   result?: string
   event?: { type?: string; delta?: { type?: string; text?: string }; content_block?: { type?: string } }
-  message?: { content?: { type?: string; name?: string; input?: Record<string, unknown> }[] }
+  /** 子 Agent 里面的那几步带着它所在的 Task 的 id（不报成步骤，只报 Task 本身） */
+  parent_tool_use_id?: string | null
+  message?: { content?: { type?: string; id?: string; name?: string; input?: Record<string, unknown>; tool_use_id?: string; is_error?: boolean; content?: unknown }[] }
+}
+
+/** tool_result 的 content（字符串或 [{type:'text',text}]）的第一行，出错时当原因 */
+function firstLine(c: unknown): string {
+  const text = typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => (x && typeof x === 'object' && typeof (x as { text?: unknown }).text === 'string' ? (x as { text: string }).text : '')).join('\n') : ''
+  return (text.trim().split('\n')[0] ?? '').slice(0, 300)
 }
 
 /** 跑一次 claude -p：话从标准输入给，一行一个 JSON 事件读回来 */
@@ -175,6 +225,8 @@ function runClaude(exe: string, args: string[], prompt: string, r: EngineRun): P
     let stderr = ''
     let buf = ''
     let settled = false
+    /** 报了「在做」还没报「做完」的步骤 */
+    const steps = new Map<string, { tool: string; input: Record<string, unknown> }>()
     const stop = () => child.kill('SIGTERM')
     r.signal.addEventListener('abort', stop)
     const finish = (f: () => void) => {
@@ -205,8 +257,24 @@ function runClaude(exe: string, args: string[], prompt: string, r: EngineRun): P
           text += ev.delta.text
           r.onText(ev.delta.text)
         }
-      } else if (m.type === 'assistant' && r.onTool) {
-        for (const c of m.message?.content ?? []) if (c.type === 'tool_use' && c.name) r.onTool(c.name, c.input ?? {})
+      } else if (m.type === 'assistant') {
+        for (const c of m.message?.content ?? []) {
+          if (c.type !== 'tool_use' || !c.name) continue
+          r.onTool?.(c.name, c.input ?? {})
+          // 步骤：我们 MCP 的由 MCP 服务自己报；子 Agent 里面的那几步不报（只报 Task 本身）；
+          // 它自己找工具的那一步（ToolSearch，用到 MCP 工具前先把工具说明拿进来）不是在动手，不报
+          if (!r.onStep || !c.id || m.parent_tool_use_id || c.name.startsWith(`mcp__${MCP_NAME}__`) || CLAUDE_QUIET.has(c.name)) continue
+          steps.set(c.id, { tool: c.name, input: c.input ?? {} })
+          r.onStep({ id: c.id, tool: c.name, input: c.input ?? {}, status: 'run' })
+        }
+      } else if (m.type === 'user' && r.onStep) {
+        for (const c of m.message?.content ?? []) {
+          const step = c.type === 'tool_result' && c.tool_use_id ? steps.get(c.tool_use_id) : undefined
+          if (!step) continue
+          steps.delete(c.tool_use_id!)
+          // 跑命令出错的原话「Exit code 1」写成中文，和 Codex 那边一样
+          r.onStep({ id: c.tool_use_id!, ...step, status: c.is_error ? 'err' : 'ok', ...(c.is_error ? { detail: firstLine(c.content).replace(/^Exit code (\d+)$/, '退出码 $1') } : {}) })
+        }
       } else if (m.type === 'result') {
         if (m.subtype === 'success' && !m.is_error) result = m.result ?? ''
         else error = (m.subtype === 'success' ? m.result : m.subtype) || '不知道为什么'
@@ -274,6 +342,62 @@ export function claudeEngine(command?: string, prefix: string[] = []): Engine {
 
 // ---------------------------------------------------------------- Codex
 
+/**
+ * 全能模式关着时 Codex 自带的这几样关掉（app-server 进程的 -c；codex 0.163.0 的 `codex features list` 核过，不认识的键 Codex 只警告、照样起来）：
+ * 跑命令（shell_tool）、上网搜（web_search）、ChatGPT 的 apps 连接器、浏览器和电脑操作、子 Agent。沙箱另外是只读的
+ */
+export const CODEX_LOCKED = [
+  '-c', 'features.shell_tool=false',
+  '-c', 'web_search="disabled"',
+  '-c', 'features.apps=false',
+  '-c', 'features.browser_use=false',
+  '-c', 'features.in_app_browser=false',
+  '-c', 'features.computer_use=false',
+  '-c', 'features.multi_agent=false',
+]
+
+/**
+ * app-server 的 thread/start、resume、fork 一起带的：全能模式 danger-full-access + 上网搜 live；关着只读沙箱、上网搜关掉
+ * （线程上也写一遍：全能模式里开的线程换到关着时接着用，不带着 live）。都不问人（approval never）
+ */
+function codexThreadOpts(r: EngineRun) {
+  return r.omni
+    ? { cwd: r.cwd, sandbox: 'danger-full-access', approvalPolicy: 'never', config: { web_search: 'live' }, developerInstructions: r.system }
+    : { cwd: r.cwd, sandbox: 'read-only', approvalPolicy: 'never', config: { web_search: 'disabled' }, developerInstructions: r.system }
+}
+
+/** app-server 的一条（item/started、item/completed 里的 item）换成一步；我们 MCP 的、不是动手的（说话、想）不算 */
+export function codexStep(item: Record<string, unknown> | undefined, done: boolean): EngineStep | null {
+  if (!item || typeof item.id !== 'string') return null
+  const st = typeof item.status === 'string' ? item.status : done ? 'completed' : 'inProgress'
+  const status = !done ? 'run' : st === 'failed' || st === 'declined' ? 'err' : 'ok'
+  const base = { id: item.id, status } as const
+  switch (item.type) {
+    case 'commandExecution': {
+      const command = Array.isArray(item.command) ? item.command.join(' ') : String(item.command ?? '')
+      const code = typeof item.exitCode === 'number' ? item.exitCode : 0
+      if (done && status === 'ok' && code !== 0) return { ...base, status: 'err', tool: 'Bash', input: { command }, detail: `退出码 ${code}` }
+      return { ...base, tool: 'Bash', input: { command }, ...(status === 'err' ? { detail: st === 'declined' ? '没放行' : '没跑成' } : {}) }
+    }
+    case 'fileChange': {
+      const first = (Array.isArray(item.changes) ? item.changes[0] : null) as { path?: string; kind?: { type?: string } } | null
+      const tool = first?.kind?.type === 'add' ? 'Write' : first?.kind?.type === 'delete' ? 'Delete' : 'Edit'
+      return { ...base, tool, input: { file_path: first?.path ?? '' }, ...(status === 'err' ? { detail: st === 'declined' ? '没放行' : '没改成' } : {}) }
+    }
+    case 'webSearch':
+      return { ...base, tool: 'WebSearch', input: { query: String(item.query ?? '') } }
+    case 'mcpToolCall':
+      if (item.server === MCP_NAME) return null
+      return { ...base, tool: 'Mcp', input: { server: String(item.server ?? ''), tool: String(item.tool ?? '') } }
+    case 'collabAgentToolCall':
+      return { ...base, tool: 'Task', input: { description: String(item.prompt ?? '') } }
+    case 'imageView':
+      return { ...base, tool: 'Read', input: { file_path: String(item.path ?? '') } }
+    default:
+      return null
+  }
+}
+
 /** command 只在测试里给（假的 app-server） */
 export function codexEngine(command?: string, prefix: string[] = []): Engine {
   let proc: RpcProcess | null = null
@@ -281,10 +405,12 @@ export function codexEngine(command?: string, prefix: string[] = []): Engine {
   let mcpKey = ''
   const live = new Set<string>()
 
-  async function ensure(cwd: string, mcp: EngineRun['mcp']): Promise<RpcProcess> {
-    const key = mcp ? mcp.url : ''
-    // 只聊天（不给 MCP）时，已经开着的进程直接用
-    if (proc && !proc.closed && (!mcp || key === mcpKey)) return proc
+  async function ensure(cwd: string, mcp: EngineRun['mcp'], omni: boolean): Promise<RpcProcess> {
+    // 全能模式开关换了：进程按新参数重起（关掉的功能是进程级的）；线程在磁盘上，接着 thread/resume
+    const key = `${mcp ? `${mcp.url} ${mcp.token}` : ''}|${omni ? 'omni' : 'locked'}`
+    const sameMode = mcpKey.endsWith(`|${omni ? 'omni' : 'locked'}`)
+    // 只聊天（不给 MCP）时，同一种模式下已经开着的进程直接用
+    if (proc && !proc.closed && (key === mcpKey || (!mcp && sameMode))) return proc
     if (starting && key === mcpKey && !proc?.closed) return starting
     proc?.close()
     proc = null
@@ -295,14 +421,14 @@ export function codexEngine(command?: string, prefix: string[] = []): Engine {
       const servers = mcp
         ? `mcp_servers={${MCP_NAME}={url="${mcp.url}",bearer_token_env_var="CN_MCP_TOKEN",default_tools_approval_mode="approve"}}`
         : 'mcp_servers={}'
-      const args = [...prefix, 'app-server', '-c', servers]
+      const args = [...prefix, 'app-server', '-c', servers, ...(omni ? [] : CODEX_LOCKED)]
       if (process.env.CN_CODEX_MODEL) args.push('-c', `model="${process.env.CN_CODEX_MODEL}"`)
       const p = new RpcProcess(command ?? need('codex'), args, { cwd, env: cliEnv(mcp ? { CN_MCP_TOKEN: mcp.token } : {}) }, false)
       p.onRequest(async (method, params) => {
-        // 我们的工具不用再问；Codex 自己要写文件、跑命令一律不许
-        if (method === 'mcpServer/elicitation/request') return params.serverName === MCP_NAME ? { action: 'accept', content: {}, _meta: null } : { action: 'decline', content: null, _meta: null }
-        if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval') return { decision: 'decline' }
-        if (method === 'execCommandApproval' || method === 'applyPatchApproval') return { decision: 'denied' }
+        // 我们的工具不用再问；Codex 自己要写文件、跑命令：全能模式放行，关着一律不许
+        if (method === 'mcpServer/elicitation/request') return params.serverName === MCP_NAME || omni ? { action: 'accept', content: {}, _meta: null } : { action: 'decline', content: null, _meta: null }
+        if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval') return { decision: omni ? 'accept' : 'decline' }
+        if (method === 'execCommandApproval' || method === 'applyPatchApproval') return { decision: omni ? 'approved' : 'denied' }
         throw new Error(`不支持 ${method}`)
       })
       await p.request('initialize', { clientInfo: { name: APP.name, title: APP.name, version: APP.version }, capabilities: null })
@@ -322,8 +448,8 @@ export function codexEngine(command?: string, prefix: string[] = []): Engine {
     label: LABELS.codex,
     dispose: () => proc?.close(),
     async run(r) {
-      const p = await ensure(r.cwd, r.mcp)
-      const opts = { cwd: r.cwd, sandbox: 'read-only', approvalPolicy: 'never', developerInstructions: r.system }
+      const p = await ensure(r.cwd, r.mcp, !!(r.omni && r.mcp))
+      const opts = codexThreadOpts(r.mcp ? r : { ...r, omni: false })
       let threadId: string | undefined
       let fresh = false
       if (r.fork && r.session) {
@@ -358,6 +484,9 @@ export function codexEngine(command?: string, prefix: string[] = []): Engine {
           } else if (method === 'item/started' && (params.item as { type?: string })?.type === 'agentMessage' && text && !text.endsWith('\n\n')) {
             text += '\n\n'
             r.onText('\n\n')
+          } else if ((method === 'item/started' || method === 'item/completed') && r.onStep) {
+            const step = codexStep(params.item as Record<string, unknown> | undefined, method === 'item/completed')
+            if (step) r.onStep(step)
           } else if (method === 'error' && !params.willRetry) {
             off()
             reject(new Error(`Codex 出错了：${(params.error as { message?: string })?.message ?? '不知道为什么'}`))
@@ -440,37 +569,80 @@ interface AcpOptions {
   loggedIn?(): boolean
   /** 只在测试里给（假的 ACP 程序） */
   command?: string
-  args(cwd: string): string[]
-  env?(): Record<string, string>
+  /** omni：全能模式开着（批准方式、权限设置是进程级的，开关换了进程重起） */
+  args(cwd: string, omni: boolean): string[]
+  env?(omni: boolean): Record<string, string>
+  /** 进程退出以后收拾（删掉给它的策略文件） */
+  cleanup?(): void
   /** 会话开不了时的说法（多半是没登录） */
   loginHint: string
+}
+
+/** 我们 MCP 工具的名字（ACP 的权限请求、步骤里认出是我们的） */
+const OURS = /canvas|board_|web_|doc_|note_|notes_list|folder_/
+
+/** ACP 的 tool_call 换成一步（kind 照 ACP 规范：read、edit、delete、move、search、execute、think、fetch、other）；我们 MCP 的、想的那几步不算 */
+export function acpStep(u: { toolCallId?: string; title?: string; kind?: string; rawInput?: unknown; locations?: { path?: string }[] }): Omit<EngineStep, 'status'> | null {
+  if (!u.toolCallId || u.kind === 'think' || OURS.test(u.title ?? '')) return null
+  const raw = (u.rawInput && typeof u.rawInput === 'object' ? u.rawInput : {}) as Record<string, unknown>
+  const str = (...v: unknown[]) => String(v.find((x) => typeof x === 'string' && x) ?? '')
+  const path = str(u.locations?.[0]?.path, raw.file_path, raw.filePath, raw.path, raw.absolute_path)
+  const id = u.toolCallId
+  switch (u.kind) {
+    case 'execute':
+      return { id, tool: 'Bash', input: { command: str(raw.command, u.title) } }
+    case 'read':
+      return { id, tool: 'Read', input: { file_path: path || str(u.title) } }
+    case 'edit':
+      return { id, tool: 'Edit', input: { file_path: path || str(u.title) } }
+    case 'delete':
+      return { id, tool: 'Delete', input: { file_path: path || str(u.title) } }
+    case 'move':
+      return { id, tool: 'Move', input: { file_path: path || str(u.title) } }
+    case 'search':
+      return raw.query && !raw.pattern ? { id, tool: 'WebSearch', input: { query: str(raw.query) } } : { id, tool: 'Grep', input: { pattern: str(raw.pattern, raw.query, u.title) } }
+    case 'fetch':
+      return { id, tool: 'WebFetch', input: { url: str(raw.url, raw.prompt, u.title) } }
+    default:
+      return { id, tool: str(u.title) || 'other', input: {} }
+  }
 }
 
 export function acpEngine(o: AcpOptions): Engine {
   let proc: RpcProcess | null = null
   let ready: Promise<RpcProcess> | null = null
+  /** 现在这个进程是哪种模式起的 */
+  let procOmni = false
   const live = new Set<string>()
   /** 每个会话现在这一轮把字交给谁 */
   const sinks = new Map<string, (delta: string) => void>()
+  /** 每个会话现在这一轮的步骤交给谁 */
+  const stepSinks = new Map<string, (u: Record<string, unknown>) => void>()
 
-  async function ensure(cwd: string): Promise<RpcProcess> {
-    if (proc && !proc.closed) return proc
-    if (ready && !proc?.closed) return ready
+  async function ensure(cwd: string, omni: boolean): Promise<RpcProcess> {
+    if (proc && !proc.closed && procOmni === omni) return proc
+    if (ready && !proc?.closed && procOmni === omni) return ready
+    // 全能模式开关换了：按新参数重起（会话跟着进程没了，下一问开新会话、补上最近几轮）
+    proc?.close()
+    proc = null
     live.clear()
+    procOmni = omni
     ready = (async () => {
-      const p = new RpcProcess(o.command ?? need(o.id), o.args(cwd), { cwd, env: cliEnv(o.env?.() ?? {}) })
+      const p = new RpcProcess(o.command ?? need(o.id), o.args(cwd, omni), { cwd, env: cliEnv(o.env?.(omni) ?? {}) })
+      void p.exited.then(() => o.cleanup?.())
       p.onNotification((method, params) => {
         if (method !== 'session/update') return
         const u = params.update as { sessionUpdate?: string; content?: { type?: string; text?: string } }
         if (u?.sessionUpdate === 'agent_message_chunk' && u.content?.type === 'text' && u.content.text) sinks.get(String(params.sessionId))?.(u.content.text)
+        else if (u?.sessionUpdate === 'tool_call' || u?.sessionUpdate === 'tool_call_update') stepSinks.get(String(params.sessionId))?.(u as Record<string, unknown>)
       })
       p.onRequest(async (method, params) => {
         if (method !== 'session/request_permission') throw new Error(`不支持 ${method}`)
         const call = params.toolCall as { title?: string; kind?: string; rawInput?: unknown } | undefined
         const options = (params.options ?? []) as { optionId: string; kind: string }[]
-        // 只放行我们的工具；AI 自己改文件、跑命令一律拒绝
-        const ours = /canvas|board_|web_|doc_|note_read|notes_list/.test(`${call?.title ?? ''}`)
-        const pick = options.find((x) => x.kind === (ours ? 'allow_once' : 'reject_once')) ?? options.find((x) => x.kind.startsWith(ours ? 'allow' : 'reject'))
+        // 我们的工具放行；AI 自己改文件、跑命令：全能模式放行，关着一律拒绝
+        const allow = omni || OURS.test(`${call?.title ?? ''}`)
+        const pick = options.find((x) => x.kind === (allow ? 'allow_once' : 'reject_once')) ?? options.find((x) => x.kind.startsWith(allow ? 'allow' : 'reject'))
         return pick ? { outcome: { outcome: 'selected', optionId: pick.optionId } } : { outcome: { outcome: 'cancelled' } }
       })
       await p.request('initialize', {
@@ -494,7 +666,7 @@ export function acpEngine(o: AcpOptions): Engine {
     dispose: () => proc?.close(),
     async run(r) {
       if (o.loggedIn && !o.loggedIn()) throw new Error(o.loginHint)
-      const p = await ensure(r.cwd)
+      const p = await ensure(r.cwd, !!(r.omni && r.mcp))
       // 旁支：ACP 没有分叉，开新会话（history 是那一轮的问答，放在第一问前面）
       let sessionId = r.session && live.has(r.session) && !r.fork ? r.session : undefined
       const fresh = !sessionId
@@ -513,6 +685,25 @@ export function acpEngine(o: AcpOptions): Engine {
         text += d
         r.onText(d)
       })
+      // 步骤：tool_call 是开始（我们 MCP 的、想的那几步不报），tool_call_update 报做完、出错
+      const steps = new Map<string, Omit<EngineStep, 'status'>>()
+      const onStep = r.onStep
+      if (onStep)
+        stepSinks.set(sessionId, (u) => {
+          const id = String(u.toolCallId ?? '')
+          const status = String(u.status ?? '')
+          if (u.sessionUpdate === 'tool_call') {
+            const step = acpStep(u as Parameters<typeof acpStep>[0])
+            if (!step) return
+            steps.set(id, step)
+            onStep({ ...step, status: 'run' })
+          }
+          const step = steps.get(id)
+          if (!step || (status !== 'completed' && status !== 'failed')) return
+          steps.delete(id)
+          const said = Array.isArray(u.content) ? (u.content as { content?: { text?: unknown } }[]).map((c) => (typeof c.content?.text === 'string' ? c.content.text : '')).join('\n') : ''
+          onStep({ ...step, status: status === 'failed' ? 'err' : 'ok', ...(status === 'failed' ? { detail: firstLine(said) || '没做成' } : {}) })
+        })
       const stop = () => p.notify('session/cancel', { sessionId })
       r.signal.addEventListener('abort', stop)
       try {
@@ -524,6 +715,7 @@ export function acpEngine(o: AcpOptions): Engine {
       } finally {
         r.signal.removeEventListener('abort', stop)
         sinks.delete(sessionId)
+        stepSinks.delete(sessionId)
       }
       if (r.signal.aborted) throw aborted()
       return { text: text.trim(), session: sessionId }
@@ -531,11 +723,51 @@ export function acpEngine(o: AcpOptions): Engine {
   }
 }
 
+/**
+ * 全能模式关着时给 Gemini 的策略文件（gemini --policy，0.64.0 核过，写法见 geminicli.com 的 Policy engine）：跑命令、写文件、改文件、
+ * 上网、子 Agent 一律拒绝，被拒的工具不进它的工具单（读、搜库里的文件照样能用，Gemini 的文件工具只认工作目录，也就是库）
+ */
+export const GEMINI_POLICY = `[[rule]]
+toolName = ["run_shell_command", "write_file", "replace", "web_fetch", "google_web_search", "invoke_agent"]
+decision = "deny"
+priority = 900
+denyMessage = "全能模式关着：只能用 canvas 这组工具在库里动手。要更多请用户在 AI 输入框下面打开「全能模式」"
+`
+
+/**
+ * gemini --acp 的参数（gemini --help，0.64.0 核过）：MCP 只接我们的。全能模式 --approval-mode yolo（所有工具不问就用，同 --yolo）；
+ * 关着 default（要批的来问我们、我们拒绝）再加上面的策略文件
+ */
+export function geminiArgs(omni: boolean, policy: string): string[] {
+  return ['--acp', '--approval-mode', omni ? 'yolo' : 'default', '--allowed-mcp-server-names', MCP_NAME, ...(omni ? [] : ['--policy', policy])]
+}
+
+/**
+ * OpenCode 的权限（OPENCODE_CONFIG_CONTENT，opencode 1.19.3 的 `opencode debug agent build` 核过）：全能模式「*」都放行；
+ * 关着改文件、跑命令、上网、碰库外、开子 Agent 都拒（用户自己配的 webfetch、external_directory 放行排在前面，后写的赢）
+ */
+export function opencodeConfig(omni: boolean): string {
+  return JSON.stringify(omni ? { permission: { '*': 'allow' } } : { permission: { edit: 'deny', bash: 'deny', webfetch: 'deny', websearch: 'deny', external_directory: 'deny', task: 'deny' } })
+}
+
+/** 关着时给 Gemini 的策略文件：起进程时写进临时文件夹，进程退出就删 */
+let geminiPolicyDir: string | null = null
+function geminiPolicyFile(): string {
+  geminiPolicyDir ??= mkdtempSync(join(tmpdir(), 'cn-gemini-'))
+  const path = join(geminiPolicyDir, 'policy.toml')
+  writeFileSync(path, GEMINI_POLICY)
+  return path
+}
+
 export const geminiEngine = () =>
   acpEngine({
     id: 'gemini',
-    // 只接我们的 MCP；AI 想改文件、跑命令会来问，我们拒绝
-    args: () => ['--acp', '--approval-mode', 'default', '--allowed-mcp-server-names', MCP_NAME],
+    // 只接我们的 MCP；全能模式不问就用；关着 AI 想改文件、跑命令会来问，我们拒绝（策略文件先把它们拿掉）
+    args: (_cwd, omni) => geminiArgs(omni, omni ? '' : geminiPolicyFile()),
+    cleanup: () => {
+      if (geminiPolicyDir) rmSync(geminiPolicyDir, { recursive: true, force: true })
+      geminiPolicyDir = null
+    },
     loginHint: 'Gemini 还没登录：在终端里运行一次 gemini，选「Log in with Google」，或者设好 GEMINI_API_KEY',
     // 没登录时 gemini --acp 要等一分钟才报错，先看有没有登录凭据
     loggedIn: () => {
@@ -556,7 +788,7 @@ export const opencodeEngine = () =>
   acpEngine({
     id: 'opencode',
     args: (cwd) => ['acp', '--cwd', cwd],
-    // OpenCode 自己改文件、跑命令一律不许，改笔记走我们的工具
-    env: () => ({ OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { edit: 'deny', bash: 'deny' } }) }),
+    // 全能模式都放行；关着 OpenCode 自己改文件、跑命令、上网一律不许，改笔记走我们的工具
+    env: (omni) => ({ OPENCODE_CONFIG_CONTENT: opencodeConfig(omni) }),
     loginHint: 'OpenCode 还没登录：在终端里运行 opencode auth login',
   })

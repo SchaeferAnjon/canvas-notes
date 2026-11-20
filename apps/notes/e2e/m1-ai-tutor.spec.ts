@@ -97,7 +97,7 @@ function script(p: string, body: string) {
   chmodSync(p, 0o755)
 }
 
-test('CN-89：读 PDF 问一句，起的 claude 带 --append-system-prompt（读 PDF 那几条）、读用户设置 user、关掉 hooks、--effort high；讲法改过的旧会话不再接着聊；AI 浮窗动手那条照旧整个换掉系统提示', async () => {
+test('CN-89：读 PDF 问一句，起的 claude 带 --append-system-prompt（读 PDF 那几条）、读用户设置 user、关掉 hooks、--effort high；讲法改过的旧会话不再接着聊；全能模式（默认开，2026-11-19）下读 PDF 和 AI 对话都给我们的工具、bypassPermissions，AI 对话一个用户设置都不读', async () => {
   const home = mkdtempSync(join(tmpdir(), 'cn-e2e-home-'))
   const argvFile = join(home, 'claude-argv.jsonl')
   script(join(home, '.local/bin/claude'), `exec "${process.execPath}" "${join(__dirname, '../test/fixtures/fake-claude.mjs')}" "$@"`)
@@ -126,9 +126,11 @@ test('CN-89：读 PDF 问一句，起的 claude 带 --append-system-prompt（读
     await box.press('Enter')
     const msg = ai(page).getByTestId('reading-msg').last()
     await expect(msg.locator('.txt')).toContainText('附加系统提示 你在 Canvas Notes 里陪一个人读 PDF 课件。', { timeout: 20_000 })
-    await expect(msg.locator('.read')).toContainText('Claude Code · Opus 5.5 · High')
+    await expect(msg.locator('.read:not(.tstep)')).toContainText('Claude Code · Opus 5.5 · High')
 
-    const tutor = calls().filter((a) => a.includes('--append-system-prompt'))
+    // 读 PDF 那条：系统提示是讲解的那几条（AI 对话那条在全能模式下也是附在后面的，按开头认）
+    const tutorOf = (a: string[]) => (at(a, '--append-system-prompt') ?? '').startsWith('你在 Canvas Notes 里陪一个人读 PDF 课件')
+    const tutor = calls().filter(tutorOf)
     expect(tutor).toHaveLength(1)
     const t = tutor[0]!
     expect(at(t, '--append-system-prompt')).toMatch(/^你在 Canvas Notes 里陪一个人读 PDF 课件。[\s\S]*公式用 LaTeX：行内写 \$…\$，\$ 里面紧贴公式、开头结尾都不留空格[\s\S]*单独一行的写 \$\$…\$\$。/)
@@ -138,7 +140,10 @@ test('CN-89：读 PDF 问一句，起的 claude 带 --append-system-prompt（读
     expect(t).toContain('--strict-mcp-config')
     expect(at(t, '--effort')).toBe('high')
     expect(at(t, '--model')).toBe('claude-opus-5-5')
-    expect(at(t, '--tools')).toBe('')
+    // 全能模式（默认开）：读 PDF 也能动手：接我们的 MCP，不停下来问，自带工具全给
+    expect(t).toContain('--mcp-config')
+    expect(at(t, '--permission-mode')).toBe('bypassPermissions')
+    expect(t).not.toContain('--tools')
     // 旧讲法的会话没接着聊（开了新的，全文和最近几轮补在话里）
     expect(t).not.toContain('--resume')
     expect(t).not.toContain('old-tutor')
@@ -148,21 +153,23 @@ test('CN-89：读 PDF 问一句，起的 claude 带 --append-system-prompt（读
     await box.press('Enter')
     await expect(ai(page).getByTestId('reading-msg')).toHaveCount(2)
     await expect(ai(page).getByTestId('reading-msg').last().locator('.txt')).toContainText('接着聊 c-new', { timeout: 20_000 })
-    const again = calls().filter((a) => a.includes('--append-system-prompt'))
+    const again = calls().filter(tutorOf)
     expect(again).toHaveLength(2)
     expect(at(again[1]!, '--resume')).toBe('c-new')
 
-    // 别处的 AI 对话动手那条照旧（同一格，AI 开着就还开着）：系统提示整个换掉、一个设置都不读、给我们的工具；effort 也是 High
+    // 别处的 AI 对话（同一格，AI 开着就还开着）：全能模式下系统提示附在 Claude Code 自己的后面、一个设置都不读、给我们的工具；effort 也是 High
     await openNote(page, '随手记')
     await openAi(page)
     const float = page.getByRole('complementary', { name: 'AI 对话' })
     await float.getByRole('textbox', { name: '问 AI' }).fill('你好')
     await float.getByRole('textbox', { name: '问 AI' }).press('Enter')
     await expect(float.getByTestId('ai-msg').last().locator('.txt')).toContainText('设置 不读', { timeout: 20_000 })
-    const agent = calls().find((a) => a.includes('--mcp-config'))!
-    expect(at(agent, '--system-prompt')).toMatch(/^你是 Canvas Notes 笔记软件里的助手/)
+    const agent = calls().find((a) => (at(a, '--append-system-prompt') ?? '').startsWith('你是 Canvas Notes 笔记软件里的助手'))!
     expect(agent).toContain('--setting-sources=')
-    expect(agent).not.toContain('--append-system-prompt')
+    expect(agent).not.toContain('--system-prompt')
+    expect(agent).not.toContain('--settings')
+    expect(at(agent, '--permission-mode')).toBe('bypassPermissions')
+    expect(agent).toContain('--mcp-config')
     expect(at(agent, '--effort')).toBe('high')
   } finally {
     await run.close()

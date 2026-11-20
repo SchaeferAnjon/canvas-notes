@@ -428,10 +428,17 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   useEffect(() => {
     refreshNotes()
     refreshGit()
-    return window.cn.onFilesChanged(() => {
+    const again = () => {
       refreshNotes()
       refreshGit()
-    })
+    }
+    // 读 PDF 的回答下面撤回了 AI 那一问的改动：左栏、底栏跟着刷新（AI 对话那边自己调 onChanged）
+    window.addEventListener(Reading.AI_CHANGED, again)
+    const off = window.cn.onFilesChanged(again)
+    return () => {
+      off()
+      window.removeEventListener(Reading.AI_CHANGED, again)
+    }
   }, [refreshNotes, refreshGit])
   /** 哪都写不进去、字只在内存里的那几篇（底栏「N篇写不进去，字只在内存里」；stash：设置目录里的备份） */
   const [unsaved, setUnsaved] = useState<StrandedNote[]>([])
@@ -1295,14 +1302,16 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     { name: '看历史', hint: '每次提交改了哪些文件', icon: 'history', run: () => setRight('history') },
     { name: '现在提交', icon: 'git-commit', run: () => void commit() },
     { name: '同步', icon: 'refresh', run: () => void sync() },
-    { name: '问AI', icon: 'sparkle', keys: '⌘J', run: () => openAi() },
+    { name: '问AI', icon: 'comment-discussion', ai: 'chat', keys: '⌘J', run: () => openAi() },
     ...(doubtsFolder !== null ? [{ name: '我的疑惑', hint: doubtsFolder || '库的根目录', icon: 'question' as const, run: () => openDoubts(doubtsFolder) }] : []),
-    { name: '整理收件箱', hint: 'AI', icon: 'sparkle', run: () => runAi('/整理收件箱') },
-    { name: '总结这块白板', hint: 'AI', icon: 'sparkle', run: () => runAi('/总结这块白板') },
-    { name: '写成文章', hint: 'AI', icon: 'sparkle', run: () => runAi('/写成文章') },
-    { name: '找重复', hint: 'AI', icon: 'sparkle', run: () => runAi('/找重复') },
-    { name: '剪藏当前网页', hint: '整页进收件箱', icon: 'sparkle', run: () => runAi('/剪藏当前网页') },
-    { name: '现在梦游', hint: '不等夜里，现在整理一遍', icon: 'wand', run: () => runAi('/现在梦游') },
+    // 交给 AI 跑的画跑它的那一家的标志（偏好「AI 图标用引擎标志」）；找重复是本机比对、剪藏当前网页不经 AI，用它们自己的图标
+    // 提示字写做什么（标志已经说了是 AI）
+    { name: '整理收件箱', hint: '按主题分进剪藏，你点同意才挪', icon: 'inbox', ai: 'chat', run: () => runAi('/整理收件箱') },
+    { name: '总结这块白板', hint: '写成几句话', icon: 'layout', ai: 'chat', run: () => runAi('/总结这块白板') },
+    { name: '写成文章', hint: '按白板写一篇草稿', icon: 'edit', ai: 'chat', run: () => runAi('/写成文章') },
+    { name: '找重复', hint: '库里内容差不多的', icon: 'files', run: () => runAi('/找重复') },
+    { name: '剪藏当前网页', hint: '整页进收件箱', icon: 'quote', run: () => runAi('/剪藏当前网页') },
+    { name: '现在梦游', hint: '不等夜里，现在整理一遍', icon: 'wand', ai: 'dream', run: () => runAi('/现在梦游') },
     ...(update && update.phase !== 'off' ? [{ name: '检查更新', hint: '设置 · 更新', icon: 'arrow-circle-up' as const, run: () => (openSettings('update'), void window.cn.checkUpdate()) }] : []),
     ...pluginCommands,
   ]
@@ -1448,6 +1457,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     webOpen: right === 'web',
     webUrl: (active && webUrl[active]) || null,
     openWeb: openInWeb,
+    closeUnder: (path: string) =>
+      setTabState((s) => {
+        const tabs = tabsOutside(s.tabs, path)
+        return { tabs, active: tabs.some((t) => t.id === s.active) ? s.active : (tabs[tabs.length - 1]?.id ?? null) }
+      }),
+    retarget: (from: string, to: string) => {
+      setTabState((s) => ({ ...s, tabs: retargetTabs(s.tabs, from, to) }))
+      refreshNotes()
+    },
   }
   useAiBridge(aiState)
   // 插件要知道中间栏开着哪个文件（双语翻译照那门课的术语表翻）
@@ -2352,7 +2370,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         frame={frame}
         vaultName={vault.name}
         git={git}
-        jobs={[...(dream.running ? [{ id: 'dream', icon: 'wand' as const, text: '梦游在整理', onClick: () => openLeft('dream') }] : []), ...askJobs.map((j) => ({ id: `ask-${j.id}`, icon: 'note' as const, text: j.text }))]}
+        jobs={[...(dream.running ? [{ id: 'dream', icon: 'wand' as const, ai: 'dream' as const, text: '梦游在整理', onClick: () => openLeft('dream') }] : []), ...askJobs.map((j) => ({ id: `ask-${j.id}`, icon: 'note' as const, ai: 'vision' as const, text: j.text }))]}
         previewing={pv.on}
         onCommit={commit}
         onSync={sync}

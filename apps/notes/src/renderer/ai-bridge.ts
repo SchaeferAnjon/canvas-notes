@@ -20,6 +20,10 @@ export interface BridgeState {
   webUrl: string | null
   /** 在右栏打开网址（右栏没开就打开） */
   openWeb(url: string): void
+  /** AI 要把这篇 / 这个文件夹删到废纸篓：开着的标签先关（编辑器接着存字会把删掉的建回来） */
+  closeUnder(path: string): void
+  /** AI 改了名、挪了地方（一篇或一个文件夹）：开着的标签、编辑器跟到新路径 */
+  retarget(from: string, to: string): void
 }
 
 export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext {
@@ -95,10 +99,10 @@ function onScreen(path: string): boolean {
 }
 
 /** 软件现在的强调色（网页里的 AI 指针、剪下的竖线跟着主题） */
-function accent(): { acc: string; accBg: string; ring: string } {
+function accent(): { acc: string; accBg: string; accOn: string; ring: string } {
   const cs = getComputedStyle(document.documentElement)
   const v = (k: string) => cs.getPropertyValue(k).trim()
-  return { acc: v('--acc'), accBg: v('--acc-bg') || v('--acc'), ring: v('--acc-ring') }
+  return { acc: v('--acc'), accBg: v('--acc-bg') || v('--acc'), accOn: v('--acc-on') || '#fff', ring: v('--acc-ring') }
 }
 
 async function handle(s: BridgeState, op: BridgeOp, arg: unknown): Promise<unknown> {
@@ -117,6 +121,15 @@ async function handle(s: BridgeState, op: BridgeOp, arg: unknown): Promise<unkno
       return null
     case 'measure':
       return measure(String(arg))
+    case 'closeTabs':
+      s.closeUnder(String(arg))
+      return null
+    case 'moved': {
+      const { from, to } = arg as { from: string; to: string }
+      NoteDoc.follow(from, to)
+      s.retarget(from, to)
+      return null
+    }
     case 'docRead': {
       const d = docFor(s)
       const sel = d.view.state.selection.main

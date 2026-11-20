@@ -12,7 +12,7 @@ import { BRAND } from '../shared/brand'
 import { commitErrorText, syncErrorText } from '../shared/git-errors'
 import { kindOf, titleOf } from '../shared/layout'
 import { dayKey, logActivity, readActivity } from './activity'
-import { attachWeb, markedClips, moveChatPlace, registerAgent, unmarkClips } from './agent'
+import { agentExternal, agentOwnWrite, attachWeb, markedClips, moveChatPlace, registerAgent, unmarkClips } from './agent'
 import { ask } from './ai'
 import { registerAttachments, registerFileScheme } from './attachments'
 import { setupPasted } from './pasted'
@@ -145,8 +145,13 @@ async function openVault(dir: string): Promise<VaultInfo> {
     return null
   })
   scheduleAutoCommit()
+  // 全能模式下 AI 这一轮结束时分清库里多出来的改动谁改的：软件自己写的不算，在外面改的（AI 自己的工具）算
+  vault.onOwnWrite = agentOwnWrite
   vault.watch(
-    (path, text) => win?.webContents.send('note:changed', path, text),
+    (path, text) => {
+      agentExternal(path)
+      win?.webContents.send('note:changed', path, text)
+    },
     () => win?.webContents.send('files:changed'),
     (from, to) => win?.webContents.send('note:renamed', from, to),
   )
@@ -589,7 +594,7 @@ app.whenReady().then(async () => {
     website: BRAND.site,
   })
   registerIpc()
-  registerAgent({ win: () => win, vault: () => vault })
+  registerAgent({ win: () => win, vault: () => vault, moved: (root, from, to) => moveReadingState(root, from, to) })
   setupMindmap({ win: () => win, vault: () => vault })
   const dreams = setupDream({
     root: () => vault?.root ?? null,

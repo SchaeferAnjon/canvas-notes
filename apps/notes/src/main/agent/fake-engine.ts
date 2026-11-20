@@ -2,8 +2,8 @@
  * 测试用的假引擎（CN_AI_FAKE=1）：不调模型，按用户说的话走一串固定的工具调用。
  * 工具是真的通过 MCP 服务调的（和真引擎走同一条路），字也是一小段一小段吐出来的。
  */
-import { readdirSync, readFileSync } from 'node:fs'
-import { join, relative, sep } from 'node:path'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join, relative, sep } from 'node:path'
 import type { EngineId } from '../../shared/agent'
 import { effortOption, type ModelOption } from '../../shared/ai-features'
 import { type Engine, LABELS } from './engines'
@@ -56,6 +56,22 @@ export const FORMULA_ANSWER = [
 function materialCount(q: string): number {
   const at = q.indexOf('我引用的材料（')
   return at < 0 ? 0 : (q.slice(at).match(/^[①-⑳] /gm) ?? []).length
+}
+
+/**
+ * 库里的笔记工具（2026-11-19）：按话里的「」走一个工具，回给用户工具说的那句。认的说法：
+ * 新建一篇「标题」放到「文件夹」（写上「正文」）、把「路径」改名为「新名」、把「路径」挪到「文件夹」（「」空着是最外层）、
+ * 删掉「路径」、新建文件夹「名字」（放在「上一层」）、在「路径」末尾加上「一段」
+ */
+async function vaultCommand(said: string, call: (name: string, args: Record<string, unknown>) => Promise<string>): Promise<string | null> {
+  const q = [...said.matchAll(/「([^」]*)」/g)].map((m) => m[1]!)
+  if (/^新建一篇/.test(said)) return call('note_create', { title: q[0], ...(q[1] !== undefined ? { folder: q[1] } : {}), ...(q[2] !== undefined ? { text: q[2] } : {}) })
+  if (/^把「[^」]*」改名为/.test(said)) return call('note_rename', { path: q[0], name: q[1] })
+  if (/^把「[^」]*」挪到/.test(said)) return call('note_move', { path: q[0], folder: q[1] ?? '' })
+  if (/^删掉「/.test(said)) return call('note_delete', { path: q[0] })
+  if (/^新建文件夹「/.test(said)) return call('folder_create', { name: q[0], ...(q[1] !== undefined ? { parent: q[1] } : {}) })
+  if (/^在「[^」]*」末尾加上「/.test(said)) return call('note_write', { path: q[0], text: q[1], mode: 'append' })
+  return null
 }
 
 /** 问「用的什么模型」时说的：模型和 effort 都说出来（测试看设置、输入框底行选的真的传到了引擎，CN-44、CN-91） */
@@ -147,6 +163,12 @@ export function fakeEngine(id: EngineId): Engine {
           await say(modelSaid(r))
           return { text, session }
         }
+        // 读 PDF 时也能动手（2026-11-19）：「新建一篇「…」放到「…」」这些走库里的笔记工具
+        const did = await vaultCommand(q, call).catch((e: Error) => `没做成：${e.message}`)
+        if (did !== null) {
+          await say(`${did}。`)
+          return { text, session }
+        }
         // 旁支（CN-90）：回答里写问的是哪一句、从哪分叉；问里有「公式」照样答带 LaTeX 的
         if (/这是一条旁支|接着这条旁支问/.test(r.prompt) && !q.includes('公式')) {
           const quote = /他选中的那句：「(.*)」|问的还是「(.*)」这句/.exec(r.prompt)
@@ -174,6 +196,45 @@ export function fakeEngine(id: EngineId): Engine {
       // 右下角 AI 浮窗也能演被拦（同读 PDF 那条）：看出错那一句在浮窗里的样子
       if (said.includes('假装被拦'))
         throw new Error("API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). Please try rephrasing your request. Request ID: req_011FAKE")
+      const did = await vaultCommand(said, call).catch((e: Error) => `没做成：${e.message}`)
+      if (did !== null) {
+        await say(`${did}。`)
+        return { text, session: `fake-${id}` }
+      }
+      // 现在是什么模式：照引擎拿到的开关和话里开头那一行【模式】说（测试看开关真的传到了引擎）
+      if (/什么模式/.test(said)) {
+        const line = /【模式】(全能模式[开关]着)/.exec(r.prompt)?.[1] ?? '没写'
+        await say(`引擎拿到的：全能模式${r.omni ? '开着' : '关着'}；话里写的：${line}。`)
+        return { text, session: `fake-${id}` }
+      }
+      // 全能模式：像 Claude Code 自己用 Write 那样直接写一个文件（不走我们的工具），报成步骤；关着就说做不了、请用户打开全能模式
+      if (/^自己写文件「/.test(said)) {
+        const [file, body] = [...said.matchAll(/「([^」]*)」/g)].map((m) => m[1]!)
+        if (!r.omni) {
+          await say('全能模式关着，我不能自己写文件。请在 AI 输入框下面打开「全能模式」再说一次。')
+          return { text, session: `fake-${id}` }
+        }
+        const abs = file!.startsWith('/') ? file! : join(r.cwd, file!)
+        r.onStep?.({ id: 'w1', tool: 'Write', input: { file_path: abs }, status: 'run' })
+        mkdirSync(dirname(abs), { recursive: true })
+        writeFileSync(abs, body ?? '')
+        // CN_FAKE_OWN_MS：写完多等一会儿再答（测试在这一会儿里往编辑器里打字，看提交里不带用户的字）
+        await sleep(Number(process.env.CN_FAKE_OWN_MS ?? 0))
+        r.onStep?.({ id: 'w1', tool: 'Write', input: { file_path: abs }, status: 'ok' })
+        await say(`写好了 ${file}。`)
+        return { text, session: `fake-${id}` }
+      }
+      // 全能模式：像 Claude Code 自己用 Edit 那样，过一会儿（CN_FAKE_OWN_MS）直接在一篇末尾加一行（用户正在编辑器里打这一篇的字）
+      if (/^过一会儿在「[^」]*」末尾加「/.test(said) && r.omni) {
+        const [file, line] = [...said.matchAll(/「([^」]*)」/g)].map((m) => m[1]!)
+        const abs = join(r.cwd, file!)
+        r.onStep?.({ id: 'e1', tool: 'Edit', input: { file_path: abs }, status: 'run' })
+        await sleep(Number(process.env.CN_FAKE_OWN_MS ?? 0))
+        writeFileSync(abs, `${readFileSync(abs, 'utf8').replace(/\s*$/, '')}\n\n${line}\n`)
+        r.onStep?.({ id: 'e1', tool: 'Edit', input: { file_path: abs }, status: 'ok' })
+        await say(`加好了。`)
+        return { text, session: `fake-${id}` }
+      }
       const url = /https?:\/\/\S+/.exec(said)?.[0]
       if (url && /打开/.test(said)) {
         await say('好，我在右栏打开它。')

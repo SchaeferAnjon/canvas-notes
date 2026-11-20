@@ -1,6 +1,7 @@
 import { when } from '../shared/when'
 import { Codicon, type CodiconName } from '@cn/design'
 import { AiSettingsPage } from './settings-ai'
+import { AiIcon } from './engine-logo'
 import { useEffect, useRef, useState } from 'react'
 import type { VaultInfo } from '../shared/api'
 import { activeSkin, allSkins, type AppSettings, AUTO_COMMIT_CHOICES, autoCommitLabel, pickSkin, setFollowSystem, type SkinInfo, SKINS, type WinBg } from '../shared/appearance'
@@ -21,7 +22,7 @@ const PAGES: { id: SettingsPage; name: string; icon: CodiconName }[] = [
   { id: 'look', name: '外观', icon: 'symbol-color' },
   { id: 'home', name: '首页', icon: 'home' },
   { id: 'vault', name: '库', icon: 'library' },
-  { id: 'ai', name: 'AI', icon: 'robot' },
+  { id: 'ai', name: 'AI', icon: 'comment-discussion' },
   { id: 'plugins', name: '插件', icon: 'extensions' },
   { id: 'git', name: 'Git和同步', icon: 'git-branch' },
   { id: 'keys', name: '快捷键', icon: 'record-keys' },
@@ -69,7 +70,8 @@ export function Settings(props: {
           <h3>设置</h3>
           {PAGES.map((p) => (
             <button key={p.id} className={'si' + (props.page === p.id ? ' on' : '')} aria-current={props.page === p.id ? 'page' : undefined} onClick={() => props.onPage(p.id)}>
-              <Codicon name={p.icon} />
+              {/* AI 这一页画 AI 对话现在用的那一家的标志（同右下角圆钮） */}
+              {p.id === 'ai' ? <AiIcon job="chat" size={16} /> : <Codicon name={p.icon} />}
               {p.name}
               {p.id === 'update' && props.updateReady && <span className="udot nav" aria-label="新版本已下好" />}
             </button>

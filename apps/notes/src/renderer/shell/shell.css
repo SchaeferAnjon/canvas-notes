@@ -604,6 +604,22 @@ body.resizing-left .win > .vsplit {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* 字里有换行的：一行一段，段间 4 */
+.shell-tip .paras {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+/* 分段说明（全能模式开关）：最宽 340（留在 380 宽的右栏里），中文只在标点处折行，不把「跑命令」拆成两行 */
+.shell-tip.tip-para {
+  height: auto;
+  max-width: min(340px, calc(100vw - 12px));
+  padding: 6px 8px;
+  line-height: 17px;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
 .shell-tip kbd {
   font: 11px var(--mono);
   color: var(--t3);

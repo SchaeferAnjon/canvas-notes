@@ -8,6 +8,7 @@ import { useVaultFiles } from './files/store'
 import { folderCoverCss } from './folder-home/cover'
 import { Codicon, type CodiconName } from '@cn/design'
 import { onFileMenu } from './ctx/file-menu'
+import { AiIcon } from './engine-logo'
 import { menuAt } from './ctx/menu'
 import { ActBtn, TabActs } from './shell/TabActs'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -449,7 +450,7 @@ function StartWidget(props: HomeProps) {
   return (
     <div className="wd s4 w-start" data-testid="widget-start">
       <div className="wk">
-        <Codicon name="sparkle" size={14} />
+        <Codicon name="rocket" size={14} />
         从这里开始
       </div>
       <div className="ssteps">
@@ -617,7 +618,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
           {items.length > 0 && (
             <div className="wgo">
               <button className={'btn btn-sm' + (warn ? ' btn-primary' : '')} onClick={props.onTidy}>
-                <Codicon name="sparkle" size={14} />
+                <AiIcon job="chat" size={14} />
                 让AI分一分
               </button>
             </div>
@@ -717,7 +718,7 @@ function DreamBody(props: HomeProps) {
         {!props.dreamRunning && (
           <div className="wgo">
             <button className="btn btn-sm" onClick={props.onDreamNow}>
-              <Codicon name="wand" size={14} />
+              <AiIcon job="dream" size={14} />
               现在梦游
             </button>
           </div>

@@ -1,10 +1,13 @@
 /**
  * 提示块（callout，写法同 Obsidian）：`> [!question] 我的疑惑`，下面几行 `> 正文`。
  * 文档里（live-preview.ts、fold-block.ts）和白板卡片里（md-render.tsx）都按这里认类型、选图标和颜色（CN-59）。
- * `[!ai]` 是 AI 讲解的回答：`> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了第 3 页`，sparkle 图标，右端能收起。
+ * `[!ai]` 是 AI 讲解的回答：`> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了第 3 页`，图标画标题里写的那一家的标志（偏好「AI 图标用引擎标志」；
+ * 没写哪家画对话图标），右端能收起。
  * `[!type]-` 默认收着、`[!type]+` 默认展开但能收起（同 Obsidian）。
  */
 import type { CodiconName } from '@cn/design'
+import type { EngineId } from '../shared/agent'
+import { ENGINE_LABEL } from '../shared/ai-features'
 
 export const CALLOUT_HEAD = /^(\s*>\s*)\[!([A-Za-z][\w-]*)\]([+-]?)[ \t]*(.*)$/
 
@@ -27,7 +30,7 @@ const KINDS: [string[], Omit<CalloutKind, 'kind'> & { kind: string }][] = [
   [['warning', 'caution', 'attention'], { kind: 'warning', icon: 'warning', tone: 'yellow', label: '注意' }],
   [['danger', 'error', 'failure', 'fail', 'missing', 'bug'], { kind: 'danger', icon: 'error', tone: 'red', label: '出错' }],
   [['quote', 'cite'], { kind: 'quote', icon: 'quote', tone: 't2', label: '引文' }],
-  [['ai'], { kind: 'ai', icon: 'sparkle', tone: 'acc', label: 'AI 讲解' }],
+  [['ai'], { kind: 'ai', icon: 'comment-discussion', tone: 'acc', label: 'AI 讲解' }],
 ]
 
 export function calloutKind(type: string): CalloutKind {
@@ -44,6 +47,14 @@ export interface CalloutHead extends CalloutKind {
   /** 能不能收起；默认收着 */
   foldable: boolean
   folded: boolean
+  /** AI 讲解：标题里写着是哪一家做的（画它的标志代替 icon）；别的类型、没写哪家是 null */
+  engine: EngineId | null
+}
+
+/** 「AI 讲解 · Claude Code · Opus 5.5 · …」里写的是哪一家 */
+function engineIn(title: string): EngineId | null {
+  const parts = title.split(' · ')
+  return (Object.entries(ENGINE_LABEL).find(([, v]) => parts.includes(v))?.[0] as EngineId | undefined) ?? null
 }
 
 /** 引用第一行是不是提示块的头 */
@@ -57,5 +68,6 @@ export function parseCallout(line: string): CalloutHead | null {
     title: m[4]!.trim(),
     foldable: m[3] !== '' || k.kind === 'ai',
     folded: m[3] === '-',
+    engine: k.kind === 'ai' ? engineIn(m[4]!.trim()) : null,
   }
 }

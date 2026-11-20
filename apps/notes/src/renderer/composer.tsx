@@ -265,6 +265,8 @@ export interface AiInputProps {
   own?: boolean
   /** 上面的消息区：输入框长高（材料一排出来）时，原来停在最底下的跟着贴底，不被切掉一截 */
   list?: RefObject<HTMLElement | null>
+  /** 输入框下面那一行的全能模式开关（AI 对话、读 PDF 有；旁支不放，跟主对话） */
+  omni?: OmniProps | null
 }
 
 export function AiInput(p: AiInputProps) {
@@ -293,68 +295,102 @@ export function AiInput(p: AiInputProps) {
   }, [p.list])
   const hint = p.hintNow ?? (c.mats.length ? matsHint(c.mats) : p.hint)
   return (
-    <div
-      ref={root}
-      className={'aiin' + (p.className ? ' ' + p.className : '') + (drop ? ' hot' : '')}
-      data-testid="ai-input"
-      data-composer=""
-      onDragOver={(e) => {
-        if (![...e.dataTransfer.items].some((i) => i.kind === 'file' && i.type.startsWith('image/'))) return
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'copy'
-        setDrop(true)
-      }}
-      onDragLeave={(e) => {
-        if (!(e.currentTarget as Element).contains(e.relatedTarget as Node | null)) setDrop(false)
-      }}
-      onDrop={(e) => {
-        setDrop(false)
-        const files = [...e.dataTransfer.files]
-        if (!imageFiles(files).length) return
-        e.preventDefault()
-        void c.addFiles(files)
-      }}
-    >
-      {p.children}
-      {shelf && <Shelf c={c} lead={p.lead ?? null} />}
-      {p.above}
-      <textarea
-        ref={c.ta}
-        rows={1}
-        aria-label="问 AI"
-        placeholder={p.placeholder}
-        value={c.text}
-        data-own={p.own ? '1' : undefined}
-        onChange={(e) => {
-          c.setText(e.target.value)
-          p.onChange?.(e.target.value)
+    <>
+      <div
+        ref={root}
+        className={'aiin' + (p.className ? ' ' + p.className : '') + (drop ? ' hot' : '') + (p.omni ? ' with-omni' : '')}
+        data-testid="ai-input"
+        data-composer=""
+        onDragOver={(e) => {
+          if (![...e.dataTransfer.items].some((i) => i.kind === 'file' && i.type.startsWith('image/'))) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+          setDrop(true)
         }}
-        onKeyDown={p.onKeyDown}
-        onPaste={(e) => {
-          const files = [...e.clipboardData.items].filter((i) => i.kind === 'file').map((i) => i.getAsFile())
+        onDragLeave={(e) => {
+          if (!(e.currentTarget as Element).contains(e.relatedTarget as Node | null)) setDrop(false)
+        }}
+        onDrop={(e) => {
+          setDrop(false)
+          const files = [...e.dataTransfer.files]
           if (!imageFiles(files).length) return
           e.preventDefault()
           void c.addFiles(files)
         }}
-      />
-      <div className="ft">
-        <button className="pick add" aria-label="加图" data-tip="加图" data-side="above" onClick={() => void c.pickImages()}>
-          <Codicon name="add" size={14} />
-        </button>
-        {p.picks && <AiPicks {...p.picks} />}
-        <span className="k" data-testid="ai-hint">
-          {hint}
-        </span>
-        {p.running ? (
-          <button className="send" aria-label="停下" onClick={p.onStop}>
-            <Codicon name="primitive-square" size={12} />
+      >
+        {p.children}
+        {shelf && <Shelf c={c} lead={p.lead ?? null} />}
+        {p.above}
+        <textarea
+          ref={c.ta}
+          rows={1}
+          aria-label="问 AI"
+          placeholder={p.placeholder}
+          value={c.text}
+          data-own={p.own ? '1' : undefined}
+          onChange={(e) => {
+            c.setText(e.target.value)
+            p.onChange?.(e.target.value)
+          }}
+          onKeyDown={p.onKeyDown}
+          onPaste={(e) => {
+            const files = [...e.clipboardData.items].filter((i) => i.kind === 'file').map((i) => i.getAsFile())
+            if (!imageFiles(files).length) return
+            e.preventDefault()
+            void c.addFiles(files)
+          }}
+        />
+        <div className="ft">
+          <button className="pick add" aria-label="加图" data-tip="加图" data-side="above" onClick={() => void c.pickImages()}>
+            <Codicon name="add" size={14} />
           </button>
-        ) : (
-          <button className="send" aria-label="发送" disabled={p.sendDisabled} data-tip={p.sendTip} data-side="above-left" onClick={p.onSend}>
-            <Codicon name="arrow-up" size={14} />
-          </button>
-        )}
+          {p.picks && <AiPicks {...p.picks} />}
+          <span className="k" data-testid="ai-hint">
+            {hint}
+          </span>
+          {p.running ? (
+            <button className="send" aria-label="停下" onClick={p.onStop}>
+              <Codicon name="primitive-square" size={12} />
+            </button>
+          ) : (
+            <button className="send" aria-label="发送" disabled={p.sendDisabled} data-tip={p.sendTip} data-side="above-left" onClick={p.onSend}>
+              <Codicon name="arrow-up" size={14} />
+            </button>
+          )}
+        </div>
       </div>
+      {p.omni && <OmniLine {...p.omni} />}
+    </>
+  )
+}
+
+// ---------- 输入框下面那一行：全能模式（2026-11-19，照 Dispatch 输入框下面的权限那一行） ----------
+
+export interface OmniProps {
+  on: boolean
+  /** 谁来答（悬停提示里「和在终端里用 Claude Code 一样」） */
+  engine: string
+  onToggle(): void
+}
+
+/** 悬停说清两种模式各能做什么（两段：开着、关着） */
+export const omniTip = (engine: string) =>
+  `开着：和在终端里用${engine}一样，AI能读写这台Mac上的文件、跑命令、上网搜、开子Agent，不停下来问你。\n` +
+  '关着：AI只在库里动手（新建、改写、改名、挪动、删笔记，建文件夹），不碰库外的文件、不跑命令、不上网搜。\n' +
+  '两种都是一轮改动提交一次，能撤回；AI对话和读PDF共用这一个开关。'
+
+/**
+ * 方角开关（`方角开关`：轨道和滑块都是小圆角方形）+「全能模式」+ 一句现在能做什么；点一下切换，全局记住。
+ * 开着时轨道是强调色（开关是「选中」，强调色只给选中和标记）
+ */
+function OmniLine(p: OmniProps) {
+  return (
+    <div className="ai-omni" data-testid="ai-omni">
+      <button className="om" role="switch" aria-checked={p.on} aria-label="全能模式" data-tip={omniTip(p.engine)} data-side="above-start" data-tip-class="tip-para" onClick={p.onToggle}>
+        <span className="sw" aria-hidden="true" />
+        <span className="nm">全能模式</span>
+        <span className="say">{p.on ? '能读写这台Mac上的文件、跑命令、上网' : '关着：只在库里新建、改名、挪动、删笔记'}</span>
+      </button>
     </div>
   )
 }
@@ -512,12 +548,12 @@ export interface PicksProps {
  * 模型和 effort 只管这个对话：own 是这个对话自己选过的（记在这个对话里），没选过用那一行的
  */
 export function useConvPick(own: AiPick | null | undefined, setOwn: (p: AiPick) => void, onNotice: (t: string) => void) {
-  const [ai, setAi] = useState<{ engines: EngineInfo[]; chat: AiPick } | null>(null)
+  const [ai, setAi] = useState<{ engines: EngineInfo[]; chat: AiPick; omni: boolean } | null>(null)
   useEffect(() => {
     let live = true
     const load = () =>
       void window.cn.aiEngines().then((r) => {
-        if (live) setAi({ engines: r.engines, chat: r.chat })
+        if (live) setAi({ engines: r.engines, chat: r.chat, omni: r.omni })
       })
     load()
     // 设置 › AI 里改了「AI 对话」、引擎菜单换了家、「指定位置」找到了：马上跟着换
@@ -530,9 +566,19 @@ export function useConvPick(own: AiPick | null | undefined, setOwn: (p: AiPick) 
   const engines = ai?.engines ?? []
   const pick = convPick(engines, ai?.chat ?? { engine: 'claude', model: CLAUDE_DEFAULT, effort: DEFAULT_EFFORT }, own)
   const info = engines.find((e) => e.id === pick.engine)
+  // 全能模式：没读到之前当开着（默认开）；点了先在这里换过来，主进程记好以后各处的 AI 面板再要一次
+  const omniOn = ai?.omni ?? true
   return {
     engines,
     pick,
+    omni: {
+      on: omniOn,
+      engine: info?.label ?? ENGINE_LABEL[pick.engine],
+      onToggle: () => {
+        setAi((x) => (x ? { ...x, omni: !omniOn } : x))
+        void window.cn.aiSetOmni(!omniOn).catch((e: unknown) => onNotice(errText(e)))
+      },
+    } satisfies OmniProps,
     /** 回答头上写的「Claude Code · Opus 5.5 · High」 */
     label: pickLabel(pick, info?.models),
     /** 交给引擎的模型和 effort：有这两样的那家才带（空串模型是这家自己的默认模型） */

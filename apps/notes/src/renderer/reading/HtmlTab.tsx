@@ -6,6 +6,7 @@
  * dream：梦游分支上还没收下的那份（报告里「预览可视化」），只看不问。
  */
 import { Codicon } from '@cn/design'
+import { AiIcon } from '../engine-logo'
 import { ActBtn, PageNote, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
 import { useEffect, useRef, useState } from 'react'
@@ -178,7 +179,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
         {canAsk && (
           <>
             <ActBtn icon="screen-full" label="框一块问" keys="按住 ⌘ 拖" on={framing} onClick={() => setFraming((v) => !v)} />
-            <ActBtn icon="comment-discussion-sparkle" label="问这一屏" keys="⌘↵" disabled={r.running !== null} onClick={() => void askScreen()} />
+            <ActBtn icon="comment-discussion" ai="chat" label="问这一屏" keys="⌘↵" disabled={r.running !== null} onClick={() => void askScreen()} />
           </>
         )}
         <div className="pdfmore">
@@ -217,6 +218,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
               onPointerDown={(e) => e.stopPropagation()}
             >
               <button className="main" onClick={() => void capAsk('explain')}>
+                <AiIcon job="chat" size={14} />
                 讲解一下<kbd>↵</kbd>
               </button>
               <button onClick={() => void capAsk('translate')}>

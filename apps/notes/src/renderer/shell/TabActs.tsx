@@ -1,6 +1,8 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { createContext, useContext } from 'react'
 import { createPortal } from 'react-dom'
+import type { AiJob } from '../../shared/ai-logo'
+import { AiIcon } from '../engine-logo'
 
 /**
  * 每一页自己的动作（属性、白板 / 文档、页码、问这一页、更多……）放在标签条右端（spec 第 3 节），
@@ -39,6 +41,8 @@ export function PageNote(props: { children: React.ReactNode; tip?: string; /** �
 /** 标签条右端的一颗图标按钮；B 风格下 label 也写出来（.lb，A 里藏起来） */
 export function ActBtn(props: {
   icon: CodiconName
+  /** 交给 AI 跑的：画跑它的那一家的标志（翻译没有能用的那家时画 icon） */
+  ai?: AiJob
   label: string
   keys?: string
   on?: boolean
@@ -60,7 +64,7 @@ export function ActBtn(props: {
       disabled={props.disabled}
       onClick={props.onClick}
     >
-      <Codicon name={props.icon} size={16} />
+      {props.ai ? <AiIcon job={props.ai} size={16} fallback={props.icon} /> : <Codicon name={props.icon} size={16} />}
       {props.text && <span className="lb">{props.label}</span>}
     </button>
   )

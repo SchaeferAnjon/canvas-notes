@@ -141,8 +141,10 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
     '-',
     canConvert && { label: '转成', submenu: TARGETS.map(([t, label]) => ({ label, run: () => applyBlockEdit(view, convertMdBlock(view.state.doc.toString(), bi, t), 0, 'move.block') })) },
     '-',
-    plain.trim() ? { label: selText.trim() ? '问 AI 这段' : '问 AI 这一块', accel: selText.trim() ? 'CommandOrControl+J' : undefined, run: () => a.askAi(plain) } : null,
-    plain.trim() ? { label: selText.trim() ? '翻译这段' : '翻译这一块', run: () => translateAt(plain, { x: e.clientX, y: e.clientY }) } : null,
+    plain.trim() ? { label: selText.trim() ? '问 AI 这段' : '问 AI 这一块', accel: selText.trim() ? 'CommandOrControl+J' : undefined, ai: 'chat', run: () => a.askAi(plain) } : null,
+    plain.trim() ? { label: selText.trim() ? '翻译这段' : '翻译这一块', ai: 'translate', run: () => translateAt(plain, { x: e.clientX, y: e.clientY }) } : null,
+    // AI 那两项（带引擎标志）自成一组：macOS 不给没图的项留位置，混在一组里字对不齐
+    '-',
     piece.trim() ? { label: '复制为 Markdown', run: () => copy(piece) } : null,
   ])
 }

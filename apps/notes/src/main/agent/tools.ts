@@ -1,8 +1,11 @@
 /**
- * AI 能动手的工具：网页、白板、文档，外加看看库里有什么。
+ * AI 能动手的工具：库里的笔记和文件夹、网页、白板、文档，外加看看库里有什么。
  * 工具名不带前缀，各家命令行自己会加（Claude Code 里叫 mcp__canvas__board_add_card）。
  * 每个工具在白板 / 网页 / 文档不在眼前时说清楚为什么做不了，AI 会换个做法或者告诉用户。
+ * 笔记和文件夹那组（2026-11-19）全能模式关着也有：新建、改写、改名、挪动、删到废纸篓、建文件夹，走软件自己的库操作（vault-ops.ts）。
+ * 全能模式下命令行自己的工具（跑命令、写文件、上网搜……）的步骤行也在这里写成人话（stepLabel）。
  */
+import { homedir } from 'node:os'
 import type { AgentContext } from '../../shared/agent'
 import type { NoteFile } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
@@ -49,6 +52,18 @@ export interface ToolHost {
     insert(text: string): Promise<string>
     replaceSelection(text: string): Promise<string>
   }
+  /**
+   * 库里的笔记和文件夹（vault-ops.ts）：参数原样交过去，那边查（出了库、没有、重名都报一句说得清的话）；
+   * 做完记进这一轮（结束时一起提交），开着的标签、编辑器跟过去
+   */
+  vault: {
+    folders(): Promise<string[]>
+    create(folder: unknown, title: unknown, text: unknown): Promise<string>
+    rename(path: unknown, name: unknown): Promise<{ from: string; to: string; folder: boolean; relinked: string[] }>
+    move(path: unknown, folder: unknown): Promise<{ from: string; to: string; folder: boolean; relinked: string[] }>
+    trash(path: unknown): Promise<{ path: string; folder: boolean; files: number; images: number; kept: number }>
+    mkdir(parent: unknown, name: unknown): Promise<string>
+  }
 }
 
 type Args = Record<string, unknown>
@@ -56,7 +71,8 @@ type Args = Record<string, unknown>
 interface Tool extends ToolSpec {
   /** 浮窗里显示的一句话 */
   label(args: Args): string
-  run(args: Args, host: ToolHost): Promise<string>
+  /** 回给 AI 的话；label：做完以后步骤行换成这句（改名、挪动、删的原来是个文件夹） */
+  run(args: Args, host: ToolHost): Promise<string | { text: string; label: string }>
 }
 
 const str = (desc: string) => ({ type: 'string', description: desc })
@@ -105,6 +121,16 @@ const short = (s: string, n = 18) => {
   return one.length > n ? one.slice(0, n) + '…' : one
 }
 
+/** 文件夹：去掉开头的 ./ 和末尾的 / */
+const trimDir = (f: unknown) => (typeof f === 'string' ? f.trim().replace(/^(\.?\/)+|\/+$/g, '') : '')
+/** 放进哪里的说法：「放进「课程」」；空的是库的最外层（和建文件夹一样用「」，不带末尾的 /，不手打中西文空格） */
+const intoSaid = (f: unknown, verb: '放进' | '挪进') => (trimDir(f) ? `${verb}「${trimDir(f)}」` : `${verb === '放进' ? '放在' : '挪到'}库的最外层`)
+/** 一篇的标题（《周报》）：路径去掉文件夹和 .md */
+const titled = (p: unknown) => `《${titleOf(String(p ?? '').trim().replace(/\/+$/, ''))}》`
+/** 文件夹（「课程/ecp」） */
+const quoted = (p: unknown) => `「${String(p ?? '').trim().replace(/\/+$/, '')}」`
+const count = (n: number, unit: string) => `${n}${unit}`
+
 const host_ = (url: string) => {
   try {
     return new URL(url).hostname.replace(/^www\./, '')
@@ -123,21 +149,105 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'notes_list',
-    description: '列出库里的笔记（相对路径、是白板还是文档、在收件箱还是素材里）。',
+    description: '列出库里的笔记（相对路径、是白板还是文档、在收件箱还是剪藏里），后面列出库里的文件夹（新建、挪动前看有哪些）。',
     inputSchema: obj({ folder: str('只列这个文件夹里的，比如「收件箱」；不填列全部') }),
     label: () => '看库里有哪些笔记',
     run: async (a, h) => {
-      const folder = opt(a.folder)
-      const list = (await h.listNotes()).filter((n) => !folder || n.path.startsWith(folder.replace(/\/$/, '') + '/'))
-      return list.map((n) => `${n.path}\t${n.board ? '白板' : n.kind === 'inbox' ? '收件箱' : n.kind === 'clip' ? '素材' : '文档'}`).join('\n') || '（没有）'
+      const folder = trimDir(a.folder)
+      const inside = (p: string) => !folder || p.startsWith(folder + '/')
+      const list = (await h.listNotes()).filter((n) => inside(n.path))
+      const notes = list.map((n) => `${n.path}\t${n.board ? '白板' : n.kind === 'inbox' ? '收件箱' : n.kind === 'clip' ? '剪藏' : '文档'}`).join('\n') || '（没有笔记）'
+      const dirs = (await h.vault.folders()).filter((d) => inside(d))
+      return `${notes}\n\n文件夹：\n${dirs.map((d) => d + '/').join('\n') || '（没有）'}`
     },
   },
   {
     name: 'note_read',
     description: '读一篇笔记的 md 原文（白板也是 md：卡片写在 <!-- card --> 注释后面）。',
     inputSchema: obj({ path: str('相对路径，比如「冰岛自驾.md」') }, ['path']),
-    label: (a) => `读「${titleOf(String(a.path ?? ''))}」`,
+    label: (a) => `读${titled(a.path)}`,
     run: (a, h) => h.readNote(need<string>(a.path, 'path', 'string')),
+  },
+
+  // ---------- 笔记和文件夹（全能模式关着也有；改名、挪动时链接跟着改，删的进废纸篓，这一轮结束一起提交、能撤回） ----------
+  {
+    name: 'note_create',
+    description:
+      '新建一篇笔记。folder：放在哪个文件夹（相对库的路径，比如「课程/线代」；不填是库的最外层；文件夹要已经有了，没有先 folder_create）；title：标题，也是文件名（不带 .md、不带 /）；text：正文 md（开头不写「# 标题」软件会补上）。同一个文件夹里已经有同名的会报错。',
+    inputSchema: obj({ folder: str('放在哪个文件夹（相对库的路径）；不填是库的最外层'), title: str('标题（也是文件名）'), text: str('正文 md') }, ['title']),
+    label: (a) => `新建${titled(a.title)}，${intoSaid(a.folder, '放进')}`,
+    run: async (a, h) => `建好了：${await h.vault.create(a.folder, a.title, a.text)}`,
+  },
+  {
+    name: 'note_write',
+    description:
+      '改写库里的一篇笔记（不只是当前打开的那篇，白板也是 md）：mode=replace（默认）把整篇换成 text，mode=append 在末尾空一行加上 text。只改已经有的；要新建用 note_create。改动这一轮结束一起提交，开着这篇的编辑器跟着刷新。',
+    inputSchema: obj(
+      { path: str('笔记的相对路径，比如「课程/周报.md」'), text: str('整篇的新内容，或者要加在末尾的那段（md）'), mode: { type: 'string', enum: ['replace', 'append'], description: 'replace 整篇换掉；append 加在末尾' } },
+      ['path', 'text'],
+    ),
+    label: (a) => (a.mode === 'append' ? `在${titled(a.path)}末尾加一段` : `改写${titled(a.path)}`),
+    run: async (a, h) => {
+      const raw = need<string>(a.path, 'path', 'string').trim()
+      const path = /\.md$/i.test(raw) ? raw : `${raw}.md`
+      const text = typeof a.text === 'string' ? a.text : ''
+      const append = a.mode === 'append'
+      if (append && !text.trim()) throw new Error('缺参数 text')
+      let cur: string | undefined
+      try {
+        cur = await h.readNote(path)
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+      }
+      if (cur === undefined) throw new Error(`没有「${path}」。要新建就用 note_create`)
+      await h.editNote(path, (t) => (append ? `${t.replace(/\s*$/, '')}\n\n${text.trim()}\n` : text.endsWith('\n') ? text : `${text}\n`))
+      return `${append ? '加好了' : '改好了'}：${path}`
+    },
+  },
+  {
+    name: 'note_rename',
+    description:
+      '给一篇笔记或一个文件夹改名（在原来的文件夹里）。笔记：库里的 [[旧名]] 都换成新名，开头「# 旧名」跟着改，附件跟过去；文件夹：库里写着它路径的链接跟着改。name 是新名字（不带 .md、不带 /）。重名会报错；固定的分类文件夹（收件箱、课程……）不改名。',
+    inputSchema: obj({ path: str('笔记或文件夹的相对路径'), name: str('新名字') }, ['path', 'name']),
+    label: (a) => `把${titled(a.path)}改名为${titled(a.name)}`,
+    run: async (a, h) => {
+      const r = await h.vault.rename(a.path, a.name)
+      const links = r.relinked.length ? `；库里${count(r.relinked.length, '篇笔记')}的链接跟着改了` : ''
+      return { text: `改好了：${r.from} → ${r.to}${links}`, label: r.folder ? `把文件夹${quoted(r.from)}改名为${quoted(r.to.split('/').pop())}` : `把${titled(r.from)}改名为${titled(r.to)}` }
+    },
+  },
+  {
+    name: 'note_move',
+    description:
+      '把一篇笔记或一个文件夹挪进另一个文件夹（folder 写相对库的路径；挪到库的最外层写空字符串）。附件、库里指向它的相对链接、置顶跟着改（[[双链]] 按名字找，不用改）。目标文件夹要已经有了，里面有同名的会报错；固定的分类文件夹不挪。',
+    inputSchema: obj({ path: str('笔记或文件夹的相对路径'), folder: str('挪进哪个文件夹（相对库的路径；库的最外层写空字符串）') }, ['path', 'folder']),
+    label: (a) => `把${titled(a.path)}${intoSaid(a.folder, '挪进')}`,
+    run: async (a, h) => {
+      const r = await h.vault.move(a.path, a.folder)
+      const links = r.relinked.length ? `；库里${count(r.relinked.length, '篇笔记')}的链接跟着改了` : ''
+      const into = r.to.includes('/') ? r.to.slice(0, r.to.lastIndexOf('/')) : ''
+      return { text: `挪好了：${r.from} → ${r.to}${links}`, label: `把${r.folder ? `文件夹${quoted(r.from)}` : titled(r.from)}${intoSaid(into, '挪进')}` }
+    },
+  },
+  {
+    name: 'note_delete',
+    description:
+      '把一篇笔记（连同只有它在用的附件，别的笔记也在用的留着）或一个文件夹（整个）移到废纸篓。这一轮结束提交一次，用户能一键撤回，访达的废纸篓里也找得回。固定的分类文件夹不删。',
+    inputSchema: obj({ path: str('笔记或文件夹的相对路径') }, ['path']),
+    label: (a) => `删掉${titled(a.path)}（在废纸篓里能找回）`,
+    run: async (a, h) => {
+      const r = await h.vault.trash(a.path)
+      if (r.folder) return { text: `移到了废纸篓：${r.path}（文件夹，里面${count(r.files, '个文件')}）。这一轮结束会提交一次，用户能撤回`, label: `删掉文件夹${quoted(r.path)}（在废纸篓里能找回）` }
+      const extra = [r.images ? `连同${count(r.images, '个只有它在用的附件')}` : '', r.kept ? `${count(r.kept, '个别的笔记也在用')}，留着` : ''].filter(Boolean).join('；')
+      return { text: `移到了废纸篓：${r.path}${extra ? `（${extra}）` : ''}。这一轮结束会提交一次，用户能撤回`, label: `删掉${titled(r.path)}（在废纸篓里能找回）` }
+    },
+  },
+  {
+    name: 'folder_create',
+    description: '新建文件夹。parent：建在哪个文件夹里（相对库的路径；不填是库的最外层）；name：名字（不带 /）。已经有同名的会报错。',
+    inputSchema: obj({ parent: str('建在哪个文件夹里；不填是库的最外层'), name: str('文件夹名字') }, ['name']),
+    label: (a) => `新建文件夹${quoted(`${trimDir(a.parent) ? trimDir(a.parent) + '/' : ''}${String(a.name ?? '')}`)}`,
+    run: async (a, h) => `建好了文件夹：${await h.vault.mkdir(a.parent, a.name)}`,
   },
 
   // ---------- 白板 ----------
@@ -352,10 +462,78 @@ export const TOOLS: Tool[] = [
 
 export const toolSpecs = (): ToolSpec[] => TOOLS.map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))
 
-export async function runTool(name: string, args: Args, host: ToolHost): Promise<ToolResult> {
+export async function runTool(name: string, args: Args, host: ToolHost): Promise<ToolResult & { label?: string }> {
   const t = TOOLS.find((x) => x.name === name)
   if (!t) return { text: `没有叫 ${name} 的工具`, isError: true }
-  return { text: await t.run(args, host) }
+  const r = await t.run(args, host)
+  return typeof r === 'string' ? { text: r } : r
 }
 
 export const toolLabel = (name: string, args: Args) => TOOLS.find((t) => t.name === name)?.label(args) ?? name
+
+/** 文件的说法：库里的笔记写《标题》（放进说法里），别的写路径（库里的写相对路径，库外的家目录写成 ~，太长的从左边省掉；放进等宽那一段） */
+function fileSaid(p: string, root: string): { title?: string; path?: string } {
+  if (!p) return { path: '文件' }
+  if (p === root || p.startsWith(root + '/')) {
+    const rel = p.slice(root.length + 1)
+    if (/\.md$/i.test(rel)) return { title: titled(rel) }
+    p = rel
+  } else {
+    const home = homedir()
+    if (p === home || p.startsWith(home + '/')) p = '~' + p.slice(home.length)
+  }
+  return { path: p.length > 44 ? '…' + p.slice(-43) : p }
+}
+
+/**
+ * 全能模式下命令行自己那一步的人话（engines.ts 统一成 Claude Code 的叫法）：步骤行 12px 一行。
+ * 命令、库外的路径、通配放进 code（等宽、和前面的字之间留 3px，不手打空格）；跑命令的说明是中文时写说明（「跑命令：列出主目录」）
+ */
+export function stepLabel(tool: string, input: Record<string, unknown>, root: string): { label: string; code?: string } {
+  const s = (k: string) => (typeof input[k] === 'string' ? (input[k] as string) : '')
+  const cut = (t: string, n = 40) => {
+    const one = t.replace(/\s+/g, ' ').trim()
+    return one.length > n ? one.slice(0, n) + '…' : one
+  }
+  /** 读、写、改、删、挪一个文件：库里的笔记「读《周报》」，别的「读」+ 等宽的路径 */
+  const file = (verb: string, p: string) => {
+    const f = fileSaid(p, root)
+    return f.title ? { label: verb + f.title } : { label: verb, code: f.path! }
+  }
+  switch (tool) {
+    case 'Bash':
+      return /[\u4e00-\u9fff]/.test(s('description')) ? { label: `跑命令：${cut(s('description'), 30)}` } : { label: '跑命令', code: cut(s('command')) }
+    case 'Read':
+      return file('读', s('file_path'))
+    case 'Write':
+      return file('写', s('file_path'))
+    case 'Edit':
+    case 'MultiEdit':
+      return file('改', s('file_path'))
+    case 'NotebookEdit':
+      return file('改', s('notebook_path'))
+    case 'Delete':
+      return file('删', s('file_path'))
+    case 'Move':
+      return file('挪', s('file_path'))
+    case 'Glob':
+      return { label: '找文件', code: cut(s('pattern')) }
+    case 'Grep':
+      return { label: `搜「${cut(s('pattern'), 24)}」` }
+    case 'WebSearch':
+      return { label: `上网搜「${cut(s('query'), 24)}」` }
+    case 'WebFetch':
+      return { label: `读网页${host_(s('url'))}` }
+    case 'Task':
+    case 'Agent':
+      return { label: `开子Agent：${cut(s('description') || s('prompt'), 24)}` }
+    case 'TodoWrite':
+      return { label: '列要做的几步' }
+    case 'Skill':
+      return { label: `用技能「${s('skill') || s('command')}」` }
+    case 'Mcp':
+      return { label: `用${s('server')}的${s('tool')}` }
+    default:
+      return { label: `用${tool}` }
+  }
+}

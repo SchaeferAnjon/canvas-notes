@@ -4,6 +4,7 @@
  * 导进来的先进收件箱，归类改名留给梦游（预览后再收下）。
  */
 import { Codicon } from '@cn/design'
+import { AiIcon } from '../engine-logo'
 import { useEffect, useMemo, useState } from 'react'
 import type { ImportFolder, ImportKind, ImportProgress, ImportResult, ImportScan } from '../../shared/import'
 import { closeImport, openImport, useImportOpen } from './store'
@@ -371,7 +372,7 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
             打开收件箱
           </button>
           <button className="btn btn-primary" onClick={props.onDreamNow}>
-            <Codicon name="wand" size={14} />
+            <AiIcon job="dream" size={14} />
             现在就让梦游整理
           </button>
         </div>

@@ -8,6 +8,7 @@ import { BRAND } from '../shared/brand'
 import { titleOf } from '../shared/layout'
 import { insertBase } from './base/base-block'
 import { drawnBlocks, editorHost, Popover } from './editor-host'
+import { AiIcon } from './engine-logo'
 import { toggleFold } from './fold-block'
 import { hiddenOk } from './hidden-syntax'
 import { flashRange } from './insert-flash'
@@ -321,7 +322,7 @@ const ITEMS: SlashItem[] = [
     label: 'AI 写一段',
     desc: '接着上下文往下写',
     md: '',
-    icon: 'sparkle',
+    icon: 'edit',
     keys: 'ai write xie xieyiduan',
     run(view, from, to) {
       if (typeof window.cn.aiAsk !== 'function') return view.state.facet(editorHost).notice('「AI 写一段」这条还在做')
@@ -335,7 +336,7 @@ const ITEMS: SlashItem[] = [
     label: 'AI 总结这页',
     desc: '写成三句话放在开头',
     md: '',
-    icon: 'sparkle',
+    icon: 'list-flat',
     keys: 'ai summary zongjie zj',
     run(view, from, to) {
       if (typeof window.cn.aiAsk !== 'function') return view.state.facet(editorHost).notice('「AI 总结这页」这条还在做')
@@ -406,16 +407,14 @@ function Menu(props: { label: string; rows: Row[]; idx: number; empty: string; f
           <button
             role="option"
             aria-selected={i === props.idx}
-            className={(i === props.idx ? 'on' : '') + (r.ai ? ' ai' : '')}
+            className={(i === props.idx ? 'on' : '') + (r.ai ? ' ai-row' : '')}
             onMouseDown={(e) => {
               e.preventDefault()
               props.onPick(i)
             }}
             onMouseMove={() => i !== props.idx && props.onHover(i)}
           >
-            <span className="ib">
-              <Codicon name={r.icon} size={16} />
-            </span>
+            <span className="ib">{r.ai ? <AiIcon job="chat" size={16} /> : <Codicon name={r.icon} size={16} />}</span>
             <span className="tx">
               <b>{r.name}</b>
               <span>{r.desc}</span>
@@ -465,7 +464,7 @@ function AiBox(props: { summary: boolean; onSubmit(want: string, id: number): Pr
     <div className="slash-ai" role="dialog" aria-label={props.summary ? 'AI 总结这页' : 'AI 写一段'}>
       <div className="slash-ai-row">
         <span className="ib">
-          <Codicon name="sparkle" size={16} />
+          <AiIcon job="chat" size={16} />
         </span>
         <input
           autoFocus

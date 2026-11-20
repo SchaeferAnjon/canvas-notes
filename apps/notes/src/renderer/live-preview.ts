@@ -5,6 +5,7 @@ import { wikiShown } from '@cn/format'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { hiddenLayoutLine } from './layout-lines'
 import { type CalloutHead, parseCallout } from './callout'
+import { engineLogoEl, type LogoEngine } from './engine-logo'
 import { highlightsIn } from './highlight'
 import { linkAt, openLinkHit } from './ctx/editor-menu'
 import { editorHost } from './editor-host'
@@ -102,16 +103,18 @@ class CalloutIcon extends WidgetType {
   constructor(
     readonly icon: Parameters<typeof codiconEl>[0],
     readonly label: string,
+    /** AI 讲解：写它的那一家（画它的标志） */
+    readonly engine: LogoEngine | null = null,
   ) {
     super()
   }
   eq(o: CalloutIcon) {
-    return o.icon === this.icon && o.label === this.label
+    return o.icon === this.icon && o.label === this.label && o.engine === this.engine
   }
   toDOM(view: EditorView) {
     const s = document.createElement('span')
     s.className = 'cm-callout-icon'
-    s.appendChild(codiconEl(this.icon, 14))
+    s.appendChild(this.engine ? engineLogoEl(this.engine, 14) : codiconEl(this.icon, 14))
     if (this.label) {
       const t = document.createElement('span')
       t.className = 'cm-callout-label'
@@ -188,7 +191,7 @@ function build(view: EditorView): DecorationSet {
     }
     const end = a.from + c.prefix
     skips.push([a.from, end])
-    decos.push(Decoration.replace({ widget: new CalloutIcon(c.icon, c.title ? '' : c.label) }).range(a.from, end))
+    decos.push(Decoration.replace({ widget: new CalloutIcon(c.icon, c.title ? '' : c.label, c.engine) }).range(a.from, end))
     if (c.kind === 'ai' && c.title) {
       const cut = c.title.indexOf(' · ')
       const t0 = end + (a.text.slice(c.prefix).length - a.text.slice(c.prefix).trimStart().length)

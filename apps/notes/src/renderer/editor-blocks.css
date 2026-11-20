@@ -256,9 +256,10 @@
   box-shadow: 0 0 0 1px var(--line);
   color: var(--t2);
 }
-.slash-menu button.ai .ib,
+/* AI 那一组画跑它的那一家的标志（AiIcon），不再靠强调色认；Codex 这类单色标志跟着字色 */
+.slash-menu button.ai-row .ib,
 .slash-ai .ib {
-  color: var(--acc);
+  color: var(--t2);
 }
 .slash-menu .tx {
   min-width: 0;

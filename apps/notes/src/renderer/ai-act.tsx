@@ -8,6 +8,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { AiAct, AiActArea } from '../shared/agent'
+import { AiIcon } from './engine-logo'
 import './ai-act.css'
 
 interface Acting {
@@ -184,7 +185,13 @@ export function AiActLayer(props: { area: AiActArea; path?: string | null; host:
         <svg viewBox="0 0 20 20">
           <path d="M3.5 2.2 16.6 9.4 10.4 10.9 7.4 16.8Z" />
         </svg>
-        <span>AI</span>
+        {/* 指针旁的小胶囊：动手的那一家的标志 + AI（偏好「AI 图标用引擎标志」） */}
+        <span>
+          <i className="lg">
+            <AiIcon job="chat" size={10} />
+          </i>
+          AI
+        </span>
       </div>
     </div>
   )

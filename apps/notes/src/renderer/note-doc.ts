@@ -88,9 +88,12 @@ export class NoteDoc {
     return () => strandedListeners.delete(cb)
   }
 
-  /** 软件自己（或外面）把 from 挪到了 to：开着的编辑器马上换路径，紧接着到的新内容、要存的字都按新路径走 */
+  /** 软件自己（或外面）把 from 挪到了 to（一篇，或一个文件夹连里面的）：开着的编辑器马上换路径，紧接着到的新内容、要存的字都按新路径走 */
   static follow(from: string, to: string) {
-    for (const d of NoteDoc.open) if (d.path === from) d.path = to
+    for (const d of NoteDoc.open) {
+      if (d.path === from) d.path = to
+      else if (d.path.startsWith(from + '/')) d.path = to + d.path.slice(from.length)
+    }
   }
 
   static saveAll(): Promise<void> {

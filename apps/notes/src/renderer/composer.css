@@ -141,6 +141,84 @@
   }
 }
 
+/* ---------- 输入框下面一行：全能模式（2026-11-19，照 Dispatch 输入框下面的权限那一行，12px） ---------- */
+/* 有这一行时输入框和它之间空 6，这一行到这一格底 6（原来输入框到底 12；悬停底色和输入框的焦点光圈之间留得出 3） */
+.aiin.with-omni {
+  margin-bottom: 6px;
+}
+.ai-omni {
+  flex: none;
+  display: flex;
+  min-width: 0;
+  margin: 0 16px 6px;
+}
+/* 整行是一颗开关：22 高、左右 6、圆角 6，悬停 --fill；方角小开关 +「全能模式」--t2 500 + 一句现在能做什么 --t2（放不下省略号） */
+.ai-omni .om {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px/18px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+}
+.ai-omni .om:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.ai-omni .om:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--acc-ring);
+}
+/*
+ * 方角开关（`方角开关`）：轨道 22×12 圆角 3，滑块 8×8 圆角 2。关着：轨道透明、1px --t3 框、滑块 --t3（浅深都看得清是「关」）；
+ * 开着：轨道 --acc-bg、滑块 --acc-on（开关是「选中」；石墨的 --acc-bg 是近白，滑块不能写死白色）
+ */
+.ai-omni .sw {
+  position: relative;
+  flex: none;
+  width: 22px;
+  height: 12px;
+  border-radius: 3px;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--t3);
+  transition: background-color 0.15s;
+}
+.ai-omni .sw::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--t3);
+  transition: left 0.15s;
+}
+.ai-omni .om[aria-checked='true'] .sw {
+  background: var(--acc-bg);
+  box-shadow: none;
+}
+.ai-omni .om[aria-checked='true'] .sw::after {
+  left: 12px;
+  background: var(--acc-on);
+}
+.ai-omni .nm {
+  flex: none;
+  font-weight: 500;
+}
+.ai-omni .say {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---------- 顶上一排材料：横着排、间距 6、横向滚，下边 1px --line，下内边距 6、下外边距 6 ---------- */
 /* 高定死 51（卡 44 + 下内边距 6 + 线 1）：放不下要横着滚时，滚动条落在下内边距里，不把输入框撑高 */
 .aiin .shelf {

@@ -48,7 +48,8 @@ export const translate: RendererPlugin = {
     // PDF 上不给（网页翻译翻不了 PDF）
     if (st?.pdf) return []
     return [
-      { name: on ? '恢复原文' : '双语翻译这个网页', hint: on ? '双语翻译 · 拿掉译文' : '双语翻译 · 每段下面加译文', icon: 'whole-word', keys: '⌥A', run },
+      // 开翻译是交给翻译那家跑的：画它的标志；恢复原文、换语言、换样式不经 AI，照旧「ab」
+      { name: on ? '恢复原文' : '双语翻译这个网页', hint: on ? '双语翻译 · 拿掉译文' : '双语翻译 · 每段下面加译文', icon: 'whole-word', ...(on ? {} : { ai: 'translate' as const }), keys: '⌥A', run },
       { name: '翻成…', hint: '双语翻译 · 换语言', icon: 'whole-word', run: openMenu },
       { name: '译文样式…', hint: '双语翻译 · 淡色、下划线、荧光笔、模糊自测…', icon: 'whole-word', run: openMenu },
       ...(on && settingsNow().style === 'blur' && settingsNow().display === 'below'

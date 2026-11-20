@@ -13,6 +13,8 @@ const ask = (method, params) =>
 const args = process.argv.slice(2)
 let threads = 0
 let instructions = ''
+/** 线程开的时候（thread/start、thread/resume、thread/fork）给的沙箱、批准方式、配置 */
+let opened = {}
 
 createInterface({ input: process.stdin }).on('line', async (line) => {
   const m = JSON.parse(line)
@@ -31,12 +33,20 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
   }
   if (m.method === 'thread/start') {
     instructions = m.params.developerInstructions
+    opened = { sandbox: m.params.sandbox, approval: m.params.approvalPolicy, config: m.params.config }
     return send({ id: m.id, result: { thread: { id: `th${++threads}` }, sandbox: m.params.sandbox } })
+  }
+  // 接着用一个线程（进程换过、线程不在手上时）：照样记下这次给的沙箱
+  if (m.method === 'thread/resume') {
+    instructions = m.params.developerInstructions
+    opened = { sandbox: m.params.sandbox, approval: m.params.approvalPolicy, config: m.params.config }
+    return send({ id: m.id, result: { thread: { id: m.params.threadId } } })
   }
   // 旁支：从一个线程整段分叉出新线程（找不到的线程报错）
   if (m.method === 'thread/fork') {
     if (m.params.threadId === 'gone') return send({ id: m.id, error: { code: -32600, message: `thread not found: ${m.params.threadId}` } })
     instructions = m.params.developerInstructions
+    opened = { sandbox: m.params.sandbox, approval: m.params.approvalPolicy, config: m.params.config }
     return send({ id: m.id, result: { thread: { id: `${m.params.threadId}-fork` }, sandbox: m.params.sandbox } })
   }
   if (m.method === 'turn/start') {
@@ -45,10 +55,25 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const delta = (d) => send({ method: 'item/agentMessage/delta', params: { threadId, turnId: 'u1', itemId: 'i1', delta: d } })
     const mcp = await ask('mcpServer/elicitation/request', { threadId, turnId: 'u1', serverName: 'canvas', mode: 'form', message: '可以调吗', requestedSchema: {} })
     const patch = await ask('item/fileChange/requestApproval', { threadId, turnId: 'u1', itemId: 'p1' })
+    const cmd = await ask('item/commandExecution/requestApproval', { threadId, turnId: 'u1', itemId: 'c1' })
+    // 全能模式的步骤（FAKE_CODEX_STEPS=1）：跑命令（做完）、改文件（失败）、上网搜、调我们的 MCP（不该报成步骤）
+    if (process.env.FAKE_CODEX_STEPS) {
+      const item = (method, it) => send({ method, params: { threadId, turnId: 'u1', item: it } })
+      item('item/started', { type: 'commandExecution', id: 'c1', command: 'ls -1 /Users', status: 'inProgress' })
+      item('item/completed', { type: 'commandExecution', id: 'c1', command: 'ls -1 /Users', status: 'completed', exitCode: 0 })
+      item('item/started', { type: 'fileChange', id: 'f1', changes: [{ path: '/tmp/x.md', kind: { type: 'add' }, diff: '' }], status: 'inProgress' })
+      item('item/completed', { type: 'fileChange', id: 'f1', changes: [{ path: '/tmp/x.md', kind: { type: 'add' }, diff: '' }], status: 'failed' })
+      item('item/started', { type: 'webSearch', id: 'w1', query: '天气' })
+      item('item/completed', { type: 'webSearch', id: 'w1', query: '天气' })
+      item('item/started', { type: 'mcpToolCall', id: 'm1', server: 'canvas', tool: 'notes_list', status: 'inProgress' })
+      item('item/completed', { type: 'mcpToolCall', id: 'm1', server: 'canvas', tool: 'notes_list', status: 'completed' })
+    }
     delta(`线程 ${threadId}；`)
     delta(`配置 ${args.filter((a) => a.startsWith('mcp_servers')).join(' ')}；`)
     delta(`令牌 ${process.env.CN_MCP_TOKEN ? '在环境变量里' : '没有'}；`)
-    delta(`我们的工具 ${mcp.action}；它自己改文件 ${patch.decision}；`)
+    delta(`我们的工具 ${mcp.action}；它自己改文件 ${patch.decision}；它自己跑命令 ${cmd.decision}；`)
+    delta(`沙箱 ${opened.sandbox}；批准 ${opened.approval}；上网搜 ${opened.config?.web_search ?? '没给'}；`)
+    delta(`关掉的 ${args.filter((a) => /^features\.|^web_search=/.test(a)).join(',') || '没有'}；`)
     delta(`系统提示 ${instructions}`)
     const imgs = m.params.input.filter((i) => i.type === 'localImage')
     if (imgs.length) delta(`；图 ${imgs.map((i) => i.path).join(',')}`)

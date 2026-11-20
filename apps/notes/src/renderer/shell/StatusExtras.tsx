@@ -24,7 +24,8 @@ export function TranslateItem() {
   return (
     <>
       <button className={'bi' + (el ? ' on' : '')} data-tip="翻译用哪个AI" data-side="above" data-testid="translate-engine" aria-expanded={!!el} onClick={(e) => (setErr(null), setEl(el ? null : e.currentTarget))}>
-        <Codicon name="whole-word" size={14} />
+        {/* 画翻译现在用的那一家（和后面写的名字同一家）；没有能翻的照旧「ab」 */}
+        {cur ? <EngineLogo id={cur} size={14} /> : <Codicon name="whole-word" size={14} />}
         <span>{`译 · ${name}`}</span>
       </button>
       {el && (

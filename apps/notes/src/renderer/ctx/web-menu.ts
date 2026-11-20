@@ -104,8 +104,10 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
       '-',
       http && { label: '剪成卡片', run: () => a.clip(clip, 'inbox') },
       http && doc && { label: '剪进文档', run: () => a.clip(clip, 'doc') },
-      { label: '翻译', run: () => translateAt(sel, { x: page.rect().left + p.x, y: page.rect().top + p.y }) },
-      { label: '问 AI', run: () => a.askAi(sel, title ? `网页《${title}》` : '网页') },
+      // AI 那两项（带引擎标志）自成一组
+      '-',
+      { label: '翻译', ai: 'translate', run: () => translateAt(sel, { x: page.rect().left + p.x, y: page.rect().top + p.y }) },
+      { label: '问 AI', ai: 'chat', run: () => a.askAi(sel, title ? `网页《${title}》` : '网页') },
       '-',
     )
   }
@@ -116,7 +118,9 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
     { label: '前进', enabled: page.canGoForward(), run: () => page.goForward() },
     { label: '重新载入', run: () => page.reload() },
     '-',
-    trOn && { label: translating ? '恢复原文' : '双语翻译', accel: 'Alt+A', run: () => toggleTranslate({ wcId, url, title }) },
+    // 双语翻译（带引擎标志）自成一组
+    trOn && { label: translating ? '恢复原文' : '双语翻译', accel: 'Alt+A', ...(translating ? {} : { ai: 'translate' as const }), run: () => toggleTranslate({ wcId, url, title }) },
+    '-',
     http && { label: '整页剪藏', run: () => host.clipPage() },
   )
   return out

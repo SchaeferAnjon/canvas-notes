@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { openRaw } from './block-source'
+import { AiIcon } from './engine-logo'
 import { app } from './ctx/actions'
 import { drawnBlocks, Popover } from './editor-host'
 import { hiddenOk } from './hidden-syntax'
@@ -177,6 +178,8 @@ interface MenuItem {
   id: MenuAction
   label: string
   icon: CodiconName
+  /** 交给 AI 对话那一家跑：画它的标志 */
+  ai?: true
   keys?: string
   /** 这一行灰掉（文末那一行还没有字：复制、问 AI、删除都没东西可做） */
   off?: boolean
@@ -190,7 +193,7 @@ const CONVERT: MenuItem[] = [
 const RAW: MenuItem[] = [{ id: 'raw', label: '改写法', icon: 'code' }]
 const ACTIONS: MenuItem[] = [
   { id: 'dup', label: '复制一块', icon: 'copy', keys: '⌘D' },
-  { id: 'ai', label: '问 AI 这一块', icon: 'sparkle' },
+  { id: 'ai', label: '问 AI 这一块', icon: 'comment-discussion', ai: true },
   { id: 'del', label: '删除', icon: 'trash', keys: '⌫' },
 ]
 
@@ -242,7 +245,7 @@ function BlockMenu(props: { top: MenuItem[]; tail: boolean; onPick(a: MenuAction
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => !it.off && props.onPick(it.id)}
           >
-            <Codicon name={it.icon} size={14} />
+            {it.ai ? <AiIcon job="chat" size={14} /> : <Codicon name={it.icon} size={14} />}
             <span className="lb">{it.label}</span>
             {it.keys && <kbd>{it.keys}</kbd>}
           </button>

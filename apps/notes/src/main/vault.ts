@@ -2,7 +2,7 @@ import { existsSync, watch, type FSWatcher, type Stats } from 'node:fs'
 import { safeName } from '../shared/file-name'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
-import { attachmentDir, attr, baseFoldersIn, clockStamp, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, isMindmap, num, parseBoard, parseMindmap, relinkMovedNote } from '@cn/format'
+import { attachmentDir, attr, baseFoldersIn, clockStamp, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, isMindmap, num, parseBoard, parseMindmap, relinkMovedNote, remapLinks } from '@cn/format'
 import type { NoteFile, OpenedNote, SearchHit, ThumbRect, WriteResult } from '../shared/api'
 import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
 import { hitSnippet } from './search/chunks'
@@ -35,6 +35,28 @@ export class Vault {
    */
   private ownMove(from: string, to: string, done = false) {
     this.movedAway.set(from, { to, until: Date.now() + 10_000, ...(done ? {} : { busy: true }) })
+  }
+
+  /**
+   * 这一篇磁盘上的字和软件最后一次读到、写下的不一样了：在外面改过，监听还没来得及报（它等 50 毫秒、再读一遍）。
+   * 全能模式下 AI 这一轮刚结束时用：编辑器存过的字不算 AI 改的，除非外面又改了它
+   */
+  async changedOutside(rel: string): Promise<boolean> {
+    const was = this.known.get(rel)
+    try {
+      return decodeNote(await readFile(this.abs(rel))).text !== was
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return was !== undefined
+      throw e
+    }
+  }
+
+  /**
+   * 软件自己连文件夹整个挪走了（AI 改文件夹名、挪文件夹）：里面这篇旧路径上还在路上的写 10 秒内跟到新路径，
+   * 不在旧位置把文件夹建回来（编辑器拿到新路径之前那一会儿）
+   */
+  markMoved(from: string, to: string) {
+    this.ownMove(from, to, true)
   }
   /** list() 的缓存：路径 → 上次读到时的修改时间、大小和说明。没变的文件不再读 */
   private described = new Map<string, { mtimeMs: number; size: number; file: NoteFile }>()
@@ -80,6 +102,12 @@ export class Vault {
   }
 
   constructor(readonly root: string) {}
+
+  /**
+   * 软件自己写了库里这个文件（编辑器存字、新建、改名挪动、改双链、另存）：全能模式下 AI 这一轮结束时，
+   * 库里多出来的改动里这些不算 AI 改的（agent/index.ts 的 agentOwnWrite）
+   */
+  onOwnWrite: ((rel: string) => void) | null = null
 
   get name(): string {
     return basename(this.root)
@@ -192,6 +220,7 @@ export class Vault {
         const rel = this.rel(target)
         this.known.set(rel, body)
         this.reindex(rel, body)
+        this.onOwnWrite?.(rel)
         return rel
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e
@@ -221,6 +250,8 @@ export class Vault {
     }
     await rename(from, to)
     const newRel = this.rel(to)
+    this.onOwnWrite?.(rel)
+    this.onOwnWrite?.(newRel)
     const text = this.known.get(rel)
     this.known.delete(rel)
     if (text !== undefined) this.known.set(newRel, text)
@@ -228,7 +259,7 @@ export class Vault {
     this.ownMove(rel, newRel)
     try {
       await this.carryAttachments(rel, newRel)
-      await this.relink(basename(rel, '.md'), basename(to, '.md'))
+      await this.relink(rel, newRel)
     } finally {
       // 盘慢时挪附件、改双链要好几秒，编辑器这才拿到新路径：从这会儿起再算 10 秒
       this.ownMove(rel, newRel, true)
@@ -265,17 +296,29 @@ export class Vault {
     if (next !== text) await writeFile(p, encodeNote(next, meta))
   }
 
-  /** 改名后把所有 [[旧名]]、[[旧名|…]]、[[旧名#…]] 换成新名。打开着的笔记会通过监听收到改动并合并 */
-  private async relink(oldName: string, newName: string) {
+  /**
+   * 改名后把所有 [[旧名]]、[[旧名|…]]、[[旧名#…]] 换成新名，写着旧路径的相对链接、带路径的双链换成新路径（2026-11-19：以前只换双链，
+   * [字](旧名.md) 这样的链接改名后就断了）。打开着的笔记会通过监听收到改动并合并
+   */
+  private async relink(oldRel: string, newRel: string) {
+    const oldName = basename(oldRel, '.md')
+    const newName = basename(newRel, '.md')
     const esc = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const re = new RegExp(`\\[\\[${esc}(?=[\\]|#^])`, 'g')
+    // 写着它路径的（相对链接 [字](冰岛.md)、带路径的双链）：照它和它的附件文件夹的新位置改（和挪文件夹一样，remapLinks）
+    const oldAtt = attachmentDir(oldRel)
+    const newAtt = attachmentDir(newRel)
+    const map = (p: string) => (p === oldRel ? newRel : p === oldAtt || p.startsWith(oldAtt + '/') ? newAtt + p.slice(oldAtt.length) : null)
+    const mentions = (t: string) => t.includes(oldName) || t.includes(encodeURI(oldName)) || t.includes(oldName.replace(/ /g, '%20'))
     for (const f of await this.list()) {
       const p = this.abs(f.path)
       const bytes = await readFile(p)
       const { text, meta } = decodeNote(bytes)
-      if (meta.readOnly || !re.test(text)) continue
-      re.lastIndex = 0
-      await writeFile(p, encodeNote(text.replace(re, `[[${newName}`), meta))
+      if (meta.readOnly || !mentions(text)) continue
+      const next = remapLinks(oldName === newName ? text : text.replace(re, `[[${newName}`), f.path, f.path, map)
+      if (next === text) continue
+      await writeFile(p, encodeNote(next, meta))
+      this.onOwnWrite?.(f.path)
     }
   }
 
@@ -305,6 +348,8 @@ export class Vault {
         const text = this.known.get(rel)
         this.known.delete(rel)
         const newRel = this.rel(target)
+        this.onOwnWrite?.(rel)
+        this.onOwnWrite?.(newRel)
         if (text !== undefined) this.known.set(newRel, text)
         this.moved(rel, newRel)
         this.ownMove(rel, newRel)
@@ -433,6 +478,7 @@ export class Vault {
     this.known.set(rel, text)
     await writeFile(p, encodeNote(text, meta))
     this.reindex(rel, text)
+    this.onOwnWrite?.(rel)
     return bytes ? { ok: true } : { ok: true, recreated: rel }
   }
 
@@ -453,6 +499,7 @@ export class Vault {
           await writeFile(target, encodeNote(text, DEFAULT_META), { flag: 'wx' })
           const r = this.rel(target)
           this.reindex(r, text)
+          this.onOwnWrite?.(r)
           return r
         } catch (e) {
           lastError = e
@@ -470,6 +517,7 @@ export class Vault {
       const target = join(dirname(p), conflictCopyName(basename(p), now, n))
       try {
         await writeFile(target, encodeNote(text, DEFAULT_META), { flag: 'wx' })
+        this.onOwnWrite?.(this.rel(target))
         return this.rel(target)
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e

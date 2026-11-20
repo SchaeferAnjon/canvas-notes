@@ -604,7 +604,9 @@ export function BoardView(props: BoardViewProps) {
         } },
       col && { label: '从列里拿出来', run: () => commit(takeOut(doc, id, rects[id])) },
       '-',
-      body.trim() && { label: '问 AI 这张', run: () => app().askAi(body) },
+      body.trim() && { label: '问 AI 这张', ai: 'chat', run: () => app().askAi(body) },
+      // 「问 AI 这张」带引擎标志，自成一组
+      '-',
       !target && body.trim() && { label: '转成文档', run: () => cardToDoc(id, body) },
       '-',
       { label: '删除', accel: 'Backspace', run: () => (removeBlocks(new Set([id])), setSelected(new Set())) },

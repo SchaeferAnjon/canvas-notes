@@ -24,6 +24,11 @@ export interface PlaceChat {
   at: number
   /** 这个对话自己选的模型、effort（输入框底行，CN-91 方向 C：只管这个对话）；没选过没有，用设置 › AI「AI 对话」那一行 */
   pick?: AiPick
+  /**
+   * 每家的会话开的时候用的系统提示版本（agent/index.ts 的 AGENT_VERSION）：Claude Code 接着聊时一直用会话第一次的系统提示
+   * （--system-prompt-snapshot），版本对不上的会话不再接着聊，开新的、补上最近几轮
+   */
+  sv?: Partial<Record<EngineId, number>>
 }
 
 /** 对话菜单要的：每个地方叫什么、问了几问、最后什么时候问的（只记问过的） */
@@ -179,9 +184,25 @@ export class AgentStore {
     this.writeIndex(vault, place, asks ? { label, asks, at } : null)
   }
 
-  setSession(vault: string, place: string, engine: EngineId, session: string | undefined) {
+  /** version：这个会话开的时候用的系统提示版本 */
+  setSession(vault: string, place: string, engine: EngineId, session: string | undefined, version?: number) {
     const c = this.chat(vault, place)
-    this.write(this.placeFile(vault, place), { ...c, sessions: { ...c.sessions, [engine]: session } })
+    this.write(this.placeFile(vault, place), { ...c, sessions: { ...c.sessions, [engine]: session }, sv: { ...c.sv, [engine]: version } })
+  }
+
+  /** 这个地方这家接着聊的会话号：系统提示版本对得上才给 */
+  session(vault: string, place: string, engine: EngineId, version: number): string | undefined {
+    const c = this.chat(vault, place)
+    return c.sv?.[engine] === version ? c.sessions[engine] : undefined
+  }
+
+  /** 全能模式（2026-11-19 用户要的，默认开）：AI 对话和读 PDF 共用这一个开关，记在软件设置目录 */
+  omni(): boolean {
+    return this.read<{ omni?: unknown }>('settings.json', {}).omni !== false
+  }
+
+  setOmni(on: boolean) {
+    this.write('settings.json', { ...this.read<object>('settings.json', {}), omni: on })
   }
 
   /** 记下这个对话自己选的模型、effort（null：回到跟「AI 对话」那一行） */

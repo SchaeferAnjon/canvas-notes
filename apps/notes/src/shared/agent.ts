@@ -2,7 +2,7 @@
 
 import type { EffortOption, ModelOption } from './ai-features'
 import type { Material } from './materials'
-import type { CommitInfo } from './api'
+import type { AiCommitFailed, CommitInfo } from './api'
 
 export type EngineId = 'claude' | 'codex' | 'gemini' | 'opencode'
 
@@ -49,11 +49,13 @@ export interface AgentContext {
 
 export type AiEvent =
   | { type: 'text'; delta: string }
-  | { type: 'tool'; id: string; label: string; status: 'run' | 'ok' | 'err'; detail?: string }
+  | { type: 'tool'; id: string; label: string; code?: string; status: 'run' | 'ok' | 'err'; detail?: string }
 
 export interface ToolStep {
   id: string
   label: string
+  /** 跟在说法后面的一段等宽字（全能模式下跑的命令、库外的路径），不和中文手打空格 */
+  code?: string
   status: 'run' | 'ok' | 'err'
   detail?: string
 }
@@ -86,10 +88,14 @@ export interface TurnResult {
   text: string
   /** 这一轮 AI 改了文件：一次提交 */
   commit: CommitInfo | null
-  /** 每个文件是新建还是修改 */
+  /** 每个文件是新建、修改、改名、移动还是删掉 */
   kinds: Record<string, string>
   /** 中途出错或停下（已经改了的照样提交了） */
   error?: string
+  /** 改好了、提交没成功（没署名、锁一直不放）：「再提交一次」只提交这几个文件、用这句说明 */
+  failed?: AiCommitFailed
+  /** 改名、挪动了的：新路径 → 旧路径（改动预览里一行写「旧 → 新」，Git 没认出改名时旧路径那行不单列） */
+  moved?: Record<string, string>
 }
 
 /** 存在软件设置目录里的一条消息（不进库） */
@@ -117,7 +123,7 @@ export interface StoredMsg {
   tries?: number
   steps?: ToolStep[]
   /** AI 改动的那次提交；only：那次是自动提交（「再提交一次」时已经被收进去了），只算、只撤回 AI 改的这几个文件，撤回说明用 message */
-  change?: { commit: CommitInfo; kinds: Record<string, string>; reverted?: CommitInfo; only?: { paths: string[]; message: string } }
+  change?: { commit: CommitInfo; kinds: Record<string, string>; reverted?: CommitInfo; only?: { paths: string[]; message: string }; moved?: Record<string, string> }
   /** 要挪的几条：整理收件箱挪去「剪藏/<topic>」；to：挪进这个文件夹（文件夹页「收件箱里和周记有关的挪进来」） */
   moves?: { path: string; topic: string; to?: string }[]
   /** /找重复 的结果：两篇的路径、相似度（0 到 1）、为什么 */
@@ -127,8 +133,11 @@ export interface StoredMsg {
   draft?: { path: string; words: number; head: string }
 }
 
-/** 主进程请界面做的事（只有界面拿得到的东西：编辑器、标签、右栏） */
-export type BridgeOp = 'saveAll' | 'context' | 'openWeb' | 'measure' | 'docRead' | 'docInsert' | 'docReplace' | 'onScreen' | 'accent'
+/**
+ * 主进程请界面做的事（只有界面拿得到的东西：编辑器、标签、右栏）。
+ * closeTabs：AI 要删这篇 / 这个文件夹，开着的标签先关（编辑器接着存字会把删掉的建回来）；moved：AI 改了名、挪了，标签和编辑器跟过去
+ */
+export type BridgeOp = 'saveAll' | 'context' | 'openWeb' | 'measure' | 'docRead' | 'docInsert' | 'docReplace' | 'onScreen' | 'accent' | 'closeTabs' | 'moved'
 
 /**
  * AI 动手看得见（DESIGN.v3 2.3）：主进程发给界面的 ai:act。

@@ -1,15 +1,23 @@
 /**
  * AI 浮窗的主进程这一半：选引擎、跑一轮对话（边生成边发给界面）、给 AI 动手的 MCP 工具、
- * 把这一轮 AI 改的文件做成一次只含 AI 改动的提交。
+ * 把这一轮 AI 改的文件做成一次只含 AI 改动的提交。AI 对话和读 PDF 的问答都走 runAgentTurn。
  *
  * 一轮里 AI 第一次改某个文件前，先把这个文件里用户没提交的字单独提交（和 ai:change 一样），
  * 这样 AI 的那次提交里只有 AI 的改动，撤回才不会带走用户的字。
+ *
+ * 全能模式（2026-11-19，默认开，AI 输入框下面一键切换、两处共用）：AI 能自己写文件、跑命令（engines.ts），
+ * 改了库里哪些文件我们事先不知道：这一轮开始先把用户没提交的字提交掉，结束时库里新冒出来的改动就是这一轮的，
+ * 和我们工具改的一起提交成「AI：…」（编辑器自己存的字、软件自己写的不算，除非监听看到外面又改了它）。
  */
-import { app, type BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, type BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { rename } from 'node:fs/promises'
 import { join } from 'node:path'
 import * as git from '@cn/git'
 import type { AgentContext, AiAct, AiActArea, AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from '../../shared/agent'
+import type { AiCommitFailed, CommitInfo } from '../../shared/api'
+import { commitErrorText } from '../../shared/git-errors'
 import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, FEATURES, fitPick, hasEffort, type ModelOption, modelsOf, pickLabel, resolvePick } from '../../shared/ai-features'
+import { usesOf } from '../../shared/ai-logo'
 import { checkMaterials, withMaterials } from '../../shared/materials'
 import { BRAND } from '../../shared/brand'
 import { MATH_RULE } from '../../shared/reading'
@@ -18,17 +26,20 @@ import type { Vault } from '../vault'
 import type { Size } from './board-ops'
 import { describeContext } from './context'
 import { checkCli, checkedCli, COMMAND, findCli, forgetChecks, INSTALL_HINT, loadShellPath, locateCli, pickedCli, setCustomCli, whereOf } from './cli'
-import { claudeEngine, codexEngine, codexModelList, type Engine, geminiEngine, LABELS, opencodeEngine } from './engines'
+import { claudeEngine, codexEngine, codexModelList, type Engine, type EngineOutcome, type EngineRun, geminiEngine, LABELS, opencodeEngine } from './engines'
 import { fakeCodexModels, fakeEngine } from './fake-engine'
 import { pastedImages } from '../pasted'
 import { type McpServer, startMcpServer } from './mcp-server'
 import { readingChats } from '../reading/chats'
 import type { ChatSummary } from '../../shared/ai-chats'
 import { AgentStore } from './store'
-import { runTool, type ToolHost, toolLabel, toolSpecs } from './tools'
+import { runTool, stepLabel, type ToolHost, toolLabel, toolSpecs } from './tools'
+import * as vops from './vault-ops'
+import { modeLine, MODES_RULE } from './modes'
 import * as web from './web'
 
 export { attachWeb, markedClips, unmarkClips } from './web'
+export { modeLine, MODES_RULE } from './modes'
 
 const FAKE = () => process.env.CN_AI_FAKE === '1'
 const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
@@ -36,16 +47,25 @@ const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
 export const AGENT_SYSTEM = `你是 ${BRAND.name} 笔记软件里的助手，帮一个人整理和写作自己的笔记。库目录就是你的工作目录，里面是普通 md 文件（白板也是 md：卡片写在 <!-- card --> 注释后面）。
 
 你能直接操作这个软件（canvas 这组工具）：
+- 笔记和文件夹（note_*、folder_create）：新建笔记（指定文件夹、标题、正文）、整篇改写或在末尾加一段、改名、挪进别的文件夹、删到废纸篓（连同只有它在用的附件）、新建文件夹。改名、挪动时库里的链接跟着改，开着的编辑器跟着刷新。
 - 网页（web_*）：在右栏的内置浏览器里打开网址、读页面文字和链接、点击、输入、滚动、把选中的字或整页剪进收件箱。
 - 白板（board_*）：列出卡片和列、加卡片、改卡片内容、挪位置、放进列、连线、按网格或按列排整齐。改之前先 board_list 拿到 id。
 - 文档（doc_*）：读当前文档、在光标处插入、替换选中的字。
-- notes_list、note_read 看库里有什么。
+- notes_list、note_read 看库里有哪些笔记、文件夹，读一篇。
+
+${MODES_RULE}
 
 规矩：
 - 用户在看网页就用 web_*，在白板上就用 board_*，在文档里就用 doc_*；每条消息开头写着用户现在在看什么。
-- 改笔记只用这些工具，不要自己写文件、不要跑命令。改动会自动成为一次 Git 提交，用户能一键撤回，所以直接做，不用先问。
+- 新建、改名、挪动、删掉库里的笔记优先用 canvas 这组工具（链接、附件、开着的编辑器跟着走）；全能模式下别的事可以直接写文件、跑命令。不管怎么改，这一轮结束软件把库里的改动提交一次，用户能一键撤回，所以直接做，不用先问。
 - 做完用一两句话说做了什么。用中文回答，平实、直接，不客套。不编造笔记里没有的事。
 - ${MATH_RULE}`
+
+/**
+ * AGENT_SYSTEM 改过就加一：Claude Code 接着聊时一直用会话第一次的系统提示（--system-prompt-snapshot），
+ * 版本对不上的会话不再接着聊，开新会话、补上最近几轮（2：全能模式、笔记和文件夹那组工具）
+ */
+export const AGENT_VERSION = 2
 
 let engines: Partial<Record<EngineId, Engine>> = {}
 
@@ -57,8 +77,9 @@ export function engine(id: EngineId): Engine {
 
 /** 这一轮：记下 AI 改了哪些文件 */
 interface Turn {
+  /** 外圈、提示条和「停下」认的编号：AI 对话是消息编号，读 PDF 是负的问答编号（两边的消息编号可能撞上） */
   id: number
-  context: AgentContext
+  engine: EngineId
   touched: Map<string, string>
   /** 已经先提交过用户的字的文件 */
   checked: Set<string>
@@ -66,15 +87,34 @@ interface Turn {
   acts: Set<AiActArea>
   /** 用户按了停下（esc、提示条「停下」、发送键）：一长串的下一步不做了 */
   signal: AbortSignal
+  /** 全能模式：AI 自己的工具改了库里什么，这一轮结束看库里多出来的改动 */
+  omni: boolean
+  /** 这一轮里软件自己写过的（编辑器存字、剪藏、速记）：不算 AI 改的，除非监听看到外面又改了它 */
+  own: Set<string>
+  /** 这一轮里监听看到在外面改了的（AI 自己写的、跑命令改的） */
+  external: Set<string>
+  /** 这一轮改名、挪动了的：新路径 → 旧路径（改动预览里一行写「旧 → 新」） */
+  moved: Map<string, string>
+  /** 字和步骤发给界面（AI 对话：ai:event；读 PDF：reading:event） */
+  emit(e: AiEvent): void
 }
 
 export interface AgentDeps {
   win(): BrowserWindow | null
   vault(): Vault | null
+  /** 文件挪了、改了名：读 PDF 的本机进度跟过去（AI 对话的对话由这里自己跟） */
+  moved?(root: string, from: string, to: string): void
 }
 
 let store: AgentStore
-let current: Turn | null = null
+/** AI 对话这一格一次答一轮 */
+let dockTurn: Turn | null = null
+/** 正在答的每一轮（AI 对话、读 PDF） */
+const liveTurns = new Set<Turn>()
+/** 每一轮自己的令牌 → 那一轮（Claude Code 一轮一个进程，令牌写在那一轮的配置文件里） */
+const byToken = new Map<string, Turn>()
+/** Codex、Gemini、OpenCode 的进程一直开着、令牌在起进程时给：一家一个令牌，算在这家正在答的最新那一轮上 */
+const engineTokens = new Map<EngineId, string>()
 let mcp: McpServer | null = null
 let deps: AgentDeps
 
@@ -106,7 +146,7 @@ function pace(of = 1): { grab: number; settle: number } {
 
 /** 软件的强调色（网页里的 AI 指针、剪下的竖线跟着主题） */
 async function accent(): Promise<web.AccentColors> {
-  return bridge<web.AccentColors>('accent').catch(() => ({ acc: '#8a63d2', accBg: '#8a63d2', ring: 'rgba(138,99,210,.4)' }))
+  return bridge<web.AccentColors>('accent').catch(() => ({ acc: '#8a63d2', accBg: '#8a63d2', accOn: '#fff', ring: 'rgba(138,99,210,.4)' }))
 }
 
 function needVault(): Vault {
@@ -136,14 +176,18 @@ export function bridge<T>(op: BridgeOp, arg?: unknown): Promise<T> {
 
 // ---------- 工具落到哪里 ----------
 
-function needTurn(): Turn {
-  if (!current) throw new Error('现在没有正在进行的对话')
-  return current
+/** 这次工具调用是哪一轮的：带着那一轮自己的令牌来的就是它；一家一个令牌的，算在这家正在答的最新那一轮上 */
+function turnOf(token: string): Turn {
+  const own = byToken.get(token)
+  if (own) return own
+  const id = [...engineTokens].find(([, t]) => t === token)?.[0]
+  const t = id ? [...liveTurns].reverse().find((x) => x.engine === id) : undefined
+  if (!t) throw new Error('现在没有正在进行的对话')
+  return t
 }
 
 /** 第一次改这个文件前：用户没提交的字先单独提交 */
-async function beforeEdit(path: string) {
-  const t = needTurn()
+async function beforeEdit(t: Turn, path: string) {
   if (t.checked.has(path)) return
   t.checked.add(path)
   const v = needVault()
@@ -151,90 +195,186 @@ async function beforeEdit(path: string) {
   if (pending.length) await git.commitPaths(v.root, [path], git.describeChanges(pending))
 }
 
-const host: ToolHost = {
-  context: () => bridge<AgentContext>('context'),
-  listNotes: () => needVault().list(),
-  readNote: async (path) => {
-    await bridge('saveAll')
-    return (await needVault().read(path)).text
-  },
-  async editNote(path, change) {
-    const v = needVault()
-    const t = needTurn()
-    await bridge('saveAll')
-    await beforeEdit(path)
-    const cur = (await v.read(path)).text
-    const next = change(cur)
-    if (next === cur) return
-    const r = await v.write(path, next, cur)
-    if (!r.ok) throw new Error('文件刚被改过，再试一次')
-    if (!t.touched.has(path)) t.touched.set(path, '改')
-    // 主进程写的，监听不到；打开着这篇的编辑器要收到，按外部改动合并
-    send('note:changed', path, next)
-  },
-  measure: (path) => bridge<Record<string, Size>>('measure', path),
-  async grab(path, ids, of) {
-    const t = needTurn()
-    // 白板不在屏幕上（用户换了标签、AI 在改别的白板）：不画也不等
-    if (t.signal.aborted || !(await bridge<boolean>('onScreen', path).catch(() => false))) return
-    const ms = pace(of).grab
-    act({ turn: t.id, kind: 'grab', area: 'board', path, ids, ms })
-    await wait(ms, t.signal)
-  },
-  async settle(path, of) {
-    const t = needTurn()
-    if (t.signal.aborted || !(await bridge<boolean>('onScreen', path).catch(() => false))) return
-    await wait(pace(of).settle, t.signal)
-  },
-  stopped: () => !!current?.signal.aborted,
-  web: {
-    async open(url) {
-      if (!/^https?:\/\//i.test(url)) throw new Error('只开 http(s) 网址')
-      const since = Date.now()
-      const wc = web.webContents()
-      if (wc) void wc.loadURL(url).catch(() => undefined)
-      else await bridge('openWeb', url)
-      const done = await web.waitLoaded(since)
-      return { url: done.getURL(), title: done.getTitle() }
-    },
-    read: () => web.readPage(),
-    click: (t) => web.click(t),
-    type: (ref, text, submit) => web.type(ref, text, submit),
-    scroll: (to) => web.scroll(to),
-    async clip(whole, text) {
-      const v = needVault()
-      const t = needTurn()
-      const colors = await accent()
-      // 给了那一段里的几个字：指针先去找到那一段、亮一下、选中它，再剪（DESIGN.v3 2.3、B3）
-      if (text && !whole && !(await web.pickBlock(text, colors, () => t.signal.aborted))) throw new Error(`网页上没找到含「${text.slice(0, 20)}」的那一段。先 web_read 看看原文。`)
-      const c = await web.pageForClip(whole)
-      const path = await v.clip(c.text, c.url, c.title.slice(0, 300))
-      t.touched.set(path, '新')
-      // 剪下的那一段：左边一道竖线、段尾「✂ 剪成卡片」，撤回后去掉
-      if (!whole) await web.markClip(path, colors)
-      await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
-      send('files:changed')
-      return path
-    },
-  },
-  doc: {
-    read: () => bridge('docRead'),
-    async insert(text) {
-      const path = await docPath()
-      await beforeEdit(path)
-      await bridge('docInsert', { path, text })
-      needTurn().touched.set(path, '改')
-      return `插好了（${path}）`
-    },
-    async replaceSelection(text) {
-      const path = await docPath()
-      await beforeEdit(path)
-      await bridge('docReplace', { path, text })
-      needTurn().touched.set(path, '改')
-      return `换好了（${path}）`
-    },
-  },
+/** 库里的笔记、文件夹挪了改了名：开着的标签、编辑器跟过去，读 PDF 的进度、这里的 AI 对话跟过去 */
+function movedFiles(root: string, from: string, to: string) {
+  moveChatPlace(root, from, to)
+  deps.moved?.(root, from, to)
 }
+
+/** 删到废纸篓（测试把「废纸篓」换成临时文件夹，不往用户真的废纸篓里放） */
+async function toTrash(abs: string) {
+  const dir = process.env.CN_TRASH_DIR
+  if (dir) await rename(abs, join(dir, `${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${abs.split('/').pop()}`))
+  else await shell.trashItem(abs)
+}
+
+/**
+ * 改名、挪动碰过的路径在改动预览里那一列写什么：它自己（旧的、新的路径，文件夹里的、附件文件夹里的）写「改名」或「移动」，
+ * 链接跟着改了的那几篇写「改」（小文件改了开头那行，Git 认不出是改名，旧路径、新路径各占一行）
+ */
+function movedKind(r: { from: string; to: string }, kind: string) {
+  const strip = (p: string) => p.replace(/\.md$/i, '')
+  const own = [r.from, r.to].flatMap((p) => [p, `附件/${strip(p)}`])
+  return (p: string) => (own.some((d) => p === d || p.startsWith(d + '/')) ? kind : '改')
+}
+
+/** 这一步碰过的路径记进这一轮（结束时一起提交）：kind 是改动预览里那一列（新、改、改名、移动、删） */
+function touch(t: Turn, paths: string[], kind: (p: string) => string) {
+  for (const p of paths) t.touched.set(p, kind(p))
+}
+
+/**
+ * 改名、挪动：碰过的路径里，新的那个（文件夹里每一篇、附件文件夹里每一个）对上旧的那个，记成新 → 旧；
+ * 前面已经挪过一次的（先改名再挪）接着记最早的旧路径
+ */
+function noteMoves(t: Turn, r: { from: string; to: string; touched: string[] }) {
+  const strip = (p: string) => p.replace(/\.md$/i, '')
+  const pairs: [string, string][] = [
+    [r.to, r.from],
+    [`附件/${strip(r.to)}`, `附件/${strip(r.from)}`],
+  ]
+  for (const p of r.touched) {
+    for (const [to, from] of pairs) {
+      const old = p === to ? from : p.startsWith(to + '/') ? from + p.slice(to.length) : null
+      if (old === null || old === p) continue
+      t.moved.set(p, t.moved.get(old) ?? old)
+      t.moved.delete(old)
+    }
+  }
+}
+
+function hostFor(t: Turn): ToolHost {
+  return {
+    context: () => bridge<AgentContext>('context'),
+    listNotes: () => needVault().list(),
+    readNote: async (path) => {
+      await bridge('saveAll')
+      const v = needVault()
+      return (await v.read(vops.relPath(v, path, 'path'))).text
+    },
+    async editNote(path, change) {
+      const v = needVault()
+      const rel = vops.relPath(v, path, 'path')
+      await bridge('saveAll')
+      await beforeEdit(t, rel)
+      const cur = (await v.read(rel)).text
+      const next = change(cur)
+      if (next === cur) return
+      const r = await v.write(rel, next, cur)
+      if (!r.ok) throw new Error('文件刚被改过，再试一次')
+      if (!t.touched.has(rel)) t.touched.set(rel, '改')
+      // 主进程写的，监听不到；打开着这篇的编辑器要收到，按外部改动合并
+      send('note:changed', rel, next)
+    },
+    measure: (path) => bridge<Record<string, Size>>('measure', path),
+    async grab(path, ids, of) {
+      // 白板不在屏幕上（用户换了标签、AI 在改别的白板）：不画也不等
+      if (t.signal.aborted || !(await bridge<boolean>('onScreen', path).catch(() => false))) return
+      const ms = pace(of).grab
+      act({ turn: t.id, kind: 'grab', area: 'board', path, ids, ms })
+      await wait(ms, t.signal)
+    },
+    async settle(path, of) {
+      if (t.signal.aborted || !(await bridge<boolean>('onScreen', path).catch(() => false))) return
+      await wait(pace(of).settle, t.signal)
+    },
+    stopped: () => t.signal.aborted,
+    vault: {
+      folders: () => vops.listFolders(needVault()),
+      async create(folder, title, text) {
+        const v = needVault()
+        const r = await vops.createNote(v, folder, title, text)
+        touch(t, r.touched, () => '新')
+        send('files:changed')
+        return r.path
+      },
+      async rename(path, name) {
+        const v = needVault()
+        await bridge('saveAll')
+        const r = await vops.renamePath(v, opsDeps(v), path, name)
+        touch(t, r.touched, movedKind(r, r.folder ? '移动' : '改名'))
+        noteMoves(t, r)
+        await bridge('moved', { from: r.from, to: r.to }).catch(() => undefined)
+        send('files:changed')
+        return r
+      },
+      async move(path, folder) {
+        const v = needVault()
+        await bridge('saveAll')
+        const r = await vops.movePath(v, opsDeps(v), path, folder)
+        touch(t, r.touched, movedKind(r, '移动'))
+        noteMoves(t, r)
+        await bridge('moved', { from: r.from, to: r.to }).catch(() => undefined)
+        send('files:changed')
+        return r
+      },
+      async trash(path) {
+        const v = needVault()
+        // 没存的字先存掉；查过了要删的那一样开着的标签先收起来（不然编辑器接着存字会把删掉的那篇建回来），再先提交、再删
+        await bridge('saveAll')
+        const r = await vops.trashPath(v, { ...opsDeps(v), beforeTrash: (rel) => bridge('closeTabs', rel).then(() => bridge('saveAll')).then(() => undefined, () => undefined) }, path)
+        touch(t, r.touched, () => '删')
+        send('files:changed')
+        return r
+      },
+      async mkdir(parent, name) {
+        const v = needVault()
+        const r = await vops.makeFolder(v, parent, name)
+        touch(t, r.touched, () => '新')
+        send('files:changed')
+        return r.path
+      },
+    },
+    web: {
+      async open(url) {
+        if (!/^https?:\/\//i.test(url)) throw new Error('只开 http(s) 网址')
+        const since = Date.now()
+        const wc = web.webContents()
+        if (wc) void wc.loadURL(url).catch(() => undefined)
+        else await bridge('openWeb', url)
+        const done = await web.waitLoaded(since)
+        return { url: done.getURL(), title: done.getTitle() }
+      },
+      read: () => web.readPage(),
+      click: (t) => web.click(t),
+      type: (ref, text, submit) => web.type(ref, text, submit),
+      scroll: (to) => web.scroll(to),
+      async clip(whole, text) {
+        const v = needVault()
+        const colors = await accent()
+        // 给了那一段里的几个字：指针先去找到那一段、亮一下、选中它，再剪（DESIGN.v3 2.3、B3）
+        if (text && !whole && !(await web.pickBlock(text, colors, t.engine, () => t.signal.aborted))) throw new Error(`网页上没找到含「${text.slice(0, 20)}」的那一段。先 web_read 看看原文。`)
+        const c = await web.pageForClip(whole)
+        const path = await v.clip(c.text, c.url, c.title.slice(0, 300))
+        t.touched.set(path, '新')
+        // 剪下的那一段：左边一道竖线、段尾「✂ 剪成卡片」，撤回后去掉
+        if (!whole) await web.markClip(path, colors, t.engine)
+        await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
+        send('files:changed')
+        return path
+      },
+    },
+    doc: {
+      read: () => bridge('docRead'),
+      async insert(text) {
+        const path = await docPath()
+        await beforeEdit(t, path)
+        await bridge('docInsert', { path, text })
+        t.touched.set(path, '改')
+        return `插好了（${path}）`
+      },
+      async replaceSelection(text) {
+        const path = await docPath()
+        await beforeEdit(t, path)
+        await bridge('docReplace', { path, text })
+        t.touched.set(path, '改')
+        return `换好了（${path}）`
+      },
+    },
+  }
+}
+
+const opsDeps = (v: Vault): vops.OpsDeps => ({ put: toTrash, stage: join(app.getPath('userData'), 'trash-undo'), moved: (from, to) => movedFiles(v.root, from, to) })
 
 async function docPath(): Promise<string> {
   await bridge('saveAll')
@@ -248,19 +388,20 @@ async function ensureMcp(): Promise<McpServer> {
   mcp = await startMcpServer(
     {
       tools: toolSpecs,
-      async call(name, args) {
-        const t = needTurn()
+      async call(name, args, token) {
+        const t = turnOf(token)
         await announce(t, name, args)
         const step = `${t.id}-${Math.random().toString(36).slice(2, 8)}`
         const label = toolLabel(name, args)
-        emit(t.id, { type: 'tool', id: step, label, status: 'run' })
+        t.emit({ type: 'tool', id: step, label, status: 'run' })
         try {
-          const r = await runTool(name, args, host)
-          emit(t.id, { type: 'tool', id: step, label, status: 'ok' })
-          return r
+          const r = await runTool(name, args, hostFor(t))
+          // 改名、挪动、删的原来是个文件夹：做完步骤行换成文件夹的说法
+          t.emit({ type: 'tool', id: step, label: r.label ?? label, status: r.isError ? 'err' : 'ok', ...(r.isError ? { detail: r.text } : {}) })
+          return { text: r.text, ...(r.isError ? { isError: true } : {}) }
         } catch (e) {
           const detail = String((e as Error).message ?? e)
-          emit(t.id, { type: 'tool', id: step, label, status: 'err', detail })
+          t.emit({ type: 'tool', id: step, label, status: 'err', detail })
           return { text: detail, isError: true }
         }
       },
@@ -295,6 +436,133 @@ function emit(id: number, e: AiEvent) {
   send('ai:event', id, e)
 }
 
+/** 这一轮用我们 MCP 的哪个令牌：Claude Code 一轮一个进程、一轮一个令牌；别家的进程一直开着，一家一个 */
+function tokenFor(server: McpServer, id: EngineId): { token: string; own: boolean } {
+  if (id === 'claude') return { token: server.issue(), own: true }
+  let tk = engineTokens.get(id)
+  if (!tk) engineTokens.set(id, (tk = server.issue()))
+  return { token: tk, own: false }
+}
+
+/** 全能模式开始一轮前：用户没提交的字先提交掉（软件自己的文件不算），这一轮结束时库里多出来的改动就是 AI 的 */
+async function commitUserPending(root: string) {
+  const st = (await git.status(root)).filter((s) => !git.isInternalPath(s.path))
+  if (!st.length) return
+  try {
+    await git.commitPaths(root, st.map((s) => s.path), git.describeChanges(st))
+  } catch (e) {
+    // 提交不上（没署名、锁一直不放）：不挡着这一轮，用户的字留在工作区，这一轮结束时一起算进 AI 那次
+    if (!(e instanceof git.GitError)) throw e
+    console.error('全能模式开始前提交用户的字没成功', e.message)
+  }
+}
+
+/**
+ * 这一轮改了的提交成一次：我们工具记下的，全能模式下再加上库里多出来的改动（编辑器存的字、软件自己写的不算，
+ * 除非监听看到外面又改了它）。提交失败（没署名、锁一直不放）：照实说是哪几个文件，界面「再提交一次」只提交它们
+ */
+async function commitTurn(v: Vault, t: Turn, message: string): Promise<{ commit: CommitInfo | null; kinds: Record<string, string>; failed?: AiCommitFailed }> {
+  const kinds: Record<string, string> = Object.fromEntries(t.touched)
+  if (t.omni)
+    for (const s of await git.status(v.root)) {
+      if (git.isInternalPath(s.path) || kinds[s.path]) continue
+      // 软件自己写过的（编辑器存的字）不算，除非外面又改了它：监听报过的，或者磁盘上已经不是软件最后写下的（监听还没来得及报）
+      if (t.own.has(s.path) && !t.external.has(s.path) && !(/\.md$/i.test(s.path) && (await v.changedOutside(s.path)))) continue
+      kinds[s.path] = s.code.includes('D') ? '删' : s.code === '??' || s.code[0] === 'A' ? '新' : '改'
+    }
+  const paths = Object.keys(kinds)
+  if (!paths.length) return { commit: null, kinds }
+  try {
+    const hash = await git.commitPaths(v.root, paths, message)
+    send('files:changed')
+    return { commit: hash ? ((await git.log(v.root, 1))[0] ?? null) : null, kinds }
+  } catch (e) {
+    if (!(e instanceof git.GitError)) throw e
+    console.error('AI 这一轮改完提交失败', e.message)
+    send('files:changed')
+    return { commit: null, kinds, failed: { failed: commitErrorText(e.message), paths, message } }
+  }
+}
+
+export interface AgentTurnResult {
+  outcome: EngineOutcome | null
+  /** 中途出错或停下（已经改了的照样提交了） */
+  error?: string
+  commit: CommitInfo | null
+  kinds: Record<string, string>
+  /** 改好了、提交没成功 */
+  failed?: AiCommitFailed
+  /** 改名、挪动了的：新路径 → 旧路径 */
+  moved?: Record<string, string>
+}
+
+/**
+ * 跑一轮能动手的对话（AI 对话、读 PDF 共用）：给我们的 MCP 工具；全能模式开着时命令行自己的工具也全给，它的每一步发成步骤行。
+ * 这一轮 AI 改了的提交成一次「AI：subject」；中途出错、停下也把已经改了的提交掉：改动永远能撤回。
+ * id：外圈、提示条、「停下」认的编号；omni：调的人读的开关（和它写进话里的【模式】一致）
+ */
+export async function runAgentTurn(o: {
+  id: number
+  engine: EngineId
+  omni: boolean
+  ac: AbortController
+  subject: string
+  emit(e: AiEvent): void
+  run: Omit<EngineRun, 'cwd' | 'mcp' | 'omni' | 'onStep' | 'signal'>
+}): Promise<AgentTurnResult> {
+  const v = needVault()
+  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), emit: o.emit }
+  let outcome: EngineOutcome | null = null
+  let error: string | undefined
+  let token: { token: string; own: boolean } | null = null
+  liveTurns.add(t)
+  turns.set(o.id, o.ac)
+  try {
+    await bridge('saveAll')
+    if (o.omni) await commitUserPending(v.root)
+    const server = await ensureMcp()
+    token = tokenFor(server, o.engine)
+    if (token.own) byToken.set(token.token, t)
+    outcome = await engine(o.engine).run({
+      ...o.run,
+      cwd: v.root,
+      mcp: { url: server.url, token: token.token, tools: toolSpecs().map((x) => x.name) },
+      omni: o.omni,
+      // 命令行自己的那一步（全能模式下跑命令、写文件、上网搜）：在做转圈、做完绿勾，和我们工具的步骤行一样
+      onStep: (st) => o.emit({ type: 'tool', id: `${t.id}-${st.id}`, ...stepLabel(st.tool, st.input, v.root), status: st.status, ...(st.detail ? { detail: st.detail } : {}) }),
+      signal: o.ac.signal,
+    })
+  } catch (e) {
+    error = (e as Error).name === 'AbortError' || o.ac.signal.aborted ? '停下了' : String((e as Error).message ?? e)
+  } finally {
+    liveTurns.delete(t)
+    turns.delete(o.id)
+    if (token?.own) {
+      byToken.delete(token.token)
+      mcp?.revoke(token.token)
+    }
+    // 外圈、提示条、指针收起；网页里的指针收起，剪下的标记留着
+    if (t.acts.size) act({ turn: t.id, kind: 'end' })
+    if (t.acts.has('web')) await web.endWebAct()
+  }
+  const { commit, kinds, failed } = await commitTurn(v, t, `AI：${subject(o.subject)}`)
+  const moved = t.moved.size ? Object.fromEntries(t.moved) : undefined
+  return { outcome, ...(error ? { error } : {}), commit, kinds, ...(failed ? { failed } : {}), ...(moved ? { moved } : {}) }
+}
+
+/** 软件自己写了库里这个文件（编辑器存字、剪藏、速记、改名挪动）：正在答的全能模式那几轮不把它算成 AI 改的 */
+export function agentOwnWrite(path: string) {
+  for (const t of liveTurns) if (t.omni) t.own.add(path)
+}
+
+/** 监听看到库里这个文件在外面改了（AI 自己的工具改的）：正在答的全能模式那几轮把它算回 AI 改的 */
+export function agentExternal(path: string) {
+  for (const t of liveTurns) if (t.omni) t.external.add(path)
+}
+
+/** 全能模式开着没有（读 PDF 那边写【模式】、跑引擎用） */
+export const omniOn = () => store.omni()
+
 /** 会话接不上时补的最近几轮 */
 function historyOf(msgs: StoredMsg[]): string | undefined {
   const recent = msgs.filter((m) => m.text).slice(-10)
@@ -317,56 +585,56 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
   if (!IDS.includes(req.engine) || typeof req.text !== 'string' || typeof req.id !== 'number') throw new Error('AI 参数不对')
   const place = placeOf(req.place)
   const mats = checkMaterials(req.mats)
-  if (current) throw new Error('上一轮还没做完，等它做完或者先停下')
+  if (dockBusy) throw new Error('上一轮还没做完，等它做完或者先停下')
   const v = needVault()
+  dockBusy = true
+  // 一开始就登记「停下」（读贴的图、拼话这一会儿按停下也算数）
   const ac = new AbortController()
   turns.set(req.id, ac)
-  const t: Turn = { id: req.id, context: req.context, touched: new Map(), checked: new Set(), acts: new Set(), signal: ac.signal }
-  current = t
   let text = ''
-  let error: string | undefined
   try {
-    await bridge('saveAll')
-    const server = await ensureMcp()
-    // 接着这个地方自己的会话（D 组 CN-132）；没给地方就不接着谁
+    // 接着这个地方自己的会话（D 组 CN-132）；没给地方就不接着谁。系统提示改过版本的旧会话不再接着聊
     const chat = place ? store.chat(v.root, place.key) : null
-    const r = await engine(req.engine).run({
-      ...chatRun(req.engine, req),
-      // 引用的材料（多段引用方向 B）：字里的 ①②，后面按同一套编号列出每块（图叫「图②」）；图和粘贴的图一样附上
-      prompt: `${describeContext(req.context)}\n\n用户说：\n${withMaterials(req.text, mats)}`,
-      system: AGENT_SYSTEM,
-      cwd: v.root,
-      mcp: { url: server.url, token: server.token, tools: toolSpecs().map((x) => x.name) },
-      session: chat?.sessions[req.engine],
-      history: chat ? historyOf(chat.msgs.filter((m) => !(m.role === 'user' && m.text === req.text))) : undefined,
-      images: await pastedImages(req.pasted),
-      signal: ac.signal,
-      onText: (delta) => {
-        text += delta
-        emit(req.id, { type: 'text', delta })
+    const omni = store.omni()
+    // 这一问的模型、effort 不对（界面给的）：照旧当这一轮出错说回去，不当成调用失败
+    let picked: ReturnType<typeof chatRun>
+    try {
+      picked = chatRun(req.engine, req)
+    } catch (e) {
+      return { text: '', commit: null, kinds: {}, error: String((e as Error).message ?? e) }
+    }
+    const r = await runAgentTurn({
+      id: req.id,
+      engine: req.engine,
+      omni,
+      ac,
+      subject: req.text,
+      emit: (e) => emit(req.id, e),
+      run: {
+        ...picked,
+        // 开头一行是现在开没开全能模式（系统提示在一个会话里定死了，开关随时会换）；引用的材料：字里的 ①②，后面按同一套编号列出每块
+        prompt: `${modeLine(omni, req.engine, v.root)}\n${describeContext(req.context)}\n\n用户说：\n${withMaterials(req.text, mats)}`,
+        system: AGENT_SYSTEM,
+        session: place ? store.session(v.root, place.key, req.engine, AGENT_VERSION) : undefined,
+        history: chat ? historyOf(chat.msgs.filter((m) => !(m.role === 'user' && m.text === req.text))) : undefined,
+        images: await pastedImages(req.pasted),
+        onText: (delta) => {
+          text += delta
+          emit(req.id, { type: 'text', delta })
+        },
       },
     })
-    text = (r.text || text).replace(/\n{3,}/g, '\n\n')
-    if (place) store.setSession(v.root, place.key, req.engine, r.session)
-  } catch (e) {
-    error = (e as Error).name === 'AbortError' || ac.signal.aborted ? '停下了' : String((e as Error).message ?? e)
+    text = (r.outcome?.text || text).replace(/\n{3,}/g, '\n\n')
+    if (place && r.outcome) store.setSession(v.root, place.key, req.engine, r.outcome.session, AGENT_VERSION)
+    return { text, commit: r.commit, kinds: r.kinds, ...(r.error ? { error: r.error } : {}), ...(r.failed ? { failed: r.failed } : {}), ...(r.moved ? { moved: r.moved } : {}) }
   } finally {
-    current = null
+    dockBusy = false
     turns.delete(req.id)
-    // 外圈、提示条、指针收起；网页里的指针收起，剪下的标记留着
-    if (t.acts.size) act({ turn: t.id, kind: 'end' })
-    if (t.acts.has('web')) await web.endWebAct()
   }
-  // 中途出错也把已经改了的提交掉：改动永远能撤回
-  const kinds = Object.fromEntries(t.touched)
-  let commit = null
-  if (t.touched.size) {
-    const hash = await git.commitPaths(v.root, [...t.touched.keys()], `AI：${subject(req.text)}`)
-    if (hash) commit = (await git.log(v.root, 1))[0] ?? null
-    send('files:changed')
-  }
-  return { text, commit, kinds, ...(error ? { error } : {}) }
 }
+
+/** AI 对话这一格正在答 */
+let dockBusy = false
 
 function subject(text: string): string {
   const one = text.replace(/\s+/g, ' ').trim()
@@ -377,9 +645,10 @@ function subject(text: string): string {
 
 /** 设置 › AI 里这个功能用哪家哪个模型（CN-44）。小活的 Claude Code 模型 CN_FAST_MODEL 能换（测试和自己试用） */
 export function pickFor(feature: AiFeature): AiPick {
-  let p = resolvePick(store.prefs(), feature)
-  // 选的那家这台 Mac 上没装：小活退回默认那家（以前「装了 Claude Code 就用 Haiku，没装用浮窗选的」的规矩）
-  if (feature === 'quick' && !FAKE() && !findCli(p.engine)) p = store.prefs().default
+  const prefs = store.prefs()
+  let p = resolvePick(prefs, feature)
+  // 选的那家这台 Mac 上没装：小活退回默认那家（以前「装了 Claude Code 就用 Haiku，没装用浮窗选的」的规矩，usesOf 里）
+  if (usesOf(prefs, installed)[feature] !== p.engine) p = prefs.default
   if (feature === 'quick' && p.engine === 'claude' && process.env.CN_FAST_MODEL) p = { engine: 'claude', model: process.env.CN_FAST_MODEL }
   return p
 }
@@ -601,8 +870,12 @@ async function pickCli(id: EngineId): Promise<EngineInfo | null> {
   return engineInfo().find((e) => e.id === id)!
 }
 
+/** 这台 Mac 上装没装这家（假 AI 时都当装了） */
+const installed = (id: EngineId) => FAKE() || !!findCli(id)
+
 function aiPrefsView() {
-  return { prefs: store.prefs(), labels: Object.fromEntries(FEATURES.map((f) => [f, featureLabel(f)])) as Record<AiFeature, string>, engines: engineInfo() }
+  const prefs = store.prefs()
+  return { prefs, labels: Object.fromEntries(FEATURES.map((f) => [f, featureLabel(f)])) as Record<AiFeature, string>, engines: engineInfo(), uses: usesOf(prefs, installed) }
 }
 
 /** 文件改了名、挪了地方（标签上改名、文件夹改名挪走里面的）：这个文件的 AI 对话跟过去 */
@@ -621,7 +894,13 @@ export function registerAgent(d: AgentDeps) {
   ipcMain.handle('ai:engines', async (_e, again?: unknown) => {
     if (again === true) await findAgain()
     const chat = chatPick()
-    return { engines: engineInfo(), current: chat.engine, label: chatLabel(), chat }
+    return { engines: engineInfo(), current: chat.engine, label: chatLabel(), chat, omni: store.omni() }
+  })
+  // 全能模式开关（AI 输入框下面那一行，AI 对话和读 PDF 共用）：记在软件设置目录，开着的 AI 面板都跟着换
+  ipcMain.handle('ai:omni:set', (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error('AI 参数不对')
+    store.setOmni(on)
+    send('ai:prefs:changed')
   })
   ipcMain.handle('ai:cli:pick', (_e, id: EngineId) => pickCli(id))
   // 输入框底行换了模型、effort（CN-91）：记成「AI 对话」那一行（下次打开还是它），不动默认、梦游、小活

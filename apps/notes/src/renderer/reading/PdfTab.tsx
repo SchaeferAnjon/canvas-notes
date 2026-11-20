@@ -7,6 +7,7 @@ import { composing } from '../ime'
  * 照 design/pdf 方向 A（右栏切换）的 spec 1.2–1.4。
  */
 import { Codicon } from '@cn/design'
+import { AiIcon } from '../engine-logo'
 import { menuAt } from '../ctx/menu'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
@@ -344,11 +345,14 @@ export function PdfTab(props: {
     const threads = r.state.threads.filter((t) => t.page === n)
     void menuAt(e, [
       sel && { edit: 'copy' },
-      sel && { label: '问 AI', run: () => capAsk('rephrase', sel) },
-      sel && { label: '讲解一下', run: () => capAsk('explain', sel) },
-      sel && { label: '翻译 + 讲一讲', run: () => capAsk('translate', sel) },
+      // AI 那几项（带引擎标志）自成一组
       '-',
-      { label: `问这一页（第 ${n} 页）`, accel: 'CommandOrControl+Return', enabled: !!doc && r.running === null, run: () => askPage(n) },
+      sel && { label: '问 AI', ai: 'chat', run: () => capAsk('rephrase', sel) },
+      sel && { label: '讲解一下', ai: 'chat', run: () => capAsk('explain', sel) },
+      sel && { label: '翻译 + 讲一讲', ai: 'chat', run: () => capAsk('translate', sel) },
+      '-',
+      { label: `问这一页（第 ${n} 页）`, accel: 'CommandOrControl+Return', ai: 'chat', enabled: !!doc && r.running === null, run: () => askPage(n) },
+      '-',
       threads.length > 0 && { label: '跳到笔记', run: () => props.onShowNote(threads[threads.length - 1]!.id) },
       '-',
       { label: '在访达中显示', run: () => window.cnReading.reveal(path) },
@@ -513,7 +517,7 @@ export function PdfTab(props: {
             )}
           </div>
         )}
-        <ActBtn icon="comment-discussion-sparkle" label="问这一页" keys="⌘↵" disabled={!doc || r.running !== null} onClick={() => void askPage()} />
+        <ActBtn icon="comment-discussion" ai="chat" label="问这一页" keys="⌘↵" disabled={!doc || r.running !== null} onClick={() => void askPage()} />
         <div className="pdfmore">
           <ActBtn icon="ellipsis" label="更多" aria-expanded={more} onClick={() => setMore((v) => !v)} />
           {more && (
@@ -609,6 +613,7 @@ export function PdfTab(props: {
                     onPointerDown={(e) => e.stopPropagation()}
                   >
                     <button className="main" onClick={() => void capAsk('explain')}>
+                      <AiIcon job="chat" size={14} />
                       讲解一下<kbd>↵</kbd>
                     </button>
                     <button onClick={() => void capAsk('translate')}>

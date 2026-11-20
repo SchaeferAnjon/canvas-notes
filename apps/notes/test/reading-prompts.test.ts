@@ -1,7 +1,7 @@
 import type { PdfBlock } from '@cn/format'
 import { describe, expect, it } from 'vitest'
 import { askPrompt, fullTextOf, noteDigest, parseSummary, sidePrompt, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, TUTOR_VERSION } from '../src/main/reading/prompts'
-import { AGENT_SYSTEM } from '../src/main/agent/index'
+import { AGENT_SYSTEM, AGENT_VERSION, modeLine, MODES_RULE } from '../src/main/agent/index'
 import { SYSTEM as COMMAND_SYSTEM } from '../src/renderer/ai-commands'
 import { MATH_RULE, type ReadingMsg, type ReadingThread, readLine, VIZ_MARK } from '../src/shared/reading'
 
@@ -115,7 +115,32 @@ describe('公式的写法（真 AI 写了 `$dV/dt = $ 输入`，$ 里头结尾�
     expect(MATH_RULE).toContain('不写 $ dV/dt $ 或 $dV/dt = $')
     expect(MATH_RULE).toContain('单独一行的写 $$…$$')
     for (const p of [TUTOR_SYSTEM, AGENT_SYSTEM, COMMAND_SYSTEM]) expect(p).toContain(MATH_RULE)
-    // 讲法改了：旧会话不再接着用记下的旧系统提示
-    expect(TUTOR_VERSION).toBe(3)
+    // 讲法改了：旧会话不再接着用记下的旧系统提示（4：能动手、两种模式）
+    expect(TUTOR_VERSION).toBe(4)
+  })
+})
+
+describe('两种模式怎么告诉 AI（2026-11-19，全能模式默认开）', () => {
+  it('AI 对话、读 PDF 的系统提示都写着两种模式各能做什么、以每条消息开头的【模式】为准；做不了时让用户打开「全能模式」，不再建议改命令行的权限设置', () => {
+    for (const p of [AGENT_SYSTEM, TUTOR_SYSTEM]) expect(p).toContain(MODES_RULE)
+    expect(MODES_RULE).toContain('以它为准')
+    expect(MODES_RULE).toContain('请用户在 AI 输入框下面打开「全能模式」再说一次')
+    expect(MODES_RULE).toContain('不要建议用户去改 Claude Code、Codex 这些命令行的权限或设置文件')
+    // 以前那句「不要自己写文件、不要跑命令」不在了（全能模式下能）
+    expect(AGENT_SYSTEM).not.toContain('不要自己写文件')
+    // 笔记和文件夹那组工具写进去了
+    expect(AGENT_SYSTEM).toContain('note_*、folder_create')
+    expect(TUTOR_SYSTEM).toContain('新建、改写、改名、挪动、删笔记')
+    // 系统提示改了：AI 对话的旧会话不再接着用
+    expect(AGENT_VERSION).toBe(2)
+  })
+
+  it('每条消息开头的【模式】：开着说能做什么、工作目录是库；关着说做不了什么、怎么打开', () => {
+    const on = modeLine(true, 'claude', '/库')
+    expect(on).toBe('【模式】全能模式开着：和在终端里用 Claude Code 一样，能读写这台 Mac 上的文件、跑命令、上网、开子 Agent，不用先问；工作目录是库（/库）。')
+    const off = modeLine(false, 'codex', '/库')
+    expect(off).toContain('【模式】全能模式关着：只在库里动手')
+    expect(off).toContain('在 AI 输入框下面打开「全能模式」')
+    expect(modeLine(true, 'codex', '/库')).toContain('和在终端里用 Codex 一样')
   })
 })

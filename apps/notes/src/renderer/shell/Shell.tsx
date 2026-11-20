@@ -319,10 +319,11 @@ export function Popover(props: {
   )
 }
 
-export function MenuItem(props: { icon?: CodiconName; label: React.ReactNode; right?: React.ReactNode; onClick?(): void; disabled?: boolean; className?: string; title?: string }) {
+/** glyph：不用 Codicon 时画这个（AI 那几项画跑它的那一家的标志） */
+export function MenuItem(props: { icon?: CodiconName; glyph?: React.ReactNode; label: React.ReactNode; right?: React.ReactNode; onClick?(): void; disabled?: boolean; className?: string; title?: string }) {
   return (
     <button className={props.className ? `mi ${props.className}` : 'mi'} role="menuitem" disabled={props.disabled} onClick={props.onClick} title={props.title}>
-      {props.icon ? <Codicon name={props.icon} /> : <i className="mi-sp" />}
+      {props.glyph ?? (props.icon ? <Codicon name={props.icon} /> : <i className="mi-sp" />)}
       <span className="truncate">{props.label}</span>
       {props.right !== undefined && <span className="r">{props.right}</span>}
     </button>
@@ -334,7 +335,7 @@ export function MenuItem(props: { icon?: CodiconName; label: React.ReactNode; ri
  * 刚在别的按钮上出过（0.6 秒内）就马上出，在一条栏里换着指不用每次等。
  */
 export function Tooltips() {
-  const [tip, setTip] = useState<{ text: string; key?: string; x: number; y: number; side: string; el: Element } | null>(null)
+  const [tip, setTip] = useState<{ text: string; key?: string; cls?: string; x: number; y: number; side: string; el: Element } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let timer = 0
@@ -358,9 +359,10 @@ export function Tooltips() {
         cur = el
         const r = el.getBoundingClientRect()
         const side = el.getAttribute('data-side') ?? 'below'
-        const x = side === 'right' ? r.right + 6 : side === 'left' ? r.left - 6 : side === 'below-left' || side === 'above-left' ? r.right : r.left + r.width / 2
+        // above-start：左边和它对齐（全能模式那一行在右栏底下，往两边伸会盖住右图标栏和中间栏）
+        const x = side === 'right' ? r.right + 6 : side === 'left' ? r.left - 6 : side === 'below-left' || side === 'above-left' ? r.right : side === 'above-start' ? r.left : r.left + r.width / 2
         const y = side === 'right' || side === 'left' ? r.top + r.height / 2 : side.startsWith('above') ? r.top - 6 : r.bottom + 6
-        setTip({ text: el.getAttribute('data-tip')!, key: el.getAttribute('data-key') ?? undefined, x, y, side, el })
+        setTip({ text: el.getAttribute('data-tip')!, key: el.getAttribute('data-key') ?? undefined, cls: el.getAttribute('data-tip-class') ?? undefined, x, y, side, el })
       }, delay)
     }
     document.addEventListener('mouseover', over)
@@ -379,7 +381,7 @@ export function Tooltips() {
     if (!el || !tip) return
     const w = el.offsetWidth
     const h = el.offsetHeight
-    let left = tip.side === 'right' ? tip.x : tip.side === 'left' ? tip.x - w : tip.side === 'below-left' || tip.side === 'above-left' ? tip.x - w : tip.x - w / 2
+    let left = tip.side === 'right' || tip.side === 'above-start' ? tip.x : tip.side === 'left' ? tip.x - w : tip.side === 'below-left' || tip.side === 'above-left' ? tip.x - w : tip.x - w / 2
     const top = tip.side === 'right' || tip.side === 'left' ? tip.y - h / 2 : tip.side.startsWith('above') ? tip.y - h : tip.y
     left = Math.max(6, Math.min(left, innerWidth - w - 6))
     el.style.left = left + 'px'
@@ -388,8 +390,19 @@ export function Tooltips() {
   }, [tip])
   if (!tip) return null
   return (
-    <div ref={ref} className={'shell-tip' + (tip.text.length > 60 ? ' long' : '')} role="tooltip" data-testid="tooltip">
-      <span>{tip.text}</span>
+    <div ref={ref} className={'shell-tip' + (tip.text.length > 60 ? ' long' : '') + (tip.cls ? ' ' + tip.cls : '')} role="tooltip" data-testid="tooltip">
+      {/* 字里有换行：一行一段（段间 4） */}
+      {tip.text.includes('\n') ? (
+        <span className="paras">
+          {tip.text.split('\n').map((line, i) => (
+            <span key={i} className="para">
+              {line}
+            </span>
+          ))}
+        </span>
+      ) : (
+        <span>{tip.text}</span>
+      )}
       {tip.key && <kbd>{tip.key}</kbd>}
     </div>
   )

@@ -40,7 +40,7 @@ import type { EngineId } from '../../shared/agent'
 import type { CommitInfo } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
 import type { AnkiSendResult, AskEvent, AskRequest, AskResult, DoubtsView, PdfFile, ReadingMsg, ReadingSide, ReadingState, ReadingThread, SummarizeRequest, SummarizeResult, VizRequest, VizResult, WriteSectionRequest, WriteSectionResult } from '../../shared/reading'
-import { chatRun, engine, FAST_MODEL, featureLabel, modelOpt } from '../agent'
+import { chatRun, engine, FAST_MODEL, featureLabel, modeLine, modelOpt, omniOn, runAgentTurn } from '../agent'
 import { E2E } from '../test-mode'
 import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
 import type { EngineImage } from '../agent/engines'
@@ -346,24 +346,37 @@ export function setupReading(deps: ReadingDeps) {
         // 「附上的图是…」说的是框的那块（或整页）；材料里的图在材料那几行里说（以前不带材料的粘贴的图照旧算）
         hasImage: req.images.length > 0 || (!mats?.length && (req.pasted?.length ?? 0) > 0),
       })
-      const r = await engine(req.engine).run({
-        ...chatRun(req.engine, req),
-        prompt,
-        // 讲透（CN-89）：附在 Claude Code 自己的系统提示后面，带上用户自己的 CLAUDE.md；effort 默认 High（chatRun）
-        system: TUTOR_SYSTEM,
-        appendSystem: true,
-        cwd: v.root,
-        session,
-        ...(fork ? { fork: true } : {}),
-        keepSession: true,
-        images: [...(await imagesOf(req.images)), ...(await pastedImages(req.pasted))],
-        history: side ? side.history : historyOf(state?.msgs ?? [], pages && needFull ? '' : pages ? fullTextOf(pages) : ''),
-        signal: ac.signal,
-        onText: (delta) => {
-          text += delta
-          send('reading:event', req.id, { type: 'text', delta } satisfies AskEvent)
+      // 能动手（2026-11-19）：和 AI 对话同一套，给我们的工具（库里新建、改名、挪、删笔记……），全能模式开着时命令行自己的工具也全给；
+      // 这一问改了的提交一次。外圈、「停下」认负的编号（和 AI 对话的消息编号分开）
+      const omni = omniOn()
+      const turn = await runAgentTurn({
+        id: -req.id,
+        engine: req.engine,
+        omni,
+        ac,
+        subject: `读${isWeb(pdf) ? (req.thread.web?.title ?? '网页') : stemOf(pdf)}时：${req.text}`,
+        emit: (e) => send('reading:event', req.id, e satisfies AskEvent),
+        run: {
+          ...chatRun(req.engine, req),
+          // 开头一行是现在开没开全能模式（系统提示在一个会话里定死了，开关随时会换）
+          prompt: `${modeLine(omni, req.engine, v.root)}\n${prompt}`,
+          // 讲透（CN-89）：附在 Claude Code 自己的系统提示后面，带上用户自己的 CLAUDE.md；effort 默认 High（chatRun）
+          system: TUTOR_SYSTEM,
+          appendSystem: true,
+          session,
+          ...(fork ? { fork: true } : {}),
+          keepSession: true,
+          images: [...(await imagesOf(req.images)), ...(await pastedImages(req.pasted))],
+          history: side ? side.history : historyOf(state?.msgs ?? [], pages && needFull ? '' : pages ? fullTextOf(pages) : ''),
+          onText: (delta) => {
+            text += delta
+            send('reading:event', req.id, { type: 'text', delta } satisfies AskEvent)
+          },
         },
       })
+      const done = { ...(turn.commit ? { commit: turn.commit, kinds: turn.kinds } : {}), ...(turn.failed ? { failed: turn.failed, kinds: turn.kinds } : {}), ...(turn.moved ? { moved: turn.moved } : {}) }
+      const r = turn.outcome
+      if (!r) return { text, error: turn.error ?? '没有回答', ...done }
       const next = readSessions(pdf)
       if (r.session && side) next.sides = { ...next.sides, [side.id]: { ...next.sides?.[side.id], [req.engine]: r.session } }
       else if (r.session) {
@@ -373,7 +386,7 @@ export function setupReading(deps: ReadingDeps) {
         else if (r.session !== session) delete next.fullIn[req.engine]
       }
       writeJson(sessionsPath(pdf), next)
-      return { text: (r.text || text).replace(/\n{3,}/g, '\n\n') }
+      return { text: (r.text || text).replace(/\n{3,}/g, '\n\n'), ...(turn.error ? { error: turn.error } : {}), ...done }
     } catch (e) {
       return { text, error: (e as Error).name === 'AbortError' || ac.signal.aborted ? '停下了' : String((e as Error).message ?? e) }
     } finally {

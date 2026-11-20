@@ -5,10 +5,10 @@
  */
 import { type AskSection, blocksText, decorativeImages, documentBlocks, type FigureBox, locateFigure, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect, toPageRect } from '@cn/format'
 import { useSyncExternalStore } from 'react'
-import type { EngineId } from '../../shared/agent'
+import type { EngineId, ToolStep } from '../../shared/agent'
 import { type AiPick, convPick, hasEffort, pickLabel } from '../../shared/ai-features'
 import { imageNames, type Material, shiftMarks } from '../../shared/materials'
-import { type ReadingMsg, type ReadingSide, type ReadingState, type ReadingThread, readLine, withoutVizMark } from '../../shared/reading'
+import { type AskResult, type ReadingMsg, type ReadingSide, type ReadingState, type ReadingThread, readLine, withoutVizMark } from '../../shared/reading'
 import { titleOf } from '../../shared/layout'
 import { fmtTime } from '../../shared/video'
 import { pageText, pdfDoc, renderCrop } from './pdf'
@@ -258,7 +258,7 @@ const settled = (m: ReadingMsg): ReadingMsg =>
 export async function load(pdf: string) {
   if (!listening) {
     listening = true
-    window.cnReading.onAsk((id, e) => onAskText(id, e.delta))
+    window.cnReading.onAsk((id, e) => (e.type === 'text' ? onAskText(id, e.delta) : onAskStep(id, { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}) })))
   }
   if (get(pdf).loaded) return
   const [state, note] = await Promise.all([window.cnReading.state(pdf), window.cnReading.readNote(pdf)])
@@ -508,8 +508,39 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
   const { text: answer, viz, figure } = withoutVizMark(full)
   // 配图的框：附的是框的那块就换成整页上的比例（附的是整页就原样）
   const fig = figure && image && !isWebSrc(pdf) ? { rect: toPageRect(figure.rect, th.rect), caption: figure.caption } : null
-  patchMsg(pdf, aiId, { text: answer, read: readOf(th, answer, get(pdf).note.sections), ...(viz && !res.error ? { vizOk: true } : {}), ...(fig ? { fig } : {}), ...(res.error ? { error: res.error } : {}) })
+  patchMsg(pdf, aiId, {
+    text: answer,
+    read: readOf(th, answer, get(pdf).note.sections),
+    ...(viz && !res.error ? { vizOk: true } : {}),
+    ...(fig ? { fig } : {}),
+    ...(res.error ? { error: res.error } : {}),
+    ...changeOf(res),
+  })
+  if (res.commit || res.failed) window.dispatchEvent(new CustomEvent(AI_CHANGED))
   if (!res.error && res.text.trim()) void writeNote(pdf, th.id, aiId, engine)
+}
+
+/** AI 这一问动手改了库里的文件（2026-11-19）：界面刷新左栏、底栏（App 听这个） */
+export const AI_CHANGED = 'cn:reading-ai-changed'
+
+/** 这一问的提交（「改了 N 个文件 · 撤回」）或没提交上的那句 */
+function changeOf(res: AskResult): Partial<ReadingMsg> {
+  if (res.commit) return { change: { commit: res.commit, kinds: res.kinds ?? {}, ...(res.moved ? { moved: res.moved } : {}) } }
+  if (res.failed) return { warn: `改好了，提交没成功：${res.failed.failed}` }
+  return {}
+}
+
+/** 撤回这一问 AI 的改动（反向提交）；撤回好了记在那条消息上 */
+export async function revertChange(pdf: string, id: number, side?: string) {
+  const r = get(pdf)
+  const m = side ? sidesOf(r).find((s) => s.id === side)?.msgs.find((x) => x.id === id) : r.state.msgs.find((x) => x.id === id)
+  const c = m?.change
+  if (!c || c.reverted) return
+  const back = await window.cn.aiRevert(c.commit.hash)
+  if (!back) return
+  if (side) patchSideMsg(pdf, side, id, () => ({ change: { ...c, reverted: back } }))
+  else patchMsg(pdf, id, { change: { ...c, reverted: back } })
+  window.dispatchEvent(new CustomEvent(AI_CHANGED))
 }
 
 /** 边生成边显示：主进程一小段一小段给字（主对话的，或者旁支的） */
@@ -518,6 +549,22 @@ export function onAskText(id: number, delta: string) {
     if (r.running === id) update(pdf, (x) => ({ state: { ...x.state, msgs: x.state.msgs.map((m) => (m.id === id ? { ...m, text: m.text + delta } : m)) } }))
     const side = Object.entries(r.sideRunning).find(([, v]) => v === id)?.[0]
     if (side) patchSideMsg(pdf, side, id, (m) => ({ text: m.text + delta }), false)
+  }
+}
+
+/** 边做边显示动手的每一步（在做转圈、做完绿勾，同 AI 对话）：同一步做完换掉在做的那行 */
+export function onAskStep(id: number, step: ToolStep) {
+  const put = (m: ReadingMsg): ReadingMsg => {
+    const steps = [...(m.steps ?? [])]
+    const i = steps.findIndex((s) => s.id === step.id)
+    if (i === -1) steps.push(step)
+    else steps[i] = step
+    return { ...m, steps }
+  }
+  for (const [pdf, r] of docs) {
+    if (r.running === id) update(pdf, (x) => ({ state: { ...x.state, msgs: x.state.msgs.map((m) => (m.id === id ? put(m) : m)) } }))
+    const side = Object.entries(r.sideRunning).find(([, v]) => v === id)?.[0]
+    if (side) patchSideMsg(pdf, side, id, (m) => put(m), false)
   }
 }
 
@@ -660,7 +707,7 @@ export async function sendSide(pdf: string, id: string, text: string, mats: Mate
   const title = cur.note.sections.find((s) => s.id === th.id)?.title
   const parentTime = cur.state.msgs[parent]?.time ?? 0
   const images = imageNames(mats)
-  let res: { text: string; error?: string }
+  let res: AskResult
   try {
     res = await window.cnReading.ask({
       id: aiId,
@@ -682,7 +729,8 @@ export async function sendSide(pdf: string, id: string, text: string, mats: Mate
   }
   const sofar = sidesOf(get(pdf)).find((s) => s.id === id)?.msgs.find((m) => m.id === aiId)?.text ?? ''
   const full = withoutVizMark(res.text || sofar).text
-  patchSideMsg(pdf, id, aiId, () => ({ text: full, ...(res.error ? { error: res.error } : {}) }))
+  patchSideMsg(pdf, id, aiId, () => ({ text: full, ...(res.error ? { error: res.error } : {}), ...changeOf(res) }))
+  if (res.commit || res.failed) window.dispatchEvent(new CustomEvent(AI_CHANGED))
   update(pdf, (x) => {
     const { [id]: _done, ...rest } = x.sideRunning
     void _done

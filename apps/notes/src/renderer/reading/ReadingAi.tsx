@@ -6,6 +6,7 @@
  */
 import { when } from '../../shared/when'
 import { Codicon } from '@cn/design'
+import { AiIcon, ByLogo } from '../engine-logo'
 import { onMessageMenu } from '../ctx/message-menu'
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { type ReadingMsg, withoutVizMark } from '../../shared/reading'
@@ -14,6 +15,7 @@ import { AiError } from '../ai-error'
 import { pastedUrl } from '../paste-images'
 import { AiHead, AwayBar, Chip, type DockNav, Sees } from '../ai-head'
 import { AiInput, type Lead, MatMsg, sendText, useComposer, useConvPick } from '../composer'
+import { ChangeBlock, StepRow } from '../AiPanel'
 import { readLabel } from '../ai-place'
 import { fmtTime } from '../../shared/video'
 import { applyMarks, type Mark } from './marks'
@@ -350,7 +352,7 @@ export function ReadingAi(props: {
             </p>
             {!R.isWebSrc(pdf) && !props.nav.away && (
               <button className="sug" onClick={() => window.dispatchEvent(new CustomEvent(R.ASK_PAGE, { detail: { src: pdf, text: html ? '给我讲解一下这一屏' : '给我讲解一下这一页' } }))}>
-                <Codicon name="comment-discussion-sparkle" size={14} />
+                <AiIcon job="chat" size={14} />
                 {html ? '问这一屏' : '问这一页'}
               </button>
             )}
@@ -382,6 +384,7 @@ export function ReadingAi(props: {
               marks={marks.get(m.id)}
               engine={{ id: m.engine ?? engine, label: engines.find((e) => e.id === (m.engine ?? engine))?.label }}
               onShowNote={() => props.onShowNote(m.thread)}
+              onRevert={() => void R.revertChange(pdf, m.id).catch((e: unknown) => props.onNotice(String((e as Error).message ?? e)))}
               onViz={() => void R.makeViz(pdf, m.id)}
               onOpenHtml={props.onOpenHtml}
             />
@@ -407,6 +410,8 @@ export function ReadingAi(props: {
         hintNow={hintNow}
         lead={lead}
         picks={cp.picks}
+        // 下格开着旁支时和「看得到」那行一样藏起来（上格要读得下去，DESIGN.v3 2.4b），收成一条时回来；旁支跟主对话用同一个开关
+        omni={sideShown ? null : cp.omni}
         running={running}
         sendDisabled={!input.trim() && !c.mats.length}
         own={own}
@@ -465,6 +470,8 @@ function Msg(p: {
   busy: boolean
   engine: { id: string; label?: string }
   onShowNote(): void
+  /** 撤回这一问 AI 改的文件（反向提交） */
+  onRevert(): void
   onViz(): void
   onOpenHtml(path: string): void
   /** 这条回答里问过的那几句（旁支）：虚线 + 小标 */
@@ -515,10 +522,20 @@ function Msg(p: {
             <div className="read">
               <Codicon name="check" size={12} className="ok" />
               <span className="rd">{m.read}</span>
-              {m.by && <span className="by"> · {m.by}</span>}
+              {m.by && (
+                <span className="by">
+                  {' · '}
+                  <ByLogo by={m.by} />
+                  {m.by}
+                </span>
+              )}
             </div>
           )}
-          {!m.text && !m.error && <div className="thinking">正在想…</div>}
+          {/* AI 动手的每一步（DESIGN.v3 2.3）：在做转圈、做完绿勾、出错红叉跟原因；全能模式下它自己跑命令、写文件也写成人话 */}
+          {m.steps?.map((s) => (
+            <StepRow key={s.id} s={s} />
+          ))}
+          {!m.text && !m.error && !m.steps?.length && <div className="thinking">正在想…</div>}
           {m.text && (
             <div className="txt md" key={p.marks?.length ? m.text : 'txt'} ref={txt}>
               <Markdown text={withoutVizMark(m.text).text} math />
@@ -566,6 +583,8 @@ function Msg(p: {
             </div>
           )}
           {m.note === 'error' && <div className="noted err">没记进笔记：{m.noteError}</div>}
+          {m.change && <ChangeBlock change={m.change} onRevert={p.onRevert} />}
+          {m.warn && <div className="noted err">{m.warn}</div>}
           {m.vizOk && !m.viz && !(p.last && m.text && !m.error) && (
             <div className="acts">
               <button className="btn btn-xs" onClick={p.onViz}>

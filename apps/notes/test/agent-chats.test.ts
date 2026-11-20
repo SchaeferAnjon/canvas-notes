@@ -69,6 +69,31 @@ describe('AgentStore 按地方存', () => {
   })
 })
 
+describe('全能模式开关（2026-11-19，默认开）', () => {
+  it('从没设过是开着；关了记在软件设置目录（重开软件还是关着），换引擎、改设置 › AI 不动它', () => {
+    const s = new AgentStore(dir)
+    expect(s.omni()).toBe(true)
+    s.setOmni(false)
+    expect(new AgentStore(dir).omni()).toBe(false)
+    s.setChatEngine('codex')
+    s.setCliPath('claude', '/x/claude')
+    expect(new AgentStore(dir).omni()).toBe(false)
+    expect(new AgentStore(dir).prefs().features.chat).toEqual({ engine: 'codex' })
+    s.setOmni(true)
+    expect(new AgentStore(dir).omni()).toBe(true)
+  })
+
+  it('会话号带着系统提示的版本：版本对得上才接着聊（Claude Code 接着聊时一直用会话第一次的系统提示）', () => {
+    const s = new AgentStore(dir)
+    s.setSession(V, 'home', 'claude', 'old')
+    expect(s.session(V, 'home', 'claude', 2)).toBeUndefined()
+    s.setSession(V, 'home', 'claude', 'new', 2)
+    expect(s.session(V, 'home', 'claude', 2)).toBe('new')
+    expect(s.session(V, 'home', 'claude', 3)).toBeUndefined()
+    expect(s.session(V, 'home', 'codex', 2)).toBeUndefined()
+  })
+})
+
 describe('读 PDF 的对话也列进菜单', () => {
   it('只列这个库、问过的；名字是带扩展名的文件名，网页上问的是网页标题；时间是最后一条', () => {
     const rd = join(dir, 'reading')

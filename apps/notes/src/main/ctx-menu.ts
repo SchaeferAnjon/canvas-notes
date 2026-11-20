@@ -6,8 +6,8 @@
  * - 界面没接管的右键（输入框、选了字）这里兜底给标准编辑菜单；右栏网页里的右键转给界面，由界面拼菜单。
  */
 import { moveMany } from './folder-ops'
-import { BrowserWindow, clipboard, ipcMain, Menu, type MenuItemConstructorOptions, shell, webContents as allWebContents, type WebContents } from 'electron'
-import { EDIT_ACCEL, EDIT_LABEL, type CtxItem, type CtxParams, fallbackItems, tidy, validItems } from '../shared/ctx-menu'
+import { BrowserWindow, clipboard, ipcMain, Menu, type MenuItemConstructorOptions, nativeImage, shell, webContents as allWebContents, type WebContents } from 'electron'
+import { EDIT_ACCEL, EDIT_LABEL, type CtxIcon, type CtxItem, type CtxParams, fallbackItems, tidy, validItems } from '../shared/ctx-menu'
 import { pinNote, repin } from './pins'
 import type { Vault } from './vault'
 
@@ -37,6 +37,13 @@ export function closeAllMenus(): number {
   return n
 }
 
+/** 界面画好的 32 像素 PNG → 菜单里 16 点的图（2 倍图）；单色的做成模板图，深色菜单里系统画成白的 */
+function iconOf(i: CtxIcon): Electron.NativeImage {
+  const img = nativeImage.createFromBuffer(Buffer.from(i.png.slice(i.png.indexOf(',') + 1), 'base64'), { scaleFactor: 2 })
+  if (i.template) img.setTemplateImage(true)
+  return img
+}
+
 /** 界面交来的项 → Electron 的菜单模板；编辑项对 target 做，普通项点了记下 id */
 export function toTemplate(items: CtxItem[], target: WebContents, pick: (id: string) => void): MenuItemConstructorOptions[] {
   return tidy(items).map((it): MenuItemConstructorOptions => {
@@ -53,6 +60,7 @@ export function toTemplate(items: CtxItem[], target: WebContents, pick: (id: str
       enabled: it.enabled !== false,
       ...(it.checked !== undefined ? { type: 'checkbox' as const, checked: it.checked } : {}),
       ...(it.accel ? { accelerator: it.accel, registerAccelerator: false } : {}),
+      ...(it.icon ? { icon: iconOf(it.icon) } : {}),
       click: () => pick(it.id),
     }
   })

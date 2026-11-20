@@ -8,6 +8,7 @@ import { codiconSvg } from '@cn/design/codicon-svg'
 import { Readability } from '@mozilla/readability'
 import { ipcRenderer } from 'electron'
 import type { ReaderBlock, ReaderPage, WebBox } from '../shared/web-reader'
+import { aiLogoHtml, onAiLogo } from './ai-logo'
 import { fixLazyImages, stripNoise } from './webview-page'
 
 // ---------------------------------------------------------------- 阅读视图
@@ -124,11 +125,16 @@ function ensure() {
     button:hover{background:rgba(127,127,127,.25)}
     .k{opacity:.6;font-size:11px}
     .sep{width:1px;height:14px;background:currentColor;opacity:.2}
-    svg{width:14px;height:14px;flex:none}
+    svg,img{width:14px;height:14px;flex:none}
   </style><div class="fr"></div><div class="cap" role="toolbar" aria-label="框好的这块">
     <button data-k="explain">讲解一下 <span class="k">↵</span></button><button data-k="translate">${LANG}翻译 + 讲一讲</button><button data-k="rephrase">${PEN}改问法</button><span class="sep"></span><button data-k="cancel" aria-label="取消">${X}</button></div>`
   frame = root.querySelector('.fr')
   bar = root.querySelector('.cap')
+  // 「讲解一下」交给 AI 对话那一家：前面画它的标志（同 PDF 框一块的浮条），换了引擎跟着换
+  const explain = root.querySelector<HTMLButtonElement>('button[data-k="explain"]')!
+  const drawExplain = () => (explain.innerHTML = `${aiLogoHtml('chat') ?? ''}讲解一下 <span class="k">↵</span>`)
+  drawExplain()
+  onAiLogo(drawExplain)
   for (const b of Array.from(root.querySelectorAll('button'))) {
     b.addEventListener('mousedown', (e) => e.preventDefault())
     b.addEventListener('click', (e) => {

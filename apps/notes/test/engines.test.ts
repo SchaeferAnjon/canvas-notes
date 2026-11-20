@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { acpEngine, CLAUDE_MODEL, claudeArgs, claudeEngine, claudeImageMessage, codexEngine, codexModelList, type Engine, type EngineImage } from '../src/main/agent/engines'
+import { acpEngine, CLAUDE_MODEL, claudeArgs, claudeEngine, claudeImageMessage, CODEX_LOCKED, codexEngine, codexModelList, type Engine, type EngineImage, type EngineStep, GEMINI_POLICY, geminiArgs, opencodeConfig } from '../src/main/agent/engines'
 import { type McpServer, startMcpServer } from '../src/main/agent/mcp-server'
 
 const cwd = mkdtempSync(join(tmpdir(), 'cn-engine-'))
@@ -57,6 +57,64 @@ describe('ACP 引擎（Gemini、OpenCode 的接法）', () => {
     }
   })
 
+  /** 起一个 ACP 引擎跑一问；env 在起进程前设好（进程从 process.env 拿） */
+  async function acpRun(o: { id: 'gemini' | 'opencode'; omni: boolean; env?: Record<string, string>; onStep?(s: EngineStep): void; engine?: Engine }) {
+    const saved = { ...process.env }
+    Object.assign(process.env, o.env ?? {})
+    try {
+      const e =
+        o.engine ??
+        acpEngine({
+          id: o.id,
+          command: process.execPath,
+          args: (_cwd, omni) => [fixture('fake-acp.mjs'), ...(o.id === 'gemini' ? geminiArgs(omni, '/tmp/p.toml') : ['acp', '--cwd', cwd])],
+          env: (omni) => (o.id === 'opencode' ? { OPENCODE_CONFIG_CONTENT: opencodeConfig(omni) } : {}),
+          loginHint: '去登录',
+        })
+      opened.push(e)
+      const r = await e.run({ prompt: '用户说：\n你好', system: '系统提示', cwd, mcp, omni: o.omni, onStep: o.onStep, signal: new AbortController().signal, onText: () => undefined })
+      return { ...r, engine: e }
+    } finally {
+      for (const k of Object.keys(o.env ?? {})) if (saved[k] === undefined) delete process.env[k]
+    }
+  }
+
+  it('全能模式：Gemini --approval-mode yolo；它自己要写文件、跑命令也放行；关着时 default + 策略文件拒掉跑命令、写文件、上网、子 Agent，只放行我们的工具', async () => {
+    const on = await acpRun({ id: 'gemini', omni: true, env: { FAKE_ACP_ARGS: '1' } })
+    expect(on.text).toContain('我们的工具 a1；它自己写文件 a1；')
+    expect(on.text).toContain('参数 --acp --approval-mode yolo --allowed-mcp-server-names canvas；')
+    const off = await acpRun({ id: 'gemini', omni: false, env: { FAKE_ACP_ARGS: '1' } })
+    expect(off.text).toContain('我们的工具 a1；它自己写文件 r1；')
+    expect(off.text).toContain('参数 --acp --approval-mode default --allowed-mcp-server-names canvas --policy /tmp/p.toml；')
+    for (const t of ['run_shell_command', 'write_file', 'replace', 'web_fetch', 'google_web_search', 'invoke_agent']) expect(GEMINI_POLICY).toContain(`"${t}"`)
+    expect(GEMINI_POLICY).toContain('decision = "deny"')
+  })
+
+  it('全能模式：OpenCode 的权限全放开（「*」: allow）；关着时改文件、跑命令、上网、库外、子 Agent 都拒', async () => {
+    expect(JSON.parse(opencodeConfig(true))).toEqual({ permission: { '*': 'allow' } })
+    expect(JSON.parse(opencodeConfig(false))).toEqual({ permission: { edit: 'deny', bash: 'deny', webfetch: 'deny', websearch: 'deny', external_directory: 'deny', task: 'deny' } })
+    const on = await acpRun({ id: 'opencode', omni: true, env: { FAKE_ACP_ARGS: '1' } })
+    expect(on.text).toContain('它自己写文件 a1；')
+    expect(on.text).toContain(`设置 ${opencodeConfig(true)}`)
+  })
+
+  it('换了模式：ACP 进程按新参数重起（会话换新的，最近几轮补在前面）', async () => {
+    const first = await acpRun({ id: 'gemini', omni: true, env: { FAKE_ACP_ARGS: '1' } })
+    expect(first.text).toContain('--approval-mode yolo')
+    const again = await acpRun({ id: 'gemini', omni: false, env: { FAKE_ACP_ARGS: '1' }, engine: first.engine })
+    expect(again.text).toContain('--approval-mode default')
+    expect(again.text).toContain('开头是系统提示 是')
+  })
+
+  it('步骤：tool_call / tool_call_update 报给 onStep（跑命令、读文件，失败的带原因）；我们 MCP 的不报', async () => {
+    const got: EngineStep[] = []
+    await acpRun({ id: 'gemini', omni: true, env: { FAKE_ACP_STEPS: '1' }, onStep: (s) => got.push(s) })
+    expect(got.map((s) => `${s.tool}:${s.status}`)).toEqual(['Bash:run', 'Bash:ok', 'Read:run', 'Read:err'])
+    expect(got[0]!.input).toEqual({ command: 'ls -1 /Users' })
+    expect(got[2]!.input).toEqual({ file_path: '/etc/hosts' })
+    expect(got[3]!.detail).toBe('读不了')
+  })
+
   it('没登录时说清楚怎么登录', async () => {
     const e = acpEngine({ id: 'gemini', command: process.execPath, args: () => [fixture('fake-acp.mjs')], env: () => ({ FAKE_ACP_NO_LOGIN: '1' }), loginHint: 'Gemini 还没登录：在终端里运行一次 gemini' })
     opened.push(e)
@@ -70,7 +128,7 @@ describe('Codex 引擎（app-server）', () => {
     opened.push(e)
     const r = await turn(e)
     expect(r.text).toBe(
-      '线程 th1；配置 mcp_servers={canvas={url="http://127.0.0.1:1/mcp",bearer_token_env_var="CN_MCP_TOKEN",default_tools_approval_mode="approve"}}；令牌 在环境变量里；我们的工具 accept；它自己改文件 decline；系统提示 系统提示：做个好助手',
+      `线程 th1；配置 mcp_servers={canvas={url="http://127.0.0.1:1/mcp",bearer_token_env_var="CN_MCP_TOKEN",default_tools_approval_mode="approve"}}；令牌 在环境变量里；我们的工具 accept；它自己改文件 decline；它自己跑命令 decline；沙箱 read-only；批准 never；上网搜 disabled；关掉的 ${CODEX_LOCKED.filter((a) => a !== '-c').join(',')}；系统提示 系统提示：做个好助手`,
     )
     expect(r.deltas).not.toContain('串了')
     expect(r.session).toBe('th1')
@@ -116,6 +174,42 @@ describe('Codex 引擎（app-server）', () => {
     }
   })
 
+  it('全能模式：danger-full-access、approval never、上网搜 live，什么功能都不关；它自己改文件、跑命令的批准一律放行', async () => {
+    const e = codexEngine(process.execPath, [fixture('fake-codex.mjs')])
+    opened.push(e)
+    const r = await e.run({ prompt: '你好', system: '系统', cwd, mcp, omni: true, signal: new AbortController().signal, onText: () => undefined })
+    expect(r.text).toContain('我们的工具 accept；它自己改文件 accept；它自己跑命令 accept；沙箱 danger-full-access；批准 never；上网搜 live；关掉的 没有；')
+  })
+
+  it('全能关着：只读沙箱，跑命令、上网搜、apps、浏览器和电脑操作、子 Agent 都关掉；换回全能时进程按新参数重起，线程接着用（thread/resume）', async () => {
+    expect(CODEX_LOCKED).toEqual(expect.arrayContaining(['features.shell_tool=false', 'web_search="disabled"', 'features.apps=false', 'features.multi_agent=false']))
+    const e = codexEngine(process.execPath, [fixture('fake-codex.mjs')])
+    opened.push(e)
+    const off = await e.run({ prompt: '你好', system: '系统', cwd, mcp, omni: false, signal: new AbortController().signal, onText: () => undefined })
+    expect(off.text).toContain('沙箱 read-only；批准 never；上网搜 disabled；')
+    expect(off.text).toContain('features.shell_tool=false')
+    const on = await e.run({ prompt: '再来', system: '系统', cwd, mcp, omni: true, session: off.session, signal: new AbortController().signal, onText: () => undefined })
+    expect(on.session).toBe(off.session)
+    expect(on.text).toContain('沙箱 danger-full-access；批准 never；上网搜 live；关掉的 没有；')
+  })
+
+  it('步骤：commandExecution、fileChange、webSearch 开始、做完报给 onStep（统一成 Bash、Write、WebSearch）；我们 MCP 的不报', async () => {
+    const saved = process.env.FAKE_CODEX_STEPS
+    process.env.FAKE_CODEX_STEPS = '1'
+    try {
+      const e = codexEngine(process.execPath, [fixture('fake-codex.mjs')])
+      opened.push(e)
+      const got: EngineStep[] = []
+      await e.run({ prompt: '你好', system: '系统', cwd, mcp, omni: true, onStep: (s) => got.push(s), signal: new AbortController().signal, onText: () => undefined })
+      expect(got.map((s) => `${s.tool}:${s.status}`)).toEqual(['Bash:run', 'Bash:ok', 'Write:run', 'Write:err', 'WebSearch:run', 'WebSearch:ok'])
+      expect(got[0]!.input).toEqual({ command: 'ls -1 /Users' })
+      expect(got[2]!.input).toEqual({ file_path: '/tmp/x.md' })
+      expect(got[4]!.input).toEqual({ query: '天气' })
+    } finally {
+      if (saved === undefined) delete process.env.FAKE_CODEX_STEPS
+    }
+  })
+
   it('带图：Codex 只认本机文件，给 localImage 和路径', async () => {
     const e = codexEngine(process.execPath, [fixture('fake-codex.mjs')])
     opened.push(e)
@@ -144,7 +238,7 @@ describe('Claude Code 引擎（claude -p 命令行）', () => {
   const claude = (env: Record<string, string> = {}) => {
     const e = claudeEngine(process.execPath, [fixture('fake-claude.mjs')])
     return {
-      async run(o: { session?: string; history?: string; tools?: boolean; prompt?: string; signal?: AbortSignal; images?: EngineImage[]; keepSession?: boolean; effort?: string; appendSystem?: boolean; fork?: boolean } = {}) {
+      async run(o: { session?: string; history?: string; tools?: boolean; prompt?: string; signal?: AbortSignal; images?: EngineImage[]; keepSession?: boolean; effort?: string; appendSystem?: boolean; fork?: boolean; omni?: boolean; onStep?(s: EngineStep): void } = {}) {
         const saved = { ...process.env }
         Object.assign(process.env, env)
         const deltas: string[] = []
@@ -161,6 +255,8 @@ describe('Claude Code 引擎（claude -p 命令行）', () => {
             effort: o.effort,
             appendSystem: o.appendSystem,
             fork: o.fork,
+            omni: o.omni,
+            onStep: o.onStep,
             signal: o.signal ?? new AbortController().signal,
             onText: (d) => deltas.push(d),
           })
@@ -329,6 +425,64 @@ describe('Claude Code 引擎（claude -p 命令行）', () => {
     ac.abort()
     await expect(p).rejects.toMatchObject({ name: 'AbortError' })
     expect(() => process.kill(pid, 0)).toThrow()
+  })
+
+  it('全能模式（AI 对话）：bypassPermissions 不停下来问，自带工具全给（只拿掉问人的 AskUserQuestion），系统提示附在 Claude Code 自己的后面，一个用户设置都不读，MCP 只接我们的，不限轮数', async () => {
+    const args = claudeArgs({ system: '动手的', omni: true, mcp: { url: 'http://x/mcp', token: 't', tools: ['notes_list'] } }, undefined, '/tmp/m.json')
+    const at = (f: string) => args[args.indexOf(f) + 1]
+    expect(at('--permission-mode')).toBe('bypassPermissions')
+    expect(at('--append-system-prompt')).toBe('动手的')
+    expect(args).not.toContain('--system-prompt')
+    expect(args).toContain('--setting-sources=')
+    expect(args).not.toContain('--settings')
+    expect(args).toContain('--strict-mcp-config')
+    expect(at('--mcp-config')).toBe('/tmp/m.json')
+    expect(at('--disallowedTools')).toBe('AskUserQuestion')
+    for (const f of ['--tools', '--allowedTools', '--max-turns', '--no-session-persistence']) expect(args).not.toContain(f)
+    // 真跑一次假的 claude：这几样一路到了命令行上，我们的 MCP 照样调得到
+    const r = await claude().run({ omni: true })
+    expect(r.text).toContain('工具 undefined；放行 undefined；调工具 两张卡片；配置文件 600；轮数 undefined；加目录 没给；')
+    expect(r.text).toContain('禁止 AskUserQuestion；权限 bypassPermissions；设置 不读；只接我们的 MCP 是；')
+    expect(r.text).toContain('系统提示 undefined；')
+    expect(r.text).toContain('附加系统提示 系统提示：做个好助手；')
+  })
+
+  it('全能模式（读 PDF）：照 CN-89 读用户自己的设置（CLAUDE.md）、关掉 hooks，再放开权限；全能关着的读 PDF 也接我们的 MCP（库里新建、改名、挪、删），只读翻库里', async () => {
+    const mcp = { url: 'http://x/mcp', token: 't', tools: ['note_create'] }
+    const omni = claudeArgs({ system: '讲解的', appendSystem: true, keepSession: true, omni: true, mcp }, undefined, '/tmp/m.json')
+    const at = (a: string[], f: string) => a[a.indexOf(f) + 1]
+    expect(at(omni, '--permission-mode')).toBe('bypassPermissions')
+    expect(at(omni, '--append-system-prompt')).toBe('讲解的')
+    expect(at(omni, '--setting-sources')).toBe('user')
+    expect(JSON.parse(at(omni, '--settings')!)).toEqual({ disableAllHooks: true })
+    expect(omni).toContain('--strict-mcp-config')
+    expect(omni).not.toContain('--tools')
+    const shut = claudeArgs({ system: '讲解的', appendSystem: true, keepSession: true, omni: false, mcp }, undefined, '/tmp/m.json')
+    expect(at(shut, '--permission-mode')).toBe('dontAsk')
+    expect(at(shut, '--tools')).toBe('Read,Glob,Grep')
+    expect(at(shut, '--allowedTools')).toBe('mcp__canvas__note_create')
+    expect(at(shut, '--disallowedTools')).toBe('Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch,Task')
+    expect(at(shut, '--setting-sources')).toBe('user')
+    expect(at(shut, '--max-turns')).toBe('40')
+  })
+
+  it('全能关着（AI 对话）：照旧只给我们的工具和只读翻库里，跑命令、写文件、上网、子 Agent 都禁着，dontAsk 下读不到库外', () => {
+    const args = claudeArgs({ system: '动手的', omni: false, mcp: { url: 'http://x/mcp', token: 't', tools: ['note_create', 'note_move'] } }, undefined, '/tmp/m.json')
+    const at = (f: string) => args[args.indexOf(f) + 1]
+    expect(at('--permission-mode')).toBe('dontAsk')
+    expect(at('--system-prompt')).toBe('动手的')
+    expect(args).toContain('--setting-sources=')
+    expect(at('--tools')).toBe('Read,Glob,Grep')
+    expect(at('--allowedTools')).toBe('mcp__canvas__note_create,mcp__canvas__note_move')
+    expect(at('--disallowedTools')).toBe('Bash,Edit,Write,MultiEdit,NotebookEdit,WebFetch,WebSearch,Task')
+  })
+
+  it('步骤：Claude Code 自己的工具开始、做完都报给 onStep（出错的带原因第一行）；我们 MCP 的不报（MCP 服务自己报），子 Agent 里面的那几步、找工具的 ToolSearch 不报', async () => {
+    const got: EngineStep[] = []
+    await claude({ FAKE_CLAUDE_STEPS: '1' }).run({ omni: true, onStep: (s) => got.push(s) })
+    expect(got.map((s) => `${s.tool}:${s.status}`)).toEqual(['Bash:run', 'Bash:ok', 'Write:run', 'Write:err', 'Task:run', 'Task:ok'])
+    expect(got[0]).toMatchObject({ id: 'b1', input: { command: 'ls -1 ~' } })
+    expect(got[3]!.detail).toBe('EACCES: permission denied')
   })
 
   it('claude 起不来：报出是哪个命令', async () => {

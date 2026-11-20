@@ -3,6 +3,7 @@
  */
 import { answerLead, type AskSection, blocksText, type PdfBlock } from '@cn/format'
 import { MATH_RULE, type ReadingMsg, type ReadingThread, VIZ_MARK, withoutVizMark } from '../../shared/reading'
+import { MODES_RULE } from '../agent/modes'
 import { fmtTime } from '../../shared/video'
 
 /**
@@ -16,13 +17,17 @@ export const TUTOR_SYSTEM = `你在 Canvas Notes 里陪一个人读 PDF 课件�
 ${MATH_RULE}提到别的页写成 [第 4 页](#page=4)。
 他笔记里已经弄懂的（每次会附上），直接拿来用（「用你在第 4 页弄懂的那条」），不要重新讲一遍。
 他说「还是不懂」「换个方式讲」：上一版就是没讲通，换一个完全不同的角度（比方、画面、具体数字、反例），不要换个说法重复。
-如果一个能拖能点的小可视化（几何、函数图像、变换、过程演示）会明显帮他懂，在回答最后单独一行写 ${VIZ_MARK}；用不上就不写。`
+如果一个能拖能点的小可视化（几何、函数图像、变换、过程演示）会明显帮他懂，在回答最后单独一行写 ${VIZ_MARK}；用不上就不写。
+你也能动手（canvas 这组工具）：在库里新建、改写、改名、挪动、删笔记，建文件夹，看库里有哪些笔记、读一篇。他让你记下来、整理、挪笔记时直接做，这一轮结束软件提交一次，他能一键撤回。
+这是笔记软件里的读书对话，不是终端里接活：用不着建任务看板、写交付页，小事不派子 Agent。
+${MODES_RULE}`
 
 /**
  * 讲法改过就加一：claude 默认记下一个会话第一次用的系统提示、以后接着聊都用记下的那份（--system-prompt-snapshot），
- * 旧会话接着聊还是旧讲法（「300 字以内」）。版本不对的会话不再接着聊，开新会话、补上全文和最近几轮（和会话接不上一样）
+ * 旧会话接着聊还是旧讲法（「300 字以内」）。版本不对的会话不再接着聊，开新会话、补上全文和最近几轮（和会话接不上一样）。
+ * 4：能动手（canvas 工具）、两种模式（2026-11-19）
  */
-export const TUTOR_VERSION = 3
+export const TUTOR_VERSION = 4
 
 export function askPrompt(o: {
   pdfName: string

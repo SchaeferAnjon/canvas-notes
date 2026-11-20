@@ -1,7 +1,9 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import type { Rect } from '@cn/format'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { AiJob } from '../shared/ai-logo'
 import type { NoteFile, SearchHit } from '../shared/api'
+import { AiIcon, EngineLogo } from './engine-logo'
 import type { PdfFile } from '../shared/reading'
 import { markParts, type MeaningHit, type PdfTextHit, queryWords, type SearchStatus } from '../shared/search'
 import { titleOf } from '../shared/layout'
@@ -12,6 +14,8 @@ export interface PaletteCommand {
   name: string
   hint?: string
   icon: CodiconName
+  /** 交给 AI 跑的命令：左边画跑它的那一家的标志（翻译没有能用的那家时画 icon） */
+  ai?: AiJob
   keys?: string
   run(): void
 }
@@ -353,7 +357,7 @@ function RowView(p: { row: Row<PaletteCommand>; on: boolean; /** 键盘选不中
   if (r.kind === 'cmd')
     body = (
       <>
-        <Codicon name={r.cmd.icon} size={16} className="i" />
+        {r.cmd.ai ? <AiIcon job={r.cmd.ai} size={16} className="i" fallback={r.cmd.icon} /> : <Codicon name={r.cmd.icon} size={16} className="i" />}
         <span className="nm">{r.cmd.name}</span>
         {r.cmd.hint && <span className="lc">{r.cmd.hint}</span>}
         {r.cmd.keys && <kbd className="rt">{r.cmd.keys}</kbd>}
@@ -431,7 +435,7 @@ function RowView(p: { row: Row<PaletteCommand>; on: boolean; /** 键盘选不中
   else if (p.claude.phase === 'done')
     body = (
       <>
-        <Codicon name="sparkle" size={16} className="i" />
+        <EngineLogo id="claude" size={16} className="i" />
         <span className="nm">Claude也没找到「{p.q}」</span>
         <span className="sn">{p.claude.error ?? '换个说法再试，或者回车让它再找一遍'}</span>
       </>
@@ -439,7 +443,7 @@ function RowView(p: { row: Row<PaletteCommand>; on: boolean; /** 键盘选不中
   else
     body = (
       <>
-        <Codicon name="sparkle" size={16} className="i" />
+        <EngineLogo id="claude" size={16} className="i" />
         <span className="nm">让Claude帮我找「{p.q}」</span>
         <span className="rt">几秒到十几秒</span>
         <kbd className="rt2">⌥↵</kbd>

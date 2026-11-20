@@ -5,6 +5,7 @@ import { composing } from '../ime'
  * 收下 / 丢掉 / 撤回 / 重做都走主线（dream-main.ts），这里只管状态和那几样浮在中间栏上的东西。
  */
 import { Codicon } from '@cn/design'
+import { AiIcon } from '../engine-logo'
 import { createPortal } from 'react-dom'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { DreamReport, NoteFile } from '../../shared/api'
@@ -187,7 +188,7 @@ export function PreviewOverlay(props: { pv: DreamPreview }) {
                 预览梦游 · <span className="num">{pv.moves.length}</span>处
               </span>
               <button className="btn btn-ghost btn-xs pv-ask" disabled={!ids.length} onClick={() => pv.ask(ids, `这 ${ids.length} 处`)} aria-label="跟 AI 说哪里不对" data-tip="跟AI说哪里不对" data-side="above">
-                <Codicon name="sparkle" size={14} />
+                <AiIcon job="dream" size={14} />
                 <span className="pv-lb">跟AI说哪里不对</span>
               </button>
               {/* 顺序照设计稿（主界面 design/frame）：跟 AI 说哪里不对 ｜ 丢掉 ｜ 收下这 N 处 ｜ 退出预览 esc */}
@@ -270,7 +271,7 @@ function FeedbackPop(props: { pv: DreamPreview }) {
           取消
         </button>
         <button className="btn btn-primary btn-sm" disabled={!text.trim()} onClick={send}>
-          <Codicon name="sparkle" size={14} />
+          <AiIcon job="dream" size={14} />
           重做<span className="kbd-in">⌘↵</span>
         </button>
       </div>

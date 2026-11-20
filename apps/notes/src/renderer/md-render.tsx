@@ -2,6 +2,7 @@ import { Codicon } from '@cn/design'
 import { detailsHead, wikiLabel } from '@cn/format'
 import type { ReactNode } from 'react'
 import { parseCallout } from './callout'
+import { EngineLogo } from './engine-logo'
 import { MathBlock, MathInline } from './reading/math'
 
 /** 和第 from 行之前那个折叠块配对的 </details> 在第几行（里面套着的折叠块数着开、关跳过）；没有是 -1 */
@@ -138,7 +139,7 @@ export function Markdown({ text, math = false }: { text: string; math?: boolean 
         out.push(
           <div key={key()} className={`md-callout tone-${c.tone}`} data-kind={c.kind}>
             <div className="md-callout-h">
-              <Codicon name={c.icon} size={14} />
+              {c.engine ? <EngineLogo id={c.engine} size={14} /> : <Codicon name={c.icon} size={14} />}
               {cut > 0 ? (
                 <>
                   <span className="md-callout-name">{title.slice(0, cut)}</span>

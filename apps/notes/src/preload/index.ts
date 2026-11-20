@@ -101,6 +101,7 @@ const api: CnApi = {
   aiEngines: (again) => ipcRenderer.invoke('ai:engines', again === true),
   aiPickCli: (id) => ipcRenderer.invoke('ai:cli:pick', id),
   aiSetEngine: (id) => ipcRenderer.invoke('ai:engine:set', id),
+  aiSetOmni: (on) => ipcRenderer.invoke('ai:omni:set', on),
   aiSetChatPick: (pick) => ipcRenderer.invoke('ai:chat:set', pick),
   aiPrefs: () => ipcRenderer.invoke('ai:prefs'),
   aiSetPrefs: (p) => ipcRenderer.invoke('ai:prefs:set', p),

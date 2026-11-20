@@ -56,6 +56,25 @@ async function main() {
   delta('我先')
   delta('看看。')
 
+  // 全能模式的步骤（FAKE_CLAUDE_STEPS=1）：自己跑一条命令（做完）、写一个文件（出错）、调一次我们的 MCP（不该报成步骤）；
+  // 子 Agent 里面的那几步（parent_tool_use_id 不是 null）也不该报
+  if (process.env.FAKE_CLAUDE_STEPS) {
+    const use = (id, name, input, parent = null) => out({ type: 'assistant', session_id: session, parent_tool_use_id: parent, message: { content: [{ type: 'tool_use', id, name, input }] } })
+    const result = (id, content, isError, parent = null) => out({ type: 'user', session_id: session, parent_tool_use_id: parent, message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] } })
+    use('q1', 'ToolSearch', { query: 'select:mcp__canvas__notes_list' })
+    result('q1', '（工具说明）', false)
+    use('b1', 'Bash', { command: 'ls -1 ~', description: 'List home' })
+    result('b1', 'Desktop\nDocuments', false)
+    use('w1', 'Write', { file_path: process.cwd() + '/新笔记.md', content: 'x' })
+    result('w1', [{ type: 'text', text: 'EACCES: permission denied\n第二行' }], true)
+    use('m1', 'mcp__canvas__notes_list', {})
+    result('m1', '（没有）', false)
+    use('t1', 'Task', { description: '查资料', prompt: '去查' })
+    use('s1', 'Grep', { pattern: '子 Agent 里的' }, 't1')
+    result('s1', '没找到', false, 't1')
+    result('t1', '查好了', false)
+  }
+
   const parts = []
   const config = flag('--mcp-config')
   if (config) {
@@ -68,7 +87,7 @@ async function main() {
     })
     const body = await res.json()
     out({ type: 'assistant', session_id: session, message: { content: [{ type: 'tool_use', id: 't1', name: 'mcp__canvas__board_list', input: {} }] } })
-    parts.push(`工具 ${flag('--tools')}`, `放行 ${flag('--allowedTools')}`, `调工具 ${body.result.content[0].text}`, `配置文件 ${mode}`, `轮数 ${flag('--max-turns')}`)
+    parts.push(`工具 ${flag('--tools')}`, `放行 ${flag('--allowedTools')}`, `调工具 ${body.result.content[0].text}`, `配置文件 ${mode}`, `轮数 ${flag('--max-turns')}`, `加目录 ${flag('--add-dir') ?? '没给'}`)
   } else {
     // 只读翻文件：像真的一样先搜再读（assistant 消息里的 tool_use）
     if (flag('--allowedTools') === 'Read,Glob,Grep') {

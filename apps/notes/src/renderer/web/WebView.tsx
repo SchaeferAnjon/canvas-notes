@@ -8,6 +8,7 @@ import { dropWebDragAt, noteWebDrag } from './image-drop'
 import { webReadIpc } from '../reading/web-bridge'
 import { registerWebMenu, type WebMenuHost } from '../ctx/web-menu'
 import { pageOutside } from './page-outside'
+import { type LogoEngine, useAiLogo } from '../engine-logo'
 
 /** webview 元素上我们用到的方法 */
 export interface WebviewEl extends HTMLElement {
@@ -52,6 +53,7 @@ export function WebView(props: {
 }) {
   const ref = useRef<WebviewEl | null>(null)
   const ready = useRef(false)
+  const logosRef = useRef<{ chat: LogoEngine | null; translate: LogoEngine | null }>({ chat: null, translate: null })
   const cb = useRef(props)
   cb.current = props
   const first = useRef(props.initialUrl)
@@ -92,6 +94,7 @@ export function WebView(props: {
       pendingUrl.current = null
       if (next) void w.loadURL(next).catch(() => undefined)
       w.send('cn:mode', cb.current.clipMode)
+      w.send('cn:ai-logo', logosRef.current)
       nav(false)
     }
     const onIpc = (e: Event) => {
@@ -152,6 +155,13 @@ export function WebView(props: {
   useEffect(() => {
     if (ready.current) ref.current?.send('cn:mode', props.clipMode)
   }, [props.clipMode.mode, props.clipMode.target])
+
+  // 网页里画的「翻译」「讲解一下」用哪家的标志（preload/ai-logo.ts）：打开时和设置里换了都发一次
+  const logos = { chat: useAiLogo('chat'), translate: useAiLogo('translate') }
+  logosRef.current = logos
+  useEffect(() => {
+    if (ready.current) ref.current?.send('cn:ai-logo', logos)
+  }, [logos.chat, logos.translate])
 
   return (
     <webview

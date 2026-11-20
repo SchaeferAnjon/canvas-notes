@@ -220,7 +220,12 @@ export interface CnApi {
    * chat 是 {哪家, 模型, effort}（effort 没设过是 high），label 是回答头上写的「Claude Code · Opus 5.5 · High」。
    * again：「重新找一遍」（重新取登录 shell 的 PATH、每家重新跑 --version、Codex 重新问模型列表，跑完再答）
    */
-  aiEngines(again?: boolean): Promise<{ engines: EngineInfo[]; current: EngineId; label: string; chat: AiPick }>
+  aiEngines(again?: boolean): Promise<{ engines: EngineInfo[]; current: EngineId; label: string; chat: AiPick; omni: boolean }>
+  /**
+   * 全能模式（2026-11-19，默认开）：开着时 AI 能读写这台 Mac 上的文件、跑命令、上网、开子 Agent，不停下来问；关着只在库里动手。
+   * AI 对话和读 PDF 共用，记在软件设置目录；开着的 AI 面板收到 onAiPrefsChanged
+   */
+  aiSetOmni(on: boolean): Promise<void>
   /** 输入框底行换了模型、effort（CN-91）：记成设置 › AI「AI 对话」那一行（和换引擎一样，不动默认、梦游、小活），开着的 AI 面板收到 onAiPrefsChanged */
   aiSetChatPick(pick: AiPick): Promise<void>
   /** 「装在别处？指定位置…」（CN-87）：系统选文件框选这家的命令行（或带着它的 App，比如 Codex.app），记在 userData/ai/settings.json、以后排第一个找；
@@ -429,6 +434,8 @@ export interface AiPrefsView {
   /** 各功能实际用的「Claude Code · Opus 5.5」 */
   labels: Record<AiFeature, string>
   engines: EngineInfo[]
+  /** 各功能实际用的那家（AI 图标画它的标志，shared/ai-logo.ts） */
+  uses: Record<AiFeature, EngineId>
 }
 
 /** 哪都写不进去、字只在内存里的一篇：stash 是软件设置目录里的备份（备份也没写进去是 null） */

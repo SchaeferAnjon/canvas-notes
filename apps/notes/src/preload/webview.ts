@@ -5,6 +5,7 @@
  */
 import { codiconSvg } from '@cn/design/codicon-svg'
 import { ipcRenderer } from 'electron'
+import { aiLogoHtml, onAiLogo } from './ai-logo'
 import { installExtPage } from './ext-page'
 import { onPluginState, pluginEnabled } from './plugins/state'
 import { addToGlossary, selectionText, translateSelection } from './plugins/translate'
@@ -48,8 +49,8 @@ function ensure() {
     .tr{position:relative;padding:0 12px 0 11px}
     .tr::before{content:"";position:absolute;left:0;top:8px;bottom:8px;border-left:1px solid rgba(255,255,255,.2)}
     .tr[hidden]{display:none}
-    svg{width:14px;height:14px;flex:none}
-  </style><div class="bar" part="bar"><button class="clip"></button><button class="tr" hidden>${LANGUAGES}翻译</button><button class="tr term" hidden>加进术语表</button></div>`
+    svg,img{width:14px;height:14px;flex:none}
+  </style><div class="bar" part="bar"><button class="clip"></button><button class="tr" hidden></button><button class="tr term" hidden>加进术语表</button></div>`
   button = root.querySelector<HTMLButtonElement>('button.clip')!
   trButton = root.querySelector<HTMLButtonElement>('button.tr:not(.term)')!
   termButton = root.querySelector<HTMLButtonElement>('button.term')!
@@ -78,6 +79,8 @@ function ensure() {
 function render() {
   if (!button || !trButton || !termButton) return
   trButton.hidden = !pluginEnabled('translate')
+  // 翻译交给「译 · 某家」跑：画它的标志，不知道是哪家时画「ab」
+  trButton.innerHTML = `${aiLogoHtml('translate') ?? LANGUAGES}翻译`
   // 一个词或短语（不超过 6 个词、40 个字）才给「加进术语表」
   const t = pending?.text.trim() ?? ''
   termButton.hidden = trButton.hidden || !t || t.length > 40 || t.split(/\s+/).length > 6
@@ -163,4 +166,5 @@ else {
     true,
   )
   onPluginState(() => render())
+  onAiLogo(() => render())
 }

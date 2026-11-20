@@ -3,6 +3,7 @@ import { onMessageMenu } from './ctx/message-menu'
 import { fmValue, isMindmap, resetLayout, splitDoc } from '@cn/format'
 import { Markdown } from './md-render'
 import { AiError } from './ai-error'
+import { ByLogo } from './engine-logo'
 import { pastedUrl } from './paste-images'
 import { AiHead, AwayBar, Chip, type DockNav, Sees } from './ai-head'
 import { AiInput, MatMsg, QuoteCap, sendText, useComposer, useConvPick } from './composer'
@@ -42,13 +43,15 @@ type Action = NonNullable<Msg['actions']>[number]
 
 type Change = NonNullable<StoredMsg['change']>
 
+/** AI 那一格里的命令各用自己的图标（这一格整个都是 AI，引擎标志在输入框底行；同一条命令和 ⌘K 里同一个图标） */
 const ICONS: Record<string, CodiconName> = {
   整理收件箱: 'inbox',
+  整理当前白板: 'layers',
   总结这块白板: 'layout',
   写成文章: 'edit',
   翻译: 'whole-word',
-  找重复: 'check',
-  剪藏当前网页: 'globe',
+  找重复: 'files',
+  剪藏当前网页: 'quote',
   现在梦游: 'wand',
 }
 
@@ -204,7 +207,7 @@ export function AiPanel(props: AiPanelProps) {
    * 文件夹页照小样给这个文件夹的（总结、挪进来、照上一篇开一篇，folder-ai.ts），做不到的不放
    */
   function suggestions(folder: string | null): { text: string; icon: CodiconName; go(): void }[] {
-    const cmd = (name: string) => ({ text: '/' + name, icon: ICONS[name] ?? 'sparkle', go: () => void run('/' + name) })
+    const cmd = (name: string) => ({ text: '/' + name, icon: ICONS[name] ?? 'comment-discussion', go: () => void run('/' + name) })
     const web = props.webOpen && props.webUrl ? [cmd('剪藏当前网页')] : []
     const own =
       folder !== null
@@ -491,9 +494,11 @@ export function AiPanel(props: AiPanelProps) {
         live: false,
         text: r.text || m.text || undefined,
         ...(r.error ? { error: r.error } : {}),
-        ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds } } : {}),
+        ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds, ...(r.moved ? { moved: r.moved } : {}) } } : {}),
+        // 改好了、提交没成功（没署名、锁一直不放）：照实说，「再提交一次」只提交这一轮改的那几个文件
+        ...(r.failed ? { warn: `改好了，提交没成功：${r.failed.failed}`, retry: { paths: r.failed.paths, message: r.failed.message, kinds: r.kinds } } : {}),
       }))
-      if (r.commit) props.onChanged()
+      if (r.commit || r.failed) props.onChanged()
     } finally {
       patch(id, { live: false })
     }
@@ -721,15 +726,17 @@ export function AiPanel(props: AiPanelProps) {
                 <div className="read">
                   {m.read && <Codicon name="check" size={12} />}
                   {m.read && <span className="rd">{m.read}</span>}
-                  {m.by && <span className="by">{m.read ? ' · ' : ''}{m.by}</span>}
+                  {m.by && (
+                    <span className="by">
+                      {m.read ? ' · ' : ''}
+                      <ByLogo by={m.by} />
+                      {m.by}
+                    </span>
+                  )}
                 </div>
               )}
               {m.steps?.map((s) => (
-                <div key={s.id} className={'read tstep ' + s.status} data-testid="ai-step" title={s.detail}>
-                  <Codicon name={s.status === 'run' ? 'loading' : s.status === 'ok' ? 'check' : 'close'} size={12} className={s.status === 'run' ? 'spin' : ''} />
-                  {s.label}
-                  {s.status === 'err' && s.detail && <span className="why">：{s.detail}</span>}
-                </div>
+                <StepRow key={s.id} s={s} />
               ))}
               {m.pending && !m.text && !m.steps?.length && !m.dupProgress && <div className="thinking">{m.engine ? `${engines.find((e) => e.id === m.engine)?.label ?? ''}正在想…` : '正在想…'}</div>}
               {m.error && (
@@ -869,6 +876,7 @@ export function AiPanel(props: AiPanelProps) {
         placeholder={`跟${engines.find((e) => e.id === engine)?.label ?? 'Claude Code'}说，/ 选命令，@ 引用笔记`}
         hint="↵ 发送"
         picks={cp.picks}
+        omni={cp.omni}
         running={running !== null}
         sendDisabled={(!input.trim() && !c.mats.length) || busyElsewhere}
         sendTip={busyElsewhere ? `「${turn!.label}」那边还在答，答完再发` : undefined}
@@ -886,7 +894,7 @@ export function AiPanel(props: AiPanelProps) {
               ? cmdItems.map((it, i) => (
                   <button key={it.name} role="option" aria-selected={i === menuIdx} className={i === menuIdx ? 'on' : ''} onMouseDown={(e) => (e.preventDefault(), pick(i))}>
                     <span className="ib">
-                      <Codicon name={ICONS[it.name] ?? 'sparkle'} size={14} />
+                      <Codicon name={ICONS[it.name] ?? 'comment-discussion'} size={14} />
                     </span>
                     <span>
                       <b>{it.name}</b>
@@ -921,13 +929,36 @@ const DUP_PAGE = 50
 const byScore = (pairs: DuplicatePair[]) => pairs.sort((x, y) => y.score - x.score || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
 
 
-function ChangeBlock({ change, onRevert, onHistory }: { change: Change; onRevert(): void; onHistory(): void }) {
+/**
+ * 一步的那一行（DESIGN.v3 2.3）：在做转圈、做完绿勾、出错红叉跟原因；命令、库外的路径是等宽的一段，和前面的字之间留 3px（不手打空格）。
+ * AI 对话、读 PDF 的回答共用
+ */
+export function StepRow({ s }: { s: ToolStep }) {
+  return (
+    <div className={'read tstep ' + s.status} data-testid="ai-step" title={s.detail ?? s.code}>
+      <Codicon name={s.status === 'run' ? 'loading' : s.status === 'ok' ? 'check' : 'close'} size={12} className={s.status === 'run' ? 'spin' : ''} />
+      {s.label}
+      {s.code && <code className="sc">{s.code}</code>}
+      {s.status === 'err' && s.detail && <span className="why">：{s.detail}</span>}
+    </div>
+  )
+}
+
+/**
+ * AI 这一轮的改动预览（DESIGN.md「AI 改动预览」）：改了几个文件 · 提交号 · 撤回；读 PDF 的回答下面也用它（没有「在历史里看」时不放那颗）。
+ * 改名、挪动的一篇只占一行「旧名 → 新名」（Git 没认出改名时旧路径那行不单列，加减行数也不写：那是整篇删了又加的数）
+ */
+export function ChangeBlock({ change, onRevert, onHistory }: { change: Change; onRevert(): void; onHistory?(): void }) {
   const c: CommitInfo = change.commit
+  const moved = change.moved ?? {}
+  const olds = new Set(Object.values(moved))
+  const listed = new Set(c.files.map((f) => f.path))
+  const files = c.files.filter((f) => !olds.has(f.path))
   return (
     <div className={'aichg' + (change.reverted ? ' reverted' : '')} data-testid="ai-change">
       <div className="hd">
         <Codicon name="git-commit" size={14} />
-        {change.reverted ? '已撤回' : `改了${c.files.length}个文件`}
+        {change.reverted ? '已撤回' : `改了${files.length}个文件`}
         <code>{(change.reverted ?? c).hash.slice(0, 7)}</code>
         <span className="sp" />
         {!change.reverted && (
@@ -937,19 +968,34 @@ function ChangeBlock({ change, onRevert, onHistory }: { change: Change; onRevert
           </button>
         )}
       </div>
-      {c.files.map((f) => (
-        <div key={f.path} className="fr">
-          <span className="truncate">{f.path}</span>
-          <span className="k">{change.kinds[f.path] ?? (f.removed === 0 && f.added > 0 ? '新' : '改')}</span>
-          <span className="num add">+{f.added}</span>
-          <span className="num del">−{f.removed}</span>
-        </div>
-      ))}
+      {files.map((f) => {
+        const from = moved[f.path]
+        // Git 自己认出了改名（旧路径不在单子上）：加减行数是真的改了几行；没认出时那是整篇删了又加，不写
+        const counts = !from || !listed.has(from)
+        return (
+          <div key={f.path} className={'fr' + (from ? ' renamed' : '')}>
+            {from ? (
+              <span className="truncate" title={`${from} → ${f.path}`}>
+                <span className="was">{from}</span>
+                <Codicon name="arrow-right" size={12} className="to" />
+                {f.path}
+              </span>
+            ) : (
+              <span className="truncate">{f.path}</span>
+            )}
+            <span className="k">{change.kinds[f.path] ?? (f.removed === 0 && f.added > 0 ? '新' : '改')}</span>
+            {counts && <span className="num add">+{f.added}</span>}
+            {counts && <span className="num del">−{f.removed}</span>}
+          </div>
+        )
+      })}
       <div className="ft">
         {change.reverted ? '又做了一次反向提交，文件回到了AI改之前' : change.only ? '自动提交收进去的' : '已提交到main'}
-        <button className="lnk" onClick={onHistory}>
-          在历史里看
-        </button>
+        {onHistory && (
+          <button className="lnk" onClick={onHistory}>
+            在历史里看
+          </button>
+        )}
       </div>
     </div>
   )

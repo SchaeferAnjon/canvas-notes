@@ -5,10 +5,13 @@
  *
  * false / null / undefined / 空字符串的项直接跳过，方便按情况拼；'-' 是分隔线（开头结尾、连着的会去掉）。
  */
-import type { CtxItem, EditCmd } from '../../shared/ctx-menu'
+import type { AiJob } from '../../shared/ai-logo'
+import type { CtxIcon, CtxItem, EditCmd } from '../../shared/ctx-menu'
+import { aiLogoNow, type LogoEngine, logoPng } from '../engine-logo'
 
 export type MenuEntry =
-  | { label: string; run(): unknown; enabled?: boolean; checked?: boolean; accel?: string }
+  /** ai：交给 AI 引擎跑的这一项，左边画跑它的那一家的标志（偏好「AI 图标用引擎标志」） */
+  | { label: string; run(): unknown; enabled?: boolean; checked?: boolean; accel?: string; ai?: AiJob }
   | { label: string; submenu: MenuEntry[]; enabled?: boolean }
   | { edit: EditCmd; enabled?: boolean }
   | { spell: string }
@@ -28,8 +31,8 @@ export function setMenuNotice(fn: (text: string) => void) {
 
 const errText = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
-/** 拆成发给主进程的项和 id → run */
-export function compile(entries: MenuEntry[], runs = new Map<string, () => unknown>(), prefix = ''): { items: CtxItem[]; runs: Map<string, () => unknown> } {
+/** 拆成发给主进程的项和 id → run；icons：AI 那几项的标志画成的图（showMenu 先画好） */
+export function compile(entries: MenuEntry[], runs = new Map<string, () => unknown>(), prefix = '', icons = new Map<LogoEngine, CtxIcon>()): { items: CtxItem[]; runs: Map<string, () => unknown> } {
   const items: CtxItem[] = []
   entries.forEach((e, i) => {
     if (!e) return
@@ -37,19 +40,21 @@ export function compile(entries: MenuEntry[], runs = new Map<string, () => unkno
     if ('edit' in e || 'spell' in e || 'copyImageAt' in e) return void items.push(e)
     const id = prefix + i
     if ('submenu' in e) {
-      const sub = compile(e.submenu, runs, id + '.').items
+      const sub = compile(e.submenu, runs, id + '.', icons).items
       if (sub.length) items.push({ id, label: e.label, submenu: sub, ...(e.enabled === false ? { enabled: false } : {}) })
       return
     }
     runs.set(id, e.run)
-    items.push({ id, label: e.label, ...(e.enabled === false ? { enabled: false } : {}), ...(e.checked !== undefined ? { checked: e.checked } : {}), ...(e.accel ? { accel: e.accel } : {}) })
+    const logo = e.ai ? aiLogoNow(e.ai) : null
+    const icon = logo ? icons.get(logo) : undefined
+    items.push({ id, label: e.label, ...(e.enabled === false ? { enabled: false } : {}), ...(e.checked !== undefined ? { checked: e.checked } : {}), ...(e.accel ? { accel: e.accel } : {}), ...(icon ? { icon } : {}) })
   })
   return { items, runs }
 }
 
 /** 弹菜单，等用户点完；target：编辑项对哪个网页做（右栏网页的 webContents id） */
 export async function showMenu(entries: MenuEntry[], target?: number): Promise<void> {
-  const { items, runs } = compile(entries)
+  const { items, runs } = compile(entries, undefined, undefined, await menuIcons(entries))
   if (!items.some((it) => !('type' in it))) return
   const picked = await window.cnMenu.popup(items, target)
   const run = picked === null ? undefined : runs.get(picked)
@@ -59,6 +64,32 @@ export async function showMenu(entries: MenuEntry[], target?: number): Promise<v
   } catch (e) {
     notice(errText(e))
   }
+}
+
+/** 菜单里 AI 那几项要的标志，画成图（每家画一次就记着，之后几乎不花时间）；画不出来就不放图 */
+async function menuIcons(entries: MenuEntry[]): Promise<Map<LogoEngine, CtxIcon>> {
+  const want = new Set<LogoEngine>()
+  const walk = (list: MenuEntry[]) => {
+    for (const e of list) {
+      if (!e || typeof e !== 'object') continue
+      if ('submenu' in e) walk(e.submenu)
+      else if ('ai' in e && e.ai) {
+        const id = aiLogoNow(e.ai)
+        if (id) want.add(id)
+      }
+    }
+  }
+  walk(entries)
+  const out = new Map<LogoEngine, CtxIcon>()
+  await Promise.all(
+    [...want].map((id) =>
+      logoPng(id).then(
+        (i) => void out.set(id, i),
+        (err) => console.error(err),
+      ),
+    ),
+  )
+  return out
 }
 
 /** 右键事件里用：拦住系统默认（不然主进程又兜底弹一个）、不往外冒，再弹自己的 */

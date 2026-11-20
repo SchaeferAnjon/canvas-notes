@@ -10,6 +10,7 @@
  * 旁支的问答存在读 PDF 的对话记录里（store.ts），重开软件还在；答完记进笔记，挂在被问那一问的回答后面。
  */
 import { Codicon } from '@cn/design'
+import { AiIcon } from '../engine-logo'
 import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { ReadingSide } from '../../shared/reading'
@@ -170,7 +171,7 @@ export function AskBox(p: {
       </button>
       <button className="it" onMouseDown={(e) => e.preventDefault()} onClick={() => ask(q)}>
         <span className="ck">
-          <Codicon name="comment-discussion" size={14} />
+          <AiIcon job="chat" size={14} />
         </span>
         问这句<span className="r">↵</span>
       </button>

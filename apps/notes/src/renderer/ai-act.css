@@ -98,7 +98,7 @@
 .ai-cursor.follow {
   transition: opacity 0.2s;
 }
-.ai-cursor svg {
+.ai-cursor > svg {
   display: block;
   width: 20px;
   height: 20px;
@@ -108,16 +108,31 @@
   stroke-linejoin: round;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
 }
-.ai-cursor span {
+.ai-cursor > span {
   position: absolute;
   left: 16px;
   top: 16px;
-  padding: 1px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px 1px 2px;
   border-radius: 999px;
   background: var(--acc-bg);
   font: 500 11px/1.5 var(--sans);
-  color: #fff;
+  /* 深色主题的强调色是浅的：字用强调色上的字色 */
+  color: var(--acc-on);
   white-space: nowrap;
+}
+/* 胶囊里动手的那一家的标志：白底小圆里 10（Claude 的橙色、Codex 的黑色在强调色上都看得清） */
+.ai-cursor .lg {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  /* 小圆用强调色上的字色、单色标志用强调色：哪套主题都和胶囊分得开 */
+  background: var(--acc-on);
+  color: var(--acc-bg);
 }
 /* 正在拿的那样东西：2px --acc-ring 外圈，约 0.5 秒 */
 .ai-grab-ring {

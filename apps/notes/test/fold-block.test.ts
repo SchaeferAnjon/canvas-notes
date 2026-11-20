@@ -20,9 +20,12 @@ describe('提示块（CN-59）', () => {
     expect(parseCallout('> 普通引用')).toBeNull()
   })
 
-  it('[!ai]：sparkle、能收起；[!x]- 默认收着', () => {
+  it('[!ai]：画写它的那一家的标志（标题里写着），没写哪家画对话图标、不画闪光；能收起；[!x]- 默认收着', () => {
     const ai = parseCallout('> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了第 3 页')!
-    expect(ai).toMatchObject({ kind: 'ai', icon: 'sparkle', tone: 'acc', foldable: true, folded: false, title: 'AI 讲解 · Claude Code · Opus 5.5 · 看了第 3 页' })
+    expect(ai).toMatchObject({ kind: 'ai', engine: 'claude', tone: 'acc', foldable: true, folded: false, title: 'AI 讲解 · Claude Code · Opus 5.5 · 看了第 3 页' })
+    expect(parseCallout('> [!ai] AI 讲解 · Codex · 看了这一屏')).toMatchObject({ engine: 'codex' })
+    expect(parseCallout('> [!ai] AI 讲解')).toMatchObject({ icon: 'comment-discussion', engine: null })
+    expect(parseCallout('> [!note] 注')).toMatchObject({ engine: null })
     expect(parseCallout('> [!note]- 收着的')).toMatchObject({ foldable: true, folded: true })
     expect(parseCallout('> [!note] 不能收')).toMatchObject({ foldable: false })
   })

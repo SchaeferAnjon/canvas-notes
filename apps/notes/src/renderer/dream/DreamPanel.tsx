@@ -1,7 +1,7 @@
 import { folderLabel } from '../vault-name'
 import { Codicon, type CodiconName } from '@cn/design'
 import { engineOfLabel } from '../../shared/ai-features'
-import { EngineLogo } from '../engine-logo'
+import { AiIcon, EngineLogo } from '../engine-logo'
 import { Fragment, useEffect, useState } from 'react'
 import type { DreamGroup, DreamItem, DreamReport } from '../../shared/api'
 import { baseName, type DiffEntry, type DiffSource } from '../../shared/diff'
@@ -88,7 +88,7 @@ export function DreamPanel(props: {
             <p>还没梦游过。Mac闲着超过15分钟时会自己整理一遍：收件箱分类、补上双链、找出可能重复的、写本周小结。</p>
             <p>改动都放在单独的分支上，你点「收下」才进main，你写的正文一个字不动。</p>
             <button className="btn" disabled={busy} onClick={() => void dreamNow()}>
-              <Codicon name="wand" size={14} />
+              <AiIcon job="dream" size={14} />
               现在梦游
             </button>
           </div>
@@ -109,7 +109,7 @@ export function DreamPanel(props: {
             ))}
             {report.closed && left === 0 && (
               <button className="btn btn-sm" disabled={busy} onClick={() => void dreamNow()}>
-                <Codicon name="wand" size={14} />
+                <AiIcon job="dream" size={14} />
                 再梦游一次
               </button>
             )}
@@ -337,7 +337,7 @@ function Detail(props: {
           )}
           {props.onAsk && (
             <button className="btn btn-ghost btn-sm" disabled={props.busy} onClick={props.onAsk}>
-              <Codicon name="sparkle" size={12} />
+              <AiIcon job="dream" size={12} />
               跟AI说
             </button>
           )}
@@ -456,7 +456,7 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
                 )}
                 <div className="dbulk-act">
                   <button className="btn btn-ghost btn-xs" disabled={!g.pending.length} onClick={() => pv.ask(g.pending.map((i) => i.id), `这组（${g.folder}）`)}>
-                    <Codicon name="sparkle" size={12} />
+                    <AiIcon job="dream" size={12} />
                     跟AI说这组哪里不对
                   </button>
                   <button className="btn btn-ghost btn-xs" disabled={!g.pending.length || pv.busy} onClick={() => void pv.drop(g.pending.map((i) => i.id))}>

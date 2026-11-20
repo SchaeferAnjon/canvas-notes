@@ -7,14 +7,20 @@ export type EditCmd = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'pasteAndMatc
 
 export type CtxItem =
   | { type: 'separator' }
-  /** 普通的一项：点了把 id 回给界面 */
-  | { id: string; label: string; enabled?: boolean; checked?: boolean; accel?: string; submenu?: CtxItem[] }
+  /** 普通的一项：点了把 id 回给界面；icon：左边的图（AI 那几项画跑它的那家的标志，界面画好的 32 像素 PNG） */
+  | { id: string; label: string; enabled?: boolean; checked?: boolean; accel?: string; icon?: CtxIcon; submenu?: CtxItem[] }
   /** 编辑项：主进程直接对目标网页做 */
   | { edit: EditCmd; enabled?: boolean }
   /** 拼写建议：把拼错的词换成它 */
   | { spell: string }
   /** 拷贝点着的那张图（网页坐标） */
   | { copyImageAt: { x: number; y: number } }
+
+/** 菜单项的图：32 像素 PNG（菜单里按 2 倍图画成 16 点）；template：单色，系统按菜单的字色画 */
+export interface CtxIcon {
+  png: string
+  template: boolean
+}
 
 export const EDIT_LABEL: Record<EditCmd, string> = {
   undo: '撤销',
@@ -114,6 +120,11 @@ export function labelOf(it: CtxItem): string {
   return it.label
 }
 
+function validIcon(v: unknown): v is CtxIcon {
+  const o = v as Record<string, unknown> | null
+  return !!o && typeof o === 'object' && typeof o.png === 'string' && o.png.length < 200_000 && o.png.startsWith('data:image/png;base64,') && typeof o.template === 'boolean'
+}
+
 /** 从主进程收到的项先查一遍形状（界面是我们自己的，但走的是进程边界） */
 export function validItems(v: unknown, depth = 0): v is CtxItem[] {
   if (!Array.isArray(v) || depth > 3 || v.length > 80) return false
@@ -127,7 +138,7 @@ export function validItems(v: unknown, depth = 0): v is CtxItem[] {
       const p = o.copyImageAt as Record<string, unknown>
       return typeof p.x === 'number' && typeof p.y === 'number'
     }
-    return typeof o.id === 'string' && typeof o.label === 'string' && (o.submenu === undefined || validItems(o.submenu, depth + 1))
+    return typeof o.id === 'string' && typeof o.label === 'string' && (o.icon === undefined || validIcon(o.icon)) && (o.submenu === undefined || validItems(o.submenu, depth + 1))
   })
 }
 

@@ -3,6 +3,8 @@ import { useState } from 'react'
 import type { FrameStyle } from '../../shared/appearance'
 import type { GitState, StrandedNote } from '../../shared/api'
 import { when } from '../../shared/when'
+import type { AiJob } from '../../shared/ai-logo'
+import { AiIcon } from '../engine-logo'
 import { MenuItem, Popover } from './Shell'
 
 const KIND: Record<string, string> = { '??': '新', A: '新', M: '改', D: '删', R: '移动' }
@@ -12,6 +14,8 @@ const kindOf = (code: string) => KIND[code] ?? KIND[code.trim()[0] ?? ''] ?? '�
 export interface Job {
   id: string
   icon: 'wand' | 'cloud-download' | 'note'
+  /** AI 在做的（梦游、视频框一块问）：画跑它的那一家的标志 */
+  ai?: AiJob
   text: string
   onClick?(): void
 }
@@ -165,7 +169,7 @@ export function StatusBar(props: {
         <Popover anchor={pop.el} label="后台在做的事" onClose={() => setPop(null)}>
           <div className="mh">后台在做的事</div>
           {props.jobs.map((j) => (
-            <MenuItem key={j.id} icon={j.icon} label={j.text} onClick={() => (setPop(null), j.onClick?.())} />
+            <MenuItem key={j.id} icon={j.icon} glyph={j.ai && <AiIcon job={j.ai} size={16} fallback={j.icon} />} label={j.text} onClick={() => (setPop(null), j.onClick?.())} />
           ))}
         </Popover>
       )}

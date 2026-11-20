@@ -16,7 +16,7 @@ import { HeadBtn, ViewHead } from './shell/Shell'
 import './sidebar.css'
 import type { Tab } from './tabs'
 import { useNewNoteBusy } from './new-note-hold'
-import { EngineLogo, useChatEngine } from './engine-logo'
+import { AiIcon, EngineLogo, useChatEngine } from './engine-logo'
 
 /**
  * 左栏（2026-11-17 用户定 `左栏按维度组织`）：「文件」按位置（目录树）、「最近」按时间；
@@ -121,7 +121,7 @@ export function Sidebar(props: {
           {folder === INBOX_DIR && inboxN > INBOX_WARN && (
             <div className="sall s-warn">
               <button className="si s-tidy" aria-label={`收件箱堆了${inboxN}条，让AI按主题分进剪藏`} data-tip="跑 /整理收件箱：只给建议，点同意之前一条都不挪" data-side="right" onClick={props.onTidy}>
-                <Codicon name="sparkle" size={14} />
+                <AiIcon job="chat" size={14} />
                 <span className="truncate">{`收件箱堆了${inboxN}条 · 让AI分一分`}</span>
               </button>
             </div>
@@ -193,7 +193,7 @@ function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
       >
         <HeadBtn icon="new-file" label="新建笔记" keys="⌘N" busy={newBusy} onClick={props.onNewNote} />
         <HeadBtn icon="layout" label="新建白板" onClick={props.onNewBoard} />
-        <HeadBtn icon="sparkle" glyph={<EngineLogo id={engine.id} size={15} />} label="问AI" keys="⌘J" onClick={props.onAskAi} />
+        <HeadBtn icon="comment-discussion" glyph={<EngineLogo id={engine.id} size={15} />} label="问AI" keys="⌘J" onClick={props.onAskAi} />
         <HeadBtn icon="link-external" label="在中间打开" onClick={props.onOpenRecent} />
       </ViewHead>
       <TypeChips value={type} onChange={setType} className="side-chips" />

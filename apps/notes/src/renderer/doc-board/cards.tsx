@@ -6,6 +6,8 @@
  * 只读：卡上能做的（勾待办、点开折叠块、复制代码）交给 DocBoardView 写回。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import type { EngineId } from '../../shared/agent'
+import { EngineLogo } from '../engine-logo'
 import { type AskSection, baseRows, colType, type DocUnit, parseBase, parseSection, parseTable, prop } from '@cn/format'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
@@ -51,7 +53,7 @@ interface Source {
 export type Face =
   | { k: 'text' | 'list' | 'html'; md: string }
   | { k: 'todo'; rows: { line: number; done: boolean; text: string }[] }
-  | { k: 'callout'; kind: string; icon: CodiconName; tone: string; title: string; meta: string; body: string }
+  | { k: 'callout'; kind: string; icon: CodiconName; engine: EngineId | null; tone: string; title: string; meta: string; body: string }
   | { k: 'code'; lang: string; lines: string[] }
   | { k: 'math'; tex: string[] }
   | { k: 'table'; head: string[]; rows: string[][]; right: boolean[] }
@@ -195,7 +197,7 @@ export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'fi
         .slice(1)
         .map((l) => l.replace(/^\s*>\s?/, ''))
         .join('\n')
-      return { k: 'callout', kind: c.kind, icon: c.icon, tone: c.tone, title: cut > 0 ? title.slice(0, cut) : title, meta: cut > 0 ? title.slice(cut + 3) : '', body }
+      return { k: 'callout', kind: c.kind, icon: c.icon, engine: c.engine, tone: c.tone, title: cut > 0 ? title.slice(0, cut) : title, meta: cut > 0 ? title.slice(cut + 3) : '', body }
     }
     case 'quote':
       // 网页剪下来的一段（> 原文 + —— [标题](网址)）、书摘（—— [《书》 · 章](阅读页)、> [!quote] [《书》 · 章](…)）
@@ -342,7 +344,7 @@ function Main({ u, f, ctx, acts }: { u: DocUnit; f: Face; ctx: CardCtx; acts: Ca
       return (
         <div className={`cl tone-${f.tone}`} data-kind={f.kind}>
           <div className="ct">
-            <Codicon name={f.icon} size={14} />
+            {f.engine ? <EngineLogo id={f.engine} size={14} /> : <Codicon name={f.icon} size={14} />}
             <span className="nm">{f.title}</span>
             {f.meta && <span className="eng">{f.meta}</span>}
           </div>

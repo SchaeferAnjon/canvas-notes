@@ -1,8 +1,8 @@
 /** 读 PDF 边读边问：界面和主进程之间来回传的东西 */
 import type { AskSection, DoubtItem, PdfBlock, Rect } from '@cn/format'
 import { type FigureBox, parseFigureMark, stripFigureMark } from '@cn/format'
-import type { CommitInfo } from './api'
-import type { EngineId } from './agent'
+import type { AiCommitFailed, CommitInfo } from './api'
+import type { EngineId, ToolStep } from './agent'
 import type { AiPick } from './ai-features'
 import type { Material } from './materials'
 
@@ -64,6 +64,12 @@ export interface ReadingMsg {
   vizOk?: boolean
   /** 做个可视化：在做、做好了（库里的 HTML）、没做成 */
   viz?: { state: 'making' } | { state: 'done'; path: string; title: string } | { state: 'error'; error: string }
+  /** AI 这一问动手的每一步（我们的工具、全能模式下它自己跑命令、写文件……），和 AI 对话的步骤行一样 */
+  steps?: ToolStep[]
+  /** 这一问 AI 改了库里的文件：那次提交（「改了 N 个文件 · 撤回」）；reverted：撤回了 */
+  change?: { commit: CommitInfo; kinds: Record<string, string>; reverted?: CommitInfo; moved?: Record<string, string> }
+  /** 改好了、提交没成功 */
+  warn?: string
 }
 
 /**
@@ -138,9 +144,16 @@ export interface AskRequest {
 export interface AskResult {
   text: string
   error?: string
+  /** 这一问 AI 动手改了库里的文件（2026-11-19：读 PDF 也能新建、改名、挪、删笔记，全能模式下还能自己写文件）：一次提交 */
+  commit?: CommitInfo | null
+  kinds?: Record<string, string>
+  failed?: AiCommitFailed
+  /** 改名、挪动了的：新路径 → 旧路径 */
+  moved?: Record<string, string>
 }
 
-export type AskEvent = { type: 'text'; delta: string }
+/** 边答边给：字，和动手的每一步（同 AI 对话的 AiEvent） */
+export type AskEvent = { type: 'text'; delta: string } | { type: 'tool'; id: string; label: string; code?: string; status: 'run' | 'ok' | 'err'; detail?: string }
 
 /**
  * 后台的两件小活（CN-93、94、96）：给快的模型看这一轮（主对话 + 旁支）的问答，要这一轮的标题和一句小结。

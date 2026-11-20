@@ -116,8 +116,12 @@ test('CN-91 方向 C：谁来答、模型、effort 三颗在输入框底行（�
     }
     const send = ai.getByRole('button', { name: '发送' })
     expect(await box(send)).toMatchObject({ width: 28, height: 28 })
-    // 输入框外形：外边距 8 12 12、圆角 12、内边距 8 10 6
-    expect(await css(ai.locator('.aiin'), ['margin', 'padding', 'border-radius'])).toEqual({ margin: '8px 12px 12px', padding: '8px 10px 6px', 'border-radius': '12px' })
+    // 输入框外形：外边距 8 12 6（下面是全能模式那一行，2026-11-19）、圆角 12、内边距 8 10 6
+    expect(await css(ai.locator('.aiin'), ['margin', 'padding', 'border-radius'])).toEqual({ margin: '8px 12px 6px', padding: '8px 10px 6px', 'border-radius': '12px' })
+    // 全能模式那一行：22 高的一颗开关，外边距 0 16 6（开关和输入框里的「+」对齐，到这一格底 6）
+    const omni = ai.getByTestId('ai-omni')
+    expect(await css(omni, ['margin'])).toEqual({ margin: '0px 16px 6px' })
+    expect((await box(omni.getByRole('switch', { name: '全能模式' }))).height).toBe(22)
 
     // 谁来答：320 宽、往上弹、头「谁来答」，每行右边写在哪找到，没找到的灰掉，分隔线下面「装在别处？指定位置…」
     await eng.click()

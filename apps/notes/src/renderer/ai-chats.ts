@@ -117,7 +117,7 @@ function listen() {
       if (e.type === 'text') return { ...m, text: (m.text ?? '') + e.delta }
       const steps = [...(m.steps ?? [])]
       const i = steps.findIndex((s) => s.id === e.id)
-      const step: ToolStep = { id: e.id, label: e.label, status: e.status, ...(e.detail ? { detail: e.detail } : {}) }
+      const step: ToolStep = { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}) }
       if (i === -1) steps.push(step)
       else steps[i] = step
       return { ...m, steps }

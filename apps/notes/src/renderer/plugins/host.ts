@@ -41,6 +41,13 @@ export function usePlugins(): PluginInfo[] {
 
 export const pluginInfo = (id: string) => list.find((p) => p.id === id)
 
+/** 不在 React 里听插件表（开关、设置）变了 */
+export function onPlugins(f: () => void): () => void {
+  load()
+  listSubs.add(f)
+  return () => listSubs.delete(f)
+}
+
 /** 插件在右竖条的那一格要开的网址，和「已经开着就切过去」认的网站（网址的 origin） */
 export function entryTarget(e: NonNullable<PluginInfo['entry']>): { url: string; reuse: string } {
   return { url: e.url, reuse: new URL(e.url).origin + '/' }
