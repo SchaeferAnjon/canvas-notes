@@ -66,7 +66,7 @@ test('网页：链接右键「在中间栏打开」「剪进收件箱」「拷�
     await openWeb(page, `${base}/rich`)
     await rightClick(page, 'a1')
     const m = await openedMenu(run)
-    expect(menuLabels(m)).toEqual(['在新标签打开', '在中间栏打开', '拷贝链接', '剪进收件箱', '后退', '前进', '重新载入', '双语翻译', '整页剪藏'])
+    expect(menuLabels(m)).toEqual(['在新标签打开', '在中间栏打开', '拷贝链接', '剪进收件箱', '后退', '前进', '重新载入', '双语翻译', '剪藏这一页'])
     await pickMenu(run, '拷贝链接')
     await expect.poll(() => clipboardText(run)).toBe(`${base}/two`)
 
@@ -83,8 +83,8 @@ test('网页：链接右键「在中间栏打开」「剪进收件箱」「拷�
     await rightClick(page, 'blank')
     const m2 = await openedMenu(run)
     expect(enabledOf(m2, '前进')).toBe(false)
-    expect(menuLabels(m2)).toEqual(['后退', '前进', '重新载入', '双语翻译', '整页剪藏'])
-    await pickMenu(run, '整页剪藏')
+    expect(menuLabels(m2)).toEqual(['后退', '前进', '重新载入', '双语翻译', '剪藏这一页'])
+    await pickMenu(run, '剪藏这一页')
     await expect.poll(() => inbox(vault).length).toBe(2)
   } finally {
     await run.close()

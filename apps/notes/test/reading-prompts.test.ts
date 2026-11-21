@@ -131,8 +131,13 @@ describe('两种模式怎么告诉 AI（2026-11-19，全能模式默认开）', 
     // 笔记和文件夹那组工具写进去了
     expect(AGENT_SYSTEM).toContain('note_*、folder_create')
     expect(TUTOR_SYSTEM).toContain('新建、改写、改名、挪动、删笔记')
-    // 系统提示改了：AI 对话的旧会话不再接着用
-    expect(AGENT_VERSION).toBe(2)
+    // 系统提示改了：AI 对话的旧会话不再接着用（3：改了开着的文件编辑器当场换，2026-11-21）
+    expect(AGENT_VERSION).toBe(3)
+  })
+
+  it('AI 改了开着的文件：系统提示说清编辑器当场换成新内容、用户正在打的字合并进来，不叫用户关掉标签再打开（2026-11-21 task-wnbi1）', () => {
+    expect(AGENT_SYSTEM).toContain('开着的编辑器当场换成新内容')
+    expect(AGENT_SYSTEM).toContain('不用叫用户关掉标签再打开')
   })
 
   it('每条消息开头的【模式】：开着说能做什么、工作目录是库；关着说做不了什么、怎么打开', () => {

@@ -1,0 +1,490 @@
+/* ⌘K 就地改（DESIGN.v3 第 3 节，cmdk 小样 design/cmdk/proto-a.html）：组间横线、行右端的别名 / 键 / ⋯ / 把手、
+   一条命令的菜单、设快捷键和起别名的小弹层、自己的命令表单、底部撤回条、拖着换组。外壳（.pal、.pal-in、.pal-row）在 app.css */
+
+.pal {
+  position: relative;
+}
+
+/* 组和组之间一道横线，组名写在线下 */
+.pal-sec + .pal-sec,
+.pal-sec2 {
+  border-top: 1px solid var(--line);
+  margin-top: 6px;
+  padding-top: 2px;
+}
+.pal-div {
+  height: 1px;
+  margin: 6px 0 2px;
+  background: var(--line);
+}
+.pal-empty {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px 0 38px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.pal-empty.drop {
+  background: var(--acc-soft);
+  color: var(--acc-t);
+}
+
+.pal-row {
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pal-row .pal-rt {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pal-alias {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--fill);
+  font-size: 11px;
+  color: var(--t3);
+}
+.pal-tag {
+  padding: 0 5px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.pal-more {
+  width: 24px;
+  height: 24px;
+  display: none;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.pal-row:hover .pal-more,
+.pal-row.on .pal-more,
+.pal-more.open {
+  display: grid;
+}
+.pal-more:hover,
+.pal-more.open {
+  background: var(--fill);
+}
+.pal-grip {
+  position: absolute;
+  left: -1px;
+  top: 50%;
+  width: 12px;
+  display: grid;
+  place-items: center;
+  transform: translateY(-50%);
+  color: var(--t3);
+  opacity: 0;
+  cursor: grab;
+}
+.pal-row:hover .pal-grip {
+  opacity: 1;
+}
+.pal-row.sr.child {
+  padding-left: 38px;
+}
+.pal-row .chev {
+  flex: none;
+  display: inline-grid;
+  color: var(--t3);
+  transition: transform 0.15s;
+}
+.pal-row.exp .chev {
+  transform: rotate(90deg);
+}
+.pal-row.add .nm,
+.pal-row.add .i {
+  color: var(--t2);
+}
+.pal-row.hid {
+  opacity: 0.62;
+}
+.pal-row.dragging {
+  opacity: 0.3;
+}
+.pal-put {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--acc-t);
+}
+.pal-put:hover {
+  background: var(--fill);
+}
+
+/* 每次改完底部一条：撤回 */
+.pal-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 46px;
+  z-index: 5;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 6px 0 12px;
+  border-radius: 8px;
+  background: var(--solid);
+  box-shadow: var(--shadow-up);
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: var(--solid-t);
+  white-space: nowrap;
+}
+.pal-toast button {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 500 12px var(--sans);
+  color: var(--solid-t);
+  opacity: 0.85;
+}
+.pal-toast button:hover {
+  background: rgba(127, 127, 127, 0.25);
+  opacity: 1;
+}
+
+/* 拖着换组：略歪的整行跟着鼠标，落点一条强调色横线 */
+.pal-dragrow {
+  position: fixed;
+  z-index: 210;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  opacity: 0.82;
+  transform: translate(14px, -10px) rotate(-1deg);
+  pointer-events: none;
+  font-size: 13px;
+  color: var(--t1);
+}
+.pal-dragrow .i {
+  color: var(--t2);
+}
+.pal-dropline {
+  position: fixed;
+  z-index: 200;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--acc);
+  pointer-events: none;
+}
+.pal-dropline::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border: 2px solid var(--acc);
+  border-radius: 50%;
+  background: var(--pop);
+}
+
+/* 一条命令的菜单 */
+.pal-menu {
+  position: fixed;
+  z-index: 80;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  color: var(--t1);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.pal-menu.pal-sub {
+  position: absolute;
+}
+.pal-menu [role='group'] + [role='group'] {
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px solid var(--line);
+}
+.pal-mhead {
+  padding: 4px 10px 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.pal-mi {
+  position: relative;
+  width: 100%;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.pal-mi:hover,
+.pal-mi.kb,
+.pal-mi:focus-visible {
+  background: var(--fill2);
+  outline: none;
+}
+.pal-mi > .ci {
+  color: var(--t2);
+}
+.pal-mi kbd {
+  margin-left: auto;
+  padding-left: 12px;
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+.pal-mi .h {
+  max-width: 130px;
+  margin-left: auto;
+  padding-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--t3);
+}
+.pal-mi .sub {
+  margin-left: auto;
+  display: inline-grid;
+  color: var(--t3);
+}
+.pal-mi.danger,
+.pal-mi.danger > .ci {
+  color: var(--red);
+}
+.pal-mi:disabled,
+.pal-mi:disabled > .ci {
+  color: var(--t3);
+}
+.pal-mi:disabled:hover {
+  background: none;
+}
+
+/* 设快捷键、起别名、新的一组 */
+.pal-mini {
+  position: fixed;
+  z-index: 90;
+  width: 300px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  color: var(--t1);
+  outline: none;
+}
+.pal-mini .t {
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.pal-mini .keys {
+  height: 40px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 10px;
+  border: 1px dashed var(--line2);
+  border-radius: 8px;
+  font-size: 15px;
+  color: var(--t1);
+}
+.pal-mini .keys.wait {
+  font-size: 12px;
+  color: var(--t3);
+}
+.pal-mini .why {
+  margin: -4px 0 10px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.pal-mini input {
+  width: 100%;
+  height: 30px;
+  margin-bottom: 10px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.pal-mini input:focus,
+.pal-form input:focus,
+.pal-form select:focus {
+  border-color: var(--acc-ring);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+.pal-mini .acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.pal-mini .btn,
+.pal-form .btn {
+  height: 28px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+/* 加一条自己的命令 */
+.pal-form {
+  padding: 14px 20px 16px;
+}
+.pal-form .fh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.pal-form .fh .b {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.pal-form .fh .b:hover {
+  background: var(--fill);
+}
+.pal-form .f-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.pal-form .f-row > label {
+  padding-top: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.pal-form .f-row input,
+.pal-form .f-row select {
+  width: 100%;
+  height: 30px;
+  padding: 5px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+/* 选中的输入框：边框换 --acc-ring（写在上面那条后面，不然一样具体被盖掉） */
+.pal-form .f-row input:focus,
+.pal-form .f-row select:focus {
+  border-color: var(--acc-ring);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+.pal-form .kinds {
+  display: flex;
+  gap: 6px;
+}
+.pal-form .kind {
+  flex: 1;
+  height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: none;
+  text-align: left;
+  color: var(--t1);
+}
+.pal-form .kind b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.pal-form .kind span {
+  font-size: 12px;
+  color: var(--t3);
+}
+.pal-form .kind.on {
+  border-color: var(--acc);
+  background: var(--acc-soft);
+  box-shadow: 0 0 0 1px var(--acc) inset;
+}
+.pal-form .kind:hover:not(.on) {
+  background: var(--fill);
+}
+.pal-form .sugg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.pal-form .sugg button {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.pal-form .sugg button:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.pal-form .f-err {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--red);
+}
+.pal-form .foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+.pal-form .foot .note {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--t3);
+}

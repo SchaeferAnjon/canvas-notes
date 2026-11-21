@@ -46,7 +46,8 @@ test('活动栏平铺：文件、最近 | 收件箱 | 课程 阅读 剪藏 | 周
     await openFiles(page)
     const root = tree(page).locator('.ft-root')
     await expect(root).toContainText('测试库')
-    await expect(root.locator('.ft-count')).toHaveText(String(Object.keys(B2_VAULT).length))
+    // 一个 PDF 一篇笔记：Lecture05.pdf 和它的笔记在树里是一行，少算一个
+    await expect(root.locator('.ft-count')).toHaveText(String(Object.keys(B2_VAULT).length - 1))
     const top = await tree(page).locator('[role=treeitem][aria-level="2"] .truncate').allTextContents()
     expect(top.slice(0, 8)).toEqual(CATS)
     expect(await tree(page).locator('.ft-gh').allTextContents()).toEqual(['读进来的', '自己写的', '不在分类里的'])
@@ -146,7 +147,8 @@ test('分类的首页：横幅、图标压在下沿、「分类 · N篇 · 改�
   try {
     await cell(page, '课程').click()
     await expect(home(page)).toHaveAttribute('data-folder', '课程')
-    await expect(page.getByTestId('folder-lead')).toHaveText(/^分类 · 2门课 · 5篇 · 改于今天 \d\d:\d\d$/)
+    // Lecture05.pdf 和它的笔记算一篇（一个 PDF 一篇笔记，和左栏那一行数得一样，task-9okg5）
+    await expect(page.getByTestId('folder-lead')).toHaveText(/^分类 · 2门课 · 4篇 · 改于今天 \d\d:\d\d$/)
     expect(await home(page).locator('.wgrid [data-widget]').evaluateAll((els) => els.map((e) => e.getAttribute('data-widget')))).toEqual(['courses', 'review', 'exam'])
     await expect(home(page).locator('[data-widget=courses] .fw-course')).toHaveCount(2)
     await expect(home(page).locator('[data-widget=courses] .fw-course').filter({ hasText: 'ecpc' }).locator('.r')).toHaveText('1/1讲')
@@ -495,8 +497,8 @@ test('删笔记时的图：粘贴一张图 → 文件树右键删 → 弹窗、�
     await expect(dlg).toBeVisible()
     await expect(dlg.locator('.t1')).toHaveText('连同1张图一起移到废纸篓')
     await expect(dlg.locator('.t2')).toHaveText('附件/收件箱/周三组会要问的/')
-    await expect(dlg.locator('.thumbs img')).toHaveCount(1)
-    await expect.poll(() => dlg.locator('.thumbs img').evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBeGreaterThan(100)
+    await expect(dlg.locator('.trash-thumbs img')).toHaveCount(1)
+    await expect.poll(() => dlg.locator('.trash-thumbs img').evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBeGreaterThan(100)
     await dlg.getByRole('button', { name: '移到废纸篓' }).click()
     await expect(toast(page)).toContainText('已删除《周三组会要问的》和1张图')
     expect(existsSync(join(vault, '附件/收件箱/周三组会要问的'))).toBe(false)

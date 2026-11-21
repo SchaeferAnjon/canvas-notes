@@ -18,10 +18,11 @@ export interface FileEntry {
   progress?: { asked: number; pages: number }
   /** HTML（做好的可视化）属于第几讲：<head> 里 <meta name="第几讲">，目录树里排在那一讲后面 */
   lecture?: number
-  /** 软件汇总的（我的疑惑、视频里的疑惑，front matter「生成: 软件」）：课程里排第一，带「自动汇总」小标；count 是一共几条 */
-  auto?: { count: number }
-  /** 读 PDF 笔记：这篇在同一文件夹「我的疑惑」里有几条，点了跳到汇总里这一讲那段（heading） */
-  doubts?: { n: number; summary: string; heading: string }
+  /**
+   * PDF、HTML 旁边那篇读 PDF 笔记（「<名字> 笔记.md」，一个 PDF 一篇，2026-11-20）和里面问了几问（主问题 + 旁支问题）：
+   * 目录树里 PDF 和它的笔记合成一行，笔记不单独列
+   */
+  note?: { path: string; asks: number }
   /** 附件（img、att）：多大，字节 */
   bytes?: number
 }
@@ -113,35 +114,8 @@ const KIND_ORDER: Record<FileKind, number> = { dir: 0, pdf: 1, md: 2, html: 3, i
 /** 顶层分类按这个先后（shared/categories.ts 的顺序），别的文件夹按名字排在后面 */
 export const TOP_ORDER: readonly string[] = CATEGORY_NAMES
 
-/** 一门课里放在最上面的几篇（考前看的）：软件汇总的两篇在最前 */
-const PINNED = ['我的疑惑.md', '视频里的疑惑.md', '术语表.md']
-
-/**
- * 读「我的疑惑.md」（packages/format 的 doubtsNote 写的）：按讲分段（## 标题），每条链着那份 PDF 的那一页。
- * 给出每篇读 PDF 笔记在里面有几条、在哪一段，和一共几条
- */
-export function doubtsIndex(summary: string, text: string, notePathOf: (pdf: string) => string, resolve: (from: string, link: string) => string | null): { total: number; notes: Map<string, { n: number; heading: string }> } {
-  const notes = new Map<string, { n: number; heading: string }>()
-  let heading = ''
-  let total = 0
-  for (const line of text.split('\n')) {
-    const h = /^##\s+(.+)$/.exec(line)
-    if (h) {
-      heading = h[1]!.trim()
-      continue
-    }
-    const item = /^- \*\*.*\]\(([^)#\s]+\.pdf)(?:#[^)]*)?\)/i.exec(line)
-    if (!item) continue
-    total++
-    const pdf = resolve(summary, item[1]!)
-    if (!pdf) continue
-    const note = notePathOf(pdf)
-    const cur = notes.get(note)
-    if (cur) cur.n++
-    else notes.set(note, { n: 1, heading })
-  }
-  return { total, notes }
-}
+/** 一门课里放在最上面的几篇（考前看的）。「我的疑惑」「视频里的疑惑」2026-11-20 起不再是软件汇总的文件，不放最上 */
+const PINNED = ['术语表.md']
 
 /** 「第3讲 xx」「第 12 讲」这种按数字排，不按字 */
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' })
@@ -182,6 +156,8 @@ export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): Tre
   const ctime = o.sort.startsWith('ctime')
   const root: TreeNode = { path: '', name: '', kind: 'dir', children: [], count: 0, time: 0 }
   const dirs = new Map<string, TreeNode>([['', root]])
+  // 一个 PDF 一篇笔记：PDF（HTML）在树里时，它旁边那篇笔记不单独列（合成 PDF 那一行）；PDF 被筛掉时笔记照旧单独一行
+  const merged = new Set(files.flatMap((f) => (f.note && (f.kind === 'pdf' || f.kind === 'html') && (!o.keep || o.keep(f)) ? [f.note.path] : [])))
   const dirOf = (path: string): TreeNode => {
     const hit = dirs.get(path)
     if (hit) return hit
@@ -199,6 +175,7 @@ export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): Tre
       continue
     }
     if (o.keep && !o.keep(f)) continue
+    if (merged.has(f.path)) continue
     const time = ctime ? (f.ctimeMs ?? f.mtimeMs) : f.mtimeMs
     dirOf(folderOfPath(f.path)).children.push({ path: f.path, name: fileName(f.path), kind: f.kind, entry: f, children: [], count: 1, time })
   }

@@ -295,7 +295,7 @@ test('7000 篇的库：启动、左栏（最近、文件树）、文件夹首页
     await page.keyboard.press('Meta+f')
     const pal = page.getByRole('dialog', { name: '搜索和命令' })
     await pal.getByRole('textbox').fill('极光 预报')
-    await expect(pal.locator('.pal-g', { hasText: '笔记' })).toBeVisible()
+    await expect(pal.locator('.pal-g', { hasText: /^(最合适|笔记|笔记和PDF里的字)$/ }).first()).toBeVisible()
     nums['⌘F 打字到出结果（ms，含 80ms 防抖）'] = Date.now() - t0
     nums['搜索一次（ms）'] = await page.evaluate(async () => {
       const t = performance.now()

@@ -356,7 +356,7 @@ test('「问这一页」的整页图：右栏笔记里那一轮第二行写「·
     await expect(msg.locator('.noted')).toContainText('已记进笔记', { timeout: 15_000 })
     await msg.locator('.noted .lnk').click()
     const notes = page.getByRole('complementary', { name: '笔记', exact: true })
-    await expect(notes.locator('.rnd .loc').first()).toHaveText('第 1 页 ›· 整页')
+    await expect(notes.locator('.rnd .loc').first()).toHaveText('第1页 ›· 整页')
     await expect(notes.locator('.rnd .crop img').first()).toHaveAttribute('alt', '整页')
     await shotWindow(run, 'r2-whole-page')
   } finally {
@@ -364,7 +364,7 @@ test('「问这一页」的整页图：右栏笔记里那一轮第二行写「·
   }
 })
 
-test('窗口拉到最窄（960）读 PDF：右栏 AI 头上「收起」不被裁、面板不横向溢出，中间至少 420', async () => {
+test('窗口拉到最窄（960）读 PDF：收起 AI 的 × 不被裁、组头和 AI 头不溢出、面板不横向溢出，中间至少 420', async () => {
   const run = await launch(pdfFiles, { CN_AI_FAKE: '1' })
   const { page, app } = run
   try {
@@ -376,26 +376,30 @@ test('窗口拉到最窄（960）读 PDF：右栏 AI 头上「收起」不被裁
       const m = await page.evaluate(() => {
         const aside = document.querySelector('.reading-ai:not([hidden])') as HTMLElement
         const head = aside.querySelector('.aih') as HTMLElement
-        const btn = aside.querySelector('.ai-collapse') as HTMLElement
-        const a = aside.getBoundingClientRect()
+        // 工作区方向 A（task-9okg5）：收起 AI 是组头上「AI」标签的 ×，AI 头上不再有「收起」
+        const grp = document.querySelector('.dgrp:has(.dtab[data-view="ai"])') as HTMLElement
+        const tabs = grp.querySelector('.dhead') as HTMLElement
+        const btn = grp.querySelector('.dtab[data-view="ai"] .x') as HTMLElement
+        const g = grp.getBoundingClientRect()
         const b = btn.getBoundingClientRect()
         return {
           win: window.innerWidth,
           center: (document.querySelector('main.center') as HTMLElement).getBoundingClientRect().width,
           hscroll: aside.scrollWidth - aside.clientWidth,
           headOver: head.scrollWidth - head.clientWidth,
-          btnInside: b.right <= a.right + 0.5 && b.width > 0,
-          btnText: btn.innerText,
+          tabsOver: tabs.scrollWidth - tabs.clientWidth,
+          btnInside: b.right <= g.right + 0.5 && b.width > 0,
         }
       })
       console.log(w, JSON.stringify(m))
       expect(m.hscroll).toBe(0)
       expect(m.headOver).toBe(0)
+      expect(m.tabsOver).toBe(0)
       expect(m.btnInside).toBe(true)
       expect(m.center).toBeGreaterThanOrEqual(420)
       await shotWindow(run, `r2-narrow-${m.win}`)
     }
-    await expect(ai(page).getByRole('button', { name: '收起 AI' })).toBeVisible()
+    await expect(page.getByTestId('dtab-ai').getByRole('button', { name: '收起AI' })).toBeVisible()
   } finally {
     await run.close()
   }

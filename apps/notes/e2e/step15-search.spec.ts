@@ -31,7 +31,7 @@ test('⌘F 三层：PDF 里的字跳到那页闪一下；按意思找到写「�
     // ---- 文字：PDF 里的字，带页码，命中的词标出来；点了 PDF 翻到第 3 页，那一段闪一下 ----
     await page.keyboard.press('Meta+f')
     await box(page).fill('rotated e1')
-    await expect(group(page, '文字')).toContainText('笔记和PDF里的字')
+    await expect(group(page, '笔记和PDF里的字')).toBeVisible()
     const hit = pal(page).getByRole('option').filter({ hasText: '第3讲 线性映射.pdf' }).filter({ hasText: '第3页' })
     await expect(hit).toHaveCount(1)
     await expect(hit.locator('mark.sr-hit').first()).toHaveText(/rotated/i)

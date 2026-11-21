@@ -10,7 +10,7 @@ import { app, type BrowserWindow, ipcMain, type IpcMainInvokeEvent, nativeImage,
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { courseOf, langName, primary } from '../../shared/plugins/translate'
+import { langName, primary } from '../../shared/plugins/translate'
 import {
   attachDir,
   biliTracks,
@@ -36,7 +36,6 @@ import {
   trackId,
   VIDEO_FOLDER,
   videoCardMd,
-  videoDoubtsText,
   type VideoMeta,
   videoOf,
   type VideoRef,
@@ -708,21 +707,13 @@ async function askOnce(s: Sess, raw: AskRequest, signal: AbortSignal): Promise<A
     // AI 的回答放进 [!ai] 提示块，和自己写的分得开（CN-76）
     aiCallout({ by: featureLabel('vision'), seen: `看了 ${time} 这一帧、${from}–${to} 的字幕`, text: a.answer, points: a.points }),
   ].join('\n')
-  // 也进这门课的疑惑清单。「我的疑惑.md」是读 PDF 那边按 PDF 笔记自动重写的（main/reading/doubts.ts），写进去会被盖掉，
-  // 所以视频里问的单独一篇「视频里的疑惑.md」，放在同一个文件夹（不在课程里就是库根目录）
-  const course = courseOf(dest.path)
-  const doubts = course ? `课程/${course}/视频里的疑惑.md` : '视频里的疑惑.md'
-  const entry = [`## ${time} · ${s.meta.title.replace(/\n/g, ' ')}`, `> ${(a.doubt || question).replace(/\n/g, ' ')}`, '', a.answer, '', `[▶ ${time}](${timeUrl(s.ref, t)}) · 记在 [[${dest.title}]]`].join('\n')
-  const cur = await v.read(doubts).catch(() => null)
-  const next = videoDoubtsText(cur?.text ?? null, entry)
-  if (!(await v.write(doubts, next, cur?.text ?? '')).ok) throw new Error('「视频里的疑惑」刚被改了，再问一次')
-  const files = [image, doubts]
+  // 一门课的「我的疑惑」直接读文档里的这一块（main/reading/doubts.ts 的 collectVideoDoubts），2026-11-20 起不再另写「视频里的疑惑.md」
+  const files = [image]
   const res: AskResult = {
     answer: a.answer + (a.points.length ? '\n\n' + a.points.map((p) => `- ${p}`).join('\n') : ''),
     read: `看了 ${time} 这一帧、${from}–${to} 的字幕${raw.noteText ? '、这篇笔记' : ''}`,
     block,
     files,
-    doubts,
     t,
   }
   if (dest.kind === 'inbox') {

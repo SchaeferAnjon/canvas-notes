@@ -43,8 +43,13 @@ export interface RendererPlugin {
   }
   /** 弹窗；mode 是 this-page 时只管这一页（地址栏星星开的小卡），all 是整理全部 */
   Popup?: ComponentType<{ page: WebPage | null; mode?: 'this-page' | 'all'; onClose(): void }>
-  /** 「⋯」菜单「这一页」组里的项（role=menuitem 的按钮），比如书签管家的「稍后再看」；做完调 onDone 收起菜单 */
+  /** 「⋯」菜单里的项（role=menuitem 的按钮），比如书签管家的「稍后再看」；做完调 onDone 收起菜单 */
   PageMenu?: ComponentType<{ page: WebPage | null; onDone(): void; onNotice(t: string): void }>
+  /**
+   * PageMenu 那一项在「⋯」里的身份（藏起、换顺序按它记，.canvas-notes/命令.json）、放在哪一组（page 这一页 / site 这个网站，DESIGN.v3 9.3），
+   * 和「调整这个菜单…」时画的名字、图标
+   */
+  pageMenu?: { id: string; group?: 'page' | 'site'; label: string; icon: CodiconName }
   /** ⌘F 面板里的命令 */
   commands?(page: WebPage | null): PaletteCommand[]
   /** 设置 · 插件里这个插件的那一块 */

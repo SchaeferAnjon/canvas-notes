@@ -46,6 +46,8 @@ export function StatusBar(props: {
   bell?: React.ReactNode
   /** 提示（带撤回）：出在底栏正中，不压内容 */
   toast?: React.ReactNode
+  /** 打开库时整理了一次（「我的疑惑」不再是文件、两篇笔记并成一篇）：左边一句带「撤回」和 ×，关掉之前一直在（原型 design/workspace/proto-a.html 底栏左边那句） */
+  tidy?: { said: string; onUndo(): void; onClose(): void } | null
   /** 哪都写不进去、字只在内存里的那几篇（stash：设置目录里的备份）：有就不说「都提交了」，醒目地说出来 */
   unsaved?: StrandedNote[]
   /** 在访达里显示那份备份 */
@@ -114,6 +116,18 @@ export function StatusBar(props: {
           <Codicon name="loading" size={14} className="spin" />
           <span className="num">{`后台${props.jobs.length}件`}</span>
         </button>
+      )}
+      {props.tidy && (
+        <span className="bi tidy-msg" data-testid="tidy-msg">
+          <Codicon name="check" size={14} />
+          <span className="truncate" data-tip={`整理好了：${props.tidy.said}`} data-side="above">{`整理好了：${props.tidy.said}`}</span>
+          <button className="lnk" onClick={props.tidy.onUndo}>
+            撤回
+          </button>
+          <button className="x" aria-label="关掉这一句" onClick={props.tidy.onClose}>
+            <Codicon name="close" size={12} />
+          </button>
+        </span>
       )}
       <div className="st-toast">{props.toast}</div>
       {props.translate}

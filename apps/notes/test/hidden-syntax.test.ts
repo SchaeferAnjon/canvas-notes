@@ -14,7 +14,8 @@
 import * as cmds from '@codemirror/commands'
 import { deleteCharBackward, deleteCharForward, history, insertNewlineAndIndent, undo } from '@codemirror/commands'
 import { insertNewlineContinueMarkup, markdown } from '@codemirror/lang-markdown'
-import { EditorSelection, EditorState, type Extension, type SelectionRange, Transaction, type TransactionSpec } from '@codemirror/state'
+import { ChangeSet, EditorSelection, EditorState, type Extension, type SelectionRange, Transaction, type TransactionSpec } from '@codemirror/state'
+import { findMath } from '@cn/format'
 import { EditorView, keymap } from '@codemirror/view'
 import { describe, expect, it } from 'vitest'
 import { atomicBlocks, backspaceSelectsBlock } from '../src/renderer/atomic-blocks'
@@ -29,6 +30,7 @@ import { mdWidgets } from '../src/renderer/md-widgets'
 import { propsBlock } from '../src/renderer/mindmap/props-block'
 import { baseBlock } from '../src/renderer/base/base-block'
 import { reviewSyntax } from '../src/renderer/review'
+import { enterLeft, enterRight, mathPreview, placedMath } from '../src/renderer/math-preview'
 
 // 时刻块的模块一加载就要 window（视频测试站地址）
 ;(globalThis as { window?: unknown }).window ??= {}
@@ -44,6 +46,7 @@ const extensions: Extension[] = [
   videoDocWidgets,
   baseBlock,
   reviewSyntax,
+  mathPreview,
   hiddenGuard,
   history(),
 ]
@@ -77,6 +80,12 @@ const MOMENT = '<!-- moment video=youtube:kYB8IZa5AuE t=10 -->\n[▶ 00:10 · �
 const VIDEO = '<!-- video video=youtube:7CVYBBX_zxA -->\n![视频标题](附件/c.png)\n[视频标题](https://www.youtube.com/watch?v=7CVYBBX_zxA)\nIC实验室 · 08:55'
 const MOMENT_QUOTE =
   '<!-- moment video=youtube:7CVYBBX_zxA t=1.1 -->\n![00:01](附件/c.png)\n[▶ 00:01 · 视频标题](https://www.youtube.com/watch?v=7CVYBBX_zxA&t=1s)\n> **00:01 原文一句**'
+/** 白板（type: board）：自由的卡、列、列里的卡 */
+const BOARD =
+  '---\ntype: board\n---\n# 旅行\n\n<!-- card id=a1 x=10 y=20 -->\n自由的一张。\n\n<!-- column id=c1 x=384 y=60 w=300 title=地图与图片 -->\n<!-- card id=a2 in=c1 -->\n列里第一张。\n\n<!-- card id=a3 in=c1 -->\n列里第二张。\n'
+const BOARD_IMG =
+  '---\ntype: board\n---\n<!-- card id=b1 in=jg -->\nPhysical geography\n\n<!-- column id=d8 x=384 y=60 w=300 title="地图 与图片" -->\n\n<!-- card id=b2 in=d8 -->\n![](../../附件/剪藏/冰岛/sat.png)\n—— [Iceland sat](https://en.wikipedia.org/wiki/Geography_of_Iceland)\n\n<!-- card id=b3 in=d8 -->\n最后一张。\n'
+const MATH_INLINE = '# 符号\n\n- $x_i$, $\\mathbf{x}_i$：向量 $\\mathbf{x}$ 第 $i$ 个元素\n- $\\mathbb{R}^{a\\times b}$：实数矩阵，花了 $5 和 $6\n\n后面一段。\n'
 const BASE = '```base\nfilters:\n  and:\n    - file.inFolder("测/库")\nviews:\n  - type: table\n```'
 
 const samples: Sample[] = [
@@ -101,6 +110,9 @@ const samples: Sample[] = [
   { name: '数据库块', doc: `# 块\n\n上一段。\n\n${BASE}\n\n下一段。\n` },
   { name: '引文下面的想法和评价（标签藏起来）', doc: '# 书摘\n\n> 接到叔叔谋反的消息。\n\n微信读书的想法：御驾亲征。\n\n我的评价：这一脚。\n\n下一段。\n' },
   { name: '引文下面空着的评价', doc: '# 书摘\n\n> 见面后，叔侄俩开聊。\n\n我的评价：\n\n下一段。\n' },
+  // 第 8 轮：白板（type: board）用文档看法打开，卡片行、列行一样藏起来（以前白板不藏，露出 <!-- card … -->、<!-- column … -->）
+  { name: '白板的卡片行和列行', doc: BOARD },
+  { name: '白板：列紧跟在卡片后面、列里第一张卡是图片加来源', doc: BOARD_IMG },
 ]
 
 function open(sample: Sample): View {
@@ -286,6 +298,48 @@ describe.each(samples)('$name', (sample) => {
 })
 
 describe('报告里的几条，按原样走一遍', () => {
+  it('白板用文档看法打开：每一行 <!-- card … -->、<!-- column … --> 都藏着（光标停不进、屏上不露），列名画成小节标题', () => {
+    for (const doc of [BOARD, BOARD_IMG]) {
+      const v = open({ name: '', doc })
+      const hs = hiddenRanges(v.state)
+      for (const m of doc.matchAll(/^<!--[^\n]*-->$/gm)) {
+        const from = m.index!
+        const to = from + m[0].length
+        expect(hs.some((h) => h.from <= from && h.to >= to), `「${m[0]}」没藏`).toBe(true)
+        // 屏上：整行被 replace 装饰盖住
+        let covered = false
+        for (const set of v.state.facet(EditorView.decorations)) {
+          const ds = typeof set === 'function' ? set(v) : set
+          ds.between(from, to, (a, b, d) => void (a <= from && b >= to && (d.spec.widget || d.point) && (covered = true)))
+        }
+        expect(covered, `「${m[0]}」露在屏上`).toBe(true)
+      }
+    }
+    const heads: string[] = []
+    const v = open({ name: '', doc: BOARD_IMG })
+    for (const set of v.state.facet(EditorView.decorations)) {
+      const ds = typeof set === 'function' ? set(v) : set
+      ds.between(0, v.state.doc.length, (_a, _b, d) => void (d.spec.widget?.constructor?.name === 'ColumnHead' && heads.push((d.spec.widget as { title: string }).title)))
+    }
+    expect(heads).toEqual(['地图 与图片'])
+  })
+
+  it('白板文档看法：列名下面一行行首退格三下、上面一段末尾 Delete 三下，列那一行和卡片行都还在（列名不像图片那样先选中再删）', () => {
+    const doc = BOARD
+    const below = open({ name: '', doc })
+    below.dispatch({ selection: { anchor: doc.indexOf('列里第一张') }, userEvent: 'select' })
+    for (let i = 0; i < 3; i++) keys['退格']!(below)
+    expect(below.state.doc.toString()).toContain('<!-- column id=c1 x=384 y=60 w=300 title=地图与图片 -->\n<!-- card id=a2 in=c1 -->\n')
+    const above = open({ name: '', doc })
+    above.dispatch({ selection: { anchor: doc.indexOf('自由的一张。') + 6 }, userEvent: 'select' })
+    for (let i = 0; i < 3; i++) keys['Delete']!(above)
+    expect(above.state.doc.toString()).toContain('<!-- column id=c1 x=384 y=60 w=300 title=地图与图片 -->\n<!-- card id=a2 in=c1 -->\n列里第一张。')
+  })
+
+  it('白板文档看法：打开、不动、拿出来的字和原文一个字节都不差', () => {
+    for (const doc of [BOARD, BOARD_IMG]) expect(open({ name: '', doc }).state.doc.toString()).toBe(doc)
+  })
+
   it('属性下面第一段摆在白板上：段首 ← 再打 Y，Y 在这段开头，属性和位置行原样', () => {
     const doc = '---\ncreated: 2026-11-17 10:00\n---\n<!-- card id=d1 x=825 y=778 -->\n属性下面第一段。\n\n第二段。\n'
     const v = open({ name: '', doc })
@@ -519,7 +573,11 @@ describe('每个会改文档的键（CodeMirror 自带的、markdown 的、我�
     it.each(tested.map(([k]) => k))('%s：藏着的原样、没并进正文，光标在能停的地方，⌘Z 回到原样', (k) => {
       const chain = all.get(k)!
       const v0 = openKeys(sample)
-      const want = shapes(v0.state)
+      // 段落里的一行图（白板卡片里图下面紧跟来源行，第 8 轮）：回车把来源行隔开、删掉来源行以后它单独成段，
+      // 边上多出来的空行是用户自己改的，只比图本身
+      const inPara = new Set(hiddenRanges(v0.state).filter((h) => !h.sep).map((h) => v0.state.doc.sliceString(h.from, h.to).replace(/^\n+|\n+$/g, '')).filter((c) => /^\[?!\[/.test(c)))
+      const norm = (xs: string[]) => xs.map((x) => (inPara.has(x.split('｜')[0]!) ? x.split('｜')[0]! : x)).sort()
+      const want = norm(shapes(v0.state))
       for (const at of stops(v0.state)) {
         for (const times of [1, 2]) {
           const v = withLayout(openKeys(sample))
@@ -533,7 +591,7 @@ describe('每个会改文档的键（CodeMirror 自带的、markdown 的、我�
           const where = `${sample.name} 从 ${at} 按 ${k} ${times} 下：${JSON.stringify(v.state.doc.toString())}`
           if (v.state.selection.main.empty) expect(badCursor(v.state, v.state.selection.main.head), where).toBe(false)
           expectIntact(v0.state, v.state, where)
-          if (v.state.selection.main.empty && !reviewsGone(v0.state, v.state).length) expect(shapes(v.state), where).toEqual(want)
+          if (v.state.selection.main.empty && !reviewsGone(v0.state, v.state).length) expect(norm(shapes(v.state)), where).toEqual(want)
           for (let i = 0; i < 6; i++) undo(v)
           expect(v.state.doc.toString(), where + ' 再 ⌘Z').toBe(sample.doc)
         }
@@ -608,5 +666,210 @@ describe('第 6 轮报告里的几条，按原样走一遍', () => {
     t.dispatch({ selection: EditorSelection.range(tight.indexOf('```'), tight.lastIndexOf('```') + 3), userEvent: 'select.pointer' })
     for (const ch of 'ab') typeAt(t, ch)
     expect(t.state.doc.toString()).toBe(`# 表\n\n${BASE}\n\nab\n\n下一段。\n`)
+  })
+})
+
+// ---------- task-o48fa 公式：排好的是一整颗，光标走进去露写法 ----------
+
+const MATH_SAMPLES: Sample[] = [
+  { name: '行内公式（d2l 符号表的两行，带钱数）', doc: MATH_INLINE },
+  { name: '单独成行的公式（$$ 夹着一行）', doc: '# 公式\n\n上一段。\n\n$$\n\\sum_{i=1}^{n} x_i\n$$\n\n下一段。\n' },
+  { name: '单独成行的公式（一行写完，上下紧挨着正文）', doc: '# 公式\n\n上一段：\n$$E = mc^2$$\n下一段。\n' },
+  { name: '\\(…\\) 和 \\[…\\]（文件末尾）', doc: '设 \\(a^2\\) 是\n\n\\[\nb^2\n\\]' },
+]
+
+type MView = View & { changes: ChangeSet }
+
+/** 记着一路改了什么的编辑器（判断排好的公式是整颗删掉的、还是被改了半截） */
+function mathView(doc: string, at: number): MView {
+  let s = EditorState.create({ doc, extensions: withKeys })
+  const v = Object.create(EditorView.prototype) as MView
+  Object.defineProperty(v, 'state', { get: () => s })
+  Object.defineProperty(v, 'plugin', { value: () => null })
+  v.changes = ChangeSet.empty(doc.length)
+  Object.defineProperty(v, 'dispatch', {
+    value: (...specs: (TransactionSpec | Transaction)[]) => {
+      const tr = specs[0] instanceof Transaction ? specs[0] : s.update(...(specs as TransactionSpec[]))
+      v.changes = v.changes.compose(tr.changes)
+      s = tr.state
+    },
+  })
+  withLayout(v)
+  v.dispatch({ selection: { anchor: at }, userEvent: 'select' })
+  v.changes = ChangeSet.empty(doc.length)
+  return v
+}
+
+/**
+ * 排好的（光标不在里面的）公式：按一下以后要么整颗还在、照样认得出是公式，要么整颗删掉了；不许改到半截（连单独成行的上下那个换行）。
+ * 例外（$ 写法本身的规矩，pandoc、Obsidian 一样）：同一行别处的字改了，让一个落单的 $ 和它配成了对、或者它后面紧跟了数字（$x$5），
+ * 它就不再是公式，文件里的字照实
+ */
+function expectMathIntact(before: EditorState, v: MView, where: string) {
+  const after = v.state
+  const now = findMath(after.doc.toString())
+  const len = before.doc.length
+  for (const p of placedMath(before).filter((x) => !x.open && x.html !== null)) {
+    const a = p.block && p.a > 0 ? p.a - 1 : p.a
+    const b = p.block && p.b < len ? p.b + 1 : p.b
+    let whole = false
+    let partial = false
+    v.changes.iterChanges((fA, tA) => {
+      if (tA > fA && fA <= p.a && tA >= p.b) whole = true
+      else if ((tA > fA && fA < b && tA > a) || (fA === tA && fA > p.a && fA < p.b)) partial = true
+    })
+    if (whole) continue
+    const src = before.doc.sliceString(p.span.from, p.span.to)
+    expect(partial, `${where}：改到了「${src}」的半截 → ${JSON.stringify(after.doc.toString())}`).toBe(false)
+    const from = v.changes.mapPos(p.span.from, 1)
+    const to = v.changes.mapPos(p.span.to, -1)
+    let sameLine = false
+    const line = before.doc.lineAt(p.span.from)
+    v.changes.iterChanges((fA, tA) => void (fA <= line.to && tA >= line.from && (sameLine = true)))
+    if (sameLine) continue
+    expect(
+      now.some((m) => m.from === from && m.to === to && m.tex === p.span.tex && m.block === p.span.block),
+      `${where}：「${src}」不再是公式 → ${JSON.stringify(after.doc.toString())}`,
+    ).toBe(true)
+  }
+  // 光标停不进排好的公式中间
+  const sel = after.selection.main
+  if (sel.empty) expect(placedMath(after).some((x) => !x.open && x.html !== null && sel.head > x.a && sel.head < x.b), `${where}：光标停在排好的公式中间 ${sel.head}`).toBe(false)
+}
+
+/** 文档里的键（math-preview 的先轮到）：← → 走进写法再照 CodeMirror 挪一个字；↑↓ 照没有折行的排版；打字、粘贴 */
+function mathKey(k: string): (v: View) => void {
+  const all = chains(EditorState.create({ doc: '', extensions: withKeys }))
+  const vertical = (down: boolean) => (v: View) =>
+    press(v, [...all.get(down ? 'ArrowDown' : 'ArrowUp')!.filter((f) => !NAV.has(f)), (x: EditorView) => (x.dispatch({ selection: x.moveVertically(x.state.selection.main, down), userEvent: 'select' }), true)])
+  if (k === '→') return (v) => void (enterRight(v) || moveChar(v, 1))
+  if (k === '←') return (v) => void (enterLeft(v) || moveChar(v, -1))
+  if (k === '↓') return vertical(true)
+  if (k === '↑') return vertical(false)
+  if (k === '打字' || k === '粘贴') return keys[k]!
+  return (v) => press(v, all.get(k)!)
+}
+
+describe('task-o48fa 公式 × 每个会改文档的键 × 每个位置', () => {
+  const all = chains(EditorState.create({ doc: '', extensions: withKeys }))
+  const names = [...[...all].filter(([, chain]) => !chain.some((f) => NAV.has(f))).map(([k]) => k), '←', '→', '↑', '↓', '打字', '粘贴']
+
+  it('键表里有退格、Delete、Ctrl-d、删词、删行、挪行、回车、Tab', () => {
+    for (const k of ['Backspace', 'Delete', 'Ctrl-d', 'Alt-Backspace', 'Cmd-Backspace', 'Cmd-Shift-k', 'Alt-ArrowUp', 'Ctrl-t', 'Enter', 'Tab']) expect(names, k).toContain(k)
+  })
+
+  describe.each(MATH_SAMPLES)('$name', (sample) => {
+    it.each(names)('%s：排好的公式整颗在或整颗删，光标不停在它中间，⌘Z 回到原样', (k) => {
+      const len = sample.doc.length
+      const key = mathKey(k)
+      for (let at = 0; at <= len; at++) {
+        for (const times of [1, 2]) {
+          const v = mathView(sample.doc, at)
+          const where = `${sample.name} 从 ${at} 按 ${k} ${times} 下`
+          // 每一下都看：按之前排好的那些（按了第一下光标走进去了的，第二下就是在改写法）
+          for (let i = 0; i < times; i++) {
+            const before = v.state
+            v.changes = ChangeSet.empty(before.doc.length)
+            key(v)
+            expectMathIntact(before, v, `${where}（第 ${i + 1} 下）`)
+          }
+          for (let i = 0; i < 6; i++) undo(v)
+          expect(v.state.doc.toString(), where + ' 再 ⌘Z').toBe(sample.doc)
+        }
+      }
+    })
+
+    it('从任一位置选到另一个位置再退格：排好的公式整颗在或整颗删', () => {
+      const len = sample.doc.length
+      for (let a = 0; a <= len; a++)
+        for (let b = a + 1; b <= len; b++) {
+          const v = mathView(sample.doc, len)
+          v.dispatch({ selection: EditorSelection.range(a, b), userEvent: 'select' })
+          const before = v.state
+          v.changes = ChangeSet.empty(len)
+          deleteCharBackward(v)
+          expectMathIntact(before, v, `${sample.name} 选 ${a}–${b} 退格`)
+          undo(v)
+          expect(v.state.doc.toString()).toBe(sample.doc)
+        }
+    })
+  })
+})
+
+describe('task-o48fa 公式：光标进出、整颗选中删、写错的', () => {
+  const doc = MATH_INLINE
+  const at = (s: string) => doc.indexOf(s)
+  const opened = (v: View) => placedMath(v.state).filter((p) => p.open).map((p) => v.state.doc.sliceString(p.span.from, p.span.to))
+
+  it('光标在文末时每个公式都排好（钱数不算），交给看守；打开时编辑器自己放在公式里的光标不露', () => {
+    const v = mathView(doc, doc.length)
+    const ps = placedMath(v.state)
+    expect(ps.map((p) => doc.slice(p.span.from, p.span.to))).toEqual(['$x_i$', '$\\mathbf{x}_i$', '$\\mathbf{x}$', '$i$', '$\\mathbb{R}^{a\\times b}$'])
+    expect(ps.every((p) => !p.open && p.html !== null)).toBe(true)
+    expect(hiddenRanges(v.state).length).toBe(5)
+    const fresh = EditorState.create({ doc, extensions: withKeys, selection: { anchor: at('x_i') } })
+    expect(placedMath(fresh).some((p) => p.open)).toBe(false)
+  })
+
+  it('→ 从左边走进写法（$ 后面），一路 → 走出去又排好；← 从右边走进（$ 前面）', () => {
+    const v = mathView(doc, at('$x_i$'))
+    const right = mathKey('→')
+    right(v)
+    expect(v.state.selection.main.head).toBe(at('$x_i$') + 1)
+    expect(opened(v)).toEqual(['$x_i$'])
+    for (let i = 0; i < 4; i++) right(v)
+    expect(v.state.selection.main.head).toBe(at('$x_i$') + 5)
+    expect(opened(v)).toEqual([])
+    const w = mathView(doc, at('$x_i$') + 5)
+    mathKey('←')(w)
+    expect(w.state.selection.main.head).toBe(at('$x_i$') + 4)
+    expect(opened(w)).toEqual(['$x_i$'])
+  })
+
+  it('写法里打字改公式：文件里是改过的写法，走出去排好的是新的', () => {
+    const v = mathView(doc, at('$x_i$') + 4)
+    v.dispatch({ ...v.state.replaceSelection('j'), userEvent: 'input.type' })
+    expect(v.state.doc.toString()).toBe(doc.replace('$x_i$', '$x_ij$'))
+    v.dispatch({ selection: { anchor: v.state.doc.length }, userEvent: 'select' })
+    expect(placedMath(v.state)[0]!.span.tex).toBe('x_ij')
+    expect(placedMath(v.state)[0]!.open).toBe(false)
+  })
+
+  it('退格在公式后面：先选中整颗（选中的字是 $…$ 原文），再按一次整颗删掉；Delete 在前面同样', () => {
+    const v = mathView(doc, at('$x_i$') + 5)
+    const bs = mathKey('Backspace')
+    bs(v)
+    const sel = v.state.selection.main
+    expect(v.state.doc.sliceString(sel.from, sel.to)).toBe('$x_i$')
+    expect(placedMath(v.state)[0]!.selected).toBe(true)
+    expect(placedMath(v.state)[0]!.open).toBe(false)
+    bs(v)
+    expect(v.state.doc.toString()).toBe(doc.replace('$x_i$', ''))
+    const d = mathView(doc, at('$x_i$'))
+    mathKey('Delete')(d)
+    expect(d.state.doc.sliceString(d.state.selection.main.from, d.state.selection.main.to)).toBe('$x_i$')
+  })
+
+  it('单独成行的：光标在那几行任何一处都露写法；下一行行首退格先选中整块；↓ 从上一行进到第一行行首', () => {
+    const block = '上一段。\n\n$$\n\\sum_i x_i\n$$\n\n下一段。\n'
+    const from = block.indexOf('$$')
+    const to = block.lastIndexOf('$$') + 2
+    for (let p = from; p <= to; p++) expect(placedMath(mathView(block, p).state)[0]!.open, `光标在 ${p}`).toBe(true)
+    expect(placedMath(mathView(block, from - 1).state)[0]!.open).toBe(false)
+    const v = mathView(block, to + 1)
+    mathKey('Backspace')(v)
+    expect(v.state.doc.sliceString(v.state.selection.main.from, v.state.selection.main.to)).toBe('$$\n\\sum_i x_i\n$$')
+    const down = mathView(block, from - 1)
+    mathKey('↓')(down)
+    expect(down.state.selection.main.head).toBe(from)
+  })
+
+  it('写错的公式不排：原文照写，不交给看守，错在哪写成一句中文', () => {
+    const v = mathView('坏的 $\\frac{1}{$ 和 $\\foo$ 公式\n', 0)
+    const ps = placedMath(v.state)
+    expect(ps.map((p) => p.html)).toEqual([null, null])
+    expect(ps[0]!.error).toMatch(/^公式写错了：/)
+    expect(ps[1]!.error).toBe('公式写错了：不认识的命令 \\foo（第 1 个字）')
+    expect(hiddenRanges(v.state)).toEqual([])
   })
 })

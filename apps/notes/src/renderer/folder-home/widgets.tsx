@@ -30,6 +30,8 @@ export interface WCtx {
   onDoubts(): void
   /** 这门课读 PDF 时问过的（PDF 那边汇总的） */
   doubts: DoubtItem[]
+  /** 看视频时框一块问的有几处（文档里的问答块） */
+  videoDoubts?: number
   onAll(): void
   onCapture(): void
   save(h: FolderHome): void
@@ -160,7 +162,7 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
       return <Slides c={c} list={list} />
     }
     case 'doubts':
-      return c.doubts.length ? <Doubts c={c} list={c.doubts} /> : <p className="fw-empty">{EMPTY.doubts}</p>
+      return c.doubts.length || c.videoDoubts ? <Doubts c={c} list={c.doubts} videos={c.videoDoubts ?? 0} /> : <p className="fw-empty">{EMPTY.doubts}</p>
     case 'viz': {
       const list = inFolder.filter((f) => f.props['类型'] === '可视化')
       return list.length ? <Viz c={c} list={list} /> : <p className="fw-empty">{EMPTY.viz}</p>
@@ -185,7 +187,7 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
       const b = boards.find((n) => n.path === w.board) ?? boards[0]
       return b ? (
         <button className="fw-board" onClick={() => c.onOpen(b.path)} onContextMenu={(e) => onFileMenu(e, b.path)}>
-          <span className="th" style={{ background: b.board!.color }} />
+          <span className="fw-th" style={{ background: b.board!.color }} />
           <b>{titleOf(b.path)}</b>
           <span>{`白板 · ${b.board!.cards}张卡片`}</span>
         </button>
@@ -472,9 +474,9 @@ function Exam(props: { w: WidgetData; set(p: Partial<WidgetData>): void }) {
 
 /**
  * 我的疑惑：读 PDF 时问过的（PDF 那边按讲汇总的同一份清单）。「最近问的 · 第 N 讲」3 条（问题 + 页码，点了翻到那一页），
- * 下面每讲一颗 chip，再多一句「全部 N 条」开我的疑惑页
+ * 下面每讲一颗 chip（看视频时问的另一颗「视频 N」），再多一句「全部 N 条」开我的疑惑页。直接读各篇笔记和文档（2026-11-20 起没有「我的疑惑.md」）
  */
-function Doubts(props: { c: WCtx; list: DoubtItem[] }) {
+function Doubts(props: { c: WCtx; list: DoubtItem[]; videos: number }) {
   const { c } = props
   const lec = (d: DoubtItem) => d.lecture ?? 0
   const last = Math.max(...props.list.map(lec))
@@ -491,18 +493,19 @@ function Doubts(props: { c: WCtx; list: DoubtItem[] }) {
           <span className="r num">{`第${d.section.page}页`}</span>
         </button>
       ))}
-      {byLec.size > 0 && (
+      {(byLec.size > 0 || props.videos > 0) && (
         <div className="fw-chips">
           {[...byLec].sort((a, b) => b[0] - a[0]).map(([l, n]) => (
             <span key={l} className="chip num">
               {`第${l}讲${n}`}
             </span>
           ))}
+          {props.videos > 0 && <span className="chip num">{`视频${props.videos}`}</span>}
         </div>
       )}
-      {props.list.length > 3 && (
+      {props.list.length + props.videos > 3 && (
         <button className="fw-more" onClick={c.onDoubts}>
-          {`全部${props.list.length}条 · 打开列表看`}
+          {`全部${props.list.length + props.videos}条 · 打开列表看`}
         </button>
       )}
     </>

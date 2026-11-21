@@ -17,6 +17,18 @@ export interface VaultInfo {
   organized?: { from: string; to: string }[]
   /** 整理顶级分类没成功的原因（库照样打开，底部说一句） */
   organizeError?: string
+  /** 打开时整理了一次「一个 PDF 一篇笔记」（main/tidy-notes.ts）：底栏说一句、能撤回；moves 换开着的标签（to 是 null：那篇删了） */
+  tidied?: TidyInfo
+  /** 整理没成功的原因（库照样打开） */
+  tidyError?: string
+}
+
+export interface TidyInfo {
+  commit: string | null
+  said: string
+  back: string
+  paths: string[]
+  moves: { from: string; to: string | null }[]
 }
 
 export interface NoteFile {
@@ -96,8 +108,38 @@ export type SyncOutcome =
   | { kind: 'conflict'; message: string }
   | { kind: 'ok'; committed: string | null; pulled: number; pushed: boolean }
 
+/** 旧白板转成「## 列名」写法（main/board.ts）：转好的字、转之前的字（撤回用）、那次提交、几列几张卡 */
+export interface BoardConverted {
+  text: string
+  old: string
+  hash: string | null
+  columns: number
+  cards: number
+  /** 转好、写进文件了，提交没成功（中文原因）：改动留在库里，下次提交带上 */
+  commitError?: string
+}
+
+/** 库里的一个数据库：数据源文件夹、名字、几条、第一个写着它的 ```base 块的 YAML 和在哪篇 */
+export interface BoardBase {
+  folder: string
+  name: string
+  count: number
+  src: string
+  from: string
+}
+
+/** 「提到这篇的」一条：那一篇嵌了整篇（embed）、只是链接（link）、引用了哪几节（sections） */
+export interface Backlink {
+  path: string
+  embed: boolean
+  link: boolean
+  sections: string[]
+}
+
 export interface CnApi {
   vault(): Promise<VaultInfo | null>
+  /** 撤回打开库时那次整理（「我的疑惑」、两篇笔记），返回底栏说的那句 */
+  tidyUndo(t: TidyInfo): Promise<string>
   chooseVault(): Promise<VaultInfo | null>
   listNotes(): Promise<NoteFile[]>
   readNote(path: string): Promise<OpenedNote>
@@ -124,11 +166,11 @@ export interface CnApi {
   /** 网页里剪的一段进收件箱（带来源），返回新文件路径 */
   clipToInbox(clip: Clip): Promise<string>
   /**
-   * 整页剪藏右栏开着的网页（AI 的 /剪藏当前网页、网页面板的剪刀按钮都用它）：正文转成 md 进收件箱新的一篇，
-   * frontmatter 带 created 和 source，单独一次提交（可撤回）；返回新文件的库内路径。
+   * 整页剪藏右栏开着的网页（AI 的 /剪藏这一页、网页面板的剪刀按钮都用它）：正文转成 md 进收件箱新的一篇，
+   * frontmatter 带 created 和 source，单独一次提交（可撤回）；返回新文件的库内路径和那次提交（AI 的回答下面画「改了1个文件 · 撤回」用）。
    * webUrl 是右栏开着的网址：当前网页不是它时，找开着这个网址的那个标签剪。
    */
-  clipCurrentPage(arg?: { webUrl?: string | null }): Promise<string>
+  clipCurrentPage(arg?: { webUrl?: string | null }): Promise<{ path: string; commit: CommitInfo | null }>
   /** Chrome 的用户（导入登录用） */
   chromeProfiles(): Promise<{ id: string; name: string; account?: string }[]>
   /** 把 Chrome 某个用户的登录状态导入内置浏览器 */
@@ -145,6 +187,18 @@ export interface CnApi {
   aiCommit(paths: string[], message: string): Promise<CommitInfo | null | { taken: CommitInfo }>
   /** 撤回 AI 的那次提交（反向提交），返回新的提交；only：那次是自动提交，只撤回 AI 改的这几个文件，说明用「撤回」+ AI 的说明 */
   aiRevert(hash: string, only?: { paths: string[]; message: string }): Promise<CommitInfo | null>
+  /** 白板（main/board.ts）：旧写法第一次打开时一次转成「## 列名」写法并提交；没什么要转、撤回过的返回 null；force：撤回过的也转 */
+  boardConvert(path: string, force?: boolean): Promise<BoardConverted | null>
+  /** 撤回转写法：文件回到转之前、记进旧写法名单，一次提交；返回提交号 */
+  boardKeepOld(path: string, old: string, converted: string): Promise<string | null>
+  /** 库里的数据库（工具板「数据库」的菜单） */
+  boardBases(): Promise<BoardBase[]>
+  /** 哪些篇链接、嵌了这一篇 */
+  backlinks(path: string): Promise<Backlink[]>
+  /** 白板上一次改了好几篇：只提交这几篇；返回提交号 */
+  boardCommit(paths: string[], message: string): Promise<string | null>
+  /** 撤回 boardCommit 那一次（反向提交） */
+  boardRevert(hash: string): Promise<string>
   search(q: string): Promise<SearchHit[]>
   /** 置顶的笔记（库里 .canvas-notes/置顶.json），按置顶的先后 */
   pins(): Promise<string[]>
@@ -330,6 +384,8 @@ export interface DreamItem {
   conflict?: string
   /** 归类和改名：从哪挪到哪（按用户说的重做过的是重做后的） */
   move?: { from: string; to: string }
+  /** 归类和改名时正文真改了的：挪的这篇自己（开头的标题、图片附件的相对链接）、别的笔记里换了 [[旧名]] 的几篇；都没改就没有这一项 */
+  edits?: { self: boolean; others: number }
   /** 按用户说的重做过：他说的那句话 */
   redo?: string
   /** 重做时在分支上多出的提交，收下时跟在 commit 后面一起合进来 */
@@ -395,8 +451,10 @@ export interface AiCommitFailed {
 }
 
 export interface AiChange {
-  /** 提交说明，前面会加「AI：」 */
+  /** 提交说明，前面会加「AI：」（noAi 时不加） */
   message: string
+  /** 不经 AI、软件自己照规矩做的（文件夹页「照上周的样子开一篇」）：提交说明照实写，不加「AI：」 */
+  noAi?: boolean
   /** path 是相对路径；create 为 true 时新建（名字重了加序号） */
   writes?: { path: string; text: string; create?: boolean }[]
   /** 挪到另一个文件夹 */

@@ -98,8 +98,8 @@ const field = StateField.define<DecorationSet>({
 
 export const baseBlock = field
 
-/** 斜杠菜单「数据库」：在笔记旁边建一个记录文件夹（先放一条），插一个 ```base 块 */
-export async function insertBase(view: EditorView, notePath: string, from: number, to: number) {
+/** 新建一个空的数据库：在笔记旁边建一个记录文件夹（先放一条），返回 ```base 块（斜杠菜单、白板工具板「数据库」共用） */
+export async function createBase(notePath: string): Promise<string> {
   const dir = notePath.includes('/') ? notePath.slice(0, notePath.lastIndexOf('/')) : ''
   const names = new Set((await window.cn.listNotes()).map((n) => n.path.split('/').slice(0, -1).join('/')))
   let name = '未命名数据库'
@@ -108,7 +108,12 @@ export async function insertBase(view: EditorView, notePath: string, from: numbe
   const d = new Date()
   const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
   await window.cn.createNote(folder, '第一条', `---\n状态: 未开始\n日期: ${today}\n---\n`)
-  const md = '```base\n' + baseYaml(folder, ['file.name', '状态', '日期']) + '\n```'
+  return '```base\n' + baseYaml(folder, ['file.name', '状态', '日期']) + '\n```'
+}
+
+/** 斜杠菜单「数据库」：在笔记旁边建一个记录文件夹（先放一条），插一个 ```base 块 */
+export async function insertBase(view: EditorView, notePath: string, from: number, to: number) {
+  const md = await createBase(notePath)
   const line = view.state.doc.lineAt(from)
   const pre = line.number > 1 && view.state.doc.line(line.number - 1).text.trim() !== '' ? '\n' : ''
   const rest = view.state.doc.sliceString(to, line.to)

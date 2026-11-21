@@ -33,14 +33,14 @@ async function docBoard() {
 }
 
 /** 双击卡片 → 改字 → 光标到末尾打字；返回弹层 */
+/** 双击一张字卡就地改（2026-11-21 起不再弹「全文」改字），光标放到末尾打 typed；交回卡里的输入框 */
 async function editCard(page: Page, colName: string, text: string, typed: string) {
   await cardIn(page, colName, text).dblclick()
-  const dlg = page.getByRole('dialog', { name: '全文' })
-  await dlg.getByRole('button', { name: '改字' }).click()
-  const box = dlg.getByRole('textbox', { name: '这张卡的字' })
+  const box = board(page).getByRole('textbox', { name: '卡片内容' })
+  await expect(box).toBeFocused()
   await box.press('End')
   await page.keyboard.type(typed)
-  return dlg
+  return box
 }
 
 test('同一文件夹第 3 篇起新建：标题和文件名一样（未命名 3、4），写标题回车改名，空着关掉进废纸篓', async () => {
@@ -133,19 +133,26 @@ test('⌘J 带进 AI 的引文跟着那一篇：换到另一篇再 ⌘J，输入
   }
 })
 
-test('白板改字弹层开着时外面改了同一段：存好后文件里是我的版本，外面那版存成冲突副本并提示，不拼出两边都没写过的句子', async () => {
+test('白板上就地改着一张卡时外面改了同一段：框和打的字都在，点别处存下时文件里是我的版本，外面那版存成冲突副本并提示，外面别处改的也合进来', async () => {
   const run = await docBoard()
   const { page, vault, path, file } = run
-  const theirs = NOTE.replace('外面加的一段。', '外面加的一段，手机上又补了半句。')
+  // 外面同时改了两处：正在改的这一段（同一段，冲突），第二节那段（别处，合进来；也用来看出外面的改动到了）
+  const theirs = NOTE.replace('外面加的一段。', '外面加的一段，手机上又补了半句。').replace('第二段卡片。', '第二段卡片（手机）。')
   try {
-    const dlg = await editCard(page, '第一节', '外面加的一段', 'ABC')
+    const box = await editCard(page, '第一节', '外面加的一段', 'ABC')
     writeFileSync(path, theirs)
-    // 外部改动进了编辑器（白板上那张卡变了）再点「存好」
-    await expect(cardIn(page, '第一节', '手机上又补了半句')).toBeVisible()
-    await dlg.getByRole('button', { name: '存好' }).click()
-    await expect(page.locator('.db-toast')).toContainText('冲突')
+    // 外部改动进了编辑器（第二节那张卡变了）：正在改的这张框还开着、还有焦点，打的字一个不少
+    await expect(cardIn(page, '第二节', '第二段卡片（手机）')).toBeVisible()
+    await expect(box).toBeFocused()
+    await expect(box).toHaveText('外面加的一段。ABC')
+    await page.keyboard.type('D')
+    // 点别处存下
+    const bb = (await board(page).locator('.board-wrap').boundingBox())!
+    await page.mouse.click(bb.x + bb.width - 60, bb.y + bb.height - 120)
+    await expect(box).toHaveCount(0)
+    await expect(page.locator('.db-toast')).toContainText('外面改了《外改》的同一段：留了你的版本，外面别处改的也合进来了')
     await waitSaved(page)
-    expect(file()).toBe(NOTE.replace('外面加的一段。', '外面加的一段。ABC'))
+    expect(file()).toBe(NOTE.replace('外面加的一段。', '外面加的一段。ABCD').replace('第二段卡片。', '第二段卡片（手机）。'))
     const copies = readdirSync(vault).filter((f) => f.startsWith('外改（冲突 '))
     expect(copies).toHaveLength(1)
     // 时间和写不进去另存的「没存上的字 18-20」同一写法（第 6 轮）
@@ -154,15 +161,31 @@ test('白板改字弹层开着时外面改了同一段：存好后文件里是�
     // 提示里的副本名和左栏、最近里一样不带 .md（第 3 轮美学）
     await expect(page.locator('.db-toast')).toContainText(`外面那版存成《${copies[0]!.replace(/\.md$/, '')}》`)
 
-    // Esc 关弹层也一样走合并：外面改的是第二节那段（不是一处），两边都在
-    const dlg2 = await editCard(page, '第一节', '开头一段', '我加的')
-    writeFileSync(path, file().replace('第二段卡片。', '第二段卡片（同步盘那边改的）。'))
+    // Esc 收起也一样：外面改的是第二节那段（不是一处），两边都在
+    const box2 = await editCard(page, '第一节', '开头一段', '我加的')
+    writeFileSync(path, file().replace('第二段卡片（手机）。', '第二段卡片（同步盘那边改的）。'))
     await expect(cardIn(page, '第二节', '同步盘那边改的')).toBeVisible()
+    await expect(box2).toBeFocused()
     await page.keyboard.press('Escape')
-    await expect(dlg2).toHaveCount(0)
+    await expect(box2).toHaveCount(0)
     await expect(page.locator('.db-toast')).toContainText('合并进来')
     await waitSaved(page)
-    expect(file()).toBe(NOTE.replace('外面加的一段。', '外面加的一段。ABC').replace('开头一段。', '开头一段。我加的').replace('第二段卡片。', '第二段卡片（同步盘那边改的）。'))
+    expect(file()).toBe(NOTE.replace('外面加的一段。', '外面加的一段。ABCD').replace('开头一段。', '开头一段。我加的').replace('第二段卡片。', '第二段卡片（同步盘那边改的）。'))
+
+    // 外面把正在改的这一段删了：框留在原处、字都在，存下时这段放回去，外面那版存成冲突副本
+    const box3 = await editCard(page, '第二节', '同步盘那边改的', '，我也补一句')
+    const before = file()
+    writeFileSync(path, before.replace('第二段卡片（同步盘那边改的）。\n', '').replace('开头一段。我加的', '开头一段。我加的（外面）'))
+    await expect(cardIn(page, '第一节', '我加的（外面）')).toBeVisible()
+    await expect(box3).toBeFocused()
+    await expect(box3).toHaveText('第二段卡片（同步盘那边改的）。，我也补一句')
+    await page.keyboard.press('Escape')
+    await expect(box3).toHaveCount(0)
+    await expect(page.locator('.db-toast')).toContainText('外面删了你正在改的卡：已放回，外面那版存成《外改（冲突 ')
+    await expect(cardIn(page, '第二节', '我也补一句')).toBeVisible()
+    await waitSaved(page)
+    expect(file()).toContain('开头一段。我加的（外面）')
+    expect(file()).toContain('## 第二节\n\n第二段卡片（同步盘那边改的）。，我也补一句\n')
   } finally {
     await run.close()
   }
@@ -177,7 +200,7 @@ test('白板拖卡后文件在外面改过：「撤回」照样撤（外面加�
     const bb = (await board(page).boundingBox())!
     await dragTo(page, { x: p.x + 40, y: p.y + 20 }, { x: bb.x + 700, y: bb.y + bb.height - 150 })
     await expect(board(page).locator('.db-card.placed')).toHaveCount(1)
-    await expect(toast).toContainText('只记了位置')
+    await expect(toast).toContainText('放在了这里：文档里这段前面多了一行位置，正文顺序不变')
     await waitSaved(page)
   }
   try {
@@ -400,13 +423,15 @@ test('数据库「新一条」名字格直接能起名；条目在左栏「最�
 })
 
 test('白板上从 x=0 摆起的列：左边竖着的工具板不盖住列头', async () => {
-  const run = await launch({ '写作计划.md': '---\ntype: board\ncolor: #4A7FA7\n---\n写作计划。\n\n<!-- column id=c1 x=0 y=0 w=300 title=十一月 -->\n<!-- card id=k1 in=c1 -->\n第一张\n' })
-  const { page } = run
+  // 以前写法的白板：列从 x=0 摆起，还有一张散着的卡（转成新写法后列留在自己的位置上，<!-- column id x y -->）
+  const run = await launch({ '写作计划.md': '---\ntype: board\ncolor: #4A7FA7\n---\n写作计划。\n\n<!-- column id=c1 x=0 y=0 w=300 title=十一月 -->\n<!-- card id=k1 in=c1 -->\n第一张\n\n<!-- card id=k2 x=700 y=300 w=280 -->\n散着的一张\n' })
+  const { page, vault } = run
   try {
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 900))
     await page.locator('.nav .si', { hasText: /^写作计划/ }).first().click()
-    await expect(pane(page).getByTestId('board')).toBeVisible()
-    const head = pane(page).locator('.bcol h3', { hasText: '十一月' })
+    await expect(board(page)).toBeVisible()
+    await expect.poll(() => readFileSync(join(vault, '写作计划.md'), 'utf8')).toContain('<!-- column id=c1 x=4 y=64 -->\n## 十一月')
+    const head = board(page).locator('.db-col h3', { hasText: '十一月' })
     await expect(head).toBeVisible()
     const pal = (await pane(page).locator('.bpal').boundingBox())!
     const h = (await head.boundingBox())!

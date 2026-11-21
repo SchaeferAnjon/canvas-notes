@@ -1,6 +1,6 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { onMessageMenu } from './ctx/message-menu'
-import { fmValue, isMindmap, resetLayout, splitDoc } from '@cn/format'
+import { fmValue, hasOldLayout, isMindmap, resetLayout, splitDoc } from '@cn/format'
 import { Markdown } from './md-render'
 import { AiError } from './ai-error'
 import { ByLogo } from './engine-logo'
@@ -21,11 +21,11 @@ import {
   articlePrompt,
   askPrompt,
   COMMANDS,
+  draftPath,
   draftText,
   inboxPrompt,
   parseMoves,
   dreamSummary,
-  PENDING_COMMANDS,
   TIDY_BOARD,
   summaryPrompt,
   SYSTEM,
@@ -52,7 +52,7 @@ const ICONS: Record<string, CodiconName> = {
   写成文章: 'edit',
   翻译: 'whole-word',
   找重复: 'files',
-  剪藏当前网页: 'quote',
+  剪藏这一页: 'quote',
   现在梦游: 'wand',
 }
 
@@ -191,6 +191,32 @@ export function AiPanel(props: AiPanelProps) {
     // 跟着最新的往下滚；人往上翻着看时不拽回去（找重复每 0.3 秒刷新一次，不然一直被拉到底）
     if (pinned.current) list.current?.scrollTo({ top: list.current.scrollHeight })
   }, [msgs])
+  // 换了地方、收起又打开：从最新那一轮看起
+  useLayoutEffect(() => {
+    if (props.hidden) return
+    pinned.current = true
+    list.current?.scrollTo({ top: list.current.scrollHeight })
+  }, [props.hidden, place.key])
+  // 这一格变高变矮（右栏上半开了历史、拖了分隔线、重开软件时排好版）、里面的字排出来变长（公式、图）：
+  // 停在底下的照旧停在底下。以前只在消息变了时滚，格子变矮后停在半中间，看上去只有第一轮（2026-11-21 用户截图）
+  useEffect(() => {
+    const el = list.current
+    if (!el) return
+    const stick = () => {
+      if (pinned.current) el.scrollTop = el.scrollHeight
+    }
+    const ro = new ResizeObserver(stick)
+    ro.observe(el)
+    for (const c of el.children) ro.observe(c)
+    const mo = new MutationObserver(() => {
+      for (const c of el.children) ro.observe(c)
+    })
+    mo.observe(el, { childList: true })
+    return () => {
+      ro.disconnect()
+      mo.disconnect()
+    }
+  }, [])
 
   // ---------- 菜单 ----------
   const slash = /^\/(\S*)$/.exec(input)
@@ -204,12 +230,12 @@ export function AiPanel(props: AiPanelProps) {
   const menuLen = slash ? cmdItems.length : at ? atItems.length : 0
 
   /**
-   * 空对话里的建议：这一页能用的 / 命令（文档不出名字写着「白板」的），右栏开着网页时「剪藏当前网页」排第一（和能动手一样），最多三颗。
+   * 空对话里的建议：这一页能用的 / 命令（文档不出名字写着「白板」的），右栏开着网页时「剪藏这一页」排第一（和能动手一样），最多三颗。
    * 文件夹页照小样给这个文件夹的（总结、挪进来、照上一篇开一篇，folder-ai.ts），做不到的不放
    */
   function suggestions(folder: string | null): { text: string; icon: CodiconName; go(): void }[] {
     const cmd = (name: string) => ({ text: '/' + name, icon: ICONS[name] ?? 'comment-discussion', go: () => void run('/' + name) })
-    const web = props.webOpen && props.webUrl ? [cmd('剪藏当前网页')] : []
+    const web = props.webOpen && props.webUrl ? [cmd('剪藏这一页')] : []
     const own =
       folder !== null
         ? folderSugs(folder, props.notes, today()).map((s) => ({ text: s.text, icon: s.icon, go: () => void runFolder(folder, s) }))
@@ -332,15 +358,17 @@ export function AiPanel(props: AiPanelProps) {
           if (d && d.path === notePath && next !== body) d.setText(next)
           return patch(id, { pending: false, text: `照文档的节摆好了：${b.columns.length}列、${b.total}张卡${next !== body ? '，单独摆出来的卡都放回了它那一节' : ''}。` })
         }
-        return await agentTurn(id, TIDY_BOARD)
+        // 提交说明写命令名和白板名，不写交给 AI 的那一长串（task-9womr）
+        return await agentTurn(id, TIDY_BOARD, [], `/整理当前白板 · ${titleOf(notePath)}`)
       }
       if (cmd === '现在梦游') return await dreamNow(id)
-      if (cmd && PENDING_COMMANDS[cmd]) return await pendingCommand(id, cmd)
+      if (cmd === '剪藏这一页') return await clipPage(id)
       if (cmd === '整理收件箱') return await tidyInbox(id)
       if (cmd === '总结这块白板' || cmd === '写成文章') {
         if (!notePath) return patch(id, { pending: false, error: '先打开一块白板或一篇笔记' })
         const body = await noteText(notePath)
-        const cards = (body.match(/^<!-- card /gm) ?? []).length
+        // 以前写法的白板数卡片行；新写法（「## 列名」）的白板列里的卡没有卡片行，按切出来的卡数
+        const cards = hasOldLayout(body) || fmValue(body, 'type') !== 'board' ? (body.match(/^<!-- card /gm) ?? []).length : splitDoc(body).total
         const read = `读了 ${notePath}${cards ? ` · ${cards}张卡片` : ''}`
         patch(id, { read })
         if (cmd === '总结这块白板') {
@@ -359,17 +387,18 @@ export function AiPanel(props: AiPanelProps) {
                   if (!(e instanceof CommitFailed)) throw e
                   return patch(id, { actions: [], warn: `卡存好了，提交没成功：${e.message}`, retry: e.retry })
                 }
-                patch(id, { actions: [], done: '存到了白板左下角' })
+                patch(id, { actions: [], done: /<!--\s*card\s[^>]*\b(in|w)=/.test(cur) ? '存到了白板左下角' : '存到了白板最左一组的最上面' })
               },
             })
           }
           patch(id, { pending: false, text: reply, actions })
         } else {
           const article = await askAi(id, articlePrompt(notePath, body), true)
-          const name = `${titleOf(notePath)}：文章草稿`
+          // 草稿写在白板旁边（白板在库最外层时进收件箱）；卡片和改动块写的是带文件夹的整条路径
+          const want = draftPath(notePath)
           const draft = draftText(notePath, article)
-          const commit = await applyChange(id, { message: `按「${titleOf(notePath)}」写成文章草稿`, writes: [{ path: `${name}.md`, text: draft, create: true }] }, {})
-          const path = commit?.files.find((f) => f.path.endsWith('.md'))?.path ?? `${name}.md`
+          const commit = await applyChange(id, { message: `按「${titleOf(notePath)}」写成文章草稿`, writes: [{ path: want, text: draft, create: true }] }, {})
+          const path = commit?.files.find((f) => f.path.endsWith('.md'))?.path ?? want
           if (commit) patch(id, { change: { commit, kinds: { [path]: '新' } } })
           const words = article.replace(/\s/g, '').length
           patch(id, {
@@ -464,7 +493,8 @@ export function AiPanel(props: AiPanelProps) {
     if (!t) return patch(id, { pending: false, error: '认不出下一篇叫什么' })
     const from = titleOf(t.from.path)
     const text = skeleton(await noteText(t.from.path), from, t.name, today())
-    const commit = await applyChange(id, { message: `照「${from}」开一篇「${t.name}」`, writes: [{ path: t.path, text, create: true }] }, {})
+    // 没问 AI：提交说明不带「AI：」（task-9womr）
+    const commit = await applyChange(id, { message: `照「${from}」开一篇「${t.name}」`, noAi: true, writes: [{ path: t.path, text, create: true }] }, {})
     const path = commit?.files.find((f) => f.path.endsWith('.md'))?.path ?? t.path
     if (commit) patch(id, { change: { commit, kinds: { [path]: '新' } } })
     patch(id, { pending: false, read: `照「${from}」的属性和小节`, text: `开好了「${titleOf(path)}」，内容空着等你写。` })
@@ -472,7 +502,7 @@ export function AiPanel(props: AiPanelProps) {
   }
 
   /** 直接说的话：交给选好的引擎，它能用工具操纵网页、白板、文档；mats 是带的材料（字里的 ①② 照旧，后面按同一套编号列出每块，图叫「图②」，图一起附上） */
-  async function agentTurn(id: number, text: string, mats: Material[] = []) {
+  async function agentTurn(id: number, text: string, mats: Material[] = [], subject?: string) {
     // 回答头上写全「Claude Code · Opus 5.5 · High」：这个对话这一问用的
     patch(id, { live: true, engine, text: '', by: cp.label })
     const ctx = props.context(mentions)
@@ -483,6 +513,7 @@ export function AiPanel(props: AiPanelProps) {
         id,
         engine,
         text,
+        ...(subject ? { subject } : {}),
         context: ctx,
         place: { key: place.key, label: place.label },
         ...cp.req,
@@ -494,7 +525,8 @@ export function AiPanel(props: AiPanelProps) {
         pending: false,
         live: false,
         text: r.text || m.text || undefined,
-        ...(r.error ? { error: r.error } : {}),
+        // 停下、中途断了：还转着圈的那一步不会再报做完，改成没做完（不然一直转）
+        ...(r.error ? { error: r.error, ...(m.steps?.some((x) => x.status === 'run') ? { steps: m.steps.map((x) => (x.status === 'run' ? { ...x, status: 'err' as const, detail: '没做完' } : x)) } : {}) } : {}),
         ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds, ...(r.moved ? { moved: r.moved } : {}) } } : {}),
         // 改好了、提交没成功（没署名、锁一直不放）：照实说，「再提交一次」只提交这一轮改的那几个文件
         ...(r.failed ? { warn: `改好了，提交没成功：${r.failed.failed}`, retry: { paths: r.failed.paths, message: r.failed.message, kinds: r.kinds } } : {}),
@@ -552,13 +584,20 @@ export function AiPanel(props: AiPanelProps) {
     patch(id, { pending: false, read: undefined, text: s.text, dream: { items: s.items, groups: s.groups } })
   }
 
-  /** 还在别的同事那里做的命令：window.cn 上有对应方法才调 */
-  async function pendingCommand(id: number, cmd: string) {
-    const fn = (window.cn as unknown as Record<string, unknown>)[PENDING_COMMANDS[cmd]!]
-    if (typeof fn !== 'function') return patch(id, { pending: false, text: '这条命令还在做' })
-    const r: unknown = await (fn as (arg: { webUrl: string | null }) => Promise<unknown>).call(window.cn, { webUrl: props.webUrl })
+  /**
+   * 剪藏这一页（不经 AI，和网页面板的引号按钮同一件事）：右栏开着的网页整页进收件箱，单独一次提交。
+   * 回答和别的命令一样：一句剪到了哪、「打开」，下面「改了1个文件 · 撤回」（以前只回一行路径）
+   */
+  async function clipPage(id: number) {
+    const { path, commit } = await window.cn.clipCurrentPage({ webUrl: props.webUrl })
     props.onChanged()
-    patch(id, { pending: false, text: typeof r === 'string' && r ? r : '做好了' })
+    // 整页剪藏一律进收件箱（main/web 的 clipCurrentPage），路径里总有文件夹
+    patch(id, {
+      pending: false,
+      text: `剪好了「${titleOf(path)}」，放在「${path.slice(0, path.lastIndexOf('/'))}」。`,
+      actions: [{ label: '打开', primary: true, run: () => props.onOpen(path) }],
+      ...(commit ? { change: { commit, kinds: { [path]: '新' } } } : {}),
+    })
   }
 
   async function tidyInbox(id: number) {
@@ -586,6 +625,38 @@ export function AiPanel(props: AiPanelProps) {
         },
       ],
     })
+  }
+
+  /**
+   * 动手做了几步才断的那一轮（停下、中途退出）：写做完的最后一步（停下时掐断的那步不算，它自己写着没做完），
+   * 最后一条给「接着做」（接着同一个会话，主进程没答完也记下了会话号）。
+   * 一步没做、一个字没说就出错的（没登录、网络断了）照旧是「再问一次」
+   */
+  function cutOf(m: Msg, last: boolean): { cut?: { at: { label: string; code?: string } | null; onContinue?(): void } } {
+    if (!m.engine || (!m.steps?.length && !m.text?.trim())) return {}
+    const s = m.steps?.filter((x) => x.status === 'ok').pop()
+    return { cut: { at: s ? { label: s.label, ...(s.code ? { code: s.code } : {}) } : null, ...(last && !C.runningNow() ? { onContinue: () => void run('接着做') } : {}) } }
+  }
+
+  /** 没答出来那一块（AiError）：出错的那一轮、它前面那句问话（「再问一次」「换个问法」用） */
+  function errorOf(m: Msg, i: number) {
+    const q = msgs[i - 1]?.role === 'user' ? msgs[i - 1]!.text : undefined
+    return (
+      <AiError
+        raw={m.error!}
+        engine={{ id: m.engine ?? engine, label: engines.find((e) => e.id === (m.engine ?? engine))?.label }}
+        {...cutOf(m, i === msgs.length - 1)}
+        {...(q && !C.runningNow()
+          ? {
+              onRetry: () => void run(q),
+              onRephrase: () => {
+                setInput(q)
+                requestAnimationFrame(() => box.current?.focus())
+              },
+            }
+          : {})}
+      />
+    )
   }
 
   function stop() {
@@ -658,10 +729,12 @@ export function AiPanel(props: AiPanelProps) {
   const sees: { label: string; on?: boolean }[] = [{ label: seen.see, on: true }, ...(web ? [{ label: `网页：${hostOf(web)}` }] : []), ...mentions.map((m) => ({ label: `@${titleOf(m)}` }))]
   // 它在这一页能替你做的动作（右栏网页开着时是网页的，最可能是要它动网页）
   const hands = web ? HANDS.web : seen.hands
+  // 实心主按钮一屏最多一个（DESIGN.md 组件）：只有最新那条带按钮的回答用实心，之前的「打开」「存成卡片」退成次按钮
+  const lastActs = msgs.findLastIndex((m) => m.role === 'ai' && !!m.actions?.length)
 
   return (
     <aside className="right aicell ai" aria-label="AI 对话" hidden={props.hidden}>
-      <AiHead label={place.label} nav={props.nav} newTip="新对话" newDisabled={running !== null} onNew={newChat} onCollapse={props.onClose} />
+      <AiHead label={place.label} nav={props.nav} newTip="新对话" newDisabled={running !== null} onNew={newChat} />
       {props.nav.away ? (
         <AwayBar nav={props.nav} />
       ) : (
@@ -741,29 +814,14 @@ export function AiPanel(props: AiPanelProps) {
                 <StepRow key={s.id} s={s} />
               ))}
               {m.pending && !m.text && !m.steps?.length && !m.dupProgress && <div className="thinking">{m.engine ? `${engines.find((e) => e.id === m.engine)?.label ?? ''}正在想…` : '正在想…'}</div>}
-              {m.error && (
-                <AiError
-                  raw={m.error}
-                  engine={{ id: m.engine ?? engine, label: engines.find((e) => e.id === (m.engine ?? engine))?.label }}
-                  {...(() => {
-                    const q = msgs[i - 1]?.role === 'user' ? msgs[i - 1]!.text : undefined
-                    return q && !C.runningNow()
-                      ? {
-                          onRetry: () => void run(q),
-                          onRephrase: () => {
-                            setInput(q)
-                            requestAnimationFrame(() => box.current?.focus())
-                          },
-                        }
-                      : {}
-                  })()}
-                />
-              )}
+              {m.error && !cutOf(m, false).cut && errorOf(m, i)}
               {m.text && (
                 <div className="txt">
                   <Markdown text={m.text} math />
                 </div>
               )}
+              {/* 做了几步才断的：「没做完」放在说到一半的字后面（停在哪里一眼看得到） */}
+              {m.error && cutOf(m, false).cut && errorOf(m, i)}
               {m.moves && (
                 <div className="moves">
                   {m.moves.map((x) => (
@@ -834,7 +892,11 @@ export function AiPanel(props: AiPanelProps) {
                     <b className="truncate">{titleOf(m.draft.path)}</b>
                   </div>
                   <div className="dmeta">
-                    <code>{m.draft.path}</code> · <span className="num">{m.draft.words}</span>字 · AI写的草稿
+                    <FilePath path={m.draft.path} code />
+                    <span className="rest">
+                      {'· '}
+                      <span className="num">{m.draft.words}</span>字 · AI写的草稿
+                    </span>
                   </div>
                   <p>{m.draft.head}</p>
                 </div>
@@ -854,7 +916,7 @@ export function AiPanel(props: AiPanelProps) {
                   {m.actions.map((a) => (
                     <button
                       key={a.label}
-                      className={'btn btn-sm' + (a.primary ? ' btn-primary' : '')}
+                      className={'btn btn-sm' + (a.primary && i === lastActs ? ' btn-primary' : '')}
                       onClick={() =>
                         void Promise.resolve(a.run()).catch((e) =>
                           patch(m.id, e instanceof CommitFailed ? { actions: [], warn: `改好了，提交没成功：${e.message}`, retry: e.retry } : { error: errText(e) }),
@@ -939,7 +1001,7 @@ export function StepRow({ s }: { s: ToolStep }) {
   return (
     <div className={'read tstep ' + s.status} data-testid="ai-step" title={s.detail ?? s.code}>
       <Codicon name={s.status === 'run' ? 'loading' : s.status === 'ok' ? 'check' : 'close'} size={12} className={s.status === 'run' ? 'spin' : ''} />
-      {s.label}
+      <span className="sl">{s.label}</span>
       {s.code && <code className="sc">{s.code}</code>}
       {s.status === 'err' && s.detail && <span className="why">：{s.detail}</span>}
     </div>
@@ -983,7 +1045,7 @@ export function ChangeBlock({ change, onRevert, onHistory }: { change: Change; o
                 {f.path}
               </span>
             ) : (
-              <span className="truncate">{f.path}</span>
+              <FilePath path={f.path} />
             )}
             <span className="k">{change.kinds[f.path] ?? (f.removed === 0 && f.added > 0 ? '新' : '改')}</span>
             {counts && <span className="num add">+{f.added}</span>}
@@ -1000,6 +1062,21 @@ export function ChangeBlock({ change, onRevert, onHistory }: { change: Change; o
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * 一条库内路径：文件夹 --t3 在前、放不下先省略这一截，文件名 --t1 尽量整个露着（DESIGN.md「AI 改动预览」每个文件一行写文件名）；
+ * 悬停看整条。改动块的文件行、写成文章草稿卡的路径行用
+ */
+function FilePath({ path, code }: { path: string; code?: boolean }) {
+  const at = path.lastIndexOf('/')
+  const Tag = code ? 'code' : 'span'
+  return (
+    <Tag className="fpath" title={path}>
+      {at > 0 && <span className="dir">{path.slice(0, at + 1)}</span>}
+      <span className="fn">{path.slice(at + 1)}</span>
+    </Tag>
   )
 }
 

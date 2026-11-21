@@ -1,5 +1,5 @@
-// 第 2a 段（D 组「只有一个 AI」方向 A：只住右栏）：AI 永远是右栏的一格，右下角圆钮（画正在用的那家的标志）或 ⌘J 开关；
-// 右栏开着网页时上下各一半；换页面位置宽度不变；读 PDF 和别处同一个头、同一行「看得到」；每个文件、文件夹、首页、收件箱各存各的对话，
+// 第 2a 段（D 组「只有一个 AI」）；2026-11-20 工作区方向 A：AI 是右栏里的一个标签，右下角圆钮（画正在用的那家的标志）或 ⌘J 开关；
+// 网页和 AI 默认叠在同一组，拖网页到上半才上下各一半；换页面位置宽度不变；读 PDF 和别处同一个头、同一行「看得到」；每个文件、文件夹、首页、收件箱各存各的对话，
 // 头上「周记 ⌄」翻得到别处问过的（含读 PDF 的），点开看的时候头下一行「这是在「X」问的 · 回到「周记」」；以前全库一份的对话迁成「以前的对话」。
 import { _electron as electron, expect, test, type Page } from '@playwright/test'
 import { createHash } from 'node:crypto'
@@ -8,7 +8,7 @@ import { createServer } from 'node:http'
 import { dirname, join } from 'node:path'
 import electronPath from 'electron'
 import { execFileSync } from 'node:child_process'
-import { launch, leftView, openNote, pane, rail, tabOn } from './app'
+import { launch, leftView, openNote, pane, rail, tabOn, webAboveAi } from './app'
 import { BOOK, DOC as BOOK_DOC, PATH as BOOK_PATH } from './fixtures/book-digest'
 import { LECTURE } from './fixtures/pdf'
 
@@ -82,17 +82,18 @@ test('文件夹页按 ⌘J：AI 在右栏一格，看得到「文件夹：周记
     await expect(fab(page)).toHaveAttribute('aria-label', '收起 AI')
     expect(await fab(page).evaluate((e) => getComputedStyle(e).boxShadow)).toMatch(/0px 0px 0px 1\.5px/)
 
-    // 头：44 高，「AI」600 +「周记 ⌄」胶囊 26 高圆角 6 + 新对话 +「收起 ⌘J」；头上不再有引擎胶囊、「改动可撤回」
+    // 标签「AI」（前面是那家的标志）；对话那一行 40 高：「周记 ⌄」胶囊 26 高圆角 6 + 新对话；「AI」两个字、「收起 ⌘J」不在这一行（工作区方向 A）
+    await expect(page.getByTestId('dtab-ai')).toHaveText('AI')
+    await expect(page.getByTestId('dtab-ai').locator('.eng-logo')).toHaveAttribute('data-engine', 'claude')
     const head = ai.locator('.aih')
-    expect(Math.round((await box(head)).height)).toBe(44)
-    await expect(head.locator('b').first()).toHaveText('AI')
-    expect(await head.locator('b').first().evaluate((e) => getComputedStyle(e).fontWeight)).toBe('600')
+    expect(Math.round((await box(head)).height)).toBe(40)
+    await expect(head.locator('b')).toHaveCount(0)
     const conv = ai.getByTestId('ai-conv')
     await expect(conv).toHaveText('周记')
     expect(Math.round((await box(conv)).height)).toBe(26)
     expect(await conv.evaluate((e) => getComputedStyle(e).borderRadius)).toBe('6px')
     await expect(head.getByRole('button', { name: '新对话' })).toBeVisible()
-    await expect(head.getByRole('button', { name: '收起 AI' })).toHaveText('收起 ⌘J')
+    await expect(head.getByRole('button', { name: '收起 AI' })).toHaveCount(0)
     await expect(head.getByTestId('ai-engine')).toHaveCount(0)
     await expect(head.getByTestId('ai-undo-hint')).toHaveCount(0)
 
@@ -125,8 +126,9 @@ test('文件夹页按 ⌘J：AI 在右栏一格，看得到「文件夹：周记
     expect(Math.round((await box(sug.first())).height)).toBe(34)
     expect(await sug.first().evaluate((e) => getComputedStyle(e).borderRadius)).toBe('10px')
 
-    // 「收起 ⌘J」收起，圆钮的外圈没了
-    await head.getByRole('button', { name: '收起 AI' }).click()
+    // 标签上的 × 收起，圆钮的外圈没了
+    await page.getByTestId('dtab-ai').hover()
+    await page.getByTestId('dtab-ai').getByRole('button', { name: '收起AI' }).click()
     await expect(ai).toBeHidden()
     await expect(fab(page)).not.toHaveClass(/\bon\b/)
     // 圆钮再开
@@ -137,7 +139,7 @@ test('文件夹页按 ⌘J：AI 在右栏一格，看得到「文件夹：周记
   }
 })
 
-test('右栏开着网页时上下各一半（网页在上、AI 在下），开关网页 AI 的 x 和宽不变；换页面（文件夹、文档、PDF）AI 的位置和宽度不变', async () => {
+test('右栏开着网页时网页和 AI 是同一组两个标签（不硬切两截），拖网页到上半才上下各一半；开关网页 AI 的 x 和宽不变；换页面（文件夹、文档、PDF）AI 的位置和宽度不变', async () => {
   const server = createServer((_q, r) => r.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end('<title>读书页</title><p>一段字</p>'))
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/book`
@@ -171,7 +173,7 @@ test('右栏开着网页时上下各一半（网页在上、AI 在下），开�
       expect(Math.abs(b.height - b1.height)).toBeLessThanOrEqual(1)
     }
 
-    // 开网页：网页在上、AI 在下，各一半高；AI 的 x 和宽不变
+    // 开网页：和 AI 同一组的第二个标签，网页在前面、占满整栏（不硬切两截）；点「AI」标签换回来，位置大小不变
     await openDoc(page, '随手记')
     await rail(page).getByRole('button', { name: '网页' }).click()
     const web = page.getByRole('complementary', { name: '网页' })
@@ -180,6 +182,16 @@ test('右栏开着网页时上下各一半（网页在上、AI 在下），开�
     await addr.fill(url)
     await addr.press('Enter')
     await expect(web.getByRole('tablist', { name: '网页标签' }).getByRole('tab').first()).toContainText('读书页')
+    await expect(chat(page)).toBeHidden()
+    const w0 = await box(web)
+    expect(Math.abs(w0.y - b1.y - (b1.height - w0.height))).toBeLessThanOrEqual(1)
+    expect(Math.abs(w0.x - b1.x) + Math.abs(w0.width - b1.width)).toBeLessThanOrEqual(2)
+    await page.getByTestId('dtab-ai').click()
+    await expect(chat(page)).toBeVisible()
+    const a0 = await box(chat(page))
+    expect([a0.x, a0.y, a0.width, a0.height].map(Math.round)).toEqual([b1.x, b1.y, b1.width, b1.height].map(Math.round))
+    // 拖网页到这一组的上半：网页在上、AI 在下，各一半高；AI 的 x 和宽不变
+    await webAboveAi(page)
     const w = await box(web)
     const a = await box(chat(page))
     expect(await fabAt()).toEqual(f0)
@@ -188,23 +200,21 @@ test('右栏开着网页时上下各一半（网页在上、AI 在下），开�
     expect(Math.abs(w.x - a.x)).toBeLessThanOrEqual(1)
     expect(w.y).toBeLessThan(a.y)
     expect(Math.abs(w.height - a.height)).toBeLessThanOrEqual(2)
-    expect(Math.abs(w.y - b1.y)).toBeLessThanOrEqual(1)
     expect(Math.abs(a.y + a.height - (b1.y + b1.height))).toBeLessThanOrEqual(1)
-    expect(Math.abs(w.height + a.height - b1.height)).toBeLessThanOrEqual(2)
     // 右栏开着网页时「看得到」多一颗网页，能动手换成网页的
     await expect(chat(page).getByTestId('ai-sees').locator('.chip').nth(1)).toHaveText('网页：127.0.0.1')
-    // 下半格矮：空对话藏起大标题，放得下不出滚动条；建议里「剪藏当前网页」排第一，文档不出「总结这块白板」
+    // 下半格矮：空对话藏起大标题（每组多一条 38 的标签头，900 高时收到最紧也放不下，消息区自己滚）；建议里「剪藏这一页」排第一，文档不出「总结这块白板」
     await expect(chat(page).locator('.ai-empty h2')).toBeHidden()
-    expect(await chat(page).locator('.msgs').evaluate((e) => e.scrollHeight <= e.clientHeight)).toBe(true)
-    await expect(chat(page).locator('.ai-empty .sug')).toHaveText(['/剪藏当前网页', '/翻译', '/整理收件箱'])
+    await expect(chat(page).locator('.ai-empty .sug')).toHaveText(['/剪藏这一页', '/翻译', '/整理收件箱'])
     await expect(chat(page).locator('.ai-empty p')).toBeVisible()
     await expect(chat(page).locator('.ai-empty .sug').first()).toBeVisible()
     await expect(chat(page).getByTestId('ai-sees').locator('.chip.hands')).toHaveText('能动手：滚动、选中、剪藏网页')
-    // 只开网页（AI 收起）：圆钮还在原处
+    // 只开网页（AI 收起）：圆钮还在原处；再开 AI 回到它原来那一组（中间右边第一栏的第一组：网页那一组，叠成标签）
     await page.keyboard.press('Meta+j')
     await expect(chat(page)).toBeHidden()
     expect(await fabAt()).toEqual(f0)
     await page.keyboard.press('Meta+j')
+    await expect(chat(page)).toBeVisible()
     // 拖宽右栏：圆钮不动
     const sep = await box(page.getByRole('separator', { name: '拖动调整右栏宽度' }))
     await page.mouse.move(sep.x + sep.width / 2, sep.y + 300)
@@ -212,8 +222,9 @@ test('右栏开着网页时上下各一半（网页在上、AI 在下），开�
     await page.mouse.move(sep.x + sep.width / 2 - 120, sep.y + 300, { steps: 6 })
     await page.mouse.up()
     expect(await fabAt()).toEqual(f0)
-    // 关网页：AI 回到整栏高，x 和宽不变（右栏宽是刚拖的）
-    await rail(page).getByRole('button', { name: '网页' }).click()
+    // 关网页（标签上的 ×）：AI 占满整栏，x 和宽不变（右栏宽是刚拖的）
+    await page.getByTestId('dtab-web').hover()
+    await page.getByTestId('dtab-web').getByRole('button', { name: '收起网页' }).click()
     await expect(web).toBeHidden()
     const a2 = await box(chat(page))
     expect(Math.abs(a2.x + a2.width - (b1.x + b1.width))).toBeLessThanOrEqual(1)
@@ -381,7 +392,7 @@ test('以前全库只存一份的对话迁成一条「以前的对话」，列�
   }
 })
 
-test('打开 PDF 不再强制打开 AI，框一块照旧打开；读 PDF 时竖条「笔记」把 AI 那一格换成笔记，再点回到 AI；看得到「第3讲.pdf · 第1页 | 读过全文5页」（还没记过笔记不画「笔记0轮」）', async () => {
+test('打开 PDF 不再强制打开 AI，框一块照旧打开；读 PDF 时竖条「笔记」开笔记标签（和 AI 叠在同一组），再点收起回到 AI；看得到「第3讲.pdf · 第1页 | 读过全文5页」（还没记过笔记不画「笔记0轮」）', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -405,46 +416,45 @@ test('打开 PDF 不再强制打开 AI，框一块照旧打开；读 PDF 时竖�
     await expect(reading(page).getByTestId('pdf-progress')).toHaveCount(0)
     const ra = await box(reading(page))
 
-    // 竖条「笔记」：AI 那一格换成笔记（同一个位置），头「笔记 第3讲 笔记.md · 问着就记，不用整理」
+    // 竖条「笔记」：同一组里多一个「笔记」标签、在前面（同一个位置），AI 在它后面
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(notesCell(page)).toBeVisible()
     await expect(reading(page)).toBeHidden()
-    await expect(notesCell(page).locator('.aih b')).toHaveText('笔记')
-    await expect(notesCell(page).locator('.aih .sub')).toHaveText('第3讲 笔记.md · 问着就记，不用整理')
+    await expect(page.getByTestId('dtab-note')).toHaveText('笔记')
+    await expect(page.locator('.dgrp .dtab')).toHaveText(['AI', '笔记'])
     const nb = await box(notesCell(page))
     expect(Math.abs(nb.x - ra.x) + Math.abs(nb.width - ra.width) + Math.abs(nb.height - ra.height)).toBeLessThanOrEqual(2)
     await expect(rail(page).getByRole('button', { name: '笔记' })).toHaveAttribute('aria-pressed', 'true')
     // 笔记开着时圆钮不亮，点它回到 AI
     await expect(fab(page)).not.toHaveClass(/\bon\b/)
-    // 再点「笔记」回到 AI
+    // 再点「笔记」：收起笔记标签，回到 AI
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(reading(page)).toBeVisible()
-    await expect(notesCell(page)).toBeHidden()
-    // 笔记 → ⌘J 也是回到 AI（AI 没在看）；AI 开着时 ⌘J 收起
+    await expect(notesCell(page)).toHaveCount(0)
+    // 笔记 → ⌘J：换到 AI（笔记还开着，在后面）；AI 看得见时 ⌘J 收起 AI，笔记到前面
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(notesCell(page)).toBeVisible()
     await page.keyboard.press('Meta+j')
     await expect(reading(page)).toBeVisible()
+    await expect(notesCell(page)).toBeHidden()
     await page.keyboard.press('Meta+j')
     await expect(reading(page)).toBeHidden()
-    await expect(notesCell(page)).toBeHidden()
-    // 收着时点「笔记」：打开那一格，显示笔记
-    await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(notesCell(page)).toBeVisible()
+    await expect(page.locator('.dgrp .dtab')).toHaveText(['笔记'])
   } finally {
     await run.close()
   }
 })
 
-test('收着时点「笔记」只开了笔记（cn.aiOpen 记 notes，右图标栏方向 A）：换到文档这一格收起、右栏关着，回到 PDF 又是笔记；重开软件还是；开了 AI 记成开着', async () => {
+test('只开了笔记（工作区布局记在 cn.dock）：换到文档笔记标签藏起来、右栏关着，回到 PDF 又是笔记；重开软件还是；点圆钮 AI 叠进同一组、在前面', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   try {
     await openPdf(page)
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(notesCell(page)).toBeVisible()
-    expect(await page.evaluate(() => localStorage.getItem('cn.aiOpen'))).toBe('notes')
-    // 换到文档：这一格收起（不换成这篇的 AI），右栏关着，圆钮写「打开 AI」
+    await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('cn.dock') ?? '{}').cols?.flatMap((c: { groups?: { views: string[] }[] }) => c.groups?.flatMap((g) => g.views) ?? []))).toEqual(['note'])
+    // 换到文档：笔记标签藏起来（不换成这篇的 AI），右栏关着，圆钮写「打开 AI」
     await openDoc(page, '随手记')
     await expect(notesCell(page)).toHaveCount(0)
     await expect(chat(page)).toBeHidden()
@@ -464,10 +474,11 @@ test('收着时点「笔记」只开了笔记（cn.aiOpen 记 notes，右图标�
       const p2 = await app.firstWindow()
       await expect(tabOn(p2)).toHaveText('第3讲.pdf')
       await expect(notesCell(p2)).toBeVisible()
-      // 点圆钮：换成 AI，记成平常开着的 AI
+      // 点圆钮：AI 叠进同一组、在前面；布局里记着两样
       await fab(p2).click()
       await expect(reading(p2)).toBeVisible()
-      expect(await p2.evaluate(() => localStorage.getItem('cn.aiOpen'))).toBe('1')
+      await expect(p2.locator('.dgrp .dtab')).toHaveText(['笔记', 'AI'])
+      await expect.poll(() => p2.evaluate(() => JSON.parse(localStorage.getItem('cn.dock') ?? '{}').cols?.flatMap((c: { groups?: { views: string[] }[] }) => c.groups?.flatMap((g) => g.views) ?? []))).toEqual(['note', 'ai'])
     } finally {
       await app.close()
     }
@@ -555,7 +566,7 @@ test('文件夹页的建议照小样三颗，每颗都真跑通：总结这周�
     await sug.nth(2).click()
     await expect(tabOn(page)).toHaveText('2026-W48')
     await expect.poll(() => (existsSync(join(vault, '周记/2026-W48.md')) ? readFileSync(join(vault, '周记/2026-W48.md'), 'utf8') : '')).toMatch(/^---\ncreated: \d{4}-\d{2}-\d{2}\n---\n# 2026-W48\n\n## 读了\n\n- 课：\n\n## 下周\n$/)
-    expect(execFileSync('git', ['-C', vault, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).trim()).toBe('AI：照「2026-W47」开一篇「2026-W48」')
+    expect(execFileSync('git', ['-C', vault, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).trim()).toBe('照「2026-W47」开一篇「2026-W48」')
     // 回到周记：那条回答在，下一篇已经有了，建议换成 2026-W49
     await openFolder(page, '周记')
     await expect(ai.getByTestId('ai-msg').last().locator('.txt')).toHaveText('开好了「2026-W48」，内容空着等你写。')
@@ -583,15 +594,15 @@ test('书摘开着时「看得到」写「书摘：趣说明朝276年」，对�
     await expect(ai.getByTestId('ai-conv')).toHaveText('趣说明朝276年')
     await expect(ai.locator('.ai-empty p')).toHaveText('这里是「趣说明朝276年」的对话；别处问过的在上面「趣说明朝276年」里。')
     expect(await ai.locator('.ai-empty p .nobr').evaluate((e) => e.getClientRects().length)).toBe(1)
-    // 右栏开着网页：「书摘：…」和「网页：…」在同一行
+    // 右栏开着网页（拖到上半，AI 在下半）：「书摘：…」和「网页：…」在同一行
     await rail(page).getByRole('button', { name: '网页' }).click()
     const addr = page.getByRole('complementary', { name: '网页' }).getByRole('textbox', { name: '网址' })
     await addr.fill(url)
     await addr.press('Enter')
+    await webAboveAi(page)
     await expect(sees.locator('.chip').nth(1)).toHaveText('网页：127.0.0.1')
     expect(Math.abs((await box(sees.locator('.chip').nth(0))).y - (await box(sees.locator('.chip').nth(1))).y)).toBeLessThanOrEqual(1)
-    // 下半格：按放不放得下一级级收（先藏大标题，再只留前两颗、大标题放得下就画回来），不出滚动条；藏起来的那样真是放不下
-    expect(await ai.locator('.msgs').evaluate((e) => e.scrollHeight <= e.clientHeight)).toBe(true)
+    // 下半格：按放不放得下一级级收（先藏大标题，再只留前两颗、大标题放得下就画回来）；藏起来的那样真是放不下
     const tight = await ai.locator('.msgs').evaluate((e) => {
       const em = e.querySelector('.ai-empty')!
       const was = em.className
@@ -605,7 +616,7 @@ test('书摘开着时「看得到」写「书摘：趣说明朝276年」，对�
     })
     // 这一格（1440×887、书名长、那句两行）三样都放不下：大标题和第三颗都收
     expect(tight).toEqual({ was: 'ai-empty tight1 tight2', full: true, noTitle: true, twoSugs: true })
-    await expect(ai.locator('.ai-empty .sug:visible')).toHaveText(['/剪藏当前网页', '/翻译'])
+    await expect(ai.locator('.ai-empty .sug:visible')).toHaveText(['/剪藏这一页', '/翻译'])
     // 拖高不了，换成收起网页：整栏高，大标题和三颗都回来
     await rail(page).getByRole('button', { name: '网页' }).click()
     await expect(ai.locator('.ai-empty h2')).toBeVisible()

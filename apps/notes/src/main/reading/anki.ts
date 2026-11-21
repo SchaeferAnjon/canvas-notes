@@ -5,7 +5,7 @@
  * 同一牌组里问题一样的不重复加，你在 Anki 里改过的模板不动。
  * 笔记类型的定义拷自同一作者的 anki-learn（Core/Sources/AnkiLearnCore/Anki.swift 的 StudyCard），要一字不差。
  */
-import { type AskSection, formatPdfAnchor } from '@cn/format'
+import { type AskSection, formatPdfAnchor, mapMath } from '@cn/format'
 
 export const ANKI_URL = process.env.CN_ANKI_URL || 'http://127.0.0.1:8765'
 export const DECK = '知识'
@@ -121,12 +121,17 @@ export const CSS = `/* 卡片家族 v3 */
 }`
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-/** 纯文字（偶尔带 `代码`、**加粗**）→ Anki 字段的 HTML */
+/**
+ * 纯文字（偶尔带 `代码`、**加粗**、公式）→ Anki 字段的 HTML。公式照文档里的认法（@cn/format 的 findMath）换成 Anki 的 MathJax 认的
+ * \(…\)、\[…\]（task-o48fa），里面的字不再套代码、加粗
+ */
 export function html(text: string): string {
-  return esc(text.trim())
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
-    .replace(/\n/g, '<br>')
+  const rest = (t: string) =>
+    esc(t)
+      .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+      .replace(/\n/g, '<br>')
+  return mapMath(text.trim(), (m) => (m.block || m.display ? `\\[${esc(m.tex)}\\]` : `\\(${esc(m.tex)}\\)`), rest)
 }
 
 /** 段落指纹，当 ID 字段的后半截（FNV-1a） */

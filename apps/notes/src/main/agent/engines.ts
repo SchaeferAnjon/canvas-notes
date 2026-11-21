@@ -111,6 +111,16 @@ const withHistory = (r: EngineRun, fresh: boolean) => (fresh && r.history ? `${r
 
 const aborted = () => Object.assign(new Error('停下了'), { name: 'AbortError' })
 
+/**
+ * 没答完（停下、出错、步数到上限）也带上会话号：已经做了的几步、读过的东西都在这个会话里，
+ * 用户说「接着做」时接着它聊（以前没答完就不记会话号，下一问开新会话，只补几句「之前聊过的」）
+ */
+export const sessionOf = (e: unknown): string | undefined => {
+  const s = (e as { session?: unknown } | null)?.session
+  return typeof s === 'string' && s ? s : undefined
+}
+const tagSession = <E extends Error>(e: E, session: string | undefined): E => (session ? Object.assign(e, { session }) : e)
+
 // ---------------------------------------------------------------- Claude Code
 
 export const CLAUDE_MODEL = process.env.CN_AI_MODEL || 'claude-opus-5-5'
@@ -296,11 +306,11 @@ function runClaude(exe: string, args: string[], prompt: string, r: EngineRun): P
     child.on('close', (code) =>
       finish(() => {
         onLine(buf)
-        if (r.signal.aborted) return reject(aborted())
+        if (r.signal.aborted) return reject(tagSession(aborted(), session))
         const why = stderr.trim().split('\n').slice(-3).join(' ')
-        if (error) return reject(new Error(`Claude Code 没答完：${error}${why ? `（${why}）` : ''}`))
+        if (error) return reject(tagSession(new Error(`Claude Code 没答完：${error === 'error_max_turns' ? '步数到了上限' : error}${why ? `（${why}）` : ''}`), session))
         if (result === null && !text) {
-          return reject(new Error(code ? `Claude Code 退出了（${code}）${why ? `：${why}` : ''}` : 'Claude Code 没有回答。确认这台 Mac 上的 Claude Code 已经登录（终端里运行 claude）。'))
+          return reject(tagSession(new Error(code ? `Claude Code 退出了（${code}）${why ? `：${why}` : ''}` : 'Claude Code 没有回答。确认这台 Mac 上的 Claude Code 已经登录（终端里运行 claude）。'), session))
         }
         if (!streamed && result) r.onText(result)
         resolve({ text: streamed ? text.trim() : (result ?? ''), session })
@@ -380,9 +390,12 @@ export function codexStep(item: Record<string, unknown> | undefined, done: boole
       return { ...base, tool: 'Bash', input: { command }, ...(status === 'err' ? { detail: st === 'declined' ? '没放行' : '没跑成' } : {}) }
     }
     case 'fileChange': {
-      const first = (Array.isArray(item.changes) ? item.changes[0] : null) as { path?: string; kind?: { type?: string } } | null
+      const changes = (Array.isArray(item.changes) ? item.changes : []) as { path?: string; kind?: { type?: string } }[]
+      const first = changes[0]
       const tool = first?.kind?.type === 'add' ? 'Write' : first?.kind?.type === 'delete' ? 'Delete' : 'Edit'
-      return { ...base, tool, input: { file_path: first?.path ?? '' }, ...(status === 'err' ? { detail: st === 'declined' ? '没放行' : '没改成' } : {}) }
+      // 一次改好几个文件：步骤行写第一个，paths 是全部（这一轮结束时分清哪些是 AI 改的）
+      const paths = changes.flatMap((c) => (typeof c.path === 'string' && c.path ? [c.path] : []))
+      return { ...base, tool, input: { file_path: first?.path ?? '', ...(paths.length > 1 ? { paths } : {}) }, ...(status === 'err' ? { detail: st === 'declined' ? '没放行' : '没改成' } : {}) }
     }
     case 'webSearch':
       return { ...base, tool: 'WebSearch', input: { query: String(item.query ?? '') } }
@@ -511,10 +524,12 @@ export function codexEngine(command?: string, prefix: string[] = []): Engine {
         turnId = t.turn.id
         if (r.signal.aborted) stop()
         await done
+      } catch (e) {
+        throw tagSession(e as Error, threadId)
       } finally {
         r.signal.removeEventListener('abort', stop)
       }
-      if (r.signal.aborted) throw aborted()
+      if (r.signal.aborted) throw tagSession(aborted(), threadId)
       return { text: text.trim(), session: threadId }
     },
   }
@@ -587,6 +602,8 @@ export function acpStep(u: { toolCallId?: string; title?: string; kind?: string;
   const raw = (u.rawInput && typeof u.rawInput === 'object' ? u.rawInput : {}) as Record<string, unknown>
   const str = (...v: unknown[]) => String(v.find((x) => typeof x === 'string' && x) ?? '')
   const path = str(u.locations?.[0]?.path, raw.file_path, raw.filePath, raw.path, raw.absolute_path)
+  const all = (u.locations ?? []).flatMap((l) => (typeof l.path === 'string' && l.path ? [l.path] : []))
+  const paths = all.length > 1 ? { paths: all } : {}
   const id = u.toolCallId
   switch (u.kind) {
     case 'execute':
@@ -594,11 +611,12 @@ export function acpStep(u: { toolCallId?: string; title?: string; kind?: string;
     case 'read':
       return { id, tool: 'Read', input: { file_path: path || str(u.title) } }
     case 'edit':
-      return { id, tool: 'Edit', input: { file_path: path || str(u.title) } }
+      return { id, tool: 'Edit', input: { file_path: path || str(u.title), ...paths } }
     case 'delete':
-      return { id, tool: 'Delete', input: { file_path: path || str(u.title) } }
+      return { id, tool: 'Delete', input: { file_path: path || str(u.title), ...paths } }
     case 'move':
-      return { id, tool: 'Move', input: { file_path: path || str(u.title) } }
+      // 挪到哪没写在这里：说不清碰了哪些文件，结束时当成跑过命令
+      return { id, tool: 'Move', input: { file_path: path || str(u.title), ...paths } }
     case 'search':
       return raw.query && !raw.pattern ? { id, tool: 'WebSearch', input: { query: str(raw.query) } } : { id, tool: 'Grep', input: { pattern: str(raw.pattern, raw.query, u.title) } }
     case 'fetch':
@@ -712,12 +730,14 @@ export function acpEngine(o: AcpOptions): Engine {
         const images = (r.images ?? []).map((i) => ({ type: 'image', mimeType: i.mime, data: i.data }))
         const res = await p.request<{ stopReason?: string }>('session/prompt', { sessionId, prompt: [{ type: 'text', text: prompt }, ...images] }, 0)
         if (res.stopReason === 'refusal') throw new Error(`${LABELS[o.id]} 拒绝回答`)
+      } catch (e) {
+        throw tagSession(e as Error, sessionId)
       } finally {
         r.signal.removeEventListener('abort', stop)
         sinks.delete(sessionId)
         stepSinks.delete(sessionId)
       }
-      if (r.signal.aborted) throw aborted()
+      if (r.signal.aborted) throw tagSession(aborted(), sessionId)
       return { text: text.trim(), session: sessionId }
     },
   }

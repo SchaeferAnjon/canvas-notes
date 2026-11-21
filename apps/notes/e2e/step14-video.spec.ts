@@ -134,8 +134,8 @@ const read = (vault: string, f: string) => readFileSync(join(vault, f), 'utf8')
 const BOARD = '---\ntype: board\n---\n# 线性代数 白板\n\n<!-- card id=a1 x=60 y=60 w=280 -->\n线性 = 直线变完还是直线\n'
 const videoTime = async (page: Page) => Number(await guest(page, 'document.querySelector("video").currentTime'))
 
-test('白板开着时 ⌥S：时刻进这个视频的「时刻」列（没有视频卡先放一张），最新的在上面；列最多摆 3 张，多的收成一行；双击时刻卡跳回那一秒', async () => {
-  const run = await launch({ '线性代数 白板.md': BOARD }, env())
+test('以前写法的白板（旧写法名单里的）开着时 ⌥S：时刻进这个视频的「时刻」列（没有视频卡先放一张），最新的在上面；列最多摆 3 张，多的收成一行；双击时刻卡跳回那一秒', async () => {
+  const run = await launch({ '线性代数 白板.md': BOARD, '.canvas-notes/白板旧写法.json': JSON.stringify({ 版本: 1, 白板: ['线性代数 白板.md'] }) }, env())
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: /^线性代数 白板/ }).first().click()
@@ -175,6 +175,44 @@ test('白板开着时 ⌥S：时刻进这个视频的「时刻」列（没有视
     // 双击最下面那张（00:02）：视频跳回第 2 秒
     await seek(page, 20)
     await col.locator('.bcard.k-moment').last().dblclick()
+    await expect.poll(() => videoTime(page)).toBeLessThan(5)
+  } finally {
+    await run.close()
+  }
+})
+
+test('白板（「## 列名」写法）开着时 ⌥S：时刻挂在这个视频的视频卡下面（没有视频卡先在文末放一张），按时间先后；点一下时刻从那一秒播', async () => {
+  const run = await launch({ '线性代数 白板.md': '---\ntype: board\n---\n# 线性代数 白板\n\n## 看过的\n\n线性 = 直线变完还是直线\n' }, env())
+  const { page, vault } = run
+  try {
+    await page.locator('.nav .si', { hasText: /^线性代数 白板/ }).first().click()
+    const board = pane(page).getByTestId('doc-board')
+    await expect(board).toBeVisible()
+    await openVideo(page)
+    await expect(strip(page).getByRole('button', { name: '记到 线性代数 白板' })).toBeVisible()
+    await expect(strip(page).getByRole('button', { name: '字幕' })).toContainText('英→中', { timeout: 15_000 })
+    for (const sec of [2, 9]) {
+      await seek(page, sec)
+      await web(page).locator('webview.on').focus()
+      await page.keyboard.press('Alt+KeyS')
+      await expect(page.locator('.vtoast')).toContainText(`· 00:${String(sec).padStart(2, '0')}`)
+    }
+    // 一张视频卡，两个时刻挂在下面（先记的在上）
+    const video = board.locator('.db-card[data-kind="video"]')
+    await expect(video).toHaveCount(1)
+    await expect(video).toContainText('Linear transformations and matrices')
+    await expect(video.locator('.db-moment')).toHaveCount(2)
+    await expect(video.locator('.db-moment').first()).toContainText('00:02')
+    await expect(video.locator('.db-moment').last()).toContainText('00:09')
+    await waitSaved(page)
+    const md = read(vault, '线性代数 白板.md')
+    expect(md.search(/ t=2(\.\d)? -->/)).toBeGreaterThan(md.indexOf('线性 = 直线变完还是直线'))
+    expect(md.search(/ t=2(\.\d)? -->/)).toBeLessThan(md.search(/ t=9(\.\d)? -->/))
+    await expect.poll(() => gitStatus(vault)).toBe('')
+    await shot(run, 'video-docboard')
+    // 点第一个时刻：视频跳回第 2 秒
+    await seek(page, 20)
+    await video.locator('.db-moment').first().click()
     await expect.poll(() => videoTime(page)).toBeLessThan(5)
   } finally {
     await run.close()
@@ -246,13 +284,13 @@ test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；不
     const ask = web(page).getByRole('dialog', { name: '问 AI' })
     await expect(ask).toBeVisible()
     await expect(ask.getByRole('textbox', { name: '想问什么' })).toBeFocused()
-    await expect(ask).toContainText('问完自动记进《第3讲 笔记》和「视频里的疑惑」')
+    await expect(ask).toContainText('问完自动记进《第3讲 笔记》· esc 取消')
     await shot(run, 'video-ask')
     const at = Math.floor(await videoTime(page))
     const tt = `00:${String(at).padStart(2, '0')}`
     await ask.getByRole('textbox', { name: '想问什么' }).press('Enter')
     // 不弹浮窗，就地答进文档（CN-84）：底部提示「AI 讲完了，记进…」
-    await expect(page.getByText('AI讲完了，记进《第3讲 笔记》和「视频里的疑惑」')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('AI讲完了，记进《第3讲 笔记》', { exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
     await shot(run, 'video-asked')
     await waitSaved(page)
@@ -262,11 +300,10 @@ test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；不
     expect(md).toContain('> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了')
     expect(md).toContain('> 框里是 i 帽和 j 帽变换后的位置。')
     expect(md).toContain(`![${tt} 框住的地方](../../附件/视频/youtube-${FAKE_VIDEO_ID}/${tt.replace(':', '-')}-问.jpg)`)
-    const doubts = read(vault, '课程/线性代数/视频里的疑惑.md')
-    expect(doubts).toContain(`## ${tt} · Linear transformations and matrices`)
-    expect(doubts).toContain('记在 [[第3讲 笔记]]')
+    // 「视频里的疑惑」不再另写一篇（2026-11-20）：这门课的「我的疑惑」直接读文档里这一块
+    expect(existsSync(join(vault, '课程/线性代数/视频里的疑惑.md'))).toBe(false)
     await expect.poll(() => gitStatus(vault)).toBe('')
-    expect(filesOf(vault, `视频：问 AI ${tt}《Linear transformations and matrices》→ 第3讲 笔记`).sort()).toEqual(['课程/线性代数/视频里的疑惑.md', '课程/线性代数/第3讲 笔记.md', `附件/视频/youtube-${FAKE_VIDEO_ID}/${tt.replace(':', '-')}-问.jpg`].sort())
+    expect(filesOf(vault, `视频：问 AI ${tt}《Linear transformations and matrices》→ 第3讲 笔记`).sort()).toEqual(['课程/线性代数/第3讲 笔记.md', `附件/视频/youtube-${FAKE_VIDEO_ID}/${tt.replace(':', '-')}-问.jpg`].sort())
     await expect(strip(page).locator('.vmark.asked')).toHaveCount(1)
     // 文档里画成问答块；点时间胶囊回到那一秒
     await pane(page).getByText('线性 = 直线变完还是直线。').click()
@@ -490,7 +527,7 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(web(page).getByRole('dialog', { name: '问 AI' })).toBeVisible()
       await shot(run, `deliver-${tone}-ask`)
       await page.keyboard.press('Enter')
-      await expect(page.getByText('AI讲完了，记进《第3讲 线性映射 笔记》和「视频里的疑惑」')).toBeVisible({ timeout: 15_000 })
+      await expect(page.getByText('AI讲完了，记进《第3讲 线性映射 笔记》', { exact: true })).toBeVisible({ timeout: 15_000 })
       await shot(run, `deliver-${tone}-asked`)
       await strip(page).getByRole('button', { name: /3个时刻/ }).click()
       await shot(run, `deliver-${tone}-moments`)
@@ -501,7 +538,7 @@ for (const tone of ['light', 'dark'] as const) {
 }
 
 test('白板上光秃秃的视频链接卡：画成视频卡（标题、频道），不再只有域名；双击在右栏打开', async () => {
-  const run = await launch({ '看视频 白板.md': `---\ntype: board\n---\n<!-- card id=a1 x=60 y=60 w=262 -->\n${base}/watch?v=${FAKE_VIDEO_ID}\n` }, env())
+  const run = await launch({ '看视频 白板.md': `---\ntype: board\n---\n<!-- card id=a1 x=60 y=60 -->\n${base}/watch?v=${FAKE_VIDEO_ID}\n` }, env())
   const { page } = run
   try {
     // 先看过一次（标题、频道记在本机；真 YouTube 从 oEmbed 取）
@@ -509,7 +546,7 @@ test('白板上光秃秃的视频链接卡：画成视频卡（标题、频道�
     await expect(strip(page).getByRole('button', { name: '字幕' })).toContainText('英→中', { timeout: 15_000 })
     await rail(page).getByRole('button', { name: '网页' }).click()
     await page.locator('.nav .si', { hasText: /^看视频 白板/ }).first().click()
-    const card = pane(page).getByTestId('board').locator('.bcard.k-video')
+    const card = pane(page).getByTestId('doc-board').locator('.db-card[data-face="video"]')
     await expect(card).toContainText('Linear transformations and matrices')
     await expect(card).toContainText('3Blue1Brown')
     await shot(run, 'video-link-card')

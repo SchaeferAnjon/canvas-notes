@@ -1,7 +1,10 @@
 /**
  * AI 改白板用的纯函数：读进 md 文字，改完还是 md 文字。只用 @cn/format 的白板读写，
  * 没动到的卡片一个字节都不变（和手动拖卡片一样，只改那张卡的注释行或正文）。
+ * 2026-11-21 起白板就是这篇文档（## 是列、一段是一张卡）：新写法交给 doc-board-ops.ts；
+ * 下面这些只管以前的写法（导图白板、撤回了转写法的旧白板）。
  */
+import * as docOps from './doc-board-ops'
 import {
   appendBlock,
   attr,
@@ -19,7 +22,12 @@ import {
   withAttrs,
   withContent,
   withLinks,
+  hasOldLayout,
+  isMindmap,
 } from '@cn/format'
+
+/** 这篇是新写法的白板（白板就是这篇文档） */
+const docBoard = (text: string) => !isMindmap(text) && !hasOldLayout(text)
 
 export const CARD_W = 280
 export const COL_W = 300
@@ -40,6 +48,7 @@ export interface BoardSummary {
 }
 
 export function summarize(text: string): BoardSummary {
+  if (docBoard(text)) return docOps.summarize(text)
   const doc = parseBoard(text)
   const out: BoardSummary = { cards: [], columns: [], links: parseLinks(doc), loose: looseParagraphs(doc).map((l) => l.text) }
   for (const b of doc.blocks) {
@@ -124,6 +133,7 @@ export interface NewCard {
 
 export function addCard(text: string, card: NewCard, sizes: Record<string, Size> = {}): { text: string; id: string } {
   if (!card.text.trim()) throw new Error('卡片内容是空的')
+  if (docBoard(text)) return docOps.addCard(text, card)
   const doc = parseBoard(text)
   const id = newId(doc)
   if (card.column) {
@@ -144,6 +154,7 @@ export function addCard(text: string, card: NewCard, sizes: Record<string, Size>
 }
 
 export function addColumn(text: string, col: { title: string; x?: number; y?: number }, sizes: Record<string, Size> = {}): { text: string; id: string } {
+  if (docBoard(text)) return docOps.addColumn(text, col)
   const doc = parseBoard(text)
   const id = newId(doc)
   const spot = col.x !== undefined && col.y !== undefined ? { x: col.x, y: col.y } : nextSpot(doc, sizes)
@@ -153,6 +164,7 @@ export function addColumn(text: string, col: { title: string; x?: number; y?: nu
 
 export function setCardText(text: string, id: string, body: string): string {
   if (!body.trim()) throw new Error('卡片内容是空的；要删卡片请让用户自己删')
+  if (docBoard(text)) return docOps.setCardText(text, id, body)
   const doc = parseBoard(text)
   const i = index(doc, id)
   if (doc.blocks[i]!.kind !== 'card') throw new Error(`${id} 是列，不是卡片`)
@@ -161,6 +173,7 @@ export function setCardText(text: string, id: string, body: string): string {
 
 /** 挪到画布上的 (x, y)；在列里的卡片会从列里拿出来 */
 export function moveTo(text: string, id: string, x: number, y: number): string {
+  if (docBoard(text)) return docOps.moveTo(text, id, x, y)
   const doc = parseBoard(text)
   const i = index(doc, id)
   const b = doc.blocks[i]!
@@ -171,6 +184,7 @@ export function moveTo(text: string, id: string, x: number, y: number): string {
 
 /** 放进列：position 从 0 数，不给就放最后 */
 export function putInColumn(text: string, id: string, column: string, position?: number): string {
+  if (docBoard(text)) return docOps.putInColumn(text, id, column, position)
   const doc = parseBoard(text)
   const i = index(doc, id)
   const b = doc.blocks[i]!
@@ -186,6 +200,7 @@ export function putInColumn(text: string, id: string, column: string, position?:
 }
 
 export function link(text: string, from: string, to: string): string {
+  if (docBoard(text)) return docOps.link(text, from, to)
   const doc = parseBoard(text)
   for (const id of [from, to]) if (doc.blocks[index(doc, id)]!.kind !== 'card') throw new Error(`${id} 不是卡片，只有卡片之间能连线`)
   if (from === to) throw new Error('不能自己连自己')
@@ -203,6 +218,7 @@ export type ArrangeMode = 'grid' | 'columns'
  * 列里的卡片跟着列走，不单独动。
  */
 export function arrange(text: string, mode: ArrangeMode, opts: { per?: number; sizes?: Record<string, Size> } = {}): string {
+  if (docBoard(text)) return docOps.arrange(text, mode, opts)
   let out = text
   for (const s of arrangeSteps(text, mode, opts)) out = placeAt(out, s.id, s.x, s.y)
   return out
@@ -210,6 +226,7 @@ export function arrange(text: string, mode: ArrangeMode, opts: { per?: number; s
 
 /** 只改一张卡（或一列）的坐标；列里的卡跟着列走，不单独动 */
 export function placeAt(text: string, id: string, x: number, y: number): string {
+  if (docBoard(text)) return docOps.placeAt(text, id, x, y)
   const doc = parseBoard(text)
   const i = index(doc, id)
   return serializeBoard({ ...doc, blocks: doc.blocks.map((b, j) => (j === i ? withAttrs(b, { x: Math.round(x), y: Math.round(y) }) : b)) })
@@ -220,6 +237,7 @@ export function placeAt(text: string, id: string, x: number, y: number): string 
  * 停下时已经挪了的留着；位置没变的不算一步
  */
 export function arrangeSteps(text: string, mode: ArrangeMode, opts: { per?: number; sizes?: Record<string, Size> } = {}): { id: string; x: number; y: number }[] {
+  if (docBoard(text)) return docOps.arrangeSteps(text, mode, opts)
   const doc = parseBoard(text)
   const sizes = opts.sizes ?? {}
   const ids = topLevel(doc)

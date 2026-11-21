@@ -91,7 +91,7 @@
   color: var(--t2);
 }
 /*
- * 文件行：名字优先。放不下时先藏右端的「3/6」「疑惑 N」，再藏 PDF 小标（悬停整行看全名）——
+ * 文件行：名字优先。放不下时先藏右端的「3/6」、笔记问了几问，再藏 PDF 小标（悬停整行看全名）——
  * 行能折行、只露第一行：后面的东西放不下就整个掉到看不见的第二行，不会被截成半个。
  */
 .ftree .ft-row.ft-fit {
@@ -105,6 +105,14 @@
 }
 .ftree .ft-row.ft-fit > .truncate {
   max-width: calc(100% - 38px);
+}
+/*
+ * PDF 和它的笔记合成的一行：右端「问了几问」先保住，名字至少留 7 个字宽、再长的末尾省略（原型 proto-a「第6讲 Transfor…」）；
+ * 窄到 7 个字也放不下，才把这个数掉到看不见的第二行（名字照样优先）
+ */
+.ftree .ft-row.ft-fit:has(> .ft-nb) > .truncate {
+  flex: 1000 1 7em;
+  max-width: max-content;
 }
 /* 「附件」筛选里笔记那一行：右边「4张」一直在，不折到藏起来的第二行；名字让位、末尾省略（缩进多深都一样） */
 .ftree .ft-row.ft-fit.att {
@@ -151,36 +159,17 @@
   height: 26px;
 }
 
-/* 软件汇总的（我的疑惑、视频里的疑惑）：名字后面一个「自动汇总」小标，和下面自己的笔记隔一条细线（CN-56） */
-.ftree .ft-auto {
+/* PDF（HTML）和它的笔记合成一行（一个 PDF 一篇笔记，2026-11-20）：右端 note 13 --t3 + 问了几问 12 --t3（照原型 .nb） */
+.ftree .ft-nb {
   flex: none;
-  height: 18px;
-  padding: 0 6px;
-  border-radius: 4px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  background: var(--fill2);
-  font-size: 11px;
-  color: var(--t2);
+  gap: 3px;
+  font-size: 12px;
+  color: var(--t3);
 }
-.ftree .ft-sep {
-  height: 1px;
-  margin: 3px 8px 3px 0;
-  background: var(--line);
-}
-/* 笔记行右端「疑惑 N」：点了跳到汇总里这一讲 */
-.ftree .ft-doubts {
-  height: 20px;
-  padding: 0 4px;
-  border: 0;
-  border-radius: 4px;
-  background: none;
-  font: 11px var(--sans);
-  cursor: pointer;
-}
-.ftree .ft-doubts:hover {
-  background: var(--fill2);
-  color: var(--t1);
+.ftree .ft-nb > svg {
+  color: var(--t3);
 }
 
 /* 树的第一行是库本身（CN-104）：库图标 + 库名 + 一共几个，最外层挂在它下面 */

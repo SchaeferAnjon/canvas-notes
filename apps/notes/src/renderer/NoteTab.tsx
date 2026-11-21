@@ -1,5 +1,5 @@
 import { Codicon } from '@cn/design'
-import { fmValue, isMindmap } from '@cn/format'
+import { fmValue, hasOldLayout, isMindmap, needsConvert } from '@cn/format'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile, OpenedNote } from '../shared/api'
 import { nameNotice, safeName } from '../shared/file-name'
@@ -8,6 +8,8 @@ import { BoardView, type BoardZoomApi } from './BoardView'
 import { loadZoom, saveZoom } from './board-zoom'
 import { type MenuEntry, showMenu } from './ctx/menu'
 import { DocBoardView } from './doc-board/DocBoardView'
+import { InboxButton, inboxOf } from './doc-board/inbox'
+import { app } from './ctx/actions'
 import { AiActLayer } from './ai-act'
 import { DocToc, isWide, setWide } from './doc-toc'
 import { followsTitle, headingOf, titleRename } from './title-follow'
@@ -16,6 +18,8 @@ import { PropsButton } from './mindmap/PropsButton'
 import { NoteDoc, type SaveState, type ViewMode } from './note-doc'
 import { setNoteMeta } from './folder-chip'
 import { setBoards } from './board-link'
+import { Backlinks, setNoteIndex } from './doc-embeds'
+import { createPortal } from 'react-dom'
 import { ActBtn, noteLeavers, noteRenamers, PageNote, TabActs } from './shell/TabActs'
 import { takeStray, takeTyping } from './new-note-hold'
 
@@ -168,10 +172,35 @@ export function NoteTab(props: NoteTabProps) {
         if (d && p === d.path) void d.applyRemote(text)
       })
     }
+    /**
+     * 旧写法的白板（用注释存列的）第一次打开：一次转成「## 列名」写法，主进程写回、单独一次提交（2026-11-21 方向 A），
+     * 编辑器拿转好的字；底栏说一句，带「撤回」（文件回到转之前、以后不再自动转，还用以前的自由白板看）
+     */
+    const convert = async (note: OpenedNote): Promise<OpenedNote> => {
+      if (note.readOnly || !needsConvert(note.text)) return note
+      const r = await window.cn.boardConvert(note.path).catch((e: Error) => {
+        cb.current.onNotice(`《${titleOf(note.path)}》没转成新写法：${String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+        return null
+      })
+      if (!r) return note
+      const name = titleOf(note.path)
+      const said = `《${name}》改成了按「##」分列的写法：${r.columns}列、${r.cards}张卡，位置都留着`
+      app().noticeUndo(r.commitError ? `${said}；提交没成功：${r.commitError}` : said, () => {
+        void (async () => {
+          await NoteDoc.saveAll()
+          await window.cn.boardKeepOld(pathNow.current, r.old, d?.text ?? r.text)
+          if (d) await d.applyRemote(r.old)
+          cb.current.onNotice(`撤回了：《${name}》回到以前的写法，以后打开不再自动转；「⋯」里能再转`)
+          cb.current.onSaved()
+        })().catch((e: Error) => cb.current.onNotice(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
+      })
+      cb.current.onSaved()
+      return { ...note, text: r.text }
+    }
     const pre = preread.get(firstPath.current)
     preread.delete(firstPath.current)
     if (pre) init(pre)
-    else void window.cn.readNote(firstPath.current).then(init)
+    else void window.cn.readNote(firstPath.current).then(convert).then(init)
     return () => {
       cancelled = true
       off()
@@ -193,6 +222,9 @@ export function NoteTab(props: NoteTabProps) {
     lastPath.current = path
   }, [path])
 
+  /** 用以前的自由白板看：导图、撤回了转写法还是旧写法的白板 */
+  const legacy = text !== null && (isMindmap(text) || (fmValue(text, 'type') === 'board' && hasOldLayout(text)))
+
   // 独占一行的 [[白板]] 画成白板卡：库里白板的颜色、卡片数（board-link.ts）
   const boards = useMemo(
     () => new Map(props.notes.flatMap((n) => (n.board ? [[titleOf(n.path).toLowerCase(), { path: n.path, color: n.board.color, cards: n.board.nodes ?? n.board.cards, icon: n.board.icon }] as const] : []))),
@@ -201,6 +233,12 @@ export function NoteTab(props: NoteTabProps) {
   useEffect(() => {
     doc.current?.view.dispatch({ effects: setBoards.of(boards) })
   }, [boards, text === null])
+  // 文档里嵌白板、嵌一节（doc-embeds.tsx）：库里有哪些笔记
+  useEffect(() => {
+    doc.current?.view.dispatch({ effects: setNoteIndex.of(props.notes) })
+  }, [props.notes, text === null])
+  /** 文末「提到这篇的」跟着库里的改动重读 */
+  const linkVersion = props.notes.reduce((m, n) => Math.max(m, n.mtimeMs), 0) + props.notes.length
 
   // 存了盘、外面改了：左栏的列表重读，标题下一行的「改于…」跟着换
   const mtime = props.notes.find((n) => n.path === path)?.mtimeMs
@@ -366,6 +404,7 @@ export function NoteTab(props: NoteTabProps) {
             <Codicon name="chevron-down" size={12} />
           </button>
         )}
+        {mode === 'board' && <InboxButton count={inboxOf(props.notes, path).length} />}
         <ActBtn
           icon="ellipsis"
           label="更多"
@@ -379,6 +418,18 @@ export function NoteTab(props: NoteTabProps) {
                   setWideState(!wide)
                 },
               },
+              // 撤回过转写法、还用以前的自由白板的：能再转（导图不转）
+              legacy && !readOnly && text !== null && !isMindmap(text) && {
+                label: '改成按「##」分列的写法',
+                run: async () => {
+                  await NoteDoc.saveAll()
+                  const r = await window.cn.boardConvert(path, true)
+                  if (!r) return cb.current.onNotice('这块白板已经是按「##」分列的写法了')
+                  await doc.current?.applyRemote(r.text)
+                  cb.current.onNotice(`改成了按「##」分列的写法：${r.columns}列、${r.cards}张卡，位置都留着`)
+                  cb.current.onSaved()
+                },
+              },
             ])
           }
         />
@@ -386,11 +437,13 @@ export function NoteTab(props: NoteTabProps) {
       <div className="body" hidden={mode === 'board'} ref={bodyRef}>
         <div className={'doc ' + mode + (wide ? ' wide' : '')} ref={host} />
       </div>
+      {/* 文末「提到这篇的」：画在编辑器下面（版心里），不写进文件 */}
+      {mode === 'doc' && text !== null && host.current && createPortal(<Backlinks path={path} version={linkVersion} board={fmValue(text, 'type') === 'board'} />, host.current)}
       {/* AI 在这篇文档里动手（插入、改写）：外圈和顶上「AI 正在改这篇 · 停下 esc」（DESIGN.v3 2.3）；白板看法里由白板自己画 */}
       {mode !== 'board' && <AiActLayer area="doc" path={path} host={paneRef} />}
       {mode === 'doc' && text !== null && <DocToc text={text} doc={() => doc.current} scroller={() => bodyRef.current} onOpenOutline={() => cb.current.onOpenOutline()} />}
-      {/* 普通文档切到白板：按节摆成列（方向 A，doc-board/）；type: board 的白板和导图照旧 */}
-      {mode === 'board' && text !== null && fmValue(text, 'type') !== 'board' && !isMindmap(text) && (
+      {/* 白板就是这篇文档（2026-11-21 方向 A，doc-board/）：type: board 的也是；导图和撤回了转写法的旧白板照旧用自由白板 */}
+      {mode === 'board' && text !== null && !legacy && (
         <DocBoardView
           text={text}
           notePath={path}
@@ -422,7 +475,7 @@ export function NoteTab(props: NoteTabProps) {
           }}
         />
       )}
-      {mode === 'board' && text !== null && (fmValue(text, 'type') === 'board' || isMindmap(text)) && (
+      {mode === 'board' && text !== null && legacy && (
         <BoardView
           text={text}
           notePath={path}

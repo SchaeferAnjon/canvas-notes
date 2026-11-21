@@ -149,7 +149,7 @@
   position: relative;
   box-sizing: border-box;
   padding: 14px 16px;
-  border-radius: 10px;
+  border-radius: var(--r-card);
   background: var(--card);
   box-shadow: var(--shadow);
   font-size: 13px;
@@ -189,12 +189,22 @@
 }
 /* 刚挪过、刚放上的那张：外圈闪一下 */
 .db-card.flash {
-  animation: db-flash 2s ease-out;
+  animation: db-landed 2.2s ease-out;
 }
-@keyframes db-flash {
-  0%,
-  40% {
-    box-shadow: 0 0 0 3px var(--acc-ring);
+/* 照原型 .landed：从上面 6 落到原位（前 12%），强调色外圈留到 80% 再淡掉 */
+@keyframes db-landed {
+  0% {
+    transform: translateY(-6px) scale(0.97);
+    opacity: 0.4;
+    box-shadow: 0 0 0 2px var(--acc), 0 0 0 6px var(--acc-soft);
+  }
+  12% {
+    transform: none;
+    opacity: 1;
+    box-shadow: 0 0 0 2px var(--acc), 0 0 0 6px var(--acc-soft);
+  }
+  80% {
+    box-shadow: 0 0 0 2px var(--acc), 0 0 0 6px var(--acc-soft);
   }
 }
 /* 拖着走的那一张：跟着鼠标、略歪、浮起来 */
@@ -217,7 +227,7 @@
 }
 .db-card.group > .face {
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--r-card);
   background: var(--card);
   box-shadow: 0 0 0 1px var(--line);
 }
@@ -513,6 +523,10 @@
 .db-math .mblock + .mblock {
   padding-top: 8px;
 }
+/* 公式是卡里最后一块：下面不再加 .mblock 的 10，落到卡的内边距（task-o48fa 设计复审） */
+.db-math .mblock:last-child {
+  margin-bottom: 0;
+}
 .db-math .katex-display {
   margin: 0;
 }
@@ -562,6 +576,14 @@
 .db-tag.yellow {
   background: color-mix(in srgb, var(--yellow) 16%, transparent);
   color: var(--yellow);
+}
+.db-tag.blue {
+  background: color-mix(in srgb, var(--blue) 16%, transparent);
+  color: var(--blue);
+}
+.db-tag.red {
+  background: color-mix(in srgb, var(--red) 16%, transparent);
+  color: var(--red);
 }
 
 /* PDF 一页：缩略图圆角 6、1px 细线 */
@@ -774,6 +796,10 @@
 .db-card.full .db-img img {
   height: 300px;
 }
+/* 网页拖来的图：出处一行在说明下面，和卡片左右内边距对齐 */
+.db-img .src.from-web {
+  margin: 0 14px 10px;
+}
 .db-img figcaption,
 .db-card .cap {
   padding: 8px 14px 10px;
@@ -810,11 +836,11 @@
 }
 
 /* 视频卡（和白板同一个 VideoCard）：封面 150 高、播放圆钮一直在、标题 500；时刻卡变小挂在下面 */
-.db-card .cb-video .cover {
+.db-card .cb-video .cb-cover {
   height: 150px;
   aspect-ratio: auto;
 }
-.db-card .cb-video .cover .play {
+.db-card .cb-video .cb-cover .play {
   opacity: 1;
   background: rgba(255, 255, 255, 0.92);
   color: #15231d;
@@ -878,15 +904,170 @@
   content: '▷ ';
 }
 
-/* 拖到空白处的卡：底下一行「在文档「出发前」这一节里」 */
+/* 拖到空白处的卡（卡底不再写「在文档「某某」这一节里」，偏好「白板卡别挂位置行」） */
 .db-card.placed {
   z-index: 2;
+}
+/* 摆在自己位置上的列（旧白板转过来的、列头拖到空白处的） */
+.db-col.placed {
+  z-index: 1;
+}
+.db-col.dragging {
+  opacity: 0.4;
+}
+.db-col h3 {
+  cursor: grab;
+}
+.db-col.bare h3,
+.db-col[data-ask='1'] h3 {
+  cursor: default;
+}
+/* 空的列：一块虚线框「把卡片拖进来」（照小样 .empty） */
+.db-empty {
+  display: grid;
+  place-items: center;
+  height: 56px;
+  margin-bottom: 8px;
+  border: 1px dashed var(--line2);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 选中：2px 强调色外圈；就地改：一圈浅的强调色 */
+.db-card.sel,
+.db-col .db-card.sel {
+  box-shadow: 0 0 0 2px var(--acc);
+}
+.db-card.editing,
+.db-col .db-card.editing {
+  overflow: visible;
+  cursor: text;
+  box-shadow: 0 0 0 1.5px var(--acc-ring), 0 0 0 4px var(--acc-soft);
+}
+/* 卡里就地改：卡自己的内边距就是编辑框的边，不再套一层 */
+.db-card .card-edit {
+  min-height: 21px;
+  padding: 0;
+  border-radius: 0;
+}
+.db-card .card-edit .card-ed .cm-editor {
+  font-size: 13px;
+  line-height: 1.65;
+}
+.db-card .card-edit .cm-content {
+  padding: 0;
+}
+.db-card .card-edit .cm-placeholder {
+  color: var(--t3);
+}
+/* 大纲点一项飞过来：外圈闪一下 */
+.db-card.flown,
+.db-col.flown {
+  animation: db-landed 2.2s ease-out;
+}
+/* AI 总结的卡：卡底一行 */
+.db-card .aifoot {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--t3);
+}
+/* 别处嵌了这一节：列名下面一行「2026-W47 引用了这一节」 */
+.db-col .backref {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: -4px 2px 10px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.db-col .backref button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.db-col .backref button:hover {
+  text-decoration: underline;
+}
+/* 连线的小圆点：卡右边，悬停才露 */
+.db-handle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  z-index: 3;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: 0 0 0 1.5px var(--wire);
+  opacity: 0;
+  cursor: crosshair;
+}
+.db-card:hover > .db-handle,
+.db-card.sel > .db-handle {
+  opacity: 1;
+}
+.db-handle:hover {
+  box-shadow: 0 0 0 1.5px var(--acc);
+}
+/* 卡和卡之间的线 */
+.db-wires {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.db-wires .vis {
+  stroke: var(--wire);
+  stroke-width: 1.2;
+}
+.db-wires .vis.pending {
+  stroke-dasharray: 4 3;
+}
+.db-wires .wire.on .vis {
+  stroke: var(--acc);
+}
+.db-wires .hit {
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+/* 拖着卡停在另一篇文档上：落点一条 2px 横线，左端一个 8px 圆点（同文档里拖块） */
+.db-doc-drop {
+  position: fixed;
+  z-index: 70;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--acc);
+  pointer-events: none;
+}
+.db-doc-drop::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+.db-pal-ghost.col {
+  font-weight: 600;
+  font-size: 14px;
 }
 
 /* ---------- 顶上：居中一条说明（摆回原样）、右上收件箱 ---------- */
 .db-top {
   position: absolute;
-  top: 14px;
+  top: 16px;
   left: 92px;
   right: 14px;
   z-index: 6;
@@ -896,6 +1077,13 @@
   pointer-events: none;
 }
 .db-top > * {
+  pointer-events: auto;
+}
+/* 顶上那条说明只是字：压在摆得很靠上的卡上时点得到下面的卡，只有「摆回原样」接点击 */
+.db-top > .db-hint {
+  pointer-events: none;
+}
+.db-hint button {
   pointer-events: auto;
 }
 .db-hint {
@@ -935,64 +1123,406 @@
 .db-pill:hover {
   background: var(--fill);
 }
-.db-inbox {
-  position: relative;
-  flex: none;
+/* 画布这一块（画布、工具板、顶上那条、提示条都在里面）；右边是收件箱一格，画布让出它的宽 */
+.db-board {
+  flex-direction: row;
 }
-.db-inbox .h {
+.db-area {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+/* 工具板（照小样 .pal：左 16、顶 64 和第一行列齐，64 宽、圆角 12，每格 56 × 52，拍导图前面一道分隔线） */
+.db-area > .bpal {
+  top: 64px;
+  align-items: center;
+  padding: 6px 0;
+  border-radius: 12px;
+  box-shadow: var(--shadow-up);
+}
+.db-area > .bpal button {
+  justify-content: center;
+  width: 56px;
+  height: 52px;
+  padding: 0;
+}
+.db-area > .bpal hr {
+  width: 40px;
+  margin: 3px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+.db-board.dropping .board-wrap {
+  box-shadow: inset 0 0 0 2px var(--acc-ring);
+}
+
+/* ---------- 收件箱一格（照小样 .drawer：272 宽、--side 底、左边 1px --line） ---------- */
+.db-drawer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  width: 272px;
+  min-height: 0;
+  background: var(--side);
+  border-left: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--t1);
+  animation: db-slide 0.2s ease-out;
+}
+@keyframes db-slide {
+  from {
+    transform: translateX(40px);
+    opacity: 0;
+  }
+}
+.db-drawer .dbr-head {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--pop);
-  box-shadow: var(--shadow);
-  font: 13px var(--sans);
-  color: var(--t1);
+  height: 40px;
+  padding: 0 8px 0 14px;
 }
-.db-inbox .h .ci {
+.db-drawer .dbr-head .ci {
   color: var(--t2);
 }
-.db-inbox .h b {
+.db-drawer .dbr-head b {
+  font-weight: 600;
+}
+.db-drawer .dbr-head .num {
+  font-size: 12px;
+  color: var(--t3);
+}
+.db-drawer .grow {
+  flex: 1;
+}
+.db-drawer .dbr-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.db-drawer .dbr-close:hover {
+  background: var(--fill);
+}
+.db-drawer .dbr-hint {
+  flex: none;
+  padding: 0 14px 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.db-drawer .dbr-search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: 0 12px 8px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.db-drawer .dbr-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t1);
+}
+.db-drawer .dbr-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+.db-drawer .dbr-grp {
+  margin: 6px 2px 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+}
+.db-drawer .dbr-none {
+  margin: 12px 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.db-drawer .dbr-empty {
+  margin: 60px 24px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+}
+.db-drawer .dbr-empty .ci {
+  display: block;
+  margin: 0 auto 8px;
+  opacity: 0.6;
+}
+.db-drawer .dbr-empty b {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+}
+/* 收件箱里的一条：干净的卡（标题、两行、出处），不露原文 */
+.dbr-item {
+  flex: none;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--t1);
+  cursor: grab;
+  user-select: none;
+}
+.dbr-item:hover {
+  border-color: var(--line2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+.dbr-item.dbr-clip {
+  background: var(--clip);
+}
+.dbr-row {
+  display: flex;
+  gap: 10px;
+}
+.dbr-th {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  background: var(--fill2) center / cover no-repeat;
+}
+.dbr-tx {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--t1);
+  overflow-wrap: anywhere;
+}
+.dbr-tx .dbr-ttl,
+.dbr-tx.dbr-ttl {
   font-weight: 500;
 }
-.db-inbox .stack {
-  position: absolute;
-  top: 38px;
-  right: 0;
+.dbr-tx.dbr-ttl {
+  font-size: 12px;
+}
+.dbr-tx .dbr-sum {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.dbr-img {
+  overflow: hidden;
+  margin-bottom: 6px;
+  border-radius: 6px;
+  line-height: 0;
+}
+.dbr-img img {
+  width: 100%;
+  height: 70px;
+  object-fit: cover;
+}
+.dbr-src {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.dbr-src .dbr-t {
+  flex: none;
+  margin-left: auto;
+}
+/* 标签条右端「收件箱 N」：数是 16 高的小胶囊 */
+.db-inbox-btn .cnt {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   box-sizing: border-box;
-  width: 240px;
-  max-height: 420px;
-  overflow: auto;
-  padding: 4px 10px 10px;
+  border-radius: 8px;
+  background: var(--acc-soft);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--acc-t);
+}
+
+/* ---------- 数据库卡（照小样：不画表头的小表，虚线下「还有N条 …… 展开」）和展开的整张表 ---------- */
+.db-card .mt.db-mini {
+  table-layout: fixed;
+}
+.db-card .mt.db-mini td {
+  max-width: none;
+  padding: 5px 4px;
+  border-top: 1px solid var(--line2);
+  border-bottom: 0;
+}
+.db-card .mt.db-mini tr:first-child td {
+  border-top: 0;
+}
+.db-card .dbfoot {
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--line2);
+  font-size: 12px;
+  color: var(--t3);
+}
+.db-card .db-expand {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--acc-t);
+}
+.db-card .db-expand:hover {
+  background: var(--acc-soft);
+}
+.dbx-at {
+  position: absolute;
+  z-index: 30;
+}
+.dbx {
+  box-sizing: border-box;
+  width: 660px;
+  padding: 4px 16px 12px;
   border-radius: 12px;
   background: var(--pop);
   box-shadow: var(--shadow-up);
+  cursor: default;
+  transform-origin: 0 0;
+  animation: db-grow 0.22s ease-out;
+}
+@keyframes db-grow {
+  from {
+    transform: scale(0.6);
+    opacity: 0.2;
+  }
+}
+.dbx .base {
+  margin: 0;
+  box-shadow: none;
+  border-radius: 0;
+  background: none;
+}
+.dbx .base-scroll > table {
+  width: 100% !important;
+  table-layout: fixed;
+}
+.dbx .base-raw,
+.dbx .base-new {
+  display: none;
+}
+.dbx .base-btn[aria-label='整页打开'] {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+.dbx .base-btn[aria-label='整页打开']::after {
+  content: '整页打开';
+  margin-left: 4px;
   font-size: 12px;
+}
+/* 展开的大表撑满 628 不横着溢出：名字列自适应，别的列平分，「+」那列 32 */
+.dbx .base-scroll {
+  overflow-x: hidden;
+}
+.dbx .base-scroll > table col {
+  width: auto !important;
+}
+.dbx .base-scroll > table col.base-col-plus {
+  width: 32px !important;
+}
+/* 11. 刚放下的空卡留两行字的高（照原型 73） */
+.db-card.editing.draft {
+  min-height: 73px;
+}
+/* 工具板「数据库」的小菜单（照小样 .menu：220 宽、圆角 12） */
+.db-menu {
+  position: fixed;
+  z-index: 80;
+  box-sizing: border-box;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  color: var(--t1);
+}
+.db-menu .mh {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.db-menu .mi {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+  white-space: nowrap;
+  text-align: left;
+}
+.db-menu .mi.dim {
+  color: var(--t3);
+}
+.db-menu button.mi:hover {
+  background: var(--fill2);
+}
+.db-menu .mi .ci {
   color: var(--t2);
 }
-.db-inbox .stack .hint {
-  margin: 8px 2px 2px;
-  color: var(--t3);
-}
-.db-inbox .mini {
-  margin-top: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--clip);
+.db-menu .mi .r {
+  margin-left: auto;
+  padding-left: 12px;
   font-size: 12px;
-  line-height: 1.45;
-  color: var(--t1);
-  cursor: grab;
-}
-.db-inbox .mini span {
-  display: block;
-  margin-top: 3px;
-  font-size: 11px;
   color: var(--t3);
+}
+.db-menu hr {
+  margin: 4px 2px;
+  border: 0;
+  border-top: 1px solid var(--line);
 }
 /* 从工具板、收件箱拖出来时跟着鼠标的一小块；不在画布上（松手会取消）时更淡 */
 .db-pal-ghost {
@@ -1042,6 +1572,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.db-toast > .path {
+  flex: none;
+  max-width: 40%;
+  font-size: 12px;
+  color: var(--t3);
 }
 .db-toast .db-pill {
   margin-left: 6px;
@@ -1183,4 +1719,22 @@
   margin-right: auto;
   font-size: 11px;
   color: var(--t3);
+}
+
+/* 设计复审（2026-11-21）照原型：顶上那条的「摆回原样」是 --fill 底、不带圈；底部提示条高 36、圆角 10，「撤回」是强调色的字 */
+.db-hint .db-pill {
+  background: var(--fill);
+  box-shadow: none;
+}
+.db-toast {
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 6px 0 12px;
+  border-radius: 10px;
+}
+.db-toast .db-pill {
+  background: none;
+  box-shadow: none;
+  color: var(--acc-t);
+  font-size: 13px;
 }

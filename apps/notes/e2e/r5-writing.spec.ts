@@ -9,7 +9,6 @@ import { join } from 'node:path'
 import { acts, launch, openNote, pane, slowDisk, waitSaved, type Running } from './app'
 import { ICELAND } from './fixtures/board'
 
-const toast = (page: Page) => page.getByTestId('toast')
 const vaultGit = (vault: string, args: string[]) => execFileSync('git', ['-C', vault, ...args], { encoding: 'utf8' }).trim()
 const read = (run: Running, rel: string) => readFileSync(join(run.vault, rel), 'utf8')
 const content = (page: Page) => pane(page).locator('.cm-content')
@@ -21,53 +20,55 @@ async function clickLineStart(page: Page, text: string) {
   await page.mouse.click(b.x + 2, b.y + b.height / 2)
 }
 
-const BOARD = (c1: string) => `---\ntype: board\n---\n<!-- card id=c0 x=0 y=0 w=220 -->\n## 十一月\n\n<!-- card id=c1 x=260 y=0 w=220 -->\n${c1}\n\n<!-- card id=c2 x=520 y=0 w=220 -->\n## 想写的\n`
+/** 白板（新写法）：空白处三张卡，前面各一行位置 */
+const BOARD = (c1: string) => `---\ntype: board\n---\n<!-- card id=c0 x=0 y=80 -->\n十一月\n\n<!-- card id=c1 x=300 y=80 -->\n${c1}\n\n<!-- card id=c2 x=600 y=80 -->\n想写的\n`
 
-test('真白板改卡时外面改了同一张卡：存下时留我的版本，外面那版存成冲突副本，底栏说清楚；外面改的是别的卡就合在一起', async () => {
-  const run = await launch({ '写作/写作计划.md': BOARD('## 十二月'), '写作/另一块.md': BOARD('## 十二月') })
+test('白板上改卡时外面改了同一张卡：存下时留我的版本，外面那版存成冲突副本，底栏说清楚；外面改的是别的卡就合在一起', async () => {
+  const run = await launch({ '写作/写作计划.md': BOARD('十二月'), '写作/另一块.md': BOARD('十二月') })
   const { page, vault } = run
   const copies = () => readdirSync(join(vault, '写作')).filter((f) => f.includes('冲突'))
   try {
     for (const how of ['Esc', '点空白'] as const) {
       // 每次从干净的开头来
-      writeFileSync(join(vault, '写作/写作计划.md'), BOARD('## 十二月'))
+      writeFileSync(join(vault, '写作/写作计划.md'), BOARD('十二月'))
       for (const f of copies()) rmSync(join(vault, '写作', f))
       await openNote(page, '写作计划').catch(() => {})
       await acts(page).getByRole('tab', { name: '白板' }).click()
-      const board = pane(page).getByTestId('board')
-      await expect(board.locator('.bcard[data-id="c1"]')).toContainText('十二月')
-      await board.locator('.bcard[data-id="c1"]').dblclick()
+      const board = pane(page).getByTestId('doc-board')
+      await expect(board.locator('.db-card[data-id="c1"]')).toContainText('十二月')
+      await board.locator('.db-card[data-id="c1"]').dblclick()
       const box = pane(page).getByRole('textbox', { name: '卡片内容' })
       await expect(box).toBeFocused()
       await page.keyboard.press('End')
       await page.keyboard.type('我' + how)
       // 外面（同步盘、另一台机器）改了同一张卡
-      writeFileSync(join(vault, '写作/写作计划.md'), BOARD('## 十二月外面' + how))
+      writeFileSync(join(vault, '写作/写作计划.md'), BOARD('十二月外面' + how))
       await page.waitForTimeout(2000)
       if (how === 'Esc') await page.keyboard.press('Escape')
       else {
-        const b = (await board.boundingBox())!
+        const b = (await board.locator('.board-wrap').boundingBox())!
         await page.mouse.click(b.x + b.width - 40, b.y + b.height - 40)
       }
       await expect(box).toHaveCount(0)
-      await expect.poll(() => read(run, '写作/写作计划.md')).toContain(`## 十二月我${how}\n`)
+      await expect.poll(() => read(run, '写作/写作计划.md')).toContain(`\n十二月我${how}\n`)
       await expect.poll(copies).toHaveLength(1)
-      expect(read(run, `写作/${copies()[0]}`)).toContain(`## 十二月外面${how}\n`)
-      await expect(toast(page)).toContainText(`外面改了《写作计划》的同一段：留了你的版本，外面那版存成《${copies()[0]!.replace(/\.md$/, '')}》`)
+      expect(read(run, `写作/${copies()[0]}`)).toContain(`\n十二月外面${how}\n`)
+      // 白板自己底部那条提示（标签还开着；关标签、退出时存回去的才说在软件底栏）
+      await expect(board.locator('.db-toast')).toContainText(`外面改了《写作计划》的同一段：留了你的版本，外面那版存成《${copies()[0]!.replace(/\.md$/, '')}》`)
     }
 
     // 外面改的是别的卡：两边都留住，说一句合在一起了
     await openNote(page, '另一块').catch(() => {})
     await acts(page).getByRole('tab', { name: '白板' }).click()
-    const board = pane(page).getByTestId('board')
-    await board.locator('.bcard[data-id="c1"]').dblclick()
+    const board = pane(page).getByTestId('doc-board')
+    await board.locator('.db-card[data-id="c1"]').dblclick()
     await page.keyboard.press('End')
     await page.keyboard.type('我的')
-    writeFileSync(join(vault, '写作/另一块.md'), BOARD('## 十二月').replace('## 想写的', '## 想写的外面'))
-    await expect(board.locator('.bcard[data-id="c2"]')).toContainText('想写的外面')
+    writeFileSync(join(vault, '写作/另一块.md'), BOARD('十二月').replace('\n想写的\n', '\n想写的外面\n'))
+    await expect(board.locator('.db-card[data-id="c2"]')).toContainText('想写的外面')
     await page.keyboard.press('Escape')
-    await expect.poll(() => read(run, '写作/另一块.md')).toBe(BOARD('## 十二月我的').replace('## 想写的', '## 想写的外面'))
-    await expect(toast(page)).toContainText('外面也改过《另一块》，已经合并进来')
+    await expect.poll(() => read(run, '写作/另一块.md')).toBe(BOARD('十二月我的').replace('\n想写的\n', '\n想写的外面\n'))
+    await expect(board.locator('.db-toast')).toContainText('外面也改过《另一块》，已经合并进来')
     expect(copies()).toHaveLength(1)
   } finally {
     await run.close()

@@ -500,6 +500,9 @@
   visibility: hidden;
   cursor: text;
 }
+.doc .cm-image.in-para .cm-image-cap.add {
+  display: none;
+}
 .doc .cm-image:hover .cm-image-cap.add {
   visibility: visible;
 }

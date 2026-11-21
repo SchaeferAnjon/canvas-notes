@@ -39,7 +39,7 @@ export function VideoCard({ text, notePath, stats }: { text: string; notePath: s
   const cover = card?.cover ? imageSrc(notePath, card.cover) : meta?.cover
   return (
     <div className="cb-video" data-part="视频卡">
-      <div className="cover">
+      <div className="cb-cover">
         {cover && <img src={cover} alt="" draggable={false} />}
         {durText && <span className="dur">{durText}</span>}
         {secs > 0 && pos > 0 && <span className="seen" style={{ width: `${Math.min(100, (pos / secs) * 100)}%` }} />}

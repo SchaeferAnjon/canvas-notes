@@ -5,13 +5,11 @@ import {
   type BoardDoc,
   content,
   type Link,
-  looseParagraphs,
   newBlock,
   newId,
   num,
   parseBoard,
   parseLinks,
-  placeLoose,
   serializeBoard,
   withAttrs,
   withContent,
@@ -41,7 +39,7 @@ import {
   slotInColumn,
   TODO_BODY,
 } from './board-drop'
-import { CardBody, classify, TODO } from './CardBody'
+import { CardBody, classify, domainOf, TODO } from './CardBody'
 import { sayCardBack, sayMerged, saySameSpot } from './conflict-say'
 import { cardSave, keepEditing } from './board-edit'
 import { openVideo } from './video/actions'
@@ -55,8 +53,10 @@ import { align, duplicateCard, intoNewColumn, takeOut, tidyGrid } from './ctx/bo
 import { type MenuEntry, showMenu } from './ctx/menu'
 import { clampZoom, fitZoom, stepZoom, wheelZoom } from './board-zoom'
 import { AiActLayer } from './ai-act'
+import { inboxOf, InboxDrawer, useInboxOpen } from './doc-board/inbox'
 import type { EditorView } from '@codemirror/view'
 import { UnitEditor } from './doc-board/unit-editor'
+import { typingIn } from './typing'
 
 type Drag =
   | { type: 'block'; id: string; start: Pt; origin: Pt; moved: boolean; delta: Pt }
@@ -129,12 +129,11 @@ export function BoardView(props: BoardViewProps) {
   const editBase = useRef<{ id: string; text: string } | null>(null)
   const doc = useMemo(() => keepEditing(parseBoard(text), editBase.current?.id === editing ? editBase.current.text : null, editing), [text, editing])
   const links = useMemo(() => parseLinks(doc), [doc])
-  /** 导图白板：正文里的列表画成导图（mindmap/MindmapLayer），列表和原照片不算「未整理」 */
+  /** 导图白板：正文里的列表画成导图（mindmap/MindmapLayer） */
   const mindmap = isMindmap(text)
-  const loose = useMemo(() => looseParagraphs(doc).filter((l) => !mindmap || !(/^[-*+][ \t]/.test(l.text) || /^!\[[^\]]*\]\([^)]*\)$/.test(l.text.trim()))), [doc, mindmap])
   const [mapSize, setMapSize] = useState({ w: 0, h: 0 })
-  // 收件箱里的白板（刚拍的导图）不把自己算进自己的「未整理」
-  const inbox = notes.filter((n) => n.kind === 'inbox' && n.path !== props.notePath).sort((a, b) => b.createdMs - a.createdMs)
+  // 收件箱里的白板（刚拍的导图）不把自己算进自己的收件箱
+  const inbox = inboxOf(notes, props.notePath)
 
   const wrap = useRef<HTMLDivElement>(null)
   const outer = useRef<HTMLDivElement>(null)
@@ -147,7 +146,7 @@ export function BoardView(props: BoardViewProps) {
   const editRow = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [dropCol, setDropCol] = useState<string | null>(null)
-  const [unsortedOpen, setUnsortedOpen] = useState(false)
+  const inboxOpen = useInboxOpen()
   const [flash, setFlash] = useState<string | null>(null)
   /** 右键「改名」的那一列（seq 变了就进改名） */
   const [renameCol, setRenameCol] = useState<{ id: string; seq: number } | null>(null)
@@ -232,7 +231,7 @@ export function BoardView(props: BoardViewProps) {
   useEffect(() => {
     if (!props.active) return
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.altKey || e.ctrlKey) return
+      if (!e.metaKey || e.altKey || e.ctrlKey || typingIn(e.target)) return
       const z = zoomRef.current
       if (e.key === '=' || e.key === '+') z.zoomTo(stepZoom(liveZoom.current, 1))
       else if (e.key === '-' || e.key === '_') z.zoomTo(stepZoom(liveZoom.current, -1))
@@ -519,17 +518,13 @@ export function BoardView(props: BoardViewProps) {
 
   async function placeUnsorted(d: Extract<Drag, { type: 'loose' }>, at: Pt) {
     const pos = { x: Math.round(at.x - 40), y: Math.round(at.y - 20) }
-    if (!d.inboxPath) {
-      const l = loose.find((x) => `loose:${x.from}` === d.key)
-      if (l) commit(placeLoose(doc, l, { id: newId(doc), x: pos.x, y: pos.y, w: CARD_W }))
-      return
-    }
+    if (!d.inboxPath) return
     const note = await window.cn.readNote(d.inboxPath)
     const body = note.text.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
     if (isWholeDoc(note.text, body)) {
       // 整页剪藏这类长的：那篇挪到「素材/<这块白板>/」，白板上放一张指向它的卡片（标题、来源、几行摘要），双击看全文
-      const moved = await window.cn.createNote(`${CLIPS}/${titleOf(props.notePath)}`, titleOf(d.inboxPath), note.text)
-      await window.cn.trashNote(d.inboxPath)
+      // 挪过去（不是新建一篇再删）：附件文件夹跟着挪、图片的相对链接跟着改（剪藏时存下的图）
+      const moved = await window.cnMenu.moveNote(d.inboxPath, `${CLIPS}/${titleOf(props.notePath)}`)
       const id = addBlock('card', pos, `[[${titleOf(moved)}]]`)
       setFlash(id)
       return
@@ -552,6 +547,8 @@ export function BoardView(props: BoardViewProps) {
       return
     }
     if (editing) return
+    // 焦点在输入框里（改列名、待办标题、卡片改字……）：⌫、Delete、⌘Z、Esc 都是改字，不删选中的列和卡片（第 8 轮：改新列的名字按 ⌫ 整列被删）
+    if (typingIn(e.target)) return
     if ((e.key === 'Backspace' || e.key === 'Delete') && !props.readOnly) {
       if (selLink) {
         commit(withLinks(doc, links.filter((l) => `${l.from}>${l.to}` !== selLink)))
@@ -664,7 +661,7 @@ export function BoardView(props: BoardViewProps) {
   async function onContext(e: React.MouseEvent) {
     const t = e.target as HTMLElement
     // 正在编辑的卡片、工具板、未整理、导图：交给输入框的标准菜单或不弹
-    if (props.readOnly || t.closest('input, textarea, [contenteditable="true"], .bpal, .unsorted, .mm-layer')) return
+    if (props.readOnly || t.closest('input, textarea, [contenteditable="true"], .bpal, .db-drawer, .mm-layer')) return
     e.preventDefault()
     e.stopPropagation()
     outer.current?.focus({ preventScroll: true })
@@ -798,8 +795,6 @@ export function BoardView(props: BoardViewProps) {
       </div>
     )
   }
-
-  const unsortedCount = loose.length + inbox.length
 
   // 右栏大纲点了一张卡片或一列：滚到正中、选中，闪一下
   useEffect(
@@ -987,25 +982,14 @@ export function BoardView(props: BoardViewProps) {
         <PalGhost kind={drag.kind} client={drag.client} over={drag.over} scale={scale} board={outer.current} />
       )}
 
-      <div className={'unsorted' + (unsortedOpen ? ' open' : '')} onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-        <button className="h" onClick={() => setUnsortedOpen((v) => !v)} data-testid="unsorted">
-          <span className="num">
-            <b>{unsortedCount}</b>未整理
-          </span>
-          <Codicon name="chevron-down" size={14} />
-        </button>
-        {unsortedOpen && (
-          <div className="stack">
-            {unsortedCount === 0 && <p className="hint">没有未整理的。</p>}
-            {loose.map((l) => (
-              <Mini key={`loose:${l.from}`} text={previewOf(l.text, 80)} sub="这篇里没放进卡片的段落" onDown={(e) => startLoose(e, { key: `loose:${l.from}`, text: l.text })} />
-            ))}
-            {inbox.map((n) => (
-              <Mini key={n.path} text={n.preview || titleOf(n.path)} sub="收件箱" onDown={(e) => startLoose(e, { key: n.path, text: n.preview ?? '', inboxPath: n.path })} />
-            ))}
-          </div>
-        )}
-      </div>
+      {/* 收件箱：右边一格（和别的白板一样，doc-board/inbox.tsx），开关在标签条「收件箱 N」 */}
+      {inboxOpen && (
+        <InboxDrawer
+          items={inbox}
+          readOnly={props.readOnly}
+          onItemDown={(e, n) => !props.readOnly && setDrag({ type: 'loose', key: n.path, text: n.excerpt || n.preview || titleOf(n.path), inboxPath: n.path, at: toPlane(e.clientX, e.clientY), client: { x: e.clientX, y: e.clientY } })}
+        />
+      )}
       {drag?.type === 'loose' && (
         <div className="ghost" style={{ left: drag.client.x, top: drag.client.y }}>
           {previewOf(drag.text, 60)}
@@ -1068,14 +1052,8 @@ function PalGhost(props: { kind: PalKind; client: Pt; over: boolean; scale: numb
   )
 }
 
-function Mini(props: { text: string; sub: string; onDown(e: React.PointerEvent): void }) {
-  return (
-    <div className="mini" onPointerDown={props.onDown} title="拖到白板上">
-      {props.text}
-      <span>{props.sub}</span>
-    </div>
-  )
-}
+/** 速记这类没标题的：文件名就是正文开头几个字，卡上不再重复一遍 */
+export const sameStart = (n: NoteFile) => !!n.excerpt && n.excerpt.startsWith(titleOf(n.path))
 
 function ColumnTitle(props: { title: string; count: number; sub?: string; unit?: string; onDown(e: React.PointerEvent): void; onRename(t: string): void; editSeq: number }) {
   const [edit, setEdit] = useState(false)

@@ -17,7 +17,7 @@ import {
   tableMarkdown,
   toggleTask,
 } from '../src'
-import { FIXTURES } from './fixtures'
+import { FIXTURES, OLD_BOARDS } from './fixtures'
 
 const kinds = (text: string) => findBlocks(text).map((b) => b.kind)
 const texts = (text: string) => findBlocks(text).map((b) => text.slice(b.from, b.to))
@@ -90,7 +90,7 @@ describe('找块', () => {
   })
 
   it('白板文件：frontmatter 一块，卡片注释和它的正文是一块（和 parseBoard 一样）', () => {
-    const board = new TextDecoder().decode(FIXTURES['board.md'])
+    const board = OLD_BOARDS['旧样本.md']!
     const bs = findBlocks(board)
     expect(bs.map((b) => b.kind)).toEqual(['frontmatter', 'heading', 'card', 'card', 'column', 'card'])
     const t = texts(board)
@@ -103,7 +103,24 @@ describe('找块', () => {
   it('画控件用的块：卡片正文也拆开，卡片里的表格认得出来', () => {
     const md = '# 白板\n\n<!-- card id=a1 -->\n| a | b |\n| - | - |\n| 1 | 2 |\n\n<!-- card id=a2 -->\n![图](x.png)\n'
     expect(contentBlocks(md).map((b) => b.kind)).toEqual(['heading', 'html', 'table', 'html', 'image'])
-    expect(findBlocks(md).map((b) => b.kind)).toEqual(['heading', 'card', 'card'])
+    // 新写法（2026-11-21）：只记编号的一行只管后面那一块，和它算一块
+    expect(findBlocks(md).map((b) => b.kind)).toEqual(['heading', 'table', 'image'])
+    // 旧写法（卡上写着 in= / w=）：注释和它下面到下一条注释的字是一块
+    const old = '# 白板\n\n<!-- card id=a1 x=1 y=2 w=280 -->\n| a | b |\n| - | - |\n| 1 | 2 |\n\n<!-- card id=a2 x=3 y=4 w=280 -->\n![图](x.png)\n'
+    expect(findBlocks(old).map((b) => b.kind)).toEqual(['heading', 'card', 'card'])
+  })
+
+  it('新写法的白板（2026-11-21）：位置行、编号行、列位置行只管后面那一块，和它一起算一块；后面的段落各是各的', () => {
+    const t = '---\ntype: board\n---\n# 白板\n\n<!-- card id=d1 x=10 y=20 -->\n甲\n\n乙\n\n<!-- column id=c1 x=300 y=64 -->\n## 列\n\n<!-- card id=k1 -->\n- [ ] 丙\n'
+    expect(kinds(t)).toEqual(['frontmatter', 'heading', 'paragraph', 'paragraph', 'heading', 'list'])
+    expect(texts(t)[2]).toBe('<!-- card id=d1 x=10 y=20 -->\n甲')
+    expect(texts(t)[3]).toBe('乙')
+    expect(texts(t)[4]).toBe('<!-- column id=c1 x=300 y=64 -->\n## 列')
+    expect(texts(t)[5]).toBe('<!-- card id=k1 -->\n- [ ] 丙')
+    expect(contentBlocks(t).map((b) => b.kind)).toEqual(['frontmatter', 'heading', 'html', 'paragraph', 'paragraph', 'html', 'heading', 'html', 'list'])
+    // 挪「甲」那一块：位置行跟着走
+    const r = moveMdBlock(t, 2, 4)!
+    expect(r.text).toContain('乙\n\n<!-- card id=d1 x=10 y=20 -->\n甲\n\n<!-- column id=c1')
   })
 
   it('分栏注释成一块；没配对的注释当段落', () => {
@@ -172,7 +189,7 @@ describe('挪块', () => {
   })
 
   it('frontmatter 不能挪，别的块也挪不到它前面', () => {
-    const board = new TextDecoder().decode(FIXTURES['board.md'])
+    const board = OLD_BOARDS['旧样本.md']!
     expect(moveMdBlock(board, 0, 3)).toBeNull()
     expect(moveMdBlock(board, 2, 0)).toBeNull()
     const r = moveMdBlock(board, 1, 3)!
@@ -182,7 +199,7 @@ describe('挪块', () => {
   })
 
   it('挪卡片：注释和正文一起走，白板读出来的卡片还是那几张', () => {
-    const board = new TextDecoder().decode(FIXTURES['board.md'])
+    const board = OLD_BOARDS['旧样本.md']!
     const r = moveMdBlock(board, 3, 2)!
     const ids = findBlocks(r.text)
       .filter((b) => b.kind === 'card')

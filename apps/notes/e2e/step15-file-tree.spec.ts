@@ -40,13 +40,13 @@ test('全部文件：整个库的树，PDF 和课程旁边是进度；点文件�
     // 线性代数：3 份课件问完 1 份
     await expect(item(page, '线性代数').locator('.ft-meta')).toHaveText('1/3讲')
 
-    // 点箭头只展开（不开首页）：我的疑惑在最上，同一讲课件和笔记挨着，第 10 讲排在第 3 讲后面；名字不带扩展名
+    // 点箭头只展开（不开首页）：PDF 和它的笔记是一行（一个 PDF 一篇笔记，2026-11-20），第 10 讲排在第 3 讲后面；「我的疑惑」不再放最上；名字不带扩展名
     await item(page, '线性代数').getByRole('button', { name: '展开 线性代数' }).click()
-    await expect(tree(page).getByRole('treeitem', { level: 4 })).toHaveText([/^我的疑惑/, /^第2讲 向量空间/, /^第2讲 向量空间 笔记/, /^第3讲 线性映射PDF3\/5/, /^第3讲 线性映射 笔记/, /^第10讲 二次型/, /^旋转矩阵/])
+    await expect(tree(page).getByRole('treeitem', { level: 4 })).toHaveText([/^第2讲 向量空间PDF0$/, /^第3讲 线性映射PDF0$/, /^第10讲 二次型/, /^我的疑惑/, /^旋转矩阵/])
     await expect(page.locator('.tab', { hasText: '线性代数' })).toHaveCount(0)
-    // 问完的是绿勾，问了一些写 3/5，没开始什么都不写
-    await expect(item(page, '第2讲 向量空间').first().locator('.done')).toBeVisible()
-    await expect(item(page, '第3讲 线性映射').first().locator('.ft-meta')).toHaveText('3/5')
+    // 有笔记的 PDF 右端是笔记里问了几问（这两篇笔记还没问过：0）；没开始的什么都不写；问到第几页在悬停里
+    await expect(item(page, '第2讲 向量空间').first().getByTestId('ft-note')).toHaveText('0')
+    await expect(item(page, '第3讲 线性映射').first().getByTestId('ft-note')).toHaveText('0')
     await expect(item(page, '第10讲 二次型').locator('.ft-meta')).toHaveText('')
 
     // 点 PDF 开 PDF 标签，这一行变成当前

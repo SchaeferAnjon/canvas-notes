@@ -111,26 +111,26 @@ test('盘慢、读文件慢时新建笔记：标签一出来马上打字，头�
   }
 })
 
-test('真白板上正在改一张卡（框开着）按 ⌘W：框里的字先存进文件，标签关掉（框不再把 ⌘W 拦下）', async () => {
-  const BOARD = '---\ntype: board\n---\n<!-- card id=c1 x=80 y=80 w=280 -->\n冰岛\n'
+test('白板（type: board）上正在改一张卡（框开着）按 ⌘W：框里的字先存进文件，标签关掉（框不再把 ⌘W 拦下）', async () => {
+  const BOARD = '---\ntype: board\n---\n<!-- card id=c1 x=80 y=80 -->\n冰岛\n'
   const run = await launch({ '写作计划.md': BOARD })
   const { page, vault } = run
   try {
     await openNote(page, '写作计划')
     await acts(page).getByRole('tab', { name: '白板' }).click()
-    await pane(page).getByTestId('board').locator('.bcard', { hasText: '冰岛' }).dblclick()
-    await expect(pane(page).getByTestId('board').getByRole('textbox', { name: '卡片内容' })).toBeFocused()
+    await pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '冰岛' }).dblclick()
+    await expect(pane(page).getByTestId('doc-board').getByRole('textbox', { name: '卡片内容' })).toBeFocused()
     await page.keyboard.press('End')
     await page.keyboard.type('自驾')
     await page.keyboard.press('Meta+w')
     await expect(page.getByRole('tab', { name: /写作计划/ })).toHaveCount(0)
-    await expect.poll(() => readFileSync(join(vault, '写作计划.md'), 'utf8')).toContain('<!-- card id=c1 x=80 y=80 w=280 -->\n冰岛自驾\n')
+    await expect.poll(() => readFileSync(join(vault, '写作计划.md'), 'utf8')).toBe('---\ntype: board\n---\n<!-- card id=c1 x=80 y=80 -->\n冰岛自驾\n')
   } finally {
     await run.close()
   }
 })
 
-test('文档白板「改字」弹层开着、外面改了同一段时按 ⌘W：主文件留我的、外面那版存冲突副本，标签关了提示照样出在底部', async () => {
+test('文档白板上就地改着一张卡、外面改了同一段时按 ⌘W：主文件留我的、外面那版存冲突副本，标签关了提示照样出在底部', async () => {
   const NOTE = '# 冲突弹层\n\n## 一\n\n卡一。\n\n## 二\n\n卡二。\n'
   const run = await launch({ '冲突弹层.md': NOTE, '留着.md': '# 留着\n' })
   const { page, vault } = run
@@ -141,20 +141,22 @@ test('文档白板「改字」弹层开着、外面改了同一段时按 ⌘W：
     await acts(page).getByRole('tab', { name: '白板' }).click()
     const board = pane(page).getByTestId('doc-board')
     await board.locator('.db-card', { hasText: '卡二' }).dblclick()
-    const dlg = page.getByRole('dialog', { name: '全文' })
-    await dlg.getByRole('button', { name: '改字' }).click()
-    await dlg.getByRole('textbox', { name: '这张卡的字' }).press('End')
+    const box = board.getByRole('textbox', { name: '卡片内容' })
+    await expect(box).toBeFocused()
+    await box.press('End')
     await page.keyboard.type('我加的')
-    const theirs = NOTE.replace('卡二。', '卡二外面改了。')
+    // 外面改了同一段，也改了「一」那一段（看得出外面的改动到了：那张卡变了；正在改的这张框还开着）
+    const theirs = NOTE.replace('卡二。', '卡二外面改了。').replace('卡一。', '卡一（外面）。')
     writeFileSync(path, theirs)
-    await expect(board.locator('.db-card', { hasText: '卡二外面改了' })).toBeVisible()
+    await expect(board.locator('.db-card', { hasText: '卡一（外面）' })).toBeVisible()
+    await expect(box).toBeFocused()
     await page.keyboard.press('Meta+w')
     await expect(page.getByRole('tab', { name: /冲突弹层/ })).toHaveCount(0)
     const copies = () => readdirSync(vault).filter((f) => f.startsWith('冲突弹层（冲突 '))
     await expect.poll(copies).toHaveLength(1)
     expect(readFileSync(join(vault, copies()[0]!), 'utf8')).toBe(theirs)
-    await expect.poll(() => readFileSync(path, 'utf8')).toBe(NOTE.replace('卡二。', '卡二。我加的'))
-    await expect(page.getByTestId('toast')).toContainText(`外面改了《冲突弹层》的同一段：留了你的版本，外面那版存成《${copies()[0]!.replace(/\.md$/, '')}》`)
+    await expect.poll(() => readFileSync(path, 'utf8')).toBe(NOTE.replace('卡二。', '卡二。我加的').replace('卡一。', '卡一（外面）。'))
+    await expect(page.getByTestId('toast')).toContainText(`外面改了《冲突弹层》的同一段：留了你的版本，外面别处改的也合进来了，外面那版存成《${copies()[0]!.replace(/\.md$/, '')}》`)
   } finally {
     await run.close()
   }

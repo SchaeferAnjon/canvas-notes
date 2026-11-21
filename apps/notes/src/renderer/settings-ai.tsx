@@ -1,6 +1,7 @@
 /**
  * 设置 › AI（CN-44 方向 A）：上面「默认」一行（哪家、哪个模型，「换」）；下面「各功能用哪个」五行：
- * AI 对话、梦游、看图问、翻译、小活，每行一个下拉「跟默认 / 指定某家某模型」；翻译那行是它自己的顺序，旁边「排顺序 ›」。
+ * AI 对话、梦游、看图问、翻译、小活，每行一个下拉「跟默认 / 指定某家某模型」；翻译那行是它自己的顺序，说明那一行末尾「排顺序 ›」。
+ * 五个下拉一样宽、靠右对齐（附加的话写在说明那一行，不放在下拉旁边，第 8 轮）。
  */
 import { Codicon, type CodiconName } from '@cn/design'
 import { useEffect, useRef, useState } from 'react'
@@ -15,7 +16,7 @@ const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Erro
 const ROWS: { f: AiFeature | 'translate'; name: string; desc: string; icon: CodiconName }[] = [
   { f: 'chat', name: 'AI对话', desc: '右栏AI那一格，读PDF时的边读边问也是它', icon: 'comment-discussion' },
   { f: 'dream', name: '梦游', desc: '夜里整理收件箱、写报告、做可视化', icon: 'wand' },
-  { f: 'vision', name: '看图问', desc: '视频框一块问、拍导图识别（要能看图）', icon: 'device-camera' },
+  { f: 'vision', name: '看图问', desc: '视频框一块问、拍导图识别；只有Claude Code能看图', icon: 'device-camera' },
   { f: 'translate', name: '翻译', desc: '网页和视频字幕的双语翻译、右键翻译这段', icon: 'whole-word' },
   { f: 'quick', name: '小活', desc: '视频摘要、起名、插件里的快问', icon: 'note' },
 ]
@@ -183,7 +184,14 @@ export function AiSettingsPage(props: { onNotice(t: string): void; onPlugins(): 
                 <Codicon name={r.icon} size={16} className="ic" />
                 <span className="tx">
                   <b>{r.name}</b>
-                  <span>{r.desc}</span>
+                  {/* 「排顺序 ›」放在说明这一行（第 8 轮：放在下拉旁边，五个下拉左右对不齐） */}
+                  <span>
+                    {r.desc}
+                    <button className="aip-link" onClick={props.onPlugins}>
+                      排顺序
+                      <Codicon name="chevron-right" size={12} />
+                    </button>
+                  </span>
                 </span>
                 <Drop
                   label="翻译用哪个"
@@ -200,10 +208,6 @@ export function AiSettingsPage(props: { onNotice(t: string): void; onPlugins(): 
                     ...TR_ENGINES.map((e) => ({ key: e.id, logo: e.id, label: `只用${e.name}`, sub: e.sub, on: tr.engineMode === 'pick' && tr.pick === e.id, run: () => void setTrans({ engineMode: 'pick', pick: e.id }) })),
                   ]}
                 />
-                <button className="aip-link" onClick={props.onPlugins}>
-                  排顺序
-                  <Codicon name="chevron-right" size={12} />
-                </button>
               </div>
             )
           }
@@ -237,7 +241,6 @@ export function AiSettingsPage(props: { onNotice(t: string): void; onPlugins(): 
                 }
                 items={pickItems(f)}
               />
-              {f === 'vision' && <span className="aip-why">只有它能看图</span>}
             </div>
           )
         })}

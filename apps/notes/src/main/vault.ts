@@ -2,7 +2,7 @@ import { existsSync, watch, type FSWatcher, type Stats } from 'node:fs'
 import { safeName } from '../shared/file-name'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
-import { attachmentDir, attr, baseFoldersIn, clockStamp, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, isMindmap, num, parseBoard, parseMindmap, relinkMovedNote, remapLinks } from '@cn/format'
+import { attachmentDir, attr, baseFoldersIn, boardThumb, clockStamp, content, conflictCopyName, DEFAULT_META, decodeNote, encodeNote, fmValue, hasOldLayout, isMindmap, num, parseBoard, parseMindmap, relinkMovedNote, remapLinks } from '@cn/format'
 import type { NoteFile, OpenedNote, SearchHit, ThumbRect, WriteResult } from '../shared/api'
 import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
 import { hitSnippet } from './search/chunks'
@@ -166,6 +166,12 @@ export class Vault {
     const tables = new Set<string>()
     for (const text of this.index.values()) for (const f of baseFoldersIn(text)) tables.add(f)
     return tables
+  }
+
+  /** 库里每篇 md 的全文（搜索缓存；「提到这篇的」、工具板「数据库」用） */
+  async texts(): Promise<ReadonlyMap<string, string>> {
+    if (!this.indexed) await this.list()
+    return this.index
   }
 
   /** 库里所有数据库（```base）的数据源文件夹，不管主笔记放在哪个文件夹 */
@@ -625,7 +631,13 @@ function describe(rel: string, st: Stats, text: string): NoteFile {
   if (topic) file.topic = topic
   if (fmValue(text, 'draft') === 'true') file.draft = true
   if (isBookDigest(text.slice(0, 20000))) file.digest = true
-  if (fmValue(text, 'type') === 'board') {
+  // 2026-11-21 起白板是「## 列名」写法（一排的列、空白处的卡）：按新写法算卡片数和缩略图；旧写法、导图照以前
+  if (fmValue(text, 'type') === 'board' && !isMindmap(text) && !hasOldLayout(text)) {
+    const t = boardThumb(text)
+    file.board = { color: fmValue(text, 'color')?.replace(/^["']|["']$/g, '') ?? '#8E8E96', cards: t.cards, thumb: t.thumb }
+    const icon = fmValue(text, 'icon')
+    if (icon) file.board.icon = icon
+  } else if (fmValue(text, 'type') === 'board') {
     const blocks = parseBoard(text).blocks
     const cards = blocks.filter((b) => b.kind === 'card').length
     // 缩略图：画布上的卡片和列大概摆在哪、多高

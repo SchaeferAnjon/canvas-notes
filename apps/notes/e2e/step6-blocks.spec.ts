@@ -404,7 +404,7 @@ test('/ 白板 新建子白板并插入链接；/ 图片 拷进附件并显示�
 
 test('挪块和插入之后：外部改动合并进来，正在打的字不丢；打开再保存（含表格、待办、卡片）不变', async () => {
   const BASE = '# 旅行\n\n第一段。\n\n第二段。\n\n第三段。\n\n第四段。\n\n第五段。\n'
-  const board = '---\ntype: board\n---\n# 白板\n\n<!-- card id=a1 x=0 y=0 w=280 -->\n- [ ] 车\n- [x] 机票\n\n<!-- card id=a2 x=300 y=0 w=280 -->\n| a | b |\n| - | - |\n| 1 | 2 |\n'
+  const board = '---\ntype: board\n---\n# 白板\n\n<!-- card id=a1 x=0 y=0 -->\n- [ ] 车\n- [x] 机票\n\n<!-- card id=a2 x=300 y=0 -->\n| a | b |\n| - | - |\n| 1 | 2 |\n'
   const run = await launch({ '旅行.md': BASE, '白板.md': board })
   const { page, vault } = run
   const file = join(vault, '旅行.md')

@@ -110,7 +110,18 @@ const taskInput = EditorView.inputHandler.of((view, from, to, text) => {
 
 // ---------- 表格、图片 ----------
 
-const IMAGE = /!\[([^\]\n]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\s*\)/
+/**
+ * 一整行只有一张图：`![说明](地址)`，或者套着链接的 `[![说明](地址)](网址)`（剪藏整页时维基百科的图都套着链接，第 8 轮 r8-img2）。
+ * 这一行在段落里（白板卡片里图片下一行紧跟「—— [来源](网址)」，第 8 轮 r8-img1）也画成图，段里别的行照旧是字
+ */
+const PLAIN_IMAGE = /^( {0,3})!\[([^\]\n]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\s*\)[ \t]*$/
+const LINKED_IMAGE = /^( {0,3}\[)!\[([^\]\n]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\s*\)\]\([^)\s]*(?:\s+"[^"]*")?\s*\)[ \t]*$/
+
+/** 这一行是一张图：![ 在行里第几个字、说明、地址 */
+function imageLine(text: string): { at: number; alt: string; url: string } | null {
+  const m = PLAIN_IMAGE.exec(text) ?? LINKED_IMAGE.exec(text)
+  return m ? { at: m[1]!.length, alt: m[2]!, url: m[3]! } : null
+}
 
 class ImageWidget extends WidgetType {
   constructor(
@@ -119,15 +130,20 @@ class ImageWidget extends WidgetType {
     readonly from: number,
     /** Obsidian 写法 ![[图.png|300]]：| 后面那截是宽或说明，就地改说明只认 ![说明](…)，这种不给改 */
     readonly embed = false,
+    /** 这一行行首（套着链接的图 [![…](…)](…)，![ 不在行首） */
+    readonly start = from,
+    /** 段落里的一行（上下还有字）：不靠空行隔开 */
+    readonly inPara = false,
   ) {
     super()
   }
   eq(o: ImageWidget) {
-    return o.src === this.src && o.alt === this.alt && o.from === this.from && o.embed === this.embed
+    return o.src === this.src && o.alt === this.alt && o.from === this.from && o.embed === this.embed && o.start === this.start && o.inPara === this.inPara
   }
   toDOM(view: EditorView) {
     const fig = document.createElement('div')
-    fig.className = 'cm-image'
+    // 段落里的一行图（白板卡片里图下面紧跟「—— 出处」）：下面那行字就是它的说明，不再留「加说明…」那一行的高（设计复审：出处离自己的图 33、离下一张 16，像下一张的图注）
+    fig.className = 'cm-image' + (this.inPara ? ' in-para' : '')
     const img = document.createElement('img')
     // 「我框的|268」：说明只露前半，图照写着的宽显示（读 PDF 的笔记写的是框在 PDF 上 100% 时的宽，Obsidian 的写法）
     const { caption, width } = splitImageAlt(this.embed && /^\d/.test(this.alt) ? '|' + this.alt : this.alt)
@@ -180,7 +196,7 @@ class ImageWidget extends WidgetType {
       // 点图选中这一块（再按退格删掉）；光标不进原文
       const end = view.state.doc.lineAt(this.from).to
       view.focus()
-      view.dispatch({ selection: { anchor: this.from, head: end } })
+      view.dispatch({ selection: { anchor: this.start, head: end } })
     })
     return fig
   }
@@ -248,18 +264,21 @@ function blockWidgets(state: EditorState): DecorationSet {
       const src = state.doc.sliceString(b.from, b.to)
       const ed = state.field(tableEditField, false)
       out.push(Decoration.replace({ widget: new TableWidget(src, b.from, ed && ed.table === b.from ? { row: ed.row, col: ed.col, all: ed.all } : null), block: true }).range(b.from, b.to))
-    } else if (b.kind === 'image') {
+    } else if (b.kind === 'image' || b.kind === 'paragraph') {
       // 视频块里的截图由 video/doc-widgets 画
       if (inVideoBlock(state, b.from)) continue
-      const m = IMAGE.exec(state.doc.sliceString(b.from, b.to))
-      if (!m) continue
-      // 光标在哪都画成图，不露 ![说明](附件/…) 原文（CN-86、CN-40）
-      out.push(Decoration.replace({ widget: new ImageWidget(imageSrc(path, m[2]!), m[1]!, b.from), block: true }).range(b.from, b.to))
-    } else if (b.kind === 'paragraph') {
       // Obsidian 写法 ![[图.png]]、![[图.png|300]] 单独一行：一样画成图
-      const em = imageEmbed(state.doc.sliceString(b.from, b.to))
-      if (!em || inVideoBlock(state, b.from)) continue
-      out.push(Decoration.replace({ widget: new ImageWidget(embedImageSrc(path, em.target), em.alt, b.from, true), block: true }).range(b.from, b.to))
+      const em = b.kind === 'paragraph' ? imageEmbed(state.doc.sliceString(b.from, b.to)) : null
+      if (em) {
+        out.push(Decoration.replace({ widget: new ImageWidget(embedImageSrc(path, em.target), em.alt, b.from, true), block: true }).range(b.from, b.to))
+        continue
+      }
+      // 光标在哪都画成图，不露 ![说明](附件/…) 原文（CN-86、CN-40）；段落里单独占一行的图也画（白板卡片的图下面紧跟来源行）
+      for (let n = state.doc.lineAt(b.from).number, last = state.doc.lineAt(b.to).number; n <= last; n++) {
+        const line = state.doc.line(n)
+        const img = imageLine(line.text)
+        if (img) out.push(Decoration.replace({ widget: new ImageWidget(imageSrc(path, img.url), img.alt, line.from + img.at, false, line.from, line.from !== b.from || line.to !== b.to), block: true }).range(line.from, line.to))
+      }
     }
   }
   return Decoration.set(out, true)
@@ -278,7 +297,11 @@ const widgets = StateField.define<DecorationSet>({
     }),
     hiddenSyntax.of((state) => {
       const out: Hidden[] = []
-      state.field(f).between(0, state.doc.length, (from, to, d) => void ((d.spec.widget instanceof ImageWidget || d.spec.widget instanceof TableWidget) && out.push(wholeBlock(state.doc, from, to, true))))
+      // 单独成段的图、表格靠空行和正文隔开（sep）；段落里的一行图（下面紧跟来源行）只藏它自己这一行
+      state.field(f).between(0, state.doc.length, (from, to, d) => {
+        const w = d.spec.widget
+        if (w instanceof TableWidget || w instanceof ImageWidget) out.push(wholeBlock(state.doc, from, to, !(w instanceof ImageWidget && w.inPara)))
+      })
       return out
     }),
   ],

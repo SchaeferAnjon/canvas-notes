@@ -114,8 +114,10 @@ test('CN-124 打字像 Typora：记号都不露；标题行首退格变正文；
     await paste(page, 'https://zh.wikipedia.org/wiki/Golden_Circle')
     expect(await editorText(page)).toContain('第二天走[黄金圈。](https://zh.wikipedia.org/wiki/Golden_Circle)')
     await line(page, '还没订完').click()
-    await expect(pane(page).locator('.cm-urlchip')).toHaveText('zh.wikipedia.org…')
+    // 链接后面什么都不露（cmdk 方案 A）
+    await expect(pane(page).locator('.cm-urlchip')).toHaveCount(0)
     expect(await shownText(page)).not.toContain('](')
+    expect(await shownText(page)).not.toContain('zh.wikipedia.org')
     await waitSaved(page)
   } finally {
     await run.close()

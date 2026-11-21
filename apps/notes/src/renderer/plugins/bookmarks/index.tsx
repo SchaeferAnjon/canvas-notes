@@ -38,8 +38,11 @@ export const bookmarks: RendererPlugin = {
   icon: 'bookmark',
   Popup: BookmarkKeeper,
   PageMenu: LaterItem,
+  pageMenu: { id: 'later', label: '稍后再看', icon: 'clockface' },
   commands: () => [
     {
+      id: 'bookmarks',
+      home: 'web',
       name: '书签管家',
       hint: '整理全部书签：搜、改、删、存进库',
       icon: 'bookmark',

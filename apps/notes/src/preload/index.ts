@@ -11,9 +11,11 @@ import type { CnAttachApi } from '../shared/attach'
 import { videoApi } from './video-api'
 import { webApi } from './web'
 import { menuApi } from './ctx-menu'
+import { cmdsApi } from './commands'
 
 const api: CnApi = {
   vault: () => ipcRenderer.invoke('vault:get'),
+  tidyUndo: (t) => ipcRenderer.invoke('vault:tidy:undo', t),
   chooseVault: () => ipcRenderer.invoke('vault:choose'),
   listNotes: () => ipcRenderer.invoke('notes:list'),
   readNote: (path) => ipcRenderer.invoke('note:read', path),
@@ -36,6 +38,12 @@ const api: CnApi = {
   aiChange: (change) => ipcRenderer.invoke('ai:change', change),
   aiCommit: (paths, message) => ipcRenderer.invoke('ai:commit', paths, message),
   aiRevert: (hash, only) => ipcRenderer.invoke('ai:revert', hash, only),
+  boardConvert: (path, force) => ipcRenderer.invoke('board:convert', path, force === true),
+  boardKeepOld: (path, old, converted) => ipcRenderer.invoke('board:keepOld', path, old, converted),
+  boardBases: () => ipcRenderer.invoke('board:bases'),
+  backlinks: (path) => ipcRenderer.invoke('board:backlinks', path),
+  boardCommit: (paths, message) => ipcRenderer.invoke('board:commit', paths, message),
+  boardRevert: (hash) => ipcRenderer.invoke('board:revert', hash),
   search: (q) => ipcRenderer.invoke('search', q),
   pins: () => ipcRenderer.invoke('pins:get'),
   logActivity: (kind, path) => ipcRenderer.invoke('activity:log', kind, path),
@@ -172,6 +180,7 @@ contextBridge.exposeInMainWorld('cnFiles', { all: () => ipcRenderer.invoke('file
 contextBridge.exposeInMainWorld('cnVideo', videoApi)
 contextBridge.exposeInMainWorld('cnImport', importApi)
 contextBridge.exposeInMainWorld('cnMenu', menuApi)
+contextBridge.exposeInMainWorld('cnCmds', cmdsApi)
 contextBridge.exposeInMainWorld('cnAttach', {
   of: (note, shared) => ipcRenderer.invoke('attach:of', note, shared),
   trashNote: (note, withImages) => ipcRenderer.invoke('attach:trash-note', note, withImages),

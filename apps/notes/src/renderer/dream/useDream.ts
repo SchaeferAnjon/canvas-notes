@@ -46,6 +46,27 @@ export function dreamWhen(r: DreamReport, now = new Date()): string {
   return `${day} ${span}`
 }
 
+/**
+ * 这次梦游真动了正文的几处，按真改动说（摘要里用；以前一律写「你写的正文一个字没动」，不对）：
+ * 「补了2处双链（在正文末尾加了一行）」「做了1个可视化（在读PDF笔记那一段的脚上加了一行链接）」
+ * 「挪老图改了3篇里的图片链接」「归类和改名时2篇里的标题或相对链接跟着改、1篇别的笔记里的[[旧名]]跟着换」。都没动是 null（不提）
+ */
+export function bodyEdits(items: DreamItem[]): string | null {
+  const real = items.filter((i) => i.commit)
+  const n = (g: DreamGroup) => real.filter((i) => i.group === g).length
+  const parts: string[] = []
+  if (n('link')) parts.push(`补了${n('link')}处双链（在正文末尾加了一行）`)
+  if (n('viz')) parts.push(`做了${n('viz')}个可视化（在读PDF笔记那一段的脚上加了一行链接）`)
+  const pics = real.filter((i) => i.group === 'attach').reduce((k, i) => k + (i.changes?.length ?? 0), 0)
+  if (pics) parts.push(`挪老图改了${pics}篇里的图片链接`)
+  const files = real.filter((i) => i.group === 'file' && i.edits)
+  const self = files.filter((i) => i.edits!.self).length
+  const others = files.reduce((k, i) => k + i.edits!.others, 0)
+  const fp = [self ? `${self}篇里的标题或相对链接跟着改` : '', others ? `${others}篇别的笔记里的[[旧名]]跟着换` : ''].filter(Boolean)
+  if (fp.length) parts.push(`归类和改名时${fp.join('、')}`)
+  return parts.length ? parts.join('；') : null
+}
+
 export const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 /**

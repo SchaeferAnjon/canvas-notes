@@ -16,9 +16,10 @@ import {
   withContent,
   withLinks,
 } from '../src'
-import { FIXTURES } from './fixtures'
+import { FIXTURES, OLD_BOARDS } from './fixtures'
 
-const BOARD = new TextDecoder().decode(FIXTURES['board.md'])
+/** 以前的白板写法（列、卡的排版在注释里）：导图白板、撤回了转写法的白板还用它 */
+const BOARD = OLD_BOARDS['旧样本.md']!
 
 describe('白板读写：不改就一个字节都不变', () => {
   for (const [name, bytes] of Object.entries(FIXTURES)) {

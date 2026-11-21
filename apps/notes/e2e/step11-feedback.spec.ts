@@ -5,7 +5,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { launch, pane, waitSaved, gitAct } from './app'
 
-const board = (page: Page) => pane(page).getByTestId('board')
+// 白板看法：2026-11-21 起 type: board 也是 doc-board；记在旧写法名单里的还是以前的自由白板（board）
+const board = (page: Page) => pane(page).locator('[data-testid="board"], [data-testid="doc-board"]').first()
 const read = (vault: string, f: string) => readFileSync(join(vault, f), 'utf8')
 
 const TODO_BOARD = `---
@@ -32,8 +33,8 @@ async function dragBy(page: Page, from: { x: number; y: number }, dx: number, dy
   await page.mouse.up()
 }
 
-test('待办：双击是一条条输入框，回车加一条、退格删空的一条，点别处存；不露 md 原文', async () => {
-  const run = await launch({ '计划.md': TODO_BOARD })
+test('以前写法的白板（旧写法名单里的）待办：双击是一条条输入框，回车加一条、退格删空的一条，点别处存；不露 md 原文', async () => {
+  const run = await launch({ '计划.md': TODO_BOARD, '.canvas-notes/白板旧写法.json': JSON.stringify({ 版本: 1, 白板: ['计划.md'] }) })
   const { page, vault } = run
   try {
     await openBoard(page, '计划')
@@ -80,29 +81,34 @@ test('待办：双击是一条条输入框，回车加一条、退格删空的�
   }
 })
 
-test('整页剪藏从「未整理」拖上白板：是一张标题加摘要的卡片，那篇挪进剪藏，双击打开全文', async () => {
+test('整页剪藏从收件箱一格拖上白板：是一张标题加摘要的卡片，那篇挪进剪藏，双击打开全文', async () => {
   const long = Array.from({ length: 30 }, (_, i) => `第 ${i + 1} 段，[链接](https://zh.wikipedia.org/wiki/%E5%86%B0 "冰") ![图](https://x.org/a.jpg)`).join('\n\n')
   const run = await launch({ '冰岛.md': '---\ntype: board\n---\n' })
   const { page, vault } = run
   mkdirSync(join(vault, '收件箱'))
-  writeFileSync(join(vault, '收件箱', '雷克雅未克.md'), `---\ncreated: 2026-11-15 17:04\nsource: https://zh.wikipedia.org/wiki/R\n---\n# 雷克雅未克\n\n—— [雷克雅未克](https://zh.wikipedia.org/wiki/R)\n\n冰岛首都和最大城市。\n\n${long}\n`)
+  writeFileSync(join(vault, '收件箱', '雷克雅未克.md'), `---\ncreated: 2026-11-15 17:04\nsource: https://zh.wikipedia.org/wiki/R\n---\n# 雷克雅未克\n\n—— [雷克雅未克](https://zh.wikipedia.org/wiki/R)\n\n冰岛首都和最大城市。\n\n![港口](../附件/收件箱/雷克雅未克/港口.png)\n\n${long}\n`)
+  // 剪藏时存下的图（第 8 轮起整页剪藏把图存进这篇的附件文件夹）
+  mkdirSync(join(vault, '附件/收件箱/雷克雅未克'), { recursive: true })
+  writeFileSync(join(vault, '附件/收件箱/雷克雅未克/港口.png'), 'png')
   try {
     await openBoard(page, '冰岛')
-    await board(page).getByTestId('unsorted').click()
-    const mini = board(page).locator('.mini', { hasText: '雷克雅未克' })
+    const mini = board(page).getByRole('complementary', { name: '收件箱' }).getByRole('listitem').filter({ hasText: '雷克雅未克' })
     const m = (await mini.boundingBox())!
-    const bb = (await board(page).boundingBox())!
+    const bb = (await board(page).locator('.board-wrap').boundingBox())!
     await dragBy(page, { x: m.x + 20, y: m.y + 10 }, bb.x + 300 - m.x, bb.y + 200 - m.y)
-    const card = board(page).locator('.bcard.k-doc')
+    const card = board(page).locator('.db-card[data-face="clipnote"]')
     await expect(card).toHaveCount(1)
-    await expect(card.locator('b')).toHaveText('雷克雅未克')
+    await expect(card).toContainText('雷克雅未克')
     await expect(card).toContainText('冰岛首都和最大城市')
     await expect(card).toContainText('zh.wikipedia.org')
     await expect(card).not.toContainText('](')
     await expect.poll(() => existsSync(join(vault, '收件箱', '雷克雅未克.md'))).toBe(false)
     expect(existsSync(join(vault, '剪藏', '冰岛', '雷克雅未克.md'))).toBe(true)
+    // 是挪过去的：附件文件夹跟着挪，图的相对链接跟着改
+    await expect.poll(() => existsSync(join(vault, '附件/剪藏/冰岛/雷克雅未克/港口.png'))).toBe(true)
+    expect(readFileSync(join(vault, '剪藏', '冰岛', '雷克雅未克.md'), 'utf8')).toContain('![港口](../../附件/剪藏/冰岛/雷克雅未克/港口.png)')
     await waitSaved(page)
-    expect(read(vault, '冰岛.md')).toMatch(/<!-- card id=\w+ x=\d+ y=\d+ w=280 -->\n\[\[雷克雅未克\]\]\n/)
+    expect(read(vault, '冰岛.md')).toMatch(/<!-- card id=\w+ x=\d+ y=\d+ -->\n!\[\[雷克雅未克\]\]\n/)
     await card.dblclick()
     await expect(page.getByRole('tab', { name: /雷克雅未克/ })).toHaveAttribute('aria-selected', 'true')
   } finally {
@@ -254,7 +260,7 @@ test('整页剪藏维基百科这类网页：信息框、[编辑]、脚注 [1]�
     await expect
       .poll(() => page.evaluate(() => (document.querySelector('webview') as unknown as { executeJavaScript(c: string): Promise<string> }).executeJavaScript('document.readyState + location.pathname')))
       .toBe('complete/wiki/R')
-    const p = await page.evaluate((u) => window.cn.clipCurrentPage({ webUrl: u }), url)
+    const p = (await page.evaluate((u) => window.cn.clipCurrentPage({ webUrl: u }), url)).path
     expect(readdirSync(join(vault, '收件箱'))).toHaveLength(1)
     const md = read(vault, p as string)
     expect(md).toContain('第 1 段：雷克雅未克是冰岛首都')

@@ -3,7 +3,7 @@ import { Codicon, type CodiconName } from '@cn/design'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Clip, DreamItem, DreamReport, GitState, NoteFile, StrandedNote, VaultInfo } from '../shared/api'
 import { CLIPS, clipMarkdown, INBOX, titleOf } from '../shared/layout'
-import { AiDock, type AiView } from './AiDock'
+import { AiDock, NotesDock } from './AiDock'
 import { EngineLogo, useChatEngine } from './engine-logo'
 import { contextOf, useAiBridge } from './ai-bridge'
 import { DreamPanel } from './dream/DreamPanel'
@@ -11,6 +11,8 @@ import { PreviewOverlay, useDreamPreview } from './dream/preview'
 import { expectDreamChange } from './dream/own-change'
 import { dreamPaths, pendingOf, useDream } from './dream/useDream'
 import { ActivityBar, type BarItem, MenuItem, Popover, TitleBar, Tooltips } from './shell/Shell'
+import { DockFrame, gridTracks, startCenterColDrag } from './shell/Dock'
+import * as Dk from '../shared/dock'
 import { StatusBar } from './shell/StatusBar'
 import { BellItem, logNotice, TranslateItem } from './shell/StatusExtras'
 import { OutlineView } from './shell/OutlineView'
@@ -48,13 +50,16 @@ import { CATEGORY_NAMES, groupLeft } from '../shared/categories'
 import { FolderGlyph, LookPicker } from './files/look'
 import { dropLeft, moveLeft, putLeft, takeLeft } from '../shared/left'
 import { usePluginCommands, usePluginEntries } from './plugins'
+import { loadCmds, matchAppKey, matchCombo, noteUsed, setRegistry, useCmds } from './search/cmd-store'
+import { comboOf } from '../shared/cmd-keys'
+import type { OwnCommand } from '../shared/commands'
 import { setActiveFile } from './plugins/host'
 import { Settings, type SettingsPage } from './Settings'
 import { homeWinBg, useAppSettings } from './theme'
 import { fixedFolder } from '../shared/files'
-import { CENTER_MIN, fitPanels, loadSideW, RIGHT_DEFAULT, RIGHT_MIN, SIDE_DEFAULT, SideSash } from './shell/SideSash'
+import { fitPanels, loadSideW, RIGHT_MIN, SIDE_DEFAULT, SideSash } from './shell/SideSash'
 import { loadTabs, newId, retargetTabs, saveTabs, type Tab, tabsOutside } from './tabs'
-import { type ClipMode, hostOf, WebPanel } from './WebPanel'
+import { CLIP_PAGE_EVENT, type ClipMode, hostOf, WebPanel } from './WebPanel'
 import { WebTab } from './web/WebTab'
 import { CaptureHost } from './mindmap/CaptureSheet'
 import { openCapture } from './mindmap/capture-store'
@@ -77,12 +82,8 @@ import { VIDEO_FOLDER, videoOf } from '../shared/video'
 // 四条栏的骨架最后加载，盖过各组件自己的旧摆法
 import './shell/shell.css'
 
-type Right = 'web' | 'history' | 'outline' | null
-/** 当前栏（CN-98 方向 A）：左栏、中间、右栏上格、右栏下格（AI 那一格：AI 或读 PDF 的笔记，上格没开时占整栏） */
-type Pane = 'left' | 'center' | 'rt' | 'rb'
-/** AI 那一格：'1' 开着、'0' 收着、'notes' 收着时点竖条「笔记」只开了笔记 */
-type AiCell = '0' | '1' | 'notes'
-const RIGHT_NAME: Record<Exclude<Right, null>, string> = { web: '网页', history: '历史', outline: '大纲' }
+/** 当前栏（CN-98 方向 A）：左栏、中间，或右边的一组标签（工作区里一组、一个浮窗的 id） */
+type Pane = string
 
 /**
  * 点了哪、焦点到了哪是哪一栏：按窗口里那一块（.win 的直接子元素）认，不靠 document.activeElement
@@ -91,12 +92,13 @@ const RIGHT_NAME: Record<Exclude<Right, null>, string> = { web: '网页', histor
 function paneOf(target: EventTarget | null): Pane | null {
   const el = target instanceof Element ? target : null
   if (!el) return null
+  // 右边的一组（组头、浮窗，摆在组上的内容 .dview 记着它在哪一组）
+  const g = el.closest('[data-group]')
+  if (g) return g.getAttribute('data-group')
   const top = el.closest('.win > *')
   if (!top) return null
   if (top.matches('.side')) return 'left'
   if (top.matches('main.center')) return 'center'
-  if (top.matches('.right.aicell')) return 'rb'
-  if (top.matches('aside.right')) return 'rt'
   return null
 }
 
@@ -155,39 +157,52 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const t = loadTabs(vault.path)
     // 打开时整理了顶级分类（素材/ → 剪藏/、素材/微信读书/ → 阅读/）：上次开着的标签换成新路径
     for (const m of vault.organized ?? []) t.tabs = retargetTabs(t.tabs, m.from, m.to)
+    // 整理了「一个 PDF 一篇笔记」：改名的、合进去的换成新路径，删掉的「我的疑惑.md」关掉
+    for (const m of vault.tidied?.moves ?? []) t.tabs = m.to ? retargetTabs(t.tabs, m.from, m.to) : t.tabs.filter((x) => !('path' in x && x.path === m.from))
+    if (!t.tabs.some((x) => x.id === t.active)) t.active = t.tabs[t.tabs.length - 1]?.id ?? null
     if (t.tabs.length) return t
     const home: Tab = { id: newId(), type: 'home' }
     return { tabs: [home], active: home.id }
   })
   /**
-   * AI 那一格开着没有（D 组方向 A「只住右栏」）：AI 永远是右栏的一格，⌘J、右下角圆钮（A 是底栏最右一项）开关，记在本机（cn.aiOpen）。
-   * 打开 PDF 不再自己把它打开；框一块、点工具条、右键「问 AI」、AI 命令才打开。
-   * 'notes'：收着时点竖条「笔记」，只开了笔记（右图标栏方向 A）：换到不是 PDF 的页这一格收起，回到 PDF 又是笔记；一换成 AI 就是 '1'
+   * 工作区布局（2026-11-20 方向 A「拖到哪就在哪」，shared/dock.ts、shell/Dock.tsx）：右栏里网页、笔记、AI、大纲、历史都是标签，
+   * 开着哪几样、在哪一栏哪一组、浮窗在哪都记在本机（cn.dock，一台机器一套）；以前的 cn.aiOpen、cn.rightW 第一次读的时候换成它。
+   * 打开 PDF 不自己开 AI；框一块、点工具条、右键「问 AI」、AI 命令才开
    */
-  const [aiCell, setAiCellState] = useState<AiCell>(() => {
+  const [dock, setDockState] = useState<Dk.Dock>(() => {
     try {
-      const v = localStorage.getItem('cn.aiOpen')
-      return v === '1' || v === 'notes' ? v : '0'
+      return Dk.loadDock(localStorage.getItem('cn.dock'), { aiOpen: localStorage.getItem('cn.aiOpen'), rightW: localStorage.getItem('cn.rightW') })
     } catch {
-      return '0'
+      return Dk.emptyDock()
     }
   })
-  const setAiCell = (v: AiCell) => {
-    setAiCellState(v)
+  /** 最新的布局（同一下里连着改几次时按最新的改） */
+  const dockNow = useRef(dock)
+  const setDock = (f: Dk.Dock | ((d: Dk.Dock) => Dk.Dock)) => {
+    const next = typeof f === 'function' ? f(dockNow.current) : f
+    if (next === dockNow.current) return
+    dockNow.current = next
+    setDockState(next)
+  }
+  useEffect(() => {
     try {
-      localStorage.setItem('cn.aiOpen', v)
+      localStorage.setItem('cn.dock', JSON.stringify(dock))
     } catch {
-      // 记不住不影响使用
+      // 记不住只影响下次打开
     }
+  }, [dock])
+  /** 开一个标签（开着在后面就换到它）；cur：它那一组成了当前栏 */
+  const openView = (v: Dk.ViewId, cur = true) => {
+    setDock((d) => Dk.openView(d, v))
+    const f = Dk.findView(dockNow.current, v)
+    if (cur && f) setPane(f.group.id)
   }
-  const setAiOpen = (v: boolean) => setAiCell(v ? '1' : '0')
-  /** 读 PDF / HTML 时这一格显示 AI 还是笔记（竖条「笔记」切换，再点回到点之前的样子） */
-  const [aiView, setAiView] = useState<AiView>(() => (aiCell === 'notes' ? 'notes' : 'ai'))
-  /** 打开 AI 那一格、显示 AI（不是笔记） */
-  const openAi = () => {
-    setAiView('ai')
-    setAiOpen(true)
-  }
+  const closeView = (v: Dk.ViewId) => setDock((d) => Dk.closeView(d, v))
+  /**
+   * 打开 AI 标签。当前栏不换（同以前的右栏下格）：在 PDF 上框一块问、文档里选字问 AI 时 AI 顺手开出来，⌘W 关的还是刚才在看的那页；
+   * 焦点进了 AI 的输入框（⌘J、右下角圆钮）才算 AI 那一组
+   */
+  const openAi = () => openView('ai', false)
   /** 库里的 PDF（⌘K 里能搜到、能打开） */
   const [pdfs, setPdfs] = useState<PdfFile[]>([])
   /** 有首页的文件夹：左栏「文件夹」、标签图标 */
@@ -229,8 +244,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   useEffect(() => {
     void loadLeft()
     void loadDescs()
-    return window.cn.onFilesChanged(() => (void loadLeft(), void loadDescs()))
+    void loadCmds()
+    return window.cn.onFilesChanged(() => (void loadLeft(), void loadDescs(), void loadCmds()))
   }, [])
+  /** ⌘K 的自定义（.canvas-notes/命令.json）：自己加的命令、改过的快捷键 */
+  const cmdCfg = useCmds()
   // 摘出来的那一格被拿下来了：左栏回到「文件」
   const shownView: SideView = leftView.startsWith('dir:') && !leftCfg.left.includes(leftView.slice(4)) ? 'files' : leftView
   const openLeft = (v: SideView) => {
@@ -270,6 +288,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   /** 方向 A：设置开成中间的一个标签，这个标签在前面时为 true */
   const [settingsFront, setSettingsFront] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  /** 打开库时整理了一次「一个 PDF 一篇笔记」：底栏左边一句，带「撤回」，关掉之前一直在 */
+  const [tidy, setTidy] = useState(vault.tidied ?? null)
+  useEffect(() => {
+    if (vault.tidyError) setNotice(`整理「我的疑惑」和笔记没成功：${vault.tidyError}`)
+  }, [])
   /** 提示后面带的「撤回」：只跟着那一句（别处换了提示就不显示） */
   /** noKey：⌘Z 不当成点「撤回」（关标签、收起一格的撤回：⌘Z 留给文档里撤字） */
   const [noticeUndo, setNoticeUndo] = useState<{ text: string; run(): void; noKey?: boolean } | null>(null)
@@ -297,12 +320,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const text = errText(e)
     setNotice(text)
     setNoticeUndo(null)
-    setNoticeAct({ text, label: '在历史里看', icon: 'history', run: () => setRight('history') })
+    setNoticeAct({ text, label: '在历史里看', icon: 'history', run: () => openView('history') })
   }
   /** ⌘J、右键「问 AI」带进 AI 输入框的那一段（成为第一块引用，src 是来源「《文档标题》」） */
   const [aiDraft, setAiDraft] = useState<{ text: string; src: string; seq: number } | null>(null)
-  const [right, setRight] = useState<Right>(null)
-  const historyOpen = right === 'history'
+  /** 历史开着（在哪一组、在不在前面都算）：挂上历史面板 */
+  const historyOpen = Dk.isOpen(dock, 'history')
   /** 当前栏（CN-98）：点哪一栏、焦点到哪一栏就是它；⌘W 关的是它里面的东西 */
   const [pane, setPaneState] = useState<Pane>('center')
   const paneNow = useRef<Pane>('center')
@@ -330,18 +353,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     window.addEventListener('blur', onBlur)
     return () => (clearTimeout(t), window.removeEventListener('pointerdown', on, true), window.removeEventListener('focusin', on, true), window.removeEventListener('blur', onBlur))
   }, [])
-  /** 竖条上点开一格：它就是当前栏（再点是收起） */
-  const toggleRight = (r: Exclude<Right, null>) => {
-    if (right !== r) setPane('rt')
-    setRight((v) => (v === r ? null : r))
+  /** 竖条上点一格：看得见再点是收起，开着在后面是换到它，没开是开；开了的那一组成了当前栏 */
+  const toggleView = (v: Dk.ViewId) => {
+    setDock((d) => Dk.toggleView(d, v))
+    const f = Dk.findView(dockNow.current, v)
+    if (f) setPane(f.group.id)
   }
-  const lastRight = useRef<Exclude<Right, null>>('outline')
-  /** 标题栏按钮、⌥⌘\ 收起右栏时开着的（上格和 AI 那一格）：再按一下照原样开回来 */
-  const rightShut = useRef<{ right: Right; ai: AiCell | null } | null>(null)
+  /** 上次开的右栏那一样：标题栏最右开回来时什么都没开过就开它（没有就开大纲） */
+  const lastRight = useRef<Dk.ViewId>('outline')
   const toggleRightRef = useRef<() => void>(() => undefined)
-  useEffect(() => {
-    if (right) lastRight.current = right
-  }, [right])
   /** 每个标签记住自己开着的网页 */
   const [webUrl, setWebUrl] = useState<Record<string, string>>({})
   const [activeMode, setActiveMode] = useState<ViewMode>('doc')
@@ -355,13 +375,29 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const [webOpen, setWebOpen] = useState<{ url: string; seq: number; reuse?: string } | null>(null)
   const openInWeb = (url: string, reuse?: string) => {
     setWebOpen((r) => ({ url, seq: (r?.seq ?? 0) + 1, ...(reuse ? { reuse } : {}) }))
-    setRight('web')
+    openView('web')
+  }
+  /**
+   * AI 开网页（web_open，右栏还没开网页）：AI 看得见时网页开在 AI 那一组的后面，AI 不被换下去，用户点「网页」看、想两样一起看自己拖开
+   * （2026-11-20 用户「右栏别硬切两截」「只开 AI 时占满整栏，保留」）；AI 没露出来时照常开在前面
+   */
+  const openWebForAi = (url: string) => {
+    if (!Dk.isShown(dockNow.current, 'ai')) return openInWeb(url)
+    const had = Dk.isOpen(dockNow.current, 'web')
+    setWebOpen((r) => ({ url, seq: (r?.seq ?? 0) + 1 }))
+    setDock((d) => Dk.addBehind(d, 'web', 'ai'))
+    if (had) return
+    // 网页开在 AI 后面：底栏说一句，带「看网页」（同「记进笔记」那句的「在笔记里看」）
+    const text = `AI在「网页」标签里打开了${new URL(url).host}`
+    setNotice(text)
+    setNoticeUndo(null)
+    setNoticeAct({ text, label: '看网页', icon: 'globe', run: () => openView('web') })
   }
   /** 右栏现在显示的 http(s) 网页（标题栏「移到中间」看它），和右栏把它挪到中间的那一步 */
   const [rightWeb, setRightWeb] = useState<string | null>(null)
   const moveWebToCenter = useRef<(() => void) | null>(null)
   /** 插件在右竖条的格子（微信读书）：网页下面 */
-  const pluginEntries = usePluginEntries({ webOpen: right === 'web', url: rightWeb }, { open: (u, reuse) => openInWeb(u, reuse), close: () => setRight(null) })
+  const pluginEntries = usePluginEntries({ webOpen: Dk.isShown(dock, 'web'), url: rightWeb }, { open: (u, reuse) => openInWeb(u, reuse), close: () => closeView('web') })
   // ---------- 检查更新 ----------
   const update = useUpdateState()
   useEffect(() => window.cn.onUpdateOpen(() => openSettings('update')), [])
@@ -389,14 +425,6 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
 
   /** 让 AI 一打开就跑的命令（首页「让 AI 分一分」、⌘K 里的 AI 命令） */
   const [aiAuto, setAiAuto] = useState<{ text: string; seq: number } | null>(null)
-  /** 右栏宽度，能拖；记在本机（只记用户拖过的）。默认 380：AI、读 PDF 的小样都按 380 画，340 时引擎名、快捷键提示、旁支头被挤掉 */
-  const [rightW, setRightW] = useState(() => {
-    try {
-      return Number(localStorage.getItem('cn.rightW')) || RIGHT_DEFAULT
-    } catch {
-      return RIGHT_DEFAULT
-    }
-  })
   /** 窗口宽度：窗口变窄时左右栏跟着让（fitPanels），中间正在写的不被挤没 */
   const [winW, setWinW] = useState(window.innerWidth)
   useEffect(() => {
@@ -1012,24 +1040,47 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const readingDoc = activeTab?.type === 'pdf' || (activeTab?.type === 'html' && !activeTab.dream) ? activeTab.path : null
   /** 右栏网页上框着问、中间栏没开 PDF / HTML 时：右栏下格 AI 的来源是「web:<网址>」，笔记记到中间开着的文档或收件箱 */
   const [webAsk, setWebAsk] = useState<string | null>(null)
-  const readingPdf = readingDoc ?? (right === 'web' ? webAsk : null)
+  // 网页开着（在不在前面都算）：在网页上框着问的那段对话还在 AI 标签里
+  const readingPdf = readingDoc ?? (Dk.isOpen(dock, 'web') ? webAsk : null)
   /** ⌘K「我的疑惑」开哪个文件夹：正在读的 PDF 的，没有就最近打开过的 PDF 的 */
   const lastPdf = readingPdf ?? tabs.flatMap((t) => (t.type === 'pdf' ? [t.path] : [])).pop() ?? null
   const doubtsFolder = lastPdf === null ? null : dirOfPath(lastPdf)
   /** 这一页有边读边记的笔记（PDF、HTML；右栏网页上框着问的没有） */
   const notesOk = !!readingPdf && !Reading.isWebSrc(readingPdf)
-  /** 这一格现在显示笔记（只在读 PDF / HTML 时有笔记）；别的时候都是 AI */
-  const notesView = aiView === 'notes' && notesOk
-  /** 这一格开着、看得见（只开了笔记的，到了没有笔记的页收起） */
-  const aiOpen = aiCell === '1' || (aiCell === 'notes' && notesOk)
-  /** AI 看得见：这一格开着、显示的不是笔记 */
-  const aiShown = aiOpen && !notesView
-  /** 竖条「笔记」、页边标记：这一格换成笔记；收着时只开笔记（'notes'），开着 AI 时还算开着 AI */
-  const openNotes = () => {
-    setAiView('notes')
-    if (!aiOpen) setAiCell('notes')
-  }
+  /** 画出来的工作区：不读 PDF / HTML 时笔记那个标签拿掉（它独占的那栏一起不画），布局里照旧记着，回到 PDF 又在原处 */
+  const dockShown = Dk.shownDock(dock, (v) => v !== 'note' || notesOk)
+  /** 这个标签看得见（开着、是它那一组前面那个） */
+  const vis = (v: Dk.ViewId) => Dk.isShown(dockShown, v)
+  /** AI 标签开着（在别的标签后面也算） */
+  const aiOpen = Dk.isOpen(dockShown, 'ai')
+  /** AI 看得见 */
+  const aiShown = vis('ai')
+  /** 竖条「笔记」、页边标记、「在笔记里看」：开笔记标签（在后面就换到它） */
+  const openNotes = () => openView('note')
   const reading = Reading.useReading(readingPdf)
+  /** 记进了笔记（主对话、旁支答完，原型 proto-a）：底栏说一句记到了哪；笔记标签没露出来时带「在笔记里看」 */
+  const notedRef = useRef<(d: Reading.Noted) => void>(() => undefined)
+  notedRef.current = (d) => {
+    setNotice(d.text)
+    setNoticeUndo(null)
+    if (vis('note') && readingPdf === d.pdf) return setNoticeAct(null)
+    setNoticeAct({
+      text: d.text,
+      label: '在笔记里看',
+      icon: 'note',
+      run: () => {
+        if (readingPdf !== d.pdf) openFile(d.pdf)
+        openNotes()
+        if (d.quote !== undefined) Reading.focusSide(d.pdf, d.thread, d.quote)
+        else Reading.focusSection(d.pdf, d.thread)
+      },
+    })
+  }
+  useEffect(() => {
+    const on = (e: Event) => notedRef.current((e as CustomEvent<Reading.Noted>).detail)
+    window.addEventListener(Reading.NOTED, on)
+    return () => window.removeEventListener(Reading.NOTED, on)
+  }, [])
   /** 视频框一块问正在答的（底栏「AI 在记笔记 · 未命名 3」，CN-84） */
   const askJobs = useAskJobs()
   const askInRightRef = useRef<(from?: AskFrom) => void>(() => undefined)
@@ -1057,11 +1108,20 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       return true
     }
     const onKey = (e: KeyboardEvent) => {
+      // ⌘K 里给命令设的快捷键（在哪都能按）：先看这个键归谁；⌘N 这些换给了别的命令就不再走原来那条路
+      if (!e.defaultPrevented && !e.isComposing) {
+        const own = matchCombo(comboOf(e))
+        if (own === 'skip') return
+        if (own) {
+          e.preventDefault()
+          return runByIdRef.current(own)
+        }
+      }
       // ⌥ 按着时 e.key 不是「\」（是「«」之类），认按键的位置
       if (e.metaKey && e.altKey && !e.ctrlKey && e.code === 'Backslash') (e.preventDefault(), run('alt+\\'))
       else if (e.metaKey && !e.altKey && !e.ctrlKey && run(e.key)) e.preventDefault()
       // ⌥⌘O：右栏打开大纲（文档右边目录浮层的头一行，CN-26）
-      else if (e.metaKey && e.altKey && !e.ctrlKey && e.code === 'KeyO') (e.preventDefault(), setRight('outline'))
+      else if (e.metaKey && e.altKey && !e.ctrlKey && e.code === 'KeyO') (e.preventDefault(), openView('outline'))
       // F2：改当前笔记的名字（焦点在输入框里时不抢；在目录树里是改树上选着的那一行）
       else if (e.key === 'F2' && activeTab && canRenameTab(activeTab) && !(e.target as HTMLElement).closest?.('input, textarea, [role=tree]')) {
         e.preventDefault()
@@ -1069,12 +1129,26 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       }
     }
     window.addEventListener('keydown', onKey)
-    const offApp = window.cn.onAppKey((k) => void run(k))
+    // 网页有焦点时主进程转来的键：自己设的（combo:⌥⌘S）、换过的（⌘N 给了别的命令）先认
+    const offApp = window.cn.onAppKey((k) => {
+      const own = matchAppKey(k)
+      if (own === 'skip') return
+      if (own) return runByIdRef.current(own)
+      void run(k)
+    })
     return () => {
       window.removeEventListener('keydown', onKey)
       offApp()
     }
-  }, [newNote, active, activeTab, right, aiOpen, aiShown, readingPdf, settingsPage, settingsFront, settings.appearance.frame])
+  }, [newNote, active, activeTab, dock, aiOpen, aiShown, readingPdf, settingsPage, settingsFront, settings.appearance.frame])
+
+  /** ⌘K「剪藏这一页」：右栏换到网页标签（工作区方向 A：开着在后面就换到它），交给网页面板剪（WebPanel 的 CLIP_PAGE_EVENT） */
+  function clipThisPage() {
+    openView('web')
+    requestAnimationFrame(() => {
+      if (window.dispatchEvent(new Event(CLIP_PAGE_EVENT, { cancelable: true }))) setNotice('右栏没有开着的网页')
+    })
+  }
 
   function runAi(text: string) {
     openAi()
@@ -1282,40 +1356,83 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   }
 
   const pluginCommands = usePluginCommands()
+  // ⌘K 的命令（DESIGN.v3 3.1）：id 是记在 .canvas-notes/命令.json 里的身份，home 是没改过时在哪一组（钉住的三条写的是取消钉住回到哪）
   const commands: PaletteCommand[] = [
-    { name: '新建笔记', icon: 'new-file', keys: '⌘N', run: () => void newNote() },
-    { name: '新建白板', icon: 'layout', run: () => void newBoard() },
-    { name: '按名字跳到…', hint: '库里的笔记、PDF、HTML', icon: 'go-to-file', keys: '⌘O', run: () => setQuickOpen(true) },
-    { name: '拍一张导图', hint: '拍手写的导图，认成白板导图', icon: 'device-camera', keys: '⇧⌘C', run: () => openCapture() },
-    { name: '打开收件箱', icon: 'inbox', run: () => openInbox() },
-    { name: '最近', hint: '按时间看全部笔记，能筛选', icon: 'clockface', run: () => openRecent() },
-    { name: '归档', hint: '很久没改过的，左栏不显示', icon: 'archive', run: () => openArchive() },
-    { name: '回到首页', icon: 'home', run: () => openHome() },
-    { name: '打开网页', hint: '右栏', icon: 'globe', run: () => setRight('web') },
-    { name: '打开梦游报告', hint: '左栏', icon: 'wand', run: () => openLeft('dream') },
-    { name: '换主题…', hint: '设置 · 外观', icon: 'symbol-color', run: () => openSettings('look') },
-    { name: '编辑首页', icon: 'home', run: () => (openHome(), setHomeEditSeq((n) => n + 1)) },
-    ...folders.map((f) => ({ name: `${f.folder.split('/').pop()} 首页`, hint: f.folder, icon: 'folder' as const, run: () => openFolder(f.folder) })),
-    { name: '新建一门课', hint: '课程/新的课程，首页用课程模板', icon: 'folder', run: () => void newCourse() },
-    { name: '导入旧笔记…', hint: '备忘录或Markdown文件夹，先进收件箱', icon: 'root-folder', run: () => openImport() },
-    { name: '设置', icon: 'settings-gear', keys: '⌘,', run: () => openSettings('look') },
-    { name: '看历史', hint: '每次提交改了哪些文件', icon: 'history', run: () => setRight('history') },
-    { name: '现在提交', icon: 'git-commit', run: () => void commit() },
-    { name: '同步', icon: 'refresh', run: () => void sync() },
-    { name: '问AI', icon: 'comment-discussion', ai: 'chat', keys: '⌘J', run: () => openAi() },
-    ...(doubtsFolder !== null ? [{ name: '我的疑惑', hint: doubtsFolder || '库的根目录', icon: 'question' as const, run: () => openDoubts(doubtsFolder) }] : []),
-    // 交给 AI 跑的画跑它的那一家的标志（偏好「AI 图标用引擎标志」）；找重复是本机比对、剪藏当前网页不经 AI，用它们自己的图标
+    { id: 'new-note', home: 'new', name: '新建笔记', icon: 'new-file', keys: '⌘N', run: () => void newNote() },
+    { id: 'new-board', home: 'new', name: '新建白板', icon: 'layout', run: () => void newBoard() },
+    { id: 'goto', home: 'go', name: '按名字跳到…', hint: '库里的笔记、PDF、HTML', icon: 'go-to-file', keys: '⌘O', run: () => setQuickOpen(true) },
+    { id: 'capture', home: 'new', name: '拍一张导图', hint: '拍手写的导图，认成白板', icon: 'device-camera', keys: '⇧⌘C', run: () => openCapture() },
+    { id: 'inbox', home: 'go', name: '打开收件箱', icon: 'inbox', run: () => openInbox() },
+    { id: 'recent', home: 'go', name: '最近', hint: '按时间看全部笔记', icon: 'clockface', run: () => openRecent() },
+    { id: 'archive', home: 'go', name: '归档', hint: '很久没改过的', icon: 'archive', run: () => openArchive() },
+    { id: 'home', home: 'go', name: '回到首页', icon: 'home', keys: '⇧⌘H', run: () => openHome() },
+    { id: 'open-web', home: 'go', name: '打开网页', hint: '右栏', icon: 'globe', keys: '⌥⌘W', run: () => openView('web') },
+    { id: 'dream-report', home: 'go', name: '打开梦游报告', hint: '左栏', icon: 'wand', run: () => openLeft('dream') },
+    { id: 'theme', home: 'app', name: '换主题…', hint: '设置 · 外观', icon: 'symbol-color', run: () => openSettings('look') },
+    { id: 'edit-home', home: 'app', name: '编辑首页', icon: 'home', run: () => (openHome(), setHomeEditSeq((n) => n + 1)) },
+    // 文件夹首页一个个的：⌘K 没打字时收成一行「文件夹首页 › N 个」
+    ...folders.map((f) => ({ id: `folder:${f.folder}`, folder: f.folder, name: `${f.folder.split('/').pop()} 首页`, hint: f.folder, icon: 'folder' as const, run: () => openFolder(f.folder) })),
+    { id: 'new-course', home: 'new', name: '新建一门课', hint: '课程/新的课程，首页用课程模板', icon: 'folder-library', run: () => void newCourse() },
+    { id: 'import', home: 'new', name: '导入旧笔记…', hint: '备忘录或Markdown文件夹', icon: 'root-folder', run: () => openImport() },
+    { id: 'settings', home: 'app', name: '设置', icon: 'settings-gear', keys: '⌘,', run: () => openSettings('look') },
+    { id: 'history', home: 'lib', name: '看历史', hint: '每次提交改了哪些文件', icon: 'history', run: () => openView('history') },
+    { id: 'commit', home: 'lib', name: '现在提交', icon: 'git-commit', run: () => void commit() },
+    { id: 'sync', home: 'lib', name: '同步', hint: '推到远程仓库', icon: 'sync', run: () => void sync() },
+    { id: 'ask-ai', home: 'ai', name: '问AI', icon: 'comment-discussion', ai: 'chat', keys: '⌘J', run: () => openAi() },
+    ...(doubtsFolder !== null ? [{ id: 'doubts', home: 'go', name: '我的疑惑', hint: doubtsFolder || '库的根目录', icon: 'question' as const, run: () => openDoubts(doubtsFolder) }] : []),
+    // 交给 AI 跑的画跑它的那一家的标志（偏好「AI 图标用引擎标志」）；找重复是本机比对、剪藏这一页不经 AI，用它们自己的图标
     // 提示字写做什么（标志已经说了是 AI）
-    { name: '整理收件箱', hint: '按主题分进剪藏，你点同意才挪', icon: 'inbox', ai: 'chat', run: () => runAi('/整理收件箱') },
-    { name: '总结这块白板', hint: '写成几句话', icon: 'layout', ai: 'chat', run: () => runAi('/总结这块白板') },
-    { name: '写成文章', hint: '按白板写一篇草稿', icon: 'edit', ai: 'chat', run: () => runAi('/写成文章') },
-    { name: '找重复', hint: '库里内容差不多的', icon: 'files', run: () => runAi('/找重复') },
-    { name: '剪藏当前网页', hint: '整页进收件箱', icon: 'quote', run: () => runAi('/剪藏当前网页') },
-    { name: '现在梦游', hint: '不等夜里，现在整理一遍', icon: 'wand', ai: 'dream', run: () => runAi('/现在梦游') },
-    ...(update && update.phase !== 'off' ? [{ name: '检查更新', hint: '设置 · 更新', icon: 'arrow-circle-up' as const, run: () => (openSettings('update'), void window.cn.checkUpdate()) }] : []),
+    { id: 'tidy-inbox', home: 'ai', name: '整理收件箱', hint: '按主题分进剪藏，你点同意才挪', icon: 'inbox', ai: 'chat', run: () => runAi('/整理收件箱') },
+    { id: 'sum-board', home: 'ai', name: '总结这块白板', hint: '写成几句话', icon: 'layout', ai: 'chat', run: () => runAi('/总结这块白板') },
+    { id: 'article', home: 'ai', name: '写成文章', hint: '按白板写一篇草稿', icon: 'edit', ai: 'chat', run: () => runAi('/写成文章') },
+    { id: 'dup', home: 'lib', name: '找重复', hint: '库里内容差不多的', icon: 'files', run: () => runAi('/找重复') },
+    // 和网页「⋯」第一项、地址栏旁的引号按钮同一件事、同一个名字：右栏开着网页、剪下来底部提示带「打开」
+    { id: 'clip-page', home: 'web', name: '剪藏这一页', hint: '右栏的网页整页进收件箱', icon: 'quote', run: () => clipThisPage() },
+    { id: 'dream-now', home: 'ai', name: '现在梦游', hint: '不等夜里，现在整理一遍', icon: 'wand', ai: 'dream', run: () => runAi('/现在梦游') },
+    ...(update && update.phase !== 'off' ? [{ id: 'update', home: 'app', name: '检查更新', icon: 'arrow-circle-up' as const, run: () => (openSettings('update'), void window.cn.checkUpdate()) }] : []),
+    ...(update?.phase === 'ready' ? [{ id: 'restart-update', home: 'app', name: '重启更新', hint: `新版本${update.version}已下好`, icon: 'arrow-circle-up' as const, run: () => void installUpdate() }] : []),
     ...pluginCommands,
+    // 自己加的（.canvas-notes/命令.json）
+    ...cmdCfg.own.map(ownCommand),
   ]
-  if (update?.phase === 'ready') commands.unshift({ name: '重启更新', hint: `新版本${update.version}已下好`, icon: 'arrow-circle-up', run: () => void installUpdate() })
+  /** 现在的命令（快捷键按下时找它跑） */
+  const commandsRef = useRef(commands)
+  commandsRef.current = commands
+  // 每次画完把现在有的命令交给快捷键那一份（哪个键归谁、网页有焦点时要转回来哪几个）
+  useEffect(() => {
+    setRegistry(commandsRef.current.map((c) => ({ id: c.id ?? c.name, name: c.name, keys: c.keys, fixedKeys: c.fixedKeys })))
+  })
+  /** 快捷键跑一条命令（⌘K 里设的、换过的） */
+  function runById(id: string) {
+    const c = commandsRef.current.find((x) => (x.id ?? x.name) === id)
+    if (!c) return
+    noteUsed(id)
+    setPaletteOpen(false)
+    c.run()
+  }
+  const runByIdRef = useRef(runById)
+  runByIdRef.current = runById
+
+  /** 自己加的命令：打开库里一处（文件夹开首页）、右栏打开网址；kind 是 ai 的交给 AI 对话（以后「存成自己的 AI 命令」） */
+  function ownCommand(o: OwnCommand): PaletteCommand {
+    return {
+      id: o.id,
+      own: o,
+      name: o.name,
+      hint: o.kind === 'url' ? o.target.replace(/^https?:\/\/(www\.)?/, '') : o.target.slice(0, 26),
+      icon: o.kind === 'url' ? 'globe' : o.kind === 'ai' ? 'comment-discussion' : 'folder-opened',
+      ...(o.kind === 'ai' ? { ai: 'chat' as const } : {}),
+      home: o.kind === 'ai' ? 'ai' : 'go',
+      run: () => {
+        if (o.kind === 'url') return openInWeb(o.target)
+        if (o.kind === 'ai') return runAi(o.target)
+        const f = vaultFiles().find((x) => x.path === o.target)
+        if (!f) return setNotice(`库里没有「${o.target}」了：在 ⌘K 里右键「${o.name}」改一下`)
+        if (f.kind === 'dir') openFolder(o.target)
+        else openFile(o.target)
+      },
+    }
+  }
 
   async function commit() {
     try {
@@ -1397,11 +1514,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     [],
   )
 
-  /** ⌘J、右下角圆钮：AI 看得见就收起；笔记开着就换回 AI；没开就打开 */
+  /** ⌘J、右下角圆钮：AI 看得见就收起这个标签；开着在后面就换到它；没开就打开 */
   function toggleAi() {
-    if (aiShown) return setAiOpen(false)
-    // 右栏开着视频、还没在问它：这一格问的是这个视频（和读 PDF 一样，CN-84）
-    if (!readingPdf && right === 'web' && videoOf((active && webUrl[active]) || '')) return askInRight()
+    if (aiShown) return closeView('ai')
+    // 右栏开着视频、还没在问它：AI 问的是这个视频（和读 PDF 一样，CN-84）
+    if (!readingPdf && Dk.isOpen(dock, 'web') && videoOf((active && webUrl[active]) || '')) return askInRight()
     if (readingPdf) Reading.wantAiFocus()
     openAi()
   }
@@ -1419,7 +1536,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const src = `web:${u}`
     if (!aiShown || webAsk !== src) Reading.wantAiFocus()
     setWebAsk(src)
-    setRight('web')
+    openView('web')
     openAi()
     if (from)
       void Reading.load(src).then(() =>
@@ -1454,9 +1571,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     mode: activeMode,
     doc: activeDoc.current,
     notes,
-    webOpen: right === 'web',
+    webOpen: Dk.isOpen(dockShown, 'web'),
     webUrl: (active && webUrl[active]) || null,
-    openWeb: openInWeb,
+    openWeb: openWebForAi,
     closeUnder: (path: string) =>
       setTabState((s) => {
         const tabs = tabsOutside(s.tabs, path)
@@ -1547,6 +1664,10 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       openFile(path)
       openAi()
     },
+    openWithNote(path) {
+      openFile(path)
+      if (!Dk.isOpen(dockNow.current, 'note')) openNotes()
+    },
     openInWeb,
     openWide,
     closeSettingsDialog: () => !settingsTab && setSettingsPage(null),
@@ -1564,6 +1685,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       setAiDraft((d) => ({ text, src: from, seq: (d?.seq ?? 0) + 1 }))
     },
     notice: (t, icon) => (noticeWithUndo(t), setNoticeIcon(icon ? { text: t, icon } : null)),
+    noticeUndo: (t, run) => (noticeWithUndo(t, run), setNoticeIcon(null)),
     doc: () => (clipMode.mode === 'doc' && activeDoc.current && !activeDoc.current.readOnly ? activeDoc.current : null),
     async clip(c, to) {
       const doc = activeDoc.current
@@ -1657,17 +1779,14 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const closeHereRef = useRef<() => void>(() => undefined)
   closeHereRef.current = () => {
     if (settingsPage && !settingsTab) return setSettingsPage(null)
-    if (livePane === 'rt' && right === 'web') return webClose.current?.()
-    if (livePane === 'rt' && right) {
-      const was = right
-      setRight(null)
-      return noticeClosed(`收起了「${RIGHT_NAME[was]}」`, () => (setRight(was), setPane('rt')))
-    }
-    if (livePane === 'rb' && aiOpen) {
-      const cell = aiCell
-      const view: AiView = notesView ? 'notes' : 'ai'
-      setAiOpen(false)
-      return noticeClosed(`收起了右栏下格「${view === 'ai' ? 'AI' : '笔记'}」`, () => (setAiView(view), setAiCell(cell), setPane('rb')))
+    // 右边的一组（或浮窗）是当前栏：网页关当前网页标签；别的收起这个标签，底栏能撤回（放回原处）
+    const g = Dk.findGroup(dockShown, livePane)
+    if (g) {
+      const v = g.group.active
+      if (v === 'web') return webClose.current?.()
+      const before = dockNow.current
+      closeView(v)
+      return noticeClosed(`收起了「${Dk.VIEW_NAME[v]}」`, () => (setDock(before), setPane(g.group.id)))
     }
     if (settingsTab && settingsFront) {
       setSettingsPage(null)
@@ -1677,35 +1796,64 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   }
   /** 右栏网页：关当前网页标签（WebPanel 交进来） */
   const webClose = useRef<(() => void) | null>(null)
+  /** 最后一个网页标签关掉、网页收起之前的布局：撤回时照原样放回 */
+  const webShut = useRef<Dk.Dock | null>(null)
 
-  /** 标题栏最右的按钮、⌥⌘\：右栏开着就全收起（AI 那一格一起）；关着就开回收起前开着的（没有就开上次那页，再没有开大纲） */
+  /** 标题栏最右的按钮、⌥⌘\：右边开着几栏、浮窗就全收起；收着时照原样开回来；什么都没开过就开上次那一样（没有就开大纲） */
   const toggleRightBar = () => {
-    if (right || aiOpen) {
-      rightShut.current = { right, ai: aiOpen ? aiCell : null }
-      setRight(null)
-      // 只开了笔记、这一页没有笔记（看不见）的不动：回到 PDF 照样是笔记
-      if (aiOpen) setAiOpen(false)
-      return
-    }
-    const s = rightShut.current
-    rightShut.current = null
-    if (s?.ai) setAiCell(s.ai)
-    if (s?.right) setRight(s.right)
-    // 开回来的这一页上什么都看不见（只开了笔记，现在不是 PDF）：开上次那页
-    else if (!(s?.ai === '1' || (s?.ai === 'notes' && notesOk))) setRight(lastRight.current)
+    const d = dockNow.current
+    if (d.hidden || Dk.hasSide(d) || d.floats.length) return setDock(Dk.hideAll(d))
+    openView(lastRight.current)
   }
   toggleRightRef.current = toggleRightBar
-  const rightOpen = right !== null || aiOpen
-  /** 当前栏那一格收起了：上格没了落到下格（AI 那一格），下格没了落到上格，都没了回中间 */
-  const livePane: Pane =
-    pane === 'left' && sidebarHidden ? 'center'
-    : pane === 'rt' && !right ? (aiOpen ? 'rb' : 'center')
-    : pane === 'rb' && !aiOpen ? (right ? 'rt' : 'center')
-    : pane
-  // 两条图标栏，加上 B 的缝：右边总有一道 6（右栏开着在右栏左边，shell.css 右栏那一列是右栏宽 + 缝；关着在中间岛右边），
-  // 左栏收起时中间岛左边也有一道 6（左栏开着时那道缝算在左栏宽里）。不算进去中间就少 6，变成 414
-  const chromeW = 2 * (frame === 'a' ? 48 : 44) + (frame === 'b' ? 6 + (sidebarHidden ? 6 : 0) : 0)
-  const fit = fitPanels(winW, chromeW, sidebarHidden ? 0 : (sideW ?? SIDE_DEFAULT[frame]), rightOpen ? rightW : 0)
+  const rightOpen = Dk.hasSide(dockShown)
+  /** 当前栏那一组收起了：回中间 */
+  const livePane: Pane = pane === 'left' && sidebarHidden ? 'center' : pane !== 'left' && pane !== 'center' && !Dk.findGroup(dockShown, pane) ? 'center' : pane
+  // 两条图标栏，加上 B 的缝：各栏之间一道 6，中间在最右时它和右图标栏之间也一道 6（shell/Dock.tsx 的 gridTracks），
+  // 左栏收起时最左一栏左边也有一道 6（左栏开着时那道缝算在左栏宽里）。不算进去中间就少 6，变成 414
+  const sideCols = Dk.sideCols(dockShown)
+  const onlyCenter = dockShown.cols.length === 1
+  const gaps = frame === 'b' ? 6 * (dockShown.cols.length - 1) + (onlyCenter ? 6 : 0) + (sidebarHidden ? 6 : 0) : 0
+  const chromeW = 2 * (frame === 'a' ? 48 : 44) + gaps
+  const colsW = sideCols.reduce((a, c) => a + c.w, 0)
+  const fit = fitPanels(winW, chromeW, sidebarHidden ? 0 : (sideW ?? SIDE_DEFAULT[frame]), colsW, Math.min(colsW, RIGHT_MIN * sideCols.length))
+  const colWidths = Dk.fitCols(dockShown, fit.right)
+  const centerIdx = dockShown.cols.findIndex(Dk.isCenter)
+  /** 挪过布局：每次打开软件第一次挪时底栏说一句，带「恢复默认」 */
+  const dockSaid = useRef(false)
+  /** 恢复默认：右栏一栏，开着的几样叠成一组，浮窗停回来 */
+  const resetDock = () => {
+    const next = Dk.resetDock(dockNow.current)
+    setDock(next)
+    const names = Dk.openViews(next).map((v) => Dk.VIEW_NAME[v])
+    setNotice(names.length > 1 ? `回到默认：右栏一栏，${names.join('、')}是${'零一两三四五'[names.length] ?? names.length}个标签` : '回到默认：右栏一栏')
+  }
+  const onDock = (next: Dk.Dock, op: 'layout' | 'view') => {
+    setDock(next)
+    if (op !== 'layout' || dockSaid.current) return
+    dockSaid.current = true
+    const text = '布局记住了：下次打开还是这样'
+    setNotice(text)
+    setNoticeUndo(null)
+    setNoticeAct({ text, label: '恢复默认', icon: 'discard', run: resetDock })
+  }
+  /** 第一次有两个以上标签时的小卡：关过、拖过就不再出 */
+  const [dockHint, setDockHint] = useState(() => {
+    try {
+      return localStorage.getItem('cn.dockHint') !== '1'
+    } catch {
+      return false
+    }
+  })
+  const hintDone = () => {
+    if (!dockHint) return
+    setDockHint(false)
+    try {
+      localStorage.setItem('cn.dockHint', '1')
+    } catch {
+      // 记不住下次再说一次
+    }
+  }
   const noOutline = !activeTab || !['note', 'pdf'].includes(activeTab.type)
   // 活动栏（左栏按维度组织）：上面「文件」按位置、「最近」按时间；分隔线下面是摘出来的文件夹：默认整套顶级分类，
   // 按「收件箱 | 读进来的 | 自己写的 | 自己摘的」分段（方案 v2 分类与入口方向 A、分类方案 3），单色符号，能右键、能拖着排；再下面梦游
@@ -1734,9 +1882,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     })
   const dirGroups: BarItem[][] = groupLeft(leftCfg.left).map((g) => g.map(dirItem))
   const dreamItems: BarItem[] = [barItem('dream', '梦游报告', 'wand', { dot: pendingOf(dream.report) > 0 })]
-  // 「笔记」一直在最上面（右图标栏方向 A「原地变淡」）：读 PDF / HTML 时把 AI 那一格换成笔记（D 组方向 A），再点回到点之前的样子
-  // （开着 AI 就回到 AI，收着就收起）；别的页变淡，点了说为什么；换页面五格一点都不挪。AI 只有右下角那一个入口（CN-22 方向 A）
-  const notesOn = aiOpen && notesView
+  // 「笔记」一直在最上面（右图标栏方向 A「原地变淡」）：读 PDF / HTML 时开关笔记标签（工作区方向 A：独立的标签，在哪由布局记着）；
+  // 别的页变淡，点了说为什么；换页面五格一点都不挪。AI 只有右下角那一个入口（CN-22 方向 A）
+  const notesOn = vis('note')
   const readingItems: BarItem[] = [
     {
       id: 'notes',
@@ -1746,14 +1894,14 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       why: '打开 PDF 时才有边读边记的笔记',
       on: notesOn,
       dot: notesOk && !!reading?.fresh && !notesOn,
-      onClick: () => (notesOn ? (aiCell === 'notes' ? setAiOpen(false) : setAiView('ai')) : (setPane('rb'), openNotes())),
+      onClick: () => toggleView('note'),
     },
   ]
   const rightItems: BarItem[] = [
-    { id: 'outline', label: noOutline ? '大纲（这一页没有标题，没有大纲）' : '大纲', icon: 'list-tree' as const, dim: noOutline, why: '这一页没有标题，没有大纲', on: right === 'outline', onClick: () => toggleRight('outline') },
-    { id: 'web', label: '网页', icon: 'globe' as const, on: right === 'web' && !pluginEntries.some((e) => e.on), onClick: () => toggleRight('web') },
+    { id: 'outline', label: noOutline ? '大纲（这一页没有标题，没有大纲）' : '大纲', icon: 'list-tree' as const, dim: noOutline, why: '这一页没有标题，没有大纲', on: vis('outline'), onClick: () => toggleView('outline') },
+    { id: 'web', label: '网页', icon: 'globe' as const, on: vis('web') && !pluginEntries.some((e) => e.on), onClick: () => toggleView('web') },
     ...pluginEntries,
-    { id: 'history', label: '历史', icon: 'history' as const, on: right === 'history', onClick: () => toggleRight('history') },
+    { id: 'history', label: '历史', icon: 'history' as const, on: vis('history'), onClick: () => toggleView('history') },
   ]
   // AI 的入口一直在（D 组方向 A）：B 是右图标栏最下面的圆钮（窗口右下角），A 是底栏最右一项；画正在用的那家的标志（CN-127），AI 开着时多一圈强调色
   const aiCorner =
@@ -1774,40 +1922,30 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         'win frame-' + frame +
         (sidebarHidden ? ' side-hidden' : '') +
         (rightOpen ? ' with-right' : '') +
-        (right && aiOpen ? ' rsplit' : '') +
-        (right === 'web' ? ' web-open' : '') +
+        (vis('web') ? ' web-open' : '') +
         (pv.on ? ' previewing' : '')
       }
       data-pane={livePane}
-      style={{ '--right-w': `${fit.right}px`, ...(!sidebarHidden && (sideW || fit.side !== SIDE_DEFAULT[frame]) ? { '--side-w': `${fit.side}px` } : {}) } as React.CSSProperties}
+      style={{ gridTemplateColumns: gridTracks(dockShown, frame, colWidths), ...(!sidebarHidden && (sideW || fit.side !== SIDE_DEFAULT[frame]) ? { '--side-w': `${fit.side}px` } : {}) } as React.CSSProperties}
     >
       {!sidebarHidden && <SideSash frame={frame} rightW={fit.right + chromeW - 2 * (frame === 'a' ? 48 : 44)} width={sideW} onWidth={setSideW} />}
-      {rightOpen && (
-        <div
-          className="vsplit"
-          role="separator"
-          aria-label="拖动调整右栏宽度"
-          onPointerDown={(e) => {
-            e.currentTarget.setPointerCapture(e.pointerId)
-            document.body.classList.add('resizing')
-          }}
-          onPointerMove={(e) => {
-            if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
-            const abar = frame === 'a' ? 48 : 44
-            const w = Math.round(Math.min(window.innerWidth - chromeW - fit.side - CENTER_MIN, Math.max(RIGHT_MIN, window.innerWidth - abar - e.clientX)))
-            setRightW(w)
-          }}
-          onPointerUp={(e) => {
-            document.body.classList.remove('resizing')
-            if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
-            try {
-              localStorage.setItem('cn.rightW', String(rightW))
-            } catch {
-              // 记不住宽度不影响使用
-            }
-          }}
-        />
-      )}
+      <DockFrame
+        stored={dock}
+        shown={dockShown}
+        frame={frame}
+        pane={livePane}
+        widths={colWidths}
+        aiLogo={<EngineLogo id={chatEngine.id} size={15} />}
+        onDock={onDock}
+        onCloseView={(v) => {
+          if (v === 'note' || v === 'ai' || v === 'outline' || v === 'history' || v === 'web') lastRight.current = v
+          closeView(v)
+        }}
+        onPane={setPane}
+        onReset={resetDock}
+        hint={dockHint}
+        onHintDone={hintDone}
+      />
       <Tooltips />
       <PaneMark pane={livePane} />
       <TitleBar
@@ -1826,7 +1964,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         web={
           activeTab?.type === 'web' && activeTab.id === shown
             ? { where: 'center', onMove: () => (closeTab(activeTab.id), openInWeb(activeTab.url)) }
-            : right === 'web' && rightWeb
+            : vis('web') && rightWeb
               ? { where: 'right', onMove: () => moveWebToCenter.current?.() }
               : null
         }
@@ -1927,10 +2065,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       )}
 
       <ActsSlot.Provider value={actsEl}>
-      <main className={'center' + (pv.on ? ' previewing' : '') + (centerNarrow ? ' narrow' : '') + (centerCompact ? ' compact' : '')} ref={centerRef}>
+      {/* 中间那一栏：工作区里排第几栏就放在 .win 的第几列（不挪 DOM，里面的网页、HTML 不重新加载） */}
+      <main className={'center' + (pv.on ? ' previewing' : '') + (centerNarrow ? ' narrow' : '') + (centerCompact ? ' compact' : '') + (centerIdx > 0 ? ' not-first' : '')} ref={centerRef} style={{ gridColumn: 3 + 2 * centerIdx }}>
         <div className="tabs">
           <div className="tstrip">
-          <div className={'tlist' + (tabFade.left ? ' more-l' : '') + (tabFade.right ? ' more-r' : '')} role="tablist" ref={tlistRef} data-testid="tab-list">
+          {/* 标签后面的空处按住拖：整个中间这一栏和右边几栏换位置（工作区方向 A，startCenterColDrag 只认按在空处的） */}
+          <div className={'tlist' + (tabFade.left ? ' more-l' : '') + (tabFade.right ? ' more-r' : '')} role="tablist" ref={tlistRef} data-testid="tab-list" onPointerDown={startCenterColDrag}>
             {tabs.map((t) => {
               const on = t.id === shown
               const name = tabName(t)
@@ -1941,6 +2081,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                   role="tab"
                   aria-selected={on}
                   data-testid={on ? 'tab-on' : undefined}
+                  data-path={'path' in t ? t.path : undefined}
                   onDoubleClick={() => (canRenameTab(t) ? setRenaming(t.id) : t.type === 'diff' && setTabs((x) => x.map((y) => (y.id === t.id ? { ...y, pinned: true } : y))))}
                   onContextMenu={(e) => renaming !== t.id && void menuAt(e, tabMenu(t))}
                 >
@@ -2077,7 +2218,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               tabId={t.id}
               renaming={renaming === t.id}
               onMenu={(e, extra) => onFileMenu(e, t.path, { rename: () => setRenaming(t.id) }, extra)}
-              onOpenOutline={() => setRight('outline')}
+              onOpenOutline={() => openView('outline')}
               onWantRename={() => setRenaming(t.id)}
               path={t.path}
               active={t.id === shown}
@@ -2121,6 +2262,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               active={t.id === shown}
               current={tabs.flatMap((x) => (x.type === 'pdf' && dirOfPath(x.path) === t.folder ? [x.path] : [])).pop() ?? null}
               onOpenPdf={openPdfAt}
+              onOpenDoc={(p) => openNote(p)}
               onNotice={setNotice}
             />
           ) : t.type === 'webread' ? (
@@ -2205,7 +2347,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 onInbox={openInbox}
                 onTidy={() => runAi('/整理收件箱')}
                 onNewBoard={() => void newBoard()}
-                onOpenWeb={() => setRight('web')}
+                onOpenWeb={() => openView('web')}
                 onChooseFolder={() => void switchVault()}
                 onOpenCategory={(name) => {
                   // 方向 C 的分类卡：开它的首页；左栏不在「文件」时换到它那一枝（和点活动栏那一格一样）
@@ -2287,65 +2429,92 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       </main>
       </ActsSlot.Provider>
 
-      {/* 右栏 AI 那一格（AiDock.tsx）：在右栏另外几页前面画，开着网页时它在下半格 */}
-      <AiDock
-        open={aiOpen}
-        view={notesView ? 'notes' : 'ai'}
-        reading={readingPdf}
-        onView={(v) => (setAiView(v), setAiOpen(true))}
-        onClose={() => setAiOpen(false)}
-        chat={{
-          tab: activeTab,
-          mode: activeMode,
-          doc: () => activeDoc.current,
-          notes,
-          webUrl: aiState.webUrl,
-          webOpen: right === 'web',
-          context: (mentions) => contextOf(aiState, mentions),
-          onOpen: (p) => openNote(p),
-          onShowHistory: () => setRight('history'),
-          onShowDream: () => openLeft('dream'),
-          autoRun: aiAuto,
-          draft: aiDraft,
-          onChanged: () => {
-            refreshNotes()
-            refreshGit()
-          },
-        }}
-        onOpenNote={(p) => openNote(p)}
-        onOpenLink={openLink}
-        onOpenHtml={openHtml}
-        onOpenDoubts={openDoubts}
-        onOpenWeb={openInWeb}
-        onNotice={setNotice}
-      />
-      {right === 'outline' && <OutlineView tab={activeTab} doc={() => activeDoc.current} onClose={() => setRight(null)} onPdfPage={(f, page) => openPdfAt(f, page)} />}
-      {historyOpen && <HistoryPanel version={gitVersion} changes={git?.changes ?? []} autoMinutes={git?.autoCommitMinutes ?? 0} onCommit={commit} onClose={() => setRight(null)} onOpenDiff={openDiff} onRestore={restoreFromHistory} onNotice={setNotice} />}
-      <WebPanel
-        hidden={right !== 'web'}
-        owner={active}
-        clipMode={clipMode}
-        openRequest={webOpen}
-        onShow={() => setRight('web')}
-        onUrl={(u) => {
-          setRightWeb(u)
-          if (active) setWebUrl((m) => (m[active] === (u ?? undefined) ? m : { ...m, [active]: u ?? '' }))
-        }}
-        moveToCenter={moveWebToCenter}
-        onClip={(c) => void clip(c)}
-        onNotice={setNotice}
-        onClose={() => setRight(null)}
-        onOpenWide={(url, title) => open((t) => t.type === 'web' && t.url === url, () => ({ id: newId(), type: 'web', url, title }))}
-        wideTabs={tabs.flatMap((t) => (t.type === 'web' ? [{ id: t.id, url: t.url, title: t.title }] : []))}
-        onActivateWide={(id) => setTabs((x) => x, id)}
-        onCloseWide={closeTab}
-        onOpenNote={(p) => openNote(p)}
-        onPluginSettings={() => openSettings('plugins')}
-        closeActive={webClose}
-        onClosedTab={(c) => noticeClosed(c.last ? `关掉了网页「${c.title}」，网页这格收起了` : `关掉了网页「${c.title}」`, () => (c.undo(), setRight('web'), setPane('rt')))}
-      />
-
-
+      {/* 右边五样的内容（工作区方向 A）：一直挂在 .win 下面，shell/Dock.tsx 量着它们那一组的身子摆上去（挪来挪去不重新挂，网页不重新加载） */}
+      <div className="dview" data-view="ai" data-testid="dview-ai" hidden={!aiShown}>
+        <AiDock
+          open={aiOpen}
+          shown={aiShown}
+          reading={readingPdf}
+          onShowNotes={openNotes}
+          onClose={() => closeView('ai')}
+          chat={{
+            tab: activeTab,
+            mode: activeMode,
+            doc: () => activeDoc.current,
+            notes,
+            webUrl: aiState.webUrl,
+            webOpen: Dk.isOpen(dockShown, 'web'),
+            context: (mentions) => contextOf(aiState, mentions),
+            onOpen: (p) => openNote(p),
+            onShowHistory: () => openView('history'),
+            onShowDream: () => openLeft('dream'),
+            autoRun: aiAuto,
+            draft: aiDraft,
+            onChanged: () => {
+              refreshNotes()
+              refreshGit()
+            },
+          }}
+          onOpenHtml={openHtml}
+          onNotice={setNotice}
+        />
+      </div>
+      <div className="dview" data-view="note" data-testid="dview-note" hidden={!vis('note')}>
+        {notesOk && readingPdf && Dk.isOpen(dockShown, 'note') && (
+          <NotesDock
+            key={readingPdf}
+            pdf={readingPdf}
+            shown={vis('note')}
+            onShowAi={openAi}
+            onOpenNote={(p) => openNote(p)}
+            onOpenLink={openLink}
+            onOpenHtml={openHtml}
+            onOpenDoubts={openDoubts}
+            onOpenWeb={openInWeb}
+          />
+        )}
+      </div>
+      <div className="dview" data-view="outline" data-testid="dview-outline" hidden={!vis('outline')}>
+        {Dk.isOpen(dockShown, 'outline') && <OutlineView tab={activeTab} doc={() => activeDoc.current} mode={activeTab?.type === 'note' ? activeMode : undefined} onClose={() => closeView('outline')} onPdfPage={(f, page) => openPdfAt(f, page)} />}
+      </div>
+      <div className="dview" data-view="history" data-testid="dview-history" hidden={!vis('history')}>
+        {historyOpen && <HistoryPanel version={gitVersion} changes={git?.changes ?? []} autoMinutes={git?.autoCommitMinutes ?? 0} onCommit={commit} onClose={() => closeView('history')} onOpenDiff={openDiff} onRestore={restoreFromHistory} onNotice={setNotice} />}
+      </div>
+      <div className="dview" data-view="web" data-testid="dview-web" hidden={!vis('web')}>
+        <WebPanel
+          hidden={!vis('web')}
+          owner={active}
+          clipMode={clipMode}
+          openRequest={webOpen}
+          onShow={() => openView('web')}
+          onUrl={(u) => {
+            setRightWeb(u)
+            if (active) setWebUrl((m) => (m[active] === (u ?? undefined) ? m : { ...m, [active]: u ?? '' }))
+          }}
+          moveToCenter={moveWebToCenter}
+          onClip={(c) => void clip(c)}
+          onNotice={setNotice}
+          onClose={() => {
+            webShut.current = dockNow.current
+            closeView('web')
+          }}
+          onOpenWide={(url, title) => open((t) => t.type === 'web' && t.url === url, () => ({ id: newId(), type: 'web', url, title }))}
+          wideTabs={tabs.flatMap((t) => (t.type === 'web' ? [{ id: t.id, url: t.url, title: t.title }] : []))}
+          onActivateWide={(id) => setTabs((x) => x, id)}
+          onCloseWide={closeTab}
+          onOpenNote={(p) => openNote(p)}
+          onPluginSettings={() => openSettings('plugins')}
+          closeActive={webClose}
+          onClosedTab={(c) => {
+            const before = c.last ? webShut.current : null
+            noticeClosed(c.last ? `关掉了网页「${c.title}」，网页标签收起了` : `关掉了网页「${c.title}」`, () => {
+              c.undo()
+              if (before) setDock(before)
+              else openView('web')
+            })
+          }}
+        />
+      </div>
 
       <ActivityBar side="right" label="右栏" groups={[readingItems, rightItems]} bottom={frame === 'b' ? aiCorner : undefined} />
 
@@ -2378,13 +2547,30 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         previewing={pv.on}
         onCommit={commit}
         onSync={sync}
-        onHistory={() => setRight('history')}
+        onHistory={() => openView('history')}
         onOpen={(p) => openNote(p)}
         unsaved={unsaved}
         onRevealStash={(f) => void window.cn.revealStash(f)}
         vaultPath={vault.path}
         update={<UpdateBarItem st={update} onInstall={installUpdate} onOpenSettings={() => openSettings('update')} />}
         ai={frame === 'a' ? aiCorner : undefined}
+        tidy={
+          tidy && {
+            said: tidy.said,
+            onClose: () => setTidy(null),
+            onUndo: () => {
+              setTidy(null)
+              window.cn.tidyUndo(tidy).then(
+                (back) => {
+                  setNotice(back)
+                  refreshNotes()
+                  refreshGit()
+                },
+                (e) => setNotice(errText(e)),
+              )
+            },
+          }
+        }
         translate={frame === 'a' ? <TranslateItem /> : undefined}
         bell={frame === 'a' ? <BellItem /> : undefined}
         toast={
@@ -2421,13 +2607,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
 }
 
 /**
- * 当前栏里没有标签的格子（历史、大纲、右栏下格的笔记 / AI、左栏）：标题下面一道 2px 强调色，贴在格子头的底边（CN-98）。
+ * 当前栏是左栏时：标题下面一道 2px 强调色，贴在栏头的底边（CN-98）。右边几组有标签，当前栏那一组的当前标签画强调色（shell/dock.css）。
  * 量着标题和格子头摆，每次画完都对一下（拖宽右栏、换左栏那一页都跟着）
  */
-const PANE_TITLE: Partial<Record<Pane, string>> = {
+const PANE_TITLE: Record<string, string> = {
   left: '.win > .side .vh h2 .t, .win > .side .rhead > b',
-  rt: '.win > aside.right.outline .vh h2 .t, .win > aside.right:not(.web):not(.outline):not(.aicell) .rhead > b',
-  rb: '.win > aside.right.aicell:not([hidden]) .aih > b',
 }
 function PaneMark({ pane }: { pane: Pane }) {
   const ref = useRef<HTMLElement>(null)

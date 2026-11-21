@@ -11,6 +11,7 @@ import { toggleFormat } from '../wysiwyg'
 import { app } from './actions'
 import { copy, type MenuEntry, menuAt } from './menu'
 import { translateAt } from './translate'
+import { mdLinkAt } from '../md-link'
 
 export type LinkHit =
   | { kind: 'wiki'; target: string }
@@ -109,6 +110,10 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
         { label: '用默认浏览器打开', run: () => window.cnMenu.openExternal(hit.url) },
         { label: '拷贝链接', run: () => copy(hit.url) },
       )
+    // [字](网址) 另一组：改链接…（链接下面出卡、网址那一行是输入框）、去掉链接（只留字）。DESIGN.v3 9.2，cmdk 方案 A
+    const md = editable ? mdLinkAt(state.doc, pos) : null
+    // 链接卡那一块碰 DOM，点了才载（右键菜单的单元测试在 Node 里载这个文件）
+    if (md) linkItems.push('-', { label: '改链接…', run: () => import('../link-card').then((m) => m.editLinkAt(view, pos)) }, { label: '去掉链接', run: () => import('../link-card').then((m) => m.unlink(view, md)) })
   }
   const imgUrl = img?.getAttribute('src') ?? (hit?.kind === 'image' ? hit.url : null)
   if (imgUrl) {

@@ -34,7 +34,7 @@ interface StepRow {
 }
 
 const STEPS: StepRow[] = [
-  { step: 'file', name: '归类挪动收件箱里的笔记', desc: '挪进课程、项目、生活、写作、阅读、剪藏；拿不准的留在收件箱', icon: 'inbox', effects: ['move'] },
+  { step: 'file', name: '归类挪动收件箱里的笔记', desc: '挪进课程、项目、生活、写作、阅读、剪藏，这篇里图片、附件的相对链接跟着改；拿不准的留在收件箱', icon: 'inbox', effects: ['move', 'edit'] },
   { step: 'rename', name: '改名', desc: '收件箱里的临时名改成一看就懂的；开头的标题、别的笔记里指向它的 [[旧名]] 跟着换', icon: 'whole-word', effects: ['move', 'edit'] },
   { step: 'link', name: '补双链', desc: '两篇讲同一件事时，在这篇正文末尾加一行「相关：[[那篇]]」', icon: 'link', effects: ['edit'], max: { key: 'linkMax', choices: LINK_CHOICES, unit: '处', label: '一晚最多补几处双链' } },
   { step: 'week', name: '写本周小结', desc: '按这周的提交写一段，新建在「周记」里', icon: 'calendar', effects: ['new'] },
@@ -43,6 +43,10 @@ const STEPS: StepRow[] = [
   { step: 'dup', name: '提醒可能重复', desc: '两篇大半一样时列出来，不删也不改', icon: 'copy', effects: ['remind'], max: { key: 'dupMax', choices: DUP_CHOICES, unit: '对', label: '一晚最多列几对可能重复' } },
   { step: 'video', name: '提醒同一个视频记散在多篇', desc: '同一个视频的时刻、问答记在两篇以上时提醒合成一篇，不改文件', icon: 'device-camera-video', effects: ['remind'] },
 ]
+
+/** 会动正文的是哪几样、各动哪一处（2026-11-20 发版时改：以前顶上写「你写的正文一个字不动」，不对） */
+export const EDITS_NOTE =
+  '会动正文的只有标了「改正文」的几样，各动一处：归类挪动改挪走那篇里图片、附件的相对链接；改名换开头的标题和别的笔记里指向它的 [[旧名]]；补双链在那篇末尾加一行「相关：[[…]]」；做可视化在读PDF笔记那一段的脚上加一行链接；挪老图改引用它那几篇里的图片链接。别处的字一个不动。'
 
 /** 勾上一个文件夹，梦游在那里做什么 */
 const doesIn = (name: string) => (name === '收件箱' ? '归类、改名、补双链' : name === '周记' ? '写本周小结' : '补双链')
@@ -81,7 +85,7 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
   return (
     <div className="dset">
       <h4>
-        什么时候梦游<span>改动都放在单独的分支上，你写的正文一个字不动</span>
+        什么时候梦游<span>改动先放在单独的分支上，看过再收</span>
       </h4>
       <div className="dset-now" data-testid="dream-set-now">
         <span className="ic">
@@ -192,6 +196,10 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
           )
         })}
       </div>
+
+      <p className="note" data-testid="dream-set-edits">
+        {EDITS_NOTE}
+      </p>
 
       <h4>
         能动哪些文件夹<span>梦游只在勾上的文件夹里改字、建文件</span>

@@ -1,4 +1,3 @@
-import { prop, setProp } from '@cn/format'
 
 /**
  * 看视频（方向 A「视频条」）用的纯函数：认 YouTube / B 站的视频页、拼带时间的链接、拆字幕、
@@ -546,13 +545,4 @@ export function destFor(center: CenterKind, lastDoc: { path: string; title: stri
 /** 「未命名」「未命名 3」：还没起过名字的那篇，第一次记一个视频时直接改成视频名（CN-80） */
 export const isUntitled = (title: string) => /^未命名(?: \d+)?$/.test(title.trim())
 
-/**
- * 「视频里的疑惑.md」加一条以后的全文：软件汇总的（front matter「类型: 视频里的疑惑」「生成: 软件」，梦游找重复时跳过），
- * 新的在后面；以前建的没有 front matter 的这次补上
- */
-export function videoDoubtsText(cur: string | null, entry: string): string {
-  if (cur === null) return `${setProp(setProp('', '类型', '视频里的疑惑'), '生成', '软件')}\n# 视频里的疑惑\n\n看视频时框一块问过 AI 的地方，新的在后面。读 PDF 时问的在「我的疑惑」。\n\n${entry}\n`
-  const marked = prop(cur, '生成') === '软件' ? cur : setProp(setProp(cur, '类型', prop(cur, '类型') ?? '视频里的疑惑'), '生成', '软件')
-  return marked.replace(/\n*$/, '\n\n') + entry + '\n'
-}
 

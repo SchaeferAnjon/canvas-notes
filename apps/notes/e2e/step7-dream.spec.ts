@@ -46,7 +46,9 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
 
     await card.getByRole('button', { name: '看报告' }).click()
     const panel = page.getByRole('complementary', { name: '梦游报告' })
-    await expect(panel.getByTestId('dream-summary')).toContainText(`整理了6处。都在${branch}分支上，点「预览」看改好后的样子，收下才合进main，你写的正文一个字没动。`)
+    await expect(panel.getByTestId('dream-summary')).toContainText(`整理了6处。都在${branch}分支上，点「预览」看改好后的样子，收下才合进main。动了正文的只有：补了1处双链（在正文末尾加了一行）。`)
+    // 不再一律说「你写的正文一个字没动」（补双链在正文末尾加了一行）
+    await expect(panel.getByTestId('dream-summary')).not.toContainText('一个字没动')
     await expect(panel.locator('.dg')).toHaveText(['归类和改名3条预览', '补上的双链1条', '可能重复1条', '本周小结1条'])
     await expect(panel.getByTestId('dream-left')).toHaveText(`还剩6条 · 改动在${branch}分支`)
     await page.screenshot({ path: test.info().outputPath('dream-panel.png') })

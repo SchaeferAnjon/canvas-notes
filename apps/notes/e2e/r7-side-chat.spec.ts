@@ -7,7 +7,7 @@ import { _electron as electron, expect, test, type Locator, type Page } from '@p
 import { readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import electronPath from 'electron'
-import { launch, rail, tabOn, widenRight } from './app'
+import { launch, noteBeside, rail, tabOn, widenRight } from './app'
 import { LECTURE } from './fixtures/pdf'
 
 const PDF = '课程/线代/第3讲.pdf'
@@ -223,6 +223,7 @@ test('A1 第 1、2、5、7 条：选一句出小框（照小样）、空着回�
     await expect(ai(page).getByTestId('reading-sees')).toBeVisible()
     // 没问过的空旁支关掉就不留：另选一句、空着开，再 esc
     await selectText(page, txt, '这是讲解', '新会话')
+    await expect(askbox(page)).toBeVisible()
     await page.keyboard.press('Enter')
     await expect(side(page)).toBeVisible()
     // 小标按字里的先后排：新的这句在前面，数字是开的先后
@@ -319,6 +320,7 @@ test('A1 第 2、3、4、5 条：⋯ 菜单（300 宽、往下弹、右对齐）
     const txt = msg.locator('.txt')
     // 第一条旁支
     await selectText(page, txt, '列就是', '去哪')
+    await expect(askbox(page)).toBeVisible()
     await page.keyboard.press('Enter')
     await sideBox(page).fill('为什么是基向量？')
     await sideBox(page).press('Enter')
@@ -412,28 +414,32 @@ test('A1 第 2、3、4、5 条：⋯ 菜单（300 宽、往下弹、右对齐）
   }
 })
 
-test('A1 第 6 条：开着旁支点右边竖条「笔记」，上格换成笔记、下格照旧能问，问完笔记里这一问马上长出来、闪一下；「在笔记里看」滚到那条旁支；重开软件旁支还在（答完马上退出也存下整条回答）', async () => {
+test('A1 第 6 条（工作区方向 A）：开着旁支点竖条「笔记」，笔记标签落在那条旁支上；笔记拖到 PDF 左边，旁支照旧能问，问完笔记里这一问马上长出来、闪一下；「在笔记里看」滚到那条旁支；重开软件旁支还在（答完马上退出也存下整条回答）', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page, vault, userData } = run
   const root = dirname(vault)
   try {
     const msg = await askFirst(page)
     await selectText(page, msg.locator('.txt'), '列就是', '去哪')
+    await expect(askbox(page)).toBeVisible()
     await page.keyboard.press('Enter')
     await sideBox(page).fill('为什么是基向量？')
     await sideBox(page).press('Enter')
     await expect(side(page).locator('.sacts')).toBeVisible({ timeout: 15_000 })
     await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toContain('> [!side] 为什么是基向量？\n> > 列就是基向量去哪\n>\n> #### 旁支的回答')
-    // 竖条「笔记」：上格换成笔记，下格照旧
+    // 竖条「笔记」：笔记标签开在同一组、在前面（AI 和下格的旁支在它后面）；开着旁支切过来：落在正在问的那条旁支上
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(notes(page)).toBeVisible()
     await expect(ai(page)).toBeHidden()
-    await expect(side(page)).toBeVisible()
-    expect(Math.abs((await split(page, notes(page))).gap)).toBeLessThanOrEqual(1)
+    await expect(side(page)).toBeHidden()
     const round = notes(page).getByTestId('note-round')
     await expect(round.locator('.nside .qs')).toHaveText(['为什么是基向量？'])
-    // 开着旁支切过来：落在正在问的那条旁支上
     await expect(round.locator('.nside').first()).toBeInViewport()
+    // 笔记拖到 PDF 左边成一栏：AI 和下格的旁支回来，一边问一边看笔记
+    await noteBeside(page)
+    await expect(ai(page)).toBeVisible()
+    await expect(side(page)).toBeVisible()
+    await expect(notes(page)).toBeVisible()
     // 在下格接着问：笔记里这一问马上长出来（先写一次，标题小结晚一点补），闪一下
     await sideBox(page).fill('那行呢？')
     await sideBox(page).press('Enter')
@@ -449,17 +455,15 @@ test('A1 第 6 条：开着旁支点右边竖条「笔记」，上格换成笔�
     // 同一条旁支的追问在笔记里不带引用句
     expect(readFileSync(join(vault, NOTE), 'utf8')).toContain('> [!side] 那行呢？\n>\n> #### 旁支的回答')
 
-    // 「在笔记里看」：上格是笔记，滚到那条旁支
-    await rail(page).getByRole('button', { name: '笔记' }).click()
-    await expect(ai(page)).toBeVisible()
+    // 「在笔记里看」：笔记滚到那条旁支（先把笔记滚回顶上）
+    await notes(page).locator('.notes').evaluate((e) => (e.scrollTop = 0))
     await side(page).locator('.sacts').getByRole('button', { name: '在笔记里看' }).click()
     await expect(notes(page)).toBeVisible()
     await expect(round.locator('.nside').first()).toBeInViewport()
     // 笔记里也有虚线和小标；点小标滚到那条旁支
     await expect(round.locator('.am .badge')).toHaveText(['1'])
 
-    // 回到 AI，再问一句旁支，答完马上退出（对话记录存盘有 300 毫秒的等，退出前补存）
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    // 再问一句旁支，答完马上退出（对话记录存盘有 300 毫秒的等，退出前补存）
     await sideBox(page).fill('门槛是多少？')
     await sideBox(page).press('Enter')
     await expect(side(page).getByTestId('side-msg')).toHaveCount(3)
@@ -593,7 +597,8 @@ test('开着旁支时上格读得下去：887、760 高时上格都是 420（消
       const atEnd = await ai(page).locator('.msgs').evaluate((e) => e.scrollHeight - e.scrollTop - e.clientHeight < 2)
       expect(asked.y - l.y < l.height * 0.4 || atEnd).toBe(true)
     }
-    for (const [h, sideH] of [[887, 397], [760, 270]] as const) {
+    // AI 标签的高 = 整栏 - 组头 38（工作区方向 A）：887 高时 779、760 高时 652
+    for (const [h, sideH] of [[887, 359], [760, 232]] as const) {
       await size(h)
       await expect.poll(async () => Math.round((await split(page)).top)).toBe(420)
       expect(Math.round((await split(page)).side)).toBe(sideH)

@@ -3,7 +3,7 @@
  * 对话、问过的地方、框好还没发的那块、笔记读回来的段、要跳到哪、要看笔记哪一段。
  * 存盘的部分（看到哪页、对话）交给主进程存在软件设置目录；笔记本身在库里。
  */
-import { type AskSection, blocksText, decorativeImages, documentBlocks, type FigureBox, locateFigure, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect, toPageRect } from '@cn/format'
+import { type AskSection, blocksText, decorativeImages, documentBlocks, type FigureBox, insideCrop, locateFigure, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect, toPageRect } from '@cn/format'
 import { useSyncExternalStore } from 'react'
 import type { EngineId, ToolStep } from '../../shared/agent'
 import { type AiPick, convPick, hasEffort, pickLabel } from '../../shared/ai-features'
@@ -523,6 +523,24 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
 /** AI 这一问动手改了库里的文件（2026-11-19）：界面刷新左栏、底栏（App 听这个） */
 export const AI_CHANGED = 'cn:reading-ai-changed'
 
+/**
+ * 记进了笔记（工作区方向 A，原型 proto-a）：底栏说一句记到了哪（App 听这个，笔记标签没露出来时带「在笔记里看」）。
+ * quote：旁支答完的（「在笔记里看」滚到那条旁支）；没有是主对话那一问
+ */
+export const NOTED = 'cn:reading-noted'
+export interface Noted {
+  pdf: string
+  thread: string
+  text: string
+  quote?: string
+}
+function told(pdf: string, th: ReadingThread, side?: { quote: string; ask?: string }) {
+  const at = th.page > 0 ? `第${th.page}页` : ''
+  const under = at + (side?.ask ? `「${side.ask.replace(/\s+/g, ' ').trim().slice(0, 10)}」` : '')
+  const text = side ? (under ? `旁支也记进了笔记，挂在${under}下面` : '旁支也记进了笔记') : `记进《${titleOf(get(pdf).note.path)}》${at}`
+  window.dispatchEvent(new CustomEvent<Noted>(NOTED, { detail: { pdf, thread: th.id, text, ...(side ? { quote: side.quote } : {}) } }))
+}
+
 /** 这一问的提交（「改了 N 个文件 · 撤回」）或没提交上的那句 */
 function changeOf(res: AskResult): Partial<ReadingMsg> {
   if (res.commit) return { change: { commit: res.commit, kinds: res.kinds ?? {}, ...(res.moved ? { moved: res.moved } : {}) } }
@@ -738,7 +756,7 @@ export async function sendSide(pdf: string, id: string, text: string, mats: Mate
     const unseen = x.side.open === id && x.side.fold
     return { sideRunning: rest, side: unseen ? { ...x.side, unread: x.side.unread + 1 } : x.side }
   })
-  if (!res.error && full.trim()) void writeNote(pdf, th.id, null, pick.engine)
+  if (!res.error && full.trim()) void writeNote(pdf, th.id, null, pick.engine, { quote: side.quote, ...(ask ? { ask } : {}) })
 }
 
 /** 停下旁支正在答的那一问 */
@@ -781,9 +799,10 @@ const noteGen = new Map<string, number>()
 /**
  * 记进笔记（CN-93–96）：问题原话、回答原文、旁支挂在被问那一问后面，主进程照这一处的对话收成一段。
  * 这一段已经在笔记里时，答完马上先写一次（问答马上长出来），再让快的模型写这一轮的标题和一句小结，写好再写一次、提交。
- * aiId：主对话那条回答（下面「已记进笔记」那一行跟着变）；旁支答完、删掉旁支时是 null
+ * aiId：主对话那条回答（下面「已记进笔记」那一行跟着变）；旁支答完、删掉旁支时是 null。
+ * side：旁支答完记的（底栏说挂在哪一问下面）；主对话记好、旁支记好都在底栏说一句（told），删掉旁支重写的不说
  */
-async function writeNote(pdf: string, threadId: string, aiId: number | null, engine: EngineId) {
+async function writeNote(pdf: string, threadId: string, aiId: number | null, engine: EngineId, side?: { quote: string; ask?: string }) {
   const key = `${pdf}\0${threadId}`
   const gen = (noteGen.get(key) ?? 0) + 1
   noteGen.set(key, gen)
@@ -812,11 +831,11 @@ async function writeNote(pdf: string, threadId: string, aiId: number | null, eng
       return
     }
     cur = now()
-    // 配图（CN-60）：AI 回答里给的框；这一段已经配过图就不再截
+    // 配图（CN-60）：AI 回答里给的框；这一段已经配过图就不再截；就在我框的那块里的不配（「我框的」截图已经是它）
     let figure: { figurePng: Uint8Array; figureCaption: string } | null = null
     if (!web && !thread.web && !old?.figures.length) {
       const fig = await pickFigure(pdf, thread.page, cur.msgs)
-      if (fig) {
+      if (fig && !(thread.rect && insideCrop(fig.rect, thread.rect))) {
         const crop = await renderCrop(pdfDoc(pdf)!, thread.page, clamp(fig.rect), 600)
         URL.revokeObjectURL(crop.url)
         figure = { figurePng: crop.png, figureCaption: `第 ${thread.page} 页 · ${fig.caption}` }
@@ -844,6 +863,7 @@ async function writeNote(pdf: string, threadId: string, aiId: number | null, eng
     await reloadNote(pdf)
     if (aiId !== null) patchMsg(pdf, aiId, { note: 'done', ...(thread.web && /^https?:/i.test(thread.web.url) ? { noteTo: `网页（记在${titleOf(get(pdf).note.path)}里）` } : {}) })
     update(pdf, () => ({ fresh: true }))
+    if (!thread.web && (aiId !== null || side)) told(pdf, thread, side)
   } catch (e) {
     if (aiId !== null) patchMsg(pdf, aiId, { note: 'error', noteError: noteErr(e) })
     else console.error('旁支没记进笔记', e)

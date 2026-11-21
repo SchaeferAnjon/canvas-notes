@@ -1,0 +1,491 @@
+/*
+ * 工作区「拖到哪就在哪」（2026-11-20 方向 A，原型 design/workspace/proto-a.html，DESIGN.v3 1.9）。
+ * 右边几栏是 .win 的格子里的列（.dcol，App 按布局算 grid-template-columns），一栏几组（.dgrp：头 .dhead + 空的身子 .dbody）；
+ * 浮窗 .dfloat 盖在上面。五样的内容是 .win 下面的 .dview，Dock.tsx 量着身子摆上去。
+ */
+.win {
+  --dgap: 0px;
+  --dhead-h: 35px;
+}
+.frame-b {
+  --dgap: var(--gap);
+  --dhead-h: 38px;
+}
+/* B：左栏收起时最左一栏和图标栏之间也留一道缝（以前是中间岛的 margin-left） */
+.win.frame-b.side-hidden {
+  --side-w: var(--gap);
+}
+.dock-host {
+  display: contents;
+}
+
+/* ---------- 一栏、一组 ---------- */
+.dcol {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+.frame-a .dcol:not(.first) {
+  border-left: 1px solid var(--seam);
+}
+/* A：中间不在最左时，它左边也是一条分区线 */
+.frame-a > main.center.not-first {
+  border-left: 1px solid var(--seam);
+}
+.dgrp {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  background: var(--win);
+}
+.frame-b .dgrp {
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--pop);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 6px 24px rgba(0, 0, 0, 0.14);
+}
+.dbody {
+  flex: 1;
+  min-height: 0;
+  background: inherit;
+}
+
+/* ---------- 组头：标签 · 空处（拖整栏）· ⋯ ---------- */
+.dhead {
+  height: var(--dhead-h);
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 0 6px;
+  background: var(--tabbar);
+  position: relative;
+  user-select: none;
+}
+.frame-a .dhead {
+  align-items: stretch;
+  gap: 0;
+  padding: 0 4px 0 0;
+  border-bottom: 1px solid var(--seam);
+}
+.dtab {
+  height: 32px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 10px;
+  border-radius: 7px 7px 0 0;
+  font-size: 13px;
+  color: var(--t2);
+  position: relative;
+  white-space: nowrap;
+  cursor: grab;
+}
+.frame-a .dtab {
+  height: auto;
+  padding: 0 6px 0 12px;
+  border-radius: 0;
+  border-right: 1px solid var(--seam);
+}
+.dtab:hover {
+  background: var(--fill);
+}
+.dtab.on {
+  background: var(--pop);
+  color: var(--t1);
+  font-weight: 500;
+}
+.frame-a .dtab.on {
+  background: var(--tab-on);
+  font-weight: 400;
+}
+.dtab > svg,
+.dtab .dic {
+  flex: none;
+}
+.dic {
+  display: inline-flex;
+  align-items: center;
+}
+.dic svg,
+.dic img {
+  width: 15px;
+  height: 15px;
+}
+.dtab .x {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  display: grid;
+  place-items: center;
+  color: var(--t2);
+  opacity: 0;
+  cursor: default;
+}
+.dtab:hover .x {
+  opacity: 1;
+}
+.dtab .x:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+/* 当前标签的标记：跟主题（data-tabmark：上沿、下沿、整块染色），B 左右各缩 8；只有当前栏那一组画强调色，别的组 --line2（同中间的标签条） */
+[data-tabmark='top'] .dtab.on::after,
+[data-tabmark='bottom'] .dtab.on::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background: var(--line2);
+  pointer-events: none;
+}
+[data-tabmark='bottom'] .dtab.on::after {
+  top: auto;
+  bottom: 0;
+}
+.frame-b .dtab.on::after {
+  left: 8px !important;
+  right: 8px !important;
+  border-radius: 1px;
+}
+[data-tabmark] .dgrp.cur .dtab.on::after,
+[data-tabmark] .dfloat.cur .dtab.on::after {
+  background: var(--acc);
+}
+[data-tabmark='fill'] .dgrp.cur .dtab.on,
+[data-tabmark='fill'] .dfloat.cur .dtab.on {
+  background: linear-gradient(var(--acc-soft), var(--acc-soft)), var(--pop);
+  color: var(--acc-t);
+}
+.dgrab {
+  flex: 1;
+  align-self: stretch;
+  min-width: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+}
+.dgrab .grip {
+  display: flex;
+  color: var(--t3);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dhead:hover .dgrab .grip {
+  opacity: 1;
+}
+.dbtn {
+  height: 26px;
+  min-width: 26px;
+  flex: none;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.dbtn:hover,
+.dbtn.on {
+  background: var(--fill);
+  color: var(--t1);
+}
+.frame-b .dhead .dbtn {
+  margin-bottom: 0;
+}
+/* 「这一栏的布局」：240 宽，同别的弹层（圆角 12、内边距 6、行 30 圆角 8、图标 14 --t2；到头了的那一项变淡，DESIGN.v3 1.9） */
+.shell-menu.dock-menu {
+  width: 240px;
+  padding: 6px;
+  border-radius: 12px;
+}
+.shell-menu.dock-menu .mi {
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 8px;
+}
+.shell-menu.dock-menu .mi > .ci {
+  width: 14px;
+  height: 14px;
+  color: var(--t2);
+}
+
+/* 网页在一组里（B）：它自己那排网页标签照原型 proto-a，34 高、标签 28 高靠下、--tabbar 底，和组头连成一片 */
+.win.frame-b > .dview[data-view='web'] > aside.right.web > .tabs.wtabs {
+  height: 34px;
+  padding: 0 6px;
+  align-items: flex-end;
+  background: var(--tabbar);
+}
+.win.frame-b > .dview[data-view='web'] > aside.right.web > .tabs.wtabs .tab {
+  height: 28px;
+}
+
+/* 拖着的时候不出悬停提示（「按住拖动这一栏，换左右位置」不压着内容） */
+body.docking .shell-tip {
+  display: none;
+}
+
+/* ---------- 缝：栏和栏之间、上下两组之间 ---------- */
+.dsash-col {
+  position: relative;
+  z-index: 6;
+  cursor: col-resize;
+  -webkit-app-region: no-drag;
+}
+/* A 的缝是 0 宽的一列：手柄伸出两边各 3 */
+.frame-a .dsash-col {
+  margin: 0 -3px;
+}
+.dsash-col:hover::after,
+.dsash-col.on::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+  background: var(--line2);
+}
+.dsash-row {
+  flex: none;
+  height: var(--dgap);
+  position: relative;
+  z-index: 6;
+  cursor: row-resize;
+}
+.frame-a .dsash-row {
+  height: 1px;
+  background: var(--line);
+}
+.dsash-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -3px;
+  bottom: -3px;
+}
+.frame-b .dsash-row::before {
+  top: 0;
+  bottom: 0;
+}
+.dsash-row:hover::after,
+.dsash-row.on::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  height: 2px;
+  background: var(--line2);
+}
+
+/* ---------- 浮窗：框（头、阴影、圆角、右下角）在上，里面的内容在它下面一层透过来 ---------- */
+.dfloat {
+  position: absolute;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--shadow-up);
+  min-width: 300px;
+  min-height: 260px;
+  pointer-events: none;
+}
+.dfloat .dhead,
+.dfloat .drz {
+  pointer-events: auto;
+}
+.dfloat .dhead .dgrab {
+  cursor: grab;
+}
+.dfloat .dbody {
+  background: transparent;
+}
+.drz {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+}
+.drz::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 7px;
+  height: 7px;
+  border-right: 1.5px solid var(--t3);
+  border-bottom: 1.5px solid var(--t3);
+}
+
+/* ---------- 五样的内容：摆在那一组的身子上（Dock.tsx 的 placeViews） ---------- */
+.win > .dview {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  grid-template: 100% / 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--win);
+}
+.frame-b > .dview {
+  background: var(--pop);
+  border-radius: 0 0 10px 10px;
+  overflow: hidden;
+}
+.win > .dview[hidden] {
+  display: none;
+}
+.win > .dview.in-float {
+  z-index: 39;
+  background: var(--pop);
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+}
+.win > .dview > * {
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+  border-left: 0;
+}
+
+/* ---------- 拖着的时候：落点、竖线、跟着指针的小牌 ---------- */
+.dmark {
+  position: fixed;
+  z-index: 70;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--acc) 14%, transparent);
+  box-shadow: inset 0 0 0 2px var(--acc);
+  pointer-events: none;
+  transition:
+    left 0.12s,
+    top 0.12s,
+    width 0.12s,
+    height 0.12s;
+}
+.dmark span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: var(--acc-bg);
+  color: var(--acc-on);
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.2);
+}
+.dbar {
+  position: fixed;
+  z-index: 70;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--acc);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+  pointer-events: none;
+}
+.dghost {
+  position: fixed;
+  z-index: 90;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+  opacity: 0.96;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.dghost > svg {
+  color: var(--t2);
+}
+body.docking,
+body.docking * {
+  cursor: grabbing !important;
+}
+body.docking webview,
+body.docking iframe {
+  pointer-events: none;
+}
+
+/* ---------- 第一次的小卡 ---------- */
+.dhint {
+  position: fixed;
+  z-index: 45;
+  width: 250px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.dhint b {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.dhint .x {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  display: grid;
+  place-items: center;
+  color: var(--t3);
+}
+.dhint .x:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+
+/* ---------- 中间标签条右边的空处：按住拖整栏（App 在 .tlist 上接，只认按在空处的） ---------- */
+.win > .center .tabs .tlist {
+  cursor: grab;
+}
+.win > .center .tabs .tlist > .tab {
+  cursor: default;
+}

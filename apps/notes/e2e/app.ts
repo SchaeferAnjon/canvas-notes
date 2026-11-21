@@ -142,11 +142,51 @@ export const pane = (page: Page) => page.locator('.pane:not([hidden])')
 /** 标签条右端：当前这一页的动作（属性、白板 / 文档、页码、问这一页、更多……） */
 export const acts = (page: Page) => page.getByTestId('tab-acts')
 
+/** 白板右边一格收件箱收起来（点标签条「收件箱 N」）：量画布坐标的老测试让画布和以前一样宽 */
+export async function foldInbox(page: Page) {
+  const drawer = pane(page).locator('.db-drawer')
+  if (await drawer.isVisible()) await acts(page).getByTestId('db-inbox').click()
+  await expect(drawer).toHaveCount(0)
+}
+
 /** 左边图标栏换到某一页（文件、最近、摘在左边的分类和别的文件夹、梦游报告；分类和文件夹那一格同时开它的首页）；已经开着就不再点（再点是收起） */
 export async function leftView(page: Page, name: '文件' | '最近' | '课程' | '收件箱' | '梦游报告' | (string & {})) {
   const b = page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name, exact: true })
   if ((await b.getAttribute('aria-pressed')) !== 'true') await b.click()
   await expect(b).toHaveAttribute('aria-pressed', 'true')
+}
+
+/**
+ * 工作区方向 A（task-9okg5）：网页和 AI 默认叠在同一组；把「网页」标签拖到这一组的上半，成了以前「网页在上、AI 在下，各一半」的样子。
+ * view 给了拖的是别的标签（历史、大纲）。真拖：按下、挪过 4、指到组的上面 12%、松开
+ */
+export async function webAboveAi(page: Page, view = 'web') {
+  const tab = page.getByTestId(`dtab-${view}`)
+  const t = (await tab.boundingBox())!
+  const g = (await page.locator('.dgrp').filter({ has: tab }).boundingBox())!
+  await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(t.x + t.width / 2 + 8, t.y + t.height / 2 + 3, { steps: 2 })
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height * 0.12, { steps: 10 })
+  await expect(page.getByTestId('drop-mark')).toHaveText('放到上半')
+  await page.mouse.up()
+  await expect(page.locator('.dgrp')).toHaveCount(2)
+}
+
+/**
+ * 工作区方向 A：把右边一个标签（ai、note、web、outline、history）真拖到中间内容的左边成一栏（「放到中间左边」），
+ * 比如笔记拖到 PDF 左边，一边问一边看笔记长出来
+ */
+export async function noteBeside(page: Page, view = 'note') {
+  const t = (await page.getByTestId(`dtab-${view}`).boundingBox())!
+  const c = (await page.locator('main.center').boundingBox())!
+  await page.mouse.move(t.x + t.width / 2, t.y + t.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(t.x + t.width / 2 + 8, t.y + t.height / 2 + 3, { steps: 2 })
+  await page.mouse.move(c.x + c.width * 0.08, c.y + c.height / 2, { steps: 12 })
+  await expect(page.getByTestId('drop-mark')).toHaveText('放到中间左边')
+  await page.mouse.up()
+  await expect(page.locator('.dcol').filter({ has: page.getByTestId(`dtab-${view}`) })).toHaveCount(1)
 }
 
 /** 拖右栏左边的分隔线，把右栏拉宽 dx（右栏默认 340；网页上要框较长的一段时先拉宽，跟人一样） */
@@ -201,7 +241,8 @@ export async function openNote(page: Page, title: string) {
   await expect(tabOn(page)).toHaveText(title)
   const doc = acts(page).getByRole('tab', { name: '文档' })
   if ((await acts(page).getByRole('tab', { name: '白板' }).getAttribute('aria-selected')) === 'true') {
-    await expect(pane(page).getByTestId('board')).toBeVisible()
+    // 白板看法（2026-11-21 起 type: board 也是 doc-board；导图、撤回了转写法的旧白板还是 board）
+    await expect(pane(page).locator('[data-testid="doc-board"], [data-testid="board"]').first()).toBeVisible()
     await page.waitForTimeout(300)
     await doc.click()
   }

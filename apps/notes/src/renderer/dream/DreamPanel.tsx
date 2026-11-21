@@ -12,7 +12,7 @@ import './dream.css'
 import type { DreamPreview } from './preview'
 import { expectDreamChange } from './own-change'
 import { NoteDoc } from '../note-doc'
-import { dreamWhen, errText, GROUPS, pendingOf, takenSay } from './useDream'
+import { bodyEdits, dreamWhen, errText, GROUPS, pendingOf, takenSay } from './useDream'
 import { dreamDoes, type DreamSettings } from '../../shared/dream-settings'
 
 const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', dup: 'copy', week: 'edit' }
@@ -75,6 +75,8 @@ export function DreamPanel(props: {
   let group: DreamGroup | null = null
   const does = dreamDoes(props.settings)
   /** 改完直接收下的那几条（报告顶上一键撤回） */
+  /** 这次真动了正文的几处（按真改动说，没动不提） */
+  const edits = bodyEdits(items)
   const auto = report?.autoTaken ? items.filter((i) => i.taken === report.autoTaken) : []
   return (
     <aside className="side dream-panel" aria-label="梦游报告">
@@ -103,7 +105,12 @@ export function DreamPanel(props: {
           <div className="dsum" data-testid="dream-summary">
             {items.length ? (
               <>
-                {`${dreamWhen(report)}整理了`}<b>{`${items.length}处`}</b>{`。都在${report.branch}分支上${items.some((i) => i.group === 'file') ? '，点「预览」看改好后的样子' : ''}，收下才合进${report.base}，`}<b>你写的正文一个字没动</b>。
+                {`${dreamWhen(report)}整理了`}<b>{`${items.length}处`}</b>{`。都在${report.branch}分支上${items.some((i) => i.group === 'file') ? '，点「预览」看改好后的样子' : ''}，收下才合进${report.base}。`}
+                {edits ? (
+                  <span data-testid="dream-edits">
+                    动了正文的只有：<b>{edits}</b>。
+                  </span>
+                ) : null}
               </>
             ) : (
               <>{`${dreamWhen(report)}梦游了一次，没什么要整理的。`}</>

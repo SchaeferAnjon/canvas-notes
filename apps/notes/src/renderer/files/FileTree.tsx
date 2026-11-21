@@ -14,7 +14,6 @@ import { app } from '../ctx/actions'
 import { FolderRename, RenameInput } from '../note-menu'
 import { HeadBtn, MenuItem, Popover, ViewHead } from '../shell/Shell'
 import { FolderGlyph, LookPicker } from './look'
-import { revealHeading } from './reveal'
 import { fileType, TypeChips, type TypeFilter, useSideType } from './type-filter'
 import './file-tree.css'
 
@@ -272,7 +271,7 @@ export function FileTree(props: {
   }, [type, files])
 
   const pinSet = useMemo(() => new Set(props.pins), [props.pins])
-  const { tree, real, ghosts, attOf, newDirs } = useMemo(() => {
+  const { tree, real, ghosts, attOf, newDirs, keep } = useMemo(() => {
     const opts = { sort: view.sort, foldersFirst: view.foldersFirst, pinsFirst: view.pinsFirst, pins: pinSet }
     let real = new Map<string, string>()
     let ghosts = new Map<string, string>()
@@ -285,7 +284,7 @@ export function FileTree(props: {
       const all = buildTree(list, { ...opts, keep: () => true })
       const recount = (ns: TreeNode[]): number => ns.reduce((s, n) => s + (n.kind === 'dir' ? (n.count = recount(n.children)) : (n.count = attOf.get(n.path)?.length ?? 0)), 0)
       recount(all)
-      return { tree: props.root ? subtree(all, props.root) : all, real, ghosts, attOf, newDirs }
+      return { tree: props.root ? subtree(all, props.root) : all, real, ghosts, attOf, newDirs, keep: undefined }
     }
     const keep = type === 'all' ? undefined : (f: FileEntry) => fileType(f, props.noteTypes) === type
     let list = files
@@ -298,8 +297,15 @@ export function FileTree(props: {
       newDirs = new Set(p.files.flatMap((f) => ancestors(f.path)).filter((d) => !had.has(d)))
     }
     const all = buildTree(list, { ...opts, keep })
-    return { tree: props.root ? subtree(all, props.root) : all, real, ghosts, attOf: null, newDirs }
+    return { tree: props.root ? subtree(all, props.root) : all, real, ghosts, attOf: null, newDirs, keep }
   }, [files, pv, view.sort, view.foldersFirst, view.pinsFirst, pinSet, type, props.noteTypes, props.root, att])
+  // 一个 PDF 一篇笔记：开着的是合进 PDF 那一行的笔记（「单独打开笔记」）时，当前的是 PDF 那一行（选中、定位、自动定位都认它）
+  const activePath = useMemo(() => {
+    const a = props.activePath
+    if (!a || type === 'att') return a
+    const pdf = files.find((f) => f.note?.path === a && (!keep || keep(f)))
+    return pdf ? pdf.path : a
+  }, [props.activePath, files, keep, type])
 
   // 筛了类型（不是「全部」）：装着符合的那几篇的文件夹都展开（CN-104），回到「全部」时回到筛之前的展开。
   // 记在模块里：换到「最近」再回来树是重新挂上的，筛选也是两边共用的
@@ -336,10 +342,10 @@ export function FileTree(props: {
     requestAnimationFrame(() => treeRef.current?.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' }))
   // 自动定位当前文件（VS Code 的 Auto Reveal）：切标签时展开到那一篇、滚过去
   useEffect(() => {
-    if (!props.activePath || !view.autoReveal) return
-    openTo(props.activePath)
-    scrollTo(props.activePath)
-  }, [props.activePath, view.autoReveal])
+    if (!activePath || !view.autoReveal) return
+    openTo(activePath)
+    scrollTo(activePath)
+  }, [activePath, view.autoReveal])
   useEffect(() => {
     try {
       localStorage.setItem(OPEN_KEY, JSON.stringify([...open]))
@@ -364,7 +370,7 @@ export function FileTree(props: {
   /** 新建文件夹放在哪：点过的文件夹；没点过就是开着的文件所在的文件夹；都没有是最外层（摘出来的文件夹里是它自己） */
   const isDir = (p: string) => files.some((f) => f.kind === 'dir' && f.path === p)
   const inRoot = (p: string) => !props.root || p === props.root || p.startsWith(props.root + '/')
-  const around = props.activePath && inRoot(props.activePath) ? (isDir(props.activePath) ? props.activePath : folderOfPath(props.activePath)) : null
+  const around = activePath && inRoot(activePath) ? (isDir(activePath) ? activePath : folderOfPath(activePath)) : null
   const target = picked ?? around ?? props.root ?? ''
   const startFolder = (parent: string) => {
     if (parent) setOpen((o) => new Set([...o, parent, ...ancestors(parent)]))
@@ -385,13 +391,13 @@ export function FileTree(props: {
   }
   /** 定位当前文件：展开到它那一层，滚过去，一圈外圈 2 秒 */
   const reveal = () => {
-    if (!props.activePath) return app().notice('现在没有开着库里的文件')
-    if (!inRoot(props.activePath)) return app().notice(`开着的文件不在「${props.title}」里`)
+    if (!activePath) return app().notice('现在没有开着库里的文件')
+    if (!inRoot(activePath)) return app().notice(`开着的文件不在「${props.title}」里`)
     if (type !== 'all') setType('all')
     setRootOpen(true)
-    openTo(props.activePath)
-    setRing(new Set([props.activePath]))
-    scrollTo(props.activePath)
+    openTo(activePath)
+    setRing(new Set([activePath]))
+    scrollTo(activePath)
   }
   const setV = (patch: Partial<TreeView>) => setView((v) => ({ ...v, ...patch }))
 
@@ -409,14 +415,14 @@ export function FileTree(props: {
   const pick = (e: React.MouseEvent, path: string): boolean => {
     if (e.shiftKey) {
       e.preventDefault()
-      if (!anchor.current) anchor.current = props.activePath && order.includes(props.activePath) ? props.activePath : path
+      if (!anchor.current) anchor.current = activePath && order.includes(activePath) ? activePath : path
       rangeTo(path)
       return true
     }
     if (e.metaKey) {
       e.preventDefault()
       setSel((s) => {
-        const n = new Set(s.size ? s : props.activePath && order.includes(props.activePath) ? [props.activePath] : [])
+        const n = new Set(s.size ? s : activePath && order.includes(activePath) ? [activePath] : [])
         if (n.has(path)) n.delete(path)
         else n.add(path)
         return n
@@ -467,7 +473,7 @@ export function FileTree(props: {
     }
     if (e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
       e.preventDefault()
-      const from = cursor.current && order.includes(cursor.current) ? cursor.current : props.activePath && order.includes(props.activePath) ? props.activePath : order[0]
+      const from = cursor.current && order.includes(cursor.current) ? cursor.current : activePath && order.includes(activePath) ? activePath : order[0]
       if (!from) return
       if (!anchor.current || !order.includes(anchor.current)) anchor.current = from
       const next = order[Math.min(order.length - 1, Math.max(0, order.indexOf(from) + (e.key === 'ArrowDown' ? 1 : -1)))]!
@@ -587,7 +593,7 @@ export function FileTree(props: {
       if (n.kind === 'dir') {
         const isOpen = open.has(n.path)
         const fp = n.path === '课程' ? coursesProgress(n) : folderProgress(n)
-        const on = props.activePath === n.path
+        const on = activePath === n.path
         order.push(n.path)
         rows.push(
           <div
@@ -682,39 +688,39 @@ export function FileTree(props: {
         )
         continue
       }
-      // 软件汇总的（排在课程最上面）和下面自己的笔记之间一条细线
-      const prevAuto = i > 0 && !!nodes[i - 1]!.entry?.auto
-      if (prevAuto && !n.entry?.auto) rows.push(<div key={'sep:' + n.path} className="ft-sep" role="separator" style={{ marginLeft: 36 + depth * 14 }} />)
       const realPath = real.get(n.path) ?? n.path
       const mark = pv?.preview.marks.get(n.path)
       // 「附件」筛选：笔记一行能展开，下面是它的附件
       const items: AttachItem[] | { path: string; bytes: number }[] | undefined = attOf?.get(n.path)
       const attKey = 'att:' + n.path
       const attOpen = !!items && open.has(attKey)
+      // 一个 PDF 一篇笔记：PDF（HTML）和旁边那篇笔记合成一行，右端是笔记里问了几问；点开 PDF，笔记标签跟着开（2026-11-20）
+      const note = n.entry?.note
       order.push(realPath)
       rows.push(
         <div
           key={n.path}
           role="treeitem"
           aria-level={depth + 1}
-          aria-selected={props.activePath === realPath || sel.has(realPath)}
+          aria-selected={activePath === realPath || sel.has(realPath)}
           aria-expanded={items ? attOpen : undefined}
           tabIndex={-1}
           data-path={realPath}
-          className={'si ft-row ft-fit' + (items ? ' att' : '') + (many && sel.has(realPath) ? ' sel' : props.activePath === realPath ? ' on' : '') + (ring?.has(realPath) ? ' ring' : '')}
+          className={'si ft-row ft-fit' + (items ? ' att' : '') + (many && sel.has(realPath) ? ' sel' : activePath === realPath ? ' on' : '') + (ring?.has(realPath) ? ' ring' : '')}
           style={pad}
-          title={n.path}
+          title={note ? `${n.kind === 'pdf' ? 'PDF' : 'HTML'} 和它的笔记是一行：点开 ${n.kind === 'pdf' ? 'PDF' : 'HTML'}，笔记跟着在旁边` : n.path}
+          data-note={note?.path}
           {...selProps(realPath)}
           // 笔记能拖进别的文件夹（松在文件夹那一行上）
           draggable={n.kind === 'md' && !pv && type !== 'att'}
           onDragStart={(e) => dragMany(e, realPath) || ((e.dataTransfer.setData(DRAG_MIME, realPath), (e.dataTransfer.effectAllowed = 'move')))}
           onDragEnd={() => setDropOn(null)}
-          onClick={(e) => pick(e, realPath) || (setPicked(null), props.onOpen(realPath))}
+          onClick={(e) => pick(e, realPath) || (setPicked(null), note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath))}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') props.onOpen(realPath)
+            if (e.key === 'Enter') (note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath))
             if (e.key === 'F2' && /\.md$/i.test(realPath)) setRenaming(realPath)
           }}
-          onContextMenu={(e) => (many && sel.has(realPath) ? groupMenu(e) : onFileMenu(e, realPath, { rename: () => setRenaming(realPath) }))}
+          onContextMenu={(e) => (many && sel.has(realPath) ? groupMenu(e) : onFileMenu(e, realPath, { rename: () => setRenaming(realPath), ...(note ? { note: note.path } : {}) }))}
         >
           <span
             className="ft-tw"
@@ -736,11 +742,6 @@ export function FileTree(props: {
           )}
           {/* PDF、HTML 名字后面一个小标（照 Obsidian）；md 不加（默认状态不加标签） */}
           {(n.kind === 'pdf' || n.kind === 'html') && <span className="ft-ext">{n.kind === 'pdf' ? 'PDF' : 'HTML'}</span>}
-          {n.entry?.auto && (
-            <span className="ft-auto" data-tip={`软件按这里各篇笔记汇总的，${n.entry.auto.count}条；要改就改笔记里那一段`}>
-              自动汇总
-            </span>
-          )}
           {mark && pv && <MovedMark m={mark} pv={pv} />}
           <span className="ft-fl" />
           {n.pinned && (
@@ -749,22 +750,17 @@ export function FileTree(props: {
             </span>
           )}
           {items && <span className="ft-count num">{`${items.length}张`}</span>}
-          {n.entry?.doubts && (
-            <button
-              className="ft-meta ft-doubts num"
-              data-tip={`跳到「${shown(fileName(n.entry.doubts.summary))}」里这一讲`}
-              onClick={(e) => {
-                e.stopPropagation()
-                void revealHeading(n.entry!.doubts!.summary, n.entry!.doubts!.heading)
-              }}
-            >
-              {`疑惑${n.entry.doubts.n}`}
-            </button>
-          )}
-          {n.kind === 'pdf' && (
-            <span className="ft-meta">
-              <Progress p={n.entry?.progress} />
+          {note ? (
+            <span className="ft-nb num" data-testid="ft-note" aria-label={`笔记里问了${note.asks}问`}>
+              <Codicon name="note" size={13} />
+              {note.asks}
             </span>
+          ) : (
+            n.kind === 'pdf' && (
+              <span className="ft-meta">
+                <Progress p={n.entry?.progress} />
+              </span>
+            )
           )}
         </div>,
       )

@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom'
 import { layoutMindmap, wirePath, type Level } from '../../shared/mindmap-layout'
 import { imageSrc } from '../md-widgets'
 import { takeGrow } from './capture-store'
+import { typingIn } from '../typing'
 
 const FONT: Record<Level, string> = { c: '600 15px', l1: '500 13px', l2: '400 13px' }
 let ctx: CanvasRenderingContext2D | null = null
@@ -138,7 +139,8 @@ export function MindmapLayer(p: MindmapLayerProps) {
   }
 
   function onKey(e: React.KeyboardEvent) {
-    if (editing) return
+    // 改节点的字、改拿不准的节点：⌫、回车、方向键都是改字（第 8 轮：输入框里的键不当导图的快捷键）
+    if (editing || typingIn(e.target)) return
     e.stopPropagation()
     if (e.metaKey && e.key.toLowerCase() === 'z') {
       e.preventDefault()

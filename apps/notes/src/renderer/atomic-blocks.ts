@@ -12,8 +12,9 @@ export function blockEndingAt(view: EditorView, pos: number): { from: number; to
   let hit: { from: number; to: number } | null = null
   for (const f of view.state.facet(EditorView.atomicRanges)) {
     f(view).between(Math.max(0, pos - 1), pos, (from, to, d) => {
-      // 画成部件的整块（展开着的折叠块藏起来的 </details> 也是 block，但没有部件，不算）
-      if (to === pos && d.spec.block && d.spec.widget) hit = { from, to }
+      // 画成部件的整块（展开着的折叠块藏起来的 </details> 也是 block，但没有部件，不算）；
+      // 白板文档看法里的列名（layout-lines.ts，spec.fixed）是白板的结构，退格不选中它、不删它
+      if (to === pos && d.spec.block && d.spec.widget && !d.spec.fixed) hit = { from, to }
     })
     if (hit) return hit
   }

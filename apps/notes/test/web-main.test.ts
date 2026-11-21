@@ -10,7 +10,7 @@ const { baseNameFor, saveImage, sniffImage } = await import('../src/main/web/sav
 const { compareVersions, flattenBookmarks, historyRowsToEntries, listChromeExtensions, localizedName } = await import('../src/main/web/chrome-data')
 const { hasAction, missingApis, verdictOf } = await import('../src/main/web/compat')
 const { Bookmarks, History } = await import('../src/main/web/library')
-const { clipFileName, pageClipText } = await import('../src/main/web/page-clip')
+const { clipFileName, localizeImages, pageClipText } = await import('../src/main/web/page-clip')
 
 let root: string
 beforeEach(() => {
@@ -165,6 +165,26 @@ it('图片附件：按文件头认格式，名字取说明或网址最后一段�
   expect(await saveImage(root, ses, { kind: 'bytes', bytes: png, type: 'image/png', name: 'image.png' }, undefined, { note: '课程/未命名 3.md', shot: true })).toBe('附件/课程/未命名 3/截图 1.png')
   expect(await saveImage(root, ses, { kind: 'bytes', bytes: png, type: 'image/png', name: 'image.png' }, undefined, { note: '课程/未命名 3.md', shot: true })).toBe('附件/课程/未命名 3/截图 2.png')
   expect(await saveImage(root, ses, { kind: 'bytes', bytes: png, type: 'image/png' }, '黑沙滩', { note: '课程/未命名 3.md' })).toBe('附件/课程/未命名 3/黑沙滩.png')
+})
+
+it('整页剪藏顺手把网上的图存进这篇的附件、正文改成相对路径（第 8 轮）：套着链接的图只留图，同一张只存一次，存不下的留网址', async () => {
+  const text =
+    '# 冰岛\n\n![黑沙滩](https://x.test/a.png)\n\n[![](https://x.test/b%20c.jpg?w=250)](https://x.test/File:b)\n\n再来一次 ![](https://x.test/a.png) 在字里。\n\n![坏的](https://x.test/404.png)\n\n![本地](附件/已有.png)\n'
+  const asked: string[] = []
+  const save = async (url: string) => {
+    asked.push(url)
+    if (url.includes('404')) throw new Error('图片下载失败（404）')
+    return url.includes('a.png') ? '附件/收件箱/冰岛/a.png' : '附件/收件箱/冰岛/b c.jpg'
+  }
+  const out = await localizeImages(text, '收件箱/冰岛.md', save)
+  expect(asked.sort()).toEqual(['https://x.test/404.png', 'https://x.test/a.png', 'https://x.test/b%20c.jpg?w=250'])
+  expect(out.files.sort()).toEqual(['附件/收件箱/冰岛/a.png', '附件/收件箱/冰岛/b c.jpg'])
+  expect(out.text).toBe(
+    '# 冰岛\n\n![黑沙滩](../附件/收件箱/冰岛/a.png)\n\n![](../附件/收件箱/冰岛/b%20c.jpg)\n\n再来一次 ![](../附件/收件箱/冰岛/a.png) 在字里。\n\n![坏的](https://x.test/404.png)\n\n![本地](附件/已有.png)\n',
+  )
+  // 过了时限还没轮到的留网址
+  const late = await localizeImages(text, '收件箱/冰岛.md', save, { deadline: Date.now() - 1 })
+  expect(late).toEqual({ text, files: [] })
 })
 
 it('整页剪藏的文件：文件名去掉网站名尾巴，frontmatter 带 created 和 source，正文前面是标题和来源', () => {

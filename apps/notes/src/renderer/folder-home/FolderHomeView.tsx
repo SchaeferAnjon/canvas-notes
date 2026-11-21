@@ -84,6 +84,8 @@ export function FolderHomeView(props: {
   const [home, setHome] = useState<FolderHome | null>(null)
   const [files, setFiles] = useState<PropFile[]>([])
   const [doubts, setDoubts] = useState<DoubtItem[]>([])
+  /** 看视频时框一块问的（文档里的问答块）有几处：「我的疑惑」组件的「全部 N 条」也算它们 */
+  const [videoDoubts, setVideoDoubts] = useState(0)
   const [editing, setEditing] = useState(!!props.fresh)
   /** 标题是改名输入框：刚新建时、双击标题后 */
   const [naming, setNaming] = useState(!!props.fresh)
@@ -125,7 +127,7 @@ export function FolderHomeView(props: {
   useEffect(() => {
     if (kind !== 'course') return
     let stale = false
-    window.cnReading.doubts(folder).then((v) => !stale && setDoubts(v.items), (e) => props.onNotice(errText(e)))
+    window.cnReading.doubts(folder).then((v) => !stale && (setDoubts(v.items), setVideoDoubts(v.videos.length)), (e) => props.onNotice(errText(e)))
     return () => {
       stale = true
     }
@@ -184,7 +186,7 @@ export function FolderHomeView(props: {
         },
       }
     : {}
-  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, onDoubts: () => props.onOpenDoubts(folder), doubts, onAll: props.onOpenAll, onCapture: () => openCapture({ course: title }), save, home, id })
+  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, onDoubts: () => props.onOpenDoubts(folder), doubts, videoDoubts, onAll: props.onOpenAll, onCapture: () => openCapture({ course: title }), save, home, id })
   const inFolder = files.filter((f) => f.path.startsWith(folder + '/'))
   const lead = folderLead(folder, inFolder, { courses })
   const coverY = adjustY ?? home.coverY

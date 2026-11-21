@@ -10,8 +10,9 @@
  * 和我们工具改的一起提交成「AI：…」（编辑器自己存的字、软件自己写的不算，除非监听看到外面又改了它）。
  */
 import { app, type BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { realpathSync } from 'node:fs'
 import { rename } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import * as git from '@cn/git'
 import type { AgentContext, AiAct, AiActArea, AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from '../../shared/agent'
 import type { AiCommitFailed, CommitInfo } from '../../shared/api'
@@ -26,7 +27,7 @@ import type { Vault } from '../vault'
 import type { Size } from './board-ops'
 import { describeContext } from './context'
 import { checkCli, checkedCli, COMMAND, findCli, forgetChecks, INSTALL_HINT, loadShellPath, locateCli, pickedCli, setCustomCli, whereOf } from './cli'
-import { claudeEngine, codexEngine, codexModelList, type Engine, type EngineOutcome, type EngineRun, geminiEngine, LABELS, opencodeEngine } from './engines'
+import { claudeEngine, codexEngine, codexModelList, type Engine, type EngineOutcome, type EngineRun, geminiEngine, LABELS, opencodeEngine, sessionOf } from './engines'
 import { fakeCodexModels, fakeEngine } from './fake-engine'
 import { pastedImages } from '../pasted'
 import { type McpServer, startMcpServer } from './mcp-server'
@@ -58,14 +59,15 @@ ${MODES_RULE}
 规矩：
 - 用户在看网页就用 web_*，在白板上就用 board_*，在文档里就用 doc_*；每条消息开头写着用户现在在看什么。
 - 新建、改名、挪动、删掉库里的笔记优先用 canvas 这组工具（链接、附件、开着的编辑器跟着走）；全能模式下别的事可以直接写文件、跑命令。不管怎么改，这一轮结束软件把库里的改动提交一次，用户能一键撤回，所以直接做，不用先问。
+- 不管用哪种办法改了库里的文件（canvas 工具、自己写文件、跑命令），开着的编辑器当场换成新内容，用户正在打的字会合并进来，不用叫用户关掉标签再打开。
 - 做完用一两句话说做了什么。用中文回答，平实、直接，不客套。不编造笔记里没有的事。
 - ${MATH_RULE}`
 
 /**
  * AGENT_SYSTEM 改过就加一：Claude Code 接着聊时一直用会话第一次的系统提示（--system-prompt-snapshot），
- * 版本对不上的会话不再接着聊，开新会话、补上最近几轮（2：全能模式、笔记和文件夹那组工具）
+ * 版本对不上的会话不再接着聊，开新会话、补上最近几轮（2：全能模式、笔记和文件夹那组工具；3：改了开着的文件编辑器当场换）
  */
-export const AGENT_VERSION = 2
+export const AGENT_VERSION = 3
 
 let engines: Partial<Record<EngineId, Engine>> = {}
 
@@ -95,6 +97,15 @@ interface Turn {
   external: Set<string>
   /** 这一轮改名、挪动了的：新路径 → 旧路径（改动预览里一行写「旧 → 新」） */
   moved: Map<string, string>
+  /** 全能模式：命令行自己的写文件、改文件那几步点了名的库里文件 */
+  named: Set<string>
+  /**
+   * 全能模式：这一轮跑过命令、开过子 Agent 这类说不清改了哪些文件的步骤。没跑过时，库里多出来的改动只算点了名的；
+   * 跑过就分不清（命令能改任何文件），都算这一轮的
+   */
+  shell: boolean
+  /** 这一轮开始前就有、开始时没提交上（锁一直不放）的改动：不算 AI 的，结束时先单独提交 */
+  before: Set<string>
   /** 字和步骤发给界面（AI 对话：ai:event；读 PDF：reading:event） */
   emit(e: AiEvent): void
 }
@@ -444,17 +455,55 @@ function tokenFor(server: McpServer, id: EngineId): { token: string; own: boolea
   return { token: tk, own: false }
 }
 
-/** 全能模式开始一轮前：用户没提交的字先提交掉（软件自己的文件不算），这一轮结束时库里多出来的改动就是 AI 的 */
-async function commitUserPending(root: string) {
+/**
+ * 全能模式开始一轮前：工作区里已经有的改动（用户的字、软件外面删的附件……，软件自己的文件不算）先单独提交，说明照改了什么写
+ * （「删除 15 个文件：…」），这一轮结束时库里多出来的改动才是这一轮的。返回没提交上的那几个（结束时也不算 AI 的）
+ */
+async function commitUserPending(root: string): Promise<string[]> {
   const st = (await git.status(root)).filter((s) => !git.isInternalPath(s.path))
-  if (!st.length) return
+  if (!st.length) return []
   try {
     await git.commitPaths(root, st.map((s) => s.path), git.describeChanges(st))
+    return []
   } catch (e) {
-    // 提交不上（没署名、锁一直不放）：不挡着这一轮，用户的字留在工作区，这一轮结束时一起算进 AI 那次
+    // 提交不上（没署名、锁一直不放）：不挡着这一轮；这几个记下来，结束时不算进 AI 那次，先单独再提交一次
     if (!(e instanceof git.GitError)) throw e
-    console.error('全能模式开始前提交用户的字没成功', e.message)
+    console.error('全能模式开始前提交工作区的改动没成功', e.message)
+    return st.map((s) => s.path)
   }
+}
+
+/** 命令行自己那几步里只读的（不改文件）；别的不认识的一律当成说不清改了什么 */
+const READ_ONLY_STEPS = new Set(['Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite', 'Skill', 'LS', 'ToolSearch'])
+/** 点了名改哪个文件的几步：工具名 → 路径在哪个字段 */
+const FILE_STEPS: Record<string, string> = { Write: 'file_path', Edit: 'file_path', MultiEdit: 'file_path', NotebookEdit: 'notebook_path', Delete: 'file_path' }
+
+/** 命令行这一步动了什么：点了名的库里文件记进 named（写到库外面的不管），说不清的（跑命令、子 Agent、不认识的）记 shell */
+function noteStep(t: Turn, root: string, tool: string, input: Record<string, unknown>) {
+  const key = FILE_STEPS[tool]
+  if (!key) {
+    if (!READ_ONLY_STEPS.has(tool)) t.shell = true
+    return
+  }
+  const all = [input[key], ...(Array.isArray(input.paths) ? input.paths : [])].filter((x): x is string => typeof x === 'string')
+  for (const p of all) {
+    const rel = vaultRel(root, p)
+    if (rel) t.named.add(rel)
+  }
+}
+
+/** 命令行给的路径（绝对的、相对库的；macOS 上 /var 和 /private/var 是同一处）换成库里的相对路径，不在库里是 null */
+function vaultRel(root: string, p: string): string | null {
+  if (!p) return null
+  const abs = isAbsolute(p) ? p : join(root, p)
+  let real = root
+  try {
+    real = realpathSync(root)
+  } catch {
+    // 库目录读不到：只按给的路径比
+  }
+  for (const r of [root, real]) if (abs.startsWith(r + '/')) return abs.slice(r.length + 1)
+  return null
 }
 
 /**
@@ -463,13 +512,25 @@ async function commitUserPending(root: string) {
  */
 async function commitTurn(v: Vault, t: Turn, message: string): Promise<{ commit: CommitInfo | null; kinds: Record<string, string>; failed?: AiCommitFailed }> {
   const kinds: Record<string, string> = Object.fromEntries(t.touched)
+  /** 库里多出来的、不是这一轮 AI 改的：开始前就有、没提交上的；AI 没跑过命令时它没点名的（访达里删的、别的程序写的） */
+  const others: git.FileStatus[] = []
   if (t.omni)
     for (const s of await git.status(v.root)) {
       if (git.isInternalPath(s.path) || kinds[s.path]) continue
       // 软件自己写过的（编辑器存的字）不算，除非外面又改了它：监听报过的，或者磁盘上已经不是软件最后写下的（监听还没来得及报）
       if (t.own.has(s.path) && !t.external.has(s.path) && !(/\.md$/i.test(s.path) && (await v.changedOutside(s.path)))) continue
+      if (!t.named.has(s.path) && (t.before.has(s.path) || !t.shell)) {
+        others.push(s)
+        continue
+      }
       kinds[s.path] = s.code.includes('D') ? '删' : s.code === '??' || s.code[0] === 'A' ? '新' : '改'
     }
+  // 不是 AI 的先单独提交一次，说明照改了什么写（「删除 15 个文件：…」），不挂 AI 的名字；提交不上就留在工作区，等下次自动提交
+  if (others.length)
+    await git.commitPaths(v.root, others.map((s) => s.path), git.describeChanges(others)).catch((e: unknown) => {
+      if (!(e instanceof git.GitError)) throw e
+      console.error('这一轮里不是 AI 的改动提交失败', e.message)
+    })
   const paths = Object.keys(kinds)
   if (!paths.length) return { commit: null, kinds }
   try {
@@ -488,6 +549,8 @@ export interface AgentTurnResult {
   outcome: EngineOutcome | null
   /** 中途出错或停下（已经改了的照样提交了） */
   error?: string
+  /** 中途出错或停下时的会话号（答完的在 outcome 里） */
+  session?: string
   commit: CommitInfo | null
   kinds: Record<string, string>
   /** 改好了、提交没成功 */
@@ -511,15 +574,17 @@ export async function runAgentTurn(o: {
   run: Omit<EngineRun, 'cwd' | 'mcp' | 'omni' | 'onStep' | 'signal'>
 }): Promise<AgentTurnResult> {
   const v = needVault()
-  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), emit: o.emit }
+  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), emit: o.emit }
   let outcome: EngineOutcome | null = null
   let error: string | undefined
+  /** 没答完（停下、出错）时引擎给的会话号：已经做了的几步在这个会话里，「接着做」接着它 */
+  let session: string | undefined
   let token: { token: string; own: boolean } | null = null
   liveTurns.add(t)
   turns.set(o.id, o.ac)
   try {
     await bridge('saveAll')
-    if (o.omni) await commitUserPending(v.root)
+    if (o.omni) for (const p of await commitUserPending(v.root)) t.before.add(p)
     const server = await ensureMcp()
     token = tokenFor(server, o.engine)
     if (token.own) byToken.set(token.token, t)
@@ -529,11 +594,15 @@ export async function runAgentTurn(o: {
       mcp: { url: server.url, token: token.token, tools: toolSpecs().map((x) => x.name) },
       omni: o.omni,
       // 命令行自己的那一步（全能模式下跑命令、写文件、上网搜）：在做转圈、做完绿勾，和我们工具的步骤行一样
-      onStep: (st) => o.emit({ type: 'tool', id: `${t.id}-${st.id}`, ...stepLabel(st.tool, st.input, v.root), status: st.status, ...(st.detail ? { detail: st.detail } : {}) }),
+      onStep: (st) => {
+        if (st.status === 'run') noteStep(t, v.root, st.tool, st.input)
+        o.emit({ type: 'tool', id: `${t.id}-${st.id}`, ...stepLabel(st.tool, st.input, v.root), status: st.status, ...(st.detail ? { detail: st.detail } : {}) })
+      },
       signal: o.ac.signal,
     })
   } catch (e) {
     error = (e as Error).name === 'AbortError' || o.ac.signal.aborted ? '停下了' : String((e as Error).message ?? e)
+    session = sessionOf(e)
   } finally {
     liveTurns.delete(t)
     turns.delete(o.id)
@@ -547,7 +616,7 @@ export async function runAgentTurn(o: {
   }
   const { commit, kinds, failed } = await commitTurn(v, t, `AI：${subject(o.subject)}`)
   const moved = t.moved.size ? Object.fromEntries(t.moved) : undefined
-  return { outcome, ...(error ? { error } : {}), commit, kinds, ...(failed ? { failed } : {}), ...(moved ? { moved } : {}) }
+  return { outcome, ...(error ? { error } : {}), ...(session ? { session } : {}), commit, kinds, ...(failed ? { failed } : {}), ...(moved ? { moved } : {}) }
 }
 
 /** 软件自己写了库里这个文件（编辑器存字、剪藏、速记、改名挪动）：正在答的全能模式那几轮不把它算成 AI 改的 */
@@ -583,6 +652,7 @@ function placeOf(p: unknown): { key: string; label: string } | null {
 
 async function runTurn(req: TurnRequest): Promise<TurnResult> {
   if (!IDS.includes(req.engine) || typeof req.text !== 'string' || typeof req.id !== 'number') throw new Error('AI 参数不对')
+  if (req.subject !== undefined && (typeof req.subject !== 'string' || !req.subject.trim() || req.subject.length > 400)) throw new Error('AI 参数不对')
   const place = placeOf(req.place)
   const mats = checkMaterials(req.mats)
   if (dockBusy) throw new Error('上一轮还没做完，等它做完或者先停下')
@@ -608,7 +678,7 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
       engine: req.engine,
       omni,
       ac,
-      subject: req.text,
+      subject: req.subject ?? req.text,
       emit: (e) => emit(req.id, e),
       run: {
         ...picked,
@@ -625,7 +695,9 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
       },
     })
     text = (r.outcome?.text || text).replace(/\n{3,}/g, '\n\n')
-    if (place && r.outcome) store.setSession(v.root, place.key, req.engine, r.outcome.session, AGENT_VERSION)
+    // 没答完也记下会话号：「接着做」、接着问都接着这个会话，不开新会话（以前只记答完的，停下以后下一问从头开、只补几句之前聊过的）
+    const session = r.outcome?.session ?? r.session
+    if (place && session) store.setSession(v.root, place.key, req.engine, session, AGENT_VERSION)
     return { text, commit: r.commit, kinds: r.kinds, ...(r.error ? { error: r.error } : {}), ...(r.failed ? { failed: r.failed } : {}), ...(r.moved ? { moved: r.moved } : {}) }
   } finally {
     dockBusy = false

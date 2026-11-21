@@ -28,7 +28,7 @@ export function usesOf(p: AiPrefs, installed: (id: EngineId) => boolean = () => 
   return out
 }
 
-/** ⌘K 和 AI 输入框里的 / 命令交给谁跑。找重复是本机比对文字，剪藏当前网页只抽正文存进收件箱，都不经 AI 引擎 */
+/** ⌘K 和 AI 输入框里的 / 命令交给谁跑。找重复是本机比对文字，剪藏这一页只抽正文存进收件箱，都不经 AI 引擎 */
 const COMMAND_JOB: Record<string, AiJob> = {
   整理收件箱: 'chat',
   整理当前白板: 'chat',

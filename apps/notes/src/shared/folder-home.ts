@@ -4,6 +4,7 @@
  * 页面只是看法：删组件、换排法、恢复默认都不删不挪任何文件。
  * 设置存在那个文件夹里的 .首页.json（跟着 Git 走）；模板存在 课程/.首页模板.json、项目/.首页模板.json。纯函数，主线和界面都用。
  */
+import { notePathFor } from '@cn/format'
 import { categoryOf, isCategory } from './categories'
 import type { Cover } from './home'
 import { type FolderColor, FOLDER_COLORS } from './left'
@@ -274,7 +275,10 @@ export function folderLead(folder: string, files: PropFile[], opts: { courses?: 
   // 几讲：认得出第几讲的按讲数；认不出的课件 PDF（名字里没有「第 N 讲」「Lecture N」）每份也算一讲，和左栏「0/5 讲」数得一样
   const lectures = kind === 'course' ? new Set(files.map((f) => Number(f.props['第几讲'])).filter((x) => x > 0)).size + files.filter((f) => f.props['类型'] === '课件' && !(Number(f.props['第几讲']) > 0)).length : 0
   const t = files.reduce((m, f) => Math.max(m, f.mtimeMs), 0)
-  return [...head, ...(lectures ? [`${lectures}讲`] : []), `${files.length}篇`, `改于${when(t, { time: true, now: opts.now })}`].join(' · ')
+  // 一个 PDF 一篇笔记（2026-11-20）：PDF（HTML）和它旁边那篇笔记算一篇，和左栏那一行、「里面有什么」数得一样
+  const merged = new Set(files.flatMap((f) => (/\.(pdf|html?)$/i.test(f.path) ? [notePathFor(f.path)] : [])))
+  const n = files.filter((f) => !merged.has(f.path)).length
+  return [...head, ...(lectures ? [`${lectures}讲`] : []), `${n}篇`, `改于${when(t, { time: true, now: opts.now })}`].join(' · ')
 }
 
 export const NOTES_COND: Cond = {

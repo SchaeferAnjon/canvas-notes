@@ -62,12 +62,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.trash-imgs .thumbs {
+.trash-imgs .trash-thumbs {
   flex: none;
   display: flex;
   gap: 4px;
 }
-.trash-imgs .thumbs img {
+.trash-imgs .trash-thumbs img {
   width: 36px;
   height: 28px;
   object-fit: cover;

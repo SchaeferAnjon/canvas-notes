@@ -71,6 +71,8 @@ async function vaultCommand(said: string, call: (name: string, args: Record<stri
   if (/^删掉「/.test(said)) return call('note_delete', { path: q[0] })
   if (/^新建文件夹「/.test(said)) return call('folder_create', { name: q[0], ...(q[1] !== undefined ? { parent: q[1] } : {}) })
   if (/^在「[^」]*」末尾加上「/.test(said)) return call('note_write', { path: q[0], text: q[1], mode: 'append' })
+  // 整篇换掉（新内容从本机的一个文件里读，测试用整篇长笔记）
+  if (/^整篇改写「[^」]*」照「/.test(said)) return call('note_write', { path: q[0], text: readFileSync(q[1]!, 'utf8'), mode: 'replace' })
   return null
 }
 
@@ -193,6 +195,22 @@ export function fakeEngine(id: EngineId): Engine {
         return { text, session }
       }
 
+      // 一轮做到一半断了（像 Claude Code 中途退出、按了停下）：读了一样、说了半句就断，会话号照真的样子跟着错误给出来；
+      // 「接着做」时说清是不是接着那个会话
+      if (said.includes('做到一半就断') || said.includes('慢慢做')) {
+        r.onStep?.({ id: 'r1', tool: 'Read', input: { file_path: join(r.cwd, '附件/截图 9.png') }, status: 'run' })
+        r.onStep?.({ id: 'r1', tool: 'Read', input: { file_path: join(r.cwd, '附件/截图 9.png') }, status: 'ok' })
+        await say('正在把这篇按章节重排')
+        const session = r.session ?? `fake-cut-${id}`
+        // 慢慢做：跑着一条命令，一直到用户按停下（这一步不会再报做完）
+        if (said.includes('慢慢做')) r.onStep?.({ id: 'b1', tool: 'Bash', input: { command: 'python3 /tmp/fix.py' }, status: 'run' })
+        while (said.includes('慢慢做') && !r.signal.aborted) await sleep(50)
+        throw Object.assign(r.signal.aborted ? Object.assign(new Error('停下了'), { name: 'AbortError' }) : new Error('Claude Code 退出了（143）'), { session })
+      }
+      if (/^接着做/.test(said)) {
+        await say(r.session ? `接着会话 ${r.session} 做完了。` : '这是新会话，不记得刚才做到哪。')
+        return { text, session: r.session ?? `fake-${id}` }
+      }
       // 右下角 AI 浮窗也能演被拦（同读 PDF 那条）：看出错那一句在浮窗里的样子
       if (said.includes('假装被拦'))
         throw new Error("API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). Please try rephrasing your request. Request ID: req_011FAKE")
@@ -208,19 +226,22 @@ export function fakeEngine(id: EngineId): Engine {
         return { text, session: `fake-${id}` }
       }
       // 全能模式：像 Claude Code 自己用 Write 那样直接写一个文件（不走我们的工具），报成步骤；关着就说做不了、请用户打开全能模式
-      if (/^自己写文件「/.test(said)) {
+      if (/^(自己写文件|跑命令写文件)「/.test(said)) {
+        // 跑命令写：像 Claude Code 用 Bash 跑 python 那样写（步骤是「跑命令」，看不出改了哪个文件）
+        const bash = said.startsWith('跑命令')
         const [file, body] = [...said.matchAll(/「([^」]*)」/g)].map((m) => m[1]!)
         if (!r.omni) {
           await say('全能模式关着，我不能自己写文件。请在 AI 输入框下面打开「全能模式」再说一次。')
           return { text, session: `fake-${id}` }
         }
         const abs = file!.startsWith('/') ? file! : join(r.cwd, file!)
-        r.onStep?.({ id: 'w1', tool: 'Write', input: { file_path: abs }, status: 'run' })
+        const step = bash ? { tool: 'Bash', input: { command: 'python3 /tmp/fix.py' } } : { tool: 'Write', input: { file_path: abs } }
+        r.onStep?.({ id: 'w1', ...step, status: 'run' })
         mkdirSync(dirname(abs), { recursive: true })
         writeFileSync(abs, body ?? '')
         // CN_FAKE_OWN_MS：写完多等一会儿再答（测试在这一会儿里往编辑器里打字，看提交里不带用户的字）
         await sleep(Number(process.env.CN_FAKE_OWN_MS ?? 0))
-        r.onStep?.({ id: 'w1', tool: 'Write', input: { file_path: abs }, status: 'ok' })
+        r.onStep?.({ id: 'w1', ...step, status: 'ok' })
         await say(`写好了 ${file}。`)
         return { text, session: `fake-${id}` }
       }

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { launch, pane, rail, waitSaved, tabOn, railItems, openInboxTab, leftView } from './app'
+import { launch, pane, rail, waitSaved, tabOn, railItems, openInboxTab, leftView, webAboveAi } from './app'
 import { ICELAND, LODGING } from './fixtures/board'
 
 const ai = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
@@ -40,7 +40,7 @@ test('首页：这周攒下几样、本周积累和收件箱组件、积累墙�
     await expect(page.locator('.thumbs .th')).toHaveCount(2)
     await expect(page.locator('.th', { hasText: '冰岛自驾' }).locator('.p i')).not.toHaveCount(0)
     await page.locator('.th', { hasText: '冰岛自驾' }).click()
-    await expect(pane(page).getByTestId('board')).toBeVisible()
+    await expect(pane(page).getByTestId('doc-board')).toBeVisible()
   } finally {
     await run.close()
   }
@@ -51,6 +51,9 @@ test('AI：/ 菜单筛选和键盘选；/总结这块白板 → 存成卡片 →
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
+    // 以前写法的白板打开时转成「## 列名」、单独一次提交（之后的提交数从这里数）
+    await expect.poll(() => lastSubject(vault)).toBe('白板改成按「##」分列：冰岛自驾')
+    const converted = readFileSync(join(vault, '冰岛自驾.md'), 'utf8')
     await openAi(page)
     await expect(page.getByTestId('ai-sees')).toContainText('白板：冰岛自驾')
     const box = ai(page).getByRole('textbox', { name: '问 AI' })
@@ -60,23 +63,24 @@ test('AI：/ 菜单筛选和键盘选；/总结这块白板 → 存成卡片 →
     await expect(ai(page).getByRole('option')).toHaveCount(1)
     await box.press('Enter')
     const msg = ai(page).getByTestId('ai-msg').last()
-    await expect(msg).toContainText('读了 冰岛自驾.md · 7张卡片')
+    // 转好以后 8 张：开头那一句、空白处 5 张、「极光看哪两晚」里 2 张
+    await expect(msg).toContainText('读了 冰岛自驾.md · 8张卡片')
     await expect(msg).toContainText('这块白板讲了三件事')
     await msg.getByRole('button', { name: '存成卡片' }).click()
-    await expect(msg).toContainText('存到了白板左下角')
+    await expect(msg).toContainText('存到了白板最左一组的最上面')
     await expect(msg.getByTestId('ai-change')).toContainText('改了1个文件')
-    const card = pane(page).locator('.bcard', { hasText: '这块白板讲了三件事' })
-    await expect(card).toContainText('AI总结的 ·')
+    const card = pane(page).locator('.db-card', { hasText: '这块白板讲了三件事' })
+    await expect(card.locator('.aifoot')).toContainText('AI 总结的 ·')
     expect(lastSubject(vault)).toBe('AI：总结「冰岛自驾」存成卡片')
     expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('这块白板讲了三件事')
-    await expect(page.getByTestId('week-commits')).toHaveText('本周2次提交')
+    await expect(page.getByTestId('week-commits')).toHaveText('本周3次提交')
 
     await msg.getByRole('button', { name: '撤回' }).click()
     await expect(msg.getByTestId('ai-change')).toContainText('已撤回')
     await expect(card).toHaveCount(0)
-    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(ICELAND)
+    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(converted)
     expect(lastSubject(vault)).toBe('撤回AI：总结「冰岛自驾」存成卡片')
-    await expect(page.getByTestId('week-commits')).toHaveText('本周3次提交')
+    await expect(page.getByTestId('week-commits')).toHaveText('本周4次提交')
 
     // 打错命令
     await box.fill('/没有这个')
@@ -91,7 +95,8 @@ test('AI：用户没提交的字先单独提交，撤回 AI 的改动不带走�
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
-    await pane(page).getByTestId('board').locator('.bcard[data-id="k1"]').dblclick()
+    await pane(page).getByTestId('doc-board').locator('.db-card[data-id="k1"]').dblclick()
+    await expect(pane(page).getByRole('textbox', { name: '卡片内容' })).toBeFocused()
     await page.keyboard.press('Meta+a')
     await page.keyboard.type('用户自己改的')
     await page.keyboard.press('Meta+Enter')
@@ -106,7 +111,7 @@ test('AI：用户没提交的字先单独提交，撤回 AI 的改动不带走�
     const md = readFileSync(join(vault, '冰岛自驾.md'), 'utf8')
     expect(md).toContain('用户自己改的')
     expect(md).not.toContain('这块白板讲了三件事')
-    await expect(pane(page).locator('.bcard[data-id="k1"]')).toHaveText('用户自己改的')
+    await expect(pane(page).locator('.db-card[data-id="k1"]')).toHaveText('用户自己改的')
   } finally {
     await run.close()
   }
@@ -117,18 +122,23 @@ test('AI：/写成文章 新建一篇草稿，左栏「我写的」多一篇标�
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
+    // 以前写法的白板打开时转成「## 列名」、单独一次提交（之后的提交数从这里数）
+    await expect.poll(() => lastSubject(vault)).toBe('白板改成按「##」分列：冰岛自驾')
+    const converted = readFileSync(join(vault, '冰岛自驾.md'), 'utf8')
     await openAi(page)
     await send(page, '/写成文章')
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg.locator('.dprev')).toContainText('冰岛自驾：文章草稿')
     await expect(msg.getByTestId('ai-change')).toContainText('新')
-    const draft = join(vault, '冰岛自驾：文章草稿.md')
+    // 白板在库最外层：草稿进收件箱（task-9womr：以前落在库最外层），卡片上写出文件夹
+    await expect(msg.locator('.dprev .dmeta code')).toHaveText('收件箱/冰岛自驾：文章草稿.md')
+    const draft = join(vault, '收件箱/冰岛自驾：文章草稿.md')
     expect(readFileSync(draft, 'utf8')).toMatch(/^---\ndraft: true\nfrom: "\[\[冰岛自驾\]\]"\n---\n# 冰岛自驾\n/)
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾：文章草稿' })).toContainText('草稿')
     await msg.getByRole('button', { name: '打开' }).click()
     await expect(tabOn(page)).toHaveText('冰岛自驾：文章草稿')
     expect(lastSubject(vault)).toBe('AI：按「冰岛自驾」写成文章草稿')
-    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(ICELAND)
+    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(converted)
   } finally {
     await run.close()
   }
@@ -193,12 +203,16 @@ test('AI：/翻译 选中的那段；@ 引用笔记加进「看得到」；⌘J 
 
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toBeHidden()
-    // 右栏开着历史时再开 AI（AI 只住右栏，第 2a 段）：历史在上、AI 在下，各一半高，同一列；竖条里没有 AI
+    // 右栏开着历史时再开 AI（AI 只住右栏，第 2a 段；竖条里没有 AI）。工作区方向 A（task-9okg5）：AI 和历史叠成一组两个标签、
+    // AI 在前面占满整栏（不硬切上下两截）；把历史拖到上半（真拖）才是历史在上、AI 在下，各一半高，同一列
     await rail(page).getByRole('button', { name: '历史' }).click()
     await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toBeVisible()
     const history = page.getByRole('complementary', { name: '历史' })
+    await expect(history).toBeHidden()
+    await expect(page.getByTestId('dtab-history')).toHaveAttribute('aria-selected', 'false')
+    await webAboveAi(page, 'history')
     await expect(history).toBeVisible()
     const center = (await page.locator('main.center').boundingBox())!
     const panel = (await ai(page).boundingBox())!

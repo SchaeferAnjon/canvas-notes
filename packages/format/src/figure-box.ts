@@ -35,6 +35,16 @@ export function toPageRect(r: Rect, crop?: Rect): Rect {
   return [crop[0] + r[0] * crop[2], crop[1] + r[1] * crop[3], r[2] * crop[2], r[3] * crop[3]]
 }
 
+/**
+ * AI 配的图八成以上落在我框的那块里：笔记里已经有「我框的」截图，这张算重了，不再画第二遍
+ * （2026-11-20 真 AI 验收：框了公式那块，AI 配的图是同一块，笔记里同一块字出现两遍）
+ */
+export function insideCrop(fig: Rect, crop: Rect): boolean {
+  const w = Math.min(fig[0] + fig[2], crop[0] + crop[2]) - Math.max(fig[0], crop[0])
+  const h = Math.min(fig[1] + fig[3], crop[1] + crop[3]) - Math.max(fig[1], crop[1])
+  return w > 0 && h > 0 && (w * h) / (fig[2] * fig[3]) >= 0.8
+}
+
 /** 框合不合理：在页面里、不太小（面积 2% 以上、宽高都 8% 以上）、不是几乎整页（面积 85% 以下） */
 export function saneFigure(r: Rect): boolean {
   const [x, y, w, h] = r

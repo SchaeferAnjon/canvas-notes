@@ -26,9 +26,10 @@ export function loadSideW(): number | null {
 
 /**
  * 窗口变窄时左右栏实际画多宽（记住的宽度不改，窗口再拉宽就回来）：中间至少留 420；
- * 先收右栏（到 300），再收左栏（到 200），还不够右栏接着让。side、right 是 0 表示收起着。
+ * 先收右栏（到 300；右边开着几栏时 rightMin 是每栏 300 加起来），再收左栏（到 200），还不够右栏接着让。side、right 是 0 表示收起着。
+ * right 是右边几栏加起来的宽，各栏怎么分在 shared/dock.ts 的 fitCols
  */
-export function fitPanels(winW: number, abars: number, side: number, right: number): { side: number; right: number } {
+export function fitPanels(winW: number, abars: number, side: number, right: number, rightMin = RIGHT_MIN): { side: number; right: number } {
   let over = abars + side + right + CENTER_MIN - winW
   if (over <= 0) return { side, right }
   const cut = (w: number, min: number) => {
@@ -36,7 +37,7 @@ export function fitPanels(winW: number, abars: number, side: number, right: numb
     over -= c
     return w - c
   }
-  let r = right > 0 ? cut(right, RIGHT_MIN) : 0
+  let r = right > 0 ? cut(right, rightMin) : 0
   const s = side > 0 ? cut(side, SIDE_MIN) : 0
   if (over > 0 && r > 0) r = cut(r, 0)
   return { side: Math.round(s), right: Math.round(r) }

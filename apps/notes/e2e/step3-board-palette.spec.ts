@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { gitStatus, launch, pane, rail, waitSaved, tabOn } from './app'
+import { acts, foldInbox, gitStatus, launch, pane, rail, waitSaved, tabOn } from './app'
 
 // 工具板上的卡片、待办、列、子白板：按住拖到白板上，在松手处新建（用户 2026-11-15：「这些需要可以直接拖动到白板。」）
 
@@ -29,6 +29,7 @@ async function openBoard(page: Page, name: string) {
   await page.locator('.nav .si', { hasText: new RegExp(`^${name}`) }).first().click()
   await expect(tabOn(page)).toHaveText(name)
   await expect(board(page)).toBeVisible()
+  await foldInbox(page)
 }
 
 async function mid(page: Page, name: string) {
@@ -64,8 +65,14 @@ function expectNear(m: RegExpMatchArray | null, want: { x: number; y: number }) 
   expect(Math.abs(Number(m![2]) - want.y)).toBeLessThanOrEqual(3)
 }
 
+/**
+ * 这块白板用以前的写法（注释存列），2026-11-21 起打开时会一次转成「## 列名」写法（新写法的工具板、右键在 r9-board-doc.spec.ts、b2-board.spec.ts）。
+ * 这里测的是以前的自由白板（导图、撤回了转写法的白板还用它）：把它记进旧写法名单，打开不转
+ */
+const keepOld = (...paths: string[]) => ({ '.canvas-notes/白板旧写法.json': JSON.stringify({ 版本: 1, 白板: paths }) })
+
 async function start(files: Record<string, string> = { '计划.md': PLAN }) {
-  const run = await launch(files)
+  const run = await launch({ ...files, ...keepOld('计划.md') })
   await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 900))
   await openBoard(run.page, '计划')
   return run
@@ -206,9 +213,10 @@ test('拖回工具板、拖到画布外、按 esc：都取消，文件不变，�
     await expect(ghost(page)).toHaveClass(/off/)
     await page.mouse.up()
 
-    // 拖到「未整理」浮层上松手
-    const uns = (await board(page).getByTestId('unsorted').boundingBox())!
-    await dragFromPal(page, '列', { x: uns.x + 40, y: uns.y + 12 })
+    // 拖到右边一格收件箱上松手（2026-11-21 起「未整理」浮层换成了这一格，标签条「收件箱 N」打开）
+    await acts(page).getByTestId('db-inbox').click()
+    const drawer = (await board(page).locator('.db-drawer').boundingBox())!
+    await dragFromPal(page, '列', { x: drawer.x + 40, y: drawer.y + 60 })
 
     // 拖到一半按 esc
     await dragFromPal(page, '子白板', await screenOf(page, { x: 300, y: 400 }, 1), false)

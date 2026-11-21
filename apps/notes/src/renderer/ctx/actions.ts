@@ -13,8 +13,10 @@ export interface AppActions {
   openHere(path: string): void
   /** [[双链]]：here = 在当前标签打开 */
   openWikilink(target: string, here?: boolean): void
-  /** PDF / HTML 在右栏下格开它的 AI（边读边问） */
+  /** PDF / HTML 开它的 AI（边读边问） */
   openReading(path: string): void
+  /** 目录树里 PDF 和它的笔记那一行：开 PDF，笔记标签没开就开上（「笔记跟着在旁边」） */
+  openWithNote(path: string): void
   /** 右栏网页开一个新标签；reuse：已经开着这个网站（网址以它开头）的标签就切过去 */
   openInWeb(url: string, reuse?: string): void
   /** B 的设置是居中弹窗，要看右栏时先关掉；A 的设置是中间的一个标签，不动 */
@@ -25,6 +27,8 @@ export interface AppActions {
   askAi(text: string, src?: string): void
   /** icon：提示前面的小图标（比如 info） */
   notice(text: string, icon?: CodiconName): void
+  /** 底栏提示带「撤回」（白板上一次改了两篇：卡拖进另一个标签里的文档） */
+  noticeUndo(text: string, run: () => void): void
   /** 中间开着的文档（不是白板、不是只读）：剪进文档、插进文档用 */
   doc(): NoteDoc | null
   /** 剪一段：inbox 进收件箱成一张卡，doc 插到中间文档的光标处 */

@@ -356,7 +356,7 @@ test('整页剪藏带上译文：默认关只存原文；菜单里打开，每�
     await trBtn(page).click()
     await expect.poll(() => trOf(page, 'p2')).toBe(fake(SRC.p2))
     const clip = async () => {
-      await web(page).getByRole('button', { name: '整页剪藏' }).click()
+      await web(page).getByRole('button', { name: '剪藏这一页' }).click()
       await expect(web(page).locator('.wnote')).toContainText('整页存进收件箱了')
       const files = readdirSync(join(vault, '收件箱')).sort()
       return { md: readFileSync(join(vault, '收件箱', files.at(-1)!), 'utf8'), note: await web(page).locator('.wnote').innerText() }

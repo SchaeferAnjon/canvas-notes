@@ -1,25 +1,39 @@
 /**
- * 读 PDF 时 AI 那一格的「笔记」（和 AI 用竖条切换）：一篇长文档（CN-93–96，小样 A-AI与读PDF/v2/proto-a.html 的 docHtml）。
- * 读的就是库里那篇「… 笔记.md」：一轮（一处问的地方）一段，最近问的那一轮展开，旧的每轮收成一行（标题、小结的前半句、几问、时间），点开展开；
- * 顶上一行「在这份笔记里找」（搜问题原话、回答、小结）和「N 轮 · N 问」。
+ * 右栏「笔记」标签（2026-11-20 工作区方向 A 起是独立的标签，能拖到任何位置；原型 design/workspace/proto-a.html 的 buildNote）：一篇长文档（CN-93–96）。
+ * 读的就是库里那篇「… 笔记.md」（一份 PDF 一篇）：一轮（一处问的地方）一段，按页排，最近问的那一轮展开，旧的每轮收成一行（标题、小结的前半句、几问、时间），点开展开；
+ * 顶上「在这份笔记里找」（搜问题原话、回答、小结），下面一行「全部 · 只看我问的 · 旁支」和「N轮 · N问」：
+ * 「只看我问的」只列问题原话（就是这份 PDF 的「我的疑惑」），「旁支」只列旁支里问的，点一条回到「全部」、展开那一轮滚过去。
  * 展开的一轮：标题 + 几问 · 时间、「第 28 页 ›」（点了 PDF 翻过去、框闪）· 我框的、我框的图（按框在 PDF 上 100% 时的宽，CN-111）、
  * 主问题条（原话）、回答原文（标题、列表、表格、公式照排）、旁支（缩进一级、左边一道竖线、被问的那句、问题条短一截）、末尾小结。
  * 下格开着旁支时在下格问，这里马上长出来、闪一下（.grow）。以前格式的段照旧显示（我的疑惑、讲通的讲法、要点、没讲通的版本、完整对话）。
  */
 import { Codicon } from '@cn/design'
 import { type AskMat, type AskSection, type AskTurn, cropCaption } from '@cn/format'
-import { type CSSProperties, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { NotesHead } from '../ai-head'
+import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { when } from '../../shared/when'
 import { Markdown } from '../md-render'
 import { applyMarks, type Mark } from './marks'
 import * as R from './store'
 
 const vaultImg = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/')
-const nameOf = (p: string) => p.split('/').pop() ?? p
 const MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
 
 /** 这一轮问了几问（新格式：主问题 + 旁支问题；以前的段：问了几轮） */
 const asksOf = (s: AskSection) => s.rounds
+type Filter = 'all' | 'q' | 'side'
+const FILTERS: [Filter, string][] = [
+  ['all', '全部'],
+  ['q', '只看我问的'],
+  ['side', '旁支'],
+]
+/** 「只看我问的」「旁支」里的一条：问题原话，下面一行在哪 */
+interface QRow {
+  sec: string
+  /** 旁支里问的：被问的那一句 */
+  quote?: string
+  q: string
+  sub: string
+}
 
 /** 搜的时候看的字：标题、问题原话、回答、旁支、小结（以前的段：疑惑、讲通的讲法、要点） */
 function hayOf(s: AskSection): string {
@@ -49,14 +63,11 @@ export function ReadingNotes(props: {
   onOpenHtml(path: string): void
   onOpenWeb(url: string): void
   onOpenDoubts(folder: string): void
-  /** 头上「收起 ⌘W」（同 ⌘W）：收起右栏下格（AI 那一格） */
-  onCollapse(): void
-  /** 下格开着旁支（CN-90）：这一格是上格 */
-  split?: { className: string; style?: CSSProperties } | null
 }) {
   const { pdf } = props
   const r = R.useReading(pdf)!
   const [q, setQ] = useState('')
+  const [filter, setFilter] = useState<Filter>('all')
   /** 自己点开的、自己收起的那几轮（最近问的那一轮不点也展开） */
   const [opened, setOpened] = useState<Set<string>>(new Set())
   const [closed, setClosed] = useState<Set<string>>(new Set())
@@ -180,10 +191,53 @@ export function ReadingNotes(props: {
   const asks = sections.reduce((n, s) => n + asksOf(s), 0)
   const text = r.note.text
   const toggle = (id: string) => setOpen(id, !isOpen(id))
+  /** 这一轮什么时候问的：本机问过的写「周二 20:14」（同全软件的日期写法），别的照笔记里的钟点 */
+  const timeOf = (s: AskSection) => {
+    const th = r.state.threads.find((x) => x.id === s.id)
+    return th ? when(th.createdAt, { time: true }) : (s.time ?? '')
+  }
+  // 「只看我问的」：主问题一条一行，旁支里问的缩进；「旁支」：只列旁支里问的
+  const rows: QRow[] = []
+  for (const s of filter === 'all' ? [] : sections) {
+    const at = `${s.page > 0 ? `第${s.page}页 · ` : ''}${s.title}`
+    const side = (quote: string, q: string) => rows.push({ sec: s.id, quote, q, sub: `旁支 · ${s.page > 0 ? `第${s.page}页 · ` : ''}「${quote.slice(0, 14)}…」` })
+    if (!s.qas) {
+      if (filter === 'q') rows.push({ sec: s.id, q: s.doubts[0] ?? s.title, sub: at })
+      continue
+    }
+    for (const qa of s.qas) {
+      if (filter === 'q' && qa.q.trim()) rows.push({ sec: s.id, q: qa.q, sub: at })
+      for (const d of qa.sides) for (const turn of d.turns) side(d.quote, turn.q)
+    }
+  }
+  const qrows = t ? rows.filter((x) => `${x.q}\n${x.sub}`.toLowerCase().includes(t)) : rows
+  /** 点「只看我问的」里的一条：回到「全部」，展开那一轮滚过去（旁支的滚到那条旁支） */
+  const goRow = (x: QRow) => {
+    setFilter('all')
+    setQ('')
+    if (x.quote !== undefined) return toSide(x.sec, x.quote, true)
+    if (!isOpen(x.sec)) setOpen(x.sec, true)
+    requestAnimationFrame(() => list.current?.querySelector(`[data-sec="${CSS.escape(x.sec)}"]`)?.scrollIntoView({ block: 'start' }))
+  }
 
   return (
-    <aside className={'right aicell reading-notes' + (props.split ? ' ' + props.split.className : '')} style={props.split?.style} aria-label="笔记" hidden={props.hidden}>
-      <NotesHead name={nameOf(r.note.path)} onOpen={text ? () => props.onOpenNote(r.note.path) : undefined} onCollapse={props.onCollapse} />
+    <aside className="right aicell reading-notes" aria-label="笔记" hidden={props.hidden}>
+      {(text || writingNew.length > 0) && (
+        <div className="nsub">
+          <label className="srch">
+            <Codicon name="search" size={14} />
+            <input placeholder="在这份笔记里找" aria-label="在这份笔记里找" value={q} onChange={(e) => setQ(e.target.value)} />
+          </label>
+          <div className="nfil" role="tablist" aria-label="笔记筛选">
+            {FILTERS.map(([f, label]) => (
+              <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
+                {label}
+              </button>
+            ))}
+            <span className="cnt num" data-testid="note-count">{`${sections.length}轮 · ${asks}问`}</span>
+          </div>
+        </div>
+      )}
       <div
         className="notes ndoc"
         ref={list}
@@ -198,28 +252,33 @@ export function ReadingNotes(props: {
         {!text && !writingNew.length ? (
           <div className="nempty">
             <p>还没有笔记。</p>
-            <p>在左边PDF上框一块问AI，问完它在后台记一段：你框的图、你问的原话和AI的回答，在回答里选一句开的旁支挂在后面。</p>
+            <p>在PDF上框一块问AI，问完它在后台记一段：你框的图、你问的原话和AI的回答，在回答里选一句开的旁支挂在后面。</p>
           </div>
+        ) : filter !== 'all' ? (
+          <>
+            <div className="qhint">{filter === 'q' ? '这份 PDF 问过的都在这里（以前的「我的疑惑」）。点一条跳到那一轮。' : '开过的旁支'}</div>
+            {qrows.map((x, i) => (
+              <button key={i} className={'qonly' + (filter === 'q' && x.quote !== undefined ? ' side' : '')} data-testid="note-q" onClick={() => goRow(x)}>
+                <Codicon name={x.quote !== undefined ? 'comment-discussion' : 'comment'} size={14} />
+                <span className="qt">
+                  <span className="q">{x.q}</span>
+                  <span className="s">{x.sub}</span>
+                </span>
+              </button>
+            ))}
+            {!qrows.length && <div className="nempty">{t ? `这份笔记里没有「${q.trim()}」` : filter === 'q' ? '还没问过。' : '还没开过旁支。'}</div>}
+          </>
         ) : (
           <>
-            <div className="nbar">
-              <label className="srch">
-                <Codicon name="search" size={14} />
-                <input placeholder="在这份笔记里找" aria-label="在这份笔记里找" value={q} onChange={(e) => setQ(e.target.value)} />
-              </label>
-              <span className="num">{t ? `${shown.length} 轮` : `${sections.length} 轮 · ${asks} 问`}</span>
-            </div>
             {writingNew.map((id) => {
               const th = r.state.threads.find((x) => x.id === id)
               return (
                 <section key={id} className="rnd writing pend" data-sec={id}>
                   <div className="rh">
+                    <Codicon name="loading" size={14} className="spin cv" />
                     <h3>正在记…</h3>
-                    <span className="r">
-                      <Codicon name="loading" size={12} className="spin" />
-                    </span>
                   </div>
-                  <div className="loc">{th && th.page > 0 ? <span>{`第 ${th.page} 页`}</span> : null}</div>
+                  <div className="loc">{th && th.page > 0 ? <span>{`第${th.page}页`}</span> : null}</div>
                   {th?.crop && (
                     <span className="crop">
                       <img src={vaultImg(th.crop)} alt={cropCaption(th)} style={th.cropW ? { width: th.cropW } : undefined} />
@@ -231,11 +290,12 @@ export function ReadingNotes(props: {
             })}
             {shown.map((s) =>
               !t && !isOpen(s.id) ? (
-                <FoldRow key={s.id} s={s} grow={grow.has(`r:${s.id}`)} onOpen={() => toggle(s.id)} />
+                <FoldRow key={s.id} s={s} time={timeOf(s)} grow={grow.has(`r:${s.id}`)} onOpen={() => toggle(s.id)} />
               ) : (
                 <Round
                   key={s.id}
                   s={s}
+                  time={timeOf(s)}
                   ring={ring === s.id}
                   grow={grow}
                   writing={r.writing.includes(s.id)}
@@ -259,16 +319,16 @@ export function ReadingNotes(props: {
 }
 
 /** 收成一行的一轮：chevron-right 14 + 「第 27 页 · 标题」 + 小结的前半句（省略号） + 右边「1 问 · 20:14」，点开展开 */
-function FoldRow(p: { s: AskSection; grow: boolean; onOpen(): void }) {
+function FoldRow(p: { s: AskSection; time: string; grow: boolean; onOpen(): void }) {
   const { s } = p
   const recap = (s.qas ? s.recap : s.good) || ''
   return (
     <section className={'rnd fold' + (p.grow ? ' grow' : '')} data-sec={s.id} data-testid="note-round">
       <button className="fh" aria-expanded={false} onClick={p.onOpen}>
         <Codicon name="chevron-right" size={14} className="cv" />
-        <span className="tt">{`${s.page > 0 ? `第 ${s.page} 页 · ` : ''}${s.title}`}</span>
+        <span className="tt">{`${s.page > 0 ? `第${s.page}页 · ` : ''}${s.title}`}</span>
         <span className="rc">{recap.replace(/\s+/g, ' ')}</span>
-        <span className="r num">{`${asksOf(s)} 问${s.time ? ` · ${s.time}` : ''}`}</span>
+        <span className="r num">{`${asksOf(s)}问${p.time ? ` · ${p.time}` : ''}`}</span>
       </button>
     </section>
   )
@@ -345,6 +405,8 @@ function Answer(p: { a: string; marks?: Mark[] }) {
 
 function Round(p: {
   s: AskSection
+  /** 什么时候问的（「周二 20:14」） */
+  time: string
   ring: boolean
   grow: Set<string>
   writing: boolean
@@ -365,16 +427,17 @@ function Round(p: {
       {`${w.label} ›`}
     </button>
   ) : (
-    <button title="翻到这一页，框过的那块闪一下" onClick={p.onJump}>{`第 ${s.page} 页 ›`}</button>
+    <button title="翻到这一页，框过的那块闪一下" onClick={p.onJump}>{`第${s.page}页 ›`}</button>
   )
   let n = 0
   return (
     <section className={'rnd' + (p.ring ? ' flash' : '') + (p.writing ? ' writing' : '') + (p.grow.has(`r:${s.id}`) ? ' grow' : '')} data-sec={s.id} data-testid="note-round">
       <div className="rh" role="button" tabIndex={0} aria-expanded onClick={p.onFold} onKeyDown={(e) => e.key === 'Enter' && p.onFold()}>
-        <h3>{s.title}</h3>
+        <Codicon name="chevron-right" size={14} className="cv" />
+        <h3>{`${s.page > 0 ? `第${s.page}页 · ` : ''}${s.title}`}</h3>
         <span className="r num">
-          {`${asksOf(s)} 问${s.time ? ` · ${s.time}` : ''}`}
-          {p.writing ? <Codicon name="loading" size={12} className="spin" /> : <Codicon name="chevron-down" size={12} />}
+          {`${asksOf(s)}问${p.time ? ` · ${p.time}` : ''}`}
+          {p.writing && <Codicon name="loading" size={12} className="spin" />}
         </span>
       </div>
       <div className="loc">
@@ -408,6 +471,10 @@ function Round(p: {
                 )}
                 {qa.sides.map((d, j) => (
                   <div key={j} className="nside" data-quote={d.quote}>
+                    <div className="stag">
+                      <Codicon name="comment-discussion" size={11} />
+                      {`旁支 ${j + 1}`}
+                    </div>
                     <div className="q0">
                       <Codicon name="quote" size={12} />
                       <span>{d.quote}</span>
@@ -442,7 +509,7 @@ function Round(p: {
       )}
       {s.viz && (
         <button className={'vcard' + (p.grow.has(`v:${s.id}:${s.viz.path}`) ? ' grow' : '')} data-testid="viz-card" onClick={() => p.onOpenHtml(s.viz!.path)}>
-          <span className="th">
+          <span className="vc-th">
             <Codicon name="file-code" size={18} />
           </span>
           <span className="tx">

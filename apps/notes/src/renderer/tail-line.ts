@@ -232,8 +232,9 @@ class TailView {
     if (e.button !== 0 || this.view.state.readOnly) return
     const t = e.target as HTMLElement
     if (this.view.dom.contains(t) && !t.classList.contains('cm-scroller') && !t.classList.contains('cm-content')) return
-    // 点的是中间栏的滚动条：照常拖
+    // 点的是中间栏的滚动条：照常拖；点的是文末「提到这篇的」（doc-embeds.tsx）：那是链接，不新起一段
     if (t === this.host && e.offsetX >= this.host.clientWidth) return
+    if (t.closest?.('.doc-backlinks')) return
     const content = this.view.contentDOM.getBoundingClientRect()
     if (e.clientY <= content.bottom - 2) return
     e.preventDefault()

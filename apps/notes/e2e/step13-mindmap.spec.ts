@@ -147,8 +147,8 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(board(page).getByTestId('map-photo')).toContainText('原照片 · ')
       await expect(acts(page).getByTestId('page-note')).toHaveText('收件箱 · 今晚梦游时归类、起名')
       await expect(tabOn(page)).toHaveText(/^导图 \d\d-\d\d \d\d∶\d\d$/)
-      // 自己在收件箱里，不算进自己的「未整理」
-      await expect(board(page).getByTestId('unsorted')).toContainText('0')
+      // 自己在收件箱里，不算进标签条「收件箱 N」（一条都没有时不写数）
+      await expect(acts(page).getByTestId('db-inbox')).toHaveText('收件箱')
       await page.waitForTimeout(400)
       await shot(page, `map-${tone}`)
 
@@ -230,10 +230,12 @@ test('白板工具板「拍导图」拖到白板上：做好后落点放一张�
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: /^复习/ }).first().click()
-    await expect(board(page)).toBeVisible()
-    const btn = board(page).locator('.bpal').getByRole('button', { name: '拍导图' })
+    // 白板就是这篇文档（2026-11-21）：工具板在 doc-board 上
+    const db = pane(page).getByTestId('doc-board')
+    await expect(db).toBeVisible()
+    const btn = db.locator('.bpal').getByRole('button', { name: '拍导图' })
     const b = (await btn.boundingBox())!
-    const wrap = (await board(page).locator('.board-wrap').boundingBox())!
+    const wrap = (await db.locator('.board-wrap').boundingBox())!
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
     await page.mouse.down()
     await page.mouse.move(wrap.x + 400, wrap.y + 300, { steps: 6 })

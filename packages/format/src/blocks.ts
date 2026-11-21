@@ -8,7 +8,7 @@
  * - 卡片注释（<!-- card ... -->）和它的正文是一块，范围和白板（parseBoard）认的一样。
  */
 
-import { parseBoard } from './board'
+import { hasOldLayout, parseBoard } from './board'
 
 export type MdBlockKind =
   | 'frontmatter'
@@ -250,8 +250,36 @@ function scan(text: string, start: number, end: number): MdBlock[] {
   return out
 }
 
-/** 找出整篇的顶层块，按文件里的顺序 */
+const LAYOUT_LINE = /^<!--\s*(?:card|column)\s[^\n]*-->[ \t]*$/
+
+/** 新写法（2026-11-21 起）：排版注释（位置行、编号行、列的位置行）都是 html 块，整篇按 md 找块 */
+function plainBlocks(text: string): MdBlock[] {
+  const fm = FM.exec(text)?.[0] ?? ''
+  const out: MdBlock[] = []
+  if (fm) out.push({ kind: 'frontmatter', from: 0, to: fm.endsWith('\n') ? fm.length - 1 : fm.length })
+  out.push(...scan(text, fm.length, text.length))
+  return out
+}
+
+/**
+ * 找出整篇的顶层块，按文件里的顺序。
+ * 新写法里位置行、编号行、列的位置行只管后面那一块，和它算一块（挪、删、复制都带着它）；
+ * 旧写法的白板（卡上写着 in= / w=）照以前：注释和它下面到下一条注释的字是一块（和 parseBoard 一样）
+ */
 export function findBlocks(text: string): MdBlock[] {
+  if (!hasOldLayout(text)) {
+    const raw = plainBlocks(text)
+    const out: MdBlock[] = []
+    for (let i = 0; i < raw.length; i++) {
+      const b = raw[i]!
+      const next = raw[i + 1]
+      if (b.kind === 'html' && next && next.kind !== 'frontmatter' && LAYOUT_LINE.test(text.slice(b.from, b.to))) {
+        out.push({ ...next, from: b.from })
+        i++
+      } else out.push(b)
+    }
+    return out
+  }
   const board = parseBoard(text)
   const out: MdBlock[] = []
   const fm = board.fm
@@ -273,6 +301,7 @@ export function findBlocks(text: string): MdBlock[] {
  * 卡片和列的注释那一行算 html 块。
  */
 export function contentBlocks(text: string): MdBlock[] {
+  if (!hasOldLayout(text)) return plainBlocks(text)
   const out: MdBlock[] = []
   for (const b of findBlocks(text)) {
     if (b.kind !== 'card' && b.kind !== 'column') {

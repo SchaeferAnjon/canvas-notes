@@ -1,6 +1,6 @@
-import { appendBlock, attr, newBlock, newId, num, parseBoard, serializeBoard } from '@cn/format'
+import { appendBlock, attr, freshId, hasOldLayout, isMindmap, newBlock, newId, num, parseBoard, serializeBoard, splitDoc, tagLine } from '@cn/format'
 import type { DreamReport, NoteFile } from '../shared/api'
-import { CLIPS, previewOf, titleOf } from '../shared/layout'
+import { CLIPS, INBOX, previewOf, titleOf } from '../shared/layout'
 import { BRAND } from '../shared/brand'
 import { MATH_RULE } from '../shared/reading'
 import { DOC_BOARD_RULES } from '@cn/format'
@@ -18,19 +18,9 @@ export const COMMANDS: Command[] = [
   { name: '写成文章', desc: '按白板从左到右、从上到下写成一篇文档草稿' },
   { name: '翻译', desc: '翻译文档里选中的那段；没选就翻整篇' },
   { name: '找重复', desc: '找出库里内容差不多的笔记和剪藏' },
-  { name: '剪藏当前网页', desc: '把右栏开着的整个网页剪进收件箱' },
+  { name: '剪藏这一页', desc: '把右栏开着的整个网页剪进收件箱' },
   { name: '现在梦游', desc: '不等夜里，现在把收件箱整理一遍，出一份梦游报告' },
 ]
-
-/**
- * 还在别的同事那里做的命令：功能做好后在 window.cn 上加这个方法（preload 和 shared/api.ts），这里就会调它。
- * 方法还没有时浮窗里显示「这条命令还在做」。参数是 { webUrl }（右栏开着的网址，没开是 null）；
- * 返回一句话（字符串）就显示出来，否则显示「做好了」。
- * /找重复、/现在梦游 已经接上（AiPanel 里的 findDuplicates、dreamNow）。
- */
-export const PENDING_COMMANDS: Record<string, string> = {
-  剪藏当前网页: 'clipCurrentPage',
-}
 
 /** /现在梦游 跑完的一句话：整理了几条、分几组、每组几条 */
 export function dreamSummary(report: DreamReport, labels: Record<string, string>): { text: string; items: number; groups: number } {
@@ -99,14 +89,38 @@ export function parseMoves(reply: string, inbox: NoteFile[]): { path: string; to
 
 export const topicFolder = (topic: string) => `${CLIPS}/${topic}`
 
-/** 总结存成卡片：放在白板左下角，标上「AI 总结的」和日期 */
+/**
+ * 总结存成卡片，标上「AI 总结的」和日期。2026-11-21 起白板就是这篇文档：放在最左一组最前面（标题下面），
+ * 前面一行只记编号和日期的 `<!-- card id=… ai=日期 -->`（文档里藏着），白板卡底画「AI 总结的 · 日期」；
+ * 以前写法的白板（导图、撤回了转写法的）照旧放在左下角
+ */
 export function withSummaryCard(boardText: string, summary: string): { text: string; id: string } {
+  if (!isMindmap(boardText) && !hasOldLayout(boardText)) {
+    const b = splitDoc(boardText)
+    const id = freshId(boardText, 's')
+    const body = `${tagLine(id, { ai: today() })}\n${summary.trim()}`
+    const lead = b.columns[0]
+    // 最左一组（第一节之前）有卡：插在它前面；没有：插在第一个列标题前面（白板上就是最左一组），一列都没有就加在文末
+    const at = lead && !lead.head && lead.cards[0] ? (lead.cards[0].place?.from ?? lead.cards[0].tag?.from ?? lead.cards[0].from) : lead?.head ? (lead.place?.from ?? lead.head.from) : null
+    if (at === null) return { text: boardText.replace(/\n*$/, '\n\n') + body + '\n', id }
+    const before = boardText.slice(0, at)
+    return { text: before + (before === '' || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n') + body + '\n\n' + boardText.slice(at), id }
+  }
   const doc = parseBoard(boardText)
   const free = doc.blocks.filter((b) => b.kind === 'card' && !attr(b, 'in'))
   const x = free.length ? Math.min(...free.map((b) => num(b, 'x', 0))) : 80
   const y = free.length ? Math.max(...doc.blocks.filter((b) => !attr(b, 'in')).map((b) => num(b, 'y', 0))) + 240 : 80
   const id = newId(doc)
   return { text: serializeBoard(appendBlock(doc, newBlock('card', { id, x, y, w: 300, ai: today() }, summary))), id }
+}
+
+/**
+ * /写成文章 的草稿放在哪：白板所在的文件夹（「在哪个文件夹里做的就放哪个文件夹」）；白板在库最外层时进收件箱（新笔记先进收件箱），
+ * 在收件箱里的本来就在收件箱。重名由主进程 vault.create 加「 2」，不覆盖
+ */
+export function draftPath(boardPath: string): string {
+  const at = boardPath.lastIndexOf('/')
+  return `${at > 0 ? boardPath.slice(0, at) : INBOX}/${titleOf(boardPath)}：文章草稿.md`
 }
 
 export function draftText(boardPath: string, article: string): string {

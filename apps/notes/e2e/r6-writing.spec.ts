@@ -11,7 +11,6 @@ import { ICELAND } from './fixtures/board'
 import { solidPng } from './fixtures/png'
 import { shotTone, shotWindow } from './shots'
 
-const toast = (page: Page) => page.getByTestId('toast')
 const vaultGit = (vault: string, args: string[]) => execFileSync('git', ['-C', vault, ...args], { encoding: 'utf8' }).trim()
 const read = (run: Running, rel: string) => readFileSync(join(run.vault, rel), 'utf8')
 const content = (page: Page) => pane(page).locator('.cm-content')
@@ -29,59 +28,61 @@ async function clickLineEnd(page: Page, text: string) {
   await page.keyboard.press('End')
 }
 
-const BOARD = (c1: string, pos = 'x=260 y=0') =>
-  `---\ntype: board\n---\n<!-- card id=c0 x=0 y=0 w=220 -->\n## 十一月\n\n<!-- card id=c1 ${pos} w=220 -->\n${c1}\n\n<!-- card id=c2 x=520 y=0 w=220 -->\n## 想写的\n`
+/** 白板（新写法）：空白处三张卡，前面各一行位置 */
+const BOARD = (c1: string, pos = 'x=300 y=80') => `---\ntype: board\n---\n<!-- card id=c0 x=0 y=80 -->\n十一月\n\n<!-- card id=c1 ${pos} -->\n${c1}\n\n<!-- card id=c2 x=600 y=80 -->\n想写的\n`
 
-test('真白板上正改着一张卡，外面把这张卡删了：框不消失，打的字留着，存下时卡放回去、外面那版存成冲突副本；外面只挪了位置：不出副本、卡不跳回', async () => {
-  const run = await launch({ '写作/写作计划.md': BOARD('## 十二月') })
+test('白板上正改着一张卡，外面把这张卡删了：框不消失，打的字留着，存下时卡放回去、外面那版存成冲突副本；外面只挪了位置：不出副本、卡不跳回', async () => {
+  const run = await launch({ '写作/写作计划.md': BOARD('十二月') })
   const { page, vault } = run
   const copies = () => readdirSync(join(vault, '写作')).filter((f) => f.includes('冲突'))
   try {
     await shotTone(page)
     await openNote(page, '写作计划').catch(() => {})
     await acts(page).getByRole('tab', { name: '白板' }).click()
-    const board = pane(page).getByTestId('board')
-    await board.locator('.bcard[data-id="c1"]').dblclick()
+    const board = pane(page).getByTestId('doc-board')
+    await board.locator('.db-card[data-id="c1"]').dblclick()
     const box = pane(page).getByRole('textbox', { name: '卡片内容' })
     await expect(box).toBeFocused()
     await page.keyboard.press('End')
     await page.keyboard.type('正在写的一大段字')
     // 外面（同步盘、另一台机器）把这张卡删了
-    writeFileSync(join(vault, '写作/写作计划.md'), BOARD('## 十二月').replace('<!-- card id=c1 x=260 y=0 w=220 -->\n## 十二月\n\n', ''))
-    await expect(board.locator('.bcard[data-id="c2"]')).toBeVisible()
+    writeFileSync(join(vault, '写作/写作计划.md'), BOARD('十二月').replace('<!-- card id=c1 x=300 y=80 -->\n十二月\n\n', ''))
+    await expect(board.locator('.db-card[data-id="c1"]')).toHaveCount(0)
+    await expect(board.locator('.db-card[data-id="c2"]')).toBeVisible()
     await page.waitForTimeout(2000)
     // 框还在、焦点还在，接着打的字也进框里
     await expect(box).toBeFocused()
-    // 卡里是排好的样子：## 不露
     await expect(box).toHaveText('十二月正在写的一大段字')
     await page.keyboard.type('还在')
     await shotWindow(run, 'r6-board-deleted-editing')
     await page.keyboard.press('Escape')
     await expect(box).toHaveCount(0)
-    await expect.poll(() => read(run, '写作/写作计划.md')).toBe(BOARD('## 十二月正在写的一大段字还在'))
+    await expect.poll(() => read(run, '写作/写作计划.md')).toBe(BOARD('十二月正在写的一大段字还在'))
     await expect.poll(copies).toHaveLength(1)
     expect(read(run, `写作/${copies()[0]}`)).not.toContain('card id=c1')
-    await expect(toast(page)).toContainText(`外面删了你正在改的卡：已放回，外面那版存成《${copies()[0]!.replace(/\.md$/, '')}》`)
-    await expect(board.locator('.bcard[data-id="c1"]')).toContainText('十二月正在写的一大段字还在')
+    // 白板自己底部那条提示（标签还开着）
+    await expect(board.locator('.db-toast')).toContainText(`外面删了你正在改的卡：已放回，外面那版存成《${copies()[0]!.replace(/\.md$/, '')}》`)
+    await expect(board.locator('.db-card[data-id="c1"]')).toContainText('十二月正在写的一大段字还在')
     // 白板视野没跳走：三张卡都在屏上
-    for (const id of ['c0', 'c1', 'c2']) await expect(board.locator(`.bcard[data-id="${id}"]`)).toBeInViewport()
+    for (const id of ['c0', 'c1', 'c2']) await expect(board.locator(`.db-card[data-id="${id}"]`)).toBeInViewport()
     await shotWindow(run, 'r6-board-deleted-back')
 
     // 外面只挪了这张卡（另一台机器上拖了一下）：字是我的、位置是外面的，不出副本，存下后卡不跳回
     for (const f of copies()) rmSync(join(vault, '写作', f))
-    writeFileSync(join(vault, '写作/写作计划.md'), BOARD('## 十二月'))
-    await expect(board.locator('.bcard[data-id="c1"]')).toHaveText('十二月')
-    await board.locator('.bcard[data-id="c1"]').dblclick()
+    writeFileSync(join(vault, '写作/写作计划.md'), BOARD('十二月'))
+    await expect(board.locator('.db-card[data-id="c1"]')).toHaveText('十二月')
+    await board.locator('.db-card[data-id="c1"]').dblclick()
     await expect(box).toBeFocused()
     await page.keyboard.press('End')
     await page.keyboard.type('我写')
-    writeFileSync(join(vault, '写作/写作计划.md'), BOARD('## 十二月', 'x=600 y=400'))
-    await expect.poll(() => board.locator('.bcard[data-id="c1"]').evaluate((e) => (e as HTMLElement).style.left)).toBe('600px')
+    writeFileSync(join(vault, '写作/写作计划.md'), BOARD('十二月', 'x=600 y=400'))
+    await expect.poll(() => board.locator('.db-card[data-id="c1"]').evaluate((e) => (e as HTMLElement).style.left)).toBe('600px')
+    await expect(box).toBeFocused()
     await page.keyboard.press('Escape')
-    await expect.poll(() => read(run, '写作/写作计划.md')).toBe(BOARD('## 十二月我写', 'x=600 y=400'))
+    await expect.poll(() => read(run, '写作/写作计划.md')).toBe(BOARD('十二月我写', 'x=600 y=400'))
     await page.waitForTimeout(1000)
     expect(copies()).toHaveLength(0)
-    expect(await board.locator('.bcard[data-id="c1"]').evaluate((e) => (e as HTMLElement).style.left)).toBe('600px')
+    expect(await board.locator('.db-card[data-id="c1"]').evaluate((e) => (e as HTMLElement).style.left)).toBe('600px')
   } finally {
     await run.close()
   }

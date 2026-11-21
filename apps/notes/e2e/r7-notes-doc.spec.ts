@@ -3,7 +3,7 @@
 // 右栏「笔记」：顶上搜、N 轮 · N 问，最近一轮展开、旧的收成一行；以前格式的笔记照旧显示，同一处再问时整段换成新格式；我的疑惑是原话。
 import { _electron as electron, expect, test, type Locator, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import electronPath from 'electron'
 import type { ReadingState } from '../src/shared/reading'
@@ -186,21 +186,21 @@ test('笔记逐字核：问题条是原话（主对话接着问的、旁支问�
     await expect(doubts.getByTestId('doubt-row').locator('.dq-tx b')).toHaveText(['给我讲解一下', '为什么是列？', '那行呢？'])
     await expect(doubts.getByTestId('doubt-row').first().locator('.dq-tx .truncate')).toHaveText('换个方式讲（第 2 页，图 0 张，读过全文，接着聊）：先别看公式，看图。')
     await expect(doubts.getByRole('button', { name: '送进Anki · 3张' })).toBeVisible()
-    const dmd = readFileSync(join(vault, '课程/线代/我的疑惑.md'), 'utf8')
-    expect(dmd).toContain('线代 · 3 条。')
-    expect(dmd).toContain('- **为什么是列？** [第 2 页](第3讲.pdf#page=2&rect=')
-    // 左栏笔记那一行「疑惑 3」
+    // 「我的疑惑」不再是文件（2026-11-20）：没有我的疑惑.md，汇总页直接读笔记
+    expect(existsSync(join(vault, '课程/线代/我的疑惑.md'))).toBe(false)
+    // 左栏 PDF 和笔记是一行，右端是笔记里问了几问（主问题 + 旁支问题，「还是不懂」也算一问）
     await leftView(page, '文件')
     const tree = page.getByRole('tree', { name: '全部文件' })
     const item = (name: string) => tree.getByRole('treeitem').filter({ hasText: new RegExp(`^${name}`) })
     for (const f of ['课程', '线代']) if (await item(f).getByRole('button', { name: `展开 ${f}` }).count()) await item(f).getByRole('button', { name: `展开 ${f}` }).click()
-    await expect(item('第3讲 笔记').getByRole('button', { name: '疑惑3' })).toBeVisible()
+    await expect(item('第3讲').getByTestId('ft-note')).toHaveText('4')
+    await expect(item('第3讲 笔记')).toHaveCount(0)
   } finally {
     await run.close()
   }
 })
 
-test('右栏「笔记」一篇长文档（照小样 docHtml）：顶上搜 + N 轮 · N 问，最近一轮展开、旧的收成一行（标题、小结前半句、几问 · 时间），点开展开；问题条、旁支、小结的样子；「第 N 页 ›」点了 PDF 翻过去框闪；搜得到原话、回答、小结', async () => {
+test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶上搜、下面「全部 · 只看我问的 · 旁支」+ N轮 · N问，最近一轮展开、旧的收成一行（第N页 · 标题、小结前半句、几问 · 时间），点开展开；问题条、旁支、小结的样子；「第N页 ›」点了 PDF 翻过去框闪；搜得到原话、回答、小结', async () => {
   const run = await launch({ [PDF]: LECTURE }, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -229,28 +229,29 @@ test('右栏「笔记」一篇长文档（照小样 docHtml）：顶上搜 + N �
     await rail(page).getByRole('button', { name: '笔记' }).click()
     const n = notes(page)
     await expect(n).toBeVisible()
-    // 顶上一行：28 高、圆角 8、--fill 底的搜；右边「2 轮 · 3 问」
-    const srch = n.locator('.nbar .srch')
+    // 顶上：28 高、圆角 8、--fill 底的搜；下面一行筛选，右边「2轮 · 3问」
+    const srch = n.locator('.nsub .srch')
     await expect(srch.getByRole('textbox', { name: '在这份笔记里找' })).toHaveAttribute('placeholder', '在这份笔记里找')
     expect((await box(srch)).height).toBe(28)
     expect(await css(srch, ['border-radius'])).toEqual({ 'border-radius': '8px' })
-    await expect(n.locator('.nbar .num')).toHaveText('2 轮 · 3 问')
-    // 旧的那轮收成一行：40 高，「第 2 页 · 标题」500 + 小结前半句（12 --t3 省略号）+ 右边「2 问 · 时间」
+    await expect(n.getByTestId('note-count')).toHaveText('2轮 · 3问')
+    await expect(n.getByRole('tablist', { name: '笔记筛选' }).getByRole('tab')).toHaveText(['全部', '只看我问的', '旁支'])
+    // 旧的那轮收成一行：40 高，「第2页 · 标题」500 + 小结前半句（12 --t3 省略号）+ 右边「2问 · 今天 时间」
     const rounds = n.getByTestId('note-round')
     await expect(rounds).toHaveCount(2)
     const fold = rounds.first()
     await expect(fold).toHaveClass(/\bfold\b/)
     expect((await box(fold.locator('.fh'))).height).toBe(40)
-    await expect(fold.locator('.tt')).toHaveText('第 2 页 · 测试小标题 p2')
+    await expect(fold.locator('.tt')).toHaveText('第2页 · 测试小标题 p2')
     await expect(fold.locator('.rc')).toHaveText('测试小结：主对话问了 1 句，旁支问了 1 句。')
     expect(await css(fold.locator('.rc'), ['font-size', 'text-overflow'])).toEqual({ 'font-size': '12px', 'text-overflow': 'ellipsis' })
-    await expect(fold.locator('.r')).toHaveText(/^2 问 · \d\d:\d\d$/)
-    // 最近一轮展开：标题 15/600 + 右边「1 问 · 时间」，下一行「第 4 页 ›」「· 我框的」，主问题条整栏宽 --fill2 圆角 6
+    await expect(fold.locator('.r')).toHaveText(/^2问 · 今天 \d\d:\d\d$/)
+    // 最近一轮展开：「第4页 · 标题」15/600 + 右边「1问 · 时间」，下一行「第4页 ›」「· 我框的」，主问题条整栏宽 --fill2 圆角 6
     const open = rounds.last()
-    await expect(open.locator('.rh h3')).toHaveText('测试小标题 p4')
+    await expect(open.locator('.rh h3')).toHaveText('第4页 · 测试小标题 p4')
     expect(await css(open.locator('.rh h3'), ['font-size', 'font-weight'])).toEqual({ 'font-size': '15px', 'font-weight': '600' })
-    await expect(open.locator('.rh .r')).toHaveText(/^1 问 · \d\d:\d\d$/)
-    await expect(open.locator('.loc')).toHaveText('第 4 页 ›· 我框的')
+    await expect(open.locator('.rh .r')).toHaveText(/^1问 · 今天 \d\d:\d\d$/)
+    await expect(open.locator('.loc')).toHaveText('第4页 ›· 我框的')
     const qs = open.locator('.qs')
     await expect(qs).toHaveText(['给我讲解一下'])
     expect(await css(qs, ['border-radius', 'font-weight'])).toEqual({ 'border-radius': '6px', 'font-weight': '500' })
@@ -264,7 +265,7 @@ test('右栏「笔记」一篇长文档（照小样 docHtml）：顶上搜 + N �
     // 点开旧的那轮：展开；旁支缩进一级（左边距 18、左内边距 12、2px 竖线），被问的那句一行 12 --t3，旁支的问题条 78% 宽
     await fold.locator('.fh').click()
     const r2 = rounds.first()
-    await expect(r2.locator('.rh h3')).toHaveText('测试小标题 p2')
+    await expect(r2.locator('.rh h3')).toHaveText('第2页 · 测试小标题 p2')
     const sd = r2.locator('.nside')
     expect(await css(sd, ['margin-left', 'padding-left', 'border-left-width', 'border-left-style'])).toEqual({ 'margin-left': '18px', 'padding-left': '12px', 'border-left-width': '2px', 'border-left-style': 'solid' })
     // 不带上左栏（.side）的样子：没有底色、右边线、上边的空，也不是拖窗口的区域（以前撞名，旁支那块点不了、选不了字）
@@ -284,12 +285,12 @@ test('右栏「笔记」一篇长文档（照小样 docHtml）：顶上搜 + N �
     const find = n.getByRole('textbox', { name: '在这份笔记里找' })
     await find.fill('为什么是列')
     await expect(rounds).toHaveCount(1)
-    await expect(n.locator('.nbar .num')).toHaveText('1 轮')
+    await expect(n.getByTestId('note-count')).toHaveText('2轮 · 3问')
     await find.fill('门槛减掉')
     await expect(rounds).toHaveCount(1)
     await find.fill('主对话问了 1 句。')
     await expect(rounds).toHaveCount(1)
-    await expect(rounds.locator('.rh h3')).toHaveText('测试小标题 p4')
+    await expect(rounds.locator('.rh h3')).toHaveText('第4页 · 测试小标题 p4')
     await find.fill('没有这句话')
     await expect(rounds).toHaveCount(0)
     await expect(n.locator('.nempty')).toHaveText('这份笔记里没有「没有这句话」')
@@ -345,10 +346,10 @@ test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、�
     await rail(page).getByRole('button', { name: '笔记' }).click()
     const n = notes(page)
     await expect(n.getByTestId('note-round')).toHaveCount(2)
-    await expect(n.locator('.nbar .num')).toHaveText('2 轮 · 2 问')
+    await expect(n.getByTestId('note-count')).toHaveText('2轮 · 2问')
     // 旧的段收成一行（右边小结的位置写讲通的讲法）；点开照旧是我的疑惑、讲通的讲法、要点、完整对话
     const r1 = n.getByTestId('note-round').first()
-    await expect(r1.locator('.tt')).toHaveText('第 2 页 · 旧的一段')
+    await expect(r1.locator('.tt')).toHaveText('第2页 · 旧的一段')
     await expect(r1.locator('.rc')).toHaveText('先看图，再看公式。')
     await r1.locator('.fh').click()
     await expect(r1.locator('.doubt')).toContainText('整块没看懂：第 2 页框的这块')

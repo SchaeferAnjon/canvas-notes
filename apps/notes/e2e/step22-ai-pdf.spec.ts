@@ -205,7 +205,7 @@ test('CN-24：读 PDF 的输入框和别处的 AI 对话都能 ⌘V 粘图：输
   }
 })
 
-test('CN-22 / D 组方向 A：读 PDF 时 AI 在右栏那一格，竖条上没有 AI；右下角的圆钮一直在、开着时多一圈强调色；面板头上「收起 ⌘J」；圆钮在窗口右下角', async () => {
+test('CN-22 / 工作区方向 A：读 PDF 时 AI 是右栏的一个标签，竖条上没有 AI；右下角的圆钮一直在、开着时多一圈强调色；标签上的 × 收起；圆钮在窗口右下角', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -218,9 +218,9 @@ test('CN-22 / D 组方向 A：读 PDF 时 AI 在右栏那一格，竖条上没�
     await expect(fab).toHaveAttribute('aria-label', '收起 AI')
     // 屏上的 AI 入口只有这个圆钮：右图标栏里没有 AI 那一格，A 款底栏那一项不在 B 里
     await expect(page.locator('.abar .ab[aria-label="AI"], .ai-corner')).toHaveCount(0)
-    const collapse = ai(page).getByRole('button', { name: '收起 AI' })
-    await expect(collapse).toHaveText('收起 ⌘J')
-    await collapse.click()
+    await expect(ai(page).getByRole('button', { name: '收起 AI' })).toHaveCount(0)
+    await page.getByTestId('dtab-ai').hover()
+    await page.getByTestId('dtab-ai').getByRole('button', { name: '收起AI' }).click()
     await expect(ai(page)).toHaveCount(0)
     await expect(fab).toBeVisible()
     await expect(fab).not.toHaveClass(/\bon\b/)
@@ -242,7 +242,7 @@ test('CN-22 / D 组方向 A：读 PDF 时 AI 在右栏那一格，竖条上没�
     await expect(ai(page)).toHaveCount(0)
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toBeVisible()
-    // 那一格换成笔记：圆钮不亮，点它换回 AI
+    // 笔记标签到前面（和 AI 叠在一组）：圆钮不亮，点它换回 AI
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(fab).not.toHaveClass(/\bon\b/)
     await fab.click()

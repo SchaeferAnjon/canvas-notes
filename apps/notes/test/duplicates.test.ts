@@ -2,7 +2,6 @@
 import { doubtsNote, type DoubtItem } from '@cn/format'
 import { describe, expect, it } from 'vitest'
 import { duplicatesOf, isAutoSummary, linksTo } from '../src/main/duplicates'
-import { videoDoubtsText } from '../src/shared/video'
 
 const PARA = '加速器为什么又快又省：把常用的运算做成专门的电路，流水线每人只做一步，不用再看菜谱、找工具，所以同样的电费能算更多。'
 
@@ -34,17 +33,10 @@ describe('找重复', () => {
     expect(pairs).toEqual([])
   })
 
-  it('视频里的疑惑：新建时就带「生成: 软件」，旧的没有 front matter 的加一条时补上；它不参加找重复', () => {
+  it('以前写的「视频里的疑惑」（front matter「生成: 软件」，2026-11-20 起不再写）：它不参加找重复', () => {
     const entry = `## 01:37 · 赛百味\n> ${PARA}\n\n${PARA}\n\n[▶ 01:37](https://www.youtube.com/watch?v=a&t=97) · 记在 [[又贵又难吃的赛百味]]`
-    const fresh = videoDoubtsText(null, entry)
-    expect(fresh).toBe(`---\n类型: 视频里的疑惑\n生成: 软件\n---\n\n# 视频里的疑惑\n\n看视频时框一块问过 AI 的地方，新的在后面。读 PDF 时问的在「我的疑惑」。\n\n${entry}\n`)
-    const old = `# 视频里的疑惑\n\n看视频时框一块问过 AI 的地方。\n\n## 00:01 · 旧的\n> 旧问题\n`
-    const next = videoDoubtsText(old, entry)
-    expect(next.startsWith('---\n类型: 视频里的疑惑\n生成: 软件\n---\n')).toBe(true)
-    expect(next.endsWith(`> 旧问题\n\n${entry}\n`)).toBe(true)
-    // 再加一条不再动 front matter
-    expect(videoDoubtsText(next, 'x')).toBe(next + '\nx\n')
-    expect(duplicatesOf([{ id: '视频里的疑惑.md', text: fresh }, { id: '又贵又难吃的赛百味.md', text: `# 赛百味\n\n${PARA}\n\n${PARA}\n` }])).toEqual([])
+    const old = `---\n类型: 视频里的疑惑\n生成: 软件\n---\n\n# 视频里的疑惑\n\n看视频时框一块问过 AI 的地方，新的在后面。读 PDF 时问的在「我的疑惑」。\n\n${entry}\n`
+    expect(duplicatesOf([{ id: '视频里的疑惑.md', text: old }, { id: '又贵又难吃的赛百味.md', text: `# 赛百味\n\n${PARA}\n\n${PARA}\n` }])).toEqual([])
   })
 
   it('一篇明确链着另一篇（[[名字]]、相对链接、链到它那份 PDF）：不配对；没链着的照样配', () => {

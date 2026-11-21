@@ -7,9 +7,6 @@
   grid-template-columns: var(--side-w) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) var(--gitbar-h);
 }
-.win.with-right {
-  grid-template-columns: var(--side-w) minmax(0, 1fr) var(--right-w);
-}
 
 /* ---------- 左栏 ---------- */
 .side {
@@ -584,6 +581,19 @@ button.bi[data-testid='git-changed']:disabled {
   color: var(--t3);
   white-space: pre;
 }
+/* 剪藏来的：「· 剪自 <网站图标 14> 域名」，来源只写这一处（链接后面不再露域名，cmdk 方案 A） */
+.doc.doc .cm-meta-src {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: 12px/1.5 var(--sans);
+  color: var(--t2);
+  white-space: pre;
+}
+.doc.doc .cm-meta-src .fav {
+  flex: none;
+  border-radius: 3px;
+}
 /* 文件夹小块：这一行行高 18（照小样），悬停的底色用上下 -2 的外边距撑出去；右边也 -6，箭头到「·」和别处的分隔号一样近 */
 .doc.doc .cm-folder {
   display: inline-flex;
@@ -616,6 +626,12 @@ button.bi[data-testid='git-changed']:disabled {
 .doc.doc .cm-h5,
 .doc.doc .cm-h6 {
   font-weight: 600;
+}
+/* 白板用文档看法打开：列那一行（<!-- column … title=… -->，layout-lines.ts）画成和 ## 一样的小节标题（一列就是一节，偏好「白板先按节摆再自由」） */
+.doc.doc .cm-colhead {
+  font: 600 19px/1.35 var(--sans);
+  color: var(--md-heading, var(--t1));
+  padding: 20px 0 8px;
 }
 /*
  * 藏起来的记号（live-preview 的 Decoration.replace({})，画成一个空的 <span contenteditable=false>）两边，
@@ -651,15 +667,19 @@ button.bi[data-testid='git-changed']:disabled {
   border-radius: 4px;
   padding: 1px 4px;
 }
+/* 链接只画一道下划线，后面什么都不露（DESIGN.v3 6.5，cmdk 方案 A）；指着出链接卡（link-card.tsx） */
 .doc.doc .cm-link {
   color: var(--t1);
   text-decoration: underline;
   text-decoration-color: var(--line2);
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
+}
+.doc.doc .cm-link:hover {
+  text-decoration-color: var(--t2);
 }
 /* 按住 ⌘ 指着链接：--acc-t 加下划线、鼠标变手（⌘ 点在右栏网页开，⌘⌥ 点在中间栏开） */
 .doc .cm-editor.cn-meta .cm-link:hover,
-.doc .cm-editor.cn-meta .cm-urlchip:hover,
 .doc .cm-editor.cn-meta .cm-wikilink:hover {
   color: var(--acc-t);
   text-decoration: underline;
@@ -671,18 +691,78 @@ button.bi[data-testid='git-changed']:disabled {
   background: linear-gradient(transparent 38%, color-mix(in srgb, var(--acc) 34%, transparent) 38%, color-mix(in srgb, var(--acc) 34%, transparent) 92%, transparent 92%);
   border-radius: 2px;
 }
-/* 链接的「(网址)」收成的域名小块（CN-58），常显；点它才在这一个链接上露出网址来改 */
-.doc.doc .cm-urlchip {
-  display: inline-block;
-  margin-left: 3px;
-  padding: 0 5px;
-  border-radius: 4px;
-  background: var(--fill2);
-  font: 11px/1.6 var(--sans);
+/* 链接卡（照 Google Docs）：网站图标 + 链接的字、完整网址，下面「右栏打开 ⌘点 · 拷贝 · 改链接 · 去掉链接」 */
+.lk-card {
+  width: 372px;
+  padding: 10px 12px 8px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font: 13px/1.5 var(--sans);
+  color: var(--t1);
+}
+.lk-card .top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+.lk-card .top > svg,
+.lk-card .top > .fav,
+.lk-card .top > .fav-back {
+  flex: none;
+  color: var(--t2);
+}
+.lk-card .top b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.lk-card .u {
+  margin: 0 0 8px 22px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--t2);
+}
+.lk-card .u input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--acc-ring);
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+  font: 12px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.lk-card .acts {
+  display: flex;
+  gap: 2px;
+  margin-left: 14px;
+}
+.lk-card .acts button {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+}
+.lk-card .acts button:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.lk-card .acts .k {
   color: var(--t3);
-  text-decoration: none;
-  vertical-align: 1px;
-  cursor: text;
 }
 .doc .cm-wikilink {
   color: var(--acc-t);
@@ -1630,22 +1710,48 @@ button.bi[data-testid='git-changed']:disabled {
   margin: 4px 2px;
   color: var(--t3);
 }
-.unsorted .mini {
+/*
+ * 白板「未整理」、文档白板「收件箱」里的一张（类名不叫 .mini：设置页的主题小样也叫 .mini，设置的样式表一载进来
+ * 就把这张卡压成 72 高的三行网格，字和「收件箱」叠在一起，第 8 轮）
+ */
+.uns-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   background: var(--clip);
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   margin-top: 6px;
   font-size: 12px;
   color: var(--t1);
-  line-height: 1.45;
+  line-height: 1.5;
   cursor: grab;
 }
-.unsorted .mini span {
-  display: block;
-  color: var(--t3);
-  font-size: 11px;
-  margin-top: 3px;
+.uns-card .t {
+  font-size: 14px;
+  line-height: 1.35;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.uns-card .s {
+  margin: 0;
+  color: var(--t2);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+.uns-card .src {
+  margin-top: 2px;
+  color: var(--t2);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ghost {
   position: fixed;
@@ -1819,16 +1925,16 @@ button.bi[data-testid='git-changed']:disabled {
   min-height: 0;
   background: var(--card);
 }
-/* AI 那一格的头（ai-head.tsx，D 组小样 .aip .ph）：44 高；左「AI」600 +「地方名 ⌄」对话菜单胶囊，右边「+」新对话、「收起 ⌘J」 */
+/* AI 标签里对话那一行（ai-head.tsx；工作区方向 A 原型 .ai-sub）：40 高、左 12 右 10；「地方名 ⌄」对话菜单胶囊，右边「+」新对话。
+   「AI」两个字在标签上，收起是标签上的 ×；分隔线画在下面「看得到」那一行的底上 */
 .aih {
   position: relative;
-  height: 44px;
+  height: 40px;
   flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px 0 14px;
-  border-bottom: 1px solid var(--line);
+  padding: 0 10px 0 12px;
   white-space: nowrap;
 }
 .aih b {
@@ -1950,8 +2056,8 @@ button.bi[data-testid='git-changed']:disabled {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
+  gap: 5px;
+  padding: 0 12px 8px;
   border-bottom: 1px solid var(--line);
   font-size: 12px;
 }
@@ -2369,10 +2475,18 @@ button.bi[data-testid='git-changed']:disabled {
 .dprev .dh b {
   font: 600 14px/1.35 var(--sans);
 }
+/* 路径 · 字数 · AI写的草稿 一行不折：路径那一截可缩（文件夹先省略），后面一截一直完整 */
 .dprev .dmeta {
+  display: flex;
+  align-items: baseline;
   margin: 4px 0 6px;
   font-size: 12px;
   color: var(--t3);
+  white-space: nowrap;
+}
+.dprev .dmeta .rest {
+  flex: none;
+  margin-left: 4px;
 }
 .dprev code {
   font: 11px var(--mono);
@@ -2406,6 +2520,31 @@ button.bi[data-testid='git-changed']:disabled {
 .aichg .fr {
   height: 28px;
   font-size: 12px;
+}
+/* 一条库内路径（AiPanel 的 FilePath）：文件夹 --t3 先省略，文件名 --t1 最后才省略 */
+.fpath {
+  display: flex;
+  min-width: 0;
+  white-space: nowrap;
+}
+.fr .fpath {
+  flex: 1;
+}
+.fpath .dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--t3);
+}
+.fpath .fn {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dprev .dmeta .fpath .fn {
+  color: var(--t2);
 }
 /* 改名、挪动的一行：旧名 --t3、箭头 12 --t3、新名 --t1（放不下先省略旧名那一截） */
 .aichg .fr.renamed .was {
@@ -2534,20 +2673,7 @@ button.bi[data-testid='git-changed']:disabled {
   font-size: 13px;
 }
 
-/* ---------- 右栏宽度拖动 ---------- */
-.vsplit {
-  position: fixed;
-  top: 0;
-  bottom: var(--gitbar-h);
-  right: calc(var(--right-w) - 3px);
-  width: 6px;
-  z-index: 30;
-  cursor: col-resize;
-}
-.vsplit:hover,
-body.resizing .vsplit {
-  background: linear-gradient(to right, transparent 2px, var(--line2) 2px, var(--line2) 4px, transparent 4px);
-}
+/* ---------- 拖宽左栏、右边各栏时 ---------- */
 body.resizing webview {
   pointer-events: none;
 }
@@ -2570,7 +2696,7 @@ body.resizing {
 }
 .pal {
   width: min(680px, calc(100% - 40px));
-  max-height: min(520px, calc(100vh - 140px));
+  max-height: min(560px, calc(100vh - 140px));
   display: flex;
   flex-direction: column;
   border-radius: 14px;
@@ -2607,6 +2733,7 @@ body.resizing {
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--fill);
+  color: var(--t2);
 }
 .pal-list {
   flex: 1;
@@ -2614,7 +2741,7 @@ body.resizing {
   padding: 6px;
 }
 .pal-g {
-  padding: 10px 10px 4px;
+  padding: 8px 12px 4px;
   font-size: 12px;
   font-weight: 500;
   color: var(--t3);
@@ -2703,7 +2830,7 @@ body.resizing {
 }
 .pal-row.sr .lc {
   flex: none;
-  max-width: 30%;
+  max-width: 34%;
   font-size: 12px;
   color: var(--t3);
   white-space: nowrap;
@@ -2786,10 +2913,15 @@ body.resizing {
 }
 .pal-foot {
   flex: none;
-  padding: 8px 20px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 20px;
   border-top: 1px solid var(--line);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--t3);
+  white-space: nowrap;
 }
 .bcard .todo-edit {
   cursor: text;

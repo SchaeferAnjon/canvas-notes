@@ -3,7 +3,7 @@
  * - AI 动手看得见（DESIGN.v3 2.3）：白板外圈、顶上「AI 正在整理这块白板 · 停下 esc」、去拿卡片的「AI」指针、正在挪的卡外圈；
  *   esc、提示条上的「停下」都能停（当前这一步做完就停，已做的一次提交）；网页里剪的段落标「✂ 剪成卡片」，撤回后没了。
  * - 文档切到白板照 doc-to-board 方向 A 小样：书摘卡头「《书》· 章」不露 md 链接；PDF 页画缩略图、$$ 公式排好、问过 AI 的截图、
- *   数据库小表、[[白板]] 是白板卡；左边工具板、顶上「按「##」摆成列 · 挪动了才写进文件 · 摆回原样」、右上「收件箱 N ⌄」。
+ *   数据库小表、[[白板]] 是白板卡；左边工具板、顶上「按「##」摆成列 · 挪动了才写进文件 · 摆回原样」、右边一格收件箱（2026-11-21 方向 A，原来右上的「收件箱 N ⌄」）。
  * - 只是切到白板看、不挪：文件一个字节不变（打开再保存文件不变）。
  * 都是真点、真拖、真按键。
  */
@@ -13,7 +13,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { acts, gitStatus, launch, openNote, pane, waitSaved } from './app'
+import { acts, gitStatus, launch, openNote, pane, waitSaved, webAboveAi } from './app'
 import { BOOK, DOC as DIGEST, PATH as DIGEST_PATH } from './fixtures/book-digest'
 import { docBoardVault, LECTURE_NOTE, TRAVEL_NOTE } from './fixtures/doc-board'
 
@@ -59,8 +59,10 @@ test('AI 在白板上排卡片看得见：外圈、顶上提示条、AI 指针�
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛准备' }).click()
-    const board = pane(page).getByTestId('board')
+    // 2026-11-21 起白板就是这篇文档：旧写法打开时一次转好（转好那次提交之后再数）
+    const board = pane(page).getByTestId('doc-board')
     await expect(board).toBeVisible()
+    await expect.poll(() => gitOut(vault, 'log', '--format=%s', '-1')).toMatch(/^白板改成按「##」分列/)
     const before = commits(vault)
     await page.keyboard.press('Meta+j')
     await send(page, '在白板上加卡片「订机票」「订租车」，再把卡片按列排')
@@ -89,7 +91,7 @@ test('AI 在白板上排卡片看得见：外圈、顶上提示条、AI 指针�
     const at = await board.evaluate((b) => {
       const g = b.querySelector('[data-testid="ai-grab-ring"]')?.getBoundingClientRect()
       const c = b.querySelector('[data-testid="ai-cursor"]')!.getBoundingClientRect()
-      const cards = [...b.querySelectorAll('.bcard')].map((e) => e.getBoundingClientRect())
+      const cards = [...b.querySelectorAll('.db-card')].map((e) => e.getBoundingClientRect())
       const ring = b.querySelector('[data-testid="ai-grab-ring"]')
       return g ? { g: g.toJSON() as DOMRect, c: c.toJSON() as DOMRect, cards: cards.map((r) => r.toJSON() as DOMRect), shadow: ring ? getComputedStyle(ring).boxShadow : '' } : null
     })
@@ -125,8 +127,9 @@ test('AI 排卡片时按 esc 停下：手上这一步做完就停，已经做了
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛准备' }).click()
-    const board = pane(page).getByTestId('board')
+    const board = pane(page).getByTestId('doc-board')
     await expect(board).toBeVisible()
+    await expect.poll(() => gitOut(vault, 'log', '--format=%s', '-1')).toMatch(/^白板改成按「##」分列/)
     const before = commits(vault)
     await page.keyboard.press('Meta+j')
     await send(page, '在白板上加卡片「订机票」「订租车」「看极光」，再把卡片按列排')
@@ -141,7 +144,8 @@ test('AI 排卡片时按 esc 停下：手上这一步做完就停，已经做了
     const md = readFileSync(join(vault, '冰岛准备.md'), 'utf8')
     expect(md).toContain('订机票')
     expect(md).not.toContain('订租车')
-    expect(md).toContain('<!-- card id=a x=620 y=420 w=240 -->')
+    // 没排：散着的卡还在原处（旧坐标换到新白板上是 + (4, 64)）
+    expect(md).toContain('<!-- card id=a x=624 y=484 -->')
     expect(commits(vault)).toBe(before + 1)
     await expect(msg.getByTestId('ai-change')).toContainText('改了1个文件')
   } finally {
@@ -217,6 +221,8 @@ test('AI 在网页里剪段落：指针去拿、那段亮一下，剪完段尾�
     await expect(ai(page).getByTestId('ai-msg').last().locator('.txt')).toContainText('网页标题是「Ice caves in Iceland」', { timeout: 30_000 })
     // 上一轮做完（停下键变回发送键）才发下一句，不然这一句发不出去
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible()
+    // 工作区方向 A（task-9okg5）：AI 开的网页在 AI 后面；要看 AI 在网页里动手，把网页拖到上半（真拖）
+    await webAboveAi(page)
     const before = commits(vault)
     await send(page, '把网页里「certified glacier guide」「crampons and a helmet」这两段剪进收件箱')
     // 网页外圈和提示条
@@ -282,21 +288,22 @@ test('文档切到白板不露原文：书摘卡头《书》· 章、PDF 页缩�
     await expect(boardCard).toContainText('冰岛自驾')
     await expect(boardCard).toContainText('白板 · 2张卡片 · 双击打开')
     expect(await boardCard.locator('.sq').evaluate((e) => getComputedStyle(e).backgroundColor)).toBe('rgb(74, 127, 167)')
-    // 数据库：小表，卡头「住宿 · 表格 … 8条」，露 4 条，单选是小色块，底下「还有4条 … 整页打开」
+    // 数据库（2026-11-21 方向 A4 小样）：卡头「住宿 · 表格 … 8条」，不画表头的小表露 4 条（名字、状态小色块），虚线下「还有4条 … 展开」；
+    // 展开：原地长成整张表（文档里那张数据库表），Esc 收起
     const base = col(page, '住哪').locator('.db-card[data-face="base"]')
-    await expect(base.locator('.kh')).toContainText('住宿')
+    await expect(base.locator('.kh')).toContainText('住宿 · 表格')
     await expect(base.locator('.kh .r')).toHaveText('8条')
-    await expect(base.locator('thead th')).toHaveText(['日期', '地方', '状态'])
+    await expect(base.locator('thead')).toHaveCount(0)
     await expect(base.locator('tbody tr')).toHaveCount(4)
-    await expect(base.locator('tbody tr').first()).toContainText('2-24雷克雅未克订了')
+    await expect(base.locator('tbody tr').first()).toContainText('雷克雅未克订了')
     await expect(base.locator('.db-tag').first()).toHaveText('订了')
-    await expect(base.locator('.foot')).toContainText('还有4条')
-    await base.getByRole('button', { name: '整页打开' }).click()
-    const dlg = page.getByRole('dialog', { name: '全文' })
-    await expect(dlg.locator('tbody tr')).toHaveCount(8)
-    await expect(dlg).toContainText('数据库')
+    await expect(base.locator('.dbfoot')).toContainText('还有4条')
+    await base.getByTestId('db-expand').click()
+    const big = docBoard(page).locator('.dbx')
+    await expect(big.locator('tbody tr')).toHaveCount(8)
+    await expect(big).toContainText('每一条是「写作/冰岛十天环岛/住宿/」里的一篇笔记')
     await page.keyboard.press('Escape')
-    await expect(dlg).toHaveCount(0)
+    await expect(big).toHaveCount(0)
     // 整页剪藏：封面、标题、来源，不露链接
     const clip = col(page, '路线').locator('.db-card[data-face="clipnote"]')
     await expect(clip).toContainText('去冰岛之前要知道的十件事')
@@ -366,7 +373,7 @@ test('文档切到白板不露原文：书摘卡头《书》· 章、PDF 页缩�
   }
 })
 
-test('文档切成的白板：工具板五样、顶上那条说明、右上收件箱；点卡片写字放好、拖待办进一列、收件箱拖进一列、加一列并改名、摆回原样', async () => {
+test('文档切成的白板：工具板六样、顶上那条说明、右边一格收件箱；卡片拖到空白处就地写、拖待办进一列、收件箱拖进一列、加一列并改名、摆回原样', async () => {
   const run = await launch(docBoardVault())
   const { page, vault } = run
   const file = () => readFileSync(join(vault, '写作/冰岛十天环岛.md'), 'utf8')
@@ -375,40 +382,60 @@ test('文档切成的白板：工具板五样、顶上那条说明、右上收�
     await openNote(page, '冰岛十天环岛')
     await acts(page).getByRole('tab', { name: '白板' }).click()
     await expect(docBoard(page)).toBeVisible()
-    // 工具板：卡片、待办、列、子白板、拍导图
+    // 工具板：卡片、待办、列、数据库、子白板｜拍导图（2026-11-21 方向 A 加了数据库）
     const pal = docBoard(page).locator('.bpal button')
-    await expect(pal).toHaveText(['卡片', '待办', '列', '子白板', '拍导图'])
+    await expect(pal).toHaveText(['卡片', '待办', '列', '数据库', '子白板', '拍导图'])
     // 顶上居中：按「##」摆成列 · 挪动了才写进文件 + 摆回原样
     const hint = docBoard(page).locator('.db-hint')
     await expect(hint).toHaveText('按「##」摆成列 · 挪动了才写进文件摆回原样')
     await expect(hint.locator('b')).toHaveText('挪动了才写进文件')
     const hb = (await hint.boundingBox())!
     expect(hb.height).toBe(32)
-    // 右上：收件箱 1 ⌄
-    const inbox = docBoard(page).getByTestId('db-inbox')
+    // 收件箱：标签条右端「收件箱 1」，白板右边一格
+    const inbox = acts(page).getByTestId('db-inbox')
     await expect(inbox).toHaveText('收件箱1')
+    const drawer = docBoard(page).getByRole('complementary', { name: '收件箱' })
+    await expect(drawer).toBeVisible()
     // 「摆回原样」没东西可摆时说一句，不写文件
     await hint.getByRole('button', { name: '摆回原样' }).click()
     await expect(docBoard(page).locator('.db-toast')).toContainText('已经是按节摆的样子')
     expect(file()).toBe(TRAVEL_NOTE)
 
-    // 点「卡片」：先写字，⌘↵ 放好；文档末尾多这一段和一行位置，顶上那条跟着变
-    await pal.filter({ hasText: '卡片' }).click()
-    const nc = page.getByRole('dialog', { name: '新卡片' })
-    await nc.getByRole('textbox').fill('记得带转换插头')
-    await nc.getByRole('textbox').press('Meta+Enter')
+    // 「卡片」拖到空白处：那里出一张空卡就地写，⌘↵ 放好；文档末尾多这一段和一行位置，顶上那条跟着变；卡底不写在哪一节
+    const cardBtn = (await pal.filter({ hasText: '卡片' }).boundingBox())!
+    // 画布上一处空白（不在列、卡、顶上那条、工具板上）：从下往上、从左往右找
+    const spot = await docBoard(page).locator('.board-wrap').evaluate((w) => {
+      const r = w.getBoundingClientRect()
+      for (let y = r.bottom - 40; y > r.top + 120; y -= 24)
+        for (let x = r.left + 120; x < r.right - 40; x += 24) {
+          const el = document.elementFromPoint(x, y)
+          if (el && w.contains(el) && !el.closest('.db-col, .db-card, .db-top, .bpal, .dbx')) return { x, y }
+        }
+      return null
+    })
+    expect(spot).not.toBeNull()
+    await page.mouse.move(cardBtn.x + cardBtn.width / 2, cardBtn.y + cardBtn.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(cardBtn.x + 80, cardBtn.y + 30, { steps: 4 })
+    await page.mouse.move(spot!.x, spot!.y, { steps: 12 })
+    await page.mouse.up()
+    const draft = docBoard(page).getByTestId('db-draft')
+    await expect(draft.getByRole('textbox', { name: '新卡片的字' })).toBeFocused()
+    await page.keyboard.type('记得带转换插头')
+    await page.keyboard.press('Meta+Enter')
     await expect(docBoard(page).locator('.db-card.placed')).toContainText('记得带转换插头')
     await waitSaved(page)
     expect(file()).toMatch(/\n<!-- card id=d1 x=\d+ y=\d+ -->\n记得带转换插头\n$/)
     expect(file().replace(/\n<!-- card id=d1 x=\d+ y=\d+ -->\n记得带转换插头\n$/, '')).toBe(TRAVEL_NOTE.replace(/\n$/, '') + '\n')
     await expect(hint).toContainText('1张卡离开了自己那一节 · 文件里多了1行位置')
-    await expect(docBoard(page).locator('.db-card.placed .from')).toHaveText('在文档「预算」这一节里')
-    // 空着关掉：什么都不写
+    await expect(docBoard(page).locator('.db-card.placed .from')).toHaveCount(0)
+    // 空着收起：什么都不写
     await pal.filter({ hasText: '卡片' }).click()
+    await expect(draft).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('dialog', { name: '新卡片' })).toHaveCount(0)
+    await expect(draft).toHaveCount(0)
 
-    // 待办拖进「住哪」：插进那一节
+    // 待办拖进「住哪」：那一节末尾出一张空待办就地写
     const from = (await pal.filter({ hasText: '待办' }).boundingBox())!
     const target = (await col(page, '住哪').boundingBox())!
     await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2)
@@ -417,17 +444,15 @@ test('文档切成的白板：工具板五样、顶上那条说明、右上收�
     await page.mouse.move(target.x + 80, target.y + target.height - 10, { steps: 12 })
     await expect(col(page, '住哪').locator('.db-drop')).toHaveCount(1)
     await page.mouse.up()
-    const nt = page.getByRole('dialog', { name: '新待办' })
-    await nt.getByRole('textbox').press('End')
-    await nt.getByRole('textbox').type('订维克那晚的房')
-    await nt.getByRole('button', { name: '放到白板上' }).click()
+    await expect(col(page, '住哪').getByTestId('db-draft')).toBeVisible()
+    await page.keyboard.type('订维克那晚的房')
+    await page.keyboard.press('Meta+Enter')
     await expect(col(page, '住哪')).toContainText('订维克那晚的房')
     await waitSaved(page)
     expect(file()).toContain('维克那晚要是封路，就退掉，改住塞里雅兰瀑布附近。\n\n- [ ] 订维克那晚的房\n\n## 路线')
 
     // 收件箱拖进「出发前」第一张前面：短的一条插进那一节，收件箱那篇进废纸篓
-    await inbox.click()
-    const mini = docBoard(page).locator('.db-inbox .mini').first()
+    const mini = drawer.getByRole('listitem').first()
     await expect(mini).toContainText('到了先在机场换一点克朗')
     const m = (await mini.boundingBox())!
     const first = (await col(page, '出发前').locator('.db-card').first().boundingBox())!
@@ -443,9 +468,10 @@ test('文档切成的白板：工具板五样、顶上那条说明、右上收�
     // 那篇开头的「# 记得换钱」是名字，不进文档（不然多一个一级标题）
     expect(file()).toContain('## 出发前\n\n到了先在机场换一点克朗，停车场多数只收卡。\n\n还没订完的：')
     expect(file()).not.toContain('# 记得换钱')
+    await expect(drawer.locator('.dbr-empty')).toContainText('收件箱是空的')
 
     // 列：点一下文档末尾新起一节「新的列」，马上改名
-    await pal.filter({ hasText: '列' }).first().click()
+    await pal.filter({ hasText: /^列$/ }).click()
     const name = docBoard(page).getByRole('textbox', { name: '列名' })
     await expect(name).toHaveValue('新的列')
     await name.fill('装备')
@@ -472,7 +498,7 @@ test('文档切成的白板：工具板五样、顶上那条说明、右上收�
   }
 })
 
-test('文档切成的白板：工具板「子白板」建一块白板、在新标签改名，文档末尾多一张白板卡；「拍导图」拖进一列，做好后那一节多一张指向导图的卡', async () => {
+test('文档切成的白板：工具板「子白板」建一块白板、在新标签改名，正中那一列多一张白板卡；「拍导图」拖进一列，做好后那一节多一张指向导图的卡', async () => {
   const doc = '# 复习\n\n## 第三讲\n\n线性映射的定义。\n\n## 第四讲\n\n特征值。\n'
   const env = { CN_AI_FAKE: '1', CN_AI_FAKE_DELAY_MS: '300', CN_AIRDROP_DIR: mkdtempSync(join(tmpdir(), 'cn-airdrop-')) }
   const run = await launch({ '课程/线性代数/复习.md': doc, '课程/线性代数/第3讲 线性映射.md': '# 第3讲 线性映射\n' }, env)
@@ -483,18 +509,19 @@ test('文档切成的白板：工具板「子白板」建一块白板、在新�
     await acts(page).getByRole('tab', { name: '白板' }).click()
     await expect(docBoard(page)).toBeVisible()
     const pal = docBoard(page).locator('.bpal button')
-    // 子白板：点一下，新白板在新标签里改名；回到这篇，文档末尾多一张指向它的卡（带一行位置）
+    // 子白板：点一下，新白板在新标签里改名；回到这篇，屏幕正中那一列多一张指向它的卡（2026-11-21：点工具板放进正中那一列）
     await pal.filter({ hasText: '子白板' }).click()
     // 新白板的标签进入改名（输入框里是「未命名白板…」）；esc 不改名
     await expect(page.getByTestId('tab-on').locator('input.tab-rename')).toHaveValue(/^未命名白板/)
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('tab-on')).toHaveText(/^未命名白板/)
     await page.locator('.tab', { hasText: '复习' }).first().click()
-    const card = docBoard(page).locator('.db-card.placed[data-face="board"]')
+    const card = docBoard(page).locator('.db-col .db-card[data-face="board"]')
     await expect(card).toContainText('未命名白板')
     await expect(card).toContainText('白板 · 0张卡片 · 双击打开')
     await waitSaved(page)
-    expect(file()).toMatch(/\n<!-- card id=d1 x=\d+ y=\d+ -->\n\[\[未命名白板\]\]\n$/)
+    expect(file()).toMatch(/\n\n\[\[未命名白板\]\]\n/)
+    expect(file()).not.toContain('<!-- card')
 
     // 拍导图：拖进「第三讲」，拍好、核对、做成白板导图；回到这篇，那一节多一张指向导图的卡
     const b = (await pal.filter({ hasText: '拍导图' }).boundingBox())!
@@ -570,7 +597,8 @@ const hookOf = (card: Locator) =>
   })
 
 test('书摘里挂在引文下面的「微信读书的想法」「我的评价」：文档切成的白板、普通白板的卡上都和文档里一个样子（标签同底色、同字色、同字重，小一号；从引文竖线拐下来的弯钩）；只看不改字', async () => {
-  const run = await launch({ [DIGEST_PATH]: DIGEST, '白板/读书.md': READING_BOARD })
+  // 普通白板这一半看的是以前的自由白板（导图、撤回了转写法的白板还用它）：这块记在旧写法名单里，打开不转（2026-11-21）
+  const run = await launch({ [DIGEST_PATH]: DIGEST, '白板/读书.md': READING_BOARD, '.canvas-notes/白板旧写法.json': JSON.stringify({ 版本: 1, 白板: ['白板/读书.md'] }) })
   const { page, vault } = run
   try {
     await page.setViewportSize({ width: 1440, height: 900 })

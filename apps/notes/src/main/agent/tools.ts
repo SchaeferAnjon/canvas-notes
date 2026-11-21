@@ -253,7 +253,7 @@ export const TOOLS: Tool[] = [
   // ---------- 白板 ----------
   {
     name: 'board_list',
-    description: '列出白板上的卡片（id、内容、位置、在哪一列）、列、连线和「未整理」的段落。改白板前先调它拿 id。',
+    description: '列出白板上的卡片（id、内容、在哪一列、摆在空白处的位置）、列（id，一般就是列名）和连线。白板就是这篇文档：## 是列、一段是一张卡。改白板前先调它拿 id；改过字的卡 id 会变，再调一次。',
     inputSchema: obj({ path: PATH }),
     label: () => '看白板上有什么',
     run: async (a, h) => {
@@ -263,7 +263,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'board_add_card',
-    description: '在白板上加一张卡片。不给坐标就放在已有内容下面；给 column（列的 id）就放进那一列。内容是 md。',
+    description: '在白板上加一张卡片。给 column（列的 id，一般就是列名）就插进那一节的末尾；给坐标就放在空白处；都不给就加在最后一节。内容是 md，一段就是一张卡。',
     inputSchema: obj({ text: str('卡片内容（md）'), x: int('横坐标（像素）'), y: int('纵坐标（像素）'), column: str('放进哪一列（列的 id）'), color: str('卡片颜色，可不填'), path: PATH }, ['text']),
     label: (a) => `加卡片「${short(String(a.text ?? ''))}」`,
     run: async (a, h) => {
@@ -282,7 +282,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'board_add_column',
-    description: '在白板上加一列（列可以装卡片，卡片在列里从上到下排）。',
+    description: '在白板上加一列（文档里新起一节「## 列名」，列里的卡片就是这一节的段落，从上到下排）。',
     inputSchema: obj({ title: str('列名'), x: int('横坐标'), y: int('纵坐标'), path: PATH }, ['title']),
     label: (a) => `加一列「${short(String(a.title ?? ''))}」`,
     run: async (a, h) => {
@@ -309,7 +309,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'board_move',
-    description: '把卡片或列挪到画布上的 (x, y)。在列里的卡片会被拿出来放到画布上。',
+    description: '把卡片挪到画布空白处的 (x, y)（文档里这段前面多一行位置，正文顺序不变）。在列里的卡片会被拿出来放到空白处。',
     inputSchema: obj({ id: str('卡片或列的 id'), x: int('横坐标'), y: int('纵坐标'), path: PATH }, ['id', 'x', 'y']),
     label: (a) => `挪 ${String(a.id ?? '')} 到 (${String(a.x ?? '')}, ${String(a.y ?? '')})`,
     run: async (a, h) => {
@@ -319,7 +319,7 @@ export const TOOLS: Tool[] = [
   },
   {
     name: 'board_put_in_column',
-    description: '把一张卡片放进一列；position 从 0 数，不给就放在列的最后。',
+    description: '把一张卡片放进一列（文档里这段也挪进那一节）；column 是列的 id（一般就是列名）；position 从 0 数，不给就放在列的最后。',
     inputSchema: obj({ id: str('卡片 id'), column: str('列 id'), position: int('放在列里第几个（从 0 数）'), path: PATH }, ['id', 'column']),
     label: (a) => `把 ${String(a.id ?? '')} 放进列 ${String(a.column ?? '')}`,
     run: async (a, h) => {
@@ -340,7 +340,7 @@ export const TOOLS: Tool[] = [
   {
     name: 'board_arrange',
     description:
-      '把白板上的卡片和列排整齐，保持现在从上到下、从左到右的顺序。mode=grid 按网格（一行 per 个，默认约等于总数的平方根）；mode=columns 按竖列（per 竖，默认 3，像瀑布流）。列里的卡片跟着列走。',
+      '把白板空白处的卡片排整齐，保持现在从上到下、从左到右的顺序。mode=grid 按网格（一行 per 个，默认约等于总数的平方根）；mode=columns 按竖列（per 竖，默认 3，像瀑布流）。列跟着文档的节排成一排，列里的卡片跟着列走，不动。',
     inputSchema: obj({ mode: { type: 'string', enum: ['grid', 'columns'], description: 'grid 网格 / columns 竖列' }, per: int('一行几个（grid）或几竖（columns）'), path: PATH }, ['mode']),
     label: (a) => (a.mode === 'columns' ? '按列排整齐' : '按网格排整齐'),
     run: async (a, h) => {

@@ -8,7 +8,7 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import type { EngineId } from '../../shared/agent'
 import { EngineLogo } from '../engine-logo'
-import { type AskSection, baseRows, colType, type DocUnit, parseBase, parseSection, parseTable, prop } from '@cn/format'
+import { type AskSection, type DocUnit, findMath, parseSection, parseTable, prop } from '@cn/format'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { type FileEntry, fileName } from '../../shared/files'
@@ -19,6 +19,8 @@ import { CardBody, classify, domainOf, TODO } from '../CardBody'
 import { Attached, inline, Markdown, reviewTag } from '../md-render'
 import { embedImageSrc, imageSrc } from '../md-widgets'
 import { MathBlock } from '../reading/math'
+import { videoUrlOfCard } from '../video/BoardCards'
+import { BaseCard } from './base-card'
 import { usePdfPage } from './pdf-page'
 
 /** 卡上能点的：勾第几行待办、开一个文件或网页、看全文 */
@@ -29,6 +31,8 @@ export interface CardActs {
   onOpen(o: OpenTarget): void
   /** 「整页打开」「双击看全部」：看全文 */
   onFull(): void
+  /** 数据库卡「展开」：卡在原地长成整张表（白板上才有） */
+  onExpand?(): void
 }
 
 export type OpenTarget = { kind: 'file'; path: string; page?: number } | { kind: 'url'; url: string }
@@ -65,7 +69,7 @@ export type Face =
   | { k: 'clipnote'; note: NoteFile }
   | { k: 'board'; note: NoteFile }
   | { k: 'link'; title: string; sub: string; icon: CodiconName; open: OpenTarget | null }
-  | { k: 'embedimg'; src: string; alt: string }
+  | { k: 'embedimg'; src: string; alt: string; from?: { title: string; url: string } }
   | { k: 'quote'; quote: string[]; source: Source | null; items: { wr: boolean; text: string }[]; callout: boolean }
   | { k: 'cardbody'; kind: 'video' | 'moment' }
   | { k: 'images'; imgs: { alt: string; src: string }[] }
@@ -209,7 +213,8 @@ export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'fi
       return { k: 'code', lang, lines: lines.slice(1, end) }
     }
     case 'math':
-      return { k: 'math', tex: [...text.matchAll(/\$\$([\s\S]*?)\$\$/g)].map((m) => m[1]!.trim()).filter(Boolean) }
+      // 认法同文档编辑器（findMath）：$$…$$、\[…\]
+      return { k: 'math', tex: findMath(text).map((m) => m.tex) }
     case 'table': {
       const p = parseTable(text, { kind: 'table', from: 0, to: text.length })
       return { k: 'table', head: p.head.map((c) => c.text), rows: p.rows.map((r) => p.head.map((_, j) => r[j]?.text ?? '')), right: p.align.map((a) => a === 'right') }
@@ -272,8 +277,14 @@ export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'fi
       return { k: 'list', md: text }
     case 'html':
       return { k: 'html', md: text }
-    default:
+    default: {
+      // 光秃秃一行视频网址：画成视频卡（标题、频道，看过一次就记在本机），和以前的自由白板一样
+      if (videoUrlOfCard(text)) return { k: 'cardbody', kind: 'video' }
+      // 网页拖来的图：一行图、下一行「—— [网页标题](网址)」：图卡，下面说明，再下面出处（不露 md 写法）
+      const im = /^!\[([^\]]*)\]\(([^)\s]+)\)\n—— \[([^\]]+)\]\(([^)\s]+)\)$/.exec(text.trim())
+      if (im) return { k: 'embedimg', src: imageSrc(ctx.notePath, im[2]!), alt: im[1]!, from: { title: im[3]!, url: im[4]! } }
       return { k: 'text', md: text }
+    }
   }
 }
 
@@ -297,19 +308,21 @@ const vaultSrc = (path: string) => 'cn-file://vault/' + path.split('/').map(enco
 export function UnitBody(props: { u: DocUnit; f: Face; ctx: CardCtx; acts: CardActs }) {
   const { u, f, ctx, acts } = props
   const lead = u.lead ? u.text.slice(0, u.lead).trim() : ''
+  // 待办上面紧跟着的一行短标题（「**装备**」「出发前要做的：」）：画成卡头的名字
+  const named = f.k === 'todo' && lead && !lead.includes('\n') ? lead.replace(/^#+\s*/, '').replace(/\*\*/g, '').replace(/[:：]\s*$/, '').trim() : ''
   return (
     <>
-      {lead && (
+      {lead && !named && (
         <div className="db-lead">
           <Markdown text={lead} />
         </div>
       )}
-      <Main u={u} f={f} ctx={ctx} acts={acts} />
+      <Main u={u} f={f} ctx={ctx} acts={acts} name={named || undefined} />
     </>
   )
 }
 
-function Main({ u, f, ctx, acts }: { u: DocUnit; f: Face; ctx: CardCtx; acts: CardActs }) {
+function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; acts: CardActs; name?: string }) {
   const full = ctx.full
   switch (f.k) {
     case 'text':
@@ -326,7 +339,7 @@ function Main({ u, f, ctx, acts }: { u: DocUnit; f: Face; ctx: CardCtx; acts: Ca
       return (
         <>
           <Kh icon="checklist" right={`${done}/${f.rows.length}`}>
-            待办
+            {name ? <span className="truncate">{name}</span> : '待办'}
           </Kh>
           <div className="cb-todo db-todo">
             {shown.map((r) => (
@@ -405,7 +418,7 @@ function Main({ u, f, ctx, acts }: { u: DocUnit; f: Face; ctx: CardCtx; acts: Ca
       )
     }
     case 'base':
-      return <BaseCard src={f.src} full={full} acts={acts} />
+      return <BaseCard src={f.src} full={full} onExpand={acts.onExpand ?? acts.onFull} />
     case 'pdf':
       return (
         <>
@@ -451,6 +464,13 @@ function Main({ u, f, ctx, acts }: { u: DocUnit; f: Face; ctx: CardCtx; acts: Ca
         <figure className="db-img">
           <img src={f.src} alt={f.alt} draggable={false} />
           {f.alt && <figcaption>{f.alt}</figcaption>}
+          {f.from && (
+            <div className="src from-web" title={f.from.url}>
+              <Codicon name="globe" size={12} />
+              <span className="truncate">{f.from.title}</span>
+              <span className="at">{domainOf(f.from.url)}</span>
+            </div>
+          )}
         </figure>
       )
     case 'images': {
@@ -720,72 +740,6 @@ function ClipNote({ note, full }: { note: NoteFile; full: boolean }) {
         <Codicon name="globe" size={13} />
         <span className="truncate">{src ? domainOf(src) : '剪藏'}</span>
         <span className="at">{when(Number.isFinite(at) ? at : note.createdMs)}</span>
-      </div>
-    </>
-  )
-}
-
-/** 同一个值总是同一个颜色（和文档里的数据库表同一个算法），颜色收着 */
-function toneOf(v: string): 'green' | 'yellow' | 'plain' {
-  const tones = ['green', 'yellow', 'plain'] as const
-  let h = 0
-  for (const ch of v) h = (h * 31 + ch.codePointAt(0)!) >>> 0
-  return tones[h % tones.length]!
-}
-
-const colName = (c: string) => (c === 'file.name' ? '名字' : c.replace(/^note\./, ''))
-
-interface BaseData {
-  rows: { name: string; props: Record<string, string> }[]
-  total: number
-}
-
-/** 数据库：卡头「名字 · 表格 … N 条」，下面前 4 条的小表，底下「还有 N 条 … 整页打开」 */
-function BaseCard({ src, full, acts }: { src: string; full: boolean; acts: CardActs }) {
-  const spec = parseBase(src)
-  const [data, setData] = useState<BaseData | null>(null)
-  const key = JSON.stringify(spec)
-  useEffect(() => {
-    let live = true
-    const load = async () => {
-      if (!spec.folder) return setData({ rows: [], total: 0 })
-      const files = (await window.cn.listNotes()).filter((f) => f.path.startsWith(spec.folder + '/') && /\.md$/i.test(f.path))
-      const notes = await Promise.all(files.map(async (f) => ({ path: f.path, text: (await window.cn.readNote(f.path)).text })))
-      const rows = baseRows(spec, notes)
-      if (live) setData({ rows: rows.map((r) => ({ name: r.name, props: r.props })), total: rows.length })
-    }
-    void load()
-    const again = () => void load()
-    const off1 = window.cn.onFilesChanged(again)
-    const off2 = window.cn.onNoteChanged((p) => spec.folder && p.startsWith(spec.folder + '/') && again())
-    return () => ((live = false), off1(), off2())
-  }, [key])
-  const name = spec.folder ? spec.folder.split('/').pop()! : '数据库'
-  const rows = data ? (full ? data.rows : data.rows.slice(0, 4)) : []
-  const cols = spec.columns.length ? spec.columns : ['file.name']
-  const types = cols.map((c) => (c === 'file.name' ? 'text' : colType((data?.rows ?? []).map((r) => r.props[c] ?? ''))))
-  const cell = (r: BaseData['rows'][number], c: string, j: number): ReactNode => {
-    const v = c === 'file.name' ? r.name : (r.props[c] ?? '')
-    return v && types[j] === 'select' ? <span className={'db-tag ' + toneOf(v)}>{v}</span> : v
-  }
-  return (
-    <>
-      <Kh icon="database" right={data ? `${data.total}条` : ''}>
-        <b>{name}</b>
-        <span className="chip">
-          <Codicon name="table" size={12} />
-          {spec.view || '表格'}
-        </span>
-      </Kh>
-      <MiniTable head={cols.map(colName)} rows={rows.map((r) => cols.map((c, j) => cell(r, c, j)))} cls={(j) => (types[j] === 'date' || types[j] === 'number' ? 'num' : undefined)} />
-      <div className="foot">
-        <span>{data && data.total > rows.length ? `还有${data.total - rows.length}条` : '每条是一篇 md'}</span>
-        {!full && (
-          <button type="button" className="r open" onMouseDown={(e) => e.stopPropagation()} onClick={acts.onFull}>
-            <Codicon name="link-external" size={13} />
-            整页打开
-          </button>
-        )}
       </div>
     </>
   )

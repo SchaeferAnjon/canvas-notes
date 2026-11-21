@@ -1,5 +1,5 @@
 import { Codicon } from '@cn/design'
-import { detailsHead, wikiLabel } from '@cn/format'
+import { detailsHead, inlineMath, mathBlockAt, wikiLabel } from '@cn/format'
 import type { ReactNode } from 'react'
 import { parseCallout } from './callout'
 import { EngineLogo } from './engine-logo'
@@ -59,10 +59,10 @@ export function Attached({ wr, children, hooked, clamp }: { wr: boolean; childre
 /**
  * AI 回答里的 md 显示成排好的样子：标题、列表、引用、代码块、分隔线、段落，行内的加粗、斜体、代码、链接、双链。
  * 全部走 React 元素（不拼 HTML）；边生成边显示时半截的 md 也照常显示。
- * math：公式用 KaTeX 排（CN-89，AI 回答才开）：行内 $…$，单独成行的 $$…$$（一行写完，或上下两行 $$ 夹着）；
- * 白板卡片这些自己写的字不开（「$5 和 $10」这样的钱数不该变成公式）
+ * math：公式用 KaTeX 排（CN-89；task-o48fa 起白板卡片、文档切成的白板也排，默认开）：哪段算公式和文档编辑器同一个认法
+ * （@cn/format 的 inlineMath / mathBlockAt：行内 $…$、\(…\)，单独成行的 $$…$$、\[…\]；「$5 和 $10」这样的钱数、代码里的不算）
  */
-export function Markdown({ text, math = false }: { text: string; math?: boolean }) {
+export function Markdown({ text, math = true }: { text: string; math?: boolean }) {
   const lines = text.replace(/\r\n/g, '\n').split('\n')
   const out: ReactNode[] = []
   let i = 0
@@ -88,12 +88,11 @@ export function Markdown({ text, math = false }: { text: string; math?: boolean 
       i++
       continue
     }
-    // 单独成行的公式：$$…$$ 一行写完，或者 $$ 一行开头、$$ 一行结尾（边生成边显示还没到结尾时先按字显示）
-    const one = math ? /^\s*\$\$(.+?)\$\$\s*$/.exec(line) : null
-    const end = math && !one && /^\s*\$\$\s*$/.test(line) ? lines.findIndex((l, k) => k > i && /^\s*\$\$\s*$/.test(l)) : -1
-    if (one || end !== -1) {
-      out.push(<MathBlock key={key()} latex={(one ? one[1]! : lines.slice(i + 1, end).join('\n')).trim()} />)
-      i = one ? i + 1 : end + 1
+    // 单独成行的公式：$$…$$、\[…\] 一行写完，或者开头一行、结尾一行夹着（边生成边显示还没到结尾时先按字显示）；认法同文档编辑器（@cn/format 的 mathBlockAt）
+    const mb = math ? mathBlockAt(lines, i) : null
+    if (mb) {
+      out.push(<MathBlock key={key()} latex={mb.tex} raw={lines.slice(i, mb.end + 1).join('\n').trim()} />)
+      i = mb.end + 1
       continue
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(line)
@@ -241,7 +240,8 @@ export function Markdown({ text, math = false }: { text: string; math?: boolean 
       i < lines.length &&
       lines[i]!.trim() &&
       !/^(#{1,6}\s|\s*>|\s*[-*+]\s|\s*\d+[.)]\s|\s*(```|~~~))/.test(lines[i]!) &&
-      !(isRow(lines[i]!) && i + 1 < lines.length && isDelim(lines[i + 1]!))
+      !(isRow(lines[i]!) && i + 1 < lines.length && isDelim(lines[i + 1]!)) &&
+      !(math && para.length && mathBlockAt(lines, i))
     )
       para.push(lines[i++]!)
     if (!para.length) para.push(lines[i++]!)
@@ -282,30 +282,48 @@ function joinLines(lines: string[], k: number, math: boolean): ReactNode[] {
   return lines.flatMap((l, j) => (j ? [<br key={`${k}-br${j}`} />, ...inline(l, `${k}-${j}`, math)] : inline(l, `${k}-${j}`, math)))
 }
 
-const INLINE = /(!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)|\*\*[^*]+\*\*|==[^=\s](?:[^=]*[^=\s])?==|~~[^~]+~~|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)\s]+(?:\s+"[^"]*")?\))/g
-/**
- * 开了公式时多认两样：$$…$$ 和 $…$。$ 后面紧跟非空白、收尾的 $ 前面也是非空白、后面不跟数字才算（pandoc 的规矩），
- * 「$5 和 $10」这样的钱数不当公式；代码里的 $ 先被 `…` 吃掉
- */
-const MATH = String.raw`\$\$[^$\n]+?\$\$|\$[^\s$](?:[^$\n]*?[^\s$])?\$(?!\d)`
-const INLINE_MATH = new RegExp(`(${MATH}|${INLINE.source.slice(1, -1)})`, 'g')
+const INLINE = /(!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)|\*\*[^*]+\*\*|==[^=\s](?:[^=]*[^=\s])?==|~~[^~]+~~|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)\s]+(?:\s+"[^"]*")?\))/y
 /** 汉字、假名、谚文（中西文之间要留 1/8 字宽的那一边；标点不算） */
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
 
-export function inline(s: string, keyBase: string | number = '', math = false): ReactNode[] {
+/**
+ * 一行字里的行内记号。开了公式时先按 @cn/format 的 inlineMath 认出公式（和文档编辑器同一个认法），
+ * 别的记号（加粗、斜体……）只认整个包住公式或和公式不沾边的：「$x_i$, $\mathbf{x}_i$」中间那截 _…_ 不当斜体。
+ * 文字里的 \$ 显示成 $
+ */
+export function inline(s: string, keyBase: string | number = '', math = true): ReactNode[] {
   const out: ReactNode[] = []
-  let last = 0
-  for (const m of s.matchAll(math ? INLINE_MATH : INLINE)) {
-    if (m.index! > last) out.push(s.slice(last, m.index))
-    const t = m[0]
-    const key = `${keyBase}-${m.index}`
+  const spans = math ? inlineMath(s) : []
+  let text = ''
+  const flush = () => {
+    if (text) out.push(math ? text.replace(/\\\$/g, '$') : text)
+    text = ''
+  }
+  let k = 0
+  for (let p = 0; p < s.length; ) {
+    const key = `${keyBase}-${p}`
+    while (k < spans.length && spans[k]!.from < p) k++
+    const f = spans[k]
+    if (f && f.from === p) {
+      flush()
+      // 紧挨着汉字（AI 没打空格）：那一边留 1/8 字宽（KaTeX 是 inline-block，text-autospace 加不上）
+      const gap = `${CJK.test(s[f.from - 1] ?? '') ? ' gl' : ''}${CJK.test(s[f.to] ?? '') ? ' gr' : ''}`
+      out.push(<MathInline key={key} latex={f.tex} gap={gap} raw={s.slice(f.from, f.to)} />)
+      p = f.to
+      continue
+    }
+    INLINE.lastIndex = p
+    const m = INLINE.exec(s)
+    const t = m?.[0]
+    // 和公式沾边又没整个包住它（斜体的 _ 一头在公式里）：不算记号
+    if (!t || spans.some((x) => x.from < p + t.length && x.to > p && !(x.from >= p && x.to <= p + t.length))) {
+      text += s[p]
+      p++
+      continue
+    }
+    flush()
     // 正文中间的图片只留说明文字：卡片里放大图会把卡片撑得很长
     if (t.startsWith('![')) out.push(<span key={key} className="img-alt">{t.slice(2, t.indexOf(']')) || '图片'}</span>)
-    else if (t.startsWith('$')) {
-      // 紧挨着汉字（AI 没打空格）：那一边留 1/8 字宽（KaTeX 是 inline-block，text-autospace 加不上）
-      const gap = `${CJK.test(s[m.index! - 1] ?? '') ? ' gl' : ''}${CJK.test(s[m.index! + t.length] ?? '') ? ' gr' : ''}`
-      out.push(<MathInline key={key} latex={t.replace(/^\$\$?|\$\$?$/g, '').trim()} gap={gap} />)
-    }
     // 加粗里面的公式、代码照常排
     else if (t.startsWith('**')) out.push(<b key={key}>{inline(t.slice(2, -2), key, math)}</b>)
     // 高亮、删除线：和文档里（live-preview 的 cm-hl、cm-strike）一个样子
@@ -316,9 +334,9 @@ export function inline(s: string, keyBase: string | number = '', math = false): 
     // 读 PDF 时 AI 回答里的「[第 4 页](#page=4)」：点了 PDF 翻过去（右栏 AI 接住点击）
     else if (/\]\(#page=\d+\)$/.test(t)) out.push(<a key={key} className="pg" data-page={/#page=(\d+)/.exec(t)![1]}>{t.slice(1, t.indexOf(']'))}</a>)
     else if (t.startsWith('[')) out.push(<u key={key}>{t.slice(1, t.indexOf(']'))}</u>)
-    else out.push(<i key={key}>{t.slice(1, -1)}</i>)
-    last = m.index! + t.length
+    else out.push(<i key={key}>{inline(t.slice(1, -1), key, math)}</i>)
+    p += t.length
   }
-  if (last < s.length) out.push(s.slice(last))
+  flush()
   return out
 }

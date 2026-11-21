@@ -20,6 +20,8 @@ function toMarkdown(node: Node): string {
       const text = content.trim()
       const href = (node as HTMLAnchorElement).href
       if (!text) return ''
+      // 只套着一张图的链接（维基百科的图都链到「File:」页）：只留图，文档里才画得成图（第 8 轮）
+      if (/^!\[[^\]\n]*\]\([^)\s]*\)$/.test(text)) return text
       if (!/^https?:/.test(href)) return text
       return `[${text}](${mdUrl(readableUrl(href))})`
     },
@@ -41,12 +43,26 @@ function toMarkdown(node: Node): string {
       return rows.length ? '\n\n' + rows.join('\n\n') + '\n\n' : ''
     },
   })
+  // 带图注的一张图（维基百科的 <figure><a><img></a><figcaption>）：图注写成这张图的说明，文档里显示在图下面（第 8 轮设计复审：以前图注成了图下面一段正文）
+  td.addRule('figure', {
+    filter: (n) => n.nodeName === 'FIGURE' && (n as Element).querySelectorAll('img').length === 1 && !!(n as Element).querySelector('figcaption'),
+    replacement: (_c, node) => {
+      const f = node as HTMLElement
+      const img = f.querySelector('img')!
+      const src = img.getAttribute('src') ? img.src : ''
+      let cap = (f.querySelector('figcaption')!.textContent ?? '').replace(/[[\]|\n]/g, ' ').replace(/\s+/g, ' ').trim()
+      if (!src || src.startsWith('data:')) return cap ? `\n\n${cap}\n\n` : ''
+      if (cap.length > 120) cap = cap.slice(0, 120) + '…'
+      return `\n\n![${cap}](${mdUrl(src)})\n\n`
+    },
+  })
   // 图片：没有地址的（懒加载占位）不要
   td.addRule('img', {
     filter: 'img',
     replacement: (_c, node) => {
       const img = node as HTMLImageElement
-      const src = img.getAttribute('src') ?? ''
+      // 写成完整网址（「//upload.wikimedia.org/…」「/pic.png」这种在笔记里打不开）
+      const src = img.getAttribute('src') ? img.src : ''
       if (!src || src.startsWith('data:')) return ''
       // 说明只留短的：维基百科的图说明常是一整段，和下面的图注重复
       let alt = (img.getAttribute('alt') ?? '').replace(/[\[\]\n]/g, ' ').trim()

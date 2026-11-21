@@ -691,6 +691,9 @@ export async function redo(root: string, r: DreamReportInternal, ids: string[], 
     const c = await commitChecked(wt, `梦游：按你说的重做「${titleOf(plan.path)}」`, moved.ok)
     it.redoCommits = [...(it.redoCommits ?? []), c]
     it.move = { from: it.move!.from, to: moved.to }
+    // 重做以后正文改了的照最后一次算（挪回收件箱、换了名都重算）
+    if (moved.self || moved.others) it.edits = { self: moved.self, others: moved.others }
+    else delete it.edits
     it.files = [it.move.from, moved.to]
     it.changes = [{ path: moved.to, text: `按你说的挪到 ${dirname(moved.to) === '.' ? basename(root) : dirname(moved.to)}` }]
     it.redo = text
@@ -710,13 +713,16 @@ export async function redo(root: string, r: DreamReportInternal, ids: string[], 
 }
 
 /** 在梦游分支上把 cur 挪到 target（名字重了加序号），md 里的标题和相对链接跟着改，别的笔记里的 [[旧名]] 换成新名 */
-async function moveOnBranch(wt: string, cur: string, target: string): Promise<{ to: string; ok: Set<string> }> {
+async function moveOnBranch(wt: string, cur: string, target: string): Promise<{ to: string; ok: Set<string>; self: boolean; others: number }> {
   const ext = /\.[^./]+$/.exec(target)?.[0] ?? ''
   const stem = target.slice(0, target.length - ext.length)
   let to = target
   for (let n = 2; to !== cur && (await exists(join(wt, to))); n++) to = `${stem} ${n}${ext}`
   const ok = new Set([cur, to])
-  if (to === cur) return { to, ok }
+  /** 正文真改了的：挪的这篇自己（标题、相对链接）、别的笔记里换了 [[旧名]] 的几篇 */
+  let self = false
+  let others = 0
+  if (to === cur) return { to, ok, self, others }
   await mkdir(dirname(join(wt, to)), { recursive: true })
   await git.git(wt, ['mv', '--', cur, to])
   if (to.endsWith('.md')) {
@@ -725,6 +731,7 @@ async function moveOnBranch(wt: string, cur: string, target: string): Promise<{ 
     if (next !== text && !meta.readOnly) {
       await writeFile(join(wt, to), encodeNote(next, meta))
       await git.git(wt, ['add', '--', to])
+      self = true
     }
   }
   const oldName = titleOf(cur)
@@ -744,9 +751,10 @@ async function moveOnBranch(wt: string, cur: string, target: string): Promise<{ 
       await writeFile(join(wt, f), encodeNote(next, meta))
       await git.git(wt, ['add', '--', f])
       ok.add(f)
+      others++
     }
   }
-  return { to, ok }
+  return { to, ok, self, others }
 }
 
 /** 一条归类和改名：挪好、提交，返回报告里那一条。去处还在原来的文件夹里就是只改名（设置里关了归类挪动） */
@@ -765,6 +773,7 @@ async function fileOne(wt: string, plan: FilePlan, texts: Map<string, string>, a
     commit: c,
     files: [plan.path, moved.to],
     move: { from: plan.path, to: moved.to },
+    ...(moved.self || moved.others ? { edits: { self: moved.self, others: moved.others } } : {}),
     changes: [{ path: moved.to, text: stays ? `改名「${now}」` : `从 收件箱 挪到 ${plan.folder}${renamed ? `，改名「${now}」` : ''}` }],
   }
 }

@@ -85,19 +85,21 @@ test('文档切到白板：按节摆成列、只看不写；拖进别的列文�
     const target = (await col(page, '住哪').boundingBox())!
     await dragTo(page, { x: q.x + 40, y: q.y + 20 }, { x: target.x + 60, y: target.y + target.height - 6 })
     await expect(cardIn(page, '住哪', '冰岛的天气')).toBeVisible()
-    await expect(page.locator('.db-toast')).toContainText('挪进「住哪」：文档里这段也挪到了「住哪」下面')
+    // 提示照小样（2026-11-21 方向 A）：「挪进了「住哪」：文档里这段也挪进了这一节」
+    await expect(page.locator('.db-toast')).toContainText('挪进了「住哪」：文档里这段也挪进了这一节')
     await waitSaved(page)
     const moved = file()
     expect(moved).toContain('## 住哪\n\n第一晚住雷克雅未克。\n\n> 冰岛的天气五分钟一变。\n—— [旅行杂志](https://example.com)\n\n## 路线')
     expect(moved.replace('> 冰岛的天气五分钟一变。\n—— [旅行杂志](https://example.com)\n\n', '')).toBe(TRAVEL.replace('- [ ] 租车', '- [x] 租车').replace('> 冰岛的天气五分钟一变。\n—— [旅行杂志](https://example.com)\n\n', ''))
 
-    // 拖到空白处：只在这段前面多一行位置，正文顺序不变；卡底写它在哪一节
+    // 拖到空白处：只在这段前面多一行位置，正文顺序不变；卡底不写在哪一节（偏好「白板卡别挂位置行」）
     const p = (await cardIn(page, '住哪', '第一晚').boundingBox())!
     const bb = (await board(page).boundingBox())!
     await dragTo(page, { x: p.x + 40, y: p.y + 20 }, { x: bb.x + 300, y: bb.y + bb.height - 150 })
     const placed = board(page).locator('.db-card.placed')
     await expect(placed).toHaveCount(1)
-    await expect(placed.locator('.from')).toHaveText('在文档「住哪」这一节里')
+    await expect(placed.locator('.from')).toHaveCount(0)
+    await expect(placed).not.toContainText('在文档')
     await waitSaved(page)
     const withPlace = file()
     expect(withPlace.split('\n').length).toBe(moved.split('\n').length + 1)
@@ -105,10 +107,14 @@ test('文档切到白板：按节摆成列、只看不写；拖进别的列文�
     expect(withPlace.replace(/<!-- card id=d1 x=\d+ y=\d+ -->\n/, '')).toBe(moved)
     await page.screenshot({ path: 'test-results/g2-docboard-moved.png' })
 
-    // 双击看全文，「在文档里看」切回文档
+    // 双击文字卡：就地改（卡里出编辑框），Esc 收起
     await cardIn(page, '路线', '黄金圈').first().dblclick()
+    await expect(cardIn(page, '路线', '黄金圈').first().getByRole('textbox', { name: '卡片内容' })).toBeFocused()
+    await page.keyboard.press('Escape')
+    // 双击表格卡看全文，「在文档里看」切回文档
+    await col(page, '路线').locator('.db-card[data-kind="table"]').dblclick()
     const dlg = page.getByRole('dialog', { name: '全文' })
-    await expect(dlg).toContainText('第一天：黄金圈。')
+    await expect(dlg).toContainText('黑沙滩')
     await page.screenshot({ path: 'test-results/g2-docboard-full.png' })
     await dlg.getByRole('button', { name: '在文档里看' }).click()
     await expect(acts(page).getByRole('tab', { name: '文档' })).toHaveAttribute('aria-selected', 'true')

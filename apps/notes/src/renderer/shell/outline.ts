@@ -3,6 +3,7 @@
  * - 文档：md 的 # 标题（代码块里的不算），带行号，点了编辑器跳过去；
  * - 白板：列（标题）和有标题的卡片（卡片第一行是 # 标题或整行加粗），列里的卡片缩进一层。
  */
+import { hasOldLayout, isMindmap, splitDoc, unitKeys } from '@cn/format'
 export interface OutlineItem {
   text: string
   depth: number
@@ -35,7 +36,36 @@ export function docOutline(md: string): OutlineItem[] {
 
 const ATTR = (s: string, k: string) => new RegExp(`\\b${k}=(?:"([^"]*)"|(\\S+))`).exec(s)
 
+/** 一张卡的标题：第一行是标题、整行加粗，或者「冒号那句」这类写在前面的一截 */
+function titleLine(text: string): string | null {
+  const first = (text.split('\n').find((l) => l.trim()) ?? '').trim()
+  return /^#{1,6}\s+(.+)$/.exec(first)?.[1]?.trim() ?? /^\*\*(.+)\*\*[:：]?$/.exec(first)?.[1]?.trim() ?? null
+}
+
+/**
+ * 白板（2026-11-21 起就是这篇文档，doc-board.ts）的大纲：列（id 是「col:列名」）和有标题的卡（id 是白板上的名字），
+ * 列里的卡缩进一层；以前写法的白板（导图、撤回了转写法的）照旧按注释认
+ */
 export function boardOutline(md: string): OutlineItem[] {
+  if (isMindmap(md) || hasOldLayout(md)) return oldBoardOutline(md)
+  const b = splitDoc(md)
+  const keys = unitKeys(b)
+  const out: OutlineItem[] = []
+  for (const c of b.columns) {
+    if (c.head && c.title) out.push({ text: c.title, depth: 0, id: 'col:' + c.title })
+    for (const u of c.cards) {
+      const t = u.kind === 'gap' ? null : titleLine(u.text)
+      if (t) out.push({ text: t, depth: c.head ? 1 : 0, id: keys.get(u) })
+    }
+  }
+  for (const u of b.placed) {
+    const t = titleLine(u.text)
+    if (t) out.push({ text: t, depth: 0, id: keys.get(u) })
+  }
+  return out
+}
+
+function oldBoardOutline(md: string): OutlineItem[] {
   const cols: (OutlineItem & { cards: OutlineItem[] })[] = []
   const loose: OutlineItem[] = []
   const lines = md.split('\n')

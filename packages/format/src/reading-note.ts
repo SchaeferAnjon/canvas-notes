@@ -717,6 +717,56 @@ export function upsertSection(md: string, s: AskSection, note: string): string {
 /** 换掉的段后面紧跟下一段时补一个空行 */
 const sep = (rest: string) => (rest && !rest.startsWith('\n') ? '\n' : '')
 
+/** 「以前的版本」：同一处的另一版放在这一段后面（标题换掉、身份去掉，读回来是用户自己的段落，不会被当成第二段） */
+function oldVersion(chunk: string, s: AskSection): string {
+  const lines = chunk.replace(/\n+$/, '').split('\n').slice(1)
+  const body = lines.map((l) => l.replace(THREAD_NOTE, '').replace(/\[完整对话[^\]]*\]\([^)]*\)(\s*·\s*)?/, ''))
+  return [`## 以前的版本 · ${s.page > 0 ? `第 ${s.page} 页 · ` : ''}${oneLine(s.title) || '没起标题'}`, ...body].join('\n') + '\n'
+}
+
+/**
+ * 同一份 PDF 的两篇笔记合成一篇（老库整理，2026-11-20「一个 PDF 一篇笔记」）：other 的每一段按身份合进 primary、按页排；
+ * 同一处两边都有时留问得多的那段（一样多留 primary 的），另一版收进这一段后面的「以前的版本」；
+ * other 里自己写的段落（开头那几段、自己起的 ## 小节）原样搬到最后「从《other 的名字》并进来的」下面（小节降一级）。
+ * 两篇在同一个文件夹，相对链接不用改
+ */
+export function mergeReadingNotes(primary: string, other: string, note: string, otherNote: string): string {
+  const { head, list } = chunks(other, otherNote)
+  const user: string[] = []
+  // 开头：属性和「# … 笔记」那一行以外是自己写的
+  const own = head
+    .replace(/^---\n[\s\S]*?\n---\n?/, '')
+    .split('\n')
+    .filter((l) => !/^#\s/.test(l))
+    .join('\n')
+    .trim()
+  if (own) user.push(own)
+  let md = primary
+  for (const c of list) {
+    const raw = other.slice(c.from, c.to).replace(/\n+$/, '\n')
+    if (!c.section) {
+      user.push(raw.replace(/^##\s/, '### ').trim())
+      continue
+    }
+    const mine = chunks(md, note).list
+    const same = mine.find((m) => m.section?.id === c.section!.id)
+    if (!same) {
+      const after = mine.find((m) => m.section && m.section.page > c.section!.page)
+      md = after ? md.slice(0, after.from) + raw + '\n' + md.slice(after.from) : md.replace(/\n*$/, '\n') + '\n' + raw
+      continue
+    }
+    const cur = md.slice(same.from, same.to).replace(/\n+$/, '\n')
+    if (cur.trim() === raw.trim()) continue
+    const theirs = c.section.rounds > same.section!.rounds
+    const keep = theirs ? raw : cur
+    const older = oldVersion(theirs ? cur : raw, theirs ? same.section! : c.section)
+    const rest = md.slice(same.to)
+    md = md.slice(0, same.from) + keep + '\n' + older + sep(rest) + rest
+  }
+  if (user.length) md = md.replace(/\n*$/, '\n') + `\n## 从《${stem(otherNote)}》并进来的\n\n` + user.join('\n\n') + '\n'
+  return md
+}
+
 // ---------------------------------------------------------------- 完整对话
 
 export interface ConvoTurn {

@@ -92,7 +92,7 @@ test('这台 Mac 上 git 没有署名：打开库时软件给库设一个（系�
     await expect(msg.getByTestId('ai-error')).toHaveCount(0)
     await expect(msg.getByRole('button', { name: '存成卡片' })).toHaveCount(0)
     expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('这块白板讲了三件事')
-    await expect(pane(page).locator('.bcard', { hasText: '这块白板讲了三件事' })).toBeVisible()
+    await expect(pane(page).locator('.db-card', { hasText: '这块白板讲了三件事' })).toBeVisible()
 
     // 「现在提交」也撞上这把锁：一句中文原因，不露 git 原话、不带完整路径
     await palette(page, '现在提交')
@@ -103,7 +103,8 @@ test('这台 Mac 上 git 没有署名：打开库时软件给库设一个（系�
     // 锁拿掉，点提醒下面的「再提交一次」：提交上了，用的是改过的署名
     rmSync(join(vault, '.git/index.lock'))
     await warn.getByRole('button', { name: '再提交一次' }).click()
-    await expect(msg.locator('.done')).toHaveText('卡存好了，提交好了')
+    // 打开时转好的写法也还没提交：锁一放开，自动提交可能先把这篇收进去了，两种说法都对
+    await expect(msg.locator('.done')).toHaveText(/^卡存好了，(提交好了|已经由自动提交收进去了)$/)
     await expect(warn).toHaveCount(0)
     expect(vaultGit(vault, ['log', '-1', '--format=%an <%ae>'])).toBe('写作的我 <me@writing.local>')
     expect(vaultGit(vault, ['status', '--porcelain'])).toBe('')
@@ -353,12 +354,12 @@ test('数据库「新一条」手快双击：只建一条，打的名字给这�
   }
 })
 
-test('真白板上改卡按 Esc：打的字存下（和文档白板「改字」弹层的 Esc 一样），不丢', async () => {
+test('白板（type: board，以前的写法打开时转好）上改卡按 Esc：打的字存下，不丢', async () => {
   const run = await launch({ '冰岛自驾.md': ICELAND })
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
-    const card = pane(page).getByTestId('board').locator('.bcard[data-id="k1"]')
+    const card = pane(page).getByTestId('doc-board').locator('.db-card[data-id="k1"]')
     await card.dblclick()
     const box = pane(page).getByRole('textbox', { name: '卡片内容' })
     await expect(box).toBeFocused()

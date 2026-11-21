@@ -911,6 +911,11 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   .dashboard-columns {
     flex-direction: column;
   }
+  /* 右栏 300–640 宽时（Canvas Notes 工作区）：这一栏不再撑到 600，搜索框、快捷书签那几行跟着栏宽，不横着出界 */
+  .dashboard-columns .active-section {
+    min-width: 0;
+    width: 100%;
+  }
   .deferred-column {
     width: 100%;
     position: static;

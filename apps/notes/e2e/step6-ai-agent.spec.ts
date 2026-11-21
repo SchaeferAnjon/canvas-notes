@@ -31,8 +31,9 @@ async function send(page: Page, text: string) {
 }
 
 /** 白板上卡片的位置和大小（白板坐标） */
+/** 空白处的卡（新写法：前面一行位置 <!-- card id x y -->） */
 function cardsOf(md: string) {
-  return [...md.matchAll(/<!-- card id=(\w+) x=(\d+) y=(\d+) w=(\d+) -->\n([^\n]+)/g)].map((m) => ({ id: m[1]!, x: +m[2]!, y: +m[3]!, w: +m[4]!, text: m[5]! }))
+  return [...md.matchAll(/<!-- card id=(\w+) x=(\d+) y=(\d+) -->\n([^\n]+)/g)].map((m) => ({ id: m[1]!, x: +m[2]!, y: +m[3]!, text: m[4]! }))
 }
 
 let server: Server
@@ -118,7 +119,10 @@ test('白板上让 AI 加卡片并排整齐：文件里对、一次提交、撤�
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '旅行计划' }).click()
-    await expect(pane(page).getByTestId('board')).toBeVisible()
+    await expect(pane(page).getByTestId('doc-board')).toBeVisible()
+    // 以前写法的白板打开时转成新写法、单独一次提交（坐标换到新画布上：x + 4、y + 64）
+    await expect.poll(() => gitOut(vault, 'log', '-1', '--format=%s')).toBe('白板改成按「##」分列：旅行计划')
+    const converted = readFileSync(join(vault, '旅行计划.md'), 'utf8')
     const before = commits(vault)
     await page.keyboard.press('Meta+j')
     await send(page, '在白板上加卡片「订机票」「订租车」「看极光」，再排整齐')
@@ -131,20 +135,20 @@ test('白板上让 AI 加卡片并排整齐：文件里对、一次提交、撤�
     await expect(msg.locator('.tstep.ok')).toHaveCount(5)
 
     // 白板上看得到，文件里对
-    for (const t of ['订机票', '订租车', '看极光']) await expect(pane(page).locator('.bcard', { hasText: t })).toBeVisible()
+    for (const t of ['订机票', '订租车', '看极光']) await expect(pane(page).locator('.db-card', { hasText: t })).toBeVisible()
     const md = readFileSync(join(vault, '旅行计划.md'), 'utf8')
     const cards = cardsOf(md)
     expect(cards.map((c) => c.text)).toEqual(['出发前先定住处', '冰岛环岛十天', '订机票', '订租车', '看极光'])
     // 网格：一行 3 个（5 张取平方根向上取整），从上到下、从左到右，原来的顺序是 b a 订机票 订租车 看极光
     const pos = Object.fromEntries(cards.map((c) => [c.text, [c.x, c.y]]))
-    expect(pos['冰岛环岛十天']).toEqual([60, 80])
-    expect(pos['出发前先定住处']![1]).toBe(80)
-    expect(pos['订机票']![1]).toBe(80)
-    expect(pos['订租车']![0]).toBe(60)
+    expect(pos['冰岛环岛十天']).toEqual([64, 144])
+    expect(pos['出发前先定住处']![1]).toBe(144)
+    expect(pos['订机票']![1]).toBe(144)
+    expect(pos['订租车']![0]).toBe(64)
     expect(pos['看极光']![1]).toBe(pos['订租车']![1])
-    expect(pos['订租车']![1]).toBeGreaterThan(80 + 60)
+    expect(pos['订租车']![1]).toBeGreaterThan(144 + 60)
     // 白板上量出来不重叠
-    const boxes = await pane(page).locator('.bcard').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect))
+    const boxes = await pane(page).locator('.db-card').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect))
     for (let i = 0; i < boxes.length; i++)
       for (let j = i + 1; j < boxes.length; j++) {
         const a = boxes[i]!
@@ -162,9 +166,9 @@ test('白板上让 AI 加卡片并排整齐：文件里对、一次提交、撤�
     // 撤回：文件回到原样，白板上的新卡片没了
     await msg.getByRole('button', { name: '撤回' }).click()
     await expect(msg.getByTestId('ai-change')).toContainText('已撤回')
-    expect(readFileSync(join(vault, '旅行计划.md'), 'utf8')).toBe(PLAN)
-    await expect(pane(page).locator('.bcard', { hasText: '订机票' })).toHaveCount(0)
-    await expect(pane(page).locator('.bcard')).toHaveCount(2)
+    expect(readFileSync(join(vault, '旅行计划.md'), 'utf8')).toBe(converted)
+    await expect(pane(page).locator('.db-card', { hasText: '订机票' })).toHaveCount(0)
+    await expect(pane(page).locator('.db-card')).toHaveCount(2)
     await page.waitForTimeout(1200)
     expect(gitOut(vault, 'status', '--porcelain')).toBe('')
   } finally {
@@ -172,7 +176,7 @@ test('白板上让 AI 加卡片并排整齐：文件里对、一次提交、撤�
   }
 })
 
-test('网页上让 AI 打开网址并读出标题：右栏自动打开，地址栏是那个网址', async () => {
+test('网页上让 AI 打开网址并读出标题：网页开在 AI 后面、底栏带「看网页」，点了地址栏是那个网址', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -184,12 +188,17 @@ test('网页上让 AI 打开网址并读出标题：右栏自动打开，地址�
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg.locator('.txt')).toContainText('网页标题是「极光预报站」', { timeout: 30_000 })
     await expect(msg.getByTestId('ai-step')).toHaveText(['打开网页 127.0.0.1', '读网页'])
+    // 工作区方向 A（task-9okg5）：AI 看得见时网页开在 AI 那一组的后面，AI 不被换下去；底栏说一句，带「看网页」
+    await expect(ai(page)).toBeVisible()
+    await expect(page.getByTestId('dtab-web')).toHaveAttribute('aria-selected', 'false')
+    await expect(page.getByTestId('toast')).toContainText('AI在「网页」标签里打开了127.0.0.1')
+    // 「看得到」里有这个网页（在后面也算）
+    await expect(page.getByTestId('ai-sees')).toContainText('网页：127.0.0.1')
+    // 点「看网页」：换到网页标签，地址栏是那个网址
+    await page.getByTestId('toast').getByRole('button', { name: '看网页' }).click()
     const web = page.getByRole('complementary', { name: '网页' })
     await expect(web).toBeVisible()
     await expect(web.getByRole('textbox', { name: '网址' })).toHaveValue(url.replace(/^http:\/\//, ''))
-    // 「看得到」里有这个网页；AI 还在右栏，网页在上、AI 在下
-    await expect(page.getByTestId('ai-sees')).toContainText('网页：127.0.0.1')
-    await expect(ai(page)).toBeVisible()
   } finally {
     await run.close()
   }

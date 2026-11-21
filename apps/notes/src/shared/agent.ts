@@ -70,6 +70,11 @@ export interface TurnRequest {
   place?: { key: string; label: string }
   engine: EngineId
   text: string
+  /**
+   * 这一轮改了文件时提交说明「AI：」后面写什么。不给就是 text（直接说的那句话）；/ 命令交给 AI 的是写给 AI 的一长串，
+   * 给「/整理当前白板 · 冰岛自驾」这样的命令名和对象
+   */
+  subject?: string
   context: AgentContext
   /** 输入框里粘贴的图（软件设置目录 pasted/ 里的名字） */
   pasted?: string[]

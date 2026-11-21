@@ -159,10 +159,8 @@ export interface AskResult {
   read: string
   /** 要插进笔记的问答块 */
   block: string
-  /** 截图和「我的疑惑」那一篇 */
+  /** 截图（问答块在文档里，一门课的「我的疑惑」直接读它） */
   files: string[]
-  /** 「我的疑惑」在哪篇 */
-  doubts: string
   commit?: string
   t: number
 }

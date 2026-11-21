@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
-import { gitStatus, launch, openNote, rail, waitSaved, railItems, widenRight } from './app'
+import { gitStatus, launch, openNote, rail, waitSaved, railItems, webAboveAi, widenRight } from './app'
 import { LECTURE } from './fixtures/pdf'
 
 const P1 = 'In linear algebra, a rotation matrix is a transformation matrix that is used to perform a rotation in Euclidean space.'
@@ -69,10 +69,14 @@ test('网页上框着问：中间开着文档就插到光标处（带网址和�
     }
     await expect.poll(() => guest(page, 'location.hash')).toBe('#later')
 
-    // 框一块：右栏下格出 AI（上格还是网页），输入框里有截图、预填「给我讲解一下」
+    // 框一块：AI 开出来，输入框里有截图、预填「给我讲解一下」。工作区方向 A（task-9okg5）：AI 和网页叠成一组、AI 在前面，
+    // 想边看网页边问就把网页拖到上半（真拖），后面一直上下两块
     await boxP1(page)
     await expect(ai(page)).toBeVisible()
+    await expect(page.getByTestId('dtab-web')).toHaveAttribute('aria-selected', 'false')
+    await webAboveAi(page)
     await expect(web(page)).toBeVisible()
+    await expect(ai(page)).toBeVisible()
     await expect(ai(page).getByTestId('reading-sees')).toContainText('网页 · Rotation matrix')
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
     await expect(ai(page).getByRole('textbox')).toHaveValue('给我讲解一下')

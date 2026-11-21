@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { gitStatus, launch, pane, waitSaved, acts, tabOn } from './app'
+import { gitStatus, launch, pane, waitSaved, acts, tabOn, foldInbox } from './app'
 import { ICELAND, LODGING } from './fixtures/board'
 
 const board = (page: Page) => pane(page).getByTestId('board')
@@ -12,6 +12,7 @@ async function openBoard(page: Page, name: string) {
   await page.locator('.nav .si', { hasText: new RegExp(`^${name}`) }).first().click()
   await expect(tabOn(page)).toHaveText(name)
   await expect(board(page)).toBeVisible()
+  await foldInbox(page)
 }
 
 async function dragBy(page: Page, from: { x: number; y: number }, dx: number, dy: number) {
@@ -29,8 +30,15 @@ async function center(page: Page, sel: ReturnType<Page['locator']>) {
 
 const read = (vault: string, f: string) => readFileSync(join(vault, f), 'utf8')
 
+/**
+ * 这几块白板用以前的写法（注释存列），2026-11-21 起打开时会一次转成「## 列名」写法（新写法的白板在 r9-board-doc.spec.ts）。
+ * 这里测的是以前的自由白板（导图、撤回了转写法的白板还用它）：把它记进旧写法名单，打开不转
+ */
+const keepOld = (...paths: string[]) => ({ '.canvas-notes/白板旧写法.json': JSON.stringify({ 版本: 1, 白板: paths }) })
+const docBoard = (page: Page) => pane(page).getByTestId('doc-board')
+
 test('打开白板什么都不做：文件不变；挪一张卡只改它那一行注释，⌘Z 回到原样', async () => {
-  const run = await launch({ '冰岛自驾.md': ICELAND, '住宿.md': LODGING, '极光预报.md': '# 极光\n' })
+  const run = await launch({ '冰岛自驾.md': ICELAND, '住宿.md': LODGING, '极光预报.md': '# 极光\n', ...keepOld('冰岛自驾.md') })
   const { page, vault } = run
   try {
     await openBoard(page, '冰岛自驾')
@@ -58,7 +66,7 @@ test('打开白板什么都不做：文件不变；挪一张卡只改它那一�
   }
 })
 
-test('新建白板、双击加卡、改卡片、删卡片', async () => {
+test('新建白板、双击空白处出一张空卡就地写、改卡片、删卡片（新建的白板就是这篇文档）', async () => {
   const run = await launch({ '甲.md': '甲\n' })
   const { page, vault } = run
   try {
@@ -66,50 +74,54 @@ test('新建白板、双击加卡、改卡片、删卡片', async () => {
     await expect(page.getByRole('textbox', { name: '笔记名字' })).toBeFocused()
     await page.keyboard.type('冰岛自驾')
     await page.keyboard.press('Enter')
-    await expect(board(page)).toBeVisible()
+    await expect(docBoard(page)).toBeVisible()
     await expect(tabOn(page)).toHaveText('冰岛自驾')
     await expect.poll(() => existsSync(join(vault, '冰岛自驾.md'))).toBe(true)
     expect(read(vault, '冰岛自驾.md')).toMatch(/^---\ntype: board\ncolor: #[0-9A-F]{6}\n---\n$/)
 
-    const box = (await board(page).boundingBox())!
+    // 双击空白处：那里出一张空卡就地写，点别处存下（文末一段，前面一行位置）
+    const box = (await docBoard(page).locator('.board-wrap').boundingBox())!
     await page.mouse.dblclick(box.x + 300, box.y + 200)
-    const ta = board(page).getByRole('textbox', { name: '卡片内容' })
+    const ta = docBoard(page).getByRole('textbox', { name: '新卡片的字' })
     await expect(ta).toBeFocused()
     await page.keyboard.type('2.27 的住处还没订')
     await page.mouse.click(box.x + 700, box.y + 500)
     await waitSaved(page)
-    expect(read(vault, '冰岛自驾.md')).toMatch(/<!-- card id=\w+ x=\d+ y=\d+ w=280 -->\n2\.27 的住处还没订\n\n$/)
+    expect(read(vault, '冰岛自驾.md')).toMatch(/<!-- card id=d1 x=\d+ y=\d+ -->\n2\.27 的住处还没订\n$/)
     // 左栏「最近」里这块白板一行：它自己的颜色方块，右边是时间（2026-11-17 起左栏按时间排，不再写卡片数）
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾' }).locator('.sw')).toBeVisible()
 
-    // 双击改字
-    await board(page).locator('.bcard').dblclick()
+    // 双击改字：就在卡里改，⌘↵ 存下
+    const card0 = docBoard(page).locator('.db-card.placed')
+    await card0.dblclick()
     await page.keyboard.press('Meta+a')
     await page.keyboard.type('住处订好了')
     await page.keyboard.press('Meta+Enter')
     await waitSaved(page)
-    expect(read(vault, '冰岛自驾.md')).toContain('\n住处订好了\n\n')
-    // Esc 收起也存下（和文档白板「改字」一样，d312d8d；不要的字 ⌘Z 撤回）
-    await board(page).locator('.bcard').dblclick()
+    expect(read(vault, '冰岛自驾.md')).toMatch(/-->\n住处订好了\n$/)
+    // Esc 收起也存下（不要的字 ⌘Z 撤回）
+    await card0.dblclick()
+    await page.keyboard.press('Meta+ArrowDown')
     await page.keyboard.type('又加的字')
     await page.keyboard.press('Escape')
-    await expect(board(page).locator('.bcard')).toHaveText('住处订好了又加的字')
+    await expect(docBoard(page).locator('.db-card.placed')).toHaveText('住处订好了又加的字')
     await page.keyboard.press('Meta+z')
-    await expect(board(page).locator('.bcard')).toHaveText('住处订好了')
+    await expect(docBoard(page).locator('.db-card.placed')).toHaveText('住处订好了')
 
-    // 选中按删除键
-    await board(page).locator('.bcard').click()
+    // 选中按删除键：文档里这一段（连位置行）一起删
+    await docBoard(page).locator('.db-card.placed').click()
     await page.keyboard.press('Backspace')
-    await expect(board(page).locator('.bcard')).toHaveCount(0)
+    await expect(docBoard(page).locator('.db-card')).toHaveCount(0)
     await waitSaved(page)
     expect(read(vault, '冰岛自驾.md')).not.toContain('card id=')
+    expect(read(vault, '冰岛自驾.md')).not.toContain('住处')
   } finally {
     await run.close()
   }
 })
 
 test('列：卡片拖进列、在列里排序、拖出来；列名可改', async () => {
-  const run = await launch({ '冰岛自驾.md': ICELAND, '住宿.md': LODGING, '极光预报.md': '' })
+  const run = await launch({ '冰岛自驾.md': ICELAND, '住宿.md': LODGING, '极光预报.md': '', ...keepOld('冰岛自驾.md') })
   const { page, vault } = run
   try {
     await openBoard(page, '冰岛自驾')
@@ -147,7 +159,7 @@ test('列：卡片拖进列、在列里排序、拖出来；列名可改', async
 })
 
 test('连线：从卡片右边的小圆点拖到另一张卡；点中连线按删除键去掉', async () => {
-  const run = await launch({ '冰岛自驾.md': ICELAND, '住宿.md': LODGING, '极光预报.md': '' })
+  const run = await launch({ '冰岛自驾.md': ICELAND, '住宿.md': LODGING, '极光预报.md': '', ...keepOld('冰岛自驾.md') })
   const { page, vault } = run
   try {
     await openBoard(page, '冰岛自驾')
@@ -178,7 +190,7 @@ test('连线：从卡片右边的小圆点拖到另一张卡；点中连线按�
 })
 
 test('待办打勾；子白板新建、起名后父白板里的链接跟着改、双击打开', async () => {
-  const run = await launch({ '冰岛自驾.md': ICELAND, '住宿.md': LODGING, '极光预报.md': '' })
+  const run = await launch({ '冰岛自驾.md': ICELAND, '住宿.md': LODGING, '极光预报.md': '', ...keepOld('冰岛自驾.md') })
   const { page, vault } = run
   try {
     await openBoard(page, '冰岛自驾')
@@ -206,31 +218,27 @@ test('待办打勾；子白板新建、起名后父白板里的链接跟着改�
   }
 })
 
-// 普通文档切到白板是按节摆（doc-board，e2e/g2-doc-board.spec.ts）；「未整理」是白板文件（type: board）的
-test('未整理：白板里没放进卡片的段落和收件箱里的东西拖上白板', async () => {
+// 2026-11-21 起没有「未整理」：白板就是这篇文档，每一段都是一张卡（第一节之前的在最左一组）；收件箱是白板右边一格
+test('白板里的段落就是卡（没有「未整理」）；收件箱右边一格里的东西拖上白板', async () => {
   const run = await launch({ '所思所想.md': '---\ntype: board\n---\n# 所思所想\n\n第一段想法\n\n第二段想法\n' })
   const { page, vault } = run
   mkdirSync(join(vault, '收件箱'))
   writeFileSync(join(vault, '收件箱', '冰洞.md'), '---\ncreated: 2026-11-14 21:10\n---\n> 冰洞只在冬天开放。\n—— [Ice](https://safetravel.is/ice)\n')
   try {
     await page.locator('.nav .si', { hasText: '所思所想' }).click()
-    await expect(board(page).getByTestId('unsorted')).toContainText('3未整理')
-    await board(page).getByTestId('unsorted').click()
-    const bb = (await board(page).boundingBox())!
-    const mini = board(page).locator('.mini', { hasText: '第一段想法' })
-    const m = (await mini.boundingBox())!
-    await dragBy(page, { x: m.x + 20, y: m.y + 10 }, bb.x + 300 - m.x, bb.y + 200 - m.y)
-    await expect(board(page).locator('.bcard')).toHaveText('第一段想法')
-    await waitSaved(page)
-    expect(read(vault, '所思所想.md')).toMatch(/^---\ntype: board\n---\n# 所思所想\n\n第二段想法\n\n<!-- card id=\w+ x=\d+ y=\d+ w=280 -->\n第一段想法\n\n$/)
-
-    const clip = board(page).locator('.mini', { hasText: '冰洞只在冬天开放' })
+    await expect(docBoard(page)).toBeVisible()
+    await expect(docBoard(page).locator('.db-card')).toHaveText(['第一段想法', '第二段想法'])
+    await expect(docBoard(page).getByTestId('unsorted')).toHaveCount(0)
+    const drawer = docBoard(page).getByRole('complementary', { name: '收件箱' })
+    const clip = drawer.getByRole('listitem').filter({ hasText: '冰洞只在冬天开放' })
+    await expect(clip).toBeVisible()
     const c = (await clip.boundingBox())!
+    const bb = (await docBoard(page).locator('.board-wrap').boundingBox())!
     await dragBy(page, { x: c.x + 20, y: c.y + 10 }, bb.x + 500 - c.x, bb.y + 400 - c.y)
-    await expect(board(page).locator('.bcard.k-clip')).toContainText('safetravel.is')
+    await expect(docBoard(page).locator('.db-card.placed.fc-clip')).toContainText('safetravel.is')
     await expect.poll(() => existsSync(join(vault, '收件箱', '冰洞.md'))).toBe(false)
     await waitSaved(page)
-    expect(read(vault, '所思所想.md')).toContain('> 冰洞只在冬天开放。\n—— [Ice](https://safetravel.is/ice)')
+    expect(read(vault, '所思所想.md')).toMatch(/<!-- card id=d1 x=\d+ y=\d+ -->\n> 冰洞只在冬天开放。\n—— \[Ice\]\(https:\/\/safetravel\.is\/ice\)\n$/)
     // 切回文档：同一个文件，内容都在
     await acts(page).getByRole('tab', { name: '文档' }).click()
     await expect(pane(page).locator('.cm-content')).toContainText('第一段想法')

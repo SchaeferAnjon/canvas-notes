@@ -3,6 +3,7 @@
  * 这里拼成一篇收件箱笔记（frontmatter 带 created 和 source）。
  */
 import { ipcMain, type WebContents } from 'electron'
+import { relativeLink } from '@cn/format'
 import { mdUrl } from '../../shared/layout'
 
 export interface ExtractedPage {
@@ -64,4 +65,44 @@ export function pageClipText(page: ExtractedPage, stamp: string): string {
   if (first && title.includes(first[1]!.trim())) body = body.slice(first[0].length)
   const by = page.byline ? ` · ${page.byline.trim()}` : ''
   return `---\ncreated: ${stamp}\nsource: ${page.url}\n---\n# ${title}\n\n—— [${safeTitle}](${src})${by}\n\n${body}\n`
+}
+
+/** 套着链接的图 `[![说明](图)](网址)`：只留图（维基百科的图都链到「File:」页，留着在文档里画不成图） */
+const LINKED_IMAGE = /\[(!\[[^\]\n]*\]\([^)\s]+\))\]\([^)\s]+\)/g
+const WEB_IMAGE = /(!\[[^\]\n]*\]\()(https?:\/\/[^)\s]+)\)/g
+
+/**
+ * 整页剪藏的正文里网上的图存进这篇的附件文件夹，正文改成相对路径（第 8 轮：网页的图以后打不开、离线看不到）。
+ * save 把一张图存进库、返回库里的路径；存不下的（下载失败、不是图、过了 deadline 还没轮到的）留网址，文档里照样显示网上的图。
+ * 同一张图只存一次；一次最多 max 张，4 张一起下。
+ */
+export async function localizeImages(
+  text: string,
+  notePath: string,
+  save: (url: string) => Promise<string>,
+  opts: { max?: number; deadline?: number } = {},
+): Promise<{ text: string; files: string[] }> {
+  const max = opts.max ?? 60
+  const deadline = opts.deadline ?? Date.now() + 25_000
+  const unwrapped = text.replace(LINKED_IMAGE, '$1')
+  const urls = [...new Set([...unwrapped.matchAll(WEB_IMAGE)].map((m) => m[2]!))].slice(0, max)
+  const saved = new Map<string, string>()
+  let next = 0
+  const worker = async () => {
+    while (next < urls.length && Date.now() < deadline) {
+      const url = urls[next++]!
+      try {
+        saved.set(url, await save(url))
+      } catch {
+        // 存不下的留网址：文档里照样显示网上的图
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(4, urls.length) }, worker))
+  if (!saved.size) return { text, files: [] }
+  const out = unwrapped.replace(WEB_IMAGE, (all, head: string, url: string) => {
+    const p = saved.get(url)
+    return p ? `${head}${mdUrl(relativeLink(notePath, p))})` : all
+  })
+  return { text: out, files: [...new Set(saved.values())] }
 }

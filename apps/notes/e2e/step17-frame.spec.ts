@@ -95,7 +95,7 @@ test('白板的大纲：列出列和卡片，点一张远处的卡片，白板�
   const { page } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛环岛' }).click()
-    const card = page.locator('.bcard[data-id="far"]')
+    const card = page.locator('.db-card[data-id="far"]')
     await expect(card).toBeAttached()
     await expect(card).not.toBeInViewport()
     await rail(page).getByRole('button', { name: '大纲' }).click()

@@ -72,6 +72,13 @@ test('设置 › 梦游：关掉补双链和做可视化，点「现在梦游」
     const steps = dlg.getByRole('list', { name: '梦游能做哪些事' }).getByRole('listitem')
     await expect(steps).toHaveCount(8)
     await expect(steps.locator('.hd b')).toHaveText(['归类挪动收件箱里的笔记', '改名', '补双链', '写本周小结', '做HTML可视化', '老图挪进各篇的附件文件夹', '提醒可能重复', '提醒同一个视频记散在多篇'])
+    // 不说「你写的正文一个字不动」：只有标了「改正文」的几样动正文，下面一段写清各动哪一处
+    await expect(dlg).not.toContainText('正文一个字不动')
+    await expect(dlg.locator('h4').first()).toHaveText('什么时候梦游改动先放在单独的分支上，看过再收')
+    await expect(dlg.getByTestId('dream-set-edits')).toHaveText(
+      '会动正文的只有标了「改正文」的几样，各动一处：归类挪动改挪走那篇里图片、附件的相对链接；改名换开头的标题和别的笔记里指向它的 [[旧名]]；补双链在那篇末尾加一行「相关：[[…]]」；做可视化在读PDF笔记那一段的脚上加一行链接；挪老图改引用它那几篇里的图片链接。别处的字一个不动。',
+    )
+    await expect(dlg.locator('[data-step="file"] .eff')).toHaveText(['挪动', '改正文'])
     await expect(dlg.locator('[data-step="link"] .eff')).toHaveText(['改正文'])
     await expect(dlg.locator('[data-step="viz"] .eff')).toHaveText(['新建文件', '改正文'])
     await expect(dlg.locator('[data-step="dup"] .eff')).toHaveText(['只提醒'])
@@ -107,6 +114,11 @@ test('设置 › 梦游：关掉补双链和做可视化，点「现在梦游」
     await expect(dialog(page)).toHaveCount(0)
     const panel = page.getByRole('complementary', { name: '梦游报告' })
     await expect(panel.locator('.dg')).toHaveText(['归类和改名3条预览', '可能重复1条', '本周小结1条'])
+    // 摘要按真改动说动了哪些正文：关掉的补双链、可视化不提，也不一律说「一个字没动」
+    await expect(panel.getByTestId('dream-summary')).toContainText('收下才合进main。')
+    await expect(panel.getByTestId('dream-summary')).not.toContainText('一个字没动')
+    await expect(panel.getByTestId('dream-summary')).not.toContainText('双链')
+    await expect(panel.getByTestId('dream-summary')).not.toContainText('可视化')
     await page.screenshot({ path: test.info().outputPath('dream-report.png') })
     // 分支上也没有：没有一处「相关：」，没有新的 HTML
     const branch = git(vault, 'branch', '--list', '--format=%(refname:short)', 'dream/*').trim()

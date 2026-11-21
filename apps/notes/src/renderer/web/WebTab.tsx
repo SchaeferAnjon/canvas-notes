@@ -40,7 +40,7 @@ export function WebTab(props: {
 
   async function clipPage() {
     try {
-      const path = await window.cn.clipCurrentPage()
+      const { path } = await window.cn.clipCurrentPage()
       props.onNotice(`整页存进收件箱了：${path.split('/').pop()?.replace(/\.md$/, '')}`)
     } catch (e) {
       props.onNotice(errText(e))
@@ -74,7 +74,7 @@ export function WebTab(props: {
           <Codicon name="globe" size={13} />
           <input ref={addr} aria-label="网址" value={address} onChange={(e) => setAddress(e.target.value)} onFocus={(e) => e.currentTarget.select()} />
         </form>
-        <button className="iconbtn" aria-label="整页剪藏" title="整页剪进收件箱" onClick={() => void clipPage()}>
+        <button className="iconbtn" aria-label="剪藏这一页" title="剪藏这一页：整页进收件箱" onClick={() => void clipPage()}>
           <Codicon name="quote" size={14} />
         </button>
       </div>

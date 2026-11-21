@@ -35,7 +35,7 @@ test('⌘↵ 在右栏网页里搜、⌥↵ 让 Claude 找；两行写着键帽�
     await expect(webRow).toContainText('google.com/search?q=老布什')
     await expect(webRow.locator('kbd')).toHaveText('⌘↵')
     await expect(pal(page).getByRole('option').filter({ hasText: '让Claude帮我找「老布什」' }).locator('kbd')).toHaveText('⌥↵')
-    await expect(pal(page).getByLabel('快捷键')).toHaveText('↑↓ 选择 · ↵ 打开 · ⌘↵ 网页搜 · ⌥↵ 让Claude找 · esc 关闭')
+    await expect(pal(page).getByLabel('快捷键')).toHaveText('↑↓ 选择 · ↵ 打开 · ⌘. 这一条能做什么 · ⌘↵ 网页搜 · ⌥↵ 让Claude找 · esc 关闭')
     // 选中的不是网页那一行（第一行是「笔记和 PDF 里都没有」之后的网页行；先往下挪到 Claude 那行再按，证明不看选中哪行）
     await box(page).press('ArrowDown')
     await shot(run, 'palette-keys')

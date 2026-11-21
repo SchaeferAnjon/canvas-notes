@@ -238,9 +238,10 @@ test('CN-13 / CN-17 / CN-58 剪进文档：只有左边一道竖线、没有框�
     const md = readFileSync(join(vault, '所思所想.md'), 'utf8')
     expect(md).toBe(`# 所思所想\n\n财富是靠专长、杠杆。\n\n> Seek wealth, not money or status.\n—— [雷克雅未克 - 维基百科](${base}/wiki)\n\n\nx\n\n最后一段。\n`)
     expect(await guest(page, `document.body.innerText.includes('x\\n') || document.activeElement?.tagName`)).not.toBe(true)
-    // 光标走到链接文字上：只露一颗域名小块
+    // 光标走到链接文字上：后面什么都不露（cmdk 方案 A：CN-58 的域名小块拿掉了，网址在指着出的链接卡上）
     await line(page, '雷克雅未克 - 维基百科').click({ position: { x: 60, y: 8 } })
-    await expect(pane(page).locator('.cm-urlchip')).toHaveText('127.0.0.1:' + base.split(':').pop() + '…')
+    await expect(pane(page).locator('.cm-urlchip')).toHaveCount(0)
+    expect(await line(page, '雷克雅未克 - 维基百科').textContent()).not.toContain('127.0.0.1')
     expect(await editorText(page)).toBe(md)
   } finally {
     await run.close()

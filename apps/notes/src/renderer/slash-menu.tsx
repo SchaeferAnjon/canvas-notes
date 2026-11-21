@@ -1,6 +1,6 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { fmValue, insertMdBlockAfter, relativeLink, tableMarkdown, textChanges } from '@cn/format'
-import { Prec, StateEffect, StateField, type EditorState } from '@codemirror/state'
+import { Facet, Prec, StateEffect, StateField, type EditorState } from '@codemirror/state'
 import { EditorView, keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { useEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../shared/api'
@@ -173,13 +173,26 @@ const CALLOUTS: [string, string, CodiconName][] = [
 
 const prefix = (p: string) => (view: EditorView, from: number, to: number) => replace(view, from, to, p)
 
+/**
+ * 在白板的一张卡里打 /（偏好「白板卡别挂位置行」：空白卡片也能打 /，和文档同一个菜单）：
+ * 标题、小标题插 ####、#####——## 在白板上是一列，插进卡里就把这张卡变成新的一列了
+ */
+export const slashInCard = Facet.define<boolean, boolean>({ combine: (v) => v.some(Boolean) })
+const CARD_MD: Record<string, string> = { h2: '####', h3: '#####' }
+/** 菜单右边一列写的 md 写法（卡里的标题不一样） */
+export function itemMd(id: string, inCard: boolean): string {
+  if (inCard && CARD_MD[id]) return CARD_MD[id]!
+  return ITEMS.find((it) => it.id === id)?.md ?? ''
+}
+const heading = (id: 'h2' | 'h3', md: string) => (view: EditorView, from: number, to: number) => replace(view, from, to, (view.state.facet(slashInCard) ? CARD_MD[id]! : md) + ' ')
+
 export const GROUPS = ['基本', '图片和表格', '链接', 'AI'] as const
 
 /** 名字、说明、写法照 DESIGN.v3 6.3 的表；表外的几项（提示块、折叠块、日期、数据库）排在各组最后 */
 const ITEMS: SlashItem[] = [
   { id: 'text', group: '基本', label: '正文', desc: '纯文字', md: '', icon: 'text-size', keys: 'text paragraph zhengwen zw p', run: prefix('') },
-  { id: 'h2', group: '基本', label: '标题', desc: '大一号的小标题', md: '##', icon: 'symbol-keyword', keys: 'h2 heading title biaoti bt erji', run: prefix('## ') },
-  { id: 'h3', group: '基本', label: '小标题', desc: '再小一号', md: '###', icon: 'symbol-keyword', keys: 'h3 heading xiaobiaoti xbt sanji', run: prefix('### ') },
+  { id: 'h2', group: '基本', label: '标题', desc: '大一号的小标题', md: '##', icon: 'symbol-keyword', keys: 'h2 heading title biaoti bt erji', run: heading('h2', '##') },
+  { id: 'h3', group: '基本', label: '小标题', desc: '再小一号', md: '###', icon: 'symbol-keyword', keys: 'h3 heading xiaobiaoti xbt sanji', run: heading('h3', '###') },
   { id: 'todo', group: '基本', label: '待办', desc: '带勾选框的一条', md: '- [ ]', icon: 'checklist', keys: 'todo task check daiban db', run: prefix('- [ ] ') },
   { id: 'bullet', group: '基本', label: '列表', desc: '圆点列表', md: '-', icon: 'list-unordered', keys: 'bullet list ul liebiao lb', run: prefix('- ') },
   { id: 'ordered', group: '基本', label: '编号列表', desc: '1. 2. 3.', md: '1.', icon: 'list-ordered', keys: 'ordered number list ol bianhao bh', run: prefix('1. ') },
@@ -356,14 +369,11 @@ const slashMade = StateField.define<{ from: number; to: number } | null>({
   },
 })
 
-/**
- * 菜单里列哪几项。board：这篇是白板（type: board）在「文档」里看：不给「数据库」（白板上画不出表，切回白板是一张卡里一段 YAML 原文）
- */
-export function filterItems(q: string, board = false): SlashItem[] {
+/** 菜单里列哪几项（2026-11-21 起白板上也画得出数据库卡：白板、文档一样） */
+export function filterItems(q: string): SlashItem[] {
   const s = q.trim().toLowerCase()
-  const all = board ? ITEMS.filter((it) => it.id !== 'base') : ITEMS
-  if (!s) return all.filter((it) => !it.searched)
-  return all.filter((it) => it.label.toLowerCase().includes(s) || it.desc.toLowerCase().includes(s) || (it.md && it.md === s) || it.keys.split(' ').some((k) => k.startsWith(s)))
+  if (!s) return ITEMS.filter((it) => !it.searched)
+  return ITEMS.filter((it) => it.label.toLowerCase().includes(s) || it.desc.toLowerCase().includes(s) || (it.md && it.md === s) || it.keys.split(' ').some((k) => k.startsWith(s)))
 }
 
 function filterNotes(notes: NoteFile[], q: string, self: string, boards: boolean): NoteFile[] {
@@ -612,11 +622,12 @@ class SlashView {
         },
       }
     }
-    const items = filterItems(q, fmValue(this.view.state.doc.sliceString(0, Math.min(this.view.state.doc.length, 4000)), 'type') === 'board')
+    const items = filterItems(q)
+    const inCard = this.view.state.facet(slashInCard)
     // 不打字时分组列出；打了字按组的先后排（组名照样写在每组上面）
     const sorted = GROUPS.flatMap((g) => items.filter((it) => it.group === g))
     return {
-      rows: sorted.map((it) => ({ key: it.id, icon: it.icon, name: it.label, desc: it.desc, md: it.md, group: it.group, ai: it.group === 'AI' })),
+      rows: sorted.map((it) => ({ key: it.id, icon: it.icon, name: it.label, desc: it.desc, md: itemMd(it.id, inCard), group: it.group, ai: it.group === 'AI' })),
       pick: (i) => {
         const it = sorted[i]
         if (!it) return

@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { acts, launch, leftView, openAi, openNote, rail, tabOn } from './app'
+import { acts, launch, leftView, openAi, openNote, rail, tabOn, webAboveAi } from './app'
 import { measureGaps, USER_TEXT, type Gap } from './cjk-gap'
 import { LEFT_VAULT, withTimes } from './fixtures/left-vault'
 import { LECTURE } from './fixtures/pdf'
@@ -69,7 +69,7 @@ test('中文和数字、西文挨着：空隙全靠 autospace（量到 1–2.5px
     await page.keyboard.press('Meta+k')
     const pal = page.getByRole('dialog', { name: '搜索和命令' })
     await pal.getByRole('textbox').fill('冰岛')
-    await expect(pal.locator('.pal-g', { hasText: '文字' })).toContainText('笔记和PDF里的字', { timeout: 10_000 })
+    await expect(pal.locator('.pal-g', { hasText: /^(最合适|笔记|笔记和PDF里的字)$/ }).first()).toBeVisible({ timeout: 10_000 })
     expect.soft(await gaps(page, '.pal')).toEqual([])
     await page.keyboard.press('Escape')
 
@@ -160,16 +160,18 @@ test('窗口最窄 960、读 PDF 又开着网页：右栏 250 上下时 AI 头�
       await addr.press('Enter')
       await expect(web.locator('.wtabs .tab.on')).toContainText(titles[p]!.slice(0, 5), { timeout: 10_000 })
     }
+    // 工作区方向 A（task-9okg5）：网页和 AI 默认是一组两个标签；拖成上下两块（网页在上）再看
+    await webAboveAi(page)
     await size(960, 700)
     await page.waitForTimeout(900)
-    const right = (await page.locator('.win > .right:not(.abar):not([hidden])').first().boundingBox())!
+    const right = (await page.locator('.win .dcol').filter({ has: page.getByTestId('dtab-ai') }).boundingBox())!
     expect(right.width).toBeLessThan(300)
-    // AI 头：「收起 ⌘J」整个在栏里（D 组小样的头：对话胶囊先缩，这颗不缩、没有 × 图标）
-    const collapse = ai.locator('.aih .ai-collapse')
-    const cb = (await collapse.boundingBox())!
-    const aside = (await ai.boundingBox())!
-    expect(inside(cb, aside), `收起 ${cb.x}+${cb.width} 栏 ${aside.x}+${aside.width}`).toBe(true)
-    await expect(collapse).toHaveText('收起 ⌘J')
+    // 收起 AI 是组头上「AI」标签的 ×（AI 头上不再有「收起 ⌘J」）：整个在这一组里；组头、AI 头都不溢出
+    const grp = page.locator('.dgrp').filter({ has: page.getByTestId('dtab-ai') })
+    const cb = (await page.getByTestId('dtab-ai').getByRole('button', { name: '收起AI' }).boundingBox())!
+    const gb = (await grp.boundingBox())!
+    expect(inside(cb, gb), `收起 ${cb.x}+${cb.width} 组 ${gb.x}+${gb.width}`).toBe(true)
+    expect(await grp.locator('.dhead').evaluate((h) => h.scrollWidth <= h.clientWidth)).toBe(true)
     expect(await ai.locator('.aih').evaluate((h) => h.scrollWidth <= h.clientWidth)).toBe(true)
     // 当前网页标签整个在标签条里
     const list = (await web.locator('.wtlist').boundingBox())!

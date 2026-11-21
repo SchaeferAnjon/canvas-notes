@@ -170,6 +170,13 @@ describe('按条件列出', () => {
     expect(folderLead('项目/冰岛旅行', files.slice(0, 1), { now: t })).toBe('项目 / 冰岛旅行 · 1篇 · 改于今天 12:00')
     expect(folderLead('项目/冰岛旅行', [], { now: t })).toBe('项目 / 冰岛旅行 · 还没有文件')
   })
+  it('PDF 和它旁边那篇笔记算一篇（一个 PDF 一篇笔记，和左栏那一行、「里面有什么」数得一样）', () => {
+    const t = now.getTime()
+    const pdf = [f('剪藏/冰岛/指南.pdf', {}), f('剪藏/冰岛/指南 笔记.md', {}), f('剪藏/冰岛/路况.md', {}, 0)]
+    expect(folderLead('剪藏/冰岛', pdf, { now: t })).toBe('剪藏 / 冰岛 · 2篇 · 改于今天 12:00')
+    // 笔记的 PDF 不在：笔记自己算一篇
+    expect(folderLead('剪藏/冰岛', pdf.slice(1), { now: t })).toBe('剪藏 / 冰岛 · 2篇 · 改于今天 12:00')
+  })
   it('以前微信读书同步的书摘（type: weread、没写「类型」）算书摘，不算笔记（CN-131）', () => {
     const book = f('素材/微信读书/思考，快与慢.md', { type: 'weread', bookId: '900001' }, 1)
     const c: Cond = { ...NOTES_COND, rules: [{ prop: '类型', op: '是其中', value: '书摘' }] }

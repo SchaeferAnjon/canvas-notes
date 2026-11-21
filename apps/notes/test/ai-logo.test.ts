@@ -8,9 +8,9 @@ describe('AI 图标画哪家的标志（偏好「AI 图标用引擎标志」）'
   it('⌘K 和 AI 输入框里的命令：交给 AI 对话那家跑的、交给梦游那家跑的，不经 AI 的不算', () => {
     for (const name of ['整理收件箱', '整理当前白板', '总结这块白板', '写成文章', '翻译']) expect(commandJob(name)).toBe('chat')
     expect(commandJob('现在梦游')).toBe('dream')
-    // 找重复是本机比对文字、剪藏当前网页只是抽正文存进收件箱，都不经 AI 引擎
+    // 找重复是本机比对文字、剪藏这一页只是抽正文存进收件箱，都不经 AI 引擎
     expect(commandJob('找重复')).toBeNull()
-    expect(commandJob('剪藏当前网页')).toBeNull()
+    expect(commandJob('剪藏这一页')).toBeNull()
     expect(commandJob('新建笔记')).toBeNull()
     // 带不带斜杠都认
     expect(commandJob('/整理收件箱')).toBe('chat')

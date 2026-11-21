@@ -3,10 +3,11 @@
  * 点一格就在这一格里改字（一个输入框，字写回 md 里这一格两条竖线之间），Tab 跳下一格、⇧Tab 上一格，
  * 回车到下一行同一列（最后一行回车加一行），esc 收起。不再露出「| a | b |」原文。
  */
-import { addTableRow, findBlocks, type MdBlock, parseTable, setTableCell, wikiLabel } from '@cn/format'
+import { addTableRow, findBlocks, inlineMath, type MdBlock, parseTable, setTableCell, wikiLabel } from '@cn/format'
 import { Prec, StateEffect, StateField } from '@codemirror/state'
 import { EditorView, WidgetType } from '@codemirror/view'
 import { hiddenOk } from './hidden-syntax'
+import { renderTex } from './tex'
 
 /** 正在改的那一格：表格从哪开始（文字位置）、第几行（-1 表头）、第几列 */
 export interface CellAt {
@@ -55,8 +56,29 @@ function tableAt(text: string, from: number): MdBlock | null {
   return findBlocks(text).find((b) => b.kind === 'table' && b.from === from) ?? null
 }
 
-/** 格子里的 md 画成字：**粗**、*斜*、`代码`、[字](网址)、[[双链]]、==高亮==（记号不露） */
+/** 格子里的 md 画成字：公式（和正文同一个认法，task-o48fa）排好，别的交给 marks */
 function inline(text: string, into: HTMLElement) {
+  let last = 0
+  for (const m of inlineMath(text)) {
+    marks(text.slice(last, m.from), into)
+    const t = renderTex(m.tex, false)
+    const el = document.createElement('span')
+    if (t.html !== null) {
+      el.className = 'cm-math'
+      el.innerHTML = t.html
+    } else {
+      el.className = 'cm-math-err'
+      el.title = t.error
+      el.textContent = text.slice(m.from, m.to)
+    }
+    into.append(el)
+    last = m.to
+  }
+  marks(text.slice(last), into)
+}
+
+/** **粗**、*斜*、`代码`、[字](网址)、[[双链]]、==高亮==（记号不露） */
+function marks(text: string, into: HTMLElement) {
   const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]*\]\([^)]*\)|==[^=]+==)/g
   let last = 0
   for (const m of text.matchAll(re)) {

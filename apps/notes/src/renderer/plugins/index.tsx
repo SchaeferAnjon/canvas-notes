@@ -100,6 +100,11 @@ export function PluginPageMenu(props: { page: WebPage | null; onDone(): void; on
   )
 }
 
+/** 开着的插件在「⋯」里的项：一项一个身份、放哪一组（这一页 / 这个网站），「调整这个菜单…」按它们藏起、换顺序 */
+export function usePageMenus(): { id: string; group: 'page' | 'site'; label: string; icon: CodiconName; Item: NonNullable<RendererPlugin['PageMenu']> }[] {
+  return useOn().flatMap((p) => (p.PageMenu && p.pageMenu ? [{ id: p.pageMenu.id, group: p.pageMenu.group ?? 'page', label: p.pageMenu.label, icon: p.pageMenu.icon, Item: p.PageMenu }] : []))
+}
+
 /** 插件的弹窗（书签管家）；mode 见 RendererPlugin.Popup */
 export function PluginPopup(props: { id: string; page: WebPage | null; mode?: 'this-page' | 'all'; style?: CSSProperties; onClose(): void }) {
   const p = byId(props.id)

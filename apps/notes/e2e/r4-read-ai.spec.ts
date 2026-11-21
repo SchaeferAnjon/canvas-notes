@@ -62,9 +62,13 @@ test('⌘K：早按 ↓ 和晚按 ↓ 落在同一行；没把握的意思相近
       expect(r, word).toEqual({ none: { on: '', tab: null }, early: { on: '', tab: null }, late: { on: '', tab: null } })
     }
 
-    // 2. 有把握的：早按、晚按落在同一行、开同一篇
+    // 2. 有把握的：早按、晚按落在同一行、开同一篇。最近打开的会排前一点（cmdk 方案「最合适」看最近用过没有），
+    // 两次之间把「最近打开」清掉，两次从一样的起点比
+    const fresh = () => page.evaluate(() => localStorage.removeItem('cn.recentFiles'))
     for (const word of ['线性代数', '矩阵的特征值']) {
+      await fresh()
       const early = await tryIt(word, 'early')
+      await fresh()
       const late = await tryIt(word, 'late')
       expect(early.tab, word).not.toBeNull()
       expect(early, word).toEqual(late)

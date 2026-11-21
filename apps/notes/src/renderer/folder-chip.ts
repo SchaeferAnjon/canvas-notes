@@ -14,6 +14,7 @@ import { isBookDigest } from '../shared/plugins/weread'
 import { headingOf } from './title-follow'
 import { when } from '../shared/when'
 import { folderLabel } from './vault-name'
+import { faviconEl } from './web/favicons'
 
 /** 这篇改名、挪走以后，NoteDoc 用它告诉编辑器新路径 */
 export const setNotePath = StateEffect.define<string>()
@@ -38,6 +39,21 @@ export function countWords(text: string): number {
 
 const thousands = (n: number) => n.toLocaleString('en-US')
 
+/** 剪藏来的那篇 frontmatter 里的 source（网页才算） */
+export function sourceOf(text: string): string | null {
+  const fm = /^---\n([\s\S]*?)\n---(?:\n|$)/.exec(text.slice(0, 20000))
+  const m = fm && /^source:\s*(https?:\/\/\S+)\s*$/m.exec(fm[1]!)
+  return m ? m[1]! : null
+}
+
+const hostOfUrl = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 /** 最外层写库名（CN-106） */
 const label = folderLabel
@@ -47,11 +63,13 @@ class FolderChip extends WidgetType {
     readonly path: string,
     /** 「· 改于今天 10:34 · 1,240 字」 */
     readonly rest: string,
+    /** 剪藏来的（frontmatter 的 source）：后面写一次「· 剪自 <网站图标> 域名」（cmdk 方案 A：链接后面不再露域名） */
+    readonly source: string | null = null,
   ) {
     super()
   }
   eq(o: FolderChip) {
-    return o.path === this.path && o.rest === this.rest
+    return o.path === this.path && o.rest === this.rest && o.source === this.source
   }
   toDOM(view: EditorView) {
     const box = document.createElement('div')
@@ -85,6 +103,20 @@ class FolderChip extends WidgetType {
     rest.className = 'cm-meta-rest'
     rest.textContent = this.rest
     box.append(b, rest)
+    const host = this.source ? hostOfUrl(this.source) : ''
+    if (host) {
+      const src = document.createElement('span')
+      src.className = 'cm-meta-src'
+      src.dataset.part = '来源行'
+      src.title = this.source!
+      const label = document.createElement('span')
+      label.textContent = host
+      src.append(document.createTextNode('剪自'), faviconEl(this.source!, 14), label)
+      const dot = document.createElement('span')
+      dot.className = 'cm-meta-rest'
+      dot.textContent = ' · '
+      box.append(dot, src)
+    }
     return box
   }
   /** 只有「所在文件夹」按钮自己的事编辑器不管；点这一行别的空处照常把光标放进文档 */
@@ -110,7 +142,7 @@ function chips(state: EditorState, m: Omit<Meta, 'deco'>): DecorationSet {
   const n = countWords(text)
   const at = m.fresh && n === 0 ? '刚建' : m.mtime ? `改于${when(m.mtime, { time: true })}` : ''
   const rest = [at, `${thousands(n)} 字`].filter(Boolean).map((x) => ` · ${x}`).join('')
-  const out: Range<Decoration>[] = [Decoration.widget({ widget: new FolderChip(m.path, rest), block: true, side: 1 }).range(line.to)]
+  const out: Range<Decoration>[] = [Decoration.widget({ widget: new FolderChip(m.path, rest, sourceOf(text)), block: true, side: 1 }).range(line.to)]
   return Decoration.set(out)
 }
 

@@ -1,12 +1,11 @@
 /**
- * 右栏 AI 那一格（D 组「只有一个 AI」方向 A：只住右栏）。AI 永远是右栏的一格：右下角圆钮（A 是底栏最右一项）或 ⌘J 开关，
- * 右栏开着网页、大纲、历史、插件那一格时在下半格（各一半高）；换页面位置、宽度不变（宽度是用户拖的右栏宽）。
+ * AI 标签（2026-11-20 工作区方向 A「拖到哪就在哪」：右栏里的一个标签，在哪由 shell/Dock.tsx 管）里面画什么，和笔记标签（NotesDock）。
  *
- * 格里是三样之一：
+ * AI 标签里是两样之一：
  * - 别处（文件、文件夹、首页、收件箱……）的 AI 对话：AiPanel，一直挂着，关上只是藏起来，正在生成的那一轮不断；
- * - 读 PDF / HTML、右栏网页上框着问：读 PDF 的 AI（ReadingAi）；
- * - 读 PDF 时竖条「笔记」：这份 PDF 的笔记（ReadingNotes），再点「笔记」回到 AI。
- * 读 PDF 的 AI 和笔记只在这一格开着时挂上（框一块时它刚出来，预填的字能全选、光标进得去），两个之间切换不丢输入框里的字。
+ * - 读 PDF / HTML、右栏网页上框着问：读 PDF 的 AI（ReadingAi），开着旁支时下面一格是旁支（SideCell）。
+ * 笔记是另一个标签（NotesDock：这份 PDF 的笔记 ReadingNotes），能和 AI 同时看。读 PDF 的 AI 只在 AI 标签开着时挂上
+ * （框一块时它刚出来，预填的字能全选、光标进得去）。
  *
  * 对话跟着地方走（D 组 CN-132）：每个文件、文件夹、首页、收件箱各存各的（ai-chats.ts），读 PDF 的按来源存（reading/store.ts）。
  * 头上「地方名 ⌄」菜单里点别处的一段：这一格换成那段对话（读 PDF 的用读 PDF 那一套显示、接着问），「看得到」那一行换成
@@ -25,23 +24,19 @@ import * as R from './reading/store'
 import './reading/reading.css'
 import './reading/side.css'
 
-/** 这一格显示 AI 还是笔记（笔记只在读 PDF / HTML 时有） */
-export type AiView = 'ai' | 'notes'
-
 export interface AiDockProps {
+  /** AI 标签开着（在哪一组里都算，在别的标签后面也算） */
   open: boolean
-  view: AiView
+  /** 看得见（是它那一组前面那个） */
+  shown: boolean
   /** 中间栏开着的 PDF / HTML，或右栏网页上框着问的「web:<网址>」；别处是 null */
   reading: string | null
-  onView(v: AiView): void
+  /** 开笔记标签（「在笔记里看」「已记进笔记 ›」）：没开就开上，在别的标签后面就换到它 */
+  onShowNotes(): void
   onClose(): void
   /** 别处的 AI 对话要的（AiPanel） */
   chat: Omit<AiPanelProps, 'hidden' | 'onClose' | 'place' | 'nav' | 'digest'>
-  onOpenNote(path: string): void
-  onOpenLink(target: string): void
   onOpenHtml(path: string): void
-  onOpenDoubts(folder: string): void
-  onOpenWeb(url: string): void
   onNotice(text: string): void
 }
 
@@ -95,25 +90,18 @@ export function AiDock(props: AiDockProps) {
   const chatPlace = away && !awaySrc ? away : herePlace
   return (
     <>
-      <AiPanel {...props.chat} digest={digest} place={chatPlace} nav={nav} hidden={!props.open || !!shownReading} onClose={props.onClose} />
-      {shownReading && props.open && <ReadingCell key={shownReading} {...props} pdf={shownReading} nav={nav} notes={!away} />}
+      <AiPanel {...props.chat} digest={digest} place={chatPlace} nav={nav} hidden={!props.shown || !!shownReading} onClose={props.onClose} />
+      {shownReading && props.open && <ReadingCell key={shownReading} {...props} pdf={shownReading} nav={nav} />}
     </>
   )
 }
 
-function ReadingCell(props: AiDockProps & { pdf: string; nav: DockNav; notes: boolean }) {
-  const { pdf } = props
-  // 笔记只有 PDF、HTML 有（右栏网页上框着问的问完记进中间开着的文档或收件箱）；从别处点开的读 PDF 对话只看 AI
-  const notes = props.notes && !R.isWebSrc(pdf)
-  const which: AiView = notes ? props.view : 'ai'
-  // 旁支开在这一格的下格（CN-90 方向 A）：上格照旧是 AI 或笔记，换着看时下格照旧能问
-  const r = R.useReading(pdf)
-  const split = r ? splitOf(r) : null
+/** 这份 PDF 的对话和笔记读进来；笔记在别处改了（中间栏当文档改、梦游、同步）重新读 */
+function useReadingLive(pdf: string) {
   // 从别处点开的：这份 PDF 没开着，读出它的对话和笔记
   useEffect(() => {
     void R.load(pdf)
   }, [pdf])
-  // 笔记在别处改了（中间栏当文档改、梦游、同步）：重新读
   useEffect(() => {
     const note = R.get(pdf).note.path
     const offA = window.cn.onFilesChanged(() => void R.reloadNote(pdf))
@@ -123,14 +111,23 @@ function ReadingCell(props: AiDockProps & { pdf: string; nav: DockNav; notes: bo
       offB()
     }
   }, [pdf])
+}
+
+function ReadingCell(props: AiDockProps & { pdf: string; nav: DockNav }) {
+  const { pdf } = props
+  // 旁支开在 AI 标签的下格（CN-90 方向 A）：上格是主对话
+  const r = R.useReading(pdf)
+  const split = r ? splitOf(r) : null
+  useReadingLive(pdf)
   return (
     <>
       <ReadingAi
         pdf={pdf}
-        hidden={which !== 'ai'}
+        hidden={!props.shown}
         nav={props.nav}
         onShowNote={(id) => {
-          props.onView('notes')
+          if (R.isWebSrc(pdf)) return
+          props.onShowNotes()
           R.focusSection(pdf, id)
         }}
         onOpenHtml={props.onOpenHtml}
@@ -138,24 +135,38 @@ function ReadingCell(props: AiDockProps & { pdf: string; nav: DockNav; notes: bo
         onCollapse={props.onClose}
         split={split}
       />
-      {notes && (
-        <ReadingNotes
-          pdf={pdf}
-          hidden={which !== 'notes'}
-          split={split}
-          onOpenNote={props.onOpenNote}
-          onOpenLink={props.onOpenLink}
-          onOpenHtml={props.onOpenHtml}
-          onOpenDoubts={props.onOpenDoubts}
-          onOpenWeb={props.onOpenWeb}
-          onShowConvo={(id) => {
-            props.onView('ai')
-            R.showConvo(pdf, id)
-          }}
-          onCollapse={props.onClose}
-        />
-      )}
-      {split && <SideCell pdf={pdf} view={which} onView={(v) => notes && props.onView(v)} onNotice={props.onNotice} />}
+      {split && <SideCell pdf={pdf} onShowNotes={() => !R.isWebSrc(pdf) && props.onShowNotes()} onNotice={props.onNotice} />}
     </>
+  )
+}
+
+/** 笔记标签：这份 PDF / HTML 的笔记（一份一篇，2026-11-20 起是独立的标签，能拖到任何位置） */
+export function NotesDock(props: {
+  pdf: string
+  shown: boolean
+  /** 开 AI 标签（笔记里「完整对话」） */
+  onShowAi(): void
+  onOpenNote(path: string): void
+  onOpenLink(target: string): void
+  onOpenHtml(path: string): void
+  onOpenDoubts(folder: string): void
+  onOpenWeb(url: string): void
+}) {
+  const { pdf } = props
+  useReadingLive(pdf)
+  return (
+    <ReadingNotes
+      pdf={pdf}
+      hidden={!props.shown}
+      onOpenNote={props.onOpenNote}
+      onOpenLink={props.onOpenLink}
+      onOpenHtml={props.onOpenHtml}
+      onOpenDoubts={props.onOpenDoubts}
+      onOpenWeb={props.onOpenWeb}
+      onShowConvo={(id) => {
+        props.onShowAi()
+        R.showConvo(pdf, id)
+      }}
+    />
   )
 }

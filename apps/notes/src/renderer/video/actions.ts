@@ -7,7 +7,8 @@ import type { AskResult } from '../../shared/video-api'
 import { aiErrorView } from '../../shared/ai-errors'
 import { beginAsk } from './ask-pending'
 import { prepareDest } from './dest'
-import { addMomentToBoard } from './board'
+import { hasOldLayout, isMindmap } from '@cn/format'
+import { addMomentToBoard, addMomentToDocBoard } from './board'
 import { centerNow, showSaved, tickOf, videoHost, videoStateOf } from './store'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -38,8 +39,9 @@ function place(dest: Dest, key: string, block: string, card: string): string {
   if (!doc || doc.path !== dest.path) throw new Error(`《${dest.title}》没开着，记不进去`)
   if (doc.readOnly) throw new Error(`《${dest.title}》是只读的`)
   if (dest.kind === 'board') {
-    const r = addMomentToBoard(doc.text, key, block, card)
-    doc.setText(r.text)
+    // 以前写法的白板（导图、撤回了转写法的）进「时刻」列；2026-11-21 起的白板就是这篇文档：时刻紧跟在视频卡后面
+    if (isMindmap(doc.text) || hasOldLayout(doc.text)) doc.setText(addMomentToBoard(doc.text, key, block, card).text)
+    else doc.setText(addMomentToDocBoard(doc.text, key, block, card))
   } else {
     // 这个视频第一次进这篇：先插一行视频卡
     const first = !doc.text.includes(`video=${key}`)
@@ -91,7 +93,7 @@ export function startAsk(wcId: number) {
 /**
  * 框好了、问话框里回车（CN-84 方向 B）：不弹浮窗。文档光标处先出占位「AI 正在看 00:06 这一帧…」（esc 停下），
  * 底栏「AI 在记笔记 · 未命名 3」；答好了占位原地换成问答块和 [!ai] 提示块，块下面空一段、光标停在那里写自己的话。
- * 也记进「视频里的疑惑」，一次提交。要追问：问答块上「接着问」或 ⌘J，AI 开在右栏下格。
+ * 一次提交；一门课的「我的疑惑」直接读这一块。要追问：问答块上「接着问」或 ⌘J，开 AI 标签。
  */
 export function sendAsk(wcId: number, box: { x: number; y: number; w: number; h: number }, question: string) {
   const st = videoStateOf(wcId)
@@ -131,7 +133,7 @@ export function sendAsk(wcId: number, box: { x: number; y: number; w: number; h:
         await window.cnVideo.commit([path, ...(from ? [from] : []), ...r.files], `视频：问 AI ${fmt(r.t)}《${st.title.slice(0, 40)}》→ ${dest.title}`, { wcId, t: r.t, note: dest.title, asked: true, text: question })
       }
       c.refresh()
-      c.notice(`AI讲完了，记进《${dest.title}》和「视频里的疑惑」`)
+      c.notice(`AI讲完了，记进《${dest.title}》`)
     } catch (e) {
       if (!stopped) c.notice(aiErrorView(errText(e), { id: 'claude', label: 'Claude Code' }).title)
     } finally {

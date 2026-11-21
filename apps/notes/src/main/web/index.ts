@@ -6,18 +6,20 @@ import { app, type BrowserWindow, ipcMain, session, webContents as allWebContent
 import { join } from 'node:path'
 import * as git from '@cn/git'
 import type { ImageSource } from '../../shared/web-api'
+import type { CommitInfo } from '../../shared/api'
 import { INBOX } from '../../shared/layout'
 import { listProfiles } from '../chrome-import'
 import { localStamp, type Vault } from '../vault'
 import { logActivity } from '../activity'
 import { setActiveWeb } from '../agent/web'
 import { faviconTone } from './favicon-tone'
+import { forwardedKey } from '../commands'
 import { saveImage } from './save-image'
 import { readChromeBookmarks, readChromeHistory } from './chrome-data'
 import { noteIcon, notifyBookmarksChanged, setupBookmarkKeeper } from './bookmarkkeeper'
 import { Extensions } from './extensions'
 import { Bookmarks, History } from './library'
-import { clipFileName, extractPage, listenForExtracts, pageClipText } from './page-clip'
+import { clipFileName, extractPage, listenForExtracts, localizeImages, pageClipText } from './page-clip'
 
 interface Deps {
   partition: string
@@ -202,20 +204,24 @@ function pageToClip(webUrl: string | null): WebContents | null {
   return allWebContents.getAllWebContents().find((wc) => !wc.isDestroyed() && wc.hostWebContents?.id === host && wc.getURL() === webUrl) ?? cur
 }
 
-/** 整页剪藏：收件箱新建一篇，单独一次提交（可撤回）；返回新文件的库内路径 */
-async function clipCurrentPage(webUrl: string | null): Promise<string> {
+/** 整页剪藏：收件箱新建一篇，单独一次提交（可撤回）；返回新文件的库内路径和那次提交 */
+async function clipCurrentPage(webUrl: string | null): Promise<{ path: string; commit: CommitInfo | null }> {
   const v = needVault()
   const wc = pageToClip(webUrl)
   if (!wc) throw new Error('右栏没有开着的网页')
   if (!/^https?:/.test(wc.getURL())) throw new Error('只剪 http(s) 网页')
   const page = await extractPage(wc)
   if (!page.markdown.trim()) throw new Error('这个网页里没抽到正文')
-  const path = await v.create(INBOX, clipFileName(page.title, page.url), pageClipText(page, localStamp(new Date())))
-  const hash = await git.commitPaths(v.root, [path], `剪藏整页：${page.title.slice(0, 60) || page.url}`)
+  const text = pageClipText(page, localStamp(new Date()))
+  const path = await v.create(INBOX, clipFileName(page.title, page.url), text)
+  // 网页里的图顺手存进这篇的附件文件夹（用网页的登录分区下，要登录才看得到的图也拿得到），正文改成相对路径；存不下的留网址
+  const local = await localizeImages(text, path, (url) => saveImage(v.root, wc.session, { kind: 'url', url }, undefined, { note: path }))
+  if (local.files.length) await v.write(path, local.text, text)
+  const hash = await git.commitPaths(v.root, [path, ...local.files], `剪藏整页：${page.title.slice(0, 60) || page.url}`)
   if (hash) clipCommits.set(path, hash)
   await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
   send('files:changed')
-  return path
+  return { path, commit: hash ? ((await git.log(v.root, 1, hash))[0] ?? null) : null }
 }
 
 /** will-attach-webview 之后：新窗口开成新标签、记历史、插件把它当成标签、网页焦点时的快捷键转给界面 */
@@ -229,6 +235,13 @@ export function attachWebview(wc: WebContents, win: BrowserWindow) {
   // 书签管家新标签页里的网站图标用右栏开过的网站报的图标
   wc.on('page-favicon-updated', (_e, icons) => noteIcon(wc.getURL(), icons))
   wc.on('before-input-event', (e, input) => {
+    // ⌘K 里给命令设的快捷键（软件开着时在哪都能按）：网页有焦点时也转给界面
+    const own = forwardedKey(input)
+    if (own) {
+      e.preventDefault()
+      send('app:key', own)
+      return
+    }
     if (input.type !== 'keyDown' || !input.meta || input.control) return
     // ⌘\ 收左栏、⌥⌘\ 收右栏（CN-125）：网页有焦点时也要能用；按着 ⌥ 时 key 不是「\」，认按键的位置
     if (input.code === 'Backslash') {

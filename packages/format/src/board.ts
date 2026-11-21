@@ -254,3 +254,30 @@ export function moveBlock(doc: BoardDoc, from: number, to: number): BoardDoc {
   blocks.splice(to > from ? to - 1 : to, 0, b!)
   return { ...doc, blocks }
 }
+
+// ---------- 新旧写法：2026-11-21 起白板改成「## 列名」写法（board-convert.ts） ----------
+
+const FENCE_LINE = /^ {0,3}(`{3,}|~{3,})/
+const LAYOUT = /^<!--\s*(card|column)\s+(.*?)\s*-->\s*$/
+
+/** 每一行（代码块里的不算）：是排版注释的交给 f */
+function eachLayoutLine(text: string, f: (kind: 'card' | 'column', attrs: string) => boolean): boolean {
+  let fence: string | null = null
+  for (const line of text.split('\n')) {
+    const m = FENCE_LINE.exec(line)
+    if (m) {
+      if (!fence) fence = m[1]![0]!
+      else if (line.trim().startsWith(fence)) fence = null
+      continue
+    }
+    if (fence) continue
+    const l = LAYOUT.exec(line)
+    if (l && f(l[1] as 'card' | 'column', l[2]!)) return true
+  }
+  return false
+}
+
+/** 文字里有旧写法的排版注释：卡上写着 in= 或 w=、列上写着 title= 或 w= */
+export function hasOldLayout(text: string): boolean {
+  return eachLayoutLine(text, (kind, a) => (kind === 'card' ? /(?:^|\s)(in|w)=/.test(a) : /(?:^|\s)(title|w)=/.test(a)))
+}

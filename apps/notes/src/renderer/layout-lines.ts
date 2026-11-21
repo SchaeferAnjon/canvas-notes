@@ -1,41 +1,95 @@
 /**
- * 文档白板留在文档里的位置行（`<!-- card id=d1 x=618 y=693 -->`，拖到空白处时写的，packages/format/src/doc-board.ts）：
+ * 文档白板留在文档里的位置行（`<!-- card id=d1 x=618 y=693 -->`，拖到空白处时写的，packages/format/src/doc-board.ts），
+ * 和白板（type: board）用文档看法打开时每张卡、每一列的那一行（`<!-- card id=a2 in=c1 -->`、`<!-- column id=c1 … title=要订的 -->`）：
  * 文档里整行藏起来，光标进不去（字和退格永远落在看得见的字里）；只在历史对照、别的应用里看得到。
- * type: board 的白板不藏（那里每张卡都靠这一行，文档里看着才知道卡从哪开始）。
+ * 列那一行画成小节标题的样子（列名），和紧跟着的卡片行一起算一整块（2026-11-20 第 8 轮：以前白板不藏，文档看法里露出注释）。
  *
- * 藏的是「上一行的换行 + 这一行」（并到上面那行末尾），不是「这一行 + 它的换行」（并到下面那段开头）：
+ * 卡片行藏的是「上一行的换行 + 这一行」（并到上面那行末尾），不是「这一行 + 它的换行」（并到下面那段开头）：
  * 并到下面那段开头时，那段在屏上的行首其实是位置行的行首，Home、点行最左边、Ctrl+A、← 都停在那儿，打的字落进注释前面
  * （第 4 轮：屏上露出「Y<!-- card … -->」，卡在白板上弹回列里）。并到上面那行末尾后，下面那段的行首就是它自己的行首；
  * 光标、编辑不进藏着的那段由 hidden-syntax.ts 统一看守（这里只交上范围）
  */
 import { ChangeSet, type ChangeSpec, EditorSelection, EditorState, Prec, type Range, StateField, type Text } from '@codemirror/state'
-import { Decoration, type DecorationSet, EditorView, keymap } from '@codemirror/view'
-import { fmValue } from '@cn/format'
+import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from '@codemirror/view'
+import { hasOldLayout } from '@cn/format'
 import { type Hidden, hiddenOk, hiddenRanges, hiddenSyntax } from './hidden-syntax'
 
 const CARD_LINE = /^<!--\s*card\s[^>]*-->\s*$/
+const COLUMN_LINE = /^<!--\s*column\s[^>]*-->\s*$/
+const LAYOUT_LINE = /^<!--\s*(?:card|column)\s[^>]*-->\s*$/
 
-/** 这篇是 type: board 的白板 */
-const isBoard = (doc: Text) => fmValue(doc.sliceString(0, Math.min(doc.length, 4000)), 'type') === 'board'
+/**
+ * 这篇还是以前的白板写法（卡上写着 in= / w=：导图、撤回了转写法的）：一行卡片注释管到下一行注释为止。
+ * 2026-11-21 起的写法（白板就是这篇文档）里位置行、编号行只管下面那一段
+ */
+const isBoard = (doc: Text) => hasOldLayout(doc.toString())
+/** 以前的列注释（带 title=，文档里画成列名）；新写法列的位置行（没有 title=）和卡片行一样藏起来 */
+const OLD_COLUMN = /\btitle=/
 
-/** 文档里藏起来的位置行（live-preview 不再给它画灰色等宽的样子） */
-export function hiddenLayoutLine(doc: Text, lineText: string): boolean {
-  return lineText.startsWith('<!--') && CARD_LINE.test(lineText) && !isBoard(doc)
+/** 列那一行写的列名（白板上没写名字的列叫「新的列」，BoardView 一样） */
+function columnTitle(line: string): string {
+  const m = /\btitle=(?:"([^"]*)"|(\S+?))(?=\s|-->)/.exec(line)
+  return (m?.[1] ?? m?.[2] ?? '').trim() || '新的列'
+}
+
+/** 文档里藏起来的位置行、卡片行、列行（live-preview 不再给它画灰色等宽的样子） */
+export function hiddenLayoutLine(_doc: Text, lineText: string): boolean {
+  return lineText.startsWith('<!--') && LAYOUT_LINE.test(lineText)
+}
+
+/** 列名画成小节标题 */
+class ColumnHead extends WidgetType {
+  constructor(readonly title: string) {
+    super()
+  }
+  eq(o: ColumnHead) {
+    return o.title === this.title
+  }
+  toDOM() {
+    const el = document.createElement('div')
+    el.className = 'cm-colhead'
+    el.setAttribute('role', 'heading')
+    el.setAttribute('aria-level', '3')
+    el.textContent = this.title
+    return el
+  }
+}
+
+interface Layout {
+  /** 单独藏的卡片行（第几行） */
+  cards: number[]
+  /** 列行连着紧跟的卡片行：从第 a 行到第 b 行一整块，画成列名 */
+  heads: { a: number; b: number; title: string }[]
+}
+
+function scanLayout(doc: Text): Layout {
+  const out: Layout = { cards: [], heads: [] }
+  for (let n = 1; n <= doc.lines; n++) {
+    const text = doc.line(n).text
+    if (!text.startsWith('<!--')) continue
+    if (COLUMN_LINE.test(text) && OLD_COLUMN.test(text)) {
+      let b = n
+      while (b < doc.lines && CARD_LINE.test(doc.line(b + 1).text)) b++
+      out.heads.push({ a: n, b, title: columnTitle(text) })
+      n = b
+    } else if ((CARD_LINE.test(text) || COLUMN_LINE.test(text)) && n < doc.lines) out.cards.push(n)
+  }
+  return out
 }
 
 function build(state: EditorState): DecorationSet {
   const doc = state.doc
-  if (isBoard(doc)) return Decoration.none
   const out: Range<Decoration>[] = []
-  for (let n = 1; n < doc.lines; n++) {
+  const { cards, heads } = scanLayout(doc)
+  for (const n of cards) {
     const line = doc.line(n)
-    if (!line.text.startsWith('<!--') || !CARD_LINE.test(line.text)) continue
     // 第一行上面没有行可并：藏「这一行 + 换行」，光标停在下一行行首
     out.push(n > 1 ? Decoration.replace({}).range(line.from - 1, line.to) : Decoration.replace({}).range(line.from, line.to + 1))
     // 上面是空行：这一行里只剩藏起来的部件，撑不起高度（光标用的两个 img 挪出了排版，app.css），
     // 给它一个空字撑成普通空行的高，↓ 能停、点得进（第 6 轮：两段挤在一起，看不出是两段）
     if (n > 1 && doc.line(n - 1).text === '') out.push(Decoration.line({ class: 'cm-cardgap' }).range(doc.line(n - 1).from))
   }
+  for (const h of heads) out.push(Decoration.replace({ widget: new ColumnHead(h.title), block: true, fixed: true }).range(doc.line(h.a).from, doc.line(h.b).to))
   return Decoration.set(out, true)
 }
 
@@ -46,20 +100,36 @@ function paraEnd(doc: Text, n: number): number {
   return doc.line(end).to
 }
 
+/** 白板里一张卡的正文到哪（下一行卡片行、列行之前，去掉结尾的空行） */
+function cardEnd(doc: Text, n: number): number {
+  let end = n
+  while (end < doc.lines && !LAYOUT_LINE.test(doc.line(end + 1).text)) end++
+  while (end > n && doc.line(end).text.trim() === '') end--
+  return doc.line(end).to
+}
+
 /**
- * 交给 hidden-syntax 看守的范围：「上一行的换行 + 位置行 + 它的换行」，光标挨着上一行末尾；
- * 第一行的位置行是「位置行 + 换行」，挨着下面那段段首。一次删除盖住位置行连它那整段才跟着删
+ * 交给 hidden-syntax 看守的范围：卡片行是「上一行的换行 + 位置行 + 它的换行」，光标挨着上一行末尾；
+ * 第一行的位置行是「位置行 + 换行」，挨着下面那段段首。一次删除盖住位置行连它那整段（白板里是整张卡）才跟着删。
+ * 列名那一块和图片一样：连同上下的换行，整块选中才删
  */
 function ranges(state: EditorState): Hidden[] {
   const doc = state.doc
-  if (isBoard(doc)) return []
+  const board = isBoard(doc)
   const out: Hidden[] = []
-  for (let n = 1; n < doc.lines; n++) {
+  const { cards, heads } = scanLayout(doc)
+  for (const n of cards) {
     const line = doc.line(n)
-    if (!line.text.startsWith('<!--') || !CARD_LINE.test(line.text)) continue
-    const unit = { from: line.from, to: paraEnd(doc, n + 1) }
+    const unit = { from: line.from, to: board ? cardEnd(doc, n) : paraEnd(doc, n + 1) }
     if (n > 1) out.push({ from: line.from - 1, to: line.to + 1, fromOk: true, toOk: true, side: 'from', unit })
     else out.push({ from: 0, to: line.to + 1, fromOk: false, toOk: true, side: 'to', unit })
+  }
+  for (const h of heads) {
+    const from = doc.line(h.a).from
+    const to = doc.line(h.b).to
+    const a = from > 0 ? from - 1 : 0
+    const z = to < doc.length ? to + 1 : to
+    out.push({ from: a, to: z, fromOk: a > 0, toOk: true, side: 'near', unit: { from, to: h.b > h.a ? cardEnd(doc, h.b) : to }, ...(z < doc.length ? {} : { pad: '\n\n' }) })
   }
   return out
 }
@@ -128,17 +198,17 @@ export function deleteOverLayout(view: EditorView): boolean {
 
 /**
  * 粘贴进文档的字里带着位置行：去掉。在文档里选中、复制了摆在白板上的一段，藏着的位置行跟着进了剪贴板；
- * 贴到别处同一张卡出现两次，贴到另一段段首两条位置行叠在一起（第 6 轮存疑），白板上卡跳来跳去。白板（type: board）里照原样贴
+ * 贴到别处同一张卡出现两次，贴到另一段段首两条位置行叠在一起（第 6 轮存疑），白板上卡跳来跳去。白板（type: board）的文档看法里一样（卡片行、列行也藏着，第 8 轮）
  */
 const pasteDropsLayout = EditorState.transactionFilter.of((tr) => {
-  if (!tr.docChanged || !tr.isUserEvent('input.paste') || isBoard(tr.startState.doc)) return tr
+  if (!tr.docChanged || !tr.isUserEvent('input.paste')) return tr
   let hit = false
   const specs: { from: number; to: number; insert: string }[] = []
   tr.changes.iterChanges((fromA, toA, _fromB, _toB, ins) => {
     const text = ins.toString()
     const clean = text
       .split('\n')
-      .filter((l) => !(l.startsWith('<!--') && CARD_LINE.test(l)))
+      .filter((l) => !(l.startsWith('<!--') && LAYOUT_LINE.test(l)))
       .join('\n')
     if (clean !== text) hit = true
     specs.push({ from: fromA, to: toA, insert: clean })

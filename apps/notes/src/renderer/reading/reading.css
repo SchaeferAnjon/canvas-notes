@@ -658,16 +658,6 @@
   color: var(--acc-t);
 }
 
-/* ---------- 右栏两格（D 组方向 A）：上格网页 / 大纲 / 历史 / 插件那一格，下格 AI（或读 PDF 的笔记），各一半高 ---------- */
-.win.rsplit > .right:not(.abar):not(.aicell) {
-  align-self: start;
-  height: 50%;
-  border-bottom: 1px solid var(--line);
-}
-.win.rsplit > .right.aicell {
-  align-self: end;
-  height: 50%;
-}
 
 /* ---------- 第 2 段：进度、做个可视化、我的疑惑、送 Anki、HTML 标签 ---------- */
 
@@ -745,7 +735,7 @@
 .reading-notes .vcard:hover {
   box-shadow: 0 0 0 1px var(--line2);
 }
-.reading-notes .vcard .th {
+.reading-notes .vcard .vc-th {
   flex: none;
   width: 72px;
   height: 48px;

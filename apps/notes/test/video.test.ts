@@ -1,6 +1,6 @@
-import { attr, content, parseBoard } from '@cn/format'
+import { attr, content, parseBoard, splitDoc } from '@cn/format'
 import { describe, expect, it } from 'vitest'
-import { addMomentToBoard, boardMomentStats } from '../src/renderer/video/board'
+import { addMomentToBoard, addMomentToDocBoard, boardMomentStats } from '../src/renderer/video/board'
 import {
   askAnswerAfter,
   biliTracks,
@@ -226,6 +226,20 @@ describe('白板的「时刻」列', () => {
     expect(boardMomentStats(two.text, key)).toEqual({ moments: 2, asked: 0 })
     // 别的卡片原样
     expect(two.text.startsWith('---\ntype: board\n---\n# 线性代数\n\n<!-- card id=a1 x=60 y=60 w=280 -->\n别的卡片\n\n')).toBe(true)
+  })
+  it('2026-11-21 起的白板（就是这篇文档）：时刻紧跟在视频卡后面，挂在视频卡下面；没有视频卡就在文末先放一张', () => {
+    const vcard = `<!-- video video=${key} -->\n${card}`
+    const start = `---\ntype: board\n---\n# 线性代数\n\n## 看的\n\n${vcard}\n\n## 别的\n\n一段\n`
+    const one = addMomentToDocBoard(start, key, m1, vcard)
+    const two = addMomentToDocBoard(one, key, m2, vcard)
+    expect(two).toBe(`---\ntype: board\n---\n# 线性代数\n\n## 看的\n\n${vcard}\n\n${m1}\n\n${m2}\n\n## 别的\n\n一段\n`)
+    const unit = splitDoc(two).columns[0]!.cards[0]!
+    expect(unit.kind).toBe('video')
+    expect(unit.moments).toHaveLength(2)
+    // 主进程给白板的视频卡不带注释：放进来时补上，第二个时刻照样挂在它下面
+    const fresh = addMomentToDocBoard('---\ntype: board\n---\n# 空的\n', key, m1, card)
+    expect(fresh).toBe(`---\ntype: board\n---\n# 空的\n\n${vcard}\n\n${m1}\n`)
+    expect(addMomentToDocBoard(fresh, key, m2, card)).toBe(`---\ntype: board\n---\n# 空的\n\n${vcard}\n\n${m1}\n\n${m2}\n`)
   })
   it('白板上已经有这个视频的卡：列建在它右边', () => {
     const start = `---\ntype: board\n---\n<!-- card id=v1 x=100 y=200 w=262 -->\n${card}\n`

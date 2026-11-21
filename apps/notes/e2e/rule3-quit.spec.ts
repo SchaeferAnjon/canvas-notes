@@ -49,17 +49,18 @@ test('关主窗口（软件不退）时刚打的字还没自动保存：先存�
   }
 })
 
-test('白板「改字」弹层开着、打的字没点存好就 ⌘Q：先把弹层里的字存进文件、提交，再退出', async () => {
+test('文档切成的白板上就地改着一张卡、打的字没存就 ⌘Q：先把卡里的字存进文件、提交，再退出', async () => {
   const run = await launch({ '弹层.md': '# 弹层\n\n## 一\n\n卡一。\n\n## 二\n\n卡二。\n' })
   const { page, vault } = run
   try {
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 900))
     await openNote(page, '弹层')
     await acts(page).getByRole('tab', { name: '白板' }).click()
+    // 2026-11-21 起双击字卡就在卡里改（不再弹「全文」改字）
     await pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '卡二' }).dblclick()
-    const dlg = page.getByRole('dialog', { name: '全文' })
-    await dlg.getByRole('button', { name: '改字' }).click()
-    await dlg.getByRole('textbox', { name: '这张卡的字' }).press('End')
+    const box = pane(page).getByTestId('doc-board').getByRole('textbox', { name: '卡片内容' })
+    await expect(box).toBeFocused()
+    await box.press('End')
     await page.keyboard.type('弹层里没存的字')
     await run.close({ keep: true })
     expect(readFileSync(join(vault, '弹层.md'), 'utf8')).toBe('# 弹层\n\n## 一\n\n卡一。\n\n## 二\n\n卡二。弹层里没存的字\n')
@@ -69,19 +70,20 @@ test('白板「改字」弹层开着、打的字没点存好就 ⌘Q：先把弹
   }
 })
 
-test('真白板的卡正在改字（框还开着）就 ⌘Q：框里的字先存进文件、提交，再退出', async () => {
-  const BOARD = '---\ntype: board\n---\n<!-- card id=c1 x=80 y=80 w=280 -->\n第一张卡\n'
+test('白板（type: board）的卡正在改字（框还开着）就 ⌘Q：框里的字先存进文件、提交，再退出', async () => {
+  // 新写法的白板：空白处一张卡（前面一行位置）
+  const BOARD = '---\ntype: board\n---\n<!-- card id=c1 x=80 y=80 -->\n第一张卡\n'
   const run = await launch({ '选题墙.md': BOARD })
   const { page, vault } = run
   try {
     await openNote(page, '选题墙')
     await acts(page).getByRole('tab', { name: '白板' }).click()
-    await pane(page).getByTestId('board').locator('.bcard', { hasText: '第一张卡' }).dblclick()
-    await expect(pane(page).getByTestId('board').getByRole('textbox', { name: '卡片内容' })).toBeFocused()
+    await pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '第一张卡' }).dblclick()
+    await expect(pane(page).getByTestId('doc-board').getByRole('textbox', { name: '卡片内容' })).toBeFocused()
     await page.keyboard.press('End')
     await page.keyboard.type('，框里没存')
     await run.close({ keep: true })
-    expect(readFileSync(join(vault, '选题墙.md'), 'utf8')).toContain('<!-- card id=c1 x=80 y=80 w=280 -->\n第一张卡，框里没存\n')
+    expect(readFileSync(join(vault, '选题墙.md'), 'utf8')).toBe('---\ntype: board\n---\n<!-- card id=c1 x=80 y=80 -->\n第一张卡，框里没存\n')
     expect(gitStatus(vault)).toBe('')
   } finally {
     rmSync(dirname(vault), { recursive: true, force: true, maxRetries: 5 })

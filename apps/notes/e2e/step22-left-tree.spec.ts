@@ -149,15 +149,16 @@ test('CN-5：文件树工具栏六个按钮；在选中的文件夹里新建文�
     await expect.poll(async () => (await names()).join('|')).toContain('旅行|行前清单|去冰岛之前')
 
     // 开一篇课程里的（课程默认展开着），全部收起，再「显示当前文件」展开到它
+    // （一个 PDF 一篇笔记：Lecture05 和它的笔记是一行，点它开 PDF）
     await tree(page).getByRole('button', { name: '展开 ecp' }).click()
-    await item(page, 'Lecture05 笔记').click()
-    await expect(tabOn(page)).toHaveText('Lecture05 笔记')
+    await item(page, 'Lecture05').first().click()
+    await expect(tabOn(page)).toHaveText('Lecture05.pdf')
     await head.getByRole('button', { name: '全部收起' }).click()
     await expect(tree(page).locator('.ft-root')).toHaveAttribute('aria-expanded', 'true')
     await expect(tree(page).locator('.ft-row:not(.ft-root)[aria-expanded="true"]')).toHaveCount(0)
-    await expect(item(page, 'Lecture05 笔记')).toHaveCount(0)
+    await expect(item(page, 'Lecture05')).toHaveCount(0)
     await head.getByRole('button', { name: '定位当前文件' }).click()
-    await expect(item(page, 'Lecture05 笔记')).toBeVisible()
+    await expect(item(page, 'Lecture05').first()).toBeVisible()
 
     // 文件夹右键：固定的没有重命名、删除；别的有，还能原地新建文件夹
     await item(page, '课程').click({ button: 'right' })
@@ -381,14 +382,15 @@ test('CN-20：白板标签条右端「100% ▾」：⌘+ 两次 125%、切走再
     await armMenus(run)
     await leftView(page, '文件')
     await item(page, '冰岛十天环岛').click()
-    await expect(pane(page).getByTestId('board')).toBeVisible()
+    // 以前写法的白板打开时转成「## 列名」（一次提交），白板就是 doc-board，画布按 zoom 缩放
+    await expect(pane(page).getByTestId('doc-board')).toBeVisible()
     const zoom = acts(page).getByTestId('board-zoom')
     await expect(zoom).toHaveText('100%')
-    const planeScale = () => pane(page).locator('.plane').evaluate((el) => (el as HTMLElement).style.transform)
+    const planeScale = () => pane(page).locator('.db-plane').evaluate((el) => (el as HTMLElement).style.zoom)
     await page.keyboard.press('Meta+Equal')
     await page.keyboard.press('Meta+Equal')
     await expect(zoom).toHaveText('125%')
-    expect(await planeScale()).toBe('scale(1.25)')
+    expect(await planeScale()).toBe('1.25')
     // 切走再回来
     await item(page, '别的').click()
     await expect(tabOn(page)).toHaveText('别的')
@@ -415,7 +417,7 @@ test('CN-20：白板标签条右端「100% ▾」：⌘+ 两次 125%、切走再
     // ⌘0 回 100%；捏合（按着 ctrl 的滚轮）放大
     await page.keyboard.press('Meta+0')
     await expect(zoom).toHaveText('100%')
-    const box = (await pane(page).getByTestId('board').boundingBox())!
+    const box = (await pane(page).getByTestId('doc-board').locator('.board-wrap').boundingBox())!
     await page.mouse.move(box.x + 300, box.y + 300)
     await page.keyboard.down('Control')
     await page.mouse.wheel(0, -40)

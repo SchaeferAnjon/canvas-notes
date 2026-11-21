@@ -530,7 +530,7 @@ function AskBox({ wcId, st }: { wcId: number; st: VideoState }) {
         ))}
       </div>
       <p className="vfoot">
-        {`问完自动记进${dest?.kind === 'new' ? '新建的' : ''}《${dest?.title ?? '收件箱'}》和「视频里的疑惑」· esc 取消`}
+        {`问完自动记进${dest?.kind === 'new' ? '新建的' : ''}《${dest?.title ?? '收件箱'}》· esc 取消`}
       </p>
     </div>
   )

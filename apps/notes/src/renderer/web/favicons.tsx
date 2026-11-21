@@ -3,7 +3,7 @@
  * 没记过的 https 网站先试 /favicon.ico，都没有就是中性的地球图标（不用首字母图标）。
  * 深色主题里很黑的图标（GitHub）垫一块 26×26 圆角 6 的白底；几乎透明、载不出来的当没有。
  */
-import { Codicon } from '@cn/design'
+import { Codicon, codiconEl } from '@cn/design'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 
 const KEY = 'cn.favicons'
@@ -45,6 +45,30 @@ export function noteFavicon(pageUrl: string, icons: string[]) {
     // 存不下只是下次再记
   }
   subs.forEach((f) => f())
+}
+
+/** 编辑器里的部件（不是 React）用：网站小图标的 <img>，载不出来换成地球 */
+export function faviconEl(url: string, size: number): HTMLElement {
+  const src = guess(url)
+  const globe = () => {
+    const s = document.createElement('span')
+    s.className = 'fav fav-none'
+    s.style.cssText = `width:${size}px;height:${size}px`
+    s.appendChild(codiconEl('globe', Math.round(size * 0.85)))
+    return s
+  }
+  if (!src) return globe()
+  const img = document.createElement('img')
+  img.className = 'fav'
+  img.width = size
+  img.height = size
+  img.alt = ''
+  img.draggable = false
+  img.src = src
+  const swap = () => img.isConnected && img.replaceWith(globe())
+  img.addEventListener('error', swap)
+  img.addEventListener('load', () => img.naturalWidth <= 1 && swap())
+  return img
 }
 
 function guess(url: string): string | null {

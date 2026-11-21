@@ -816,18 +816,18 @@
   padding: 0;
   overflow: hidden;
 }
-.cb-video .cover {
+.cb-video .cb-cover {
   position: relative;
   aspect-ratio: 16 / 9;
   background: #000;
 }
-.cb-video .cover img {
+.cb-video .cb-cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
 }
-.cb-video .cover .dur {
+.cb-video .cb-cover .dur {
   position: absolute;
   right: 6px;
   bottom: 8px;
@@ -837,14 +837,14 @@
   color: #fff;
   font: 500 11px/1.4 var(--mono);
 }
-.cb-video .cover .seen {
+.cb-video .cb-cover .seen {
   position: absolute;
   left: 0;
   bottom: 0;
   height: 3px;
   background: #e5332a;
 }
-.cb-video .cover .play {
+.cb-video .cb-cover .play {
   position: absolute;
   left: 50%;
   top: 50%;

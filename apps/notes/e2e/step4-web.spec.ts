@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { editorText, launch, openNote, pane, rail, waitSaved, webMore } from './app'
+import { acts, editorText, launch, openNote, pane, rail, waitSaved, webMore } from './app'
 import { FAKE_PASSWORD, makeFakeChrome } from './fake-chrome'
 import { ICELAND } from './fixtures/board'
 
@@ -81,23 +81,28 @@ test('文档里剪藏：选中一段点「剪进文档」，引文插到光标�
   }
 })
 
-test('白板里剪藏：「剪成卡片 · 到：收件箱」，收件箱多一篇带来源，白板的未整理加一', async () => {
+test('白板里剪藏：「剪成卡片 · 到：收件箱」，收件箱多一篇带来源，标签条「收件箱 N」加一', async () => {
   const run = await launch({ '冰岛自驾.md': ICELAND })
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
-    await expect(pane(page).getByTestId('unsorted')).toContainText('1未整理')
+    // 收件箱一开始是空的（以前「1未整理」数的是这篇里开头那一段，现在它就在白板上）：不写数
+    const inboxBtn = acts(page).getByTestId('db-inbox')
+    await expect(inboxBtn).toHaveText('收件箱')
+    // 以前的写法打开时转成「## 列名」：转好的这份就是这块白板，剪藏不碰它
+    await expect.poll(() => readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).not.toBe(ICELAND)
+    const converted = readFileSync(join(vault, '冰岛自驾.md'), 'utf8')
     await openWeb(page, `${base}/rich`)
     await selectAndClip(page, 'p2', '剪成卡片· 到：收件箱⌘↵')
     await expect(page.locator('.toast-cn')).toContainText('放进收件箱')
-    await expect(pane(page).getByTestId('unsorted')).toContainText('2未整理')
+    await expect(inboxBtn).toHaveText('收件箱1')
     const files = readdirSync(join(vault, '收件箱'))
     expect(files).toHaveLength(1)
     const md = readFileSync(join(vault, '收件箱', files[0]!), 'utf8')
     expect(md).toMatch(new RegExp(`^---\\ncreated: .+\\nsource: ${base.replace(/\./g, '\\.')}/rich\\n---\\n> Wealth is having assets that earn while you sleep\\.\\n—— \\[How to Get Rich\\]`))
-    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(ICELAND)
+    expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(converted)
     // 右栏开着时白板缩到 0.8
-    await expect(pane(page).locator('.plane')).toHaveAttribute('style', /scale\(0\.8\)/)
+    await expect.poll(() => pane(page).locator('.db-plane').evaluate((el) => (el as HTMLElement).style.zoom)).toBe('0.8')
   } finally {
     await run.close()
   }

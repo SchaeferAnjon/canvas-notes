@@ -65,7 +65,7 @@ test('删笔记：确认框里「连同 N 张图」默认勾上、别的笔记�
     await expect(dlg.locator('.t1')).toHaveText('连同4张图一起移到废纸篓')
     await expect(dlg.locator('.t2')).toHaveText(`${DIR}/`)
     await expect(dlg.getByRole('checkbox', { name: '连同图一起移到废纸篓' })).toBeChecked()
-    await expect(dlg.locator('.thumbs img')).toHaveCount(3)
+    await expect(dlg.locator('.trash-thumbs img')).toHaveCount(3)
     await shot(run, '1a-删除确认')
     await dlg.getByRole('button', { name: '移到废纸篓' }).click()
     await expect(dlg).toHaveCount(0)

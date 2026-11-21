@@ -119,14 +119,14 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     await expect(ai(page)).toBeHidden()
     await expect(rail(page).getByTestId('notes-dot')).toHaveCount(0)
     const sec = notes(page).getByTestId('note-round')
-    await expect(sec.locator('.rh h3')).toHaveText('测试小标题 p3')
+    await expect(sec.locator('.rh h3')).toHaveText('第3页 · 测试小标题 p3')
     await expect(sec.locator('.qs')).toHaveText(['给我讲解一下', '还是不懂'])
     await expect(sec.locator('.am').first()).toContainText('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
     await expect(sec.locator('.recap span')).toHaveText('测试小结：主对话问了 2 句。')
     await expect(sec.locator('.crop img')).toHaveCount(1)
 
     // 笔记 → PDF：点「第 3 页 ›」，翻到第 3 页，框过的那块闪一下
-    await sec.getByRole('button', { name: '第 3 页 ›' }).click()
+    await sec.getByRole('button', { name: '第3页 ›' }).click()
     await expect(pdfPane(page).getByTestId('pdf-flash')).toBeVisible()
     await expect(acts(page).getByTestId('pdf-pager')).toHaveText('3 / 5')
     await expect(pdfPane(page).getByTestId('pdf-flash')).toHaveCount(0, { timeout: 4000 })
@@ -138,19 +138,24 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     await expect(notes(page).locator('section.rnd.flash')).toBeVisible()
     await expect(pdfPane(page).getByRole('button', { name: '第 3 页这里问过 2 轮' })).toHaveClass(/cur/)
 
-    // 再点竖条「笔记」回到 AI（笔记里就是问答原文，不再有「完整对话」那个入口）
+    // 再点竖条「笔记」：收起笔记标签，回到 AI（笔记里就是问答原文，不再有「完整对话」那个入口）
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(ai(page)).toBeVisible()
 
-    // 面板头上「收起 ⌘J」收起右栏
-    await ai(page).getByRole('button', { name: '收起 AI' }).click()
+    // 标签上的 × 收起 AI：右栏没有别的了，整栏收起
+    await page.getByTestId('dtab-ai').hover()
+    await page.getByTestId('dtab-ai').getByRole('button', { name: '收起AI' }).click()
     await expect(ai(page)).toHaveCount(0)
     await expect(page.locator('.win')).not.toHaveClass(/with-right/)
 
-    // 笔记「在中间打开」：就是普通文档，相对链接的截图照常显示。AI 收着时点「笔记」只开了笔记：换到这篇文档那一格收起，
+    // 笔记单独在中间打开（⌘O）：就是普通文档，相对链接的截图照常显示。只开了笔记标签：换到这篇文档时笔记标签藏起来、整栏收起，
     // 竖条上「笔记」原地变淡（右图标栏方向 A），AI 还是收着
     await rail(page).getByRole('button', { name: '笔记' }).click()
-    await notes(page).getByRole('button', { name: '在中间打开' }).click()
+    await expect(notes(page)).toBeVisible()
+    await page.keyboard.press('Meta+o')
+    await page.keyboard.type('第3讲 线性映射 笔记')
+    await page.waitForTimeout(200)
+    await page.keyboard.press('Enter')
     await expect(tabOn(page)).toHaveText('第3讲 线性映射 笔记')
     const img = page.locator('.pane:not([hidden]) img[src*="p3-1.png"]').first()
     await expect(img).toBeVisible()
@@ -163,7 +168,7 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     // 回到 PDF：笔记又开着
     await page.getByTestId('tab-list').getByRole('tab', { name: /第3讲 线性映射\.pdf/ }).click()
     await expect(notes(page)).toBeVisible()
-    // AI 开着时换成笔记（D 组方向 A）：换到文档，那一格换成这篇文档自己的 AI 对话（开着就还开着），回到 PDF 又是笔记
+    // 开着 AI、笔记在前面（同一组两个标签）：换到文档，笔记标签藏起来、AI 换成这篇文档自己的对话；回到 PDF 又是笔记在前面
     await rail(page).getByRole('button', { name: '打开 AI' }).click()
     await expect(ai(page)).toBeVisible()
     await rail(page).getByRole('button', { name: '笔记' }).click()
@@ -330,7 +335,8 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
     await expect(row.locator('.dq-tx b')).toHaveText('给我讲解一下')
     await row.locator('.dq-line').click()
     await expect(row.locator('.dq-full')).toContainText('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
-    expect(readFileSync(join(vault, '课程/线性代数/我的疑惑.md'), 'utf8')).toContain('- **给我讲解一下** [第 3 页]')
+    // 「我的疑惑」不再是文件（2026-11-20）：汇总页直接读笔记
+    expect(existsSync(join(vault, '课程/线性代数/我的疑惑.md'))).toBe(false)
 
     // 送进 Anki：预览正反面，送 1 张；送过的标「已送」，一次提交
     await doubts.getByRole('button', { name: '送进Anki · 1张' }).click()

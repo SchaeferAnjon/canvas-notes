@@ -73,7 +73,7 @@ test('数据库开着筛选点「新一条」：起名前、起名框出来、�
   }
 })
 
-test('白板画布上边也让出一截：从 y=0 摆起的列不贴标签条，右上「N未整理」不压卡', async () => {
+test('白板画布上边也让出一截：从 y=0 摆起的列（以前的写法，打开时转成「## 列名」）不贴标签条、不压在顶上那条说明下面；右边一格收件箱不盖住画布', async () => {
   const board = '---\ntype: board\ncolor: #4A7FA7\n---\n写作计划。\n\n<!-- column id=c1 x=0 y=0 w=300 title=十一月 -->\n<!-- card id=k1 in=c1 -->\n第一张\n\n<!-- column id=c2 x=340 y=0 w=300 title=十二月 -->\n<!-- card id=k2 in=c2 -->\n第二张\n\n<!-- column id=c3 x=680 y=0 w=300 title=想写的 -->\n<!-- card id=k3 in=c3 -->\n第三张\n'
   const run = await launch({ '写作计划.md': board, '收件箱/一条.md': '# 一条\n\n收件箱里的。\n' })
   const { page } = run
@@ -82,24 +82,24 @@ test('白板画布上边也让出一截：从 y=0 摆起的列不贴标签条，
     for (const [w, h] of [[1100, 700], [1600, 1000]] as const) {
       await size(run, w, h)
       await page.locator('.nav .si', { hasText: /^写作计划/ }).first().click()
-      const b = pane(page).getByTestId('board')
-      await expect(b.locator('.bcol h3', { hasText: '十一月' })).toBeVisible()
+      const b = pane(page).getByTestId('doc-board')
+      await expect(b.locator('.db-col h3', { hasText: '十一月' })).toBeVisible()
       await page.waitForTimeout(300)
       const wrap = (await b.locator('.board-wrap').boundingBox())!
       const pal = (await b.locator('.bpal').boundingBox())!
-      const pill = (await b.getByTestId('unsorted').boundingBox())!
-      const boxes = await b.locator('.bcol').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height } }))
+      const top = (await b.locator('.db-top').boundingBox())!
+      const drawer = (await b.locator('.db-drawer').boundingBox())!
+      const boxes = await b.locator('.db-col[data-head="1"]').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height } }))
       expect(boxes).toHaveLength(3)
       for (const c of boxes) {
         // 上边和左边一样至少空 16（左边是工具板右边再空 16）
         expect(c.y - wrap.y).toBeGreaterThanOrEqual(16)
         expect(c.x).toBeGreaterThanOrEqual(pal.x + pal.width + 16)
-        // 「未整理」那颗不和卡重叠
-        const apart = c.x >= pill.x + pill.width || c.x + c.w <= pill.x || c.y >= pill.y + pill.height || c.y + c.h <= pill.y
-        expect(apart).toBe(true)
+        // 顶上那条说明不压列
+        expect(c.y).toBeGreaterThanOrEqual(top.y + top.height)
       }
-      // 卡的上沿在「未整理」下面再空 16
-      expect(boxes[0]!.y).toBeGreaterThanOrEqual(pill.y + pill.height + 16)
+      // 收件箱是画布右边的一格（2026-11-21 起不再浮在画布右上）：画布到它左边为止
+      expect(wrap.x + wrap.width).toBeLessThanOrEqual(drawer.x + 1)
       await shotWindow(run, `r3-board-top-${w}`)
     }
   } finally {
@@ -110,7 +110,8 @@ test('白板画布上边也让出一截：从 y=0 摆起的列不贴标签条，
 test('数和单位、中文和西文写在一个文本节点里，autospace 才起作用：白板列头「1张卡片」、文档白板列头「2张」、课程首页「拖PDF」都量到 1–2.5px', async () => {
   const doc = '# 计划\n\n## 第一节\n\n一段。\n\n两段。\n\n## 第二节\n\n三段。\n'
   const board = '---\ntype: board\ncolor: #4A7FA7\n---\n写作计划。\n\n<!-- column id=c1 x=0 y=0 w=300 title=十一月 -->\n<!-- card id=k1 in=c1 -->\n第一张\n'
-  const run = await launch({ '计划.md': doc, '写作计划.md': board, '课程/ecp/Lecture05.pdf': LECTURE })
+  // 「1张卡片」量的是以前的自由白板（导图、撤回了转写法的白板还用它）：这块记进旧写法名单，打开不转
+  const run = await launch({ '计划.md': doc, '写作计划.md': board, '课程/ecp/Lecture05.pdf': LECTURE, '.canvas-notes/白板旧写法.json': JSON.stringify({ 版本: 1, 白板: ['写作计划.md'] }) })
   const { page } = run
   const gaps = (scope: string) => page.evaluate(([s, k]) => (0, eval)(`(${s})`)(k, '', false), [measureGaps.toString(), scope] as const)
   try {

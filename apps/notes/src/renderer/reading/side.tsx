@@ -191,7 +191,7 @@ const answerOf = (s: ReadingSide) => {
   return last ? withoutVizMark(last.text).text : ''
 }
 
-export function SideCell(props: { pdf: string; view: 'ai' | 'notes'; onView(v: 'ai' | 'notes'): void; onNotice(text: string): void }) {
+export function SideCell(props: { pdf: string; onShowNotes(): void; onNotice(text: string): void }) {
   const { pdf } = props
   const r = R.useReading(pdf)!
   const side = (r.state.sides ?? []).find((s) => s.id === r.side.open)!
@@ -235,7 +235,7 @@ export function SideCell(props: { pdf: string; view: 'ai' | 'notes'; onView(v: '
     if (!me) return
     let prev: number | null = null
     const check = () => {
-      const top = document.querySelector<HTMLElement>('.win > aside.right.aicell.with-side:not([hidden])')
+      const top = document.querySelector<HTMLElement>('.dview > aside.right.aicell.with-side:not([hidden])')
       if (!top) return
       const room = top.offsetHeight + me.offsetHeight
       if (prev !== null && prev >= SIDE_ROOM && room < SIDE_ROOM && !foldNow.current) {
@@ -248,8 +248,10 @@ export function SideCell(props: { pdf: string; view: 'ai' | 'notes'; onView(v: '
       prev = room
     }
     check()
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
+    // AI 标签的大小由工作区量着摆（shell/Dock.tsx 的 placeViews，在窗口 resize 之后才摆好）：看 AI 那个 .dview 自己变没变
+    const ro = new ResizeObserver(check)
+    if (me.parentElement) ro.observe(me.parentElement)
+    return () => ro.disconnect()
   }, [pdf])
   const toggle = () => {
     autoFold.current = false
@@ -273,7 +275,7 @@ export function SideCell(props: { pdf: string; view: 'ai' | 'notes'; onView(v: '
   function startDrag(e: React.PointerEvent<HTMLDivElement>) {
     if (fold || e.button !== 0) return
     e.preventDefault()
-    const top = document.querySelector<HTMLElement>('.win > aside.right.aicell.with-side:not([hidden])')
+    const top = document.querySelector<HTMLElement>('.dview > aside.right.aicell.with-side:not([hidden])')
     const me = cell.current
     if (!top || !me) return
     const room = top.offsetHeight + me.offsetHeight
@@ -389,7 +391,6 @@ export function SideCell(props: { pdf: string; view: 'ai' | 'notes'; onView(v: '
               onMouseEnter={() => litQuote(side.id, 'hov')}
               onMouseLeave={() => litQuote(side.id, 'off')}
               onClick={() => {
-                if (props.view !== 'ai') props.onView('ai')
                 requestAnimationFrame(() => requestAnimationFrame(() => litQuote(side.id, 'lit')))
               }}
             >
@@ -424,7 +425,6 @@ export function SideCell(props: { pdf: string; view: 'ai' | 'notes'; onView(v: '
                 onClick={() => {
                   // 这条回答作为一块引用进主对话的输入框（不自动发）
                   R.addMaterial(pdf, { kind: 'quote', text: answerOf(side), src: `旁支 · ${name}` })
-                  props.onView('ai')
                 }}
               >
                 <Codicon name="reply" size={12} />
@@ -432,7 +432,7 @@ export function SideCell(props: { pdf: string; view: 'ai' | 'notes'; onView(v: '
               </button>
               <button
                 onClick={() => {
-                  props.onView('notes')
+                  props.onShowNotes()
                   R.focusSide(pdf, side.thread, side.quote)
                 }}
               >

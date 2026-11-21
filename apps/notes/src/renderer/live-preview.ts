@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language'
-import { type Range, StateField } from '@codemirror/state'
+import type { Range } from '@codemirror/state'
 import { codiconEl } from '@cn/design'
 import { wikiShown } from '@cn/format'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
@@ -7,14 +7,14 @@ import { hiddenLayoutLine } from './layout-lines'
 import { type CalloutHead, parseCallout } from './callout'
 import { engineLogoEl, type LogoEngine } from './engine-logo'
 import { highlightsIn } from './highlight'
-import { linkAt, openLinkHit } from './ctx/editor-menu'
-import { editorHost } from './editor-host'
+import { linkCard } from './link-card'
+import { mathPreview, mathSpans, touched } from './math-preview'
 import { reviewDecos, reviewExtension } from './review'
 
 /**
  * 文档模式的所见即所得（文档方向 A「块上露写法」，2026-11-17 用户定）：记号（# ** * ` > [[ ]] - ``` ==）永远藏着，
  * 光标停在旁边、拖选一段也不露，选中前后每一行的宽高都不变（CN-65、CN-68）。列表圆点永远是圆点。
- * 链接的「(网址)」收成一颗域名小块常显（CN-58，小样 A 的样子）；点那颗小块才在这一个链接上露出网址来改（块上露写法），光标走开就收回。
+ * 链接只画下划线，后面什么都不露（2026-11-21 cmdk 方案 A，CN-58 的常显域名小块拿掉了）；指着出链接卡，看网址、改链接都在卡上（link-card.tsx）。
  * 藏起来的行内记号是「原子」的（光标一下跨过去，wysiwyg.ts 让 ←→ 不白按、退格删的是看得见的字）。
  * 只加装饰，不动文字，所以不影响「打开再保存文件不变」。
  */
@@ -41,62 +41,6 @@ class Bullet extends WidgetType {
   }
 }
 const bullet = Decoration.replace({ widget: new Bullet() })
-
-/** 网址收成的小块：「zh.wikipedia.org…」；点它光标进到网址末尾，网址展开 */
-export function urlLabel(url: string): string {
-  try {
-    const u = new URL(url)
-    // 微信读书同步来的书摘链接（weread://book/<编号>）：主机名是「book」，没意思，写「微信读书」
-    if (u.protocol === 'weread:') return '微信读书'
-    if (u.host) return u.host + (u.pathname.length > 1 || u.search ? '…' : '')
-  } catch {
-    // 相对路径（附件/…）：只写文件名
-  }
-  const name = decodeURIComponentSafe(url.split(/[?#]/)[0]!.split('/').pop() ?? url)
-  return name.length > 24 ? name.slice(0, 23) + '…' : name
-}
-
-function decodeURIComponentSafe(s: string) {
-  try {
-    return decodeURIComponent(s)
-  } catch {
-    return s
-  }
-}
-
-class UrlChip extends WidgetType {
-  constructor(
-    readonly url: string,
-    readonly end: number,
-  ) {
-    super()
-  }
-  eq(o: UrlChip) {
-    return o.url === this.url && o.end === this.end
-  }
-  toDOM(view: EditorView) {
-    const s = document.createElement('span')
-    s.className = 'cm-urlchip'
-    s.textContent = urlLabel(this.url)
-    s.title = this.url
-    s.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return
-      e.preventDefault()
-      // ⌘ 点：右栏打开（⌘⌥ 中间栏）；平时点：光标进网址末尾，这一个链接露出网址来改
-      if (e.metaKey || e.ctrlKey) {
-        const line = view.state.doc.lineAt(Math.min(this.end, view.state.doc.length))
-        const hit = linkAt(line.text, this.end - line.from - 1)
-        return openLinkHit(view.state.facet(editorHost).path(), this.url, hit?.kind === 'url' ? hit.text : this.url, e.altKey)
-      }
-      view.focus()
-      view.dispatch({ selection: { anchor: this.end }, userEvent: 'select' })
-    })
-    return s
-  }
-  ignoreEvent() {
-    return true
-  }
-}
 
 /** 提示块第一行开头的图标（没写标题时后面带上类型名） */
 class CalloutIcon extends WidgetType {
@@ -151,25 +95,13 @@ class CodeLang extends WidgetType {
   }
 }
 
-/** 人动过光标或打过字以后才露记号（打开文档时编辑器自己放的光标不算） */
-const touched = StateField.define<boolean>({
-  create: () => false,
-  update: (v, tr) =>
-    v || ['select', 'input', 'delete', 'move', 'undo', 'redo'].some((e) => tr.isUserEvent(e)),
-})
 
 function build(view: EditorView): DecorationSet {
   const { state } = view
   const doc = state.doc
   const decos: Range<Decoration>[] = []
-  const live = state.field(touched)
-
-  /** 光标（没有选区时）碰到 from..to（两头算）：只用来认「光标在链接的网址里」（点了域名小块），别的记号一律不露 */
-  const near = (from: number, to: number) => live && state.selection.ranges.some((r) => r.empty && r.from <= to && r.to >= from)
-  /** 链接里收成域名小块的「(网址)」，里面的记号不再单独加装饰 */
+  /** 链接里整段藏起来的「](网址)」，里面的记号不再单独加装饰 */
   const chips: [number, number][] = []
-  /** 点了域名小块、正在改网址的那一个链接：「](网址)」照原样淡淡露着 */
-  const urlOpen: [number, number][] = []
   const inChip = (from: number, to: number) => chips.some(([a, b]) => from >= a && to <= b)
   const inCode = (pos: number) => {
     for (let n: ReturnType<ReturnType<typeof syntaxTree>['resolveInner']> | null = syntaxTree(state).resolveInner(pos, 1); n; n = n.parent)
@@ -256,26 +188,20 @@ function build(view: EditorView): DecorationSet {
           case 'Link': {
             const url = node.node.getChild('URL')
             const close = node.node.lastChild
-            // 链接的字（「[」后面到「]」前面）；「[」「](网址)」另外藏、收成小块
+            // 链接的字（「[」后面到「]」前面）；「[」「](网址)」另外藏
             const textEnd = url ? url.from - 2 : node.to
             if (textEnd > node.from + 1) decos.push(mark('cm-link').range(node.from + 1, textEnd))
             if (url && close?.name === 'LinkMark') {
-              if (near(url.from - 1, close.to)) {
-                // 点了域名小块、光标在网址里：只这一个链接露出「(网址)」来改，光标走开就收回
-                urlOpen.push([url.from - 2, close.to])
-                decos.push(shown.range(url.from - 2, close.to))
-              } else {
-                // 「](网址)」收成一颗域名小块（常显）
-                chips.push([url.from - 2, close.to])
-                decos.push(Decoration.replace({ widget: new UrlChip(doc.sliceString(url.from, url.to), url.to) }).range(url.from - 2, close.to))
-              }
+              // 「](网址)」整段藏起来，后面什么都不露（cmdk 方案 A：CN-58 的常显域名小块拿掉了）；看网址、改网址在链接卡上（link-card.tsx）
+              chips.push([url.from - 2, close.to])
+              decos.push(hide.range(url.from - 2, close.to))
             }
             return
           }
           case 'LinkMark':
           case 'URL':
           case 'LinkTitle':
-            if (parent?.name === 'Link' && !inChip(node.from, node.to) && !urlOpen.some(([a, b]) => node.from >= a && node.to <= b)) markOf(node.from, node.to)
+            if (parent?.name === 'Link' && !inChip(node.from, node.to)) markOf(node.from, node.to)
             return
           case 'Blockquote': {
             const c = parent?.name === 'Document' ? parseCallout(doc.lineAt(node.from).text) : null
@@ -312,6 +238,10 @@ function build(view: EditorView): DecorationSet {
           case 'HorizontalRule':
             decos.push(hide.range(node.from, node.to))
             lineDeco(node.from, node.to, 'cm-hr cm-hr-line')
+            return
+          case 'Escape':
+            // \$ 是普通的美元符号（task-o48fa）：反斜杠和别的记号一样藏起来，只露 $
+            if (doc.sliceString(node.from, node.to) === '\\$') markOf(node.from, node.from + 1)
             return
           case 'Comment':
             // 行里的注释（导图节点记着它在照片上的哪一块）：连前面的空格一起藏起来
@@ -383,7 +313,12 @@ function build(view: EditorView): DecorationSet {
 
   // 引文下面挂着的「我的评价」「微信读书的想法」：标签小块、弯钩（review.ts）
   reviewDecos(state, view.visibleRanges, decos)
-  return Decoration.set(decos, true)
+  // 公式（math-preview.ts）里的字不是 md：「$x_i$, $\mathbf{x}_i$」中间那截 _…_ 不当斜体，公式里的 * [ ] 不藏。
+  // 和公式沾边又没整个包住它的装饰都不要（整个包住的照旧：**$x$** 加粗）
+  const spans = mathSpans(state).map((m) => (m.block ? { a: doc.lineAt(m.from).from, b: doc.lineAt(m.to).to, block: true } : { a: m.from, b: m.to, block: false }))
+  const clash = (d: Range<Decoration>) =>
+    spans.some((m) => (d.from === d.to ? m.block && d.from >= m.a && d.from <= m.b : d.from < m.b && d.to > m.a && !(d.from <= m.a && d.to >= m.b)))
+  return Decoration.set(spans.length ? decos.filter((d) => !clash(d)) : decos, true)
 }
 
 /** 藏起来的行内记号、换成部件的那几段（域名小块、圆点、提示块图标）：光标一下跨过去（原子） */
@@ -421,4 +356,4 @@ export const livePlugin = ViewPlugin.fromClass(
   },
 )
 
-export const livePreview = [touched, reviewExtension, livePlugin, EditorView.contentAttributes.of({ class: 'cm-live' })]
+export const livePreview = [mathPreview, reviewExtension, livePlugin, linkCard, EditorView.contentAttributes.of({ class: 'cm-live' })]

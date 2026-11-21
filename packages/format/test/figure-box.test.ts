@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { locateFigure, parseFigureMark, saneFigure, stripFigureMark, toPageRect } from '../src'
+import { insideCrop, locateFigure, parseFigureMark, saneFigure, stripFigureMark, toPageRect } from '../src'
 
 describe('配图的框（CN-60）', () => {
   const answer = '这页讲的是计算栈。\n\n〔配图 0.10,0.40,0.60,0.30 · 九层结构图〕'
@@ -9,6 +9,14 @@ describe('配图的框（CN-60）', () => {
     expect(parseFigureMark('没有配图')).toBeNull()
     // 边生成边显示：半截的「〔配」也不露出来
     expect(stripFigureMark('讲完了。\n〔配图 0.1,')).toBe('讲完了。')
+  })
+  it('AI 配的图几乎就在我框的那块里（八成以上落在里面）：算重了，笔记里不再画第二遍', () => {
+    // 真 AI 验收（2026-11-20）：框了第 12 页公式那块，AI 配的图是同一块
+    expect(insideCrop([0.12, 0.18, 0.7, 0.2], [0.09, 0.165, 0.83, 0.195])).toBe(true)
+    expect(insideCrop([0.1, 0.4, 0.5, 0.3], [0.1, 0.4, 0.5, 0.3])).toBe(true)
+    // 只沾到一角、在框外面：是另一块图，照常配
+    expect(insideCrop([0.5, 0.3, 0.4, 0.4], [0.1, 0.1, 0.5, 0.3])).toBe(false)
+    expect(insideCrop([0.1, 0.6, 0.4, 0.3], [0.1, 0.1, 0.5, 0.3])).toBe(false)
   })
   it('框的那块上的比例换成整页上的比例', () => {
     expect(toPageRect([0.5, 0.5, 0.5, 0.5], [0.2, 0.2, 0.4, 0.4])).toEqual([0.4, 0.4, 0.2, 0.2])

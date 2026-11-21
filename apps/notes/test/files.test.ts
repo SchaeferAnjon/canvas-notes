@@ -27,7 +27,7 @@ describe('⌘O 按名字筛', () => {
 })
 
 describe('目录树', () => {
-  it('顶层按顶级分类的先后排（收件箱、课程、阅读、剪藏、周记、写作、项目、生活）；文件夹在前；我的疑惑、术语表放最上；同一讲的课件、笔记挨着，讲次按数字排', () => {
+  it('顶层按顶级分类的先后排（收件箱、课程、阅读、剪藏、周记、写作、项目、生活）；文件夹在前；术语表放最上；同一讲的课件、笔记挨着，讲次按数字排', () => {
     const tree = buildTree([
       f('写作/a.md'),
       f('生活/b.md'),
@@ -45,7 +45,8 @@ describe('目录树', () => {
     expect(tree.map((n) => n.name)).toEqual(['课程', '写作', '项目', '生活', '别的', 'README.md'])
     const la = tree[0]!.children[0]!
     expect(la.path).toBe('课程/线性代数')
-    expect(la.children.map((n) => n.name)).toEqual(['我的疑惑.md', '术语表.md', '第3讲 线性映射.pdf', '第3讲 线性映射 笔记.md', '向量加法.html', '第10讲 二次型.pdf', '旋转矩阵.html'])
+    // 「我的疑惑」不再是软件汇总的那篇（2026-11-20）：和别的笔记一样按名字排，不放最上
+    expect(la.children.map((n) => n.name)).toEqual(['术语表.md', '第3讲 线性映射.pdf', '第3讲 线性映射 笔记.md', '向量加法.html', '第10讲 二次型.pdf', '我的疑惑.md', '旋转矩阵.html'])
     // 空文件夹也在
     expect(tree[2]!.children.map((n) => [n.name, n.kind])).toEqual([['canvas', 'dir']])
   })
@@ -133,33 +134,37 @@ describe('列出库里的文件（主进程）', () => {
     expect(all.find((e) => e.path.endsWith('旋转矩阵.html'))!.lecture).toBe(3)
   })
 
-  it('软件汇总的「我的疑惑」：标成自动汇总、数条数；同一文件夹每篇读 PDF 笔记记上几条疑惑、在哪一段（CN-56）', async () => {
+  it('一个 PDF 一篇笔记（2026-11-20）：PDF、HTML 带上旁边那篇笔记和里面问了几问（主问题 + 旁支问题）；别的笔记不带', async () => {
     const { listEntries } = await import('../src/main/files')
-    const { doubtsNote } = await import('@cn/format')
     root = mkdtempSync(join(tmpdir(), 'cn-files-'))
     mkdirSync(join(root, '课程/ecp'), { recursive: true })
-    for (const n of ['Lecture05', 'Lecture06']) {
-      writeFileSync(join(root, `课程/ecp/${n}.pdf`), '%PDF')
-      writeFileSync(join(root, `课程/ecp/${n} 笔记.md`), '# 笔记\n')
-    }
-    const sec = (page: number) => ({ id: `s${page}`, page, title: '小标题', doubts: [`问题 ${page}`], good: '', time: '20:50' }) as never
-    const items = [
-      { id: 'a', pdf: '课程/ecp/Lecture05.pdf', lecture: 5, section: sec(5) },
-      { id: 'b', pdf: '课程/ecp/Lecture05.pdf', lecture: 5, section: sec(10) },
-      { id: 'c', pdf: '课程/ecp/Lecture06.pdf', lecture: 6, section: sec(2) },
-    ]
-    writeFileSync(join(root, '课程/ecp/我的疑惑.md'), doubtsNote('课程/ecp', 'ecp', items, new Set()))
-    // 自己起名叫「我的疑惑」、不是软件写的：不算
-    mkdirSync(join(root, '写作'))
-    writeFileSync(join(root, '写作/我的疑惑.md'), '# 我自己的疑惑\n')
+    writeFileSync(join(root, '课程/ecp/Lecture05.pdf'), '%PDF')
+    writeFileSync(join(root, '课程/ecp/Lecture06.pdf'), '%PDF')
+    writeFileSync(join(root, '课程/ecp/图解.html'), '<html></html>')
+    const sec = (page: number, qs: string[], side?: string) =>
+      [`## 第 ${page} 页 · 小标题`, `[第 ${page} 页](Lecture05.pdf#page=${page}) · 20:21 <!-- cn:thread=Lecture05-p${page}-1 -->`, '', ...qs.flatMap((q) => [`> [!question] ${q}`, '', '回答。', '']), ...(side ? [`> [!side] ${side}`, '> > 那一句', '>', '> 旁支的回答。', ''] : []), '> [!recap] 小结', ''].join('\n')
+    writeFileSync(join(root, '课程/ecp/Lecture05 笔记.md'), `---\n类型: 笔记\n进度: 7/12\n---\n# Lecture05 笔记\n\n${sec(3, ['给我讲解一下', '还是不懂'], '为什么减掉门槛？')}\n${sec(7, ['问这一页'])}`)
+    writeFileSync(join(root, '课程/ecp/图解 笔记.md'), '# 图解 笔记\n')
+    writeFileSync(join(root, '课程/ecp/随手记.md'), '# 随手记\n')
     const all = await listEntries(root)
     const at = (p: string) => all.find((e) => e.path === p)!
-    expect(at('课程/ecp/我的疑惑.md').auto).toEqual({ count: 3 })
-    expect(at('写作/我的疑惑.md').auto).toBeUndefined()
-    expect(at('课程/ecp/Lecture05 笔记.md').doubts).toEqual({ n: 2, summary: '课程/ecp/我的疑惑.md', heading: '第 5 讲 · Lecture05' })
-    expect(at('课程/ecp/Lecture06 笔记.md').doubts).toEqual({ n: 1, summary: '课程/ecp/我的疑惑.md', heading: '第 6 讲 · Lecture06' })
-    // 树里：我的疑惑排课程第一行
-    expect(buildTree(all)[0]!.children[0]!.children.map((n) => n.name)[0]).toBe('我的疑惑.md')
+    expect(at('课程/ecp/Lecture05.pdf').note).toEqual({ path: '课程/ecp/Lecture05 笔记.md', asks: 4 })
+    expect(at('课程/ecp/Lecture05.pdf').progress).toEqual({ asked: 7, pages: 12 })
+    expect(at('课程/ecp/Lecture06.pdf').note).toBeUndefined()
+    expect(at('课程/ecp/图解.html').note).toEqual({ path: '课程/ecp/图解 笔记.md', asks: 0 })
+    expect(at('课程/ecp/随手记.md').note).toBeUndefined()
+  })
+
+  it('目录树里 PDF 和它的笔记是一行：笔记不单独列；筛掉了 PDF（比如只看文档）时笔记照旧单独一行；不是同一个文件夹的不算', () => {
+    const pdf: FileEntry = { path: '课程/ecp/Lecture05.pdf', kind: 'pdf', mtimeMs: 0, note: { path: '课程/ecp/Lecture05 笔记.md', asks: 4 } }
+    const files = [pdf, f('课程/ecp/Lecture05 笔记.md'), f('课程/ecp/随手记.md'), f('课程/别处/Lecture05 笔记.md')]
+    const ecp = (t: ReturnType<typeof buildTree>) => t[0]!.children.find((n) => n.name === 'ecp')!.children.map((n) => n.name)
+    expect(ecp(buildTree(files))).toEqual(['随手记.md', 'Lecture05.pdf'])
+    expect(buildTree(files)[0]!.children.find((n) => n.name === '别处')!.children.map((n) => n.name)).toEqual(['Lecture05 笔记.md'])
+    // 只看文档：PDF 不在，笔记单独一行
+    expect(ecp(buildTree(files, { keep: (x) => x.kind === 'md' }))).toEqual(['随手记.md', 'Lecture05 笔记.md'])
+    // 文件夹的篇数：合成一行算一个
+    expect(buildTree(files)[0]!.children.find((n) => n.name === 'ecp')!.count).toBe(2)
   })
 })
 

@@ -14,6 +14,7 @@ import { saveHome, useHomeConfig } from './home-store'
 import { openImport } from './importer/store'
 import { PluginsSettings } from './plugins'
 import { VideoKeys } from './video/VideoKeys'
+import { keyedCommands, keyOf, useCmds } from './search/cmd-store'
 import './settings.css'
 import { UpdatePage } from './update'
 
@@ -807,32 +808,47 @@ function GitPage(props: { settings: AppSettings; onChange(p: Patch): Promise<App
   )
 }
 
-const KEYS: [string, string, string?][] = [
+/** 第四项：⌘K 里能改的那几条（命令的 id）；改了这里显示改过的键 */
+const KEYS: [string, string, string?, string?][] = [
   ['速记', '⌥⌘N', '在任何软件里都能按'],
   ['搜索', '⌘F', '⌘K 也行'],
-  ['打开 / 关上AI', '⌘J', '在网页里也能按'],
+  ['打开 / 关上AI', '⌘J', '在网页里也能按', 'ask-ai'],
   ['收起 / 展开左栏', '⌘\\'],
-  ['新建笔记', '⌘N'],
+  ['新建笔记', '⌘N', undefined, 'new-note'],
   ['关掉标签', '⌘W'],
   ['新网页', '⌘T', '右栏网页'],
   ['地址栏', '⌘L', '右栏网页'],
   ['双语翻译', '⌥A', '右栏网页 · 再按一次恢复原文'],
-  ['设置', '⌘,'],
+  ['设置', '⌘,', undefined, 'settings'],
 ]
 
 function KeysPage() {
+  useCmds()
+  // ⌘K 里给别的命令设的键（DESIGN.v3 3.2）
+  const own = keyedCommands().filter((c) => !KEYS.some((k) => k[3] === c.id))
   return (
     <>
       <h4>
-        快捷键<span>这一组现在还不能改</span>
+        快捷键<span>命令的键在 ⌘K 里改：右键那一条「设快捷键…」</span>
       </h4>
       <div className="keys-list">
-        {KEYS.map(([name, k, note]) => (
-          <div key={name} className="row">
-            <span>{name}</span>
-            {note && <span className="note">{note}</span>}
+        {KEYS.map(([name, k, note, id]) => {
+          const cur = id ? keyOf({ id, keys: k }) : k
+          return (
+            <div key={name} className="row">
+              <span>{name}</span>
+              {note && <span className="note">{note}</span>}
+              <span className="sp" />
+              <kbd>{cur ?? '没有'}</kbd>
+            </div>
+          )
+        })}
+        {own.map((c) => (
+          <div key={c.id} className="row">
+            <span>{c.name}</span>
+            {c.custom && <span className="note">⌘K 里设的</span>}
             <span className="sp" />
-            <kbd>{k}</kbd>
+            <kbd>{c.key}</kbd>
           </div>
         ))}
       </div>

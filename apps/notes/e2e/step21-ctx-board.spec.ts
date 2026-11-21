@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { attr, parseBoard, parseLinks } from '@cn/format'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { launch, pane, tabOn, type Running } from './app'
+import { foldInbox, launch, pane, tabOn, type Running } from './app'
 import { armMenus, menuLabels, openedMenu, pickMenu, setClipboard } from './menu'
 
 // 白板的右键：卡片、选了几张、空白处、连线、列，点了真的改了白板文件
@@ -26,6 +26,11 @@ links:
 丁
 `
 
+/**
+ * 这块白板用以前的写法（注释存列），2026-11-21 起打开时会一次转成「## 列名」写法（新写法的工具板、右键在 r9-board-doc.spec.ts、b2-board.spec.ts）。
+ * 这里测的是以前的自由白板（导图、撤回了转写法的白板还用它）：把它记进旧写法名单，打开不转
+ */
+const keepOld = (...paths: string[]) => ({ '.canvas-notes/白板旧写法.json': JSON.stringify({ 版本: 1, 白板: paths }) })
 const board = (page: Page) => pane(page).getByTestId('board')
 const card = (page: Page, id: string) => board(page).locator(`.bcard[data-id="${id}"]`)
 const file = (run: Running) => readFileSync(join(run.vault, '板.md'), 'utf8')
@@ -36,10 +41,11 @@ async function openBoard(run: Running) {
   await run.page.locator('.nav .si', { hasText: /^板/ }).first().click()
   await expect(tabOn(run.page)).toHaveText('板')
   await expect(card(run.page, 'a')).toBeVisible()
+  await foldInbox(run.page)
 }
 
 test('白板卡片：右键「复制一份」「转成文档」「删除」', async () => {
-  const run = await launch({ '板.md': BOARD })
+  const run = await launch({ '板.md': BOARD, ...keepOld('板.md') })
   const { page, vault } = run
   try {
     await openBoard(run)
@@ -65,7 +71,7 @@ test('白板卡片：右键「复制一份」「转成文档」「删除」', as
 })
 
 test('白板：选了两张右键「放进新列」；列右键「删除列（卡片留下）」；连线右键「删除连线」', async () => {
-  const run = await launch({ '板.md': BOARD })
+  const run = await launch({ '板.md': BOARD, ...keepOld('板.md') })
   const { page } = run
   try {
     await openBoard(run)
@@ -89,7 +95,7 @@ test('白板：选了两张右键「放进新列」；列右键「删除列（�
 })
 
 test('白板：连线右键「删除连线」；空白处右键「新列」「粘贴」放在点的地方；列右键「改名」进改名', async () => {
-  const run = await launch({ '板.md': BOARD })
+  const run = await launch({ '板.md': BOARD, ...keepOld('板.md') })
   const { page } = run
   try {
     await openBoard(run)

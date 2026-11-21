@@ -134,12 +134,20 @@
 /* 工具步骤行（DESIGN.v3 2.3）：每步一行 24 高、12px、图标 12；在做 --acc 转圈、字 --t1；做完绿勾、字 --t2；出错红叉、后面跟原因 */
 .am .read.tstep {
   height: 24px;
+  /* 图标和字之间 4（图标自己的右边距），动作和命令之间 3（.sc 的左边距），不再叠上 flex 的间距 */
+  gap: 0;
   margin: 0;
   font-size: 12px;
   color: var(--t2);
 }
 .am .tstep .ci {
   flex: none;
+  margin-right: 4px;
+}
+/* 「跑命令」「读」这几个字不折行（后面的命令再长也只省略命令） */
+.am .tstep .sl {
+  flex: none;
+  white-space: nowrap;
 }
 .am .tstep.run {
   color: var(--t1);
@@ -166,6 +174,8 @@
   padding: 0;
 }
 .am .tstep .why {
+  /* 原因（「没做完」）不让：放不下时先省略前面的命令 */
+  flex: none;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -307,6 +317,27 @@
   color: var(--red);
   transform: translateY(1px);
 }
+/* 没做完的那一轮做到哪一步：和说明对齐（让出图标那一格）；照步骤行拼，命令、路径等宽、左边 3px，放不下省略号 */
+.aierr .at {
+  margin-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aierr .at .sc {
+  margin-left: 3px;
+  font: 12px/18px var(--mono);
+  color: inherit;
+  background: none;
+  padding: 0;
+}
+/* 接在说到一半的字后面：空 8，和回答里段与段之间一样 */
+.am .txt + .aierr {
+  margin-top: 8px;
+}
 .aierr .acts {
   display: flex;
   flex-wrap: wrap;
@@ -342,11 +373,11 @@
   user-select: text;
 }
 
-/* AI 那一格的底色：B 是 --pop（D 组小样 .aip），A 跟右栏别的页一样平的 --win */
-.win > aside.right.aicell {
+/* AI 标签的底色：B 是 --pop（D 组小样 .aip），A 跟右栏别的标签一样平的 --win */
+.win > .dview > aside.right.aicell {
   background: var(--win);
 }
-.frame-b > aside.right.aicell {
+.frame-b > .dview > aside.right.aicell {
   background: var(--pop);
 }
 .ai:not(.reading-ai) .um-wrap {

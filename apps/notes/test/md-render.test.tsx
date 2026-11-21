@@ -71,17 +71,35 @@ it('CN-89 公式紧挨着汉字（AI 没打空格）时两边留 1/8 字宽（DE
   expect(spans).toEqual(['mi gl gr', 'mi', 'mi', 'mi'])
 })
 
-it('CN-89 公式：钱数「$5 和 $10」、代码里的 $HOME、没配上的半截 $ 都照原样；边生成边显示只到 $$ 开头时先按字显示；不传 math（白板卡片这些自己写的字）不排', () => {
+it('CN-89 公式：钱数「$5 和 $10」、代码里的 $HOME、没配上的半截 $ 都照原样；边生成边显示只到 $$ 开头时先按字显示；写错的原文标红色波浪', () => {
   const html = renderToStaticMarkup(<Markdown text={'一杯 $5，两杯 $10，`echo $HOME` 照旧。还没写完的 $x'} math />)
   expect(html).not.toContain('class="mi"')
   expect(html).toContain('一杯 $5，两杯 $10，<code>echo $HOME</code> 照旧。还没写完的 $x')
   const half = renderToStaticMarkup(<Markdown text={'公式：\n\n$$\nV = IR'} math />)
   expect(half).not.toContain('mblock')
   expect(half).toContain('V = IR')
-  const off = renderToStaticMarkup(<Markdown text={'卡片里写 $x$'} />)
-  expect(off).toContain('卡片里写 $x$')
-  // 坏的 LaTeX 不抛错：照原样显示成红字（KaTeX 自己的 katex-error）
-  expect(renderToStaticMarkup(<Markdown text={'坏的 $\\frac{a$ 公式'} math />)).toContain('坏的')
+  // 坏的 LaTeX 不抛错：原文照写，标红色波浪（math-err），悬停说哪里错
+  const bad = renderToStaticMarkup(<Markdown text={'坏的 $\\frac{a$ 公式'} />)
+  expect(bad).toContain('坏的 <span class="math-err" title="公式写错了：')
+  expect(bad).toContain('>$\\frac{a$</span> 公式')
+})
+
+it('task-o48fa 白板卡片、文档切成的白板这些自己写的字也排公式（同一个认法，钱数照旧不排）；\\$ 显示成 $', () => {
+  const card = renderToStaticMarkup(<Markdown text={'卡片里写 $x$，花了 $5 和 $6，价格 \\$7'} />)
+  expect(card.match(/class="mi"/g)?.length).toBe(1)
+  expect(card).toContain('，花了 $5 和 $6，价格 $7')
+})
+
+it('task-o48fa 截图那几种：$x_i$, $\\mathbf{x}_i$ 两个公式（中间的 _ 不当斜体）；\\(…\\)、\\[…\\]；单独成行的写错了也不崩', () => {
+  const md = '- $x_i$, $\\mathbf{x}_i$：向量 $\\mathbf{x}$ 第 $i$ 个元素\n- $\\mathcal{A}\\setminus\\mathcal{B}$：相减\n\n设 \\(a^2\\) 是\n\n\\[\nb^2\n\\]\n\n$$\n\\frac{1}{\n$$'
+  const html = renderToStaticMarkup(<Markdown text={md} />)
+  expect(html.match(/class="mi"/g)?.length).toBe(6)
+  expect(html).not.toContain('<i>')
+  expect(html.match(/class="mblock"/g)?.length).toBe(2)
+  expect(html).toContain('<annotation encoding="application/x-tex">b^2</annotation>')
+  expect(html).toContain('class="math-err"')
+  // 只有写错的那一个露原文
+  expect(html.replace(/<span class="math-err"[^>]*>[^<]*<\/span>/g, '')).not.toMatch(/\$[^<]*\$/)
 })
 
 it('AI 讲解的提示块：卡头「AI 讲解」一截，后面的引擎 · 模型 · 看了什么单独一截（淡一号、一行省略）', () => {

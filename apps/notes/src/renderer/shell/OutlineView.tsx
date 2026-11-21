@@ -47,7 +47,7 @@ export function onFlyToCard(path: string, f: (id: string) => void): () => void {
 }
 
 /** 右栏「大纲」：文档的标题、PDF 的目录、白板的列和卡片 */
-export function OutlineView(props: { tab: Tab | null; doc(): NoteDoc | null; onClose(): void; onPdfPage(path: string, page: number): void }) {
+export function OutlineView(props: { tab: Tab | null; doc(): NoteDoc | null; onClose(): void; onPdfPage(path: string, page: number): void; mode?: 'doc' | 'board' }) {
   const { tab } = props
   const [items, setItems] = useState<OutlineItem[] | null>(null)
   const [cur, setCur] = useState(-1)
@@ -55,6 +55,8 @@ export function OutlineView(props: { tab: Tab | null; doc(): NoteDoc | null; onC
   const path = tab && 'path' in tab ? tab.path : null
   const docOf = useRef(props.doc)
   docOf.current = props.doc
+  const modeRef = useRef(props.mode)
+  modeRef.current = props.mode
 
   useEffect(() => {
     setItems(null)
@@ -78,7 +80,8 @@ export function OutlineView(props: { tab: Tab | null; doc(): NoteDoc | null; onC
       const text = d.view.state.doc.toString()
       if (text === last) return
       last = text
-      const isBoard = /^---\n[\s\S]*?\btype:\s*board\b[\s\S]*?\n---/.test(text)
+      // 白板看法里列出列和卡（2026-11-21 起白板就是这篇文档，文档看法里照样是标题）
+      const isBoard = modeRef.current ? modeRef.current === 'board' : /^---\n[\s\S]*?\btype:\s*board\b[\s\S]*?\n---/.test(text)
       setItems(isBoard ? boardOutline(text) : docOutline(text))
       const head = d.view.state.doc.lineAt(d.view.state.selection.main.head).number - 1
       setCur(isBoard ? -1 : docOutline(text).filter((o) => (o.line ?? 0) <= head).length - 1)
@@ -86,7 +89,7 @@ export function OutlineView(props: { tab: Tab | null; doc(): NoteDoc | null; onC
     read()
     const t = window.setInterval(read, 1000)
     return () => window.clearInterval(t)
-  }, [kind, path])
+  }, [kind, path, props.mode])
 
   function go(o: OutlineItem, i: number) {
     if (kind === 'pdf' && path && o.page) return props.onPdfPage(path, o.page)

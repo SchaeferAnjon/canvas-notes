@@ -46,11 +46,14 @@ describe('文档里藏着的位置行（文档白板拖到空白处写的）', (
     expect(h.state.doc.toString()).toBe('# 外改\n\n## 第一节开头一段。\n')
   })
 
-  it('不在段首、前一行不是位置行、白板（type: board）：不管，照常退格', () => {
+  it('不在段首、前一行不是位置行、以前写法的白板（卡上写着 w= / in=）：不管，照常退格', () => {
     expect(backspaceOverLayout(fake(doc, doc.indexOf('开头一段') + 1))).toBe(false)
     expect(backspaceOverLayout(fake(doc, doc.indexOf('收尾一段')))).toBe(false)
+    const old = '---\ntype: board\n---\n\n<!-- card id=c1 x=0 y=0 w=280 -->\n卡片\n'
+    expect(backspaceOverLayout(fake(old, old.indexOf('卡片')))).toBe(false)
+    // 2026-11-21 起 type: board 的白板也是这篇文档：位置行只管下面那一段，和普通文档一样（上面是空行：删空行，位置行留着）
     const board = '---\ntype: board\n---\n\n<!-- card id=c1 x=0 y=0 -->\n卡片\n'
-    expect(backspaceOverLayout(fake(board, board.indexOf('卡片')))).toBe(false)
+    expect(backspaceOverLayout(fake(board, board.indexOf('卡片')))).toBe(true)
   })
 })
 
@@ -84,13 +87,13 @@ describe('光标进不去藏着的位置行（第 4 轮：←、Home 两下、Ct
     expect([s.selection.main.anchor, s.selection.main.head]).toEqual([doc.indexOf('收尾一段') + 2, card - 1])
   })
 
-  it('位置行在第一行：挪到下一行行首；白板（type: board）不藏、不挪', () => {
+  it('位置行在第一行：挪到下一行行首；白板（type: board）一样藏、一样挪（第 8 轮：以前白板不藏，文档看法露出注释）', () => {
     const first = '<!-- card id=c1 x=0 y=0 -->\n开头。\n'
     const f = EditorState.create({ doc: first, extensions: [layoutLines, hiddenGuard] }).update({ selection: { anchor: 3 }, userEvent: 'select' }).state
     expect(f.selection.main.head).toBe(first.indexOf('开头'))
     const board = '---\ntype: board\n---\n\n<!-- card id=c1 x=0 y=0 -->\n卡片\n'
-    const b = EditorState.create({ doc: board, extensions: [layoutLines, hiddenGuard] }).update({ selection: { anchor: board.indexOf('<!--') }, userEvent: 'select' }).state
-    expect(b.selection.main.head).toBe(board.indexOf('<!--'))
+    const b = EditorState.create({ doc: board, extensions: [layoutLines, hiddenGuard] }).update({ selection: { anchor: board.indexOf('<!--') + 3 }, userEvent: 'select' }).state
+    expect([board.indexOf('<!--') - 1, board.indexOf('卡片')]).toContain(b.selection.main.head)
   })
 })
 
@@ -107,9 +110,9 @@ describe('粘贴进文档的字里带着位置行（从文档里复制了摆在�
     expect(s.doc.toString().match(/card id=d2/g)).toHaveLength(1)
   })
 
-  it('白板（type: board）里照原样贴：那里位置行是看得见的', () => {
+  it('白板（type: board）的文档看法里一样去掉：那里卡片行、列行也藏着（第 8 轮）', () => {
     const board = '---\ntype: board\n---\n\n<!-- card id=c1 x=0 y=0 -->\n卡片\n'
-    const s = paste(board, board.length, '<!-- card id=c9 x=1 y=1 -->\n贴的\n')
-    expect(s.doc.toString()).toBe(board + '<!-- card id=c9 x=1 y=1 -->\n贴的\n')
+    const s = paste(board, board.length, '<!-- column id=k1 x=1 y=1 title=列 -->\n<!-- card id=c9 in=k1 -->\n贴的\n')
+    expect(s.doc.toString()).toBe(board + '贴的\n')
   })
 })

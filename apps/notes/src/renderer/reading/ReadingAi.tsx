@@ -289,7 +289,7 @@ export function ReadingAi(props: {
 
   return (
     <aside className={'right aicell reading-ai ai' + (props.split ? ' ' + props.split.className : '')} style={props.split?.style} aria-label="边读边问 AI" hidden={props.hidden}>
-      <AiHead label={label} nav={props.nav} newTip="新对话：AI 从头读这份 PDF，问过的和笔记都留着" newDisabled={running} onNew={() => void R.newChat(pdf)} onCollapse={props.onCollapse} />
+      <AiHead label={label} nav={props.nav} newTip="新对话：AI 从头读这份 PDF，问过的和笔记都留着" newDisabled={running} onNew={() => void R.newChat(pdf)} />
       {/* 看得到（A 组读 PDF 小样）：这份 PDF · 第几页 | ✓ 读过全文几页 | 笔记几轮（还没记过不画）；看别处的对话时换成「这是在…问的」；下格开着旁支时藏起来 */}
       {props.nav.away ? (
         <AwayBar nav={props.nav} />

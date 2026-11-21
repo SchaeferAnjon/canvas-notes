@@ -26,8 +26,8 @@ save git-compare fold-up fold-down unfold mic debug-stop diff-single
 notebook map rocket flame tools compass mail organization
 symbol-keyword dash list-selection arrow-small-left arrow-small-right percentage triangle-down triangle-up check-all arrow-circle-down
 graph-line move
-comment-discussion symbol-operator location
-reply
+comment-discussion symbol-operator location references
+reply multiple-windows split-vertical mention
 `.split(/\s+/).filter(Boolean)
 
 const body = USED.map((n) => {

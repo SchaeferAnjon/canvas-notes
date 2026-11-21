@@ -105,3 +105,55 @@ describe('白板操作', () => {
     expect(arrange(once, 'grid')).toBe(once)
   })
 })
+
+describe('白板操作（2026-11-21 起白板就是这篇文档：## 是列、一段是一张卡）', () => {
+  const T = `---\ntype: board\n---\n# 旅行\n\n## 要订的\n\n机票\n\n租车\n\n## 住哪\n\n维克两晚\n`
+  it('列出：列的 id 是列名，卡的 id 是白板上的名字（data-id）', () => {
+    const s = summarize(T)
+    expect(s.columns.map((c) => [c.id, c.cards.length])).toEqual([
+      ['要订的', 2],
+      ['住哪', 1],
+    ])
+    expect(s.cards.map((c) => [c.text, c.column])).toEqual([
+      ['机票', '要订的'],
+      ['租车', '要订的'],
+      ['维克两晚', '住哪'],
+    ])
+    expect(s.loose).toEqual([])
+  })
+
+  it('加卡片进列 = 插进那一节；加列 = 新起一节；放进列 = 这段挪进那一节；挪到空白处 = 前面一行位置，名字不变；连线 = 两头留编号；排整齐只动空白处的', () => {
+    const a = addCard(T, { text: '换钱', column: '要订的' })
+    expect(a.text).toContain('租车\n\n换钱\n\n## 住哪')
+    expect(summarize(a.text).cards.find((c) => c.id === a.id)!.text).toBe('换钱')
+    const col = addColumn(a.text, { title: '吃什么' })
+    expect(col.id).toBe('吃什么')
+    expect(col.text.endsWith('维克两晚\n\n## 吃什么\n')).toBe(true)
+    const ticket = summarize(col.text).cards.find((c) => c.text === '机票')!.id
+    const moved = putInColumn(col.text, ticket, '吃什么')
+    expect(moved.endsWith('## 吃什么\n\n机票\n')).toBe(true)
+    // 挪到空白处：位置行的编号就是它的名字，挪完再找还是它
+    const placed = moveTo(moved, ticket, 400, 80)
+    expect(placed).toContain(`<!-- card id=${ticket} x=400 y=80 -->\n机票`)
+    expect(summarize(placed).cards.find((c) => c.id === ticket)).toMatchObject({ x: 400, y: 80 })
+    const stay = summarize(placed).cards.find((c) => c.text === '维克两晚')!.id
+    const linked = link(placed, ticket, stay)
+    expect(linked).toContain(`links:\n  - ${ticket} -> ${stay}\n`)
+    expect(linked).toContain(`<!-- card id=${stay} -->\n维克两晚`)
+    expect(() => setCardText(linked, 'nope', 'x')).toThrow('board_list')
+    expect(setCardText(linked, stay, '维克住两晚')).toContain('维克住两晚')
+    // 排整齐：只有一张空白处的卡，已经整齐，不动
+    expect(arrange(linked, 'grid')).toBe(linked)
+    expect(() => addCard(T, { text: 'x', column: '没有这列' })).toThrow('没有叫「没有这列」的列')
+  })
+
+  it('加卡片不给列也不给坐标：有节就加在最后一节；白板上只有散着的卡（没分节）就放在空白处，最下面那张的下面，不塞进最左一组', () => {
+    expect(addCard(T, { text: '换钱' }).text.endsWith('维克两晚\n\n换钱\n')).toBe(true)
+    const free = '---\ntype: board\n---\n# 旅行\n\n<!-- card id=a x=420 y=300 -->\n出发前先定住处\n\n<!-- card id=b x=60 y=80 -->\n冰岛环岛十天\n'
+    const r = addCard(free, { text: '订机票' })
+    expect(r.text.endsWith('冰岛环岛十天\n\n<!-- card id=d1 x=420 y=500 -->\n订机票\n')).toBe(true)
+    expect(summarize(r.text).cards.find((c) => c.id === r.id)).toMatchObject({ text: '订机票', x: 420, y: 500 })
+    // 一张卡都没有的空白板：加在文末
+    expect(addCard('---\ntype: board\n---\n', { text: '第一张' }).text).toBe('---\ntype: board\n---\n\n第一张\n')
+  })
+})

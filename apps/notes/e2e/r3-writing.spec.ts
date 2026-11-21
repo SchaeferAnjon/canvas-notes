@@ -76,20 +76,22 @@ test('文件树点开一篇直接打字：字落在正文第一段末尾，不�
   }
 })
 
-/** 切到 title 那个标签的白板，双击卡片 → 改字 → 末尾打字（不点存好） */
-async function typeInCardDialog(page: Page, title: string, card: string, typed: string) {
+/** 切到 title 那个标签的白板，双击卡片就在卡里改（2026-11-21 起不再弹「全文」），末尾真打字（不收起、不存） */
+async function typeInCard(page: Page, title: string, card: string, typed: string) {
   await page.getByRole('tab', { name: new RegExp(title) }).first().click()
   await expect(tabOn(page)).toHaveText(title)
   const acts = page.getByTestId('tab-acts')
   if ((await acts.getByRole('tab', { name: '白板' }).getAttribute('aria-selected')) !== 'true') await acts.getByRole('tab', { name: '白板' }).click()
-  await pane(page).getByTestId('doc-board').locator('.db-card', { hasText: card }).dblclick()
-  const dlg = page.getByRole('dialog', { name: '全文' })
-  await dlg.getByRole('button', { name: '改字' }).click()
-  await dlg.getByRole('textbox', { name: '这张卡的字' }).press('End')
+  const board = pane(page).getByTestId('doc-board')
+  await board.locator('.db-card', { hasText: card }).dblclick()
+  const box = board.getByRole('textbox', { name: '卡片内容' })
+  await expect(box).toBeFocused()
+  await box.press('End')
   await page.keyboard.type(typed)
+  await expect(box).toContainText(typed)
 }
 
-test('白板「改字」弹层开着时 ⌘W、标签右键「关闭其他」：弹层里打的字先存进文件再关', async () => {
+test('白板上卡里正在改字时 ⌘W、标签右键「关闭其他」：卡里打的字先存进文件再关', async () => {
   const NOTE = (t: string) => `# ${t}\n\n## 一\n\n卡一。\n\n## 二\n\n卡二。\n`
   const run = await launch({ '弹层关标签.md': NOTE('弹层关标签'), '关闭其他.md': NOTE('关闭其他'), '首页留着.md': '# 首页留着\n' })
   const { page, vault } = run
@@ -98,7 +100,9 @@ test('白板「改字」弹层开着时 ⌘W、标签右键「关闭其他」：
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 900))
     await leftView(page, '文件')
     await treeRow(page, '弹层关标签').click()
-    await typeInCardDialog(page, '弹层关标签', '卡二', '弹层里没存的字')
+    await typeInCard(page, '弹层关标签', '卡二', '弹层里没存的字')
+    // 打完字还没收起、文件里还没有：⌘W 先存再关
+    expect(file('弹层关标签.md')).toBe(NOTE('弹层关标签'))
     await page.keyboard.press('Meta+w')
     await expect(page.getByRole('tab', { name: /弹层关标签/ })).toHaveCount(0)
     await expect.poll(() => file('弹层关标签.md')).toBe(NOTE('弹层关标签').replace('卡二。', '卡二。弹层里没存的字'))
@@ -106,7 +110,8 @@ test('白板「改字」弹层开着时 ⌘W、标签右键「关闭其他」：
     // 「关闭其他」：在另一个标签上右键
     await treeRow(page, '关闭其他').click()
     await treeRow(page, '首页留着').click()
-    await typeInCardDialog(page, '关闭其他', '卡一', '关其他前的字')
+    await typeInCard(page, '关闭其他', '卡一', '关其他前的字')
+    expect(file('关闭其他.md')).toBe(NOTE('关闭其他'))
     await armMenus(run)
     await page.getByRole('tab', { name: /首页留着/ }).click({ button: 'right' })
     await pickMenu(run, '关闭其他')
@@ -389,17 +394,24 @@ test('外面改了正在改的同一段、又改了别的段：同一段留我�
   const file = (n: string) => readFileSync(join(vault, `${n}.md`), 'utf8')
   try {
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 900))
-    // ① 白板改字
+    // ① 白板上双击卡、就在卡里打字（2026-11-21 起不再弹「全文」改字）
     await openNote(page, '合并')
     await acts(page).getByRole('tab', { name: '白板' }).click()
-    await pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '外面加的一段' }).dblclick()
-    const dlg = page.getByRole('dialog', { name: '全文' })
-    await dlg.getByRole('button', { name: '改字' }).click()
-    await dlg.getByRole('textbox', { name: '这张卡的字' }).press('End')
+    const board = pane(page).getByTestId('doc-board')
+    await board.locator('.db-card', { hasText: '外面加的一段' }).dblclick()
+    const box = board.getByRole('textbox', { name: '卡片内容' })
+    await expect(box).toBeFocused()
+    await box.press('End')
     await page.keyboard.type('我的')
     writeFileSync(join(vault, '合并.md'), NOTE.replace('外面加的一段。', '外面加的一段，手机上补的。').replace('收尾一段。', '收尾一段。外面也改了收尾。'))
-    await expect(pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '外面也改了收尾' })).toBeVisible()
-    await dlg.getByRole('button', { name: '存好' }).click()
+    // 外面的改动进来了（别的卡变了），正在改的这张框还在、字一个不少
+    await expect(board.locator('.db-card', { hasText: '外面也改了收尾' })).toBeVisible()
+    await expect(box).toBeFocused()
+    await expect(box).toHaveText('外面加的一段。我的')
+    // 点白板空白处存下
+    const bb = (await board.locator('.board-wrap').boundingBox())!
+    await page.mouse.click(bb.x + bb.width - 60, bb.y + bb.height - 60)
+    await expect(box).toHaveCount(0)
     await expect(page.locator('.db-toast')).toContainText('外面别处改的也合进来了')
     await expect.poll(() => file('合并')).toBe(NOTE.replace('外面加的一段。', '外面加的一段。我的').replace('收尾一段。', '收尾一段。外面也改了收尾。'))
     await expect.poll(() => readdirSync(vault).filter((f) => f.startsWith('合并（冲突 ')).length).toBe(1)

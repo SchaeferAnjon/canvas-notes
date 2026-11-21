@@ -1,7 +1,7 @@
 /**
  * ⌘W 关哪一栏（CN-98 方向 A「关这一格」，0.4.2 施工）：点了哪一栏就关哪一栏。
- * - 当前栏：点一下（或焦点到了）就是它；中间不是当前栏时，中间当前标签的标记变 --line2；没有标签的格子标题下面一道强调色。
- * - 中间、左栏：关中间的当前标签；右栏网页：关当前网页标签，最后一个关掉网页这格收起；历史、大纲、右栏下格：收起这一格；
+ * - 当前栏：点一下（或焦点到了）就是它；中间不是当前栏时，中间当前标签的标记变 --line2；右边一组是当前栏时它的当前标签画强调色（工作区方向 A）；左栏标题下面一道强调色。
+ * - 中间、左栏：关中间的当前标签；右栏一组的当前标签是网页：关当前网页标签，最后一个关掉网页标签收起；历史、大纲、笔记、AI：收起这个标签；
  *   每次底栏一句，带「撤回」；菜单「文件 › 关闭」走同一条路。
  * - 标签都关完回到首页（用户补的），不是空白页。
  * 真点、真按键，窗口不上屏。
@@ -32,6 +32,10 @@ const marks = (page: Page) =>
     const on = document.querySelector('.center .tabs .tab.on')
     return { tab: on ? getComputedStyle(on, '::before').backgroundColor : null, acc: probe('--acc'), line2: probe('--line2') }
   })
+/** 右边一组的标签（工作区方向 A）当前那个底边那道标记的颜色 */
+const tabMark = (page: Page, v: string) => page.getByTestId(`dtab-${v}`).evaluate((e) => getComputedStyle(e, '::after').backgroundColor)
+/** 当前栏是右边的一组（组的 id：g1、g2……） */
+const GROUP = /^[gf]\d+$/
 async function open(page: Page, name: string) {
   await page.keyboard.press('Meta+o')
   await page.keyboard.type(name)
@@ -53,7 +57,7 @@ test.beforeAll(async () => {
 })
 test.afterAll(() => server.close())
 
-test('点历史空白处按 ⌘W：收起历史，中间的标签不动；撤回回来；点左栏再按 ⌘W 关中间的当前标签；中间不是当前栏时标记变灰、历史标题下一道强调色', async () => {
+test('点历史空白处按 ⌘W：收起历史，中间的标签不动；撤回回来；点左栏再按 ⌘W 关中间的当前标签；中间不是当前栏时标记变灰、历史标签的标记是强调色', async () => {
   const run = await launch({ '冰岛行程.md': '# 冰岛行程\n\n第一天。\n', '冰岛旅游 3.md': '# 冰岛旅游 3\n\n正文。\n' })
   const { page } = run
   try {
@@ -62,22 +66,15 @@ test('点历史空白处按 ⌘W：收起历史，中间的标签不动；撤回
     // 中间是当前栏：标记是强调色
     let m = await marks(page)
     expect(m.tab).toBe(m.acc)
-    // 打开历史、点它的空白处：历史成了当前栏，中间的标记变灰，历史标题下一道强调色
+    // 打开历史、点它的空白处：历史那一组成了当前栏，中间的标记变灰，历史标签的标记是强调色（没有标签的格子才另画一道）
     await rail(page).getByRole('button', { name: '历史' }).click()
     const hb = (await hist(page).boundingBox())!
     await page.mouse.click(hb.x + hb.width / 2, hb.y + hb.height - 40)
-    await expect(page.locator('.win')).toHaveAttribute('data-pane', 'rt')
+    await expect(page.locator('.win')).toHaveAttribute('data-pane', GROUP)
     m = await marks(page)
     expect(m.tab).toBe(m.line2)
-    const mark = page.getByTestId('pane-mark')
-    await expect(mark).toBeVisible()
-    const title = (await hist(page).locator('.rhead > b').boundingBox())!
-    const mb = (await mark.boundingBox())!
-    const head = (await hist(page).locator('.rhead').boundingBox())!
-    expect(Math.abs(mb.x - (title.x - 2))).toBeLessThanOrEqual(1)
-    expect(Math.abs(mb.width - (title.width + 4))).toBeLessThanOrEqual(1)
-    expect(Math.abs(mb.y + mb.height - (head.y + head.height))).toBeLessThanOrEqual(1)
-    expect(await mark.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe(m.acc)
+    expect(await tabMark(page, 'history')).toBe(m.acc)
+    await expect(page.getByTestId('pane-mark')).toBeHidden()
     // ⌘W：历史收起，中间的标签还在
     await page.keyboard.press('Meta+w')
     await expect(hist(page)).toHaveCount(0)
@@ -130,19 +127,16 @@ test('读 PDF 时在右栏下格「笔记」里按 ⌘W：只收起笔记，PDF 
     await expect(notes(page)).toBeVisible()
     const nb = (await notes(page).boundingBox())!
     await page.mouse.click(nb.x + nb.width / 2, nb.y + nb.height / 2)
-    await expect(page.locator('.win')).toHaveAttribute('data-pane', 'rb')
-    await expect(page.getByTestId('pane-mark')).toBeVisible()
+    await expect(page.locator('.win')).toHaveAttribute('data-pane', GROUP)
     await page.keyboard.press('Meta+w')
     await expect(notes(page)).toHaveCount(0)
     await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
-    await expect(toast(page)).toContainText('收起了右栏下格「笔记」')
-    // 用鼠标也能收起：格子头前面 note 图标，右端「收起 ⌘W」（收起笔记，同 ⌘W；和 AI 那一页的「收起 ⌘J」同一个位置，不另放 ×）
+    await expect(toast(page)).toContainText('收起了「笔记」')
+    // 用鼠标也能收起：笔记标签上的 ×（悬停才出来）
     await rail(page).getByRole('button', { name: /^笔记/ }).click()
     await expect(notes(page)).toBeVisible()
-    await expect(notes(page).locator('.aih > svg').first()).toBeVisible()
-    await expect(notes(page).getByRole('button', { name: '收起笔记' })).toHaveText('收起 ⌘W')
-    await expect(notes(page).locator('.aih').getByRole('button', { name: /关闭|^×$/ })).toHaveCount(0)
-    await notes(page).getByRole('button', { name: '收起笔记' }).click()
+    await page.getByTestId('dtab-note').hover()
+    await page.getByTestId('dtab-note').getByRole('button', { name: '收起笔记' }).click()
     await expect(notes(page)).toHaveCount(0)
     await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
 
@@ -186,7 +180,7 @@ test('右栏网页：点网页标签条按两次 ⌘W，两个网页标签一个
     await expect(webTabs(page)).toHaveCount(2)
     await expect(webTabs(page).nth(1)).toContainText('乔治')
     // 网页这一格是当前栏；当前网页标签照旧不画彩色标记（CN-15：用户说过右栏网页标签的蓝线没必要），中间的标记变灰
-    await expect(page.locator('.win')).toHaveAttribute('data-pane', 'rt')
+    await expect(page.locator('.win')).toHaveAttribute('data-pane', GROUP)
     expect(await webTabs(page).nth(1).evaluate((t) => getComputedStyle(t, '::before').content)).toBe('none')
     const m = await marks(page)
     expect(m.tab).toBe(m.line2)
@@ -201,11 +195,11 @@ test('右栏网页：点网页标签条按两次 ⌘W，两个网页标签一个
     await expect(page.locator('.win')).toHaveAttribute('data-pane', 'center')
     const box = (await web(page).locator('webview.on').boundingBox())!
     await page.mouse.click(box.x + 200, box.y + 160)
-    await expect(page.locator('.win')).toHaveAttribute('data-pane', 'rt')
+    await expect(page.locator('.win')).toHaveAttribute('data-pane', GROUP)
     // 焦点在网页里再按：关掉最后一个，网页这格收起
     await page.keyboard.press('Meta+w')
     await expect(web(page)).toBeHidden()
-    await expect(toast(page)).toContainText('关掉了网页「趣说明朝276年」，网页这格收起了')
+    await expect(toast(page)).toContainText('关掉了网页「趣说明朝276年」，网页标签收起了')
     await expect(page.locator('.win')).not.toHaveClass(/with-right/)
     await expect(page.getByTestId('tab-list').getByRole('tab')).toHaveCount(2)
     // 撤回：网页这格回来，标签也回来
@@ -243,16 +237,16 @@ test('标签都关完回首页；右键「关闭全部」也是；只剩首页�
     await pickMenu(run, '关闭全部')
     await expect(centerTabs(page)).toHaveText(['首页'])
 
-    // AI 那一格（AI 只住右栏，算右栏下格）：点进去按 ⌘W 收起它，首页不动；撤回又开着
+    // AI 标签（工作区方向 A：右栏里的一个标签）：点进去按 ⌘W 收起它，首页不动；撤回又开着
     await page.keyboard.press('Meta+j')
     const ai = page.getByRole('complementary', { name: 'AI 对话' })
     await expect(ai).toBeVisible()
     await ai.getByRole('textbox').click()
-    await expect(page.locator('.win')).toHaveAttribute('data-pane', 'rb')
-    await expect(page.getByTestId('pane-mark')).toBeVisible()
+    await expect(page.locator('.win')).toHaveAttribute('data-pane', GROUP)
+    expect(await tabMark(page, 'ai')).toBe((await marks(page)).acc)
     await page.keyboard.press('Meta+w')
     await expect(ai).toBeHidden()
-    await expect(toast(page)).toContainText('收起了右栏下格「AI」')
+    await expect(toast(page)).toContainText('收起了「AI」')
     await expect(centerTabs(page)).toHaveText(['首页'])
     await toast(page).getByRole('button', { name: '撤回' }).click()
     await expect(ai).toBeVisible()

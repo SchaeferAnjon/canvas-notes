@@ -18,7 +18,7 @@ const read = (vault: string, name: string) => readFileSync(join(vault, name), 'u
 const docBoard = (page: Page) => pane(page).getByTestId('doc-board')
 const col = (page: Page, name: string) => docBoard(page).getByRole('region', { name, exact: true })
 
-test('文档白板「改字」：在排好的样子上直接改，不露 [!quote]、书链接、weread://、** 这些写法；改的字写回那一段，Esc 存下', async () => {
+test('文档白板就地改字：在排好的样子上直接改，不露 [!quote]、书链接、weread://、** 这些写法；改的字写回那一段，Esc 存下', async () => {
   const run = await launch(docBoardVault())
   const { page, vault } = run
   const file = () => read(vault, '写作/冰岛十天环岛.md')
@@ -27,11 +27,10 @@ test('文档白板「改字」：在排好的样子上直接改，不露 [!quote
     await openNote(page, '冰岛十天环岛')
     await acts(page).getByRole('tab', { name: '白板' }).click()
     await expect(docBoard(page)).toBeVisible()
-    // 书摘卡：双击看全文，点「改字」
+    // 书摘卡：双击就在卡里改（2026-11-21 起不再弹「全文」点「改字」）
     await col(page, '出发前').locator('.db-card.fc-clip').first().dblclick()
-    const dlg = page.getByRole('dialog', { name: '全文' })
-    await dlg.getByRole('button', { name: '改字' }).click()
-    const box = dlg.getByRole('textbox', { name: '这张卡的字' })
+    const dlg = docBoard(page).locator('.db-card.editing')
+    const box = dlg.getByRole('textbox', { name: '卡片内容' })
     await expect(box).toBeVisible()
     await expect(box).toBeFocused()
     // 没有 md 原文框；看得见的字里一个写法都不露，也不是等宽字
@@ -39,8 +38,8 @@ test('文档白板「改字」：在排好的样子上直接改，不露 [!quote
     await page.screenshot({ path: 'test-results/r8-改字-书摘.png' })
     for (const raw of ['[!quote]', 'weread://', '[《', '](', '> ']) await expect(dlg).not.toContainText(raw, { useInnerText: true })
     await expect(dlg).toContainText('在冰岛，天气不是闲聊的话题，是第二天的行程表。')
-    // 和文档里一样：书名一行，链接收成小块（weread:// 写「微信读书」，不写 book…），评价照文档里的样子
-    await expect(dlg.locator('.cm-urlchip')).toHaveText('微信读书')
+    // 和文档里一样：书名一行，链接后面什么都不露（cmdk 方案 A），评价照文档里的样子
+    await expect(dlg.locator('.cm-urlchip')).toHaveCount(0)
     await expect(dlg).toContainText('我的评价：所以每天只排一个主景点，剩下的时间留给天气。')
     const font = await box.evaluate((el) => getComputedStyle(el).fontFamily)
     expect(font).not.toMatch(/mono|Menlo|SF Mono/i)
@@ -52,20 +51,20 @@ test('文档白板「改字」：在排好的样子上直接改，不露 [!quote
 
     // 带加粗的正文卡：** 不露，改中间的字只改那几个字
     await docBoard(page).locator('.db-card', { hasText: '主要看三样' }).first().dblclick()
-    await dlg.getByRole('button', { name: '改字' }).click()
+    await expect(box).toBeFocused()
     await expect(dlg).not.toContainText('**', { useInnerText: true })
     await expect(dlg.locator('.cm-strong')).toHaveText('极光、冰洞、黑沙滩')
     await dlg.locator('.cm-line', { hasText: '二月底出发' }).click({ position: { x: 2, y: 10 } })
     await page.keyboard.press('Home')
     await page.keyboard.type('今年')
-    await dlg.getByRole('button', { name: '存好' }).click()
+    await page.keyboard.press('Meta+Enter')
     await expect(dlg).toHaveCount(0)
     await expect.poll(file).toContain('今年二月底出发，十天，冬天走一号公路。主要看三样：**极光、冰洞、黑沙滩**。')
 
-    // 改字时 ⌘Z 撤的是弹层里的字；没改直接关，文件不动
+    // 改字时 ⌘Z 撤的是卡里的字；没改直接收起，文件不动
     const before = file()
     await docBoard(page).locator('.db-card', { hasText: '主要看三样' }).first().dblclick()
-    await dlg.getByRole('button', { name: '改字' }).click()
+    await expect(box).toBeFocused()
     await page.keyboard.type('X')
     await page.keyboard.press('Meta+z')
     await page.keyboard.press('Escape')
@@ -157,14 +156,14 @@ test('文档里 Obsidian 写法的图片 ![[图.png]]、![[图.png|300]]：画�
 })
 
 test('白板卡里的双链 [[a/b/笔记]] 只露笔记名，有别名露别名；文档里一样', async () => {
-  const BOARD = '---\ntype: board\n---\n# 链接板\n\n<!-- card id=a x=80 y=80 w=260 -->\n看 [[课程/ecp/第五讲]] 和 [[课程/ecp/第六讲|下一讲]]\n'
+  const BOARD = '---\ntype: board\n---\n# 链接板\n\n<!-- card id=a x=80 y=80 -->\n看 [[课程/ecp/第五讲]] 和 [[课程/ecp/第六讲|下一讲]]\n'
   const DOC = '# 链接稿\n\n## 一\n\n看 [[课程/ecp/第五讲]] 和 [[课程/ecp/第六讲|下一讲]]\n'
   const run = await launch({ '链接板.md': BOARD, '链接稿.md': DOC, '课程/ecp/第五讲.md': '# 第五讲\n', '课程/ecp/第六讲.md': '# 第六讲\n' })
   const { page, vault } = run
   try {
-    // 真白板
+    // 白板（type: board）
     await page.locator('.nav .si', { hasText: '链接板' }).first().click()
-    const card = pane(page).getByTestId('board').locator('.bcard[data-id="a"]')
+    const card = docBoard(page).locator('.db-card[data-id="a"]')
     await expect(card).toContainText('看 第五讲 和 下一讲')
     await expect(card).not.toContainText('课程/ecp')
     // 文档切成的白板
@@ -208,15 +207,15 @@ test('表格格子里打完字马上点正文接着打（机器速度，点和�
 test('普通白板（type: board）双击改字：剪藏卡、带加粗和双链的卡都在排好的样子上改，不露 ](、http、[[、** 这些写法；Esc、点别处、⌘↵ 都存下；不改字关掉文件不变', async () => {
   const BOARD =
     '---\ntype: board\n---\n# 剪藏板\n\n' +
-    '<!-- card id=c1 x=80 y=80 w=300 -->\n> 冬天白天只有五六个小时。\n—— [去冰岛之前要知道的十件事](https://zhuanlan.zhihu.com/p/62019734)\n\n' +
-    '<!-- card id=c2 x=440 y=80 w=300 -->\n先看 **黄金圈**，再读 [[课程/ecp/第五讲]]\n'
+    '<!-- card id=c1 x=80 y=80 -->\n> 冬天白天只有五六个小时。\n—— [去冰岛之前要知道的十件事](https://zhuanlan.zhihu.com/p/62019734)\n\n' +
+    '<!-- card id=c2 x=440 y=80 -->\n先看 **黄金圈**，再读 [[课程/ecp/第五讲]]\n'
   const run = await launch({ '剪藏板.md': BOARD, '课程/ecp/第五讲.md': '# 第五讲\n' })
   const { page, vault } = run
   const file = () => read(vault, '剪藏板.md')
   try {
     await page.locator('.nav .si', { hasText: '剪藏板' }).first().click()
-    const board = pane(page).getByTestId('board')
-    const clip = board.locator('.bcard[data-id="c1"]')
+    const board = docBoard(page)
+    const clip = board.locator('.db-card[data-id="c1"]')
     // 打开、不改字、Esc：文件一个字节不变
     await clip.dblclick()
     const box = board.getByRole('textbox', { name: '卡片内容' })
@@ -242,14 +241,14 @@ test('普通白板（type: board）双击改字：剪藏卡、带加粗和双链
     await expect.poll(file).toBe(BOARD.replace('> 冬天白天只有五六个小时。', '> 冬天白天只有五六个小时。超市周日关门早。'))
 
     // 带加粗、双链的卡：只露「黄金圈」「第五讲」；改完点白板空白处存下
-    const note = board.locator('.bcard[data-id="c2"]')
+    const note = board.locator('.db-card[data-id="c2"]')
     await note.dblclick()
     await expect(box).toBeFocused()
     for (const raw of ['**', '[[', '课程/ecp']) await expect(note).not.toContainText(raw, { useInnerText: true })
     await expect(note.locator('.cm-strong')).toHaveText('黄金圈')
     await expect(note.locator('.cm-wikilink')).toHaveText('第五讲')
     await page.keyboard.type('。')
-    const bb = (await board.boundingBox())!
+    const bb = (await board.locator('.board-wrap').boundingBox())!
     await page.mouse.click(bb.x + bb.width - 80, bb.y + bb.height - 80)
     await expect(box).toHaveCount(0)
     await expect.poll(file).toContain('先看 **黄金圈**，再读 [[课程/ecp/第五讲]]。\n')

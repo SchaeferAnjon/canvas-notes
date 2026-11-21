@@ -15,6 +15,16 @@ describe('右栏大纲', () => {
     expect(docOutline('没有标题\n')).toEqual([])
   })
 
+  it('白板（2026-11-21 起就是这篇文档）：列（id 是 col:列名）、有标题的卡（加粗那一行、冒号那句；id 是白板上的名字），列里的缩一层', () => {
+    const md = '---\ntype: board\n---\n# 冰岛\n\n**先定**\n两晚住哪。\n\n## 出发前\n\n**还没订的**\n- [ ] 车\n\n一段没标题的\n\n<!-- card id=d1 x=10 y=20 -->\n**摆在空白处的**\n'
+    expect(boardOutline(md).map((o) => [o.text, o.depth, o.id])).toEqual([
+      ['先定', 0, expect.stringMatching(/^k/)],
+      ['出发前', 0, 'col:出发前'],
+      ['还没订的', 1, expect.stringMatching(/^k/)],
+      ['摆在空白处的', 0, 'd1'],
+    ])
+  })
+
   it('白板：有标题的卡片，再是列和列里的卡片（缩一层）', () => {
     expect(boardOutline(ICELAND).map((o) => [o.text, o.depth])).toEqual([
       ['出发前先定', 0],

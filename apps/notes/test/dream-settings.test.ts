@@ -11,6 +11,8 @@ import { type Ask, type DreamReportInternal, autoTake, runDream, undo } from '..
 import { SettingsFile } from '../src/main/settings'
 import { DEFAULT_DREAM, dreamDoes, type DreamPatch, idleDue, normalizeDream, patchDream } from '../src/shared/dream-settings'
 import { DREAM_VAULT } from '../e2e/fixtures/dream'
+import { bodyEdits } from '../src/renderer/dream/useDream'
+import type { DreamItem } from '../src/shared/api'
 
 const g = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'core.quotepath=false', ...args], { encoding: 'utf8' })
 
@@ -298,3 +300,36 @@ describe('runDream 照设置做', { timeout: 60_000 }, () => {
   })
 })
 
+
+describe('梦游报告摘要：按真改动说动了哪些正文', { timeout: 60_000 }, () => {
+  const item = (group: DreamItem['group'], extra: Partial<DreamItem> = {}): DreamItem => ({ id: Math.random().toString(36), group, title: 'x', sub: '', why: '', commit: 'c', files: [], state: 'pending', ...extra })
+
+  it('只说真有的几样；都没动正文是 null（不提）', () => {
+    expect(bodyEdits([])).toBeNull()
+    // 只挪不改字、只提醒、新建小结：都不算动正文
+    expect(bodyEdits([item('file', { move: { from: '收件箱/a.md', to: '剪藏/a.md' } }), item('dup', { commit: null }), item('week')])).toBeNull()
+    expect(bodyEdits([item('link'), item('link')])).toBe('补了2处双链（在正文末尾加了一行）')
+    expect(
+      bodyEdits([
+        item('viz'),
+        item('attach', { changes: [{ path: 'a.md', text: '' }, { path: 'b.md', text: '' }] }),
+        item('file', { edits: { self: true, others: 1 } }),
+        item('file', { edits: { self: false, others: 2 } }),
+      ]),
+    ).toBe('做了1个可视化（在读PDF笔记那一段的脚上加了一行链接）；挪老图改了2篇里的图片链接；归类和改名时1篇里的标题或相对链接跟着改、3篇别的笔记里的[[旧名]]跟着换')
+  })
+
+  it('归类改名时记下正文真改了的：这篇的标题、别的笔记里的 [[旧名]]；只挪不改字的不记', async () => {
+    writeFileSync(join(root, '收件箱/冰洞.md'), '# 冰洞\n\n冰洞只在冬天开放，必须跟导游进去，提前两周订。\n')
+    mkdirSync(join(root, '写作'), { recursive: true })
+    writeFileSync(join(root, '写作/冬天.md'), '# 冬天\n\n见 [[冰洞]]。\n')
+    g(root, 'add', '-A')
+    g(root, 'commit', '-qm', '冰洞')
+    const r = await dream({ steps: { link: false, viz: false, attach: false } })
+    const ice = r.items.find((i) => i.move?.from === '收件箱/冰洞.md')!
+    expect(ice.edits).toEqual({ self: true, others: 1 })
+    const ji = r.items.find((i) => i.move?.from === '收件箱/极光.md')!
+    expect(ji.edits).toBeUndefined()
+    expect(bodyEdits(r.items)).toBe('归类和改名时1篇里的标题或相对链接跟着改、1篇别的笔记里的[[旧名]]跟着换')
+  })
+})

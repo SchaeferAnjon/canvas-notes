@@ -188,7 +188,7 @@ test('CN-84 B / CN-76：框一块问不弹浮窗，文档里先出占位（esc �
     await expect(page.locator('.status')).toContainText('后台1件')
     await shot(run, 'CN-84-waiting')
     // 答好了：占位换成问答块 + 提示块，提示「AI 讲完了」
-    await expect(page.getByText('AI讲完了，记进《看视频的笔记》和「视频里的疑惑」')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('AI讲完了，记进《看视频的笔记》', { exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(wait).toHaveCount(0)
     await expect(float).toBeHidden()
     // 焦点留在视频上（不抢焦点）；回到文档（焦点回来、不点别处）光标就停在提示块下面的空段落：直接打字
@@ -213,7 +213,7 @@ test('CN-84 B / CN-76：框一块问不弹浮窗，文档里先出占位（esc �
     await page.waitForTimeout(1800)
     expect(readFileSync(join(vault, '看视频的笔记.md'), 'utf8').match(/moment-ask/g)).toHaveLength(1)
 
-    // 「接着问」：AI 开在右栏下格，这条疑惑放进输入框当引文；不弹浮窗
+    // 「接着问」：开 AI 标签，这条疑惑放进输入框当引文；不弹浮窗
     const reading = page.getByRole('complementary', { name: '边读边问 AI' })
     await pane(page).getByText('我先写的一句。').click()
     await pane(page).locator('[data-part="问答块"]').getByRole('button', { name: '接着问' }).click()
@@ -221,8 +221,9 @@ test('CN-84 B / CN-76：框一块问不弹浮窗，文档里先出占位（esc �
     await expect(reading.getByTestId('reading-att').locator('.ct')).toHaveText('框里这两个箭头为什么能决定整个网格怎么动？')
     await expect(float).toBeHidden()
     await shot(run, 'CN-84-followup')
-    // ⌘J 收起；右栏开着视频时 ⌘J 开在右栏下格，不是中间栏的浮窗
-    await reading.getByRole('button', { name: '收起 AI' }).click()
+    // 标签上的 × 收起；右栏开着视频时 ⌘J 开 AI 标签，不是中间栏的浮窗
+    await page.getByTestId('dtab-ai').hover()
+    await page.getByTestId('dtab-ai').getByRole('button', { name: '收起AI' }).click()
     await expect(reading).toHaveCount(0)
     await pane(page).getByText('我先写的一句。').click()
     await page.keyboard.press('Meta+j')

@@ -90,7 +90,9 @@ class MomentWidget extends WidgetType {
     hd.appendChild(pill(time, m.url))
     hd.appendChild(el('span', 'ttl', m.asked ? '问过 AI · 自动记下的' : m.title))
     if (m.asked) {
-      hd.appendChild(el('span', 'asked', '也进了「视频里的疑惑」'))
+      // 在课程里的文档：这一问也在那门课的「我的疑惑」里（课程首页、⌘K「我的疑惑」直接读这一块）
+      const course = /^课程\/([^/]+)\//.exec(this.notePath)?.[1]
+      if (course) hd.appendChild(el('span', 'asked', `也在「${course}」的「我的疑惑」里`))
       box.appendChild(hd)
       const body = el('div', 'body')
       body.appendChild(shot)

@@ -1,10 +1,12 @@
 /**
- * 我的疑惑（主进程）：一个文件夹里各篇读 PDF 笔记问过的地方汇成清单；哪几条送过 Anki 记在库里 .canvas-notes/anki.json（跟着 Git 走）；
- * 每次记笔记、送 Anki 后重写 <文件夹>/我的疑惑.md。
+ * 我的疑惑（主进程）：一个文件夹里各篇读 PDF 笔记问过的地方汇成清单（中间栏「我的疑惑」、课程首页的组件、送 Anki 都读它）；
+ * 哪几条送过 Anki 记在库里 .canvas-notes/anki.json（跟着 Git 走）。看视频时框一块问的在文档里的问答块（collectVideoDoubts）。
+ * 2026-11-20 起「我的疑惑」不再是文件：不写 <文件夹>/我的疑惑.md、视频里的疑惑.md，都直接读各篇笔记（老库打开时整理一次，tidy-notes.ts）
  */
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import { courseOf, type DoubtItem, doubtItems, DOUBTS_NAME, doubtsNote, lectureOf, notePathFor, parseReadingNote, prop } from '@cn/format'
+import { courseOf, decodeNote, type DoubtItem, doubtItems, lectureOf, notePathFor, parseReadingNote, prop } from '@cn/format'
+import type { VideoDoubt } from '../../shared/reading'
 import type { Vault } from '../vault'
 
 export const ANKI_STATE = '.canvas-notes/anki.json'
@@ -65,22 +67,64 @@ export async function collectDoubts(v: Vault, folder: string): Promise<DoubtItem
   return out
 }
 
-/** 重写 <文件夹>/我的疑惑.md；没有一条就不建。返回写了的路径（没变就是 null） */
-export async function writeDoubtsNote(v: Vault, folder: string): Promise<string | null> {
-  const items = await collectDoubts(v, folder)
-  if (!items.length) return null
-  const path = folder ? `${folder}/${DOUBTS_NAME}` : DOUBTS_NAME
-  const sent = new Set(Object.keys((await readAnkiState(v)).sent))
-  const next = doubtsNote(folder, courseName(folder), items, sent)
-  let cur: string | null = null
-  try {
-    cur = (await v.read(path)).text
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-  }
-  if (cur === next) return null
-  const w = await v.write(path, next, cur ?? '')
-  if (!w.ok) throw new Error('我的疑惑.md 刚被改过，下次记笔记时再更新')
-  return path
+/** 一门课的根：在 课程/<课>/ 下面（PDF 可能在课里的子文件夹）就是 课程/<课>，别的就是这个文件夹自己 */
+function courseRoot(folder: string): string {
+  const m = /^(课程\/[^/]+)(?:\/|$)/.exec(folder)
+  return m ? m[1]! : folder
 }
 
+/** 一篇文档里看视频框一块问的问答块（main/video/index.ts 写的那几行）：问题原话、回答开头一段、视频名、时间、在第几行 */
+export function videoDoubtsIn(doc: string, text: string): VideoDoubt[] {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  const out: VideoDoubt[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^<!--\s*moment-ask\b/.test(lines[i]!)) continue
+    let title = ''
+    let time = ''
+    let url = ''
+    let question = ''
+    let answer = ''
+    for (let j = i + 1; j < Math.min(lines.length, i + 8); j++) {
+      const l = lines[j]!
+      const link = /^\[▶ ([\d:]+) · (.*)\]\(([^)]+)\)\s*$/.exec(l)
+      if (link) ((time = link[1]!), (title = link[2]!.trim()), (url = link[3]!))
+      const q = /^>\s*\*\*我的疑惑\*\*：(.*)$/.exec(l)
+      if (q) question = q[1]!.trim()
+      if (/^>\s*\[!ai\]/.test(l)) {
+        const body: string[] = []
+        for (let k = j + 1; k < lines.length && /^>/.test(lines[k]!); k++) body.push(lines[k]!.replace(/^>\s?/, ''))
+        answer = (body.join('\n').split(/\n\s*\n/)[0] ?? '').replace(/\s+/g, ' ').trim()
+        break
+      }
+    }
+    if (question) out.push({ doc, line: i + 1, time, title, url, question, answer })
+  }
+  return out
+}
+
+/** 一门课（folder 所在的那门课，不在课程里就是这个文件夹）里每篇文档看视频时框一块问的，按文档名、行排 */
+export async function collectVideoDoubts(v: Vault, folder: string): Promise<VideoDoubt[]> {
+  const root = courseRoot(folder)
+  if (!root) return []
+  const out: VideoDoubt[] = []
+  const walk = async (dir: string) => {
+    let ents
+    try {
+      ents = await readdir(v.abs(dir), { withFileTypes: true })
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw e
+    }
+    for (const ent of ents.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }))) {
+      if (ent.name.startsWith('.')) continue
+      const p = `${dir}/${ent.name}`
+      if (ent.isDirectory()) await walk(p)
+      else if (ent.isFile() && /\.md$/i.test(ent.name)) {
+        const text = decodeNote(await readFile(v.abs(p))).text
+        if (text.includes('moment-ask')) out.push(...videoDoubtsIn(p, text))
+      }
+    }
+  }
+  await walk(root)
+  return out
+}

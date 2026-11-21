@@ -146,7 +146,8 @@ test('拖动右栏左边的分隔线：右栏变宽，下次打开还是这个�
     await page.mouse.up()
     const w1 = (await panel.boundingBox())!.width
     expect(Math.abs(w1 - (w0 + 120))).toBeLessThanOrEqual(2)
-    expect(Number(await page.evaluate(() => localStorage.getItem('cn.rightW')))).toBe(Math.round(w1))
+    // 工作区方向 A（task-9okg5）：宽度记在本机的布局里（cn.dock，这一栏的 w）
+    expect(await page.evaluate(() => (JSON.parse(localStorage.getItem('cn.dock') ?? '{}').cols as { id: string; w?: number }[]).find((c) => c.id !== 'center')?.w)).toBe(Math.round(w1))
 
     await rail(page).getByRole('button', { name: '历史' }).click()
     await expect(panel).toHaveCount(0)

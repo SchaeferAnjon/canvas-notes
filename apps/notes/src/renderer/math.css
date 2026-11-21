@@ -1,0 +1,151 @@
+/*
+ * 公式（KaTeX，task-o48fa）在白板卡片、文档切成的白板、AI 回答、读 PDF 笔记里的样子（文档编辑器里的在 editor-blocks.css）：
+ * 行内的比正文大一点点（KaTeX 默认 1.21 倍太大）；单独成行的居中、放不下自己横着滚、不撑宽；字色跟正文。
+ */
+.mi .katex {
+  font-size: 1.05em;
+}
+/* 紧挨着汉字时那一边留 1/8 字宽，同 DESIGN.md「字体」的中西文间距（KaTeX 是 inline-block，text-autospace 加不上） */
+.mi.gl {
+  margin-left: 0.125em;
+}
+.mi.gr {
+  margin-right: 0.125em;
+}
+.mblock {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 6px 0 10px;
+  padding: 2px 0;
+}
+.mblock .katex-display {
+  margin: 0;
+}
+.mblock .katex {
+  font-size: 1.1em;
+}
+/* 写错的公式：原文照写，红色波浪线，悬停说哪里错（title） */
+.math-err {
+  text-decoration: underline wavy var(--red-t, var(--red));
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+  cursor: help;
+}
+
+/*
+ * 文档编辑器里的公式（math-preview.ts）：平时只看排好的；光标在里面露写法（像行内代码：等宽 13、--fill 底、圆角 4，
+ * 两头的 $ 淡一号），行内的下面浮一个排好的样子，单独成行的写法下面接着排。
+ */
+.cm-editor .cm-math .katex {
+  font-size: 1.05em;
+}
+.cm-editor .cm-math {
+  /* 一整颗：盒子就是公式那么大（点、选中的底都落在公式上） */
+  display: inline-block;
+  cursor: text;
+  border-radius: 4px;
+}
+.cm-editor .cm-math-block {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0 6px;
+  cursor: text;
+  border-radius: 8px;
+}
+.cm-editor .cm-math-block .katex-display {
+  margin: 0;
+}
+.cm-editor .cm-math-block .katex {
+  font-size: 1.1em;
+}
+/* 整颗选中（退格、Delete 先选中，拖选盖住它）：和系统选区一个颜色 */
+.cm-editor .cm-math-sel {
+  background: color-mix(in srgb, var(--acc) 24%, transparent);
+}
+/* 露着的写法 */
+.cm-editor .cm-math-src {
+  font: 13px var(--mono);
+  color: var(--md-code, inherit);
+  background: var(--fill);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.cm-editor .cm-math-delim {
+  color: var(--t3);
+}
+.cm-editor .cm-line.cm-math-line {
+  font: 13px/1.75 var(--mono);
+  color: var(--md-code, inherit);
+  background: var(--fill);
+  padding: 0 14px !important;
+}
+.cm-editor .cm-line.cm-math-top {
+  border-radius: 8px 8px 0 0;
+  padding-top: 6px !important;
+}
+.cm-editor .cm-line.cm-math-bot {
+  border-radius: 0 0 8px 8px;
+  padding-bottom: 6px !important;
+}
+.cm-editor .cm-line.cm-math-top.cm-math-bot {
+  border-radius: 8px;
+}
+/* 单独成行的写法下面接着排好的样子 */
+.cm-editor .cm-math-preview {
+  padding-top: 8px;
+}
+/* 行内写法上面（放不下才到下面）浮着的排好的样子，离写法的底色 6（字的行框外还有 1 的内边距） */
+.cm-editor .cm-tooltip-above.cm-math-tip {
+  margin-top: -7px;
+}
+.cm-editor .cm-tooltip-below.cm-math-tip {
+  margin-top: 7px;
+}
+.cm-editor .cm-tooltip.cm-math-tip {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  color: var(--t1);
+  font-size: 15px;
+  max-width: min(560px, 90vw);
+  overflow-x: auto;
+}
+.cm-editor .cm-tooltip.cm-math-tip.err {
+  font-size: 12px;
+  color: var(--red);
+}
+/* 写错的：原文照写，红色波浪线，悬停说哪里错 */
+.cm-editor .cm-math-err {
+  text-decoration: underline wavy var(--red-t, var(--red));
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
+}
+
+/* 紧挨着汉字的行内公式：那一边留 1/8 字宽（同 AI 回答的 .mi.gl / .mi.gr） */
+.cm-editor .cm-math.gl {
+  margin-left: 0.125em;
+}
+.cm-editor .cm-math.gr {
+  margin-right: 0.125em;
+}
+/* 宽了横着滚、在卡里放不下的公式：还能往哪边滚，那一边 32 渐隐（tex.ts 的 fadeEdges） */
+.math-fade-r {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 32px), transparent);
+}
+.math-fade-l {
+  -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to left, #000 calc(100% - 32px), transparent);
+}
+.math-fade-l.math-fade-r {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}

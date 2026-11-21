@@ -1,5 +1,5 @@
 import { addCard, addColumn, CARD_W } from '../board-drop'
-import { appendBlock, attr, type BoardDoc, content, newBlock, newId, num, parseBoard, serializeBoard, withAttrs } from '@cn/format'
+import { appendBlock, attr, type BoardDoc, content, newBlock, newId, num, parseBoard, serializeBoard, splitDoc, withAttrs } from '@cn/format'
 import { parseMoment, parseVideoCard } from '../../shared/video'
 
 /** 时刻卡的宽：比普通卡片窄一点，和原型一样 */
@@ -43,6 +43,24 @@ export function addMomentToBoard(text: string, key: string, momentBody: string, 
   const last = blocks[blocks.length - 1]!
   if (last !== fresh && !last.body.endsWith('\n')) blocks[blocks.length - 1] = { ...last, body: last.body + '\n' }
   return { text: serializeBoard({ ...added, blocks }), cardId }
+}
+
+/**
+ * 白板就是这篇文档（2026-11-21 起）时按 ⌥S：时刻紧跟在这个视频的视频卡后面（白板上挂在视频卡下面，doc-board 的规矩），
+ * 已经有时刻就排在最后一个时刻后面；白板上还没有这个视频的卡就在文末先放一张视频卡、再放这个时刻
+ */
+export function addMomentToDocBoard(text: string, key: string, momentBody: string, videoCardBody: string): string {
+  const b = splitDoc(text)
+  const all = [...b.columns.flatMap((c) => c.cards), ...b.placed]
+  const v = all.find((u) => u.kind === 'video' && parseVideoCard(u.moments?.length ? text.slice(u.from, u.moments[0]!.from) : u.text)?.ref.key === key)
+  const piece = momentBody.trim()
+  // 视频卡前面那行 <!-- video … --> 是认出视频卡、时刻挂在它下面的记号（主进程给白板的视频卡不带它：以前写法的白板卡片有自己的注释）
+  const vcard = videoCardBody.trim().startsWith('<!-- video') ? videoCardBody.trim() : `<!-- video video=${key} -->\n${videoCardBody.trim()}`
+  if (!v) return text.replace(/\n*$/, '\n\n') + vcard + '\n\n' + piece + '\n'
+  const at = v.to
+  // 后面还有字：空一行接上；这是文末：只留一个换行
+  const rest = text.slice(at).replace(/^\n*/, '')
+  return text.slice(0, at) + '\n\n' + piece + (rest ? '\n\n' + rest : '\n')
 }
 
 /** 白板上这个视频有几个时刻、问过几次（视频卡底下那行） */

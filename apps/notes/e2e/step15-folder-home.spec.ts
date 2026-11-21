@@ -99,7 +99,8 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(page.locator('.tab.on')).toHaveText('线性代数')
       await expect(courseRow(page, '线性代数')).toHaveAttribute('aria-selected', 'true')
       await expect(home(page).locator('.fh-title h2')).toHaveText('线性代数')
-      await expect(home(page).locator('.fh-title p')).toHaveText(/^课程 \/ 线性代数 · 4讲 · 10篇 · 改于/)
+      // 三份 PDF 和它们旁边的笔记各算一篇（一个 PDF 一篇笔记，和左栏那一行数得一样，task-9okg5）
+      await expect(home(page).locator('.fh-title p')).toHaveText(/^课程 \/ 线性代数 · 4讲 · 7篇 · 改于/)
       // 默认的课程首页
       await expect.poll(() => order(page)).toEqual(['slides', 'review', 'exam', 'notes', 'doubts', 'viz', 'todo', 'links', 'cal'])
       // 课件进度：每份 PDF 一张封面，按第几讲；问到第几页读笔记的「进度」，还没问过的写「没开始」；头上「接着读」问到一半的那份

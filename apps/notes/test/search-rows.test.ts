@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildRows, type Cursor, cursorAt, defaultIndex, type Group, keyIsFinal, rowOf, type RowsInput, step } from '../src/renderer/search/rows'
+import { buildRows, type Cursor, cursorAt, defaultIndex, type Group, groupHead, keyIsFinal, rowOf, type RowsInput, step } from '../src/renderer/search/rows'
 
-const base = (o: Partial<RowsInput<{ name: string }>>): RowsInput<{ name: string }> => ({
+type C = { name: string; hint?: string; alias?: string; hidden?: boolean; pinned?: boolean; usedRank?: number }
+
+const base = (o: Partial<RowsInput<C>>): RowsInput<C> => ({
   q: '矩阵',
   recent: [],
   pdfNames: [],
@@ -17,14 +19,14 @@ const base = (o: Partial<RowsInput<{ name: string }>>): RowsInput<{ name: string
 })
 
 const kinds = (rows: { kind: string; group: string }[]) => rows.map((r) => `${r.group}:${r.kind}`)
+const cmdName = (r: unknown) => (r as { cmd: { name: string } }).cmd.name
 
-describe('⌘F 的行', () => {
-  it('空着：最近打开 5 篇加全部命令', () => {
-    const rows = buildRows(base({ q: '', recent: ['a.md', 'b.md', 'c.md', 'd.md', 'e.md', 'f.md'], commands: [{ name: '换主题…' }] }))
-    expect(kinds(rows)).toEqual([...Array(5).fill('recent:note'), 'cmd:cmd'])
+describe('⌘K 打字以后的行（cmdk 方案 A：最合适 → 笔记 → 命令 → 笔记和PDF里的字 → 意思相近 → 网页和AI）', () => {
+  it('没打字：这里不出行（没打字时的八组在 cmd-layout 里排）', () => {
+    expect(buildRows(base({ q: '', recent: ['a.md'], commands: [{ name: '换主题…' }] }))).toEqual([])
   })
 
-  it('三层的顺序：文字（名字里有的 PDF、标题命中的笔记在前，再正文和 PDF 页轮流）→ 意思相近 → 命令 → 网页 → 最后一行让 Claude 找', () => {
+  it('排法：最合适一条 → 名字对上的笔记和 PDF → 命令 → 正文和 PDF 页轮流 → 意思相近 → 网页 → 让 Claude 找', () => {
     const rows = buildRows(
       base({
         pdfNames: ['课程/矩阵论.pdf', '课程/别的.pdf'],
@@ -38,22 +40,49 @@ describe('⌘F 的行', () => {
           { path: '课程/第3讲.pdf', page: 5, snippet: '旋转', score: 0.88 },
           { path: '线性映射.md', snippet: '映射', score: 0.86 },
         ],
-        commands: [{ name: '矩阵计算器' }, { name: '换主题…' }],
+        commands: [{ name: '矩阵计算器' }, { name: '换主题…' }, { name: '算一下', hint: '矩阵和行列式' }],
       }),
     )
-    expect(kinds(rows)).toEqual(['text:pdfName', 'text:note', 'text:note', 'text:pdfPage', 'meaning:meaning', 'meaning:meaning', 'cmd:cmd', 'web:url', 'claude:claude'])
-    expect(rows[1]).toMatchObject({ path: '矩阵笔记.md' })
-    expect(rows[4]).toMatchObject({ hit: { page: 5 } })
+    // 名字开头对上的分数一样：命令先（照小样）；说明里有的命令排在命令组
+    expect(kinds(rows)).toEqual(['best:cmd', 'notes:pdfName', 'notes:note', 'cmd:cmd', 'text:note', 'text:pdfPage', 'meaning:meaning', 'meaning:meaning', 'web:url', 'claude:claude'])
+    expect(cmdName(rows[0])).toBe('矩阵计算器')
+    expect(rows[2]).toMatchObject({ path: '矩阵笔记.md' })
+    expect(cmdName(rows[3])).toBe('算一下')
+    expect(rows[4]).toMatchObject({ path: '正文里有.md' })
+    expect(rows[7]).toMatchObject({ hit: { path: '线性映射.md' } })
+    expect(groupHead('best', { q: '矩阵', claudeDone: false, why: '' })).toEqual({ name: '最合适' })
+    expect(groupHead('notes', { q: '矩阵', claudeDone: false })).toEqual({ name: '笔记' })
+    expect(groupHead('text', { q: '矩阵', claudeDone: false })).toEqual({ name: '笔记和PDF里的字' })
+    expect(groupHead('web', { q: '矩阵', claudeDone: false })).toEqual({ name: '网页和AI' })
+  })
+
+  it('最合适：名字一样的笔记比只是开头对上的命令合适；最近用过的命令往前；别名打全了排第一', () => {
+    const same = buildRows(base({ q: '同步', hits: [{ path: '写作/同步.md', snippet: '' }], commands: [{ name: '同步设置' }] }))
+    expect(same[0]).toMatchObject({ group: 'best', kind: 'note', path: '写作/同步.md' })
+    const used = buildRows(base({ q: '同步', hits: [{ path: '写作/同步和备份怎么做.md', snippet: '' }], commands: [{ name: '同步', usedRank: 0 }] }))
+    expect(used[0]).toMatchObject({ group: 'best', kind: 'cmd' })
+    expect(groupHead('best', { q: '同步', claudeDone: false, why: '最近用过' })).toEqual({ name: '最合适', why: '· 最近用过' })
+    const alias = buildRows(base({ q: 'tb', hits: [{ path: 'tb.md', snippet: '' }], commands: [{ name: '同步', alias: 'tb' }, { name: 'tb 工具' }] }))
+    expect(alias[0]).toMatchObject({ group: 'best', kind: 'cmd', exact: true })
+    expect(cmdName(alias[0])).toBe('同步')
+    // 只有说明里有的不够格当最合适
+    const hint = buildRows(base({ q: '远程', commands: [{ name: '同步', hint: '推到远程仓库' }] }))
+    expect(kinds(hint)).toEqual(['cmd:cmd', 'web:url', 'claude:claude'])
+  })
+
+  it('藏起的命令打字照样搜得到', () => {
+    const rows = buildRows(base({ q: '归档', commands: [{ name: '归档', hint: '很久没改过的', hidden: true }] }))
+    expect(rows[0]).toMatchObject({ group: 'best', kind: 'cmd', cmd: { hidden: true } })
   })
 
   it('每组最多 5 条，多的「还有 N 条」，点开后多给一些但也不全铺开', () => {
     const hits = Array.from({ length: 40 }, (_, i) => ({ path: `n${i}.md`, snippet: '矩阵' }))
     const rows = buildRows(base({ hits }))
     expect(kinds(rows).filter((k) => k.startsWith('text'))).toEqual([...Array(5).fill('text:note'), 'text:more'])
-    expect(rows[5]).toMatchObject({ kind: 'more', n: 35 })
+    expect(rows.find((r) => r.kind === 'more')).toMatchObject({ kind: 'more', n: 35 })
     const more = buildRows(base({ hits, expanded: new Set<Group>(['text']) }))
     expect(more.filter((r) => r.group === 'text')).toHaveLength(21)
-    expect(more[20]).toMatchObject({ kind: 'more', n: 20 })
+    expect(more.filter((r) => r.group === 'text')[20]).toMatchObject({ kind: 'more', n: 20 })
   })
 
   it('明明白白的网址放最前；Claude 找完换成它找到的几条', () => {
@@ -63,18 +92,18 @@ describe('⌘F 的行', () => {
     expect(kinds(buildRows(base({ claude: { phase: 'done', found: [] } })))).toEqual(['web:url', 'claude:claude'])
   })
 
-  it('打全了一条命令的名字：这条命令排第一，搜索结果晚到也挤不掉它（回车总是跑命令）', () => {
+  it('打全了一条命令的名字：这条命令是最合适，搜索结果晚到也挤不掉它（回车总是跑命令）', () => {
     const rows = buildRows(
       base({
         q: '拍一张导图',
-        hits: [{ path: '导图笔记.md', snippet: '拍一张导图' }],
+        hits: [{ path: '拍一张导图.md', snippet: '拍一张导图' }],
         meaning: [{ path: '别的.md', snippet: '照片', score: 0.9 }],
         commands: [{ name: '拍一张导图' }, { name: '拍一张导图（从文件）' }, { name: '新建笔记' }],
       }),
     )
-    expect(rows[0]).toMatchObject({ kind: 'cmd', cmd: { name: '拍一张导图' } })
-    // 只是名字里有的命令照旧排在文字、意思相近后面，打全的那条不重复列
-    const cmds = rows.filter((r) => r.kind === 'cmd').map((r) => (r as { cmd: { name: string } }).cmd.name)
+    expect(rows[0]).toMatchObject({ group: 'best', kind: 'cmd', exact: true, cmd: { name: '拍一张导图' } })
+    // 只是名字里有的命令在命令组，打全的那条不重复列
+    const cmds = rows.filter((r) => r.kind === 'cmd').map(cmdName)
     expect(cmds).toEqual(['拍一张导图', '拍一张导图（从文件）'])
   })
 })
@@ -102,7 +131,7 @@ describe('回车默认选哪一行（第 2 轮：手快回车把笔记名发到�
 })
 
 describe('第 3 轮：像网址的笔记名、意思相近的门槛、按第几个本地结果记选中', () => {
-  const urlish = (q: string, o: Partial<RowsInput<{ name: string }>> = {}) => base({ q, url: `https://${q.toLowerCase()}`, looksUrl: true, ...o })
+  const urlish = (q: string, o: Partial<RowsInput<C>> = {}) => base({ q, url: `https://${q.toLowerCase()}`, looksUrl: true, ...o })
 
   it('readme.md / Node.js / v0.4.0：网页那一行不是默认，也不放最前；有同名笔记就默认开笔记', () => {
     for (const [q, path] of [
@@ -129,7 +158,7 @@ describe('第 3 轮：像网址的笔记名、意思相近的门槛、按第几�
 
   it('明明白白的网址、但库里有名字对得上的：默认开笔记，网址排到网页那一组', () => {
     const rows = buildRows(base({ q: 'www.example.com', url: 'https://www.example.com', looksUrl: true, explicitUrl: true, hits: [{ path: 'www.example.com.md', snippet: '' }] }))
-    expect(kinds(rows)).toEqual(['text:note', 'web:url', 'claude:claude'])
+    expect(kinds(rows)).toEqual(['best:note', 'web:url', 'claude:claude'])
     expect(defaultIndex(rows)).toBe(0)
   })
 
@@ -194,7 +223,8 @@ describe('第 3 轮：像网址的笔记名、意思相近的门槛、按第几�
         commands: [{ name: '周末模式' }],
       }),
     )
-    expect(kinds(rows)).toEqual(['text:note', 'meaning:meaning', 'meaning:meaning', 'cmd:cmd', 'web:url', 'claude:claude'])
+    // 名字开头都对上：命令和笔记一样合适，命令先（照小样），笔记在「笔记」组
+    expect(kinds(rows)).toEqual(['best:cmd', 'notes:note', 'meaning:meaning', 'meaning:meaning', 'web:url', 'claude:claude'])
     const seen: string[] = []
     let c: Cursor | null = null
     for (let i = 0; i < 5; i++) {
@@ -202,14 +232,14 @@ describe('第 3 轮：像网址的笔记名、意思相近的门槛、按第几�
       const r = rows[rowOf(rows, c!)]!
       seen.push(r.kind === 'note' ? r.path : r.kind === 'meaning' ? r.hit.path : r.kind)
     }
-    expect(seen).toEqual(['生活/周末.md', 'cmd', 'cmd', 'cmd', 'cmd'])
-    expect(rows[rowOf(rows, step(rows, { local: 0 }, -1)!)]).toMatchObject({ kind: 'note', path: '周末计划.md' })
+    expect(seen).toEqual(['周末计划.md', '生活/周末.md', '生活/周末.md', '生活/周末.md', '生活/周末.md'])
+    expect(rows[rowOf(rows, step(rows, { local: 1 }, -1)!)]).toMatchObject({ kind: 'cmd' })
     // 鼠标挪到网页那一行后再按 ↓：回到第一条本地结果
     expect(step(rows, { web: true }, 1)).toEqual({ local: 0 })
   })
 
   it('第 4 轮：打的像网址 / 域名，只有名字对得上的才默认；正文里有的键盘挪得到但不默认，意思相近的一律没把握', () => {
-    const urlish = (q: string, o: Partial<RowsInput<{ name: string }>> = {}) => base({ q, url: `https://${q}`, looksUrl: true, ...o })
+    const urlish = (q: string, o: Partial<RowsInput<C>> = {}) => base({ q, url: `https://${q}`, looksUrl: true, ...o })
     const sure = [{ path: 'example.org.md', snippet: '同名笔记', score: 0.95, sure: true }]
     const com = buildRows(urlish('example.com', { meaning: sure }))
     expect(defaultIndex(com)).toBe(-1)

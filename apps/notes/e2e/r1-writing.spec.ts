@@ -108,29 +108,28 @@ async function docBoard(files: Record<string, string> = { '冰岛十天环岛.md
   return { ...run, file: () => readFileSync(join(run.vault, '冰岛十天环岛.md'), 'utf8') }
 }
 
-test('文档白板：双击改字后按 Esc 存下（⌘Z 撤回），没改直接关', async () => {
+test('文档白板：双击文字卡就地改，按 Esc 存下（⌘Z 撤回），没改直接收起', async () => {
   const run = await docBoard()
   const { page, file } = run
   try {
-    // 改字后 Esc：存下
+    // 改字后 Esc：存下（2026-11-21 起文字卡就在卡里改，不再弹「全文」）
     await cardIn(page, '住哪', '第一晚').dblclick()
-    const dlg = page.getByRole('dialog', { name: '全文' })
-    await dlg.getByRole('button', { name: '改字' }).click()
-    const box = dlg.getByRole('textbox', { name: '这张卡的字' })
+    const box = cardIn(page, '住哪', '第一晚').getByRole('textbox', { name: '卡片内容' })
+    await expect(box).toBeFocused()
     await box.press('End')
     await page.keyboard.type('还要订第二晚。')
     await page.keyboard.press('Escape')
-    await expect(dlg).toHaveCount(0)
+    await expect(box).toHaveCount(0)
     await expect(cardIn(page, '住哪', '还要订第二晚')).toBeVisible()
     await expect.poll(file).toBe(TRAVEL.replace('第一晚住雷克雅未克。', '第一晚住雷克雅未克。还要订第二晚。'))
     // 想放弃：⌘Z
     await page.keyboard.press('Meta+z')
     await expect.poll(file).toBe(TRAVEL)
-    // 没改：Esc 直接关，文件不动
+    // 没改：Esc 直接收起，文件不动
     await cardIn(page, '住哪', '第一晚').dblclick()
-    await dlg.getByRole('button', { name: '改字' }).click()
+    await expect(cardIn(page, '住哪', '第一晚').getByRole('textbox', { name: '卡片内容' })).toBeFocused()
     await page.keyboard.press('Escape')
-    await expect(dlg).toHaveCount(0)
+    await expect(cardIn(page, '住哪', '第一晚').getByRole('textbox', { name: '卡片内容' })).toHaveCount(0)
     await page.waitForTimeout(1200)
     expect(file()).toBe(TRAVEL)
   } finally {
@@ -390,7 +389,8 @@ test('窗口变窄：中间至少留 420，先收右栏再收左栏，右边图�
     await expect(right).toBeVisible()
     await widenRight(page, 400)
     const right0 = (await right.boundingBox())!.width
-    expect(right0).toBeGreaterThan(650)
+    // 一栏最宽 640（工作区方向 A，原型 proto-a）
+    expect(Math.round(right0)).toBe(640)
     const side0 = (await widthOf('.win > .side')).width
     for (const w of [1100, 960]) {
       await size(w)

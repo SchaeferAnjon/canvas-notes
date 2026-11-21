@@ -59,8 +59,8 @@ test('文件树：篇数（含子文件夹）、类型筛选和「最近」共�
   const run = await start()
   const { page } = run
   try {
-    // 老库的「素材」打开时改成了「剪藏」（一次提交）
-    await expect(row(page, '剪藏').locator('.ft-count')).toHaveText('20')
+    // 老库的「素材」打开时改成了「剪藏」（一次提交）；「冰岛自驾指南」PDF 和它的笔记是一行，算一篇（一个 PDF 一篇笔记，task-9okg5）
+    await expect(row(page, '剪藏').locator('.ft-count')).toHaveText('19')
     await expect(row(page, '写作').locator('.ft-count')).toHaveText('12')
     // 类型：白板 → 只剩有白板的分类和文件，篇数跟着变（没有白板的分类不画）；装着白板的文件夹自己展开，一眼看到挂在哪（CN-104）
     await side(page).getByRole('tablist', { name: '类型' }).getByRole('tab', { name: '白板' }).click()
@@ -324,9 +324,10 @@ test('每个文件夹都有首页：头（图标、名字、位置·篇数·改�
     // 点名字也顺手展开
     await expect(row(page, '冰岛旅行')).toHaveAttribute('aria-expanded', 'true')
     const p = pane(page)
-    await expect(p.locator('.fh-tx p')).toHaveText(/^剪藏 \/ 冰岛旅行 · 18篇 · 改于/)
+    // 「冰岛自驾指南」PDF 和它的笔记是一行，算一篇（task-9okg5）
+    await expect(p.locator('.fh-tx p')).toHaveText(/^剪藏 \/ 冰岛旅行 · 17篇 · 改于/)
     const c = p.getByTestId('folder-content')
-    await expect(c.locator('.fc-n')).toHaveText('18篇')
+    await expect(c.locator('.fc-n')).toHaveText('17篇')
     await expect(c.getByRole('region', { name: '文件夹' }).locator('.fc-fcard')).toHaveCount(3)
     await expect(c.getByRole('region', { name: '文件夹' }).locator('.fc-fcard').filter({ hasText: '住宿' })).toContainText('3篇')
     await expect(c.getByRole('region', { name: '白板' }).locator('.bth i').first()).toBeVisible()
@@ -334,12 +335,12 @@ test('每个文件夹都有首页：头（图标、名字、位置·篇数·改�
     // PDF 封面是课件封面缓存那一份（画好的 PNG）
     await expect.poll(() => c.getByRole('region', { name: 'PDF' }).locator('img').first().evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth), { timeout: 15_000 }).toBeGreaterThan(100)
     await expect(c.getByRole('region', { name: 'PDF' }).locator('.fc-tcard').filter({ hasText: '冰岛自驾指南' })).toContainText('6页 · 读到3')
-    // 笔记：先 4 篇，「再显示 3 篇」
+    // 笔记：先 4 篇，「再显示 2 篇」（「冰岛自驾指南 笔记」和它的 PDF 是一张卡，不在笔记里另列）
     const notes = c.getByRole('region', { name: '笔记' })
     await expect(notes.locator('.fc-row')).toHaveCount(4)
     await expect(notes.locator('.fc-row').filter({ hasText: '一、最佳旅游季节' }).locator('.pv')).toHaveText('夏季白昼长，适合自驾环岛；冬季看极光，路况差。')
     await notes.getByRole('button', { name: /再显示/ }).click()
-    await expect(notes.locator('.fc-row')).toHaveCount(7)
+    await expect(notes.locator('.fc-row')).toHaveCount(6)
     // 类型筛选：白板 → 只剩两块白板
     await c.getByRole('tablist', { name: '类型' }).getByRole('tab', { name: '白板' }).click()
     await expect(c.locator('.fc-n')).toHaveText('2篇')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addSection, appendPlaced, detailsHead, insertInColumn, moveUnit, placeUnit, renameColumn, resetLayout, splitDoc, unplaceUnit } from '../src/doc-board'
+import { addSection, appendPlaced, detailsHead, duplicateUnit, findUnitAgain, insertInColumn, linksOf, linkUnits, moveColumn, moveUnit, placeColumn, placeUnit, removeColumn, removeUnit, renameColumn, resetLayout, splitDoc, unitKeys, unlink, unplaceUnit } from '../src/doc-board'
 
 export const LECTURE = `# Lecture05 笔记
 
@@ -350,5 +350,171 @@ describe('文档切到白板：写回', () => {
     const b = splitDoc(t)
     expect(b.placed.map((u) => u.text)).toEqual(['甲'])
     expect(b.columns[0]!.cards.map((u) => u.text)).toEqual(['乙'])
+  })
+})
+
+describe('白板就是这篇文档（2026-11-21 方向 A）：编号行、列的位置、连线、删卡、复制、挪列', () => {
+  const B = `---
+type: board
+links:
+  - d1 -> k1
+---
+# 冰岛
+
+<!-- card id=d1 x=400 y=80 -->
+空白处的一张。
+
+## 出发前
+
+**装备**
+- [ ] 防水外套
+- [x] 手套
+
+<!-- card id=k1 ai=2026-11-21 -->
+连线那一头，也是 AI 总结的。
+
+<!-- column id=c7 x=900 y=300 -->
+## 住哪
+
+维克两晚。
+`
+  it('认得出：只记编号的一行（卡还在列里）、列的位置行、一段字下面紧跟着的待办是一张卡', () => {
+    const b = splitDoc(B)
+    expect(b.placed.map((u) => [u.place!.id, u.text])).toEqual([['d1', '空白处的一张。']])
+    const go = b.columns.find((c) => c.title === '出发前')!
+    expect(go.cards.map((u) => u.kind)).toEqual(['todo', 'text'])
+    expect(go.cards[0]!.lead).toBe('**装备**'.length)
+    expect(go.cards[1]!.tag).toMatchObject({ id: 'k1' })
+    expect(go.cards[1]!.attrs).toEqual({ ai: '2026-11-21' })
+    const stay = b.columns.find((c) => c.title === '住哪')!
+    expect(stay.place).toMatchObject({ id: 'c7', x: 900, y: 300 })
+    expect(stay.cards.map((u) => u.text)).toEqual(['维克两晚。'])
+    // 卡的名字：有编号用编号，没有用字的签名（字不变名字不变）
+    const keys = unitKeys(b)
+    expect(keys.get(b.placed[0]!)).toBe('d1')
+    expect(keys.get(go.cards[1]!)).toBe('k1')
+    expect(keys.get(go.cards[0]!)).toMatch(/^k[0-9a-z]{5}$/)
+    const moved = moveUnit(B, go.cards[0]!, stay, null)
+    const again = splitDoc(moved)
+    expect(unitKeys(again).get(again.columns.find((c) => c.title === '住哪')!.cards[1]!)).toBe(keys.get(go.cards[0]!))
+  })
+
+  it('连线的一头拖进列：位置行换成只记编号的一行；编号行的卡拖到空白处：编号不变；摆回原样留下编号行、去掉列的位置', () => {
+    const b = splitDoc(B)
+    const into = moveUnit(B, b.placed[0]!, b.columns.find((c) => c.title === '住哪')!, null)
+    expect(into).toContain('维克两晚。\n\n<!-- card id=d1 -->\n空白处的一张。\n')
+    expect(into).not.toContain('x=400')
+    const k1 = b.columns.find((c) => c.title === '出发前')!.cards[1]!
+    const out = placeUnit(B, k1, 30, 40)
+    expect(out).toContain('<!-- card id=k1 x=30 y=40 ai=2026-11-21 -->\n连线那一头')
+    expect(splitDoc(out).placed.map((u) => u.place!.id)).toEqual(['d1', 'k1'])
+    const reset = resetLayout(out)
+    expect(reset).toContain('<!-- card id=d1 -->\n空白处的一张。')
+    expect(reset).toContain('<!-- card id=k1 ai=2026-11-21 -->\n连线那一头')
+    expect(reset).not.toContain('<!-- column')
+    expect(splitDoc(reset).placed).toEqual([])
+    // 不是连线一头、也没有别的属性的：位置行整行去掉
+    const one = '## 一\n\n<!-- card id=d3 x=1 y=2 -->\n甲\n'
+    expect(unplaceUnit(one, splitDoc(one).placed[0]!)).toBe('## 一\n\n甲\n')
+  })
+
+  it('删一张卡：这段连编号行一起删，连着它的线也去掉；复制一份：紧跟在后面，空白处的换新编号错开 24', () => {
+    const b = splitDoc(B)
+    const k1 = b.columns.find((c) => c.title === '出发前')!.cards[1]!
+    const gone = removeUnit(B, k1)
+    expect(gone).not.toContain('连线那一头')
+    expect(gone).not.toContain('k1')
+    expect(linksOf(gone)).toEqual([])
+    expect(gone).not.toContain('links:')
+    expect(splitDoc(gone).columns.find((c) => c.title === '出发前')!.cards).toHaveLength(1)
+    const dup = duplicateUnit(B, b.placed[0]!)
+    expect(dup).toContain('<!-- card id=d1 x=400 y=80 -->\n空白处的一张。\n\n<!-- card id=d2 x=424 y=104 -->\n空白处的一张。\n\n## 出发前')
+    const dup2 = duplicateUnit(B, b.columns.find((c) => c.title === '住哪')!.cards[0]!)
+    expect(dup2.endsWith('维克两晚。\n\n维克两晚。\n')).toBe(true)
+  })
+
+  it('连线：没编号的卡前面加一行只记编号的，frontmatter 里多一条；去掉一条线；没有 frontmatter 就加一个', () => {
+    const b = splitDoc(B)
+    const todo = b.columns.find((c) => c.title === '出发前')!.cards[0]!
+    const stay = b.columns.find((c) => c.title === '住哪')!.cards[0]!
+    const r = linkUnits(B, todo, stay)
+    expect(r.text).toContain(`<!-- card id=${r.from} -->\n**装备**`)
+    expect(r.text).toContain(`<!-- card id=${r.to} -->\n维克两晚。`)
+    expect(linksOf(r.text)).toEqual([
+      { from: 'd1', to: 'k1' },
+      { from: r.from, to: r.to },
+    ])
+    expect(r.from).not.toBe(r.to)
+    expect(splitDoc(r.text).columns.find((c) => c.title === '出发前')!.cards[0]!.kind).toBe('todo')
+    expect(linksOf(unlink(r.text, 'd1', 'k1'))).toEqual([{ from: r.from, to: r.to }])
+    const plain = '## 一\n\n甲\n\n乙\n'
+    const p = splitDoc(plain)
+    const l = linkUnits(plain, p.columns[0]!.cards[0]!, p.columns[0]!.cards[1]!)
+    expect(l.text).toBe(`---\nlinks:\n  - ${l.from} -> ${l.to}\n---\n## 一\n\n<!-- card id=${l.from} -->\n甲\n\n<!-- card id=${l.to} -->\n乙\n`)
+  })
+
+  it('列：摆到空白处多一行列的位置；拖回一排里插在别的列前面，位置行去掉；删除列只删标题那一行，卡并进上一节', () => {
+    const b = splitDoc(B)
+    const go = b.columns.find((c) => c.title === '出发前')!
+    const stay = b.columns.find((c) => c.title === '住哪')!
+    expect(placeColumn(B, go, 120.4, 600)).toContain('<!-- column id=c1 x=120 y=600 -->\n## 出发前')
+    expect(placeColumn(B, stay, 10, 20)).toContain('<!-- column id=c7 x=10 y=20 -->\n## 住哪')
+    // 住哪拖到出发前前面：整节挪过去，位置行去掉
+    const moved = moveColumn(B, stay, go)
+    expect(splitDoc(moved).columns.map((c) => [c.title, !!c.place])).toEqual([
+      [null, false],
+      ['住哪', false],
+      ['出发前', false],
+    ])
+    expect(moved).not.toContain('<!-- column')
+    expect(moved).toContain('## 住哪\n\n维克两晚。\n\n## 出发前')
+    // 删除「住哪」这一列：标题和位置行去掉，「维克两晚。」并进「出发前」
+    const removed = removeColumn(B, stay)
+    expect(removed).not.toContain('住哪')
+    expect(removed).not.toContain('<!-- column')
+    expect(splitDoc(removed).columns.find((c) => c.title === '出发前')!.cards.map((u) => u.text)).toContain('维克两晚。')
+  })
+})
+
+describe('公式卡（task-o48fa：和文档编辑器同一个认法）', () => {
+  it('\\[…\\] 单独一段也是公式卡；一段字里夹着行内 $x$、写着钱数 $$5 的不是', () => {
+    const b = splitDoc('# 公式\n\n## 一节\n\n\\[\na^2+b^2=c^2\n\\]\n\n向量 $\\mathbf{x}$ 的第 $i$ 个元素\n\n$$5 买了 $$6 的\n')
+    expect(b.columns[0]!.cards.map((u) => u.kind)).toEqual(['math', 'text', 'text'])
+  })
+})
+
+describe('白板上就地改着一张卡时外面改了这篇：找回正在改的那一段（findUnitAgain）', () => {
+  const BASE = '# 外改\n\n## 一\n\n开头一段。\n\n外面加的一段。\n\n## 二\n\n第二段卡片。\n'
+  const unitOf = (text: string, t: string) => splitDoc(text).columns.flatMap((c) => c.cards).find((u) => u.text === t)!
+
+  it('外面改的是别处（前面、后面）：字一个没变，找到的是它在新全文里的位置', () => {
+    const u = unitOf(BASE, '外面加的一段。')
+    const before = BASE.replace('开头一段。', '开头一段，前面多了几个字。')
+    expect(findUnitAgain(u, BASE, before)).toMatchObject({ same: true, unit: { text: '外面加的一段。', from: u.from + 8 } })
+    const after = BASE.replace('第二段卡片。', '第二段卡片（手机）。')
+    expect(findUnitAgain(u, BASE, after)).toMatchObject({ same: true, unit: { from: u.from } })
+  })
+
+  it('外面改了这一段：不是 same，找到改过的那段；外面同时改了别处也不认错', () => {
+    const u = unitOf(BASE, '外面加的一段。')
+    const now = BASE.replace('外面加的一段。', '外面加的一段，手机上又补了半句。').replace('第二段卡片。', '第二段卡片（手机）。')
+    expect(findUnitAgain(u, BASE, now)).toMatchObject({ same: false, unit: { text: '外面加的一段，手机上又补了半句。' } })
+  })
+
+  it('外面把这一段删了（同时改了前面一段）：gone，位置在原来那里（后面那一节前面），不认成前面那段', () => {
+    const u = unitOf(BASE, '外面加的一段。')
+    const now = BASE.replace('外面加的一段。\n\n', '').replace('开头一段。', '开头一段（外面）。')
+    const r = findUnitAgain(u, BASE, now)
+    expect('gone' in r).toBe(true)
+    if ('gone' in r) expect(now.slice(r.gone).startsWith('## 二')).toBe(true)
+  })
+
+  it('空白处的卡外面只挪了位置：字没变，same；前面又多了一段一样的字，还是按位置认空白处那张', () => {
+    const placed = '## 一\n\n待办\n\n<!-- card id=d1 x=10 y=20 -->\n待办\n'
+    const u = splitDoc(placed).placed[0]!
+    const moved = placed.replace('x=10 y=20', 'x=300 y=400')
+    expect(findUnitAgain(u, placed, moved)).toMatchObject({ same: true, unit: { text: '待办', place: { x: 300, y: 400 } } })
+    const more = moved.replace('## 一\n\n', '## 一\n\n待办\n\n')
+    expect(findUnitAgain(u, placed, more)).toMatchObject({ same: true, unit: { place: { id: 'd1' } } })
   })
 })

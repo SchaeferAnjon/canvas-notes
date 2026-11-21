@@ -24,8 +24,12 @@ import { readAll } from './duplicates'
 import { duplicatesWithProgress, stopSimilar } from './similar'
 import { registerHome } from './home'
 import { organizeCategories } from './categories'
+import { type Tidied, tidyNotes, undoTidy } from './tidy-notes'
 import { registerFolderHome } from './folder-home'
+import { currentMenuKeys, registerCommands } from './commands'
+import { accelOf } from '../shared/cmd-keys'
 import { registerRestore } from './restore'
+import { registerBoard } from './board'
 import { registerNoteAttach } from './note-attach'
 import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
@@ -144,6 +148,13 @@ async function openVault(dir: string): Promise<VaultInfo> {
     organizeError = String(e.message ?? e)
     return null
   })
+  // 老库整理一次「一个 PDF 一篇笔记」（2026-11-20）：没改过的「我的疑惑.md」删掉、改过的改名留下，同一份 PDF 的两篇笔记合成一篇；一次提交，能撤回
+  let tidyError: string | undefined
+  const tidied: Tidied | null = await tidyNotes(vault).catch((e: Error) => {
+    console.error('整理「我的疑惑」和笔记没成功', e)
+    tidyError = String(e.message ?? e)
+    return null
+  })
   scheduleAutoCommit()
   // 全能模式下 AI 这一轮结束时分清库里多出来的改动谁改的：软件自己写的不算，在外面改的（AI 自己的工具）算
   vault.onOwnWrite = agentOwnWrite
@@ -157,7 +168,7 @@ async function openVault(dir: string): Promise<VaultInfo> {
   )
   settings.patch({ lastVault: root })
   searchVault(root)
-  return { path: root, name: vault.name, ...(organized ? { organized: organized.moves } : {}), ...(organizeError ? { organizeError } : {}) }
+  return { path: root, name: vault.name, ...(organized ? { organized: organized.moves } : {}), ...(organizeError ? { organizeError } : {}), ...(tidied ? { tidied } : {}), ...(tidyError ? { tidyError } : {}) }
 }
 
 /** 本周一 0 点 */
@@ -177,6 +188,13 @@ function registerIpc() {
     const dir = vaultFromArgs() ?? settings.read().lastVault
     if (dir && isDir(dir)) return openVault(dir)
     return null
+  })
+  ipcMain.handle('vault:tidy:undo', async (_e, t: unknown) => {
+    const o = t as Partial<Tidied> | null
+    if (!o || typeof o.commit !== 'string' || !Array.isArray(o.paths) || !o.paths.every((p) => typeof p === 'string') || typeof o.back !== 'string') throw new Error('撤回的参数不对')
+    const back = await undoTidy(needVault(), { commit: o.commit, paths: o.paths, back: o.back })
+    win?.webContents.send('files:changed')
+    return back
   })
   ipcMain.handle('vault:choose', async () => {
     const r = await dialog.showOpenDialog(win!, {
@@ -287,6 +305,7 @@ function registerIpc() {
   ipcMain.handle('note:trash', async (_e, path: string) => {
     const v = needVault()
     const p = v.abs(path)
+    agentOwnWrite(path)
     // 测试把「废纸篓」换成临时文件夹，不往用户真的废纸篓里放东西
     const testTrash = process.env.CN_TRASH_DIR
     if (testTrash) renameSync(p, join(testTrash, `${Date.now()}-${p.split('/').pop()}`))
@@ -334,7 +353,16 @@ function registerIpc() {
     const touched = [...writes.map((w) => w.path), ...moves.map((m) => m.from)]
     // 这几个文件里用户没提交的字先单独提交，AI 的提交里只有 AI 的改动，撤回才不会带走用户的字
     const pending = (await git.status(v.root)).filter((s) => touched.includes(s.path))
-    if (pending.length) await git.commitPaths(v.root, pending.map((s) => s.path), git.describeChanges(pending))
+    // 先提交用户的字没成（锁文件、没署名）：照样替 AI 写进文件，AI 这次也不提交（不然用户的字混进 AI 的提交），照实说提交没成功
+    let preFailed: string | null = null
+    if (pending.length) {
+      try {
+        await git.commitPaths(v.root, pending.map((s) => s.path), git.describeChanges(pending))
+      } catch (e) {
+        if (!(e instanceof git.GitError)) throw e
+        preFailed = e.message
+      }
+    }
     const paths: string[] = []
     for (const w of writes) {
       if (typeof w.path !== 'string' || typeof w.text !== 'string') throw new Error('AI 改动参数不对')
@@ -353,7 +381,11 @@ function registerIpc() {
       await repin(v, m.from, to)
       paths.push(m.from, to)
     }
-    const message = `AI：${change.message}`
+    const message = change.noAi === true ? change.message : `AI：${change.message}`
+    if (preFailed) {
+      win?.webContents.send('files:changed')
+      return { failed: commitErrorText(preFailed), paths, message } satisfies AiCommitFailed
+    }
     let hash: string | null
     try {
       hash = await git.commitPaths(v.root, paths, message)
@@ -371,7 +403,7 @@ function registerIpc() {
   })
   ipcMain.handle('ai:commit', async (_e, paths: string[], message: string) => {
     const v = needVault()
-    if (!Array.isArray(paths) || paths.some((p) => typeof p !== 'string') || typeof message !== 'string' || !message.startsWith('AI：')) throw new Error('AI 提交参数不对')
+    if (!Array.isArray(paths) || paths.some((p) => typeof p !== 'string') || typeof message !== 'string' || !message.trim()) throw new Error('AI 提交参数不对')
     let hash: string | null
     try {
       hash = await git.commitPaths(v.root, paths, message)
@@ -496,12 +528,15 @@ function registerIpc() {
   })
   setupCtxMenu(needVault, () => win?.webContents.send('files:changed'))
   registerAttachments(needVault, () => win, app.getPath('userData'))
-  registerNoteAttach(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'))
+  // 删笔记（连图）是软件自己删的：正在答的全能模式那一轮不把它算成 AI 删的
+  registerNoteAttach(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'), agentOwnWrite)
   setupPasted(app.getPath('userData'))
   registerSlides(needVault, app.getPath('userData'), () => win?.webContents.send('files:changed'))
   registerHome(needVault, () => win)
   registerFolderHome(needVault, () => win, (root, from, to) => (moveReadingState(root, from, to), moveChatPlace(root, from, to)))
+  registerCommands(needVault, buildMenu)
   registerRestore(needVault, () => win?.webContents.send('files:changed'))
+  registerBoard(needVault, () => win?.webContents.send('files:changed'))
   ipcMain.handle('git:history', async (_e, limit: number, opts?: { hideInternal?: boolean }) => {
     const root = needVault().root
     // 藏起软件自己的设置文件（CN-116，历史 ⋯ 里的开关）：git 自己跳过只动了设置的提交，「最近100次」全是用户的改动
@@ -721,6 +756,8 @@ function readyItems(): Electron.MenuItemConstructorOptions[] {
 
 /** 菜单栏：标准的几个菜单，应用菜单里多「检查更新…」（下好了就是「重启并更新到 x」）和「设置…」 */
 function buildMenu() {
+  const keys = currentMenuKeys()
+  const keyAccel = (k: string | null) => (k ? accelOf(k) : undefined)
   const st = updater?.status()
   const updateItem: Electron.MenuItemConstructorOptions =
     st?.phase === 'ready'
@@ -734,15 +771,16 @@ function buildMenu() {
           { role: 'about' },
           updateItem,
           { type: 'separator' },
-          // ⌘, 由界面自己处理（网页有焦点时主线转过去），这里只显示快捷键、不注册
-          { label: '设置…', accelerator: 'CommandOrControl+,', registerAccelerator: false, click: () => win?.webContents.send('app:key', ',') },
+          // ⌘, 由界面自己处理（网页有焦点时主线转过去），这里只显示快捷键、不注册；⌘K 里改了键这里跟着换（commands.ts）
+          { label: '设置…', accelerator: keyAccel(keys.settings), registerAccelerator: false, click: () => win?.webContents.send('app:key', ',') },
           { type: 'separator' },
           { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
       },
       {
         label: '文件',
         submenu: [
-          { label: '拍一张导图', accelerator: 'Shift+CommandOrControl+C', click: () => win?.webContents.send('map:open') },
+          // ⇧⌘C 也由界面接（⌘K 里能换给别的命令），这里只显示
+          { label: '拍一张导图', accelerator: keyAccel(keys.capture), registerAccelerator: false, click: () => win?.webContents.send('map:open') },
           { label: '导入旧笔记…', click: () => win?.webContents.send('import:open') },
           { type: 'separator' },
           // ⌘W 走界面那条路（CN-98）：主窗口里关当前栏里的东西（标签、网页标签、收起历史这一格……），不关整个窗口；别的窗口照旧关掉

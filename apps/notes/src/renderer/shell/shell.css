@@ -10,13 +10,11 @@
   --status-h: 24px;
   --gitbar-h: var(--status-h);
   --side-w: 252px;
-  grid-template-columns: var(--abar-w) var(--side-w) minmax(0, 1fr) 0 var(--abar-w);
+  /* 列由 App 按工作区布局算（shell/Dock.tsx 的 gridTracks）：左图标栏、左栏、各栏（之间是缝）、右图标栏；这里是还没算出来时的样子 */
+  grid-template-columns: var(--abar-w) var(--side-w) minmax(0, 1fr) var(--abar-w);
   grid-template-rows: var(--title-h) minmax(0, 1fr) var(--status-h);
   background: var(--bgart), var(--win);
   background-color: var(--win);
-}
-.win.with-right {
-  grid-template-columns: var(--abar-w) var(--side-w) minmax(0, 1fr) var(--right-w) var(--abar-w);
 }
 .win.side-hidden {
   --side-w: 0px;
@@ -34,29 +32,26 @@
   grid-column: 3;
   grid-row: 2;
 }
-.win > .right:not(.abar) {
-  grid-column: 4;
-  grid-row: 2;
+.win > .dview > .right {
   padding-top: 0;
 }
-/* 左右栏的头（右栏历史、网页；左栏梦游报告）和中间标签条齐平、一样高（A 35，B 38）：旧版右栏给标签条让位的 margin-top 不要了 */
-.win > .right .rhead,
+/* 左栏的头（梦游报告）和中间标签条齐平、一样高（A 35，B 38）；右边网页的地址行 36 */
+.win > .dview > .right .rhead,
 .win > .side .rhead {
   margin-top: 0;
   border-top: 0;
   height: 36px;
   flex: none;
 }
-.win > .right:not(.web) .rhead,
 .win > .side .rhead {
   height: 35px;
 }
-.win.frame-b > .right:not(.web) .rhead,
 .win.frame-b > .side .rhead {
   height: 38px;
 }
-.win > .right:not(.web) .rhead b {
-  font-size: 13px;
+/* 右边标签里自己的那一行（历史的「最近100次 · ⋯」）：名字在标签上，这一行 32 高 */
+.win > .dview > .right:not(.web) .rhead {
+  height: 32px;
 }
 
 /* ---------- 标题栏 ---------- */
@@ -169,7 +164,7 @@
   grid-column: 1;
 }
 .abar.right {
-  grid-column: 5;
+  grid-column: -2;
 }
 .abg {
   display: flex;
@@ -457,6 +452,52 @@
 .status .bi .ci {
   flex: none;
 }
+/* 打开库时整理了一次（「我的疑惑」不再是文件、两篇笔记并成一篇）：一句话 + 「撤回」（--acc-t 500，像链接）+ 16 方的 ×（原型底栏左边 .si.msg） */
+.status .tidy-msg {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--t1);
+}
+.frame-a .status .tidy-msg {
+  color: inherit;
+}
+.status .tidy-msg > svg {
+  flex: none;
+}
+.status .tidy-msg .truncate {
+  min-width: 0;
+}
+.status .tidy-msg .lnk {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 500 12px var(--sans);
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.frame-a .status .tidy-msg .lnk {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.status .tidy-msg .x {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  display: grid;
+  place-items: center;
+  color: var(--t3);
+}
+.status .tidy-msg .x:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
 .status .vault {
   width: auto;
   border: 0;
@@ -544,11 +585,6 @@
     transform: rotate(360deg);
   }
 }
-.win > .vsplit {
-  top: var(--title-h);
-  bottom: var(--status-h);
-  right: calc(var(--right-w) + var(--abar-w) - 3px);
-}
 /* 左栏右边缘的分隔线（shell/SideSash.tsx）：6 宽的手柄，悬停和拖着时中间一条 2px --line2（和右栏那条一样） */
 .win > .hsplit {
   position: fixed;
@@ -566,10 +602,6 @@
 .win > .hsplit:hover,
 .win > .hsplit.dragging {
   background: linear-gradient(to right, transparent 2px, var(--line2) 2px, var(--line2) 4px, transparent 4px);
-}
-/* 拖左栏时右栏那条不跟着亮 */
-body.resizing-left .win > .vsplit {
-  background: none;
 }
 
 /* ---------- 悬停提示、小弹层 ---------- */
@@ -674,6 +706,10 @@ body.resizing-left .win > .vsplit {
 }
 .shell-menu .mi:hover:not(:disabled) {
   background: var(--fill2);
+}
+/* 用不了的一项（已经在最左还点「这一栏往左挪」）：淡下去，同原型 proto-a */
+.shell-menu .mi:disabled {
+  opacity: 0.45;
 }
 .shell-menu .mi .r {
   margin-left: auto;
@@ -989,8 +1025,7 @@ body.resizing-left .win > .vsplit {
   opacity: 0.92;
 }
 .frame-b > .side,
-.frame-b > .center,
-.frame-b > .right:not(.abar) {
+.frame-b > .center {
   border: 0;
   border-radius: 10px;
   box-shadow: 0 0 0 1px var(--line), 0 6px 24px rgba(0, 0, 0, 0.14);
@@ -1003,31 +1038,10 @@ body.resizing-left .win > .vsplit {
 .frame-b > .center {
   background: var(--win);
 }
-/* 左栏收起、右栏关着时，中间岛和图标栏之间也留 6 的缝（同小样 .isl.mid left:50px / right:50px），不贴着图标栏 */
-.frame-b.side-hidden > .center {
-  margin-left: var(--gap);
-}
-.frame-b:not(.with-right) > .center {
-  margin-right: var(--gap);
-}
-.frame-b > .right:not(.abar) {
-  margin-left: var(--gap);
-}
-/* 右栏两格时是一块岛（D 组方向 A）：上格网页、大纲、历史，下格 AI，各一半高，中间一条 1px --line2；上格不投影（落在 AI 头上），外圈只画上左右三边 */
-.frame-b.rsplit > .right:not(.abar):not(.aicell) {
-  height: 50%;
-  border-bottom: 0;
-  border-radius: 10px 10px 0 0;
-  box-shadow: 0 0 0 1px var(--line);
-  clip-path: inset(-1px -1px 0 -1px round 11px 11px 0 0);
-}
-.frame-b.rsplit > .right.aicell {
-  height: 50%;
-  border-radius: 0 0 10px 10px;
-  border-top: 1px solid var(--line2);
-}
+/* 左栏收起、右栏关着时，中间岛和图标栏之间也留 6 的缝（同小样 .isl.mid left:50px / right:50px），不贴着图标栏：
+   缝是 .win 的列（shell/Dock.tsx 的 gridTracks：左栏收起时左栏那一列是 6，中间在最右时它右边多一列 6），不再靠中间岛的 margin */
 .frame-b > .status {
-  grid-column: 2 / 5;
+  grid-column: 2 / -2;
   align-self: center;
   height: 24px;
   margin: 0 0 2px;
@@ -1083,9 +1097,6 @@ body.resizing-left .win > .vsplit {
 .frame-b.previewing .status .pv-bar .btn-primary:hover {
   opacity: 1;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc-on) 40%, transparent);
-}
-.frame-b .vsplit {
-  right: calc(var(--right-w) + var(--abar-w) - 3px);
 }
 /* B 的 AI：右图标栏最下面的圆按钮，在窗口右下角；下沿比右栏岛的下沿高 4（D 组小样：不落到底栏那一行） */
 .frame-b .abar.right {
@@ -1785,12 +1796,6 @@ body.resizing-left .win > .vsplit {
   opacity: 1;
 }
 
-/* B：右栏也是磨砂的岛 */
-.frame-b > .right:not(.abar) {
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(20px) saturate(150%);
-  backdrop-filter: blur(20px) saturate(150%);
-}
 
 /* 家族 ui.css 的 .titlebar 有自己的高（52）：这里跟着框架第一行走，不然盖住标签条上沿 */
 .win > .titlebar {
@@ -1798,10 +1803,11 @@ body.resizing-left .win > .vsplit {
   padding-right: 0;
 }
 
-/* 右栏里的弹层不比右栏宽（再往里挪见 shell/keep-inside.ts） */
-.win > .right .wpop,
-.win > .right .trm {
-  max-width: calc(var(--right-w) - 12px);
+/* 右边标签里的弹层不比那一组宽（--view-w 是 Dock.tsx placeViews 摆好的宽；再往里挪见 shell/keep-inside.ts）。
+   不用 100%：弹层常挂在一个没有宽的绝对定位外壳里（.plug-pop），100% 是 0 */
+.win > .dview .wpop,
+.win > .dview .trm {
+  max-width: calc(var(--view-w) - 12px);
 }
 
 /* 大纲点了白板的一项：那张卡片闪一圈强调色 */
@@ -1814,10 +1820,6 @@ body.resizing-left .win > .vsplit {
   }
 }
 
-/* B：右栏和中间之间 6 的缝不算进右栏宽（记住的宽度 = 看得见的右栏宽） */
-.win.frame-b.with-right {
-  grid-template-columns: var(--abar-w) var(--side-w) minmax(0, 1fr) calc(var(--right-w) + var(--gap)) var(--abar-w);
-}
 
 /* 左右栏的行：A 24 高、整行平的（VS Code 列表）；B 28 高、左右缩 6 的圆角块（spec 第 1、2 节） */
 .frame-a > .side .si,

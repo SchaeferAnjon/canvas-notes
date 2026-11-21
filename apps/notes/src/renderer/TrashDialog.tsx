@@ -76,7 +76,7 @@ export function TrashDialog(props: { ask: TrashAsk }) {
                 <span className="t1">{n > 0 ? `连同${n}张图一起移到废纸篓` : `${ask.paths.length === 1 ? '这篇' : '这些'}的图别的笔记都在用，一张不删`}</span>
                 <span className="t2">{ask.dirs.length > 1 ? `${ask.dirs[0]}/ 等${ask.dirs.length}处` : `${ask.dirs[0]}/`}</span>
               </span>
-              <span className="thumbs">
+              <span className="trash-thumbs">
                 {ask.own.slice(0, 3).map((i) => (
                   <img key={i.path} src={imgUrl(i.path)} alt="" />
                 ))}

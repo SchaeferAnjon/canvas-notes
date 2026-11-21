@@ -159,12 +159,15 @@ export async function undoTrash(v: Vault, id: unknown, stageRoot: string): Promi
   await rm(stage, { recursive: true, force: true })
 }
 
-export function registerNoteAttach(getVault: () => Vault, userData: string, changed: () => void) {
+/** trashed：每移走一个文件说一声（库里的相对路径；正在答的 AI 那一轮不把它算成 AI 删的） */
+export function registerNoteAttach(getVault: () => Vault, userData: string, changed: () => void, trashed: (rel: string) => void = () => {}) {
   const stageRoot = join(userData, 'trash-undo')
   // 上次开着时留的撤回用的那份：重开以后用不上了
   void rm(stageRoot, { recursive: true, force: true })
   // 测试把「废纸篓」换成临时文件夹，不往用户真的废纸篓里放东西
   const put = async (abs: string) => {
+    const root = getVault().root
+    if (abs.startsWith(root + '/')) trashed(abs.slice(root.length + 1))
     const dir = process.env.CN_TRASH_DIR
     if (dir) await rename(abs, join(dir, `${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${abs.split('/').pop()}`))
     else await shell.trashItem(abs)

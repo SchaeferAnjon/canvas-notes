@@ -211,6 +211,22 @@ export interface DoubtsView {
   folder: string
   course: string
   items: (DoubtItem & { sent: boolean })[]
+  /** 看视频时框一块问的（文档里的问答块），这门课里的 */
+  videos: VideoDoubt[]
+}
+
+/** 看视频时框一块问的一处（文档里的问答块，main/reading/doubts.ts 的 collectVideoDoubts） */
+export interface VideoDoubt {
+  /** 记在哪篇文档、第几行（问答块开头那行注释） */
+  doc: string
+  line: number
+  /** 视频里的时间「00:06」、视频名、带时间的网址 */
+  time: string
+  title: string
+  url: string
+  /** 问题原话、回答开头一段 */
+  question: string
+  answer: string
 }
 
 export interface AnkiSendResult {

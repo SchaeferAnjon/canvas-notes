@@ -13,8 +13,8 @@ import { moveMenu } from './move-menu'
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const nameOf = (p: string) => p.split('/').pop()!
 
-/** rename：这个地方能原地改名时给（左栏、全部笔记、标签） */
-export function fileMenu(path: string, on: { rename?(): void } = {}): MenuEntry[] {
+/** rename：这个地方能原地改名时给（左栏、全部笔记、标签）；note：PDF、HTML 和它的笔记合成一行时那篇笔记（多一项「单独打开笔记」） */
+export function fileMenu(path: string, on: { rename?(): void; note?: string } = {}): MenuEntry[] {
   const a = app()
   const md = /\.md$/i.test(path)
   const pinned = a.pins().includes(path)
@@ -23,6 +23,7 @@ export function fileMenu(path: string, on: { rename?(): void } = {}): MenuEntry[
   return [
     { label: '打开', run: () => a.openHere(path) },
     { label: '在新标签打开', run: () => a.openFile(path) },
+    on.note && { label: '单独打开笔记', run: () => a.openFile(on.note!) },
     '-',
     md && on.rename && { label: '重命名', run: () => on.rename!() },
     md && targets.length > 0 && { label: '移到', submenu: targets },
@@ -72,5 +73,5 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
 }
 
 /** 右键事件里直接用；extra：这一处自己多的几项，放在最后（文档「⋯」里的宽版） */
-export const onFileMenu = (e: React.MouseEvent, path: string, on: { rename?(): void } = {}, extra: MenuEntry[] = []) =>
+export const onFileMenu = (e: React.MouseEvent, path: string, on: { rename?(): void; note?: string } = {}, extra: MenuEntry[] = []) =>
   void menuAt(e, [...fileMenu(path, on), ...(extra.some(Boolean) ? ['-' as const, ...extra] : [])])

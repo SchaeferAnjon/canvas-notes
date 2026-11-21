@@ -93,7 +93,7 @@ for (const f of ['a', 'b'] as const) {
   })
 }
 
-test('右栏 340 宽：读 PDF 和别处的 AI 是同一个头（同一个位置、一样高），「AI · 名字 ⌄ · + · 收起 ⌘J」整个露着；头上没有引擎胶囊、「改动可撤回」', async () => {
+test('右栏 340 宽：读 PDF 和别处的 AI 是同一行对话（同一个位置、一样高），「名字 ⌄ · +」整个露着（「AI」在标签上）；没有引擎胶囊、「改动可撤回」', async () => {
   const run = await launch(VAULT, { CN_AI_FAKE: '1' })
   const { page, app } = run
   /** 头里每一样都整个在头里面，头不横着溢出 */
@@ -101,7 +101,7 @@ test('右栏 340 宽：读 PDF 和别处的 AI 是同一个头（同一个位置
     aside.locator('.aih').evaluate((h) => {
       const a = h.getBoundingClientRect()
       const parts = [...h.querySelectorAll('b, .conv, .acts button')]
-      return parts.length === 4 && h.scrollWidth <= h.clientWidth && parts.every((e) => {
+      return parts.length === 2 && h.scrollWidth <= h.clientWidth && parts.every((e) => {
         const r = e.getBoundingClientRect()
         return r.width > 0 && r.left >= a.left - 0.5 && r.right <= a.right + 0.5
       })
@@ -117,7 +117,7 @@ test('右栏 340 宽：读 PDF 和别处的 AI 是同一个头（同一个位置
     expect(Math.round((await ai.boundingBox())!.width)).toBe(340)
     expect(await fits(ai)).toBe(true)
     await expect(ai.getByTestId('ai-conv')).toHaveText('第3讲 线性映射.pdf')
-    await expect(ai.getByRole('button', { name: '收起 AI' })).toHaveText('收起 ⌘J')
+    await expect(page.getByTestId('dtab-ai')).toHaveText('AI')
     await expect(ai.getByTestId('ai-undo-hint')).toHaveCount(0)
     await expect(ai.locator('.aih').getByTestId('ai-engine')).toHaveCount(0)
     // 引擎在输入框底行

@@ -30,10 +30,12 @@ function AllowItem(props: { page: WebPage | null; onDone(): void; onNotice(t: st
       (e) => props.onNotice(errText(e)),
     )
   }
+  // 「⋯」的「这个网站」一组（DESIGN.v3 9.3）：左边一格打勾表示不拦，右边写网站名
   return (
-    <button role="menuitemcheckbox" aria-checked={on} disabled={!site} onClick={run}>
-      <Codicon name={on ? 'check' : 'shield'} size={14} />
-      <span className="mlabel truncate">{site ? `在${site}不拦广告` : '在这个网站不拦广告'}</span>
+    <button role="menuitemcheckbox" aria-checked={on} aria-label={site ? `在${site}不拦广告` : '在这个网站不拦广告'} disabled={!site} onClick={run}>
+      <span className="ck">{on && <Codicon name="check" size={14} />}</span>
+      <span className="mlabel">不拦这个网站的广告</span>
+      {site && <span className="h">{site}</span>}
     </button>
   )
 }
@@ -101,5 +103,6 @@ export const adblock: RendererPlugin = {
   id: ID,
   icon: 'shield',
   PageMenu: AllowItem,
+  pageMenu: { id: 'adblock', group: 'site', label: '不拦这个网站的广告', icon: 'shield' },
   Settings: AdblockSettingsPane,
 }

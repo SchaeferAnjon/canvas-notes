@@ -121,7 +121,7 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
     // 双语翻译（带引擎标志）自成一组
     trOn && { label: translating ? '恢复原文' : '双语翻译', accel: 'Alt+A', ...(translating ? {} : { ai: 'translate' as const }), run: () => toggleTranslate({ wcId, url, title }) },
     '-',
-    http && { label: '整页剪藏', run: () => host.clipPage() },
+    http && { label: '剪藏这一页', run: () => host.clipPage() },
   )
   return out
 }

@@ -6,6 +6,7 @@ import {
   demoteHeadings,
   doubtItems,
   doubtsNote,
+  mergeReadingNotes,
   newReadingNote,
   parseReadingNote,
   renderSection,
@@ -272,5 +273,60 @@ describe('我的疑惑：数和用用户的原话（主问题 + 旁支问题）'
     expect(md).toContain('ecpc · 3 条。')
     expect(md).toContain('- **给我讲解一下** [第 28 页](Lecture05.pdf#page=28&rect=0.06,0.3,0.89,0.6)\n  换个方式讲：先别看公式，看图。')
     expect(md).toContain('- **为什么减掉门槛，而不是清零？** [第 28 页](Lecture05.pdf#page=28&rect=0.06,0.3,0.89,0.6)\n  水位冲到 1.3 时')
+  })
+})
+
+// 老库整理（2026-11-20「一个 PDF 一篇笔记」）：同一份 PDF 的两篇笔记按每段的身份合成一篇
+describe('同一份 PDF 两篇笔记合成一篇', () => {
+  const other = '课程/ecpc/Lecture05 笔记 2.md'
+  const at = (page: number, n: number, qs: string[]) =>
+    withDerived({ ...sec(), id: `.canvas-notes/对话/Lecture05-p${page}-${n}.md`, page, title: `第 ${page} 页的小标题`, qas: qs.map((q) => ({ q, a: `${q}的回答。`, sides: [] })), recap: `第 ${page} 页的小结` })
+
+  it('不同的段按页插进第一篇；一样的段不重复；合完每段的身份只出现一次', () => {
+    const a = upsertSection(upsertSection(newReadingNote(PDF), at(3, 1, ['问三']), NOTE), at(9, 1, ['问九']), NOTE)
+    const b = upsertSection(upsertSection(newReadingNote(PDF), at(5, 1, ['问五']), other), at(9, 1, ['问九']), other)
+    const md = mergeReadingNotes(a, b, NOTE, other)
+    const secs = parseReadingNote(md, NOTE)
+    expect(secs.map((s) => s.page)).toEqual([3, 5, 9])
+    expect(new Set(secs.map((s) => s.id)).size).toBe(3)
+    // 两边一样的段：不另放「以前的版本」
+    expect(md).not.toContain('以前的版本')
+    // 链接还是对的（两篇在同一个文件夹）：第 5 页那段指向这份 PDF
+    expect(secs[1]!.file).toBe(PDF)
+  })
+
+  it('同一处两边都有：留问得多的那段（新的），另一版收进这一段后面的「以前的版本」（去掉身份，不会被当成第二段）', () => {
+    const a = upsertSection(newReadingNote(PDF), at(3, 1, ['问三']), NOTE)
+    const b = upsertSection(newReadingNote(PDF), at(3, 1, ['问三', '还是不懂']), other)
+    const md = mergeReadingNotes(a, b, NOTE, other)
+    const secs = parseReadingNote(md, NOTE)
+    expect(secs).toHaveLength(1)
+    expect(secs[0]!.qas!.map((q) => q.q)).toEqual(['问三', '还是不懂'])
+    const i = md.indexOf('## 以前的版本 · 第 3 页 · 第 3 页的小标题')
+    expect(i).toBeGreaterThan(md.indexOf('## 第 3 页 · 第 3 页的小标题'))
+    expect(md.slice(i)).toContain('> [!question] 问三')
+    expect(md.slice(i)).not.toContain('cn:thread=')
+    // 再问这一处：整段换掉，「以前的版本」留着
+    const again = upsertSection(md, at(3, 1, ['问三', '还是不懂', '第三问']), NOTE)
+    expect(parseReadingNote(again, NOTE)[0]!.qas!.map((q) => q.q)).toEqual(['问三', '还是不懂', '第三问'])
+    expect(again).toContain('## 以前的版本 · 第 3 页 · 第 3 页的小标题')
+    // 问得一样多：留第一篇的
+    const c = upsertSection(newReadingNote(PDF), { ...at(3, 1, ['问三']), recap: '另一篇的小结' }, other)
+    const kept = mergeReadingNotes(a, c, NOTE, other)
+    expect(parseReadingNote(kept, NOTE)[0]!.recap).toBe('第 3 页的小结')
+    expect(kept).toContain('> [!recap] 另一篇的小结')
+  })
+
+  it('第二篇里自己写的段落（开头的、自己起的 ## 小节）原样搬到最后「从《Lecture05 笔记 2》并进来的」下面', () => {
+    const a = upsertSection(newReadingNote(PDF), at(3, 1, ['问三']), NOTE)
+    const b = newReadingNote(PDF) + '\n考前要看的几页：3、5、9。\n\n' + renderSection(at(5, 1, ['问五']), other) + '\n## 我自己的总结\n\n注意力就是查表。\n'
+    const md = mergeReadingNotes(a, b, NOTE, other)
+    const tail = md.slice(md.indexOf('## 从《Lecture05 笔记 2》并进来的'))
+    expect(tail).toContain('考前要看的几页：3、5、9。')
+    expect(tail).toContain('### 我自己的总结\n\n注意力就是查表。')
+    // 属性和「# … 笔记」那一行不搬
+    expect(tail).not.toContain('类型:')
+    expect(tail).not.toMatch(/^# /m)
+    expect(parseReadingNote(md, NOTE).map((s) => s.page)).toEqual([3, 5])
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DreamItem, DreamReport } from '../src/shared/api'
-import { dreamSummary } from '../src/renderer/ai-commands'
+import { draftPath, dreamSummary } from '../src/renderer/ai-commands'
 
 const LABELS = { file: '归类和改名', link: '补上的双链', dup: '可能重复', week: '本周小结' }
 const item = (group: DreamItem['group'], n: number): DreamItem => ({ id: `${group}${n}`, group, title: 't', sub: 's', why: 'w', commit: null, files: [], state: 'pending' })
@@ -24,5 +24,16 @@ describe('/现在梦游 跑完的一句话', () => {
 
   it('没什么要整理的；有一组没做成时把说明带上', () => {
     expect(dreamSummary(report([], ['AI 不可用，收件箱没分类']), LABELS).text).toBe('梦游跑完了，没什么要整理的。\nAI 不可用，收件箱没分类')
+  })
+})
+
+describe('/写成文章 的草稿放在哪', () => {
+  it('白板在哪个文件夹，草稿就在哪个文件夹，名字是「白板名：文章草稿」', () => {
+    expect(draftPath('课程/机器学习/冰岛自驾.md')).toBe('课程/机器学习/冰岛自驾：文章草稿.md')
+    expect(draftPath('周记/2026-W47.md')).toBe('周记/2026-W47：文章草稿.md')
+  })
+  it('白板在库最外层或收件箱里：进收件箱', () => {
+    expect(draftPath('计划.md')).toBe('收件箱/计划：文章草稿.md')
+    expect(draftPath('收件箱/草图.md')).toBe('收件箱/草图：文章草稿.md')
   })
 })

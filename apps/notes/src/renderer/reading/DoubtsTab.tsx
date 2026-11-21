@@ -1,7 +1,8 @@
 /**
  * 我的疑惑（中间栏标签，spec 1.12）：一门课问过的地方，按讲收起，正在读的那讲展开；每讲最多 5 条，多的「还有 N 条」；
  * 搜索时所有讲展开只列命中的。每条：我框的图、问题、讲通的讲法一行、页码（点了回 PDF）、送过 Anki 的写「✓ 已送」。
- * 右上「送进 Anki · N 张」（这一屏唯一的主按钮）。
+ * 右上「送进 Anki · N 张」（这一屏唯一的主按钮）。看视频时框一块问的（文档里的问答块）排在最后一组「看视频时问的」，点一条开那篇文档。
+ * 2026-11-20 起没有「我的疑惑.md」：这一页直接读各篇笔记和文档。
  */
 import { Codicon } from '@cn/design'
 import { type DoubtGroup, groupDoubts, questionOf } from '@cn/format'
@@ -14,7 +15,7 @@ type Item = DoubtsView['items'][number]
 const vaultImg = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/')
 const PER_GROUP = 5
 
-export function DoubtsTab(props: { folder: string; active: boolean; current: string | null; onOpenPdf(pdf: string, page: number, rect?: [number, number, number, number]): void; onNotice(t: string): void }) {
+export function DoubtsTab(props: { folder: string; active: boolean; current: string | null; onOpenPdf(pdf: string, page: number, rect?: [number, number, number, number]): void; onOpenDoc(path: string): void; onNotice(t: string): void }) {
   const [view, setView] = useState<DoubtsView | null>(null)
   const [q, setQ] = useState('')
   const [only, setOnly] = useState<'all' | 'unsent'>('all')
@@ -22,6 +23,7 @@ export function DoubtsTab(props: { folder: string; active: boolean; current: str
   const [full, setFull] = useState<Set<string>>(new Set())
   const [row, setRow] = useState<string | null>(null)
   const [anki, setAnki] = useState(false)
+  const [videoOpen, setVideoOpen] = useState(false)
 
   const load = () => void window.cnReading.doubts(props.folder).then(setView, (e) => props.onNotice(String((e as Error).message)))
   useEffect(() => {
@@ -42,7 +44,9 @@ export function DoubtsTab(props: { folder: string; active: boolean; current: str
   const t = q.trim().toLowerCase()
   const match = (it: Item) => (only === 'all' || !it.sent) && (!t || [questionOf(it.section), it.section.good, ...it.section.doubts, `第 ${it.section.page} 页`].join('\n').toLowerCase().includes(t))
   const unsent = (view?.items ?? []).filter((i) => !i.sent)
-  const total = view?.items.length ?? 0
+  // 看视频时问的不送 Anki：「还没送Anki」时不列
+  const videos = only === 'all' ? (view?.videos ?? []).filter((x) => !t || [x.question, x.answer, x.title, x.time].join('\n').toLowerCase().includes(t)) : []
+  const total = (view?.items.length ?? 0) + (view?.videos.length ?? 0)
 
   return (
     <section className="pane doubts" data-testid="doubts">
@@ -146,6 +150,34 @@ export function DoubtsTab(props: { folder: string; active: boolean; current: str
             </div>
           )
         })}
+        {videos.length > 0 && (
+          <div className="dq-group" data-testid="doubt-group">
+            <button className="dq-gh" aria-expanded={!!t || videoOpen} onClick={() => setVideoOpen((o) => !o)}>
+              <Codicon name={t || videoOpen ? 'chevron-down' : 'chevron-right'} size={12} />
+              <b>看视频时问的</b>
+              <span className="num">{videos.length}</span>
+              {!t && !videoOpen && <span className="latest truncate">最近：{videos[videos.length - 1]!.question}</span>}
+            </button>
+            {(t || videoOpen) &&
+              videos.map((x) => (
+                <div key={`${x.doc}:${x.line}`} className="dq-row" data-testid="doubt-video">
+                  <button className="dq-line" title={`记在《${x.doc.split('/').pop()!.replace(/\.md$/i, '')}》`} onClick={() => props.onOpenDoc(x.doc)}>
+                    <span className="dq-shot">
+                      <Codicon name="device-camera-video" size={16} />
+                    </span>
+                    <span className="dq-tx">
+                      <b>{x.question}</b>
+                      <span className="truncate">{x.answer}</span>
+                    </span>
+                  </button>
+                  <button className="pgc" title={`开《${x.doc.split('/').pop()!.replace(/\.md$/i, '')}》，问答块在里面`} onClick={() => props.onOpenDoc(x.doc)}>
+                    <Codicon name="device-camera-video" size={12} />
+                    {x.time}
+                  </button>
+                </div>
+              ))}
+          </div>
+        )}
       </div>
       {anki && view && (
         <AnkiDialog

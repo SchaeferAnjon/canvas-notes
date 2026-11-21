@@ -54,7 +54,7 @@ const colName = (c: string) => (c === 'file.name' ? '名字' : c.replace(/^note\
 
 /** 单选、多选值的颜色：同一个值总是同一个颜色，颜色收着（方块配色别太艳） */
 const TONES = ['green', 'yellow', 'plain', 'blue', 'red'] as const
-function toneOf(v: string): (typeof TONES)[number] {
+export function toneOf(v: string): (typeof TONES)[number] {
   let h = 0
   for (const ch of v) h = (h * 31 + ch.codePointAt(0)!) >>> 0
   return TONES[h % TONES.length]!
@@ -77,6 +77,13 @@ async function load(spec: BaseSpec): Promise<Loaded> {
   const all = baseRows({ ...spec, conds: [] }, notes)
   return { rows, hidden: rows.hidden ?? 0, texts: new Map(notes.map((n) => [n.path, n.text])), all }
 }
+
+/**
+ * 软件自己改了数据库里的几条（这一张表里改格子、改列名）：同一个数据库别处画着的表（白板上展开的、文档里的、嵌在别处的）跟着重读。
+ * 自己写的文件不会再来「外面改了」的通知，所以另发一个
+ */
+export const BASE_WROTE = 'cn-base-wrote'
+export const baseWrote = (folder: string | null) => folder && window.dispatchEvent(new CustomEvent(BASE_WROTE, { detail: folder }))
 
 export interface BaseEdits {
   sort(prop: string, desc: boolean): void
@@ -117,7 +124,20 @@ type Pop =
   | { kind: 'options'; path: string; col: string; at: At }
   | { kind: 'drop'; col: string; at: At }
 
-export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits; anchor: HTMLElement }) {
+/** 改好一格（白板上展开的数据库卡要说一句「写进 …」、能撤回） */
+export interface BaseCellWrite {
+  path: string
+  name: string
+  col: string
+  value: string
+  before: string
+  after: string
+}
+
+/**
+ * extra：块头最右边多放的（白板上展开的数据库卡放「收起」）；foot：表底那一句换成这句；onCell：改好一格以后
+ */
+export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits; anchor: HTMLElement; extra?: React.ReactNode; foot?: string; onCell?(w: BaseCellWrite): void }) {
   const { spec, edit } = props
   const [data, setData] = useState<Loaded | null>(null)
   const [full, setFull] = useState(false)
@@ -142,7 +162,9 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
     const again = () => setTick((t) => t + 1)
     const off1 = window.cn.onFilesChanged(again)
     const off2 = window.cn.onNoteChanged((p) => spec.folder && p.startsWith(spec.folder + '/') && again())
-    return () => (off1(), off2())
+    const wrote = (e: Event) => (e as CustomEvent<string>).detail === spec.folder && again()
+    window.addEventListener(BASE_WROTE, wrote)
+    return () => (off1(), off2(), window.removeEventListener(BASE_WROTE, wrote))
   }, [key])
   useEffect(() => {
     if (!full && !pop) return
@@ -183,6 +205,10 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
     const next = setProp(old, col, value === '' ? undefined : value, { raw: types[col] === 'multi' })
     const w = await window.cn.writeNote(r.path, next, old)
     if (!w.ok) app().notice(`《${r.name}》刚被别处改过，没改成，再试一次`)
+    else {
+      props.onCell?.({ path: r.path, name: r.name, col, value, before: old, after: next })
+      baseWrote(spec.folder)
+    }
     setTick((t) => t + 1)
   }
 
@@ -198,6 +224,7 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
       if (!w.ok) missed++
     }
     if (missed) app().notice(`有 ${missed} 条刚被别处改过，没改成，再试一次`)
+    baseWrote(spec.folder)
     setTick((t) => t + 1)
   }
 
@@ -755,7 +782,7 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
         <div className="base-foot">
           {data === null
             ? '正在读…'
-            : [outs ? `另有${outs}条刚建的不在筛选里` : '', rows.length > limit ? `这里只列前${limit}条，整页打开看全部` : '', `每条是「${spec.folder}」里的一篇笔记`].filter(Boolean).join(' · ')}
+            : [outs ? `另有${outs}条刚建的不在筛选里` : '', rows.length > limit ? `这里只列前${limit}条，整页打开看全部` : '', props.foot ?? `每条是「${spec.folder}」里的一篇笔记`].filter(Boolean).join(' · ')}
         </div>
       </>
     )
@@ -970,6 +997,7 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
           新一条
         </button>
       )}
+      {!inFull && props.extra}
     </div>
   )
 

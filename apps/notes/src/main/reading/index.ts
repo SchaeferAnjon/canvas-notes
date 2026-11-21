@@ -51,7 +51,7 @@ import { AnkiConnectError, sendCards } from './anki'
 import { readingKey } from './chats'
 import { setupBilingual } from './bilingual'
 import { setupCapture } from './capture'
-import { ANKI_STATE, collectDoubts, courseName, dirOf, readAnkiState, writeAnkiState, writeDoubtsNote } from './doubts'
+import { ANKI_STATE, collectDoubts, collectVideoDoubts, courseName, dirOf, readAnkiState, writeAnkiState } from './doubts'
 
 const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
@@ -458,8 +458,8 @@ export function setupReading(deps: ReadingDeps) {
   ipcMain.handle('reading:doubts', async (_e, folder: unknown): Promise<DoubtsView> => {
     const f = needFolder(folder)
     const v = needVault()
-    const [items, st] = await Promise.all([collectDoubts(v, f), readAnkiState(v)])
-    return { folder: f, course: courseName(f), items: items.map((it) => ({ ...it, sent: !!st.sent[it.id] })) }
+    const [items, st, videos] = await Promise.all([collectDoubts(v, f), readAnkiState(v), collectVideoDoubts(v, f)])
+    return { folder: f, course: courseName(f), items: items.map((it) => ({ ...it, sent: !!st.sent[it.id] })), videos }
   })
 
   ipcMain.handle('reading:anki:send', async (_e, folder: unknown, ids: unknown): Promise<AnkiSendResult> => {
@@ -493,8 +493,7 @@ export function setupReading(deps: ReadingDeps) {
     for (const id of [...r.added, ...r.duplicates]) st.sent[id] = now
     st.deckId = r.deck.id
     await writeAnkiState(v, st)
-    const doubts = await writeDoubtsNote(v, f)
-    const hash = await git.commitPaths(v.root, [ANKI_STATE, ...(doubts ? [doubts] : [])], `送进 Anki：${course || '我的疑惑'} ${r.added.length} 张`)
+    const hash = await git.commitPaths(v.root, [ANKI_STATE], `送进 Anki：${course || '我的疑惑'} ${r.added.length} 张`)
     send('files:changed')
     return { added: r.added, duplicates: r.duplicates, failed: r.failed, deck: r.deck.name, commit: hash ? ((await git.log(v.root, 1))[0] ?? null) : null }
   })
@@ -640,8 +639,6 @@ export function setupReading(deps: ReadingDeps) {
       return { note, commit: null }
     }
     unsaved.delete(note)
-    const doubts = isWeb(pdf) ? null : await writeDoubtsNote(v, dirOf(pdf))
-    if (doubts) paths.push(doubts)
     const hash = await git.commitPaths(v.root, [...new Set(paths)], `笔记：${isWeb(pdf) ? (th.web?.title ?? '网页') : stemOf(pdf)}${th.page > 0 ? ` 第 ${th.page} 页` : ''} · ${s.title}`)
     let commit: CommitInfo | null = null
     if (hash) commit = (await git.log(v.root, 1))[0] ?? null

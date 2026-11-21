@@ -12,7 +12,9 @@ import { BookmarksBar } from './web/BookmarksBar'
 import { ExtensionsPanel } from './web/ExtensionsPanel'
 import { setCurrentPage } from './web/image-drop'
 import { LibraryPanel } from './web/LibraryPanel'
-import { PluginButtons, PluginPageMenu, PluginPopup, usePluginMenu, usePluginOn } from './plugins'
+import { PluginButtons, PluginPopup, usePageMenus, usePluginMenu, usePluginOn } from './plugins'
+import { moveWebItem, toggleWebHidden, WEB_LOCKED, webMenuOrder } from '../shared/commands'
+import { updateCmds, useCmds } from './search/cmd-store'
 import type { WebPage } from './plugins/types'
 import { setWebHost } from './plugins/host'
 import { clipSuffix } from './plugins/translate/shared'
@@ -321,7 +323,7 @@ export function WebPanel(props: {
   async function clipPage() {
     setClipping(true)
     try {
-      const path = await window.cn.clipCurrentPage({ webUrl: webUrl || null })
+      const { path } = await window.cn.clipCurrentPage({ webUrl: webUrl || null })
       setClipped({ path, extra: clipSuffix(page) })
     } catch (e) {
       props.onNotice(errText(e))
@@ -329,6 +331,15 @@ export function WebPanel(props: {
       setClipping(false)
     }
   }
+
+  // ⌘K「剪藏这一页」：和引号按钮、⋯ 菜单同一套（底部提示带「打开」「撤回」）
+  const clipRef = useRef(clipPage)
+  clipRef.current = clipPage
+  useEffect(() => {
+    const on = (e: Event) => (e.preventDefault(), void clipRef.current())
+    window.addEventListener(CLIP_PAGE_EVENT, on)
+    return () => window.removeEventListener(CLIP_PAGE_EVENT, on)
+  }, [])
 
   // 右栏所有弹层（⋯、翻译菜单、书签和历史、插件、选 Chrome 用户、书签小卡）都在这一处收起：
   // 点软件里弹层外面、按 Esc；点网页正文、在网页里按 Esc（网页预加载报过来，CN-43）
@@ -591,7 +602,7 @@ export function WebPanel(props: {
             </span>
           )}
         </form>
-        <button className="iconbtn" aria-label="整页剪藏" title="整页剪进收件箱" disabled={!webUrl || clipping} onClick={() => void clipPage()}>
+        <button className="iconbtn" aria-label="剪藏这一页" title="剪藏这一页：整页进收件箱" disabled={!webUrl || clipping} onClick={() => void clipPage()}>
           <Codicon name="quote" size={14} className={clipping ? 'spin' : ''} />
         </button>
         <ActionButtons tabId={activeWc ?? -1}>
@@ -602,7 +613,7 @@ export function WebPanel(props: {
             ref={moreRef}
             className={'iconbtn' + (menu === 'more' || menu === 'library' || menu === 'extensions' || menu === 'login' || keeperOpen ? ' on' : '')}
             aria-label="更多"
-            title="更多：稍后再看、双语翻译、书签和历史、插件、导入 Chrome 登录"
+            title="更多：剪藏这一页、稍后再看、双语翻译、书签和历史、插件、导入 Chrome 登录"
             aria-haspopup="menu"
             aria-expanded={menu === 'more'}
             onClick={() => setMenu(menu === 'more' ? null : 'more')}
@@ -613,6 +624,7 @@ export function WebPanel(props: {
             <MoreMenu
               star={webUrl ? { on: !!starred, keeper: keeperOn } : null}
               onStar={() => (setMenu(null), void clickStar())}
+              onClip={webUrl && !clipping ? () => (setMenu(null), void clipPage()) : null}
               page={page}
               importing={importing}
               onClose={() => setMenu(null)}
@@ -734,15 +746,31 @@ export function WebPanel(props: {
   )
 }
 
+/** 「⋯」的四组（DESIGN.v3 9.3）：手上这一页 → 这个网站 → 书签 → 浏览器 */
+const WM_GROUPS = ['page', 'site', 'bookmarks', 'browser'] as const
+type WmGroup = (typeof WM_GROUPS)[number]
+
+/** 「⋯」里的一项：身份（藏起、换顺序按它记）、调整时画的名字和图标、平时画的那颗按钮 */
+interface WmItem {
+  id: string
+  group: WmGroup
+  label: string
+  icon: CodiconName
+  node: React.ReactNode
+}
+
 /**
- * 地址栏右边「⋯」菜单：这一页（插件给的项，比如稍后再看、双语翻译）、书签（书签首页、书签和历史）、浏览器（插件、导入 Chrome 登录）。
- * ↑↓ 选，↵ 执行，esc 关。
+ * 地址栏右边「⋯」菜单（DESIGN.v3 9.3，cmdk 方案 A）：这一页（剪藏这一页、稍后再看、双语翻译）、这个网站（不拦这个网站的广告）、
+ * 书签（加书签、书签首页、书签和历史）、浏览器（插件、导入 Chrome 登录），最下面「调整这个菜单…」：点眼睛藏起不用的、在组里拖着换顺序，
+ * 「插件…」一直在。藏起的和顺序存在 .canvas-notes/命令.json。↑↓ 选，↵ 执行，esc 关。
  */
 function MoreMenu(props: {
   page: WebPage | null
   /** 这一页收藏了没有；keeper：书签管家开着（收藏后开小卡改标签和备注） */
   star: { on: boolean; keeper: boolean } | null
   onStar(): void
+  /** 剪藏这一页（和地址栏旁的引号按钮、⌘K「剪藏这一页」同一件事）；不是网页时灰着 */
+  onClip: (() => void) | null
   importing: boolean
   onClose(): void
   onNewTab(): void
@@ -750,10 +778,15 @@ function MoreMenu(props: {
   onNotice(t: string): void
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  const cfg = useCmds()
   const pluginItems = usePluginMenu(props.page)
-  useEffect(() => ref.current?.querySelector<HTMLButtonElement>('[role^=menuitem]:not(:disabled)')?.focus(), [])
+  const pageMenus = usePageMenus()
+  /** 「调整这个菜单…」：每行出眼睛和把手 */
+  const [edit, setEdit] = useState(false)
+  const [drag, setDrag] = useState<{ id: string; group: WmGroup; before: string | null | undefined; line: { left: number; top: number; width: number } | null } | null>(null)
+  useEffect(() => ref.current?.querySelector<HTMLButtonElement>('[role^=menuitem]:not(:disabled)')?.focus(), [edit])
   const onKey = (e: React.KeyboardEvent) => {
-    const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>('[role^=menuitem]:not(:disabled)') ?? [])]
+    const items = [...(ref.current?.querySelectorAll<HTMLButtonElement>('button[role^=menuitem]:not(:disabled), .wm-row .eye') ?? [])]
     const i = items.indexOf(document.activeElement as HTMLButtonElement)
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
@@ -771,30 +804,128 @@ function MoreMenu(props: {
       {hint && <kbd>{hint}</kbd>}
     </button>
   )
+  const all: WmItem[] = [
+    { id: 'clip', group: 'page', label: '剪藏这一页', icon: 'quote', node: item('剪藏这一页', 'quote', () => props.onClip?.(), undefined, !props.onClip) },
+    ...pageMenus.map((m): WmItem => ({ id: m.id, group: m.group, label: m.label, icon: m.icon, node: <m.Item key={m.id} page={props.page} onDone={props.onClose} onNotice={props.onNotice} /> })),
+    ...pluginItems.map((p): WmItem => ({ id: p.id, group: 'page', label: p.label, icon: p.icon, node: item(p.label, p.icon, () => (props.onClose(), p.run()), p.keys, !props.page) })),
+    ...(props.star
+      ? [
+          {
+            id: 'star',
+            group: 'bookmarks' as const,
+            label: '加书签',
+            icon: 'star-empty' as const,
+            // 书签星号收在这里（DESIGN.v3 1.5：地址栏只留翻译；网页右上按钮别乱）
+            node: (
+              <button key="star" role="menuitemcheckbox" aria-checked={props.star.on} onClick={props.onStar}>
+                <Codicon name={props.star.on ? 'star-full' : 'star-empty'} size={14} />
+                <span className="mlabel">{props.star.on ? (props.star.keeper ? '已收藏 · 改标签和备注' : '取消书签') : '加书签'}</span>
+              </button>
+            ),
+          },
+        ]
+      : []),
+    { id: 'newtab', group: 'bookmarks', label: '书签首页', icon: 'layout', node: item('书签首页', 'layout', props.onNewTab, '⌘T') },
+    { id: 'library', group: 'bookmarks', label: '书签和历史…', icon: 'bookmark', node: item('书签和历史…', 'bookmark', () => props.onPick('library')) },
+    { id: WEB_LOCKED, group: 'browser', label: '插件…', icon: 'extensions', node: item('插件…', 'extensions', () => props.onPick('extensions')) },
+    { id: 'login', group: 'browser', label: '导入Chrome登录…', icon: 'sign-in', node: item('导入Chrome登录…', 'sign-in', () => props.onPick('login'), undefined, props.importing) },
+  ]
+  const groups = WM_GROUPS.map((g) => {
+    const mine = all.filter((x) => x.group === g)
+    const order = webMenuOrder(cfg, g, mine.map((x) => x.id))
+    return { g, items: order.map((id) => mine.find((x) => x.id === id)!) }
+  })
+  const hidden = new Set(cfg.web.hidden)
+
+  // 调整时拖着换顺序：只在自己那一组里上下拖
+  function startDrag(e: React.PointerEvent, id: string, group: WmGroup) {
+    e.preventDefault()
+    setDrag({ id, group, before: undefined, line: null })
+    const ids = groups.find((x) => x.g === group)!.items.map((x) => x.id)
+    let before: string | null | undefined
+    const move = (ev: PointerEvent) => {
+      before = undefined
+      let line: { left: number; top: number; width: number } | null = null
+      // 落点横线画在菜单里（菜单有磨砂，fixed 会跟着菜单走），坐标按菜单算
+      const m = ref.current!.getBoundingClientRect()
+      for (const el of ref.current?.querySelectorAll<HTMLElement>(`[data-wg="${group}"] [data-wi]`) ?? []) {
+        const b = el.getBoundingClientRect()
+        if (ev.clientY < b.top || ev.clientY > b.bottom) continue
+        const after = ev.clientY > b.top + b.height / 2
+        const rest = ids.filter((x) => x !== id)
+        before = after ? (rest[rest.indexOf(el.dataset.wi!) + 1] ?? null) : el.dataset.wi!
+        if (before === id) before = undefined
+        line = { left: b.left - m.left + 8, width: b.width - 16, top: (after ? b.bottom : b.top) - m.top - 1 }
+      }
+      setDrag({ id, group, before, line })
+    }
+    const up = () => {
+      removeEventListener('pointermove', move)
+      removeEventListener('pointerup', up)
+      setDrag(null)
+      if (before !== undefined) void updateCmds((c) => moveWebItem(c, group, ids, id, before ?? null))
+    }
+    addEventListener('pointermove', move)
+    addEventListener('pointerup', up)
+  }
+
   return (
-    <div ref={ref} className="menu wmore" role="menu" aria-label="更多" onKeyDown={onKey}>
-      <div role="group" aria-label="这一页">
-        <PluginPageMenu page={props.page} onDone={props.onClose} onNotice={props.onNotice} />
-        {pluginItems.map((p) => item(p.label, p.icon, () => (props.onClose(), p.run()), p.keys, !props.page))}
-      </div>
-      <div role="group" aria-label="书签">
-        {/* 书签星号收在这里（DESIGN.v3 1.5：地址栏只留翻译；网页右上按钮别乱） */}
-        {props.star && (
-          <button role="menuitemcheckbox" aria-checked={props.star.on} onClick={props.onStar}>
-            <Codicon name={props.star.on ? 'star-full' : 'star-empty'} size={14} />
-            <span className="mlabel">{props.star.on ? (props.star.keeper ? '已收藏 · 改标签和备注' : '取消书签') : '加书签'}</span>
+    <div ref={ref} className={'menu wmore' + (edit ? ' editing' : '')} role="menu" aria-label="更多" onKeyDown={onKey}>
+      {edit && <div className="wm-head">点眼睛藏起不用的，拖着在组里换顺序</div>}
+      {groups.map(({ g, items }) => {
+        const shown = edit ? items : items.filter((x) => !hidden.has(x.id))
+        if (!shown.length) return null
+        return (
+          <div key={g} role="group" aria-label={{ page: '这一页', site: '这个网站', bookmarks: '书签', browser: '浏览器' }[g]} data-wg={g}>
+            {shown.map((x) =>
+              edit ? (
+                <div key={x.id} className={'wm-row' + (hidden.has(x.id) ? ' dim' : '') + (x.id === WEB_LOCKED ? ' lock' : '') + (drag?.id === x.id ? ' dragging' : '')} data-wi={x.id} role="menuitem" aria-label={x.label}>
+                  <span className="grip" aria-hidden onPointerDown={(e) => startDrag(e, x.id, g)}>
+                    <Codicon name="gripper" size={12} />
+                  </span>
+                  <Codicon name={x.icon} size={14} />
+                  <span className="mlabel">{x.label}</span>
+                  <button
+                    className="eye"
+                    aria-label={x.id === WEB_LOCKED ? '一直在' : hidden.has(x.id) ? `放回「${x.label}」` : `藏起「${x.label}」`}
+                    title={x.id === WEB_LOCKED ? '一直在：从这里回到调整' : hidden.has(x.id) ? '放回' : '藏起'}
+                    onClick={() => x.id !== WEB_LOCKED && void updateCmds((c) => toggleWebHidden(c, x.id))}
+                  >
+                    <Codicon name={x.id === WEB_LOCKED ? 'lock' : hidden.has(x.id) ? 'eye-closed' : 'eye'} size={14} />
+                  </button>
+                </div>
+              ) : (
+                x.node
+              ),
+            )}
+          </div>
+        )
+      })}
+      {edit ? (
+        <div className="wm-done">
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => {
+              setEdit(false)
+              const n = cfg.web.hidden.length
+              props.onNotice(n ? `网页「⋯」里藏起了 ${n} 样` : '网页「⋯」还是全部都在')
+            }}
+          >
+            完成
           </button>
-        )}
-        {item('书签首页', 'layout', props.onNewTab, '⌘T')}
-        {item('书签和历史…', 'bookmark', () => props.onPick('library'))}
-      </div>
-      <div role="group" aria-label="浏览器">
-        {item('插件…', 'extensions', () => props.onPick('extensions'))}
-        {item('导入Chrome登录…', 'sign-in', () => props.onPick('login'), undefined, props.importing)}
-      </div>
+        </div>
+      ) : (
+        <div role="group" aria-label="调整">
+          {item('调整这个菜单…', 'edit', () => setEdit(true))}
+        </div>
+      )}
+      {drag?.line && <div className="pal-dropline" style={{ left: drag.line.left, top: drag.line.top, width: drag.line.width }} />}
     </div>
   )
 }
+
+/** ⌘K「剪藏这一页」发给网页面板的事件（App.tsx） */
+export const CLIP_PAGE_EVENT = 'cn:clip-page'
 
 export function hostOf(url: string): string {
   try {

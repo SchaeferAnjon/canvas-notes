@@ -58,9 +58,10 @@ test('⌘K 里交给 AI 的命令画当前引擎的标志（16，和别的图标
     // 不经 AI 的两条不画标志，也不再画闪光
     await palette(page, '找重复')
     await expect(row(page, '找重复').locator('.eng-logo')).toHaveCount(0)
-    await expect(row(page, '找重复').locator('svg.ci')).toHaveCount(1)
-    await palette(page, '剪藏当前网页')
-    await expect(row(page, '剪藏当前网页').locator('.eng-logo')).toHaveCount(0)
+    // 左边只有它自己的图标（右端那颗 ⋯ 不算）
+    await expect(row(page, '找重复').locator('svg.ci.i')).toHaveCount(1)
+    await palette(page, '剪藏这一页')
+    await expect(row(page, '剪藏这一页').locator('.eng-logo')).toHaveCount(0)
     // 搜不到时「让Claude帮我找」：这件活一直是 Claude Code 跑的
     await palette(page, '库里绝对没有的词')
     const find = pal(page).getByRole('option').filter({ hasText: '让Claude帮我找' })
