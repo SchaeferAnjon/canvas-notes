@@ -93,6 +93,16 @@ export interface VideoState {
   target: string | null
   translated: number
   total: number
+  /** 正在翻（翻完、停了都是 false） */
+  translating: boolean
+  /** 这一轮翻完还没翻成的句数（视频条上「有 N 句没翻成 · 重试」） */
+  trFailed: number
+  /** 没翻成的原因 */
+  trError?: string
+  /** 引擎的原话（字幕菜单里「看原话」） */
+  trRaw?: string
+  /** AI 摘要：没有字幕 / 在写 / 写好了 / 没写成（原因写在字幕全文那一篇里） */
+  summary: 'none' | 'writing' | 'done' | 'error'
   moments: MomentMark[]
   /** 字幕全文那一篇（存好以后） */
   material: string | null
@@ -175,6 +185,10 @@ export interface CnVideoApi {
   useTrack(wcId: number, lang: string): Promise<void>
   /** 翻成什么（和网页翻译同一个设置） */
   setTarget(target: string): Promise<void>
+  /** 「有 N 句没翻成 · 重试」：只翻还没翻成的 */
+  retryTranslate(wcId: number): Promise<void>
+  /** 字幕全文那一篇里「AI 摘要没写成 · 重试」 */
+  retrySummary(path: string): Promise<void>
   moment(r: MomentRequest): Promise<MomentResult>
   ask(r: AskRequest): Promise<AskResult>
   /** 停下这个视频正在问的那一问 */

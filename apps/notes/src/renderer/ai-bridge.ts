@@ -7,6 +7,7 @@ import type { AgentContext, BridgeOp } from '../shared/agent'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
 import { folderCount } from './ai-place'
+import { spotRange } from './ai-spot'
 import { vaultFiles } from './files/store'
 import { NoteDoc, type ViewMode } from './note-doc'
 import type { Tab } from './tabs'
@@ -136,18 +137,19 @@ async function handle(s: BridgeState, op: BridgeOp, arg: unknown): Promise<unkno
       return { path: d.path, text: d.text, selection: d.view.state.sliceDoc(sel.from, sel.to) }
     }
     case 'docInsert': {
-      const { path, text } = arg as { path: string; text: string }
+      const { path, text, turn } = arg as { path: string; text: string; turn?: number }
       const d = docFor(s, path)
-      d.insertAtCursor(text.replace(/\n+$/, ''), { focus: false })
+      d.insertAtCursor(text.replace(/\n+$/, ''), { focus: false, ai: turn })
       await d.save()
       return null
     }
     case 'docReplace': {
-      const { path, text } = arg as { path: string; text: string }
+      const { path, text, turn } = arg as { path: string; text: string; turn?: number }
       const d = docFor(s, path)
       const sel = d.view.state.selection.main
       if (sel.empty) throw new Error('文档里没有选中的字。请用户先选中要换的那段。')
       d.view.dispatch({ changes: { from: sel.from, to: sel.to, insert: text }, selection: { anchor: sel.from, head: sel.from + text.length }, userEvent: 'input.ai' })
+      if (turn !== undefined) spotRange(d.view, { from: sel.from, to: sel.from + text.length }, turn)
       await d.save()
       return null
     }

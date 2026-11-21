@@ -1,4 +1,5 @@
 /** 双语翻译插件：说明、设置、认语言、引擎和出错原因、术语表（主进程、界面、网页预加载都用，只放纯函数） */
+import { MODEL_ID } from '../ai-features'
 import type { PluginManifest } from '../plugins'
 
 export const TRANSLATE: PluginManifest = {
@@ -88,6 +89,12 @@ export interface TranslateSettings {
   engineMode: 'auto' | 'pick'
   engineOrder: TrEngineId[]
   pick: TrEngineId
+  /**
+   * 只用某一家命令行时选的模型、想多久（task-m55m7：设置 › AI「翻译」那一行先选家、再选模型、再选想多久）；
+   * 不给：Claude Code 用 Haiku（快），别家用它自己的默认模型。按顺序时不用
+   */
+  pickModel?: string
+  pickEffort?: string
 }
 
 export const LANGS: { code: string; name: string }[] = [
@@ -132,6 +139,8 @@ export function normalizeTranslate(raw: unknown): TranslateSettings {
     engineMode: r.engineMode === 'pick' ? 'pick' : 'auto',
     engineOrder: normalizeOrder(r.engineOrder),
     pick: isEngineId(r.pick) ? r.pick : DEFAULT_TRANSLATE.pick,
+    ...(typeof r.pickModel === 'string' && r.pickModel && MODEL_ID.test(r.pickModel) ? { pickModel: r.pickModel } : {}),
+    ...(typeof r.pickEffort === 'string' && /^[a-z]{1,20}$/.test(r.pickEffort) ? { pickEffort: r.pickEffort } : {}),
   }
 }
 
@@ -202,6 +211,7 @@ export type TrErrorCode =
   | 'timeout'
   | 'exited'
   | 'bad-output'
+  | 'incompatible'
   | 'other'
   | 'none'
   | 'no-key'
@@ -241,6 +251,9 @@ export function errorTitle(e: TrError): string {
       return `AI回的格式不对${/漏了 \d+ 段/.exec(e.raw)?.[0] ? '，' + /漏了 \d+ 段/.exec(e.raw)![0] : ''}`
     case 'none':
       return '现在没有能翻的'
+    case 'incompatible':
+      // 命令行更新后不认我们给的参数（task-m55m7）：设置 › AI「各家命令行」那一行能看是哪个、能更新
+      return `${short}更新后有参数不认了`
     default: {
       const first = e.raw.split(/(?<=[。.!?！？\n])/)[0]!.trim()
       return first.length > 60 ? first.slice(0, 60) + '…' : first || '没翻成'

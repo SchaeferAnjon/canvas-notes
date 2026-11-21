@@ -3,7 +3,7 @@
  * - AI 动手看得见（DESIGN.v3 2.3）：白板外圈、顶上「AI 正在整理这块白板 · 停下 esc」、去拿卡片的「AI」指针、正在挪的卡外圈；
  *   esc、提示条上的「停下」都能停（当前这一步做完就停，已做的一次提交）；网页里剪的段落标「✂ 剪成卡片」，撤回后没了。
  * - 文档切到白板照 doc-to-board 方向 A 小样：书摘卡头「《书》· 章」不露 md 链接；PDF 页画缩略图、$$ 公式排好、问过 AI 的截图、
- *   数据库小表、[[白板]] 是白板卡；左边工具板、顶上「按「##」摆成列 · 挪动了才写进文件 · 摆回原样」、右边一格收件箱（2026-11-21 方向 A，原来右上的「收件箱 N ⌄」）。
+ *   数据库小表、[[白板]] 是白板卡；左边工具板、顶上「按「##」摆成列 · 挪动了才写进文件」（只说一次，能收起）、右边一格收件箱（2026-11-21 方向 A，原来右上的「收件箱 N ⌄」）。
  * - 只是切到白板看、不挪：文件一个字节不变（打开再保存文件不变）。
  * 都是真点、真拖、真按键。
  */
@@ -66,19 +66,17 @@ test('AI 在白板上排卡片看得见：外圈、顶上提示条、AI 指针�
     const before = commits(vault)
     await page.keyboard.press('Meta+j')
     await send(page, '在白板上加卡片「订机票」「订租车」，再把卡片按列排')
-    // 1. 白板外圈：内描 2px --acc-ring
+    // 1. 白板四边一道光在走（流光 A2，task-k9f5y；细节在 r20-ai-glow.spec.ts）
     const ring = board.getByTestId('ai-acting')
     await expect(ring).toBeVisible()
-    const shadow = await ring.evaluate((el) => getComputedStyle(el).boxShadow)
-    const accRing = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--acc-ring').trim())
-    expect(shadow).toContain('inset')
-    expect(shadow).toMatch(/2px/)
-    expect(accRing).not.toBe('')
+    await expect(ring).toHaveAttribute('data-phase', 'run')
+    expect(await ring.locator('.beam').count()).toBe(4)
     // 2. 顶上居中：「AI 正在整理这块白板 · 停下 esc」，32 高，居中
     const bar = board.getByTestId('ai-actbar')
     await expect(bar).toContainText('AI 正在整理这块白板')
     await expect(bar.getByRole('button', { name: /停下/ })).toContainText('esc')
-    const bb = (await board.boundingBox())!
+    // 居中在白板那一格上（右边一格收件箱不算：光和提示条只盖 AI 在动的白板）
+    const bb = (await board.locator('.db-area').boundingBox())!
     const barBox = (await bar.boundingBox())!
     expect(barBox.height).toBeCloseTo(32, 1)
     expect(Math.abs(barBox.x + barBox.width / 2 - (bb.x + bb.width / 2))).toBeLessThan(2)
@@ -86,20 +84,27 @@ test('AI 在白板上排卡片看得见：外圈、顶上提示条、AI 指针�
     const cursor = board.getByTestId('ai-cursor')
     await expect(cursor).toHaveClass(/\bon\b/)
     await expect(cursor).toContainText('AI')
-    // 4. 正在拿的那张：2px 外圈，跟那张卡一样大；同一刻指针就在这张卡上
+    // 4. 正在拿的那张：边上跑一圈光，跟那张卡一样大；指针就在这张卡上（指针去拿下一张的路上，上一张的光还在淡出：等指针到了再看）
     await expect(board.getByTestId('ai-grab-ring').first()).toBeVisible()
+    await expect
+      .poll(() =>
+        board.evaluate((b) => {
+          const g = b.querySelector('[data-testid="ai-grab-ring"]')?.getBoundingClientRect()
+          const c = b.querySelector('[data-testid="ai-cursor"]')!.getBoundingClientRect()
+          return !!g && c.x >= g.x - 1 && c.x <= g.x + g.width
+        }),
+      )
+      .toBe(true)
     const at = await board.evaluate((b) => {
       const g = b.querySelector('[data-testid="ai-grab-ring"]')?.getBoundingClientRect()
       const c = b.querySelector('[data-testid="ai-cursor"]')!.getBoundingClientRect()
       const cards = [...b.querySelectorAll('.db-card')].map((e) => e.getBoundingClientRect())
       const ring = b.querySelector('[data-testid="ai-grab-ring"]')
-      return g ? { g: g.toJSON() as DOMRect, c: c.toJSON() as DOMRect, cards: cards.map((r) => r.toJSON() as DOMRect), shadow: ring ? getComputedStyle(ring).boxShadow : '' } : null
+      return g ? { g: g.toJSON() as DOMRect, c: c.toJSON() as DOMRect, cards: cards.map((r) => r.toJSON() as DOMRect), glow: !!ring?.querySelector('.ai-glow-ring') } : null
     })
     expect(at).not.toBeNull()
     expect(at!.cards.some((c) => Math.abs(c.x - at!.g.x) < 3 && Math.abs(c.width - at!.g.width) < 3)).toBe(true)
-    expect(at!.c.x).toBeGreaterThanOrEqual(at!.g.x - 1)
-    expect(at!.c.x).toBeLessThanOrEqual(at!.g.x + at!.g.width)
-    expect(at!.shadow).toMatch(/0px 0px 0px 2px/)
+    expect(at!.glow).toBe(true)
     await page.screenshot({ path: 'test-results/b2-ai-board.png' })
     // 排的时候一张张挪：指针先后去拿好几张不同的卡
     const seen = new Set<string>()
@@ -153,7 +158,7 @@ test('AI 排卡片时按 esc 停下：手上这一步做完就停，已经做了
   }
 })
 
-test('文档切成的白板上 AI 动手也看得见：外圈、提示条（顶上那条说明让位），点提示条上的「停下」停', async () => {
+test('文档切成的白板上 AI 动手也看得见：加卡时只亮那张卡（顶上那条说明让位），点那张卡下面的「停下 esc」停', async () => {
   const doc = '# 冰岛\n\n## 出发前\n\n还没订完的：\n\n- [ ] 租车\n\n## 路线\n\n第一天：黄金圈。\n'
   const run = await launch({ '冰岛.md': doc }, { CN_AI_FAKE: '1' })
   const { page, vault } = run
@@ -164,23 +169,24 @@ test('文档切成的白板上 AI 动手也看得见：外圈、提示条（顶�
     await expect(docBoard(page).locator('.db-hint')).toBeVisible()
     await page.keyboard.press('Meta+j')
     await send(page, '在白板上加卡片「订机票」「订租车」「看极光」，再排整齐')
-    const bar = docBoard(page).getByTestId('ai-actbar')
-    await expect(bar).toContainText('AI 正在整理这块白板')
-    await expect(docBoard(page).getByTestId('ai-acting')).toBeVisible()
-    // 顶上那条「按「##」摆成列」让位
-    await expect(docBoard(page).locator('.db-hint')).toBeHidden()
-    // 指针去拿刚加的那张（文档末尾多了一行位置的那张）
-    await expect(docBoard(page).getByTestId('ai-grab-ring').first()).toBeVisible()
+    // 先加卡：只亮刚加的那张（流光 A2：只加一张卡时整块不亮），指针去拿它；顶上那条「按「##」摆成列」让位
+    const spot = docBoard(page).getByTestId('ai-spot-bar')
+    await expect(spot).toContainText('AI 在写这张卡')
+    await expect(docBoard(page).getByTestId('ai-spot-ring')).toBeVisible()
     await expect(docBoard(page).getByTestId('ai-cursor')).toHaveClass(/\bon\b/)
+    await expect(docBoard(page).locator('.db-hint')).toBeHidden()
     await page.screenshot({ path: 'test-results/b2-ai-docboard.png' })
-    await bar.getByRole('button', { name: /停下/ }).click()
+    await spot.getByRole('button', { name: '停下 esc' }).click()
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg).toContainText('停下了', { timeout: 20_000 })
     await expect(docBoard(page).getByTestId('ai-act')).toHaveCount(0)
-    await expect(docBoard(page).locator('.db-hint')).toBeVisible()
     await waitSaved(page)
     const md = readFileSync(join(vault, '冰岛.md'), 'utf8')
     expect(md).toContain('订机票')
+    // AI 加的卡进了列、文件里没有位置行：顶上不说「离开了自己那一节」，也没有「摆回原样」（说明只说一次、6 秒收起，task-wn3x5）
+    expect(md).not.toContain('<!-- card')
+    await expect(docBoard(page).locator('.db-hint', { hasText: '离开了自己那一节' })).toHaveCount(0)
+    await expect(docBoard(page).getByRole('button', { name: '摆回原样' })).toHaveCount(0)
     expect(md).not.toContain('看极光')
   } finally {
     await run.close()
@@ -385,20 +391,20 @@ test('文档切成的白板：工具板六样、顶上那条说明、右边一�
     // 工具板：卡片、待办、列、数据库、子白板｜拍导图（2026-11-21 方向 A 加了数据库）
     const pal = docBoard(page).locator('.bpal button')
     await expect(pal).toHaveText(['卡片', '待办', '列', '数据库', '子白板', '拍导图'])
-    // 顶上居中：按「##」摆成列 · 挪动了才写进文件 + 摆回原样
+    // 顶上居中：第一次打开说一次「按「##」摆成列 · 挪动了才写进文件」，右边 ×；没东西可摆时没有「摆回原样」（task-wn3x5）
     const hint = docBoard(page).locator('.db-hint')
-    await expect(hint).toHaveText('按「##」摆成列 · 挪动了才写进文件摆回原样')
+    await expect(hint).toHaveText('按「##」摆成列 · 挪动了才写进文件')
+    await expect(hint.getByRole('button', { name: '摆回原样' })).toHaveCount(0)
+    await expect(hint.getByRole('button', { name: '收起这条说明' })).toBeVisible()
     await expect(hint.locator('b')).toHaveText('挪动了才写进文件')
     const hb = (await hint.boundingBox())!
-    expect(hb.height).toBe(32)
+    // 进场动画（落下 6px 淡入，带着 transform）还在走时量出来是 32.0000076 这种浮点尾数：差在百分之一像素以内就是 32
+    expect(hb.height).toBeCloseTo(32, 2)
     // 收件箱：标签条右端「收件箱 1」，白板右边一格
     const inbox = acts(page).getByTestId('db-inbox')
     await expect(inbox).toHaveText('收件箱1')
     const drawer = docBoard(page).getByRole('complementary', { name: '收件箱' })
     await expect(drawer).toBeVisible()
-    // 「摆回原样」没东西可摆时说一句，不写文件
-    await hint.getByRole('button', { name: '摆回原样' }).click()
-    await expect(docBoard(page).locator('.db-toast')).toContainText('已经是按节摆的样子')
     expect(file()).toBe(TRAVEL_NOTE)
 
     // 「卡片」拖到空白处：那里出一张空卡就地写，⌘↵ 放好；文档末尾多这一段和一行位置，顶上那条跟着变；卡底不写在哪一节

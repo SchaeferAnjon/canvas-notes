@@ -6,6 +6,7 @@
  * dream：梦游分支上还没收下的那份（报告里「预览可视化」），只看不问。
  */
 import { Codicon } from '@cn/design'
+import { isKey, useKeys } from '../keys'
 import { AiIcon } from '../engine-logo'
 import { ActBtn, PageNote, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
@@ -26,6 +27,8 @@ interface Box {
 }
 
 export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; onNotice(t: string): void; dream?: boolean; by?: string }) {
+  /** 写在界面上的键照命令表（改了跟着变） */
+  const K = useKeys()
   const { path } = props
   const [meta, setMeta] = useState<{ type?: string; lecture?: string; title?: string; by?: string }>({})
   const [seq, setSeq] = useState(0)
@@ -68,7 +71,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
     const down = (e: KeyboardEvent) => {
       if (e.key === 'Meta') setCmd(true)
       else if (e.key === 'Escape' && (boxed || framing) && !(e.target as Element)?.closest?.('textarea')) cancel()
-      else if (e.key === 'Enter' && e.metaKey && !e.isComposing) {
+      else if (!e.defaultPrevented && isKey(e, 'ask-page')) {
         e.preventDefault()
         if (boxed) void capAsk('rephrase')
         else void askScreen()
@@ -178,8 +181,8 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
         <ActBtn icon="refresh" label="重新载入" onClick={() => setSeq((n) => n + 1)} />
         {canAsk && (
           <>
-            <ActBtn icon="screen-full" label="框一块问" keys="按住 ⌘ 拖" on={framing} onClick={() => setFraming((v) => !v)} />
-            <ActBtn icon="comment-discussion" ai="chat" label="问这一屏" keys="⌘↵" disabled={r.running !== null} onClick={() => void askScreen()} />
+            <ActBtn icon="screen-full" label="框一块问" keys={K('cmd-drag') ?? undefined} on={framing} onClick={() => setFraming((v) => !v)} />
+            <ActBtn icon="comment-discussion" ai="chat" label="问这一屏" keys={K('ask-page') ?? undefined} disabled={r.running !== null} onClick={() => void askScreen()} />
           </>
         )}
         <div className="pdfmore">
@@ -227,7 +230,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
               </button>
               <button onClick={() => void capAsk('rephrase')}>
                 <Codicon name="edit" size={14} />
-                改问法<kbd>⌘↵</kbd>
+                改问法{K('ask-page') && <kbd>{K('ask-page')}</kbd>}
               </button>
               <span className="sepv" />
               <button aria-label="取消" data-tip="取消 esc" data-side="below" onClick={cancel}>

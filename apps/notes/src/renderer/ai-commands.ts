@@ -1,6 +1,6 @@
 import { appendBlock, attr, freshId, hasOldLayout, isMindmap, newBlock, newId, num, parseBoard, serializeBoard, splitDoc, tagLine } from '@cn/format'
-import type { DreamReport, NoteFile } from '../shared/api'
-import { CLIPS, INBOX, previewOf, titleOf } from '../shared/layout'
+import type { DreamReport } from '../shared/api'
+import { INBOX, titleOf } from '../shared/layout'
 import { BRAND } from '../shared/brand'
 import { MATH_RULE } from '../shared/reading'
 import { DOC_BOARD_RULES } from '@cn/format'
@@ -12,7 +12,7 @@ export interface Command {
 }
 
 export const COMMANDS: Command[] = [
-  { name: '整理收件箱', desc: '给收件箱里的东西找主题，你点同意才挪，一次提交可撤回' },
+  { name: '整理收件箱', desc: '分进课程、周记、剪藏这些，你点同意才挪，可撤回' },
   { name: '整理当前白板', desc: '按内容把卡片分成几列、排整齐，不删不改卡片，一次提交可撤回' },
   { name: '总结这块白板', desc: '把当前这块白板或这篇读一遍，写成几句话' },
   { name: '写成文章', desc: '按白板从左到右、从上到下写成一篇文档草稿' },
@@ -62,32 +62,10 @@ export function translatePrompt(text: string): string {
   return `命令：翻译\n\n把下面的文字翻译过来：中文翻成英文，其他语言翻成中文。只输出译文。\n\n<text>\n${text}\n</text>`
 }
 
-export function inboxPrompt(items: { path: string; text: string }[], topics: string[]): string {
-  const list = items.map((i) => `路径：${i.path}\n内容：${previewOf(i.text, 300)}`).join('\n\n')
-  return `命令：整理收件箱\n\n下面是收件箱里的东西。给每一条选一个主题（素材文件夹名），优先用已有的主题：${topics.join('、') || '（还没有）'}。
-没把握的那条就不要列出来。主题名短一点（2 到 6 个字）。
-只输出一个 JSON 代码块：[{"path": "收件箱/…", "topic": "主题"}]\n\n${list}`
-}
-
 export function askPrompt(question: string, context: { path: string; text: string }[]): string {
   const ctx = context.map((c) => `<note path="${c.path}">\n${c.text}\n</note>`).join('\n\n')
   return `命令：问答\n\n${ctx ? `能看到的笔记：\n${ctx}\n\n` : ''}问题：${question}`
 }
-
-/** 从回答里取 JSON 代码块 */
-export function parseMoves(reply: string, inbox: NoteFile[]): { path: string; topic: string }[] {
-  const m = /```(?:json)?\s*([\s\S]*?)```/.exec(reply) ?? /(\[[\s\S]*\])/.exec(reply)
-  if (!m) throw new Error('AI没给出能用的整理方案')
-  const raw = JSON.parse(m[1]!) as unknown
-  if (!Array.isArray(raw)) throw new Error('AI没给出能用的整理方案')
-  const paths = new Set(inbox.map((n) => n.path))
-  return raw
-    .filter((x): x is { path: string; topic: string } => typeof x?.path === 'string' && typeof x?.topic === 'string')
-    .filter((x) => paths.has(x.path) && x.topic.trim() && !/[\\/:]/.test(x.topic))
-    .map((x) => ({ path: x.path, topic: x.topic.trim() }))
-}
-
-export const topicFolder = (topic: string) => `${CLIPS}/${topic}`
 
 /**
  * 总结存成卡片，标上「AI 总结的」和日期。2026-11-21 起白板就是这篇文档：放在最左一组最前面（标题下面），

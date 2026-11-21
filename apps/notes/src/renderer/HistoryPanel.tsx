@@ -9,19 +9,11 @@ import { autoCommitLabel } from '../shared/appearance'
 import { when } from '../shared/when'
 import { fileIcon } from './Palette'
 import { Popover } from './shell/Shell'
+import { setHideInternal, useHideInternal } from './history-hide'
 
 /** 软件自己的文件（同 @cn/git 的 isInternalPath）：.canvas-notes/ 下面的全部、文件夹的 .首页.json 和首页模板、.gitkeep */
 const internal = (p: string) => p === '.canvas-notes' || p.startsWith('.canvas-notes/') || /(^|\/)\.(首页|首页模板)\.json$/.test(p) || isKeep(p)
 const isKeep = (p: string) => /(^|\/)\.gitkeep$/.test(p)
-/** 「藏起软件自己的设置文件」开关，记在本机，默认开（CN-116 方向 A） */
-const HIDE_KEY = 'cn.historyHideInternal'
-function loadHide(): boolean {
-  try {
-    return localStorage.getItem(HIDE_KEY) !== '0'
-  } catch {
-    return true
-  }
-}
 
 type Row = CommitInfo['files'][number] & { kind: 'mine' | 'folder' | 'gear' }
 
@@ -59,7 +51,8 @@ export function HistoryPanel(props: {
   const [committing, setCommitting] = useState(false)
   const [openHash, setOpenHash] = useState<string | null>(null)
   const [cur, setCur] = useState<string | null>(null)
-  const [hide, setHide] = useState(loadHide)
+  // 「藏起软件自己的设置文件」开关，记在本机，默认开（CN-116 方向 A）；设置 › Git和同步里是同一个
+  const hide = useHideInternal()
   const [more, setMore] = useState<HTMLElement | null>(null)
   /** 刚放回的那次（左边一道强调色竖线）；放回以后删掉的那次还展开着 */
   const [fresh, setFresh] = useState<string | null>(null)
@@ -98,13 +91,8 @@ export function HistoryPanel(props: {
   }
   function toggleHide() {
     const next = !hide
-    setHide(next)
+    setHideInternal(next)
     setMore(null)
-    try {
-      localStorage.setItem(HIDE_KEY, next ? '1' : '0')
-    } catch {
-      // 记不住只影响下次打开
-    }
     if (next) return props.onNotice('藏起了软件自己的设置文件')
     void window.cn.history(100).then((all) => {
       const n = all.filter((c) => c.files.length > 0 && c.files.every((f) => internal(f.path) && !isKeep(f.path))).length

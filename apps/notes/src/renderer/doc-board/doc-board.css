@@ -1738,3 +1738,43 @@
   color: var(--acc-t);
   font-size: 13px;
 }
+
+/* 顶上那条提示能消失（task-wn3x5）：进场从上面落下 6px 淡入，收起反过来；右边 × 是 24 的圆，--t3 字，悬停 --fill。样式别的照旧 */
+.db-hint {
+  animation: db-hint-in var(--dur-slow) var(--ease) both;
+}
+.db-hint.leaving {
+  animation: db-hint-out var(--dur-slow) var(--ease) both;
+}
+.db-hint.leaving button {
+  pointer-events: none;
+}
+@keyframes db-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+@keyframes db-hint-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.db-hint-x {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--t3);
+}
+.db-hint-x:hover {
+  background: var(--fill);
+  color: var(--t1);
+}

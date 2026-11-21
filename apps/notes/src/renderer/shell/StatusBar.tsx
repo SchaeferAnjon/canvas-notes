@@ -6,6 +6,9 @@ import { when } from '../../shared/when'
 import type { AiJob } from '../../shared/ai-logo'
 import { AiIcon } from '../engine-logo'
 import { MenuItem, Popover } from './Shell'
+import { autoSyncLabel } from '../../shared/prefs'
+import { usePrefs } from '../settings-store'
+import { openSettingsAt } from '../settings/jump'
 
 const KIND: Record<string, string> = { '??': '新', A: '新', M: '改', D: '删', R: '移动' }
 const kindOf = (code: string) => KIND[code] ?? KIND[code.trim()[0] ?? ''] ?? '改'
@@ -55,7 +58,8 @@ export function StatusBar(props: {
 }) {
   const { git, frame } = props
   const [busy, setBusy] = useState<'commit' | 'sync' | null>(null)
-  const [pop, setPop] = useState<{ kind: 'changes' | 'jobs'; el: HTMLElement } | null>(null)
+  const [pop, setPop] = useState<{ kind: 'changes' | 'jobs' | 'sync'; el: HTMLElement } | null>(null)
+  const autoSyncMinutes = usePrefs((s) => s.sync.autoMinutes)
   const changed = git?.changes.length ?? 0
   const unsaved = props.unsaved ?? []
 
@@ -79,6 +83,12 @@ export function StatusBar(props: {
       {busy === 'sync' ? '正在同步' : '同步'}
     </button>
   )
+  /** 自动同步开着时下次的时间（设置 › Git和同步） */
+  const next = git?.nextSync ? `下次 ${new Date(git.nextSync).toTimeString().slice(0, 5)}` : null
+  /** 「同步」那一处的一行状态：多久同步一次、下次什么时候 */
+  const syncLine = git?.nextSync ? `${autoSyncLabel(autoSyncMinutes)}同步一次 · ${next}` : git?.hasRemote ? '只在你点时同步' : '还没有远程仓库'
+  /** 菜单最下面一项：到设置 › Git和同步「自动同步」那一行（方向 A 的 A3） */
+  const syncSettings = <MenuItem icon="settings-gear" className="go" label="同步设置…" right={<Codicon name="chevron-right" size={12} />} onClick={() => (setPop(null), openSettingsAt('autoSync'))} />
 
   return (
     <footer className={'status gitbar' + (props.previewing ? ' previewing' : '')}>
@@ -103,7 +113,13 @@ export function StatusBar(props: {
         </button>
       )}
       {frame === 'a' && commitBtn('bi')}
-      {frame === 'a' && syncBtn('bi')}
+      {frame === 'a' && (
+        <button className="bi" data-testid="sync-btn" disabled={busy !== null} data-tip="和远端同步" data-side="above" onClick={(e) => setPop(pop?.kind === 'sync' ? null : { kind: 'sync', el: e.currentTarget })}>
+          <Codicon name="sync" size={14} className={busy === 'sync' ? 'spin' : ''} />
+          {busy === 'sync' ? '正在同步' : '同步'}
+          {next && busy !== 'sync' && <span className="nxt">· {next}</span>}
+        </button>
+      )}
       {frame === 'a' &&
         props.jobs.map((j) => (
           <button key={j.id} className="bi job" onClick={j.onClick}>
@@ -177,6 +193,21 @@ export function StatusBar(props: {
               历史
             </button>
           </div>
+          {frame === 'b' && (
+            <>
+              <div className="ms" />
+              <div className="mtx" data-testid="sync-line">{syncLine}</div>
+              {syncSettings}
+            </>
+          )}
+        </Popover>
+      )}
+      {pop?.kind === 'sync' && (
+        <Popover anchor={pop.el} label="同步" onClose={() => setPop(null)}>
+          <div className="mtx" data-testid="sync-line">{syncLine}</div>
+          <MenuItem icon="sync" label="现在同步" onClick={() => (setPop(null), void run('sync', props.onSync))} />
+          <div className="ms" />
+          {syncSettings}
         </Popover>
       )}
       {pop?.kind === 'jobs' && (

@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { launch, pane, rail, waitSaved, tabOn, railItems, openInboxTab, leftView, webAboveAi } from './app'
+import { pickQuick } from './ai-quick'
 import { ICELAND, LODGING } from './fixtures/board'
 
 const ai = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
@@ -156,7 +157,8 @@ test('AI：/整理收件箱 列出要挪去的主题，点同意一次挪好、�
     await openInboxTab(page)
     await openAi(page)
     await expect(page.getByTestId('ai-sees')).toContainText('收件箱2条')
-    await ai(page).getByRole('button', { name: '/整理收件箱' }).click()
+    // 空对话输入框上面那排快捷命令（task-0tgz2）：点「整理收件箱」就是 /整理收件箱
+    await pickQuick(ai(page), '整理收件箱')
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg.locator('.mv')).toHaveCount(2)
     await expect(msg).toContainText('→ 剪藏/旅行')

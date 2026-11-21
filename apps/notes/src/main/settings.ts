@@ -4,8 +4,8 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { type AppSettings, normalizeSettings, type SkinInfo } from '../shared/appearance'
-import { type DreamPatch, patchDream } from '../shared/dream-settings'
+import { type AppSettings, normalizeSettings, type SettingsPatch, type SkinInfo } from '../shared/appearance'
+import { patchDream } from '../shared/dream-settings'
 
 export interface StoredSettings extends Partial<AppSettings> {
   lastVault?: string
@@ -13,16 +13,11 @@ export interface StoredSettings extends Partial<AppSettings> {
   quickHint?: boolean
   /** 检查更新上次查到「已是最新」的时间（毫秒） */
   updateCheckedAt?: number
+  /** 每天备份一份（设置 › Git和同步）：按库的路径记上次备好的时间、文件、没备成的原因 */
+  backups?: Record<string, { at?: number; file?: string; error?: string | null }>
 }
 
-/** 界面改设置时给的一处：外观、梦游只给改了的那几项 */
-export interface SettingsPatch {
-  appearance?: Partial<AppSettings['appearance']>
-  autoCommitMinutes?: number
-  archiveDays?: number
-  autoUpdate?: boolean
-  dream?: DreamPatch
-}
+export type { SettingsPatch }
 
 export class SettingsFile {
   /** userSkins：导入的 VS Code 主题（设置里选的是删掉了的那套时回到默认） */
@@ -66,6 +61,12 @@ export class SettingsFile {
         ...(p.autoUpdate !== undefined ? { autoUpdate: p.autoUpdate } : {}),
         appearance: { ...cur.appearance, ...(p.appearance ?? {}) },
         dream: p.dream ? patchDream(cur.dream, p.dream) : cur.dream,
+        general: { ...cur.general, ...(p.general ?? {}) },
+        editor: { ...cur.editor, ...(p.editor ?? {}) },
+        files: { ...cur.files, ...(p.files ?? {}) },
+        pdf: { ...cur.pdf, ...(p.pdf ?? {}) },
+        web: { ...cur.web, ...(p.web ?? {}) },
+        sync: { ...cur.sync, ...(p.sync ?? {}) },
       },
       this.userSkins(),
     )

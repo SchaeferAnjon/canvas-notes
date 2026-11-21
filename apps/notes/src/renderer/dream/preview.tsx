@@ -1,4 +1,5 @@
 import { composing } from '../ime'
+import { keyFor } from '../keys'
 /**
  * 梦游预览（设计稿 design-mindmap 方向 B 第 8 节）：点报告里的「预览」，左栏（以后是目录树、文件夹首页）换成改好以后的样子，
  * 中间栏顶上一条「正在预览梦游的整理」：跟 AI 说哪里不对、退出预览、丢掉、收下这 N 处。
@@ -272,7 +273,7 @@ function FeedbackPop(props: { pv: DreamPreview }) {
         </button>
         <button className="btn btn-primary btn-sm" disabled={!text.trim()} onClick={send}>
           <AiIcon job="dream" size={14} />
-          重做<span className="kbd-in">⌘↵</span>
+          重做<span className="kbd-in">{keyFor('submit')}</span>
         </button>
       </div>
     </div>

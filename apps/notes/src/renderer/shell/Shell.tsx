@@ -1,4 +1,5 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { useKeys } from '../keys'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { menuAt } from '../ctx/menu'
@@ -177,24 +178,26 @@ export function TitleBar(props: {
   /** 正在看的网页在哪：右栏（按钮写「移到中间」）还是中间的宽标签（「放回右栏」）；都没在看网页时没有这颗按钮 */
   web: { where: 'right' | 'center'; onMove(): void } | null
 }) {
+  /** 写在提示上的键照命令表（改了跟着变） */
+  const K = useKeys()
   const webLabel = props.web?.where === 'center' ? '放回右栏' : '移到中间'
   return (
     <header className="titlebar">
       <div className="tb-left">
-        <button className="tb-btn" aria-label={props.leftOpen ? '收起左栏' : '展开左栏'} aria-pressed={props.leftOpen} data-tip={props.leftOpen ? '收起左栏' : '展开左栏'} data-key="⌘\" data-side="below" onClick={props.onToggleLeft}>
+        <button className="tb-btn" aria-label={props.leftOpen ? '收起左栏' : '展开左栏'} aria-pressed={props.leftOpen} data-tip={props.leftOpen ? '收起左栏' : '展开左栏'} data-key={K('toggle-left') ?? undefined} data-side="below" onClick={props.onToggleLeft}>
           <Codicon name={props.leftOpen ? 'layout-sidebar-left' : 'layout-sidebar-left-off'} />
         </button>
-        <button className="tb-btn" aria-label="后退" data-tip="后退" data-key="⌘[" data-side="below" disabled={!props.canBack} onClick={props.onBack}>
+        <button className="tb-btn" aria-label="后退" data-tip="后退" data-key={K('back') ?? undefined} data-side="below" disabled={!props.canBack} onClick={props.onBack}>
           <Codicon name="arrow-left" />
         </button>
-        <button className="tb-btn" aria-label="前进" data-tip="前进" data-key="⌘]" data-side="below" disabled={!props.canForward} onClick={props.onForward}>
+        <button className="tb-btn" aria-label="前进" data-tip="前进" data-key={K('forward') ?? undefined} data-side="below" disabled={!props.canForward} onClick={props.onForward}>
           <Codicon name="arrow-right" />
         </button>
-        <button className="tb-btn" aria-label="首页" data-tip="首页" data-key="⇧⌘H" data-side="below" onClick={props.onHome}>
+        <button className="tb-btn" aria-label="首页" data-tip="首页" data-key={K('home') ?? undefined} data-side="below" onClick={props.onHome}>
           <Codicon name="home" />
         </button>
       </div>
-      <button className="cmd" aria-label="搜索" data-tip="搜索笔记、输入网址或命令" data-key="⌘K" data-side="below" onClick={props.onSearch}>
+      <button className="cmd" aria-label="搜索" data-tip="搜索笔记、输入网址或命令" data-key={K('search') ?? undefined} data-side="below" onClick={props.onSearch}>
         <Codicon name="search" />
         <span className="ph truncate">
           {props.location ?? (
@@ -203,7 +206,7 @@ export function TitleBar(props: {
             </>
           )}
         </span>
-        <kbd>⌘K</kbd>
+        {K('search') && <kbd>{K('search')}</kbd>}
       </button>
       <div className="tb-right">
         {props.web && (
@@ -219,7 +222,7 @@ export function TitleBar(props: {
             <span className="lb">{webLabel}</span>
           </button>
         )}
-        <button className="tb-btn" aria-label={props.rightOpen ? '收起右栏' : '展开右栏'} aria-pressed={props.rightOpen} data-tip={props.rightOpen ? '收起右栏' : '展开右栏'} data-key="⌥⌘\" data-side="below-left" onClick={props.onToggleRight}>
+        <button className="tb-btn" aria-label={props.rightOpen ? '收起右栏' : '展开右栏'} aria-pressed={props.rightOpen} data-tip={props.rightOpen ? '收起右栏' : '展开右栏'} data-key={K('toggle-right') ?? undefined} data-side="below-left" onClick={props.onToggleRight}>
           <Codicon name={props.rightOpen ? 'layout-sidebar-right' : 'layout-sidebar-right-off'} />
         </button>
       </div>

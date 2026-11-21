@@ -91,7 +91,8 @@ test('CN-91：ai:engines 给每家的模型、effort 和「AI 对话」现在选
     // 设置里记的是「AI 对话」那一行，默认没动
     const settings = JSON.parse(readFileSync(join(run.userData, 'ai/settings.json'), 'utf8'))
     expect(settings.prefs.default).toEqual({ engine: 'claude', model: 'claude-opus-5-5' })
-    expect(settings.prefs.features.chat).toEqual({ engine: 'gemini' })
+    // task-m55m7 起四家选的模型、档都记着（Gemini、OpenCode 也能选拉到的模型）；问的时候这个模型没有档就不传（上面「effort：没指定」）
+    expect(settings.prefs.features.chat).toEqual({ engine: 'gemini', effort: 'high' })
   } finally {
     await run.close()
   }

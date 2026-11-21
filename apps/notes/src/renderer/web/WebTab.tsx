@@ -1,4 +1,5 @@
 import { Codicon } from '@cn/design'
+import { useKeyHandler } from '../keys'
 import { useEffect, useRef, useState } from 'react'
 import type { Clip } from '../../shared/api'
 import { decodeUrl, toUrl } from '../url'
@@ -10,6 +11,8 @@ import { type NavState, WebView, type WebviewEl } from './WebView'
 export function WebTab(props: {
   url: string
   active: boolean
+  /** 重开软件时恢复的标签：点开才载入，网页里的视频不自己播（task-0t4jq） */
+  restored?: boolean
   onUrl(url: string, title: string): void
   onClip(c: Clip): void
   onNotice(t: string): void
@@ -23,20 +26,17 @@ export function WebTab(props: {
   const addr = useRef<HTMLInputElement>(null)
   const cb = useRef(props)
   cb.current = props
+  /** 显示过：之后一直载着（恢复的标签在后面时先不载入） */
+  const [shown, setShown] = useState(props.active)
+  if (props.active && !shown) setShown(true)
 
   useEffect(() => {
     if (props.active && wc !== null) void window.cnWeb.setActiveTab(wc)
   }, [props.active, wc])
 
-  // 网页焦点时的 ⌘W、⌘L（⌘T 由右栏开新网页）
-  useEffect(() => {
-    if (wc === null) return
-    return window.cnWeb.onKey((k, id) => {
-      if (id !== wc) return
-      if (k === 'w') cb.current.onClose()
-      else if (k === 'l') addr.current?.focus()
-    })
-  }, [wc])
+  // 中间开着的宽网页：地址栏、重新载入的键（命令表）先归它；关掉是「关掉」（关当前标签）
+  useKeyHandler('web-address', props.active ? () => (addr.current?.focus(), addr.current?.select(), true) : null, 1)
+  useKeyHandler('web-reload', props.active ? () => (view.current?.reload(), true) : null, 1)
 
   async function clipPage() {
     try {
@@ -79,26 +79,29 @@ export function WebTab(props: {
         </button>
       </div>
       <div className="wbody">
-        <WebView
-          initialUrl={props.url}
-          visible
-          clipMode={{ mode: 'inbox' }}
-          onRef={(el) => (view.current = el)}
-          onAttach={setWc}
-          onNav={(n) => {
-            setNav(n)
-            if (/^https?:/.test(n.url)) {
-              setAddress(decodeUrl(n.url))
-              props.onUrl(n.url, title)
-            }
-          }}
-          onTitle={(t) => {
-            setTitle(t)
-            props.onUrl(cur, t)
-          }}
-          onClip={props.onClip}
-          menuHost={{ openTab: (u) => app().openInWeb(u), clipPage: () => void clipPage() }}
-        />
+        {shown && (
+          <WebView
+            initialUrl={props.url}
+            visible
+            hold={props.restored}
+            clipMode={{ mode: 'inbox' }}
+            onRef={(el) => (view.current = el)}
+            onAttach={setWc}
+            onNav={(n) => {
+              setNav(n)
+              if (/^https?:/.test(n.url)) {
+                setAddress(decodeUrl(n.url))
+                props.onUrl(n.url, title)
+              }
+            }}
+            onTitle={(t) => {
+              setTitle(t)
+              props.onUrl(cur, t)
+            }}
+            onClip={props.onClip}
+            menuHost={{ openTab: (u) => app().openInWeb(u), clipPage: () => void clipPage() }}
+          />
+        )}
       </div>
     </section>
   )

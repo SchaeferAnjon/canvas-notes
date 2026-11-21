@@ -746,62 +746,111 @@
   padding: 12px;
   color: var(--t1);
 }
+/* 属性那一页照 four-items 小样 2a：上 14 下 10、左右 16，分隔线横贯整个弹层（网格那一页照旧 12 的内边距） */
+.mm-props:not(.grid) {
+  padding: 14px 0 10px;
+}
 .mm-props h4 {
-  margin: 0 0 6px;
+  margin: 0;
+  padding: 0 16px 8px;
   font: 600 13px/1.4 var(--sans);
 }
 .mm-props .pr {
-  display: flex;
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  height: 32px;
+  column-gap: 8px;
+  height: 30px;
+  padding: 0 16px;
 }
 .mm-props .k {
-  width: 64px;
-  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 12px;
   color: var(--t2);
 }
-.mm-props select,
-.mm-props input {
-  flex: 1;
+/* 值：26 高的框（1px --line2、--card 底、圆角 6、左右 8），下拉右边一个 chevron-down 12 --t3 */
+.mm-props .pr > input,
+.mm-props .sel select {
+  text-overflow: ellipsis;
+  width: 100%;
   min-width: 0;
   height: 26px;
-  border: 1px solid transparent;
+  border: 1px solid var(--line2);
   border-radius: 6px;
-  background: transparent;
+  background: var(--card);
   color: var(--t1);
+  font: 13px var(--sans);
+  padding: 0 8px;
+}
+.mm-props .sel {
+  position: relative;
+  min-width: 0;
+  display: flex;
+}
+.mm-props .sel select {
+  appearance: none;
+  padding-right: 26px;
+}
+.mm-props .sel .ci {
+  position: absolute;
+  right: 8px;
+  top: 7px;
+  color: var(--t3);
+  pointer-events: none;
+}
+.mm-props .pr > input:focus,
+.mm-props .sel select:focus {
+  outline: none;
+  border-color: var(--acc-ring);
+}
+.mm-props .sel select:disabled {
+  opacity: 1;
+}
+/* 软件读来的（网站、时长、字幕、来源）：只看，不画框，字和框里的字对齐 */
+.mm-props .v.ro {
+  min-width: 0;
+  padding: 0 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
+  line-height: 26px;
+  color: var(--t1);
+  user-select: text;
+}
+/* AI 填的那一行最右多一列小字；别的行值的框右边和左边一样离弹层边 16 */
+.mm-props .pr.has-ai {
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+}
+.mm-props .pr.new input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--t1);
+  font-size: 12px;
   padding: 0 6px;
 }
-.mm-props select:hover,
-.mm-props input:hover {
-  background: var(--fill);
-}
-.mm-props select:focus,
-.mm-props input:focus {
+.mm-props .pr.new input:focus {
   outline: none;
-  background: var(--card);
-  border-color: var(--line2);
-}
-.mm-props .pr.new input.k {
-  width: 64px;
-  flex: none;
-  border-color: var(--line2);
+  border-color: var(--acc-ring);
 }
 .mm-props .ai {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--t3);
-  flex: none;
-  min-width: 48px;
-  text-align: right;
+  white-space: nowrap;
 }
 .mm-props .add {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   height: 26px;
-  margin: 4px 0 0;
+  margin: 2px 0 0 10px;
   padding: 0 6px;
   border: 0;
   border-radius: 6px;
@@ -814,9 +863,13 @@
   background: var(--fill);
   color: var(--t1);
 }
+/* 两句各一行（在「为准。」后面换行），320、340 宽断法一样 */
+.mm-props .foot span {
+  display: block;
+}
 .mm-props .foot {
   margin: 8px 0 0;
-  padding-top: 8px;
+  padding: 8px 16px 2px;
   border-top: 1px solid var(--line);
   font-size: 12px;
   line-height: 1.5;

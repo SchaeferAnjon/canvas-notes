@@ -3,6 +3,7 @@
  * 看视频（方向 A「视频条」）用的纯函数：认 YouTube / B 站的视频页、拼带时间的链接、拆字幕、
  * 时刻和视频卡的 md 写法、字幕全文那一篇、记到哪的规矩、白板「时刻」列。主进程、界面、网页预加载、测试都用，不碰 Electron。
  */
+import { defaultKeysOf } from './cmd-table'
 
 export type Site = 'youtube' | 'bilibili'
 
@@ -443,6 +444,10 @@ export function chaptersFor(cues: Cue[], given: Chapter[]): Chapter[] {
   return out
 }
 
+/** 字幕全文「AI 摘要」下面那一行：还在写 / 写不成（后面跟原因；这一行旁边有「重试」） */
+export const SUMMARY_WRITING = 'AI 在写摘要…'
+export const SUMMARY_FAILED = 'AI 摘要没写成：'
+
 export interface SubtitleDocInput {
   ref: VideoRef
   meta: VideoMeta
@@ -456,6 +461,8 @@ export interface SubtitleDocInput {
   moments: { t: number; text: string; note: string }[]
   /** 存不存译文（设置「存字幕全文时带译文」） */
   withTranslation: boolean
+  /** 「记下这一刻」现在的键（设置 › 快捷键能改；不给是默认的） */
+  momentKey?: string
 }
 
 /** 字幕全文那一篇：frontmatter、AI 摘要、记下的时刻、按章节的字幕（每行一个时间链接、原文、下一行译文） */
@@ -474,10 +481,10 @@ export function subtitleDoc(d: SubtitleDocInput): string {
   ]
   const out = [...fm, `# ${d.meta.title.replace(/\n/g, ' ')}`, '', '## AI 摘要']
   if (d.summary?.length) for (const s of d.summary) out.push(`- [${fmtTime(s.t)}](${timeUrl(ref, s.t)}) ${s.text}`)
-  else out.push('AI 在写摘要…')
+  else out.push(SUMMARY_WRITING)
   out.push('', '## 记下的时刻')
   if (d.moments.length) for (const m of [...d.moments].sort((a, b) => a.t - b.t)) out.push(`- [${fmtTime(m.t)}](${timeUrl(ref, m.t)}) ${m.text}${m.note ? ` · [[${m.note}]]` : ''}`)
-  else out.push('还没有。看的时候按 ⌥S 记下这一刻。')
+  else out.push(`还没有。看的时候按 ${d.momentKey ?? defaultKeysOf('video-moment')[0]} 记下这一刻。`)
   const chs = chaptersFor(d.cues, d.chapters)
   chs.forEach((ch, i) => {
     const next = chs[i + 1]?.start ?? Infinity
@@ -504,6 +511,24 @@ export function readTranslations(doc: string): Map<string, string> {
     if (m && next.trim() && !/^\[|^#|^- /.test(next)) out.set(`${m[1]} ${m[2]}`, next)
   }
   return out
+}
+
+/** 读回字幕全文里的原文句子（摘要重试时视频没开着，按这一篇写） */
+export function readCues(doc: string): Cue[] {
+  const out: Cue[] = []
+  for (const line of doc.split('\n')) {
+    const m = /^\[(\d+):(\d{2})(?::(\d{2}))?\]\(\S+\) (.+)$/.exec(line)
+    if (!m) continue
+    const t = m[3] ? Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) : Number(m[1]) * 60 + Number(m[2])
+    out.push({ start: t, end: t, text: m[4]! })
+  }
+  return out
+}
+
+/** 换掉字幕全文里「## AI 摘要」这一节的内容（摘要条目，或者一行「在写 / 没写成」） */
+export function replaceSummary(doc: string, ref: Pick<VideoRef, 'site' | 'id' | 'p'>, summary: { t: number; text: string }[] | string): string {
+  const body = typeof summary === 'string' ? summary : summary.map((x) => `- [${fmtTime(x.t)}](${timeUrl(ref, x.t)}) ${x.text}`).join('\n')
+  return doc.replace(/(^## AI 摘要\n)[\s\S]*?(?=\n\n## |\n*$)/m, (_m, head: string) => head + body)
 }
 
 /** AI 摘要的回答：每行「mm:ss 一句话」；认不出的行不要 */

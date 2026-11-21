@@ -1,4 +1,7 @@
 // 假的 codex app-server：测引擎接法用，不联网。消息不带 "jsonrpc"，和真的一样
+// 给了 FAKE_CLI_STATE（fake-cli.mjs 演整个 codex 时）：model/list 照 <目录>/codex.json 的 models 给，每问一次重新读（测试中途换列表）
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 
 let id = 1000
@@ -25,6 +28,10 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
   // 模型列表分两页给；默认的那个在第二页（CN-91）
   if (m.method === 'model/list') {
     const effort = (e) => ({ reasoningEffort: e, description: `${e} effort` })
+    if (process.env.FAKE_CLI_STATE) {
+      const listed = JSON.parse(readFileSync(join(process.env.FAKE_CLI_STATE, 'codex.json'), 'utf8')).models ?? []
+      return send({ id: m.id, result: { data: listed.map((x) => ({ hidden: false, ...x, supportedReasoningEfforts: (x.efforts ?? ['low', 'medium', 'high']).map(effort) })), nextCursor: null } })
+    }
     const luna = { id: 'gpt-6-luna', model: 'gpt-6-luna', displayName: 'GPT-6-Luna', hidden: false, isDefault: false, defaultReasoningEffort: 'medium', supportedReasoningEfforts: ['low', 'medium', 'high'].map(effort) }
     const hidden = { ...luna, id: 'old', model: 'old', displayName: 'Old', hidden: true }
     const terra = { id: 'gpt-6.1-terra', model: 'gpt-6.1-terra', displayName: 'GPT-6.1 Terra', hidden: false, isDefault: true, defaultReasoningEffort: 'low', supportedReasoningEfforts: ['low', 'high', 'xhigh', 'ultra'].map(effort) }

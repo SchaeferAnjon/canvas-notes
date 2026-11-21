@@ -203,11 +203,12 @@ describe('工作区布局（方向 A 拖到哪就在哪）', () => {
     expect(sideCols(resetDock(d))[0]!.w).toBe(COL_DEFAULT)
   })
 
-  it('宽度 300 到 640；上下分的比例最小 18%，双击回一半', () => {
+  it('宽度最窄 300、不设上限（中间至少 420 由界面量着管），存下来读回来还是那么宽；上下分的比例最小 18%，双击回一半', () => {
     let d = openView(openView(emptyDock(), 'web'), 'ai')
     const col = sideCols(d)[0]!
     expect(sideCols(setColWidth(d, col.id, 100))[0]!.w).toBe(300)
-    expect(sideCols(setColWidth(d, col.id, 2000))[0]!.w).toBe(640)
+    expect(sideCols(setColWidth(d, col.id, 1100))[0]!.w).toBe(1100)
+    expect(sideCols(loadDock(JSON.stringify(setColWidth(d, col.id, 1100)), {}))[0]!.w).toBe(1100)
     d = dropView(d, 'web', { kind: 'group', group: col.groups[0]!.id, zone: 'bottom' })
     const [a, b] = sideCols(d)[0]!.groups.map((g) => g.id)
     d = setSplit(d, a!, b!, 0.05)

@@ -16,6 +16,7 @@ import { isBookDigest } from '../shared/plugins/weread'
 import { AiPanel, type AiPanelProps } from './AiPanel'
 import type { DockNav } from './ai-head'
 import * as C from './ai-chats'
+import { dropPicked, usePicked } from './ai-pick'
 import { placeOf, readKey, readLabel, readSrc } from './ai-place'
 import { ReadingAi } from './reading/ReadingAi'
 import { ReadingNotes } from './reading/ReadingNotes'
@@ -39,6 +40,9 @@ export interface AiDockProps {
   onOpenHtml(path: string): void
   onNotice(text: string): void
 }
+
+/** 读 PDF 时文件树多选「问AI」的那段对话的 key（不混进读 PDF 的对话；每次重新选了「问AI」从头开始） */
+const PICKED_KEY = 'picked'
 
 /** 这个地方问了几问（读进来了的才知道；没读进来的菜单里用主进程记的） */
 function asksOf(key: string): number | null {
@@ -79,15 +83,34 @@ export function AiDock(props: AiDockProps) {
   const [away, setAway] = useState<{ key: string; label: string } | null>(null)
   // 换了页面、右键「问 AI」带进引文、跑 AI 命令、在这份 PDF 上框了一块：回到这里的对话
   useEffect(() => setAway(null), [here.key, props.chat.autoRun?.seq, props.chat.draft?.seq])
+  /**
+   * 中间开着 PDF 时文件树多选「问AI」（task-0tgz2）：这一格换成普通的 AI 对话（选中的那几篇在「看得到」里），
+   * 存成单独一段「选中的N个」，读 PDF 的对话不动；对话菜单点了哪一段、在 PDF 上框了一块、换了标签就回到读 PDF 那一格
+   */
+  const picked = usePicked()
+  const pickOverPdf = !!picked && !!reading && picked.tab === (props.chat.tab?.id ?? null)
+  // 重新选了一次「问AI」：上一回问别的几篇的那段清掉，从打招呼开始
   useEffect(() => {
-    if (hereReading?.pending) setAway(null)
+    if (pickOverPdf) C.clear(PICKED_KEY)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picked])
+  useEffect(() => {
+    if (hereReading?.pending) {
+      setAway(null)
+      if (pickOverPdf) dropPicked()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hereReading?.pending])
   // 看的那段被清掉了（别处点了新对话）不用管：菜单里没有了，点「回到」照常回来
-  const nav: DockNav = { here, away, pick: setAway, asks: asksOf }
+  const pickAway = (c: { key: string; label: string } | null) => {
+    if (pickOverPdf) dropPicked()
+    setAway(c)
+  }
+  const nav: DockNav = { here, away, pick: pickAway, asks: asksOf }
   const awaySrc = away ? readSrc(away.key) : null
-  /** 这一格显示的读 PDF 对话：看别处的读 PDF 对话时是它，不然是这里的 */
-  const shownReading = away ? awaySrc : reading
-  const chatPlace = away && !awaySrc ? away : herePlace
+  /** 这一格显示的读 PDF 对话：看别处的读 PDF 对话时是它，不然是这里的（选中了几篇「问AI」时不显示） */
+  const shownReading = pickOverPdf ? null : away ? awaySrc : reading
+  const chatPlace = pickOverPdf ? { key: PICKED_KEY, label: `选中的${picked.items.length}个` } : away && !awaySrc ? away : herePlace
   return (
     <>
       <AiPanel {...props.chat} digest={digest} place={chatPlace} nav={nav} hidden={!props.shown || !!shownReading} onClose={props.onClose} />

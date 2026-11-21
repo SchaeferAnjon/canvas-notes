@@ -21,7 +21,7 @@ const remoteOf = (vault: string) => {
   }
 }
 /** 这一页里黑色实心的主按钮（.btn-primary）有几个、叫什么 */
-const solids = (page: Page) => dialog(page).locator('.btn-primary').allInnerTexts()
+const solids = (page: Page) => dialog(page).locator('.sa-btn.primary').allInnerTexts()
 
 test('CN-45 远程地址：写全「保存」，存前存后各说一句；回车保存、「现在同步」变主按钮推上去；换页自动存', async () => {
   const run = await launch({ 'a.md': '# a\n' })
@@ -34,22 +34,24 @@ test('CN-45 远程地址：写全「保存」，存前存后各说一句；回�
     const state = dialog(page).getByTestId('git-remote-state')
     const sync = dialog(page).getByRole('button', { name: '现在同步' })
     await expect(state).toHaveText('还没有远程仓库：先填地址，再同步')
-    await expect(sync).toBeDisabled()
+    await expect(sync).toHaveCount(0)
 
     // 填了没存：「保存」是主按钮，黄点那句；同步灰着
     await dialog(page).getByRole('textbox', { name: '远程地址' }).fill(bare)
     await expect(dialog(page).getByRole('button', { name: '保存', exact: true })).toBeEnabled()
-    await expect(state).toHaveText('地址还没保存：按 ↵ 或点「保存」离开这一页时也会自动存')
+    await expect(state).toHaveText('地址还没保存：按 ↵ 或点「保存」 · 离开这一页时也会自动存')
     await expect(state.locator('.dot.warn')).toBeVisible()
-    await expect(sync).toBeDisabled()
+    await expect(sync).toHaveCount(0)
     expect(await solids(page)).toEqual(['保存'])
     await shotPart(dialog(page), 'cn45-before')
 
     // 回车保存
     await dialog(page).getByRole('textbox', { name: '远程地址' }).press('Enter')
-    await expect(page.locator('.toast-cn')).toContainText('远程地址存好了')
+    // 设置开着时页里的话说在设置底下的提示条里（B 的弹窗盖住了底栏）
+    await expect(dialog(page).getByTestId('settings-toast')).toContainText('远程地址存好了')
     await expect.poll(() => remoteOf(vault)).toBe(bare)
-    await expect(dialog(page).getByRole('button', { name: '已保存' })).toBeDisabled()
+    // 设置方向 A：一颗主按钮，存前「保存」、存后换成「现在同步」
+    await expect(dialog(page).getByRole('button', { name: '保存', exact: true })).toHaveCount(0)
     await expect(state).toHaveText('地址存好了 · 还没同步过：点「现在同步」推上去')
     await expect(state.locator('.dot.ok')).toBeVisible()
     await expect(sync).toBeEnabled()
@@ -76,7 +78,7 @@ test('CN-45 远程地址：写全「保存」，存前存后各说一句；回�
     await expect.poll(() => remoteOf(vault)).toBe(other)
     await openGitPage(page)
     await expect(dialog(page).getByRole('textbox', { name: '远程地址' })).toHaveValue(other)
-    await expect(dialog(page).getByRole('button', { name: '已保存' })).toBeVisible()
+    await expect(dialog(page).getByRole('button', { name: '现在同步' })).toBeVisible()
   } finally {
     await run.close()
   }

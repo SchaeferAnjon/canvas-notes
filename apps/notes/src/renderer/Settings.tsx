@@ -1,43 +1,38 @@
-import { when } from '../shared/when'
 import { Codicon, type CodiconName } from '@cn/design'
-import { AiSettingsPage } from './settings-ai'
 import { DreamSettingsPage } from './settings-dream'
 import { AiIcon } from './engine-logo'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { VaultInfo } from '../shared/api'
-import { activeSkin, allSkins, type AppSettings, AUTO_COMMIT_CHOICES, autoCommitLabel, pickSkin, setFollowSystem, type SkinInfo, SKINS, type WinBg } from '../shared/appearance'
-import { ARCHIVE_CHOICES, archiveLabel, type ArchiveDays } from '../shared/sidebar'
+import { activeSkin, allSkins, type AppSettings, pickSkin, type SettingsPatch, setFollowSystem, type SkinInfo, SKINS, type WinBg } from '../shared/appearance'
+import { searchSettings, SETTINGS_PAGES, SETTINGS_SECTIONS, type SettingsItem, type SettingsPageId } from '../shared/settings-index'
 import { COVER_GRADIENTS, COVER_PHOTOS, hideWidget, showWidget, WIDGETS, type Cover } from '../shared/home'
 import { COVERS, coverImage, WINBG_THUMBS } from './covers'
 import { homeWinBg, reloadUserThemes, userSkinInfos, useUserThemes, winBgName } from './theme'
 import { saveHome, useHomeConfig } from './home-store'
-import { openImport } from './importer/store'
 import { PluginsSettings } from './plugins'
-import { VideoKeys } from './video/VideoKeys'
-import { keyedCommands, keyOf, useCmds } from './search/cmd-store'
+import { PageHead, type Said, SaidContext } from './settings/ui'
+import { composing } from './ime'
+import { AiSettingsPage } from './settings-ai'
+import { GeneralPage } from './settings/general'
+import { EditorPage } from './settings/editor'
+import { FilesPage } from './settings/files'
+import { PdfPage } from './settings/pdf'
+import { WebPage } from './settings/web'
+import { VaultPage } from './settings/vault'
+import { GitPage } from './settings/git'
+import { PrivacyPage } from './settings/privacy'
+import { KeysPage } from './settings/keys'
+import { AdvancedPage } from './settings/advanced'
 import './settings.css'
-import { UpdatePage } from './update'
+import './settings/settings-a.css'
 
-export type SettingsPage = 'look' | 'home' | 'vault' | 'ai' | 'dream' | 'plugins' | 'git' | 'keys' | 'update'
+/** 设置的 15 页（方向 A，shared/settings-index.ts） */
+export type SettingsPage = SettingsPageId
 
-const PAGES: { id: SettingsPage; name: string; icon: CodiconName }[] = [
-  { id: 'look', name: '外观', icon: 'symbol-color' },
-  { id: 'home', name: '首页', icon: 'home' },
-  { id: 'vault', name: '库', icon: 'library' },
-  { id: 'ai', name: 'AI', icon: 'comment-discussion' },
-  { id: 'dream', name: '梦游', icon: 'wand' },
-  { id: 'plugins', name: '插件', icon: 'extensions' },
-  { id: 'git', name: 'Git和同步', icon: 'git-branch' },
-  { id: 'keys', name: '快捷键', icon: 'record-keys' },
-  { id: 'update', name: '更新', icon: 'arrow-circle-up' },
-]
+type Patch = SettingsPatch
 
-type Patch = Parameters<typeof window.cn.setSettings>[0]
-
-/** 设置：居中的面板，左边分页（⌘, 打开） */
-export function Settings(props: {
-  page: SettingsPage
-  onPage(p: SettingsPage): void
+/** 设置每一页要用的东西（App 给的） */
+export interface SettingsProps {
   settings: AppSettings
   systemDark: boolean
   onChange(p: Patch): Promise<AppSettings>
@@ -47,20 +42,55 @@ export function Settings(props: {
   onNotice(t: string): void
   onGitChanged(): void
   onClose(): void
-  /** 新版本下好了：「更新」分页上一颗小点 */
+  /** 新版本下好了：「一般」分页上一颗小点 */
   updateReady: boolean
   onInstallUpdate(): Promise<void>
   onOpenUrl(url: string): void
-  /** 方向 A：开成中间的一个标签（VS Code 的做法），不是弹窗 */
-  asTab?: boolean
   /** 梦游页的「看报告」：左栏开梦游报告（弹窗先关上） */
   onOpenDream(): void
-}) {
-  /** 梦游页点「用哪家 AI」那一行：到 AI 页，「梦游」那一行滚进来、闪一下 */
-  const [aiFocus, setAiFocus] = useState<'dream' | null>(null)
+  /** 设置里点了「去那里」的链接（网页「⋯ › 插件」、读PDF的笔记、视频条）：关上设置，在用的地方打开 */
+  onGoPlace(place: 'web-extensions' | 'pdf-note' | 'video-subs'): void
+  /** 翻到另一页的某一行、闪一下（「排顺序 ›」「去AI页换 ›」「去Git和同步 ›」、搜索回车） */
+  onGoRow(row: string): void
+}
+
+/** 设置：B 里是居中弹窗，A 里是中间的一个标签（⌘, 打开）。左边分段的侧栏和搜索，右边一页 */
+export function Settings(
+  props: SettingsProps & {
+    page: SettingsPage
+    onPage(p: SettingsPage): void
+    /** 方向 A：开成中间的一个标签（VS Code 的做法），不是弹窗 */
+    asTab?: boolean
+    /** 要翻到、闪一下的那一行（搜索回车、从用的地方跳过来）；seq 变了就再闪一次 */
+    focus?: { row: string; seq: number } | null
+    /** App 底栏这会儿说的话：设置开着时（B 的弹窗盖住了底栏）在设置底下的提示条里说 */
+    appNotice?: string | null
+  },
+) {
+  const [q, setQ] = useState('')
+  const body = useRef<HTMLDivElement>(null)
+  const input = useRef<HTMLInputElement>(null)
+  /** 底下的提示条：一句说这次改了会怎样，带「撤回」，4 秒后收起（鼠标停在上面不计时） */
+  const [toast, setToast] = useState<{ text: string; ok: boolean; undo?: () => void; seq: number } | null>(null)
+  const [toastHover, setToastHover] = useState(false)
+  const said = useMemo<Said>(
+    () => ({
+      saved: (hint, undo) => setToast({ text: `已存 · ${hint}`, ok: true, undo, seq: Date.now() }),
+      say: (text) => setToast({ text, ok: false, seq: Date.now() }),
+    }),
+    [],
+  )
   useEffect(() => {
-    if (props.page !== 'ai') setAiFocus(null)
-  }, [props.page])
+    if (!toast || toastHover) return
+    const t = setTimeout(() => setToast(null), 4200)
+    return () => clearTimeout(t)
+  }, [toast, toastHover])
+  useEffect(() => {
+    if (props.appNotice) said.say(props.appNotice)
+  }, [props.appNotice])
+  /** 设置开着时页里的话都在设置底下说（B 的弹窗盖住了底栏的提示） */
+  const notice = (t: string) => said.say(t)
+
   useEffect(() => {
     if (props.asTab) return
     const onKey = (e: KeyboardEvent) => {
@@ -73,48 +103,200 @@ export function Settings(props: {
     return () => window.removeEventListener('keydown', onKey)
   }, [props.onClose, props.asTab])
 
+  // 换页：从顶上看起；带着要闪的那一行（搜索回车、从用的地方跳过来）时翻到那一行、--acc-soft 闪 1.6 秒，
+  // 那一页的内容是读出来的（AI、Git）就等它画出来。两件事在一处：先后各做会互相盖掉
+  const flashedSeq = useRef(0)
+  useEffect(() => {
+    const f = props.focus
+    const b = body.current
+    if (!f || f.seq === flashedSeq.current) {
+      if (b) b.scrollTop = 0
+      return
+    }
+    flashedSeq.current = f.seq
+    let tries = 0
+    let off: ReturnType<typeof setTimeout> | undefined
+    const find = () => {
+      const row = body.current?.querySelector<HTMLElement>(`[data-row="${CSS.escape(f.row)}"]`)
+      const bb = body.current
+      if (!bb || !row) {
+        if (tries++ < 40) off = setTimeout(find, 50)
+        return
+      }
+      const top = row.getBoundingClientRect().top - bb.getBoundingClientRect().top + bb.scrollTop
+      bb.scrollTop = Math.max(0, top - bb.clientHeight / 2 + row.offsetHeight / 2)
+      row.classList.remove('sa-flash')
+      void row.offsetWidth
+      row.classList.add('sa-flash')
+      off = setTimeout(() => row.classList.remove('sa-flash'), 1600)
+    }
+    find()
+    return () => clearTimeout(off)
+  }, [props.page, props.focus?.seq])
+
+  const hits = useMemo(() => searchSettings(q), [q])
+  const go = (it: SettingsItem) => props.onGoRow(it.id)
+  const page = SETTINGS_PAGES.find((p) => p.id === props.page) ?? SETTINGS_PAGES[0]!
+  const pp = { ...props, onNotice: notice }
+
   return (
-    <div className={props.asTab ? 'pane setpane' : 'set-back'} onMouseDown={(e) => !props.asTab && e.target === e.currentTarget && props.onClose()}>
-      <div className={'set' + (props.asTab ? ' set-tab' : '')} role={props.asTab ? 'region' : 'dialog'} aria-label="设置">
-        <nav className="set-nav" aria-label="设置分页">
-          <h3>设置</h3>
-          {PAGES.map((p) => (
-            <button key={p.id} className={'si' + (props.page === p.id ? ' on' : '')} aria-current={props.page === p.id ? 'page' : undefined} onClick={() => props.onPage(p.id)}>
-              {/* AI 这一页画 AI 对话现在用的那一家的标志（同右下角圆钮） */}
-              {p.id === 'ai' ? <AiIcon job="chat" size={16} /> : <Codicon name={p.icon} />}
-              {p.name}
-              {p.id === 'update' && props.updateReady && <span className="udot nav" aria-label="新版本已下好" />}
-            </button>
-          ))}
-        </nav>
-        <div className="set-body">
+    <SaidContext.Provider value={said}>
+      <div className={props.asTab ? 'pane setpane' : 'set-back'} onMouseDown={(e) => !props.asTab && e.target === e.currentTarget && props.onClose()}>
+        <div className={'set' + (props.asTab ? ' set-tab' : '')} role={props.asTab ? 'region' : 'dialog'} aria-label="设置">
+          <nav className="set-nav" aria-label="设置分页">
+            <h3>设置</h3>
+            <label className="sa-srch">
+              <Codicon name="search" size={14} />
+              <input
+                ref={input}
+                value={q}
+                placeholder="搜设置：字号、同步…"
+                aria-label="搜设置"
+                onChange={(e) => setQ(e.currentTarget.value)}
+                onKeyDown={(e) => {
+                  // 输入法组字时的回车是选字，不算（CN-115）
+                  if (e.key === 'Enter' && !composing(e) && hits[0]) {
+                    e.preventDefault()
+                    go(hits[0])
+                  }
+                  if (e.key === 'Escape' && q) {
+                    // esc 先清空搜索，再按一次才关设置
+                    e.preventDefault()
+                    e.stopPropagation()
+                    e.nativeEvent.stopImmediatePropagation()
+                    setQ('')
+                  }
+                }}
+              />
+              {q && (
+                <button type="button" className="clr" aria-label="清空" onClick={() => (setQ(''), input.current?.focus())}>
+                  <Codicon name="close" size={14} />
+                </button>
+              )}
+            </label>
+            {q ? (
+              <div className="sa-res" role="list" aria-label="搜到的设置">
+                {hits.length ? (
+                  <>
+                    <div className="sa-rhead">{hits.length} 项</div>
+                    {hits.slice(0, 30).map((it, i) => (
+                      <button key={it.id} type="button" role="listitem" className={'sa-rrow' + (i === 0 ? ' sel' : '')} data-go={it.id} onClick={() => go(it)}>
+                        <b>
+                          <Mark text={it.label} q={q} />
+                        </b>
+                        <small>{`${SETTINGS_PAGES.find((p) => p.id === it.pg)!.name} › ${it.grp}`}</small>
+                      </button>
+                    ))}
+                  </>
+                ) : (
+                  <div className="sa-rempty">
+                    没找到「{q.trim()}」。
+                    <br />
+                    试试{' '}
+                    {['字号', '同步', '下载'].map((w, i) => (
+                      <Fragment key={w}>
+                        {i > 0 && '、'}
+                        <button type="button" className="sa-lnk" onClick={() => setQ(w)}>
+                          {w}
+                        </button>
+                      </Fragment>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="sa-navlist">
+                {SETTINGS_SECTIONS.map((sec) => (
+                  <Fragment key={sec}>
+                    <div className="sa-sec">{sec}</div>
+                    {SETTINGS_PAGES.filter((p) => p.sec === sec).map((p) => (
+                      <button key={p.id} className={'si' + (props.page === p.id ? ' on' : '')} aria-current={props.page === p.id ? 'page' : undefined} onClick={() => props.onPage(p.id)}>
+                        {/* AI 这一页画 AI 对话现在用的那一家的标志（同右下角圆钮） */}
+                        {p.id === 'ai' ? <AiIcon job="chat" size={16} /> : <Codicon name={p.icon as CodiconName} />}
+                        {p.name}
+                        {p.id === 'general' && props.updateReady && <span className="udot nav" aria-label="新版本已下好" />}
+                      </button>
+                    ))}
+                  </Fragment>
+                ))}
+              </div>
+            )}
+          </nav>
+          {/* × 在滚动区外面：页面滚动、有没有滚动条它都不动 */}
           <button className="iconbtn set-x" hidden={props.asTab} aria-label="关上设置" title="关上 esc" onClick={props.onClose}>
-            <Codicon name="close" size={14} />
+            <Codicon name="close" size={16} />
           </button>
-          {props.page === 'look' && <LookPage {...props} />}
-          {props.page === 'home' && <HomePage {...props} />}
-          {props.page === 'vault' && <VaultPage {...props} />}
-          {props.page === 'ai' && (
-            <>
-              <AiSettingsPage onNotice={props.onNotice} onPlugins={() => props.onPage('plugins')} focus={aiFocus} />
-              <SttKey onNotice={props.onNotice} />
-            </>
-          )}
-          {props.page === 'dream' && <DreamSettingsPage settings={props.settings} onChange={props.onChange} onNotice={props.onNotice} onOpenDream={props.onOpenDream} onAiRow={() => (setAiFocus('dream'), props.onPage('ai'))} />}
-          {props.page === 'plugins' && <PluginsSettings onNotice={props.onNotice} />}
-          {props.page === 'git' && <GitPage {...props} />}
-          {props.page === 'keys' && <KeysPage />}
-          {props.page === 'update' && (
-            <UpdatePage
-              autoUpdate={props.settings.autoUpdate}
-              onAutoUpdate={(v) => void props.onChange({ autoUpdate: v })}
-              onInstall={props.onInstallUpdate}
-              onOpenUrl={props.onOpenUrl}
-            />
-          )}
+          <div className="set-body" ref={body}>
+            <PageHead page={page} />
+            {props.page === 'general' && <GeneralPage {...pp} />}
+            {props.page === 'look' && (
+              <div className="sa-keep">
+                <LookPage {...pp} />
+              </div>
+            )}
+            {props.page === 'home' && (
+              <div className="sa-keep">
+                <HomePage {...pp} />
+              </div>
+            )}
+            {props.page === 'editor' && <EditorPage {...pp} />}
+            {props.page === 'files' && <FilesPage {...pp} />}
+            {props.page === 'pdf' && <PdfPage {...pp} />}
+            {props.page === 'web' && <WebPage {...pp} />}
+            {props.page === 'ai' && <AiSettingsPage {...pp} />}
+            {props.page === 'dream' && (
+              <div className="sa-keep">
+                <DreamSettingsPage settings={props.settings} onChange={props.onChange} onNotice={notice} onOpenDream={props.onOpenDream} onAiRow={() => props.onGoRow('fDream')} />
+              </div>
+            )}
+            {props.page === 'vault' && <VaultPage {...pp} />}
+            {props.page === 'git' && <GitPage {...pp} />}
+            {props.page === 'privacy' && <PrivacyPage {...pp} />}
+            {props.page === 'plugins' && (
+              <div className="sa-keep">
+                <PluginsSettings onNotice={notice} />
+              </div>
+            )}
+            {props.page === 'keys' && <KeysPage {...pp} />}
+            {props.page === 'advanced' && <AdvancedPage {...pp} />}
+          </div>
+          <div className={'sa-toast' + (toast ? ' show' : '') + (toast?.undo ? ' with-act' : '')} role="status" data-testid="settings-toast" onMouseEnter={() => setToastHover(true)} onMouseLeave={() => setToastHover(false)}>
+            {toast && (
+              <>
+                <Codicon name={toast.ok ? 'pass-filled' : 'info'} size={14} className={toast.ok ? 'ok' : undefined} />
+                <span>{toast.text}</span>
+                {toast.undo && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toast.undo!()
+                      setToast(null)
+                      setToastHover(false)
+                    }}
+                  >
+                    撤回
+                  </button>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </SaidContext.Provider>
+  )
+}
+
+/** 搜索结果里名字打中的那几个字染色 */
+function Mark({ text, q }: { text: string; q: string }) {
+  const k = q.trim().toLowerCase()
+  const i = text.toLowerCase().indexOf(k)
+  if (!k || i < 0) return <>{text}</>
+  return (
+    <>
+      {text.slice(0, i)}
+      <mark className="sa-mark">{text.slice(i, i + k.length)}</mark>
+      {text.slice(i + k.length)}
+    </>
   )
 }
 
@@ -273,7 +455,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       <h4>
         主题<span>{a.followSystem ? '跟着系统：点浅色换白天那套，点深色换夜里那套' : '点一张就换'}</span>
       </h4>
-      <div role="radiogroup" aria-label="主题">
+      <div role="radiogroup" aria-label="主题" data-row="skin">
         <div className="skins-h">浅色</div>
         <div className="skins">{SKINS.filter((s) => s.tone === 'light').map(card)}</div>
         <div className="skins-h">深色</div>
@@ -285,7 +467,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
           </>
         )}
       </div>
-      <div className="pair plain imp-theme">
+      <div className="pair plain imp-theme" data-row="importTheme">
         <button className="btn" onClick={() => void importTheme()} disabled={importing}>
           <Codicon name={importing ? 'loading' : 'add'} size={14} className={importing ? 'spin' : undefined} />
           导入VS Code主题…
@@ -293,7 +475,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
         <span className="note">选 .json或 .vsix；对不上的颜色按底色和字色算</span>
       </div>
 
-      <div className="pair">
+      <div className="pair" data-row="follow">
         <Toggle on={a.followSystem} label="跟着系统换浅深" onChange={(v) => set(setFollowSystem(a, v, props.systemDark))} />
         <span>跟着系统换浅深</span>
         {a.followSystem && (
@@ -330,7 +512,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       <h4>
         界面风格<span>结构一样，只换样子和几处位置</span>
       </h4>
-      <div className="hstyles frames" role="radiogroup" aria-label="界面风格">
+      <div className="hstyles frames" role="radiogroup" aria-label="界面风格" data-row="frame">
         {(
           [
             ['a', '照VS Code', '平的、细线分区；标签下有位置；底栏写满，AI在底栏最右'],
@@ -360,7 +542,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       <h4>
         窗口背景<span>{a.frame === 'b' ? '浮岛书桌铺满整个窗口，哪套主题都能配；照片会压暗一点' : '换成B浮岛书桌时铺满整个窗口；A照VS Code不用'}</span>
       </h4>
-      <div className="bgs" role="radiogroup" aria-label="窗口背景">
+      <div className="bgs" role="radiogroup" aria-label="窗口背景" data-row="winbg">
         {bgs.map((b) => (
           <button key={b.id} role="radio" aria-checked={a.winBg === b.id} className={a.winBg === b.id ? 'on' : ''} onClick={() => set({ winBg: b.id })}>
             <i style={{ background: b.bg }} />
@@ -398,7 +580,7 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
 function HomeWinBgRow(props: { settings: AppSettings; onChange(v: boolean): void }) {
   if (props.settings.appearance.homeStyle !== 'b') return null
   return (
-    <label className="pair hs-winbg">
+    <label className="pair hs-winbg" data-row="homeWinBg">
       <input type="checkbox" checked={props.settings.appearance.homeWinBg} onChange={(e) => props.onChange(e.currentTarget.checked)} />
       <span>整页背景用窗口背景那张图</span>
       <span className="note">现在：{winBgName(props.settings)}</span>
@@ -408,7 +590,7 @@ function HomeWinBgRow(props: { settings: AppSettings; onChange(v: boolean): void
 
 function HomeStylePicker(props: { value: 'a' | 'b'; onChange(v: 'a' | 'b'): void }) {
   return (
-    <div className="hstyles" role="radiogroup" aria-label="首页样式">
+    <div className="hstyles" role="radiogroup" aria-label="首页样式" data-row="homeStyle">
       {(
         [
           ['a', '封面长图', '上面一条封面，下面组件网格'],
@@ -446,7 +628,7 @@ function HomePage(props: { settings: AppSettings; onChange(p: Patch): Promise<Ap
       <h4>
         封面<span>{homeWinBg(props.settings) ? '现在首页用的是窗口背景那张图（上面的勾），这里换了也不显示' : '存在库里，跟着Git走'}</span>
       </h4>
-      <div className={'covers' + (homeWinBg(props.settings) ? ' off' : '')}>
+      <div className={'covers' + (homeWinBg(props.settings) ? ' off' : '')} data-row="cover">
         {[...COVER_PHOTOS, ...COVER_GRADIENTS].map((id) => {
           const c: Cover = { kind: 'builtin', id }
           return (
@@ -476,7 +658,7 @@ function HomePage(props: { settings: AppSettings; onChange(p: Patch): Promise<Ap
       <h4>
         组件<span>关掉的收进首页下面的抽屉，随时放回来</span>
       </h4>
-      <div className="wlist-set">
+      <div className="wlist-set" data-row="widgets">
         {WIDGETS.map((w) => {
           const on = cfg.order.includes(w.id)
           return (
@@ -488,371 +670,6 @@ function HomePage(props: { settings: AppSettings; onChange(p: Patch): Promise<Ap
           )
         })}
       </div>
-    </>
-  )
-}
-
-function VaultPage(props: { vault: VaultInfo; onSwitchVault(): void; settings: AppSettings; onChange(p: Patch): Promise<AppSettings>; onClose(): void }) {
-  return (
-    <>
-      <h4>现在的库</h4>
-      <div className="card-row">
-        <span className="vi">
-          <Codicon name="library" />
-        </span>
-        <div className="tx">
-          <b>{props.vault.name}</b>
-          <span title={props.vault.path}>{props.vault.path.replace(/^\/Users\/[^/]+/, '~')}</span>
-        </div>
-      </div>
-      <p className="note">库就是一个文件夹，里面是普通的md文件；没有Git的话打开时会帮你建一个。换库前，这个库没提交的改动会先提交。</p>
-      <button className="btn" onClick={props.onSwitchVault}>
-        <Codicon name="folder-opened" size={14} />
-        打开别的文件夹…
-      </button>
-      <h4>
-        导入旧笔记<span>备忘录或旧的Obsidian库：先进收件箱，梦游时分好类、起好名字，你预览了再收下</span>
-      </h4>
-      <button
-        className="btn"
-        onClick={() => {
-          props.onClose()
-          openImport()
-        }}
-      >
-        <Codicon name="root-folder" size={14} />
-        导入旧笔记…
-      </button>
-      <h4>
-        自动归档<span>很久没改的笔记从左栏收进「归档」；文件不挪、不改，置顶的不归档，改一下就回到左栏</span>
-      </h4>
-      <div className="pair">
-        <span>归档</span>
-        <select aria-label="自动归档" value={props.settings.archiveDays} onChange={(e) => void props.onChange({ archiveDays: Number(e.target.value) as ArchiveDays })}>
-          {ARCHIVE_CHOICES.map((d) => (
-            <option key={d} value={d}>
-              {archiveLabel(d)}
-            </option>
-          ))}
-        </select>
-      </div>
-    </>
-  )
-}
-
-/** 听写（Soniox）密钥：没字幕的视频「生成字幕」时用（CN-69）。加密存在这台 Mac 上，界面只看得到最后 4 位 */
-function SttKey(props: { onNotice(t: string): void }) {
-  const [st, setSt] = useState<{ has: boolean; tail: string | null; fromEnv: boolean } | null>(null)
-  const [val, setVal] = useState('')
-  useEffect(() => void window.cnVideo.sttKey().then(setSt), [])
-  const errText = (err: unknown) => String((err as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-  const save = async (key: string | null) => {
-    try {
-      setSt(await window.cnVideo.setSttKey(key))
-      setVal('')
-      props.onNotice(key ? 'Soniox密钥存好了' : 'Soniox密钥删掉了')
-    } catch (err) {
-      props.onNotice(errText(err))
-    }
-  }
-  return (
-    <>
-      <h4>
-        听写（Soniox）密钥<span>没字幕的视频「生成字幕」时用：下载音频交给Soniox听写，约 ¥0.7一小时</span>
-      </h4>
-      <form
-        className="pair"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (val.trim()) void save(val)
-        }}
-      >
-        <span>密钥</span>
-        <input className="field mono" type="password" aria-label="Soniox 密钥" placeholder={st?.tail ? `已填 ••••${st.tail}` : '粘贴Soniox的API Key'} value={val} onChange={(e) => setVal(e.target.value)} />
-        <button className="btn btn-sm" type="submit" disabled={!val.trim()}>
-          <Codicon name="save" size={14} />
-          保存
-        </button>
-        {st?.tail && (
-          <button className="btn btn-ghost btn-sm" type="button" onClick={() => void save(null)}>
-            删掉
-          </button>
-        )}
-      </form>
-      <p className="note" data-testid="stt-key-state">
-        {st?.tail ? `已填 ••••${st.tail}，加密存在这台Mac上` : st?.fromEnv ? '用的是环境变量SONIOX_API_KEY' : '还没填：到soniox.com注册后在控制台拿一个API Key'}
-      </p>
-    </>
-  )
-}
-
-/**
- * 提交署名：每次提交记进历史的名字和邮箱。这台 Mac 上 git 没设时，打开库时软件按系统用户给这个库设了一个（main/git-identity.ts）；
- * 这里看得到、能改（只改这个库的 .git/config）
- */
-function GitIdentity(props: { onNotice(t: string): void }) {
-  const [id, setId] = useState<{ name: string; email: string; local: boolean } | null | undefined>(undefined)
-  const [draft, setDraft] = useState<{ name: string; email: string } | null>(null)
-  /** 存不进去的原因（邮箱格式不对……）：写在输入框下面，不跑到底栏 */
-  const [bad, setBad] = useState('')
-  const errText = (err: unknown) => String((err as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-  useEffect(() => void window.cn.gitIdentity().then(setId), [])
-  async function save() {
-    if (!draft) return
-    try {
-      setId(await window.cn.setGitIdentity(draft.name, draft.email))
-      setDraft(null)
-      setBad('')
-      props.onNotice('提交署名改好了，以后的提交用它')
-    } catch (err) {
-      setBad(errText(err))
-    }
-  }
-  const cancel = () => (setDraft(null), setBad(''))
-  return (
-    <>
-      <h4>
-        提交署名<span>每次提交记进历史的名字和邮箱；同步后远程仓库也看得到</span>
-      </h4>
-      {draft ? (
-        <form
-          className="pair"
-          aria-label="改提交署名"
-          onSubmit={(e) => {
-            e.preventDefault()
-            void save()
-          }}
-          onKeyDown={(e) => {
-            // Esc 只收起这一行（第 5 轮：以前整个设置关掉，填的字丢了）
-            if (e.key !== 'Escape') return
-            e.preventDefault()
-            e.stopPropagation()
-            cancel()
-          }}
-        >
-          <span>名字和邮箱</span>
-          <input className="field id-name" aria-label="署名的名字" placeholder="名字" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} autoFocus />
-          <input className="field" aria-label="署名的邮箱" aria-invalid={!!bad || undefined} placeholder="邮箱" value={draft.email} onChange={(e) => (setDraft({ ...draft, email: e.target.value }), setBad(''))} />
-          <button className="btn btn-sm" type="submit" disabled={!draft.name.trim() || !draft.email.trim()}>
-            <Codicon name="save" size={14} />
-            保存
-          </button>
-          <button className="btn btn-ghost btn-sm" type="button" onClick={cancel}>
-            取消
-          </button>
-        </form>
-      ) : (
-        <div className="pair" data-testid="git-identity">
-          <span>名字和邮箱</span>
-          {id === undefined ? (
-            <span className="sp aside">正在读…</span>
-          ) : id ? (
-            <span className="sp truncate id-val">
-              {id.name}
-              <span className="id-mail">{id.email}</span>
-            </span>
-          ) : (
-            <span className="sp id-none">
-              <i className="dot warn" />
-              还没有，提交会失败
-            </span>
-          )}
-          <button className="btn btn-sm" type="button" disabled={id === undefined} onClick={() => setDraft({ name: id?.name ?? '', email: id?.email ?? '' })}>
-            <Codicon name="edit" size={14} />
-            改
-          </button>
-        </div>
-      )}
-      {draft && bad && (
-        <p className="note id-bad" role="alert">
-          <Codicon name="error" size={12} className="ic" />
-          <span>{bad}</span>
-        </p>
-      )}
-      {/* 库里、全局都没有署名时不提全局设置（第 5 轮：那一行说「还没有」，下面却说「用的是全局设置」） */}
-      {id !== undefined && <p className="note">{id?.local ? '写在这个库里，只用在这个库' : id ? '用的是这台Mac上Git的全局设置；改了只改这个库' : '填上后写在这个库里，只用在这个库'}</p>}
-    </>
-  )
-}
-
-function GitPage(props: { settings: AppSettings; onChange(p: Patch): Promise<AppSettings>; onSync(): Promise<void>; onNotice(t: string): void; onGitChanged(): void }) {
-  const [remote, setRemote] = useState<string>('')
-  const [saved, setSaved] = useState<string | null>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [lastSync, setLastSync] = useState<number | null>(null)
-  const [syncError, setSyncError] = useState<{ at: number; text: string } | null>(null)
-  const readState = () =>
-    window.cn.gitState().then((g) => {
-      setLastSync(g.lastSync)
-      setSyncError(g.syncError)
-    })
-  useEffect(() => {
-    void window.cn.gitRemote().then((r) => {
-      setRemote(r?.url ?? '')
-      setSaved(r?.url ?? null)
-    })
-    void readState()
-  }, [])
-  const dirty = !!remote.trim() && remote.trim() !== saved
-  const errText = (err: unknown) => String((err as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-  async function save() {
-    try {
-      const r = await window.cn.setGitRemote(remote)
-      setSaved(r?.url ?? null)
-      props.onNotice('远程地址存好了')
-      props.onGitChanged()
-    } catch (err) {
-      props.onNotice(errText(err))
-    }
-  }
-  // 离开这一页（换到别的设置页、关上设置）时，填了没存的地址自动存
-  const latest = useRef({ remote, dirty })
-  latest.current = { remote, dirty }
-  useEffect(
-    () => () => {
-      const { remote: url, dirty: unsaved } = latest.current
-      if (!unsaved) return
-      void window.cn.setGitRemote(url).then(
-        () => (props.onNotice('远程地址存好了'), props.onGitChanged()),
-        (err: unknown) => props.onNotice(errText(err)),
-      )
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  )
-  const min = props.settings.autoCommitMinutes
-  return (
-    <>
-      <GitIdentity onNotice={props.onNotice} />
-      <h4>
-        自动提交<span>没提交的改动到点自动提交一次；退出、换库前也会提交</span>
-      </h4>
-      <div className="pair">
-        <span>间隔</span>
-        <select aria-label="自动提交间隔" value={min} onChange={(e) => void props.onChange({ autoCommitMinutes: Number(e.target.value) }).then(props.onGitChanged)}>
-          {AUTO_COMMIT_CHOICES.map((m) => (
-            <option key={m} value={m}>
-              {autoCommitLabel(m)}
-            </option>
-          ))}
-        </select>
-      </div>
-      <h4>
-        远程同步<span>同步 = 先提交，再拉，再推；只在你点「同步」时联网</span>
-      </h4>
-      <form
-        className="pair"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (dirty) void save()
-        }}
-      >
-        <span>远程地址</span>
-        <input className="field mono" aria-label="远程地址" placeholder="比如git@github.com:你/笔记.git" value={remote} onChange={(e) => setRemote(e.target.value)} />
-        {saved && !dirty ? (
-          <button className="btn btn-sm" type="button" disabled>
-            <Codicon name="check" size={14} />
-            已保存
-          </button>
-        ) : (
-          <button className="btn btn-sm btn-primary" type="submit" disabled={!dirty}>
-            <Codicon name="save" size={14} />
-            保存
-          </button>
-        )}
-      </form>
-      <div className="git-state" data-testid="git-remote-state">
-        {dirty ? (
-          <>
-            <i className="dot warn" />
-            <span>
-              地址还没保存：按 <kbd>↵</kbd> 或点「保存」
-            </span>
-            <span className="sp" />
-            <span className="aside">离开这一页时也会自动存</span>
-          </>
-        ) : saved && syncError ? (
-          <>
-            <i className="dot warn" />
-            <span>上次同步没成功（{when(syncError.at, { time: true })}）：{syncError.text}</span>
-          </>
-        ) : saved ? (
-          <>
-            <i className="dot ok" />
-            <span>地址存好了 · {lastSync ? `上次同步${when(lastSync, { time: true })}` : '还没同步过：点「现在同步」推上去'}</span>
-          </>
-        ) : (
-          <span className="aside">还没有远程仓库：先填地址，再同步</span>
-        )}
-      </div>
-      <div className="pair plain">
-        <button
-          className={'btn btn-sm' + (saved && !dirty ? ' btn-primary' : '')}
-          disabled={!saved || dirty || syncing}
-          onClick={async () => {
-            setSyncing(true)
-            try {
-              await props.onSync()
-              await readState()
-            } finally {
-              setSyncing(false)
-            }
-          }}
-        >
-          <Codicon name="refresh" size={14} className={syncing ? 'spin' : ''} />
-          {syncing ? '正在同步' : '现在同步'}
-        </button>
-        <span className="note">{saved && !dirty ? '底栏的「同步」也是这个' : '存好地址后才能同步'}</span>
-      </div>
-    </>
-  )
-}
-
-/** 第四项：⌘K 里能改的那几条（命令的 id）；改了这里显示改过的键 */
-const KEYS: [string, string, string?, string?][] = [
-  ['速记', '⌥⌘N', '在任何软件里都能按'],
-  ['搜索', '⌘F', '⌘K 也行'],
-  ['打开 / 关上AI', '⌘J', '在网页里也能按', 'ask-ai'],
-  ['收起 / 展开左栏', '⌘\\'],
-  ['新建笔记', '⌘N', undefined, 'new-note'],
-  ['关掉标签', '⌘W'],
-  ['新网页', '⌘T', '右栏网页'],
-  ['地址栏', '⌘L', '右栏网页'],
-  ['双语翻译', '⌥A', '右栏网页 · 再按一次恢复原文'],
-  ['设置', '⌘,', undefined, 'settings'],
-]
-
-function KeysPage() {
-  useCmds()
-  // ⌘K 里给别的命令设的键（DESIGN.v3 3.2）
-  const own = keyedCommands().filter((c) => !KEYS.some((k) => k[3] === c.id))
-  return (
-    <>
-      <h4>
-        快捷键<span>命令的键在 ⌘K 里改：右键那一条「设快捷键…」</span>
-      </h4>
-      <div className="keys-list">
-        {KEYS.map(([name, k, note, id]) => {
-          const cur = id ? keyOf({ id, keys: k }) : k
-          return (
-            <div key={name} className="row">
-              <span>{name}</span>
-              {note && <span className="note">{note}</span>}
-              <span className="sp" />
-              <kbd>{cur ?? '没有'}</kbd>
-            </div>
-          )
-        })}
-        {own.map((c) => (
-          <div key={c.id} className="row">
-            <span>{c.name}</span>
-            {c.custom && <span className="note">⌘K 里设的</span>}
-            <span className="sp" />
-            <kbd>{c.key}</kbd>
-          </div>
-        ))}
-      </div>
-      <VideoKeys />
     </>
   )
 }

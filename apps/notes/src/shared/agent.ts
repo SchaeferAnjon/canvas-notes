@@ -1,7 +1,9 @@
 /** AI 浮窗和主进程之间来回传的东西（引擎、流式事件、对话记录、当前看的是什么） */
 
 import type { EffortOption, ModelOption } from './ai-features'
+import type { EngineHealth } from './engine-health'
 import type { Material } from './materials'
+import type { ActTally } from './ai-act'
 import type { AiCommitFailed, CommitInfo } from './api'
 
 export type EngineId = 'claude' | 'codex' | 'gemini' | 'opencode'
@@ -19,10 +21,27 @@ export interface EngineInfo {
   custom?: boolean
   /** 没找到或运行不了时说一句怎么办 */
   hint?: string
-  /** 能选的模型（CN-91），第一项是这家的默认；Codex 的是问它的 app-server model/list 拿的，拿不到只有「Codex 默认模型」 */
+  /** 能选的模型（CN-91），第一项是这家的默认；task-m55m7 起从命令行拉（main/agent/engine-watch.ts），没拉到用自带的 */
   models: ModelOption[]
   /** 默认那个模型能选的 effort（Gemini、OpenCode 是空的：这颗按钮不出现） */
   efforts: EffortOption[]
+  /** `--version` 报的版本（「2.1.330」）；没找到、运行不了、还没读到是 undefined */
+  version?: string
+  /** 模型列表什么时候拉的、拉没拉到：「刚拉的」「上次拉的 11-20 09:14」「自带的几个」（模型菜单底下、设置那一行写） */
+  pulled?: string
+  /** 拉到几个模型（不算「某家默认模型」那一项）；没拉到是 0 */
+  pulledCount?: number
+  /** 版本变了以后的自查（shared/engine-health.ts）；checking：正在查 */
+  health?: EngineHealth
+  checking?: boolean
+  /** 新版本（每天在后台看一次、点「检查更新」看一次）：比装着的新才有 */
+  latest?: string
+  /** 看新版本这一下的结果：「已是最新」「没查到：网络断了」 */
+  latestNote?: string
+  /** 「更新」：会跑什么（「claude update」）；跑不了时 none 说为什么（「跟着 ChatGPT.app 更新」） */
+  updateWith?: { text: string } | { none: string }
+  /** 正在更新、刚更新完的结果 */
+  update?: { state: 'running'; text: string } | { state: 'ok'; from?: string; to?: string } | { state: 'failed'; why: string }
 }
 
 /** AI 这一轮能看到、能动手的地方：当前标签和右栏网页 */
@@ -45,6 +64,8 @@ export interface AgentContext {
   selection?: string
   /** @ 点名的笔记 */
   mentions?: string[]
+  /** 左栏选了好几个交给 AI（task-0tgz2）：选了几个、展开成的文件（文件夹算里面的笔记） */
+  picked?: { count: number; files: string[] }
 }
 
 export type AiEvent =
@@ -129,8 +150,11 @@ export interface StoredMsg {
   steps?: ToolStep[]
   /** AI 改动的那次提交；only：那次是自动提交（「再提交一次」时已经被收进去了），只算、只撤回 AI 改的这几个文件，撤回说明用 message */
   change?: { commit: CommitInfo; kinds: Record<string, string>; reverted?: CommitInfo; only?: { paths: string[]; message: string }; moved?: Record<string, string> }
-  /** 要挪的几条：整理收件箱挪去「剪藏/<topic>」；to：挪进这个文件夹（文件夹页「收件箱里和周记有关的挪进来」） */
-  moves?: { path: string; topic: string; to?: string }[]
+  /**
+   * 要挪的几条，to 是挪进哪个文件夹：整理收件箱按梦游的归法（课程/<课>、周记、剪藏/<主题>…），文件夹页「收件箱里和周记有关的挪进来」。
+   * 2026-11-21 以前存下的对话只有 topic（那时整理收件箱一律挪去「剪藏/<topic>」），没有 to
+   */
+  moves?: { path: string; to?: string; topic?: string }[]
   /** /找重复 的结果：两篇的路径、相似度（0 到 1）、为什么 */
   dups?: { a: string; b: string; score: number; why: string }[]
   /** /现在梦游 跑完：整理了几条、分几组（消息里有「打开梦游报告」按钮） */
@@ -146,11 +170,14 @@ export type BridgeOp = 'saveAll' | 'context' | 'openWeb' | 'measure' | 'docRead'
 
 /**
  * AI 动手看得见（DESIGN.v3 2.3）：主进程发给界面的 ai:act。
- * start：这一轮开始动这一块（白板、文档、右栏网页），外圈和顶上提示条出来；grab：去拿这几样（卡片、列的 id），指针移过去、外圈亮一下；
- * end：这一轮做完或停下，全部收起
+ * start：这一轮开始整块动这一块（白板、文档、右栏网页），四边一道光绕圈、顶上提示条出来；
+ * spot：只动一处（只加一张卡、只写一段），只亮那一处，「停下 esc」跟在它下面（白板给卡的 id；文档那一段界面插的时候自己知道）；
+ * grab：去拿这几样（卡片、列的 id），指针移过去、那几样外面跑一圈光；
+ * end：这一轮做完或停下（提交之后发）：做完的光收成一圈再淡掉、提示条换成「整理好了 · 挪了N张卡 · 撤回」，停下的变灰淡掉
  */
 export type AiActArea = 'board' | 'doc' | 'web'
 export type AiAct =
   | { turn: number; kind: 'start'; area: AiActArea; path: string | null }
+  | { turn: number; kind: 'spot'; area: 'board' | 'doc'; path: string; ids?: string[] }
   | { turn: number; kind: 'grab'; area: AiActArea; path: string | null; ids: string[]; ms: number }
-  | { turn: number; kind: 'end' }
+  | { turn: number; kind: 'end'; stopped: boolean; commit: string | null; tally: ActTally }

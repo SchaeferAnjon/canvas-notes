@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { makeBigVault } from '../e2e/fixtures/big-vault'
+import { makeMeaningVault, MISSED, RELATED, UNRELATED } from '../e2e/fixtures/meaning-vault'
 import { e5Embedder, type Embedder } from '../src/main/search/embedder'
-import { Indexer } from '../src/main/search/indexer'
+import { FILLER, Indexer } from '../src/main/search/indexer'
 import { readPdfText } from '../src/main/search/pdf-read'
+import { Vault } from '../src/main/vault'
 
 const MODEL = join(__dirname, '../resources/models/multilingual-e5-small')
 const have = existsSync(join(MODEL, 'onnx', 'model_quantized.onnx'))
@@ -36,7 +38,8 @@ describe.skipIf(!have)('本机小模型按意思找', () => {
     await ix.scan()
     expect((await ix.meaning('矩阵怎么变换'))[0]!.path).toBe('课程/线性代数/第3讲 笔记.md')
     expect((await ix.meaning('周末去哪玩'))[0]!.path).toBe('生活/周末.md')
-    expect((await ix.meaning('买菜'))[0]!.path).toBe('生活/购物.md')
+    // 第 4 轮收紧门槛后「买菜」配购物清单只比套话高 0.035，和不沾边的分不开，一条不出（见 indexer MEANING）
+    expect(await ix.meaning('买菜')).toEqual([])
     // 不沾边的不硬凑：问线性代数时购物清单不在结果里
     expect((await ix.meaning('矩阵怎么变换')).map((h) => h.path)).not.toContain('生活/购物.md')
   })
@@ -101,6 +104,62 @@ describe.skipIf(!have)('本机小模型按意思找', () => {
       expect(hits[0], q).toMatchObject({ path, sure: true })
     }
   }, 60_000)
+
+  /** 像用户真库的样本（e2e/fixtures/meaning-vault.ts），noise 篇乱词笔记垫底：每个查询的意思相近和文字结果 */
+  async function sample(name: string, noise: number) {
+    const vault = join(root, name)
+    makeMeaningVault(vault)
+    if (noise) makeBigVault(join(vault, '旧库'), noise)
+    const ix = new Indexer({ root: vault, userData: join(root, `${name}-ud`), indexDir: join(root, `${name}-ud`, 'search'), embedder: e5, readPdf: readPdfText, onStatus: () => undefined })
+    await ix.scan()
+    const v = new Vault(vault)
+    return async (q: string) => ({
+      meaning: (await ix.meaning(q)).map((h) => h.path),
+      text: [...(await v.search(q)).map((h) => h.path), ...ix.pdfSearch(q).map((h) => h.path)],
+    })
+  }
+
+  it('第 4 轮：门槛收紧。不沾边的意思相近一条不出，沾边的出最该出的那篇，每个词最多 5 条', async () => {
+    const find = await sample('像真库', 0)
+    for (const q of UNRELATED) expect((await find(q)).meaning, q).toEqual([])
+    for (const [q, want] of RELATED) {
+      const r = await find(q)
+      expect(r.meaning.length, q).toBeLessThanOrEqual(5)
+      if (MISSED.includes(q)) {
+        // 认不出来的宁可一条不出，也不拿不沾边的凑
+        expect(r.meaning, q).toEqual([])
+        continue
+      }
+      // 文字搜索已经找到的，意思相近不再列（⌘K 里去重），也算找到了
+      expect([...r.meaning, ...r.text].some((p) => want.split('|').includes(p)), `${q} → ${want}：${r.meaning.join('、')}`).toBe(true)
+    }
+  }, 120_000)
+
+  it('第 4 轮：库里再垫 500 篇乱词笔记，不沾边的照样一条不出', async () => {
+    const find = await sample('乱词库', 500)
+    for (const q of UNRELATED) expect((await find(q)).meaning, q).toEqual([])
+    for (const [q] of RELATED) expect((await find(q)).meaning.length, q).toBeLessThanOrEqual(5)
+  }, 300_000)
+
+  // 重新量门槛时打表：CN_MEASURE=1 npx vitest run apps/notes/test/search-model.test.ts -t 量门槛
+  it.skipIf(!process.env.CN_MEASURE)('量门槛：每个查询最像的几篇比套话高多少', async () => {
+    const vault = join(root, '量')
+    makeMeaningVault(vault)
+    const ix = new Indexer({ root: vault, userData: join(root, '量-ud'), indexDir: join(root, '量-ud', 's'), embedder: e5, readPdf: readPdfText, meaning: { limit: 3, near: 1, over: -1, spread: -1 }, onStatus: () => undefined })
+    await ix.scan()
+    const fv = await e5.embed(FILLER, 'passage')
+    const rows = []
+    for (const q of [...RELATED.map(([q]) => q), ...UNRELATED]) {
+      const [qv] = await e5.embed([q], 'query')
+      const filler = fv.reduce((s, f) => s + f.reduce((a, x, k) => a + x * qv![k]!, 0), 0) / fv.length
+      const hits = await ix.meaning(q)
+      rows.push([q, hits[0]?.path, hits[0]?.score.toFixed(3), hits.map((h) => (h.score - filler).toFixed(3)).join(' ')])
+    }
+    const now = await sample('量-现在', 0)
+    let out = '查询\t最像的\t分数\t前三减套话\t现在出几条\n'
+    for (const r of rows) out += [...r, (await now(r[0]!)).meaning.length].join('\t') + '\n'
+    process.stdout.write(out)
+  }, 120_000)
 
   it.skipIf(!process.env.CN_BENCH)('1000 篇：建索引多久、查一次多久', async () => {
     const vault = join(root, '大库')

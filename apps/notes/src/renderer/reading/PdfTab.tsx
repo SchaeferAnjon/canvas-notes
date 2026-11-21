@@ -1,4 +1,5 @@
 import { composing } from '../ime'
+import { accelFor, isKey, useKeys } from '../keys'
 /**
  * 中间栏的 PDF 标签：一页一页往下滚（只画看得到的几页），文字层能选字；
  * 拖一个框就问（框完右栏 AI 输入框顶上那一排第一张就是这块截图，回车就发），没框时 ⌘↵ 问整页、框着时 ⌘↵ 是改问法（CN-92 方向 A）；
@@ -7,6 +8,10 @@ import { composing } from '../ime'
  * 照 design/pdf 方向 A（右栏切换）的 spec 1.2–1.4。
  */
 import { Codicon } from '@cn/design'
+import type { PdfPrefs } from '../../shared/prefs'
+import { appSettings } from '../settings-store'
+import { pdfZoomName } from '../settings/pdf'
+import { openSettingsAt } from '../settings/jump'
 import { AiIcon } from '../engine-logo'
 import { menuAt } from '../ctx/menu'
 import { ActBtn, TabActs } from '../shell/TabActs'
@@ -51,19 +56,27 @@ export function PdfTab(props: {
   onShowNote(id: string): void
   onNotice(text: string): void
 }) {
+  /** 写在界面上的键照命令表（改了跟着变） */
+  const K = useKeys()
   const { path } = props
   const r = R.useReading(path)!
   const [doc, setDoc] = useState<PdfDoc | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [sizes, setSizes] = useState<Size[] | null>(null)
   const [width, setWidth] = useState(0)
+  /** 这份第一次打开（本机没记过缩放）：照设置 › 读PDF「新打开的PDF缩放」，页面量好以后算一次 */
+  const firstZoom = useRef<PdfPrefs['zoom'] | null>(null)
   const [zoom, setZoom] = useState(() => {
     try {
-      return Number(localStorage.getItem(zoomKey(path))) || 1
+      const v = Number(localStorage.getItem(zoomKey(path)))
+      if (v) return v
     } catch {
-      return 1
+      // 读不到当第一次打开
     }
+    firstZoom.current = appSettings().pdf.zoom
+    return 1
   })
+  const [height, setHeight] = useState(0)
   const [visible, setVisible] = useState<Set<number>>(new Set([1, 2]))
   const [page, setPage] = useState(1)
   const [pageEdit, setPageEdit] = useState(false)
@@ -117,9 +130,13 @@ export function PdfTab(props: {
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el) return
-    const ro = new ResizeObserver(() => el.clientWidth && setWidth(el.clientWidth))
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth) setWidth(el.clientWidth)
+      if (el.clientHeight) setHeight(el.clientHeight)
+    })
     ro.observe(el)
     if (el.clientWidth) setWidth(el.clientWidth)
+    if (el.clientHeight) setHeight(el.clientHeight)
     return () => ro.disconnect()
   }, [])
 
@@ -127,6 +144,14 @@ export function PdfTab(props: {
   // 适合宽度：左边留 40 写页码、右边 52 放标记
   const fit = width ? (width - 40 - 52) / maxW : 1
   const scale = Math.max(0.25, Math.min(fit * zoom, 6))
+  // 第一次打开、不是适合宽度：量好宽高后换成「适合整页」（第一页整页放得下）或「100%」，之后这份照记下的
+  useEffect(() => {
+    const want = firstZoom.current
+    if (!want || !sizes?.length || !width || !height) return
+    firstZoom.current = null
+    if (want === 'actual') setZoom(1 / fit)
+    else if (want === 'page') setZoom(Math.min(1, (height - PAD_TOP * 2) / sizes[0]!.h / fit))
+  }, [sizes, width, height])
 
   const pageTop = useCallback(
     (n: number) => {
@@ -351,7 +376,7 @@ export function PdfTab(props: {
       sel && { label: '讲解一下', ai: 'chat', run: () => capAsk('explain', sel) },
       sel && { label: '翻译 + 讲一讲', ai: 'chat', run: () => capAsk('translate', sel) },
       '-',
-      { label: `问这一页（第 ${n} 页）`, accel: 'CommandOrControl+Return', ai: 'chat', enabled: !!doc && r.running === null, run: () => askPage(n) },
+      { label: `问这一页（第 ${n} 页）`, accel: accelFor('ask-page'), ai: 'chat', enabled: !!doc && r.running === null, run: () => askPage(n) },
       '-',
       threads.length > 0 && { label: '跳到笔记', run: () => props.onShowNote(threads[threads.length - 1]!.id) },
       '-',
@@ -440,17 +465,19 @@ export function PdfTab(props: {
   useEffect(() => {
     if (!props.active) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && e.metaKey && !e.isComposing) {
+      // 键照命令表（问这一页、引用、放大缩小，设置 › 快捷键里能改）；编辑器（边读边记的笔记）先接了的不管
+      if (e.defaultPrevented) return
+      if (isKey(e, 'ask-page')) {
         e.preventDefault()
         if (boxed) void capAsk('rephrase')
         else void askPage()
-      } else if (e.metaKey && e.shiftKey && e.code === 'KeyL' && boxed) {
+      } else if (isKey(e, 'quote') && boxed) {
         e.preventDefault()
         void capQuote()
       } else if (e.key === 'Escape' && boxed && !(e.target as Element)?.closest?.('textarea')) cancelBox()
-      else if (e.metaKey && (e.key === '=' || e.key === '+')) (e.preventDefault(), setZoom((z) => Math.min(4, z * 1.15)))
-      else if (e.metaKey && e.key === '-') (e.preventDefault(), setZoom((z) => Math.max(0.4, z / 1.15)))
-      else if (e.metaKey && e.key === '0') (e.preventDefault(), setZoom(1))
+      else if (isKey(e, 'zoom-in')) (e.preventDefault(), setZoom((z) => Math.min(4, z * 1.15)))
+      else if (isKey(e, 'zoom-out')) (e.preventDefault(), setZoom((z) => Math.max(0.4, z / 1.15)))
+      else if (isKey(e, 'zoom-reset')) (e.preventDefault(), setZoom(1))
     }
     // 输入框里打了自己的问题再按 ⌘↵：带上这一页问这句（ReadingAi 发来，带着输入框里的材料）
     const onAskPage = (e: Event) => {
@@ -517,26 +544,33 @@ export function PdfTab(props: {
             )}
           </div>
         )}
-        <ActBtn icon="comment-discussion" ai="chat" label="问这一页" keys="⌘↵" disabled={!doc || r.running !== null} onClick={() => void askPage()} />
+        <ActBtn icon="comment-discussion" ai="chat" label="问这一页" keys={K('ask-page') ?? undefined} disabled={!doc || r.running !== null} onClick={() => void askPage()} />
         <div className="pdfmore">
           <ActBtn icon="ellipsis" label="更多" aria-expanded={more} onClick={() => setMore((v) => !v)} />
           {more && (
             <div className="menu" role="menu" aria-label="更多" onMouseLeave={() => setMore(false)}>
               <button role="menuitem" onClick={() => (setZoom((z) => Math.min(4, z * 1.15)), setMore(false))}>
                 <Codicon name="zoom-in" size={14} />
-                放大<kbd>⌘=</kbd>
+                放大{K('zoom-in') && <kbd>{K('zoom-in')}</kbd>}
               </button>
               <button role="menuitem" onClick={() => (setZoom((z) => Math.max(0.4, z / 1.15)), setMore(false))}>
                 <Codicon name="zoom-out" size={14} />
-                缩小<kbd>⌘-</kbd>
+                缩小{K('zoom-out') && <kbd>{K('zoom-out')}</kbd>}
               </button>
               <button role="menuitem" onClick={() => (setZoom(1), setMore(false))}>
                 <Codicon name="arrow-both" size={14} />
-                适合宽度<kbd>⌘0</kbd>
+                适合宽度{K('zoom-reset') && <kbd>{K('zoom-reset')}</kbd>}
               </button>
               <button role="menuitem" onClick={() => (void window.cnReading.reveal(path), setMore(false))}>
                 <Codicon name="folder-opened" size={14} />
                 在访达中显示
+              </button>
+              <div className="sep" />
+              {/* 从用的地方跳到设置（方向 A 的 A3）：最下面一项写清现在的值 */}
+              <button role="menuitem" className="go" onClick={() => (setMore(false), openSettingsAt('pdfZoom'))}>
+                <Codicon name="settings-gear" size={14} />
+                {`新打开的PDF默认用「${pdfZoomName(appSettings().pdf.zoom)}」`}
+                <Codicon name="chevron-right" size={12} className="go-r" />
               </button>
             </div>
           )}
@@ -622,12 +656,12 @@ export function PdfTab(props: {
                     </button>
                     <button onClick={() => void capAsk('rephrase')}>
                       <Codicon name="edit" size={14} />
-                      改问法<kbd>⌘↵</kbd>
+                      改问法{K('ask-page') && <kbd>{K('ask-page')}</kbd>}
                     </button>
                     <button onClick={() => void capQuote()}>
                       <Codicon name="quote" size={14} />
                       {boxed.quote ? '引用这段' : '引用这块'}
-                      <kbd>⇧⌘L</kbd>
+                      {K('quote') && <kbd>{K('quote')}</kbd>}
                     </button>
                     <span className="sepv" />
                     <button aria-label="取消" data-tip="取消 esc" data-side="below" onClick={cancelBox}>

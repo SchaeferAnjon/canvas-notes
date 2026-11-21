@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import { commitAll, commitPending, countCommitsSince, describeChanges, git, log, status, sync } from '../src'
+import { bundle, commitAll, commitPending, countCommitsSince, describeChanges, git, log, pull, status, sync } from '../src'
 
 let root: string
 let a: string
@@ -59,6 +59,46 @@ it('两边改了同一行：退回同步前，本地的字不丢', async () => {
   expect(r.kind).toBe('conflict')
   expect(readFileSync(join(a, '旅行.md'), 'utf8')).toBe('第一段 a\n\n第二段\n')
   expect((await log(a))[0]!.subject).toMatch(/^更新 1 个文件：旅行/)
+})
+
+it('拉（打开库时先拉一次）：先提交本机的，再拿到别处推上去的，不推', async () => {
+  writeFileSync(join(b, '旅行.md'), '第一段（另一台电脑改的）\n\n第二段\n')
+  await commitAll(b, 'b 改的')
+  await git(b, ['push', '-q'])
+  writeFileSync(join(a, '新的.md'), '本机新写的\n')
+  const r = await pull(a)
+  expect(r).toMatchObject({ kind: 'ok', pulled: 1 })
+  expect(r.kind === 'ok' && r.committed).toMatch(/^[0-9a-f]{40}$/)
+  expect(readFileSync(join(a, '旅行.md'), 'utf8')).toBe('第一段（另一台电脑改的）\n\n第二段\n')
+  // 本机的那次提交还在本机，远程上没有
+  expect((await git(bare, ['log', '--format=%s', 'main'])).trim().split('\n')).toEqual(['b 改的', '第一次'])
+  expect((await log(a, 1))[0]!.subject).toMatch(/新的/)
+})
+
+it('拉：没有远程、两边改了同一行时和同步一样说清楚，本机的字不丢', async () => {
+  const solo = join(root, 'solo')
+  await git(root, ['init', '-q', '-b', 'main', solo])
+  expect(await pull(solo)).toEqual({ kind: 'no-remote' })
+  writeFileSync(join(b, '旅行.md'), '第一段 b\n\n第二段\n')
+  await commitAll(b, 'b')
+  await git(b, ['push', '-q'])
+  writeFileSync(join(a, '旅行.md'), '第一段 a\n\n第二段\n')
+  expect((await pull(a)).kind).toBe('conflict')
+  expect(readFileSync(join(a, '旅行.md'), 'utf8')).toBe('第一段 a\n\n第二段\n')
+})
+
+it('备份：整个库的历史打成一个文件，clone 回来什么都在；再备一次换掉上一份', async () => {
+  const file = join(root, 'a.bundle')
+  await bundle(a, file)
+  const back = join(root, 'back')
+  await git(root, ['clone', '-q', file, back])
+  expect(readFileSync(join(back, '旅行.md'), 'utf8')).toBe('第一段\n\n第二段\n')
+  writeFileSync(join(a, '旅行.md'), '改过\n')
+  await commitAll(a, '第二次')
+  await bundle(a, file)
+  const back2 = join(root, 'back2')
+  await git(root, ['clone', '-q', file, back2])
+  expect((await log(back2)).map((c) => c.subject)).toEqual(['第二次', '第一次'])
 })
 
 it('commitPending：先暂存再写说明，在外面改了名写「挪了」（不是新增一个、删除一个）；没东西可提交给 null', async () => {

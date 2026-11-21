@@ -1,4 +1,5 @@
 import { Codicon } from '@cn/design'
+import { accelFor, useKeyHandler, useKeys } from './keys'
 import { fmValue, hasOldLayout, isMindmap, needsConvert } from '@cn/format'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile, OpenedNote } from '../shared/api'
@@ -22,6 +23,8 @@ import { Backlinks, setNoteIndex } from './doc-embeds'
 import { createPortal } from 'react-dom'
 import { ActBtn, noteLeavers, noteRenamers, PageNote, TabActs } from './shell/TabActs'
 import { takeStray, takeTyping } from './new-note-hold'
+import { usePrefs } from './settings-store'
+import { openSettingsAt } from './settings/jump'
 
 export interface NoteTabProps {
   /** 标签 id：标签上改名时按它找到这一篇的改名 */
@@ -76,6 +79,10 @@ export function NoteTab(props: NoteTabProps) {
   // 白板一打开就是白板样式：左栏的列表已经知道它是白板，不等读完文件（不然先闪一下文档，读完又跳回白板，
   // 这中间点的「文档」也会被盖掉）
   const [mode, setMode] = useState<ViewMode>(() => (props.notes.find((n) => n.path === path)?.board ? 'board' : 'doc'))
+  /** 写在提示上的键照命令表（改了跟着变） */
+  const K = useKeys()
+  // 白板 / 文档切换的键（默认 ⌘E）：这一篇在前面时它接
+  useKeyHandler('toggle-view', props.active ? () => ((picked.current = true), setMode((m) => (m === 'board' ? 'doc' : 'board')), true) : null)
   /** 用户自己点过看法：读完文件后不再按 frontmatter 改 */
   const picked = useRef(false)
   const [text, setText] = useState<string | null>(null)
@@ -88,7 +95,9 @@ export function NoteTab(props: NoteTabProps) {
   const [zoom, setZoomState] = useState(() => loadZoom(path))
   const setZoom = (z: number) => (setZoomState(z), saveZoom(pathNow.current, z))
   const zoomApi = useRef<BoardZoomApi | null>(null)
-  const boardScale = zoom * (props.rightOpen ? 0.8 : 1)
+  // 右栏开着时白板缩到 0.8（设置 › 文档和白板「右栏开着时白板缩小」能关）
+  const shrink = usePrefs((s) => s.editor.boardShrink)
+  const boardScale = zoom * (props.rightOpen && shrink ? 0.8 : 1)
   const cb = useRef(props)
   cb.current = props
 
@@ -374,7 +383,7 @@ export function NoteTab(props: NoteTabProps) {
               ['doc', 'file-text', '文档'],
             ] as const
           ).map(([m, icon, name]) => (
-            <button key={m} className={mode === m ? 'on' : ''} onClick={() => ((picked.current = true), setMode(m))} role="tab" aria-selected={mode === m} aria-label={name} data-tip={name} data-side="below">
+            <button key={m} className={mode === m ? 'on' : ''} onClick={() => ((picked.current = true), setMode(m))} role="tab" aria-selected={mode === m} aria-label={name} data-tip={name} data-key={mode === m ? undefined : (K('toggle-view') ?? undefined)} data-side="below">
               <Codicon name={icon} size={14} />
               <span className="lb">{name}</span>
             </button>
@@ -387,14 +396,14 @@ export function NoteTab(props: NoteTabProps) {
             aria-label="缩放"
             data-testid="board-zoom"
             data-tip="缩放"
-            data-key="⌘+ ⌘− ⌘0"
+            data-key={[K('zoom-in'), K('zoom-out'), K('zoom-reset')].filter(Boolean).join(' ') || undefined}
             data-side="below"
             onClick={() =>
               void showMenu([
-                { label: '放大', accel: 'CommandOrControl+=', run: () => zoomApi.current?.step(1) },
-                { label: '缩小', accel: 'CommandOrControl+-', run: () => zoomApi.current?.step(-1) },
-                { label: '100%', accel: 'CommandOrControl+0', run: () => zoomApi.current?.set(1) },
-                { label: '适合窗口', accel: 'Shift+CommandOrControl+1', run: () => zoomApi.current?.fit() },
+                { label: '放大', accel: accelFor('zoom-in'), run: () => zoomApi.current?.step(1) },
+                { label: '缩小', accel: accelFor('zoom-out'), run: () => zoomApi.current?.step(-1) },
+                { label: '100%', accel: accelFor('zoom-reset'), run: () => zoomApi.current?.set(1) },
+                { label: '适合窗口', accel: accelFor('zoom-fit'), run: () => zoomApi.current?.fit() },
                 '-',
                 { label: '触控板捏合、按住 ⌘ 滚动也能缩放', enabled: false, run: () => undefined },
               ])
@@ -430,6 +439,9 @@ export function NoteTab(props: NoteTabProps) {
                   cb.current.onSaved()
                 },
               },
+              // 从用的地方跳到设置（方向 A 的 A3）：最下面一项到设置 › 文档和白板，那一行闪一下
+              '-',
+              mode === 'board' ? { label: '白板设置：点阵、右栏开着时缩小…', run: () => openSettingsAt('boardShrink') } : { label: '字体、字号、版心…', run: () => openSettingsAt('size') },
             ])
           }
         />

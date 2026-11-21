@@ -6,6 +6,9 @@ import { AiError } from './ai-error'
 import { ByLogo } from './engine-logo'
 import { pastedUrl } from './paste-images'
 import { AiHead, AwayBar, Chip, type DockNav, Sees } from './ai-head'
+import { askLine, MULTI, pickAsk, quickCmds } from './ai-greet'
+import { dropPicked, pickedFiles, pickTip, usePicked } from './ai-pick'
+import { Greeting, type Quick, QuickRow } from './ai-quick'
 import { AiInput, MatMsg, QuoteCap, sendText, useComposer, useConvPick } from './composer'
 import * as C from './ai-chats'
 import { folderCount, HANDS, type Place, seenOf } from './ai-place'
@@ -16,6 +19,7 @@ import type { AgentContext, StoredMsg, ToolStep } from '../shared/agent'
 import { imageNames, type Material } from '../shared/materials'
 import type { CommitInfo, DuplicatePair, NoteFile } from '../shared/api'
 import { CLIPS, titleOf } from '../shared/layout'
+import { foldersOf, inboxEntry, planInBatches } from '../shared/filing'
 import './ai.css'
 import {
   articlePrompt,
@@ -23,13 +27,10 @@ import {
   COMMANDS,
   draftPath,
   draftText,
-  inboxPrompt,
-  parseMoves,
   dreamSummary,
   TIDY_BOARD,
   summaryPrompt,
   SYSTEM,
-  topicFolder,
   today,
   translatePrompt,
   withSummaryCard,
@@ -166,10 +167,18 @@ export function AiPanel(props: AiPanelProps) {
   useEffect(() => {
     if (!props.hidden) box.current?.focus()
   }, [props.hidden])
+  // 左栏选了好几个交给 AI（task-0tgz2，ai-pick.ts）：「看得到」写「选中的N个」，问候和快捷命令换成好几篇的，每一轮交给 AI
+  const picked = usePicked()
+  const pickedNow = useRef(picked)
+  pickedNow.current = picked
+  const knownFiles = useKnownFiles()
+  const pickList = useMemo(() => (picked ? pickedFiles(picked.items, knownFiles) : []), [picked, knownFiles])
   const draftSeq = useRef(0)
   // 文档里带进来的那一块跟着那个标签：换了标签就拿掉它（和它在字里的编号），自己接着打的问题留着，不拿上一篇的话问这一篇
   useEffect(() => {
     c.dropDocQuotes(props.tab?.id ?? null)
+    // 左栏选了好几个「问AI」也跟着那时的标签：换了标签就拿掉（task-0tgz2）
+    if (pickedNow.current && pickedNow.current.tab !== (props.tab?.id ?? null)) dropPicked()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.tab?.id])
   useEffect(() => {
@@ -230,24 +239,21 @@ export function AiPanel(props: AiPanelProps) {
   const menuLen = slash ? cmdItems.length : at ? atItems.length : 0
 
   /**
-   * 空对话里的建议：这一页能用的 / 命令（文档不出名字写着「白板」的），右栏开着网页时「剪藏这一页」排第一（和能动手一样），最多三颗。
-   * 文件夹页照小样给这个文件夹的（总结、挪进来、照上一篇开一篇，folder-ai.ts），做不到的不放
+   * 空对话输入框上面那排快捷命令（task-0tgz2）：这一页用得上的 / 命令（ai-greet.ts 的 quickCmds），点了就是选了那条；
+   * 文件夹页照小样给这个文件夹的（总结、挪进来、照上一篇开一篇，folder-ai.ts），做不到的不放；右栏开着网页时「剪藏这一页」排第一
    */
-  function suggestions(folder: string | null): { text: string; icon: CodiconName; go(): void }[] {
-    const cmd = (name: string) => ({ text: '/' + name, icon: ICONS[name] ?? 'comment-discussion', go: () => void run('/' + name) })
-    const web = props.webOpen && props.webUrl ? [cmd('剪藏这一页')] : []
-    const own =
-      folder !== null
-        ? folderSugs(folder, props.notes, today()).map((s) => ({ text: s.text, icon: s.icon, go: () => void runFolder(folder, s) }))
-        : (props.tab?.type === 'inbox'
-            ? ['整理收件箱', '找重复']
-            : isBoard
-              ? ['总结这块白板', '写成文章', '整理收件箱']
-              : notePath
-                ? ['翻译', '整理收件箱']
-                : ['整理收件箱', '现在梦游']
-          ).map(cmd)
-    return [...web, ...own].slice(0, 3)
+  function quickItems(folder: string | null): Quick[] {
+    // 左栏选了好几个：好几篇用得上的（点了就是发那一问，是哪几篇跟着「看得到」交给 AI）
+    if (picked) return MULTI.map((m) => ({ text: m.text, icon: m.icon, tip: m.ask, go: () => void run(m.ask) }))
+    const web = !!(props.webOpen && props.webUrl)
+    const cmd = (name: string): Quick => ({
+      text: name,
+      icon: ICONS[name] ?? 'comment-discussion',
+      tip: `/${name} · ${COMMANDS.find((c) => c.name === name)?.desc ?? ''}`,
+      go: () => void run('/' + name),
+    })
+    if (folder === null) return quickCmds(props.tab, { web, board: isBoard, inbox: inbox.length }).map(cmd)
+    return [...(web ? [cmd('剪藏这一页')] : []), ...folderSugs(folder, props.notes, today()).map((s) => ({ text: s.text, icon: s.icon, go: () => void runFolder(folder, s) }))]
   }
 
   // ---------- 跑命令 ----------
@@ -326,6 +332,19 @@ export function AiPanel(props: AiPanelProps) {
       patch(id, { error: errText(e) })
     }
   }
+
+  // 白板、文档顶上「整理好了 · 挪了N张卡 · 撤回」（ai-act-store.ts）：撤的就是这一轮这条消息的改动，在这里撤，消息跟着变「已撤回」
+  useEffect(() => {
+    const on = (e: Event) => {
+      const { turn, commit } = (e as CustomEvent<{ turn: number; commit: string }>).detail
+      const m = msgs.find((x) => x.id === turn)
+      if (!m?.change || m.change.commit.hash !== commit) return
+      e.preventDefault()
+      if (!m.change.reverted) void revert(m.id, m.change)
+    }
+    window.addEventListener('cn:ai-undo', on)
+    return () => window.removeEventListener('cn:ai-undo', on)
+  })
 
   /** mats：这一句带的材料（输入框顶上那一排，多段引用方向 B）；「再问一次」这些只带字 */
   async function run(raw: string, mats: Material[] = []) {
@@ -471,7 +490,7 @@ export function AiPanel(props: AiPanelProps) {
     patch(id, {
       pending: false,
       text: `和${name}有关的${paths.length}条，挪进「${folder}」：`,
-      moves: paths.map((p) => ({ path: p, topic: name, to: folder })),
+      moves: paths.map((p) => ({ path: p, to: folder })),
       actions: [
         {
           label: '同意，挪过去',
@@ -505,7 +524,7 @@ export function AiPanel(props: AiPanelProps) {
   async function agentTurn(id: number, text: string, mats: Material[] = [], subject?: string) {
     // 回答头上写全「Claude Code · Opus 5.5 · High」：这个对话这一问用的
     patch(id, { live: true, engine, text: '', by: cp.label })
-    const ctx = props.context(mentions)
+    const ctx = { ...props.context(mentions), ...(picked ? { picked: { count: picked.items.length, files: pickList } } : {}) }
     const pasted = imageNames(mats)
     try {
       // 接着这个地方自己的会话（D 组 CN-132）；模型和 effort 是这个对话选的（CN-91）
@@ -600,17 +619,37 @@ export function AiPanel(props: AiPanelProps) {
     })
   }
 
+  /**
+   * /整理收件箱：和梦游同一套归法（shared/filing.ts，八个分类：课程归到那门课，自己写的进周记、写作这些，剪来的进剪藏/<主题>），
+   * 只挪不改名；拿不准的留在收件箱。不走梦游的分支：你点「同意」才挪，一次提交，能撤回。
+   * 收件箱多的一批批问（一条消息一次只问一个）；AI 那头出错（没登录、停下）整条照常报错，后面几批不再问
+   */
   async function tidyInbox(id: number) {
     if (!inbox.length) return patch(id, { pending: false, text: '收件箱是空的，没有要整理的。' })
-    const items = await Promise.all(inbox.map(async (n) => ({ path: n.path, text: (await window.cn.readNote(n.path)).text })))
-    const topics = [...new Set(props.notes.filter((n) => n.kind === 'clip').map((n) => n.topic!))]
-    const reply = await askAi(id, inboxPrompt(items, topics), false)
-    const moves = parseMoves(reply, inbox)
-    if (!moves.length) return patch(id, { pending: false, read: `读了收件箱${inbox.length}条`, text: '这几条都没把握放哪，先留在收件箱。' })
+    const entries = await Promise.all(inbox.map(async (n) => inboxEntry(n.path, (await window.cn.readNote(n.path)).text)))
+    const read = `读了收件箱${inbox.length}条`
+    patch(id, { read })
+    const notes: string[] = []
+    let failed: unknown = null
+    const ask = async (prompt: string) => {
+      if (failed) throw failed
+      try {
+        return await askAi(id, prompt, false)
+      } catch (e) {
+        failed = e
+        throw e
+      }
+    }
+    const plans = await planInBatches(entries, foldersOf(props.notes.map((n) => n.path)), ask, (n) => notes.push(n), 'move', { parallel: 1 })
+    if (failed) throw failed
+    if (!plans.length && notes.length) throw new Error(notes.join('\n'))
+    const stay = inbox.length - plans.length
+    if (!plans.length) return patch(id, { pending: false, read, text: '这几条都没把握放哪，先留在收件箱。' })
+    const moves = plans.map((p) => ({ path: p.path, to: p.folder }))
     patch(id, {
       pending: false,
-      read: `读了收件箱${inbox.length}条`,
-      text: `有把握的${moves.length}条，挪到这些主题：`,
+      read,
+      text: `挪${plans.length}条到下面这些地方${stay ? `，${stay}条拿不准留在收件箱` : ''}：${notes.length ? `\n\n${notes.join('\n')}` : ''}`,
       moves,
       actions: [
         {
@@ -618,8 +657,8 @@ export function AiPanel(props: AiPanelProps) {
           primary: true,
           run: async () => {
             const kinds: Record<string, string> = {}
-            for (const m of moves) kinds[`${topicFolder(m.topic)}/${m.path.split('/').pop()}`] = '移动'
-            await applyChange(id, { message: `整理收件箱：挪了 ${moves.length} 条`, moves: moves.map((m) => ({ from: m.path, toFolder: topicFolder(m.topic) })) }, kinds)
+            for (const m of moves) kinds[`${m.to}/${m.path.split('/').pop()}`] = '移动'
+            await applyChange(id, { message: `整理收件箱：挪了 ${moves.length} 条`, moves: moves.map((m) => ({ from: m.path, toFolder: m.to })) }, kinds)
             patch(id, { actions: [], done: `挪好了${moves.length}条` })
           },
         },
@@ -707,18 +746,22 @@ export function AiPanel(props: AiPanelProps) {
   const count = useMemo(() => (folder === null ? 0 : folderCount(folder, files)), [folder, files])
   const seen = seenOf(props.tab, { board: isBoard, digest: props.digest, inbox: inbox.length, count: () => count })
   const web = props.webOpen ? props.webUrl : null
-  // 空对话放不下时一级级收：先藏大标题；还放不下就只留前两颗建议、大标题放得下再画回来；再不行两样都收
-  // （按这一格实际放不放得下量，不按固定高度：建议有两颗有三颗、那句有一行有两行）
-  const empty = useRef<HTMLDivElement>(null)
+  // 问候放不下时一级级收：先藏标志和那一行问候，再不行整个不画（按这一格实际放不放得下量：那一句有一行有两行）；
+  // 底下那排快捷命令不在消息区里，一直在
+  const empty = loaded && msgs.length === 0
+  const emptyRef = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
-    const el = empty.current
+    const el = emptyRef.current
     const box = list.current
     if (!el || !box) return
+    // 问候靠底排（justify-content: flex-end），放不下时是往上漫出去、不算进 scrollHeight：直接比问候和消息区里面的高
     const fit = () => {
-      for (const level of [[], ['tight1'], ['tight2'], ['tight1', 'tight2']]) {
+      const cs = getComputedStyle(box)
+      const room = box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)
+      for (const level of [[], ['tight1'], ['tight2']]) {
         el.classList.remove('tight1', 'tight2')
         el.classList.add(...level)
-        if (box.scrollHeight <= box.clientHeight) return
+        if (el.offsetHeight <= room + 0.5) return
       }
     }
     fit()
@@ -726,7 +769,7 @@ export function AiPanel(props: AiPanelProps) {
     ro.observe(box)
     return () => ro.disconnect()
   })
-  const sees: { label: string; on?: boolean }[] = [{ label: seen.see, on: true }, ...(web ? [{ label: `网页：${hostOf(web)}` }] : []), ...mentions.map((m) => ({ label: `@${titleOf(m)}` }))]
+  const sees: { label: string; on?: boolean }[] = [{ label: seen.see, on: !picked }, ...(web ? [{ label: `网页：${hostOf(web)}` }] : []), ...mentions.map((m) => ({ label: `@${titleOf(m)}` }))]
   // 它在这一页能替你做的动作（右栏网页开着时是网页的，最可能是要它动网页）
   const hands = web ? HANDS.web : seen.hands
   // 实心主按钮一屏最多一个（DESIGN.md 组件）：只有最新那条带按钮的回答用实心，之前的「打开」「存成卡片」退成次按钮
@@ -739,6 +782,11 @@ export function AiPanel(props: AiPanelProps) {
         <AwayBar nav={props.nav} />
       ) : (
       <Sees testid="ai-sees">
+        {picked && (
+          <Chip on testid="ai-picked" title={pickTip(picked.items, knownFiles)}>
+            {`选中的${picked.items.length}个`}
+          </Chip>
+        )}
         {sees.map((s) => (
           <Chip key={s.label} on={s.on}>
             {s.label}
@@ -748,35 +796,15 @@ export function AiPanel(props: AiPanelProps) {
       </Sees>
       )}
       <div
-        className="msgs"
+        className={'msgs' + (empty ? ' greeting' : '')}
         ref={list}
         onScroll={(e) => {
           const el = e.currentTarget
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
         }}
       >
-        {/* 空对话（D 组小样）：这是哪里的对话、别处问过的在头上菜单里；下面是这一页能用的命令 */}
-        {loaded && msgs.length === 0 && (
-          <div className="ai-empty" ref={empty}>
-            <h2>想让它做什么？</h2>
-            {/* 「⌄」字画出来像个下标 v：换成和头上对话胶囊同一个 chevron-down 图标 */}
-            {/* 名字最后一个字、⌄ 和「」里。」不折开：中文的收尾括号不落到行首，⌄ 不单独挂在行尾 */}
-            <p>
-              {`这里是「${place.label}」的对话；别处问过的在上面「${[...place.label].slice(0, -1).join('')}`}
-              <span className="nobr">
-                {[...place.label].slice(-1).join('')}
-                <Codicon name="chevron-down" size={12} className="cv" />
-                {'」里。'}
-              </span>
-            </p>
-            {suggestions(folder).map((s) => (
-              <button key={s.text} className="sug" onClick={s.go}>
-                <Codicon name={s.icon} size={14} />
-                <span className="truncate">{s.text}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        {/* 空对话打招呼（task-0tgz2 方向 A）：引擎标志 + 钟点问候，下面一句跟着在看的东西走；能做什么在输入框上面那一排 */}
+        {empty && <Greeting ref={emptyRef} engine={engine} ask={picked ? pickAsk(picked.items.length) : askLine(props.tab, { board: isBoard, inbox: inbox.length, label: place.label })} />}
         {msgs.map((m, i) =>
           m.role === 'user' ? (
             <div key={m.id} className="um-wrap">
@@ -796,7 +824,7 @@ export function AiPanel(props: AiPanelProps) {
               )}
             </div>
           ) : (
-            <div key={m.id} className="am" data-testid="ai-msg" data-engine={m.engine} data-src="AI的回答" onContextMenu={(e) => !m.pending && onMessageMenu(e, m.text ?? '')}>
+            <div key={m.id} className="am" data-testid="ai-msg" data-engine={m.engine} data-src="AI的回答" aria-busy={m.pending || undefined} onContextMenu={(e) => !m.pending && onMessageMenu(e, m.text ?? '')}>
               {(m.read || m.by) && (
                 <div className="read">
                   {m.read && <Codicon name="check" size={12} />}
@@ -830,7 +858,7 @@ export function AiPanel(props: AiPanelProps) {
                       <span className="truncate" title={titleOf(x.path)}>
                         {titleOf(x.path)}
                       </span>
-                      <span className="to">→ {x.to ?? topicFolder(x.topic)}</span>
+                      <span className="to">→ {x.to ?? `${CLIPS}/${x.topic}`}</span>
                     </div>
                   ))}
                 </div>
@@ -935,6 +963,16 @@ export function AiPanel(props: AiPanelProps) {
       </div>
       {/* 回答里选一段：「引用 ⇧⌘L · 拷贝」，引用成为输入框顶上那一排的一块 */}
       <QuoteCap list={list} active={!props.hidden} onQuote={(text, src) => c.add({ kind: 'quote', text, src })} />
+      {/* 打了字、加了材料先藏起来（斜杠菜单、@ 菜单从这里往上弹），清空回来；发了第一问收起 */}
+      {empty && !input && !c.mats.length && (
+        <QuickRow
+          items={quickItems(folder)}
+          onAll={() => {
+            setInput('/')
+            box.current?.focus()
+          }}
+        />
+      )}
       <AiInput
         c={c}
         placeholder={`跟${engines.find((e) => e.id === engine)?.label ?? 'Claude Code'}说，/ 选命令，@ 引用笔记`}

@@ -173,10 +173,10 @@ test('起别名后搜别名排第一；设快捷键撞了别的命令说撞了�
     await expect(keys).toContainText('给「同步」设快捷键（软件开着时在哪都能按）')
     await expect(keys.locator('.keys')).toHaveText('现在按下组合键…')
     await expect(keys.getByRole('button', { name: '好' })).toBeDisabled()
-    // 软件自己的键：不给
-    await page.keyboard.press('Meta+w')
-    await expect(keys.locator('.keys')).toHaveText('⌘W')
-    await expect(keys.locator('.why')).toHaveText('⌘W 是关闭，换一个')
+    // 系统的键：不给（软件自己的命令都在命令表里能改，⌘W 是「关掉」，撞了说撞了谁，见下面 ⌘N）
+    await page.keyboard.press('Meta+q')
+    await expect(keys.locator('.keys')).toHaveText('⌘Q')
+    await expect(keys.locator('.why')).toHaveText('⌘Q 是退出，换一个')
     await expect(keys.getByRole('button', { name: '好' })).toBeDisabled()
     // 按 ⌘N 不会新建笔记（键只记在这里）
     await page.keyboard.press('Meta+n')

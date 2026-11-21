@@ -2,6 +2,9 @@
 import type { NewTabInfo, TabMirror } from './bookmarkkeeper'
 import type { ExtTheme } from './ext-theme'
 
+/** 重开软件时恢复的网页标签用的自动播放规矩：用户在网页里动过才许出声播（task-0t4jq，main/web/media-hold.ts） */
+export const HOLD_POLICY = 'document-user-activation-required'
+
 export type TabCommand =
   | { type: 'select' | 'close'; webContentsId: number }
   | { type: 'select' | 'close'; tabId: string }

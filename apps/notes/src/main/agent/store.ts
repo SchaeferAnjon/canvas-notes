@@ -205,6 +205,16 @@ export class AgentStore {
     this.write('settings.json', { ...this.read<object>('settings.json', {}), omni: on })
   }
 
+  /** 给AI的长期说明（设置 › AI，2026-11-21 方向 A 新加）：AI 对话和读 PDF 每一问都带上；空串是没有 */
+  prompt(): string {
+    const v = this.read<{ prompt?: unknown }>('settings.json', {}).prompt
+    return typeof v === 'string' ? v : ''
+  }
+
+  setPrompt(text: string) {
+    this.write('settings.json', { ...this.read<object>('settings.json', {}), prompt: text.slice(0, 4000) })
+  }
+
   /** 记下这个对话自己选的模型、effort（null：回到跟「AI 对话」那一行） */
   setPick(vault: string, place: string, pick: AiPick | null) {
     const { pick: _old, ...c } = this.chat(vault, place)

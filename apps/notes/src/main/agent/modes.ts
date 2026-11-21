@@ -17,3 +17,8 @@ export function modeLine(omni: boolean, engine: EngineId, root: string): string 
     ? `【模式】全能模式开着：和在终端里用 ${LABELS[engine]} 一样，能读写这台 Mac 上的文件、跑命令、上网、开子 Agent，不用先问；工作目录是库（${root}）。`
     : '【模式】全能模式关着：只在库里动手（canvas 这组工具：新建、改写、改名、挪动、删笔记，建文件夹，白板、文档、右栏网页）；看库外的文件、跑命令、上网搜都做不了，用户要这些就请他在 AI 输入框下面打开「全能模式」，不要建议改命令行的权限设置。'
 }
+
+/** 用户在设置 › AI 写的「给AI的长期说明」：放在每条消息最前面（系统提示一个会话里定死，改了要下一问就用上） */
+export function userNoteLine(note: string): string {
+  return `【用户的长期说明】每一问都照这个来：\n${note}\n`
+}

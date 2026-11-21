@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { Clip } from '../../shared/api'
+import { HOLD_POLICY } from '../../shared/web-api'
 import type { ClipMode } from '../WebPanel'
 import { pageReported } from '../plugins/host'
 import { videoReported } from '../video/store'
@@ -9,6 +10,9 @@ import { webReadIpc } from '../reading/web-bridge'
 import { registerWebMenu, type WebMenuHost } from '../ctx/web-menu'
 import { pageOutside } from './page-outside'
 import { type LogoEngine, useAiLogo } from '../engine-logo'
+
+/** 恢复的标签用的网页设置：要用户在这个网页里动过才许出声自动播（和 Chrome 平常一样）；主进程按它认出这是恢复的标签 */
+const HOLD_PREFS = `autoplayPolicy=${HOLD_POLICY}`
 
 /** webview 元素上我们用到的方法 */
 export interface WebviewEl extends HTMLElement {
@@ -42,6 +46,11 @@ export interface NavState {
 export function WebView(props: {
   initialUrl: string
   visible: boolean
+  /**
+   * 重开软件时恢复的标签：网页里的视频不自己播、不出声，等用户在网页里点过（或软件的播放命令）才放开。
+   * 只在挂上时看一次（webpreferences 属性只在 webview 挂上时生效）；主进程 did-attach-webview 认它（web/media-hold.ts）
+   */
+  hold?: boolean
   clipMode: ClipMode
   onRef(el: WebviewEl | null): void
   onAttach(webContentsId: number): void
@@ -177,6 +186,7 @@ export function WebView(props: {
       className={props.visible ? 'on' : ''}
       src={first.current}
       partition="persist:web"
+      webpreferences={props.hold ? HOLD_PREFS : undefined}
       // 新窗口链接要靠它才会交给主进程（再开成新标签）；React 不会把布尔值写成这个属性，所以给字符串
       {...({ allowpopups: 'true' } as object)}
     />

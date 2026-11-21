@@ -1,6 +1,6 @@
 /**
  * 翻译：一批段落问一次 AI，要它每段回一行 JSON（{"id":编号,"text":"译文"}），边生成边按行拆出来，
- * 先出来的段先显示。漏了的段再问一次；还漏就报「没翻成」（带原因，见 errors.ts）。
+ * 先出来的段先显示。漏了的段（回了空的也算）再问一次；还漏就报「没翻成」（带原因，见 errors.ts）。
  * 有课程术语表时，这批里出现的词放进提示（「术语照这个译」），缓存键也带上用到的术语：改了表的段会重翻。
  * 每段按「目标语言 + 原文 + 用到的术语」缓存，同一段不再问。不碰 Electron，能单独测。
  */
@@ -184,7 +184,8 @@ export class Translator {
       const tkey = termsKey(terms)
       // fresh：「重新翻译」不看缓存，翻好的照样存回去（换掉旧的）
       const hit = fresh ? undefined : this.cache.get(target, it.text, tkey)
-      if (hit !== undefined) {
+      // 旧版本存下的空译文不算（以前回空的也进了缓存，重试永远拿回空的）
+      if (hit !== undefined && hit.trim()) {
         this.stats.fromCache++
         onResult(it.id, hit)
       } else todo.push({ ...it, terms, tkey })
@@ -197,7 +198,8 @@ export class Translator {
       const done = new Set<number>()
       const take = (id: number, tr: string) => {
         const it = byId.get(id)
-        if (!it || done.has(id)) return
+        // 回了空的（一句拆在两行字幕里，AI 常把整句译文放进一行、另一行留空）：当漏了，下一轮单独再问
+        if (!it || done.has(id) || !tr.trim()) return
         done.add(id)
         this.stats.fromAi++
         this.cache.set(target, it.text, tr, it.tkey)

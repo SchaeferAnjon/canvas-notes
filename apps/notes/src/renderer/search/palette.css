@@ -348,6 +348,10 @@
   justify-content: flex-end;
   gap: 6px;
 }
+/* 设快捷键：清掉、回到默认靠左，取消、对调、好靠右 */
+.pal-mini .acts .sp {
+  flex: 1;
+}
 .pal-mini .btn,
 .pal-form .btn {
   height: 28px;

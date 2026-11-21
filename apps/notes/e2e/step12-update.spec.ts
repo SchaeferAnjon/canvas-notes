@@ -3,16 +3,17 @@
 import { expect, test } from '@playwright/test'
 import { launch } from './app'
 
-test('设置 › 更新：开发版不查更新；应用菜单有检查更新、设置和编辑菜单', async () => {
+test('设置 › 一般 › 更新：开发版不查更新；应用菜单有检查更新、设置和编辑菜单', async () => {
   const run = await launch({ '甲.md': '# 甲\n' })
   const { page, app } = run
   try {
     await page.keyboard.press('Meta+,')
-    await page.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '更新' }).click()
-    const card = page.getByTestId('update-card')
-    await expect(card).toContainText('Canvas Notes')
+    // 设置方向 A：「更新」页并进了「一般」的「更新」一组
+    await page.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '一般', exact: true }).click()
+    const card = page.locator('[data-row="checkNow"]')
+    await expect(card).toContainText('现在是')
     await expect(page.getByTestId('update-line')).toHaveText('开发版，不自动更新')
-    await expect(card.getByRole('button', { name: '检查更新' })).toBeDisabled()
+    await expect(card.getByRole('button', { name: '现在检查' })).toBeDisabled()
     await expect(page.getByText('开发版和自己打的包不查更新')).toBeVisible()
     await expect(page.getByTestId('update-bar')).toHaveCount(0)
     await page.keyboard.press('Escape')

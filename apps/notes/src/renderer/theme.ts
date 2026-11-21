@@ -1,8 +1,9 @@
 /** 把设置里的外观套到窗口上：<html data-skin data-tone data-tabmark data-winbg>，跟着系统浅深和设置变化 */
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { activeSkin, type AppSettings, DEFAULT_SETTINGS, type SkinInfo, skinOf } from '../shared/appearance'
+import { activeSkin, type AppSettings, type SkinInfo, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { WINBG_PHOTOS } from './covers'
+import { appSettings, publishSettings } from './settings-store'
 import { applySkin, installThemeCss } from './skin'
 
 const media = () => window.matchMedia('(prefers-color-scheme: dark)')
@@ -48,9 +49,11 @@ export const userSkinInfos = (list: ThemeFile[] | null): SkinInfo[] => (list ?? 
 
 /** 软件设置（外观、自动提交间隔），改了马上套上。只在主窗口的 Desk 里用一次，设置页从这里拿 */
 export function useAppSettings(): [AppSettings, (p: Parameters<typeof window.cn.setSettings>[0]) => Promise<AppSettings>, boolean] {
-  const [s, setS] = useState<AppSettings>(DEFAULT_SETTINGS)
+  // App 打开库前已经读过一次（settings-store）：第一帧就是存下的样子，不先闪一下默认的
+  const [s, setS] = useState<AppSettings>(appSettings)
   const [dark, setDark] = useState(() => media().matches)
   const user = useUserThemes()
+  useEffect(() => publishSettings(s), [s])
   useEffect(() => {
     void window.cn.settings().then(setS)
     const m = media()

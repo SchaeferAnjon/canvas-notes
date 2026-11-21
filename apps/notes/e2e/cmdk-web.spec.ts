@@ -54,7 +54,8 @@ test('网页「⋯」四组；调整这个菜单：点眼睛藏起「稍后再�
     await page.setViewportSize({ width: 1440, height: 900 })
     await openPage(page, '/wiki/Geography_of_Iceland')
     await web(page).getByRole('button', { name: '更多', exact: true }).click()
-    expect(await groupLabels(page)).toEqual(['这一页', '这个网站', '书签', '浏览器', '调整'])
+    // 最下面「网页设置…」是设置方向 A 的「从用的地方跳过来」（task-f7rib）
+    expect(await groupLabels(page)).toEqual(['这一页', '这个网站', '书签', '浏览器', '调整', '网页设置'])
     expect(await groupItems(page, '这一页')).toEqual(['剪藏这一页', '稍后再看', '双语翻译'])
     expect(await groupItems(page, '这个网站')).toEqual(['不拦这个网站的广告'])
     await expect(more(page).getByRole('menuitemcheckbox', { name: '在127.0.0.1不拦广告' }).locator('.h')).toHaveText('127.0.0.1')

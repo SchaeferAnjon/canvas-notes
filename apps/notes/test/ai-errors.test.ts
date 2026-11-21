@@ -22,6 +22,15 @@ it('CN-75：没登录、网络、模型不对、超时各有一句中文和下�
   expect(aiErrorView('等了 120 秒没回应', eng)).toMatchObject({ code: 'timeout', acts: ['retry'] })
 })
 
+it('task-m55m7：命令行更新后不兼容：主进程加的「【不兼容】」那一行说清楚是哪个版本、哪个参数，这一问没答上，给「换一家」和去设置；命令行自己的原话也认得出', () => {
+  const eng = { id: 'claude', label: 'Claude Code' }
+  const raw = "【不兼容】Claude Code 9.9.0 有一个参数不认了：--mcp-config，AI 对话可能出错\nClaude Code 退出了（1）：error: unknown option '--mcp-config'"
+  expect(aiErrorView(raw, eng)).toEqual({ code: 'incompatible', title: 'Claude Code 9.9.0 有一个参数不认了：--mcp-config，这一问没答上', acts: ['switch', 'settings'], raw: "Claude Code 退出了（1）：error: unknown option '--mcp-config'" })
+  expect(aiErrorView('【不兼容】Claude Code 9.9.0 不认 --x，多半是命令行更新了\nerror', eng).title).toBe('Claude Code 9.9.0 不认 --x，这一问没答上')
+  expect(aiErrorCode("Claude Code 退出了（1）：error: unknown option '--effort'")).toBe('incompatible')
+  expect(aiErrorView("error: option '--permission-mode <mode>' argument 'dontAsk' is invalid. Allowed choices are plan.", eng)).toMatchObject({ code: 'incompatible', title: 'Claude Code不认我们给的参数，这一问没答上', acts: ['switch', 'settings'] })
+})
+
 it('我们自己写的中文短话原样显示，不收「看原话」', () => {
   expect(aiErrorView('先打开一块白板')).toMatchObject({ title: '先打开一块白板', raw: null, acts: [] })
   expect(aiErrorView('没答完（软件关了）', { label: 'Claude Code' })).toMatchObject({ code: 'exited', title: '没答完（软件关了）', raw: null })

@@ -5,8 +5,11 @@
  * 框着时 ⌘↵ 是改问法（预填清掉、图留着、光标在输入框里，CN-92 方向 A）；回答下面「还是不懂」「换个方式讲」，再下面一行后台记笔记的进度。
  */
 import { when } from '../../shared/when'
+import { isKey, useKeys } from '../keys'
 import { Codicon } from '@cn/design'
-import { AiIcon, ByLogo } from '../engine-logo'
+import { ByLogo } from '../engine-logo'
+import { readAsk } from '../ai-greet'
+import { Greeting, QuickRow } from '../ai-quick'
 import { onMessageMenu } from '../ctx/message-menu'
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { type ReadingMsg, withoutVizMark } from '../../shared/reading'
@@ -48,6 +51,7 @@ export function ReadingAi(props: {
   /** 下格开着旁支（CN-90）：这一格是上格（side.css 按它排高低） */
   split?: { className: string; style?: CSSProperties } | null
 }) {
+  const K = useKeys()
   const { pdf } = props
   const r = R.useReading(pdf)!
   // 输入框的字和顶上那一排材料（composer.tsx）
@@ -284,8 +288,10 @@ export function ReadingAi(props: {
           onRemove: () => R.unstage(pdf, true),
         }
   // 底行提示：框着一块时说三个键（CN-92 方向 A），改问法时说怎么发、怎么取消；平时说回车和 ⌘↵
-  const hintNow = pend && !pend.direct ? (pend.blank ? '↵ 发送 · esc 取消这块' : '↵ 讲解一下 · ⌘↵ 改问法 · esc 取消这块') : undefined
-  const hint = R.isWebSrc(pdf) ? '↵ 发送' : html ? '↵ 发送 · ⌘↵ 问这一屏' : '↵ 发送 · ⌘↵ 问这一页'
+  // 键照命令表（问这一页的键能改）
+  const ask = K('ask-page')
+  const hintNow = pend && !pend.direct ? (pend.blank ? `${K('enter')} 发送 · ${K('escape')} 取消这块` : `${K('enter')} 讲解一下${ask ? ` · ${ask} 改问法` : ''} · ${K('escape')} 取消这块`) : undefined
+  const hint = R.isWebSrc(pdf) || !ask ? `${K('enter')} 发送` : `${K('enter')} 发送 · ${ask} ${html ? '问这一屏' : '问这一页'}`
 
   return (
     <aside className={'right aicell reading-ai ai' + (props.split ? ' ' + props.split.className : '')} style={props.split?.style} aria-label="边读边问 AI" hidden={props.hidden}>
@@ -323,7 +329,7 @@ export function ReadingAi(props: {
       </Sees>
       )}
       <div
-        className="msgs"
+        className={'msgs' + (msgs.length === 0 ? ' greeting' : '')}
         ref={list}
         onClick={(e) => {
           const a = (e.target as Element).closest<HTMLElement>('a.pg[data-page]')
@@ -340,24 +346,8 @@ export function ReadingAi(props: {
           }
         }}
       >
-        {/* 空对话和别处同一个样子（D 组小样）；怎么框一块问写在输入框的占位字里，下面一个「问这一页」（⌘↵ 同一件事） */}
-        {msgs.length === 0 && (
-          <div className="ai-empty">
-            <h2>想让它做什么？</h2>
-            {/* 「⌄」字画出来像个下标 v：换成和头上对话胶囊同一个 chevron-down 图标 */}
-            <p>
-              {`这里是「${label}」的对话；别处问过的在上面「${label}`}
-              <Codicon name="chevron-down" size={12} className="cv" />
-              {'」里。'}
-            </p>
-            {!R.isWebSrc(pdf) && !props.nav.away && (
-              <button className="sug" onClick={() => window.dispatchEvent(new CustomEvent(R.ASK_PAGE, { detail: { src: pdf, text: html ? '给我讲解一下这一屏' : '给我讲解一下这一页' } }))}>
-                <AiIcon job="chat" size={14} />
-                {html ? '问这一屏' : '问这一页'}
-              </button>
-            )}
-          </div>
-        )}
+        {/* 空对话和别处同一个样子（task-0tgz2 打招呼）：怎么框一块问写在那一句和输入框的占位字里；「问这一页」在输入框上面那一排 */}
+        {msgs.length === 0 && <Greeting engine={engine} ask={readAsk(label)} />}
         {msgs.map((m, i) => {
           const prev = msgs[i - 1]
           const startsThread = m.role === 'user' && (!prev || prev.thread !== m.thread || (prev.role === 'ai' && m.time - prev.time > 10 * 60_000))
@@ -402,6 +392,12 @@ export function ReadingAi(props: {
           if (id && !r.side.open) keepInView(id, range)
         }}
       />
+      {/* 输入框上面那一排（和 AI 对话同一个）：读 PDF 是「问这一页」（⌘↵ 同一件事），HTML 是「问这一屏」；框着一块、打了字、发了第一问都收起 */}
+      {msgs.length === 0 && !input && !c.mats.length && !r.pending && !R.isWebSrc(pdf) && !props.nav.away && (
+        <QuickRow
+          items={[{ text: html ? '问这一屏' : '问这一页', engine, go: () => window.dispatchEvent(new CustomEvent(R.ASK_PAGE, { detail: { src: pdf, text: html ? '给我讲解一下这一屏' : '给我讲解一下这一页' } })) }]}
+        />
+      )}
       <AiInput
         c={c}
         className="reading-in"
@@ -424,7 +420,7 @@ export function ReadingAi(props: {
           if (e.key === 'Enter' && !e.shiftKey && !e.metaKey) {
             e.preventDefault()
             send()
-          } else if (e.key === 'Enter' && e.metaKey) cmdEnter(e)
+          } else if (isKey(e, 'ask-page')) cmdEnter(e)
           else if (e.key === 'Escape') {
             e.preventDefault()
             // 框着一块、输入框里只有预填的字或空着：连图一起取消（CN-97）；打了自己的字：先离开输入框（再按 esc 在 PDF 上取消这块）

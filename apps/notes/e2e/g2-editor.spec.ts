@@ -362,8 +362,9 @@ test('CN-66 / CN-67 拖选只涂选中的字（强调色 24%），什么都不�
       const g = globalThis as unknown as { cnMenu: { menu: Electron.Menu } }
       return Object.fromEntries(g.cnMenu.menu.items.map((i) => [i.label, String(i.accelerator ?? '')]))
     })
-    expect(accels['高亮']).toBe('Shift+CommandOrControl+M')
-    expect(accels['问 AI 这段']).toBe('CommandOrControl+J')
+    // 写的是命令表里的键（task-spsmf，菜单的写法 Command，macOS 上同 CommandOrControl）
+    expect(accels['高亮']).toBe('Shift+Command+M')
+    expect(accels['问 AI 这段']).toBe('Command+J')
     await pickMenu(run, '高亮')
     await expect.poll(file).toContain('==万物之逆旅==')
     await line(page, '夫天地者').click({ button: 'right', position: { x: range.x0 - b.x + 30, y: range.y - b.y } })

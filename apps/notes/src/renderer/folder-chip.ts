@@ -54,22 +54,39 @@ const hostOfUrl = (url: string) => {
   }
 }
 
+/** 一项：这一项的字，后面跟一个「 · 」（最后一项没有）；整项不折行 */
+function item(content: Node, dot: boolean): HTMLElement {
+  const it = document.createElement('span')
+  it.className = 'cm-meta-item'
+  it.append(content)
+  if (dot) {
+    const sep = document.createElement('span')
+    sep.className = 'sep'
+    sep.textContent = ' · '
+    it.append(sep)
+  }
+  return it
+}
+
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 /** 最外层写库名（CN-106） */
 const label = folderLabel
 
+/** 每一行在量自己哪一项换了行；行拿掉时停 */
+const watching = new WeakMap<HTMLElement, ResizeObserver>()
+
 class FolderChip extends WidgetType {
   constructor(
     readonly path: string,
-    /** 「· 改于今天 10:34 · 1,240 字」 */
-    readonly rest: string,
+    /** 「改于今天 10:34」「1,240 字」，一项一个 */
+    readonly rest: string[],
     /** 剪藏来的（frontmatter 的 source）：后面写一次「· 剪自 <网站图标> 域名」（cmdk 方案 A：链接后面不再露域名） */
     readonly source: string | null = null,
   ) {
     super()
   }
   eq(o: FolderChip) {
-    return o.path === this.path && o.rest === this.rest && o.source === this.source
+    return o.path === this.path && o.rest.join('\n') === this.rest.join('\n') && o.source === this.source
   }
   toDOM(view: EditorView) {
     const box = document.createElement('div')
@@ -91,6 +108,7 @@ class FolderChip extends WidgetType {
     b.dataset.tip = here.includes('/') ? `${here.split('/').join(' / ')} · 移到…` : '移到…'
     b.dataset.side = 'below'
     const name = document.createElement('span')
+    name.className = 'cm-folder-name'
     name.textContent = here ? here.slice(here.lastIndexOf('/') + 1) : label(here)
     b.append(codiconEl(here ? 'folder' : 'library', 13), name, codiconEl('chevron-down', 12))
     // 点它不挪光标、不进编辑
@@ -99,25 +117,43 @@ class FolderChip extends WidgetType {
       const a = app()
       void showMenu(moveMenu([...new Set([...a.allFolders(), '收件箱'])], here, (f) => a.moveNote(this.path, f)))
     })
+    // 每一项（文件夹、改于、字数、剪自）各是一块，整块不拆：放不下时整块换到下一行（偏好「标题下那行不折成竖排」）；
+    // 「 · 」跟在前一项后面，下一项换了行时它落在行尾，藏起来（只是看不见，占的宽不变，不会来回跳）
+    const host = this.source ? hostOfUrl(this.source) : ''
+    box.append(item(b, true))
     const rest = document.createElement('span')
     rest.className = 'cm-meta-rest'
-    rest.textContent = this.rest
-    box.append(b, rest)
-    const host = this.source ? hostOfUrl(this.source) : ''
+    this.rest.forEach((part, i) => rest.append(item(document.createTextNode(part), i < this.rest.length - 1 || !!host)))
+    box.append(rest)
     if (host) {
       const src = document.createElement('span')
       src.className = 'cm-meta-src'
       src.dataset.part = '来源行'
       src.title = this.source!
       const label = document.createElement('span')
+      label.className = 'cm-meta-host'
       label.textContent = host
       src.append(document.createTextNode('剪自'), faviconEl(this.source!, 14), label)
-      const dot = document.createElement('span')
-      dot.className = 'cm-meta-rest'
-      dot.textContent = ' · '
-      box.append(dot, src)
+      const it = item(src, false)
+      it.classList.add('src')
+      box.append(it)
     }
+    const mark = () => {
+      const items = [...box.querySelectorAll<HTMLElement>('.cm-meta-item')]
+      items.forEach((it, i) => {
+        const next = items[i + 1]
+        const end = !!next && next.offsetTop > it.offsetTop + 4
+        if (it.classList.contains('end') !== end) it.classList.toggle('end', end)
+      })
+    }
+    const ro = new ResizeObserver(mark)
+    ro.observe(box)
+    watching.set(box, ro)
     return box
+  }
+  destroy(dom: HTMLElement) {
+    watching.get(dom)?.disconnect()
+    watching.delete(dom)
   }
   /** 只有「所在文件夹」按钮自己的事编辑器不管；点这一行别的空处照常把光标放进文档 */
   ignoreEvent(e: Event) {
@@ -141,7 +177,7 @@ function chips(state: EditorState, m: Omit<Meta, 'deco'>): DecorationSet {
   const line = state.doc.line(h.line)
   const n = countWords(text)
   const at = m.fresh && n === 0 ? '刚建' : m.mtime ? `改于${when(m.mtime, { time: true })}` : ''
-  const rest = [at, `${thousands(n)} 字`].filter(Boolean).map((x) => ` · ${x}`).join('')
+  const rest = [at, `${thousands(n)} 字`].filter(Boolean)
   const out: Range<Decoration>[] = [Decoration.widget({ widget: new FolderChip(m.path, rest, sourceOf(text)), block: true, side: 1 }).range(line.to)]
   return Decoration.set(out)
 }

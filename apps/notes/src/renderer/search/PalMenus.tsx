@@ -5,8 +5,9 @@
  */
 import { Codicon, type CodiconName } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { comboOf, keyProblem } from '../../shared/cmd-keys'
-import { ownerOf } from './cmd-store'
+import { comboOf } from '../../shared/cmd-keys'
+import { AREA_NAME, keyDef } from '../../shared/cmd-table'
+import { checkKey, keyFor } from '../keys'
 
 const W = 230
 const SUB_W = 170
@@ -82,7 +83,7 @@ export function RowMenu(props: {
     <div ref={ref} className="pal-menu" role="menu" aria-label={`「${c.name}」能做什么`} style={{ left: pos.left, top: pos.top, width: W }} onKeyDown={onKey} onMouseDown={(e) => e.stopPropagation()}>
       <div className="pal-mhead">{c.name}</div>
       <div role="group">
-        {item(c.pinned ? 'pinned' : 'pin', c.pinned ? '取消钉住' : '钉住', { kind: 'pin' }, <kbd>⌘P</kbd>)}
+        {item(c.pinned ? 'pinned' : 'pin', c.pinned ? '取消钉住' : '钉住', { kind: 'pin' }, keyFor('pal-pin') ? <kbd>{keyFor('pal-pin')}</kbd> : undefined)}
         <button ref={moveBtn} role="menuitem" className={'pal-mi' + (sub ? ' kb' : '')} data-sub="1" aria-haspopup="menu" aria-expanded={sub} onMouseEnter={() => setSub(true)} onClick={() => setSub(true)}>
           <Codicon name="arrow-right" size={14} />
           <span className="nm">挪到</span>
@@ -118,7 +119,7 @@ export function RowMenu(props: {
           {item('trash', '删掉这条', { kind: 'delete' }, undefined, ' danger')}
         </div>
       )}
-      <div role="group">{item('eye-closed', '藏起', { kind: 'hide' }, <kbd>⌘⌫</kbd>)}</div>
+      <div role="group">{item('eye-closed', '藏起', { kind: 'hide' }, keyFor('pal-hide') ? <kbd>{keyFor('pal-hide')}</kbd> : undefined)}</div>
     </div>
   )
 }
@@ -126,14 +127,31 @@ export function RowMenu(props: {
 /** 小弹层的位置：菜单左边往左 70（照小样），不出窗口 */
 const miniPos = (at: { left: number; top: number }) => ({ left: Math.max(10, Math.min(at.left - 70, window.innerWidth - 310)), top: Math.max(10, Math.min(at.top, window.innerHeight - 180)) })
 
-/** 设快捷键：按下组合键；撞了别的命令说撞了谁、按「好」换给这一条；软件自己的键、不带 ⌘ ⌃ 的「好」灰着 */
-export function KeysMini(props: { id: string; name: string; at: { left: number; top: number }; onOk(combo: string): void; onClose(): void }) {
+/**
+ * 设快捷键：按下组合键；撞了别的命令说撞了谁，按「好」换给这一条，这一条原来有键时也能两个对调；系统的键、不带 ⌘ ⌃ 的「好」灰着。
+ * 还没按的时候：有键能「清掉」，改过的能「回到默认」
+ */
+export function KeysMini(props: {
+  id: string
+  name: string
+  /** 现在的键、默认的键（没有是 null） */
+  cur: string | null
+  def: string | null
+  at: { left: number; top: number }
+  onOk(combo: string): void
+  onSwap(combo: string): void
+  onClear(): void
+  onReset(): void
+  onClose(): void
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const [got, setGot] = useState<string | null>(null)
   useEffect(() => ref.current?.focus(), [])
-  const problem = got ? keyProblem(got) : null
-  const clash = got && !problem ? ownerOf(got, props.id) : null
+  const { problem, clash } = got ? checkKey(props.id, got) : { problem: null, clash: null }
+  const swap = !!clash && !!props.cur && props.cur !== got
   const why = problem ?? (clash ? `已经给了「${clash.name}」，按「好」就换给这一条` : null)
+  const area = keyDef(props.id)?.area ?? 'app'
+  const where = area === 'app' ? '软件开着时在哪都能按' : `${AREA_NAME[area]}能按`
   return (
     <div
       ref={ref}
@@ -154,15 +172,31 @@ export function KeysMini(props: { id: string; name: string; at: { left: number; 
         if (c) setGot(c)
       }}
     >
-      <div className="t">给「{props.name}」设快捷键（软件开着时在哪都能按）</div>
+      <div className="t">{`给「${props.name}」设快捷键（${where}）`}</div>
       <div className={'keys' + (got ? '' : ' wait')} aria-live="polite">
         {got ?? '现在按下组合键…'}
       </div>
       {why && <div className="why">{why}</div>}
       <div className="acts">
+        {!got && props.cur && (
+          <button className="btn btn-sm btn-ghost" onClick={props.onClear}>
+            清掉
+          </button>
+        )}
+        {!got && props.cur !== props.def && (
+          <button className="btn btn-sm btn-ghost" onClick={props.onReset}>
+            {props.def ? `回到默认 ${props.def}` : '回到默认：没有键'}
+          </button>
+        )}
+        <span className="sp" />
         <button className="btn btn-sm btn-ghost" onClick={props.onClose}>
           取消
         </button>
+        {swap && (
+          <button className="btn btn-sm btn-ghost" onClick={() => got && props.onSwap(got)}>
+            两个对调
+          </button>
+        )}
         <button className="btn btn-sm btn-primary" disabled={!got || !!problem} onClick={() => got && props.onOk(got)}>
           好
         </button>

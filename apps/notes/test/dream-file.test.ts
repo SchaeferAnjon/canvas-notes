@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanName, FILE_BATCH, foldersOf, movedText, parsePlan, planInBatches, relinkText, targetOf, validFolder } from '../src/main/dream-file'
+import { movedText, relinkText } from '../src/main/dream-file'
+import { cleanName, FILE_BATCH, foldersOf, inboxEntry, parsePlan, planInBatches, targetOf, validFolder } from '../src/shared/filing'
 import { type Ask, type DreamReportInternal, dropMany, redo, runDream, takeAll, takeMany, undo } from '../src/main/dream'
 import { diffOf } from '../src/main/diff'
 
@@ -49,6 +50,14 @@ describe('归类和改名：纯函数', () => {
 
   it('库里已有的去处', () => {
     expect(foldersOf(['课程/线性代数/a.md', '课程/a.md', '生活/x.md', '剪藏/旅行/y.md', '写作/z.md', '我写的.md', '项目/毕设/p/q.md', '阅读/人类简史.md', '周记/第46周.md'])).toEqual(['剪藏/旅行', '课程/线性代数', '生活', '项目/毕设', '写作', '阅读', '周记'])
+  })
+
+  it('收件箱里的一条给 AI 看什么：剪来的带「剪自」网址（来源行在预览里是去掉的），别的藏起来的属性不给；不是文字的只给类型和文件名', () => {
+    const clip = '---\ncreated: 2026-11-14 21:10\nsource: https://safetravel.is/ice-caves\n课程: 地理\n---\n> 冰洞只在冬天开放\n\n—— [Ice caves](https://safetravel.is/ice-caves)\n'
+    expect(inboxEntry('收件箱/冰洞.md', clip)).toEqual({ path: '收件箱/冰洞.md', preview: '冰洞只在冬天开放', props: '剪自: https://safetravel.is/ice-caves；课程: 地理' })
+    expect(inboxEntry('收件箱/想法.md', '---\ncreated: 2026-11-15\n---\n这周要写进周记的\n')).toEqual({ path: '收件箱/想法.md', preview: '这周要写进周记的', props: '' })
+    expect(inboxEntry('收件箱/空的.md', '')).toEqual({ path: '收件箱/空的.md', preview: '空的', props: '' })
+    expect(inboxEntry('收件箱/IMG_2041.pdf', undefined)).toEqual({ path: '收件箱/IMG_2041.pdf', preview: '（pdf 文件）IMG_2041.pdf', props: '' })
   })
 })
 

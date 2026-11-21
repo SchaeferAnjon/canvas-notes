@@ -16,6 +16,8 @@ export interface QuickContext {
   /** 前台是浏览器时：网址和标题 */
   url?: string
   title?: string
+  /** 速记的全局键（设置 › 一般「速记快捷键」，默认 ⌥⌘N） */
+  key?: string
   /** 主窗口现在用的主题（导入的 VS Code 主题带着它的样式） */
   skin?: { info: SkinInfo; css?: string }
 }

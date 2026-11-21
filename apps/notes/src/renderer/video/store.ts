@@ -8,7 +8,7 @@ import { DEFAULT_VIDEO_SETTINGS, type PlayTick, type VideoSettings, type VideoSt
 import type { NoteDoc } from '../note-doc'
 
 // 端到端测试时本机的假视频站当成 YouTube
-setVideoTestOrigin(window.cnVideo?.testOrigin ?? null)
+setVideoTestOrigin(globalThis.window?.cnVideo?.testOrigin ?? null)
 
 function bus<T>(initial: T) {
   let v = initial

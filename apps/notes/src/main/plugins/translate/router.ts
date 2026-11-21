@@ -177,7 +177,10 @@ export class EngineRouter {
     }
     poke()
     try {
-      return await this.d.cli.ask(id, system, prompt, ac.signal, (d) => (poke(), onText(d)))
+      // 只用这一家（设置 › AI「翻译」那一行选了模型、想多久）：照选的问；按顺序时各家用自己翻译用的那个
+      const s = this.d.settings()
+      const pick = s.engineMode === 'pick' && s.pick === id && (s.pickModel || s.pickEffort) ? { ...(s.pickModel ? { model: s.pickModel } : {}), ...(s.pickEffort ? { effort: s.pickEffort } : {}) } : undefined
+      return await this.d.cli.ask(id, system, prompt, ac.signal, (d) => (poke(), onText(d)), pick)
     } catch (e) {
       if (timedOut && !signal.aborted) throw new TranslateError({ code: 'timeout', engine: id, raw: `${engineMeta(id).name} 等了 ${Math.round(idleMs / 1000)} 秒没回应` })
       throw e

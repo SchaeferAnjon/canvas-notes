@@ -10,6 +10,7 @@
  * - 选中字粘贴一个网址：变成 [字](网址)，字留着。
  */
 import { EditorSelection, EditorState, findClusterBreak, Prec, type SelectionRange } from '@codemirror/state'
+import { isKey } from './keys'
 import { syntaxTree } from '@codemirror/language'
 import { EditorView, keymap } from '@codemirror/view'
 import { parseCallout } from './callout'
@@ -429,8 +430,9 @@ export const wysiwyg = [
         { key: 'Delete', run: (v) => joinStripsMarks(true)(v) || deleteVisible(true)(v) },
         { key: 'ArrowRight', run: moveVisible(true, false), shift: moveVisible(true, true) },
         { key: 'ArrowLeft', run: moveVisible(false, false), shift: moveVisible(false, true) },
-        { key: 'Mod-b', run: toggleFormat('StrongEmphasis'), preventDefault: true },
-        { key: 'Mod-i', run: toggleFormat('Emphasis'), preventDefault: true },
+        // 加粗、斜体的键照命令表（设置 › 快捷键里能改）
+        { any: (v, e) => isKey(e, 'bold') && toggleFormat('StrongEmphasis')(v) },
+        { any: (v, e) => isKey(e, 'italic') && toggleFormat('Emphasis')(v) },
       ]),
     ),
 ]

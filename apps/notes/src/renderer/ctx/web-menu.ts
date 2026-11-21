@@ -3,6 +3,7 @@
  * 转过来时带着点着什么（链接、图、选的字、输入框）；每个 <webview> 挂上时在这里登记自己，按 webContents id 找到它拼菜单。
  */
 import { editItems, type CtxParams } from '../../shared/ctx-menu'
+import { accelFor } from '../keys'
 import { pluginInfo, pageStateOf } from '../plugins/host'
 import { toggleTranslate } from '../plugins/translate/shared'
 import { saveImages } from '../web/image-drop'
@@ -119,7 +120,7 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
     { label: '重新载入', run: () => page.reload() },
     '-',
     // 双语翻译（带引擎标志）自成一组
-    trOn && { label: translating ? '恢复原文' : '双语翻译', accel: 'Alt+A', ...(translating ? {} : { ai: 'translate' as const }), run: () => toggleTranslate({ wcId, url, title }) },
+    trOn && { label: translating ? '恢复原文' : '双语翻译', accel: accelFor('translate'), ...(translating ? {} : { ai: 'translate' as const }), run: () => toggleTranslate({ wcId, url, title }) },
     '-',
     http && { label: '剪藏这一页', run: () => host.clipPage() },
   )

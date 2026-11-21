@@ -109,25 +109,16 @@
   text-underline-offset: 2px;
 }
 
-/* 空对话那一句里的「⌄」：和头上对话胶囊同一个 chevron-down 12 --t3（字画出来像个下标 v） */
-.ai-empty p .nobr {
-  white-space: nowrap;
-}
-.ai-empty p .cv {
-  margin-left: 2px;
-  vertical-align: -1px;
-  color: var(--t3);
-}
-
-/* 这一格可能很矮（右栏开着网页时只有一半高）：AiPanel 量着收空状态，放不下才藏大标题（tight1），再放不下建议只留前两颗（tight2）；
+/* 这一格可能很矮（右栏开着网页时只有一半高）：AiPanel 量着收问候，放不下先藏标志和那一行问候（tight1），再放不下整个不画（tight2），
+   底下那排快捷命令一直在；
    读 PDF 的 AI 有自己的规则（reading.css：矮于 140 才藏大标题，按这里的容器量） */
 .aicell .msgs {
   container-type: size;
 }
-.ai-empty.tight1 h2 {
+.ai-empty.tight1 .hi {
   display: none;
 }
-.ai-empty.tight2 .sug:nth-of-type(n + 3) {
+.ai-empty.tight2 {
   display: none;
 }
 

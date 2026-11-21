@@ -150,6 +150,12 @@ export function fakeEngine(id: EngineId): Engine {
         }
         return { text: `翻了一遍。\n${JSON.stringify({ found: hits.slice(0, 5) })}`, session: undefined }
       }
+      // 测试设置 › AI「给AI的长期说明」真的带进了这一问（AI 对话、读 PDF 都在最前面）
+      if (said.includes('复述长期说明')) {
+        const note = /【用户的长期说明】每一问都照这个来：\n([\s\S]*?)\n/.exec(r.prompt)?.[1]
+        await say(note ? `长期说明：${note}` : '没有长期说明')
+        return { text, session: r.session }
+      }
       // 读 PDF：框一块问、追问
       if (r.prompt.includes('他说：')) {
         const q = /他说：([\s\S]*)$/.exec(r.prompt)?.[1]?.trim() ?? ''
@@ -214,6 +220,20 @@ export function fakeEngine(id: EngineId): Engine {
       // 右下角 AI 浮窗也能演被拦（同读 PDF 那条）：看出错那一句在浮窗里的样子
       if (said.includes('假装被拦'))
         throw new Error("API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). Please try rephrasing your request. Request ID: req_011FAKE")
+      // 左栏选了好几个交给 AI（task-0tgz2）：照话里交来的那几篇答；「合成一篇」真用 note_create 建一篇（一次提交、能撤回）
+      if (/选中的这几篇/.test(said)) {
+        const picked = /问的「选中的这几篇」就是它们[^：]*：(.*)$/m.exec(r.prompt)?.[1]?.split('、') ?? []
+        if (!picked.length) {
+          await say('没收到选中的是哪几篇。')
+          return { text, session: `fake-${id}` }
+        }
+        if (/合成一篇/.test(said)) {
+          const names = picked.map((p) => p.split('/').pop()!.replace(/\.md$/, ''))
+          await call('note_create', { title: '合成的笔记', text: names.map((n) => `## ${n}\n`).join('\n') })
+          await say(`合成好了：《合成的笔记》，来自${picked.length}篇。`)
+        } else await say(`这是测试回答（选中的${picked.length}篇：${picked.join('、')}）。`)
+        return { text, session: `fake-${id}` }
+      }
       const did = await vaultCommand(said, call).catch((e: Error) => `没做成：${e.message}`)
       if (did !== null) {
         await say(`${did}。`)
@@ -274,6 +294,11 @@ export function fakeEngine(id: EngineId): Engine {
         await call('board_list')
         await call('board_arrange', { mode: 'columns' })
         await say('按列排整齐了。')
+      } else if (/^加一张卡「/.test(said)) {
+        // 只加一张卡：先看白板，再加（流光只亮这一张）
+        await call('board_list')
+        await call('board_add_card', { text: /「([^」]+)」/.exec(said)![1] })
+        await say('加好了，在最后一节。')
       } else if (/卡片/.test(said) && /排/.test(said)) {
         const items = [...said.matchAll(/「([^」]+)」/g)].map((m) => m[1]!)
         const cards = items.length ? items : ['订机票', '订租车', '看极光']

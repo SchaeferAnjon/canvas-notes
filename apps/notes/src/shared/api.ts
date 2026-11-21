@@ -3,8 +3,7 @@
 import type { AiAct, AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from './agent'
 import type { ChatSummary } from './ai-chats'
 import type { AiFeature, AiPick, AiPrefs } from './ai-features'
-import type { Appearance, AppSettings } from './appearance'
-import type { DreamPatch } from './dream-settings'
+import type { AppSettings, SettingsPatch } from './appearance'
 import type { ThemeFile } from './vscode-theme'
 import type { HomeConfig } from './home'
 import type { NoteKind } from './layout'
@@ -85,6 +84,15 @@ export interface GitState {
   autoCommitMinutes: number
   /** 最近一次自动提交没成功：什么时候、中文原因（之后提交上了就是 null） */
   autoCommitError: { at: number; text: string } | null
+  /** 自动同步开着（设置 › Git和同步）、有远程时下次同步的时间（毫秒）；只在点时同步是 null */
+  nextSync: number | null
+}
+
+/** 每天备份一份（设置 › Git和同步）：上次备好的时间、文件、没备成的原因 */
+export interface BackupState {
+  at: number | null
+  file: string | null
+  error: string | null
 }
 
 export interface CommitInfo {
@@ -224,7 +232,26 @@ export interface CnApi {
   pickImage(note?: string): Promise<string | null>
   /** 软件设置（外观、自动提交间隔），存在软件设置目录 */
   settings(): Promise<AppSettings>
-  setSettings(patch: { appearance?: Partial<Appearance>; autoCommitMinutes?: number; archiveDays?: number; autoUpdate?: boolean; dream?: DreamPatch }): Promise<AppSettings>
+  /** 速记的全局键注册上了没有（被别的软件占了时 false，只能从菜单栏打开） */
+  quickState(): Promise<{ key: string; registered: boolean }>
+  /** 库里的 .gitignore（没有是空串）；改了写进去、单独提交一次 */
+  gitIgnore(): Promise<string>
+  setGitIgnore(text: string): Promise<void>
+  backupState(): Promise<BackupState>
+  /** 现在备一份（设置里刚打开备份、点「现在备一份」） */
+  backupNow(): Promise<BackupState>
+  /** 选备份放哪的文件夹：选了存进设置（backup: folder）并返回路径，取消是 null */
+  pickBackupDir(): Promise<string | null>
+  /** 软件设置目录（userData）的路径；「在访达里看」 */
+  dataDir(): Promise<string>
+  revealDataDir(): Promise<void>
+  /** 右栏网页里的下载好了 / 没下成（设置 › 网页和视频「下载放在」）：底栏说一句，能在访达中显示 */
+  onDownloaded(cb: (d: { name: string; path: string | null; state: 'completed' | 'cancelled' | 'interrupted' }) => void): () => void
+  revealDownload(path: string): Promise<void>
+  /** 主进程要在底栏说的话（自动同步、打开库时先拉一次）；takeNotices 取走界面听上之前排着的 */
+  onMainNotice(cb: (text: string) => void): () => void
+  takeNotices(): Promise<string[]>
+  setSettings(patch: SettingsPatch): Promise<AppSettings>
   /** 从电脑选一张窗口背景，拷进设置目录；取消是 null */
   pickWinBg(): Promise<AppSettings | null>
   /** 导入的 VS Code 主题（设置目录 themes/） */
@@ -283,11 +310,18 @@ export interface CnApi {
    * AI 对话和读 PDF 共用，记在软件设置目录；开着的 AI 面板收到 onAiPrefsChanged
    */
   aiSetOmni(on: boolean): Promise<void>
+  /** 给AI的长期说明（设置 › AI）：AI 对话和读 PDF 每一问都带上，记在软件设置目录 ai/settings.json */
+  aiPrompt(): Promise<string>
+  aiSetPrompt(text: string): Promise<void>
   /** 输入框底行换了模型、effort（CN-91）：记成设置 › AI「AI 对话」那一行（和换引擎一样，不动默认、梦游、小活），开着的 AI 面板收到 onAiPrefsChanged */
   aiSetChatPick(pick: AiPick): Promise<void>
   /** 「装在别处？指定位置…」（CN-87）：系统选文件框选这家的命令行（或带着它的 App，比如 Codex.app），记在 userData/ai/settings.json、以后排第一个找；
    *  返回这家现在的样子，取消了是 null；选的不是能运行的文件时报错（「选的不是能运行的 codex：…」） */
   aiPickCli(id: EngineId): Promise<EngineInfo | null>
+  /** 设置 › AI「各家命令行」那一行的「检查更新」（task-m55m7）：重读版本、重拉模型、看有没有新版本，做完返回这家现在的样子 */
+  aiCliCheck(id: EngineId): Promise<EngineInfo>
+  /** 「更新到 x」：跑这家官方的更新（claude update、codex update、opencode upgrade、npm / brew 升 gemini），跑完重读版本、再自查；没更新成写在 update 里 */
+  aiCliUpdate(id: EngineId): Promise<EngineInfo>
   /** AI 浮窗、边读边问头上的引擎菜单：改「AI 对话」用哪家（= 设置 › AI 里那一行），不动默认 */
   aiSetEngine(id: EngineId): Promise<void>
   /** 设置 › AI 改了（设置页、引擎菜单）：开着的 AI 面板重新取用哪家 */

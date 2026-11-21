@@ -21,7 +21,8 @@ export type Handler = (ctx: CallContext, ...args: unknown[]) => unknown
 /** 本机的 AI 命令行：在不在、登录没有（不真的问），问一次（不给工具） */
 export interface CliBackend {
   state(id: EngineId): 'ok' | 'login' | 'missing'
-  ask(id: EngineId, system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void): Promise<string>
+  /** pick：只用这一家时设置里选的模型、想多久（不给：Claude Code 用 Haiku，别家用它自己的默认） */
+  ask(id: EngineId, system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void, pick?: { model?: string; effort?: string }): Promise<string>
 }
 
 export interface PluginHost<S> {

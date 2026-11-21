@@ -94,11 +94,11 @@ test('标题下一行：「文件夹 ▾ · 改于… · N 字」；新建笔记
     await openNote(page, '所思所想')
     const meta = pane(page).locator('.cm-meta')
     await expect(meta.locator('.cm-folder')).toHaveText('写作')
-    await expect(meta.locator('.cm-meta-rest')).toHaveText(/^ · 改于今天 \d\d:\d\d · 11 字$/)
+    await expect(meta.locator('.cm-meta-rest')).toHaveText(/^改于今天 \d\d:\d\d · 11 字$/)
     // 新建一篇：刚建 · 0 字，正文位置是「回车开始写正文；标题改了，文件名和标签跟着改」
     await page.locator('aside.side .vh').getByRole('button', { name: '新建笔记' }).click()
     await expect(tabOn(page)).toHaveText('未命名')
-    await expect(pane(page).locator('.cm-meta-rest')).toHaveText(' · 刚建 · 0 字')
+    await expect(pane(page).locator('.cm-meta-rest')).toHaveText('刚建 · 0 字')
     await expect(pane(page).locator('.cm-tailline')).toHaveText('回车开始写正文；标题改了，文件名和标签跟着改')
     await page.keyboard.type('冰岛旅游 3')
     await page.keyboard.press('Enter')
@@ -186,7 +186,8 @@ test('选了字右键：加粗 ⌘B、斜体 ⌘I、加链接 ⌘K 写着快捷�
       const g = globalThis as unknown as { cnMenu: { menu: Electron.Menu } | null }
       return Object.fromEntries(g.cnMenu!.menu.items.filter((i) => ['加粗', '斜体', '加链接'].includes(i.label)).map((i) => [i.label, String(i.accelerator ?? '')]))
     })
-    expect(accels).toEqual({ 加粗: 'CommandOrControl+B', 斜体: 'CommandOrControl+I', 加链接: 'CommandOrControl+K' })
+    // 写的是命令表里的键（task-spsmf，菜单的写法 Command，macOS 上同 CommandOrControl）
+    expect(accels).toEqual({ 加粗: 'Command+B', 斜体: 'Command+I', 加链接: 'Command+K' })
     await page.keyboard.press('Escape')
     // 选了字按 ⌘K：加链接（剪贴板里是网址就直接用），不弹搜索
     await run.app.evaluate(({ clipboard }) => clipboard.writeText('https://zh.wikipedia.org/wiki/x'))

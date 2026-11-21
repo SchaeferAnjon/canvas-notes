@@ -4,6 +4,7 @@
  * 改了就是新的默认值（和设置里同一份），菜单不关，网页上马上变；设好就收起来，下次点开关直接按上次的翻（偏好「设好就收起来」）。
  */
 import { Codicon } from '@cn/design'
+import { useKeyHandler, useKeys } from '../../keys'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   effectiveTarget,
@@ -33,6 +34,8 @@ const seenPdf = new Map<number, number>()
 
 /** 地址栏里的那一对：开关 + 小箭头 */
 export function TrControl({ page, open, onPopup }: { page: WebPage | null; open: boolean; onPopup(id: string | null): void }) {
+  /** 写在界面上的键照命令表（改了跟着变） */
+  const K = useKeys()
   const st = usePageState<TrPageState>(page?.wcId, ID)
   usePlugins()
   const s = settingsNow()
@@ -52,18 +55,13 @@ export function TrControl({ page, open, onPopup }: { page: WebPage | null; open:
     }
   }, [page, st, onPopup])
 
-  // 焦点在软件界面（不是网页、不在输入框里）时 ⌥A 也开关当前网页；网页里的 ⌥A 由网页预加载自己接
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.code !== 'KeyA') return
-      const h = webHost()
-      if (!h?.visible() || editable(document.activeElement)) return
-      e.preventDefault()
-      toggleTranslate(h.page())
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  // 焦点在软件界面（不是网页、不在输入框里）时双语翻译的键（命令表，默认 ⌥A）也开关当前网页；网页里的由网页预加载自己接
+  useKeyHandler('translate', () => {
+    const h = webHost()
+    if (!h?.visible() || editable(document.activeElement)) return false
+    toggleTranslate(h.page())
+    return true
+  })
 
   // 网页里「加进术语表」之后：在中间栏打开那张表
   useEffect(() => window.cnPlugins.on(ID, 'openNote', (p) => webHost()?.openNote((p as { path: string }).path)), [])
@@ -74,7 +72,7 @@ export function TrControl({ page, open, onPopup }: { page: WebPage | null; open:
   return (
     <span className={'trctl imp' + (err ? ' err' : on ? ' on' : '')}>
       {/* 地址栏里只留图标和小箭头：翻成什么设好就收进菜单（设好就收起来），开着时图标是强调色 */}
-      <button type="button" className="trc-tg" aria-label="双语翻译" aria-pressed={on} title={on ? `恢复原文（在翻成${short}）⌥A` : '双语翻译 ⌥A'} onClick={() => toggleTranslate(page)}>
+      <button type="button" className="trc-tg" aria-label="双语翻译" aria-pressed={on} title={on ? `恢复原文（在翻成${short}）${K('translate') ?? ''}` : `双语翻译${K('translate') ? ` ${K('translate')}` : ''}`} onClick={() => toggleTranslate(page)}>
         <Codicon name="whole-word" size={16} />
         {err && <span className="trc-lb">没翻成</span>}
         {err && <span className="trc-dot" />}
@@ -109,6 +107,8 @@ interface GlossaryInfo {
 
 /** 菜单本身（插件的弹窗）：贴在地址行下面，右边和地址栏右端对齐 */
 export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): void }) {
+  /** 写在界面上的键照命令表（改了跟着变） */
+  const K = useKeys()
   const ref = useRef<HTMLDivElement>(null)
   usePlugins()
   const st = usePageState<TrPageState>(page?.wcId, ID)
@@ -172,7 +172,7 @@ export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): voi
     <div ref={ref} className="trm" role="dialog" aria-label="双语翻译">
       <div className="trm-hd">
         <b>双语翻译</b>
-        <span className="kc">⌥A</span>
+        {K('translate') && <span className="kc">{K('translate')}</span>}
         <span className="sp" />
         <Toggle on={on} label="双语翻译 开关" onChange={() => toggleTranslate(page)} />
       </div>

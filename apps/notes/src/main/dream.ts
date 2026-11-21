@@ -9,8 +9,9 @@
  * 这里不依赖 Electron：路径和 AI 都由调用方给，单元测试直接跑。
  */
 import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { menuKey } from './commands'
 import { basename, dirname, extname, join } from 'node:path'
-import { decodeNote, encodeNote, HIDDEN_KEYS, merge3Fine, readProps } from '@cn/format'
+import { decodeNote, encodeNote, merge3Fine, readProps } from '@cn/format'
 import * as git from '@cn/git'
 import type { DreamGroup, DreamItem, DreamReport, DuplicatePair } from '../shared/api'
 import { INBOX, previewOf, titleOf } from '../shared/layout'
@@ -19,7 +20,8 @@ import { BRAND } from '../shared/brand'
 import { duplicatesOf, isAutoSummary, type LinkCand, linkCandidates } from './duplicates'
 import { oldImagesOnBranch } from './dream-attach'
 import { makeDreamViz } from './dream-viz'
-import { foldersOf, type FileMode, movedText, parsePlan, planInBatches, redoPrompt, relinkText, targetOf, type FilePlan } from './dream-file'
+import { movedText, relinkText } from './dream-file'
+import { FILE_BATCH, foldersOf, type FileMode, inboxEntry, parsePlan, planInBatches, redoPrompt, targetOf, type FilePlan } from '../shared/filing'
 import { DEFAULT_DREAM, type DreamSettings, filesOn, inDreamFolders, linkFolders, weekOn } from '../shared/dream-settings'
 
 /** 梦游默认能动的：收件箱、阅读（微信读书同步的书摘 2026-11-18 起在这里）、剪藏、周记；设置 › 梦游 里能改 */
@@ -269,7 +271,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
         files: [d.a, d.b],
       })
     }
-    if (dups.length > set.dupMax) report.notes.push(`还有 ${dups.length - set.dupMax} 对可能重复的没列出来，⌘K「找重复」能看全部`)
+    if (dups.length > set.dupMax) report.notes.push(`还有 ${dups.length - set.dupMax} 对可能重复的没列出来，${menuKey('search') ?? '搜索框'}「找重复」能看全部`)
 
     // 5a. 同一个视频记散在两篇以上（CN-80）：提醒合成一篇；只是提醒，不改文件
     for (const g of set.steps.video ? sameVideoNotes(texts) : []) {
@@ -290,12 +292,12 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
     const inboxAll = mode ? (await git.git(wt, ['ls-files', '-z', '--', INBOX + '/'])).split('\0').filter(Boolean) : []
     if (mode && inboxAll.length) {
       try {
-        const entries = inboxAll.map((p) => {
-          const t = texts.get(p)
-          const props = t ? readProps(t).filter((x) => !HIDDEN_KEYS.has(x.key)).map((x) => `${x.key}: ${x.value}`).join('；') : ''
-          return { path: p, preview: t ? previewOf(t, 300) || titleOf(p) : `（${p.split('.').pop()} 文件）${basename(p)}`, props }
+        // 归法和 /整理收件箱 是同一份（shared/filing.ts）；一批多少条、同时问几批能用环境变量调（导几百条时试）
+        const entries = inboxAll.map((p) => inboxEntry(p, texts.get(p)))
+        const plans = await planInBatches(entries, foldersOf(files), (p) => ask(SYSTEM, p), (n) => report.notes.push(n), mode, {
+          batch: Number(process.env.CN_DREAM_BATCH) || FILE_BATCH,
+          parallel: Number(process.env.CN_DREAM_PARALLEL) || 3,
         })
-        const plans = await planInBatches(entries, foldersOf(files), (p) => ask(SYSTEM, p), (n) => report.notes.push(n), mode)
         for (const plan of plans) {
           const it = await fileOne(wt, plan, texts, allowed)
           add('file', it)

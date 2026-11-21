@@ -10,7 +10,7 @@ import { app, type BrowserWindow, ipcMain, type IpcMainInvokeEvent, nativeImage,
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { langName, primary } from '../../shared/plugins/translate'
+import { errorTitle, langName, primary, type TrError } from '../../shared/plugins/translate'
 import {
   attachDir,
   biliTracks,
@@ -25,11 +25,15 @@ import {
   parseSummary,
   parseYtCaptions,
   pickTrack,
+  readCues,
   readTranslations,
+  replaceSummary,
   relLink,
   safeTitle,
   setVideoTestOrigin,
   subtitleDoc,
+  SUMMARY_FAILED,
+  SUMMARY_WRITING,
   timeSlug,
   timeUrl,
   type Track,
@@ -41,10 +45,13 @@ import {
   type VideoRef,
   ytTracks,
 } from '../../shared/video'
-import { type AskRequest, type AskResult, type Box, FIXED_KEYS, type MomentMark, type MomentResult, type VideoSettings, type VideoState } from '../../shared/video-api'
+import { type AskRequest, type AskResult, type Box, FIXED_KEYS, keyLabel, type MomentMark, type MomentResult, type VideoSettings, type VideoState } from '../../shared/video-api'
 import { askFast } from '../ai'
+import { comboOf } from '../../shared/cmd-keys'
+import { pageKeysNow } from '../commands'
 import { findCli, INSTALL_HINT } from '../agent/cli'
-import { featureLabel, visionModel } from '../agent'
+import { fastEngine, featureLabel, visionModel } from '../agent'
+import { classify } from '../plugins/translate/errors'
 import { aiCallout } from '@cn/format'
 import { askWithImage } from '../mindmap/vision'
 import { translateService } from '../plugins/translate/service'
@@ -68,6 +75,14 @@ interface Sess {
   chapters: Chapter[]
   target: string | null
   translated: number
+  /** 这一轮翻完了还没翻成的句数（重试前一直报着） */
+  trFailed: number
+  /** 没翻成的原因（第一种） */
+  trError?: string
+  /** 引擎的原话 */
+  trRaw?: string
+  /** 正在翻（翻完、停了都是 false） */
+  translating: boolean
   /** 用户在视频条上关了字幕（只这一个视频） */
   off: boolean
   ac: AbortController
@@ -127,6 +142,11 @@ function stateOf(s: Sess): VideoState {
     target: s.target,
     translated: s.translated,
     total: s.cues.length,
+    translating: s.translating,
+    trFailed: s.trFailed,
+    ...(s.trError ? { trError: s.trError } : {}),
+    ...(s.trRaw ? { trRaw: s.trRaw } : {}),
+    summary: s.summary ? 'done' : s.summaryNote ? 'error' : s.cues.length ? 'writing' : 'none',
     moments: rec?.moments ?? [],
     material: s.material,
     chapters: s.chapters,
@@ -217,6 +237,8 @@ function onUrl(wc: WebContents, url: string) {
     chapters: [],
     target: null,
     translated: 0,
+    trFailed: 0,
+    translating: false,
     off: !store.settings().autoSubs,
     ac: new AbortController(),
     material: rec?.material && existsSync(join(deps.vault()?.root ?? '/nonexistent', rec.material)) ? rec.material : null,
@@ -282,6 +304,11 @@ async function useTrack(s: Sess, lang: string | null) {
   s.track = track
   s.cues = []
   s.translated = 0
+  s.trFailed = 0
+  s.trError = undefined
+  s.trRaw = undefined
+  s.translating = false
+  s.summaryNote = undefined
   s.error = undefined
   if (!track) {
     s.subs = s.needLogin ? 'login' : 'none'
@@ -376,8 +403,9 @@ async function gotCues(s: Sess, cues: Cue[]) {
   pushState(s)
   pushSubs(s)
   void writeMaterial(s).catch((e) => console.warn('[video] 字幕全文没存成', (e as Error).message))
+  // 摘要只看原文，和翻译各走各的：翻译慢、卡住、出错都不挡着摘要（以前排在翻译后面，翻译不收尾摘要就永远「在写」）
+  void summarize(s)
   if (s.target) await translateCues(s)
-  await summarize(s).catch((e) => console.warn('[video] 摘要没写成', (e as Error).message))
 }
 
 async function savedTranslations(s: Sess): Promise<Map<string, string>> {
@@ -390,12 +418,27 @@ async function savedTranslations(s: Sess): Promise<Map<string, string>> {
   }
 }
 
-/** 先翻正在播的前后 2 分钟，再往两头补；翻好一条推一条 */
+/** 「4分钟」「3秒」 */
+const waited = (ms: number) => (ms >= 60_000 ? `${Math.round(ms / 60_000)}分钟` : `${Math.round(ms / 1000)}秒`)
+
+/** 多久一句新译文都没来算卡住（真的命令行一批最慢一分多钟；测试里用 CN_VIDEO_TR_STALL_MS 缩短） */
+const trStallMs = () => Number(process.env.CN_VIDEO_TR_STALL_MS) || 4 * 60_000
+
+/**
+ * 先翻正在播的前后 2 分钟，再往两头补；翻好一条推一条。
+ * 没翻成的句子（报错的、AI 回了空的）记数、记原因（视频条上「N句没翻成」，字幕菜单里写原因和「重试」），不再悄悄丢掉；
+ * 一直没有新译文（引擎不回话也不报错）到 trStallMs 就收尾，剩下的算没翻成。最后不管怎样都把字幕全文写一遍。
+ */
 async function translateCues(s: Sess) {
   const svc = translateService()
   if (!svc || !s.target) return
+  const cues = s.cues
+  const outer = s.ac
+  const ac = new AbortController()
+  const stopInner = () => ac.abort()
+  outer.signal.addEventListener('abort', stopInner)
   const t = (await currentTime(s.wc)) ?? 0
-  const todo = s.cues.map((c, i) => ({ c, i })).filter(({ c }) => !c.tr)
+  const todo = cues.map((c, i) => ({ c, i })).filter(({ c }) => !c.tr)
   todo.sort((a, b) => {
     const da = Math.abs(a.c.start - t)
     const db = Math.abs(b.c.start - t)
@@ -403,26 +446,66 @@ async function translateCues(s: Sess) {
     const nb = db <= 120 ? 0 : 1
     return na - nb || a.c.start - b.c.start
   })
-  const cues = s.cues
-  const ac = s.ac
-  await svc
+  const live = () => s.cues === cues && s.ac === outer && !outer.signal.aborted
+  s.translating = true
+  s.trFailed = 0
+  s.trError = undefined
+  s.trRaw = undefined
+  pushState(s)
+  const answered = new Set<number>()
+  let firstError: TrError | null = null
+  let stall: ReturnType<typeof setTimeout> | undefined
+  let stalled = false
+  let onStall = () => {}
+  const stalledP = new Promise<void>((r) => (onStall = r))
+  /** 有回音就重新计时 */
+  const rearm = () => {
+    clearTimeout(stall)
+    stall = setTimeout(() => ((stalled = true), onStall()), trStallMs())
+  }
+  rearm()
+  dbg('translate', s.ref.key, s.target, `${todo.length} 句`)
+  const work = svc
     .translateBlocks(
       todo.map(({ c, i }) => ({ id: String(i), text: c.text })),
       { target: s.target },
       (r) => {
-        if (s.cues !== cues || r.text === null) return
+        if (!live() || ac.signal.aborted) return
         const i = Number(r.id)
+        answered.add(i)
+        rearm()
+        if (r.text === null || !r.text.trim()) {
+          firstError ??= r.error ?? { code: 'other', raw: 'AI回的译文是空的' }
+          return
+        }
+        if (!cues[i]!.tr) s.translated++
         cues[i]!.tr = r.text
-        s.translated++
         pushTr(s, i, r.text)
         pushState(s)
       },
       ac.signal,
     )
-    .catch((e) => {
-      if ((e as Error).name !== 'AbortError') console.warn('[video] 字幕翻译停了', (e as Error).message)
+    .catch((e: Error) => {
+      if (e.name !== 'AbortError') firstError ??= { code: 'other', raw: e.message }
     })
-  if (s.cues === cues && !ac.signal.aborted) await writeMaterial(s)
+  await Promise.race([work, stalledP])
+  clearTimeout(stall)
+  outer.signal.removeEventListener('abort', stopInner)
+  if (stalled) ac.abort()
+  if (!live()) return
+  const missed = todo.filter(({ i }) => !cues[i]!.tr)
+  const left = missed.length
+  s.translating = false
+  s.trFailed = left
+  // 「AI回的格式不对」后面不再带「，漏了 N 段」：前面已经说了几句没翻成
+  // 回调里赋的值 TS 看不到
+  const fe = firstError as TrError | null
+  s.trError = left ? (stalled && !fe ? `${waited(trStallMs())}没有新译文，停下了` : fe ? errorTitle(fe.code === 'bad-output' ? { ...fe, raw: '' } : fe) : '没翻成') : undefined
+  s.trRaw = left && fe && fe.raw !== s.trError ? fe.raw : undefined
+  dbg('translated', s.ref.key, `${s.translated}/${cues.length}`, left ? `没翻成 ${left} 句（${answered.size} 句有回音）：${s.trError}；${missed.slice(0, 5).map(({ c }) => JSON.stringify(c.text)).join(' ')}` : '全翻好了')
+  if (left) console.warn(`[video] 字幕有 ${left} 句没翻成：${s.trError}`)
+  pushState(s, true)
+  await writeMaterial(s).catch((e) => send('video:notice', `字幕全文没存成：${(e as Error).message}`))
 }
 
 // ---------------------------------------------------------------- 字幕全文进素材
@@ -448,7 +531,8 @@ function materialText(s: Sess): string {
     summary: s.summary,
     moments,
     withTranslation: store.settings().withTranslation,
-  }).replace('AI 在写摘要…', s.summaryNote ?? 'AI 在写摘要…')
+    momentKey: keyLabel(store.settings().keys.moment),
+  }).replace(SUMMARY_WRITING, s.summaryNote ?? SUMMARY_WRITING)
 }
 
 /** 写字幕全文那一篇（没有就建），commit 为 true 时单独一次提交 */
@@ -465,7 +549,12 @@ function writeMaterial(s: Sess, commit = true): Promise<string | null> {
       if (!cur) {
         s.material = await v.create(VIDEO_FOLDER, safeTitle(s.meta.title), text)
         store.update(s.ref.key, { material: s.material })
-      } else if (cur.text !== text) await v.write(s.material, text, cur.text)
+      } else if (cur.text !== text) {
+        const r = await v.write(s.material, text, cur.text)
+        if (!r.ok) throw new Error('那一篇刚被改了，下次更新再写')
+        // 中间开着这一篇的编辑器跟着换（软件自己写的，监听不报；以前不报，开着的那一篇一直停在「AI 在写摘要…」、没有译文）
+        send('note:changed', s.material, text)
+      }
     }
     if (commit) await commitPaths(v.root, [s.material], `视频字幕全文：${s.meta.title.slice(0, 50)}`)
     dbg('material', s.material)
@@ -478,14 +567,16 @@ function writeMaterial(s: Sess, commit = true): Promise<string | null> {
   return p
 }
 
-/** AI 摘要：按全文写，每条带时间；写好了改那一篇 */
-async function summarize(s: Sess) {
-  if (s.summary || !s.cues.length) return
+/** 摘要最多等多久（测试里用 CN_VIDEO_SUMMARY_MS 缩短） */
+const summaryMs = () => Number(process.env.CN_VIDEO_SUMMARY_MS) || 3 * 60_000
+
+/** 问一次摘要：成了给条目，不成抛出一句能写进那一篇的原因（停下了照样抛 AbortError） */
+async function askSummary(cues: Cue[], title: string, channel: string, target: string | null, signal: AbortSignal): Promise<{ t: number; text: string }[]> {
   const lines: string[] = []
   let size = 0
-  const step = Math.max(1, Math.ceil(s.cues.reduce((n, c) => n + c.text.length, 0) / 14000))
-  for (let i = 0; i < s.cues.length; i += step) {
-    const c = s.cues[i]!
+  const step = Math.max(1, Math.ceil(cues.reduce((n, c) => n + c.text.length, 0) / 14000))
+  for (let i = 0; i < cues.length; i += step) {
+    const c = cues[i]!
     const l = `${fmtTime(c.start)} ${c.text}`
     size += l.length
     lines.push(l)
@@ -493,21 +584,92 @@ async function summarize(s: Sess) {
   }
   const prompt = [
     '命令：视频摘要',
-    `视频：${s.meta.title}（${s.meta.channel}）`,
-    `用${langName(s.target ?? 'zh-CN')}写 4 到 8 条要点，按时间先后，每条一行：「mm:ss 一句话」，时间写这一点开始讲的地方。不要别的话。`,
+    `视频：${title}${channel ? `（${channel}）` : ''}`,
+    `用${langName(target ?? 'zh-CN')}写 4 到 8 条要点，按时间先后，每条一行：「mm:ss 一句话」，时间写这一点开始讲的地方。不要别的话。`,
     '字幕：',
     lines.join('\n'),
   ].join('\n')
+  const timeout = AbortSignal.timeout(summaryMs())
   try {
-    const out = await askFast('你给视频写摘要。只按要求的格式输出。', prompt, s.ac.signal)
+    const out = await askFast('你给视频写摘要。只按要求的格式输出。', prompt, AbortSignal.any([signal, timeout]))
     const items = parseSummary(out)
-    if (!items.length) throw new Error('AI 回的格式不对')
+    if (!items.length) throw new Error(`AI 回的格式不对：${out.trim().slice(0, 40) || '什么都没回'}`)
+    return items
+  } catch (e) {
+    if (timeout.aborted && !signal.aborted) throw new Error(`等了${waited(summaryMs())}没写完`)
+    throw e
+  }
+}
+
+/** 写进那一篇的一句中文原因：引擎的原话（「Claude Code 退出了（1）：…」）认成「Claude Code中途退出了」这类，我们自己说的照写 */
+function failedNote(e: unknown): string {
+  const msg = String((e as Error)?.message ?? e).replace(/\s+/g, ' ')
+  const own = /^(等了|AI 回的格式不对)/.test(msg)
+  return `${SUMMARY_FAILED}${(own ? msg : errorTitle(classify(msg, fastEngine().id))).slice(0, 80)}`
+}
+
+/**
+ * AI 摘要：按原文写，每条带时间；写好了改那一篇。和翻译各走各的。
+ * 写不成（出错、等太久）在那一篇「AI 摘要」下面写原因，那一行旁边有「重试」（renderer/video/summary-retry.ts）；不会一直「在写」。
+ * 换了翻成什么、重试：旧的那一问作废，结果不写。
+ */
+async function summarize(s: Sess) {
+  if (s.summary || !s.cues.length) return
+  const cues = s.cues
+  const ac = s.ac
+  s.summaryNote = undefined
+  const live = () => s.cues === cues && s.ac === ac && !ac.signal.aborted
+  dbg('summary', s.ref.key, '开始')
+  try {
+    const items = await askSummary(cues, s.meta.title, s.meta.channel, s.target, ac.signal)
+    if (!live()) return
     s.summary = items
   } catch (e) {
-    if ((e as Error).name === 'AbortError') return
-    s.summaryNote = `AI 摘要没写成：${(e as Error).message.slice(0, 80)}`
+    if (!live()) return
+    s.summaryNote = failedNote(e)
+    console.warn('[video] 摘要没写成', (e as Error).message)
   }
-  await writeMaterial(s)
+  dbg('summary', s.ref.key, s.summary ? `${s.summary.length} 条` : s.summaryNote)
+  pushState(s, true)
+  await writeMaterial(s).catch((e) => send('video:notice', `字幕全文没存成：${(e as Error).message}`))
+}
+
+/** 「AI 摘要没写成 · 重试」：视频开着按它重写；没开着按那一篇里存的字幕写，只换「AI 摘要」这一节 */
+async function retrySummary(path: string): Promise<void> {
+  const s = [...sessions.values()].find((x) => x.material === path && x.cues.length)
+  if (s) {
+    s.summary = null
+    s.summaryNote = undefined
+    pushState(s, true)
+    await writeMaterial(s)
+    return summarize(s)
+  }
+  const v = needVault()
+  const cur = await v.read(path)
+  const ref = videoOf(/\nsource: (\S+)/.exec(cur.text)?.[1] ?? '')
+  const cues = readCues(cur.text)
+  if (!ref || !cues.length) throw new Error('这一篇里没有字幕，写不了摘要')
+  const title = /^# (.+)$/m.exec(cur.text)?.[1] ?? ''
+  const channel = /\nchannel: (.*)/.exec(cur.text)?.[1]?.trim() ?? ''
+  const target = /\ntranslated: (\S+)/.exec(cur.text)?.[1] ?? null
+  const save = async (body: { t: number; text: string }[] | string) => {
+    const now = await v.read(path)
+    const next = replaceSummary(now.text, ref, body)
+    if (next === now.text) return
+    const r = await v.write(path, next, now.text)
+    if (!r.ok) throw new Error('那一篇刚被改了，再点一次重试')
+    send('note:changed', path, next)
+  }
+  await save(SUMMARY_WRITING)
+  let body: { t: number; text: string }[] | string
+  try {
+    body = await askSummary(cues, title, channel, target, AbortSignal.timeout(summaryMs() + 5000))
+  } catch (e) {
+    body = failedNote(e)
+  }
+  await save(body)
+  await serial(() => commitPaths(v.root, [path], `视频摘要：${title.slice(0, 50)}`))
+  send('files:changed')
 }
 
 // ---------------------------------------------------------------- 记下这一刻
@@ -832,14 +994,33 @@ export function setupVideo(d: Deps) {
       s.ac = new AbortController()
       for (const c of s.cues) delete c.tr
       s.translated = 0
+      s.trFailed = 0
+      s.trError = undefined
+      s.trRaw = undefined
+      s.translating = false
+      // 摘要用翻成的那种语言写：旧的作废，按新的重写（以前这里清掉了摘要却不重写，那一篇一直「AI 在写摘要…」）
       s.summary = null
       s.summaryNote = undefined
       const src = s.track?.lang.replace(/^ai-/, '') ?? ''
       s.target = primary(src) !== primary(target) ? target.trim() : null
       pushSubs(s)
       pushState(s)
+      void summarize(s)
       if (s.target) void translateCues(s)
     }
+  })
+  // 字幕菜单里「有N句没翻成 · 重试」：只翻还没翻成的那几句
+  ipcMain.handle('video:retry-translate', (e, wcId: unknown) => {
+    appOnly(e)
+    const s = sess(wcId)
+    if (!s.target || s.translating) return
+    void translateCues(s)
+  })
+  // 字幕全文里「AI 摘要没写成：… 重试」：这个视频在右栏开着就按它的字幕重写，没开着按那一篇里存的字幕
+  ipcMain.handle('video:retry-summary', (e, path: unknown) => {
+    appOnly(e)
+    if (typeof path !== 'string' || !path.endsWith('.md') || path.includes('..')) throw new Error('参数不对')
+    return retrySummary(path)
   })
   ipcMain.handle('video:moment', (e, r: unknown) => (appOnly(e), moment(r as { wcId?: unknown; dest?: unknown })))
   ipcMain.handle('video:ask', (e, r: unknown) => (appOnly(e), ask(r as AskRequest)))
@@ -930,11 +1111,13 @@ export function attachVideo(wc: WebContents) {
   wc.on('did-navigate', (_e, url) => check(url))
   wc.on('did-navigate-in-page', (_e, url, isMain) => isMain && check(url))
   wc.on('before-input-event', (e, input) => {
-    if (input.type !== 'keyDown' || !input.alt || input.meta || input.control || input.shift) return
-    if (!sessions.has(wc.id)) return
+    if (input.type !== 'keyDown' || !sessions.has(wc.id)) return
+    // 双语翻译的键（默认 ⌥A，设置 › 快捷键能改）在视频页上就是开关字幕
+    const subs = comboOf(input) === pageKeysNow().translate
+    if (!subs && (!input.alt || input.meta || input.control || input.shift)) return
     const keys = store.settings().keys
     const code = `Alt+${input.code}`
-    const action = code === keys.moment ? 'moment' : code === keys.ask ? 'ask' : input.code === 'KeyA' ? 'subs' : FIXED_KEYS[input.code]
+    const action = subs ? 'subs' : code === keys.moment ? 'moment' : code === keys.ask ? 'ask' : FIXED_KEYS[input.code]
     if (!action) return
     e.preventDefault()
     send('video:key', action, wc.id)

@@ -145,9 +145,9 @@ async function hoverContrast(page: Page, btn: Locator) {
   return { rest, hover }
 }
 
-/** 一块里每个看得见、能点的 .btn：悬停时对比度不低于 4.5（静止时就不到 4.5 的淡字按钮，悬停不能更淡） */
+/** 一块里每个看得见、能点的 .btn（设置里是 .sa-btn）：悬停时对比度不低于 4.5（静止时就不到 4.5 的淡字按钮，悬停不能更淡） */
 async function allButtonsReadableOnHover(page: Page, scope: Locator, where: string) {
-  const btns = scope.locator('button.btn:visible:not([disabled])')
+  const btns = scope.locator('button.btn:visible:not([disabled]), button.sa-btn:visible:not([disabled])')
   const n = await btns.count()
   const rows: string[] = []
   for (let i = 0; i < n; i++) {
@@ -304,14 +304,18 @@ test('全软件自己定了底色的按钮（黑色实心、梦游预览条、�
       rows.push(...(await allButtonsReadableOnHover(page, bar, `${L.tag} 预览条`)))
       await shotWindow(run, `r4-buttons-preview-${L.tag}`)
       await page.keyboard.press('Escape')
-      // 设置 › Git 和同步：填了地址的「保存」是黑色实心
+      // 设置 › Git 和同步：填了地址的「保存」是黑色实心（2026-11-21 设置照方向 A 重做后是 .sa-btn.primary，task-f7rib）
       await page.keyboard.press('Meta+,')
       // B 是弹窗，A 是中间一个标签
       const dlg = L.frame === 'b' ? page.getByRole('dialog', { name: '设置' }) : page.locator('.setpane')
       await dlg.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: 'Git和同步', exact: true }).click()
       await dlg.getByRole('textbox', { name: '远程地址' }).fill('https://example.com/a.git')
       const save = dlg.getByRole('button', { name: '保存', exact: true })
-      await expect(save).toHaveClass(/btn-primary/)
+      await expect(save).toHaveClass(/\bsa-btn\b.*\bprimary\b/)
+      const sv = await hoverContrast(page, save)
+      rows.push(`${L.tag} 设置 Git「保存」 静止 ${sv.rest.ratio.toFixed(2)} 悬停 ${sv.hover.ratio.toFixed(2)}（${sv.hover.bg} / ${sv.hover.color} · 透明度 ${sv.hover.opacity}）`)
+      expect(sv.rest.ratio, `${L.tag} 设置「保存」静止`).toBeGreaterThanOrEqual(4.5)
+      expect(sv.hover.ratio, `${L.tag} 设置「保存」悬停`).toBeGreaterThanOrEqual(4.5)
       rows.push(...(await allButtonsReadableOnHover(page, dlg, `${L.tag} 设置 Git`)))
       console.log(rows.join('\n'))
     } finally {

@@ -1,10 +1,10 @@
 import { app, autoUpdater as nativeUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
-import type { Activity, AiChange, AiCommitFailed, GitState, StrandedNote, VaultInfo } from '../shared/api'
+import type { Activity, AiChange, AiCommitFailed, BackupState, GitState, StrandedNote, VaultInfo } from '../shared/api'
 import { activeSkin, type AppSettings, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { isExtUrl } from '../shared/bookmarkkeeper'
@@ -26,7 +26,7 @@ import { registerHome } from './home'
 import { organizeCategories } from './categories'
 import { type Tidied, tidyNotes, undoTidy } from './tidy-notes'
 import { registerFolderHome } from './folder-home'
-import { currentMenuKeys, registerCommands } from './commands'
+import { menuKey, registerCommands } from './commands'
 import { accelOf } from '../shared/cmd-keys'
 import { registerRestore } from './restore'
 import { registerBoard } from './board'
@@ -42,12 +42,13 @@ import { Vault } from './vault'
 import { macIdentity } from './git-identity'
 import { setupPlugins } from './plugins'
 import { moveReadingState, setupReading } from './reading'
-import { searchVault, setupSearch } from './search'
+import { reopenSearch, searchVault, setupSearch } from './search'
 import { registerFiles } from './files'
 import { testTrash, trashFiles } from './folder-ops'
 import { setupImport } from './import'
 import { attachEditMenu, closeAllMenus, forwardWebContext, popup, setupCtxMenu } from './ctx-menu'
 import { attachWebview, setupWeb } from './web'
+import { noteMediaHold } from './web/media-hold'
 import { attachVideo, flushVideo, setupVideo } from './video'
 
 /** 内置浏览器的登录分区：和软件自己的界面分开，导入的 Chrome 登录放这里 */
@@ -104,6 +105,127 @@ async function commitPending(): Promise<string | null> {
   return hash
 }
 
+// ---------- 设置 › Git和同步：自动同步、打开库时先拉、每天备份（2026-11-21 方向 A 第一批新加） ----------
+
+/** 主进程要在底栏说的话：界面还没听上时先排着，界面一听上就取走（app:notices） */
+const pendingNotices: string[] = []
+let noticeReady = false
+function notify(text: string) {
+  if (noticeReady && win && !win.isDestroyed()) win.webContents.send('app:notice', text)
+  else pendingNotices.push(text)
+}
+
+/** 同步一次（底栏「同步」、设置里「现在同步」、自动同步都走这里）：记下上次同步的时间或没成的原因 */
+async function runSync(root: string): Promise<git.SyncResult> {
+  try {
+    const r = await git.sync(root)
+    if (r.kind === 'ok') {
+      lastSync = Date.now()
+      syncError = null
+    } else if (r.kind === 'conflict') syncError = { at: Date.now(), text: '远程和本机改了同一处，已经退回同步前，本机的字都在。需要手动合并一次' }
+    return r
+  } catch (e) {
+    // git 的英文原话换成一句中文，记下来（设置 › Git 和同步的状态行一直写着，直到下次同步成功）
+    if (!(e instanceof git.GitError)) throw e
+    console.error('同步失败', e.message)
+    syncError = { at: Date.now(), text: syncErrorText(e.message) }
+    throw new Error(syncError.text)
+  }
+}
+
+let syncTimer: NodeJS.Timeout | null = null
+/** 下次自动同步的时间（设置 › Git和同步、底栏「同步」旁写着） */
+let nextSyncAt: number | null = null
+/** 按设置里的间隔排下一次自动同步；只在我点时（0）不排 */
+function scheduleAutoSync() {
+  if (syncTimer) clearTimeout(syncTimer)
+  syncTimer = null
+  nextSyncAt = null
+  const min = settings.app().sync.autoMinutes
+  if (!vault || min === 0) return
+  const root = vault.root
+  nextSyncAt = Date.now() + min * MINUTE_MS
+  syncTimer = setTimeout(() => {
+    void (async () => {
+      if (vault?.root !== root || !(await git.hasRemote(root))) return
+      try {
+        const r = await runSync(root)
+        if (r.kind === 'conflict') notify('自动同步没成功：远程和本机改了同一处，已经退回同步前，本机的字都在')
+        else if (r.kind === 'ok' && r.pulled) notify(`自动同步：拉下${r.pulled}次提交${r.pushed ? '，推上去了' : ''}`)
+      } catch (e) {
+        notify(`自动同步没成功：${String((e as Error).message ?? e)}`)
+      }
+      win?.webContents.send('files:changed')
+    })().finally(scheduleAutoSync)
+  }, min * MINUTE_MS)
+}
+
+/** 打开库时先拉一次（设置 › Git和同步）：在后台拉，拉下来了底栏说一句；拉不成照样用，说为什么 */
+async function pullOnOpen(root: string) {
+  if (!settings.app().sync.pullOnOpen || !(await git.hasRemote(root))) return
+  try {
+    const r = await git.pull(root)
+    if (vault?.root !== root) return
+    if (r.kind === 'conflict') {
+      syncError = { at: Date.now(), text: '远程和本机改了同一处，已经退回拉之前，本机的字都在。需要手动合并一次' }
+      notify('打开时先拉没成功：远程和本机改了同一处，已经退回拉之前，本机的字都在')
+    } else if (r.kind === 'ok') notify(r.pulled ? `打开时先拉了一次：拉下${r.pulled}次提交` : '打开时先拉了一次：已经是最新的')
+  } catch (e) {
+    const text = e instanceof git.GitError ? syncErrorText(e.message) : String((e as Error).message ?? e)
+    syncError = { at: Date.now(), text }
+    notify(`打开时先拉没成功：${text}`)
+  }
+  win?.webContents.send('files:changed')
+}
+
+/** 每天备份一份放哪：iCloud 云盘里的「Canvas Notes 备份」或选的文件夹；测试用 CN_ICLOUD_DRIVE，测试模式没给时放在自己的数据目录，绝不碰真的 iCloud */
+function backupFile(): string | null {
+  const s = settings.app().sync
+  if (s.backup === 'off' || !vault) return null
+  const drive = process.env.CN_ICLOUD_DRIVE || (E2E ? join(app.getPath('userData'), 'icloud-drive-test') : join(app.getPath('home'), 'Library/Mobile Documents/com~apple~CloudDocs'))
+  const dir = s.backup === 'icloud' ? join(drive, 'Canvas Notes 备份') : s.backupDir
+  return dir ? join(dir, `${vault.name}.bundle`) : null
+}
+
+function backupState(): BackupState {
+  const b = vault ? settings.read().backups?.[vault.root] : undefined
+  return { at: b?.at ?? null, file: b?.file ?? null, error: b?.error ?? null }
+}
+
+/** 备一份（整个库的历史打成一个 git bundle，换掉上一份）；记下时间或没备成的原因 */
+async function backupNow(): Promise<BackupState> {
+  const file = backupFile()
+  if (!file || !vault) return backupState()
+  const root = vault.root
+  const put = (b: { at?: number; file?: string; error: string | null }) => {
+    const all = settings.read().backups ?? {}
+    settings.patch({ backups: { ...all, [root]: { ...all[root], ...b } } })
+  }
+  try {
+    mkdirSync(dirname(file), { recursive: true })
+    await git.bundle(root, file)
+    put({ at: Date.now(), file, error: null })
+  } catch (e) {
+    const msg = String((e as Error).message ?? e)
+    put({ error: /empty bundle/i.test(msg) ? '库里还没有提交，先写点东西' : /ENOENT|EACCES|EPERM|No such file/i.test(msg) ? `写不进「${dirname(file)}」` : msg.slice(0, 200) })
+  }
+  return backupState()
+}
+
+let backupTimer: NodeJS.Timeout | null = null
+/** 每天一份：开着软件时每 30 分钟看一次，离上次备份满一天就备 */
+function scheduleBackup() {
+  if (backupTimer) clearInterval(backupTimer)
+  backupTimer = null
+  if (!backupFile()) return
+  const check = () => {
+    const at = backupState().at
+    if (!at || Date.now() - at >= 1440 * MINUTE_MS) void backupNow()
+  }
+  backupTimer = setInterval(check, 30 * MINUTE_MS)
+  setTimeout(check, MINUTE_MS)
+}
+
 /** 导入的 VS Code 主题（设置目录 themes/） */
 const themes = new ThemeStore(join(app.getPath('userData'), 'themes'))
 const userSkins = () => themes.list().map(themeInfo)
@@ -157,6 +279,9 @@ async function openVault(dir: string): Promise<VaultInfo> {
     return null
   })
   scheduleAutoCommit()
+  scheduleAutoSync()
+  scheduleBackup()
+  void pullOnOpen(root)
   // 全能模式下 AI 这一轮结束时分清库里多出来的改动谁改的：软件自己写的不算，在外面改的（AI 自己的工具）算
   vault.onOwnWrite = agentOwnWrite
   vault.watch(
@@ -212,6 +337,10 @@ function registerIpc() {
     const before = settings.app()
     const next = settings.setApp(patch)
     if (next.autoCommitMinutes !== before.autoCommitMinutes) scheduleAutoCommit()
+    if (next.sync.autoMinutes !== before.sync.autoMinutes) scheduleAutoSync()
+    if (next.sync.backup !== before.sync.backup || next.sync.backupDir !== before.sync.backupDir) scheduleBackup()
+    if (next.general.tray !== before.general.tray || next.general.quickKey !== before.general.quickKey) quick.apply()
+    if (next.editor.semantic !== before.editor.semantic) reopenSearch()
     win?.setBackgroundColor(winColor())
     return next
   })
@@ -440,7 +569,7 @@ function registerIpc() {
   })
   ipcMain.handle('git:state', async (): Promise<GitState> => {
     const v = needVault()
-    if (!(await git.isRepo(v.root))) return { isRepo: false, branch: null, changes: [], weekCommits: 0, hasRemote: false, lastSync: null, syncError: null, autoCommitMinutes: 0, autoCommitError: null }
+    if (!(await git.isRepo(v.root))) return { isRepo: false, branch: null, changes: [], weekCommits: 0, hasRemote: false, lastSync: null, syncError: null, autoCommitMinutes: 0, autoCommitError: null, nextSync: null }
     const [branch, changes, weekCommits, hasRemote] = await Promise.all([
       git.currentBranch(v.root),
       git.status(v.root),
@@ -449,7 +578,7 @@ function registerIpc() {
     ])
     // 没有要提交的了（别处提交上了）：自动提交的那次失败不再挂着
     if (!changes.length) autoCommitError = null
-    return { isRepo: true, branch, changes, weekCommits, hasRemote, lastSync, syncError, autoCommitMinutes: settings.app().autoCommitMinutes, autoCommitError }
+    return { isRepo: true, branch, changes, weekCommits, hasRemote, lastSync, syncError, autoCommitMinutes: settings.app().autoCommitMinutes, autoCommitError, nextSync: hasRemote ? nextSyncAt : null }
   })
   ipcMain.handle('git:commit', async () => {
     const v = needVault()
@@ -475,21 +604,34 @@ function registerIpc() {
     await git.setIdentity(v.root, name, email)
     return git.identity(v.root)
   })
-  ipcMain.handle('git:sync', async () => {
-    try {
-      const r = await git.sync(needVault().root)
-      if (r.kind === 'ok') {
-        lastSync = Date.now()
-        syncError = null
-      }
-      return r
-    } catch (e) {
-      // git 的英文原话换成一句中文，记下来（设置 › Git 和同步的状态行一直写着，直到下次同步成功）
-      if (!(e instanceof git.GitError)) throw e
-      console.error('同步失败', e.message)
-      syncError = { at: Date.now(), text: syncErrorText(e.message) }
-      throw new Error(syncError.text)
-    }
+  ipcMain.handle('git:sync', () => runSync(needVault().root))
+  // 不进Git的文件（设置 › Git和同步）：库里的 .gitignore；改了写进去、单独提交一次（删光了就把文件删掉）
+  ipcMain.handle('git:ignore', () => (existsSync(join(needVault().root, '.gitignore')) ? readFileSync(join(needVault().root, '.gitignore'), 'utf8') : ''))
+  ipcMain.handle('git:set-ignore', async (_e, text: unknown) => {
+    if (typeof text !== 'string' || text.length > 100_000) throw new Error('.gitignore 的内容不对')
+    const v = needVault()
+    const file = join(v.root, '.gitignore')
+    if (text.trim()) writeFileSync(file, text.endsWith('\n') ? text : text + '\n')
+    else if (existsSync(file)) rmSync(file)
+    await git.commitPaths(v.root, ['.gitignore'], '改了不进Git的文件')
+    win?.webContents.send('files:changed')
+  })
+  ipcMain.handle('git:backup-state', () => backupState())
+  ipcMain.handle('git:backup-now', () => backupNow())
+  ipcMain.handle('git:pick-backup-dir', async () => {
+    const r = await dialog.showOpenDialog(win!, { title: '每天备份一份到哪个文件夹', buttonLabel: '备份到这里', properties: ['openDirectory', 'createDirectory'] })
+    if (r.canceled || !r.filePaths[0]) return null
+    settings.setApp({ sync: { backup: 'folder', backupDir: r.filePaths[0] } })
+    scheduleBackup()
+    return r.filePaths[0]
+  })
+  // 设置 › 高级：软件设置目录
+  ipcMain.handle('app:data-dir', () => app.getPath('userData'))
+  ipcMain.handle('app:reveal-data-dir', () => shell.openPath(app.getPath('userData')))
+  // 主进程要在底栏说的话（自动同步、打开时先拉）：界面听上以后取走排着的
+  ipcMain.handle('app:notices', () => {
+    noticeReady = true
+    return pendingNotices.splice(0)
   })
   ipcMain.handle('search', (_e, q: string) => (typeof q === 'string' ? needVault().search(q) : []))
   ipcMain.handle('pins:get', () => readPins(needVault()))
@@ -589,6 +731,8 @@ function createWindow() {
     prefs.contextIsolation = true
     prefs.sandbox = true
     params.partition = WEB_PARTITION
+    // 重开软件时恢复的标签：视频不自己播（web/media-hold.ts）
+    noteMediaHold(prefs)
     if (!/^(https?:|about:blank)/.test(params.src ?? '') && !isExtUrl(params.src)) params.src = 'about:blank'
   })
   win.webContents.on('did-attach-webview', (_e, wc) => {
@@ -666,12 +810,13 @@ app.whenReady().then(async () => {
     settings: () => settings.read(),
     saveSettings: (patch) => settings.patch(patch),
     skin: quickSkin,
+    prefs: () => settings.app().general,
     topItems: readyItems,
   })
-  await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault })
+  await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault, downloads: () => settings.app().web.downloads })
   setupPlugins({ window: () => win, vault: () => vault })
-  setupReading({ win: () => win, vault: () => vault })
-  setupSearch({ win: () => win, vault: () => vault })
+  setupReading({ win: () => win, vault: () => vault, recap: () => settings.app().pdf.recap })
+  setupSearch({ win: () => win, vault: () => vault, semantic: () => settings.app().editor.semantic })
   registerFiles(() => vault)
   setupVideo({ window: () => win, vault: () => vault, ses: web, userData: app.getPath('userData') })
   // 退出时最后存一次：窗口都关了以后（before-quit 时网页还在，之后还会改它，留下的定时器会在 Node 收尾时才跑）
@@ -761,10 +906,18 @@ function readyItems(): Electron.MenuItemConstructorOptions[] {
   return st?.phase === 'ready' ? [{ label: `重启并更新到 ${st.version}`, click: () => void installUpdate() }, { type: 'separator' }] : []
 }
 
-/** 菜单栏：标准的几个菜单，应用菜单里多「检查更新…」（下好了就是「重启并更新到 x」）和「设置…」 */
+/**
+ * 菜单栏：应用菜单里多「检查更新…」和「设置…」，文件、显示、前往三个菜单是软件的命令。每项的键都照命令表（shared/cmd-table.ts），
+ * 界面里改了键这里跟着换（commands.ts 的 menuKey）；键由界面自己接（网页有焦点时主进程转过去），菜单上只显示、不注册，点了交给界面跑那条命令。
+ * 放大、缩小、原大是系统的整个窗口缩放：白板、PDF 上界面先接住缩它们，别处才轮到菜单缩整个窗口。
+ * 不放「重新载入」「强制重新载入」：⌘R、⇧⌘R 会把整个软件重新载入（0.4.6 里 ⇧⌘R 写在「最近」上，按了是这个），⌘R 现在是重新载入右栏网页
+ */
 function buildMenu() {
-  const keys = currentMenuKeys()
-  const keyAccel = (k: string | null) => (k ? accelOf(k) : undefined)
+  const accel = (id: string) => {
+    const k = menuKey(id)
+    return k ? accelOf(k) : undefined
+  }
+  const cmd = (id: string, label: string): Electron.MenuItemConstructorOptions => ({ label, accelerator: accel(id), registerAccelerator: false, click: () => win?.webContents.send('app:key', `cmd:${id}`) })
   const st = updater?.status()
   const updateItem: Electron.MenuItemConstructorOptions =
     st?.phase === 'ready'
@@ -778,32 +931,58 @@ function buildMenu() {
           { role: 'about' },
           updateItem,
           { type: 'separator' },
-          // ⌘, 由界面自己处理（网页有焦点时主线转过去），这里只显示快捷键、不注册；⌘K 里改了键这里跟着换（commands.ts）
-          { label: '设置…', accelerator: keyAccel(keys.settings), registerAccelerator: false, click: () => win?.webContents.send('app:key', ',') },
+          cmd('settings', '设置…'),
           { type: 'separator' },
           { role: 'services' }, { type: 'separator' }, { role: 'hide' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit' }],
       },
       {
         label: '文件',
         submenu: [
-          // ⇧⌘C 也由界面接（⌘K 里能换给别的命令），这里只显示
-          { label: '拍一张导图', accelerator: keyAccel(keys.capture), registerAccelerator: false, click: () => win?.webContents.send('map:open') },
-          { label: '导入旧笔记…', click: () => win?.webContents.send('import:open') },
+          cmd('new-note', '新建笔记'),
+          cmd('new-board', '新建白板'),
+          cmd('capture', '拍一张导图'),
+          cmd('import', '导入旧笔记…'),
           { type: 'separator' },
-          // ⌘W 走界面那条路（CN-98）：主窗口里关当前栏里的东西（标签、网页标签、收起历史这一格……），不关整个窗口；别的窗口照旧关掉
+          // 关闭走界面那条路（CN-98）：主窗口里关当前栏里的东西（标签、网页标签、收起历史这一格……），不关整个窗口；别的窗口照旧关掉，所以这一项注册键
           {
             label: '关闭',
-            accelerator: 'CommandOrControl+W',
+            accelerator: accel('close'),
             click: () => {
               const w = BrowserWindow.getFocusedWindow()
-              if (!w || w === win) win?.webContents.send('app:key', 'w')
+              if (!w || w === win) win?.webContents.send('app:key', 'cmd:close')
               else w.close()
             },
           },
         ],
       },
       { role: 'editMenu' },
-      { role: 'viewMenu' },
+      {
+        label: '显示',
+        submenu: [
+          cmd('toggle-left', '收起 / 展开左栏'),
+          cmd('toggle-right', '收起 / 展开右栏'),
+          { type: 'separator' },
+          cmd('left-files', '左栏：文件'),
+          cmd('left-recent', '左栏：最近'),
+          cmd('outline', '大纲'),
+          cmd('open-web', '网页'),
+          cmd('history', '历史'),
+          cmd('ask-ai', 'AI'),
+          { type: 'separator' },
+          cmd('toggle-view', '白板 / 文档切换'),
+          { type: 'separator' },
+          { role: 'zoomIn', label: '放大', accelerator: accel('zoom-in') },
+          { role: 'zoomOut', label: '缩小', accelerator: accel('zoom-out') },
+          { role: 'resetZoom', label: '原大', accelerator: accel('zoom-reset') },
+          { type: 'separator' },
+          { role: 'togglefullscreen' },
+          { role: 'toggleDevTools' },
+        ],
+      },
+      {
+        label: '前往',
+        submenu: [cmd('back', '后退'), cmd('forward', '前进'), cmd('home', '回到首页'), { type: 'separator' }, cmd('goto', '按名字跳到…'), cmd('search', '搜索…')],
+      },
       { role: 'windowMenu' },
     ]),
   )
@@ -923,6 +1102,8 @@ app.on('before-quit', (e) => {
     try {
       if (vault) commitPendingSync(vault.root)
       quitLog('提交完')
+      // 设置 › Git和同步「退出前推一次」：最多等 8 秒，没网、远程比本机新都照常退出
+      if (vault && settings.app().sync.pushOnQuit) quitLog(pushSync(vault.root))
     } catch (err) {
       console.error('退出前提交失败', err)
       // 锁一直不放（上次 git 崩了留下的）等情况：字在文件里，没提交；照实记，不写「提交完」
@@ -952,6 +1133,20 @@ function commitPendingSync(root: string) {
       if (i >= 20 || !/index\.lock/.test(String((err as Error).message))) throw err
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 150)
     }
+  }
+}
+/** 退出前推一次：同步的 git（不靠事件循环），推不上不重试、不拉，照常退出；返回记进 quit.log 的那句 */
+function pushSync(root: string): string {
+  const run = (args: string[], timeout = 10_000) =>
+    execFileSync('git', ['-c', 'core.quotepath=false', ...args], { cwd: root, timeout, encoding: 'utf8', stdio: 'pipe', env: { ...process.env, PATH: git.gitPath(), GIT_TERMINAL_PROMPT: '0' } })
+  try {
+    const remote = run(['remote']).trim().split('\n')[0]
+    if (!remote) return '退出前推：没有远程'
+    const branch = run(['rev-parse', '--abbrev-ref', 'HEAD']).trim()
+    run(['push', remote, `HEAD:${branch}`], 8000)
+    return '退出前推完'
+  } catch (err) {
+    return `退出前没推上：${String((err as { stderr?: string }).stderr || (err as Error).message).trim().split('\n')[0]}`
   }
 }
 app.on('quit', () => quitLog('quit'))

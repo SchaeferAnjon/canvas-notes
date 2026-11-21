@@ -627,6 +627,9 @@
 .shell-tip.show {
   opacity: 1;
 }
+.frame-b .shell-tip {
+  border-radius: 6px;
+}
 /* 长的（整条网址）折成几行，最宽 480，不出窗口 */
 .shell-tip.long {
   height: auto;
@@ -710,6 +713,24 @@
 /* 用不了的一项（已经在最左还点「这一栏往左挪」）：淡下去，同原型 proto-a */
 .shell-menu .mi:disabled {
   opacity: 0.45;
+}
+/* 「同步」小菜单、改动弹层里那一行状态：多久同步一次、下次什么时候 */
+.shell-menu .mtx {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--t2);
+}
+/* 底栏「同步」后面的「· 下次 15:50」（自动同步开着时） */
+.status .bi .nxt {
+  opacity: 0.7;
+}
+/* 菜单最下面「到设置那一行」的一项（设置方向 A 的 A3）：强调色字 */
+.shell-menu .mi.go,
+.shell-menu .mi.go .ci {
+  color: var(--acc-t);
+}
+.shell-menu .mi.go .r .ci {
+  color: var(--t3);
 }
 .shell-menu .mi .r {
   margin-left: auto;
@@ -1849,4 +1870,28 @@
 }
 .frame-a > .status .bi.err .gdot {
   display: var(--status-err-dot, block);
+}
+
+/* PDF「更多」最下面那一项：到设置 › 读PDF「新打开的PDF缩放」（方向 A 的 A3），写清现在的值；菜单跟着字放宽 */
+.acts .pdfmore > .menu {
+  width: max-content;
+  min-width: 200px;
+}
+.acts .pdfmore > .menu .sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+.acts .pdfmore > .menu button.go {
+  color: var(--acc-t);
+  white-space: nowrap;
+}
+.acts .pdfmore > .menu button.go .ci {
+  color: var(--acc-t);
+}
+.acts .pdfmore > .menu button.go .go-r {
+  margin-left: auto;
+  padding-left: 12px;
+  box-sizing: content-box;
+  color: var(--t3);
 }

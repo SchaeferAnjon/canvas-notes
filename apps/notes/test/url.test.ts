@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isSearchUrl, looksLikeUrl, toUrl } from '../src/renderer/url'
+import { publishSettings } from '../src/renderer/settings-store'
+import { DEFAULT_SETTINGS } from '../src/shared/appearance'
 
 describe('地址栏和 ⌘K 里打的字 → 网址', () => {
   it('像网址就补 https，不像就去搜；搜出来的认得出是搜索', () => {
@@ -41,5 +43,16 @@ describe('地址栏和 ⌘K 里打的字 → 网址', () => {
     expect(toUrl('172.32.0.1:80')).toBe('https://172.32.0.1:80')
     expect(toUrl('example.local.com')).toBe('https://example.local.com')
     expect(isSearchUrl(toUrl('3.14'))).toBe(true)
+  })
+
+  it('设置 › 网页和视频「地址栏搜索用」换了：打的不是网址时用那家搜，哪家搜出来的都认得是搜索', () => {
+    publishSettings({ ...DEFAULT_SETTINGS, web: { ...DEFAULT_SETTINGS.web, engine: 'bing' } })
+    expect(toUrl('冰岛')).toBe('https://www.bing.com/search?q=%E5%86%B0%E5%B2%9B')
+    publishSettings({ ...DEFAULT_SETTINGS, web: { ...DEFAULT_SETTINGS.web, engine: 'baidu' } })
+    expect(toUrl('冰岛')).toBe('https://www.baidu.com/s?wd=%E5%86%B0%E5%B2%9B')
+    expect(isSearchUrl('https://www.google.com/search?q=x')).toBe(true)
+    expect(isSearchUrl('https://duckduckgo.com/?q=x')).toBe(true)
+    publishSettings(DEFAULT_SETTINGS)
+    expect(toUrl('冰岛')).toMatch(/^https:\/\/www\.google\.com\/search\?q=/)
   })
 })

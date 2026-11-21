@@ -17,6 +17,8 @@ import type { FromWorker, Query, ToWorker } from './protocol'
 export interface SearchDeps {
   win(): BrowserWindow | null
   vault(): Vault | null
+  /** 设置 › 文档和白板「按意思找」：关着时不载本机模型、不建意思索引（PDF 里的字照样搜） */
+  semantic(): boolean
 }
 
 /** 包里的模型（打包时 extraResources 放进 Resources/models/）；开发时在 apps/notes/resources/models/；CN_MODEL_DIR 能换 */
@@ -26,9 +28,12 @@ function modelDir(): string | null {
 }
 
 let openVault: (root: string) => void = () => undefined
+let reopen: () => void = () => undefined
 
 /** 换库、打开库时叫一声：搜索进程按这个库建索引 */
 export const searchVault = (root: string) => openVault(root)
+/** 「按意思找」开关换了：按新的样子重开索引 */
+export const reopenSearch = () => reopen()
 
 export function setupSearch(deps: SearchDeps) {
   let proc: UtilityProcess | null = null
@@ -40,7 +45,7 @@ export function setupSearch(deps: SearchDeps) {
   const send = (ch: string, ...args: unknown[]) => deps.win()?.webContents.send(ch, ...args)
 
   const post = (m: ToWorker) => proc!.postMessage(m)
-  const openMsg = (r: string): ToWorker => ({ t: 'open', root: r, userData: app.getPath('userData'), indexDir: join(app.getPath('userData'), 'search', createHash('sha1').update(r).digest('hex').slice(0, 16)), modelDir: modelDir() })
+  const openMsg = (r: string): ToWorker => ({ t: 'open', root: r, userData: app.getPath('userData'), indexDir: join(app.getPath('userData'), 'search', createHash('sha1').update(r).digest('hex').slice(0, 16)), modelDir: deps.semantic() ? modelDir() : null })
   const start = () => {
     proc = utilityProcess.fork(join(__dirname, 'search-worker.js'), [], { serviceName: '搜索索引', stdio: 'inherit' })
     proc.on('message', (m: FromWorker) => {
@@ -82,6 +87,9 @@ export function setupSearch(deps: SearchDeps) {
     root = r
     if (proc) post(openMsg(r))
     else ensure()
+  }
+  reopen = () => {
+    if (root && proc) post(openMsg(root))
   }
   app.on('will-quit', () => {
     quitting = true

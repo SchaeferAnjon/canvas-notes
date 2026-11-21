@@ -1,4 +1,5 @@
 import { when } from '../shared/when'
+import { useKeys } from './keys'
 import { Codicon } from '@cn/design'
 import { fileIcon } from './Palette'
 import { useMemo, useState } from 'react'
@@ -120,7 +121,7 @@ export function Sidebar(props: {
           {/* 收件箱堆多了（超过 20 条）：底下多一行琥珀色「让 AI 分一分」（平时没有，和小样里的样子一样） */}
           {folder === INBOX_DIR && inboxN > INBOX_WARN && (
             <div className="sall s-warn">
-              <button className="si s-tidy" aria-label={`收件箱堆了${inboxN}条，让AI按主题分进剪藏`} data-tip="跑 /整理收件箱：只给建议，点同意之前一条都不挪" data-side="right" onClick={props.onTidy}>
+              <button className="si s-tidy" aria-label={`收件箱堆了${inboxN}条，让AI分进课程、周记、剪藏这些`} data-tip="跑 /整理收件箱：只给建议，点同意之前一条都不挪" data-side="right" onClick={props.onTidy}>
                 <AiIcon job="chat" size={14} />
                 <span className="truncate">{`收件箱堆了${inboxN}条 · 让AI分一分`}</span>
               </button>
@@ -143,6 +144,7 @@ type RowFn = (n: NoteFile, right?: React.ReactNode) => React.ReactNode
 
 /** 「最近」：置顶 → 今天 → 这周 → 按月收起；底下只留「归档」 */
 function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
+  const K = useKeys()
   const newBusy = useNewNoteBusy()
   /** 「问AI」画 AI 对话正在用的那家的标志（CN-127，设置里换了当场跟着换） */
   const engine = useChatEngine()
@@ -191,9 +193,9 @@ function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
           </span>
         }
       >
-        <HeadBtn icon="new-file" label="新建笔记" keys="⌘N" busy={newBusy} onClick={props.onNewNote} />
+        <HeadBtn icon="new-file" label="新建笔记" keys={K('new-note') ?? undefined} busy={newBusy} onClick={props.onNewNote} />
         <HeadBtn icon="layout" label="新建白板" onClick={props.onNewBoard} />
-        <HeadBtn icon="comment-discussion" glyph={<EngineLogo id={engine.id} size={15} />} label="问AI" keys="⌘J" onClick={props.onAskAi} />
+        <HeadBtn icon="comment-discussion" glyph={<EngineLogo id={engine.id} size={15} />} label="问AI" keys={K('ask-ai') ?? undefined} onClick={props.onAskAi} />
         <HeadBtn icon="link-external" label="在中间打开" onClick={props.onOpenRecent} />
       </ViewHead>
       <TypeChips value={type} onChange={setType} className="side-chips" />

@@ -22,6 +22,7 @@ import {
   type TrStyle,
 } from '../../shared/plugins/translate'
 import { callPlugin, onHostCommand, onPageEvent, onPluginState, pluginEnabled, pluginState, tellHost } from './state'
+import { isPageKey } from '../page-keys'
 
 const ID = 'translate'
 /** 当一段来翻的元素 */
@@ -573,12 +574,12 @@ function editable(t: EventTarget | null): boolean {
   return !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
 }
 
-// ⌥A：开 / 关双语（在输入框里不管，那里 ⌥A 是打字）
+// 双语翻译的键（命令表，默认 ⌥A，设置里能改）：开 / 关双语（在输入框里不管，那里 ⌥A 是打字）
 window.addEventListener(
   'keydown',
   (e) => {
     // 插件状态还没到（网页刚载入）时先接着，start() 会等它到了再看开没开
-    if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.code !== 'KeyA' || (pluginState(ID) && !pluginEnabled(ID)) || editable(e.target)) return
+    if (!isPageKey(e, 'translate') || (pluginState(ID) && !pluginEnabled(ID)) || editable(e.target)) return
     e.preventDefault()
     e.stopImmediatePropagation()
     toggle()

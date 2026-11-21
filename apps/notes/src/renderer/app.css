@@ -204,20 +204,23 @@ main.center .pane[data-path] > .body {
   margin: 0;
 }
 
-/* 文档：版心 680（正文 15/1.75），左右各留 56 放加号和把手，整体最宽 792，居中（DESIGN.v3.md「6.1」） */
+/* 文档：版心 680（正文 15/1.75），左右各留 56 放加号和把手，整体最宽 792，居中（DESIGN.v3.md「6.1」）；
+   字体、字号、行距、版心宽在设置 › 文档和白板里改（--doc-*，editor-prefs.ts 套在 <html> 上） */
 .doc {
-  max-width: 792px;
+  max-width: calc(var(--doc-w, 680px) + 112px);
   margin: 0 auto;
   padding: 40px 56px 160px;
 }
 .doc .cm-editor {
   background: transparent;
-  font: 15px/1.75 var(--sans);
+  font-family: var(--doc-font, var(--sans));
+  font-size: var(--doc-size, 15px);
+  line-height: var(--doc-lh, 1.75);
   color: var(--t1);
 }
 .doc .cm-scroller {
-  font-family: var(--sans);
-  line-height: 1.75;
+  font-family: var(--doc-font, var(--sans));
+  line-height: var(--doc-lh, 1.75);
 }
 .doc .cm-editor.cm-focused {
   outline: none;
@@ -570,25 +573,51 @@ button.bi[data-testid='git-changed']:disabled {
   font: 600 28px/1.3 var(--serif-title);
   padding: 0 0 6px;
 }
-/* 标题下的元信息行（DESIGN.v3 6.1）：「所在文件夹 ▾ · 改于今天 10:34 · 1,240 字」，12 --t3（folder-chip.ts）；离标题 6，到正文的 26 由下面那个空行给（block-gaps.ts） */
+/* 标题下的元信息行（DESIGN.v3 6.1）：「所在文件夹 ▾ · 改于今天 10:34 · 1,240 字」，12 --t3（folder-chip.ts）；离标题 6，到正文的 26 由下面那个空行给（block-gaps.ts）。
+   每一项整块不拆，放不下整块换到下一行（行高 18，两行之间不另加空）；「 · 」跟在前一项后面，下一项换了行时藏起来（.end） */
 .doc.doc .cm-meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  min-width: 0;
   padding: 0;
 }
 .doc.doc .cm-meta-rest {
+  display: contents;
+}
+.doc.doc .cm-meta-item {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
   font: 12px/1.5 var(--sans);
   color: var(--t3);
+  white-space: nowrap;
+}
+.doc.doc .cm-meta-item .sep {
   white-space: pre;
 }
-/* 剪藏来的：「· 剪自 <网站图标 14> 域名」，来源只写这一处（链接后面不再露域名，cmdk 方案 A） */
+.doc.doc .cm-meta-item.end .sep {
+  visibility: hidden;
+}
+/* 剪藏来的：「· 剪自 <网站图标 14> 域名」，来源只写这一处（链接后面不再露域名，cmdk 方案 A）；
+   一行都放不下时域名整个省略号，悬停看全（title 是整个网址） */
 .doc.doc .cm-meta-src {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   font: 12px/1.5 var(--sans);
-  color: var(--t2);
+  color: var(--t3);
   white-space: pre;
+}
+/* 「剪自」和别的元信息一样 --t3，域名 --t2（和文件夹名一样深） */
+.doc.doc .cm-meta-host {
+  color: var(--t2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .doc.doc .cm-meta-src .fav {
   flex: none;
@@ -597,10 +626,13 @@ button.bi[data-testid='git-changed']:disabled {
 /* 文件夹小块：这一行行高 18（照小样），悬停的底色用上下 -2 的外边距撑出去；右边也 -6，箭头到「·」和别处的分隔号一样近 */
 .doc.doc .cm-folder {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
   gap: 4px;
+  max-width: calc(100% + 10px);
+  white-space: nowrap;
   height: 22px;
-  margin: -2px -4px -2px -6px;
+  margin: -2px -8px -2px -6px;
   padding: 0 6px;
   border: 0;
   border-radius: 5px;
@@ -608,6 +640,15 @@ button.bi[data-testid='git-changed']:disabled {
   font: 12px/1.5 var(--sans);
   color: var(--t2);
   cursor: default;
+}
+/* 文件夹名很长（一行都放不下）时才省略号，整条路径在悬停提示里 */
+.doc.doc .cm-folder-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.doc.doc .cm-folder > .ci {
+  flex: none;
 }
 .doc.doc .cm-folder:hover {
   background: var(--fill);
@@ -892,6 +933,11 @@ button.bi[data-testid='git-changed']:disabled {
 /* 宽版（「⋯ › 宽版」，CN-26）：版心跟中间栏走，正文最宽 1100 */
 .doc.wide {
   max-width: 1212px;
+}
+
+/* ---------- 白板点阵（设置 › 文档和白板「点阵背景」关了） ---------- */
+[data-board-dots='off'] .board-wrap {
+  background-image: none;
 }
 
 /* ---------- 长文档的目录条（CN-26 A）：中间栏右边贴边一列短横线，悬停 0.2 秒展开目录浮层 ---------- */
@@ -1753,7 +1799,8 @@ button.bi[data-testid='git-changed']:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.ghost {
+/* 拖卡片时跟着指针的影子（以前叫 .ghost，和设置里 ghost 样子的按钮撞名：按钮被挪到视口外、点不到） */
+.board-ghost {
   position: fixed;
   z-index: 100;
   pointer-events: none;
@@ -2101,43 +2148,127 @@ button.bi[data-testid='git-changed']:disabled {
   flex-direction: column;
   gap: 12px;
 }
-/* 空对话（D 组小样 .empty）：靠上靠左；宋体 600 22/1.35 的「想让它做什么？」、一句这里是谁的对话（13 --t2）、下面一列建议 */
-.ai-empty {
-  color: var(--t1);
+/* 空对话打招呼（task-0tgz2，小样 design/ai-empty 方向 A「贴着输入框」）：问候靠底、左对齐，下面紧跟输入框上面那排快捷命令。
+   引擎标志 22 + 8 + 宋体 600 22/1.35 的钟点问候；下面 4，13/1.5 --t2 一句跟着在看的东西走 */
+.msgs.greeting {
+  justify-content: flex-end;
 }
-.ai-empty h2 {
-  margin: 10px 0 6px;
-  font: 600 22px/1.35 var(--serif);
-  color: var(--t1);
-}
-.ai-empty p {
-  margin: 0 0 14px;
-  font-size: 13px;
-  color: var(--t2);
-}
-/* 建议：34 高、圆角 10、1px --line2，图标 14 --t2 + 字；悬停 --fill */
-.ai-empty .sug {
+.ai-greet .hi {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  height: 34px;
-  margin-bottom: 8px;
+}
+.ai-greet .eng-logo {
+  flex: none;
+}
+.ai-greet h2 {
+  margin: 0;
+  font: 600 22px/1.35 var(--serif);
+  color: var(--t1);
+}
+.ai-greet p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--t2);
+}
+/* 快捷命令：一排，左右 12（和输入框外沿对齐），到输入框 8（输入框的上外边距）；放不下的收进「⋯」，不换第二排 */
+.aiq {
+  position: relative;
+  flex: none;
   padding: 0 12px;
+}
+.aiq .qrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+/* 28 高、圆角 8、左 8 右 10，1px --line2 内描边、--card 底；图标 14 --t2 + 6 + 12px --t1；悬停 --fill */
+.aiq .qc {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 8px;
   border: 0;
-  border-radius: 10px;
-  box-shadow: 0 0 0 1px var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  font-size: 12px;
+  color: var(--t1);
+}
+.aiq .qc:hover,
+.aiq .qc.on {
+  background: var(--fill);
+}
+.aiq .qc .ci {
+  flex: none;
+  color: var(--t2);
+}
+/* 收起的照样画着好量宽度，不占位、看不见 */
+.aiq .qc.folded {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+.aiq .qc.more {
+  width: 28px;
+  padding: 0;
+  justify-content: center;
+}
+.aiq .qc[hidden] {
+  display: none;
+}
+/* 「⋯」往上弹：--pop、圆角 12、--shadow-up、内边距 6；行 30 高、圆角 8；先列收起的几条，一道线，最后「全部命令 /」 */
+.aiq .qmenu {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  min-width: 220px;
+  max-width: calc(100% - 24px);
+  margin-left: 12px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  z-index: 20;
+}
+.aiq .qmenu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
   background: none;
   font-size: 13px;
   color: var(--t1);
   text-align: left;
+  white-space: nowrap;
 }
-.ai-empty .sug:hover {
+.aiq .qmenu button:hover {
   background: var(--fill);
 }
-.ai-empty .sug .ci {
+.aiq .qmenu button .ci {
   flex: none;
   color: var(--t2);
+}
+.aiq .qmenu .sep {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--line);
+}
+.aiq .qmenu .k {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
 }
 .um {
   align-self: flex-end;

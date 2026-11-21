@@ -1,6 +1,7 @@
 import { history, redo, undo } from '@codemirror/commands'
+import { isKey } from './keys'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { EditorState, type Extension, Prec, Transaction } from '@codemirror/state'
+import { Compartment, EditorState, type Extension, Prec, Transaction } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { reconcile, textChanges } from '@cn/format'
 import type { OpenedNote } from '../shared/api'
@@ -11,6 +12,7 @@ import { docEditing } from './doc-editing'
 import { noteKeys } from './note-keys'
 import { folderChip, setNotePath } from './folder-chip'
 import { flashRange, insertBlockAt, insertFlash } from './insert-flash'
+import { aiSpot, spotRange } from './ai-spot'
 import { insertPoint } from './insert-point'
 import { livePreview } from './live-preview'
 import { layoutLines } from './layout-lines'
@@ -19,7 +21,9 @@ import { docImageDrop } from './web/doc-image-drop'
 import { videoDocWidgets } from './video/doc-widgets'
 import { askPending } from './video/ask-pending'
 import { materialFold } from './video/material-fold'
+import { summaryRetry } from './video/summary-retry'
 import { provisional, provisionalRange } from './tail-line'
+import { appSettings } from './settings-store'
 
 /**
  * failed：哪都写不进去（原文件、它旁边、库最外层都不让写，像盘满了），字只在内存里（另备了一份在软件设置目录），下次改动再试。
@@ -72,6 +76,18 @@ const ownChange = new Map<string, number>()
 export class NoteDoc {
   /** 所有打开着的笔记：改名前要先都存一遍，别处的 [[旧名]] 才改得到 */
   static readonly open = new Set<NoteDoc>()
+  /** 拼写检查（设置 › 文档和白板）：开着的编辑器都跟着换 */
+  private static spellOn = false
+  private readonly spell = new Compartment()
+  static setSpell(on: boolean) {
+    if (on === NoteDoc.spellOn) return
+    NoteDoc.spellOn = on
+    for (const d of NoteDoc.open) d.view.dispatch({ effects: d.spell.reconfigure(spellAttr(on)) })
+  }
+  /** 字体、字号、行距、版心换了（设置 › 文档和白板）：开着的编辑器重新量一遍行高 */
+  static restyle() {
+    for (const d of NoteDoc.open) d.view.requestMeasure()
+  }
 
   /** 哪都写不进去、字只在内存里的那几篇（底栏不说「都提交了」，退出前要用户确认，不记「存完」） */
   static readonly failing = new Set<NoteDoc>()
@@ -175,7 +191,7 @@ export class NoteDoc {
     this.base = note.text
     NoteDoc.open.add(this)
     /** 文档模式：所见即所得 + 块编辑（把手、/ 菜单、待办、表格、图片） */
-    const docMode: Extension = [livePreview, layoutLines, propsBlock, folderChip(note.path), videoDocWidgets, askPending, materialFold, docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) })]
+    const docMode: Extension = [livePreview, layoutLines, propsBlock, folderChip(note.path), videoDocWidgets, askPending, materialFold, summaryRetry(() => this.path, (t) => this.events.onNotice(t)), docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) }), aiSpot(() => this.path)]
     this.view = new EditorView({
       parent,
       state: EditorState.create({
@@ -203,14 +219,6 @@ export class NoteDoc {
             (t) => this.events.onNotice(t),
           ),
           EditorView.domEventHandlers({
-            // 选了字按 ⌘K：加链接（右键菜单上写着的快捷键；没选字时 ⌘K 照旧是搜索）
-            keydown: (e, view) => {
-              if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'k' || view.state.selection.main.empty || view.state.readOnly) return false
-              e.preventDefault()
-              e.stopPropagation()
-              void addLink(view)
-              return true
-            },
             mousedown: (e, view) => {
               if (!(e.metaKey || e.ctrlKey) || e.button !== 0) return false
               const wiki = (e.target as HTMLElement).closest<HTMLElement>('.cm-wikilink')
@@ -231,17 +239,15 @@ export class NoteDoc {
             },
           }),
           EditorView.lineWrapping,
+          this.spell.of(spellAttr(appSettings().editor.spell)),
           EditorState.readOnly.of(note.readOnly),
           EditorView.editable.of(!note.readOnly),
           keymap.of([
-            {
-              key: 'Mod-s',
-              preventDefault: true,
-              run: () => {
-                void this.save()
-                return true
-              },
-            },
+            // 马上存盘（键照命令表，默认 ⌘S）
+            { any: (_v, e) => isKey(e, 'save-now') && (void this.save(), true) },
+            // 选了字按「加链接」的键（默认 ⌘K，右键菜单上写着）：加链接；没选字时照旧是搜索。
+            // 放在这一层、软件的快捷键（noteKeys 里第一条）前面：先轮到它
+            { any: (v, e) => isKey(e, 'add-link') && !v.state.selection.main.empty && !v.state.readOnly && (void addLink(v), true) },
             ...noteKeys,
           ]),
           EditorView.updateListener.of((u) => {
@@ -295,7 +301,8 @@ export class NoteDoc {
    * 插完光标落在下面新的一个空段落；focus：把焦点交回文档（用户点了按钮的那几处）。
    * 后台插入的传 focus: false：不抢焦点，也不补空段落（光标停在插入的末尾，连着插几条时一条接一条）。
    */
-  insertAtCursor(text: string, opts: { focus?: boolean } = {}): { from: number; to: number } {
+  /** ai：AI 这一轮只写这一段（turn）：这一段左边竖线里光往下走、下面「停下」那一颗（ai-spot.ts），不闪「刚插进来」 */
+  insertAtCursor(text: string, opts: { focus?: boolean; ai?: number } = {}): { from: number; to: number } {
     const state = this.view.state
     const r = insertBlockAt(state.doc.toString(), state.selection.main.head, text, opts.focus !== false)
     this.view.dispatch({
@@ -304,7 +311,8 @@ export class NoteDoc {
       userEvent: 'input.clip',
       scrollIntoView: true,
     })
-    flashRange(this.view, r.range)
+    if (opts.ai !== undefined) spotRange(this.view, r.range, opts.ai)
+    else flashRange(this.view, r.range)
     if (opts.focus !== false) {
       // 右栏网页（<webview>）拿着焦点时先让它放手
       const active = document.activeElement as HTMLElement | null
@@ -470,3 +478,6 @@ export class NoteDoc {
     this.view.destroy()
   }
 }
+
+/** 编辑器的 spellcheck：Chromium 用系统的拼写检查，英文拼错的词下面画红线，中文不查 */
+const spellAttr = (on: boolean) => EditorView.contentAttributes.of({ spellcheck: on ? 'true' : 'false' })

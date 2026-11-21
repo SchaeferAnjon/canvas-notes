@@ -22,6 +22,8 @@ test('AI 回答右键：「拷贝为 Markdown」「插进文档」插到光标�
     await box.press('Enter')
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg.locator('.txt')).toHaveText('这是测试回答（Claude Code）。')
+    // 字全到了还在答（这一轮没收尾）时右键只有系统的「拷贝」：等这条答完（全量跑、机器忙时字和收尾之间隔得开）
+    await expect(msg).not.toHaveAttribute('aria-busy')
 
     await msg.locator('.txt').click({ button: 'right' })
     expect(menuLabels(await openedMenu(run))).toEqual(['拷贝', '拷贝为 Markdown', '插进文档', '存成卡片'])

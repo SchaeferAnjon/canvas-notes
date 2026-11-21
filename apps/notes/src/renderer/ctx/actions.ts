@@ -5,6 +5,7 @@
 import type { CodiconName } from '@cn/design'
 import type { Clip } from '../../shared/api'
 import type { NoteDoc } from '../note-doc'
+import type { PickItem } from '../ai-pick'
 
 export interface AppActions {
   /** 新标签打开库里的文件（已经开着就切过去）：md、PDF、HTML 按类型开 */
@@ -25,6 +26,8 @@ export interface AppActions {
   openWide(url: string, title?: string): void
   /** 这段字成为 AI 输入框顶上那一排的第一块引用（src：来源，不给是当前这一页「《文档标题》」），光标在它后面 */
   askAi(text: string, src?: string): void
+  /** 左栏选了好几个「问AI」（task-0tgz2）：打开 AI，「看得到」写「选中的N个」，每一轮把它们交给 AI */
+  askAiFiles(items: PickItem[]): void
   /** icon：提示前面的小图标（比如 info） */
   notice(text: string, icon?: CodiconName): void
   /** 底栏提示带「撤回」（白板上一次改了两篇：卡拖进另一个标签里的文档） */

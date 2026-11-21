@@ -10,6 +10,7 @@
  * 旁支的问答存在读 PDF 的对话记录里（store.ts），重开软件还在；答完记进笔记，挂在被问那一问的回答后面。
  */
 import { Codicon } from '@cn/design'
+import { isKey, keyFor } from '../keys'
 import { AiIcon } from '../engine-logo'
 import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -99,7 +100,7 @@ export function AskBox(p: {
     const key = (e: KeyboardEvent) => {
       if (e.isComposing) return
       // ⇧⌘L：选着回答里的一段就引用进输入框（小框开着、没开都行）
-      if (e.metaKey && e.shiftKey && e.code === 'KeyL') {
+      if (isKey(e, 'quote')) {
         const s = answerSelection(list)
         if (!s) return
         e.preventDefault()
@@ -167,7 +168,7 @@ export function AskBox(p: {
         <span className="ck">
           <Codicon name="quote" size={14} />
         </span>
-        引用进输入框<span className="r">⇧⌘L</span>
+        引用进输入框{keyFor('quote') && <span className="r">{keyFor('quote')}</span>}
       </button>
       <button className="it" onMouseDown={(e) => e.preventDefault()} onClick={() => ask(q)}>
         <span className="ck">

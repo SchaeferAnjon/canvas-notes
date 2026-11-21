@@ -24,8 +24,8 @@ export interface MeaningHit {
   /** 余弦相似度 */
   score: number
   /**
-   * 够有把握：比这句话和几句空泛的套话（「正文。」这类）像得多（见 indexer SURE）。
-   * 字面没结果时只有它能当 ⌘K 回车的默认；不沾边的照样列出来，但不默认选中
+   * 够有把握，能当 ⌘K 回车的默认。搜索进程只送过了门槛的（见 indexer MEANING），都带它；
+   * 界面上打的像网址时改成 false（只能鼠标点）
    */
   sure?: boolean
 }

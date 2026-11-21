@@ -57,7 +57,7 @@ export function AttachList(props: { a: NoteAttachments; onAll(): void; onReveal(
       <div className="pa-hd">
         <b>附件</b>
         <span className="num">
-          {`${a.items.length}张 · ${sizeText(a.bytes)}`}
+          {`${a.items.length} 张 · ${sizeText(a.bytes)}`}
         </span>
         <span className="sp" />
         <button className="pa-ib" aria-label="在访达里打开附件文件夹" data-tip="在访达里打开附件文件夹" data-side="below" onClick={props.onReveal}>
@@ -81,11 +81,11 @@ export function AttachList(props: { a: NoteAttachments; onAll(): void; onReveal(
       {a.items.length > LIST && (
         <div className="pa-more">
           <button onClick={props.onAll}>
-            {`全部${a.items.length}张`}
+            {`全部 ${a.items.length} 张`}
             <Codicon name="chevron-right" size={12} />
           </button>
           <span>
-            {`还有${a.items.length - LIST}张${unused ? ` · ${unused}张文中没用到` : ''}`}
+            {`还有 ${a.items.length - LIST} 张${unused ? ` · ${unused} 张文中没用到` : ''}`}
           </span>
         </div>
       )}
@@ -116,7 +116,7 @@ export function AttachGrid(props: { a: NoteAttachments; onBack(): void; onReveal
         </button>
         <b>附件</b>
         <span className="num">
-          {`${a.items.length}张 · ${sizeText(a.bytes)}`}
+          {`${a.items.length} 张 · ${sizeText(a.bytes)}`}
         </span>
         <span className="sp" />
         <button className="pa-ib" aria-label="在访达里打开附件文件夹" onClick={props.onReveal}>
@@ -132,7 +132,7 @@ export function AttachGrid(props: { a: NoteAttachments; onBack(): void; onReveal
           [
             ['text', '按文中先后'],
             ['size', '按大小'],
-            ['unused', `文中没用到${unused.length}`],
+            ['unused', `文中没用到 ${unused.length}`],
           ] as const
         ).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={order === k} className={order === k ? 'on' : ''} onClick={() => setOrder(k)}>

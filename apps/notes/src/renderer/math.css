@@ -76,8 +76,9 @@
 .cm-editor .cm-math-delim {
   color: var(--t3);
 }
+/* 单独成行的露写法：和代码块一样等宽 12.5/1.65（app.css 的 .cm-codeblock，2026-11-21 用户点头） */
 .cm-editor .cm-line.cm-math-line {
-  font: 13px/1.75 var(--mono);
+  font: 12.5px/1.65 var(--mono);
   color: var(--md-code, inherit);
   background: var(--fill);
   padding: 0 14px !important;

@@ -514,6 +514,15 @@
   padding-top: 5px;
   border-top: 1px solid var(--line);
 }
+/* 最下面「网页设置…」：到设置 › 网页和视频（方向 A 的 A3），强调色字，右边一个 › */
+.imp .menu.wmore .wm-go button.go,
+.imp .menu.wmore .wm-go button.go .ci {
+  color: var(--acc-t);
+}
+.imp .menu.wmore .wm-go .go-r {
+  margin-left: auto;
+  color: var(--t3) !important;
+}
 /* 不拦这个网站的广告：左边一格打勾，右边网站名 */
 .imp .menu.wmore .ck {
   flex: none;

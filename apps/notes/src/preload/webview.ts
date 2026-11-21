@@ -4,11 +4,13 @@
  * 双语翻译插件开着时，工具条右边多一个「翻译」，点了在选区下面弹译文小卡片；选的是一个词或短语时还有「加进术语表」。
  */
 import { codiconSvg } from '@cn/design/codicon-svg'
+import { isPageKey, onPageKeys, pageKey } from './page-keys'
 import { ipcRenderer } from 'electron'
 import { aiLogoHtml, onAiLogo } from './ai-logo'
 import { installExtPage } from './ext-page'
 import { onPluginState, pluginEnabled } from './plugins/state'
 import { addToGlossary, selectionText, translateSelection } from './plugins/translate'
+import './media-hold'
 import './webview-page'
 import './video'
 import './plugins/weread'
@@ -86,11 +88,14 @@ function render() {
   termButton.hidden = trButton.hidden || !t || t.length > 40 || t.split(/\s+/).length > 6
   button.innerHTML =
     mode.mode === 'doc'
-      ? `${QUOTE}剪进文档<span>· 插到：${escapeHtml(mode.target ?? '文档')} · 光标处</span><kbd>⌘↵</kbd>`
-      : `${CARD}剪成卡片<span>· 到：收件箱</span><kbd>⌘↵</kbd>`
+      ? `${QUOTE}剪进文档<span>· 插到：${escapeHtml(mode.target ?? '文档')} · 光标处</span>${clipKbd()}`
+      : `${CARD}剪成卡片<span>· 到：收件箱</span>${clipKbd()}`
 }
 
-/** 小条上的主动作：剪进文档 / 剪成卡片（点按钮和 ⌘↵ 都走这里） */
+/** 小条上写着的键（命令表「剪下选中的一段」，默认 ⌘↵；清掉了就不写） */
+const clipKbd = () => (pageKey('clip-selection') ? `<kbd>${escapeHtml(pageKey('clip-selection')!)}</kbd>` : '')
+
+/** 小条上的主动作：剪进文档 / 剪成卡片（点按钮和它的键都走这里） */
 function clip() {
   if (!pending) return
   ipcRenderer.sendToHost('cn:clip', { text: pending.text, url: location.href, title: document.title })
@@ -154,7 +159,7 @@ else {
   window.addEventListener(
     'keydown',
     (e) => {
-      if (e.key !== 'Enter' || !e.metaKey || e.altKey || e.ctrlKey || e.shiftKey || e.isComposing) return
+      if (!isPageKey(e, 'clip-selection')) return
       if (typingInPage()) return
       // 选区变了小条还没跟上（120ms 防抖）：先按现在的选区算一次
       if (!pending) update()
@@ -166,5 +171,6 @@ else {
     true,
   )
   onPluginState(() => render())
+  onPageKeys(() => render())
   onAiLogo(() => render())
 }

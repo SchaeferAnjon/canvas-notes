@@ -1,4 +1,6 @@
 // 假的 ACP 程序（像 gemini --acp / opencode acp）：测引擎接法用，不联网
+// FAKE_ACP_MODELS=config：session/new 回 configOptions（模型、effort，像 OpenCode），session/set_config_option 换；
+// FAKE_ACP_MODELS=models：回 models（像 Gemini），session/set_model 换。回答末尾写这个会话现在的模型和 effort
 import { createInterface } from 'node:readline'
 
 let id = 1000
@@ -18,15 +20,50 @@ const options = [
 ]
 let mcp = []
 let sessions = 0
+const MODELS = process.env.FAKE_ACP_MODELS
+/** 每个会话现在的模型、effort */
+const current = new Map()
+const MODEL_LIST = [
+  { value: 'zai/glm-5', name: 'Z.AI/GLM-5', efforts: ['low', 'high'] },
+  { value: 'opencode/big-pickle', name: 'OpenCode Zen/Big Pickle', efforts: [] },
+]
+const configOptions = (sid) => {
+  const c = current.get(sid)
+  const model = MODEL_LIST.find((m) => m.value === c.model)
+  return [
+    { id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: c.model, options: MODEL_LIST.map((m) => ({ value: m.value, name: m.name })) },
+    ...(model?.efforts.length ? [{ id: 'effort', name: 'Effort', category: 'thought_level', type: 'select', currentValue: c.effort ?? model.efforts[0], options: model.efforts.map((e) => ({ value: e, name: e })) }] : []),
+  ]
+}
 
 createInterface({ input: process.stdin }).on('line', async (line) => {
   const m = JSON.parse(line)
   if (m.id !== undefined && !m.method) return waiting.get(m.id)?.(m.result)
-  if (m.method === 'initialize') return send({ id: m.id, result: { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true } } } })
+  if (m.method === 'initialize') return send({ id: m.id, result: { protocolVersion: Number(process.env.FAKE_ACP_PROTOCOL ?? 1), agentCapabilities: { mcpCapabilities: { http: process.env.FAKE_ACP_NO_HTTP ? false : true }, promptCapabilities: { image: true } } } })
   if (m.method === 'session/new') {
     mcp = m.params.mcpServers
     if (process.env.FAKE_ACP_NO_LOGIN) return send({ id: m.id, error: { code: -32000, message: 'Gemini API key is missing or not configured.' } })
-    return send({ id: m.id, result: { sessionId: `s${++sessions}` } })
+    const sessionId = `s${++sessions}`
+    current.set(sessionId, { model: MODELS === 'models' ? 'auto' : 'zai/glm-5' })
+    if (MODELS === 'config') return send({ id: m.id, result: { sessionId, configOptions: configOptions(sessionId) } })
+    if (MODELS === 'models')
+      return send({ id: m.id, result: { sessionId, models: { currentModelId: 'auto', availableModels: [{ modelId: 'auto', name: 'Auto' }, { modelId: 'gemini-3-pro-preview', name: 'Gemini 3 Pro' }, { modelId: 'gemini-3-flash-preview', name: 'Gemini 3 Flash' }] } } })
+    return send({ id: m.id, result: { sessionId } })
+  }
+  if (m.method === 'session/set_config_option') {
+    const c = current.get(m.params.sessionId)
+    if (m.params.configId === 'model') {
+      if (!MODEL_LIST.some((x) => x.value === m.params.value)) return send({ id: m.id, error: { code: -32602, message: `Invalid params: model not found: ${m.params.value}` } })
+      current.set(m.params.sessionId, { model: m.params.value })
+    } else if (m.params.configId === 'effort') {
+      if (!configOptions(m.params.sessionId).some((o) => o.id === 'effort' && o.options.some((x) => x.value === m.params.value))) return send({ id: m.id, error: { code: -32602, message: `Invalid params: effort not found: ${m.params.value}` } })
+      current.set(m.params.sessionId, { ...c, effort: m.params.value })
+    }
+    return send({ id: m.id, result: { configOptions: configOptions(m.params.sessionId) } })
+  }
+  if (m.method === 'session/set_model') {
+    current.set(m.params.sessionId, { model: m.params.modelId })
+    return send({ id: m.id, result: {} })
   }
   if (m.method === 'session/prompt') {
     const sid = m.params.sessionId
@@ -51,6 +88,8 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     const imgs = m.params.prompt.filter((b) => b.type === 'image')
     if (imgs.length) chunk(sid, `；图 ${imgs.map((b) => `${b.mimeType}:${b.data}`).join(',')}`)
     if (process.env.FAKE_ACP_ECHO) chunk(sid, `；话 ${prompt.replace(/\n/g, '/')}`)
+    // 现在那一档：和 configOptions 里报的一样（换了模型没选档时是这个模型的第一档；这个模型没有档就没给）
+    if (MODELS) chunk(sid, `；模型 ${current.get(sid).model}；effort ${MODELS === 'config' ? (configOptions(sid).find((o) => o.id === 'effort')?.currentValue ?? '没给') : '没给'}`)
     return send({ id: m.id, result: { stopReason: 'end_turn' } })
   }
 })

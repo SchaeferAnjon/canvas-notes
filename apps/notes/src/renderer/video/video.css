@@ -51,6 +51,16 @@
 .vsub.on .vdot {
   background: var(--acc);
 }
+/* 这一轮翻完还有句子没翻成：圆点换成红色，字写「字幕 · N句没翻成」（原因和「再试一次」在字幕菜单里） */
+.vsub.warn .vdot {
+  background: var(--red);
+}
+.vtr-err {
+  margin: 4px 0 12px;
+}
+.vtr-err .acts {
+  margin-top: 6px;
+}
 .vbar .btn {
   flex: none;
   gap: 6px;
@@ -1009,6 +1019,37 @@
 .cm-vfold:hover {
   background: var(--fill);
   color: var(--t1);
+}
+
+/* 字幕全文里「AI 摘要没写成：原因」那一行：行首红色 error 图标，行末「再试一次」（和 AI 出错那一行、时刻块的「接着问」一个样子） */
+.cm-verr {
+  display: inline-flex;
+  margin-right: 6px;
+  color: var(--red);
+  vertical-align: -1px;
+}
+.cm-vretry {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  margin-left: 8px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--t2);
+  font: 500 12px/1 var(--sans);
+  vertical-align: 1px;
+  cursor: pointer;
+}
+.cm-vretry:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.cm-vretry:disabled {
+  color: var(--t3);
+  cursor: default;
 }
 
 /* 设置 › 快捷键里「看视频」那一组：和上面的快捷键列表一个样子 */

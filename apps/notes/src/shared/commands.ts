@@ -7,7 +7,8 @@
  * 照同一个样子存：id、name、kind、target，再加它自己要的字段。这一版不认识的字段原样写回，以后的版本存的东西不会被这一版抹掉。
  * 纯函数，主进程和界面都用；不依赖 Electron。
  */
-import { isCombo, keyProblem } from './cmd-keys'
+import { isCombo } from './cmd-keys'
+import { canShare, keyProblemFor } from './cmd-table'
 
 export const COMMANDS_FILE = '.canvas-notes/命令.json'
 export const COMMANDS_VERSION = 1
@@ -90,7 +91,17 @@ export interface CmdConfig {
 export interface Avail {
   id: string
   home?: string
+  /** 默认的键（写在提示上的那个） */
   keys?: string
+  /** 另外几个默认的键（搜索还有 ⌘F，放大还有 ⌘+） */
+  also?: readonly string[]
+}
+
+/** 界面交给主进程的键（renderer/keys.ts 的 syncKeys） */
+export interface KeysForMain {
+  forward: string[]
+  menu: Record<string, string | null>
+  page: Record<string, string | null>
 }
 
 /** preload 暴露成 window.cnCmds（实现在 main/commands.ts） */
@@ -98,8 +109,11 @@ export interface CnCmdsApi {
   get(): Promise<CmdConfig>
   /** 交文件里的样子（commandsJson 出来的那份），回读进来的样子 */
   set(json: Record<string, unknown>): Promise<CmdConfig>
-  /** forward：网页、视频有焦点时要转给界面的组合键；menu：菜单栏上拍一张导图、设置… 显示的键（null 是没有键） */
-  keys(k: { forward: string[]; menu: { capture: string | null; settings: string | null } }): Promise<void>
+  /**
+   * forward：网页、视频有焦点时要转给界面的组合键；menu：菜单栏上每一项显示的键（命令的 id → 键，null 是没有键）；
+   * page：网页里自己的脚本认的键（双语翻译、剪下选中的一段）
+   */
+  keys(k: KeysForMain): Promise<void>
 }
 
 /** 网页「⋯」里一直在的（从菜单回到调整得先有入口） */
@@ -139,7 +153,7 @@ export function normalizeCommands(raw: unknown): CmdConfig {
   const alias: Record<string, string> = {}
   for (const [k, v] of Object.entries(record(o.alias))) if (isCmdId(k) && typeof v === 'string' && v.trim() && v.trim().length <= 20) alias[k] = v.trim()
   const keys: Record<string, string> = {}
-  for (const [k, v] of Object.entries(record(o.keys))) if (isCmdId(k) && (v === '' || (isCombo(v) && !keyProblem(v)))) keys[k] = v as string
+  for (const [k, v] of Object.entries(record(o.keys))) if (isCmdId(k) && (v === '' || (isCombo(v) && !keyProblemFor(k, v)))) keys[k] = v as string
   const homes: Record<string, string> = {}
   for (const [k, v] of Object.entries(record(o.homes))) if (isCmdId(k) && typeof v === 'string' && (isBuiltinGroup(v) || isOwnGroup(v))) homes[k] = v
   const ownIds = new Set<string>()
@@ -266,24 +280,62 @@ export function effectiveKey(c: CmdConfig, id: string, def: string | undefined):
   return def ?? null
 }
 
-/** 给 id 设 combo（null 是清掉）：别的命令现在用着它的，换给这一条（默认的记成空串，自己设的直接拿掉） */
+/** 默认的几个键 */
+const defaultsOf = (avail: readonly Avail[], id: string): string[] => {
+  const a = avail.find((x) => x.id === id)
+  return a ? [...(a.keys ? [a.keys] : []), ...(a.also ?? [])] : []
+}
+
+/** 一条命令现在的几个键：设过的就是那一个（空串是没有），没设过是默认的几个 */
+export function effectiveKeys(c: CmdConfig, avail: readonly Avail[], id: string): string[] {
+  const k = c.keys[id]
+  if (k !== undefined) return k ? [k] : []
+  return defaultsOf(avail, id)
+}
+
+/**
+ * 给 id 设 combo（null 是清掉）：同一处能按、用着这个键的别的命令把它让出来（有别的默认键的留着别的，没有就记成没键）。
+ * 不会同时能按的（编辑器里和 ⌘K 里）、有意同键的（加链接和搜索）不用让
+ */
 export function setKey(c: CmdConfig, avail: readonly Avail[], id: string, combo: string | null): CmdConfig {
-  const defOf = (x: string) => avail.find((a) => a.id === x)?.keys
   const keys = { ...c.keys }
   if (combo) {
     const ids = new Set([...avail.map((a) => a.id), ...Object.keys(keys)])
     for (const other of ids) {
-      if (other === id || effectiveKey(c, other, defOf(other)) !== combo) continue
-      if (defOf(other) === combo) keys[other] = ''
+      if (other === id || canShare(id, other)) continue
+      const eff = effectiveKeys(c, avail, other)
+      if (!eff.includes(combo)) continue
+      const rest = eff.filter((k) => k !== combo)
+      if (rest.length) keys[other] = rest[0]!
+      else if (defaultsOf(avail, other).length) keys[other] = ''
       else delete keys[other]
     }
   }
-  const def = defOf(id)
-  if ((combo ?? undefined) === def) delete keys[id]
+  const defs = defaultsOf(avail, id)
+  if (combo !== null && defs.length === 1 && defs[0] === combo) delete keys[id]
   else keys[id] = combo ?? ''
   // 默认就没有键、又清掉了：不用记
-  if (keys[id] === '' && !def) delete keys[id]
+  if (keys[id] === '' && !defs.length) delete keys[id]
   return { ...c, keys }
+}
+
+/** 回到默认：拿掉设过的；默认的键现在给了别人的，别人让出来 */
+export function resetKey(c: CmdConfig, avail: readonly Avail[], id: string): CmdConfig {
+  let next: CmdConfig = { ...c, keys: Object.fromEntries(Object.entries(c.keys).filter(([k]) => k !== id)) }
+  for (const k of defaultsOf(avail, id)) {
+    const owner = [...new Set([...avail.map((a) => a.id), ...Object.keys(next.keys)])].find((o) => o !== id && !canShare(id, o) && effectiveKeys(next, avail, o).includes(k))
+    if (owner) next = setKey(next, avail, owner, effectiveKeys(next, avail, owner).filter((x) => x !== k)[0] ?? null)
+  }
+  return next
+}
+
+/** 两个对调（撞了别的，两个对调）：id 拿 combo，原来用着 combo 的那条拿 id 原来的键（原来没键就也没键） */
+export function swapKey(c: CmdConfig, avail: readonly Avail[], id: string, combo: string): CmdConfig {
+  const mine = effectiveKeys(c, avail, id)[0] ?? null
+  const ids = new Set([...avail.map((a) => a.id), ...Object.keys(c.keys)])
+  const other = [...ids].find((o) => o !== id && !canShare(id, o) && effectiveKeys(c, avail, o).includes(combo))
+  const next = setKey(c, avail, id, combo)
+  return other && mine ? setKey(next, avail, other, mine) : next
 }
 
 // ---------------------------------------------------------------- 自己加的命令

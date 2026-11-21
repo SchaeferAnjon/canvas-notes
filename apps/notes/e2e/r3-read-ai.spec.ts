@@ -83,7 +83,7 @@ test('⌘K 各种打法没选网页时 0 个对外请求：10ms 内回车、40ms
     await shotWindow(run, 'r3-palette-urlname')
     await page.keyboard.press('Escape')
 
-    // 索引建好以后：字面没结果、「意思相近」列出不沾边的笔记，但一条都不默认选中；回车不做事，写清楚要上网按 ⌘↵
+    // 索引建好以后：字面没结果、意思也不沾边（第 4 轮收紧门槛后「意思相近」一条不出）；回车不做事，写清楚要上网按 ⌘↵
     await expect.poll(() => page.evaluate(() => (window as unknown as { cnSearch: { status(): Promise<{ phase: string }> } }).cnSearch.status().then((s) => s.phase)), { timeout: 90_000 }).toBe('ready')
     for (const word of ['特斯拉股价', '没有这个qq', '老布什abc'])
       await run1({ label: `索引建好后「${word}」等 1.2 秒回车`, word, keys: [], wait: 1200, tab: null })
@@ -92,8 +92,8 @@ test('⌘K 各种打法没选网页时 0 个对外请求：10ms 内回车、40ms
     await page.waitForTimeout(1000)
     await expect(pal(page).locator('.pal-none')).toHaveText('笔记和PDF里都没有「特斯拉股价」这几个字')
     await expect(pal(page).locator('.pal-none-why')).toHaveText('回车没有可打开的，⌘↵ 去网页搜')
-    // 不沾边的照样列在「意思相近」下面（要开可以自己挪过去），只是不默认选中
-    await expect(pal(page).locator('.pal-g', { hasText: '意思相近' })).toBeVisible()
+    // 不沾边的不列在「意思相近」下面（task-j0249：宁可少出也不出不沾边的）
+    await expect(pal(page).locator('.pal-g', { hasText: '意思相近' })).toHaveCount(0)
     await expect(pal(page).locator('.pal-row.on')).toHaveCount(0)
     await shotWindow(run, 'r3-palette-meaning-gate')
     await page.keyboard.press('Escape')

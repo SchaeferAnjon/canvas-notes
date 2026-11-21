@@ -141,7 +141,10 @@ for (const L of LOOKS) {
         }
       }
       // 下面「没提交的改动」那几行照旧：右边「新」「改」整个在，名字长了缩名字
-      const others = await pop.locator('.mi:not(.unsaved) .r').evaluateAll((els) =>
+      // B 的同步入口就在这个弹层里，最下面一项是「同步设置…」（2026-11-21 设置方向 A「从用的地方跳过来」，task-f7rib），不算改动；A 的在底栏「同步」小菜单里
+      if (L.frame === 'b') await expect(pop.locator('.mi').last()).toHaveText('同步设置…')
+      await expect(pop.locator('.mi.go')).toHaveCount(L.frame === 'b' ? 1 : 0)
+      const others = await pop.locator('.mi:not(.unsaved):not(.go) .r').evaluateAll((els) =>
         els.map((e) => {
           const rg = document.createRange()
           rg.selectNodeContents(e)

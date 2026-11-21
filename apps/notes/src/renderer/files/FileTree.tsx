@@ -1,5 +1,7 @@
 import { composing } from '../ime'
+import { accelFor, isKey, useKeyHandler, useKeys } from '../keys'
 import { Codicon } from '@cn/design'
+import { openSettingsAt } from '../settings/jump'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { type AttachItem, sizeText } from '../../shared/attach'
 import { type AttachIndex, buildTree, type FileEntry, fileName, folderOfPath, folderProgress, isTreeSort, previewFiles, subtree, topGroups, TREE_SORTS, type TreeNode, type TreeSort } from '../../shared/files'
@@ -11,6 +13,7 @@ import { folderMenu, onFileMenu } from '../ctx/file-menu'
 import { copy, menuAt } from '../ctx/menu'
 import { moveMenu } from '../ctx/move-menu'
 import { app } from '../ctx/actions'
+import { AiIcon } from '../engine-logo'
 import { FolderRename, RenameInput } from '../note-menu'
 import { HeadBtn, MenuItem, Popover, ViewHead } from '../shell/Shell'
 import { FolderGlyph, LookPicker } from './look'
@@ -129,6 +132,8 @@ export function FileTree(props: {
   digests: ReadonlySet<string>
   pins: string[]
 }) {
+  /** 写在界面上的键照命令表（改了跟着变） */
+  const K = useKeys()
   const { files, loaded } = useVaultFiles()
   const [open, setOpen] = useState(loadOpen)
   const [rootOpen, setRootOpen] = useState(() => {
@@ -373,6 +378,8 @@ export function FileTree(props: {
   const inRoot = (p: string) => !props.root || p === props.root || p.startsWith(props.root + '/')
   const around = activePath && inRoot(activePath) ? (isDir(activePath) ? activePath : folderOfPath(activePath)) : null
   const target = picked ?? around ?? props.root ?? ''
+  // ⌘K「新建文件夹」、它的快捷键：在点过的文件夹里（没点过放最外层）原地新建
+  useKeyHandler('new-folder', () => (startFolder(target), true))
   const startFolder = (parent: string) => {
     if (parent) setOpen((o) => new Set([...o, parent, ...ancestors(parent)]))
     else setRootOpen(true)
@@ -441,6 +448,8 @@ export function FileTree(props: {
     if (sel.size) setSel(new Set())
   }
   const selList = () => order.filter((p) => sel.has(p))
+  /** 选中的这几个交给 AI：右栏 AI 打开，「看得到」写「选中的N个」 */
+  const askSel = () => app().askAiFiles(selList().map((p) => ({ path: p, dir: isDir(p) })))
   /** 选中的这一组的右键菜单：一次只能对一个的灰掉 */
   const groupMenu = (e: React.MouseEvent) => {
     const paths = selList()
@@ -448,6 +457,8 @@ export function FileTree(props: {
     const targets = moveMenu(app().allFolders(), null, (f) => void app().moveMany(paths, f).then(() => setSel(new Set())), (f) => [...dirs].some((d) => f === d || f.startsWith(d + '/')))
     void menuAt(e, [
       { label: '打开', enabled: false, run: () => undefined },
+      // 交给 AI（task-0tgz2，偏好「多选文件能交给 AI」）：和底部那一条的「问AI」一样
+      { label: '问 AI', ai: 'chat', run: () => askSel() },
       '-',
       { label: '重命名…', enabled: false, run: () => undefined },
       targets.length > 0 && { label: '移到', submenu: targets },
@@ -455,7 +466,7 @@ export function FileTree(props: {
       '-',
       { label: '拷贝路径', run: () => copy(paths.map((p) => app().absPath(p)).join('\n')) },
       '-',
-      { label: `移到废纸篓（${paths.length}个）`, accel: 'CommandOrControl+Backspace', run: () => void app().trashMany(paths).then(() => setSel(new Set())) },
+      { label: `移到废纸篓（${paths.length}个）`, accel: accelFor('tree-trash'), run: () => void app().trashMany(paths).then(() => setSel(new Set())) },
     ])
   }
   /** ⌘⌫：删选中的（没选好几个时删现在这一行），和右键「移到废纸篓」同一个确认 */
@@ -467,7 +478,7 @@ export function FileTree(props: {
   }
   const onTreeKey = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape' && sel.size) return (e.preventDefault(), clearSel())
-    if (e.metaKey && e.key === 'Backspace') {
+    if (isKey(e, 'tree-trash')) {
       e.preventDefault()
       const row = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-sel]')
       return trashSel(row?.dataset.sel ?? null)
@@ -632,7 +643,7 @@ export function FileTree(props: {
             onClick={(e) => pick(e, n.path) || openFolder(n.path)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') openFolder(n.path)
-              if (e.key === 'F2') setRenaming(n.path)
+              if (isKey(e, 'rename')) setRenaming(n.path)
             }}
             onContextMenu={(e) => {
               if (many && sel.has(n.path)) return groupMenu(e)
@@ -729,7 +740,7 @@ export function FileTree(props: {
           onClick={(e) => pick(e, realPath) || (setPicked(null), note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath))}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath))
-            if (e.key === 'F2' && /\.md$/i.test(realPath)) setRenaming(realPath)
+            if (isKey(e, 'rename') && /\.md$/i.test(realPath)) setRenaming(realPath)
           }}
           onContextMenu={(e) => (many && sel.has(realPath) ? groupMenu(e) : onFileMenu(e, realPath, { rename: () => setRenaming(realPath), ...(note ? { note: note.path } : {}) }))}
         >
@@ -880,7 +891,7 @@ export function FileTree(props: {
   return (
     <>
       <ViewHead title={props.title}>
-        <HeadBtn icon="new-file" label="新建笔记" keys="⌘N" onClick={props.onNewNote} />
+        <HeadBtn icon="new-file" label="新建笔记" keys={K('new-note') ?? undefined} onClick={props.onNewNote} />
         <HeadBtn icon="new-folder" label="新建文件夹" keys={target ? `放进「${fileName(target)}」` : `放在「${props.vaultName}」最外层`} onClick={() => startFolder(target)} />
         <HeadBtn icon="layout" label="新建白板" onClick={props.onNewBoard} />
         <HeadBtn icon="target" label="定位当前文件" onClick={reveal} />
@@ -903,6 +914,9 @@ export function FileTree(props: {
           <MenuItem icon={view.counts ? 'check' : undefined} label="显示篇数" onClick={() => setV({ counts: !view.counts })} />
           <div className="ms" />
           <MenuItem icon={view.autoReveal ? 'check' : undefined} label="自动定位当前文件" onClick={() => setV({ autoReveal: !view.autoReveal })} />
+          {/* 从用的地方跳到设置（方向 A 的 A3）：文件树头上的菜单最下面一项到设置 › 文件和附件 */}
+          <div className="ms" />
+          <MenuItem icon="settings-gear" className="go" label="新笔记放哪、附件、删除…" right={<Codicon name="chevron-right" size={12} />} onClick={() => (setSortMenu(null), openSettingsAt('newWhere'))} />
         </Popover>
       )}
       {look && <LookPicker folder={look.folder} anchor={look.el} onClose={() => setLook(null)} />}
@@ -941,8 +955,17 @@ export function FileTree(props: {
         <div className="ft-selbar" role="toolbar" aria-label="选中的">
           <Codicon name="check" size={14} />
           <b className="num">{`已选${selN}个`}</b>
+          {/* 「问AI」（task-0tgz2）：前面是 AI 对话那一家的标志（偏好「AI 图标用引擎标志」） */}
+          <button className="act" onClick={askSel}>
+            <AiIcon job="chat" size={14} />
+            问AI
+          </button>
+          {/* 左栏窄（默认 240）放不下三颗带字的：「移到…」「删除」只留图标（名字在 aria-label 和悬停提示里），file-tree.css 的容器查询 */}
           <button
             className="act"
+            aria-label="移到…"
+            data-tip="移到…"
+            data-side="above"
             onClick={(e) => {
               const paths = selList()
               const dirs = paths.filter((p) => isDir(p))
@@ -950,11 +973,11 @@ export function FileTree(props: {
             }}
           >
             <Codicon name="folder-opened" size={14} />
-            移到…
+            <span className="lb">移到…</span>
           </button>
-          <button className="act" onClick={() => trashSel(null)}>
+          <button className="act" aria-label="删除" data-tip="删除" data-side="above" onClick={() => trashSel(null)}>
             <Codicon name="trash" size={14} />
-            删除
+            <span className="lb">删除</span>
           </button>
         </div>
       )}

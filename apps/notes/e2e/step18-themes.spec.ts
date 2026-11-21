@@ -44,6 +44,8 @@ test('导入 VS Code 主题：选 .json → 主题卡里多一组「导入的」
     await page.keyboard.press('Meta+,')
     const dlg = settingsDialog(page)
     await expect(dlg).toBeVisible()
+    // 设置方向 A：⌘, 打开上次那页（第一次是「一般」），主题在「外观」
+    await dlg.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '外观', exact: true }).click()
     await dlg.getByRole('button', { name: '导入VS Code主题…' }).click()
     await expect(page.getByText('导入了「Monokai」，已经用上')).toBeVisible()
     await expect(dlg.getByText('导入的VS Code主题')).toBeVisible()

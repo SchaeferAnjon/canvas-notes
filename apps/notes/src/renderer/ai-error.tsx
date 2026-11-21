@@ -1,6 +1,7 @@
 import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import { aiErrorView } from '../shared/ai-errors'
+import { openEnginePick } from './ai-picker'
 
 /** 去设置 › AI（App 听这个事件开设置；各处不用一层层传回调） */
 export const openAiSettings = () => window.dispatchEvent(new CustomEvent('cn:open-settings', { detail: 'ai' }))
@@ -54,6 +55,12 @@ export function AiError(props: {
             <button className="btn btn-xs" onClick={props.onRephrase}>
               <Codicon name="edit" size={12} />
               换个问法
+            </button>
+          )}
+          {acts.includes('switch') && (
+            <button className="btn btn-xs" onClick={openEnginePick}>
+              <Codicon name="arrow-swap" size={12} />
+              换一家
             </button>
           )}
           {acts.includes('settings') && (

@@ -40,9 +40,12 @@ export interface EngineRun {
    * Gemini、OpenCode 没有分叉：开新会话、history（调用方给的那一轮问答原文）放在第一问前面。分叉不了（会话没了）也是这样
    */
   fork?: boolean
-  /** 换模型：Claude Code 的 --model（翻译这类要快的活用便宜的）、Codex 的 turn/start model（CN-91）；Gemini、OpenCode 不认 */
+  /**
+   * 换模型：Claude Code 的 --model（翻译这类要快的活用便宜的）、Codex 的 turn/start model（CN-91）；
+   * OpenCode 的 session/set_config_option、Gemini 的 session/set_model（task-m55m7，开会话以后、问之前换）
+   */
   model?: string
-  /** 想多久（CN-91）：Claude Code 的 --effort、Codex 的 turn/start effort；不给用命令行自己的默认档；Gemini、OpenCode 没有 */
+  /** 想多久（CN-91）：Claude Code 的 --effort、Codex 的 turn/start effort、OpenCode 的 thought_level 那一项；不给用命令行自己的默认档；Gemini 没有 */
   effort?: string
   /** 会话接不上（软件重开过）时补在前面的最近几轮对话 */
   history?: string
@@ -135,7 +138,7 @@ const CLAUDE_OMNI_DENIED = ['AskUserQuestion']
 const CLAUDE_QUIET = new Set(['ToolSearch'])
 
 /**
- * claude -p 的参数（以 claude --help 为准，2.1.323 核过）。mcpConfig：写着我们 MCP 服务和令牌的 json 文件，只在给工具时有。
+ * claude -p 的参数（以 claude --help 为准，2.1.323 核过；2.1.330 照 --help 和空输入试参数再核过一遍，task-m55m7）。mcpConfig：写着我们 MCP 服务和令牌的 json 文件，只在给工具时有。
  *
  * 全能模式（给了 mcp 且 omni）：--permission-mode bypassPermissions（不停下来问，和 --dangerously-skip-permissions 一样），自带工具全给，
  * 只拿掉问人的 AskUserQuestion；不限轮数（和终端里一样，用户随时能停）；系统提示附在 Claude Code 自己的后面（它自己那份教它用好
@@ -626,12 +629,89 @@ export function acpStep(u: { toolCallId?: string; title?: string; kind?: string;
   }
 }
 
+/**
+ * 一个 ACP 会话怎么换模型、effort（task-m55m7）：会话开的时候 session/new 回的。
+ * 新写法 configOptions（ACP 的 Session Config Options，agentclientprotocol.com/protocol/v1/session-config-options；OpenCode）：
+ * 类别 model、thought_level 的那两项，用 session/set_config_option 换；旧写法 models（Gemini CLI 还在用）用 session/set_model 换。
+ * 都没有的换不了。first 是开的时候的（选回「默认模型」时换回它），now 是现在的
+ */
+interface AcpModelState {
+  via: 'config' | 'models' | null
+  modelOpt?: string
+  effortOpt?: string
+  efforts: string[]
+  first: { model?: string; effort?: string }
+  now: { model?: string; effort?: string }
+}
+
+type ConfigOption = { id?: unknown; category?: unknown; currentValue?: unknown; options?: unknown }
+
+/** session/new、set_config_option 回的 configOptions 读成模型、effort 那两项 */
+function readConfig(list: unknown): { modelOpt?: string; model?: string; effortOpt?: string; effort?: string; efforts: string[] } {
+  const opts = Array.isArray(list) ? (list as ConfigOption[]) : []
+  const m = opts.find((x) => x?.category === 'model')
+  const e = opts.find((x) => x?.category === 'thought_level')
+  const values = (x: ConfigOption | undefined) => (Array.isArray(x?.options) ? (x.options as { value?: unknown }[]).flatMap((v) => (typeof v?.value === 'string' ? [v.value] : [])) : [])
+  return {
+    ...(typeof m?.id === 'string' ? { modelOpt: m.id } : {}),
+    ...(typeof m?.currentValue === 'string' ? { model: m.currentValue } : {}),
+    ...(typeof e?.id === 'string' ? { effortOpt: e.id } : {}),
+    ...(typeof e?.currentValue === 'string' ? { effort: e.currentValue } : {}),
+    efforts: values(e),
+  }
+}
+
+export function acpModelState(r: { configOptions?: unknown; models?: unknown }): AcpModelState {
+  if (Array.isArray(r.configOptions)) {
+    const c = readConfig(r.configOptions)
+    const at = { ...(c.model ? { model: c.model } : {}), ...(c.effort ? { effort: c.effort } : {}) }
+    return { via: c.modelOpt ? 'config' : null, ...(c.modelOpt ? { modelOpt: c.modelOpt } : {}), ...(c.effortOpt ? { effortOpt: c.effortOpt } : {}), efforts: c.efforts, first: at, now: { ...at } }
+  }
+  const cur = (r.models as { currentModelId?: unknown } | undefined)?.currentModelId
+  const at = typeof cur === 'string' ? { model: cur } : {}
+  return { via: r.models ? 'models' : null, efforts: [], first: at, now: { ...at } }
+}
+
 export function acpEngine(o: AcpOptions): Engine {
   let proc: RpcProcess | null = null
   let ready: Promise<RpcProcess> | null = null
   /** 现在这个进程是哪种模式起的 */
   let procOmni = false
   const live = new Set<string>()
+  /** 每个会话的模型、effort 现在是什么、怎么换 */
+  const modelStates = new Map<string, AcpModelState>()
+
+  /** 这一问要的模型、effort 和会话现在的不一样就换（没选的换回开会话时的）；换不了的说清楚 */
+  async function applyModel(p: RpcProcess, sessionId: string, r: EngineRun) {
+    const st = modelStates.get(sessionId)
+    if (!st?.via) return
+    const want = r.model || st.first.model
+    if (want && want !== st.now.model) {
+      try {
+        if (st.via === 'config') {
+          const res = await p.request<{ configOptions?: unknown }>('session/set_config_option', { sessionId, configId: st.modelOpt, value: want })
+          const c = readConfig(res?.configOptions)
+          st.effortOpt = c.effortOpt
+          st.efforts = c.efforts
+          st.now = { model: c.model ?? want, ...(c.effort ? { effort: c.effort } : {}) }
+          // 换了模型，它这个模型开的时候的那一档就是「默认档」
+          st.first = { ...st.first, ...(c.effort ? { effort: c.effort } : {}) }
+        } else {
+          await p.request('session/set_model', { sessionId, modelId: want })
+          st.now = { model: want }
+        }
+      } catch (e) {
+        throw new Error(`${LABELS[o.id]} 换不成模型 ${want}：${(e as Error).message}`)
+      }
+    }
+    if (st.via !== 'config' || !st.effortOpt) return
+    const effort = r.effort && st.efforts.includes(r.effort) ? r.effort : st.first.effort
+    if (!effort || effort === st.now.effort) return
+    await p.request('session/set_config_option', { sessionId, configId: st.effortOpt, value: effort }).catch((e) => {
+      throw new Error(`${LABELS[o.id]} 换不成这一档 ${effort}：${(e as Error).message}`)
+    })
+    st.now = { ...st.now, effort }
+  }
   /** 每个会话现在这一轮把字交给谁 */
   const sinks = new Map<string, (delta: string) => void>()
   /** 每个会话现在这一轮的步骤交给谁 */
@@ -644,6 +724,7 @@ export function acpEngine(o: AcpOptions): Engine {
     proc?.close()
     proc = null
     live.clear()
+    modelStates.clear()
     procOmni = omni
     ready = (async () => {
       const p = new RpcProcess(o.command ?? need(o.id), o.args(cwd, omni), { cwd, env: cliEnv(o.env?.(omni) ?? {}) })
@@ -691,13 +772,19 @@ export function acpEngine(o: AcpOptions): Engine {
       if (!sessionId) {
         const mcpServers = r.mcp ? [{ type: 'http', name: MCP_NAME, url: r.mcp.url, headers: [{ name: 'Authorization', value: `Bearer ${r.mcp.token}` }] }] : []
         try {
-          sessionId = (await p.request<{ sessionId: string }>('session/new', { cwd: r.cwd, mcpServers }, 120_000)).sessionId
+          const res = await p.request<{ sessionId: string; configOptions?: unknown; models?: unknown }>('session/new', { cwd: r.cwd, mcpServers }, 120_000)
+          sessionId = res.sessionId
+          modelStates.set(sessionId, acpModelState(res))
         } catch (e) {
           const msg = String((e as Error).message)
           throw new Error(/auth|key|login|credential|登录/i.test(msg) ? `${o.loginHint}（${msg}）` : msg)
         }
         live.add(sessionId)
       }
+      // 这一问选的模型、effort（task-m55m7）：和会话现在的不一样就先换
+      await applyModel(p, sessionId, r).catch((e) => {
+        throw tagSession(e as Error, sessionId)
+      })
       let text = ''
       sinks.set(sessionId, (d) => {
         text += d
@@ -790,19 +877,21 @@ export const geminiEngine = () =>
     },
     loginHint: 'Gemini 还没登录：在终端里运行一次 gemini，选「Log in with Google」，或者设好 GEMINI_API_KEY',
     // 没登录时 gemini --acp 要等一分钟才报错，先看有没有登录凭据
-    loggedIn: () => {
-      const env = process.env
-      if (env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.GOOGLE_GENAI_USE_VERTEXAI || env.GOOGLE_CLOUD_PROJECT) return true
-      const dir = join(env.HOME || homedir(), '.gemini')
-      if (existsSync(join(dir, 'oauth_creds.json'))) return true
-      try {
-        const settings = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { security?: { auth?: { selectedType?: string } }; selectedAuthType?: string }
-        return !!(settings.security?.auth?.selectedType || settings.selectedAuthType)
-      } catch {
-        return false
-      }
-    },
+    loggedIn: () => geminiLoggedIn(),
   })
+
+/** Gemini 有没有登录凭据（只看有没有，不读内容）：没登录时 gemini --acp 开会话要等一分钟才报错，拉模型、问之前先看这个 */
+export function geminiLoggedIn(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.GEMINI_API_KEY || env.GOOGLE_API_KEY || env.GOOGLE_GENAI_USE_VERTEXAI || env.GOOGLE_CLOUD_PROJECT) return true
+  const dir = join(env.HOME || homedir(), '.gemini')
+  if (existsSync(join(dir, 'oauth_creds.json'))) return true
+  try {
+    const settings = JSON.parse(readFileSync(join(dir, 'settings.json'), 'utf8')) as { security?: { auth?: { selectedType?: string } }; selectedAuthType?: string }
+    return !!(settings.security?.auth?.selectedType || settings.selectedAuthType)
+  } catch {
+    return false
+  }
+}
 
 export const opencodeEngine = () =>
   acpEngine({

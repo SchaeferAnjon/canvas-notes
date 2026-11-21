@@ -23,19 +23,30 @@ const BATCH = 16
 /** 算了多少段写一次盘 */
 const SAVE_EVERY = 400
 /**
- * 意思相近：最多几条、多像才算。这个模型的分数挤在 0.78 到 0.92 之间，沾边的一般比不沾边的高出 0.03 以上：
- * 只留不低于 0.83、离第一名不到 0.04 的（2026-11-16 拿中英文混的小库量的）
+ * 意思相近出哪几条（2026-11-21 收紧，task-j0249）。这个模型对什么都给 0.8 上下，看绝对分数分不开沾边和不沾边
+ * （「没有这个qq」最像的是 0.872，「买菜」配购物清单是 0.857），所以每一条都要过三道：
+ * - over：比这句话和几句空泛的套话（FILLER）平均像出 0.05 以上（套话分数就是「什么都不说」的底）；
+ * - spread：比库里各篇的中位数高出 0.035 以上（库不到 20 篇不看这道）。乱词多的大库，套话那道会被凑上（垫 500 篇乱词笔记时
+ *   「天气预报」比套话高 0.055，因为乱词里有「极光预报」），各篇都跟着高，中位数这道拦得住；
+ * - near：不比第一名低出 0.03 以上；最多 limit 5 条（以前 30 条，不沾边的也能列满一屏）。
+ * 过了的都「有把握」（sure），可以当 ⌘K 回车的默认；没过的一条不列，宁可少出也不出不沾边的。
+ *
+ * 量的数（e2e/fixtures/meaning-vault.ts：30 篇中英混的课程、书摘、视频字幕、剪藏、白板、周报加 2 份英文 PDF，40 篇「随便写点」垫底；
+ * 列的是最像那篇减套话）：
+ * - 不沾边 23 个都在 0.046 以下：没有这个qq 0.045、特斯拉股价 0.043、天气预报 0.040、量子力学 0.030、区块链 0.029、笔记 0.029、
+ *   钢琴调音 0.025、老布什abc 0.022、张三 0.021、马斯克 0.020、今天 0.017、李白 0.016、高考志愿 0.013、好 0.008、巴黎 0.007、
+ *   世界杯 0.002、Taylor Swift 0.000、test −0.006、嗯 −0.015、hello −0.046。旧门槛下 23 个里 13 个列出 1 到 30 条（垫 500 篇乱词笔记时 15 个，多数列满 30 条），新门槛 0 个。
+ * - 沾边 30 个里 26 个出了最该出的那篇（或文字搜索已经找到）：sleep and learning 0.109、先验和后验概率 0.105、五花肉怎么炖 0.105、
+ *   javascript 事件循环 0.097、周末去哪玩 0.094、发版清单 0.091、睡前喝咖啡 0.087、基金怎么投 0.086、矩阵怎么变换 0.084、
+ *   朱高煦造反 0.080、减肥锻炼 0.077、linear transformation 0.075、支付功能进度 0.073、日本旅游攻略 0.070、特征向量是什么 0.068、
+ *   注意力机制 0.065、宠物打针 0.064、人为什么能合作 0.061、撤销提交 0.059、贝叶思 0.055、怎么养成好习惯 0.052、红绕肉 0.050；
+ *   每个词出 0 到 5 条，平均 1 条。
+ * - 漏掉 4 个（MISSED）：特征直 0.043、看极光（最像的是 readme，0.029）、how to write an essay（最像线性代数讲义 0.049）、
+ *   borrow checker（0.023）。还有「买菜」配购物清单 0.035，也不出。这些靠 ⌥↵ 让 Claude 找。
+ * 重新量：CN_MEASURE=1 npx vitest run apps/notes/test/search-model.test.ts -t 量门槛
  */
-export const MEANING = { limit: 30, min: 0.83, near: 0.04 }
-/**
- * 意思相近「有把握」的门槛：最像的那段比这句话和几句空泛的套话（FILLER）平均像出多少。
- * 这个模型对什么都给 0.8 上下，看绝对分数分不开沾边和不沾边（「没有这个qq」最像的是 0.860，「买菜」配购物清单是 0.857）；
- * 减掉「和套话有多像」以后，不沾边的词（特斯拉股价、老布什abc、没有这个qq、天气预报、量子力学、股票…）都在 0.040 以下，
- * 沾边的（矩阵怎么变换 0.069、发版清单 0.088、javascript 事件循环 0.111、爬山 0.048）在 0.045 以上（2026-11-17 量的，
- * 300 篇和 10 篇的库一样，见 test/search-model.test.ts）。宁可漏掉几个弱的（买菜 0.035），也不把不沾边的当默认
- */
-export const SURE = 0.045
-const FILLER = ['正文。', '这是一段笔记。', 'hello']
+export const MEANING = { limit: 5, near: 0.03, over: 0.05, spread: 0.035 }
+export const FILLER = ['正文。', '这是一段笔记。', 'hello']
 
 export interface IndexerOptions {
   root: string
@@ -46,7 +57,7 @@ export interface IndexerOptions {
   /** 没有模型时是 null：只有文字那一层 */
   embedder: Embedder | null
   readPdf(abs: string): Promise<{ data: Uint8Array; pages: PdfBlock[][]; sizes: [number, number][] }>
-  /** 多像才算（默认 MEANING；单元测试的假模型分数低，给宽一点的） */
+  /** 多像才算（默认 MEANING；单元测试的假模型分数和真模型不在一个范围，给宽的） */
   meaning?: typeof MEANING
   onStatus(s: SearchStatus): void
 }
@@ -253,14 +264,13 @@ export class Indexer {
       return s
     }
     const o = this.o.meaning ?? MEANING
+    this.filler ??= await e.embed(FILLER, 'passage')
+    const filler = this.filler.reduce((s, f) => s + dot(v!, f), 0) / this.filler.length
     // 索引还没建完（「先找建好的」）：真正最像的那篇可能还没算进来，「比最像的低不过 near」就没了依据，
     // 本机小模型给不沾边的段也有 0.84 上下，过得了 min（2000 篇只写「随便写点。」的库，搜「线性代数复习」列出 30 篇）。
     // 这时拿「正文就是这句话的一段」和查询的分数当最像的来卡，建完再照常
     const anchor = this.status.phase !== 'ready' ? dot(v!, (await e.embed([q.trim()], 'passage'))[0]!) : undefined
-    const hits = this.index.search(v!, anchor === undefined ? o : { ...o, anchor })
-    if (!hits.length) return hits
-    this.filler ??= await e.embed(FILLER, 'passage')
-    const filler = this.filler.reduce((s, f) => s + dot(v!, f), 0) / this.filler.length
-    return hits.map((h) => (h.score - filler >= SURE ? { ...h, sure: true } : h))
+    const hits = this.index.search(v!, { limit: o.limit, near: o.near, min: filler + o.over, spread: o.spread, ...(anchor === undefined ? {} : { anchor }) })
+    return hits.map((h) => ({ ...h, sure: true }))
   }
 }

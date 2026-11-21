@@ -4,6 +4,7 @@
  * 一直看得见、不占地方、不推开正文；不自动打开右栏大纲（不跳动）。
  */
 import { EditorView } from '@codemirror/view'
+import { keyFor } from './keys'
 import { useEffect, useRef, useState } from 'react'
 import type { NoteDoc } from './note-doc'
 import { docOutline, type OutlineItem } from './shell/outline'
@@ -84,7 +85,7 @@ export function DocToc(props: { text: string; doc: () => NoteDoc | null; scrolle
           <div className="hd">
             <span>目录</span>
             <button type="button" className="to-right" onClick={() => (setOpen(false), props.onOpenOutline())}>
-              ⌥⌘O 在右栏打开
+              {keyFor('outline') ? `${keyFor('outline')} 在右栏打开` : '在右栏打开'}
             </button>
           </div>
           <div className="rows">

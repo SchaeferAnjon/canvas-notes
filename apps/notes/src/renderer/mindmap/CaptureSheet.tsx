@@ -4,6 +4,7 @@
  * 核对：左边照片框出每个认出的节点，右边大纲直接改，拿不准的标黄；「做成白板导图」后白板上一个个长出来。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { keyFor } from '../keys'
 import { AiError } from '../ai-error'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
@@ -312,7 +313,7 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
               <Codicon name="file-media" size={14} />
               从照片选…
             </button>
-            <span className="help">也能拖进来、⌘V 粘贴、隔空投送</span>
+            <span className="help">{`也能拖进来、${keyFor('paste')} 粘贴、隔空投送`}</span>
             {photo ? (
               <>
                 <button className="btn" onClick={reshoot}>

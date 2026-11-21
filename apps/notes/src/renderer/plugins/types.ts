@@ -38,7 +38,7 @@ export interface RendererPlugin {
     Control?: ComponentType<{ page: WebPage | null; open: boolean; onPopup(id: string | null): void }>
     useLook(page: WebPage | null): ButtonLook
     click?(page: WebPage | null): void
-    /** 「⋯」菜单里也放一项（快捷键在那里看得到）；只在有 click 时用 */
+    /** 「⋯」菜单里也放一项（快捷键在那里看得到）；只在有 click 时用。keys 是命令表里的 id，右边写它现在的键 */
     menu?: { label: string; keys?: string }
   }
   /** 弹窗；mode 是 this-page 时只管这一页（地址栏星星开的小卡），all 是整理全部 */

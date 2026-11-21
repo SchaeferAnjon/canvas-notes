@@ -1,16 +1,18 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import type { Rect } from '@cn/format'
+import { appSettings } from './settings-store'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { AiJob } from '../shared/ai-logo'
 import type { NoteFile, SearchHit } from '../shared/api'
-import { type CmdConfig, deleteOwn, GROUPS, hideCmd, materialize, moveCmd, newGroup, type OwnCommand, pinCmd, setAlias, setKey, unhideCmd, unpinCmd } from '../shared/commands'
+import { type CmdConfig, deleteOwn, GROUPS, hideCmd, materialize, moveCmd, newGroup, type OwnCommand, pinCmd, resetKey, setAlias, setKey, swapKey, unhideCmd, unpinCmd } from '../shared/commands'
 import { AiIcon, EngineLogo } from './engine-logo'
 import type { PdfFile } from '../shared/reading'
 import { markParts, type MeaningHit, type PdfTextHit, queryWords, type SearchStatus } from '../shared/search'
 import { titleOf } from '../shared/layout'
 import { recentFiles } from './files/store'
 import { buildRows, type ClaudeState, type Cursor, cursorAt, defaultIndex, type Group, groupHead, type Key, keyIsFinal, type Row, rowOf, step } from './search/rows'
-import { availOf, cmdConfig, keyOf, noteUsed, updateCmds, useCmds, usedRank } from './search/cmd-store'
+import { cmdConfig, noteUsed, updateCmds, useCmds, usedRank } from './search/cmd-store'
+import { availNow, checkKey, isKey, keyFor, useKeys } from './keys'
 import { type EmptyRow, emptySections, FOLDERS_ID, groupName, selectable } from './search/cmd-layout'
 import { CmdForm, type FormValue } from './search/CmdForm'
 import { KeysMini, type MenuAct, RowMenu, TextMini } from './search/PalMenus'
@@ -77,6 +79,8 @@ function Marked(props: { text: string; words: string[] }) {
 }
 
 const statusWhy = (s: SearchStatus | null): string => {
+  // 设置 › 文档和白板「按意思找」关着：不载本机模型（PDF 里的字照样在读）
+  if (!appSettings().editor.semantic) return '· 按意思找关着（设置 › 文档和白板）'
   if (!s) return '· 本机小模型，不联网'
   if (s.phase === 'loading') return '· 本机小模型在载入'
   if (s.phase === 'text') return `· 在读PDF里的字${s.done}/${s.total}`
@@ -117,6 +121,8 @@ export function Palette(props: {
   onClose(): void
 }) {
   const cfg = useCmds()
+  /** 命令现在的键（命令表 + 改过的；改了跟着重画） */
+  const K = useKeys()
   const [q, setQ] = useState('')
   // 每份结果记着是哪个词搜出来的：换了词、新结果还没回来时不露上一个词的结果（先写「在找…」）
   const [hits, setHits] = useState<For<SearchHit>>(NONE)
@@ -233,16 +239,17 @@ export function Palette(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [props.commands],
   )
-  const avail = useMemo(() => availOf(listed.filter((c) => !c.folder).map((c) => ({ id: cmdId(c), name: c.name, home: c.home, keys: c.keys }))), [listed])
+  // 分组用的（每条在哪组）；键的默认值在命令表里，设键时用 availNow()
+  const avail = useMemo(() => listed.filter((c) => !c.folder).map((c) => ({ id: cmdId(c), home: c.home })), [listed])
   const pinned = useMemo(() => new Set(materialize(cfg, avail).find((g) => g.id === 'pin')?.items ?? []), [cfg, avail])
   const view = useMemo(() => {
     const m = new Map<string, ViewCmd>()
     for (const c of listed) {
       const id = cmdId(c)
-      m.set(id, { ...c, id, keys: keyOf({ id, keys: c.keys }) ?? undefined, alias: cfg.alias[id], hidden: cfg.hidden.includes(id), pinned: pinned.has(id), usedRank: usedRank(id) })
+      m.set(id, { ...c, id, keys: K(id) ?? undefined, alias: cfg.alias[id], hidden: cfg.hidden.includes(id), pinned: pinned.has(id), usedRank: usedRank(id) })
     }
     return m
-  }, [listed, cfg, pinned])
+  }, [listed, cfg, pinned, K])
   const boards = useMemo(() => new Set(props.notes.filter((n) => n.board).map((n) => n.path)), [props.notes])
   const digests = useMemo(() => new Set(props.notes.filter((n) => n.digest).map((n) => n.path)), [props.notes])
 
@@ -417,7 +424,11 @@ export function Palette(props: {
     else if (a.kind === 'hide') hide(id)
     else if (a.kind === 'move') change((c) => moveCmd(c, avail, id, a.to, null), `挪到了「${groupName(cfg, a.to)}」`)
     else if (a.kind === 'newGroup') setMini({ kind: 'group', id, at })
-    else if (a.kind === 'keys') setMini({ kind: 'keys', id, at })
+    else if (a.kind === 'keys') {
+      // 设快捷键的小弹层放在这一行下面 4，这一行整行露出来
+      const r = document.querySelector(`.pal [data-cmd="${CSS.escape(id)}"]`)?.getBoundingClientRect()
+      setMini({ kind: 'keys', id, at: r ? { left: at.left, top: r.bottom + 4 } : at })
+    }
     else if (a.kind === 'alias') setMini({ kind: 'alias', id, at })
     else if (a.kind === 'edit') setForm({ edit: view.get(id)?.own ?? null })
     else if (a.kind === 'delete') change((c) => deleteOwn(c, id), '删掉了这条自己的命令')
@@ -566,7 +577,7 @@ export function Palette(props: {
         className={'pal-more' + (menu?.id === id ? ' open' : '')}
         tabIndex={-1}
         aria-label={`「${nameOfId(id)}」能做什么`}
-        title="这一条能做什么（⌘.）"
+        title={`这一条能做什么${K('pal-menu') ? `（${K('pal-menu')}）` : ''}`}
         onMouseDown={(e) => e.preventDefault()}
         onClick={(e) => {
           e.stopPropagation()
@@ -688,14 +699,14 @@ export function Palette(props: {
               if (e.nativeEvent.isComposing) return
               if (form) return void (e.key === 'Escape' && (e.preventDefault(), setForm(null)))
               if (menu && e.key === 'Escape') return (e.preventDefault(), closeMenu())
-              // ⌘. 这一条能做什么；⌘P 钉住；⌘⌫ 藏起（打着字时 ⌘⌫ 照旧是删到行首）
-              if (e.metaKey && !e.altKey && !e.ctrlKey && e.key === '.') return (e.preventDefault(), menuForSelected())
-              if (e.metaKey && !e.altKey && !e.ctrlKey && e.code === 'KeyP') {
+              // ⌘. 这一条能做什么；⌘P 钉住；⌘⌫ 藏起（打着字时 ⌘⌫ 照旧是删到行首）；键照命令表（设置 › 快捷键里能改）
+              if (isKey(e, 'pal-menu')) return (e.preventDefault(), menuForSelected())
+              if (isKey(e, 'pal-pin')) {
                 e.preventDefault()
                 const id = selectedId()
                 return void (editable(id) && togglePin(id!))
               }
-              if (empty && e.metaKey && e.key === 'Backspace') {
+              if (empty && isKey(e, 'pal-hide')) {
                 e.preventDefault()
                 const id = selectedId()
                 return void (editable(id) && hide(id!))
@@ -713,8 +724,8 @@ export function Palette(props: {
               if (e.key === 'ArrowDown') (e.preventDefault(), press(1))
               else if (e.key === 'ArrowUp') (e.preventDefault(), press(-1))
               // ⌘↵ 不管选着哪一行都在右栏网页里搜（像网址就直接打开）；⌥↵ 让 Claude 找（CN-41）
-              else if (e.key === 'Enter' && e.metaKey && !e.altKey) (e.preventDefault(), pick(rows.find((r) => r.kind === 'url')))
-              else if (e.key === 'Enter' && e.altKey && !e.metaKey) (e.preventDefault(), t && claude.phase !== 'running' && askClaude())
+              else if (isKey(e, 'pal-web')) (e.preventDefault(), pick(rows.find((r) => r.kind === 'url')))
+              else if (isKey(e, 'pal-claude')) (e.preventDefault(), t && claude.phase !== 'running' && askClaude())
               // 回车只按出齐了会选中的那一行走：没出齐、后到的结果还能改它，就等（CN 第 2 轮：手快回车把笔记名发到了网上）；
               // 自己用鼠标挪到网页、Claude 那一行的马上走
               else if (e.key === 'Enter') (e.preventDefault(), press('enter'))
@@ -752,12 +763,12 @@ export function Palette(props: {
                 noText && (
                   <>
                     <div className="pal-none">笔记和PDF里都没有「{t}」这几个字</div>
-                    {idx === -1 && !urlish && <div className="pal-none-why">回车没有可打开的，⌘↵ 去网页搜</div>}
+                    {idx === -1 && !urlish && <div className="pal-none-why">{K('pal-web') ? `回车没有可打开的，${K('pal-web')} 去网页搜` : '回车没有可打开的'}</div>}
                   </>
                 )
               )}
               {/* 打的像网址、名字对得上的一个都没有：回车不开正文里有它的、意思相近的，说清楚要去网页按 ⌘↵ */}
-              {urlish && idx === -1 && !finding && <div className="pal-none-why">{noText ? '回车不做事，⌘↵ 去网页打开' : `没有叫「${t}」的笔记，回车不做事，⌘↵ 去网页打开`}</div>}
+              {urlish && idx === -1 && !finding && <div className="pal-none-why">{`${noText ? '' : `没有叫「${t}」的笔记，`}回车不做事${K('pal-web') ? `，${K('pal-web')} 去网页打开` : ''}`}</div>}
               {rows.map((r, i) => {
                 let head = null
                 // 让 Claude 找跟在网页那一行下面，同一组「网页和AI」
@@ -817,12 +828,12 @@ export function Palette(props: {
             </>
           )}
         </div>
-        <div className="pal-foot" aria-label="快捷键">
+        <div className="pal-foot" aria-label="快捷键" style={mini?.kind === 'keys' ? { visibility: 'hidden' } : undefined}>
           {form ? (
-            <span>esc 回到列表 · ⌘↵ 加上</span>
+            <span>{`${K('escape')} 回到列表 · ${K('submit')} 加上`}</span>
           ) : (
             <>
-              ↑↓ 选择 · ↵ 打开 · <b>⌘. 这一条能做什么</b> · ⌘↵ 网页搜 · ⌥↵ 让Claude找 · esc 关闭
+              {footKeys(K)}
             </>
           )}
         </div>
@@ -859,12 +870,32 @@ export function Palette(props: {
         <KeysMini
           id={mini.id}
           name={nameOfId(mini.id)}
+          cur={K(mini.id)}
+          def={availNow().find((a) => a.id === mini.id)?.keys ?? null}
           at={mini.at}
           onClose={closeMini}
           onOk={(combo) => {
             const id = mini.id
             closeMini()
-            change((c) => setKey(c, avail, id, combo), `「${nameOfId(id)}」的快捷键是 ${combo}`)
+            change((c) => setKey(c, availNow(), id, combo), `「${nameOfId(id)}」的快捷键是 ${combo}`)
+          }}
+          onSwap={(combo) => {
+            const id = mini.id
+            const mine = K(id)
+            const other = checkKey(id, combo).clash?.name ?? ''
+            closeMini()
+            change((c) => swapKey(c, availNow(), id, combo), `对调了：「${nameOfId(id)}」${combo}，「${other}」${mine}`)
+          }}
+          onClear={() => {
+            const id = mini.id
+            closeMini()
+            change((c) => setKey(c, availNow(), id, null), `「${nameOfId(id)}」没有快捷键了`)
+          }}
+          onReset={() => {
+            const id = mini.id
+            const def = availNow().find((a) => a.id === id)?.keys
+            closeMini()
+            change((c) => resetKey(c, availNow(), id), def ? `「${nameOfId(id)}」回到默认 ${def}` : `「${nameOfId(id)}」回到默认：没有键`)
           }}
         />
       )}
@@ -916,6 +947,26 @@ export function Palette(props: {
 }
 
 /** 正文那一小段开头就是这篇的标题（摘要从「# 标题」那一行起）：行里已经写了名字，不再重复 */
+/** ⌘K 底部那一行：键照命令表（没有键的那一项不写） */
+function footKeys(K: (id: string) => string | null) {
+  const part = (id: string, what: string) => (K(id) ? `${K(id)} ${what}` : null)
+  const menu = part('pal-menu', '这一条能做什么')
+  const before = [part('up-down', '选择'), part('enter', '打开')].filter(Boolean).join(' · ')
+  const after = [part('pal-web', '网页搜'), part('pal-claude', '让Claude找'), part('escape', '关闭')].filter(Boolean).join(' · ')
+  return (
+    <>
+      {before}
+      {menu && (
+        <>
+          {' · '}
+          <b>{menu}</b>
+        </>
+      )}
+      {after && ` · ${after}`}
+    </>
+  )
+}
+
 export function withoutTitle(snippet: string, title: string): string {
   const t = title.trim()
   if (!t || !snippet.startsWith(t)) return snippet
@@ -1008,7 +1059,7 @@ function RowView(p: {
         <Codicon name="globe" size={16} className="i" />
         <span className="nm">{isSearchUrl(r.url) ? '在右栏网页里搜' : '在右栏网页里打开'}</span>
         <span className="sn">{decodeUrl(r.url).replace(/^https?:\/\/(www\.)?/, '')}</span>
-        <kbd className="rt">⌘↵</kbd>
+        {keyFor('pal-web') && <kbd className="rt">{keyFor('pal-web')}</kbd>}
       </>
     )
   else if (r.kind === 'more') body = <span className="nm">{`还有${r.n}条`}</span>
@@ -1048,7 +1099,7 @@ function RowView(p: {
         <EngineLogo id="claude" size={16} className="i" />
         <span className="nm">让Claude帮我找「{p.q}」</span>
         <span className="rt">几秒到十几秒</span>
-        <kbd className="rt2">⌥↵</kbd>
+        {keyFor('pal-claude') && <kbd className="rt2">{keyFor('pal-claude')}</kbd>}
       </>
     )
   return (

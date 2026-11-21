@@ -2,11 +2,10 @@
  * ⌘K 的自定义在界面这边的一份（DESIGN.v3 3.2、3.3）：钉住、藏起、分组、别名、快捷键、自己加的命令、网页「⋯」的调整。
  * 改的时候先改这份（界面马上变），再交主进程写进库里的 .canvas-notes/命令.json；每次改都留着改之前的那份，底部「撤回」用。
  *
- * 也管自己设的快捷键：App 每次画的时候把现有的命令交进来（setRegistry），按键时 matchCombo 说这个键归谁；
- * 网页有焦点时要转回来的键交给主进程（cnCmds.keys）。
+ * App 每次画的时候把现有的命令交进来（setRegistry）；键归谁、交给主进程的在 renderer/keys.ts。
  */
 import { useSyncExternalStore } from 'react'
-import { type Avail, type CmdConfig, commandsJson, defaultCommands, effectiveKey } from '../../shared/commands'
+import { type CmdConfig, commandsJson, defaultCommands } from '../../shared/commands'
 
 let cfg: CmdConfig = defaultCommands()
 let version = 0
@@ -24,7 +23,7 @@ export async function loadCmds() {
   if (writing) return
   cfg = c
   emit()
-  syncKeys()
+  changed()
 }
 
 export const cmdConfig = () => cfg
@@ -36,7 +35,7 @@ export async function updateCmds(fn: (c: CmdConfig) => CmdConfig): Promise<CmdCo
   if (next === cfg) return before
   cfg = next
   emit()
-  syncKeys()
+  changed()
   writing++
   try {
     // 交给主进程的是文件里的样子（webMenu、不认识的字段摊在最外层），主进程照读文件一样再验一遍
@@ -87,9 +86,9 @@ export const usedRank = (id: string): number | undefined => {
   return i < 0 ? undefined : i
 }
 
-// ---------------------------------------------------------------- 快捷键
+// ---------------------------------------------------------------- 交进来的命令
 
-/** 交进来的命令：id、默认的键、键是不是它自己那块接的（双语翻译的 ⌥A） */
+/** App 交进来的命令（⌘K 那一份：命令表里的、插件的、自己加的）：id、名字、默认的键（命令表以外的才用）、键是不是它自己那块接的 */
 export interface KeyCmd {
   id: string
   name: string
@@ -97,68 +96,24 @@ export interface KeyCmd {
   fixedKeys?: boolean
 }
 
-/** 软件里本来就接着的默认键（App.tsx 的按键处理）：没改过就还走原来那条路（⌘J 带着选中的字问 AI 这些都照旧） */
-const HANDLED: Record<string, string> = { 'new-note': '⌘N', 'ask-ai': '⌘J', goto: '⌘O', settings: '⌘,' }
-/** 主进程转来的 app:key → 组合键 */
-const APP_KEY: Record<string, string> = { n: '⌘N', j: '⌘J', o: '⌘O', ',': '⌘,', k: '⌘K', f: '⌘F', w: '⌘W', '\\': '⌘\\', 'alt+\\': '⌥⌘\\' }
-
 let registry: KeyCmd[] = []
-let byCombo = new Map<string, KeyCmd>()
-let sentKeys = ''
+let regSig = ''
+/** 设置、命令变了（键交给主进程那边听这个；不是 React 的重画） */
+const changeSubs = new Set<() => void>()
+export function onCmdsChange(cb: () => void): () => void {
+  changeSubs.add(cb)
+  return () => changeSubs.delete(cb)
+}
+const changed = () => changeSubs.forEach((f) => f())
 
-/** 一条命令现在的键（设过的、默认的） */
-export const keyOf = (c: Pick<KeyCmd, 'id' | 'keys'>): string | null => effectiveKey(cfg, c.id, c.keys)
-
-/** 软件里现在有的命令（App 每次画都交）：算出每个键归谁，有变化才告诉主进程 */
+/** 软件里现在有的命令（App 每次画都交）；有变化才告诉听的 */
 export function setRegistry(list: KeyCmd[]) {
+  const sig = JSON.stringify(list)
+  if (sig === regSig) return
+  regSig = sig
   registry = list
-  syncKeys()
+  changed()
 }
 
-/** 现在有的命令（给 shared/commands 的那几个改法用） */
-export const availOf = (list: readonly (KeyCmd & { home?: string })[]): Avail[] => list.map((c) => ({ id: c.id, home: c.home, keys: c.keys }))
-
-function syncKeys() {
-  byCombo = new Map()
-  for (const c of registry) {
-    const k = keyOf(c)
-    if (k && !byCombo.has(k)) byCombo.set(k, c)
-  }
-  const forward = [...byCombo].filter(([k, c]) => !c.fixedKeys && HANDLED[c.id] !== k).map(([k]) => k)
-  const menu = { capture: keyOf(registry.find((c) => c.id === 'capture') ?? { id: 'capture', keys: '⇧⌘C' }), settings: keyOf(registry.find((c) => c.id === 'settings') ?? { id: 'settings', keys: '⌘,' }) }
-  const sig = JSON.stringify({ forward: forward.sort(), menu })
-  if (sig === sentKeys || !window.cnCmds) return
-  sentKeys = sig
-  void window.cnCmds.keys({ forward, menu }).catch((e) => console.error('快捷键交给主进程没成', e))
-}
-
-/** 现在有键的命令（设置 › 快捷键里列出来）；custom：⌘K 里改过 */
-export function keyedCommands(): { id: string; name: string; key: string; custom: boolean }[] {
-  return registry.flatMap((c) => {
-    const key = keyOf(c)
-    return key && !c.fixedKeys ? [{ id: c.id, name: c.name, key, custom: cfg.keys[c.id] !== undefined }] : []
-  })
-}
-
-/** 这个组合键现在归谁（设快捷键时说「已经给了「新建笔记」」） */
-export const ownerOf = (combo: string, except?: string): KeyCmd | null => {
-  for (const c of registry) if (c.id !== except && keyOf(c) === combo) return c
-  return null
-}
-
-/**
- * 按下一个组合键：给了哪条命令就是它的 id；还走原来那条路的（没改过的 ⌘N、⌘J、⌘O、⌘,）、谁都没给的是 null；
- * 软件本来接着、但这条命令已经换了别的键（⌘N 给了「同步」以外的情况）是 skip：原来那条路也别走了
- */
-export function matchCombo(combo: string | null): string | 'skip' | null {
-  if (!combo) return null
-  const owner = byCombo.get(combo)
-  if (owner) return owner.fixedKeys || HANDLED[owner.id] === combo ? null : owner.id
-  return Object.entries(HANDLED).some(([id, k]) => k === combo && registry.some((c) => c.id === id)) ? 'skip' : null
-}
-
-/** 主进程转来的键（网页有焦点时）：「combo:⌥⌘S」或者 n、j、o 这些 */
-export function matchAppKey(k: string): string | 'skip' | null {
-  if (k.startsWith('combo:')) return matchCombo(k.slice(6)) ?? 'skip'
-  return matchCombo(APP_KEY[k] ?? null)
-}
+/** 现在交进来的命令 */
+export const registryNow = (): readonly KeyCmd[] => registry

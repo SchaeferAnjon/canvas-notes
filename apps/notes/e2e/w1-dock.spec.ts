@@ -88,7 +88,7 @@ test('只开 AI 占满整栏；网页和 AI 是同一组两个标签；拖网页
     const hint = page.getByTestId('dock-hint')
     await expect(hint).toBeVisible()
     await expect(hint.locator('b')).toHaveText('想两样一起看？拖标签')
-    await expect(hint).toContainText('AI、网页现在是两个标签，只开一样时占满整栏。把标签拖到下半、拖到旁边成一栏，或拖到中间就浮起来。按住标签右边的空处拖，整栏换左右。')
+    await expect(hint).toContainText('AI、网页现在是两个标签，只开一样时占满整栏。把标签拖到下半、拖到旁边成一栏，或拖到中间就浮起来。按住「⋯」左边的六点拖，整栏换左右。')
     await hint.getByRole('button', { name: '关掉' }).click()
     await expect(hint).toHaveCount(0)
     // 点标签换着看

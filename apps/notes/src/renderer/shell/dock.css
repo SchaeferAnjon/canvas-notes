@@ -57,7 +57,7 @@
   background: inherit;
 }
 
-/* ---------- 组头：标签 · 空处（拖整栏）· ⋯ ---------- */
+/* ---------- 组头：标签条 · 空处 · 六点把手（拖整栏）· ⋯ ---------- */
 .dhead {
   height: var(--dhead-h);
   flex: none;
@@ -74,6 +74,39 @@
   gap: 0;
   padding: 0 4px 0 0;
   border-bottom: 1px solid var(--seam);
+}
+/* 标签条：放不下时横着滚（不出滚动条），把手和 ⋯ 不让位 */
+.dtabs {
+  flex: 0 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  position: relative;
+}
+.dtabs::-webkit-scrollbar {
+  display: none;
+}
+.frame-a .dtabs {
+  align-items: stretch;
+  gap: 0;
+}
+/* 两头还藏着标签：那一头 40 的淡出（最外 8 全淡），同中间标签条 */
+.dtabs.more-l {
+  -webkit-mask-image: linear-gradient(to right, transparent 8px, #000 40px);
+  mask-image: linear-gradient(to right, transparent 8px, #000 40px);
+}
+.dtabs.more-r {
+  -webkit-mask-image: linear-gradient(to left, transparent 8px, #000 40px);
+  mask-image: linear-gradient(to left, transparent 8px, #000 40px);
+}
+.dtabs.more-l.more-r {
+  -webkit-mask-image: linear-gradient(to right, transparent 8px, #000 40px, #000 calc(100% - 40px), transparent calc(100% - 8px));
+  mask-image: linear-gradient(to right, transparent 8px, #000 40px, #000 calc(100% - 40px), transparent calc(100% - 8px));
 }
 .dtab {
   height: 32px;
@@ -170,18 +203,35 @@
   background: linear-gradient(var(--acc-soft), var(--acc-soft)), var(--pop);
   color: var(--acc-t);
 }
-.dgrab {
-  flex: 1;
+/* 标签右边的空处也能按住拖整栏（不出提示） */
+.dspace {
+  flex: 1 1 0;
+  min-width: 0;
   align-self: stretch;
-  min-width: 12px;
+  cursor: grab;
+}
+/* 六点把手：紧挨在 ⋯ 左边，和 ⋯ 一组（26 方、圆角 6、间距 2；task-331zt）；指着组头时露出来 */
+.dgrab {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  align-self: center;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 6px;
+  color: var(--t3);
   cursor: grab;
+}
+.frame-a .dgrab {
+  margin-right: 2px;
+}
+.dgrab:hover {
+  background: var(--fill);
+  color: var(--t1);
 }
 .dgrab .grip {
   display: flex;
-  color: var(--t3);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -317,7 +367,8 @@ body.docking .shell-tip {
 .dfloat .drz {
   pointer-events: auto;
 }
-.dfloat .dhead .dgrab {
+.dfloat .dhead .dgrab,
+.dfloat .dhead .dspace {
   cursor: grab;
 }
 .dfloat .dbody {

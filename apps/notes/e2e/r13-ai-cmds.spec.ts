@@ -2,15 +2,22 @@
 // 1. /写成文章 的草稿写在白板所在的文件夹（白板在收件箱或库最外层时进「收件箱/」），回答卡片和改动块写出文件夹，重名不覆盖；
 // 2. 在 AI 里 /剪藏这一页：回答下面和别的命令一样有「打开」和「改了1个文件 · 撤回」，撤回真把那次剪藏翻回去；
 // 3. /整理当前白板 的提交说明是「AI：/整理当前白板 · <白板名>」，不是写给 AI 的一长串话；
-// 4. 文件夹页「照上周的样子开一篇」不经 AI，提交说明不带「AI：」。
+// 4. 文件夹页「照上周的样子开一篇」不经 AI，提交说明不带「AI：」；
+// 5. /整理收件箱 和梦游同一套归法（八个分类），不再一律挪进「剪藏/主题」。
 // 都是在 AI 输入框里真打 /、真点菜单项、真点「打开」「撤回」。
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { launch, leftView, pane, rail, tabOn, webAboveAi } from './app'
+import { launch, leftView, openInboxTab, pane, rail, tabOn, webAboveAi } from './app'
+import { pickQuick, quickTexts } from './ai-quick'
 import { ICELAND } from './fixtures/board'
+import { TIDY_VAULT } from './fixtures/inbox'
+
+/** /整理收件箱 在 / 菜单、⌘K 里的那句说明 */
+const TIDY_DESC = '分进课程、周记、剪藏这些，你点同意才挪，可撤回'
+const TIDY_HINT = '分进课程、周记、剪藏，点同意才挪'
 
 const chat = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
 const web = (page: Page) => page.getByRole('complementary', { name: '网页' })
@@ -205,9 +212,9 @@ test('文件夹页「照上周的样子开一篇」：不经 AI，提交说明�
     await page.locator('aside.side').getByRole('tree').getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: /^周记$/ }) }).first().click()
     await expect(pane(page)).toHaveAttribute('data-folder', '周记')
     await openAi(page)
-    const sug = chat(page).locator('.ai-empty .sug').filter({ hasText: '照上周的样子开一篇' })
-    await expect(sug).toHaveText('照上周的样子开一篇 2026-W48')
-    await sug.click()
+    // 输入框上面那排快捷命令（task-0tgz2）：380 宽放不下两条长的，这一条在「⋯」里
+    expect(await quickTexts(chat(page))).toContain('照上周的样子开一篇 2026-W48')
+    await pickQuick(chat(page), '照上周的样子开一篇 2026-W48')
     await expect(tabOn(page)).toHaveText('2026-W48')
     await expect.poll(() => existsSync(join(vault, '周记/2026-W48.md'))).toBe(true)
     expect(subjects(vault, 1)).toEqual(['照「2026-W47」开一篇「2026-W48」'])
@@ -220,6 +227,77 @@ test('文件夹页「照上周的样子开一篇」：不经 AI，提交说明�
     await expect(chg.locator('.hd')).toContainText('已撤回')
     await expect.poll(() => existsSync(join(vault, '周记/2026-W48.md'))).toBe(false)
     expect(subjects(vault, 1)).toEqual(['撤回照「2026-W47」开一篇「2026-W48」'])
+  } finally {
+    await run.close()
+  }
+})
+
+test('/整理收件箱：和梦游同一套归法，剪来的进剪藏/<主题>、自己写的周记草稿进周记、课程笔记进课程/机器学习，拿不准的留着；点同意一次挪好、一个提交，撤回都回到收件箱', async () => {
+  const run = await launch({ ...TIDY_VAULT, '收件箱/说不好的.md': '一句说不好放哪的话。\n' }, { CN_AI_FAKE: '1' })
+  const { page, vault } = run
+  const count = () => Number(execFileSync('git', ['-C', vault, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }))
+  const inboxNow = () => readdirSync(join(vault, '收件箱')).sort()
+  const all = ['冰洞.md', '周记里要写的.md', '梯度下降.md', '说不好的.md'].sort()
+  const moved = ['剪藏/旅行/冰洞.md', '周记/周记里要写的.md', '课程/机器学习/梯度下降.md']
+  try {
+    // 交付截图换主题（CN_SHOT_SKIN=sky 天青、petrol 深湖）
+    const skin = process.env.CN_SHOT_SKIN
+    if (skin) {
+      await page.evaluate((s) => window.cn.setSettings({ appearance: { followSystem: false, skin: s as 'sky' } }), skin)
+      await page.reload()
+      await page.locator('.vault b').waitFor()
+    }
+    const shot = (name: string) => join(process.env.CN_SHOT_DIR!, `${name}${skin ? `-${skin}` : ''}.png`)
+    // ⌘K 里那句说明照实写
+    await page.keyboard.press('Meta+k')
+    await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('整理收件箱')
+    const hint = page.locator('.pal-row', { has: page.locator('.nm', { hasText: /^整理收件箱$/ }) }).first().locator('.lc')
+    await expect(hint).toHaveText(TIDY_HINT)
+    // 整句放得下，不被省略号吃掉
+    expect(await hint.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
+    if (process.env.CN_SHOT_DIR) await page.getByRole('dialog', { name: '搜索和命令' }).screenshot({ path: shot('整理收件箱-cmdk') })
+    await page.keyboard.press('Escape')
+
+    await openInboxTab(page)
+    await openAi(page)
+    // / 菜单里那句说明照实写；真打「/整理收」、真点那一条
+    await chat(page).getByRole('textbox', { name: '问 AI' }).click()
+    await page.keyboard.type('/整理收')
+    const opt = chat(page).getByRole('listbox', { name: '命令' }).getByRole('option').filter({ has: page.locator('b', { hasText: /^整理收件箱$/ }) })
+    await expect(opt).toContainText(TIDY_DESC)
+    if (process.env.CN_SHOT_DIR) await chat(page).screenshot({ path: shot('整理收件箱-斜杠菜单') })
+    await opt.click()
+
+    const msg = chat(page).getByTestId('ai-msg').last()
+    const to = (name: string) => msg.locator('.mv').filter({ has: page.locator('.truncate', { hasText: new RegExp(`^${name}$`) }) }).locator('.to')
+    await expect(msg.locator('.mv')).toHaveCount(3)
+    await expect(to('冰洞')).toHaveText('→ 剪藏/旅行')
+    await expect(to('周记里要写的')).toHaveText('→ 周记')
+    await expect(to('梯度下降')).toHaveText('→ 课程/机器学习')
+    await expect(msg.locator('.txt')).toHaveText('挪3条到下面这些地方，1条拿不准留在收件箱：')
+    if (process.env.CN_SHOT_DIR) await chat(page).screenshot({ path: shot('整理收件箱-建议') })
+    // 点同意之前一条都不挪
+    expect(inboxNow()).toEqual(all)
+    const before = count()
+
+    await msg.getByRole('button', { name: '同意，挪过去' }).click()
+    await expect(msg).toContainText('挪好了3条')
+    for (const p of moved) expect(existsSync(join(vault, p))).toBe(true)
+    expect(inboxNow()).toEqual(['说不好的.md'])
+    // 一次提交：三处挪动都在这一个提交里
+    expect(count()).toBe(before + 1)
+    expect(subjects(vault, 1)).toEqual(['AI：整理收件箱：挪了 3 条'])
+    const changed = execFileSync('git', ['-C', vault, '-c', 'core.quotepath=false', 'show', '--name-status', '--format=', '-M', 'HEAD'], { encoding: 'utf8' })
+      .trim()
+      .split('\n')
+      .map((l) => l.split('\t').slice(1).join(' → '))
+    expect(changed.sort()).toEqual(['收件箱/冰洞.md → 剪藏/旅行/冰洞.md', '收件箱/周记里要写的.md → 周记/周记里要写的.md', '收件箱/梯度下降.md → 课程/机器学习/梯度下降.md'].sort())
+
+    await msg.getByTestId('ai-change').getByRole('button', { name: '撤回' }).click()
+    await expect(msg.getByTestId('ai-change')).toContainText('已撤回')
+    expect(inboxNow()).toEqual(all)
+    for (const p of moved) expect(existsSync(join(vault, p))).toBe(false)
+    expect(existsSync(join(vault, '课程/机器学习/第1讲 线性回归.md'))).toBe(true)
   } finally {
     await run.close()
   }

@@ -2,7 +2,7 @@
  * 调系统 git 命令（SSH、钥匙串直接能用）。每个调用都有超时；git 报错原样抛出。
  */
 import { execFile } from 'node:child_process'
-import { rm, stat, writeFile } from 'node:fs/promises'
+import { rename, rm, stat, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 
 export class GitError extends Error {
@@ -124,11 +124,25 @@ async function gitLocking(dir: string, args: string[]): Promise<string> {
   }
 }
 
+/**
+ * 提交这一步：查过有要提交的、到真的 commit 之间，软件里另一处提交（自动提交、「现在提交」、AI 那次）可能已经把它们收进去了，
+ * git 这时说「nothing to commit」、退出码不是 0。再看一眼还有没有要提交的：没有了就当没有要提交的（返回 false），还有才照样报错
+ */
+async function commitStep(dir: string, args: string[], pending: () => Promise<boolean>): Promise<boolean> {
+  try {
+    await gitLocking(dir, args)
+    return true
+  } catch (e) {
+    if (e instanceof GitError && !(await pending())) return false
+    throw e
+  }
+}
+
 /** 把所有改动提交成一次；没有改动时返回 null */
 export async function commitAll(dir: string, message: string): Promise<string | null> {
   await gitLocking(dir, ['add', '-A'])
   if ((await status(dir)).length === 0) return null
-  await gitLocking(dir, ['commit', '-q', '-m', message])
+  if (!(await commitStep(dir, ['commit', '-q', '-m', message], async () => (await status(dir)).length > 0))) return null
   return (await git(dir, ['rev-parse', 'HEAD'])).trim()
 }
 
@@ -140,7 +154,7 @@ export async function commitPending(dir: string): Promise<string | null> {
   await gitLocking(dir, ['add', '-A'])
   const st = await status(dir)
   if (!st.length) return null
-  await gitLocking(dir, ['commit', '-q', '-m', describeChanges(st)])
+  if (!(await commitStep(dir, ['commit', '-q', '-m', describeChanges(st)], async () => (await status(dir)).length > 0))) return null
   return (await git(dir, ['rev-parse', 'HEAD'])).trim()
 }
 
@@ -345,11 +359,13 @@ export type SyncResult =
   | { kind: 'conflict'; message: string }
   | { kind: 'ok'; committed: string | null; pulled: number; pushed: boolean }
 
+export type PullResult = { kind: 'no-remote' } | { kind: 'conflict'; message: string } | { kind: 'ok'; committed: string | null; pulled: number }
+
 /**
- * 同步：先把本地改动提交，再 pull --rebase，再 push。
- * rebase 冲突时 abort，库回到同步前，交给用户处理。
+ * 拉：先把本地改动提交，再取远程、rebase 到远程上（不推）。打开库时先拉一次（设置 › Git和同步）用它，同步也是先走这一步。
+ * rebase 冲突时 abort，库回到拉之前，交给用户处理。
  */
-export async function sync(dir: string, opts: GitOptions = {}): Promise<SyncResult> {
+export async function pull(dir: string, opts: GitOptions = {}): Promise<PullResult & { remote?: string; branch?: string; remoteHead?: string | null; before?: string | null }> {
   if (!(await hasRemote(dir))) return { kind: 'no-remote' }
   const timeoutMs = opts.timeoutMs ?? 60_000
   const st = await status(dir)
@@ -359,14 +375,13 @@ export async function sync(dir: string, opts: GitOptions = {}): Promise<SyncResu
   const before = await revParse(dir, 'HEAD')
 
   await git(dir, ['fetch', remote], { timeoutMs })
-  const remoteRef = `${remote}/${branch}`
-  const remoteHead = await revParse(dir, remoteRef)
+  const remoteHead = await revParse(dir, `${remote}/${branch}`)
   let pulled = 0
   if (remoteHead) {
-    pulled = Number((await git(dir, ['rev-list', '--count', `HEAD..${remoteRef}`])).trim())
+    pulled = Number((await git(dir, ['rev-list', '--count', `HEAD..${remote}/${branch}`])).trim())
     if (pulled > 0) {
       try {
-        await git(dir, ['rebase', remoteRef], { timeoutMs })
+        await git(dir, ['rebase', `${remote}/${branch}`], { timeoutMs })
       } catch (e) {
         if (!(e instanceof GitError)) throw e
         await git(dir, ['rebase', '--abort']).catch(() => undefined)
@@ -374,9 +389,31 @@ export async function sync(dir: string, opts: GitOptions = {}): Promise<SyncResu
       }
     }
   }
+  return { kind: 'ok', committed, pulled, remote, branch, remoteHead, before }
+}
+
+/**
+ * 同步：先把本地改动提交，再 pull --rebase，再 push。
+ * rebase 冲突时 abort，库回到同步前，交给用户处理。
+ */
+export async function sync(dir: string, opts: GitOptions = {}): Promise<SyncResult> {
+  const p = await pull(dir, opts)
+  if (p.kind !== 'ok') return p.kind === 'no-remote' ? { kind: 'no-remote' } : { kind: 'conflict', message: p.message }
+  const { remote, branch, remoteHead, before } = p as Required<typeof p>
+  const remoteRef = `${remote}/${branch}`
   const ahead = remoteHead ? Number((await git(dir, ['rev-list', '--count', `${remoteRef}..HEAD`])).trim()) : before ? 1 : 0
-  if (ahead > 0) await git(dir, ['push', '-u', remote, `HEAD:${branch}`], { timeoutMs })
-  return { kind: 'ok', committed, pulled, pushed: ahead > 0 }
+  if (ahead > 0) await git(dir, ['push', '-u', remote, `HEAD:${branch}`], { timeoutMs: opts.timeoutMs ?? 60_000 })
+  return { kind: 'ok', committed: p.committed, pulled: p.pulled, pushed: ahead > 0 }
+}
+
+/**
+ * 备一份整个库的历史（设置 › Git和同步「每天备份一份到」）：git bundle 打成一个文件，先写临时文件再换名，
+ * 写到一半断了也不坏上一份。要找回时 git clone 这个文件就是一个完整的库
+ */
+export async function bundle(dir: string, file: string): Promise<void> {
+  const tmp = `${file}.tmp-${process.pid}`
+  await git(dir, ['bundle', 'create', tmp, '--all'], { timeoutMs: 10 * 60_000 })
+  await rename(tmp, file)
 }
 
 async function revParse(dir: string, ref: string): Promise<string | null> {
@@ -398,7 +435,8 @@ export async function commitPaths(dir: string, paths: string[], message: string)
   if (toAdd.length) await gitLocking(dir, ['add', '-A', '--', ...toAdd])
   const staged = (await git(dir, ['diff', '--cached', '--name-only', '-z', '--', ...paths])).split('\0').filter(Boolean)
   if (!staged.length) return null
-  await gitLocking(dir, ['commit', '-q', '-m', message, '--', ...paths])
+  const pending = async () => (await git(dir, ['status', '--porcelain', '-z', '--', ...paths])).split('\0').some(Boolean)
+  if (!(await commitStep(dir, ['commit', '-q', '-m', message, '--', ...paths], pending))) return null
   return (await git(dir, ['rev-parse', 'HEAD'])).trim()
 }
 

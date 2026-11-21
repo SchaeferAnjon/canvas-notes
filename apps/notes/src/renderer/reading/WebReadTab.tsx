@@ -4,6 +4,7 @@
  * 头上「回到网页」胶囊在右栏打开原网页。
  */
 import { Codicon } from '@cn/design'
+import { keyFor, useKeyHandler } from '../keys'
 import { PageNote, TabActs } from '../shell/TabActs'
 import { useEffect, useMemo, useState } from 'react'
 import type { BilingualSaveRequest } from '../../shared/reading'
@@ -50,20 +51,19 @@ export function WebReadTab(props: { url: string; title: string; active: boolean;
     [page],
   )
 
-  // ⌥A：对照 ↔ 只看译文
-  useEffect(() => {
-    if (!props.active) return
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey || e.code !== 'KeyA') return
-      const el = document.activeElement as HTMLElement | null
-      if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return
-      e.preventDefault()
-      e.stopImmediatePropagation()
-      setMode((m) => (m === 'bi' ? 'tr' : 'bi'))
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [props.active])
+  // 双语翻译的键（默认 ⌥A）：对照 ↔ 只看译文；这一页在前面时先归它（比右栏网页的开关先）
+  useKeyHandler(
+    'translate',
+    props.active
+      ? () => {
+          const el = document.activeElement as HTMLElement | null
+          if (el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) return false
+          setMode((m) => (m === 'bi' ? 'tr' : 'bi'))
+          return true
+        }
+      : null,
+    2,
+  )
 
   const want = page ? toTranslate(groups[0]!.blocks) : []
   const done = want.filter((b) => bi.tr[hashOf(b.text)]?.state === 'ok').length
@@ -107,7 +107,7 @@ export function WebReadTab(props: { url: string; title: string; active: boolean;
         <PageNote>
           阅读视图 · {page?.site ?? props.url}
         </PageNote>
-        <div className="seg biseg" role="radiogroup" aria-label="对照 只看译文" data-tip="⌥A 轮流切换" data-side="below">
+        <div className="seg biseg" role="radiogroup" aria-label="对照 只看译文" data-tip={keyFor('translate') ? `${keyFor('translate')} 轮流切换` : '轮流切换'} data-side="below">
           {(
             [
               ['bi', '对照'],

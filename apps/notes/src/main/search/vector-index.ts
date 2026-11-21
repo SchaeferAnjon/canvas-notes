@@ -7,6 +7,9 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { MeaningHit } from '../../shared/search'
 
+/** 库里至少这么多篇（PDF 按页算）才拿中位数卡：篇数太少中位数说明不了「这个库的一般水平」 */
+const SPREAD_FROM = 20
+
 interface FileEntry {
   /** 修改时间 + 大小 */
   sig: string
@@ -74,10 +77,10 @@ export class VectorIndex {
 
   /**
    * 和 q 最像的几处：同一篇 md 只留最像的一段，PDF 每页只留一段。
-   * 只留「够像」的：不低于 min，也不比第一名低出 near 以上（这个模型的分数都挤在 0.75 到 0.9 之间，看相对高低更准）
+   * 只留「够像」的（门槛见 Indexer 的 MEANING）：不低于 min；比各篇（各页）的中位数高出 spread 以上（不到 SPREAD_FROM 篇不看）；
+   * 不比第一名低出 near 以上。anchor：已知最像的能有多像（索引没建完时给，见 Indexer.meaning），比库里找到的最像的还高就按它卡
    */
-  /** anchor：已知最像的能有多像（索引没建完时给，见 Indexer.meaning），比库里找到的最像的还高就按它卡 */
-  search(q: Float32Array, o: { limit: number; min: number; near: number; anchor?: number }): MeaningHit[] {
+  search(q: Float32Array, o: { limit: number; min: number; near: number; spread: number; anchor?: number }): MeaningHit[] {
     const best = new Map<string, MeaningHit>()
     const d = this.dims
     for (const [path, f] of this.files) {
@@ -93,7 +96,8 @@ export class VectorIndex {
     }
     const all = [...best.values()].sort((a, b) => b.score - a.score)
     const top = Math.max(all[0]?.score ?? 0, o.anchor ?? 0)
-    return all.filter((h) => h.score >= o.min && h.score >= top - o.near).slice(0, o.limit)
+    const median = all.length >= SPREAD_FROM ? all[all.length >> 1]!.score : -Infinity
+    return all.filter((h) => h.score >= o.min && h.score - median >= o.spread && h.score >= top - o.near).slice(0, o.limit)
   }
 
   /** 写盘：先写临时文件再换名；行号顺手排紧 */

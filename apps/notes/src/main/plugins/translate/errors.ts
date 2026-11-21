@@ -13,7 +13,7 @@ export class TranslateError extends Error {
 }
 
 /** 这几种是「这个引擎现在用不了」：自动模式下换下一个，不打扰人 */
-export const SWITCHABLE: TrErrorCode[] = ['not-installed', 'not-logged-in', 'bad-model', 'bad-key', 'no-key', 'no-balance']
+export const SWITCHABLE: TrErrorCode[] = ['not-installed', 'not-logged-in', 'bad-model', 'bad-key', 'no-key', 'no-balance', 'incompatible']
 
 /**
  * 认原话（和 AI 对话、边读边问共用 shared/ai-errors.ts 那一套）。status 是 API 回的 HTTP 状态码（命令行没有）。

@@ -1,4 +1,5 @@
 import { CATEGORIES } from '../shared/categories'
+import { useKeys } from './keys'
 import { dreamDoes, type DreamSettings } from '../shared/dream-settings'
 import { buildTree, folderProgress } from '../shared/files'
 import type { FolderCover } from '../shared/folder-home'
@@ -543,6 +544,8 @@ function Categories(props: { onOpen(name: string): void }) {
 }
 
 function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumulate>; act: Activity | null }) {
+  /** 写在界面上的键照命令表（改了跟着变） */
+  const K = useKeys()
   const { a, act, notes } = props
   switch (props.id) {
     case 'cats':
@@ -611,7 +614,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
             <span className="num">{items.length}</span>
             <small>{warn ? '条没整理 · 堆多了' : '条没整理'}</small>
           </button>
-          {items.length === 0 && <p className="empty-note">收件箱是空的。在任何软件里按 ⌥⌘N 速记，回车就落到这里。</p>}
+          {items.length === 0 && <p className="empty-note">{`收件箱是空的。在任何软件里按 ${K('quick-note')} 速记，回车就落到这里。`}</p>}
           {items.slice(0, 3).map((n) => (
             <button key={n.path} className="li" onClick={() => props.onOpen(n.path)} onContextMenu={(e) => onFileMenu(e, n.path)}>
               <Codicon name="inbox" size={12} />

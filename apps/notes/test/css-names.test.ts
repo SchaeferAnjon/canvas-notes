@@ -18,6 +18,8 @@ const OWNERS: Record<string, string[]> = {
   thumbs: ['HomeView.tsx'],
   // 梦游报告的清单（dream.css 里裸定义）：白板收件箱一格曾经也叫 .dlist，被它的样式压歪（2026-11-21）
   dlist: ['dream/DreamPanel.tsx'],
+  // 首页组件（home.css 里裸定义 .wd）：选 AI 的选择器上的小红点曾经也叫 .wd，被拉成一大块红（task-m55m7）
+  wd: ['HomeView.tsx', 'folder-home/FolderHomeView.tsx'],
 }
 
 function files(dir: string, out: string[] = []): string[] {
@@ -29,7 +31,7 @@ function files(dir: string, out: string[] = []): string[] {
   return out
 }
 
-it('通用类名（.mini、.cover、.th、.thumbs、.dlist）只在它自己那一处用，别处起带前缀的名字', () => {
+it('通用类名（.mini、.cover、.th、.thumbs、.dlist、.wd）只在它自己那一处用，别处起带前缀的名字', () => {
   const hits: string[] = []
   for (const f of files(SRC)) {
     const rel = relative(SRC, f)

@@ -1,10 +1,12 @@
 import { composing } from '../ime'
+import { keyFor } from '../keys'
 /**
  * 方向 A「视频条」：右栏网页原样，只在视频页的地址栏下面多两行。
  * 第一行：字幕开关（点开字幕菜单）、记下这一刻 ⌥S、框一块问 ⌥D、右端「记到 …」；
  * 第二行：刻度（每个时刻一根，问过 AI 的是空心圆，刚记的是紫色，播放头紫色），点一根跳回那一秒；右端「N 个时刻 ▾」。
  */
 import { Codicon } from '@cn/design'
+import { VIDEO_SUBS_EVENT } from '../settings/jump'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { LANGS, langName, primary, SHORT } from '../../shared/plugins/translate'
 import { sttErrorView } from '../../shared/stt-errors'
@@ -35,6 +37,15 @@ export function VideoStrip({ wcId, narrow }: { wcId: number; narrow: boolean }) 
   const set = useVideoSettings()
   const center = useCenter()
   const [pop, setPop] = useState<Pop>(null)
+  // 设置 › 网页和视频「字幕怎么显示、记到哪 · 在视频条里改 ›」：打开字幕菜单（接住了就 preventDefault）
+  useEffect(() => {
+    const on = (e: Event) => {
+      e.preventDefault()
+      setPop('subs')
+    }
+    window.addEventListener(VIDEO_SUBS_EVENT, on)
+    return () => window.removeEventListener(VIDEO_SUBS_EVENT, on)
+  }, [])
   const ref = useRef<HTMLDivElement>(null)
 
   // 点外面收起弹层
@@ -54,10 +65,11 @@ export function VideoStrip({ wcId, narrow }: { wcId: number; narrow: boolean }) 
   const dest = destNow(st.title)
   const on = set.mode !== 'off' && !st.off && st.subs === 'ready'
   const lab = subLabel(st, set.mode)
+  const failed = trFailed(st)
   return (
     <div className="vstrip" ref={ref} role="region" aria-label="视频条">
       <div className="vbar">
-        <button type="button" className={'vsub' + (on ? ' on' : '')} aria-label="字幕" aria-haspopup="dialog" aria-expanded={pop === 'subs'} title="字幕：双语、翻成什么、放在哪" onClick={() => setPop(pop === 'subs' ? null : 'subs')}>
+        <button type="button" className={'vsub' + (on ? ' on' : '') + (failed ? ' warn' : '')} aria-label="字幕" aria-haspopup="dialog" aria-expanded={pop === 'subs'} title={failed ? `${st.trFailed}句没翻成${st.trError ? `：${st.trError}` : ''}。点开再试一次` : '字幕：双语、翻成什么、放在哪'} onClick={() => setPop(pop === 'subs' ? null : 'subs')}>
           {st.stt && !st.stt.error ? <Codicon name="loading" size={13} className="spin" /> : <i className="vdot" />}
           <span className="truncate">{lab}</span>
           <Codicon name="chevron-down" size={12} />
@@ -107,6 +119,9 @@ export function VideoStrip({ wcId, narrow }: { wcId: number; narrow: boolean }) 
 
 const STAGES = ['download', 'listen', 'translate'] as const
 
+/** 这一轮翻完了还有几句没翻成（在翻的时候不算） */
+const trFailed = (st: VideoState) => (st.target && !st.translating && st.trFailed > 0 ? st.trFailed : 0)
+
 function subLabel(st: VideoState, mode: SubMode): string {
   if (st.stt && !st.stt.error) return `生成字幕${STAGES.indexOf(st.stt.stage) + 1}/3`
   if (st.subs === 'loading') return '字幕 读取中'
@@ -115,6 +130,8 @@ function subLabel(st: VideoState, mode: SubMode): string {
   if (st.subs === 'error') return '字幕没拿到'
   if (mode === 'off' || st.off) return '字幕关'
   const src = short(st.track)
+  // 没翻成时省掉语言对（菜单里看得到），按钮不加宽也放得下「N句没翻成」
+  if (trFailed(st)) return `字幕 · ${st.trFailed}句没翻成`
   const tr = st.target && st.translated < st.total ? ` · ${Math.round((st.translated / Math.max(1, st.total)) * 100)}%` : ''
   return st.target ? `字幕 ${src}→${short(st.target)}${tr}` : `字幕 ${src}`
 }
@@ -222,12 +239,27 @@ function SubMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
       <div className="trm-sec">
         <div className="trm-lab">
           翻成<span className="sp" />
-          {st.target && st.translated < st.total && (
+          {st.target && st.translated < st.total && !trFailed(st) && (
             <span>
-              {`翻了${st.translated} / ${st.total}句`}
+              {`翻了${st.translated}/${st.total}句`}
             </span>
           )}
         </div>
+        {trFailed(st) > 0 && (
+          <div className="aierr vtr-err" data-testid="tr-error">
+            <div className="t">
+              <Codicon name="error" size={12} className="ic" />
+              <span>{`有${st.trFailed}句没翻成${st.trError ? `：${st.trError}` : ''}`}</span>
+            </div>
+            <div className="acts">
+              <button type="button" className="btn btn-sm" onClick={() => void window.cnVideo.retryTranslate(st.wcId).catch((e) => notice(errText(e)))}>
+                <Codicon name="refresh" size={13} />
+                再试一次
+              </button>
+            </div>
+            {st.trRaw && <RawWords raw={st.trRaw} />}
+          </div>
+        )}
         <label className="vsearch">
           <Codicon name="search" size={13} />
           <input aria-label="翻成什么语言" placeholder="搜任何语言，比如 越南语、Deutsch" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => !composing(e) && e.key === 'Enter' && q.trim() && void target(found[0]?.code ?? q.trim())} />
@@ -286,7 +318,7 @@ function SubMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
         <span className="sp" />
         <Toggle on={set.withTranslation} label="存字幕全文时带译文" onChange={(v) => void setVideoSettings({ withTranslation: v })} />
       </div>
-      <p className="vfoot">和网页翻译同一个引擎、同一份缓存；地址栏的翻译图标和 ⌥A 在视频页上就是开关字幕。</p>
+      <p className="vfoot">{`和网页翻译同一个引擎、同一份缓存；地址栏的翻译图标${keyFor('translate') ? `和 ${keyFor('translate')} ` : ''}在视频页上就是开关字幕。`}</p>
     </div>
   )
 }
@@ -436,7 +468,7 @@ function MomentsMenu({ st, wcId, onClose }: { st: VideoState; wcId: number; onCl
         <Codicon name="search" size={13} />
         <input aria-label="在时刻里找" placeholder={`在这个视频的${st.moments.length}个时刻里找`} value={q} onChange={(e) => setQ(e.target.value)} />
       </label>
-      {!st.moments.length && <p className="vnote">还没有。按 ⌥S 记下这一刻，按 ⌥D 框一块问。</p>}
+      {!st.moments.length && <p className="vnote">{`还没有。按 ${keyFor('video-moment')} 记下这一刻，按 ${keyFor('video-ask')} 框一块问。`}</p>}
       {groups.map(({ c, items }) => (
         <div key={c.start} className="vgroup">
           {c.title && (

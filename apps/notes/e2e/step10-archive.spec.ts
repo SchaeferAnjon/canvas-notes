@@ -37,9 +37,10 @@ const agedSmall = (vault: string) => {
   age(vault, '收件箱/老速记.md', 300)
 }
 
+/** 设置方向 A：多久没改算归档挪到了「文件和附件」 */
 async function openVaultSettings(page: Page) {
   await page.keyboard.press('Meta+,')
-  await settingsDialog(page).getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '库', exact: true }).click()
+  await settingsDialog(page).getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '文件和附件', exact: true }).click()
 }
 
 test('置顶：右键「置顶」进左栏最上面一组，存在库里 .canvas-notes/置顶.json；改名跟着走；「取消置顶」拿掉；归档里的笔记置顶后回到左栏', async () => {
@@ -157,9 +158,9 @@ test('归档天数在设置 › 库 里改：30 天、不自动归档、180 天�
   try {
     await expect(page.getByTestId('archive-count')).toHaveText('2篇')
     await openVaultSettings(page)
-    const sel = settingsDialog(page).getByRole('combobox', { name: '自动归档' })
+    const sel = settingsDialog(page).getByRole('combobox', { name: '多久没改算归档' })
     await expect(sel).toHaveValue('90')
-    await expect(sel.locator('option')).toHaveText(['30天没改过', '60天没改过', '90天没改过', '180天没改过', '不自动归档'])
+    await expect(sel.locator('option')).toHaveText(['不自动归档', '30天', '60天', '90天', '180天'])
     await sel.selectOption('30')
     // 上个月（45 天）也归档了
     await expect(page.getByTestId('archive-count')).toHaveText('3篇')
@@ -174,8 +175,8 @@ test('归档天数在设置 › 库 里改：30 天、不自动归档、180 天�
     await expect(pane(page).locator('.ix-empty')).toContainText('没开自动归档')
     // 「在设置里打开」直接到库那一页
     await pane(page).getByRole('button', { name: '在设置里打开' }).click()
-    await expect(settingsDialog(page).getByRole('combobox', { name: '自动归档' })).toHaveValue('0')
-    await settingsDialog(page).getByRole('combobox', { name: '自动归档' }).selectOption('90')
+    await expect(settingsDialog(page).getByRole('combobox', { name: '多久没改算归档' })).toHaveValue('0')
+    await settingsDialog(page).getByRole('combobox', { name: '多久没改算归档' }).selectOption('90')
     await expect(page.getByTestId('archive-count')).toHaveText('2篇')
     expect(gitStatus(vault)).toBe('')
   } finally {
@@ -201,7 +202,7 @@ test('收件箱超过 20 条：活动栏计数和首页收件箱组件变提醒�
     await pane(page).getByRole('textbox', { name: '速记' }).press('Enter')
     await expect(page.getByTestId('inbox-count')).toHaveText('21')
     await expect(page.getByTestId('inbox-count')).toHaveClass(/warn/)
-    const tidy = side(page).getByRole('button', { name: '收件箱堆了21条，让AI按主题分进剪藏' })
+    const tidy = side(page).getByRole('button', { name: '收件箱堆了21条，让AI分进课程、周记、剪藏这些' })
     await expect(tidy).toHaveClass(/s-tidy/)
     await expect(tidy).toContainText('让AI分一分')
     await page.getByRole('banner').getByRole('button', { name: '首页' }).click()
@@ -245,7 +246,7 @@ test('7000 篇的库：启动、左栏（最近、文件树）、文件夹首页
 
     // 收件箱那一枝底下：堆多了的「让 AI 分一分」
     await leftView(page, '收件箱')
-    await expect(side(page).getByRole('button', { name: /让AI按主题分进剪藏/ })).toBeVisible()
+    await expect(side(page).getByRole('button', { name: /让AI分进课程、周记、剪藏这些/ })).toBeVisible()
 
     // 文件树：只画展开了的，一个文件夹先列 100 个
     let t = Date.now()
@@ -365,11 +366,11 @@ test('截图：十套主题下的左栏（有置顶、收件箱提醒）和归�
       await page.waitForTimeout(250)
       await page.screenshot({ path: shot(`skin-${skin}.png`) })
     }
-    // 设置 › 库：自动归档天数
+    // 设置 › 文件和附件：多久没改算归档
     await page.keyboard.press('Meta+,')
     await settingsDialog(page).locator('[data-skin-card="mint"]').click()
-    await settingsDialog(page).getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '库', exact: true }).click()
-    await expect(settingsDialog(page).getByRole('combobox', { name: '自动归档' })).toBeVisible()
+    await settingsDialog(page).getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '文件和附件', exact: true }).click()
+    await expect(settingsDialog(page).getByRole('combobox', { name: '多久没改算归档' })).toBeVisible()
     await page.screenshot({ path: shot('settings-vault.png') })
     await page.keyboard.press('Escape')
     await leftView(page, '最近')

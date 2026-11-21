@@ -5,7 +5,7 @@
  * CN_TR_FAKE_FAIL 让某个命令行回一句错（claude=Not logged in · Please run /login;codex=…）。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { EngineId } from '../../../shared/agent'
@@ -73,8 +73,11 @@ export function realCli(cwd: string): CliBackend {
   }
   return {
     state: (id) => (!findCli(id) ? 'missing' : loggedIn(id) ? 'ok' : 'login'),
-    async ask(id, system, prompt, signal, onText) {
-      const r = await engine(id).run({ prompt, system, cwd, signal, onText, ...(id === 'claude' ? { model: FAST_MODEL } : {}) })
+    async ask(id, system, prompt, signal, onText, pick) {
+      // 新装的软件里插件文件夹还没建（state.json 头一次存设置时才建）：工作目录不在，命令行起不来（spawn ENOENT），会被当成「没装」
+      mkdirSync(cwd, { recursive: true })
+      const model = pick?.model || (id === 'claude' ? FAST_MODEL : undefined)
+      const r = await engine(id).run({ prompt, system, cwd, signal, onText, ...(model ? { model } : {}), ...(pick?.effort ? { effort: pick.effort } : {}) })
       return r.text
     },
   }
@@ -89,19 +92,30 @@ function parseMap(s: string | undefined, sep: RegExp): Map<string, string> {
   return m
 }
 
-/** 假的命令行（CN_AI_FAKE=1）：按提示给固定的回答，一行一行吐，和真模型一样 */
+/**
+ * 假的命令行（CN_AI_FAKE=1）：按提示给固定的回答，一行一行吐，和真模型一样。
+ * CN_TR_FAKE_SKIP=字:次数：原文里有这几个字的段前几次不回（演 AI 漏段，不写次数是一直不回）；CN_TR_FAKE_HANG：这一批里有这几个字就一直不回话、也不理会停下（演命令行卡死）
+ */
 export function fakeCli(env: NodeJS.ProcessEnv = process.env): CliBackend {
+  const skipped = new Map<string, number>()
   return {
     state(id) {
       const s = parseMap(env.CN_TR_FAKE_CLI, /,/).get(id)
       return s === 'login' || s === 'missing' ? s : 'ok'
     },
-    async ask(id, _system, prompt, signal, onText) {
+    async ask(id, _system, prompt, signal, onText, pick) {
       await new Promise((r) => setTimeout(r, Number(env.CN_AI_FAKE_DELAY_MS) || 300))
+      if (env.CN_TR_FAKE_HANG && prompt.includes(env.CN_TR_FAKE_HANG)) await new Promise<never>(() => {})
+      if (env.CN_TR_FAKE_PICK_LOG && pick) appendFileSync(env.CN_TR_FAKE_PICK_LOG, JSON.stringify({ id, ...pick }) + '\n')
       if (signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
       const fail = parseMap(env.CN_TR_FAKE_FAIL, /;/).get(id)
       if (fail) throw new Error(fail)
-      const out = fakeAnswer(prompt)
+      let out = fakeAnswer(prompt)
+      const [skip, times] = (env.CN_TR_FAKE_SKIP ?? '').split(':')
+      if (skip && prompt.includes(skip) && (skipped.get(skip) ?? 0) < (Number(times) || Infinity)) {
+        skipped.set(skip, (skipped.get(skip) ?? 0) + 1)
+        out = out.split('\n').filter((l) => !l.includes(`译文：${skip}`)).join('\n')
+      }
       for (const line of out.split(/(?<=\n)/)) onText(line)
       return out
     },

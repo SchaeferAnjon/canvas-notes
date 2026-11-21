@@ -3,6 +3,7 @@
  * 加一个内置插件：在 PLUGINS 里加一行（主进程那半加到 main/plugins/index.ts）。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { keyFor } from '../keys'
 import { PERMISSION_LABEL, type PluginInfo } from '../../shared/plugins'
 import type { CSSProperties } from 'react'
 import type { PaletteCommand } from '../Palette'
@@ -88,7 +89,7 @@ export function PluginButtons(props: { slot: 'address' | 'toolbar'; page: WebPag
 
 /** 「⋯」菜单里插件的项（声明了 button.menu 的）：名字、快捷键、点了做什么 */
 export function usePluginMenu(page: WebPage | null): { id: string; label: string; keys?: string; icon: RendererPlugin['icon']; run(): void }[] {
-  return useOn().flatMap((p) => (p.button?.menu && p.button.click ? [{ id: p.id, label: p.button.menu.label, keys: p.button.menu.keys, icon: p.icon, run: () => p.button!.click!(page) }] : []))
+  return useOn().flatMap((p) => (p.button?.menu && p.button.click ? [{ id: p.id, label: p.button.menu.label, keys: p.button.menu.keys ? (keyFor(p.button.menu.keys) ?? undefined) : undefined, icon: p.icon, run: () => p.button!.click!(page) }] : []))
 }
 
 /** 「⋯」菜单「这一页」组里各插件自己的项 */
@@ -149,6 +150,9 @@ export function BuiltinPlugins(props: { onNotice(t: string): void; onSettings():
   )
 }
 
+/** 设置搜索、「排顺序 ›」跳到哪个插件那一块（shared/settings-index.ts 的 id） */
+const PLUGIN_ROW: Record<string, string> = { translate: 'plTranslate', bookmarks: 'plBook', weread: 'plWeread', adblock: 'plAd' }
+
 /** 设置 · 插件：每个内置插件一块（开关 + 它自己的设置） */
 export function PluginsSettings(props: { onNotice(t: string): void }) {
   const list = usePlugins()
@@ -157,7 +161,7 @@ export function PluginsSettings(props: { onNotice(t: string): void }) {
       {list.map((i) => {
         const p = byId(i.id)
         return (
-          <section key={i.id} className="plug-set" aria-label={i.name}>
+          <section key={i.id} className="plug-set" aria-label={i.name} data-row={PLUGIN_ROW[i.id]}>
             <h4>
               {i.name} <span>要用：{perms(i)}</span>
             </h4>

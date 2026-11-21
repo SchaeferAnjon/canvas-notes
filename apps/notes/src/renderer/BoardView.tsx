@@ -1,4 +1,5 @@
 import { composing } from './ime'
+import { accelFor, isKey, keyFor } from './keys'
 import {
   appendBlock,
   attr,
@@ -231,12 +232,13 @@ export function BoardView(props: BoardViewProps) {
   useEffect(() => {
     if (!props.active) return
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.altKey || e.ctrlKey || typingIn(e.target)) return
+      if (typingIn(e.target)) return
+      // 键照命令表（放大、缩小、原大、适合窗口，设置 › 快捷键里能改）
       const z = zoomRef.current
-      if (e.key === '=' || e.key === '+') z.zoomTo(stepZoom(liveZoom.current, 1))
-      else if (e.key === '-' || e.key === '_') z.zoomTo(stepZoom(liveZoom.current, -1))
-      else if (e.key === '0' && !e.shiftKey) z.zoomTo(1)
-      else if (e.code === 'Digit1' && e.shiftKey) z.fit()
+      if (isKey(e, 'zoom-in')) z.zoomTo(stepZoom(liveZoom.current, 1))
+      else if (isKey(e, 'zoom-out')) z.zoomTo(stepZoom(liveZoom.current, -1))
+      else if (isKey(e, 'zoom-reset')) z.zoomTo(1)
+      else if (isKey(e, 'zoom-fit')) z.fit()
       else return
       e.preventDefault()
       e.stopPropagation()
@@ -606,7 +608,7 @@ export function BoardView(props: BoardViewProps) {
       '-',
       !target && body.trim() && { label: '转成文档', run: () => cardToDoc(id, body) },
       '-',
-      { label: '删除', accel: 'Backspace', run: () => (removeBlocks(new Set([id])), setSelected(new Set())) },
+      { label: '删除', accel: accelFor('delete'), run: () => (removeBlocks(new Set([id])), setSelected(new Set())) },
     ]
   }
 
@@ -618,7 +620,7 @@ export function BoardView(props: BoardViewProps) {
       '-',
       { label: '放进新列', run: () => commit(intoNewColumn(doc, ids, rects)) },
       '-',
-      { label: `删除 ${ids.size} 张`, accel: 'Backspace', run: () => (removeBlocks(ids), setSelected(new Set())) },
+      { label: `删除 ${ids.size} 张`, accel: accelFor('delete'), run: () => (removeBlocks(ids), setSelected(new Set())) },
     ]
   }
 
@@ -632,7 +634,7 @@ export function BoardView(props: BoardViewProps) {
       '-',
       {
         label: '拍导图',
-        accel: 'Shift+CommandOrControl+C',
+        accel: accelFor('capture'),
         run: () =>
           openCapture({
             onPlaced: (path) => {
@@ -647,7 +649,7 @@ export function BoardView(props: BoardViewProps) {
       // 剪贴板里是图：交给白板接粘贴的那条路（存进附件、放图片卡）；是字：在点的地方放一张卡
       clip.image
         ? { edit: 'paste' }
-        : { label: '粘贴', accel: 'CommandOrControl+V', enabled: clip.text, run: async () => {
+        : { label: '粘贴', accel: accelFor('paste'), enabled: clip.text, run: async () => {
             const t = (await window.cnMenu.readClipboardText()).trim()
             if (!t) return
             const now = latest.current
@@ -673,7 +675,7 @@ export function BoardView(props: BoardViewProps) {
       const key = wireEl.dataset.link!
       setSelLink(key)
       setSelected(new Set())
-      items = [{ label: '删除连线', accel: 'Backspace', run: () => (commit(withLinks(doc, links.filter((l) => `${l.from}>${l.to}` !== key))), setSelLink(null)) }]
+      items = [{ label: '删除连线', accel: accelFor('delete'), run: () => (commit(withLinks(doc, links.filter((l) => `${l.from}>${l.to}` !== key))), setSelLink(null)) }]
     } else if (cardEl?.dataset.id) {
       const id = cardEl.dataset.id
       setSelLink(null)
@@ -965,7 +967,7 @@ export function BoardView(props: BoardViewProps) {
           <hr />
           <button
             data-tip="拍一张导图：点一下，或按住拖到白板上（做好后落点放一张指向它的卡片）"
-            data-key="⇧⌘C"
+            data-key={keyFor('capture') ?? undefined}
             data-side="right"
             onPointerDown={(e) => startPal(e, 'board', true)}
             onClick={() => {
@@ -991,7 +993,7 @@ export function BoardView(props: BoardViewProps) {
         />
       )}
       {drag?.type === 'loose' && (
-        <div className="ghost" style={{ left: drag.client.x, top: drag.client.y }}>
+        <div className="board-ghost" style={{ left: drag.client.x, top: drag.client.y }}>
           {previewOf(drag.text, 60)}
         </div>
       )}
@@ -1195,7 +1197,7 @@ function TodoEditor(props: { initial: string; focusLine: number | null; onDraft:
           />
         </div>
       ))}
-      <div className="todo-hint">回车加一条 · 空着按退格删掉 · ⌘回车或点别处存</div>
+      <div className="todo-hint">{`回车加一条 · 空着按退格删掉 · ${keyFor('submit')} 或点别处存`}</div>
     </div>
   )
 }

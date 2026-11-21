@@ -3,6 +3,8 @@
  * main/index.ts 只调这里的 setupWeb 和 attachWebview。
  */
 import { app, type BrowserWindow, ipcMain, session, webContents as allWebContents, type WebContents } from 'electron'
+import type { WebPrefs } from '../../shared/prefs'
+import { setupDownloads } from './downloads'
 import { join } from 'node:path'
 import * as git from '@cn/git'
 import type { ImageSource } from '../../shared/web-api'
@@ -20,11 +22,14 @@ import { noteIcon, notifyBookmarksChanged, setupBookmarkKeeper } from './bookmar
 import { Extensions } from './extensions'
 import { Bookmarks, History } from './library'
 import { clipFileName, extractPage, listenForExtracts, localizeImages, pageClipText } from './page-clip'
+import { setupMediaHold } from './media-hold'
 
 interface Deps {
   partition: string
   window(): BrowserWindow | null
   vault(): Vault | null
+  /** 设置 › 网页和视频「下载放在」 */
+  downloads(): WebPrefs['downloads']
 }
 
 let deps: Deps
@@ -96,8 +101,11 @@ export async function setupWeb(d: Deps): Promise<void> {
   // 窗口都关了以后再存（before-quit 时网页还在，之后还会记，留下的定时器会在 Node 收尾时才跑）
   app.on('will-quit', () => history.flush())
   listenForExtracts()
+  setupMediaHold(isOurWebview)
 
   const ses = session.fromPartition(d.partition)
+  // 右栏网页里的下载（设置 › 网页和视频「下载放在」）
+  setupDownloads(ses, { window: d.window, vault: d.vault, mode: d.downloads })
   extensions = new Extensions(join(dir, 'extensions'), ses, {
     openTab,
     selectTab: (wc) => !quiet && send('web:tab-command', { type: 'select', webContentsId: wc.id }),
@@ -235,30 +243,11 @@ export function attachWebview(wc: WebContents, win: BrowserWindow) {
   // 书签管家新标签页里的网站图标用右栏开过的网站报的图标
   wc.on('page-favicon-updated', (_e, icons) => noteIcon(wc.getURL(), icons))
   wc.on('before-input-event', (e, input) => {
-    // ⌘K 里给命令设的快捷键（软件开着时在哪都能按）：网页有焦点时也转给界面
+    // 软件的快捷键（命令表里「软件里」的，task-spsmf）：网页有焦点时也转给界面，界面照样按一下；网页里自己的脚本接的（双语翻译、剪下选中的一段）不转
     const own = forwardedKey(input)
-    if (own) {
-      e.preventDefault()
-      send('app:key', own)
-      return
-    }
-    if (input.type !== 'keyDown' || !input.meta || input.control) return
-    // ⌘\ 收左栏、⌥⌘\ 收右栏（CN-125）：网页有焦点时也要能用；按着 ⌥ 时 key 不是「\」，认按键的位置
-    if (input.code === 'Backslash') {
-      e.preventDefault()
-      send('app:key', input.alt ? 'alt+\\' : '\\')
-      return
-    }
-    if (input.alt) return
-    const k = input.key.toLowerCase()
-    if (k === 't' || k === 'w' || k === 'l') {
-      e.preventDefault()
-      send('web:key', k, wc.id)
-    } else if (k === 'j' || k === 'k' || k === 'f' || k === 'o' || k === 'n' || k === ',') {
-      // 整个软件的快捷键（AI、搜索、按名字跳、新建、设置）：网页有焦点时也要能用
-      e.preventDefault()
-      send('app:key', k)
-    }
+    if (!own) return
+    e.preventDefault()
+    send('app:key', own)
   })
   wc.once('destroyed', () => {
     if (activeId === wc.id) activeId = null

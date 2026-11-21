@@ -3,6 +3,7 @@
  * 还有文档标签条右端的「更多」，都是这一份。
  */
 import { fixedFolder } from '../../shared/files'
+import { accelFor } from '../keys'
 import { folderPinKey } from '../../shared/left'
 import { leftConfig } from '../files/left-store'
 import { titleOf } from '../../shared/layout'
@@ -51,7 +52,7 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
   // 挪到哪：库里任何文件夹；不能挪进自己里面，也不挪回原处
   const targets = moveMenu(a.allFolders(), here, (f) => a.moveFolder(folder, f), (f) => f === folder || f.startsWith(folder + '/'))
   return [
-    { label: '新建笔记', accel: 'CommandOrControl+N', run: () => a.newNote(folder) },
+    { label: '新建笔记', accel: accelFor('new-note'), run: () => a.newNote(folder) },
     { label: '新建白板', run: () => a.newBoard(folder) },
     on.newFolder && { label: '新建文件夹', run: () => on.newFolder!() },
     '-',
@@ -62,13 +63,13 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
     onLeft ? { label: '从左边拿下', run: () => a.takeOffLeft(folder) } : { label: '放到左边', run: () => a.putOnLeft(folder) },
     on.look && { label: '换图标和颜色…', run: () => on.look!() },
     '-',
-    !fixed && on.rename && { label: '重命名…', accel: 'F2', run: () => on.rename!() },
+    !fixed && on.rename && { label: '重命名…', accel: accelFor('rename'), run: () => on.rename!() },
     !fixed && targets.length > 0 && { label: '移到', submenu: targets },
     '-',
     { label: '在访达中显示', run: () => window.cnMenu.reveal(folder) },
     { label: '拷贝路径', run: () => copy(a.absPath(folder)) },
     '-',
-    !fixed && { label: '移到废纸篓', accel: 'CommandOrControl+Backspace', run: () => a.trashFolder(folder) },
+    !fixed && { label: '移到废纸篓', accel: accelFor('tree-trash'), run: () => a.trashFolder(folder) },
   ]
 }
 

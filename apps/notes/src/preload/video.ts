@@ -6,6 +6,7 @@
  * 字幕和框都画在 shadow DOM 里，网站的样式碰不到，也不改网站的页面结构。
  */
 import { ipcRenderer } from 'electron'
+import { playNow } from './media-hold'
 
 type Row = [number, number, string, string]
 interface Subs {
@@ -316,17 +317,17 @@ ipcRenderer.on('video:cmd', (_e, cmd: string, arg: unknown) => {
   if (!v) return
   if (cmd === 'seek' && typeof arg === 'number') {
     v.currentTime = Math.max(0, arg)
-    if (v.paused) void v.play().catch(() => undefined)
+    if (v.paused) void playNow(v)
   } else if (cmd === 'still' && typeof arg === 'number') {
     // 「接着问」：跳回那一秒停住
     v.pause()
     v.currentTime = Math.max(0, arg)
   } else if (cmd === 'toggle') {
-    if (v.paused) void v.play().catch(() => undefined)
+    if (v.paused) void playNow(v)
     else v.pause()
   } else if (cmd === 'skip' && typeof arg === 'number') v.currentTime = Math.max(0, v.currentTime + arg)
   else if (cmd === 'pause') v.pause()
-  else if (cmd === 'play') void v.play().catch(() => undefined)
+  else if (cmd === 'play') void playNow(v)
   else if (cmd === 'box') startBox()
   else if (cmd === 'flash') flash()
 })

@@ -14,10 +14,12 @@ import { realpathSync } from 'node:fs'
 import { rename } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import * as git from '@cn/git'
+import { type ActTally, actScope, noTally } from '../../shared/ai-act'
 import type { AgentContext, AiAct, AiActArea, AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from '../../shared/agent'
 import type { AiCommitFailed, CommitInfo } from '../../shared/api'
 import { commitErrorText } from '../../shared/git-errors'
-import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, FEATURES, fitPick, hasEffort, type ModelOption, modelsOf, pickLabel, resolvePick } from '../../shared/ai-features'
+import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, FEATURES, fitPick, MODEL_ID, type ModelOption, modelsOf, pickLabel, resolvePick } from '../../shared/ai-features'
+import { problemText } from '../../shared/engine-health'
 import { usesOf } from '../../shared/ai-logo'
 import { checkMaterials, withMaterials } from '../../shared/materials'
 import { BRAND } from '../../shared/brand'
@@ -27,7 +29,8 @@ import type { Vault } from '../vault'
 import type { Size } from './board-ops'
 import { describeContext } from './context'
 import { checkCli, checkedCli, COMMAND, findCli, forgetChecks, INSTALL_HINT, loadShellPath, locateCli, pickedCli, setCustomCli, whereOf } from './cli'
-import { claudeEngine, codexEngine, codexModelList, type Engine, type EngineOutcome, type EngineRun, geminiEngine, LABELS, opencodeEngine, sessionOf } from './engines'
+import { claudeEngine, codexEngine, type Engine, type EngineOutcome, type EngineRun, geminiEngine, LABELS, opencodeEngine, sessionOf } from './engines'
+import { checkNow, engineState, noteVersion, pulledModels, refreshAll, startEngineWatch, updateNow, watchInfo, watching } from './engine-watch'
 import { fakeCodexModels, fakeEngine } from './fake-engine'
 import { pastedImages } from '../pasted'
 import { type McpServer, startMcpServer } from './mcp-server'
@@ -36,7 +39,7 @@ import type { ChatSummary } from '../../shared/ai-chats'
 import { AgentStore } from './store'
 import { runTool, stepLabel, type ToolHost, toolLabel, toolSpecs } from './tools'
 import * as vops from './vault-ops'
-import { modeLine, MODES_RULE } from './modes'
+import { modeLine, MODES_RULE, userNoteLine } from './modes'
 import * as web from './web'
 
 export { attachWeb, markedClips, unmarkClips } from './web'
@@ -85,8 +88,12 @@ interface Turn {
   touched: Map<string, string>
   /** 已经先提交过用户的字的文件 */
   checked: Set<string>
-  /** 这一轮动过手的地方（白板、文档、网页）：界面上画外圈和提示条，做完收起（DESIGN.v3 2.3） */
+  /** 这一轮动过手的地方（白板、文档、网页）：界面上画流光和提示条，做完收起（DESIGN.v3 2.3） */
   acts: Set<AiActArea>
+  /** 其中整块亮着的（四边一道光、顶上提示条）；只亮一处的（只加一张卡、只写一段）不在这里 */
+  whole: Set<AiActArea>
+  /** 这一轮做了多少：做完时「整理好了 · 挪了N张卡」、停下时「做完的N步留着」 */
+  tally: ActTally
   /** 用户按了停下（esc、提示条「停下」、发送键）：一长串的下一步不做了 */
   signal: AbortSignal
   /** 全能模式：AI 自己的工具改了库里什么，这一轮结束看库里多出来的改动 */
@@ -285,6 +292,13 @@ function hostFor(t: Turn): ToolHost {
       act({ turn: t.id, kind: 'grab', area: 'board', path, ids, ms })
       await wait(ms, t.signal)
     },
+    // 只加一张卡：只亮那一张（这一轮已经整块亮着时不用，指针去拿它时外面跑一圈就够）
+    spot(path, ids) {
+      if (!t.whole.has('board')) act({ turn: t.id, kind: 'spot', area: 'board', path, ids })
+    },
+    tally(k, n = 1) {
+      t.tally[k] += n
+    },
     async settle(path, of) {
       if (t.signal.aborted || !(await bridge<boolean>('onScreen', path).catch(() => false))) return
       await wait(pace(of).settle, t.signal)
@@ -370,15 +384,18 @@ function hostFor(t: Turn): ToolHost {
       async insert(text) {
         const path = await docPath()
         await beforeEdit(t, path)
-        await bridge('docInsert', { path, text })
+        // 只写一段：这一段左边竖线里一道光往下走、下面「AI 在写这一段 · 停下 esc」（turn 给界面认是哪一轮）
+        await bridge('docInsert', { path, text, turn: t.id })
         t.touched.set(path, '改')
+        t.tally.added++
         return `插好了（${path}）`
       },
       async replaceSelection(text) {
         const path = await docPath()
         await beforeEdit(t, path)
-        await bridge('docReplace', { path, text })
+        await bridge('docReplace', { path, text, turn: t.id })
         t.touched.set(path, '改')
+        t.tally.changed++
         return `换好了（${path}）`
       },
     },
@@ -423,24 +440,24 @@ async function ensureMcp(): Promise<McpServer> {
 }
 
 /**
- * 这一轮第一次动白板、文档、网页时告诉界面：那一块外圈亮起来、顶上出「AI 正在整理这块白板 · 停下 esc」，到这一轮做完为止。
- * 白板是哪一块：工具里给了 path 就是它，不然是当前标签里的那篇；读白板（board_list）也算开始动手（第一步）
+ * 这一轮在白板、文档、网页上动手时告诉界面（shared/ai-act.ts 的 actScope 定在哪、整块还是一处）：
+ * 整块的第一次发 start（四边一道光绕圈、顶上「AI 正在整理这块白板 · 停下 esc」，到这一轮做完为止）；
+ * 文档里只写一段发 spot（那一段由界面插的时候亮）；白板只加一张卡的 spot 等卡写好有了 id 再发（hostFor 的 spot）。
+ * 只是看（board_list、doc_read）不亮：光只在 AI 真动手的地方
  */
 async function announce(t: Turn, name: string, args: Record<string, unknown>) {
-  const area: AiActArea | null = name.startsWith('board_') ? 'board' : name.startsWith('web_') ? 'web' : name.startsWith('doc_') ? 'doc' : null
-  if (!area || t.acts.has(area)) return
-  let path: string | null = null
-  if (area !== 'web') {
-    const given = typeof args.path === 'string' && args.path.trim() ? args.path : null
-    const ctx = await bridge<AgentContext>('context').catch(() => null)
-    const tab = ctx?.tab
-    const here = tab?.type === 'note' && tab.path ? tab : null
-    if (area === 'board') path = given ?? (here && (here.board || here.mode === 'board') ? here.path! : null)
-    else path = here && here.mode !== 'board' ? here.path! : null
-    if (!path) return
-  }
-  t.acts.add(area)
-  act({ turn: t.id, kind: 'start', area, path })
+  if (!/^(board_|doc_|web_|note_write$)/.test(name)) return
+  if (name.startsWith('web_') && t.whole.has('web')) return
+  const ctx = name.startsWith('web_') ? null : await bridge<AgentContext>('context').catch(() => null)
+  const tab = ctx?.tab.type === 'note' && ctx.tab.path ? ctx.tab : null
+  const scope = actScope(name, args, { path: tab?.path ?? null, mode: tab?.mode ?? null, board: !!tab?.board })
+  if (!scope) return
+  t.acts.add(scope.area)
+  if (scope.whole) {
+    if (t.whole.has(scope.area)) return
+    t.whole.add(scope.area)
+    act({ turn: t.id, kind: 'start', area: scope.area, path: scope.path })
+  } else if (scope.area === 'doc' && scope.path && !t.whole.has('doc')) act({ turn: t.id, kind: 'spot', area: 'doc', path: scope.path })
 }
 
 function emit(id: number, e: AiEvent) {
@@ -574,7 +591,7 @@ export async function runAgentTurn(o: {
   run: Omit<EngineRun, 'cwd' | 'mcp' | 'omni' | 'onStep' | 'signal'>
 }): Promise<AgentTurnResult> {
   const v = needVault()
-  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), emit: o.emit }
+  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), emit: o.emit }
   let outcome: EngineOutcome | null = null
   let error: string | undefined
   /** 没答完（停下、出错）时引擎给的会话号：已经做了的几步在这个会话里，「接着做」接着它 */
@@ -588,8 +605,11 @@ export async function runAgentTurn(o: {
     const server = await ensureMcp()
     token = tokenFor(server, o.engine)
     if (token.own) byToken.set(token.token, t)
+    // 设置 › AI「给AI的长期说明」：放在这一问的最前面（AI 对话、读 PDF 都走这里）
+    const note = store.prompt().trim()
     outcome = await engine(o.engine).run({
       ...o.run,
+      ...(note ? { prompt: `${userNoteLine(note)}${o.run.prompt}` } : {}),
       cwd: v.root,
       mcp: { url: server.url, token: token.token, tools: toolSpecs().map((x) => x.name) },
       omni: o.omni,
@@ -601,7 +621,7 @@ export async function runAgentTurn(o: {
       signal: o.ac.signal,
     })
   } catch (e) {
-    error = (e as Error).name === 'AbortError' || o.ac.signal.aborted ? '停下了' : String((e as Error).message ?? e)
+    error = (e as Error).name === 'AbortError' || o.ac.signal.aborted ? '停下了' : explain(o.engine, String((e as Error).message ?? e))
     session = sessionOf(e)
   } finally {
     liveTurns.delete(t)
@@ -610,11 +630,17 @@ export async function runAgentTurn(o: {
       byToken.delete(token.token)
       mcp?.revoke(token.token)
     }
-    // 外圈、提示条、指针收起；网页里的指针收起，剪下的标记留着
-    if (t.acts.size) act({ turn: t.id, kind: 'end' })
+    // 网页里的指针收起，剪下的标记留着
     if (t.acts.has('web')) await web.endWebAct()
   }
-  const { commit, kinds, failed } = await commitTurn(v, t, `AI：${subject(o.subject)}`)
+  let done: Awaited<ReturnType<typeof commitTurn>> | null = null
+  try {
+    done = await commitTurn(v, t, `AI：${subject(o.subject)}`)
+  } finally {
+    // 提交好了再收光：做完的提示条带「撤回」（就是这一次提交），停下、出错的变灰淡掉；提交出了错也收
+    if (t.acts.size) act({ turn: t.id, kind: 'end', stopped: o.ac.signal.aborted || !!error, commit: done?.commit?.hash ?? null, tally: t.tally })
+  }
+  const { commit, kinds, failed } = done
   const moved = t.moved.size ? Object.fromEntries(t.moved) : undefined
   return { outcome, ...(error ? { error } : {}), ...(session ? { session } : {}), commit, kinds, ...(failed ? { failed } : {}), ...(moved ? { moved } : {}) }
 }
@@ -739,29 +765,14 @@ export function modelOpt(feature: AiFeature, id: EngineId): { model?: string; ef
   }
 }
 
-/** Codex 的模型列表（问它的 app-server model/list，拿到一次记着；「重新找一遍」再问）：null 是还没拿到 */
-let codexModels: ModelOption[] | null = null
-let codexListing = false
-function listCodexModels() {
-  if (codexModels || codexListing) return
-  codexListing = true
-  void codexModelList()
-    .then(
-      (list) => (codexModels = list),
-      (e) => {
-        // 问不到（没登录、没网）：模型菜单只有「Codex 默认模型」一项，原因写进日志
-        console.error('Codex 模型列表拿不到', e)
-        codexModels = []
-      },
-    )
-    .then(() => send('ai:prefs:changed'))
-    .finally(() => (codexListing = false))
-}
-
-/** 这家能选的模型：Codex 的假引擎给一份固定的（CN_AI_FAKE=1），真的问 app-server */
+/**
+ * 这家能选的模型（task-m55m7）：从命令行拉到的（engine-watch.ts，启动后、每天一次、版本变了、点「检查更新」时拉，记在软件设置目录）；
+ * 没拉到过用自带的（Claude Code 三个、别家只有「某家默认模型」）。假 AI 又不盯命令行时（CN_AI_FAKE=1）Codex 给一份固定的
+ */
 function modelsFor(id: EngineId): ModelOption[] {
-  if (id !== 'codex') return modelsOf(id)
-  return modelsOf('codex', FAKE() ? fakeCodexModels() : (codexModels ?? []))
+  const pulled = pulledModels(id)
+  if (pulled) return modelsOf(id, pulled)
+  return modelsOf(id, id === 'codex' && FAKE() ? fakeCodexModels() : [])
 }
 
 /**
@@ -769,7 +780,6 @@ function modelsFor(id: EngineId): ModelOption[] {
  * effort 没设过是 High；这个模型不认这一档（Codex 每个模型那几档不一样）就用它自己的默认档；Gemini、OpenCode 只有哪家
  */
 function effectivePick(id: EngineId, req: { model?: string; effort?: string } = {}): AiPick {
-  if (!hasEffort(id)) return { engine: id }
   const p = pickFor('chat')
   const def = store.prefs().default
   const own: AiPick = p.engine === id ? p : def.engine === id ? def : { engine: id }
@@ -784,8 +794,6 @@ export const chatLabel = () => {
   const p = chatPick()
   return pickLabel(p, modelsFor(p.engine))
 }
-
-const MODEL_ID = /^[\w.:\-[\]/]{0,200}$/
 
 /** AI 浮窗、读 PDF 这一问传给引擎的模型和 effort（effectivePick）；Claude Code 的默认 Opus 能用 CN_AI_MODEL 换（测试用便宜的） */
 export function chatRun(id: EngineId, req: { model?: unknown; effort?: unknown }): { model?: string; effort?: string } {
@@ -805,7 +813,6 @@ export function ownPick(x: unknown): AiPick {
   if (o.model !== undefined && (typeof o.model !== 'string' || !MODEL_ID.test(o.model))) throw new Error('AI 参数不对')
   if (o.effort !== undefined && (typeof o.effort !== 'string' || !/^[a-z]{1,20}$/.test(o.effort))) throw new Error('AI 参数不对')
   const engine = o.engine as EngineId
-  if (!hasEffort(engine)) return { engine }
   return { engine, ...(typeof o.model === 'string' ? { model: o.model } : {}), ...(typeof o.effort === 'string' ? { effort: o.effort } : {}) }
 }
 
@@ -813,13 +820,20 @@ export function ownPick(x: unknown): AiPick {
 export const visionModel = () => modelOpt('vision', 'claude').model
 
 /** 各功能用的「Claude Code · Opus 5.5」（界面上写是哪个模型做的，CN-54） */
-export const featureLabel = (feature: AiFeature) => pickLabel(pickFor(feature))
+export const featureLabel = (feature: AiFeature) => {
+  const p = pickFor(feature)
+  return pickLabel(p, modelsFor(p.engine))
+}
 
 /** 用这个功能选好的引擎问一次，不给工具；onText 边生成边给（/ 命令是 AI 对话，梦游是梦游） */
 export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (d: string) => void, feature: AiFeature = 'chat'): Promise<string> {
   const v = deps.vault()
   const p = pickFor(feature)
-  const r = await engine(p.engine).run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...modelOpt(feature, p.engine) })
+  const r = await engine(p.engine)
+    .run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...modelOpt(feature, p.engine) })
+    .catch((e: Error) => {
+      throw signal.aborted ? e : Object.assign(new Error(explain(p.engine, String(e.message ?? e))), { name: e.name })
+    })
   return r.text
 }
 
@@ -829,15 +843,38 @@ export const FAST_MODEL = process.env.CN_FAST_MODEL || 'haiku'
 /** 小活用哪家（设置 › AI 的「小活」，从没设过是 Claude Code · Haiku） */
 export function fastEngine(): { id: EngineId; label: string } {
   const p = pickFor('quick')
-  return { id: p.engine, label: pickLabel(p) }
+  return { id: p.engine, label: pickLabel(p, modelsFor(p.engine)) }
 }
 
 /** 用小活那家问一次，不给工具 */
 export async function askFast(system: string, prompt: string, signal: AbortSignal, onText: (d: string) => void): Promise<string> {
   const v = deps.vault()
   const p = pickFor('quick')
-  const r = await engine(p.engine).run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...modelOpt('quick', p.engine) })
+  const r = await engine(p.engine)
+    .run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...modelOpt('quick', p.engine) })
+    .catch((e: Error) => {
+      throw signal.aborted ? e : Object.assign(new Error(explain(p.engine, String(e.message ?? e))), { name: e.name })
+    })
   return r.text
+}
+
+/**
+ * AI 没答出来、而这家命令行不兼容（task-m55m7）：自查查出来过、或者它的原话就是「不认这个参数」，
+ * 前面加一行「【不兼容】Claude Code 2.2.0 有一个参数不认了：--x，AI 对话可能出错」（界面认这一行，说清楚、给「换一家」；
+ * 梦游报告、翻译这些地方原样显示也看得懂）。原话留在后面
+ */
+export const INCOMPATIBLE = '【不兼容】'
+const CLI_REJECTS = /unknown option '(--?[\w-]+)'|option '(--[\w-]+)[^']*' argument '([^']*)' is invalid|Unknown (--[\w-]+) value '([^']*)'|[Mm]ethod not found/
+
+function explain(id: EngineId, raw: string): string {
+  if (raw.startsWith(INCOMPATIBLE)) return raw
+  const { version, health } = engineState(id)
+  const head = `${LABELS[id]}${version ? ` ${version}` : ''}`
+  if (health?.state === 'bad') return `${INCOMPATIBLE}${head} ${problemText(health.problems)}\n${raw}`
+  const m = CLI_REJECTS.exec(raw)
+  if (!m) return raw
+  const what = m[1] ?? (m[2] ? `${m[2]} ${m[3]}` : m[4] ? `${m[4]} ${m[5]}` : '我们用的接口')
+  return `${INCOMPATIBLE}${head} 不认 ${what}，多半是命令行更新了\n${raw}`
 }
 
 // ---------- 本机装了哪几家（CN-87） ----------
@@ -854,7 +891,8 @@ function verify(id: EngineId, path: string) {
   void checkCli(path)
     .then((c) => {
       if (!c.ok) send('ai:prefs:changed')
-      else if (id === 'codex' && !FAKE()) listCodexModels()
+      // 版本和记下的不一样（Claude Code 自己在后台升级了）：后台自查、重拉模型
+      else noteVersion(id, c.version)
     })
     .finally(() => verifying.delete(path))
 }
@@ -881,15 +919,14 @@ function found(id: EngineId): Pick<EngineInfo, 'path' | 'where' | 'broken' | 'cu
   // 还没跑过 --version（或者文件换过了）：先当它能用，后台跑完运行不了再改口
   if (!c) verify(id, hit.path)
   if (c && !c.ok) return { path: null, where: hit.where, broken: c.why, hint: brokenHint(id), ...mine }
-  // 能跑的 Codex：后台问一次它有哪些模型（拿到了通知界面再要一次）
-  if (id === 'codex' && !FAKE() && c?.ok) listCodexModels()
   return { path: hit.path, where: hit.where, ...mine }
 }
 
 export function engineInfo(): EngineInfo[] {
   return IDS.map((id) => {
     const models = modelsFor(id)
-    return { id, label: LABELS[id], ...found(id), models, efforts: models[0]!.efforts }
+    const where = found(id)
+    return { id, label: LABELS[id], ...where, models, efforts: models[0]!.efforts, ...watchInfo(id, where.path) }
   })
 }
 
@@ -898,16 +935,10 @@ async function findAgain(): Promise<void> {
   if (!REAL_FIND()) return
   const before = JSON.stringify(engineInfo())
   forgetChecks()
-  if (!codexListing) codexModels = null
   await loadShellPath(true)
   await Promise.all(IDS.map((id) => locateCli(id)).map((hit) => hit && checkCli(hit.path)))
-  // 能跑的 Codex：等它的模型列表也问回来再答
-  const codex = locateCli('codex')
-  if (codex && checkedCli(codex.path)?.ok && !FAKE() && !codexModels)
-    codexModels = await codexModelList().catch((e) => {
-      console.error('Codex 模型列表拿不到', e)
-      return []
-    })
+  // 重新找到的：版本、模型、自查也再看一遍（等它做完再答）
+  await refreshAll()
   if (JSON.stringify(engineInfo()) !== before) send('ai:prefs:changed')
 }
 
@@ -917,6 +948,8 @@ function findInBackground() {
   const before = IDS.map((id) => locateCli(id)?.path ?? null).join('\n')
   void loadShellPath().then(() => {
     if (IDS.map((id) => locateCli(id)?.path ?? null).join('\n') !== before) send('ai:prefs:changed')
+    // 找到了：后台读版本、自查、拉模型、看新版本（task-m55m7）
+    if (watching()) void refreshAll()
   })
 }
 
@@ -960,6 +993,8 @@ export function registerAgent(d: AgentDeps) {
   deps = d
   store = new AgentStore(join(app.getPath('userData'), 'ai'))
   setCustomCli(store.cliPaths())
+  // 后台盯着各家命令行（版本、自查、模型、新版本）：测试实例默认不盯，CN_ENGINE_WATCH=1 才盯（e2e 用假命令行）
+  startEngineWatch({ dir: join(app.getPath('userData'), 'ai'), changed: () => send('ai:prefs:changed'), enabled: REAL_FIND() && (process.env.CN_E2E !== '1' || process.env.CN_ENGINE_WATCH === '1') })
   findInBackground()
   // 浮窗、边读边问头上的引擎胶囊：现在 AI 对话用的那家；换了它只改「AI 对话」那一行（设置 › AI 里同一行），默认、梦游这些不动。
   // again：「重新找一遍」，重新取登录 shell 的 PATH、每家重新跑 --version 再答
@@ -974,7 +1009,24 @@ export function registerAgent(d: AgentDeps) {
     store.setOmni(on)
     send('ai:prefs:changed')
   })
+  // 给AI的长期说明（设置 › AI）：AI 对话和读 PDF 每一问都带上（runAgentTurn）
+  ipcMain.handle('ai:prompt', () => store.prompt())
+  ipcMain.handle('ai:prompt:set', (_e, text: unknown) => {
+    if (typeof text !== 'string') throw new Error('AI 参数不对')
+    store.setPrompt(text)
+  })
   ipcMain.handle('ai:cli:pick', (_e, id: EngineId) => pickCli(id))
+  // 设置 › AI「各家命令行」那一行：检查更新（重读版本、重拉模型、看新版本）、更新（跑它官方的更新，跑完再自查）
+  ipcMain.handle('ai:cli:check', async (_e, id: unknown) => {
+    if (!IDS.includes(id as EngineId)) throw new Error('没有这个引擎')
+    await checkNow(id as EngineId)
+    return engineInfo().find((e) => e.id === id)!
+  })
+  ipcMain.handle('ai:cli:update', async (_e, id: unknown) => {
+    if (!IDS.includes(id as EngineId)) throw new Error('没有这个引擎')
+    await updateNow(id as EngineId)
+    return engineInfo().find((e) => e.id === id)!
+  })
   // 输入框底行换了模型、effort（CN-91）：记成「AI 对话」那一行（下次打开还是它），不动默认、梦游、小活
   ipcMain.handle('ai:chat:set', (_e, pick: AiPick) => {
     store.setChatPick(pick)

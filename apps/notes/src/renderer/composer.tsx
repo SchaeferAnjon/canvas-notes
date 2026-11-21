@@ -10,10 +10,13 @@
  * 弹出来的菜单、看全文的小卡挂在 body 上（右栏有磨砂，fixed 的子元素会另起坐标、被岛的圆角裁掉），都用 use-dismiss：点外面、esc、失焦收起，再点按钮是收起。
  */
 import { Codicon } from '@cn/design'
+import { isKey, keyFor } from './keys'
+import { ComposerGlow } from './ai-glow'
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { EngineId, EngineInfo } from '../shared/agent'
-import { type AiPick, CLAUDE_DEFAULT, convPick, DEFAULT_EFFORT, effortOption, ENGINE_LABEL, hasEffort, pickLabel } from '../shared/ai-features'
+import { type AiPick, CLAUDE_DEFAULT, convPick, DEFAULT_EFFORT, ENGINE_LABEL, hasEffort, pickLabel, pickReq } from '../shared/ai-features'
+import { AiPicker, engineFamily } from './ai-picker'
 import { countLine, MAX_MATERIALS, markOf, type Material, numberOf, renumberMarks, shiftMarks } from '../shared/materials'
 import { copy } from './ctx/menu'
 import { EngineLogo } from './engine-logo'
@@ -318,6 +321,8 @@ export function AiInput(p: AiInputProps) {
           void c.addFiles(files)
         }}
       >
+        {/* AI 在答：边上一道光绕着走（流光 A2，DESIGN.v3 2.3） */}
+        <ComposerGlow running={p.running} />
         {p.children}
         {shelf && <Shelf c={c} lead={p.lead ?? null} />}
         {p.above}
@@ -539,7 +544,8 @@ export interface PicksProps {
   engine?: boolean
   onEngine(id: EngineId): void
   onModel(id: string): void
-  onEffort(id: string): void
+  /** null：不指定这一档（OpenCode 的模型不选就是它自己的默认档） */
+  onEffort(id: string | null): void
   onNotice(text: string): void
 }
 
@@ -581,200 +587,46 @@ export function useConvPick(own: AiPick | null | undefined, setOwn: (p: AiPick) 
     } satisfies OmniProps,
     /** 回答头上写的「Claude Code · Opus 5.5 · High」 */
     label: pickLabel(pick, info?.models),
-    /** 交给引擎的模型和 effort：有这两样的那家才带（空串模型是这家自己的默认模型） */
-    req: hasEffort(pick.engine) ? { model: pick.model ?? '', ...(pick.effort ? { effort: pick.effort } : {}) } : {},
+    /** 交给引擎的模型和 effort（空串模型是这家自己的默认模型；task-m55m7 起四家都带：OpenCode、Gemini 也能选模型） */
+    req: pickReq(pick),
     picks: {
       engines,
       pick,
       onEngine: (id: EngineId) => void window.cn.aiSetEngine(id),
       onModel: (id: string) => setOwn({ engine: pick.engine, model: id, ...(pick.effort ? { effort: pick.effort } : {}) }),
-      onEffort: (id: string) => setOwn({ engine: pick.engine, model: pick.model ?? '', effort: id }),
+      onEffort: (id: string | null) => setOwn({ engine: pick.engine, model: pick.model ?? '', ...(id ? { effort: id } : {}) }),
       onNotice,
     } satisfies PicksProps,
   }
 }
 
-type Which = 'engine' | 'model' | 'effort'
-
+/** 输入框底行：谁来答 · 模型 · effort（CN-91 方向 C），用和设置 › AI 同一个选择器（ai-picker.tsx 的 bar 样子） */
 export function AiPicks(p: PicksProps) {
-  const [open, setOpen] = useState<Which | null>(null)
-  const info = p.engines.find((e) => e.id === p.pick.engine)
-  const name = info?.label ?? ENGINE_LABEL[p.pick.engine]
-  const models = info?.models ?? []
-  const model = models.find((m) => m.id === (p.pick.model ?? ''))
-  const efforts = (model ?? models[0])?.efforts ?? info?.efforts ?? []
-  const effort = p.pick.effort ?? DEFAULT_EFFORT
-  const toggle = (w: Which) => setOpen((v) => (v === w ? null : w))
-  const close = () => setOpen(null)
-  return (
-    <>
-      {p.engine !== false && (
-        <PickBtn which="engine" open={open} onToggle={toggle} label="选 AI 引擎" tip="谁来答" testid="ai-engine" className="eng" width={320} menuLabel="AI 引擎" onClose={close}
-          menu={<EngineMenu {...p} close={close} />}
-        >
-          <EngineLogo id={p.pick.engine} size={13} />
-          <span className="lb">{name}</span>
-        </PickBtn>
-      )}
-      <PickBtn which="model" open={open} onToggle={toggle} label="选模型" tip="模型" testid="ai-model" width={280} menuLabel="模型" onClose={close}
-        menu={
-          <>
-            <div className="mh">{`${name}的模型`}</div>
-            {models.map((m) => (
-              <button key={m.id} className="it" role="menuitemradio" aria-checked={m.id === (p.pick.model ?? '')} onClick={() => (close(), p.onModel(m.id))}>
-                <span className="ck">{m.id === (p.pick.model ?? '') && <Codicon name="check" size={14} />}</span>
-                <span className="nm">{m.label}</span>
-              </button>
-            ))}
-          </>
-        }
-      >
-        <span className="lb">{model?.label ?? p.pick.model ?? '默认模型'}</span>
-      </PickBtn>
-      {hasEffort(p.pick.engine) && efforts.length > 0 && (
-        <PickBtn which="effort" open={open} onToggle={toggle} label="选想多久（effort）" tip="想多久（effort）" testid="ai-effort" width={280} menuLabel="想多久（effort）" onClose={close}
-          menu={
-            <>
-              <div className="mh">想多久（effort）</div>
-              {efforts.map((e) => (
-                <button key={e.id} className="it" role="menuitemradio" aria-checked={e.id === effort} onClick={() => (close(), p.onEffort(e.id))}>
-                  <span className="ck">{e.id === effort && <Codicon name="check" size={14} />}</span>
-                  <span className="nm">{e.label}</span>
-                  {e.note && <span className="r">{e.note}</span>}
-                </button>
-              ))}
-              <div className="sub">只管这个对话；默认在设置 › AI「AI对话」那一行。</div>
-            </>
-          }
-        >
-          <span className="lb">{effortOption(effort).label}</span>
-        </PickBtn>
-      )}
-    </>
-  )
-}
-
-function PickBtn(p: {
-  which: Which
-  open: Which | null
-  onToggle(w: Which): void
-  onClose(): void
-  label: string
-  tip: string
-  testid: string
-  className?: string
-  width: number
-  menuLabel: string
-  menu: ReactNode
-  children: ReactNode
-}) {
-  const btn = useRef<HTMLButtonElement>(null)
-  const on = p.open === p.which
-  return (
-    <>
-      <button
-        ref={btn}
-        className={'pick' + (p.className ? ' ' + p.className : '') + (on ? ' open' : '')}
-        data-testid={p.testid}
-        aria-label={p.label}
-        aria-haspopup="menu"
-        aria-expanded={on}
-        data-tip={on ? undefined : p.tip}
-        data-side="above"
-        onClick={() => p.onToggle(p.which)}
-      >
-        {p.children}
-        <Codicon name="chevron-down" size={12} className="cv" />
-      </button>
-      {on && (
-        <PickMenu anchor={btn} width={p.width} label={p.menuLabel} onClose={p.onClose}>
-          {p.menu}
-        </PickMenu>
-      )}
-    </>
-  )
-}
-
-/** 往上弹的菜单：左边和按钮对齐（放不下往里挪），离按钮 6；点外面、esc、失焦收起，按钮也算里面（再点是收起） */
-function PickMenu(p: { anchor: RefObject<HTMLButtonElement | null>; width: number; label: string; onClose(): void; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ left: number; bottom: number } | null>(null)
-  useLayoutEffect(() => {
-    const r = p.anchor.current!.getBoundingClientRect()
-    setPos({ left: Math.max(8, Math.min(r.left, window.innerWidth - p.width - 8)), bottom: window.innerHeight - r.top + 6 })
-  }, [p.anchor, p.width])
-  useDismiss(true, [ref, p.anchor], p.onClose)
-  return createPortal(
-    <div ref={ref} className="ai-menu" role="menu" aria-label={p.label} data-composer-pop="" style={{ width: p.width, ...(pos ?? { visibility: 'hidden' }) }}>
-      {p.children}
-    </div>,
-    document.body,
-  )
-}
-
-/** 谁来答：每行 勾 · 标志 · 名字 · 在哪找到（没找到、运行不了的灰掉不能点）；分隔线下面「装在别处？指定位置…」 */
-function EngineMenu(p: PicksProps & { close(): void }) {
-  const [which, setWhich] = useState(false)
-  async function locate(id: EngineId) {
-    p.close()
+  async function locate(id: string) {
     try {
-      const e = await window.cn.aiPickCli(id)
-      if (e?.path) p.onEngine(id)
+      const e = await window.cn.aiPickCli(id as EngineId)
+      if (e?.path) p.onEngine(id as EngineId)
     } catch (err) {
       p.onNotice(errText(err))
     }
   }
-  const row = (e: EngineInfo, onClick: () => void, radio: boolean) => (
-    <button
-      key={e.id}
-      className="it"
-      role={radio ? 'menuitemradio' : 'menuitem'}
-      aria-checked={radio ? e.id === p.pick.engine : undefined}
-      disabled={radio && !e.path}
-      title={e.broken ? `${e.broken}。${e.hint ?? ''}` : (e.hint ?? e.path ?? '')}
-      onClick={onClick}
-    >
-      <span className="ck">{radio && e.id === p.pick.engine && <Codicon name="check" size={14} />}</span>
-      <EngineLogo id={e.id} size={14} />
-      <span className="nm">{e.label}</span>
-      <span className="r">{e.path || !e.broken ? e.where : '运行不了'}</span>
-    </button>
-  )
-  if (which)
-    return (
-      <>
-        <div className="mh">指定哪一家装在哪</div>
-        {p.engines.map((e) => row(e, () => void locate(e.id), false))}
-      </>
-    )
   return (
-    <>
-      <div className="mh">谁来答</div>
-      {p.engines.map((e) =>
-        row(
-          e,
-          () => {
-            p.close()
-            if (e.id !== p.pick.engine) p.onEngine(e.id)
-          },
-          true,
-        ),
-      )}
-      <div className="sep" />
-      <button
-        className="it dim"
-        role="menuitem"
-        onClick={() => {
-          // 只有一家没找到：直接给它选位置；不然先问是哪一家
-          const missing = p.engines.filter((e) => !e.path)
-          if (missing.length === 1) void locate(missing[0]!.id)
-          else setWhich(true)
-        }}
-      >
-        <span className="ck" />
-        装在别处？指定位置…
-      </button>
-    </>
+    <AiPicker
+      look="bar"
+      ids={{ family: 'ai-engine', model: 'ai-model', effort: 'ai-effort' }}
+      familyMenu="AI 引擎"
+      familyHead="谁来答"
+      families={p.engines.map(engineFamily)}
+      value={{ family: p.pick.engine, model: p.pick.model ?? '', ...(p.pick.effort ? { effort: p.pick.effort } : {}) }}
+      // Claude Code、Codex 一直有一档（没选是 High）；OpenCode 的模型不选就是它自己的默认档
+      unsetEffort={hasEffort(p.pick.engine) ? null : { label: '默认档', note: '它自己的' }}
+      effortFoot="只管这个对话；默认在设置 › AI「AI对话」那一行。"
+      hideFamily={p.engine === false}
+      onFamily={(id) => id && p.onEngine(id as EngineId)}
+      onModel={p.onModel}
+      onEffort={p.onEffort}
+      locate={(id) => void locate(id)}
+    />
   )
 }
 
@@ -866,7 +718,7 @@ export function QuoteCap(p: { list: RefObject<HTMLElement | null>; active: boole
         setCap({ text: s.text, src: s.src, cx: s.rect.left + s.rect.width / 2, top: Math.max(8, s.rect.top - 42) })
       }, 0)
     const key = (e: KeyboardEvent) => {
-      if (!(e.metaKey && e.shiftKey && e.code === 'KeyL') || e.isComposing) return
+      if (!isKey(e, 'quote')) return
       const s = answerSelection(list)
       if (!s) return
       e.preventDefault()
@@ -905,7 +757,7 @@ export function QuoteCap(p: { list: RefObject<HTMLElement | null>; active: boole
         }}
       >
         <Codicon name="quote" size={14} />
-        引用<kbd>⇧⌘L</kbd>
+        引用{keyFor('quote') && <kbd>{keyFor('quote')}</kbd>}
       </button>
       <span className="sepv" />
       <button

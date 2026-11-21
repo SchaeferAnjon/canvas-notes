@@ -32,19 +32,22 @@ describe('设置 › AI 每个功能用哪家（CN-44 方向 A）', () => {
     expect(s.engine()).toBe('opencode')
     expect(s.prefs().features.quick).toEqual({ engine: 'claude', model: 'haiku' })
     s.setPrefs({ default: { engine: 'claude', model: 'sonnet' }, features: { chat: { engine: 'gemini', model: 'x' }, vision: { engine: 'nope' } } as never })
-    expect(s.prefs()).toEqual({ default: { engine: 'claude', model: 'sonnet' }, features: { chat: { engine: 'gemini' } } })
+    // task-m55m7 起 Gemini 也留选的模型（从它的命令行拉的）
+    expect(s.prefs()).toEqual({ default: { engine: 'claude', model: 'sonnet' }, features: { chat: { engine: 'gemini', model: 'x' } } })
     expect(s.engine()).toBe('claude')
     s.setEngine('codex')
     expect(s.prefs().default).toEqual({ engine: 'codex' })
   })
-  it('CN-91 effort：旧设置没有 effort 读得回来；Claude Code 只留那五档，Codex 留它自己的模型和档，Gemini、OpenCode 都不留', () => {
+  it('CN-91 effort：旧设置没有 effort 读得回来；Claude Code 只留那五档，Codex 留它自己的模型和档；task-m55m7 起 Gemini、OpenCode 也留模型和档（写法不对的丢掉）', () => {
     expect(normalizePick({ engine: 'claude', model: 'sonnet' })).toEqual({ engine: 'claude', model: 'sonnet' })
     expect(normalizePick({ engine: 'claude', effort: 'xhigh' })).toEqual({ engine: 'claude', model: 'claude-opus-5-5', effort: 'xhigh' })
     expect(normalizePick({ engine: 'claude', effort: 'ultra' })).toEqual({ engine: 'claude', model: 'claude-opus-5-5' })
     expect(normalizePick({ engine: 'claude', effort: 'High; rm' })).toEqual({ engine: 'claude', model: 'claude-opus-5-5' })
     expect(normalizePick({ engine: 'codex', model: 'gpt-6.1-terra', effort: 'ultra' })).toEqual({ engine: 'codex', model: 'gpt-6.1-terra', effort: 'ultra' })
     expect(normalizePick({ engine: 'codex' })).toEqual({ engine: 'codex' })
-    expect(normalizePick({ engine: 'gemini', model: 'x', effort: 'high' })).toEqual({ engine: 'gemini' })
+    expect(normalizePick({ engine: 'gemini', model: 'x', effort: 'high' })).toEqual({ engine: 'gemini', model: 'x', effort: 'high' })
+    expect(normalizePick({ engine: 'opencode', model: 'zai/glm-5', effort: 'max' })).toEqual({ engine: 'opencode', model: 'zai/glm-5', effort: 'max' })
+    expect(normalizePick({ engine: 'opencode', model: 'rm -rf /', effort: 'High; x' })).toEqual({ engine: 'opencode' })
     expect(normalizePrefs({ default: { engine: 'claude', model: 'sonnet' }, features: { chat: { engine: 'claude', model: 'haiku', effort: 'low' } } }).features.chat).toEqual({ engine: 'claude', model: 'haiku', effort: 'low' })
   })
 
@@ -133,13 +136,18 @@ describe('输入框底行三颗：这个对话这一问用的（CN-91 方向 C�
   const info = (id: 'claude' | 'codex' | 'gemini', models = modelsOf(id)) => ({ id, label: id, path: `/fake/${id}`, where: '', models, efforts: models[0]!.efforts }) as EngineInfo
   const engines = [info('claude'), info('codex', codex), info('gemini')]
 
-  it('fitPick：没给模型用这家的默认；这个模型不认的一档换成它自己的默认档；没有 effort 的那家只有哪家', () => {
+  it('fitPick：没给模型用这家的默认；这个模型不认的一档换成它自己的默认档；Gemini、OpenCode 留选的模型，这个模型有那一档才带', () => {
     expect(fitPick('claude', modelsOf('claude'), {})).toEqual({ engine: 'claude', model: 'claude-opus-5-5', effort: 'high' })
     expect(fitPick('claude', modelsOf('claude'), { model: 'sonnet', effort: 'low' })).toEqual({ engine: 'claude', model: 'sonnet', effort: 'low' })
     expect(fitPick('codex', codex, { model: 'gpt-6-luna', effort: 'ultra' })).toEqual({ engine: 'codex', model: 'gpt-6-luna', effort: 'medium' })
     // Codex 自己的默认模型：模型不写，effort 照它第一档那个模型的
     expect(fitPick('codex', codex, { model: '', effort: 'high' })).toEqual({ engine: 'codex', effort: 'high' })
-    expect(fitPick('gemini', modelsOf('gemini'), { model: 'x', effort: 'high' })).toEqual({ engine: 'gemini' })
+    expect(fitPick('gemini', modelsOf('gemini'), { model: 'x', effort: 'high' })).toEqual({ engine: 'gemini', model: 'x' })
+    expect(fitPick('gemini', modelsOf('gemini'), {})).toEqual({ engine: 'gemini' })
+    const oc = modelsOf('opencode', [{ id: 'zai/glm-5', label: 'GLM-5', efforts: ['low', 'high'].map(effortOption), group: 'zai' }])
+    expect(fitPick('opencode', oc, { model: 'zai/glm-5', effort: 'high' })).toEqual({ engine: 'opencode', model: 'zai/glm-5', effort: 'high' })
+    expect(fitPick('opencode', oc, { model: 'zai/glm-5', effort: 'max' })).toEqual({ engine: 'opencode', model: 'zai/glm-5' })
+    expect(fitPick('opencode', oc, { model: 'zai/glm-5' })).toEqual({ engine: 'opencode', model: 'zai/glm-5' })
   })
 
   it('convPick：哪家跟「AI 对话」那一行；这个对话选过这一家的模型、effort 用自己的，选的是别家的用那一行的', () => {

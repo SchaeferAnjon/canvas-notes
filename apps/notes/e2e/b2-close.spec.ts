@@ -154,7 +154,7 @@ test('读 PDF 时在右栏下格「笔记」里按 ⌘W：只收起笔记，PDF 
     expect(await app.evaluate(({ Menu }) => {
       const it = Menu.getApplicationMenu()!.items.find((i) => i.label === '文件')!.submenu!.items.find((i) => i.label === '关闭')!
       return { role: it.role ?? null, accel: it.accelerator ?? null }
-    })).toEqual({ role: null, accel: 'CommandOrControl+W' })
+    })).toEqual({ role: null, accel: 'Command+W' })
     // 中间是当前栏时从菜单关：关中间的当前标签，关完回首页
     await page.locator('.center').click({ position: { x: 300, y: 300 } })
     await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.items.find((i) => i.label === '文件')!.submenu!.items.find((i) => i.label === '关闭')!.click())

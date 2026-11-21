@@ -9,7 +9,7 @@ const pkg = join(root, 'packages/design/node_modules/@vscode/codicons')
 const version = JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version
 
 const USED = `
-account add archive arrow-both eye-closed arrow-circle-up arrow-down arrow-left arrow-right arrow-swap arrow-up beaker bell
+account add archive pass-filled arrow-both eye-closed arrow-circle-up arrow-down arrow-left arrow-right arrow-swap arrow-up beaker bell
 blank book bookmark briefcase calendar check checklist chevron-down chevron-left chevron-right circle-filled
 circle-slash circuit-board claude clockface close cloud-download code coffee collapse-all comment
 comment-discussion-sparkle copy cursor desktop-download device-camera device-camera-video device-mobile

@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 import electronPath from 'electron'
 import { execFileSync } from 'node:child_process'
 import { launch, leftView, openNote, pane, rail, tabOn, webAboveAi } from './app'
+import { pickQuick, quickTexts } from './ai-quick'
 import { BOOK, DOC as BOOK_DOC, PATH as BOOK_PATH } from './fixtures/book-digest'
 import { LECTURE } from './fixtures/pdf'
 
@@ -107,24 +108,18 @@ test('文件夹页按 ⌘J：AI 在右栏一格，看得到「文件夹：周记
     expect(Math.round((await box(chip)).height)).toBe(22)
     expect(await chip.evaluate((e) => getComputedStyle(e).borderRadius)).toBe('6px')
 
-    // 空对话：宋体 600 22 的「想让它做什么？」、一句这里是谁的对话、建议按钮是软件里真有的命令
-    const empty = ai.locator('.ai-empty')
-    await expect(empty.locator('h2')).toHaveText('想让它做什么？')
-    expect(await empty.locator('h2').evaluate((e) => [getComputedStyle(e).fontSize, getComputedStyle(e).fontWeight])).toEqual(['22px', '600'])
-    await expect(empty.locator('p')).toHaveText('这里是「周记」的对话；别处问过的在上面「周记」里。')
-    // 名字最后一个字、⌄、「」里。」在同一行（收尾括号不落到行首）
-    const nobr = empty.locator('p .nobr')
-    await expect(nobr).toHaveText('记」里。')
-    expect(await nobr.evaluate((e) => [getComputedStyle(e).whiteSpace, e.getClientRects().length])).toEqual(['nowrap', 1])
-    // 「⌄」是和头上对话胶囊同一个 chevron-down 图标（12、--t3），不是字（字画出来像个下标 v）
-    await expect(empty.locator('p svg.cv')).toHaveCount(1)
-    expect(await empty.locator('p svg.cv').evaluate((e) => e.getAttribute('width'))).toBe('12')
-    const sug = empty.locator('.sug')
-    // 文件夹页的建议照小样（收件箱空着：没有「挪进来」）
-    await expect(sug).toHaveText(['把这周的周记总结成三句话', '照上周的样子开一篇 2026-W48'])
-    expect(await sug.locator('svg').evaluateAll((els) => els.map((e) => e.getAttribute('width')))).toEqual(['14', '14'])
-    expect(Math.round((await box(sug.first())).height)).toBe(34)
-    expect(await sug.first().evaluate((e) => getComputedStyle(e).borderRadius)).toBe('10px')
+    // 空对话打招呼（task-0tgz2）：引擎标志 + 宋体 600 22 的钟点问候、下面一句「要对「周记」做点什么？」；
+    // 输入框上面一排快捷命令是这个文件夹自己的（收件箱空着：没有「挪进来」）
+    const greet = ai.getByTestId('ai-greet')
+    await expect(greet.locator('h2')).toHaveText(/^(夜深了|早上好|中午好|下午好|晚上好)$/)
+    expect(await greet.locator('h2').evaluate((e) => [getComputedStyle(e).fontSize, getComputedStyle(e).fontWeight])).toEqual(['22px', '600'])
+    await expect(greet.locator('p')).toHaveText('要对「周记」做点什么？')
+    await expect(ai).not.toContainText('想让它做什么？')
+    expect(await quickTexts(ai)).toEqual(['把这周的周记总结成三句话', '照上周的样子开一篇 2026-W48'])
+    const qc = ai.getByTestId('ai-quick').locator('.qc:not(.more):visible')
+    expect(await qc.locator('svg').evaluateAll((els) => els.map((e) => e.getAttribute('width')))).toEqual((await qc.allTextContents()).map(() => '14'))
+    expect(Math.round((await box(qc.first())).height)).toBe(28)
+    expect(await qc.first().evaluate((e) => getComputedStyle(e).borderRadius)).toBe('8px')
 
     // 标签上的 × 收起，圆钮的外圈没了
     await page.getByTestId('dtab-ai').hover()
@@ -203,11 +198,9 @@ test('右栏开着网页时网页和 AI 是同一组两个标签（不硬切两�
     expect(Math.abs(a.y + a.height - (b1.y + b1.height))).toBeLessThanOrEqual(1)
     // 右栏开着网页时「看得到」多一颗网页，能动手换成网页的
     await expect(chat(page).getByTestId('ai-sees').locator('.chip').nth(1)).toHaveText('网页：127.0.0.1')
-    // 下半格矮：空对话藏起大标题（每组多一条 38 的标签头，900 高时收到最紧也放不下，消息区自己滚）；建议里「剪藏这一页」排第一，文档不出「总结这块白板」
-    await expect(chat(page).locator('.ai-empty h2')).toBeHidden()
-    await expect(chat(page).locator('.ai-empty .sug')).toHaveText(['/剪藏这一页', '/翻译', '/整理收件箱'])
-    await expect(chat(page).locator('.ai-empty p')).toBeVisible()
-    await expect(chat(page).locator('.ai-empty .sug').first()).toBeVisible()
+    // 下半格矮：快捷命令那一排还在，「剪藏这一页」排第一，文档不出「总结这块白板」；收件箱空着不放整理收件箱（task-0tgz2）
+    expect(await quickTexts(chat(page))).toEqual(['剪藏这一页', '翻译'])
+    await expect(chat(page).getByTestId('ai-quick').locator('.qc').first()).toBeVisible()
     await expect(chat(page).getByTestId('ai-sees').locator('.chip.hands')).toHaveText('能动手：滚动、选中、剪藏网页')
     // 只开网页（AI 收起）：圆钮还在原处；再开 AI 回到它原来那一组（中间右边第一栏的第一组：网页那一组，叠成标签）
     await page.keyboard.press('Meta+j')
@@ -255,7 +248,7 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     await openFolder(page, '周记')
     const ai = chat(page)
     await expect(ai).toBeVisible()
-    await expect(ai.locator('.ai-empty p')).toHaveText('这里是「周记」的对话；别处问过的在上面「周记」里。')
+    await expect(ai.getByTestId('ai-greet').locator('p')).toHaveText('要对「周记」做点什么？')
     await expect(ai.getByTestId('ai-msg')).toHaveCount(0)
 
     // 「周记 ⌄」：这里（打勾、还没问过）、最近在别处问的（第3讲.pdf、今天 几点）、全部对话…
@@ -307,8 +300,8 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     await openDoc(page, '随手记')
     await expect(chat(page).getByTestId('ai-sees').locator('.chip').first()).toHaveText('文档：随手记')
     await expect(chat(page).getByTestId('ai-msg')).toHaveCount(0)
-    await expect(chat(page).locator('.ai-empty p')).toHaveText('这里是「随手记」的对话；别处问过的在上面「随手记」里。')
-    await expect(chat(page).locator('.ai-empty .sug')).toHaveText(['/翻译', '/整理收件箱'])
+    await expect(chat(page).getByTestId('ai-greet').locator('p')).toHaveText('要对《随手记》做点什么？')
+    expect(await quickTexts(chat(page))).toEqual(['翻译'])
     // 菜单里周记（1问之后成了别处）、第3讲.pdf 都在，按时间排，周记在前
     await chat(page).getByTestId('ai-conv').click()
     await expect(menu.getByRole('menuitemradio').locator('.lb')).toHaveText(['随手记', '周记', '第3讲.pdf'])
@@ -500,7 +493,7 @@ test('圆钮和左栏「问AI」画的是正在用的那家的标志：设置 �
     await page.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: 'AI', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.getByTestId('ai-default-pick').click()
-    await dialog.getByRole('menu').getByRole('menuitemradio').filter({ hasText: 'Codex' }).click()
+    await page.getByRole('menu', { name: '默认用哪一家' }).getByRole('menuitemradio').filter({ hasText: 'Codex' }).click()
     await expect(dialog.getByTestId('ai-default')).toContainText('Codex')
     // 设置还开着，圆钮、左栏「问AI」已经换成 Codex 的标志
     await expect(fab(page).locator('.eng-logo')).toHaveAttribute('data-engine', 'codex')
@@ -535,17 +528,17 @@ test('文件夹页的建议照小样三颗，每颗都真跑通：总结这周�
     await openFolder(page, '周记')
     await page.keyboard.press('Meta+j')
     const ai = chat(page)
-    const sug = ai.locator('.ai-empty .sug')
-    await expect(sug).toHaveText(['把这周的周记总结成三句话', '收件箱里和周记有关的挪进来', '照上周的样子开一篇 2026-W48'])
+    // 输入框上面那排快捷命令（task-0tgz2）：放不下的收在「⋯」里，pickQuick 跟人一样先点「⋯」
+    expect(await quickTexts(ai)).toEqual(['把这周的周记总结成三句话', '收件箱里和周记有关的挪进来', '照上周的样子开一篇 2026-W48'])
     // 1. 总结：问的那句照原话进对话，回答是 AI 的三句话，上面一行读了哪篇
-    await sug.nth(0).click()
+    await pickQuick(ai, '把这周的周记总结成三句话')
     await expect(ai.locator('.um').last()).toHaveText('把这周的周记总结成三句话')
     const a1 = ai.getByTestId('ai-msg').last()
     await expect(a1.locator('.txt')).toHaveText('这周主要在读 ECP 的第 5 讲。冰岛的机票订好了。住宿还没定。')
     await expect(a1.locator('.read .rd')).toHaveText('读了「2026-W47」')
     // 2. 挪进来：新对话里点；列出和周记有关的那条（菜谱不列），点同意才挪
     await ai.getByRole('button', { name: '新对话' }).click()
-    await sug.nth(1).click()
+    await pickQuick(ai, '收件箱里和周记有关的挪进来')
     const a2 = ai.getByTestId('ai-msg').last()
     await expect(a2.locator('.txt')).toHaveText('和周记有关的1条，挪进「周记」：')
     await expect(a2.locator('.mv')).toHaveText(['周记里要写的→ 周记'])
@@ -562,8 +555,8 @@ test('文件夹页的建议照小样三颗，每颗都真跑通：总结这周�
     // 3. 开一篇：照上周的属性和小节，内容空着；开好就打开
     await openFolder(page, '周记')
     await ai.getByRole('button', { name: '新对话' }).click()
-    await expect(sug.nth(2)).toHaveText('照上周的样子开一篇 2026-W48')
-    await sug.nth(2).click()
+    expect((await quickTexts(ai))[2]).toBe('照上周的样子开一篇 2026-W48')
+    await pickQuick(ai, '照上周的样子开一篇 2026-W48')
     await expect(tabOn(page)).toHaveText('2026-W48')
     await expect.poll(() => (existsSync(join(vault, '周记/2026-W48.md')) ? readFileSync(join(vault, '周记/2026-W48.md'), 'utf8') : '')).toMatch(/^---\ncreated: \d{4}-\d{2}-\d{2}\n---\n# 2026-W48\n\n## 读了\n\n- 课：\n\n## 下周\n$/)
     expect(execFileSync('git', ['-C', vault, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).trim()).toBe('照「2026-W47」开一篇「2026-W48」')
@@ -592,8 +585,7 @@ test('书摘开着时「看得到」写「书摘：趣说明朝276年」，对�
     await expect(sees.locator('.chip').first()).toHaveText('书摘：趣说明朝276年')
     await expect(sees.locator('.chip.hands')).toHaveText('能动手：改写、插入、挪块')
     await expect(ai.getByTestId('ai-conv')).toHaveText('趣说明朝276年')
-    await expect(ai.locator('.ai-empty p')).toHaveText('这里是「趣说明朝276年」的对话；别处问过的在上面「趣说明朝276年」里。')
-    expect(await ai.locator('.ai-empty p .nobr').evaluate((e) => e.getClientRects().length)).toBe(1)
+    await expect(ai.getByTestId('ai-greet').locator('p')).toHaveText('要对《趣说明朝276年》做点什么？')
     // 右栏开着网页（拖到上半，AI 在下半）：「书摘：…」和「网页：…」在同一行
     await rail(page).getByRole('button', { name: '网页' }).click()
     const addr = page.getByRole('complementary', { name: '网页' }).getByRole('textbox', { name: '网址' })
@@ -602,25 +594,21 @@ test('书摘开着时「看得到」写「书摘：趣说明朝276年」，对�
     await webAboveAi(page)
     await expect(sees.locator('.chip').nth(1)).toHaveText('网页：127.0.0.1')
     expect(Math.abs((await box(sees.locator('.chip').nth(0))).y - (await box(sees.locator('.chip').nth(1))).y)).toBeLessThanOrEqual(1)
-    // 下半格：按放不放得下一级级收（先藏大标题，再只留前两颗、大标题放得下就画回来）；藏起来的那样真是放不下
-    const tight = await ai.locator('.msgs').evaluate((e) => {
-      const em = e.querySelector('.ai-empty')!
-      const was = em.className
-      const over = (cls: string[]) => {
-        em.className = ['ai-empty', ...cls].join(' ')
-        return e.scrollHeight > e.clientHeight
-      }
-      const r = { was, full: over([]), noTitle: over(['tight1']), twoSugs: over(['tight2']) }
-      em.className = was
-      return r
-    })
-    // 这一格（1440×887、书名长、那句两行）三样都放不下：大标题和第三颗都收
-    expect(tight).toEqual({ was: 'ai-empty tight1 tight2', full: true, noTitle: true, twoSugs: true })
-    await expect(ai.locator('.ai-empty .sug:visible')).toHaveText(['/剪藏这一页', '/翻译'])
-    // 拖高不了，换成收起网页：整栏高，大标题和三颗都回来
+    // 下半格：问候按放不放得下一级级收（先藏标志和那一行问候，再整个不画，task-0tgz2），哪一块都不被拦腰切；
+    // 快捷命令在消息区外面，一直在；收起网页回到整栏高，问候整个回来
+    const cut = () =>
+      ai.locator('.msgs').evaluate((m) => {
+        const b = m.getBoundingClientRect()
+        return [...m.querySelectorAll<HTMLElement>('[data-testid="ai-greet"] h2, [data-testid="ai-greet"] p')]
+          .filter((e) => e.getClientRects().length)
+          .filter((e) => e.getBoundingClientRect().top < b.top - 0.5 || e.getBoundingClientRect().bottom > b.bottom + 0.5).length
+      })
+    expect(await cut()).toBe(0)
+    expect(await quickTexts(ai)).toEqual(['剪藏这一页', '翻译'])
+    await expect(ai.getByTestId('ai-quick').locator('.qc').first()).toBeVisible()
     await rail(page).getByRole('button', { name: '网页' }).click()
-    await expect(ai.locator('.ai-empty h2')).toBeVisible()
-    await expect(ai.locator('.ai-empty .sug:visible')).toHaveCount(2)
+    await expect(ai.getByTestId('ai-greet').locator('h2')).toBeVisible()
+    expect(await cut()).toBe(0)
     await rail(page).getByRole('button', { name: '网页' }).click()
     await rail(page).getByRole('button', { name: '网页' }).click()
     // 普通文档照旧写「文档：」

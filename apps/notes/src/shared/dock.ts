@@ -46,8 +46,8 @@ export interface Dock {
 
 /** 新开一栏的宽（没拖过时，A、B 一样） */
 export const COL_DEFAULT = 380
+/** 一栏最窄 300；最宽不设死数，只让中间至少留 420（界面拖的时候量着管，窗口窄时 fitCols 让；2026-11-21 用户要网页能看得更大，task-zligc） */
 export const COL_MIN = 300
-export const COL_MAX = 640
 /** 拖到一组的左右两边：新的一栏 320；拖到中间的左右两边：340（照原型） */
 export const COL_BESIDE = 320
 export const COL_CENTER_SIDE = 340
@@ -172,7 +172,7 @@ export function openView(d0: Dock, v: ViewId, w = COL_DEFAULT): Dock {
     const g = col.groups[0]!
     g.views.push(v)
     g.active = v
-  } else d.cols.splice(ci + 1, 0, { id: nid(d, 'c'), w: clamp(Math.round(d.lastW ?? w), COL_MIN, COL_MAX), groups: [{ id: nid(d, 'g'), views: [v], active: v, f: 1 }] })
+  } else d.cols.splice(ci + 1, 0, { id: nid(d, 'c'), w: Math.max(COL_MIN, Math.round(d.lastW ?? w)), groups: [{ id: nid(d, 'g'), views: [v], active: v, f: 1 }] })
   return d
 }
 
@@ -324,7 +324,7 @@ export function setColWidth(d0: Dock, colId: string, w: number): Dock {
   const d = clone(d0)
   const c = sideCols(d).find((x) => x.id === colId)
   if (!c) return d0
-  c.w = Math.round(clamp(w, COL_MIN, COL_MAX))
+  c.w = Math.round(Math.max(COL_MIN, w))
   return c.w === sideCols(d0).find((x) => x.id === colId)!.w ? d0 : d
 }
 
@@ -450,7 +450,7 @@ function normalize(raw: unknown): Dock | null {
   const side = (c: Record<string, unknown>): SideCol | null => {
     if (!str(c.id) || c.id === 'center' || !Array.isArray(c.groups)) return null
     const groups = c.groups.map(group).filter((g): g is Group => !!g)
-    return groups.length ? { id: c.id, w: Math.round(clamp(num(c.w, COL_DEFAULT), COL_MIN, COL_MAX)), groups } : null
+    return groups.length ? { id: c.id, w: Math.round(Math.max(COL_MIN, num(c.w, COL_DEFAULT))), groups } : null
   }
   const float = (f: unknown): FloatWin | null => {
     if (!f || typeof f !== 'object') return null
@@ -489,7 +489,7 @@ function normalize(raw: unknown): Dock | null {
     const hf = (Array.isArray(h.floats) ? h.floats : []).map(float).filter((f): f is FloatWin => !!f)
     if (hc.length || hf.length) hidden = { cols: hc, floats: hf }
   }
-  const d: Dock = { v: 1, cols, floats, hidden, ...(typeof r.lastW === 'number' && Number.isFinite(r.lastW) ? { lastW: Math.round(clamp(r.lastW, COL_MIN, COL_MAX)) } : {}) }
+  const d: Dock = { v: 1, cols, floats, hidden, ...(typeof r.lastW === 'number' && Number.isFinite(r.lastW) ? { lastW: Math.round(Math.max(COL_MIN, r.lastW)) } : {}) }
   cleanup(d)
   return d
 }

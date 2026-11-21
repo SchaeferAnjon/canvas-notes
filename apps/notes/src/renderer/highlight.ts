@@ -4,9 +4,9 @@
  * 选中文字时什么都不弹（选中只有高亮），要 AI 用右键或 ⌘J。
  */
 import { Prec } from '@codemirror/state'
+import { isKey } from './keys'
 import { type EditorView, keymap } from '@codemirror/view'
 
-export const HIGHLIGHT_KEY = 'Shift+CommandOrControl+M'
 
 const HL = /==(?=\S)([^=\n]|=(?!=))+?==/g
 
@@ -65,4 +65,4 @@ export function toggleHighlight(view: EditorView): boolean {
   return true
 }
 
-export const highlightKeys = Prec.high(keymap.of([{ key: 'Mod-Shift-m', run: toggleHighlight, preventDefault: true }]))
+export const highlightKeys = Prec.high(keymap.of([{ any: (v, e) => isKey(e, 'highlight') && toggleHighlight(v) }]))

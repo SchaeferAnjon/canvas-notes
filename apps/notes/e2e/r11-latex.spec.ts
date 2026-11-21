@@ -200,6 +200,53 @@ test('task-o48fa 打开、在公式里走一圈、⌘S：文件一个字节不�
   }
 })
 
+test('task-o48fa 单独成行的公式露写法时字号、行高和代码块一样：等宽 12.5、行高 1.65 倍（$$…$$ 和 \\[…\\] 都是）', async () => {
+  const doc = '# 量一量\n\n```python\nw = w - lr * grad\nb = b - lr * db\n```\n\n损失：\n\n$$\nL = \\frac{1}{n}\\sum_i (y_i - \\hat{y}_i)^2\n$$\n\n方阵：\n\n\\[\nA = \\begin{pmatrix} 1 & 2 \\\\ 3 & 4 \\end{pmatrix}\n\\]\n'
+  const run = await launch({ '量一量.md': doc })
+  const { page } = run
+  const style = (sel: string, text?: string) =>
+    ed(page)
+      .locator(sel, text ? { hasText: text } : {})
+      .first()
+      .evaluate((el) => {
+        const s = getComputedStyle(el)
+        return { size: s.fontSize, height: (parseFloat(s.lineHeight) / parseFloat(s.fontSize)).toFixed(2), family: s.fontFamily }
+      })
+  try {
+    await openNote(page, '量一量')
+    await expect(ed(page).locator('.cm-math-block')).toHaveCount(2)
+    const code = await style('.cm-line.cm-codeblock', 'w = w - lr')
+    expect(code).toMatchObject({ size: '12.5px', height: '1.65' })
+    // 点进 $$…$$：露写法，三行
+    await ed(page).locator('.cm-math-block').first().click()
+    await expect(ed(page).locator('.cm-math-line')).toHaveCount(3)
+    expect(await style('.cm-math-line')).toEqual(code)
+    // 行高真按 1.65 排：中间那一行（上下没有内边距）高 12.5 × 1.65
+    const mid = await ed(page).locator('.cm-math-line').nth(1).evaluate((el) => el.getBoundingClientRect().height)
+    expect(mid).toBeCloseTo(12.5 * 1.65, 0)
+    // 点进 \[…\]：一样
+    await ed(page).locator('.cm-math-block:not(.cm-math-preview)').last().click()
+    await expect(ed(page).locator('.cm-math-line')).toHaveCount(3)
+    await expect(ed(page).locator('.cm-math-line').first()).toHaveText('\\[')
+    expect(await style('.cm-math-line')).toEqual(code)
+    // CN_SHOTS 时：浅（天青）、深（深湖）各一张，光标在 $$…$$ 里，上面就是代码块，好并排对照
+    if (process.env.CN_SHOTS) {
+      for (const skin of ['sky', 'petrol'] as const) {
+        await page.evaluate((s) => window.cn.setSettings({ appearance: { followSystem: false, skin: s } }), skin)
+        await page.reload()
+        await page.locator('.vault b').waitFor()
+        await openNote(page, '量一量')
+        await ed(page).locator('.cm-math-block').first().click()
+        await expect(ed(page).locator('.cm-math-line')).toHaveCount(3)
+        await page.waitForTimeout(300)
+        await pane(page).screenshot({ path: join(process.env.CN_SHOTS, `${process.env.CN_SHOTS_TAG ?? 'after'}-codeblock-${skin === 'sky' ? 'light' : 'dark'}.png`) })
+      }
+    }
+  } finally {
+    await run.close()
+  }
+})
+
 test('task-o48fa 正在改公式时外面改了文件（规矩 2）：公式里打的字一个不少，外面的改动合并进来', async () => {
   const run = await launch({ [NAME]: MATH_DOC })
   const { page, vault } = run

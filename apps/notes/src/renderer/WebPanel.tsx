@@ -1,4 +1,5 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { keyFor, useKeyHandler, useKeys } from './keys'
 import { useKeepPopsInside } from './shell/keep-inside'
 import { revealLeft } from './shell/tab-scroll'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
@@ -19,7 +20,10 @@ import type { WebPage } from './plugins/types'
 import { setWebHost } from './plugins/host'
 import { clipSuffix } from './plugins/translate/shared'
 import { ProfileMenu } from './web/ProfileMenu'
-import { activate, closeTab, followOwner, loadWebTabs, newTabId, openOrSwitch, openTab, saveWebTabs, updateTab, type WebTabs } from './web/web-tabs'
+import { activate, closeTab, EMPTY as EMPTY_TABS, followOwner, loadWebTabs, newTabId, openOrSwitch, openTab, saveWebTabs, updateTab, type WebTabs } from './web/web-tabs'
+import { appSettings, usePrefs } from './settings-store'
+import { openSettingsAt, WEB_EXTENSIONS_EVENT } from './settings/jump'
+import { importChromeLogin, importedText } from './web/chrome-login'
 import { type NavState, WebView, type WebviewEl } from './web/WebView'
 import { syncExtTheme } from './web/ext-theme'
 import { onPageOutside } from './web/page-outside'
@@ -78,7 +82,22 @@ export function WebPanel(props: {
   /** 用户关了一个网页标签（×、⌘W）：App 在底栏说一句，undo 放回原处；last：关的是最后一个，网页这格收起了 */
   onClosedTab(c: { title: string; last: boolean; undo(): void }): void
 }) {
-  const [st, setSt] = useState<WebTabs>(loadWebTabs)
+  /** 写在界面上的键照命令表（改了跟着变） */
+  const K = useKeys()
+  // 设置 › 一般「打开时回到上次的样子」关着：右栏网页不接上次开着的标签
+  const [st, setSt] = useState<WebTabs>(() => (appSettings().general.reopen ? loadWebTabs() : EMPTY_TABS))
+  /**
+   * 重开软件时恢复的网页标签（task-0t4jq）：视频不自己播（WebView 的 hold）；
+   * 后台的先不载入（dormant），点到它才载入，免得一开软件几个网页一起载、在后面出声
+   */
+  const restored = useRef<Set<string> | null>(null)
+  const dormant = useRef<Set<string> | null>(null)
+  if (!restored.current) {
+    restored.current = new Set(st.tabs.map((t) => t.id))
+    dormant.current = new Set(st.tabs.filter((t) => t.id !== st.active).map((t) => t.id))
+  }
+  // 换到哪个标签，哪个就醒（之后一直载着）
+  if (st.active) dormant.current!.delete(st.active)
   const views = useRef(new Map<string, WebviewEl>())
   /** 标签 id → 它的 webContents id */
   const [wcIds, setWcIds] = useState<Record<string, number>>({})
@@ -118,7 +137,9 @@ export function WebPanel(props: {
   useEffect(() => void window.cnWeb.newtab().then(setNewtab), [])
   useEffect(() => syncExtTheme(), [])
   /** 新网页标签载入的页面：书签管家关着、没找到插件时没有（显示一句说明） */
-  const newtabUrl = keeperOn ? (newtab?.url ?? null) : null
+  // 设置 › 网页和视频「新网页标签打开」选了空白页：书签管家开着也不用它
+  const blankTab = usePrefs((x) => x.web.newTab === 'blank')
+  const newtabUrl = keeperOn && !blankTab ? (newtab?.url ?? null) : null
   /** 网页标签实际要载入的地址 */
   const srcOf = (t: { url: string }) => t.url || newtabUrl
   // 右栏开着却一个网页标签也没有（第一次打开、关掉了最后一个）：开一个新标签页，和以前直接显示书签首页一样
@@ -131,6 +152,15 @@ export function WebPanel(props: {
   const pluginPopup = menu?.startsWith('plugin:') ? menu.slice(7) : null
 
   useEffect(() => saveWebTabs(st), [st])
+  // 设置 › 网页和视频「在网页「⋯ › 插件」里管 ›」：打开插件那一块（接住了就 preventDefault，App 不再说「没有开着的网页」）
+  useEffect(() => {
+    const on = (e: Event) => {
+      e.preventDefault()
+      setMenu('extensions')
+    }
+    window.addEventListener(WEB_EXTENSIONS_EVENT, on)
+    return () => window.removeEventListener(WEB_EXTENSIONS_EVENT, on)
+  }, [])
   useEffect(() => {
     const load = () => void window.cnWeb.bookmarks().then(setBookmarks)
     load()
@@ -254,36 +284,10 @@ export function WebPanel(props: {
         setSt((s) => activate(s, id, cb.current.owner))
       }
     })
-    const offKey = window.cnWeb.onKey((k, wc) => {
-      const id = tabOf(wc)
-      if (!id) return
-      if (k === 't') newTab()
-      else if (k === 'w') closeRef.current(id)
-      else addr.current?.focus()
-    })
-    // 焦点在右栏（地址栏、标签条）时的 ⌘T、⌘W、⌘L；网页里的按键由主进程转过来
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.altKey || e.ctrlKey) return
-      const inside = !!root.current && root.current.contains(document.activeElement)
-      if (e.key === 't') {
-        e.preventDefault()
-        newTab()
-      } else if (inside && e.key === 'w') {
-        e.preventDefault()
-        e.stopImmediatePropagation()
-        const cur = stRef.current.active
-        if (cur) closeRef.current(cur)
-      } else if (inside && e.key === 'l') {
-        e.preventDefault()
-        addr.current?.focus()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown, true)
+    // 新网页标签、地址栏、重新载入的键在命令表里（下面 useKeyHandler）；关网页标签是「关掉」（App 的 closeHere，当前栏是网页时关当前网页标签）
     return () => {
       offOpen()
       offCmd()
-      offKey()
-      window.removeEventListener('keydown', onKeyDown, true)
     }
   }, [])
   const wcIdsRef = useRef(wcIds)
@@ -291,6 +295,10 @@ export function WebPanel(props: {
   /** 主进程转过来的按键、窗口上的 ⌘W 只挂一次：用这个拿到最新的 closeByUser */
   const closeRef = useRef(closeByUser)
   closeRef.current = closeByUser
+  // 新网页标签、地址栏、重新载入：键照命令表（设置 › 快捷键里能改），App 那边按到了交给这里；网页那一格藏在别的标签后面时地址栏、重新载入不归它
+  useKeyHandler('web-new-tab', () => (newTab(), true))
+  useKeyHandler('web-address', props.hidden ? null : () => (addr.current?.focus(), addr.current?.select(), true))
+  useKeyHandler('web-reload', props.hidden ? null : () => !!stRef.current.active && (views.current.get(stRef.current.active)?.reload(), true))
   const stRef = useRef(st)
   stRef.current = st
 
@@ -310,8 +318,8 @@ export function WebPanel(props: {
     setMenu(null)
     setImporting(true)
     try {
-      const r = await window.cn.importChrome(id)
-      props.onNotice(`导入了${r.imported}个登录信息${r.expired ? `，${r.expired}个已过期没导` : ''}。网页重新载入后就是登录状态。`)
+      const r = await importChromeLogin(id)
+      props.onNotice(importedText(r))
       if (active) views.current.get(active.id)?.reload()
     } catch (e) {
       props.onNotice(errText(e))
@@ -477,16 +485,25 @@ export function WebPanel(props: {
         const ref = videoOf(url)
         cb.current.onShow()
         const hit = ref && stRef.current.tabs.find((x) => videoOf(x.url)?.key === ref.key)
+        const timed = (raw: string) => {
+          const u = new URL(raw)
+          if (t !== null && ref?.site === 'youtube') u.searchParams.set('t', `${Math.floor(t)}s`)
+          else if (t !== null) u.searchParams.set('t', String(Math.floor(t)))
+          return u.toString()
+        }
+        if (hit && dormant.current!.has(hit.id)) {
+          // 恢复了还没载入的标签：带着时间载入；点的是「从那一秒播」就照新开的网页那样播（不再拦），「停在那一秒」照旧拦着
+          if (!still) restored.current!.delete(hit.id)
+          setSt((s) => activate(updateTab(s, hit.id, { url: timed(hit.url) }), hit.id, cb.current.owner))
+          return
+        }
         if (hit) {
           setSt((s) => activate(s, hit.id, cb.current.owner))
           const wc = wcIdsRef.current[hit.id]
           if (t !== null && wc !== undefined) setTimeout(() => views.current.get(hit.id)?.send('video:cmd', still ? 'still' : 'seek', t), 50)
           return
         }
-        const u = new URL(url)
-        if (t !== null && ref?.site === 'youtube') u.searchParams.set('t', `${Math.floor(t)}s`)
-        else if (t !== null) u.searchParams.set('t', String(Math.floor(t)))
-        setSt((s) => openTab(s, u.toString(), { owner: cb.current.owner }))
+        setSt((s) => openTab(s, timed(url), { owner: cb.current.owner }))
       },
       activeWc: () => pageRef.current?.wcId ?? null,
       focus(wcId) {
@@ -526,14 +543,14 @@ export function WebPanel(props: {
                 {/^https?:/.test(t.url) ? <Favicon url={t.url} size={14} /> : <Codicon name="globe" size={13} />}
                 <span className="truncate">{(!t.url || t.url === newtabUrl ? (going[t.id] ? hostOf(going[t.id]!.url) : '') : t.title) || (/^https?:/.test(t.url) ? hostOf(t.url) : '新网页')}</span>
               </button>
-              <button className="x" aria-label="关闭网页标签" title="关闭网页标签 ⌘W" onClick={() => closeByUser(t.id)}>
+              <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
                 <Codicon name="close" size={12} />
               </button>
             </div>
           ))}
         </div>
         {/* + 固定在标签条最右，标签多了横着滚它也不动；收起右栏用竖条上的「网页」、标题栏最右或 ⌥⌘\（「移到中间」在标题栏） */}
-        <button className="iconbtn wnew" aria-label="新网页" data-tip="新网页（书签管家的新标签页）" data-key="⌘T" data-side="below-left" onClick={() => newTab()}>
+        <button className="iconbtn wnew" aria-label="新网页" data-tip="新网页（书签管家的新标签页）" data-key={K('web-new-tab') ?? undefined} data-side="below-left" onClick={() => newTab()}>
           <Codicon name="add" size={14} />
         </button>
       </div>
@@ -684,11 +701,12 @@ export function WebPanel(props: {
         <div className="wstack" ref={stack}>
           {st.tabs.map((t) => {
             const src = srcOf(t)
-            return src ? (
+            return src && !dormant.current!.has(t.id) ? (
               <WebView
                 key={t.id}
                 initialUrl={src}
                 visible={t.id === st.active}
+                hold={restored.current!.has(t.id)}
                 clipMode={props.clipMode}
                 onRef={(el) => {
                   if (el) views.current.set(t.id, el)
@@ -825,7 +843,7 @@ function MoreMenu(props: {
           },
         ]
       : []),
-    { id: 'newtab', group: 'bookmarks', label: '书签首页', icon: 'layout', node: item('书签首页', 'layout', props.onNewTab, '⌘T') },
+    { id: 'newtab', group: 'bookmarks', label: '书签首页', icon: 'layout', node: item('书签首页', 'layout', props.onNewTab, keyFor('web-new-tab') ?? undefined) },
     { id: 'library', group: 'bookmarks', label: '书签和历史…', icon: 'bookmark', node: item('书签和历史…', 'bookmark', () => props.onPick('library')) },
     { id: WEB_LOCKED, group: 'browser', label: '插件…', icon: 'extensions', node: item('插件…', 'extensions', () => props.onPick('extensions')) },
     { id: 'login', group: 'browser', label: '导入Chrome登录…', icon: 'sign-in', node: item('导入Chrome登录…', 'sign-in', () => props.onPick('login'), undefined, props.importing) },
@@ -915,9 +933,19 @@ function MoreMenu(props: {
           </button>
         </div>
       ) : (
-        <div role="group" aria-label="调整">
-          {item('调整这个菜单…', 'edit', () => setEdit(true))}
-        </div>
+        <>
+          <div role="group" aria-label="调整">
+            {item('调整这个菜单…', 'edit', () => setEdit(true))}
+          </div>
+          {/* 从用的地方跳到设置（方向 A 的 A3）：网页设置在设置 › 网页和视频，那一行闪一下 */}
+          <div role="group" aria-label="网页设置" className="wm-go">
+            <button role="menuitem" className="go" onClick={() => (props.onClose(), openSettingsAt('engine'))}>
+              <Codicon name="settings-gear" size={14} />
+              <span className="mlabel">网页设置…</span>
+              <Codicon name="chevron-right" size={12} className="go-r" />
+            </button>
+          </div>
+        </>
       )}
       {drag?.line && <div className="pal-dropline" style={{ left: drag.line.left, top: drag.line.top, width: drag.line.width }} />}
     </div>

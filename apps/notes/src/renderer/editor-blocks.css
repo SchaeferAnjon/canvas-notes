@@ -329,7 +329,9 @@
 }
 .doc .cm-tailline.after {
   padding: 3px 0;
-  font: 15px/1.75 var(--sans);
+  font-family: var(--doc-font, var(--sans));
+  font-size: var(--doc-size, 15px);
+  line-height: var(--doc-lh, 1.75);
 }
 /* 块和块之间那一个空行压矮（block-gaps.ts）：--gap 是小样里两块之间的距离（12，标题上 26 下 10）；光标停在这一行时不加这个类，照常一整行。
    选择器只有两层：书摘、引文下面的评价、折叠块自己的空行（.doc.doc 三层）照它们自己的数 */

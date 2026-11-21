@@ -6,7 +6,7 @@
 import { type AskSection, blocksText, decorativeImages, documentBlocks, type FigureBox, insideCrop, locateFigure, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect, toPageRect } from '@cn/format'
 import { useSyncExternalStore } from 'react'
 import type { EngineId, ToolStep } from '../../shared/agent'
-import { type AiPick, convPick, hasEffort, pickLabel } from '../../shared/ai-features'
+import { type AiPick, convPick, pickLabel, pickReq } from '../../shared/ai-features'
 import { imageNames, type Material, shiftMarks } from '../../shared/materials'
 import { type AskResult, type ReadingMsg, type ReadingSide, type ReadingState, type ReadingThread, readLine, withoutVizMark } from '../../shared/reading'
 import { titleOf } from '../../shared/layout'
@@ -198,7 +198,7 @@ async function pickNow(pdf: string): Promise<{ pick: AiPick; by: string; req: { 
   const pick = convPick(ai.engines, ai.chat, get(pdf).state.pick)
   engineNow = pick.engine
   const models = ai.engines.find((e) => e.id === pick.engine)?.models
-  return { pick, by: pickLabel(pick, models), req: hasEffort(pick.engine) ? { model: pick.model ?? '', ...(pick.effort ? { effort: pick.effort } : {}) } : {} }
+  return { pick, by: pickLabel(pick, models), req: pickReq(pick) }
 }
 
 /** ⌘J、右下角圆钮打开的 AI：打开后光标进输入框（打开 PDF 时自己出来的那次不抢焦点） */

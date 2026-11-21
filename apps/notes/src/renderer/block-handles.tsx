@@ -1,4 +1,5 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { isKey, keyFor } from './keys'
 import {
   type BlockEdit,
   blockIndexAt,
@@ -152,9 +153,10 @@ function duplicateAtCursor(view: EditorView): boolean {
 
 const blockKeys = Prec.high(
   keymap.of([
-    { key: 'Alt-Shift-ArrowUp', run: (v) => shiftAtCursor(v, -1), preventDefault: true },
-    { key: 'Alt-Shift-ArrowDown', run: (v) => shiftAtCursor(v, 1), preventDefault: true },
-    { key: 'Mod-d', run: duplicateAtCursor, preventDefault: true },
+    // 键照命令表（设置 › 快捷键里能改）
+    { any: (v, e) => isKey(e, 'block-up') && (shiftAtCursor(v, -1), true) },
+    { any: (v, e) => isKey(e, 'block-down') && (shiftAtCursor(v, 1), true) },
+    { any: (v, e) => isKey(e, 'dup-block') && duplicateAtCursor(v) },
   ]),
 )
 
@@ -180,7 +182,8 @@ interface MenuItem {
   icon: CodiconName
   /** 交给 AI 对话那一家跑：画它的标志 */
   ai?: true
-  keys?: string
+  /** 右边写它的快捷键（命令表里的 id） */
+  cmd?: string
   /** 这一行灰掉（文末那一行还没有字：复制、问 AI、删除都没东西可做） */
   off?: boolean
 }
@@ -192,9 +195,9 @@ const CONVERT: MenuItem[] = [
 ]
 const RAW: MenuItem[] = [{ id: 'raw', label: '改写法', icon: 'code' }]
 const ACTIONS: MenuItem[] = [
-  { id: 'dup', label: '复制一块', icon: 'copy', keys: '⌘D' },
+  { id: 'dup', label: '复制一块', icon: 'copy', cmd: 'dup-block' },
   { id: 'ai', label: '问 AI 这一块', icon: 'comment-discussion', ai: true },
-  { id: 'del', label: '删除', icon: 'trash', keys: '⌫' },
+  { id: 'del', label: '删除', icon: 'trash', cmd: 'delete' },
 ]
 
 function BlockMenu(props: { top: MenuItem[]; tail: boolean; onPick(a: MenuAction): void; onClose(): void }) {
@@ -228,7 +231,7 @@ function BlockMenu(props: { top: MenuItem[]; tail: boolean; onPick(a: MenuAction
           // 菜单开着按 ⌫：删掉这一块（菜单上写着的快捷键）
           e.preventDefault()
           props.onPick('del')
-        } else if (e.key === 'd' && e.metaKey && !props.tail) {
+        } else if (isKey(e, 'dup-block') && !props.tail) {
           e.preventDefault()
           props.onPick('dup')
         }
@@ -247,7 +250,7 @@ function BlockMenu(props: { top: MenuItem[]; tail: boolean; onPick(a: MenuAction
           >
             {it.ai ? <AiIcon job="chat" size={14} /> : <Codicon name={it.icon} size={14} />}
             <span className="lb">{it.label}</span>
-            {it.keys && <kbd>{it.keys}</kbd>}
+            {it.cmd && keyFor(it.cmd) && <kbd>{keyFor(it.cmd)}</kbd>}
           </button>
         </div>
       ))}

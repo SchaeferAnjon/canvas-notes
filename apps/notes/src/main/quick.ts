@@ -9,11 +9,12 @@ import { join } from 'node:path'
 import * as git from '@cn/git'
 import { BRAND } from '../shared/brand'
 import { quickMarkdown, type QuickContext } from '../shared/quick'
+import { accelOf } from '../shared/cmd-keys'
+import type { GeneralPrefs } from '../shared/prefs'
 import { E2E } from './test-mode'
 import { TRAY_1X, TRAY_2X } from './tray-icon'
 import type { Vault } from './vault'
 
-export const QUICK_KEY = process.env.CN_QUICK_KEY || 'Alt+Command+N'
 const WIDTH = 600
 
 /** 能取网址的浏览器（bundle id → AppleScript 里怎么问） */
@@ -105,6 +106,8 @@ export function setupQuick(o: {
   skin(): NonNullable<QuickContext['skin']>
   /** 菜单栏图标的菜单最上面多的几项（新版本下好了时「重启并更新到 x」） */
   topItems?(): Electron.MenuItemConstructorOptions[]
+  /** 设置 › 一般：速记的键、菜单栏图标、带不带来源 */
+  prefs(): GeneralPrefs
 }) {
   let win: BrowserWindow | null = null
   let ctx: QuickContext = { trusted: false, hint: true }
@@ -161,17 +164,19 @@ export function setupQuick(o: {
     }
     prev = null
     const isTrusted = trusted()
-    ctx = { trusted: isTrusted, hint: !isTrusted && o.settings().quickHint !== false, skin: o.skin() }
+    ctx = { trusted: isTrusted, hint: !isTrusted && o.settings().quickHint !== false, skin: o.skin(), key: o.prefs().quickKey }
     if (!E2E) {
       prev = await frontApp().catch(() => null)
       if (prev?.bundle === BRAND.appId || prev?.name === app.getName()) prev = null
     }
-    // 只有用户已经给了辅助功能权限才去拿选中的字和来源；没权限什么都不碰，不会弹系统授权框
+    // 只有用户已经给了辅助功能权限才去拿选中的字和来源；没权限什么都不碰，不会弹系统授权框。
+    // 设置 › 一般「选中文字时带上来源」关着：只拿选中的字，不记是哪个软件、哪个网页
     if (isTrusted && prev) {
-      ctx.app = prev.name
+      const src = o.prefs().quickSrc
+      if (src) ctx.app = prev.name
       const sel = await copySelection().catch(() => '')
       if (sel.trim()) ctx.selection = sel.slice(0, 20000)
-      const page = await browserPage(prev.bundle).catch(() => null)
+      const page = src ? await browserPage(prev.bundle).catch(() => null) : null
       if (page) Object.assign(ctx, page)
     }
     win ??= make()
@@ -218,37 +223,67 @@ export function setupQuick(o: {
     win?.webContents.send('quick:context', ctx)
   })
 
-  const registered = globalShortcut.register(QUICK_KEY, () => void show().catch((e) => console.error('速记弹不出来', e)))
-  if (!registered) console.warn(`全局快捷键 ${QUICK_KEY} 被别的软件占了，速记只能从菜单栏打开`)
+  // 全局键（设置 › 一般「速记快捷键」，默认 ⌥⌘N）。测试实例用 CN_QUICK_KEY 换成没人用的键：设置里换的键只记下（cnQuick.wanted），
+  // 不在用户的 Mac 上真的注册
+  let key: string | null = null
+  let registered = false
+  let wanted = ''
+  function applyKey() {
+    wanted = accelOf(o.prefs().quickKey)
+    const accel = process.env.CN_QUICK_KEY || wanted
+    if (accel === key) return
+    if (key) globalShortcut.unregister(key)
+    key = accel
+    registered = globalShortcut.register(accel, () => void show().catch((e) => console.error('速记弹不出来', e)))
+    if (!registered) console.warn(`全局快捷键 ${accel} 被别的软件占了，速记只能从菜单栏打开`)
+  }
 
-  const icon = nativeImage.createFromDataURL(TRAY_1X)
-  icon.addRepresentation({ scaleFactor: 2, dataURL: TRAY_2X })
-  icon.setTemplateImage(true)
-  const tray = new Tray(icon)
-  tray.setToolTip(BRAND.name)
+  // 菜单栏图标（设置 › 一般「菜单栏图标」，默认开）
+  let tray: Tray | null = null
   const buildTrayMenu = () =>
     Menu.buildFromTemplate([
-    ...(o.topItems?.() ?? []),
-    { label: '速记', accelerator: registered ? QUICK_KEY : undefined, registerAccelerator: false, click: () => void show() },
-    { label: `打开 ${BRAND.name}`, click: () => o.openMain() },
-    { label: '现在梦游', click: () => o.dreamNow() },
-    { type: 'separator' },
-    { label: '退出', role: 'quit' },
-  ])
+      ...(o.topItems?.() ?? []),
+      { label: '速记', accelerator: registered && key ? key : undefined, registerAccelerator: false, click: () => void show() },
+      { label: `打开 ${BRAND.name}`, click: () => o.openMain() },
+      { label: '现在梦游', click: () => o.dreamNow() },
+      { type: 'separator' },
+      { label: '退出', role: 'quit' },
+    ])
   const setMenu = () => {
     const menu = buildTrayMenu()
-    tray.setContextMenu(menu)
+    tray?.setContextMenu(menu)
     // 端到端测试从这里弹出速记框、读菜单栏菜单（测试不按真的全局快捷键）
-    if (E2E) Object.assign(globalThis, { cnQuick: { show, menu, registered } })
+    if (E2E) Object.assign(globalThis, { cnQuick: { show, menu, registered, wanted, tray: !!tray } })
   }
-  setMenu()
+  function applyTray() {
+    const on = o.prefs().tray
+    if (on && !tray) {
+      const icon = nativeImage.createFromDataURL(TRAY_1X)
+      icon.addRepresentation({ scaleFactor: 2, dataURL: TRAY_2X })
+      icon.setTemplateImage(true)
+      tray = new Tray(icon)
+      tray.setToolTip(BRAND.name)
+    } else if (!on && tray) {
+      tray.destroy()
+      tray = null
+    }
+  }
+  /** 设置里改了速记的键、菜单栏图标：当场换 */
+  function apply() {
+    applyKey()
+    applyTray()
+    setMenu()
+  }
+  apply()
+  ipcMain.handle('quick:state', () => ({ key: o.prefs().quickKey, registered }))
 
   return {
     /** 菜单栏图标的菜单重建（新版本下好了多一项） */
     refreshMenu: setMenu,
+    apply,
     dispose() {
-      globalShortcut.unregister(QUICK_KEY)
-      tray.destroy()
+      if (key) globalShortcut.unregister(key)
+      tray?.destroy()
       win?.destroy()
     },
   }

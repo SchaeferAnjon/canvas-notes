@@ -1,6 +1,6 @@
 /**
  * 发版前第 4 轮（实用 · 读与 AI）找出来的问题：每条一个测试，真按、真点。
- * - ⌘K：结果没出来先按 ↓ 和等出来再按 ↓ 落在同一行；没把握的「意思相近」键盘选不中；打的像网址时只有名字对得上的才默认。
+ * - ⌘K：结果没出来先按 ↓ 和等出来再按 ↓ 落在同一行；不沾边的「意思相近」不列；打的像网址时只有名字对得上的才默认。
  * - 用户没去任何网站时软件 0 个对外请求（开软件、开右栏网页、新网页、设置各页）；记账代理数。
  * - 梦游「全部收下」时那篇开着：不说「在外面挪到了」。
  * - 收下归类后在外面改了名再撤回：说清是改了名、名字不重复；撤不回时「撤回」换成「在历史里看」。
@@ -20,7 +20,7 @@ const web = (page: Page) => page.getByRole('complementary', { name: '网页' })
 
 // ---------------------------------------------------------------- ⌘K
 
-test('⌘K：早按 ↓ 和晚按 ↓ 落在同一行；没把握的意思相近键盘、悬停都选不中，只能点；打的像网址时只有名字对得上的才默认', async () => {
+test('⌘K：早按 ↓ 和晚按 ↓ 落在同一行；不沾边的意思相近不列；打的像网址时只有名字对得上的才默认', async () => {
   test.setTimeout(240_000)
   const files: Record<string, string | Uint8Array> = {
     '随手记.md': '# 随手记\n\n正文。\n',
@@ -74,24 +74,15 @@ test('⌘K：早按 ↓ 和晚按 ↓ 落在同一行；没把握的意思相近
       expect(early, word).toEqual(late)
     }
 
-    // 3. 没把握的那几条：鼠标悬停也不当选中（回车不开），点了才开
+    // 3. 不沾边的词「意思相近」一条不出（task-j0249 收紧门槛；以前列出来但只能鼠标点），鼠标悬停也没有能选中的本地结果
     await page.keyboard.press('Meta+k')
     await palBox(page).fill('特斯拉股价')
-    const loose = pal(page).locator('.pal-row', { has: page.locator('.nm') }).filter({ hasNotText: /在右栏网页|Claude|还有/ })
-    await expect(pal(page).locator('.pal-g', { hasText: '意思相近' })).toBeVisible({ timeout: 5000 })
-    const first = loose.first()
-    const name = ((await first.locator('.nm').innerText()) || '').trim()
-    const box = (await first.boundingBox())!
-    await page.mouse.move(box.x + 40, box.y + box.height / 2)
-    await page.mouse.move(box.x + 60, box.y + box.height / 2, { steps: 3 })
+    await expect(pal(page).locator('.pal-g', { hasText: '网页和AI' })).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(1200)
+    await expect(pal(page).locator('.pal-g', { hasText: '意思相近' })).toHaveCount(0)
     await expect(pal(page).locator('.pal-row.on')).toHaveCount(0)
     await shotWindow(run, 'r4-palette-loose-hover')
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(500)
-    await expect(pal(page)).toBeVisible()
-    await first.click()
-    await expect(pal(page)).toHaveCount(0)
-    await expect(tabOn(page)).toHaveText(name)
+    await page.keyboard.press('Escape')
 
     // 4. 像网址 / 域名：名字对不上的（意思相近、正文里有）都不默认，写清楚 ⌘↵ 去网页；名字对得上的照样默认
     for (const word of ['example.com', 'github.com']) {
@@ -174,7 +165,7 @@ test('用户没去任何网站时 0 个对外请求：开软件、开右栏网�
     await page.keyboard.press('Meta+,')
     const nav = page.getByRole('navigation', { name: '设置分页' })
     await expect(nav).toBeVisible()
-    for (const name of ['外观', '首页', '库', 'AI', '插件', 'Git和同步', '快捷键', '更新']) {
+    for (const name of ['一般', '外观', '首页', '文档和白板', '文件和附件', '读PDF', '网页和视频', 'AI', '梦游', '库', 'Git和同步', '隐私和联网', '插件', '快捷键', '高级']) {
       await nav.getByRole('button', { name, exact: true }).click()
       await page.waitForTimeout(1000)
       await seen(`设置 · ${name}`)

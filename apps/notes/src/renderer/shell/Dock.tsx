@@ -11,6 +11,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import * as D from '../../shared/dock'
 import { MenuItem, Popover } from './Shell'
+import { CENTER_MIN } from './SideSash'
 import './dock.css'
 
 const ICON: Record<Exclude<D.ViewId, 'ai'>, CodiconName> = { web: 'globe', note: 'note', outline: 'list-tree', history: 'history' }
@@ -42,30 +43,53 @@ export interface DockProps {
   onHintDone(): void
 }
 
-/** 一组标签的头：标签、空处（拖整栏 / 拖浮窗）、⋯ 或「停靠」 */
+/**
+ * 一组标签的头：标签条、空处和六点把手（拖整栏 / 拖浮窗）、⋯ 或「停靠」。
+ * 把手紧挨在 ⋯ 左边（task-331zt，用户：「这六个点可以放在三个点的左侧」）；标签多到放不下时标签条横着滚，让出把手和 ⋯ 那块
+ */
 function Head(p: { g: D.Group | D.FloatWin; float: boolean; cur: boolean; props: DockProps; drag: Drag; colIdx: number; colCount: number }) {
   const { g, props, drag } = p
   const [menu, setMenu] = useState<HTMLElement | null>(null)
+  const tabs = useRef<HTMLDivElement>(null)
+  // 标签条滚着时：当前标签整个露着（换了当前、开了新的、栏变窄），哪头还藏着标签哪头淡出（同中间标签条）
+  useLayoutEffect(() => {
+    const el = tabs.current
+    if (!el) return
+    const reveal = () => {
+      const on = el.querySelector<HTMLElement>('.dtab.on')
+      if (on && on.offsetLeft < el.scrollLeft) el.scrollLeft = on.offsetLeft
+      else if (on && on.offsetLeft + on.offsetWidth > el.scrollLeft + el.clientWidth) el.scrollLeft = on.offsetLeft + on.offsetWidth - el.clientWidth
+      fade(el)
+    }
+    reveal()
+    const ro = new ResizeObserver(reveal)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [g.active, g.views.length])
+  const grab = (e: React.PointerEvent) => (p.float ? drag.startFloat(e, g.id) : drag.startCol(e, g.id))
   return (
     <div className="dhead" role="tablist" aria-label={p.float ? '浮窗的标签' : '右栏标签'}>
-      {g.views.map((v) => (
-        <div
-          key={v}
-          className={'dtab' + (g.active === v ? ' on' : '')}
-          role="tab"
-          aria-selected={g.active === v}
-          data-view={v}
-          data-testid={`dtab-${v}`}
-          onPointerDown={(e) => drag.startView(e, v)}
-        >
-          {v === 'ai' ? <span className="dic">{props.aiLogo}</span> : <Codicon name={ICON[v]} size={15} />}
-          <span className="dname">{D.VIEW_NAME[v]}</span>
-          <button className="x" aria-label={`收起${D.VIEW_NAME[v]}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => props.onCloseView(v)}>
-            <Codicon name="close" size={12} />
-          </button>
-        </div>
-      ))}
-      <div className="dgrab" data-tip={p.float ? '按住拖动浮窗' : '按住拖动这一栏，换左右位置'} data-side="below" onPointerDown={(e) => (p.float ? drag.startFloat(e, g.id) : drag.startCol(e, g.id))}>
+      <div className="dtabs" ref={tabs} onWheel={(e) => e.deltaY && (e.currentTarget.scrollLeft += e.deltaY)} onScroll={(e) => fade(e.currentTarget)}>
+        {g.views.map((v) => (
+          <div
+            key={v}
+            className={'dtab' + (g.active === v ? ' on' : '')}
+            role="tab"
+            aria-selected={g.active === v}
+            data-view={v}
+            data-testid={`dtab-${v}`}
+            onPointerDown={(e) => drag.startView(e, v)}
+          >
+            {v === 'ai' ? <span className="dic">{props.aiLogo}</span> : <Codicon name={ICON[v]} size={15} />}
+            <span className="dname">{D.VIEW_NAME[v]}</span>
+            <button className="x" aria-label={`收起${D.VIEW_NAME[v]}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => props.onCloseView(v)}>
+              <Codicon name="close" size={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div className="dspace" onPointerDown={grab} />
+      <div className="dgrab" data-tip={p.float ? '按住拖动浮窗' : '按住拖动这一栏，换左右位置'} data-side="below" onPointerDown={grab}>
         <span className="grip">
           <Codicon name="gripper" size={14} />
         </span>
@@ -100,6 +124,12 @@ function Head(p: { g: D.Group | D.FloatWin; float: boolean; cur: boolean; props:
       )}
     </div>
   )
+}
+
+/** 组头标签条两头还藏着标签：挂 .more-l / .more-r（淡出） */
+function fade(el: HTMLElement) {
+  el.classList.toggle('more-l', el.scrollLeft > 1)
+  el.classList.toggle('more-r', el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
 }
 
 interface Drag {
@@ -464,12 +494,25 @@ function RowSash(p: { a: D.Group; b: D.Group; props: DockProps }) {
   )
 }
 
-/** 两栏之间的缝：拖着改旁边那栏（不是中间的那栏）的宽 */
+/** 双击拉到最宽以前那栏多宽（再双击回到这个宽）；按栏的 id 记，只记在这一次打开里 */
+const beforeWidest = new Map<string, number>()
+
+/** 两栏之间的缝：拖着改旁边那栏（不是中间的那一栏）的宽。最宽到中间只剩 420（CENTER_MIN），不再卡在一个死数上；
+ * 双击一下拉到最宽，再双击回到拉之前的宽（2026-11-21，task-zligc） */
 function ColSash(p: { i: number; props: DockProps }) {
   const { shown } = p.props
   const left = shown.cols[p.i - 1]!
   const right = shown.cols[p.i]!
   const [on, setOn] = useState(false)
+  // 改的是不是中间的那一栏：右边那栏不是中间就改它（往左拖变宽），不然改左边那栏（往右拖变宽）
+  const side = (D.isCenter(right) ? left : right) as D.SideCol
+  /** 这一栏现在画多宽、最宽能到多宽（中间现在多宽减去 420 都能让给它） */
+  const measure = (cbp: DockProps) => {
+    const w0 = cbp.widths[side.id] ?? side.w
+    const center = document.querySelector<HTMLElement>('.win > main.center')
+    const spare = center ? center.getBoundingClientRect().width - CENTER_MIN : 0
+    return { w0, max: Math.max(D.COL_MIN, Math.floor(w0 + spare)) }
+  }
   return (
     <div
       className={'dsash-col' + (on ? ' on' : '')}
@@ -478,17 +521,16 @@ function ColSash(p: { i: number; props: DockProps }) {
       aria-orientation="vertical"
       aria-label="拖动调整右栏宽度"
       onPointerDown={(e) => {
+        if (e.button !== 0) return
         e.currentTarget.setPointerCapture(e.pointerId)
         setOn(true)
         document.body.classList.add('resizing')
         const sx = e.clientX
         const cbp = p.props
-        // 改的是不是中间的那一栏：右边那栏不是中间就改它（往左拖变宽），不然改左边那栏（往右拖变宽）
-        const side = (D.isCenter(right) ? left : right) as D.SideCol
-        const w0 = cbp.widths[side.id] ?? side.w
+        const { w0, max } = measure(cbp)
         const mv = (ev: PointerEvent) => {
           const dx = ev.clientX - sx
-          cbp.onDock(D.setColWidth(cbp.stored, side.id, D.isCenter(right) ? w0 + dx : w0 - dx), 'layout')
+          cbp.onDock(D.setColWidth(cbp.stored, side.id, Math.min(max, D.isCenter(right) ? w0 + dx : w0 - dx)), 'layout')
         }
         const up = () => {
           setOn(false)
@@ -498,6 +540,17 @@ function ColSash(p: { i: number; props: DockProps }) {
         }
         addEventListener('pointermove', mv)
         addEventListener('pointerup', up)
+      }}
+      onDoubleClick={() => {
+        const cbp = p.props
+        const { w0, max } = measure(cbp)
+        if (w0 < max - 2) {
+          beforeWidest.set(side.id, w0)
+          cbp.onDock(D.setColWidth(cbp.stored, side.id, max), 'layout')
+        } else {
+          cbp.onDock(D.setColWidth(cbp.stored, side.id, beforeWidest.get(side.id) ?? D.COL_DEFAULT), 'layout')
+          beforeWidest.delete(side.id)
+        }
       }}
     />
   )
@@ -555,7 +608,7 @@ function Hint(p: { g: D.Group | D.FloatWin; shown: D.Dock; ci: number; sides: D.
   return createPortal(
     <div ref={ref} className="dhint" data-testid="dock-hint" role="note" style={pos ?? { visibility: 'hidden' }}>
       <b>想两样一起看？拖标签</b>
-      {`${names.join('、')}现在是${CN_NUM[names.length] ?? names.length}个标签，只开一样时占满整栏。把标签拖到下半、拖到旁边成一栏，或拖到中间就浮起来。按住标签右边的空处拖，整栏换左右。`}
+      {`${names.join('、')}现在是${CN_NUM[names.length] ?? names.length}个标签，只开一样时占满整栏。把标签拖到下半、拖到旁边成一栏，或拖到中间就浮起来。按住「⋯」左边的六点拖，整栏换左右。`}
       <button className="x" aria-label="关掉" onClick={p.onDone}>
         <Codicon name="close" size={12} />
       </button>

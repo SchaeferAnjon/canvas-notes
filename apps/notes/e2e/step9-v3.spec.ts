@@ -48,9 +48,9 @@ test('四条栏：左右两条图标栏只放图标、悬停出名字，点亮�
     const width = await page.evaluate(() => window.innerWidth)
     expect(Math.round(box.x + box.width)).toBe(width)
     expect(Math.round(box.width)).toBe(44)
-    // 悬停出名字
+    // 悬停出名字和快捷键（命令表里的键，task-spsmf）
     await rail.getByRole('button', { name: '网页' }).hover()
-    await expect(page.getByTestId('tooltip')).toHaveText('网页')
+    await expect(page.getByTestId('tooltip')).toHaveText('网页⌥⌘W')
 
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
     await expect(acts(page).locator('.seg button')).toHaveText(['白板', '文档'])
@@ -321,7 +321,7 @@ test('设置页：⌘, 打开，改自动提交间隔马上生效（关掉就不
   const { page, vault, userData } = run
   try {
     await openSettings(page, 'Git和同步')
-    const sel = settingsDialog(page).getByRole('combobox', { name: '自动提交间隔' })
+    const sel = settingsDialog(page).getByRole('combobox', { name: '自动提交' })
     await expect(sel).toHaveValue('10')
     await sel.selectOption('0')
     await expect.poll(() => settingsOf(userData).autoCommitMinutes).toBe(0)
@@ -349,9 +349,9 @@ test('设置页：⌘, 打开，改自动提交间隔马上生效（关掉就不
 
     // 快捷键页
     await settingsDialog(page).getByRole('button', { name: '快捷键', exact: true }).click()
-    await expect(settingsDialog(page).locator('.keys-list .row').first()).toContainText('速记')
-    await expect(settingsDialog(page).locator('.keys-list')).toContainText('⌥⌘N')
-    await expect(settingsDialog(page).locator('.keys-list')).toContainText('⌘F')
+    await expect(settingsDialog(page).locator('[data-row="kQuick"]')).toContainText('速记')
+    await expect(settingsDialog(page).locator('[data-row="kQuick"]')).toContainText('⌥⌘N')
+    await expect(settingsDialog(page).locator('[data-row="k-cmd-ask-ai"]')).toContainText('⌘J')
     await page.keyboard.press('Meta+,')
     await expect(settingsDialog(page)).toBeHidden()
   } finally {
@@ -368,7 +368,7 @@ test('设置页：AI 默认引擎和 AI 浮窗是同一个；库页能换到别�
   try {
     await openSettings(page, 'AI')
     await settingsDialog(page).getByTestId('ai-default-pick').click()
-    await settingsDialog(page).getByRole('menu', { name: '默认用哪个' }).getByRole('menuitemradio', { name: /Codex/ }).click()
+    await page.getByRole('menu', { name: '默认用哪一家' }).getByRole('menuitemradio', { name: /Codex/ }).click()
     await expect(settingsDialog(page).getByTestId('ai-default')).toContainText('Codex')
     await page.keyboard.press('Escape')
     await page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' }).click()

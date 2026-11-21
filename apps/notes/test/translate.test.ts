@@ -399,6 +399,43 @@ describe('给网页阅读视图、右键翻译用的接口：一串块进、一�
     expect(b.map((x) => x.length)).toEqual([3, 1, 12, 12, 2])
   })
 
+  it('AI 回了空的译文（一句拆在两行字幕里，它把整句译文放进一行、另一行留空）：当漏了，单独再问一次；空的不进缓存，缓存里旧的空译文也不用', async () => {
+    const prompts: string[] = []
+    const cache = new TranslationCache(null)
+    // 0.4.6 存下的空译文
+    cache.set('zh-CN', 'stale empty', '')
+    const t = new Translator(async (_s, prompt) => {
+      prompts.push(prompt)
+      const items = JSON.parse(prompt.split('\n').pop()!) as { id: number; text: string }[]
+      // 头一次：第二段留空；单独问时好好翻
+      return items.map((i) => JSON.stringify({ id: i.id, text: items.length > 1 && i.id === 2 ? '' : `译：${i.text}` })).join('\n')
+    }, cache)
+    const got: [number, string | null][] = []
+    await t.translate(
+      [
+        { id: 1, text: 'their Cloud accounts' },
+        { id: 2, text: 'have been banned.' },
+        { id: 3, text: 'stale empty' },
+      ],
+      'zh-CN',
+      (id, text) => got.push([id, text]),
+      new AbortController().signal,
+    )
+    expect(got.sort()).toEqual([
+      [1, '译：their Cloud accounts'],
+      [2, '译：have been banned.'],
+      [3, '译：stale empty'],
+    ])
+    expect(prompts).toHaveLength(2)
+    expect(cache.get('zh-CN', 'have been banned.')).toBe('译：have been banned.')
+    // 一直回空的：两次以后报没翻成，空的不进缓存（下次重试照样去问）
+    const empty = new Translator(async (_s, prompt) => (JSON.parse(prompt.split('\n').pop()!) as { id: number }[]).map((i) => JSON.stringify({ id: i.id, text: ' ' })).join('\n'), new TranslationCache(null))
+    const res: unknown[] = []
+    await empty.translate([{ id: 1, text: 'x y' }], 'zh-CN', (id, text, error) => res.push([id, text, error?.code]), new AbortController().signal)
+    expect(res).toEqual([[1, null, 'bad-output']])
+    expect(empty.cache.get('zh-CN', 'x y')).toBeUndefined()
+  })
+
   it('字符串编号原样回；空块不翻；用指定的课程术语表；停下就不再回', async () => {
     const prompts: string[] = []
     const tr = new Translator(async (_s, prompt) => {

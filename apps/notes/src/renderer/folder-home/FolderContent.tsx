@@ -5,6 +5,7 @@
  * 只列这一层；量大时每块先列一些（别把上万条全铺开）。
  */
 import { when } from '../../shared/when'
+import { withKeys } from '../keys'
 import { Codicon } from '@cn/design'
 import { useMemo, useState } from 'react'
 import type { NoteFile, ThumbRect } from '../../shared/api'
@@ -74,7 +75,7 @@ export function FolderContent(props: { folder: string; notes: NoteFile[]; onOpen
           <Codicon name="chevron-down" size={12} />
         </button>
       </div>
-      {empty && <p className="fc-none">{type === 'all' ? '这个文件夹还是空的。右键左栏里的它，或者按 ⌘N 新建一篇。' : '这里没有这一类的文件'}</p>}
+      {empty && <p className="fc-none">{type === 'all' ? withKeys('这个文件夹还是空的。右键左栏里的它，或者按 {k:new-note} 新建一篇。') : '这里没有这一类的文件'}</p>}
 
       {dirs.length > 0 && (
         <section className="fc-sec" aria-label="文件夹">

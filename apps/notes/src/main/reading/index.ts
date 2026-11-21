@@ -61,6 +61,8 @@ const MAX_PDF = 300 * 1024 * 1024
 export interface ReadingDeps {
   win(): BrowserWindow | null
   vault(): Vault | null
+  /** 设置 › 读PDF「后台写每一轮的标题和小结」 */
+  recap(): boolean
 }
 
 const stemOf = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
@@ -409,6 +411,8 @@ export function setupReading(deps: ReadingDeps) {
     const msgs = req.msgs.filter((m) => m.thread === req.thread.id)
     const id = IDS.includes(req.engine) ? req.engine : 'claude'
     const title = typeof req.title === 'string' ? req.title : undefined
+    // 设置里关了：不问 AI，标题和小结截问和答的开头（和问不成时一样兜着）
+    if (!deps.recap()) return parseSummary('', { thread: req.thread, msgs, ...(title ? { title } : {}) })
     let raw = ''
     try {
       const r = await engine(id).run({

@@ -259,6 +259,15 @@
   background: var(--fill);
   color: var(--t1);
 }
+/* 「问AI」加进来以后（task-0tgz2）：这一条窄于 330 时「移到…」「删除」只留图标，三颗都放得下；「问AI」留着字 */
+.ft-selbar {
+  container-type: inline-size;
+}
+@container (max-width: 330px) {
+  .ft-selbar .act .lb {
+    display: none;
+  }
+}
 /* 附件：图片 file-media；「附件」筛选里笔记下面的一张是 20 × 16 的小图 + 名字 + 大小 */
 .ftree .ft-att {
   color: var(--t1);

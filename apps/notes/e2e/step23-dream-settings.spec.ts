@@ -182,7 +182,7 @@ test('改完直接收下：梦游完一次提交进 main，报告顶上写着、
 
     // 用哪家 AI：点了到 AI 页，「梦游」那一行闪一下
     await dlg.getByTestId('dream-set-ai').click()
-    await expect(dlg.locator('.aip-row[data-feature="dream"]')).toHaveClass(/flash/)
+    await expect(dlg.locator('[data-row="fDream"]')).toHaveClass(/flash/)
 
     await page.keyboard.press('Escape')
     await page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name: '梦游报告', exact: true }).click()

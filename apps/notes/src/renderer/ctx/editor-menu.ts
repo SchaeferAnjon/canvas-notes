@@ -6,7 +6,8 @@ import { redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/command
 import { blockIndexAt, type BlockTarget, convertible, convertMdBlock, findBlocks, plainOf, resolveLink } from '@cn/format'
 import type { EditorView } from '@codemirror/view'
 import { applyBlockEdit } from '../block-handles'
-import { HIGHLIGHT_KEY, inHighlight, toggleHighlight } from '../highlight'
+import { inHighlight, toggleHighlight } from '../highlight'
+import { accelFor } from '../keys'
 import { toggleFormat } from '../wysiwyg'
 import { app } from './actions'
 import { copy, type MenuEntry, menuAt } from './menu'
@@ -130,23 +131,23 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
   void menuAt(e, [
     ...linkItems,
     '-',
-    { label: '撤销', accel: 'CommandOrControl+Z', enabled: editable && undoDepth(state) > 0, run: () => (undo(view), view.focus()) },
-    { label: '重做', accel: 'Shift+CommandOrControl+Z', enabled: editable && redoDepth(state) > 0, run: () => (redo(view), view.focus()) },
+    { label: '撤销', accel: accelFor('undo'), enabled: editable && undoDepth(state) > 0, run: () => (undo(view), view.focus()) },
+    { label: '重做', accel: accelFor('redo'), enabled: editable && redoDepth(state) > 0, run: () => (redo(view), view.focus()) },
     '-',
     { edit: 'cut', enabled: editable && !sel.empty },
     { edit: 'copy', enabled: !sel.empty },
     { edit: 'paste', enabled: editable },
-    { label: '全选', accel: 'CommandOrControl+A', run: () => (selectAll(view), view.focus()) },
+    { label: '全选', accel: accelFor('select-all'), run: () => (selectAll(view), view.focus()) },
     '-',
     // 格式一组，快捷键写在右边（CN-67 A）；「转成」另起一组
-    editable && !sel.empty && { label: '加粗', accel: 'CommandOrControl+B', run: () => (toggleFormat('StrongEmphasis')(view), view.focus()) },
-    editable && !sel.empty && { label: '斜体', accel: 'CommandOrControl+I', run: () => (toggleFormat('Emphasis')(view), view.focus()) },
-    editable && (!sel.empty || hl) && { label: hl ? '取消高亮' : '高亮', accel: HIGHLIGHT_KEY, run: () => toggleHighlight(view) },
-    editable && !sel.empty && !hit && { label: '加链接', accel: 'CommandOrControl+K', run: () => addLink(view) },
+    editable && !sel.empty && { label: '加粗', accel: accelFor('bold'), run: () => (toggleFormat('StrongEmphasis')(view), view.focus()) },
+    editable && !sel.empty && { label: '斜体', accel: accelFor('italic'), run: () => (toggleFormat('Emphasis')(view), view.focus()) },
+    editable && (!sel.empty || hl) && { label: hl ? '取消高亮' : '高亮', accel: accelFor('highlight'), run: () => toggleHighlight(view) },
+    editable && !sel.empty && !hit && { label: '加链接', accel: accelFor('add-link'), run: () => addLink(view) },
     '-',
     canConvert && { label: '转成', submenu: TARGETS.map(([t, label]) => ({ label, run: () => applyBlockEdit(view, convertMdBlock(view.state.doc.toString(), bi, t), 0, 'move.block') })) },
     '-',
-    plain.trim() ? { label: selText.trim() ? '问 AI 这段' : '问 AI 这一块', accel: selText.trim() ? 'CommandOrControl+J' : undefined, ai: 'chat', run: () => a.askAi(plain) } : null,
+    plain.trim() ? { label: selText.trim() ? '问 AI 这段' : '问 AI 这一块', accel: selText.trim() ? accelFor('ask-ai') : undefined, ai: 'chat', run: () => a.askAi(plain) } : null,
     plain.trim() ? { label: selText.trim() ? '翻译这段' : '翻译这一块', ai: 'translate', run: () => translateAt(plain, { x: e.clientX, y: e.clientY }) } : null,
     // AI 那两项（带引擎标志）自成一组：macOS 不给没图的项留位置，混在一组里字对不齐
     '-',

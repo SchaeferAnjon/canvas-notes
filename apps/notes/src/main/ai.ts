@@ -21,6 +21,7 @@ export async function askFast(system: string, prompt: string, signal: AbortSigna
   if (process.env.CN_AI_FAKE === '1') {
     // 假装要想一会儿（CN_AI_FAKE_DELAY_MS，默认 300 毫秒），界面上看得到「翻译中」；一行一行吐，和真模型一样
     await new Promise((r) => setTimeout(r, Number(process.env.CN_AI_FAKE_DELAY_MS) || 300))
+    failOnce(prompt)
     const out = fake(prompt)
     for (const line of out.split(/(?<=\n)/)) onText(line)
     return out
@@ -28,10 +29,20 @@ export async function askFast(system: string, prompt: string, signal: AbortSigna
   return engineAskFast(system, prompt, signal, onText)
 }
 
+/** CN_AI_FAKE_FAIL=视频摘要:1：这个命令前 1 次报错（演 AI 出错，测重试） */
+const failed = new Map<string, number>()
+function failOnce(prompt: string) {
+  const [cmd, times] = (process.env.CN_AI_FAKE_FAIL ?? '').split(':')
+  if (!cmd || /^命令：(\S+)/.exec(prompt)?.[1] !== cmd) return
+  const n = failed.get(cmd) ?? 0
+  if (n >= (Number(times) || Infinity)) return
+  failed.set(cmd, n + 1)
+  throw new Error('Claude Code 退出了（1）：测试用的失败')
+}
+
 /** 测试用的固定回答：提示第一行是「命令：xxx」 */
 function fake(prompt: string): string {
   const cmd = /^命令：(\S+)/.exec(prompt)?.[1]
-  const names = [...prompt.matchAll(/^路径：(.+)$/gm)].map((m) => m[1]!)
   switch (cmd) {
     case '总结':
       return '这块白板讲了三件事：住处还没订、极光看哪两晚、还没订的车。'
@@ -52,8 +63,6 @@ function fake(prompt: string): string {
     }
     case '本周小结':
       return '这周主要在准备冰岛自驾，收件箱里多了几条极光和巴黎的剪藏，还没整理。'
-    case '整理收件箱':
-      return '```json\n' + JSON.stringify(names.map((path) => ({ path, topic: '旅行' }))) + '\n```'
     case '文件夹小结':
       return '这周主要在读 ECP 的第 5 讲。冰岛的机票订好了。住宿还没定。'
     case '挪进文件夹': {
@@ -74,9 +83,13 @@ function fake(prompt: string): string {
   }
 }
 
-/** 测试用的归类和改名：有课程属性的进那门课（导图改名「第 N 讲 … 导图」），旅行的进 剪藏/旅行，琐事进 生活，别的拿不准 */
+/**
+ * 测试用的归类和改名（梦游和 /整理收件箱 都问这个）：有课程属性的、内容里写着已有那门课的进那门课（导图改名「第 N 讲 … 导图」），
+ * 旅行的进 剪藏/旅行，要写进周记的进 周记，琐事进 生活，别的拿不准
+ */
 function fakeFiling(prompt: string) {
   const out: { path: string; folder: string; name: string | null; why: string }[] = []
+  const courses = (/优先用已有的：(.+?)。/.exec(prompt)?.[1] ?? '').split('、').filter((f) => f.startsWith('课程/')).map((f) => f.slice(3))
   for (const block of prompt.split(/\n\n(?=路径：)/)) {
     const path = /^路径：(.+)$/m.exec(block)?.[1]
     if (!path) continue
@@ -93,7 +106,11 @@ function fakeFiling(prompt: string) {
     } else if (course) {
       const map = /类型: 导图/.test(props)
       out.push({ path, folder: `课程/${course}`, name: map ? `第${lecture ?? '?'}讲 ${course} 导图` : null, why: `属性里写着课程「${course}」${lecture ? `、第${lecture}讲` : ''}，放进这门课。` })
+    } else if (courses.some((c) => text.includes(c))) {
+      const c = courses.find((x) => text.includes(x))!
+      out.push({ path, folder: `课程/${c}`, name: null, why: `讲的是「${c}」这门课，放进这门课。` })
     } else if (/极光|冰洞|巴黎/.test(text)) out.push({ path, folder: '剪藏/旅行', name: null, why: '都是旅行的事' })
+    else if (/周记/.test(text)) out.push({ path, folder: '周记', name: null, why: '要写进周记的' })
     else if (/花市|周末|买菜|房租/.test(text)) out.push({ path, folder: '生活', name: text.replace(/\s+/g, '').slice(0, 6), why: '日常的事，放生活' })
   }
   return out

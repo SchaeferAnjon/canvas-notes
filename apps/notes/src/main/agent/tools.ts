@@ -7,6 +7,7 @@
  */
 import { homedir } from 'node:os'
 import type { AgentContext } from '../../shared/agent'
+import { type ActTally, changedParas } from '../../shared/ai-act'
 import type { NoteFile } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
 import * as ops from './board-ops'
@@ -38,6 +39,10 @@ export interface ToolHost {
   settle?(path: string, of?: number): Promise<void>
   /** 用户按了停下（esc、提示条上的「停下」）：一长串的下一步不做了，当前这一步做完就停 */
   stopped?(): boolean
+  /** 只加一张卡时只亮这一张（流光方向 A2，DESIGN.v3 2.3） */
+  spot?(path: string, ids: string[]): void
+  /** 记下这一轮做了多少（做完的提示条「整理好了 · 挪了N张卡」、停下的「做完的N步留着」） */
+  tally?(k: keyof ActTally, n?: number): void
   web: {
     open(url: string): Promise<{ url: string; title: string }>
     read(): Promise<WebPage>
@@ -201,6 +206,8 @@ export const TOOLS: Tool[] = [
       }
       if (cur === undefined) throw new Error(`没有「${path}」。要新建就用 note_create`)
       await h.editNote(path, (t) => (append ? `${t.replace(/\s*$/, '')}\n\n${text.trim()}\n` : text.endsWith('\n') ? text : `${text}\n`))
+      if (append) h.tally?.('added')
+      else h.tally?.('changed', changedParas(cur, text))
       return `${append ? '加好了' : '改好了'}：${path}`
     },
   },
@@ -274,7 +281,9 @@ export const TOOLS: Tool[] = [
         id = r.id
         return r.text
       })
-      // 指针移到刚放下的这张，外圈亮一下
+      // 只亮刚加的这一张；指针移过去，外面跑一圈光
+      h.spot?.(path, [id])
+      h.tally?.('added')
       await h.grab?.(path, [id])
       await h.settle?.(path)
       return `加好了，卡片 id=${id}`
@@ -304,6 +313,7 @@ export const TOOLS: Tool[] = [
     label: (a) => `改卡片「${short(String(a.text ?? ''))}」`,
     run: async (a, h) => {
       await grabbing(a, h, [need<string>(a.id, 'id', 'string')], (t) => ops.setCardText(t, need<string>(a.id, 'id', 'string'), need<string>(a.text, 'text', 'string')))
+      h.tally?.('changed')
       return '改好了'
     },
   },
@@ -314,6 +324,7 @@ export const TOOLS: Tool[] = [
     label: (a) => `挪 ${String(a.id ?? '')} 到 (${String(a.x ?? '')}, ${String(a.y ?? '')})`,
     run: async (a, h) => {
       await grabbing(a, h, [need<string>(a.id, 'id', 'string')], (t) => ops.moveTo(t, need<string>(a.id, 'id', 'string'), need<number>(a.x, 'x', 'number'), need<number>(a.y, 'y', 'number')))
+      h.tally?.('moved')
       return '挪好了'
     },
   },
@@ -324,6 +335,7 @@ export const TOOLS: Tool[] = [
     label: (a) => `把 ${String(a.id ?? '')} 放进列 ${String(a.column ?? '')}`,
     run: async (a, h) => {
       await grabbing(a, h, [need<string>(a.id, 'id', 'string')], (t) => ops.putInColumn(t, need<string>(a.id, 'id', 'string'), need<string>(a.column, 'column', 'string'), optNum(a.position)))
+      h.tally?.('moved')
       return '放好了'
     },
   },
@@ -366,6 +378,7 @@ export const TOOLS: Tool[] = [
           }
         })
         await h.settle?.(path, steps.length)
+        h.tally?.('moved')
         n++
       }
       return n === steps.length ? '排好了' : `停下了：挪了${n}/${steps.length}张`
@@ -430,7 +443,11 @@ export const TOOLS: Tool[] = [
       '把网页里的一段剪进收件箱（带来源）：给 text（那一段里的几个字）就先找到那一段、选中再剪，一次剪一段，要剪几段就调几次；不给 text 剪用户选中的字；whole=true 或者没选中时剪整页正文。',
     inputSchema: obj({ text: str('要剪的那一段里的几个字（原文照抄，十来个字就够）'), whole: { type: 'boolean', description: '剪整页' } }),
     label: (a) => (a.whole ? '整页剪进收件箱' : opt(a.text) ? `剪「${short(String(a.text))}」` : '剪进收件箱'),
-    run: async (a, h) => `剪好了：${await h.web.clip(a.whole === true, opt(a.text))}`,
+    run: async (a, h) => {
+      const path = await h.web.clip(a.whole === true, opt(a.text))
+      h.tally?.('clipped')
+      return `剪好了：${path}`
+    },
   },
 
   // ---------- 文档 ----------

@@ -351,7 +351,7 @@
 }
 /* 放不下大标题时只留那一句；那一句也放不下就整个不画（输入框里的提示已经说了怎么问），不被拦腰切（第 3 轮美学） */
 @container (max-height: 140px) {
-  .reading-ai .ai-empty h2 {
+  .reading-ai .ai-empty .hi {
     display: none;
   }
 }

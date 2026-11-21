@@ -83,7 +83,7 @@ test('文件树：篇数（含子文件夹）、类型筛选和「最近」共�
     await sortBtn.click()
     await expect(sortBtn).toHaveAttribute('aria-pressed', 'true')
     const menu = page.getByRole('dialog', { name: '排序' })
-    await expect(menu.getByRole('menuitem')).toHaveText(['修改时间新的在前', '修改时间旧的在前', '创建时间新的在前', '创建时间旧的在前', '名字A → Z', '名字Z → A', '文件夹排在前面', '置顶的排在最前', '显示篇数', '自动定位当前文件'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['修改时间新的在前', '修改时间旧的在前', '创建时间新的在前', '创建时间旧的在前', '名字A → Z', '名字Z → A', '文件夹排在前面', '置顶的排在最前', '显示篇数', '自动定位当前文件', '新笔记放哪、附件、删除…'])
     await menu.getByRole('menuitem', { name: '名字 Z → A' }).click()
     await expect.poll(() => kidsOf(page, '写作')).toEqual(['专栏', '游记', '书评', '写作习惯', '写作计划', '投稿清单'])
     expect((await topNames(page)).slice(0, 8)).toEqual(CATS)

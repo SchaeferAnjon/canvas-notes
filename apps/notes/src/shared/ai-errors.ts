@@ -15,6 +15,7 @@ export type AiErrorCode =
   | 'timeout'
   | 'exited'
   | 'bad-output'
+  | 'incompatible'
   | 'other'
 
 /**
@@ -23,6 +24,8 @@ export type AiErrorCode =
  */
 export function aiErrorCode(raw: string, status?: number): AiErrorCode {
   const s = raw.trim()
+  // 命令行更新后不兼容（task-m55m7）：主进程加的「【不兼容】」那一行，或者命令行自己说不认我们给的参数
+  if (s.startsWith(INCOMPATIBLE) || /unknown option '--|' argument '[^']*' is invalid\. Allowed choices|Unknown --[\w-]+ value '/.test(s)) return 'incompatible'
   // 被安全检查拦下：Claude 的 safeguards / flagged / 使用政策（aup）；先认它，原话里也带 API Error
   if (/safeguards?|flagged|\/aup\b|acceptable use|usage polic|content.?filter|安全检查/i.test(s)) return 'blocked'
   if (/等了 \d+ 秒没回应|timed? ?out|ETIMEDOUT/i.test(s)) return 'timeout'
@@ -38,8 +41,11 @@ export function aiErrorCode(raw: string, status?: number): AiErrorCode {
   return 'other'
 }
 
-/** 出错时能点的下一步 */
-export type AiErrorAct = 'retry' | 'rephrase' | 'settings'
+/** 主进程在不兼容的原话前面加的那一行的开头（agent/index.ts 的 explain） */
+export const INCOMPATIBLE = '【不兼容】'
+
+/** 出错时能点的下一步；switch 是「换一家」（打开输入框底下谁来答那一列） */
+export type AiErrorAct = 'retry' | 'rephrase' | 'settings' | 'switch'
 
 export interface AiErrorView {
   code: AiErrorCode
@@ -87,6 +93,12 @@ export function aiErrorView(raw: string, engine?: { id?: string; label?: string 
       return { code, title: keep ? `${name}中途退出了，没答完` : s, acts: ['retry'], raw: keep }
     case 'bad-output':
       return { code, title: `${name}给的格式不对`, acts: ['retry'], raw: keep }
+    case 'incompatible': {
+      // 「【不兼容】Claude Code 9.9.0 有一个参数不认了：--x，AI 对话可能出错」→「…：--x，这一问没答上」；原话收在「看原话」里
+      const [head, ...rest] = s.split('\n')
+      const said = head!.startsWith(INCOMPATIBLE) ? head!.slice(INCOMPATIBLE.length).replace(/，[^，]*可能出错$/, '') : `${name}不认我们给的参数，多半是命令行更新了`
+      return { code, title: `${said.replace(/，多半是命令行更新了$/, '')}，这一问没答上`, acts: ['switch', 'settings'], raw: head!.startsWith(INCOMPATIBLE) ? rest.join('\n').trim() || null : s }
+    }
     default:
       return { code, title: keep ? `${name}没答出来` : s, acts: keep ? ['retry'] : [], raw: keep }
   }

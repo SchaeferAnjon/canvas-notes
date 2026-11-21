@@ -3,6 +3,7 @@
  * 能动哪些文件夹、改完怎么收、用哪家 AI（只写一行，点了去 AI 页那一行）。存在 settings.json 的 dream（shared/dream-settings.ts）。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { withKeys } from './keys'
 import { useEffect, useState } from 'react'
 import type { AppSettings } from '../shared/appearance'
 import { ENGINE_LABEL } from '../shared/ai-features'
@@ -120,14 +121,14 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
         </button>
       </div>
       <div className="dset-list">
-        <div className="row">
+        <div className="row" data-row="dAuto">
           <span className="tx">
             <b>自己梦游</b>
-            <span>关了只在点「现在梦游」时梦游（左栏梦游报告、⌘K、菜单栏里都有）</span>
+            <span>{withKeys('关了只在点「现在梦游」时梦游（左栏梦游报告、{k:search}、菜单栏里都有）')}</span>
           </span>
           <Toggle on={s.auto} label="自己梦游" onChange={(auto) => set({ auto })} />
         </div>
-        <div className={'row' + (s.auto ? '' : ' dim')}>
+        <div className={'row' + (s.auto ? '' : ' dim')} data-row="dIdle">
           <span className="tx">
             <b>没人动多久算闲</b>
             <span>这台Mac没人碰键盘和鼠标这么久</span>
@@ -138,7 +139,7 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
             ))}
           </select>
         </div>
-        <div className={'row' + (s.auto ? '' : ' dim')}>
+        <div className={'row' + (s.auto ? '' : ' dim')} data-row="dGap">
           <span className="tx">
             <b>两次之间至少隔</b>
             <span>从上次梦游完算起</span>
@@ -149,7 +150,7 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
             ))}
           </select>
         </div>
-        <div className={'row' + (s.auto ? '' : ' dim')}>
+        <div className={'row' + (s.auto ? '' : ' dim')} data-row="dWait">
           <span className="tx">
             <b>等上一份报告看完</b>
             <span>上一份还有没收下、没丢掉的就不自己梦游</span>
@@ -161,7 +162,7 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
       <h4>
         能做哪些事<span>每样一个开关；关掉的那样不做，报告里也没有那一组</span>
       </h4>
-      <div className="dset-steps" role="list" aria-label="梦游能做哪些事">
+      <div className="dset-steps" role="list" aria-label="梦游能做哪些事" data-row="dSteps">
         {STEPS.map((r) => {
           const on = s.steps[r.step]
           const why = on ? blocked(r.step) : null
@@ -204,7 +205,7 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
       <h4>
         能动哪些文件夹<span>梦游只在勾上的文件夹里改字、建文件</span>
       </h4>
-      <div className="dset-folders" role="group" aria-label="梦游能动哪些文件夹">
+      <div className="dset-folders" role="group" aria-label="梦游能动哪些文件夹" data-row="dFolders">
         {CATEGORIES.map((c) => {
           const on = s.folders.includes(c.name)
           return (
@@ -226,7 +227,7 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
       <h4>
         改完怎么收<span>两种都能撤回</span>
       </h4>
-      <div className="dset-list" role="radiogroup" aria-label="改完怎么收">
+      <div className="dset-list" role="radiogroup" aria-label="改完怎么收" data-row="dTake">
         {(
           [
             [false, '先预览，收下才进库', '改动放在单独的分支上，在梦游报告里逐条收下或丢掉'],
@@ -246,7 +247,7 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
       <h4>
         用哪家AI<span>在设置 › AI的「梦游」那一行换</span>
       </h4>
-      <button className="dset-ai" data-testid="dream-set-ai" onClick={props.onAiRow}>
+      <button className="dset-ai" data-testid="dream-set-ai" data-row="dAi" onClick={props.onAiRow}>
         {ai ? <EngineLogo id={ai.engine} size={16} /> : <Codicon name="wand" size={16} />}
         <b>{ai ? ENGINE_LABEL[ai.engine] : '读取中'}</b>
         {ai && <span className="m truncate">{ai.label.split(' · ').slice(1).join(' · ') || '它自己的默认模型'}</span>}

@@ -1,4 +1,8 @@
-const SEARCH = 'https://www.google.com/search?q='
+import { SEARCH_ENGINES } from '../shared/prefs'
+import { appSettings } from './settings-store'
+
+/** 地址栏、⌘K 里打的不是网址时用哪家搜（设置 › 网页和视频「地址栏搜索用」，默认 Google） */
+const searchUrl = () => SEARCH_ENGINES[appSettings().web.engine].url
 
 /**
  * 打的字像不像一个网址（没写 http:// 的）：域名的最后一段要有字母。
@@ -38,11 +42,11 @@ export function toUrl(input: string): string {
   if (/^https?:\/\//i.test(s)) return s
   if (isLanAddress(s)) return 'http://' + s
   if (looksLikeUrl(s)) return 'https://' + s
-  return SEARCH + encodeURIComponent(s)
+  return searchUrl() + encodeURIComponent(s)
 }
 
-/** 这个网址是 toUrl 拿打的字去搜出来的（不是打的网址） */
-export const isSearchUrl = (u: string) => u.startsWith(SEARCH)
+/** 这个网址是 toUrl 拿打的字去搜出来的（不是打的网址）：哪家搜的都算 */
+export const isSearchUrl = (u: string) => Object.values(SEARCH_ENGINES).some((e) => u.startsWith(e.url))
 
 /** 地址里的 %E5%90%89 显示成中文 */
 export function decodeUrl(u: string): string {

@@ -4,6 +4,7 @@
  * 改链接、去掉链接只改那一段 [字](网址)，⌘Z 能撤回。右键菜单里的「改链接…」也用这里的小弹层（editLinkAt）。
  */
 import { Codicon } from '@cn/design'
+import { keyFor } from './keys'
 import type { Extension } from '@codemirror/state'
 import { EditorView, ViewPlugin } from '@codemirror/view'
 import { resolveLink } from '@cn/format'
@@ -20,7 +21,7 @@ const isWeb = (url: string) => /^https?:/i.test(url)
 /** 去掉链接：只留字（一次改动，⌘Z 撤回） */
 export function unlink(view: EditorView, l: MdLink) {
   view.dispatch({ changes: { from: l.from, to: l.to, insert: l.text }, userEvent: 'input.unlink' })
-  app().notice(`「${l.text}」不再是链接 · ⌘Z 撤回`)
+  app().notice(`「${l.text}」不再是链接 · ${keyFor('undo')} 撤回`)
 }
 
 /** 改链接：只换网址那几个字 */
@@ -107,7 +108,7 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
         {(isWeb(link.url) || local) && (
           <button onClick={() => (hideLinkCard(), openLinkHit(path, link.url, link.text, false))}>
             <Codicon name={local ? 'go-to-file' : 'layout-sidebar-right'} size={13} />
-            {local ? '打开' : '右栏打开'} <span className="k">⌘点</span>
+            {local ? '打开' : '右栏打开'} <span className="k">{keyFor('cmd-click')}</span>
           </button>
         )}
         <button onClick={() => void copy(link.url).then(() => setCopied(true))}>

@@ -141,16 +141,24 @@ export interface Look {
   homeOnly?: boolean
 }
 
+/**
+ * 端到端测试用（CN_CLI_HOME_ONLY=1）：只在家目录（测试给的临时家目录）里找，登录 shell 和继承来的 PATH 里家目录外的也不看，
+ * 不然 /etc/paths.d 带进来的 /opt/homebrew/bin 里这台 Mac 真装着的命令行会被找到
+ */
+const homeOnlyTest = () => process.env.CN_CLI_HOME_ONLY === '1'
+
 export function locateCli(id: EngineId, o: Look = {}): CliHit | null {
   const env = o.env ?? process.env
   const home = env.HOME || homedir()
+  const strict = homeOnlyTest()
   const mine = (o.custom ?? customPaths)[id]
   if (mine && isExecutable(mine)) return { path: mine, where: whereOf(mine, home), custom: true }
-  for (const dir of searchDirs(env, o.shell ?? shellDirs, o.homeOnly)) {
+  for (const dir of searchDirs(env, o.shell ?? shellDirs, o.homeOnly || strict)) {
+    if (strict && dir !== home && !dir.startsWith(home + '/')) continue
     const p = join(dir, COMMAND[id])
     if (isExecutable(p)) return { path: p, where: whereOf(p, home) }
   }
-  for (const root of [...(o.homeOnly ? [] : ['/Applications']), join(home, 'Applications')])
+  for (const root of [...(o.homeOnly || strict ? [] : ['/Applications']), join(home, 'Applications')])
     for (const app of APP_BUNDLES[id] ?? []) {
       const p = join(root, app, 'Contents/Resources', COMMAND[id])
       if (isExecutable(p)) return { path: p, where: whereOf(p, home) }
@@ -281,9 +289,10 @@ export function checkCli(path: string, timeoutMs = 3000): Promise<CliCheck> {
   })
 }
 
-/** 「重新找一遍」：忘掉跑过的 --version */
-export function forgetChecks() {
-  checked.clear()
+/** 「重新找一遍」：忘掉跑过的 --version；给了 path 只忘这一个（更新完、「检查更新」时重读这一家的版本） */
+export function forgetChecks(path?: string) {
+  if (path) checked.delete(path)
+  else checked.clear()
 }
 
 /** 子进程用的环境：PATH 补全（登录 shell 的在最前；gemini 这类 node 脚本要找得到 node） */

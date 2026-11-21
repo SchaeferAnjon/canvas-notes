@@ -15,6 +15,7 @@ import {
   sameAsDefault,
   setAlias,
   setKey,
+  swapKey,
   unhideCmd,
   unpinCmd,
   updateOwn,
@@ -107,6 +108,20 @@ describe('⌘K 的自定义（.canvas-notes/命令.json）', () => {
     c = setKey(c, AVAIL, 'sync', '⌥⌘S')
     c = setKey(c, AVAIL, 'dup', '⌥⌘S')
     expect(c.keys).toEqual({ dup: '⌥⌘S' })
+  })
+
+  it('两个对调（设置 › 快捷键撞了键）：这一条拿新键，原来用它的那条拿这一条原来的键；都回到默认时不记', () => {
+    let c = swapKey(defaultCommands(), AVAIL, 'new-note', '⌘J')
+    expect(effectiveKey(c, 'new-note', '⌘N')).toBe('⌘J')
+    expect(effectiveKey(c, 'ask-ai', '⌘J')).toBe('⌘N')
+    c = swapKey(c, AVAIL, 'new-note', '⌘N')
+    expect(c.keys).toEqual({})
+    // 原来那条没有键（自己设的被拿走）：对调后这一条原来没键，那条也就没键
+    c = swapKey(defaultCommands(), AVAIL, 'sync', '⌘O')
+    expect(effectiveKey(c, 'sync', undefined)).toBe('⌘O')
+    expect(effectiveKey(c, 'goto', '⌘O')).toBeNull()
+    // 谁都没用着这个键：和 setKey 一样
+    expect(swapKey(defaultCommands(), AVAIL, 'dup', '⌥⌘D').keys).toEqual({ dup: '⌥⌘D' })
   })
 
   it('自己加的命令：放进选的那组；改名字、换组；删掉的连同别名、快捷键、藏起一起拿掉', () => {

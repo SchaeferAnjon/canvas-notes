@@ -31,14 +31,16 @@ describe('快捷键的写法', () => {
     expect(comboOf(ev('Escape', 'Escape', { meta: true }))).toBeNull()
   })
 
-  it('能不能用：要带 ⌘ 或 ⌃（F 键除外）；软件自己用的键说出是谁；编辑时用的键（方向、回车、退格）不给', () => {
+  it('能不能用：要带 ⌘ 或 ⌃（F 键除外）；系统和编辑器本身的键说出是谁；编辑时用的键（方向、回车、退格）不给', () => {
     expect(keyProblem('⌥⌘S')).toBeNull()
     expect(keyProblem('F5')).toBeNull()
     expect(keyProblem('S')).toBe('要带上 ⌘ 或 ⌃，不然打字时会按到')
     expect(keyProblem('⌥S')).toBe('要带上 ⌘ 或 ⌃，不然打字时会按到')
-    expect(keyProblem('⌘W')).toBe('⌘W 是关闭，换一个')
+    // 软件自己的命令（关掉、搜索）都在命令表里能改，不再是保留的键：撞了说撞了谁（cmd-table 的 clashOf）
+    expect(keyProblem('⌘W')).toBeNull()
+    expect(keyProblem('⌘K')).toBeNull()
+    expect(keyProblem('⌘Q')).toBe('⌘Q 是退出，换一个')
     expect(keyProblem('⌘C')).toBe('⌘C 是拷贝，换一个')
-    expect(keyProblem('⌘K')).toBe('⌘K 是搜索，换一个')
     expect(keyProblem('⌥⌘H')).toBe('⌥⌘H 是隐藏其他，换一个')
     expect(keyProblem('⌘↑')).toBe('⌘↑ 编辑时要用，换一个')
   })

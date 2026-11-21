@@ -184,7 +184,7 @@ test('AI 面板头上换引擎只改「AI 对话」那一行：设置 › AI 的
 
     await openAiSettings(page)
     await expect(dialog(page).getByTestId('ai-default')).toContainText('Claude Code')
-    await expect(dialog(page).locator('.aip-row[data-feature="dream"]')).toContainText('跟默认Claude Code · Opus 5.5')
+    await expect(dialog(page).locator('[data-row="fDream"]')).toContainText('跟默认Claude Code · Opus 5.5')
     await expect(dialog(page).getByTestId('ai-pick-chat')).toContainText('Gemini')
   } finally {
     await run.close()
@@ -200,9 +200,12 @@ test('设置里改「AI 对话」：开着的读 PDF 面板和文档浮窗马上
     await expect(eng).toHaveText('Claude Code')
     await openAiSettings(page)
     // 设置开着改「AI 对话」成 Claude Code · Sonnet；关掉设置，右栏头上已经换了，问一句真的是 Sonnet 答
+    // 先选家，再选模型（task-m55m7）
     await dialog(page).getByTestId('ai-pick-chat').click()
-    await dialog(page).getByRole('menu').getByRole('menuitemradio').filter({ hasText: 'Claude Code' }).filter({ hasText: 'Sonnet' }).first().click()
-    await expect(dialog(page).getByTestId('ai-pick-chat')).toContainText('Claude CodeSonnet')
+    await page.getByRole('menu', { name: 'AI对话用哪一家' }).getByRole('menuitemradio').filter({ has: page.locator('.nm', { hasText: /^Claude Code$/ }) }).click()
+    await dialog(page).getByTestId('ai-pick-chat-model').click()
+    await page.getByRole('menu', { name: '模型' }).getByRole('menuitemradio').filter({ has: page.locator('.nm', { hasText: /^Sonnet$/ }) }).click()
+    await expect(dialog(page).locator('[data-row="fChat"]')).toContainText('Claude CodeSonnet')
     await page.keyboard.press('Escape')
     await expect(dialog(page)).toHaveCount(0)
     await expect(eng).toHaveText('Claude Code')
@@ -220,14 +223,14 @@ test('设置里改「AI 对话」：开着的读 PDF 面板和文档浮窗马上
     await expect(float.getByTestId('ai-engine')).toHaveText('Claude Code')
     await openAiSettings(page)
     await dialog(page).getByTestId('ai-pick-chat').click()
-    await dialog(page).getByRole('menu').getByRole('menuitemradio').filter({ hasText: 'Codex' }).click()
+    await page.getByRole('menu', { name: 'AI对话用哪一家' }).getByRole('menuitemradio').filter({ hasText: 'Codex' }).click()
     await page.keyboard.press('Escape')
     await expect(float.getByTestId('ai-engine')).toHaveText('Codex')
     // 浮窗头上选回 Claude Code（默认那家）：「AI 对话」回到跟默认，梦游还是跟默认
     await float.getByTestId('ai-engine').click()
     await page.getByRole('menu', { name: 'AI 引擎' }).getByRole('menuitemradio').filter({ hasText: 'Claude Code' }).click()
     await openAiSettings(page)
-    await expect(dialog(page).locator('.aip-row[data-feature="chat"]')).toContainText('跟默认Claude Code · Opus 5.5')
+    await expect(dialog(page).locator('[data-row="fChat"]')).toContainText('跟默认Claude Code · Opus 5.5')
     await expect(dialog(page).getByTestId('ai-default')).toContainText('Claude Code')
   } finally {
     await run.close()

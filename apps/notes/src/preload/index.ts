@@ -58,6 +58,26 @@ const api: CnApi = {
   undoRestore: (commit) => ipcRenderer.invoke('git:restore-undo', commit),
   pickImage: (note) => ipcRenderer.invoke('attach:pickImage', note),
   settings: () => ipcRenderer.invoke('settings:get'),
+  quickState: () => ipcRenderer.invoke('quick:state'),
+  gitIgnore: () => ipcRenderer.invoke('git:ignore'),
+  setGitIgnore: (text) => ipcRenderer.invoke('git:set-ignore', text),
+  backupState: () => ipcRenderer.invoke('git:backup-state'),
+  backupNow: () => ipcRenderer.invoke('git:backup-now'),
+  pickBackupDir: () => ipcRenderer.invoke('git:pick-backup-dir'),
+  dataDir: () => ipcRenderer.invoke('app:data-dir'),
+  revealDataDir: () => ipcRenderer.invoke('app:reveal-data-dir'),
+  onDownloaded(cb) {
+    const h = (_e: unknown, d: Parameters<typeof cb>[0]) => cb(d)
+    ipcRenderer.on('web:downloaded', h)
+    return () => ipcRenderer.removeListener('web:downloaded', h)
+  },
+  revealDownload: (path) => ipcRenderer.invoke('web:reveal-download', path),
+  onMainNotice(cb) {
+    const h = (_e: unknown, t: string) => cb(t)
+    ipcRenderer.on('app:notice', h)
+    return () => ipcRenderer.removeListener('app:notice', h)
+  },
+  takeNotices: () => ipcRenderer.invoke('app:notices'),
   setSettings: (patch) => ipcRenderer.invoke('settings:set', patch),
   pickWinBg: () => ipcRenderer.invoke('settings:pickWinBg'),
   themes: () => ipcRenderer.invoke('themes:list'),
@@ -109,8 +129,12 @@ const api: CnApi = {
   },
   aiEngines: (again) => ipcRenderer.invoke('ai:engines', again === true),
   aiPickCli: (id) => ipcRenderer.invoke('ai:cli:pick', id),
+  aiCliCheck: (id) => ipcRenderer.invoke('ai:cli:check', id),
+  aiCliUpdate: (id) => ipcRenderer.invoke('ai:cli:update', id),
   aiSetEngine: (id) => ipcRenderer.invoke('ai:engine:set', id),
   aiSetOmni: (on) => ipcRenderer.invoke('ai:omni:set', on),
+  aiPrompt: () => ipcRenderer.invoke('ai:prompt'),
+  aiSetPrompt: (text) => ipcRenderer.invoke('ai:prompt:set', text),
   aiSetChatPick: (pick) => ipcRenderer.invoke('ai:chat:set', pick),
   aiPrefs: () => ipcRenderer.invoke('ai:prefs'),
   aiSetPrefs: (p) => ipcRenderer.invoke('ai:prefs:set', p),

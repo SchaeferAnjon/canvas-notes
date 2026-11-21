@@ -1,4 +1,5 @@
 import { Codicon } from '@cn/design'
+import { defaultKeysOf } from '../../shared/cmd-table'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { QuickApi, QuickContext } from '../../shared/quick'
 import { applySkin, installThemeCss } from '../skin'
@@ -102,7 +103,7 @@ export function Quick() {
       {!ctx.trusted && ctx.hint && (
         <div className="qk-hint" data-testid="quick-hint">
           <Codicon name="workspace-trusted" size={14} />
-          <span>允许「辅助功能」后，按 ⌥⌘N 时选中的字和来源会一起带上来</span>
+          <span>{`允许「辅助功能」后，按 ${ctx.key ?? defaultKeysOf('quick-note')[0]} 时选中的字和来源会一起带上来`}</span>
           <button className="btn btn-sm" onClick={() => void window.quick.allow()}>
             去允许
           </button>
@@ -121,7 +122,7 @@ export function Quick() {
           <kbd>↵</kbd> 存进收件箱
         </span>
         <span>
-          <kbd>⇧↵</kbd> 换行
+          <kbd>{defaultKeysOf('newline')[0]}</kbd> 换行
         </span>
         <span>
           <kbd>esc</kbd> 取消

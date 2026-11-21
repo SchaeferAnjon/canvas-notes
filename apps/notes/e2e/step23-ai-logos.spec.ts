@@ -82,7 +82,7 @@ test('⌘K 里交给 AI 的命令画当前引擎的标志（16，和别的图标
     await page.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: 'AI', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '设置' })
     await dialog.getByTestId('ai-default-pick').click()
-    await dialog.getByRole('menu').getByRole('menuitemradio').filter({ hasText: 'Codex' }).click()
+    await page.getByRole('menu', { name: '默认用哪一家' }).getByRole('menuitemradio').filter({ hasText: 'Codex' }).click()
     await expect(dialog.getByTestId('ai-default')).toContainText('Codex')
     await page.keyboard.press('Escape')
     await expect(dialog).toBeHidden()

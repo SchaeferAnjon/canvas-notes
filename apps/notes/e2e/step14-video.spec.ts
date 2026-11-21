@@ -429,13 +429,17 @@ test('设置 › 快捷键：「记下这一刻」改成 ⌥M，视频条上跟�
   const run = await launch({ 'a.md': '# a\n' }, env())
   const { page } = run
   try {
+    // 设置 › 快捷键（方向 A 重做后照命令表列，task-f7rib、task-spsmf）：「看视频」那一段
     await page.keyboard.press('Meta+,')
-    await page.getByRole('button', { name: '快捷键' }).click()
-    await page.getByRole('button', { name: '改「记下这一刻」的快捷键' }).click()
+    const set = page.getByRole('dialog', { name: '设置' })
+    await set.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: '快捷键', exact: true }).click()
+    const btn = set.getByRole('button', { name: '改 记下这一刻 的快捷键' })
+    await btn.click()
     await page.keyboard.press('Alt+KeyK')
-    await expect(page.getByText('⌥K 已经是播放 / 进退 / 字幕开关的键')).toBeVisible()
+    await expect(set.getByText('⌥K 是「播放 / 暂停」，换一个')).toBeVisible()
+    await btn.click()
     await page.keyboard.press('Alt+KeyM')
-    await expect(page.getByRole('button', { name: '改「记下这一刻」的快捷键' })).toHaveText('⌥M')
+    await expect(btn).toHaveText('⌥M')
     await shot(run, 'video-keys')
     await page.keyboard.press('Meta+,')
     await openVideo(page)

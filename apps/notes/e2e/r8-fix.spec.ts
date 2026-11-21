@@ -335,23 +335,28 @@ for (const look of [
       // A 风格设置开成标签（region），B 风格是对话框
       const dlg = page.locator('.set[aria-label="设置"]')
       await page.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: 'AI', exact: true }).click()
-      await expect(dlg.locator('.aip-row')).toHaveCount(5)
-      const drops = await rects(page, '.aip-row [data-testid^="ai-pick-"]')
+      // 设置方向 A：「各功能用哪个」一张细线表五行（data-row fChat…fQuick），右边一列放下拉
+      const featureRows = dlg.locator('[role="group"][aria-label="各功能用哪个"] .sa-row')
+      await expect(featureRows).toHaveCount(5)
+      // task-m55m7：右边一列是选择器的框（先选家、再选模型、再选想多久，一个框三段），五个框一样宽、对齐
+      const drops = await rects(page, '[role="group"][aria-label="各功能用哪个"] .sa-row .aipk')
       expect(drops).toHaveLength(5)
       for (const d of drops) expect(d, JSON.stringify(drops)).toEqual(drops[0])
       // 附加的说明（只有它能看图、排顺序）还在，挪到说明那一行，不挤下拉
-      await expect(dlg.locator('.aip-row[data-feature="vision"]')).toContainText('只有Claude Code能看图')
-      await expect(dlg.locator('.aip-row[data-feature="translate"]').getByRole('button', { name: '排顺序' })).toBeVisible()
-      const rows = await rects(page, '.aip-row')
+      await expect(dlg.locator('[data-row="fVision"]')).toContainText('只有Claude Code能看图')
+      await expect(dlg.locator('[data-row="fTrans"]').getByRole('button', { name: '排顺序' })).toBeVisible()
+      const rows = await rects(page, '[role="group"][aria-label="各功能用哪个"] .sa-row')
       // 下拉靠右，离行的右沿一样远
       expect(new Set(drops.map((d, i) => rows[i]!.r - d.r)).size).toBe(1)
       await shotWindow(run, `r8-6-设置AI-${look.tag}`)
 
-      // Git 页：「名字和邮箱」「间隔」「远程地址」后面那一格从同一个位置开始
+      // Git 页（设置方向 A）：每张表右边那一列的下拉一样宽、左右都对齐，开关贴着同一条右边
       await page.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: 'Git和同步', exact: true }).click()
-      const ctl = await rects(page, '.pair > span:first-child + *')
+      const ctl = await rects(page, '.sa-row .sa-cc > select.sa-sel')
       expect(ctl.length, JSON.stringify(ctl)).toBeGreaterThanOrEqual(3)
-      for (const c of ctl) expect(c.l, JSON.stringify(ctl)).toBe(ctl[0]!.l)
+      for (const c of ctl) expect({ l: c.l, r: c.r }, JSON.stringify(ctl)).toEqual({ l: ctl[0]!.l, r: ctl[0]!.r })
+      const sw = await rects(page, '.sa-row .sa-cc > [role="switch"]')
+      for (const c of sw) expect(c.r, JSON.stringify(sw)).toBe(ctl[0]!.r)
       await shotWindow(run, `r8-6-设置Git-${look.tag}`)
 
       // 梦游页：靠右的下拉一样宽、左右都对齐（「没人动多久算闲」「两次之间至少隔」一组，每步「一晚最多」一组）

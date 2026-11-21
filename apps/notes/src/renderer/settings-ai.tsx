@@ -1,251 +1,283 @@
 /**
- * 设置 › AI（CN-44 方向 A）：上面「默认」一行（哪家、哪个模型，「换」）；下面「各功能用哪个」五行：
- * AI 对话、梦游、看图问、翻译、小活，每行一个下拉「跟默认 / 指定某家某模型」；翻译那行是它自己的顺序，说明那一行末尾「排顺序 ›」。
- * 五个下拉一样宽、靠右对齐（附加的话写在说明那一行，不放在下拉旁边，第 8 轮）。
+ * 设置 › AI（CN-44；2026-11-21 设置方向 A 的结构）：默认（一行，各家标志 + 名字 +「已装好 · 模型」+ 选择器）、各功能用哪个（一张细线表五行：
+ * AI对话、梦游、看图问、翻译、小活，右边一列一个选择器；翻译说明后面「排顺序 ›」到 插件 › 双语翻译）、能动手到哪（全能模式，和 AI 输入框
+ * 下面那颗是同一个开关；给AI的长期说明，每次对话都带上）、各家命令行（版本、能不能用、检查更新 / 更新，settings-engines.tsx）。
+ * 选 AI 的地方（task-m55m7，偏好「选 AI 先选家再选模型」）用和 AI 输入框底下同一个选择器（ai-picker.tsx 的 box 样子）：
+ * 先选家（同一家只列一次，「跟默认」「按顺序」还在最前面），再选这一家的模型（从命令行拉的），再选想多久。
  */
-import { Codicon, type CodiconName } from '@cn/design'
 import { useEffect, useRef, useState } from 'react'
 import type { EngineId, EngineInfo } from '../shared/agent'
-import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_MODELS, ENGINE_LABEL, pickLabel, samePick } from '../shared/ai-features'
+import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, DEFAULT_EFFORT, findModel, pickLabel } from '../shared/ai-features'
 import type { AiPrefsView } from '../shared/api'
 import { ENGINES as TR_ENGINES, normalizeTranslate, type TranslateSettings, type TrEngineId } from '../shared/plugins/translate'
-import { EngineLogo } from './engine-logo'
+import { AiPicker, engineFamily, type Family, type PickerValue } from './ai-picker'
+import { EngineRows } from './settings-engines'
+import { Toggle, type SettingsProps } from './Settings'
+import { Group, hintFor, Lnk, Row, useSaid } from './settings/ui'
 
-const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+export const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
-const ROWS: { f: AiFeature | 'translate'; name: string; desc: string; icon: CodiconName }[] = [
-  { f: 'chat', name: 'AI对话', desc: '右栏AI那一格，读PDF时的边读边问也是它', icon: 'comment-discussion' },
-  { f: 'dream', name: '梦游', desc: '夜里整理收件箱、写报告、做可视化', icon: 'wand' },
-  { f: 'vision', name: '看图问', desc: '视频框一块问、拍导图识别；只有Claude Code能看图', icon: 'device-camera' },
-  { f: 'translate', name: '翻译', desc: '网页和视频字幕的双语翻译、右键翻译这段', icon: 'whole-word' },
-  { f: 'quick', name: '小活', desc: '视频摘要、起名、插件里的快问', icon: 'note' },
+const ROWS: { f: AiFeature | 'translate'; row: string; name: string }[] = [
+  { f: 'chat', row: 'fChat', name: 'AI对话' },
+  { f: 'dream', row: 'fDream', name: '梦游' },
+  { f: 'vision', row: 'fVision', name: '看图问' },
+  { f: 'translate', row: 'fTrans', name: '翻译' },
+  { f: 'quick', row: 'fQuick', name: '小活' },
 ]
 
-/** 一家能选的：Claude Code 三个模型，别家用它自己的默认模型 */
-function choices(engines: EngineInfo[], onlyClaude = false): { pick: AiPick; label: string; sub: string; off: boolean }[] {
-  const out: { pick: AiPick; label: string; sub: string; off: boolean }[] = []
-  for (const e of engines) {
-    if (onlyClaude && e.id !== 'claude') continue
-    if (e.id === 'claude') for (const m of CLAUDE_MODELS) out.push({ pick: { engine: 'claude', model: m.id }, label: ENGINE_LABEL.claude, sub: m.label, off: !e.path })
-    else out.push({ pick: { engine: e.id }, label: ENGINE_LABEL[e.id], sub: '它自己的默认模型', off: !e.path })
+const valueOf = (p: AiPick | null | undefined): PickerValue => (p ? { family: p.engine, model: p.model ?? '', ...(p.effort ? { effort: p.effort } : {}) } : { family: null })
+
+/**
+ * 选择器上点了一下以后的那一家那个模型那一档：换了家从这家的默认模型开始（Claude Code 是 Opus），换了模型时那一档这个模型不认就不带
+ */
+function nextPick(cur: AiPick | null, engines: EngineInfo[], ch: { family?: string; model?: string; effort?: string | null }): AiPick {
+  if (ch.family !== undefined) {
+    if (cur?.engine === ch.family) return cur
+    return ch.family === 'claude' ? { engine: 'claude', model: CLAUDE_DEFAULT } : { engine: ch.family as EngineId }
   }
-  return out
+  const base = cur ?? { engine: 'claude' as EngineId, model: CLAUDE_DEFAULT }
+  if (ch.model !== undefined) {
+    const models = engines.find((e) => e.id === base.engine)?.models ?? []
+    const keep = base.effort && findModel(models, ch.model)?.efforts.some((x) => x.id === base.effort)
+    return { engine: base.engine, ...(ch.model ? { model: ch.model } : base.engine === 'claude' ? { model: CLAUDE_DEFAULT } : {}), ...(keep ? { effort: base.effort } : {}) }
+  }
+  const { effort: _old, ...rest } = base
+  void _old
+  return ch.effort ? { ...rest, effort: ch.effort } : rest
 }
 
-function modelOf(p: AiPick): string {
-  return p.engine === 'claude' ? (CLAUDE_MODELS.find((m) => m.id === p.model)?.label ?? p.model ?? '') : '它自己的默认模型'
-}
-
-/** 一个下拉：按钮 + 菜单（菜单 280 宽、圆角 12、行 30 高，左边 12 宽放勾，同引擎菜单） */
-function Drop(props: { label: string; button: React.ReactNode; items: { key: string; logo?: EngineId | TrEngineId; label: string; sub: string; on: boolean; off?: boolean; run(): void }[]; testid?: string }) {
-  const [open, setOpen] = useState(false)
-  const box = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!open) return
-    const down = (e: MouseEvent) => !box.current?.contains(e.target as Node) && setOpen(false)
-    const key = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.stopPropagation()
-      setOpen(false)
-    }
-    window.addEventListener('mousedown', down)
-    window.addEventListener('keydown', key, true)
-    return () => {
-      window.removeEventListener('mousedown', down)
-      window.removeEventListener('keydown', key, true)
-    }
-  }, [open])
-  return (
-    <div className="aip-drop" ref={box}>
-      <button className="aip-btn" aria-haspopup="menu" aria-expanded={open} aria-label={props.label} data-testid={props.testid} onClick={() => setOpen((o) => !o)}>
-        {props.button}
-        <Codicon name="chevron-down" size={12} />
-      </button>
-      {open && (
-        <div className="aip-menu" role="menu" aria-label={props.label}>
-          {props.items.map((it) => (
-            <button
-              key={it.key}
-              role="menuitemradio"
-              aria-checked={it.on}
-              disabled={it.off}
-              onClick={() => {
-                setOpen(false)
-                it.run()
-              }}
-            >
-              <span className="ck">{it.on && <Codicon name="check" size={12} />}</span>
-              {it.logo ? <EngineLogo id={it.logo} /> : <span className="nologo" />}
-              <b>{it.label}</b>
-              <span className="sub truncate">{it.off ? '没装' : it.sub}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-export function AiSettingsPage(props: { onNotice(t: string): void; onPlugins(): void; /** 从梦游页点过来：这一行滚进来、闪一下 */ focus?: AiFeature | null }) {
+export function AiSettingsPage(props: SettingsProps) {
+  const said = useSaid()
   const [v, setV] = useState<AiPrefsView | null>(null)
   const [tr, setTr] = useState<TranslateSettings | null>(null)
-  const rows = useRef<HTMLDivElement>(null)
+  const [omni, setOmni] = useState<boolean | null>(null)
   useEffect(() => {
-    if (!v || !props.focus) return
-    const row = rows.current?.querySelector<HTMLElement>(`[data-feature="${props.focus}"]`)
-    if (!row) return
-    row.scrollIntoView({ block: 'center' })
-    row.classList.add('flash')
-    const t = setTimeout(() => row.classList.remove('flash'), 1600)
-    return () => clearTimeout(t)
-  }, [!!v, props.focus])
-  useEffect(() => {
-    void window.cn.aiPrefs().then(setV, (e) => props.onNotice(errText(e)))
+    const load = () => {
+      void window.cn.aiPrefs().then(setV, (e) => props.onNotice(errText(e)))
+      void window.cn.aiEngines().then((r) => setOmni(r.omni))
+    }
+    load()
     void window.cnPlugins.list().then((l) => {
       const t = l.find((p) => p.id === 'translate')
       if (t?.enabled) setTr(normalizeTranslate(t.settings))
     })
+    // AI 输入框下面那颗全能模式开关、引擎菜单换了、后台拉到模型、自查完、更新完：这里跟着
+    return window.cn.onAiPrefsChanged(load)
   }, [])
   if (!v) return null
   const { prefs, engines } = v
   const save = (p: AiPrefs) => window.cn.aiSetPrefs(p).then(setV, (e) => props.onNotice(errText(e)))
-  const setFeature = (f: AiFeature, p: AiPick | null) => {
+  const modelsOf = (id: EngineId) => engines.find((e) => e.id === id)?.models ?? []
+  const labelOf = (p: AiPick) => pickLabel(p, modelsOf(p.engine))
+  /** 改了一行：马上存，底下提示条说改成了什么、带「撤回」 */
+  const commit = (next: AiPrefs, name: string, shown: string) => {
+    const before = prefs
+    void save(next).then(() => said.saved(hintFor(name, shown), () => void save(before)))
+  }
+  const setFeature = (f: AiFeature, name: string, p: AiPick | null) => {
     const features = { ...prefs.features }
     if (p) features[f] = p
     else delete features[f]
-    void save({ ...prefs, features })
+    commit({ ...prefs, features }, name, p ? labelOf(p) : '跟默认')
   }
   const def = prefs.default
   const defInfo = engines.find((e) => e.id === def.engine)
-  const others = engines.filter((e) => e.id !== def.engine)
-  const missing = others.filter((e) => !e.path).map((e) => ENGINE_LABEL[e.id])
-  const ready = others.filter((e) => e.path).map((e) => ENGINE_LABEL[e.id])
+  const families = engines.map(engineFamily)
+  const unset = { label: '默认档', note: '不指定，用它自己的' }
 
-  const pickItems = (f: AiFeature) => {
+  /** 一行的选择器：AI 对话、梦游、看图问、小活（看图问只有 Claude Code） */
+  const featurePicker = (f: AiFeature, name: string) => {
+    const own = prefs.features[f] ?? null
     const onlyClaude = f === 'vision'
-    const own = prefs.features[f]
     const canFollow = !onlyClaude || def.engine === 'claude'
-    return [
-      ...(canFollow ? [{ key: 'follow', logo: def.engine, label: '跟默认', sub: pickLabel(def), on: !own, run: () => setFeature(f, null) }] : []),
-      ...choices(engines, onlyClaude).map((c) => ({
-        key: `${c.pick.engine}:${c.pick.model ?? ''}`,
-        logo: c.pick.engine,
-        label: c.label,
-        sub: c.sub,
-        off: c.off,
-        on: !!own && samePick(own, c.pick),
-        run: () => setFeature(f, c.pick),
-      })),
-    ]
+    // 看图问不跟默认（默认不是 Claude Code）时用 Claude Code 的默认模型
+    const shown = own ?? (canFollow ? null : { engine: 'claude' as EngineId, model: CLAUDE_DEFAULT })
+    const value = valueOf(shown)
+    // AI 对话没选过档是 High（照它实际用的写），别的没选过是命令行自己的默认档
+    if (f === 'chat' && shown && !shown.effort && (shown.engine === 'claude' || shown.engine === 'codex')) value.effort = DEFAULT_EFFORT
+    return (
+      <AiPicker
+        look="box"
+        ids={{ family: `ai-pick-${f}`, model: `ai-pick-${f}-model`, effort: `ai-pick-${f}-effort` }}
+        familyMenu={`${name}用哪一家`}
+        familyHead={`${name}用哪一家`}
+        label={name}
+        families={onlyClaude ? families.filter((x) => x.id === 'claude') : families}
+        lead={canFollow ? { label: '跟默认', sub: labelOf(def), logo: def.engine } : null}
+        value={value}
+        unsetEffort={f === 'chat' ? null : unset}
+        onFamily={(id) => setFeature(f, name, id === null ? null : nextPick(shown, engines, { family: id }))}
+        onModel={(m) => setFeature(f, name, nextPick(shown, engines, { model: m }))}
+        onEffort={(e) => setFeature(f, name, nextPick(shown, engines, { effort: e }))}
+      />
+    )
   }
 
+  const trName = (id: TrEngineId) => TR_ENGINES.find((e) => e.id === id)?.name ?? id
   const trLine = (t: TranslateSettings) => {
-    const name = (id: TrEngineId) => (id === 'claude' ? 'Claude Code Haiku' : (TR_ENGINES.find((e) => e.id === id)?.name ?? id))
+    const name = (id: TrEngineId) => (id === 'claude' ? 'Claude Code Haiku' : trName(id))
     return t.engineMode === 'auto' ? t.engineOrder.slice(0, 3).map(name).join(' → ') + (t.engineOrder.length > 3 ? ' …' : '') : name(t.pick)
   }
-  const setTrans = (patch: Partial<TranslateSettings>) =>
-    window.cnPlugins.setSettings('translate', patch).then(
-      () => setTr((t) => (t ? { ...t, ...patch } : t)),
+  const setTrans = (patch: Partial<TranslateSettings>, shown: string) => {
+    const before = tr
+    return window.cnPlugins.setSettings('translate', patch).then(
+      () => {
+        setTr((t) => (t ? normalizeTranslate({ ...t, ...patch }) : t))
+        said.saved(hintFor('翻译', shown), () => {
+          if (!before) return
+          void window.cnPlugins.setSettings('translate', { engineMode: before.engineMode, pick: before.pick, pickModel: before.pickModel ?? '', pickEffort: before.pickEffort ?? '' }).then(() => setTr(before))
+        })
+      },
       (e) => props.onNotice(errText(e)),
     )
+  }
+  /** 翻译那一行：按顺序 / 只用某一家（命令行的能再选模型、想多久；Claude Code 没选模型是 Haiku，翻译要快） */
+  const transPicker = (t: TranslateSettings) => {
+    const fams: Family[] = TR_ENGINES.map((e) => {
+      const info = engines.find((x) => x.id === e.id)
+      if (!info) return { id: e.id, label: `只用${e.name}`, name: e.name, logo: e.id, note: e.sub, models: [] }
+      return { ...engineFamily(info), id: e.id, label: `只用${e.name}`, name: e.name }
+    })
+    const picked = t.engineMode === 'pick' ? t.pick : null
+    const value: PickerValue = picked ? { family: picked, model: t.pickModel ?? (picked === 'claude' ? 'haiku' : ''), ...(t.pickEffort ? { effort: t.pickEffort } : {}) } : { family: null }
+    const cur = (): AiPick | null => (picked && picked !== 'deepseek' && picked !== 'zhipu' ? { engine: picked, ...(value.model ? { model: value.model } : {}), ...(t.pickEffort ? { effort: t.pickEffort } : {}) } : null)
+    return (
+      <AiPicker
+        look="box"
+        ids={{ family: 'ai-pick-translate', model: 'ai-pick-translate-model', effort: 'ai-pick-translate-effort' }}
+        familyMenu="翻译用哪一家"
+        familyHead="翻译用哪一家"
+        label="翻译"
+        families={fams}
+        lead={{ label: '按顺序', sub: trLine({ ...t, engineMode: 'auto' }), logo: t.engineOrder[0] ?? 'claude' }}
+        value={value}
+        unsetEffort={unset}
+        onFamily={(id) => (id === null ? void setTrans({ engineMode: 'auto' }, '按顺序') : void setTrans({ engineMode: 'pick', pick: id as TrEngineId, pickModel: '', pickEffort: '' }, `只用${trName(id as TrEngineId)}`))}
+        onModel={(m) => {
+          const p = nextPick(cur(), engines, { model: m })
+          void setTrans({ pickModel: m, pickEffort: p.effort ?? '' }, labelOf(p))
+        }}
+        onEffort={(e) => {
+          const p = nextPick(cur(), engines, { effort: e })
+          void setTrans({ pickEffort: e ?? '' }, labelOf(p))
+        }}
+      />
+    )
+  }
 
   return (
-    <div className="aip">
-      <h4>
-        默认<span>用这台Mac上已经登录的命令行，不另存密钥</span>
-      </h4>
-      <div className="aip-def" data-testid="ai-default">
-        <EngineLogo id={def.engine} size={16} />
-        <b>{ENGINE_LABEL[def.engine]}</b>
-        <span className="st">
-          {defInfo?.path ? '已装好' : '没装'}
-          {def.engine === 'claude' ? ` · 模型${modelOf(def)}` : ' · 用它自己的默认模型'}
+    <>
+      <div className="sa-grph">默认</div>
+      {/* 左边只说这一行管什么（家和模型就在右边的选择器里，装没装、能不能用在下面「各家命令行」：design 复审，自查不过时不再写「已装好」） */}
+      <div className="sa-engrow aipk-defrow" data-row="aiDefault" data-testid="ai-default" title={`${labelOf(def)}${defInfo?.path ? '' : '（这台Mac上没找到）'}`}>
+        <span className="aipk-def">
+          <b>默认用哪家AI</b>
+          <small>没单独选的功能都用它</small>
         </span>
         <span className="sp" />
-        <Drop
-          label="默认用哪个"
-          testid="ai-default-pick"
-          button={<span className="lbl">换</span>}
-          items={choices(engines).map((c) => ({ key: `${c.pick.engine}:${c.pick.model ?? ''}`, logo: c.pick.engine, label: c.label, sub: c.sub, off: c.off, on: samePick(def, c.pick), run: () => void save({ ...prefs, default: c.pick }) }))}
+        <AiPicker
+          look="box"
+          ids={{ family: 'ai-default-pick', model: 'ai-default-pick-model', effort: 'ai-default-pick-effort' }}
+          familyMenu="默认用哪一家"
+          familyHead="默认用哪一家"
+          label="默认"
+          families={families}
+          value={valueOf(def)}
+          unsetEffort={{ label: '默认档', note: 'AI对话里是High' }}
+          onFamily={(id) => id && commit({ ...prefs, default: nextPick(def, engines, { family: id }) }, '默认', labelOf(nextPick(def, engines, { family: id })))}
+          onModel={(m) => commit({ ...prefs, default: nextPick(def, engines, { model: m }) }, '默认', labelOf(nextPick(def, engines, { model: m })))}
+          onEffort={(e) => commit({ ...prefs, default: nextPick(def, engines, { effort: e }) }, '默认', labelOf(nextPick(def, engines, { effort: e })))}
         />
       </div>
-      <p className="note">
-        {[missing.length ? `${missing.join('、')}没装` : '', ready.length ? `${ready.join('、')}已装好` : ''].filter(Boolean).join('；')}
-      </p>
-      <h4>
-        各功能用哪个<span>默认跟着上面走；单独指定的写在这里</span>
-      </h4>
-      <div className="aip-rows" role="list" aria-label="各功能用哪个" ref={rows}>
-        {ROWS.map((r) => {
-          if (r.f === 'translate') {
-            if (!tr) return null
-            return (
-              <div key={r.f} className="aip-row" role="listitem" data-feature="translate">
-                <Codicon name={r.icon} size={16} className="ic" />
-                <span className="tx">
-                  <b>{r.name}</b>
-                  {/* 「排顺序 ›」放在说明这一行（第 8 轮：放在下拉旁边，五个下拉左右对不齐） */}
-                  <span>
-                    {r.desc}
-                    <button className="aip-link" onClick={props.onPlugins}>
-                      排顺序
-                      <Codicon name="chevron-right" size={12} />
-                    </button>
-                  </span>
-                </span>
-                <Drop
-                  label="翻译用哪个"
-                  testid="ai-pick-translate"
-                  button={
+
+      <div className="aipk-wide">
+        <Group title="各功能用哪个">
+          {ROWS.map((r) => {
+            if (r.f === 'translate') {
+              if (!tr) return null
+              return (
+                <Row
+                  key={r.row}
+                  id={r.row}
+                  desc={
                     <>
-                      <EngineLogo id={tr.engineMode === 'auto' ? (tr.engineOrder[0] ?? 'claude') : tr.pick} />
-                      <b>{tr.engineMode === 'auto' ? '按顺序' : '只用'}</b>
-                      <span className="m truncate">{trLine(tr)}</span>
+                      网页和视频字幕的双语翻译
+                      <Lnk onClick={() => props.onGoRow('plTranslate')}>排顺序</Lnk>
                     </>
                   }
-                  items={[
-                    { key: 'auto', logo: tr.engineOrder[0] ?? 'claude', label: '按顺序', sub: trLine({ ...tr, engineMode: 'auto' }), on: tr.engineMode === 'auto', run: () => void setTrans({ engineMode: 'auto' }) },
-                    ...TR_ENGINES.map((e) => ({ key: e.id, logo: e.id, label: `只用${e.name}`, sub: e.sub, on: tr.engineMode === 'pick' && tr.pick === e.id, run: () => void setTrans({ engineMode: 'pick', pick: e.id }) })),
-                  ]}
-                />
-              </div>
+                >
+                  {transPicker(tr)}
+                </Row>
+              )
+            }
+            return (
+              <Row key={r.row} id={r.row}>
+                {featurePicker(r.f, r.name)}
+              </Row>
             )
-          }
-          const f = r.f
-          const own = prefs.features[f]
-          const used = own ?? (f === 'vision' && def.engine !== 'claude' ? null : def)
-          return (
-            <div key={f} className="aip-row" role="listitem" data-feature={f}>
-              <Codicon name={r.icon} size={16} className="ic" />
-              <span className="tx">
-                <b>{r.name}</b>
-                <span>{r.desc}</span>
-              </span>
-              <Drop
-                label={`${r.name}用哪个`}
-                testid={`ai-pick-${f}`}
-                button={
-                  own || !used ? (
-                    <>
-                      <EngineLogo id={(own ?? { engine: 'claude' as const }).engine} />
-                      <b>{ENGINE_LABEL[(own ?? { engine: 'claude' as const }).engine]}</b>
-                      <span className="m">{v.labels[f].split(' · ')[1] ?? '默认模型'}</span>
-                    </>
-                  ) : (
-                    <>
-                      <EngineLogo id={used.engine} />
-                      <b>跟默认</b>
-                      <span className="m">{v.labels[f]}</span>
-                    </>
-                  )
-                }
-                items={pickItems(f)}
-              />
-            </div>
-          )
-        })}
+          })}
+        </Group>
       </div>
-      <p className="note">AI改的每一处都是一次提交，AI那一格里能撤回。全能模式（AI输入框下面的开关，默认开）下它和在终端里一样，能读写这台Mac上的文件、跑命令、上网；关掉后只在库里用软件给它的工具：新建、改写、改名、挪动、删笔记。</p>
-    </div>
+
+      <Group title="能动手到哪">
+        <Row id="omni">
+          <Toggle
+            on={omni ?? true}
+            label="全能模式"
+            onChange={(on) => {
+              setOmni(on)
+              void window.cn.aiSetOmni(on).catch((e: unknown) => props.onNotice(errText(e)))
+              said.saved(on ? 'AI输入框下面那颗开关也开了' : 'AI输入框下面那颗开关也关了：AI只在库里动手', () => {
+                setOmni(!on)
+                void window.cn.aiSetOmni(!on)
+              })
+            }}
+          />
+        </Row>
+        <PromptRow />
+      </Group>
+
+      <EngineRows engines={engines} onNotice={props.onNotice} />
+    </>
+  )
+}
+
+/** 给AI的长期说明：整行宽的框，离开框（或关上设置）时存，AI 对话和读 PDF 每一问都带上 */
+function PromptRow() {
+  const said = useSaid()
+  const [text, setText] = useState<string | null>(null)
+  const saved = useRef('')
+  const now = useRef('')
+  useEffect(() => {
+    void window.cn.aiPrompt().then((t) => {
+      saved.current = t
+      now.current = t
+      setText(t)
+    })
+    // 打着字就关上设置：照样存
+    return () => {
+      if (now.current !== saved.current) void window.cn.aiSetPrompt(now.current)
+    }
+  }, [])
+  const save = () => {
+    if (now.current === saved.current) return
+    saved.current = now.current
+    void window.cn.aiSetPrompt(now.current).then(() => said.say(now.current.trim() ? '已存 · 给AI的长期说明：下一问起都带上' : '已存 · 给AI的长期说明空了，不再带'))
+  }
+  return (
+    <Row id="prompt" full>
+      <textarea
+        className="sa-fld"
+        aria-label="给AI的长期说明"
+        placeholder="比如：回答用中文，先说结论；讲课程内容时中英对照"
+        value={text ?? ''}
+        disabled={text === null}
+        onChange={(e) => {
+          now.current = e.currentTarget.value
+          setText(e.currentTarget.value)
+        }}
+        onBlur={save}
+      />
+    </Row>
   )
 }

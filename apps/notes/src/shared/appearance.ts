@@ -1,5 +1,25 @@
 import { type ArchiveDays, DEFAULT_ARCHIVE_DAYS, isArchiveDays } from './sidebar'
-import { DEFAULT_DREAM, type DreamSettings, normalizeDream } from './dream-settings'
+import { DEFAULT_DREAM, type DreamPatch, type DreamSettings, normalizeDream } from './dream-settings'
+import {
+  DEFAULT_EDITOR,
+  DEFAULT_FILES,
+  DEFAULT_GENERAL,
+  DEFAULT_PDF,
+  DEFAULT_SYNC,
+  DEFAULT_WEB,
+  type EditorPrefs,
+  type FilesPrefs,
+  type GeneralPrefs,
+  normalizeEditor,
+  normalizeFiles,
+  normalizeGeneral,
+  normalizePdf,
+  normalizeSync,
+  normalizeWeb,
+  type PdfPrefs,
+  type SyncPrefs,
+  type WebPrefs,
+} from './prefs'
 
 /**
  * 外观和软件设置（存在软件设置目录 userData/settings.json，首页的设置除外）。
@@ -90,6 +110,28 @@ export interface AppSettings {
   autoUpdate: boolean
   /** 设置 › 梦游：什么时候梦游、能做哪些事、能动哪些文件夹、改完怎么收（shared/dream-settings.ts） */
   dream: DreamSettings
+  /** 设置方向 A 放进来的几组（shared/prefs.ts）：一般、文档和白板、文件和附件、读PDF、网页、同步 */
+  general: GeneralPrefs
+  editor: EditorPrefs
+  files: FilesPrefs
+  pdf: PdfPrefs
+  web: WebPrefs
+  sync: SyncPrefs
+}
+
+/** 界面改设置时给的一处：外观、梦游和新的几组只给改了的那几项 */
+export interface SettingsPatch {
+  appearance?: Partial<Appearance>
+  autoCommitMinutes?: number
+  archiveDays?: number
+  autoUpdate?: boolean
+  dream?: DreamPatch
+  general?: Partial<GeneralPrefs>
+  editor?: Partial<EditorPrefs>
+  files?: Partial<FilesPrefs>
+  pdf?: Partial<PdfPrefs>
+  web?: Partial<WebPrefs>
+  sync?: Partial<SyncPrefs>
 }
 
 export const AUTO_COMMIT_CHOICES = [0, 5, 10, 30, 60] as const
@@ -111,6 +153,12 @@ export const DEFAULT_SETTINGS: AppSettings = {
   archiveDays: DEFAULT_ARCHIVE_DAYS,
   autoUpdate: true,
   dream: DEFAULT_DREAM,
+  general: DEFAULT_GENERAL,
+  editor: DEFAULT_EDITOR,
+  files: DEFAULT_FILES,
+  pdf: DEFAULT_PDF,
+  web: DEFAULT_WEB,
+  sync: DEFAULT_SYNC,
 }
 
 /**
@@ -146,6 +194,12 @@ export function normalizeSettings(raw: unknown, user: readonly SkinInfo[] = []):
     archiveDays: isArchiveDays(r.archiveDays) ? r.archiveDays : DEFAULT_SETTINGS.archiveDays,
     autoUpdate: typeof r.autoUpdate === 'boolean' ? r.autoUpdate : DEFAULT_SETTINGS.autoUpdate,
     dream: normalizeDream(r.dream),
+    general: normalizeGeneral(r.general),
+    editor: normalizeEditor(r.editor),
+    files: normalizeFiles(r.files),
+    pdf: normalizePdf(r.pdf),
+    web: normalizeWeb(r.web),
+    sync: normalizeSync(r.sync),
   }
 }
 

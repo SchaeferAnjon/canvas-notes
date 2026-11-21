@@ -387,10 +387,15 @@ test('窗口变窄：中间至少留 420，先收右栏再收左栏，右边图�
     await rail(page).getByRole('button', { name: '历史' }).click()
     const right = page.getByRole('complementary', { name: '历史' })
     await expect(right).toBeVisible()
+    const before = (await right.boundingBox())!.width
+    const center0 = (await widthOf('.win > .center')).width
     await widenRight(page, 400)
     const right0 = (await right.boundingBox())!.width
-    // 一栏最宽 640（工作区方向 A，原型 proto-a）
-    expect(Math.round(right0)).toBe(640)
+    // 一栏不再卡在 640（2026-11-21 用户要网页能看得更大，task-zligc）：拖多少宽多少，拖到中间只剩 420 为止
+    expect(center0 - 420).toBeLessThan(400)
+    expect(Math.round(right0)).toBe(Math.round(before + center0 - 420))
+    expect(Math.round(right0)).toBeGreaterThan(640)
+    expect(Math.round((await widthOf('.win > .center')).width)).toBe(420)
     const side0 = (await widthOf('.win > .side')).width
     for (const w of [1100, 960]) {
       await size(w)

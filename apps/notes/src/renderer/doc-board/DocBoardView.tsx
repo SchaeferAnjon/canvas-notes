@@ -14,6 +14,7 @@
  * AI 在这块白板上动手时外圈、顶上提示条、AI 指针由 AiActLayer 画（卡的 data-id 是 unitKeys 的名字，AI 工具用的同一个）。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { accelFor, isKey, keyFor } from '../keys'
 import {
   addSection,
   appendPlaced,
@@ -72,6 +73,7 @@ import { type CardActs, type CardCtx, type Face, faceClass, faceName, faceOf, ty
 import { type DocSpot, docSpotAt, insertInto, tabAt } from './cross-doc'
 import { inboxOf, InboxDrawer, useInboxOpen } from './inbox'
 import { EMPTY_HINT, InlineCard } from './inline-card'
+import { TopHint } from './top-hint'
 import { UnitEditor } from './unit-editor'
 import './doc-board.css'
 
@@ -487,12 +489,13 @@ export function DocBoardView(props: DocBoardViewProps) {
   useEffect(() => {
     if (!props.active) return
     const onKey = (e: KeyboardEvent) => {
-      if (!e.metaKey || e.altKey || e.ctrlKey || typingIn(e.target)) return
+      if (typingIn(e.target)) return
+      // 键照命令表（放大、缩小、原大、适合窗口，设置 › 快捷键里能改）
       const z = zoomRef.current
-      if (e.key === '=' || e.key === '+') z.zoomTo(stepZoom(liveZoom.current, 1))
-      else if (e.key === '-' || e.key === '_') z.zoomTo(stepZoom(liveZoom.current, -1))
-      else if (e.key === '0' && !e.shiftKey) z.zoomTo(1)
-      else if (e.code === 'Digit1' && e.shiftKey) z.fit()
+      if (isKey(e, 'zoom-in')) z.zoomTo(stepZoom(liveZoom.current, 1))
+      else if (isKey(e, 'zoom-out')) z.zoomTo(stepZoom(liveZoom.current, -1))
+      else if (isKey(e, 'zoom-reset')) z.zoomTo(1)
+      else if (isKey(e, 'zoom-fit')) z.fit()
       else return
       e.preventDefault()
       e.stopPropagation()
@@ -911,7 +914,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       '-',
       !target && u.text.trim() && { label: '转成文档', run: () => cardToDoc(u) },
       '-',
-      { label: '删除', accel: 'Backspace', run: () => removeKeys([key]) },
+      { label: '删除', accel: accelFor('delete'), run: () => removeKeys([key]) },
     ]
   }
   const manyMenu = (ks: Set<string>): MenuEntry[] => {
@@ -964,7 +967,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       '-',
       { label: '放进新列', run: intoColumn },
       '-',
-      { label: `删除 ${ks.size} 张`, accel: 'Backspace', run: () => removeKeys(ks) },
+      { label: `删除 ${ks.size} 张`, accel: accelFor('delete'), run: () => removeKeys(ks) },
     ]
   }
   const emptyMenu = async (at: Pt, slot: Where | null): Promise<MenuEntry[]> => {
@@ -976,13 +979,13 @@ export function DocBoardView(props: DocBoardViewProps) {
       { label: '新列', run: () => createAt('column', slot && 'col' in slot ? slot : at) },
       { label: '新子白板', run: () => createAt('board', where) },
       '-',
-      { label: '拍导图', accel: 'Shift+CommandOrControl+C', run: () => createAt('map', where) },
+      { label: '拍导图', accel: accelFor('capture'), run: () => createAt('map', where) },
       '-',
       clip.image
         ? { edit: 'paste' }
         : {
             label: '粘贴',
-            accel: 'CommandOrControl+V',
+            accel: accelFor('paste'),
             enabled: clip.text,
             run: async () => {
               const t = (await window.cnMenu.readClipboardText()).trim()
@@ -1006,7 +1009,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       setSelWire(key)
       setSelected(new Set())
       const [from, to] = key.split('>')
-      items = [{ label: '删除连线', accel: 'Backspace', run: () => (write(unlink(cur.current, from!, to!), '删了这条线'), setSelWire(null)) }]
+      items = [{ label: '删除连线', accel: accelFor('delete'), run: () => (write(unlink(cur.current, from!, to!), '删了这条线'), setSelWire(null)) }]
     } else if (cardEl?.dataset.id && byKey.get(cardEl.dataset.id)) {
       const key = cardEl.dataset.id
       setSelWire(null)
@@ -1273,6 +1276,7 @@ export function DocBoardView(props: DocBoardViewProps) {
 
   const moved = board.placed.length
   const placedCols = board.columns.filter((c) => c.place).length
+  const placedIds = [...board.placed.map((u) => 'u:' + u.place!.id), ...board.columns.flatMap((c) => (c.place ? ['c:' + c.place.id] : []))]
   // 白板撑多大：摆在空白处的卡、列都要滚得到
   const extent = [...board.placed.map((u) => ({ x: u.place!.x + COL_W + 120, y: u.place!.y + 600 })), ...board.columns.filter((c) => c.place).map((c) => ({ x: c.place!.x + COL_W + 120, y: c.place!.y + 800 }))].reduce(
     (m, p) => ({ x: Math.max(m.x, p.x), y: Math.max(m.y, p.y) }),
@@ -1411,7 +1415,7 @@ export function DocBoardView(props: DocBoardViewProps) {
             <button
               type="button"
               data-tip="拍一张导图：点一下，或按住拖到白板上（做好后落点放一张指向它的卡片）"
-              data-key="⇧⌘C"
+              data-key={keyFor('capture') ?? undefined}
               data-side="right"
               data-kind="map"
               onMouseDown={(e) => e.button === 0 && setDrag({ type: 'pal', kind: 'map', start: { x: e.clientX, y: e.clientY }, at: { x: e.clientX, y: e.clientY }, moved: false })}
@@ -1422,39 +1426,23 @@ export function DocBoardView(props: DocBoardViewProps) {
             </button>
           </div>
         )}
-        {!expanded && (
-          <div className="db-top">
-            <div className="db-hint" role="status">
-              <Codicon name="info" size={14} />
-              {board.total > 200 && !moved ? (
-                <span className="tx">
-                  {`这篇有${board.total}段 · `}
-                  <b>{`每节先摆${per}张，第${OPEN_COLS + 1}节起只留列头`}</b>
-                </span>
-              ) : moved || placedCols ? (
-                <span className="tx">
-                  <b>{moved && placedCols ? `${moved}张卡、${placedCols}列` : moved ? `${moved}张卡` : `${placedCols}列`}</b>
-                  {`${moved && !placedCols ? '离开了自己那一节' : '不在原来的地方'} · 文件里多了${moved + placedCols}行位置`}
-                </span>
-              ) : (
-                <span className="tx">
-                  {'按「##」摆成列 · '}
-                  <b>挪动了才写进文件</b>
-                </span>
-              )}
-              {!props.readOnly && (
-                <button
-                  type="button"
-                  className="db-pill"
-                  onClick={() => (moved || placedCols ? write(resetLayout(cur.current), `摆回原样：去掉了${moved + placedCols}行位置，正文一个字没动`) : setToast({ text: '已经是按节摆的样子' }))}
-                >
-                  <Codicon name="discard" size={13} />
-                  摆回原样
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+        {/* 顶上那条提示：说明只说一次、真有卡挪离才说挪了几张，都能收起（top-hint.tsx，task-wn3x5） */}
+        <div className="db-top">
+          <TopHint
+            path={props.notePath}
+            placedIds={placedIds}
+            moved={moved}
+            placedCols={placedCols}
+            total={board.total}
+            per={per}
+            openCols={OPEN_COLS}
+            readOnly={props.readOnly}
+            active={props.active}
+            away={!!expanded}
+            area={outer}
+            onReset={() => write(resetLayout(cur.current), `摆回原样：去掉了${moved + placedCols}行位置，正文一个字没动`)}
+          />
+        </div>
         {toast && (
           <div className="db-toast" role="status">
             <Codicon name="pass" size={15} />
@@ -1468,6 +1456,8 @@ export function DocBoardView(props: DocBoardViewProps) {
             )}
           </div>
         )}
+        {/* AI 在这块白板上动手（DESIGN.v3 2.3）：只盖白板这一格，不盖右边的收件箱 */}
+        <AiActLayer area="board" path={props.notePath} host={outer} />
       </div>
       {inboxOpen && (
         <InboxDrawer
@@ -1495,7 +1485,6 @@ export function DocBoardView(props: DocBoardViewProps) {
           onNotice={(t) => setToast({ text: t })}
         />
       )}
-      <AiActLayer area="board" path={props.notePath} host={outer} />
     </div>
   )
 }

@@ -5,7 +5,9 @@ import { LECTURE } from './fixtures/pdf'
 
 const files = { '随手记.md': '# 随手记\n\n一段字。\n', '课程/线代/第3讲.pdf': LECTURE }
 const dialog = (page: Page) => page.getByRole('dialog', { name: '设置' })
-const row = (page: Page, f: string) => dialog(page).locator(`.aip-row[data-feature="${f}"]`)
+/** 设置方向 A：「各功能用哪个」每一行的 data-row */
+const ROW: Record<string, string> = { chat: 'fChat', dream: 'fDream', vision: 'fVision', translate: 'fTrans', quick: 'fQuick' }
+const row = (page: Page, f: string) => dialog(page).locator(`[data-row="${ROW[f]}"]`)
 
 async function openAiSettings(page: Page) {
   await page.keyboard.press('Meta+,')
@@ -13,11 +15,15 @@ async function openAiSettings(page: Page) {
   await expect(dialog(page).getByTestId('ai-default')).toBeVisible()
 }
 
-async function choose(page: Page, f: string, label: string, sub: string) {
+/** 一行先选家（「跟默认」也在这一列），要换模型再点模型那一段（task-m55m7：先选家再选模型；菜单挂在 body 上） */
+async function choose(page: Page, f: string, label: string, model?: string) {
   await dialog(page).getByTestId(`ai-pick-${f}`).click()
-  const menu = dialog(page).getByRole('menu')
-  await menu.getByRole('menuitemradio').filter({ hasText: label }).filter({ hasText: sub }).first().click()
+  const menu = page.getByRole('menu', { name: /用哪一家$/ })
+  await menu.getByRole('menuitemradio').filter({ has: page.locator('.nm', { hasText: new RegExp(`^${label}$`) }) }).click()
   await expect(menu).toHaveCount(0)
+  if (!model) return
+  await dialog(page).getByTestId(`ai-pick-${f}-model`).click()
+  await page.getByRole('menu', { name: '模型' }).getByRole('menuitemradio').filter({ has: page.locator('.nm', { hasText: new RegExp(`^${model}$`) }) }).click()
 }
 
 test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对话换成 Sonnet 后浮窗和边读边问真的用 Sonnet，回答上面写着「Claude Code · Sonnet」', async () => {
@@ -25,8 +31,11 @@ test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对�
   const { page } = run
   try {
     await openAiSettings(page)
-    await expect(dialog(page).getByTestId('ai-default')).toContainText('Claude Code已装好 · 模型Opus 5.5')
-    await expect(dialog(page).locator('.aip-row')).toHaveCount(5)
+    // 默认那一行左边说这一行管什么，家和模型在右边的选择器里（task-m55m7）
+    await expect(dialog(page).getByTestId('ai-default')).toContainText('默认用哪家AI没单独选的功能都用它')
+    await expect(dialog(page).getByTestId('ai-default-pick')).toHaveText('Claude Code')
+    await expect(dialog(page).getByTestId('ai-default-pick-model')).toHaveText('Opus 5.5')
+    await expect(dialog(page).locator('[role="group"][aria-label="各功能用哪个"] .sa-row')).toHaveCount(5)
     await expect(row(page, 'chat')).toContainText('跟默认Claude Code · Opus 5.5')
     await expect(row(page, 'dream')).toContainText('跟默认Claude Code · Opus 5.5')
     await expect(row(page, 'vision')).toContainText('只有Claude Code能看图')
@@ -36,7 +45,8 @@ test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对�
 
     // AI 对话单独指定 Claude Code · Sonnet
     await choose(page, 'chat', 'Claude Code', 'Sonnet')
-    await expect(row(page, 'chat').getByTestId('ai-pick-chat')).toContainText('Claude CodeSonnet')
+    await expect(row(page, 'chat').getByTestId('ai-pick-chat')).toHaveText('Claude Code')
+    await expect(row(page, 'chat').getByTestId('ai-pick-chat-model')).toHaveText('Sonnet')
     await page.keyboard.press('Escape')
 
     // 右栏 AI 那一格（别处的对话）：真的用 Sonnet 答，回答上面一行写着
@@ -64,10 +74,12 @@ test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对�
 
     // AI 对话改回跟默认，默认换成 Codex：浮窗换成 Codex（它自己的默认模型，不传模型）
     await openAiSettings(page)
-    await choose(page, 'chat', '跟默认', 'Claude Code · Opus 5.5')
+    await choose(page, 'chat', '跟默认')
+    await expect(row(page, 'chat')).toContainText('跟默认Claude Code · Opus 5.5')
     await dialog(page).getByTestId('ai-default-pick').click()
-    await dialog(page).getByRole('menu').getByRole('menuitemradio').filter({ hasText: 'Codex' }).click()
-    await expect(dialog(page).getByTestId('ai-default')).toContainText('Codex已装好 · 用它自己的默认模型')
+    await page.getByRole('menu', { name: '默认用哪一家' }).getByRole('menuitemradio').filter({ hasText: 'Codex' }).click()
+    await expect(dialog(page).getByTestId('ai-default-pick')).toHaveText('Codex')
+    await expect(dialog(page).getByTestId('ai-default-pick-model')).toHaveText('Codex 默认模型')
     await expect(row(page, 'chat')).toContainText('跟默认Codex')
     // 看图问只有 Claude Code 能做：默认换成 Codex 时它还是 Claude Code
     await expect(row(page, 'vision').getByTestId('ai-pick-vision')).toContainText('Claude Code')

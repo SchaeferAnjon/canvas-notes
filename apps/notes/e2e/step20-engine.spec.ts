@@ -8,13 +8,13 @@ test('设置 › AI 默认引擎每行有标志；引擎菜单按 Esc 收起，A
   try {
     await page.keyboard.press('Meta+,')
     await page.getByRole('navigation', { name: '设置分页' }).getByRole('button', { name: 'AI', exact: true }).click()
-    // 默认那一行「换」：每一项前面是各家自己的标志（Claude Code 三个模型 + 另外三家）
+    // 默认那一行先选家（task-m55m7：同一家只列一次，不再把 Claude Code 按模型列三遍）：每一项前面是各家自己的标志
     await page.getByTestId('ai-default-pick').click()
-    const rows = page.getByRole('menu', { name: '默认用哪个' }).getByRole('menuitemradio')
-    await expect(rows).toHaveCount(6)
-    for (let i = 0; i < 6; i++) await expect(rows.nth(i).locator(':scope > .eng-logo, :scope > svg.ci')).toHaveCount(1)
+    const rows = page.getByRole('menu', { name: '默认用哪一家' }).getByRole('menuitemradio')
+    await expect(rows).toHaveCount(4)
+    for (let i = 0; i < 4; i++) await expect(rows.nth(i).locator(':scope > .eng-logo, :scope > svg.ci')).toHaveCount(1)
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('menu', { name: '默认用哪个' })).toHaveCount(0)
+    await expect(page.getByRole('menu', { name: '默认用哪一家' })).toHaveCount(0)
     await page.keyboard.press('Escape')
 
     await page.keyboard.press('Meta+j')

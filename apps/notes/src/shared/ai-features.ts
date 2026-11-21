@@ -25,7 +25,7 @@ export interface EffortOption {
   note?: string
 }
 
-/** Claude Code 的 --effort（claude 2.1.323 的 --help 核过：low、medium、high、xhigh、max）；讲解默认 High */
+/** Claude Code 的 --effort（claude 2.1.323、2.1.330 的 --help 核过：low、medium、high、xhigh、max）；讲解默认 High */
 export const CLAUDE_EFFORTS: EffortOption[] = [
   { id: 'low', label: 'Low', note: '最快，小追问够用' },
   { id: 'medium', label: 'Medium' },
@@ -47,7 +47,10 @@ export function effortOption(id: string): EffortOption {
 /** 拿不到 Codex 模型列表时给它的几档（哪个模型都认） */
 const CODEX_EFFORTS = ['low', 'medium', 'high'].map(effortOption)
 
-/** 能选 effort 的两家 */
+/**
+ * 没选过 effort 时也给一档（High）的两家：Claude Code、Codex 的模型都认 effort。
+ * Gemini、OpenCode 看拉到的模型（task-m55m7）：OpenCode 的模型带它自己那几档（variants），选了才传；Gemini 没有
+ */
 export const hasEffort = (e: EngineId) => e === 'claude' || e === 'codex'
 
 /** 输入框底行模型菜单里的一项：id 是命令行认的；空串是这家自己的默认模型（不传 --model） */
@@ -58,6 +61,18 @@ export interface ModelOption {
   efforts: EffortOption[]
   /** 这个模型自己的默认档（Codex 的 model/list 给的） */
   defaultEffort?: string
+  /** 别名实际是哪个型号（Claude Code 报的：sonnet → claude-sonnet-5-5）；存着的是实际型号时也认得出是这一项 */
+  resolved?: string
+  /** 模型菜单里分组的小标题（OpenCode 按服务商分：zai、deepseek…） */
+  group?: string
+}
+
+/** 模型名：命令行认的那几种写法（Claude Code 的别名和型号、Codex 的模型、OpenCode 的「服务商/模型」） */
+export const MODEL_ID = /^[\w.:\-[\]/@]{0,200}$/
+
+/** 模型列表里的这一项：先按 id 找，再按别名实际的型号找（设置里存的是 claude-opus-5-5，拉到的是 opus → claude-opus-5-5） */
+export function findModel(models: readonly ModelOption[], id: string): ModelOption | undefined {
+  return models.find((m) => m.id === id) ?? (id ? models.find((m) => m.resolved === id) : undefined)
 }
 
 export interface AiPrefs {
@@ -77,27 +92,34 @@ export const CLAUDE_MODELS: { id: string; label: string }[] = [
 export const CLAUDE_DEFAULT = 'claude-opus-5-5'
 
 /**
- * 每家能选的模型（CN-91），第一项是这家的默认：Claude Code 三个模型、各五档 effort；
- * Codex 第一项「Codex 默认模型」（不传 model，用它自己设置里的），后面是主进程问 app-server model/list 拿到的（拿不到就只有这一项）；
- * Gemini、OpenCode 只有它自己的默认模型、没有 effort
+ * 每家能选的模型（CN-91，task-m55m7 起从命令行拉，pulled 是拉到的），第一项是这家的默认：
+ * Claude Code 拉到了就是它报的那几个（别名 opus / sonnet / haiku… 和具体型号，各自那几档），没拉到用自带的三个、各五档；
+ * Codex、Gemini、OpenCode 第一项「某家默认模型」（不传模型，用它自己设置里的），后面是拉到的（拉不到就只有这一项）；
+ * Codex 默认那一项的档照它默认的那个模型，Gemini、OpenCode 的默认模型不知道是哪个、不给档
  */
-export function modelsOf(engine: EngineId, codex: ModelOption[] = []): ModelOption[] {
-  if (engine === 'claude') return CLAUDE_MODELS.map((m) => ({ ...m, efforts: CLAUDE_EFFORTS }))
-  if (engine !== 'codex') return [{ id: '', label: `${ENGINE_LABEL[engine]} 默认模型`, efforts: [] }]
-  const def = codex[0]
-  return [{ id: '', label: 'Codex 默认模型', efforts: def?.efforts ?? CODEX_EFFORTS, ...(def?.defaultEffort ? { defaultEffort: def.defaultEffort } : {}) }, ...codex]
+export function modelsOf(engine: EngineId, pulled: ModelOption[] = []): ModelOption[] {
+  if (engine === 'claude') return pulled.length ? pulled : CLAUDE_MODELS.map((m) => ({ ...m, efforts: CLAUDE_EFFORTS }))
+  if (engine !== 'codex') return [{ id: '', label: `${ENGINE_LABEL[engine]} 默认模型`, efforts: [] }, ...pulled]
+  const def = pulled[0]
+  return [{ id: '', label: 'Codex 默认模型', efforts: def?.efforts ?? CODEX_EFFORTS, ...(def?.defaultEffort ? { defaultEffort: def.defaultEffort } : {}) }, ...pulled]
 }
 
 /**
- * 这一问真正用的模型和那一档（CN-91）：没给模型用这家的默认；给的那一档这个模型不认，就用它自己的默认档，再不认用 High，再不认用第一档；
- * Gemini、OpenCode 没有模型和 effort，只有哪家。主进程（effectivePick）和输入框底行（convPick）用同一套
+ * 这一问真正用的模型和那一档（CN-91）：没给模型用这家的默认；给的那一档这个模型不认，就用它自己的默认档，再不认用 High，再不认用第一档。
+ * Claude Code、Codex 没选过档时是 High；Gemini、OpenCode 只有这个模型有那一档、而且选过才带（OpenCode 不选就是它自己的默认档）。
+ * 主进程（effectivePick）和输入框底行（convPick）用同一套
  */
 export function fitPick(engine: EngineId, models: ModelOption[], want: { model?: string; effort?: string }): AiPick {
-  if (!hasEffort(engine)) return { engine }
   let model = want.model ?? ''
   if (engine === 'claude') model ||= CLAUDE_DEFAULT
-  const option = models.find((m) => m.id === model)
+  const option = findModel(models, model)
+  if (!hasEffort(engine)) {
+    const effort = want.effort && option?.efforts.some((e) => e.id === want.effort) ? want.effort : undefined
+    return { engine, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
+  }
   const efforts = option?.efforts ?? (engine === 'claude' ? CLAUDE_EFFORTS : [])
+  // 拉到的这个模型明说不认 effort（Claude Code 的 Haiku 4.5）：不带
+  if (option && !efforts.length && models.some((m) => m.efforts.length)) return { engine, ...(model ? { model } : {}) }
   let effort = want.effort ?? DEFAULT_EFFORT
   if (efforts.length && !efforts.some((e) => e.id === effort)) {
     const fallback = [option?.defaultEffort, DEFAULT_EFFORT].find((x) => x && efforts.some((e) => e.id === x))
@@ -105,6 +127,9 @@ export function fitPick(engine: EngineId, models: ModelOption[], want: { model?:
   }
   return { engine, ...(model ? { model } : {}), effort }
 }
+
+/** 交给主进程的这一问的模型和 effort（ai:turn、reading:ask）：模型空串是这家自己的默认模型 */
+export const pickReq = (p: AiPick): { model?: string; effort?: string } => ({ model: p.model ?? '', ...(p.effort ? { effort: p.effort } : {}) })
 
 /**
  * 一个对话这一问用的（CN-91 方向 C）：哪家跟设置 › AI「AI 对话」那一行（chat，ai:engines 给的）；
@@ -123,16 +148,18 @@ export const INITIAL_PREFS: AiPrefs = { default: { engine: 'claude', model: CLAU
 const ENGINES: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
 const isEngine = (x: unknown): x is EngineId => typeof x === 'string' && (ENGINES as string[]).includes(x)
 
-/** 存的东西读回来：不认识的丢掉；模型给 Claude Code、Codex 留，effort 只留这家认的（旧设置没有 effort，读成不设 = High） */
+/**
+ * 存的东西读回来：不认识的丢掉；模型四家都留（task-m55m7 起 Gemini、OpenCode 也能选模型），写法不对的丢掉；
+ * effort：Claude Code 只留那五档，别家留它自己的（旧设置没有 effort，读成不设 = Claude Code、Codex 是 High）
+ */
 export function normalizePick(x: unknown): AiPick | null {
   if (!x || typeof x !== 'object') return null
   const o = x as { engine?: unknown; model?: unknown; effort?: unknown }
   if (!isEngine(o.engine)) return null
-  if (!hasEffort(o.engine)) return { engine: o.engine }
-  const model = typeof o.model === 'string' && o.model.trim() ? o.model.trim() : undefined
-  const effort = typeof o.effort === 'string' && /^[a-z]{1,20}$/.test(o.effort) && (o.engine === 'codex' || CLAUDE_EFFORTS.some((e) => e.id === o.effort)) ? o.effort : undefined
-  if (o.engine === 'codex') return { engine: 'codex', ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
-  return { engine: 'claude', model: model ?? CLAUDE_DEFAULT, ...(effort ? { effort } : {}) }
+  const model = typeof o.model === 'string' && o.model.trim() && MODEL_ID.test(o.model.trim()) ? o.model.trim() : undefined
+  const effort = typeof o.effort === 'string' && /^[a-z]{1,20}$/.test(o.effort) && (o.engine !== 'claude' || CLAUDE_EFFORTS.some((e) => e.id === o.effort)) ? o.effort : undefined
+  if (o.engine === 'claude') return { engine: 'claude', model: model ?? CLAUDE_DEFAULT, ...(effort ? { effort } : {}) }
+  return { engine: o.engine, ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
 }
 
 export function normalizePrefs(x: unknown, legacyEngine?: EngineId): AiPrefs {
@@ -155,15 +182,20 @@ export function resolvePick(p: AiPrefs, feature: AiFeature): AiPick {
   return pick
 }
 
+/** 模型的名字：拉到的列表里的（「Sonnet 5.5」），列表里没有时 Claude Code 用自带的叫法，再没有写型号本身 */
+export function modelLabel(engine: EngineId, id: string, models: readonly ModelOption[] = []): string {
+  return findModel(models, id)?.label ?? (engine === 'claude' ? CLAUDE_MODELS.find((x) => x.id === id)?.label : undefined) ?? id
+}
+
 /**
- * 回答头上、设置里写的「Claude Code · Opus 5.5」，带了 effort 再加一截「· High」（CN-91）；
- * Codex 选了模型写模型名（models 是 EngineInfo.models，拿名字用），用它自己默认模型的不写；Gemini、OpenCode 只写名字
+ * 回答头上、设置里写的「Claude Code · Opus 5.5」，带了 effort 再加一截「· High」（CN-91）；模型名用拉到的（task-m55m7：「Claude Code · Sonnet 5.5 · Low」，
+ * models 是 EngineInfo.models）。用这家默认模型的不写模型；Gemini、OpenCode 选了模型写模型名，这个模型有那一档才写 effort
  */
-export function pickLabel(p: AiPick, models: { id: string; label: string }[] = []): string {
+export function pickLabel(p: AiPick, models: readonly ModelOption[] = []): string {
   const parts = [ENGINE_LABEL[p.engine]]
-  if (p.engine === 'claude') parts.push(CLAUDE_MODELS.find((x) => x.id === p.model)?.label ?? p.model ?? 'Opus 5.5')
-  else if (p.engine === 'codex' && p.model) parts.push(models.find((x) => x.id === p.model)?.label ?? p.model)
-  if (p.effort && hasEffort(p.engine)) parts.push(effortOption(p.effort).label)
+  if (p.engine === 'claude') parts.push(modelLabel('claude', p.model ?? CLAUDE_DEFAULT, models))
+  else if (p.model) parts.push(modelLabel(p.engine, p.model, models))
+  if (p.effort && (hasEffort(p.engine) || findModel(models, p.model ?? '')?.efforts.some((e) => e.id === p.effort))) parts.push(effortOption(p.effort).label)
   return parts.join(' · ')
 }
 
@@ -172,5 +204,3 @@ export function engineOfLabel(label: string): EngineId | null {
   const name = label.split(' · ')[0]
   return (Object.entries(ENGINE_LABEL).find(([, v]) => v === name)?.[0] as EngineId | undefined) ?? null
 }
-
-export const samePick = (a: AiPick | undefined, b: AiPick | undefined) => !!a && !!b && a.engine === b.engine && (a.engine !== 'claude' || a.model === b.model)
