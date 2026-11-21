@@ -40,7 +40,7 @@ function itemMenu(e: React.MouseEvent, i: AttachItem, reload: () => void) {
       // 文中用到的删了链接就断了：只有没用到的能在这里删
       enabled: i.offset === null,
       run: async () => {
-        await window.cn.trashNote(i.path)
+        await window.cn.trashFiles([i.path])
         reload()
       },
     },

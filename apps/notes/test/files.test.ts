@@ -205,3 +205,53 @@ describe('「附件」筛选（CN-104）：每篇笔记用到的附件、没有�
   })
 })
 
+describe('「这张图谁在用」只有一套算法：读 PDF 的完整对话（.canvas-notes/对话/）里用到的也算在用（task-1df7j）', () => {
+  let root: string
+  afterEach(() => rmSync(root, { recursive: true, force: true }))
+  const put = (p: string, data: string) => {
+    mkdirSync(join(root, p, '..'), { recursive: true })
+    writeFileSync(join(root, p), data)
+  }
+  /** 用户真库里的样子：旧的 PDF 笔记链着完整对话，截图只有对话记录在用；另有 PDF 已经删了的对话、别人附件文件夹里没链着的、真没人用的图 */
+  const build = () => {
+    root = mkdtempSync(join(tmpdir(), 'cn-att-convo-'))
+    put('课程/ecpc/Lecture05.pdf', '%PDF-1.4')
+    put('课程/ecpc/Lecture05 笔记.md', '# Lecture05 笔记\n\n## 第 1 页 · 阈值\n[第 1 页](Lecture05.pdf#page=1) · 10:20\n\n[完整对话 · 2 轮](../../.canvas-notes/对话/Lecture05-p1-1.md)\n')
+    put('.canvas-notes/对话/Lecture05-p1-1.md', '# Lecture05 · 第 1 页 · 完整对话\n\n[回到第 1 页](../../课程/ecpc/Lecture05.pdf#page=1&rect=0.1,0.2,0.3,0.4)\n\n### 我 · 10:20\n\n![我框的](../../附件/Lecture05/p1-1.png)\n\n讲讲\n')
+    put('附件/Lecture05/p1-1.png', 'xx')
+    // PDF 已经不在了的对话：图照样算在用
+    put('.canvas-notes/对话/旧讲义-p2-1.md', '# 旧讲义 · 第 2 页 · 完整对话\n\n[回到第 2 页](../../课程/旧讲义.pdf#page=2)\n\n![我框的](../../附件/旧讲义/p2-1.png)\n')
+    put('附件/旧讲义/p2-1.png', 'xxx')
+    // 别的笔记自己附件文件夹里的（那篇文中没链着，也算它的）
+    put('写作/游记.md', '# 游记\n')
+    put('附件/写作/游记/截图 1.png', 'x')
+    put('附件/老的/没人用.png', 'xxxx')
+  }
+
+  it('attachIndex：对话里用到的图不算「没有笔记的附件」；挂在那份 PDF 的笔记下面，PDF 不在了的单列「完整对话在用的附件」；对话记录本身不进文件树', async () => {
+    const { listEntries, attachIndex } = await import('../src/main/files')
+    build()
+    const files = await listEntries(root)
+    expect(files.some((f) => f.path.startsWith('.canvas-notes'))).toBe(false)
+    const idx = await attachIndex(root, files)
+    expect(idx.orphans).toEqual([{ path: '附件/老的/没人用.png', bytes: 4 }])
+    expect(idx.notes.find((n) => n.note === '课程/ecpc/Lecture05 笔记.md')?.items).toEqual([{ path: '附件/Lecture05/p1-1.png', bytes: 2 }])
+    expect(idx.convos).toEqual([{ path: '附件/旧讲义/p2-1.png', bytes: 3, convo: '.canvas-notes/对话/旧讲义-p2-1.md' }])
+    expect(idx.notes.some((n) => n.note.startsWith('.canvas-notes'))).toBe(false)
+  })
+
+  it('和删笔记连图一起删（note-attach）结果一致：一篇链着全部图的笔记，删它时会一起删的（没别人在用的）正好是「没有笔记的附件」', async () => {
+    const { listEntries, attachIndex } = await import('../src/main/files')
+    const { noteAttachments } = await import('../src/main/note-attach')
+    const { Vault } = await import('../src/main/vault')
+    build()
+    const atts = (await listEntries(root)).filter((f) => f.path.startsWith('附件/')).map((f) => f.path)
+    const orphans = (await attachIndex(root, await listEntries(root))).orphans.map((o) => o.path)
+    const rel = (p: string) => p.split('/').map(encodeURIComponent).join('/')
+    put('探针.md', '# 探针\n\n' + atts.map((p) => `![](${rel(p)})`).join('\n\n') + '\n')
+    const a = await noteAttachments(new Vault(root), '探针.md', true)
+    expect(a.items.filter((i) => i.mine && !i.sharedWith?.length).map((i) => i.path).sort()).toEqual(orphans.sort())
+    expect(a.items.find((i) => i.path === '附件/Lecture05/p1-1.png')?.sharedWith).toEqual(['.canvas-notes/对话/Lecture05-p1-1.md'])
+  })
+})
+

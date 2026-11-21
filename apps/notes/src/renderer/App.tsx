@@ -1181,7 +1181,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     }
   }
 
-  /** 删一篇（md 连同只有它在用的图，能撤回；PDF、HTML 直接进废纸篓）。右键、⌘⌫、标签的「⋯」、属性里都走这里 */
+  /** 删一篇（md 连同只有它在用的图，能撤回；PDF、HTML、图片进废纸篓并单独一次提交）。右键、⌘⌫、标签的「⋯」、属性里都走这里 */
   async function trash(path: string) {
     return trashMany([path])
   }
@@ -1225,7 +1225,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         images += r.images
         trashChain.current.push({ path: p, id: r.id })
       }
-      for (const p of others) await window.cn.trashNote(p)
+      // PDF、HTML、图片：一次进废纸篓、当场一次提交（不挂在工作区里等下一次别的提交顺带进去）
+      if (others.length) await window.cn.trashFiles(others)
       let inFolders = 0
       for (const f of folderList) inFolders += (await window.cnFolder.trash(f, top.length > 1)) ?? 0
       const n = trashChain.current.length

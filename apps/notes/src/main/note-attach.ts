@@ -2,17 +2,16 @@
  * 一篇笔记的附件（见 shared/attach.ts）：列出来、删笔记时连同只有它在用的图一起移到废纸篓、撤回。
  * 撤回靠删之前在软件设置目录 trash-undo/<号>/ 里留的一份（废纸篓里的东西没法按路径拿回来）；软件下次启动时清掉。
  */
-import { attachmentDir, decodeNote, imageRefs, linkedPaths } from '@cn/format'
+import { attachmentDir, decodeNote, imageRefs } from '@cn/format'
 import * as git from '@cn/git'
 import { ipcMain, shell } from 'electron'
 import { copyFile, mkdir, readdir, readFile, rename, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import type { AttachItem, NoteAttachments, TrashResult } from '../shared/attach'
 import { COVER_DIR } from '../shared/home'
+import { attachUsers, listEntries } from './files'
 import { pinNote, readPins, repin } from './pins'
 import type { Vault } from './vault'
-
-const SKIP = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 
 function needNote(note: unknown): string {
   if (typeof note !== 'string' || !/\.md$/i.test(note) || note.startsWith('/') || note.split('/').some((s) => !s || s === '..')) throw new Error(`笔记不对：${String(note)}`)
@@ -40,32 +39,6 @@ async function filesUnder(v: Vault, dir: string): Promise<string[]> {
   return out
 }
 
-/**
- * 库里所有 md（不进 . 开头的文件夹和附件/）；读 PDF 时记的完整对话（.canvas-notes/对话/）也算，
- * 那里链着的截图删笔记时不一起删
- */
-async function allMd(v: Vault): Promise<string[]> {
-  const out: string[] = []
-  const walk = async (d: string) => {
-    let ents
-    try {
-      ents = await readdir(d ? v.abs(d) : v.root, { withFileTypes: true })
-    } catch (e) {
-      if (d && (e as NodeJS.ErrnoException).code === 'ENOENT') return
-      throw e
-    }
-    for (const e of ents) {
-      if (e.name.startsWith('.') || SKIP.has(e.name) || (!d && e.name === '附件')) continue
-      const rel = d ? `${d}/${e.name}` : e.name
-      if (e.isDirectory()) await walk(rel)
-      else if (e.isFile() && /\.md$/i.test(e.name)) out.push(rel)
-    }
-  }
-  await walk('')
-  await walk('.canvas-notes/对话')
-  return out
-}
-
 const sizeOf = (v: Vault, p: string) => stat(v.abs(p)).then((s) => (s.isFile() ? s.size : null), () => null)
 
 export async function noteAttachments(v: Vault, noteArg: unknown, shared: boolean): Promise<NoteAttachments> {
@@ -89,11 +62,11 @@ export async function noteAttachments(v: Vault, noteArg: unknown, shared: boolea
     items.push({ path: p, bytes: (await sizeOf(v, p)) ?? 0, where: null, offset: null, own: true, mine: true })
   }
   if (shared && items.some((i) => i.mine)) {
+    // 别的谁在用（别的笔记、读 PDF 的完整对话）：和文件树「附件」筛选同一套算法（files.ts attachUsers）
     const mine = new Set(items.filter((i) => i.mine).map((i) => i.path))
-    for (const other of await allMd(v)) {
-      if (other === note) continue
-      const links = linkedPaths(decodeNote(await readFile(v.abs(other))).text, other)
-      for (const p of links) if (mine.has(p)) (items.find((i) => i.path === p)!.sharedWith ??= []).push(other)
+    for (const u of await attachUsers(v.root, await listEntries(v.root))) {
+      if (u.note === note) continue
+      for (const p of u.uses) if (mine.has(p)) (items.find((i) => i.path === p)!.sharedWith ??= []).push(u.note)
     }
   }
   const dirExists = (await stat(v.abs(dir)).catch(() => null))?.isDirectory() ?? false

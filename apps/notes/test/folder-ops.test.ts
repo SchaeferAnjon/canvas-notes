@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveLink } from '@cn/format'
-import { fixedFolder, GITKEEP, makeFolder, moveFolder, renameFolder, testTrash, trashFolder } from '../src/main/folder-ops'
+import { fixedFolder, GITKEEP, makeFolder, moveFolder, renameFolder, testTrash, trashFiles, trashFolder } from '../src/main/folder-ops'
 import { Vault } from '../src/main/vault'
 
 const roots: string[] = []
@@ -195,5 +195,36 @@ describe('文件夹移到废纸篓', () => {
   it('固定的文件夹不删', async () => {
     const { trash, v } = vaultWith(SAMPLE)
     await expect(trashFolder(v, '课程', testTrash(trash))).rejects.toThrow('固定的文件夹')
+  })
+})
+
+describe('文件树里删 PDF、HTML、图片（不是笔记）：当场单独一次提交，不留在工作区等别的提交顺带进去（task-1df7j）', () => {
+  it('删 2 张图：一次提交只含它们，说明照实写；用户别处没提交的字不带进去；撤回后回来。没提交过的新图先提交再删，历史里也放得回来', async () => {
+    const { root, trash, v } = vaultWith({ ...SAMPLE, '附件/Lecture05/p1-1.png': 'a', '附件/老的/没人用.png': 'b', '写作/草稿.md': '# 草稿\n' })
+    // 用户正在写的另一篇（没提交）：不能被这次删除顺带进去
+    writeFileSync(join(root, '写作/草稿.md'), '# 草稿\n\n还没提交的字\n')
+    writeFileSync(join(root, '附件/老的/刚粘的.png'), 'c')
+    const before = commits(root)
+    const sha = await trashFiles(v, ['附件/老的/没人用.png', '附件/老的/刚粘的.png'], testTrash(trash))
+    expect(sha).toMatch(/^[0-9a-f]{40}$/)
+    expect(readdirSync(join(root, '附件/老的'))).toEqual([])
+    expect(readdirSync(trash)).toHaveLength(2)
+    // 先提交了没进过 Git 的那张，再一次删除
+    expect(commits(root)).toBe(before + 2)
+    expect(lastMsg(root)).toBe('删除 2 个文件：附件/老的/刚粘的.png、附件/老的/没人用.png')
+    expect(g(root, 'show', '--name-status', '--format=', 'HEAD').trim().split('\n').sort()).toEqual(['D\t附件/老的/刚粘的.png', 'D\t附件/老的/没人用.png'])
+    expect(status(root)).toBe('M 写作/草稿.md')
+    g(root, 'revert', '--no-edit', 'HEAD')
+    expect(readFileSync(join(root, '附件/老的/没人用.png'), 'utf8')).toBe('b')
+    expect(readFileSync(join(root, '附件/老的/刚粘的.png'), 'utf8')).toBe('c')
+    expect(existsSync(join(root, '附件/Lecture05/p1-1.png'))).toBe(true)
+  })
+
+  it('笔记（md）、文件夹、库外的不走这里', async () => {
+    const { trash, v } = vaultWith({ ...SAMPLE, '附件/a.png': 'a' })
+    await expect(trashFiles(v, ['复习.md'], testTrash(trash))).rejects.toThrow('要删的不对')
+    await expect(trashFiles(v, ['课程/ecp'], testTrash(trash))).rejects.toThrow('不是文件')
+    await expect(trashFiles(v, ['../外面.png'], testTrash(trash))).rejects.toThrow('库外')
+    await expect(trashFiles(v, [], testTrash(trash))).rejects.toThrow('要删的不对')
   })
 })

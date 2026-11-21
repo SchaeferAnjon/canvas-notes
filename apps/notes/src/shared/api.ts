@@ -161,6 +161,8 @@ export interface CnApi {
   createBoard(folder: string, name: string): Promise<string>
   /** 移到废纸篓（Git 里也算删除，能从历史找回） */
   trashNote(path: string): Promise<void>
+  /** PDF、HTML、图片这些（不是笔记）移到废纸篓，当场单独一次提交（历史里能撤回） */
+  trashFiles(paths: string[]): Promise<void>
   /** 速记：一句话进收件箱，返回新文件路径 */
   capture(text: string): Promise<string>
   /** 网页里剪的一段进收件箱（带来源），返回新文件路径 */

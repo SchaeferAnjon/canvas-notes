@@ -30,9 +30,14 @@ export interface FileEntry {
 /** 附件/ 里的文件：图片、别的附件 */
 export const isAttachKind = (k: FileKind) => k === 'img' || k === 'att'
 
-/** 「附件」筛选（CN-104）：每篇笔记用到哪些附件、没有哪篇在用的附件 */
+/**
+ * 「附件」筛选（CN-104）：每篇笔记用到哪些附件、没有谁在用的附件。
+ * 读 PDF 的完整对话（.canvas-notes/对话/）用的图挂在那份 PDF 的笔记下面；PDF 或它的笔记不在了的放 convos（「完整对话在用的附件」一组）
+ */
 export interface AttachIndex {
   notes: { note: string; items: { path: string; bytes: number }[] }[]
+  /** convo：用它的那份完整对话（双击打开） */
+  convos: { path: string; bytes: number; convo: string }[]
   orphans: { path: string; bytes: number }[]
 }
 

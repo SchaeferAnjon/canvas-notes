@@ -28,6 +28,7 @@ const api: CnApi = {
   renameNote: (path, newName, free) => ipcRenderer.invoke('note:rename', path, newName, free),
   createBoard: (folder, name) => ipcRenderer.invoke('board:create', folder, name),
   trashNote: (path) => ipcRenderer.invoke('note:trash', path),
+  trashFiles: (paths) => ipcRenderer.invoke('files:trash', paths),
   capture: (text) => ipcRenderer.invoke('inbox:capture', text),
   clipToInbox: (clip) => ipcRenderer.invoke('web:clip', clip),
   clipCurrentPage: (arg) => ipcRenderer.invoke('web:clip-page', arg?.webUrl ?? null),

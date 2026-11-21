@@ -44,6 +44,7 @@ import { setupPlugins } from './plugins'
 import { moveReadingState, setupReading } from './reading'
 import { searchVault, setupSearch } from './search'
 import { registerFiles } from './files'
+import { testTrash, trashFiles } from './folder-ops'
 import { setupImport } from './import'
 import { attachEditMenu, closeAllMenus, forwardWebContext, popup, setupCtxMenu } from './ctx-menu'
 import { attachWebview, setupWeb } from './web'
@@ -311,6 +312,12 @@ function registerIpc() {
     if (testTrash) renameSync(p, join(testTrash, `${Date.now()}-${p.split('/').pop()}`))
     else await shell.trashItem(p)
     await repin(v, path, null)
+  })
+  // 文件树里删 PDF、HTML、图片（不是笔记）：进废纸篓，当场单独一次提交（历史里能撤回），不留给下一次别的提交顺带进去
+  ipcMain.handle('files:trash', async (_e, paths: unknown) => {
+    if (Array.isArray(paths)) for (const p of paths) if (typeof p === 'string') agentOwnWrite(p)
+    const testTrashDir = process.env.CN_TRASH_DIR
+    await trashFiles(needVault(), paths, testTrashDir ? testTrash(testTrashDir) : (abs) => shell.trashItem(abs))
   })
   ipcMain.handle('inbox:capture', (_e, text: string) => {
     if (typeof text !== 'string') throw new Error('速记参数不对')

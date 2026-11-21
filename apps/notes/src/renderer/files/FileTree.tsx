@@ -104,7 +104,8 @@ function coursesProgress(n: TreeNode): { done: number; total: number } | null {
  * 点文件夹的名字开它的首页（顺手展开），点箭头只展开；点文件按类型开标签。
  * 选好几个（CN-105，照访达）：Shift 点连选、⌘ 点加选、在空白处按下拖框选、Shift ↑↓ 一行行加；选了两个以上底部浮出「已选 N 个 · 移到… · 删除」，
  * 右键对着这一组，拖着其中一个挪的是全部，⌘⌫ 删（和右键「移到废纸篓」同一个确认）。
- * 「附件」筛选：附件挂在用它的那篇笔记下面，一篇先列 3 张，没有笔记的附件放最下面一组。
+ * 「附件」筛选：附件挂在用它的那篇笔记下面，一篇先列 3 张；读 PDF 的完整对话用的图挂在那份 PDF 的笔记下面（PDF 不在了的单列「完整对话在用的附件」），
+ * 没有谁在用的放最下面「没有笔记的附件」一组。
  * root：摘到活动栏的文件夹，只画它自己那一枝。梦游预览开着时画成改好以后的样子：挪来的标「新」，原来的位置留划掉的影子。
  */
 export function FileTree(props: {
@@ -548,8 +549,11 @@ export function FileTree(props: {
     </div>
   )
 
-  /** 一张附件（附件/ 里的图、文件，或「附件」筛选里笔记下面的那几张）：点一下在访达中显示，双击开用它的那篇 */
-  const attachRow = (path: string, depth: number, note: string | null, bytes?: number, key = path) => {
+  /**
+   * 一张附件（附件/ 里的图、文件，或「附件」筛选里笔记下面的那几张）：点一下在访达中显示，双击开用它的那篇。
+   * where：名字后面灰字写它在哪个文件夹（「附件」筛选最下面平铺的两组：p1-1.png 这种名字每份 PDF 都有，删之前要看得出是哪份的）
+   */
+  const attachRow = (path: string, depth: number, note: string | null, bytes?: number, key = path, where?: string) => {
     order.push(path)
     const img = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(path)
     return (
@@ -577,7 +581,14 @@ export function FileTree(props: {
       >
         <span className="ft-tw" />
         {type === 'att' && img ? <img className="ft-thumb" src={imgUrl(path)} alt="" draggable={false} /> : <Codicon name={img ? 'file-media' : 'file'} size={16} />}
-        <span className="truncate">{fileName(path)}</span>
+        <span className="truncate">
+          {fileName(path)}
+          {where && (
+            <span className="ft-count" style={{ marginLeft: 8 }}>
+              {where}
+            </span>
+          )}
+        </span>
         <span className="ft-fl" />
         {bytes !== undefined && <span className="ft-count num">{sizeText(bytes)}</span>}
       </div>
@@ -817,7 +828,7 @@ export function FileTree(props: {
         <Codicon name="library" size={16} />
         <span className="truncate">{props.vaultName}</span>
         <span className="ft-fl" />
-        {view.counts && <span className="ft-count num">{type === 'att' && att ? total + att.orphans.length : total}</span>}
+        {view.counts && <span className="ft-count num">{type === 'att' && att ? total + att.convos.length + att.orphans.length : total}</span>}
       </div>,
     )
     if (rootOpen) {
@@ -833,22 +844,33 @@ export function FileTree(props: {
           )
         walk(g.nodes, 1, '', 'top:' + g.title)
       }
-      // 「附件」筛选：没有哪篇笔记在用的附件放最下面一组
-      if (type === 'att' && att?.orphans.length) {
-        rows.push(
-          <div key="gh:orphans" className="ft-gh" role="presentation" style={{ paddingLeft: 22 }}>
-            <span>没有笔记的附件</span>
-            <span className="ln" />
-          </div>,
-        )
-        const lim = pages['orphans'] ?? PAGE
-        for (const o of att.orphans.slice(0, lim)) rows.push(attachRow(o.path, 1, null, o.bytes, 'orphan:' + o.path))
-        if (att.orphans.length > lim)
+      // 「附件」筛选：最下面两组。读 PDF 的完整对话在用、那份 PDF 的笔记已经不在的（对话记录本身不进树，双击这一张打开那份对话）；没有谁在用的。
+      // 名字后面写所在的文件夹（附件/ 最外层的不写）
+      if (type === 'att' && att) {
+        const groups: [string, string, { path: string; bytes: number; convo?: string }[]][] = [
+          ['convos', '完整对话在用的附件', att.convos],
+          ['orphans', '没有笔记的附件', att.orphans],
+        ]
+        for (const [key, title, list] of groups) {
+          if (!list.length) continue
           rows.push(
-            <button key="more:orphans" className="si s-more ft-more" style={{ paddingLeft: 50 }} onClick={() => setPages((p) => ({ ...p, orphans: lim + PAGE }))}>
-              <span className="num">{`还有${att.orphans.length - lim}张 · 再显示${Math.min(PAGE, att.orphans.length - lim)}张`}</span>
-            </button>,
+            <div key={'gh:' + key} className="ft-gh" role="presentation" style={{ paddingLeft: 22 }}>
+              <span>{title}</span>
+              <span className="ln" />
+            </div>,
           )
+          const lim = pages[key] ?? PAGE
+          for (const o of list.slice(0, lim)) {
+            const dir = folderOfPath(o.path)
+            rows.push(attachRow(o.path, 1, o.convo ?? null, o.bytes, `${key}:${o.path}`, dir.includes('/') ? fileName(dir) : undefined))
+          }
+          if (list.length > lim)
+            rows.push(
+              <button key={'more:' + key} className="si s-more ft-more" style={{ paddingLeft: 50 }} onClick={() => setPages((p) => ({ ...p, [key]: lim + PAGE }))}>
+                <span className="num">{`还有${list.length - lim}张 · 再显示${Math.min(PAGE, list.length - lim)}张`}</span>
+              </button>,
+            )
+        }
       }
     }
   }

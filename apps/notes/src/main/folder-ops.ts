@@ -219,9 +219,30 @@ export async function trashFolder(v: Vault, folder: unknown, put: (abs: string) 
   return n
 }
 
-/** 测试用的「废纸篓」：挪进那个文件夹，不往用户真的废纸篓里放 */
+/**
+ * PDF、HTML、图片这些（不是笔记、不是文件夹）移到废纸篓，当场单独一次提交（「删除 N 个文件：…」，历史里能撤回）。
+ * 不当场提交的话，删除挂在工作区里，会被下一次随便什么提交顺带进去（0.4.4 被扫进了 AI 那次提交，task-1df7j）。
+ * 删之前这几个文件上没提交的（刚粘进来还没提交的图）先提交，历史里放回来的是删之前的样子。
+ * 返回删除那次的提交号；都没进过 Git 时没有
+ */
+export async function trashFiles(v: Vault, paths: unknown, put: (abs: string) => Promise<void>): Promise<string | null> {
+  if (!Array.isArray(paths) || !paths.length || paths.some((p) => typeof p !== 'string' || /\.md$/i.test(p))) throw new Error('要删的不对')
+  const list = [...new Set(paths as string[])]
+  for (const p of list) if (!(await stat(v.abs(p))).isFile()) throw new Error(`不是文件：${p}`)
+  const these = new Set(list)
+  const touched = (p: string) => these.has(p) || p === PINS_FILE
+  await commitPendingUnder(v.root, touched)
+  for (const p of list) {
+    await put(v.abs(p))
+    await repin(v, p, null)
+  }
+  const gone = (await git.status(v.root)).filter((s) => touched(s.path))
+  return git.commitPaths(v.root, gone.map((s) => s.path), git.describeChanges(gone))
+}
+
+/** 测试用的「废纸篓」：挪进那个文件夹，不往用户真的废纸篓里放（同名的几个一起删不互相盖掉） */
 export const testTrash = (dir: string) => async (abs: string) => {
-  await rename(abs, join(dir, `${Date.now()}-${abs.split('/').pop()}`))
+  await rename(abs, join(dir, `${Date.now()}-${Math.random().toString(36).slice(2, 6)}-${abs.split('/').pop()}`))
 }
 
 /**

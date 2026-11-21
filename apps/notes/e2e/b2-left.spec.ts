@@ -413,6 +413,98 @@ test('CN-104 白板筛选：最外层的白板挂在库名下面；附件筛选�
   }
 })
 
+test('task-1df7j 附件筛选：读 PDF 的完整对话在用的截图挂在那份 PDF 的笔记下面、不算「没有笔记的附件」；多选删真没人用的两张，当场一次只含它们的提交，历史里放回来', async () => {
+  const png = (i: number) => solidPng(40 + i, 30, [30 * i, 90, 160])
+  const files: Record<string, string | Buffer> = {
+    ...B2_VAULT,
+    // 用户真库里的旧 PDF 笔记：只链着完整对话，框的截图只有对话记录在用
+    '课程/ecpc/Lecture05 笔记.md': '---\n进度: 2/2\n---\n# Lecture05 笔记\n\n## 第 1 页 · 阈值\n[第 1 页](Lecture05.pdf#page=1) · 10:20\n\n[完整对话 · 2 轮](../../.canvas-notes/对话/Lecture05-p1-1.md)\n',
+    '.canvas-notes/对话/Lecture05-p1-1.md': '# Lecture05 · 第 1 页 · 完整对话\n\n[回到第 1 页](../../课程/ecpc/Lecture05.pdf#page=1&rect=0.1,0.2,0.3,0.4)\n\n### 我 · 10:20\n\n![我框的](../../附件/Lecture05/p1-1.png)\n\n讲讲\n',
+    '附件/Lecture05/p1-1.png': png(1),
+    // PDF 已经删了的对话：图照样在用，单列一组
+    '.canvas-notes/对话/旧讲义-p2-1.md': '# 旧讲义 · 第 2 页 · 完整对话\n\n[回到第 2 页](../../课程/旧讲义.pdf#page=2)\n\n![我框的](../../附件/旧讲义/p2-1.png)\n',
+    '附件/旧讲义/p2-1.png': png(2),
+    '附件/老的/没人用.png': png(3),
+    '附件/老的/也没人用.png': png(4),
+  }
+  const run = await start(files)
+  const { page, vault, trash } = run
+  try {
+    const head0 = git(vault, 'rev-parse', 'HEAD')
+    await openFiles(page)
+    await side(page).getByRole('tab', { name: '附件' }).click()
+    await expect(tree(page).locator('.ft-gh')).toHaveText(['读进来的', '完整对话在用的附件', '没有笔记的附件'])
+    // 对话记录本身不进树
+    await expect(tree(page).locator('[data-path^=".canvas-notes"]')).toHaveCount(0)
+    // 只有对话在用的截图：挂在 Lecture05 笔记下面，不在「没有笔记的附件」里
+    await expand(page, '课程', 'ecpc')
+    await expect(row(page, 'Lecture05 笔记').locator('.ft-count')).toHaveText('1张')
+    await row(page, 'Lecture05 笔记').locator('.ft-tw').click()
+    await expect(tree(page).locator('.ft-att[data-path="附件/Lecture05/p1-1.png"]')).toHaveCount(1)
+    const groupOf = (path: string) =>
+      tree(page)
+        .locator(`.ft-att[data-path="${path}"]`)
+        .evaluateAll((els) =>
+          els.map((el) => {
+            let p = el.previousElementSibling
+            while (p && !p.classList.contains('ft-gh') && !(p.getAttribute('aria-level') === '2' && !p.classList.contains('ft-att'))) p = p.previousElementSibling
+            return p?.classList.contains('ft-gh') ? p.textContent : '挂在笔记下面'
+          }),
+        )
+    expect(await groupOf('附件/Lecture05/p1-1.png')).toEqual(['挂在笔记下面'])
+    expect(await groupOf('附件/旧讲义/p2-1.png')).toEqual(['完整对话在用的附件'])
+    expect(await groupOf('附件/老的/没人用.png')).toEqual(['没有笔记的附件'])
+    expect(await groupOf('附件/老的/也没人用.png')).toEqual(['没有笔记的附件'])
+    // 平铺的两组：名字后面灰字写所在的文件夹（p2-1.png 这种名字每份 PDF 都有）；笔记下面的不写
+    await expect(tree(page).locator('.ft-att[data-path="附件/旧讲义/p2-1.png"] .truncate')).toHaveText('p2-1.png旧讲义')
+    await expect(tree(page).locator('.ft-att[data-path="附件/老的/没人用.png"] .truncate')).toHaveText('没人用.png老的')
+    await expect(tree(page).locator('.ft-att[data-path="附件/Lecture05/p1-1.png"] .truncate')).toHaveText('p1-1.png')
+    // 完整对话那一组：双击打开用它的那份对话
+    await tree(page).locator('.ft-att[data-path="附件/旧讲义/p2-1.png"]').dblclick()
+    await expect(tabOn(page)).toHaveText('旧讲义-p2-1')
+    await expect(pane(page).locator('.cm-content')).toContainText('旧讲义 · 第 2 页 · 完整对话')
+    await expect(tree(page).locator('.ft-gh').last()).toHaveText('没有笔记的附件')
+    expect(await tree(page).locator('.ft-gh').last().evaluate((gh) => {
+      const out: string[] = []
+      for (let el = gh.nextElementSibling; el; el = el.nextElementSibling) if (el.classList.contains('ft-att')) out.push(el.getAttribute('data-path')!)
+      return out
+    })).toEqual(['附件/老的/也没人用.png', '附件/老的/没人用.png'])
+    // 多选「没有笔记的附件」那两张，底部「删除」
+    await tree(page).locator('.ft-att[data-path="附件/老的/也没人用.png"]').click()
+    await tree(page).locator('.ft-att[data-path="附件/老的/没人用.png"]').click({ modifiers: ['Shift'] })
+    const bar2 = side(page).getByRole('toolbar', { name: '选中的' })
+    await expect(bar2.locator('b')).toHaveText('已选2个')
+    await bar2.getByRole('button', { name: '删除' }).click()
+    const dlg = page.getByRole('dialog', { name: '把选中的2个移到废纸篓？' })
+    await dlg.getByRole('button', { name: '移到废纸篓' }).click()
+    await expect(toast(page)).toContainText('2个移到了废纸篓')
+    expect(existsSync(join(vault, '附件/老的/没人用.png'))).toBe(false)
+    expect(readdirSync(trash).filter((f) => f.endsWith('没人用.png'))).toHaveLength(2)
+    // 当场一次提交，只含这两张；工作区里没有挂着的删除
+    expect(git(vault, 'rev-list', '--count', `${head0}..HEAD`)).toBe('1')
+    expect(git(vault, 'log', '-1', '--format=%s')).toBe('删除 2 个文件：附件/老的/也没人用.png、附件/老的/没人用.png')
+    expect(git(vault, 'show', '--name-status', '--format=', 'HEAD').split('\n').sort()).toEqual(['D\t附件/老的/也没人用.png', 'D\t附件/老的/没人用.png'])
+    expect(git(vault, 'status', '--porcelain')).toBe('')
+    // 对话在用的那张还在、还挂在笔记下面
+    expect(existsSync(join(vault, '附件/Lecture05/p1-1.png'))).toBe(true)
+    await expect(tree(page).locator('.ft-att[data-path="附件/Lecture05/p1-1.png"]')).toHaveCount(1)
+    await expect(tree(page).locator('.ft-gh')).toHaveText(['读进来的', '完整对话在用的附件'])
+    // 历史里撤回：右键那次提交「把删掉的 2 个文件放回来」
+    await rail(page).getByRole('button', { name: '历史' }).click()
+    const hist = page.getByRole('complementary', { name: '历史' })
+    const del = hist.getByTestId('history-commit').filter({ has: page.locator('.subj', { hasText: '删除 2 个文件：附件/老的/也没人用.png、附件/老的/没人用.png' }) })
+    await expect(del).toHaveCount(1)
+    await del.locator('.ch').click({ button: 'right' })
+    await pickMenu(run, '把删掉的 2 个文件放回来')
+    await expect.poll(() => ['附件/老的/没人用.png', '附件/老的/也没人用.png'].every((p) => existsSync(join(vault, p)))).toBe(true)
+    expect(readFileSync(join(vault, '附件/老的/没人用.png'))).toEqual(png(3))
+    // 放回是一次提交：等它提交完
+    await expect.poll(() => git(vault, 'status', '--porcelain')).toBe('')
+  } finally {
+    await run.close()
+  }
+})
+
 test('CN-105 Shift 连选 5 篇、⌘ 加选、空白处拖框选；底部「已选 N 个 · 移到… · 删除」；一起挪进别的文件夹，链接都改好，一次提交', async () => {
   const files: Record<string, string | Buffer> = { ...B2_VAULT, '写作/索引.md': '# 索引\n\n' + ['周三组会要问的', '一个 App 的点子', 'Kindle 导出的标注'].map((n) => `- [${n}](../收件箱/${encodeURIComponent(n)}.md)\n`).join('') }
   const run = await start(files)
