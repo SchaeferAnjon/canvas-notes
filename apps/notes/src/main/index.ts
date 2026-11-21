@@ -4,7 +4,7 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rena
 import { stat } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
-import type { Activity, AiChange, AiCommitFailed, BackupState, GitState, StrandedNote, VaultInfo } from '../shared/api'
+import type { Activity, AiAskOpts, AiChange, AiCommitFailed, BackupState, GitState, StrandedNote, VaultInfo } from '../shared/api'
 import { activeSkin, type AppSettings, skinOf } from '../shared/appearance'
 import { themeCss, themeInfo, type ThemeFile } from '../shared/vscode-theme'
 import { isExtUrl } from '../shared/bookmarkkeeper'
@@ -12,8 +12,9 @@ import { BRAND } from '../shared/brand'
 import { commitErrorText, syncErrorText } from '../shared/git-errors'
 import { kindOf, titleOf } from '../shared/layout'
 import { dayKey, logActivity, readActivity } from './activity'
-import { agentExternal, agentOwnWrite, attachWeb, markedClips, moveChatPlace, registerAgent, unmarkClips } from './agent'
+import { agentExternal, agentOwnWrite, attachWeb, markedClips, moveChatPlace, ownPick, registerAgent, unmarkClips } from './agent'
 import { ask } from './ai'
+import { registerAiCmds, vaultImages } from './ai-cmds'
 import { registerAttachments, registerFileScheme } from './attachments'
 import { setupPasted } from './pasted'
 import { registerSlides } from './slides'
@@ -469,13 +470,16 @@ function registerIpc() {
     })
   })
   const asking = new Map<number, AbortController>()
-  ipcMain.handle('ai:ask', async (_e, id: number, system: string, prompt: string) => {
+  ipcMain.handle('ai:ask', async (_e, id: number, system: string, prompt: string, opts?: AiAskOpts) => {
     if (typeof system !== 'string' || typeof prompt !== 'string') throw new Error('AI 参数不对')
     const ac = new AbortController()
     asking.set(id, ac)
     try {
+      // / 命令跟着输入框底行选的那一家、模型、想多久（task-0fhyo）；带库里的图（截图转成文字）
+      const pick = opts?.pick ? ownPick(opts.pick) : undefined
+      const images = opts?.images ? await vaultImages(needVault(), opts.images) : undefined
       // 边生成边给界面（和 AI 浮窗的一轮对话用同一个事件）
-      return await ask(system, prompt, ac.signal, (delta) => win?.webContents.send('ai:event', id, { type: 'text', delta }))
+      return await ask(system, prompt, ac.signal, (delta) => win?.webContents.send('ai:event', id, { type: 'text', delta }), 'chat', { ...(pick ? { pick } : {}), ...(images ? { images } : {}) })
     } finally {
       asking.delete(id)
     }
@@ -535,7 +539,8 @@ function registerIpc() {
     }
     win?.webContents.send('files:changed')
     if (!hash) return null
-    return (await git.log(v.root, 1))[0] ?? null
+    // 照提交号取（不是取最新的一次）：同一会儿视频条存字幕全文、自动提交也在提交，取最新的会把别人的那次当成 AI 这次
+    return (await git.log(v.root, 1, hash))[0] ?? null
   })
   ipcMain.handle('ai:commit', async (_e, paths: string[], message: string) => {
     const v = needVault()
@@ -548,7 +553,7 @@ function registerIpc() {
       throw new Error(commitErrorText(e.message))
     }
     win?.webContents.send('files:changed')
-    if (hash) return (await git.log(v.root, 1))[0] ?? null
+    if (hash) return (await git.log(v.root, 1, hash))[0] ?? null
     // 没有要提交的：自动提交（或「现在提交」）已经把这几个文件收进去了。告诉界面是哪一次，撤回时只撤这几个文件
     // （第 6 轮：以前只说「没有要提交的改动了」，没有撤回）
     const at = await git.lastCommitOf(v.root, paths)
@@ -684,6 +689,7 @@ function registerIpc() {
   registerHome(needVault, () => win)
   registerFolderHome(needVault, () => win, (root, from, to) => (moveReadingState(root, from, to), moveChatPlace(root, from, to)))
   registerCommands(needVault, buildMenu)
+  registerAiCmds({ vault: needVault, userData: app.getPath('userData') })
   registerRestore(needVault, () => win?.webContents.send('files:changed'))
   registerBoard(needVault, () => win?.webContents.send('files:changed'))
   ipcMain.handle('git:history', async (_e, limit: number, opts?: { hideInternal?: boolean }) => {

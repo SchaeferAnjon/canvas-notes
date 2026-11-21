@@ -10,6 +10,7 @@ import { Codicon, type CodiconName } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import * as D from '../../shared/dock'
+import { WebFoldButton } from '../web/WebFoldButton'
 import { MenuItem, Popover } from './Shell'
 import { CENTER_MIN } from './SideSash'
 import './dock.css'
@@ -89,6 +90,7 @@ function Head(p: { g: D.Group | D.FloatWin; float: boolean; cur: boolean; props:
         ))}
       </div>
       <div className="dspace" onPointerDown={grab} />
+      {g.active === 'web' && <WebFoldButton />}
       <div className="dgrab" data-tip={p.float ? '按住拖动浮窗' : '按住拖动这一栏，换左右位置'} data-side="below" onPointerDown={grab}>
         <span className="grip">
           <Codicon name="gripper" size={14} />

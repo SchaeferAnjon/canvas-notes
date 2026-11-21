@@ -1,5 +1,6 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { onMessageMenu } from './ctx/message-menu'
+import { app } from './ctx/actions'
 import { fmValue, hasOldLayout, isMindmap, resetLayout, splitDoc } from '@cn/format'
 import { Markdown } from './md-render'
 import { AiError } from './ai-error'
@@ -9,7 +10,13 @@ import { AiHead, AwayBar, Chip, type DockNav, Sees } from './ai-head'
 import { askLine, MULTI, pickAsk, quickCmds } from './ai-greet'
 import { dropPicked, pickedFiles, pickTip, usePicked } from './ai-pick'
 import { Greeting, type Quick, QuickRow } from './ai-quick'
-import { AiInput, MatMsg, QuoteCap, sendText, useComposer, useConvPick } from './composer'
+import { AiInput, MatMsg, sendText, useComposer, useConvPick } from './composer'
+import { createPortal } from 'react-dom'
+import { AskBox } from './side/AskBox'
+import { showSide as revealSide, useSideHost } from './side/host'
+import { ASK_THIS, sideName } from './side/name'
+import { SideInline } from './side/SideInline'
+import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from './reading/marks'
 import * as C from './ai-chats'
 import { folderCount, HANDS, type Place, seenOf } from './ai-place'
 import { type FolderSug, fileInPrompt, folderSugs, folderSumPrompt, newTarget, parseFileIn, skeleton, sumTargets } from './folder-ai'
@@ -21,6 +28,18 @@ import type { CommitInfo, DuplicatePair, NoteFile } from '../shared/api'
 import { CLIPS, titleOf } from '../shared/layout'
 import { foldersOf, inboxEntry, planInBatches } from '../shared/filing'
 import './ai.css'
+import { type AiCmd, type Ctx, tagsOf, whereCtx } from '../shared/ai-cmds'
+import type { DiffSource } from '../shared/diff'
+import { videoOf } from '../shared/video'
+import { vaultFiles } from './files/store'
+import { boardSelection } from './doc-board/selection'
+import { openCmdEditor } from './commands/editor'
+import { onRunIn, takeRun } from './commands/handoff'
+import { addProposal, removeProposal } from './commands/proposals'
+import { failed, type RunEnv, runBookThemes, runLinks, runOcr, runOwn, runPlan, runQuiz, runSplit, runTodo, runVideoKeys, runVideoText, runWeek } from './commands/run'
+import { bodyChars, sectionNames } from '../shared/cmd-run'
+import { useSlash } from './commands/SlashMenu'
+import { useAiCmds } from './commands/store'
 import {
   articlePrompt,
   askPrompt,
@@ -33,10 +52,12 @@ import {
   SYSTEM,
   today,
   translatePrompt,
+  translateText,
   withSummaryCard,
 } from './ai-commands'
 import { GROUPS } from './dream/useDream'
 import { dreamDoes } from '../shared/dream-settings'
+import { withKeys } from './keys'
 import type { NoteDoc, ViewMode } from './note-doc'
 import type { Tab } from './tabs'
 
@@ -58,6 +79,20 @@ const ICONS: Record<string, CodiconName> = {
 }
 
 let seq = Date.now()
+
+/** 新加的 12 条自带命令里在 AI 对话里跑的（读 PDF 的三条在 reading/ 里），task-9womr */
+const RUNNERS: Record<string, (env: RunEnv) => Promise<void>> = {
+  截图转成文字: runOcr,
+  补双链: runLinks,
+  出几道自测题: runQuiz,
+  拆成白板卡片: runSplit,
+  白板排成计划: runPlan,
+  计划拆成待办: runTodo,
+  视频要点带时间: runVideoKeys,
+  字幕整理成一篇: runVideoText,
+  书摘按主题分节: runBookThemes,
+  写这周的周记: runWeek,
+}
 
 const lastSeg = (p: string) => p.split('/').pop() || p
 
@@ -119,6 +154,9 @@ export interface AiPanelProps {
   /** 在右栏打开梦游报告 */
   onShowDream(): void
   onChanged(): void
+  /** AI 命令「先给你看」：在中间栏开对比标签、收下或不要以后关掉它（task-9womr） */
+  onOpenDiff(src: DiffSource, title: string): void
+  onCloseDiff(proposal: string): void
   /** 一打开就跑这条（seq 变了再跑一次） */
   autoRun?: { text: string; seq: number } | null
   /**
@@ -131,7 +169,7 @@ export interface AiPanelProps {
 export function AiPanel(props: AiPanelProps) {
   const place = props.place
   // 每个地方各存各的对话（D 组 CN-132，ai-chats.ts）；正在答的那一轮全软件一个，记着是哪个地方的
-  const { msgs, loaded, pick: ownPick } = C.useChat(place)
+  const { msgs, loaded, pick: ownPick, sides } = C.useChat(place)
   const turn = C.runningNow()
   /** 这个地方正在答的那一轮 */
   const running = turn?.key === place.key ? turn.id : null
@@ -157,6 +195,45 @@ export function AiPanel(props: AiPanelProps) {
   /** 对话列表停在最底下（新的字、进度出来时跟着滚） */
   const pinned = useRef(true)
   const box = c.ta
+
+  // 旁支（task-4edsc，方向 A「就地展开」）：回答里选一句「问这句」，就在那一段下面长出来；一句一个小标，数字是这一句开了几条
+  const sideState = C.sideUi(place.key)
+  const groups = new Map<number, ReturnType<typeof sideGroups<C.Side>>>()
+  for (const msg of new Set(sides.map((s) => s.msg)))
+    groups.set(
+      msg,
+      sideGroups(sides.filter((s) => s.msg === msg)),
+    )
+  const marks = new Map<number, Mark[]>([...groups].map(([msg, gs]) => [msg, gs.map((g) => groupMark(g, sideState.open))]))
+  const openSide = sides.find((s) => s.id === sideState.open) ?? null
+  const openGroup = openSide ? (groups.get(openSide.msg)?.find((g) => g.sides.includes(openSide)) ?? null) : null
+  const host = useSideHost(list, openSide && openGroup ? { msg: openSide.msg, key: openGroup.key } : null)
+  // 开着旁支：对话不再自己滚到底（停在那条旁支上）
+  if (openSide) pinned.current = false
+  /** 点小标：这一句开着的那条收起；没开着就打开这一句最后开的那条 */
+  const toggleSide = (key: string) => {
+    const g = [...groups.values()].flat().find((x) => x.key === key)
+    if (!g) return
+    if (g.sides.some((s) => s.id === sideState.open)) return C.showSide(place.key, null)
+    C.showSide(place.key, g.sides[g.sides.length - 1]!.id)
+  }
+  // 回到主对话（文档里选字 ⌘J、右键「问 AI」带进来一块，跑一条 AI 命令）：旁支收起，主输入框回来
+  const mainSeq = `${props.draft?.seq ?? 0}|${props.autoRun?.seq ?? 0}`
+  const mainSeen = useRef(mainSeq)
+  useEffect(() => {
+    if (mainSeen.current === mainSeq) return
+    mainSeen.current = mainSeq
+    if (C.sideUi(place.key).open) C.showSide(place.key, null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainSeq])
+  // 刚收起的那一句：闪一下（原型 A）
+  useLayoutEffect(() => {
+    const f = sideState.flash
+    if (!f) return
+    const key = [...groups.values()].flat().find((g) => g.sides.some((s) => s.id === f.side))?.key
+    if (key) flashMark(list.current, key)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sideState.flash?.seq])
 
   const notePath = props.tab?.type === 'note' ? props.tab.path : null
   const noteFile = props.notes.find((n) => n.path === notePath)
@@ -227,16 +304,33 @@ export function AiPanel(props: AiPanelProps) {
     }
   }, [])
 
+  /** 文件夹首页（剪藏的一个主题也是一个文件夹）：这个文件夹 */
+  const folder = props.tab?.type === 'folder' ? props.tab.folder : props.tab?.type === 'topic' ? `${CLIPS}/${props.tab.topic}` : null
+
   // ---------- 菜单 ----------
-  const slash = /^\/(\S*)$/.exec(input)
+  // / 菜单（task-9womr）：这里能用的全列出来，「我的命令 / 这一篇 / 整个库」，固定高度能滚（commands/SlashMenu.tsx）
+  const webCtx: Ctx | null = props.webOpen && props.webUrl ? (videoOf(props.webUrl) ? 'video' : 'web') : null
+  const pageCtx: Ctx = notePath ? (isBoard ? 'board' : props.digest ? 'book' : 'doc') : folder !== null ? 'folder' : 'none'
+  const { mine, slash: slashCfg } = useAiCmds()
+  /** 自己的命令里在这里能用、没藏起的（输入框上面那排小按钮竖线后面那几颗） */
+  const mineHere = mine.filter((m) => !slashCfg.hidden.includes(m.id) && whereCtx(m.where).some((x) => x === pageCtx || x === webCtx))
+  const sl = useSlash({
+    text: input,
+    here: webCtx === 'video' ? 'video' : pageCtx,
+    also: [pageCtx, ...(webCtx ? [webCtx] : [])],
+    engine,
+    onRun: (it) => (setInput(''), void (it.mine ? runOwnCmd(it.mine) : run('/' + it.name))),
+    onClose: () => setInput(''),
+    onEdit: (cmd) => openCmdEditor({ kind: 'edit', cmd, who: cp.label, engine, pick: { engine, ...cp.req } }),
+    onCopy: (builtin) => openCmdEditor({ kind: 'copy', builtin, who: cp.label, engine, pick: { engine, ...cp.req } }),
+  })
   const at = /(?:^|\s)@(\S*)$/.exec(input)
-  const cmdItems = slash ? COMMANDS.filter((c) => c.name.includes(slash[1]!)) : []
   const atItems = at
     ? props.notes
         .filter((n) => n.kind === 'work' && titleOf(n.path).toLowerCase().includes(at[1]!.toLowerCase()) && !mentions.includes(n.path))
         .slice(0, 8)
     : []
-  const menuLen = slash ? cmdItems.length : at ? atItems.length : 0
+  const menuLen = sl.open ? 0 : at ? atItems.length : 0
 
   /**
    * 空对话输入框上面那排快捷命令（task-0tgz2）：这一页用得上的 / 命令（ai-greet.ts 的 quickCmds），点了就是选了那条；
@@ -252,8 +346,10 @@ export function AiPanel(props: AiPanelProps) {
       tip: `/${name} · ${COMMANDS.find((c) => c.name === name)?.desc ?? ''}`,
       go: () => void run('/' + name),
     })
-    if (folder === null) return quickCmds(props.tab, { web, board: isBoard, inbox: inbox.length }).map(cmd)
-    return [...(web ? [cmd('剪藏这一页')] : []), ...folderSugs(folder, props.notes, today()).map((s) => ({ text: s.text, icon: s.icon, go: () => void runFolder(folder, s) }))]
+    // 自己存的命令接在一道竖线后面（task-9womr；放不下的收进「⋯」，在那里也在一道横线后面）
+    const own = mineHere.map((m): Quick => ({ text: m.name, icon: 'bookmark', own: true, tip: `自己存的命令：/${m.name} · ${m.desc}`, go: () => void runOwnCmd(m) }))
+    if (folder === null) return [...quickCmds(props.tab, { web, board: isBoard, inbox: inbox.length }).map(cmd), ...own]
+    return [...(web ? [cmd('剪藏这一页')] : []), ...folderSugs(folder, props.notes, today()).map((s) => ({ text: s.text, icon: s.icon, go: () => void runFolder(folder, s) })), ...own]
   }
 
   // ---------- 跑命令 ----------
@@ -270,11 +366,14 @@ export function AiPanel(props: AiPanelProps) {
     return (await window.cn.readNote(path)).text
   }
 
-  /** 只聊天的命令：live 时边生成边显示 */
-  async function askAi(id: number, prompt: string, live: boolean): Promise<string> {
+  /**
+   * 只聊天的命令：live 时边生成边显示。用输入框底行选的那一家、模型、想多久（task-0fhyo：以前 / 命令不读这一排，用的是命令行默认档）；
+   * images：一起交给 AI 的库里的图
+   */
+  async function askAi(id: number, prompt: string, live: boolean, images?: string[]): Promise<string> {
     if (live) patch(id, { live: true, text: '' })
     try {
-      return await window.cn.aiAsk(id, SYSTEM, prompt)
+      return await window.cn.aiAsk(id, SYSTEM, prompt, { pick: { engine, ...cp.req }, ...(images?.length ? { images } : {}) })
     } finally {
       patch(id, { live: false })
     }
@@ -333,6 +432,94 @@ export function AiPanel(props: AiPanelProps) {
     }
   }
 
+  // 读 PDF、看视频那一格里打的整个库的命令：换到这段对话来跑（commands/handoff.ts）
+  const runRef = useRef(run)
+  runRef.current = run
+  useEffect(() => {
+    const go = () => {
+      if (!loaded || props.hidden) return
+      const t = takeRun(place.key)
+      if (t) void runRef.current(t)
+    }
+    go()
+    return onRunIn(go)
+  }, [place.key, loaded, props.hidden])
+
+  /** 跑命令要的（commands/run.ts）：往这条回答里写、问 AI（输入框选的那一家）、写进文件一次提交、先给你看 */
+  function runEnv(id: number): RunEnv {
+    return {
+      patch: (p) => patch(id, p),
+      ask: (prompt, o) => askAi(id, prompt, false, o?.images),
+      change: (change, kinds) => applyChange(id, change, kinds),
+      notePath,
+      noteText,
+      notes: props.notes,
+      files: vaultFiles,
+      boardKey: () => (notePath ? boardSelection(notePath) : null),
+      open: props.onOpen,
+      today: today(),
+      folder,
+      propose: (p) => {
+        const pid = `p${id}`
+        const take = async () => {
+          // AI 读完以后这一篇又改过：不拿旧的盖掉新打的字
+          for (const f of p.files) if (f.before !== null && (await noteText(f.path)) !== f.before) return patch(id, { actions: [], warn: `「${titleOf(f.path)}」在 AI 改的时候又改过了，这次没写进去：再跑一次 /${p.name}` })
+          removeProposal(pid)
+          props.onCloseDiff(pid)
+          let commit: CommitInfo | null
+          try {
+            commit = await applyChange(id, { message: p.message, writes: p.files.map((f) => ({ path: f.path, text: f.after, ...(f.before === null ? { create: true } : {}) })) }, p.kinds)
+          } catch (e) {
+            if (!(e instanceof CommitFailed)) throw e
+            return patch(id, { actions: [], warn: `改好了，提交没成功：${e.message}`, retry: e.retry })
+          }
+          // 新建的那篇重名时主进程另存成「… 2」：回答、「打开」、改动块都照真写进去的那个（task-f4kf7：以前写的、打开的都是旧的那篇）
+          const first = p.files[0]!
+          const real = first.before === null ? (commit?.files.find((f) => f.path.endsWith('.md'))?.path ?? first.path) : first.path
+          if (commit && real !== first.path) patch(id, { change: { commit, kinds: { ...p.kinds, [real]: p.kinds[first.path] ?? '新' } } })
+          patch(id, { actions: real !== notePath ? [{ label: '打开', primary: true, run: () => props.onOpen(real) }] : [], done: `收下了，写进了「${titleOf(real)}」` })
+        }
+        const drop = () => {
+          removeProposal(pid)
+          props.onCloseDiff(pid)
+          patch(id, { actions: [], done: '没收下，文件没动' })
+        }
+        addProposal({ id: pid, name: p.name, title: p.title, place: { key: place.key, label: place.label }, files: p.files, ...(p.warn ? { warn: p.warn } : {}), take, drop })
+        const show = () => props.onOpenDiff({ kind: 'proposal', id: pid }, `${p.title} · /${p.name} 改的`)
+        show()
+        patch(id, {
+          pending: false,
+          // 少了整节、命令没说要删（task-1l29q）：回答上面一行红色 warning 说少了哪几节（人刚发完命令，眼睛在这边），按钮叫「照样收下」
+          ...(p.warn ? { alert: `比原文少了${p.warn.lost.length}节（${sectionNames(p.warn.lost)}），命令里没说要删` } : {}),
+          text: p.warn ? '改好了，先在中间看清：真要这样就点「照样收下」。' : `${p.lead ?? '改好了，'}摆在中间先给你看：收下才写进去。`,
+          actions: [
+            // 实心的「收下」只在中间标签底下那一条（一屏一颗实心按钮）
+            { label: p.warn ? '照样收下' : '收下', run: take },
+            { label: '不要', run: drop },
+            { label: '看改动', run: show },
+          ],
+        })
+      },
+    }
+  }
+
+  /** / 菜单里点了自己的命令（和自带的重名时也认得是哪一条） */
+  async function runOwnCmd(cmd: AiCmd) {
+    if (C.runningNow()) return
+    push({ id: seq++, role: 'user', text: '/' + cmd.name })
+    const id = seq++
+    push({ id, role: 'ai', pending: true })
+    C.setRunning({ id, key: place.key, label: place.label })
+    try {
+      await runOwn(runEnv(id), cmd, { web: !!(props.webOpen && props.webUrl) })
+    } catch (e) {
+      if (e instanceof CommitFailed) patch(id, { pending: false, warn: `改好了，提交没成功：${e.message}`, retry: e.retry })
+      else patch(id, { pending: false, error: errText(e) })
+    } finally {
+      C.setRunning(null)
+    }
+  }
+
   // 白板、文档顶上「整理好了 · 挪了N张卡 · 撤回」（ai-act-store.ts）：撤的就是这一轮这条消息的改动，在这里撤，消息跟着变「已撤回」
   useEffect(() => {
     const on = (e: Event) => {
@@ -364,6 +551,11 @@ export function AiPanel(props: AiPanelProps) {
     if (cmd === '找重复') return void findDuplicates(id)
     C.setRunning({ id, key: place.key, label: place.label })
     try {
+      // 新加的自带命令（task-9womr，commands/run.ts）；自己存的命令（打全名字也算，和自带的重名时自带的在前）
+      const fresh = cmd ? RUNNERS[cmd] : undefined
+      if (fresh) return await fresh(runEnv(id))
+      const mineCmd = cmd && !COMMANDS.some((c) => c.name === cmd) ? mine.find((m) => m.name === cmd) : undefined
+      if (mineCmd) return await runOwn(runEnv(id), mineCmd, { web: !!(props.webOpen && props.webUrl) })
       // 不是现成的命令：去掉斜杠，当成一句话交给 AI 去做
       if (cmd && !COMMANDS.some((c) => c.name === cmd)) return await agentTurn(id, text.slice(1))
       if (cmd === '整理当前白板') {
@@ -387,7 +579,12 @@ export function AiPanel(props: AiPanelProps) {
         if (!notePath) return patch(id, { pending: false, error: '先打开一块白板或一篇笔记' })
         const body = await noteText(notePath)
         // 以前写法的白板数卡片行；新写法（「## 列名」）的白板列里的卡没有卡片行，按切出来的卡数
-        const cards = hasOldLayout(body) || fmValue(body, 'type') !== 'board' ? (body.match(/^<!-- card /gm) ?? []).length : splitDoc(body).total
+        const isBoardDoc = fmValue(body, 'type') === 'board'
+        const cards = hasOldLayout(body) || !isBoardDoc ? (body.match(/^<!-- card /gm) ?? []).length : splitDoc(body).total
+        // 空的先不问 AI（像白板排成计划那样，task-nphy3）：以前照样问，AI 回一句拒绝话，写成文章还拿它新建了一篇
+        const what = cmd === '写成文章' ? '写不成文章' : '没什么可总结的'
+        if (isBoardDoc && !cards && !bodyChars(body)) return patch(id, { pending: false, text: `这块白板上还没有卡，${what}。` })
+        if (!isBoardDoc && !bodyChars(body)) return patch(id, { pending: false, text: `这篇还没有正文，${what}。` })
         const read = `读了 ${notePath}${cards ? ` · ${cards}张卡片` : ''}`
         patch(id, { read })
         if (cmd === '总结这块白板') {
@@ -401,7 +598,8 @@ export function AiPanel(props: AiPanelProps) {
                 const cur = (await window.cn.readNote(notePath)).text
                 const { text: next } = withSummaryCard(cur, reply)
                 try {
-                  await applyChange(id, { message: `总结「${titleOf(notePath)}」存成卡片`, writes: [{ path: notePath, text: next }] }, { [notePath]: '改' })
+                  // 提交说明和别的 / 命令一样「AI：/命令 · 对象」（task-gj0l0）
+                  await applyChange(id, { message: `/总结这块白板 · ${titleOf(notePath)}`, writes: [{ path: notePath, text: next }] }, { [notePath]: '改' })
                 } catch (e) {
                   if (!(e instanceof CommitFailed)) throw e
                   return patch(id, { actions: [], warn: `卡存好了，提交没成功：${e.message}`, retry: e.retry })
@@ -413,10 +611,12 @@ export function AiPanel(props: AiPanelProps) {
           patch(id, { pending: false, text: reply, actions })
         } else {
           const article = await askAi(id, articlePrompt(notePath, body), true)
+          // AI 回的不是一篇文章（没有一个标题，多半是说写不成的话）：照实说它的话，不建文件（task-nphy3）
+          if (!/^#{1,6}\s+\S/m.test(article)) return patch(id, { pending: false, text: undefined, ...failed('AI这次没写成文章，什么都没建。', article) })
           // 草稿写在白板旁边（白板在库最外层时进收件箱）；卡片和改动块写的是带文件夹的整条路径
           const want = draftPath(notePath)
           const draft = draftText(notePath, article)
-          const commit = await applyChange(id, { message: `按「${titleOf(notePath)}」写成文章草稿`, writes: [{ path: want, text: draft, create: true }] }, {})
+          const commit = await applyChange(id, { message: `/写成文章 · ${titleOf(notePath)}`, writes: [{ path: want, text: draft, create: true }] }, {})
           const path = commit?.files.find((f) => f.path.endsWith('.md'))?.path ?? want
           if (commit) patch(id, { change: { commit, kinds: { [path]: '新' } } })
           const words = article.replace(/\s/g, '').length
@@ -432,8 +632,10 @@ export function AiPanel(props: AiPanelProps) {
       if (cmd === '翻译') {
         const d = props.doc()
         const sel = d ? d.view.state.sliceDoc(d.view.state.selection.main.from, d.view.state.selection.main.to) : ''
-        const src = sel.trim() || (notePath ? await noteText(notePath) : '')
-        if (!src.trim()) return patch(id, { pending: false, error: '先在文档里选中一段，或者打开一篇笔记' })
+        // 没选：翻整篇的正文（属性、藏着的位置行不翻，task-n1ffi）
+        const src = sel.trim() || (notePath ? translateText(await noteText(notePath)) : '')
+        if (!notePath && !sel.trim()) return patch(id, { pending: false, error: '先在文档里选中一段，或者打开一篇笔记' })
+        if (!src.trim()) return patch(id, { pending: false, text: '这篇还没有正文，没什么可翻的。' })
         patch(id, { read: sel.trim() ? `读了选中的${sel.length}个字` : `读了 ${notePath}` })
         const reply = await askAi(id, translatePrompt(src), true)
         patch(id, { pending: false, text: reply })
@@ -598,7 +800,8 @@ export function AiPanel(props: AiPanelProps) {
   async function dreamNow(id: number) {
     const does = dreamDoes((await window.cn.settings()).dream)
     patch(id, { read: `正在梦游${does ? `：${does}` : ''}` })
-    const report = await window.cn.dreamNow({ webUrl: props.webUrl })
+    // 跟着输入框底行选的那一家、模型、想多久（task-0fhyo）
+    const report = await window.cn.dreamNow({ webUrl: props.webUrl, pick: { engine, ...cp.req } })
     const s = dreamSummary(report, GROUPS)
     patch(id, { pending: false, read: undefined, text: s.text, dream: { items: s.items, groups: s.groups } })
   }
@@ -658,7 +861,8 @@ export function AiPanel(props: AiPanelProps) {
           run: async () => {
             const kinds: Record<string, string> = {}
             for (const m of moves) kinds[`${m.to}/${m.path.split('/').pop()}`] = '移动'
-            await applyChange(id, { message: `整理收件箱：挪了 ${moves.length} 条`, moves: moves.map((m) => ({ from: m.path, toFolder: m.to })) }, kinds)
+            // 提交说明和别的 / 命令一样「AI：/命令 · 对象」（task-gj0l0）
+            await applyChange(id, { message: `/整理收件箱 · ${moves.length}条`, moves: moves.map((m) => ({ from: m.path, toFolder: m.to })) }, kinds)
             patch(id, { actions: [], done: `挪好了${moves.length}条` })
           },
         },
@@ -698,6 +902,50 @@ export function AiPanel(props: AiPanelProps) {
     )
   }
 
+  /**
+   * 旁支里问一句（空着是「讲讲这句」）：第一问从这个地方主对话的会话分叉，之后接着旁支自己的会话；旁支的问答和主对话分开存，
+   * 不往主对话里加东西、不写进笔记（记到哪那一行「跟着这段对话存，不写进笔记」）
+   */
+  async function sendSide(id: string, text: string, mats: Material[]) {
+    const side = C.chatOf(place.key).sides.find((s) => s.id === id)
+    if (!side || C.sideRunning(id) !== undefined) return
+    const q = text.trim() || (side.msgs.some((m) => m.role === 'user') ? '' : ASK_THIS)
+    if (!q) return
+    const uid = ++seq
+    const aid = ++seq
+    const now = Date.now()
+    C.updateSides(place.key, (all) => all.map((s) => (s.id === id ? { ...s, msgs: [...s.msgs, { id: uid, role: 'user', text: q, time: now, ...(mats.length ? { mats } : {}) }, { id: aid, role: 'ai', text: '', time: now, pending: true, live: true, engine, by: cp.label }] } : s)))
+    C.setSideRunning(id, aid)
+    // 被问的那一轮：那条回答和它前面那一问（分叉不了时放在第一问前面）
+    const all = C.chatOf(place.key).msgs
+    const i = all.findIndex((m) => m.id === side.msg)
+    const answer = all[i]?.text ?? ''
+    const ask = all
+      .slice(0, Math.max(0, i))
+      .reverse()
+      .find((m) => m.role === 'user')?.text
+    const pasted = imageNames(mats)
+    try {
+      const r = await window.cn.aiSide({
+        id: aid,
+        engine,
+        place: { key: place.key, label: place.label },
+        text: q,
+        side: { id, quote: side.quote, ...(ask ? { ask } : {}), history: `【那一轮】\n${ask ? `他问：${ask}\n` : ''}你答：${answer.slice(0, 3000)}` },
+        context: props.context(mentions),
+        ...cp.req,
+        ...(pasted.length ? { pasted } : {}),
+        ...(mats.length ? { mats } : {}),
+      })
+      C.patch(aid, (m) => ({ ...m, pending: false, live: false, text: r.text || m.text || '', ...(r.error ? { error: r.error } : {}), ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds, ...(r.moved ? { moved: r.moved } : {}) } } : {}) }))
+      if (r.commit || r.failed) props.onChanged()
+    } catch (e) {
+      C.patch(aid, { pending: false, live: false, error: errText(e) })
+    } finally {
+      C.setSideRunning(id, null)
+    }
+  }
+
   function stop() {
     if (running === null) return
     void window.cn.aiStop(running)
@@ -712,10 +960,7 @@ export function AiPanel(props: AiPanelProps) {
 
   // ---------- 输入 ----------
   function pick(i: number) {
-    if (slash) {
-      const c = cmdItems[i]
-      if (c) void run('/' + c.name)
-    } else if (at) {
+    if (at) {
       const n = atItems[i]
       if (!n) return
       setMentions((m) => [...m, n.path])
@@ -724,8 +969,51 @@ export function AiPanel(props: AiPanelProps) {
     setMenuIdx(0)
   }
 
+  // ---------- 存成命令（方向 C：照这几轮前后的对比提炼） ----------
+  /** 这段对话是一篇笔记的，AI 在这几轮里改过它（没撤回的）：能存成命令 */
+  const filePath = place.key.startsWith('file:') ? place.key.slice(5) : null
+  const aiTurns = filePath ? msgs.filter((m) => m.role === 'ai' && m.change && !m.change.reverted && m.change.commit.files.some((f) => f.path === filePath)) : []
+  const savedCmd = mine.find((m) => m.from?.place === place.key)
+  const canSave = !!filePath && aiTurns.length > 0 && running === null && !props.nav.away
+  // 答完才出的那一行（存成命令、存成了）：停在最底下的跟着滚到它
+  useEffect(() => {
+    if (canSave && pinned.current) list.current?.scrollTo({ top: list.current.scrollHeight })
+  }, [canSave, savedCmd?.id])
+
+  function openSave(edit?: AiCmd) {
+    if (!filePath || !aiTurns.length) return
+    const ask = (m: Msg) => {
+      const i = msgs.indexOf(m)
+      return msgs
+        .slice(0, i)
+        .reverse()
+        .find((x) => x.role === 'user')?.text ?? ''
+    }
+    const from = msgs.indexOf(aiTurns[0]!)
+    const asks = msgs.slice(Math.max(0, from - 1)).filter((m) => m.role === 'user' && m.text).map((m) => m.text!)
+    const dir = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : ''
+    // 举例的那一篇：同一个文件夹里最近改的另一篇文档（没有就是它自己）
+    const other = props.notes.filter((n) => n.path !== filePath && /\.md$/i.test(n.path) && !n.board && (n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : '') === dir).sort((a, b) => b.mtimeMs - a.mtimeMs)[0]
+    openCmdEditor({
+      kind: 'chat',
+      place: { key: place.key, label: place.label },
+      path: filePath,
+      title: titleOf(filePath),
+      asks,
+      commits: aiTurns.map((m) => ({ hash: m.change!.commit.hash, ask: ask(m), files: m.change!.commit.files.map((f) => ({ path: f.path, added: f.added, removed: f.removed })) })),
+      firstHash: aiTurns[0]!.change!.commit.hash,
+      rounds: aiTurns.length,
+      example: { title: titleOf(other?.path ?? filePath), folder: dir },
+      who: cp.label,
+      engine,
+      pick: { engine, ...cp.req },
+      ...(edit ? { edit } : {}),
+    })
+  }
+
   function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.nativeEvent.isComposing) return
+    if (sl.onKey(e)) return
     if (menuLen) {
       if (e.key === 'ArrowDown') return (e.preventDefault(), setMenuIdx((i) => (i + 1) % menuLen))
       if (e.key === 'ArrowUp') return (e.preventDefault(), setMenuIdx((i) => (i - 1 + menuLen) % menuLen))
@@ -742,7 +1030,6 @@ export function AiPanel(props: AiPanelProps) {
 
   // 看得到（D 组 CN-132）：这一页（文件夹页「文件夹：周记 · 1篇」、首页「首页」……不再写「没打开笔记」），右栏开着网页再多一颗网页，@ 点名的笔记
   const files = useKnownFiles()
-  const folder = props.tab?.type === 'folder' ? props.tab.folder : props.tab?.type === 'topic' ? `${CLIPS}/${props.tab.topic}` : null
   const count = useMemo(() => (folder === null ? 0 : folderCount(folder, files)), [folder, files])
   const seen = seenOf(props.tab, { board: isBoard, digest: props.digest, inbox: inbox.length, count: () => count })
   const web = props.webOpen ? props.webUrl : null
@@ -800,7 +1087,19 @@ export function AiPanel(props: AiPanelProps) {
         ref={list}
         onScroll={(e) => {
           const el = e.currentTarget
-          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+          pinned.current = !openSide && el.scrollHeight - el.scrollTop - el.clientHeight < 48
+        }}
+        onClick={(e) => {
+          // 问过的那句后面的小标：开着就收起，没开就打开
+          const b = (e.target as Element).closest<HTMLElement>('.badge[data-side]')
+          if (b) toggleSide(b.dataset.side!)
+        }}
+        onKeyDown={(e) => {
+          const b = (e.target as Element).closest<HTMLElement>('.badge[data-side]')
+          if (b && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault()
+            toggleSide(b.dataset.side!)
+          }
         }}
       >
         {/* 空对话打招呼（task-0tgz2 方向 A）：引擎标志 + 钟点问候，下面一句跟着在看的东西走；能做什么在输入框上面那一排 */}
@@ -824,7 +1123,7 @@ export function AiPanel(props: AiPanelProps) {
               )}
             </div>
           ) : (
-            <div key={m.id} className="am" data-testid="ai-msg" data-engine={m.engine} data-src="AI的回答" aria-busy={m.pending || undefined} onContextMenu={(e) => !m.pending && onMessageMenu(e, m.text ?? '')}>
+            <div key={m.id} className="am" data-testid="ai-msg" data-msg={m.id} data-engine={m.engine} data-src="AI的回答" aria-busy={m.pending || undefined} onContextMenu={(e) => !m.pending && onMessageMenu(e, m.text ?? '')}>
               {(m.read || m.by) && (
                 <div className="read">
                   {m.read && <Codicon name="check" size={12} />}
@@ -843,11 +1142,13 @@ export function AiPanel(props: AiPanelProps) {
               ))}
               {m.pending && !m.text && !m.steps?.length && !m.dupProgress && <div className="thinking">{m.engine ? `${engines.find((e) => e.id === m.engine)?.label ?? ''}正在想…` : '正在想…'}</div>}
               {m.error && !cutOf(m, false).cut && errorOf(m, i)}
-              {m.text && (
-                <div className="txt">
-                  <Markdown text={m.text} math />
+              {m.alert && (
+                <div className="aiwarn" role="status" data-testid="ai-alert">
+                  <Codicon name="warning" size={12} className="ic" />
+                  <span>{m.alert}</span>
                 </div>
               )}
+              {m.text && <AnswerText text={m.text} marks={marks.get(m.id)} live={!!m.live || !!m.pending} />}
               {/* 做了几步才断的：「没做完」放在说到一半的字后面（停在哪里一眼看得到） */}
               {m.error && cutOf(m, false).cut && errorOf(m, i)}
               {m.moves && (
@@ -960,9 +1261,81 @@ export function AiPanel(props: AiPanelProps) {
             </div>
           ),
         )}
+        {/* 好几轮把这一篇改成想要的样子以后：存成命令（方向 C，commands/SaveCmd.tsx 那张表）；存过的写「存成了」，能再改一次 */}
+        {canSave &&
+          (savedCmd ? (
+            <>
+              <div className="savedcard" data-testid="cmd-saved">
+                <div className="t">
+                  <Codicon name="pass" size={16} />
+                  {`存成了 /${savedCmd.name}`}
+                </div>
+                <div className="s">{withKeys(`${tagsOf(savedCmd).map((t) => t[0]).join(' · ')}。在 / 菜单和 {k:search} 的「让AI做」里，打 / 试试。`)}</div>
+              </div>
+              <div className="saverow">
+                <Codicon name="symbol-event" size={14} />
+                还想改这条命令？
+                <button className="btn btn-sm" onClick={() => openSave(savedCmd)}>
+                  <Codicon name="edit" size={14} />
+                  再改一次
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="saverow" data-testid="cmd-saverow">
+              <Codicon name="symbol-event" size={14} />
+              调出满意的样子了？
+              <button className="btn btn-sm" onClick={() => openSave()}>
+                <Codicon name="save" size={14} />
+                存成命令
+              </button>
+            </div>
+          ))}
       </div>
-      {/* 回答里选一段：「引用 ⇧⌘L · 拷贝」，引用成为输入框顶上那一排的一块 */}
-      <QuoteCap list={list} active={!props.hidden} onQuote={(text, src) => c.add({ kind: 'quote', text, src })} />
+      {/* 回答里选一句：同一个小框（task-4edsc，方向 A）：「引用进输入框 ⇧⌘L」成为输入框顶上那一排的一块，「问这句 ↵」就地开一条旁支 */}
+      <AskBox
+        list={list}
+        active={!props.hidden}
+        onQuote={(text, src) => c.add({ kind: 'quote', text, src })}
+        onAsk={(at, question) => {
+          const id = C.openSide(place.key, place.label, at)
+          if (question.trim()) void sendSide(id, question, [])
+        }}
+      />
+      {host &&
+        openSide &&
+        openGroup &&
+        createPortal(
+          <SideInline
+            side={{ id: openSide.id, quote: openSide.quote, name: sideName(openSide), msgs: openSide.msgs.map((m) => ({ id: m.id, role: m.role, text: m.text ?? '', ...(m.error ? { error: m.error } : {}), ...(m.mats ? { mats: m.mats } : {}), ...(m.engine ? { engine: m.engine } : {}), ...(m.steps ? { steps: m.steps } : {}) })) }}
+            group={openGroup.sides.map((s) => ({ id: s.id, name: sideName(s) }))}
+            running={C.sideRunning(openSide.id) !== undefined}
+            record={{ icon: 'comment-discussion', text: '跟着这段对话存，不写进笔记' }}
+            picks={cp.picks}
+            onSend={(text, mats) => void sendSide(openSide.id, text, mats)}
+            onStop={() => {
+              const ai = C.sideRunning(openSide.id)
+              if (ai !== undefined) void window.cn.aiTurnStop(ai)
+            }}
+            onClose={() => C.showSide(place.key, null)}
+            onNew={() => void C.newSideOn(place.key, place.label, openSide.id)}
+            onSwitch={(id) => C.showSide(place.key, id)}
+            onPut={(text) => {
+              c.add({ kind: 'quote', text, src: `旁支 · ${sideName(openSide)}` })
+              app().notice('放进了主对话的输入框，没发')
+            }}
+            menu={{
+              title: '这段对话的旁支',
+              all: sides.filter((s) => s.msgs.length || s.id === openSide.id).map((s) => ({ id: s.id, name: sideName(s), right: `${s.msgs.filter((m) => m.role === 'user').length} 问` })),
+              onRename: (name) => C.renameSide(place.key, openSide.id, name),
+              onDelete: () => C.deleteSide(place.key, openSide.id),
+            }}
+            onNotice={showNote}
+            takeFocus={C.takeSideFocus}
+            onGrow={() => revealSide(list.current, host, openGroup.key)}
+          />,
+          host,
+        )}
       {/* 打了字、加了材料先藏起来（斜杠菜单、@ 菜单从这里往上弹），清空回来；发了第一问收起 */}
       {empty && !input && !c.mats.length && (
         <QuickRow
@@ -978,7 +1351,9 @@ export function AiPanel(props: AiPanelProps) {
         placeholder={`跟${engines.find((e) => e.id === engine)?.label ?? 'Claude Code'}说，/ 选命令，@ 引用笔记`}
         hint="↵ 发送"
         picks={cp.picks}
-        omni={cp.omni}
+        // 开着旁支时缩成一行灰字（方向 A：不和旁支的输入框摞着），点它收起旁支、回到这里；全能模式那行一起藏起来
+        slim={openSide ? { onWake: () => C.showSide(place.key, null) } : null}
+        omni={openSide ? null : cp.omni}
         running={running !== null}
         sendDisabled={(!input.trim() && !c.mats.length) || busyElsewhere}
         sendTip={busyElsewhere ? `「${turn!.label}」那边还在答，答完再发` : undefined}
@@ -990,35 +1365,23 @@ export function AiPanel(props: AiPanelProps) {
         list={list}
       >
         {pasteNote && <div className="nocmd">{pasteNote}</div>}
+        {sl.menu}
         {menuLen > 0 && (
-          <div className="cmdmenu" role="listbox" aria-label={slash ? '命令' : '引用笔记'}>
-            {slash
-              ? cmdItems.map((it, i) => (
-                  <button key={it.name} role="option" aria-selected={i === menuIdx} className={i === menuIdx ? 'on' : ''} onMouseDown={(e) => (e.preventDefault(), pick(i))}>
-                    <span className="ib">
-                      <Codicon name={ICONS[it.name] ?? 'comment-discussion'} size={14} />
-                    </span>
-                    <span>
-                      <b>{it.name}</b>
-                      <span>{it.desc}</span>
-                    </span>
-                  </button>
-                ))
-              : atItems.map((n, i) => (
-                  <button key={n.path} role="option" aria-selected={i === menuIdx} className={i === menuIdx ? 'on' : ''} onMouseDown={(e) => (e.preventDefault(), pick(i))}>
-                    <span className="ib">
-                      <Codicon name={n.board ? 'layout' : 'file-text'} size={14} />
-                    </span>
-                    <span>
-                      <b>{titleOf(n.path)}</b>
-                      <span>{n.board ? `白板 · ${n.board.cards}张卡片` : '文档'}</span>
-                    </span>
-                  </button>
-                ))}
+          <div className="cmdmenu" role="listbox" aria-label="引用笔记">
+            {atItems.map((n, i) => (
+              <button key={n.path} role="option" aria-selected={i === menuIdx} className={i === menuIdx ? 'on' : ''} onMouseDown={(e) => (e.preventDefault(), pick(i))}>
+                <span className="ib">
+                  <Codicon name={n.board ? 'layout' : 'file-text'} size={14} />
+                </span>
+                <span>
+                  <b>{titleOf(n.path)}</b>
+                  <span>{n.board ? `白板 · ${n.board.cards}张卡片` : '文档'}</span>
+                </span>
+              </button>
+            ))}
             <div className="keys">↑↓ 选择 · ↵ 执行 · esc 关闭</div>
           </div>
         )}
-        {slash && cmdItems.length === 0 && <div className="nocmd">没有这条命令，回车直接交给AI去做</div>}
       </AiInput>
     </aside>
   )
@@ -1030,6 +1393,25 @@ const DUP_PAGE = 50
 /** 找重复的一对对：像的在前 */
 const byScore = (pairs: DuplicatePair[]) => pairs.sort((x, y) => y.score - x.score || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
 
+
+/**
+ * 回答原文（md 照排）。问过的那几句（旁支）：答完以后在画好的字上划虚线、插小标（reading/marks.ts）；
+ * 有小标时字一变 .txt 整块换掉（key），React 不去动改过的节点；答着的时候不划
+ */
+function AnswerText(p: { text: string; marks?: Mark[]; live: boolean }) {
+  const txt = useRef<HTMLDivElement>(null)
+  const key = JSON.stringify(p.marks ?? [])
+  useLayoutEffect(() => {
+    if (!txt.current || !p.marks?.length || p.live) return
+    return applyMarks(txt.current, p.marks)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, p.text, p.live])
+  return (
+    <div className="txt" key={p.marks?.length ? p.text : 'txt'} ref={txt}>
+      <Markdown text={p.text} math />
+    </div>
+  )
+}
 
 /**
  * 一步的那一行（DESIGN.v3 2.3）：在做转圈、做完绿勾、出错红叉跟原因；命令、库外的路径是等宽的一段，和前面的字之间留 3px（不手打空格）。

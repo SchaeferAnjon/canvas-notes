@@ -59,9 +59,16 @@ test('AI：/ 菜单筛选和键盘选；/总结这块白板 → 存成卡片 →
     await expect(page.getByTestId('ai-sees')).toContainText('白板：冰岛自驾')
     const box = ai(page).getByRole('textbox', { name: '问 AI' })
     await box.type('/')
-    await expect(ai(page).getByRole('option')).toHaveCount(8)
+    // / 菜单列全（task-9womr）：白板上「这块白板」7 条、「整个库」5 条，我的命令还没有（只写一行灰字）
+    const menu = page.getByTestId('slash-menu')
+    await expect(menu.locator('.g:not(.hid)')).toHaveText(['我的命令', '这块白板', '整个库'])
+    await expect(ai(page).getByRole('option')).toHaveCount(12)
+    await expect(menu.locator('.it .n')).toHaveText(['补双链', '总结这块白板', '整理当前白板', '白板排成计划', '计划拆成待办', '写成文章', '翻译', '写这周的周记', '整理收件箱', '剪藏这一页', '找重复', '现在梦游'])
+    await expect(menu.locator('.g:has-text("这块白板") ~ .it .n').first()).toHaveText('补双链')
+    await expect(page.getByTestId('slash-count')).toHaveText('这里能用 12 条')
     await box.type('总结')
     await expect(ai(page).getByRole('option')).toHaveCount(1)
+    await expect(menu.locator('.it .n')).toHaveText(['总结这块白板'])
     await box.press('Enter')
     const msg = ai(page).getByTestId('ai-msg').last()
     // 转好以后 8 张：开头那一句、空白处 5 张、「极光看哪两晚」里 2 张
@@ -72,7 +79,7 @@ test('AI：/ 菜单筛选和键盘选；/总结这块白板 → 存成卡片 →
     await expect(msg.getByTestId('ai-change')).toContainText('改了1个文件')
     const card = pane(page).locator('.db-card', { hasText: '这块白板讲了三件事' })
     await expect(card.locator('.aifoot')).toContainText('AI 总结的 ·')
-    expect(lastSubject(vault)).toBe('AI：总结「冰岛自驾」存成卡片')
+    expect(lastSubject(vault)).toBe('AI：/总结这块白板 · 冰岛自驾')
     expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toContain('这块白板讲了三件事')
     await expect(page.getByTestId('week-commits')).toHaveText('本周3次提交')
 
@@ -80,12 +87,13 @@ test('AI：/ 菜单筛选和键盘选；/总结这块白板 → 存成卡片 →
     await expect(msg.getByTestId('ai-change')).toContainText('已撤回')
     await expect(card).toHaveCount(0)
     expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(converted)
-    expect(lastSubject(vault)).toBe('撤回AI：总结「冰岛自驾」存成卡片')
+    expect(lastSubject(vault)).toBe('撤回AI：/总结这块白板 · 冰岛自驾')
     await expect(page.getByTestId('week-commits')).toHaveText('本周4次提交')
 
-    // 打错命令
+    // 打错命令：菜单里一条都没有，写一行灰字
     await box.fill('/没有这个')
-    await expect(ai(page).locator('.nocmd')).toHaveText('没有这条命令，回车直接交给AI去做')
+    await expect(ai(page).getByRole('option')).toHaveCount(0)
+    await expect(page.getByTestId('slash-menu').locator('.ph.none')).toHaveText('没有这条命令，回车直接交给AI去做')
   } finally {
     await run.close()
   }
@@ -138,7 +146,7 @@ test('AI：/写成文章 新建一篇草稿，左栏「我写的」多一篇标�
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾：文章草稿' })).toContainText('草稿')
     await msg.getByRole('button', { name: '打开' }).click()
     await expect(tabOn(page)).toHaveText('冰岛自驾：文章草稿')
-    expect(lastSubject(vault)).toBe('AI：按「冰岛自驾」写成文章草稿')
+    expect(lastSubject(vault)).toBe('AI：/写成文章 · 冰岛自驾')
     expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(converted)
   } finally {
     await run.close()
@@ -172,7 +180,7 @@ test('AI：/整理收件箱 列出要挪去的主题，点同意一次挪好、�
     const row = (name: string) => tree.getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: new RegExp(`^${name}$`) }) })
     if ((await row('剪藏').getAttribute('aria-expanded')) !== 'true') await row('剪藏').locator('.ft-tw').click()
     await expect(row('旅行').locator('.ft-count')).toHaveText('2')
-    expect(lastSubject(vault)).toBe('AI：整理收件箱：挪了 2 条')
+    expect(lastSubject(vault)).toBe('AI：/整理收件箱 · 2条')
     await msg.getByRole('button', { name: '撤回' }).click()
     await expect(msg.getByTestId('ai-change')).toContainText('已撤回')
     expect(existsSync(join(vault, '收件箱', '冰洞.md'))).toBe(true)

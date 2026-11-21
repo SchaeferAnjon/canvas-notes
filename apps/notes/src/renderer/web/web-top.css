@@ -1,0 +1,335 @@
+/*
+ * 网页栏顶上（task-sta8n，用户选方向 A「紧凑两档」，原型 /private/tmp/canvas-notes-webbar/proto.html#dir=a，数值量过原型的 DOM）：
+ * 展开：标签和地址一行 34（.wrow1，原型 .r2）+ 视频那一行 32（video.css 的 .vrow，只有视频页才有）；
+ * 收起：一行 32（.wfolded，原型 .r1c），时间轴是那一行底边一根线。书签栏默认不摆，开了多一行 28。
+ * 当前那个网页标签就是地址块（原型 .addr，同 Safari 的紧凑标签）：锁 + 灰色域名 + 标题，点了是完整网址、能改。
+ */
+
+/* ---------- 一行：左右 6，间距 2，下边 1px --line ---------- */
+.right.web .wrow {
+  position: relative;
+  z-index: 31;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--wpanel);
+}
+.right.web .wrow1 {
+  height: 34px;
+}
+.right.web .wfolded {
+  height: 32px;
+}
+
+/* 图标按钮：26 方、圆角 6、--t2，悬停 --fill（原型 .ib） */
+.right.web .wib {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.right.web .wib:hover:not(:disabled),
+.right.web .wib.on {
+  background: var(--fill);
+  color: var(--t1);
+}
+.right.web .wib:disabled {
+  opacity: 0.4;
+}
+
+/* ---------- 网页标签：当前那个是地址块，别的是图标 + 名字（最宽 120，窄了只剩图标）；多了横着滚，+ 跟在后面不滚 ---------- */
+.right.web .wtabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.right.web .wtlist {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.right.web .wtlist::-webkit-scrollbar {
+  display: none;
+}
+.right.web .wtabs .tab {
+  position: relative;
+  flex: 0 1 auto;
+  height: 26px;
+  min-width: 30px;
+  max-width: 120px;
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+  color: var(--t2);
+  font-size: 12px;
+}
+/* app.css 给中间标签条的 .tab / .tab.on（内边距、--win 底、两侧细线、往下 1px）在这里不要：地址块只有一层 --fill */
+.right.web .wtabs .tab {
+  padding: 0;
+  gap: 0;
+}
+.right.web .wtabs .tab.on {
+  top: 0;
+  background: none;
+  box-shadow: none;
+  border-bottom: 0;
+}
+.right.web .wtabs .tab:not(.on):hover {
+  background: var(--fill);
+}
+.right.web .wtabs .tab .tl {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.right.web .wtabs .tab .tl > svg,
+.right.web .wtabs .tab .tl > img {
+  flex: none;
+}
+/* 别的标签的 ×：不占地方，悬停时浮在右端，名字末尾渐隐让出它 */
+.right.web .wtabs .tab .x {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--t2);
+  transform: translateY(-50%);
+  opacity: 0;
+}
+.right.web .wtabs .tab:hover .x {
+  opacity: 1;
+}
+.right.web .wtabs .tab .x:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.right.web .wtabs .tab:not(.on):hover .tl {
+  -webkit-mask-image: linear-gradient(to left, transparent 22px, #000 34px);
+  mask-image: linear-gradient(to left, transparent 22px, #000 34px);
+}
+/* 网页栏窄于 470：别的标签只剩图标（名字悬停看） */
+.right.web.w-narrow .wtabs .tab:not(.on) .truncate {
+  display: none;
+}
+/* 只剩图标：26 宽（左右 6），右栏默认 380 宽时三个标签不用横着滚 */
+.right.web.w-narrow .wtabs .tab:not(.on) {
+  min-width: 26px;
+}
+.right.web.w-narrow .wtabs .tab:not(.on) .tl {
+  justify-content: center;
+  padding: 0 6px;
+}
+.right.web.w-narrow .wtabs .tab:not(.on):hover .tl {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+/* 只剩图标时别的标签的 × 不露也点不到（点图标就是换过去，不会误关）；读屏和键盘照样找得到它，键盘停在上面时露出来 */
+.right.web.w-narrow .wtabs .tab:not(.on) .x {
+  opacity: 0;
+  pointer-events: none;
+}
+.right.web.w-narrow .wtabs .tab:not(.on) .x:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* 当前那个标签 = 地址块：最窄 190（网页栏窄于 470 时 88），比别的标签先占地方 */
+.right.web .wtabs .tab.wcur {
+  flex: 1 0 auto;
+  min-width: 190px;
+  max-width: none;
+}
+.right.web.w-narrow .wtabs .tab.wcur {
+  min-width: 88px;
+}
+.right.web .wrow1 .addr {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t1);
+  font-size: 12px;
+}
+.right.web .wrow1 .addr > svg {
+  flex: none;
+  color: var(--t1);
+}
+.right.web .wrow1 .addr input {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t1);
+  text-overflow: ellipsis;
+}
+.right.web .wrow1 .addr input::placeholder {
+  color: var(--t3);
+}
+/* 不在打字时：输入框的字藏起来，盖一层「灰色域名 + 标题」 */
+.right.web .wrow1 .addr.disp input {
+  color: transparent;
+  caret-color: transparent;
+}
+.right.web .wrow1 .adisp {
+  position: absolute;
+  left: 26px;
+  right: 8px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  pointer-events: none;
+}
+.right.web .wrow1 .addr:not(.disp) .adisp {
+  visibility: hidden;
+}
+.right.web .wrow1 .adisp .ti::before {
+  content: attr(data-dom);
+  margin-right: 6px;
+  color: var(--t3);
+}
+/* 改地址：--card 底、强调色细圈，完整网址等宽 12 */
+.right.web .wrow1 .addr.edit {
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px var(--acc-ring),
+    0 0 0 3px var(--acc-soft);
+}
+.right.web .wrow1 .addr.edit input {
+  font: 12px var(--mono);
+}
+/* 当前标签的 ×：悬停地址块时浮在右端（盖在域名和标题的末尾） */
+.right.web .wtabs .tab.wcur .x {
+  right: 4px;
+  background: var(--fill);
+}
+.right.web .wtabs .tab.wcur:hover .x {
+  opacity: 1;
+}
+.right.web .wtabs .wnew {
+  flex: none;
+}
+
+/* 竖线：16 高、--line2、左右 4 */
+.right.web .wsep {
+  width: 1px;
+  height: 16px;
+  flex: none;
+  margin: 0 4px;
+  background: var(--line2);
+}
+/* 双语翻译那一对：和这一行的按钮一样 26 高、圆角 6（原型 .ib.trw） */
+.right.web .wrow1 .trctl {
+  height: 26px;
+  border-radius: 6px;
+}
+.right.web .wrow1 .trctl button {
+  height: 26px;
+}
+.right.web .wrow1 .trctl .trc-tg {
+  border-radius: 6px 0 0 6px;
+}
+.right.web .wrow1 .trctl .trc-dd {
+  border-radius: 0 6px 6px 0;
+}
+.right.web .wrow1 .wactions .iconbtn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+}
+.right.web .wrow1 .imp {
+  flex: none;
+}
+
+/* ---------- 收起那一行：‹、标题块（点了展开，--fill 底）、+N 个标签、视频的两颗和时刻数 ---------- */
+.right.web .wfold-ti {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t1);
+  font: 12px var(--sans);
+  text-align: left;
+}
+.right.web .wfold-ti:hover {
+  background: var(--fill2);
+}
+.right.web .wfold-ti > svg,
+.right.web .wfold-ti > img {
+  flex: none;
+}
+.right.web .wfold-ti .more {
+  flex: none;
+  margin-left: auto;
+  color: var(--t3);
+  white-space: nowrap;
+}
+
+/* 书签栏开着时一行 28（原型 .bmbar） */
+.right.web .bmbar {
+  height: 28px;
+  gap: 4px;
+}
+
+/* 「⋯」的书签一组：书签栏里的几个直接列着 */
+.wmore .wm-links {
+  display: contents;
+}
+
+/* 网页栏窄于 330（窗口最窄 960 时右栏 250 上下）：译、剪藏、插件按钮和竖线收进 ⋯（那里都有：双语翻译 ⌥A、剪藏这一页、插件…），当前那个标签整个露着 */
+.right.web.w-tiny .wrow1 .wsep,
+.right.web.w-tiny .wrow1 .addr-acts,
+.right.web.w-tiny .wrow1 .wclip,
+.right.web.w-tiny .wrow1 .wactions {
+  display: none;
+}

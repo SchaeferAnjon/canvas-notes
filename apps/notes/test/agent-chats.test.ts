@@ -69,6 +69,31 @@ describe('AgentStore 按地方存', () => {
   })
 })
 
+describe('AI 对话里的旁支（task-4edsc）：跟着这段对话存', () => {
+  it('旁支和对话一起存（只留挂在留下来的回答上、问过的）；不给旁支时不动存着的；旁支自己的会话号单独记；新对话一起清掉；改名跟过去', () => {
+    const s = new AgentStore(dir)
+    const side = (id: string, msg: number, n: number) => ({ id, msg, quote: '那一句', msgs: n ? [q(100 + n, '为什么？'), a(200 + n, '因为。')] : [], createdAt: n })
+    s.saveMsgs(V, 'file:周记.md', '周记', [q(1, '总结', 1000), a(2, '三句话', 1001)], [side('cs-1', 2, 1), side('cs-empty', 2, 0), side('cs-gone', 99, 2)])
+    expect(s.sides(V, 'file:周记.md').map((x) => x.id)).toEqual(['cs-1'])
+    // 主对话再存一次、不带旁支：旁支照旧在
+    s.saveMsgs(V, 'file:周记.md', '周记', [q(1, '总结', 1000), a(2, '三句话', 1001), q(3, '还有呢', 1002)])
+    expect(s.sides(V, 'file:周记.md').map((x) => x.id)).toEqual(['cs-1'])
+    // 菜单里的「N问」只数主对话
+    expect(s.list(V)).toEqual([{ key: 'file:周记.md', label: '周记', asks: 2, at: 1002 }])
+    s.setSession(V, 'file:周记.md', 'claude', 'main-sess')
+    s.setSideSession(V, 'file:周记.md', 'cs-1', 'claude', 'side-sess')
+    expect(s.sideSession(V, 'file:周记.md', 'cs-1', 'claude')).toBe('side-sess')
+    expect(s.sideSession(V, 'file:周记.md', 'cs-1', 'codex')).toBeUndefined()
+    expect(s.chat(V, 'file:周记.md').sessions).toEqual({ claude: 'main-sess' })
+    s.move(V, 'file:周记.md', 'file:周记/W47.md', 'W47')
+    expect(s.sides(V, 'file:周记/W47.md').map((x) => x.id)).toEqual(['cs-1'])
+    expect(s.sideSession(V, 'file:周记/W47.md', 'cs-1', 'claude')).toBe('side-sess')
+    s.clear(V, 'file:周记/W47.md')
+    expect(s.sides(V, 'file:周记/W47.md')).toEqual([])
+    expect(s.sideSession(V, 'file:周记/W47.md', 'cs-1', 'claude')).toBeUndefined()
+  })
+})
+
 describe('全能模式开关（2026-11-19，默认开）', () => {
   it('从没设过是开着；关了记在软件设置目录（重开软件还是关着），换引擎、改设置 › AI 不动它', () => {
     const s = new AgentStore(dir)

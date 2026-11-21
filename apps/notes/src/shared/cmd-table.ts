@@ -135,6 +135,8 @@ export const KEYMAP: readonly KeyDef[] = [
   T('web-new-tab', '新网页标签', 'app', 'web', { keys: ['⌘T'], home: 'web', searchOnly: true, hint: '右栏网页' }),
   T('web-address', '地址栏', 'app', 'web', { keys: ['⌘L'], home: 'web', searchOnly: true, hint: '右栏网页开着时' }),
   T('web-reload', '重新载入网页', 'app', 'web', { keys: ['⌘R'], home: 'web', searchOnly: true, hint: '右栏网页、中间的 HTML' }),
+  T('web-top-fold', '收起 / 展开网页栏顶上', 'app', 'web', { keys: ['⇧⌘\\'], home: 'web', searchOnly: true, hint: '右栏网页：标签地址和视频那一行收成一行，再按展开' }),
+  T('web-bookmarks-bar', '显示 / 收起书签栏', 'app', 'web', { keys: ['⇧⌘B'], home: 'web', searchOnly: true, hint: '右栏网页顶上那一行书签' }),
   T('translate', '双语翻译', 'app', 'web', { keys: ['⌥A'], alt: true, hint: '右栏网页，再按一次恢复原文；视频页上开关字幕' }),
   T('clip-selection', '剪下选中的一段', 'page', 'web', { keys: ['⌘↵'], shadows: ['ask-page'], hint: '网页里选了字：剪进文档或剪成卡片' }),
 

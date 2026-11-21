@@ -12,12 +12,16 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { errorTitle, langName, primary, type TrError } from '../../shared/plugins/translate'
 import {
+  askCalloutEnd,
+  askHead,
   attachDir,
   biliTracks,
   type Chapter,
   type Cue,
   cuesAround,
   cuesBetween,
+  followMd,
+  partialAnswer,
   type Dest,
   fmtTime,
   momentMd,
@@ -43,14 +47,16 @@ import {
   type VideoMeta,
   videoOf,
   type VideoRef,
+  watchUrl,
   ytTracks,
 } from '../../shared/video'
-import { type AskRequest, type AskResult, type Box, FIXED_KEYS, keyLabel, type MomentMark, type MomentResult, type VideoSettings, type VideoState } from '../../shared/video-api'
+import { type AskRequest, type AskResult, type Box, FIXED_KEYS, keyLabel, type MomentMark, type MomentResult, type PeekResult, type VideoSettings, type VideoState } from '../../shared/video-api'
+import { CLAUDE_DEFAULT, pickLabel } from '../../shared/ai-features'
 import { askFast } from '../ai'
 import { comboOf } from '../../shared/cmd-keys'
 import { pageKeysNow } from '../commands'
 import { findCli, INSTALL_HINT } from '../agent/cli'
-import { fastEngine, featureLabel, visionModel } from '../agent'
+import { FAST_MODEL, fastEngine, modelOpt, visionModel } from '../agent'
 import { classify } from '../plugins/translate/errors'
 import { aiCallout } from '@cn/format'
 import { askWithImage } from '../mindmap/vision'
@@ -93,6 +99,8 @@ interface Sess {
   cid?: number
   /** YouTube 播放器自己取字幕的地址（带 pot），换语言时照它取 */
   ytTemplate?: string
+  /** 这个网页又整页打开了一次同一个视频（重新载入、地址栏回车）：认网址时重新读字幕轨 */
+  reopen?: boolean
 }
 
 interface Deps {
@@ -211,7 +219,13 @@ function pushTr(s: Sess, i: number, tr: string) {
 function onUrl(wc: WebContents, url: string) {
   const ref = videoOf(url)
   const cur = sessions.get(wc.id)
-  if (cur && ref && cur.ref.key === ref.key) return
+  if (cur && ref && cur.ref.key === ref.key) {
+    // 同一个视频又打开了一次：整页重新打开的（重新载入、地址栏回车），或者上次没读到字幕轨（网站当时没给、在放广告）、网站里又点开它，
+    // 重新读一遍字幕轨（以前一律当没换，第一次没读到就一直「没有字幕」）。正在读的不打断
+    const failed = cur.subs === 'none' || cur.subs === 'error' || cur.subs === 'login'
+    if (cur.reopen || failed) reloadTracks(cur)
+    return
+  }
   if (cur) {
     cur.ac.abort()
     sessions.delete(wc.id)
@@ -256,14 +270,57 @@ function onUrl(wc: WebContents, url: string) {
   })
 }
 
+/** 同一个视频重新读字幕轨（重新打开了一次）：停下正在做的，从播放器读起；摘要、字幕全文那一篇留着 */
+function reloadTracks(s: Sess) {
+  dbg('reload', s.wc.id, s.ref.key, s.reopen ? '整页重新打开' : `上次 ${s.subs}`)
+  s.reopen = false
+  s.ac.abort()
+  s.ac = new AbortController()
+  s.tracks = []
+  s.track = null
+  s.cues = []
+  s.subs = 'loading'
+  s.error = undefined
+  s.needLogin = false
+  s.ytTemplate = undefined
+  s.translated = 0
+  s.trFailed = 0
+  s.trError = undefined
+  s.trRaw = undefined
+  s.translating = false
+  pushState(s, true)
+  pushSubs(s)
+  void load(s).catch((e) => {
+    if ((e as Error).name === 'AbortError') return
+    s.subs = 'error'
+    s.error = (e as Error).message
+    pushState(s)
+  })
+}
+
+/** 放广告时最多等多久（广告放完才有字幕轨） */
+const AD_WAIT_MS = 10 * 60_000
+
 async function load(s: Sess) {
   const { ref } = s
   // 视频的说明：播放器里读（单页应用，换视频后要等它换好）
   for (let i = 0; i < 30; i++) {
     if (ref.site === 'youtube') {
-      const info = await ytInfo(s.wc)
+      let info = await ytInfo(s.wc)
       dbg('ytInfo', info && { id: info.videoId, tracks: info.tracks.length, ad: info.ad })
       if (info && info.videoId === ref.id) {
+        // 在放广告：播放器这时报的字幕轨是 0 条，等广告放完再读（以前这时就定成「没有字幕」，广告完了也不再认）；
+        // 广告刚完播放器还没换好的那一下，多读几次
+        if (info.ad && !info.tracks.length) {
+          const until = Date.now() + AD_WAIT_MS
+          let after = 0
+          while (info && info.videoId === ref.id && !info.tracks.length && (info.ad || after++ < 5) && Date.now() < until) {
+            await sleep(info.ad ? 1000 : 700, s.ac.signal)
+            info = await ytInfo(s.wc)
+          }
+          dbg('ytInfo 广告完了', info && { id: info.videoId, tracks: info.tracks.length, ad: info.ad })
+          if (!info || info.videoId !== ref.id) continue
+        }
         s.meta = { title: info.title, channel: info.author, duration: info.length }
         s.tracks = ytTracks(info.tracks)
         s.chapters = info.chapters
@@ -786,19 +843,126 @@ async function commitWith(s: Sess, paths: string[], message: string, mark: Momen
 
 const ASK_SYSTEM = '你是一位耐心的老师，帮一个人看懂视频里的一段。只按要求输出 JSON。'
 
-export function askPrompt(a: { title: string; channel: string; time: string; box: Box; question: string; subs: string; note: string }): string {
+/**
+ * 视频问答的那段话。subs 是 null：问框里没勾「带上前后字幕」，字幕那一段整个不给；
+ * prior：接着问，前面在这一帧问过的几问和回答（第一问时没有）
+ */
+export function askPrompt(a: { title: string; channel: string; time: string; box: Box; question: string; subs: string | null; note: string; prior?: { q: string; a: string }[] }): string {
   const pct = (x: number) => Math.round(x * 100)
   return [
     '命令：视频问答',
     `视频：${a.title}${a.channel ? `（${a.channel}）` : ''}`,
     `图是视频 ${a.time} 这一帧，紫色框是用户框住、想问的那块（左 ${pct(a.box.x)}%、上 ${pct(a.box.y)}%、宽 ${pct(a.box.w)}%、高 ${pct(a.box.h)}%）。`,
-    `用户问：${a.question}`,
-    '前后 30 秒的字幕：',
-    a.subs || '（没有字幕）',
+    ...(a.prior?.length ? ['他之前在这一帧问过：', ...a.prior.flatMap((x) => [`问：${x.q}`, `你答：${x.a}`]), `接着问：${a.question}`] : [`用户问：${a.question}`]),
+    ...(a.subs === null ? [] : ['前后 30 秒的字幕：', a.subs || '（没有字幕）']),
     '用户正在写的笔记（节选）：',
     a.note || '（空）',
     '用中文回答，只输出一个 JSON：{"doubt":"用用户自己的口气写他卡在哪（一句，不要写「给我讲解一下」）","answer":"讲通的讲法，2 到 5 句，结合框里的东西","points":["要点一","要点二"]}',
   ].join('\n')
+}
+
+/** 问框开着时框的那一帧（画好紫框的 JPEG）：问、接着问、想建议都用这一张；image 是第一问记进笔记时存进库的路径 */
+interface CardFrame {
+  wcId: number
+  jpeg: Buffer
+  t: number
+  box: Box
+  image?: string
+}
+const cardFrames = new Map<number, CardFrame>()
+let cardSeq = 0
+
+const checkBox = (b: unknown): Box => {
+  const x = b as Box | null
+  if (!x || ![x.x, x.y, x.w, x.h].every((n) => typeof n === 'number' && n >= 0 && n <= 1)) throw new Error('框的参数不对')
+  return { x: x.x, y: x.y, w: x.w, h: x.h }
+}
+
+/** 框住那块的小图：从画了紫框的那一帧里切出框里面（让开紫线），长边缩到 192（问框头上 96 × 54 的两倍） */
+function thumbOf(jpeg: Buffer, box: Box): string {
+  const img = nativeImage.createFromBuffer(jpeg)
+  const { width: W, height: H } = img.getSize()
+  const pad = Math.ceil(Math.max(3, W / 320)) + 1
+  const x = Math.min(W - 1, Math.round(box.x * W) + pad)
+  const y = Math.min(H - 1, Math.round(box.y * H) + pad)
+  const w = Math.min(W - x, Math.round(box.w * W) - 2 * pad)
+  const h = Math.min(H - y, Math.round(box.h * H) - 2 * pad)
+  const part = w > 8 && h > 8 ? img.crop({ x, y, width: w, height: h }) : img
+  const size = part.getSize()
+  const k = Math.min(1, 192 / Math.max(size.width, size.height * (192 / 108)))
+  return (k < 1 ? part.resize({ width: Math.max(1, Math.round(size.width * k)), quality: 'good' }) : part).toDataURL()
+}
+
+async function peek(raw: { wcId?: unknown; box?: unknown }): Promise<PeekResult> {
+  const s = sess(raw?.wcId)
+  const box = checkBox(raw?.box)
+  const { jpeg, t } = await frame(s, box)
+  const card = ++cardSeq
+  cardFrames.set(card, { wcId: s.wc.id, jpeg, t, box })
+  // 只留最近几个问框的
+  for (const k of cardFrames.keys()) if (cardFrames.size > 6) cardFrames.delete(k)
+  return { card, t, thumb: thumbOf(jpeg, box) }
+}
+
+/** 问框里两颗固定的建议（另两颗 suggest 现想，不能和它们重） */
+const FIXED_SUGGEST = ['讲解这一块', '换个说法讲']
+
+/** 想建议时回的那串（JSON 数组，或者一行一个）认出两个短问题 */
+export function parseSuggest(out: string): string[] {
+  let list: unknown[] = []
+  try {
+    const arr = /\[[\s\S]*\]/.exec(out)?.[0]
+    list = arr ? (JSON.parse(arr) as unknown[]) : out.split('\n')
+  } catch {
+    list = out.split('\n')
+  }
+  const seen = new Set(FIXED_SUGGEST)
+  const got: string[] = []
+  for (const x of list) {
+    if (typeof x !== 'string') continue
+    const q = x.replace(/^[\s\-*\d.、"「]+|[\s"」]+$/g, '').trim()
+    if (!q || q.length > 20 || seen.has(q)) continue
+    seen.add(q)
+    got.push(q)
+    if (got.length === 2) break
+  }
+  return got
+}
+
+/**
+ * 问框里另外两颗建议（DESIGN 方向 A）：小活那一家看这一帧（Claude Code 能看图）和字幕现想两个短问题；
+ * 小活那家看不了图就只给字幕。想不出、出错、超过 25 秒：给空的，问框里只留两颗固定的（原样说过的退路，不是吞掉错误）
+ */
+async function suggest(card: unknown): Promise<string[]> {
+  const f = typeof card === 'number' ? cardFrames.get(card) : undefined
+  const s = f ? sessions.get(f.wcId) : undefined
+  if (!f || !s) return []
+  if (process.env.CN_AI_FAKE === '1') {
+    await sleep(300)
+    return ['i 帽落到哪里了？', '这个矩阵怎么读？']
+  }
+  const subs = cuesBetween(s.cues, f.t - 20, f.t + 10).map((c) => `${fmtTime(c.start)} ${c.text}`).join('\n')
+  const prompt = [
+    '命令：替他想问题',
+    `视频：${s.meta.title}`,
+    `图是视频 ${fmtTime(f.t)} 这一帧，紫色框是他框住的那块。`,
+    '这一帧前后的字幕：',
+    subs || '（没有字幕）',
+    '他看到框住的这块，最可能想问的两个问题。每个不超过 14 个字，口语，用中文，不要「讲解一下」「换个说法」这种。只输出 JSON 数组，比如 ["这个式子怎么来的？","为什么要除以根号 d？"]',
+  ].join('\n')
+  const system = '你替看视频的人想问题。只按要求输出。'
+  const signal = AbortSignal.timeout(25_000)
+  try {
+    const quick = fastEngine()
+    const exe = quick.id === 'claude' ? findCli('claude') : null
+    const out = exe
+      ? await askWithImage({ exe, cwd: needVault().root, model: modelOpt('quick', 'claude').model ?? FAST_MODEL, system, prompt, image: { mime: 'image/jpeg', base64: f.jpeg.toString('base64') }, signal, timeoutMs: 25_000 })
+      : await askFast(system, prompt, signal, () => undefined)
+    return parseSuggest(out)
+  } catch (e) {
+    dbg('suggest', '没想出来', (e as Error).message)
+    return []
+  }
 }
 
 export function parseAnswer(out: string): { doubt: string; answer: string; points: string[] } {
@@ -836,51 +1000,101 @@ async function ask(raw: AskRequest): Promise<AskResult> {
   }
 }
 
+const MODEL_ID = /^[\w.:\-[\]/]{1,200}$/
+
+/** 假 AI（CN_AI_FAKE）答一问：回答分几截在 CN_AI_FAKE_ASK_MS 里慢慢来（问框里看得到长出来） */
+async function fakeAnswer(signal: AbortSignal, onText: (d: string) => void): Promise<string> {
+  const total = Number(process.env.CN_AI_FAKE_ASK_MS ?? process.env.CN_AI_FAKE_DELAY_MS) || 400
+  const cut = FAKE_ANSWER.indexOf('"answer":"') + 10
+  const parts = [FAKE_ANSWER.slice(0, cut + 4), FAKE_ANSWER.slice(cut + 4, cut + 20), FAKE_ANSWER.slice(cut + 20)]
+  await sleep(total * 0.4, signal)
+  for (const p of parts) {
+    onText(p)
+    await sleep((total * 0.6) / parts.length, signal)
+  }
+  return FAKE_ANSWER
+}
+
 async function askOnce(s: Sess, raw: AskRequest, signal: AbortSignal): Promise<AskResult> {
-  const dest = checkDest(raw?.dest)
-  const box = raw?.box
-  if (!box || ![box.x, box.y, box.w, box.h].every((n) => typeof n === 'number' && n >= 0 && n <= 1)) throw new Error('框的参数不对')
-  const question = String(raw.question ?? '').trim().slice(0, 500) || '给我讲解一下'
+  // 只问不记：不存图、不写笔记、不提交
+  const dest = raw?.dest === null ? null : checkDest(raw?.dest)
+  const box = checkBox(raw?.box)
+  const question = String(raw.question ?? '').trim().slice(0, 500) || '讲解这一块'
+  const prior = Array.isArray(raw.prior) ? raw.prior.filter((x) => x && typeof x.q === 'string' && typeof x.a === 'string').slice(-6).map((x) => ({ q: x.q.slice(0, 500), a: x.a.slice(0, 3000) })) : []
+  if (raw.model !== undefined && (typeof raw.model !== 'string' || !MODEL_ID.test(raw.model))) throw new Error('AI 参数不对')
+  if (raw.effort !== undefined && (typeof raw.effort !== 'string' || !/^[a-z]{1,20}$/.test(raw.effort))) throw new Error('AI 参数不对')
   const v = needVault()
-  const { jpeg, t } = await frame(s, box)
-  const image = await saveJpeg(v, `${attachDir(s.ref)}/${timeSlug(t)}-问.jpg`, jpeg)
-  const near = cuesBetween(s.cues, t - 30, t + 30)
-  const subs = near.map((c) => `${fmtTime(c.start)} ${c.text}${c.tr ? ` / ${c.tr}` : ''}`).join('\n')
-  const prompt = askPrompt({ title: s.meta.title, channel: s.meta.channel, time: fmtTime(t), box, question, subs, note: String(raw.noteText ?? '').slice(0, 4000) })
+  // 问框打开时截好的那一帧（接着问也是这一张）；没有就现截
+  const card = typeof raw.card === 'number' ? cardFrames.get(raw.card) : undefined
+  const f: CardFrame = card && card.wcId === s.wc.id ? card : { wcId: s.wc.id, ...(await frame(s, box)), box }
+  const { jpeg, t } = f
+  let image = f.image
+  if (!image && dest) {
+    image = await saveJpeg(v, `${attachDir(s.ref)}/${timeSlug(t)}-问.jpg`, jpeg)
+    f.image = image
+  }
+  const withSubs = raw.subs !== false
+  const subs = withSubs ? cuesBetween(s.cues, t - 30, t + 30).map((c) => `${fmtTime(c.start)} ${c.text}${c.tr ? ` / ${c.tr}` : ''}`).join('\n') : null
+  const prompt = askPrompt({ title: s.meta.title, channel: s.meta.channel, time: fmtTime(t), box, question, subs, note: String(raw.noteText ?? '').slice(0, 4000), prior })
+  // 谁答：看图问只有 Claude Code；模型、effort 是问框底下选的，没选用设置 › AI「看图问」那一行（CN_AI_MODEL 能换默认的 Opus，测试用便宜的）
+  const want = raw.model ?? visionModel() ?? CLAUDE_DEFAULT
+  const model = want === CLAUDE_DEFAULT && process.env.CN_AI_MODEL ? process.env.CN_AI_MODEL : want
+  const effort = raw.effort
+  const by = pickLabel({ engine: 'claude', model, ...(effort ? { effort } : {}) })
+  // 边答边推：问框里就地长出来
+  let acc = ''
+  let pushed = ''
+  let last = 0
+  const onText = (d: string) => {
+    acc += d
+    const part = partialAnswer(acc)
+    if (part === pushed || (Date.now() - last < 80 && part.length - pushed.length < 40)) return
+    pushed = part
+    last = Date.now()
+    if (typeof raw.card === 'number') send('video:ask:text', raw.card, part)
+  }
   let out: string
-  if (process.env.CN_AI_FAKE === '1') {
-    await sleep(Number(process.env.CN_AI_FAKE_ASK_MS ?? process.env.CN_AI_FAKE_DELAY_MS) || 400, signal)
-    out = FAKE_ANSWER
-  } else {
+  if (process.env.CN_AI_FAKE === '1') out = await fakeAnswer(signal, onText)
+  else {
     const exe = findCli('claude')
     if (!exe) throw new Error(`看画面问要用 Claude Code（要能看图）。${INSTALL_HINT.claude}`)
-    out = await askWithImage({ exe, cwd: v.root, model: visionModel(), system: ASK_SYSTEM, prompt, image: { mime: 'image/jpeg', base64: jpeg.toString('base64') }, signal, timeoutMs: 120_000 })
+    out = await askWithImage({ exe, cwd: v.root, model, ...(effort ? { effort } : {}), system: ASK_SYSTEM, prompt, image: { mime: 'image/jpeg', base64: jpeg.toString('base64') }, signal, timeoutMs: 120_000, onText })
   }
   const a = parseAnswer(out)
   const time = fmtTime(t)
   const from = fmtTime(Math.max(0, t - 30))
   const to = fmtTime(t + 30)
-  const block = [
-    `<!-- moment-ask video=${s.ref.key} t=${Math.round(t * 10) / 10} -->`,
-    `![${time} 框住的地方](${relLink(dest.path, image)})`,
+  const seen = withSubs ? `看了 ${time} 这一帧、${from}–${to} 的字幕` : `看了 ${time} 这一帧`
+  const answer = a.answer + (a.points.length ? '\n\n' + a.points.map((p) => `- ${p}`).join('\n') : '')
+  const res: AskResult = { answer, read: `${seen}${raw.noteText ? '、这篇笔记' : ''}`, block: '', files: image ? [image] : [], t, by, ...(image ? { image } : {}) }
+  if (!dest) return res
+  if (prior.length) {
+    // 接着问：接在第一问那块讲解里面、最后（同一块）
+    res.follow = followMd(question, a.answer, a.points)
+    if (dest.kind === 'inbox') {
+      const cur = await v.read(dest.path)
+      const at = askCalloutEnd(cur.text, s.ref.key, t)
+      if (at < 0) throw new Error('收件箱那篇里找不到这一问的讲解了，没记进去')
+      const w = await v.write(dest.path, cur.text.slice(0, at) + '\n' + res.follow + cur.text.slice(at), cur.text)
+      if (!w.ok) throw new Error('收件箱里那篇刚被改了，再问一次')
+      const hash = await commitWith(s, [dest.path], `视频：接着问 ${time}《${s.meta.title.slice(0, 40)}》→ 收件箱`, { t, note: dest.title, asked: true, text: prior[0]!.q, image: image! })
+      if (hash) res.commit = hash
+    }
+    return res
+  }
+  res.block = [
+    askHead(s.ref.key, t),
+    `![${time} 框住的地方](${relLink(dest.path, image!)})`,
     `[▶ ${time} · ${s.meta.title.replace(/[[\]]/g, ' ')}](${timeUrl(s.ref, t)})`,
     `> **我的疑惑**：${(a.doubt || question).replace(/\n/g, ' ')}`,
     '',
-    // AI 的回答放进 [!ai] 提示块，和自己写的分得开（CN-76）
-    aiCallout({ by: featureLabel('vision'), seen: `看了 ${time} 这一帧、${from}–${to} 的字幕`, text: a.answer, points: a.points }),
+    // AI 的回答放进 [!ai] 提示块，和自己写的分得开（CN-76）；头上写谁答的「Claude Code · 模型」（原型：文档里不带档，问框里带）
+    aiCallout({ by: pickLabel({ engine: 'claude', model }), seen, text: a.answer, points: a.points }),
   ].join('\n')
   // 一门课的「我的疑惑」直接读文档里的这一块（main/reading/doubts.ts 的 collectVideoDoubts），2026-11-20 起不再另写「视频里的疑惑.md」
-  const files = [image]
-  const res: AskResult = {
-    answer: a.answer + (a.points.length ? '\n\n' + a.points.map((p) => `- ${p}`).join('\n') : ''),
-    read: `看了 ${time} 这一帧、${from}–${to} 的字幕${raw.noteText ? '、这篇笔记' : ''}`,
-    block,
-    files,
-    t,
-  }
   if (dest.kind === 'inbox') {
-    const path = await appendInbox(v, s, dest, block, await cover(s, v))
-    const hash = await commitWith(s, [path, ...files], `视频：问 AI ${time}《${s.meta.title.slice(0, 40)}》→ 收件箱`, { t, note: dest.title, asked: true, text: a.doubt || question, image })
+    const path = await appendInbox(v, s, dest, res.block, await cover(s, v))
+    const hash = await commitWith(s, [path, ...res.files], `视频：问 AI ${time}《${s.meta.title.slice(0, 40)}》→ 收件箱`, { t, note: dest.title, asked: true, text: a.doubt || question, image: image! })
     if (hash) res.commit = hash
   }
   return res
@@ -1023,6 +1237,8 @@ export function setupVideo(d: Deps) {
     return retrySummary(path)
   })
   ipcMain.handle('video:moment', (e, r: unknown) => (appOnly(e), moment(r as { wcId?: unknown; dest?: unknown })))
+  ipcMain.handle('video:peek', (e, r: unknown) => (appOnly(e), peek(r as { wcId?: unknown; box?: unknown })))
+  ipcMain.handle('video:suggest', (e, card: unknown) => (appOnly(e), suggest(card)))
   ipcMain.handle('video:ask', (e, r: unknown) => (appOnly(e), ask(r as AskRequest)))
   ipcMain.handle('video:ask:stop', (e, wcId: unknown) => (appOnly(e), typeof wcId === 'number' && asking.get(wcId)?.abort()))
   ipcMain.handle('video:commit', async (e, paths: unknown, message: unknown, mark: unknown) => {
@@ -1106,7 +1322,12 @@ export function attachVideo(wc: WebContents) {
     onUrl(wc, url)
   }
   wc.on('did-start-navigation', (_e, url, inPlace, isMain) => {
-    if (isMain && !inPlace && videoOf(url)) void tap(wc)
+    const ref = isMain && !inPlace ? videoOf(url) : null
+    if (!ref) return
+    void tap(wc)
+    // 整页重新打开正开着的同一个视频：载好以后重新读字幕轨（onUrl）
+    const s = sessions.get(wc.id)
+    if (s && s.ref.key === ref.key) s.reopen = true
   })
   wc.on('did-navigate', (_e, url) => check(url))
   wc.on('did-navigate-in-page', (_e, url, isMain) => isMain && check(url))
@@ -1144,4 +1365,22 @@ export function subsAround(url: string, t: number): string {
   return cuesBetween(s.cues, t - 30, t + 30)
     .map((c) => `${fmtTime(c.start)} ${c.text}${c.tr ? ` / ${c.tr}` : ''}`)
     .join('\n')
+}
+
+/**
+ * 这个网页上正在看的视频和它的全部字幕（AI 命令「视频要点带时间」「字幕整理成一篇」，task-9womr）：
+ * 名字、网址、时长，每条 [开始, 结束, 原文, 译文]；不是视频页是 null，还没拿到字幕时 cues 是空的
+ */
+export function videoCues(wcId: number): { title: string; url: string; site: VideoRef['site']; id: string; p?: number; duration: number; cues: [number, number, string, string][] } | null {
+  const s = sessions.get(wcId)
+  if (!s) return null
+  return {
+    title: s.meta.title,
+    url: watchUrl(s.ref),
+    site: s.ref.site,
+    id: s.ref.id,
+    ...(s.ref.p ? { p: s.ref.p } : {}),
+    duration: s.meta.duration,
+    cues: s.cues.map((c) => [c.start, c.end, c.text, c.tr ?? '']),
+  }
 }

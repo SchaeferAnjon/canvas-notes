@@ -3,11 +3,15 @@ import { describe, expect, it } from 'vitest'
 import { addMomentToBoard, addMomentToDocBoard, boardMomentStats } from '../src/renderer/video/board'
 import {
   askAnswerAfter,
+  askCalloutEnd,
   biliTracks,
   chaptersFor,
   cueAt,
   cuesAround,
   destFor,
+  destForPick,
+  followMd,
+  partialAnswer,
   fillMoments,
   isUntitled,
   fmtTime,
@@ -293,5 +297,39 @@ describe('问答块「接着问」带上那一问的回答', () => {
   it('后面不是 AI 提示块：空串', () => {
     const d = doc.replace('> [!ai]', '> [!note]')
     expect(askAnswerAfter(d, d.indexOf('<!-- moment-ask'))).toBe('')
+  })
+})
+
+describe('问框（task-sta8n）：记到哪四样、接着问写进同一块讲解、边答边认出回答', () => {
+  const doc = '# 笔记\n\n<!-- moment-ask video=youtube:abc t=6.2 -->\n![00:06 框住的地方](附件/视频/youtube-abc/00-06-问.jpg)\n[▶ 00:06 · 线性变换](https://www.youtube.com/watch?v=abc&t=6s)\n> **我的疑惑**：两个箭头？\n\n> [!ai] AI 讲解 · Claude Code · 看了 00:06 这一帧\n> 框里是 i 帽和 j 帽。\n>\n> - 要点一\n\n后面的字。\n'
+  it('记到哪：开着的这篇照原来的规矩，新建一篇、收件箱各是一种，只问不记是 null', () => {
+    const doc1 = { kind: 'doc' as const, path: 'a.md', title: 'a' }
+    expect(destForPick(doc1, null, 'V', 'open')).toEqual(doc1)
+    expect(destForPick({ kind: 'none' }, null, 'V', 'open')).toEqual({ kind: 'new', path: '收件箱/V.md', title: 'V' })
+    expect(destForPick(doc1, null, 'V', 'new')).toEqual({ kind: 'new', path: '收件箱/V.md', title: 'V' })
+    expect(destForPick(doc1, null, 'V', 'inbox')).toEqual({ kind: 'inbox', path: '收件箱/V.md', title: 'V' })
+    expect(destForPick(doc1, null, 'V', 'none')).toBeNull()
+  })
+  it('接着问：接在那块讲解的最后一行后面，同一个提示块；找不到那块给 -1', () => {
+    const at = askCalloutEnd(doc, 'youtube:abc', 6.2)
+    expect(doc.slice(0, at).endsWith('> - 要点一')).toBe(true)
+    const next = doc.slice(0, at) + '\n' + followMd('那网格线呢？', '还平行。\n\n因为是线性的。', ['点一']) + doc.slice(at)
+    expect(next).toContain('> - 要点一\n>\n> **接着问**：那网格线呢？\n> 还平行。\n>\n> 因为是线性的。\n>\n> - 点一\n\n后面的字。')
+    // 接着问也算那一问的回答：文档里「接着问」时一起交给 AI
+    expect(askAnswerAfter(next, next.indexOf('<!-- moment-ask'))).toContain('**接着问**：那网格线呢？')
+    // 接两次：第二次接在第一次后面
+    const at2 = askCalloutEnd(next, 'youtube:abc', 6.2)
+    expect(next.slice(0, at2).endsWith('> - 点一')).toBe(true)
+    expect(askCalloutEnd(doc, 'youtube:abc', 9)).toBe(-1)
+    expect(askCalloutEnd(doc.replace('> [!ai]', '> [!note]'), 'youtube:abc', 6.2)).toBe(-1)
+  })
+  it('边答边来的 JSON：只认 answer 那一截，转义照 JSON 认，半截的转义不出来', () => {
+    expect(partialAnswer('{"doubt":"两个箭头')).toBe('')
+    expect(partialAnswer('{"doubt":"x","answer":"框里是')).toBe('框里是')
+    expect(partialAnswer('{"doubt":"x","answer":"第一句\\n第二句 \\"引号\\"')).toBe('第一句\n第二句 "引号"')
+    expect(partialAnswer('{"answer":"a\\')).toBe('a')
+    expect(partialAnswer('{"answer":"a\\u4e2')).toBe('a')
+    expect(partialAnswer('{"answer":"a\\u4e2d文","points":["p"]}')).toBe('a中文')
+    expect(partialAnswer('不是 JSON 的回答')).toBe('')
   })
 })

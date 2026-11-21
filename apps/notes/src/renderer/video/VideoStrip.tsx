@@ -1,22 +1,24 @@
 import { composing } from '../ime'
-import { keyFor } from '../keys'
+import { keyFor, useKeys } from '../keys'
 /**
- * 方向 A「视频条」：右栏网页原样，只在视频页的地址栏下面多两行。
- * 第一行：字幕开关（点开字幕菜单）、记下这一刻 ⌥S、框一块问 ⌥D、右端「记到 …」；
- * 第二行：刻度（每个时刻一根，问过 AI 的是空心圆，刚记的是紫色，播放头紫色），点一根跳回那一秒；右端「N 个时刻 ▾」。
+ * 网页栏顶上视频那一行（task-sta8n 方向 A「紧凑两档」，原型 /private/tmp/canvas-notes-webbar/proto.html#dir=a 的 .vr）：
+ * 32 高，只有视频页才有：字幕、记下这一刻 ⌥S、框一块问 ⌥D、时间轴（刻度、问过的空心圆、播放头，点哪跳哪）、「N 个时刻 ▾」、记到哪。
+ * 网页栏窄于 720 时快捷键提示和记到哪的名字收起；窄于 470 时只留图标、记到哪不摆。
+ * 顶上收成一行时（WebPanel 的收起那一行）：记下这一刻、框一块问两颗图标和时刻数（VideoFoldTools），时间轴是那一行底边一根线（VideoHair）。
  */
 import { Codicon } from '@cn/design'
 import { VIDEO_SUBS_EVENT } from '../settings/jump'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { LANGS, langName, primary, SHORT } from '../../shared/plugins/translate'
 import { sttErrorView } from '../../shared/stt-errors'
-import { fmtTime, safeTitle, trackId } from '../../shared/video'
-import { keyLabel, type MomentMark, type SubMode, type SubPlace, type VideoState } from '../../shared/video-api'
+import { type DestPick, fmtTime, inboxPathFor, trackId } from '../../shared/video'
+import { type MomentMark, type SubMode, type SubPlace, type VideoState } from '../../shared/video-api'
 import { setPluginSettings, webHost } from '../plugins/host'
 import { settingsNow as trSettings } from '../plugins/translate/shared'
 import { Toggle } from '../Settings'
-import { destNow, saveMoment, sendAsk, setDestInbox, startAsk } from './actions'
-import { clearBox, setVideoSettings, useBoxEvent, useCenter, useSavedToast, useTick, useVideoSettings, useVideoState, videoHost } from './store'
+import { destNow, saveMoment, setDestPick, useDestPick } from './actions'
+import { startAsk } from './ask-card'
+import { setVideoSettings, useCenter, useSavedToast, useTick, useVideoSettings, useVideoState, videoHost } from './store'
 import './video.css'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -32,9 +34,35 @@ function short(code: string | null): string {
 
 type Pop = null | 'subs' | 'dest' | 'moments'
 
-export function VideoStrip({ wcId, narrow }: { wcId: number; narrow: boolean }) {
+/** 弹层开着时：点外面、按 esc 收起 */
+function useOutside(ref: React.RefObject<HTMLElement | null>, pop: Pop, close: () => void) {
+  useEffect(() => {
+    if (!pop) return
+    const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && close()
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && close()
+    window.addEventListener('pointerdown', down, true)
+    window.addEventListener('keydown', key)
+    return () => {
+      window.removeEventListener('pointerdown', down, true)
+      window.removeEventListener('keydown', key)
+    }
+  }, [pop])
+}
+
+/** 记下这一刻：按钮不留焦点，点完焦点回到视频，按空格是暂停 / 播放，不会再记一刻（CN-70） */
+const momentNow = (wcId: number) => {
+  videoHost()?.focus(wcId)
+  void saveMoment(wcId)
+}
+
+/** 网页栏 720、470 两档：窄了先收快捷键和记到哪的名字，再窄只留图标（原型 .mid、.narrow） */
+export type WebWidth = 'wide' | 'mid' | 'narrow'
+
+export function VideoRow({ wcId, width }: { wcId: number; width: WebWidth }) {
   const st = useVideoState(wcId)
   const set = useVideoSettings()
+  /** 记下这一刻、框一块问的键照命令表（设置 › 快捷键里改了跟着变） */
+  const K = useKeys()
   const center = useCenter()
   const [pop, setPop] = useState<Pop>(null)
   // 设置 › 网页和视频「字幕怎么显示、记到哪 · 在视频条里改 ›」：打开字幕菜单（接住了就 preventDefault）
@@ -47,72 +75,93 @@ export function VideoStrip({ wcId, narrow }: { wcId: number; narrow: boolean }) 
     return () => window.removeEventListener(VIDEO_SUBS_EVENT, on)
   }, [])
   const ref = useRef<HTMLDivElement>(null)
-
-  // 点外面收起弹层
-  useEffect(() => {
-    if (!pop) return
-    const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && setPop(null)
-    const key = (e: KeyboardEvent) => e.key === 'Escape' && setPop(null)
-    window.addEventListener('pointerdown', down, true)
-    window.addEventListener('keydown', key)
-    return () => {
-      window.removeEventListener('pointerdown', down, true)
-      window.removeEventListener('keydown', key)
-    }
-  }, [pop])
+  useOutside(ref, pop, () => setPop(null))
+  const pick = useDestPick(st?.key ?? '')
 
   if (!st) return null
-  const dest = destNow(st.title)
+  const dest = destNow(st)
   const on = set.mode !== 'off' && !st.off && st.subs === 'ready'
   const lab = subLabel(st, set.mode)
   const failed = trFailed(st)
+  const keys = width === 'wide'
+  const destName = pick === 'none' ? '只问不记' : pick === 'inbox' ? '收件箱' : !dest ? '' : dest.kind === 'new' ? `新建《${dest.title}》` : dest.title
   return (
-    <div className="vstrip" ref={ref} role="region" aria-label="视频条">
-      <div className="vbar">
-        <button type="button" className={'vsub' + (on ? ' on' : '') + (failed ? ' warn' : '')} aria-label="字幕" aria-haspopup="dialog" aria-expanded={pop === 'subs'} title={failed ? `${st.trFailed}句没翻成${st.trError ? `：${st.trError}` : ''}。点开再试一次` : '字幕：双语、翻成什么、放在哪'} onClick={() => setPop(pop === 'subs' ? null : 'subs')}>
-          {st.stt && !st.stt.error ? <Codicon name="loading" size={13} className="spin" /> : <i className="vdot" />}
-          <span className="truncate">{lab}</span>
-          <Codicon name="chevron-down" size={12} />
-        </button>
-        <button type="button" className={'btn btn-sm ' + (center?.aiOpen ? '' : 'btn-primary') + ' vsave'} title={`记下这一刻 ${keyLabel(set.keys.moment)}`}
-          // 按钮不留焦点：点完焦点回到视频，按空格是暂停 / 播放，不会再记一刻（CN-70）
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            videoHost()?.focus(wcId)
-            void saveMoment(wcId)
-          }}
+    <div className="vrow" ref={ref} role="region" aria-label="视频条" data-testid="web-row2">
+      <button type="button" className={'vchip vsub' + (on ? ' on' : '') + (failed ? ' warn' : '')} aria-label="字幕" aria-haspopup="dialog" aria-expanded={pop === 'subs'} title={failed ? `${st.trFailed}句没翻成${st.trError ? `：${st.trError}` : ''}。点开再试一次` : '字幕：双语、翻成什么、放在哪'} onClick={() => setPop(pop === 'subs' ? null : 'subs')}>
+        {st.stt && !st.stt.error ? <Codicon name="loading" size={13} className="spin" /> : <i className="vdot" />}
+        <span className="truncate">
+          {lab.lead && <span className="lbl">{lab.lead}</span>}
+          {lab.rest}
+        </span>
+        <Codicon name="chevron-down" size={10} />
+      </button>
+      <button
+        type="button"
+        className={'vchip vsave' + (center?.aiOpen ? '' : ' solid')}
+        aria-label="记下这一刻"
+        data-tip={!keys ? `记下这一刻 ${K('video-moment')}` : undefined}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => momentNow(wcId)}
+      >
+        <Codicon name="device-camera" size={13} />
+        <span className="lbl">记下这一刻</span>
+        <kbd>{K('video-moment')}</kbd>
+      </button>
+      <button type="button" className="vchip vask" aria-label="框一块问" data-tip={!keys ? `框一块问 ${K('video-ask')}` : undefined} onMouseDown={(e) => e.preventDefault()} onClick={() => startAsk(wcId)}>
+        <Codicon name="screen-full" size={13} />
+        <span className="lbl">框一块问</span>
+        <kbd>{K('video-ask')}</kbd>
+      </button>
+      <Track st={st} wcId={wcId} />
+      <button type="button" className="vchip vcount" aria-label={`${st.moments.length}个时刻`} aria-haspopup="dialog" aria-expanded={pop === 'moments'} onClick={() => setPop(pop === 'moments' ? null : 'moments')}>
+        <span>{st.moments.length}</span>
+        <span className="lbl">个时刻</span>
+        <Codicon name="chevron-down" size={10} />
+      </button>
+      {/* 记到哪：网页栏窄于 720 只留图标（原型窄于 470 不摆；默认 380 宽时要能换记到哪，留一颗图标） */}
+      {dest && (
+        <button
+          type="button"
+          className="vchip vdest"
+          aria-label={`记到 ${destName}`}
+          aria-haspopup="menu"
+          aria-expanded={pop === 'dest'}
+          data-tip={`记到哪：${destName}`}
+          onClick={() => setPop(pop === 'dest' ? null : 'dest')}
         >
-          <Codicon name="device-camera" size={13} />
-          <span>记下这一刻</span>
-          <kbd>{keyLabel(set.keys.moment)}</kbd>
+          <Codicon name={pick === 'none' ? 'close' : pick === 'inbox' ? 'inbox' : dest.kind === 'board' ? 'layout' : dest.kind === 'new' ? 'new-file' : 'note'} size={13} />
+          <span className="dn truncate">{destName}</span>
+          <Codicon name="chevron-down" size={10} />
         </button>
-        <button type="button" className="btn btn-sm btn-ghost vask" aria-label="框一块问" title={`在画面上框一块问 AI ${keyLabel(set.keys.ask)}`} onClick={() => startAsk(wcId)}>
-          <Codicon name="screen-full" size={13} />
-          {!narrow && <span>框一块问</span>}
-          {!narrow && <kbd>{keyLabel(set.keys.ask)}</kbd>}
-        </button>
-        <span className="sp" />
-        {dest && (
-          <button
-            type="button"
-            className="vdest"
-            aria-label={`记到 ${dest.kind === 'new' ? `新建《${dest.title}》` : dest.title}`}
-            aria-haspopup="menu"
-            aria-expanded={pop === 'dest'}
-            title={`记到：${dest.kind === 'inbox' ? dest.path : dest.kind === 'new' ? `新建《${dest.title}》（${dest.path}），在中间打开` : `《${dest.title}》`}`}
-            onClick={() => setPop(pop === 'dest' ? null : 'dest')}
-          >
-            <Codicon name={dest.kind === 'board' ? 'layout' : dest.kind === 'inbox' ? 'inbox' : dest.kind === 'new' ? 'new-file' : 'file-text'} size={13} />
-            {!narrow && <span className="truncate">{dest.kind === 'new' ? `新建《${dest.title}》` : dest.title}</span>}
-            <Codicon name="chevron-down" size={12} />
-          </button>
-        )}
-      </div>
-      <Ticks st={st} wcId={wcId} onMenu={() => setPop(pop === 'moments' ? null : 'moments')} open={pop === 'moments'} />
+      )}
       {pop === 'subs' && <SubMenu st={st} onClose={() => setPop(null)} />}
-      {pop === 'dest' && dest && <DestMenu st={st} onClose={() => setPop(null)} />}
+      {pop === 'dest' && <DestPickMenu st={st} pick={pick} onPick={(p) => (setDestPick(st.key, p), setPop(null))} onClose={() => setPop(null)} />}
       {pop === 'moments' && <MomentsMenu st={st} wcId={wcId} onClose={() => setPop(null)} />}
-      <AskBox wcId={wcId} st={st} />
+    </div>
+  )
+}
+
+/** 收起那一行右边：记下这一刻、框一块问两颗图标（它们的键照样能按）和时刻数（点开是时刻弹层） */
+export function VideoFoldTools({ wcId }: { wcId: number }) {
+  const st = useVideoState(wcId)
+  const K = useKeys()
+  const [pop, setPop] = useState<Pop>(null)
+  const ref = useRef<HTMLDivElement>(null)
+  useOutside(ref, pop, () => setPop(null))
+  if (!st) return null
+  return (
+    <div className="vfold" ref={ref} role="group" aria-label="视频（收起）">
+      <button type="button" className="wib" aria-label="记下这一刻" data-tip={`记下这一刻 ${K('video-moment')}`} data-side="below" onMouseDown={(e) => e.preventDefault()} onClick={() => momentNow(wcId)}>
+        <Codicon name="device-camera" size={14} />
+      </button>
+      <button type="button" className="wib" aria-label="框一块问" data-tip={`框一块问 ${K('video-ask')}`} data-side="below" onMouseDown={(e) => e.preventDefault()} onClick={() => startAsk(wcId)}>
+        <Codicon name="screen-full" size={14} />
+      </button>
+      <button type="button" className="vchip vcount" aria-label={`${st.moments.length}个时刻`} data-tip="记下的时刻" data-side="below" aria-haspopup="dialog" aria-expanded={pop === 'moments'} onClick={() => setPop(pop === 'moments' ? null : 'moments')}>
+        <span>{st.moments.length}</span>
+        <Codicon name="chevron-down" size={10} />
+      </button>
+      {pop === 'moments' && <MomentsMenu st={st} wcId={wcId} onClose={() => setPop(null)} />}
     </div>
   )
 }
@@ -122,56 +171,90 @@ const STAGES = ['download', 'listen', 'translate'] as const
 /** 这一轮翻完了还有几句没翻成（在翻的时候不算） */
 const trFailed = (st: VideoState) => (st.target && !st.translating && st.trFailed > 0 ? st.trFailed : 0)
 
-function subLabel(st: VideoState, mode: SubMode): string {
-  if (st.stt && !st.stt.error) return `生成字幕${STAGES.indexOf(st.stt.stage) + 1}/3`
-  if (st.subs === 'loading') return '字幕 读取中'
-  if (st.subs === 'none') return '没有字幕'
-  if (st.subs === 'login') return '字幕要登录B站'
-  if (st.subs === 'error') return '字幕没拿到'
-  if (mode === 'off' || st.off) return '字幕关'
+/** 字幕那一颗的字：开头的「字幕」（lead）在网页栏窄于 470 时藏起来（原型 .narrow .lbl），后面是语言对、进度、状态 */
+function subLabel(st: VideoState, mode: SubMode): { lead: string; rest: string } {
+  if (st.stt && !st.stt.error) return { lead: '', rest: `生成字幕${STAGES.indexOf(st.stt.stage) + 1}/3` }
+  if (st.subs === 'loading') return { lead: '字幕 ', rest: '读取中' }
+  if (st.subs === 'none') return { lead: '', rest: '没有字幕' }
+  if (st.subs === 'login') return { lead: '', rest: '字幕要登录B站' }
+  if (st.subs === 'error') return { lead: '', rest: '字幕没拿到' }
+  if (mode === 'off' || st.off) return { lead: '', rest: '字幕关' }
   const src = short(st.track)
   // 没翻成时省掉语言对（菜单里看得到），按钮不加宽也放得下「N句没翻成」
-  if (trFailed(st)) return `字幕 · ${st.trFailed}句没翻成`
+  if (trFailed(st)) return { lead: '字幕 · ', rest: `${st.trFailed}句没翻成` }
   const tr = st.target && st.translated < st.total ? ` · ${Math.round((st.translated / Math.max(1, st.total)) * 100)}%` : ''
-  return st.target ? `字幕 ${src}→${short(st.target)}${tr}` : `字幕 ${src}`
+  return { lead: '字幕 ', rest: st.target ? `${src}→${short(st.target)}${tr}` : src }
 }
 
-// ---------------------------------------------------------------- 刻度
+// ---------------------------------------------------------------- 时间轴
 
-function Ticks({ st, wcId, onMenu, open }: { st: VideoState; wcId: number; onMenu(): void; open: boolean }) {
+/** 刻度、播放到哪的那几样：秒 → 百分比、刚记的那根、悬停说什么 */
+function useMarks(st: VideoState, wcId: number) {
   const tick = useTick(wcId)
   const dur = st.duration || tick?.duration || 0
-  const [hover, setHover] = useState<MomentMark | null>(null)
-  // 刚记的那根是紫色：底部提示还在时它对着的那一秒
+  // 刚记的那根亮一下：底部提示还在时它对着的那一秒
   const saved = useSavedToast()
   const fresh = saved && !saved.undone && saved.mark.wcId === wcId ? saved.mark.t : null
   const pct = (t: number) => `${dur ? Math.min(100, (t / dur) * 100) : 0}%`
+  const isNew = (m: MomentMark) => fresh !== null && Math.abs(m.t - fresh) < 0.05
+  /** 点在哪跳到哪 */
+  const seekAt = (e: React.MouseEvent<HTMLElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    if (dur && r.width) videoHost()?.cmd(wcId, 'seek', Math.max(0, Math.min(dur, ((e.clientX - r.left) / r.width) * dur)))
+  }
+  return { t: tick?.t ?? 0, pct, isNew, seekAt }
+}
+
+/** 悬停说的（原型）：「00:48 记下的」「02:27 问过：…」 */
+const tipOf = (m: MomentMark) => (m.asked ? `${fmtTime(m.t)} 问过：${m.text ?? ''}` : `${fmtTime(m.t)} 记下的`)
+
+/** 视频那一行中间的时间轴：一根线、播过的那段、每个时刻一根刻度（问过的是空心圆）、播放头；点哪跳哪，点刻度跳回那一秒 */
+function Track({ st, wcId }: { st: VideoState; wcId: number }) {
+  const { t, pct, isNew, seekAt } = useMarks(st, wcId)
+  const [hover, setHover] = useState<MomentMark | null>(null)
   return (
-    <div className="vticks">
-      <div className="vtrack" aria-label="时刻刻度">
-        <div className="vplayed" style={{ width: pct(tick?.t ?? 0) }} />
-        {st.moments.map((m, i) => (
-          <button
-            key={`${m.t}-${i}`}
-            type="button"
-            className={'vmark' + (m.asked ? ' asked' : '') + (fresh !== null && Math.abs(m.t - fresh) < 0.05 ? ' new' : '')}
-            style={{ left: pct(m.t) }}
-            aria-label={`${fmtTime(m.t)} 在《${m.note}》`}
-            onMouseEnter={() => setHover(m)}
-            onMouseLeave={() => setHover(null)}
-            onClick={() => videoHost()?.cmd(wcId, 'seek', m.t)}
-          />
-        ))}
-        <div className="vhead" style={{ left: pct(tick?.t ?? 0) }} />
-        {hover && (
-          <div className="vtip" style={{ left: pct(hover.t) }}>
-            <span className="mono">{fmtTime(hover.t)}</span>在《{hover.note}》
-          </div>
-        )}
-      </div>
-      <button type="button" className="vcount" aria-haspopup="dialog" aria-expanded={open} onClick={onMenu}>
-        {`${st.moments.length}个时刻`} <Codicon name="chevron-down" size={12} />
-      </button>
+    <div className="vtrack" data-testid="vtrack" aria-label="时刻刻度" onClick={seekAt}>
+      <div className="vplayed" style={{ width: pct(t) }} />
+      {st.moments.map((m, i) => (
+        <button
+          key={`${m.t}-${i}`}
+          type="button"
+          className={'vmark' + (m.asked ? ' asked' : '') + (isNew(m) ? ' new' : '')}
+          style={{ left: pct(m.t) }}
+          aria-label={tipOf(m)}
+          onMouseEnter={() => setHover(m)}
+          onMouseLeave={() => setHover(null)}
+          onClick={(e) => {
+            e.stopPropagation()
+            videoHost()?.cmd(wcId, 'seek', m.t)
+          }}
+        />
+      ))}
+      <div className="vhead" style={{ left: pct(t) }} />
+      {hover && (
+        <div className="vtip" style={{ left: pct(hover.t) }}>
+          {tipOf(hover)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 收起时视频那一行变成收起那一行底边的一根线：刻度还在，指着变粗，点哪跳哪 */
+export function VideoHair({ wcId }: { wcId: number }) {
+  const st = useVideoState(wcId)
+  if (!st) return null
+  return <HairLine st={st} wcId={wcId} />
+}
+
+function HairLine({ st, wcId }: { st: VideoState; wcId: number }) {
+  const { t, pct, isNew, seekAt } = useMarks(st, wcId)
+  return (
+    <div className="vhair" data-testid="vhair" aria-label="时刻刻度（收起）" onClick={seekAt}>
+      <div className="vplayed" style={{ width: pct(t) }} />
+      {st.moments.map((m, i) => (
+        <i key={`${m.t}-${i}`} className={'vmark' + (m.asked ? ' asked' : '') + (isNew(m) ? ' new' : '')} style={{ left: pct(m.t) }} title={tipOf(m)} />
+      ))}
     </div>
   )
 }
@@ -417,34 +500,41 @@ function RawWords({ raw }: { raw: string }) {
 
 // ---------------------------------------------------------------- 记到哪
 
-function DestMenu({ st, onClose }: { st: VideoState; onClose(): void }) {
+/**
+ * 「记到哪（这个视频记住）」（task-sta8n 方向 A，视频那一行和问框底下同一个菜单）：开着的这篇、新建一篇（用视频标题）、收件箱、只问不记；
+ * 选了这个视频就一直用它（记在本机）。开着的这篇照原来的规矩：开着文档插光标处，开着白板进「时刻」，都没开就新建一篇在中间打开。
+ * up：在问框底栏上往上弹
+ */
+export function DestPickMenu({ st, pick, up, onPick, onClose }: { st: VideoState; pick: DestPick; up?: boolean; onPick(p: DestPick): void; onClose(): void }) {
   const center = useCenter()
-  const cur = destNow(st.title)
-  if (!center || !cur) return null
-  const inbox = `收件箱/${st.title.slice(0, 30)}`
-  const own = center.center.kind === 'doc' || center.center.kind === 'board' ? center.center : center.center.kind === 'material' && center.lastDoc ? { kind: 'doc' as const, ...center.lastDoc } : { kind: 'new' as const, title: `新建《${safeTitle(st.title)}》` }
-  const pick = (toInbox: boolean) => {
-    setDestInbox(toInbox)
-    onClose()
-  }
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!up) return
+    // 问框里：点外面、esc 收起（视频那一行的由那一行管）
+    const down = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && !(e.target as HTMLElement).closest?.('.ak-dst') && onClose()
+    window.addEventListener('pointerdown', down, true)
+    return () => window.removeEventListener('pointerdown', down, true)
+  }, [up])
+  if (!center) return null
+  const open = destNow({ title: st.title, key: '' })
+  const openName = !open ? '' : open.kind === 'new' ? `新建《${open.title}》` : open.title
+  const rows: { p: DestPick; icon: 'file-text' | 'layout' | 'new-file' | 'inbox' | 'close'; name: string; note: string }[] = [
+    { p: 'open', icon: open?.kind === 'board' ? 'layout' : open?.kind === 'new' ? 'new-file' : 'file-text', name: openName, note: '开着的这篇' },
+    { p: 'new', icon: 'new-file', name: '新建一篇', note: '用视频标题' },
+    { p: 'inbox', icon: 'inbox', name: '收件箱', note: '' },
+    { p: 'none', icon: 'close', name: '只问不记', note: '回答只在这张卡里' },
+  ]
   return (
-    <div className="menu vmenu vdestmenu" role="menu" aria-label="记到">
-      {(
-        <button role="menuitemradio" aria-checked={cur.kind !== 'inbox'} title={own.title} onClick={() => pick(false)}>
-          <span className="ck">{cur.kind !== 'inbox' && <Codicon name="check" size={12} />}</span>
-          <Codicon name={own.kind === 'board' ? 'layout' : own.kind === 'new' ? 'new-file' : 'file-text'} size={14} />
-          <span className="mlabel truncate">
-            {own.kind === 'board' ? '白板「时刻」列 · ' : own.kind === 'new' ? '' : '文档光标处 · '}
-            {own.title}
-          </span>
+    <div ref={ref} className={'menu vmenu vdestmenu' + (up ? ' up' : '')} role="menu" aria-label="记到哪">
+      <div className="mh">记到哪（这个视频记住）</div>
+      {rows.map((r) => (
+        <button key={r.p} role="menuitemradio" aria-checked={pick === r.p} title={r.p === 'open' ? open?.path : r.p === 'inbox' || r.p === 'new' ? inboxPathFor(st.title) : undefined} onClick={() => onPick(r.p)}>
+          <span className="ck">{pick === r.p && <Codicon name="check" size={12} />}</span>
+          <Codicon name={r.icon} size={14} className="ci" />
+          <span className="mlabel truncate">{r.name}</span>
+          {r.note && <span className="r">{r.note}</span>}
         </button>
-      )}
-      <button role="menuitemradio" aria-checked={cur.kind === 'inbox'} title={inbox} onClick={() => pick(true)}>
-        <span className="ck">{cur.kind === 'inbox' && <Codicon name="check" size={12} />}</span>
-        <Codicon name="inbox" size={14} />
-        <span className="mlabel truncate">收件箱 · 新建一篇</span>
-      </button>
-      <p className="vfoot">换了中间栏的标签就回到默认：开着文档插光标处，开着白板进「时刻」列，都没开就新建一篇在中间打开。</p>
+      ))}
     </div>
   )
 }
@@ -499,71 +589,6 @@ function MomentsMenu({ st, wcId, onClose }: { st: VideoState; wcId: number; onCl
         </div>
       ))}
       {st.material && <p className="vfoot">全部的在素材那篇「记下的时刻」里。</p>}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------- 框好了：问话框
-
-function AskBox({ wcId, st }: { wcId: number; st: VideoState }) {
-  const ev = useBoxEvent()
-  const [q, setQ] = useState('')
-  const input = useRef<HTMLInputElement>(null)
-  const box = ev && ev.wcId === wcId && 'box' in ev ? ev : null
-  const ownRef = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
-  const prevFocus = useRef<Element | null>(null)
-
-  useLayoutEffect(() => {
-    if (!box) return setPos(null)
-    const wv = videoHost()?.webviewRect(wcId)
-    const strip = ownRef.current?.closest('.right.web')?.getBoundingClientRect()
-    if (!wv || !strip) return
-    const left = Math.max(8, Math.min(wv.left + box.rect.x + 12 - strip.left, strip.width - 308))
-    const top = Math.min(wv.top + box.rect.y + box.rect.h + 8 - strip.top, strip.height - 230)
-    setPos({ left, top })
-    prevFocus.current = document.activeElement
-    setQ('')
-    setTimeout(() => input.current?.focus(), 0)
-  }, [box?.box.x, box?.box.y, box?.box.w, box?.box.h, ev])
-
-  if (!box || !pos) return <div ref={ownRef} hidden />
-  const dest = destNow(st.title)
-  const cancel = () => {
-    videoHost()?.cmd(wcId, 'boxDone')
-    clearBox()
-    ;(prevFocus.current as HTMLElement | null)?.focus?.()
-  }
-  const ask = (text: string) => {
-    const question = text.trim() || '给我讲解一下'
-    clearBox()
-    ;(prevFocus.current as HTMLElement | null)?.focus?.()
-    sendAsk(wcId, box.box, question)
-  }
-  return (
-    <div ref={ownRef} className="vask-pop" role="dialog" aria-label="问 AI" style={{ left: pos.left, top: pos.top }} onKeyDown={(e) => e.key === 'Escape' && (e.preventDefault(), e.stopPropagation(), cancel())}>
-      <form
-        className="vask-in"
-        onSubmit={(e) => {
-          e.preventDefault()
-          ask(q)
-        }}
-      >
-        <input ref={input} aria-label="想问什么" placeholder="给我讲解一下（回车就问）" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button type="submit" className="iconbtn" aria-label="问">
-          ↑
-        </button>
-      </form>
-      <div className="vask-sug">
-        {['给我讲解一下', '这个式子怎么来的？', '换个说法讲'].map((s) => (
-          <button key={s} type="button" onClick={() => ask(s)}>
-            {s}
-          </button>
-        ))}
-      </div>
-      <p className="vfoot">
-        {`问完自动记进${dest?.kind === 'new' ? '新建的' : ''}《${dest?.title ?? '收件箱'}》· esc 取消`}
-      </p>
     </div>
   )
 }

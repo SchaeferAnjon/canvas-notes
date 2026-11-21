@@ -1,6 +1,6 @@
 /** 主进程和界面之间的接口，preload 按这个暴露成 window.cn */
 
-import type { AiAct, AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from './agent'
+import type { AiAct, AiEvent, BridgeOp, ChatSide, EngineId, EngineInfo, SideTurnRequest, StoredMsg, TurnRequest, TurnResult } from './agent'
 import type { ChatSummary } from './ai-chats'
 import type { AiFeature, AiPick, AiPrefs } from './ai-features'
 import type { AppSettings, SettingsPatch } from './appearance'
@@ -185,8 +185,21 @@ export interface CnApi {
   chromeProfiles(): Promise<{ id: string; name: string; account?: string }[]>
   /** 把 Chrome 某个用户的登录状态导入内置浏览器 */
   importChrome(profileId: string): Promise<{ imported: number; expired: number; skipped: number }>
-  /** 问 AI 一次；id 用来中途停 */
-  aiAsk(id: number, system: string, prompt: string): Promise<string>
+  /** 问 AI 一次；id 用来中途停；opts：用哪家哪个模型想多久（/ 命令跟着输入框底行）、一起给的库里的图 */
+  aiAsk(id: number, system: string, prompt: string, opts?: AiAskOpts): Promise<string>
+  /** 「存成命令」的对照：那次提交前面那一版的全文（那时还没有这一篇是 null）、现在的全文、两边的提交号、现在有没有没提交的字 */
+  aiCmdPrep(path: string, first: string): Promise<{ before: string | null; beforeHash: string; after: string; afterHash: string; dirty: boolean }>
+  /** 只在这台 Mac 上的 AI 命令（ai/commands.json） */
+  aiCmdLocal(): Promise<import('./ai-cmds').AiCmd[]>
+  aiCmdSetLocal(list: unknown[]): Promise<import('./ai-cmds').AiCmd[]>
+  /** 这周改过的笔记、读过的书（写这周的周记） */
+  aiCmdWeek(): Promise<import('./cmd-run').WeekInfo>
+  /** 截图转成文字：这一篇以前转字那几次提交加进去的行（再跑时认出哪几张图转过） */
+  aiCmdOcrLines(path: string): Promise<string[]>
+  /** 右栏网页上正在看的视频和全部字幕；不是视频是 null */
+  aiCmdVideo(): Promise<{ title: string; url: string; site: 'youtube' | 'bilibili'; id: string; p?: number; duration: number; cues: [number, number, string, string][] } | null>
+  /** 右栏网页的字；没开网页是 null */
+  aiCmdPage(): Promise<{ text: string; url: string; title: string } | null>
   aiStop(id: number): Promise<void>
   /** AI 改文件：一次提交（提交说明前面加「AI：」）；没有改动返回 null；写进文件了、只是没提交上返回 AiCommitFailed */
   aiChange(change: AiChange): Promise<CommitInfo | null | AiCommitFailed>
@@ -342,8 +355,12 @@ export interface CnApi {
   /** 对话记录存在软件设置目录（不进库），关了再开还在 */
   /** 这个地方的 AI 对话（D 组 CN-132：每个文件、文件夹、首页、收件箱各一份；place 是 renderer/ai-place.ts 的 key） */
   aiChatLoad(place: string): Promise<StoredMsg[]>
-  /** label：对话菜单里写的名字 */
-  aiChatSave(place: string, label: string, msgs: StoredMsg[]): Promise<void>
+  /** label：对话菜单里写的名字；sides：这段对话里开的旁支（task-4edsc，不给就不动存着的） */
+  aiChatSave(place: string, label: string, msgs: StoredMsg[], sides?: ChatSide[]): Promise<void>
+  /** 这段对话里开的旁支（task-4edsc，方向 A「就地展开」） */
+  aiChatSides(place: string): Promise<ChatSide[]>
+  /** 旁支里问一句（AI 对话、文档里 AI 讲解块的旁支）：字和步骤也从 onAiEvent 来 */
+  aiSide(req: SideTurnRequest): Promise<TurnResult>
   aiChatClear(place: string): Promise<void>
   /** 对话菜单：这个库问过的地方，连读 PDF 那一套的，按最后问的时间（新的在前） */
   aiChats(): Promise<ChatSummary[]>
@@ -363,7 +380,8 @@ export interface CnApi {
   /** 梦游：最近一份报告，没梦游过是 null */
   dreamReport(): Promise<DreamReport | null>
   /** 现在梦游（不等闲时），跑完返回新报告；正在跑时等它跑完（AI 的 /现在梦游 调它，参数是 { webUrl }，用不上） */
-  dreamNow(arg?: { webUrl: string | null }): Promise<DreamReport>
+  /** pick：AI 输入框里打 /现在梦游 时输入框底行选的（不给照设置 › AI「梦游」那一行） */
+  dreamNow(arg?: { webUrl: string | null; pick?: AiAskOpts['pick'] }): Promise<DreamReport>
   /** 收下一条：把那个提交 cherry-pick 到当前分支 */
   dreamTake(id: string): Promise<DreamReport>
   /** 丢掉一条：跳过，不进当前分支 */
@@ -484,6 +502,15 @@ export interface AiCommitFailed {
   failed: string
   paths: string[]
   message: string
+}
+
+/**
+ * / 命令问一次时：用哪家、哪个模型、想多久（AI 输入框底行选的，task-0fhyo；不给照设置 › AI「AI 对话」那一行）；
+ * images：一起交给 AI 的库里的图（截图转成文字）
+ */
+export interface AiAskOpts {
+  pick?: { engine: import('./agent').EngineId; model?: string; effort?: string }
+  images?: string[]
 }
 
 export interface AiChange {

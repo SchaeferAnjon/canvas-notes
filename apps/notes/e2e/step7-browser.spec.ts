@@ -103,9 +103,9 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     await page.keyboard.press('Meta+t')
     await expect(webTabs(page)).toHaveCount(3)
     await expect(web(page).getByRole('textbox', { name: '网址' })).toBeFocused()
-    // 三个标签挤在右栏里：标题至少留四个字宽（第 1 轮美学；× 浮在右端不占地方）
-    const room = await webTabs(page).evaluateAll((els) => els.filter((e) => !e.classList.contains('on')).map((e) => { const t = e.querySelector('.truncate') as HTMLElement; return { t: t.clientWidth, full: t.scrollWidth <= t.clientWidth, x: !!(e.querySelector('.x') as HTMLElement).offsetParent } }))
-    expect(room.every((r) => r.full || r.t >= 4 * 13), JSON.stringify(room)).toBe(true)
+    // 三个标签挤在 380 的右栏里（task-sta8n 方向 A：窄于 470 时别的标签只剩图标，名字悬停看；宽时名字至少四个字见 step25-web）
+    const room = await webTabs(page).evaluateAll((els) => els.filter((e) => !e.classList.contains('on')).map((e) => ({ name: !!(e.querySelector('.truncate') as HTMLElement).offsetParent, w: Math.round(e.getBoundingClientRect().width), title: e.getAttribute('title') ?? '' })))
+    expect(room.every((r) => !r.name && r.w <= 40 && r.title.length > 0), JSON.stringify(room)).toBe(true)
     // 点 × 关掉空的新标签
     await webTabs(page).nth(2).getByRole('button', { name: '关闭网页标签' }).click()
     await expect(webTabs(page)).toHaveCount(2)
@@ -118,7 +118,8 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     await expect(webTabs(page)).toHaveText(['第二页', '冰岛的黑沙滩 - 旅行杂志'])
 
     // 在中间栏大屏看，再放回右栏；右栏还有别的网页，就显示那个，不留空页
-    await webTabs(page).nth(1).getByRole('button').first().click()
+    // 点标签换过去（当前那个标签就是地址块，点了是改地址，不换）
+    await webTabs(page).nth(1).click()
     await expect.poll(() => guest(page, 'document.readyState')).toBe('complete')
     await page.getByRole('banner').getByRole('button', { name: '移到中间' }).click()
     const wide = page.locator('.wpane:not([hidden])')
@@ -204,7 +205,9 @@ test('书签：一键从 Chrome 导入（按用户选）、书签栏和文件夹
     await web(page).getByRole('textbox', { name: '网址' }).click()
     await expect(lib).toHaveCount(0)
 
-    // 书签栏：第二页直接摆着，「旅行」是文件夹菜单，「其他书签」在最右
+    // 书签栏（task-sta8n 起默认不摆，在「⋯ › 书签」里打开）：第二页直接摆着，「旅行」是文件夹菜单，「其他书签」在最右
+    await web(page).getByRole('button', { name: '更多', exact: true }).click()
+    await web(page).getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox', { name: /显示书签栏/ }).click()
     const bar = web(page).getByRole('toolbar', { name: '书签栏' })
     await expect(bar).toContainText('第二页')
     await bar.getByRole('button', { name: '旅行' }).click()

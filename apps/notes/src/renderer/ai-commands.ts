@@ -4,6 +4,7 @@ import { INBOX, titleOf } from '../shared/layout'
 import { BRAND } from '../shared/brand'
 import { MATH_RULE } from '../shared/reading'
 import { DOC_BOARD_RULES } from '@cn/format'
+import { builtinByName } from '../shared/ai-cmds'
 
 /** AI 能做的 / 命令 */
 export interface Command {
@@ -11,16 +12,8 @@ export interface Command {
   desc: string
 }
 
-export const COMMANDS: Command[] = [
-  { name: '整理收件箱', desc: '分进课程、周记、剪藏这些，你点同意才挪，可撤回' },
-  { name: '整理当前白板', desc: '按内容把卡片分成几列、排整齐，不删不改卡片，一次提交可撤回' },
-  { name: '总结这块白板', desc: '把当前这块白板或这篇读一遍，写成几句话' },
-  { name: '写成文章', desc: '按白板从左到右、从上到下写成一篇文档草稿' },
-  { name: '翻译', desc: '翻译文档里选中的那段；没选就翻整篇' },
-  { name: '找重复', desc: '找出库里内容差不多的笔记和剪藏' },
-  { name: '剪藏这一页', desc: '把右栏开着的整个网页剪进收件箱' },
-  { name: '现在梦游', desc: '不等夜里，现在把收件箱整理一遍，出一份梦游报告' },
-]
+/** 原来就有的 8 条（AiPanel 里各自的跑法）；说明和 / 菜单同一句（shared/ai-cmds.ts 的 BUILTINS，task-9womr） */
+export const COMMANDS: Command[] = ['整理收件箱', '整理当前白板', '总结这块白板', '写成文章', '翻译', '找重复', '剪藏这一页', '现在梦游'].map((name) => ({ name, desc: builtinByName(name)!.desc }))
 
 /** /现在梦游 跑完的一句话：整理了几条、分几组、每组几条 */
 export function dreamSummary(report: DreamReport, labels: Record<string, string>): { text: string; items: number; groups: number } {
@@ -58,8 +51,17 @@ export function articlePrompt(path: string, text: string): string {
 不要输出排版注释（<!-- -->），不要加文章以外的说明。\n\n<board>\n${text}\n</board>`
 }
 
+/** 交给 AI 翻的字：去掉属性（source、created 这些是软件记的，不是正文，task-n1ffi）和文档里藏着的位置行、注释 */
+export function translateText(text: string): string {
+  return text
+    .replace(/^---\n[\s\S]*?\n---\n?/, '')
+    .replace(/^[ \t]*<!--[\s\S]*?-->[ \t]*\n?/gm, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .trim()
+}
+
 export function translatePrompt(text: string): string {
-  return `命令：翻译\n\n把下面的文字翻译过来：中文翻成英文，其他语言翻成中文。只输出译文。\n\n<text>\n${text}\n</text>`
+  return `命令：翻译\n\n把下面的文字翻译过来：中文翻成英文，其他语言翻成中文。只输出译文。\n\n<text>\n${translateText(text)}\n</text>`
 }
 
 export function askPrompt(question: string, context: { path: string; text: string }[]): string {

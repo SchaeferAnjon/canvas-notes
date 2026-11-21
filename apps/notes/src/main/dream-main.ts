@@ -8,7 +8,13 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { DreamReport } from '../shared/api'
 import { ask } from './ai'
-import { featureLabel } from './agent'
+import { chatRun, featureLabel, ownPick } from './agent'
+import { pickLabel } from '../shared/ai-features'
+import type { AiAskOpts } from '../shared/api'
+
+type AiAskPick = NonNullable<AiAskOpts['pick']>
+/** 回答头上那一行写的「Claude Code · Sonnet · Low」：照引擎真会拿到的模型、档 */
+const chatRunPick = (p: AiAskPick) => ({ engine: p.engine, ...chatRun(p.engine, p) })
 import * as git from '@cn/git'
 import { setDreamHtml } from './attachments'
 import { diffOf } from './diff'
@@ -85,7 +91,8 @@ export function setupDream(o: {
     o.send('dream:changed', view(await load(root)), running !== null)
   }
 
-  function dream(trigger: DreamReport['trigger']): Promise<DreamReport> {
+  /** pick：AI 输入框里打 /现在梦游 时输入框底行选的那一家、模型、想多久（task-0fhyo）；夜里自己梦游照设置 › AI「梦游」那一行 */
+  function dream(trigger: DreamReport['trigger'], pick?: AiAskPick): Promise<DreamReport> {
     if (running) return running
     const root = needRoot()
     running = serial(async () => {
@@ -99,7 +106,7 @@ export function setupDream(o: {
       // 上次被 ⌘Q 打断留下的半截分支：清掉（开着的报告的分支留着）
       await clearStrayDreams(root, old && !old.closed ? old.branch : null)
       const settings = o.settings()
-      const r = await runDream({ root, scratch: join(dir(), 'checkouts'), ask: (s, p) => ask(s, p, AbortSignal.timeout(10 * 60_000), undefined, 'dream'), by: featureLabel('dream'), trigger, similar: similarOffThread, settings })
+      const r = await runDream({ root, scratch: join(dir(), 'checkouts'), ask: (s, p) => ask(s, p, AbortSignal.timeout(10 * 60_000), undefined, 'dream', pick ? { pick } : {}), by: pick ? pickLabel(chatRunPick(pick)) : featureLabel('dream'), trigger, similar: similarOffThread, settings })
       await save(root, r)
       // 改完直接收下：和「全部收下」同一条路（和写笔记排同一个队，挪了的开着的那篇跟过去）；只提醒的留着看
       if (settings.autoTake && r.items.some((i) => i.commit && i.state === 'pending')) {
@@ -164,7 +171,7 @@ export function setupDream(o: {
     return root ? view(await load(root)) : null
   })
   ipcMain.handle('dream:running', () => running !== null)
-  ipcMain.handle('dream:now', () => dream('manual'))
+  ipcMain.handle('dream:now', (_e, pick?: unknown) => dream('manual', pick === undefined || pick === null ? undefined : ownPick(pick)))
   ipcMain.handle('dream:take', (_e, id: unknown) => act((root, r) => takeItem(root, r, str(id)), true))
   ipcMain.handle('dream:drop', (_e, id: unknown) => act((root, r) => dropItem(root, r, str(id))))
   ipcMain.handle('dream:takeAll', () => act((root, r) => takeAll(root, r), true))

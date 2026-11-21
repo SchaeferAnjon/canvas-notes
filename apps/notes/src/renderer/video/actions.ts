@@ -1,39 +1,78 @@
 /**
- * 视频条上的两件事：记下这一刻（⌥S）、框一块问（⌥D）。落点按「记到哪」的规矩（shared/video.ts 的 destFor），
+ * 视频条上的记下这一刻（⌥S）和两件事共用的：「记到哪」（这个视频记住，shared/video.ts 的 destForPick），
  * 文档插到光标处、白板进「时刻」列、收件箱由主进程写；插好、存好以后一次提交，底部提示能撤回。
+ * 框一块问（⌥D）的问框在 ask-card.ts。
  */
-import { destFor, type Dest, timeParam, videoOf } from '../../shared/video'
-import type { AskResult } from '../../shared/video-api'
-import { aiErrorView } from '../../shared/ai-errors'
-import { beginAsk } from './ask-pending'
-import { prepareDest } from './dest'
+import { useSyncExternalStore } from 'react'
+import { type Dest, destForPick, type DestPick, timeParam, videoOf } from '../../shared/video'
 import { hasOldLayout, isMindmap } from '@cn/format'
 import { addMomentToBoard, addMomentToDocBoard } from './board'
-import { centerNow, showSaved, tickOf, videoHost, videoStateOf } from './store'
+import { prepareDest } from './dest'
+import { centerNow, showSaved, videoHost, videoStateOf } from './store'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
-/** 视频条「记到」临时改的：中间栏换了标签就回到默认 */
-let override: { centerPath: string | null; inbox: boolean } | null = null
+// ---------------------------------------------------------------- 记到哪（这个视频记住）
 
-export function setDestInbox(inbox: boolean) {
-  const c = centerNow()
-  override = { centerPath: c && c.center.kind !== 'none' ? c.center.path : null, inbox }
+/**
+ * 「记到哪」选的（task-sta8n 方向 A：视频那一行和问框底下同一个菜单）：每个视频记住自己选的，记在本机；
+ * 只存不是默认的（「开着的这篇」不存）
+ */
+const PICK_KEY = 'cn.videoDest'
+let picks: Record<string, DestPick> = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(PICK_KEY) ?? '{}') as Record<string, unknown>
+    return Object.fromEntries(Object.entries(v).filter(([, p]) => p === 'new' || p === 'inbox' || p === 'none')) as Record<string, DestPick>
+  } catch {
+    // 读不到：都当「开着的这篇」
+    return {}
+  }
+})()
+const pickSubs = new Set<() => void>()
+
+export const destPickOf = (key: string): DestPick => picks[key] ?? 'open'
+
+export function setDestPick(key: string, p: DestPick) {
+  const { [key]: _old, ...rest } = picks
+  picks = p === 'open' ? rest : { ...rest, [key]: p }
+  try {
+    localStorage.setItem(PICK_KEY, JSON.stringify(picks))
+  } catch {
+    // 存不下只是下次不记得
+  }
+  pickSubs.forEach((f) => f())
 }
 
-/** 这个视频现在记到哪 */
-export function destNow(videoTitle: string): Dest | null {
+export function useDestPick(key: string): DestPick {
+  useSyncExternalStore(
+    (f) => {
+      pickSubs.add(f)
+      return () => pickSubs.delete(f)
+    },
+    () => picks,
+  )
+  return destPickOf(key)
+}
+
+/** 这个视频问 AI 记到哪；只问不记是 null */
+export function askDestNow(v: { title: string; key: string }): Dest | null {
   const c = centerNow()
   if (!c) return null
-  const centerPath = c.center.kind !== 'none' ? c.center.path : null
-  if (override && override.centerPath !== centerPath) override = null
-  return destFor(c.center, c.lastDoc, videoTitle, !!override?.inbox)
+  return destForPick(c.center, c.lastDoc, v.title, destPickOf(v.key))
+}
+
+/** 这个视频记下这一刻记到哪（记下这一刻没有「不记」：选了只问不记的按开着的这篇记） */
+export function destNow(v: { title: string; key: string }): Dest | null {
+  const c = centerNow()
+  if (!c) return null
+  const p = destPickOf(v.key)
+  return destForPick(c.center, c.lastDoc, v.title, p === 'none' ? 'open' : p)
 }
 
 let busy = false
 
 /** 插进文档 / 白板：返回改了的那篇 */
-function place(dest: Dest, key: string, block: string, card: string): string {
+export function place(dest: Dest, key: string, block: string, card: string): string {
   const c = centerNow()
   const doc = c?.doc()
   if (!doc || doc.path !== dest.path) throw new Error(`《${dest.title}》没开着，记不进去`)
@@ -56,7 +95,7 @@ export async function saveMoment(wcId: number) {
   const c = centerNow()
   const h = videoHost()
   if (!st || !c || !h || busy) return
-  const want = destNow(st.title)
+  const want = destNow(st)
   if (!want) return
   busy = true
   h.cmd(wcId, 'flash')
@@ -86,70 +125,15 @@ function lineText(md: string): string {
   return (t || o || '').slice(0, 120)
 }
 
-export function startAsk(wcId: number) {
-  videoHost()?.cmd(wcId, 'box')
-}
-
-/**
- * 框好了、问话框里回车（CN-84 方向 B）：不弹浮窗。文档光标处先出占位「AI 正在看 00:06 这一帧…」（esc 停下），
- * 底栏「AI 在记笔记 · 未命名 3」；答好了占位原地换成问答块和 [!ai] 提示块，块下面空一段、光标停在那里写自己的话。
- * 一次提交；一门课的「我的疑惑」直接读这一块。要追问：问答块上「接着问」或 ⌘J，开 AI 标签。
- */
-export function sendAsk(wcId: number, box: { x: number; y: number; w: number; h: number }, question: string) {
-  const st = videoStateOf(wcId)
-  const c = centerNow()
-  const h = videoHost()
-  if (!st || !c || !h) return
-  const want = destNow(st.title)
-  if (!want) return
-  h.cmd(wcId, 'boxDone')
-  const t = tickOf(wcId)?.t
-  let stopped = false
-  let wait: ReturnType<typeof beginAsk> | null = null
-  void (async () => {
-    try {
-      // 「记到哪」是新建一篇、或是没起名的那篇：先建好 / 改好名（视频组的 prepareDest）
-      const { dest, from } = await prepareDest(want, st)
-      const doc = c.doc()
-      const inDoc = dest.kind === 'doc' && !!doc && doc.path === dest.path && !doc.readOnly
-      const noteText = doc && doc.path === dest.path ? doc.text : ''
-      wait = beginAsk({
-        view: inDoc ? doc!.view : null,
-        label: `AI正在看${t !== undefined ? fmt(t) : ''}这一帧…`,
-        job: `AI在记笔记 · ${dest.title}`,
-        onStop: () => {
-          stopped = true
-          wait?.end()
-          void window.cnVideo.askStop(wcId)
-          c.notice('停下了，这一问没记')
-        },
-      })
-      const r: AskResult = await window.cnVideo.ask({ wcId, dest, box, question, noteText })
-      if (stopped) return
-      if (dest.kind !== 'inbox') {
-        const card = videoCardFor(st, dest)
-        const path = inDoc ? placeAsk(dest, st.key, r.block, card, wait.pos()) : place(dest, st.key, r.block, card)
-        await c.doc()?.save()
-        await window.cnVideo.commit([path, ...(from ? [from] : []), ...r.files], `视频：问 AI ${fmt(r.t)}《${st.title.slice(0, 40)}》→ ${dest.title}`, { wcId, t: r.t, note: dest.title, asked: true, text: question })
-      }
-      c.refresh()
-      c.notice(`AI讲完了，记进《${dest.title}》`)
-    } catch (e) {
-      if (!stopped) c.notice(aiErrorView(errText(e), { id: 'claude', label: 'Claude Code' }).title)
-    } finally {
-      wait?.end()
-    }
-  })()
-}
-
 /** 问答块插到占位那里（占位不在了就插光标处）：块下面空一段，光标停在空段落里写自己的话（CN-76） */
-function placeAsk(dest: Dest, key: string, block: string, card: string, at: number | null): string {
+export function placeAsk(dest: Dest, key: string, block: string, card: string, at: number | null): string {
   const doc = centerNow()?.doc()
   if (!doc || doc.path !== dest.path) throw new Error(`《${dest.title}》没开着，记不进去`)
   const view = doc.view
   if (at !== null) view.dispatch({ selection: { anchor: Math.min(at, view.state.doc.length) } })
   const first = !doc.text.includes(`video=${key}`)
-  const r = doc.insertAtCursor(first ? `${card}\n\n${block}` : block)
+  // 焦点留在视频上（问出去以后焦点回到视频，空格照样播放暂停）：光标照样停在讲解块下面的空段落，只是不把焦点交回文档
+  const r = doc.insertAtCursor(first ? `${card}\n\n${block}` : block, { focus: false })
   // 提示块下面：空一行、一个空段落（光标在这里），后面还有字就再空一行，没有就以换行结尾
   const tail = view.state.doc.sliceString(r.to)
   const nl = /^\n*/.exec(tail)![0].length
@@ -164,7 +148,7 @@ const fmt = (t: number) => {
 }
 
 /** 问答块第一次进一篇时前面也放一行视频卡（主进程给的时刻 md 里没有卡，这里用不带封面的卡） */
-function videoCardFor(st: { key: string; title: string; channel: string; duration: number; site: 'youtube' | 'bilibili'; id: string; p?: number }, dest: Dest): string {
+export function videoCardFor(st: { key: string; title: string; channel: string; duration: number; site: 'youtube' | 'bilibili'; id: string; p?: number }, dest: Dest): string {
   const url = st.site === 'youtube' ? `https://www.youtube.com/watch?v=${st.id}` : `https://www.bilibili.com/video/${st.id}${st.p && st.p > 1 ? `?p=${st.p}` : ''}`
   const meta = [st.channel, st.duration ? fmt(st.duration) : ''].filter(Boolean).join(' · ')
   return [...(dest.kind === 'board' ? [] : [`<!-- video video=${st.key} -->`]), `[${st.title.replace(/[[\]]/g, ' ')}](${url})`, meta || (st.site === 'youtube' ? 'YouTube' : 'B站')].join('\n')

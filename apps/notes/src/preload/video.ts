@@ -42,9 +42,11 @@ const CSS = `
 .flash{position:absolute;background:#fff;opacity:0;transition:opacity .25s}
 .flash.on{opacity:.55;transition:none}
 .box{position:absolute;pointer-events:auto;cursor:crosshair}
-.box .tip{position:absolute;left:50%;top:12px;transform:translateX(-50%);padding:5px 12px;border-radius:999px;background:rgba(8,8,10,.78);color:#fff;font-size:12px;white-space:nowrap}
-.box .sel{position:absolute;border:2px solid #9A48AD;box-shadow:0 0 0 9999px rgba(0,0,0,.35);border-radius:2px}
-.box.dim{background:rgba(0,0,0,.35)}
+.box .tip{position:absolute;left:50%;top:12px;transform:translateX(-50%);height:28px;display:flex;align-items:center;padding:0 12px;border-radius:8px;background:rgba(12,18,20,.82);color:#fff;font-size:12px;white-space:nowrap}
+.box .sel{position:absolute;border:2px solid var(--sel,#9A48AD);box-shadow:0 0 0 9999px rgba(0,0,0,.28);border-radius:3px}
+.box.done{pointer-events:none}
+.box.done .sel{box-shadow:none;background:color-mix(in srgb,var(--sel,#9A48AD) 8%,transparent)}
+.box.dim{background:rgba(0,0,0,.18)}
 `
 
 function ensure() {
@@ -219,7 +221,8 @@ ipcRenderer.on('video:hide-subs', (_e, on: boolean) => {
 // ---------------------------------------------------------------- 报给界面和主进程
 
 let lastMain = 0
-setInterval(() => {
+/** 播到哪、视频在网页里的位置报给界面（每 250 毫秒；网页滚动时马上报，问框跟着视频走） */
+function report() {
   if (!subs) return
   const v = mainVideo()
   if (!v) return
@@ -229,7 +232,17 @@ setInterval(() => {
     lastMain = Date.now()
     ipcRenderer.send('video:tick', subs.key, v.currentTime)
   }
-}, 250)
+}
+setInterval(report, 250)
+let scrollRaf = 0
+addEventListener(
+  'scroll',
+  () => {
+    cancelAnimationFrame(scrollRaf)
+    scrollRaf = requestAnimationFrame(report)
+  },
+  { passive: true },
+)
 
 // ---------------------------------------------------------------- 界面发来的命令
 
@@ -259,8 +272,8 @@ function onBoxKey(e: KeyboardEvent) {
   stopBox()
 }
 
-/** ⌥D：视频暂停，画面变十字光标，拖一个框；松手把框的位置（0 到 1）交给界面 */
-function startBox() {
+/** ⌥D：视频暂停，画面变十字光标，拖一个框；松手把框的位置（0 到 1）交给界面。color：框线的颜色（软件主题的强调色，同原型） */
+function startBox(color?: string) {
   const v = mainVideo()
   if (!v) return
   ensure()
@@ -271,6 +284,7 @@ function startBox() {
   const b = document.createElement('div')
   b.className = 'box dim'
   b.style.cssText = 'left:0;top:0;right:0;bottom:0'
+  if (color && /^[#\w(),.\s%-]{1,40}$/.test(color)) b.style.setProperty('--sel', color)
   b.append(div('tip', '拖一个框，框住想问的那块 · esc 取消'))
   layer.appendChild(b)
   boxing = b
@@ -307,6 +321,10 @@ function startBox() {
     if (box.w < 0.02 || box.h < 0.02) box = { x: 0, y: 0, w: 1, h: 1 }
     const tip = b.querySelector('.tip')
     tip?.remove()
+    // 框好了：框留着（问框开着时看得到问的是哪块），外面压暗淡一点，不再拦鼠标（能照常点视频）
+    if (sel && box.w === 1 && box.h === 1) sel.style.cssText = 'left:0;top:0;width:100%;height:100%'
+    b.classList.remove('dim')
+    b.classList.add('done')
     ipcRenderer.sendToHost('cn:video', { type: 'box', box, rect: { x: r.left, y: r.top, w: r.width, h: r.height } })
   })
 }
@@ -328,8 +346,13 @@ ipcRenderer.on('video:cmd', (_e, cmd: string, arg: unknown) => {
   } else if (cmd === 'skip' && typeof arg === 'number') v.currentTime = Math.max(0, v.currentTime + arg)
   else if (cmd === 'pause') v.pause()
   else if (cmd === 'play') void playNow(v)
-  else if (cmd === 'box') startBox()
+  else if (cmd === 'box') startBox(typeof arg === 'string' ? arg : undefined)
   else if (cmd === 'flash') flash()
+  // 问框在视频下面放不下：网页往上滚一点（问框跟着视频走）
+  else if (cmd === 'scrollBy' && typeof arg === 'number') {
+    window.scrollBy({ top: Math.max(-2000, Math.min(2000, arg)) })
+    report()
+  }
 })
 
 addEventListener('DOMContentLoaded', () => ipcRenderer.send('video:ready'))

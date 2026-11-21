@@ -1,0 +1,302 @@
+/*
+ * AI 输入框打 / 的菜单（task-9womr，小样 proto-c2.html 的 .slash，尺寸照抄）：从输入框上面弹出来，列表高度定死 392 能滚，
+ * 组间一道 1px --line、组名 12/500 --t3 写在横线下面（照 ⌘K）；每条 44 高两行；底下一行 28 高的键位提示和「这里能用 N 条」。
+ * 小标签：改是黄底、新建是绿底、只回答这些是灰底（和「存之前看清它会改什么」那张卡的文件树一个颜色）。
+ */
+.slash {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  background: var(--pop);
+  border-radius: 12px;
+  box-shadow: var(--shadow-up);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  text-align: left;
+  container-type: inline-size;
+}
+/* 不叫 .list：全局的 .list（ui.css 的 flex 列、app.css 的 880 居中）会套上来 */
+.slash .sl-list {
+  height: 392px;
+  overflow: auto;
+  padding: 2px 6px 6px;
+  overscroll-behavior: contain;
+  /* 不画滚动条（全局的 11 宽滚动条在这里一直占位，挤掉说明的字）；能往下滚看底下露出的半行 */
+  scrollbar-width: none;
+}
+.slash .sl-list::-webkit-scrollbar {
+  display: none;
+}
+.slash .g {
+  border-top: 1px solid var(--line);
+  margin: 6px 2px 0;
+  padding: 6px 6px 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+}
+.slash .g.first {
+  border-top: 0;
+  margin-top: 0;
+}
+.slash .it {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 5px 8px;
+  border-radius: 8px;
+  height: 44px;
+  box-sizing: border-box;
+  color: var(--t1);
+  cursor: default;
+}
+.slash .it.on {
+  background: var(--fill2);
+}
+.slash .it .ico {
+  margin-top: 2px;
+  color: var(--t2);
+  display: grid;
+  place-items: center;
+}
+.slash .it .tx {
+  min-width: 0;
+}
+.slash .it .l1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 19px;
+}
+.slash .it .n {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.slash .it .tg {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.slash .it .tg span {
+  height: 18px;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  background: var(--fill2);
+  color: var(--t2);
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.slash .it .tg span.w {
+  background: color-mix(in srgb, var(--yellow) 14%, transparent);
+  color: var(--yellow);
+}
+.slash .it .tg span.nw {
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+}
+.slash .it .d {
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 鼠标指着时第二行右端一颗 ⋯（改顺序、藏起；右键、选中时 ⌘. 也是它）；键盘选中不出，菜单打开时和小样一样干净 */
+.slash .it .more {
+  position: absolute;
+  right: 6px;
+  bottom: 3px;
+  width: 22px;
+  height: 20px;
+  display: none;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t3);
+}
+.slash .it:hover .more {
+  display: grid;
+}
+.slash .it:hover .d {
+  padding-right: 22px;
+}
+.slash .it .more:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.slash .ph {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px 0 34px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.slash .ph.none {
+  padding-left: 12px;
+}
+/* 藏着的：一行能点开，列出来的每条 62% 透明，右端「放回」（照 ⌘K） */
+.slash .g.hid {
+  padding: 4px 2px 2px;
+}
+.slash .hid-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--t3);
+}
+.slash .hid-row:hover {
+  background: var(--fill);
+  color: var(--t2);
+}
+.slash .it.put > .ico,
+.slash .it.put > .tx {
+  opacity: 0.62;
+}
+.slash .it .put-back {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--acc-t);
+}
+.slash .it .put-back:hover {
+  background: var(--fill);
+}
+.slash .ft {
+  height: 28px;
+  flex: none;
+  white-space: nowrap;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.slash .ft .r {
+  margin-left: auto;
+}
+.slash .ft .sl-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--t2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.slash .ft .sl-toast button {
+  border: 0;
+  background: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  font: inherit;
+  font-weight: 500;
+  color: var(--t1);
+}
+.slash .ft .sl-toast button:hover {
+  background: var(--fill);
+}
+
+/*
+ * 窄的 AI 格（软件最窄 960 时菜单只有 220 来宽）：名字先保住。小标签放不下时先只留第一个（改这一篇、新建、只回答这些），
+ * 再窄就不要小标签（第二行的说明还在）；底下那行只留「这里能用 N 条」，键位提示让出来
+ * 放在后面：和上面的规则一样具体，后写的才算数
+ */
+@container (max-width: 339px) {
+  .slash .it .tg span + span {
+    display: none;
+  }
+}
+@container (max-width: 279px) {
+  .slash .it .tg {
+    display: none;
+  }
+  .slash .ft > span:first-child:not(.sl-toast) {
+    display: none;
+  }
+}
+
+/* 一条命令的小菜单（照 ⌘K 的：230 宽、--pop、圆角 12、--shadow-up、内边距 6；行 30 高、圆角 8；头一行 12 --t3 命令名） */
+.sl-menu {
+  position: fixed;
+  z-index: 300;
+  width: 230px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+}
+.sl-menu .h {
+  padding: 4px 10px 4px;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sl-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--t1);
+  text-align: left;
+}
+.sl-menu button .codicon,
+.sl-menu button svg {
+  color: var(--t2);
+}
+.sl-menu button:hover:not(:disabled) {
+  background: var(--fill2);
+}
+.sl-menu button:disabled {
+  color: var(--t3);
+}
+.sl-menu button.red,
+.sl-menu button.red svg {
+  color: var(--red);
+}
+.sl-menu .sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--line);
+}

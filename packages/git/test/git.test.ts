@@ -79,6 +79,21 @@ it('只提交 AI 改的那几个文件；撤回是一次反向提交', async () 
   expect((await log(dir, 1))[0]!.subject).toBe('撤回AI：加一行')
 })
 
+it('提交完到取提交号之间别处又提交了一次（视频条存字幕全文）：返回的还是自己那次，不是最新那次', async () => {
+  writeFileSync(join(dir, 'a.md'), 'a\n')
+  await commitAll(dir, '起点')
+  // 提交一完成，钩子马上在别的文件上再提交一次（演软件里另一处同时提交）
+  await git(dir, ['config', 'core.hooksPath', '.git/hooks'])
+  const hook = join(dir, '.git/hooks/post-commit')
+  writeFileSync(hook, '#!/bin/sh\n[ -n "$CN_HOOKED" ] && exit 0\necho x >> other.md\nCN_HOOKED=1 git add other.md && CN_HOOKED=1 git commit -q -m 别处那次 -- other.md\n', { mode: 0o755 })
+  writeFileSync(join(dir, 'a.md'), 'a\nAI 加的\n')
+  const h = await commitPaths(dir, ['a.md'], 'AI：加一行')
+  expect((await log(dir, 1))[0]!.subject).toBe('别处那次')
+  const mine = (await log(dir, 1, h!))[0]!
+  expect(mine.subject).toBe('AI：加一行')
+  expect(mine.files.map((f) => f.path)).toEqual(['a.md'])
+})
+
 it('自动提交把 AI 改的和别处的字一起收进去了：找得到是哪次，只撤回 AI 的那几个文件，别处的字和之后的改动不动', async () => {
   writeFileSync(join(dir, '白板.md'), '卡一\n')
   writeFileSync(join(dir, '日记.md'), '今天\n')

@@ -20,8 +20,10 @@ export function AiError(props: {
    * 不是「再问一次」（那样从头再来一遍）。onContinue 只在最后一条、没在答时给
    */
   cut?: { at: { label: string; code?: string } | null; onContinue?(): void }
+  /** 我们自己说的「这次没做」（/ 命令跑不了的原因）：照原话写，不认原因、不给下一步、没有原话可看 */
+  own?: boolean
 }) {
-  const v = aiErrorView(props.raw, props.engine)
+  const v = props.own ? { code: 'own', title: props.raw.trim(), acts: [] as ReturnType<typeof aiErrorView>['acts'], raw: null } : aiErrorView(props.raw, props.engine)
   const [open, setOpen] = useState(false)
   const cut = props.cut
   const acts = v.acts.filter((a) => (a === 'retry' ? props.onRetry && !cut : a === 'rephrase' ? props.onRephrase && !cut : true))

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { launch, rail } from './app'
+import { launch, rail, widenRight } from './app'
 import { shotPart, shotTone, shotWindow } from './shots'
 
 let server: Server
@@ -101,7 +101,7 @@ test('新网页只有它一个标签：快捷书签空着那句不指向看不�
   }
 })
 
-test('右栏开 3 个网页（340 宽）：每个标签的名字至少留 48 像素（四个字上下），分得出谁是谁', async () => {
+test('右栏开 3 个网页：窄（默认 380）时别的标签只剩图标、悬停看名字；拉宽到 720 以上每个标签的名字至少留 48 像素（四个字上下），分得出谁是谁', async () => {
   const run = await launch({ 'a.md': '# a\n' })
   const { page } = run
   try {
@@ -113,8 +113,18 @@ test('右栏开 3 个网页（340 宽）：每个标签的名字至少留 48 像
       await go(page, `${base}/${n}`)
     }
     await expect(webTabs(page)).toHaveCount(3)
+    // 窄：别的标签只剩图标（task-sta8n 方向 A，原型 .narrow），名字在悬停提示里
+    const others = webTabs(page).and(page.locator(':not(.on)'))
+    for (const w of await others.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)))) expect(w).toBeLessThanOrEqual(32)
+    await expect(others.first()).toHaveAttribute('title', /第 \d 页 - 雷克雅未克/)
+    // 收起左栏、网页栏拉宽到 720 以上：名字摆出来
+    await page.locator('main.center').click({ position: { x: 300, y: 300 } })
+    await page.keyboard.press('Meta+Backslash')
+    await widenRight(page, 500)
+    await expect(web(page)).toHaveClass(/w-wide/)
     await shotPart(web(page).getByRole('tablist', { name: '网页标签' }), 'r1-web-three-tabs')
-    const widths = await webTabs(page).locator('.tl .truncate').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)))
+    const widths = await others.locator('.tl .truncate').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)))
+    expect(widths).toHaveLength(2)
     for (const w of widths) expect(w).toBeGreaterThanOrEqual(48)
     // 不是当前的标签：悬停时 × 出来，点它能关
     await webTabs(page).nth(0).hover()

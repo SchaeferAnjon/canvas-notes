@@ -247,6 +247,11 @@ export function splitDoc(text: string): DocBoard {
       blocks[blocks.length - 1] = { ...prev, to: b.to }
       continue
     }
+    // 文档里 AI 讲解上开的旁支（`> [!side]` 挂在讲解下面，task-4edsc）：和那块讲解是一张卡，不单独成卡；拖卡时一起走
+    if (prev && b.kind === 'quote' && prev.kind === 'quote' && /^\s*>\s*\[!side\]/i.test(text.slice(b.from, b.to)) && /^\s*>\s*\[!ai\]/i.test(text.slice(prev.from, prev.to))) {
+      blocks[blocks.length - 1] = { ...prev, to: b.to }
+      continue
+    }
     if (prev && b.kind === 'list' && prev.kind === 'list') {
       blocks[blocks.length - 1] = { ...prev, to: b.to, list: prev.list === b.list ? prev.list : 'bullet' }
       continue

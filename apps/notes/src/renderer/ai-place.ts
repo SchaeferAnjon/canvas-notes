@@ -6,6 +6,7 @@ import { hostOf, readKey } from '../shared/ai-chats'
 import { buildTree, type FileEntry, subtree } from '../shared/files'
 import { CLIPS, titleOf } from '../shared/layout'
 import type { Tab } from './tabs'
+import { getProposal } from './commands/proposals'
 
 /** 一个地方：存对话用的 key，头上胶囊、菜单里写的名字 */
 export interface Place {
@@ -44,6 +45,11 @@ export function placeOf(tab: Tab | null, digest = false): Place {
     case 'doubts':
       return { key: `doubts:${tab.folder}`, label: '我的疑惑' }
     case 'diff':
+      // AI 命令「先给你看」的对比标签：还是跑命令的那段对话（task-9womr）
+      if (tab.src.kind === 'proposal') {
+        const p = getProposal(tab.src.id)
+        if (p) return p.place
+      }
       return { key: `diff:${tab.title}`, label: tab.title }
     case 'oldimages':
       return { key: 'dream', label: '梦游预览' }

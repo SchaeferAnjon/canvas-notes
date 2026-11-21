@@ -63,7 +63,7 @@ test('有句子没翻成：进度不停在 88%，视频条写「字幕 · 1句�
     await expect(subBtn(page)).toHaveClass(/warn/)
     // 字说全了（不出省略号），这一行的按钮都在视频条里
     expect(await subBtn(page).locator('.truncate').evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true)
-    expect(await strip(page).locator('.vbar').evaluate((b) => [...b.children].every((c) => c.getBoundingClientRect().right <= b.getBoundingClientRect().right + 0.5))).toBe(true)
+    expect(await strip(page).evaluate((b) => [...b.children].every((c) => c.getBoundingClientRect().right <= b.getBoundingClientRect().right + 0.5))).toBe(true)
     // 摘要不等翻译：照样写出来
     await expect.poll(() => summaryOf(vault), { timeout: 15_000 }).toMatch(/^- \[00:00\]/)
     // 字幕菜单里写原因

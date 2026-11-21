@@ -6,8 +6,8 @@ import { layoutMindmap, mindmapThumb, wirePath } from '../src/shared/mindmap-lay
 describe('认摄像头', () => {
   it('这台 M3 Max 上 Electron 列出来的名字', () => {
     expect(cameraKind('FaceTime HD Camera (467C:1317)')).toBe('mac')
-    expect(cameraKind('schaefer Camera')).toBe('iphone')
-    expect(cameraKind('schaefer Desk View Camera')).toBe('desk')
+    expect(cameraKind('Alex Camera')).toBe('iphone')
+    expect(cameraKind('Alex Desk View Camera')).toBe('desk')
     expect(cameraKind('张三的 iPhone 相机')).toBe('iphone')
     expect(cameraKind('fake_device_0')).toBe('mac')
     expect(cameraKind('Logitech USB Camera')).toBe('mac')

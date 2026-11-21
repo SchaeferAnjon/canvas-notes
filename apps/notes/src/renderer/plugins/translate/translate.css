@@ -1,7 +1,7 @@
 /* 双语翻译：地址栏里的一对按钮、菜单（方向 A，spec 1.1）、失败说明块（3.3）、设置里「翻译用什么」（5）。变量都来自 DESIGN.md / DESIGN.v3.md */
 
 /* ---------- 地址栏里的一对：开关 + 小箭头。地址栏 28 高，这对 22 高（和星星一样高） ---------- */
-.addr .trctl {
+.trctl {
   display: flex;
   align-items: center;
   height: 22px;
@@ -9,11 +9,11 @@
   color: var(--t3);
   flex: none;
 }
-.addr .trctl:hover {
+.trctl:hover {
   background: var(--fill2);
   color: var(--t1);
 }
-.addr .trctl button {
+.trctl button {
   border: 0;
   background: none;
   color: inherit;
@@ -22,39 +22,39 @@
   display: flex;
   align-items: center;
 }
-.addr .trctl .trc-tg {
+.trctl .trc-tg {
   position: relative;
   min-width: 22px;
   gap: 4px;
   padding: 0 4px 0 4px;
   border-radius: 999px 0 0 999px;
 }
-.addr .trctl .trc-lb {
+.trctl .trc-lb {
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
 }
-.addr .trctl .trc-dd {
+.trctl .trc-dd {
   width: 14px;
   justify-content: center;
   border-radius: 0 999px 999px 0;
   padding-right: 2px;
   color: var(--t3);
 }
-.addr .trctl.on {
+.trctl.on {
   background: var(--acc-soft);
   color: var(--acc-t);
 }
-.addr .trctl.on .trc-dd {
+.trctl.on .trc-dd {
   color: var(--acc-t);
 }
 /* 出错：不再亮紫色，灰底、正文色、图标右上一个红点 */
-.addr .trctl.err {
+.trctl.err {
   background: var(--fill2);
   color: var(--t1);
 }
-.addr .trctl .trc-dot {
+.trctl .trc-dot {
   position: absolute;
   top: 2px;
   left: 13px;

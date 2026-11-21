@@ -15,7 +15,7 @@ import { rename } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import * as git from '@cn/git'
 import { type ActTally, actScope, noTally } from '../../shared/ai-act'
-import type { AgentContext, AiAct, AiActArea, AiEvent, BridgeOp, EngineId, EngineInfo, StoredMsg, TurnRequest, TurnResult } from '../../shared/agent'
+import type { AgentContext, AiAct, AiActArea, AiEvent, BridgeOp, ChatSide, EngineId, EngineInfo, SideTurnRequest, StoredMsg, TurnRequest, TurnResult } from '../../shared/agent'
 import type { AiCommitFailed, CommitInfo } from '../../shared/api'
 import { commitErrorText } from '../../shared/git-errors'
 import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, FEATURES, fitPick, MODEL_ID, type ModelOption, modelsOf, pickLabel, resolvePick } from '../../shared/ai-features'
@@ -29,7 +29,7 @@ import type { Vault } from '../vault'
 import type { Size } from './board-ops'
 import { describeContext } from './context'
 import { checkCli, checkedCli, COMMAND, findCli, forgetChecks, INSTALL_HINT, loadShellPath, locateCli, pickedCli, setCustomCli, whereOf } from './cli'
-import { claudeEngine, codexEngine, type Engine, type EngineOutcome, type EngineRun, geminiEngine, LABELS, opencodeEngine, sessionOf } from './engines'
+import { claudeEngine, codexEngine, type Engine, type EngineImage, type EngineOutcome, type EngineRun, geminiEngine, LABELS, opencodeEngine, sessionOf } from './engines'
 import { checkNow, engineState, noteVersion, pulledModels, refreshAll, startEngineWatch, updateNow, watchInfo, watching } from './engine-watch'
 import { fakeCodexModels, fakeEngine } from './fake-engine'
 import { pastedImages } from '../pasted'
@@ -40,6 +40,7 @@ import { AgentStore } from './store'
 import { runTool, stepLabel, type ToolHost, toolLabel, toolSpecs } from './tools'
 import * as vops from './vault-ops'
 import { modeLine, MODES_RULE, userNoteLine } from './modes'
+import { sideTurnPrompt } from './side-prompt'
 import * as web from './web'
 
 export { attachWeb, markedClips, unmarkClips } from './web'
@@ -668,6 +669,14 @@ function historyOf(msgs: StoredMsg[]): string | undefined {
 
 const turns = new Map<number, AbortController>()
 
+/** 界面给的旁支：形状不对的不收（编号只许字母数字和 -，主进程按它记会话号） */
+function checkSides(x: unknown[]): ChatSide[] {
+  return x.filter((s): s is ChatSide => {
+    const o = s as Partial<ChatSide> | null
+    return !!o && typeof o.id === 'string' && /^[\w-]{1,80}$/.test(o.id) && typeof o.msg === 'number' && typeof o.quote === 'string' && Array.isArray(o.msgs) && typeof o.createdAt === 'number'
+  })
+}
+
 /** 地方的 key、名字：界面给的，进文件名前过一遍 */
 function placeOf(p: unknown): { key: string; label: string } | null {
   if (p === undefined) return null
@@ -733,6 +742,64 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
 
 /** AI 对话这一格正在答 */
 let dockBusy = false
+
+/**
+ * 旁支里问一句（task-4edsc：AI 对话、文档里 AI 讲解块的旁支）。第一问从这个地方主对话的会话整段分叉（fresh 的不分叉，开新会话），
+ * 之后接着旁支自己的会话（记在这个地方的对话文件里），主对话的会话一直不动；不占 AI 对话那一格（主对话照样能问）。
+ * 能动手（同 AI 对话，这一轮改的提交一次、能撤回）
+ */
+async function runSideTurn(req: SideTurnRequest): Promise<TurnResult> {
+  if (!req || !IDS.includes(req.engine) || typeof req.text !== 'string' || typeof req.id !== 'number') throw new Error('AI 参数不对')
+  const place = placeOf(req.place)
+  const side = req.side
+  const str = (x: unknown, max: number) => typeof x === 'string' && x.length <= max
+  const opt = (x: unknown, max: number) => x === undefined || str(x, max)
+  if (!place || !side || !str(side.id, 80) || !/^[\w-]{1,80}$/.test(side.id) || !str(side.quote, 20_000) || !str(side.history, 200_000) || !opt(side.ask, 20_000) || !opt(side.where, 400)) throw new Error('AI 参数不对')
+  const mats = checkMaterials(req.mats)
+  const v = needVault()
+  const ac = new AbortController()
+  turns.set(req.id, ac)
+  let text = ''
+  try {
+    let picked: ReturnType<typeof chatRun>
+    try {
+      picked = chatRun(req.engine, req)
+    } catch (e) {
+      return { text: '', commit: null, kinds: {}, error: String((e as Error).message ?? e) }
+    }
+    const mine = store.sideSession(v.root, place.key, side.id, req.engine)
+    const base = side.fresh ? undefined : store.session(v.root, place.key, req.engine, AGENT_VERSION)
+    const omni = store.omni()
+    const r = await runAgentTurn({
+      id: req.id,
+      engine: req.engine,
+      omni,
+      ac,
+      subject: `旁支：${req.text}`,
+      emit: (e) => emit(req.id, e),
+      run: {
+        ...picked,
+        prompt: `${modeLine(omni, req.engine, v.root)}\n${describeContext(req.context)}\n\n${sideTurnPrompt({ first: !mine, quote: side.quote, ...(side.ask ? { ask: side.ask } : {}), ...(side.where ? { where: side.where } : {}), question: withMaterials(req.text, mats) })}`,
+        system: AGENT_SYSTEM,
+        session: mine ?? base,
+        ...(!mine && base ? { fork: true } : {}),
+        // 分叉不了（Gemini、OpenCode、主对话还没有会话、文档里的讲解块）：被问的那一轮（那段讲解）放在第一问前面
+        ...(side.history ? { history: side.history } : {}),
+        images: await pastedImages(req.pasted),
+        onText: (delta) => {
+          text += delta
+          emit(req.id, { type: 'text', delta })
+        },
+      },
+    })
+    text = (r.outcome?.text || text).replace(/\n{3,}/g, '\n\n')
+    const session = r.outcome?.session ?? r.session
+    if (session && session !== base) store.setSideSession(v.root, place.key, side.id, req.engine, session)
+    return { text, commit: r.commit, kinds: r.kinds, ...(r.error ? { error: r.error } : {}), ...(r.failed ? { failed: r.failed } : {}), ...(r.moved ? { moved: r.moved } : {}) }
+  } finally {
+    turns.delete(req.id)
+  }
+}
 
 function subject(text: string): string {
   const one = text.replace(/\s+/g, ' ').trim()
@@ -834,6 +901,17 @@ export async function ask(system: string, prompt: string, signal: AbortSignal, o
     .catch((e: Error) => {
       throw signal.aborted ? e : Object.assign(new Error(explain(p.engine, String(e.message ?? e))), { name: e.name })
     })
+  return r.text
+}
+
+/**
+ * 照给的那一家、模型、想多久问一次，不给工具（/ 命令：AI 输入框底行选的，task-0fhyo）；模型、effort 和 AI 对话一样过一遍
+ * （chatRun：这个模型不认的档换成它自己的默认档，CN_AI_MODEL 能换默认的 Opus）；images 是一起给的图
+ */
+export async function askWith(system: string, prompt: string, signal: AbortSignal, onText: (d: string) => void, pick: { engine: EngineId; model?: string; effort?: string }, images: EngineImage[] = []): Promise<string> {
+  if (!IDS.includes(pick.engine)) throw new Error('AI 参数不对')
+  const v = deps.vault()
+  const r = await engine(pick.engine).run({ prompt, system, cwd: v?.root ?? app.getPath('home'), signal, onText, ...chatRun(pick.engine, pick), ...(images.length ? { images } : {}) })
   return r.text
 }
 
@@ -1051,12 +1129,19 @@ export function registerAgent(d: AgentDeps) {
     const p = placeOf({ key: place, label: '' })!
     return v ? store.chat(v.root, p.key).msgs : []
   })
-  ipcMain.handle('ai:chat:save', (_e, place: unknown, label: unknown, msgs: StoredMsg[]) => {
+  ipcMain.handle('ai:chat:save', (_e, place: unknown, label: unknown, msgs: StoredMsg[], sides?: unknown) => {
     const v = deps.vault()
     const p = placeOf({ key: place, label })!
-    if (!v || !Array.isArray(msgs)) return
-    store.saveMsgs(v.root, p.key, p.label, msgs)
+    if (!v || !Array.isArray(msgs) || (sides !== undefined && !Array.isArray(sides))) return
+    store.saveMsgs(v.root, p.key, p.label, msgs, sides === undefined ? undefined : checkSides(sides))
   })
+  // 这段对话里开的旁支（task-4edsc）
+  ipcMain.handle('ai:chat:sides', (_e, place: unknown) => {
+    const v = deps.vault()
+    const p = placeOf({ key: place, label: '' })!
+    return v ? store.sides(v.root, p.key) : []
+  })
+  ipcMain.handle('ai:side', (_e, req: SideTurnRequest) => runSideTurn(req))
   // 这个对话自己选的模型、effort（CN-91 方向 C：只管这个对话，记在这个对话里；没选过是 null，用设置 › AI「AI 对话」那一行）
   ipcMain.handle('ai:chat:pick', (_e, place: unknown) => {
     const v = deps.vault()

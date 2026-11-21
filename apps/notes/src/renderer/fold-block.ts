@@ -355,6 +355,13 @@ const foldField = StateField.define<FoldState>({
   provide: (f) => [EditorView.decorations.from(f, (v) => v.deco), EditorView.atomicRanges.of((view) => view.state.field(f).atomic), hiddenSyntax.of((state) => state.field(f).hidden)],
 })
 
+/** 第一行行首在 from 的提示块现在收着没有（文档里 AI 讲解上开的旁支跟着收，task-4edsc） */
+export function calloutFolded(state: EditorState, from: number): boolean {
+  const over = state.field(foldField, false)?.over.get(from)
+  if (over !== undefined) return over
+  return parseCallout(state.doc.lineAt(from).text)?.folded ?? false
+}
+
 /**
  * 光标在展开着的折叠块标题上按回车：不在标题里断行（会把 <summary> 拆坏）；块里有字时在正文最前面新起一段，
  * 块里空着时光标进块里第一行接着写

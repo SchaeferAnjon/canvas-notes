@@ -70,6 +70,15 @@ export interface ReadingMsg {
   change?: { commit: CommitInfo; kinds: Record<string, string>; reverted?: CommitInfo; moved?: Record<string, string> }
   /** 改好了、提交没成功 */
   warn?: string
+  /**
+   * / 命令自己说的「这次没做」（右栏没开着视频、还在读全文、AI 给的不对没写进去……）：照原话写，
+   * 不当成 AI 没答出来、不给「再问一次」（task-s2mhv）。AI 那边真出错（没登录、断网）还是 error
+   */
+  cant?: string
+  /** / 命令写进去的那一篇（新建的、这份 PDF 的笔记）：回答下面「打开」开到中间（task-69r0v）。笔记标签只列问答，看不到命令加的那一节 */
+  open?: { path: string }
+  /** / 命令「先给你看」摆在中间的那一份（这次打开软件时有）：回答下面「收下」「不要」「看改动」 */
+  proposal?: string
 }
 
 /**

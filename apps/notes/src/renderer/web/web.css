@@ -1,36 +1,8 @@
-/* 内置浏览器：网页标签、书签栏、插件按钮、书签和历史、插件面板、宽网页标签。沿用 DESIGN.md 现有的样式和变量 */
+/* 内置浏览器：书签栏、插件按钮、书签和历史、插件面板、宽网页标签。沿用 DESIGN.md 现有的样式和变量。
+   右栏网页栏顶上那两行（标签和地址一行、视频那一行，task-sta8n 方向 A）在 web-top.css */
 
-/* 右栏顶上和中间栏标签条对齐的那 40px 放网页标签 */
-/* 第二行地址行：44 高，左右 8，按钮间距 2（规格 design/web-spec.md 2.3） */
-.right.web .rhead {
-  margin-top: 0;
-  height: 44px;
-  gap: 2px;
-  padding: 0 8px;
-}
-.tabs.wtabs {
-  padding: 0 4px 0 8px;
-  overflow: hidden;
-  container: wtabs / inline-size;
-}
-/* 标签都在这一段里，多了横着滚；+ 在它外面，永远在标签条最右（CN-32） */
-.wtabs .wtlist {
-  flex: 1;
-  min-width: 0;
-  align-self: stretch;
-  display: flex;
-  align-items: inherit;
-  gap: inherit;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-.wtabs .wtlist::-webkit-scrollbar {
-  display: none;
-}
 /*
- * 右栏的当前网页标签不画主题的标记（CN-15）：只靠底色，和下面地址栏同一块底连起来，像 Chrome。
- * 网页面板的底：A 是 --win；B 是 --pop（实的，不用磨砂，网页本身也是实的），标签条在它上面压一层 --fill。
+ * 网页面板的底：A 是 --win；B 是 --pop（实的，不用磨砂，网页本身也是实的）。
  */
 .right.web {
   --wpanel: var(--win);
@@ -39,94 +11,19 @@
   --wpanel: var(--pop);
   background: var(--wpanel);
 }
-/* 标签条和地址行之间不画线：当前标签和地址行同一个底，一块连下来 */
-.win > .dview > .right.web > .tabs.wtabs {
-  background: var(--tabbar);
-  border-bottom: 0;
-}
-.win.frame-b > .dview > .right.web > .tabs.wtabs {
-  background: linear-gradient(var(--fill), var(--fill)), var(--wpanel);
-}
-[data-tabmark] .win .right.web .wtabs .tab.on {
-  background: var(--wpanel);
-  color: var(--t1);
-}
-[data-tabmark] .win .right.web .wtabs .tab.on::before {
-  content: none;
-}
-/* 像 Chrome：先把标签压窄（最窄 88），再放不下才横着滚 */
-.win .right.web .wtabs .tab {
-  position: relative;
-  flex: 0 1 180px;
-  min-width: 88px;
-  padding: 0 4px 0 10px;
-  gap: 4px;
-}
-/*
- * 标签压窄时名字要留得下四五个字，分得出谁是谁（CN-32）：左边距只算标签自己的 10（不再叠上中间栏标签名字的 12）；
- * 不是当前的标签，× 不占地方，悬停时浮在右端；当前标签带着 ×，最窄 112
- */
-.win .right.web .wtabs .tab .tl {
-  padding: 0 2px 0 0;
-}
-.win .right.web .wtabs .tab:not(.on) .x {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-}
-/* 悬停时名字末尾渐隐让出 ×（像 Chrome），不垫底色，哪套主题、A / B 都对得上 */
-.win .right.web .wtabs .tab:not(.on):hover .tl {
-  -webkit-mask-image: linear-gradient(to left, transparent 24px, #000 36px);
-  mask-image: linear-gradient(to left, transparent 24px, #000 36px);
-}
-.win .right.web .wtabs .tab.on {
-  min-width: 120px;
-}
-.wtabs .tab .tl {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  background: none;
-  color: inherit;
-  padding: 0;
-  height: 100%;
-}
-.wtabs .wnew {
-  align-self: center;
-  flex: none;
-  margin-left: 4px;
-  -webkit-app-region: no-drag;
-}
 .addr input:focus-visible,
 .wsearch input:focus-visible {
   outline: none;
 }
-
-/* 地址栏：只留双语翻译（图标 + 小箭头）；书签星号在「⋯」里。网址框至少 160 宽 */
-.right.web .addr {
-  flex: 1;
-  min-width: 160px;
-  padding: 0 4px 0 10px;
-  margin: 0 4px;
-}
-.right.web .addr:focus-within {
-  background: var(--card);
-  box-shadow: 0 0 0 1px var(--line2);
-}
-.right.web .addr input {
-  font-size: 13px;
-}
+/* 这一页的开关（双语翻译）：地址块右边、竖线后面 */
 .addr-acts {
   display: flex;
   align-items: center;
   gap: 2px;
   flex: none;
 }
-.addr .abtn {
+.addr .abtn,
+.addr-acts .abtn {
   display: grid;
   place-items: center;
   width: 22px;
@@ -136,20 +33,19 @@
   background: none;
   color: var(--t3);
 }
-.addr .abtn:hover {
+.addr .abtn:hover,
+.addr-acts .abtn:hover {
   background: var(--fill2);
   color: var(--t1);
 }
-.addr .abtn.on {
+.addr .abtn.on,
+.addr-acts .abtn.on {
   background: var(--acc-soft);
   color: var(--acc);
 }
-.addr .abtn.filled svg {
+.addr .abtn.filled svg,
+.addr-acts .abtn.filled svg {
   fill: currentColor;
-}
-.rhead .iconbtn.on {
-  background: var(--fill2);
-  color: var(--t1);
 }
 
 /* 插件按钮 */

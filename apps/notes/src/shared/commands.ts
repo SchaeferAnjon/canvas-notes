@@ -9,6 +9,7 @@
  */
 import { isCombo } from './cmd-keys'
 import { canShare, keyProblemFor } from './cmd-table'
+import { emptySlash, normalizeSlash, type SlashConfig } from './ai-cmds'
 
 export const COMMANDS_FILE = '.canvas-notes/命令.json'
 export const COMMANDS_VERSION = 1
@@ -83,6 +84,8 @@ export interface CmdConfig {
   homes: Record<string, string>
   own: OwnCommand[]
   web: WebMenuConfig
+  /** AI 输入框打 / 的菜单里藏起的、换过顺序的（task-9womr；自带的不能改字，只能藏起、换顺序、复制一份再改） */
+  slash: SlashConfig
   /** 不认识的字段：原样写回 */
   rest: Record<string, unknown>
 }
@@ -119,7 +122,7 @@ export interface CnCmdsApi {
 /** 网页「⋯」里一直在的（从菜单回到调整得先有入口） */
 export const WEB_LOCKED = 'extensions'
 
-export const defaultCommands = (): CmdConfig => ({ groups: null, hidden: [], alias: {}, keys: {}, homes: {}, own: [], web: { hidden: [], order: {} }, rest: {} })
+export const defaultCommands = (): CmdConfig => ({ groups: null, hidden: [], alias: {}, keys: {}, homes: {}, own: [], web: { hidden: [], order: {} }, slash: emptySlash(), rest: {} })
 
 const uniq = (xs: string[]) => [...new Set(xs)]
 const strings = (v: unknown, max = 500): string[] => (Array.isArray(v) ? uniq(v.filter((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= max)) : [])
@@ -148,7 +151,7 @@ function normalizeGroups(v: unknown): GroupEntry[] | null {
 /** 读 命令.json：坏的、手改错的只留对的那几样，整个读不出当没改过 */
 export function normalizeCommands(raw: unknown): CmdConfig {
   const o = record(raw)
-  const known = new Set(['version', 'groups', 'hidden', 'alias', 'keys', 'homes', 'own', 'webMenu'])
+  const known = new Set(['version', 'groups', 'hidden', 'alias', 'keys', 'homes', 'own', 'webMenu', 'slash'])
   const rest = Object.fromEntries(Object.entries(o).filter(([k]) => !known.has(k)))
   const alias: Record<string, string> = {}
   for (const [k, v] of Object.entries(record(o.alias))) if (isCmdId(k) && typeof v === 'string' && v.trim() && v.trim().length <= 20) alias[k] = v.trim()
@@ -176,6 +179,7 @@ export function normalizeCommands(raw: unknown): CmdConfig {
     homes,
     own,
     web: { hidden: strings(wm.hidden, 60).filter((x) => x !== WEB_LOCKED), order },
+    slash: normalizeSlash(o.slash),
     rest,
   }
 }
@@ -190,6 +194,7 @@ export function commandsJson(c: CmdConfig): string {
   if (Object.keys(c.homes).length) out.homes = c.homes
   if (c.own.length) out.own = c.own
   if (c.web.hidden.length || Object.keys(c.web.order).length) out.webMenu = { ...(c.web.hidden.length ? { hidden: c.web.hidden } : {}), ...(Object.keys(c.web.order).length ? { order: c.web.order } : {}) }
+  if (c.slash.hidden.length || c.slash.order.length) out.slash = { ...(c.slash.hidden.length ? { hidden: c.slash.hidden } : {}), ...(c.slash.order.length ? { order: c.slash.order } : {}) }
   return JSON.stringify({ ...out, ...c.rest }, null, 2) + '\n'
 }
 

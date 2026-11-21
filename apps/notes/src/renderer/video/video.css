@@ -1,42 +1,61 @@
-/* 视频（方向 A「视频条」，spec 第 3、5 节）：地址栏下面两行、字幕菜单、时刻弹层、问话框、底部提示、文档里的时刻块和视频卡、白板上的视频卡和时刻卡。
-   变量都来自 DESIGN.md / DESIGN.v3.md；菜单借双语翻译菜单的 .trm 那一套 */
+/* 视频（方向 A「视频条」，spec 第 3、5 节）：网页栏顶上视频那一行、字幕菜单、时刻弹层、底部提示、文档里的时刻块和视频卡、白板上的视频卡和时刻卡。
+   变量都来自 DESIGN.md / DESIGN.v3.md；菜单借双语翻译菜单的 .trm 那一套。问框在 ask-card.css */
 
-/* ---------- 视频条：高 40，--win 底，下边 1px --line，左右 8 ---------- */
-.vstrip {
+/* ---------- 视频那一行（task-sta8n 方向 A 第二行，原型 .vr）：32 高，左右 8，间距 6，下边 1px --line ---------- */
+.vrow {
   position: relative;
-  flex: none;
   z-index: 30;
-}
-.vbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 8px;
-  background: var(--win);
-}
-.vbar .sp {
-  flex: 1;
-}
-.vbar kbd {
-  font: 500 11px/1 var(--sans);
-  opacity: 0.7;
-  margin-left: 2px;
-}
-.vsub {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  max-width: 168px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--fill);
-  color: var(--t1);
-  font-size: 12px;
-  font-weight: 500;
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--wpanel, var(--win));
+}
+/* 一颗：24 高、左右 7、圆角 6、12px --t1，悬停 --fill（原型 .chip） */
+.vchip {
+  flex: none;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px/1 var(--sans);
+  color: var(--t1);
+  white-space: nowrap;
+}
+.vchip:hover {
+  background: var(--fill);
+}
+.vchip kbd {
+  font: 11px/1 var(--sans);
+  color: var(--t3);
+}
+.vchip.solid {
+  background: var(--solid);
+  color: var(--solid-t);
+}
+.vchip.solid kbd {
+  color: var(--solid-t);
+  opacity: 0.7;
+}
+.vchip.solid:hover {
+  opacity: 0.88;
+}
+.vchip svg {
+  flex: none;
+}
+/* 字幕那一颗：--fill 底、前面一个点；放不下省略 */
+.vsub {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 168px;
+  background: var(--fill);
 }
 .vsub:hover {
   background: var(--fill2);
@@ -44,9 +63,9 @@
 .vsub .vdot {
   width: 6px;
   height: 6px;
+  flex: none;
   border-radius: 50%;
   background: var(--t3);
-  flex: none;
 }
 .vsub.on .vdot {
   background: var(--acc);
@@ -61,132 +80,183 @@
 .vtr-err .acts {
   margin-top: 6px;
 }
-.vbar .btn {
-  flex: none;
-  gap: 6px;
-}
-.vdest {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 132px;
-  height: 28px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
+.vcount {
   color: var(--t2);
-  font-size: 12px;
+}
+/* 记到哪：最宽 150、能压窄；网页栏窄于 720 时只留图标和小箭头 */
+.vdest {
+  flex: 0 1 auto;
+  max-width: 150px;
+  min-width: 60px;
+}
+/* 网页栏窄于 720（原型 .mid）：快捷键提示、记到哪的名字收起；窄于 470（.narrow）：「字幕」「记下这一刻」「框一块问」「个时刻」这些字也收起，只留图标 */
+.right.web:not(.w-wide) .vrow kbd,
+.right.web:not(.w-wide) .vrow .vdest .dn {
+  display: none;
+}
+.right.web:not(.w-wide) .vrow .vdest {
   min-width: 0;
 }
-.vdest:hover {
-  background: var(--fill);
-  color: var(--t1);
+.right.web.w-narrow .vrow .lbl {
+  display: none;
 }
 
-/* ---------- 刻度：高 30，左右 12 ---------- */
-.vticks {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  height: 30px;
-  padding: 0 12px;
-  background: var(--win);
-  border-bottom: 1px solid var(--line);
-}
+/* ---------- 时间轴：挤在视频那一行中间（原型 .track），24 高；线 2px，刻度 3 × 12 强调色，问过的空心圆 8，播放头 2 × 18 ---------- */
 .vtrack {
   position: relative;
   flex: 1;
-  height: 14px;
+  min-width: 48px;
+  height: 24px;
+  cursor: pointer;
 }
 .vtrack::before {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
-  top: 6px;
+  top: 11px;
   height: 2px;
-  border-radius: 1px;
+  border-radius: 2px;
   background: var(--line2);
 }
-.vplayed {
+.vtrack .vplayed {
   position: absolute;
   left: 0;
-  top: 6px;
+  top: 11px;
   height: 2px;
-  border-radius: 1px;
-  background: var(--t2);
+  border-radius: 2px;
+  background: var(--acc);
+  opacity: 0.45;
 }
-.vmark {
+.vtrack .vmark {
   position: absolute;
-  top: 2px;
+  top: 6px;
   width: 3px;
-  height: 10px;
+  height: 12px;
   margin-left: -1.5px;
   padding: 0;
   border: 0;
-  border-radius: 1px;
-  background: var(--t1);
+  border-radius: 2px;
+  background: var(--acc);
   cursor: pointer;
 }
-.vmark::after {
+.vtrack .vmark::after {
   content: '';
   position: absolute;
-  inset: -4px -4px;
+  inset: -4px;
 }
-.vmark.asked {
-  top: 3px;
+.vtrack .vmark.asked {
+  top: 8px;
   width: 8px;
   height: 8px;
   margin-left: -4px;
   border-radius: 50%;
-  background: var(--win);
-  box-shadow: inset 0 0 0 1.5px var(--t1);
-}
-.vmark.new {
-  background: var(--acc);
-}
-.vmark.asked.new {
-  background: var(--win);
+  background: var(--pop);
   box-shadow: inset 0 0 0 1.5px var(--acc);
 }
-.vhead {
+.vmark.new {
+  animation: vmark-new 1.2s ease;
+}
+@keyframes vmark-new {
+  0% {
+    transform: scale(2.2);
+    box-shadow: 0 0 0 4px var(--acc-ring);
+  }
+  100% {
+    transform: none;
+  }
+}
+.vtrack .vhead {
   position: absolute;
-  top: 1px;
+  top: 3px;
   width: 2px;
-  height: 12px;
+  height: 18px;
   margin-left: -1px;
   border-radius: 1px;
-  background: var(--acc);
+  background: var(--t1);
   pointer-events: none;
 }
 .vtip {
   position: absolute;
-  bottom: 18px;
+  bottom: 22px;
   transform: translateX(-50%);
-  padding: 4px 8px;
-  border-radius: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
   background: var(--pop);
   box-shadow: var(--shadow-up);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--t1);
   white-space: nowrap;
   pointer-events: none;
   z-index: 5;
 }
-.vcount {
+
+/* ---------- 收起那一行：两颗图标和时刻数；时间轴是这一行底边一根线（原型 .hair）：8 高的地方能点，指着 16 高、刻度变长 ---------- */
+.vfold {
+  position: relative;
+  flex: none;
   display: flex;
   align-items: center;
   gap: 2px;
-  border: 0;
-  background: none;
-  padding: 0 2px;
-  font-size: 12px;
-  color: var(--t2);
-  white-space: nowrap;
 }
-.vcount:hover {
-  color: var(--t1);
+.vhair {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  z-index: 2;
+  height: 8px;
+  cursor: pointer;
+}
+.vhair::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--line);
+}
+.vhair .vplayed {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--acc);
+  opacity: 0.55;
+}
+.vhair .vmark {
+  position: absolute;
+  bottom: 0;
+  width: 2px;
+  height: 6px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--acc);
+}
+.vhair .vmark.asked {
+  bottom: -2px;
+  width: 6px;
+  height: 6px;
+  margin-left: -3px;
+  border-radius: 50%;
+  background: var(--pop);
+  box-shadow: inset 0 0 0 1.5px var(--acc);
+}
+.vhair:hover {
+  height: 16px;
+}
+.vhair:hover .vmark:not(.asked) {
+  height: 10px;
+}
+
+/* 视频那一行、收起那一行的弹层贴着那一行下沿 */
+.vrow .vmenu,
+.vfold .vmenu {
+  top: 30px;
+}
+.vfold .vmoments {
+  right: 0;
 }
 
 /* ---------- 弹层：字幕菜单 300 宽，时刻 330 宽 ---------- */
@@ -253,6 +323,22 @@
 .vdestmenu .mlabel {
   flex: 1;
   min-width: 0;
+}
+/* 「记到哪（这个视频记住）」：头一行 12 --t3（原型 .ph2，和勾那一列的字对齐），每行右边一句 12 --t3 */
+.vdestmenu .mh {
+  padding: 4px 8px 4px 28px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.vdestmenu .r {
+  flex: none;
+  padding-left: 12px;
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 问框底栏上：往上弹 */
+.vdestmenu.up {
+  right: auto;
 }
 .vseg {
   width: 100%;
@@ -385,60 +471,6 @@
   font-size: 12px;
   line-height: 1.5;
   color: var(--t3);
-}
-
-/* ---------- 问话框：300 宽，圆角 12，--shadow-up ---------- */
-.vask-pop {
-  position: absolute;
-  z-index: 48;
-  width: 300px;
-  padding: 12px;
-  border-radius: 12px;
-  background: var(--pop);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  box-shadow: var(--shadow-up);
-}
-.vask-in {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 40px;
-  padding: 0 4px 0 12px;
-  border-radius: 14px;
-  background: var(--card);
-  box-shadow: inset 0 0 0 1px var(--line2);
-}
-.vask-in input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  background: none;
-  font-size: 13px;
-  color: var(--t1);
-  outline: none;
-}
-.vask-sug {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
-}
-.vask-sug button {
-  height: 26px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--fill);
-  color: var(--t2);
-  font-size: 12px;
-}
-.vask-sug button:hover {
-  background: var(--fill2);
-  color: var(--t1);
-}
-.vask-pop .vfoot {
-  margin: 10px 0 0;
 }
 
 /* ---------- 记好以后底部那条提示 ---------- */

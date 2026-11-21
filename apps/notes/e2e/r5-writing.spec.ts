@@ -291,7 +291,7 @@ test('AI 存卡提交没成功，别处又打了字：「再提交一次」只�
     await expect(msg.locator('.done')).toHaveText('卡存好了，提交好了', { timeout: 15_000 })
     const change = msg.getByTestId('ai-change')
     await expect(change).toContainText('改了1个文件')
-    expect(vaultGit(vault, ['log', '-1', '--format=%s'])).toBe('AI：总结「冰岛自驾」存成卡片')
+    expect(vaultGit(vault, ['log', '-1', '--format=%s'])).toBe('AI：/总结这块白板 · 冰岛自驾')
     expect(vaultGit(vault, ['show', '--name-only', '--format=', 'HEAD'])).toBe('冰岛自驾.md')
     // 日记的字还没提交，不在 AI 那次里
     expect(vaultGit(vault, ['status', '--porcelain'])).toContain('日记.md')

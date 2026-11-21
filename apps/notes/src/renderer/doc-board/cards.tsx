@@ -196,11 +196,10 @@ export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'fi
       if (!c) return { k: 'text', md: text }
       const title = c.title || c.label
       const cut = c.kind === 'ai' ? title.indexOf(' · ') : -1
-      const body = text
-        .split('\n')
-        .slice(1)
-        .map((l) => l.replace(/^\s*>\s?/, ''))
-        .join('\n')
+      // 提示块到第一个空行为止：AI 讲解下面挂着的旁支（`> [!side]`，和讲解同一张卡）卡上不画
+      const own = text.split('\n').slice(1)
+      const end = own.findIndex((l) => !l.trim())
+      const body = (end < 0 ? own : own.slice(0, end)).map((l) => l.replace(/^\s*>\s?/, '')).join('\n')
       return { k: 'callout', kind: c.kind, icon: c.icon, engine: c.engine, tone: c.tone, title: cut > 0 ? title.slice(0, cut) : title, meta: cut > 0 ? title.slice(cut + 3) : '', body }
     }
     case 'quote':

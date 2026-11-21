@@ -9,7 +9,7 @@ import type { Bookmark } from '../shared/web-api'
 import { decodeUrl, toUrl } from './url'
 import { Favicon } from './web/favicons'
 import { ActionButtons } from './web/ActionButtons'
-import { BookmarksBar } from './web/BookmarksBar'
+import { BAR, BookmarksBar } from './web/BookmarksBar'
 import { ExtensionsPanel } from './web/ExtensionsPanel'
 import { setCurrentPage } from './web/image-drop'
 import { LibraryPanel } from './web/LibraryPanel'
@@ -28,10 +28,15 @@ import { type NavState, WebView, type WebviewEl } from './web/WebView'
 import { syncExtTheme } from './web/ext-theme'
 import { onPageOutside } from './web/page-outside'
 import './web/web.css'
+import './web/web-top.css'
 import { videoOf } from '../shared/video'
 import { useVideoKeys } from './video/keys'
-import { setVideoHost } from './video/store'
-import { VideoStrip } from './video/VideoStrip'
+import { clearBox, setVideoHost, useBoxEvent } from './video/store'
+import { VideoFoldTools, VideoHair, VideoRow, type WebWidth } from './video/VideoStrip'
+import { AskCard } from './video/AskCard'
+import { askCardNow, boxCanceled, cancelBoxing, closeAskCard, openAskCard } from './video/ask-card'
+import { setTopFold, toggleBookmarksBar, toggleTopFold, useWebTop, webTopNow } from './web/top-fold'
+import { CENTER_MIN } from './shell/SideSash'
 import { AiActLayer } from './ai-act'
 
 export type ClipMode = { mode: 'inbox' | 'doc'; target?: string }
@@ -221,7 +226,17 @@ export function WebPanel(props: {
   function newTab(focus = true) {
     cb.current.onShow()
     setSt((s) => openTab(s, '', { owner: cb.current.owner }))
+    // 顶上收着：新网页要打网址，先展开
+    if (focus && webTopNow().fold) setTopFold(false)
     if (focus) setTimeout(() => addr.current?.focus(), 0)
+  }
+
+  /** ⌘L：顶上收着就先展开，光标进地址块（完整网址、全选） */
+  function focusAddr() {
+    const go = () => (addr.current?.focus(), addr.current?.select())
+    if (!webTopNow().fold) return void go()
+    setTopFold(false)
+    setTimeout(go, 0)
   }
 
   function close(id: string) {
@@ -297,8 +312,12 @@ export function WebPanel(props: {
   closeRef.current = closeByUser
   // 新网页标签、地址栏、重新载入：键照命令表（设置 › 快捷键里能改），App 那边按到了交给这里；网页那一格藏在别的标签后面时地址栏、重新载入不归它
   useKeyHandler('web-new-tab', () => (newTab(), true))
-  useKeyHandler('web-address', props.hidden ? null : () => (addr.current?.focus(), addr.current?.select(), true))
+  // 地址栏：顶上收着就先展开（focusAddr），光标进地址块、完整网址全选
+  useKeyHandler('web-address', props.hidden ? null : () => (focusAddr(), true))
   useKeyHandler('web-reload', props.hidden ? null : () => !!stRef.current.active && (views.current.get(stRef.current.active)?.reload(), true))
+  // 网页栏顶上收成一行 / 展开、书签栏开关（task-sta8n）：网页那一格看得见时在哪都能按（网页里按的主进程转回来），键照命令表
+  useKeyHandler('web-top-fold', props.hidden ? null : () => (toggleTopFold(), true))
+  useKeyHandler('web-bookmarks-bar', props.hidden ? null : () => (toggleBookmarksBar(), true))
   const stRef = useRef(st)
   stRef.current = st
 
@@ -508,19 +527,54 @@ export function WebPanel(props: {
       activeWc: () => pageRef.current?.wcId ?? null,
       focus(wcId) {
         const id = Object.entries(wcIdsRef.current).find(([, v]) => v === wcId)?.[0]
-        if (id) views.current.get(id)?.focus()
+        const el = id ? views.current.get(id) : undefined
+        if (!el) return
+        el.focus()
+        // 焦点本来就在网页里时，点软件里的按钮会让网页失焦（按下时焦点退回 body），这时 focus() 是空操作：点完再交回一次
+        setTimeout(() => {
+          if (document.activeElement !== el) el.focus()
+        }, 0)
       },
     })
     return () => setVideoHost(null)
   }, [])
-  const [narrow, setNarrow] = useState(false)
+  // 网页栏多宽（原型的两档）：窄于 720 收快捷键提示、记到哪的名字；窄于 470 别的标签只剩图标、视频那一行只留图标；
+  // 窄于 330（窗口最窄 960 时右栏 250 上下）再把译、剪藏、插件按钮收进 ⋯，当前那个标签整个露着
+  const [width, setWidth] = useState<WebWidth>('wide')
+  const [tiny, setTiny] = useState(false)
   useEffect(() => {
     const el = root.current
     if (!el) return
-    const ro = new ResizeObserver(() => setNarrow(el.getBoundingClientRect().width < 440))
+    const ro = new ResizeObserver(() => {
+      const w = el.getBoundingClientRect().width
+      if (!w) return
+      setWidth(w < 470 ? 'narrow' : w < 720 ? 'mid' : 'wide')
+      setTiny(w < 330)
+    })
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+  const top = useWebTop()
+  // 收起、展开：底部说一句记住了（第一次画的时候不说）
+  const foldSeen = useRef(top.fold)
+  useEffect(() => {
+    if (foldSeen.current === top.fold) return
+    foldSeen.current = top.fold
+    cb.current.onNotice(top.fold ? '顶上收成一行 · 记住了，下次打开还是这样' : '顶上展开 · 记住了')
+  }, [top.fold])
+  // 框好一块（网页报来）：开问框；换了网页标签，开着的问框收起
+  const boxEv = useBoxEvent()
+  useEffect(() => {
+    if (!boxEv) return
+    if ('box' in boxEv) openAskCard(boxEv.wcId, boxEv.box, boxEv.rect)
+    else boxCanceled()
+    clearBox()
+  }, [boxEv])
+  useEffect(() => {
+    const c = askCardNow()
+    if (c && c.wcId !== page?.wcId) closeAskCard()
+    cancelBoxing()
+  }, [page?.wcId])
   /** 书签小卡（「⋯ › 加书签」开的）贴在「⋯」下面，右边和它对齐（放不下就贴右栏右边） */
   const moreRef = useRef<HTMLButtonElement>(null)
   const cardPos = (): CSSProperties | undefined => {
@@ -533,141 +587,203 @@ export function WebPanel(props: {
   }
   const https = webUrl.startsWith('https:')
 
+  /** 标签上写的名字：新标签页在去网址时写要去的域名；没有标题的写域名 */
+  const tabName = (t: { id: string; url: string; title: string }) => (!t.url || t.url === newtabUrl ? (going[t.id] ? hostOf(going[t.id]!.url) : '') : t.title) || (/^https?:/.test(t.url) ? hostOf(t.url) : '新网页')
+  const tabIcon = (t: { url: string }, size = 14) => (/^https?:/.test(t.url) ? <Favicon url={t.url} size={size} /> : <Codicon name="globe" size={size - 1} />)
+  /** 地址块不在打字时盖一层：域名（灰）+ 标题，和 Safari 的紧凑标签一样；去网址的路上、新标签页时就是输入框本身 */
+  const disp = !addrFocus && !!webUrl && !activeGoing && !!active
+  const others = st.tabs.length - (active ? 1 : 0)
+  /** 网页拉到最宽、再点回来：就是双击网页栏和中间之间的那条分隔线（task-zligc 做的那一下） */
+  const centerNow = () => document.querySelector('.win > main.center')?.getBoundingClientRect().width ?? 0
+  function widest() {
+    const col = root.current?.closest('.dview') ? document.querySelector('[data-testid="dtab-web"]')?.closest('.dcol')?.getBoundingClientRect() : null
+    const center = document.querySelector('.win > main.center')?.getBoundingClientRect()
+    if (!col || !center) return
+    const near = (r: DOMRect, x: number) => Math.min(Math.abs(r.left - x), Math.abs(r.right - x))
+    const sash = [...document.querySelectorAll<HTMLElement>('.dsash-col')].find((el) => {
+      const r = el.getBoundingClientRect()
+      return (near(r, col.left) < 10 || near(r, col.right) < 10) && (near(r, center.left) < 10 || near(r, center.right) < 10)
+    })
+    sash?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
+  }
+
   return (
-    <aside className="right web" aria-label="网页" hidden={props.hidden} ref={root}>
-      <div className="tabs wtabs" role="tablist" aria-label="网页标签">
-        <div className="wtlist" ref={tabList}>
-          {st.tabs.map((t) => (
-            <div key={t.id} className={'tab' + (t.id === st.active ? ' on' : '')} role="tab" aria-selected={t.id === st.active} title={t.url ? decodeUrl(t.url) : '新网页'}>
-              <button className="tl" onClick={() => setSt((s) => activate(s, t.id, cb.current.owner))}>
-                {/^https?:/.test(t.url) ? <Favicon url={t.url} size={14} /> : <Codicon name="globe" size={13} />}
-                <span className="truncate">{(!t.url || t.url === newtabUrl ? (going[t.id] ? hostOf(going[t.id]!.url) : '') : t.title) || (/^https?:/.test(t.url) ? hostOf(t.url) : '新网页')}</span>
-              </button>
-              <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
-                <Codicon name="close" size={12} />
-              </button>
-            </div>
-          ))}
+    <aside className={`right web w-${width}` + (tiny ? ' w-tiny' : '') + (top.fold ? ' folded' : '')} aria-label="网页" hidden={props.hidden} ref={root}>
+      {top.fold ? (
+        /* 收起（原型 A2，32 高）：‹、当前网页的标题（点它展开）和「+N 个标签」、视频页的两颗图标和时刻数；时间轴是这一行底边一根线 */
+        <div className="wrow wfolded" data-testid="web-top-folded" role="toolbar" aria-label="网页（收起）">
+          <button className="wib" aria-label="后退" data-tip="后退" data-side="below" disabled={!activeNav?.back} onClick={() => active && views.current.get(active.id)?.goBack()}>
+            <Codicon name="chevron-left" size={16} />
+          </button>
+          <button className="wfold-ti" data-testid="web-fold-title" data-tip="点开：地址、标签、视频工具都出来" data-side="below" onClick={() => setTopFold(false)}>
+            {active ? tabIcon(active, 12) : <Codicon name="globe" size={12} />}
+            <span className="ti truncate">{active ? tabName(active) : '新网页'}</span>
+            {others > 0 && <span className="more">{`+${others} 个标签`}</span>}
+          </button>
+          {page && <VideoFoldTools wcId={page.wcId} />}
+          {page && <VideoHair wcId={page.wcId} />}
         </div>
-        {/* + 固定在标签条最右，标签多了横着滚它也不动；收起右栏用竖条上的「网页」、标题栏最右或 ⌥⌘\（「移到中间」在标题栏） */}
-        <button className="iconbtn wnew" aria-label="新网页" data-tip="新网页（书签管家的新标签页）" data-key={K('web-new-tab') ?? undefined} data-side="below-left" onClick={() => newTab()}>
-          <Codicon name="add" size={14} />
-        </button>
-      </div>
-      <div className="rhead">
-        <button className="iconbtn" aria-label="后退" title="后退" disabled={!activeNav?.back} onClick={() => active && views.current.get(active.id)?.goBack()}>
-          <Codicon name="arrow-left" size={14} />
-        </button>
-        <button className="iconbtn" aria-label="前进" title="前进" disabled={!activeNav?.forward} onClick={() => active && views.current.get(active.id)?.goForward()}>
-          <Codicon name="arrow-right" size={14} />
-        </button>
-        <button className="iconbtn" aria-label="重新载入" title="重新载入" disabled={!active || !srcOf(active)} onClick={() => active && views.current.get(active.id)?.reload()}>
-          <Codicon name="refresh" size={14} className={activeNav?.loading || activeGoing ? 'spin' : ''} />
-        </button>
-        <form
-          className="addr"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (!address.trim()) return
-            go(address)
-            addr.current?.blur()
-          }}
-        >
-          <Codicon name={https ? 'lock' : 'globe'} size={13} />
-          {/* 不在打字时只显示域名和路径（不写 http://），右栏 340 宽里多看得到几个字；点进去是完整网址、全选 */}
-          <input
-            ref={addr}
-            aria-label="网址"
-            placeholder="输入网址或要搜的词"
-            value={addrFocus ? address : address.replace(/^https?:\/\//, '')}
-            onChange={(e) => ((addrEdited.current = true), setAddress(e.target.value))}
-            onKeyDown={(e) => {
-              // esc：打的字不要了，还原成正在看的网址并全选（和浏览器一样）；没打字时再按 esc 离开地址栏
-              if (e.key !== 'Escape' || e.nativeEvent.isComposing) return
-              e.preventDefault()
-              const el = e.currentTarget
-              if (!addrEdited.current) return el.blur()
-              addrEdited.current = false
-              const now = webUrl ? decodeUrl(webUrl) : ''
-              el.value = now
-              setAddress(now)
-              el.select()
-            }}
-            onFocus={(e) => {
-              // 先当场换成完整网址再全选，React 重画时值不变，选区和接着打的字都不会被冲掉
-              e.currentTarget.value = address
-              e.currentTarget.select()
-              setAddrFocus(true)
-            }}
-            onBlur={() => {
-              // 没打字就离开：补回现在的网址（有焦点时没跟着网页更新）
-              if (!addrEdited.current) setAddress(webUrl ? decodeUrl(webUrl) : '')
-              addrEdited.current = false
-              setAddrFocus(false)
-            }}
-            // 网址放不下时末尾是省略号（.addr input），悬停用软件自己的提示看完整网址；打字时不提示
-            data-side="below"
-            onMouseOver={(e) => {
-              const el = e.currentTarget
-              if (!addrFocus && address && el.scrollWidth > el.clientWidth) el.dataset.tip = address
-              else delete el.dataset.tip
-            }}
-          />
+      ) : (
+        /* 展开（原型 A1，34 高）：‹ › ↻、网页标签（当前那个就是地址块，同 Safari 的紧凑标签）、+、｜、译、剪藏、插件按钮、⋯ */
+        <div className="wrow wrow1" data-testid="web-row1">
+          <button className="wib" aria-label="后退" data-tip="后退" data-side="below" disabled={!activeNav?.back} onClick={() => active && views.current.get(active.id)?.goBack()}>
+            <Codicon name="chevron-left" size={16} />
+          </button>
+          <button className="wib" aria-label="前进" data-tip="前进" data-side="below" disabled={!activeNav?.forward} onClick={() => active && views.current.get(active.id)?.goForward()}>
+            <Codicon name="chevron-right" size={16} />
+          </button>
+          <button className="wib" aria-label="重新载入" data-tip="重新载入" data-side="below" disabled={!active || !srcOf(active)} onClick={() => active && views.current.get(active.id)?.reload()}>
+            <Codicon name="refresh" size={15} className={activeNav?.loading || activeGoing ? 'spin' : ''} />
+          </button>
+          <div className="wtabs" role="tablist" aria-label="网页标签">
+            <div className="wtlist" ref={tabList}>
+              {st.tabs.map((t) =>
+                t.id === st.active ? (
+                  <div key={t.id} className="tab on wcur" role="tab" aria-selected title={t.url ? decodeUrl(t.url) : '新网页'}>
+                    <form
+                      className={'addr' + (addrFocus ? ' edit' : '') + (disp ? ' disp' : '')}
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        if (!address.trim()) return
+                        go(address)
+                        addr.current?.blur()
+                      }}
+                    >
+                      <Codicon name={https ? 'lock' : 'globe'} size={12} />
+                      {/* 不在打字时盖一层域名 + 标题（输入框里还是域名和路径，不写 http://）；点进去是完整网址、全选，⌘L 也行 */}
+                      <input
+                        ref={addr}
+                        aria-label="网址"
+                        placeholder="输入网址或要搜的词"
+                        value={addrFocus ? address : address.replace(/^https?:\/\//, '')}
+                        onChange={(e) => ((addrEdited.current = true), setAddress(e.target.value))}
+                        onKeyDown={(e) => {
+                          // esc：打的字不要了，还原成正在看的网址并全选（和浏览器一样）；没打字时再按 esc 离开地址栏
+                          if (e.key !== 'Escape' || e.nativeEvent.isComposing) return
+                          e.preventDefault()
+                          const el = e.currentTarget
+                          if (!addrEdited.current) return el.blur()
+                          addrEdited.current = false
+                          const now = webUrl ? decodeUrl(webUrl) : ''
+                          el.value = now
+                          setAddress(now)
+                          el.select()
+                        }}
+                        onFocus={(e) => {
+                          // 先当场换成完整网址再全选，React 重画时值不变，选区和接着打的字都不会被冲掉
+                          e.currentTarget.value = address
+                          e.currentTarget.select()
+                          setAddrFocus(true)
+                        }}
+                        onBlur={() => {
+                          // 没打字就离开：补回现在的网址（有焦点时没跟着网页更新）
+                          if (!addrEdited.current) setAddress(webUrl ? decodeUrl(webUrl) : '')
+                          addrEdited.current = false
+                          setAddrFocus(false)
+                        }}
+                        data-side="below"
+                        onMouseOver={(e) => {
+                          const el = e.currentTarget
+                          if (!addrFocus && address) el.dataset.tip = `${address}（点一下改地址${K('web-address') ? `，${K('web-address')}` : ''}）`
+                          else delete el.dataset.tip
+                        }}
+                      />
+                      {/* 改地址时藏起来（.addr:not(.disp)），这个标签照样叫这一页的名字 */}
+                      {webUrl && (
+                        <span className="adisp" aria-hidden="true">
+                          <span className="ti truncate" data-dom={hostOf(webUrl)}>
+                            {tabName(t)}
+                          </span>
+                        </span>
+                      )}
+                    </form>
+                    <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
+                      <Codicon name="close" size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <div key={t.id} className="tab" role="tab" aria-selected={false} title={t.url ? `${tabName(t)}\n${decodeUrl(t.url)}` : '新网页'}>
+                    <button className="tl" onClick={() => setSt((s) => activate(s, t.id, cb.current.owner))}>
+                      {tabIcon(t)}
+                      <span className="truncate">{tabName(t)}</span>
+                    </button>
+                    <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
+                      <Codicon name="close" size={12} />
+                    </button>
+                  </div>
+                ),
+              )}
+            </div>
+            <button className="wib wnew" aria-label="新网页" data-tip="新网页（书签管家的新标签页）" data-key={K('web-new-tab') ?? undefined} data-side="below" onClick={() => newTab()}>
+              <Codicon name="add" size={15} />
+            </button>
+          </div>
+          <span className="wsep" />
           {webUrl && (
             <span className="addr-acts" role="toolbar" aria-label="这一页">
               <PluginButtons slot="address" page={page} popup={pluginPopup} onPopup={(id) => setMenu(id ? `plugin:${id}` : null)} />
             </span>
           )}
-        </form>
-        <button className="iconbtn" aria-label="剪藏这一页" title="剪藏这一页：整页进收件箱" disabled={!webUrl || clipping} onClick={() => void clipPage()}>
-          <Codicon name="quote" size={14} className={clipping ? 'spin' : ''} />
-        </button>
-        <ActionButtons tabId={activeWc ?? -1}>
-          <PluginButtons slot="toolbar" page={page} popup={pluginPopup} onPopup={(id) => setMenu(id ? `plugin:${id}` : null)} />
-        </ActionButtons>
-        <div className="imp">
-          <button
-            ref={moreRef}
-            className={'iconbtn' + (menu === 'more' || menu === 'library' || menu === 'extensions' || menu === 'login' || keeperOpen ? ' on' : '')}
-            aria-label="更多"
-            title="更多：剪藏这一页、稍后再看、双语翻译、书签和历史、插件、导入 Chrome 登录"
-            aria-haspopup="menu"
-            aria-expanded={menu === 'more'}
-            onClick={() => setMenu(menu === 'more' ? null : 'more')}
-          >
-            <Codicon name={importing ? 'sign-in' : 'ellipsis'} size={16} className={importing ? 'spin' : ''} />
+          <button className="wib wclip" aria-label="剪藏这一页" data-tip="剪藏这一页：整页进收件箱" data-side="below" disabled={!webUrl || clipping} onClick={() => void clipPage()}>
+            <Codicon name="quote" size={14} className={clipping ? 'spin' : ''} />
           </button>
-          {menu === 'more' && (
-            <MoreMenu
-              star={webUrl ? { on: !!starred, keeper: keeperOn } : null}
-              onStar={() => (setMenu(null), void clickStar())}
-              onClip={webUrl && !clipping ? () => (setMenu(null), void clipPage()) : null}
-              page={page}
-              importing={importing}
-              onClose={() => setMenu(null)}
-              onNewTab={() => (setMenu(null), newTab())}
-              onPick={(m) => setMenu(m)}
-              onNotice={props.onNotice}
-            />
-          )}
-          {menu === 'library' && <LibraryPanel bookmarks={bookmarks} onBookmarks={setBookmarks} onOpen={openUrl} onNotice={props.onNotice} onClose={() => setMenu(null)} />}
-          {menu === 'extensions' && (
-            <ExtensionsPanel
-              tabId={activeWc ?? -1}
-              onNotice={props.onNotice}
-              onClose={() => setMenu(null)}
-              onReload={() => active && views.current.get(active.id)?.reload()}
-              onPluginSettings={() => (setMenu(null), props.onPluginSettings())}
-            />
-          )}
-          {menu === 'login' && <ProfileMenu label="选 Chrome 用户" title="导入哪个 Chrome 用户的登录？" onPick={(id) => void doImport(id)} onNotice={props.onNotice} onClose={() => setMenu(null)} />}
+          <ActionButtons tabId={activeWc ?? -1}>
+            <PluginButtons slot="toolbar" page={page} popup={pluginPopup} onPopup={(id) => setMenu(id ? `plugin:${id}` : null)} />
+          </ActionButtons>
+          <div className="imp">
+            <button
+              ref={moreRef}
+              className={'wib' + (menu === 'more' || menu === 'library' || menu === 'extensions' || menu === 'login' || keeperOpen ? ' on' : '')}
+              aria-label="更多"
+              data-tip="更多：这一页、书签、浏览器"
+              data-side="below-left"
+              aria-haspopup="menu"
+              aria-expanded={menu === 'more'}
+              onClick={() => setMenu(menu === 'more' ? null : 'more')}
+            >
+              <Codicon name={importing ? 'sign-in' : 'ellipsis'} size={16} className={importing ? 'spin' : ''} />
+            </button>
+            {menu === 'more' && (
+              <MoreMenu
+                star={webUrl ? { on: !!starred, keeper: keeperOn } : null}
+                onStar={() => (setMenu(null), void clickStar())}
+                onClip={webUrl && !clipping ? () => (setMenu(null), void clipPage()) : null}
+                page={page}
+                importing={importing}
+                bookmarks={bookmarks}
+                bar={top.bm}
+                widest={centerNow() <= CENTER_MIN + 4}
+                onOpenBookmark={(u, newOne) => openUrl(u, newOne)}
+                onBar={() => (setMenu(null), toggleBookmarksBar())}
+                onWidest={() => (setMenu(null), widest())}
+                onCenter={webUrl ? () => (setMenu(null), openWide()) : null}
+                onFold={() => (setMenu(null), toggleTopFold())}
+                onClose={() => setMenu(null)}
+                onNewTab={() => (setMenu(null), newTab())}
+                onPick={(m) => setMenu(m)}
+                onNotice={props.onNotice}
+              />
+            )}
+            {menu === 'library' && <LibraryPanel bookmarks={bookmarks} onBookmarks={setBookmarks} onOpen={openUrl} onNotice={props.onNotice} onClose={() => setMenu(null)} />}
+            {menu === 'extensions' && (
+              <ExtensionsPanel
+                tabId={activeWc ?? -1}
+                onNotice={props.onNotice}
+                onClose={() => setMenu(null)}
+                onReload={() => active && views.current.get(active.id)?.reload()}
+                onPluginSettings={() => (setMenu(null), props.onPluginSettings())}
+              />
+            )}
+            {menu === 'login' && <ProfileMenu label="选 Chrome 用户" title="导入哪个 Chrome 用户的登录？" onPick={(id) => void doImport(id)} onNotice={props.onNotice} onClose={() => setMenu(null)} />}
+          </div>
         </div>
-      </div>
-      {page && <VideoStrip wcId={page.wcId} narrow={narrow} />}
+      )}
+      {/* 视频那一行（原型 A1 第二行，32 高，只有视频页才有） */}
+      {!top.fold && page && <VideoRow wcId={page.wcId} width={width} />}
       {pluginPopup && <PluginPopup id={pluginPopup} page={page} mode="all" onClose={() => setMenu(null)} />}
       {menu === 'star' && <PluginPopup id={BOOKMARKS} page={page} mode="this-page" style={cardPos()} onClose={() => setMenu(null)} />}
-      {/* 新标签页自己就是书签，那时不摆书签栏 */}
-      {(webUrl || !newtabUrl) && <BookmarksBar bookmarks={bookmarks} onOpen={openUrl} />}
+      {/* 书签栏默认不摆，「⋯ › 书签」里开（⇧⌘B）；新标签页自己就是书签，那时不摆 */}
+      {!top.fold && top.bm && (webUrl || !newtabUrl) && <BookmarksBar bookmarks={bookmarks} onOpen={openUrl} />}
       {clipped && (
         <div className="wnote" role="status">
           {clipped.undone ? (
@@ -760,6 +876,8 @@ export function WebPanel(props: {
           )}
         </div>
       </div>
+      {/* 框一块问的问框：视频下沿下面，不挡视频 */}
+      {page && <AskCard wcId={page.wcId} pageUrl={page.url} />}
     </aside>
   )
 }
@@ -790,6 +908,18 @@ function MoreMenu(props: {
   /** 剪藏这一页（和地址栏旁的引号按钮、⌘K「剪藏这一页」同一件事）；不是网页时灰着 */
   onClip: (() => void) | null
   importing: boolean
+  /** 书签（「书签」一组列出书签栏里的几个，task-sta8n：书签栏默认不摆，收进这里） */
+  bookmarks: Bookmark[]
+  /** 书签栏摆着没有（「显示书签栏 ⇧⌘B」勾没勾） */
+  bar: boolean
+  /** 网页已经拉到最宽（中间只剩 420） */
+  widest: boolean
+  onOpenBookmark(url: string, newTab: boolean): void
+  onBar(): void
+  onWidest(): void
+  /** 网页移到中间（不是网页时没有） */
+  onCenter: (() => void) | null
+  onFold(): void
   onClose(): void
   onNewTab(): void
   onPick(m: 'library' | 'extensions' | 'login'): void
@@ -845,9 +975,49 @@ function MoreMenu(props: {
       : []),
     { id: 'newtab', group: 'bookmarks', label: '书签首页', icon: 'layout', node: item('书签首页', 'layout', props.onNewTab, keyFor('web-new-tab') ?? undefined) },
     { id: 'library', group: 'bookmarks', label: '书签和历史…', icon: 'bookmark', node: item('书签和历史…', 'bookmark', () => props.onPick('library')) },
+    {
+      id: 'bmbar',
+      group: 'bookmarks',
+      label: '显示书签栏',
+      icon: 'bookmark',
+      node: (
+        <button key="bmbar" role="menuitemcheckbox" aria-checked={props.bar} onClick={props.onBar}>
+          <Codicon name={props.bar ? 'check' : 'blank'} size={14} />
+          <span className="mlabel">显示书签栏</span>
+          {keyFor('web-bookmarks-bar') && <kbd>{keyFor('web-bookmarks-bar')}</kbd>}
+        </button>
+      ),
+    },
     { id: WEB_LOCKED, group: 'browser', label: '插件…', icon: 'extensions', node: item('插件…', 'extensions', () => props.onPick('extensions')) },
     { id: 'login', group: 'browser', label: '导入Chrome登录…', icon: 'sign-in', node: item('导入Chrome登录…', 'sign-in', () => props.onPick('login'), undefined, props.importing) },
+    { id: 'widest', group: 'browser', label: '网页拉到最宽', icon: 'arrow-both', node: item(props.widest ? '网页回到原来的宽' : '网页拉到最宽', 'arrow-both', props.onWidest, '双击分隔线') },
+    ...(props.onCenter ? [{ id: 'tocenter', group: 'browser' as const, label: '网页移到中间', icon: 'layout-centered' as const, node: item('网页移到中间', 'layout-centered', props.onCenter) }] : []),
+    { id: 'fold', group: 'browser', label: '收起顶上', icon: 'chevron-up', node: item('收起顶上', 'chevron-up', props.onFold, keyFor('web-top-fold') ?? undefined) },
   ]
+  // 书签栏里的几个书签直接列在「书签」一组最前面（书签栏默认不摆，原型 A 的「⋯ › 书签」）；多的在「书签和历史…」里
+  const barLinks = props.bookmarks
+    .map((b, i) => ({ b, k: b.order ?? 1e9 + i }))
+    .filter(({ b }) => b.folder === BAR)
+    .sort((x, y) => x.k - y.k)
+    .slice(0, 8)
+    .map(({ b }) => b)
+  if (barLinks.length)
+    all.unshift({
+      id: 'bmlinks',
+      group: 'bookmarks',
+      label: '书签栏里的书签',
+      icon: 'bookmark',
+      node: (
+        <div key="bmlinks" className="wm-links">
+          {barLinks.map((b) => (
+            <button key={b.id} role="menuitem" title={b.url} onClick={(e) => (props.onClose(), props.onOpenBookmark(b.url, e.metaKey))}>
+              <Favicon url={b.url} size={14} />
+              <span className="mlabel truncate">{b.title}</span>
+            </button>
+          ))}
+        </div>
+      ),
+    })
   const groups = WM_GROUPS.map((g) => {
     const mine = all.filter((x) => x.group === g)
     const order = webMenuOrder(cfg, g, mine.map((x) => x.id))

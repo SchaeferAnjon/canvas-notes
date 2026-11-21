@@ -342,7 +342,7 @@ test('AI 存卡提交没成功，之后自动提交先把卡收进去了：「�
     expect(read(run, '冰岛自驾.md')).toBe(ICELAND)
     // 同一次自动提交里的日记不动
     expect(read(run, '日记.md')).toContain('今天。下雪')
-    expect(vaultGit(vault, ['log', '-1', '--format=%s'])).toBe('撤回AI：总结「冰岛自驾」存成卡片')
+    expect(vaultGit(vault, ['log', '-1', '--format=%s'])).toBe('撤回AI：/总结这块白板 · 冰岛自驾')
     expect(vaultGit(vault, ['show', '--name-only', '--format=', 'HEAD'])).toBe('冰岛自驾.md')
   } finally {
     await run.close()

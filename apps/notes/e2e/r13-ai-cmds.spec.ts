@@ -16,7 +16,8 @@ import { ICELAND } from './fixtures/board'
 import { TIDY_VAULT } from './fixtures/inbox'
 
 /** /整理收件箱 在 / 菜单、⌘K 里的那句说明 */
-const TIDY_DESC = '分进课程、周记、剪藏这些，你点同意才挪，可撤回'
+/** 和 / 菜单小样同一句（「能撤回」改成小标签「你点同意」写在名字后面，task-9womr） */
+const TIDY_DESC = '分进课程、周记、剪藏这些，你点同意才挪'
 const TIDY_HINT = '分进课程、周记、剪藏，点同意才挪'
 
 const chat = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
@@ -39,7 +40,7 @@ async function slash(page: Page, typed: string, name: string) {
   await page.keyboard.type('/' + typed)
   const menu = chat(page).getByRole('listbox', { name: '命令' })
   await expect(menu).toBeVisible()
-  await menu.getByRole('option').filter({ has: page.locator('b', { hasText: new RegExp(`^${name}$`) }) }).click()
+  await menu.getByRole('option').filter({ has: page.locator('.n', { hasText: new RegExp(`^${name}$`) }) }).click()
 }
 
 async function openAi(page: Page) {
@@ -64,7 +65,7 @@ test('/写成文章：草稿写在白板所在的文件夹，回答卡片和改�
     await expect(msg.getByTestId('ai-change').locator('.fr')).toHaveText([new RegExp(`^${path}新`)])
     expect(read(vault, path)).toMatch(/^---\ndraft: true\nfrom: "\[\[冰岛自驾\]\]"\n---\n# 冰岛自驾\n/)
     expect(existsSync(join(vault, '冰岛自驾：文章草稿.md'))).toBe(false)
-    expect(subjects(vault, 1)).toEqual(['AI：按「冰岛自驾」写成文章草稿'])
+    expect(subjects(vault, 1)).toEqual(['AI：/写成文章 · 冰岛自驾'])
     const first = read(vault, path)
     // 点「打开」开的就是这一篇
     await msg.getByRole('button', { name: '打开' }).click()
@@ -263,7 +264,7 @@ test('/整理收件箱：和梦游同一套归法，剪来的进剪藏/<主题>�
     // / 菜单里那句说明照实写；真打「/整理收」、真点那一条
     await chat(page).getByRole('textbox', { name: '问 AI' }).click()
     await page.keyboard.type('/整理收')
-    const opt = chat(page).getByRole('listbox', { name: '命令' }).getByRole('option').filter({ has: page.locator('b', { hasText: /^整理收件箱$/ }) })
+    const opt = chat(page).getByRole('listbox', { name: '命令' }).getByRole('option').filter({ has: page.locator('.n', { hasText: /^整理收件箱$/ }) })
     await expect(opt).toContainText(TIDY_DESC)
     if (process.env.CN_SHOT_DIR) await chat(page).screenshot({ path: shot('整理收件箱-斜杠菜单') })
     await opt.click()
@@ -286,7 +287,7 @@ test('/整理收件箱：和梦游同一套归法，剪来的进剪藏/<主题>�
     expect(inboxNow()).toEqual(['说不好的.md'])
     // 一次提交：三处挪动都在这一个提交里
     expect(count()).toBe(before + 1)
-    expect(subjects(vault, 1)).toEqual(['AI：整理收件箱：挪了 3 条'])
+    expect(subjects(vault, 1)).toEqual(['AI：/整理收件箱 · 3条'])
     const changed = execFileSync('git', ['-C', vault, '-c', 'core.quotepath=false', 'show', '--name-status', '--format=', '-M', 'HEAD'], { encoding: 'utf8' })
       .trim()
       .split('\n')

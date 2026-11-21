@@ -198,8 +198,9 @@ test('拦广告规则 15 秒才回：第一页最多等 3 秒就出来、这一�
       // 等规则的这会儿：地址栏还是打的网址，重新载入的图标在转
       await expect(web(page).getByRole('textbox', { name: '网址' })).toHaveValue(new RegExp(`127\\.0\\.0\\.1:\\d+/one`))
       await expect(web(page).getByRole('button', { name: '重新载入' }).locator('.spin')).toBeVisible()
-      // 标签名先写主机名，不停在「新网页」
-      await expect(web(page).locator('.tab.on')).toContainText('127.0.0.1')
+      // 标签名先写主机名，不停在「新网页」：task-sta8n 起当前标签就是地址块，去网址的路上露着的就是打的网址（主机名打头），不盖标题那一层
+      await expect(web(page).locator('.tab.on .addr')).not.toHaveClass(/\bdisp\b/)
+      await expect(web(page).locator('.tab.on')).not.toContainText('新网页')
       await shotWindow(run, 'r5-adblock-waiting')
     })
     expect(ms, `第一页 ${ms} ms`).toBeLessThan(4500)

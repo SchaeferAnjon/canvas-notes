@@ -10,7 +10,7 @@ const version = JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).vers
 
 const USED = `
 account add archive pass-filled arrow-both eye-closed arrow-circle-up arrow-down arrow-left arrow-right arrow-swap arrow-up beaker bell
-blank book bookmark briefcase calendar check checklist chevron-down chevron-left chevron-right circle-filled
+blank book bookmark briefcase calendar check checklist chevron-down chevron-left chevron-right chevron-up circle-filled
 circle-slash circuit-board claude clockface close cloud-download code coffee collapse-all comment
 comment-discussion-sparkle copy cursor desktop-download device-camera device-camera-video device-mobile
 discard edit ellipsis error extensions eye file file-code file-media file-pdf file-text files filter flag
@@ -28,6 +28,7 @@ symbol-keyword dash list-selection arrow-small-left arrow-small-right percentage
 graph-line move
 comment-discussion symbol-operator location references
 reply multiple-windows split-vertical mention
+symbol-event
 `.split(/\s+/).filter(Boolean)
 
 const body = USED.map((n) => {

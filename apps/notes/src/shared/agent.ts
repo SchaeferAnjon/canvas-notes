@@ -160,6 +160,54 @@ export interface StoredMsg {
   /** /现在梦游 跑完：整理了几条、分几组（消息里有「打开梦游报告」按钮） */
   dream?: { items: number; groups: number }
   draft?: { path: string; words: number; head: string }
+  /** 要提醒的一句（AI 命令先给你看里比原文少了整节、命令没说要删，task-1l29q）：回答上面一行，前面红色 warning 图标 */
+  alert?: string
+}
+
+/**
+ * AI 对话里的一条旁支（task-4edsc，方向 A「就地展开」）：在某条回答里选一句开的支线。
+ * 跟着这个地方的对话存（软件设置目录的那份对话里），不往主对话里加东西，不写进笔记
+ */
+export interface ChatSide {
+  /** 旁支编号（字母数字和 -，主进程按它记旁支自己的会话号） */
+  id: string
+  /** 在哪条回答里选的（主对话那条 AI 回答的 id） */
+  msg: number
+  /** 选中的那一句 */
+  quote: string
+  /** 改过的名字（没改过按问的话或那一句起） */
+  name?: string
+  msgs: StoredMsg[]
+  createdAt: number
+}
+
+/**
+ * 旁支里问一句（AI 对话、文档里 AI 讲解块的旁支；读 PDF 的走 reading:ask 带 side）。
+ * 第一问从这个地方主对话的会话整段分叉（Claude Code --fork-session、Codex thread/fork），之后接着旁支自己的会话，主对话的会话不动；
+ * fresh：不分叉（文档里的讲解块没有会话），开新会话、history 放在第一问前面；分叉不了（Gemini、OpenCode）也是 history 放在前面
+ */
+export interface SideTurnRequest {
+  id: number
+  place: { key: string; label: string }
+  engine: EngineId
+  text: string
+  side: {
+    id: string
+    /** 选中的那一句 */
+    quote: string
+    /** 那一轮问的原话（AI 对话里被问的那条回答前面那一问） */
+    ask?: string
+    /** 被问的那一轮问答原文（AI 对话），或那块讲解的正文（文档里的） */
+    history: string
+    fresh?: boolean
+    /** 在哪选的，写进话里：「文档《第5讲》里 AI 写的讲解」；不给是对话里的回答 */
+    where?: string
+  }
+  context: AgentContext
+  pasted?: string[]
+  model?: string
+  effort?: string
+  mats?: Material[]
 }
 
 /**

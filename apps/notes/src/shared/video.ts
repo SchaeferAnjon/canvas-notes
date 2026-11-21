@@ -570,4 +570,72 @@ export function destFor(center: CenterKind, lastDoc: { path: string; title: stri
 /** 「未命名」「未命名 3」：还没起过名字的那篇，第一次记一个视频时直接改成视频名（CN-80） */
 export const isUntitled = (title: string) => /^未命名(?: \d+)?$/.test(title.trim())
 
+/**
+ * 「记到哪」选的（task-sta8n 方向 A，视频那一行和问框底下同一个菜单，这个视频记住）：
+ * open 开着的这篇（按中间开着什么定，destFor 的规矩）、new 新建一篇（用视频标题）、inbox 收件箱、none 只问不记（回答只在问框里）
+ */
+export type DestPick = 'open' | 'new' | 'inbox' | 'none'
+
+/** 选的落成哪一篇；只问不记是 null（记下这一刻没有「不记」：按开着的这篇记） */
+export function destForPick(center: CenterKind, lastDoc: { path: string; title: string } | null, videoTitle: string, pick: DestPick): Dest | null {
+  if (pick === 'none') return null
+  if (pick === 'new') return { kind: 'new', path: inboxPathFor(videoTitle), title: safeTitle(videoTitle) }
+  return destFor(center, lastDoc, videoTitle, pick === 'inbox')
+}
+
+/** 那一问的讲解块认哪一行：<!-- moment-ask video=… t=… -->（t 保留一位小数，和写进去时一样） */
+export const askHead = (key: string, t: number) => `<!-- moment-ask video=${key} t=${Math.round(t * 10) / 10} -->`
+
+/**
+ * 问框里「接着问」的那一问（task-sta8n）：接在第一问那块讲解（[!ai] 提示块）里面、最后，同一块：
+ * 空一行（>）、「**接着问**：问的话」、回答、要点
+ */
+export function followMd(question: string, answer: string, points: string[] = []): string {
+  const body = [`**接着问**：${question.replace(/\s+/g, ' ').trim()}`, ...answer.trim().split('\n'), ...(points.length ? ['', ...points.map((p) => `- ${p.replace(/\s+/g, ' ').trim()}`)] : [])]
+  return ['>', ...body.map((l) => (l.trim() ? `> ${l}` : '>'))].join('\n')
+}
+
+/** 那一问（key、t）的讲解块在 text 里的末尾（最后一个「>」行的行尾）；找不到（被删了、改了）给 -1 */
+export function askCalloutEnd(text: string, key: string, t: number): number {
+  const head = askHead(key, t)
+  const lines = text.split('\n')
+  let i = lines.findIndex((l) => l.trim() === head)
+  if (i < 0) return -1
+  while (i < lines.length && lines[i]!.trim() !== '') i++
+  while (i < lines.length && lines[i]!.trim() === '') i++
+  if (!/^>\s*\[!ai\]/i.test(lines[i] ?? '')) return -1
+  while (i + 1 < lines.length && /^>/.test(lines[i + 1]!)) i++
+  return lines.slice(0, i + 1).join('\n').length
+}
+
+/**
+ * 边答边来的 JSON（{"doubt":"…","answer":"…）里回答已经到了的那一截，问框里一边答一边长出来；
+ * 「answer」还没到（或者回的不是 JSON）给空串，最后按整段认（parseAnswer）
+ */
+export function partialAnswer(raw: string): string {
+  const m = /"answer"\s*:\s*"/.exec(raw)
+  if (!m) return ''
+  let out = ''
+  for (let i = m.index + m[0].length; i < raw.length; i++) {
+    const c = raw[i]!
+    if (c === '"') return out
+    if (c !== '\\') {
+      out += c
+      continue
+    }
+    const n = raw[i + 1]
+    if (n === undefined) return out
+    if (n === 'u') {
+      const hex = raw.slice(i + 2, i + 6)
+      if (!/^[0-9a-fA-F]{4}$/.test(hex)) return out
+      out += String.fromCharCode(parseInt(hex, 16))
+      i += 5
+      continue
+    }
+    out += n === 'n' ? '\n' : n === 't' ? '\t' : n === 'r' ? '' : n
+    i++
+  }
+  return out
+}
+
 

@@ -75,6 +75,7 @@ import { inboxOf, InboxDrawer, useInboxOpen } from './inbox'
 import { EMPTY_HINT, InlineCard } from './inline-card'
 import { TopHint } from './top-hint'
 import { UnitEditor } from './unit-editor'
+import { setBoardSelection } from './selection'
 import './doc-board.css'
 
 /** 列宽、列间距、开头留给工具板的宽、顶上留的高（照小样：276、22，第一列离白板左边 92，离顶 64） */
@@ -164,6 +165,8 @@ export function DocBoardView(props: DocBoardViewProps) {
   const [toast, setToastState] = useState<Toast | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  // 选中的那一张记下来：AI 命令「计划拆成待办」拆它（task-9womr）
+  useEffect(() => setBoardSelection(props.notePath, selected), [props.notePath, selected])
   const [selWire, setSelWire] = useState<string | null>(null)
   /** 展开了的数据库卡 */
   const [expanded, setExpanded] = useState<string | null>(null)

@@ -15,6 +15,9 @@ import { cmdConfig, noteUsed, updateCmds, useCmds, usedRank } from './search/cmd
 import { availNow, checkKey, isKey, keyFor, useKeys } from './keys'
 import { type EmptyRow, emptySections, FOLDERS_ID, groupName, selectable } from './search/cmd-layout'
 import { CmdForm, type FormValue } from './search/CmdForm'
+import { openCmdEditor } from './commands/editor'
+import { deleteAiCmd, useAiCmds } from './commands/store'
+import { useConvPick } from './composer'
 import { KeysMini, type MenuAct, RowMenu, TextMini } from './search/PalMenus'
 import { decodeUrl, isSearchUrl, looksLikeUrl, toUrl } from './url'
 import './search/palette.css'
@@ -101,7 +104,8 @@ const NONE = { q: '', list: [] }
 
 type Menu = { id: string; x: number; y: number; byKey?: boolean }
 type Mini = { kind: 'keys' | 'alias' | 'group'; id: string; at: { left: number; top: number } }
-type Toast = { text: string; seq: number; undo?: CmdConfig }
+/** undo：改之前的 命令.json；只在这台 Mac 上的 AI 命令删掉了，撤回是放回那一份（undoFn） */
+type Toast = { text: string; seq: number; undo?: CmdConfig; undoFn?: () => Promise<void> }
 type Drag = { id: string; name: string; icon: PaletteCommand; w: number; x: number; y: number; dy: number; line: { left: number; top: number; width: number } | null; target: { gid: string; before: string | null } | null; over: string | null }
 
 let toastSeq = 0
@@ -121,6 +125,11 @@ export function Palette(props: {
   onClose(): void
 }) {
   const cfg = useCmds()
+  /** 自己存的 AI 命令（库里的和只在这台 Mac 的）：改、删走「存成命令」那张表和 commands/store */
+  const { mine } = useAiCmds()
+  /** AI 对话现在用的那一家、模型、想多久：从头写、改一条 AI 命令时影响卡「谁来做」写它，提炼也用它 */
+  const ai = useConvPick(null, () => {}, (t) => say(t))
+  const aiWho = { who: ai.label, engine: ai.pick.engine, pick: { engine: ai.pick.engine, ...ai.req } }
   /** 命令现在的键（命令表 + 改过的；改了跟着重画） */
   const K = useKeys()
   const [q, setQ] = useState('')
@@ -430,8 +439,24 @@ export function Palette(props: {
       setMini({ kind: 'keys', id, at: r ? { left: at.left, top: r.bottom + 4 } : at })
     }
     else if (a.kind === 'alias') setMini({ kind: 'alias', id, at })
-    else if (a.kind === 'edit') setForm({ edit: view.get(id)?.own ?? null })
-    else if (a.kind === 'delete') change((c) => deleteOwn(c, id), '删掉了这条自己的命令')
+    else if (a.kind === 'edit') {
+      // AI 命令：关上 ⌘K，开「存成命令」那张表改（规矩、在哪能用、写到哪）
+      const cmd = mine.find((c) => c.id === id)
+      if (cmd) {
+        props.onClose()
+        return openCmdEditor({ kind: 'edit', cmd, ...aiWho })
+      }
+      setForm({ edit: view.get(id)?.own ?? null })
+    } else if (a.kind === 'delete') {
+      const cmd = mine.find((c) => c.id === id)
+      if (!cmd) change((c) => deleteOwn(c, id), '删掉了这条自己的命令')
+      // AI 命令走 commands/store：只在这台 Mac 上的也删得掉，撤回放回原来那一份
+      else
+        void deleteAiCmd(cmd).then(
+          (undo) => setToast({ text: '删掉了这条自己的命令', undoFn: undo, seq: ++toastSeq }),
+          (e: unknown) => say(`没删掉：${String((e as Error)?.message ?? e)}`),
+        )
+    }
     if (a.kind !== 'newGroup' && a.kind !== 'keys' && a.kind !== 'alias') input.current?.focus()
   }
   function closeMini() {
@@ -619,7 +644,7 @@ export function Palette(props: {
         <div key={key} {...common} className={'pal-row sr add' + (on ? ' on' : '')}>
           <Codicon name="add" size={16} className="i" />
           <span className="nm">加一条自己的命令…</span>
-          <span className="lc">打开一处、打开网址</span>
+          <span className="lc">打开一处、打开网址、让AI做</span>
         </div>
       )
     if (r.kind === 'hidden')
@@ -743,6 +768,8 @@ export function Palette(props: {
               groups={formGroups}
               onDone={saveOwn}
               onBack={() => (setForm(null), input.current?.focus())}
+              // 「让AI做一件事」：关上 ⌘K，开「存成命令」那张表从头写
+              onAi={() => (props.onClose(), openCmdEditor({ kind: 'new', ...aiWho }))}
             />
           ) : empty ? (
             sections.map((s) => (
@@ -840,13 +867,13 @@ export function Palette(props: {
         {toast && (
           <div className="pal-toast" role="status">
             <span>{toast.text}</span>
-            {toast.undo && (
+            {(toast.undo || toast.undoFn) && (
               <button
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
-                  const before = toast.undo!
+                  const { undo: before, undoFn } = toast
                   setToast(null)
-                  void updateCmds(() => before)
+                  void (undoFn ? undoFn() : updateCmds(() => before!))
                 }}
               >
                 撤回
@@ -857,7 +884,7 @@ export function Palette(props: {
       </div>
       {menu && menuCmd && (
         <RowMenu
-          cmd={{ id: menu.id, name: menuCmd.name, keys: menuCmd.keys ?? null, alias: menuCmd.alias, pinned: !!menuCmd.pinned, own: !!menuCmd.own, ownEditable: menuCmd.own?.kind === 'open' || menuCmd.own?.kind === 'url', fixedKeys: menuCmd.fixedKeys }}
+          cmd={{ id: menu.id, name: menuCmd.name, keys: menuCmd.keys ?? null, alias: menuCmd.alias, pinned: !!menuCmd.pinned, own: !!menuCmd.own, ownEditable: menuCmd.own?.kind === 'open' || menuCmd.own?.kind === 'url' || menuCmd.own?.kind === 'ai', fixedKeys: menuCmd.fixedKeys }}
           x={menu.x}
           byKey={menu.byKey}
           y={menu.y}

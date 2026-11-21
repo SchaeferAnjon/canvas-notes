@@ -3,7 +3,7 @@
  *
  * AI 标签里是两样之一：
  * - 别处（文件、文件夹、首页、收件箱……）的 AI 对话：AiPanel，一直挂着，关上只是藏起来，正在生成的那一轮不断；
- * - 读 PDF / HTML、右栏网页上框着问：读 PDF 的 AI（ReadingAi），开着旁支时下面一格是旁支（SideCell）。
+ * - 读 PDF / HTML、右栏网页上框着问：读 PDF 的 AI（ReadingAi）；旁支就地长在被问那句所在的那一段下面（2026-11-21 方向 A，task-4edsc）。
  * 笔记是另一个标签（NotesDock：这份 PDF 的笔记 ReadingNotes），能和 AI 同时看。读 PDF 的 AI 只在 AI 标签开着时挂上
  * （框一块时它刚出来，预填的字能全选、光标进得去）。
  *
@@ -20,10 +20,10 @@ import { dropPicked, usePicked } from './ai-pick'
 import { placeOf, readKey, readLabel, readSrc } from './ai-place'
 import { ReadingAi } from './reading/ReadingAi'
 import { ReadingNotes } from './reading/ReadingNotes'
-import { SideCell, splitOf } from './reading/side'
 import * as R from './reading/store'
 import './reading/reading.css'
 import './reading/side.css'
+import './side/side-inline.css'
 
 export interface AiDockProps {
   /** AI 标签开着（在哪一组里都算，在别的标签后面也算） */
@@ -138,28 +138,25 @@ function useReadingLive(pdf: string) {
 
 function ReadingCell(props: AiDockProps & { pdf: string; nav: DockNav }) {
   const { pdf } = props
-  // 旁支开在 AI 标签的下格（CN-90 方向 A）：上格是主对话
-  const r = R.useReading(pdf)
-  const split = r ? splitOf(r) : null
   useReadingLive(pdf)
   return (
-    <>
-      <ReadingAi
-        pdf={pdf}
-        hidden={!props.shown}
-        nav={props.nav}
-        onShowNote={(id) => {
-          if (R.isWebSrc(pdf)) return
-          props.onShowNotes()
-          R.focusSection(pdf, id)
-        }}
-        onOpenHtml={props.onOpenHtml}
-        onNotice={props.onNotice}
-        onCollapse={props.onClose}
-        split={split}
-      />
-      {split && <SideCell pdf={pdf} onShowNotes={() => !R.isWebSrc(pdf) && props.onShowNotes()} onNotice={props.onNotice} />}
-    </>
+    <ReadingAi
+      pdf={pdf}
+      onOpenDiff={props.chat.onOpenDiff}
+      onCloseDiff={props.chat.onCloseDiff}
+      onOpen={props.chat.onOpen}
+      hidden={!props.shown}
+      nav={props.nav}
+      onShowNote={(id) => {
+        if (R.isWebSrc(pdf)) return
+        props.onShowNotes()
+        R.focusSection(pdf, id)
+      }}
+      onShowNotes={() => !R.isWebSrc(pdf) && props.onShowNotes()}
+      onOpenHtml={props.onOpenHtml}
+      onNotice={props.onNotice}
+      onCollapse={props.onClose}
+    />
   )
 }
 

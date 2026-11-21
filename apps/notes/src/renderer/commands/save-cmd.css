@@ -1,0 +1,966 @@
+/*
+ * 「存成命令」那张表（task-9womr，方向 C 第二版摆法 A「设置在右边」，小样 proto-c2.html 第 122–289 行的数）：
+ * min(1160, 100vw-64) × min(816, 100vh-64)、离顶 44；头 52、对照工具条 44、右栏 452、底栏 56；
+ * 底下整宽「存之前看清它会改什么」：文件树 330 + 六格三列。没有对照时（从头写、改、复制）860 宽，影响卡六格两列。
+ * 并排对照是历史里的对比标签那一套（diff.css），这里只加亮依据、吸顶抬头和「改前」「改后」一列的样子。
+ */
+.sc-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+  background: rgba(10, 20, 30, 0.22);
+}
+[data-tone='dark'] .sc-scrim {
+  background: rgba(0, 0, 0, 0.45);
+}
+.scmd {
+  position: fixed;
+  left: 50%;
+  top: 44px;
+  z-index: 151;
+  transform: translateX(-50%);
+  width: min(1160px, calc(100vw - 64px));
+  height: min(816px, calc(100vh - 64px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  color: var(--t1);
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+}
+.scmd.no-cmp {
+  width: min(880px, calc(100vw - 64px));
+  height: auto;
+  max-height: min(816px, calc(100vh - 64px));
+}
+.scmd .num {
+  font-variant-numeric: tabular-nums;
+}
+.scmd .mono {
+  font-family: var(--mono);
+}
+
+/* 头：存成命令 + 一句灰字 + 关上 */
+.sc-head {
+  height: 52px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+.sc-head .tt {
+  flex: none;
+  font-size: 15px;
+  font-weight: 600;
+}
+.sc-head .st {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-head .sp {
+  flex: 1;
+}
+.sc-ib {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.sc-ib:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.sc-ib.sm {
+  width: 22px;
+  height: 22px;
+}
+
+/* 中间：左边对照、右边 452 宽的规矩和怎么用 */
+.sc-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 452px;
+  grid-template-rows: minmax(0, 1fr);
+  overflow: hidden;
+}
+.scmd.no-cmp .sc-body {
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.sc-cmp,
+.sc-lc {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+}
+.sc-lc {
+  overflow: auto;
+  padding-bottom: 12px;
+}
+
+/* 对照的工具条：三种看法、右边 +加 −删 · N 轮 · 号 → 号，指一条时换成依据计数 */
+.sc-bar {
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+.sc-bar .seg {
+  flex: none;
+}
+.sc-bar .seg button .ci {
+  flex: none;
+}
+.sc-meta {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+/* 窄窗口（软件最窄 960）放不下「N 轮 · 号 → 号」：省略号收住，不压到右栏 */
+.sc-meta > :last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-meta .add {
+  color: var(--green);
+}
+.sc-meta .del {
+  color: var(--red);
+}
+.sc-evp {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 0 8px;
+  border-radius: 6px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font-size: 12px;
+  font-weight: 500;
+}
+.sc-evp .sc-ib {
+  color: var(--acc-t);
+}
+.sc-evp .sc-ib:hover {
+  background: var(--acc-soft);
+}
+.sc-cp {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+.sc-note {
+  margin: 24px;
+  font-size: 13px;
+  color: var(--t3);
+}
+
+/* 并排：两列抬头吸顶（--fill 叠在 --pop 上，滚过去的字不透出来） */
+.sc-cp .dv-cols {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: linear-gradient(var(--fill), var(--fill)), var(--pop);
+}
+.sc-cp:has(.sc-commits) .dv-cols {
+  position: static;
+}
+.sc-cp .dv-diff .cm-collapsedLines {
+  display: flex;
+  align-items: center;
+}
+.sc-cp .sc-evn {
+  margin-left: auto;
+  padding-left: 12px;
+  font-weight: 500;
+}
+.sc-cp .dv-diff .cm-collapsedLines.sc-has-ev {
+  box-shadow: inset 0 0 0 1.5px var(--acc);
+}
+
+/*
+ * 并排照小样：13/1.65，每行上下各 3（小样 .sr > .tx），空行收成 2 高（段落之间还是 8），
+ * 行号是看得到的一行、一张图、一张表连续编 1、2、3（evidence.ts 的 sc-ln，编辑器自己的行号藏起来），
+ * 对齐用的空位铺 --fill 70%（小样 .pad），图和表这种整块在改动里也铺 10% 红绿、左边 3px 竖条，
+ * 整行都换掉的不画字级的 28%（只改了几个字的行才画）。这些只在这张表里，历史里的对比标签照旧。
+ */
+.sc-cp.v-split .dv-diff.doc-look .cm-scroller {
+  font-size: 13px;
+  line-height: 1.65;
+}
+.sc-cp.v-split .dv-diff .cm-gutters {
+  line-height: 1.65;
+}
+.sc-cp.v-split .dv-diff .cm-line {
+  padding: 3px 16px 3px 8px;
+}
+.sc-cp .dv-diff .cm-line.sc-blank {
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: 8px;
+}
+.sc-cp.v-split .dv-diff .cm-line.sc-blank {
+  line-height: 2px;
+}
+/* 编辑器的底样式给每条边栏写了 display: flex !important，这里也得 !important 才藏得住 */
+.sc-cp .dv-diff .cm-lineNumbers {
+  display: none !important;
+}
+.sc-cp .dv-diff .sc-ln .cm-gutterElement {
+  box-sizing: border-box;
+  min-width: 36px;
+  padding: 0 8px 0 12px;
+  text-align: right;
+}
+.sc-cp.v-split .dv-diff .sc-ln .cm-gutterElement {
+  padding-top: 3px;
+}
+.sc-cp .dv-diff .cm-gutterElement.sc-blank {
+  visibility: hidden;
+}
+.sc-cp .dv-diff .cm-mergeSpacer {
+  background: color-mix(in srgb, var(--fill) 70%, transparent);
+}
+.sc-cp.v-split .dv-diff .cm-line.sc-whole .cm-changedText {
+  background: none;
+}
+
+/* 标题照小样收小（并排每列只有 300 多宽）：一级 15、二级 14；「改前」「改后」一整篇是 17、15。左右内边距和正文一样，字从同一个位置起 */
+.sc-cp .doc.doc :is(.cm-h1, .cm-h2, .cm-h3) {
+  font: 600 14px/1.65 var(--sans);
+}
+.sc-cp.v-split .doc.doc :is(.cm-h1, .cm-h2, .cm-h3) {
+  padding: 3px 16px 3px 8px;
+}
+.sc-cp .doc.doc .cm-h1 {
+  font-size: 15px;
+}
+.sc-cp.v-one .doc.doc .cm-h1 {
+  font-size: 17px;
+}
+.sc-cp.v-one .doc.doc .cm-h2 {
+  font-size: 15px;
+}
+
+/* 图收成 72 高的小图，旁边写文件名（小样里是写着「截图 1.png」的小条）；图、表格和正文从同一个位置起 */
+.sc-cp .doc .cm-image {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sc-cp .doc .cm-image img {
+  width: auto;
+  max-width: 100%;
+  max-height: 72px;
+  object-fit: contain;
+  border-radius: 6px;
+}
+.sc-cp .doc .cm-image-cap.add {
+  display: none;
+}
+.sc-cp .sc-imgname {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-cp.v-split .dv-diff :is(.cm-image, .cm-table) {
+  padding: 3px 16px 3px 8px;
+}
+
+/* 「改前」「改后」：一整篇文档的样子，不画行号、不画红绿，另一边的删改藏起来（没改的照样折起）；
+   左右的空白放在编辑器里面，折起的那一条才铺得到两边，也不会多出横向滚动条 */
+.sc-cp.v-one .dv-cols,
+.sc-cp.v-one .cm-gutters,
+.sc-cp.v-one .cm-deletedChunk {
+  display: none;
+}
+.sc-cp.v-one {
+  overflow-x: hidden;
+}
+.sc-cp.v-one .dv-diff .doc {
+  max-width: 720px;
+  padding: 0;
+}
+.sc-cp.v-one .dv-diff .cm-content {
+  padding: 20px 32px 40px;
+}
+.sc-cp.v-one .dv-diff .cm-line,
+.sc-cp.v-one .doc.doc :is(.cm-h1, .cm-h2, .cm-h3) {
+  padding: 0 2px;
+}
+.sc-cp.v-one .dv-diff .cm-changedLine,
+.sc-cp.v-one .dv-diff .cm-inlineChangedLine {
+  background-color: transparent !important;
+}
+.sc-cp.v-one .dv-diff .cm-changedText {
+  background: none !important;
+}
+/* 图、表格整块的红绿（diff/blocks.ts）在「改前」「改后」里也不画 */
+.sc-cp.v-one .dv-diff :is(.dv-blk-del, .dv-blk-add) {
+  background-color: transparent;
+}
+.sc-cp.v-one .dv-diff :is(.dv-blk-del, .dv-blk-add)::before {
+  content: none;
+}
+.sc-cp.v-one .dv-diff .cm-collapsedLines {
+  margin: 8px -32px;
+  padding-left: 32px;
+}
+
+/* 指一条规矩：依据那几行亮（1.5px 强调色 + 淡底），别的淡到 0.42 */
+.sc-cp .cm-line,
+.sc-cp .cm-gutterElement,
+.sc-cp .cm-collapsedLines {
+  transition: opacity 0.15s;
+}
+.sc-cp.spot .cm-line:not(.sc-ev),
+.sc-cp.spot .cm-gutterElement:not(.sc-ev),
+.sc-cp.spot .cm-collapsedLines:not(.sc-has-ev) {
+  opacity: 0.42;
+}
+.sc-cp.v-split .cm-line.sc-ev {
+  box-shadow: inset 0 0 0 1.5px var(--acc);
+  background-image: linear-gradient(var(--acc-soft), var(--acc-soft));
+}
+.sc-cp.v-one .cm-line.sc-ev {
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1.5px var(--acc),
+    0 0 0 5px var(--acc-soft);
+  background-image: linear-gradient(var(--acc-soft), var(--acc-soft));
+}
+
+/* 「只改这一篇」：依据在提交里，对照区顶上浮出几次提交 */
+.sc-commits {
+  position: sticky;
+  top: 8px;
+  z-index: 5;
+  margin: 8px 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: linear-gradient(var(--acc-soft), var(--acc-soft)), var(--pop);
+  box-shadow:
+    inset 0 0 0 1.5px var(--acc),
+    var(--shadow-up);
+  font-size: 12px;
+  color: var(--t2);
+}
+.sc-commits .t {
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.sc-commits .c {
+  height: 22px;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.sc-commits .c .mono {
+  color: var(--t3);
+}
+.sc-commits .c .w {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-commits .c .a {
+  color: var(--green);
+}
+.sc-commits .c .d {
+  color: var(--red);
+}
+.sc-empty {
+  margin: 12px 16px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+
+/* 右边：看出的规矩 */
+.sc-rc {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.sc-sec {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 20px 6px;
+}
+.sc-sec b {
+  font-size: 13px;
+  font-weight: 600;
+}
+.sc-sec .c {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+}
+.sc-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 20px 10px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.sc-wait.err {
+  color: var(--yellow);
+}
+.sc-wait .btn {
+  flex: none;
+  margin-left: auto;
+}
+.sc-rules {
+  padding: 0 12px;
+}
+.sc-rule {
+  position: relative;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 22px;
+  gap: 10px;
+  align-items: start;
+  padding: 4px 8px;
+  border-radius: 8px;
+}
+.sc-rule:hover {
+  background: var(--fill);
+}
+.sc-rule.pin {
+  background: var(--fill2);
+}
+.sc-rule.pin::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--acc);
+}
+.sc-cb {
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--t3);
+  color: var(--acc-on);
+}
+.sc-rule.on .sc-cb {
+  background: var(--acc-bg);
+  box-shadow: none;
+}
+.sc-rule .tx {
+  min-width: 0;
+}
+.sc-rule .rt {
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.sc-rule textarea.rt {
+  display: block;
+  width: calc(100% + 8px);
+  margin: 0 -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  outline: 0;
+  resize: none;
+  overflow: hidden;
+  background: var(--card);
+  box-shadow:
+    0 0 0 1px var(--acc-ring),
+    0 0 0 3px var(--acc-soft);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--t1);
+}
+.sc-rule .re {
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.sc-rule.off .rt {
+  color: var(--t3);
+}
+.sc-rule .pen {
+  opacity: 0;
+  color: var(--t3);
+}
+.sc-rule:hover .pen,
+.sc-rule .pen.on {
+  opacity: 1;
+}
+.sc-said {
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  margin: 4px 20px 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.sc-said span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-said .ci {
+  margin-top: 2px;
+}
+.sc-add {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 12px 0;
+  padding: 0 8px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--t3);
+}
+.sc-add:focus-within {
+  background: var(--fill);
+}
+.sc-add input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+}
+.sc-add input::placeholder {
+  color: var(--t3);
+}
+
+/* 怎么用：四行，64 宽的名字，控件从同一条线开始 */
+.sc-form {
+  padding: 4px 20px 16px;
+}
+.sc-rc .sc-form {
+  margin-top: 6px;
+  padding-top: 10px;
+  padding-bottom: 12px;
+  border-top: 1px solid var(--line);
+}
+.sc-rc.solo .sc-form {
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 0;
+}
+.sc-form .sc-sec {
+  padding: 0 0 4px;
+}
+.sc-frow,
+.sc-wrow {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+}
+.sc-wrow {
+  min-height: 0;
+}
+.sc-frow > label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+}
+.sc-frow .ctl {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.sc-frow .seg {
+  gap: 4px;
+}
+.sc-nm {
+  width: 100%;
+  max-width: 300px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line2);
+}
+.sc-nm:focus-within {
+  box-shadow:
+    0 0 0 1px var(--acc-ring),
+    0 0 0 3px var(--acc-soft);
+}
+.sc-nm span {
+  margin-right: 2px;
+  color: var(--t3);
+}
+.sc-nm input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+}
+.sc-nm input::placeholder {
+  color: var(--t3);
+}
+.sc-warn {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -4px 0 4px;
+  font-size: 12px;
+  color: var(--yellow);
+}
+.sc-chip {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  font-size: 12px;
+  color: var(--t2);
+}
+.sc-chip:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.sc-chip.on {
+  background: var(--acc-soft);
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+  color: var(--acc-t);
+}
+
+/* 底下整宽：存之前看清它会改什么 */
+.sc-band {
+  flex: none;
+  border-top: 1px solid var(--line);
+  background: var(--fill);
+}
+.sc-imp {
+  min-width: 0;
+  padding: 10px 20px 12px;
+}
+.sc-imp .ih {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.sc-imp .ih b {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sc-imp .ih .x {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 不叫 .ib：shell.css 里全局的 .ib 是 24 高的小按钮 */
+.sc-imp .sc-ig {
+  display: grid;
+  grid-template-columns: 330px minmax(0, 1fr);
+  gap: 12px 20px;
+}
+/* 窗口窄于 1100（弹窗不到 1036）：文件树收到 240，六格多点宽，少折一行，中间的对照和规矩多留点高 */
+@media (max-width: 1099px) {
+  .sc-imp .sc-ig {
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 10px 16px;
+  }
+  .sc-imp .sc-facts {
+    gap: 6px 14px;
+  }
+}
+.sc-tree {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background-color: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 12px;
+  transition:
+    background-color 0.8s,
+    box-shadow 0.8s;
+}
+.sc-tree .cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr);
+  gap: 6px;
+  align-items: start;
+}
+.sc-tree .col {
+  min-width: 0;
+}
+.sc-tree .h {
+  margin: 0 0 2px 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.sc-tree .ar {
+  margin-top: 22px;
+  color: var(--t3);
+}
+.sc-tr {
+  height: 22px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.sc-tr .ci {
+  color: var(--t3);
+}
+.sc-tr .n {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-tr.in {
+  padding-left: 18px;
+}
+.sc-tr b {
+  flex: none;
+  margin-left: auto;
+  padding-left: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.sc-tr.mod {
+  background: color-mix(in srgb, var(--yellow) 12%, transparent);
+}
+.sc-tr.mod b {
+  color: var(--yellow);
+}
+.sc-tr.new {
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.sc-tr.new b {
+  color: var(--green);
+}
+.sc-tree .cap {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.sc-tree .none {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--t2);
+}
+.sc-tree .note {
+  margin-top: 6px;
+  display: flex;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--yellow);
+}
+.sc-tree .note .ci {
+  margin-top: 2px;
+}
+.sc-facts {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 20px;
+  align-content: start;
+}
+.scmd.no-cmp .sc-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+/* 两列时六格排三行，比文件树高：文件树照自己的高，不拉长 */
+.scmd.no-cmp .sc-tree {
+  align-self: start;
+}
+.sc-fact {
+  min-width: 0;
+  margin: -2px -6px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: background-color 0.8s;
+}
+.sc-fact .l {
+  font-size: 12px;
+  color: var(--t3);
+}
+.sc-fact .v {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sc-fact .v .ci,
+.sc-fact .v .eng-logo {
+  flex: none;
+  margin-top: 3px;
+  color: var(--t2);
+}
+.sc-fact .v.warn,
+.sc-fact .v.warn .ci {
+  color: var(--yellow);
+}
+/* 改了哪项，变了的那一格闪一下：先没有过渡地换成 --acc-soft，再 .8s 渐隐回去 */
+.sc-fact.flash,
+.sc-tree.flash {
+  background-color: var(--acc-soft);
+  transition: none;
+}
+.sc-tree.flash {
+  box-shadow: 0 0 0 1px var(--acc-ring);
+}
+
+/* 底栏：左边一句，看说明全文 · 取消 · 存好 ⌘↵（这一屏唯一的实心按钮） */
+.sc-foot {
+  position: relative;
+  height: 56px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  border-top: 1px solid var(--line);
+}
+.sc-foot .lt {
+  min-width: 0;
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sc-foot .lt.warn {
+  color: var(--yellow);
+}
+.sc-foot .btn {
+  flex: none;
+  font-size: 13px;
+}
+.sc-foot .btn-primary {
+  padding: 0 16px;
+}
+.sc-foot .btn-primary:disabled {
+  opacity: 0.35;
+}
+/* 不用全局的 .kbd（那是带框的键帽）：小样里是跟在字后面的淡一层的 ⌘↵ */
+.sc-foot .sc-kbd {
+  margin-left: 2px;
+  font-size: 11px;
+  opacity: 0.7;
+}
+.sc-pop {
+  position: absolute;
+  left: 20px;
+  bottom: calc(100% + 6px);
+  z-index: 5;
+  width: 460px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+}
+.sc-pop .t {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+}
+.sc-pop ol {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.sc-pop .s {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}

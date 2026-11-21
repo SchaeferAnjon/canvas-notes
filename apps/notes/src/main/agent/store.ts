@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { type ChatSummary, LEGACY } from '../../shared/ai-chats'
-import type { EngineId, StoredMsg } from '../../shared/agent'
+import type { ChatSide, EngineId, StoredMsg } from '../../shared/agent'
 import { type AiPick, type AiPrefs, CLAUDE_DEFAULT, normalizePick, normalizePrefs, resolvePick } from '../../shared/ai-features'
 
 const ENGINES: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
@@ -29,6 +29,10 @@ export interface PlaceChat {
    * （--system-prompt-snapshot），版本对不上的会话不再接着聊，开新的、补上最近几轮
    */
   sv?: Partial<Record<EngineId, number>>
+  /** 这段对话里开的旁支（task-4edsc，方向 A「就地展开」）：问答和主对话分开存，不往主对话里加 */
+  sides?: ChatSide[]
+  /** 旁支自己的会话号：旁支编号 → 每家的会话（第一问从主对话分叉来的；新对话时和主对话的一起清掉） */
+  sideSessions?: Record<string, Partial<Record<EngineId, string>>>
 }
 
 /** 对话菜单要的：每个地方叫什么、问了几问、最后什么时候问的（只记问过的） */
@@ -173,13 +177,18 @@ export class AgentStore {
     return this.read<PlaceChat>(this.placeFile(vault, place), { vault, place, label: place, msgs: [], sessions: {}, at: 0 })
   }
 
-  /** 存这个地方的对话（最多留最近 200 条）；label 是菜单里写的名字。一问都没有了就不在菜单里列 */
-  saveMsgs(vault: string, place: string, label: string, msgs: StoredMsg[]) {
+  /**
+   * 存这个地方的对话（最多留最近 200 条）；label 是菜单里写的名字。一问都没有了就不在菜单里列。
+   * sides 给了就一起存（只留挂在留下来的回答上、问过的那几条）；不给就不动存着的旁支
+   */
+  saveMsgs(vault: string, place: string, label: string, msgs: StoredMsg[], sides?: ChatSide[]) {
     const cur = this.chat(vault, place)
     const kept = msgs.slice(-200)
     const times = kept.map((m) => m.time ?? 0).filter((t) => t > 0)
     const at = times.length ? Math.max(...times) : cur.at || Date.now()
-    this.write(this.placeFile(vault, place), { ...cur, vault, place, label, msgs: kept, at } satisfies PlaceChat)
+    const ids = new Set(kept.map((m) => m.id))
+    const keptSides = sides ? sides.filter((s) => ids.has(s.msg) && s.msgs.length).slice(-100) : cur.sides
+    this.write(this.placeFile(vault, place), { ...cur, vault, place, label, msgs: kept, at, ...(keptSides ? { sides: keptSides } : {}) } satisfies PlaceChat)
     const asks = asksOf(kept)
     this.writeIndex(vault, place, asks ? { label, asks, at } : null)
   }
@@ -194,6 +203,21 @@ export class AgentStore {
   session(vault: string, place: string, engine: EngineId, version: number): string | undefined {
     const c = this.chat(vault, place)
     return c.sv?.[engine] === version ? c.sessions[engine] : undefined
+  }
+
+  /** 这个地方的对话里开的旁支 */
+  sides(vault: string, place: string): ChatSide[] {
+    return this.chat(vault, place).sides ?? []
+  }
+
+  /** 旁支自己的会话号（第一问从主对话分叉来的那个）；还没问过、这家没有是 undefined */
+  sideSession(vault: string, place: string, side: string, engine: EngineId): string | undefined {
+    return this.chat(vault, place).sideSessions?.[side]?.[engine]
+  }
+
+  setSideSession(vault: string, place: string, side: string, engine: EngineId, session: string) {
+    const c = this.chat(vault, place)
+    this.write(this.placeFile(vault, place), { ...c, sideSessions: { ...c.sideSessions, [side]: { ...c.sideSessions?.[side], [engine]: session } } })
   }
 
   /** 全能模式（2026-11-19 用户要的，默认开）：AI 对话和读 PDF 共用这一个开关，记在软件设置目录 */
@@ -222,10 +246,12 @@ export class AgentStore {
     this.write(this.placeFile(vault, place), pick ? { ...c, pick } : c)
   }
 
-  /** 新对话：这个地方的对话、会话号、选的模型和 effort 都清掉（新对话从「AI 对话」那一行开始） */
+  /** 新对话：这个地方的对话、会话号、选的模型和 effort、旁支都清掉（新对话从「AI 对话」那一行开始） */
   clear(vault: string, place: string) {
-    const { pick: _old, ...c } = this.chat(vault, place)
+    const { pick: _old, sides: _sides, sideSessions: _ss, ...c } = this.chat(vault, place)
     void _old
+    void _sides
+    void _ss
     this.write(this.placeFile(vault, place), { ...c, msgs: [], sessions: {} })
     this.writeIndex(vault, place, null)
   }

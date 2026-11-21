@@ -518,3 +518,14 @@ describe('白板上就地改着一张卡时外面改了这篇：找回正在改�
     expect(findUnitAgain(u, placed, more)).toMatchObject({ same: true, unit: { place: { id: 'd1' } } })
   })
 })
+
+describe('AI 讲解下面挂着的旁支（task-4edsc）', () => {
+  it('[!side] 和上面那块 [!ai] 讲解是一张卡；别的引用、提示块照旧各是各的', () => {
+    const t = '## 讲\n\n> [!ai] AI 讲解 · Claude Code\n> 一句话。\n\n> [!side] 问\n> > 一句话。\n>\n> 答\n\n> [!side] 接着问\n>\n> 又答\n\n> 一段引文\n'
+    const units = splitDoc(t).columns[0]!.cards
+    expect(units.map((u) => u.kind)).toEqual(['callout', 'quote'])
+    expect(units[0]!.text).toBe('> [!ai] AI 讲解 · Claude Code\n> 一句话。\n\n> [!side] 问\n> > 一句话。\n>\n> 答\n\n> [!side] 接着问\n>\n> 又答')
+    // 没有 [!ai] 在前面的 [!side]（读 PDF 笔记里挂在回答后面的）不并
+    expect(splitDoc('## 讲\n\n回答\n\n> [!side] 问\n>\n> 答\n').columns[0]!.cards.map((u) => u.kind)).toEqual(['text', 'callout'])
+  })
+})

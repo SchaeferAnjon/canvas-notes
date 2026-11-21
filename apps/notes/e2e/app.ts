@@ -123,7 +123,8 @@ export async function webMore(page: Page, item: '书签和历史' | '导入Chrom
 export async function starItem(page: Page) {
   const web = page.getByRole('complementary', { name: '网页' })
   await web.getByRole('button', { name: '更多', exact: true }).click()
-  return web.getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox').filter({ hasText: /书签|收藏/ })
+  // 「显示书签栏 ⇧⌘B」也是一项勾选（task-sta8n）：不算
+  return web.getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox').filter({ hasText: /书签|收藏/ }).filter({ hasNotText: '显示书签栏' })
 }
 
 /**

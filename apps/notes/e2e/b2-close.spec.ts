@@ -184,8 +184,8 @@ test('右栏网页：点网页标签条按两次 ⌘W，两个网页标签一个
     expect(await webTabs(page).nth(1).evaluate((t) => getComputedStyle(t, '::before').content)).toBe('none')
     const m = await marks(page)
     expect(m.tab).toBe(m.line2)
-    // 点网页标签条的空处（地址栏不在焦点上），按 ⌘W：关掉「乔治…」
-    await web(page).getByRole('tablist', { name: '网页标签' }).click({ position: { x: 300, y: 10 } })
+    // 点网页栏顶上那一行的空处（地址栏不在焦点上；task-sta8n 起标签和地址并成一行，空处在这一行最左边），按 ⌘W：关掉「乔治…」
+    await web(page).getByTestId('web-row1').click({ position: { x: 2, y: 17 } })
     await page.keyboard.press('Meta+w')
     await expect(webTabs(page)).toHaveCount(1)
     await expect(toast(page)).toContainText('关掉了网页「乔治·赫伯特·沃克·布什」')

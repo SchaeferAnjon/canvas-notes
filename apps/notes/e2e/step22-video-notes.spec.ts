@@ -193,9 +193,9 @@ test('CN-80 在「未命名 3」里第一次记这个视频：这篇改名成视
 
     // 「记到」里明确选收件箱：只往「收件箱/<视频标题>.md」追加，不打开
     await strip(page).getByRole('button', { name: /^记到 / }).click()
-    // 菜单那一项写「收件箱 · 新建一篇」（和引擎菜单一个样子），悬停看得到完整路径
-    const inboxItem = web(page).getByRole('menu', { name: '记到' }).getByRole('menuitemradio', { name: '收件箱 · 新建一篇' })
-    await expect(inboxItem).toHaveAttribute('title', `收件箱/${TITLE.slice(0, 30)}`)
+    // 「记到哪（这个视频记住）」四样里的「收件箱」（task-sta8n），悬停看得到完整路径
+    const inboxItem = web(page).getByRole('menu', { name: '记到哪' }).getByRole('menuitemradio', { name: '收件箱', exact: true })
+    await expect(inboxItem).toHaveAttribute('title', `收件箱/${TITLE}.md`)
     await inboxItem.click()
     await strip(page).getByRole('button', { name: '记下这一刻' }).click()
     await expect(page.locator('.vtoast')).toContainText(`记进了《${TITLE}》`)

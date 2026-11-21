@@ -21,6 +21,7 @@ import { docImageDrop } from './web/doc-image-drop'
 import { videoDocWidgets } from './video/doc-widgets'
 import { askPending } from './video/ask-pending'
 import { materialFold } from './video/material-fold'
+import { docSides } from './side/doc-side'
 import { summaryRetry } from './video/summary-retry'
 import { provisional, provisionalRange } from './tail-line'
 import { appSettings } from './settings-store'
@@ -191,7 +192,7 @@ export class NoteDoc {
     this.base = note.text
     NoteDoc.open.add(this)
     /** 文档模式：所见即所得 + 块编辑（把手、/ 菜单、待办、表格、图片） */
-    const docMode: Extension = [livePreview, layoutLines, propsBlock, folderChip(note.path), videoDocWidgets, askPending, materialFold, summaryRetry(() => this.path, (t) => this.events.onNotice(t)), docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) }), aiSpot(() => this.path)]
+    const docMode: Extension = [livePreview, layoutLines, propsBlock, folderChip(note.path), videoDocWidgets, askPending, materialFold, summaryRetry(() => this.path, (t) => this.events.onNotice(t)), docSides, docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) }), aiSpot(() => this.path)]
     this.view = new EditorView({
       parent,
       state: EditorState.create({

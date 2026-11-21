@@ -1,0 +1,448 @@
+/*
+ * 框一块问的问框（task-sta8n，AskCard.tsx）。数值照原型 /private/tmp/canvas-notes-webbar/proto.html 的 .ask（量过 DOM）：
+ * 圆角 12、--pop 底、--shadow-up；头的小图 96 × 54；建议 26 高、圆角 6、--fill 底；输入框圆角 10、--card 底、1px --line2；
+ * 回答左边 2px 强调色竖线；底栏 12px --t3。和旁支 A「就地展开」同一套。
+ */
+.ak {
+  position: absolute;
+  z-index: 44;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  color: var(--t1);
+  font-size: 13px;
+  -webkit-app-region: no-drag;
+}
+/* 尖角对着框的中间 */
+.ak::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: var(--ax, 40px);
+  width: 12px;
+  height: 12px;
+  background: var(--pop);
+  transform: rotate(45deg);
+  box-shadow: -1px -1px 0 var(--line2);
+}
+
+/* ---------- 头：小图 · 问框住的这一块 / 这一帧 · 带上前后字幕 · 重框 × ---------- */
+.ak-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 8px 8px 10px;
+  flex: none;
+  position: relative;
+}
+.ak-thumb {
+  width: 96px;
+  height: 54px;
+  border-radius: 6px;
+  overflow: hidden;
+  position: relative;
+  flex: none;
+  background: #121c20;
+  box-shadow: 0 0 0 1px var(--line2);
+}
+.ak-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ak-thumb b {
+  position: absolute;
+  left: 4px;
+  bottom: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font: 500 10px/14px var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+.ak-ht {
+  flex: 1;
+  min-width: 0;
+}
+.ak-t {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 20px;
+}
+.ak-s {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--t3);
+}
+.ak-ctx {
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.ak-ctx .bx {
+  width: 12px;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px var(--t3);
+}
+.ak-ctx.on .bx {
+  background: var(--acc-bg);
+  box-shadow: none;
+  color: var(--acc-on);
+}
+.ak-x {
+  align-self: flex-start;
+  display: flex;
+}
+.ak-ib {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.ak-ib:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.ak-err {
+  margin: 0 12px 8px;
+  font-size: 12px;
+  color: var(--red-t, var(--t2));
+}
+
+/* ---------- 回答：问的话右边气泡，回答左边 2px 强调色竖线，在问框里滚 ---------- */
+.ak-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+.ak-q {
+  display: flex;
+  justify-content: flex-end;
+  margin: 4px 0 8px;
+}
+.ak-q span {
+  max-width: 85%;
+  padding: 6px 12px;
+  border-radius: 14px;
+  background: var(--fill2);
+  white-space: pre-wrap;
+}
+.ak-an {
+  margin: 0 0 10px;
+  padding: 0 0 2px 12px;
+  border-left: 2px solid var(--acc);
+}
+.ak-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.ak-meta svg {
+  flex: none;
+}
+.ak-tx {
+  font-size: 13px;
+  line-height: 1.7;
+}
+.ak-tx p {
+  margin: 0 0 6px;
+}
+.ak-tx ul,
+.ak-tx ol {
+  margin: 0 0 6px;
+  padding-left: 18px;
+}
+.ak-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.ak-breath {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--acc);
+  animation: ak-br 1.2s ease-in-out infinite;
+}
+@keyframes ak-br {
+  50% {
+    opacity: 0.25;
+  }
+}
+.ak-stop {
+  margin-left: auto;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.ak-stop:hover {
+  background: var(--fill);
+}
+.ak-stop kbd {
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+.ak-aierr {
+  margin-top: 4px;
+}
+.ak-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 6px;
+}
+.ak-acts button {
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.ak-acts button:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+
+/* ---------- 建议四颗：26 高、圆角 6、--fill 底 ---------- */
+.ak-sug {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px 8px;
+  flex: none;
+}
+.ak-sg {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t1);
+}
+.ak-sg:hover {
+  background: var(--fill2);
+}
+
+/* ---------- 输入框：多行（最多 4 行再滚），底下谁来答 · 模型 · effort ……发送 ---------- */
+.ak-in {
+  flex: none;
+  min-width: 0;
+  margin: 0 10px;
+  padding: 7px 8px 5px 10px;
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  background: var(--card);
+}
+.ak-in:focus-within {
+  border-color: var(--acc-ring);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+.ak-in textarea {
+  display: block;
+  width: 100%;
+  min-height: 20px;
+  max-height: 80px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: none;
+  field-sizing: content;
+  font: 13px/1.5 var(--sans);
+  color: var(--t1);
+}
+.ak-in textarea::placeholder {
+  color: var(--t3);
+}
+.ak-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin-top: 6px;
+}
+/* 三颗同 AI 输入框底下（composer.css 的 .aiin .pick：24 高、左右 6、圆角 6、12px）；放不下时名字省略 */
+.ak-row .pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px/18px var(--sans);
+  color: var(--t1);
+  white-space: nowrap;
+}
+.ak-row .pick:hover,
+.ak-row .pick.open {
+  background: var(--fill);
+}
+.ak-row .pick .lb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ak-row .pick .eng-logo,
+.ak-row .pick .cv {
+  flex: none;
+}
+.ak-row .pick .cv {
+  color: var(--t3);
+}
+/* 「↵ 问 · ⇧↵ 换行」：占剩下的地方，放不下时整句折到第二行（高 24、多出的藏起来），不截半句，也不挤选 AI 那几颗 */
+.ak-hintbox {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  overflow: hidden;
+}
+.ak-hintbox::before {
+  content: '';
+  flex: 1 1 0;
+  height: 24px;
+}
+.ak-hint {
+  flex: none;
+  padding-right: 6px;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 24px;
+  color: var(--t3);
+}
+.ak-send {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--solid);
+  color: var(--solid-t);
+}
+.ak-hintbox + .ak-send {
+  margin-left: 0;
+}
+.ak-send.off {
+  background: var(--fill2);
+  color: var(--t3);
+}
+
+/* ---------- 底栏：记进《…》▾（答好以后「✓ 已记进《…》›」强调色）· esc 关掉 ---------- */
+.ak-foot {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 12px 9px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.ak-dst {
+  height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  margin-left: -6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+button.ak-dst:hover:not(:disabled) {
+  background: var(--fill);
+}
+.ak-dst.saved {
+  color: var(--acc-t);
+}
+.ak-dst svg {
+  flex: none;
+}
+.ak-esc {
+  margin-left: auto;
+  white-space: nowrap;
+}
+/* 记到哪菜单在问框底栏上面往上弹 */
+.ak-foot .vmenu {
+  top: auto;
+  bottom: 34px;
+  left: 6px;
+  right: auto;
+}
+
+/* 文档里那块问答：「已记进《…》›」点了闪一下（同剪进文档的提示） */
+.ak-flash {
+  animation: ak-flash 1.6s ease;
+}
+@keyframes ak-flash {
+  0%,
+  40% {
+    box-shadow: 0 0 0 2px var(--acc-ring);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}

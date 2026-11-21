@@ -270,6 +270,11 @@ export interface AiInputProps {
   list?: RefObject<HTMLElement | null>
   /** 输入框下面那一行的全能模式开关（AI 对话、读 PDF 有；旁支不放，跟主对话） */
   omni?: OmniProps | null
+  /**
+   * 开着旁支（task-4edsc 方向 A「就地展开」）：缩成一行灰字（打了的字或占位字），不和旁支的输入框摞着；
+   * 点它 onWake（收起旁支），光标回到这里。字和材料都留着
+   */
+  slim?: { onWake(): void } | null
 }
 
 export function AiInput(p: AiInputProps) {
@@ -295,8 +300,34 @@ export function AiInput(p: AiInputProps) {
       ro.disconnect()
       l.removeEventListener('scroll', onScroll)
     }
-  }, [p.list])
+  }, [p.list, !!p.slim])
   const hint = p.hintNow ?? (c.mats.length ? matsHint(c.mats) : p.hint)
+  if (p.slim) {
+    const wake = p.slim.onWake
+    const go = () => {
+      wake()
+      requestAnimationFrame(() => c.ta.current?.focus())
+    }
+    return (
+      <div
+        className={'aiin-slim' + (p.className ? ' ' + p.className : '')}
+        data-testid="ai-input-slim"
+        role="button"
+        tabIndex={0}
+        aria-label="回到主对话的输入框"
+        title="点这里收起旁支、回到主对话"
+        onClick={go}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            go()
+          }
+        }}
+      >
+        <span className="ph">{c.text.trim() ? c.text.replace(/\s+/g, ' ').trim() : p.placeholder}</span>
+      </div>
+    )
+  }
   return (
     <>
       <div

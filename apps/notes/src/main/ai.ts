@@ -3,16 +3,39 @@
  * 用的是这台 Mac 上已经登录的 AI 命令行（AI 浮窗头部选的那家），不另存密钥。
  * CN_AI_FAKE=1 时不调模型，按命令给固定的回答（端到端测试用）。
  */
+import { appendFileSync } from 'node:fs'
+import type { EngineId } from '../shared/agent'
 import type { AiFeature } from '../shared/ai-features'
-import { ask as engineAsk, askFast as engineAskFast } from './agent'
+import { fakeCmdAnswer } from '../shared/cmd-run'
+import { fakeDistill } from '../shared/distill'
+import { ask as engineAsk, askFast as engineAskFast, askWith, chatRun } from './agent'
+import type { EngineImage } from './agent/engines'
+
+/**
+ * 这一问用哪家、哪个模型、想多久（/ 命令照 AI 输入框底行选的走，task-0fhyo）；images：一起给的图（截图转成文字）。
+ * 不给 pick 时照旧用设置 › AI 里这个功能选的
+ */
+export interface AskWith {
+  pick?: { engine: EngineId; model?: string; effort?: string }
+  images?: EngineImage[]
+}
 
 /** 用设置 › AI 里这个功能选的引擎问一次（不给工具；/ 命令是 AI 对话，梦游是梦游），onText 边生成边给；CN_AI_FAKE=1 时给固定回答 */
-export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void = () => {}, feature: AiFeature = 'chat'): Promise<string> {
+export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void = () => {}, feature: AiFeature = 'chat', w: AskWith = {}): Promise<string> {
   if (process.env.CN_AI_FAKE === '1') {
-    const out = fake(prompt)
+    // 测试看每一问用的哪一家、哪一档（task-0fhyo）、交给 AI 的是什么话：CN_FAKE_PICK_LOG 给了就一问记一行
+    if (process.env.CN_FAKE_PICK_LOG) appendFileSync(process.env.CN_FAKE_PICK_LOG, JSON.stringify({ cmd: /^命令：(\S+)/.exec(prompt)?.[1] ?? '', feature, pick: w.pick ?? null, prompt }) + '\n')
+    failOnce(prompt)
+    let out = fakeCmdAnswer(prompt) ?? (/^命令：提炼规矩/.test(prompt) ? fakeDistill(prompt) : fake(prompt))
+    // 测试看输入框选的模型和想多久真的交到了引擎这一层（task-0fhyo）：照引擎真会拿到的说出来
+    if (process.env.CN_FAKE_SAY_PICK === '1' && w.pick) {
+      const r = chatRun(w.pick.engine, w.pick)
+      out += `\n（${w.pick.engine} · 模型：${r.model ?? '默认'} · effort：${r.effort ?? '默认'}${w.images?.length ? ` · 图 ${w.images.length} 张` : ''}）`
+    }
     onText(out)
     return out
   }
+  if (w.pick) return askWith(system, prompt, signal, onText, w.pick, w.images ?? [])
   return engineAsk(system, prompt, signal, onText, feature)
 }
 
@@ -29,7 +52,7 @@ export async function askFast(system: string, prompt: string, signal: AbortSigna
   return engineAskFast(system, prompt, signal, onText)
 }
 
-/** CN_AI_FAKE_FAIL=视频摘要:1：这个命令前 1 次报错（演 AI 出错，测重试） */
+/** CN_AI_FAKE_FAIL=视频摘要:1：这个命令前 1 次报错（演 AI 出错，测重试；/ 命令也认，比如 视频要点带时间:1） */
 const failed = new Map<string, number>()
 function failOnce(prompt: string) {
   const [cmd, times] = (process.env.CN_AI_FAKE_FAIL ?? '').split(':')
@@ -47,6 +70,8 @@ function fake(prompt: string): string {
     case '总结':
       return '这块白板讲了三件事：住处还没订、极光看哪两晚、还没订的车。'
     case '写成文章':
+      // 演 AI 回一句拒绝话（白板上只有「（测试：太少）」那张卡）
+      if (prompt.includes('（测试：太少）')) return '白板上的内容太少，写不成一篇文章。'
       return '# 冰岛自驾\n\n## 出发前先定\n\n住处还没订。\n\n> 冰洞只在冬天开放。\n—— [Ice caves](https://www.safetravel.is/ice-caves)\n'
     case '翻译段落': {
       // 每段回一行 JSON：「译文：」加原文开头（测试按这个认）

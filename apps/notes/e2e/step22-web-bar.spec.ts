@@ -1,6 +1,6 @@
-// 右栏网页标签栏（录屏 ① CN-15、16、32、35，方案 A）：
-// 「移到中间 / 放回右栏」在标题栏最右、「收起右栏」左边，网页在哪它都不挪；标签条最右固定一个 +；没有收起网页的 ×；
-// 右栏的当前网页标签不画主题的标记，只靠底色和地址栏连成一块。
+// 右栏网页标签栏（录屏 ① CN-15、16、32、35，方案 A；2026-11-21 task-sta8n 方向 A「紧凑两档」标签和地址并成一行）：
+// 「移到中间 / 放回右栏」在标题栏最右、「收起右栏」左边，网页在哪它都不挪；当前标签就是地址块，+ 跟在标签后面；没有收起网页的 ×；
+// 右栏的当前网页标签不画主题的标记，靠地址块的 --fill 底和别的标签分开。
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
@@ -117,7 +117,7 @@ test('地址栏点进去以后网页才载完（或跳了一页）：地址栏�
   }
 })
 
-test('标签条：+ 固定在最右（1、3、6 个标签位置一样），没有收起网页的 ×；标签多了横着滚，+ 不跟着滚', async () => {
+test('标签和地址一行（task-sta8n 方向 A）：当前标签就是地址块，+ 跟在标签后面，没有收起网页的 ×；标签多了横着滚，地址块整个看得见，+ 还在栏里', async () => {
   const run = await launch({ 'a.md': '# a\n' }, {}, settingsWith({ skin: 'sky', frame: 'b' }))
   const { page } = run
   try {
@@ -125,36 +125,28 @@ test('标签条：+ 固定在最右（1、3、6 个标签位置一样），没�
     await go(page, `${base}/1`)
     await expect(web(page).getByRole('button', { name: '收起网页' })).toHaveCount(0)
     await expect(web(page).getByRole('button', { name: '移到中间' })).toHaveCount(0)
-    const plus = web(page).getByRole('tablist', { name: '网页标签' }).getByRole('button', { name: '新网页' })
-    const at = async () => {
-      const b = (await plus.boundingBox())!
-      return Math.round(b.x)
-    }
-    const x1 = await at()
+    const list = web(page).getByRole('tablist', { name: '网页标签' })
+    const plus = list.getByRole('button', { name: '新网页' })
+    // 当前标签就是地址块
+    await expect(list.getByRole('tab', { selected: true }).getByRole('textbox', { name: '网址' })).toBeVisible()
     const panel = (await web(page).boundingBox())!
-    // 最右，离右栏右边不超过 12
-    expect(panel.x + panel.width - (x1 + 28)).toBeLessThanOrEqual(12)
-    for (let i = 2; i <= 3; i++) {
-      await plus.click()
-      await go(page, `${base}/${i}`)
-    }
-    await expect(webTabs(page)).toHaveCount(3)
-    expect(await at()).toBe(x1)
-    for (let i = 4; i <= 6; i++) {
+    for (let i = 2; i <= 6; i++) {
       await plus.click()
       await go(page, `${base}/${i}`)
     }
     await expect(webTabs(page)).toHaveCount(6)
-    expect(await at()).toBe(x1)
-    // 6 个放不下：标签那一段横着滚，当前（最后一个）滚进来看得见，+ 还在原地
-    const list = web(page).locator('.wtlist')
-    const sw = await list.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, sl: el.scrollLeft }))
+    // 6 个放不下：标签那一段横着滚，当前（最后一个，地址块）滚进来整个看得见，+ 在它右边、还在栏里
+    const scroll = web(page).locator('.wtlist')
+    const sw = await scroll.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, sl: el.scrollLeft }))
     expect(sw.sw).toBeGreaterThan(sw.cw)
     expect(sw.sl).toBeGreaterThan(0)
-    const last = (await webTabs(page).nth(5).boundingBox())!
-    expect(last.x + last.width).toBeLessThanOrEqual(x1 + 1)
-    await list.evaluate((el) => (el.scrollLeft = 0))
-    expect(await at()).toBe(x1)
+    const lb = (await scroll.boundingBox())!
+    const cur = (await list.getByRole('tab', { selected: true }).boundingBox())!
+    expect(cur.x).toBeGreaterThanOrEqual(lb.x - 1)
+    expect(cur.x + cur.width).toBeLessThanOrEqual(lb.x + lb.width + 1)
+    const p = (await plus.boundingBox())!
+    expect(p.x).toBeGreaterThanOrEqual(cur.x + cur.width - 1)
+    expect(p.x + p.width).toBeLessThanOrEqual(panel.x + panel.width)
     await shot(run, 'webbar-six-tabs')
   } finally {
     await run.close()
@@ -162,7 +154,7 @@ test('标签条：+ 固定在最右（1、3、6 个标签位置一样），没�
 })
 
 for (const skin of SKINS)
-  test(`主题 ${skin.name}：右栏当前网页标签没有彩色标记，底色和地址栏一样，和别的标签分得清`, async () => {
+  test(`主题 ${skin.name}：右栏当前网页标签（地址块）没有彩色标记，--fill 底，和别的标签分得清`, async () => {
     const run = await launch({ 'a.md': '# a\n' }, {}, settingsWith({ skin: skin.id, frame: 'b' }))
     const { page } = run
     try {
@@ -175,14 +167,17 @@ for (const skin of SKINS)
       const mark = await on.evaluate((el) => getComputedStyle(el, '::before').content)
       expect(mark).toBe('none')
       const bg = (l: typeof on) => l.evaluate((el) => getComputedStyle(el).backgroundColor)
-      const head = await web(page).locator('.rhead').evaluate((el) => {
-        // 地址行自己透明时看它下面右栏的底
-        let e: Element | null = el
-        while (e && ['rgba(0, 0, 0, 0)', 'transparent'].includes(getComputedStyle(e).backgroundColor)) e = e.parentElement
-        return e ? getComputedStyle(e).backgroundColor : ''
+      // 地址块是 --fill 底（量 --fill 的颜色：同一个元素上取）
+      const fill = await on.locator('.addr').evaluate((el) => {
+        const probe = document.createElement('i')
+        probe.style.background = 'var(--fill)'
+        el.appendChild(probe)
+        const c = getComputedStyle(probe).backgroundColor
+        probe.remove()
+        return c
       })
-      expect(await bg(on)).toBe(head)
-      expect(await bg(off)).not.toBe(await bg(on))
+      expect(await bg(on.locator('.addr'))).toBe(fill)
+      expect(await bg(off)).not.toBe(fill)
       // 中间栏的标签条照旧画主题标记
       if (skin.tab === 'top' || skin.tab === 'bottom') expect(await page.locator('.center .tabs .tab.on').evaluate((el) => getComputedStyle(el, '::before').content)).not.toBe('none')
       await shot(run, `webtab-${skin.id}`)

@@ -57,7 +57,7 @@ test('文档的空对话：标志 + 钟点问候 +「要对《随手记》做点
     await expect(ai.locator('.ai-empty .sug')).toHaveCount(0)
     // 快捷命令：收件箱里有两条，所以有整理收件箱；字不带「/」，悬停说是哪条命令
     await expect(chips(page)).toHaveText(['翻译', '整理收件箱'])
-    await expect(chips(page).first()).toHaveAttribute('title', '/翻译 · 翻译文档里选中的那段；没选就翻整篇')
+    await expect(chips(page).first()).toHaveAttribute('title', '/翻译 · 翻译选中的那段；没选就翻整篇')
     const c0 = await box(chips(page).first())
     expect(Math.round(c0.height)).toBe(28)
     expect(await chips(page).first().evaluate((e) => getComputedStyle(e).borderRadius)).toBe('8px')

@@ -29,7 +29,7 @@ async function openByName(page: Page, name: string) {
 async function slash(page: Page, typed: string, name: string) {
   await chat(page).getByRole('textbox', { name: '问 AI' }).click()
   await page.keyboard.type('/' + typed)
-  await chat(page).getByRole('listbox', { name: '命令' }).getByRole('option').filter({ has: page.locator('b', { hasText: new RegExp(`^${name}$`) }) }).click()
+  await chat(page).getByRole('listbox', { name: '命令' }).getByRole('option').filter({ has: page.locator('.n', { hasText: new RegExp(`^${name}$`) }) }).click()
 }
 
 async function lowEffort(page: Page) {
@@ -72,7 +72,7 @@ test('真 Claude Code：/写成文章 的草稿落在白板所在的文件夹，
     console.log(`  提交说明：${git(vault, 'log', '-1', '--format=%s')}；改的文件：${git(vault, 'log', '-1', '--format=', '--name-only')}`)
     expect(shown).toBe('课程/机器学习/冰岛自驾：文章草稿.md')
     expect(readFileSync(join(vault, shown), 'utf8')).toMatch(/^---\ndraft: true\nfrom: "\[\[冰岛自驾\]\]"\n---\n# /)
-    expect(git(vault, 'log', '-1', '--format=%s')).toBe('AI：按「冰岛自驾」写成文章草稿')
+    expect(git(vault, 'log', '-1', '--format=%s')).toBe('AI：/写成文章 · 冰岛自驾')
     expect(git(vault, 'ls-files', '--', '冰岛自驾：文章草稿.md')).toBe('')
     await page.screenshot({ path: process.env.CN_SHOT_DIR ? join(process.env.CN_SHOT_DIR, 'real-写成文章.png') : test.info().outputPath('real-写成文章.png') })
 
@@ -126,7 +126,7 @@ test('真 Claude Code：/整理收件箱 和梦游同一套归法，剪藏、周
     await msg.getByRole('button', { name: '同意，挪过去' }).click()
     await expect(msg).toContainText(`挪好了${rows.length}条`)
     console.log(`  提交说明：${git(vault, 'log', '-1', '--format=%s')}\n  改的文件：${git(vault, '-c', 'core.quotepath=false', 'show', '--name-status', '-M', '--format=', 'HEAD').replace(/\n/g, ' | ')}`)
-    expect(git(vault, 'log', '-1', '--format=%s')).toBe(`AI：整理收件箱：挪了 ${rows.length} 条`)
+    expect(git(vault, 'log', '-1', '--format=%s')).toBe(`AI：/整理收件箱 · ${rows.length}条`)
     for (const [name, to] of rows) expect(existsSync(join(vault, to, `${name}.md`))).toBe(true)
     await msg.getByTestId('ai-change').getByRole('button', { name: '撤回' }).click()
     await expect(msg.getByTestId('ai-change')).toContainText('已撤回')

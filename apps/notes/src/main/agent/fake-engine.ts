@@ -76,6 +76,12 @@ async function vaultCommand(said: string, call: (name: string, args: Record<stri
   return null
 }
 
+/** 测试写好的一段多轮对话（CN_FAKE_ROUNDS）：用户说的那句、改哪一篇、换成哪个文件里的字、AI 回的那句 */
+function fakeRounds(): { say: string; path: string; file: string; reply?: string }[] {
+  const f = process.env.CN_FAKE_ROUNDS
+  return f ? (JSON.parse(readFileSync(f, 'utf8')) as { say: string; path: string; file: string; reply?: string }[]) : []
+}
+
 /** 问「用的什么模型」时说的：模型和 effort 都说出来（测试看设置、输入框底行选的真的传到了引擎，CN-44、CN-91） */
 const modelSaid = (r: { model?: string; effort?: string }) => `模型：${r.model ?? '没指定'}，effort：${r.effort ?? '没指定'}`
 
@@ -217,6 +223,20 @@ export function fakeEngine(id: EngineId): Engine {
         await say(r.session ? `接着会话 ${r.session} 做完了。` : '这是新会话，不记得刚才做到哪。')
         return { text, session: r.session ?? `fake-${id}` }
       }
+      // 旁支（task-4edsc，AI 对话、文档里 AI 讲解块的）：回答里写问的是哪一句、从哪分叉（文档里的没有会话可分叉，是新会话）
+      if (/这是一条旁支|接着这条旁支问/.test(r.prompt)) {
+        const quote = /他选中的那句：「(.*)」|问的还是「(.*)」这句/.exec(r.prompt)
+        const fork = !!(r.fork && r.session)
+        const session = r.session && !fork ? r.session : `fake-side-${id}-${++sides}`
+        const how = fork ? `旁支，从 ${r.session} 分叉` : r.session ? '接着聊' : `新会话${r.history ? '，带了那段讲解' : ''}`
+        await say(`#### 旁支的回答\n\n这是旁支的回答（${how}）：讲「${(quote?.[1] ?? quote?.[2] ?? '').slice(0, 12)}」，问的是「${said}」。\n\n第二段：说完了。`)
+        return { text, session }
+      }
+      // AI 对话里要几句话的回答（选一句开旁支用）：周记总结成三句话
+      if (/总结成三句话/.test(said)) {
+        await say('这周主要在赶第5讲的作业，注意力机制那部分花了两个晚上才弄懂。\n\n周三开始每天早上跑步，三次都坚持下来了。\n\n下周要把论文计划的第一节写完，并约导师见一面。')
+        return { text, session: r.session ?? `fake-${id}` }
+      }
       // 右下角 AI 浮窗也能演被拦（同读 PDF 那条）：看出错那一句在浮窗里的样子
       if (said.includes('假装被拦'))
         throw new Error("API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). Please try rephrasing your request. Request ID: req_011FAKE")
@@ -237,6 +257,14 @@ export function fakeEngine(id: EngineId): Engine {
       const did = await vaultCommand(said, call).catch((e: Error) => `没做成：${e.message}`)
       if (did !== null) {
         await say(`${did}。`)
+        return { text, session: `fake-${id}` }
+      }
+      // 照写好的稿子演一段多轮对话（CN_FAKE_ROUNDS 指向一个 JSON：[{say, path, file, reply}]）：说到那句，就把那一篇整篇换成 file 里的字
+      // （「存成命令」的测试：好几轮才把一篇改成想要的样子）
+      const round = fakeRounds().find((x) => said.includes(x.say))
+      if (round) {
+        await call('note_write', { path: round.path, text: readFileSync(round.file, 'utf8'), mode: 'replace' })
+        await say(round.reply ?? '改好了。')
         return { text, session: `fake-${id}` }
       }
       // 现在是什么模式：照引擎拿到的开关和话里开头那一行【模式】说（测试看开关真的传到了引擎）

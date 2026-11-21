@@ -290,6 +290,24 @@
   font-size: 1.1em;
 }
 
+/* 先给你看里比原文少了整节、命令没说要删（task-1l29q）：回答上面一行，和「AI 没答出来」那一行一个排法，图标红、字 --t1 */
+.aiwarn {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t1);
+}
+.aiwarn > span {
+  text-wrap: pretty;
+}
+.aiwarn .ic {
+  flex: none;
+  color: var(--red-t);
+  transform: translateY(1px);
+}
+
 /* AI 没答出来（CN-75）：一行中文 + 下一步，原话收起来 */
 .aierr .t {
   display: flex;
@@ -394,4 +412,42 @@
   max-height: 90px;
   border-radius: 8px;
   box-shadow: 0 0 0 1px var(--line2);
+}
+
+/* 存成命令（task-9womr，小样 proto-c2.html 的 .saverow / .savedcard）：对话最后一行「调出满意的样子了？ 存成命令」，存好以后一张「存成了 /名字」 */
+.saverow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.saverow .btn {
+  margin-left: auto;
+  /* 小样的按钮 13px（这一行里只有它一颗） */
+  font-size: 13px;
+}
+.savedcard {
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px var(--line2);
+  padding: 10px 12px;
+  font-size: 13px;
+  color: var(--t1);
+}
+.savedcard .t {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.savedcard .t svg {
+  color: var(--green);
+}
+.savedcard .s {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--t2);
 }

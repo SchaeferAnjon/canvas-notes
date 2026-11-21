@@ -208,8 +208,11 @@ test('问完底栏说记进了哪篇第几页，笔记在后面时带「在笔�
     await askbox.getByRole('textbox', { name: '问这句' }).press('Enter')
     await expect(toast).toContainText(/^旁支也记进了笔记，挂在第1页「.{1,10}」下面/, { timeout: 20_000 })
     await expect(toast.getByRole('button', { name: '在笔记里看' })).toBeVisible()
-    // 笔记拖到中间左边，看得见了：再问一句，底栏只说一句，不带「在笔记里看」
+    // 笔记拖到中间左边，看得见了：再问一句，底栏只说一句，不带「在笔记里看」。
+    // 旁支就地开着时主对话的输入框缩成一行（task-4edsc 方向 A）：点它收起旁支、回到主对话再打字
     await noteBeside(page)
+    await ai.getByTestId('ai-input-slim').click()
+    await expect(ai.getByRole('region', { name: '旁支' })).toHaveCount(0)
     await ai.getByRole('textbox', { name: '问 AI' }).fill('还是不懂')
     await ai.getByRole('textbox', { name: '问 AI' }).press('Enter')
     await expect(toast).toHaveText('记进《第5讲 注意力机制 笔记》第1页', { timeout: 20_000 })

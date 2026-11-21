@@ -284,13 +284,15 @@ test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；不
     const ask = web(page).getByRole('dialog', { name: '问 AI' })
     await expect(ask).toBeVisible()
     await expect(ask.getByRole('textbox', { name: '想问什么' })).toBeFocused()
-    await expect(ask).toContainText('问完自动记进《第3讲 笔记》· esc 取消')
+    // 问框（task-sta8n）：底下「记进《…》▾」能换、右边「esc 关掉」
+    await expect(ask.getByRole('button', { name: /^记进/ })).toContainText('记进《第3讲 笔记》')
+    await expect(ask).toContainText('esc 关掉')
     await shot(run, 'video-ask')
     const at = Math.floor(await videoTime(page))
     const tt = `00:${String(at).padStart(2, '0')}`
     await ask.getByRole('textbox', { name: '想问什么' }).press('Enter')
-    // 不弹浮窗，就地答进文档（CN-84）：底部提示「AI 讲完了，记进…」
-    await expect(page.getByText('AI讲完了，记进《第3讲 笔记》', { exact: true })).toBeVisible({ timeout: 15_000 })
+    // 回答在问框里就地出来，同时答进文档（CN-84、task-sta8n）：问框底行「已记进《…》」
+    await expect(ask.getByRole('button', { name: /已记进《第3讲 笔记》/ })).toBeVisible({ timeout: 15_000 })
     await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
     await shot(run, 'video-asked')
     await waitSaved(page)
@@ -529,9 +531,11 @@ for (const tone of ['light', 'dark'] as const) {
       await page.mouse.move(wv.x + 330, wv.y + 160, { steps: 6 })
       await page.mouse.up()
       await expect(web(page).getByRole('dialog', { name: '问 AI' })).toBeVisible()
+      // 问框一出来光标就在输入框里（直接回车就是「讲解这一块」）
+      await expect(web(page).getByRole('dialog', { name: '问 AI' }).getByRole('textbox', { name: '想问什么' })).toBeFocused()
       await shot(run, `deliver-${tone}-ask`)
       await page.keyboard.press('Enter')
-      await expect(page.getByText('AI讲完了，记进《第3讲 线性映射 笔记》', { exact: true })).toBeVisible({ timeout: 15_000 })
+      await expect(web(page).getByRole('dialog', { name: '问 AI' }).getByRole('button', { name: /已记进《第3讲 线性映射 笔记》/ })).toBeVisible({ timeout: 15_000 })
       await shot(run, `deliver-${tone}-asked`)
       await strip(page).getByRole('button', { name: /3个时刻/ }).click()
       await shot(run, `deliver-${tone}-moments`)

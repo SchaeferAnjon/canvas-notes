@@ -286,8 +286,33 @@ $$\\mathcal{L}(\\mathbf{w}, b) = \\frac{1}{n}\\sum_{i=1}^{n} \\frac{1}{2}\\left(
 写错的：$\\frac{1}{$ 和 $\\foo{x}$。
 `
 
+/** 文档里 AI 讲解块上开过旁支（task-4edsc）：[!side] 挂在讲解下面，编辑器里藏起来、只露小标；打开再保存一个字节不变 */
+const docWithSides = [
+  '# 第5讲 注意力机制',
+  '',
+  '这一讲从「一句话里每个词该看谁」讲起。',
+  '',
+  '> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了 00:06 这一帧',
+  '> 先拿 Q 和每个 K 做点积。分数要先除以 √d，再过 softmax 变成权重。',
+  '>',
+  '> 最后用这些权重把 **V** 加起来，就是这个位置的输出。',
+  '',
+  '> [!side] V 在这里是什么？',
+  '> > 最后用这些权重把 **V** 加起来，就是这个位置的输出。',
+  '>',
+  '> V 是每个词带的内容。',
+  '',
+  '> [!side] 那 K 呢？',
+  '>',
+  '> K 是用来比的。',
+  '',
+  '我的理解：缩放是为了让分数别太极端。',
+  '',
+].join('\n')
+
 export const FIXTURES: Record<string, Uint8Array> = {
   '数学符号.md': enc(MATH_DOC),
+  '旁支挂在讲解下面.md': enc(docWithSides),
   'Lecture05 笔记.md': enc(readingDoc),
   'plain.md': enc('# 所思所想\n\n最近在看纳瓦尔宝典。\n\n**财富**是靠专长、杠杆。\n'),
   'no-trailing-newline.md': enc('最后一行没有换行'),

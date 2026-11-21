@@ -87,6 +87,10 @@
   font-size: 12px;
   color: var(--t3);
 }
+/* 先给你看里少了整节、命令没说要删（task-1l29q）：这句人话红字（字用 --red-t，12px 也够 4.5） */
+.dv-sum.warn {
+  color: var(--red-t);
+}
 .dv-fh .sp {
   flex: 1;
 }
@@ -222,8 +226,37 @@
 .dv-diff .cm-deletedChunk {
   padding-left: 0;
 }
-.dv-diff .cm-deletedLine {
+/* 只给合一里删掉的那几行（.cm-deletedChunk 里一行一个 div）补上和别的行一样的内边距；
+   并排的左边，删掉的字也叫 .cm-deletedLine，是行里的 <del>，再加内边距字就往右错 8 */
+.dv-diff .cm-deletedChunk .cm-deletedLine {
   padding: 0 16px 0 8px;
+}
+/* 一级标题和正文从同一个位置起：文档里 .doc.doc .cm-h1 把左右内边距清成 0，这里照对比里每一行的补回来 */
+.dv-diff .doc.doc .cm-h1 {
+  padding-left: 8px;
+  padding-right: 16px;
+}
+/* 图、表格这种整块碰到改动：和改的行一样整块 10% 红绿，左边 3px 竖条落在改动那一栏（diff/blocks.ts 打的记号） */
+.dv-diff :is(.dv-blk-del, .dv-blk-add) {
+  position: relative;
+}
+.dv-diff .dv-blk-del {
+  background-color: color-mix(in srgb, var(--red) 10%, transparent);
+}
+.dv-diff .dv-blk-add {
+  background-color: color-mix(in srgb, var(--green) 10%, transparent);
+}
+.dv-diff :is(.dv-blk-del, .dv-blk-add)::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--red);
+}
+.dv-diff .dv-blk-add::before {
+  background: var(--green);
 }
 
 /* 没改的折成一条：「展开没改的 N 行」，点开能一路展开到整篇 */
@@ -255,4 +288,36 @@
 /* 预览标签：斜体，再点别的文件就换掉它；双击标签固定下来（同 VS Code） */
 .tabs .tab.preview .tl .truncate {
   font-style: italic;
+}
+
+/* AI 命令「先给你看」（task-9womr）：对比标签底下一条，左边一句还没写进去，右边「不要」「收下」 */
+.dv-take {
+  flex: none;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-top: 1px solid var(--line);
+  background: var(--pop);
+}
+/* 左边一句：图标不缩，字放不下时在里面那一段出省略号（flex 容器自己不出省略号，会从半个字处切掉） */
+.dv-take .lt {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t2);
+}
+.dv-take .lt > .ci {
+  flex: none;
+}
+/* 改完少了整节、命令没说要删：这一条铺一层淡红（和删掉的行 10%、「删了」小标 14% 同一种说法）、红字，没有实心按钮（task-1l29q） */
+.dv-take.warn {
+  background: color-mix(in srgb, var(--red) 8%, var(--pop));
+}
+.dv-take.warn .lt {
+  color: var(--red-t);
 }

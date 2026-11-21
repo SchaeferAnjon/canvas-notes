@@ -61,7 +61,7 @@ test('CN-78：「记到哪」菜单和引擎菜单一个样子（280 宽、圆�
     await openNote(page, '看视频的笔记')
     await openVideo(page)
     await strip(page).getByRole('button', { name: '记到 看视频的笔记' }).click()
-    const menu = web(page).getByRole('menu', { name: '记到' })
+    const menu = web(page).getByRole('menu', { name: '记到哪' })
     await expect(menu).toBeVisible()
     // 弹出动画（缩放）走完再量
     await expect.poll(() => menu.evaluate((el) => el.getAnimations().length)).toBe(0)
@@ -79,7 +79,8 @@ test('CN-78：「记到哪」菜单和引擎菜单一个样子（280 宽、圆�
     })
     expect(m.w).toBe(280)
     expect(m.radius).toBe('12px')
-    expect(m.rows).toHaveLength(2)
+    // task-sta8n：四样（开着的这篇、新建一篇、收件箱、只问不记），这个视频记住
+    expect(m.rows).toHaveLength(4)
     for (const r of m.rows) {
       expect(r.h).toBe(30)
       expect(r.border).toBe('0px')
@@ -87,9 +88,8 @@ test('CN-78：「记到哪」菜单和引擎菜单一个样子（280 宽、圆�
       expect(r.ckW).toBe(12)
       expect(r.sameLine).toBe(true)
     }
-    expect(m.rows[0]!.text).toContain('文档光标处 · 看视频的笔记')
-    expect(m.rows[1]!.text).toContain('收件箱 · 新建一篇')
-    await expect(menu.getByRole('menuitemradio', { name: /文档光标处/ })).toHaveAttribute('aria-checked', 'true')
+    expect(m.rows.map((r) => r.text)).toEqual(['看视频的笔记开着的这篇', '新建一篇用视频标题', '收件箱', '只问不记回答只在这张卡里'])
+    await expect(menu.getByRole('menuitemradio', { name: /开着的这篇/ })).toHaveAttribute('aria-checked', 'true')
     await shot(run, 'CN-78-dest-menu')
   } finally {
     await run.close()
@@ -188,7 +188,7 @@ test('CN-84 B / CN-76：框一块问不弹浮窗，文档里先出占位（esc �
     await expect(page.locator('.status')).toContainText('后台1件')
     await shot(run, 'CN-84-waiting')
     // 答好了：占位换成问答块 + 提示块，提示「AI 讲完了」
-    await expect(page.getByText('AI讲完了，记进《看视频的笔记》', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await expect(web(page).getByRole('dialog', { name: '问 AI' }).getByRole('button', { name: /已记进《看视频的笔记》/ })).toBeVisible({ timeout: 15_000 })
     await expect(wait).toHaveCount(0)
     await expect(float).toBeHidden()
     // 焦点留在视频上（不抢焦点）；回到文档（焦点回来、不点别处）光标就停在提示块下面的空段落：直接打字

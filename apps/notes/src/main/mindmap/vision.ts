@@ -15,8 +15,12 @@ export interface VisionRun {
   prompt: string
   image: { mime: string; base64: string }
   model?: string
+  /** 想多久（Claude Code 的 --effort）；不给是命令行自己的默认 */
+  effort?: string
   signal: AbortSignal
   timeoutMs?: number
+  /** 边答边给字（视频框一块问的问框里就地长出来） */
+  onText?(delta: string): void
 }
 
 /** 认导图默认用的模型：手写字要看得准，用浮窗同一个（CN_MAP_MODEL 能换） */
@@ -41,7 +45,7 @@ const aborted = () => Object.assign(new Error('停下了'), { name: 'AbortError'
 
 export function askWithImage(r: VisionRun): Promise<string> {
   if (r.signal.aborted) return Promise.reject(aborted())
-  const args = [...(r.prefix ?? []), ...claudeArgs({ system: r.system, model: r.model ?? MAP_MODEL }), '--input-format', 'stream-json']
+  const args = [...(r.prefix ?? []), ...claudeArgs({ system: r.system, model: r.model ?? MAP_MODEL, ...(r.effort ? { effort: r.effort } : {}) }), '--input-format', 'stream-json']
   return new Promise((resolve, reject) => {
     const child = spawn(r.exe, args, { cwd: r.cwd, env: cliEnv(), stdio: ['pipe', 'pipe', 'pipe'] })
     let buf = ''
@@ -65,12 +69,14 @@ export function askWithImage(r: VisionRun): Promise<string> {
     }
     const onLine = (line: string) => {
       if (!line.trim()) return
-      let m: { type?: string; subtype?: string; is_error?: boolean; result?: string }
+      let m: { type?: string; subtype?: string; is_error?: boolean; result?: string; event?: { type?: string; delta?: { type?: string; text?: string } } }
       try {
         m = JSON.parse(line)
       } catch {
         return
       }
+      const d = m.type === 'stream_event' ? m.event?.delta : undefined
+      if (m.event?.type === 'content_block_delta' && d?.type === 'text_delta' && d.text) r.onText?.(d.text)
       if (m.type !== 'result') return
       if (m.subtype === 'success' && !m.is_error) result = m.result ?? ''
       else error = (m.subtype === 'success' ? m.result : m.subtype) || '不知道为什么'

@@ -225,3 +225,71 @@ test('CN-57/63 梦游报告：每处改动一行人话（不再铺源码），�
     await run.close()
   }
 })
+
+/** 一篇带一级标题、图、表格的笔记：第二版改了标题、换了图、表格里改了一格 */
+const BOOK = '读书/读书笔记.md'
+const BOOK_A = '# 读书笔记\n\n第一段正文。\n\n![图](../附件/a.png)\n\n| 写法 | 意思 |\n| --- | --- |\n| x | 标量 |\n'
+const BOOK_B = '# 读书笔记（改）\n\n第一段正文。\n\n![图](../附件/b.png)\n\n| 写法 | 意思 |\n| --- | --- |\n| x | 向量 |\n'
+
+test('对比标签照 DESIGN.v3 2.7：图、表格整块碰到改动也整块红绿加竖条，一级标题和正文从同一个位置起，抬头的提交号等宽（task-9womr 设计复审找到的）', async () => {
+  const run = await launch({ 'a.md': '# a\n' }, {}, (vault) => {
+    mkdirSync(join(vault, '读书'), { recursive: true })
+    mkdirSync(join(vault, '附件'), { recursive: true })
+    writeFileSync(join(vault, '附件/a.png'), solidPng(64, 40, [80, 140, 120]))
+    writeFileSync(join(vault, '附件/b.png'), solidPng(64, 40, [200, 90, 60]))
+    writeFileSync(join(vault, BOOK), BOOK_A)
+    git(vault, 'add', '-A')
+    git(vault, 'commit', '-qm', '读书笔记第一版')
+    writeFileSync(join(vault, BOOK), BOOK_B)
+    git(vault, 'add', '-A')
+    git(vault, 'commit', '-qm', '读书笔记改了表和图')
+    // launch 自己还要提交一次「样本」：留一篇没提交的给它
+    writeFileSync(join(vault, '随手记.md'), '# 随手记\n')
+  })
+  const { page, vault } = run
+  try {
+    await page.getByRole('button', { name: '收起左栏' }).click()
+    await gitAct(page, '历史')
+    await (await commitFiles(page, '读书笔记改了表和图')).filter({ hasText: '读书笔记.md' }).click()
+    const hash = git(vault, 'log', '-1', '--grep=读书笔记改了表和图', '--format=%h').trim()
+    const sec = diffTab(page).locator(`[data-file="${BOOK}"]`)
+    await expect(sec.locator('.dv-diff.doc-look .cm-mergeViewEditor')).toHaveCount(2)
+    // 抬头：提交号是等宽字
+    await expect(sec.locator('.dv-cols > span').nth(1).locator('.mono')).toHaveText(hash)
+    expect(await sec.locator('.dv-cols > span .mono').first().evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/mono|Menlo|SF Mono/i)
+    // 图、表格：左边（改前）整块淡红，右边整块淡绿，左边都有 3px 竖条
+    for (const [side, cls] of [['a', 'dv-blk-del'], ['b', 'dv-blk-add']] as const) {
+      for (const kind of ['cm-image', 'cm-table']) {
+        const el = sec.locator(`.cm-merge-${side} .${kind}`)
+        await expect(el).toHaveClass(new RegExp(cls))
+        const look = await el.evaluate((e) => ({ bg: getComputedStyle(e).backgroundColor, bar: getComputedStyle(e, '::before').width }))
+        expect(look.bg).not.toBe('rgba(0, 0, 0, 0)')
+        expect(look.bar).toBe('3px')
+      }
+    }
+    // 两边的一级标题都和正文从同一个位置起（量第一个字的左边）：左边改掉的标题包在 <del class="cm-deletedLine"> 里，也不往右错
+    const glyphLeft = (sel: string, has?: string) =>
+      sec
+        .locator(sel, has ? { hasText: has } : {})
+        .first()
+        .evaluate((e) => {
+          const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT)
+          let n = w.nextNode()
+          while (n && !n.textContent!.trim()) n = w.nextNode()
+          const r = document.createRange()
+          r.selectNodeContents(n!)
+          return Math.round(r.getBoundingClientRect().left)
+        })
+    for (const side of ['a', 'b']) {
+      const body = await glyphLeft(`.cm-merge-${side} .cm-line`, '第一段正文。')
+      expect(Math.abs((await glyphLeft(`.cm-merge-${side} .cm-line.cm-h1`)) - body)).toBeLessThanOrEqual(1)
+    }
+    await expect(sec.locator('.cm-merge-a .cm-h1 del.cm-deletedLine')).toHaveCount(1)
+    // 合一（左栏开回来，中间窄于 900）：加上的整块淡绿
+    await page.getByRole('button', { name: '展开左栏' }).click()
+    await (await commitFiles(page, '读书笔记改了表和图')).filter({ hasText: '读书笔记.md' }).click()
+    await expect(diffTab(page).locator(`[data-file="${BOOK}"] .dv-unified .cm-table.dv-blk-add`)).toHaveCount(1)
+  } finally {
+    await run.close()
+  }
+})

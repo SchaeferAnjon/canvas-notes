@@ -23,17 +23,24 @@ export function json3(): string {
   })
 }
 
-function page(id: string): string {
-  const tracks = id === FAKE_VIDEO_ID ? [{ languageCode: 'en', name: { simpleText: 'English' } }, { languageCode: 'en', kind: 'asr', name: { simpleText: 'English (auto-generated)' } }] : []
+/**
+ * 视频页。o.ad：先放这么多毫秒的广告（和真 YouTube 一样：播放器挂着 ad-showing，报的字幕轨是 0 条，广告完了才有、才自己去取默认字幕）；
+ * o.noTracks：这一次播放器一条字幕轨都不报（第一次打开时网站没给），再打开一次就正常
+ */
+function page(id: string, o: { ad?: number; noTracks?: boolean } = {}): string {
+  const tracks = id === FAKE_VIDEO_ID && !o.noTracks ? [{ languageCode: 'en', name: { simpleText: 'English' } }, { languageCode: 'en', kind: 'asr', name: { simpleText: 'English (auto-generated)' } }] : []
   const pr = { videoDetails: { videoId: id, title: id === FAKE_VIDEO_ID ? 'Linear transformations and matrices' : 'A video without subtitles', author: '3Blue1Brown', lengthSeconds: '24' }, captions: { playerCaptionsTracklistRenderer: { captionTracks: tracks } } }
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${pr.videoDetails.title} - YouTube</title>
   <style>body{margin:0;font:14px/1.5 -apple-system,sans-serif;background:#fff;color:#0f0f0f}#movie_player{position:relative;width:100%;aspect-ratio:16/9;background:#000}
   video{width:100%;height:100%;display:block}.ytp-caption-window-container{position:absolute;left:0;right:0;bottom:60px;text-align:center;color:#ff0;font-size:20px}
   h1{font-size:18px;margin:12px 16px 4px}.ch{margin:0 16px;color:#606060}</style></head>
-  <body><div id="movie_player" class="html5-video-player"><video id="v" src="/video.webm" muted playsinline></video><div class="ytp-caption-window-container">SITE CAPTION</div></div>
+  <body><div id="movie_player" class="html5-video-player${o.ad ? ' ad-showing' : ''}"><video id="v" src="/video.webm" muted playsinline></video><div class="ytp-caption-window-container">SITE CAPTION</div></div>
   <h1>${pr.videoDetails.title}</h1><p class="ch">3Blue1Brown · 订阅者 750 万</p><p class="ch">Chapters 0:00 Intro · 0:12 Matrices</p>
   <script>
-    const pr = ${JSON.stringify(pr)}
+    const full = ${JSON.stringify(pr)}
+    const ad = ${o.ad ?? 0}
+    // 放广告时：视频说明照旧，字幕轨一条都没有
+    const pr = ad ? { videoDetails: full.videoDetails, captions: { playerCaptionsTracklistRenderer: { captionTracks: [] } } } : full
     window.ytInitialPlayerResponse = pr
     window.ytInitialData = { playerOverlays: { playerOverlayRenderer: { decoratedPlayerBarRenderer: { decoratedPlayerBarRenderer: { playerBar: { multiMarkersPlayerBarRenderer: { markersMap: [{ key: 'DESCRIPTION_CHAPTERS', value: { chapters: [{ chapterRenderer: { title: { simpleText: 'Intro' }, timeRangeStartMillis: 0 } }, { chapterRenderer: { title: { simpleText: 'Matrices' }, timeRangeStartMillis: 12000 } }] } }] } } } } } } }
     const mp = document.getElementById('movie_player')
@@ -46,19 +53,33 @@ function page(id: string): string {
       else v.pause()
     })
     window.captionRequests = []
-    mp.getPlayerResponse = () => pr
+    let cur = pr
+    mp.getPlayerResponse = () => cur
     mp.loadModule = () => {}
     mp.setOption = (mod, opt, track) => {
-      if (mod !== 'captions' || opt !== 'track' || !track) return
-      const q = new URLSearchParams({ v: pr.videoDetails.videoId, lang: track.languageCode, fmt: 'json3' })
+      if (mod !== 'captions' || opt !== 'track' || !track || mp.classList.contains('ad-showing')) return
+      const q = new URLSearchParams({ v: full.videoDetails.videoId, lang: track.languageCode, fmt: 'json3' })
       if (track.kind) q.set('kind', track.kind)
       window.captionRequests.push(q.toString())
       fetch('/api/timedtext?' + q).then((r) => r.text())
     }
-    // 和真 YouTube 一样：播放器一打开就自己取一条默认字幕（地址里带它算的校验 pot）
-    if (pr.captions.playerCaptionsTracklistRenderer.captionTracks.length) fetch('/api/timedtext?' + new URLSearchParams({ v: pr.videoDetails.videoId, lang: 'de', fmt: 'json3', pot: 'FAKEPOT' }))
+    // 和真 YouTube 一样：播放器一打开（放完广告）就自己取一条默认字幕（地址里带它算的校验 pot）
+    const firstCaption = () => {
+      if (cur.captions.playerCaptionsTracklistRenderer.captionTracks.length) fetch('/api/timedtext?' + new URLSearchParams({ v: full.videoDetails.videoId, lang: 'de', fmt: 'json3', pot: 'FAKEPOT' }))
+    }
+    if (ad)
+      setTimeout(() => {
+        mp.classList.remove('ad-showing')
+        cur = full
+        window.ytInitialPlayerResponse = full
+        firstCaption()
+      }, ad)
+    else firstCaption()
   </script></body></html>`
 }
+
+/** 带 flaky=1 打开过的视频：第一次网站不给字幕轨，以后正常 */
+const flakySeen = new Set<string>()
 
 export async function startFakeVideoSite(): Promise<{ server: Server; base: string; requests: string[] }> {
   const video = readFileSync(join(__dirname, 'video.webm'))
@@ -68,7 +89,10 @@ export async function startFakeVideoSite(): Promise<{ server: Server; base: stri
     requests.push(u.pathname + u.search)
     if (u.pathname === '/watch') {
       res.setHeader('content-type', 'text/html; charset=utf-8')
-      return res.end(page(u.searchParams.get('v') ?? FAKE_VIDEO_ID))
+      const id = u.searchParams.get('v') ?? FAKE_VIDEO_ID
+      const noTracks = u.searchParams.get('flaky') === '1' && !flakySeen.has(id)
+      if (u.searchParams.get('flaky') === '1') flakySeen.add(id)
+      return res.end(page(id, { ad: Number(u.searchParams.get('ad')) || 0, noTracks }))
     }
     if (u.pathname === '/video.webm') {
       const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? '')

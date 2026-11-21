@@ -19,7 +19,7 @@ export interface MenuCmd {
   alias?: string
   pinned: boolean
   own: boolean
-  /** 自己加的、表单改得了的（打开一处、打开网址）；以后的 AI 命令另有自己的改法 */
+  /** 自己加的、改得了的（打开一处、打开网址在 ⌘K 表单里改；AI 命令开「存成命令」那张表改） */
   ownEditable?: boolean
   /** 快捷键是它自己那块接的（双语翻译 ⌥A）：「设快捷键…」灰着 */
   fixedKeys?: boolean

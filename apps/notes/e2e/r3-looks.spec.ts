@@ -215,7 +215,8 @@ test('窗口 700 高、上格开着视频时点「接着问」：下格 AI 的�
     await page.mouse.move(wv.x + 220, wv.y + 140, { steps: 6 })
     await page.mouse.up()
     await web.getByRole('dialog', { name: '问 AI' }).getByRole('textbox', { name: '想问什么' }).press('Enter')
-    await expect(page.getByText(/AI讲完了/)).toBeVisible({ timeout: 15_000 })
+    // 回答在问框里就地出来、同时写进文档（task-sta8n）：问框底行「已记进《…》」
+    await expect(web.getByRole('dialog', { name: '问 AI' }).getByRole('button', { name: /已记进/ })).toBeVisible({ timeout: 15_000 })
     await waitSaved(page)
 
     // 文档里问答块「接着问」：右栏下格开 AI，输入框上面挂着那一帧和那一问

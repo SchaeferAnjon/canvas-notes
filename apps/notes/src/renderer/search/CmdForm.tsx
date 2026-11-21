@@ -1,10 +1,11 @@
 /**
- * ⌘K「加一条自己的命令…」（DESIGN.v3 3.2）：面板原地变成表单。做什么（打开一处 / 打开网址）、打开哪里或网址、名字、放进哪组、别名。
- * 「让AI做一件事」等「把对话存成自己的 AI 命令」那份方案选了再加（task-9womr）；存法已经留好（shared/commands.ts 的 kind: ai）。
+ * ⌘K「加一条自己的命令…」（DESIGN.v3 3.2）：面板原地变成表单。做什么（打开一处 / 打开网址 / 让AI做一件事）、打开哪里或网址、名字、放进哪组、别名。
+ * 「让AI做一件事」不在这里填（task-9womr）：选它就关上 ⌘K，开「存成命令」那张表从头写规矩（commands/SaveCmd.tsx），存成 kind: ai。
  */
 import { Codicon } from '@cn/design'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { OwnCommand } from '../../shared/commands'
+import { AiIcon } from '../engine-logo'
 import { recentFiles, useVaultFiles } from '../files/store'
 
 export interface FormValue {
@@ -22,7 +23,7 @@ const KINDS = [
 
 const lastPart = (p: string) => p.split('/').pop() ?? p
 
-export function CmdForm(props: { edit: OwnCommand | null; group: string; alias: string; groups: { id: string; name: string }[]; onDone(v: FormValue): void; onBack(): void }) {
+export function CmdForm(props: { edit: OwnCommand | null; group: string; alias: string; groups: { id: string; name: string }[]; onDone(v: FormValue): void; onBack(): void; onAi(): void }) {
   const e = props.edit
   const [v, setV] = useState<FormValue>({ kind: e?.kind === 'url' ? 'url' : 'open', name: e?.name ?? '', target: e?.target ?? '', group: props.group, alias: props.alias })
   const [err, setErr] = useState('')
@@ -83,6 +84,16 @@ export function CmdForm(props: { edit: OwnCommand | null; group: string; alias: 
               <span>{k.note}</span>
             </button>
           ))}
+          {/* 新加时才有：AI 图标是跑它的那一家的标志（偏好「AI 图标用引擎标志」） */}
+          {!e && (
+            <button role="radio" aria-checked={false} className="kind" onClick={props.onAi}>
+              <b>
+                <AiIcon job="chat" size={14} />
+                让AI做一件事
+              </b>
+              <span>写几条规矩，AI 照着做</span>
+            </button>
+          )}
         </div>
       </div>
       <div className="f-row">

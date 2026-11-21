@@ -153,26 +153,51 @@ export interface MomentResult {
   key: string
 }
 
+/** 框好一块（问框打开时）：主进程截好那一帧（画上紫框）记着，问、接着问、想建议都用它；给回框住那块的小图 */
+export interface PeekResult {
+  /** 这一帧的编号（问的时候带上） */
+  card: number
+  t: number
+  /** 框住那块的小图（data: 网址，长边不超过 192） */
+  thumb: string
+}
+
 export interface AskRequest {
   wcId: number
-  dest: Dest
+  /** 记到哪；null 是只问不记（回答只在问框里，不存图、不提交） */
+  dest: Dest | null
   box: Box
   question: string
   /** 当前文档的字（给 AI 看） */
   noteText: string
+  /** 问框里截好的那一帧（PeekResult.card）；没有就现截 */
+  card?: number
+  /** 带上前后字幕（问框头上那一格，默认勾上） */
+  subs?: boolean
+  /** 问框底下选的模型、effort（看图问只有 Claude Code）；不给用设置 › AI「看图问」那一行 */
+  model?: string
+  effort?: string
+  /** 接着问：之前在这一帧问过的几问和回答（第一问时不给） */
+  prior?: { q: string; a: string }[]
 }
 
 export interface AskResult {
-  /** 给浮窗显示的回答 */
+  /** 问框里显示的回答（带要点） */
   answer: string
   /** 「看了 03:42 这一帧、03:12–04:12 的字幕、这篇笔记」 */
   read: string
-  /** 要插进笔记的问答块 */
+  /** 要插进笔记的问答块（第一问） */
   block: string
-  /** 截图（问答块在文档里，一门课的「我的疑惑」直接读它） */
+  /** 接着问：接在那块讲解后面的几行（shared/video.ts 的 followMd） */
+  follow?: string
+  /** 截图（问答块在文档里，一门课的「我的疑惑」直接读它）；只问不记时是空的 */
   files: string[]
   commit?: string
   t: number
+  /** 谁答的：「Claude Code · Opus 5.5 · Low」 */
+  by: string
+  /** 框的那一帧存在库里的哪（只问不记时没有） */
+  image?: string
 }
 
 export interface CnVideoApi {
@@ -190,7 +215,13 @@ export interface CnVideoApi {
   /** 字幕全文那一篇里「AI 摘要没写成 · 重试」 */
   retrySummary(path: string): Promise<void>
   moment(r: MomentRequest): Promise<MomentResult>
+  /** 框好一块：截好那一帧记着，给回编号和框住那块的小图 */
+  peek(r: { wcId: number; box: Box }): Promise<PeekResult>
+  /** 问框里另外两颗建议：小活那家看那一帧和字幕现想（想不出、出错是空的，只留两颗固定的） */
+  suggest(card: number): Promise<string[]>
   ask(r: AskRequest): Promise<AskResult>
+  /** 边答边来的回答（问框里就地长出来）：这一帧的编号、已经到了的那一截 */
+  onAskText(cb: (card: number, text: string) => void): () => void
   /** 停下这个视频正在问的那一问 */
   askStop(wcId: number): Promise<void>
   /** 文档、白板里插好、存好以后：一次提交（附件图 + 文档改动） */

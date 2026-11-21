@@ -84,7 +84,8 @@ test('CN-84：问答块上「接着问」：引文标「00:06 · 视频名」不
     const ask = web(page).getByRole('dialog', { name: '问 AI' })
     await expect(ask).toBeVisible()
     await ask.getByRole('textbox', { name: '想问什么' }).press('Enter')
-    await expect(page.getByText(/AI讲完了/)).toBeVisible({ timeout: 15_000 })
+    // 回答在问框里就地出来、同时写进文档（task-sta8n）：问框底行「已记进《…》」
+    await expect(ask.getByRole('button', { name: /已记进/ })).toBeVisible({ timeout: 15_000 })
     await waitSaved(page)
 
     // 光标放回第一句，点问答块上的「接着问」：右栏下格开 AI，引文标视频时刻和视频名
@@ -138,7 +139,8 @@ test('第 2 轮：「接着问」带上那一帧和上一问的回答、前后�
     await page.mouse.up()
     const ask = web(page).getByRole('dialog', { name: '问 AI' })
     await ask.getByRole('textbox', { name: '想问什么' }).press('Enter')
-    await expect(page.getByText(/AI讲完了/)).toBeVisible({ timeout: 15_000 })
+    // 回答在问框里就地出来、同时写进文档（task-sta8n）：问框底行「已记进《…》」
+    await expect(ask.getByRole('button', { name: /已记进/ })).toBeVisible({ timeout: 15_000 })
     await waitSaved(page)
 
     // 视频接着播到 00:20 停下，再点「接着问」：跳回 00:06 停住

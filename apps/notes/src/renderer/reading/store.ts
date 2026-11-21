@@ -15,6 +15,7 @@ import { pageText, pdfDoc, renderCrop } from './pdf'
 import { webHost } from '../plugins/host'
 import { centerNow } from '../video/store'
 import { clearWebBox } from './web-bridge'
+import { ASK_THIS, sideName as nameOf } from '../side/name'
 
 /** 框好、还没发的那一块（右栏输入框里那张小图） */
 export interface Pending {
@@ -89,7 +90,7 @@ export interface Reading {
   writing: string[]
   /** 发出去过几次：输入框看到它变了就清掉预填的字（不管是从哪里发的） */
   sent: number
-  /** 右栏下格的旁支（CN-90 方向 A）：开着哪一条、收没收成一条头、拖到的高低、收着时来了几条新回答 */
+  /** 旁支（2026-11-21 方向 A「就地展开」，task-4edsc）：开着哪一条，刚收起的是哪一条（那句闪一下） */
   side: SideUi
   /** 正在答的旁支：旁支编号 → 那条回答的 id */
   sideRunning: Record<string, number>
@@ -97,16 +98,13 @@ export interface Reading {
   sideFocus: { thread: string; quote: string; seq: number } | null
 }
 
-/** 下格的样子：share 是拖过的高低（占 AI 那一格的比例，null 是默认 55%，双击回默认） */
+/** 旁支开着哪一条；flash：刚收起的那一条（那句闪 1.4 秒、小标闪一圈） */
 export interface SideUi {
   open: string | null
-  fold: boolean
-  share: number | null
-  unread: number
+  flash: { side: string; seq: number } | null
 }
 
-/** 旁支里空着回车问的那句 */
-export const ASK_THIS = '讲讲这句'
+export { ASK_THIS }
 
 const docs = new Map<string, Reading>()
 const subs = new Set<() => void>()
@@ -137,7 +135,7 @@ const blank = (pdf: string): Reading => ({
   fresh: false,
   writing: [],
   sent: 0,
-  side: { open: null, fold: false, share: null, unread: 0 },
+  side: { open: null, flash: null },
   sideRunning: {},
   sideFocus: null,
 })
@@ -286,6 +284,20 @@ const patchMsg = (pdf: string, id: number, p: Partial<ReadingMsg>) => {
   save(pdf)
 }
 
+/**
+ * / 命令在读 PDF 的对话里跑（task-9womr：这份课件每页讲什么、复习提纲、自测题、视频要点…）：加一句问、一条回答，回答边做边改；
+ * 不记进笔记（命令自己写它说的那一处）。返回回答的编号；done 时收起「在答」
+ */
+export function cmdTurn(pdf: string, text: string): { id: number; patch(p: Partial<ReadingMsg>): void; done(): void } {
+  const now = Date.now()
+  const thread = `cmd-${now}`
+  const uid = nextSeq()
+  const id = nextSeq()
+  update(pdf, (x) => ({ running: id, state: { ...x.state, msgs: [...x.state.msgs, { id: uid, role: 'user', thread, text, time: now }, { id, role: 'ai', thread, text: '', time: now }] } }))
+  save(pdf)
+  return { id, patch: (p) => patchMsg(pdf, id, p), done: () => update(pdf, (x) => (x.running === id ? { running: null } : {})) }
+}
+
 // ---------- 读全文 ----------
 
 /** 第一次打开：后台一页一页读出段落块（问的时候已经能问），读完交给主进程按内容指纹缓存 */
@@ -348,6 +360,27 @@ export function stage(pdf: string, p: Pending, sentAt?: number) {
   // 换了一块：排着的那一问是问上一块的，不发了（字还回输入框）
   const keep = !!old && samePlace(old, p)
   update(pdf, (x) => ({ pending: p, ...(keep ? {} : dropQueue(x)) }))
+}
+
+/**
+ * 视频框一块问的问答带进 AI 标签（task-sta8n 问框里「在 AI 标签里聊」）：在这个视频那一份对话里新开一处
+ * （记着视频、第几秒、那几问和回答，框的那一帧是这一处的图），几问几答照原样摆成消息，第一问带着那一帧；
+ * 这一处成了接着问的那一处：在 AI 标签里问，AI 看得到那一帧（第一次附上）、那几问和回答、前后字幕
+ */
+export async function adoptVideoQa(src: string, v: { url: string; title: string; t: number; image?: string; qa: { q: string; a: string; by: string }[] }) {
+  if (!v.qa.length) return
+  await load(src)
+  const now = Date.now()
+  const id = await window.cnReading.newThread(src, 0)
+  const answer = v.qa.map((x, i) => (i ? `接着问：${x.q}\n${x.a}` : x.a)).join('\n\n')
+  const th: ReadingThread = { id, page: 0, quote: v.qa[0]!.q, ...(v.image ? { crop: v.image } : {}), web: { url: v.url, title: v.title, t: v.t, answer: answer.slice(0, 4000) }, createdAt: now }
+  const read = `看了 ${fmtTime(v.t)} 这一帧`
+  const msgs: ReadingMsg[] = v.qa.flatMap((x, i): ReadingMsg[] => [
+    { id: nextSeq(), role: 'user', thread: id, text: x.q, time: now, page: 0, ...(i === 0 && v.image ? { image: v.image } : {}) },
+    { id: nextSeq(), role: 'ai', thread: id, text: x.a, time: now, page: 0, read, by: x.by },
+  ])
+  update(src, (r) => ({ activeThread: id, state: { ...r.state, threads: [...r.state.threads, th], msgs: [...r.state.msgs, ...msgs] } }))
+  save(src)
 }
 
 /** 排着的这几问不发了：字（一问一段，空一行）和材料交回输入框；后一问字里的编号接着前一问的往后数 */
@@ -471,6 +504,8 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     }
   }
   const th = thread
+  // 视频问框带过来的那一处（adoptVideoQa）：在这里第一次问 AI 时附上框的那一帧（之后接着这个会话，不再附）
+  const carried = !p && th.web?.t !== undefined && th.crop && !r.state.msgs.some((m) => m.thread === th.id && m.role === 'ai' && m.engine) ? th.crop : undefined
   const userMsg: ReadingMsg = {
     id: nextSeq(),
     role: 'user',
@@ -496,7 +531,7 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     engine,
     thread: th,
     text: text.trim(),
-    images: image ? [image] : [],
+    images: image ? [image] : carried ? [carried] : [],
     ...(images.length ? { pasted: images } : {}),
     pageText: blocksText(blocks),
     pages: get(pdf).pages,
@@ -597,19 +632,8 @@ function patchSideMsg(pdf: string, side: string, id: number, p: (m: ReadingMsg) 
   if (store) save(pdf)
 }
 
-/** 旁支的名字：改过的；没改过用问的第一句（空着问的「讲讲这句」不算），再没有用那一句的开头；还没问过是「新旁支」 */
-export function sideName(s: ReadingSide): string {
-  if (s.name?.trim()) return s.name.trim()
-  // 第一问的原话当名字；末尾的问号、句号不要（格头「名字 · 来自第 N 页」里全角问号再加「 · 」空得太宽）
-  const first = s.msgs
-    .find((m) => m.role === 'user')
-    ?.text.replace(/\s+/g, ' ')
-    .trim()
-    .replace(/[？?。！!，,、；;：:]+$/, '')
-  if (!first) return '新旁支'
-  if (first !== ASK_THIS) return first.length > 16 ? first.slice(0, 16) + '…' : first
-  return `「${s.quote.length > 8 ? s.quote.slice(0, 8) + '…' : s.quote}」`
-}
+/** 旁支的名字：改过的；没改过用问的第一句（空着问的「讲讲这句」不算），再没有用那一句的头 8 个字；还没问过是「新旁支」 */
+export const sideName = (s: ReadingSide): string => nameOf(s)
 
 /** 旁支问了几问 */
 export const sideAsks = (s: ReadingSide) => s.msgs.filter((m) => m.role === 'user').length
@@ -629,38 +653,36 @@ export function sidesInOrder(r: Reading, thread: string): ReadingSide[] {
 const dropEmpty = (all: ReadingSide[], keep: string | null) => all.filter((s) => s.msgs.length || s.id === keep)
 
 /**
- * 在主对话的回答里选中一句开一条旁支：下格打开、光标在旁支的输入框里；question 给了（小框里先打了问题）直接问
+ * 在主对话的回答里选中一句开一条旁支：就在那一段下面长出来、光标在它的输入框里；question 给了（小框里先打了问题）直接问。
+ * 一次只开一条：别的那条收起（没问过的空旁支不留）
  */
 export function openSide(pdf: string, at: { msg: number; quote: string }, question?: string, mats?: Material[]): string | undefined {
   const r = get(pdf)
   const msg = r.state.msgs.find((m) => m.id === at.msg)
   if (!msg) return undefined
   const side: ReadingSide = { id: `side-${nextSeq().toString(36)}`, thread: msg.thread, msg: at.msg, quote: at.quote.replace(/\s+/g, ' ').trim(), msgs: [], createdAt: Date.now() }
-  update(pdf, (x) => ({ state: { ...x.state, sides: [...dropEmpty(sidesOf(x), null), side] }, side: { ...x.side, open: side.id, fold: false, unread: 0 } }))
+  update(pdf, (x) => ({ state: { ...x.state, sides: [...dropEmpty(sidesOf(x), null), side] }, side: { open: side.id, flash: null } }))
   save(pdf)
   wantSideFocus = true
   if (question?.trim() || mats?.length) void sendSide(pdf, side.id, question ?? '', mats ?? [])
   return side.id
 }
 
-/** 切到一条旁支（⋯ 里点一条、点小标）；null 是关掉下格。切走时没问过的空旁支不留 */
+/** 头上「+」：同一句再开一条（空的，光标在它的输入框里） */
+export function newSideOn(pdf: string, id: string): string | undefined {
+  const s = sidesOf(get(pdf)).find((x) => x.id === id)
+  return s ? openSide(pdf, { msg: s.msg, quote: s.quote }) : undefined
+}
+
+/** 切到一条旁支（小标、小签、⋯ 里点一条）；null 是收起（那句闪一下）。切走时没问过的空旁支不留 */
 export function showSide(pdf: string, id: string | null) {
-  update(pdf, (x) => ({ state: { ...x.state, sides: dropEmpty(sidesOf(x), id) }, side: { ...x.side, open: id, fold: false, unread: 0 } }))
+  const was = get(pdf).side.open
+  update(pdf, (x) => ({ state: { ...x.state, sides: dropEmpty(sidesOf(x), id) }, side: { open: id, flash: !id && was ? { side: was, seq: nextSeq() } : null } }))
   save(pdf)
   if (id) wantSideFocus = true
 }
 
 export const closeSide = (pdf: string) => showSide(pdf, null)
-
-/** 点格头：收成一条头（29 高）/ 展开；展开时没看的回答算看过了 */
-export function foldSide(pdf: string, fold: boolean) {
-  update(pdf, (x) => ({ side: { ...x.side, fold, ...(fold ? {} : { unread: 0 }) } }))
-}
-
-/** 拖两格之间的线：下格占 AI 那一格的比例；null 是回默认（双击） */
-export function setSideShare(pdf: string, share: number | null) {
-  update(pdf, (x) => ({ side: { ...x.side, share } }))
-}
 
 export function renameSide(pdf: string, id: string, name: string) {
   setSides(pdf, (all) => all.map((s) => (s.id === id ? { ...s, name: name.trim() || undefined } : s)))
@@ -673,7 +695,7 @@ export function deleteSide(pdf: string, id: string) {
   if (!side) return
   const running = get(pdf).sideRunning[id]
   if (running !== undefined) void window.cnReading.stop(running)
-  update(pdf, (x) => ({ state: { ...x.state, sides: sidesOf(x).filter((s) => s.id !== id) }, side: x.side.open === id ? { ...x.side, open: null, fold: false } : x.side }))
+  update(pdf, (x) => ({ state: { ...x.state, sides: sidesOf(x).filter((s) => s.id !== id) }, side: x.side.open === id ? { open: null, flash: null } : x.side }))
   save(pdf)
   if (side.msgs.some((m) => m.role === 'ai' && m.text.trim()) && get(pdf).note.sections.some((s) => s.id === side.thread)) void writeNote(pdf, side.thread, null, engineNow)
 }
@@ -683,7 +705,7 @@ export function focusSide(pdf: string, thread: string, quote: string) {
   update(pdf, () => ({ sideFocus: { thread, quote, seq: nextSeq() }, fresh: false }))
 }
 
-/** 打开旁支以后光标进旁支的输入框（选中一句点「问这句」、点小标、⋯ 里切过去） */
+/** 打开旁支以后光标进旁支的输入框（选中一句点「问这句」、点小标、小签、⋯ 里切过去） */
 let wantSideFocus = false
 export function takeSideFocus(): boolean {
   const w = wantSideFocus
@@ -752,11 +774,10 @@ export async function sendSide(pdf: string, id: string, text: string, mats: Mate
   update(pdf, (x) => {
     const { [id]: _done, ...rest } = x.sideRunning
     void _done
-    // 收成一条头时答完：头上写「1 条新回答」；开着的时候看得到，不算没看
-    const unseen = x.side.open === id && x.side.fold
-    return { sideRunning: rest, side: unseen ? { ...x.side, unread: x.side.unread + 1 } : x.side }
+    return { sideRunning: rest }
   })
-  if (!res.error && full.trim()) void writeNote(pdf, th.id, null, pick.engine, { quote: side.quote, ...(ask ? { ask } : {}) })
+  // 记进笔记（挂在被问那一问的回答后面）；网页上框着问的没有笔记，旁支只在对话记录里（不再插一份进文档、收件箱）
+  if (!res.error && full.trim() && !isWebSrc(pdf)) void writeNote(pdf, th.id, null, pick.engine, { quote: side.quote, ...(ask ? { ask } : {}) })
 }
 
 /** 停下旁支正在答的那一问 */

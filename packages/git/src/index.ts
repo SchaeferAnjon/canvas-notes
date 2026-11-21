@@ -437,7 +437,9 @@ export async function commitPaths(dir: string, paths: string[], message: string)
   if (!staged.length) return null
   const pending = async () => (await git(dir, ['status', '--porcelain', '-z', '--', ...paths])).split('\0').some(Boolean)
   if (!(await commitStep(dir, ['commit', '-q', '-m', message, '--', ...paths], pending))) return null
-  return (await git(dir, ['rev-parse', 'HEAD'])).trim()
+  // 取「最近一次改了这几个文件的提交」，不取 HEAD：提交完到这里之间软件里别处（视频条存字幕全文、自动提交）可能又提交了一次，
+  // HEAD 就是别人的那次了，AI 回答下面的改动块、「打开」、撤回会指到别人那次上
+  return (await git(dir, ['log', '-1', '--format=%H', '--', ...paths])).trim()
 }
 
 export interface RevertOptions {

@@ -133,9 +133,9 @@ export function ReadingNotes(props: {
     toSide(f.thread, f.quote, true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r.sideFocus?.seq, props.hidden])
-  // 开着旁支（没收成一条）切到笔记：直接落到正在问的那条旁支，不闪（照小样 A-3c）
+  // 开着旁支切到笔记：直接落到正在问的那条旁支，不闪（照小样 A-3c）
   useEffect(() => {
-    if (props.hidden || !r.side.open || r.side.fold) return
+    if (props.hidden || !r.side.open) return
     const s = (r.state.sides ?? []).find((x) => x.id === r.side.open)
     if (s?.msgs.length) toSide(s.thread, s.quote, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps

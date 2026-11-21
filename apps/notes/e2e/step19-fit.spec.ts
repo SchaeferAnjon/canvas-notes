@@ -160,7 +160,9 @@ test('右栏 340 宽的地址栏：网址放不下时末尾是省略号，悬停
     await expect(addr).toHaveCSS('text-overflow', 'ellipsis')
     expect(await addr.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true)
     await addr.hover()
-    await expect(page.getByTestId('tooltip')).toHaveText(long)
+    // 悬停：完整网址打头，后面一句「点一下改地址」（task-sta8n 起当前标签就是地址块）
+    await expect(page.getByTestId('tooltip')).toContainText(long)
+    await expect(page.getByTestId('tooltip')).toContainText('点一下改地址')
     // 点进去：完整网址、全选，提示收起
     await addr.click()
     await expect(addr).toHaveValue(long)

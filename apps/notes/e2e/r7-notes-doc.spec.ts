@@ -14,7 +14,7 @@ const PDF = '课程/线代/第3讲.pdf'
 const NOTE = '课程/线代/第3讲 笔记.md'
 
 const ai = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' })
-const side = (page: Page) => page.getByRole('complementary', { name: '旁支' })
+const side = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' }).getByRole('region', { name: '旁支' })
 const notes = (page: Page) => page.getByRole('complementary', { name: '笔记', exact: true })
 const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
 const pdfPane = (page: Page) => page.locator('.pdfpane:not([hidden])')
@@ -119,11 +119,11 @@ test('笔记逐字核：问题条是原话（主对话接着问的、旁支问�
     await selectText(page, first.locator('.txt'), '列就是', '去哪')
     await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么是列？')
     await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
-    await expect(side(page).locator('.sacts')).toBeVisible({ timeout: 15_000 })
+    await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     await side(page).getByRole('textbox', { name: '问 AI' }).fill('那行呢？')
     await side(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
     await expect(side(page).getByTestId('side-msg')).toHaveCount(2)
-    await expect(side(page).locator('.sacts')).toBeVisible({ timeout: 15_000 })
+    await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toContain('> [!recap] 测试小结：主对话问了 2 句，旁支问了 2 句。')
     md = readFileSync(join(vault, NOTE), 'utf8')
     const section = md.slice(md.indexOf('## 第 2 页'))
@@ -214,13 +214,13 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     await selectText(page, first.locator('.txt'), '列就是', '去哪')
     await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么是列？')
     await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
-    await expect(side(page).locator('.sacts')).toBeVisible({ timeout: 15_000 })
+    await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     // 开着旁支看一眼笔记（直接落在那条旁支上），再回到 AI：这一轮不算「自己点开的」，来了新的一轮照样收成一行
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(notes(page).locator('.nside').first()).toBeInViewport()
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(ai(page)).toBeVisible()
-    await side(page).getByRole('button', { name: '关掉旁支' }).click()
+    await side(page).getByRole('button', { name: '收起旁支' }).last().click()
     // 第二轮：第 4 页
     await drawBox(page, 4, [0.1, 0.2], [0.6, 0.4])
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
@@ -279,7 +279,7 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     expect(Math.round(((await box(sqs)).width / inner) * 100)).toBe(78)
     // 回答原文照排（标题）；被问的那句笔记里也有虚线和小标
     await expect(sd.locator('.am .md-h')).toHaveText('旁支的回答')
-    await expect(r2.locator('.qa > .am .asked')).toHaveText('列就是基向量去哪')
+    await expect(r2.locator('.qa > .am .asked')).toHaveText('列就是基向量去哪。')
     await expect(r2.locator('.qa > .am .badge')).toHaveText('1')
     // 搜：原话、回答、小结都搜得到；搜的时候命中的那几轮都展开
     const find = n.getByRole('textbox', { name: '在这份笔记里找' })

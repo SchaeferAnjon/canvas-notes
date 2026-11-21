@@ -15,6 +15,8 @@ export type DiffSource =
   | { kind: 'pair'; a: string; b: string }
   /** 还没提交的改动：上次提交的和现在磁盘上的（历史最上面「还没提交的改动」那一行） */
   | { kind: 'working'; focus?: string }
+  /** AI 命令「先给你看」：照命令改好的样子，还没写进文件（界面里的 renderer/commands/proposals.ts，收下才写，task-9womr） */
+  | { kind: 'proposal'; id: string }
 
 export type DiffFileKind = 'md' | 'html' | 'image' | 'text' | 'binary'
 
@@ -33,6 +35,8 @@ export interface DiffEntry {
   removed: number
   /** 改了什么的一句人话 */
   summary: string
+  /** 这句人话是要提醒的（AI 命令先给你看里少了整节、命令没说要删）：红字 */
+  warn?: boolean
   /** 现在库里这个路径上还有这个文件（「打开这篇」能不能点） */
   exists: boolean
 }

@@ -2220,6 +2220,21 @@ button.bi[data-testid='git-changed']:disabled {
   padding: 0;
   justify-content: center;
 }
+/* 自己存的命令（task-9womr，小样 ai-empty「以后有自己的命令」）：一道 1×16 --line2 竖线后面，图标强调色 */
+.aiq .qsep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--line2);
+}
+.aiq .qsep.folded {
+  display: none;
+}
+.aiq .qc.own .ci,
+.aiq .qmenu button.own .ci {
+  color: var(--acc-t);
+}
 .aiq .qc[hidden] {
   display: none;
 }

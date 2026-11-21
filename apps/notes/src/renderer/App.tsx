@@ -26,6 +26,7 @@ import { reloadHome, resetHome } from './home-store'
 import { HomeView } from './HomeView'
 import { HistoryPanel } from './HistoryPanel'
 import { DiffTab } from './diff/DiffTab'
+import { getProposal } from './commands/proposals'
 import { OldImagesTab } from './dream/OldImages'
 import type { DiffSource } from '../shared/diff'
 import { UpdateBarItem, useUpdateState } from './update'
@@ -55,6 +56,9 @@ import { loadCmds, noteUsed, setRegistry, useCmds } from './search/cmd-store'
 import { accelFor, keyFor, replayAppKey, runAppKey, runLocal, setAppRunner, withKeys } from './keys'
 import { keyDef } from '../shared/cmd-table'
 import type { OwnCommand } from '../shared/commands'
+import { aiCmdJson, aiCmdOf, tagsOf } from '../shared/ai-cmds'
+import { CmdEditorHost } from './commands/SaveCmd'
+import { useLocalAiCmds } from './commands/store'
 import { setActiveFile } from './plugins/host'
 import { Settings, type SettingsPage } from './Settings'
 import { homeWinBg, useAppSettings } from './theme'
@@ -282,6 +286,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   }, [])
   /** ⌘K 的自定义（.canvas-notes/命令.json）：自己加的命令、改过的快捷键 */
   const cmdCfg = useCmds()
+  /** 只在这台 Mac 上的 AI 命令（task-9womr）：和库里的一样进 ⌘K「让AI做」、能设快捷键 */
+  const localAiCmds = useLocalAiCmds()
   // 摘出来的那一格被拿下来了：左栏回到「文件」
   const shownView: SideView = leftView.startsWith('dir:') && !leftCfg.left.includes(leftView.slice(4)) ? 'files' : leftView
   const openLeft = (v: SideView) => {
@@ -395,8 +401,6 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   /** 上次开的右栏那一样：标题栏最右开回来时什么都没开过就开它（没有就开大纲） */
   const lastRight = useRef<Dk.ViewId>('outline')
   const toggleRightRef = useRef<() => void>(() => undefined)
-  /** 每个标签记住自己开着的网页 */
-  const [webUrl, setWebUrl] = useState<Record<string, string>>({})
   const [activeMode, setActiveMode] = useState<ViewMode>('doc')
   const [gitVersion, setGitVersion] = useState(0)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -426,7 +430,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     setNoticeUndo(null)
     setNoticeAct({ text, label: '看网页', icon: 'globe', run: () => openView('web') })
   }
-  /** 右栏现在显示的 http(s) 网页（标题栏「移到中间」看它），和右栏把它挪到中间的那一步 */
+  /**
+   * 右栏现在显示的 http(s) 网页（标题栏「移到中间」、AI 圆钮问的视频、AI 看得到的网页都看它），和右栏把它挪到中间的那一步。
+   * 以前另记了一份「每个中间标签开着的网页」：在 PDF 上开的视频记在 PDF 标签下，回到别的文档时那一份是空的，
+   * 圆钮就当右栏没开视频（task-ajtr9）；右栏自己按中间标签切网页（web-tabs 的 owners），这里只认它现在显示的
+   */
   const [rightWeb, setRightWeb] = useState<string | null>(null)
   const moveWebToCenter = useRef<(() => void) | null>(null)
   /** 插件在右竖条的格子（微信读书）：网页下面 */
@@ -730,7 +738,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     setTabState((s) => {
       const hit = s.tabs.find(same)
       if (hit) return { tabs: s.tabs.map((t) => (t.id === hit.id ? { ...t, src } : t)) as Tab[], active: hit.id }
-      const t: Tab = { id: newId(), type: 'diff', src, title }
+      // AI 命令「先给你看」的标签开出来就是固定的：等着收下的改动不被下一个对比换掉（task-9womr）
+      const t: Tab = { id: newId(), type: 'diff', src, title, ...(src.kind === 'proposal' ? { pinned: true } : {}) }
+      if (src.kind === 'proposal') return { tabs: [...s.tabs, t], active: t.id }
       const i = s.tabs.findIndex((x) => x.type === 'diff' && !x.pinned)
       if (i === -1) return { tabs: [...s.tabs, t], active: t.id }
       return { tabs: s.tabs.map((x, j) => (j === i ? t : x)), active: t.id }
@@ -1455,11 +1465,14 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     C('ai-new-chat', 'add', () => (openAi(), requestAnimationFrame(() => void runLocal('ai-new-chat'))), { ai: 'chat' }),
     C('web-new-tab', 'add', () => void (runLocal('web-new-tab') || openView('web'))),
     ...(Dk.isOpen(dock, 'web') ? [C('web-address', 'globe', () => void runLocal('web-address')), C('web-reload', 'refresh', () => void runLocal('web-reload'))] : []),
+    // 网页栏顶上收起 / 展开、书签栏开关（task-sta8n）：右栏网页开着时
+    ...(Dk.isOpen(dock, 'web') ? [C('web-top-fold', 'chevron-up', () => void runLocal('web-top-fold')), C('web-bookmarks-bar', 'bookmark', () => void runLocal('web-bookmarks-bar'))] : []),
     ...(update && update.phase !== 'off' ? [{ id: 'update', home: 'app', name: '检查更新', icon: 'arrow-circle-up' as const, run: () => (openSettingsAt('checkNow'), void window.cn.checkUpdate()) }] : []),
     ...(update?.phase === 'ready' ? [{ id: 'restart-update', home: 'app', name: '重启更新', hint: `新版本${update.version}已下好`, icon: 'arrow-circle-up' as const, run: () => void installUpdate() }] : []),
     ...pluginCommands,
     // 自己加的（.canvas-notes/命令.json）
     ...cmdCfg.own.map(ownCommand),
+    ...localAiCmds.map((c) => ownCommand(aiCmdJson(c))),
   ]
   /** 现在的命令（快捷键按下时找它跑） */
   const commandsRef = useRef(commands)
@@ -1535,13 +1548,22 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       id: o.id,
       own: o,
       name: o.name,
-      hint: o.kind === 'url' ? o.target.replace(/^https?:\/\/(www\.)?/, '') : o.target.slice(0, 26),
+      // AI 命令（存成命令那张表存的）：提示字写它的标签（改这一篇 · 先给你看 · 能撤回），图标画跑它的那一家的标志
+      hint:
+        o.kind === 'url'
+          ? o.target.replace(/^https?:\/\/(www\.)?/, '')
+          : o.kind === 'ai'
+            ? tagsOf(aiCmdOf(o, 'vault') ?? { write: 'inplace' })
+                .map((t) => t[0])
+                .join(' · ')
+            : o.target.slice(0, 26),
       icon: o.kind === 'url' ? 'globe' : o.kind === 'ai' ? 'comment-discussion' : 'folder-opened',
       ...(o.kind === 'ai' ? { ai: 'chat' as const } : {}),
       home: o.kind === 'ai' ? 'ai' : 'go',
       run: () => {
         if (o.kind === 'url') return openInWeb(o.target)
-        if (o.kind === 'ai') return runAi(o.target)
+        // 交给 AI 对话照 / 命令跑（和在输入框里打 /名字 一样：先给你看、一次提交、能撤回）
+        if (o.kind === 'ai') return runAi('/' + o.name)
         const f = vaultFiles().find((x) => x.path === o.target)
         if (!f) return setNotice(withKeys(`库里没有「${o.target}」了：在 {k:search} 里右键「${o.name}」改一下`))
         if (f.kind === 'dir') openFolder(o.target)
@@ -1650,7 +1672,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   function toggleAi() {
     if (aiShown) return closeView('ai')
     // 右栏开着视频、还没在问它：AI 问的是这个视频（和读 PDF 一样，CN-84）
-    if (!readingPdf && Dk.isOpen(dock, 'web') && videoOf((active && webUrl[active]) || '')) return askInRight()
+    if (!readingPdf && Dk.isOpen(dock, 'web') && videoOf(rightWeb ?? '')) return askInRight()
     if (readingPdf) Reading.wantAiFocus()
     openAi()
   }
@@ -1658,7 +1680,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   /** 右栏网页（视频）下格开 AI；from 给了（问答块上「接着问」）就把那一问放进输入框当引文，标「00:06 · 视频名」 */
   askInRightRef.current = askInRight
   function askInRight(from?: AskFrom) {
-    const cur = (active && webUrl[active]) || ''
+    const cur = rightWeb ?? ''
     // 「接着问」：右栏开着的就是这个视频就接着用它；不是（或右栏没开网页）先把视频开到那一秒
     const same = !!from && videoOf(cur)?.key === videoOf(from.url)?.key
     const u = from && !same ? from.url : cur
@@ -1704,7 +1726,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     doc: activeDoc.current,
     notes,
     webOpen: Dk.isOpen(dockShown, 'web'),
-    webUrl: (active && webUrl[active]) || null,
+    webUrl: rightWeb,
     openWeb: openWebForAi,
     closeUnder: (path: string) =>
       setTabState((s) => {
@@ -2119,6 +2141,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           onClose={() => setPaletteOpen(false)}
         />
       )}
+      {/* 存成命令、⌘K 从头写一条 AI 命令、改自己的（commands/SaveCmd.tsx，task-9womr）；从头写时拿开着的那一篇举例 */}
+      <CmdEditorHost onNotice={setNotice} here={activeTab?.type === 'note' ? activeTab.path : null} />
       <ActivityBar
         side="left"
         label="左栏"
@@ -2591,6 +2615,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             onOpen: (p) => openNote(p),
             onShowHistory: () => openView('history'),
             onShowDream: () => openLeft('dream'),
+            // AI 命令「先给你看」：改好的样子在中间栏的对比标签里，收下、不要以后关掉它（task-9womr）
+            onOpenDiff: openDiff,
+            onCloseDiff: (id) =>
+              setTabState((s) => {
+                const i = s.tabs.findIndex((t) => t.type === 'diff' && t.src.kind === 'proposal' && t.src.id === id)
+                if (i < 0) return s
+                const tabs = s.tabs.filter((_t, j) => j !== i)
+                return { tabs, active: s.active === s.tabs[i]!.id ? (tabs[Math.min(i, tabs.length - 1)]?.id ?? null) : s.active }
+              }),
             autoRun: aiAuto,
             draft: aiDraft,
             onChanged: () => {
@@ -2630,10 +2663,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           clipMode={clipMode}
           openRequest={webOpen}
           onShow={() => openView('web')}
-          onUrl={(u) => {
-            setRightWeb(u)
-            if (active) setWebUrl((m) => (m[active] === (u ?? undefined) ? m : { ...m, [active]: u ?? '' }))
-          }}
+          onUrl={setRightWeb}
           moveToCenter={moveWebToCenter}
           onClip={(c) => void clip(c)}
           onNotice={setNotice}
@@ -2867,6 +2897,8 @@ function locationOf(t: Tab): string[] {
     case 'webread':
       return [t.title || hostOf(t.url)]
     case 'diff':
+      // 先给你看：路径照那一篇所在的文件夹写（不是历史）
+      if (t.src.kind === 'proposal') return [...(getProposal(t.src.id)?.files[0]?.path.split('/').slice(0, -1) ?? []), t.title]
       return [t.src.kind === 'dream' ? '梦游报告' : t.src.kind === 'pair' ? '可能重复' : '历史', t.title]
     case 'oldimages':
       return ['梦游预览', '挪老图']

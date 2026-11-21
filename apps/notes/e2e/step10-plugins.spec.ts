@@ -221,7 +221,9 @@ test('书签管家：地址栏的星星收藏当前页并开小卡（改标题�
     await expect(dlg.getByRole('list', { name: '书签管家列表' })).toHaveCount(0)
     await dlg.getByRole('button', { name: '完成' }).click()
     await expect(dlg).toHaveCount(0)
-    // 书签栏、地址栏的星星是同一份
+    // 书签栏、地址栏的星星是同一份（书签栏 task-sta8n 起默认不摆：⇧⌘B 打开）
+    await page.locator('main.center').click({ position: { x: 200, y: 200 } })
+    await page.keyboard.press('Shift+Meta+KeyB')
     await expect(web(page).getByRole('toolbar', { name: '书签栏' })).toContainText('雷克雅未克第二页')
 
     // 第二个、第三个书签：去别的页点星星收藏
@@ -238,7 +240,7 @@ test('书签管家：地址栏的星星收藏当前页并开小卡（改标题�
     await expect(dlg).toContainText('已收藏')
     await web(page).getByRole('button', { name: '更多', exact: true }).click()
     await expect(dlg).toHaveCount(0)
-    await expect(web(page).getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox').filter({ hasText: /书签|收藏/ })).toHaveAttribute('aria-checked', 'true')
+    await expect(web(page).getByRole('menu', { name: '更多', exact: true }).getByRole('menuitemcheckbox').filter({ hasText: /书签|收藏/ }).filter({ hasNotText: '显示书签栏' })).toHaveAttribute('aria-checked', 'true')
     await web(page).getByRole('button', { name: '更多', exact: true }).click()
     // 小卡底下「整理全部书签」：整个书签管家
     await btn.click()

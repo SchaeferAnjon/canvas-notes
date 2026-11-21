@@ -54,6 +54,17 @@ describe('自带的十套主题', () => {
     expect(contrast(hex(errT), hex(errBg)), `${id} A 底栏的写不进去`).toBeGreaterThanOrEqual(4.5)
   })
 
+  // 先给你看里少了整节（task-1l29q）：红字写在 --pop 的横条上，横条铺 8% 的 --red（color-mix）；设计复审量到深湖 4.00、松林 3.95
+  it.each(SKINS.map((s) => [s.id] as const))('%s：红字对弹层底 --pop、对铺了 8% 红的横条都 ≥ 4.5', (id) => {
+    const v = blocks.get(id)!
+    const red = hex(v['red-t'] ?? v.red)
+    const pop = hex(v.pop)
+    const dot = hex(v.red)
+    const tinted = [0, 1, 2].map((i) => dot[i]! * 0.08 + pop[i]! * 0.92).concat(1) as [number, number, number, number]
+    expect(contrast(red, pop), `${id} --red-t 对 --pop`).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(red, tinted), `${id} --red-t 对 8% 红的 --pop`).toBeGreaterThanOrEqual(4.5)
+  })
+
   // 「更弱」的字（时间、篇数、说明、占位）也要看得清（第 2 轮美学：天青 2.65、深湖 2.87 读着费劲）：
   // 对每一块实底，和选中行、悬停行（--fill2 / --fill 叠在 --win、--side、--pop、--card 上）都 ≥ 3:1；还得比 --t2 淡
   it.each(SKINS.map((s) => [s.id] as const))('%s：--t3 对各块底色、选中和悬停的行 ≥ 3:1，仍比 --t2 淡', (id) => {

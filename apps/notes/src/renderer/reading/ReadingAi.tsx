@@ -11,7 +11,8 @@ import { ByLogo } from '../engine-logo'
 import { readAsk } from '../ai-greet'
 import { Greeting, QuickRow } from '../ai-quick'
 import { onMessageMenu } from '../ctx/message-menu'
-import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { type ReadingMsg, withoutVizMark } from '../../shared/reading'
 import { Markdown } from '../md-render'
 import { AiError } from '../ai-error'
@@ -19,11 +20,23 @@ import { pastedUrl } from '../paste-images'
 import { AiHead, AwayBar, Chip, type DockNav, Sees } from '../ai-head'
 import { AiInput, type Lead, MatMsg, sendText, useComposer, useConvPick } from '../composer'
 import { ChangeBlock, StepRow } from '../AiPanel'
-import { readLabel } from '../ai-place'
+import { readKey, readLabel } from '../ai-place'
 import { fmtTime } from '../../shared/video'
-import { applyMarks, type Mark } from './marks'
-import { AskBox } from './side'
+import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from './marks'
+import { AskBox } from '../side/AskBox'
+import { showSide as revealSide, useSideHost } from '../side/host'
+import { SideInline } from '../side/SideInline'
+import { titleOf } from '../../shared/layout'
 import * as R from './store'
+import type { DiffSource } from '../../shared/diff'
+import { type Ctx, slashGroups, type SlashItem } from '../../shared/ai-cmds'
+import { useAiCmds } from '../commands/store'
+import { useProposal } from '../commands/proposals'
+import { videoOf } from '../../shared/video'
+import { useSlash } from '../commands/SlashMenu'
+import { openCmdEditor } from '../commands/editor'
+import { libPlace, runIn } from '../commands/handoff'
+import { runReadingCmd } from './cmds'
 
 /** 待问那块的小标签：PDF「第28页」；网页、HTML；视频「接着问」是「00:06 · 视频名」 */
 function pendingLabel(p: R.Pending): string {
@@ -32,12 +45,22 @@ function pendingLabel(p: R.Pending): string {
   return /^https?:/i.test(p.web.url) ? '网页' : 'HTML'
 }
 
+/** / 命令的那一轮（reading/store.ts cmdTurn 开的）：回答下面是命令结果的按钮，不是讲解用的「还是不懂」「换个方式讲」 */
+const isCmdTurn = (m: ReadingMsg) => m.thread.startsWith('cmd-')
+
 /** 框好一块时预填的那句 */
 const PREFILL = '给我讲解一下'
 
 const vaultImg = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/')
 const stemOf = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 const stamp = (t: number) => when(t, { time: true })
+
+/** 旁支最下面那一行「记到哪」：读 PDF、HTML 记进这份的笔记（第几页）；网页上框着问的只在对话记录里 */
+function recordOf(pdf: string, r: R.Reading, side: { thread: string }): { icon: 'note' | 'comment-discussion'; text: string } {
+  if (R.isWebSrc(pdf)) return { icon: 'comment-discussion', text: '跟着这段对话存，不写进笔记' }
+  const page = r.state.threads.find((t) => t.id === side.thread)?.page ?? 0
+  return { icon: 'note', text: `记进《${titleOf(r.note.path)}》${page > 0 ? `第${page}页` : ''}` }
+}
 
 export function ReadingAi(props: {
   pdf: string
@@ -48,8 +71,13 @@ export function ReadingAi(props: {
   onOpenHtml(path: string): void
   onNotice(text: string): void
   onCollapse(): void
-  /** 下格开着旁支（CN-90）：这一格是上格（side.css 按它排高低） */
-  split?: { className: string; style?: CSSProperties } | null
+  /** 「在笔记里看」：笔记标签没开就开上、在别的标签后面就换到它（读 PDF、HTML 有） */
+  onShowNotes(): void
+  /** AI 命令「先给你看」（自己的命令在视频、网页上用）：在中间栏开对比标签、收下或不要以后关掉它（task-9womr） */
+  onOpenDiff(src: DiffSource, title: string): void
+  onCloseDiff(proposal: string): void
+  /** / 命令新建的那一篇：「打开」开到中间 */
+  onOpen(path: string): void
 }) {
   const K = useKeys()
   const { pdf } = props
@@ -66,33 +94,43 @@ export function ReadingAi(props: {
   const [flashMsg, setFlashMsg] = useState<string | null>(null)
   const list = useRef<HTMLDivElement>(null)
   const engineLabel = engines.find((e) => e.id === engine)?.label ?? 'Claude Code'
+  // / 菜单（task-9womr）：「这份 PDF」或「这个视频」那一组，自己的命令在这里能用的，整个库的换到收件箱、首页那段对话跑
+  const webUrl = R.isWebSrc(pdf) ? pdf.slice(4) : null
+  const here: Ctx = webUrl ? (videoOf(webUrl) ? 'video' : 'web') : /\.html?$/i.test(pdf) ? 'html' : 'pdf'
+  const cmds = useAiCmds()
+  /** 「再问一次」再跑那条命令：照 / 菜单在这里能找到的那一条；找不到（命令删了、换了地方）返回 false */
+  const rerun = (text: string) => {
+    const name = text.slice(1)
+    const it = slashGroups({ here, also: here === 'video' ? ['web'] : [], q: name, mine: cmds.mine, slash: cmds.slash })
+      .flatMap((g) => g.items)
+      .find((x) => x.name === name)
+    if (!it) return false
+    runCmd(it)
+    return true
+  }
+  const runCmd = (it: SlashItem) => {
+    if (it.builtin?.lib) {
+      const pl = libPlace(it.name)
+      runIn(pl.key, '/' + it.name)
+      props.nav.pick(pl)
+      return
+    }
+    void runReadingCmd({ pdf, place: { key: readKey(pdf), label: readLabel(pdf) }, pick: { engine, ...cp.req }, onOpenDiff: props.onOpenDiff, onCloseDiff: props.onCloseDiff }, it)
+  }
+  const sl = useSlash({
+    text: input,
+    here,
+    also: here === 'video' ? ['web'] : [],
+    engine,
+    onRun: (it) => {
+      setInput('')
+      runCmd(it)
+    },
+    onClose: () => setInput(''),
+    onEdit: (cmd) => openCmdEditor({ kind: 'edit', cmd, who: cp.label, engine, pick: { engine, ...cp.req } }),
+    onCopy: (builtin) => openCmdEditor({ kind: 'copy', builtin, who: cp.label, engine, pick: { engine, ...cp.req } }),
+  })
 
-  // 开旁支时下格出来、这一格变矮：问的那句留在看得见的地方（变矮的那几帧里跟着挪；答完划上虚线以后跟着虚线那块）
-  const keep = useRef<{ side: string; range: Range | null; until: number } | null>(null)
-  useEffect(() => {
-    const l = list.current
-    if (!l) return
-    const ro = new ResizeObserver(() => {
-      const k = keep.current
-      if (!k) return
-      if (performance.now() > k.until) {
-        keep.current = null
-        return
-      }
-      // 划上虚线了就按虚线那几段（公式把一句分成好几段）；还没划（回答还在出字）按选中的那几个字
-      const spans = l.querySelectorAll<HTMLElement>(`.asked[data-side="${CSS.escape(k.side)}"]`)
-      const first = spans.length ? spans[0]!.getBoundingClientRect() : k.range?.getBoundingClientRect()
-      const last = spans.length ? spans[spans.length - 1]!.getBoundingClientRect() : first
-      if (!first || !last || !first.height) return
-      const view = l.getBoundingClientRect()
-      // 问的那句放在上格靠上（上面留 48 看得到前文），下面接着露出后面的回答；已经在上面四成以内就不动
-      const at = view.top + Math.min(48, view.height * 0.2)
-      if (first.top < view.top + 16 || last.bottom > view.top + view.height * 0.4) l.scrollTop += first.top - at
-    })
-    ro.observe(l)
-    return () => ro.disconnect()
-  }, [])
-  const keepInView = (side: string, range: Range | null) => (keep.current = { side, range, until: performance.now() + 1000 })
 
   // 框好一块（还没点工具条上的按钮）：输入框预填「给我讲解一下」并全选，焦点进来好回车就发；
   // 输入框里已经有自己打的字就不动它，框的这块挂在那一排第一张（光标放到最后）；
@@ -184,11 +222,18 @@ export function ReadingAi(props: {
     if (!props.hidden && R.takeAiFocus()) box.current?.focus()
   }, [props.hidden])
 
-  // 新消息、边生成边显示：滚到底
+  // 新消息、边生成边显示：滚到底（开着旁支时换回这一格不滚走，停在那条旁支上）
   const lastLen = r.state.msgs.length ? r.state.msgs[r.state.msgs.length - 1]!.text.length : 0
+  const sideOpen = useRef(false)
   useEffect(() => {
+    if (sideOpen.current && !lastLen) return
     list.current?.scrollTo({ top: list.current.scrollHeight })
-  }, [r.state.msgs.length, lastLen, props.hidden])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r.state.msgs.length, lastLen])
+  useEffect(() => {
+    if (props.hidden || sideOpen.current) return
+    list.current?.scrollTo({ top: list.current.scrollHeight })
+  }, [props.hidden])
 
   // 从笔记点「完整对话」：滚到那次对话，外圈亮一下
   useEffect(() => {
@@ -249,19 +294,46 @@ export function ReadingAi(props: {
   const running = r.running !== null
   const msgs = r.state.msgs
   const lastAi = [...msgs].reverse().find((m) => m.role === 'ai')
+  /** 实心的「打开」只给最后一个能打开的（和 AI 对话里一样：一屏一颗实心按钮） */
+  const lastOpen = [...msgs].reverse().find((m) => m.open && !m.change?.reverted)
   const sectionCount = r.note.sections.length
-  // 问过的那几句（旁支）：虚线 + 小标，数字照笔记里的顺序（一处里按被问的那条回答的先后）；开着的那条小标是强调色底
-  const marks = new Map<number, Mark[]>()
-  for (const t of new Set((r.state.sides ?? []).map((s) => s.thread)))
-    R.sidesInOrder(r, t).forEach((s, i) => marks.set(s.msg, [...(marks.get(s.msg) ?? []), { side: s.id, quote: s.quote, n: i + 1, title: `旁支 · ${R.sideName(s)}`, cur: r.side.open === s.id }]))
-  /** 下格开着旁支、没收成一条：上格的「看得到」那行藏起来（照小样） */
-  const sideShown = !!props.split && !r.side.fold
-  /** 点小标：切到那条旁支；开着的那条再点是关掉 */
-  const toggleSide = (id: string) => {
-    if (r.side.open === id) return R.closeSide(pdf)
-    if (!r.side.open) keepInView(id, null)
-    R.showSide(pdf, id)
+  // 问过的那几句（旁支，方向 A）：一句一个小标，数字是这一句开了几条；开着的那一句整句亮、小标强调色底
+  const sides = r.state.sides ?? []
+  const groups = new Map<number, ReturnType<typeof sideGroups<(typeof sides)[number]>>>()
+  for (const msg of new Set(sides.map((s) => s.msg)))
+    groups.set(
+      msg,
+      sideGroups(sides.filter((s) => s.msg === msg)),
+    )
+  const marks = new Map<number, Mark[]>([...groups].map(([msg, gs]) => [msg, gs.map((g) => groupMark(g, r.side.open))]))
+  const open = sides.find((s) => s.id === r.side.open) ?? null
+  const openGroup = open ? (groups.get(open.msg)?.find((g) => g.sides.includes(open)) ?? null) : null
+  sideOpen.current = !!open
+  const host = useSideHost(list, open && openGroup ? { msg: open.msg, key: openGroup.key } : null)
+  /** 点小标：这一句开着的那条收起；没开着就打开这一句最后开的那条 */
+  const toggleSide = (key: string) => {
+    const g = [...groups.values()].flat().find((x) => x.key === key)
+    if (!g) return
+    if (g.sides.some((s) => s.id === r.side.open)) return R.closeSide(pdf)
+    R.showSide(pdf, g.sides[g.sides.length - 1]!.id)
   }
+  // 回到主对话（PDF 上框了一块、别处带进来一块、主对话发出去了一问）：旁支收起，主输入框回来
+  const mainSeq = `${pendingKey}|${r.sent}|${incoming}`
+  const mainSeen = useRef(mainSeq)
+  useEffect(() => {
+    if (mainSeen.current === mainSeq) return
+    mainSeen.current = mainSeq
+    if (r.side.open && (r.pending || incoming || r.sent)) R.closeSide(pdf)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mainSeq])
+  // 刚收起的那一句：闪一下（原型 A）
+  useLayoutEffect(() => {
+    const f = r.side.flash
+    if (!f) return
+    const key = [...groups.values()].flat().find((g) => g.sides.some((s) => s.id === f.side))?.key
+    if (key) flashMark(list.current, key)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r.side.flash?.seq])
   /** 网页上问的那几处的网页标题（头上胶囊、「看得到」写它） */
   const webTitle = [...r.state.threads].reverse().find((t) => t.web)?.web?.title ?? r.pending?.web?.title
   /** 头上胶囊、空对话里写的：这段对话是哪里的 */
@@ -294,12 +366,12 @@ export function ReadingAi(props: {
   const hint = R.isWebSrc(pdf) || !ask ? `${K('enter')} 发送` : `${K('enter')} 发送 · ${ask} ${html ? '问这一屏' : '问这一页'}`
 
   return (
-    <aside className={'right aicell reading-ai ai' + (props.split ? ' ' + props.split.className : '')} style={props.split?.style} aria-label="边读边问 AI" hidden={props.hidden}>
+    <aside className="right aicell reading-ai ai" aria-label="边读边问 AI" hidden={props.hidden}>
       <AiHead label={label} nav={props.nav} newTip="新对话：AI 从头读这份 PDF，问过的和笔记都留着" newDisabled={running} onNew={() => void R.newChat(pdf)} />
       {/* 看得到（A 组读 PDF 小样）：这份 PDF · 第几页 | ✓ 读过全文几页 | 笔记几轮（还没记过不画）；看别处的对话时换成「这是在…问的」；下格开着旁支时藏起来 */}
       {props.nav.away ? (
         <AwayBar nav={props.nav} />
-      ) : sideShown ? null : (
+      ) : (
       <Sees testid="reading-sees">
         {R.isWebSrc(pdf) ? (
           <Chip on>{`网页 · ${webTitle ?? pdf.slice(4)}`}</Chip>
@@ -359,16 +431,21 @@ export function ReadingAi(props: {
               sep={isNew ? `新对话 · ${stamp(r.state.newChatAt!)}` : startsThread ? `${Date.now() - m.time < 10 * 60_000 ? '现在' : stamp(m.time)}${m.page ? ` · 第${m.page}页` : ''}` : null}
               flash={flashMsg === m.thread && startsThread}
               last={m === lastAi && !running}
+              primary={m === lastOpen}
               running={running && m.id === r.running}
               quote={startsThread ? r.state.threads.find((t) => t.id === m.thread)?.quote : undefined}
               onAgain={(t) => {
                 setInput('')
+                // / 命令那一轮的「再问一次」：再跑一次这条命令，不是把「/命令名」当一句话问 AI
+                if (isCmdTurn(m) && rerun(t)) return
                 void R.send(pdf, t)
               }}
               onRephrase={(t) => {
                 setInput(t)
                 requestAnimationFrame(() => box.current?.focus())
               }}
+              onOpen={props.onOpen}
+              onOpenDiff={props.onOpenDiff}
               ask={m.role === 'ai' && prev?.role === 'user' ? prev.text : undefined}
               busy={running}
               marks={marks.get(m.id)}
@@ -386,12 +463,54 @@ export function ReadingAi(props: {
         list={list}
         active={!props.hidden}
         onQuote={(text, src) => c.add({ kind: 'quote', text, src })}
-        onAsk={(at, question, range) => {
-          const id = R.openSide(pdf, at, question)
-          // 下格本来关着：这一格要变矮，问的那句留在看得见的地方
-          if (id && !r.side.open) keepInView(id, range)
-        }}
+        onAsk={(at, question) => void R.openSide(pdf, at, question)}
       />
+      {/* 开着的那条旁支：就在被问那句所在的那一段下面（方向 A「就地展开」，task-4edsc） */}
+      {host &&
+        open &&
+        openGroup &&
+        createPortal(
+          <SideInline
+            side={{ id: open.id, quote: open.quote, name: R.sideName(open), msgs: open.msgs }}
+            group={openGroup.sides.map((s) => ({ id: s.id, name: R.sideName(s) }))}
+            running={r.sideRunning[open.id] !== undefined}
+            record={recordOf(pdf, r, open)}
+            picks={cp.picks}
+            {...(R.isWebSrc(pdf)
+              ? {}
+              : {
+                  onNote: () => {
+                    props.onShowNotes()
+                    R.focusSide(pdf, open.thread, open.quote)
+                  },
+                })}
+            onSend={(text, mats) => void R.sendSide(pdf, open.id, text, mats)}
+            onStop={() => R.stopSide(pdf, open.id)}
+            onClose={() => R.closeSide(pdf)}
+            onNew={() => void R.newSideOn(pdf, open.id)}
+            onSwitch={(id) => R.showSide(pdf, id)}
+            onPut={(text) => {
+              // 直接进主对话的输入框（不走「外面带进来的」那条路：那条会把旁支收起）；旁支照旧开着（原型 A）
+              c.add({ kind: 'quote', text, src: `旁支 · ${R.sideName(open)}` })
+              props.onNotice('放进了主对话的输入框，没发')
+            }}
+            menu={{
+              title: R.isWebSrc(pdf) ? '这个网页的旁支' : /\.html?$/i.test(pdf) ? '这一份 HTML 的旁支' : '这一份 PDF 的旁支',
+              all: sides
+                .filter((s) => s.msgs.length || s.id === open.id)
+                .map((s) => {
+                  const page = r.state.threads.find((t) => t.id === s.thread)?.page ?? 0
+                  return { id: s.id, name: R.sideName(s), right: `${page > 0 ? `第 ${page} 页 · ` : ''}${R.sideAsks(s)} 问` }
+                }),
+              onRename: (name) => R.renameSide(pdf, open.id, name),
+              onDelete: () => R.deleteSide(pdf, open.id),
+            }}
+            onNotice={props.onNotice}
+            takeFocus={R.takeSideFocus}
+            onGrow={() => revealSide(list.current, host, openGroup.key)}
+          />,
+          host,
+        )}
       {/* 输入框上面那一排（和 AI 对话同一个）：读 PDF 是「问这一页」（⌘↵ 同一件事），HTML 是「问这一屏」；框着一块、打了字、发了第一问都收起 */}
       {msgs.length === 0 && !input && !c.mats.length && !r.pending && !R.isWebSrc(pdf) && !props.nav.away && (
         <QuickRow
@@ -406,8 +525,9 @@ export function ReadingAi(props: {
         hintNow={hintNow}
         lead={lead}
         picks={cp.picks}
-        // 下格开着旁支时和「看得到」那行一样藏起来（上格要读得下去，DESIGN.v3 2.4b），收成一条时回来；旁支跟主对话用同一个开关
-        omni={sideShown ? null : cp.omni}
+        // 开着旁支时缩成一行灰字（方向 A：不和旁支的输入框摞着），点它收起旁支、回到这里；全能模式那行一起藏起来
+        slim={open ? { onWake: () => R.closeSide(pdf) } : null}
+        omni={open ? null : cp.omni}
         running={running}
         sendDisabled={!input.trim() && !c.mats.length}
         own={own}
@@ -417,6 +537,7 @@ export function ReadingAi(props: {
         list={list}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return
+          if (sl.onKey(e)) return
           if (e.key === 'Enter' && !e.shiftKey && !e.metaKey) {
             e.preventDefault()
             send()
@@ -428,6 +549,7 @@ export function ReadingAi(props: {
             box.current?.blur()
           }
         }}
+        children={sl.menu}
         above={
           // 排着的几问自己占一整块（在那一排下面、字上面），附图再多也不挤它（第 3 轮美学）
           r.queued.length > 0 && (
@@ -457,10 +579,14 @@ function Msg(p: {
   sep: string | null
   flash: boolean
   last: boolean
+  /** 「打开」用实心的 */
+  primary: boolean
   running: boolean
   quote?: string
   onAgain(text: string): void
   onRephrase(text: string): void
+  onOpen(path: string): void
+  onOpenDiff(src: DiffSource, title: string): void
   /** 这条回答问的是什么（出错时「再问一次」「换个问法」用） */
   ask?: string
   busy: boolean
@@ -474,6 +600,8 @@ function Msg(p: {
   marks?: Mark[]
 }) {
   const { m } = p
+  const cmd = isCmdTurn(m)
+  const proposal = useProposal(m.proposal ?? null)
   // 问过的那几句：答完以后在画好的字上划虚线、插小标（marks.ts）；有小标时字一变 .txt 整块换掉（key），React 不去动改过的节点；
   // 没有小标时不换（答着时每来一段字都整块重画，回答里的表格、公式会一闪一闪地换成新的节点）
   const txt = useRef<HTMLDivElement>(null)
@@ -531,14 +659,37 @@ function Msg(p: {
           {m.steps?.map((s) => (
             <StepRow key={s.id} s={s} />
           ))}
-          {!m.text && !m.error && !m.steps?.length && <div className="thinking">正在想…</div>}
+          {!m.text && !m.error && !m.cant && !m.steps?.length && <div className="thinking">正在想…</div>}
           {m.text && (
             <div className="txt md" key={p.marks?.length ? m.text : 'txt'} ref={txt}>
               <Markdown text={withoutVizMark(m.text).text} math />
             </div>
           )}
+          {m.cant && <AiError raw={m.cant} own />}
           {m.error && <AiError raw={m.error} engine={p.engine} {...(p.ask && !p.busy ? { onRetry: () => p.onAgain(p.ask!), onRephrase: () => p.onRephrase(p.ask!) } : {})} />}
-          {p.last && m.text && !m.error && (
+          {/* / 命令的结果（task-69r0v，照 AI 对话里命令结果的样子）：写进去的那一篇「打开」、先给你看的「收下」「不要」「看改动」，下面是改动块和撤回 */}
+          {cmd && proposal && (
+            <div className="acts">
+              <button className="btn btn-sm" onClick={() => void proposal.take()}>
+                {/* 少了整节、命令没说要删（task-1l29q）：同中间底下那一条，叫「照样收下」 */}
+                {proposal.warn ? '照样收下' : '收下'}
+              </button>
+              <button className="btn btn-sm" onClick={proposal.drop}>
+                不要
+              </button>
+              <button className="btn btn-sm" onClick={() => p.onOpenDiff({ kind: 'proposal', id: proposal.id }, `${proposal.title} · /${proposal.name} 改的`)}>
+                看改动
+              </button>
+            </div>
+          )}
+          {cmd && m.open && !m.change?.reverted && !m.error && !m.cant && (
+            <div className="acts">
+              <button className={'btn btn-sm' + (p.primary ? ' btn-primary' : '')} onClick={() => p.onOpen(m.open!.path)}>
+                打开
+              </button>
+            </div>
+          )}
+          {!cmd && p.last && m.text && !m.error && (
             <div className="acts">
               <button className="btn btn-xs" onClick={() => p.onAgain('还是不懂')}>
                 <Codicon name="question" size={12} />
