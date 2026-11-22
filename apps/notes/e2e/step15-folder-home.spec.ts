@@ -310,11 +310,11 @@ test('文件夹首页：项目、生活、写作默认「最近改的」「待�
     await shot(page, 'fh-writing-light')
     await openInTree(page, '生活')
     await expect.poll(() => order(page)).toEqual(['recent', 'todo'])
-    // 待办能直接加、勾掉
-    await w(page, 'todo').getByRole('textbox', { name: '加一条待办' }).fill('交房租')
-    await w(page, 'todo').getByRole('textbox', { name: '加一条待办' }).press('Enter')
-    await w(page, 'todo').getByRole('checkbox', { name: '交房租' }).check()
-    await expect(w(page, 'todo').locator('label.done')).toHaveText('交房租')
+    // 待办能直接加（写进 生活/待办.md）、勾掉（task-pd1d1：和左边「待办」格同一份、同一套样子）
+    await w(page, 'todo').getByRole('textbox', { name: '首页加一条' }).fill('交房租')
+    await w(page, 'todo').getByRole('textbox', { name: '首页加一条' }).press('Enter')
+    await w(page, 'todo').getByRole('checkbox', { name: '勾掉「交房租」' }).click()
+    await expect(w(page, 'todo').locator('.td-r.done .td-t')).toHaveText('交房租')
     await shot(page, 'fh-life-light')
 
     // 400 篇笔记：笔记和导图只露 4 条，最近改的 5 条，其余一句「全部 N 份」

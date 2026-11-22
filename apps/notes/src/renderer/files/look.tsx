@@ -108,7 +108,7 @@ export function LookPicker(props: { folder: string; anchor: HTMLElement; onClose
         ))}
       </div>
       <div className="lp-ft">
-        <span>树、首页、活动栏都用它</span>
+        <span>树、首页、图标栏都用它</span>
         <button className="lp-reset" disabled={!cfg.looks[props.folder]} onClick={() => void updateLeft((c) => setLook(c, props.folder, null))}>
           <Codicon name="discard" size={14} />
           恢复默认

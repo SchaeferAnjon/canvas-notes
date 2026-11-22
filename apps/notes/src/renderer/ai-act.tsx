@@ -78,7 +78,7 @@ export function AiActLayer(props: { area: AiActArea; path?: string | null; host:
   /** 指针在哪；dur：这一下移过去用多久（一长串时短一点，和主进程的节奏一样） */
   const [cur, setCur] = useState<{ x: number; y: number; shown: boolean; follow: boolean; dur?: number }>({ x: 0, y: 0, shown: false, follow: false })
   const [ring, setRing] = useState<{ seq: number; once: number; at: number; boxes: Box[] } | null>(null)
-  /** 这一层自己：卡片、指针的位置都按它算（文档切成的白板上它只盖白板那一格，不盖右边的收件箱），盖不住的切掉 */
+  /** 这一层自己：卡片、指针的位置都按它算（文档切成的白板上它盖白板这一格），盖不住的切掉 */
   const self = useRef<HTMLDivElement>(null)
   const frame = () => self.current ?? host.current
   // 白板开着 AI 时卡片挪动带动画（.ai-on 下的 .bcard / .bcol 有 left/top 的过渡）；文档切成的白板顶上那条说明让位，

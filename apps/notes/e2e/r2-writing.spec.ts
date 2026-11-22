@@ -309,7 +309,10 @@ test('挪进文件夹撞名：存成「X 2」并在提示里说出新名字（�
     await expand(page, '收件箱')
     await expand(page, '写作')
     await treeRow(page, '冰岛第二稿').first().click({ button: 'right' })
-    await pickMenu(run, '移到 › 写作 › 游记')
+    // 「移到…」小弹层（task-4891y）：打「游记」回车
+    await pickMenu(run, '移到…')
+    await page.getByRole('dialog', { name: '移到' }).getByRole('searchbox').fill('游记')
+    await page.getByRole('dialog', { name: '移到' }).getByRole('searchbox').press('Enter')
     await expect.poll(() => existsSync(join(vault, '写作/游记/冰岛第二稿 2.md'))).toBe(true)
     await expect(toast).toContainText('写作/游记里已经有一篇叫「冰岛第二稿」，这篇挪过去存成「冰岛第二稿 2」')
     await treeRow(page, '对比').first().dragTo(treeRow(page, '游记'))

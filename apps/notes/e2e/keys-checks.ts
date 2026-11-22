@@ -159,6 +159,15 @@ export const CHECKS: Record<string, Check> = {
   'toggle-left': { check: (k, _c, p) => flips(p, async () => String(await k.run.page.locator('.win').evaluate((e) => e.classList.contains('side-hidden')))) },
   'left-files': { check: (k, _c, p) => flips(p, () => left(k.run.page, '文件').getAttribute('aria-pressed')) },
   'left-recent': { check: (k, _c, p) => flips(p, () => left(k.run.page, '最近').getAttribute('aria-pressed')) },
+  // 找文件（task-4891y）：左栏换到「文件」，光标到目录树上面那个框；esc 清空
+  'find-file': {
+    async check(k, _c, p) {
+      const box = k.run.page.locator('aside.side').getByRole('searchbox', { name: '找文件' })
+      await p()
+      await expect(box).toBeFocused(T)
+      await k.run.page.keyboard.press('Escape')
+    },
+  },
   // 收起 / 展开中间栏（task-kbnc0）：记在本机，按一下变、再按变回来（网页没开时中间照样在，只是记着）
   'fold-center': { check: (k, _c, p) => flips(p, () => k.run.page.evaluate(() => String(localStorage.getItem('cn.centerFold') === '1'))) },
   'dream-report': { check: (k, _c, p) => flips(p, () => left(k.run.page, '梦游报告').getAttribute('aria-pressed')) },

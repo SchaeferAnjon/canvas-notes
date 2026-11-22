@@ -39,10 +39,10 @@ test('活动栏平铺：文件、最近 | 收件箱 | 课程 阅读 剪藏 | 周
   const { page } = run
   try {
     const names = await bar(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names).toEqual(['文件', '最近', '书桌', ...CATS, '梦游报告', '库', '设置和外观'])
+    expect(names).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '梦游报告', '库', '设置和外观'])
     // 每段之间一条线：最近后、收件箱后、剪藏后、生活后
     const groups = await bar(page).locator('.abg').evaluateAll((els) => els.map((g) => [...g.querySelectorAll('button.ab')].map((b) => b.getAttribute('aria-label'))))
-    expect(groups).toEqual([['文件', '最近', '书桌'], ['收件箱'], ['课程', '阅读', '剪藏'], ['周记', '写作', '项目', '生活'], ['梦游报告']])
+    expect(groups).toEqual([['文件', '待办', '最近', '书桌'], ['收件箱'], ['课程', '阅读', '剪藏'], ['周记', '写作', '项目', '生活'], ['梦游报告']])
     await openFiles(page)
     const root = tree(page).locator('.ft-root')
     await expect(root).toContainText('测试库')
@@ -99,17 +99,21 @@ test('活动栏右键：从左边拿下（底部能撤回）、在「文件」�
   const { page, vault } = run
   try {
     await cell(page, '写作').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['从左边拿下', '在「文件」里看位置', '换图标和颜色…', '上移', '下移'])
+    // 「换图标和颜色…」排最前；分类那几格最后一项去设置里关掉预设（task-wniqx）
+    expect(menuLabels(await openedMenu(run))).toEqual(['换图标和颜色…', '从左边拿下', '在「文件」里看位置', '上移', '下移', '不想要预设分类？去设置里关掉…'])
     await pickMenu(run, '从左边拿下')
     await expect(cell(page, '写作')).toHaveCount(0)
-    await expect(toast(page)).toContainText('「写作」从左边拿下了；右键文件夹「放到左边」能放回')
+    await expect(toast(page)).toContainText('「写作」从左边拿下了；文件夹没动，右键文件夹「放到左边」能放回')
     await expect.poll(() => JSON.parse(readFileSync(join(vault, '.canvas-notes/左栏.json'), 'utf8')).左边).toEqual(CATS.filter((c) => c !== '写作'))
     await toast(page).getByRole('button', { name: '撤回' }).click()
     await expect(cell(page, '写作')).toHaveCount(1)
-    // 窗口最矮（600）、又摘了三个文件夹上来：放不下的从最后一格往前收进「⋯」，点开是这几格（八个分类本身 600 高放得下）
+    // 窗口最矮（600）、又摘了三个文件夹上来：放不下的从最后一格往前收进「⋯」，点开是这几格。
+    // 「文件」下面多了「待办」一格以后（task-pd1d1），600 高时先收「待办」、八个分类都留着（2026-11-22 用户定）；
+    // 「⋯」自己也占一格，只收「待办」腾不出地方，接着收「书桌」
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1200, 600))
     await page.waitForTimeout(300)
-    await expect(bar(page).getByTestId('ab-more')).toHaveCount(0)
+    await expect(bar(page).getByTestId('ab-more')).toHaveAttribute('data-tip', '还有2个：书桌、待办')
+    for (const c of CATS) await expect(cell(page, c)).toBeVisible()
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 900))
     for (const [parent, f] of [['项目', '冰岛旅行'], ['项目', '搬家'], ['阅读', '人类简史']] as const) {
       await openFiles(page)
@@ -131,7 +135,8 @@ test('活动栏右键：从左边拿下（底部能撤回）、在「文件」�
     await bar(page).getByTestId('ab-more').click()
     const more = menuLabels(await openedMenu(run))
     expect(more.length).toBe(Number(hidden!.match(/\d+/)![0]))
-    expect(more.at(-1)).toBe('人类简史')
+    // 菜单里先列从最后一格往前收的，最后是先收的「书桌」「待办」
+    expect(more.slice(-3)).toEqual(['人类简史', '书桌', '待办'])
     await pickMenu(run, '人类简史')
     await expect(home(page)).toHaveAttribute('data-folder', '阅读/人类简史')
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 900))
@@ -345,11 +350,13 @@ test('CN-106 放在最外层的：标题下写库名（库图标），「移到�
     await pickMenu(run, '阅读 › 放进「阅读」')
     await expect(chip).toHaveText('阅读')
     await expect(page.locator('body')).not.toContainText('库的最外层')
-    // 阅读里那篇右键「移到」：第一项是库名
+    // 阅读里那篇右键「移到…」（task-4891y 起是打字找的小弹层）：第一项是库名
     await expand(page, '阅读')
     await row(page, '视频里的疑惑').click({ button: 'right' })
-    const sub = (await openedMenu(run)).find((i) => i.label === '移到')!.submenu!
-    expect(sub[0]!.label).toBe('测试库')
+    await pickMenu(run, '移到…')
+    const mover = page.getByRole('dialog', { name: '移到' })
+    await expect(mover.getByRole('menuitem').first().locator('.truncate')).toHaveText('测试库')
+    await page.keyboard.press('Escape')
   } finally {
     await run.close()
   }
@@ -531,7 +538,12 @@ test('CN-105 Shift 连选 5 篇、⌘ 加选、空白处拖框选；底部「已
     const m = await openedMenu(run)
     expect(m.find((i) => i.label === '重命名…')!.enabled).toBe(false)
     expect(m.find((i) => i.label === '移到废纸篓（5个）')).toBeTruthy()
-    await pickMenu(run, '移到 › 项目 › 放进「项目」')
+    // 「移到…」小弹层（task-4891y）：打「项目」，点「项目」那一项
+    await pickMenu(run, '移到…')
+    const mover = page.getByRole('dialog', { name: '移到' })
+    await expect(mover.locator('.mv-hd')).toHaveText('把选中的5个移到…')
+    await mover.getByRole('searchbox').fill('项目')
+    await mover.getByRole('menuitem').filter({ has: page.locator('.truncate', { hasText: /^项目$/ }) }).click()
     await expect(toast(page)).toContainText('5个挪进了「项目」，库里指向它们的链接一起改好了')
     expect(git(vault, 'log', '-1', '--format=%s')).toMatch(/^移动 5 个：.* → 项目$/)
     expect(git(vault, 'status', '--porcelain')).toBe('')
@@ -650,7 +662,7 @@ test('老库打开时整理一次：素材 → 剪藏、素材/微信读书 → 
     expect(existsSync(join(vault, '阅读/人类简史.md'))).toBe(true)
     expect(readFileSync(join(vault, '写作/游记.md'), 'utf8')).toContain('(../剪藏/冰岛旅行/住哪.md)')
     const names = await bar(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names.slice(3, 11)).toEqual(CATS)
+    expect(names.slice(4, 12)).toEqual(CATS)
     await openFiles(page)
     await expect(row(page, '剪藏')).toHaveCount(1)
     await expect(row(page, '素材')).toHaveCount(0)

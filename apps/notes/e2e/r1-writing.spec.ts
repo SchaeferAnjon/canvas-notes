@@ -425,15 +425,20 @@ test('「移到」能选子文件夹（右键、标题下所在文件夹 ▾）�
     const tree = page.getByRole('tree', { name: '全部文件' })
     await tree.getByRole('treeitem', { name: /收件箱/ }).click()
     await tree.getByRole('treeitem', { name: /冰岛稿/ }).click({ button: 'right' })
-    const m = await openedMenu(run)
-    const move = m.find((i) => i.label === '移到')!.submenu!
+    // 目录树里右键「移到…」（task-4891y 起是打字找的小弹层）：子文件夹也都列着，右边写在哪一层
+    await pickMenu(run, '移到…')
+    const mover = page.getByRole('dialog', { name: '移到' })
+    await expect(mover).toBeVisible()
+    expect(await mover.getByRole('menuitem').locator('.truncate').allTextContents()).toEqual(['测试库', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '书评', '游记', '项目', '生活'])
     // 这篇本来就在的「收件箱」灰着列出来、点不了（task-5yp97「藏之后」图）
-    expect(move.map((i) => i.label)).toEqual(['测试库', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
-    expect(move.find((i) => i.label === '收件箱')!.enabled).toBe(false)
-    expect(move.find((i) => i.label === '写作')!.submenu!.map((i) => i.label)).toEqual(['放进「写作」', '—', '书评', '游记'])
-    await pickMenu(run, '移到 › 写作 › 游记')
+    await expect(mover.getByRole('menuitem').nth(1)).toBeDisabled()
+    await expect(mover.getByRole('menuitem').nth(8).locator('.r')).toHaveText('写作')
+    await mover.getByRole('searchbox').fill('游记')
+    await mover.getByRole('searchbox').press('Enter')
     await expect.poll(() => existsSync(join(vault, '写作/游记/冰岛稿.md'))).toBe(true)
     expect(existsSync(join(vault, '收件箱/冰岛稿.md'))).toBe(false)
+    // 树刷新好了（收件箱里那一行没了；写作收着，新位置看不到）再去开它：不然 openNote 点到的是马上要被换掉的旧行
+    await expect(tree.getByRole('treeitem', { name: /冰岛稿/ })).toHaveCount(0)
 
     // 标题下「所在文件夹 ▾」：同一套，选得到子文件夹
     await openNote(page, '冰岛稿')

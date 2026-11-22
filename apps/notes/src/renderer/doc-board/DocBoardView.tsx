@@ -3,7 +3,7 @@
  * 一篇文档（type: board 的也是）按 packages/format/src/doc-board.ts 的规则切成列和卡，摆在点阵上。切过去只看，一个字节不写。
  * - 左边工具板（卡片、待办、列、数据库、子白板｜拍导图）：点一下放进屏幕正中那一列的最后，拖到哪放哪；卡片、待办当场出一张空卡就地写，
  *   打 / 出和文档同一个插入菜单（InlineCard）；数据库弹小菜单挑一个，放一张小表卡，「展开」原地长成整张表（base-card.tsx）；
- * - 右边一格收件箱（inbox.tsx，开关在标签条「收件箱 N」）：拖进一列就插进那一节，拖到空白处加在文末带一行位置；
+ * - 收件箱弹窗（inbox.tsx，标签条「收件箱 N」或 ⇧⌘I 打开，盖在白板上不占宽）：拖进一列就插进那一节，拖到空白处加在文末带一行位置；
  * - 拖一张卡进别的列（或同一列里上下挪）：文档里这段也挪进那一节；拖到空白处：这段前面多一行位置，正文顺序不变；
  *   拖着停在另一篇文档的标签上半秒就切过去，松手插进那一篇（cross-doc.ts，两篇一次提交）；
  * - 双击文字卡就地改，别的卡看全文；勾待办只改那一个字；视频卡、时刻卡点一下在右栏播；
@@ -66,6 +66,7 @@ import { openCapture } from '../mindmap/capture-store'
 import { Markdown } from '../md-render'
 import { NoteDoc } from '../note-doc'
 import * as Reading from '../reading/store'
+import { openPageLink } from '../page-link'
 import { onFlyToCard } from '../shell/OutlineView'
 import { typingIn } from '../typing'
 import { openVideo } from '../video/actions'
@@ -75,7 +76,7 @@ import { CardBody } from '../CardBody'
 import { BaseExpand, BaseMenu } from './base-card'
 import { type CardActs, type CardCtx, type Face, faceClass, faceName, faceOf, type OpenTarget, UnitBody } from './cards'
 import { type DocSpot, docSpotAt, insertInto, tabAt } from './cross-doc'
-import { inboxOf, InboxDrawer, useInboxOpen } from './inbox'
+import { inboxOf, InboxPop, useInboxOpen } from './inbox'
 import { EMPTY_HINT, InlineCard } from './inline-card'
 import { TopHint } from './top-hint'
 import { UnitEditor } from './unit-editor'
@@ -764,12 +765,15 @@ export function DocBoardView(props: DocBoardViewProps) {
     }
   }
 
-  // 视频卡、时刻卡：点一下在右栏播（时刻从那一秒）
+  // 视频卡、时刻卡：点一下在右栏播（时刻从那一秒）；卡里的「第 3 页」：打开 PDF 翻到那页（和文档里 ⌘点一样，page-link.ts）
   const onClick = (e: React.MouseEvent, u: DocUnit) => {
     const t = e.target as HTMLElement
     const m = t.closest<HTMLElement>('.db-moment')
     if (m?.dataset.url) return void openVideo(m.dataset.url)
     const f = faceOf(u, ctx)
+    // 嵌进来的别的笔记里的链接相对那一篇，不归这块白板认
+    const pg = f.k === 'note' || f.k === 'clipnote' || f.k === 'board' ? null : t.closest<HTMLElement>('a.pg[data-page], a.pg[data-href]')
+    if (pg) return void openPageLink(props.notePath, pg.dataset.href ?? `#page=${pg.dataset.page}`, cur.current, u.from, pg.textContent ?? '')
     const video = u.kind === 'video' || (f.k === 'cardbody' && f.kind === 'video')
     if (u.kind === 'moment' || (video && t.closest('.play, .cb-cover'))) playUnit(u)
   }
@@ -1040,7 +1044,7 @@ export function DocBoardView(props: DocBoardViewProps) {
   }
   const onContext = async (e: React.MouseEvent) => {
     const t = e.target as HTMLElement
-    if (props.readOnly || t.closest('input, textarea, [contenteditable="true"], .bpal, .db-drawer, .dbx, .base-pop, .db-full-back, .card-edit')) return
+    if (props.readOnly || t.closest('input, textarea, [contenteditable="true"], .bpal, .db-inbox-pop, .dbx, .base-pop, .db-full-back, .card-edit')) return
     e.preventDefault()
     e.stopPropagation()
     outer.current?.focus({ preventScroll: true })
@@ -1502,11 +1506,11 @@ export function DocBoardView(props: DocBoardViewProps) {
             )}
           </div>
         )}
-        {/* AI 在这块白板上动手（DESIGN.v3 2.3）：只盖白板这一格，不盖右边的收件箱 */}
+        {/* AI 在这块白板上动手（DESIGN.v3 2.3）：盖白板这一格 */}
         <AiActLayer area="board" path={props.notePath} host={outer} />
       </div>
-      {inboxOpen && (
-        <InboxDrawer
+      {inboxOpen && props.active && (
+        <InboxPop
           items={inbox}
           readOnly={props.readOnly}
           onItemDown={(e, n) => setDrag({ type: 'inbox', path: n.path, text: n.excerpt || n.preview || titleOf(n.path), start: { x: e.clientX, y: e.clientY }, at: { x: e.clientX, y: e.clientY }, moved: false })}

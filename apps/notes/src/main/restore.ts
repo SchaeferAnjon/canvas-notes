@@ -108,7 +108,7 @@ async function leftBack(v: Vault, hash: string, folders: Set<string>): Promise<b
   const was = normalizeLeft(JSON.parse(before))
   const then = normalizeLeft(after === null ? null : JSON.parse(after))
   const cur = normalizeLeft(await readFile(v.abs(LEFT_FILE), 'utf8').then((t) => JSON.parse(t) as unknown, () => null))
-  const next: LeftConfig = { left: [...cur.left], looks: { ...cur.looks } }
+  const next: LeftConfig = { ...cur, left: [...cur.left], looks: { ...cur.looks } }
   was.left.forEach((f, i) => {
     if (!folders.has(f) || then.left.includes(f) || next.left.includes(f)) return
     next.left.splice(Math.min(i, next.left.length), 0, f)

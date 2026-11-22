@@ -1,6 +1,118 @@
 /* 左栏「文件」页的目录树（设计 design/pdf/ §1.8：分段 28 高占满宽，右边 28 × 28「按名字跳 ⌘O」；树的行 28 高，每层缩进 16） */
 
 
+/* 找文件的框（task-4891y ②，加进左栏的 ②）：类型筛选下面，28 高 --fill 底；左边 search 14，右边空着写 ⌥⌘F（11 --t3），有字时一个 × */
+.side .ft-find {
+  flex: none;
+  height: 28px;
+  margin: 2px 8px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.ft-find input,
+.movepick .mv-find input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: 12px;
+  color: var(--t1);
+}
+.ft-find input::placeholder,
+.movepick .mv-find input::placeholder {
+  color: var(--t3);
+}
+.ft-find input::-webkit-search-cancel-button,
+.movepick .mv-find input::-webkit-search-cancel-button {
+  appearance: none;
+}
+.ft-find .ft-k {
+  flex: none;
+  margin-right: 4px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.ft-find .ft-x {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--t3);
+}
+.ft-find .ft-x:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+/* 命中的那几个字：600 强调色 */
+.ftree .ft-row.hit > .truncate b {
+  font-weight: 600;
+  color: var(--acc-t);
+}
+.ftree .ft-qnone {
+  padding: 8px 22px;
+}
+/* 树顶「钉住」（task-4891y ①）：组头同「读进来的」，一行同树里的一行（不缩第二层、不展开），和库那一行空 6 */
+.ftree .ft-pins {
+  margin-bottom: 6px;
+}
+
+/* 「移到…」小弹层（task-4891y ⑦）：300 宽、圆角 12、内边距 6（同「换图标和颜色…」那种贴着一行的弹层）；头上一句 12 --t3，打字的框 30 高 --fill 底，列表最高 320 能滚，↑↓ 选着的一行 --fill2 */
+.shell-menu.movepick {
+  width: 300px;
+  padding: 6px;
+  border-radius: 12px;
+}
+.movepick .mv-hd {
+  padding: 6px 10px 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.movepick .mv-find {
+  height: 30px;
+  margin: 2px 2px 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.movepick .mv-find input {
+  font-size: 13px;
+}
+.movepick .mv-list {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.movepick .mi.kb {
+  background: var(--fill2);
+}
+.movepick .mi .r {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.movepick .mi .fglyph {
+  display: inline-flex;
+}
+.movepick .mv-none {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--t3);
+}
+
 /* 类型筛选（全部 / 文档 / 白板 / 素材）：「文件」「最近」、摘出来的文件夹顶上同一排，文件夹首页和「最近」页也是这一排 */
 .tchips {
   flex: none;
@@ -131,12 +243,17 @@
   max-width: calc(100% - 38px);
 }
 /*
- * PDF 和它的笔记合成的一行：右端「问了几问」先保住，名字至少留 7 个字宽、再长的末尾省略（原型 proto-a「第6讲 Transfor…」）；
- * 窄到 7 个字也放不下，才把这个数掉到看不见的第二行（名字照样优先）
+ * PDF、HTML 那一行（task-4891y ④「长名字的 PDF」）：名字先省略，「PDF」小标和右端「问了几问」（没有笔记时是读到哪）一直看得到；
+ * 名字至少留 3 个字宽，窄到 3 个字也放不下，才把后面的掉到看不见的第二行
  */
-.ftree .ft-row.ft-fit:has(> .ft-nb) > .truncate {
-  flex: 1000 1 7em;
+.ftree .ft-row.ft-fit:has(> .ft-ext) > .truncate {
+  flex: 1000 1 3em;
   max-width: max-content;
+}
+/* 小标和右端的数之间空 8（照用户定的图），多出来的一个字宽留给名字 */
+.ftree .ft-row.ft-fit:has(> .ft-ext) > .ft-fl {
+  min-width: 0;
+  margin-right: -4px;
 }
 /* 「附件」筛选里笔记那一行：右边「4张」一直在，不折到藏起来的第二行；名字让位、末尾省略（缩进多深都一样） */
 .ftree .ft-row.ft-fit.att {

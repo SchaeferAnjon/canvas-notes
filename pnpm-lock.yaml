@@ -206,6 +206,9 @@ importers:
       '@cn/git':
         specifier: workspace:*
         version: link:../../packages/git
+      '@cn/tasks':
+        specifier: workspace:*
+        version: link:../../packages/tasks
       '@codemirror/commands':
         specifier: ^6
         version: 6.11.1
@@ -289,6 +292,8 @@ importers:
         version: 4.0.0
 
   packages/git: {}
+
+  packages/tasks: {}
 
 packages:
 

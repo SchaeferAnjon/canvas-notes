@@ -29,6 +29,7 @@ graph-line move
 comment-discussion symbol-operator location references
 reply multiple-windows split-vertical mention
 symbol-event
+arrow-circle-right watch
 `.split(/\s+/).filter(Boolean)
 
 const body = USED.map((n) => {

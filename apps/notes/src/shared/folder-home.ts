@@ -268,9 +268,10 @@ function isDraft(f: PropFile): boolean {
  * 分类「分类 · 2门课 · 5篇 · 改于今天 22:46」；每门课「课程 / ecpc · 1讲 · 3篇 · 改于今天 10:34」；别的「项目 / 冰岛旅行 · 4篇 · 改于今天 10:34」。
  * files 是这个文件夹里（含子文件夹）的 md、PDF、HTML；courses 是「课程」下面有几门课
  */
-export function folderLead(folder: string, files: PropFile[], opts: { courses?: number; now?: number } = {}): string {
+export function folderLead(folder: string, files: PropFile[], opts: { courses?: number; now?: number; presets?: boolean } = {}): string {
   const kind = homeKindOf(folder)
-  const head = isCategory(folder) ? ['分类', ...(opts.courses ? [`${opts.courses}门课`] : [])] : [folder.split('/').join(' / ')]
+  // 关掉预设的分类时（task-wniqx）分类写「文件夹」（图 2-关掉以后：「文件夹 · 2门课 · 2篇」）
+  const head = isCategory(folder) ? [opts.presets === false ? '文件夹' : '分类', ...(opts.courses ? [`${opts.courses}门课`] : [])] : [folder.split('/').join(' / ')]
   if (!files.length) return [...head, '还没有文件'].join(' · ')
   // 几讲：认得出第几讲的按讲数；认不出的课件 PDF（名字里没有「第 N 讲」「Lecture N」）每份也算一讲，和左栏「0/5 讲」数得一样
   const lectures = kind === 'course' ? new Set(files.map((f) => Number(f.props['第几讲'])).filter((x) => x > 0)).size + files.filter((f) => f.props['类型'] === '课件' && !(Number(f.props['第几讲']) > 0)).length : 0
@@ -311,8 +312,12 @@ export interface WidgetData {
   date?: string
   label?: string
   next?: string
-  /** 待办：一行一条，[x] 开头是做完的 */
+  /**
+   * 以前的待办：一行一条，[x] 开头是做完的。2026-11-22 起待办卡列这个文件夹每篇的「- [ ]」，打开首页时这几条一次搬进 <文件夹>/待办.md
+   * （task-pd1d1，一次提交，能撤回）；撤回了的记 todosKept，不再自动搬，卡里留一句「还有 N 条旧待办 · 搬进…」
+   */
   todos?: string[]
+  todosKept?: boolean
   /** 快捷链接：名字 和 网址 */
   links?: { name: string; url: string }[]
   /** 嵌一块白板：库里的路径 */
@@ -422,6 +427,7 @@ function normWidget(raw: unknown): WidgetData | null {
   if (cond) w.cond = cond
   for (const k of ['text', 'date', 'label', 'next', 'board'] as const) if (str(r[k])) w[k] = str(r[k])
   if (Array.isArray(r.todos)) w.todos = r.todos.filter((x): x is string => typeof x === 'string').slice(0, 100).map((x) => x.slice(0, 300))
+  if (r.todosKept === true && w.todos?.length) w.todosKept = true
   if (Array.isArray(r.links)) w.links = r.links.filter((x) => x && typeof x.name === 'string' && typeof x.url === 'string' && /^(https?:|mailto:)/.test(x.url)).slice(0, 20)
   if (Array.isArray(r.stages)) w.stages = r.stages.filter((x) => x && typeof x.name === 'string').slice(0, 10).map((x) => ({ name: String(x.name).slice(0, 40), pct: Math.min(100, Math.max(0, Number(x.pct) || 0)) }))
   return w

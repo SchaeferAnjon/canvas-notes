@@ -7,9 +7,9 @@ import { commitPending, describeChanges, git, HIDE_INTERNAL, init, isInternalPat
 
 describe('isInternalPath', () => {
   it('.canvas-notes 下面的全部、各文件夹的首页设置和首页模板、.gitkeep 是软件自己的', () => {
-    for (const p of ['.canvas-notes/左栏.json', '.canvas-notes/置顶.json', '.canvas-notes/首页.json', '.canvas-notes/对话/Lecture05-p5-1.md', '.canvas-notes/字幕/yt-abc.vtt', '课程/ecp/.首页.json', '课程/.首页模板.json', '课程/ecpc/.gitkeep'])
+    for (const p of ['.canvas-notes/左栏.json', '.canvas-notes/置顶.json', '.canvas-notes/首页.json', '.canvas-notes/对话/Lecture05-p5-1.md', '.canvas-notes/字幕/yt-abc.vtt', '课程/ecp/.首页.json', '课程/.首页模板.json', '课程/ecpc/.gitkeep', '.canvas-tasks/提醒/mac/2026-11.jsonl'])
       expect(isInternalPath(p), p).toBe(true)
-    for (const p of ['课程/ecp/Lecture05 笔记.md', '收件箱/冰岛行程.md', '附件/课程/ecp/图 1.png', 'canvas-notes.md', '写作/首页.json'])
+    for (const p of ['课程/ecp/Lecture05 笔记.md', '收件箱/冰岛行程.md', '附件/课程/ecp/图 1.png', 'canvas-notes.md', '写作/首页.json', '收件箱/待办.md', 'canvas-tasks.md'])
       expect(isInternalPath(p), p).toBe(false)
   })
 })
@@ -37,6 +37,9 @@ describe('describeChanges 不写内部文件', () => {
     expect(describeChanges([{ path: '课程/ecp/.gitkeep', code: ' D' }])).toBe('删了文件夹：课程/ecp')
     expect(describeChanges([{ path: '.canvas-notes/对话/Lecture05-p5-1.md', code: '??' }, { path: '.canvas-notes/对话/Lecture05-p6-1.md', code: '??' }])).toBe('存了AI对话')
     expect(describeChanges([{ path: '.canvas-notes/左栏.json', code: ' M' }, { path: '课程/ecp/.首页.json', code: ' M' }])).toBe('改了左栏设置；改了「ecp」的首页')
+    // 画布今日的提醒记录（响过、推迟、勾掉）
+    expect(describeChanges([{ path: '.canvas-tasks/提醒/mac/2026-11.jsonl', code: '??' }])).toBe('记了提醒')
+    expect(describeChanges([{ path: '收件箱/待办.md', code: ' M' }, { path: '.canvas-tasks/提醒/mac/2026-11.jsonl', code: ' M' }])).toBe('更新 1 个文件：收件箱/待办')
   })
 })
 

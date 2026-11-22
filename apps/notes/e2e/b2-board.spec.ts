@@ -13,7 +13,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { acts, gitStatus, launch, openNote, pane, waitSaved, webAboveAi } from './app'
+import { acts, gitStatus, inboxPop, launch, openNote, pane, waitSaved, webAboveAi } from './app'
 import { BOOK, DOC as DIGEST, PATH as DIGEST_PATH } from './fixtures/book-digest'
 import { docBoardVault, LECTURE_NOTE, TRAVEL_NOTE } from './fixtures/doc-board'
 
@@ -400,11 +400,10 @@ test('文档切成的白板：工具板六样、顶上那条说明、右边一�
     const hb = (await hint.boundingBox())!
     // 进场动画（落下 6px 淡入，带着 transform）还在走时量出来是 32.0000076 这种浮点尾数：差在百分之一像素以内就是 32
     expect(hb.height).toBeCloseTo(32, 2)
-    // 收件箱：标签条右端「收件箱 1」，白板右边一格
+    // 收件箱：标签条右端「收件箱 1」，弹窗默认收着（task-8isml）
     const inbox = acts(page).getByTestId('db-inbox')
     await expect(inbox).toHaveText('收件箱1')
-    const drawer = docBoard(page).getByRole('complementary', { name: '收件箱' })
-    await expect(drawer).toBeVisible()
+    await expect(docBoard(page).getByRole('dialog', { name: '收件箱' })).toHaveCount(0)
     expect(file()).toBe(TRAVEL_NOTE)
 
     // 「卡片」拖到空白处：那里出一张空卡就地写，⌘↵ 放好；文档末尾多这一段和一行位置，顶上那条跟着变；卡底不写在哪一节
@@ -458,6 +457,7 @@ test('文档切成的白板：工具板六样、顶上那条说明、右边一�
     expect(file()).toContain('维克那晚要是封路，就退掉，改住塞里雅兰瀑布附近。\n\n- [ ] 订维克那晚的房\n\n## 路线')
 
     // 收件箱拖进「出发前」第一张前面：短的一条插进那一节，收件箱那篇进废纸篓
+    const drawer = await inboxPop(page)
     const mini = drawer.getByRole('listitem').first()
     await expect(mini).toContainText('到了先在机场换一点克朗')
     const m = (await mini.boundingBox())!

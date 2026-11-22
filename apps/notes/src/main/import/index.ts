@@ -7,7 +7,8 @@ import { dialog, ipcMain, type BrowserWindow } from 'electron'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 import * as git from '@cn/git'
-import type { ImportFolder, ImportKind, ImportProgress, ImportResult, ImportScan } from '../../shared/import'
+import { existsSync } from 'node:fs'
+import { type ImportFolder, type ImportKind, type ImportProgress, type ImportResult, type ImportScan, wholeVault } from '../../shared/import'
 import type { Vault } from '../vault'
 import { NoteStore, type ReadNote } from './apple-notes'
 import { mdFolders, readMdFolder, scanMdFolder, type MdScan } from './md-folder'
@@ -80,7 +81,7 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
     const source = cleanSegment(basename(dir), 40)
     const folders: ImportFolder[] = mdFolders(md, source)
     for (const n of md.notes) if (ids.has(`md:${source}/${n.rel}`)) folders.find((f) => f.id === (n.rel.includes('/') ? n.rel.slice(0, n.rel.lastIndexOf('/')) : ''))!.already++
-    const scan: ImportScan = { kind: 'folder', source, where: tilde(dir), folders }
+    const scan: ImportScan = { kind: 'folder', source, where: tilde(dir), folders, vault: existsSync(join(dir, '.obsidian')) }
     picked = { kind: 'folder', md, scan }
     return scan
   })
@@ -128,12 +129,14 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
     }
     const already = chosen.reduce((s, f) => s + f.already, 0)
     const total = notes.length
+    const top = wholeVault(scan, folderIds)
     const unit = kind === 'notes' ? '条' : '篇'
     const w = await writeImport({
       root: vault.root,
       source: scan.source,
       notes,
       extra,
+      top,
       message: `导入旧笔记：从${kind === 'notes' ? '备忘录' : `「${scan.source}」`}导入 ${total} ${unit}`,
       signal,
       onProgress: (done, all, title) => send(done === all ? { phase: 'committing', done, total: all } : { phase: 'writing', done, total: all, title }),
@@ -141,7 +144,7 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
     const out: string[] = []
     if (locked) out.push(`${locked}条上了锁，没导（在备忘录里去掉锁再导一次就行）`)
     for (const [k, v] of Object.entries(lost)) out.push(v > 1 || !k.startsWith('读不出来') ? `${k} · ${v} 处` : k)
-    return { source: scan.source, dir: importDir(scan.source), notes: total, attachments: w.attachments, bytes: w.bytes, commit: w.commit, skipped: { locked, already }, lost: out }
+    return { source: scan.source, dir: top ? '' : importDir(scan.source), notes: total, attachments: w.attachments, bytes: w.bytes, commit: w.commit, skipped: { locked, already }, lost: out }
   }
 
   ipcMain.handle('import:start', (_e, kind: unknown, folders: unknown) => {

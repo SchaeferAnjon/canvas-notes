@@ -17,6 +17,7 @@ import { noteType, type TypeFilter, TypeChips } from './files/type-filter'
 import { fileIcon } from './Palette'
 import { PageNote, TabActs } from './shell/TabActs'
 import './recent-page.css'
+import { usePrefs } from './settings-store'
 
 export function RecentPage(props: {
   notes: NoteFile[]
@@ -30,6 +31,7 @@ export function RecentPage(props: {
   const [title, setTitle] = useState('')
   const [q, setQ] = useState('')
   const [type, setType] = useState<TypeFilter>('all')
+  const showTodo = usePrefs((s) => s.files.showTodo)
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [shown, setShown] = useState<Record<string, number>>({})
   const now = Date.now()
@@ -42,9 +44,11 @@ export function RecentPage(props: {
         archiveDays: props.archiveDays,
         withArchived: true,
         keep: (n) => (type === 'all' || noteType(n) === type) && (!words.length || words.every((w) => (n.path + '\n' + (n.excerpt ?? '')).toLowerCase().includes(w))),
+        // 名字叫「待办」的笔记在左边「待办」格里，设置 › 文件没开「文件树里显示待办」时这里不列（task-pd1d1）
+        hideTodo: !showTodo,
       }),
     // now 每次渲染都变，只在笔记、筛选变了时重算
-    [props.notes, props.archiveDays, type, q],
+    [props.notes, props.archiveDays, type, q, showTodo],
   )
   const create = async () => {
     const t = title.trim()

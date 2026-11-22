@@ -33,22 +33,42 @@ export interface BarItem {
   glyph?: React.ReactNode
   onClick(e: React.MouseEvent<HTMLButtonElement>): void
   onContextMenu?(e: React.MouseEvent<HTMLButtonElement>): void
-  /** 按住拖上拖下排顺序（摘出来的文件夹）：key 是自己，onDrop(拖的, 放到谁前面) */
-  drag?: { key: string; onDrop(from: string, before: string): void }
+  /** 按住拖上拖下排顺序（摘出来的文件夹，只在同一段里）：key 是自己，onDrop(拖的, 放到谁前面；null 是这一段最后) */
+  drag?: { key: string; onDrop(from: string, before: string | null): void }
   /** 窗口矮、放不下时能收进「⋯」的（摘出来的分类和文件夹，从最后一格往前收） */
-  fold?: boolean
+  /** 数字：比分类先收，数大的先收（窗口最矮时先收「待办」再收「书桌」，八个分类都留着，2026-11-22 用户定） */
+  fold?: boolean | number
 }
 
 /**
- * 一条图标栏：只放图标，悬停才出名字；亮着的那个再点一下 = 收起那一侧。
- * 窗口矮、一列放不下时，能收的格子（fold）从最后往前收进一格「⋯」，点开是这几格的菜单（方案 v2 分类与入口 A2 第 3 条）
+ * 图标栏接别处拖来的东西（task-wniqx：左栏树里的文件夹拖上来「放到左边」）：
+ * type 是认的拖动类型；ok() 这一次能不能放（已经在左边的不接）；落点在 cells 这几格之间（自己放上去的那一段），
+ * 这一段还空着时线画在 after 那一格下面；onDrop(放到谁前面，null 是最后)
  */
-export function ActivityBar(props: { side: 'left' | 'right'; label: string; groups: BarItem[][]; bottom?: React.ReactNode }) {
+export interface BarDrop {
+  type: string
+  ok(): boolean
+  cells: string[]
+  after: string | null
+  onDrop(before: string | null): void
+}
+
+const LEFT_DRAG = 'application/x-cn-left'
+
+/**
+ * 一条图标栏：只放图标，悬停才出名字；亮着的那个再点一下 = 收起那一侧。
+ * 窗口矮、一列放不下时，能收的格子（fold）收进一格「⋯」，点开是这几格的菜单（方案 v2 分类与入口 A2 第 3 条）：先收「待办」、再收「书桌」
+ * （「⋯」自己也占一格，只收「待办」腾不出地方），再从最后一格往前收分类和摘上来的文件夹。
+ * 拖着排、从树里拖文件夹上来时（task-wniqx，原型 proto-pin-folder.html）：落点一道强调色线，栏右边一句「松手：挪到这里」/「松手：放到左边」
+ */
+export function ActivityBar(props: { side: 'left' | 'right'; label: string; groups: BarItem[][]; bottom?: React.ReactNode; accept?: BarDrop }) {
   const tipSide = props.side === 'left' ? 'right' : 'left'
   const nav = useRef<HTMLElement>(null)
   /** 收进「⋯」的格子数 */
   const [folded, setFolded] = useState(0)
-  const foldable = props.groups.flat().filter((it) => it.fold)
+  // 从这一串的最后往前收：带数字的（「待办」「书桌」）排在最后、数大的最先收；其余从最后一格往前收
+  const all = props.groups.flat()
+  const foldable = [...all.filter((it) => it.fold === true), ...all.filter((it) => typeof it.fold === 'number').sort((a, b) => (a.fold as number) - (b.fold as number))]
   const hide = new Set(folded ? foldable.slice(-folded).map((it) => it.id) : [])
   const key = foldable.map((it) => it.id).join('|')
   // 量：放不下就再收一格（直到放得下或者都收完）；窗口变高、格子变了重新从 0 量
@@ -85,9 +105,81 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
   )
   /** 点了变淡的那格：旁边说一句为什么（点别处、按 esc 收起） */
   const [say, setSay] = useState<{ id: string; text: string; el: HTMLElement } | null>(null)
+  /** 正在拖着排的那一格（dragover 时读不到 dataTransfer 里的值，自己记着） */
+  const dragKey = useRef<string | null>(null)
+  /** 拖着经过时的落点：线画在 y，松手放到 before 前面 */
+  const [slot, setSlot] = useState<{ y: number; before: string | null; text: string } | null>(null)
+  useEffect(() => {
+    if (!slot) return
+    // 拖到别处松手、按 esc 取消：落点收起（冒泡到 window 才收：松在图标栏上时 nav 的 onDrop 先用到 dragKey）
+    const end = () => ((dragKey.current = null), setSlot(null))
+    window.addEventListener('dragend', end)
+    window.addEventListener('drop', end)
+    return () => (window.removeEventListener('dragend', end), window.removeEventListener('drop', end))
+  }, [!!slot])
+  /** 这一拖落在哪：同一段（拖着排）或 accept.cells（从树里拖来）里，指针在哪一格的上半就放它前面，过了最后一格的一半放最后；before 是 drag.key（拖着排）或格子的 id（从树里拖来） */
+  const slotAt = (e: React.DragEvent): { y: number; before: string | null; text: string } | null => {
+    const types = [...e.dataTransfer.types]
+    /** [格子的 id, 松手时给 onDrop 的名字] */
+    let keys: (readonly [string, string])[]
+    let after: string | null = null
+    let text: string
+    if (types.includes(LEFT_DRAG) && dragKey.current) {
+      const g = props.groups.find((x) => x.some((it) => it.drag?.key === dragKey.current))
+      if (!g) return null
+      keys = g.filter((it) => it.drag && !hide.has(it.id)).map((it) => [it.id, it.drag!.key] as const)
+      text = '松手：挪到这里'
+    } else if (props.accept && types.includes(props.accept.type) && props.accept.ok()) {
+      keys = props.accept.cells.filter((id) => !hide.has(id)).map((id) => [id, id] as const)
+      after = props.accept.after
+      text = '松手：放到左边'
+    } else return null
+    const el = (id: string) => nav.current?.querySelector<HTMLElement>(`[data-bar-id="${CSS.escape(id)}"]`) ?? null
+    const rects = keys.map(([id, key]) => [key, el(id)?.getBoundingClientRect()] as const).filter((x): x is readonly [string, DOMRect] => !!x[1])
+    if (!rects.length) {
+      const a = after ? el(after)?.getBoundingClientRect() : null
+      return a ? { y: a.bottom + 6, before: null, text } : null
+    }
+    for (const [id, r] of rects) if (e.clientY < r.top + r.height / 2) return { y: r.top, before: id, text }
+    return { y: rects[rects.length - 1]![1].bottom, before: null, text }
+  }
+  const navRect = nav.current?.getBoundingClientRect()
   return (
-    <nav ref={nav} className={'abar ' + props.side} aria-label={props.label}>
+    <nav
+      ref={nav}
+      className={'abar ' + props.side + (slot ? ' accept' : '')}
+      aria-label={props.label}
+      onDragOver={(e) => {
+        const at = slotAt(e)
+        if (!at) return slot && setSlot(null)
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        if (at.y !== slot?.y || at.before !== slot?.before || at.text !== slot?.text) setSlot(at)
+      }}
+      onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setSlot(null)}
+      onDrop={(e) => {
+        const at = slotAt(e)
+        const from = e.dataTransfer.getData(LEFT_DRAG)
+        dragKey.current = null
+        setSlot(null)
+        if (!at) return
+        e.preventDefault()
+        if (from) props.groups.flat().find((it) => it.drag?.key === from)?.drag!.onDrop(from, at.before)
+        else props.accept?.onDrop(at.before)
+      }}
+    >
       {say && <Say text={say.text} anchor={say.el} side={tipSide} onClose={() => setSay(null)} />}
+      {slot &&
+        navRect &&
+        createPortal(
+          <>
+            <i className="ab-drop-line" data-testid="bar-drop-line" style={{ left: navRect.left + 8, width: navRect.width - 16, top: slot.y - 1 }} />
+            <div className="ab-drop-say" data-testid="bar-drop-say" style={{ left: navRect.right + 8, top: slot.y - 10 }}>
+              {slot.text}
+            </div>
+          </>,
+          document.body,
+        )}
       {groups
         .map((g, i) => [g, i] as const)
         .filter(([g, i]) => g.length || i === lastFoldGroup)
@@ -97,27 +189,20 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
             {g.map((it) => (
               <button
                 key={it.id}
-                className={'ab' + (it.on ? ' on' : '') + (it.dim ? ' dim' : '')}
+                className={'ab' + (it.on ? ' on' : '') + (it.dim ? ' dim' : '') + (slot && it.drag && it.drag.key === dragKey.current ? ' dragging' : '')}
                 aria-label={it.label}
                 aria-pressed={it.on}
                 data-tip={it.tip ?? it.label}
                 data-key={it.key}
                 data-side={tipSide}
                 data-testid={`ab-${it.tid ?? it.id}`}
+                data-bar-id={it.id}
                 data-saying={say?.id === it.id || undefined}
                 onClick={it.dim && it.why ? (e) => setSay({ id: it.id, text: it.why!, el: e.currentTarget }) : it.onClick}
                 onContextMenu={it.onContextMenu}
                 draggable={!!it.drag}
-                onDragStart={it.drag ? (e) => (e.dataTransfer.setData('application/x-cn-left', it.drag!.key), (e.dataTransfer.effectAllowed = 'move')) : undefined}
-                onDragOver={it.drag ? (e) => [...e.dataTransfer.types].includes('application/x-cn-left') && e.preventDefault() : undefined}
-                onDrop={
-                  it.drag
-                    ? (e) => {
-                        const from = e.dataTransfer.getData('application/x-cn-left')
-                        if (from) (e.preventDefault(), it.drag!.onDrop(from, it.drag!.key))
-                      }
-                    : undefined
-                }
+                onDragStart={it.drag ? (e) => ((dragKey.current = it.drag!.key), e.dataTransfer.setData(LEFT_DRAG, it.drag!.key), (e.dataTransfer.effectAllowed = 'move')) : undefined}
+                onDragEnd={it.drag ? () => ((dragKey.current = null), setSlot(null)) : undefined}
               >
                 {it.glyph ?? <Codicon name={it.icon} size={0} />}
                 <span className="sr">{it.label}</span>
@@ -292,9 +377,11 @@ export function Popover(props: {
       const h = el.offsetHeight
       let left = props.align === 'end' ? r.right - w : r.left
       let top = r.bottom + (props.gap ?? 4)
-      if (props.side === 'right') ((left = r.right + 8), (top = Math.min(r.top + r.height / 2 - h / 2, innerHeight - h - 8)))
-      else if (props.anchor.closest('.abar.left')) ((left = r.right + 6), (top = Math.min(r.top, innerHeight - h - 8)))
-      else if (props.anchor.closest('.abar.right')) ((left = r.left - w - 6), (top = Math.min(r.top, innerHeight - h - 8)))
+      // 往下最多到底栏上沿往上 8（A 的底栏不透明，弹层压上去会盖住「库 · 分支」；task-wniqx 设计复审）
+      const floor = Math.min(innerHeight, document.querySelector('.win > .status')?.getBoundingClientRect().top ?? innerHeight) - h - 8
+      if (props.side === 'right') ((left = r.right + 8), (top = Math.min(r.top + r.height / 2 - h / 2, floor)))
+      else if (props.anchor.closest('.abar.left')) ((left = r.right + 6), (top = Math.min(r.top, floor)))
+      else if (props.anchor.closest('.abar.right')) ((left = r.left - w - 6), (top = Math.min(r.top, floor)))
       else if (r.top > innerHeight - 80) top = r.top - h - 6
       setPos({ left: Math.max(8, Math.min(left, innerWidth - w - 8)), top: Math.max(8, top) })
     }

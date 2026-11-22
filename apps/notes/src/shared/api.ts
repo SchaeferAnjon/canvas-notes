@@ -333,6 +333,8 @@ export interface CnApi {
   /** 开着的笔记在外面改了名（访达、同步盘；内容一样）：标签、编辑器跟到新路径 */
   /** own：软件自己挪的（梦游收下、撤回），不是在外面改的 */
   onNoteRenamed(cb: (from: string, to: string, own: boolean) => void): () => void
+  /** canvas-notes://open?file=<笔记>.md&line=N（画布今日「打开笔记，到这一行」）：打开这一篇、到第 N 行 */
+  onOpenNoteAt(cb: (a: { file: string; line?: number }) => void): () => void
   /** 文件增删 */
   onFilesChanged(cb: () => void): () => void
   updateStatus(): Promise<UpdateState>

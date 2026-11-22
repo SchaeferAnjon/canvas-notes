@@ -633,7 +633,8 @@ function AskCard({ s, pdf, full }: { s: AskSection; pdf: FileEntry | null; full:
       {s.good && (
         <div className="row g">
           <Codicon name="pass" size={13} />
-          <span className={full ? '' : 'clamp3'}>{s.good}</span>
+          {/* 回答原文的开头一段：照 md 排（AI 写的「[第 5 页](#page=5)」是能点的页码，不露写法），和文字卡一个样 */}
+          <span className={full ? '' : 'clamp3'}>{inline(s.good, 'good')}</span>
         </div>
       )}
       {full && s.points.length > 0 && (

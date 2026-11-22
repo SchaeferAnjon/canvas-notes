@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm --filter @cn/notes dev",
     "build": "pnpm --filter @cn/notes build",
-    "typecheck": "tsc -p packages/format && tsc -p packages/git && tsc -p packages/design && tsc -p apps/notes",
+    "typecheck": "tsc -p packages/format && tsc -p packages/tasks && tsc -p packages/git && tsc -p packages/design && tsc -p apps/notes",
     "test": "vitest run",
     "test:e2e": "pnpm --filter @cn/notes test:e2e"
   },

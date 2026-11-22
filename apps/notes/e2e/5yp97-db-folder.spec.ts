@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { launch, leftView, openNote, pane, tabOn, waitSaved } from './app'
-import { armMenus, dismissMenu, type MenuShot, openedMenu, pickMenu } from './menu'
+import { armMenus, pickMenu } from './menu'
 
 const NOTE = '课程/study project/学习笔记：动手学深度学习.md'
 const DB = '课程/study project/未命名数据库'
@@ -16,8 +16,6 @@ const DB = '课程/study project/未命名数据库'
 const tree = (page: Page) => page.getByRole('tree', { name: '全部文件' })
 /** 树里的一行（按库里的路径找：文件夹行的名字里带着「展开 …」那颗按钮的字） */
 const item = (page: Page, path: string) => tree(page).locator(`[role="treeitem"][data-path="${path}"]`)
-/** 菜单里所有看得到的字（子菜单写成「课程 › ecp」） */
-const flat = (m: MenuShot[], pre = ''): string[] => m.flatMap((i) => (i.type === 'separator' ? [] : [pre + i.label, ...(i.submenu ? flat(i.submenu, pre + i.label + ' › ') : [])]))
 /** 文件树里一层层展开到这个文件夹（按路径找那一行，点它的三角） */
 async function openDir(page: Page, path: string) {
   const segs = path.split('/')
@@ -30,16 +28,6 @@ async function openDir(page: Page, path: string) {
 }
 const BASE = (folder: string) => '```base\nfilters:\n  and:\n    - file.inFolder("' + folder + '")\nviews:\n  - type: table\n    name: 表格\n    order:\n      - file.name\n```'
 const git = (vault: string, ...args: string[]) => execFileSync('git', ['-C', vault, ...args], { encoding: 'utf8' }).trim()
-const find = (m: MenuShot[], path: string[]): MenuShot | undefined => {
-  let items = m
-  let hit: MenuShot | undefined
-  for (const n of path) {
-    hit = items.find((i) => i.label === n)
-    if (!hit) return undefined
-    items = hit.submenu ?? []
-  }
-  return hit
-}
 
 test('插入一个数据库：记录文件夹挂在那篇下面写「N条」，不再是一个普通文件夹；「移到」里没有它、这篇所在的文件夹灰着；改名照样挂着、那篇删了它回到普通文件夹；磁盘上不挪不改名', async () => {
   test.setTimeout(150_000)
@@ -98,22 +86,25 @@ test('插入一个数据库：记录文件夹挂在那篇下面写「N条」，�
     await expect(tabOn(page)).toHaveText('未命名数据库')
     await expect(pane(page)).toContainText('第一条')
 
-    // 「移到」：哪一层都没有「未命名数据库」；这篇本来就在的 study project 灰着
+    // 「移到…」（task-4891y 起是打字找的小弹层）：没有「未命名数据库」；这篇本来就在的 study project 灰着
     await armMenus(run)
+    const mover = page.getByRole('dialog', { name: '移到' })
+    const moveItem = (name: string) => mover.getByRole('menuitem').filter({ has: page.locator('.truncate', { hasText: new RegExp(`^${name}$`) }) })
     await note.click({ button: 'right' })
-    const m = await openedMenu(run)
-    const move = find(m, ['移到'])!.submenu!
-    expect(flat(move).some((l) => l.includes('未命名数据库'))).toBe(false)
-    const here = find(move, ['课程', 'study project'])!
-    expect(here.enabled).toBe(false)
-    expect(here.submenu).toBeUndefined()
-    expect(find(move, ['课程', 'ecp'])!.enabled).toBe(true)
-    await dismissMenu(run)
-    // 文件夹右键「移到」也不能挪进它
+    await pickMenu(run, '移到…')
+    await expect(mover).toBeVisible()
+    expect((await mover.getByRole('menuitem').allTextContents()).some((l) => l.includes('未命名数据库'))).toBe(false)
+    await expect(moveItem('study project')).toBeDisabled()
+    await expect(moveItem('ecp')).toBeEnabled()
+    await page.keyboard.press('Escape')
+    await expect(mover).toHaveCount(0)
+    // 文件夹右键「移到…」也不能挪进它
     await item(page, '课程/ecp').click({ button: 'right' })
-    const fm = await openedMenu(run)
-    expect(flat(find(fm, ['移到'])!.submenu!).some((l) => l.includes('未命名数据库'))).toBe(false)
-    await dismissMenu(run)
+    await pickMenu(run, '移到…')
+    await expect(mover).toBeVisible()
+    expect((await mover.getByRole('menuitem').allTextContents()).some((l) => l.includes('未命名数据库'))).toBe(false)
+    await page.keyboard.press('Escape')
+    await expect(mover).toHaveCount(0)
     // 磁盘上照旧是普通文件夹，没挪没改名
     expect(statSync(join(vault, DB)).isDirectory()).toBe(true)
 

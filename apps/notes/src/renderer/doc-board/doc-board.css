@@ -1137,7 +1137,7 @@
 .db-pill:hover {
   background: var(--fill);
 }
-/* 画布这一块（画布、工具板、顶上那条、提示条都在里面）；右边是收件箱一格，画布让出它的宽 */
+/* 画布这一块（画布、工具板、顶上那条、提示条都在里面）；收件箱是盖在上面的弹窗，不占宽 */
 .db-board {
   flex-direction: row;
 }
@@ -1171,68 +1171,71 @@
   box-shadow: inset 0 0 0 2px var(--acc-ring);
 }
 
-/* ---------- 收件箱一格（照小样 .drawer：272 宽、--side 底、左边 1px --line） ---------- */
-.db-drawer {
-  flex: none;
+/* ---------- 收件箱弹窗（task-8isml）：标签条「收件箱 N」下面 6、320 宽、圆角 12、--pop 底、--shadow-up；盖在白板上不占宽，
+   最高 min(中栏高 − 32, 560) 写在 style 上；头、说明、搜索框、底下一行钉住，只有列表滚 ---------- */
+.db-inbox-pop {
+  position: absolute;
+  z-index: 35;
   display: flex;
   flex-direction: column;
-  width: 272px;
-  min-height: 0;
-  background: var(--side);
-  border-left: 1px solid var(--line);
+  width: 320px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
   font-size: 13px;
   color: var(--t1);
-  animation: db-slide 0.2s ease-out;
+  animation: db-pop-in 0.14s ease-out;
 }
-@keyframes db-slide {
+@keyframes db-pop-in {
   from {
-    transform: translateX(40px);
+    transform: translateY(-4px);
     opacity: 0;
   }
 }
-.db-drawer .dbr-head {
+.db-inbox-pop .dbr-head {
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
   height: 40px;
-  padding: 0 8px 0 14px;
+  padding: 0 10px 0 14px;
 }
-.db-drawer .dbr-head .ci {
+.db-inbox-pop .dbr-head .ci {
   color: var(--t2);
 }
-.db-drawer .dbr-head b {
+.db-inbox-pop .dbr-head b {
   font-weight: 600;
 }
-.db-drawer .dbr-head .num {
+.db-inbox-pop .dbr-head .num {
   font-size: 12px;
   color: var(--t3);
 }
-.db-drawer .grow {
+.db-inbox-pop .dbr-head kbd {
+  display: inline-grid;
+  place-items: center;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--fill);
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+.db-inbox-pop .grow {
   flex: 1;
 }
-.db-drawer .dbr-close {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--t2);
-}
-.db-drawer .dbr-close:hover {
-  background: var(--fill);
-}
-.db-drawer .dbr-hint {
+.db-inbox-pop .dbr-hint {
   flex: none;
   padding: 0 14px 8px;
   font-size: 12px;
   line-height: 1.5;
   color: var(--t3);
 }
-.db-drawer .dbr-search {
+/* 两句各占一行（在「；」后面换行），第二行不只剩「那里。」 */
+.db-inbox-pop .dbr-hint span {
+  display: inline-block;
+}
+.db-inbox-pop .dbr-search {
   flex: none;
   display: flex;
   align-items: center;
@@ -1244,7 +1247,7 @@
   background: var(--fill);
   color: var(--t3);
 }
-.db-drawer .dbr-search input {
+.db-inbox-pop .dbr-search input {
   flex: 1;
   min-width: 0;
   border: 0;
@@ -1253,44 +1256,87 @@
   font: 12px var(--sans);
   color: var(--t1);
 }
-.db-drawer .dbr-list {
-  flex: 1;
+.db-inbox-pop .dbr-list {
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 0 12px 12px;
+  /* 右边 1 + 11 宽的滚动条那一道 = 12，卡片左右都离边 12（和搜索框一样）；条少不出滚动条时也一样 */
+  padding: 0 1px 12px 12px;
+  scrollbar-gutter: stable;
 }
-.db-drawer .dbr-grp {
-  margin: 6px 2px 0;
-  font-size: 12px;
-  font-weight: 500;
+/* 组头「⌄ 今天」「› 更早」：点一下收起、再点展开 */
+.db-inbox-pop .dbr-grp {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  height: 20px;
+  margin: 6px 0 0;
+  padding: 0 4px 0 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: 500 12px var(--sans);
   color: var(--t3);
+  cursor: pointer;
 }
-.db-drawer .dbr-none {
+.db-inbox-pop .dbr-grp:hover {
+  color: var(--t2);
+}
+.db-inbox-pop .dbr-none {
   margin: 12px 2px;
   font-size: 12px;
   color: var(--t3);
 }
-.db-drawer .dbr-empty {
-  margin: 60px 24px;
+.db-inbox-pop .dbr-empty {
+  margin: 32px 24px 40px;
   text-align: center;
   font-size: 12px;
   line-height: 1.6;
   color: var(--t3);
 }
-.db-drawer .dbr-empty .ci {
+.db-inbox-pop .dbr-empty .ci {
   display: block;
   margin: 0 auto 8px;
   opacity: 0.6;
 }
-.db-drawer .dbr-empty b {
+.db-inbox-pop .dbr-empty b {
   display: block;
   margin-bottom: 4px;
   font-size: 13px;
   font-weight: 500;
   color: var(--t1);
+}
+/* 底下一行「共 N 条 · 打开收件箱文件夹 ›」 */
+.db-inbox-pop .dbr-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 8px 0 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t3);
+}
+.db-inbox-pop .dbr-folder {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 4px 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.db-inbox-pop .dbr-folder:hover {
+  background: var(--fill);
 }
 /* 收件箱里的一条：干净的卡（标题、两行、出处），不露原文 */
 .dbr-item {

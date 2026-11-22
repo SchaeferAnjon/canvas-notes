@@ -266,6 +266,44 @@
   margin: 4px 0;
   background: var(--line2);
 }
+/*
+ * 拖着排、从树里拖文件夹上来（task-wniqx，原型 proto-pin-folder.html）：栏底稍微染一点强调色，落点一道 2px 强调色线，
+ * 栏右边一句「松手：放到左边」/「松手：挪到这里」（深底白字小条）；拖着的那一格变淡
+ */
+.frame-a .abar.left.accept {
+  background: color-mix(in srgb, var(--acc) 8%, var(--bar));
+}
+.frame-b .abar.left.accept {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+}
+.ab.dragging {
+  opacity: 0.35;
+}
+.ab-drop-line {
+  position: fixed;
+  z-index: 209;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--acc);
+  pointer-events: none;
+}
+[data-frame='b'] .ab-drop-line {
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--acc);
+}
+.ab-drop-say {
+  position: fixed;
+  z-index: 211;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: var(--solid);
+  color: var(--solid-t);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+}
 
 /* ---------- 左右栏的头 ---------- */
 /* 左栏拖到最窄时（6 颗图标的「文件」头）：头的内边距和图标间距收紧，标题和图标都放得下 */
@@ -1797,12 +1835,15 @@
 .frame-b .ab-act.wt {
   padding: 0 6px;
 }
-/* B：中间窄于 640 时动作只留图标（App 给 .center 加 .narrow），位置让给标签 */
+/* B：中间窄于 640 时（App 给 .center 加 .narrow），或者带字时当前标签放不下（.tight），动作只留图标，位置让给标签 */
 .frame-b .center.narrow .acts .seg .lb,
-.frame-b .center.narrow .ab-act.wt .lb {
+.frame-b .center.narrow .ab-act.wt .lb,
+.frame-b .center.tight .acts .seg .lb,
+.frame-b .center.tight .ab-act.wt .lb {
   display: none;
 }
-.frame-b .center.narrow .ab-act.wt {
+.frame-b .center.narrow .ab-act.wt,
+.frame-b .center.tight .ab-act.wt {
   padding: 0 4px;
 }
 .frame-b > .side {

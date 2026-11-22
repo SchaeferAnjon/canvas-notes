@@ -40,7 +40,7 @@ test('CN-124 打字像 Typora：记号都不露；标题行首退格变正文；
   try {
     await openNote(page, '冰岛行程')
     // 没有「源文件」看法
-    await expect(acts(page).locator('.seg button')).toHaveText(['白板', '文档'])
+    await expect(acts(page).locator('.seg button')).toHaveText(['任务', '白板', '文档'])
     // 光标点进加粗、标题、引用：记号也不露
     await pane(page).locator('.cm-strong', { hasText: '雷克雅未克' }).click()
     await line(page, '路线').click()

@@ -12,7 +12,7 @@
 import { ChangeSet, type ChangeSpec, EditorSelection, EditorState, Prec, type Range, StateField, type Text } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from '@codemirror/view'
 import { hasOldLayout } from '@cn/format'
-import { type Hidden, hiddenOk, hiddenRanges, hiddenSyntax } from './hidden-syntax'
+import { editKind, type Hidden, hiddenOk, hiddenRanges, hiddenSyntax } from './hidden-syntax'
 
 const CARD_LINE = /^<!--\s*card\s[^>]*-->\s*$/
 const COLUMN_LINE = /^<!--\s*column\s[^>]*-->\s*$/
@@ -37,20 +37,39 @@ export function hiddenLayoutLine(_doc: Text, lineText: string): boolean {
   return lineText.startsWith('<!--') && LAYOUT_LINE.test(lineText)
 }
 
-/** 列名画成小节标题 */
+/**
+ * 列名画成小节标题。点它选中列名这一整块（和点图片一样），光标不落进别处：
+ * 以前不接 mousedown，浏览器自己把光标放到挨着的看得见的地方（上一段末尾、上面的空行），停哪边看点之前光标在哪；
+ * 这时按 ⌫ / Delete 删的是上一段的字和空行（task-xfngz，r8-fix 时过时不过）。选中着按什么键都不改字（keepPickedHead）
+ */
 class ColumnHead extends WidgetType {
-  constructor(readonly title: string) {
+  constructor(
+    readonly title: string,
+    /** 点了它、选中着：铺一层 --fill2 底，看得出点中了（不用整块选中那层强调色：那层的意思是「再按 ⌫ 就删」，列名删不掉） */
+    readonly picked: boolean,
+  ) {
     super()
   }
   eq(o: ColumnHead) {
-    return o.title === this.title
+    return o.title === this.title && o.picked === this.picked
   }
-  toDOM() {
+  toDOM(view: EditorView) {
     const el = document.createElement('div')
-    el.className = 'cm-colhead'
+    el.className = 'cm-colhead' + (this.picked ? ' picked' : '')
     el.setAttribute('role', 'heading')
     el.setAttribute('aria-level', '3')
-    el.textContent = this.title
+    const t = document.createElement('span')
+    t.className = 'cm-colhead-t'
+    t.textContent = this.title
+    el.appendChild(t)
+    el.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
+      e.preventDefault()
+      const at = view.posAtDOM(el)
+      const unit = headUnits(view.state).find((u) => u.from === at)
+      view.focus()
+      if (unit) view.dispatch({ selection: { anchor: unit.from, head: unit.to }, userEvent: 'select.pointer' })
+    })
     return el
   }
 }
@@ -89,7 +108,12 @@ function build(state: EditorState): DecorationSet {
     // 给它一个空字撑成普通空行的高，↓ 能停、点得进（第 6 轮：两段挤在一起，看不出是两段）
     if (n > 1 && doc.line(n - 1).text === '') out.push(Decoration.line({ class: 'cm-cardgap' }).range(doc.line(n - 1).from))
   }
-  for (const h of heads) out.push(Decoration.replace({ widget: new ColumnHead(h.title), block: true, fixed: true }).range(doc.line(h.a).from, doc.line(h.b).to))
+  const sel = state.selection.ranges.length === 1 ? state.selection.main : null
+  for (const h of heads) {
+    const u = headUnit(doc, h)
+    const picked = !!sel && sel.from === u.from && sel.to === u.to
+    out.push(Decoration.replace({ widget: new ColumnHead(h.title, picked), block: true, fixed: true }).range(doc.line(h.a).from, doc.line(h.b).to))
+  }
   return Decoration.set(out, true)
 }
 
@@ -129,14 +153,39 @@ function ranges(state: EditorState): Hidden[] {
     const to = doc.line(h.b).to
     const a = from > 0 ? from - 1 : 0
     const z = to < doc.length ? to + 1 : to
-    out.push({ from: a, to: z, fromOk: a > 0, toOk: true, side: 'near', unit: { from, to: h.b > h.a ? cardEnd(doc, h.b) : to }, ...(z < doc.length ? {} : { pad: '\n\n' }) })
+    out.push({ from: a, to: z, fromOk: a > 0, toOk: true, side: 'near', unit: headUnit(doc, h), ...(z < doc.length ? {} : { pad: '\n\n' }) })
   }
   return out
 }
 
+/** 列名那一块整块删时盖住的范围：列那一行；连着卡片行的到第一张卡的正文末尾（只删注释，卡的字会并进上一张卡） */
+function headUnit(doc: Text, h: { a: number; b: number }): { from: number; to: number } {
+  return { from: doc.line(h.a).from, to: h.b > h.a ? cardEnd(doc, h.b) : doc.line(h.b).to }
+}
+
+function headUnits(state: EditorState): { from: number; to: number }[] {
+  return scanLayout(state.doc).heads.map((h) => headUnit(state.doc, h))
+}
+
+/**
+ * 点列名选中了列名那一块（选区正好是它）时的编辑（⌫、Delete、⌥⌫、⌘⌫、Ctrl+D、剪切、打字、粘贴，什么键都一样）：不做。
+ * 文档看法里列名只看不改（改列名、删列在白板上做）：删掉列那一行，这一列的卡在白板上就没了着落；
+ * 列名连着卡片行时这一块到第一张卡的正文末尾，打的字会替掉、并进那张卡。
+ * 拖着选过列名、连着上下的字一起删，或者 ⌘A 删光，照旧整块删（选区比这一块大）；⌘Z、外面改了文件、白板写回（不带用户动作）不拦。
+ * 带 hiddenOk 的也拦：选中整块按 ⌫ 由 atomic-blocks.ts 的 deleteSelectedBlock 带着 hiddenOk 整行删
+ */
+const keepPickedHead = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || !editKind(tr)) return tr
+  const sel = tr.startState.selection
+  if (sel.ranges.length !== 1 || sel.main.empty) return tr
+  const { from, to } = sel.main
+  return headUnits(tr.startState).some((u) => u.from === from && u.to === to) ? [] : tr
+})
+
 const field = StateField.define<DecorationSet>({
   create: build,
-  update: (v, tr) => (tr.docChanged ? build(tr.state) : v),
+  // 选区变了也重画：列名选中着要铺底
+  update: (v, tr) => (tr.docChanged || tr.selection ? build(tr.state) : v),
   provide: (f) => [EditorView.decorations.from(f), EditorView.atomicRanges.of((view) => view.state.field(f)), hiddenSyntax.of((state) => ranges(state))],
 })
 
@@ -230,6 +279,7 @@ const pasteDropsLayout = EditorState.transactionFilter.of((tr) => {
 export const layoutLines = [
   field,
   pasteDropsLayout,
+  keepPickedHead,
   Prec.high(
     keymap.of([
       { key: 'Backspace', run: backspaceOverLayout },

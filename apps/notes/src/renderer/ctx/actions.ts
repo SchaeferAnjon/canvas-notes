@@ -10,6 +10,8 @@ import type { PickItem } from '../ai-pick'
 export interface AppActions {
   /** 新标签打开库里的文件（已经开着就切过去）：md、PDF、HTML 按类型开 */
   openFile(path: string): void
+  /** 打开 PDF（开着就切过去）翻到那页，有 rect 时那块闪一下（笔记里的「第 3 页」链接，page-link.ts） */
+  openPdfAt(path: string, page: number, rect?: [number, number, number, number]): void
   /** 当前标签换成这一篇（它已经开在别的标签就切过去） */
   openHere(path: string): void
   /** 配好对的笔记只打开笔记，网页不跟着开（右键，task-kbnc0） */

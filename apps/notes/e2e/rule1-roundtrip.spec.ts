@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { decodeNote } from '@cn/format'
 import { FIXTURES } from '../../../packages/format/test/fixtures'
-import { gitStatus, launch, openNote, pane, waitSaved, acts } from './app'
+import { gitStatus, launch, leftView, openNote, pane, waitSaved, acts } from './app'
 
 // 规矩 1：一篇笔记打开、什么都不改、保存，文件一个字节都不变（Git 里没有假改动）。
 test('打开再保存文件不变：每个样本打开、⌘S、打一个字再删掉、等自动保存，Git 状态仍然干净', async () => {
@@ -54,6 +54,38 @@ test('真改了字就写回，CRLF 和 BOM 照旧', async () => {
     const bytes = readFileSync(join(vault, 'bom-crlf.md'))
     expect([...bytes.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
     expect(bytes.subarray(3).toString('utf8')).toBe('# BOM 加 CRLF\r\n内容加了几个字\r\n')
+  } finally {
+    await run.close()
+  }
+})
+
+test('名字叫「待办」的笔记用任务界面打开（task-pd1d1）：只看、任务 / 白板 / 文档来回切、关掉，文件一个字节不变（CRLF、BOM 也一样）', async () => {
+  const enc = (s: string) => new TextEncoder().encode(s)
+  const files: Record<string, Uint8Array> = {
+    '收件箱/待办.md': enc('# 待办\r\n\r\n- [ ] 回导师邮件 📅 2099-01-01 10:30\r\n- [x] 交读书报告 ✅ 2026-11-21\r\n'),
+    '写作/待办.md': new Uint8Array([0xef, 0xbb, 0xbf, ...enc('# 待办\n\n- [ ] 买打印纸\n- [ ] 给猫买粮 📅 2099-01-02   \n\t- [ ] 子任务\n')]),
+  }
+  const run = await launch(files)
+  const { page, vault } = run
+  try {
+    for (const [path, bytes] of Object.entries(files)) {
+      const folder = path.split('/')[0]!
+      await leftView(page, '待办')
+      await page.locator(`aside.side .td-fg[aria-label="${folder}"]`).getByRole('button', { name: `打开 ${folder}/待办 ›` }).click()
+      await expect(acts(page).getByRole('tab', { name: '任务' })).toHaveAttribute('aria-selected', 'true')
+      await expect(pane(page).locator('.td-view .td-r').first()).toBeVisible()
+      for (const v of ['白板', '文档', '任务', '文档', '任务']) {
+        await acts(page).getByRole('tab', { name: v }).click()
+        await page.waitForTimeout(150)
+      }
+      await page.keyboard.press('Meta+s')
+      await page.waitForTimeout(600)
+      expect(Buffer.from(readFileSync(join(vault, path))).equals(Buffer.from(bytes)), path).toBe(true)
+      await page.keyboard.press('Meta+w')
+      await page.waitForTimeout(600)
+      expect(Buffer.from(readFileSync(join(vault, path))).equals(Buffer.from(bytes)), path).toBe(true)
+    }
+    expect(gitStatus(vault)).toBe('')
   } finally {
     await run.close()
   }

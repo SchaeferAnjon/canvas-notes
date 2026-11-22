@@ -15,7 +15,7 @@ describe('设置里新放进来的几组', () => {
   it('默认值照盘点表：回到上次的样子、菜单栏图标开着，速记 ⌥⌘N；字号 15、行距标准、版心窄、先用文档；只在我点时同步', () => {
     expect(DEFAULT_SETTINGS.general).toEqual({ reopen: true, tray: true, quickKey: '⌥⌘N', quickSrc: true })
     expect(DEFAULT_SETTINGS.editor).toMatchObject({ font: 'system', size: 15, lineHeight: 'normal', width: 'narrow', newView: 'doc', spell: false, boardShrink: true, boardDots: true, semantic: true })
-    expect(DEFAULT_SETTINGS.files).toEqual({ newWhere: 'picked', delAsk: 'images' })
+    expect(DEFAULT_SETTINGS.files).toEqual({ newWhere: 'picked', delAsk: 'images', showTodo: false, noteViews: {} })
     expect(DEFAULT_SETTINGS.pdf).toEqual({ zoom: 'width', openAi: false, recap: true, ankiSides: true })
     expect(DEFAULT_SETTINGS.web).toEqual({ engine: 'google', newTab: 'bookmarks', downloads: 'downloads' })
     expect(DEFAULT_SETTINGS.sync).toEqual({ autoMinutes: 0, pullOnOpen: false, pushOnQuit: false, backup: 'off', backupDir: null })

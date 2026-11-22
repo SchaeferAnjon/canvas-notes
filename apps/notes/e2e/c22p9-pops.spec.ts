@@ -378,7 +378,7 @@ test('别的弹层抽查：窄栏里的块菜单、/ 菜单，白板工具板「
   }
 })
 
-test('中栏 420：七列的 md 表格不挤成一字一行，每列至少 6em、在这一块里横着滚、不撑宽版心；文档白板顶上的说明不伸到收件箱上', async () => {
+test('中栏 420：七列的 md 表格不挤成一字一行，每列至少 6em、在这一块里横着滚、不撑宽版心；文档白板顶上的说明整条在白板里', async () => {
   const doc = [
     '# 窄栏样张',
     '',
@@ -433,23 +433,19 @@ test('中栏 420：七列的 md 表格不挤成一字一行，每列至少 6em�
     // 只看不改：文件一个字节不变
     expect(readFileSync(join(vault, '阅读/窄栏样张.md'), 'utf8')).toBe(doc)
 
-    // 文档白板（右边一格收件箱开着）：中栏 420 时白板只露 150 来宽，顶上那条说明不出（以前只剩一颗 ⓘ、× 掉到外面），也不算说过
+    // 文档白板：收件箱是弹窗、不占宽（task-8isml），中栏 420 时白板占满这 420，顶上那条说明整条在白板里、× 在胶囊里面
+    // （以前右边一格收件箱开着，白板只露 150 来宽，说明不出）
     await acts(page).getByRole('tab', { name: '白板' }).click()
     const hint = pane(page).locator('.db-hint')
-    await expect(pane(page).getByRole('complementary', { name: '收件箱' })).toBeVisible()
-    await page.waitForTimeout(7000)
-    await expect(hint).toHaveCount(0)
-    await shot(page, 'board-420-hint')
-    // 收起右栏，中栏变宽：说明出来，整条在白板里、× 在胶囊里面
-    await rail(page).getByRole('button', { name: '历史' }).click()
     await expect(hint).toBeVisible()
     await page.waitForTimeout(400)
-    const drawer = (await pane(page).getByRole('complementary', { name: '收件箱' }).boundingBox())!
+    const wrap = (await pane(page).locator('.board-wrap').boundingBox())!
     const h = (await hint.boundingBox())!
     const x = (await hint.getByRole('button', { name: '收起这条说明' }).boundingBox())!
-    expect(h.x + h.width).toBeLessThanOrEqual(drawer.x + 0.5)
+    expect(h.x).toBeGreaterThanOrEqual(wrap.x - 0.5)
+    expect(h.x + h.width).toBeLessThanOrEqual(wrap.x + wrap.width + 0.5)
     expect(x.x + x.width).toBeLessThanOrEqual(h.x + h.width + 0.5)
-    await shot(page, 'board-wide-hint')
+    await shot(page, 'board-420-hint')
   } finally {
     await run.close()
   }

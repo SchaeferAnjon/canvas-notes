@@ -143,11 +143,20 @@ export const pane = (page: Page) => page.locator('.pane:not([hidden])')
 /** 标签条右端：当前这一页的动作（属性、白板 / 文档、页码、问这一页、更多……） */
 export const acts = (page: Page) => page.getByTestId('tab-acts')
 
-/** 白板右边一格收件箱收起来（点标签条「收件箱 N」）：量画布坐标的老测试让画布和以前一样宽 */
+/** 白板的收件箱弹窗收着（2026-11-22 起是弹窗、默认就收着，task-8isml）：开着就点标签条「收件箱 N」收起 */
 export async function foldInbox(page: Page) {
-  const drawer = pane(page).locator('.db-drawer')
-  if (await drawer.isVisible()) await acts(page).getByTestId('db-inbox').click()
-  await expect(drawer).toHaveCount(0)
+  const p = pane(page).locator('.db-inbox-pop')
+  if (await p.isVisible()) await acts(page).getByTestId('db-inbox').click()
+  await expect(p).toHaveCount(0)
+}
+
+/** 白板的收件箱弹窗（task-8isml）：没开就点标签条「收件箱 N」打开，等落下的动画走完 */
+export async function inboxPop(page: Page) {
+  const p = pane(page).getByRole('dialog', { name: '收件箱' })
+  if (!(await p.isVisible())) await acts(page).getByTestId('db-inbox').click()
+  await expect(p).toBeVisible()
+  await p.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
+  return p
 }
 
 /** 左边图标栏换到某一页（文件、最近、摘在左边的分类和别的文件夹、梦游报告；分类和文件夹那一格同时开它的首页）；已经开着就不再点（再点是收起） */

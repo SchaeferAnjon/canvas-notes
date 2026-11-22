@@ -55,8 +55,9 @@
   align-items: center;
   gap: 2px;
 }
+/* 标签那一段占满这一行剩下的地方，多出来的给地址块（它 flex 1 0 auto，别的标签最宽 120），+ 紧跟在最后一个标签后面，行里不空一截（task-z5jh4 设计复审） */
 .right.web .wtlist {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -242,13 +243,19 @@
 .right.web .wrow1 .addr.edit input {
   font: 12px var(--mono);
 }
-/* 当前标签的 ×：悬停地址块时浮在右端（盖在域名和标题的末尾） */
+/* 当前标签的 ×：悬停地址块时浮在右端；标题先缩，省略号停在 × 前面，不被它盖住半截，× 平时不铺底（和别的标签一样，指着才 --fill2）；
+   改地址时盖住打的字的末尾，铺地址框的 --card（task-z5jh4 设计复审） */
 .right.web .wtabs .tab.wcur .x {
   right: 4px;
-  background: var(--fill);
+}
+.right.web .wtabs .tab.wcur:has(.addr.edit) .x:not(:hover) {
+  background: var(--card);
 }
 .right.web .wtabs .tab.wcur:hover .x {
   opacity: 1;
+}
+.right.web .wtabs .tab.wcur:hover .adisp {
+  right: 26px;
 }
 .right.web .wtabs .wnew {
   flex: none;

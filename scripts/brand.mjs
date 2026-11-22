@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 名字、许可证、仓库、网址只在 release/brand.json 写一处。这个脚本把它带到各个地方：
-//   node scripts/brand.mjs           改了 brand.json 之后跑：生成 apps/notes/src/shared/brand.ts，改两个 package.json，
+//   node scripts/brand.mjs           改了 brand.json 之后跑：生成 apps/notes/src/shared/brand.ts、apps/apple/Brand.xcconfig，改两个 package.json，
 //                                    把 FILES 里每个文件中的旧值（release/brand.lock.json 记着上次写进去的值）换成新值
 //   node scripts/brand.mjs --check   只检查：生成的文件和 package.json 跟 brand.json 一致，FILES 里没有旧值、都写着现在的名字
 // electron-builder.cjs 和 scripts/release.mjs 直接读 brand.json，不用生成。
@@ -37,6 +37,11 @@ function brandTs(b) {
   return `/** 由 scripts/brand.mjs 从 release/brand.json 生成，别手改：改 brand.json 再跑 node scripts/brand.mjs */\nexport const BRAND = ${JSON.stringify(pick, null, 2).replace(/"([a-zA-Z]+)":/g, '$1:')} as const\n`
 }
 
+/** iPhone / iPad 版（apps/apple/project.yml 引用它）：Bundle ID 和 Mac 版同一个（同一个产品的不同平台，照 Apple 规矩共用一个），显示名、签名团队 */
+function appleXcconfig(b) {
+  return `// 由 scripts/brand.mjs 从 release/brand.json 生成，别手改：改 brand.json 再跑 node scripts/brand.mjs\nCN_APP_ID = ${b.appId}\nCN_DISPLAY_NAME = ${b.name}\nDEVELOPMENT_TEAM = ${b.signing.team}\n`
+}
+
 function packageEdits(b) {
   return [
     ['package.json', { license: b.license }],
@@ -62,6 +67,12 @@ export function run({ check }) {
   const ts = 'apps/notes/src/shared/brand.ts'
   if (!fs.existsSync(at(ts))) fs.writeFileSync(at(ts), '')
   write(ts, brandTs(b))
+  // 画布笔记的公开仓库里没有 iPhone / iPad 版（release/public-exclude.txt），没有就不生成
+  const xc = 'apps/apple/Brand.xcconfig'
+  if (fs.existsSync(at('apps/apple/project.yml'))) {
+    if (!fs.existsSync(at(xc))) fs.writeFileSync(at(xc), '')
+    write(xc, appleXcconfig(b))
+  }
   for (const [p, fields] of packageEdits(b)) {
     const pkg = read(p)
     write(p, JSON.stringify({ ...pkg, ...fields }, null, 2) + '\n')

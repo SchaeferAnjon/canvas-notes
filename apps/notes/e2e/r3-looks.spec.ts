@@ -88,7 +88,7 @@ test('白板画布上边也让出一截：从 y=0 摆起的列（以前的写法
       const wrap = (await b.locator('.board-wrap').boundingBox())!
       const pal = (await b.locator('.bpal').boundingBox())!
       const top = (await b.locator('.db-top').boundingBox())!
-      const drawer = (await b.locator('.db-drawer').boundingBox())!
+      const bb = (await b.boundingBox())!
       const boxes = await b.locator('.db-col[data-head="1"]').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height } }))
       expect(boxes).toHaveLength(3)
       for (const c of boxes) {
@@ -98,8 +98,8 @@ test('白板画布上边也让出一截：从 y=0 摆起的列（以前的写法
         // 顶上那条说明不压列
         expect(c.y).toBeGreaterThanOrEqual(top.y + top.height)
       }
-      // 收件箱是画布右边的一格（2026-11-21 起不再浮在画布右上）：画布到它左边为止
-      expect(wrap.x + wrap.width).toBeLessThanOrEqual(drawer.x + 1)
+      // 收件箱是弹窗（2026-11-22 起，task-8isml），收着：画布占满白板这一格
+      expect(Math.abs(wrap.x + wrap.width - (bb.x + bb.width))).toBeLessThan(1)
       await shotWindow(run, `r3-board-top-${w}`)
     }
   } finally {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CATEGORY_NAMES } from '../src/shared/categories'
-import { cleanLeft, defaultLeft, dropLeft, leftJson, lookOf, moveLeft, normalizeLeft, putLeft, remapLeft, sameAsDefault, setLook, takeLeft } from '../src/shared/left'
+import { cleanLeft, defaultLeft, dropLeft, leftJson, lookOf, moveLeft, normalizeLeft, ownLeft, presetsOn, putLeft, remapLeft, sameAsDefault, setLook, setPresets, shownLeft, takeLeft } from '../src/shared/left'
 import { groupLeft } from '../src/shared/categories'
 import { normalizePins } from '../src/shared/sidebar'
 
@@ -88,6 +88,47 @@ describe('左栏：摘到活动栏的文件夹和文件夹的图标颜色（.can
 
   it('写进文件：版本、中文键、两格缩进、换行结尾', () => {
     expect(leftJson({ left: ['课程', '收件箱', '写作'], looks: {} })).toBe('{\n  "版本": 2,\n  "左边": [\n    "课程",\n    "收件箱",\n    "写作"\n  ],\n  "图标": {}\n}\n')
+  })
+
+  it('「用预设的分类」关掉（task-wniqx）：图标栏只剩收件箱和自己放上去的几格，收起的分类记在文件里，再打开放回原处', () => {
+    let c = putLeft(takeLeft(defaultLeft(), '周记'), '读书笔记')
+    expect(presetsOn(c)).toBe(true)
+    const off = setPresets(c, false)
+    expect(presetsOn(off)).toBe(false)
+    expect(shownLeft(off)).toEqual(['收件箱', '读书笔记'])
+    expect(groupLeft(shownLeft(off), false)).toEqual([['收件箱'], ['读书笔记']])
+    // 自己放上去的几格：不算分类（收件箱也不算）
+    expect(ownLeft(c)).toEqual(['读书笔记'])
+    // 写进文件：多两项，读回来一样；关着时拖着排、上移下移不分「读进来的 / 自己写的」
+    const json = leftJson(off)
+    expect(JSON.parse(json)).toMatchObject({ 预设分类: false, 收起的分类: ['课程', '阅读', '剪藏', '写作', '项目', '生活'] })
+    expect(normalizeLeft(JSON.parse(json))).toEqual(off)
+    // 关着时把「课程」当普通文件夹放到左边：和自己的文件夹一段，能和它换顺序
+    c = putLeft(off, '课程')
+    expect(shownLeft(c)).toEqual(['收件箱', '读书笔记', '课程'])
+    expect(dropLeft(c, '课程', '读书笔记').left).toEqual(['收件箱', '课程', '读书笔记'])
+    expect(moveLeft(c, '课程', -1).left).toEqual(['收件箱', '课程', '读书笔记'])
+    // 再打开：收起的放回来（拿下来的周记不回来），按分段画回原样
+    const on = setPresets(c, true)
+    expect(presetsOn(on)).toBe(true)
+    expect(groupLeft(shownLeft(on))).toEqual([['收件箱'], ['课程', '阅读', '剪藏'], ['写作', '项目', '生活'], ['读书笔记']])
+    expect(leftJson(on)).not.toContain('预设分类')
+    // 关着时分类的图标、颜色是普通文件夹；自己设过的照旧
+    expect(lookOf(off, '课程')).toEqual({ icon: 'folder', color: null })
+    expect(lookOf(off, '收件箱')).toEqual({ icon: 'inbox', color: null })
+    expect(lookOf(setLook(off, '阅读', { icon: 'book' }), '阅读')).toEqual({ icon: 'book', color: null })
+    expect(lookOf(off, '课程/ecp')).toEqual({ icon: 'folder', color: null })
+    expect(lookOf(off, '课程/ecp/讲义')).toEqual({ icon: 'folder', color: null })
+    // 文件夹改名、删掉、放回：关着的状态不丢
+    expect(presetsOn(remapLeft(off, () => undefined))).toBe(false)
+    expect(presetsOn(cleanLeft(off))).toBe(false)
+  })
+
+  it('图标栏上自己放的几格能拖到任意一格前面或最后，从树里拖来的文件夹放到第几格就在第几格', () => {
+    const c = { left: ['收件箱', '课程', '读书笔记', '工作'], looks: {} }
+    expect(putLeft(c, '灵感', '工作').left).toEqual(['收件箱', '课程', '读书笔记', '灵感', '工作'])
+    expect(putLeft(c, '灵感', null).left).toEqual(['收件箱', '课程', '读书笔记', '工作', '灵感'])
+    expect(putLeft(c, '工作', '读书笔记')).toBe(c)
   })
 
   it('置顶.json 里文件夹写成「写作/」，和笔记一起认；跳出库的、. 开头的不认', () => {

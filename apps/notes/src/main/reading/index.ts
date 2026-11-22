@@ -175,7 +175,7 @@ export function setupReading(deps: ReadingDeps) {
     return { data: new Uint8Array(data), hash: pdfHash(data) }
   })
 
-  // Anki 卡背面「打开原文」：canvas-notes://open?file=<库里的路径>&page=5&rect=…，打开这份 PDF 翻到那一页
+  // Anki 卡背面「打开原文」：canvas-notes://open?file=<库里的路径>&page=5&rect=…，打开这份 PDF 翻到那一页；md 带 line= 是画布今日来的，打开那一篇到那一行
   const openAt = (raw: string) => {
     let u: URL
     try {
@@ -185,6 +185,15 @@ export function setupReading(deps: ReadingDeps) {
     }
     if (u.protocol !== 'canvas-notes:' || u.hostname !== 'open') return
     const file = u.searchParams.get('file') ?? ''
+    // 画布今日「打开笔记，到这一行」：canvas-notes://open?file=<笔记>.md&line=<第几行，从 1 数>
+    if (/\.md$/i.test(file)) {
+      const w = deps.win()
+      if (!w) return
+      const line = Number(u.searchParams.get('line'))
+      w.webContents.send('note:openAt', { file, ...(Number.isInteger(line) && line > 0 ? { line } : {}) })
+      if (!E2E) w.show()
+      return
+    }
     const a = parsePdfAnchor(`${encodeURIComponent(file)}#${u.search.slice(1)}`)
     if (!a || !/\.pdf$/i.test(file)) return
     const w = deps.win()

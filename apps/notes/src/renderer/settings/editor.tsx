@@ -1,10 +1,9 @@
 /**
  * 设置 › 文档和白板（方向 A）：文字（正文字体、字号、行距、版心宽）、写的时候（新建笔记先用、拼写检查）、
- * 白板（右栏开着时缩小、点阵背景、右边的收件箱）、搜索（按意思找）。改字体、字号、行距、版心，中间开着的文档当场跟着变。
+ * 白板（右栏开着时缩小、点阵背景）、搜索（按意思找）。改字体、字号、行距、版心，中间开着的文档当场跟着变。
  */
 import { DOC_FONTS, DOC_WIDTHS, type DocFont, type DocWidth, type EditorPrefs, FONT_SIZES, type LineHeight, LINE_HEIGHTS } from '../../shared/prefs'
 import { withKeys } from '../keys'
-import { setInboxOpen, useInboxOpen } from '../doc-board/inbox'
 import { fontInstalled } from '../editor-prefs'
 import { Toggle, type SettingsProps } from '../Settings'
 import { Group, hintFor, Row, Seg, Sel, useSaid } from './ui'
@@ -14,7 +13,6 @@ const fontName = (id: DocFont) => DOC_FONTS.find((f) => f.id === id)!.name
 export function EditorPage(props: SettingsProps) {
   const said = useSaid()
   const e = props.settings.editor
-  const inbox = useInboxOpen()
   /** 改一项：存、底下说这次会怎样、能撤回 */
   function set<K extends keyof EditorPrefs>(k: K, v: EditorPrefs[K], hint: string) {
     const old = e[k]
@@ -76,16 +74,6 @@ export function EditorPage(props: SettingsProps) {
       <Group title="白板">
         <Row id="boardShrink">{tog('boardShrink', '右栏开着时白板缩小', (v) => (v ? '右栏开着时白板缩到0.8' : '右栏开着时白板照原样大'))}</Row>
         <Row id="boardDots">{tog('boardDots', '点阵背景')}</Row>
-        <Row id="unsorted">
-          <Toggle
-            on={inbox}
-            label="白板右边列收件箱"
-            onChange={(v) => {
-              setInboxOpen(v)
-              said.saved(v ? '白板右边那一格列出收件箱；标签条「收件箱」是同一个开关' : '白板右边的收件箱收起来了；标签条「收件箱」点一下再打开', () => setInboxOpen(!v))
-            }}
-          />
-        </Row>
       </Group>
       <Group title="搜索">
         <Row id="semantic">{tog('semantic', '按意思找', (v) => withKeys(v ? '本机小模型在后台建索引，{k:search} 里多一组「意思相近」' : '{k:search} 里不再按意思找，本机小模型不在后台建索引'))}</Row>

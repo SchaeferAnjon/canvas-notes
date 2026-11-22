@@ -13,6 +13,7 @@ import { webApi } from './web'
 import { menuApi } from './ctx-menu'
 import { cmdsApi } from './commands'
 import { readApi } from './read-along'
+import { todoApi } from './todo'
 
 const api: CnApi = {
   vault: () => ipcRenderer.invoke('vault:get'),
@@ -113,6 +114,11 @@ const api: CnApi = {
     const h = (_e: unknown, from: string, to: string, own?: boolean) => cb(from, to, own === true)
     ipcRenderer.on('note:renamed', h)
     return () => ipcRenderer.removeListener('note:renamed', h)
+  },
+  onOpenNoteAt(cb) {
+    const h = (_e: unknown, a: { file: string; line?: number }) => cb(a)
+    ipcRenderer.on('note:openAt', h)
+    return () => ipcRenderer.removeListener('note:openAt', h)
   },
   updateStatus: () => ipcRenderer.invoke('update:status'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),
@@ -222,6 +228,7 @@ contextBridge.exposeInMainWorld('cnImport', importApi)
 contextBridge.exposeInMainWorld('cnMenu', menuApi)
 contextBridge.exposeInMainWorld('cnCmds', cmdsApi)
 contextBridge.exposeInMainWorld('cnRead', readApi)
+contextBridge.exposeInMainWorld('cnTodo', todoApi)
 contextBridge.exposeInMainWorld('cnAttach', {
   of: (note, shared) => ipcRenderer.invoke('attach:of', note, shared),
   trashNote: (note, withImages) => ipcRenderer.invoke('attach:trash-note', note, withImages),

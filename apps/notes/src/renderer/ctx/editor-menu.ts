@@ -13,6 +13,7 @@ import { app } from './actions'
 import { copy, type MenuEntry, menuAt } from './menu'
 import { translateAt } from './translate'
 import { mdLinkAt } from '../md-link'
+import { openPageLink } from '../page-link'
 
 export type LinkHit =
   | { kind: 'wiki'; target: string }
@@ -41,11 +42,12 @@ export function linkAt(line: string, at: number): LinkHit | null {
 
 /**
  * 打开文档里的一个链接：网址在右栏网页开（同一个网址已经开着就切过去），wide 时在中间栏开；
- * 库里文件的链接（附件/…pdf）开那个文件
+ * 库里文件的链接（附件/…pdf）开那个文件；PDF 某一页的（「第 3 页」，doc、pos：笔记全文和链接在哪）打开 PDF 翻到那页
  */
-export function openLinkHit(notePath: string, url: string, text: string, wide: boolean) {
+export function openLinkHit(notePath: string, url: string, text: string, wide: boolean, doc = '', pos = 0) {
   const a = app()
   if (/^https?:/i.test(url)) return wide ? a.openWide(url, text) : a.openInWeb(url, url)
+  if (openPageLink(notePath, url, doc, pos, text)) return
   const local = resolveLink(notePath, url)
   if (local) a.openFile(local)
 }
@@ -103,7 +105,7 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
     )
   } else if (hit?.kind === 'url') {
     const local = /^https?:/i.test(hit.url) ? null : resolveLink(notePath, hit.url)
-    if (local) linkItems.push({ label: '打开', run: () => a.openFile(local) }, { label: '拷贝链接', run: () => copy(hit.url) })
+    if (local) linkItems.push({ label: '打开', run: () => openLinkHit(notePath, hit.url, hit.text, false, text, pos) }, { label: '拷贝链接', run: () => copy(hit.url) })
     else if (/^https?:/i.test(hit.url))
       linkItems.push(
         { label: '打开链接', run: () => a.openInWeb(hit.url) },

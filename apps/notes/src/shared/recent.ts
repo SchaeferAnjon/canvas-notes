@@ -4,6 +4,7 @@
  */
 import type { NoteFile } from './api'
 import { DAY_MS, isArchived, type ArchiveDays } from './sidebar'
+import { isTodoNote } from './todo'
 
 /** 每组先列这么多，多的点「再显示」（别把上万条全铺开） */
 export const RECENT_PAGE = 100
@@ -28,12 +29,13 @@ const MONTHS = ['一月', '二月', '三月', '四月', '五月', '六月', '七
 const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 
 /**
- * 分组。keep：类型筛选；withArchived：中间的「最近」页列全部（找东西用），左栏不列归档了的。
+ * 分组。keep：类型筛选；withArchived：中间的「最近」页列全部（找东西用），左栏不列归档了的；
+ * hideTodo：名字叫「待办」的笔记不列（设置 › 文件「文件树里显示待办」没开时，task-pd1d1）。
  * 这周 = 最近 7 天里不是今天的（不是从周一算：周一早上也不会突然空掉）；一年以前的并成「更早」。
  */
 export function recentOf(
   notes: NoteFile[],
-  opts: { pins: readonly string[]; now: number; archiveDays: ArchiveDays; keep?: (n: NoteFile) => boolean; withArchived?: boolean },
+  opts: { pins: readonly string[]; now: number; archiveDays: ArchiveDays; keep?: (n: NoteFile) => boolean; withArchived?: boolean; hideTodo?: boolean },
 ): RecentModel {
   const now = new Date(opts.now)
   const pinSet = new Set(opts.pins)
@@ -41,8 +43,9 @@ export function recentOf(
   const startWeek = opts.now - 7 * DAY_MS
   const yearAgo = new Date(now.getFullYear() - 1, now.getMonth() + 1, 1).getTime()
   const byPath = new Map(notes.map((n) => [n.path, n]))
-  const pool = opts.keep ? notes.filter(opts.keep) : notes
-  const pinned = opts.pins.map((p) => byPath.get(p)).filter((n): n is NoteFile => !!n && (!opts.keep || opts.keep(n)))
+  const ok = (n: NoteFile) => (!opts.keep || opts.keep(n)) && !(opts.hideTodo && isTodoNote(n.path))
+  const pool = opts.keep || opts.hideTodo ? notes.filter(ok) : notes
+  const pinned = opts.pins.map((p) => byPath.get(p)).filter((n): n is NoteFile => !!n && ok(n))
   let archived = 0
   const today: NoteFile[] = []
   const week: NoteFile[] = []

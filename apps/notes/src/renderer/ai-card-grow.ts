@@ -89,7 +89,7 @@ export function finishCards(): boolean {
 }
 
 /**
- * 长字的这张卡（连同下面那一颗「AI 在写这张卡」）不全在看得见的白板里（被收件箱一格挡着、在屏幕外）：
+ * 长字的这张卡（连同下面那一颗「AI 在写这张卡」）不全在看得见的白板里（在屏幕外）：
  * 白板平移过去，四周留 24；已经整个看得见就不动
  */
 function reveal(el: HTMLElement) {

@@ -5,7 +5,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { acts, launch, pane } from './app'
+import { acts, inboxPop, launch, pane } from './app'
 import { board, col, FILES, openBoard } from './fixtures/board-doc'
 
 const DIR = process.env.CN_SHOTS_DIR ?? join(__dirname, '../test-results/r9-shots')
@@ -31,7 +31,7 @@ async function rects(page: Page, name: string) {
       hint: one('.pane:not([hidden]) .db-hint'),
       col: box(r),
       card: box(card),
-      drawer: one('.pane:not([hidden]) .db-drawer'),
+      drawer: one('.pane:not([hidden]) .db-inbox-pop'),
     }
   })
   writeFileSync(join(DIR, name + '.json'), JSON.stringify(at, null, 2))
@@ -87,7 +87,7 @@ for (const [tone, skin] of [
       await page.keyboard.press('Backspace')
       await page.keyboard.press('Escape')
       // 收件箱拖两条：速记进「住哪」，剪藏到空白处
-      const drawer = board(page).getByRole('complementary', { name: '收件箱' })
+      const drawer = await inboxPop(page)
       const quick = drawer.getByRole('listitem', { name: '蓝湖温泉要提前两周订，周末更紧。' })
       const q = (await quick.boundingBox())!
       const t = (await col(page, '住哪').locator('.db-card').first().boundingBox())!
@@ -103,10 +103,9 @@ for (const [tone, skin] of [
       await page.mouse.move(w.x + 900, w.y + 560, { steps: 16 })
       await page.mouse.up()
       await shoot(page, `${tone}-07-inbox-dragged`)
-      // 收件箱收起：标签条上留「收件箱 N」
-      await drawer.getByRole('button', { name: '收起收件箱' }).click()
+      // 收件箱收起（esc）：标签条上留「收件箱 N」
+      await page.keyboard.press('Escape')
       await shoot(page, `${tone}-08-inbox-closed`)
-      await acts(page).getByTestId('db-inbox').click()
       // 文档看法：列是标题、卡是段落；文末「提到这篇的」
       await acts(page).getByRole('tab', { name: '文档' }).click()
       await expect(pane(page).locator('.cm-content')).toBeVisible()

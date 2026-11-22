@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { OLD_BOARDS } from '../../../packages/format/test/fixtures'
-import { acts, gitStatus, launch, leftView, pane, tabOn, waitSaved } from './app'
+import { acts, gitStatus, inboxPop, launch, leftView, pane, tabOn, waitSaved } from './app'
 import { board, col, FILES, openBoard } from './fixtures/board-doc'
 import { armMenus, menuLabels, openedMenu, pickMenu, setClipboard } from './menu'
 
@@ -82,14 +82,13 @@ test('白板上改一张卡，切到文档就是那一段；文档里加一段�
   }
 })
 
-test('收件箱一格：速记拖进一列插进那一节（那篇移到废纸篓），整页剪藏拖到空白处挪进「剪藏/这篇/」放一张剪藏卡；撤回放回收件箱；收起后标签条留「收件箱 N」', async () => {
+test('收件箱弹窗：速记拖进一列插进那一节（那篇移到废纸篓），拖完弹窗不收；整页剪藏拖到空白处挪进「剪藏/这篇/」放一张剪藏卡；撤回放回收件箱；收起后标签条留「收件箱 N」', async () => {
   const run = await start()
   const { page, vault } = run
   const file = () => readFileSync(join(vault, '项目/冰岛十天环岛.md'), 'utf8')
   try {
     await openBoard(page, '冰岛十天环岛')
-    const drawer = board(page).getByRole('complementary', { name: '收件箱' })
-    await expect(drawer).toBeVisible()
+    const drawer = await inboxPop(page)
     await expect(drawer.locator('.dbr-head')).toContainText('2条')
     const quick = drawer.getByRole('listitem', { name: '蓝湖温泉要提前两周订，周末更紧。' })
     await expect(quick).toContainText('速记')
@@ -106,6 +105,8 @@ test('收件箱一格：速记拖进一列插进那一节（那篇移到废纸�
     await waitSaved(page)
     expect(file()).toContain('三晚。\n\n蓝湖温泉要提前两周订，周末更紧。\n\n## 路线')
     await expect.poll(() => readdirSafe(join(vault, '收件箱'))).not.toContain('蓝湖温泉要提前两周订.md')
+    // 拖完弹窗不收
+    await expect(drawer).toBeVisible()
     // 整页剪藏拖到空白处：那篇挪进「剪藏/冰岛十天环岛/」，白板上是一张剪藏卡（![[它]]），带一行位置
     const clip = drawer.getByRole('listitem', { name: 'Geography of Iceland' })
     const wrapBox = (await board(page).locator('.board-wrap').boundingBox())!
@@ -115,17 +116,18 @@ test('收件箱一格：速记拖进一列插进那一节（那篇移到废纸�
     await waitSaved(page)
     expect(file()).toMatch(/<!-- card id=d1 x=\d+ y=\d+ -->\n!\[\[Geography of Iceland\]\]\n$/)
     await expect.poll(() => readdirSafe(join(vault, '剪藏/冰岛十天环岛'))).toContain('Geography of Iceland.md')
-    // 撤回：卡没了，那篇回到收件箱
+    // 撤回（点在弹窗外面，弹窗收起）：卡没了，那篇回到收件箱
     await board(page).locator('.db-toast').getByRole('button', { name: '撤回' }).click()
+    await expect(drawer).toHaveCount(0)
     await expect(board(page).locator('.db-card.placed[data-face="clipnote"]')).toHaveCount(0)
     await expect.poll(() => readdirSafe(join(vault, '收件箱'))).toContain('Geography of Iceland.md')
-    // 收起：画布占满，标签条上留「收件箱 1」
-    await drawer.getByRole('button', { name: '收起收件箱' }).click()
-    await expect(drawer).toHaveCount(0)
+    // 收起：标签条上留「收件箱 1」，再点打开，esc 收起
     await expect(acts(page).getByTestId('db-inbox')).toContainText('1')
-    await expect(acts(page).getByTestId('db-inbox')).toHaveAttribute('aria-pressed', 'false')
+    await expect(acts(page).getByTestId('db-inbox')).toHaveAttribute('aria-expanded', 'false')
     await acts(page).getByTestId('db-inbox').click()
-    await expect(board(page).getByRole('complementary', { name: '收件箱' })).toBeVisible()
+    await expect(drawer.getByRole('listitem', { name: 'Geography of Iceland' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(drawer).toHaveCount(0)
   } finally {
     await run.close()
   }
@@ -389,7 +391,7 @@ test('收件箱超过 20 条顶上多一个搜索框（别把上万条全铺开�
   const { page, vault } = run
   try {
     await openBoard(page, '冰岛十天环岛')
-    const drawer = board(page).getByRole('complementary', { name: '收件箱' })
+    const drawer = await inboxPop(page)
     await expect(drawer.locator('.dbr-head')).toContainText('23条')
     const search = drawer.getByRole('textbox', { name: '在收件箱里找' })
     await expect(search).toBeVisible()
@@ -398,6 +400,7 @@ test('收件箱超过 20 条顶上多一个搜索框（别把上万条全铺开�
     await search.fill('没有这个')
     await expect(drawer.locator('.dbr-none')).toHaveText('收件箱里没有「没有这个」')
     // 新建一个空的数据库：在这篇旁边建「未命名数据库」，放一张数据库卡
+    await page.keyboard.press('Escape')
     await board(page).locator('.bpal button[data-kind="base"]').click()
     await page.getByRole('menu', { name: '放一张数据库卡' }).getByRole('menuitem', { name: /新建一个空的数据库/ }).click()
     await expect(board(page).locator('.db-card[data-kind="base"] .kh')).toContainText('未命名数据库 · 表格')
@@ -409,7 +412,7 @@ test('收件箱超过 20 条顶上多一个搜索框（别把上万条全铺开�
   const empty = await start({ '项目/冰岛十天环岛.md': FILES['项目/冰岛十天环岛.md']! })
   try {
     await openBoard(empty.page, '冰岛十天环岛')
-    const drawer = board(empty.page).getByRole('complementary', { name: '收件箱' })
+    const drawer = await inboxPop(empty.page)
     await expect(drawer.locator('.dbr-empty')).toContainText('收件箱是空的')
     await expect(drawer.locator('.dbr-empty')).toContainText('剪藏、速记、手机发来的都先到这里。')
     await expect(acts(empty.page).getByTestId('db-inbox').locator('.cnt')).toHaveCount(0)

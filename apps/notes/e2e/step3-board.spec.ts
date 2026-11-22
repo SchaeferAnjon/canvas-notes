@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { gitStatus, launch, pane, waitSaved, acts, tabOn, foldInbox } from './app'
+import { gitStatus, inboxPop, launch, pane, waitSaved, acts, tabOn, foldInbox } from './app'
 import { ICELAND, LODGING } from './fixtures/board'
 
 const board = (page: Page) => pane(page).getByTestId('board')
@@ -218,8 +218,8 @@ test('待办打勾；子白板新建、起名后父白板里的链接跟着改�
   }
 })
 
-// 2026-11-21 起没有「未整理」：白板就是这篇文档，每一段都是一张卡（第一节之前的在最左一组）；收件箱是白板右边一格
-test('白板里的段落就是卡（没有「未整理」）；收件箱右边一格里的东西拖上白板', async () => {
+// 2026-11-21 起没有「未整理」：白板就是这篇文档，每一段都是一张卡（第一节之前的在最左一组）；收件箱是标签条「收件箱 N」的弹窗（2026-11-22）
+test('白板里的段落就是卡（没有「未整理」）；收件箱弹窗里的东西拖上白板', async () => {
   const run = await launch({ '所思所想.md': '---\ntype: board\n---\n# 所思所想\n\n第一段想法\n\n第二段想法\n' })
   const { page, vault } = run
   mkdirSync(join(vault, '收件箱'))
@@ -229,7 +229,7 @@ test('白板里的段落就是卡（没有「未整理」）；收件箱右边�
     await expect(docBoard(page)).toBeVisible()
     await expect(docBoard(page).locator('.db-card')).toHaveText(['第一段想法', '第二段想法'])
     await expect(docBoard(page).getByTestId('unsorted')).toHaveCount(0)
-    const drawer = docBoard(page).getByRole('complementary', { name: '收件箱' })
+    const drawer = await inboxPop(page)
     const clip = drawer.getByRole('listitem').filter({ hasText: '冰洞只在冬天开放' })
     await expect(clip).toBeVisible()
     const c = (await clip.boundingBox())!

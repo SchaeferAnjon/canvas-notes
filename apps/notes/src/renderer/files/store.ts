@@ -2,8 +2,9 @@
  * 库里的全部文件（md、PDF、HTML、文件夹）：⌘O 和目录树共用一份，文件一变（包括 PDF、HTML）就重新列。
  * 另外记着最近打开过的文件（本机，⌘O 空着时列出来）。
  */
-import { useEffect, useState, useSyncExternalStore } from 'react'
-import type { FileEntry } from '../../shared/files'
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { type FileEntry, hideTodos } from '../../shared/files'
+import { usePrefs } from '../settings-store'
 
 let files: FileEntry[] = []
 let loaded = false
@@ -37,8 +38,13 @@ function refresh() {
 /** 现在知道的文件（目录树开过才有；「移到」菜单拿它补上空文件夹） */
 export const vaultFiles = (): readonly FileEntry[] => files
 
-/** 库里的全部文件；第一次用时列一遍，之后跟着文件变化 */
+/**
+ * 库里的全部文件；第一次用时列一遍，之后跟着文件变化。
+ * 设置 › 文件没开「文件树里显示待办」时，名字叫「待办」的笔记记上 hidden：目录树、文件夹首页的文件列表（buildTree）不画、篇数不算，
+ * ⌘O 照样找得到（task-pd1d1）
+ */
 export function useVaultFiles(): { files: FileEntry[]; loaded: boolean } {
+  const showTodo = usePrefs((s) => s.files.showTodo)
   useSyncExternalStore(
     (cb) => {
       subs.add(cb)
@@ -58,7 +64,8 @@ export function useVaultFiles(): { files: FileEntry[]; loaded: boolean } {
       }
     }
   }, [])
-  return { files, loaded }
+  const shown = useMemo(() => (showTodo ? files : hideTodos(files)), [files, showTodo])
+  return { files: shown, loaded }
 }
 
 /** 只看现在知道的文件、跟着变，自己不去列（AI「看得到」的文件夹篇数：文件夹首页开着时它在列） */

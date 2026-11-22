@@ -37,7 +37,7 @@ test('CN-1、CN-3：课程列表右键有菜单；有文件的课程改名，链
     await armMenus(run)
     await leftView(page, '课程')
     await sideRow(page, 'ecp').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '换图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '钉到最上面', '放到左边', '换图标和颜色…', '重命名…', '移到…', '在访达中显示', '拷贝路径', '移到废纸篓'])
     await pickMenu(run, '在访达中显示')
     await expect.poll(() => screen(run)).toContain(`在访达中显示 ${join(vault, '课程/ecp')}`)
 
@@ -93,7 +93,7 @@ test('CN-1、CN-3：课程列表右键有菜单；有文件的课程改名，链
     await expect(page.getByTestId('toast')).toContainText('「写作」是软件自带的分类，不改名')
     await expect(page.getByRole('textbox', { name: '文件夹名字' })).toHaveCount(0)
     await item(page, '写作').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '钉到最上面', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
     await pickMenu(run, '打开首页')
     await leftView(page, '课程')
 
@@ -162,14 +162,14 @@ test('CN-5：文件树工具栏六个按钮；在选中的文件夹里新建文�
 
     // 文件夹右键：固定的没有重命名、删除；别的有，还能原地新建文件夹
     await item(page, '课程').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '钉到最上面', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
     await pickMenu(run, '新建文件夹')
     await tree(page).getByRole('textbox', { name: '新文件夹的名字' }).fill('数学')
     await tree(page).getByRole('textbox', { name: '新文件夹的名字' }).press('Enter')
     await expect.poll(() => existsSync(join(vault, '课程/数学/.gitkeep'))).toBe(true)
     await tree(page).getByRole('button', { name: '展开 写作' }).click()
     await item(page, '旅行').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '换图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '钉到最上面', '放到左边', '换图标和颜色…', '重命名…', '移到…', '在访达中显示', '拷贝路径', '移到废纸篓'])
     await pickMenu(run, '重命名…')
     await tree(page).getByRole('textbox', { name: '新名字' }).fill('冰岛')
     await tree(page).getByRole('textbox', { name: '新名字' }).press('Enter')

@@ -27,11 +27,23 @@ export interface ImportScan {
   /** 给人看的位置（~ 开头） */
   where: string
   folders: ImportFolder[]
+  /** 选的是一个 Obsidian 库（里面有 .obsidian/）：有笔记的文件夹都选上时整个库原样放在最外层（task-wniqx） */
+  vault?: boolean
+}
+
+/**
+ * 这次导的是不是「整个库」（task-wniqx，用户定「整库导入保持原结构」）：Obsidian 库、这次还有东西可导的文件夹全选上了。
+ * 是：原来的文件夹原样放在库的最外层、和分类同级；不是：先进 收件箱/导入/<来源>/
+ */
+export const wholeVault = (scan: ImportScan, picked: ReadonlySet<string> | readonly string[]): boolean => {
+  const has = (id: string) => (Array.isArray(picked) ? picked.includes(id) : (picked as ReadonlySet<string>).has(id))
+  const todo = scan.folders.filter((f) => f.notes - f.locked - f.already > 0)
+  return scan.kind === 'folder' && !!scan.vault && todo.length > 0 && todo.every((f) => has(f.id))
 }
 
 export interface ImportResult {
   source: string
-  /** 收件箱/导入/<来源> */
+  /** 收件箱/导入/<来源>；整个库原样放在最外层时是 '' */
   dir: string
   notes: number
   attachments: number

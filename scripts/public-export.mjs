@@ -23,18 +23,21 @@ export function excluder(text) {
 export const LEAKS = [
   ['API 密钥', /\b(sk-ant-[\w-]{10,}|sk-[A-Za-z0-9]{24,}|ghp_[A-Za-z0-9]{20,}|github_pat_\w{20,}|gho_\w{20,}|AKIA[0-9A-Z]{16}|AIza[\w-]{30,}|xox[baprs]-[\w-]{10,}|sk_live_\w+|whsec_\w+)/],
   ['私钥', /-----BEGIN [A-Z ]*PRIVATE KEY-----/],
-  ['本机用户目录', /\/Users\/(?!runner\b)[a-z][\w-]*\//],
+  // 一两个字母的用户名（/Users/me/、/Users/a/）是测试里编的路径
+  ['本机用户目录', /\/Users\/(?!runner\b)(?![a-z]{1,2}\/)[a-z][\w-]*\//],
   ['邮箱', /(?<![\w.+-])(?!git@)[\w.+-]+@(?!example\.com|users\.noreply\.github\.com|anthropic\.com\b)[\w-]+\.(com|net|org|cn|io|me|de)\b/, /^pnpm-lock\.yaml$/],
   ['AI 工具签名', /Co-Authored-By: Claude|Generated with \[Claude Code\]/],
 ]
 const TEXT = /\.(md|ts|tsx|js|mjs|cjs|json|yml|yaml|html|css|txt|plist|svg|py)$|^[^.]+$/
 
-export function scan(dir) {
+/** rules 默认是上面的 LEAKS；画布今日的导出（apps/today/scripts/public-export.mjs）另加几条 */
+export function scan(dir, rules = LEAKS) {
   const found = []
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name)
       const rel = path.relative(dir, p)
+      if (e.isSymbolicLink()) continue
       if (e.isDirectory()) {
         if (e.name !== '.git' && e.name !== 'node_modules') walk(p)
         continue
@@ -42,7 +45,7 @@ export function scan(dir) {
       if (!TEXT.test(e.name) || rel === 'scripts/public-export.mjs') continue
       const lines = fs.readFileSync(p, 'utf8').split('\n')
       lines.forEach((line, i) => {
-        for (const [what, re, skip] of LEAKS) if (!skip?.test(rel) && re.test(line)) found.push(`${rel}:${i + 1} ${what}：${line.trim().slice(0, 120)}`)
+        for (const [what, re, skip] of rules) if (!skip?.test(rel) && re.test(line)) found.push(`${rel}:${i + 1} ${what}：${line.trim().slice(0, 120)}`)
       })
     }
   }
@@ -80,6 +83,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
       if (d !== dest && !fs.readdirSync(d).length) fs.rmdirSync(d)
     }
     prune(dest)
+    // 排除掉的软件（画布今日、iPhone / iPad 版）：根目录 package.json 的 typecheck 不再编它们，锁文件去掉它们用的包（版本不变）
+    const rootPkg = path.join(dest, 'package.json')
+    const pkg = JSON.parse(fs.readFileSync(rootPkg, 'utf8'))
+    pkg.scripts.typecheck = pkg.scripts.typecheck
+      .split(' && ')
+      .filter((c) => !/^tsc -p /.test(c) || fs.existsSync(path.join(dest, c.slice('tsc -p '.length))))
+      .join(' && ')
+    fs.writeFileSync(rootPkg, JSON.stringify(pkg, null, 2) + '\n')
+    console.log('pnpm install --lockfile-only：去掉锁文件里排除掉的软件用的包…')
+    execFileSync('pnpm', ['install', '--lockfile-only', '--ignore-scripts'], { cwd: dest, stdio: 'inherit', timeout: 600_000 })
     console.log(`导出 ${files.length - dropped} 个文件到 ${dest}（去掉 ${dropped} 个，见 release/public-exclude.txt）`)
   }
   const found = scan(dest)

@@ -3,7 +3,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { launch, pane, waitSaved, gitAct } from './app'
+import { inboxPop, launch, pane, waitSaved, gitAct } from './app'
 
 // 白板看法：2026-11-21 起 type: board 也是 doc-board；记在旧写法名单里的还是以前的自由白板（board）
 const board = (page: Page) => pane(page).locator('[data-testid="board"], [data-testid="doc-board"]').first()
@@ -92,7 +92,7 @@ test('整页剪藏从收件箱一格拖上白板：是一张标题加摘要的�
   writeFileSync(join(vault, '附件/收件箱/雷克雅未克/港口.png'), 'png')
   try {
     await openBoard(page, '冰岛')
-    const mini = board(page).getByRole('complementary', { name: '收件箱' }).getByRole('listitem').filter({ hasText: '雷克雅未克' })
+    const mini = (await inboxPop(page)).getByRole('listitem').filter({ hasText: '雷克雅未克' })
     const m = (await mini.boundingBox())!
     const bb = (await board(page).locator('.board-wrap').boundingBox())!
     await dragBy(page, { x: m.x + 20, y: m.y + 10 }, bb.x + 300 - m.x, bb.y + 200 - m.y)

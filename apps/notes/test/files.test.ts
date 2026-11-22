@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { buildTree, type FileEntry, fixedFolder, folderProgress, matchFiles, parseProgress, subtree } from '../src/shared/files'
+import { buildTree, type FileEntry, filterTree, fixedFolder, folderProgress, matchFiles, parseProgress, subtree, type TreeNode } from '../src/shared/files'
 
 vi.mock('electron', () => ({ ipcMain: { handle: () => undefined } }))
 
@@ -185,6 +185,10 @@ describe('文件树最外层按顶级分类分组（方案 3「分两组」）',
       ['自己写的', ['写作']],
       ['不在分类里的', ['e.md']],
     ])
+    // 关掉预设的分类（task-wniqx）：不分组；收件箱在最前，原来的分类和别的文件夹一样照树的排法，空的分类不画
+    const offFiles = [f('写作/a.md'), f('课程/x/c.md'), f('别的/d.md'), f('e.md'), f('读书笔记/g.md'), f('生活', 'dir')]
+    expect(topGroups(buildTree(offFiles, { cats: false }), true, false).map((x) => [x.title, x.nodes.map((n) => n.name)])).toEqual([['', ['收件箱', '别的', '读书笔记', '课程', '写作', 'e.md']]])
+    expect(topGroups(buildTree(offFiles, { cats: false, keep: (x) => x.kind === 'md' }), false, false).map((x) => [x.title, x.nodes.map((n) => n.name)])).toEqual([['', ['别的', '读书笔记', '课程', '写作', 'e.md']]])
   })
 })
 
@@ -252,6 +256,31 @@ describe('「这张图谁在用」只有一套算法：读 PDF 的完整对话�
     const a = await noteAttachments(new Vault(root), '探针.md', true)
     expect(a.items.filter((i) => i.mine && !i.sharedWith?.length).map((i) => i.path).sort()).toEqual(orphans.sort())
     expect(a.items.find((i) => i.path === '附件/Lecture05/p1-1.png')?.sharedWith).toEqual(['.canvas-notes/对话/Lecture05-p1-1.md'])
+  })
+})
+
+describe('左栏找文件的框（task-4891y）：把树筛到名字命中的几行和它们的上一层', () => {
+  const files = [
+    f('课程/study project/学习笔记.md', 'md', 1),
+    f('课程/study project 2/YitingWei_Notes.pdf', 'pdf', 2),
+    f('课程/ecp/第5讲.md', 'md', 3),
+    f('项目/冰岛自驾/行程.md', 'md', 4),
+    f('生活/菜谱.md', 'md', 5),
+  ]
+  const paths = (ns: TreeNode[]): string[] => ns.flatMap((n) => [n.path, ...paths(n.children)])
+  it('文件命中：留它和一路上去的文件夹，别的拿掉；篇数是命中的几篇', () => {
+    const t = filterTree(buildTree(files), 'yiting')
+    expect(paths(t)).toEqual(['课程', '课程/study project 2', '课程/study project 2/YitingWei_Notes.pdf'])
+    expect(t[0]!.count).toBe(1)
+  })
+  it('文件夹名字命中：文件夹留着（里面不命中的不列），大小写不分；比的是去掉 .md、.pdf 的名字', () => {
+    expect(paths(filterTree(buildTree(files), 'STU'))).toEqual(['课程', '课程/study project', '课程/study project 2'])
+    expect(paths(filterTree(buildTree(files), 'pdf'))).toEqual([])
+    expect(paths(filterTree(buildTree(files), '行程'))).toEqual(['项目', '项目/冰岛自驾', '项目/冰岛自驾/行程.md'])
+  })
+  it('空的（只有空格）不筛', () => {
+    const t = buildTree(files)
+    expect(filterTree(t, '  ')).toBe(t)
   })
 })
 

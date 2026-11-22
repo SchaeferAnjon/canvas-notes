@@ -674,6 +674,17 @@ button.bi[data-testid='git-changed']:disabled {
   color: var(--md-heading, var(--t1));
   padding: 20px 0 8px;
 }
+/* 点了列名、选中着（只看不改，task-xfngz）：字后面铺一层 --fill2，比版心左右各宽 8、上下各 4，圆角 6（DESIGN.v3 块的选中底）；
+   负外边距抵掉内边距，铺不铺底排版都不动 */
+.doc.doc .cm-colhead-t {
+  display: block;
+  margin: -4px -8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.doc.doc .cm-colhead.picked .cm-colhead-t {
+  background: var(--fill2);
+}
 /*
  * 藏起来的记号（live-preview 的 Decoration.replace({})，画成一个空的 <span contenteditable=false>）两边，
  * CodeMirror 各插一个 <img class="cm-widgetBuffer"> 给光标用；排在行里的 img 是能断行的地方，

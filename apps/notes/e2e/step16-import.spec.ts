@@ -200,10 +200,12 @@ test('Markdown 文件夹：从设置 › 库进；附件拷过来、[[链接]] �
     await shot(page, 'import-8-md-folders-light')
     await sheet(page).getByRole('button', { name: '导入3篇' }).click()
     await expect(sheet(page).getByTestId('import-result')).toContainText('从「旧库」导入了3篇')
-    const one = readFileSync(join(vault, '收件箱/导入/旧库/课程/线代/第一讲.md'), 'utf8')
+    // 有 .obsidian 的整个库：原来的文件夹原样放在库的最外层（task-wniqx）
+    const one = readFileSync(join(vault, '课程/线代/第一讲.md'), 'utf8')
     expect(one).toContain('tags: [线代]\n')
     expect(one).toContain('来源: 旧库\n原文件夹: 课程/线代\n')
-    expect(one).toContain('![](../../../../../附件/导入/旧库/assets/图.png)\n下一讲：[[第二讲|第二讲]]\n')
+    expect(one).toContain('![](../../附件/导入/旧库/assets/图.png)\n下一讲：[[第二讲|第二讲]]\n')
+    expect(existsSync(join(vault, '日记.md'))).toBe(true)
     expect(readdirSync(join(vault, '附件/导入/旧库/assets'))).toEqual(['图.png'])
     await sheet(page).getByRole('button', { name: '关闭' }).click()
 

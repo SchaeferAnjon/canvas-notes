@@ -24,7 +24,10 @@ import { Backlinks, setNoteIndex } from './doc-embeds'
 import { createPortal } from 'react-dom'
 import { ActBtn, noteLeavers, noteRenamers, PageNote, TabActs } from './shell/TabActs'
 import { takeStray, takeTyping } from './new-note-hold'
-import { usePrefs } from './settings-store'
+import { appSettings, publishSettings, usePrefs } from './settings-store'
+import { isTodoNote } from '../shared/todo'
+import type { NoteView } from '../shared/prefs'
+import { TaskView } from './todo/TaskView'
 import { openSettingsAt } from './settings/jump'
 
 export interface NoteTabProps {
@@ -56,6 +59,39 @@ export interface NoteTabProps {
   onOpenLink(target: string): void
 }
 
+/** 三种看法：任务（task-pd1d1，名字叫「待办」的默认）、白板、文档 */
+type Mode = NoteView
+
+/**
+ * 打开时用哪种看法：这一篇记住过的（软件设置 files.noteViews，不往文件里加属性）→ 名字叫「待办」的用任务 → 白板用白板 → 文档。
+ * chosen：是记住的或「待办」那篇（读完文件后不再按属性 type: board 改）
+ */
+function firstMode(path: string, notes: NoteFile[]): { mode: Mode; chosen: boolean } {
+  const v = appSettings().files.noteViews[path]
+  if (v) return { mode: v, chosen: true }
+  if (isTodoNote(path)) return { mode: 'task', chosen: true }
+  return { mode: notes.find((n) => n.path === path)?.board ? 'board' : 'doc', chosen: false }
+}
+
+/** 记住这一篇用哪种看法：只记和默认不一样的（「待办」那篇默认任务；别的笔记只记「任务」，白板、文档照以前按属性） */
+function rememberView(path: string, m: Mode) {
+  const cur = appSettings().files.noteViews
+  const views = { ...cur }
+  if (isTodoNote(path) ? m === 'task' : m !== 'task') delete views[path]
+  else views[path] = m
+  if (views[path] === cur[path]) return
+  void window.cn.setSettings({ files: { noteViews: views } }).then(publishSettings)
+}
+
+/** 改名、挪走：记住的看法跟到新路径 */
+function moveView(from: string, to: string) {
+  const cur = appSettings().files.noteViews
+  if (!cur[from]) return
+  const views = { ...cur, [to]: cur[from]! }
+  delete views[from]
+  void window.cn.setSettings({ files: { noteViews: views } }).then(publishSettings)
+}
+
 /** 文件名是软件起的「未命名」「未命名 N」 */
 const untitledTitle = (t: string) => /^未命名( \d+)?$/.test(t)
 const untitled = (path: string) => untitledTitle(titleOf(path))
@@ -79,13 +115,24 @@ export function NoteTab(props: NoteTabProps) {
   const [readOnly, setReadOnly] = useState(false)
   // 白板一打开就是白板样式：左栏的列表已经知道它是白板，不等读完文件（不然先闪一下文档，读完又跳回白板，
   // 这中间点的「文档」也会被盖掉）
-  const [mode, setMode] = useState<ViewMode>(() => (props.notes.find((n) => n.path === path)?.board ? 'board' : 'doc'))
+  const first = useRef<{ mode: Mode; chosen: boolean } | null>(null)
+  first.current ??= firstMode(path, props.notes)
+  const [mode, setMode] = useState<Mode>(first.current.mode)
+  const modeRef = useRef(mode)
+  modeRef.current = mode
   /** 写在提示上的键照命令表（改了跟着变） */
   const K = useKeys()
   // 白板 / 文档切换的键（默认 ⌘E）：这一篇在前面时它接
-  useKeyHandler('toggle-view', props.active ? () => ((picked.current = true), setMode((m) => (m === 'board' ? 'doc' : 'board')), true) : null)
-  /** 用户自己点过看法：读完文件后不再按 frontmatter 改 */
-  const picked = useRef(false)
+  useKeyHandler('toggle-view', props.active ? () => (pick(modeRef.current === 'doc' ? 'board' : 'doc'), true) : null)
+  /** 用户自己点过看法（或者这一篇记住了看法、是「待办」）：读完文件后不再按 frontmatter 改 */
+  const picked = useRef(first.current.chosen)
+  /** 换看法（标签条右边 任务 / 白板 / 文档、⌘E）：记住这一篇；离开文档时编辑器交出焦点（藏着的编辑器不能接打字） */
+  function pick(m: Mode) {
+    picked.current = true
+    if (m !== 'doc' && doc.current?.view.hasFocus) doc.current.view.contentDOM.blur()
+    setMode(m)
+    rememberView(pathNow.current, m)
+  }
   const [text, setText] = useState<string | null>(null)
   /** 宽版：版心跟中间栏走、最宽 1100（CN-26），记在这一篇上 */
   const [wide, setWideState] = useState(() => isWide(path))
@@ -176,7 +223,8 @@ export function NoteTab(props: NoteTabProps) {
       } else {
         // 已有的笔记：放回上次离开的地方，没记过放在正文开头（标题下第一段末尾）；不落在藏着的「# 」前面
         if (!note.readOnly) d.view.dispatch({ selection: { anchor: openCursor(note.text, savedCursor(note.path)) }, scrollIntoView: true })
-        if (cb.current.active) focusTaking(d)
+        // 任务界面、白板看法里编辑器藏着：不拿焦点（不然打的字悄悄写进文件）
+        if (cb.current.active && modeRef.current === 'doc') focusTaking(d)
       }
       off = window.cn.onNoteChanged((p, text) => {
         if (d && p === d.path) void d.applyRemote(text)
@@ -253,7 +301,7 @@ export function NoteTab(props: NoteTabProps) {
     if (titleOf(path) !== titleOf(pathNow.current) && path !== ownRename.current) follow.current = false
     pathNow.current = path
     if (lastPath.current !== path && wide) setWide(path, true, lastPath.current)
-    if (lastPath.current !== path) moveCursor(lastPath.current, path)
+    if (lastPath.current !== path) (moveCursor(lastPath.current, path), moveView(lastPath.current, path))
     lastPath.current = path
   }, [path])
 
@@ -321,7 +369,7 @@ export function NoteTab(props: NoteTabProps) {
   }
 
   useEffect(() => {
-    if (active && !renaming && mode !== 'board' && doc.current) focusTaking(doc.current)
+    if (active && !renaming && mode === 'doc' && doc.current) focusTaking(doc.current)
   }, [active, renaming, mode])
 
   useEffect(() => {
@@ -329,7 +377,7 @@ export function NoteTab(props: NoteTabProps) {
   }, [active, text === null])
 
   useEffect(() => {
-    if (active) cb.current.onMode(mode)
+    if (active) cb.current.onMode(mode === 'task' ? 'doc' : mode)
   }, [active, mode])
 
   useEffect(() => {
@@ -398,7 +446,7 @@ export function NoteTab(props: NoteTabProps) {
             onChange={(t) => doc.current?.setText(t)}
             onJump={(at) => {
               // 白板看法里先切到文档，再把光标放到那张图、滚过去
-              if (mode === 'board') ((picked.current = true), setMode('doc'))
+              if (mode !== 'doc') ((picked.current = true), setMode('doc'))
               requestAnimationFrame(() => {
                 const v = doc.current?.view
                 if (!v) return
@@ -411,11 +459,12 @@ export function NoteTab(props: NoteTabProps) {
         <div className="seg" role="tablist" aria-label="看法">
           {(
             [
+              ['task', 'checklist', '任务'],
               ['board', 'layout', '白板'],
               ['doc', 'file-text', '文档'],
             ] as const
           ).map(([m, icon, name]) => (
-            <button key={m} className={mode === m ? 'on' : ''} onClick={() => ((picked.current = true), setMode(m))} role="tab" aria-selected={mode === m} aria-label={name} data-tip={name} data-key={mode === m ? undefined : (K('toggle-view') ?? undefined)} data-side="below">
+            <button key={m} className={mode === m ? 'on' : ''} onClick={() => pick(m)} role="tab" aria-selected={mode === m} aria-label={name} data-tip={name} data-key={mode === m || m === 'task' ? undefined : (K('toggle-view') ?? undefined)} data-side="below">
               <Codicon name={icon} size={14} />
               <span className="lb">{name}</span>
             </button>
@@ -451,7 +500,7 @@ export function NoteTab(props: NoteTabProps) {
           label="更多"
           onClick={(e) =>
             props.onMenu(e, [
-              mode !== 'board' && {
+              mode === 'doc' && {
                 label: '宽版',
                 checked: wide,
                 run: () => {
@@ -478,13 +527,15 @@ export function NoteTab(props: NoteTabProps) {
           }
         />
       </TabActs>
-      <div className="body" hidden={mode === 'board'} ref={bodyRef}>
+      <div className="body" hidden={mode !== 'doc'} ref={bodyRef}>
         <div className={'doc ' + mode + (wide ? ' wide' : '')} ref={host} />
       </div>
       {/* 文末「提到这篇的」：画在编辑器下面（版心里），不写进文件 */}
       {mode === 'doc' && text !== null && host.current && createPortal(<Backlinks path={path} version={linkVersion} board={fmValue(text, 'type') === 'board'} />, host.current)}
       {/* AI 在这篇文档里动手（插入、改写）：外圈和顶上「AI 正在改这篇 · 停下 esc」（DESIGN.v3 2.3）；白板看法里由白板自己画 */}
-      {mode !== 'board' && <AiActLayer area="doc" path={path} host={paneRef} />}
+      {mode === 'doc' && <AiActLayer area="doc" path={path} host={paneRef} />}
+      {/* 任务界面（task-pd1d1）：这一篇的待办，和左边「待办」格、文件夹首页的待办卡同一份、同一套样子 */}
+      {mode === 'task' && <TaskView path={path} />}
       {mode === 'doc' && text !== null && <DocToc text={text} doc={() => doc.current} scroller={() => bodyRef.current} onOpenOutline={() => cb.current.onOpenOutline()} />}
       {/* 白板就是这篇文档（2026-11-21 方向 A，doc-board/）：type: board 的也是；导图和撤回了转写法的旧白板照旧用自由白板 */}
       {mode === 'board' && text !== null && !legacy && (

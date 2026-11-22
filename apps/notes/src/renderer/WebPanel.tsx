@@ -45,6 +45,7 @@ import { notesOfUrl, pairOf, positionOf, reportPos, setRightPage, usePairs } fro
 import { flashColor, setReadPosHost, type Went } from './read-along/web'
 import { openPairPop, unpairLabel } from './read-along/ReadAlongLayer'
 import { unpairNote } from './read-along/pairing'
+import { showMenu } from './ctx/menu'
 
 export type ClipMode = { mode: 'inbox' | 'doc'; target?: string }
 
@@ -96,7 +97,8 @@ export function WebPanel(props: {
   wideTabs: { id: string; url: string; title?: string }[]
   onActivateWide(id: string): void
   onCloseWide(id: string): void
-  onOpenNote(path: string): void
+  /** noWeb：配好对的网页不跟着开（从网页标签的配对小标开的，网页就在眼前） */
+  onOpenNote(path: string, noWeb?: boolean): void
   /** 打开设置 · 插件 */
   onPluginSettings(): void
   /** ⌘W 在右栏网页这一格（App 认的当前栏）：关当前网页标签 */
@@ -221,8 +223,13 @@ export function WebPanel(props: {
     return window.cnWeb.onBookmarksChanged(load)
   }, [])
 
-  // 换了中间栏的标签：它上次看的网页还开着就切过去
-  useEffect(() => setSt((s) => followOwner(s, props.owner)), [props.owner])
+  // 换了中间栏的标签：它上次看的网页还开着就切过去；刚点网页标签上的配对小标开的笔记，留在点的那个网页上（记成这篇的）
+  const keepTab = useRef<{ id: string; at: number } | null>(null)
+  useEffect(() => {
+    const keep = keepTab.current && Date.now() - keepTab.current.at < 500 ? keepTab.current.id : null
+    keepTab.current = null
+    setSt((s) => (keep ? activate(s, keep, props.owner) : followOwner(s, props.owner)))
+  }, [props.owner])
 
   // 当前网页换了：地址栏、AI 看得到的网址、插件的「当前标签」、拖图片的来源
   // 地址栏里打过字时，网页那边的载入、跳转都不改地址栏，像 Chrome；换了标签才换。点进去还没打字时照常跟上，
@@ -778,15 +785,24 @@ export function WebPanel(props: {
     return { top: st.bottom - box.top + 8, right, ['--arrow-right' as string]: `${box.right - right - (st.left + st.width / 2) - 6}px` }
   }
   const https = webUrl.startsWith('https:')
-  /** 网页标签上的小标：这是哪篇配好对的书（task-kbnc0，原型 .wt .pm） */
-  const pairMark = (url: string) => {
-    const n = /^https?:/.test(url) ? notesOfUrl(url, pairsMap)[0] : undefined
-    if (!n) return null
-    const tip = `和「${titleOf(n)}」是一对`
+  /**
+   * 网页标签上的小标：这是哪篇配好对的书（task-kbnc0，原型 .wt .pm）。点了在中间打开那篇（开着就切过去），
+   * 配了几篇时弹菜单选；这个网页标签换到前面，网页不跟着跳到读到哪（task-z5jh4）
+   */
+  const pairMark = (t: { id: string; url: string }) => {
+    const notes = /^https?:/.test(t.url) ? notesOfUrl(t.url, pairsMap).sort((a, b) => titleOf(a).localeCompare(titleOf(b), 'zh')) : []
+    if (!notes.length) return null
+    const names = notes.map((n) => `《${titleOf(n)}》`)
+    const tip = notes.length === 1 ? `打开配对的笔记${names[0]}` : `打开配对的笔记：${names.join('')}`
+    const open = (n: string) => {
+      keepTab.current = { id: t.id, at: Date.now() }
+      setSt((s) => activate(s, t.id, cb.current.owner))
+      cb.current.onOpenNote(n, true)
+    }
     return (
-      <span className="wpm" aria-label={tip} data-tip={tip} data-side="below">
+      <button className="wpm" aria-label={tip} data-tip={tip} data-side="below" onClick={() => (notes.length === 1 ? open(notes[0]!) : void showMenu(notes.map((n, i) => ({ label: names[i]!, run: () => open(n) }))))}>
         <Codicon name="note" size={12} />
-      </span>
+      </button>
     )
   }
   /** 「⋯」这一页最前面：和中间这篇配成一对… / 解除和「…」的配对（中间开着笔记时才有） */
@@ -908,7 +924,7 @@ export function WebPanel(props: {
                         </span>
                       )}
                     </form>
-                    {pairMark(t.url)}
+                    {pairMark(t)}
                     <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
                       <Codicon name="close" size={12} />
                     </button>
@@ -918,8 +934,8 @@ export function WebPanel(props: {
                     <button className="tl" onClick={() => setSt((s) => activate(s, t.id, cb.current.owner))}>
                       {tabIcon(t)}
                       <span className="truncate">{tabName(t)}</span>
-                      {pairMark(t.url)}
                     </button>
+                    {pairMark(t)}
                     <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
                       <Codicon name="close" size={12} />
                     </button>

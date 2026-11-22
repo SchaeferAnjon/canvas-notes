@@ -45,9 +45,12 @@ import { setDesc, useDesc } from '../files/category-store'
 import { AnyCodicon, LookPicker } from '../files/look'
 import { useVaultFiles } from '../files/store'
 import { coverIsImage, folderCoverCss, FolderCoverGallery, ownColor } from './cover'
-import { FOLDER_COLORS } from '../../shared/left'
+import { FOLDER_COLORS, presetsOn } from '../../shared/left'
 import './folder-home.css'
 import { CaptureAction, CondBody, condResult, SlidesResume, type WCtx, WidgetBody } from './widgets'
+import { TodoOpen } from '../todo/TodoCard'
+import { isTodoNote } from '../../shared/todo'
+import { usePrefs } from '../settings-store'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -71,9 +74,9 @@ export function FolderHomeView(props: {
   const { folder, pv } = props
   const kind = homeKindOf(folder)!
   const title = folder.split('/').pop()!
-  /** 自带的顶级分类：多一行「放什么」，不改名 */
-  const cat = categoryOf(folder)
-  useLeft()
+  /** 自带的顶级分类：多一行「放什么」，不改名；关掉预设的分类时（task-wniqx）当普通文件夹，不写「分类」和「放什么」 */
+  const presets = presetsOn(useLeft())
+  const cat = presets ? categoryOf(folder) : undefined
   const look = folderLook(folder)
   const descOf = useDesc()
   const { files: vaultFiles } = useVaultFiles()
@@ -138,6 +141,8 @@ export function FolderHomeView(props: {
     return () => clearTimeout(t)
   }, [flash])
 
+  /** 名字叫「待办」的笔记显示不显示（设置 › 文件，task-pd1d1）：头上那行的篇数跟着 */
+  const showTodo = usePrefs((s) => s.files.showTodo)
   if (!home) return <section className="pane" />
   const save = (h: FolderHome) => {
     setHome(h)
@@ -186,9 +191,10 @@ export function FolderHomeView(props: {
         },
       }
     : {}
-  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, asked: asked?.items ?? [], review, onAsked: (pdf) => (app().openWithNote(pdf), showAsked(pdf)), onCards: () => openCards({ kind: 'folder', folder }), onOpenAnki: () => void window.cnReading.openAnki().catch((e) => props.onNotice(errText(e))), onAll: props.onOpenAll, onCapture: () => openCapture({ course: title }), save, home, id })
+  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, asked: asked?.items ?? [], review, onAsked: (pdf) => (app().openWithNote(pdf), showAsked(pdf)), onCards: () => openCards({ kind: 'folder', folder }), onOpenAnki: () => void window.cnReading.openAnki().catch((e) => props.onNotice(errText(e))), onAll: props.onOpenAll, onCapture: () => openCapture({ course: title }), save, reload: () => void window.cnFolder.get(folder).then((r) => setHome(r.home)), home, id })
   const inFolder = files.filter((f) => f.path.startsWith(folder + '/'))
-  const lead = folderLead(folder, inFolder, { courses })
+  // 「N篇」和下面「里面有什么」、文件树数得一样：名字叫「待办」的笔记不显示时也不算（task-pd1d1）
+  const lead = folderLead(folder, showTodo ? inFolder : inFolder.filter((f) => !isTodoNote(f.path)), { courses, presets })
   const coverY = adjustY ?? home.coverY
   const tplName = kind === 'course' ? '课程模板' : kind === 'project' ? '项目模板' : null
 
@@ -510,6 +516,7 @@ export function FolderHomeView(props: {
                       {w.type === 'doubts' && !!asked?.items.length && <span className="n num">{`${asked.items.length}问`}</span>}
                       {w.type === 'notes' && !editing && <CaptureAction onCapture={() => openCapture({ course: title })} />}
                       {w.type === 'slides' && !editing && <SlidesResume c={ctx(id)} />}
+                      {w.type === 'todo' && !editing && <TodoOpen folder={folder} />}
                     </div>
                     <WidgetBody c={ctx(id)} w={w} />
                   </div>

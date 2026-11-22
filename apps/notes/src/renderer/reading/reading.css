@@ -437,14 +437,19 @@
   font-size: 13px;
   line-height: 1.7;
 }
-.md a.pg {
+.md a.pg,
+/* 白板问答卡回答那一行不在 .md 里，照同一个样子 */
+.db-card .row a.pg {
   color: var(--acc-t);
   text-decoration: none;
   border-radius: 4px;
   padding: 0 1px;
   cursor: pointer;
+  /* 「第 5 页」整颗一起换行，不断成「第 5」和「页」 */
+  white-space: nowrap;
 }
-.md a.pg:hover {
+.md a.pg:hover,
+.db-card .row a.pg:hover {
   background: var(--acc-soft);
 }
 .btn.btn-xs {

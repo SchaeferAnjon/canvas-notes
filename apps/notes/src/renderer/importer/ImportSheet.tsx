@@ -1,12 +1,12 @@
 /**
  * 导入旧笔记：一个窗口三步——① 选来源（备忘录 / Markdown 文件夹）② 选文件夹 ③ 导入（进度、结果、撤回、现在梦游）。
  * 导入在主进程后台跑：窗口关了也接着导，中间栏底下一条小进度；导完提示带「撤回」。
- * 导进来的先进收件箱，归类改名留给梦游（预览后再收下）。
+ * 导进来的先进收件箱，归类改名留给梦游（预览后再收下）；整个 Obsidian 库导进来时原来的文件夹原样放在库的最外层（task-wniqx）。
  */
 import { Codicon } from '@cn/design'
 import { AiIcon } from '../engine-logo'
 import { useEffect, useMemo, useState } from 'react'
-import type { ImportFolder, ImportKind, ImportProgress, ImportResult, ImportScan } from '../../shared/import'
+import { type ImportFolder, type ImportKind, type ImportProgress, type ImportResult, type ImportScan, wholeVault } from '../../shared/import'
 import { closeImport, openImport, useImportOpen } from './store'
 import './import.css'
 
@@ -16,7 +16,7 @@ const unitOf = (k: ImportKind) => (k === 'notes' ? '条' : '篇')
 const fromOf = (r: { source: string }, k: ImportKind) => (k === 'notes' ? '备忘录' : `「${r.source}」`)
 
 /** 挂在中间栏里：窗口、窗口关着时底下的小进度和导完的提示 */
-export function ImportHost(props: { onOpenInbox(): void; onDreamNow(): void; onNotice(t: string): void }) {
+export function ImportHost(props: { onOpenInbox(): void; onShowFiles(): void; onDreamNow(): void; onNotice(t: string): void }) {
   const open = useImportOpen()
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [kind, setKind] = useState<ImportKind>('notes')
@@ -64,6 +64,7 @@ export function ImportHost(props: { onOpenInbox(): void; onDreamNow(): void; onN
           }}
           onUndo={(r) => void undo(r).then(closeImport)}
           onOpenInbox={() => (closeImport(), props.onOpenInbox())}
+          onShowFiles={() => (closeImport(), props.onShowFiles())}
           onDreamNow={() => (closeImport(), setProgress(null), props.onDreamNow())}
           onReset={() => setProgress(null)}
         />
@@ -86,7 +87,7 @@ export function ImportHost(props: { onOpenInbox(): void; onDreamNow(): void; onN
         <div className="toast-cn with-act imp-done-toast" role="status" data-testid="import-toast">
           <Codicon name="check" size={14} className="ok" />
           <span>
-            {`导入了${doneToast.notes}${doneToast.source === '备忘录' ? '条' : '篇'}，在${doneToast.dir}`}
+            {`导入了${doneToast.notes}${doneToast.source === '备忘录' ? '条' : '篇'}，${doneToast.dir ? `在${doneToast.dir}` : '原样放在库的最外层'}`}
           </span>
           {doneToast.commit && (
             <button className="btn btn-ghost btn-sm" onClick={() => void undo(doneToast)}>
@@ -110,6 +111,7 @@ function ImportSheet(props: {
   onClose(): void
   onUndo(r: ImportResult): void
   onOpenInbox(): void
+  onShowFiles(): void
   onDreamNow(): void
   onReset(): void
 }) {
@@ -168,7 +170,7 @@ function ImportSheet(props: {
         </div>
         {step === 1 && <Sources busy={busy} error={error} onPick={(k) => void pick(k)} />}
         {step === 2 && <Folders scan={scan!} picked={picked} onPicked={setPicked} error={error} onBack={() => (setScan(null), setError(null))} onStart={() => void start()} onClose={props.onClose} />}
-        {step === 3 && p && <Running p={p} kind={props.kind} onClose={props.onClose} onUndo={props.onUndo} onOpenInbox={props.onOpenInbox} onDreamNow={props.onDreamNow} onAgain={() => (props.onReset(), setScan(null))} />}
+        {step === 3 && p && <Running p={p} kind={props.kind} onClose={props.onClose} onUndo={props.onUndo} onOpenInbox={props.onOpenInbox} onShowFiles={props.onShowFiles} onDreamNow={props.onDreamNow} onAgain={() => (props.onReset(), setScan(null))} />}
       </div>
     </div>
   )
@@ -195,7 +197,7 @@ function Sources(props: { busy: boolean; error: string | null; onPick(k: ImportK
   return (
     <>
       <div className="imp-body">
-        <p className="imp-lead">旧笔记先进收件箱，原来的文件夹记在「原文件夹」里；今晚梦游时AI分进课程、项目、生活、写作，起好名字，你点「预览」看过再收下。</p>
+        <p className="imp-lead">整个Obsidian库导进来时，原来的文件夹原样放在最外层。别的旧笔记先进收件箱，原来的文件夹记在「原文件夹」里；今晚梦游时AI分进课程、项目、生活、写作，起好名字，你点「预览」看过再收下。</p>
         <button className="imp-src" disabled={props.busy} onClick={() => props.onPick('notes')}>
           <span className="vi">
             <Codicon name="note" size={18} />
@@ -224,7 +226,7 @@ function Sources(props: { busy: boolean; error: string | null; onPick(k: ImportK
         )}
       </div>
       <div className="mm-ft">
-        <span className="help">导进 收件箱/导入/&lt;来源&gt;/ · 一次提交，能撤回</span>
+        <span className="help">整个库原样放在最外层，别的进 收件箱/导入/&lt;来源&gt;/ · 一次提交，能撤回</span>
       </div>
     </>
   )
@@ -247,6 +249,8 @@ function Folders(props: { scan: ImportScan; picked: Set<string>; onPicked(s: Set
   const unit = unitOf(scan.kind)
   const t = useMemo(() => totals(scan.folders, picked), [scan, picked])
   const all = scan.folders.length > 0 && scan.folders.every((f) => picked.has(f.id))
+  /** 整个 Obsidian 库（task-wniqx）：原样放在最外层；只选几个文件夹先进收件箱 */
+  const whole = wholeVault(scan, picked)
   /** 点一个文件夹：它和它下面的子文件夹一起勾上或去掉 */
   const toggle = (f: ImportFolder) => {
     const next = new Set(picked)
@@ -289,6 +293,11 @@ function Folders(props: { scan: ImportScan; picked: Set<string>; onPicked(s: Set
             </label>
           ))}
         </div>
+        {scan.vault && t.notes > 0 && (
+          <p className="imp-note imp-where" data-testid="import-where">
+            {whole ? '整个库：原来的文件夹原样放在最外层，和分类同级；和分类同名的合在一起，同名的笔记加「 2」' : `只选了几个文件夹：先放进 收件箱/导入/${scan.source}/，梦游再分`}
+          </p>
+        )}
         {(t.locked > 0 || t.already > 0) && (
           <p className="imp-note">
             {t.locked > 0 && `上了锁的${t.locked}${unit}读不了，会跳过（在备忘录里去掉锁再导一次就行）。`}
@@ -310,7 +319,7 @@ function Folders(props: { scan: ImportScan; picked: Set<string>; onPicked(s: Set
           取消
         </button>
         <button className="btn btn-primary" disabled={!t.notes} onClick={props.onStart}>
-          <Codicon name="inbox" size={14} />
+          <Codicon name={whole ? 'library' : 'inbox'} size={14} />
           {`导入${t.notes}${unit}`}
         </button>
       </div>
@@ -318,7 +327,7 @@ function Folders(props: { scan: ImportScan; picked: Set<string>; onPicked(s: Set
   )
 }
 
-function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; onUndo(r: ImportResult): void; onOpenInbox(): void; onDreamNow(): void; onAgain(): void }) {
+function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; onUndo(r: ImportResult): void; onOpenInbox(): void; onShowFiles(): void; onDreamNow(): void; onAgain(): void }) {
   const { p } = props
   const unit = unitOf(props.kind)
   if (p.phase === 'done') {
@@ -335,7 +344,13 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
                 {`从${fromOf(r, props.kind)}导入了${r.notes}${unit}`}
               </b>
               <span>
-                进了<span className="mono">{r.dir}/</span>
+                {r.dir ? (
+                  <>
+                    进了<span className="mono">{r.dir}/</span>
+                  </>
+                ) : (
+                  '原样放在库的最外层，和分类同级'
+                )}
                 {r.attachments > 0 && ` · ${r.attachments}个图片和附件（${mb(r.bytes)}）`}
                 {r.commit && (
                   <>
@@ -354,10 +369,17 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
               ))}
             </ul>
           )}
-          <div className="imp-next">
-            <Codicon name="wand" size={14} />
-            <p>接下来：梦游会把它们分进课程、项目、生活、写作，起好名字，拿不准的留在收件箱。改好的在梦游报告里点「预览」看，不对就跟AI说哪里不对，满意了再收下。</p>
-          </div>
+          {r.dir ? (
+            <div className="imp-next">
+              <Codicon name="wand" size={14} />
+              <p>接下来：梦游会把它们分进课程、项目、生活、写作，起好名字，拿不准的留在收件箱。改好的在梦游报告里点「预览」看，不对就跟AI说哪里不对，满意了再收下。</p>
+            </div>
+          ) : (
+            <div className="imp-next">
+              <Codicon name="files" size={14} />
+              <p>原来的文件夹在左栏「文件」里，和分类同一层；想让它们在图标栏占一格，把文件夹拖到图标栏上，或右键「放到左边」。不想要预设的分类，去设置 › 文件和附件里关掉。</p>
+            </div>
+          )}
         </div>
         <div className="mm-ft">
           {r.commit && (
@@ -367,14 +389,23 @@ function Running(props: { p: ImportProgress; kind: ImportKind; onClose(): void; 
             </button>
           )}
           <span className="help" />
-          <button className="btn" onClick={props.onOpenInbox}>
-            <Codicon name="inbox" size={14} />
-            打开收件箱
-          </button>
-          <button className="btn btn-primary" onClick={props.onDreamNow}>
-            <AiIcon job="dream" size={14} />
-            现在就让梦游整理
-          </button>
+          {r.dir ? (
+            <>
+              <button className="btn" onClick={props.onOpenInbox}>
+                <Codicon name="inbox" size={14} />
+                打开收件箱
+              </button>
+              <button className="btn btn-primary" onClick={props.onDreamNow}>
+                <AiIcon job="dream" size={14} />
+                现在就让梦游整理
+              </button>
+            </>
+          ) : (
+            <button className="btn btn-primary" onClick={props.onShowFiles}>
+              <Codicon name="files" size={14} />
+              在「文件」里看
+            </button>
+          )}
         </div>
       </>
     )

@@ -3,6 +3,7 @@
  * 纯计算（按名字筛、排序、拼成树）放这里，界面和单元测试都用。
  */
 import { CATEGORIES, CATEGORY_GROUPS, CATEGORY_NAMES, type CategoryGroup, categoryRank, isCategory } from './categories'
+import { INBOX } from './layout'
 
 /** img：附件/ 里的图片；att：附件/ 里别的文件（附件文件夹在树里看得到，CN-104、four-items 1a） */
 export type FileKind = 'md' | 'pdf' | 'html' | 'img' | 'att' | 'dir'
@@ -31,6 +32,17 @@ export interface FileEntry {
    * （好几篇按名字取最前的）。有 owner 的在目录树里挂到那篇下面；不管挂没挂，「移到」的去处里都不列它（挪进去就成了一条记录）
    */
   base?: { records: number; owner?: string }
+  /**
+   * 名字叫「待办」的笔记（task-pd1d1）：设置 › 文件「文件树里显示待办」没开时记上，目录树、文件夹首页的文件列表不画、篇数不算；
+   * ⌘O 照样找得到（只有 buildTree 看它）
+   */
+  hidden?: boolean
+}
+
+/** 设置里没开「文件树里显示待办」时：名字叫「待办」的笔记记上 hidden；没有要藏的原样还回去 */
+export function hideTodos(files: FileEntry[]): FileEntry[] {
+  if (!files.some((f) => f.kind === 'md' && fileName(f.path) === '待办.md')) return files
+  return files.map((f) => (f.kind === 'md' && fileName(f.path) === '待办.md' ? { ...f, hidden: true } : f))
 }
 
 /** 数据库的记录文件夹（「移到」不列它和它里面的） */
@@ -188,6 +200,8 @@ export interface TreeOpts {
   pins: ReadonlySet<string>
   /** 类型筛选：只留这些文件；留不下文件的文件夹也不画。不给 = 全部（空文件夹也画） */
   keep?: (f: FileEntry) => boolean
+  /** 用预设的分类（task-wniqx）：关掉时最外层的分类不再排在前面，和别的文件夹一起按名字排 */
+  cats?: boolean
 }
 export const DEFAULT_TREE_OPTS: TreeOpts = { sort: 'name-asc', foldersFirst: true, pinsFirst: true, pins: new Set() }
 
@@ -221,7 +235,7 @@ export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): Tre
       continue
     }
     if (o.keep && !o.keep(f)) continue
-    if (merged.has(f.path)) continue
+    if (merged.has(f.path) || f.hidden) continue
     const time = ctime ? (f.ctimeMs ?? f.mtimeMs) : f.mtimeMs
     dirOf(folderOfPath(f.path)).children.push({ path: f.path, name: fileName(f.path), kind: f.kind, entry: f, children: [], count: 1, time })
   }
@@ -257,7 +271,7 @@ export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): Tre
         return collator.compare(stem(a.name), stem(b.name))
       }
       if (desc) return collator.compare(stem(b.name), stem(a.name)) || KIND_ORDER[a.kind] - KIND_ORDER[b.kind]
-      if (a.kind === 'dir' && b.kind === 'dir' && top) {
+      if (a.kind === 'dir' && b.kind === 'dir' && top && o.cats !== false) {
         const ia = TOP_ORDER.indexOf(a.name)
         const ib = TOP_ORDER.indexOf(b.name)
         if (ia !== ib) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
@@ -300,10 +314,35 @@ export interface TopGroup {
 }
 
 /**
+ * 左栏找文件的框（task-4891y）：只留名字（不带 .md、.pdf）里有这几个字的（大小写不分）和一路上去的文件夹；
+ * 名字命中的文件夹自己留着，里面不命中的不列。篇数改成命中的几篇。空的不筛，原样还回去
+ */
+export function filterTree(nodes: TreeNode[], q: string): TreeNode[] {
+  const w = q.trim().toLowerCase()
+  if (!w) return nodes
+  const hit = (n: TreeNode) => stem(n.name).toLowerCase().includes(w)
+  const walk = (ns: TreeNode[]): TreeNode[] =>
+    ns.flatMap((n) => {
+      const children = walk(n.children)
+      if (!children.length && !hit(n)) return []
+      const files = children.reduce((s, c) => s + c.count, 0)
+      return [{ ...n, children, count: n.kind === 'dir' ? files : 1 + files }]
+    })
+  return walk(nodes)
+}
+
+/**
  * 文件树最外层按顶级分类分组（2026-11-18 方案 3「分两组」）：分类按分类表的先后，库里还没有这个文件夹的
  * 也画一行空的（all：没筛类型时）；别的文件夹和散文件收在最后一组「不在分类里的」，按原来的排法。空的组不出现。
+ * presets 关着（task-wniqx「用预设的分类」）：不分组，收件箱在最前（all 时没有也画），别的照原来的排法（buildTree 给 cats: false，
+ * 分类和自己的文件夹一起按名字排），一篇都没有的分类不画
  */
-export function topGroups(nodes: TreeNode[], all: boolean): TopGroup[] {
+export function topGroups(nodes: TreeNode[], all: boolean, presets = true): TopGroup[] {
+  if (!presets) {
+    const inbox = nodes.find((n) => n.kind === 'dir' && n.name === INBOX) ?? (all ? { path: INBOX, name: INBOX, kind: 'dir' as const, children: [], count: 0, time: 0 } : null)
+    const rest = nodes.filter((n) => !(n.kind === 'dir' && (n.name === INBOX || (isCategory(n.name) && !n.count))))
+    return [{ title: '' as const, nodes: inbox ? [inbox, ...rest] : rest }].filter((g) => g.nodes.length)
+  }
   const byName = new Map(nodes.filter((n) => n.kind === 'dir' && isCategory(n.name)).map((n) => [n.name, n]))
   const out: TopGroup[] = CATEGORY_GROUPS.map((g) => ({
     title: g,

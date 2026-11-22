@@ -15,8 +15,20 @@ import { pairOf, rightPage } from '../read-along/store'
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const nameOf = (p: string) => p.split('/').pop()!
 
-/** rename：这个地方能原地改名时给（左栏、全部笔记、标签）；note：PDF、HTML 和它的笔记合成一行时那篇笔记（多一项「单独打开笔记」） */
-export function fileMenu(path: string, on: { rename?(): void; note?: string } = {}): MenuEntry[] {
+/**
+ * 左栏目录树里的右键（task-4891y「加进左栏」）：「置顶」写成「钉到最上面」/「取消钉住」（同一份 置顶.json，钉住的在树顶一组），
+ * 「移到」不是一层层的子菜单，是「移到…」打字找的小弹层（moveTo 弹它）
+ */
+export interface TreeMenu {
+  moveTo(): void
+}
+const pinItem = (pinned: boolean, key: string, tree?: TreeMenu): MenuEntry => ({
+  label: pinned ? (tree ? '取消钉住' : '取消置顶') : tree ? '钉到最上面' : '置顶',
+  run: () => app().togglePin(key, !pinned),
+})
+
+/** rename：这个地方能原地改名时给（左栏、全部笔记、标签）；note：PDF、HTML 和它的笔记合成一行时那篇笔记（多一项「单独打开笔记」）；tree：左栏目录树里 */
+export function fileMenu(path: string, on: { rename?(): void; note?: string; tree?: TreeMenu } = {}): MenuEntry[] {
   const a = app()
   const md = /\.md$/i.test(path)
   const pinned = a.pins().includes(path)
@@ -34,8 +46,8 @@ export function fileMenu(path: string, on: { rename?(): void; note?: string } = 
     paired ? { label: '解除和网页的配对', run: () => a.unpairWeb(path) } : md && page && { label: '和右栏这个网页配成一对…', run: () => a.pairWeb(path) },
     '-',
     md && on.rename && { label: '重命名', run: () => on.rename!() },
-    md && targets.length > 0 && { label: '移到', submenu: targets },
-    md && (pinned ? { label: '取消置顶', run: () => a.togglePin(path, false) } : { label: '置顶', run: () => a.togglePin(path, true) }),
+    md && targets.length > 0 && (on.tree ? { label: '移到…', run: () => on.tree!.moveTo() } : { label: '移到', submenu: targets }),
+    md && pinItem(pinned, path, on.tree),
     '-',
     { label: '在访达中显示', run: () => window.cnMenu.reveal(path) },
     { label: '拷贝路径', run: () => copy(a.absPath(path)) },
@@ -50,7 +62,7 @@ export function fileMenu(path: string, on: { rename?(): void; note?: string } = 
  * rename：这个地方能原地改名时给；newFolder：能在这里原地新建文件夹时给（目录树）；look：能贴着这一行弹「换图标和颜色」时给。
  * 最外层固定的文件夹（课程、生活、写作……）没有重命名、移到和移到废纸篓。
  */
-export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): void; look?(): void } = {}): MenuEntry[] {
+export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): void; look?(): void; tree?: TreeMenu } = {}): MenuEntry[] {
   const a = app()
   const fixed = fixedFolder(folder)
   const pinned = a.pins().includes(folderPinKey(folder))
@@ -66,12 +78,12 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
     { label: '打开首页', run: () => a.openFolderHere(folder) },
     { label: '在新标签打开首页', run: () => a.openFolderHome(folder) },
     '-',
-    pinned ? { label: '取消置顶', run: () => a.togglePin(folderPinKey(folder), false) } : { label: '置顶', run: () => a.togglePin(folderPinKey(folder), true) },
+    pinItem(pinned, folderPinKey(folder), on.tree),
     onLeft ? { label: '从左边拿下', run: () => a.takeOffLeft(folder) } : { label: '放到左边', run: () => a.putOnLeft(folder) },
     on.look && { label: '换图标和颜色…', run: () => on.look!() },
     '-',
     !fixed && on.rename && { label: '重命名…', accel: accelFor('rename'), run: () => on.rename!() },
-    !fixed && targets.length > 0 && { label: '移到', submenu: targets },
+    !fixed && targets.length > 0 && (on.tree ? { label: '移到…', run: () => on.tree!.moveTo() } : { label: '移到', submenu: targets }),
     '-',
     { label: '在访达中显示', run: () => window.cnMenu.reveal(folder) },
     { label: '拷贝路径', run: () => copy(a.absPath(folder)) },
@@ -81,5 +93,5 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
 }
 
 /** 右键事件里直接用；extra：这一处自己多的几项，放在最后（文档「⋯」里的宽版） */
-export const onFileMenu = (e: React.MouseEvent, path: string, on: { rename?(): void; note?: string } = {}, extra: MenuEntry[] = []) =>
+export const onFileMenu = (e: React.MouseEvent, path: string, on: { rename?(): void; note?: string; tree?: TreeMenu } = {}, extra: MenuEntry[] = []) =>
   void menuAt(e, [...fileMenu(path, on), ...(extra.some(Boolean) ? ['-' as const, ...extra] : [])])

@@ -13,7 +13,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { dirname, join } from 'node:path'
-import { acts, editorText, foldInbox, gitStatus, launch, openNote, pane, rail, tabOn, waitSaved } from './app'
+import { acts, editorText, foldInbox, gitStatus, inboxPop, launch, openNote, pane, rail, tabOn, waitSaved } from './app'
 import { solidPng } from './fixtures/png'
 import { shotTone, shotWindow } from './shots'
 
@@ -152,6 +152,89 @@ test('以前写法的白板（撤回了转写法，记在旧写法名单里）�
   }
 })
 
+/** 以前写法里最常见的样子：列那一行下面紧挨着卡片行（board.ts 写出来的就是这样），列名和第一张卡的注释算一整块 */
+const TIGHT = `---
+type: board
+---
+# 列紧挨卡
+
+<!-- card id=a1 x=120 y=300 w=280 -->
+上面一段字
+
+<!-- column id=c1 x=500 y=80 w=280 title="要订的" -->
+<!-- card id=a2 in=c1 -->
+列里第一张卡
+
+<!-- card id=a3 in=c1 -->
+列里第二张卡
+`
+
+test('白板文档看法点列名再按各种删除键（⌫、Delete、⌥⌫、⌘⌫、⌥Delete、Ctrl+D）：文件一个字节都不变，上一段、空行、下面的卡一个字不少；列名选中着打字、粘贴、剪切也不改字', async () => {
+  const run = await launch({ ...files(), '剪藏/冰岛旅行/列紧挨卡.md': TIGHT, '.canvas-notes/白板旧写法.json': JSON.stringify({ 版本: 1, 白板: ['剪藏/冰岛旅行/ttravel.md', '剪藏/冰岛旅行/列紧挨卡.md'] }) }, {})
+  const { page, vault } = run
+  const KEYS = ['Backspace', 'Delete', 'Alt+Backspace', 'Meta+Backspace', 'Alt+Delete', 'Control+d']
+  try {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    for (const [name, md, rel, above, below] of [
+      ['ttravel', BOARD, '剪藏/冰岛旅行/ttravel.md', 'Physical geography', 'Iceland sat cleaned - Geography of Iceland - Wikipedia'],
+      ['列紧挨卡', TIGHT, '剪藏/冰岛旅行/列紧挨卡.md', '上面一段字', '列里第一张卡'],
+    ] as const) {
+      await openNote(page, name)
+      const head = pane(page).locator('.cm-colhead')
+      await expect(head).toHaveCount(1)
+      const box = (await head.boundingBox())!
+      for (const key of KEYS) {
+        // 光标先放在上面那段末尾、下面那张卡里（点列名前光标在哪，点了以后都一样）；列名的左边、正中、右边各点一次
+        for (const [from, fx] of [
+          [above, 0.05],
+          [below, 0.5],
+          [above, 0.95],
+        ] as const) {
+          await pane(page).locator('.cm-line', { hasText: from }).first().click()
+          await page.keyboard.press('End')
+          await page.mouse.click(box.x + box.width * fx, box.y + box.height / 2)
+          for (let i = 0; i < 3; i++) await page.keyboard.press(key)
+          expect(await editorText(page), `${name}：点列名后按 ${key}（点之前光标在「${from}」）`).toBe(md)
+        }
+      }
+      await expect(head).toBeVisible()
+      await page.waitForTimeout(1200)
+      expect(readFileSync(join(vault, rel), 'utf8')).toBe(md)
+    }
+    // 列名选中着打字、粘贴、剪切：列名只看不改，一个字都不进；第一张卡的字照旧在
+    await head0(page).click()
+    // 选中着铺一层 --fill2 底（比版心左右各宽 8），看得出点中了；点别处就没了
+    await expect(head0(page)).toHaveClass(/\bpicked\b/)
+    const pickedBg = await head0(page)
+      .locator('.cm-colhead-t')
+      .evaluate((e) => {
+        const r = e.getBoundingClientRect()
+        const p = e.parentElement!.getBoundingClientRect()
+        return { bg: getComputedStyle(e).backgroundColor, radius: getComputedStyle(e).borderRadius, left: r.left - p.left, right: r.right - p.right }
+      })
+    expect(pickedBg.bg).not.toBe('rgba(0, 0, 0, 0)')
+    expect(pickedBg).toMatchObject({ radius: '6px', left: -8, right: 8 })
+    await page.keyboard.type('新的一段', { delay: 20 })
+    for (const k of ['Enter', 'Meta+x', 'Meta+v']) await page.keyboard.press(k)
+    expect(await editorText(page)).toBe(TIGHT)
+    await expect(head0(page)).toHaveText('要订的')
+    // 点进下面那张卡打字照常（只拦列名选中着的那一下）；⌘Z 回到原样
+    await pane(page).locator('.cm-line', { hasText: '列里第一张卡' }).click()
+    await expect(head0(page)).not.toHaveClass(/\bpicked\b/)
+    await page.keyboard.press('End')
+    await page.keyboard.type('X')
+    expect(await editorText(page)).toBe(TIGHT.replace('列里第一张卡', '列里第一张卡X'))
+    await page.keyboard.press('Meta+z')
+    await expect.poll(() => editorText(page)).toBe(TIGHT)
+    await page.waitForTimeout(1200)
+    expect(readFileSync(join(vault, '剪藏/冰岛旅行/列紧挨卡.md'), 'utf8')).toBe(TIGHT)
+    expect(gitStatus(vault)).toBe('')
+  } finally {
+    await run.close()
+  }
+})
+const head0 = (page: Page) => pane(page).locator('.cm-colhead')
+
 test('以前写法的白板改列名：输入框里按 ⌫ / Delete 只删字，列和卡片都在；卡片、待办改字时 ⌫ 也不删卡', async () => {
   const run = await launch({ ...files(), '.canvas-notes/白板旧写法.json': JSON.stringify({ 版本: 1, 白板: ['剪藏/冰岛旅行/ttravel.md'] }) })
   const { page, vault } = run
@@ -213,7 +296,7 @@ test('以前写法的白板改列名：输入框里按 ⌫ / Delete 只删字，
   }
 })
 
-test('白板右边一格收件箱里的剪藏：干净的卡（标题、两行摘要、来源），三块上下排开不压字', async () => {
+test('白板收件箱弹窗里的剪藏：干净的卡（标题、两行摘要、来源），三块上下排开不压字', async () => {
   const run = await launch(files())
   const { page } = run
   try {
@@ -226,7 +309,7 @@ test('白板右边一格收件箱里的剪藏：干净的卡（标题、两行�
     await page.keyboard.press('Escape')
     await expect(dlg).toHaveCount(0)
     await page.locator('.nav .si', { hasText: /^ttravel/ }).first().click()
-    const drawer = pane(page).getByRole('complementary', { name: '收件箱' })
+    const drawer = await inboxPop(page)
     const card = drawer.getByRole('listitem').filter({ hasText: 'Geography of Iceland' })
     await expect(card).toHaveCount(1)
     await expect(card.locator('.dbr-ttl')).toHaveText('Geography of Iceland')

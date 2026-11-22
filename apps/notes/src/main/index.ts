@@ -47,6 +47,7 @@ import { setupPlugins } from './plugins'
 import { moveReadingState, setupReading } from './reading'
 import { reopenSearch, searchVault, setupSearch } from './search'
 import { registerFiles } from './files'
+import { registerTodo } from './todo'
 import { planCarry, testTrash, trashFiles } from './folder-ops'
 import { setupImport } from './import'
 import { attachEditMenu, closeAllMenus, followOpen, forwardWebContext, popup, setupCtxMenu } from './ctx-menu'
@@ -836,6 +837,7 @@ app.whenReady().then(async () => {
   setupReading({ win: () => win, vault: () => vault, recap: () => settings.app().pdf.recap })
   setupSearch({ win: () => win, vault: () => vault, semantic: () => settings.app().editor.semantic })
   registerFiles(() => vault)
+  registerTodo({ vault: () => vault, win: () => win })
   setupVideo({ window: () => win, vault: () => vault, ses: web, userData: app.getPath('userData') })
   // 退出时最后存一次：窗口都关了以后（before-quit 时网页还在，之后还会改它，留下的定时器会在 Node 收尾时才跑）
   app.on('will-quit', flushVideo)

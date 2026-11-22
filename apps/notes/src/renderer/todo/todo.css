@@ -1,0 +1,428 @@
+/*
+ * 待办三处同一套样子（task-pd1d1）：尺寸、颜色照原型 05-任务软件/todo-demo.html（和画布今日同一套）：
+ * 勾选框 14（任务界面 16）圆角 4、重要的黄边、勾上强调色；行 30 高（任务界面 40）；行尾日子小块 20 高、11.5 字、--fill2 底；
+ * 组名 12/500 --t3，过期红；详情小卡 340 宽、圆角 12、--shadow-up。颜色都是主题变量，十套主题、A / B 都能用。
+ */
+
+/* ---------- 勾选框（原型 .cb） ---------- */
+.td-cb {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1.5px solid var(--line2);
+  display: grid;
+  place-items: center;
+  color: var(--acc-on);
+  background: transparent;
+}
+.td-cb.hi {
+  border-color: var(--yellow);
+}
+.td-cb.on {
+  background: var(--acc-bg);
+  border-color: var(--acc-bg);
+}
+.td-cb:not(.on):hover {
+  border-color: var(--t3);
+}
+.big .td-cb {
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- 行尾日子小块（原型 .chip） ---------- */
+.td-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--fill2);
+  font-size: 11.5px;
+  color: var(--t2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.td-chip.red {
+  color: var(--red-t);
+}
+
+/* ---------- 一行（原型 .r） ---------- */
+.td-r {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 8px 0 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--t1);
+  cursor: default;
+}
+.big .td-r {
+  min-height: 40px;
+  gap: 12px;
+  padding: 0 10px;
+}
+.td-r.sel {
+  background: var(--fill2);
+}
+.td-tt {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.td-src {
+  font-size: 12px;
+  color: var(--t3);
+}
+.td-r.done .td-tt {
+  color: var(--t3);
+  text-decoration: line-through;
+}
+.td-r.flash {
+  animation: td-fl 1.4s ease-out;
+}
+@keyframes td-fl {
+  0%,
+  40% {
+    background: var(--acc-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* ---------- 组名（原型 .sub）、一句话、按钮 ---------- */
+/* 组名和数字一段字（不用 flex gap 撑开）：中间的空隙交给 autospace（DESIGN.md 字体） */
+.td-sub {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+  padding: 8px 8px 2px 12px;
+  border-radius: 6px;
+}
+.td-sub.red {
+  color: var(--red-t);
+}
+.td-sub .n {
+  font-weight: 400;
+}
+.big .td-sub {
+  padding: 14px 10px 4px;
+}
+/* 拖着一条经过的落点（同目录树里拖笔记经过的文件夹） */
+.td-sub.over,
+.td-chip.over {
+  background: var(--acc-soft) !important;
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.td-more {
+  display: block;
+  font-size: 12px;
+  color: var(--t3);
+  padding: 2px 8px 4px 12px;
+  text-align: left;
+}
+.td-btn {
+  border: 0;
+  background: none;
+  font-family: inherit;
+}
+.td-btn:hover {
+  color: var(--t2);
+}
+.td-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--acc-t);
+}
+.td-link:hover {
+  text-decoration: underline;
+}
+.td-none {
+  margin: 8px 12px;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* ---------- 加一条（原型 .qa、.hint） ---------- */
+.td-qa {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  border: 1px solid transparent;
+  color: var(--t3);
+}
+.td-qa:focus-within {
+  background: var(--card);
+  border-color: var(--line2);
+}
+.td-qa input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--t1);
+}
+.td-qa input::placeholder {
+  color: var(--t3);
+}
+.td-qa.big {
+  height: 36px;
+}
+.td-qa-card {
+  margin-top: 6px;
+}
+.td-hint {
+  min-height: 6px;
+  font-size: 12px;
+  color: var(--t3);
+  padding: 2px 8px 4px;
+}
+.td-hint:empty {
+  padding: 0;
+  height: 6px;
+}
+/* 「认出来：… · 「交论文」 · 回车加进收件箱」：只在「·」后面换行，一段里不断开 */
+.td-hseg {
+  white-space: nowrap;
+}
+
+/* ---------- 左边「待办」格（原型 todoPanel） ---------- */
+.td-side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.td-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 8px 12px;
+}
+.td-seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px 0 6px;
+}
+.td-seg button {
+  border: 0;
+  background: none;
+  white-space: nowrap;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  color: var(--t2);
+}
+.td-seg button:hover {
+  background: var(--fill);
+}
+.td-seg button.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.td-fold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  margin-top: 6px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t1);
+}
+.td-fold:hover {
+  background: var(--fill);
+}
+.td-fold button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  display: inline-flex;
+  align-items: center;
+}
+.td-chev {
+  color: var(--t2);
+}
+.td-fname {
+  gap: 6px;
+  min-width: 0;
+}
+.td-fname .fglyph {
+  color: var(--t2);
+}
+.td-fold .n {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t3);
+}
+
+/* ---------- 文件夹首页的待办卡 ---------- */
+.td-open {
+  margin-left: auto;
+}
+/* 卡片自己有内边距：行往外放 4，勾选框和日子小块离卡边同原型（24、20）；卡头到第一组少空一点 */
+.td-card {
+  margin: 0 -4px;
+}
+.td-card > .td-sub:first-child {
+  padding-top: 2px;
+}
+
+/* ---------- 任务界面（原型 .tv） ---------- */
+.td-wrap {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--win);
+}
+.td-view {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 30px 24px 40px;
+}
+.td-view h1 {
+  font: 600 28px/1.35 var(--serif-title);
+  margin: 10px 0 2px;
+  color: var(--t1);
+}
+.td-meta {
+  font-size: 12px;
+  color: var(--t2);
+  margin-bottom: 14px;
+}
+
+/* ---------- 详情小卡（原型 .pop） ---------- */
+.td-pop {
+  position: fixed;
+  z-index: 50;
+  width: 340px;
+  background: var(--pop);
+  border-radius: 12px;
+  box-shadow: var(--shadow-up);
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--t2);
+  display: grid;
+  gap: 8px;
+}
+.td-pt {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t1);
+}
+.td-pt-t {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.td-x {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  display: grid;
+  place-items: center;
+  color: var(--t2);
+}
+.td-x:hover {
+  background: var(--fill);
+}
+.td-pl {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.td-pl.wrap {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.td-pick {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  font: inherit;
+  font-size: 12px;
+  color: var(--t2);
+}
+.td-pick:hover {
+  background: var(--fill2);
+}
+.td-pick.on {
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font-weight: 500;
+}
+select.td-sel {
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--card);
+  color: var(--t1);
+  font: inherit;
+  font-size: 12px;
+  padding: 0 4px;
+}
+.td-mono {
+  font: 11.5px/1.5 var(--mono);
+  color: var(--t3);
+}
+.td-rawl {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.td-links {
+  display: flex;
+  gap: 16px;
+}
+
+/* ---------- 拖着的那一条（原型 .ghost） ---------- */
+.td-ghost {
+  position: fixed;
+  z-index: 99;
+  pointer-events: none;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--t1);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  transform: translate(10px, -50%) rotate(-1.5deg);
+}
+.td-ghost svg {
+  color: var(--t3);
+}

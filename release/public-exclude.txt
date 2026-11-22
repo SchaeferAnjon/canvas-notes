@@ -17,3 +17,8 @@ website/hub-entry/
 
 # 待执行清单：写着隐私检查的细节、服务器的端口和配置，只给作者自己看
 release/CHECKLIST.md
+
+# 画布今日单独一个公开仓库（SchaeferAnjon/canvas-today，apps/today/scripts/public-export.mjs 导出）；iPhone / iPad 版（apps/apple）暂不公开：
+# 都不进画布笔记的公开仓库。packages/tasks 留着（画布笔记的待办用它）
+apps/today/
+apps/apple/

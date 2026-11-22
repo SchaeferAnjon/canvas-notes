@@ -40,6 +40,8 @@ import { dreamWhen, pendingOf } from './dream/useDream'
 import { saveHome, useHomeConfig } from './home-store'
 import './home.css'
 import { dateText, when } from '../shared/when'
+import { appSettings } from './settings-store'
+import { isTodoNote } from '../shared/todo'
 
 /** 本周一 0 点 */
 export function weekStart(now = new Date()): number {
@@ -674,7 +676,8 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
     case 'dream':
       return <DreamBody {...props} />
     case 'recent': {
-      const works = notes.filter((n) => n.kind === 'work' && !n.board).sort((x, y) => y.mtimeMs - x.mtimeMs).slice(0, 3)
+      // 名字叫「待办」的笔记在左边「待办」格里，不算写的东西（设置 › 文件打开「文件树里显示待办」才列，task-pd1d1）
+      const works = notes.filter((n) => n.kind === 'work' && !n.board && (appSettings().files.showTodo || !isTodoNote(n.path))).sort((x, y) => y.mtimeMs - x.mtimeMs).slice(0, 3)
       if (!works.length) return <p className="empty-note">还没写东西。左栏「我写的」旁边的加号建一篇。</p>
       return (
         <div className="recent">

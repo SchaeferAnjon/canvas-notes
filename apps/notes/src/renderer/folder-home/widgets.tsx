@@ -18,6 +18,8 @@ import { unsentOf } from '../reading/cards-store'
 import { usePrefs } from '../settings-store'
 import { useCover } from './slide-covers'
 import { openFolderHome } from './store'
+import { TodoCard } from '../todo/TodoCard'
+import { isTodoNote } from '../../shared/todo'
 
 export interface WCtx {
   folder: string
@@ -41,6 +43,8 @@ export interface WCtx {
   onAll(): void
   onCapture(): void
   save(h: FolderHome): void
+  /** 重读这一页的设置（待办卡里的旧待办搬进 待办.md 以后） */
+  reload(): void
   home: FolderHome
   id: string
 }
@@ -156,6 +160,8 @@ export function CondBody(props: { c: WCtx; cond: Cond }) {
 export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
   const { c, w } = props
   const inFolder = c.files.filter((f) => f.path.startsWith(c.folder + '/'))
+  // 名字叫「待办」的笔记在待办卡和左边「待办」格里，「最近改的」不列（设置 › 文件打开「文件树里显示待办」才列，task-pd1d1）
+  const showTodo = usePrefs((s) => s.files.showTodo)
   const set = (patch: Partial<WidgetData>) => c.save(setWidget(c.home, c.id, patch))
   switch (w.type) {
     case 'notes':
@@ -181,13 +187,15 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
       // 「课程」这一页：几门课里最近的那场考试
       return c.folder === '课程' ? <NextExam c={c} /> : <Exam w={w} set={set} />
     case 'todo':
-      return <Todos c={c} w={w} set={set} />
+      return <TodoCard folder={c.folder} w={w} reload={c.reload} />
     case 'links':
       return <Links w={w} set={set} />
     case 'text':
       return <FreeText w={w} set={set} />
-    case 'recent':
-      return inFolder.length ? <Rows c={c} list={inFolder} limit={4} right={(f) => when(f.mtimeMs)} /> : <p className="fw-empty">{EMPTY.recent}</p>
+    case 'recent': {
+      const recent = showTodo ? inFolder : inFolder.filter((f) => !isTodoNote(f.path))
+      return recent.length ? <Rows c={c} list={recent} limit={4} right={(f) => when(f.mtimeMs)} /> : <p className="fw-empty">{EMPTY.recent}</p>
+    }
     case 'board': {
       const boards = c.notes.filter((n) => n.board && n.path.startsWith(c.folder + '/'))
       const b = boards.find((n) => n.path === w.board) ?? boards[0]
@@ -584,38 +592,6 @@ export function CaptureAction(props: { onCapture(): void }) {
       <Codicon name="device-camera" size={12} />
       拍一张
     </button>
-  )
-}
-
-function Todos(props: { c: WCtx; w: WidgetData; set(p: Partial<WidgetData>): void }) {
-  const todos = props.w.todos ?? []
-  const [v, setV] = useState('')
-  const open = todos.filter((t) => !t.startsWith('[x]'))
-  return (
-    <div className="fw-todo">
-      {todos.length === 0 && <p className="fw-empty">{EMPTY.todo}</p>}
-      {[...open, ...todos.filter((t) => t.startsWith('[x]'))].slice(0, 5).map((t) => {
-        const done = t.startsWith('[x]')
-        const text = t.replace(/^\[x\]\s*/, '')
-        return (
-          <label key={t} className={done ? 'done' : ''}>
-            <input type="checkbox" checked={done} onChange={() => props.set({ todos: todos.map((x) => (x === t ? (done ? text : `[x] ${text}`) : x)) })} />
-            <span>{text}</span>
-          </label>
-        )
-      })}
-      {open.length > 5 && <p className="fw-more-t">{`还有${open.length - 5}条`}</p>}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (v.trim()) props.set({ todos: [...todos, v.trim()] })
-          setV('')
-        }}
-      >
-        <Codicon name="add" size={12} />
-        <input aria-label="加一条待办" placeholder="加一条" value={v} onChange={(e) => setV(e.target.value)} />
-      </form>
-    </div>
   )
 }
 

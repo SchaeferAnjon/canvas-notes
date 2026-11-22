@@ -4,19 +4,21 @@ import { Codicon } from '@cn/design'
 import { openSettingsAt } from '../settings/jump'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { type AttachItem, sizeText } from '../../shared/attach'
-import { type AttachIndex, buildTree, type FileEntry, fileName, folderOfPath, folderProgress, isTreeSort, previewFiles, subtree, topGroups, TREE_SORTS, type TreeNode, type TreeSort } from '../../shared/files'
+import { type AttachIndex, buildTree, type FileEntry, fileName, filterTree, folderOfPath, folderProgress, isTreeSort, previewFiles, subtree, topGroups, TREE_SORTS, type TreeNode, type TreeSort } from '../../shared/files'
 import { MovedMark, type DreamPreview } from '../dream/preview'
 import { fileIcon } from '../Palette'
 import { Progress } from '../search/QuickOpen'
 import { onReveal, setTreePicked, takeReveal, useTrashCount, useVaultFiles } from './store'
-import { folderMenu, onFileMenu } from '../ctx/file-menu'
+import { folderMenu, onFileMenu, type TreeMenu } from '../ctx/file-menu'
 import { copy, menuAt } from '../ctx/menu'
-import { moveMenu } from '../ctx/move-menu'
 import { app } from '../ctx/actions'
 import { AiIcon } from '../engine-logo'
 import { FolderRename, RenameInput } from '../note-menu'
 import { HeadBtn, MenuItem, Popover, ViewHead } from '../shell/Shell'
 import { FolderGlyph, LookPicker } from './look'
+import { useLeft } from './left-store'
+import { presetsOn } from '../../shared/left'
+import { MovePicker, noteMovedTo } from './move-pick'
 import { fileType, TypeChips, type TypeFilter, useSideType } from './type-filter'
 import './file-tree.css'
 import { bookName, usePairs } from '../read-along/store'
@@ -35,11 +37,16 @@ const PAGE = 100
 const ATT_PAGE = 3
 /** 定位到的那一行一圈强调色外圈，约 2 秒后消失（和白板上刚落下的卡片一样） */
 const RING_MS = 2000
+/** 拖着停在收着的文件夹上这么久，它自己展开（task-4891y ⑤，访达的弹簧文件夹、VS Code 都是这样） */
+const SPRING_MS = 600
 
 /** 目录树里拖着的笔记（库里的相对路径） */
 const DRAG_MIME = 'application/x-cn-note'
-/** 拖着的是文件夹（和访达一样能拖进别的文件夹） */
-const DRAG_DIR = 'application/x-cn-folder'
+/** 拖着的是文件夹（和访达一样能拖进别的文件夹；拖到图标栏上是「放到左边」，task-wniqx） */
+export const DRAG_DIR = 'application/x-cn-folder'
+/** 正在从树里拖着的文件夹（图标栏 dragover 时读不到 dataTransfer 里的值，问这里：已经在左边的不接） */
+let draggedDir: string | null = null
+export const draggedFolder = () => draggedDir
 /** 拖着选中的好几个（CN-105） */
 const DRAG_MANY = 'application/x-cn-many'
 
@@ -102,7 +109,9 @@ function coursesProgress(n: TreeNode): { done: number; total: number } | null {
 
 /**
  * 左栏「文件」（按位置，Obsidian 式目录树）：头上六个图标（新建笔记、新建文件夹、新建白板、定位当前文件、排序、全部收起），
- * 一排类型筛选（全部 / 文档 / 白板 / 剪藏 / 附件），下面是整个库的目录树。
+ * 一排类型筛选（全部 / 文档 / 白板 / 剪藏 / 附件），下面一个找文件的框（⌥⌘F，打字把树筛到命中的几行，task-4891y），再下面是整个库的目录树；
+ * 钉住的几样（置顶.json，右键「钉到最上面」）在库那一行上面单独一组（task-4891y）。拖着停在收着的文件夹上 0.6 秒它自己展开；
+ * 右键「移到…」是打字找的小弹层（move-pick.tsx）。
  * 第一行是库本身（库图标 + 库名 + 一共几个，CN-104），最外层挂在它下面：顶级分类按「收件箱 | 读进来的 | 自己写的」分组，
  * 别的文件夹和散文件收在「不在分类里的」；附件/ 也在树里（图是 file-media）。每个文件夹后面是篇数，置顶的有图钉，能有自己的图标和颜色。
  * 点文件夹的名字开它的首页（顺手展开），点箭头只展开；点文件按类型开标签。
@@ -173,12 +182,29 @@ export function FileTree(props: {
   /** 「附件」筛选要的：哪篇笔记用哪些附件（只在选了「附件」时读） */
   const [att, setAtt] = useState<AttachIndex | null>(null)
   const treeRef = useRef<HTMLDivElement>(null)
+  /** 找文件的框（task-4891y ②）：打的字；有字时树只留命中的几行和它们的上一层，都展开着 */
+  const [q, setQ] = useState('')
+  const qOn = q.trim() !== ''
+  const findRef = useRef<HTMLInputElement>(null)
+  // ⌥⌘F（命令表 find-file）：光标到这个框，打过的字全选上
+  useKeyHandler('find-file', () => (findRef.current?.focus(), findRef.current?.select(), true))
+  /** 「移到…」小弹层（task-4891y ⑦）：挪哪几个、贴着哪一行（或底部那颗按钮） */
+  const [mover, setMover] = useState<{ paths: string[]; what?: string; dirs: string[]; anchor: HTMLElement; side?: 'right' } | null>(null)
   /** 拖着一篇笔记或一个文件夹经过的文件夹（松手就挪进去） */
   const [dropOn, setDropOn] = useState<string | null>(null)
   /** 正在拖的文件夹（dragover 时读不到 dataTransfer 里的值，自己记着，不让拖进它自己里面） */
   const draggingDir = useRef<string | null>(null)
+  /** 拖着停在哪个收着的文件夹上、到点展开它的计时（task-4891y ⑤）：换了文件夹、离开、松手就作废 */
+  const spring = useRef<{ folder: string; timer: number } | null>(null)
+  const stopSpring = (folder?: string) => {
+    if (!spring.current || (folder !== undefined && spring.current.folder !== folder)) return
+    window.clearTimeout(spring.current.timer)
+    spring.current = null
+  }
+  useEffect(() => () => stopSpring(), [])
   const many = sel.size > 1
-  const dropProps = (folder: string) => ({
+  /** key：这一行在 dropOn 里记成什么（钉住那一组的行和树里同一个文件夹分开亮） */
+  const dropProps = (folder: string, closed = false, key = folder) => ({
     onDragOver: (e: React.DragEvent) => {
       const types = [...e.dataTransfer.types]
       const dir = types.includes(DRAG_DIR) ? draggingDir.current : null
@@ -187,26 +213,41 @@ export function FileTree(props: {
       if (dir && (folder === dir || folder.startsWith(dir + '/') || folderOfPath(dir) === folder)) return
       e.preventDefault()
       e.dataTransfer.dropEffect = 'move'
-      if (dropOn !== folder) setDropOn(folder)
+      if (dropOn !== key) setDropOn(key)
+      // 收着的文件夹：停 0.6 秒自己展开（只在头一次经过时起计时，之后的 dragover 不重新算）
+      if (closed && spring.current?.folder !== folder) {
+        stopSpring()
+        spring.current = {
+          folder,
+          timer: window.setTimeout(() => {
+            spring.current = null
+            if (folder) setOpen((o) => (o.has(folder) ? o : new Set([...o, folder])))
+            else setRootOpen(true)
+          }, SPRING_MS),
+        }
+      }
     },
     onDragLeave: (e: React.DragEvent) => {
-      if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null) && dropOn === folder) setDropOn(null)
+      if ((e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) return
+      stopSpring(folder)
+      if (dropOn === key) setDropOn(null)
     },
     onDrop: (e: React.DragEvent) => {
       const path = e.dataTransfer.getData(DRAG_MIME)
       const dir = e.dataTransfer.getData(DRAG_DIR)
       const list = e.dataTransfer.getData(DRAG_MANY)
       setDropOn(null)
+      stopSpring()
       draggingDir.current = null
       if (!path && !dir && !list) return
       e.preventDefault()
       e.stopPropagation()
       if (list) {
         const paths = (JSON.parse(list) as string[]).filter((p) => p !== folder && !folder.startsWith(p + '/'))
-        if (paths.length) void app().moveMany(paths, folder).then(() => setSel(new Set()))
+        if (paths.length) (noteMovedTo(folder), void app().moveMany(paths, folder).then(() => setSel(new Set())))
       } else if (dir) {
-        if (folder !== dir && !folder.startsWith(dir + '/') && folderOfPath(dir) !== folder) void app().moveFolder(dir, folder)
-      } else if (folderOfPath(path) !== folder) void app().moveNote(path, folder)
+        if (folder !== dir && !folder.startsWith(dir + '/') && folderOfPath(dir) !== folder) (noteMovedTo(folder), void app().moveFolder(dir, folder))
+      } else if (folderOfPath(path) !== folder) (noteMovedTo(folder), void app().moveNote(path, folder))
     },
   })
   const pv = props.preview
@@ -284,8 +325,10 @@ export function FileTree(props: {
   }, [type, files])
 
   const pinSet = useMemo(() => new Set(props.pins), [props.pins])
+  /** 用预设的分类（task-wniqx）：关掉时最外层不分组，分类和自己的文件夹一起按名字排 */
+  const presets = presetsOn(useLeft())
   const { tree, real, ghosts, attOf, newDirs, keep } = useMemo(() => {
-    const opts = { sort: view.sort, foldersFirst: view.foldersFirst, pinsFirst: view.pinsFirst, pins: pinSet }
+    const opts = { sort: view.sort, foldersFirst: view.foldersFirst, pinsFirst: view.pinsFirst, pins: pinSet, cats: presets }
     let real = new Map<string, string>()
     let ghosts = new Map<string, string>()
     // 梦游预览里才有的文件夹（要新建的，比如新的一门课）：那一行标「新」
@@ -297,7 +340,7 @@ export function FileTree(props: {
       const all = buildTree(list, { ...opts, keep: () => true })
       const recount = (ns: TreeNode[]): number => ns.reduce((s, n) => s + (n.kind === 'dir' ? (n.count = recount(n.children)) : (n.count = attOf.get(n.path)?.length ?? 0)), 0)
       recount(all)
-      return { tree: props.root ? subtree(all, props.root) : all, real, ghosts, attOf, newDirs, keep: undefined }
+      return { tree: filterTree(props.root ? subtree(all, props.root) : all, q), real, ghosts, attOf, newDirs, keep: undefined }
     }
     const keep = type === 'all' ? undefined : (f: FileEntry) => fileType(f, props.noteTypes) === type
     let list = files
@@ -310,8 +353,8 @@ export function FileTree(props: {
       newDirs = new Set(p.files.flatMap((f) => ancestors(f.path)).filter((d) => !had.has(d)))
     }
     const all = buildTree(list, { ...opts, keep })
-    return { tree: props.root ? subtree(all, props.root) : all, real, ghosts, attOf: null, newDirs, keep }
-  }, [files, pv, view.sort, view.foldersFirst, view.pinsFirst, pinSet, type, props.noteTypes, props.root, att])
+    return { tree: filterTree(props.root ? subtree(all, props.root) : all, q), real, ghosts, attOf: null, newDirs, keep }
+  }, [files, pv, view.sort, view.foldersFirst, view.pinsFirst, pinSet, type, props.noteTypes, props.root, att, q, presets])
   // 一个 PDF 一篇笔记：开着的是合进 PDF 那一行的笔记（「单独打开笔记」）时，当前的是 PDF 那一行（选中、定位、自动定位都认它）
   const activePath = useMemo(() => {
     const a = props.activePath
@@ -329,7 +372,8 @@ export function FileTree(props: {
       filterOpen.done = null
       return
     }
-    if (filterOpen.done === type || !tree.length) return
+    // 找文件的框里有字时树是筛过的：等清空了再算（不然只替命中的几行展开过，记成「展开过了」）
+    if (qOn || filterOpen.done === type || !tree.length) return
     const dirs: string[] = []
     let files = 0
     const walk = (ns: TreeNode[]) => {
@@ -457,18 +501,28 @@ export function FileTree(props: {
   const selList = () => order.filter((p) => sel.has(p))
   /** 选中的这几个交给 AI：右栏 AI 打开，「看得到」写「选中的N个」 */
   const askSel = () => app().askAiFiles(selList().map((p) => ({ path: p, dir: isDir(p) })))
+  /** 「移到…」小弹层：贴着 anchor（树里的一行贴在它右边，底部那颗按钮在它上面） */
+  const openMover = (paths: string[], anchor: HTMLElement, side?: 'right') =>
+    setMover({ paths, ...(paths.length === 1 ? { what: shown(fileName(paths[0]!)) } : {}), dirs: paths.filter(isDir), anchor, ...(side ? { side } : {}) })
+  /** 挑好了去哪：一篇、一个文件夹、选中的几个各走各的（和拖进去一样） */
+  const moveTo = (paths: string[], folder: string) => {
+    if (paths.length > 1) return void app().moveMany(paths, folder).then(() => setSel(new Set()))
+    const p = paths[0]!
+    void (isDir(p) ? app().moveFolder(p, folder) : app().moveNote(p, folder))
+  }
+  /** 树里右键的那几项（钉住、移到…）：右键的是哪一行 */
+  const treeMenu = (path: string, el: HTMLElement): TreeMenu => ({ moveTo: () => openMover([path], el, 'right') })
   /** 选中的这一组的右键菜单：一次只能对一个的灰掉 */
   const groupMenu = (e: React.MouseEvent) => {
     const paths = selList()
-    const dirs = new Set(paths.filter((p) => isDir(p)))
-    const targets = moveMenu(app().allFolders(), null, (f) => void app().moveMany(paths, f).then(() => setSel(new Set())), (f) => [...dirs].some((d) => f === d || f.startsWith(d + '/')))
+    const el = e.currentTarget as HTMLElement
     void menuAt(e, [
       { label: '打开', enabled: false, run: () => undefined },
       // 交给 AI（task-0tgz2，偏好「多选文件能交给 AI」）：和底部那一条的「问AI」一样
       { label: '问 AI', ai: 'chat', run: () => askSel() },
       '-',
       { label: '重命名…', enabled: false, run: () => undefined },
-      targets.length > 0 && { label: '移到', submenu: targets },
+      { label: '移到…', run: () => openMover(paths, el, 'right') },
       { label: '放到左边', enabled: false, run: () => undefined },
       '-',
       { label: '拷贝路径', run: () => copy(paths.map((p) => app().absPath(p)).join('\n')) },
@@ -502,7 +556,7 @@ export function FileTree(props: {
   }
   /** 在空白处按下拖：框选（碰到的行都选上） */
   const startLasso = (e: React.MouseEvent) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('[data-sel], button, input')) return
+    if (e.button !== 0 || (e.target as HTMLElement).closest('[data-sel], button, input, .ft-pins')) return
     // 焦点放到树上：框完按 Esc 能取消、⌘⌫ 能删（键盘事件要落在树里）
     treeRef.current!.focus({ preventScroll: true })
     const box = treeRef.current!.getBoundingClientRect()
@@ -553,11 +607,11 @@ export function FileTree(props: {
     onDragStart: (e: React.DragEvent) => {
       if (dragMany(e, path)) return
       e.stopPropagation()
-      draggingDir.current = path
+      draggingDir.current = draggedDir = path
       e.dataTransfer.setData(DRAG_DIR, path)
       e.dataTransfer.effectAllowed = 'move'
     },
-    onDragEnd: () => ((draggingDir.current = null), setDropOn(null)),
+    onDragEnd: () => ((draggingDir.current = draggedDir = null), stopSpring(), setDropOn(null)),
   })
 
   const newFolderRow = (parent: string, depth: number) => (
@@ -643,7 +697,7 @@ export function FileTree(props: {
         aria-current={on ? 'page' : undefined}
         tabIndex={-1}
         data-path={d.path}
-        className={'si ft-row ft-dbrow' + (sel.has(d.path) ? ' sel' : '') + (on ? ' on' : '') + (ring?.has(d.path) ? ' ring' : '')}
+        className={'si ft-row ft-dbrow' + (sel.has(d.path) ? ' sel' : '') + (on ? ' on' : '') + (ring?.has(d.path) ? ' ring' : '') + (hit(d.name) ? ' hit' : '')}
         style={{ paddingLeft: 8 + depth * 14 }}
         title={`${d.path} · 数据库的${n}条记录（磁盘上是一个文件夹）`}
         {...selProps(d.path)}
@@ -657,15 +711,30 @@ export function FileTree(props: {
           if (many && sel.has(d.path)) return groupMenu(e)
           setPicked(d.path)
           const el = e.currentTarget
-          void menuAt(e, folderMenu(d.path, { rename: () => setRenaming(d.path), newFolder: () => startFolder(d.path), look: () => setLook({ folder: d.path, el }) }))
+          void menuAt(e, folderMenu(d.path, { rename: () => setRenaming(d.path), newFolder: () => startFolder(d.path), look: () => setLook({ folder: d.path, el }), tree: treeMenu(d.path, el) }))
         }}
       >
         <span className="ft-tw" />
         <Codicon name="database" size={16} className="ft-db" />
-        {renaming === d.path ? <FolderRename folder={d.path} onDone={() => setRenaming(null)} /> : <span className="truncate">{d.name}</span>}
+        {renaming === d.path ? <FolderRename folder={d.path} onDone={() => setRenaming(null)} /> : <span className="truncate">{hl(d.name)}</span>}
         <span className="ft-fl" />
         {view.counts && <span className="ft-count num">{`${n}条`}</span>}
       </div>
+    )
+  }
+
+  /** 找文件：名字里命中的那几个字加粗、强调色；这一行算不算命中 */
+  const qw = q.trim().toLowerCase()
+  const hit = (name: string) => qOn && name.toLowerCase().includes(qw)
+  const hl = (name: string): React.ReactNode => {
+    const i = qOn ? name.toLowerCase().indexOf(qw) : -1
+    if (i < 0) return name
+    return (
+      <>
+        {name.slice(0, i)}
+        <b>{name.slice(i, i + qw.length)}</b>
+        {name.slice(i + qw.length)}
+      </>
     )
   }
 
@@ -676,7 +745,7 @@ export function FileTree(props: {
     for (const [i, n] of nodes.slice(0, limit).entries()) {
       const pad = { paddingLeft: 8 + depth * 14 }
       if (n.kind === 'dir') {
-        const isOpen = open.has(n.path)
+        const isOpen = qOn || open.has(n.path)
         const fp = n.path === '课程' ? coursesProgress(n) : folderProgress(n)
         const on = activePath === n.path
         order.push(n.path)
@@ -690,10 +759,10 @@ export function FileTree(props: {
             aria-current={on ? 'page' : undefined}
             tabIndex={-1}
             data-path={n.path}
-            className={'si ft-row' + (sel.has(n.path) ? ' sel' : '') + (on ? ' on' : !sel.has(n.path) && picked === n.path ? ' picked' : '') + (ring?.has(n.path) ? ' ring' : '') + (dropOn === n.path ? ' drop' : '')}
+            className={'si ft-row' + (sel.has(n.path) ? ' sel' : '') + (on ? ' on' : !sel.has(n.path) && picked === n.path ? ' picked' : '') + (ring?.has(n.path) ? ' ring' : '') + (dropOn === n.path ? ' drop' : '') + (hit(n.name) ? ' hit' : '')}
             style={pad}
             title={n.path}
-            {...dropProps(n.path)}
+            {...dropProps(n.path, !isOpen)}
             {...selProps(n.path)}
             {...dirDrag(n.path)}
             onClick={(e) => pick(e, n.path) || openFolder(n.path)}
@@ -705,7 +774,7 @@ export function FileTree(props: {
               if (many && sel.has(n.path)) return groupMenu(e)
               setPicked(n.path)
               const el = e.currentTarget
-              void menuAt(e, folderMenu(n.path, { rename: () => setRenaming(n.path), newFolder: () => startFolder(n.path), look: () => setLook({ folder: n.path, el }) }))
+              void menuAt(e, folderMenu(n.path, { rename: () => setRenaming(n.path), newFolder: () => startFolder(n.path), look: () => setLook({ folder: n.path, el }), tree: treeMenu(n.path, el) }))
             }}
           >
             <span
@@ -720,7 +789,7 @@ export function FileTree(props: {
               <Codicon name={isOpen ? 'chevron-down' : 'chevron-right'} size={12} />
             </span>
             <FolderGlyph folder={n.path} open={isOpen} />
-            {renaming === n.path ? <FolderRename folder={n.path} onDone={() => setRenaming(null)} /> : <span className="truncate">{n.name}</span>}
+            {renaming === n.path ? <FolderRename folder={n.path} onDone={() => setRenaming(null)} /> : <span className="truncate">{hl(n.name)}</span>}
             {newDirs.has(n.path) && (
               <span className="pv-mark">
                 <span className="tag-new" title="梦游要新建的文件夹，收下以后才有">
@@ -740,7 +809,7 @@ export function FileTree(props: {
                 {`${fp.done}/${fp.total}讲`}
               </span>
             ) : (
-              view.counts && <span className="ft-count num">{n.count}</span>
+              view.counts && !qOn && <span className="ft-count num">{n.count}</span>
             )}
           </div>,
         )
@@ -777,7 +846,7 @@ export function FileTree(props: {
       // 这篇用的数据库的记录文件夹挂在它下面（task-5yp97）：这一行能展开
       const dbs = items ? [] : n.children.filter((c) => c.kind === 'dir')
       const dbKey = 'db:' + n.path
-      const dbOpen = dbs.length > 0 && open.has(dbKey)
+      const dbOpen = dbs.length > 0 && (qOn || open.has(dbKey))
       order.push(realPath)
       rows.push(
         <div
@@ -789,7 +858,7 @@ export function FileTree(props: {
           aria-expanded={items ? attOpen : dbs.length ? dbOpen : undefined}
           tabIndex={-1}
           data-path={realPath}
-          className={'si ft-row ft-fit' + (items ? ' att' : '') + (sel.has(realPath) ? ' sel' : '') + (activePath === realPath ? ' on' : '') + (ring?.has(realPath) ? ' ring' : '')}
+          className={'si ft-row ft-fit' + (items ? ' att' : '') + (sel.has(realPath) ? ' sel' : '') + (activePath === realPath ? ' on' : '') + (ring?.has(realPath) ? ' ring' : '') + (hit(shown(n.name)) ? ' hit' : '')}
           style={pad}
           title={note ? `${n.kind === 'pdf' ? 'PDF' : 'HTML'} 和它的笔记是一行：点开 ${n.kind === 'pdf' ? 'PDF' : 'HTML'}，笔记跟着在旁边` : n.path}
           data-note={note?.path}
@@ -797,13 +866,15 @@ export function FileTree(props: {
           // 笔记能拖进别的文件夹（松在文件夹那一行上）
           draggable={n.kind === 'md' && !pv && type !== 'att'}
           onDragStart={(e) => dragMany(e, realPath) || ((e.dataTransfer.setData(DRAG_MIME, realPath), (e.dataTransfer.effectAllowed = 'move')))}
-          onDragEnd={() => setDropOn(null)}
+          onDragEnd={() => (stopSpring(), setDropOn(null))}
           onClick={(e) => pick(e, realPath) || (setPicked(null), note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath))}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath))
             if (isKey(e, 'rename') && /\.md$/i.test(realPath)) setRenaming(realPath)
           }}
-          onContextMenu={(e) => (many && sel.has(realPath) ? groupMenu(e) : onFileMenu(e, realPath, { rename: () => setRenaming(realPath), ...(note ? { note: note.path } : {}) }))}
+          onContextMenu={(e) =>
+            many && sel.has(realPath) ? groupMenu(e) : onFileMenu(e, realPath, { rename: () => setRenaming(realPath), ...(note ? { note: note.path } : {}), tree: treeMenu(realPath, e.currentTarget) })
+          }
         >
           <span
             className="ft-tw"
@@ -827,7 +898,7 @@ export function FileTree(props: {
           {renaming === realPath ? (
             <RenameInput path={realPath} onDone={() => setRenaming(null)} onRename={props.onRename} />
           ) : (
-            <span className="truncate">{shown(n.name)}</span>
+            <span className="truncate">{hl(shown(n.name))}</span>
           )}
           {/* PDF、HTML 名字后面一个小标（照 Obsidian）；md 不加（默认状态不加标签） */}
           {(n.kind === 'pdf' || n.kind === 'html') && <span className="ft-ext">{n.kind === 'pdf' ? 'PDF' : 'HTML'}</span>}
@@ -889,14 +960,14 @@ export function FileTree(props: {
         key="root"
         role="treeitem"
         aria-level={1}
-        aria-expanded={rootOpen}
+        aria-expanded={rootOpen || qOn}
         aria-selected={false}
         tabIndex={-1}
         data-path=""
         className={'si ft-row ft-root' + (dropOn === '' ? ' drop' : '')}
         style={{ paddingLeft: 8 }}
         title={props.vaultName}
-        {...dropProps('')}
+        {...dropProps('', !rootOpen)}
         onClick={() => setRootOpen((o) => !o)}
         onContextMenu={(e) =>
           void menuAt(e, [
@@ -909,18 +980,25 @@ export function FileTree(props: {
         }
       >
         <span className="ft-tw">
-          <Codicon name={rootOpen ? 'chevron-down' : 'chevron-right'} size={12} />
+          <Codicon name={rootOpen || qOn ? 'chevron-down' : 'chevron-right'} size={12} />
         </span>
         <Codicon name="library" size={16} />
         <span className="truncate">{props.vaultName}</span>
         <span className="ft-fl" />
-        {view.counts && <span className="ft-count num">{type === 'att' && att ? total + att.convos.length + att.orphans.length : total}</span>}
+        {view.counts && !qOn && <span className="ft-count num">{type === 'att' && att ? total + att.convos.length + att.orphans.length : total}</span>}
       </div>,
     )
-    if (rootOpen) {
+    if (rootOpen || qOn) {
       if (making === '') rows.push(newFolderRow('', 1))
-      // 最外层按顶级分类分组：收件箱 | 读进来的 | 自己写的 | 不在分类里的（筛类型时没有东西的分类不画）
-      for (const g of topGroups(tree, type === 'all' && !pv)) {
+      if (qOn && !tree.length)
+        rows.push(
+          <p key="q-none" className="s-none ft-qnone">
+            {`没有名字里带「${q.trim()}」的文件`}
+          </p>,
+        )
+      // 最外层按顶级分类分组：收件箱 | 读进来的 | 自己写的 | 不在分类里的（筛类型、找文件时没有东西的分类不画）；
+      // 关掉预设的分类时不分组，空的分类不画（task-wniqx）
+      for (const g of topGroups(tree, type === 'all' && !pv && !qOn, presets)) {
         if (g.title)
           rows.push(
             <div key={'gh:' + g.title} className="ft-gh" role="presentation" style={{ paddingLeft: 22 }}>
@@ -985,6 +1063,59 @@ export function FileTree(props: {
   const sortNow = TREE_SORTS.find((s) => s.id === view.sort)!
   const selN = sel.size
 
+  /**
+   * 树顶「钉住」（task-4891y ①，图上的框 ①）：置顶.json 里的那几样（文件夹写成「写作/」），按钉的先后一行一个，排在库那一行上面；
+   * 不展开、不缩进第二层，文件夹后面写篇数；点开、右键和树里那一行一样，能把笔记拖进钉住的文件夹。
+   * 筛着类型、找着文件、梦游预览开着、摘出来的文件夹里不画（那时树是筛过的一枝）
+   */
+  const find = (ns: TreeNode[], path: string): TreeNode | null => {
+    for (const n of ns) {
+      if (n.path === path) return n
+      if (path.startsWith(n.path + '/')) return find(n.children, path)
+    }
+    return null
+  }
+  const pinRows =
+    props.root || type !== 'all' || qOn || pv
+      ? []
+      : props.pins.flatMap((key) => {
+          const dir = key.endsWith('/')
+          const path = dir ? key.slice(0, -1) : key
+          const n = find(tree, path)
+          if (!n || (n.kind === 'dir') !== dir) return []
+          const on = activePath === path
+          const go = () => (dir ? openFolder(path) : props.onOpen(path))
+          return [
+            <div
+              key={'pin:' + key}
+              role="button"
+              tabIndex={0}
+              aria-current={on ? 'page' : undefined}
+              className={'si ft-row ft-pinrow' + (on ? ' on' : '') + (dropOn === 'pin:' + path ? ' drop' : '')}
+              style={{ paddingLeft: 22 }}
+              title={path}
+              {...(dir ? dropProps(path, false, 'pin:' + path) : {})}
+              onClick={go}
+              onKeyDown={(e) => e.key === 'Enter' && go()}
+              onContextMenu={(e) => {
+                const el = e.currentTarget
+                if (!dir) return onFileMenu(e, path, { tree: treeMenu(path, el) })
+                void menuAt(e, folderMenu(path, { look: () => setLook({ folder: path, el }), tree: treeMenu(path, el) }))
+              }}
+            >
+              <span className="ft-tw" />
+              {dir ? <FolderGlyph folder={path} /> : props.boards.has(path) ? <i className="sw ft-sw" style={{ background: props.boards.get(path) }} /> : <Codicon name={fileIcon(path, false, props.digests.has(path))} size={16} />}
+              <span className="truncate">{dir ? n.name : shown(n.name)}</span>
+              <span className="ft-fl" />
+              <span className="ft-pin" aria-label="钉住了">
+                <Codicon name="pinned" size={12} />
+              </span>
+              {dir && view.counts && <span className="ft-count num">{n.count}</span>}
+            </div>,
+          ]
+        })
+  const findKey = K('find-file')
+
   return (
     <>
       <ViewHead title={props.title}>
@@ -999,6 +1130,31 @@ export function FileTree(props: {
         <HeadBtn icon="collapse-all" label="全部收起" onClick={() => setOpen(new Set())} />
       </ViewHead>
       <TypeChips value={type} onChange={setType} className="side-chips" att />
+      {/* 找文件的框（task-4891y ②）：类型筛选下面；空着时右边写命令表里的键（⌥⌘F），有字时是一个 ×；esc 清空，回车开第一个命中的，↓ 到树里 */}
+      <label className="ft-find">
+        <Codicon name="search" size={14} />
+        <input
+          ref={findRef}
+          type="search"
+          aria-label="找文件"
+          placeholder="找文件、文件夹"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (composing(e)) return
+            if (e.key === 'Escape') (e.preventDefault(), q ? setQ('') : e.currentTarget.blur())
+            if (e.key === 'Enter') (e.preventDefault(), treeRef.current?.querySelector<HTMLElement>('.ft-row.hit')?.click())
+            if (e.key === 'ArrowDown') (e.preventDefault(), treeRef.current?.querySelector<HTMLElement>(qOn ? '.ft-row.hit' : '[role=treeitem]')?.focus())
+          }}
+        />
+        {q ? (
+          <button className="ft-x" aria-label="清空" onClick={() => (setQ(''), findRef.current?.focus())}>
+            <Codicon name="close" size={14} />
+          </button>
+        ) : (
+          findKey && <span className="ft-k">{findKey}</span>
+        )}
+      </label>
       {sortMenu && (
         <Popover anchor={sortMenu} label="排序" onClose={() => setSortMenu(null)} className="sortpop">
           <div className="mh">排序</div>
@@ -1017,6 +1173,7 @@ export function FileTree(props: {
         </Popover>
       )}
       {look && <LookPicker folder={look.folder} anchor={look.el} onClose={() => setLook(null)} />}
+      {mover && <MovePicker {...mover} onPick={(f) => moveTo(mover.paths, f)} onClose={() => setMover(null)} />}
       <nav className="nav" aria-label="笔记">
         <div
           className="ftree"
@@ -1037,8 +1194,17 @@ export function FileTree(props: {
             ])
           }
         >
+          {pinRows.length > 0 && (
+            <div className="ft-pins" role="group" aria-label="钉住">
+              <div className="ft-gh" role="presentation" style={{ paddingLeft: 22 }}>
+                <span>钉住</span>
+                <span className="ln" />
+              </div>
+              {pinRows}
+            </div>
+          )}
           {rows}
-          {loaded && !tree.length && making === null && props.root && <p className="s-none">{type === 'all' ? '这个文件夹还是空的' : '没有这一类的文件'}</p>}
+          {loaded && !tree.length && making === null && props.root && <p className="s-none">{qOn ? `没有名字里带「${q.trim()}」的文件` : type === 'all' ? '这个文件夹还是空的' : '没有这一类的文件'}</p>}
           {lasso && (
             <div
               className="ft-lasso"
@@ -1063,11 +1229,7 @@ export function FileTree(props: {
             aria-label="移到…"
             data-tip="移到…"
             data-side="above"
-            onClick={(e) => {
-              const paths = selList()
-              const dirs = paths.filter((p) => isDir(p))
-              void menuAt(e, moveMenu(app().allFolders(), null, (f) => void app().moveMany(paths, f).then(() => setSel(new Set())), (f) => dirs.some((d) => f === d || f.startsWith(d + '/'))))
-            }}
+            onClick={(e) => openMover(selList(), e.currentTarget)}
           >
             <Codicon name="folder-opened" size={14} />
             <span className="lb">移到…</span>

@@ -463,10 +463,6 @@
 .sa-anki .dot.g {
   background: var(--green);
 }
-.sa-val {
-  font-size: 13px;
-  color: var(--t2);
-}
 /* 设置 › 读PDF「送进哪个牌组」例子里的路径和牌组名：不在中间折行，「课程::ecp」不加中西文间距（和 Anki 里的写法一样） */
 .sa-nw {
   white-space: nowrap;

@@ -41,6 +41,10 @@ import { holdTyping } from './new-note-hold'
 import { COURSES, INBOX_DIR, Sidebar, type SideView, viewName } from './Sidebar'
 import { INBOX_WARN } from '../shared/sidebar'
 import { NoteDoc } from './note-doc'
+import { goToLine } from './goto-line'
+import { TodoPanel } from './todo/TodoPanel'
+import { refreshTodos, useTodayCount } from './todo/store'
+import { isTodoNote, todoLabel } from '../shared/todo'
 import { isBookDigest } from '../shared/plugins/weread'
 import { Palette, type PaletteCommand } from './Palette'
 import { QuickOpen } from './search/QuickOpen'
@@ -51,7 +55,9 @@ import { loadDescs } from './files/category-store'
 import { folderLabel, setVaultName } from './vault-name'
 import { CATEGORY_NAMES, groupLeft } from '../shared/categories'
 import { FolderGlyph, LookPicker } from './files/look'
-import { dropLeft, moveLeft, putLeft, takeLeft } from '../shared/left'
+import { dropLeft, moveLeft, presetsOn, putLeft, takeLeft } from '../shared/left'
+import { DRAG_DIR, draggedFolder } from './files/FileTree'
+import { leftConfig } from './files/left-store'
 import { usePluginCommands, usePluginEntries } from './plugins'
 import { loadCmds, noteUsed, setRegistry, useCmds } from './search/cmd-store'
 import { accelFor, keyFor, replayAppKey, runAppKey, runLocal, setAppRunner, withKeys } from './keys'
@@ -305,7 +311,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       // 整理了顶级分类：摘在左边的「素材/微信读书」这一格现在是「阅读」
       let view = v
       for (const m of vault.organized ?? []) if (view && (view === `dir:${m.from}` || view.startsWith(`dir:${m.from}/`))) view = `dir:${m.to}${view.slice(4 + m.from.length)}`
-      return view === 'files' || view === 'recent' || view === 'dream' || view === 'desks' || view?.startsWith('dir:') ? (view as SideView) : 'recent'
+      return view === 'files' || view === 'todo' || view === 'recent' || view === 'dream' || view === 'desks' || view?.startsWith('dir:') ? (view as SideView) : 'recent'
     } catch {
       return 'recent'
     }
@@ -344,10 +350,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     requestReveal(folder)
     openLeft('files')
   }
-  /** 右键「放到左边」：摘到活动栏，换到它那一格 */
-  const putOnLeft = (folder: string) => {
-    void updateLeft((c) => putLeft(c, folder))
+  /** 右键「放到左边」、从树里拖到活动栏（task-wniqx，before：放到那一格前面）：摘到活动栏，换到它那一格；底部能撤回 */
+  const putOnLeft = (folder: string, before: string | null = null) => {
+    const was = leftConfig()
+    if (was.left.includes(folder)) return
+    void updateLeft((c) => putLeft(c, folder, before))
+    // 和点那一格一样：左栏是它那一枝，中间开它的首页（原型、图 3-放上去以后）
     openLeft(`dir:${folder}`)
+    openFolder(folder)
+    noticeWithUndo(`「${folder.split('/').pop()}」放到左边了：图标栏多了一格`, () => void updateLeft(() => was))
   }
   /** 图标栏上点亮着的那个 = 收起左栏 */
   const toggleLeft = (v: SideView) => (!sidebarHidden && shownView === v ? setSidebarHidden(true) : (openLeft(v), setPane('left')))
@@ -379,7 +390,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const takeOffLeft = (f: string) => {
     const before = leftCfg
     void updateLeft((c) => takeLeft(c, f))
-    noticeWithUndo(`「${f.split('/').pop()}」从左边拿下了；右键文件夹「放到左边」能放回`, () => void updateLeft(() => before))
+    noticeWithUndo(`「${f.split('/').pop()}」从左边拿下了；文件夹没动，右键文件夹「放到左边」能放回`, () => void updateLeft(() => before))
   }
   /** 关标签、收起一格（CN-98）：提示条带「撤回」，⌘Z 不当成点它（留给文档里撤字） */
   const noticeClosed = (text: string, run: () => void) => {
@@ -540,6 +551,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const refreshNotes = useCallback(() => {
     void window.cn.listNotes().then(setNotes)
     refreshVaultFiles()
+    // 待办三处（左边「待办」格、首页待办卡、任务界面）跟着库里的改动重读（task-pd1d1）
+    refreshTodos()
     void window.cn.pins().then(setPins)
     // 列表没变就不换（免得整个书桌跟着重画）
     void window.cnReading.listPdfs().then((next) => setPdfs((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next)))
@@ -812,6 +825,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     [openPdf],
   )
   useEffect(() => window.cnReading.onOpenAt((a) => openPdfAt(a.file, a.page, a.rect)), [openPdfAt])
+  // 画布今日「打开笔记，到这一行」：canvas-notes://open?file=<笔记>.md&line=N
+  useEffect(() => window.cn.onOpenNoteAt((a) => (openNote(a.file), a.line && void goToLine(a.file, a.line))), [openNote])
   const openFolder = useCallback(
     (folder: string, fresh = false) =>
       open(
@@ -1058,6 +1073,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const [tabFade, setTabFade] = useState({ left: false, right: false })
   /** 标签放不下（要滚）：这时右端才有「N ⌄」 */
   const [tabsOver, setTabsOver] = useState(false)
+  /**
+   * B 的动作带字时当前标签放不下（中间还宽于 640，可动作多：白板「属性 · 任务 / 白板 / 文档 · 80% · 收件箱」）：
+   * 动作只留图标，位置让给标签（同中间窄于 640）。收着时先拿掉 .tight 量一下带字放不放得下，放得下才让字回来（同一帧里量，不闪）
+   */
+  const [tabsTight, setTabsTight] = useState(false)
+  const tight = useRef(false)
   const syncTabs = useCallback(() => {
     const el = tlistRef.current
     if (!el) return
@@ -1066,6 +1087,22 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const onAt = [...el.querySelectorAll<HTMLElement>(':scope > .tab')].findIndex((t) => t.classList.contains('on'))
     // 停在标签边上（方向 A）：滚到最右时左端也停在某个标签开头，差的那一段补在标签后面（.tlist[data-tail]::after）
     const boxes = tabBoxes(el)
+    const center = el.closest('.frame-b .center')
+    if (onAt >= 0 && center) {
+      const fits = () => el.clientWidth + 0.5 >= boxes[onAt]!.width
+      let want = tight.current
+      if (!want) want = !fits()
+      else {
+        center.classList.remove('tight')
+        want = !fits()
+        center.classList.add('tight')
+      }
+      if (want !== tight.current) {
+        tight.current = want
+        center.classList.toggle('tight', want)
+        setTabsTight(want)
+      }
+    }
     const tail = tabTail(boxes, el.clientWidth)
     if (tail > 0) {
       // 补的那一段本身也算一个标签条里的东西，前面带着标签之间的间隔（B 2）：只补剩下的
@@ -1491,6 +1528,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const tryIt = (n: number) => void (!runLocal('new-folder') && n > 0 && requestAnimationFrame(() => tryIt(n - 1)))
     requestAnimationFrame(() => tryIt(20))
   }
+  /** 找文件（⌥⌘F，task-4891y）：同上，左栏换到「文件」，树画出来以后光标到它上面那个框（树登记了 find-file） */
+  function findInTree() {
+    openLeft('files')
+    const tryIt = (n: number) => void (!runLocal('find-file') && n > 0 && requestAnimationFrame(() => tryIt(n - 1)))
+    requestAnimationFrame(() => tryIt(20))
+  }
   /** 命令表里的一条（名字、默认在哪组、说明照命令表 shared/cmd-table.ts），加上 ⌘K 里的图标和跑法 */
   const C = (id: string, icon: CodiconName, run: () => void, more: Partial<PaletteCommand> = {}): PaletteCommand => {
     const d = keyDef(id)!
@@ -1539,6 +1582,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     C('left-files', 'files', () => openLeft('files')),
     C('left-recent', 'clockface', () => openLeft('recent')),
     C('left-desks', 'layout', () => openLeft('desks')),
+    C('find-file', 'search', () => findInTree()),
     C('fold-center', folded ? 'screen-normal' : 'screen-full', () => setCenterFold((v) => !v)),
     C('save-desk', 'layout', () => openDeskDialog()),
     // 书桌一张一条（⌘K 里「书桌」一组，打字搜名字也行）
@@ -1911,6 +1955,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   setMenuNotice(setNotice)
   setAppActions({
     openFile,
+    openPdfAt,
     openHere,
     openNoteOnly: (path) => openNote(path, false, true),
     pairWeb(path) {
@@ -2114,7 +2159,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   }, [])
   const frame = settings.appearance.frame
   // 梦游预览时数的是改好以后的收件箱
-  const inboxCount = (pv.on ? pv.preview.notes : notes).filter((n) => n.kind === 'inbox').length
+  // 收件箱/待办.md 是放随手加的待办的（在左边「待办」格里），不算等着整理的
+  const inboxCount = (pv.on ? pv.preview.notes : notes).filter((n) => n.kind === 'inbox' && !isTodoNote(n.path)).length
+  const todoToday = useTodayCount()
   /**
    * ⌘W、菜单「文件 › 关闭」（CN-98 方向 A「关这一格」）：当前栏有标签就关当前标签，没有标签就收起这一格。
    * 中间、左栏：关中间的当前标签（左栏只是导航）；右栏网页：关当前网页标签，最后一个关掉网页这格收起；
@@ -2204,10 +2251,14 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const barItem = (id: SideView, label: string, icon: BarItem['icon'], extra: Partial<BarItem> = {}): BarItem => ({ id, label, icon, on: !sidebarHidden && shownView === id, onClick: () => toggleLeft(id), ...extra })
   const viewItems: BarItem[] = [
     barItem('files', '文件', 'files', { key: keyFor('left-files') ?? undefined }),
+    // 「文件」下面一格「待办」（task-pd1d1）：库里所有笔记的「- [ ]」，数字是今天（含过期）没做的
+    // 窗口最矮放不下时它先收进「⋯」，八个分类都留着（2026-11-22 用户定）；「⋯」自己占一格，只收它腾不出地方，接着收「书桌」
+    barItem('todo', '待办', 'checklist', { badge: todoToday, tid: 'todo', fold: 2 }),
     barItem('recent', '最近', 'clockface', { key: keyFor('left-recent') ?? undefined }),
     // 书桌（task-kbnc0 方向 B）：存好的一整套
-    barItem('desks', '书桌', 'layout', { tip: '书桌：存好的一整套（笔记、网页、读到哪）', key: keyFor('left-desks') ?? undefined }),
+    barItem('desks', '书桌', 'layout', { tip: '书桌：存好的一整套（笔记、网页、读到哪）', key: keyFor('left-desks') ?? undefined, fold: 1 }),
   ]
+  const presets = presetsOn(leftCfg)
   const dirItem = (f: string): BarItem =>
     barItem(`dir:${f}`, viewName(`dir:${f}`), 'folder', {
       glyph: <FolderGlyph folder={f} mono size={0} />,
@@ -2216,20 +2267,49 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       onClick: () => (!sidebarHidden && shownView === `dir:${f}` ? setSidebarHidden(true) : (openLeft(`dir:${f}`), openFolder(f))),
       onContextMenu: (e) => {
         const el = e.currentTarget
+        // 「换图标和颜色…」排最前（task-wniqx：放上去的几格默认都是文件夹图标，先换图标才分得清）；分类那几格最后一项去设置里关掉预设
         void menuAt(e, [
+          { label: '换图标和颜色…', run: () => setBarLook({ folder: f, el }) },
           { label: '从左边拿下', run: () => takeOffLeft(f) },
           { label: '在「文件」里看位置', run: () => showInFiles(f) },
           '-',
-          { label: '换图标和颜色…', run: () => setBarLook({ folder: f, el }) },
           // 只在这一段里挪（moveLeft）：段里第一个没有上移、最后一个没有下移
           { label: '上移', enabled: moveLeft(leftCfg, f, -1) !== leftCfg, run: () => updateLeft((c) => moveLeft(c, f, -1)) },
           { label: '下移', enabled: moveLeft(leftCfg, f, 1) !== leftCfg, run: () => updateLeft((c) => moveLeft(c, f, 1)) },
+          ...(presets && CATEGORY_NAMES.includes(f) ? (['-', { label: '不想要预设分类？去设置里关掉…', run: () => openSettingsAt('leftPresets') }] as const) : []),
         ])
       },
-      drag: { key: f, onDrop: (from, before) => void updateLeft((c) => dropLeft(c, from, before)) },
+      drag: {
+        key: f,
+        onDrop: (from, before) => {
+          const next = dropLeft(leftCfg, from, before)
+          if (next === leftCfg || next.left.join('\n') === leftCfg.left.join('\n')) return
+          void updateLeft((c) => dropLeft(c, from, before))
+          const seg = groupLeft(next.left, presets).find((g) => g.includes(from))!
+          setNotice(`「${from.split('/').pop()}」挪到了第${seg.indexOf(from) + 1}格`)
+          setNoticeUndo(null)
+        },
+      },
       fold: true,
     })
-  const dirGroups: BarItem[][] = groupLeft(leftCfg.left).map((g) => g.map(dirItem))
+  const leftGroups = groupLeft(leftCfg.left, presets)
+  const dirGroups: BarItem[][] = leftGroups.map((g) => g.map(dirItem))
+  // 从树里拖文件夹到图标栏（task-wniqx）：落点在自己放上去的那一段（不是分类的几格）；那一段还空着时线画在最后一格分类下面
+  const ownCells = leftCfg.left.filter((f) => (presets ? !CATEGORY_NAMES.includes(f) : f !== INBOX_DIR))
+  const lastDir = leftGroups.flat().at(-1) ?? null
+  const barAccept = {
+    type: DRAG_DIR,
+    ok: () => {
+      const f = draggedFolder()
+      return !!f && !leftConfig().left.includes(f)
+    },
+    cells: ownCells.map((f) => `dir:${f}`),
+    after: lastDir && `dir:${lastDir}`,
+    onDrop: (before: string | null) => {
+      const f = draggedFolder()
+      if (f) putOnLeft(f, before && before.slice(4))
+    },
+  }
   const dreamItems: BarItem[] = [barItem('dream', '梦游报告', 'wand', { dot: pendingOf(dream.report) > 0, key: keyFor('dream-report') ?? undefined })]
   // 「笔记」一直在最上面（右图标栏方向 A「原地变淡」）：读 PDF / HTML 时开关笔记标签（工作区方向 A：独立的标签，在哪由布局记着）；
   // 别的页变淡，点了说为什么；换页面五格一点都不挪。AI 只有右下角那一个入口（CN-22 方向 A）
@@ -2343,6 +2423,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         side="left"
         label="左栏"
         groups={[viewItems, ...dirGroups, dreamItems]}
+        accept={barAccept}
         bottom={
           <>
             <button className="ab" aria-label="库" data-tip={`库：${vault.name}`} data-key="换库、在访达里显示" data-side="right" onClick={(e) => setMenu({ kind: 'vault', el: e.currentTarget })}>
@@ -2401,6 +2482,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         )
       ) : shownView === 'desks' ? (
         !sidebarHidden && <DeskPanel />
+      ) : shownView === 'todo' ? (
+        !sidebarHidden && <TodoPanel />
       ) : (
         <Sidebar
           view={shownView}
@@ -2426,7 +2509,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
 
       <ActsSlot.Provider value={actsEl}>
       {/* 中间那一栏：工作区里排第几栏就放在 .win 的第几列（不挪 DOM，里面的网页、HTML 不重新加载） */}
-      <main className={'center' + (pv.on ? ' previewing' : '') + (centerNarrow ? ' narrow' : '') + (centerCompact ? ' compact' : '') + (centerIdx > 0 ? ' not-first' : '') + (folded ? ' folded' : '')} ref={centerRef} style={{ gridColumn: 3 + 2 * centerIdx }} {...(folded ? { inert: true, 'aria-hidden': true } : {})}>
+      <main className={'center' + (pv.on ? ' previewing' : '') + (centerNarrow ? ' narrow' : '') + (centerCompact ? ' compact' : '') + (tabsTight ? ' tight' : '') + (centerIdx > 0 ? ' not-first' : '') + (folded ? ' folded' : '')} ref={centerRef} style={{ gridColumn: 3 + 2 * centerIdx }} {...(folded ? { inert: true, 'aria-hidden': true } : {})}>
         <div className="tabs">
           <div className="tstrip">
           {/* 标签后面的空处按住拖：整个中间这一栏和右边几栏换位置（工作区方向 A，startCenterColDrag 只认按在空处的） */}
@@ -2772,6 +2855,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         <PreviewOverlay pv={pv} />
         <ImportHost
           onOpenInbox={openInbox}
+          onShowFiles={() => openLeft('files')}
           onDreamNow={() => {
             openLeft('dream')
             dreamNow()
@@ -2869,7 +2953,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           wideTabs={tabs.flatMap((t) => (t.type === 'web' ? [{ id: t.id, url: t.url, title: t.title }] : []))}
           onActivateWide={(id) => setTabs((x) => x, id)}
           onCloseWide={closeTab}
-          onOpenNote={(p) => openNote(p)}
+          onOpenNote={(p, noWeb) => openNote(p, false, noWeb)}
           onPluginSettings={() => openSettings('plugins')}
           closeActive={webClose}
           readRequest={readReq}
@@ -3017,7 +3101,8 @@ function PaneMark({ pane }: { pane: Pane }) {
 function tabName(t: Tab): string {
   switch (t.type) {
     case 'note':
-      return titleOf(t.path)
+      // 每个文件夹都有一篇「待办」：标签上带文件夹（「写作/待办」）才分得开
+      return isTodoNote(t.path) ? todoLabel(t.path) : titleOf(t.path)
     case 'pdf':
       return t.path.split('/').pop()!
     case 'html':

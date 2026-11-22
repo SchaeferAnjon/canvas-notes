@@ -1,5 +1,6 @@
 /**
- * 把读出来的旧笔记写进库：md 进 收件箱/导入/<来源>/<原文件夹>/，图片和附件拷进 附件/导入/<来源>/，
+ * 把读出来的旧笔记写进库：md 进 收件箱/导入/<来源>/<原文件夹>/（整个 Obsidian 库时 top：原样放在库的最外层 <原文件夹>/，task-wniqx），
+ * 图片和附件拷进 附件/导入/<来源>/，
  * 属性写进开头（created、updated、来源、原文件夹、import-id），文件的修改时间设成原来的；全部写完一次提交。
  * 不依赖 Electron，单元测试直接跑。
  */
@@ -114,6 +115,11 @@ export async function writeImport(o: {
   notes: ImportNote[]
   /** 没有笔记用到、也要一起拷的文件（md 文件夹里散放的 PDF 之类）；name 可以带子文件夹 */
   extra?: { src: string; name: string }[]
+  /**
+   * 整个库导进来（task-wniqx）：原来的文件夹原样放在库的最外层、和分类同级（和分类同名的就合到那个文件夹里，同名的笔记加「 2」）；
+   * 不给是先进 收件箱/导入/<来源>/
+   */
+  top?: boolean
   message: string
   signal?: AbortSignal
   onProgress?(done: number, total: number, title: string): void
@@ -124,7 +130,7 @@ export async function writeImport(o: {
   /** 名字重了加「 2」「 3」；苹果的磁盘不分大小写 */
   const unique = async (dir: string, base: string, ext: string) => {
     for (let n = 1; ; n++) {
-      const rel = `${dir}/${base}${n > 1 ? ` ${n}` : ''}${ext}`
+      const rel = `${dir ? dir + '/' : ''}${base}${n > 1 ? ` ${n}` : ''}${ext}`
       if (!taken.has(rel.toLowerCase()) && !(await exists(join(root, rel)))) {
         taken.add(rel.toLowerCase())
         return rel
@@ -165,7 +171,7 @@ export async function writeImport(o: {
     // 先定每一篇写到哪（链接要指到真写下的文件，「第一讲 2」也一样），再写
     const paths: string[] = []
     for (const note of notes) {
-      const dir = [importDir(source), ...note.folder.split('/').filter(Boolean).map((s) => cleanSegment(s, 40))].join('/')
+      const dir = [...(o.top ? [] : [importDir(source)]), ...note.folder.split('/').filter(Boolean).map((s) => cleanSegment(s, 40))].join('/')
       paths.push(await unique(dir, cleanSegment(note.title), '.md'))
     }
     const pathOf = new Map(notes.map((n, i) => [n.id, paths[i]!]))

@@ -236,7 +236,7 @@ export class NoteDoc {
               const hit = linkAt(line.text, pos - line.from)
               if (hit?.kind !== 'url') return false
               e.preventDefault()
-              openLinkHit(this.path, hit.url, hit.text, e.altKey)
+              openLinkHit(this.path, hit.url, hit.text, e.altKey, view.state.doc.toString(), pos)
               return true
             },
           }),

@@ -18,19 +18,20 @@ import './sidebar.css'
 import type { Tab } from './tabs'
 import { useNewNoteBusy } from './new-note-hold'
 import { AiIcon, EngineLogo, useChatEngine } from './engine-logo'
+import { usePrefs } from './settings-store'
 
 /**
  * 左栏（2026-11-17 用户定 `左栏按维度组织`）：「文件」按位置（目录树）、「最近」按时间；
  * 分隔线下面是摘到活动栏的文件夹，各占一格（dir:<文件夹>）：都是它自己那一枝目录树（2026-11-18 方向 A「活动栏平铺」：
  * 收件箱、课程这些顶级分类也一样），底下一行「在「文件」里看位置」。梦游报告由 App 直接放 DreamPanel。
  */
-export type SideView = 'files' | 'recent' | 'dream' | 'desks' | `dir:${string}`
+export type SideView = 'files' | 'todo' | 'recent' | 'dream' | 'desks' | `dir:${string}`
 export const COURSES = '课程'
 export const INBOX_DIR = '收件箱'
-export const viewName = (v: SideView) => (v === 'files' ? '文件' : v === 'recent' ? '最近' : v === 'dream' ? '梦游报告' : v === 'desks' ? '书桌' : v.slice(4).split('/').pop()!)
+export const viewName = (v: SideView) => (v === 'files' ? '文件' : v === 'todo' ? '待办' : v === 'recent' ? '最近' : v === 'dream' ? '梦游报告' : v === 'desks' ? '书桌' : v.slice(4).split('/').pop()!)
 
 export function Sidebar(props: {
-  view: Exclude<SideView, 'dream' | 'desks'>
+  view: Exclude<SideView, 'dream' | 'desks' | 'todo'>
   notes: NoteFile[]
   pins: string[]
   archiveDays: ArchiveDays
@@ -153,12 +154,14 @@ function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
   // 「附件」只在文件树里有：这里当「全部」
   const type = sideType === 'att' ? 'all' : sideType
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set())
+  /** 名字叫「待办」的笔记默认不列（在左边「待办」格里；设置 › 文件「文件树里显示待办」打开才列，task-pd1d1） */
+  const showTodo = usePrefs((s) => s.files.showTodo)
   const [shown, setShown] = useState<Record<string, number>>({})
   const now = Date.now()
   const m = useMemo(
-    () => recentOf(props.notes, { pins: props.pins, now, archiveDays: props.archiveDays, keep: type === 'all' ? undefined : (n) => noteType(n) === type }),
+    () => recentOf(props.notes, { pins: props.pins, now, archiveDays: props.archiveDays, keep: type === 'all' ? undefined : (n) => noteType(n) === type, hideTodo: !showTodo }),
     // now 每次渲染都变，只在笔记、置顶、筛选变了时重算
-    [props.notes, props.pins, props.archiveDays, type],
+    [props.notes, props.pins, props.archiveDays, type, showTodo],
   )
   const group = (g: RecentGroup) => {
     const folded = g.key !== 'today' && g.key !== 'week'

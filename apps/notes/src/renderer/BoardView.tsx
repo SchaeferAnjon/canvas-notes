@@ -54,7 +54,7 @@ import { align, duplicateCard, intoNewColumn, takeOut, tidyGrid } from './ctx/bo
 import { type MenuEntry, showMenu } from './ctx/menu'
 import { clampZoom, fitZoom, stepZoom, wheelZoom } from './board-zoom'
 import { AiActLayer } from './ai-act'
-import { inboxOf, InboxDrawer, useInboxOpen } from './doc-board/inbox'
+import { inboxOf, InboxPop, useInboxOpen } from './doc-board/inbox'
 import type { EditorView } from '@codemirror/view'
 import { UnitEditor } from './doc-board/unit-editor'
 import { typingIn } from './typing'
@@ -663,7 +663,7 @@ export function BoardView(props: BoardViewProps) {
   async function onContext(e: React.MouseEvent) {
     const t = e.target as HTMLElement
     // 正在编辑的卡片、工具板、未整理、导图：交给输入框的标准菜单或不弹
-    if (props.readOnly || t.closest('input, textarea, [contenteditable="true"], .bpal, .db-drawer, .mm-layer')) return
+    if (props.readOnly || t.closest('input, textarea, [contenteditable="true"], .bpal, .db-inbox-pop, .mm-layer')) return
     e.preventDefault()
     e.stopPropagation()
     outer.current?.focus({ preventScroll: true })
@@ -984,9 +984,9 @@ export function BoardView(props: BoardViewProps) {
         <PalGhost kind={drag.kind} client={drag.client} over={drag.over} scale={scale} board={outer.current} />
       )}
 
-      {/* 收件箱：右边一格（和别的白板一样，doc-board/inbox.tsx），开关在标签条「收件箱 N」 */}
-      {inboxOpen && (
-        <InboxDrawer
+      {/* 收件箱：弹窗（和别的白板一样，doc-board/inbox.tsx），标签条「收件箱 N」或 ⇧⌘I 打开 */}
+      {inboxOpen && props.active && (
+        <InboxPop
           items={inbox}
           readOnly={props.readOnly}
           onItemDown={(e, n) => !props.readOnly && setDrag({ type: 'loose', key: n.path, text: n.excerpt || n.preview || titleOf(n.path), inboxPath: n.path, at: toPlane(e.clientX, e.clientY), client: { x: e.clientX, y: e.clientY } })}

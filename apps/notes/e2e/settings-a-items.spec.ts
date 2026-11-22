@@ -292,8 +292,6 @@ test('写死的值放进设置：一般、文档和白板、文件和附件、�
     await expect(page.locator('html')).toHaveAttribute('data-board-dots', 'off')
     await row(page, 'newView').getByRole('radio', { name: '白板' }).click()
     await expect(toast(page)).toContainText('⌘N 以后先建一块白板')
-    await flip('unsorted')
-    expect(await page.evaluate(() => localStorage.getItem('cn.board.inbox'))).toBe('0')
     await flip('semantic')
     await expect.poll(() => settingsJson(run).editor.semantic).toBe(false)
     await page.keyboard.press('Escape')

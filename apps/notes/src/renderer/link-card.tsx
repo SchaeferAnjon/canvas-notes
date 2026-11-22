@@ -106,7 +106,7 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
       </div>
       <div className="acts">
         {(isWeb(link.url) || local) && (
-          <button onClick={() => (hideLinkCard(), openLinkHit(path, link.url, link.text, false))}>
+          <button onClick={() => (hideLinkCard(), openLinkHit(path, link.url, link.text, false, view.state.doc.toString(), link.from))}>
             <Codicon name={local ? 'go-to-file' : 'layout-sidebar-right'} size={13} />
             {local ? '打开' : '右栏打开'} <span className="k">{keyFor('cmd-click')}</span>
           </button>

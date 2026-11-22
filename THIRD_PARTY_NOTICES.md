@@ -172,3 +172,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## iPhone / iPad 版：libgit2 和 node-diff3
+
+- libgit2 1.9.7（https://github.com/libgit2/libgit2）：GPLv2 带链接例外（COPYING 第一段：链进别的程序不受 GPL 约束），静态链进 iPhone / iPad 版管库。`apps/apple/scripts/build-libgit2.sh` 按版本和 sha256 下载源码自己编，许可证全文随产物拷到 `apps/apple/CanvasGit/Vendor/libgit2-COPYING.txt`。libgit2 自带的 zlib（zlib 许可）、PCRE2（BSD）、llhttp（MIT）、SHA-1 碰撞检测（MIT）一起编进去。
+- node-diff3 4.0.0（https://github.com/bhousel/node-diff3，MIT，© Bryan Housel 等）：电脑版直接用；iPhone / iPad 版把它的 LCS 和 diffIndices 一比一移植成 Swift（`apps/apple/CanvasCore/Sources/CanvasCore/Format/Diff3.swift`，文件头写明出处）。

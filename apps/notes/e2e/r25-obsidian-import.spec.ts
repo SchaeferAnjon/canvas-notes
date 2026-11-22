@@ -85,10 +85,11 @@ for (const [tone, skin] of [
       expect(Number(git(vault, 'rev-list', '--count', 'HEAD').trim())).toBe(before + 1)
       expect(git(vault, 'log', '-1', '--format=%s')).toBe('导入旧笔记：从「我的Obsidian库」导入 5 篇\n')
       expect(gitStatus(vault)).toBe('')
-      const at = '收件箱/导入/我的Obsidian库/课程'
+      // 整个 Obsidian 库：原来的文件夹原样放在库的最外层（task-wniqx）
+      const at = '课程'
       const main = readFileSync(join(vault, at, '线代/线性映射.md'), 'utf8')
       expect.soft(main.replace(/^---\n[\s\S]*?\n---\n/, '')).toBe(
-        '# 线性映射\n\n定义：线性映射保持加法和数乘。 ^def1\n\n![|300](../../../../../附件/导入/我的Obsidian库/附件/极光.jpg)\n\n' +
+        '# 线性映射\n\n定义：线性映射保持加法和数乘。 ^def1\n\n![|300](../../附件/导入/我的Obsidian库/附件/极光.jpg)\n\n' +
           '> [!note]- 注释\n> 这句是 Obsidian 的注释，读的时候看不见\n\n正文里夹一句 %%行内注释%% 接着写。\n\n' +
           `同一个文件夹的 [[${at}/线代/第一讲]]、概率那边的 [[${at}/概率/第一讲|概率第一讲]]、[[${at}/线代/第二讲]]、[[小结]]。\n`,
       )
@@ -101,6 +102,7 @@ for (const [tone, skin] of [
       await expect(page.getByTestId('toast')).toContainText('撤回了这次导入')
       expect(Number(git(vault, 'rev-list', '--count', 'HEAD').trim())).toBe(before + 2)
       expect(existsSync(join(vault, '收件箱/导入'))).toBe(false)
+      expect(existsSync(join(vault, '课程/线代'))).toBe(false)
       expect(existsSync(join(vault, '附件/导入'))).toBe(false)
       expect(gitStatus(vault)).toBe('')
       expect(readFileSync(join(vault, '课程/线性代数/第二讲.md'), 'utf8')).toBe('# 第二讲\n\n库里原来的。\n')

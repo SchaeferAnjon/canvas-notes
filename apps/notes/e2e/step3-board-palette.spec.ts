@@ -213,11 +213,6 @@ test('拖回工具板、拖到画布外、按 esc：都取消，文件不变，�
     await expect(ghost(page)).toHaveClass(/off/)
     await page.mouse.up()
 
-    // 拖到右边一格收件箱上松手（2026-11-21 起「未整理」浮层换成了这一格，标签条「收件箱 N」打开）
-    await acts(page).getByTestId('db-inbox').click()
-    const drawer = (await board(page).locator('.db-drawer').boundingBox())!
-    await dragFromPal(page, '列', { x: drawer.x + 40, y: drawer.y + 60 })
-
     // 拖到一半按 esc
     await dragFromPal(page, '子白板', await screenOf(page, { x: 300, y: 400 }, 1), false)
     await expect(ghost(page)).toBeVisible()

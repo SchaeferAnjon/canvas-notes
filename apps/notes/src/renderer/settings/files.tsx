@@ -1,5 +1,6 @@
 /**
- * 设置 › 文件和附件（方向 A）：新建（新笔记放哪）、附件（只看：附件/<笔记路径>/，「在访达里看」）、
+ * 设置 › 文件和附件（方向 A）：新建（新笔记放哪）、左栏（「用预设的分类」开关、收件箱一直在、放在左边的文件夹几个，task-wniqx；
+ * 存在库里的 .canvas-notes/左栏.json，跟着 Git 走）、附件（只看：附件/<笔记路径>/，「在访达里看」）、
  * 删除（删笔记前问一声、连同它的图一起删）、归档（多久没改算归档，以前在「库」页）。
  */
 import { useState } from 'react'
@@ -9,6 +10,8 @@ import type { FilesPrefs } from '../../shared/prefs'
 import { ARCHIVE_CHOICES, type ArchiveDays } from '../../shared/sidebar'
 import { Toggle, type SettingsProps } from '../Settings'
 import { loadTrashImages } from '../TrashDialog'
+import { updateLeft, useLeft } from '../files/left-store'
+import { ownLeft, presetsOn, setPresets } from '../../shared/left'
 import { Group, Row, Sel, useSaid } from './ui'
 
 const WHERE: [FilesPrefs['newWhere'], string][] = [
@@ -35,6 +38,8 @@ export function FilesPage(props: SettingsProps) {
   const said = useSaid()
   const f = props.settings.files
   const [imgs, setImgs] = useState(loadTrashImages)
+  const left = useLeft()
+  const presets = presetsOn(left)
   const setF = <K extends keyof FilesPrefs>(k: K, v: FilesPrefs[K], hint: string) => {
     const old = f[k]
     if (old === v) return
@@ -46,6 +51,32 @@ export function FilesPage(props: SettingsProps) {
       <Group title="新建">
         <Row id="newWhere">
           <Sel label="新笔记放哪" value={f.newWhere} options={WHERE} onChange={(v) => setF('newWhere', v, withKeys(`{k:new-note} 以后放进「${WHERE.find((w) => w[0] === v)![1]}」`))} />
+        </Row>
+      </Group>
+      <Group title="左栏">
+        <Row
+          id="leftPresets"
+          desc={
+            <>
+              <span className="sa-blk">课程、阅读、剪藏、周记、写作、项目、生活：图标栏一格一个，树里分两组。</span>
+              <span className="sa-blk">关掉以后这些文件夹和里面的笔记都不动，只是当普通文件夹显示</span>
+            </>
+          }
+        >
+          <Toggle
+            on={presets}
+            label="用预设的分类"
+            onChange={(v) => {
+              void updateLeft((c) => setPresets(c, v))
+              said.saved(v ? '预设分类打开了：图标栏和树里又按分类摆' : '预设分类关掉了：文件夹和笔记都没动，只是当普通文件夹显示', () => void updateLeft((c) => setPresets(c, !v)))
+            }}
+          />
+        </Row>
+        <Row id="leftInbox">
+          <span className="sa-val">一直在</span>
+        </Row>
+        <Row id="leftOwn">
+          <span className="sa-val num">{`${ownLeft(left).length}个`}</span>
         </Row>
       </Group>
       <Group title="附件">
@@ -63,6 +94,11 @@ export function FilesPage(props: SettingsProps) {
           >
             在访达里看
           </button>
+        </Row>
+      </Group>
+      <Group title="待办">
+        <Row id="showTodo">
+          <Toggle on={f.showTodo} label="文件树里显示待办" onChange={(v) => setF('showTodo', v, v ? '文件树里显示待办了：收件箱、写作这些文件夹下面多一篇「待办」' : '文件树里不再显示待办：在左边「待办」格里')} />
         </Row>
       </Group>
       <Group title="删除">

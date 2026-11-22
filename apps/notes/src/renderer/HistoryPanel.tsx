@@ -11,8 +11,8 @@ import { fileIcon } from './Palette'
 import { Popover } from './shell/Shell'
 import { setHideInternal, useHideInternal } from './history-hide'
 
-/** 软件自己的文件（同 @cn/git 的 isInternalPath）：.canvas-notes/ 下面的全部、文件夹的 .首页.json 和首页模板、.gitkeep */
-const internal = (p: string) => p === '.canvas-notes' || p.startsWith('.canvas-notes/') || /(^|\/)\.(首页|首页模板)\.json$/.test(p) || isKeep(p)
+/** 软件自己的文件（同 @cn/git 的 isInternalPath）：.canvas-notes/ 下面的全部、画布今日的 .canvas-tasks/、文件夹的 .首页.json 和首页模板、.gitkeep */
+const internal = (p: string) => p === '.canvas-notes' || p.startsWith('.canvas-notes/') || p === '.canvas-tasks' || p.startsWith('.canvas-tasks/') || /(^|\/)\.(首页|首页模板)\.json$/.test(p) || isKeep(p)
 const isKeep = (p: string) => /(^|\/)\.gitkeep$/.test(p)
 
 type Row = CommitInfo['files'][number] & { kind: 'mine' | 'folder' | 'gear' }

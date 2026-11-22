@@ -111,19 +111,19 @@ describe('electron-builder 配置', () => {
 })
 
 describe('开源仓库的导出', () => {
-  test('排除规则：design/ 不要，图标源文件和第三版规范留着；CLAUDE.md、交接文档、总站补丁不要', async () => {
+  test('排除规则：design/ 不要，图标源文件和第三版规范留着；CLAUDE.md、交接文档、总站补丁、画布今日、iPhone / iPad 版不要', async () => {
     const { excluder } = await import('../public-export.mjs')
     const out = excluder(readFileSync(join(ROOT, 'release/public-exclude.txt'), 'utf8'))
-    for (const f of ['design/refs/tolaria.png', 'design/v2-b/proto-b.html', 'design/src/imgs.json', 'design/v3/src/proto.js', 'CLAUDE.md', 'docs/HANDOFF.md', 'website/hub-entry/apps-hub.patch'])
+    for (const f of ['design/refs/tolaria.png', 'design/v2-b/proto-b.html', 'design/src/imgs.json', 'design/v3/src/proto.js', 'CLAUDE.md', 'docs/HANDOFF.md', 'website/hub-entry/apps-hub.patch', 'apps/today/src/main/index.ts', 'apps/apple/project.yml'])
       expect(out(f), f).toBe(true)
-    for (const f of ['design/v3/icon/icon-1-cards.png', 'design/v3/DESIGN.v3.md', 'README.md', 'docs/DEVELOPMENT.md', 'website/index.html', 'apps/notes/src/main/index.ts', 'designer.md'])
+    for (const f of ['design/v3/icon/icon-1-cards.png', 'design/v3/DESIGN.v3.md', 'README.md', 'docs/DEVELOPMENT.md', 'website/index.html', 'apps/notes/src/main/index.ts', 'packages/tasks/src/line.ts', 'designer.md'])
       expect(out(f), f).toBe(false)
   })
 
-  test('扫得出密钥、私人邮箱、本机路径、AI 签名；example.com、noreply 和锁文件里的依赖作者邮箱不算', async () => {
+  test('扫得出密钥、私人邮箱、本机路径、AI 签名；example.com、noreply、锁文件里的依赖作者邮箱、测试里编的 /Users/me/ 不算', async () => {
     const { scan } = await import('../public-export.mjs')
     const dir = tmp()
-    writeFileSync(join(dir, 'ok.md'), 'test@example.com\n1+x@users.noreply.github.com\n/Users/runner/work\n')
+    writeFileSync(join(dir, 'ok.md'), 'test@example.com\n1+x@users.noreply.github.com\n/Users/runner/work\n' + '/Use' + 'rs/me/笔记库/\n')
     writeFileSync(join(dir, 'pnpm-lock.yaml'), 'author: i' + '@izs.me\n')
     expect(scan(dir)).toEqual([])
     // 拼起来写，这个测试文件自己就不会被导出检查当成泄露

@@ -441,15 +441,18 @@ type: board
 这周先跳过：第 1–3 章和 4.1–4.3、4.7，吴恩达课里讲过。
 `
 
-test('白板上 AI 加的卡被收件箱一格挡着：白板平移过去，正在长字的卡连同下面那一颗整个露出来', async () => {
+// 以前右边有收件箱一格挡住第二列；收件箱改成弹窗（task-8isml）以后不占白板的地方，这里用窄窗口（1000 宽）加右边 AI 栏让第二列露一截
+test('白板上 AI 加的卡落在看得见的白板外面（窗口窄、第二列露一截）：白板平移过去，正在长字的卡连同下面那一颗整个露出来', async () => {
   const run = await launch({ '本周学习计划.md': TWO_COLS }, { CN_AI_FAKE: '1', CN_FAKE_SAY_MS: '250' })
-  const { page } = run
+  const { page, app } = run
   try {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1000, 800))
     await page.locator('.nav .si', { hasText: '本周学习计划' }).click()
     const board = pane(page).getByTestId('doc-board')
     await expect(board).toBeVisible()
     await page.keyboard.press('Meta+j')
-    // 第二列有一截在看得见的白板外面（右边是收件箱一格）
+    await expect(ai(page)).toBeVisible()
+    // 第二列有一截在看得见的白板外面
     const cut = await board.evaluate((b) => {
       const w = b.querySelector('.board-wrap')!.getBoundingClientRect()
       const col = [...b.querySelectorAll('.db-col')].at(-1)!.getBoundingClientRect()

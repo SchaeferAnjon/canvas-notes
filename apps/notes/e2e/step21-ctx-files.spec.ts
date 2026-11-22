@@ -50,7 +50,7 @@ test('目录树：文件夹右键「新建笔记」建在那个文件夹里；�
     const tree = page.getByRole('tree', { name: '全部文件' })
     await tree.getByRole('treeitem', { name: /线性代数/ }).click({ button: 'right' })
     const m = await openedMenu(run)
-    expect(menuLabels(m)).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '换图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
+    expect(menuLabels(m)).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '钉到最上面', '放到左边', '换图标和颜色…', '重命名…', '移到…', '在访达中显示', '拷贝路径', '移到废纸篓'])
     await pickMenu(run, '新建笔记')
     await expect.poll(() => readdirSync(join(vault, '课程', '线性代数')).sort()).toContain('未命名.md')
     await expect(page.getByTestId('tab-on')).toHaveText('未命名')

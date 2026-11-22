@@ -1,6 +1,6 @@
 /**
  * 网页阅读视图双语对照读的纯计算：哪些块要翻、哪些块（公式、图）不翻，以及「存成双语笔记」写出来的 md。
- * 不依赖 Electron。做法照 ParaRead（~/Documents/Projects/scholar-reader，同一个作者）：公式块和图不翻译；译文按段落指纹缓存。
+ * 不依赖 Electron。做法照 ParaRead（https://github.com/SchaeferAnjon/pararead ，同一个作者）：公式块和图不翻译；译文按段落指纹缓存。
  */
 import { linkFrom } from './reading-note'
 import { setProp } from './props'

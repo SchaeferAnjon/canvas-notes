@@ -152,7 +152,7 @@ test('配成一对 → 网页滚到中间某段 → 关掉重开 → 点笔记�
     expect(markBox.y + markBox.height).toBeLessThanOrEqual(rowBox.y + rowBox.height)
     expect(markBox.x + markBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width)
     await expect(webTabs(page).filter({ has: page.locator('.wpm') })).toHaveCount(1)
-    await expect(webTabs(page).locator('.wpm')).toHaveAttribute('data-tip', `和「${TITLE}」是一对`)
+    await expect(webTabs(page).locator('.wpm')).toHaveAttribute('data-tip', `打开配对的笔记《${TITLE}》`)
 
     // 像人一样往下滚到 2.1.4 那段：标题下的「读到」跟着变，库里记下那段字
     await wheelTo(page, TARGET)

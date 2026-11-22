@@ -333,6 +333,9 @@ export function inline(s: string, keyBase: string | number = '', math = true): R
     else if (t.startsWith('[[')) out.push(<span key={key} className="wl">{wikiLabel(t.slice(2, -2))}</span>)
     // 读 PDF 时 AI 回答里的「[第 4 页](#page=4)」：点了 PDF 翻过去（右栏 AI 接住点击）
     else if (/\]\(#page=\d+\)$/.test(t)) out.push(<a key={key} className="pg" data-page={/#page=(\d+)/.exec(t)![1]}>{t.slice(1, t.indexOf(']'))}</a>)
+    // 笔记里带文件的「[第 4 页](x.pdf#page=4&rect=…)」：和上面一个样子；指的是哪份 PDF 由用的地方按笔记路径认（白板卡里点，page-link.ts）。
+    // 不带 data-page：右栏 AI 那边只认光写页码的（它翻的是开着的那份）
+    else if (/\]\((?![a-z][a-z0-9+.-]*:)[^)\s]+\.pdf#(?:[^)\s]*&)?page=\d+[^)\s]*\)$/i.test(t)) out.push(<a key={key} className="pg" data-href={t.slice(t.indexOf('](') + 2, -1)}>{t.slice(1, t.indexOf(']'))}</a>)
     else if (t.startsWith('[')) out.push(<u key={key}>{t.slice(1, t.indexOf(']'))}</u>)
     else out.push(<i key={key}>{inline(t.slice(1, -1), key, math)}</i>)
     p += t.length

@@ -9,6 +9,7 @@ import { noteToMarkdown, STYLE, type AppleNote, type NoteRun } from '../src/main
 import { NoteStore } from '../src/main/import/apple-notes'
 import { mdFolders, readMdFolder, scanMdFolder } from '../src/main/import/md-folder'
 import { attRef, importedIds, writeImport, type ImportNote } from '../src/main/import/write'
+import { wholeVault } from '../src/shared/import'
 
 const tmp: string[] = []
 const mk = () => {
@@ -230,6 +231,32 @@ describe('Markdown 文件夹（旧的 Obsidian 库）', () => {
     expect(readFileSync(join(root, '收件箱/导入/Obsidian 旧库/随手记.md'), 'utf8')).toMatch(/^---\ncreated: .+\nupdated: .+\n来源: Obsidian 旧库\nimport-id: md:Obsidian 旧库\/随手记.md\n---\n一句话\n$/)
     expect(r.paths.filter((p) => p.startsWith('附件/')).sort()).toEqual(['附件/导入/Obsidian 旧库/assets/图 1.png', '附件/导入/Obsidian 旧库/课程/线代/散放的.pdf', '附件/导入/Obsidian 旧库/课程/线代/讲义.pdf'])
     expect(existsSync(join(root, '收件箱/导入/Obsidian 旧库/.obsidian'))).toBe(false)
+  })
+
+  it('整个库（task-wniqx）：原来的文件夹原样放在库的最外层，和分类同名的合到一起、同名笔记加「 2」，散放的放在库根；附件照旧进 附件/导入/<来源>/；只选几个文件夹不算整个库', async () => {
+    const src = oldVault()
+    mkdirSync(join(src, '阅读'), { recursive: true })
+    writeFileSync(join(src, '阅读/书单.md'), '# 书单\n')
+    const scan = await scanMdFolder(src)
+    const folders = mdFolders(scan, 'Obsidian 旧库')
+    const s = { kind: 'folder' as const, source: 'Obsidian 旧库', where: src, folders, vault: true }
+    expect(wholeVault(s, ['', '课程/线代', '阅读'])).toBe(true)
+    expect(wholeVault(s, ['', '课程/线代', '阅读', 'assets'])).toBe(true)
+    expect(wholeVault(s, ['课程/线代', '阅读'])).toBe(false)
+    // 没有 .obsidian 的普通文件夹、备忘录：照旧进收件箱
+    expect(wholeVault({ ...s, vault: false }, ['', '课程/线代', '阅读'])).toBe(false)
+    // 导过的文件夹不用再选
+    expect(wholeVault({ ...s, folders: folders.map((f) => (f.path === '阅读' ? { ...f, already: 1 } : f)) }, ['', '课程/线代'])).toBe(true)
+    const { notes, extra } = await readMdFolder(scan, ['', '课程/线代', '阅读'], 'Obsidian 旧库')
+    const root = repo()
+    mkdirSync(join(root, '阅读'), { recursive: true })
+    writeFileSync(join(root, '阅读/书单.md'), '库里原来的\n')
+    const r = await writeImport({ root, source: 'Obsidian 旧库', notes, extra, top: true, message: '导入' })
+    expect(r.paths.filter((p) => p.endsWith('.md')).sort()).toEqual(['课程/线代/第二讲.md', '课程/线代/第一讲.md', '随手记.md', '阅读/书单 2.md'].sort())
+    expect(readFileSync(join(root, '阅读/书单.md'), 'utf8')).toBe('库里原来的\n')
+    const one = readFileSync(join(root, '课程/线代/第一讲.md'), 'utf8')
+    expect(one).toContain('![|300](../../附件/导入/Obsidian%20旧库/assets/图%201.png)\n看 [[第二讲|下一讲]]')
+    expect(existsSync(join(root, '收件箱'))).toBe(false)
   })
 
   // task-4xtbp：导入先修三处（图宽、同名双链、%%注释%%），^块编号原样（编辑器里藏，见 block-id）

@@ -2,7 +2,7 @@
  * PDF 一页的文字项（pdf.js getTextContent 的结果）拼成段落块：AI 读全文、以后的翻译和搜索都用它。
  * 只是纯计算，不依赖 pdf.js；坐标一律是页面单位、从页面左上角量。
  *
- * 拼行、栏序、分段的办法照 ParaRead（~/Documents/Projects/scholar-reader 的 src/main/pdftext.ts，同一个作者的代码）：
+ * 拼行、栏序、分段的办法照 ParaRead（https://github.com/SchaeferAnjon/pararead 的 src/main/pdftext.ts，同一个作者的代码）：
  * 同一基线的字拼成行，两栏的页按「通栏标题 → 左栏 → 右栏 → 通栏结尾」排，行距明显变大或首行缩进就另起一段，
  * 字号明显大于正文的短行当标题。
  */

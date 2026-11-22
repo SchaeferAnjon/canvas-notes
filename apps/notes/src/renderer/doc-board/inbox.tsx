@@ -1,36 +1,29 @@
 /**
- * 白板右边一格「收件箱」（2026-11-21 方向 A3，原来右上的「N未整理」「收件箱 N ⌄」）：
- * 只放收件箱；靠右、画布让出这一格，不盖住卡；每一条是干净的卡（标题、两行、出处），不露原文（偏好「剪藏卡片别露原文」）；
- * 按「今天 / 更早」分组，超过 20 条顶上多一个搜索框（偏好「别把上万条全铺开」）。
- * 开关在标签条右端「收件箱 N」（InboxButton），开着还是收着记在本机（几块白板共用一个）。拖一条到白板上交给白板（onItemDown）。
+ * 白板的收件箱弹窗（2026-11-22 用户定「一律弹窗」，task-8isml；原来是白板右边一格 272，再早是右上的「N未整理」）：
+ * 点标签条右端「收件箱 N」（InboxButton）或按 ⇧⌘I（命令表 board-inbox，设置 › 快捷键能改），从按钮下面弹出 320 宽，盖在白板上、不占白板的宽；
+ * 宽窄都一样，收在中栏里离两边至少 8；默认收着，点外面、esc 收起，拖完一条不收。
+ * 最高 min(中栏高 − 32, 560)：头、说明、搜索框（超过 20 条才有）钉在上面，「共 N 条 · 打开收件箱文件夹」钉在下面，只有中间列表滚。
+ * 每一条是干净的卡（标题、两行、出处），不露原文（偏好「剪藏卡片别露原文」）；按「今天 / 更早」分组，组头能收起，记在本机。
+ * 拖一条到白板上交给白板（onItemDown，白板在整个窗口上跟着鼠标走）；拖着停在列表上下边缘 32 以内，列表自己慢慢滚。
  */
 import { Codicon } from '@cn/design'
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
 import { when } from '../../shared/when'
 import { domainOf } from '../CardBody'
+import { openFolderHome } from '../folder-home/store'
+import { useKey, useKeyHandler } from '../keys'
 import { imageSrc } from '../md-widgets'
+import { INBOX_DIR } from '../Sidebar'
 
-// ---------- 开着还是收着：记在本机 ----------
+// ---------- 开着还是收着：只在这一次（默认收着，几块白板共用一个） ----------
 
-const KEY = 'cn.board.inbox'
 const subs = new Set<() => void>()
-function readOpen(): boolean {
-  try {
-    return localStorage.getItem(KEY) !== '0'
-  } catch {
-    return true
-  }
-}
-let open = readOpen()
+let open = false
 export function setInboxOpen(v: boolean) {
+  if (open === v) return
   open = v
-  try {
-    localStorage.setItem(KEY, v ? '1' : '0')
-  } catch {
-    // 存不下（隐私模式）也照样开关，只是不记
-  }
   for (const f of subs) f()
 }
 export function useInboxOpen(): boolean {
@@ -40,20 +33,45 @@ export function useInboxOpen(): boolean {
   )
 }
 
+// ---------- 「今天 / 更早」哪组收着：记在本机 ----------
+
+type Grp = 'today' | 'older'
+const FOLD_KEY = 'cn.board.inbox.fold'
+function readFolds(): Set<Grp> {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(FOLD_KEY) ?? '[]')
+    return new Set(Array.isArray(v) ? v.filter((x): x is Grp => x === 'today' || x === 'older') : [])
+  } catch {
+    // 存的不是那个样子、读不了（隐私模式）：都展开
+    return new Set()
+  }
+}
+function saveFolds(f: Set<Grp>) {
+  try {
+    localStorage.setItem(FOLD_KEY, JSON.stringify([...f]))
+  } catch {
+    // 存不下也照样收起，只是不记
+  }
+}
+
 /** 收件箱里的（不算这一篇自己），新的在前 */
 export const inboxOf = (notes: NoteFile[], self: string) => notes.filter((n) => n.kind === 'inbox' && n.path !== self).sort((a, b) => b.createdMs - a.createdMs)
 
-/** 标签条右端「收件箱 N」：开关右边那一格 */
+/** 标签条右端「收件箱 N」：开关弹窗；只有当前标签、白板看法时挂着，⇧⌘I 也只在这时归它 */
 export function InboxButton(props: { count: number }) {
   const on = useInboxOpen()
+  const k = useKey('board-inbox')
+  useKeyHandler('board-inbox', () => (setInboxOpen(!open), true))
   return (
     <button
       type="button"
       className={'ab-act wt db-inbox-btn' + (on ? ' on' : '')}
-      aria-pressed={on}
+      aria-expanded={on}
+      aria-haspopup="dialog"
       aria-label={`收件箱${props.count ? ` ${props.count}条` : ''}`}
       data-testid="db-inbox"
-      data-tip={on ? '收起右边的收件箱' : '打开右边的收件箱：拖进一列，就放进文档的那一节'}
+      data-tip={on ? '收起收件箱' : '打开收件箱'}
+      data-key={k ?? undefined}
       data-side="below"
       onClick={() => setInboxOpen(!on)}
     >
@@ -105,7 +123,6 @@ function Item(props: { n: NoteFile; onDown(e: React.MouseEvent, n: NoteFile): vo
       role="listitem"
       aria-label={f.k === 'clip' ? f.title : f.k === 'image' ? f.name : f.text}
       data-path={n.path}
-      title="拖进一列，就放进文档的那一节；拖到空白处，就放在那里"
       onMouseDown={(e) => props.onDown(e, n)}
     >
       {f.k === 'clip' && (
@@ -150,45 +167,159 @@ function Item(props: { n: NoteFile; onDown(e: React.MouseEvent, n: NoteFile): vo
   )
 }
 
-/** 右边一格 */
-export function InboxDrawer(props: { items: NoteFile[]; readOnly: boolean; onItemDown(e: React.MouseEvent, n: NoteFile): void }) {
+const W = 320
+/** 拖到列表上下边缘多近开始滚、每帧最多滚多少 */
+const EDGE = 32
+const SPEED = 8
+
+/** 标签条上那颗按钮（只有当前标签挂着一颗） */
+const buttonRect = () => [...document.querySelectorAll<HTMLElement>('[data-testid="db-inbox"]')].find((b) => b.offsetParent)?.getBoundingClientRect()
+
+/** 弹窗：直接放在白板这一格（中栏）里，量着它和按钮摆 */
+export function InboxPop(props: { items: NoteFile[]; readOnly: boolean; onItemDown(e: React.MouseEvent, n: NoteFile): void }) {
   const [q, setQ] = useState('')
+  const [folds, setFolds] = useState(readFolds)
+  const [at, setAt] = useState<{ left: number; top: number; maxH: number } | null>(null)
+  const self = useRef<HTMLDivElement>(null)
+  const list = useRef<HTMLDivElement>(null)
+  /** 正按着一条（拖着）：esc 留给拖的那边 */
+  const pressing = useRef(false)
+  const k = useKey('board-inbox')
+
+  // 摆在按钮下面 6、右边和按钮对齐，收在中栏里离两边至少 8；最高 min(中栏高 − 32, 560)
+  // 量的是自己的父节点（白板那一格）：白板和弹窗一起挂上时（开着弹窗切到另一块白板），白板自己的 ref 这时还没挂上
+  useLayoutEffect(() => {
+    const h = self.current?.parentElement
+    if (!h) return
+    const place = () => {
+      const r = h.getBoundingClientRect()
+      const b = buttonRect()
+      const left = Math.max(8, Math.min((b ? b.right : r.right - 8) - r.left - W, r.width - 8 - W))
+      const top = b ? b.bottom + 6 - r.top : 8
+      setAt({ left, top, maxH: Math.min(r.height - 32, r.height - 16 - top, 560) })
+    }
+    place()
+    const ro = new ResizeObserver(place)
+    ro.observe(h)
+    window.addEventListener('resize', place)
+    return () => (ro.disconnect(), window.removeEventListener('resize', place))
+  }, [])
+
+  // 点外面（按钮自己开关，不算）、esc 收起
+  useEffect(() => {
+    const down = (e: MouseEvent) => {
+      const t = e.target as Element | null
+      if (!t || self.current?.contains(t) || t.closest?.('[data-testid="db-inbox"]')) return
+      setInboxOpen(false)
+    }
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.isComposing || pressing.current) return
+      e.preventDefault()
+      e.stopPropagation()
+      setInboxOpen(false)
+    }
+    document.addEventListener('mousedown', down, true)
+    window.addEventListener('keydown', key, true)
+    return () => (document.removeEventListener('mousedown', down, true), window.removeEventListener('keydown', key, true))
+  }, [])
+
+  /**
+   * 按住一条：交给白板拖。挪开 4 以后，指针停在列表里离上下边 32 以内（停够 150 毫秒，横着拖出弹窗时一掠而过的不算）就慢慢滚，越靠边越快
+   */
+  const down = (e: React.MouseEvent, n: NoteFile) => {
+    if (props.readOnly || e.button !== 0) return
+    // 不选字、不挪焦点（按住拖的时候列表不跟着滚）
+    e.preventDefault()
+    props.onItemDown(e, n)
+    const p = { x: e.clientX, y: e.clientY, moved: false }
+    const x0 = e.clientX
+    const y0 = e.clientY
+    let since = 0
+    pressing.current = true
+    let raf = requestAnimationFrame(function tick(now) {
+      raf = requestAnimationFrame(tick)
+      const l = list.current
+      if (!l || !p.moved) return
+      const r = l.getBoundingClientRect()
+      const inside = p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom
+      const d = !inside ? 0 : p.y < r.top + EDGE ? r.top + EDGE - p.y : p.y > r.bottom - EDGE ? r.bottom - EDGE - p.y : 0
+      if (!d) return void (since = 0)
+      since ||= now
+      if (now - since < 150) return
+      l.scrollTop -= Math.sign(d) * Math.max(1, Math.round((Math.abs(d) / EDGE) * SPEED))
+    })
+    const move = (ev: MouseEvent) => {
+      p.x = ev.clientX
+      p.y = ev.clientY
+      p.moved ||= Math.hypot(p.x - x0, p.y - y0) > 4
+    }
+    const up = () => {
+      cancelAnimationFrame(raf)
+      pressing.current = false
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+  const fold = (g: Grp) => {
+    const next = new Set(folds)
+    if (!next.delete(g)) next.add(g)
+    setFolds(next)
+    saveFolds(next)
+  }
+
   const all = props.items
   const s = q.trim().toLowerCase()
   const shown = s ? all.filter((n) => titleOf(n.path).toLowerCase().includes(s) || (n.excerpt ?? '').toLowerCase().includes(s)) : all
   const start = new Date(new Date().setHours(0, 0, 0, 0)).getTime()
-  const today = shown.filter((n) => n.createdMs >= start)
-  const older = shown.filter((n) => n.createdMs < start)
-  const down = (e: React.MouseEvent, n: NoteFile) => !props.readOnly && e.button === 0 && props.onItemDown(e, n)
+  const groups: { g: Grp; name: string; items: NoteFile[] }[] = [
+    { g: 'today', name: '今天', items: shown.filter((n) => n.createdMs >= start) },
+    { g: 'older', name: '更早', items: shown.filter((n) => n.createdMs < start) },
+  ]
   return (
-    <aside className="db-drawer" aria-label="收件箱" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+    <div
+      ref={self}
+      className="db-inbox-pop"
+      role="dialog"
+      aria-label="收件箱"
+      style={at ? { left: at.left, top: at.top, maxHeight: at.maxH } : { visibility: 'hidden' }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.stopPropagation()}
+    >
       <div className="dbr-head">
         <Codicon name="inbox" size={15} />
         <b>收件箱</b>
         <span className="num">{`${all.length}条`}</span>
         <span className="grow" />
-        <button type="button" className="dbr-close" aria-label="收起收件箱" data-tip="收起（再点标签条上的「收件箱」打开）" data-side="left" onClick={() => setInboxOpen(false)}>
-          <Codicon name="layout-sidebar-right-off" size={15} />
-        </button>
+        {k && <kbd>{k}</kbd>}
       </div>
       {all.length ? (
         <>
-          <div className="dbr-hint">拖进一列，就放进文档的那一节；拖到空白处，就放在那里。</div>
+          <div className="dbr-hint">
+            <span>拖进一列，就放进文档的那一节；</span>
+            <span>拖到空白处，就放在那里。</span>
+          </div>
           {all.length > 20 && (
             <label className="dbr-search">
               <Codicon name="search" size={13} />
               <input aria-label="在收件箱里找" placeholder="在收件箱里找" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
             </label>
           )}
-          <div className="dbr-list" role="list" aria-label="收件箱里的">
-            {today.length > 0 && <div className="dbr-grp">今天</div>}
-            {today.map((n) => (
-              <Item key={n.path} n={n} onDown={down} />
-            ))}
-            {older.length > 0 && <div className="dbr-grp">更早</div>}
-            {older.map((n) => (
-              <Item key={n.path} n={n} onDown={down} />
-            ))}
+          <div className="dbr-list" ref={list} role="list" aria-label="收件箱里的">
+            {groups.map(({ g, name, items }) => {
+              if (!items.length) return null
+              // 找的时候不管收没收，找到的都列出来
+              const shut = !s && folds.has(g)
+              return [
+                <button key={g} type="button" className="dbr-grp" aria-expanded={!shut} onClick={() => fold(g)}>
+                  <Codicon name={shut ? 'chevron-right' : 'chevron-down'} size={12} />
+                  {name}
+                </button>,
+                ...(shut ? [] : items.map((n) => <Item key={n.path} n={n} onDown={down} />)),
+              ]
+            })}
             {!shown.length && <div className="dbr-none">{`收件箱里没有「${q.trim()}」`}</div>}
           </div>
         </>
@@ -199,6 +330,14 @@ export function InboxDrawer(props: { items: NoteFile[]; readOnly: boolean; onIte
           剪藏、速记、手机发来的都先到这里。
         </div>
       )}
-    </aside>
+      <div className="dbr-foot">
+        <span>{`共 ${all.length} 条`}</span>
+        <span className="grow" />
+        <button type="button" className="dbr-folder" onClick={() => (setInboxOpen(false), openFolderHome(INBOX_DIR))}>
+          打开收件箱文件夹
+          <Codicon name="chevron-right" size={12} />
+        </button>
+      </div>
+    </div>
   )
 }

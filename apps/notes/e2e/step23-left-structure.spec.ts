@@ -1,7 +1,7 @@
 // 左栏重组（2026-11-17，用户批准的 left-structure 小样；2026-11-18 方案 v2 分类与入口方向 A：整套分类平铺在活动栏）：
 // 活动栏 文件 / 最近 / 分类和摘出来的文件夹 / 梦游；文件树第一行是库本身、最外层按分类分组；
 // 文件树篇数、置顶、图标和颜色、六种排序和开关、定位当前文件；每个文件夹都有首页（子文件夹卡片、白板缩略图、PDF 封面、笔记一行预览）；
-// 文件夹右键「置顶」「放到左边」「换图标和颜色…」「移到 ›」；活动栏右键 从左边拿下 / 在「文件」里看位置 / 换图标和颜色 / 上移 / 下移；
+// 文件夹右键「钉到最上面」（task-4891y 起树里这样写，同一份置顶.json）「放到左边」「换图标和颜色…」「移到…」（task-4891y 起是打字找的小弹层）；活动栏右键 从左边拿下 / 在「文件」里看位置 / 换图标和颜色 / 上移 / 下移；
 // 「最近」左栏按时间分组、中间整页写标题回车新建进收件箱。菜单每一项都真点一遍（e2e/menu.ts）。
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
@@ -36,7 +36,7 @@ test('活动栏：文件、最近 | 收件箱 | 课程 阅读 剪藏 | 周记 �
   const run = await start()
   const { page } = run
   try {
-    expect(await barNames(page)).toEqual(['文件', '最近', '书桌', ...CATS, '梦游报告', '库', '设置和外观'])
+    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '梦游报告', '库', '设置和外观'])
     expect(await bar(page).locator('.ab-sep').count()).toBe(4)
     const on = bar(page).getByRole('button', { name: '文件', exact: true })
     const look = await on.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, line: getComputedStyle(el, '::before').width }))
@@ -141,25 +141,26 @@ test('文件树：篇数（含子文件夹）、类型筛选和「最近」共�
   }
 })
 
-test('文件夹右键：每一项都真能用——置顶、放到左边、换图标和颜色、重命名（F2）、移到 ›、新建、打开首页、移到废纸篓', async () => {
+test('文件夹右键：每一项都真能用——钉到最上面、放到左边、换图标和颜色、重命名（F2）、移到…、新建、打开首页、移到废纸篓', async () => {
   const run = await start()
   const { page, vault } = run
   try {
     await row(page, '剪藏').locator('.ft-tw').click()
     await row(page, '极光摄影').click({ button: 'right' })
     const m = await openedMenu(run)
-    expect(menuLabels(m)).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '放到左边', '换图标和颜色…', '重命名…', '移到', '在访达中显示', '拷贝路径', '移到废纸篓'])
-    expect(m.find((i) => i.label === '移到')!.submenu![0]!.label).toBe('测试库')
-    // 置顶：图钉、排到最前，置顶.json 里写成「剪藏/极光摄影/」
-    await pickMenu(run, '置顶')
+    expect(menuLabels(m)).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '钉到最上面', '放到左边', '换图标和颜色…', '重命名…', '移到…', '在访达中显示', '拷贝路径', '移到废纸篓'])
+    // 钉到最上面（以前叫「置顶」，task-4891y）：图钉、排到最前，置顶.json 里写成「剪藏/极光摄影/」；树顶「钉住」一组里也有它
+    await pickMenu(run, '钉到最上面')
+    await expect(side(page).getByRole('group', { name: '钉住' }).locator('.ft-row .truncate')).toHaveText(['极光摄影'])
     await expect(row(page, '极光摄影').locator('.ft-pin')).toBeVisible()
     await expect.poll(() => JSON.parse(readFileSync(join(vault, '.canvas-notes/置顶.json'), 'utf8'))).toEqual(['剪藏/极光摄影/'])
     // 剪藏下面第一行就是它
     const all = await rowNames(page)
     expect(all[all.indexOf('剪藏') + 1]).toBe('极光摄影')
     await row(page, '极光摄影').click({ button: 'right' })
-    await pickMenu(run, '取消置顶')
+    await pickMenu(run, '取消钉住')
     await expect(row(page, '极光摄影').locator('.ft-pin')).toHaveCount(0)
+    await expect(side(page).getByRole('group', { name: '钉住' })).toHaveCount(0)
 
     // 换图标和颜色：搜整套 Codicons，挑相机 + 紫；树、首页、活动栏都用它；恢复默认
     await row(page, '极光摄影').click({ button: 'right' })
@@ -212,9 +213,12 @@ test('文件夹右键：每一项都真能用——置顶、放到左边、换�
     await name.fill('读书摘抄')
     await name.press('Enter')
     await expect.poll(() => existsSync(join(vault, '剪藏/读书摘抄/人类简史摘录.md'))).toBe(true)
-    // 移到 › 测试库（库的最外层，菜单里写库名）：开着的首页标签跟着换路径，一次提交
+    // 移到… › 测试库（库的最外层，弹层里第一项写库名）：开着的首页标签跟着换路径，一次提交
     await row(page, '极光摄影').click({ button: 'right' })
-    await pickMenu(run, '移到 › 测试库')
+    await pickMenu(run, '移到…')
+    const mover = page.getByRole('dialog', { name: '移到' })
+    await expect(mover.getByRole('menuitem').first()).toHaveText('测试库')
+    await mover.getByRole('menuitem').first().click()
     await expect.poll(() => existsSync(join(vault, '极光摄影/三脚架怎么选.md'))).toBe(true)
     expect(existsSync(join(vault, '剪藏/极光摄影'))).toBe(false)
     await expect.poll(() => lastCommit(vault)).toBe('移动文件夹：剪藏/极光摄影 → 极光摄影')
@@ -222,7 +226,7 @@ test('文件夹右键：每一项都真能用——置顶、放到左边、换�
     await expect(pane(page)).toHaveAttribute('data-folder', '极光摄影')
     // 分类（软件自带）没有重命名、移到、移到废纸篓；默认在左边，所以是「从左边拿下」
     await row(page, '剪藏').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '置顶', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '钉到最上面', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
     await pickMenu(run, '拷贝路径')
   } finally {
     await run.close()
@@ -239,7 +243,7 @@ test('放到左边：活动栏最后一段多一格（单色符号）、左栏�
     await pickMenu(run, '放到左边')
     const w = bar(page).getByRole('button', { name: '游记', exact: true })
     await expect(w).toHaveAttribute('aria-pressed', 'true')
-    expect(await barNames(page)).toEqual(['文件', '最近', '书桌', ...CATS, '游记', '梦游报告', '库', '设置和外观'])
+    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '游记', '梦游报告', '库', '设置和外观'])
     expect(await bar(page).locator('.ab-sep').count()).toBe(5)
     await expect.poll(() => left(vault).左边).toEqual([...CATS, '写作/游记'])
     // 左栏是「写作/游记/」那一枝；新建笔记进游记
@@ -250,7 +254,8 @@ test('放到左边：活动栏最后一段多一格（单色符号）、左栏�
     // 活动栏右键：只有它一个自己摘的，上移、下移都灰着（不跨到分类那几段）
     await w.click({ button: 'right' })
     const m = await openedMenu(run)
-    expect(menuLabels(m)).toEqual(['从左边拿下', '在「文件」里看位置', '换图标和颜色…', '上移', '下移'])
+    // 「换图标和颜色…」排最前（task-wniqx）
+    expect(menuLabels(m)).toEqual(['换图标和颜色…', '从左边拿下', '在「文件」里看位置', '上移', '下移'])
     expect(m.find((i) => i.label === '上移')!.enabled).toBe(false)
     expect(m.find((i) => i.label === '下移')!.enabled).toBe(false)
     await pickMenu(run, '换图标和颜色…')
@@ -271,9 +276,9 @@ test('放到左边：活动栏最后一段多一格（单色符号）、左栏�
     await pickMenu(run, '下移')
     await expect.poll(() => left(vault).左边.slice(4, 8)).toEqual(['周记', '写作', '项目', '生活'])
     // 按住拖：生活拖到周记前面（同一段）挪了；拖到课程上（别的段）不挪
-    await cell('生活').dragTo(cell('周记'))
+    await cell('生活').dragTo(cell('周记'), { targetPosition: { x: 17, y: 6 } })
     await expect.poll(() => left(vault).左边.slice(4, 8)).toEqual(['生活', '周记', '写作', '项目'])
-    await cell('生活').dragTo(cell('课程'))
+    await cell('生活').dragTo(cell('课程'), { targetPosition: { x: 17, y: 6 } })
     await page.waitForTimeout(300)
     expect(left(vault).左边.slice(1, 8)).toEqual(['课程', '阅读', '剪藏', '生活', '周记', '写作', '项目'])
     // 点「游记」那一格（先换到文件，不然亮着的那格再点是收起左栏）：中间是它的首页，组件在上、内容在下；头上的方块用同一个图标和颜色
@@ -307,7 +312,7 @@ test('放到左边：活动栏最后一段多一格（单色符号）、左栏�
     await expect.poll(() => left(vault).左边.includes('课程')).toBe(false)
     await row(page, '课程').click({ button: 'right' })
     await pickMenu(run, '放到左边')
-    expect(await barNames(page)).toEqual(['文件', '最近', '书桌', '收件箱', '阅读', '剪藏', '课程', '生活', '周记', '写作', '项目', '游记', '梦游报告', '库', '设置和外观'])
+    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', '收件箱', '阅读', '剪藏', '课程', '生活', '周记', '写作', '项目', '游记', '梦游报告', '库', '设置和外观'])
     await expect(side(page).locator('.vh .t')).toHaveText('课程')
   } finally {
     await run.close()
@@ -401,7 +406,7 @@ test('窄窗口（1100×700，左右栏都开着）文件夹首页：名字优�
   }
 })
 
-test('树里 PDF 名字优先：放不下先整个藏「3/6」，再藏「PDF」小标，不截成半个；名字至少露 6 个字（第 1 轮美学）', async () => {
+test('树里 PDF 那一行：名字先省略，「PDF」小标和右端的数一直看得到（task-4891y ④，换掉第 1 轮美学的「名字优先」）；窄到放不下才整个掉到看不见的第二行，不截成半个；名字至少露 3 个字', async () => {
   const run = await start()
   const { page } = run
   try {
@@ -415,20 +420,23 @@ test('树里 PDF 名字优先：放不下先整个藏「3/6」，再藏「PDF」
           return e ? e.getBoundingClientRect().top - top < 28 : null
         }
         const n = r.querySelector('.truncate') as HTMLElement
-        return { full: n.scrollWidth <= n.clientWidth, nameW: n.clientWidth, ext: shown('.ft-ext'), meta: shown('.ft-meta'), h: r.getBoundingClientRect().height }
+        const right = r.querySelector('.ft-nb') ? '.ft-nb' : '.ft-meta'
+        return { nameW: n.clientWidth, ext: shown('.ft-ext'), right: shown(right), h: r.getBoundingClientRect().height }
       })
-    for (const w of [320, 248, 200]) {
+    for (const w of [320, 248]) {
       await page.evaluate((px) => document.documentElement.style.setProperty('--side-w', px + 'px'), w)
       await page.waitForTimeout(100)
-      const a = await look('冰岛自驾指南')
-      // 名字整个露出来（6 个字），行高不变
-      expect(a, `左栏 ${w}`).toMatchObject({ full: true, h: 28 })
-      // 先藏 3/6 再藏小标：小标藏了，3/6 一定也藏了
-      if (a.ext === false) expect(a.meta).toBe(false)
+      for (const name of ['冰岛自驾指南', 'Lonely Planet 冰岛']) expect(await look(name), `左栏 ${w} ${name}`).toMatchObject({ ext: true, right: true, h: 28 })
     }
-    // 最窄时长名字：至少露 6 个字那么宽，后面的都藏到看不见的第二行
-    const lp = await look('Lonely Planet 冰岛')
-    expect(lp.nameW).toBeGreaterThanOrEqual(6 * 13)
+    // 最窄 200：行高不变，名字至少露 3 个字那么宽；放不下的整个藏到看不见的第二行（先藏右端的数，再藏小标）
+    await page.evaluate(() => document.documentElement.style.setProperty('--side-w', '200px'))
+    await page.waitForTimeout(100)
+    for (const name of ['冰岛自驾指南', 'Lonely Planet 冰岛']) {
+      const a = await look(name)
+      expect(a.h).toBe(28)
+      expect(a.nameW).toBeGreaterThanOrEqual(3 * 13)
+      if (a.ext === false) expect(a.right).toBe(false)
+    }
   } finally {
     await run.close()
   }

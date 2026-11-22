@@ -289,7 +289,8 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
 
     // 6. 归类和改名（挪动放最后：前面补双链改的是挪动前的路径）。两个开关各管一样：只挪不改名、只在原处改名
     const mode: FileMode | null = !filesOn(set) ? null : set.steps.file && set.steps.rename ? 'both' : set.steps.file ? 'move' : 'rename'
-    const inboxAll = mode ? (await git.git(wt, ['ls-files', '-z', '--', INBOX + '/'])).split('\0').filter(Boolean) : []
+    // 收件箱/待办.md 是画布今日和左边「待办」格的收件箱（task-pd1d1）：不归类、不改名
+    const inboxAll = mode ? (await git.git(wt, ['ls-files', '-z', '--', INBOX + '/'])).split('\0').filter((p) => p && p !== `${INBOX}/待办.md`) : []
     if (mode && inboxAll.length) {
       try {
         // 归法和 /整理收件箱 是同一份（shared/filing.ts）；一批多少条、同时问几批能用环境变量调（导几百条时试）

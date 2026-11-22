@@ -166,19 +166,19 @@ export interface Commit {
 }
 
 /**
- * 软件自己的文件（CN-116）：`.canvas-notes/` 下面的全部（首页、左栏、置顶、对话、字幕）、各文件夹的 `.首页.json` 和
- * 首页模板 `.首页模板.json`、空文件夹的 `.gitkeep`。提交说明不写它们，历史默认不列
+ * 软件自己的文件（CN-116）：`.canvas-notes/` 下面的全部（首页、左栏、置顶、对话、字幕）、画布今日的 `.canvas-tasks/`（提醒记录）、
+ * 各文件夹的 `.首页.json` 和首页模板 `.首页模板.json`、空文件夹的 `.gitkeep`。提交说明不写它们，历史默认不列
  */
 export function isInternalPath(p: string): boolean {
   const base = p.slice(p.lastIndexOf('/') + 1)
-  return p === '.canvas-notes' || p.startsWith('.canvas-notes/') || base === '.首页.json' || base === '.首页模板.json' || base === '.gitkeep'
+  return p === '.canvas-notes' || p.startsWith('.canvas-notes/') || p === '.canvas-tasks' || p.startsWith('.canvas-tasks/') || base === '.首页.json' || base === '.首页模板.json' || base === '.gitkeep'
 }
 
 /**
  * 读历史时排除的路径（git 自己跳过只动了这些的提交，「最近100次」全是用户的改动；混着的提交只列用户的文件）。
  * `.gitkeep` 不排除：新建文件夹那次只有它，历史里列成「课程/ecpc/」一行
  */
-export const HIDE_INTERNAL = ['.', ':(exclude).canvas-notes', ':(exclude)*/.首页.json', ':(exclude)*/.首页模板.json']
+export const HIDE_INTERNAL = ['.', ':(exclude).canvas-notes', ':(exclude).canvas-tasks', ':(exclude)*/.首页.json', ':(exclude)*/.首页模板.json']
 
 /** rev：从哪次提交往前数（不给是 HEAD）；paths：只看这些路径（git 的 pathspec，比如 HIDE_INTERNAL） */
 export async function log(dir: string, limit = 50, rev?: string, paths?: readonly string[]): Promise<Commit[]> {
@@ -304,6 +304,7 @@ function internalSay(f: FileStatus): string {
   if (p === '.canvas-notes/anki.json') return '记了送进Anki的疑惑'
   if (p.startsWith('.canvas-notes/对话/')) return '存了AI对话'
   if (p.startsWith('.canvas-notes/字幕/')) return '存了字幕'
+  if (p.startsWith('.canvas-tasks/提醒/')) return '记了提醒'
   return '改了软件设置'
 }
 

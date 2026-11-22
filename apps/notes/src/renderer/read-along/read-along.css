@@ -213,22 +213,58 @@
   gap: 3px;
   color: var(--t3);
 }
+/* 网页标签上的配对小标：一颗 18 方的按钮（图标 12，点了在中间打开那篇，task-z5jh4），连左右边距占 22，图标离标签右边 4 */
 .right.web .wpm {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  margin: 0 4px 0 6px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  margin: 0 1px 0 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
   color: var(--acc-t);
 }
-/* 当前那个标签（地址块）带小标时：地址块照样最窄 190（窄时 88），小标另占 22；悬停时 × 浮在右端，小标让出来（设计复审） */
+.right.web .wpm:hover {
+  background: var(--fill2);
+}
+/* 当前那个标签（地址块）带小标时：地址块照样最窄 190（窄时 88），小标另占 22；悬停时 × 浮在地址块里面的右端（盖住标题末尾），小标照样在它后面 */
 .right.web .wtabs .tab.wcur:has(> .wpm) {
   min-width: 212px;
 }
 .right.web.w-narrow .wtabs .tab.wcur:has(> .wpm) {
   min-width: 110px;
 }
-.right.web .wtabs .tab.wcur:hover > .wpm {
-  visibility: hidden;
+.right.web .wtabs .tab.wcur:has(> .wpm) > .x {
+  right: 26px;
+}
+/* 别的标签带小标：悬停时 × 浮在右端，小标往左挪到 × 前面（隔 2），名字末尾照样渐隐让出这两颗；最窄 70，挪过去的小标不压图标 */
+.right.web .wtabs .tab:not(.wcur):has(> .wpm) {
+  min-width: 70px;
+}
+.right.web:not(.w-narrow) .wtabs .tab:not(.wcur):hover > .wpm {
+  transform: translateX(-23px);
+}
+/* 小标归左边这个标签：名字右边只留 2，标签后面多空 6，不像是右边地址块的（设计复审） */
+.right.web:not(.w-narrow) .wtabs .tab:not(.wcur):has(> .wpm) {
+  margin-right: 6px;
+}
+.right.web:not(.w-narrow) .wtabs .tab:not(.wcur):has(> .wpm) .tl {
+  padding-right: 2px;
+}
+/* 网页栏窄于 470 只剩图标时 × 不露（点图标是换过去），小标不挪：图标 + 小标 35 宽（左 3、图标 14、隔 3、小标 16 宽、右 3），
+   右栏默认 380 宽时两个带小标的标签不用横着滚 */
+.right.web.w-narrow .wtabs .tab:not(.wcur):has(> .wpm) {
+  min-width: 35px;
+}
+.right.web.w-narrow .wtabs .tab:not(.wcur):has(> .wpm) .tl {
+  padding: 0 1px 0 3px;
+}
+.right.web.w-narrow .wtabs .tab:not(.wcur) > .wpm {
+  width: 16px;
+  margin: 0 1px 0 0;
 }
 
 /* ---------- 网页改版了、那段找不到：浮在网页上面一句（原型 .lost：不往网页栏顶上加一排） ---------- */

@@ -91,6 +91,7 @@ const IN_CONTEXT: Record<string, string> = {
   'zoom-out': '白板上、PDF 上',
   'zoom-reset': '白板上、PDF 上',
   'zoom-fit': '白板上',
+  'board-inbox': '白板上（8isml-inbox-pop 按 ⇧⌘I 开关收件箱弹窗、设置里改键）',
   'ask-page': '读 PDF（step13-pdf、r2-read-ai 等按 ⌘↵）',
   quote: 'AI 回答里选了字（r7-ai-input 按 ⇧⌘L）',
   'clip-page': '网页里',
