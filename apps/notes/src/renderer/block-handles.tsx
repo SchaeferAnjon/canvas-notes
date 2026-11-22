@@ -20,6 +20,7 @@ import { Decoration, type DecorationSet, EditorView, keymap, layer, RectangleMar
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
+import { cardMarker } from './atomic-blocks'
 import { openRaw } from './block-source'
 import { AiIcon } from './engine-logo'
 import { app } from './ctx/actions'
@@ -58,9 +59,12 @@ const hotField = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 })
 
-/** 正在开菜单、正在拖的那一块的选中底：画在字底下一层（拖着时字变淡、底不淡），比版心左右各宽出 8、上下各 4（.cm-scroller 让出了左右 8） */
+/**
+ * 正在开菜单、正在拖的那一块的选中底：盖在上面一层强调色 24%，和退格选中整块一个样子（task-qkx1j；以前画在字底下、--acc-soft，卡有底色看不出）。
+ * 块部件（数据库、图片……）大小、圆角跟卡自己；文字块比版心左右各宽出 8、上下各 4（.cm-scroller 让出了左右 8）。拖着时字变淡、这层不淡
+ */
 const hotLayer = layer({
-  above: false,
+  above: true,
   class: 'cm-blkHotLayer',
   markers(view) {
     let from = -1
@@ -70,6 +74,8 @@ const hotLayer = layer({
       to = f
     })
     if (from < 0) return []
+    const card = cardMarker(view, from, 'cm-blk-hotbg')
+    if (card) return [card]
     const sc = view.scrollDOM.getBoundingClientRect()
     const content = view.contentDOM.getBoundingClientRect()
     const baseLeft = sc.left - view.scrollDOM.scrollLeft

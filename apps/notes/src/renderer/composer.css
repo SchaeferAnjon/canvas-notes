@@ -99,6 +99,15 @@
 .aiin .pick .cv {
   color: var(--t3);
 }
+/* 三颗写全名放不下（composer.tsx 的 useTightRow）：谁来答只留标志、悬停看名字；effort 一直写全；模型名最后才省略 */
+.aiin .ft.tight .pick.eng .lb {
+  display: none;
+}
+/* 写得下全名时三颗都不缩（快捷键提示先省略、再藏）；tight 时只有模型名能缩 */
+.aiin .ft:not(.tight) .pick,
+.aiin .pick.eff {
+  flex-shrink: 0;
+}
 /* 快捷键提示：11 --t3，放不下省略号 */
 .aiin .ft .k {
   flex: 0 1 auto;

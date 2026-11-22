@@ -7,7 +7,7 @@ import { addTableRow, findBlocks, inlineMath, type MdBlock, parseTable, setTable
 import { Prec, StateEffect, StateField } from '@codemirror/state'
 import { EditorView, WidgetType } from '@codemirror/view'
 import { hiddenOk } from './hidden-syntax'
-import { renderTex } from './tex'
+import { fadeEdges, renderTex } from './tex'
 
 /** 正在改的那一格：表格从哪开始（文字位置）、第几行（-1 表头）、第几列 */
 export interface CellAt {
@@ -113,8 +113,12 @@ export class TableWidget extends WidgetType {
     const wrap = document.createElement('div')
     wrap.className = 'cm-table'
     wrap.dataset.part = '表格'
+    // 放不下横着滚时，哪一边还有列哪一边渐隐（和公式同一套，task-c22p9）
+    unfade.set(wrap, fadeEdges(wrap))
     const table = document.createElement('table')
     const cols = Math.max(t.head.length, ...t.rows.map((r) => r.length))
+    // 每列至少多宽（CSS 的 --cols）：窄栏里不挤成一字一行，放不下就在这一块里横着滚（task-c22p9）
+    table.style.setProperty('--cols', String(cols))
     /** 这张表正在改的那一格的输入框：点别的格子时先把它的字写回去 */
     let open: ((next: { row: number; col: number; all?: boolean } | null, opts?: { addRow?: boolean; keepSel?: boolean }) => void) | null = null
     const cell = (tag: 'th' | 'td', text: string, row: number, col: number) => {
@@ -220,7 +224,14 @@ export class TableWidget extends WidgetType {
   ignoreEvent() {
     return true
   }
+
+  destroy(dom: HTMLElement) {
+    unfade.get(dom)?.()
+    unfade.delete(dom)
+  }
 }
+
+const unfade = new WeakMap<HTMLElement, () => void>()
 
 /** 整篇换成 next 时只改有差别的那一段（一次 ⌘Z 撤回，光标、外部合并都按最小改动走） */
 function minimalChange(a: string, b: string): { from: number; to: number; insert: string }[] {

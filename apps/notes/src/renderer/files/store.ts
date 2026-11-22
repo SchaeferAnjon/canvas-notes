@@ -2,7 +2,7 @@
  * 库里的全部文件（md、PDF、HTML、文件夹）：⌘O 和目录树共用一份，文件一变（包括 PDF、HTML）就重新列。
  * 另外记着最近打开过的文件（本机，⌘O 空着时列出来）。
  */
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { FileEntry } from '../../shared/files'
 
 let files: FileEntry[] = []
@@ -93,6 +93,32 @@ export function fileOpened(path: string) {
   } catch {
     // 记不住最近打开不影响使用
   }
+}
+
+// ---------- 「最近删掉的」有几篇（task-5yp97）：目录树最底下那一行的数 ----------
+
+/**
+ * 库里的文件变了（删了、放回了、撤回了）就重数一次（隔 150 毫秒，连着变只数一次）；还没数出来是 null。
+ * 不是 Git 库、git 出错时数不出来：照样是 null，那一行不写数
+ */
+export function useTrashCount(dep: unknown): number | null {
+  const [n, setN] = useState<number | null>(null)
+  useEffect(() => {
+    let live = true
+    const t = setTimeout(
+      () =>
+        void window.cn.trashRecent().then(
+          (l) => live && setN(l.length),
+          () => live && setN(null),
+        ),
+      150,
+    )
+    return () => {
+      live = false
+      clearTimeout(t)
+    }
+  }, [dep])
+  return n
 }
 
 // ---------- 换到「文件」时要定位的（摘出来的文件夹「在「文件」里看位置」） ----------

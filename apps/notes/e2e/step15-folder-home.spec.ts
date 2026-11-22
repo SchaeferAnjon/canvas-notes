@@ -6,7 +6,7 @@ import { lecturePdf } from './fixtures/pdf'
 import { acts, gitStatus, launch, pane, rail, tabOn, leftView } from './app'
 
 // 文件夹首页（task-xfrgu 第 3 段，设计稿 design-mindmap 方向 B 第 9 节）：
-// 左栏「课程」那一枝点一门课开它的首页 → 课件进度、笔记和导图（头上「拍一张」）、我的疑惑…… → 编辑首页：拖动、换宽、收起、删除、
+// 左栏「课程」那一枝点一门课开它的首页 → 课件进度、笔记和导图（头上「拍一张」）、读PDF时问过的…… → 编辑首页：拖动、换宽、收起、删除、
 // 组件库加组件、按条件列出改条件 → 「⋯」设为课程模板 → ⌘K 新建一门课（用模板、标题能改）→ 恢复默认；
 // 梦游预览时挪进来的导图在首页标「新」；文件夹里东西多了只露几条。
 
@@ -97,7 +97,7 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(courseNames(page)).toHaveText(['概率论', '线性代数'])
       await courseRow(page, '线性代数').click()
       await expect(page.locator('.tab.on')).toHaveText('线性代数')
-      await expect(courseRow(page, '线性代数')).toHaveAttribute('aria-selected', 'true')
+      await expect(courseRow(page, '线性代数')).toHaveAttribute('aria-current', 'page')
       await expect(home(page).locator('.fh-title h2')).toHaveText('线性代数')
       // 三份 PDF 和它们旁边的笔记各算一篇（一个 PDF 一篇笔记，和左栏那一行数得一样，task-9okg5）
       await expect(home(page).locator('.fh-title p')).toHaveText(/^课程 \/ 线性代数 · 4讲 · 7篇 · 改于/)
@@ -112,13 +112,15 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(w(page, 'notes').locator('.wk .n')).toHaveText('6')
       await expect(w(page, 'notes').locator('.fw-row .truncate')).toHaveText(['第4讲 特征值 笔记', '第3讲 补充 笔记', '第3讲 线性映射 笔记', '第2讲 导图'])
       await expect(w(page, 'notes').locator('.fw-more')).toHaveText('全部6篇 · 打开列表看')
-      // 我的疑惑：读 PDF 时问过的，最近一讲的几条加每讲的数；可视化读 HTML 里的 meta；今天要复习还没接 Anki，写空状态那句话
+      // 读PDF时问过的（2026-11-22 从「我的疑惑」改名，task-tz7y3）：最近一讲的几问加每讲几问、底下出卡；可视化读 HTML 里的 meta；今天要复习还没送过卡，说在哪出卡
+      await expect(w(page, 'doubts').locator('.wk .truncate')).toHaveText('读PDF时问过的')
       await expect(w(page, 'doubts').locator('.fw-sub')).toHaveText('最近问的 · 第3讲')
       await expect(w(page, 'doubts').locator('.fw-row .truncate')).toHaveText(['核为什么一定是子空间？', '为什么线性映射一定把 0 映到 0？'])
       await expect(w(page, 'doubts').locator('.fw-row .r')).toHaveText(['第7页', '第2页'])
-      await expect(w(page, 'doubts').locator('.chip')).toHaveText(['第3讲2', '第1讲1'])
+      await expect(w(page, 'doubts').locator('.chip')).toHaveText(['第3讲 2问', '第1讲 1问'])
+      await expect(w(page, 'doubts').locator('.fw-foot')).toContainText('3问 · 都还没出卡')
       await expect(w(page, 'viz').locator('.fw-thumb .tn')).toHaveText(['旋转矩阵第3讲'])
-      await expect(w(page, 'review').locator('.fw-empty')).toContainText('Anki里还没有这门课的牌组')
+      await expect(w(page, 'review').locator('.fw-empty')).toContainText('这门课还没有卡送进Anki')
       await shot(page, `fh-course-${tone}`)
 
       // 点一份笔记：开那篇
@@ -268,7 +270,7 @@ for (const tone of ['light', 'dark'] as const) {
       // ---------- 恢复默认（有模板用模板）：先在线性代数删一个，恢复后回来 ----------
       await courseRow(page, '线性代数').click()
       await acts(page).getByRole('button', { name: '编辑首页' }).click()
-      await w(page, 'doubts').getByRole('button', { name: '删掉我的疑惑' }).click()
+      await w(page, 'doubts').getByRole('button', { name: '删掉读PDF时问过的' }).click()
       await expect(w(page, 'doubts')).toHaveCount(0)
       await acts(page).getByRole('button', { name: '更多' }).click()
       await page.getByRole('menu', { name: '首页的更多' }).getByRole('menuitem', { name: '恢复默认' }).click()

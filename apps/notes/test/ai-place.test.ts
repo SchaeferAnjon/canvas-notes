@@ -39,7 +39,7 @@ describe('看得到、能动手', () => {
     expect(seenOf({ id: 'a', type: 'note', path: '冰岛自驾.md' }, { ...opts, board: true })).toEqual({ see: '白板：冰岛自驾', hands: '挪卡片、排成列、合并' })
     expect(seenOf({ id: 'a', type: 'recent' }, opts)).toEqual({ see: '最近', hands: null })
     expect(seenOf(null, opts).see).toBe('空白页')
-    const tabs = [{ id: 'a', type: 'archive' }, { id: 'b', type: 'doubts', folder: '' }, { id: 'c', type: 'oldimages', item: 'x' }] as const
+    const tabs = [{ id: 'a', type: 'archive' }, { id: 'c', type: 'oldimages', item: 'x' }] as const
     for (const t of tabs) expect(seenOf(t, opts).see).not.toContain('没打开笔记')
   })
 

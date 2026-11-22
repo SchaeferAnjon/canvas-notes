@@ -255,7 +255,7 @@ test('⌘↵ 问整页；选中一段字问；esc 取消框；重开软件回到
   }
 })
 
-test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱里能拖）、问到 n/N、我的疑惑按讲收起、送进 Anki', async () => {
+test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱里能拖）、问到 n/N、从笔记出卡送进 Anki', async () => {
   // 假的 AnkiConnect：记下加了哪些卡
   const added: { fields: Record<string, string>; deckName: string }[] = []
   const anki = createServer((req, res) => {
@@ -320,43 +320,38 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
     await frame.getByRole('slider', { name: '角度' }).fill('90')
     await expect(frame.locator('#v')).toHaveText('90')
 
-    // 回到 PDF：笔记里有可视化卡；⌘K「我的疑惑」开我的疑惑（问题是原话）
+    // 回到 PDF：笔记里有可视化卡
     await page.locator('.tab', { hasText: '第3讲 线性映射.pdf' }).locator('.tl').click()
     await rail(page).getByRole('button', { name: '笔记' }).click()
     await expect(notes(page).getByTestId('viz-card')).toContainText('旋转矩阵 · 拖动角度看基向量')
+    // 「我的疑惑」那一页 2026-11-22 拿掉了（task-tz7y3）：⌘K 打它说问过的在哪；不再是文件
     await page.keyboard.press('Meta+k')
     await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('我的疑惑')
-    await expect(page.locator('.pal-row').first().locator('.lc')).toHaveText('课程/线性代数')
-    await page.keyboard.press('Enter')
-    const doubts = page.getByTestId('doubts')
-    await expect(doubts.locator('.dq-sub')).toContainText('线性代数 · 1条')
-    await expect(doubts.getByTestId('doubt-group').locator('.dq-gh b')).toHaveText('第3讲 线性映射')
-    const row = doubts.getByTestId('doubt-row')
-    await expect(row.locator('.dq-tx b')).toHaveText('给我讲解一下')
-    await row.locator('.dq-line').click()
-    await expect(row.locator('.dq-full')).toContainText('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
-    // 「我的疑惑」不再是文件（2026-11-20）：汇总页直接读笔记
+    await expect(page.locator('.pal-row').first()).toContainText('这一页拿掉了：问过的在每份PDF的笔记「只看我问的」里')
+    await page.keyboard.press('Escape')
     expect(existsSync(join(vault, '课程/线性代数/我的疑惑.md'))).toBe(false)
 
-    // 送进 Anki：预览正反面，送 1 张；送过的标「已送」，一次提交
-    await doubts.getByRole('button', { name: '送进Anki · 1张' }).click()
-    const dlg = page.getByRole('dialog', { name: '送进 Anki' })
-    await expect(dlg.locator('.adq')).toHaveText('给我讲解一下')
-    await expect(dlg.locator('.adsrc')).toHaveText('第3页 · 第3讲 线性映射.pdf')
-    await dlg.getByRole('button', { name: '送1张' }).click()
-    await expect(page.locator('.toast-cn')).toContainText('已送进Anki · 1张卡片（牌组「知识」）')
-    await expect(row.locator('.dq-sent')).toHaveText('已送')
-    await expect(doubts.getByRole('button', { name: '送进Anki · 0张' })).toBeDisabled()
-    expect(added.map((n) => [n.deckName, n.fields.Question])).toEqual([['知识', '给我讲解一下']])
-    // 背面：回答原文的开头一段
-    expect(added[0]!.fields.Answer).toContain('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
-    expect(added[0]!.fields.Image).toMatch(/^<img class="lead" src="canvasnotes-\w+\.png">$/)
-    expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('送进 Anki：线性代数 1 张')
+    // 出卡：AI 改成卡（假 AI），一张张过，送进 Anki；送过的标「已送」，一次提交
+    await notes(page).getByRole('tab', { name: '只看我问的' }).click()
+    await notes(page).getByRole('button', { name: '出卡 · 1问' }).click()
+    const dlg = page.getByRole('dialog', { name: '出卡' })
+    await expect(dlg.locator('.dh .sub')).toHaveText(/^改好了1张/, { timeout: 15_000 })
+    await expect(dlg.locator('.orig')).toHaveText('你当时问的：「给我讲解一下」')
+    await expect(dlg.locator('.paper .foot')).toContainText('第3讲 线性映射 · 第 3 页')
+    await dlg.getByRole('button', { name: '送进Anki · 1张' }).click()
+    await expect(page.locator('.toast-cn')).toContainText('已送进Anki · 1张（牌组「课程::线性代数::第3讲 线性映射」）')
+    await expect(notes(page).locator('.qonly .st')).toHaveText(['已送'])
+    await expect(notes(page).getByRole('button', { name: '出卡 · 0问' })).toBeVisible()
+    expect(added.map((n) => [n.deckName, n.fields.Question])).toEqual([['课程::线性代数::第3讲 线性映射', '「测试小标题 p3」里：给我讲解一下']])
+    // 背面：AI 改写的答案；原文摘句是回答里原样的一句
+    expect(added[0]!.fields.Answer).toContain('这是讲解')
+    expect(added[0]!.fields.Image).toMatch(/^<img class="lead" src="canvasnotes-\w+\.png"( width="\d+")?>$/)
+    expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('送进 Anki：第3讲 线性映射 1 张')
     expect(gitOut(vault, 'status', '--porcelain', '--untracked-files=all')).toBe('')
 
-    // 疑惑里点页码：回到 PDF 那一页
-    await row.locator('.pgc').click()
-    await expect(acts(page).getByTestId('pdf-pager')).toHaveText('3 / 5')
+    // 点「只看我问的」里那一条：回到那一轮
+    await notes(page).locator('.qonly').first().click()
+    await expect(notes(page).getByRole('tab', { name: '全部' })).toHaveAttribute('aria-selected', 'true')
   } finally {
     await run.close()
     anki.close()

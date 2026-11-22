@@ -280,8 +280,10 @@ const guardChanges = EditorState.transactionFilter.of((tr) => {
     // 选中了一整块（点了图片、退格先选中了视频卡）再打字、粘贴：块留着，字另起一段接在块下面
     // （第 6 轮：选区换成第一个字后光标回到块前面，第一个字落在块下面，后面的字跑到块上面、并进上一段）
     const block = text && fromA < toA ? hs.find((h) => h.side === 'near' && h.unit && h.unit.from === fromA && h.unit.to === toA) : undefined
-    // 这次删除盖住了一整块的：那一块不护着
-    const keep = hs.filter((h) => !(h.unit && !block && fromA < toA && fromA <= h.unit.from && toA >= h.unit.to))
+    // 这次删除盖住了一整块的：那一块不护着，块里面藏着的也跟着删（task-6lsvd：```base 画成的数据库表，
+    // 它的两行围栏另外登记成「永不删」（wysiwyg.ts 的代码块围栏），选中整块删只删掉中间的写法、空的一个字都删不掉）
+    const covered = block || fromA >= toA ? [] : hs.filter((h) => h.unit && fromA <= h.unit.from && toA >= h.unit.to)
+    const keep = hs.filter((h) => !covered.some((c) => h.from >= c.from && h.to <= c.to))
     let pieces: [number, number][] = fromA < toA && !block ? [[fromA, toA]] : []
     for (const h of keep) if (h.from < toA && h.to > fromA) pieces = subtract(pieces, h.from, h.to)
     for (const h of keep) for (const g of h.glue ?? []) if (g.from < toA && g.to > fromA) pieces = subtract(pieces, g.from, g.to)

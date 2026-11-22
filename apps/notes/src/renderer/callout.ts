@@ -6,6 +6,7 @@
  * `[!type]-` 默认收着、`[!type]+` 默认展开但能收起（同 Obsidian）。
  */
 import type { CodiconName } from '@cn/design'
+import { isSummaryHead } from '@cn/format'
 import type { EngineId } from '../shared/agent'
 import { ENGINE_LABEL } from '../shared/ai-features'
 
@@ -49,6 +50,11 @@ export interface CalloutHead extends CalloutKind {
   folded: boolean
   /** AI 讲解：标题里写着是哪一家做的（画它的标志代替 icon）；别的类型、没写哪家是 null */
   engine: EngineId | null
+  /**
+   * 「AI 总结」块没写是哪家（以前存的总结卡改过来的，task-5yp97）：不画图标，「AI 总结」和正文左对齐
+   * （画对话图标就和旁支、句后的小标是同一个图标，看着像一条旁支）
+   */
+  bare?: boolean
 }
 
 /** 「AI 讲解 · Claude Code · Opus 5.5 · …」里写的是哪一家 */
@@ -69,5 +75,6 @@ export function parseCallout(line: string): CalloutHead | null {
     foldable: m[3] !== '' || k.kind === 'ai',
     folded: m[3] === '-',
     engine: k.kind === 'ai' ? engineIn(m[4]!.trim()) : null,
+    ...(k.kind === 'ai' && !engineIn(m[4]!.trim()) && isSummaryHead(m[4]!.trim()) ? { bare: true } : {}),
   }
 }

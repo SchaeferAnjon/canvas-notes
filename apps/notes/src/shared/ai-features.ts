@@ -5,9 +5,12 @@
  */
 import type { EngineId, EngineInfo } from './agent'
 
-/** 跟着这里走的功能：AI 对话（浮窗、边读边问、/ 命令）、梦游（整理、周记、可视化）、看图问（视频框一块问、拍导图）、小活（视频摘要、起名、插件快问） */
-export type AiFeature = 'chat' | 'dream' | 'vision' | 'quick'
-export const FEATURES: AiFeature[] = ['chat', 'dream', 'vision', 'quick']
+/**
+ * 跟着这里走的功能：AI 对话（浮窗、边读边问、/ 命令）、梦游（整理、周记、可视化）、看图问（视频框一块问、拍导图）、小活（视频摘要、起名、插件快问）、
+ * 出卡（读 PDF 问过的改成 Anki 卡，task-tz7y3；选择器在设置 › 读PDF「改写成卡用哪家AI」，没选跟默认）
+ */
+export type AiFeature = 'chat' | 'dream' | 'vision' | 'quick' | 'cards'
+export const FEATURES: AiFeature[] = ['chat', 'dream', 'vision', 'quick', 'cards']
 
 export interface AiPick {
   engine: EngineId

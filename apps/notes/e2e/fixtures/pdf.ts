@@ -17,7 +17,8 @@ export interface FakePage {
 
 const esc = (s: string) => s.replace(/[\\()]/g, (c) => '\\' + c)
 
-export function lecturePdf(pages: FakePage[]): Buffer {
+/** outline：带书签（PDF 自己的目录），每页一条，标题就是这一页的大标题 */
+export function lecturePdf(pages: FakePage[], o: { outline?: boolean } = {}): Buffer {
   const W = 612
   const H = 792
   const objs: (string | Buffer)[] = []
@@ -51,7 +52,18 @@ export function lecturePdf(pages: FakePage[]): Buffer {
     const content = add(`<< /Length ${Buffer.byteLength(s, 'latin1')} >>\nstream\n${s}endstream`)
     kids.push(add(`<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${helv} 0 R /F2 ${times} 0 R >> /XObject << /Im1 ${img} 0 R >> >> /Contents ${content} 0 R >>`))
   })
-  objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesObj} 0 R >>`
+  let outlines = 0
+  if (o.outline) {
+    outlines = add('')
+    const items = kids.map(() => add(''))
+    items.forEach((it, i) => {
+      const prev = i > 0 ? ` /Prev ${items[i - 1]} 0 R` : ''
+      const next = i < items.length - 1 ? ` /Next ${items[i + 1]} 0 R` : ''
+      objs[it - 1] = `<< /Title (${esc(pages[i]!.title)}) /Parent ${outlines} 0 R${prev}${next} /Dest [${kids[i]} 0 R /XYZ 0 ${H} 0] >>`
+    })
+    objs[outlines - 1] = `<< /Type /Outlines /First ${items[0]} 0 R /Last ${items[items.length - 1]} 0 R /Count ${items.length} >>`
+  }
+  objs[catalog - 1] = `<< /Type /Catalog /Pages ${pagesObj} 0 R${outlines ? ` /Outlines ${outlines} 0 R` : ''} >>`
   objs[pagesObj - 1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`
   const parts: Buffer[] = [Buffer.from('%PDF-1.4\n%\xe2\xe3\xcf\xd3\n', 'latin1')]
   const offsets: number[] = []

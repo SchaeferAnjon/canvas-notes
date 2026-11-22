@@ -17,6 +17,8 @@ import { Codicon, type CodiconName } from '@cn/design'
 import { accelFor, isKey, keyFor } from '../keys'
 import {
   addSection,
+  docAiBlocks,
+  isSummaryHead,
   appendPlaced,
   type DocBoard,
   type DocColumn,
@@ -54,6 +56,8 @@ import { type BoardZoomApi } from '../BoardView'
 import { movedEnough } from '../board-drop'
 import { clampZoom, fitZoom, stepZoom, wheelZoom } from '../board-zoom'
 import { app } from '../ctx/actions'
+import { aiBlockSig, findAiBlock } from '../side/side-core'
+import { type Spot } from '../side/file-side'
 import { type MenuEntry, showMenu } from '../ctx/menu'
 import { sayCardBack, sayMerged, saySameSpot } from '../conflict-say'
 import { useVaultFiles } from '../files/store'
@@ -193,6 +197,42 @@ export function DocBoardView(props: DocBoardViewProps) {
   const per = board.total > 200 ? PER_COL_LONG : PER_COL
   const inbox = inboxOf(props.notes, props.notePath)
   const ctx: CardCtx = { notePath: props.notePath, notes: props.notes, files, full: false }
+  /**
+   * AI 讲解卡上的旁支（task-p90ra）：每块 `> [!ai]` 讲解在全文里的起点和认它的那两行。
+   * 旁支写进去以后卡的编号（按字算的）会变，这一处的编号、React 的 key 用认讲解的那两行（同样的几块按先后加序号），开着的旁支不丢
+   */
+  const aiSpots = useMemo(() => {
+    const starts = [0]
+    for (let i = 0; i < props.text.length; i++) if (props.text[i] === '\n') starts.push(i + 1)
+    const seen = new Map<string, number>()
+    return docAiBlocks(props.text).map((b) => {
+      const sig = aiBlockSig(props.text, b)
+      const id = `${sig.head}\n${sig.first}`
+      const n = (seen.get(id) ?? 0) + 1
+      seen.set(id, n)
+      return { at: starts[b.head]!, sig, host: `board:${props.notePath}#${id}#${n}` }
+    })
+  }, [props.text, props.notePath])
+  const aiHostOf = (u: DocUnit) => (u.kind === 'callout' ? aiSpots.find((x) => x.at >= u.from && x.at < u.to)?.host : undefined)
+  const sideSpot = (u: DocUnit): Spot | undefined => {
+    const hit = props.readOnly ? undefined : aiSpots.find((x) => x.at >= u.from && x.at < u.to)
+    if (!hit) return undefined
+    const title = titleOf(props.notePath)
+    // 「AI 总结的」卡（task-5yp97）：说「总结」不说「讲解」
+    const noun = isSummaryHead(hit.sig.head) ? '总结' : '讲解'
+    return {
+      host: hit.host,
+      path: props.notePath,
+      title,
+      text: props.text,
+      find: (t) => findAiBlock(t, hit.sig),
+      where: `白板《${title}》上 AI 写的${noun}卡`,
+      record: { icon: 'file', text: `写在这篇文档里，挂在这段${noun}下面` },
+      noun,
+      onQuote: (q) => app().askAi(q),
+      place: `file:${props.notePath}`,
+    }
+  }
   const setToast = (t: Toast | null) => setToastState(t)
 
   // ----- 写回：每个动作一步，撤回只撤这块白板自己做过的 -----
@@ -411,7 +451,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     const note = await window.cn.readNote(path)
     const body = note.text.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
     if ((/^---\n[\s\S]*?\nsource:/.test(note.text) && /^# /m.test(body)) || body.length > 800) {
-      const moved = await window.cnMenu.moveNote(path, `${CLIPS}/${titleOf(props.notePath)}`)
+      const moved = (await window.cnMenu.moveNote(path, `${CLIPS}/${titleOf(props.notePath)}`)).to
       put(where, `![[${titleOf(moved)}]]`, { col: `收件箱里那篇放进了「%s」：那篇挪进了「${CLIPS}/${titleOf(props.notePath)}/」，这里是指向它的卡片`, free: `收件箱里那篇放在这里：挪进了「${CLIPS}/${titleOf(props.notePath)}/」，这里是指向它的卡片` }, { undo: () => void window.cnMenu.moveNote(moved, INBOX).then(() => app().refresh()) })
     } else {
       // 开头那行「# 名字」是那篇的名字，放进文档就不要了（不然文档里多一个一级标题，按节摆就乱了）；图的相对链接按这篇改
@@ -564,7 +604,8 @@ export function DocBoardView(props: DocBoardViewProps) {
       return
     }
     if (!selected.has(key)) setSelected(new Set([key]))
-    if (props.readOnly) return
+    // AI 讲解卡的字上按下是选字（选一句开旁支，task-p90ra），不拖卡；拖卡按卡头、卡边
+    if (props.readOnly || (e.target as HTMLElement).closest('.side-text')) return
     const card = (e.currentTarget as HTMLElement).getBoundingClientRect()
     setDrag({ type: 'unit', key, unit: u, start: { x: e.clientX, y: e.clientY }, grab: { x: e.clientX - card.left, y: e.clientY - card.top }, moved: false, at: { x: e.clientX, y: e.clientY }, w: card.width })
   }
@@ -999,7 +1040,7 @@ export function DocBoardView(props: DocBoardViewProps) {
   }
   const onContext = async (e: React.MouseEvent) => {
     const t = e.target as HTMLElement
-    if (props.readOnly || t.closest('input, textarea, [contenteditable="true"], .bpal, .db-drawer, .dbx, .db-full-back, .card-edit')) return
+    if (props.readOnly || t.closest('input, textarea, [contenteditable="true"], .bpal, .db-drawer, .dbx, .base-pop, .db-full-back, .card-edit')) return
     e.preventDefault()
     e.stopPropagation()
     outer.current?.focus({ preventScroll: true })
@@ -1119,7 +1160,8 @@ export function DocBoardView(props: DocBoardViewProps) {
     const f = faceOf(u, ctx)
     const dragging = drag?.type === 'unit' && drag.moved && drag.key === key
     const editing = editUnit === u
-    const acts: CardActs = { onToggle: (line) => toggle(u, line), onOpen: openTarget, onFull: () => setFull({ unit: u, base: cur.current }), onExpand: () => (setSelected(new Set()), setExpanded(key)) }
+    const side = f.k === 'callout' && f.kind === 'ai' ? sideSpot(u) : undefined
+    const acts: CardActs = { onToggle: (line) => toggle(u, line), onOpen: openTarget, onFull: () => setFull({ unit: u, base: cur.current }), onExpand: () => (setSelected(new Set()), setExpanded(key)), ...(side ? { side } : {}) }
     const cls =
       `db-card ${faceClass(f)}` +
       (u.kind === 'video' && u.moments ? ' group' : '') +
@@ -1130,7 +1172,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       (editing ? ' editing' : '')
     return (
       <div
-        key={key || u.from}
+        key={aiHostOf(u) ?? (key || u.from)}
         className={cls}
         data-i={i}
         data-id={key}
@@ -1256,7 +1298,8 @@ export function DocBoardView(props: DocBoardViewProps) {
             if (u.kind !== 'gap' && !showAll && shown >= per && u !== editUnit) return null
             if (u.kind !== 'gap') shown++
             return (
-              <div key={(keys.get(u) ?? '') + u.from} className="db-sub-wrap">
+              // AI 讲解卡用认讲解的那两行做 key：旁支写进去以后卡的字变了也不重画（开着的旁支、打了一半的字不丢）
+              <div key={aiHostOf(u) ?? (keys.get(u) ?? '') + u.from} className="db-sub-wrap">
                 {u.sub && <div className="db-sub">{u.sub}</div>}
                 {drop && drop.col === ci && drop.before === i && <div className="db-drop" />}
                 {draftHere === i && draftCard(i)}

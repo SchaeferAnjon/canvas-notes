@@ -89,6 +89,8 @@ export const KEYMAP: readonly KeyDef[] = [
   T('toggle-right', '收起 / 展开右栏', 'app', 'go', { keys: ['⌥⌘\\'], home: 'go', searchOnly: true }),
   T('left-files', '左栏：文件', 'app', 'go', { keys: ['⇧⌘E'], home: 'go', searchOnly: true, hint: '按位置看，目录树' }),
   T('left-recent', '左栏：最近', 'app', 'go', { keys: ['⇧⌘R'], home: 'go', searchOnly: true, hint: '按时间看' }),
+  T('left-desks', '左栏：书桌', 'app', 'go', { home: 'go', searchOnly: true, hint: '存好的一整套：笔记、网页、读到哪' }),
+  T('fold-center', '收起 / 展开中间栏', 'app', 'go', { keys: ['⌃⌘\\'], home: 'go', searchOnly: true, hint: '网页占满，摘录照样写进中间那篇' }),
   T('dream-report', '打开梦游报告', 'app', 'go', { keys: ['⇧⌘D'], home: 'go', hint: '左栏' }),
   T('inbox', '打开收件箱', 'app', 'go', { home: 'go' }),
   T('recent', '最近', 'app', 'go', { home: 'go', hint: '按时间看全部笔记' }),
@@ -106,6 +108,7 @@ export const KEYMAP: readonly KeyDef[] = [
   T('capture', '拍一张导图', 'app', 'new', { keys: ['⇧⌘C'], home: 'new', hint: '拍手写的导图，认成白板' }),
   T('new-course', '新建一门课', 'app', 'new', { home: 'new', hint: '课程/新的课程，首页用课程模板' }),
   T('import', '导入旧笔记…', 'app', 'new', { home: 'new', hint: '备忘录或Markdown文件夹' }),
+  T('save-desk', '存成书桌…', 'app', 'new', { home: 'new', hint: '记下现在这一整套' }),
 
   // ---- 看法和缩放
   T('toggle-view', '白板 / 文档切换', 'app', 'view', { keys: ['⌘E'], home: 'app', searchOnly: true, hint: '同一篇的两种看法' }),
@@ -129,9 +132,14 @@ export const KEYMAP: readonly KeyDef[] = [
 
   // ---- 读 PDF、HTML
   T('ask-page', '问这一页', 'app', 'reading', { keys: ['⌘↵'], hint: 'PDF 问这一页、HTML 问这一屏；框着一块时是改问法' }),
+  // 出卡（task-tz7y3）：读 PDF 问过的 AI 改成卡、一张张过、送进 Anki；名字里带这份 PDF、这门课（card-commands.ts）
+  T('cards-pdf', '出卡：这份PDF没送的', 'app', 'reading', { home: 'ai', hint: '读 PDF 问过的，AI 改成卡、你一张张过，再送进 Anki' }),
+  T('cards-course', '出卡：这门课没送的', 'app', 'reading', { home: 'ai', hint: '这门课各份 PDF 问过的' }),
+  T('cards-settings', '设置 › 读PDF › 出卡', 'app', 'reading', { home: 'app', searchOnly: true, hint: '送进 Anki 的那一组设置' }),
 
   // ---- 网页
   T('clip-page', '剪藏这一页', 'app', 'web', { keys: ['⇧⌘S'], home: 'web', hint: '右栏的网页整页进收件箱' }),
+  T('pair-web', '和右栏这个网页配成一对…', 'app', 'web', { home: 'web', hint: '点开这篇，网页跟着开到读到的那段' }),
   T('web-new-tab', '新网页标签', 'app', 'web', { keys: ['⌘T'], home: 'web', searchOnly: true, hint: '右栏网页' }),
   T('web-address', '地址栏', 'app', 'web', { keys: ['⌘L'], home: 'web', searchOnly: true, hint: '右栏网页开着时' }),
   T('web-reload', '重新载入网页', 'app', 'web', { keys: ['⌘R'], home: 'web', searchOnly: true, hint: '右栏网页、中间的 HTML' }),

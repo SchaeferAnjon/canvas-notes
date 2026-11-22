@@ -1,5 +1,5 @@
 /** 读 PDF 边读边问：界面和主进程之间来回传的东西 */
-import type { AskSection, DoubtItem, PdfBlock, Rect } from '@cn/format'
+import type { AskSection, CardText, PdfBlock, Rect } from '@cn/format'
 import { type FigureBox, parseFigureMark, stripFigureMark } from '@cn/format'
 import type { AiCommitFailed, CommitInfo } from './api'
 import type { EngineId, ToolStep } from './agent'
@@ -215,38 +215,82 @@ export interface WriteSectionResult {
   files?: string[]
 }
 
-/** 我的疑惑页：一个文件夹（一门课）的清单 */
-export interface DoubtsView {
-  folder: string
-  course: string
-  items: (DoubtItem & { sent: boolean })[]
-  /** 看视频时框一块问的（文档里的问答块），这门课里的 */
-  videos: VideoDoubt[]
-}
+// ---------------------------------------------------------------- 出卡送 Anki（task-tz7y3，方向 B「AI 先改成卡，一张张过」）
 
-/** 看视频时框一块问的一处（文档里的问答块，main/reading/doubts.ts 的 collectVideoDoubts） */
-export interface VideoDoubt {
-  /** 记在哪篇文档、第几行（问答块开头那行注释） */
-  doc: string
-  line: number
-  /** 视频里的时间「00:06」、视频名、带时间的网址 */
-  time: string
+/** 出卡的范围：一份 PDF 的笔记、一门课（一个文件夹和下面的子文件夹）、整个库 */
+export type CardScope = { kind: 'pdf'; pdf: string } | { kind: 'folder'; folder: string } | { kind: 'vault' }
+
+/** 出卡里的一问（读 PDF 的笔记里问过的一问：主对话问的、旁支里问的；「还是不懂」并进上一问） */
+export interface CardItem {
+  /** 这一问的身份（@cn/format 的 doubtItems：一处的第一问是那一段的身份，后面几问是「身份#指纹」） */
+  id: string
+  pdf: string
+  /** 第几讲（属性「第几讲」，没有按文件名认） */
+  lecture?: number
+  page: number
+  rect?: Rect
+  /** 这一轮的小标题 */
   title: string
-  url: string
-  /** 问题原话、回答开头一段 */
+  /** 问的原话 */
   question: string
-  answer: string
+  /** 旁支里问的：被问的那一句 */
+  quote?: string
+  /** AI 当时回答的开头一段 */
+  lead: string
+  /** 我框的图（库里的路径）和它在 PDF 上 100% 时的宽（卡上按这个宽画，和笔记里一样大） */
+  crop?: string
+  cropW?: number
+  /** 哪门课（纸顶「Canvas Notes · ecp」、标签「主题::ecp」）：课程/<课> 是课名，别的是文件夹名 */
+  course: string
+  /** 送过：什么时候；card 是送进去的字（以前在「我的疑惑」页送的没有） */
+  sent?: { at: string; card?: CardText }
+  /** 上次改好、还没送的（AI 改的或自己改过的）；skip：上次选了不送（Anki 没开时选的都留着） */
+  draft?: { card: CardText; edited?: boolean; skip?: boolean }
 }
 
-export interface AnkiSendResult {
+export interface CardsView {
+  /** 弹窗头上「出卡 · Lecture05」那个名字：PDF 名、课名、「整个库」 */
+  label: string
+  items: CardItem[]
+  /** 出卡用哪家哪个模型（「Claude Code · Opus 5.5」，设置 › 读PDF「改写成卡用哪家AI」） */
+  by: string
+}
+
+/** AI 改好一张就来一条；done：这一次出卡问完了（error：没问成，一句中文） */
+export type CardEvent = { job: number; id: string; card: CardText } | { job: number; done: true; error?: string }
+
+/** Anki 装没装、开没开：设置 › 读PDF 那一行、出卡弹窗里「怎么装」三行（照 anki-learn DESIGN.md「连上 Anki」） */
+export interface AnkiStatus {
+  /** Anki 桌面版：在哪、版本；没装是 null */
+  app: { path: string; version?: string } | null
+  /** AnkiConnect 插件（编号 2055492159）在 addons21 里 */
+  addon: boolean
+  /** AnkiConnect 答话了（Anki 开着、插件在跑） */
+  connected: boolean
+}
+
+export interface CardSendResult {
   added: string[]
-  /** 牌组里已经有一样的问题，没有重复加（也算送过） */
+  /** 牌组里已经有一样的问题、或者这一批里问题一样的，没有重复加（也算送过） */
   duplicates: string[]
   failed: Record<string, string>
-  deck?: string
-  /** Anki 没开、没装 AnkiConnect 这类：一句话说怎么办 */
+  /** 进了哪几个牌组（「课程::ecp」，不在课程里的「知识」） */
+  decks?: string[]
+  /** Anki 没开、连不上插件：送不了，选的都留着 */
+  off?: AnkiStatus
+  /** 别的送不成（Anki 回了错误）：一句中文 */
   error?: string
   commit: CommitInfo | null
+}
+
+/** 课程首页「今天要复习」：这门课送进去几张，Anki 开着时再数新卡、今天到期 */
+export interface AnkiReview {
+  sent: number
+  /** 这门课的卡在哪个牌组（「课程::ecp」） */
+  deck: string
+  connected: boolean
+  newCards?: number
+  due?: number
 }
 
 export interface VizRequest {
@@ -284,8 +328,25 @@ export interface CnReadingApi {
   writeSection(req: WriteSectionRequest): Promise<WriteSectionResult>
   /** 新对话：忘掉这份 PDF 的 AI 会话（下一句重新读全文） */
   forget(pdf: string): Promise<void>
-  doubts(folder: string): Promise<DoubtsView>
-  ankiSend(folder: string, ids: string[]): Promise<AnkiSendResult>
+  /** 出卡：这个范围里问过的每一问，带送过没有、上次改好的 */
+  cards(scope: CardScope): Promise<CardsView>
+  /** 让 AI 把这几问改成卡（job 是界面起的号，结果从 onCards 一张张来） */
+  draftCards(job: number, scope: CardScope, ids: string[]): Promise<void>
+  stopCards(job: number): Promise<void>
+  onCards(cb: (e: CardEvent) => void): () => void
+  /** 记下改过的字、要不要这张（下次出卡接着用）；null 是忘掉这一问上次改好的 */
+  keepCard(id: string, patch: { card?: CardText; edited?: boolean; skip?: boolean } | null): Promise<void>
+  /** 送进 Anki：一问一张，字是弹窗里过过的；送好了记在库里 .canvas-notes/anki.json，一次提交 */
+  sendCards(scope: CardScope, cards: { id: string; card: CardText }[]): Promise<CardSendResult>
+  /** 撤回刚送的：Anki 里删掉这几张，送过的记号拿掉，一次提交 */
+  undoCards(scope: CardScope, ids: string[]): Promise<{ commit: CommitInfo | null; error?: string }>
+  ankiStatus(): Promise<AnkiStatus>
+  /** 打开 Anki（没装返回 false）；browse：开着时在卡片浏览器里只看这几问的卡 */
+  openAnki(browse?: string[]): Promise<boolean>
+  /** 课程首页「今天要复习」 */
+  ankiReview(folder: string): Promise<AnkiReview>
+  /** 没装 Anki：浏览器里开 Anki 的下载页（apps.ankiweb.net） */
+  ankiDownload(): Promise<void>
   viz(req: VizRequest): Promise<VizResult>
   /** 点了 canvas-notes://open?file=…&page=… （Anki 卡上的「打开原文」）：打开 PDF 翻到那页 */
   onOpenAt(cb: (a: { file: string; page: number; rect?: Rect }) => void): () => void

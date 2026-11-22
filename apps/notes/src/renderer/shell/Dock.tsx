@@ -481,10 +481,13 @@ function RowSash(p: { a: D.Group; b: D.Group; props: DockProps }) {
         const both = rectOf(next).bottom - top
         e.currentTarget.setPointerCapture(e.pointerId)
         setOn(true)
+        // 拖过网页上面时网页不吃掉指针（task-rbtrz：以前往上拖进网页那一组就不跟手了）
+        document.body.classList.add('resizing', 'resizing-row')
         const cbp = p.props
         const mv = (ev: PointerEvent) => cbp.onDock(D.setSplit(cbp.stored, p.a.id, p.b.id, (ev.clientY - top) / both), 'layout')
         const up = () => {
           setOn(false)
+          document.body.classList.remove('resizing', 'resizing-row')
           removeEventListener('pointermove', mv)
           removeEventListener('pointerup', up)
         }
@@ -499,9 +502,63 @@ function RowSash(p: { a: D.Group; b: D.Group; props: DockProps }) {
 /** 双击拉到最宽以前那栏多宽（再双击回到这个宽）；按栏的 id 记，只记在这一次打开里 */
 const beforeWidest = new Map<string, number>()
 
-/** 两栏之间的缝：拖着改旁边那栏（不是中间的那一栏）的宽。最宽到中间只剩 420（CENTER_MIN），不再卡在一个死数上；
- * 双击一下拉到最宽，再双击回到拉之前的宽（2026-11-21，task-zligc） */
+/** 两栏之间的缝：挨着中间时拖着改旁边那栏（不是中间的那一栏）的宽。最宽到中间只剩 420（CENTER_MIN），不再卡在一个死数上；
+ * 双击一下拉到最宽，再双击回到拉之前的宽（2026-11-21，task-zligc）。两边都不是中间（网页和 AI 并排）时另算，见 PairSash */
 function ColSash(p: { i: number; props: DockProps }) {
+  const { shown } = p.props
+  const left = shown.cols[p.i - 1]!
+  const right = shown.cols[p.i]!
+  if (!D.isCenter(left) && !D.isCenter(right)) return <PairSash i={p.i} a={left} b={right} props={p.props} />
+  return <CenterSash i={p.i} props={p.props} />
+}
+
+/**
+ * 并排两栏（都不是中间）之间的缝（task-rbtrz，用户：「这里需要能拖动」）：拖着在这两栏之间分宽，左边宽多少右边就窄多少，中间不动；
+ * 每栏最窄 300，不设上限（网页那栏也不设）。双击两栏各一半：同上下两组之间的缝双击回一半，一样的手势一样的结果，好记；
+ * 「回到上次的比例」要另记一份、拖过几次以后说不清是哪次，不做
+ */
+function PairSash(p: { i: number; a: D.SideCol; b: D.SideCol; props: DockProps }) {
+  const [on, setOn] = useState(false)
+  /** 两栏现在画多宽（窗口窄时是收过的宽） */
+  const measure = (cbp: DockProps) => {
+    const a = cbp.widths[p.a.id] ?? p.a.w
+    const b = cbp.widths[p.b.id] ?? p.b.w
+    return { a, total: a + b }
+  }
+  return (
+    <div
+      className={'dsash-col' + (on ? ' on' : '')}
+      style={{ gridColumn: 2 + 2 * p.i, gridRow: 2 }}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="拖着调左右两栏的宽窄，双击各一半"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        e.currentTarget.setPointerCapture(e.pointerId)
+        setOn(true)
+        document.body.classList.add('resizing')
+        const sx = e.clientX
+        const cbp = p.props
+        const { a, total } = measure(cbp)
+        const mv = (ev: PointerEvent) => cbp.onDock(D.setPairWidths(cbp.stored, p.a.id, p.b.id, a + ev.clientX - sx, total), 'layout')
+        const up = () => {
+          setOn(false)
+          document.body.classList.remove('resizing')
+          removeEventListener('pointermove', mv)
+          removeEventListener('pointerup', up)
+        }
+        addEventListener('pointermove', mv)
+        addEventListener('pointerup', up)
+      }}
+      onDoubleClick={() => {
+        const { total } = measure(p.props)
+        p.props.onDock(D.setPairWidths(p.props.stored, p.a.id, p.b.id, total / 2, total), 'layout')
+      }}
+    />
+  )
+}
+
+function CenterSash(p: { i: number; props: DockProps }) {
   const { shown } = p.props
   const left = shown.cols[p.i - 1]!
   const right = shown.cols[p.i]!
@@ -626,11 +683,14 @@ export function startCenterColDrag(e: React.PointerEvent) {
 }
 
 /** .win 的列：左图标栏、左栏、各栏（之间是缝）、右图标栏；B 里中间在最右时它和右图标栏之间也留一道缝 */
-export function gridTracks(shown: D.Dock, frame: 'a' | 'b', widths: Record<string, number>): string {
+/** fold：中间栏收着（task-kbnc0）时占满的那一栏（网页所在的栏）：中间那一列和它旁边的缝都是 0，这一栏 1fr */
+export function gridTracks(shown: D.Dock, frame: 'a' | 'b', widths: Record<string, number>, fold: string | null = null): string {
   const t = ['var(--abar-w)', 'var(--side-w)']
+  const ci = shown.cols.findIndex(D.isCenter)
   shown.cols.forEach((c, i) => {
-    if (i > 0) t.push('var(--dgap)')
-    t.push(D.isCenter(c) ? 'minmax(0, 1fr)' : `${widths[c.id] ?? c.w}px`)
+    // 收着时中间左边那道缝（中间排在第一栏时是右边那道）也是 0
+    if (i > 0) t.push(fold && (i === ci || (ci === 0 && i === 1)) ? '0px' : 'var(--dgap)')
+    t.push(D.isCenter(c) ? (fold ? '0px' : 'minmax(0, 1fr)') : c.id === fold ? 'minmax(0, 1fr)' : `${widths[c.id] ?? c.w}px`)
   })
   // B：只剩中间一块时它和右边图标栏之间留 6（同以前右栏关着）；别的时候最后一块都贴着图标栏（中间排在最后也一样，原型 proto-a）
   if (frame === 'b' && shown.cols.length === 1) t.push('var(--dgap)')

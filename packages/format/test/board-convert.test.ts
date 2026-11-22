@@ -6,7 +6,10 @@ import { describe, expect, it } from 'vitest'
 import { boardThumb, convertBoard, hasOldLayout, linksOf, needsConvert, OLD_OFFSET, splitDoc } from '../src'
 import { OLD_BOARDS } from './fixtures'
 
-/** 一篇里所有「字」：去掉排版注释行、空行（旧写法列注释里的列名算一行字），标题去掉 # 号、整行加粗去掉 **（卡里的标题改成加粗），每行去掉首尾空白 */
+/**
+ * 一篇里所有「字」：去掉排版注释行、空行（旧写法列注释里的列名算一行字），标题去掉 # 号、整行加粗去掉 **（卡里的标题改成加粗），每行去掉首尾空白；
+ * AI 总结的卡转成提示块（task-5yp97）：多出来的「> [!ai] AI 总结」那一行不算字，每行前面的「> 」去掉再比
+ */
 function words(text: string): string[] {
   return text
     .replace(/^---\n[\s\S]*?\n---\n/, '')
@@ -15,8 +18,8 @@ function words(text: string): string[] {
       const t = /^<!--\s*column\s[^\n]*\btitle=(?:"([^"]*)"|(\S+))[^\n]*-->\s*$/.exec(l)
       return t ? (t[1] ?? t[2]!) : l
     })
-    .filter((l) => !/^<!--\s*(card|column)\s[^\n]*-->\s*$/.test(l) && l.trim() !== '')
-    .map((l) => l.replace(/^#{1,6}\s+/, '').replace(/^\*\*(.+)\*\*$/, '$1').trim())
+    .filter((l) => !/^<!--\s*(card|column)\s[^\n]*-->\s*$/.test(l) && !/^>\s*\[!ai\] AI 总结$/.test(l) && l.trim() !== '' && l.trim() !== '>')
+    .map((l) => l.replace(/^>\s?/, '').replace(/^#{1,6}\s+/, '').replace(/^\*\*(.+)\*\*$/, '$1').trim())
     .sort()
 }
 

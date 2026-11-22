@@ -682,7 +682,8 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
             <button key={n.path} className="r" onClick={() => props.onOpen(n.path)} onContextMenu={(e) => onFileMenu(e, n.path)}>
               <Codicon name="file-text" size={14} />
               <span className="truncate">{titleOf(n.path)}</span>
-              <span className="t">{when(n.mtimeMs)}</span>
+              {/* 和网页配成一对的（task-kbnc0）：点开网页跟着开 */}
+              <span className="t">{n.readAlong ? `网页跟着开 · ${when(n.mtimeMs)}` : when(n.mtimeMs)}</span>
             </button>
           ))}
         </div>

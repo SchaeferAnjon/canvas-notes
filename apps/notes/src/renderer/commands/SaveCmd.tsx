@@ -142,7 +142,7 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tries])
 
-  /** 举例的那一篇：对话里的那篇旁边最近改的；从头写时用开着的那一篇，没有就写「这一篇」 */
+  /** 举例的那一篇：对话里改的这一篇；从头写时用开着的那一篇，没有就写「这一篇」 */
   const ex = chat?.example ?? (init.kind !== 'chat' ? init.example : undefined) ?? (props.here ? { title: titleOf(props.here), folder: dirOf(props.here) } : { title: '这一篇', folder: '它在的文件夹' })
   const clean = cleanName(name)
   const shown = clean || '我的命令'
@@ -807,6 +807,9 @@ function TreeRows(p: { rows: TreeRow[] }) {
   )
 }
 
+/** 影响卡抬头后面那句：拿这一篇举例，再一句说用在别的笔记上就是那一篇 */
+const exampleLine = (example: string, name: string) => `拿「${example}」举例：下次在它上面打 /${name} 会这样；在别的笔记上打，就换成那一篇`
+
 function Impact(p: { m: ReturnType<typeof impactOf>; example: string; name: string; engine: CmdEditorInit['engine']; ready: boolean }) {
   const { m } = p
   const facts: { k: string; l: string; v: React.ReactNode; text: string; warn?: boolean }[] = [
@@ -844,7 +847,9 @@ function Impact(p: { m: ReturnType<typeof impactOf>; example: string; name: stri
             <Codicon name="eye" size={14} />
             存之前看清它会改什么
           </b>
-          <span className="x">{`拿「${p.example}」举例：下次在它上面打 /${p.name}`}</span>
+          <span className="x" title={exampleLine(p.example, p.name)}>
+            {exampleLine(p.example, p.name)}
+          </span>
         </div>
         <div className="sc-ig">
           <div className="sc-tree" ref={keep('tree')}>

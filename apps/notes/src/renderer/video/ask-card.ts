@@ -4,6 +4,7 @@
  * 回车：问框里就地长出回答（主进程边答边推），同时照旧写进文档的 AI 讲解块（光标处先出占位，答好换成问答块和 [!ai] 提示块，一次提交）；
  * 接着问也写进同一块讲解；「在 AI 标签里聊」把问答带去 AI 标签。问框的样子在 AskCard.tsx。
  */
+import { type DocAiBlock, docAiBlocks } from '@cn/format'
 import { EditorView } from '@codemirror/view'
 import { useSyncExternalStore } from 'react'
 import { aiErrorView } from '../../shared/ai-errors'
@@ -79,6 +80,14 @@ export function askTurnFor(i: number): { q: string; a: string; url: string; titl
   if (!c || !turn || turn.state !== 'done') return null
   return { q: turn.q, a: turn.a, url: c.url, title: c.title, t: c.t ?? 0, ...(c.image ? { image: c.image } : {}), ...(c.saved && c.saved !== 'none' ? { note: c.saved.path } : {}) }
 }
+/** 那一问（key、t）的讲解块（问答块后面那块 [!ai]）：旁支挂在它下面（task-p90ra）；找不到是 null */
+export function findAskBlock(text: string, key: string, t: number): DocAiBlock | null {
+  const head = askHead(key, t)
+  const line = text.split('\n').findIndex((l) => l.trim() === head)
+  if (line < 0) return null
+  return docAiBlocks(text).find((b) => b.head > line && b.head <= line + 12) ?? null
+}
+
 export function useAskCard(): AskCardState | null {
   return useSyncExternalStore(
     (f) => {

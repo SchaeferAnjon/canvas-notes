@@ -15,12 +15,25 @@ import { headingOf } from './title-follow'
 import { when } from '../shared/when'
 import { folderLabel } from './vault-name'
 import { faviconEl } from './web/favicons'
+import { openChipMenu, openPairPop } from './read-along/ReadAlongLayer'
+import { hintKey, hintOff, type Hint, rightPage } from './read-along/store'
+import { keyFor } from './keys'
 
 /** 这篇改名、挪走以后，NoteDoc 用它告诉编辑器新路径 */
 export const setNotePath = StateEffect.define<string>()
 
 /** 文件的修改时间（毫秒）；fresh：这次刚新建的 */
 export const setNoteMeta = StateEffect.define<{ mtime?: number; fresh?: boolean }>()
+
+/**
+ * 和网页配成一对（task-kbnc0 方向 A）：标题下单独一行「对着看 · 书名 · 读到 2.1.4. 索引和切片」，点开是「对着看」的菜单；
+ * 还没配、这周常和一个网站一起开：标题下一句提示（只说一次，× 掉不再提）。NoteTab 按读到哪、右栏开着的网页算好交进来
+ */
+export interface ReadAlongView {
+  chip: { book: string; title: string; at: string | null } | null
+  hint: Hint | null
+}
+export const setReadAlong = StateEffect.define<ReadAlongView>()
 
 /** 正文多少字：标题、frontmatter、注释、md 记号不算；中文一个字算一个，英文、数字一个词算一个 */
 export function countWords(text: string): number {
@@ -82,11 +95,13 @@ class FolderChip extends WidgetType {
     readonly rest: string[],
     /** 剪藏来的（frontmatter 的 source）：后面写一次「· 剪自 <网站图标> 域名」（cmdk 方案 A：链接后面不再露域名） */
     readonly source: string | null = null,
+    /** 和网页配成一对：单独一行「对着看」 */
+    readonly ra: ReadAlongView['chip'] = null,
   ) {
     super()
   }
   eq(o: FolderChip) {
-    return o.path === this.path && o.rest.join('\n') === this.rest.join('\n') && o.source === this.source
+    return o.path === this.path && o.rest.join('\n') === this.rest.join('\n') && o.source === this.source && JSON.stringify(o.ra) === JSON.stringify(this.ra)
   }
   toDOM(view: EditorView) {
     const box = document.createElement('div')
@@ -138,6 +153,7 @@ class FolderChip extends WidgetType {
       it.classList.add('src')
       box.append(it)
     }
+    if (this.ra) box.append(raLine(this.ra, this.path))
     const mark = () => {
       const items = [...box.querySelectorAll<HTMLElement>('.cm-meta-item')]
       items.forEach((it, i) => {
@@ -157,7 +173,96 @@ class FolderChip extends WidgetType {
   }
   /** 只有「所在文件夹」按钮自己的事编辑器不管；点这一行别的空处照常把光标放进文档 */
   ignoreEvent(e: Event) {
-    return !!(e.target as Element | null)?.closest?.('.cm-folder')
+    return !!(e.target as Element | null)?.closest?.('.cm-folder, .cm-ra')
+  }
+}
+
+/** 标题下「对着看」那一行：链接图标、对着看、网站图标、书名、读到哪、▾ */
+function raLine(ra: NonNullable<ReadAlongView['chip']>, path: string): HTMLElement {
+  const line = document.createElement('span')
+  line.className = 'cm-meta-ra'
+  const b = document.createElement('button')
+  b.type = 'button'
+  b.className = 'cm-ra'
+  b.setAttribute('aria-haspopup', 'dialog')
+  b.dataset.part = '对着看'
+  const word = document.createElement('span')
+  word.textContent = '对着看'
+  const name = document.createElement('b')
+  name.textContent = ra.title
+  b.append(codiconEl('link', 12), word, faviconEl(ra.book, 12), name)
+  if (ra.at) {
+    const at = document.createElement('span')
+    at.className = 'ra-at'
+    at.textContent = `· 读到 ${ra.at}`
+    b.append(at)
+  }
+  b.append(codiconEl('chevron-down', 12))
+  b.addEventListener('mousedown', (e) => e.preventDefault())
+  b.addEventListener('click', () => openChipMenu(path, b))
+  line.append(b)
+  return line
+}
+
+/** 标题下一句提示：「配成一对？」（还没配）、「存成一张书桌？」（配了一本、又常和别的网站一起开） */
+class ReadHint extends WidgetType {
+  constructor(
+    readonly path: string,
+    readonly hint: Hint,
+  ) {
+    super()
+  }
+  eq(o: ReadHint) {
+    return o.path === this.path && JSON.stringify(o.hint) === JSON.stringify(this.hint)
+  }
+  toDOM() {
+    const h = this.hint
+    const wrap = document.createElement('div')
+    wrap.className = 'cm-ra-hintw'
+    const box = document.createElement('div')
+    box.className = 'cm-ra-hint'
+    box.setAttribute('role', 'note')
+    box.setAttribute('aria-label', h.kind === 'pair' ? '配成一对？' : '存成一张书桌？')
+    box.dataset.part = h.kind === 'pair' ? '配对提示' : '书桌提示'
+    const t = document.createElement('span')
+    t.className = 't'
+    const name = document.createElement('b')
+    name.textContent = `「${h.title}」`
+    if (h.kind === 'pair') t.append('网页', name, `这周和这篇一起开了 ${h.n} 次。配成一对？以后点开这篇，它跟着开到上次读到的那段。`)
+    else t.append('这篇和网页', name, `这周一起开了 ${h.n} 次。存成一张书桌？以后一下回到这一整套。`)
+    const go = document.createElement('button')
+    go.type = 'button'
+    go.className = 'btn btn-sm ra-26'
+    go.append(codiconEl(h.kind === 'pair' ? 'link' : 'layout', 13), h.kind === 'pair' ? '配成一对' : '存成书桌…')
+    go.addEventListener('mousedown', (e) => e.preventDefault())
+    go.addEventListener('click', () => {
+      const page = rightPage()
+      if (h.kind === 'pair' && page) openPairPop(this.path, page, go)
+      else window.dispatchEvent(new CustomEvent('cn:save-desk'))
+    })
+    const x = document.createElement('button')
+    x.type = 'button'
+    x.className = 'cm-ra-x'
+    x.setAttribute('aria-label', '不用，不再提')
+    x.dataset.tip = '不用，不再提'
+    x.append(codiconEl('close', 15))
+    x.addEventListener('mousedown', (e) => e.preventDefault())
+    x.addEventListener('click', () => {
+      if (h.kind === 'pair') {
+        hintOff(hintKey('pair', this.path, h.host))
+        app().notice('不再提这一对。想配时：右键这篇「和右栏这个网页配成一对…」')
+      } else {
+        hintOff(hintKey('desk', this.path))
+        const k = keyFor('search')
+        app().notice(`不再提。想存时：${k ?? '搜索框'}「存成书桌…」或左栏「书桌」的 +`)
+      }
+    })
+    box.append(h.kind === 'pair' && rightPage() ? faviconEl(rightPage()!.url, 14) : codiconEl('layout', 15), t, go, x)
+    wrap.append(box)
+    return wrap
+  }
+  ignoreEvent(e: Event) {
+    return !!(e.target as Element | null)?.closest?.('button')
   }
 }
 
@@ -165,6 +270,7 @@ interface Meta {
   path: string
   mtime: number | null
   fresh: boolean
+  ra: ReadAlongView | null
   deco: DecorationSet
 }
 
@@ -178,7 +284,8 @@ function chips(state: EditorState, m: Omit<Meta, 'deco'>): DecorationSet {
   const n = countWords(text)
   const at = m.fresh && n === 0 ? '刚建' : m.mtime ? `改于${when(m.mtime, { time: true })}` : ''
   const rest = [at, `${thousands(n)} 字`].filter(Boolean)
-  const out: Range<Decoration>[] = [Decoration.widget({ widget: new FolderChip(m.path, rest, sourceOf(text)), block: true, side: 1 }).range(line.to)]
+  const out: Range<Decoration>[] = [Decoration.widget({ widget: new FolderChip(m.path, rest, sourceOf(text), m.ra?.chip ?? null), block: true, side: 1 }).range(line.to)]
+  if (m.ra?.hint) out.push(Decoration.widget({ widget: new ReadHint(m.path, m.ra.hint), block: true, side: 2 }).range(line.to))
   return Decoration.set(out)
 }
 
@@ -186,16 +293,17 @@ function chips(state: EditorState, m: Omit<Meta, 'deco'>): DecorationSet {
 export function folderChip(path: string): Extension {
   const field = StateField.define<Meta>({
     create: (state) => {
-      const m = { path, mtime: null, fresh: false }
+      const m = { path, mtime: null, fresh: false, ra: null }
       return { ...m, deco: chips(state, m) }
     },
     update(v, tr) {
-      let m = { path: v.path, mtime: v.mtime, fresh: v.fresh }
+      let m: Omit<Meta, 'deco'> = { path: v.path, mtime: v.mtime, fresh: v.fresh, ra: v.ra }
       for (const e of tr.effects) {
         if (e.is(setNotePath)) m = { ...m, path: e.value }
         if (e.is(setNoteMeta)) m = { ...m, ...(e.value.mtime !== undefined ? { mtime: e.value.mtime } : {}), ...(e.value.fresh !== undefined ? { fresh: e.value.fresh } : {}) }
+        if (e.is(setReadAlong)) m = { ...m, ra: e.value.chip || e.value.hint ? e.value : null }
       }
-      if (m.path === v.path && m.mtime === v.mtime && m.fresh === v.fresh && !tr.docChanged) return v
+      if (m.path === v.path && m.mtime === v.mtime && m.fresh === v.fresh && JSON.stringify(m.ra) === JSON.stringify(v.ra) && !tr.docChanged) return v
       return { ...m, deco: chips(tr.state, m) }
     },
     provide: (f) => EditorView.decorations.from(f, (v) => v.deco),

@@ -22,7 +22,8 @@ export function allFolders(paths: readonly string[], dirs: readonly string[] = [
 const nameOf = (f: string) => f.split('/').pop()!
 
 /**
- * here：现在在的文件夹（不列它自己这一项，它的子文件夹照列；null 是选了好几个、哪一项都能去）；skip：不能去的（文件夹不能挪进自己里面）
+ * here：现在在的文件夹（没有子文件夹时灰着列出来、点不了，有子文件夹时只列子文件夹；null 是选了好几个、哪一项都能去）；
+ * skip：不能去的（文件夹不能挪进自己里面）。数据库的记录文件夹不在 folders 里（App 的 allFolders 去掉了，task-5yp97）
  */
 export function moveMenu(folders: readonly string[], here: string | null, pick: (folder: string) => unknown, skip: (folder: string) => boolean = () => false): MenuEntry[] {
   const kids = new Map<string, string[]>()
@@ -35,7 +36,8 @@ export function moveMenu(folders: readonly string[], here: string | null, pick: 
   const node = (f: string): MenuEntry => {
     const sub = (kids.get(f) ?? []).map(node).filter(Boolean)
     const self = f !== here
-    if (!sub.length) return self ? { label: nameOf(f), run: () => pick(f) } : null
+    // 这篇本来就在的文件夹（3-藏之后 图）：灰着，看得出在哪、点不了
+    if (!sub.length) return self ? { label: nameOf(f), run: () => pick(f) } : { label: nameOf(f), run: () => undefined, enabled: false }
     return { label: nameOf(f), submenu: [self && { label: `放进「${nameOf(f)}」`, run: () => pick(f) }, self && '-', ...sub] }
   }
   // 最外层：顶级分类按分类表的先后在前（收件箱、课程、阅读、剪藏、周记、写作、项目、生活），别的按名字在后

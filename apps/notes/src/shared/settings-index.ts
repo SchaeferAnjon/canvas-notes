@@ -89,7 +89,13 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'pdfZoom', pg: 'pdf', grp: '打开时', label: '新打开的PDF缩放', desc: '每份看到哪、缩放多少都记着；这里只管第一次打开', kw: 'PDF 缩放 大小 页面' },
   { id: 'pdfAi', pg: 'pdf', grp: '打开时', label: '打开PDF时开着AI', desc: '关着时框一块、点「问AI」才开', kw: 'PDF AI 右栏' },
   { id: 'pdfRecap', pg: 'pdf', grp: '笔记', label: '后台写每一轮的标题和小结', desc: '用读PDF那一家AI（Claude Code 时用 Haiku）；关了不再问AI，标题和小结截问和答的开头', kw: 'PDF 笔记 小结 标题' },
-  { id: 'anki', pg: 'pdf', grp: '笔记', label: '导出成Anki卡片', desc: '在读过的PDF那个文件夹的「我的疑惑」里，右上「送进Anki」', kw: 'Anki 卡片 导出 我的疑惑' },
+  // 送进Anki（task-tz7y3，方向 B「AI 先改成卡，一张张过」）：笔记类型、牌组照 ChatCards，出卡用哪家 AI，整个库没送的一次出卡
+  { id: 'anki', pg: 'pdf', grp: '送进Anki', label: 'Anki', desc: '笔记类型、样式照ChatCards（学习卡 · 问答），课程和PDF写进标签', kw: 'Anki 卡片 导出 出卡 AnkiConnect 连上 我的疑惑' },
+  { id: 'ankiDeck', pg: 'pdf', grp: '送进Anki', label: '送进哪个牌组', desc: '按文件夹分牌组；直接放在课里的用PDF的名字，别处的进「知识」。例：课程/ecp/Week 2/补充材料 → 课程::ecp::Week 2::补充材料', kw: 'Anki 牌组 deck 课程' },
+  { id: 'ankiSides', pg: 'pdf', grp: '送进Anki', label: '旁支里问的也送', desc: '旁支的卡背面多一栏「原文」：被问的那一句', kw: 'Anki 旁支 出卡' },
+  { id: 'ankiEngine', pg: 'pdf', grp: '送进Anki', label: '改写成卡用哪家AI', desc: '没单独选时跟设置 › AI 的默认', kw: 'Anki 出卡 AI 模型 改写' },
+  { id: 'ankiOff', pg: 'pdf', grp: '送进Anki', label: 'Anki 没开、没装时', desc: '选好的卡先留着，开了接着送', kw: 'Anki AnkiConnect 插件 安装 没开' },
+  { id: 'ankiAll', pg: 'pdf', grp: '送进Anki', label: '整个库读PDF时问过的', desc: '整个库问过的，没送的一次出卡', kw: 'Anki 出卡 整个库 全部' },
   // ---------- 网页和视频 ----------
   { id: 'engine', pg: 'web', grp: '网页', label: '地址栏搜索用', desc: '地址栏和{k:search}里打的不是网址时', kw: '搜索引擎 谷歌 百度 必应 Google Bing' },
   { id: 'newTab', pg: 'web', grp: '网页', label: '新网页标签打开', desc: '{k:web-new-tab} 和标签条的 +', kw: '新标签 首页 主页 起始页' },

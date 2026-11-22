@@ -3,7 +3,7 @@
  * 属性写进开头（created、updated、来源、原文件夹、import-id），文件的修改时间设成原来的；全部写完一次提交。
  * 不依赖 Electron，单元测试直接跑。
  */
-import { copyFile, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, extname, join } from 'node:path'
 import { relativeLink, setProp } from '@cn/format'
@@ -23,12 +23,19 @@ export interface ImportNote {
   updated: number
   /** name：库里用的文件名（可以带子文件夹，重了加序号） */
   attachments: { src: string; name: string }[]
+  /**
+   * 正文里 [[noteRef(i)]] 指的笔记：id 是那一篇的 import-id，name 是它原来的名字。写盘时它也在这次导的里面，
+   * 名字在整个库里不重就写名字，重了写新位置的路径（从库根算，不带 .md）；不在这次导的里面就写 name
+   */
+  links?: { id: string; name: string }[]
   /** 记在 import-id 里，再导一次时认出来跳过 */
   id: string
 }
 
 /** md 里第 i 个附件的位置，写盘时换成相对链接 */
 export const attRef = (i: number) => `\uE000${i}\uE001`
+/** [[…]] 里第 i 个笔记链接指的那一篇，写盘时换成名字或路径 */
+export const noteRef = (i: number) => `\uE002${i}\uE003`
 
 export const importDir = (source: string) => `${INBOX}/导入/${source}`
 /** 和 main/attachments.ts 的 ATTACHMENTS 同一个（那边依赖 Electron，这里不引） */
@@ -73,6 +80,21 @@ export async function importedIds(root: string): Promise<Set<string>> {
     if (!(e instanceof git.GitError)) throw e
   }
   return new Set(out.split('\n').map((l) => l.replace(/^import-id:\s*/, '').trim()).filter(Boolean))
+}
+
+/** 库里已有的笔记名（小写、不带 .md），.开头的文件夹不进 */
+async function noteNames(root: string): Promise<string[]> {
+  const out: string[] = []
+  const walk = async (rel: string) => {
+    for (const ent of await readdir(join(root, rel), { withFileTypes: true })) {
+      if (ent.name.startsWith('.') || ent.name === 'node_modules') continue
+      const r = rel ? `${rel}/${ent.name}` : ent.name
+      if (ent.isDirectory()) await walk(r)
+      else if (/\.md$/i.test(ent.name)) out.push(ent.name.slice(0, -3).toLowerCase())
+    }
+  }
+  await walk('')
+  return out
 }
 
 export interface WriteResult {
@@ -140,13 +162,31 @@ export async function writeImport(o: {
     return rel
   }
   try {
+    // 先定每一篇写到哪（链接要指到真写下的文件，「第一讲 2」也一样），再写
+    const paths: string[] = []
+    for (const note of notes) {
+      const dir = [importDir(source), ...note.folder.split('/').filter(Boolean).map((s) => cleanSegment(s, 40))].join('/')
+      paths.push(await unique(dir, cleanSegment(note.title), '.md'))
+    }
+    const pathOf = new Map(notes.map((n, i) => [n.id, paths[i]!]))
+    const stem = (p: string) => p.slice(p.lastIndexOf('/') + 1, -3)
+    /** 笔记名在整个库里（原来有的加这次导的）出现几次 */
+    const named = new Map<string, number>()
+    if (notes.some((n) => n.links?.length)) for (const k of [...(await noteNames(root)), ...paths.map((p) => stem(p).toLowerCase())]) named.set(k, (named.get(k) ?? 0) + 1)
     for (const [i, note] of notes.entries()) {
       o.signal?.throwIfAborted()
-      const dir = [importDir(source), ...note.folder.split('/').filter(Boolean).map((s) => cleanSegment(s, 40))].join('/')
-      const path = await unique(dir, cleanSegment(note.title), '.md')
+      const path = paths[i]!
       const links: string[] = []
       for (const a of note.attachments) links.push(relativeLink(path, await copy(a)))
-      let text = note.text.replace(/\uE000(\d+)\uE001/g, (_, n: string) => links[Number(n)] ?? '')
+      let text = note.text
+        .replace(/\uE000(\d+)\uE001/g, (_, n: string) => links[Number(n)] ?? '')
+        .replace(/\uE002(\d+)\uE003/g, (_, n: string) => {
+          const l = note.links?.[Number(n)]
+          if (!l) return ''
+          const to = pathOf.get(l.id)
+          if (!to) return l.name
+          return (named.get(stem(to).toLowerCase()) ?? 0) > 1 ? to.slice(0, -3) : stem(to)
+        })
       for (const [k, v] of [['created', stamp(note.created)], ['updated', stamp(note.updated)], ...note.props, ['import-id', note.id]] as [string, string][])
         text = setProp(text, k, v)
       if (!text.endsWith('\n')) text += '\n'

@@ -9,7 +9,9 @@ import { composing } from '../ime'
 import { Codicon } from '@cn/design'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import { useEffect, useMemo, useState } from 'react'
-import type { DoubtItem } from '@cn/format'
+import type { AnkiReview } from '../../shared/reading'
+import { app } from '../ctx/actions'
+import { openCards, showAsked, useCardsView } from '../reading/cards-store'
 import type { NoteFile } from '../../shared/api'
 import { categoryOf } from '../../shared/categories'
 import { fixedFolder } from '../../shared/files'
@@ -58,7 +60,6 @@ export function FolderHomeView(props: {
   version: number
   onOpen(path: string): void
   onOpenAt(pdf: string, page: number): void
-  onOpenDoubts(folder: string): void
   onOpenAll(): void
   /** 子文件夹卡片：开它的首页 */
   onOpenFolder(folder: string): void
@@ -83,9 +84,6 @@ export function FolderHomeView(props: {
   const [descEdit, setDescEdit] = useState(false)
   const [home, setHome] = useState<FolderHome | null>(null)
   const [files, setFiles] = useState<PropFile[]>([])
-  const [doubts, setDoubts] = useState<DoubtItem[]>([])
-  /** 看视频时框一块问的（文档里的问答块）有几处：「我的疑惑」组件的「全部 N 条」也算它们 */
-  const [videoDoubts, setVideoDoubts] = useState(0)
   const [editing, setEditing] = useState(!!props.fresh)
   /** 标题是改名输入框：刚新建时、双击标题后 */
   const [naming, setNaming] = useState(!!props.fresh)
@@ -123,15 +121,17 @@ export function FolderHomeView(props: {
       stale = true
     }
   }, [folder, props.version, incoming])
-  // 我的疑惑：PDF 那边按讲汇总的同一份
+  // 读PDF时问过的（各篇笔记里的每一问，送过没有）、今天要复习（task-tz7y3）
+  const asked = useCardsView(kind === 'course' ? { kind: 'folder', folder } : null)
+  const [review, setReview] = useState<AnkiReview | null>(null)
   useEffect(() => {
     if (kind !== 'course') return
     let stale = false
-    window.cnReading.doubts(folder).then((v) => !stale && (setDoubts(v.items), setVideoDoubts(v.videos.length)), (e) => props.onNotice(errText(e)))
+    window.cnReading.ankiReview(folder).then((r) => !stale && setReview(r), (e) => props.onNotice(errText(e)))
     return () => {
       stale = true
     }
-  }, [folder, kind, props.version])
+  }, [folder, kind, asked])
   useEffect(() => {
     if (!flash) return
     const t = setTimeout(() => setFlash(null), 2000)
@@ -186,7 +186,7 @@ export function FolderHomeView(props: {
         },
       }
     : {}
-  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, onDoubts: () => props.onOpenDoubts(folder), doubts, videoDoubts, onAll: props.onOpenAll, onCapture: () => openCapture({ course: title }), save, home, id })
+  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, asked: asked?.items ?? [], review, onAsked: (pdf) => (app().openWithNote(pdf), showAsked(pdf)), onCards: () => openCards({ kind: 'folder', folder }), onOpenAnki: () => void window.cnReading.openAnki().catch((e) => props.onNotice(errText(e))), onAll: props.onOpenAll, onCapture: () => openCapture({ course: title }), save, home, id })
   const inFolder = files.filter((f) => f.path.startsWith(folder + '/'))
   const lead = folderLead(folder, inFolder, { courses })
   const coverY = adjustY ?? home.coverY
@@ -507,6 +507,7 @@ export function FolderHomeView(props: {
                       <span className="sp" />
                       {total > 0 && <span className="n num">{total}</span>}
                       {w.type === 'courses' && courses > 0 && <span className="n num">{`${courses}门`}</span>}
+                      {w.type === 'doubts' && !!asked?.items.length && <span className="n num">{`${asked.items.length}问`}</span>}
                       {w.type === 'notes' && !editing && <CaptureAction onCapture={() => openCapture({ course: title })} />}
                       {w.type === 'slides' && !editing && <SlidesResume c={ctx(id)} />}
                     </div>

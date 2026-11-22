@@ -253,6 +253,8 @@
 }
 .md .md-table th,
 .md .md-table td {
+  /* 窄的卡、窄的 AI 栏里不挤成一字一行（task-c22p9）：每格至少 4em，放不下就横着滚 */
+  min-width: 4em;
   padding: 6px 10px;
   border: 1px solid var(--line2);
   text-align: left;

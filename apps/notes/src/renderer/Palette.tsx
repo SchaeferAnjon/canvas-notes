@@ -43,6 +43,12 @@ export interface PaletteCommand {
   fixedKeys?: boolean
   /** 自己加的命令（菜单里多「改这条命令…」「删掉这条」） */
   own?: OwnCommand
+  /** 一张书桌（task-kbnc0）：没打字时在「书桌」一组，没有自己的菜单 */
+  desk?: boolean
+  /** 名字、说明以外也搜得到它的词（rows.ts） */
+  kw?: string
+  /** 自己一组、组名是它（rows.ts） */
+  aside?: string
 }
 
 export const cmdId = (c: Pick<PaletteCommand, 'id' | 'name'>) => c.id ?? c.name
@@ -249,7 +255,7 @@ export function Palette(props: {
     [props.commands],
   )
   // 分组用的（每条在哪组）；键的默认值在命令表里，设键时用 availNow()
-  const avail = useMemo(() => listed.filter((c) => !c.folder).map((c) => ({ id: cmdId(c), home: c.home })), [listed])
+  const avail = useMemo(() => listed.filter((c) => !c.folder && !c.desk).map((c) => ({ id: cmdId(c), home: c.home })), [listed])
   const pinned = useMemo(() => new Set(materialize(cfg, avail).find((g) => g.id === 'pin')?.items ?? []), [cfg, avail])
   const view = useMemo(() => {
     const m = new Map<string, ViewCmd>()
@@ -259,7 +265,8 @@ export function Palette(props: {
     }
     return m
   }, [listed, cfg, pinned, K])
-  const boards = useMemo(() => new Set(props.notes.filter((n) => n.board).map((n) => n.path)), [props.notes])
+  /** 白板（路径 → 颜色）：⌘K 里和目录树一样画它的颜色方块，和书桌的 layout 图标分得开（task-kbnc0 设计复审） */
+  const boards = useMemo(() => new Map(props.notes.flatMap((n) => (n.board ? [[n.path, n.board.color] as const] : []))), [props.notes])
   const digests = useMemo(() => new Set(props.notes.filter((n) => n.digest).map((n) => n.path)), [props.notes])
 
   // 最近打开的 3 篇（打开过的不够用最近改的补）
@@ -291,7 +298,7 @@ export function Palette(props: {
   }, [q, hits, pdfHits, meaning, view, props.pdfs, expanded, claude])
 
   const sections = useMemo(
-    () => emptySections({ cfg, cmds: listed.map((c) => ({ id: cmdId(c), home: c.home, keys: c.keys, folder: c.folder, searchOnly: c.searchOnly })), recent, foldersOpen, showHidden, dragging: !!drag }),
+    () => emptySections({ cfg, cmds: listed.map((c) => ({ id: cmdId(c), home: c.home, keys: c.keys, folder: c.folder, searchOnly: c.searchOnly, desk: c.desk })), recent, foldersOpen, showHidden, dragging: !!drag }),
     [cfg, listed, recent, foldersOpen, showHidden, drag],
   )
   const flat = useMemo(() => sections.flatMap((s) => s.rows.filter(selectable)), [sections])
@@ -374,7 +381,7 @@ export function Palette(props: {
 
   function act(r: EmptyRow | undefined) {
     if (!r) return
-    if (r.kind === 'cmd' || r.kind === 'child' || r.kind === 'put') {
+    if (r.kind === 'cmd' || r.kind === 'child' || r.kind === 'put' || r.kind === 'desk') {
       const c = view.get(r.id)
       if (c) runCmd(c)
     } else if (r.kind === 'folders') setFoldersOpen((v) => !v)
@@ -409,7 +416,7 @@ export function Palette(props: {
   }
   const hide = (id: string) => change((c) => hideCmd(c, id), `藏起了「${nameOfId(id)}」，打字搜照样找得到`)
   /** 能改的行（有自己的菜单）：命令和文件夹首页那一行；文件夹首页一个个的、笔记没有 */
-  const editable = (id: string | undefined) => !!id && view.has(id) && !view.get(id)!.folder
+  const editable = (id: string | undefined) => !!id && view.has(id) && !view.get(id)!.folder && !view.get(id)!.desk
 
   function openMenu(id: string, x: number, y: number, byKey = false) {
     if (!editable(id)) return
@@ -634,7 +641,7 @@ export function Palette(props: {
     if (r.kind === 'note')
       return (
         <div key={key} {...common} className={'pal-row sr' + (on ? ' on' : '')}>
-          <Codicon name={fileIcon(r.path, boards.has(r.path), digests.has(r.path))} size={16} className="i" />
+          <NoteIcon path={r.path} boards={boards} digests={digests} />
           <span className="nm">{/\.(pdf|html?)$/i.test(r.path) ? nameOf(r.path) : titleOf(r.path)}</span>
           <span className="lc">{folderOf(r.path)}</span>
         </div>
@@ -667,7 +674,7 @@ export function Palette(props: {
       <div
         key={key}
         {...common}
-        {...(r.kind === 'child' ? {} : rowMenuProps(id))}
+        {...(r.kind === 'child' || r.kind === 'desk' ? {} : rowMenuProps(id))}
         className={'pal-row sr' + (r.kind === 'child' ? ' child' : '') + (r.kind === 'put' ? ' hid' : '') + (r.kind === 'folders' && r.open ? ' exp' : '') + (dragging ? ' dragging' : '') + (on ? ' on' : '')}
         data-cmd={id}
         {...(gid ? { 'data-drop': gid } : {})}
@@ -701,7 +708,7 @@ export function Palette(props: {
               放回
             </button>
           ) : (
-            r.kind !== 'child' && more(id)
+            r.kind !== 'child' && r.kind !== 'desk' && more(id)
           )}
         </span>
       </div>
@@ -775,7 +782,7 @@ export function Palette(props: {
             sections.map((s) => (
               <div key={s.id} className="pal-sec" data-g={s.id}>
                 {s.name && (
-                  <div className="pal-g" {...(s.id !== 'recent' ? { 'data-drop': s.id, 'data-gh': '1' } : {})}>
+                  <div className="pal-g" {...(s.id !== 'recent' && s.id !== 'desks' ? { 'data-drop': s.id, 'data-gh': '1' } : {})}>
                     {s.name}
                   </div>
                 )}
@@ -806,7 +813,9 @@ export function Palette(props: {
                       ? { name: '网页和AI' }
                       : r.group === 'web' && r.kind === 'url' && r.typed
                         ? { name: '网页' }
-                        : groupHead(r.group, { q, claudeDone: r.kind === 'found', why: r.group === 'best' && r.kind === 'cmd' && r.cmd.usedRank !== undefined ? '最近用过' : '' })
+                        : r.group === 'aside' && r.kind === 'cmd' && r.cmd.aside
+                          ? { name: r.cmd.aside }
+                          : groupHead(r.group, { q, claudeDone: r.kind === 'found', why: r.group === 'best' && r.kind === 'cmd' && r.cmd.usedRank !== undefined ? '最近用过' : '' })
                   if (h) {
                     const why = r.group === 'meaning' ? statusWhy(status) : 'why' in h ? h.why : undefined
                     head = (
@@ -1001,6 +1010,13 @@ export function withoutTitle(snippet: string, title: string): string {
   return rest || snippet
 }
 
+/** 笔记一行左边的图标：白板画它自己的颜色方块（同目录树），别的照 fileIcon */
+function NoteIcon(p: { path: string; boards: Map<string, string>; digests: Set<string> }) {
+  const color = p.boards.get(p.path)
+  if (color) return <i className="i pal-sw" style={{ background: color }} aria-hidden="true" />
+  return <Codicon name={fileIcon(p.path, false, p.digests.has(p.path))} size={16} className="i" />
+}
+
 /** 命令左边的图标：交给 AI 的画跑它的那一家的标志 */
 function CmdIcon({ c }: { c: Pick<PaletteCommand, 'ai' | 'icon'> }) {
   return c.ai ? <AiIcon job={c.ai} size={16} className="i" fallback={c.icon} /> : <Codicon name={c.icon} size={16} className="i" />
@@ -1014,7 +1030,7 @@ function RowView(p: {
   words: string[]
   q: string
   claude: ClaudeState
-  boards: Set<string>
+  boards: Map<string, string>
   digests: Set<string>
   more(id: string): React.ReactNode
   menuProps(id: string): { onContextMenu(e: React.MouseEvent): void }
@@ -1027,7 +1043,7 @@ function RowView(p: {
   let extra = {}
   if (r.kind === 'cmd') {
     const c = r.cmd
-    extra = { 'data-cmd': c.id, ...(c.folder ? {} : p.menuProps(c.id)) }
+    extra = { 'data-cmd': c.id, ...(c.folder || c.desk ? {} : p.menuProps(c.id)) }
     body = (
       <>
         <CmdIcon c={c} />
@@ -1039,7 +1055,7 @@ function RowView(p: {
           {c.hidden && <span className="pal-tag">藏着的</span>}
           {c.alias && <span className="pal-alias">{c.alias}</span>}
           {c.keys && <kbd>{c.keys}</kbd>}
-          {!c.folder && p.more(c.id)}
+          {!c.folder && !c.desk && p.more(c.id)}
         </span>
       </>
     )
@@ -1048,7 +1064,7 @@ function RowView(p: {
     const body1 = r.group === 'text' && r.snippet
     body = (
       <>
-        <Codicon name={fileIcon(r.path, p.boards.has(r.path), p.digests.has(r.path))} size={16} className="i" />
+        <NoteIcon path={r.path} boards={p.boards} digests={p.digests} />
         <span className="nm">{body1 ? titleOf(r.path) : <Marked text={titleOf(r.path)} words={p.words} />}</span>
         <span className="lc">{folderOf(r.path)}</span>
         {body1 && (
@@ -1072,7 +1088,7 @@ function RowView(p: {
     const h = r.hit
     body = (
       <>
-        <Codicon name={fileIcon(h.path, p.boards.has(h.path), p.digests.has(h.path))} size={16} className="i" />
+        <NoteIcon path={h.path} boards={p.boards} digests={p.digests} />
         <span className="nm">{/\.pdf$/i.test(h.path) ? nameOf(h.path) : titleOf(h.path)}</span>
         <span className="lc">{h.page ? `第${h.page}页` : folderOf(h.path)}</span>
         <span className="sn">
@@ -1093,7 +1109,7 @@ function RowView(p: {
   else if (r.kind === 'found')
     body = (
       <>
-        <Codicon name={fileIcon(r.found.path, p.boards.has(r.found.path), p.digests.has(r.found.path))} size={16} className="i" />
+        <NoteIcon path={r.found.path} boards={p.boards} digests={p.digests} />
         <span className="col">
           <span className="nm">
             {/\.(pdf|html?)$/i.test(r.found.path) ? nameOf(r.found.path) : titleOf(r.found.path)}

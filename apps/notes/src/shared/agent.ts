@@ -221,6 +221,8 @@ export type BridgeOp = 'saveAll' | 'context' | 'openWeb' | 'measure' | 'docRead'
  * start：这一轮开始整块动这一块（白板、文档、右栏网页），四边一道光绕圈、顶上提示条出来；
  * spot：只动一处（只加一张卡、只写一段），只亮那一处，「停下 esc」跟在它下面（白板给卡的 id；文档那一段界面插的时候自己知道）；
  * grab：去拿这几样（卡片、列的 id），指针移过去、那几样外面跑一圈光；
+ * wrote：AI 写了这一篇（全能模式下自己用命令、Edit 写的，笔记工具写的，AI 命令改的；紧接着 note:changed 之前发）：
+ *   开着它的编辑器里新的字一点点长出来，白板上新的卡字长出来（task-6kun1）；turn 是 0 的没有一轮（AI 命令）；
  * end：这一轮做完或停下（提交之后发）：做完的光收成一圈再淡掉、提示条换成「整理好了 · 挪了N张卡 · 撤回」，停下的变灰淡掉
  */
 export type AiActArea = 'board' | 'doc' | 'web'
@@ -228,4 +230,5 @@ export type AiAct =
   | { turn: number; kind: 'start'; area: AiActArea; path: string | null }
   | { turn: number; kind: 'spot'; area: 'board' | 'doc'; path: string; ids?: string[] }
   | { turn: number; kind: 'grab'; area: AiActArea; path: string | null; ids: string[]; ms: number }
+  | { turn: number; kind: 'wrote'; path: string }
   | { turn: number; kind: 'end'; stopped: boolean; commit: string | null; tally: ActTally }

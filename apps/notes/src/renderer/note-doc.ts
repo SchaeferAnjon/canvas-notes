@@ -12,7 +12,8 @@ import { docEditing } from './doc-editing'
 import { noteKeys } from './note-keys'
 import { folderChip, setNotePath } from './folder-chip'
 import { flashRange, insertBlockAt, insertFlash } from './insert-flash'
-import { aiSpot, spotRange } from './ai-spot'
+import { aiSpot, aiWroteNote, spotRange } from './ai-spot'
+import { takeWrote } from './ai-act-store'
 import { insertPoint } from './insert-point'
 import { livePreview } from './live-preview'
 import { layoutLines } from './layout-lines'
@@ -446,11 +447,14 @@ export class NoteDoc {
       if (remote === local) this.base = remote
       return local !== this.base
     }
+    // AI 刚写的（主进程先说过）：合进来时新的字一点点长出来（ai-spot.ts）；编辑器藏着（白板看法、后面的标签）就不用
+    const ai = takeWrote(this.path)
+    const marks = [Transaction.remote.of(true), Transaction.addToHistory.of(false), ...(ai !== null && this.view.dom.offsetParent ? [aiWroteNote.of(ai)] : [])]
     if (r.kind === 'update') {
       this.base = remote
       this.view.dispatch({
         changes: textChanges(local, r.text),
-        annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)],
+        annotations: marks,
       })
       if (r.merged && !((ownChange.get(this.path) ?? 0) > Date.now())) this.events.onNotice(sayMerged(this.path))
       return this.text !== this.base
@@ -461,7 +465,7 @@ export class NoteDoc {
     if (others)
       this.view.dispatch({
         changes: textChanges(local, r.text),
-        annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)],
+        annotations: marks,
       })
     const copy = await window.cn.saveConflictCopy(this.path, r.conflictText)
     this.events.onNotice(saySameSpot(this.path, others, { path: copy }))

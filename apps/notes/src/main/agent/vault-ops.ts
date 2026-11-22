@@ -37,6 +37,8 @@ export interface Relocated {
   relinked: string[]
   /** 要提交的路径（旧的、新的、改了链接的、置顶、左栏） */
   touched: string[]
+  /** 跟着这篇挪的数据库记录文件夹（挂在它下面的，task-5yp97） */
+  with?: { from: string; to: string }[]
 }
 
 const SKIP = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
@@ -213,7 +215,8 @@ export async function movePath(v: Vault, deps: OpsDeps, pathArg: unknown, folder
   })
   const to = moves[0]?.to ?? dest
   const touched = await statusPaths(v.root, inside)
-  return { from: rel, to, folder: dir, relinked: linked.filter((p) => touched.includes(p)), touched }
+  const carried = moves.filter((m) => m.with).map(({ from, to }) => ({ from, to }))
+  return { from: rel, to, folder: dir, relinked: linked.filter((p) => touched.includes(p)), touched, ...(carried.length ? { with: carried } : {}) }
 }
 
 /** 删到废纸篓：一篇笔记连同只有它在用的附件（别的笔记也在用的留着），或一个文件夹整个；置顶、左栏跟着拿掉 */

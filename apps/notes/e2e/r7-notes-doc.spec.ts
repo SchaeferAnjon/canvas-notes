@@ -175,17 +175,15 @@ test('笔记逐字核：问题条是原话（主对话接着问的、旁支问�
     expect(Math.abs(size.w - Math.min(cropW, size.col))).toBeLessThanOrEqual(1)
     expect(Math.abs(size.nat - cropW * 2)).toBeLessThanOrEqual(2)
 
-    // 我的疑惑：一问一条，原话（主问题 + 旁支问题；「还是不懂」并进上一问，回答用后一版）
-    await page.keyboard.press('Meta+k')
-    // 名字一字不差的命令排在第一行，回车就是它（同名的 我的疑惑.md 在后面）
-    await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('我的疑惑')
-    await expect(page.locator('.pal-row').first().locator('.lc')).toHaveText('课程/线代')
-    await page.keyboard.press('Enter')
-    const doubts = page.getByTestId('doubts')
-    await expect(doubts.locator('.dq-sub')).toContainText('线代 · 3条')
-    await expect(doubts.getByTestId('doubt-row').locator('.dq-tx b')).toHaveText(['给我讲解一下', '为什么是列？', '那行呢？'])
-    await expect(doubts.getByTestId('doubt-row').first().locator('.dq-tx .truncate')).toHaveText('换个方式讲（第 2 页，图 0 张，读过全文，接着聊）：先别看公式，看图。')
-    await expect(doubts.getByRole('button', { name: '送进Anki · 3张' })).toBeVisible()
+    // 出卡（「我的疑惑」那一页 2026-11-22 拿掉了，task-tz7y3）：一问一张，原话（主问题 + 旁支问题；「还是不懂」并进上一问）
+    await notes(page).getByRole('button', { name: '出卡 · 3问' }).click()
+    const dlg = page.getByRole('dialog', { name: '出卡' })
+    await expect(dlg.getByRole('group', { name: '每一张' }).getByRole('button')).toHaveCount(3)
+    for (const q of ['给我讲解一下', '为什么是列？', '那行呢？']) {
+      await expect(dlg.locator('.orig')).toContainText(`你当时问的：「${q}」`)
+      await page.keyboard.press('ArrowRight')
+    }
+    await page.keyboard.press('Escape')
     // 「我的疑惑」不再是文件（2026-11-20）：没有我的疑惑.md，汇总页直接读笔记
     expect(existsSync(join(vault, '课程/线代/我的疑惑.md'))).toBe(false)
     // 左栏 PDF 和笔记是一行，右端是笔记里问了几问（主问题 + 旁支问题，「还是不懂」也算一问）
@@ -234,7 +232,7 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     await expect(srch.getByRole('textbox', { name: '在这份笔记里找' })).toHaveAttribute('placeholder', '在这份笔记里找')
     expect((await box(srch)).height).toBe(28)
     expect(await css(srch, ['border-radius'])).toEqual({ 'border-radius': '8px' })
-    await expect(n.getByTestId('note-count')).toHaveText('2轮 · 3问')
+    await expect(n.getByTestId('cards-open')).toHaveText('出卡 · 3问')
     await expect(n.getByRole('tablist', { name: '笔记筛选' }).getByRole('tab')).toHaveText(['全部', '只看我问的', '旁支'])
     // 旧的那轮收成一行：40 高，「第2页 · 标题」500 + 小结前半句（12 --t3 省略号）+ 右边「2问 · 今天 时间」
     const rounds = n.getByTestId('note-round')
@@ -285,7 +283,7 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     const find = n.getByRole('textbox', { name: '在这份笔记里找' })
     await find.fill('为什么是列')
     await expect(rounds).toHaveCount(1)
-    await expect(n.getByTestId('note-count')).toHaveText('2轮 · 3问')
+    await expect(n.getByTestId('cards-open')).toHaveText('出卡 · 3问')
     await find.fill('门槛减掉')
     await expect(rounds).toHaveCount(1)
     await find.fill('主对话问了 1 句。')
@@ -346,7 +344,7 @@ test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、�
     await rail(page).getByRole('button', { name: '笔记' }).click()
     const n = notes(page)
     await expect(n.getByTestId('note-round')).toHaveCount(2)
-    await expect(n.getByTestId('note-count')).toHaveText('2轮 · 2问')
+    await expect(n.getByTestId('cards-open')).toHaveText('出卡 · 2问')
     // 旧的段收成一行（右边小结的位置写讲通的讲法）；点开照旧是我的疑惑、讲通的讲法、要点、完整对话
     const r1 = n.getByTestId('note-round').first()
     await expect(r1.locator('.tt')).toHaveText('第2页 · 旧的一段')

@@ -339,6 +339,10 @@ body.docking .shell-tip {
   top: 0;
   bottom: 0;
 }
+/* 拖着上下的缝：整页都是上下箭头（body.resizing 默认是左右的） */
+body.resizing.resizing-row {
+  cursor: row-resize;
+}
 .dsash-row:hover::after,
 .dsash-row.on::after {
   content: '';

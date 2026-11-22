@@ -42,8 +42,6 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
               ? { type: 'none', title: `中间栏的网页：${t.title || t.url}` }
               : t.type === 'pdf'
                 ? { type: 'none', title: `PDF：${t.path}` }
-              : t.type === 'doubts'
-                ? { type: 'none', title: `我的疑惑：${t.folder || '库的根目录'}` }
               : t.type === 'html'
                 ? { type: 'none', title: `HTML：${t.path}` }
               : t.type === 'webread'
@@ -58,6 +56,8 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
                       ? { type: 'none', title: `对比：${t.title}` }
                       : t.type === 'oldimages'
                         ? { type: 'none', title: '梦游预览 · 挪老图' }
+                      : t.type === 'trash'
+                        ? { type: 'none', title: '最近删掉的' }
                       : { type: 'topic', title: `素材 / ${t.topic}` }
   const ctx: AgentContext = { tab, web: { open: s.webOpen, url: s.webUrl } }
   const d = s.doc

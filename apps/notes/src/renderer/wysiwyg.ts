@@ -235,6 +235,8 @@ function joinStripsMarks(forward: boolean) {
     if (!sel.empty || state.readOnly) return false
     const line = state.doc.lineAt(sel.head)
     if (forward ? sel.head !== line.to || line.number === state.doc.lines : sel.head !== line.from || line.number === 1) return false
+    // 空行行尾 Delete 不并：并上来就把下面提示块的「> [!tip]」、标题的「## 」拿掉了，块变成一段正文（task-6lsvd）
+    if (forward && line.text.trim() === '') return false
     const next = forward ? state.doc.line(line.number + 1) : line
     if (next.text.trim() === '') return false
     const end = blockMarkEnd(state, next.from)

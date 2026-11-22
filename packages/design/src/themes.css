@@ -4,6 +4,7 @@
  * 每套除了颜色，结构也不一样（`配色方案要真不同`）：当前标签的标记（data-tabmark，写在 appearance.ts 的 SKINS 里）、
  * 底栏是不是彩色一条（--status）、卡片投影还是只描边（--shadow）、有没有分区细线（--seam）、圆角大小（--r-card）。
  * 导入的 VS Code 主题由 apps/notes/src/shared/vscode-theme.ts 换算成同样的变量；改颜色后跑 test/themes-css.test.ts（变量齐全、对比度）。
+ * 浮层（--shadow-up）第一层那圈 1px 细边：浅色五套是各自的淡色，深色五套一律 --t3 60%（task-qkx1j：深湖里浮层 --pop 和数据库块同色，18% 的灰看不出边）。
  * 变量挂在 [data-skin] 上：<html data-skin> 管整个窗口，任何元素也能单独套一套（外观页的小预览就是这么画的）。
  */
 
@@ -322,7 +323,7 @@
   --acc-soft: rgba(167, 192, 128, 0.15);
   --acc-ring: rgba(167, 192, 128, 0.5);
   --shadow: 0 0 0 1px rgba(211, 198, 170, 0.08), 0 10px 26px rgba(0, 0, 0, 0.28);
-  --shadow-up: 0 0 0 1px rgba(211, 198, 170, 0.12), 0 24px 56px -12px rgba(0, 0, 0, 0.6);
+  --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.6);
   --glass: rgba(39, 46, 51, 0.84);
   --green: #a7c080;
   --yellow: #dbbc7f;
@@ -372,7 +373,7 @@
   --acc-soft: rgba(42, 161, 152, 0.15);
   --acc-ring: rgba(42, 161, 152, 0.5);
   --shadow: 0 0 0 1px rgba(147, 161, 161, 0.14);
-  --shadow-up: 0 0 0 1px rgba(147, 161, 161, 0.18), 0 24px 56px -12px rgba(0, 0, 0, 0.7);
+  --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.7);
   --glass: rgba(0, 37, 47, 0.84);
   --green: #859900;
   --yellow: #b58900;
@@ -426,7 +427,7 @@
   --acc-soft: rgba(243, 141, 112, 0.15);
   --acc-ring: rgba(243, 141, 112, 0.5);
   --shadow: 0 0 0 1px rgba(255, 241, 243, 0.07), 0 10px 26px rgba(0, 0, 0, 0.3);
-  --shadow-up: 0 0 0 1px rgba(255, 241, 243, 0.12), 0 24px 56px -12px rgba(0, 0, 0, 0.65);
+  --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.65);
   --glass: rgba(38, 32, 32, 0.84);
   --green: #adda78;
   --yellow: #f9cc6c;
@@ -476,7 +477,7 @@
   --acc-soft: rgba(255, 143, 64, 0.15);
   --acc-ring: rgba(255, 143, 64, 0.5);
   --shadow: 0 0 0 1px rgba(230, 225, 207, 0.1);
-  --shadow-up: 0 0 0 1px rgba(230, 225, 207, 0.14), 0 24px 56px -12px rgba(0, 0, 0, 0.85);
+  --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.85);
   --glass: rgba(11, 14, 20, 0.84);
   --green: #aad94c;
   --yellow: #e6b450;
@@ -525,7 +526,7 @@
   --acc-soft: rgba(231, 229, 228, 0.15);
   --acc-ring: rgba(231, 229, 228, 0.5);
   --shadow: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 10px 28px rgba(0, 0, 0, 0.45);
-  --shadow-up: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 24px 56px -12px rgba(0, 0, 0, 0.8);
+  --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.8);
   --glass: rgba(28, 25, 23, 0.84);
   --green: #0ca34c;
   --yellow: #ff8904;

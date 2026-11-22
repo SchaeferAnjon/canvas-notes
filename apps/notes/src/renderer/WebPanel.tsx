@@ -38,8 +38,25 @@ import { askCardNow, boxCanceled, cancelBoxing, closeAskCard, openAskCard } from
 import { setTopFold, toggleBookmarksBar, toggleTopFold, useWebTop, webTopNow } from './web/top-fold'
 import { CENTER_MIN } from './shell/SideSash'
 import { AiActLayer } from './ai-act'
+import { booksOf, inBook, type PagePos, stripHash } from '../shared/read-along'
+import { titleOf } from '../shared/layout'
+import type { BookRequest } from './read-along/pairing'
+import { notesOfUrl, pairOf, positionOf, reportPos, setRightPage, usePairs } from './read-along/store'
+import { flashColor, setReadPosHost, type Went } from './read-along/web'
+import { openPairPop, unpairLabel } from './read-along/ReadAlongLayer'
+import { unpairNote } from './read-along/pairing'
 
 export type ClipMode = { mode: 'inbox' | 'doc'; target?: string }
+
+/** 书桌（task-kbnc0）借右栏网页的本事：记下开着的网页标签和各读到哪、换成一套、换回去 */
+export interface WebDeskApi {
+  snapshot(): { tabs: { id: string; url: string; title: string; pos: PagePos | null }[]; active: string | null }
+  /** 换成这一套：前面那个回到读到的那段（亮一下，done 说结果）；后面的点到才载入、载入后回到那段。返回换之前的样子 */
+  replace(tabs: { url: string; title: string; pos: PagePos | null }[], active: number, done?: (how: Went['how']) => void): WebTabs
+  restore(s: WebTabs): void
+}
+
+const sameUrl = (a: string, b: string) => stripHash(a) === stripHash(b)
 
 export { toUrl }
 
@@ -86,6 +103,16 @@ export function WebPanel(props: {
   closeActive: React.MutableRefObject<(() => void) | null>
   /** 用户关了一个网页标签（×、⌘W）：App 在底栏说一句，undo 放回原处；last：关的是最后一个，网页这格收起了 */
   onClosedTab(c: { title: string; last: boolean; undo(): void }): void
+  /** 开一本书读到的地方（点开配好对的笔记、对着看的菜单，task-kbnc0）：seq 变了就做 */
+  readRequest: BookRequest | null
+  /** 书桌（task-kbnc0）：记下、换成一套 */
+  deskApi: React.MutableRefObject<WebDeskApi | null>
+  /** 右栏前面那个网页现在读到哪（网页里量；配成一对、「就从这里读」时记下） */
+  pageNow: React.MutableRefObject<(() => Promise<PagePos | null>) | null>
+  /** 中间开着的笔记（「⋯」里「和中间这篇配成一对…」） */
+  centerNote: string | null
+  /** 网页标签、读到哪变了（书桌开着时自动记下） */
+  onWebChange(): void
 }) {
   /** 写在界面上的键照命令表（改了跟着变） */
   const K = useKeys()
@@ -97,9 +124,12 @@ export function WebPanel(props: {
    */
   const restored = useRef<Set<string> | null>(null)
   const dormant = useRef<Set<string> | null>(null)
+  /** 重开软件恢复的标签第一次载完：配好对的书、网址就是读到的那页，回到那段（不亮、不说，task-kbnc0） */
+  const firstLand = useRef<Set<string> | null>(null)
   if (!restored.current) {
     restored.current = new Set(st.tabs.map((t) => t.id))
     dormant.current = new Set(st.tabs.filter((t) => t.id !== st.active).map((t) => t.id))
+    firstLand.current = new Set(st.tabs.map((t) => t.id))
   }
   // 换到哪个标签，哪个就醒（之后一直载着）
   if (st.active) dormant.current!.delete(st.active)
@@ -126,6 +156,20 @@ export function WebPanel(props: {
   const root = useRef<HTMLElement>(null)
   /** 网页叠放的那一格：AI 在网页里动手时外圈画在它上面 */
   const stack = useRef<HTMLDivElement>(null)
+  /** 回到那段没找到（网页改了版）：浮在网页上面的那一句（task-kbnc0） */
+  const [lost, setLost] = useState<{ tabId: string; text: string } | null>(null)
+  /** 每个标签上次量到的读到哪（书桌记它） */
+  const tabPos = useRef(new Map<string, PagePos>())
+  /** 等网页载完再回到那段：标签 id → 要回到哪 */
+  const pendingGoto = useRef(new Map<string, Omit<BookRequest, 'seq' | 'book'> & { book?: string }>())
+  /** 发出去的「回到那段」：编号 → 结果交给谁 */
+  const gotoWaits = useRef(new Map<number, (how: Went['how']) => void>())
+  const gotoSeq = useRef(0)
+  /** 人在这个网页里按过键、按过鼠标（点链接翻页）；地址栏、前进后退：下一页载完算人翻过来的，记读到哪 */
+  const touchAt = useRef(new Map<string, number>())
+  /** 等着网页回话「现在读到哪」 */
+  const nowWaits = useRef(new Map<string, (p: PagePos | null) => void>())
+  const pairsMap = usePairs()
   useKeepPopsInside(root)
   const cb = useRef(props)
   cb.current = props
@@ -150,13 +194,17 @@ export function WebPanel(props: {
   // 右栏开着却一个网页标签也没有（第一次打开、关掉了最后一个）：开一个新标签页，和以前直接显示书签首页一样
   // （别处正要开一个网址时不开：比如「放回右栏」，不然多一个空的新网页）
   const handledOpen = useRef<number | null>(null)
+  /** 点开配好对的笔记要开的书（task-kbnc0）：正要开它时也不另开一个空的新标签页 */
+  const handledRead = useRef<number | null>(null)
   useEffect(() => {
-    const opening = !!props.openRequest && props.openRequest.seq !== handledOpen.current
+    const opening = (!!props.openRequest && props.openRequest.seq !== handledOpen.current) || (!!props.readRequest && props.readRequest.seq !== handledRead.current)
     if (!props.hidden && newtabUrl && !st.tabs.length && !opening) setSt((s) => (s.tabs.length ? s : openTab(s, '', { owner: cb.current.owner })))
   }, [props.hidden, newtabUrl, st.tabs.length])
   const pluginPopup = menu?.startsWith('plugin:') ? menu.slice(7) : null
 
   useEffect(() => saveWebTabs(st), [st])
+  // 网页标签变了：书桌开着时自动记下（task-kbnc0）
+  useEffect(() => cb.current.onWebChange(), [st])
   // 设置 › 网页和视频「在网页「⋯ › 插件」里管 ›」：打开插件那一块（接住了就 preventDefault，App 不再说「没有开着的网页」）
   useEffect(() => {
     const on = (e: Event) => {
@@ -199,6 +247,8 @@ export function WebPanel(props: {
     cb.current.onUrl(webUrl || null)
     setCurrentPage(webUrl ? { url: webUrl, title: active!.title } : null)
   }, [active?.id, webUrl, active?.title, activeGoing?.url])
+  // 右栏开着的网页（标题下「配成一对？」的提示、一起开过几次要它；收着时不算，task-kbnc0）
+  useEffect(() => setRightPage(!props.hidden && webUrl ? { url: webUrl, title: active?.title ?? '' } : null), [props.hidden, webUrl, active?.title])
 
   // 开着哪些网页标签告诉主进程：BookmarkKeeper 新标签页的「打开的标签」、关掉、切过去都按这个
   const sentTabs = useRef('')
@@ -323,6 +373,7 @@ export function WebPanel(props: {
 
   function go(input: string) {
     const u = toUrl(input)
+    if (active) touchAt.current.set(active.id, Date.now())
     addrEdited.current = false
     setAddress(decodeUrl(u))
     const w = active ? views.current.get(active.id) : undefined
@@ -331,6 +382,147 @@ export function WebPanel(props: {
     else if (active) setSt((s) => updateTab(s, active.id, { url: u, title: '' }))
     else setSt((s) => openTab(s, u, { owner: cb.current.owner }))
     cb.current.onShow()
+  }
+
+  // ---------------------------------------------------------------- 读到哪（task-kbnc0）
+
+  /** 让网页回到那段（找不到就按比例停，浮一句「上次那段找不到了」） */
+  function sendGoto(tabId: string, req: Omit<BookRequest, 'seq' | 'book'>) {
+    const v = views.current.get(tabId)
+    if (!v || (!req.pos && !req.top)) return req.done?.('exact')
+    const id = ++gotoSeq.current
+    gotoWaits.current.set(id, (how) => {
+      if (how === 'ratio' && req.pos) setLost({ tabId, text: req.pos.text })
+      else setLost((l) => (l?.tabId === tabId ? null : l))
+      req.done?.(how)
+    })
+    v.send('cn:readpos:goto', { id, pos: req.pos ?? { url: req.url, text: '', before: '', after: '', ratio: 0 }, flash: req.flash ? flashColor() : null, top: !!req.top })
+  }
+
+  // 网页报来的读到哪：人滚的、人翻过来的记下（配好对的书记进 读到哪.json，书桌开着时自动记下）；软件自己开的、重开恢复的不记
+  useEffect(() => {
+    const tabOf = (wc: number) => Object.entries(wcIdsRef.current).find(([, v]) => v === wc)?.[0]
+    setReadPosHost({
+      pos(wc, pos, kind) {
+        const id = tabOf(wc)
+        if (!id) return
+        tabPos.current.set(id, pos)
+        if (kind === 'now') {
+          const w = nowWaits.current.get(id)
+          if (w) nowWaits.current.delete(id), w(pos)
+          return
+        }
+        if (kind === 'land') {
+          const first = firstLand.current?.delete(id) ?? false
+          const p = pendingGoto.current.get(id)
+          if (p && (sameUrl(p.url, pos.url) || (p.book && inBook(p.book, pos.url)))) {
+            pendingGoto.current.delete(id)
+            return sendGoto(id, p)
+          }
+          if (first) {
+            for (const b of booksOf(new Set(pairsRef.current.values()), pos.url)) {
+              const rp = positionOf(b)
+              if (rp && sameUrl(rp.url, pos.url)) return sendGoto(id, { url: rp.url, pos: rp, flash: false })
+            }
+            return
+          }
+          if (Date.now() - (touchAt.current.get(id) ?? 0) > 15_000) return cb.current.onWebChange()
+        }
+        reportPos(pos)
+        cb.current.onWebChange()
+      },
+      touch(wc) {
+        const id = tabOf(wc)
+        if (id) touchAt.current.set(id, Date.now())
+      },
+      went(_wc, r) {
+        const f = gotoWaits.current.get(r.id)
+        if (!f) return
+        gotoWaits.current.delete(r.id)
+        f(r.how)
+      },
+    })
+    return () => setReadPosHost(null)
+  }, [])
+  const pairsRef = useRef(pairsMap)
+  pairsRef.current = pairsMap
+
+  // 开一本书读到的地方：开着这本书的标签就用它（在前面的优先），没开就新开一个
+  useEffect(() => {
+    const r = props.readRequest
+    if (!r) return
+    handledRead.current = r.seq
+    const s = stRef.current
+    const req = { url: r.url, book: r.book, pos: r.pos, flash: r.flash, ...(r.top ? { top: true } : {}), ...(r.done ? { done: r.done } : {}) }
+    const hit = s.tabs.find((t) => t.id === s.active && inBook(r.book, t.url)) ?? s.tabs.find((t) => inBook(r.book, t.url))
+    setLost(null)
+    if (!hit) {
+      const id = newTabId()
+      pendingGoto.current.set(id, req)
+      setSt((x) => openTab(x, r.url, { id, owner: cb.current.owner }))
+      return
+    }
+    firstLand.current?.delete(hit.id)
+    const loaded = wcIdsRef.current[hit.id] !== undefined && !dormant.current!.has(hit.id)
+    if (loaded && sameUrl(hit.url, r.url)) sendGoto(hit.id, req)
+    else {
+      pendingGoto.current.set(hit.id, req)
+      if (loaded) views.current.get(hit.id)?.go(r.url)
+      else setSt((x) => updateTab(x, hit.id, { url: r.url }))
+    }
+    setSt((x) => activate(x, hit.id, cb.current.owner))
+  }, [props.readRequest?.seq])
+
+  // 右栏前面那个网页现在读到哪（问网页，1.5 秒没回话当没有）
+  props.pageNow.current = () =>
+    new Promise((res) => {
+      const id = stRef.current.active
+      const v = id ? views.current.get(id) : undefined
+      if (!id || !v) return res(null)
+      const done = (p: PagePos | null) => res(p)
+      nowWaits.current.set(id, done)
+      v.send('cn:readpos:now')
+      setTimeout(() => {
+        if (nowWaits.current.get(id) !== done) return
+        nowWaits.current.delete(id)
+        res(null)
+      }, 1500)
+    })
+
+  // 书桌：记下开着的网页标签和各读到哪、换成一套、换回去
+  props.deskApi.current = {
+    snapshot: () => ({
+      tabs: stRef.current.tabs.filter((t) => /^https?:/.test(t.url)).map((t) => ({ id: t.id, url: t.url, title: t.title, pos: tabPos.current.get(t.id) ?? null })),
+      active: stRef.current.active,
+    }),
+    replace(list, at, done) {
+      const prev = stRef.current
+      const tabs = list.map((t) => ({ id: newTabId(), url: t.url, title: t.title }))
+      tabs.forEach((t, i) => {
+        const pos = list[i]!.pos
+        if (i !== at) dormant.current!.add(t.id)
+        if (pos) pendingGoto.current.set(t.id, { url: t.url, pos, flash: i === at, ...(i === at && done ? { done } : {}) })
+      })
+      for (const t of prev.tabs) views.current.delete(t.id)
+      setLost(null)
+      setSt({ tabs, active: tabs[at]?.id ?? tabs[0]?.id ?? null, owners: {} })
+      cb.current.onShow()
+      return prev
+    },
+    restore(prev) {
+      for (const t of stRef.current.tabs) views.current.delete(t.id)
+      for (const t of prev.tabs) if (t.id !== prev.active) dormant.current!.add(t.id)
+      setLost(null)
+      setSt(prev)
+    },
+  }
+
+  // 「就从这里读」：网页改了版、上次那段找不到时，从现在这里接着记
+  async function readHere() {
+    const p = await props.pageNow.current?.()
+    setLost(null)
+    if (p) reportPos(p)
+    props.onNotice('好，以后从这里接着读')
   }
 
   async function doImport(id: string) {
@@ -586,6 +778,25 @@ export function WebPanel(props: {
     return { top: st.bottom - box.top + 8, right, ['--arrow-right' as string]: `${box.right - right - (st.left + st.width / 2) - 6}px` }
   }
   const https = webUrl.startsWith('https:')
+  /** 网页标签上的小标：这是哪篇配好对的书（task-kbnc0，原型 .wt .pm） */
+  const pairMark = (url: string) => {
+    const n = /^https?:/.test(url) ? notesOfUrl(url, pairsMap)[0] : undefined
+    if (!n) return null
+    const tip = `和「${titleOf(n)}」是一对`
+    return (
+      <span className="wpm" aria-label={tip} data-tip={tip} data-side="below">
+        <Codicon name="note" size={12} />
+      </span>
+    )
+  }
+  /** 「⋯」这一页最前面：和中间这篇配成一对… / 解除和「…」的配对（中间开着笔记时才有） */
+  const center = props.centerNote
+  const pairItem =
+    center && webUrl && active
+      ? pairOf(center) && inBook(pairOf(center)!, webUrl)
+        ? { label: unpairLabel(center), icon: 'close' as const, run: () => void unpairNote(center) }
+        : { label: '和中间这篇配成一对…', icon: 'link' as const, run: () => moreRef.current && openPairPop(center, { url: webUrl, title: active.title }, moreRef.current, 'right') }
+      : null
 
   /** 标签上写的名字：新标签页在去网址时写要去的域名；没有标题的写域名 */
   const tabName = (t: { id: string; url: string; title: string }) => (!t.url || t.url === newtabUrl ? (going[t.id] ? hostOf(going[t.id]!.url) : '') : t.title) || (/^https?:/.test(t.url) ? hostOf(t.url) : '新网页')
@@ -612,7 +823,7 @@ export function WebPanel(props: {
       {top.fold ? (
         /* 收起（原型 A2，32 高）：‹、当前网页的标题（点它展开）和「+N 个标签」、视频页的两颗图标和时刻数；时间轴是这一行底边一根线 */
         <div className="wrow wfolded" data-testid="web-top-folded" role="toolbar" aria-label="网页（收起）">
-          <button className="wib" aria-label="后退" data-tip="后退" data-side="below" disabled={!activeNav?.back} onClick={() => active && views.current.get(active.id)?.goBack()}>
+          <button className="wib" aria-label="后退" data-tip="后退" data-side="below" disabled={!activeNav?.back} onClick={() => active && (touchAt.current.set(active.id, Date.now()), views.current.get(active.id)?.goBack())}>
             <Codicon name="chevron-left" size={16} />
           </button>
           <button className="wfold-ti" data-testid="web-fold-title" data-tip="点开：地址、标签、视频工具都出来" data-side="below" onClick={() => setTopFold(false)}>
@@ -626,10 +837,10 @@ export function WebPanel(props: {
       ) : (
         /* 展开（原型 A1，34 高）：‹ › ↻、网页标签（当前那个就是地址块，同 Safari 的紧凑标签）、+、｜、译、剪藏、插件按钮、⋯ */
         <div className="wrow wrow1" data-testid="web-row1">
-          <button className="wib" aria-label="后退" data-tip="后退" data-side="below" disabled={!activeNav?.back} onClick={() => active && views.current.get(active.id)?.goBack()}>
+          <button className="wib" aria-label="后退" data-tip="后退" data-side="below" disabled={!activeNav?.back} onClick={() => active && (touchAt.current.set(active.id, Date.now()), views.current.get(active.id)?.goBack())}>
             <Codicon name="chevron-left" size={16} />
           </button>
-          <button className="wib" aria-label="前进" data-tip="前进" data-side="below" disabled={!activeNav?.forward} onClick={() => active && views.current.get(active.id)?.goForward()}>
+          <button className="wib" aria-label="前进" data-tip="前进" data-side="below" disabled={!activeNav?.forward} onClick={() => active && (touchAt.current.set(active.id, Date.now()), views.current.get(active.id)?.goForward())}>
             <Codicon name="chevron-right" size={16} />
           </button>
           <button className="wib" aria-label="重新载入" data-tip="重新载入" data-side="below" disabled={!active || !srcOf(active)} onClick={() => active && views.current.get(active.id)?.reload()}>
@@ -697,6 +908,7 @@ export function WebPanel(props: {
                         </span>
                       )}
                     </form>
+                    {pairMark(t.url)}
                     <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
                       <Codicon name="close" size={12} />
                     </button>
@@ -706,6 +918,7 @@ export function WebPanel(props: {
                     <button className="tl" onClick={() => setSt((s) => activate(s, t.id, cb.current.owner))}>
                       {tabIcon(t)}
                       <span className="truncate">{tabName(t)}</span>
+                      {pairMark(t.url)}
                     </button>
                     <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
                       <Codicon name="close" size={12} />
@@ -745,6 +958,7 @@ export function WebPanel(props: {
             </button>
             {menu === 'more' && (
               <MoreMenu
+                pair={pairItem}
                 star={webUrl ? { on: !!starred, keeper: keeperOn } : null}
                 onStar={() => (setMenu(null), void clickStar())}
                 onClip={webUrl && !clipping ? () => (setMenu(null), void clipPage()) : null}
@@ -864,6 +1078,25 @@ export function WebPanel(props: {
           })}
           {/* AI 在网页里动手：网页外圈和顶上提示条（指针、亮的那段、「✂ 剪成卡片」画在网页里，main/agent/web.ts） */}
           <AiActLayer area="web" host={stack} />
+          {/* 网页改了版、上次那段找不到：按比例停在差不多的地方，浮一句（不往网页栏顶上加一排，task-kbnc0） */}
+          {lost && lost.tabId === st.active && (
+            <div className="wlost" role="alert" data-part="网页改版了的提示">
+              <Codicon name="warning" size={14} />
+              <div className="t">
+                上次那段找不到了：网页改过版。
+                <br />
+                <span>{`按上次的位置停在了差不多的地方。上次那段是「${lost.text.length > 22 ? lost.text.slice(0, 22) + '…' : lost.text}」`}</span>
+                <div className="acts">
+                  <button type="button" className="btn btn-sm btn-primary ra-26" onClick={() => void readHere()}>
+                    就从这里读
+                  </button>
+                </div>
+              </div>
+              <button type="button" className="cm-ra-x" aria-label="关掉这一句" data-tip="关掉" onClick={() => setLost(null)}>
+                <Codicon name="close" size={15} />
+              </button>
+            </div>
+          )}
           {(!active || !srcOf(active)) && (
             <div className="webstart">
               <p>输入网址打开一个网页。选中一段文字，就能剪进笔记；网页里的图片能直接拖到白板上。</p>
@@ -901,6 +1134,8 @@ interface WmItem {
  * 「插件…」一直在。藏起的和顺序存在 .canvas-notes/命令.json。↑↓ 选，↵ 执行，esc 关。
  */
 function MoreMenu(props: {
+  /** 和中间这篇配成一对… / 解除配对（task-kbnc0）；中间没开笔记、不是网页时没有 */
+  pair: { label: string; icon: CodiconName; run(): void } | null
   page: WebPage | null
   /** 这一页收藏了没有；keeper：书签管家开着（收藏后开小卡改标签和备注） */
   star: { on: boolean; keeper: boolean } | null
@@ -953,6 +1188,7 @@ function MoreMenu(props: {
     </button>
   )
   const all: WmItem[] = [
+    ...(props.pair ? [{ id: 'pair', group: 'page' as const, label: '和中间这篇配成一对…', icon: 'link' as const, node: item(props.pair.label, props.pair.icon, () => (props.onClose(), props.pair!.run())) }] : []),
     { id: 'clip', group: 'page', label: '剪藏这一页', icon: 'quote', node: item('剪藏这一页', 'quote', () => props.onClip?.(), undefined, !props.onClip) },
     ...pageMenus.map((m): WmItem => ({ id: m.id, group: m.group, label: m.label, icon: m.icon, node: <m.Item key={m.id} page={props.page} onDone={props.onClose} onNotice={props.onNotice} /> })),
     ...pluginItems.map((p): WmItem => ({ id: p.id, group: 'page', label: p.label, icon: p.icon, node: item(p.label, p.icon, () => (props.onClose(), p.run()), p.keys, !props.page) })),

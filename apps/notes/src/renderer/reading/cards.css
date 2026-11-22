@@ -1,0 +1,526 @@
+/*
+ * 出卡（task-tz7y3）：尺寸照原型 /private/tmp/canvas-notes-anki/proto.html 的 .rv、.strip、.paper、.keys、.df、.pop（用 DOM 量过），
+ * 颜色走主题变量。按钮照全软件的胶囊（DESIGN.md「按钮」），原型里次按钮是圆角 6 的方块，这里不跟。
+ */
+.cards-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cardsdlg {
+  width: 880px;
+  height: 640px;
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  color: var(--t1);
+}
+.cardsdlg .dh {
+  flex: none;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+.cardsdlg .dh b {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.cardsdlg .dh .sub {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cardsdlg .dh .x {
+  margin-left: auto;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.cardsdlg .dh .x:hover {
+  background: var(--fill);
+}
+/* 一排编号小方块：灰底要送、虚线不送、当前这张一圈强调色、绿点已在 Anki */
+.cardsdlg .strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.cardsdlg .strip .sq {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 3px;
+  margin: -3px;
+}
+.cardsdlg .strip .sq button {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--fill2);
+  font: 500 12px var(--sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--t2);
+}
+.cardsdlg .strip .sq button.skip {
+  background: none;
+  outline: 1px dashed var(--t3);
+  outline-offset: -1px;
+}
+.cardsdlg .strip .sq button.cur {
+  box-shadow: 0 0 0 2px var(--acc);
+  color: var(--t1);
+}
+.cardsdlg .strip .sq button.wait {
+  color: var(--t3);
+}
+.cardsdlg .strip .gd {
+  position: absolute;
+  right: -2px;
+  top: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 0 2px var(--pop);
+}
+.cardsdlg .strip .lg {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--t3);
+}
+.cardsdlg .strip .lg i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  border-radius: 3px;
+  background: var(--fill2);
+}
+.cardsdlg .strip .lg i.d {
+  background: none;
+  outline: 1px dashed var(--t3);
+}
+.cardsdlg .strip .lg .dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--green);
+}
+/* 中间：不另铺底（2026-11-22 用户「直接把这里作为显示内容不就可以了吗 这样就没有黑色的底了」，偏好「出卡弹窗里卡片铺满不加底」，task-qkx1j）；
+   卡片铺满这一块：左右和头、编号条一样让 18，往下长到「你当时问的」和那排按钮上面，内容多了这一块自己滚 */
+.cardsdlg .rvbody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 18px 14px;
+}
+.cardsdlg .pw {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.cardsdlg .pw > .paper {
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  box-shadow: none;
+}
+/* 多出来的高度给答案那一格，出处一行贴在卡片底 */
+.cardsdlg .pw > .paper .ansb {
+  flex: 1 0 auto;
+}
+.cardsdlg .pw.skipped {
+  opacity: 0.5;
+}
+.cardsdlg .pw.dim {
+  opacity: 0.6;
+}
+/* 卡（纸）：照 Anki 里那张纸（答案接棒）缩小一号 */
+.paper {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 12px 32px -12px rgba(0, 0, 0, 0.12);
+  text-align: left;
+}
+.paper .top {
+  padding: 18px 22px;
+}
+.paper .meta {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.paper .pq {
+  font-size: 18px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+.paper .shot {
+  margin-top: 12px;
+}
+.paper .shot img {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: #fff;
+}
+.paper .ansb {
+  padding: 14px 22px 16px;
+  border-top: 1px solid var(--line);
+}
+.paper .pa {
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 600;
+}
+.paper .pts {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  color: var(--t2);
+}
+.paper .pts li {
+  position: relative;
+  padding-left: 14px;
+}
+.paper .pts li::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0.7em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--t3);
+}
+.paper .foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 22px;
+  border-top: 1px solid var(--line);
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.paper .foot .open {
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 500 12px var(--sans);
+  color: var(--acc-t);
+}
+.paper [contenteditable='true'] {
+  outline: none;
+  margin: 0 -3px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--acc-soft);
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+.cardsdlg .orig {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.cardsdlg .orig > svg {
+  flex: none;
+}
+.cardsdlg .orig .ok {
+  color: var(--green);
+}
+.cardsdlg .orig.warn {
+  color: var(--t2);
+}
+.cardsdlg .orig .chip {
+  flex: none;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--fill2);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 20px;
+  color: var(--t2);
+}
+.cardsdlg .orig.done .btn {
+  margin-left: 4px;
+}
+.cardsdlg .keys {
+  margin-top: 12px;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+.cardsdlg .keys kbd,
+.cardsdlg .df kbd {
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  font: 11px var(--sans);
+  color: var(--t3);
+}
+.cardsdlg .keys .btn-primary kbd {
+  border-color: currentColor;
+  color: inherit;
+}
+.cardsdlg .drafting,
+.cardpop .drafting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 40px;
+  font-size: 13px;
+  color: var(--t3);
+}
+.cardsdlg .drafting {
+  justify-content: center;
+}
+.cardpop .drafting {
+  margin: 16px 8px;
+}
+.shimmer {
+  background: linear-gradient(90deg, var(--t3) 20%, var(--t1) 50%, var(--t3) 80%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: cards-shimmer 1.6s linear infinite;
+}
+@keyframes cards-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+/* Anki 没开：底下一行，选的都留着 */
+.cardsdlg .warnrow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--fill);
+  font-size: 13px;
+}
+.cardsdlg .warnrow .wr {
+  color: var(--yellow);
+}
+.cardsdlg .warnrow.err > svg {
+  color: var(--red);
+}
+.cardsdlg .warnrow .sp {
+  flex: 1;
+}
+.howto {
+  flex: none;
+  padding: 4px 16px 8px;
+  background: var(--fill);
+}
+.howto .hrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.howto .hrow .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--yellow);
+}
+.howto .hrow .dot.g {
+  background: var(--green);
+}
+.howto .hrow b {
+  flex: none;
+  width: 120px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.howto .hrow span {
+  flex: 1;
+}
+.howto .hrow span.ok {
+  color: var(--green);
+}
+.cardsdlg .df {
+  flex: none;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t2);
+}
+.cardsdlg .df .sp {
+  flex: 1;
+}
+/* 问题条上「做成卡」：贴着问题条的小卡 */
+.cardpop {
+  position: fixed;
+  z-index: 60;
+  padding: 10px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+}
+.cardpop .paper {
+  box-shadow: none;
+}
+.cardpop .paper .top,
+.cardpop .paper .ansb {
+  padding: 12px 14px;
+}
+.cardpop .paper .pq {
+  font-size: 14px;
+}
+.cardpop .paper .pa {
+  font-size: 13px;
+  font-weight: 500;
+}
+.cardpop .paper .foot {
+  padding: 9px 14px;
+}
+.cardpop .pb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.cardpop .pb .sp {
+  flex: 1;
+}
+.sa-more .howto {
+  margin-top: 6px;
+  border-radius: 8px;
+}
+/* 设置 › 读PDF「送进Anki」：连没连上（绿点连上了、黄点没开着） */
+.sa-anki {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.sa-anki .dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--yellow);
+}
+.sa-anki .dot.g {
+  background: var(--green);
+}
+.sa-val {
+  font-size: 13px;
+  color: var(--t2);
+}
+/* 设置 › 读PDF「送进哪个牌组」例子里的路径和牌组名：不在中间折行，「课程::ecp」不加中西文间距（和 Anki 里的写法一样） */
+.sa-nw {
+  white-space: nowrap;
+  text-autospace: no-autospace;
+}
+/* 课程首页「读PDF时问过的」「今天要复习」（原型 proto.html#dir=b 的 .fchips、.ffoot、.due） */
+.wd .fw-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t2);
+}
+.wd .fw-foot .sp {
+  flex: 1;
+}
+.wd .fw-chips button.chip {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill2);
+  font: 12px var(--sans);
+  color: var(--t1);
+  cursor: pointer;
+}
+.wd .fw-chips button.chip:hover {
+  background: var(--line2);
+}
+.wd .fw-row .r .ok {
+  color: var(--green);
+}
+.wd .due {
+  display: flex;
+  gap: 18px;
+  margin: 2px 0 10px;
+}
+.wd .due div {
+  display: flex;
+  flex-direction: column;
+}
+.wd .due b {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.wd .due span {
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 目录树：一份 PDF 问过的都送进 Anki 了，数字后面一个绿勾（原型 tree() 的 .sent） */
+.ft-nb .ft-sent {
+  color: var(--green);
+}

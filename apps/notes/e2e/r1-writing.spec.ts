@@ -359,13 +359,13 @@ test('数据库开着筛选点「新一条」：新的那条先留在表底，�
     await expect(db.locator('.base-foot')).toHaveText('另有1条刚建的不在筛选里 · 每条是「书单」里的一篇笔记')
     // 筛选面板底下不写开发者的词
     await db.getByRole('button', { name: '筛选' }).click()
-    await expect(db.getByRole('dialog', { name: '筛选' })).not.toContainText('filters')
-    await expect(db.getByRole('dialog', { name: '筛选' })).not.toContainText('代码块')
+    await expect(page.getByRole('dialog', { name: '筛选' })).not.toContainText('filters')
+    await expect(page.getByRole('dialog', { name: '筛选' })).not.toContainText('代码块')
     await page.keyboard.press('Escape')
     // 改成在读：满足筛选，标签去掉
     // 「状态」是选项列：点格子弹选项小框，挑「在读」
     await added.locator('td').nth(1).click()
-    const cell = db.getByRole('dialog', { name: '未命名 · 状态' }).getByRole('textbox', { name: '找一个，或者打一个新的' })
+    const cell = page.getByRole('dialog', { name: '未命名 · 状态' }).getByRole('textbox', { name: '找一个，或者打一个新的' })
     await cell.fill('在读')
     await cell.press('Enter')
     await expect(db.locator('tbody tr', { hasText: '未命名' })).not.toContainText('不在当前筛选里')
@@ -427,7 +427,9 @@ test('「移到」能选子文件夹（右键、标题下所在文件夹 ▾）�
     await tree.getByRole('treeitem', { name: /冰岛稿/ }).click({ button: 'right' })
     const m = await openedMenu(run)
     const move = m.find((i) => i.label === '移到')!.submenu!
-    expect(move.map((i) => i.label)).toEqual(['测试库', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
+    // 这篇本来就在的「收件箱」灰着列出来、点不了（task-5yp97「藏之后」图）
+    expect(move.map((i) => i.label)).toEqual(['测试库', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
+    expect(move.find((i) => i.label === '收件箱')!.enabled).toBe(false)
     expect(move.find((i) => i.label === '写作')!.submenu!.map((i) => i.label)).toEqual(['放进「写作」', '—', '书评', '游记'])
     await pickMenu(run, '移到 › 写作 › 游记')
     await expect.poll(() => existsSync(join(vault, '写作/游记/冰岛稿.md'))).toBe(true)
@@ -438,7 +440,8 @@ test('「移到」能选子文件夹（右键、标题下所在文件夹 ▾）�
     await pane(page).getByRole('button', { name: /所在文件夹：写作\/游记/ }).click()
     const chip = await openedMenu(run)
     expect(chip.map((i) => i.label)).toEqual(['测试库', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
-    expect(chip.find((i) => i.label === '写作')!.submenu!.map((i) => i.label)).toEqual(['放进「写作」', '—', '书评'])
+    expect(chip.find((i) => i.label === '写作')!.submenu!.map((i) => i.label)).toEqual(['放进「写作」', '—', '书评', '游记'])
+    expect(chip.find((i) => i.label === '写作')!.submenu!.find((i) => i.label === '游记')!.enabled).toBe(false)
     await pickMenu(run, '写作 › 书评')
     await expect.poll(() => existsSync(join(vault, '写作/书评/冰岛稿.md'))).toBe(true)
     await expect(page.getByTestId('tab-on')).toHaveText('冰岛稿')

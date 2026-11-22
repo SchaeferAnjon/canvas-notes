@@ -39,10 +39,10 @@ test('活动栏平铺：文件、最近 | 收件箱 | 课程 阅读 剪藏 | 周
   const { page } = run
   try {
     const names = await bar(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names).toEqual(['文件', '最近', ...CATS, '梦游报告', '库', '设置和外观'])
+    expect(names).toEqual(['文件', '最近', '书桌', ...CATS, '梦游报告', '库', '设置和外观'])
     // 每段之间一条线：最近后、收件箱后、剪藏后、生活后
     const groups = await bar(page).locator('.abg').evaluateAll((els) => els.map((g) => [...g.querySelectorAll('button.ab')].map((b) => b.getAttribute('aria-label'))))
-    expect(groups).toEqual([['文件', '最近'], ['收件箱'], ['课程', '阅读', '剪藏'], ['周记', '写作', '项目', '生活'], ['梦游报告']])
+    expect(groups).toEqual([['文件', '最近', '书桌'], ['收件箱'], ['课程', '阅读', '剪藏'], ['周记', '写作', '项目', '生活'], ['梦游报告']])
     await openFiles(page)
     const root = tree(page).locator('.ft-root')
     await expect(root).toContainText('测试库')
@@ -650,7 +650,7 @@ test('老库打开时整理一次：素材 → 剪藏、素材/微信读书 → 
     expect(existsSync(join(vault, '阅读/人类简史.md'))).toBe(true)
     expect(readFileSync(join(vault, '写作/游记.md'), 'utf8')).toContain('(../剪藏/冰岛旅行/住哪.md)')
     const names = await bar(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names.slice(2, 10)).toEqual(CATS)
+    expect(names.slice(3, 11)).toEqual(CATS)
     await openFiles(page)
     await expect(row(page, '剪藏')).toHaveCount(1)
     await expect(row(page, '素材')).toHaveCount(0)

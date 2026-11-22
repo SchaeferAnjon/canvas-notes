@@ -354,6 +354,11 @@
 .set-body .note.plug-inline {
   margin: 0;
 }
+/* 每行的开关贴行右边（离右 12），不跟在名字后面：名字长短不一时上下几行的开关在同一个 x，和同段按钮右边齐
+   （DESIGN.md「设置」：开关、按钮贴右列的右边；偏好「设置里下拉要对齐」，task-cqia6） */
+.plug-set .pair > .sw-toggle {
+  margin-left: auto;
+}
 .wextrow > .sw-toggle {
   flex: none;
 }

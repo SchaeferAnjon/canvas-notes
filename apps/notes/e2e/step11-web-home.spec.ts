@@ -11,6 +11,8 @@ import { join } from 'node:path'
 import { launch, rail, type Running, starItem, webMore } from './app'
 
 const BUNDLED = join(__dirname, '../resources/bookmarkkeeper')
+const SHOTS = process.env.CN_SHOTS_DIR
+const shot = async (page: Page, name: string) => SHOTS && (await page.screenshot({ path: join(SHOTS, `${name}.png`) }))
 const NEWTAB = 'cn-ext://bookmarkkeeper/newtab/index.html'
 
 let server: Server
@@ -136,7 +138,7 @@ function otherMac(container: string) {
 /** 快捷书签那一排的名字（分组是它的名字） */
 const quickTitles = (page: Page) => guest<string[]>(page, `[...document.querySelectorAll('#bkQuick .bk-tile .bk-t-title')].map((e) => e.textContent)`)
 
-test('新网页标签就是 BookmarkKeeper 的新标签页：别的 Mac 的快捷书签合并读进来；搜的是内置书签；打开的标签里加快捷书签写进我们自己的 JSON；点快捷书签在当前标签打开；稍后再看进它的列表', async () => {
+test('新网页标签就是 BookmarkKeeper 的新标签页：别的 Mac 的快捷书签合并读进来；搜的是快捷书签；打开的标签里加快捷书签写进我们自己的 JSON；点快捷书签在当前标签打开；稍后再看进它的列表', async () => {
   const root = mkdtempSync(join(tmpdir(), 'cn-bk-'))
   const userData = join(root, 'user-data')
   const container = join(root, 'iCloud~io~github~schaeferanjon~BookmarkKeeper')
@@ -163,11 +165,12 @@ test('新网页标签就是 BookmarkKeeper 的新标签页：别的 Mac 的快�
     await clickIn(run, '#bkQuick .bk-tile.is-group')
     await until(page, `[...document.querySelectorAll('#bkGroupRow .bk-t-title')].map((e) => e.textContent).join() === '冰川,极光'`)
 
-    // 搜全部书签：搜的是内置浏览器的书签（chrome.bookmarks 接到书签表）
+    // 搜索框只搜快捷书签（跟 BookmarkKeeper 0.8.1，task-4xtbp）：分组里的「冰川」搜得到，带上分组名
     await clickIn(run, '#bkSearch')
-    await typeIn(run, '瀑布')
-    await until(page, `document.querySelector('#bkResults .bk-r-title')?.textContent === '黄金瀑布'`)
-    expect(await guest(page, `document.querySelector('#bkResults .bk-r-sub').textContent`)).toContain('书签栏')
+    await typeIn(run, '冰川')
+    await until(page, `document.querySelector('#bkResults .bk-r-title')?.textContent === '冰川'`)
+    expect(await guest(page, `document.querySelector('#bkResults .bk-r-sub').textContent`)).toContain('冰岛')
+    await guest(page, `(() => { const s = document.querySelector('#bkSearch'); s.value = ''; s.dispatchEvent(new Event('input')) })()`)
     // 「All folders」里是书签栏、行程这些文件夹
     await clickIn(run, '#bkFoldersToggle')
     await until(page, `document.querySelector('#bkCards').textContent.includes('行程')`)
@@ -224,6 +227,47 @@ test('新网页标签就是 BookmarkKeeper 的新标签页：别的 Mac 的快�
     await webTabs(page).nth(1).getByRole('button').first().click()
     await (await starItem(page)).click()
     await expect.poll(() => (JSON.parse(readFileSync(join(userData, 'web', 'bookmarks.json'), 'utf8')) as { url: string }[]).some((b) => b.url === `${base}/${encodeURIComponent('黑沙滩')}`)).toBe(true)
+  } finally {
+    await run.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('新标签页的搜索只搜快捷书签（含分组里的）：快捷书签外的书签搜不到，说「快捷书签里没有」，点「在全部书签里找」到整理书签页带着词搜全部', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'cn-bk-'))
+  const userData = join(root, 'user-data')
+  const container = join(root, 'iCloud~io~github~schaeferanjon~BookmarkKeeper')
+  seed(userData)
+  otherMac(container)
+  const run = await launch({ 'a.md': '# a\n' }, { CN_USER_DATA: userData, CN_BOOKMARKKEEPER_DIR: BUNDLED, CN_ICLOUD_CONTAINER: container })
+  try {
+    const { page } = run
+    await rail(page).getByRole('button', { name: '网页' }).click()
+    await until(page, `document.querySelectorAll('#bkQuick .bk-tile').length === 2`)
+    expect(await guest(page, `document.querySelector('#bkSearch').placeholder`)).toBe('搜索快捷书签…')
+    const titles = () => guest<string[]>(page, `[...document.querySelectorAll('#bkResults .bk-r-title')].map((e) => e.textContent)`)
+    const search = async (q: string) => {
+      await guest(page, `(() => { const s = document.querySelector('#bkSearch'); s.value = ''; s.dispatchEvent(new Event('input')) })()`)
+      await clickIn(run, '#bkSearch')
+      await typeIn(run, q)
+    }
+    // 顶层的快捷书签
+    await search('黑沙滩')
+    await expect.poll(titles).toEqual(['黑沙滩'])
+    // 按分组名搜：组里的每一条
+    await search('冰岛')
+    await expect.poll(async () => (await titles()).sort()).toEqual(['冰川', '极光'])
+    // 书签栏里有、快捷书签里没有的「黄金瀑布」：搜不到
+    await search('瀑布')
+    await expect.poll(() => guest(page, `document.querySelector('#bkResults .bk-noresult')?.textContent`)).toBe('快捷书签里没有「瀑布」在全部书签里找')
+    expect(await titles()).toEqual([])
+    await shot(page, 'bk-search-none-light')
+    // 点「在全部书签里找」：同一个标签里开整理书签页，带着词搜全部书签，搜到黄金瀑布
+    await clickIn(run, '#bkResults [data-bk-all]', '在全部书签里找')
+    await until(page, `location.pathname === '/manager/manager.html' && new URLSearchParams(location.search).get('q') === '瀑布'`)
+    expect(await guest(page, `document.querySelector('#all-search').value`)).toBe('瀑布')
+    await until(page, `!document.querySelector('#all-flat').hidden && document.querySelector('#all-flat').textContent.includes('黄金瀑布')`)
+    await shot(page, 'bk-search-manager-light')
   } finally {
     await run.close()
     rmSync(root, { recursive: true, force: true })

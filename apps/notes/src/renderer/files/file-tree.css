@@ -66,8 +66,32 @@
   display: inline-flex;
   color: var(--t3);
 }
+/* 正在看的那一篇（开着的文件、开着首页的文件夹）：不铺底，左边一道 2px --acc 竖线、名字 600 强调色；和选中（--fill2 底）分开，
+   两样可以同时有（task-cqia6，同图标栏、历史「左边 2px --acc 竖线、不铺底色」） */
+.ftree .ft-row.on {
+  position: relative;
+  background: none;
+}
+.ftree .ft-row.on:not(.sel):hover {
+  background: var(--fill);
+}
+.ftree .ft-row.on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--acc);
+}
+.ftree .ft-row.on > .truncate {
+  font-weight: 600;
+  color: var(--acc-t);
+}
 /* 定位到的那一行：选中底 + 一圈强调色外圈，约 2 秒后消失 */
 .ftree .ft-row.ring {
+  background: var(--fill2);
   box-shadow: inset 0 0 0 1.5px var(--acc-ring);
 }
 /* 点过的文件夹（「新建文件夹」放进它里面）：一圈细线，和开着的那一行（--fill2 底）分开（照 VS Code 的选中但不是当前） */
@@ -195,7 +219,20 @@
   height: 1px;
   background: var(--line);
 }
-/* 选了好几个（CN-105）：选中的底和开着的那一行一样（--fill2） */
+/* 数据库的记录文件夹挂在那篇下面（task-5yp97「藏之后」）：数据库图标 --t2，右边「N条」同篇数 */
+.ftree .ft-dbrow > svg.ft-db {
+  color: var(--t2);
+}
+
+/* 最底下「最近删掉的 N」（task-5yp97）：和上面的树空 8，样子同一行文件夹（图标 trash 16、名字 13、右边篇数） */
+.ftree .ft-trash-gap {
+  height: 8px;
+}
+.ftree .ft-trash > svg {
+  color: var(--t2);
+}
+
+/* 选中的（CN-105）：--fill2 底；正在看的那一篇不铺底、只有竖线（task-cqia6），两样不混 */
 .ftree {
   position: relative;
 }

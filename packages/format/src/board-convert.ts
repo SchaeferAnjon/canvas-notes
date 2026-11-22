@@ -7,7 +7,7 @@
  * 2. 空白处的卡（没有 in=）：前面一行位置 `<!-- card id=… x=… y=… -->`，编号不变，坐标换到新画布上（新画布左边让 92、
  *    顶上让 64 都算在白板坐标里，旧的是画布外的边距：x + 4、y + 64），摆在原处。一张卡里有好几块的，一块一张往下排。
  * 3. 每一列变成一节「## 列名」，列里的卡（按文件里的先后）紧跟在下面，卡前的注释行去掉；连线的一头、AI 总结的卡留一行只记编号的
- *    `<!-- card id=a2 ai=… -->`。列按从左到右排；白板上有空白处的卡、或者列不在一排时，列也留一行 `<!-- column id=… x=… y=… -->` 摆在原处。
+ *    `<!-- card id=a2 ai=… -->`。AI 总结的卡整张写成一个 `> [!ai] AI 总结` 提示块（task-5yp97：能选一句开旁支；几段也还是一张卡）。列按从左到右排；白板上有空白处的卡、或者列不在一排时，列也留一行 `<!-- column id=… x=… y=… -->` 摆在原处。
  * 4. 卡里（和开头那几段里）的标题改成加粗的一行（开头的「# 名字」除外）：留着标题就会变成一列（白板上没有 ## 时连 #### 也会）。
  *    列留了位置时，开头那几段（和没认出来的卡）也各留一行位置，摆在所有东西的右边：不然最左一组从左上角排起，和摆在原处的列、卡叠在一起。
  * 5. 一个字都不丢：转完再按旧写法读，读不出东西；按新写法读，每张卡都在。
@@ -15,6 +15,7 @@
 import { attr, type Block, content, fmValue, hasOldLayout, parseBoard } from './board'
 import { type DocUnit, linksOf, placeLine, splitDoc, tagLine } from './doc-board'
 import { isMindmap } from './mindmap'
+import { summaryCallout } from './summary-card'
 
 /** 旧白板的坐标换到新白板上要加多少（旧画布外边距 96 / 64，新白板第一列离左边 92、白板坐标里顶上让 64） */
 export const OLD_OFFSET = { x: 4, y: 64 }
@@ -148,8 +149,11 @@ export function convertBoard(text: string): { text: string; columns: number; car
     if (rest.trim()) pieces.push(asideOf(rest))
   }
 
-  /** 卡的正文（标题降级、去掉结尾空行） */
-  const bodyOf = (b: Block) => demote(content(b))
+  /** 卡的正文（标题降级、去掉结尾空行）；AI 总结的卡写成一个 AI 总结块（整张一块，不按段拆开） */
+  const bodyOf = (b: Block) => {
+    const body = demote(content(b))
+    return attr(b, 'ai') !== undefined && body.trim() ? summaryCallout(body.trim()) : body
+  }
 
   // 2. 空白处的卡：每一块前面一行位置（第一块用原来的编号），块和块之间原来的字（空行、别的注释）原样留着
   for (const b of free) {

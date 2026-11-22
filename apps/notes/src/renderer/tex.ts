@@ -65,6 +65,8 @@ export function fadeEdges(el: HTMLElement): () => void {
   el.addEventListener('scroll', update, { passive: true })
   const ro = new ResizeObserver(update)
   ro.observe(el)
+  // 里面的东西变宽（数据库加了一列）外框不变：也看里面
+  if (el.firstElementChild) ro.observe(el.firstElementChild)
   requestAnimationFrame(update)
   return () => {
     ro.disconnect()

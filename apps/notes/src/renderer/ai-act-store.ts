@@ -40,6 +40,18 @@ let grab: Grab | null = null
 let version = 0
 let seq = 0
 const subs = new Set<() => void>()
+
+/**
+ * AI 写了哪一篇（主进程的 wrote：全能模式下 AI 自己用命令、Edit 写的，我们的笔记工具写的，AI 命令改的）：
+ * 开着这一篇的编辑器接下来合进来的外部改动是 AI 写的，新的字一点点长出来；白板上新的卡字长出来（task-6kun1）。
+ * 记几秒（监听要 50 毫秒、编辑器在存盘时要等存完），被编辑器认走就没了
+ */
+let wrote: { path: string; turn: number; until: number }[] = []
+/** 写过字、还没收到 end 的那几轮（那一段下面「AI 在写这一段 · 停下 esc」跟到这一轮做完） */
+const writingTurns = new Set<number>()
+const wroteSubs = new Set<(path: string, turn: number) => void>()
+/** 文档里 / 菜单的「AI 写一段」「AI 总结这页」：不经过 AI 对话那一轮，「停下」交给它自己 */
+const localStops = new Map<number, () => void>()
 const emit = () => {
   version++
   for (const f of subs) f()
@@ -115,10 +127,61 @@ function on(e: AiAct) {
     else if (e.kind === 'start') patch(cur, { whole: true, spot: null })
     else if (!cur.whole && spot) patch(cur, { spot })
   } else if (e.kind === 'grab') grab = { ...e, seq: ++seq }
-  else {
+  else if (e.kind === 'wrote') {
+    const now = Date.now()
+    wrote = [...wrote.filter((w) => w.until > now), { path: e.path, turn: e.turn, until: now + 8000 }]
+    if (e.turn > 0) writingTurns.add(e.turn)
+    for (const f of wroteSubs) f(e.path, e.turn)
+    return
+  } else {
     if (grab?.turn === e.turn) grab = null
+    writingTurns.delete(e.turn)
     finish(e.turn, { stopped: e.stopped, commit: e.commit, tally: e.tally })
   }
+  emit()
+}
+
+/** 编辑器合外部改动之前问一句：这是不是 AI 刚写的（是哪一轮；0 是 AI 命令那种没有一轮的）。认走了就没了 */
+export function takeWrote(path: string): number | null {
+  const now = Date.now()
+  const mine = wrote.filter((w) => w.path === path && w.until > now)
+  if (!mine.length) return null
+  wrote = wrote.filter((w) => w.path !== path && w.until > now)
+  return mine.at(-1)!.turn
+}
+
+/** AI 写了这一篇（白板上等它重画出来，看哪几张卡的字是新的） */
+export function onWrote(f: (path: string, turn: number) => void): () => void {
+  wireActs()
+  wroteSubs.add(f)
+  return () => wroteSubs.delete(f)
+}
+
+/** 这一轮写过字、还在答 */
+export const writing = (turn: number) => writingTurns.has(turn) || localStops.has(turn)
+
+/**
+ * AI 自己写进开着的这篇的那一段（编辑器认出来以后）：这一轮还在答，就和「只写一段」一样记一处，
+ * 「AI 在写这一段 · 停下 esc」跟到这一轮做完，esc 和「停下」停的是这一轮
+ */
+export function spotWrote(turn: number, path: string) {
+  if (!writingTurns.has(turn) || list.some((x) => x.turn === turn && x.area === 'doc' && x.path === path)) return
+  list = [...list, { turn, area: 'doc', path, whole: false, stopping: false, spot: null, end: null }]
+  emit()
+}
+
+/** / 菜单的「AI 写一段」「AI 总结这页」开始写进编辑器：照「只写一段」记一处；stop 是按了停下（esc、那一颗的「停下」）以后做的 */
+export function startLocal(turn: number, path: string, stop: () => void) {
+  wireActs()
+  localStops.set(turn, stop)
+  list = [...list.filter((x) => !(x.end && x.area === 'doc' && x.path === path)), { turn, area: 'doc', path, whole: false, stopping: false, spot: null, end: null }]
+  emit()
+}
+
+/** / 菜单写完（字也显完了）或停下了：照「只写一段」收尾（竖线实线 1.6 秒淡出；停下的说一句再收） */
+export function endLocal(turn: number, stopped: boolean) {
+  localStops.delete(turn)
+  finish(turn, { stopped, commit: null, tally: { moved: 0, added: stopped ? 0 : 1, changed: 0, clipped: 0 } })
   emit()
 }
 
@@ -146,7 +209,11 @@ export function stopActing() {
   if (!turns.length) return
   list = list.map((e) => (e.end ? e : { ...e, stopping: true }))
   emit()
-  for (const t of turns) void window.cn.aiTurnStop(t)
+  for (const t of turns) {
+    const local = localStops.get(t)
+    if (local) local()
+    else void window.cn.aiTurnStop(t)
+  }
 }
 
 /**

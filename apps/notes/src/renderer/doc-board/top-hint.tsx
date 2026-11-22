@@ -49,6 +49,9 @@ function saveHidden(path: string, ids: Set<string>) {
 /** 这一刻条子上写的东西（收起淡出时照旧显示它） */
 type Shown = { kind: 'intro' | 'moved'; moved: number; placedCols: number; total: number; per: number; openCols: number }
 
+/** 顶上那一行至少这么宽才出这条（ⓘ + 6 个字左右 + …… + ×）；再窄字只剩一两个，不如不出 */
+const HINT_ROOM = 160
+
 export function TopHint(props: {
   path: string
   /** 摆出来的卡和列的位置编号（卡 u:编号、列 c:编号）：文件里真有的位置行 */
@@ -92,6 +95,23 @@ export function TopHint(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids])
 
+  /**
+   * 白板露出来的地方太窄（中栏 420、右边收件箱开着，顶上那条只剩 40 来宽）：整条不出，也不算说过（task-c22p9：以前只剩一颗 ⓘ、× 掉到外面）。
+   * 量的是顶上那一行（.db-top）的宽，不到 HINT_ROOM 不画
+   */
+  const [narrow, setNarrow] = useState(false)
+  // useEffect 不用 useLayoutEffect：白板那一块的 ref 在这一层的布局之后才挂上
+  useEffect(() => {
+    const row = props.area.current?.querySelector<HTMLElement>('.db-top')
+    if (!row) return
+    const check = () => setNarrow(row.clientWidth < HINT_ROOM)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(row)
+    return () => ro.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path])
+
   const movedOn = placedIds.some((id) => !hidden.has(id))
   const kind: Shown['kind'] | null = movedOn ? 'moved' : !seen ? 'intro' : null
 
@@ -106,7 +126,7 @@ export function TopHint(props: {
   }, [movedOn, seen])
   // 说明：在前台停 INTRO_MS 自己收起；白板上第一次操作就收起
   useEffect(() => {
-    if (kind !== 'intro' || !props.active || props.away) return
+    if (kind !== 'intro' || !props.active || props.away || narrow) return
     const t = onX ? undefined : setTimeout(markSeen, INTRO_MS)
     const el = props.area.current
     const op = () => markSeen()
@@ -120,7 +140,7 @@ export function TopHint(props: {
       el?.removeEventListener('keydown', op, true)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, props.active, props.away, path, onX])
+  }, [kind, props.active, props.away, path, onX, narrow])
 
   // 收起：留着最后的样子淡出，动画完了再拿掉
   const now: Shown | null = kind && { kind, moved: props.moved, placedCols: props.placedCols, total: props.total, per: props.per, openCols: props.openCols }
@@ -148,7 +168,7 @@ export function TopHint(props: {
   })
 
   const s = now ?? last.current
-  if (!s || props.away) return null
+  if (!s || props.away || narrow) return null
   const n = s.moved + s.placedCols
   return (
     <div

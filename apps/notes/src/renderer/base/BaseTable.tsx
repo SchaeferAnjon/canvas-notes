@@ -44,6 +44,9 @@ import { titleOf } from '../../shared/layout'
 import { app } from '../ctx/actions'
 import { RAW_HINT } from '../block-source'
 import { composing } from '../ime'
+import { anchorOf, FloatPop, type PopAnchor } from '../pop-place'
+import { showMenu } from '../ctx/menu'
+import { fadeEdges } from '../tex'
 
 /** 列的类型图标（照 Notion：选项是带下拉的圆圈、多选是列表，两个分得开） */
 const ICON: Record<ColType, CodiconName> = { text: 'symbol-string', select: 'arrow-circle-down', multi: 'list-unordered', number: 'symbol-numeric', date: 'calendar', check: 'check', url: 'link' }
@@ -100,16 +103,79 @@ interface Draft {
   value: string
 }
 
-/** 浮层的位置（position: fixed，窗口坐标）：文档短时编辑器的滚动区会把往下伸的浮层裁掉 */
-interface At {
-  left: number
-  top: number
-  right: number
-}
+/**
+ * 浮层贴着哪个按钮（窗口坐标）。浮层挂在 body 上、用 pop-place 放（task-c22p9）：画在表里时被中栏、右栏、白板的缩放截掉
+ */
+type At = PopAnchor
+const atOf = anchorOf
 
-const atOf = (el: HTMLElement): At => {
-  const r = el.getBoundingClientRect()
-  return { left: r.left, top: r.bottom + 4, right: window.innerWidth - r.right }
+/** 找不到按钮时（不该有）：放在窗口右上 */
+const NOWHERE: At = { left: 0, top: 120, bottom: 120, right: 0 }
+
+/** 块头放不下时从前往后收进「⋯」的几样：改写法、整页打开、「表格 · N 条」、排序、筛选、隐藏的列、排序和筛选小标签 */
+const FOLD_ORDER = ['raw', 'full', 'count', 'sort', 'filter', 'hidden', 'tags'] as const
+type FoldKey = (typeof FOLD_ORDER)[number]
+/** 量要多宽时名字最多算这么宽（再长的名字省略号，不为它收按钮） */
+const TITLE_ROOM = 96
+/** 「⋯」一颗 26 宽 */
+const MORE_W = 26
+
+/**
+ * 块头一行放不下时收哪几样：每样画出来时记下它的宽，按块头的宽从 FOLD_ORDER 前面收起，直到放得下。
+ * 块变宽、变窄（拖中栏、白板卡展开）都重算；收起来的那几样不在 DOM 里，用记下的宽
+ */
+function useFold(on: FoldKey[]) {
+  const [bar, ref] = useState<HTMLDivElement | null>(null)
+  const widths = useRef(new Map<FoldKey, number>())
+  const [folded, setFolded] = useState<FoldKey[]>([])
+  const measure = useRef(() => {})
+  measure.current = () => {
+    if (!bar || !bar.clientWidth) return
+    const cs = getComputedStyle(bar)
+    const gap = parseFloat(cs.columnGap) || 0
+    const room = bar.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+    let fixed = 0
+    let n = 0
+    // 用 getBoundingClientRect 量（头上的 database 图标是 svg，没有 offsetWidth），再除掉白板的缩放，和 clientWidth 同一个单位：
+    // 不然白板放大时收得太早、缩小时收得太晚；这样缩放变了也不用重算
+    const zoom = bar.getBoundingClientRect().width / bar.offsetWidth || 1
+    for (const el of bar.children as HTMLCollectionOf<HTMLElement>) {
+      const k = el.dataset.fold as FoldKey | undefined
+      const wide = el.getBoundingClientRect().width / zoom
+      if (k) {
+        widths.current.set(k, wide)
+        continue
+      }
+      if (el.classList.contains('sp') || el.dataset.more !== undefined) continue
+      const w = el.tagName === 'B' ? Math.min(el.scrollWidth, TITLE_ROOM) : wide
+      if (!w) continue
+      fixed += w
+      n++
+    }
+    // 白板上展开的表里「改写法」藏着（宽 0）：不算、也不进「⋯」
+    const items = FOLD_ORDER.filter((k) => on.includes(k) && (widths.current.get(k) ?? 0) > 0)
+    let need = fixed + gap * Math.max(0, n - 1) + items.reduce((sum, k) => sum + widths.current.get(k)! + gap, 0)
+    let f = 0
+    while (f < items.length && need + (f ? MORE_W + gap : 0) > room) {
+      need -= widths.current.get(items[f]!)! + gap
+      f++
+    }
+    const next = items.slice(0, f)
+    setFolded((cur) => (cur.join(',') === next.join(',') ? cur : next))
+  }
+  useLayoutEffect(() => measure.current())
+  useLayoutEffect(() => {
+    if (!bar) return
+    let w = bar.clientWidth
+    const ro = new ResizeObserver(() => {
+      if (bar.clientWidth === w) return
+      w = bar.clientWidth
+      measure.current()
+    })
+    ro.observe(bar)
+    return () => ro.disconnect()
+  }, [bar])
+  return { ref, folded }
 }
 
 const complete = (d: Draft, type: ColType) => !(BASE_OPS[type].find((o) => o.op === d.op)?.value ?? true) || d.value.trim() !== ''
@@ -239,10 +305,15 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
   const [room, setRoom] = useState<{ inline: number; full: number }>({ inline: 0, full: 0 })
   const roomRef = (key: 'inline' | 'full') => {
     let ro: ResizeObserver | null = null
+    let unfade: (() => void) | null = null
     return (el: HTMLDivElement | null) => {
       ro?.disconnect()
       ro = null
+      unfade?.()
+      unfade = null
       if (!el) return
+      // 表格横着滚时哪一边还有列哪一边渐隐（和公式同一套，task-c22p9）
+      unfade = fadeEdges(el)
       const read = () => setRoom((r) => (r[key] === el.clientWidth ? r : { ...r, [key]: el.clientWidth }))
       ro = new ResizeObserver(read)
       ro.observe(el)
@@ -302,11 +373,11 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
     if (!ds.length) ds.push({ prop: spec.columns.find((c) => c !== 'file.name') ?? allProps[0] ?? 'file.name', op: '==', value: '' })
     setDrafts(ds)
     const btn = (full ? fullRef : rootRef).current?.querySelector<HTMLElement>('.base-filter-wrap button') ?? null
-    setPop({ kind: 'filter', at: btn ? atOf(btn) : { left: 0, top: 120, right: 24 } })
+    setPop({ kind: 'filter', at: btn ? atOf(btn) : NOWHERE })
   }
   const openSort = () => {
     const btn = (full ? fullRef : rootRef).current?.querySelector<HTMLElement>('.base-sort-btn') ?? null
-    setPop({ kind: 'sort', at: btn ? atOf(btn) : { left: 0, top: 120, right: 24 } })
+    setPop({ kind: 'sort', at: btn ? atOf(btn) : NOWHERE })
   }
   const writeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   /** 草稿变了：填好的那几条写回代码块（打字时停手 300 毫秒再写） */
@@ -424,7 +495,7 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
     const s = spec.sort.find((x) => x.prop === c)
     const t = types[c] ?? 'text'
     return (
-      <div className="base-pop base-colmenu" style={{ top: at.top, left: at.left }} role="menu" aria-label={`${colName(c)} 这一列`}>
+      <FloatPop at={at} className="base-pop base-colmenu" role="menu" aria-label={`${colName(c)} 这一列`}>
         {c !== 'file.name' && <ColRename name={c} onDone={(v) => (setPop(null), void renameCol(c, v))} />}
         {c !== 'file.name' && (
           <div className="base-sub" role="group" aria-label="类型">
@@ -481,7 +552,7 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
             </button>
           </>
         )}
-      </div>
+      </FloatPop>
     )
   }
 
@@ -489,7 +560,7 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
     if (!pop) return null
     if (pop.kind === 'hidden')
       return (
-        <div className="base-pop base-colmenu" style={{ top: pop.at.top, right: pop.at.right, left: 'auto' }} role="menu" aria-label="隐藏的列">
+        <FloatPop at={pop.at} align="end" className="base-pop base-colmenu" role="menu" aria-label="隐藏的列">
           <div className="hd">勾上就显示</div>
           {hiddenCols.map((c) => (
             <button key={c} type="button" role="menuitemcheckbox" aria-checked={false} onClick={() => (setPop(null), showCol(c))}>
@@ -497,13 +568,13 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
               <span>{colName(c)}</span>
             </button>
           ))}
-        </div>
+        </FloatPop>
       )
     if (pop.kind === 'col') return colMenu(pop.col, pop.at)
     if (pop.kind === 'add') return <AddCol at={pop.at} name={freshName()} onAdd={(n, t) => addCol(n, t, pop.index)} />
     if (pop.kind === 'drop')
       return (
-        <div className="base-pop base-confirm" style={{ top: pop.at.top, left: pop.at.left }} role="dialog" aria-label="删掉这一列">
+        <FloatPop at={pop.at} className="base-pop base-confirm" role="dialog" aria-label="删掉这一列">
           <b>{`删掉「${colName(pop.col)}」这一列？`}</b>
           <p>{`每一条里的「${colName(pop.col)}」都会删掉，Git 里能找回。`}</p>
           <div className="row">
@@ -514,13 +585,13 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
               删除
             </button>
           </div>
-        </div>
+        </FloatPop>
       )
     if (pop.kind === 'sum') {
       const t = types[pop.col] ?? 'text'
       const cur = spec.summaries[pop.col]
       return (
-        <div className="base-pop base-colmenu" style={{ top: pop.at.top, left: pop.at.left }} role="menu" aria-label={`${colName(pop.col)} 算什么`}>
+        <FloatPop at={pop.at} className="base-pop base-colmenu" role="menu" aria-label={`${colName(pop.col)} 算什么`}>
           <button type="button" role="menuitemradio" aria-checked={!cur} onClick={() => setSummary(pop.col, null)}>
             <span>不算</span>
             {!cur && <Codicon name="check" size={14} />}
@@ -531,7 +602,7 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
               {cur === s.id && <Codicon name="check" size={14} />}
             </button>
           ))}
-        </div>
+        </FloatPop>
       )
     }
     if (pop.kind === 'options') {
@@ -792,7 +863,7 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
   const cur = spec.sort[0]
   const sortCols = ['file.name', ...new Set([...spec.columns, ...allProps])].filter((c, k, a) => a.indexOf(c) === k)
   const sortPanel = (
-    <div className="base-pop base-filter base-sort" role="dialog" aria-label="排序" style={pop?.kind === 'sort' ? { top: pop.at.top + 2, right: pop.at.right } : undefined}>
+    <FloatPop at={pop?.kind === 'sort' ? pop.at : NOWHERE} align="end" gap={6} className="base-pop base-filter base-sort" role="dialog" aria-label="排序">
       <div className="base-filter-hd">
         <Codicon name="arrow-swap" size={14} />
         <span>{cur ? '按这一列排' : '还没排序：选一列'}</span>
@@ -817,11 +888,11 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
           </button>
         )}
       </div>
-    </div>
+    </FloatPop>
   )
 
   const filterPanel = (
-    <div className="base-pop base-filter" role="dialog" aria-label="筛选" style={pop?.kind === 'filter' ? { top: pop.at.top + 2, right: pop.at.right } : undefined}>
+    <FloatPop at={pop?.kind === 'filter' ? pop.at : NOWHERE} align="end" gap={6} className="base-pop base-filter" role="dialog" aria-label="筛选">
       <div className="base-filter-hd">
         <Codicon name="filter" size={14} />
         <span>满足</span>
@@ -903,115 +974,174 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
         <Codicon name="check" size={12} />
         改完马上生效，不用点保存
       </div>
-    </div>
+    </FloatPop>
   )
 
-  const head = (inFull: boolean) => (
-    <div className="base-top">
-      <Codicon name="database" size={15} />
-      <b>{name}</b>
-      <span className="base-count">{`${spec.view} · ${data?.rows.length ?? 0} 条`}</span>
-      {spec.sort.map((s) => (
-        <button key={s.prop} type="button" className="base-chip" aria-label={`按「${colName(s.prop)}」${s.desc ? '降序' : '升序'}，点了改排序`} onClick={() => openSort()}>
-          <Codicon name={s.desc ? 'arrow-down' : 'arrow-up'} size={12} />
-          {colName(s.prop)}
-        </button>
-      ))}
-      {spec.conds.map((c, i) => (
-        <span key={i} className="base-tag" data-part="筛选小标签">
-          {/* 点条件的字：开筛选面板改它；点 ×：去掉这一条 */}
-          <button type="button" className="t" disabled={spec.filtersLocked} onClick={() => openFilter()}>
-            {(spec.match === 'or' && i > 0 ? '或' : '') + condLabel(c, types[c.prop] ?? 'text')}
+  /** 工具条上现在有的、能收进「⋯」的几样 */
+  const foldable: FoldKey[] = ['raw', 'full', 'count', 'sort', 'filter']
+  if (hiddenCols.length) foldable.push('hidden')
+  if (spec.sort.length || spec.conds.length) foldable.push('tags')
+  const foldIn = useFold(foldable)
+  const foldFull = useFold(foldable)
+  const condText = (c: BaseCond, i: number) => (spec.match === 'or' && i > 0 ? '或' : '') + condLabel(c, types[c.prop] ?? 'text')
+
+  /** 「⋯」：工具条上放不下、收起来的几样（系统菜单，不会被栏边截掉） */
+  const moreMenu = (inFull: boolean, folded: FoldKey[]) => {
+    const has = (k: FoldKey) => folded.includes(k)
+    const more = () => (inFull ? fullRef : rootRef).current?.querySelector<HTMLElement>('.base-more')
+    void showMenu([
+      has('count') && { label: `${spec.view} · ${data?.rows.length ?? 0} 条`, enabled: false, run: () => undefined },
+      '-',
+      has('filter') && { label: '筛选…', enabled: !spec.filtersLocked, run: () => openFilter() },
+      has('sort') && { label: '排序…', run: () => openSort() },
+      has('hidden') && { label: `隐藏的列（${hiddenCols.length}）…`, run: () => setPop({ kind: 'hidden', at: more() ? atOf(more()!) : NOWHERE }) },
+      '-',
+      ...(has('tags')
+        ? [
+            ...spec.sort.map((x) => ({ label: `按「${colName(x.prop)}」${x.desc ? '降序' : '升序'}`, run: () => openSort() })),
+            ...spec.conds.map((c, i) => ({ label: `去掉筛选「${condText(c, i)}」`, enabled: !spec.filtersLocked, run: () => removeCond(i) })),
+          ]
+        : []),
+      '-',
+      has('full') && (inFull ? { label: '收回文档里', run: () => setFull(false) } : { label: '整页打开', run: () => (setPop(null), setFull(true)) }),
+      has('raw') && !inFull && { label: '改写法', checked: raw, run: () => setRaw((x) => !x) },
+    ])
+  }
+
+  /**
+   * 块头一行（38 高，不折行）：database 图标、名字（放不下省略号，悬停看全名）、「表格 · N 条」、排序和筛选小标签 …… 隐藏的列、筛选、排序、整页打开、改写法、新一条。
+   * 窄的时候（中栏 420、书摘里嵌着）放不下的从「改写法」起依次收进「⋯」，「新一条」一直露着（task-c22p9：以前挤成一字一行）
+   */
+  const head = (inFull: boolean) => {
+    const fold = inFull ? foldFull : foldIn
+    const shown = (k: FoldKey) => !fold.folded.includes(k)
+    return (
+      <div className="base-top" ref={fold.ref}>
+        <Codicon name="database" size={15} />
+        <b data-tip={name}>{name}</b>
+        {shown('count') && (
+          <span className="base-count" data-fold="count">
+            {`${spec.view} · ${data?.rows.length ?? 0} 条`}
+          </span>
+        )}
+        {shown('tags') && (spec.sort.length > 0 || spec.conds.length > 0) && (
+          <span className="base-tags" data-fold="tags">
+            {spec.sort.map((s) => (
+              <button key={s.prop} type="button" className="base-chip" aria-label={`按「${colName(s.prop)}」${s.desc ? '降序' : '升序'}，点了改排序`} onClick={() => openSort()}>
+                <Codicon name={s.desc ? 'arrow-down' : 'arrow-up'} size={12} />
+                {colName(s.prop)}
+              </button>
+            ))}
+            {spec.conds.map((c, i) => (
+              <span key={i} className="base-tag" data-part="筛选小标签">
+                {/* 点条件的字：开筛选面板改它；点 ×：去掉这一条 */}
+                <button type="button" className="t" disabled={spec.filtersLocked} onClick={() => openFilter()}>
+                  {condText(c, i)}
+                </button>
+                {!spec.filtersLocked && (
+                  <button type="button" aria-label={`去掉「${condLabel(c, types[c.prop] ?? 'text')}」`} onClick={() => removeCond(i)}>
+                    <Codicon name="close" size={12} />
+                  </button>
+                )}
+              </span>
+            ))}
+          </span>
+        )}
+        <span className="sp" />
+        {/* 隐藏的列：块头一颗纯字按钮（表头最右只留一个 32 宽的「+」） */}
+        {hiddenCols.length > 0 && shown('hidden') && (
+          <button
+            type="button"
+            className="base-btn wt"
+            data-fold="hidden"
+            aria-label={`隐藏了 ${hiddenCols.length} 列`}
+            data-tip="隐藏的列"
+            aria-expanded={pop?.kind === 'hidden'}
+            onClick={(e) => setPop(pop?.kind === 'hidden' ? null : { kind: 'hidden', at: atOf(e.currentTarget) })}
+          >
+            <Codicon name="eye-closed" size={14} />
+            <span>{hiddenCols.length}</span>
           </button>
-          {!spec.filtersLocked && (
-            <button type="button" aria-label={`去掉「${condLabel(c, types[c.prop] ?? 'text')}」`} onClick={() => removeCond(i)}>
-              <Codicon name="close" size={12} />
+        )}
+        {shown('filter') && (
+          <span className="base-filter-wrap" data-fold="filter">
+            {/* 「筛选」「排序」是纯字按钮（12 --t2，不加底色）：开着的条件、排序已经写在左边的小标签上，这里不再重复 */}
+            <button
+              type="button"
+              className="base-btn wt"
+              aria-label="筛选"
+              aria-expanded={pop?.kind === 'filter'}
+              data-tip={spec.filtersLocked ? '这个数据库的筛选是嵌套的组合条件：点「改写法」直接改' : undefined}
+              disabled={spec.filtersLocked}
+              onClick={() => (pop?.kind === 'filter' ? setPop(null) : openFilter())}
+            >
+              <Codicon name="filter" size={14} />
+              <span>筛选</span>
             </button>
-          )}
-        </span>
-      ))}
-      <span className="sp" />
-      {/* 隐藏的列：块头一颗纯字按钮（表头最右只留一个 32 宽的「+」） */}
-      {hiddenCols.length > 0 && (
-        <button
-          type="button"
-          className="base-btn wt"
-          aria-label={`隐藏了 ${hiddenCols.length} 列`}
-          data-tip="隐藏的列"
-          aria-expanded={pop?.kind === 'hidden'}
-          onClick={(e) => setPop(pop?.kind === 'hidden' ? null : { kind: 'hidden', at: atOf(e.currentTarget) })}
-        >
-          <Codicon name="eye-closed" size={14} />
-          <span>{hiddenCols.length}</span>
-        </button>
-      )}
-      <span className="base-filter-wrap">
-        {/* 「筛选」「排序」是纯字按钮（12 --t2，不加底色）：开着的条件、排序已经写在左边的小标签上，这里不再重复 */}
-        <button
-          type="button"
-          className="base-btn wt"
-          aria-label="筛选"
-          aria-expanded={pop?.kind === 'filter'}
-          data-tip={spec.filtersLocked ? '这个数据库的筛选是嵌套的组合条件：点「改写法」直接改' : undefined}
-          disabled={spec.filtersLocked}
-          onClick={() => (pop?.kind === 'filter' ? setPop(null) : openFilter())}
-        >
-          <Codicon name="filter" size={14} />
-          <span>筛选</span>
-        </button>
+          </span>
+        )}
+        {shown('sort') && (
+          <span className="base-filter-wrap" data-fold="sort">
+            <button type="button" className="base-btn wt base-sort-btn" aria-label="排序" aria-expanded={pop?.kind === 'sort'} onClick={() => (pop?.kind === 'sort' ? setPop(null) : openSort())}>
+              <Codicon name="arrow-swap" size={14} />
+              <span>排序</span>
+            </button>
+          </span>
+        )}
+        {/* 筛选、排序面板挂在 body 上，贴着按钮放（按钮收进「⋯」时贴着「⋯」） */}
         {pop?.kind === 'filter' && !inFull === !full && filterPanel}
-      </span>
-      <span className="base-filter-wrap">
-        <button type="button" className="base-btn wt base-sort-btn" aria-label="排序" aria-expanded={pop?.kind === 'sort'} onClick={() => (pop?.kind === 'sort' ? setPop(null) : openSort())}>
-          <Codicon name="arrow-swap" size={14} />
-          <span>排序</span>
-        </button>
         {pop?.kind === 'sort' && !inFull === !full && sortPanel}
-      </span>
-      {inFull ? (
-        <button type="button" className="base-btn" aria-label="收回文档里" data-tip="收回文档里 · esc" onClick={() => setFull(false)}>
-          <Codicon name="screen-normal" size={14} />
-        </button>
-      ) : (
-        <button type="button" className="base-btn" aria-label="整页打开" data-tip="整页打开" onClick={() => (setPop(null), setFull(true))}>
-          <Codicon name="screen-full" size={14} />
-        </button>
-      )}
-      {!inFull && (
-        <button type="button" className={'base-raw' + (raw ? ' on' : '')} aria-pressed={raw} onClick={() => setRaw((x) => !x)}>
-          <Codicon name="code" size={13} />
-          改写法
-        </button>
-      )}
-      {/* 改写法开着时只留「完成」一颗实心按钮：「新一条」先收起来 */}
-      {!(raw && !inFull) && (
-        <button
-          type="button"
-          className="base-new"
-          // 手快双击（第 4 轮：多出一条空的「未命名」，名字只给了第二条）：第二下不建、也不抢走起名框的焦点
-          onMouseDown={(e) => e.detail > 1 && e.preventDefault()}
-          onClick={(e) => e.detail <= 1 && void add()}
-          disabled={!spec.folder}
-        >
-          <Codicon name="add" size={12} />
-          新一条
-        </button>
-      )}
-      {!inFull && props.extra}
-    </div>
-  )
+        {shown('full') &&
+          (inFull ? (
+            <button type="button" className="base-btn" data-fold="full" aria-label="收回文档里" data-tip="收回文档里 · esc" onClick={() => setFull(false)}>
+              <Codicon name="screen-normal" size={14} />
+            </button>
+          ) : (
+            <button type="button" className="base-btn" data-fold="full" aria-label="整页打开" data-tip="整页打开" onClick={() => (setPop(null), setFull(true))}>
+              <Codicon name="screen-full" size={14} />
+            </button>
+          ))}
+        {!inFull && shown('raw') && (
+          <button type="button" className={'base-raw' + (raw ? ' on' : '')} data-fold="raw" aria-pressed={raw} onClick={() => setRaw((x) => !x)}>
+            <Codicon name="code" size={13} />
+            改写法
+          </button>
+        )}
+        {fold.folded.length > 0 && (
+          <button
+            type="button"
+            // 排序、筛选的小标签收在里面：右上角一个强调色点，条上看得出这张表开着筛选或排序
+            className={'base-btn base-more' + (fold.folded.includes('tags') && (spec.sort.length > 0 || spec.conds.length > 0) ? ' dot' : '')}
+            data-more=""
+            aria-label="工具条上放不下的"
+            data-tip={fold.folded.includes('tags') && (spec.sort.length > 0 || spec.conds.length > 0) ? '更多 · 开着排序或筛选' : '更多'}
+            onClick={() => moreMenu(inFull, fold.folded)}
+          >
+            <Codicon name="ellipsis" size={14} />
+          </button>
+        )}
+        {/* 改写法开着时只留「完成」一颗实心按钮：「新一条」先收起来 */}
+        {!(raw && !inFull) && (
+          <button
+            type="button"
+            className="base-new"
+            // 手快双击（第 4 轮：多出一条空的「未命名」，名字只给了第二条）：第二下不建、也不抢走起名框的焦点
+            onMouseDown={(e) => e.detail > 1 && e.preventDefault()}
+            onClick={(e) => e.detail <= 1 && void add()}
+            disabled={!spec.folder}
+          >
+            <Codicon name="add" size={12} />
+            新一条
+          </button>
+        )}
+        {!inFull && props.extra}
+      </div>
+    )
+  }
 
   // 点浮层外面收起
   const rootRef = useRef<HTMLDivElement>(null)
   const fullRef = useRef<HTMLDivElement>(null)
-  // 浮层下面放不下（贴着窗口底的列、菜单里的「右边插入一列」）：往上挪到窗口里
-  useLayoutEffect(() => {
-    for (const root of [rootRef.current, fullRef.current])
-      for (const el of root?.querySelectorAll<HTMLElement>('.base-pop') ?? []) {
-        const r = el.getBoundingClientRect()
-        if (r.bottom > window.innerHeight - 44) el.style.top = Math.max(8, window.innerHeight - 44 - r.height) + 'px'
-      }
-  })
   useEffect(() => {
     if (!pop) return
     const down = (e: MouseEvent) => {
@@ -1076,7 +1206,7 @@ function AddCol(props: { at: At; name: string; onAdd(name: string, type: ColType
   const ref = useRef<HTMLInputElement>(null)
   useEffect(() => ref.current?.select(), [])
   return (
-    <div className="base-pop base-colmenu base-addcol" style={{ top: props.at.top, left: Math.min(props.at.left, window.innerWidth - 232) }} role="dialog" aria-label="加一列">
+    <FloatPop at={props.at} className="base-pop base-colmenu base-addcol" role="dialog" aria-label="加一列">
       <input
         ref={ref}
         className="base-colname"
@@ -1105,7 +1235,7 @@ function AddCol(props: { at: At; name: string; onAdd(name: string, type: ColType
           {`加「${TYPE_NAME[type]}」列`}
         </button>
       </div>
-    </div>
+    </FloatPop>
   )
 }
 
@@ -1122,7 +1252,7 @@ function Options(props: { at: At; multi: boolean; label: string; values: string[
     props.onChange(next, false)
   }
   return (
-    <div className="base-pop base-options" style={{ top: props.at.top, left: props.at.left }} role="dialog" aria-label={props.label}>
+    <FloatPop at={props.at} className="base-pop base-options" role="dialog" aria-label={props.label}>
       <div className="base-picked">
         {picked.map((v) => (
           <span key={v} className={'base-sel ' + toneOf(v)}>
@@ -1161,7 +1291,7 @@ function Options(props: { at: At; multi: boolean; label: string; values: string[
           <span className={'base-sel ' + toneOf(fresh)}>{fresh}</span>
         </button>
       )}
-    </div>
+    </FloatPop>
   )
 }
 

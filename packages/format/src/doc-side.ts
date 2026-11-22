@@ -224,3 +224,109 @@ export function aiBodyOf(text: string, block: DocAiBlock): string {
     .join('\n')
     .trim()
 }
+
+/**
+ * 白板卡、问框里看到的是排好的字（task-p90ra）：选中的那句没有 md 记号，存进文件的那一句要照原文（找的时候照原文比）。
+ * visible：一行 md 画出来看得到的字（行首的标题、列表记号，行内的 * _ ` ~、链接和双链的写法、图片、HTML 标签都不算），每个字在这一行的第几个
+ */
+function visible(s: string, lineStart: boolean): { ch: string; at: number }[] {
+  const out: { ch: string; at: number }[] = []
+  const word = /[\p{L}\p{N}]/u
+  let i = 0
+  if (lineStart) {
+    const m = /^\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/.exec(s)
+    if (m) i = m[0].length
+  }
+  while (i < s.length) {
+    const c = s[i]!
+    const rest = s.slice(i)
+    if (c === '\\' && i + 1 < s.length) {
+      out.push({ ch: s[i + 1]!, at: i + 1 })
+      i += 2
+      continue
+    }
+    const img = /^!\[[^\]]*\]\([^)]*\)/.exec(rest)
+    if (img) {
+      i += img[0].length
+      continue
+    }
+    const wiki = /^\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/.exec(rest)
+    if (wiki) {
+      const shown = wiki[2] !== undefined ? i + 2 + wiki[1]!.length + 1 : i + 2
+      const len = (wiki[2] ?? wiki[1]!).length
+      for (let k = 0; k < len; k++) out.push({ ch: s[shown + k]!, at: shown + k })
+      i += wiki[0].length
+      continue
+    }
+    const link = /^\[([^\]]*)\]\([^)]*\)/.exec(rest)
+    if (link) {
+      for (const v of visible(link[1]!, false)) out.push({ ch: v.ch, at: i + 1 + v.at })
+      i += link[0].length
+      continue
+    }
+    const tag = /^<\/?[A-Za-z][^>]*>/.exec(rest)
+    if (tag) {
+      i += tag[0].length
+      continue
+    }
+    if (c === '*' || c === '`' || c === '~') {
+      i++
+      continue
+    }
+    if (c === '_' && !(word.test(s[i - 1] ?? '') && word.test(s[i + 1] ?? ''))) {
+      i++
+      continue
+    }
+    out.push({ ch: c, at: i })
+    i++
+  }
+  return out
+}
+
+/** 一句 md 原文画出来是什么字（空白并成一个）：白板卡、问框里划那一句时按它找 */
+export function mdPlain(raw: string): string {
+  return foldQuote(
+    raw
+      .split('\n')
+      .map((l) => visible(l, true)
+        .map((v) => v.ch)
+        .join(''))
+      .join('\n'),
+  )
+}
+
+/**
+ * 排好的字里选中的一句（plain，空白并成一个）在这块讲解正文里的原文（带记号，去掉行首的「> 」）；找不到是 null。
+ * 存进 `> > 那一句` 的是它，文档里、白板上、问框里都按它找得回来
+ */
+export function rawQuoteOf(text: string, block: DocAiBlock, plain: string): string | null {
+  const want = foldQuote(plain.replace(/​/g, ''))
+  if (!want) return null
+  const lines = text.split('\n')
+  const starts = lineStarts(lines)
+  let folded = ''
+  const at: number[] = []
+  let space = false
+  const put = (ch: string, pos: number) => {
+    if (/\s/.test(ch)) {
+      if (!space && folded.length) {
+        folded += ' '
+        at.push(pos)
+      }
+      space = true
+      return
+    }
+    space = false
+    folded += ch
+    at.push(pos)
+  }
+  for (let n = block.head + 1; n <= block.end; n++) {
+    const l = lines[n]!
+    const cut = l.length - unquote(l).length
+    for (const v of visible(l.slice(cut), true)) put(v.ch, starts[n]! + cut + v.at)
+    put('\n', starts[n]! + l.length)
+  }
+  const i = folded.indexOf(want)
+  if (i < 0) return null
+  return quoteOfRange(text, at[i]!, at[i + want.length - 1]! + 1)
+}

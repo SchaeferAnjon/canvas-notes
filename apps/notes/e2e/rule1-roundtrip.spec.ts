@@ -33,7 +33,8 @@ test('打开再保存文件不变：每个样本打开、⌘S、打一个字再�
     }
     // 关掉所有标签（关的时候会再保存一次），之后仍然一个字节都不变；关完回到首页（只剩首页时不再关）
     const tabs = page.getByTestId('tab-list').locator('.tab')
-    while (!((await tabs.count()) === 1 && (await page.getByTestId('tab-on').textContent()) === '首页')) await page.locator('.tab.on .x').click()
+    // 只点中间的标签（配好对的样本开着时右栏网页也开着，它的当前网页标签也是 .tab.on）
+    while (!((await tabs.count()) === 1 && (await page.getByTestId('tab-on').textContent()) === '首页')) await tabs.locator('.x').and(page.locator('.tab.on .x')).click()
     await page.waitForTimeout(1200)
     expect(gitStatus(vault)).toBe('')
   } finally {

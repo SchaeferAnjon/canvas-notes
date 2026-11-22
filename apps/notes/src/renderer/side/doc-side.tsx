@@ -1,14 +1,14 @@
 /**
  * 文档里 AI 写的那一块（`> [!ai]` 提示块：视频框一块问的讲解、AI 回答插进文档的、AI 命令写的）上开旁支
  * （task-4edsc，用户选的方向 A「就地展开」，原型 proto.html#dir=a 的「文档里的 AI 讲解」）：
- * - 讲解里拖选一句：选区下方同一个小框（AskBoxView）「引用进输入框 ⇧⌘L · 问这句 ↵」；自己写的字不出（照旧右键、⌘J 问 AI）；
+ * - 讲解里拖选一句：离选中高亮的下沿 8 同一个小框（AskBoxView）「引用进输入框 ⇧⌘L · 问这句 ↵」；自己写的字不出（照旧右键、⌘J 问 AI）；
  * - 「问这句」：那句所在的那一段下面长出旁支（块部件，createRoot 画 SideInline），右栏 AI 的输入框不缩（旁支在中间）；
  * - 问答写进这篇：挂在这块讲解下面 `> [!side] 问题` + `> > 那一句` + 回答（@cn/format 的 doc-side.ts，和读 PDF 笔记一个写法），
  *   答好了一次写进去（不进撤销，软件写的）；文档里那几行藏起来，只在那句后面露小标（一句一个，数字是这一句几条），点小标开 / 收；
  * - 讲解块没有会话可分叉：第一问开新会话、那段讲解放在前面（ai:side 带 fresh），接着问接着旁支自己的会话（主进程记在这篇的对话文件里）。
  * 只加装饰、藏起来的行原样留着，打开再保存文件不变。
  */
-import { aiBodyAt, aiBodyOf, type DocAiBlock, docAiBlocks, foldQuote, locateQuote, quoteOfRange, sideInsert, sideRemove } from '@cn/format'
+import { aiBodyAt, type DocAiBlock, docAiBlocks, isSummaryHead, locateQuote, quoteOfRange, sideInsert, sideRemove } from '@cn/format'
 import { EditorState, Prec, type Range, StateEffect, StateField, Transaction } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap, type PluginValue, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { type ReactNode, useEffect, useState } from 'react'
@@ -18,15 +18,15 @@ import type { AiPick } from '../../shared/ai-features'
 import { convPick, hasEffort } from '../../shared/ai-features'
 import { titleOf } from '../../shared/layout'
 import type { Material } from '../../shared/materials'
-import { imageNames } from '../../shared/materials'
 import { useConvPick } from '../composer'
 import { app } from '../ctx/actions'
 import { editorHost } from '../editor-host'
 import { calloutFolded } from '../fold-block'
 import { type Hidden, hiddenOk, hiddenSyntax } from '../hidden-syntax'
 import { badgeEl, closeRun, flashMark, groupMark } from '../reading/marks'
-import { AskBoxView } from './AskBox'
+import { AskBoxView, highlightBottom } from './AskBox'
 import { ASK_THIS, sideAsks, sideName } from './name'
+import { askSide, blockAgain, nameOf, setName, type SideTarget, sideIndex, writeOnDisk } from './side-core'
 import { SideInline, type SideMsgView } from './SideInline'
 
 /** 开着的那一条：哪一块讲解（头一行行首，跟着改动挪）、第几条（等于已有的条数是刚开、还没写进去的那条）、那一句 */
@@ -48,7 +48,7 @@ interface Pend {
   running: boolean
   error?: string
   /** 接着问的是哪一条（那一句 + 它的第一问，写的时候按它找，不按第几条）；新开的一条是 null */
-  target: { quote: string; first: string } | null
+  target: SideTarget
 }
 
 interface State {
@@ -306,21 +306,6 @@ function msgsOf(b: DocAiBlock | undefined, side: number, pend: Pend[], head: num
   return out
 }
 
-// ---------------------------------------------------------------- 改过的名字：记在这台 Mac 上（同读 PDF 的旁支，名字记在对话记录里、不写进笔记）
-
-const NAMES = 'cn.docSideNames'
-/** 认一条旁支：这篇、那一句、第一问（文件里写着的就这三样） */
-const nameKey = (path: string, quote: string, first: string) => `${path}\n${foldQuote(quote)}\n${first.trim()}`
-const readNames = (): Record<string, string> => JSON.parse(localStorage.getItem(NAMES) ?? '{}') as Record<string, string>
-const nameOf = (path: string, quote: string, first: string | undefined) => (first ? readNames()[nameKey(path, quote, first)] : undefined)
-function setName(path: string, quote: string, first: string, name: string) {
-  const all = readNames()
-  const k = nameKey(path, quote, first)
-  if (name.trim()) all[k] = name.trim()
-  else delete all[k]
-  localStorage.setItem(NAMES, JSON.stringify(all))
-}
-
 function DocSide({ view }: { view: EditorView }): ReactNode {
   const st = view.state.field(field)
   const open = st.open
@@ -361,7 +346,7 @@ function DocSide({ view }: { view: EditorView }): ReactNode {
       side={{ id: current, quote: open.quote, name: nameAt(open.side), msgs }}
       group={(g?.idx ?? [open.side]).map((i) => ({ id: `${open.head}:${i}`, name: nameAt(i) }))}
       running={running}
-      record={{ icon: 'file', text: '写在这篇文档里，挂在这段讲解下面' }}
+      record={{ icon: 'file', text: `写在这篇文档里，挂在这段${isSummaryHead(view.state.doc.line(b.head + 1).text) ? '总结' : '讲解'}下面` }}
       picks={cp.picks}
       onSend={(text, mats) => void send(view, open, text, mats, { engine: cp.pick.engine, req: cp.req })}
       onStop={() => {
@@ -418,13 +403,6 @@ const asking = new Map<number, EditorView>()
 let listening = false
 let askSeq = Date.now() * 10
 
-/** 一个字符串的短指纹（旁支编号：这篇、那一句、第一问定下来，主进程按它记旁支自己的会话） */
-function hash(s: string): string {
-  let h = 5381
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0
-  return (h >>> 0).toString(36)
-}
-
 async function send(view: EditorView, open: Open, text: string, mats: Material[], how: { engine: AiPick['engine']; req: { model?: string; effort?: string } }) {
   const st = view.state.field(field)
   const b = st.blocks.find((x) => lineFrom(view.state, x.head) === open.head)
@@ -449,35 +427,26 @@ async function send(view: EditorView, open: Open, text: string, mats: Material[]
   const text0 = view.state.doc.toString()
   const lines = text0.split('\n')
   const above = lines.slice(Math.max(0, b.head - 6), b.head).find((l) => /\*\*我的疑惑\*\*：/.test(l))
-  const history = [
-    `【那段讲解】（文档《${title}》里 AI 写的）${above ? `\n他当时问的：${above.replace(/^\s*>\s*\*\*我的疑惑\*\*：/, '')}` : ''}\n${aiBodyOf(text0, b)}`,
-    ...(done.length ? [`【这条旁支问过的】\n${done.map((t) => `他问：${t.q}\n你答：${t.a.slice(0, 2000)}`).join('\n')}`] : []),
-  ].join('\n\n')
-  const sid = 'd-' + hash(`${path}\n${open.quote}\n${done[0]?.q ?? q}`)
-  const pasted = imageNames(mats)
-  let res: { text: string; error?: string } = { text: '' }
-  try {
-    res = await window.cn.aiSide({
-      id,
-      engine: how.engine,
-      place: { key: `file:${path}`, label: title },
-      text: q,
-      side: { id: sid, quote: open.quote, history, fresh: true, where: `文档《${title}》里 AI 写的讲解` },
-      context: { tab: { type: 'note', title, path, mode: 'doc' }, web: { open: false, url: null } },
-      ...how.req,
-      ...(pasted.length ? { pasted } : {}),
-      ...(mats.length ? { mats } : {}),
-    })
-  } catch (e) {
-    res = { text: '', error: String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }
-  } finally {
-    asking.delete(id)
-  }
+  const res = await askSide({
+    id,
+    path,
+    title,
+    text: text0,
+    block: b,
+    quote: open.quote,
+    q,
+    done,
+    ...(above ? { lead: `他当时问的：${above.replace(/^\s*>\s*\*\*我的疑惑\*\*：/, '')}` } : {}),
+    where: `文档《${title}》里 AI 写的${isSummaryHead(lines[b.head] ?? '') ? '总结' : '讲解'}`,
+    mats,
+    how,
+  })
+  asking.delete(id)
   const pend = view.state.field(field, false)?.pend.find((p) => p.id === id)
   const answer = (res.text || pend?.a || '').trim()
   // 标签关了（编辑器没了）：直接写进文件（这一问不丢）
   if (!view.dom.isConnected) {
-    if (!res.error && answer) await writeOnDisk(path, view.state.doc.toString(), b.head, { q, a: answer }, open.quote, target)
+    if (!res.error && answer) await writeOnDisk(path, view.state.doc.toString(), (t) => blockAgain(t, b.head, open.quote), { q, a: answer }, open.quote, target)
     return
   }
   if (res.error || !answer) {
@@ -500,27 +469,6 @@ async function send(view: EditorView, open: Open, text: string, mats: Material[]
     annotations: [hiddenOk.of(true), Transaction.addToHistory.of(false)],
     userEvent: 'input.side',
   })
-}
-
-/** 写到第几条：接着问的按那一句和第一问找回那一条（找不到就当新开一条），新开的写在最后面 */
-function sideIndex(blk: DocAiBlock, target: Pend['target']): number {
-  const i = target ? blk.sides.findIndex((x) => x.quote === target.quote && x.turns[0]?.q === target.first) : -1
-  return i >= 0 ? i : blk.sides.length
-}
-
-/**
- * 编辑器已经关了：照文件现在的样子写进去（先比后写，和编辑器存盘同一个接口）。
- * 文件被别处改过时按那一句找回同一块讲解再写；找不到就算了（回答在 AI 的会话里还在）
- */
-async function writeOnDisk(path: string, was: string, headLine: number, turn: { q: string; a: string }, quote: string, target: Pend['target']) {
-  for (const base of [was, (await window.cn.readNote(path)).text]) {
-    const blocks = docAiBlocks(base)
-    const blk = blocks.find((x) => x.head === headLine && locateQuote(base, x, quote)) ?? blocks.find((x) => locateQuote(base, x, quote))
-    if (!blk) return
-    const ins = sideInsert(base, blk, sideIndex(blk, target), turn, quote)
-    const r = await window.cn.writeNote(path, base.slice(0, ins.at) + ins.insert + base.slice(ins.at), base)
-    if (r.ok) return
-  }
 }
 
 // ---------------------------------------------------------------- 选一句：小框
@@ -554,10 +502,12 @@ class AskPlugin implements PluginValue {
       const quote = quoteOfRange(text, sel.from, sel.to)
       if (quote.length < 2) return
       const b = st.blocks[a.block]!
-      const r = window.getSelection()?.rangeCount ? window.getSelection()!.getRangeAt(0).getBoundingClientRect() : null
+      const range = window.getSelection()?.rangeCount ? window.getSelection()!.getRangeAt(0) : null
+      const r = range?.getBoundingClientRect() ?? null
       const end = v.coordsAtPos(sel.to)
       const start = v.coordsAtPos(sel.from)
-      const rect = r && r.width ? r : start && end ? { left: Math.min(start.left, end.left), width: Math.abs(end.right - start.left), bottom: end.bottom } : null
+      // 小框离选中高亮的下沿 8（task-5yp97）：文档里的高亮铺满整行行高，比字的下沿低半个行距
+      const rect = range && r && r.width ? { left: r.left, width: r.width, bottom: highlightBottom(range) } : start && end ? { left: Math.min(start.left, end.left), width: Math.abs(end.right - start.left), bottom: end.bottom } : null
       if (!rect) return
       this.box = { cx: rect.left + rect.width / 2, bottom: rect.bottom, quote, head: lineFrom(v.state, b.head) }
       this.draw()

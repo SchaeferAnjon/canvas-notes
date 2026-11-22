@@ -5,7 +5,7 @@
  * - 界面交来要哪几项（shared/ctx-menu.ts 的 CtxItem），点了哪项回给界面；编辑项、拼写建议在这里直接对网页做。
  * - 界面没接管的右键（输入框、选了字）这里兜底给标准编辑菜单；右栏网页里的右键转给界面，由界面拼菜单。
  */
-import { moveMany } from './folder-ops'
+import { hungFolders, moveMany } from './folder-ops'
 import { BrowserWindow, clipboard, ipcMain, Menu, type MenuItemConstructorOptions, nativeImage, shell, webContents as allWebContents, type WebContents } from 'electron'
 import { EDIT_ACCEL, EDIT_LABEL, type CtxIcon, type CtxItem, type CtxParams, fallbackItems, tidy, validItems } from '../shared/ctx-menu'
 import { pinNote, repin } from './pins'
@@ -114,6 +114,15 @@ function targetOf(sender: WebContents, id: unknown): WebContents {
   return wc && !wc.isDestroyed() && wc.hostWebContents?.id === sender.id ? wc : sender
 }
 
+/**
+ * 软件自己挪了一篇（或挪、改名的文件夹里的一篇）：开着它的编辑器马上跟到新路径（own，不说「在外面挪了」），不等这一步做完、标签重画。
+ * 挪的同时改了它的字（数据库块里的路径、相对链接）时，紧接着到的新内容才认得出是它、合进编辑器；
+ * 等界面拿到结果再换路径的话，新内容先到、对不上路径被丢掉，开着的表一直是旧路径、0 条（task-5yp97）
+ */
+export const followOpen = (wc: WebContents) => (from: string, to: string) => {
+  if (/\.md$/i.test(from) && !wc.isDestroyed()) wc.send('note:renamed', from, to, true)
+}
+
 export function setupCtxMenu(needVault: () => Vault, onMoved: () => void) {
   ipcMain.handle('ctx:menu', (e, items: unknown, target: unknown) => {
     if (!validItems(items)) throw new Error('菜单参数不对')
@@ -148,20 +157,30 @@ export function setupCtxMenu(needVault: () => Vault, onMoved: () => void) {
     await pinNote(v, path, on)
   })
   // 文件树里选了好几个一起挪（CN-105）：一次提交，链接跟着改
-  ipcMain.handle('ctx:move-many', async (_e, paths: unknown, folder: unknown) => {
+  ipcMain.handle('ctx:move-many', async (e, paths: unknown, folder: unknown) => {
     try {
-      return await moveMany(needVault(), paths, folder)
+      return await moveMany(needVault(), paths, folder, followOpen(e.sender))
     } finally {
       onMoved()
     }
   })
-  ipcMain.handle('ctx:move', async (_e, path: unknown, folder: unknown) => {
+  // 挪一篇（拖、右键「移到」、标题旁的文件夹）。它下面挂着数据库的记录文件夹时（task-5yp97）：一起挪、链接和数据库块里的路径改好，一次提交；
+  // with 是跟着挪的那几个
+  ipcMain.handle('ctx:move', async (e, path: unknown, folder: unknown) => {
     if (typeof path !== 'string' || typeof folder !== 'string' || !/\.md$/i.test(path)) throw new Error('参数不对')
     const v = needVault()
     if (folder !== '') v.abs(folder)
-    const to = await v.move(path, folder)
-    await repin(v, path, to)
-    onMoved()
-    return to
+    try {
+      if ((await hungFolders(v, path)).length) {
+        const r = await moveMany(v, [path], folder, followOpen(e.sender))
+        return { to: r.moves.find((m) => m.from === path)?.to ?? path, with: r.moves.filter((m) => m.with).map((m) => ({ from: m.from, to: m.to })) }
+      }
+      const to = await v.move(path, folder)
+      followOpen(e.sender)(path, to)
+      await repin(v, path, to)
+      return { to, with: [] }
+    } finally {
+      onMoved()
+    }
   })
 }

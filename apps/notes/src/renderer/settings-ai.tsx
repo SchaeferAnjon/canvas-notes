@@ -46,6 +46,48 @@ function nextPick(cur: AiPick | null, engines: EngineInfo[], ch: { family?: stri
   return ch.effort ? { ...rest, effort: ch.effort } : rest
 }
 
+/** 别的设置页里的一行「用哪家 AI」（设置 › 读PDF「改写成卡用哪家AI」，task-tz7y3）：和这一页各功能那一列同一个选择器，跟默认或指定，改了提示条能撤回 */
+export function AiFeaturePick(props: { feature: AiFeature; name: string; onNotice(t: string): void }) {
+  const said = useSaid()
+  const [v, setV] = useState<AiPrefsView | null>(null)
+  useEffect(() => {
+    const load = () => void window.cn.aiPrefs().then(setV, (e) => props.onNotice(errText(e)))
+    load()
+    return window.cn.onAiPrefsChanged(load)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  if (!v) return null
+  const { prefs, engines } = v
+  const labelOf = (p: AiPick) => pickLabel(p, engines.find((e) => e.id === p.engine)?.models ?? [])
+  const own = prefs.features[props.feature] ?? null
+  const set = (p: AiPick | null) => {
+    const before = prefs
+    const features = { ...prefs.features }
+    if (p) features[props.feature] = p
+    else delete features[props.feature]
+    void window.cn.aiSetPrefs({ ...prefs, features }).then(
+      (nv) => (setV(nv), said.saved(hintFor(props.name, p ? labelOf(p) : '跟默认'), () => void window.cn.aiSetPrefs(before).then(setV))),
+      (e) => props.onNotice(errText(e)),
+    )
+  }
+  return (
+    <AiPicker
+      look="box"
+      ids={{ family: `ai-pick-${props.feature}`, model: `ai-pick-${props.feature}-model`, effort: `ai-pick-${props.feature}-effort` }}
+      familyMenu={`${props.name}用哪一家`}
+      familyHead={`${props.name}用哪一家`}
+      label={props.name}
+      families={engines.map(engineFamily)}
+      lead={{ label: '跟默认', sub: labelOf(prefs.default), logo: prefs.default.engine }}
+      value={valueOf(own)}
+      unsetEffort={{ label: '默认档', note: '不指定，用它自己的' }}
+      onFamily={(id) => set(id === null ? null : nextPick(own, engines, { family: id }))}
+      onModel={(m) => set(nextPick(own, engines, { model: m }))}
+      onEffort={(e) => set(nextPick(own, engines, { effort: e }))}
+    />
+  )
+}
+
 export function AiSettingsPage(props: SettingsProps) {
   const said = useSaid()
   const [v, setV] = useState<AiPrefsView | null>(null)

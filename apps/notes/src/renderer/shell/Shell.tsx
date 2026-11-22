@@ -14,6 +14,8 @@ export interface BarItem {
   id: string
   /** 悬停提示和读屏的名字 */
   label: string
+  /** 悬停提示要多说一句时（书桌：存好的一整套…）；不给就是 label */
+  tip?: string
   key?: string
   icon: CodiconName
   on?: boolean
@@ -98,7 +100,7 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
                 className={'ab' + (it.on ? ' on' : '') + (it.dim ? ' dim' : '')}
                 aria-label={it.label}
                 aria-pressed={it.on}
-                data-tip={it.label}
+                data-tip={it.tip ?? it.label}
                 data-key={it.key}
                 data-side={tipSide}
                 data-testid={`ab-${it.tid ?? it.id}`}
@@ -175,12 +177,12 @@ export function TitleBar(props: {
   onForward(): void
   onHome(): void
   onSearch(): void
-  /** 正在看的网页在哪：右栏（按钮写「移到中间」）还是中间的宽标签（「放回右栏」）；都没在看网页时没有这颗按钮 */
-  web: { where: 'right' | 'center'; onMove(): void } | null
+  /** 正在看的网页在哪：右栏（按钮写「移到中间」）还是中间的宽标签（「放回右栏」）；中间栏收着、网页占满时是「展开中间栏」（task-kbnc0）；都没在看网页时没有这颗按钮 */
+  web: { where: 'right' | 'center' | 'fold'; onMove(): void } | null
 }) {
   /** 写在提示上的键照命令表（改了跟着变） */
   const K = useKeys()
-  const webLabel = props.web?.where === 'center' ? '放回右栏' : '移到中间'
+  const webLabel = props.web?.where === 'center' ? '放回右栏' : props.web?.where === 'fold' ? '展开中间栏' : '移到中间'
   return (
     <header className="titlebar">
       <div className="tb-left">
@@ -213,12 +215,13 @@ export function TitleBar(props: {
           <button
             className="tb-btn tb-web"
             aria-label={webLabel}
-            data-tip={props.web.where === 'center' ? '放回右栏：网页回到右栏，边看边记' : '移到中间：开成中间的宽标签，右栏空出来'}
+            data-tip={props.web.where === 'center' ? '放回右栏：网页回到右栏，边看边记' : props.web.where === 'fold' ? '展开中间栏：中间那篇回来，网页回到原来的宽' : '移到中间：开成中间的宽标签，右栏空出来'}
+            data-key={props.web.where === 'fold' ? (K('fold-center') ?? undefined) : undefined}
             data-side="below-left"
             data-testid="tb-web"
             onClick={props.web.onMove}
           >
-            <Codicon name={props.web.where === 'center' ? 'layout-sidebar-right' : 'layout-centered'} />
+            <Codicon name={props.web.where === 'center' ? 'layout-sidebar-right' : props.web.where === 'fold' ? 'screen-normal' : 'layout-centered'} />
             <span className="lb">{webLabel}</span>
           </button>
         )}

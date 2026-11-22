@@ -351,9 +351,9 @@ test('存成命令：打开就问 AI 比对，三种对照、指一条亮出依�
     })
     const name = d.getByRole('textbox', { name: '名字' })
     await name.fill('通顺笔记')
-    await expect(fact(page, 'commit')).toHaveText('1 次「AI：/通顺笔记 · 第2讲 预备知识」，回答下面能撤回')
+    await expect(fact(page, 'commit')).toHaveText('1 次「AI：/通顺笔记 · 学习笔记」，回答下面能撤回')
     expect(await page.evaluate(() => (window as unknown as { scFlash: string[] }).scFlash)).toContain('commit')
-    await expect(d.locator('.sc-imp .ih .x')).toHaveText('拿「第2讲 预备知识」举例：下次在它上面打 /通顺笔记')
+    await expect(d.locator('.sc-imp .ih .x')).toHaveText('拿「学习笔记」举例：下次在它上面打 /通顺笔记 会这样；在别的笔记上打，就换成那一篇')
     // 和自带的重名：黄字
     await name.fill('翻译')
     await expect(d.locator('.sc-warn')).toHaveText('和自带的「翻译」重名，打 / 时两条都在')
@@ -374,7 +374,7 @@ test('存成命令：打开就问 AI 比对，三种对照、指一条亮出依�
     const after = d.locator('.sc-tree .col').nth(1).locator('.sc-tr')
     await expect(after).toHaveCount(3)
     await expect(after.nth(2)).toHaveClass(/new/)
-    await expect(after.nth(2)).toHaveText('第2讲 预备知识：整理稿.md新')
+    await expect(after.nth(2)).toHaveText('学习笔记：整理稿.md新')
     await expect(fact(page, 'touch')).toHaveText('只新建这一个文件，原文只读；全能模式不开')
     await shot(run, 'beside')
     await d.getByRole('radiogroup', { name: '写到哪' }).getByRole('radio', { name: '改这一篇' }).click()
@@ -475,6 +475,39 @@ test('存成命令：打开就问 AI 比对，三种对照、指一条亮出依�
   }
 })
 
+test('在书摘上存成命令：影响卡拿正在看的这一篇举例（同一个文件夹里有别的书摘也不拿别的，task-ne7cw）', async () => {
+  const BOOK = '杀死一只知更鸟（同名电影原著）'
+  const OTHER = '读懂红楼：六神磊磊读红楼+红楼梦（微信读书首发）'
+  const note = (t: string) => `---\n类型: 书摘\n作者: 哈珀·李\n---\n# ${t}\n\n## 第一章\n\n> 我哥哥杰姆快满十三岁的时候，胳膊肘遭受了一次严重的骨折。\n`
+  const after = join(scratch, 'book-after.md')
+  writeFileSync(after, `${note(BOOK)}\n## 评价\n\n开篇很克制：从杰姆胳膊肘骨折这件小事讲起。\n`)
+  const bookRounds = join(scratch, 'book-rounds.json')
+  writeFileSync(bookRounds, JSON.stringify([{ say: '再续写一点评价', path: `阅读/${BOOK}.md`, file: after, reply: '我在文末加了一节「评价」。' }]))
+  const run = await launch({ [`阅读/${BOOK}.md`]: note(BOOK), [`阅读/${OTHER}.md`]: note(OTHER) }, { CN_AI_FAKE: '1', CN_FAKE_ROUNDS: bookRounds }, look)
+  const { page, app } = run
+  try {
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))
+    await openDoc(page, BOOK)
+    await openAi(page)
+    await send(page, '再续写一点评价')
+    await chat(page).getByTestId('cmd-saverow').getByRole('button', { name: '存成命令' }).click()
+    const d = dlg(page)
+    await expect(d.locator('.sc-rule').first()).toBeVisible({ timeout: 20_000 })
+    await d.getByRole('textbox', { name: '名字' }).fill('续写书摘评价')
+    const x = d.locator('.sc-imp .ih .x')
+    await expect(x).toHaveText(`拿「${BOOK}」举例：下次在它上面打 /续写书摘评价 会这样；在别的笔记上打，就换成那一篇`)
+    await expect(x).toHaveAttribute('title', await x.textContent() as string)
+    const cols = d.locator('.sc-tree .col')
+    await expect(cols.nth(0).locator('.sc-tr')).toHaveText(['阅读', `${BOOK}.md`])
+    await expect(cols.nth(1).locator('.sc-tr')).toHaveText(['阅读', `${BOOK}.md改`])
+    await expect(fact(page, 'commit')).toHaveText(`1 次「AI：/续写书摘评价 · ${BOOK}」，回答下面能撤回`)
+    await expect(d.locator('.sc-imp')).not.toContainText('读懂红楼')
+    await shot(run, 'book-example')
+  } finally {
+    await run.close()
+  }
+})
+
 test('⌘K「加一条自己的命令…」选「让AI做一件事」：关上 ⌘K 开那张表，没有左边对照，一条条加规矩，存好进命令.json 和「让AI做」', async () => {
   const run = await launch(FILES, { CN_AI_FAKE: '1' }, look)
   const { page, app } = run
@@ -507,7 +540,7 @@ test('⌘K「加一条自己的命令…」选「让AI做一件事」：关上 �
     await d.getByRole('textbox', { name: '名字' }).fill('排成计划')
     await expect(foot(page)).toHaveText('勾着的 2 条会写成命令的说明')
     // 举例用开着的那一篇
-    await expect(d.locator('.sc-imp .ih .x')).toHaveText('拿「第2讲 预备知识」举例：下次在它上面打 /排成计划')
+    await expect(d.locator('.sc-imp .ih .x')).toHaveText('拿「第2讲 预备知识」举例：下次在它上面打 /排成计划 会这样；在别的笔记上打，就换成那一篇')
     // 宽度按内容收窄：880；影响卡六格两列
     expect(Math.round((await box(d)).width)).toBe(880)
     expect(await d.locator('.sc-facts').evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(' ').length)).toBe(2)
@@ -548,7 +581,7 @@ test('只在这台 Mac：不进命令.json，⌘K「让AI做」里照样有、�
     await pal(page).getByRole('form', { name: '加一条自己的命令' }).getByRole('radio', { name: /让AI做一件事/ }).click()
     const d = dlg(page)
     // 没开着笔记：举例写「这一篇」
-    await expect(d.locator('.sc-imp .ih .x')).toHaveText('拿「这一篇」举例：下次在它上面打 /我的命令')
+    await expect(d.locator('.sc-imp .ih .x')).toHaveText('拿「这一篇」举例：下次在它上面打 /我的命令 会这样；在别的笔记上打，就换成那一篇')
     await d.getByRole('textbox', { name: '加一条规矩' }).fill('只回答，不改文件')
     await d.getByRole('textbox', { name: '加一条规矩' }).press('Enter')
     await d.getByRole('textbox', { name: '名字' }).fill('问问看')
@@ -653,7 +686,8 @@ test('软件最窄的窗口 960×600：弹窗 896×536，对照区和右栏不�
     const cmp = await box(d.locator('.sc-cmp'))
     const side = await box(d.locator('.sc-rc'))
     expect(cmp.x + cmp.width).toBeLessThanOrEqual(side.x + 0.5)
-    expect(await d.evaluate((el) => [...el.querySelectorAll<HTMLElement>('*')].filter((e) => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX === 'auto').map((e) => e.className))).toEqual([])
+    // md 表格在窄栏里自己横着滚、两边渐隐（task-c22p9 定的），不算弹窗出了横向滚动条
+    expect(await d.evaluate((el) => [...el.querySelectorAll<HTMLElement>('*')].filter((e) => e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX === 'auto' && !e.classList.contains('cm-table')).map((e) => e.className))).toEqual([])
     // 工具条右边「N 轮 · 号 → 号」放不下时省略号收住，不压到右栏「看出的规矩」上
     const meta = await box(d.locator('.sc-meta'))
     expect(meta.x + meta.width).toBeLessThanOrEqual(side.x + 0.5)

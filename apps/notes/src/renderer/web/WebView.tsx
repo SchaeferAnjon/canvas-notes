@@ -9,6 +9,7 @@ import { dropWebDragAt, noteWebDrag } from './image-drop'
 import { webReadIpc } from '../reading/web-bridge'
 import { registerWebMenu, type WebMenuHost } from '../ctx/web-menu'
 import { pageOutside } from './page-outside'
+import { readPosIpc } from '../read-along/web'
 import { type LogoEngine, useAiLogo } from '../engine-logo'
 
 /** 恢复的标签用的网页设置：要用户在这个网页里动过才许出声自动播（和 Chrome 平常一样）；主进程按它认出这是恢复的标签 */
@@ -124,6 +125,9 @@ export function WebView(props: {
       } else if (channel.startsWith('cn:read:')) {
         // 阅读视图要的正文、在网页上框好的一块（reading/web-bridge.ts）
         webReadIpc(w, channel, args)
+      } else if (channel.startsWith('cn:readpos')) {
+        // 读到哪（task-kbnc0）：读到的地方、人在网页里按了键、回到那段的结果（read-along/web.ts）
+        readPosIpc(w.getWebContentsId(), channel, args)
       } else if (channel === 'cn:page-down' || channel === 'cn:page-esc') {
         pageOutside(channel === 'cn:page-down' ? 'down' : 'esc')
       } else if (channel === 'cn:dragend') {

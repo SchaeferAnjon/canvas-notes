@@ -39,7 +39,7 @@ import { subsAround } from '../video'
 import type { EngineId } from '../../shared/agent'
 import type { CommitInfo } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
-import type { AnkiSendResult, AskEvent, AskRequest, AskResult, DoubtsView, PdfFile, ReadingMsg, ReadingSide, ReadingState, ReadingThread, SummarizeRequest, SummarizeResult, VizRequest, VizResult, WriteSectionRequest, WriteSectionResult } from '../../shared/reading'
+import type { AskEvent, AskRequest, AskResult, PdfFile, ReadingMsg, ReadingSide, ReadingState, ReadingThread, SummarizeRequest, SummarizeResult, VizRequest, VizResult, WriteSectionRequest, WriteSectionResult } from '../../shared/reading'
 import { chatRun, engine, FAST_MODEL, featureLabel, modeLine, modelOpt, omniOn, runAgentTurn } from '../agent'
 import { E2E } from '../test-mode'
 import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
@@ -47,11 +47,11 @@ import type { EngineImage } from '../agent/engines'
 import type { Vault } from '../vault'
 import { askPrompt, extractHtml, fullTextOf, noteDigest, parseSummary, sidePrompt, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, TUTOR_VERSION, VIZ_SYSTEM, vizFileStem, vizPrompt, vizTitle, withVizMeta } from './prompts'
 import { buildSection, roundText } from './section'
-import { AnkiConnectError, sendCards } from './anki'
+import { setupCards } from './cards'
 import { readingKey } from './chats'
 import { setupBilingual } from './bilingual'
 import { setupCapture } from './capture'
-import { ANKI_STATE, collectDoubts, collectVideoDoubts, courseName, dirOf, readAnkiState, writeAnkiState } from './doubts'
+import { courseName, dirOf } from './doubts'
 
 const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
@@ -453,54 +453,8 @@ export function setupReading(deps: ReadingDeps) {
   /** 可视化做好时笔记里还没有那一段：先记着，写那一段时挂上 */
   const pendingViz = new Map<string, { path: string; title: string }>()
 
-  // ---------- 我的疑惑、送 Anki ----------
-  const needFolder = (f: unknown) => {
-    if (typeof f !== 'string') throw new Error('文件夹不对')
-    if (f) needVault().abs(f)
-    return f
-  }
-  ipcMain.handle('reading:doubts', async (_e, folder: unknown): Promise<DoubtsView> => {
-    const f = needFolder(folder)
-    const v = needVault()
-    const [items, st, videos] = await Promise.all([collectDoubts(v, f), readAnkiState(v), collectVideoDoubts(v, f)])
-    return { folder: f, course: courseName(f), items: items.map((it) => ({ ...it, sent: !!st.sent[it.id] })), videos }
-  })
-
-  ipcMain.handle('reading:anki:send', async (_e, folder: unknown, ids: unknown): Promise<AnkiSendResult> => {
-    const f = needFolder(folder)
-    if (!Array.isArray(ids) || !ids.every((x) => typeof x === 'string')) throw new Error('要送的卡不对')
-    const v = needVault()
-    const want = new Set(ids as string[])
-    const items = (await collectDoubts(v, f)).filter((it) => want.has(it.id))
-    const course = courseName(f)
-    const cards = await Promise.all(
-      items.map(async (it) => ({
-        id: it.id,
-        pdf: it.pdf,
-        course,
-        section: it.section,
-        // 问题是发出去的原话（新格式一问一张），旁支那一问带着被问的那句
-        question: it.section.doubts[0] ?? it.section.title,
-        ...(it.quote ? { quote: it.quote } : {}),
-        ...(it.section.crop ? { png: await readFile(v.abs(it.section.crop)).catch(() => undefined) } : {}),
-      })),
-    )
-    const st = await readAnkiState(v)
-    let r
-    try {
-      r = await sendCards(cards, st.deckId)
-    } catch (e) {
-      if (e instanceof AnkiConnectError) return { added: [], duplicates: [], failed: {}, error: e.message, commit: null }
-      throw e
-    }
-    const now = new Date().toISOString()
-    for (const id of [...r.added, ...r.duplicates]) st.sent[id] = now
-    st.deckId = r.deck.id
-    await writeAnkiState(v, st)
-    const hash = await git.commitPaths(v.root, [ANKI_STATE], `送进 Anki：${course || '我的疑惑'} ${r.added.length} 张`)
-    send('files:changed')
-    return { added: r.added, duplicates: r.duplicates, failed: r.failed, deck: r.deck.name, commit: hash ? ((await git.log(v.root, 1))[0] ?? null) : null }
-  })
+  // ---------- 出卡送 Anki（task-tz7y3，cards.ts）：问过的每一问 AI 改成卡、一张张过、送进 Anki；「我的疑惑」那一页 2026-11-22 拿掉了 ----------
+  setupCards({ vault: deps.vault, win: deps.win })
 
   // ---------- 做个可视化（后台） ----------
   ipcMain.handle('reading:viz', async (_e, req: VizRequest): Promise<VizResult> => {

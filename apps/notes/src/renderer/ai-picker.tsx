@@ -144,7 +144,7 @@ export function AiPicker(p: AiPickerProps) {
         onClose={close}
         look={p.look}
         label={p.label ? `${p.label}用哪一家` : '选 AI 引擎'}
-        tip={fam?.warn ? warnTip(fam) : box ? undefined : '谁来答'}
+        tip={fam?.warn ? warnTip(fam) : box ? undefined : fam ? `谁来答：${fam.name ?? fam.label}` : '谁来答'}
         testid={p.ids.family}
         className={box ? 'fam' + (fam ? '' : ' lead') : 'eng'}
         warn={fam?.warn}
@@ -202,6 +202,7 @@ export function AiPicker(p: AiPickerProps) {
         label={p.label ? `${p.label}想多久` : '选想多久（effort）'}
         tip={box ? undefined : '想多久（effort）'}
         testid={p.ids.effort}
+        className="eff"
         width={280}
         menuLabel="想多久（effort）"
         menu={
@@ -291,7 +292,7 @@ function PickBtn(p: {
  */
 function PickMenu(p: { anchor: RefObject<HTMLButtonElement | null>; width: number; label: string; up: boolean; onClose(): void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
-  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null)
+  const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number; width: number } | null>(null)
   /** 照按钮现在在哪摆；往上还是往下第一次定了就不再变（滚动时只跟着按钮挪） */
   const dir = useRef<'up' | 'down' | null>(null)
   const place = useRef(() => {})
@@ -302,13 +303,15 @@ function PickMenu(p: { anchor: RefObject<HTMLButtonElement | null>; width: numbe
     // 限在所在的那一块里（设置弹窗、AI 那一栏），不伸出去盖住别的；设置里的框（box）右边和框的右边对齐
     const c = (a.closest('[role="dialog"], [role="complementary"], aside, .setpane') ?? document.body).getBoundingClientRect()
     const box = p.up ? null : a.closest('.aipk')?.getBoundingClientRect()
-    const want0 = box ? box.right - p.width : r.left
-    const left = Math.max(Math.max(8, c.left + 8), Math.min(want0, Math.min(window.innerWidth, c.right) - p.width - 8))
+    // 那一块比菜单还窄（AI 栏 300）：菜单收到那一块减两边各 8，不伸出栏外（task-c22p9）
+    const width = Math.min(p.width, Math.min(window.innerWidth, c.right) - Math.max(0, c.left) - 16)
+    const want0 = box ? box.right - width : r.left
+    const left = Math.max(Math.max(8, c.left + 8), Math.min(want0, Math.min(window.innerWidth, c.right) - width - 8))
     const below = window.innerHeight - r.bottom - 12
     const above = r.top - 12
     const want = ref.current?.scrollHeight ?? 300
     dir.current ??= p.up || (below < Math.min(want, 320) && above > below) ? 'up' : 'down'
-    setPos(dir.current === 'up' ? { left, bottom: window.innerHeight - r.top + 6, maxHeight: above } : { left, top: r.bottom + 4, maxHeight: below })
+    setPos(dir.current === 'up' ? { left, width, bottom: window.innerHeight - r.top + 6, maxHeight: above } : { left, width, top: r.bottom + 4, maxHeight: below })
   }
   useLayoutEffect(() => place.current(), [p.anchor, p.width, p.up])
   useDismiss(true, [ref, p.anchor], p.onClose)

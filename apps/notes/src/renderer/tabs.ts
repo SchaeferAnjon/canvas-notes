@@ -13,8 +13,6 @@ export type Tab =
   | { id: string; type: 'web'; url: string; title?: string }
   /** 读 PDF：右栏是 AI 和笔记 */
   | { id: string; type: 'pdf'; path: string }
-  /** 一门课（一个文件夹）的我的疑惑 */
-  | { id: string; type: 'doubts'; folder: string }
   /** 右栏网页的阅读视图（双语对照读） */
   | { id: string; type: 'webread'; url: string; title: string }
   /** 库里的 HTML（做好的可视化），在沙箱里跑 */
@@ -25,6 +23,8 @@ export type Tab =
   | { id: string; type: 'diff'; src: DiffSource; title: string; pinned?: boolean }
   /** 梦游预览 · 挪老图：报告里那一条（按笔记分组列出每张从哪到哪） */
   | { id: string; type: 'oldimages'; item: string }
+  /** 最近删掉的（30 天里删的，task-5yp97） */
+  | { id: string; type: 'trash' }
 
 let seq = 0
 export const newId = () => `t${Date.now().toString(36)}${(seq++).toString(36)}`
@@ -36,8 +36,8 @@ export function loadTabs(vault: string): { tabs: Tab[]; active: string | null } 
     const raw = localStorage.getItem(key(vault))
     if (!raw) return { tabs: [], active: null }
     const v = JSON.parse(raw) as { tabs: Tab[]; active: string | null }
-    // 原来的「全部笔记」标签换成「最近」
-    const tabs = v.tabs.map((t): Tab => ((t.type as string) === 'all' ? { id: t.id, type: 'recent' } : t))
+    // 原来的「全部笔记」标签换成「最近」；「我的疑惑」那一页 2026-11-22 拿掉了（task-tz7y3），上次开着的不再开
+    const tabs = v.tabs.filter((t) => (t.type as string) !== 'doubts').map((t): Tab => ((t.type as string) === 'all' ? { id: t.id, type: 'recent' } : t))
     return { tabs: tabs.map((t) => (t.type === 'note' || t.type === 'folder' ? { ...t, fresh: false } : t)), active: v.active }
   } catch {
     // 记不住上次开的标签不影响使用
@@ -55,12 +55,12 @@ export function saveTabs(vault: string, tabs: Tab[], active: string | null) {
 
 const under = (p: string, folder: string) => p === folder || p.startsWith(folder + '/')
 
-/** 文件夹改了名：里面的文件标签、这个文件夹（和下面的）首页、我的疑惑标签都换成新路径 */
+/** 文件夹改了名：里面的文件标签、这个文件夹（和下面的）首页都换成新路径 */
 export function retargetTabs(tabs: Tab[], from: string, to: string): Tab[] {
   const map = (p: string) => (under(p, from) ? to + p.slice(from.length) : p)
   return tabs.map((t) => {
     if ((t.type === 'note' || t.type === 'pdf' || t.type === 'html') && under(t.path, from)) return { ...t, path: map(t.path) }
-    if ((t.type === 'folder' || t.type === 'doubts') && under(t.folder, from)) return { ...t, folder: map(t.folder) }
+    if (t.type === 'folder' && under(t.folder, from)) return { ...t, folder: map(t.folder) }
     return t
   })
 }

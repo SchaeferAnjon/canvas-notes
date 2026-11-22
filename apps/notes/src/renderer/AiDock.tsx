@@ -169,7 +169,6 @@ export function NotesDock(props: {
   onOpenNote(path: string): void
   onOpenLink(target: string): void
   onOpenHtml(path: string): void
-  onOpenDoubts(folder: string): void
   onOpenWeb(url: string): void
 }) {
   const { pdf } = props
@@ -181,7 +180,6 @@ export function NotesDock(props: {
       onOpenNote={props.onOpenNote}
       onOpenLink={props.onOpenLink}
       onOpenHtml={props.onOpenHtml}
-      onOpenDoubts={props.onOpenDoubts}
       onOpenWeb={props.onOpenWeb}
       onShowConvo={(id) => {
         props.onShowAi()

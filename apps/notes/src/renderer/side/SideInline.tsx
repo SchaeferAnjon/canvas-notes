@@ -6,11 +6,12 @@
  * 读 PDF、AI 对话、网页上框着问的回答、文档里的 AI 讲解块共用这一个；问答存在哪、怎么问由各处给。
  */
 import { Codicon, type CodiconName } from '@cn/design'
-import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { EngineId, ToolStep } from '../../shared/agent'
 import type { Material } from '../../shared/materials'
 import { withoutVizMark } from '../../shared/reading'
+import { hideToolMarkup } from '../../shared/tool-markup'
 import { StepRow } from '../AiPanel'
 import { AiError } from '../ai-error'
 import { AiInput, MatMsg, type PicksProps, sendText, useComposer } from '../composer'
@@ -46,6 +47,11 @@ export interface SideInlineProps {
   running: boolean
   /** 最下面那一行：记到了哪 */
   record: { icon: CodiconName; text: string }
+  /**
+   * 输入框和「记到哪」画在哪：给了就钉在那一格里（视频问框的底部，task-5yp97 选法 2：问框矮，旁支一长输入框就落到外面），
+   * 不给就在这一块的最下面
+   */
+  dock?: HTMLElement | null
   /** 模型、effort 那两颗（跟主对话；谁来答不放） */
   picks: PicksProps
   /** 「在笔记里看」（读 PDF、HTML 才有） */
@@ -66,6 +72,9 @@ export interface SideInlineProps {
   /** 问答变了（开、问、出字）：外面那一格把这一块滚进来 */
   onGrow?(): void
 }
+
+/** 钉在别处（dock）就用 portal 画过去：键盘、点击照样冒到这一块（esc 收起这一块） */
+const dockIn = (dock: HTMLElement | null | undefined, node: ReactNode) => (dock ? createPortal(node, dock) : node)
 
 /** 最后一条答好的回答原文（放进主对话、拷贝用）：去掉可视化、配图那两行标记 */
 const lastAnswer = (s: SideView) => {
@@ -213,7 +222,7 @@ export function SideInline(p: SideInlineProps) {
               ))}
               {m.text ? (
                 <div className="sat">
-                  <Markdown text={withoutVizMark(m.text).text} math />
+                  <Markdown text={hideToolMarkup(withoutVizMark(m.text).text)} math />
                 </div>
               ) : m.error ? null : (
                 <p className="wait">在答…</p>
@@ -247,30 +256,35 @@ export function SideInline(p: SideInlineProps) {
           </button>
         </div>
       )}
-      <AiInput
-        c={c}
-        className="side-in"
-        placeholder={asked ? '接着问这条旁支…' : `问这句…（直接 ↵ 就是「${ASK_THIS}」）`}
-        hint="↵ 发送"
-        picks={{ ...p.picks, engine: false }}
-        running={p.running}
-        sendDisabled={asked && !c.text.trim() && !c.mats.length}
-        onSend={send}
-        onStop={p.onStop}
-        onNotice={p.onNotice}
-        onKeyDown={(e) => {
-          if (e.nativeEvent.isComposing) return
-          if (e.key === 'Enter' && !e.shiftKey && !e.metaKey) {
-            e.preventDefault()
-            // 还没问过：空着回车就是「讲讲这句」；问过以后空着不发（发送键也灰着）
-            if (!p.running && (!asked || c.text.trim() || c.mats.length)) send()
-          }
-        }}
-      />
-      <div className="rec">
-        <Codicon name={p.record.icon} size={12} />
-        <span>{p.record.text}</span>
-      </div>
+      {dockIn(
+        p.dock,
+        <>
+          <AiInput
+            c={c}
+            className="side-in"
+            placeholder={asked ? '接着问这条旁支…' : `问这句…（直接 ↵ 就是「${ASK_THIS}」）`}
+            hint="↵ 发送"
+            picks={{ ...p.picks, engine: false }}
+            running={p.running}
+            sendDisabled={asked && !c.text.trim() && !c.mats.length}
+            onSend={send}
+            onStop={p.onStop}
+            onNotice={p.onNotice}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return
+              if (e.key === 'Enter' && !e.shiftKey && !e.metaKey) {
+                e.preventDefault()
+                // 还没问过：空着回车就是「讲讲这句」；问过以后空着不发（发送键也灰着）
+                if (!p.running && (!asked || c.text.trim() || c.mats.length)) send()
+              }
+            }}
+          />
+          <div className="rec">
+            <Codicon name={p.record.icon} size={12} />
+            <span>{p.record.text}</span>
+          </div>
+        </>,
+      )}
       {menu && (
         <SideMenu
           anchor={menuBtn}

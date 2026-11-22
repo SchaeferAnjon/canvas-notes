@@ -445,7 +445,9 @@ test('CN-11：新建笔记默认进收件箱；目录树里点过文件夹、开
     await expect(chip).toHaveText('收件箱')
     await chip.click()
     const moveTo = await openedMenu(run)
-    expect(menuLabels(moveTo)).toEqual(['测试库', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
+    // 这篇本来就在的「收件箱」灰着列出来（task-5yp97「藏之后」图）
+    expect(menuLabels(moveTo)).toEqual(['测试库', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])
+    expect(moveTo.find((i) => i.label === '收件箱')!.enabled).toBe(false)
     expect(menuLabels(moveTo.find((i) => i.label === '课程')!.submenu!)).toEqual(['放进「课程」', 'ecp'])
     await pickMenu(run, '写作')
     await expect.poll(() => existsSync(join(vault, '写作/未命名.md'))).toBe(true)

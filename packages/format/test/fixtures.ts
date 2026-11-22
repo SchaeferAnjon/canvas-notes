@@ -310,11 +310,54 @@ const docWithSides = [
   '',
 ].join('\n')
 
+/** 白板上 AI 讲解卡开过旁支（task-p90ra）：type: board 的白板，讲解卡挂着两条旁支（一条带接着问），另一张摆在空白处；白板看法里只露小标 */
+const boardWithSides = `---
+type: board
+---
+# 注意力白板
+
+## 讲解
+
+<!-- card id=s1 ai=2026-11-21 -->
+> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了 00:06 这一帧
+> 先拿 Q 和每个 K 做点积。分数要先除以 √d，再过 softmax 变成权重。
+>
+> 最后用这些权重把 **V** 加起来，就是这个位置的输出。
+
+> [!side] V 在这里是什么？
+> > 最后用这些权重把 **V** 加起来，就是这个位置的输出。
+>
+> V 是每个词带的内容。
+
+> [!side] 那 K 呢？
+>
+> K 是用来比的。
+
+> [!side] 讲讲这句
+> > 分数要先除以 √d，再过 softmax 变成权重。
+>
+> #### 旁支的回答
+>
+> 不缩放时 softmax 太尖。
+
+<!-- card id=a2 x=640 y=120 -->
+为什么偏偏是根号 d？
+`
+
 export const FIXTURES: Record<string, Uint8Array> = {
   '数学符号.md': enc(MATH_DOC),
   '旁支挂在讲解下面.md': enc(docWithSides),
+  '白板带旁支.md': enc(boardWithSides),
   'Lecture05 笔记.md': enc(readingDoc),
+  // 从 Obsidian 导进来的样子（task-4xtbp）：行尾 ^块编号、收起的「注释」提示块、![|300] 图宽、带路径的双链、行内 %%注释%%
+  '从Obsidian导入的.md': enc(
+    '---\ntags:\n  - 线代\ncreated: 2021-09-01 08:00\nupdated: 2021-09-02 09:00\n来源: 我的Obsidian库\n原文件夹: 课程/线代\nimport-id: md:我的Obsidian库/课程/线代/线性映射.md\n---\n' +
+      '# 线性映射\n\n定义：线性映射保持加法和数乘。 ^def1\n\n- 第一条 ^li-1\n- 第二条\n\n![|300](附件/极光.jpg)\n\n> [!note]- 注释\n> 这句是 Obsidian 的注释\n\n' +
+      '正文里夹一句 %%行内注释%% 接着写。\n\n见 [[收件箱/导入/我的Obsidian库/课程/线代/第一讲]]、[[小结#^abc|小结]]。\n',
+  ),
   'plain.md': enc('# 所思所想\n\n最近在看纳瓦尔宝典。\n\n**财富**是靠专长、杠杆。\n'),
+  // 和网页配成一对的笔记（task-kbnc0）：开头的 read-along 属性（CRLF）打开再保存一个字节都不变；网址是本机打不开的，测试不上网
+  '对着看的笔记.md': enc('---\r\nread-along: http://127.0.0.1:9/\r\n类型: 笔记\r\n---\r\n# 对着看的笔记\r\n\r\n读到 2.1 的时候记的。\r\n'),
   'no-trailing-newline.md': enc('最后一行没有换行'),
   'trailing-spaces.md': enc('行尾两个空格  \n\t缩进用 tab\n\n\n\n多个空行\n   '),
   'crlf.md': enc('# Windows 换行\r\n\r\n第一段\r\n第二段\r\n'),

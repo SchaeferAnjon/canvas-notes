@@ -526,7 +526,7 @@ export function BoardView(props: BoardViewProps) {
     if (isWholeDoc(note.text, body)) {
       // 整页剪藏这类长的：那篇挪到「素材/<这块白板>/」，白板上放一张指向它的卡片（标题、来源、几行摘要），双击看全文
       // 挪过去（不是新建一篇再删）：附件文件夹跟着挪、图片的相对链接跟着改（剪藏时存下的图）
-      const moved = await window.cnMenu.moveNote(d.inboxPath, `${CLIPS}/${titleOf(props.notePath)}`)
+      const moved = (await window.cnMenu.moveNote(d.inboxPath, `${CLIPS}/${titleOf(props.notePath)}`)).to
       const id = addBlock('card', pos, `[[${titleOf(moved)}]]`)
       setFlash(id)
       return

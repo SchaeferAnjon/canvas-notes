@@ -1104,6 +1104,20 @@
   font-weight: 500;
   color: var(--t1);
 }
+/* 白板窄（中栏 420、右边收件箱开着）：说明不伸到收件箱上，字放不下省略号，图标、按钮、× 不缩（task-c22p9） */
+.db-hint {
+  min-width: 0;
+  max-width: 100%;
+}
+.db-hint > * {
+  flex: none;
+}
+.db-hint > .tx {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 /* 小样里的 .btn：24 高胶囊、--card、1px --line2 */
 .db-pill {
   display: inline-flex;

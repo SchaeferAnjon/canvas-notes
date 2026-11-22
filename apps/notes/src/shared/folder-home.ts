@@ -106,7 +106,7 @@ export const FWIDGETS: { type: FWidget; name: string; desc: string; size: FSize;
   { type: 'review', name: '今天要复习', desc: 'Anki里今天到期几张', size: 1, cat: 'course' },
   { type: 'exam', name: '考试倒计时', desc: '填个日期，还有几天', size: 1, cat: 'course' },
   { type: 'notes', name: '笔记和导图', desc: '按第几讲排', size: 2, cat: 'course' },
-  { type: 'doubts', name: '我的疑惑', desc: '读课件时问过的', size: 2, cat: 'course' },
+  { type: 'doubts', name: '读PDF时问过的', desc: '读课件时问过的，没送的一键出卡送进Anki', size: 2, cat: 'course' },
   { type: 'viz', name: '可视化', desc: '做好的可视化，缩略图墙', size: 2, cat: 'course' },
   { type: 'cal', name: '学习日历', desc: '这学期每天问了多少', size: 4, cat: 'course' },
   { type: 'todo', name: '待办', desc: '作业、要交的', size: 1, cat: 'common' },

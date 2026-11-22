@@ -4,23 +4,27 @@
  * 头：框住那块的小图 96 × 54（左下角时间小牌）、「问框住的这一块」、「00:06 这一帧 ·」和默认勾上的「带上前后字幕」，右边「重框」「×」；
  * 建议四颗（两颗固定、两颗小活现想）；多行输入（最多 4 行再滚），底下谁来答 · 模型 · effort（ai-picker.tsx，看不了图的灰着写「看不了图」）、发送；
  * 最底下「记进《…》▾」能换（这个视频记住）、「esc 关掉」。问出去回答就在问框里长出来，下面「接着问 · 在 AI 标签里聊 · 拷贝」。
- * 回答那块（.ak-an，data-side-host="video-ask"）留给旁支（task-4edsc）：选一句岔开问挂在那一段下面。
+ * 回答那块（.ak-an，data-side-host="video-ask"）留给旁支（task-4edsc）：选一句岔开问挂在那一段下面；开着旁支时旁支的输入框和「记到哪」
+ * 钉在问框底部（主输入框那一行让给它，收起旁支再回来；task-5yp97 选法 2）。
  */
 import { Codicon } from '@cn/design'
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { EngineInfo } from '../../shared/agent'
 import { fitPick, pickLabel, resolvePick } from '../../shared/ai-features'
+import { titleOf as titleOfPath } from '../../shared/layout'
 import { fmtTime } from '../../shared/video'
 import { AiPicker, engineFamily, type Family } from '../ai-picker'
 import { AiIcon } from '../engine-logo'
 import { composing } from '../ime'
 import { useKeys } from '../keys'
 import { Markdown } from '../md-render'
+import { closeFileSide, SideText, type Spot, useFileSideHost, useFileText } from '../side/file-side'
 import { onPageOutside } from '../web/page-outside'
 import { askDestNow, setDestPick, useDestPick } from './actions'
-import { askCardQuestion, type AskCardState, chatInAiTab, closeAskCard, goToSaved, setAskCtx, startAsk, stopAskCard, useAskCard, type VisionPick } from './ask-card'
+import { askCardQuestion, type AskCardState, findAskBlock, chatInAiTab, closeAskCard, goToSaved, setAskCtx, startAsk, stopAskCard, useAskCard, type VisionPick } from './ask-card'
 import { useTick, videoHost, videoStateOf } from './store'
 import { DestPickMenu } from './VideoStrip'
+import { hideToolMarkup } from '../../shared/tool-markup'
 import './ask-card.css'
 
 /** 两颗固定的建议（另两颗小活看那一帧和字幕现想，排在它俩中间，同原型） */
@@ -141,6 +145,28 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
   const saved = c.saved
   const destName = !dest ? '只问不记' : dest.kind === 'inbox' ? '收件箱' : dest.kind === 'new' ? `新建：${dest.title}` : dest.title
   const last = c.turns.length - 1
+  // 开着的旁支是不是这个问框里的（看全软件那一份，不靠各问回报）
+  const sideOpen = (useFileSideHost() ?? '').startsWith(`ask:${c.seq}:`)
+  const sideText = useFileText(c.saved && c.saved !== 'none' ? c.saved.path : null)
+  // 收起旁支回到问框：输入框回来了再把光标放进去
+  const refocus = useRef(false)
+  useLayoutEffect(() => {
+    if (sideOpen || !refocus.current) return
+    refocus.current = false
+    input.current?.focus()
+  }, [sideOpen])
+  const wake = () => {
+    refocus.current = true
+    closeFileSide()
+  }
+  /** 开着旁支时钉旁支输入框的那一格（问框底部） */
+  const [dock, setDock] = useState<HTMLDivElement | null>(null)
+  /** 旁支小框「引用进输入框」：那句进问框的输入框 */
+  const quoteIn = (quote: string) => {
+    setQ((x) => `「${quote}」${x}`)
+    if (sideOpen) wake()
+    else requestAnimationFrame(() => input.current?.focus())
+  }
 
   return (
     <div
@@ -206,11 +232,15 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
                     </button>
                   </div>
                 )}
-                {t.a && (
-                  <div className="ak-tx md" data-testid="ak-answer">
-                    <Markdown text={t.a} />
-                  </div>
-                )}
+                {t.a &&
+                  (t.state === 'done' ? (
+                    // 答好的回答里选一句能开旁支（task-p90ra）：就地长在这一段下面，问答写进那篇讲解块下面的 `> [!side]`
+                    <SideText spot={turnSpot(c, i, sideText, pageUrl, quoteIn, sideOpen ? dock : null)} md={hideToolMarkup(t.a)} className="ak-tx" testid="ak-answer" />
+                  ) : (
+                    <div className="ak-tx md" data-testid="ak-answer">
+                      <Markdown text={hideToolMarkup(t.a)} />
+                    </div>
+                  ))}
                 {t.state === 'error' && (
                   <div className="aierr ak-aierr">
                     <div className="t">
@@ -221,7 +251,7 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
                 )}
                 {t.state === 'done' && i === last && (
                   <div className="ak-acts">
-                    <button type="button" onClick={() => input.current?.focus()}>
+                    <button type="button" onClick={() => (sideOpen ? wake() : input.current?.focus())}>
                       <Codicon name="reply" size={12} />
                       接着问
                     </button>
@@ -255,6 +285,11 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
           ))}
         </div>
       )}
+      {sideOpen ? (
+        // 开着旁支：旁支的输入框和「记到哪」那一行钉在这里（主输入框那一行让给它，收起旁支再回来；task-5yp97 选法 2）。
+        // 旁支多长、回答区滚到哪都看得见输入框，问框也不往上长、不挡视频；上面一条细线和滚着的问答分开
+        <div className="ak-dock side-dock" ref={setDock} data-testid="ak-side-dock" />
+      ) : (
       <div className="ak-in" data-testid="ak-in">
         <textarea
           ref={input}
@@ -295,6 +330,7 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
           </button>
         </div>
       </div>
+      )}
       <div className="ak-foot">
         {saved && saved !== 'none' ? (
           <button type="button" className="ak-dst saved" onClick={goToSaved}>
@@ -319,6 +355,32 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
       </div>
     </div>
   )
+}
+
+/**
+ * 问框里第 i 问的回答上挂旁支的那一处（task-p90ra）：问答写进记进的那一篇、这一问那块讲解（[!ai]）下面；
+ * 「只问不记」的只留在问框里；第一问还在写进文档时先不让开
+ */
+function turnSpot(c: AskCardState, i: number, text: string, pageUrl: string, onQuote: (q: string) => void, dock: HTMLElement | null): Spot {
+  const t = c.turns[i]!
+  const saved = c.saved && c.saved !== 'none' ? c.saved : null
+  const title = saved ? (saved.dest.kind === 'inbox' ? titleOfPath(saved.path) : saved.dest.title) : c.title
+  const time = fmtTime(c.t ?? 0)
+  return {
+    host: `ask:${c.seq}:${i}`,
+    path: saved?.path ?? null,
+    title,
+    text,
+    find: (x) => findAskBlock(x, c.key, c.t ?? 0),
+    where: `看视频《${c.title}》${time} 这一帧时问框里 AI 的回答`,
+    lead: `他当时问的：${t.q}`,
+    body: t.a,
+    record: saved ? { icon: 'file', text: `写在《${title}》里，挂在这段讲解下面` } : { icon: 'comment-discussion', text: '只在这个问框里，没记进笔记' },
+    onQuote,
+    place: saved ? `file:${saved.path}` : `web:${pageUrl}`,
+    readOnly: c.saved === null,
+    dock,
+  }
 }
 
 /**

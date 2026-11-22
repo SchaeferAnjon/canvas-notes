@@ -14,6 +14,8 @@ export interface LayoutCmd {
   folder?: string
   /** 只在打字时搜得到（翻成…、译文样式… 这些次一级的） */
   searchOnly?: boolean
+  /** 一张书桌（task-kbnc0）：在「书桌」一组（钉住的后面、最近打开前面），没有自己的菜单 */
+  desk?: boolean
 }
 
 export type EmptyRow =
@@ -22,6 +24,8 @@ export type EmptyRow =
   | { kind: 'folders'; gid: string; n: number; open: boolean }
   /** 文件夹首页一个个的（往里缩、没有 ⋯ 和把手） */
   | { kind: 'child'; id: string }
+  /** 一张书桌（没有 ⋯ 和把手） */
+  | { kind: 'desk'; id: string }
   | { kind: 'note'; path: string }
   /** 钉住的空了、拖着时的空组：落点 */
   | { kind: 'empty'; gid: string }
@@ -55,7 +59,8 @@ export function emptySections(o: {
   /** 拖着的时候空组也画出来当落点 */
   dragging: boolean
 }): Section[] {
-  const listed = o.cmds.filter((c) => !c.folder && !c.searchOnly)
+  const listed = o.cmds.filter((c) => !c.folder && !c.searchOnly && !c.desk)
+  const desks = o.cmds.filter((c) => c.desk)
   const children = o.cmds.filter((c) => c.folder)
   const have = new Set(listed.map((c) => c.id))
   // 文件夹首页那一行：有文件夹首页时才有
@@ -66,6 +71,8 @@ export function emptySections(o: {
   const out: Section[] = []
   for (const g of [...GROUPS.map((x) => x.id), ...L.filter((x) => !GROUPS.some((b) => b.id === x.id)).map((x) => x.id)]) {
     if (g === 'recent') {
+      // 书桌（task-kbnc0）：有书桌时一组，在最近打开前面（原型 B4）
+      if (desks.length) out.push({ id: 'desks', name: '书桌', rows: desks.map((c) => ({ kind: 'desk', id: c.id })) })
       if (o.recent.length) out.push({ id: g, name: groupName(o.cfg, g), rows: o.recent.slice(0, 3).map((path) => ({ kind: 'note', path })) })
       continue
     }

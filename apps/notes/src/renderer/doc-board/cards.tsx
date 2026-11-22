@@ -8,7 +8,7 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import type { EngineId } from '../../shared/agent'
 import { EngineLogo } from '../engine-logo'
-import { type AskSection, type DocUnit, findMath, parseSection, parseTable, prop } from '@cn/format'
+import { type AskSection, type DocUnit, findMath, isSummaryHead, parseSection, parseTable, prop, SUMMARY_LABEL } from '@cn/format'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { type FileEntry, fileName } from '../../shared/files'
@@ -19,6 +19,7 @@ import { CardBody, classify, domainOf, TODO } from '../CardBody'
 import { Attached, inline, Markdown, reviewTag } from '../md-render'
 import { embedImageSrc, imageSrc } from '../md-widgets'
 import { MathBlock } from '../reading/math'
+import { SideText, type Spot } from '../side/file-side'
 import { videoUrlOfCard } from '../video/BoardCards'
 import { BaseCard } from './base-card'
 import { usePdfPage } from './pdf-page'
@@ -33,6 +34,8 @@ export interface CardActs {
   onFull(): void
   /** 数据库卡「展开」：卡在原地长成整张表（白板上才有） */
   onExpand?(): void
+  /** AI 讲解卡上选一句开旁支（白板上的卡才有，task-p90ra；拖着的影子、看全文的浮层没有） */
+  side?: Spot
 }
 
 export type OpenTarget = { kind: 'file'; path: string; page?: number } | { kind: 'url'; url: string }
@@ -57,7 +60,7 @@ interface Source {
 export type Face =
   | { k: 'text' | 'list' | 'html'; md: string }
   | { k: 'todo'; rows: { line: number; done: boolean; text: string }[] }
-  | { k: 'callout'; kind: string; icon: CodiconName; engine: EngineId | null; tone: string; title: string; meta: string; body: string }
+  | { k: 'callout'; kind: string; icon: CodiconName; engine: EngineId | null; bare?: boolean; tone: string; title: string; meta: string; body: string }
   | { k: 'code'; lang: string; lines: string[] }
   | { k: 'math'; tex: string[] }
   | { k: 'table'; head: string[]; rows: string[][]; right: boolean[] }
@@ -114,7 +117,8 @@ export function faceClass(f: Face): string {
 }
 
 export function faceName(f: Face): string {
-  if (f.k === 'callout') return f.kind === 'ai' ? KIND_NAME.ai! : KIND_NAME.callout!
+  // 「AI 总结的」卡写成 [!ai] 提示块以后（task-5yp97）头一个词是「AI 总结」
+  if (f.k === 'callout') return f.kind === 'ai' ? (isSummaryHead(f.title) ? SUMMARY_LABEL : KIND_NAME.ai!) : KIND_NAME.callout!
   if (f.k === 'quote') return f.source?.book ? KIND_NAME.book! : f.source ? KIND_NAME.web! : KIND_NAME.quote!
   if (f.k === 'cardbody') return KIND_NAME[f.kind]!
   return KIND_NAME[f.k] ?? '正文'
@@ -200,7 +204,7 @@ export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'fi
       const own = text.split('\n').slice(1)
       const end = own.findIndex((l) => !l.trim())
       const body = (end < 0 ? own : own.slice(0, end)).map((l) => l.replace(/^\s*>\s?/, '')).join('\n')
-      return { k: 'callout', kind: c.kind, icon: c.icon, engine: c.engine, tone: c.tone, title: cut > 0 ? title.slice(0, cut) : title, meta: cut > 0 ? title.slice(cut + 3) : '', body }
+      return { k: 'callout', kind: c.kind, icon: c.icon, engine: c.engine, ...(c.bare ? { bare: true } : {}), tone: c.tone, title: cut > 0 ? title.slice(0, cut) : title, meta: cut > 0 ? title.slice(cut + 3) : '', body }
     }
     case 'quote':
       // 网页剪下来的一段（> 原文 + —— [标题](网址)）、书摘（—— [《书》 · 章](阅读页)、> [!quote] [《书》 · 章](…)）
@@ -356,15 +360,20 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
       return (
         <div className={`cl tone-${f.tone}`} data-kind={f.kind}>
           <div className="ct">
-            {f.engine ? <EngineLogo id={f.engine} size={14} /> : <Codicon name={f.icon} size={14} />}
+            {/* 没写哪家的「AI 总结」块不画图标（task-5yp97） */}
+            {f.engine ? <EngineLogo id={f.engine} size={14} /> : f.bare ? null : <Codicon name={f.icon} size={14} />}
             <span className="nm">{f.title}</span>
             {f.meta && <span className="eng">{f.meta}</span>}
           </div>
-          {f.body.trim() && (
-            <div className={'db-md' + (full ? '' : ' clamp5')}>
-              <Markdown text={f.body} />
-            </div>
-          )}
+          {f.body.trim() &&
+            (f.kind === 'ai' && acts.side ? (
+              // 开着旁支时整段露出来（卡跟着长高），收着时照旧只露五行
+              <SideText spot={acts.side} md={f.body} className="db-md" closedClass={full ? undefined : 'clamp5'} />
+            ) : (
+              <div className={'db-md' + (full ? '' : ' clamp5')}>
+                <Markdown text={f.body} />
+              </div>
+            ))}
         </div>
       )
     case 'code': {

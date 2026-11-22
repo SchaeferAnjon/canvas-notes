@@ -115,6 +115,16 @@ describe('排序面板：换列、换方向、不排序', () => {
     // 没有 sort：原样
     expect(clearBaseSort(src)).toBe(src)
   })
+  it('加过列（views 后面有 properties）再排序：sort 写进视图里、不落进 properties，排得上；「不排序」回到原样', () => {
+    const typed = setBaseColType(src, '读完了', 'check')
+    const sorted = setBaseSort(typed, '评分', false)
+    expect(sorted).toBe(src + '\n    sort:\n      - property: 评分\n        direction: ASC\nproperties:\n  读完了:\n    type: check')
+    expect(parseBase(sorted).sort).toEqual([{ prop: '评分', desc: false }])
+    expect(parseBase(sorted).types).toEqual({ 读完了: 'check' })
+    // 换方向：只换视图里那一块
+    expect(setBaseSort(sorted, '评分', true)).toBe(sorted.replace('direction: ASC', 'direction: DESC'))
+    expect(clearBaseSort(sorted)).toBe(typed)
+  })
 })
 
 describe('文档里的表格就地改格子（方向 A：不露「|」）', () => {

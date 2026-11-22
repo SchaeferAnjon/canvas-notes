@@ -1,4 +1,4 @@
-import { appendBlock, attr, freshId, hasOldLayout, isMindmap, newBlock, newId, num, parseBoard, serializeBoard, splitDoc, tagLine } from '@cn/format'
+import { appendBlock, attr, freshId, hasOldLayout, isMindmap, newBlock, newId, num, parseBoard, serializeBoard, splitDoc, summaryCallout, tagLine } from '@cn/format'
 import type { DreamReport } from '../shared/api'
 import { INBOX, titleOf } from '../shared/layout'
 import { BRAND } from '../shared/brand'
@@ -72,13 +72,15 @@ export function askPrompt(question: string, context: { path: string; text: strin
 /**
  * 总结存成卡片，标上「AI 总结的」和日期。2026-11-21 起白板就是这篇文档：放在最左一组最前面（标题下面），
  * 前面一行只记编号和日期的 `<!-- card id=… ai=日期 -->`（文档里藏着），白板卡底画「AI 总结的 · 日期」；
- * 以前写法的白板（导图、撤回了转写法的）照旧放在左下角
+ * 以前写法的白板（导图、撤回了转写法的）照旧放在左下角。
+ * 正文写成 `> [!ai] AI 总结 · 哪家 · 哪个模型` 提示块（task-5yp97，用户看图选的「选法 1」）：和 AI 讲解卡一套，能选一句开旁支；by 是「Claude Code · Opus 5.5」
  */
-export function withSummaryCard(boardText: string, summary: string): { text: string; id: string } {
+export function withSummaryCard(boardText: string, summary: string, by?: string): { text: string; id: string } {
+  const card = summaryCallout(summary.trim(), by)
   if (!isMindmap(boardText) && !hasOldLayout(boardText)) {
     const b = splitDoc(boardText)
     const id = freshId(boardText, 's')
-    const body = `${tagLine(id, { ai: today() })}\n${summary.trim()}`
+    const body = `${tagLine(id, { ai: today() })}\n${card}`
     const lead = b.columns[0]
     // 最左一组（第一节之前）有卡：插在它前面；没有：插在第一个列标题前面（白板上就是最左一组），一列都没有就加在文末
     const at = lead && !lead.head && lead.cards[0] ? (lead.cards[0].place?.from ?? lead.cards[0].tag?.from ?? lead.cards[0].from) : lead?.head ? (lead.place?.from ?? lead.head.from) : null
@@ -91,7 +93,7 @@ export function withSummaryCard(boardText: string, summary: string): { text: str
   const x = free.length ? Math.min(...free.map((b) => num(b, 'x', 0))) : 80
   const y = free.length ? Math.max(...doc.blocks.filter((b) => !attr(b, 'in')).map((b) => num(b, 'y', 0))) + 240 : 80
   const id = newId(doc)
-  return { text: serializeBoard(appendBlock(doc, newBlock('card', { id, x, y, w: 300, ai: today() }, summary))), id }
+  return { text: serializeBoard(appendBlock(doc, newBlock('card', { id, x, y, w: 300, ai: today() }, card))), id }
 }
 
 /**

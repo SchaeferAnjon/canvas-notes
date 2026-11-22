@@ -77,8 +77,12 @@ async function selectText(page: Page, scope: Locator, from: string, to: string) 
   await page.mouse.move(pts[2]!, pts[3]!, { steps: 8 })
   await page.mouse.up()
   return page.evaluate(() => {
-    const r = window.getSelection()!.getRangeAt(0).getBoundingClientRect()
-    return { left: r.left, right: r.right, bottom: r.bottom }
+    const range = window.getSelection()!.getRangeAt(0)
+    const r = range.getBoundingClientRect()
+    // 选中高亮的下沿：底色铺满行高，比字的下沿低半个行距（task-5yp97 小框离它 8）
+    const last = [...range.getClientRects()].filter((x) => x.width > 0).reduce((a, x) => (x.bottom > a.bottom ? x : a))
+    const lh = parseFloat(getComputedStyle(range.endContainer.parentElement!).lineHeight)
+    return { left: r.left, right: r.right, bottom: r.bottom, highlight: last.bottom + (lh - last.height) / 2 }
   })
 }
 
@@ -101,13 +105,14 @@ test('小框（照小样）、空着回车就地开旁支光标在旁支里、�
   try {
     const msg = await askFirst(page)
     const txt = msg.locator('.txt')
-    // 回答里选中一句：选区下方 8 的小框，300 宽；上面一格能先打问题，下面两行
+    // 回答里选中一句：离选中高亮的下沿 8 的小框（task-5yp97，以前离字的下沿 8），300 宽；上面一格能先打问题，下面两行
     const sel = await selectText(page, txt, '列就是', '去哪')
     const ab = askbox(page)
     await expect(ab).toBeVisible()
     const b = await box(ab)
     expect(b.width).toBe(300)
-    expect(Math.abs(b.y - (sel.bottom + 8))).toBeLessThanOrEqual(1)
+    // 量到看得见的边：框外那圈 1px 外环（--shadow-up 第一层）离高亮下沿 8，框本身再往下 1
+    expect(Math.abs(b.y - 1 - (sel.highlight + 8))).toBeLessThanOrEqual(1)
     expect(Math.abs(b.x + 150 - (sel.left + sel.right) / 2)).toBeLessThanOrEqual(1.5)
     const ta = ab.getByRole('textbox', { name: '问这句' })
     await expect(ta).toHaveAttribute('placeholder', '问这句…（空着 ↵ 就是打开旁支自己打）')

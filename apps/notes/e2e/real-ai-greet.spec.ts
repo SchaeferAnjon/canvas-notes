@@ -68,6 +68,8 @@ test('真 Claude Code：左栏多选 3 篇「问AI」→「合成一篇」，真
     const tree = page.locator('aside.side').getByRole('tree')
     const row = (n: string) => tree.getByRole('treeitem').filter({ has: page.locator('.truncate', { hasText: new RegExp(`^${n}$`) }) })
     await row('冰岛-机票').click()
+    // ⌘ 点从空开始，正在看的那篇不算进选中（task-cqia6）：三篇都 ⌘ 点
+    await row('冰岛-机票').click({ modifiers: ['Meta'] })
     await row('冰岛-住宿').click({ modifiers: ['Meta'] })
     await row('冰岛-路线').click({ modifiers: ['Meta'] })
     await page.locator('aside.side').getByRole('toolbar', { name: '选中的' }).getByRole('button', { name: '问AI' }).click()

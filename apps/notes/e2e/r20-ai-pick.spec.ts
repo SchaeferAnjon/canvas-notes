@@ -31,9 +31,9 @@ test('多选 3 篇，底部那一条点「问AI」：AI 打开、看得到「选
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))
     await openNote(page, '随手记')
     await leftView(page, '文件')
+    // 单击冰岛是打开它；⌘ 点从空开始（正在看的不算进选中，task-cqia6），三篇都 ⌘ 点
     await row(page, '冰岛').click()
-    await row(page, '菜谱').click({ modifiers: ['Meta'] })
-    await row(page, '随手记').click({ modifiers: ['Meta'] })
+    for (const n of ['冰岛', '菜谱', '随手记']) await row(page, n).click({ modifiers: ['Meta'] })
     await expect(bar(page).locator('b')).toHaveText('已选3个')
     // 「问AI」在「移到…」左边，前面是 AI 对话那一家的标志
     await expect(bar(page).getByRole('button')).toHaveText(['问AI', '移到…', '删除'])
@@ -97,6 +97,7 @@ test('选了两篇和一个文件夹，右键「问 AI」：看得到「选中�
     await openNote(page, '随手记')
     await leftView(page, '文件')
     await row(page, '冰岛').click()
+    await row(page, '冰岛').click({ modifiers: ['Meta'] })
     await row(page, '周记').click({ modifiers: ['Meta'] })
     await row(page, '菜谱').click({ modifiers: ['Meta'] })
     await expect(bar(page).locator('b')).toHaveText('已选3个')
@@ -140,7 +141,9 @@ test('中间开着 PDF 时多选 3 篇「问AI」：切到普通的 AI 对话（
     // 文件树里 ⌘ 点三篇（不打开），底部那一条点「问AI」
     await leftView(page, '文件')
     for (const n of ['冰岛', '菜谱', '随手记']) await row(page, n).click({ modifiers: ['Meta'] })
-    // 照访达：开着的那份 PDF 那一行本来就算选中的，⌘ 点三篇是 4 个；再 ⌘ 点它一下去掉
+    // 照 Obsidian：开着的那份 PDF 只是「正在看」（竖线），不算进选中，⌘ 点三篇就是 3 个；⌘ 点它一下才加进来，再点去掉（task-cqia6）
+    await expect(bar(page).locator('b')).toHaveText('已选3个')
+    await tree(page).locator('[data-path="课程/线代/第3讲.pdf"]').click({ modifiers: ['Meta'] })
     await expect(bar(page).locator('b')).toHaveText('已选4个')
     await tree(page).locator('[data-path="课程/线代/第3讲.pdf"]').click({ modifiers: ['Meta'] })
     await expect(bar(page).locator('b')).toHaveText('已选3个')

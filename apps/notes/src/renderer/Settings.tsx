@@ -49,7 +49,7 @@ export interface SettingsProps {
   /** 梦游页的「看报告」：左栏开梦游报告（弹窗先关上） */
   onOpenDream(): void
   /** 设置里点了「去那里」的链接（网页「⋯ › 插件」、读PDF的笔记、视频条）：关上设置，在用的地方打开 */
-  onGoPlace(place: 'web-extensions' | 'pdf-note' | 'video-subs'): void
+  onGoPlace(place: 'web-extensions' | 'video-subs'): void
   /** 翻到另一页的某一行、闪一下（「排顺序 ›」「去AI页换 ›」「去Git和同步 ›」、搜索回车） */
   onGoRow(row: string): void
 }

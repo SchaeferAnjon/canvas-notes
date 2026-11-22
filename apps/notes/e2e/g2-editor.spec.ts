@@ -530,7 +530,7 @@ test('CN-19 打 /数据库 插一个 ```base 表格：每条是一篇 md；新�
     // 就地改属性：写进那一篇的 frontmatter
     // 「状态」是选项列（照 Notion）：点格子弹选项小框，打一个新的回车就建、写进去
     await db.locator('tbody tr', { hasText: '第一条' }).locator('td').nth(1).click()
-    const cell = db.getByRole('dialog', { name: '第一条 · 状态' }).getByRole('textbox', { name: '找一个，或者打一个新的' })
+    const cell = page.getByRole('dialog', { name: '第一条 · 状态' }).getByRole('textbox', { name: '找一个，或者打一个新的' })
     await cell.fill('在读')
     await cell.press('Enter')
     await expect.poll(() => readFileSync(join(vault, '未命名数据库', '第一条.md'), 'utf8')).toMatch(/^---\n状态: 在读\n日期: \d{4}-\d{2}-\d{2}\n---\n$/)
@@ -582,7 +582,7 @@ test('数据库表头：筛选面板（全部 / 任一）、筛选小标签 ×�
 
     // 筛选面板：状态 是 在读
     await db.getByRole('button', { name: '筛选' }).click()
-    const panel = db.getByRole('dialog', { name: '筛选' })
+    const panel = page.getByRole('dialog', { name: '筛选' })
     await expect(panel).toBeVisible()
     const row = (i: number) => panel.locator('.base-filter-row').nth(i)
     await row(0).getByRole('combobox', { name: '列' }).selectOption('状态')
@@ -616,22 +616,22 @@ test('数据库表头：筛选面板（全部 / 任一）、筛选小标签 ×�
 
     // 列头菜单：评分 降序
     await db.getByRole('button', { name: '评分', exact: true }).click()
-    const menu = db.getByRole('menu', { name: '评分 这一列' })
+    const menu = page.getByRole('menu', { name: '评分 这一列' })
     await menu.getByRole('menuitemcheckbox', { name: '降序' }).click()
     await expect.poll(file).toContain('      - 读完\n    sort:\n      - property: 评分\n        direction: DESC\n```')
     await expect(db.locator('tbody tr').first()).toContainText('人类简史')
     // 隐藏「读完」：从 order 里拿掉；表头最右边 eye-closed 1，点开勾回来
     await db.getByRole('button', { name: '读完', exact: true }).click()
-    await db.getByRole('menu', { name: '读完 这一列' }).getByRole('menuitem', { name: '隐藏这一列' }).click()
+    await page.getByRole('menu', { name: '读完 这一列' }).getByRole('menuitem', { name: '隐藏这一列' }).click()
     await expect.poll(file).not.toContain('      - 读完\n')
     await expect(db.locator('th', { hasText: '读完' })).toHaveCount(0)
     await page.screenshot({ path: 'test-results/g2-19-hidden.png' })
     await db.getByRole('button', { name: '隐藏了 1 列' }).click()
-    await db.getByRole('menu', { name: '隐藏的列' }).getByRole('menuitemcheckbox', { name: '读完' }).click()
+    await page.getByRole('menu', { name: '隐藏的列' }).getByRole('menuitemcheckbox', { name: '读完' }).click()
     await expect.poll(file).toContain('      - 评分\n      - 读完\n    sort:')
     // 按这一列筛选…：面板打开，先填好这一列
     await db.getByRole('button', { name: '作者', exact: true }).click()
-    await db.getByRole('menu', { name: '作者 这一列' }).getByRole('menuitem', { name: '按这一列筛选…' }).click()
+    await page.getByRole('menu', { name: '作者 这一列' }).getByRole('menuitem', { name: '按这一列筛选…' }).click()
     await expect(panel).toBeVisible()
     await expect(row(1).getByRole('combobox', { name: '列' })).toHaveValue('作者')
     await row(1).getByRole('combobox', { name: '条件' }).selectOption({ label: '包含' })

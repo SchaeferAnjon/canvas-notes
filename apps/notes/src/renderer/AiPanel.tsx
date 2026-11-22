@@ -57,7 +57,9 @@ import {
 } from './ai-commands'
 import { GROUPS } from './dream/useDream'
 import { dreamDoes } from '../shared/dream-settings'
+import { pickLabel } from '../shared/ai-features'
 import { withKeys } from './keys'
+import { hideToolMarkup } from '../shared/tool-markup'
 import type { NoteDoc, ViewMode } from './note-doc'
 import type { Tab } from './tabs'
 
@@ -588,6 +590,8 @@ export function AiPanel(props: AiPanelProps) {
         const read = `读了 ${notePath}${cards ? ` · ${cards}张卡片` : ''}`
         patch(id, { read })
         if (cmd === '总结这块白板') {
+          // 总结卡的头一行写是哪家、哪个模型（task-5yp97「AI 总结 · Claude Code · Opus 5.5」），照问的这一下选的记
+          const by = pickLabel({ engine, ...(cp.pick.model ? { model: cp.pick.model } : {}) }, cp.engines.find((e) => e.id === engine)?.models)
           const reply = await askAi(id, summaryPrompt(notePath, body), true)
           const actions: Action[] = []
           if (fmValue(body, 'type') === 'board' || cards > 0) {
@@ -596,7 +600,7 @@ export function AiPanel(props: AiPanelProps) {
               primary: true,
               run: async () => {
                 const cur = (await window.cn.readNote(notePath)).text
-                const { text: next } = withSummaryCard(cur, reply)
+                const { text: next } = withSummaryCard(cur, reply, by)
                 try {
                   // 提交说明和别的 / 命令一样「AI：/命令 · 对象」（task-gj0l0）
                   await applyChange(id, { message: `/总结这块白板 · ${titleOf(notePath)}`, writes: [{ path: notePath, text: next }] }, { [notePath]: '改' })
@@ -992,8 +996,6 @@ export function AiPanel(props: AiPanelProps) {
     const from = msgs.indexOf(aiTurns[0]!)
     const asks = msgs.slice(Math.max(0, from - 1)).filter((m) => m.role === 'user' && m.text).map((m) => m.text!)
     const dir = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : ''
-    // 举例的那一篇：同一个文件夹里最近改的另一篇文档（没有就是它自己）
-    const other = props.notes.filter((n) => n.path !== filePath && /\.md$/i.test(n.path) && !n.board && (n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : '') === dir).sort((a, b) => b.mtimeMs - a.mtimeMs)[0]
     openCmdEditor({
       kind: 'chat',
       place: { key: place.key, label: place.label },
@@ -1003,7 +1005,8 @@ export function AiPanel(props: AiPanelProps) {
       commits: aiTurns.map((m) => ({ hash: m.change!.commit.hash, ask: ask(m), files: m.change!.commit.files.map((f) => ({ path: f.path, added: f.added, removed: f.removed })) })),
       firstHash: aiTurns[0]!.change!.commit.hash,
       rounds: aiTurns.length,
-      example: { title: titleOf(other?.path ?? filePath), folder: dir },
+      // 举例就拿正在看的这一篇（之前拿同一个文件夹里的另一篇，用户看不懂为什么是别的书，task-ne7cw）
+      example: { title: titleOf(filePath), folder: dir },
       who: cp.label,
       engine,
       pick: { engine, ...cp.req },
@@ -1408,7 +1411,8 @@ function AnswerText(p: { text: string; marks?: Mark[]; live: boolean }) {
   }, [key, p.text, p.live])
   return (
     <div className="txt" key={p.marks?.length ? p.text : 'txt'} ref={txt}>
-      <Markdown text={p.text} math />
+      {/* 模型偶尔把工具调用写成了字（task-ne7cw）：成段的不显示，存的还是原文 */}
+      <Markdown text={hideToolMarkup(p.text, p.live)} math />
     </div>
   )
 }

@@ -147,6 +147,16 @@ describe('挪动（链接跟着改）', () => {
     expect(commits(root)).toBe(1)
   })
 
+  it('挪一篇用着数据库的笔记：挂在它下面的记录文件夹跟着挪（task-5yp97），to 还是那篇，with 写着跟着挪的，要提交的路径里都有', async () => {
+    const B = (f: string) => '```base\nfilters:\n  and:\n    - file.inFolder("' + f + '")\nviews:\n  - type: table\n    name: 表格\n```'
+    const { root, v, deps, moved } = vaultWith({ '项目/表.md': `# 表\n\n${B('项目/库')}\n`, '项目/库/一号.md': '# 一号\n', '课程/.gitkeep': '' })
+    const r = await ops.movePath(v, deps, '项目/表.md', '课程')
+    expect(r).toMatchObject({ from: '项目/表.md', to: '课程/表.md', folder: false, with: [{ from: '项目/库', to: '课程/库' }] })
+    expect(read(root, '课程/表.md')).toBe(`# 表\n\n${B('课程/库')}\n`)
+    expect(r.touched).toEqual(expect.arrayContaining(['项目/表.md', '课程/表.md', '项目/库/一号.md', '课程/库/一号.md']))
+    expect(moved).toEqual(expect.arrayContaining([['项目/表.md', '课程/表.md'], ['项目/库/一号.md', '课程/库/一号.md']]))
+  })
+
   it('挪一个文件夹进另一个文件夹；挪到库的最外层写空字符串', async () => {
     const { root, v, deps } = vaultWith({ '项目/旧/a.md': '# a\n', '课程/.gitkeep': '', '课程/b.md': '# b\n' })
     const r = await ops.movePath(v, deps, '项目/旧', '课程')

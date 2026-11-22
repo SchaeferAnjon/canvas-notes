@@ -1,14 +1,40 @@
 /**
- * 把「我的疑惑」送进 Anki：走 AnkiConnect（Anki 的插件，只听本机 127.0.0.1:8765），
- * 和 Anki Learn、Ask Free、GetNewWord 用同一个笔记类型「学习卡 · 问答」、同一张纸（卡片家族 v3）。
- * 规矩照 anki-learn 仓库 DESIGN.md「往 Anki 里加卡」：牌组「知识」，章节和课程写进标签，按 ID 字段找卡，
- * 同一牌组里问题一样的不重复加，你在 Anki 里改过的模板不动。
+ * 把读 PDF 时问过的送进 Anki（2026-11-22 起从笔记出卡，task-tz7y3；以前从「我的疑惑」页送）：走 AnkiConnect（Anki 的插件，只听本机 127.0.0.1:8765），
+ * 和 ChatCards、Ask Free、GetNewWord 用同一个笔记类型「学习卡 · 问答」、同一张纸（卡片家族 v3）。
+ * 规矩照 anki-learn 仓库 DESIGN.md「往 Anki 里加卡」：牌组「知识」（按 id 记，Anki 里改了名跟着走），课程和 PDF 写进标签，按 ID 字段找卡，
+ * 同一牌组里问题一样的不重复加（Anki 按第一个字段 Question 判，同一批里按 cardKey 判，和 anki-learn 的 CardMaker.dedupe 同一个判断）；
+ * 样式只往新的换（Anki 里的比我们旧才换），你在 Anki 里改过的模板（第一行不是「卡片家族 vN」）不动。
  * 笔记类型的定义拷自同一作者的 anki-learn（Core/Sources/AnkiLearnCore/Anki.swift 的 StudyCard），要一字不差。
+ * 对接说明：/private/tmp/canvas-notes-anki/接AnkiLearn.md（task-tz7y3 交回时附的）、docs/DEVELOPMENT.md「送进 Anki」。
  */
-import { type AskSection, formatPdfAnchor, mapMath } from '@cn/format'
+import { type AskSection, cardKey, type CardText, formatPdfAnchor, mapMath } from '@cn/format'
 
 export const ANKI_URL = process.env.CN_ANKI_URL || 'http://127.0.0.1:8765'
+// ---------------- 笔记类型名、牌组规则只写在这一处（ChatCards 改名、用户换规矩时只改这里） ----------------
+
+/** 不在课程里的 PDF 的卡进「知识」（和 ChatCards 送的同一个） */
 export const DECK = '知识'
+/**
+ * 课程里的 PDF 的卡牌组跟着目录来（2026-11-22 用户：「在对应的课程下面，比如说 ecp」「这个命名就跟目录来」）：
+ * 课程/<课>/ 下面的文件夹整条进牌组名，课程/ecp/Week 2/x.pdf 进「课程::ecp::Week 2」，再套的 Week 2/补充材料/ 进「课程::ecp::Week 2::补充材料」；
+ * 直接放在课里的用 PDF 自己的名字（课程::ecp::Lecture05）。不按 PDF 书签分章；不在课程里的进「知识」
+ */
+export const COURSE_DECK = '课程'
+const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
+/** 牌组名的一节：不能带「::」（会多建一层），太长截到 40 个字 */
+const part = (s: string) => [...s.replace(/::/g, '：').replace(/\s+/g, ' ').trim()].slice(0, 40).join('')
+/** 这门课的牌组：课程/<课>/… 是「课程::<课>」；不在课程里是 null */
+export const courseDeckOf = (path: string): string | null => {
+  const m = /^课程\/([^/]+)\//.exec(path)
+  return m ? `${COURSE_DECK}::${part(m[1]!)}` : null
+}
+/** 这份 PDF 的卡进哪个牌组：课程里的「课程::<课>::<课下面的文件夹，一层一节；直接放在课里的是 PDF 的名字>」，别的进「知识」 */
+export function deckFor(pdf: string): string {
+  const course = courseDeckOf(pdf)
+  if (!course) return DECK
+  const dirs = pdf.split('/').slice(2, -1)
+  return [course, ...(dirs.length ? dirs : [stem(pdf)]).map(part)].join('::')
+}
 export const FROM_TAG = '来自::Canvas_Notes'
 
 export const StudyCard = {
@@ -161,23 +187,31 @@ export interface CardInput {
   question: string
   /** 旁支里问的：被问的那一句（卡背面「原文」那一栏） */
   quote?: string
+  /** 出卡弹窗里过过的那张（AI 改写的、自己改过的）：有它就用它的问题、答案、补充、原文摘句 */
+  card?: CardText
   /** 截图在 Anki 媒体库里的文件名（storeMediaFile 回的） */
   image?: string
 }
 
-const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 const tagWord = (s: string) => s.trim().split(/\s+/).join('_')
+/** 补充：一行一条，两条以上写成要点，一条就是一段（anki-learn AnkiHTML.points） */
+const points = (lines: string[]) => {
+  const l = lines.map((x) => x.trim().replace(/^[-•·*]\s*/, '')).filter(Boolean)
+  return l.length > 1 ? `<ul>${l.map((p) => `<li>${html(p)}</li>`).join('')}</ul>` : html(l[0] ?? '')
+}
 
 export function fieldsFor(c: CardInput): Record<string, string> {
   const s = c.section
+  const k = c.card
   return {
-    Question: html(c.question),
-    Answer: html(s.good),
-    More: s.points.length > 1 ? `<ul>${s.points.map((p) => `<li>${html(p)}</li>`).join('')}</ul>` : html(s.points[0] ?? ''),
-    // 旁支那一问：被问的那句；以前的笔记：AI 写的另几条疑惑
-    Quote: c.quote ? html(c.quote) : s.doubts.length > 1 ? html(s.doubts.slice(1).join('\n')) : '',
-    Image: c.image ? `<img class="lead" src="${esc(c.image)}">` : '',
-    Label: esc(`Canvas Notes · ${c.course || stem(c.pdf)}`),
+    Question: html(k?.q ?? c.question),
+    Answer: html(k?.a ?? s.good),
+    More: points(k ? k.more.split('\n') : s.points),
+    // 旁支那一问：被问的那句；出卡改写的：AI 从回答、PDF 里原样摘的一句；以前的笔记：AI 写的另几条疑惑
+    Quote: c.quote ? html(c.quote) : k ? html(k.quote) : s.doubts.length > 1 ? html(s.doubts.slice(1).join('\n')) : '',
+    // 我框的图是 2 倍图：照它在 PDF 上 100% 时的宽画（和笔记里一样大，不然 Anki 里大一倍）
+    Image: c.image ? `<img class="lead" src="${esc(c.image)}"${s.cropW ? ` width="${Math.round(s.cropW)}"` : ''}>` : '',
+    Label: esc(`Canvas Notes · ${c.course || stem(c.pdf)}${c.quote ? ' · 旁支' : ''}`),
     Source: esc(`${stem(c.pdf)} · 第 ${s.page} 页`),
     Link: esc(openLink(c.pdf, s)),
     ID: noteId(c.id),
@@ -188,19 +222,27 @@ export function tagsFor(c: CardInput): string[] {
   return [FROM_TAG, ...(c.course ? [`主题::${tagWord(c.course)}`] : []), `主题::${tagWord(stem(c.pdf))}`]
 }
 
-export class AnkiConnectError extends Error {}
+/** off：连不上（Anki 没开、没装插件），选的都留着、开了接着送；api：Anki 回了错误 */
+export class AnkiConnectError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'off' | 'api' = 'api',
+  ) {
+    super(message)
+  }
+}
 
-export async function call(action: string, params?: Record<string, unknown>): Promise<unknown> {
+export async function call(action: string, params?: Record<string, unknown>, timeoutMs = 15_000): Promise<unknown> {
   let res: Response
   try {
     res = await fetch(ANKI_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ action, version: 6, ...(params ? { params } : {}) }),
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(timeoutMs),
     })
   } catch {
-    throw new AnkiConnectError('Anki 没开着，或者没装 AnkiConnect 插件（编号 2055492159）。打开 Anki 再送一次')
+    throw new AnkiConnectError('Anki 没开着，或者没装 AnkiConnect 插件（编号 2055492159）。打开 Anki 再送一次', 'off')
   }
   if (!res.ok) throw new AnkiConnectError('Anki 的回答读不懂')
   const j = (await res.json()) as { result?: unknown; error?: string | null }
@@ -208,7 +250,19 @@ export async function call(action: string, params?: Record<string, unknown>): Pr
   return j.result
 }
 
-/** 「学习卡 · 问答」缺了就建；同名但字段对不上的不是我们的，改用「学习卡 · 问答 2」。你改过的模板一律不动 */
+/** AnkiConnect 在不在答话（Anki 开着、插件在跑）：两秒没回当没开 */
+export const connected = (): Promise<boolean> => call('version', undefined, 2000).then(() => true, () => false)
+
+/** CSS 第一行：`/* 卡片家族 v3 *\/`；不是这个格式就说明你在 Anki 里改过 */
+export function cssVersion(css: string): number | null {
+  const m = /^\/\* 卡片家族 v(\d+) \*\/$/.exec((css.split('\n', 1)[0] ?? '').trim())
+  return m ? Number(m[1]) : null
+}
+
+/**
+ * 「学习卡 · 问答」缺了就建；同名但字段对不上的不是我们的，改用「学习卡 · 问答 2」。
+ * 样式只往新的换：Anki 里的比我们带的旧（别的软件装的早一版）才换模板和样式；新的、你改过的（第一行不是「卡片家族 vN」）一律不动
+ */
 async function noteType(): Promise<string> {
   const names = ((await call('modelNames')) as string[]) ?? []
   for (const name of [StudyCard.name, StudyCard.otherName]) {
@@ -223,54 +277,87 @@ async function noteType(): Promise<string> {
       return name
     }
     const fields = ((await call('modelFieldNames', { modelName: name })) as string[]) ?? []
-    if (fields.join('\u0000') === StudyCard.fields.join('\u0000')) return name
+    if (fields.join('\u0000') !== StudyCard.fields.join('\u0000')) continue
+    const v = cssVersion(((await call('modelStyling', { modelName: name })) as { css?: string } | null)?.css ?? '')
+    if (v !== null && v < StudyCard.version) {
+      await call('updateModelStyling', { model: { name, css: CSS } })
+      await call('updateModelTemplates', { model: { name, templates: { [StudyCard.templateName]: { Front: FRONT, Back: BACK } } } })
+    }
+    return name
   }
   throw new AnkiConnectError(`「${StudyCard.name}」和「${StudyCard.otherName}」都是别的笔记类型`)
 }
 
-/** 牌组按 id 记：你在 Anki 里改了名就跟着新名字；找不到就按名字建 */
-async function deck(id: number | undefined): Promise<{ name: string; id: number }> {
+/** 这几个牌组缺了就建（Anki 里已经有的、你自己改过的不动） */
+async function ensureDecks(names: string[]): Promise<void> {
   const decks = ((await call('deckNamesAndIds')) as Record<string, number>) ?? {}
-  if (id !== undefined) {
-    const cur = Object.entries(decks).find(([, v]) => v === id)
-    if (cur) return { name: cur[0], id }
-  }
-  if (decks[DECK] !== undefined) return { name: DECK, id: decks[DECK]! }
-  return { name: DECK, id: (await call('createDeck', { deck: DECK })) as number }
+  for (const n of new Set(names)) if (decks[n] === undefined) await call('createDeck', { deck: n })
 }
 
 export interface SendResult {
   added: string[]
   duplicates: string[]
   failed: Record<string, string>
-  deck: { name: string; id: number }
+  /** 这一批进了哪几个牌组 */
+  decks: string[]
+  /** 加进去的那几问在 Anki 里的笔记编号（撤回时删、在 Anki 里看时找） */
+  notes: Record<string, number>
 }
 
-/** 送一批：截图先存进 Anki 的媒体库，再加笔记；牌组里问题一样的不重复加 */
-export async function sendCards(cards: (CardInput & { png?: Buffer })[], deckId?: number): Promise<SendResult> {
+/** 送一批：截图先存进 Anki 的媒体库，再加笔记；同一牌组里同一批问题一样的只送第一张，牌组里已经有一样问题的不重复加 */
+export async function sendCards(cards: (CardInput & { png?: Buffer })[]): Promise<SendResult> {
   await call('version')
   const model = await noteType()
-  const d = await deck(deckId)
-  for (const c of cards) {
+  const r: SendResult = { added: [], duplicates: [], failed: {}, decks: [], notes: {} }
+  const seen = new Set<string>()
+  const go = cards.filter((c) => {
+    const k = `${deckFor(c.pdf)}\n${cardKey(c.card?.q ?? c.question)}`
+    if (!seen.has(k)) return seen.add(k)
+    r.duplicates.push(c.id)
+    return false
+  })
+  r.decks = [...new Set(go.map((c) => deckFor(c.pdf)))]
+  if (go.length) await ensureDecks(r.decks)
+  for (const c of go) {
     if (!c.png) continue
     c.image = (await call('storeMediaFile', { filename: `${noteId(c.id)}.png`, data: c.png.toString('base64') })) as string
   }
-  const notes = cards.map((c) => ({ deckName: d.name, modelName: model, fields: fieldsFor(c), tags: tagsFor(c), options: { allowDuplicate: false, duplicateScope: 'deck' } }))
+  const notes = go.map((c) => ({ deckName: deckFor(c.pdf), modelName: model, fields: fieldsFor(c), tags: tagsFor(c), options: { allowDuplicate: false, duplicateScope: 'deck' } }))
+  if (!notes.length) return r
   const checks = (await call('canAddNotesWithErrorDetail', { notes })) as { canAdd: boolean; error?: string }[]
-  if (!Array.isArray(checks) || checks.length !== cards.length) throw new AnkiConnectError('Anki 的回答读不懂')
-  const r: SendResult = { added: [], duplicates: [], failed: {}, deck: d }
+  if (!Array.isArray(checks) || checks.length !== go.length) throw new AnkiConnectError('Anki 的回答读不懂')
   const fresh: number[] = []
   checks.forEach((ch, i) => {
     if (ch.canAdd) fresh.push(i)
-    else if (/duplicate/i.test(ch.error ?? '')) r.duplicates.push(cards[i]!.id)
-    else r.failed[cards[i]!.id] = ch.error ?? '加不进去'
+    else if (/duplicate/i.test(ch.error ?? '')) r.duplicates.push(go[i]!.id)
+    else r.failed[go[i]!.id] = ch.error ?? '加不进去'
   })
   if (fresh.length) {
     const ids = (await call('addNotes', { notes: fresh.map((i) => notes[i]) })) as (number | null)[]
     fresh.forEach((i, k) => {
-      if (ids?.[k] == null) r.failed[cards[i]!.id] = '加不进去'
-      else r.added.push(cards[i]!.id)
+      const id = ids?.[k]
+      if (id == null) r.failed[go[i]!.id] = '加不进去'
+      else {
+        r.added.push(go[i]!.id)
+        r.notes[go[i]!.id] = id
+      }
     })
   }
   return r
+}
+
+/** 撤回刚送的：Anki 里删掉这几张笔记 */
+export async function deleteNotes(ids: number[]): Promise<void> {
+  if (ids.length) await call('deleteNotes', { notes: ids })
+}
+
+/** Anki 的查找能找到几张卡（「今天要复习」：deck:"知识" tag:主题::ecp is:new / is:due） */
+export async function countCards(query: string): Promise<number> {
+  const r = (await call('findCards', { query }, 5000)) as unknown[]
+  return Array.isArray(r) ? r.length : 0
+}
+
+/** 在 Anki 的卡片浏览器里打开这几张（按 ID 字段找，和 anki-learn 的 AnkiConnect.query 同一个写法） */
+export async function browse(itemIds: string[]): Promise<void> {
+  if (itemIds.length) await call('guiBrowse', { query: itemIds.map((id) => `"ID:${noteId(id)}"`).join(' OR ') }, 5000)
 }

@@ -193,7 +193,10 @@ test('数据库的数据源文件夹在文件树里拖进别的文件夹、右�
   const { page, vault } = run
   const file = () => readFileSync(join(vault, '项目/表.md'), 'utf8')
   try {
+    // 记录文件夹挂在用它的「表」下面（task-5yp97「藏之后」）：先展开「表」，再拖挂在下面的「库」那一行
     await expand(page, '项目')
+    await tree(page).getByRole('button', { name: '展开 表 的数据库' }).click()
+    await expect(treeRow(page, '库')).toHaveAttribute('data-path', '项目/库')
     await treeRow(page, '库').dragTo(treeRow(page, '写作'))
     await expect.poll(() => existsSync(join(vault, '写作/库/一号.md'))).toBe(true)
     await expect(page.getByTestId('toast')).toContainText('链接一起改好了')

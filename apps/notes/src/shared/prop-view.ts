@@ -38,6 +38,7 @@ export const LABELS: Record<string, string> = {
   date: '日期',
   url: '网址',
   description: '简介',
+  'read-along': '对着看',
 }
 
 /** 软件自己读来的，只看不改 */

@@ -68,9 +68,13 @@
   border-radius: 999px;
   background: var(--acc);
 }
-/* 正在拖、正在开菜单的那块：选中底画在底下一层（block-handles.tsx 的 hotLayer），比版心左右各宽出 8、上下各 4，圆角 6 */
+/* 正在拖、正在开菜单的那块：盖在上面一层强调色 24%，和退格选中整块（.cm-blk-selbg）一个颜色（block-handles.tsx 的 hotLayer，task-qkx1j）；
+   块部件大小、圆角跟卡自己，文字块比版心左右各宽出 8、上下各 4，圆角 6 */
+.doc .cm-blkHotLayer {
+  pointer-events: none;
+}
 .doc .cm-blk-hotbg {
-  background: var(--acc-soft);
+  background: color-mix(in srgb, var(--acc) 24%, transparent);
   border-radius: 6px;
 }
 /* 版心左右各让出 8 给选中底：.cm-scroller 往外撑 8、再用内边距收回来，正文位置不变（不然选中底被它的 overflow 裁掉）。
@@ -434,9 +438,11 @@
   padding: 0;
   overflow-x: auto;
 }
-/* 表格撑满版心，几列平分（DESIGN.v3 6.5；第三版稿子是版心满宽三列平分） */
+/* 表格撑满版心，几列平分（DESIGN.v3 6.5；第三版稿子是版心满宽三列平分）；
+   每列至少 6em（窄栏里不挤成一字一行，task-c22p9），放不下就在这一块里横着滚，不撑宽版心 */
 .doc .cm-table table {
   width: 100%;
+  min-width: calc(var(--cols, 1) * 6em);
   table-layout: fixed;
   border-collapse: collapse;
   font-size: 13px;
@@ -449,6 +455,8 @@
   text-align: left;
   vertical-align: top;
   overflow-wrap: anywhere;
+  /* 折两行时两行差不多长，不剩一个字在下一行（task-c22p9） */
+  text-wrap: balance;
   cursor: text;
 }
 /* 正在改的那一格：一个和格子一样大的输入框 */
@@ -588,10 +596,13 @@
 }
 
 
-/* 选中一整块（图片、视频卡、时刻块）：块后面一层 --acc-soft 底，比版心左右各宽出 8、上下各 4（atomic-blocks.ts） */
+/* 选中一整块（数据库、图片、视频卡、嵌入……）：盖在卡上面一层强调色 24%，和单独成行的公式、正文选区一个颜色；
+   大小、圆角跟卡自己（atomic-blocks.ts 量，task-6lsvd；以前是卡后面的 --acc-soft，卡有不透明底，几乎看不出） */
+.doc .cm-blkSelLayer {
+  pointer-events: none;
+}
 .doc .cm-blk-selbg {
-  background: var(--acc-soft);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--acc) 24%, transparent);
 }
 
 /* ---------- 提示块（callout，CN-59）：--fill 底、圆角 8、内边距 10/14，没有左竖线；第一行图标 14 + 标题 13/500 ---------- */
@@ -626,6 +637,10 @@
 }
 .doc .cm-callout-label {
   font-weight: 500;
+}
+/* 没写哪家的「AI 总结」块：不画图标，标题和正文左对齐（task-5yp97） */
+.doc .cm-callout-icon.bare {
+  margin-right: 0;
 }
 .doc .cm-tone-yellow .cm-callout-icon {
   color: var(--yellow);
@@ -808,8 +823,37 @@
 .base-top > .ci {
   color: var(--t2);
 }
+/* 一行不折（task-c22p9，窄栏里以前挤成一字一行）：名字放不下省略号、悬停看全名，别的都不缩；放不下的收进「⋯」（BaseTable 的 useFold） */
+.base-top > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .base-top b {
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-weight: 500;
+}
+.base-more {
+  position: relative;
+}
+/* 排序、筛选的小标签收进「⋯」时：右上角 6 的 --acc 点，外圈 2 留块底色（同谁来答的红点角标） */
+.base-more.dot::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 0 2px var(--card);
+}
+.base-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .base-count {
   font-size: 12px;

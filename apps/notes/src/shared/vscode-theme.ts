@@ -296,7 +296,8 @@ export function convertTheme(t: VsTheme, opts: { name?: string; uiTheme?: string
     'acc-soft': rgbaStr(acc, dark ? 0.15 : 0.1),
     'acc-ring': rgbaStr(acc, dark ? 0.5 : 0.4),
     shadow: dark ? `0 0 0 1px ${rgbaStr(t1, 0.09)}, 0 10px 26px rgba(0, 0, 0, 0.35)` : `0 0 0 1px ${rgbaStr(t1, 0.08)}, 0 8px 24px rgba(0, 0, 0, 0.08)`,
-    'shadow-up': dark ? `0 0 0 1px ${rgbaStr(t1, 0.13)}, 0 24px 56px -12px rgba(0, 0, 0, 0.7)` : `0 0 0 1px ${rgbaStr(t1, 0.1)}, 0 24px 56px -12px rgba(0, 0, 0, 0.24)`,
+    // 深色浮层的细边 --t3 60%（task-qkx1j，和自带的五套深色一样：深色里浮层和底下的块常常同色，靠这圈边分开）
+    'shadow-up': dark ? `0 0 0 1px ${rgbaStr(t3, 0.6)}, 0 24px 56px -12px rgba(0, 0, 0, 0.7)` : `0 0 0 1px ${rgbaStr(t1, 0.1)}, 0 24px 56px -12px rgba(0, 0, 0, 0.24)`,
     glass: rgbaStr(dark ? side : win, dark ? 0.84 : 0.86),
     green: hex(git('added', dark ? '#81b88b' : '#587c0c')),
     yellow: hex(git('modified', dark ? '#e2c08d' : '#895503')),

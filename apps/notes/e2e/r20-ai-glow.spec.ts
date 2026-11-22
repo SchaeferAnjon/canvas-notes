@@ -91,6 +91,18 @@ test('整块白板：一道光沿四边在走、改到的卡边上跑一圈；�
     // 2. 顶上那条：字照原型，边上同一道光
     const bar = board.getByTestId('ai-actbar')
     await expect(bar).toContainText('AI 正在整理这块白板')
+    // 在页面里记下「整理好了」出来、提示条收起（加上 hide）各是什么时候：不受 Playwright 轮询、截图慢不慢的影响
+    await bar.evaluate((el) => {
+      const w = window as unknown as { cnFin?: number; cnHide?: number }
+      const mo = new MutationObserver(() => {
+        if (!w.cnFin && el.textContent?.includes('整理好了')) w.cnFin = performance.now()
+        if (w.cnFin && el.classList.contains('hide')) {
+          w.cnHide = performance.now()
+          mo.disconnect()
+        }
+      })
+      mo.observe(el, { attributes: true, attributeFilter: ['class'], childList: true, subtree: true, characterData: true })
+    })
     await expect(bar.getByRole('button', { name: /停下/ })).toContainText('esc')
     await expect(bar.getByTestId('ai-bar-glow')).toHaveAttribute('data-mode', 'loop')
     // 3. 改到哪张卡：那张边上跑一圈光，和卡一样大
@@ -105,12 +117,17 @@ test('整块白板：一道光沿四边在走、改到的卡边上跑一圈；�
     await page.screenshot({ path: 'test-results/glow-board-run.png' })
     // 4. 做完：「整理好了 · 挪了6张卡 · 撤回」，约 1.8 秒后收起，整层没了
     await expect(bar).toContainText(/整理好了 · 挪了\d张卡/, { timeout: 30_000 })
-    const shownAt = Date.now()
     await expect(bar.getByRole('button', { name: '撤回' })).toBeVisible()
     await expect(edge).toHaveAttribute('data-phase', 'gone')
     await page.screenshot({ path: 'test-results/glow-board-done.png' })
-    await expect(bar).toHaveClass(/\bhide\b/, { timeout: 4000 })
-    const hidAfter = Date.now() - shownAt
+    const hidAfter = await page.evaluate(
+      () =>
+        new Promise<number>((done) => {
+          const w = window as unknown as { cnFin?: number; cnHide?: number }
+          const t = setInterval(() => w.cnHide && w.cnFin && (clearInterval(t), done(w.cnHide - w.cnFin)), 20)
+          setTimeout(() => (clearInterval(t), done(-1)), 4000)
+        }),
+    )
     expect(hidAfter).toBeGreaterThan(1500)
     expect(hidAfter).toBeLessThan(2600)
     await expect(board.getByTestId('ai-act')).toHaveCount(0)
@@ -161,13 +178,16 @@ test('只加一张卡：整块不亮，只那张卡边上一圈光，卡下面�
     const spot = board.getByTestId('ai-spot-ring')
     await expect(spot).toBeVisible()
     await expect(spot.locator('.ai-glow-ring')).toHaveAttribute('data-mode', 'loop')
-    // 圈的就是新加的那张卡
-    const hit = await board.evaluate((b) => {
-      const g = b.querySelector('[data-testid="ai-spot-ring"]')!.getBoundingClientRect()
-      const card = [...b.querySelectorAll('.db-card')].find((c) => c.textContent?.includes('这周时间怎么分'))!.getBoundingClientRect()
-      return Math.abs(card.x - g.x) < 3 && Math.abs(card.y - g.y) < 3 && Math.abs(card.width - g.width) < 3
-    })
-    expect(hit).toBe(true)
+    // 圈的就是新加的那张卡（卡被挡着时白板会平移过去，task-6kun1：等平移停了再量）
+    await expect
+      .poll(() =>
+        board.evaluate((b) => {
+          const g = b.querySelector('[data-testid="ai-spot-ring"]')?.getBoundingClientRect()
+          const card = [...b.querySelectorAll('.db-card')].find((c) => c.textContent?.includes('这周时间怎么分'))?.getBoundingClientRect()
+          return !!g && !!card && Math.abs(card.x - g.x) < 3 && Math.abs(card.y - g.y) < 3 && Math.abs(card.width - g.width) < 3
+        }),
+      )
+      .toBe(true)
     const inl = board.getByTestId('ai-spot-bar')
     await expect(inl).toContainText('AI 在写这张卡')
     await expect(inl.getByRole('button', { name: '停下 esc' })).toBeVisible()
@@ -201,7 +221,8 @@ test('文档里只写一段只亮这一段；整篇改写整块亮、改到的�
     await expect(inl).toContainText('AI 在写这一段')
     await expect(inl.getByRole('button', { name: '停下 esc' })).toBeVisible()
     await expect(doc.getByTestId('ai-acting')).toHaveCount(0)
-    // 竖线挨着插进来的那一段（同一行高处）
+    // 竖线挨着插进来的那一段（同一行高处）；字一点点长出来（task-6kun1），等这一段显出全文再量
+    await expect(doc.locator('.cm-line', { hasText: '为什么先读 SAGE' })).toBeVisible()
     const pos = await doc.evaluate((p) => {
       const l = p.querySelector('[data-testid="ai-spot-line"]')!.getBoundingClientRect()
       const t = [...p.querySelectorAll('.cm-line')].find((x) => x.textContent?.includes('为什么先读 SAGE'))!.getBoundingClientRect()

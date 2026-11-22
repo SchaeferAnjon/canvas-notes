@@ -269,7 +269,7 @@ img { display: block; max-width: 100%; }
         <p data-i="b.p">一篇笔记点「白板」摊成卡片，点「文档」从上往下读。卡片、列、待办、图片、子白板、连线都写在 md 的注释里，换个软件打开照样是一篇读得通的文章。</p>
         <ul>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l1">双击空白处加卡片，拖进列、连线、⌘Z 撤销</span></li>
-          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l2">文档实时预览，光标所在行露出 md 原文；[[双链]] 和 Obsidian 一样</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l2">文档实时预览，光标所在行露出 md 原文；[[双链]] 按名字找，笔记挪到哪都能点</span></li>
           <li><svg class="ico"><use href="#i-check"/></svg><span data-i="b.l3">打开再保存，文件一个字节都不变（有自动化测试守着）</span></li>
         </ul>
       </div>
@@ -378,7 +378,7 @@ img { display: block; max-width: 100%; }
       </div>
       <div class="cells">
         <div class="cell"><b data-i="o.c1">源码公开</b><span data-i="o.c1p">全部代码在 <a href="https://github.com/SchaeferAnjon/canvas-notes" target="_blank" rel="noopener">GitHub</a>，按 GPL-3.0-or-later 开源，可以自己编译。</span></div>
-        <div class="cell"><b data-i="o.c2">不锁住你的数据</b><span data-i="o.c2p">不用这个软件了，文件夹还在，Obsidian、VS Code、任何编辑器都能打开。</span></div>
+        <div class="cell"><b data-i="o.c2">不锁住你的数据</b><span data-i="o.c2p">不用这个软件了，文件夹还在，任何编辑器都能打开里面的 md。</span></div>
         <div class="cell"><b data-i="o.c3">一个人维护</b><span data-i="o.c3p">写代码、回问题、发新版的是同一个人。有问题去 <a href="https://github.com/SchaeferAnjon/canvas-notes/issues" target="_blank" rel="noopener">GitHub Issues</a>。</span></div>
       </div>
     </div>
@@ -393,7 +393,7 @@ img { display: block; max-width: 100%; }
         <div class="fn" data-fn="arm64">CanvasNotes-mac-arm64.dmg</div>
         <ol>
           <li data-i="dl.s1">打开下载的 dmg，把 Canvas Notes 拖进「应用程序」</li>
-          <li data-i="dl.s2">第一次打开选一个文件夹当库（空文件夹，或者已有的 Obsidian 库都行）</li>
+          <li data-i="dl.s2">第一次打开选一个文件夹当库（空文件夹，或者已经放着 md 的文件夹都行）</li>
           <li data-i="dl.s3">要用 AI，先在终端里装好并登录 Claude Code、Codex、Gemini 或 OpenCode 中的一个</li>
         </ol>
         <div class="bt"><a class="btn ink" data-dl="arm64" href="https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-arm64.dmg"><svg class="ico f"><use href="#i-apple"/></svg><span data-i="dl.b">下载</span></a></div>
@@ -410,15 +410,15 @@ img { display: block; max-width: 100%; }
       </div>
     </div>
     <p class="dlnote"><span data-i="dl.more">以前的版本和每一版改了什么在</span> <a href="https://github.com/SchaeferAnjon/canvas-notes/releases" target="_blank" rel="noopener" data-i="dl.rel">GitHub 发布页</a><span data-i="dl.win">。Windows 和手机版还没有。</span></p>
-    <p class="dlnote" data-i="dl.gk">这一版没有经过 Apple 公证（作者的其他软件也没有）。第一次打开时如果提示「无法验证开发者」，在访达里右键点 Canvas Notes 选「打开」，或到 系统设置 › 隐私与安全性 里点「仍要打开」。</p>
+    <p class="dlnote" data-i="dl.gk">这一版没有经过 Apple 公证（作者的其他软件也没有）。第一次打开时如果提示「无法验证开发者」，macOS 15 及以后到 系统设置 › 隐私与安全性 里点「仍要打开」（右键「打开」已经绕不过这个提示）；macOS 14 及更早，在访达里右键点 Canvas Notes 选「打开」。</p>
   </section>
 
   <section class="sec wrap" id="faq">
     <div class="center"><span class="kicker"><i></i><span data-i="q.k">常见问题</span></span><h2 class="h2" data-i="q.h">常见问题</h2></div>
     <div class="faq">
       <details><summary data-i="q1">收费吗？</summary><div class="ans" data-i="a1">不收费。没有试用额度，没有付费版，也不用注册。AI 用的是你自己命令行的账号，那边怎么收费跟这个软件无关。</div></details>
-      <details><summary data-i="q2">笔记存在哪？能用别的软件打开吗？</summary><div class="ans" data-i="a2">存在你选的文件夹里，就是普通的 .md 文件和图片，文件夹本身是一个 Git 仓库。白板的卡片位置写在 HTML 注释里，Obsidian、Typora、VS Code 打开看到的是一篇正常的文章。</div></details>
-      <details><summary data-i="q3">能直接打开我现在的 Obsidian 库吗？</summary><div class="ans" data-i="a3">能。选那个文件夹当库就行，[[双链]] 的写法一样。它会在库里建 Git（已经是 Git 仓库就直接用），在 .canvas-notes/ 里存首页的摆法。</div></details>
+      <details><summary data-i="q2">笔记存在哪？能用别的软件打开吗？</summary><div class="ans" data-i="a2">存在你选的文件夹里，就是普通的 .md 文件和图片，文件夹本身是一个 Git 仓库。白板的卡片位置写在 HTML 注释里，别的编辑器打开看到的是一篇从上往下的文章。</div></details>
+      <details><summary data-i="q3">能把 Obsidian 里的笔记搬过来吗？</summary><div class="ans" data-i="a3">能。「文件」菜单或 ⌘K 里点「导入旧笔记…」，选 Markdown 文件夹，挑你的 Obsidian 库：笔记和图片附件一起拷进收件箱，[[双链]] 照样能点，原来的库一个字不动。导进来是一次 Git 提交，不满意能撤回。</div></details>
       <details><summary data-i="q4">没装 AI 命令行能用吗？</summary><div class="ans" data-i="a4">能。白板、文档、剪藏、搜索、Git 历史都不需要 AI。要用 AI 时，在终端里装好并登录 Claude Code、Codex、Gemini 或 OpenCode 中的一个，软件会自己找到它。</div></details>
       <details><summary data-i="q5">AI 会把我的笔记发出去吗？</summary><div class="ans" data-i="a5">只发你这一轮让它看的内容：当前的白板或文档、选中的卡片、你 @ 的笔记、开着的网页。它们交给你选的命令行，由命令行发给它自己的服务，和你在终端里用它一样。软件本身不经过任何别的服务器。</div></details>
       <details><summary data-i="q6">怎么在两台电脑之间同步？</summary><div class="ans" data-i="a6">在设置的「Git」页填一个你自己的远程仓库（比如 GitHub 私有仓库），底栏点「同步」：先提交，再拉，再推。两边同时改了同一处，会另存一份冲突副本，不会丢。</div></details>
@@ -469,7 +469,7 @@ const EN = {
   'f4.t': 'Price', 'f4.v': 'Free', 'f4.d': 'Open source (GPL-3.0-or-later), no paid tier',
   'feat.k': 'Features', 'feat.h': 'Save first. Let the app sort it out.', 'feat.p': 'No folders to plan up front. Clippings land in the inbox, anything you write can be spread out on a board, and the AI and Dreaming gather the loose ends.',
   'b.h': 'A whiteboard and a document, one file', 'b.p': 'Open a note as a board and it spreads into cards; switch to Document and it reads top to bottom. Cards, columns, to-dos, images, sub-boards and links live in Markdown comments, so any other app still shows a readable article.',
-  'b.l1': 'Double-click to add a card, drag into columns, draw links, ⌘Z to undo', 'b.l2': 'Live preview shows the raw Markdown on the line you are editing; [[wikilinks]] work as in Obsidian', 'b.l3': 'Open and save without edits and the file stays byte-for-byte the same (covered by automated tests)',
+  'b.l1': 'Double-click to add a card, drag into columns, draw links, ⌘Z to undo', 'b.l2': 'Live preview shows the raw Markdown on the line you are editing; [[wikilinks]] resolve by name, so they keep working after you move a note', 'b.l3': 'Open and save without edits and the file stays byte-for-byte the same (covered by automated tests)',
   'alt.board': 'The whiteboard', 'alt.doc': 'A document in the same vault; in the Cream theme the page is a sheet of paper',
   'c.h': 'A browser on the right; select and clip', 'c.p': 'A full Chromium browser is built in. Select a paragraph: on a board it becomes a card, in a document it is inserted at the cursor, with the source and time attached. Clip a whole page and its article becomes a new note in the inbox.',
   'c.l1': 'Import your Chrome sign-ins, bookmarks, history and extensions in one click', 'c.l2': 'Drag images from a page straight onto the board; they are saved in the vault', 'c.l3': 'Press <span class="kbd">⌥</span> <span class="kbd">⌘</span> <span class="kbd">N</span> in any app for a quick note that goes to the inbox',
@@ -491,18 +491,18 @@ const EN = {
   'o.in': 'Stays on your computer', 'o.i1': 'Notes: plain .md files and images in a folder; each vault is a Git repository', 'o.i2': 'Settings, AI chat history, browser tabs, bookmarks and history: the app’s own settings folder', 'o.i3': 'Imported Chrome sign-ins: used only by the built-in browser, never leave this computer', 'o.i4': 'No sign-up, no analytics; the app itself sends nothing to any server',
   'o.out': 'Leaves only when you ask', 'o.o1': 'AI: the notes for this turn go to the command-line tool you picked, which sends them to its own service (Anthropic, OpenAI, Google…), just as when you use it in a terminal', 'o.o2': 'Sync: pushes to a Git remote you set up yourself; without one, everything stays local', 'o.o3': 'Web: the sites you open in the built-in browser, as in Chrome',
   'o.c1': 'Open source', 'o.c1p': 'All the code is on <a href="https://github.com/SchaeferAnjon/canvas-notes" target="_blank" rel="noopener">GitHub</a> under GPL-3.0-or-later. Build it yourself if you like.',
-  'o.c2': 'No lock-in', 'o.c2p': 'Stop using the app and the folder is still there; Obsidian, VS Code or any editor opens it.',
+  'o.c2': 'No lock-in', 'o.c2p': 'Stop using the app and the folder is still there; any editor opens the Markdown inside.',
   'o.c3': 'One maintainer', 'o.c3p': 'The person who writes the code also answers issues and ships releases. Report problems on <a href="https://github.com/SchaeferAnjon/canvas-notes/issues" target="_blank" rel="noopener">GitHub Issues</a>.',
   'dl.k': 'Download', 'dl.h': 'Free to download, ready to use', 'dl.p': 'No trial, no paid tier, no account. <span class="ver2"></span>',
   'dl.arm': 'Apple silicon', 'dl.intel': 'Intel chip', 'dl.b': 'Download',
-  'dl.s1': 'Open the dmg and drag Canvas Notes into Applications', 'dl.s2': 'On first launch, pick a folder as your vault (an empty one, or an existing Obsidian vault)', 'dl.s3': 'For the AI, install and sign in to one of Claude Code, Codex, Gemini or OpenCode in a terminal first',
+  'dl.s1': 'Open the dmg and drag Canvas Notes into Applications', 'dl.s2': 'On first launch, pick a folder as your vault (an empty one, or one that already holds Markdown files)', 'dl.s3': 'For the AI, install and sign in to one of Claude Code, Codex, Gemini or OpenCode in a terminal first',
   'dl.i1': 'Not sure which chip? Apple menu → About This Mac. If Chip says Apple M, take the left one; if it says Intel, take this one', 'dl.i2': 'Requires macOS 12 or later and Git (macOS offers to install the command line tools the first time)',
   'dl.more': 'Earlier versions and release notes are on the', 'dl.rel': 'GitHub releases page', 'dl.win': '. There is no Windows or mobile version yet.',
-  'dl.gk': 'This version is not notarized by Apple (neither are the author\'s other apps). If macOS says it cannot verify the developer the first time you open it, right-click Canvas Notes in Finder and choose Open, or click Open Anyway in System Settings › Privacy &amp; Security.',
+  'dl.gk': 'This version is not notarized by Apple (neither are the author\'s other apps). If macOS says it cannot verify the developer the first time you open it, on macOS 15 or later click Open Anyway in System Settings › Privacy &amp; Security (right-click › Open no longer gets past it); on macOS 14 or earlier, right-click Canvas Notes in Finder and choose Open.',
   'q.k': 'FAQ', 'q.h': 'Questions',
   'q1': 'Does it cost anything?', 'a1': 'No. No trial limits, no paid tier, no sign-up. The AI runs on your own command-line account; whatever that costs is between you and its provider.',
-  'q2': 'Where are my notes? Can other apps open them?', 'a2': 'In the folder you picked: plain .md files and images, and the folder is a Git repository. Board layout is stored in HTML comments, so Obsidian, Typora or VS Code show an ordinary article.',
-  'q3': 'Can it open my Obsidian vault?', 'a3': 'Yes. Pick that folder as the vault; [[wikilinks]] work the same. It sets up Git in the vault (or uses the existing repository) and keeps the home page layout in .canvas-notes/.',
+  'q2': 'Where are my notes? Can other apps open them?', 'a2': 'In the folder you picked: plain .md files and images, and the folder is a Git repository. Board layout is stored in HTML comments, so another editor shows an article that reads top to bottom.',
+  'q3': 'Can I bring my notes over from Obsidian?', 'a3': 'Yes. Choose 导入旧笔记… (Import old notes) in the File menu or ⌘K, pick Markdown folder and select your Obsidian vault: notes and images are copied into the inbox, [[wikilinks]] still work, and the original vault is not touched. The import is one Git commit, so you can undo it.',
   'q4': 'Does it work without an AI CLI?', 'a4': 'Yes. Boards, documents, clipping, search and Git history need no AI. When you want the AI, install and sign in to Claude Code, Codex, Gemini or OpenCode in a terminal and the app finds it.',
   'q5': 'Does the AI send my notes anywhere?', 'a5': 'Only what this turn needs: the current board or document, selected cards, notes you @-mention and the open web page. They go to the command-line tool you chose, which sends them to its own service, the same as using it in a terminal. The app itself goes through no other server.',
   'q6': 'How do I sync between two computers?', 'a6': 'Add a remote you own (a private GitHub repository, say) in Settings → Git and click Sync in the bottom bar: it commits, pulls, then pushes. If both sides changed the same spot, a conflict copy is saved; nothing is lost.',

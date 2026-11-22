@@ -48,6 +48,65 @@ async function report() {
   await callPlugin(ID, 'page', info).catch((e: Error) => console.warn('[canvas-notes] 微信读书', e.message))
 }
 
+/** 注释气泡离网页左右边至少留这么多 */
+const EDGE = 8
+/** 箭头（16 宽）离气泡左右边至少这么多，不压到 16 的圆角上 */
+const ARROW_KEEP = 24
+
+/**
+ * task-rbtrz：正文里点「注」，微信读书把注释气泡（.reader_footerNote_container，304 宽）的正中对着「注」摆，
+ * 不管网页多宽。普通浏览器里正文两边有留白，放得下；我们的网页栏窄，靠左的「注」算出来左边是负的，气泡半截在栏外（用户：「这里有遮挡」）。
+ * 气泡出了网页时横着挪回来（translate，微信读书自己写的 left、top 不动），左右各留 8；箭头跟着反方向挪，还对着那个「注」。
+ * 放得下的时候不动。
+ */
+function keepFootnotesInside() {
+  const style = document.createElement('style')
+  style.textContent = '.reader_footerNote_container::after{left:var(--cn-fn-arrow,50%)!important}'
+  const fit = (el: HTMLElement) => {
+    if (!pluginEnabled(ID)) return
+    const r = el.getBoundingClientRect()
+    if (!r.width) return
+    const moved = Number(el.dataset.cnDx || 0)
+    const left = r.left - moved
+    const vw = document.documentElement.clientWidth
+    let dx = 0
+    if (left < EDGE) dx = EDGE - left
+    else if (left + r.width > vw - EDGE) dx = Math.max(EDGE - left, vw - EDGE - left - r.width)
+    dx = Math.round(dx)
+    if (dx === moved) return
+    el.dataset.cnDx = String(dx)
+    if (!dx) {
+      el.style.removeProperty('translate')
+      el.style.removeProperty('--cn-fn-arrow')
+      return
+    }
+    el.style.translate = `${dx}px 0`
+    el.style.setProperty('--cn-fn-arrow', `${Math.min(r.width - ARROW_KEEP, Math.max(ARROW_KEEP, r.width / 2 - dx))}px`)
+  }
+  // 气泡是点了「注」才挂上去的，下一拍才写 left、top（写一次 style）：挂上去时盯住它的 style
+  const watchStyle = new MutationObserver((recs) => {
+    for (const rec of recs) fit(rec.target as HTMLElement)
+  })
+  const added = new MutationObserver((recs) => {
+    for (const rec of recs)
+      for (const n of rec.addedNodes) {
+        if (!(n instanceof HTMLElement)) continue
+        const els = n.classList.contains('reader_footerNote_container') ? [n] : [...n.getElementsByClassName('reader_footerNote_container')]
+        for (const el of els as HTMLElement[]) {
+          watchStyle.observe(el, { attributes: true, attributeFilter: ['style'] })
+          fit(el)
+        }
+      }
+  })
+  const start = () => {
+    document.head.append(style)
+    added.observe(document.body, { childList: true, subtree: true })
+  }
+  if (document.body) start()
+  else addEventListener('DOMContentLoaded', start, { once: true })
+  addEventListener('resize', () => document.querySelectorAll<HTMLElement>('.reader_footerNote_container').forEach(fit))
+}
+
 if (/^\/web\/reader\//.test(location.pathname)) {
   addEventListener('DOMContentLoaded', () => void report())
   addEventListener('load', () => void report())
@@ -78,6 +137,7 @@ if (/^\/web\/reader\//.test(location.pathname)) {
     },
     true,
   )
+  keepFootnotesInside()
   let timer: ReturnType<typeof setTimeout> | undefined
   document.addEventListener(
     'mouseup',

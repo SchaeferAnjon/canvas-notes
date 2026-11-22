@@ -42,8 +42,6 @@ export function placeOf(tab: Tab | null, digest = false): Place {
       return { key: `page:${tab.url}`, label: tab.title || hostOf(tab.url) }
     case 'webread':
       return { key: `page:${tab.url}`, label: tab.title || hostOf(tab.url) }
-    case 'doubts':
-      return { key: `doubts:${tab.folder}`, label: '我的疑惑' }
     case 'diff':
       // AI 命令「先给你看」的对比标签：还是跑命令的那段对话（task-9womr）
       if (tab.src.kind === 'proposal') {
@@ -53,6 +51,8 @@ export function placeOf(tab: Tab | null, digest = false): Place {
       return { key: `diff:${tab.title}`, label: tab.title }
     case 'oldimages':
       return { key: 'dream', label: '梦游预览' }
+    case 'trash':
+      return { key: 'trash', label: '最近删掉的' }
     case 'pdf':
     case 'html':
       return { key: readKey(tab.path), label: lastSeg(tab.path) }
@@ -102,12 +102,12 @@ export function seenOf(tab: Tab | null, o: { board: boolean; digest?: boolean; i
       return { see: `网页：${hostOf(tab.url)}`, hands: null }
     case 'webread':
       return { see: `阅读视图：${tab.title || hostOf(tab.url)}`, hands: null }
-    case 'doubts':
-      return { see: `我的疑惑：${tab.folder || '库的根目录'}`, hands: null }
     case 'diff':
       return { see: `对比：${tab.title}`, hands: null }
     case 'oldimages':
       return { see: '梦游预览', hands: null }
+    case 'trash':
+      return { see: '最近删掉的', hands: null }
     case 'pdf':
     case 'html':
       return { see: lastSeg(tab.path), hands: null }

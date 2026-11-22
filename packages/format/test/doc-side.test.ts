@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { aiBodyAt, aiBodyOf, docAiBlocks, locateQuote, quoteOfRange, sideBlockMd, sideInsert, sideRemove } from '../src/doc-side'
+import { aiBodyAt, aiBodyOf, docAiBlocks, locateQuote, mdPlain, quoteOfRange, rawQuoteOf, sideBlockMd, sideInsert, sideRemove } from '../src/doc-side'
 
 const DOC = [
   '# 第5讲 注意力机制',
@@ -121,5 +121,33 @@ describe('文档里 AI 讲解块的旁支（task-4edsc）', () => {
       ['一句话。', ['问一']],
       ['一句话。', ['讲讲这句']],
     ])
+  })
+})
+
+describe('白板卡、问框里选的是排好的字（task-p90ra）：换回原文存、按原文找得回来', () => {
+  const b = () => docAiBlocks(DOC)[0]!
+  test('不带记号的一句：原文就是它', () => {
+    expect(rawQuoteOf(DOC, b(), '分数要先除以 √d，再过 softmax 变成权重。')).toBe('分数要先除以 √d，再过 softmax 变成权重。')
+  })
+  test('带加粗的一句：存原文（带 **），locateQuote 找得到；画出来的字和选中的一样', () => {
+    const raw = rawQuoteOf(DOC, b(), '最后用这些权重把 V 加起来')
+    expect(raw).toBe('最后用这些权重把 **V** 加起来')
+    expect(locateQuote(DOC, b(), raw!)).not.toBeNull()
+    expect(mdPlain(raw!)).toBe('最后用这些权重把 V 加起来')
+  })
+  test('跨行的一句（同一段折成两行）：行首的「> 」不算，空白并成一个', () => {
+    const raw = rawQuoteOf(DOC, b(), '维度 d 越大， 不缩放时点积越大')
+    expect(raw).toBe('维度 d 越大， 不缩放时点积越大')
+    expect(locateQuote(DOC, b(), raw!)).not.toBeNull()
+  })
+  test('链接、双链、行内代码、列表记号：画出来的字', () => {
+    expect(mdPlain('看 [这篇](https://x.y/z) 和 [[笔记|那篇]]、`code`、[[别的]]')).toBe('看 这篇 和 那篇、code、别的')
+    expect(mdPlain('- 第一条 snake_case')).toBe('第一条 snake_case')
+    const t = '> [!ai] AI 讲解\n> 先看 [这篇](https://x.y) 的 `softmax` 一节。\n'
+    const blk = docAiBlocks(t)[0]!
+    expect(rawQuoteOf(t, blk, '先看 这篇 的 softmax 一节。')).toBe('先看 [这篇](https://x.y) 的 `softmax` 一节。')
+  })
+  test('找不到（不在这块讲解里）是 null', () => {
+    expect(rawQuoteOf(DOC, b(), '我的理解')).toBeNull()
   })
 })

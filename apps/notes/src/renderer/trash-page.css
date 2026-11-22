@@ -1,0 +1,218 @@
+/*
+ * 中间的「最近删掉的」整页（task-5yp97）。数值照 /private/tmp/canvas-notes-visual/06-文件管理/2-30天-浅.png 量的（1440 × 887、1x）：
+ * 左边一列 540 宽（含右边 1px --line），里边距 32 24 40 36；标题宋体 28/1.35 600，下面一句 13 --t2；一行 44 高（下边 1px --line、圆角 6、
+ * 左右 8、隔 10）：图标 16 · 名字 13 · 「原来在「…」」12 --t3 · 时间 12 --t3（76 宽靠右）；指着时后面出「看一看」「放回」（26 高胶囊、12 号、图标 12）；
+ * 选中的那行 --fill2 底。右边里边距 24 36：头上一条 --fill 底、圆角 10、内边距 8 12（history 14 · 一句 12 --t2 ·「复制全文」描边胶囊 ·「放回「…」」黑胶囊），
+ * 下面照文档的样子：宋体 28 大标题，正文 15/1.75。中间窄的时候（< 760）上下摆，不挤字。
+ */
+.trashp {
+  container-type: inline-size;
+}
+.trashp .tr-body {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------- 左边：列表 ---------- */
+.tr-list {
+  flex: none;
+  width: 540px;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 32px 24px 40px 36px;
+  border-right: 1px solid var(--line);
+}
+.tr-h {
+  margin: 0 0 6px;
+  font: 600 28px/1.35 var(--serif);
+  color: var(--t1);
+}
+.tr-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--t2);
+}
+.tr-rows {
+  margin-top: 14px;
+}
+.tr-row {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--t1);
+  cursor: default;
+  user-select: none;
+}
+.tr-row.on {
+  background: var(--fill2);
+}
+.tr-row .ic {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  color: var(--t2);
+}
+.tr-row .ic .sw {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+.tr-row .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 删这一篇时连着删的图：名字后面一句「和3张图」，放回时一起回来 */
+.tr-row .imgs {
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.tr-row .where {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--t3);
+}
+.tr-row .when {
+  flex: none;
+  width: 76px;
+  text-align: right;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 指着那一行才出「看一看」「放回」（占位置，时间往左让） */
+.tr-row .acts {
+  flex: none;
+  display: none;
+  gap: 10px;
+}
+.tr-row:hover .acts,
+.tr-row:focus-within .acts {
+  display: flex;
+}
+.tr-btn {
+  flex: none;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.tr-btn:hover {
+  background: var(--fill);
+}
+.tr-btn.solid {
+  background: var(--solid);
+  box-shadow: none;
+  color: var(--solid-t);
+}
+.tr-btn.solid:hover {
+  opacity: 0.88;
+}
+.tr-foot {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+
+/* ---------- 右边：删掉前的样子 ---------- */
+.tr-prev {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 24px 36px 40px;
+}
+.tr-none {
+  margin: 24px 0 0;
+  font-size: 13px;
+  color: var(--t3);
+}
+.tr-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+  color: var(--t2);
+}
+.tr-bar > svg {
+  flex: none;
+}
+.tr-bar .t {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 18px;
+}
+/* 换行只在这几段之间，不把「删的」「只能看，不能改」拆开 */
+.tr-bar .t .nw {
+  white-space: nowrap;
+}
+.tr-doc {
+  margin-top: 44px;
+}
+.tr-title {
+  margin: 0 0 6px;
+  font: 600 28px/1.35 var(--serif);
+  color: var(--t1);
+}
+.tr-doc .md {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--t1);
+  user-select: text;
+}
+.tr-doc .md > * + * {
+  margin-top: 10px;
+}
+.tr-img {
+  display: block;
+  max-width: 100%;
+  margin-top: 24px;
+  border-radius: 8px;
+}
+
+/* ---------- 中间窄：上下摆（列表在上，样子在下），不挤字 ---------- */
+@container (max-width: 760px) {
+  .trashp .tr-body {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .tr-list {
+    width: auto;
+    overflow: visible;
+    padding: 24px 20px 24px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .tr-prev {
+    overflow: visible;
+    padding: 20px;
+  }
+}

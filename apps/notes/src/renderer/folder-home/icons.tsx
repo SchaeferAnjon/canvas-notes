@@ -25,7 +25,7 @@ const WIDGET: Record<FWidget, CodiconName> = {
   review: 'layers',
   exam: 'flag',
   notes: 'note',
-  doubts: 'question',
+  doubts: 'comment',
   viz: 'graph',
   cal: 'calendar',
   todo: 'checklist',

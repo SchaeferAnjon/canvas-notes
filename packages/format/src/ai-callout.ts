@@ -7,10 +7,21 @@
  *   > - 要点一
  *
  * 头一行：「AI 讲解」（换过讲法时「AI 讲解（第 2 版）」）· 哪家 · 哪个模型 · 看了什么。
+ * 白板上「AI 总结的」卡也是这一块（task-5yp97，用户看图选的「选法 1」）：头一个词是「AI 总结」（summary-card.ts）。
  * Obsidian 里打开也是提示块；块下面那一段留给自己写（编辑器在空段落上画占位「写下你自己的理解…」，不写进 md）。
  */
 
+/** 「AI 总结的」卡头一行的第一个词 */
+export const SUMMARY_LABEL = 'AI 总结'
+
+/** 这一块 AI 写的是总结（不是讲解）：头一行（`> [!ai] …`，或者去掉了「> [!ai] 」的标题）第一个词是「AI 总结」 */
+export function isSummaryHead(line: string): boolean {
+  return /^(?:\s*>\s*\[!ai\][+-]?[ \t]*)?AI 总结(?:[ \t]*·|[ \t]*$)/i.test(line)
+}
+
 export interface AiCallout {
+  /** 头一个词：默认「AI 讲解」；「AI 总结的」卡是「AI 总结」 */
+  label?: string
   /** 「Claude Code · Opus 5.5」 */
   by?: string
   /** 「看了 00:06 这一帧」「看了第 5 页」 */
@@ -23,8 +34,8 @@ export interface AiCallout {
 
 const oneLine = (s: string) => s.replace(/\s*\n+\s*/g, ' ').trim()
 
-export function aiCalloutHead(c: Pick<AiCallout, 'by' | 'seen' | 'version'>): string {
-  return [`AI 讲解${c.version ? `（第 ${c.version} 版）` : ''}`, c.by, c.seen].filter(Boolean).map((x) => oneLine(x!)).join(' · ')
+export function aiCalloutHead(c: Pick<AiCallout, 'label' | 'by' | 'seen' | 'version'>): string {
+  return [`${c.label ?? 'AI 讲解'}${c.version ? `（第 ${c.version} 版）` : ''}`, c.by, c.seen].filter(Boolean).map((x) => oneLine(x!)).join(' · ')
 }
 
 /** 写成提示块（不带结尾换行） */

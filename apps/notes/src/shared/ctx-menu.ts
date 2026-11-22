@@ -154,10 +154,10 @@ export interface CnMenuApi {
   reveal(path: string): Promise<void>
   /** 用默认浏览器打开（只认 http / https） */
   openExternal(url: string): Promise<void>
-  /** 库里的笔记挪到另一个文件夹，返回新路径 */
-  moveNote(path: string, folder: string): Promise<string>
-  /** 好几个（笔记、文件夹）一起挪进 folder，一次提交；PDF、HTML 不挪（skipped） */
-  moveMany(paths: string[], folder: string): Promise<{ moves: { from: string; to: string }[]; skipped: string[]; commit: string | null }>
+  /** 库里的笔记挪到另一个文件夹，返回新路径（to）；挂在它下面的数据库记录文件夹跟着挪（with，task-5yp97） */
+  moveNote(path: string, folder: string): Promise<{ to: string; with: { from: string; to: string }[] }>
+  /** 好几个（笔记、文件夹）一起挪进 folder，一次提交；PDF、HTML 不挪（skipped）；with：跟着哪篇（新路径）挪的数据库记录文件夹 */
+  moveMany(paths: string[], folder: string): Promise<{ moves: { from: string; to: string; with?: string }[]; skipped: string[]; commit: string | null }>
   /** 剪贴板里有没有字或图（白板空白处的「粘贴」） */
   clipboardHas(): Promise<{ text: boolean; image: boolean }>
   readClipboardText(): Promise<string>

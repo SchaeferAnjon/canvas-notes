@@ -35,9 +35,13 @@ export interface Cmd {
   pinned?: boolean
   /** 最近用过的第几条（0 是刚用过）；没用过不给 */
   usedRank?: number
+  /** 名字、说明以外也搜得到它的词（不显示）：出卡打 anki 也找得到 */
+  kw?: string
+  /** 自己一组、组名是它（「以前的「我的疑惑」」）：不当最合适、不当回车默认 */
+  aside?: string
 }
 
-export type Group = 'recent' | 'best' | 'notes' | 'cmd' | 'text' | 'meaning' | 'web' | 'claude'
+export type Group = 'recent' | 'best' | 'notes' | 'cmd' | 'aside' | 'text' | 'meaning' | 'web' | 'claude'
 
 export type Row<C extends Cmd = Cmd> =
   /** nodefault：键盘能挪到，但不当默认（打的像网址时正文里有这个词的笔记） */
@@ -119,12 +123,18 @@ export function buildRows<C extends Cmd>(o: RowsInput<C>): Row<C>[] {
   // ---- 命令：名字、别名、说明；打全了名字或别名的一定最合适 ----
   type Cand = { s: number; row: Row<C> }
   const cmds: Cand[] = []
+  const asides: Row<C>[] = []
   for (const cmd of o.commands) {
     const byAlias = !!cmd.alias && cmd.alias.toLowerCase() === k
     let s = byAlias ? 3000 : nameScore(cmd.name, q)
     if (s === 900) s = 2000
+    if (!s && cmd.kw?.toLowerCase().includes(k)) s = 400
     if (!s && cmd.hint?.toLowerCase().includes(k)) s = 150
     if (!s) continue
+    if (cmd.aside) {
+      asides.push({ kind: 'cmd', group: 'aside', cmd, nodefault: true })
+      continue
+    }
     if (cmd.usedRank !== undefined && cmd.usedRank < 4) s += 120 - cmd.usedRank * 30
     if (cmd.pinned) s += 50
     const exact = s >= 2000
@@ -145,6 +155,7 @@ export function buildRows<C extends Cmd>(o: RowsInput<C>): Row<C>[] {
 
   out.push(...capped('notes', notes.filter((c) => c !== top).sort((a, b) => b.s - a.s).map((c) => c.row), o.expanded))
   out.push(...capped('cmd', cmds.filter((c) => c !== top).sort((a, b) => b.s - a.s).map((c) => c.row), o.expanded))
+  out.push(...asides)
 
   // ---- 笔记和PDF里的字：正文和 PDF 页轮流 ----
   const mixed: Row<C>[] = []
@@ -230,7 +241,7 @@ export function step(rows: Row<Cmd>[], cur: Cursor | null, dir: 1 | -1): Cursor 
 export type Key = 1 | -1 | 'enter'
 
 /** 文字结果回来以后，后到的（意思相近）插不到它前面的行：最合适、笔记、命令、笔记和PDF里的字，放最前的网址 */
-const fixedRow = (r: Row<Cmd> | undefined) => !!r && (r.group === 'best' || r.group === 'notes' || r.group === 'cmd' || r.group === 'text' || (r.kind === 'url' && !!r.typed))
+const fixedRow = (r: Row<Cmd> | undefined) => !!r && (r.group === 'best' || r.group === 'notes' || r.group === 'cmd' || r.group === 'aside' || r.group === 'text' || (r.kind === 'url' && !!r.typed))
 
 /**
  * 这个键现在按下去，和结果都出齐以后再按，落在同一行吗。不一样就先记着，等出齐了再按（Palette 里的 queue）。

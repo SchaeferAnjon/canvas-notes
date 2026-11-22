@@ -16,7 +16,7 @@ import { deleteCharBackward, deleteCharForward, history, insertNewlineAndIndent,
 import { insertNewlineContinueMarkup, markdown } from '@codemirror/lang-markdown'
 import { ChangeSet, EditorSelection, EditorState, type Extension, type SelectionRange, Transaction, type TransactionSpec } from '@codemirror/state'
 import { findMath } from '@cn/format'
-import { EditorView, keymap } from '@codemirror/view'
+import { Direction, EditorView, keymap } from '@codemirror/view'
 import { describe, expect, it } from 'vitest'
 import { atomicBlocks, backspaceSelectsBlock } from '../src/renderer/atomic-blocks'
 import { docKeys, enterInQuote } from '../src/renderer/doc-keys'
@@ -31,6 +31,7 @@ import { propsBlock } from '../src/renderer/mindmap/props-block'
 import { baseBlock } from '../src/renderer/base/base-block'
 import { reviewSyntax } from '../src/renderer/review'
 import { enterLeft, enterRight, mathPreview, placedMath } from '../src/renderer/math-preview'
+import { blockIds } from '../src/renderer/block-id'
 
 // 时刻块的模块一加载就要 window（视频测试站地址）
 ;(globalThis as { window?: unknown }).window ??= {}
@@ -47,6 +48,7 @@ const extensions: Extension[] = [
   baseBlock,
   reviewSyntax,
   mathPreview,
+  blockIds,
   hiddenGuard,
   history(),
 ]
@@ -113,6 +115,8 @@ const samples: Sample[] = [
   // 第 8 轮：白板（type: board）用文档看法打开，卡片行、列行一样藏起来（以前白板不藏，露出 <!-- card … -->、<!-- column … -->）
   { name: '白板的卡片行和列行', doc: BOARD },
   { name: '白板：列紧跟在卡片后面、列里第一张卡是图片加来源', doc: BOARD_IMG },
+  // task-4xtbp：从 Obsidian 导进来的行尾 ^块编号（[[笔记#^def1]] 指的就是它）
+  { name: '行尾的块编号', doc: '# 定义\n\n线性映射保持加法和数乘。 ^def1\n\n- 第一条\n- 列表里一条 ^li-2\n\n后面一段。\n' },
 ]
 
 function open(sample: Sample): View {
@@ -129,18 +133,26 @@ function open(sample: Sample): View {
 /** 藏着的每一段的原文（去掉两头的换行和空行） */
 const pieces = (s: EditorState) => hiddenRanges(s).map((h) => s.doc.sliceString(h.from, h.to).replace(/^\n+|\n+$/g, ''))
 
-/** 评价的标签跟着整段删掉（⌘⇧K 删掉评价这一行）：这一段整个没了，不算改坏（标签是这一段自己的开头，不是隔开块的语法） */
+/**
+ * 评价的标签跟着整段删掉（⌘⇧K 删掉评价这一行）：这一段整个没了，不算改坏（标签是这一段自己的开头，不是隔开块的语法）；
+ * 行尾的 ^块编号 也一样（整行删掉、删到行尾盖住整行时跟着删）
+ */
 function reviewsGone(before: EditorState, after: EditorState): Hidden[] {
   const text = after.doc.toString()
-  return hiddenRanges(before).filter((h) => h.unit && /^\n?(\*\*)?(我的评价|微信读书的想法)/.test(before.doc.sliceString(h.from, h.to)) && !text.includes(before.doc.sliceString(h.unit.from, h.unit.to).replace(/^\n+/, '')))
+  return hiddenRanges(before).filter(
+    (h) =>
+      h.unit &&
+      (/^\n?(\*\*)?(我的评价|微信读书的想法)/.test(before.doc.sliceString(h.from, h.to)) || /^[ \t]+\^[\w-]+\n?$/.test(before.doc.sliceString(h.from, h.to))) &&
+      !text.includes(before.doc.sliceString(h.unit.from, h.unit.to).replace(/^\n+/, '')),
+  )
 }
 
 /** 改完以后：原来藏着的每一段都还整行整行地在（出现次数不少），藏着的块一个没少（没露成原文） */
 function expectIntact(before: EditorState, after: EditorState, where: string) {
   const text = after.doc.toString()
-  // 整行：前面是行首（</summary> 接在标题字后面，不算）、后面是行尾（<summary>、提示块的「> [!ai]- 」、评价的「我的评价：」后面接字，不算）
+  // 整行：前面是行首（</summary> 接在标题字后面、行尾的「 ^块编号」接在正文后面，不算）、后面是行尾（<summary>、提示块的「> [!ai]- 」、评价的「我的评价：」后面接字，不算）
   const lines = (core: string) => {
-    const needL = !core.startsWith('</summary>')
+    const needL = !core.startsWith('</summary>') && !/^[ \t]+\^[\w-]+$/.test(core)
     const needR = !(/<summary>$/i.test(core) || /^>\s*\[!/.test(core) || /^(\*\*)?(我的评价|微信读书的想法)/.test(core))
     let n = 0
     for (let i = text.indexOf(core); i >= 0; i = text.indexOf(core, i + 1)) {
@@ -294,6 +306,62 @@ describe.each(samples)('$name', (sample) => {
     expect(v.state.doc.toString()).toBe('')
     undo(v)
     expect(v.state.doc.toString()).toBe(sample.doc)
+  })
+})
+
+describe('行尾的 ^块编号（task-4xtbp）', () => {
+  const DOC = '# 定义\n\n线性映射保持加法和数乘。 ^def1\n\n`代码 ^x1`\n\n```\n代码块 ^x2\n```\n\n^own\n\n后面一段。\n'
+  /** 屏上：块编号被 replace 盖住（藏着）还是露成淡色小字 */
+  function looks(v: View, id: string): 'hidden' | 'shown' | 'plain' {
+    const from = v.state.doc.toString().indexOf(id)
+    let out: 'hidden' | 'shown' | 'plain' = 'plain'
+    for (const set of v.state.facet(EditorView.decorations)) {
+      const ds = typeof set === 'function' ? set(v) : set
+      ds.between(from, from + id.length, (a, b, d) => {
+        if (a <= from && b >= from + id.length) out = d.point ? 'hidden' : /cm-blockid/.test(String(d.spec.class)) ? 'shown' : out
+      })
+    }
+    return out
+  }
+
+  it('藏着，光标到那一行也不露（DESIGN.v3 6.5 方向 A）；代码里的、顶格单独一行的不管', () => {
+    const v = open({ name: '', doc: DOC })
+    expect(looks(v, ' ^def1')).toBe('hidden')
+    expect(looks(v, ' ^x1')).toBe('plain')
+    expect(looks(v, ' ^x2')).toBe('plain')
+    expect(looks(v, '^own')).toBe('plain')
+    v.dispatch({ selection: { anchor: DOC.indexOf('线性') + 2 }, userEvent: 'select' })
+    expect(looks(v, ' ^def1')).toBe('hidden')
+  })
+
+  it('点那一行末尾（End）：光标停在块编号前面，接着打的字在块编号前面；文件里块编号还在行尾', () => {
+    const v = open({ name: '', doc: DOC })
+    const end = DOC.indexOf(' ^def1') + ' ^def1'.length
+    v.dispatch({ selection: { anchor: end }, userEvent: 'select' })
+    expect(v.state.selection.main.head).toBe(DOC.indexOf(' ^def1'))
+    typeAt(v, '（补一句）')
+    expect(v.state.doc.toString()).toContain('线性映射保持加法和数乘。（补一句） ^def1\n')
+  })
+
+  it('行尾回车：块编号留在这一段上，新的一行起在它后面，接着打的字在新的一行；列表里回车接着是列表', () => {
+    for (const [doc, line, want] of [
+      [DOC, '线性映射保持加法和数乘。 ^def1', '线性映射保持加法和数乘。 ^def1\n新的一行'],
+      ['- 第一条 ^a1\n- 第二条\n', '- 第一条 ^a1', '- 第一条 ^a1\n- 新的一行'],
+    ] as const) {
+      const v = open({ name: '', doc })
+      v.dispatch({ selection: { anchor: doc.indexOf(line) + line.length }, userEvent: 'select' })
+      keys['回车']!(v)
+      typeAt(v, '新的一行')
+      expect(v.state.doc.toString()).toContain(want)
+      undo(v)
+      undo(v)
+      expect(v.state.doc.toString()).toBe(doc)
+    }
+  })
+
+  it('打开不改文字（块编号只是装饰）', () => {
+    const v = open({ name: '', doc: DOC })
+    expect(v.state.doc.toString()).toBe(DOC)
   })
 })
 
@@ -871,5 +939,201 @@ describe('task-o48fa 公式：光标进出、整颗选中删、写错的', () =>
     expect(ps[0]!.error).toMatch(/^公式写错了：/)
     expect(ps[1]!.error).toBe('公式写错了：不认识的命令 \\foo（第 1 个字）')
     expect(hiddenRanges(v.state)).toEqual([])
+  })
+})
+
+// ---------- task-6lsvd：整块下面一行行首退格、上面一行行尾 Delete ----------
+// 用户 0.4.8：书摘末尾嵌着一个空的数据库块，下面一行行首退格删不掉，光标跳到上一段末尾。
+// 这里的编辑器带上 wysiwyg（代码块围栏行登记成藏着的语法，```base 的围栏也在里面，以前的样本没带它，抓不到）、白板链接，
+// 键按文档里真有的那几套（优先级照 note-doc.ts、doc-editing.ts）。
+
+const { wysiwyg } = await import('../src/renderer/wysiwyg')
+const { boardLink, setBoards } = await import('../src/renderer/board-link')
+
+const blockKeys: Extension[] = [...withKeys, wysiwyg, boardLink]
+
+interface BlockSample {
+  name: string
+  /** 整块的原文（独占几行） */
+  block: string
+  /** 只认紧挨着的那一行（单独成行的公式：上下的空行是普通空行，隔着空行退格先删空行，task-o48fa 定的） */
+  near?: boolean
+}
+
+const BLOCK_SAMPLES: BlockSample[] = [
+  { name: '数据库块（```base，有写法）', block: BASE },
+  { name: '空的数据库块（```base 里没字，用户截图那块）', block: '```base\n```' },
+  { name: '图片', block: '![说明](附件/a.png)' },
+  { name: '视频卡', block: VIDEO },
+  { name: '时刻块', block: MOMENT },
+  { name: '表格', block: '| a | b |\n|---|---|\n| 1 | 2 |' },
+  { name: '白板链接（独占一行的 [[白板]]）', block: '[[白板甲]]' },
+  { name: '单独成行的公式（对照，task-o48fa 已做）', block: '$$\n\\sum_i x_i\n$$', near: true },
+]
+
+const docOf = (block: string) => `# 块\n\n上一段。\n\n${block}\n\n下一段。\n`
+
+function openBlock(doc: string, at: number): View {
+  const v = withLayout(fakeView(EditorState.create({ doc, extensions: blockKeys })))
+  // ← → 收起选区时 CodeMirror 问这一处的文字方向
+  Object.defineProperty(v, 'textDirectionAt', { value: () => Direction.LTR })
+  v.dispatch({ effects: setBoards.of(new Map([['白板甲', { path: '白板甲.md', color: 'blue', cards: 2 }]])) })
+  v.dispatch({ selection: { anchor: at }, userEvent: 'select' })
+  return v
+}
+
+const blockChains = chains(EditorState.create({ doc: '', extensions: blockKeys }))
+const pressKey = (v: View, k: string) => press(v, blockChains.get(k)!)
+const selected = (v: View) => v.state.sliceDoc(v.state.selection.main.from, v.state.selection.main.to)
+
+/** 整块要么整个在、要么整个没了：块里任何一行（去掉两头空白至少 3 个字）都不许单独留下来 */
+function wholeOrGone(doc: string, block: string, where: string): 'kept' | 'gone' {
+  if (doc.includes(block)) return 'kept'
+  const left = block.split('\n').filter((l) => l.trim().length >= 3 && doc.includes(l))
+  expect(left, `${where}：整块删了一半，留下 ${JSON.stringify(left)}：${JSON.stringify(doc)}`).toEqual([])
+  return 'gone'
+}
+
+describe.each(BLOCK_SAMPLES)('task-6lsvd 整块：$name', ({ block, near }) => {
+  const doc = docOf(block)
+  const from = doc.indexOf(block)
+  const to = from + block.length
+  // 删掉整块以后：上一段、空一行、下一段（不多出空行）
+  const gone = '# 块\n\n上一段。\n\n下一段。\n'
+
+  it.each([
+    ['块下面一行（空行）行首', to + 1],
+    ...(near ? [] : [['块下面隔一个空行的下一段段首', to + 2] as [string, number]]),
+  ])('%s按退格：第一下选中整块、字不变；第二下连同它占的行删掉、光标留在原来那一行；⌘Z 一次回到原样', (_n, at) => {
+    const v = openBlock(doc, at)
+    pressKey(v, 'Backspace')
+    expect(v.state.doc.toString()).toBe(doc)
+    expect(selected(v)).toBe(block)
+    pressKey(v, 'Backspace')
+    expect(v.state.doc.toString()).toBe(gone)
+    expect(v.state.selection.main.empty).toBe(true)
+    // 光标不跳到上一段末尾这种不相干的地方：在块原来那一处（上一段下面的空行，或下一段段首）
+    const head = v.state.selection.main.head
+    expect([gone.indexOf('\n\n下一段') + 1, gone.indexOf('下一段')], `光标停在 ${head}`).toContain(head)
+    expect(badCursor(v.state, head)).toBe(false)
+    undo(v)
+    expect(v.state.doc.toString()).toBe(doc)
+  })
+
+  it.each([
+    ['块上面一行（空行）行尾', from - 1],
+    ...(near ? [] : [['块上面隔一个空行的上一段段尾', from - 2] as [string, number]]),
+  ])('%s按 Delete（Ctrl+D 一样）：第一下选中整块，第二下连同它占的行删掉；⌘Z 一次回到原样', (_n, at) => {
+    for (const k of ['Delete', 'Ctrl-d']) {
+      const v = openBlock(doc, at)
+      pressKey(v, k)
+      expect(v.state.doc.toString(), k).toBe(doc)
+      expect(selected(v), k).toBe(block)
+      pressKey(v, k)
+      expect(v.state.doc.toString(), k).toBe(gone)
+      const head = v.state.selection.main.head
+      expect([gone.indexOf('\n\n下一段') + 1, gone.indexOf('\n\n下一段')], `${k} 光标停在 ${head}`).toContain(head)
+      undo(v)
+      expect(v.state.doc.toString(), k).toBe(doc)
+    }
+  })
+
+  it('逐键：每个能停的位置按退格、Delete、Ctrl+D 一下、两下，整块整个在或整个删，光标不停在藏着的地方，⌘Z 回到原样', () => {
+    const v0 = openBlock(doc, doc.length)
+    for (const at of stops(v0.state)) {
+      for (const k of ['Backspace', 'Delete', 'Ctrl-d']) {
+        for (const times of [1, 2]) {
+          const v = openBlock(doc, at)
+          for (let i = 0; i < times; i++) pressKey(v, k)
+          const text = v.state.doc.toString()
+          const where = `从 ${at} 按 ${k} ${times} 下`
+          wholeOrGone(text, block, where)
+          if (v.state.selection.main.empty) expect(badCursor(v.state, v.state.selection.main.head), where).toBe(false)
+          else expect(selected(v), where + ' 选中的就是这一块').toBe(block)
+          for (let i = 0; i < 6; i++) undo(v)
+          expect(v.state.doc.toString(), where + ' 再 ⌘Z').toBe(doc)
+        }
+      }
+    }
+  })
+
+  it('选中整块以后用别的删除键（⌥⌫、⌘⌫、Ctrl+H、剪切）：整块整个删（看守不再把围栏这些块里藏着的留下），⌘Z 回到原样', () => {
+    for (const k of ['Alt-Backspace', 'Cmd-Backspace', 'Ctrl-h', '剪切']) {
+      const v = openBlock(doc, to + 1)
+      pressKey(v, 'Backspace')
+      expect(selected(v), k).toBe(block)
+      if (k === '剪切') v.dispatch({ ...v.state.replaceSelection(''), userEvent: 'delete.cut' })
+      else pressKey(v, k)
+      const text = v.state.doc.toString()
+      expect(wholeOrGone(text, block, k), k).toBe('gone')
+      expect(badCursor(v.state, v.state.selection.main.head), k).toBe(false)
+      for (let i = 0; i < 6; i++) undo(v)
+      expect(v.state.doc.toString(), k).toBe(doc)
+    }
+  })
+
+  it('选中整块（第一下退格）以后：← → 收起选中、字不变；打字留着块、字另起一段接在块下面', () => {
+    for (const k of ['ArrowLeft', 'ArrowRight']) {
+      const v = openBlock(doc, to + 1)
+      pressKey(v, 'Backspace')
+      pressKey(v, k)
+      expect(v.state.selection.main.empty, k).toBe(true)
+      expect(v.state.doc.toString(), k).toBe(doc)
+    }
+    // 打字：块原样留着，字在块和下一段之间自成一行（不并进下一段）
+    const t = openBlock(doc, to + 1)
+    pressKey(t, 'Backspace')
+    typeAt(t, 'Y')
+    const typed = t.state.doc.toString()
+    expect(typed.startsWith(doc.slice(0, to) + '\n')).toBe(true)
+    expect(typed.slice(to)).toMatch(/^\n+Y\n+下一段。\n$/)
+  })
+})
+
+describe('task-6lsvd 文件里块挨着块、在文件头尾：删掉整块不多留空行、不并段', () => {
+  const cases: [string, string, string][] = [
+    ['紧挨着上一段（用户截图：书摘最后一段下面直接是数据库块）', '读。\n```base\n```\n', '读。\n'],
+    ['块在文件最后、后面空一行', '读。\n\n```base\n```\n\n', '读。\n\n'],
+    ['块是全篇最后一样（上面空一行、结尾一个换行）：上一段下面的空行留着，光标在那里打字是新起一段', '读。\n\n```base\n```\n', '读。\n\n'],
+    ['块在文件最后、没有结尾换行', '读。\n\n```base\n```', '读。'],
+    ['块在文件开头', '```base\n```\n\n下一段。\n', '下一段。\n'],
+    ['上下都紧挨着正文', '读。\n```base\n```\n下一段。\n', '读。\n下一段。\n'],
+  ]
+  it.each(cases)('%s', (_n, doc, want) => {
+    const block = '```base\n```'
+    const to = doc.indexOf(block) + block.length
+    const v = openBlock(doc, Math.min(to + 1, doc.length))
+    pressKey(v, 'Backspace')
+    expect(selected(v)).toBe(block)
+    pressKey(v, 'Backspace')
+    expect(v.state.doc.toString()).toBe(want)
+    undo(v)
+    expect(v.state.doc.toString()).toBe(doc)
+  })
+})
+
+describe('task-6lsvd 能改字的块（代码块、提示块、AI 讲解、旁支）：下面一行行首退格、上面一行行尾 Delete 走进块里，不删记号、不跳走', () => {
+  const TEXT_BLOCKS: [string, string, string, string][] = [
+    // 名字、块、退格后光标前面的字、Delete 后光标后面的字
+    ['代码块', '```js\nlet a = 1\n```', 'let a = 1', 'let a = 1'],
+    ['提示块', '> [!tip] 提示标题\n> 提示正文。', '提示正文。', '提示标题'],
+    ['AI 讲解（展开）', '> [!ai]+ 讲解\n> 正文一', '正文一', '讲解'],
+    ['旁支块', '> [!ai]+ 讲解\n> 正文一\n>\n> [!side] 问题\n> > 那一句\n> 回答。', '回答。', '讲解'],
+  ]
+  it.each(TEXT_BLOCKS)('%s', (_n, block, before, after) => {
+    const doc = docOf(block)
+    const from = doc.indexOf(block)
+    const to = from + block.length
+    const b = openBlock(doc, to + 1)
+    pressKey(b, 'Backspace')
+    expect(b.state.doc.toString()).toBe(doc)
+    expect(b.state.selection.main.empty).toBe(true)
+    expect(doc.slice(0, b.state.selection.main.head).endsWith(before), `退格后光标在 ${b.state.selection.main.head}`).toBe(true)
+    for (const k of ['Delete', 'Ctrl-d']) {
+      const d = openBlock(doc, from - 1)
+      pressKey(d, k)
+      expect(d.state.doc.toString(), k).toBe(doc)
+      expect(doc.slice(d.state.selection.main.head).startsWith(after), `${k} 后光标在 ${d.state.selection.main.head}`).toBe(true)
+    }
   })
 })

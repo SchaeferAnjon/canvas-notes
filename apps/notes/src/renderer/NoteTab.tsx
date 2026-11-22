@@ -1,6 +1,6 @@
 import { Codicon } from '@cn/design'
 import { accelFor, useKeyHandler, useKeys } from './keys'
-import { fmValue, hasOldLayout, isMindmap, needsConvert } from '@cn/format'
+import { fmValue, hasOldLayout, isMindmap, needsConvert, needsSummaryConvert } from '@cn/format'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile, OpenedNote } from '../shared/api'
 import { nameNotice, safeName } from '../shared/file-name'
@@ -17,7 +17,8 @@ import { followsTitle, headingOf, titleRename } from './title-follow'
 import { moveCursor, openCursor, saveCursor, savedCursor } from './open-cursor'
 import { PropsButton } from './mindmap/PropsButton'
 import { NoteDoc, type SaveState, type ViewMode } from './note-doc'
-import { setNoteMeta } from './folder-chip'
+import { setNoteMeta, setReadAlong } from './folder-chip'
+import { useReadAlongView } from './read-along/note-view'
 import { setBoards } from './board-link'
 import { Backlinks, setNoteIndex } from './doc-embeds'
 import { createPortal } from 'react-dom'
@@ -206,10 +207,35 @@ export function NoteTab(props: NoteTabProps) {
       cb.current.onSaved()
       return { ...note, text: r.text }
     }
+    /**
+     * 以前写法的「AI 总结的」卡（编号行后面一段普通的字）第一次打开：一次写成 `> [!ai] AI 总结` 提示块（task-5yp97，这样能选一句开旁支），
+     * 主进程写回、单独一次提交，编辑器拿改好的字；底栏说一句，带「撤回」（文件回到改之前、以后打开不再自动改）
+     */
+    const convertSummary = async (note: OpenedNote): Promise<OpenedNote> => {
+      if (note.readOnly || !needsSummaryConvert(note.text)) return note
+      const r = await window.cn.summaryConvert(note.path).catch((e: Error) => {
+        cb.current.onNotice(`《${titleOf(note.path)}》里的 AI 总结卡没改成新写法：${String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+        return null
+      })
+      if (!r) return note
+      const name = titleOf(note.path)
+      const said = `《${name}》里${r.cards > 1 ? `${r.cards}张` : '的'}「AI 总结的」卡改了写法：能选一句开旁支了`
+      app().noticeUndo(r.commitError ? `${said}；提交没成功：${r.commitError}` : said, () => {
+        void (async () => {
+          await NoteDoc.saveAll()
+          await window.cn.summaryKeepOld(pathNow.current, r.old, d?.text ?? r.text)
+          if (d) await d.applyRemote(r.old)
+          cb.current.onNotice(`撤回了：《${name}》里的总结卡回到以前的写法，以后打开不再自动改`)
+          cb.current.onSaved()
+        })().catch((e: Error) => cb.current.onNotice(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
+      })
+      cb.current.onSaved()
+      return { ...note, text: r.text }
+    }
     const pre = preread.get(firstPath.current)
     preread.delete(firstPath.current)
     if (pre) init(pre)
-    else void window.cn.readNote(firstPath.current).then(convert).then(init)
+    else void window.cn.readNote(firstPath.current).then(convert).then(convertSummary).then(init)
     return () => {
       cancelled = true
       off()
@@ -246,6 +272,12 @@ export function NoteTab(props: NoteTabProps) {
   useEffect(() => {
     doc.current?.view.dispatch({ effects: setNoteIndex.of(props.notes) })
   }, [props.notes, text === null])
+  // 和网页配成一对（task-kbnc0）：标题下「对着看 · 书名 · 读到 …」、一句「配成一对？」的提示
+  const readAlong = useReadAlongView(path, active, text)
+  const readAlongKey = JSON.stringify(readAlong)
+  useEffect(() => {
+    doc.current?.view.dispatch({ effects: setReadAlong.of(readAlong) })
+  }, [readAlongKey, text === null])
   /** 文末「提到这篇的」跟着库里的改动重读 */
   const linkVersion = props.notes.reduce((m, n) => Math.max(m, n.mtimeMs), 0) + props.notes.length
 

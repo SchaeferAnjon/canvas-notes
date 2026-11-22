@@ -3,6 +3,7 @@
  * - 阅读页 /web/reader/<编号>：window.__INITIAL_STATE__ 里有书的编号、书名、这一章；页面上一个「划线」按钮，
  *   像微信读书自带的划线一样把选中的字 POST 到 /web/book/addBookmark（我们从这个请求知道刚划了一段）；两章（第 2 章的段落 id 是 q0、q1）；
  *   阅读区像真网站一样 overflow: hidden，右边藏着一排竖着的工具按钮（CN-120：按 Tab 焦点跳过去，阅读区被横着滚开）；
+ *   最后两段各有一个「注」（一个在行首、一个在行尾），点了弹注释气泡，类名、结构、摆法照网页版（task-rbtrz：网页栏窄时气泡左边算成负的）；
  * - 书架 /web/shelf：没登录时是「微信扫码登录」页（点「模拟扫码」= 扫完码，网站种下 wr_vid、wr_skey），登录了是书架；
  * - 网页版接口：/web/book/bookmarklist、/web/review/list、/api/user/notebook、/web/user，认 cookie 里的 wr_skey，
  *   不对回 errCode -2012「登录超时」；loggedOut 时回 errcode -2010；
@@ -18,6 +19,8 @@ export const OTHER = { bookId: '900002', title: '刻意练习', author: '安德�
 export const PARAS = ['系统 1 的运行是无意识且快速的，不怎么费脑力，没什么感觉，完全处于自主控制状态。', '系统 2 将注意力转移到需要费脑力的大脑活动上来，例如复杂的运算。', '努力是有代价的，我们总是倾向于选择最省力的方法。']
 /** 第 2 章 注意力（chapterUid 5）的两段 */
 export const PARAS2 = ['注意力是有限的，分给一件事的多了，别的就少了。', '人在专心做一件事时，会对别的东西视而不见。']
+/** 阅读页里「注」的注释（点了弹气泡） */
+export const NOTE = '杰克逊（Andrew Jackson, 1767-1845），美国将军，第七任总统。在1812年战争期间因功勋卓著被视作民族英雄。'
 export const VID = '10086'
 /** 这本书的阅读页地址：和真网站一样由书的编号编出来（插件先从地址认书） */
 export const READER = '/web/reader/' + readerCode(BOOK.bookId, (t) => createHash('md5').update(t).digest('hex'))
@@ -49,12 +52,42 @@ function readerPage(f: FakeWeread): string {
   <style>body{margin:0;font:17px/1.9 "Songti SC",serif;background:#fff;color:#222}.top{height:44px;border-bottom:1px solid #eee;display:flex;align-items:center;padding:0 16px;font:13px -apple-system,sans-serif;color:#888}
   #app{position:relative;overflow:hidden}#wide{position:relative;width:calc(100% + 72px)}article{width:calc(100% - 72px);box-sizing:border-box;padding:12px 22px}h2{font-size:20px}
   .ctl{position:absolute;top:12px;right:0;width:56px;display:flex;flex-direction:column;gap:8px}.ctl button{width:44px;height:44px;border-radius:50%;border:0;background:#f2f2f2;font:12px -apple-system,sans-serif}
-  #mark{position:fixed;right:16px;bottom:16px;font:13px -apple-system,sans-serif;padding:6px 12px;border-radius:6px;border:0;background:#1b88ee;color:#fff}</style></head>
-  <body><div class="top">微信读书 · ${BOOK.title}</div><div id="app"><div id="wide"><article><h2>第1章 两个系统</h2>${PARAS.map((p, i) => `<p id="p${i}" data-uid="3">${p}</p>`).join('')}<h2>第2章 注意力</h2>${PARAS2.map((p, i) => `<p id="q${i}" data-uid="5">${p}</p>`).join('')}</article>
+  #mark{position:fixed;right:16px;bottom:16px;font:13px -apple-system,sans-serif;padding:6px 12px;border-radius:6px;border:0;background:#1b88ee;color:#fff}
+  .fnp{max-width:400px;margin-left:auto;margin-right:auto}.fnp.r{text-align:right}.wr-fn{display:inline-block;width:18px;height:18px;border-radius:50%;background:#e8913a;color:#fff;font:11px/18px -apple-system,sans-serif;text-align:center;cursor:pointer}
+  .reader_footerNote_mask{position:fixed;top:0;bottom:0;left:0;right:0;z-index:90}
+  .reader_footerNote_container{z-index:100;position:absolute;width:92%;max-width:304px}
+  .reader_footerNote_container:after{content:"";position:absolute;bottom:-8px;left:50%;margin-left:-8px;border-top:8px solid #3a3c3e;border-left:8px solid transparent;border-right:8px solid transparent}
+  .reader_footerNote_container_Top:after{bottom:auto;top:-8px;border:8px solid transparent;border-top:none;border-bottom:8px solid #3a3c3e}
+  .reader_footerNote_bubble{padding:16px;border-radius:16px;background:#3a3c3e;max-height:300px;overflow:auto}
+  .reader_footerNote_text{margin:0;color:#fff;font-size:15px;line-height:23px}</style></head>
+  <body><div class="top">微信读书 · ${BOOK.title}</div><div id="app"><div id="wide"><article><h2>第1章 两个系统</h2>${PARAS.map((p, i) => `<p id="p${i}" data-uid="3">${p}</p>`).join('')}<h2>第2章 注意力</h2>${PARAS2.map((p, i) => `<p id="q${i}" data-uid="5">${p}</p>`).join('')}
+  <p class="fnp" id="fnp0"><span class="wr-fn" id="fnL" data-note="${NOTE}">注</span>说，如果把眼光再放远一些</p><p class="fnp r" id="fnp1">实际上是从安德鲁·杰克逊开始<span class="wr-fn" id="fnR" data-note="${NOTE}">注</span></p></article>
   <div class="ctl"><button>目录</button><button>笔记</button><button>字号</button></div></div></div>
   <button id="mark" tabindex="-1">划线</button>
   <script>
     window.__INITIAL_STATE__ = ${f.hideBookId ? '{ newReader: {} }' : f.staleState ? `{ reader: { bookId: '${OTHER.bookId}', bookInfo: { bookId: '${OTHER.bookId}', title: '${OTHER.title}', author: '${OTHER.author}' } } }` : `{ reader: { bookId: '${BOOK.bookId}', bookInfo: { bookId: '${BOOK.bookId}', title: '${BOOK.title}', author: '${BOOK.author}' }, currentChapter: { chapterUid: 3, title: '第1章 两个系统' } } }`}
+    // 「注」：点了弹注释气泡，照网页版的算法摆（按「注」在整页里的位置，气泡正中对着它，上半屏放下面、下半屏放上面；
+    // 先挂上去、下一拍才写 left、top），网页栏窄时左边会算成负的
+    document.addEventListener('click', (e) => {
+      const n = e.target.closest && e.target.closest('.wr-fn')
+      if (!n) return
+      let left = 0, top = 0
+      for (let x = n; x; x = x.offsetParent) { left += x.offsetLeft; top += x.offsetTop }
+      const wrap = document.createElement('div')
+      wrap.innerHTML = '<div class="reader_footerNote_mask"></div><div class="reader_footerNote_container"><div class="reader_footerNote_bubble"><p class="reader_footerNote_text"></p></div></div>'
+      wrap.querySelector('.reader_footerNote_text').textContent = n.dataset.note
+      wrap.firstChild.addEventListener('click', () => wrap.remove())
+      document.body.appendChild(wrap)
+      const c = wrap.querySelector('.reader_footerNote_container')
+      const b = wrap.querySelector('.reader_footerNote_bubble')
+      Promise.resolve().then(() => {
+        const x = left - b.offsetWidth / 2 + n.offsetWidth / 2
+        if (top - scrollY < innerHeight / 2) {
+          c.classList.add('reader_footerNote_container_Top')
+          c.setAttribute('style', 'left:' + x + 'px;top:' + (top + n.offsetHeight + 12) + 'px;')
+        } else c.setAttribute('style', 'left:' + x + 'px;top:' + (top - b.offsetHeight - 12) + 'px;')
+      })
+    })
     document.getElementById('mark').addEventListener('mousedown', (e) => e.preventDefault())
     document.getElementById('mark').addEventListener('click', () => {
       const sel = getSelection()

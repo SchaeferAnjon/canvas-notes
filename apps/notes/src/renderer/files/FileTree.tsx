@@ -8,7 +8,7 @@ import { type AttachIndex, buildTree, type FileEntry, fileName, folderOfPath, fo
 import { MovedMark, type DreamPreview } from '../dream/preview'
 import { fileIcon } from '../Palette'
 import { Progress } from '../search/QuickOpen'
-import { onReveal, setTreePicked, takeReveal, useVaultFiles } from './store'
+import { onReveal, setTreePicked, takeReveal, useTrashCount, useVaultFiles } from './store'
 import { folderMenu, onFileMenu } from '../ctx/file-menu'
 import { copy, menuAt } from '../ctx/menu'
 import { moveMenu } from '../ctx/move-menu'
@@ -19,6 +19,7 @@ import { HeadBtn, MenuItem, Popover, ViewHead } from '../shell/Shell'
 import { FolderGlyph, LookPicker } from './look'
 import { fileType, TypeChips, type TypeFilter, useSideType } from './type-filter'
 import './file-tree.css'
+import { bookName, usePairs } from '../read-along/store'
 
 const OPEN_KEY = 'cn.treeOpen'
 /** 筛了类型时符合的不超过这么多篇，装着它们的文件夹自己展开 */
@@ -120,6 +121,8 @@ export function FileTree(props: {
   onNewNote(): void
   onNewBoard(): void
   activePath: string | null
+  /** 中间开着的是「最近删掉的」（最底下那一行是正在看的） */
+  trashOn?: boolean
   onOpen(path: string): void
   onOpenFolder(path: string): void
   preview?: DreamPreview | null
@@ -135,6 +138,8 @@ export function FileTree(props: {
   /** 写在界面上的键照命令表（改了跟着变） */
   const K = useKeys()
   const { files, loaded } = useVaultFiles()
+  /** 「最近删掉的」有几篇（task-5yp97）：库里的文件变了就重数 */
+  const trashN = useTrashCount(files)
   const [open, setOpen] = useState(loadOpen)
   const [rootOpen, setRootOpen] = useState(() => {
     try {
@@ -157,8 +162,10 @@ export function FileTree(props: {
   /** 刚定位到的那一行：一圈外圈，2 秒后消失 */
   /** 一圈外圈的那几行（定位到的一行；放回的文件夹和里面放回的几篇） */
   const [ring, setRing] = useState<ReadonlySet<string> | null>(null)
-  /** 选中的（CN-105）：两个以上才算「选了好几个」；anchor 是 Shift 连选的起点，cursor 是 Shift ↑↓ 走到的那一头 */
+  /** 选中的（CN-105）：⌘ 点、Shift 连选、框选来的（灰底），和「正在看」（开着的那篇，竖线）分开（task-cqia6）；两个以上底部出「已选 N 个」那一条；anchor 是 Shift 连选的起点，cursor 是 Shift ↑↓ 走到的那一头 */
   const [sel, setSel] = useState<Set<string>>(new Set())
+  /** 和网页配成一对的几篇（task-kbnc0）：这一行右边一个网页小标 */
+  const pairs = usePairs()
   const anchor = useRef<string | null>(null)
   const cursor = useRef<string | null>(null)
   /** 框选：起点和现在的点（相对目录树） */
@@ -419,7 +426,7 @@ export function FileTree(props: {
     cursor.current = path
     setSel(new Set(order.slice(Math.min(i, j), Math.max(i, j) + 1)))
   }
-  /** 点一行：Shift 连选、⌘ 加选或去掉（都不打开）；平常的点是选它一个、照常打开。返回 true 表示是选择，不往下做 */
+  /** 点一行：Shift 连选、⌘ 加选或去掉（都不打开；⌘ 点从空开始，不把正在看的那篇算进来，照 Obsidian，task-cqia6）；平常的点是打开它、清掉选中。返回 true 表示是选择，不往下做 */
   const pick = (e: React.MouseEvent, path: string): boolean => {
     if (e.shiftKey) {
       e.preventDefault()
@@ -430,7 +437,7 @@ export function FileTree(props: {
     if (e.metaKey) {
       e.preventDefault()
       setSel((s) => {
-        const n = new Set(s.size ? s : activePath && order.includes(activePath) ? [activePath] : [])
+        const n = new Set(s)
         if (n.has(path)) n.delete(path)
         else n.add(path)
         return n
@@ -441,7 +448,7 @@ export function FileTree(props: {
     }
     anchor.current = path
     cursor.current = path
-    setSel(new Set([path]))
+    clearSel()
     return false
   }
   const clearSel = () => {
@@ -471,7 +478,7 @@ export function FileTree(props: {
   }
   /** ⌘⌫：删选中的（没选好几个时删现在这一行），和右键「移到废纸篓」同一个确认 */
   const trashSel = (fallback: string | null) => {
-    const paths = many ? selList() : fallback ? [fallback] : []
+    const paths = sel.size ? selList() : fallback ? [fallback] : []
     if (!paths.length) return
     if (paths.length === 1 && isDir(paths[0]!)) return void app().trashFolder(paths[0]!)
     void (paths.length === 1 ? app().trash(paths[0]!) : app().trashMany(paths)).then(() => setSel(new Set()))
@@ -540,6 +547,18 @@ export function FileTree(props: {
     e.dataTransfer.effectAllowed = 'move'
     return true
   }
+  /** 文件夹那一行能拖进别的文件夹（普通文件夹、挂在笔记下面的数据库记录文件夹都是） */
+  const dirDrag = (path: string) => ({
+    draggable: !pv && renaming !== path && type !== 'att',
+    onDragStart: (e: React.DragEvent) => {
+      if (dragMany(e, path)) return
+      e.stopPropagation()
+      draggingDir.current = path
+      e.dataTransfer.setData(DRAG_DIR, path)
+      e.dataTransfer.effectAllowed = 'move'
+    },
+    onDragEnd: () => ((draggingDir.current = null), setDropOn(null)),
+  })
 
   const newFolderRow = (parent: string, depth: number) => (
     <div key={'new:' + parent} role="treeitem" aria-level={depth + 1} aria-selected={false} className="si ft-row ft-new" style={{ paddingLeft: 8 + depth * 14 }}>
@@ -575,7 +594,7 @@ export function FileTree(props: {
         aria-selected={sel.has(path)}
         tabIndex={-1}
         data-path={path}
-        className={'si ft-row ft-att' + (many && sel.has(path) ? ' sel' : '')}
+        className={'si ft-row ft-att' + (sel.has(path) ? ' sel' : '')}
         style={{ paddingLeft: 8 + depth * 14 }}
         title={path}
         {...selProps(path)}
@@ -606,6 +625,50 @@ export function FileTree(props: {
     )
   }
 
+  /**
+   * 数据库的记录文件夹（task-5yp97「藏之后」）：挂在用它的那篇下面一行——数据库图标 · 名字 · 「N条」，不画箭头（记录不在树里一条条列）；
+   * 点开它的首页（每一条都在），右键照文件夹的菜单（重命名…、移到…）；能拖进别的文件夹（库里的链接、数据库块里的路径一起改，
+   * 离开了那篇就照普通文件夹画）；不能往里拖笔记（挪进去就成了一条记录，和「移到」里不列它一样）。那篇挪走时它跟着挪（主进程 folder-ops）
+   */
+  const baseRow = (d: TreeNode, depth: number) => {
+    order.push(d.path)
+    const on = activePath === d.path
+    const n = d.entry?.base?.records ?? 0
+    return (
+      <div
+        key={'db:' + d.path}
+        role="treeitem"
+        aria-level={depth + 1}
+        aria-selected={sel.has(d.path)}
+        aria-current={on ? 'page' : undefined}
+        tabIndex={-1}
+        data-path={d.path}
+        className={'si ft-row ft-dbrow' + (sel.has(d.path) ? ' sel' : '') + (on ? ' on' : '') + (ring?.has(d.path) ? ' ring' : '')}
+        style={{ paddingLeft: 8 + depth * 14 }}
+        title={`${d.path} · 数据库的${n}条记录（磁盘上是一个文件夹）`}
+        {...selProps(d.path)}
+        {...dirDrag(d.path)}
+        onClick={(e) => pick(e, d.path) || openFolder(d.path)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') openFolder(d.path)
+          if (isKey(e, 'rename')) setRenaming(d.path)
+        }}
+        onContextMenu={(e) => {
+          if (many && sel.has(d.path)) return groupMenu(e)
+          setPicked(d.path)
+          const el = e.currentTarget
+          void menuAt(e, folderMenu(d.path, { rename: () => setRenaming(d.path), newFolder: () => startFolder(d.path), look: () => setLook({ folder: d.path, el }) }))
+        }}
+      >
+        <span className="ft-tw" />
+        <Codicon name="database" size={16} className="ft-db" />
+        {renaming === d.path ? <FolderRename folder={d.path} onDone={() => setRenaming(null)} /> : <span className="truncate">{d.name}</span>}
+        <span className="ft-fl" />
+        {view.counts && <span className="ft-count num">{`${n}条`}</span>}
+      </div>
+    )
+  }
+
   const rows: React.ReactNode[] = []
   const walk = (nodes: TreeNode[], depth: number, dir: string, pageKey = dir) => {
     if (making === dir && dir !== '') rows.push(newFolderRow(dir, depth))
@@ -623,23 +686,16 @@ export function FileTree(props: {
             role="treeitem"
             aria-level={depth + 1}
             aria-expanded={isOpen}
-            aria-selected={on || sel.has(n.path)}
+            aria-selected={sel.has(n.path)}
+            aria-current={on ? 'page' : undefined}
             tabIndex={-1}
             data-path={n.path}
-            className={'si ft-row' + (many && sel.has(n.path) ? ' sel' : on ? ' on' : picked === n.path ? ' picked' : '') + (ring?.has(n.path) ? ' ring' : '') + (dropOn === n.path ? ' drop' : '')}
+            className={'si ft-row' + (sel.has(n.path) ? ' sel' : '') + (on ? ' on' : !sel.has(n.path) && picked === n.path ? ' picked' : '') + (ring?.has(n.path) ? ' ring' : '') + (dropOn === n.path ? ' drop' : '')}
             style={pad}
             title={n.path}
             {...dropProps(n.path)}
             {...selProps(n.path)}
-            draggable={!pv && renaming !== n.path && type !== 'att'}
-            onDragStart={(e) => {
-              if (dragMany(e, n.path)) return
-              e.stopPropagation()
-              draggingDir.current = n.path
-              e.dataTransfer.setData(DRAG_DIR, n.path)
-              e.dataTransfer.effectAllowed = 'move'
-            }}
-            onDragEnd={() => ((draggingDir.current = null), setDropOn(null))}
+            {...dirDrag(n.path)}
             onClick={(e) => pick(e, n.path) || openFolder(n.path)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') openFolder(n.path)
@@ -718,17 +774,22 @@ export function FileTree(props: {
       const attOpen = !!items && open.has(attKey)
       // 一个 PDF 一篇笔记：PDF（HTML）和旁边那篇笔记合成一行，右端是笔记里问了几问；点开 PDF，笔记标签跟着开（2026-11-20）
       const note = n.entry?.note
+      // 这篇用的数据库的记录文件夹挂在它下面（task-5yp97）：这一行能展开
+      const dbs = items ? [] : n.children.filter((c) => c.kind === 'dir')
+      const dbKey = 'db:' + n.path
+      const dbOpen = dbs.length > 0 && open.has(dbKey)
       order.push(realPath)
       rows.push(
         <div
           key={n.path}
           role="treeitem"
           aria-level={depth + 1}
-          aria-selected={activePath === realPath || sel.has(realPath)}
-          aria-expanded={items ? attOpen : undefined}
+          aria-selected={sel.has(realPath)}
+          aria-current={activePath === realPath ? 'page' : undefined}
+          aria-expanded={items ? attOpen : dbs.length ? dbOpen : undefined}
           tabIndex={-1}
           data-path={realPath}
-          className={'si ft-row ft-fit' + (items ? ' att' : '') + (many && sel.has(realPath) ? ' sel' : activePath === realPath ? ' on' : '') + (ring?.has(realPath) ? ' ring' : '')}
+          className={'si ft-row ft-fit' + (items ? ' att' : '') + (sel.has(realPath) ? ' sel' : '') + (activePath === realPath ? ' on' : '') + (ring?.has(realPath) ? ' ring' : '')}
           style={pad}
           title={note ? `${n.kind === 'pdf' ? 'PDF' : 'HTML'} 和它的笔记是一行：点开 ${n.kind === 'pdf' ? 'PDF' : 'HTML'}，笔记跟着在旁边` : n.path}
           data-note={note?.path}
@@ -752,9 +813,15 @@ export function FileTree(props: {
                   'aria-label': `${attOpen ? '收起' : '展开'} ${shown(n.name)} 的附件`,
                   onClick: (e: React.MouseEvent) => (e.stopPropagation(), toggle(attKey)),
                 }
-              : {})}
+              : dbs.length
+                ? {
+                    role: 'button',
+                    'aria-label': `${dbOpen ? '收起' : '展开'} ${shown(n.name)} 的数据库`,
+                    onClick: (e: React.MouseEvent) => (e.stopPropagation(), toggle(dbKey)),
+                  }
+                : {})}
           >
-            {items && <Codicon name={attOpen ? 'chevron-down' : 'chevron-right'} size={12} />}
+            {(items || dbs.length > 0) && <Codicon name={(items ? attOpen : dbOpen) ? 'chevron-down' : 'chevron-right'} size={12} />}
           </span>
           {props.boards.has(realPath) ? <i className="sw ft-sw" style={{ background: props.boards.get(realPath) }} /> : <Codicon name={fileIcon(n.path, false, props.digests.has(n.path))} size={16} />}
           {renaming === realPath ? (
@@ -766,6 +833,12 @@ export function FileTree(props: {
           {(n.kind === 'pdf' || n.kind === 'html') && <span className="ft-ext">{n.kind === 'pdf' ? 'PDF' : 'HTML'}</span>}
           {mark && pv && <MovedMark m={mark} pv={pv} />}
           <span className="ft-fl" />
+          {/* 和网页配成一对（task-kbnc0）：右边一个网页小标，悬停说点开会怎样 */}
+          {pairs.has(realPath) && (
+            <span className="ft-pair" aria-label="和网页配成一对" data-tip={`和网页「${bookName(pairs.get(realPath)!)}」配成一对：点开这篇，网页跟着在右栏开到上次读到的那段`} data-side="right">
+              <Codicon name="globe" size={13} />
+            </span>
+          )}
           {n.pinned && (
             <span className="ft-pin" aria-label="置顶了">
               <Codicon name="pinned" size={12} />
@@ -773,9 +846,10 @@ export function FileTree(props: {
           )}
           {items && <span className="ft-count num">{`${items.length}张`}</span>}
           {note ? (
-            <span className="ft-nb num" data-testid="ft-note" aria-label={`笔记里问了${note.asks}问`}>
+            <span className="ft-nb num" data-testid="ft-note" aria-label={`笔记里问了${note.asks}问${note.sent ? '，都送进Anki了' : ''}`}>
               <Codicon name="note" size={13} />
               {note.asks}
+              {note.sent && <Codicon name="check" size={13} className="ft-sent" />}
             </span>
           ) : (
             n.kind === 'pdf' && (
@@ -786,6 +860,7 @@ export function FileTree(props: {
           )}
         </div>,
       )
+      if (dbOpen) for (const d of dbs) rows.push(baseRow(d, depth + 1))
       if (items && attOpen) {
         const lim = pages[attKey] ?? ATT_PAGE
         for (const it of items.slice(0, lim)) rows.push(attachRow(it.path, depth + 1, realPath, it.bytes, attKey + '>' + it.path))
@@ -855,6 +930,27 @@ export function FileTree(props: {
           )
         walk(g.nodes, 1, '', 'top:' + g.title)
       }
+      // 最底下一行「最近删掉的 N」（task-5yp97，用户看图定「只列 30 天」）：点开中间「最近删掉的」，正在看时同别的行一道竖线。
+      // 样子同一行文件夹，但它不是库里的文件（不当 treeitem，键盘上下、框选、多选都不算它）
+      const trashRow = (
+        <div
+          key="trash"
+          role="button"
+          aria-current={props.trashOn ? 'page' : undefined}
+          tabIndex={0}
+          className={'si ft-row ft-trash' + (props.trashOn ? ' on' : '')}
+          style={{ paddingLeft: 22 }}
+          title="30天里删掉的，放回去还在原来的文件夹"
+          onClick={() => app().openTrash()}
+          onKeyDown={(e) => e.key === 'Enter' && app().openTrash()}
+        >
+          <span className="ft-tw" />
+          <Codicon name="trash" size={16} />
+          <span className="truncate">最近删掉的</span>
+          <span className="ft-fl" />
+          {view.counts && !!trashN && <span className="ft-count num">{trashN}</span>}
+        </div>
+      )
       // 「附件」筛选：最下面两组。读 PDF 的完整对话在用、那份 PDF 的笔记已经不在的（对话记录本身不进树，双击这一张打开那份对话）；没有谁在用的。
       // 名字后面写所在的文件夹（附件/ 最外层的不写）
       if (type === 'att' && att) {
@@ -883,6 +979,7 @@ export function FileTree(props: {
             )
         }
       }
+      rows.push(<div key="trash-gap" className="ft-trash-gap" role="presentation" />, trashRow)
     }
   }
   const sortNow = TREE_SORTS.find((s) => s.id === view.sort)!

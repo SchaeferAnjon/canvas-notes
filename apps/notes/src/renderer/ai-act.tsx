@@ -12,7 +12,8 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { Codicon } from '@cn/design'
 import type { AiActArea } from '../shared/agent'
 import { actDoneText, actHaltText } from '../shared/ai-act'
-import { type ActEntry, actEntries, actVersion, lastGrab, onActs, still, stopActing, undoActing } from './ai-act-store'
+import { type ActEntry, actEntries, actVersion, lastGrab, onActs, onWrote, still, stopActing, undoActing } from './ai-act-store'
+import { watchBoard } from './ai-card-grow'
 import { type EdgePhase, GlowEdge, GlowRing, type RingMode } from './ai-glow'
 import { AiIcon } from './engine-logo'
 import './ai-act.css'
@@ -159,6 +160,14 @@ export function AiActLayer(props: { area: AiActArea; path?: string | null; host:
       st.timers = []
     }
   }, [grabKey])
+
+  // AI 写了这块白板（加卡、改卡、自己写文件）：新的卡、改过字的卡里的字一点点长出来，卡的大小不动（task-6kun1）
+  useEffect(() => {
+    if (area !== 'board' || !path) return
+    return onWrote((p) => {
+      if (p === path && host.current) watchBoard(host.current)
+    })
+  }, [area, path])
 
   if (!mine.length) return null
   const ringMode = (r: { once: number; at: number }): RingMode => (r.at < r.once ? 'once' : r.at < r.once + 250 ? 'settle' : 'fade')

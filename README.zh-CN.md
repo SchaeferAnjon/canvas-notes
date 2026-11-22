@@ -24,7 +24,7 @@
 
 随手存，自动整理，随时看得到自己积累了什么。剪进来的先进收件箱，写的东西随时能在白板上摆开，AI 在你说的时候、或者夜里自己替你收拢。
 
-- **一个文件，两种看法**：一篇笔记点「白板」摊成卡片（卡片、列、待办、图片、子白板、连线），点「文档」从上往下读。排版写在 md 的注释里，Obsidian、Typora、VS Code 打开照样是一篇读得通的文章。
+- **一个文件，两种看法**：一篇笔记点「白板」摊成卡片（卡片、列、待办、图片、子白板、连线），点「文档」从上往下读。排版写在 md 的注释里，用别的编辑器打开看到的是一篇从上往下的文章。
 - **网页剪藏**：右边是完整的 Chrome 内核。选中一段，白板里「剪成卡片」，文档里「剪进文档」插到光标处，来源自动带上；整页剪藏存成收件箱里新的一篇。一键导入 Chrome 的登录、书签、历史和插件。
 - **内置插件**：网页地址栏里的「双语翻译」（<kbd>⌥</kbd> <kbd>A</kbd>）和「书签管家」（「⋯ › 加书签」；新网页标签直接是 [BookmarkKeeper](https://github.com/SchaeferAnjon/bookmark) 的新标签页，快捷书签经 iCloud 和 Chrome、Safari 同步）是内置插件，在插件面板和 设置 › 插件 里开关。翻译按钮旁的小箭头里换语言、对照 / 只看译文和七种译文样式；翻译走你的 AI 命令行（Claude Code → Codex → Gemini → OpenCode），都没有时可以填自己的 DeepSeek 或智谱 API Key（存在钥匙串里），课程文件夹里的 `术语表.md` 让译法前后一致。
 - **AI 能动手**：右下角的 AI 用这台 Mac 上已经登录的 Claude Code、Codex、Gemini 或 OpenCode，不另存密钥。它能新建、改名、挪动、删笔记（链接跟着改），在白板上加卡片、排成列，在文档里插入、改写，在网页里打开、剪藏；全能模式（默认开）下还能像在终端里一样读写这台 Mac 上的文件、跑命令、上网，关掉就只在库里动手。每一轮是一次 Git 提交，点「撤回」就回去。
@@ -60,7 +60,7 @@
 | **Apple 芯片的 Mac**（M1 到 M4） | [`CanvasNotes-mac-arm64.dmg`](https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-arm64.dmg) | macOS 12 或更新 |
 | **Intel 芯片的 Mac** | [`CanvasNotes-mac-x64.dmg`](https://github.com/SchaeferAnjon/canvas-notes/releases/latest/download/CanvasNotes-mac-x64.dmg) | macOS 12 或更新 |
 
-打开 dmg，把 Canvas Notes 拖进「应用程序」，打开后选一个文件夹当库：空文件夹，或者已有的 Obsidian 库都行。需要 Git，第一次用时 macOS 会提示安装命令行工具。这一版没有经过 Apple 公证（作者的其他软件也没有）：第一次打开时如果提示「无法验证开发者」，在访达里右键点 Canvas Notes 选「打开」，或到 系统设置 › 隐私与安全性 里点「仍要打开」。要用 AI，先在终端里装好并登录 [Claude Code](https://claude.com/claude-code)、[Codex](https://github.com/openai/codex)、[Gemini CLI](https://github.com/google-gemini/gemini-cli) 或 [OpenCode](https://opencode.ai) 中的一个，软件会自己找到它。
+打开 dmg，把 Canvas Notes 拖进「应用程序」，打开后选一个文件夹当库：空文件夹，或者已经放着 md 的文件夹都行；以前在 Obsidian 里写的笔记，用「文件 › 导入旧笔记…」搬进来。需要 Git，第一次用时 macOS 会提示安装命令行工具。这一版没有经过 Apple 公证（作者的其他软件也没有）：第一次打开时如果提示「无法验证开发者」，macOS 15 及以后到 系统设置 › 隐私与安全性 里点「仍要打开」（右键「打开」已经绕不过这个提示）；macOS 14 及更早，在访达里右键点 Canvas Notes 选「打开」。要用 AI，先在终端里装好并登录 [Claude Code](https://claude.com/claude-code)、[Codex](https://github.com/openai/codex)、[Gemini CLI](https://github.com/google-gemini/gemini-cli) 或 [OpenCode](https://opencode.ai) 中的一个，软件会自己找到它。
 
 以前的版本在[发布页](https://github.com/SchaeferAnjon/canvas-notes/releases)。还没有自动更新：新版本从同一个地方下载。Windows 和手机版还没有。
 

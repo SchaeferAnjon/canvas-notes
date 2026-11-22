@@ -386,6 +386,20 @@
   color: var(--t3);
 }
 
+/*
+ * ---------- 开着旁支：旁支的输入框和「记到哪」钉在问框底部（主输入框那一行的位置，task-5yp97 选法 2） ----------
+ * 上面一条 1px 细线和滚着的问答分开；输入框左右离问框边 10（同主输入框），「记到哪」的图标和底栏「已记进《…》」的图标对齐（离边 12）
+ */
+.ak-dock {
+  flex: none;
+  min-width: 0;
+  padding: 8px 10px 0;
+  border-top: 1px solid var(--line);
+}
+.ak-dock .rec {
+  padding-left: 2px;
+}
+
 /* ---------- 底栏：记进《…》▾（答好以后「✓ 已记进《…》›」强调色）· esc 关掉 ---------- */
 .ak-foot {
   position: relative;

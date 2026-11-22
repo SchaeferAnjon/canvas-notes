@@ -28,12 +28,12 @@ export const GROUPS: readonly { id: BuiltinGroup; name: string }[] = [
   { id: 'app', name: '设置和外观' },
 ]
 
-/** 没改过时每组有哪几条（命令的 id）；只在某些时候才有的（我的疑惑、检查更新、重启更新）也写着，没有时不画 */
+/** 没改过时每组有哪几条（命令的 id）；只在某些时候才有的（出卡、检查更新、重启更新）也写着，没有时不画 */
 export const DEFAULT_ITEMS: Readonly<Record<Exclude<BuiltinGroup, 'recent'>, readonly string[]>> = {
   pin: ['new-note', 'ask-ai', 'goto'],
-  go: ['home', 'inbox', 'folders', 'recent', 'open-web', 'dream-report', 'doubts', 'archive'],
+  go: ['home', 'inbox', 'folders', 'recent', 'open-web', 'dream-report', 'archive'],
   new: ['new-board', 'new-course', 'capture', 'import'],
-  ai: ['tidy-inbox', 'sum-board', 'article', 'dream-now'],
+  ai: ['tidy-inbox', 'sum-board', 'article', 'cards-pdf', 'cards-course', 'dream-now'],
   web: ['clip-page', 'translate', 'bookmarks'],
   lib: ['commit', 'sync', 'history', 'dup'],
   app: ['restart-update', 'settings', 'theme', 'edit-home', 'update'],

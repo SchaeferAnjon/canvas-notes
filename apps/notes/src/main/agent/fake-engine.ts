@@ -113,6 +113,23 @@ export function fakeEngine(id: EngineId): Engine {
       }
       if (r.mcp) await mcp(r.mcp.url, r.mcp.token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake', version: '0' } })
 
+      // 出卡（task-tz7y3）：一问一行 JSON，隔 CN_FAKE_CARD_MS 出一张。问题「小标题」里：原话；答案是回答第一句里第一个逗号前；原文摘句是回答第一句
+      if (r.system.startsWith('你帮人把他读 PDF 课件时问过的问题做成 Anki 记忆卡片')) {
+        for (const b of r.prompt.split(/^【第 \d+ 问】/m).slice(1)) {
+          if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+          const id = /^编号：(\S+)/m.exec(b)?.[1] ?? ''
+          const title = /这一轮：(.*)$/m.exec(b)?.[1]?.trim() ?? ''
+          const q = /^他问的原话：(.*)$/m.exec(b)?.[1]?.trim() ?? ''
+          const ans = /^AI 当时的回答：\n([\s\S]*?)(?=\n这一页 PDF 上的字：|$)/m.exec(b)?.[1]?.trim() ?? ''
+          const first = /^[^。！？\n]*[。！？]?/.exec(ans)?.[0] ?? ans
+          await sleep(Number(process.env.CN_FAKE_CARD_MS ?? 150))
+          const line = JSON.stringify({ id, q: `「${title}」里：${q}`, a: first.split(/[：，；。]/)[0], more: '', quote: first }) + '\n'
+          text += line
+          r.onText(line)
+        }
+        return { text, session: undefined }
+      }
+
       // 读 PDF：后台的两件小活，这一轮的标题和一句小结（只出 JSON）；小结里写主对话、旁支各问了几句（测试看每答完一次都重写）
       if (r.prompt.includes('输出 JSON：')) {
         await sleep(Number(process.env.CN_FAKE_NOTE_MS ?? 400))
@@ -231,6 +248,15 @@ export function fakeEngine(id: EngineId): Engine {
         const how = fork ? `旁支，从 ${r.session} 分叉` : r.session ? '接着聊' : `新会话${r.history ? '，带了那段讲解' : ''}`
         await say(`#### 旁支的回答\n\n这是旁支的回答（${how}）：讲「${(quote?.[1] ?? quote?.[2] ?? '').slice(0, 12)}」，问的是「${said}」。\n\n第二段：说完了。`)
         return { text, session }
+      }
+      // 模型把一次工具调用写成了普通文字（task-ne7cw，照用户截图）：跑一步，回答前面夹一段 <invoke>，后面代码块里的 <invoke> 是正常内容
+      if (said.includes('演漏出来的工具调用')) {
+        const command = `cat "${join(r.cwd, '阅读/书.md')}"`
+        r.onStep?.({ id: 'b1', tool: 'Bash', input: { command }, status: 'run' })
+        r.onStep?.({ id: 'b1', tool: 'Bash', input: { command }, status: 'ok' })
+        await say(`<invoke name="Bash">\n<parameter name="command">${command}</parameter>\n<parameter name="description">Read the current book note</parameter>\n</invoke>\n`)
+        await say('我在文末加了一节「评价」，共两段。\n\n工具调用的标记长这样：\n\n```xml\n<invoke name="Read">\n</invoke>\n```')
+        return { text, session: r.session ?? `fake-${id}` }
       }
       // AI 对话里要几句话的回答（选一句开旁支用）：周记总结成三句话
       if (/总结成三句话/.test(said)) {

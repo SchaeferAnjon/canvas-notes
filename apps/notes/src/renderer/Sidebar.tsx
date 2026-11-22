@@ -24,13 +24,13 @@ import { AiIcon, EngineLogo, useChatEngine } from './engine-logo'
  * 分隔线下面是摘到活动栏的文件夹，各占一格（dir:<文件夹>）：都是它自己那一枝目录树（2026-11-18 方向 A「活动栏平铺」：
  * 收件箱、课程这些顶级分类也一样），底下一行「在「文件」里看位置」。梦游报告由 App 直接放 DreamPanel。
  */
-export type SideView = 'files' | 'recent' | 'dream' | `dir:${string}`
+export type SideView = 'files' | 'recent' | 'dream' | 'desks' | `dir:${string}`
 export const COURSES = '课程'
 export const INBOX_DIR = '收件箱'
-export const viewName = (v: SideView) => (v === 'files' ? '文件' : v === 'recent' ? '最近' : v === 'dream' ? '梦游报告' : v.slice(4).split('/').pop()!)
+export const viewName = (v: SideView) => (v === 'files' ? '文件' : v === 'recent' ? '最近' : v === 'dream' ? '梦游报告' : v === 'desks' ? '书桌' : v.slice(4).split('/').pop()!)
 
 export function Sidebar(props: {
-  view: Exclude<SideView, 'dream'>
+  view: Exclude<SideView, 'dream' | 'desks'>
   notes: NoteFile[]
   pins: string[]
   archiveDays: ArchiveDays
@@ -88,6 +88,7 @@ export function Sidebar(props: {
           onNewNote={props.onNewNote}
           onNewBoard={props.onNewBoard}
           activePath={activePath}
+          trashOn={active?.type === 'trash'}
           onOpen={props.onOpenFile}
           onOpenFolder={props.onOpenFolder}
           preview={props.preview ?? null}

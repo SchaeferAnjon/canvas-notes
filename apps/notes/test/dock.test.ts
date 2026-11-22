@@ -22,6 +22,7 @@ import {
   resetSplit,
   resizeFloat,
   setColWidth,
+  setPairWidths,
   setSplit,
   shownDock,
   sideCols,
@@ -302,5 +303,24 @@ describe('工作区布局（方向 A 拖到哪就在哪）', () => {
     const e = openView(openView(emptyDock(), 'web'), 'ai')
     expect(isShown(activateView(e, 'web'), 'web')).toBe(true)
     expect(activateView(e, 'ai')).toBe(e)
+  })
+
+  it('并排两栏之间的缝（task-rbtrz）：两栏合起来的宽不变，一宽一窄，每栏最窄 300、不设上限；合起来不够 600 时不动；存下来读回来还在', () => {
+    let d = openView(openView(emptyDock(), 'web'), 'ai')
+    d = dropView(d, 'ai', { kind: 'group', group: sideCols(d)[0]!.groups[0]!.id, zone: 'right' })
+    expect(ids(d)).toEqual(['center', 'web', 'ai'])
+    const [web, ai] = sideCols(d).map((c) => c.id) as [string, string]
+    const total = 380 + 320
+    const w = (x: Dock) => sideCols(x).map((c) => c.w)
+    expect(w(setPairWidths(d, web, ai, 280, total))).toEqual([300, 400])
+    expect(w(setPairWidths(d, web, ai, 650, total))).toEqual([400, 300])
+    expect(w(setPairWidths(d, web, ai, 350, total))).toEqual([350, 350])
+    // 网页那栏不设上限
+    expect(w(setPairWidths(d, web, ai, 1400, 1800))).toEqual([1400, 400])
+    // 合起来不够两个 300：不动
+    expect(setPairWidths(d, web, ai, 300, 590)).toBe(d)
+    // 没变：还是原来那个
+    expect(setPairWidths(d, web, ai, 380, total)).toBe(d)
+    expect(w(loadDock(JSON.stringify(setPairWidths(d, web, ai, 360, total)), {}))).toEqual([360, 340])
   })
 })

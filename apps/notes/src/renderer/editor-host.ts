@@ -4,6 +4,7 @@ import { EditorView } from '@codemirror/view'
 import type { ReactNode } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
+import { placePop } from './pop-place'
 
 /** 文档模式的块编辑要从外面拿的东西（NoteDoc 给） */
 export interface EditorHost {
@@ -74,20 +75,13 @@ export class Popover {
     return !this.el.hidden
   }
 
-  /** anchor：贴着它下面（放不下翻到上面） */
-  show(node: ReactNode, anchor: { left: number; top: number; bottom: number }) {
+  /** anchor：贴着它下面（放不下翻到上面）；给了 right，右边放不下往左翻 */
+  show(node: ReactNode, anchor: { left: number; top: number; bottom: number; right?: number }) {
     // 先显示再渲染：里面的输入框、菜单在挂上时要能拿到焦点
     this.el.hidden = false
     flushSync(() => this.root.render(node))
-    const w = this.el.offsetWidth
-    const h = this.el.offsetHeight
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    const left = Math.max(8, Math.min(anchor.left, vw - w - 8))
-    let top = anchor.bottom + 6
-    if (top + h > vh - 8 && anchor.top - 6 - h > 8) top = anchor.top - 6 - h
-    this.el.style.left = left + 'px'
-    this.el.style.top = Math.max(8, top) + 'px'
+    // 和数据库、白板上的浮层同一个放法（pop-place）
+    placePop(this.el, anchor, { gap: 6 })
   }
 
   hide() {

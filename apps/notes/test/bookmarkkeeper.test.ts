@@ -161,3 +161,26 @@ describe('BookmarkKeeper 的文件从哪来', () => {
     expect(findSource({ bundled: join(dir, 'nope') })).toBeNull()
   })
 })
+
+// 新标签页的搜索只搜快捷书签（跟上游 e6a4bbc，task-4xtbp）：用软件自带那份的 shared/fuzzy.js
+describe('新标签页搜索快捷书签（searchQuickLinks）', async () => {
+  // @ts-expect-error 自带插件的 js 没有类型
+  const { searchQuickLinks } = (await import('../resources/bookmarkkeeper/shared/fuzzy.js')) as {
+    searchQuickLinks(q: string, list: unknown, limit?: number): { title: string; url: string; path: string }[]
+  }
+  const QUICK = [
+    { title: '黑沙滩', url: 'https://black.example/' },
+    { type: 'group', name: '冰岛', items: [{ title: '冰川', url: 'https://glacier.example/' }, { title: '极光', url: 'https://aurora.example/' }] },
+  ]
+  it('分组里的搜得到、带上分组名；顶层的没有分组名；按分组名搜出组里每一条', () => {
+    expect(searchQuickLinks('冰川', QUICK).map((r) => [r.title, r.path])).toEqual([['冰川', '冰岛']])
+    expect(searchQuickLinks('黑沙滩', QUICK).map((r) => [r.title, r.path])).toEqual([['黑沙滩', '']])
+    expect(searchQuickLinks('冰岛', QUICK).map((r) => r.title).sort()).toEqual(['冰川', '极光'])
+  })
+  it('快捷书签以外的搜不到；空的不出结果；同一网址只出一次', () => {
+    expect(searchQuickLinks('瀑布', QUICK)).toEqual([])
+    expect(searchQuickLinks('  ', QUICK)).toEqual([])
+    expect(searchQuickLinks('冰川', null)).toEqual([])
+    expect(searchQuickLinks('冰川', [{ title: '冰川', url: 'https://glacier.example/' }, QUICK[1]])).toHaveLength(1)
+  })
+})

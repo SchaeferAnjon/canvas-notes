@@ -12,6 +12,7 @@ import { videoApi } from './video-api'
 import { webApi } from './web'
 import { menuApi } from './ctx-menu'
 import { cmdsApi } from './commands'
+import { readApi } from './read-along'
 
 const api: CnApi = {
   vault: () => ipcRenderer.invoke('vault:get'),
@@ -48,6 +49,11 @@ const api: CnApi = {
   aiRevert: (hash, only) => ipcRenderer.invoke('ai:revert', hash, only),
   boardConvert: (path, force) => ipcRenderer.invoke('board:convert', path, force === true),
   boardKeepOld: (path, old, converted) => ipcRenderer.invoke('board:keepOld', path, old, converted),
+  summaryConvert: (path) => ipcRenderer.invoke('board:summaryConvert', path),
+  trashRecent: () => ipcRenderer.invoke('trash:recent'),
+  trashPreview: (path, commit) => ipcRenderer.invoke('trash:preview', path, commit),
+  trashCommitPending: (paths) => ipcRenderer.invoke('trash:commit-pending', paths),
+  summaryKeepOld: (path, old, converted) => ipcRenderer.invoke('board:summaryKeepOld', path, old, converted),
   boardBases: () => ipcRenderer.invoke('board:bases'),
   backlinks: (path) => ipcRenderer.invoke('board:backlinks', path),
   boardCommit: (paths, message) => ipcRenderer.invoke('board:commit', paths, message),
@@ -215,6 +221,7 @@ contextBridge.exposeInMainWorld('cnVideo', videoApi)
 contextBridge.exposeInMainWorld('cnImport', importApi)
 contextBridge.exposeInMainWorld('cnMenu', menuApi)
 contextBridge.exposeInMainWorld('cnCmds', cmdsApi)
+contextBridge.exposeInMainWorld('cnRead', readApi)
 contextBridge.exposeInMainWorld('cnAttach', {
   of: (note, shared) => ipcRenderer.invoke('attach:of', note, shared),
   trashNote: (note, withImages) => ipcRenderer.invoke('attach:trash-note', note, withImages),

@@ -8,6 +8,7 @@ import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
 import { hitSnippet } from './search/chunks'
 import { mindmapThumb } from '../shared/mindmap-layout'
 import { isBookDigest } from '../shared/plugins/weread'
+import { isPairUrl, READ_ALONG_KEY } from '../shared/read-along'
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 
@@ -108,6 +109,9 @@ export class Vault {
    * 库里多出来的改动里这些不算 AI 改的（agent/index.ts 的 agentOwnWrite）
    */
   onOwnWrite: ((rel: string) => void) | null = null
+
+  /** 笔记改名、挪走、文件夹改名（软件自己改的、访达里改的）：记着笔记路径的书桌跟着换（main/read-along.ts，task-kbnc0） */
+  onMoved: ((map: (p: string) => string | null | undefined) => void) | null = null
 
   get name(): string {
     return basename(this.root)
@@ -419,6 +423,7 @@ export class Vault {
     const text = this.index.get(from)
     this.forget(from)
     if (text !== undefined) this.index.set(to, text)
+    this.onMoved?.((p) => (p === from ? to : undefined))
   }
 
   /**
@@ -436,6 +441,7 @@ export class Vault {
       }
     }
     for (const p of [...this.described.keys()]) if (map(p) !== null) this.described.delete(p)
+    this.onMoved?.((p) => map(p) ?? undefined)
   }
 
   async read(rel: string): Promise<OpenedNote> {
@@ -590,6 +596,7 @@ export class Vault {
         this.known.set(rel, text)
         this.movedAway.set(from, { to: rel, until: Infinity })
         onRenamed(from, rel)
+        this.onMoved?.((p) => (p === from ? rel : undefined))
       }
       onFilesChanged()
       return
@@ -630,6 +637,9 @@ function describe(rel: string, st: Stats, text: string): NoteFile {
   const file: NoteFile = { path: rel, mtimeMs: st.mtimeMs, createdMs: st.birthtimeMs, kind }
   if (topic) file.topic = topic
   if (fmValue(text, 'draft') === 'true') file.draft = true
+  // 和网页配成一对的（属性 read-along，task-kbnc0）：目录树这一行的小标、点开时网页跟着开都看它
+  const along = fmValue(text, READ_ALONG_KEY)?.replace(/^["']|["']$/g, '')
+  if (isPairUrl(along)) file.readAlong = along
   if (isBookDigest(text.slice(0, 20000))) file.digest = true
   // 2026-11-21 起白板是「## 列名」写法（一排的列、空白处的卡）：按新写法算卡片数和缩略图；旧写法、导图照以前
   if (fmValue(text, 'type') === 'board' && !isMindmap(text) && !hasOldLayout(text)) {

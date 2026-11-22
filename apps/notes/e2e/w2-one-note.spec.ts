@@ -106,7 +106,7 @@ test('老库打开整理一次：生成版「我的疑惑」删掉、改过的�
     await expect(tabOn(page)).toHaveText('第4讲 卷积网络.pdf')
     const notes = page.getByRole('complementary', { name: '笔记', exact: true })
     await expect(notes).toBeVisible()
-    await expect(notes.getByTestId('note-count')).toHaveText('2轮 · 3问')
+    await expect(notes.getByTestId('cards-open')).toHaveText('出卡 · 2问')
     // 「只看我问的」：这份 PDF 问过的原话
     await notes.getByRole('tablist', { name: '笔记筛选' }).getByRole('tab', { name: '只看我问的' }).click()
     await expect(notes.getByTestId('note-q').locator('.q')).toHaveText(['问三', '还是不懂', '问七'])

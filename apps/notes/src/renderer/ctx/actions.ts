@@ -12,6 +12,11 @@ export interface AppActions {
   openFile(path: string): void
   /** 当前标签换成这一篇（它已经开在别的标签就切过去） */
   openHere(path: string): void
+  /** 配好对的笔记只打开笔记，网页不跟着开（右键，task-kbnc0） */
+  openNoteOnly(path: string): void
+  /** 和右栏这个网页配成一对…（问整本书还是只这一页）、解除配对（task-kbnc0） */
+  pairWeb(path: string): void
+  unpairWeb(path: string): void
   /** [[双链]]：here = 在当前标签打开 */
   openWikilink(target: string, here?: boolean): void
   /** PDF / HTML 开它的 AI（边读边问） */
@@ -68,6 +73,8 @@ export interface AppActions {
   moveNote(path: string, folder: string): Promise<void>
   /** 库里的相对路径 → 绝对路径（拷贝路径） */
   absPath(rel: string): string
+  /** 中间开「最近删掉的」（目录树最底下那一行，task-5yp97） */
+  openTrash(): void
 }
 
 let current: AppActions | null = null

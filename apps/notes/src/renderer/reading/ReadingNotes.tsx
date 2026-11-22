@@ -8,8 +8,11 @@
  * 下格开着旁支时在下格问，这里马上长出来、闪一下（.grow）。以前格式的段照旧显示（我的疑惑、讲通的讲法、要点、没讲通的版本、完整对话）。
  */
 import { Codicon } from '@cn/design'
-import { type AskMat, type AskSection, type AskTurn, cropCaption } from '@cn/format'
+import { type AskMat, type AskSection, type AskTurn, cropCaption, turnIds } from '@cn/format'
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { AiIcon } from '../engine-logo'
+import { usePrefs } from '../settings-store'
+import { openCards, openSpot, unsentOf, useAskedRequest, useCardsView } from './cards-store'
 import { when } from '../../shared/when'
 import { Markdown } from '../md-render'
 import { applyMarks, type Mark } from './marks'
@@ -29,6 +32,8 @@ const FILTERS: [Filter, string][] = [
 /** 「只看我问的」「旁支」里的一条：问题原话，下面一行在哪 */
 interface QRow {
   sec: string
+  /** 这一问的身份（送过 Anki 没有按它查） */
+  id?: string
   /** 旁支里问的：被问的那一句 */
   quote?: string
   q: string
@@ -62,10 +67,29 @@ export function ReadingNotes(props: {
   onShowConvo(id: string): void
   onOpenHtml(path: string): void
   onOpenWeb(url: string): void
-  onOpenDoubts(folder: string): void
 }) {
   const { pdf } = props
   const r = R.useReading(pdf)!
+  // 出卡（task-tz7y3）：PDF 的笔记才有；送过的标「已送」，右上「出卡 · N问」是没送的
+  const isPdf = /\.pdf$/i.test(pdf)
+  const cardsView = useCardsView(isPdf ? { kind: 'pdf', pdf } : null)
+  const sides = usePrefs((s) => s.pdf.ankiSides)
+  const sent = useMemo(() => new Set((cardsView?.items ?? []).filter((x) => x.sent).map((x) => x.id)), [cardsView])
+  const [hint, setHint] = useState(() => {
+    try {
+      return localStorage.getItem('cn.cardsHint') !== '0'
+    } catch {
+      return true
+    }
+  })
+  const hideHint = () => {
+    setHint(false)
+    try {
+      localStorage.setItem('cn.cardsHint', '0')
+    } catch {
+      // 记不住只是下次还说一遍
+    }
+  }
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   /** 自己点开的、自己收起的那几轮（最近问的那一轮不点也展开） */
@@ -74,6 +98,11 @@ export function ReadingNotes(props: {
   const [ring, setRing] = useState<string | null>(null)
   const list = useRef<HTMLDivElement>(null)
   const sections = useMemo(() => [...r.note.sections].sort((a, b) => a.page - b.page), [r.note.sections])
+  // 课程首页点「第5讲 6问」、⌘K 打「我的疑惑」：换到「只看我问的」
+  const askedReq = useAskedRequest()
+  useEffect(() => {
+    if (askedReq?.pdf === pdf) setFilter('q')
+  }, [askedReq?.seq])
 
   // 最近问的那一轮展开，旧的每轮收成一行（自己点开的照旧开着）
   const newest = r.state.threads.length ? r.state.threads.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)).id : null
@@ -200,17 +229,46 @@ export function ReadingNotes(props: {
   const rows: QRow[] = []
   for (const s of filter === 'all' ? [] : sections) {
     const at = `${s.page > 0 ? `第${s.page}页 · ` : ''}${s.title}`
-    const side = (quote: string, q: string) => rows.push({ sec: s.id, quote, q, sub: `旁支 · ${s.page > 0 ? `第${s.page}页 · ` : ''}「${quote.slice(0, 14)}…」` })
+    const ids = turnIds(pdf, s)
+    const side = (quote: string, q: string, id?: string) => rows.push({ sec: s.id, id, quote, q, sub: `旁支 · ${s.page > 0 ? `第${s.page}页 · ` : ''}「${quote.slice(0, 14)}…」` })
     if (!s.qas) {
-      if (filter === 'q') rows.push({ sec: s.id, q: s.doubts[0] ?? s.title, sub: at })
+      if (filter === 'q') rows.push({ sec: s.id, id: s.id, q: s.doubts[0] ?? s.title, sub: at })
       continue
     }
-    for (const qa of s.qas) {
-      if (filter === 'q' && qa.q.trim()) rows.push({ sec: s.id, q: qa.q, sub: at })
-      for (const d of qa.sides) for (const turn of d.turns) side(d.quote, turn.q)
-    }
+    s.qas.forEach((qa, i) => {
+      if (filter === 'q' && qa.q.trim()) rows.push({ sec: s.id, id: ids.get(`q${i}`), q: qa.q, sub: at })
+      qa.sides.forEach((d, j) => d.turns.forEach((turn, k) => side(d.quote, turn.q, ids.get(`s${i}.${j}.${k}`))))
+    })
   }
   const qrows = t ? rows.filter((x) => `${x.q}\n${x.sub}`.toLowerCase().includes(t)) : rows
+  /** 问题条右端（出卡，task-tz7y3）：送过的「✓ 已送」；没送的悬停出「做成卡」，点了 AI 改好这一问、贴着问题条出一张小卡 */
+  const cardMark = (s: AskSection, key: string): ReactNode => {
+    const ids = turnIds(pdf, s)
+    const id = ids.get(key)
+    // 「还是不懂」并进上一问：标在那一问自己的问题条上，不在「还是不懂」上再标一次
+    if (!id || [...ids].find(([, v]) => v === id)?.[0] !== key) return null
+    if (sent.has(id))
+      return (
+        <span className="mk">
+          <Codicon name="check" size={12} />
+          已送
+        </span>
+      )
+    return (
+      <button
+        className="hov"
+        aria-label="做成卡"
+        onClick={(e) => {
+          e.stopPropagation()
+          openSpot(pdf, id, (e.currentTarget.closest('.qs') as HTMLElement).getBoundingClientRect(), (e.currentTarget.closest('.reading-notes') as HTMLElement).getBoundingClientRect())
+        }}
+      >
+        <AiIcon job="cards" size={14} />
+        {/* 字画在 CSS 里：问题条的字还是原话（别处读问题条的字不带它） */}
+        <span className="hov-t" data-t="做成卡" />
+      </button>
+    )
+  }
   /** 点「只看我问的」里的一条：回到「全部」，展开那一轮滚过去（旁支的滚到那条旁支） */
   const goRow = (x: QRow) => {
     setFilter('all')
@@ -234,7 +292,14 @@ export function ReadingNotes(props: {
                 {label}
               </button>
             ))}
-            <span className="cnt num" data-testid="note-count">{`${sections.length}轮 · ${asks}问`}</span>
+            {isPdf && sections.length > 0 ? (
+              <button className="btn btn-xs cards-open" data-testid="cards-open" title="AI 把这几问改成能单独看懂的卡，你一张张过，再送进 Anki" onClick={() => openCards({ kind: 'pdf', pdf })}>
+                <AiIcon job="cards" size={14} />
+                {`出卡 · ${unsentOf(cardsView, sides).length}问`}
+              </button>
+            ) : (
+              <span className="cnt num" data-testid="note-count">{`${sections.length}轮 · ${asks}问`}</span>
+            )}
           </div>
         </div>
       )}
@@ -256,14 +321,33 @@ export function ReadingNotes(props: {
           </div>
         ) : filter !== 'all' ? (
           <>
-            <div className="qhint">{filter === 'q' ? '这份 PDF 问过的都在这里（以前的「我的疑惑」）。点一条跳到那一轮。' : '开过的旁支'}</div>
+            {filter === 'side' ? (
+              <div className="qhint">开过的旁支</div>
+            ) : (
+              isPdf &&
+              hint && (
+                <div className="qhint cards-hint">
+                  <Codicon name="info" size={14} />
+                  <span>点右上「出卡」，AI 把这几问改成能单独看懂的卡，你一张张过。</span>
+                  <button className="x" aria-label="知道了" onClick={hideHint}>
+                    <Codicon name="close" size={12} />
+                  </button>
+                </div>
+              )
+            )}
             {qrows.map((x, i) => (
-              <button key={i} className={'qonly' + (filter === 'q' && x.quote !== undefined ? ' side' : '')} data-testid="note-q" onClick={() => goRow(x)}>
+              <button key={i} className={'qonly' + (filter === 'q' && x.quote !== undefined ? ' br' : '') + (x.id && sent.has(x.id) ? ' done' : '')} data-testid="note-q" onClick={() => goRow(x)}>
                 <Codicon name={x.quote !== undefined ? 'comment-discussion' : 'comment'} size={14} />
                 <span className="qt">
                   <span className="q">{x.q}</span>
                   <span className="s">{x.sub}</span>
                 </span>
+                {x.id && sent.has(x.id) && (
+                  <span className="st">
+                    <Codicon name="check" size={12} />
+                    已送
+                  </span>
+                )}
               </button>
             ))}
             {!qrows.length && <div className="nempty">{t ? `这份笔记里没有「${q.trim()}」` : filter === 'q' ? '还没问过。' : '还没开过旁支。'}</div>}
@@ -295,6 +379,7 @@ export function ReadingNotes(props: {
                 <Round
                   key={s.id}
                   s={s}
+                  cardMark={isPdf ? (key) => cardMark(s, key) : undefined}
                   time={timeOf(s)}
                   ring={ring === s.id}
                   grow={grow}
@@ -355,13 +440,14 @@ function withDots(q: string, n: number): ReactNode[] {
 }
 
 /** 一问的问题条（主问题整栏宽 --fill2，旁支里的 78% 宽 --fill）：comment 14 + 原话 500；带的材料在下面一行一条 */
-function QBar(p: { t: AskTurn; k: string; grow: boolean }) {
+function QBar(p: { t: AskTurn; k: string; grow: boolean; mark?: ReactNode }) {
   const mats = p.t.mats ?? []
   return (
     <>
       <div className={'qs' + (p.grow ? ' grow' : '')} data-k={p.k}>
         <Codicon name="comment" size={14} />
-        <span>{withDots(p.t.q, mats.length)}</span>
+        <span className="qt">{withDots(p.t.q, mats.length)}</span>
+        {p.mark}
       </div>
       {mats.length > 0 && (
         <div className="qmats">
@@ -418,6 +504,8 @@ function Round(p: {
   onLink(target: string): void
   onOpenHtml(path: string): void
   onOpenWeb(url: string): void
+  /** 问题条右端的「已送」「做成卡」（key：主对话「q<i>」、旁支「s<i>.<j>.<k>」） */
+  cardMark?(key: string): ReactNode
 }) {
   const { s } = p
   const w = s.web
@@ -463,7 +551,7 @@ function Round(p: {
             const marks: Mark[] = qa.sides.map((d) => ({ side: d.quote, quote: d.quote, n: ++n, title: p.sideTitle(d.quote) }))
             return (
               <div key={i} className="qa">
-                <QBar t={qa} k={`q:${s.id}:${i}`} grow={p.grow.has(`q:${s.id}:${i}`)} />
+                <QBar t={qa} k={`q:${s.id}:${i}`} grow={p.grow.has(`q:${s.id}:${i}`)} mark={p.cardMark?.(`q${i}`)} />
                 {qa.a && (
                   <div className="am">
                     <Answer a={qa.a} marks={marks} />
@@ -483,7 +571,7 @@ function Round(p: {
                       const key = `b:${s.id}:${d.quote}:${k}`
                       return (
                         <div key={k} className={'turn' + (p.grow.has(key) ? ' grow' : '')}>
-                          <QBar t={t} k={key} grow={false} />
+                          <QBar t={t} k={key} grow={false} mark={p.cardMark?.(`s${i}.${j}.${k}`)} />
                           {t.a && (
                             <div className="am">
                               <Answer a={t.a} />

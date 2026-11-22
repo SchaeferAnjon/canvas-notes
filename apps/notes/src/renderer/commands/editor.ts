@@ -26,7 +26,7 @@ export type CmdEditorInit =
       /** 这段对话里 AI 第一次改这一篇的那次提交（改之前就是它前面那一版） */
       firstHash: string
       rounds: number
-      /** 举例的那一篇（同一个文件夹里最近改的另一篇）和文件夹 */
+      /** 举例的那一篇（就是这段对话改的这一篇）和文件夹 */
       example: { title: string; folder: string }
       /** 「再改一次」：已经存过的那一条（名字和设置照它） */
       edit?: AiCmd

@@ -6,7 +6,7 @@
 import { type RefObject, useEffect, useLayoutEffect, useMemo } from 'react'
 
 /** 那一句所在的那一段：表格、提示块、引用、折叠块整块算一段；列表里是那一项；别的是那个段落、标题、公式 */
-function blockOf(span: Element, root: Element): Element {
+export function blockOf(span: Element, root: Element): Element {
   const outer = span.closest('.md-table, .md-callout, .md-quote, .md-fold')
   if (outer && root.contains(outer) && outer !== root) return outer
   const inner = span.closest('li, p, .md-h, pre, .katex-display')

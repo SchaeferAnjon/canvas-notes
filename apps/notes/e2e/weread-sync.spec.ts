@@ -2,13 +2,14 @@
 // - 同步只往书摘里加：书摘末尾写的字、改过的类型都在；新划线进它那一章；删掉的引文不加回来；不出冲突副本（CN-130）；
 // - 中间开着这本书的书摘时划线：不插光标处，同步进那一章，中间岛底部提示「已同步到《书名》· 章节」带「看一眼」，整句不截，光标不动（CN-118）；
 // - 书摘写进「阅读」，以前「素材/微信读书」里的照样认、不另建一份；
-// - 微信读书阅读页里按 Tab，阅读区不横着错开（CN-120）。
+// - 微信读书阅读页里按 Tab，阅读区不横着错开（CN-120）；
+// - 网页栏窄时点「注」，注释气泡整个在网页里，箭头还对着「注」（task-rbtrz，用户：「这里有遮挡」）。
 // 微信读书是本机假的（e2e/fixtures/fake-weread.ts），不碰真账号。
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { acts, launch, openNote, pane, rail, type Running, waitSaved } from './app'
+import { acts, launch, openNote, pane, rail, type Running, waitSaved, widenRight } from './app'
 import { BOOK, type FakeWeread, PARAS, PARAS2, READER, startFakeWeread, VID } from './fixtures/fake-weread'
 
 let fake: FakeWeread
@@ -325,6 +326,67 @@ test('CN-120 微信读书阅读页里连按 Tab：阅读区不横着错开（插
     await expect.poll(() => guest(page, 'document.readyState')).toBe('complete')
     await page.waitForTimeout(300)
     expect(await pressTabs()).toEqual(Array(10).fill(0))
+  } finally {
+    await run.close()
+  }
+})
+
+/** 点阅读页里的一个「注」（真的鼠标点），量弹出来的注释气泡：左右边、箭头正中、「注」正中、网页多宽、有没有挪过 */
+async function footnote(page: Page, id: 'fnL' | 'fnR') {
+  await guest(page, `document.getElementById('${id}').scrollIntoView({ block: 'center' })`)
+  await page.waitForTimeout(100)
+  const wv = (await web(page).locator('webview.on').boundingBox())!
+  const n = JSON.parse(String(await guest(page, `JSON.stringify(document.getElementById('${id}').getBoundingClientRect())`))) as { x: number; y: number; width: number; height: number }
+  await page.mouse.click(wv.x + n.x + n.width / 2, wv.y + n.y + n.height / 2)
+  await expect.poll(() => guest(page, `!!(document.querySelector('.reader_footerNote_container') || {}).style?.left`)).toBe(true)
+  await page.waitForTimeout(150)
+  const m = JSON.parse(
+    String(
+      await guest(
+        page,
+        `(() => { const c = document.querySelector('.reader_footerNote_container'); const r = c.getBoundingClientRect(); const a = getComputedStyle(c, '::after');
+        const n = document.getElementById('${id}').getBoundingClientRect();
+        return JSON.stringify({ left: r.left, right: r.right, width: r.width, arrow: r.left + parseFloat(a.left), note: n.left + n.width / 2, vw: document.documentElement.clientWidth, translate: getComputedStyle(c).translate, styleLeft: parseFloat(c.style.left) }) })()`,
+      ),
+    ),
+  ) as { left: number; right: number; width: number; arrow: number; note: number; vw: number; translate: string; styleLeft: number }
+  // 点外面（微信读书的遮罩）收起
+  await page.mouse.click(wv.x + 4, wv.y + 4)
+  await expect.poll(() => guest(page, `document.querySelectorAll('.reader_footerNote_container').length`)).toBe(0)
+  return m
+}
+
+test('task-rbtrz 网页栏窄时点「注」：注释气泡整个在网页里（左右各留 8）、箭头还对着「注」；宽栏时位置不变；插件关着时左边是负的（证明假网站复现了）', async () => {
+  const run = await launch({ 'a.md': '# a\n' }, env())
+  const { page } = run
+  try {
+    await login(run)
+    await openReader(page)
+    // 插件关着：和用户截图一样，靠左的「注」气泡左半截在网页外面
+    await page.evaluate(() => window.cnPlugins.setEnabled('weread', false))
+    const off = await footnote(page, 'fnL')
+    expect(off.vw).toBeLessThan(420)
+    expect(off.left).toBeLessThan(0)
+    // 插件开着：靠左、靠右的「注」，气泡都整个在网页里，左右至少留 8，箭头对着「注」
+    await page.evaluate(() => window.cnPlugins.setEnabled('weread', true))
+    await page.waitForTimeout(200)
+    for (const id of ['fnL', 'fnR'] as const) {
+      const m = await footnote(page, id)
+      expect(m.left, `${id} 气泡左边`).toBeGreaterThanOrEqual(7.5)
+      expect(m.right, `${id} 气泡右边`).toBeLessThanOrEqual(m.vw - 7.5)
+      expect(Math.abs(m.arrow - m.note), `${id} 箭头对着「注」`).toBeLessThanOrEqual(1)
+    }
+    // 宽栏：正文两边有留白，气泡放得下，微信读书摆在哪就在哪（不挪）
+    await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1600, 900))
+    await widenRight(page, 640)
+    await expect.poll(async () => (await web(page).locator('webview.on').boundingBox())!.width).toBeGreaterThan(800)
+    for (const id of ['fnL', 'fnR'] as const) {
+      const m = await footnote(page, id)
+      expect(m.translate, `${id} 宽栏时不挪`).toBe('none')
+      expect(Math.abs(m.left - m.styleLeft), `${id} 在微信读书摆的位置`).toBeLessThanOrEqual(1)
+      expect(m.left).toBeGreaterThanOrEqual(8)
+      expect(Math.abs(m.arrow - m.note)).toBeLessThanOrEqual(1)
+    }
   } finally {
     await run.close()
   }

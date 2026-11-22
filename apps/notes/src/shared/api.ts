@@ -47,6 +47,8 @@ export interface NoteFile {
   source?: string
   /** frontmatter 里 draft: true（AI 写的草稿） */
   draft?: boolean
+  /** frontmatter 里 read-along：和这本在线书（网址前缀）配成一对（task-kbnc0，shared/read-along.ts） */
+  readAlong?: string
   /** 书摘（微信读书同步来的，frontmatter 有 bookId）：在哪都用 quote 图标 */
   digest?: boolean
   /** 数据库的一条（它所在的文件夹是库里某个数据库的数据源）：数据源文件夹的名字，「最近」里标出是哪个表的 */
@@ -124,6 +126,34 @@ export interface BoardConverted {
   columns: number
   cards: number
   /** 转好、写进文件了，提交没成功（中文原因）：改动留在库里，下次提交带上 */
+  commitError?: string
+}
+
+/** 「最近删掉的」里的一篇（task-5yp97）：原来的路径、删掉它的那次提交（还没提交的是 null，界面写「刚才」）、删的时间 */
+export interface TrashItem {
+  path: string
+  commit: string | null
+  at: number
+  /** 白板：它自己的颜色（列表里画颜色方块） */
+  board?: string
+  /** 删这一篇时连着删的图（同一次删的）：不单列，放回时一起回来 */
+  with?: string[]
+}
+
+/** 删掉前的样子：md 给全文；图片给 data: 网址；别的只说多大 */
+export interface TrashPreview {
+  text?: string
+  image?: string
+  bytes: number
+}
+
+/** 「AI 总结的」卡改成 AI 总结块写法（task-5yp97）：改好的字、改之前的字、提交号、改了几张 */
+export interface SummaryConverted {
+  text: string
+  old: string
+  hash: string | null
+  cards: number
+  /** 改好、写进文件了，提交没成功（中文原因） */
   commitError?: string
 }
 
@@ -214,6 +244,16 @@ export interface CnApi {
   boardConvert(path: string, force?: boolean): Promise<BoardConverted | null>
   /** 撤回转写法：文件回到转之前、记进旧写法名单，一次提交；返回提交号 */
   boardKeepOld(path: string, old: string, converted: string): Promise<string | null>
+  /** 「最近删掉的」（main/trash-recent.ts，task-5yp97）：30 天里删掉的（Git 历史 + 还没提交的删除），新的在前 */
+  trashRecent(): Promise<TrashItem[]>
+  /** 删掉前那一版（只读看）；commit 是 null：还没提交的删除，看上一次提交里的 */
+  trashPreview(path: string, commit: string | null): Promise<TrashPreview>
+  /** 还没提交的删除先单独提交（放回前要有删掉的那一次；paths 是那一篇和跟着它删的图），返回提交号 */
+  trashCommitPending(paths: string[]): Promise<string>
+  /** 以前写法的「AI 总结的」卡一次写成 AI 总结块并提交（task-5yp97）；没什么要改、撤回过的返回 null */
+  summaryConvert(path: string): Promise<SummaryConverted | null>
+  /** 撤回总结卡改写法：文件回到改之前、记进名单以后不再自动改，一次提交 */
+  summaryKeepOld(path: string, old: string, converted: string): Promise<string | null>
   /** 库里的数据库（工具板「数据库」的菜单） */
   boardBases(): Promise<BoardBase[]>
   /** 哪些篇链接、嵌了这一篇 */

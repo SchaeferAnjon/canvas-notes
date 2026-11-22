@@ -10,6 +10,7 @@ import { syntaxTree } from '@codemirror/language'
 import type { EditorState, Range } from '@codemirror/state'
 import { Decoration, type DecorationSet, type EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { isBookDigest } from '../shared/plugins/weread'
+import { heldLine } from './atomic-blocks'
 import { reviewGroups } from './review'
 import { tailLineAt } from './tail-line'
 import { headingOf } from './title-follow'
@@ -52,7 +53,9 @@ function build(view: EditorView): DecorationSet {
   const head = doc.sliceString(0, Math.min(doc.length, 20000))
   if (isBookDigest(head)) return Decoration.none
   const review = new Set((state.field(reviewGroups, false)?.groups ?? []).flatMap((g) => g.gaps))
-  const caret = doc.lineAt(state.selection.main.head).number
+  // 退格 / Delete 选中整块时：光标原来那一行照旧算光标所在的行（task-6lsvd：不然它压成 12，下面的字跳一下）
+  const hold = heldLine(state)
+  const caret = hold === null ? doc.lineAt(state.selection.main.head).number : doc.lineAt(hold).number
   const tail = tailLineAt(state)
   const title = headingOf(head)?.line ?? 0
   /** 这一行算一块：有字，或者是光标所在的行、文末那一行灰字 */

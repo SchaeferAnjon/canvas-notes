@@ -245,9 +245,14 @@
   will-change: transform;
   background: linear-gradient(transparent, color-mix(in srgb, var(--glow) 70%, transparent) 70%, var(--glow));
 }
-/* 只写一段：这一段下面一颗「AI 在写这一段 · 停下 esc」，边上一圈光（离这一段的字 8） */
+/* 白板卡里 AI 新写的字一点点长出来（ai-card-grow.ts）：还没显的字透明，卡的大小、白板的布局不动 */
+::highlight(cn-ai-grow) {
+  color: transparent;
+  text-decoration-color: transparent;
+}
+/* 只写一段：这一段下面一颗「AI 在写这一段 · 停下 esc」，边上一圈光（照原型离这一段的字约 20：行底下面空 13） */
 .cm-ai-inl {
-  padding: 8px 0 4px;
+  padding: 13px 0 4px;
   line-height: 1;
   transition: opacity 0.3s;
 }
@@ -278,11 +283,4 @@
   border-radius: 50%;
   background: var(--acc);
 }
-.cm-ai-inl .dot.on {
-  animation: ai-pulse 1.2s ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .cm-ai-inl .dot.on {
-    animation: none;
-  }
-}
+/* 点不呼吸（原型 A2 的这一颗是实心不动的点；竖线里、胶囊边上已经有光在走） */

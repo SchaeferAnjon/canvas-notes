@@ -30,7 +30,9 @@ import { registerFolderHome } from './folder-home'
 import { menuKey, registerCommands } from './commands'
 import { accelOf } from '../shared/cmd-keys'
 import { registerRestore } from './restore'
+import { registerTrash } from './trash-recent'
 import { registerBoard } from './board'
+import { followMoves, registerReadAlong } from './read-along'
 import { registerNoteAttach } from './note-attach'
 import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
@@ -45,9 +47,9 @@ import { setupPlugins } from './plugins'
 import { moveReadingState, setupReading } from './reading'
 import { reopenSearch, searchVault, setupSearch } from './search'
 import { registerFiles } from './files'
-import { testTrash, trashFiles } from './folder-ops'
+import { planCarry, testTrash, trashFiles } from './folder-ops'
 import { setupImport } from './import'
-import { attachEditMenu, closeAllMenus, forwardWebContext, popup, setupCtxMenu } from './ctx-menu'
+import { attachEditMenu, closeAllMenus, followOpen, forwardWebContext, popup, setupCtxMenu } from './ctx-menu'
 import { attachWebview, setupWeb } from './web'
 import { noteMediaHold } from './web/media-hold'
 import { attachVideo, flushVideo, setupVideo } from './video'
@@ -285,6 +287,7 @@ async function openVault(dir: string): Promise<VaultInfo> {
   void pullOnOpen(root)
   // 全能模式下 AI 这一轮结束时分清库里多出来的改动谁改的：软件自己写的不算，在外面改的（AI 自己的工具）算
   vault.onOwnWrite = agentOwnWrite
+  vault.onMoved = followMoves(vault, () => win?.webContents.send('files:changed'))
   vault.watch(
     (path, text) => {
       agentExternal(path)
@@ -491,8 +494,10 @@ function registerIpc() {
     const moves = Array.isArray(change?.moves) ? change.moves : []
     if (typeof change?.message !== 'string') throw new Error('AI 改动参数不对')
     const touched = [...writes.map((w) => w.path), ...moves.map((m) => m.from)]
+    // 挪的那几篇下面挂着数据库的记录文件夹：跟着挪，和这次改动同一次提交（task-5yp97，和文件树里挪一样）
+    const carry = await planCarry(v, moves)
     // 这几个文件里用户没提交的字先单独提交，AI 的提交里只有 AI 的改动，撤回才不会带走用户的字
-    const pending = (await git.status(v.root)).filter((s) => touched.includes(s.path))
+    const pending = (await git.status(v.root)).filter((s) => touched.includes(s.path) || carry.touches(s.path))
     // 先提交用户的字没成（锁文件、没署名）：照样替 AI 写进文件，AI 这次也不提交（不然用户的字混进 AI 的提交），照实说提交没成功
     let preFailed: string | null = null
     if (pending.length) {
@@ -512,15 +517,20 @@ function registerIpc() {
         const r = await v.write(w.path, w.text, cur.text)
         if (!r.ok) throw new Error('文件刚被改过，AI 这次没改，再试一次')
         paths.push(w.path)
-        // 这次写入是替 AI 写的，打开着这篇的编辑器要收到，按外部改动合并
+        // 这次写入是替 AI 写的，打开着这篇的编辑器要收到，按外部改动合并；先说是 AI 写的（新的字一点点长出来，task-6kun1）
+        win?.webContents.send('ai:act', { turn: 0, kind: 'wrote', path: w.path })
         win?.webContents.send('note:changed', w.path, w.text)
       }
     }
+    const follow = win ? followOpen(win.webContents) : undefined
     for (const m of moves) {
       const to = await v.move(m.from, m.toFolder)
       await repin(v, m.from, to)
+      // 开着的那篇马上跟到新路径：跟着挪的记录文件夹会改它的数据库块，新内容要认得出是它
+      follow?.(m.from, to)
       paths.push(m.from, to)
     }
+    paths.push(...(await carry.run(follow)))
     const message = change.noAi === true ? change.message : `AI：${change.message}`
     if (preFailed) {
       win?.webContents.send('files:changed')
@@ -691,7 +701,9 @@ function registerIpc() {
   registerCommands(needVault, buildMenu)
   registerAiCmds({ vault: needVault, userData: app.getPath('userData') })
   registerRestore(needVault, () => win?.webContents.send('files:changed'))
+  registerTrash(needVault, () => win?.webContents.send('files:changed'))
   registerBoard(needVault, () => win?.webContents.send('files:changed'))
+  registerReadAlong(needVault)
   ipcMain.handle('git:history', async (_e, limit: number, opts?: { hideInternal?: boolean }) => {
     const root = needVault().root
     // 藏起软件自己的设置文件（CN-116，历史 ⋯ 里的开关）：git 自己跳过只动了设置的提交，「最近100次」全是用户的改动

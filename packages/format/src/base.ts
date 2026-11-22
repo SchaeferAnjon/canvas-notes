@@ -300,8 +300,15 @@ function setViewKey(src: string, key: string, body: string[]): string {
   const lines = src.split('\n')
   const views = lines.findIndex((l) => /^views:\s*$/.test(l))
   const re = new RegExp(String.raw`^\s+${key}:\s*$`)
-  const start = views === -1 ? -1 : lines.findIndex((l, i) => i > views && re.test(l))
-  if (start === -1) return src.replace(/\n*$/, '') + '\n' + [`    ${key}:`, ...body.map((b) => '    ' + b)].join('\n')
+  // 只在 views 那一块里找、往那一块末尾加：views 后面还有 properties（加过列）时，以前加在整段最后，sort 落进了 properties 里不生效（task-c22p9 发现）
+  const end = views === -1 ? lines.length : blockEnd(lines, views)
+  const start = views === -1 ? -1 : lines.findIndex((l, i) => i > views && i < end && re.test(l))
+  if (start === -1) {
+    if (views === -1) return src.replace(/\n*$/, '') + '\n' + [`    ${key}:`, ...body.map((b) => '    ' + b)].join('\n')
+    let at = end
+    while (at > views + 1 && lines[at - 1]!.trim() === '') at--
+    return [...lines.slice(0, at), `    ${key}:`, ...body.map((b) => '    ' + b), ...lines.slice(at)].join('\n')
+  }
   const ind = ' '.repeat(indentOf(lines[start]!))
   return spliceBlock(lines, start, [`${ind}${key}:`, ...body.map((b) => ind + b)]).join('\n')
 }
@@ -315,7 +322,8 @@ export function setBaseSort(src: string, prop: string, desc: boolean): string {
 export function clearBaseSort(src: string): string {
   const lines = src.split('\n')
   const views = lines.findIndex((l) => /^views:\s*$/.test(l))
-  const start = views === -1 ? -1 : lines.findIndex((l, i) => i > views && /^\s+sort:\s*$/.test(l))
+  const end = views === -1 ? -1 : blockEnd(lines, views)
+  const start = views === -1 ? -1 : lines.findIndex((l, i) => i > views && i < end && /^\s+sort:\s*$/.test(l))
   if (start === -1) return src
   return [...lines.slice(0, start), ...lines.slice(blockEnd(lines, start))].join('\n')
 }

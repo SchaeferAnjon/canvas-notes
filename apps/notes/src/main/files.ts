@@ -6,8 +6,8 @@
 import { ipcMain } from 'electron'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
-import { ATTACHMENTS_DIR, attachmentDir, CONVO_DIR, decodeNote, linkedPaths, notePathFor, parseReadingNote, prop } from '@cn/format'
-import { type AttachIndex, type FileEntry, type FileKind, parseProgress } from '../shared/files'
+import { ATTACHMENTS_DIR, attachmentDir, baseFoldersIn, CONVO_DIR, decodeNote, doubtItems, linkedPaths, notePathFor, parseReadingNote, prop } from '@cn/format'
+import { type AttachIndex, type FileEntry, type FileKind, markBases, parseProgress } from '../shared/files'
 import type { Vault } from './vault'
 
 const SKIP_DIRS = new Set(['node_modules'])
@@ -60,6 +60,13 @@ export async function listEntries(root: string): Promise<FileEntry[]> {
   }
   await walk(root)
   const have = new Set(out.map((f) => f.path))
+  // 送过 Anki 的（库里 .canvas-notes/anki.json，出卡 task-tz7y3）：一份 PDF 问过的都送了，树里那一行数字后面画个绿勾
+  let sent: Record<string, unknown> = {}
+  try {
+    sent = (JSON.parse(await readFile(join(root, '.canvas-notes/anki.json'), 'utf8')) as { sent?: Record<string, unknown> }).sent ?? {}
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT' && !(e instanceof SyntaxError)) throw e
+  }
   for (const f of out) {
     if (f.kind === 'html') {
       const m = /<meta\s+name="第几讲"\s+content="(\d+)"/.exec(await head(join(root, f.path)))
@@ -70,7 +77,9 @@ export async function listEntries(root: string): Promise<FileEntry[]> {
     const note = notePathFor(f.path)
     if (!have.has(note)) continue
     const text = decodeNote(await readFile(join(root, note))).text
-    f.note = { path: note, asks: parseReadingNote(text, note).reduce((n, s) => n + s.rounds, 0) }
+    const secs = parseReadingNote(text, note)
+    const items = secs.flatMap((s) => doubtItems(f.path, s))
+    f.note = { path: note, asks: secs.reduce((n, s) => n + s.rounds, 0), ...(items.length && items.every((it) => sent[it.id]) ? { sent: true } : {}) }
     if (f.kind !== 'pdf') continue
     const p = parseProgress(prop(text.slice(0, 4096), '进度'))
     if (p) f.progress = p
@@ -169,10 +178,12 @@ export async function attachIndex(root: string, files: FileEntry[]): Promise<Att
 }
 
 export function registerFiles(vault: () => Vault | null) {
-  ipcMain.handle('files:all', () => {
+  ipcMain.handle('files:all', async () => {
     const v = vault()
     if (!v) throw new Error('还没有打开库')
-    return listEntries(v.root)
+    // 数据库的记录文件夹记上几条、用它的那篇（目录树挂到那篇下面，「移到」不列它；task-5yp97）
+    const [files, texts] = await Promise.all([listEntries(v.root), v.texts()])
+    return markBases(files, texts, baseFoldersIn)
   })
   ipcMain.handle('files:attachments', async () => {
     const v = vault()

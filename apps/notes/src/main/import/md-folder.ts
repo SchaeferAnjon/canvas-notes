@@ -1,13 +1,15 @@
 /**
  * 读一个放 md 的文件夹（旧的 Obsidian 库之类）：md 原样拷进来，图片和别的附件拷进 附件/导入/<来源>/（保留原来的子文件夹），
- * 链接改成指向新位置：![[图.png]]、[[文件.pdf]] 变成普通的相对链接；[[笔记]] 原样留着（按名字找，挪到哪都能点），
- * [[子文件夹/笔记|别名]] 去掉前面的文件夹。属性只加不删。不依赖 Electron。
+ * 链接改成指向新位置：![[图.png]]、[[文件.pdf]] 变成普通的相对链接，![[图.png|300]] 写成 ![|300](…) 宽留着；
+ * 指到这次一起导的笔记的 [[笔记]]、[[子文件夹/笔记|别名]] 先记下指的是哪一篇，写盘时名字在整个库里不重的只留名字（挪到哪都能点），
+ * 重的写成新位置的路径（write.ts）；指不到的、指到没选的文件夹里的原样留着。
+ * 整段的 %%注释%% 变成收起的提示块（@cn/format 的 obsidianComments）。属性只加不删。不依赖 Electron。
  */
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { basename, extname, join, posix } from 'node:path'
-import { decodeNote, prop } from '@cn/format'
+import { decodeNote, obsidianComments, prop } from '@cn/format'
 import type { ImportFolder } from '../../shared/import'
-import { attRef, type ImportNote } from './write'
+import { attRef, noteRef, type ImportNote } from './write'
 
 const SKIP = new Set(['node_modules'])
 const IMAGE = /\.(png|jpe?g|gif|webp|heic|heif|tiff?|bmp|svg|avif)$/i
@@ -82,8 +84,36 @@ function fmTime(text: string, keys: string[]): number | null {
  * 选中的文件夹里的 md → 要写进库的样子；extra 是这些文件夹里没有笔记用到的附件（也拷）。
  * 附件按 Obsidian 的规矩找：先按相对路径，再按文件名在整个文件夹里找。
  */
-export async function readMdFolder(scan: MdScan, folders: string[], source: string): Promise<{ notes: ImportNote[]; extra: { src: string; name: string }[] }> {
+export async function readMdFolder(
+  scan: MdScan,
+  folders: string[],
+  source: string,
+): Promise<{ notes: ImportNote[]; extra: { src: string; name: string }[]; lost: Record<string, number> }> {
   const pick = new Set(folders)
+  const lost: Record<string, number> = {}
+  const noteByRel = new Map<string, MdFile>()
+  for (const n of scan.notes) noteByRel.set(n.rel.toLowerCase(), n)
+  /** [[笔记]] 指的是源库里哪一篇（Obsidian 的找法）：先按这篇的相对路径、再按库根，都没有按名字（或路径的后几截），同一个文件夹的先、路径短的先 */
+  const findNote = (target: string, fromDir: string): MdFile | undefined => {
+    let t = target.trim()
+    try {
+      t = decodeURI(t)
+    } catch {
+      // 不是转义过的，原样用
+    }
+    t = t.replace(/^\.?\//, '').replace(/\.md$/i, '')
+    if (!t) return undefined
+    const hit = noteByRel.get(posix.normalize(fromDir ? `${fromDir}/${t}` : t).toLowerCase() + '.md') ?? noteByRel.get(t.toLowerCase() + '.md')
+    if (hit) return hit
+    const low = t.toLowerCase() + '.md'
+    const away = (n: MdFile) => Number(dirOf(n.rel) !== fromDir)
+    return scan.notes
+      .filter((n) => {
+        const l = n.rel.toLowerCase()
+        return l === low || l.endsWith('/' + low)
+      })
+      .sort((a, b) => away(a) - away(b) || a.rel.length - b.rel.length || a.rel.localeCompare(b.rel))[0]
+  }
   const byName = new Map<string, MdFile>()
   const byRel = new Map<string, MdFile>()
   for (const f of scan.files) {
@@ -97,6 +127,9 @@ export async function readMdFolder(scan: MdScan, folders: string[], source: stri
     if (!pick.has(folder)) continue
     const raw = decodeNote(await readFile(n.abs)).text
     const atts: { src: string; name: string }[] = []
+    const links: { id: string; name: string }[] = []
+    const comments = obsidianComments(raw)
+    if (comments.inline) lost['一行里夹着的%%注释%%照原文留着'] = (lost['一行里夹着的%%注释%%照原文留着'] ?? 0) + comments.inline
     const ref = (f: MdFile) => {
       let i = atts.findIndex((a) => a.src === f.abs)
       if (i < 0) i = atts.push({ src: f.abs, name: f.rel }) - 1
@@ -114,18 +147,26 @@ export async function readMdFolder(scan: MdScan, folders: string[], source: stri
       return byRel.get(rel.toLowerCase()) ?? byRel.get(t.toLowerCase()) ?? byName.get(basename(t).toLowerCase())
     }
     const label = (s: string) => s.replace(/[[\]]/g, '')
-    let text = raw
-      // ![[图.png|300]]、[[文件.pdf]]：附件 → 普通链接；笔记 → 只留名字
+    let text = comments.text
+      // ![[图.png|300]]、[[文件.pdf]]：附件 → 普通链接；笔记 → 记下指哪一篇，写盘时定写名字还是路径
       .replace(/(!?)\[\[([^\]\n|#^]+)((?:#[^\]\n|]*)?)(\|[^\]\n]*)?\]\]/g, (all, bang: string, target: string, sub: string, alias: string | undefined) => {
         const isNote = !extname(target) || /\.md$/i.test(target)
         if (isNote) {
-          const name = basename(target.trim()).replace(/\.md$/i, '')
-          return `${bang}[[${name}${sub}${alias ?? ''}]]`
+          const to = findNote(target, folder)
+          if (!to || !pick.has(dirOf(to.rel))) return all
+          const i = links.push({ id: `md:${source}/${to.rel}`, name: basename(to.rel).replace(/\.md$/i, '') }) - 1
+          return `${bang}[[${noteRef(i)}${sub}${alias ?? ''}]]`
         }
         const f = find(target, folder)
         if (!f) return all
         const shown = alias && !/^\|\d+(x\d+)?$/.test(alias) ? alias.slice(1) : basename(f.rel)
-        return IMAGE.test(f.rel) ? `![${label(bang ? '' : shown)}](${ref(f)})` : `[${label(shown)}](${ref(f)})`
+        if (!IMAGE.test(f.rel)) return `[${label(shown)}](${ref(f)})`
+        if (!bang) return `![${label(shown)}](${ref(f)})`
+        // ![[图.png|300]]、![[图.png|说明|300]]：我们认 ![说明|300](…)（image-alt.ts），宽留着。只写了宽的说明空着：
+        // 我们的文档把说明画在图下面，Obsidian 里这张图下面没有字，不拿文件名去填
+        const size = alias ? /^(?:(.*)\|)?(\d{1,5}(?:x\d{1,5})?)$/.exec(alias.slice(1)) : null
+        const alt = size ? `${size[1] ?? ''}|${size[2]}` : alias ? alias.slice(1) : ''
+        return `![${label(alt)}](${ref(f)})`
       })
       // ![说明](相对路径)、[文字](相对路径)：指向附件的换成新位置；网址和 md 不动
       .replace(/(!?\[[^\]\n]*\]\()(<[^>\n]+>|[^)\s]+)(\s+"[^"\n]*")?\)/g, (all, head: string, url: string, title: string | undefined) => {
@@ -144,9 +185,10 @@ export async function readMdFolder(scan: MdScan, folders: string[], source: stri
       created,
       updated: fmTime(raw, ['updated', 'modified', 'updated_at', '修改时间']) ?? n.mtime,
       attachments: atts,
+      ...(links.length ? { links } : {}),
       id: `md:${source}/${n.rel}`,
     })
   }
   const extra = scan.files.filter((f) => pick.has(dirOf(f.rel)) && !used.has(f.abs)).map((f) => ({ src: f.abs, name: f.rel }))
-  return { notes, extra }
+  return { notes, extra, lost }
 }

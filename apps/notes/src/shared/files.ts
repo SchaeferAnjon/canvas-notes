@@ -22,9 +22,50 @@ export interface FileEntry {
    * PDF、HTML 旁边那篇读 PDF 笔记（「<名字> 笔记.md」，一个 PDF 一篇，2026-11-20）和里面问了几问（主问题 + 旁支问题）：
    * 目录树里 PDF 和它的笔记合成一行，笔记不单独列
    */
-  note?: { path: string; asks: number }
+  /** sent：这篇笔记里问过的都送进 Anki 了（目录树那一行数字后面一个绿勾，task-tz7y3） */
+  note?: { path: string; asks: number; sent?: boolean }
   /** 附件（img、att）：多大，字节 */
   bytes?: number
+  /**
+   * 文件夹是某个数据库（```base）的记录文件夹（task-5yp97，用户看图定「藏之后」）：几条记录；owner 是同一个文件夹里用它的那一篇
+   * （好几篇按名字取最前的）。有 owner 的在目录树里挂到那篇下面；不管挂没挂，「移到」的去处里都不列它（挪进去就成了一条记录）
+   */
+  base?: { records: number; owner?: string }
+}
+
+/** 数据库的记录文件夹（「移到」不列它和它里面的） */
+export const isBaseFolder = (f: FileEntry) => f.kind === 'dir' && !!f.base
+
+/**
+ * 记录文件夹挂在哪一篇下面：用它的那几篇（users）里和它在同一个文件夹里的、按名字排最前的那篇（插数据库时就建在那篇旁边）；
+ * 没有就不挂（那篇挪走了、删了，它照普通文件夹画）。目录树画（markBases）和挪那篇时它跟着走（main/folder-ops）都照这一条
+ */
+export function baseOwner(folder: string, users: readonly string[]): string | undefined {
+  const parent = folderOfPath(folder)
+  return users.filter((p) => folderOfPath(p) === parent).sort((a, b) => collator.compare(a, b))[0]
+}
+
+/** 给记录文件夹记上几条记录、用它的那篇（files 是 listEntries 列出来的，texts 是库里每篇 md 的全文） */
+export function markBases(files: FileEntry[], texts: ReadonlyMap<string, string>, foldersOf: (text: string) => string[]): FileEntry[] {
+  const users = new Map<string, string[]>()
+  for (const [path, text] of texts) {
+    if (!text.includes('```base')) continue
+    for (const f of foldersOf(text)) users.set(f, [...(users.get(f) ?? []), path])
+  }
+  if (!users.size) return files
+  const here = new Set(files.map((f) => f.path))
+  const records = new Map<string, number>()
+  for (const f of files) {
+    if (f.kind !== 'md') continue
+    const d = folderOfPath(f.path)
+    if (users.has(d)) records.set(d, (records.get(d) ?? 0) + 1)
+  }
+  return files.map((f) => {
+    // 最外层固定的分类（收件箱、课程……）当数据源也照旧是分类：不挂到哪篇下面，「移到」照样列
+    if (f.kind !== 'dir' || !users.has(f.path) || fixedFolder(f.path)) return f
+    const owner = baseOwner(f.path, users.get(f.path)!.filter((p) => here.has(p)))
+    return { ...f, base: { records: records.get(f.path) ?? 0, ...(owner ? { owner } : {}) } }
+  })
 }
 
 /** 附件/ 里的文件：图片、别的附件 */
@@ -185,11 +226,26 @@ export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): Tre
     dirOf(folderOfPath(f.path)).children.push({ path: f.path, name: fileName(f.path), kind: f.kind, entry: f, children: [], count: 1, time })
   }
   if (o.keep) for (const f of files) if (f.kind === 'dir' && dirs.has(f.path)) dirs.get(f.path)!.entry = f
+  // 数据库的记录文件夹挂到用它的那篇下面（task-5yp97「藏之后」）：那篇在同一个文件夹里、也在树里才挂
+  for (const d of dirs.values()) {
+    const owner = d.entry?.base?.owner
+    if (!owner) continue
+    const parent = dirs.get(folderOfPath(d.path))
+    const note = parent?.children.find((c) => c.path === owner && c.kind !== 'dir')
+    if (!parent || !note) continue
+    parent.children = parent.children.filter((c) => c !== d)
+    note.children.push(d)
+  }
   const desc = o.sort.endsWith('desc')
   const finish = (n: TreeNode, top: boolean) => {
     for (const c of n.children) {
       c.pinned = o.pins.has(c.kind === 'dir' ? c.path + '/' : c.path)
       if (c.kind === 'dir') finish(c, false)
+      else if (c.children.length) {
+        // 挂着数据库记录文件夹的那篇：记录照样算进上面文件夹的篇数（藏起来不等于少了）
+        for (const d of c.children) finish(d, false)
+        c.count = 1 + c.children.reduce((s, d) => s + d.count, 0)
+      }
     }
     n.count = n.children.reduce((s, c) => s + c.count, 0)
     n.time = n.children.reduce((m, c) => Math.max(m, c.time), n.entry?.mtimeMs ?? 0)

@@ -204,39 +204,40 @@
   color: var(--t1);
 }
 
-/* ---------- 输入框：共用的那个（composer.tsx），收成原型 .sin 的样子：圆角 10、内边距 6 6 4 10，一行字 24 高，底行左边对齐、发送 24 ---------- */
-.side-inl .aiin {
+/* ---------- 输入框：共用的那个（composer.tsx），收成原型 .sin 的样子：圆角 10、内边距 6 6 4 10，一行字 24 高，底行左边对齐、发送 24 ----------
+ * 视频问框里钉在问框底部（.side-dock，task-5yp97 选法 2），样子一样 */
+:is(.side-inl, .side-dock) .aiin {
   margin: 0;
   padding: 6px 6px 4px 10px;
   border-radius: 10px;
   box-shadow: 0 0 0 1px var(--line2);
   user-select: auto;
 }
-.side-inl .aiin:focus-within {
+:is(.side-inl, .side-dock) .aiin:focus-within {
   box-shadow:
     0 0 0 1px var(--acc-ring),
     0 0 0 3px var(--acc-soft);
 }
-.side-inl .aiin textarea {
+:is(.side-inl, .side-dock) .aiin textarea {
   min-height: 24px;
   max-height: 120px;
   padding: 0;
   font: 13px/24px var(--sans);
 }
-.side-inl .aiin .ft {
+:is(.side-inl, .side-dock) .aiin .ft {
   min-height: 24px;
   margin-left: -6px;
 }
-.side-inl .aiin .ft .k {
+:is(.side-inl, .side-dock) .aiin .ft .k {
   display: none;
 }
-.side-inl .aiin .send {
+:is(.side-inl, .side-dock) .aiin .send {
   width: 24px;
   height: 24px;
 }
 
 /* ---------- 记到哪：12 --t3，图标 12，离输入框 6 ---------- */
-.side-inl .rec {
+:is(.side-inl, .side-dock) .rec {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -245,10 +246,10 @@
   line-height: 1.7;
   color: var(--t3);
 }
-.side-inl .rec > svg {
+:is(.side-inl, .side-dock) .rec > svg {
   flex: none;
 }
-.side-inl .rec span {
+:is(.side-inl, .side-dock) .rec span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -331,7 +332,8 @@
 /* 点线画成底边上重复的点，不用 text-decoration：那条线进不了行内公式（KaTeX 是 inline-block），一句里有公式时会断成几截 */
 .aicell .asked,
 .reading-notes .asked,
-.cm-content .asked {
+.cm-content .asked,
+.side-text .asked {
   padding-bottom: 2px;
   background-image: radial-gradient(circle, var(--acc) 0.75px, transparent 0.9px);
   background-size: 4px 1.5px;
@@ -345,7 +347,8 @@
 }
 .aicell .badge[data-side],
 .reading-notes .badge,
-.cm-content .badge[data-side] {
+.cm-content .badge[data-side],
+.side-text .badge[data-side] {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -367,13 +370,16 @@
 .aicell .badge[data-side].cur,
 .reading-notes .badge:hover,
 .cm-content .badge[data-side]:hover,
-.cm-content .badge[data-side].cur {
+.cm-content .badge[data-side].cur,
+.side-text .badge[data-side]:hover,
+.side-text .badge[data-side].cur {
   background: var(--acc-bg);
   color: var(--acc-on);
 }
 .aicell .badge[data-side]:focus-visible,
 .reading-notes .badge:focus-visible,
-.cm-content .badge[data-side]:focus-visible {
+.cm-content .badge[data-side]:focus-visible,
+.side-text .badge[data-side]:focus-visible {
   outline: 2px solid var(--acc-ring);
   outline-offset: 1px;
 }
@@ -458,4 +464,34 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+ * ---------- 白板上的 AI 讲解卡、问框里的回答（task-p90ra）：排好的字，选一句开旁支 ----------
+ * 字能选（白板卡上别处照旧不能选、按住拖卡；问框外面那一格整个不让选）；小标、旁支那一块里是正常的指针
+ */
+.side-text {
+  user-select: text;
+  cursor: text;
+}
+.side-text .side-host,
+.side-text .badge {
+  cursor: auto;
+  user-select: none;
+}
+.side-text .badge {
+  cursor: pointer;
+}
+/*
+ * 白板卡开着旁支时卡往下长高：列里的卡照常把下面的往下推；摆在空白处的卡（位置写在文件里）不挪别的卡，
+ * 浮在下面那几张上面（同数据库卡「展开」盖在上面），收起就回去
+ */
+.db-card:has(.side-inl) {
+  z-index: 6;
+}
+/* 旁支里的问答、输入框照样能选、能打（问框里钉在底部的那个输入框也是） */
+.side-text .side-inl .qa,
+.side-text .side-inl textarea,
+.side-dock textarea {
+  user-select: text;
 }

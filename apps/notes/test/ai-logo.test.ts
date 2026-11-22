@@ -29,8 +29,8 @@ describe('AI 图标画哪家的标志（偏好「AI 图标用引擎标志」）'
 
   it('设置 › AI 默认换成 Codex：AI 对话、梦游跟着换；单独指定过的小活、只有 Claude Code 能做的看图问不变', () => {
     const p = normalizePrefs({ default: { engine: 'codex' }, features: { quick: { engine: 'claude', model: 'haiku' } } })
-    expect(usesOf(p)).toEqual({ chat: 'codex', dream: 'codex', vision: 'claude', quick: 'claude' })
+    expect(usesOf(p)).toEqual({ chat: 'codex', dream: 'codex', vision: 'claude', quick: 'claude', cards: 'codex' })
     // 小活选的那家这台 Mac 上没装：跟主进程一样退回默认那家
-    expect(usesOf(p, (id) => id !== 'claude')).toEqual({ chat: 'codex', dream: 'codex', vision: 'claude', quick: 'codex' })
+    expect(usesOf(p, (id) => id !== 'claude')).toEqual({ chat: 'codex', dream: 'codex', vision: 'claude', quick: 'codex', cards: 'codex' })
   })
 })

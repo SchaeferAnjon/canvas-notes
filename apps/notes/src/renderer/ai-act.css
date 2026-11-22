@@ -190,9 +190,6 @@
   border-radius: 50%;
   background: var(--acc);
 }
-.ai-inl .dot.on {
-  animation: ai-pulse 1.2s ease-in-out infinite;
-}
 .ai-inl .stop,
 .cm-ai-inl .stop {
   height: 20px;
@@ -210,8 +207,7 @@
   background: var(--fill);
 }
 @media (prefers-reduced-motion: reduce) {
-  .ai-actbar .pulse.on,
-  .ai-inl .dot.on {
+  .ai-actbar .pulse.on {
     animation: none;
   }
 }

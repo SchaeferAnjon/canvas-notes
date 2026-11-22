@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveLink } from '@cn/format'
-import { fixedFolder, GITKEEP, makeFolder, moveFolder, renameFolder, testTrash, trashFiles, trashFolder } from '../src/main/folder-ops'
+import * as git from '@cn/git'
+import { fixedFolder, GITKEEP, makeFolder, moveFolder, moveMany, planCarry, renameFolder, testTrash, trashFiles, trashFolder } from '../src/main/folder-ops'
 import { Vault } from '../src/main/vault'
 
 const roots: string[] = []
@@ -226,5 +227,167 @@ describe('文件树里删 PDF、HTML、图片（不是笔记）：当场单独�
     await expect(trashFiles(v, ['课程/ecp'], testTrash(trash))).rejects.toThrow('不是文件')
     await expect(trashFiles(v, ['../外面.png'], testTrash(trash))).rejects.toThrow('库外')
     await expect(trashFiles(v, [], testTrash(trash))).rejects.toThrow('要删的不对')
+  })
+})
+
+describe('挪一篇笔记：挂在它下面的数据库记录文件夹跟着一起挪（task-5yp97「藏之后」）', () => {
+  const B = (f: string) => '```base\nfilters:\n  and:\n    - file.inFolder("' + f + '")\nviews:\n  - type: table\n    name: 表格\n```'
+  const read = (root: string, p: string) => readFileSync(join(root, p), 'utf8')
+
+  it('挪「表」：它旁边的记录文件夹一起挪，数据库块里的路径、记录里指回去的链接、别处指向记录的链接都对，一次提交，git 干净', async () => {
+    const { root, v } = vaultWith({
+      '项目/表.md': `# 表\n\n${B('项目/库')}\n`,
+      '项目/库/一号.md': '# 一号\n\n[回到表](../表.md)\n',
+      '项目/库/二号.md': '# 二号\n',
+      '附件/项目/库/一号/图.png': 'png',
+      '项目/别的.md': '# 别的\n',
+      '复习.md': '# 复习\n\n[一号](项目/库/一号.md)\n',
+      '写作/a.md': '# a\n',
+    })
+    const n0 = commits(root)
+    const r = await moveMany(v, ['项目/表.md'], '写作')
+    expect(r.moves).toEqual([
+      { from: '项目/表.md', to: '写作/表.md' },
+      { from: '项目/库', to: '写作/库', with: '写作/表.md' },
+    ])
+    expect(commits(root)).toBe(n0 + 1)
+    expect(lastMsg(root)).toBe('移动 1 个：表 → 写作（它的数据库跟着挪：库）')
+    expect(status(root)).toBe('')
+    expect(read(root, '写作/表.md')).toBe(`# 表\n\n${B('写作/库')}\n`)
+    expect(read(root, '写作/库/一号.md')).toBe('# 一号\n\n[回到表](../表.md)\n')
+    expect(read(root, '复习.md')).toBe('# 复习\n\n[一号](写作/库/一号.md)\n')
+    expect(existsSync(join(root, '附件/写作/库/一号/图.png'))).toBe(true)
+    expect(existsSync(join(root, '项目/库'))).toBe(false)
+    expect(existsSync(join(root, '项目/别的.md'))).toBe(true)
+    expect(brokenLinks(root)).toEqual([])
+  })
+
+  it('两篇都用：只跟着挂着它的那篇（同一个文件夹里名字排最前的）走，另一篇的数据库块也改好；先挪另一篇，它不动', async () => {
+    const { root, v } = vaultWith({
+      '项目/甲.md': `# 甲\n\n${B('项目/库')}\n`,
+      '项目/乙.md': `# 乙\n\n${B('项目/库')}\n`,
+      '项目/库/一号.md': '# 一号\n',
+      '写作/a.md': '# a\n',
+      '生活/b.md': '# b\n',
+    })
+    // 「乙」不是挂着它的那篇（「甲」排在前面）：挪「乙」，记录文件夹留在原处
+    const r1 = await moveMany(v, ['项目/乙.md'], '生活')
+    expect(r1.moves).toEqual([{ from: '项目/乙.md', to: '生活/乙.md' }])
+    expect(existsSync(join(root, '项目/库/一号.md'))).toBe(true)
+    // 挪「甲」：跟着走，已经在「生活」的「乙」里的路径也改好
+    const r2 = await moveMany(v, ['项目/甲.md'], '写作')
+    expect(r2.moves).toEqual([
+      { from: '项目/甲.md', to: '写作/甲.md' },
+      { from: '项目/库', to: '写作/库', with: '写作/甲.md' },
+    ])
+    expect(read(root, '写作/甲.md')).toBe(`# 甲\n\n${B('写作/库')}\n`)
+    expect(read(root, '生活/乙.md')).toBe(`# 乙\n\n${B('写作/库')}\n`)
+    expect(status(root)).toBe('')
+  })
+
+  it('那里已经有同名的文件夹：记录文件夹存成「库 2」挪过去，数据库块写新名字（不因为重名挪不了那篇）', async () => {
+    const { root, v } = vaultWith({
+      '项目/表.md': `# 表\n\n${B('项目/库')}\n`,
+      '项目/库/一号.md': '# 一号\n',
+      '写作/库/别人的.md': '# 别人的\n',
+    })
+    const r = await moveMany(v, ['项目/表.md'], '写作')
+    expect(r.moves).toEqual([
+      { from: '项目/表.md', to: '写作/表.md' },
+      { from: '项目/库', to: '写作/库 2', with: '写作/表.md' },
+    ])
+    expect(read(root, '写作/表.md')).toBe(`# 表\n\n${B('写作/库 2')}\n`)
+    expect(read(root, '写作/库/别人的.md')).toBe('# 别人的\n')
+    expect(existsSync(join(root, '写作/库 2/一号.md'))).toBe(true)
+    expect(status(root)).toBe('')
+  })
+
+  it('选了那篇又选了它的记录文件夹：只挪一次；挪进它自己的记录文件夹、用的是别处的文件夹、那篇已经在那里：都不带着它', async () => {
+    const { root, v } = vaultWith({
+      '项目/表.md': `# 表\n\n${B('项目/库')}\n`,
+      '项目/库/一号.md': '# 一号\n',
+      '项目/看板.md': `# 看板\n\n${B('资料/清单')}\n`,
+      '资料/清单/一条.md': '# 一条\n',
+      '写作/a.md': '# a\n',
+    })
+    const r1 = await moveMany(v, ['项目/库', '项目/表.md'], '写作')
+    expect(r1.moves).toEqual([
+      { from: '项目/库', to: '写作/库' },
+      { from: '项目/表.md', to: '写作/表.md' },
+    ])
+    expect(read(root, '写作/表.md')).toBe(`# 表\n\n${B('写作/库')}\n`)
+    // 挪进它自己的记录文件夹：这篇成了其中一条，文件夹不动
+    const r2 = await moveMany(v, ['写作/表.md'], '写作/库')
+    expect(r2.moves).toEqual([{ from: '写作/表.md', to: '写作/库/表.md' }])
+    expect(existsSync(join(root, '写作/库/一号.md'))).toBe(true)
+    // 用的是别的文件夹里的（不挂在它下面）：不跟着
+    const r3 = await moveMany(v, ['项目/看板.md'], '写作')
+    expect(r3.moves).toEqual([{ from: '项目/看板.md', to: '写作/看板.md' }])
+    expect(existsSync(join(root, '资料/清单/一条.md'))).toBe(true)
+    expect(status(root)).toBe('')
+  })
+
+  it('AI 整理收件箱挪的几篇（vault.move 一篇篇挪）：挂在下面的记录文件夹也跟着挪；挪之前要先提交的里面有它的每一条；两篇的记录文件夹同名时后一个存成「库 2」；和这次改动同一次提交', async () => {
+    const { root, v } = vaultWith({
+      '收件箱/甲.md': `# 甲\n\n${B('收件箱/库')}\n`,
+      '收件箱/库/一号.md': '# 一号\n',
+      '剪藏/乙.md': `# 乙\n\n${B('剪藏/库')}\n`,
+      '剪藏/库/二号.md': '# 二号\n',
+      '项目/a.md': '# a\n',
+    })
+    // 用户正改着其中一条（没提交）：挪之前先提交掉，AI 那次提交里只有挪动
+    writeFileSync(join(root, '收件箱/库/一号.md'), '# 一号\n\n刚写的\n')
+    const moves = [
+      { from: '收件箱/甲.md', toFolder: '项目' },
+      { from: '剪藏/乙.md', toFolder: '项目' },
+    ]
+    const carry = await planCarry(v, moves)
+    expect(carry.touches('收件箱/库/一号.md')).toBe(true)
+    expect(carry.touches('项目/a.md')).toBe(false)
+    g(root, 'commit', '-q', '-am', '用户的字')
+    const paths: string[] = []
+    for (const m of moves) paths.push(m.from, await v.move(m.from, m.toFolder))
+    paths.push(...(await carry.run()))
+    await git.commitPaths(root, paths, 'AI：/整理收件箱 · 2条')
+    expect(status(root)).toBe('')
+    expect(read(root, '项目/甲.md')).toBe(`# 甲\n\n${B('项目/库')}\n`)
+    expect(read(root, '项目/乙.md')).toBe(`# 乙\n\n${B('项目/库 2')}\n`)
+    expect(read(root, '项目/库/一号.md')).toBe('# 一号\n\n刚写的\n')
+    expect(existsSync(join(root, '项目/库 2/二号.md'))).toBe(true)
+    expect(existsSync(join(root, '收件箱/库'))).toBe(false)
+    expect(g(root, 'show', '--name-status', '--no-renames', '--format=', 'HEAD').trim().split('\n').sort()).toEqual([
+      'A\t项目/乙.md',
+      'A\t项目/库 2/二号.md',
+      'A\t项目/库/一号.md',
+      'A\t项目/甲.md',
+      'D\t剪藏/乙.md',
+      'D\t剪藏/库/二号.md',
+      'D\t收件箱/库/一号.md',
+      'D\t收件箱/甲.md',
+    ])
+  })
+
+  it('AI 把记录文件夹里的一条单点名挪走、又挪了那篇：那一条去它该去的地方，文件夹带着剩下的跟那篇走，不报错', async () => {
+    const { root, v } = vaultWith({
+      '收件箱/表.md': `# 表\n\n${B('收件箱/库')}\n`,
+      '收件箱/库/一号.md': '# 一号\n',
+      '收件箱/库/二号.md': '# 二号\n',
+      '项目/a.md': '# a\n',
+      '生活/b.md': '# b\n',
+    })
+    const moves = [
+      { from: '收件箱/表.md', toFolder: '项目' },
+      { from: '收件箱/库/一号.md', toFolder: '生活' },
+    ]
+    const carry = await planCarry(v, moves)
+    const paths: string[] = []
+    for (const m of moves) paths.push(m.from, await v.move(m.from, m.toFolder))
+    paths.push(...(await carry.run()))
+    await git.commitPaths(root, paths, 'AI：/整理收件箱 · 2条')
+    expect(status(root)).toBe('')
+    expect(existsSync(join(root, '生活/一号.md'))).toBe(true)
+    expect(existsSync(join(root, '项目/库/二号.md'))).toBe(true)
+    expect(existsSync(join(root, '项目/库/一号.md'))).toBe(false)
+    expect(read(root, '项目/表.md')).toBe(`# 表\n\n${B('项目/库')}\n`)
   })
 })

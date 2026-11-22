@@ -1,0 +1,294 @@
+/* 长期一起看的网页和笔记（task-kbnc0，原型 /private/tmp/canvas-notes-webpair/proto.html）：方向 A 配成一对、方向 B 存成书桌。
+   尺寸照原型量的：弹层 360、圆角 12、内边距 14/16/12；按钮 26 高、12 字；提示条 36 高起、--fill 底、圆角 8 */
+
+/* 原型的小按钮：26 高、12 字（照原型 .btn，用软件自己的 .btn 胶囊）；软件的 .btn 描边在外面 1px，内边距少 1，宽和原型一样 */
+.btn.ra-26 {
+  height: 26px;
+  padding: 0 9px;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* ---------- 和网页配成一对（原型 .pop） ---------- */
+.ra-pop {
+  position: fixed;
+  z-index: 160;
+  width: 360px;
+  padding: 14px 16px 12px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font: 13px/1.5 var(--sans);
+  color: var(--t1);
+}
+.ra-pop h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ra-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: calc(100% + 16px);
+  margin: 0 -8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--t1);
+  font: inherit;
+  text-align: left;
+}
+.ra-opt:hover {
+  background: var(--fill);
+}
+.ra-opt .ra-rd {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 3px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--line2);
+}
+.ra-opt.on .ra-rd {
+  box-shadow: inset 0 0 0 4px var(--acc-bg);
+}
+.ra-opt .a {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+}
+.ra-opt .b {
+  display: block;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--t2);
+}
+.ra-foot {
+  margin: 8px 0 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+}
+.ra-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---------- 「对着看」的菜单（原型 .menu：240 宽、行 30、图标 14 --t2、右边 12 --t3） ---------- */
+.shell-menu.ra-menu {
+  min-width: 240px;
+}
+.shell-menu.ra-menu .mi {
+  gap: 10px;
+  padding: 0 10px;
+}
+.shell-menu.ra-menu .mi > .ci {
+  width: 14px;
+  height: 14px;
+  color: var(--t2);
+}
+.shell-menu.ra-menu .mi .r {
+  margin-left: auto;
+  padding-left: 12px;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+
+/* ---------- 标题下「对着看 · 书名 · 读到 …」：单独一行（偏好「标题下那行不折成竖排」：放不下时「读到」省略号，不折行） ---------- */
+.doc.doc .cm-meta-ra {
+  flex: 1 0 100%;
+  display: flex;
+  min-width: 0;
+  margin: 5px 0 -2px -6px;
+}
+.doc.doc .cm-ra {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px/1.5 var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+  cursor: default;
+}
+.doc.doc .cm-ra:hover,
+.doc.doc .cm-ra.open {
+  background: var(--fill);
+}
+.doc.doc .cm-ra > .ci {
+  flex: none;
+  color: var(--t3);
+}
+.doc.doc .cm-ra .fav {
+  flex: none;
+  border-radius: 3px;
+}
+.doc.doc .cm-ra b {
+  flex: none;
+  font-weight: 500;
+  color: var(--t1);
+}
+.doc.doc .cm-ra .ra-at {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 标题下一句提示「配成一对？」「存成一张书桌？」（只说一次，× 掉不再提；块部件自己不用上下外边距，留白放在外面这一层的内边距里） ---------- */
+.doc.doc .cm-ra-hintw {
+  padding: 12px 0 4px;
+}
+.doc.doc .cm-ra-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 6px 6px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+  font: 12px/18px var(--sans);
+  color: var(--t2);
+}
+.doc.doc .cm-ra-hint > .fav,
+.doc.doc .cm-ra-hint > .ci {
+  flex: none;
+}
+.doc.doc .cm-ra-hint .t {
+  flex: 1;
+  min-width: 0;
+}
+.doc.doc .cm-ra-hint b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.doc.doc .cm-ra-hint .btn {
+  flex: none;
+}
+.cm-ra-x {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.cm-ra-x:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+
+/* ---------- 目录树这一行、网页标签上的小标 ---------- */
+/* 名字长时小标先保住（同 PDF 那一行右端「问了几问」）：名字至少 7 个字宽、末尾省略，小标不掉到看不见的第二行（原型「学习笔记：动手学深…」）；
+   中间那段空位不要，名字到小标只隔行里的间距（设计复审：以前空着 8 却多截了字） */
+.ftree .ft-row.ft-fit:has(> .ft-pair) > .truncate {
+  flex: 1000 1 7em;
+  max-width: max-content;
+}
+.ftree .ft-row.ft-fit:has(> .ft-pair) > .ft-fl {
+  display: none;
+}
+.ftree .ft-row > .ft-pair {
+  margin-left: auto;
+}
+.ft-pair {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--t3);
+}
+.right.web .wpm {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin: 0 4px 0 6px;
+  color: var(--acc-t);
+}
+/* 当前那个标签（地址块）带小标时：地址块照样最窄 190（窄时 88），小标另占 22；悬停时 × 浮在右端，小标让出来（设计复审） */
+.right.web .wtabs .tab.wcur:has(> .wpm) {
+  min-width: 212px;
+}
+.right.web.w-narrow .wtabs .tab.wcur:has(> .wpm) {
+  min-width: 110px;
+}
+.right.web .wtabs .tab.wcur:hover > .wpm {
+  visibility: hidden;
+}
+
+/* ---------- 网页改版了、那段找不到：浮在网页上面一句（原型 .lost：不往网页栏顶上加一排） ---------- */
+.wlost {
+  position: absolute;
+  z-index: 6;
+  top: 8px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 8px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font: 12px/1.6 var(--sans);
+  color: var(--t1);
+}
+.wlost > .ci {
+  flex: none;
+  margin-top: 2px;
+  color: var(--yellow);
+}
+.wlost .t {
+  flex: 1;
+  min-width: 0;
+}
+.wlost .t span {
+  color: var(--t2);
+}
+.wlost .acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ---------- 收起中间栏（task-kbnc0）：中间那一列宽 0（gridTracks），里面的东西还在、看不见也点不到；标签条右端一颗「收起中间栏」，样子同「12 ⌄」 ---------- */
+.win > main.center.folded {
+  visibility: hidden;
+  overflow: hidden;
+  min-width: 0;
+}
+.tabs .tfold {
+  flex: none;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 0 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.frame-b .tabs .tfold {
+  margin-bottom: 4px;
+}
+.tabs .tfold:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}

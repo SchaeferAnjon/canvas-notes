@@ -114,6 +114,8 @@ interface Turn {
   shell: boolean
   /** 这一轮开始前就有、开始时没提交上（锁一直不放）的改动：不算 AI 的，结束时先单独提交 */
   before: Set<string>
+  /** 这一轮往库里的笔记写过字（发过 wrote）：结束时也发 end，那一段下面「AI 在写这一段」跟着收 */
+  wrote: boolean
   /** 字和步骤发给界面（AI 对话：ai:event；读 PDF：reading:event） */
   emit(e: AiEvent): void
 }
@@ -282,7 +284,8 @@ function hostFor(t: Turn): ToolHost {
       const r = await v.write(rel, next, cur)
       if (!r.ok) throw new Error('文件刚被改过，再试一次')
       if (!t.touched.has(rel)) t.touched.set(rel, '改')
-      // 主进程写的，监听不到；打开着这篇的编辑器要收到，按外部改动合并
+      // 主进程写的，监听不到；打开着这篇的编辑器要收到，按外部改动合并（先说是 AI 写的：新的字一点点长出来，task-6kun1）
+      wroteNote(t, rel)
       send('note:changed', rel, next)
     },
     measure: (path) => bridge<Record<string, Size>>('measure', path),
@@ -331,6 +334,11 @@ function hostFor(t: Turn): ToolHost {
         touch(t, r.touched, movedKind(r, '移动'))
         noteMoves(t, r)
         await bridge('moved', { from: r.from, to: r.to }).catch(() => undefined)
+        // 挂在它下面的数据库记录文件夹跟着挪了：开着的首页、条目跟着换路径
+        for (const c of r.with ?? []) {
+          noteMoves(t, { ...c, touched: r.touched })
+          await bridge('moved', c).catch(() => undefined)
+        }
         send('files:changed')
         return r
       },
@@ -592,7 +600,7 @@ export async function runAgentTurn(o: {
   run: Omit<EngineRun, 'cwd' | 'mcp' | 'omni' | 'onStep' | 'signal'>
 }): Promise<AgentTurnResult> {
   const v = needVault()
-  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), emit: o.emit }
+  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit }
   let outcome: EngineOutcome | null = null
   let error: string | undefined
   /** 没答完（停下、出错）时引擎给的会话号：已经做了的几步在这个会话里，「接着做」接着它 */
@@ -626,6 +634,7 @@ export async function runAgentTurn(o: {
     session = sessionOf(e)
   } finally {
     liveTurns.delete(t)
+    if (t.omni) omniEndedAt = Date.now()
     turns.delete(o.id)
     if (token?.own) {
       byToken.delete(token.token)
@@ -639,7 +648,7 @@ export async function runAgentTurn(o: {
     done = await commitTurn(v, t, `AI：${subject(o.subject)}`)
   } finally {
     // 提交好了再收光：做完的提示条带「撤回」（就是这一次提交），停下、出错的变灰淡掉；提交出了错也收
-    if (t.acts.size) act({ turn: t.id, kind: 'end', stopped: o.ac.signal.aborted || !!error, commit: done?.commit?.hash ?? null, tally: t.tally })
+    if (t.acts.size || t.wrote) act({ turn: t.id, kind: 'end', stopped: o.ac.signal.aborted || !!error, commit: done?.commit?.hash ?? null, tally: t.tally })
   }
   const { commit, kinds, failed } = done
   const moved = t.moved.size ? Object.fromEntries(t.moved) : undefined
@@ -651,9 +660,26 @@ export function agentOwnWrite(path: string) {
   for (const t of liveTurns) if (t.omni) t.own.add(path)
 }
 
-/** 监听看到库里这个文件在外面改了（AI 自己的工具改的）：正在答的全能模式那几轮把它算回 AI 改的 */
+/**
+ * 监听看到库里这个文件在外面改了（AI 自己的工具改的）：正在答的全能模式那几轮把它算回 AI 改的；
+ * 是笔记就告诉界面这是最新那一轮 AI 写的（紧接着的 note:changed 合进编辑器时新的字一点点长出来，task-6kun1）
+ */
 export function agentExternal(path: string) {
   for (const t of liveTurns) if (t.omni) t.external.add(path)
+  if (!/\.md$/i.test(path)) return
+  const t = [...liveTurns].reverse().find((x) => x.omni)
+  if (t) wroteNote(t, path)
+  // 写完紧接着这一轮就答完了（监听晚到几十毫秒）：照样是 AI 写的，只是没有还在答的一轮了（不挂「AI 在写这一段」到这一轮做完）
+  else if (Date.now() - omniEndedAt < 3000) act({ turn: 0, kind: 'wrote', path })
+}
+
+/** 全能模式最近一轮答完的时候（AI 自己写的文件，监听可能在这一轮结束后才报） */
+let omniEndedAt = 0
+
+/** 这一轮 AI 写了这一篇：界面上开着它的编辑器、白板认这一下（DESIGN.v3 2.3「字一点点长出来」） */
+function wroteNote(t: Turn, path: string) {
+  t.wrote = true
+  act({ turn: t.id, kind: 'wrote', path })
 }
 
 /** 全能模式开着没有（读 PDF 那边写【模式】、跑引擎用） */

@@ -14,6 +14,7 @@ import { onMessageMenu } from '../ctx/message-menu'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { type ReadingMsg, withoutVizMark } from '../../shared/reading'
+import { hideToolMarkup } from '../../shared/tool-markup'
 import { Markdown } from '../md-render'
 import { AiError } from '../ai-error'
 import { pastedUrl } from '../paste-images'
@@ -662,7 +663,7 @@ function Msg(p: {
           {!m.text && !m.error && !m.cant && !m.steps?.length && <div className="thinking">正在想…</div>}
           {m.text && (
             <div className="txt md" key={p.marks?.length ? m.text : 'txt'} ref={txt}>
-              <Markdown text={withoutVizMark(m.text).text} math />
+              <Markdown text={hideToolMarkup(withoutVizMark(m.text).text)} math />
             </div>
           )}
           {m.cant && <AiError raw={m.cant} own />}

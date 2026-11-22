@@ -124,6 +124,7 @@ export function setupImport(d: { vault(): Vault | null; win(): BrowserWindow | n
       const r = await readMdFolder(picked.md, chosen.map((f) => f.id), scan.source)
       notes = r.notes.filter((n) => !ids.has(n.id))
       extra = r.extra
+      for (const [k, v] of Object.entries(r.lost)) lost[k] = (lost[k] ?? 0) + v
     }
     const already = chosen.reduce((s, f) => s + f.already, 0)
     const total = notes.length

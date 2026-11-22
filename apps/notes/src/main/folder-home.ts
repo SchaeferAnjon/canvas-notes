@@ -26,6 +26,7 @@ import {
   templateFileOf,
 } from '../shared/folder-home'
 import { writeFileAtomic } from './atomic'
+import { followOpen } from './ctx-menu'
 import { countFiles, GITKEEP, makeFolder, moveFolder, renameFolder, testTrash, trashFolder } from './folder-ops'
 import { readDescs, writeDesc } from './categories'
 import { readLeft, writeLeft } from './left'
@@ -239,18 +240,20 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     changed()
     return f
   })
-  ipcMain.handle('folder:rename', async (_e, folder: unknown, name: unknown) => {
+  ipcMain.handle('folder:rename', async (e, folder: unknown, name: unknown) => {
     const v = getVault()
+    const follow = followOpen(e.sender)
     try {
-      return (await renameFolder(v, folder, name, (from, to) => moved?.(v.root, from, to))).to
+      return (await renameFolder(v, folder, name, (from, to) => (moved?.(v.root, from, to), follow(from, to)))).to
     } finally {
       changed()
     }
   })
-  ipcMain.handle('folder:move', async (_e, folder: unknown, parent: unknown) => {
+  ipcMain.handle('folder:move', async (e, folder: unknown, parent: unknown) => {
     const v = getVault()
+    const follow = followOpen(e.sender)
     try {
-      return (await moveFolder(v, folder, parent, (from, to) => moved?.(v.root, from, to))).to
+      return (await moveFolder(v, folder, parent, (from, to) => (moved?.(v.root, from, to), follow(from, to)))).to
     } finally {
       changed()
     }

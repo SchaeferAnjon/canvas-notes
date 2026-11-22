@@ -10,6 +10,7 @@ import { titleOf } from '../../shared/layout'
 import { app } from './actions'
 import { copy, type MenuEntry, menuAt } from './menu'
 import { moveMenu } from './move-menu'
+import { pairOf, rightPage } from '../read-along/store'
 
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const nameOf = (p: string) => p.split('/').pop()!
@@ -21,10 +22,16 @@ export function fileMenu(path: string, on: { rename?(): void; note?: string } = 
   const pinned = a.pins().includes(path)
   const here = folderOf(path)
   const targets = moveMenu(a.allFolders(), here, (f) => a.moveNote(path, f))
+  // 和网页配成一对（task-kbnc0）：配了的多「只打开笔记，网页不跟着开」「解除和网页的配对」；没配、右栏开着网页时「和右栏这个网页配成一对…」
+  const paired = md && !!pairOf(path)
+  const page = rightPage()
   return [
     { label: '打开', run: () => a.openHere(path) },
     { label: '在新标签打开', run: () => a.openFile(path) },
     on.note && { label: '单独打开笔记', run: () => a.openFile(on.note!) },
+    paired && { label: '只打开笔记，网页不跟着开', run: () => a.openNoteOnly(path) },
+    '-',
+    paired ? { label: '解除和网页的配对', run: () => a.unpairWeb(path) } : md && page && { label: '和右栏这个网页配成一对…', run: () => a.pairWeb(path) },
     '-',
     md && on.rename && { label: '重命名', run: () => on.rename!() },
     md && targets.length > 0 && { label: '移到', submenu: targets },

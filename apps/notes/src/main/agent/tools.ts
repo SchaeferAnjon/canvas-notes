@@ -65,7 +65,7 @@ export interface ToolHost {
     folders(): Promise<string[]>
     create(folder: unknown, title: unknown, text: unknown): Promise<string>
     rename(path: unknown, name: unknown): Promise<{ from: string; to: string; folder: boolean; relinked: string[] }>
-    move(path: unknown, folder: unknown): Promise<{ from: string; to: string; folder: boolean; relinked: string[] }>
+    move(path: unknown, folder: unknown): Promise<{ from: string; to: string; folder: boolean; relinked: string[]; with?: { from: string; to: string }[] }>
     trash(path: unknown): Promise<{ path: string; folder: boolean; files: number; images: number; kept: number }>
     mkdir(parent: unknown, name: unknown): Promise<string>
   }
@@ -232,8 +232,9 @@ export const TOOLS: Tool[] = [
     run: async (a, h) => {
       const r = await h.vault.move(a.path, a.folder)
       const links = r.relinked.length ? `；库里${count(r.relinked.length, '篇笔记')}的链接跟着改了` : ''
+      const dbs = r.with?.length ? `；挂在它下面的数据库记录文件夹跟着挪了：${r.with.map((c) => `${c.from} → ${c.to}`).join('，')}` : ''
       const into = r.to.includes('/') ? r.to.slice(0, r.to.lastIndexOf('/')) : ''
-      return { text: `挪好了：${r.from} → ${r.to}${links}`, label: `把${r.folder ? `文件夹${quoted(r.from)}` : titled(r.from)}${intoSaid(into, '挪进')}` }
+      return { text: `挪好了：${r.from} → ${r.to}${links}${dbs}`, label: `把${r.folder ? `文件夹${quoted(r.from)}` : titled(r.from)}${intoSaid(into, '挪进')}` }
     },
   },
   {

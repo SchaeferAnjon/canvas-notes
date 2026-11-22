@@ -12,7 +12,10 @@ import { type Cond, type FolderHome, type PropFile, runCond, setWidget, type Wid
 import { progressDone } from '../../shared/files'
 import { CLIPS, kindOf, titleOf } from '../../shared/layout'
 import { useVaultFiles, vaultFiles } from '../files/store'
-import { type DoubtItem, questionOf } from '@cn/format'
+import type { AnkiReview, CardItem } from '../../shared/reading'
+import { AiIcon } from '../engine-logo'
+import { unsentOf } from '../reading/cards-store'
+import { usePrefs } from '../settings-store'
 import { useCover } from './slide-covers'
 import { openFolderHome } from './store'
 
@@ -24,14 +27,17 @@ export interface WCtx {
   fresh: Set<string>
   editing: boolean
   onOpen(path: string): void
-  /** 打开 PDF 翻到那一页（我的疑惑） */
+  /** 打开 PDF 翻到那一页（读PDF时问过的） */
   onOpenAt(pdf: string, page: number): void
-  /** 开这门课的我的疑惑页 */
-  onDoubts(): void
-  /** 这门课读 PDF 时问过的（PDF 那边汇总的） */
-  doubts: DoubtItem[]
-  /** 看视频时框一块问的有几处（文档里的问答块） */
-  videoDoubts?: number
+  /** 这门课读 PDF 时问过的每一问（各篇笔记里的，送过没有） */
+  asked: CardItem[]
+  /** 开这份 PDF、笔记栏换到「只看我问的」 */
+  onAsked(pdf: string): void
+  /** 这门课没送的出卡 */
+  onCards(): void
+  /** 今天要复习：这门课送进去几张（Anki 开着时新卡、今天到期） */
+  review: AnkiReview | null
+  onOpenAnki(): void
   onAll(): void
   onCapture(): void
   save(h: FolderHome): void
@@ -42,12 +48,12 @@ export interface WCtx {
 const EMPTY: Record<string, string> = {
   courses: '还没有课。左栏「课程」头上新建一门。',
   slides: '把PDF拖到这张卡上，就收进这门课；问到第几页也会记在这里。',
-  review: 'Anki里还没有这门课的牌组。在「我的疑惑」里送一次就有了。',
-  reviews: 'Anki里还没有这几门课的牌组。在每门课的「我的疑惑」里送一次就有了。',
+  review: '这门课还没有卡送进Anki。在下面「读PDF时问过的」点「出卡」，AI改好你一张张过。',
+  reviews: '这几门课还没有卡送进Anki。在每门课首页「读PDF时问过的」点「出卡」。',
   exams: '还没有哪门课填了考试日期。在那门课的首页点「考试倒计时」填。',
   exam: '还没填考试日期。点一下填。',
   notes: '还没有笔记和导图。读课件时问AI，笔记会自己写好放进来。',
-  doubts: '还没有疑惑。读课件时问过的都会记在这里。',
+  doubts: '还没问过。读课件时框一块问AI，问过的都在这里，能一键出卡。',
   viz: '还没有可视化。问AI时点「做个可视化」，做好的放这里。',
   todo: '没有待办。',
   links: '还没有链接。',
@@ -162,7 +168,7 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
       return <Slides c={c} list={list} />
     }
     case 'doubts':
-      return c.doubts.length || c.videoDoubts ? <Doubts c={c} list={c.doubts} videos={c.videoDoubts ?? 0} /> : <p className="fw-empty">{EMPTY.doubts}</p>
+      return c.asked.length ? <Asked c={c} list={c.asked} /> : <p className="fw-empty">{EMPTY.doubts}</p>
     case 'viz': {
       const list = inFolder.filter((f) => f.props['类型'] === '可视化')
       return list.length ? <Viz c={c} list={list} /> : <p className="fw-empty">{EMPTY.viz}</p>
@@ -170,7 +176,7 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
     case 'courses':
       return <Courses c={c} />
     case 'review':
-      return <p className="fw-empty">{c.folder === '课程' ? EMPTY.reviews : EMPTY.review}</p>
+      return c.folder === '课程' ? <p className="fw-empty">{EMPTY.reviews}</p> : <Review c={c} />
     case 'exam':
       // 「课程」这一页：几门课里最近的那场考试
       return c.folder === '课程' ? <NextExam c={c} /> : <Exam w={w} set={set} />
@@ -473,41 +479,77 @@ function Exam(props: { w: WidgetData; set(p: Partial<WidgetData>): void }) {
 }
 
 /**
- * 我的疑惑：读 PDF 时问过的（PDF 那边按讲汇总的同一份清单）。「最近问的 · 第 N 讲」3 条（问题 + 页码，点了翻到那一页），
- * 下面每讲一颗 chip（看视频时问的另一颗「视频 N」），再多一句「全部 N 条」开我的疑惑页。直接读各篇笔记和文档（2026-11-20 起没有「我的疑惑.md」）
+ * 读PDF时问过的（2026-11-22 从「我的疑惑」改名，task-tz7y3，原型 proto.html#dir=b 的 courseMid）：「最近问的 · 第 N 讲」3 问（问题 + 送过的 ✓ + 页码，点了翻到那一页），
+ * 每讲一颗「第5讲 6问」（点了开那份 PDF、笔记栏「只看我问的」），底下「8问 · 6问已在Anki」和「出卡 · 没送的2问」。直接读各篇笔记（别把上万条全铺开：只露 3 问）
  */
-function Doubts(props: { c: WCtx; list: DoubtItem[]; videos: number }) {
+function Asked(props: { c: WCtx; list: CardItem[] }) {
   const { c } = props
-  const lec = (d: DoubtItem) => d.lecture ?? 0
+  const sides = usePrefs((s) => s.pdf.ankiSides)
+  const lec = (d: CardItem) => d.lecture ?? 0
   const last = Math.max(...props.list.map(lec))
   const recent = props.list.filter((d) => lec(d) === last).reverse()
-  const byLec = new Map<number, number>()
-  for (const d of props.list) if (lec(d)) byLec.set(lec(d), (byLec.get(lec(d)) ?? 0) + 1)
+  const byLec = new Map<number, { n: number; pdf: string }>()
+  for (const d of props.list) if (lec(d)) byLec.set(lec(d), { n: (byLec.get(lec(d))?.n ?? 0) + 1, pdf: byLec.get(lec(d))?.pdf ?? d.pdf })
+  const sent = props.list.filter((d) => d.sent).length
+  const un = unsentOf({ label: '', by: '', items: props.list }, sides).length
   return (
     <>
       {last > 0 && <div className="fw-sub">{`最近问的 · 第${last}讲`}</div>}
       {recent.slice(0, 3).map((d) => (
-        <button key={d.id} className="fw-row" onClick={() => c.onOpenAt(d.pdf, d.section.page)}>
-          <Codicon name="question" size={14} />
-          <span className="truncate">{questionOf(d.section)}</span>
-          <span className="r num">{`第${d.section.page}页`}</span>
+        <button key={d.id} className="fw-row" onClick={() => c.onOpenAt(d.pdf, d.page)}>
+          <Codicon name={d.quote !== undefined ? 'comment-discussion' : 'comment'} size={14} />
+          <span className="truncate">{d.question}</span>
+          <span className="r num">
+            {d.sent && <Codicon name="check" size={12} className="ok" />}
+            {`第${d.page}页`}
+          </span>
         </button>
       ))}
-      {(byLec.size > 0 || props.videos > 0) && (
+      {byLec.size > 0 && (
         <div className="fw-chips">
-          {[...byLec].sort((a, b) => b[0] - a[0]).map(([l, n]) => (
-            <span key={l} className="chip num">
-              {`第${l}讲${n}`}
-            </span>
+          {[...byLec].sort((a, b) => b[0] - a[0]).map(([l, x]) => (
+            <button key={l} className="chip num" onClick={() => c.onAsked(x.pdf)}>
+              {`第${l}讲 ${x.n}问`}
+            </button>
           ))}
-          {props.videos > 0 && <span className="chip num">{`视频${props.videos}`}</span>}
         </div>
       )}
-      {props.list.length + props.videos > 3 && (
-        <button className="fw-more" onClick={c.onDoubts}>
-          {`全部${props.list.length + props.videos}条 · 打开列表看`}
+      <div className="fw-foot">
+        <span className="num">{`${props.list.length}问 · ${sent ? `${sent}问已在Anki` : '都还没出卡'}`}</span>
+        <span className="sp" />
+        <button className="btn btn-xs btn-primary" disabled={!un} onClick={c.onCards}>
+          <AiIcon job="cards" size={14} />
+          {un ? `出卡 · 没送的${un}问` : '都出过卡了'}
         </button>
-      )}
+      </div>
+    </>
+  )
+}
+
+/** 今天要复习（task-tz7y3）：这门课送进去过，写新卡、今天到期几张（从 Anki 读，Anki 没开写送进去几张）和「打开Anki」；没送过说在哪出卡 */
+function Review({ c }: { c: WCtx }) {
+  const r = c.review
+  if (!r || !r.sent) return <p className="fw-empty">{EMPTY.review}</p>
+  return (
+    <>
+      <div className="due">
+        <div>
+          <b className="num">{r.connected ? String(r.newCards ?? 0) : '–'}</b>
+          <span>新卡</span>
+        </div>
+        <div>
+          <b className="num">{r.connected ? String(r.due ?? 0) : '–'}</b>
+          <span>今天到期</span>
+        </div>
+      </div>
+      <p className="fw-empty">{r.connected ? `牌组「${r.deck}」里的卡。数从Anki读，复习在Anki里做。` : `${r.sent}张在牌组「${r.deck}」里。Anki没开着，开了这里写今天到期几张。`}</p>
+      <div className="fw-foot">
+        <span className="sp" />
+        <button className="btn btn-xs" onClick={c.onOpenAnki}>
+          <Codicon name="link-external" size={14} />
+          打开Anki
+        </button>
+      </div>
     </>
   )
 }

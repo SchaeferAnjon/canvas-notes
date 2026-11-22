@@ -52,7 +52,7 @@ test('全部文件：整个库的树，PDF 和课程旁边是进度；点文件�
     // 点 PDF 开 PDF 标签，这一行变成当前
     await item(page, '第3讲 线性映射').first().click()
     await expect(tabOn(page)).toHaveText('第3讲 线性映射.pdf')
-    await expect(item(page, '第3讲 线性映射').first()).toHaveAttribute('aria-selected', 'true')
+    await expect(item(page, '第3讲 线性映射').first()).toHaveAttribute('aria-current', 'page')
     // HTML 开 HTML 标签
     await item(page, '旋转矩阵').click()
     await expect(tabOn(page)).toHaveText('旋转矩阵')
@@ -60,7 +60,7 @@ test('全部文件：整个库的树，PDF 和课程旁边是进度；点文件�
     // 点课程文件夹的名字：开它的首页
     await item(page, '线性代数').locator('.truncate').click()
     await expect(page.getByTestId('folder-home').locator('.fh-title h2')).toHaveText('线性代数')
-    await expect(item(page, '线性代数')).toHaveAttribute('aria-selected', 'true')
+    await expect(item(page, '线性代数')).toHaveAttribute('aria-current', 'page')
 
     // 外面新加一份 PDF：树里自己出现
     mkdirSync(join(vault, '课程/线性代数'), { recursive: true })

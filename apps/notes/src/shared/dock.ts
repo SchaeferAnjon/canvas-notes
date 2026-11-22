@@ -328,6 +328,23 @@ export function setColWidth(d0: Dock, colId: string, w: number): Dock {
   return c.w === sideCols(d0).find((x) => x.id === colId)!.w ? d0 : d
 }
 
+/**
+ * 拖挨着的两栏（都不是中间）之间的缝：两栏合起来 total 宽不变，左边那栏 a 拿 aW，右边那栏 b 拿剩下的；每栏最窄 COL_MIN，不设上限
+ * （中间不动，task-rbtrz：以前这条缝只改一栏、宽只能从中间要，中间到 420 时拖不动）。合起来不够两个 COL_MIN（窗口太窄）时不动
+ */
+export function setPairWidths(d0: Dock, aId: string, bId: string, aW: number, total: number): Dock {
+  if (total < 2 * COL_MIN) return d0
+  const d = clone(d0)
+  const a = sideCols(d).find((x) => x.id === aId)
+  const b = sideCols(d).find((x) => x.id === bId)
+  if (!a || !b) return d0
+  a.w = Math.round(clamp(aW, COL_MIN, total - COL_MIN))
+  b.w = Math.round(total) - a.w
+  const a0 = sideCols(d0).find((x) => x.id === aId)!
+  const b0 = sideCols(d0).find((x) => x.id === bId)!
+  return a.w === a0.w && b.w === b0.w ? d0 : d
+}
+
 /** 两组（同一栏里挨着的）按 id 找：a 在上、b 在下 */
 function pair(d: Dock, aId: string, bId: string): [Group, Group] | null {
   for (const c of sideCols(d)) {

@@ -15,6 +15,7 @@ import './webview-page'
 import './video'
 import './plugins/weread'
 import './webview-reader'
+import './webview-readpos'
 
 type Mode = { mode: 'inbox' | 'doc'; target?: string }
 let mode: Mode = { mode: 'inbox' }

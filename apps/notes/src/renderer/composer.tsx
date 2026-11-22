@@ -302,6 +302,7 @@ export function AiInput(p: AiInputProps) {
     }
   }, [p.list, !!p.slim])
   const hint = p.hintNow ?? (c.mats.length ? matsHint(c.mats) : p.hint)
+  const row = useTightRow()
   if (p.slim) {
     const wake = p.slim.onWake
     const go = () => {
@@ -376,7 +377,7 @@ export function AiInput(p: AiInputProps) {
             void c.addFiles(files)
           }}
         />
-        <div className="ft">
+        <div className={'ft' + (row.tight ? ' tight' : '')} ref={row.ref}>
           <button className="pick add" aria-label="加图" data-tip="加图" data-side="above" onClick={() => void c.pickImages()}>
             <Codicon name="add" size={14} />
           </button>
@@ -398,6 +399,47 @@ export function AiInput(p: AiInputProps) {
       {p.omni && <OmniLine {...p.omni} />}
     </>
   )
+}
+
+/**
+ * 底行「谁来答 · 模型 · effort」三颗写全名放不下时（task-c22p9，AI 栏 350 宽三颗都被省略成半截）：
+ * 快捷键提示先让（CSS 按宽藏），再让谁来答只留标志（悬停看名字），还放不下模型名才省略；effort 不缩。
+ * 量的是三颗都写全名要多宽（藏起来的那个名字用记下的宽），比这一行宽就 tight
+ */
+function useTightRow() {
+  const [ft, ref] = useState<HTMLDivElement | null>(null)
+  const [tight, setTight] = useState(false)
+  /** 谁来答的名字写出来占多宽（连同它前面的空隙） */
+  const engW = useRef(0)
+  const measure = useRef(() => {})
+  measure.current = () => {
+    if (!ft || !ft.clientWidth) return
+    const gap = parseFloat(getComputedStyle(ft).columnGap) || 0
+    let need = 0
+    let n = 0
+    for (const el of ft.children as HTMLCollectionOf<HTMLElement>) {
+      if (el.classList.contains('k') || !el.offsetWidth) continue
+      const lb = el.querySelector<HTMLElement>(':scope > .lb')
+      if (lb && lb.offsetWidth) {
+        need += el.offsetWidth + lb.scrollWidth - lb.clientWidth
+        if (el.classList.contains('eng')) engW.current = lb.scrollWidth + (parseFloat(getComputedStyle(el).columnGap) || 0)
+      } else {
+        need += el.offsetWidth + (lb && el.classList.contains('eng') ? engW.current : 0)
+      }
+      n++
+    }
+    need += gap * Math.max(0, n - 1)
+    const next = need > ft.clientWidth
+    setTight((cur) => (cur === next ? cur : next))
+  }
+  useLayoutEffect(() => measure.current())
+  useLayoutEffect(() => {
+    if (!ft) return
+    const ro = new ResizeObserver(() => measure.current())
+    ro.observe(ft)
+    return () => ro.disconnect()
+  }, [ft])
+  return { ref, tight }
 }
 
 // ---------- 输入框下面那一行：全能模式（2026-11-19，照 Dispatch 输入框下面的权限那一行） ----------

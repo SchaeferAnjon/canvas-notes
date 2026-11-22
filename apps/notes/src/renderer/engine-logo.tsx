@@ -64,7 +64,7 @@ export function ByLogo({ by }: { by: string }) {
 // 「AI 对话」现在用哪家（设置 › AI 那一行；引擎菜单、设置里一改，主进程广播 ai:prefs:changed，用到的地方当场跟着换，CN-127）
 let chatEngine: { id: EngineId; label: string } = { id: 'claude', label: 'Claude Code' }
 // 各功能实际用的那家（ai:prefs 的 uses）和翻译现在用的那家（双语翻译插件的 engines；插件关着、没有能翻的是 null）
-let uses: AiUses = { chat: 'claude', dream: 'claude', vision: 'claude', quick: 'claude', translate: null }
+let uses: AiUses = { chat: 'claude', dream: 'claude', vision: 'claude', quick: 'claude', cards: 'claude', translate: null }
 const subs = new Set<() => void>()
 const emit = () => subs.forEach((s) => s())
 let started = false
@@ -82,7 +82,7 @@ function load() {
     emit()
   })
 }
-const FEATS = ['chat', 'dream', 'vision', 'quick'] as const
+const FEATS = ['chat', 'dream', 'vision', 'quick', 'cards'] as const
 
 let trSeq = 0
 function loadTranslate() {

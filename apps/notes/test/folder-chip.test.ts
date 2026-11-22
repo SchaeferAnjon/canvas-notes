@@ -19,12 +19,17 @@ describe('「移到」菜单（笔记右键、文件夹右键、标题下所在�
     expect(folders).toEqual(['剪藏', '剪藏/冰岛旅行', '旧东西', '课程', '课程/ecp', '收件箱', '写作', '写作/书评', '写作/游记'])
   })
 
-  it('一层层排成子菜单，子文件夹能选；不列现在这个文件夹自己；最前面是库名（CN-106），再按分类表的先后，别的文件夹在后', () => {
+  it('一层层排成子菜单，子文件夹能选；现在这个文件夹灰着列出来、点不了（task-5yp97「藏之后」图）；最前面是库名（CN-106），再按分类表的先后，别的文件夹在后', () => {
     setVaultName('canvas-note-test')
     const picked: string[] = []
     const m = moveMenu(folders, '收件箱', (f) => picked.push(f))
+    const here = m.find((e) => e && typeof e === 'object' && 'label' in e && e.label === '收件箱') as { enabled?: boolean; run(): void }
+    expect(here.enabled).toBe(false)
+    here.run()
+    expect(picked).toEqual([])
     expect(labels(m)).toEqual([
       'canvas-note-test',
+      '收件箱',
       '课程 › 放进「课程」',
       '课程 › ecp',
       '剪藏 › 放进「剪藏」',

@@ -22,6 +22,8 @@ export interface DoubtItem {
   section: AskSection
   /** 旁支里问的：被问的那一句 */
   quote?: string
+  /** 这一问 AI 回答的原文（「还是不懂」再讲过的是最后讲的那一版）：出卡时交给 AI 的材料；以前格式的段没有 */
+  answer?: string
 }
 
 /** 「还是不懂」「换个方式讲」这种整句：是接着上一问再讲一遍，不是新的一问 */
@@ -38,37 +40,55 @@ function hash(s: string): string {
   return h.toString(36)
 }
 
-/** 笔记里的一段 → 我的疑惑里的几条（新格式一问一条，旧格式一处一条） */
-export function doubtItems(pdf: string, s: AskSection, lecture?: number): DoubtItem[] {
+/**
+ * 一段里的每一问是哪一条：主对话第 i 问是「q<i>」，第 i 问下面第 j 条旁支的第 k 问是「s<i>.<j>.<k>」；
+ * 「还是不懂」并进上一问，它的位置也指到上一问那一条（笔记里标「已送」、问题条上「做成卡」都按它找）
+ */
+function walk(pdf: string, s: AskSection, lecture?: number): { items: DoubtItem[]; at: Map<string, number> } {
   const base = { pdf, ...(lecture !== undefined ? { lecture } : {}) }
-  if (!s.qas) return [{ id: s.id, ...base, section: s }]
+  const at = new Map<string, number>()
+  if (!s.qas) return { items: [{ id: s.id, ...base, section: s }], at }
   const out: DoubtItem[] = []
   const used = new Set<string>()
   const add = (q: string, a: string, quote?: string): number => {
     let id = out.length ? `${s.id}#${hash(`${quote ?? ''}\n${q}`)}` : s.id
     for (let k = 2; used.has(id); k++) id = `${s.id}#${hash(`${quote ?? ''}\n${q}`)}-${k}`
     used.add(id)
-    out.push({ id, ...base, section: { ...s, doubts: [q], good: answerLead(a), points: [], failed: [] }, ...(quote !== undefined ? { quote } : {}) })
+    out.push({ id, ...base, section: { ...s, doubts: [q], good: answerLead(a), points: [], failed: [] }, ...(quote !== undefined ? { quote } : {}), answer: a })
     return out.length - 1
   }
   /** 再讲一遍：那一条的回答换成这一版 */
   const again = (k: number, a: string) => {
     const it = out[k]!
     it.section = { ...it.section, good: answerLead(a) }
+    it.answer = a
   }
   let main = -1
-  for (const qa of s.qas) {
+  s.qas.forEach((qa, i) => {
     if (main >= 0 && AGAIN.test(qa.q.trim())) again(main, qa.a)
     else if (qa.q.trim()) main = add(qa.q, qa.a)
-    for (const side of qa.sides) {
+    if (main >= 0) at.set(`q${i}`, main)
+    qa.sides.forEach((side, j) => {
       let prev = -1
-      for (const t of side.turns) {
+      side.turns.forEach((t, k) => {
         if (prev >= 0 && AGAIN.test(t.q.trim())) again(prev, t.a)
         else prev = add(t.q, t.a, side.quote)
-      }
-    }
-  }
-  return out
+        at.set(`s${i}.${j}.${k}`, prev)
+      })
+    })
+  })
+  return { items: out, at }
+}
+
+/** 笔记里的一段 → 我的疑惑里的几条（新格式一问一条，旧格式一处一条） */
+export function doubtItems(pdf: string, s: AskSection, lecture?: number): DoubtItem[] {
+  return walk(pdf, s, lecture).items
+}
+
+/** 这一段里每一问（主对话「q<i>」、旁支「s<i>.<j>.<k>」）是哪一条的身份；以前格式的段只有一条，没有位置 */
+export function turnIds(pdf: string, s: AskSection): Map<string, string> {
+  const { items, at } = walk(pdf, s)
+  return new Map([...at].map(([k, i]) => [k, items[i]!.id]))
 }
 
 export interface DoubtGroup {

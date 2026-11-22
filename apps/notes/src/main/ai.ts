@@ -32,6 +32,17 @@ export async function ask(system: string, prompt: string, signal: AbortSignal, o
       const r = chatRun(w.pick.engine, w.pick)
       out += `\n（${w.pick.engine} · 模型：${r.model ?? '默认'} · effort：${r.effort ?? '默认'}${w.images?.length ? ` · 图 ${w.images.length} 张` : ''}）`
     }
+    // 文档里 / 菜单的「AI 写一段」「AI 总结这页」：和真的命令行一样边生成边给（每 4 个字隔 CN_FAKE_SAY_MS，默认 25 毫秒），
+    // 测试看字在编辑器里一点点长出来、中途停下（task-6kun1）
+    if (/^命令：(写一段|总结这页)/.test(prompt)) {
+      for (const part of out.match(/[^]{1,4}/gu) ?? []) {
+        if (signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+        onText(part)
+        await new Promise((r) => setTimeout(r, Number(process.env.CN_FAKE_SAY_MS ?? 25)))
+      }
+      if (signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+      return out
+    }
     onText(out)
     return out
   }
@@ -88,6 +99,15 @@ function fake(prompt: string): string {
     }
     case '本周小结':
       return '这周主要在准备冰岛自驾，收件箱里多了几条极光和巴黎的剪藏，还没整理。'
+    case '写一段':
+      // 和流光原型 A2「写一段」同一段（并排对照图用）
+      if (/要写的：.*SAGE/.test(prompt)) return '为什么先读 SAGE：它和 C72 用的是同一批睡眠数据，数字可以直接对照。先看它的 Fig. 2，弄清每个方块在做什么，再回来读 C72 就快得多。'
+      // 「写长一段」：两段、一百多字（看字一点点长出来、中途停下）；别的照旧一句
+      if (/要写的：写长一段/.test(prompt))
+        return '开篇很克制：从杰姆胳膊肘骨折这件小事讲起，再说过了一些年兄妹俩回头谈起它，一下子定下了整本书的视角。孩子当时的天真和成年人回忆时的距离叠在一起。\n\n“事情就开始了”这一句把源头指向迪尔和怪人拉德利，先抛一个悬念，让人想往下读。'
+      return '这是测试回答。'
+    case '总结这页':
+      return '这一页记了冰岛自驾要先定的三件事：住处、租车和看极光的两晚。住处还没订，车要四驱。极光看预报再定是哪两晚。'
     case '文件夹小结':
       return '这周主要在读 ECP 的第 5 讲。冰岛的机票订好了。住宿还没定。'
     case '挪进文件夹': {

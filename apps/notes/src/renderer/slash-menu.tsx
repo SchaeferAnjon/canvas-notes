@@ -11,7 +11,7 @@ import { drawnBlocks, editorHost, Popover } from './editor-host'
 import { AiIcon } from './engine-logo'
 import { toggleFold } from './fold-block'
 import { hiddenOk } from './hidden-syntax'
-import { flashRange } from './insert-flash'
+import { AiStreamWrite } from './ai-write'
 import { openTail } from './tail-line'
 
 /**
@@ -789,31 +789,45 @@ class SlashView {
     this.view.dispatch({ changes: { from, to: line.to }, userEvent: 'delete.slash', annotations: hiddenOk.of(true) })
   }
 
+  /**
+   * AI 写一段、总结这页：AI 的字边收边写进编辑器、一点点长出来（ai-write.ts，task-6kun1）；第一批字到了问的小框收起。
+   * 写进去的和以前一次插进去的一样：写一段插在那一空行（行里有字另起一段），总结这页插在开头、后面空一行
+   */
   private async writeAi(want: string, id: number) {
     const s = this.state
     if (!s) return
     const host = this.view.state.facet(editorHost)
     const text = this.view.state.doc.toString()
-    const reply = await window.cn.aiAsk(id, AI_SYSTEM, s.summary ? summaryPrompt(host.path(), text) : aiPrompt(host.path(), text, s.from, want))
-    const cur = this.state
-    if (!cur || cur.mode !== 'ai') return
-    const out = reply.trim()
-    if (cur.summary) {
-      // 总结这页：放在开头（标题和它下面那一行后面），这一行新起的空行拿掉
-      this.close(true, true)
-      const top = summaryAt(this.view.state)
-      const insert = out + '\n\n'
-      this.view.dispatch({ changes: { from: top, insert }, selection: { anchor: top + out.length }, userEvent: 'input.ai', annotations: hiddenOk.of(true), scrollIntoView: true })
-      flashRange(this.view, { from: top, to: top + out.length })
-      return
+    const w = new AiStreamWrite(this.view, id, host.path(), () => {
+      const cur = this.state
+      // 字来之前小框已经收了（点回了正文）：不写
+      if (!cur || cur.mode !== 'ai') return null
+      if (cur.summary) {
+        // 总结这页：放在开头（标题和它下面那一行后面），这一行新起的空行拿掉
+        this.close(true, true)
+        return { pos: summaryAt(this.view.state), before: '', after: '\n\n' }
+      }
+      const at = cur.from
+      this.close(true)
+      // 插在空行上就直接放；行里有字就另起一段
+      return { pos: at, before: this.view.state.doc.lineAt(at).text.trim() === '' ? '' : '\n\n', after: '' }
+    })
+    const off = window.cn.onAiEvent((eid, e) => {
+      if (eid === id && e.type === 'text') w.push(e.delta)
+    })
+    try {
+      const reply = await window.cn.aiAsk(id, AI_SYSTEM, s.summary ? summaryPrompt(host.path(), text) : aiPrompt(host.path(), text, s.from, want))
+      await w.done(reply)
+      if (!w.started && this.state?.mode === 'ai') this.close(true, true)
+    } catch (e) {
+      // 还没开始写：照旧在小框里说为什么；写到一半出错：停在已经显出来的那里，底部说一句
+      if (!w.started) throw e
+      const stopped = w.stopped
+      w.stop()
+      if (!stopped) host.notice(`AI 没写完：${String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+    } finally {
+      off()
     }
-    const at = cur.from
-    const line = this.view.state.doc.lineAt(at)
-    // 插在空行上就直接放；行里有字就另起一段
-    const insert = line.text.trim() === '' ? out : '\n\n' + out
-    this.close(true)
-    replace(this.view, at, at, insert)
-    flashRange(this.view, { from: at + insert.length - out.length, to: at + insert.length })
   }
 }
 
