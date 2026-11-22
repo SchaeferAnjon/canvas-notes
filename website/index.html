@@ -152,6 +152,23 @@ img { display: block; max-width: 100%; }
 
 .finale { padding: 120px 0 100px; text-align: center; }
 
+/* 画布今日：同一个库的任务软件。它的颜色是天青（图标「今日一页」），和李子紫一样只给小标记 */
+:root { --sky: light-dark(#2878a6, #6cb8e0); }
+.kicker.sky i { background: var(--sky); }
+.today li .ico { color: var(--sky); }
+code { font: .9em var(--mono); padding: 1px 5px; border-radius: 5px; background: var(--mist); border: 1px solid var(--line); white-space: nowrap; }
+.tapp { display: flex; align-items: center; gap: 12px; }
+.tapp img { width: 52px; height: 52px; }
+.tapp b { display: block; font-size: 17px; line-height: 1.3; }
+.tapp span { font-size: 13px; color: var(--lead); }
+.today .cta { justify-content: flex-start; margin-top: 24px; }
+.today .meta { margin-top: 12px; }
+.today .gk { margin: 6px 0 0; font-size: 13px; color: var(--faint); }
+.today .gk a { color: var(--lead); text-decoration: underline; text-underline-offset: 3px; }
+.nw { white-space: nowrap; }
+.lede, .today li span { text-wrap: pretty; }
+.meta a { white-space: nowrap; }
+
 /* 页脚：回总站的小条和 MeetCaption 一样 */
 .foot { border-top: 1px solid var(--line); padding: 48px 0 40px; }
 .foot .g { display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 24px; font-size: 14px; }
@@ -173,6 +190,9 @@ img { display: block; max-width: 100%; }
 .foot .cp { margin-top: 10px; font-size: 12.5px; color: var(--faint); display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 
 @media (max-width: 960px) {
+  /* 导航多了「画布今日」：窄一点的窗口里先收 GitHub 两个字、缩间距，760 以下整行链接收起 */
+  .nav .in, .links { gap: 20px; }
+  .nav .gh span { display: none; }
   .feat { grid-template-columns: 1fr; gap: 26px; padding: 44px 0; }
   .feat.flip .txt { order: 0; }
   .facts { grid-template-columns: 1fr 1fr; }
@@ -199,6 +219,7 @@ img { display: block; max-width: 100%; }
   .foot .g > div:first-child { grid-column: 1 / -1; }
   .finale { padding: 90px 0 70px; }
 }
+@media (max-width: 360px) { .nr { gap: 6px; } }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } }
 </style>
 </head>
@@ -226,7 +247,7 @@ img { display: block; max-width: 100%; }
 
 <header class="nav" id="nav"><div class="wrap in">
   <a class="brand" href="#top"><img src="icon.png" alt="">Canvas Notes</a>
-  <nav class="links"><a href="#features" data-i="nav.f">功能</a><a href="#open" data-i="nav.o">开源与隐私</a><a href="#download" data-i="nav.d">下载</a><a href="#faq" data-i="nav.q">常见问题</a></nav>
+  <nav class="links"><a href="#features" data-i="nav.f">功能</a><a href="#today" data-i="nav.t">画布今日</a><a href="#open" data-i="nav.o">开源与隐私</a><a href="#download" data-i="nav.d">下载</a><a href="#faq" data-i="nav.q">常见问题</a></nav>
   <div class="nr">
     <div class="seg" role="group" aria-label="语言 / Language"><button data-lang="zh">简</button><button data-lang="en">EN</button></div>
     <a class="gh" href="https://github.com/SchaeferAnjon/canvas-notes" target="_blank" rel="noopener"><svg class="ico"><use href="#i-github"/></svg><span>GitHub</span></a>
@@ -354,6 +375,32 @@ img { display: block; max-width: 100%; }
     </article>
   </section>
 
+  <section class="sec wrap" id="today">
+    <div class="center"><span class="kicker sky"><i></i><span data-i="td.k">同一个库的任务软件</span></span><h2 class="h2" data-i="td.h">画布今日：<span class="nw">任务就是笔记里的一行</span></h2><p class="lede" data-i="td.p">Canvas Today 和画布笔记打开同一个库，每条任务就是某篇笔记里的一行 <code>- [ ]</code>。在笔记里写的待办，它马上列出来；在它里面勾掉、改日子，只改那一行里的那几个字。不装画布笔记也能单独用。</p></div>
+    <article class="feat today">
+      <div class="txt">
+        <div class="tapp"><img src="family/canvastoday.png" width="52" height="52" alt=""><div><b>Canvas Today</b><span data-i="td.sub">画布今日 · 开源免费 · Mac</span></div></div>
+        <ul>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l1">清单：收件箱、今天、明天、最近七天，和库里每篇写了待办的笔记</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l2">日历按月、按周看，拖一条改日子和钟点；四象限拖到另一格改优先级</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l3">一句话快速加：「明天下午三点交论文 #写作 !高」，加之前先告诉你认出了什么</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l4">到点在 Mac 上提醒，能直接勾掉、推迟；响过的记进库里，换台电脑也知道</span></li>
+          <li><svg class="ico"><use href="#i-check"/></svg><span data-i="td.l5">菜单栏小窗、<span class="kbd">⌘</span> <span class="kbd">K</span>、中英文界面，从 GitHub 自动更新</span></li>
+        </ul>
+        <div class="cta">
+          <a class="btn ink" data-tdl="arm64" href="https://github.com/SchaeferAnjon/canvas-today/releases/latest/download/CanvasToday-mac-arm64.dmg"><svg class="ico"><use href="#i-download"/></svg><span data-i="td.dl">下载画布今日 · Apple 芯片</span></a>
+          <a class="btn" href="https://github.com/SchaeferAnjon/canvas-today" target="_blank" rel="noopener"><svg class="ico"><use href="#i-github"/></svg><span data-i="hero.src">看源码</span></a>
+        </div>
+        <div class="meta"><span class="tver"></span><span data-i="hero.meta">macOS 12 及以上</span> · <a data-tdl="x64" href="https://github.com/SchaeferAnjon/canvas-today/releases/latest/download/CanvasToday-mac-x64.dmg" data-i="hero.intel">Intel 芯片的 Mac 点这里</a></div>
+        <p class="gk" data-i="td.gk">第一次打开的放行办法和画布笔记一样，见下面<a href="#download">「下载」</a>。</p>
+      </div>
+      <div class="pair">
+        <div class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/today-dark.jpg"><img src="shots/today-light.jpg" width="2160" height="1215" loading="lazy" alt="画布今日的「今天」：过期一条、今天七条、明天四条，右边是「交论文初稿」的详情和它在哪篇笔记的第几行" data-i-alt="alt.today"></picture></div>
+        <div class="shot"><picture><source media="(prefers-color-scheme: dark)" srcset="shots/today-calendar-dark.jpg"><img src="shots/today-calendar-light.jpg" width="2160" height="1215" loading="lazy" alt="画布今日的日历周看法：全天一栏和按钟点排的几条" data-i-alt="alt.tcal"></picture></div>
+      </div>
+    </article>
+  </section>
+
   <section class="night" id="open">
     <div class="wrap">
       <div class="center"><span class="kicker"><i></i><span data-i="o.k">开源与隐私</span></span><h2 class="h2" data-i="o.h">你的笔记，留在你的硬盘上</h2><p class="lede" data-i="o.p">没有账号，没有服务器，没有使用统计。软件只是打开你选的那个文件夹。</p></div>
@@ -437,12 +484,13 @@ img { display: block; max-width: 100%; }
 <footer class="foot"><div class="wrap">
   <div class="g">
     <div><a class="brand" href="#top"><img src="icon.png" alt="">Canvas Notes</a><p style="color:var(--lead);font-size:14px;margin:12px 0 0;max-width:24em" data-i="ft.p">画布笔记 · 本地 Markdown 加 Git 的白板笔记，开源免费。</p></div>
-    <div><h4 data-i="ft.prod">产品</h4><ul><li><a href="#features" data-i="nav.f">功能</a></li><li><a href="#download" data-i="nav.d">下载</a></li><li><a href="https://github.com/SchaeferAnjon/canvas-notes/releases" target="_blank" rel="noopener" data-i="ft.rel">更新记录</a></li></ul></div>
+    <div><h4 data-i="ft.prod">产品</h4><ul><li><a href="#features" data-i="nav.f">功能</a></li><li><a href="#today" data-i="nav.t">画布今日</a></li><li><a href="#download" data-i="nav.d">下载</a></li><li><a href="https://github.com/SchaeferAnjon/canvas-notes/releases" target="_blank" rel="noopener" data-i="ft.rel">更新记录</a></li></ul></div>
     <div><h4 data-i="ft.open">开源</h4><ul><li><a href="https://github.com/SchaeferAnjon/canvas-notes" target="_blank" rel="noopener" data-i="ft.src">GitHub 源码</a></li><li><a href="https://github.com/SchaeferAnjon/canvas-notes/issues" target="_blank" rel="noopener" data-i="ft.iss">提问题</a></li><li><a href="https://github.com/SchaeferAnjon/canvas-notes/blob/main/LICENSE" target="_blank" rel="noopener">GPL-3.0-or-later</a></li></ul></div>
     <div><h4 data-i="ft.help">帮助</h4><ul><li><a href="#faq" data-i="nav.q">常见问题</a></li><li><a href="#open" data-i="ft.priv">隐私</a></li></ul></div>
   </div>
   <div class="xstrip"><a class="by" href="https://apps.us-cloud.uk"><span data-i="ft.by">SchaeferAnjon 出品</span> <span class="sep">·</span> <u data-i="ft.all">全部软件</u></a><span class="icons">
     <a class="cur" href="#top" aria-label="Canvas Notes"><img src="icon.png" alt=""><span class="tip">Canvas Notes · <span data-i="ft.here">你在这里</span></span></a>
+    <a href="#today" aria-label="Canvas Today"><img src="family/canvastoday.png" alt=""><span class="tip">Canvas Today</span></a>
     <a href="https://meetcaption.us-cloud.uk" aria-label="MeetCaption"><img src="family/meetcaption.png" alt=""><span class="tip">MeetCaption</span></a>
     <a href="https://typeright.us-cloud.uk" aria-label="TypeRight"><img src="family/typeright.png" alt=""><span class="tip">TypeRight</span></a>
     <a href="https://getnewword.us-cloud.uk" aria-label="GetNewWord"><img src="family/getnewword.png" alt=""><span class="tip">GetNewWord</span></a>
@@ -457,7 +505,7 @@ const REPO = 'SchaeferAnjon/canvas-notes'
 
 /* 语言：?lang= > 上次选的 > 浏览器语言。中文写在页面里，英文在下面这张表 */
 const EN = {
-  'nav.f': 'Features', 'nav.o': 'Open source & privacy', 'nav.d': 'Download', 'nav.q': 'FAQ', 'nav.dl': 'Download',
+  'nav.f': 'Features', 'nav.t': 'Canvas Today', 'nav.o': 'Open source & privacy', 'nav.d': 'Download', 'nav.q': 'FAQ', 'nav.dl': 'Download',
   'hero.k': 'Open source · Free · Mac',
   'hero.h': 'Save anything.<br><em>Sorted for you.</em><br>Always in sight.',
   'hero.p': 'A whiteboard and a document in the same Markdown file, a browser beside it to clip from, and an AI that tidies up through the command line you already have. Your notes are plain files on your disk, and every change is in Git, so you can undo it.',
@@ -487,6 +535,18 @@ const EN = {
   'alt.history': 'The history panel: commits and the files each one changed',
   't.h': 'Six themes, a home page you arrange', 't.p': 'Family grey (light and dark), White, Cream, Black and Deep sea, with one theme for day and one for night. Two home styles: a cover with widgets, or a full-page photo with glass widgets. Drag, hide and resize the widgets, and change the cover.',
   'alt.themes': 'Appearance settings: six theme cards and two home styles', 'alt.home': 'Home style B in the Deep sea theme: an aurora photo behind glass widgets',
+  'td.k': 'A task app on the same vault', 'td.h': 'Canvas Today: a task is a line in your notes',
+  'td.p': 'Canvas Today opens the same vault as Canvas Notes, and every task is a <code>- [ ]</code> line in one of your notes. To-dos you write in a note show up right away; tick one off or change its date there and only those few characters of the line change. It also works on its own, without Canvas Notes.',
+  'td.sub': 'Open source · Free · Mac',
+  'td.l1': 'Lists: Inbox, Today, Tomorrow, Next 7 days, and every note in the vault that has to-dos',
+  'td.l2': 'A calendar by month or week where you drag to change the day and time; four quadrants where you drag to change priority',
+  'td.l3': 'Quick add in one sentence, like “tomorrow 3pm submit paper #writing !high”, and see what it understood before it is added',
+  'td.l4': 'Reminders on your Mac that you can tick off or snooze; what rang is recorded in the vault, so another computer knows too',
+  'td.l5': 'A menu bar window, <span class="kbd">⌘</span> <span class="kbd">K</span>, Chinese and English, and updates from GitHub',
+  'td.dl': 'Download · Apple silicon',
+  'td.gk': 'Opening it the first time works the same way as for Canvas Notes; see <a href="#download">Download</a>.',
+  'alt.today': 'Canvas Today: one overdue task, seven for today and four for tomorrow, with the details of a task and the line of the note it lives on',
+  'alt.tcal': 'Canvas Today’s week calendar with an all-day row and tasks placed by time',
   'o.k': 'Open source & privacy', 'o.h': 'Your notes stay on your disk', 'o.p': 'No account, no server, no usage statistics. The app just opens the folder you pick.',
   'o.in': 'Stays on your computer', 'o.i1': 'Notes: plain .md files and images in a folder; each vault is a Git repository', 'o.i2': 'Settings, AI chat history, browser tabs, bookmarks and history: the app’s own settings folder', 'o.i3': 'Imported Chrome sign-ins: used only by the built-in browser, never leave this computer', 'o.i4': 'No sign-up, no analytics; the app itself sends nothing to any server',
   'o.out': 'Leaves only when you ask', 'o.o1': 'AI: the notes for this turn go to the command-line tool you picked, which sends them to its own service (Anthropic, OpenAI, Google…), just as when you use it in a terminal', 'o.o2': 'Sync: pushes to a Git remote you set up yourself; without one, everything stays local', 'o.o3': 'Web: the sites you open in the built-in browser, as in Chrome',
@@ -531,6 +591,7 @@ function render() {
   document.querySelectorAll('[data-i-alt]').forEach((el) => { el.alt = d[el.dataset.iAlt] ?? ZH[el.dataset.iAlt] })
   document.querySelectorAll('.seg button').forEach((b) => b.classList.toggle('on', b.dataset.lang === LANG))
   showRelease()
+  showToday()
 }
 document.querySelector('.seg').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-lang]')
@@ -550,6 +611,29 @@ function showRelease() {
   document.querySelectorAll('.ver2').forEach((el) => { el.textContent = line })
   if (REL) document.getElementById('ver').textContent = REL.tag
 }
+/* 画布今日的下载按钮：同样去问它自己仓库的最新 Release，换成带版本号的 dmg，写上版本和日期 */
+const TODAY = 'SchaeferAnjon/canvas-today'
+let TREL = null
+function showToday() {
+  const t = TREL ? (LANG === 'en' ? `Latest: ${TREL.tag}, ${TREL.date.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' })} · ` : `最新 ${TREL.tag}，${TREL.date.getFullYear()} 年 ${TREL.date.getMonth() + 1} 月 ${TREL.date.getDate()} 日 · `) : ''
+  document.querySelectorAll('.tver').forEach((el) => { el.textContent = t })
+}
+fetch(`https://api.github.com/repos/${TODAY}/releases/latest`, { headers: { accept: 'application/vnd.github+json' } })
+  .then((r) => (r.ok ? r.json() : r.status === 404 ? false : null))
+  .then((j) => {
+    if (j === null) return
+    if (j === false) {
+      document.querySelectorAll('[data-tdl]').forEach((a) => { a.href = `https://github.com/${TODAY}/releases`; a.target = '_blank'; a.rel = 'noopener' })
+      return
+    }
+    TREL = { tag: j.tag_name, date: new Date(j.published_at) }
+    for (const arch of ['arm64', 'x64']) {
+      const f = (j.assets || []).find((a) => new RegExp(`-mac-${arch}\\.dmg$`).test(a.name) && /\d/.test(a.name))
+      if (f) document.querySelectorAll(`[data-tdl="${arch}"]`).forEach((a) => { a.href = f.browser_download_url })
+    }
+    showToday()
+  })
+  .catch(() => {})
 fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { accept: 'application/vnd.github+json' } })
   .then((r) => (r.ok ? r.json() : r.status === 404 ? false : null))
   .then((j) => {
