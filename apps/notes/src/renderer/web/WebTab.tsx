@@ -1,11 +1,12 @@
 import { Codicon } from '@cn/design'
 import { useKeyHandler } from '../keys'
 import { useEffect, useRef, useState } from 'react'
-import type { Clip } from '../../shared/api'
 import { decodeUrl, toUrl } from '../url'
 import { errText } from '../WebPanel'
 import { app } from '../ctx/actions'
 import { type NavState, WebView, type WebviewEl } from './WebView'
+import { ActBtn, TabActs } from '../shell/TabActs'
+import { Popover } from '../shell/Shell'
 
 /** 中间栏里的宽网页标签：一个网页单独开成一个标签读 */
 export function WebTab(props: {
@@ -14,9 +15,10 @@ export function WebTab(props: {
   /** 重开软件时恢复的标签：点开才载入，网页里的视频不自己播（task-0t4jq） */
   restored?: boolean
   onUrl(url: string, title: string): void
-  onClip(c: Clip): void
   onNotice(t: string): void
   onClose(): void
+  /** 放回右栏（task-05p2w：这一页的「⋯」，同标签右键），回到原来那一组 */
+  onPutBack(): void
 }) {
   const view = useRef<WebviewEl | null>(null)
   const [wc, setWc] = useState<number | null>(null)
@@ -26,6 +28,8 @@ export function WebTab(props: {
   const addr = useRef<HTMLInputElement>(null)
   const cb = useRef(props)
   cb.current = props
+  /** 标签条右端「⋯」开着的那颗（这一页的菜单：放回右栏） */
+  const [more, setMore] = useState<HTMLElement | null>(null)
   /** 显示过：之后一直载着（恢复的标签在后面时先不载入） */
   const [shown, setShown] = useState(props.active)
   if (props.active && !shown) setShown(true)
@@ -51,6 +55,19 @@ export function WebTab(props: {
 
   return (
     <section className="pane wpane" hidden={!props.active}>
+      {/* 这一页的「⋯」（task-05p2w 方向 A）：放回右栏。在中间开成一页时标题栏右上角那颗不出，回去走这里或标签右键 */}
+      <TabActs active={props.active}>
+        <ActBtn icon="ellipsis" label="更多" aria-expanded={!!more} on={!!more} onClick={(e) => setMore(more ? null : e.currentTarget)} />
+      </TabActs>
+      {more && props.active && (
+        <Popover anchor={more} label="这一页" className="pop12 wput-pop" align="end" onClose={() => setMore(null)}>
+          <button className="mi" role="menuitem" onClick={() => (setMore(null), props.onPutBack())}>
+            <Codicon name="layout-sidebar-right" size={14} />
+            放回右栏
+            <span className="r">回到原来那一组</span>
+          </button>
+        </Popover>
+      )}
       <div className="tool">
         <button className="iconbtn" aria-label="后退" disabled={!nav?.back} onClick={() => view.current?.goBack()}>
           <Codicon name="arrow-left" size={14} />
@@ -84,7 +101,6 @@ export function WebTab(props: {
             initialUrl={props.url}
             visible
             hold={props.restored}
-            clipMode={{ mode: 'inbox' }}
             onRef={(el) => (view.current = el)}
             onAttach={setWc}
             onNav={(n) => {
@@ -98,7 +114,6 @@ export function WebTab(props: {
               setTitle(t)
               props.onUrl(cur, t)
             }}
-            onClip={props.onClip}
             menuHost={{ openTab: (u) => app().openInWeb(u), clipPage: () => void clipPage() }}
           />
         )}

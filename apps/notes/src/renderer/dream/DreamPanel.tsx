@@ -1,56 +1,58 @@
-import { folderLabel } from '../vault-name'
 import { Codicon, type CodiconName } from '@cn/design'
-import { engineOfLabel } from '../../shared/ai-features'
-import { AiIcon, EngineLogo } from '../engine-logo'
-import { Fragment, useEffect, useState } from 'react'
+import { AiIcon } from '../engine-logo'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { DreamGroup, DreamItem, DreamReport } from '../../shared/api'
-import { baseName, type DiffEntry, type DiffSource } from '../../shared/diff'
-import { fileIcon } from '../Palette'
+import { baseName, type DiffEntry } from '../../shared/diff'
 import { BULK, fileGroups, GROUP_SHOW, searchGroup } from '../../shared/dream-preview'
+import { displayOrder, indexOf, progressOf } from '../../shared/dream-order'
 import { titleOf } from '../../shared/layout'
+import { isKey } from '../keys'
 import './dream.css'
 import type { DreamPreview } from './preview'
 import { expectDreamChange } from './own-change'
 import { NoteDoc } from '../note-doc'
+import { actOn, openDream, setCur, stepDream, undoItem, useDreamNav } from './nav'
+import { crumbOf, dreamIcon } from './DreamTab'
 import { bodyEdits, dreamWhen, errText, GROUPS, pendingOf, takenSay } from './useDream'
 import { dreamDoes, type DreamSettings } from '../../shared/dream-settings'
 
-const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', dup: 'copy', week: 'edit' }
+const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'graph', link: 'link', dup: 'copy', week: 'edit' }
 
-/** 右栏「梦游报告」：按组列出，点开一条看为什么、改了什么；收下 = cherry-pick 到当前分支，丢掉 = 跳过 */
+/**
+ * 左栏「梦游报告」（task-m552v 照 demo proto.html 重做）：顶上进度（一条一格，看过灰、收下绿、丢掉淡，当前那格一圈）、摘要、按组列出；
+ * 点一条中间开这一条的对照（像「历史」那样），它下面一张短小卡：第几条、改了几个文件、每个文件一行（点了中间换成那个文件）、收下 / 丢掉。
+ * 收下 = 一次提交进 main（可撤回），丢掉 = 不进；做完 0.7 秒后往下走一条没处理的。焦点在这里时 J / K 换条、⌘↵ 收下、⌘⌫ 丢掉（命令表能改）
+ */
 export function DreamPanel(props: {
   report: DreamReport | null
   running: boolean
   onReport(r: DreamReport): void
   onClose(): void
-  onOpen(path: string): void
-  /** 梦游做的可视化：在中间栏预览梦游分支上的那份 */
-  onPreviewHtml(path: string): void
-  /** 点一处改动：中间栏开对比标签（左列 main 上的、右列梦游改后的） */
-  onOpenDiff(src: DiffSource, title: string): void
-  /** 挪老图那一条的「预览」：中间栏开「梦游预览 · 挪老图」 */
+  /** 挪老图那一条：中间栏开「梦游预览 · 挪老图」 */
   onPreviewImages(itemId: string): void
   onNotice(text: string): void
-  /** 收下 / 丢掉一条：和预览标签里的「收下这一条」走同一条路（提示条写收下了什么，带撤回）；做完给新报告 */
-  onTake(item: DreamItem): Promise<DreamReport | null>
-  onDrop(item: DreamItem): Promise<DreamReport | null>
-  /** 上面两件在做（按钮先不能点） */
+  /** 收下 / 丢掉在做（按钮先不能点） */
   acting: boolean
-  /** 归类和改名的预览、收下一组、跟 AI 说 */
+  /** 归类和改名的「在树里看」、收下一组、跟 AI 说 */
   pv: DreamPreview
   /** 设置 › 梦游：说它会做什么、什么时候自己梦游 */
   settings: DreamSettings
 }) {
   const { report, running, pv } = props
-  const [cur, setCur] = useState<string | null>(null)
+  const nav = useDreamNav()
+  const cur = nav.cur
   const [busy, setBusy] = useState(false)
   const items = report?.items ?? []
   const left = pendingOf(report)
 
-  // 打开时选中第一条没处理的
+  // 现在看的那条滚进左栏（J / K 换条、收下后往下走一条时）
+  useEffect(() => {
+    if (cur) requestAnimationFrame(() => document.querySelector('.dream-panel .di.on')?.scrollIntoView({ block: 'nearest' }))
+  }, [cur])
+  // 打开时亮着第一条没处理的
   useEffect(() => {
     if (!report) return
-    if (!cur || !report.items.some((i) => i.id === cur)) setCur(report.items.find((i) => i.state === 'pending')?.id ?? report.items[0]?.id ?? null)
+    if (!cur || !report.items.some((i) => i.id === cur)) setCur(displayOrder(report.items).find((i) => i.state === 'pending')?.id ?? report.items[0]?.id ?? null)
   }, [report, cur])
 
   async function act(f: () => Promise<DreamReport>, after?: (r: DreamReport) => void) {
@@ -66,20 +68,35 @@ export function DreamPanel(props: {
     }
   }
 
-  const next = (r: DreamReport) => setCur(r.items.find((i) => i.state === 'pending')?.id ?? cur)
-
   async function dreamNow() {
     await act(() => window.cn.dreamNow())
   }
 
+  /** 点一条：中间开它（挪老图那条开它自己的预览） */
+  const open = (it: DreamItem) => (it.oldImages ? (setCur(it.id), props.onPreviewImages(it.id)) : openDream(it.id))
+
+  function onKey(e: React.KeyboardEvent) {
+    if ((e.target as HTMLElement).closest('input, textarea, [contenteditable="true"]')) return
+    const it = items.find((i) => i.id === cur)
+    if (isKey(e, 'dream-next')) (e.preventDefault(), stepDream(1))
+    else if (isKey(e, 'dream-prev')) (e.preventDefault(), stepDream(-1))
+    else if (it && isKey(e, 'dream-take')) (e.preventDefault(), void actOn('take', it))
+    else if (it && it.commit && isKey(e, 'dream-drop')) (e.preventDefault(), void actOn('drop', it))
+  }
+
   let group: DreamGroup | null = null
-  const does = dreamDoes(props.settings)
-  /** 改完直接收下的那几条（报告顶上一键撤回） */
+  const does = dreamDoes(props.settings, 'zh')
   /** 这次真动了正文的几处（按真改动说，没动不提） */
   const edits = bodyEdits(items)
+  /** 改完直接收下的那几条（报告顶上一键撤回） */
   const auto = report?.autoTaken ? items.filter((i) => i.taken === report.autoTaken) : []
+  const order = displayOrder(items)
+  const prog = progressOf(items, nav.seen)
+  const detail = (it: DreamItem) => (
+    <Detail item={it} index={indexOf(items, it.id)} total={items.length} base={report!.base} busy={busy || props.acting || pv.busy} file={nav.cur === it.id ? nav.file : null} onAsk={it.group === 'file' ? () => pv.ask([it.id], `「${it.title}」`) : undefined} />
+  )
   return (
-    <aside className="side dream-panel" aria-label="梦游报告">
+    <aside className="side dream-panel" aria-label="梦游报告" tabIndex={-1} onKeyDown={onKey}>
       <div className="rhead">
         <Codicon name="wand" size={16} />
         <b>梦游报告</b>
@@ -90,6 +107,26 @@ export function DreamPanel(props: {
         </button>
       </div>
       <div className="dlist">
+        {!running && report && items.length > 0 && (
+          <div className="dprog" data-testid="dream-progress">
+            <div className="row num">
+              <b>{`${prog.total}条`}</b>
+              {` · 看过${prog.seen} · 收下${prog.taken} · 丢掉${prog.dropped}`}
+            </div>
+            <div className="bar">
+              {order.map((i, k) => (
+                <button
+                  key={i.id}
+                  className={(i.state === 'taken' ? 'taken' : i.state === 'dropped' ? 'dropped' : nav.seen.has(i.id) ? 'seen' : '') + (i.id === cur ? ' cur' : '')}
+                  aria-label={`第${k + 1}条 · ${i.title}`}
+                  data-tip={`第${k + 1}条 · ${i.title.length > 16 ? i.title.slice(0, 16) + '…' : i.title}`}
+                  data-side="below"
+                  onClick={() => open(i)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
         {running && <div className="dsum">{`正在梦游${does ? `：${does}` : ''}。改动放在单独的分支上，跑完这里出新报告。`}</div>}
         {!running && !report && (
           <div className="dsum dempty">
@@ -105,7 +142,11 @@ export function DreamPanel(props: {
           <div className="dsum" data-testid="dream-summary">
             {items.length ? (
               <>
-                {`${dreamWhen(report)}整理了`}<b>{`${items.length}处`}</b>{`。都在${report.branch}分支上${items.some((i) => i.group === 'file') ? '，点「预览」看改好后的样子' : ''}，收下才合进${report.base}。`}
+                {`${dreamWhen(report)}在`}
+                <b>{report.branch}</b>
+                {'分支上整理了'}
+                <b>{`${items.length}处`}</b>
+                {`，收下才合进${report.base}。`}
                 {edits ? (
                   <span data-testid="dream-edits">
                     动了正文的只有：<b>{edits}</b>。
@@ -137,31 +178,9 @@ export function DreamPanel(props: {
             )}
           </div>
         )}
-        {!running && items.some((i) => i.group === 'file') && (
-          <FileSection
-            items={items.filter((i) => i.group === 'file')}
-            stay={report?.stay ?? 0}
-            cur={cur}
-            onCur={setCur}
-            pv={pv}
-            renderDetail={(it) => (
-              <Detail
-                item={it}
-                base={report!.base}
-                index={fileGroups(items).flatMap((g) => g.items).indexOf(it)}
-                total={items.filter((x) => x.group === 'file').length}
-                busy={busy || pv.busy}
-                onOpen={props.onOpen}
-                onOpenDiff={props.onOpenDiff}
-                onTake={() => void pv.take([it.id])}
-                onDrop={() => void pv.drop([it.id])}
-                onAsk={() => pv.ask([it.id], `「${it.title}」`)}
-              />
-            )}
-          />
-        )}
+        {!running && items.some((i) => i.group === 'file') && <FileSection items={items.filter((i) => i.group === 'file')} stay={report?.stay ?? 0} cur={cur} onOpen={open} pv={pv} renderDetail={detail} />}
         {!running &&
-          items.map((it, i) => {
+          items.map((it) => {
             if (it.group === 'file') return null
             const head =
               it.group !== group ? (
@@ -174,7 +193,7 @@ export function DreamPanel(props: {
             return (
               <Fragment key={it.id}>
                 {head}
-                <button className={'di' + (it.id === cur ? ' on' : '') + (it.state !== 'pending' ? ' ' + (it.state === 'taken' ? 'done' : 'drop') : '')} onClick={() => setCur(it.id)} data-testid="dream-item">
+                <button className={'di' + (it.id === cur ? ' on' : '') + (it.state !== 'pending' ? ' ' + (it.state === 'taken' ? 'done' : 'drop') : '')} onClick={() => open(it)} data-testid="dream-item">
                   <span className="ico">
                     <Codicon name={ICONS[it.group]} size={14} />
                   </span>
@@ -185,21 +204,7 @@ export function DreamPanel(props: {
                   </span>
                   <span className="st">{it.state === 'taken' ? (it.commit ? '已收下' : '看过了') : it.state === 'dropped' ? '已丢掉' : ''}</span>
                 </button>
-                {it.id === cur && (
-                  <Detail
-                    item={it}
-                    base={report!.base}
-                    index={i}
-                    total={items.length}
-                    busy={busy || props.acting}
-                    onOpen={props.onOpen}
-                    onOpenDiff={props.onOpenDiff}
-                    onPreviewHtml={props.onPreviewHtml}
-                    onPreviewImages={props.onPreviewImages}
-                    onTake={() => void props.onTake(it).then((r) => r && next(r))}
-                    onDrop={() => void props.onDrop(it).then((r) => r && next(r))}
-                  />
-                )}
+                {it.id === cur && detail(it)}
               </Fragment>
             )
           })}
@@ -242,26 +247,48 @@ function Stuck(props: { item: DreamItem }) {
   )
 }
 
-function Detail(props: {
-  item: DreamItem
-  base: string
-  index: number
-  total: number
-  busy: boolean
-  onOpen(path: string): void
-  onOpenDiff(src: DiffSource, title: string): void
-  onPreviewHtml?(path: string): void
-  onPreviewImages?(itemId: string): void
-  onTake(): void
-  onDrop(): void
-  onAsk?(): void
-}) {
+/**
+ * 点开的那一条下面的小卡（demo .dcard）：「组 · 第 i 条，共 N 条 · 改了 2 个文件」、每个文件一行（名字：一句人话 / 在哪），点了中间换成那个文件；
+ * 收下 / 丢掉（归类的多一个「跟AI说」）；处理完换成一条状态（已收下 · 提交号 · 撤回）。为什么、谁做的在中间的条目头上
+ */
+function Detail(props: { item: DreamItem; index: number; total: number; base: string; busy: boolean; file: string | null; onAsk?(): void }) {
   const { item } = props
-  // 每处改动一行人话（梦游动手时记下的；旧报告没记的按 diff 拼），点了中间开对比；侧栏不再铺源码（CN-63 / 55）
   const [rows, setRows] = useState<DiffEntry[] | null>(null)
+  // 展开时、里面的文件行读到以后变高时：整块滚进左栏，收下 / 丢掉不被底边截掉；那一条自己也一直看得见（用户 2026-11-22：别让按钮被底边截掉）
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    let raf = 0
+    // 用户在左栏里点了、滚了：之后变高不再替他滚（不在他手底下挪东西）
+    let held = false
+    const list = el.closest('.dlist')
+    const hold = () => {
+      held = true
+      cancelAnimationFrame(raf)
+    }
+    list?.addEventListener('pointerdown', hold, true)
+    list?.addEventListener('wheel', hold, { capture: true, passive: true })
+    const show = () => {
+      if (held) return
+      el.scrollIntoView({ block: 'nearest' })
+      el.previousElementSibling?.scrollIntoView({ block: 'nearest' })
+    }
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(show)
+    })
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      cancelAnimationFrame(raf)
+      list?.removeEventListener('pointerdown', hold, true)
+      list?.removeEventListener('wheel', hold, true)
+    }
+  }, [])
   useEffect(() => {
     setRows(null)
-    if (!item.commit || item.move || item.oldImages) return
+    if (!item.commit || item.oldImages) return
     let stale = false
     void window.cn.diffFiles({ kind: 'dream', id: item.id }).then(
       (d) => !stale && setRows(d.files),
@@ -270,91 +297,39 @@ function Detail(props: {
     return () => {
       stale = true
     }
-  }, [item.id, item.commit, item.move])
-  const dir = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/') + 1) : '')
-
+  }, [item.id, item.commit, item.state, item.taken])
+  const dup = !item.commit
+  const n = rows?.length ?? item.files.length
+  const shown = props.file ?? rows?.[0]?.path ?? null
   return (
-    <div className="dd" data-testid="dream-detail">
-      <div className="pv-k">
-        {`${GROUPS[item.group]} · 第${props.index + 1}条，共${props.total}条`}
-      </div>
-      <div className="pv-why">{item.why}</div>
-      {item.by && (
-        <div className="pv-by" data-testid="dream-by">
-          {engineOfLabel(item.by) && <EngineLogo id={engineOfLabel(item.by)!} size={12} />}
-          {`${item.by}做的`}
-        </div>
-      )}
-      {item.move && (
-        <div className="pv-move">
-          {item.move.to.split('/').slice(0, -1).join('/') !== item.move.from.split('/').slice(0, -1).join('/') && (
-            <span>
-              <i>挪到</i>
-              {item.move.to.split('/').slice(0, -1).join('/')}/
-            </span>
-          )}
-          {titleOf(item.move.from) !== titleOf(item.move.to) && (
-            <span>
-              <i>改名</i>
-              <s>{titleOf(item.move.from)}</s> → {titleOf(item.move.to)}
-            </span>
-          )}
-        </div>
-      )}
-      {item.group === 'viz' && item.state === 'pending' && props.onPreviewHtml && (
-        <div className="dpair">
-          <button className="btn btn-sm" onClick={() => props.onPreviewHtml!(item.files[0]!)}>
-            <Codicon name="eye" size={14} />
-            预览可视化
-          </button>
-        </div>
-      )}
+    <div className="dd" data-testid="dream-detail" ref={box}>
+      <div className="pv-k">{`${GROUPS[item.group]} · 第${props.index + 1}条，共${props.total}条 · ${dup ? '只是提醒' : `改了${n}个文件`}`}</div>
       {item.oldImages && <OldImagesSummary info={item.oldImages} />}
-      {item.group === 'dup' && (
-        <button className="dchg" data-testid="dream-change" onClick={() => props.onOpenDiff({ kind: 'pair', a: item.files[0]!, b: item.files[1]! }, `${titleOf(item.files[0]!)} ↔ ${titleOf(item.files[1]!)}`)}>
-          <Codicon name="git-compare" size={14} />
-          <span className="tx">两篇并排看哪里一样</span>
+      {dup && !item.oldImages && (
+        <button className="dchg" data-testid="dream-change" onClick={() => openDream(item.id)}>
+          <Codicon name="diff-single" size={14} />
+          <span className="tx">
+            <span>两篇并排看哪里一样</span>
+          </span>
         </button>
       )}
-      {item.group === 'dup' && (
-        <div className="dpair">
-          {item.files.map((f) => (
-            <button key={f} className="btn btn-sm" onClick={() => props.onOpen(f)}>
-              <Codicon name="file-text" size={14} />
-              <span className="truncate">{titleOf(f)}</span>
-            </button>
-          ))}
-        </div>
-      )}
       {rows?.map((f) => (
-        <button
-          key={f.path}
-          className="dchg"
-          data-testid="dream-change"
-          onClick={() => props.onOpenDiff({ kind: 'dream', id: item.id, focus: f.path }, `${baseName(f.path).replace(/\.md$/i, '')} · 梦游改的`)}
-        >
-          <Codicon name={fileIcon(f.path)} size={14} />
+        <button key={f.path} className={'dchg' + (shown === f.path ? ' on' : '')} data-testid="dream-change" onClick={() => openDream(item.id, f.path)}>
+          <Codicon name={dreamIcon(f.path)} size={14} />
           <span className="tx">
-            <span>{f.kind === 'md' && f.status !== 'new' ? `${titleOf(f.path)}：${f.summary}` : f.summary}</span>
-            {(f.status === 'new' || f.status === 'moved') && <span className="p">{folderLabel(dir(f.path))}</span>}
+            <span>{`${f.kind === 'md' ? titleOf(f.now ?? f.path) : baseName(f.path)}：${f.summary}`}</span>
+            <i className="p">{crumbOf(f.now ?? f.path, rows, item)}</i>
           </span>
         </button>
       ))}
       {item.state === 'pending' ? (
         <div className="pv-acts">
-          {/* 一屏一个主按钮：预览条上的「收下这 N 处」才是主按钮，报告里的都是次按钮 */}
-          {item.oldImages && props.onPreviewImages && (
-            <button className="btn btn-sm" onClick={() => props.onPreviewImages!(item.id)}>
-              <Codicon name="eye" size={14} />
-              预览
-            </button>
-          )}
-          <button className="btn btn-sm" disabled={props.busy} onClick={props.onTake}>
+          <button className="btn btn-sm" disabled={props.busy} onClick={() => void actOn('take', item)}>
             <Codicon name="check" size={14} />
             {item.commit ? '收下' : '知道了'}
           </button>
           {item.commit && (
-            <button className="btn btn-sm" disabled={props.busy} onClick={props.onDrop}>
+            <button className="btn btn-sm" disabled={props.busy} onClick={() => void actOn('drop', item)}>
               <Codicon name="close" size={14} />
               丢掉
             </button>
@@ -365,18 +340,14 @@ function Detail(props: {
               跟AI说
             </button>
           )}
-          {!props.onAsk && <span className="hint">{item.commit ? `收下 = 一次提交进${props.base}，可在历史里撤回` : '只是提醒，不改任何文件'}</span>}
         </div>
       ) : (
-        <div className={'pv-state' + (item.state === 'dropped' ? ' drop' : '') + (item.state === 'taken' && item.taken ? ' has-commit' : '')}>
+        <div className={'pv-state' + (item.state === 'dropped' ? ' drop' : '') + (item.state === 'taken' && item.taken ? ' has-commit' : '')} data-testid="dream-state">
           {item.state === 'taken' ? (
             item.taken ? (
-              // 一行：宽时「已收下，合进main · 提交号」；窄时短写成「已收下 · 提交号」，「合进main」放进悬停提示，提交号整个露着（第 4 轮美学）
               <>
-                <span className="long truncate">{`已收下，合进${props.base} ·`}</span>
-                <span className="short" data-tip={`已收下，合进${props.base}`}>
-                  已收下 ·
-                </span>
+                <Codicon name="pass-filled" size={14} />
+                <span>已收下 ·</span>
                 <code className="num">{item.taken.slice(0, 7)}</code>
               </>
             ) : item.commit ? (
@@ -385,7 +356,12 @@ function Detail(props: {
               '看过了，没改任何文件'
             )
           ) : (
-            `已丢掉，这条改动不会进${props.base}`
+            <span className="truncate">{`已丢掉，这条不会进${props.base}`}</span>
+          )}
+          {(item.state === 'dropped' || !!item.taken) && (
+            <button className="pv-undo" disabled={props.busy} onClick={() => void undoItem(item)}>
+              撤回
+            </button>
           )}
         </div>
       )}
@@ -394,7 +370,7 @@ function Detail(props: {
 }
 
 /** 归类和改名：按去处分小组；多了（导入几百条）就只列组、默认收起，组里只露最近几条加搜索 */
-function FileSection(props: { items: DreamItem[]; stay: number; cur: string | null; onCur(id: string): void; pv: DreamPreview; renderDetail(it: DreamItem): React.ReactNode }) {
+function FileSection(props: { items: DreamItem[]; stay: number; cur: string | null; onOpen(it: DreamItem): void; pv: DreamPreview; renderDetail(it: DreamItem): React.ReactNode }) {
   const { items, pv } = props
   const groups = fileGroups(items)
   const bulk = items.length > BULK
@@ -412,7 +388,7 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
     ) : null
   const row = (it: DreamItem) => (
     <Fragment key={it.id}>
-      <button className={'di' + (it.id === props.cur ? ' on' : '') + (it.state !== 'pending' ? ' ' + (it.state === 'taken' ? 'done' : 'drop') : '')} onClick={() => props.onCur(it.id)} data-testid="dream-item">
+      <button className={'di' + (it.id === props.cur ? ' on' : '') + (it.state !== 'pending' ? ' ' + (it.state === 'taken' ? 'done' : 'drop') : '')} onClick={() => props.onOpen(it)} data-testid="dream-item">
         <span className="ico">
           <Codicon name={it.title.endsWith('导图') ? 'type-hierarchy' : 'file-text'} size={14} />
         </span>
@@ -434,9 +410,10 @@ function FileSection(props: { items: DreamItem[]; stay: number; cur: string | nu
         <span className="num">
           {`${items.length}条${bulk ? ` · ${groups.length}组` : ''}`}
         </span>
-        <button className="btn btn-xs dg-pv" disabled={!pending.length && !pv.on} onClick={() => pv.setOn(!pv.on)}>
-          <Codicon name={pv.on ? 'close' : 'eye'} size={12} />
-          {pv.on ? '退出预览' : '预览'}
+        {/* 以前叫「预览」（录屏第 1、7 条：以为是看收下后的样子）：左栏换成挪完以后的目录树，顶上一条「正在看梦游挪完的样子 · 回到报告」 */}
+        <button className="btn btn-ghost btn-xs dg-pv" disabled={!pending.length && !pv.on} data-tip="左栏换成文件树，看挪完的样子" data-side="below" onClick={() => pv.setOn(!pv.on)}>
+          <Codicon name="list-tree" size={12} />
+          在树里看
         </button>
       </div>
       {groups.map((g) =>

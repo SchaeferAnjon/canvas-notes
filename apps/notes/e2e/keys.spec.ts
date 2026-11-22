@@ -219,7 +219,7 @@ test('白板上：⌘= ⌘- ⌘0 ⇧⌘1 缩放（比例按钮上的数跟着变
     await page.setViewportSize({ width: 1440, height: 900 })
     await openNote(page, '路线')
     await acts(page).getByRole('tab', { name: '白板' }).click()
-    const zoom = acts(page).getByTestId('board-zoom')
+    const zoom = pane(page).getByTestId('board-zoom')
     await expect(zoom).toBeVisible()
     const b = (await pane(page).getByTestId('doc-board').boundingBox())!
     await page.mouse.click(b.x + b.width - 30, b.y + b.height - 30)
@@ -394,6 +394,9 @@ test('没有默认键的命令（新建文件夹）在设置里设了键，真�
     expect(cmdsJson(run).keys).toEqual({ 'new-board': '⌘N', 'new-note': '⇧⌘N' })
     await p2.keyboard.press('Escape')
     await p2.keyboard.press('Meta+n')
+    // 新建的白板在标签上改名（同 keys-checks 的 new-board、b2-board）：改名框里是「未命名白板」，esc 收起
+    await expect(tabOn(p2).locator('input.tab-rename')).toHaveValue(/^未命名白板/)
+    await p2.keyboard.press('Escape')
     await expect(tabOn(p2)).toHaveText(/^未命名白板/)
 
     // 回到默认：两条都回到命令表里的键

@@ -6,9 +6,12 @@ import { editorHost } from './editor-host'
 import { type Hidden, hiddenSyntax, wholeBlock } from './hidden-syntax'
 import { inVideoBlock } from './video/block-head'
 import { editCell, tableCellFlush, tableEditField, TableWidget } from './table-edit'
+import { isVizUrl, vizHost, VizWidget } from './viz-embed'
+import { parseCallout } from './callout'
+import { calloutFolded, toggleFold } from './fold-block'
 
 /**
- * 文档模式里画成控件的 md：待办的勾选框、表格、图片。
+ * 文档模式里画成控件的 md：待办的勾选框、表格、图片、嵌着的可视化（库里的 HTML，viz-embed.ts）。
  * 只加装饰不改文字；点勾选框改的是 md 里的 [ ] / [x] 那一个字。
  */
 
@@ -277,22 +280,141 @@ function blockWidgets(state: EditorState): DecorationSet {
       for (let n = state.doc.lineAt(b.from).number, last = state.doc.lineAt(b.to).number; n <= last; n++) {
         const line = state.doc.line(n)
         const img = imageLine(line.text)
-        if (img) out.push(Decoration.replace({ widget: new ImageWidget(imageSrc(path, img.url), img.alt, line.from + img.at, false, line.from, line.from !== b.from || line.to !== b.to), block: true }).range(line.from, line.to))
+        if (!img) continue
+        // 库里的 HTML（可视化，task-m552v）：一块能拖的图，不是一张打不开的图片
+        const viz = isVizUrl(img.url) ? resolveLink(path, img.url.replace(/#.*$/, '')) : null
+        if (viz) {
+          const host = state.facet(vizHost)
+          out.push(Decoration.replace({ widget: new VizWidget(viz, img.alt, line.from + img.at, host.src(viz), !!host.pending), block: true }).range(line.from, line.to))
+          continue
+        }
+        out.push(Decoration.replace({ widget: new ImageWidget(imageSrc(path, img.url), img.alt, line.from + img.at, false, line.from, line.from !== b.from || line.to !== b.to), block: true }).range(line.from, line.to))
       }
     }
   }
+  calloutWidgets(state, out)
   return Decoration.set(out, true)
+}
+
+const QUOTE = /^\s*>\s?/
+const FENCE_IN = /^\s*(`{3,}|~{3,})\s*([^\s`]*)/
+const ROW = /^\s*\|.*\|\s*$/
+const DELIM = /^\s*\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)+\|?\s*$/
+
+/** 这份文字里提示块有没有表格、代码块（没有的话光标动了不用重画） */
+const quotedIn = new WeakMap<Text, boolean>()
+
+/**
+ * 提示块（`> [!ai] AI 回答 · …` 这些）里的表格、代码块（task-83vl3：AI 对话的回答插进文档写成 [!ai] 块，回答里常带表格、代码；
+ * task-6cxtc：网页上讲解一下写进那篇的 [!ai] 块同一套）：每行去掉「> 」照文档里的样子画（表格同文档的表格、宽了自己横着滚；
+ * 代码块等宽、--card 底的一块），套在提示块的底里。点进去（光标在那几行里）露原文、能改，点出来又画回去；块外的表格是点格子就地改，
+ * 提示块里的行前面有「> 」，就地改写回去会丢「> 」，所以这里是把光标放进那一行原文。提示块收着时不画（整块正文藏着）
+ */
+function calloutWidgets(state: EditorState, out: Range<Decoration>[]) {
+  const doc = state.doc
+  const heads = state.selection.ranges.map((r) => r.head)
+  const editing = (from: number, to: number) => heads.some((h) => h >= from && h <= to)
+  let any = false
+  for (let n = 1; n <= doc.lines; n++) {
+    const first = doc.line(n)
+    if (!first.text.startsWith('>') || !parseCallout(first.text)) continue
+    let last = n
+    while (last < doc.lines && QUOTE.test(doc.line(last + 1).text)) last++
+    if (!calloutFolded(state, first.from)) {
+      const body = Array.from({ length: last - n }, (_, k) => ({ n: n + 1 + k, text: doc.line(n + 1 + k).text.replace(QUOTE, '') }))
+      for (let i = 0; i < body.length; ) {
+        const t = body[i]!.text
+        const fence = FENCE_IN.exec(t)
+        if (fence) {
+          const j = body.findIndex((b, k) => k > i && b.text.trim().startsWith(fence[1]!) && b.text.trim().replace(/[`~]/g, '') === '')
+          if (j > 0) {
+            any = true
+            const lines = body.slice(i + 1, j)
+            const from = doc.line(body[i]!.n).from
+            const to = doc.line(body[j]!.n).to
+            // 每一行代码在文里从哪儿起（「> 」后面）：点哪一行光标放进哪一行
+            const starts = lines.map((b) => {
+              const l = doc.line(b.n)
+              return l.from + (QUOTE.exec(l.text)?.[0].length ?? 0)
+            })
+            if (!editing(from, to)) out.push(Decoration.replace({ widget: new QuotedCode(lines.map((b) => b.text).join('\n'), fence[2] ?? '', body[j]!.n === last, starts), block: true }).range(from, to))
+            i = j + 1
+            continue
+          }
+        }
+        if (ROW.test(t) && i + 1 < body.length && DELIM.test(body[i + 1]!.text)) {
+          let j = i + 2
+          while (j < body.length && ROW.test(body[j]!.text)) j++
+          any = true
+          const src = body.slice(i, j).map((b) => b.text).join('\n')
+          const from = doc.line(body[i]!.n).from
+          const to = doc.line(body[j - 1]!.n).to
+          if (!editing(from, to)) out.push(Decoration.replace({ widget: new TableWidget(src, from, null, { bot: body[j - 1]!.n === last }), block: true }).range(from, to))
+          i = j
+          continue
+        }
+        i++
+      }
+    }
+    n = last
+  }
+  quotedIn.set(doc, any)
+}
+
+/** 提示块里的代码块：等宽 12.5/1.65，--card 底、圆角 8，长行照文档里的代码块折行；点哪儿光标放进那一行原文的那个字 */
+class QuotedCode extends WidgetType {
+  constructor(
+    readonly code: string,
+    readonly lang: string,
+    readonly bot: boolean,
+    /** 每一行代码在文里从哪儿起（「> 」后面） */
+    readonly starts: number[],
+  ) {
+    super()
+  }
+  eq(o: QuotedCode) {
+    return o.code === this.code && o.lang === this.lang && o.bot === this.bot && o.starts.join() === this.starts.join()
+  }
+  toDOM(view: EditorView) {
+    const box = document.createElement('div')
+    box.className = 'cm-inquote' + (this.bot ? ' bot' : '')
+    const pre = document.createElement('pre')
+    pre.className = 'cm-inquote-code'
+    if (this.lang) pre.dataset.lang = this.lang
+    pre.textContent = this.code
+    box.appendChild(pre)
+    pre.addEventListener('mousedown', (e) => {
+      if (e.button !== 0 || view.state.readOnly) return
+      e.preventDefault()
+      // 点到第几行第几个字
+      const at = document.caretRangeFromPoint(e.clientX, e.clientY)
+      const off = at && pre.contains(at.startContainer) ? at.startOffset : 0
+      const before = this.code.slice(0, off)
+      const row = Math.min(this.starts.length - 1, before.split('\n').length - 1)
+      const col = off - (before.lastIndexOf('\n') + 1)
+      const start = this.starts[Math.max(0, row)]
+      if (start === undefined) return
+      view.focus()
+      view.dispatch({ selection: { anchor: Math.min(start + col, view.state.doc.lineAt(start).to) }, userEvent: 'select.pointer' })
+    })
+    return box
+  }
+  ignoreEvent() {
+    return true
+  }
 }
 
 const widgets = StateField.define<DecorationSet>({
   create: blockWidgets,
-  update: (v, tr) => (tr.docChanged || tr.effects.some((e) => e.is(editCell)) ? blockWidgets(tr.state) : v),
+  // 提示块里的表格、代码块跟着光标露原文：文里有这种块时光标动了也重画（别的块部件 eq 不变，不重画 DOM）
+  update: (v, tr) =>
+    tr.docChanged || tr.effects.some((e) => e.is(editCell) || e.is(toggleFold)) || (tr.selection && quotedIn.get(tr.state.doc)) ? blockWidgets(tr.state) : v,
   provide: (f) => [
     EditorView.decorations.from(f),
     // 图片、表格是一整块（表格的格子在部件里就地改）
     EditorView.atomicRanges.of((view) => {
       const out: Range<Decoration>[] = []
-      view.state.field(f).between(0, view.state.doc.length, (from, to, d) => void ((d.spec.widget instanceof ImageWidget || d.spec.widget instanceof TableWidget) && out.push(d.range(from, to))))
+      view.state.field(f).between(0, view.state.doc.length, (from, to, d) => void ((d.spec.widget instanceof ImageWidget || d.spec.widget instanceof TableWidget || d.spec.widget instanceof VizWidget || d.spec.widget instanceof QuotedCode) && out.push(d.range(from, to))))
       return Decoration.set(out)
     }),
     hiddenSyntax.of((state) => {
@@ -300,7 +422,8 @@ const widgets = StateField.define<DecorationSet>({
       // 单独成段的图、表格靠空行和正文隔开（sep）；段落里的一行图（下面紧跟来源行）只藏它自己这一行
       state.field(f).between(0, state.doc.length, (from, to, d) => {
         const w = d.spec.widget
-        if (w instanceof TableWidget || w instanceof ImageWidget) out.push(wholeBlock(state.doc, from, to, !(w instanceof ImageWidget && w.inPara)))
+        // 提示块里的表格、代码块是提示块正文的几行，不当单独成段的块
+        if ((w instanceof TableWidget && !w.quoted) || w instanceof ImageWidget || w instanceof VizWidget) out.push(wholeBlock(state.doc, from, to, !(w instanceof ImageWidget && w.inPara)))
       })
       return out
     }),

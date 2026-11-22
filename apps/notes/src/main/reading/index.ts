@@ -52,6 +52,7 @@ import { readingKey } from './chats'
 import { setupBilingual } from './bilingual'
 import { setupCapture } from './capture'
 import { courseName, dirOf } from './doubts'
+import { logDropped } from '../crash-log'
 
 const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
@@ -233,8 +234,21 @@ export function setupReading(deps: ReadingDeps) {
 
   ipcMain.handle('reading:state', (_e, pdf: unknown): ReadingState => {
     const p = needSource(pdf)
-    const s = readJson<ReadingState | null>(statePath(p), null)
-    return s && s.pdf === p ? s : { pdf: p, page: 1, msgs: [], threads: [] }
+    const fresh: ReadingState = { pdf: p, page: 1, msgs: [], threads: [] }
+    // 记坏了的（写到一半、少了列表，task-pyb39）当没记过，记一行日志：对话里一渲染就抛错
+    let s: ReadingState | null
+    try {
+      s = readJson<ReadingState | null>(statePath(p), null)
+    } catch (e) {
+      logDropped('reading', `本机的对话记录读不出来：${(e as Error).message}`)
+      return fresh
+    }
+    if (!s || typeof s !== 'object' || s.pdf !== p) return fresh
+    if (!Array.isArray(s.msgs) || !Array.isArray(s.threads) || (s.sides !== undefined && !Array.isArray(s.sides))) {
+      logDropped('reading', '本机的对话记录少了消息或框的列表')
+      return fresh
+    }
+    return typeof s.page === 'number' && Number.isFinite(s.page) ? s : { ...s, page: 1 }
   })
   ipcMain.handle('reading:state:save', (_e, s: ReadingState) => {
     if (!s || !Array.isArray(s.msgs) || !Array.isArray(s.threads)) throw new Error('读 PDF 的记录不对')
@@ -460,7 +474,7 @@ export function setupReading(deps: ReadingDeps) {
     return queued(note, () => writeSection(req, note))
   })
   /** 可视化做好时笔记里还没有那一段：先记着，写那一段时挂上 */
-  const pendingViz = new Map<string, { path: string; title: string }>()
+  const pendingViz = new Map<string, { path: string; title: string; embed?: boolean }>()
 
   // ---------- 出卡送 Anki（task-tz7y3，cards.ts）：问过的每一问 AI 改成卡、一张张过、送进 Anki；「我的疑惑」那一页 2026-11-22 拿掉了 ----------
   setupCards({ vault: deps.vault, win: deps.win })
@@ -499,13 +513,13 @@ export function setupReading(deps: ReadingDeps) {
       const cur = await readText(note)
       const sec = cur ? parseReadingNote(cur, note).find((x) => x.id === req.thread.id) : undefined
       if (cur && sec) {
-        const next = upsertSection(cur, { ...sec, viz: { path, title } }, note)
+        const next = upsertSection(cur, { ...sec, viz: { path, title, embed: true } }, note)
         const w = await v.write(note, next, cur)
         if (w.ok) {
           send('note:changed', note, next)
           paths.push(note)
         }
-      } else pendingViz.set(req.thread.id, { path, title })
+      } else pendingViz.set(req.thread.id, { path, title, embed: true })
       const hash = await git.commitPaths(v.root, paths, `可视化：${title}（${stemOf(pdf)} 第 ${req.thread.page} 页）`)
       send('files:changed')
       return { path, title, commit: hash ? ((await git.log(v.root, 1))[0] ?? null) : null }

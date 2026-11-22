@@ -61,6 +61,22 @@ describe('名字和许可证只写在 release/brand.json 一处', () => {
     for (const f of copy) expect(readFileSync(join(root, f), 'utf8'), f).toBe(before[f])
   })
 
+  // 画布笔记的公开仓库里没有 apps/apple（release/public-exclude.txt），那里跳过
+  test.skipIf(!existsSync(join(ROOT, 'apps/apple/project.yml')))('iPhone / iPad 版「用 GitHub 登录」的 Client ID 只写在 brand.json：生成进 Brand.xcconfig，Info.plist 从那里读', () => {
+    expect(brand.github).toHaveProperty('oauthClientId')
+    const xc = readFileSync(join(ROOT, 'apps/apple/Brand.xcconfig'), 'utf8')
+    expect(xc).toContain(`CN_GITHUB_CLIENT_ID = ${brand.github.oauthClientId}`)
+    expect(readFileSync(join(ROOT, 'apps/apple/project.yml'), 'utf8')).toContain('CNGitHubClientID: $(CN_GITHUB_CLIENT_ID)')
+    const root = tmp()
+    for (const f of ['release/brand.json', 'package.json', 'apps/notes/package.json', 'apps/notes/src/shared/brand.ts', 'apps/apple/project.yml']) {
+      mkdirSync(dirname(join(root, f)), { recursive: true })
+      cpSync(join(ROOT, f), join(root, f))
+    }
+    writeFileSync(join(root, 'release/brand.json'), JSON.stringify({ ...brand, github: { oauthClientId: 'Ov23liTEST' } }, null, 2) + '\n')
+    execFileSync('node', [join(ROOT, 'scripts/brand.mjs')], { env: { ...process.env, CN_BRAND_ROOT: root }, stdio: ['ignore', 'pipe', 'pipe'] })
+    expect(readFileSync(join(root, 'apps/apple/Brand.xcconfig'), 'utf8')).toContain('CN_GITHUB_CLIENT_ID = Ov23liTEST')
+  })
+
   test('应用里用的 BRAND 就是 brand.json 里的', async () => {
     const { BRAND } = await import('../../apps/notes/src/shared/brand')
     expect(BRAND).toMatchObject({ name: brand.name, nameZh: brand.nameZh, appId: brand.appId, license: 'GPL-3.0-or-later' })

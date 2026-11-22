@@ -113,7 +113,7 @@ test('设置 › 梦游：关掉补双链和做可视化，点「现在梦游」
     await dlg.getByTestId('dream-set-now').getByRole('button', { name: '看报告' }).click()
     await expect(dialog(page)).toHaveCount(0)
     const panel = page.getByRole('complementary', { name: '梦游报告' })
-    await expect(panel.locator('.dg')).toHaveText(['归类和改名3条预览', '可能重复1条', '本周小结1条'])
+    await expect(panel.locator('.dg')).toHaveText(['归类和改名3条在树里看', '可能重复1条', '本周小结1条'])
     // 摘要按真改动说动了哪些正文：关掉的补双链、可视化不提，也不一律说「一个字没动」
     await expect(panel.getByTestId('dream-summary')).toContainText('收下才合进main。')
     await expect(panel.getByTestId('dream-summary')).not.toContainText('一个字没动')

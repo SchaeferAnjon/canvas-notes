@@ -2,6 +2,7 @@
  * 中间栏打开库里的 HTML（做好的可视化、Claude Code 生成的网页，spec 1.11）：放在没有来源的沙箱 iframe 里跑，能拖能点，不联网、碰不到别的文件。
  * 工具栏：标题 + 「可视化 · 课程/线性代数 · 第 3 讲」+ 右端「在隔离环境里运行 · 不联网」、「框一块问」、「问这一屏」（⌘↵）。
  * 框一块问和 PDF 一样（spec 1.3）：点「框一块问」或按住 ⌘（焦点在软件里时）拖一个框，框下面黑色工具条，右栏 AI 输入框里放好截图。
+ * 工具条和 PDF、网页上的一个样（task-6cxtc）：讲解一下 ↵ · 翻译 + 讲一讲 · 引用 ⌘↵ ｜ ⋯（拷贝这块、翻译设置…）· ×。
  * 截图是窗口上画出来的那一块（主进程 capturePage），沙箱里的页面不用开口子。
  * dream：梦游分支上还没收下的那份（报告里「预览可视化」），只看不问。
  */
@@ -9,9 +10,11 @@ import { Codicon } from '@cn/design'
 import { isKey, useKeys } from '../keys'
 import { AiIcon } from '../engine-logo'
 import { ActBtn, PageNote, TabActs } from '../shell/TabActs'
+import { openTranslateSettings } from '../plugins/translate/shared'
 import type { Rect } from '@cn/format'
 import { useEffect, useRef, useState } from 'react'
 import * as R from './store'
+import { capStyle, useCapPlace } from './cap-place'
 import type { Material } from '../../shared/materials'
 import './reading.css'
 
@@ -38,7 +41,10 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
   const [cmd, setCmd] = useState(false)
   const [drag, setDrag] = useState<Box | null>(null)
   const [boxed, setBoxed] = useState<Box | null>(null)
+  /** 工具条上「⋯」开着 */
+  const [capMore, setCapMore] = useState(false)
   const body = useRef<HTMLDivElement>(null)
+  const capRef = useRef<HTMLDivElement>(null)
   const r = R.useReading(path)!
   const canAsk = !props.dream
 
@@ -60,12 +66,15 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
   // 标签关了：排着的那一问不发、不记笔记（正在答的照常答完）
   useEffect(() => () => void (canAsk && R.closed(path)), [path, canAsk])
 
-  // 发出去了：框收起来
+  // 发出去了、引用成了材料：框收起来
   useEffect(() => {
     if (!r.pending) setBoxed(null)
   }, [r.pending])
+  useEffect(() => {
+    if (!boxed) setCapMore(false)
+  }, [boxed])
 
-  // 按住 ⌘：框选层打开（焦点在 iframe 里时软件收不到按键，用「框一块问」按钮）；esc 取消；⌘↵ 框着一块是改问法（同 PDF，CN-92 方向 A），没框问这一屏
+  // 按住 ⌘：框选层打开（焦点在 iframe 里时软件收不到按键，用「框一块问」按钮）；esc 取消；⌘↵（⇧⌘L 也行）框着一块是引用（同 PDF，task-6cxtc），没框问这一屏
   useEffect(() => {
     if (!props.active || !canAsk) return
     const down = (e: KeyboardEvent) => {
@@ -73,8 +82,11 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
       else if (e.key === 'Escape' && (boxed || framing) && !(e.target as Element)?.closest?.('textarea')) cancel()
       else if (!e.defaultPrevented && isKey(e, 'ask-page')) {
         e.preventDefault()
-        if (boxed) void capAsk('rephrase')
+        if (boxed) void capQuote()
         else void askScreen()
+      } else if (!e.defaultPrevented && boxed && isKey(e, 'quote')) {
+        e.preventDefault()
+        void capQuote()
       }
     }
     const up = (e: KeyboardEvent) => e.key === 'Meta' && setCmd(false)
@@ -149,12 +161,34 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
     }
   }
 
-  async function capAsk(kind: 'explain' | 'translate' | 'rephrase') {
+  async function capAsk(kind: 'explain' | 'translate') {
     props.onAsk()
     const p = R.get(path).pending
     if (!p) return
-    if (kind === 'rephrase') return R.stage(path, { ...p, blank: true })
     await R.send(path, kind === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲')
+  }
+
+  /** 引用：框的这块截图成为右栏输入框顶上那一排的一块材料，框收起、光标进输入框，接着框下一块攒成 ①② */
+  async function capQuote() {
+    props.onAsk()
+    try {
+      if (!(await R.quotePending(path))) props.onNotice('这块还没截好，再框一次')
+    } catch (err) {
+      props.onNotice(errText(err))
+    }
+  }
+
+  /** 「⋯ › 拷贝这块」：框的那块截图写进剪贴板 */
+  async function capCopy() {
+    setCapMore(false)
+    const png = R.get(path).pending?.png
+    if (!png) return props.onNotice('这块还没截好，再框一次')
+    try {
+      await window.cnMenu.copyImage(png)
+      props.onNotice('这块图拷贝好了')
+    } catch (err) {
+      props.onNotice(errText(err))
+    }
   }
 
   /** 问这一屏：整个看得到的那屏当一个框，直接发出；mats：输入框里带的材料 */
@@ -171,7 +205,19 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
 
   const layer = canAsk && (framing || cmd || !!drag)
   const box = drag ?? boxed
-  const bh = body.current?.clientHeight ?? 0
+  // 工具条：框上方 6，上面放不下放下面 6；左右限在这一栏里、各留 8；整条放不下才藏键帽（cap-place.ts，同 PDF）
+  const capAt = useCapPlace(
+    capRef,
+    () => {
+      const b = body.current?.getBoundingClientRect()
+      if (!boxed || drag || !b) return null
+      return {
+        sel: { left: b.left + Math.min(boxed.x0, boxed.x1), top: b.top + Math.min(boxed.y0, boxed.y1), right: b.left + Math.max(boxed.x0, boxed.x1), bottom: b.top + Math.max(boxed.y0, boxed.y1) },
+        view: { left: b.left, top: b.top, right: b.right, bottom: b.bottom },
+      }
+    },
+    [boxed, drag],
+  )
   return (
     <section className="pane htmlpane" hidden={!props.active} data-path={path}>
       <TabActs active={props.active}>
@@ -214,28 +260,44 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
           )}
           {boxed && !drag && (
             <div
-              className="cap capbar"
+              ref={capRef}
+              className={'cap capbar' + (capAt?.nokbd ? ' nokbd' : '')}
               role="toolbar"
               aria-label="框好的这块"
-              style={{ left: Math.min(boxed.x0, boxed.x1), top: Math.max(boxed.y0, boxed.y1) + 40 > bh ? Math.max(0, Math.min(boxed.y0, boxed.y1) - 40) : Math.max(boxed.y0, boxed.y1) + 8 }}
+              style={capStyle(capAt)}
               onPointerDown={(e) => e.stopPropagation()}
             >
               <button className="main" onClick={() => void capAsk('explain')}>
                 <AiIcon job="chat" size={14} />
-                讲解一下<kbd>↵</kbd>
+                讲解一下{K('enter') && <kbd>{K('enter')}</kbd>}
               </button>
               <button onClick={() => void capAsk('translate')}>
                 <Codicon name="whole-word" size={14} />
                 翻译 + 讲一讲
               </button>
-              <button onClick={() => void capAsk('rephrase')}>
-                <Codicon name="edit" size={14} />
-                改问法{K('ask-page') && <kbd>{K('ask-page')}</kbd>}
+              <button onClick={() => void capQuote()}>
+                <Codicon name="comment" size={14} />
+                引用{K('ask-page') && <kbd>{K('ask-page')}</kbd>}
               </button>
               <span className="sepv" />
-              <button aria-label="取消" data-tip="取消 esc" data-side="below" onClick={cancel}>
+              <button className={'icon' + (capMore ? ' on' : '')} aria-label="更多" aria-haspopup="menu" aria-expanded={capMore} onClick={() => setCapMore((v) => !v)}>
+                <Codicon name="ellipsis" size={14} />
+              </button>
+              <button className="icon" aria-label="取消" data-tip={`取消 ${K('escape') ?? ''}`.trim()} data-side="below" onClick={cancel}>
                 <Codicon name="close" size={14} />
               </button>
+              {capMore && (
+                <div className="capmenu" role="menu" aria-label="这块还能做什么">
+                  <button role="menuitem" onClick={() => void capCopy()}>
+                    <Codicon name="copy" size={14} />
+                    拷贝这块
+                  </button>
+                  <button role="menuitem" onClick={() => (setCapMore(false), openTranslateSettings())}>
+                    <Codicon name="settings-gear" size={14} />
+                    翻译设置…
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

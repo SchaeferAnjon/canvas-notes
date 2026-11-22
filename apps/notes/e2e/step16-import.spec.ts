@@ -112,10 +112,10 @@ for (const tone of ['light', 'dark'] as const) {
       // 现在梦游 → 右栏报告：按原文件夹分进 课程/线性代数 和 生活
       await sheet(page).getByRole('button', { name: '现在就让梦游整理' }).click()
       await expect(sheet(page)).toHaveCount(0)
-      await expect(panel(page).getByTestId('dream-summary')).toContainText('点「预览」看改好后的样子', { timeout: 30_000 })
+      await expect(panel(page).getByTestId('dream-summary')).toContainText('收下才合进main', { timeout: 30_000 })
       const file = panel(page).getByRole('region', { name: '归类和改名' })
       await expect(file.locator('.dsub')).toHaveText(['课程/线性代数3条收下这组', '生活2条收下这组'])
-      await file.getByRole('button', { name: '预览' }).click()
+      await file.getByRole('button', { name: '在树里看' }).click()
       await expect(bar(page)).toContainText('5处挪动和改名')
       // 点「预览」左栏换到「文件」页；「最近」页里也是改好后的样子
       await expect(page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name: '文件', exact: true })).toHaveAttribute('aria-pressed', 'true')

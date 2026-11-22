@@ -133,6 +133,11 @@
 .tchips .chip:hover {
   color: var(--t1);
 }
+/* 放不下收进去的那几样（task-zojmg）：「⋯」和字同一条中线 */
+.tchips .chip.more {
+  display: inline-flex;
+  align-items: center;
+}
 .tchips .chip.on {
   background: var(--fill2);
   color: var(--t1);
@@ -341,14 +346,6 @@
   color: var(--t2);
 }
 
-/* 最底下「最近删掉的 N」（task-5yp97）：和上面的树空 8，样子同一行文件夹（图标 trash 16、名字 13、右边篇数） */
-.ftree .ft-trash-gap {
-  height: 8px;
-}
-.ftree .ft-trash > svg {
-  color: var(--t2);
-}
-
 /* 选中的（CN-105）：--fill2 底；正在看的那一篇不铺底、只有竖线（task-cqia6），两样不混 */
 .ftree {
   position: relative;
@@ -433,4 +430,39 @@
   border-radius: 3px;
   object-fit: cover;
   box-shadow: 0 0 0 1px var(--line2);
+}
+/*
+ * 挂着的子文件左边的线（task-wuv05，偏好「挂着的文件缩进加弯线」）：白板下的导图 / 子白板、PDF 下的笔记、笔记下的可视化、
+ * 笔记下的数据库记录文件夹。父文件展开箭头正下方伸出 1px --line2 竖线（gl-s 是父那一行箭头下面那一截），到子文件那一行中间
+ * 圆角 6 拐到子文件的图标前 3（gl-e）；不是最后一个的竖线接着往下（gl-v），上面几层没走完的竖线一路穿过去。
+ * 线画在行的底色上面，选中、悬停的底色一整块不断；不接鼠标
+ */
+.ftree .ft-hg {
+  position: relative;
+}
+.ftree .ft-guides {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.ftree .gl-v,
+.ftree .gl-e,
+.ftree .gl-s {
+  position: absolute;
+  border-left: 1px solid var(--line2);
+  pointer-events: none;
+}
+.ftree .gl-v {
+  top: 0;
+  bottom: 0;
+}
+.ftree .gl-s {
+  top: 21px;
+  bottom: 0;
+}
+.ftree .gl-e {
+  top: 0;
+  height: 14px;
+  border-bottom: 1px solid var(--line2);
+  border-bottom-left-radius: 6px;
 }

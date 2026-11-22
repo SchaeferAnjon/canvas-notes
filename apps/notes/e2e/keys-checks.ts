@@ -168,8 +168,8 @@ export const CHECKS: Record<string, Check> = {
       await k.run.page.keyboard.press('Escape')
     },
   },
-  // 收起 / 展开中间栏（task-kbnc0）：记在本机，按一下变、再按变回来（网页没开时中间照样在，只是记着）
-  'fold-center': { check: (k, _c, p) => flips(p, () => k.run.page.evaluate(() => String(localStorage.getItem('cn.centerFold') === '1'))) },
+  // 网页占满 / 还原（task-kbnc0，task-05p2w）：右栏网页看得见时按一下占满、再按还原，记在本机；网页不在右栏时不记（混用的毛病，见 05p2w-web-full）
+  'fold-center': { ctxs: ['web'], check: (k, _c, p) => flips(p, () => k.run.page.evaluate(() => String(localStorage.getItem('cn.centerFold') === '1'))) },
   'dream-report': { check: (k, _c, p) => flips(p, () => left(k.run.page, '梦游报告').getAttribute('aria-pressed')) },
   'toggle-right': {
     async check(k, ctx, p, combo) {

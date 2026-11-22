@@ -675,7 +675,7 @@ document.addEventListener(
 )
 window.addEventListener('keydown', (e) => e.key === 'Escape' && hideCard(), true)
 
-/** 选区工具条上点了「翻译」：选区下面弹小卡片（放不下就放上面） */
+/** 选区小条「⋯ › 只看译文」：选区下面弹译文小卡片（放不下就放上面），不问 AI 讲 */
 export function translateSelection(text: string, rect: DOMRect) {
   const c = ensureCard()
   const to = effectiveTarget(settings().target, detectLang(text, htmlLang()))
@@ -704,19 +704,4 @@ export function translateSelection(text: string, rect: DOMRect) {
       c.body.className = 'body wait'
     },
   )
-}
-
-/** 选区工具条上点了「加进术语表」：加进中间栏那门课的术语表，在中间栏打开；不行的话卡片上说为什么 */
-export function addToGlossary(text: string, rect: DOMRect) {
-  callPlugin(ID, 'glossaryAdd', { text }).catch((e: Error) => {
-    const c = ensureCard()
-    cardSeq++
-    c.head.textContent = '加进术语表'
-    c.body.textContent = String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-    c.body.className = 'body wait'
-    c.copy.style.display = 'none'
-    c.host.style.display = 'block'
-    const left = Math.max(8, Math.min(rect.left, innerWidth - 368)) + scrollX
-    c.host.style.transform = `translate(${left}px, ${rect.bottom + 8 + scrollY}px)`
-  })
 }

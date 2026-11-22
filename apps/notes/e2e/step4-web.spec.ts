@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { acts, editorText, launch, openNote, pane, rail, waitSaved, webMore } from './app'
 import { FAKE_PASSWORD, makeFakeChrome } from './fake-chrome'
 import { ICELAND } from './fixtures/board'
+import { fragmentUrl, sourceLabel } from '../src/shared/web-link'
 
 let server: Server
 let base: string
@@ -44,20 +45,30 @@ async function guestRect(page: Page, code: string) {
   return { x: w.x + r.x + r.width / 2, y: w.y + r.y + r.height / 2 }
 }
 
-/** 用鼠标三击选中一段，再点工具条 */
-async function selectAndClip(page: Page, id: string, expectLabel: string) {
+const HOST = `document.getElementById('cn-clip-host')`
+/**
+ * 用鼠标三击选中一段，再点小条上的「剪藏」。task-6cxtc 起四处小条一个样：讲解一下 ↵ · 翻译 + 讲一讲 · 引用 ⌘↵ ｜ 剪藏 ⌘S · ⋯；
+ * 剪到哪不再写在按钮上，指着「剪藏」0.3 秒出两行提示（tip：两行用 | 连起来）
+ */
+async function selectAndClip(page: Page, id: string, tip: string) {
   const p = await guestRect(page, `document.getElementById('${id}')`)
   // 刚载入的网页偶尔吞掉第一下点击（选区是空的），像人一样再选一次
   for (let i = 0; i < 3; i++) {
     await page.mouse.click(p.x, p.y, { clickCount: 3 })
     if (await expect.poll(() => guest(page, 'getSelection().toString().length'), { timeout: 1000 }).toBeGreaterThan(0).then(() => true, () => false)) break
   }
-  await expect.poll(() => guest(page, `(document.getElementById('cn-clip-host')?.shadowRoot?.querySelector('button')?.textContent ?? '') + '|' + document.getElementById('cn-clip-host')?.style.display`)).toBe(`${expectLabel}|block`)
-  const b = await guestRect(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button')`)
+  await expect
+    .poll(() => guest(page, `(() => { const h = ${HOST}; return h ? [...h.shadowRoot.querySelectorAll('.bar > button')].map((b) => b.textContent.replace(/\\s+/g, ' ').trim()).join('|') + '|' + h.style.display : '' })()`))
+    .toBe('讲解一下↵|翻译 + 讲一讲|引用⌘↵|剪藏⌘S||block')
+  const b = await guestRect(page, `${HOST}.shadowRoot.querySelector('button.clip')`)
+  await page.mouse.move(b.x, b.y)
+  await expect.poll(() => guest(page, `${HOST}.shadowRoot.querySelector('.tip')?.innerText.replace(/\\n+/g, '|')`)).toBe(tip)
   await page.mouse.click(b.x, b.y)
 }
 
-test('文档里剪藏：选中一段点「剪进文档」，引文插到光标所在段后面，带来源；收件箱不变', async () => {
+// task-6cxtc 起剪藏写进「这个网页正在剪进去的那篇」：这个网站还没和哪篇配对、中间开着文档时第一次剪先问「记到哪篇」，
+// 「记到这篇」顺手配成一对（属性 read-along）；来源一行是「小标题 · 书名」+ 回到这一段的链接；底栏「剪进《X》光标处」
+test('文档里剪藏：选中一段点「剪藏」，没配对先问记到哪篇，引文插到光标所在段后面，带回到这一段的来源；收件箱不变', async () => {
   const run = await launch({ '所思所想.md': '# 所思所想\n\n财富是靠专长、杠杆。\n\n最后一段。\n' })
   const { page, vault } = run
   try {
@@ -67,39 +78,57 @@ test('文档里剪藏：选中一段点「剪进文档」，引文插到光标�
     await openWeb(page, `${base}/rich`)
     // 网页开着时，文档光标是李子紫竖线
     await expect(page.locator('.win')).toHaveClass(/web-open/)
-    await selectAndClip(page, 'p1', '剪进文档· 插到：所思所想 · 光标处⌘↵')
-    await expect(page.locator('.toast-cn')).toContainText('插到「所思所想」光标处')
+    await selectAndClip(page, 'p1', '剪进《所思所想》光标处|第一次剪先问一句记到哪篇；剪完能撤回、能换一篇')
+    const dlg = page.getByRole('dialog', { name: '记到哪篇' })
+    await expect(dlg).toBeVisible()
+    await expect(dlg.getByRole('radio').nth(0)).toHaveAccessibleName(/所思所想/)
+    await expect(dlg.getByRole('radio').nth(0)).toBeChecked()
+    await expect(dlg.getByRole('radio').nth(2)).toHaveAccessibleName('剪成卡片，放进收件箱')
+    await dlg.getByRole('button', { name: /记到这篇/ }).click()
+    await expect(dlg).toHaveCount(0)
+    await expect(page.locator('.toast-cn')).toContainText('剪进《所思所想》光标处')
+    await expect(page.getByTestId('toast').getByRole('button', { name: '撤回' })).toBeVisible()
     await expect(pane(page).locator('.cm-flashbar:not([hidden])')).toHaveCount(1)
     await waitSaved(page)
     // 引文后面补了一个空段落放光标（CN-17）
-    const want = `# 所思所想\n\n财富是靠专长、杠杆。\n\n> Seek wealth, not money or status.\n—— [How to Get Rich](${base}/rich)\n\n\n\n最后一段。\n`
+    const quote = 'Seek wealth, not money or status.'
+    const src = `[${sourceLabel({ title: 'How to Get Rich', url: `${base}/rich` })}](${fragmentUrl(`${base}/rich`, quote)})`
+    const want = `---\nread-along: ${base}/\n---\n# 所思所想\n\n财富是靠专长、杠杆。\n\n> ${quote}\n—— ${src}\n\n\n\n最后一段。\n`
     expect(readFileSync(join(vault, '所思所想.md'), 'utf8')).toBe(want)
     expect(await editorText(page)).toBe(want)
     expect(readdirSync(vault)).not.toContain('收件箱')
+    // 配好对了：再指着「剪藏」，说剪进这篇、能换一篇
+    await selectAndClip(page, 'p2', '剪进《所思所想》光标处|剪完底栏说剪到了哪，能撤回、能换一篇')
+    await expect(dlg).toHaveCount(0)
+    await expect.poll(() => readFileSync(join(vault, '所思所想.md'), 'utf8')).toContain('> Wealth is having assets that earn while you sleep.')
   } finally {
     await run.close()
   }
 })
 
-test('白板里剪藏：「剪成卡片 · 到：收件箱」，收件箱多一篇带来源，标签条「收件箱 N」加一', async () => {
+// 中间是白板：不问记到哪篇，照旧剪成卡片放进收件箱（来源是回到这一段的链接）
+test('白板里剪藏：指着「剪藏」说「剪成卡片，放进收件箱」，收件箱多一篇带来源，白板右上角「收件箱 N」加一', async () => {
   const run = await launch({ '冰岛自驾.md': ICELAND })
   const { page, vault } = run
   try {
     await page.locator('.nav .si', { hasText: '冰岛自驾' }).click()
     // 收件箱一开始是空的（以前「1未整理」数的是这篇里开头那一段，现在它就在白板上）：不写数
-    const inboxBtn = acts(page).getByTestId('db-inbox')
+    const inboxBtn = pane(page).getByTestId('db-inbox')
     await expect(inboxBtn).toHaveText('收件箱')
     // 以前的写法打开时转成「## 列名」：转好的这份就是这块白板，剪藏不碰它
     await expect.poll(() => readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).not.toBe(ICELAND)
     const converted = readFileSync(join(vault, '冰岛自驾.md'), 'utf8')
     await openWeb(page, `${base}/rich`)
-    await selectAndClip(page, 'p2', '剪成卡片· 到：收件箱⌘↵')
+    await selectAndClip(page, 'p2', '剪成卡片，放进收件箱|剪完底栏说剪到了哪，能撤回')
+    await expect(page.getByRole('dialog', { name: '记到哪篇' })).toHaveCount(0)
     await expect(page.locator('.toast-cn')).toContainText('放进收件箱')
     await expect(inboxBtn).toHaveText('收件箱1')
     const files = readdirSync(join(vault, '收件箱'))
     expect(files).toHaveLength(1)
     const md = readFileSync(join(vault, '收件箱', files[0]!), 'utf8')
-    expect(md).toMatch(new RegExp(`^---\\ncreated: .+\\nsource: ${base.replace(/\./g, '\\.')}/rich\\n---\\n> Wealth is having assets that earn while you sleep\\.\\n—— \\[How to Get Rich\\]`))
+    const quote = 'Wealth is having assets that earn while you sleep.'
+    const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    expect(md).toMatch(new RegExp(`^---\\ncreated: .+\\nsource: ${esc(fragmentUrl(`${base}/rich`, quote))}\\n---\\n> ${esc(quote)}\\n—— \\[How to Get Rich\\]`))
     expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(converted)
     // 右栏开着时白板缩到 0.8
     await expect.poll(() => pane(page).locator('.db-plane').evaluate((el) => (el as HTMLElement).style.zoom)).toBe('0.8')

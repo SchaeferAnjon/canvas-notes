@@ -347,7 +347,7 @@ test('「剪藏」组件（写作首页上加的）：一行是一个主题文�
   }
 })
 
-test('梦游报告里收下一条：状态条「已收下，合进main · 提交号」一行放下，放不下先省略说明，提交号整个在同一行', async () => {
+test('梦游报告里收下一条：状态条「已收下 · 提交号 撤回」一行放下，提交号整个在同一行（task-m552v 照 demo 改了字）', async () => {
   const run = await launch({ ...DREAM_VAULT }, { CN_AI_FAKE: '1' })
   const { page } = run
   const panel = page.getByRole('complementary', { name: '梦游报告' })
@@ -360,7 +360,8 @@ test('梦游报告里收下一条：状态条「已收下，合进main · 提交
     await panel.getByTestId('dream-item').filter({ hasText: /^极光\s*从/ }).click()
     await panel.getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
     const state = panel.locator('.pv-state')
-    await expect(state).toContainText('已收下，合进main')
+    await expect(state).toContainText('已收下 ·')
+    await expect(state.getByRole('button', { name: '撤回' })).toBeVisible()
     const hash = state.locator('code')
     await expect(hash).toHaveText(/^[0-9a-f]{7}$/)
     // 左栏默认宽（252）：一行，提交号整个露着、和说明在同一行

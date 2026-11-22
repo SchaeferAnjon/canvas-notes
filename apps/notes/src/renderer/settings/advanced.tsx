@@ -4,14 +4,16 @@
  */
 import { useEffect, useState } from 'react'
 import type { SettingsProps } from '../Settings'
+import { useT } from '../i18n'
 import { Group, Row, useSaid } from './ui'
 
 export function AdvancedPage(_props: SettingsProps) {
+  const t = useT()
   const said = useSaid()
   const [dir, setDir] = useState('')
   useEffect(() => void window.cn.dataDir().then(setDir), [])
   return (
-    <Group title="这台Mac上的东西">
+    <Group title={t('这台Mac上的东西')}>
       <Row
         id="cfgDir"
         desc={
@@ -19,7 +21,7 @@ export function AdvancedPage(_props: SettingsProps) {
             <span className="sa-path" title={dir}>
               {dir.replace(/^\/Users\/[^/]+/, '~')}
             </span>
-            <span className="sa-line">设置、对话截图、意思索引</span>
+            <span className="sa-line">{t('设置、对话截图、意思索引')}</span>
           </>
         }
       >
@@ -28,10 +30,10 @@ export function AdvancedPage(_props: SettingsProps) {
           className="sa-btn"
           onClick={() => {
             void window.cn.revealDataDir()
-            said.say('在访达里打开了软件设置目录')
+            said.say(t('在访达里打开了软件设置目录'))
           }}
         >
-          在访达里看
+          {t('在访达里看')}
         </button>
       </Row>
     </Group>

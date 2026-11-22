@@ -1,14 +1,18 @@
 /**
  * 右栏网页预加载（隔离环境）里给「读」用的两件事：
  * 1. 阅读视图：界面要正文时，用 Readability 抽正文，拆成一块块（标题、段落、列表项、公式、图），交给中间栏的对照读（spec 2.4）。
- * 2. 框一块问：按住 ⌘ 在网页上拖一个框（和 PDF 一样），松手后框下面出黑色工具条，把框的位置、框里的字和网址交给界面（spec 3「网页上问」）。
- *    框和工具条画在一个关着的 shadow DOM 里，网页的样式碰不到，网页自己的脚本也看不到。
+ * 2. 框一块问：按住 ⌘ 在网页上拖一个框（和 PDF 一样），松手后框下面出黑色工具条，把框的位置、框里的字、上面的小标题和网址交给界面（spec 3「网页上问」）。
+ *    工具条和别处框一块、选字的一个样（task-6cxtc）：讲解一下 ↵ · 翻译 + 讲一讲 · 引用 ⌘↵ ｜ ⋯（拷贝这块、翻译设置…）· ×。
+ *    框和工具条画在 shadow DOM 里，网页的样式碰不到。
  */
 import { codiconSvg } from '@cn/design/codicon-svg'
 import { Readability } from '@mozilla/readability'
 import { ipcRenderer } from 'electron'
+import { defaultKeysOf } from '../shared/cmd-table'
 import type { ReaderBlock, ReaderPage, WebBox } from '../shared/web-reader'
 import { aiLogoHtml, onAiLogo } from './ai-logo'
+import { isPageKey, onPageKeys, pageKey } from './page-keys'
+import { headAbove } from './webview-head'
 import { fixLazyImages, stripNoise } from './webview-page'
 
 // ---------------------------------------------------------------- 阅读视图
@@ -103,49 +107,95 @@ ipcRenderer.on('cn:reader', (_e, id: number) => {
 // ---------------------------------------------------------------- 框一块问
 
 let host: HTMLDivElement | null = null
+let root: ShadowRoot | null = null
 let frame: HTMLDivElement | null = null
 let bar: HTMLDivElement | null = null
+let menu: HTMLDivElement | null = null
 let start: { x: number; y: number } | null = null
 let boxed: WebBox | null = null
 
 const LANG = codiconSvg('whole-word')
-const PEN = codiconSvg('edit')
+const COMMENT = codiconSvg('comment')
+const MORE = codiconSvg('ellipsis')
 const X = codiconSvg('close')
+const COPY = codiconSvg('copy')
+const GEAR = codiconSvg('settings-gear')
+
+const kbd = (k: string | null) => (k ? `<kbd>${k.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)}</kbd>` : '')
 
 function ensure() {
   if (host) return
   host = document.createElement('div')
+  host.id = 'cn-box-host'
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none'
-  const root = host.attachShadow({ mode: 'closed' })
+  root = host.attachShadow({ mode: 'open' })
   root.innerHTML = `<style>
     .fr{position:fixed;display:none;border:1.5px solid #9a48ad;background:rgba(154,72,173,.12);border-radius:3px}
     .cap{position:fixed;display:none;align-items:center;gap:2px;height:32px;padding:0 4px;border-radius:999px;background:#111113;color:#fff;
       font:500 12px/1 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;white-space:nowrap;box-shadow:0 8px 24px rgba(0,0,0,.18);pointer-events:auto}
     button{height:24px;border:0;border-radius:999px;padding:0 10px;display:flex;align-items:center;gap:6px;background:none;color:inherit;font:inherit;cursor:pointer}
-    button:hover{background:rgba(127,127,127,.25)}
-    .k{opacity:.6;font-size:11px}
+    button:hover,button.on{background:rgba(127,127,127,.25)}
+    .cap .icon{padding:0 7px}
+    kbd{margin-left:2px;padding:2px 5px;border-radius:4px;background:rgba(255,255,255,.14);font:11px/1 -apple-system,BlinkMacSystemFont,sans-serif;color:rgba(255,255,255,.86)}
     .sep{width:1px;height:14px;background:currentColor;opacity:.2}
     svg,img{width:14px;height:14px;flex:none}
-  </style><div class="fr"></div><div class="cap" role="toolbar" aria-label="框好的这块">
-    <button data-k="explain">讲解一下 <span class="k">↵</span></button><button data-k="translate">${LANG}翻译 + 讲一讲</button><button data-k="rephrase">${PEN}改问法</button><span class="sep"></span><button data-k="cancel" aria-label="取消">${X}</button></div>`
+    .menu{position:fixed;display:none;min-width:200px;padding:6px;border-radius:10px;background:#1c1c1e;color:#fff;pointer-events:auto;
+      font:400 13px/1 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;box-shadow:0 0 0 1px rgba(255,255,255,.08),0 12px 32px rgba(0,0,0,.35)}
+    .menu button{width:100%;height:32px;padding:0 10px;border-radius:6px;gap:10px;justify-content:flex-start;font-weight:400}
+  </style><div class="fr"></div><div class="cap" role="toolbar" aria-label="框好的这块"><button data-k="explain"></button><button data-k="translate">${LANG}翻译 + 讲一讲</button><button data-k="quote"></button><span class="sep"></span><button class="icon" data-k="more" aria-label="更多" aria-haspopup="menu">${MORE}</button><button class="icon" data-k="cancel" aria-label="取消">${X}</button></div><div class="menu" role="menu" aria-label="这块还能做什么"><button role="menuitem" data-k="copy">${COPY}拷贝这块</button><button role="menuitem" data-k="settings">${GEAR}翻译设置…</button></div>`
   frame = root.querySelector('.fr')
   bar = root.querySelector('.cap')
-  // 「讲解一下」交给 AI 对话那一家：前面画它的标志（同 PDF 框一块的浮条），换了引擎跟着换
-  const explain = root.querySelector<HTMLButtonElement>('button[data-k="explain"]')!
-  const drawExplain = () => (explain.innerHTML = `${aiLogoHtml('chat') ?? ''}讲解一下 <span class="k">↵</span>`)
-  drawExplain()
-  onAiLogo(drawExplain)
+  menu = root.querySelector('.menu')
+  draw()
+  onAiLogo(draw)
+  onPageKeys(draw)
   for (const b of Array.from(root.querySelectorAll('button'))) {
     b.addEventListener('mousedown', (e) => e.preventDefault())
     b.addEventListener('click', (e) => {
       e.preventDefault()
       const k = (b as HTMLElement).dataset.k
-      if (k === 'cancel') return clear(true)
-      if (boxed) ipcRenderer.sendToHost('cn:read:box', { ...boxed, action: k })
-      clear(false)
+      if (k === 'more') return toggleMenu()
+      act(k as BoxKey)
     })
   }
   document.documentElement.appendChild(host)
+}
+
+/** 「讲解一下」交给 AI 对话那一家：前面画它的标志（同 PDF 框一块的浮条），换了引擎跟着换；「引用」的键照命令表 */
+function draw() {
+  if (!root) return
+  root.querySelector('[data-k="explain"]')!.innerHTML = `${aiLogoHtml('chat') ?? COMMENT}讲解一下${kbd(defaultKeysOf('enter')[0] ?? null)}`
+  root.querySelector('[data-k="quote"]')!.innerHTML = `${COMMENT}引用${kbd(pageKey('quote-selection'))}`
+}
+
+type BoxKey = 'explain' | 'translate' | 'quote' | 'copy' | 'settings' | 'cancel'
+
+/**
+ * 工具条上点了一颗（或按了它的键）：交给界面，带上工具条在哪。讲解、翻译、引用以后框和工具条由界面收起（cn:read:clear）：
+ * 还没定记到哪篇时界面先问一句，这时框和工具条留着、弹层贴在工具条下面，取消了照旧留着；拷贝、翻译设置留着框
+ */
+function act(k: BoxKey) {
+  closeMenu()
+  if (k === 'cancel') return clear(true)
+  const r = bar?.getBoundingClientRect()
+  if (boxed) ipcRenderer.sendToHost('cn:read:box', { ...boxed, action: k, ...(r && r.width ? { bar: { x: r.left, y: r.top, w: r.width, h: r.height } } : {}) })
+}
+
+function toggleMenu() {
+  if (!menu || !bar || !root) return
+  if (menu.style.display === 'block') return closeMenu()
+  menu.style.display = 'block'
+  const more = root.querySelector('[data-k="more"]')!
+  more.classList.add('on')
+  const b = bar.getBoundingClientRect()
+  const m = more.getBoundingClientRect()
+  menu.style.left = `${Math.max(4, m.right - menu.offsetWidth)}px`
+  menu.style.top = `${b.bottom + 6 + menu.offsetHeight > innerHeight ? b.top - 6 - menu.offsetHeight : b.bottom + 6}px`
+}
+
+function closeMenu() {
+  if (menu) menu.style.display = 'none'
+  root?.querySelector('[data-k="more"]')?.classList.remove('on')
 }
 
 function place(x0: number, y0: number, x1: number, y1: number) {
@@ -157,25 +207,28 @@ function place(x0: number, y0: number, x1: number, y1: number) {
   frame.style.height = `${Math.abs(y1 - y0)}px`
 }
 
-/** 框里的字：和框相交的文字节点 */
-function textIn(r: { x: number; y: number; w: number; h: number }): string {
+/** 框里的字：和框相交的文字节点；first 是第一个（找它上面的小标题） */
+function textIn(r: { x: number; y: number; w: number; h: number }): { text: string; first: Node | null } {
   const out: string[] = []
+  let first: Node | null = null
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
   const range = document.createRange()
   for (let n = walker.nextNode(); n && out.join(' ').length < 4000; n = walker.nextNode()) {
     const t = n.textContent ?? ''
-    if (!t.trim()) continue
+    if (!t.trim() || n.parentElement?.closest('#cn-clip-host, #cn-box-host, #cn-mark-host')) continue
     range.selectNodeContents(n)
     const b = range.getBoundingClientRect()
     if (b.right < r.x || b.left > r.x + r.w || b.bottom < r.y || b.top > r.y + r.h || !b.width) continue
+    first ??= n
     out.push(t.trim())
   }
-  return norm(out.join(' '))
+  return { text: norm(out.join(' ')), first }
 }
 
 function clear(tell: boolean) {
   boxed = null
   start = null
+  closeMenu()
   if (frame) frame.style.display = 'none'
   if (bar) bar.style.display = 'none'
   if (tell) ipcRenderer.sendToHost('cn:read:box', { action: 'cancel' })
@@ -189,6 +242,8 @@ if (location.protocol === 'http:' || location.protocol === 'https:' || location.
     'pointerdown',
     (e) => {
       down = e.metaKey && e.button === 0 ? { x: e.clientX, y: e.clientY } : null
+      // 点了「⋯」菜单以外：菜单收起
+      if (menu?.style.display === 'block' && host && !e.composedPath().includes(host)) closeMenu()
     },
     true,
   )
@@ -223,11 +278,13 @@ if (location.protocol === 'http:' || location.protocol === 'https:' || location.
       const h = Math.abs(e.clientY - s.y)
       if (w < 14 || h < 14) return clear(false)
       const r = { x: Math.min(s.x, e.clientX), y: Math.min(s.y, e.clientY), w, h }
-      boxed = { rect: r, text: textIn(r), url: location.href, title: document.title, vw: window.innerWidth, vh: window.innerHeight }
+      const got = textIn(r)
+      const head = headAbove(got.first)
+      boxed = { rect: r, text: got.text, url: location.href, title: document.title, vw: window.innerWidth, vh: window.innerHeight, ...(head ? { head } : {}) }
       if (bar) {
         bar.style.display = 'flex'
         const below = r.y + h + 8
-        bar.style.left = `${Math.max(4, Math.min(r.x, window.innerWidth - 360))}px`
+        bar.style.left = `${Math.max(4, Math.min(r.x, window.innerWidth - bar.offsetWidth - 4))}px`
         bar.style.top = `${below + 32 > window.innerHeight ? Math.max(4, r.y - 40) : below}px`
       }
       // 框好就把图交给界面：右栏 AI 输入框里先放好截图
@@ -246,7 +303,24 @@ if (location.protocol === 'http:' || location.protocol === 'https:' || location.
     },
     true,
   )
-  window.addEventListener('keydown', (e) => e.key === 'Escape' && boxed && clear(true), true)
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (!boxed) return
+      if (e.key === 'Escape') return clear(true)
+      // 框着、焦点还在网页里：⌘↵ 引用（同选字的小条），↵ 讲解一下
+      if (isPageKey(e, 'quote-selection')) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        act('quote')
+      } else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing) {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        act('explain')
+      }
+    },
+    true,
+  )
   // 右栏下格开了 AI，网页变矮：工具条放回看得见的地方（框下面放不下就放上面，再不行贴底）
   window.addEventListener('resize', () => {
     if (!boxed || !bar) return

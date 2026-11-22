@@ -1,5 +1,5 @@
 /** 拍导图的接口：preload 暴露成 window.cnMap（实现在 main/mindmap/） */
-import type { PlaceRequest, Recognition, StagedPhoto } from './mindmap'
+import type { PlaceRequest, Placed, Recognition, StagedPhoto } from './mindmap'
 
 export interface CnMapApi {
   /** 摄像头授权：granted / denied / restricted / not-determined */
@@ -17,8 +17,11 @@ export interface CnMapApi {
   /** AI 认照片；reqId 用来中途停 */
   recognize(reqId: number, photoId: string, course?: string): Promise<Recognition>
   stop(reqId: number): Promise<void>
-  /** 做成白板导图：照片进 附件/导图/，收件箱里新建导图白板，一次提交；返回白板的路径 */
-  place(req: PlaceRequest): Promise<string>
+  /**
+   * 做成白板导图：照片进 附件/导图/，新建导图白板，返回白板和照片的路径。没给 into：进收件箱，这里就一次提交；
+   * 给了 into：放在那一篇所在的文件夹、属性记上所属，不提交（界面插好链接后三样一起 boardCommit）
+   */
+  place(req: PlaceRequest): Promise<Placed>
   /** 窗口开着时看「下载」文件夹里新来的照片（隔空投送） */
   watchAirdrop(on: boolean): Promise<void>
   onAirdrop(cb: (photo: StagedPhoto) => void): () => void

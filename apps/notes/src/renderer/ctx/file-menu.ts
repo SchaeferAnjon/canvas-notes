@@ -73,6 +73,8 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
   return [
     { label: '新建笔记', accel: accelFor('new-note'), run: () => a.newNote(folder) },
     { label: '新建白板', run: () => a.newBoard(folder) },
+    // 「课程」上多一项（task-xy89o）：以前只有 ⌘K 里有
+    folder === '课程' && { label: '新建一门课', run: () => a.newCourse() },
     on.newFolder && { label: '新建文件夹', run: () => on.newFolder!() },
     '-',
     { label: '打开首页', run: () => a.openFolderHere(folder) },

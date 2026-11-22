@@ -4,6 +4,7 @@ import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
 import { gitAct, launch, openNote, pane, rail, tabOn, webMore } from './app'
 import { armMenus, clipboardText, enabledOf, menuLabels, openedMenu, pickMenu } from './menu'
+import { fragmentUrl, sourceLabel } from '../src/shared/web-link'
 
 // 右栏网页里的右键：链接、图、选的字、输入框、空白处各有各的项；点了真的做
 
@@ -91,7 +92,9 @@ test('网页：链接右键「在中间栏打开」「剪进收件箱」「拷�
   }
 })
 
-test('网页：选了字右键「剪成卡片」进收件箱、「剪进文档」插到光标处、「问 AI」放进输入框', async () => {
+// task-6cxtc 起右键「剪进文档」和小条的「剪藏」走同一个剪藏：这个网站还没和哪篇配对时先问「记到哪篇」，「记到这篇」顺手配成一对，
+// 再插到光标处，来源一行是回到这一段的链接，底栏「剪进《X》光标处」
+test('网页：选了字右键「剪成卡片」进收件箱、「剪进文档」（没配对先问记到哪篇）插到光标处、「问 AI」放进输入框', async () => {
   const run = await launch({ '读书.md': '# 读书\n\n第一段。\n' })
   const { page, vault } = run
   try {
@@ -105,7 +108,16 @@ test('网页：选了字右键「剪成卡片」进收件箱、「剪进文档�
     const m = await openedMenu(run)
     expect(menuLabels(m).slice(0, 5)).toEqual(['拷贝', '剪成卡片', '剪进文档', '翻译', '问 AI'])
     await pickMenu(run, '剪进文档')
-    await expect.poll(() => readFileSync(join(vault, '读书.md'), 'utf8')).toContain('> Seek wealth, not money or status.')
+    const dlg = page.getByRole('dialog', { name: '记到哪篇' })
+    await expect(dlg).toBeVisible()
+    await expect(dlg.getByRole('radio').nth(0)).toHaveAccessibleName(/读书/)
+    await expect(dlg.getByRole('radio').nth(0)).toBeChecked()
+    await dlg.getByRole('button', { name: /记到这篇/ }).click()
+    await expect(dlg).toHaveCount(0)
+    await expect(page.getByTestId('toast')).toContainText('剪进《读书》光标处')
+    const quote = 'Seek wealth, not money or status.'
+    const clipMd = `> ${quote}\n—— [${sourceLabel({ title: 'Rich', url: `${base}/rich` })}](${fragmentUrl(`${base}/rich`, quote)})`
+    await expect.poll(() => readFileSync(join(vault, '读书.md'), 'utf8')).toBe(`---\nread-along: ${base}/\n---\n# 读书\n\n第一段。\n\n${clipMd}\n\n`)
 
     await guest(page, `(() => { const r = document.createRange(); r.selectNodeContents(document.getElementById('p1')); getSelection().removeAllRanges(); getSelection().addRange(r) })()`)
     await rightClick(page, 'p1')

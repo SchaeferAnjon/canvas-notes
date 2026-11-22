@@ -181,7 +181,7 @@ for (const frame of ['b', 'a'] as const) {
       await leftView(page, '梦游报告')
       await panel.getByRole('button', { name: '现在梦游' }).click()
       await expect(panel.getByTestId('dream-summary')).toContainText('整理了', { timeout: 60_000 })
-      await panel.getByRole('button', { name: '预览' }).click()
+      await panel.getByRole('button', { name: '在树里看' }).click()
       const bar = page.getByTestId('preview-bar')
       await expect(bar).toBeVisible()
       const btn = bar.getByRole('button', { name: /退出预览/ })

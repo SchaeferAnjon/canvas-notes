@@ -3,11 +3,12 @@
  * - 引文下面隔一个空行、以「我的评价：」或「微信读书的想法：」开头的一段挂在这条引文上：标签画成小块（文件里的冒号藏起来），
  *   从引文竖线拐下来一道弯钩连到它；一条引文下面可以挂好几段（微信读书的想法在前，我的评价在后）。
  * - 鼠标移到一条还没挂评价、想法的引文上，右下角出一颗「写评价」；点了在下面开一段「我的评价」，光标就在里面（灰字「写下你对这一段的看法…」）。
- *   回车写完，光标落到下面新的一段；什么都没写按 esc、点别处，这一段消失，不留空标签。光标在引文里按 ⌘↵ 也能开。
+ *   回车写完，光标落到下面新的一段；什么都没写按 esc、点别处，这一段消失，不留空标签。光标在引文里按 ⌘↵、紧跟在引文后面按 Tab 也能开（Tab 开的空评价按 ⇧Tab 撤掉，task-busas）。
  * - 没写评价的引文下面什么都不多（偏好 `引用别塞评价占位`）。
  * 存进文件就是引文下面一段普通文字「我的评价：…」，Obsidian 里也看得懂。标签那几个字是藏起来的语法（hidden-syntax）：打字、删除碰不到，光标停不进去。
  */
 import { codiconEl } from '@cn/design'
+import { syntaxTree } from '@codemirror/language'
 import { type EditorState, Prec, type Range, StateEffect, StateField, type Text, Transaction } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { isBookDigest } from '../shared/plugins/weread'
@@ -442,6 +443,75 @@ function backspaceInReview(view: EditorView): boolean {
   const hit = caretItem(view.state)
   if (!hit || view.state.selection.main.head !== hit.it.tagTo) return false
   if (hit.it.empty) dropEmpty(view, hit.it, hit.it.from)
+  return true
+}
+
+/**
+ * Tab 写评价（task-busas）：光标紧跟在哪条引文（剪进来的摘录）后面。算紧跟的：光标在引文里（不算提示块），
+ * 或者在它（连同挂着的评价、想法）下面、中间至多隔一个空行、还没打字的空行上（剪进来以后光标就停在这里）。
+ * 回车再起一行（隔了两个空行）就不算了，Tab 是普通的缩进
+ */
+export function quoteForTab(state: EditorState): QuoteGroup | null {
+  const sel = state.selection.main
+  if (!sel.empty) return null
+  const groups = reviewsOf(state).groups.filter((g) => isExcerpt(state, g))
+  const inside = groups.find((g) => sel.head >= g.from && sel.head <= g.to)
+  if (inside) return inside
+  const doc = state.doc
+  const at = doc.lineAt(sel.head)
+  if (at.text.trim()) return null
+  for (let n = at.number - 1, blanks = 0; n >= 1 && blanks <= 1; n--) {
+    const l = doc.line(n)
+    if (!l.text.trim()) {
+      blanks++
+      continue
+    }
+    return groups.find((g) => (g.items.length ? g.items[g.items.length - 1]!.to : g.to) === l.to) ?? null
+  }
+  return null
+}
+
+/**
+ * 这一条是自己起一块的引文（剪进来的摘录就是：上面隔着空行）：提示块里「> 正文」那几行、时刻块里的「> 原文一句」
+ * 也是一行行的「>」，可它们是那一块的一部分，Tab 不给它们开评价
+ */
+function isExcerpt(state: EditorState, g: QuoteGroup): boolean {
+  const doc = state.doc
+  const first = doc.lineAt(g.from)
+  if (first.number > 1 && !/^(---)?\s*$/.test(doc.line(first.number - 1).text)) return false
+  const lead = first.from + first.text.search(/\S|$/)
+  for (let n: ReturnType<ReturnType<typeof syntaxTree>['resolveInner']> | null = syntaxTree(state).resolveInner(lead, 1); n; n = n.parent)
+    if (n.name === 'Blockquote') return n.from === lead && n.parent?.name === 'Document'
+  return false
+}
+
+/** Tab：光标紧跟在一条引文后面，给它开一段「我的评价」（已经有的光标到那一段末尾）；不归这里返回 false */
+export function tabToReview(view: EditorView): boolean {
+  if (view.state.readOnly) return false
+  const g = quoteForTab(view.state)
+  if (!g) return false
+  openReview(view, g)
+  return true
+}
+
+/**
+ * ⇧Tab：光标在一段还没写字的「我的评价」里：撤掉它，光标回到摘录后面（剪进来时停的那一行还在就回那一行，不然到引文末尾）。
+ * 写了字的不撤（⇧Tab 不删字）；不归这里返回 false
+ */
+export function shiftTabOutOfReview(view: EditorView): boolean {
+  if (view.state.readOnly) return false
+  const hit = caretItem(view.state)
+  if (!hit || hit.it.kind !== 'me' || !hit.it.empty) return false
+  // 连同上面隔开的空行一起去掉；进撤销（文件里本来就有的空评价按了 ⇧Tab，⌘Z 能找回来）
+  const { it } = hit
+  const from = view.state.doc.sliceString(it.from - 2, it.from) === '\n\n' ? it.from - 2 : Math.max(0, it.from - 1)
+  view.dispatch({ changes: { from, to: it.to }, selection: { anchor: from }, annotations: hiddenOk.of(true), userEvent: 'delete.review' })
+  const doc = view.state.doc
+  const end = from
+  // 引文下面隔一个空行、还空着的那一行（剪进来时光标停的地方）
+  const below = doc.lineAt(end).number + 2
+  const back = below <= doc.lines && doc.line(below - 1).text === '' && doc.line(below).text === '' ? doc.line(below).from : end
+  view.dispatch({ selection: { anchor: back }, userEvent: 'select', scrollIntoView: true })
   return true
 }
 

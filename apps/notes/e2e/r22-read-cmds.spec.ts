@@ -118,7 +118,8 @@ test('PDF 在中间时在右栏开视频，回到文档点 AI 圆钮：到的是
     await expect(strip(page)).toBeVisible()
     await page.getByRole('button', { name: '打开 AI', exact: true }).first().click()
     await expect(rchat(page)).toBeVisible()
-    await expect(rchat(page).getByTestId('reading-sees')).toContainText(`watch?v=${FAKE_VIDEO_ID}`)
+    // 看得到写这个视频叫什么（task-6cxtc：写页面的名字，不写整串网址；也不是网址最后一截「watch」）
+    await expect(rchat(page).getByTestId('reading-sees')).toHaveText(/网页 · Linear transformations and matrices/)
     await rbox(page).click()
     await page.keyboard.type('/')
     await expect(menu(page)).toBeVisible()
@@ -208,7 +209,8 @@ test('读 PDF、看视频那一格里命令结果下面：没有「还是不懂�
     await page.getByTestId('tab-list').locator('.tab', { hasText: '第3讲 线性映射.pdf' }).getByRole('button', { name: '关闭标签' }).click()
     await openVideo(page)
     await openAi(page)
-    await expect(rchat(page).getByTestId('reading-sees')).toContainText(`watch?v=${FAKE_VIDEO_ID}`)
+    // 看得到写这个视频叫什么（task-6cxtc：写页面的名字，不写整串网址；也不是网址最后一截「watch」）
+    await expect(rchat(page).getByTestId('reading-sees')).toHaveText(/网页 · Linear transformations and matrices/)
     await runCmd(page, '视频要点带时间')
     msg = rlast(page)
     await expect(msg.getByTestId('ai-change')).toBeVisible({ timeout: 30_000 })

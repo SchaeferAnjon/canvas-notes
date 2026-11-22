@@ -241,20 +241,19 @@
   color: var(--t3);
 }
 
-/* AI 回答里的表格（DESIGN.v3 6.5）：放不下时表自己横着滚，不撑宽面板 */
-.md .md-table {
-  max-width: 100%;
-  overflow-x: auto;
-}
+/* AI 回答里的表格（DESIGN.v3 6.5）：放不下时表自己横着滚，不撑宽面板（.scroll-x） */
 .md .md-table table {
+  /* 格子里的长词照常不断（宽了整张表在自己的框里滚），不随 .md 的 anywhere 一字一断 */
+  overflow-wrap: normal;
   border-collapse: collapse;
   font-size: 13px;
   line-height: 1.5;
 }
 .md .md-table th,
 .md .md-table td {
-  /* 窄的卡、窄的 AI 栏里不挤成一字一行（task-c22p9）：每格至少 4em，放不下就横着滚 */
-  min-width: 4em;
+  /* 窄的卡、窄的 AI 栏里不挤成一字一行（task-c22p9）：每格的字至少 4em 宽（再加左右内边距 20），放不下就横着滚；
+     以前 min-width 4em 连内边距一起算，字只剩 32px，「第一行」三个字折成两行（task-83vl3 复审） */
+  min-width: calc(4em + 20px);
   padding: 6px 10px;
   border: 1px solid var(--line2);
   text-align: left;
@@ -452,4 +451,40 @@
   margin-top: 4px;
   font-size: 12px;
   color: var(--t2);
+}
+
+/* 回答下面一排：拷贝 · 插进文档 · 引用再问（task-83vl3）。样子同读 PDF 讲解卡下面那排（btn-xs：24 高、图标 12 + 12px 字、间距 6），
+   窄了折行；最新那条一直露着，之前的悬停那条回答、Tab 走到这一排才露（位置一直占着，露出来下面的字不跳） */
+.am .ans-acts {
+  flex-wrap: wrap;
+}
+.am .ans-acts:not(.on) {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.am:hover .ans-acts,
+.am .ans-acts:focus-within {
+  opacity: 1;
+}
+/* 中间没开文档时「插进文档」变淡（.btn[aria-disabled] 的 0.45），但还能悬停看提示为什么点不了 */
+.am .ans-acts .btn[aria-disabled='true'] {
+  pointer-events: auto;
+  cursor: default;
+}
+.am .ans-acts .btn[aria-disabled='true']:hover,
+.am .ans-acts .btn[aria-disabled='true']:active {
+  background: var(--card);
+}
+/* 文档里点「回到 AI 对话」滚到的那条回答：铺一层 --acc-soft，1.6 秒淡掉 */
+.am.jumped {
+  animation: ans-jumped 1.6s ease-out;
+  border-radius: 8px;
+}
+@keyframes ans-jumped {
+  from {
+    background: var(--acc-soft);
+  }
+  to {
+    background: transparent;
+  }
 }

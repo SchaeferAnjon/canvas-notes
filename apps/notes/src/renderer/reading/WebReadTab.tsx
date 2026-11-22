@@ -73,7 +73,7 @@ export function WebReadTab(props: { url: string; title: string; active: boolean;
     if (!page || saving) return
     try {
       setSaving('在翻…')
-      await request(key, want, null)
+      await request(key, want)
       for (let i = 0; i < 3000 && want.some((b) => trOf(key)[hashOf(b.text)]?.state === 'wait'); i++) await new Promise((r) => setTimeout(r, 100))
       setSaving('在写…')
       const tr = trOf(key)
@@ -132,7 +132,7 @@ export function WebReadTab(props: { url: string; title: string; active: boolean;
             onOpenSaved={props.onOpenNote}
           />
           <div className="pdfbody">
-            <ReflowView srcKey={key} groups={groups} mode={mode} course={null} />
+            <ReflowView srcKey={key} groups={groups} mode={mode} />
           </div>
         </>
       ) : (

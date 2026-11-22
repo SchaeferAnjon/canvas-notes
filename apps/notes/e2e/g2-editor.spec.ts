@@ -6,10 +6,12 @@ import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
-import { acts, editorText, launch, openNote, pane, rail, shownText, waitSaved } from './app'
+import { acts, editorText, launch, openNote, pane, rail, shownText, waitSaved, widenRight } from './app'
 import { EDITOR_FILES } from './fixtures/editor-doc'
 import { solidPng } from './fixtures/png'
 import { armMenus, menuLabels, openedMenu, pickMenu } from './menu'
+import { fragmentUrl, sourceLabel } from '../src/shared/web-link'
+import { webAskBlock } from '../src/shared/web-notes'
 
 let server: Server
 let base: string
@@ -136,7 +138,7 @@ test('CN-86 光标从下面走进问答块也一直是卡片：↑ 跨过整块�
       await expect(page.getByRole('menu', { name: '块菜单' })).toBeVisible({ timeout: 1000 })
     }).toPass({ timeout: 10_000 })
     const bmenu = page.getByRole('menu', { name: '块菜单' })
-    await expect(bmenu.getByRole('menuitem')).toHaveText(['改写法', '复制一块⌘D', '问 AI 这一块', '删除⌫'])
+    await expect(bmenu.getByRole('menuitem')).toHaveText(['改写法', '上移⌥⇧↑', '下移⌥⇧↓', '复制一块⌘D', '问 AI 这一块', '删除⌫'])
     await bmenu.getByRole('menuitem', { name: '改写法' }).click()
     const raw = pane(page).getByRole('textbox', { name: '这一块的写法' })
     await expect(raw).toBeFocused()
@@ -188,9 +190,12 @@ async function guestRect(page: Page, code: string) {
   return { x: w.x + r.x + r.width / 2, y: w.y + r.y + r.height / 2 }
 }
 
+// task-6cxtc 起小条第一颗是「讲解一下」，剪藏是「剪藏 ⌘S」（button.clip）；这个网站还没和哪篇配对，第一次剪先问「记到哪篇」，
+// 点「记到这篇」顺手给这篇写上 read-along 配成一对，然后才剪进光标处；来源一行是「小标题 · 书名」+ 回到这一段的链接
 test('CN-13 / CN-17 / CN-58 剪进文档：只有左边一道竖线、没有框；不点文档直接回车打字；出处行是链接不露网址', async () => {
   const run = await launch({ '所思所想.md': '# 所思所想\n\n财富是靠专长、杠杆。\n\n最后一段。\n' })
   const { page, vault } = run
+  const label = sourceLabel({ title: '雷克雅未克 - 维基百科', url: `${base}/wiki` })
   try {
     await openNote(page, '所思所想')
     await line(page, '财富是靠专长').click()
@@ -210,23 +215,29 @@ test('CN-13 / CN-17 / CN-58 剪进文档：只有左边一道竖线、没有框�
     const ip = pane(page).locator('.cm-insertpoint')
     await expect(ip).toBeVisible()
     expect(await ip.evaluate((e) => getComputedStyle(e).opacity)).toBe('0.45')
-    const b = await guestRect(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button')`)
+    const b = await guestRect(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button.clip')`)
     await page.mouse.click(b.x, b.y)
-    await expect(page.locator('.toast-cn')).toContainText('插到「所思所想」光标处')
+    const dlg = page.getByRole('dialog', { name: '记到哪篇' })
+    await expect(dlg).toBeVisible()
+    await expect(dlg.getByRole('radio').nth(0)).toBeChecked()
+    await expect(dlg.getByRole('radio').nth(0)).toHaveAccessibleName(/所思所想/)
+    await dlg.getByRole('button', { name: /记到这篇/ }).click()
+    await expect(dlg).toHaveCount(0)
+    await expect(page.locator('.toast-cn')).toContainText('剪进《所思所想》光标处')
     // 0.3 秒内：只有一道竖线，没有任何外圈
     await expect(pane(page).locator('.cm-flashbar:not([hidden])')).toHaveCount(1)
     const rings = await pane(page).evaluate((el) => Array.from(el.querySelectorAll('.cm-content, .cm-content *')).filter((e) => /0px 0px 0px 2px/.test(getComputedStyle(e).boxShadow)).length)
     expect(rings).toBe(0)
     const bar = (await pane(page).locator('.cm-flashbar').boundingBox())!
     const q = (await line(page, 'Seek wealth').boundingBox())!
-    const src = (await line(page, '雷克雅未克 - 维基百科').boundingBox())!
+    const src = (await line(page, label).boundingBox())!
     expect(bar.width).toBe(2)
     expect(bar.x).toBeLessThan(q.x)
     expect(Math.abs(bar.y - q.y)).toBeLessThan(4)
     expect(Math.abs(bar.y + bar.height - (src.y + src.height))).toBeLessThan(4)
     await page.screenshot({ path: 'test-results/g2-13-flashbar.png' })
     // 出处行：链接，不露 ]( 和百分号网址
-    const srcText = (await line(page, '雷克雅未克 - 维基百科').textContent())!
+    const srcText = (await line(page, label).textContent())!
     expect(srcText).not.toContain('](')
     expect(srcText).not.toContain('%')
     // 2.5 秒后竖线没了
@@ -236,12 +247,14 @@ test('CN-13 / CN-17 / CN-58 剪进文档：只有左边一道竖线、没有框�
     await page.keyboard.type('x')
     await waitSaved(page)
     const md = readFileSync(join(vault, '所思所想.md'), 'utf8')
-    expect(md).toBe(`# 所思所想\n\n财富是靠专长、杠杆。\n\n> Seek wealth, not money or status.\n—— [雷克雅未克 - 维基百科](${base}/wiki)\n\n\nx\n\n最后一段。\n`)
+    const quote = 'Seek wealth, not money or status.'
+    const srcMd = `[${label}](${fragmentUrl(`${base}/wiki`, quote)})`
+    expect(md).toBe(`---\nread-along: ${base}/\n---\n# 所思所想\n\n财富是靠专长、杠杆。\n\n> ${quote}\n—— ${srcMd}\n\n\nx\n\n最后一段。\n`)
     expect(await guest(page, `document.body.innerText.includes('x\\n') || document.activeElement?.tagName`)).not.toBe(true)
     // 光标走到链接文字上：后面什么都不露（cmdk 方案 A：CN-58 的域名小块拿掉了，网址在指着出的链接卡上）
-    await line(page, '雷克雅未克 - 维基百科').click({ position: { x: 60, y: 8 } })
+    await line(page, label).click({ position: { x: 60, y: 8 } })
     await expect(pane(page).locator('.cm-urlchip')).toHaveCount(0)
-    expect(await line(page, '雷克雅未克 - 维基百科').textContent()).not.toContain('127.0.0.1')
+    expect(await line(page, label).textContent()).not.toContain('127.0.0.1')
     expect(await editorText(page)).toBe(md)
   } finally {
     await run.close()
@@ -281,6 +294,72 @@ test('CN-59 / CN-25 提示块画成带图标的块、折叠块画成一行能点
     await expect(line(page, 'AI 的第一句讲解')).toBeVisible()
     await page.waitForTimeout(1200)
     expect(readFileSync(join(vault, '未命名 3.md'), 'utf8')).toBe(EDITOR_FILES['未命名 3.md'] + ai)
+  } finally {
+    await run.close()
+  }
+})
+
+test('task-6cxtc 复审 7（和 task-83vl3 合成一套，md-widgets.ts calloutWidgets）：提示块（[!ai]）里的围栏代码和表格照块外的画：看不到 ``` 和 |---、行首「> 」；代码是等宽的一块，表格画成表格；点进代码那一行光标在代码里、露原文，点表格露原文，点出去又画回去；打开再保存文件不变', async () => {
+  const ai = [
+    '',
+    '> [!ai] 讲解一下 · Claude Code · Opus 5.5 · [2.2.1 读取数据集 ↩](http://127.0.0.1:9/pandas.html#:~:text=a)',
+    '> 先看代码：',
+    '>',
+    '> ```python',
+    '> import pandas as pd',
+    '> data = pd.read_csv(data_file)',
+    '> ```',
+    '>',
+    '> | NumRooms | Alley | Price |',
+    '> |----|----|----|',
+    '> | NA | Pave | 127500 |',
+    '> | 2 | NA | 106000 |',
+    '>',
+    '> 读回来就是这张表。',
+    '',
+    '块外的一段。',
+    '',
+  ].join('\n')
+  const md = EDITOR_FILES['未命名 3.md'] + ai
+  const run = await launch({ ...EDITOR_FILES, '未命名 3.md': md })
+  const { page, vault } = run
+  try {
+    await openNote(page, '未命名 3')
+    await pane(page).locator('.body:has(.cm-editor)').evaluate((e) => (e.scrollTop = e.scrollHeight))
+    await expect(line(page, '读回来就是这张表')).toBeVisible()
+    await line(page, '块外的一段').click()
+    await page.screenshot({ path: 'test-results/g2-callout-code-table.png' })
+    const shown = await shownText(page)
+    for (const raw of ['```', '|---', '|----|', '| NumRooms', '> import']) expect(shown).not.toContain(raw)
+    // 代码：两行画成等宽的一块（--card 底），行首没有「>」
+    const code = pane(page).locator('.cm-inquote-code')
+    await expect(code).toHaveCount(1)
+    expect(await code.evaluate((e) => (e as HTMLElement).innerText.trim())).toBe('import pandas as pd\ndata = pd.read_csv(data_file)')
+    expect(await code.evaluate((e) => getComputedStyle(e).fontFamily)).toMatch(/mono|Menlo|SF Mono|monospace/i)
+    // 块里有表格（块部件把看得见的范围隔成两段）时块头也只画一遍：名字一层、整个露着（以前套两层被截成「讲…」）
+    const head = pane(page).locator('.cm-callout-ai.cm-callout-head')
+    await expect(head.locator('.cm-callout-name')).toHaveCount(1)
+    expect(await head.locator('.cm-callout-name').evaluate((e) => e.scrollWidth <= e.clientWidth && e.getBoundingClientRect().width > 40)).toBe(true)
+    // 表格：3 个表头、6 个格子
+    const table = pane(page).locator('.cm-inquote .cm-table')
+    await expect(table).toHaveCount(1)
+    await expect(table.locator('th')).toHaveText(['NumRooms', 'Alley', 'Price'])
+    await expect(table.locator('td')).toHaveText(['NA', 'Pave', '127500', '2', 'NA', '106000'])
+    // 点进代码第一行：光标放进那一行原文、这一块露出原文能改；点出去又画回去
+    await code.click({ position: { x: 40, y: 18 } })
+    await expect.poll(() => caretLine(page)).toContain('import pandas as pd')
+    await expect(code).toHaveCount(0)
+    await line(page, '块外的一段').click()
+    await expect(code).toHaveCount(1)
+    // 点表格：露出原文，光标在表格里；点出去又是表格
+    await table.locator('td', { hasText: 'Pave' }).click()
+    await expect(line(page, '| NA | Pave | 127500 |')).toBeVisible()
+    await expect(table).toHaveCount(0)
+    await line(page, '块外的一段').click()
+    await expect(pane(page).locator('.cm-inquote .cm-table td')).toHaveCount(6)
+    await page.screenshot({ path: 'test-results/g2-callout-code-table-after.png' })
+    await page.waitForTimeout(1200)
+    expect(readFileSync(join(vault, '未命名 3.md'), 'utf8')).toBe(md)
   } finally {
     await run.close()
   }
@@ -690,6 +769,92 @@ test('CN-18 正文里按 Tab 光标不离开正文、字不变；列表里 Tab �
     await line(page, 'CoT：').click()
     await page.keyboard.press('Shift+Tab')
     await expect.poll(file).toBe(before)
+  } finally {
+    await run.close()
+  }
+})
+
+test('task-6cxtc 复审：[!ai] 块头固定两行：第一行「讲解一下」/「你问：原话」13/500 --t1，第二行「Claude Code · Opus 5.5 · 小标题 ↩」12 --t2、行首没有「·」；回到网页那一段的链接不断行，放不下先截小标题留住 ↩；md 一个字不变', async () => {
+  const url = 'http://127.0.0.1:9/chapter_preliminaries/pandas.html#:~:text=%E4%B8%8B%E9%9D%A2'
+  const ask = (label: string, head: string) =>
+    webAskBlock({ label, by: 'Claude Code · Opus 5.5', links: [{ text: `${head} ↩`, url }], quotes: ['下面我们将数据集按行写入CSV文件中。'], answer: '这段在准备练习用的数据。' })
+  const blocks = ['', ask('讲解一下', '2.2.1 读取数据集'), ask('你问：插值法和删除法各适合什么时候？', '2.2.2 处理缺失值'), ask('讲解一下', '2.2.3 转换为张量格式之前先把类别值变成两列再看看会怎样'), ''].join('\n\n')
+  const md = EDITOR_FILES['未命名 3.md'] + blocks
+  const run = await launch({ ...EDITOR_FILES, '未命名 3.md': md })
+  const { page, app, vault } = run
+  try {
+    // 中间栏窄（约 444，同截图里网页开在右边、右栏拉宽 270）：A 风格里「2.2.2 处理缺｜失值 ↩」拆在字中间那种宽度
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))
+    await openNote(page, '未命名 3')
+    await rail(page).getByRole('button', { name: '网页', exact: true }).click()
+    await widenRight(page, 270)
+    await pane(page).locator('.body:has(.cm-editor)').evaluate((e) => (e.scrollTop = e.scrollHeight))
+    const heads = pane(page).locator('.cm-callout-ai.cm-callout-head')
+    await expect(heads).toHaveCount(3)
+    for (let i = 0; i < 3; i++) {
+      await heads.nth(i).scrollIntoViewIfNeeded()
+      // 第三块小标题长：量好以后截（下一帧）
+      if (i === 2) await expect(heads.nth(i).locator('.cm-cut')).toHaveCount(1)
+      const m = await heads.nth(i).evaluate((h) => {
+        const name = h.querySelector('.cm-callout-name') as HTMLElement
+        const meta = h.querySelector('.cm-callout-meta') as HTMLElement
+        const links = [...meta.querySelectorAll('.cm-link')] as HTMLElement[]
+        const link = links[0]!
+        const mr0 = meta.getBoundingClientRect()
+        const cut = (link.closest('.cm-cut') ?? link.querySelector('.cm-cut')) as HTMLElement | null
+        const outer = cut && cut.contains(link) ? cut : link
+        const hr = h.getBoundingClientRect()
+        const nr = name.getBoundingClientRect()
+        const mr = meta.getBoundingClientRect()
+        const cs = (e: Element) => getComputedStyle(e)
+        const colorOf = (v: string) => {
+          const p = document.createElement('span')
+          p.style.color = `var(${v})`
+          h.appendChild(p)
+          const c = getComputedStyle(p).color
+          p.remove()
+          return c
+        }
+        return {
+          nameTitle: name.title,
+          nameH: nr.height,
+          nameLh: parseFloat(cs(name).lineHeight),
+          metaH: mr.height,
+          metaLh: parseFloat(cs(meta).lineHeight),
+          metaBelow: mr.top >= nr.bottom - 1,
+          nameFont: `${cs(name).fontSize}/${cs(name).fontWeight}`,
+          nameColor: cs(name).color === colorOf('--t1'),
+          metaFont: cs(meta).fontSize,
+          metaColor: cs(meta).color === colorOf('--t2') && links.every((l) => cs(l).color === colorOf('--t2')),
+          metaText: meta.innerText.trim(),
+          linkRects: links.map((l) => l.getClientRects().length),
+          // 链接的字是一整段（点「↩」、按字找都靠它）
+          linkText: link.textContent,
+          // ↩ 看得见：没截时是字里那个，截了是右端画的那个；整个链接在这一行里
+          backShown: (cut ? getComputedStyle(cut, '::after').content === '"↩"' : /↩$/.test(link.textContent ?? '')) && outer.getBoundingClientRect().right <= mr0.right + 0.5,
+          secCut: !!cut && cut.scrollWidth > cut.clientWidth + 1 && getComputedStyle(cut).textOverflow === 'ellipsis',
+        }
+      })
+      expect(m.nameH, `第 ${i + 1} 块第一行只占一行`).toBeLessThan(m.nameLh * 1.5)
+      expect(m.metaH, `第 ${i + 1} 块第二行只占一行`).toBeLessThan(m.metaLh * 1.5)
+      expect(m.metaBelow).toBe(true)
+      // 名字一行放不下时省略号，指着看全（你问的原话）
+      expect(m.nameTitle).toBe(i === 1 ? '你问：插值法和删除法各适合什么时候？' : '讲解一下')
+      expect(m.nameFont).toBe('13px/500')
+      expect(m.nameColor).toBe(true)
+      expect(m.metaFont).toBe('12px')
+      expect(m.metaColor).toBe(true)
+      expect(m.metaText.startsWith('Claude Code · Opus 5.5 · ')).toBe(true)
+      expect(m.linkRects.every((n) => n === 1)).toBe(true)
+      expect(m.backShown).toBe(true)
+      expect(m.linkText).toMatch(/^2\.2\.\d .+ ↩$/)
+      // 第三块小标题长：截小标题（省略号），↩ 还在
+      expect(m.secCut).toBe(i === 2)
+    }
+    await page.screenshot({ path: 'test-results/g2-ai-head.png' })
+    // 打开再保存文件不变
+    await page.waitForTimeout(1200)
+    expect(readFileSync(join(vault, '未命名 3.md'), 'utf8')).toBe(md)
   } finally {
     await run.close()
   }

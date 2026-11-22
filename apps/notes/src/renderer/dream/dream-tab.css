@@ -1,0 +1,602 @@
+/*
+ * 梦游对照（task-m552v）：尺寸、颜色照 demo /private/tmp/canvas-notes-dream/v2/proto.html 量的（.ihead .fstrip .fbar .move .cols .cell .fold .mm .hstrip）。
+ * 颜色只用主题变量。编辑器那一层：一行就是一段，整行淡绿 / 淡红、改的字更深，左边 3px 竖条（不用 ::before：引文的竖线已经占了）。
+ */
+.dt {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  outline: none;
+}
+
+/* ---------- 条目头 ---------- */
+.dt-head {
+  flex: none;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 16px;
+  align-items: start;
+  padding: 12px 20px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.dt-head .k {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dt-head .dt-nav {
+  display: flex;
+  gap: 2px;
+}
+.dt-head .dt-nav .iconbtn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--t2);
+}
+.dt-head h2 {
+  margin: 1px 0 0;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.dt-head .why {
+  grid-column: 1;
+  max-width: 72ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.dt-head .by {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dt-head .acts {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.dt-head .acts .r {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dt-head .hint {
+  font-size: 11.5px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.dt-head .chip-ok,
+.dt-head .chip-drop {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--green);
+  white-space: nowrap;
+}
+.dt-head .chip-drop {
+  color: var(--t3);
+}
+.dt-head .chip-ok code {
+  font: 11px var(--mono);
+}
+/* 中间窄于 900（和自动合一同一个宽度）：按钮挪到为什么下面（demo 1024 宽那张） */
+.dt.narrow .dt-head {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dt.narrow .dt-head .acts {
+  grid-column: 1;
+  grid-row: 6;
+  align-items: flex-start;
+  margin-top: 8px;
+}
+
+/* 历史里看的：头上一条 */
+.dt-hist {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.dt-hist .truncate {
+  min-width: 0;
+}
+.dt-link {
+  margin-left: auto;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--acc-t);
+  font: inherit;
+  cursor: pointer;
+}
+.dt-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------- 这条改的文件（不止一个时） ---------- */
+.dt-files {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+}
+.dt-files .lb {
+  margin-right: 2px;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.dt-chip {
+  flex: none;
+  max-width: 320px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+  font: 13px var(--sans);
+  white-space: nowrap;
+}
+.dt-chip:hover {
+  background: var(--fill);
+}
+.dt-chip.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.dt-chip .truncate {
+  min-width: 0;
+}
+.dt-chip .a {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 400;
+}
+.dt-chip .d {
+  color: var(--red-t);
+  font-size: 12px;
+  font-weight: 400;
+}
+.dt-chip .nt {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* ---------- 文件条 ---------- */
+.dt-fbar {
+  flex: none;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: var(--win);
+  font-size: 13px;
+}
+.dt-fbar > .ci,
+.dt-fbar > svg {
+  flex: none;
+  color: var(--t2);
+}
+.dt-fbar .nm {
+  flex: 0 1 auto;
+  max-width: 38%;
+  font-weight: 500;
+  color: var(--t1);
+}
+.dt-fbar .dir {
+  flex: 0 1 auto;
+  min-width: 40px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dt-fbar .say {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+.dt-fbar .dt-open {
+  flex: 0 1 auto;
+  max-width: 46%;
+  min-width: 0;
+}
+.dt-fbar .dt-open .truncate {
+  min-width: 0;
+}
+.dt-fbar .dt-open .kbd {
+  flex: none;
+  margin-left: 2px;
+  font-size: 11px;
+  color: var(--t3);
+}
+
+/* ---------- 挪动和改名 ---------- */
+.dt-move {
+  flex: none;
+  margin: 12px 20px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--fill);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: 12.5px;
+  color: var(--t1);
+}
+.dt-move .loc {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.dt-move .loc svg {
+  color: var(--t2);
+}
+.dt-move s,
+.dt-move .ar {
+  color: var(--t3);
+}
+.dt-move .to {
+  font-weight: 500;
+}
+.dt-move .note {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* ---------- 对照：滚动的那一块和右边的小地图 ---------- */
+.dt-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+.dt-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  position: relative;
+  /* 右边的小地图就是滚动条：自己的不画（不然内容和小地图之间空出一条） */
+  scrollbar-width: none;
+}
+.dt-scroll::-webkit-scrollbar {
+  display: none;
+}
+.dt-tail {
+  height: 40vh;
+}
+.dt .dt-diff .dt-cols {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 30px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(var(--fill), var(--fill)) var(--win);
+}
+.dt .dt-cols > span {
+  padding: 0 20px;
+}
+.dt .dt-cols.dup > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dt .dt-cols.dup b {
+  flex: none;
+  font-weight: 500;
+  color: var(--t1);
+}
+.dt .dt-cols.dup .btn {
+  margin-left: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 22px;
+}
+.dt .dt-cols.dup {
+  height: 36px;
+}
+
+/* 编辑器：只读，没有行号；一行就是一段，左右留 22 / 20 */
+.dt .dt-diff .doc {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+.dt .dt-diff .cm-editor {
+  font-size: 14px;
+  line-height: 1.75;
+}
+.dt .dt-diff.doc-look .cm-scroller {
+  font: 14px/1.75 var(--sans);
+}
+.dt .dt-diff .cm-content {
+  padding: 0 0 6px;
+}
+.dt .dt-diff .cm-line,
+.dt .dt-diff .cm-deletedChunk .cm-deletedLine {
+  padding: 0 20px 0 22px;
+}
+.dt .dt-diff .doc.doc .cm-h1 {
+  padding-left: 22px;
+  padding-right: 20px;
+}
+.dt .dt-diff .doc.doc .cm-quote {
+  padding-left: 40px !important;
+}
+.dt .dt-diff .doc.doc .cm-quote::before {
+  left: 22px;
+}
+/* 画成一整块的（图、表格、属性、嵌着的可视化）：和字一样左右留空 */
+.dt .dt-diff .cm-content > :not(.cm-line):not(.cm-mergeSpacer):not(.cm-deletedChunk):not(.dv-fold):not(.dv-del) {
+  padding-left: 22px;
+  padding-right: 20px;
+  box-sizing: border-box;
+}
+/* 两栏中间的分隔线画在右栏内容的左沿（不是编辑器的边框）：折叠条不透明，盖过它，两半看起来是横过两栏的一条 */
+.dt .dt-diff.dv-split .cm-mergeViewEditor + .cm-mergeViewEditor {
+  border-left: 0;
+}
+.dt .dt-diff.dv-split .cm-merge-b .cm-content {
+  box-shadow: inset 1px 0 0 var(--line);
+}
+/* 6 提示块（callout）和正文一样左 22 右 20 缩进（它自己有底色和圆角，靠外边距缩进） */
+.dt .dt-diff .cm-line.cm-callout {
+  margin: 0 20px 0 22px;
+}
+/* 4 段和段之间那一个空行（block-gaps.ts 压矮的）不算改动：不铺底、不画竖条 */
+.dt .dt-diff .cm-line.cm-gap.cm-changedLine,
+.dt .dt-diff .cm-line.cm-gap.dv-mark {
+  background: none;
+}
+/* 5 整段新加、整段删掉的：只铺段底，字上不再叠一层更深的 */
+.dt .dt-diff .cm-line.dv-pure .cm-changedText {
+  background: none;
+}
+/* 2 合一时删掉的段：@codemirror/merge 自己画的源码不要，换成 compare.ts 的 delExt（实时预览画的、红底） */
+.dt .dt-diff.dv-unified .cm-deletedChunk {
+  display: none;
+}
+.dt .dt-diff .dv-del .cm-editor {
+  background: none;
+}
+.dt .dt-diff .dv-del .cm-content {
+  padding: 0;
+}
+.dt .dt-diff .dv-del .cm-deletedText {
+  background: color-mix(in srgb, var(--red) 28%, transparent);
+  border-radius: 2px;
+}
+/* 改的那一段：整段淡色，左边 3px 竖条（上下各缩 4） */
+.dt .dt-diff .cm-merge-b .cm-changedLine,
+.dt .dt-diff.dv-unified .cm-changedLine,
+.dt .dt-diff .dv-blk-add,
+.dt .dt-cell.add {
+  background:
+    linear-gradient(var(--green), var(--green)) 6px 4px / 3px calc(100% - 8px) no-repeat,
+    color-mix(in srgb, var(--green) 10%, transparent);
+}
+.dt .dt-diff .cm-merge-a .cm-changedLine,
+.dt .dt-diff .cm-deletedChunk,
+.dt .dt-diff .dv-del,
+.dt .dt-diff .dv-blk-del,
+.dt .dt-cell.del {
+  background:
+    linear-gradient(var(--red), var(--red)) 6px 4px / 3px calc(100% - 8px) no-repeat,
+    color-mix(in srgb, var(--red) 9%, transparent);
+}
+.dt .dt-diff :is(.dv-blk-add, .dv-blk-del)::before {
+  content: none;
+}
+/* 对面空着的地方（这一段只有一边有）：斜纹 */
+.dt .dt-diff.dv-split .cm-mergeSpacer {
+  background: repeating-linear-gradient(135deg, transparent 0 6px, var(--fill) 6px 7px);
+}
+/* 收下后的样子：改的段左边一道强调色竖线、淡底 */
+.dt .dt-diff .dv-mark {
+  background:
+    linear-gradient(var(--acc), var(--acc)) 6px 4px / 2px calc(100% - 8px) no-repeat,
+    var(--acc-soft);
+}
+/* 收下后的样子（笔记）：一列，最宽 760、居中，和文档的版心一样（不铺满整栏） */
+.dt .dt-diff.dv-after .cm-content {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+/* 改的段下面那句人话 */
+.dt .dv-cnote {
+  padding: 0 20px 6px 22px;
+  font: 12px/1.5 var(--sans);
+  color: var(--t3);
+  background: inherit;
+}
+.dt .dt-diff .cm-merge-b .dv-cnote,
+.dt .dt-diff.dv-unified:not(.dv-after) .dv-cnote {
+  background: color-mix(in srgb, var(--green) 10%, transparent);
+}
+.dt .dv-after .dv-cnote {
+  background: var(--acc-soft);
+}
+
+/* 只看改动：折起来的几段 */
+.dt .dv-fold {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 20px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(color-mix(in srgb, var(--acc) 8%, var(--fill)), color-mix(in srgb, var(--acc) 8%, var(--fill))) var(--win);
+  color: var(--acc-t);
+  font: 12px/1 var(--sans);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.dt .dv-fold:hover,
+.dt .dv-fold.hot {
+  background: linear-gradient(color-mix(in srgb, var(--acc) 14%, var(--fill)), color-mix(in srgb, var(--acc) 14%, var(--fill))) var(--win);
+}
+
+/* 新建的文件：左边空着写一句，右边整格淡绿；HTML 就是那张能拖的图 */
+.dt .dt-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.dt .dt-rows.one {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dt .dv-unified .dt-rows:not(.one) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.dt .dv-unified .dt-rows .dt-void {
+  display: none;
+}
+.dt .dt-rows > * + * {
+  border-left: 1px solid var(--line);
+}
+.dt .dt-cell {
+  position: relative;
+  min-width: 0;
+  padding: 10px 20px 10px 22px;
+}
+.dt .dt-cell.doc {
+  padding: 0;
+}
+.dt-void {
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--t3);
+  background: repeating-linear-gradient(135deg, transparent 0 6px, var(--fill) 6px 7px);
+}
+.dt-void svg {
+  opacity: 0.6;
+}
+.dt .dt-viz {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: var(--card);
+}
+.dt .dt-full {
+  padding: 16px 20px 16px 22px;
+}
+.dt .dt-full .dt-viz {
+  height: max(420px, calc(100vh - 360px)) !important;
+}
+.dt .dt-same {
+  margin: 0;
+  padding: 6px 22px;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* 打开就滚到第一处改动、闪一下；上一处 / 下一处跳到的那处也闪 */
+.dt .dv-flash {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: 2px;
+  animation: dt-flash 1.6s ease forwards;
+}
+@keyframes dt-flash {
+  0%,
+  40% {
+    box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+}
+
+/* ---------- 小地图 ---------- */
+.dt-mm {
+  position: relative;
+  flex: none;
+  width: 16px;
+  border-left: 1px solid var(--line);
+  background: var(--win);
+}
+.dt-mm .mm-vp {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  border-radius: 2px;
+  background: var(--fill2);
+  pointer-events: none;
+}
+.dt-mm .mm-m {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  min-height: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 1.5px;
+  background: var(--green);
+  cursor: pointer;
+}
+.dt-mm .mm-m.del {
+  background: var(--red);
+}
+.dt-mm .mm-m.on {
+  left: 1px;
+  right: 1px;
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+
+/* 标签条右端几组之间一道竖线（demo .vsep） */
+.dt-vsep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--line2);
+}
+
+/* 中间窄于 900（右栏开着、窗口窄）：三组看法只留图标，位置让给标签（demo .center.narrow .tacts .lb） */
+.frame-b .center.compact .acts .seg.dt-seg .lb {
+  display: none;
+}

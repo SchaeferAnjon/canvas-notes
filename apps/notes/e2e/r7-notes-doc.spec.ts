@@ -186,12 +186,12 @@ test('笔记逐字核：问题条是原话（主对话接着问的、旁支问�
     await page.keyboard.press('Escape')
     // 「我的疑惑」不再是文件（2026-11-20）：没有我的疑惑.md，汇总页直接读笔记
     expect(existsSync(join(vault, '课程/线代/我的疑惑.md'))).toBe(false)
-    // 左栏 PDF 和笔记是一行，右端是笔记里问了几问（主问题 + 旁支问题，「还是不懂」也算一问）
+    // 左栏 PDF 下面挂它的笔记一行写「笔记」，右端是笔记里问了几问（主问题 + 旁支问题，「还是不懂」也算一问；PDF › 笔记 › 可视化，task-m552v）
     await leftView(page, '文件')
     const tree = page.getByRole('tree', { name: '全部文件' })
     const item = (name: string) => tree.getByRole('treeitem').filter({ hasText: new RegExp(`^${name}`) })
     for (const f of ['课程', '线代']) if (await item(f).getByRole('button', { name: `展开 ${f}` }).count()) await item(f).getByRole('button', { name: `展开 ${f}` }).click()
-    await expect(item('第3讲').getByTestId('ft-note')).toHaveText('4')
+    await expect(tree.locator(`[role="treeitem"][data-path="${NOTE}"]`).getByTestId('ft-note')).toHaveText('4')
     await expect(item('第3讲 笔记')).toHaveCount(0)
   } finally {
     await run.close()

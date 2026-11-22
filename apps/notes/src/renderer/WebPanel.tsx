@@ -3,7 +3,6 @@ import { keyFor, useKeyHandler, useKeys } from './keys'
 import { useKeepPopsInside } from './shell/keep-inside'
 import { revealLeft } from './shell/tab-scroll'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
-import type { Clip } from '../shared/api'
 import { isExtUrl, type NewTabInfo } from '../shared/bookmarkkeeper'
 import type { Bookmark } from '../shared/web-api'
 import { decodeUrl, toUrl } from './url'
@@ -36,7 +35,6 @@ import { VideoFoldTools, VideoHair, VideoRow, type WebWidth } from './video/Vide
 import { AskCard } from './video/AskCard'
 import { askCardNow, boxCanceled, cancelBoxing, closeAskCard, openAskCard } from './video/ask-card'
 import { setTopFold, toggleBookmarksBar, toggleTopFold, useWebTop, webTopNow } from './web/top-fold'
-import { CENTER_MIN } from './shell/SideSash'
 import { AiActLayer } from './ai-act'
 import { booksOf, inBook, type PagePos, stripHash } from '../shared/read-along'
 import { titleOf } from '../shared/layout'
@@ -46,8 +44,7 @@ import { flashColor, setReadPosHost, type Went } from './read-along/web'
 import { openPairPop, unpairLabel } from './read-along/ReadAlongLayer'
 import { unpairNote } from './read-along/pairing'
 import { showMenu } from './ctx/menu'
-
-export type ClipMode = { mode: 'inbox' | 'doc'; target?: string }
+import { dropped } from './crash/report'
 
 /** 书桌（task-kbnc0）借右栏网页的本事：记下开着的网页标签和各读到哪、换成一套、换回去 */
 export interface WebDeskApi {
@@ -71,7 +68,7 @@ const BOOKMARKS = 'bookmarks'
 
 /**
  * 右栏网页：多个网页标签（⌘T 新建、⌘W 关当前），地址栏、书签栏、插件按钮、整页剪藏。
- * 按钮分两组：标签条右边只管标签和右栏（移到中间、收起）；地址栏里是这一页的开关（双语翻译、星星），右边是剪藏、固定的 Chrome 插件按钮和「⋯」。
+ * 按钮分两组：标签条右边只管标签和右栏（收起）；地址栏里是这一页的开关（双语翻译、星星），右边是剪藏、固定的 Chrome 插件按钮和「⋯」。
  * 书签只有地址栏的星星一个入口；不常用的（书签和历史、导入 Chrome 登录、插件）在「⋯」里。
  * 新开的网页标签显示 BookmarkKeeper（用户自己的开源插件）原样的新标签页：书签管家开着、找到了插件文件时；
  * 它是一个 cn-ext:// 的网页，接口由主进程补（main/web/bookmarkkeeper/）。网页标签的 url 是 http(s) 网页或插件页面，空的是还没载入的新标签页。
@@ -81,18 +78,18 @@ export function WebPanel(props: {
   hidden: boolean
   /** 当前的中间栏标签：右栏跟着标签走，每个标签记住自己上次看的网页 */
   owner: string | null
-  clipMode: ClipMode
   /** 别处要开一个网页（⌘K 里打的网址）：seq 变了就开一个新标签 */
   openRequest: { url: string; seq: number; reuse?: string } | null
   onShow(): void
   onUrl(url: string | null): void
-  onClip(c: Clip): void
   onNotice(t: string): void
   onClose(): void
   /** 在中间栏开成宽标签 */
   onOpenWide(url: string, title: string): void
-  /** 标题栏的「移到中间」调这里：右栏把当前网页开成中间的宽标签 */
-  moveToCenter: React.MutableRefObject<(() => void) | null>
+  /** 网页占满 / 还原（task-05p2w 方向 A，和标题栏那颗、⌃⌘\ 同一个开关）；网页不在右栏的一栏里（浮着）时没有 */
+  full: { on: boolean; toggle(): void } | null
+  /** 占满时地址栏里的「记进《这篇》」小牌（App 画好交进来）；没占满是 null */
+  chip: React.ReactNode
   /** 中间栏开着的宽网页标签（新标签页的「打开的标签」里也列出来） */
   wideTabs: { id: string; url: string; title?: string }[]
   onActivateWide(id: string): void
@@ -119,7 +116,7 @@ export function WebPanel(props: {
   /** 写在界面上的键照命令表（改了跟着变） */
   const K = useKeys()
   // 设置 › 一般「打开时回到上次的样子」关着：右栏网页不接上次开着的标签
-  const [st, setSt] = useState<WebTabs>(() => (appSettings().general.reopen ? loadWebTabs() : EMPTY_TABS))
+  const [st, setSt] = useState<WebTabs>(() => (appSettings().general.reopen ? loadWebTabs((why) => dropped('webtabs', why)) : EMPTY_TABS))
   /**
    * 重开软件时恢复的网页标签（task-0t4jq）：视频不自己播（WebView 的 hold）；
    * 后台的先不载入（dormant），点到它才载入，免得一开软件几个网页一起载、在后面出声
@@ -180,7 +177,7 @@ export function WebPanel(props: {
   const activeNav = active ? nav[active.id] : undefined
   const activeGoing = active ? going[active.id] : undefined
   const activeWc = active ? wcIds[active.id] : undefined
-  /** 当前的 http(s) 网页（新标签页、插件页面不算）：星星、剪藏、移到中间、AI、插件都只管它 */
+  /** 当前的 http(s) 网页（新标签页、插件页面不算）：星星、剪藏、在中间开成一页、AI、插件都只管它 */
   const webUrl = active && /^https?:/.test(active.url) ? active.url : ''
   const page = useMemo(() => (webUrl && activeWc !== undefined ? { wcId: activeWc, url: webUrl, title: active!.title } : null), [webUrl, active?.title, activeWc])
   const keeperOn = usePluginOn(BOOKMARKS)
@@ -403,7 +400,7 @@ export function WebPanel(props: {
       else setLost((l) => (l?.tabId === tabId ? null : l))
       req.done?.(how)
     })
-    v.send('cn:readpos:goto', { id, pos: req.pos ?? { url: req.url, text: '', before: '', after: '', ratio: 0 }, flash: req.flash ? flashColor() : null, top: !!req.top })
+    v.send('cn:readpos:goto', { id, pos: req.pos ?? { url: req.url, text: '', before: '', after: '', ratio: 0 }, flash: req.flash ? flashColor() : null, top: !!req.top, ...(req.quote !== undefined ? { quote: req.quote } : {}) })
   }
 
   // 网页报来的读到哪：人滚的、人翻过来的记下（配好对的书记进 读到哪.json，书桌开着时自动记下）；软件自己开的、重开恢复的不记
@@ -460,7 +457,7 @@ export function WebPanel(props: {
     if (!r) return
     handledRead.current = r.seq
     const s = stRef.current
-    const req = { url: r.url, book: r.book, pos: r.pos, flash: r.flash, ...(r.top ? { top: true } : {}), ...(r.done ? { done: r.done } : {}) }
+    const req = { url: r.url, book: r.book, pos: r.pos, flash: r.flash, ...(r.top ? { top: true } : {}), ...(r.quote !== undefined ? { quote: r.quote } : {}), ...(r.done ? { done: r.done } : {}) }
     const hit = s.tabs.find((t) => t.id === s.active && inBook(r.book, t.url)) ?? s.tabs.find((t) => inBook(r.book, t.url))
     setLost(null)
     if (!hit) {
@@ -646,14 +643,6 @@ export function WebPanel(props: {
     return () => ro.disconnect()
   }, [st.active, st.tabs.length, active?.title])
 
-  const openWideRef = useRef(openWide)
-  openWideRef.current = openWide
-  useEffect(() => {
-    const slot = props.moveToCenter
-    slot.current = () => openWideRef.current()
-    return () => void (slot.current = null)
-  }, [])
-
   const openUrl = (u: string, newOne: boolean) => {
     if (newOne || !active) setSt((s) => openTab(s, u, { owner: cb.current.owner }))
     else go(u)
@@ -787,7 +776,8 @@ export function WebPanel(props: {
   const https = webUrl.startsWith('https:')
   /**
    * 网页标签上的小标：这是哪篇配好对的书（task-kbnc0，原型 .wt .pm）。点了在中间打开那篇（开着就切过去），
-   * 配了几篇时弹菜单选；这个网页标签换到前面，网页不跟着跳到读到哪（task-z5jh4）
+   * 配了几篇时弹菜单选；这个网页标签换到前面，网页不跟着跳到读到哪（task-z5jh4）。
+   * 标签本身的网址提示、× 的提示也是 data-tip（不用原生 title）：指着哪个只出最里面那个，不会两个叠着出（task-4emge）
    */
   const pairMark = (t: { id: string; url: string }) => {
     const notes = /^https?:/.test(t.url) ? notesOfUrl(t.url, pairsMap).sort((a, b) => titleOf(a).localeCompare(titleOf(b), 'zh')) : []
@@ -820,19 +810,6 @@ export function WebPanel(props: {
   /** 地址块不在打字时盖一层：域名（灰）+ 标题，和 Safari 的紧凑标签一样；去网址的路上、新标签页时就是输入框本身 */
   const disp = !addrFocus && !!webUrl && !activeGoing && !!active
   const others = st.tabs.length - (active ? 1 : 0)
-  /** 网页拉到最宽、再点回来：就是双击网页栏和中间之间的那条分隔线（task-zligc 做的那一下） */
-  const centerNow = () => document.querySelector('.win > main.center')?.getBoundingClientRect().width ?? 0
-  function widest() {
-    const col = root.current?.closest('.dview') ? document.querySelector('[data-testid="dtab-web"]')?.closest('.dcol')?.getBoundingClientRect() : null
-    const center = document.querySelector('.win > main.center')?.getBoundingClientRect()
-    if (!col || !center) return
-    const near = (r: DOMRect, x: number) => Math.min(Math.abs(r.left - x), Math.abs(r.right - x))
-    const sash = [...document.querySelectorAll<HTMLElement>('.dsash-col')].find((el) => {
-      const r = el.getBoundingClientRect()
-      return (near(r, col.left) < 10 || near(r, col.right) < 10) && (near(r, center.left) < 10 || near(r, center.right) < 10)
-    })
-    sash?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
-  }
 
   return (
     <aside className={`right web w-${width}` + (tiny ? ' w-tiny' : '') + (top.fold ? ' folded' : '')} aria-label="网页" hidden={props.hidden} ref={root}>
@@ -847,6 +824,7 @@ export function WebPanel(props: {
             <span className="ti truncate">{active ? tabName(active) : '新网页'}</span>
             {others > 0 && <span className="more">{`+${others} 个标签`}</span>}
           </button>
+          {props.chip}
           {page && <VideoFoldTools wcId={page.wcId} />}
           {page && <VideoHair wcId={page.wcId} />}
         </div>
@@ -866,7 +844,7 @@ export function WebPanel(props: {
             <div className="wtlist" ref={tabList}>
               {st.tabs.map((t) =>
                 t.id === st.active ? (
-                  <div key={t.id} className="tab on wcur" role="tab" aria-selected title={t.url ? decodeUrl(t.url) : '新网页'}>
+                  <div key={t.id} className="tab on wcur" role="tab" aria-selected data-tip={t.url ? decodeUrl(t.url) : '新网页'} data-side="below">
                     <form
                       className={'addr' + (addrFocus ? ' edit' : '') + (disp ? ' disp' : '')}
                       onSubmit={(e) => {
@@ -911,8 +889,12 @@ export function WebPanel(props: {
                         data-side="below"
                         onMouseOver={(e) => {
                           const el = e.currentTarget
-                          if (!addrFocus && address) el.dataset.tip = `${address}（点一下改地址${K('web-address') ? `，${K('web-address')}` : ''}）`
+                          // 两行：网址一行，「点一下改地址」一行，键帽在它后面（task-4emge 设计复审）
+                          const key = K('web-address')
+                          if (!addrFocus && address) el.dataset.tip = `${address}\n点一下改地址`
                           else delete el.dataset.tip
+                          if (key) el.dataset.key = key
+                          else delete el.dataset.key
                         }}
                       />
                       {/* 改地址时藏起来（.addr:not(.disp)），这个标签照样叫这一页的名字 */}
@@ -925,18 +907,18 @@ export function WebPanel(props: {
                       )}
                     </form>
                     {pairMark(t)}
-                    <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
+                    <button className="x" aria-label="关闭网页标签" data-tip="关闭网页标签" data-key={K('close') ?? undefined} data-side="below" onClick={() => closeByUser(t.id)}>
                       <Codicon name="close" size={12} />
                     </button>
                   </div>
                 ) : (
-                  <div key={t.id} className="tab" role="tab" aria-selected={false} title={t.url ? `${tabName(t)}\n${decodeUrl(t.url)}` : '新网页'}>
+                  <div key={t.id} className="tab" role="tab" aria-selected={false} data-tip={t.url ? `${tabName(t)}\n${decodeUrl(t.url)}` : '新网页'} data-side="below">
                     <button className="tl" onClick={() => setSt((s) => activate(s, t.id, cb.current.owner))}>
                       {tabIcon(t)}
                       <span className="truncate">{tabName(t)}</span>
                     </button>
                     {pairMark(t)}
-                    <button className="x" aria-label="关闭网页标签" title={K('close') ? `关闭网页标签 ${K('close')}` : '关闭网页标签'} onClick={() => closeByUser(t.id)}>
+                    <button className="x" aria-label="关闭网页标签" data-tip="关闭网页标签" data-key={K('close') ?? undefined} data-side="below" onClick={() => closeByUser(t.id)}>
                       <Codicon name="close" size={12} />
                     </button>
                   </div>
@@ -953,6 +935,7 @@ export function WebPanel(props: {
               <PluginButtons slot="address" page={page} popup={pluginPopup} onPopup={(id) => setMenu(id ? `plugin:${id}` : null)} />
             </span>
           )}
+          {props.chip}
           <button className="wib wclip" aria-label="剪藏这一页" data-tip="剪藏这一页：整页进收件箱" data-side="below" disabled={!webUrl || clipping} onClick={() => void clipPage()}>
             <Codicon name="quote" size={14} className={clipping ? 'spin' : ''} />
           </button>
@@ -982,10 +965,10 @@ export function WebPanel(props: {
                 importing={importing}
                 bookmarks={bookmarks}
                 bar={top.bm}
-                widest={centerNow() <= CENTER_MIN + 4}
+                full={props.full?.on ?? null}
                 onOpenBookmark={(u, newOne) => openUrl(u, newOne)}
                 onBar={() => (setMenu(null), toggleBookmarksBar())}
-                onWidest={() => (setMenu(null), widest())}
+                onFull={() => (setMenu(null), props.full?.toggle())}
                 onCenter={webUrl ? () => (setMenu(null), openWide()) : null}
                 onFold={() => (setMenu(null), toggleTopFold())}
                 onClose={() => setMenu(null)}
@@ -1053,7 +1036,6 @@ export function WebPanel(props: {
                 initialUrl={src}
                 visible={t.id === st.active}
                 hold={restored.current!.has(t.id)}
-                clipMode={props.clipMode}
                 onRef={(el) => {
                   if (el) views.current.set(t.id, el)
                 }}
@@ -1083,7 +1065,6 @@ export function WebPanel(props: {
                     })
                 }}
                 onTitle={(title) => setSt((s) => updateTab(s, t.id, { title }))}
-                onClip={props.onClip}
                 menuHost={{
                   openTab: (u) => setSt((s) => openTab(s, u, { background: true, owner: cb.current.owner })),
                   openWide: (u, title) => cb.current.onOpenWide(u, title),
@@ -1163,12 +1144,12 @@ function MoreMenu(props: {
   bookmarks: Bookmark[]
   /** 书签栏摆着没有（「显示书签栏 ⇧⌘B」勾没勾） */
   bar: boolean
-  /** 网页已经拉到最宽（中间只剩 420） */
-  widest: boolean
+  /** 网页占满了没有（task-05p2w：和标题栏那颗、⌃⌘\ 同一个开关）；网页浮着、不在右栏的一栏里时是 null，没有这一项 */
+  full: boolean | null
   onOpenBookmark(url: string, newTab: boolean): void
   onBar(): void
-  onWidest(): void
-  /** 网页移到中间（不是网页时没有） */
+  onFull(): void
+  /** 在中间开成一页（不是网页时没有） */
   onCenter: (() => void) | null
   onFold(): void
   onClose(): void
@@ -1242,8 +1223,26 @@ function MoreMenu(props: {
     },
     { id: WEB_LOCKED, group: 'browser', label: '插件…', icon: 'extensions', node: item('插件…', 'extensions', () => props.onPick('extensions')) },
     { id: 'login', group: 'browser', label: '导入Chrome登录…', icon: 'sign-in', node: item('导入Chrome登录…', 'sign-in', () => props.onPick('login'), undefined, props.importing) },
-    { id: 'widest', group: 'browser', label: '网页拉到最宽', icon: 'arrow-both', node: item(props.widest ? '网页回到原来的宽' : '网页拉到最宽', 'arrow-both', props.onWidest, '双击分隔线') },
-    ...(props.onCenter ? [{ id: 'tocenter', group: 'browser' as const, label: '网页移到中间', icon: 'layout-centered' as const, node: item('网页移到中间', 'layout-centered', props.onCenter) }] : []),
+    // 网页占满 / 还原（task-05p2w 方向 A）：以前的「网页拉到最宽」并进来，同一件事只留一个说法
+    ...(props.full !== null ? [{ id: 'full', group: 'browser' as const, label: '网页占满', icon: 'screen-full' as const, node: item(props.full ? '还原' : '网页占满', props.full ? 'screen-normal' : 'screen-full', props.onFull, keyFor('fold-center') ?? undefined) }] : []),
+    // 以前的「网页移到中间」：开成中间的一页，和别的标签排在一起；剪的进收件箱，右边写明
+    ...(props.onCenter
+      ? [
+          {
+            id: 'tocenter',
+            group: 'browser' as const,
+            label: '在中间开成一页',
+            icon: 'layout-centered' as const,
+            node: (
+              <button key="tocenter" role="menuitem" onClick={props.onCenter}>
+                <Codicon name="layout-centered" size={14} />
+                <span className="mlabel">在中间开成一页</span>
+                <span className="h">剪的进收件箱</span>
+              </button>
+            ),
+          },
+        ]
+      : []),
     { id: 'fold', group: 'browser', label: '收起顶上', icon: 'chevron-up', node: item('收起顶上', 'chevron-up', props.onFold, keyFor('web-top-fold') ?? undefined) },
   ]
   // 书签栏里的几个书签直接列在「书签」一组最前面（书签栏默认不摆，原型 A 的「⋯ › 书签」）；多的在「书签和历史…」里

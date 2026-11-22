@@ -2158,6 +2158,9 @@ button.bi[data-testid='git-changed']:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  /* 对话里没空格的一长串（问的话、回答里的代码、网址）放不下就在任意处断，不撑宽对话列表（task-83vl3）；
+     要横着滚的（代码块、表格）、一行省略的（步骤行）各自另说 */
+  overflow-wrap: anywhere;
 }
 /* 空对话打招呼（task-0tgz2，小样 design/ai-empty 方向 A「贴着输入框」）：问候靠底、左对齐，下面紧跟输入框上面那排快捷命令。
    引擎标志 22 + 8 + 宋体 600 22/1.35 的钟点问候；下面 4，13/1.5 --t2 一句跟着在看的东西走 */
@@ -2343,7 +2346,19 @@ button.bi[data-testid='git-changed']:disabled {
 .am .txt {
   user-select: text;
 }
-/* AI 回答里的 md */
+/* 宽了在自己框里横着滚的一块（scroll-x.tsx，表格：白板卡、AI 回答、读 PDF 讲解卡、文档里的表格，task-83vl3）：
+   不撑宽外面；横着拨、Shift+滚轮只滚它，滚到头也不传给外面（白板不跟着平移）；还能往哪边滚那一边 32 渐隐（math.css .math-fade-*） */
+.scroll-x {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+/* AI 回答里的 md。
+   字和行内代码一律折行：没空格的一长串（行内代码、网址、长英文词）放不下就在任意处断，不撑宽外面那一栏
+   （task-83vl3：一串行内代码撑宽回答，整个对话列表跟着能横着滑）。横着滚的只有代码块、宽表格、公式块，各在自己的框里 */
+.md {
+  overflow-wrap: anywhere;
+}
 .md > * + * {
   margin-top: 8px;
 }
@@ -2526,14 +2541,22 @@ button.bi[data-testid='git-changed']:disabled {
   padding-left: 12px;
   border-left: 1px solid var(--line2);
 }
+/* 代码块照原样一行一行（不折，对齐的输出不乱），比框宽就在自己的框里横着滚 */
 .md .md-code {
   margin: 0;
   padding: 8px 10px;
   border-radius: 8px;
   background: var(--fill);
   font: 12px/1.55 var(--mono);
-  white-space: pre-wrap;
+  white-space: pre;
+  overflow-wrap: normal;
   overflow-x: auto;
+}
+/* 白板上的卡片拖着走、横着拨是挪白板：代码块还是折行（卡片自己 overflow-wrap: anywhere） */
+.bcard .md .md-code,
+.db-card .md .md-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .md code {
   font: 12px var(--mono);

@@ -1,6 +1,6 @@
 /**
  * 白板的收件箱弹窗（2026-11-22 用户定「一律弹窗」，task-8isml；原来是白板右边一格 272，再早是右上的「N未整理」）：
- * 点标签条右端「收件箱 N」（InboxButton）或按 ⇧⌘I（命令表 board-inbox，设置 › 快捷键能改），从按钮下面弹出 320 宽，盖在白板上、不占白板的宽；
+ * 点白板右上角「收件箱 N」（InboxButton，挂在 corner.tsx 那一小条里，task-wz7gb；以前在标签条右端）或按 ⇧⌘I（命令表 board-inbox，设置 › 快捷键能改），从那一小条下面 6 弹出 320 宽、右边和它对齐，盖在白板上、不占白板的宽；
  * 宽窄都一样，收在中栏里离两边至少 8；默认收着，点外面、esc 收起，拖完一条不收。
  * 最高 min(中栏高 − 32, 560)：头、说明、搜索框（超过 20 条才有）钉在上面，「共 N 条 · 打开收件箱文件夹」钉在下面，只有中间列表滚。
  * 每一条是干净的卡（标题、两行、出处），不露原文（偏好「剪藏卡片别露原文」）；按「今天 / 更早」分组，组头能收起，记在本机。
@@ -57,7 +57,7 @@ function saveFolds(f: Set<Grp>) {
 /** 收件箱里的（不算这一篇自己），新的在前 */
 export const inboxOf = (notes: NoteFile[], self: string) => notes.filter((n) => n.kind === 'inbox' && n.path !== self).sort((a, b) => b.createdMs - a.createdMs)
 
-/** 标签条右端「收件箱 N」：开关弹窗；只有当前标签、白板看法时挂着，⇧⌘I 也只在这时归它 */
+/** 白板右上角「收件箱 N」：开关弹窗；只有白板看法时挂着（标签不在前面时 TabActs 外的白板整块藏着），⇧⌘I 也只在这时归它 */
 export function InboxButton(props: { count: number }) {
   const on = useInboxOpen()
   const k = useKey('board-inbox')
@@ -65,7 +65,7 @@ export function InboxButton(props: { count: number }) {
   return (
     <button
       type="button"
-      className={'ab-act wt db-inbox-btn' + (on ? ' on' : '')}
+      className={'dbc-btn db-inbox-btn' + (on ? ' on' : '')}
       aria-expanded={on}
       aria-haspopup="dialog"
       aria-label={`收件箱${props.count ? ` ${props.count}条` : ''}`}
@@ -172,8 +172,8 @@ const W = 320
 const EDGE = 32
 const SPEED = 8
 
-/** 标签条上那颗按钮（只有当前标签挂着一颗） */
-const buttonRect = () => [...document.querySelectorAll<HTMLElement>('[data-testid="db-inbox"]')].find((b) => b.offsetParent)?.getBoundingClientRect()
+/** 白板右上角那一小条（看得见的只有当前标签那一条）：弹窗挂在它下面 6、右边和它的外沿对齐（task-wz7gb；两块浮着的东西右边齐） */
+const buttonRect = () => [...document.querySelectorAll<HTMLElement>('[data-testid="board-corner"]')].find((b) => b.offsetParent)?.getBoundingClientRect()
 
 /** 弹窗：直接放在白板这一格（中栏）里，量着它和按钮摆 */
 export function InboxPop(props: { items: NoteFile[]; readOnly: boolean; onItemDown(e: React.MouseEvent, n: NoteFile): void }) {
@@ -186,7 +186,7 @@ export function InboxPop(props: { items: NoteFile[]; readOnly: boolean; onItemDo
   const pressing = useRef(false)
   const k = useKey('board-inbox')
 
-  // 摆在按钮下面 6、右边和按钮对齐，收在中栏里离两边至少 8；最高 min(中栏高 − 32, 560)
+  // 摆在右上角那一小条下面 6、右边和它对齐，收在中栏里离两边至少 8；最高 min(中栏高 − 32, 560)
   // 量的是自己的父节点（白板那一格）：白板和弹窗一起挂上时（开着弹窗切到另一块白板），白板自己的 ref 这时还没挂上
   useLayoutEffect(() => {
     const h = self.current?.parentElement

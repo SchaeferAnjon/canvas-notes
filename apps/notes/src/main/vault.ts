@@ -7,6 +7,7 @@ import type { NoteFile, OpenedNote, SearchHit, ThumbRect, WriteResult } from '..
 import { clipMarkdown, INBOX, kindOf, previewOf } from '../shared/layout'
 import { hitSnippet } from './search/chunks'
 import { mindmapThumb } from '../shared/mindmap-layout'
+import { PARENT_KEY, parentName } from '../shared/mindmap'
 import { isBookDigest } from '../shared/plugins/weread'
 import { isPairUrl, READ_ALONG_KEY } from '../shared/read-along'
 
@@ -106,9 +107,10 @@ export class Vault {
 
   /**
    * 软件自己写了库里这个文件（编辑器存字、新建、改名挪动、改双链、另存）：全能模式下 AI 这一轮结束时，
-   * 库里多出来的改动里这些不算 AI 改的（agent/index.ts 的 agentOwnWrite）
+   * 库里多出来的改动里这些不算 AI 改的（agent/index.ts 的 agentOwnWrite）；存一篇笔记的字（write）时带上存下的字
+   * （AI 这一轮结束补包 [!ai] 块时认出用户自己这一轮打的整段，task-dtc34）
    */
-  onOwnWrite: ((rel: string) => void) | null = null
+  onOwnWrite: ((rel: string, text?: string) => void) | null = null
 
   /** 笔记改名、挪走、文件夹改名（软件自己改的、访达里改的）：记着笔记路径的书桌跟着换（main/read-along.ts，task-kbnc0） */
   onMoved: ((map: (p: string) => string | null | undefined) => void) | null = null
@@ -332,10 +334,12 @@ export class Vault {
     }
   }
 
-  async createBoard(folder: string, name: string): Promise<string> {
+  async createBoard(folder: string, name: string, parent?: string): Promise<string> {
     const colors = ['#4A7FA7', '#A8775A', '#6E8A5C', '#8A6AA8', '#A85A6E', '#5A8F8A']
     const color = colors[Math.floor(Math.random() * colors.length)]
-    return this.create(folder, name, `---\ntype: board\ncolor: ${color}\n---\n`)
+    // 白板工具板「子白板」建的：属性记上所属白板（目录树里挂在父白板下面、面包屑多一节，task-wuv05）
+    const under = parent?.trim() ? `${PARENT_KEY.board}: "[[${parent.trim().replace(/[[\]\n"]/g, '')}]]"\n` : ''
+    return this.create(folder, name, `---\ntype: board\ncolor: ${color}\n${under}---\n`)
   }
 
   /** 挪到另一个文件夹（名字重了加序号），返回新路径 */
@@ -490,7 +494,7 @@ export class Vault {
     this.known.set(rel, text)
     await writeFile(p, encodeNote(text, meta))
     this.reindex(rel, text)
-    this.onOwnWrite?.(rel)
+    this.onOwnWrite?.(rel, text)
     return bytes ? { ok: true } : { ok: true, recreated: rel }
   }
 
@@ -641,6 +645,9 @@ function describe(rel: string, st: Stats, text: string): NoteFile {
   const along = fmValue(text, READ_ALONG_KEY)?.replace(/^["']|["']$/g, '')
   if (isPairUrl(along)) file.readAlong = along
   if (isBookDigest(text.slice(0, 20000))) file.digest = true
+  // 从白板、笔记拍的导图挂在哪一篇（属性 所属白板 / 所属笔记，task-wuv05）：面包屑多一节回到那一篇
+  const parent = parentName(text)
+  if (parent) file.parent = parent
   // 2026-11-21 起白板是「## 列名」写法（一排的列、空白处的卡）：按新写法算卡片数和缩略图；旧写法、导图照以前
   if (fmValue(text, 'type') === 'board' && !isMindmap(text) && !hasOldLayout(text)) {
     const t = boardThumb(text)

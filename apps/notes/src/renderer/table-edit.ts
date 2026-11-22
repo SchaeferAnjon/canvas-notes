@@ -102,16 +102,18 @@ export class TableWidget extends WidgetType {
     readonly src: string,
     readonly from: number,
     readonly editing: { row: number; col: number; all?: boolean } | null,
+    /** 提示块里的表格（每行「> 」开头，src 是去掉「> 」的；task-83vl3）：只看不改，外面套一层提示块的底；bot：它是提示块最后一块 */
+    readonly quoted: { bot: boolean } | null = null,
   ) {
     super()
   }
   eq(o: TableWidget) {
-    return o.src === this.src && o.from === this.from && o.editing?.row === this.editing?.row && o.editing?.col === this.editing?.col && o.editing?.all === this.editing?.all
+    return o.src === this.src && o.from === this.from && o.editing?.row === this.editing?.row && o.editing?.col === this.editing?.col && o.editing?.all === this.editing?.all && o.quoted?.bot === this.quoted?.bot
   }
   toDOM(view: EditorView) {
     const t = parseTable(this.src, { kind: 'table', from: 0, to: this.src.length })
     const wrap = document.createElement('div')
-    wrap.className = 'cm-table'
+    wrap.className = 'cm-table scroll-x'
     wrap.dataset.part = '表格'
     // 放不下横着滚时，哪一边还有列哪一边渐隐（和公式同一套，task-c22p9）
     unfade.set(wrap, fadeEdges(wrap))
@@ -134,6 +136,14 @@ export class TableWidget extends WidgetType {
       el.addEventListener('mousedown', (e) => {
         if (e.button !== 0 || view.state.readOnly || (e.target as HTMLElement).tagName === 'INPUT') return
         e.preventDefault()
+        // 提示块里的表格（每行前面有「> 」，就地改写回去会丢「> 」）：光标放进这一行原文（「> 」后面），这一块露出原文能改（md-widgets.ts calloutWidgets）
+        if (this.quoted) {
+          const first = view.state.doc.lineAt(this.from).number
+          const line = view.state.doc.line(Math.min(view.state.doc.lines, first + (row < 0 ? 0 : row + 2)))
+          view.focus()
+          view.dispatch({ selection: { anchor: line.from + (/^\s*>\s?/.exec(line.text)?.[0].length ?? 0) }, userEvent: 'select.pointer' })
+          return
+        }
         if (open) open({ row, col })
         else view.dispatch({ effects: editCell.of({ table: this.from, row, col }) })
       })
@@ -147,7 +157,11 @@ export class TableWidget extends WidgetType {
       for (let k = 0; k < cols; k++) tr.appendChild(cell('td', r[k]?.text ?? '', i, k))
     })
     wrap.appendChild(table)
-    return wrap
+    if (!this.quoted) return wrap
+    const box = document.createElement('div')
+    box.className = 'cm-inquote' + (this.quoted.bot ? ' bot' : '')
+    box.appendChild(wrap)
+    return box
   }
 
   /** 这一格的输入框：字写回 md 里这一格；Tab / ⇧Tab / 回车 / esc 走格子 */
@@ -226,8 +240,9 @@ export class TableWidget extends WidgetType {
   }
 
   destroy(dom: HTMLElement) {
-    unfade.get(dom)?.()
-    unfade.delete(dom)
+    const el = this.quoted ? (dom.firstElementChild as HTMLElement) : dom
+    unfade.get(el)?.()
+    unfade.delete(el)
   }
 }
 

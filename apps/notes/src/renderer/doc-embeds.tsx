@@ -21,6 +21,7 @@ import { useVaultFiles } from './files/store'
 import { type Hidden, hiddenSyntax, wholeBlock } from './hidden-syntax'
 import { inline, Markdown } from './md-render'
 import { NoteDoc } from './note-doc'
+import { MapThumb } from './mindmap/MapThumb'
 import './doc-embeds.css'
 import './doc-board/doc-board.css'
 
@@ -61,7 +62,7 @@ function useTextState(path: string): [string | null, (t: string) => void] {
   return [t, setT]
 }
 
-function Head(props: { icon: 'layout' | 'references'; children: ReactNode; go: string; onGo(): void }) {
+function Head(props: { icon: 'layout' | 'references' | 'type-hierarchy-sub'; children: ReactNode; go: string; onGo(): void }) {
   return (
     <div className="emh">
       <Codicon name={props.icon} size={14} />
@@ -96,7 +97,29 @@ function NoteEmbed(props: { note: NoteFile; notes: NoteFile[] }) {
   )
 }
 
+/**
+ * 文档里嵌导图（独占一行的 `![[导图]]`，从笔记拍的导图插的就是它，task-wuv05）：头一行同嵌白板，
+ * `type-hierarchy-sub` +「名字 · N个主题」+「打开 ›」；下面 170 高的导图缩略，不露列表原文和行尾注释
+ */
+function MapEmbed(props: { note: NoteFile }) {
+  const name = titleOf(props.note.path)
+  const open = () => app().openFile(props.note.path)
+  return (
+    <div className="emb" data-part="笔记里的导图块" aria-label={`导图「${name}」`}>
+      <Head icon="type-hierarchy-sub" go="打开 ›" onGo={open}>{`${name} · ${props.note.board?.nodes ?? 0}个主题`}</Head>
+      <div className="emb-map" onMouseDown={(e) => (e.preventDefault(), open())}>
+        <MapThumb path={props.note.path} />
+      </div>
+    </div>
+  )
+}
+
 function BoardEmbed(props: { note: NoteFile; notes: NoteFile[] }) {
+  if (props.note.board?.nodes !== undefined) return <MapEmbed note={props.note} />
+  return <ColumnsEmbed {...props} />
+}
+
+function ColumnsEmbed(props: { note: NoteFile; notes: NoteFile[] }) {
   const text = useText(props.note.path)
   const { files } = useVaultFiles()
   const name = titleOf(props.note.path)
@@ -257,7 +280,7 @@ class EmbedWidget extends WidgetType {
     return true
   }
   get estimatedHeight() {
-    return this.kind === 'board' ? 290 : 140
+    return this.kind === 'board' ? (this.note.board?.nodes !== undefined ? 220 : 290) : 140
   }
 }
 
@@ -301,7 +324,7 @@ export function docEmbeds(here: () => string) {
 }
 
 /** 文末「提到这篇的」：哪些篇链接、嵌了这一篇（不写进文件） */
-export function Backlinks(props: { path: string; version: number; board: boolean }) {
+export function Backlinks(props: { path: string; version: number; board: boolean; boards?: ReadonlyMap<string, string> }) {
   const [list, setList] = useState<Awaited<ReturnType<typeof window.cn.backlinks>>>([])
   useEffect(() => {
     let live = true
@@ -319,7 +342,7 @@ export function Backlinks(props: { path: string; version: number; board: boolean
         const how = [r.embed ? (props.board ? '嵌了这块白板' : '嵌了这一篇') : '', r.sections.length ? `引用了${r.sections.map((s) => `「${s}」`).join('')}这一节` : '', r.link ? '链接到这篇' : ''].filter(Boolean).join('、')
         return (
           <div key={r.path} className="bl">
-            <Codicon name="file-text" size={14} />
+            {props.boards?.has(r.path) ? <i className="sw bl-sw" style={{ background: props.boards.get(r.path) }} /> : <Codicon name="file-text" size={14} />}
             <button type="button" onClick={() => app().openFile(r.path)}>
               {titleOf(r.path)}
             </button>

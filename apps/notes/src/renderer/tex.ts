@@ -73,3 +73,60 @@ export function fadeEdges(el: HTMLElement): () => void {
     el.removeEventListener('scroll', update)
   }
 }
+
+// ---------------------------------------------------------------- 拷贝排好的公式（task-busas）
+
+const texSrc = (k: Element) => k.querySelector('annotation[encoding="application/x-tex"]')?.textContent ?? null
+const wrapTex = (src: string, display: boolean) => (display ? `$$${src}$$` : `$${src}$`)
+
+/**
+ * 选中的这一段拷成纯文字：里面有 KaTeX 排好的公式时公式写回 `$原文$`（单独成行的 `$$原文$$`），别的字照屏上的样子；没有公式给 null（照浏览器自己的拷法）。
+ * KaTeX 排出来的有两份字（给读屏的 MathML 和看的那一份），浏览器拷纯文字两份都拷、中间还断行：AI 回答里「就说 𝐱 是」拷进评价成了「就说 / x / x 是」
+ */
+export function mathCopyText(range: Range): string | null {
+  const at = range.commonAncestorContainer
+  const host = (at.nodeType === 1 ? (at as Element) : at.parentElement)?.closest('.katex')
+  if (host) {
+    const src = texSrc(host)
+    return src === null ? null : wrapTex(src, !!host.closest('.katex-display'))
+  }
+  const frag = range.cloneContents()
+  const ks = [...frag.querySelectorAll('.katex')]
+  if (!ks.length) return null
+  for (const k of ks) {
+    const src = texSrc(k)
+    const display = !!k.parentElement?.classList.contains('katex-display')
+    // 只选了公式的一半：照看得见的那一份
+    const text = src === null ? (k.querySelector('.katex-html')?.textContent ?? '') : wrapTex(src, display)
+    ;(display ? k.parentElement! : k).replaceWith(document.createTextNode(text))
+  }
+  // 放进页面里一个看不见的盒子，innerText 照屏上的样子分段、分行
+  const box = document.createElement('div')
+  box.style.cssText = 'position:fixed;left:-100000px;top:0;width:800px;pointer-events:none'
+  box.append(frag)
+  document.body.append(box)
+  const text = box.innerText
+  box.remove()
+  return text
+}
+
+/** 软件里不能改字的地方（AI 回答、白板卡、读 PDF 的笔记）拷带公式的字：纯文字里公式是 `$原文$`，富文本照旧 */
+function onCopy(e: ClipboardEvent) {
+  if (e.defaultPrevented || !e.clipboardData) return
+  const sel = document.getSelection()
+  if (!sel || sel.isCollapsed || !sel.rangeCount) return
+  const range = sel.getRangeAt(0)
+  const at = range.commonAncestorContainer
+  const el = at.nodeType === 1 ? (at as Element) : at.parentElement
+  // 编辑器、输入框自己拷（拷的是文件里的原文）
+  if (!el || el.closest('.cm-editor, input, textarea, [contenteditable="true"]')) return
+  const text = mathCopyText(range)
+  if (text === null) return
+  const html = document.createElement('div')
+  html.append(range.cloneContents())
+  e.clipboardData.setData('text/plain', text)
+  e.clipboardData.setData('text/html', html.innerHTML)
+  e.preventDefault()
+}
+
+if (typeof document !== 'undefined') document.addEventListener('copy', onCopy)

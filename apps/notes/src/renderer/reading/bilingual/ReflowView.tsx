@@ -35,7 +35,6 @@ export function ReflowView(props: {
   srcKey: string
   groups: FlowGroup[]
   mode: 'bi' | 'tr'
-  course: string | null
 }) {
   const bi = useBi(props.srcKey)
   const box = useRef<HTMLDivElement>(null)
@@ -64,8 +63,8 @@ export function ReflowView(props: {
 
   useEffect(() => {
     const want = props.groups.filter((g) => vis.has(g.key)).flatMap((g) => toTranslate(g.blocks))
-    if (want.length) void request(props.srcKey, want, props.course)
-  }, [vis, props.groups, props.srcKey, props.course])
+    if (want.length) void request(props.srcKey, want)
+  }, [vis, props.groups, props.srcKey])
 
   return (
     <div className={'reflow' + (props.mode === 'tr' ? ' tronly' : '')} ref={box} data-testid="reflow">
@@ -97,7 +96,7 @@ export function ReflowView(props: {
                     </button>
                   )}
                   {canTr && (
-                    <button type="button" aria-label="重新翻译" title="重新翻译" disabled={tr?.state === 'wait'} onClick={() => void request(props.srcKey, [b], props.course, true)}>
+                    <button type="button" aria-label="重新翻译" title="重新翻译" disabled={tr?.state === 'wait'} onClick={() => void request(props.srcKey, [b], true)}>
                       <Codicon name="refresh" size={12} />
                     </button>
                   )}

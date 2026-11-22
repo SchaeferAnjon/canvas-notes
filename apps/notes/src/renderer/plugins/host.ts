@@ -139,25 +139,6 @@ export function useWebPage(): WebPage | null {
   return host?.page() ?? null
 }
 
-// ---------------------------------------------------------------- 中间栏开着的文件
-
-let activePath: string | null = null
-const activeSubs = new Set<(p: string | null) => void>()
-
-/** App 换标签时报：中间栏现在开着的文件（不是文件的标签给 null） */
-export function setActiveFile(p: string | null) {
-  if (p === activePath) return
-  activePath = p
-  activeSubs.forEach((f) => f(p))
-}
-
-/** 插件要知道中间栏开着哪个文件（双语翻译照那门课的术语表翻）；马上给一次现在的 */
-export function onActiveFile(f: (p: string | null) => void): () => void {
-  activeSubs.add(f)
-  f(activePath)
-  return () => activeSubs.delete(f)
-}
-
 export function errText(e: unknown) {
   return String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }

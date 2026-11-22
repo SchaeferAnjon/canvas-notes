@@ -76,6 +76,11 @@ describe('命令表', () => {
     // 命令表里本来就这么用的编辑键（⌘↵、⌥⇧↑）给得出去，别的不给
     expect(keyProblemFor('ask-page', '⌘↵')).toBeNull()
     expect(keyProblem('⌘↵')).toBe('⌘↵ 编辑时要用，换一个')
+    // Tab / ⇧Tab（task-busas）：文档里的缩进 / 写评价默认就是它们，能改；不带 ⌘ ⌃ ⌥ 的 ⇥ 不给文档以外的命令
+    expect([keyDef('indent')?.keys, keyDef('outdent')?.keys]).toEqual([['⇥'], ['⇧⇥']])
+    expect(isRebindable(keyDef('indent')!)).toBe(true)
+    expect(keyProblemFor('outdent', '⇥')).toBeNull()
+    expect(keyProblemFor('sync', '⇥')).toBe('⇥ 编辑时要用，换一个')
   })
 })
 
@@ -96,13 +101,16 @@ describe('设键、清掉、回到默认、对调', () => {
     expect(c.keys).toEqual({})
   })
 
-  it('不会同时按到的不用让：⌘↵ 在 ⌘K 里、网页里、读 PDF 时各是各的', () => {
+  it('不会同时按到的不用让：⌘↵ 在 ⌘K 里、网页里、读 PDF 时各是各的；⌘S 网页里是剪藏、文档里是存盘', () => {
     let c = setKey(defaultCommands(), AVAIL, 'ask-page', null)
     expect(keysOf(c)('ask-page')).toEqual([])
     c = resetKey(c, AVAIL, 'ask-page')
     expect(keysOf(c)('ask-page')).toEqual(['⌘↵'])
     expect(keysOf(c)('pal-web')).toEqual(['⌘↵'])
-    expect(keysOf(c)('clip-selection')).toEqual(['⌘↵'])
+    expect(keysOf(c)('quote-selection')).toEqual(['⌘↵'])
+    // 网页里选了字：剪藏 ⌘S（和文档里的马上存盘不会同时按到）
+    expect(keysOf(c)('clip-selection')).toEqual(['⌘S'])
+    expect(canShare('clip-selection', 'save-now')).toBe(true)
     expect(c.keys).toEqual({})
     // ⌘K 里的 ⌘P（钉住）给了文档里的加粗：两处不会同时按到，钉住不让
     c = setKey(defaultCommands(), AVAIL, 'bold', '⌘P')

@@ -64,7 +64,9 @@ export function askPrompt(o: {
   if (o.web && /^https?:/i.test(o.web.url)) {
     if (o.digest) out.push(`他笔记里已经弄懂的：\n${o.digest}`)
     if (o.pageText) out.push(`他中间开着的 PDF「${o.pdfName}」正在看第 ${o.page} 页，这一页的文字：\n<page>\n${o.pageText}\n</page>`)
-    out.push(`他在右边的网页「${o.web.title}」（${o.web.url}）上框了一块，就是附上的图。框里的字：\n<web>\n${o.web.text || '（框里没有能读的字，看图）'}\n</web>`)
+    // 网页上选中一段字问的（task-6cxtc 网页选字的小条）：没有图，给那段字；框了一块的给图和框里的字
+    if (o.thread.quote && !o.hasImage) out.push(`他在右边的网页「${o.web.title}」（${o.web.url}）上选中了这段字：\n<web>\n${o.thread.quote}\n</web>`)
+    else out.push(`他在右边的网页「${o.web.title}」（${o.web.url}）上框了一块，就是附上的图。框里的字：\n<web>\n${o.web.text || '（框里没有能读的字，看图）'}\n</web>`)
     out.push(`他说：${o.question}`)
     return out.join('\n\n')
   }

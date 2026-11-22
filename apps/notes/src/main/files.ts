@@ -67,6 +67,8 @@ export async function listEntries(root: string): Promise<FileEntry[]> {
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT' && !(e instanceof SyntaxError)) throw e
   }
+  /** 笔记里嵌着、链着的可视化 → 那篇笔记（目录树里 HTML 挂到它下面，task-m552v） */
+  const vizOf = new Map<string, string>()
   for (const f of out) {
     if (f.kind === 'html') {
       const m = /<meta\s+name="第几讲"\s+content="(\d+)"/.exec(await head(join(root, f.path)))
@@ -78,12 +80,14 @@ export async function listEntries(root: string): Promise<FileEntry[]> {
     if (!have.has(note)) continue
     const text = decodeNote(await readFile(join(root, note))).text
     const secs = parseReadingNote(text, note)
+    for (const s of secs) if (s.viz && !vizOf.has(s.viz.path)) vizOf.set(s.viz.path, note)
     const items = secs.flatMap((s) => doubtItems(f.path, s))
     f.note = { path: note, asks: secs.reduce((n, s) => n + s.rounds, 0), ...(items.length && items.every((it) => sent[it.id]) ? { sent: true } : {}) }
     if (f.kind !== 'pdf') continue
     const p = parseProgress(prop(text.slice(0, 4096), '进度'))
     if (p) f.progress = p
   }
+  for (const f of out) if (f.kind === 'html' && vizOf.has(f.path) && vizOf.get(f.path) !== f.note?.path) f.vizOf = vizOf.get(f.path)
   return out
 }
 

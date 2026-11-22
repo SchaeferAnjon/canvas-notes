@@ -12,7 +12,7 @@ import type { CommitInfo } from '../../shared/api'
 import * as R from '../../shared/cmd-run'
 import type { DiffSource } from '../../shared/diff'
 import type { ReadingMsg } from '../../shared/reading'
-import { SYSTEM, translatePrompt } from '../ai-commands'
+import { system, translatePrompt } from '../ai-commands'
 import { vaultFiles } from '../files/store'
 import { addProposal, removeProposal } from '../commands/proposals'
 import { type RunEnv, runOwn, runVideoKeys, runVideoText } from '../commands/run'
@@ -42,7 +42,7 @@ function pageText(pdf: string, page: number): string {
 
 export async function runReadingCmd(d: ReadingCmdDeps, it: SlashItem) {
   const t = S.cmdTurn(d.pdf, '/' + it.name)
-  const ask = (prompt: string, images?: string[]) => window.cn.aiAsk(t.id, SYSTEM, prompt, { pick: d.pick, ...(images?.length ? { images } : {}) })
+  const ask = (prompt: string, images?: string[]) => window.cn.aiAsk(t.id, system(), prompt, { pick: d.pick, ...(images?.length ? { images } : {}) })
   /** 写进这份 PDF 的笔记（还没有笔记就新建一篇），一次提交 */
   const toNote = async (name: string, f: (cur: string) => string, done: string, read: string) => {
     const r = S.get(d.pdf)
@@ -144,7 +144,7 @@ function readingEnv(d: ReadingCmdDeps, t: ReturnType<typeof S.cmdTurn>): RunEnv 
   }
   return {
     patch,
-    ask: (prompt, o) => window.cn.aiAsk(t.id, SYSTEM, prompt, { pick: d.pick, ...(o?.images?.length ? { images: o.images } : {}) }),
+    ask: (prompt, o) => window.cn.aiAsk(t.id, system(), prompt, { pick: d.pick, ...(o?.images?.length ? { images: o.images } : {}) }),
     async change(c, kinds) {
       const res = await window.cn.aiChange(c)
       if (res && 'failed' in res) throw new CommitFail(`改好了，提交没成功：${res.failed}`)

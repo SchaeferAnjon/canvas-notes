@@ -7,6 +7,7 @@ import { Codicon, type CodiconName } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { comboOf } from '../../shared/cmd-keys'
 import { AREA_NAME, keyDef } from '../../shared/cmd-table'
+import { useT } from '../i18n'
 import { checkKey, keyFor } from '../keys'
 
 const W = 230
@@ -38,6 +39,7 @@ export function RowMenu(props: {
   onAct(a: MenuAct, at: { left: number; top: number }): void
   onClose(): void
 }) {
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const moveBtn = useRef<HTMLButtonElement>(null)
   const [sub, setSub] = useState(false)
@@ -80,19 +82,19 @@ export function RowMenu(props: {
   }
   const subLeft = pos.left + W + SUB_W - 4 > window.innerWidth - 10 ? -SUB_W + 4 : W - 4
   return (
-    <div ref={ref} className="pal-menu" role="menu" aria-label={`「${c.name}」能做什么`} style={{ left: pos.left, top: pos.top, width: W }} onKeyDown={onKey} onMouseDown={(e) => e.stopPropagation()}>
+    <div ref={ref} className="pal-menu" role="menu" aria-label={t('「{name}」能做什么', { name: c.name })} style={{ left: pos.left, top: pos.top, width: W }} onKeyDown={onKey} onMouseDown={(e) => e.stopPropagation()}>
       <div className="pal-mhead">{c.name}</div>
       <div role="group">
-        {item(c.pinned ? 'pinned' : 'pin', c.pinned ? '取消钉住' : '钉住', { kind: 'pin' }, keyFor('pal-pin') ? <kbd>{keyFor('pal-pin')}</kbd> : undefined)}
+        {item(c.pinned ? 'pinned' : 'pin', c.pinned ? t('取消钉住') : t('钉住'), { kind: 'pin' }, keyFor('pal-pin') ? <kbd>{keyFor('pal-pin')}</kbd> : undefined)}
         <button ref={moveBtn} role="menuitem" className={'pal-mi' + (sub ? ' kb' : '')} data-sub="1" aria-haspopup="menu" aria-expanded={sub} onMouseEnter={() => setSub(true)} onClick={() => setSub(true)}>
           <Codicon name="arrow-right" size={14} />
-          <span className="nm">挪到</span>
+          <span className="nm">{t('挪到')}</span>
           <span className="sub">
             <Codicon name="chevron-right" size={12} />
           </span>
         </button>
         {sub && (
-          <div className="pal-menu pal-sub" role="menu" aria-label="挪到" style={{ left: subLeft, top: (moveBtn.current?.offsetTop ?? 64) - 6, width: SUB_W }}>
+          <div className="pal-menu pal-sub" role="menu" aria-label={t('挪到')} style={{ left: subLeft, top: (moveBtn.current?.offsetTop ?? 64) - 6, width: SUB_W }}>
             <div role="group">
               {props.groups.map((g) => (
                 <button key={g.id} role="menuitem" className="pal-mi" onClick={() => act({ kind: 'move', to: g.id })}>
@@ -103,23 +105,23 @@ export function RowMenu(props: {
             <div role="group">
               <button role="menuitem" className="pal-mi" onClick={() => act({ kind: 'newGroup' })}>
                 <Codicon name="add" size={14} />
-                <span className="nm">新的一组…</span>
+                <span className="nm">{t('新的一组…')}</span>
               </button>
             </div>
           </div>
         )}
       </div>
       <div role="group">
-        {item('record-keys', '设快捷键…', { kind: 'keys' }, c.keys ? <kbd>{c.keys}</kbd> : undefined, '', !!c.fixedKeys)}
-        {item('mention', '起别名…', { kind: 'alias' }, c.alias ? <span className="h">{c.alias}</span> : undefined)}
+        {item('record-keys', t('设快捷键…'), { kind: 'keys' }, c.keys ? <kbd>{c.keys}</kbd> : undefined, '', !!c.fixedKeys)}
+        {item('mention', t('起别名…'), { kind: 'alias' }, c.alias ? <span className="h">{c.alias}</span> : undefined)}
       </div>
       {c.own && (
         <div role="group">
-          {c.ownEditable && item('edit', '改这条命令…', { kind: 'edit' })}
-          {item('trash', '删掉这条', { kind: 'delete' }, undefined, ' danger')}
+          {c.ownEditable && item('edit', t('改这条命令…'), { kind: 'edit' })}
+          {item('trash', t('删掉这条'), { kind: 'delete' }, undefined, ' danger')}
         </div>
       )}
-      <div role="group">{item('eye-closed', '藏起', { kind: 'hide' }, keyFor('pal-hide') ? <kbd>{keyFor('pal-hide')}</kbd> : undefined)}</div>
+      <div role="group">{item('eye-closed', t('藏起'), { kind: 'hide' }, keyFor('pal-hide') ? <kbd>{keyFor('pal-hide')}</kbd> : undefined)}</div>
     </div>
   )
 }
@@ -144,20 +146,21 @@ export function KeysMini(props: {
   onReset(): void
   onClose(): void
 }) {
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const [got, setGot] = useState<string | null>(null)
   useEffect(() => ref.current?.focus(), [])
   const { problem, clash } = got ? checkKey(props.id, got) : { problem: null, clash: null }
   const swap = !!clash && !!props.cur && props.cur !== got
-  const why = problem ?? (clash ? `已经给了「${clash.name}」，按「好」就换给这一条` : null)
+  const why = problem ?? (clash ? t('已经给了「{name}」，按「好」就换给这一条', { name: clash.name }) : null)
   const area = keyDef(props.id)?.area ?? 'app'
-  const where = area === 'app' ? '软件开着时在哪都能按' : `${AREA_NAME[area]}能按`
+  const where = area === 'app' ? t('软件开着时在哪都能按') : t('{where}能按', { where: t(AREA_NAME[area]) })
   return (
     <div
       ref={ref}
       className="pal-mini"
       role="dialog"
-      aria-label="设快捷键"
+      aria-label={t('设快捷键')}
       tabIndex={-1}
       style={miniPos(props.at)}
       onMouseDown={(e) => e.stopPropagation()}
@@ -172,33 +175,33 @@ export function KeysMini(props: {
         if (c) setGot(c)
       }}
     >
-      <div className="t">{`给「${props.name}」设快捷键（${where}）`}</div>
+      <div className="t">{t('给「{name}」设快捷键（{where}）', { name: props.name, where })}</div>
       <div className={'keys' + (got ? '' : ' wait')} aria-live="polite">
-        {got ?? '现在按下组合键…'}
+        {got ?? t('现在按下组合键…')}
       </div>
       {why && <div className="why">{why}</div>}
       <div className="acts">
         {!got && props.cur && (
           <button className="btn btn-sm btn-ghost" onClick={props.onClear}>
-            清掉
+            {t('清掉')}
           </button>
         )}
         {!got && props.cur !== props.def && (
           <button className="btn btn-sm btn-ghost" onClick={props.onReset}>
-            {props.def ? `回到默认 ${props.def}` : '回到默认：没有键'}
+            {props.def ? t('回到默认 {key}', { key: props.def }) : t('回到默认：没有键')}
           </button>
         )}
         <span className="sp" />
         <button className="btn btn-sm btn-ghost" onClick={props.onClose}>
-          取消
+          {t('取消')}
         </button>
         {swap && (
           <button className="btn btn-sm btn-ghost" onClick={() => got && props.onSwap(got)}>
-            两个对调
+            {t('两个对调')}
           </button>
         )}
         <button className="btn btn-sm btn-primary" disabled={!got || !!problem} onClick={() => got && props.onOk(got)}>
-          好
+          {t('好')}
         </button>
       </div>
     </div>
@@ -207,6 +210,7 @@ export function KeysMini(props: {
 
 /** 一行字的小弹层：起别名、新的一组的名字 */
 export function TextMini(props: { label: string; title: string; value: string; placeholder: string; at: { left: number; top: number }; onOk(v: string): void; onClose(): void }) {
+  const t = useT()
   const [v, setV] = useState(props.value)
   const input = useRef<HTMLInputElement>(null)
   useEffect(() => {
@@ -231,10 +235,10 @@ export function TextMini(props: { label: string; title: string; value: string; p
       />
       <div className="acts">
         <button className="btn btn-sm btn-ghost" onClick={props.onClose}>
-          取消
+          {t('取消')}
         </button>
         <button className="btn btn-sm btn-primary" onClick={() => props.onOk(v)}>
-          好
+          {t('好')}
         </button>
       </div>
     </div>

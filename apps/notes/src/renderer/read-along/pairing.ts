@@ -22,6 +22,8 @@ export interface BookRequest {
   flash: boolean
   /** 从头读：滚到最上面 */
   top?: boolean
+  /** 回到选中的那几句（task-6cxtc，笔记里「↩」、右栏「笔记」里点一条）：在每一段里面找它，只亮那几句 */
+  quote?: string
   done?(how: Went['how']): void
 }
 

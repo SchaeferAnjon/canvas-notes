@@ -1,7 +1,9 @@
 /** 全局速记：小窗和主进程之间的接口，preload 按这个暴露成 window.quick */
 
 import type { SkinInfo } from './appearance'
+import type { Lang } from './i18n/core'
 import { clipMarkdown } from './layout'
+import { tv } from './i18n'
 
 /** 按下快捷键那一刻，前台软件里的东西 */
 export interface QuickContext {
@@ -20,6 +22,8 @@ export interface QuickContext {
   key?: string
   /** 主窗口现在用的主题（导入的 VS Code 主题带着它的样式） */
   skin?: { info: SkinInfo; css?: string }
+  /** 界面语言（task-zojmg）：每次弹出时照主窗口的；英文里钟点要不要 12 小时制 */
+  lang?: { ui: Lang; hour12: boolean }
 }
 
 export interface QuickApi {
@@ -48,7 +52,7 @@ export function quickMarkdown(text: string, ctx: Pick<QuickContext, 'selection' 
       .split(/\n+/)
       .map((l) => '> ' + l.trim())
       .join('\n')
-    if (ctx.app) quote += `\n—— 来自 ${ctx.app}`
+    if (ctx.app) quote += '\n' + tv('—— 来自 {app}', { app: ctx.app })
   }
   return typed ? `${typed}\n\n${quote}` : quote
 }

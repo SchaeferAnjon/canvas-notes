@@ -1,13 +1,15 @@
 import { history, redo, undo } from '@codemirror/commands'
 import { isKey } from './keys'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
-import { Compartment, EditorState, type Extension, Prec, Transaction } from '@codemirror/state'
+import { Compartment, EditorState, type Extension, Prec, type Text, Transaction } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { reconcile, textChanges } from '@cn/format'
 import type { OpenedNote } from '../shared/api'
 import { titleOf } from '../shared/layout'
 import { sayMerged, saySameSpot } from './conflict-say'
 import { addLink, editorMenu, linkAt, openLinkHit } from './ctx/editor-menu'
+import { app } from './ctx/actions'
+import { parseFragment } from '../shared/web-link'
 import { docEditing } from './doc-editing'
 import { noteKeys } from './note-keys'
 import { folderChip, setNotePath } from './folder-chip'
@@ -16,6 +18,7 @@ import { aiSpot, aiWroteNote, spotRange } from './ai-spot'
 import { takeWrote } from './ai-act-store'
 import { insertPoint } from './insert-point'
 import { livePreview } from './live-preview'
+import { markEditedOnType } from './ai-mark'
 import { layoutLines } from './layout-lines'
 import { propsBlock } from './mindmap/props-block'
 import { docImageDrop } from './web/doc-image-drop'
@@ -26,6 +29,17 @@ import { docSides } from './side/doc-side'
 import { summaryRetry } from './video/summary-retry'
 import { provisional, provisionalRange } from './tail-line'
 import { appSettings } from './settings-store'
+
+/** 块头下面引着的那几句（`> > 原文`，几段时去掉 ①②）：回到网页时按它找，比链接里的开头准 */
+function quoteBelow(doc: Text, n: number): string | undefined {
+  for (let k = n + 1; k <= doc.lines; k++) {
+    const t = doc.line(k).text
+    const m = /^\s*>\s?>\s?(.*)$/.exec(t)
+    if (m) return m[1]!.replace(/^[①-⑳]\s*/, '') || undefined
+    if (!/^\s*>/.test(t)) return undefined
+  }
+  return undefined
+}
 
 /**
  * failed：哪都写不进去（原文件、它旁边、库最外层都不让写，像盘满了），字只在内存里（另备了一份在软件设置目录），下次改动再试。
@@ -177,6 +191,12 @@ export class NoteDoc {
   get rescuedFrom(): string | null {
     return this.rescuedFromPath
   }
+  /** 这次打开以后用户点进来过（光标是他放的）：AI 回答「插入到文档」插在光标处，没点进来过接在末尾（task-83vl3） */
+  private placed = false
+  get cursorPlaced(): boolean {
+    return this.placed
+  }
+
   /** 哪都写不进去时，字在软件设置目录里的备份（绝对路径；备份也没写进去是 null） */
   private stashPath: string | null = null
   get stash(): string | null {
@@ -193,7 +213,7 @@ export class NoteDoc {
     this.base = note.text
     NoteDoc.open.add(this)
     /** 文档模式：所见即所得 + 块编辑（把手、/ 菜单、待办、表格、图片） */
-    const docMode: Extension = [livePreview, layoutLines, propsBlock, folderChip(note.path), videoDocWidgets, askPending, materialFold, summaryRetry(() => this.path, (t) => this.events.onNotice(t)), docSides, docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) }), aiSpot(() => this.path)]
+    const docMode: Extension = [livePreview, markEditedOnType, layoutLines, propsBlock, folderChip(note.path), videoDocWidgets, askPending, materialFold, summaryRetry(() => this.path, (t) => this.events.onNotice(t)), docSides, docEditing({ path: () => this.path, notice: (t) => this.events.onNotice(t) }), aiSpot(() => this.path)]
     this.view = new EditorView({
       parent,
       state: EditorState.create({
@@ -222,7 +242,19 @@ export class NoteDoc {
           ),
           EditorView.domEventHandlers({
             mousedown: (e, view) => {
-              if (!(e.metaKey || e.ctrlKey) || e.button !== 0) return false
+              if (e.button !== 0) return false
+              // 回到网页那一段的「↩」（task-6cxtc，网页上问的写进来的块头）：点一下就回去，不用按 ⌘
+              if (!(e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)) {
+                const pos = view.posAtCoords({ x: e.clientX, y: e.clientY })
+                if (pos === null) return false
+                const line = view.state.doc.lineAt(pos)
+                const hit = linkAt(line.text, pos - line.from)
+                if (hit?.kind !== 'url' || !/↩\s*$/.test(hit.text) || !parseFragment(hit.url)) return false
+                e.preventDefault()
+                app().openWebAt(hit.url, quoteBelow(view.state.doc, line.number))
+                return true
+              }
+              if (!(e.metaKey || e.ctrlKey)) return false
               const wiki = (e.target as HTMLElement).closest<HTMLElement>('.cm-wikilink')
               if (wiki) {
                 e.preventDefault()
@@ -259,6 +291,7 @@ export class NoteDoc {
               if (now !== was || (u.focusChanged && !u.view.hasFocus)) this.events.onLeaveLine?.(was)
             }
             if (u.selectionSet && u.view.hasFocus) this.events.onCursor?.(u.state.selection.main.head)
+            if (u.view.hasFocus) this.placed = true
             if (!u.docChanged) return
             this.events.onText?.(u.state.doc.toString())
             // 外面改的不再写回；文末那一行点进去还没打字时暂时加的换行（tail-line.ts）不存盘
@@ -303,10 +336,10 @@ export class NoteDoc {
    * 插完光标落在下面新的一个空段落；focus：把焦点交回文档（用户点了按钮的那几处）。
    * 后台插入的传 focus: false：不抢焦点，也不补空段落（光标停在插入的末尾，连着插几条时一条接一条）。
    */
-  /** ai：AI 这一轮只写这一段（turn）：这一段左边竖线里光往下走、下面「停下」那一颗（ai-spot.ts），不闪「刚插进来」 */
-  insertAtCursor(text: string, opts: { focus?: boolean; ai?: number } = {}): { from: number; to: number } {
+  /** ai：AI 这一轮只写这一段（turn）：这一段左边竖线里光往下走、下面「停下」那一颗（ai-spot.ts），不闪「刚插进来」；end：接在文末，不看光标 */
+  insertAtCursor(text: string, opts: { focus?: boolean; ai?: number; end?: boolean } = {}): { from: number; to: number } {
     const state = this.view.state
-    const r = insertBlockAt(state.doc.toString(), state.selection.main.head, text, opts.focus !== false)
+    const r = insertBlockAt(state.doc.toString(), opts.end ? state.doc.length : state.selection.main.head, text, opts.focus !== false)
     this.view.dispatch({
       changes: { from: r.from, to: r.to, insert: r.insert },
       selection: { anchor: r.cursor },

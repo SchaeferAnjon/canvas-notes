@@ -14,6 +14,8 @@ import { entryTarget, errText, setPluginEnabled, setPluginSettings, usePlugins, 
 import { translate } from './translate'
 import { weread } from './weread'
 import type { RendererPlugin, WebPage } from './types'
+import type { Params } from '../../shared/i18n'
+import { useT } from '../i18n'
 import './plugins.css'
 
 export const PLUGINS: RendererPlugin[] = [translate, bookmarks, weread, adblock]
@@ -118,31 +120,33 @@ export function PluginPopup(props: { id: string; page: WebPage | null; mode?: 't
   )
 }
 
-const perms = (i: PluginInfo) => i.permissions.map((x) => PERMISSION_LABEL[x]).join(' · ')
+const perms = (t: (k: string, p?: Params) => string, i: PluginInfo) => i.permissions.map((x) => t(PERMISSION_LABEL[x])).join(' · ')
 
 /** 插件面板里的「内置」一组：名字、说明、要的权限、开关、去设置 */
 export function BuiltinPlugins(props: { onNotice(t: string): void; onSettings(): void }) {
+  const t = useT()
   const list = usePlugins()
   return (
-    <div className="wlist plug-list" role="list" aria-label="内置插件">
+    <div className="wlist plug-list" role="list" aria-label={t('内置插件')}>
       {list.map((i) => {
         const p = byId(i.id)
+        const name = t(i.name)
         return (
-          <div key={i.id} className="wrow plug-row" role="listitem" aria-label={i.name}>
+          <div key={i.id} className="wrow plug-row" role="listitem" aria-label={name}>
             <span className="plug-ic">
               <Codicon name={p?.icon ?? 'extensions'} size={15} />
             </span>
             <div className="wmain">
-              <b className="truncate">{i.name}</b>
-              <span className="plug-desc">{i.description}</span>
-              <span className="plug-perm">要用：{perms(i)}</span>
+              <b className="truncate">{name}</b>
+              <span className="plug-desc">{t(i.description)}</span>
+              <span className="plug-perm">{t('要用：{perms}', { perms: perms(t, i) })}</span>
             </div>
             {p?.Settings && (
-              <button className="iconbtn" aria-label={`${i.name} 设置`} title="设置" onClick={props.onSettings}>
+              <button className="iconbtn" aria-label={t('{name} 设置', { name })} title={t('设置')} onClick={props.onSettings}>
                 <Codicon name="settings-gear" size={13} />
               </button>
             )}
-            <Toggle on={i.enabled} label={`启用 ${i.name}`} onChange={(v) => void setPluginEnabled(i.id, v).catch((e) => props.onNotice(errText(e)))} />
+            <Toggle on={i.enabled} label={t('启用 {name}', { name })} onChange={(v) => void setPluginEnabled(i.id, v).catch((e) => props.onNotice(errText(e)))} />
           </div>
         )
       })}
@@ -155,26 +159,28 @@ const PLUGIN_ROW: Record<string, string> = { translate: 'plTranslate', bookmarks
 
 /** 设置 · 插件：每个内置插件一块（开关 + 它自己的设置） */
 export function PluginsSettings(props: { onNotice(t: string): void }) {
+  const t = useT()
   const list = usePlugins()
   return (
     <>
       {list.map((i) => {
         const p = byId(i.id)
+        const name = t(i.name)
         return (
-          <section key={i.id} className="plug-set" aria-label={i.name} data-row={PLUGIN_ROW[i.id]}>
+          <section key={i.id} className="plug-set" aria-label={name} data-row={PLUGIN_ROW[i.id]}>
             <h4>
-              {i.name} <span>要用：{perms(i)}</span>
+              {name} <span>{t('要用：{perms}', { perms: perms(t, i) })}</span>
             </h4>
-            <p className="note plug-about">{i.description}</p>
+            <p className="note plug-about">{t(i.description)}</p>
             <div className="pair">
-              <span>启用</span>
-              <Toggle on={i.enabled} label={`启用 ${i.name}`} onChange={(v) => void setPluginEnabled(i.id, v).catch((e) => props.onNotice(errText(e)))} />
+              <span>{t('启用')}</span>
+              <Toggle on={i.enabled} label={t('启用 {name}', { name })} onChange={(v) => void setPluginEnabled(i.id, v).catch((e) => props.onNotice(errText(e)))} />
             </div>
             {p?.Settings && i.enabled && <p.Settings info={i} onNotice={props.onNotice} onChange={(patch) => void setPluginSettings(i.id, patch).catch((e) => props.onNotice(errText(e)))} />}
           </section>
         )
       })}
-      <p className="note">内置插件是软件自己的功能，按插件的方式写：各自声明要用的权限，关掉就不再碰网页和库。</p>
+      <p className="note">{t('内置插件是软件自己的功能，按插件的方式写：各自声明要用的权限，关掉就不再碰网页和库。')}</p>
     </>
   )
 }

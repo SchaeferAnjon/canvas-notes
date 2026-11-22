@@ -9,6 +9,7 @@ import { BRAND } from '../shared/brand'
 import { updateError, updateLine } from '../shared/update'
 import appIcon from './assets/app-icon.png'
 import { Toggle } from './Settings'
+import { useT } from './i18n'
 
 /** 主线推来的更新状态；一打开就先拿一次（设置秒开，不等网络） */
 export function useUpdateState(): UpdateState | null {
@@ -35,6 +36,7 @@ export function barKind(st: UpdateState | null): 'ready' | 'failed' | null {
 
 /** 底栏最右端那一项 */
 export function UpdateBarItem(props: { st: UpdateState | null; onInstall(): Promise<void>; onOpenSettings(): void }) {
+  const t = useT()
   const kind = barKind(props.st)
   const [busy, setBusy] = useState(false)
   if (!kind || !props.st) return null
@@ -42,9 +44,9 @@ export function UpdateBarItem(props: { st: UpdateState | null; onInstall(): Prom
     return (
       <>
         <i className="vsep" />
-        <button className="bi upd" data-testid="update-bar" onClick={props.onOpenSettings} title="新版本没装上，点开看原因">
+        <button className="bi upd" data-testid="update-bar" onClick={props.onOpenSettings} title={t('新版本没装上，点开看原因')}>
           <i className="udot err" />
-          更新没装上
+          {t('更新没装上')}
         </button>
       </>
     )
@@ -56,14 +58,21 @@ export function UpdateBarItem(props: { st: UpdateState | null; onInstall(): Prom
         className="bi upd"
         data-testid="update-bar"
         disabled={busy}
-        title={`新版本 ${v} 已下好。点一下重启装上，打开的标签都会回来；不点也行，下次退出时自动装上。`}
+        title={t('新版本 {v} 已下好。点一下重启装上，打开的标签都会回来；不点也行，下次退出时自动装上。', { v })}
         onClick={() => {
           setBusy(true)
           void props.onInstall().finally(() => setBusy(false))
         }}
       >
         {busy ? <Codicon name="loading" size={12} className="spin" /> : <i className="udot" />}
-        {busy ? '正在重启…' : <span className="upd-t">重启更新<span className="upd-v">{`到${v}`}</span></span>}
+        {busy ? (
+          t('正在重启…')
+        ) : (
+          <span className="upd-t">
+            {t('重启更新')}
+            <span className="upd-v">{t('到{v}', { v })}</span>
+          </span>
+        )}
       </button>
     </>
   )
@@ -71,6 +80,7 @@ export function UpdateBarItem(props: { st: UpdateState | null; onInstall(): Prom
 
 /** 设置 › 更新 */
 export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean): void; onInstall(): Promise<void>; onOpenUrl(url: string): void }) {
+  const t = useT()
   const st = useUpdateState()
   const [checking, setChecking] = useState(false)
   const [moveErr, setMoveErr] = useState('')
@@ -78,7 +88,7 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
   const off = st.phase === 'off'
   const err = st.phase === 'error' ? updateError(st.error, st.version) : null
   const busy = checking || st.phase === 'checking' || st.phase === 'downloading'
-  const line = moveErr ? `没挪成：${moveErr}` : updateLine(st, props.autoUpdate)
+  const line = moveErr ? t('没挪成：{err}', { err: moveErr }) : updateLine(st, props.autoUpdate)
 
   async function check() {
     setChecking(true)
@@ -100,7 +110,8 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
   return (
     <>
       <h4>
-        版本<span>{`${BRAND.name}从GitHub上的正式版更新`}</span>
+        {t('版本')}
+        <span>{t('{app}从GitHub上的正式版更新', { app: BRAND.name })}</span>
       </h4>
       <div className="card-row upd-card" data-testid="update-card">
         <img className="upd-icon" src={appIcon} alt="" draggable={false} />
@@ -115,7 +126,7 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
               <>
                 {' · '}
                 <button className="upd-link" onClick={() => void window.cn.releaseUrl().then(props.onOpenUrl)}>
-                  看看改了什么
+                  {t('看看改了什么')}
                 </button>
               </>
             )}
@@ -130,17 +141,17 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
           {err?.action === 'site' && (
             <button className="btn btn-sm" onClick={() => props.onOpenUrl(BRAND.site)}>
               <Codicon name="globe" size={14} />
-              去官网下载
+              {t('去官网下载')}
             </button>
           )}
           {st.phase === 'ready' ? (
             <button className="btn btn-sm btn-primary" onClick={() => void props.onInstall()}>
-              重启更新
+              {t('重启更新')}
             </button>
           ) : (
             <button className="btn btn-sm" disabled={off || busy} onClick={() => void check()}>
               <Codicon name="refresh" size={14} className={st.phase === 'checking' || checking ? 'spin' : ''} />
-              {st.phase === 'checking' || checking ? '正在检查' : err ? '再查一次' : '检查更新'}
+              {st.phase === 'checking' || checking ? t('正在检查') : err ? t('再查一次') : t('检查更新')}
             </button>
           )}
         </div>
@@ -149,31 +160,32 @@ export function UpdatePage(props: { autoUpdate: boolean; onAutoUpdate(v: boolean
         <div className="callout" data-testid="update-not-in-apps">
           <Codicon name="warning" size={16} className="warn" />
           <div className="tx">
-            <b>{`${BRAND.name}不在「应用程序」文件夹里`}</b>
-            <span>从「下载」或安装盘里直接打开时，新版本可能装不上</span>
+            <b>{t('{app}不在「应用程序」文件夹里', { app: BRAND.name })}</b>
+            <span>{t('从「下载」或安装盘里直接打开时，新版本可能装不上')}</span>
             <div className="upd-acts left">
               <button className="btn btn-sm" onClick={() => void move()}>
-                挪到「应用程序」并重开
+                {t('挪到「应用程序」并重开')}
               </button>
               <button className="btn btn-sm btn-ghost" onClick={() => void window.cn.revealApp()}>
                 <Codicon name="search" size={14} />
-                在Finder中显示
+                {t('在Finder中显示')}
               </button>
             </div>
           </div>
         </div>
       )}
       <h4>
-        自动更新<span>有新版本在后台下载，下好后提示你重启</span>
+        {t('自动更新')}
+        <span>{t('有新版本在后台下载，下好后提示你重启')}</span>
       </h4>
       <div className={'pair' + (off ? ' dim' : '')}>
-        <Toggle on={props.autoUpdate && !off} label="自动检查并下载新版本" onChange={(v) => !off && props.onAutoUpdate(v)} />
-        <span>自动检查并下载新版本</span>
+        <Toggle on={props.autoUpdate && !off} label={t('自动检查并下载新版本')} onChange={(v) => !off && props.onAutoUpdate(v)} />
+        <span>{t('自动检查并下载新版本')}</span>
       </div>
       <p className="note">
         {off
-          ? '开发版和自己打的包不查更新；正式版从官网或GitHub Release下载。'
-          : '启动30秒后查一次，之后每6小时查一次，只连GitHub。下好后底栏右边出现「重启更新」；不点也行，下次退出时自动装上。'}
+          ? t('开发版和自己打的包不查更新；正式版从官网或GitHub Release下载。')
+          : t('启动30秒后查一次，之后每6小时查一次，只连GitHub。下好后底栏右边出现「重启更新」；不点也行，下次退出时自动装上。')}
       </p>
     </>
   )

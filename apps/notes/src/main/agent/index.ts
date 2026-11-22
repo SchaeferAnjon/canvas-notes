@@ -11,8 +11,9 @@
  */
 import { app, type BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { realpathSync } from 'node:fs'
-import { rename } from 'node:fs/promises'
+import { readFile, rename, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
+import { type AiWrote, aiWroteHead, blockKeys, chatLink, decodeNote, encodeNote, wrapInsert, wrapNewBlocks } from '@cn/format'
 import * as git from '@cn/git'
 import { type ActTally, actScope, noTally } from '../../shared/ai-act'
 import type { AgentContext, AiAct, AiActArea, AiEvent, BridgeOp, ChatSide, EngineId, EngineInfo, SideTurnRequest, StoredMsg, TurnRequest, TurnResult } from '../../shared/agent'
@@ -39,7 +40,7 @@ import type { ChatSummary } from '../../shared/ai-chats'
 import { AgentStore } from './store'
 import { runTool, stepLabel, type ToolHost, toolLabel, toolSpecs } from './tools'
 import * as vops from './vault-ops'
-import { modeLine, MODES_RULE, userNoteLine } from './modes'
+import { AI_BLOCK_RULE, aiBlockLine, modeLine, MODES_RULE, userNoteLine } from './modes'
 import { sideTurnPrompt } from './side-prompt'
 import * as web from './web'
 
@@ -64,14 +65,16 @@ ${MODES_RULE}
 - 用户在看网页就用 web_*，在白板上就用 board_*，在文档里就用 doc_*；每条消息开头写着用户现在在看什么。
 - 新建、改名、挪动、删掉库里的笔记优先用 canvas 这组工具（链接、附件、开着的编辑器跟着走）；全能模式下别的事可以直接写文件、跑命令。不管怎么改，这一轮结束软件把库里的改动提交一次，用户能一键撤回，所以直接做，不用先问。
 - 不管用哪种办法改了库里的文件（canvas 工具、自己写文件、跑命令），开着的编辑器当场换成新内容，用户正在打的字会合并进来，不用叫用户关掉标签再打开。
-- 做完用一两句话说做了什么。用中文回答，平实、直接，不客套。不编造笔记里没有的事。
+${AI_BLOCK_RULE}
+- 做完用一两句话说做了什么。回答用哪种语言照每条消息开头的【语言】；平实、直接，不客套。不编造笔记里没有的事。
 - ${MATH_RULE}`
 
 /**
  * AGENT_SYSTEM 改过就加一：Claude Code 接着聊时一直用会话第一次的系统提示（--system-prompt-snapshot），
- * 版本对不上的会话不再接着聊，开新会话、补上最近几轮（2：全能模式、笔记和文件夹那组工具；3：改了开着的文件编辑器当场换）
+ * 版本对不上的会话不再接着聊，开新会话、补上最近几轮（2：全能模式、笔记和文件夹那组工具；3：改了开着的文件编辑器当场换；
+ * 4：回答的语言照每条消息开头的【语言】，task-zojmg；5：往笔记里新加的段落写成 [!ai] 块，头一行照每条消息开头的【AI 块】，task-dtc34）
  */
-export const AGENT_VERSION = 3
+export const AGENT_VERSION = 5
 
 let engines: Partial<Record<EngineId, Engine>> = {}
 
@@ -116,6 +119,13 @@ interface Turn {
   before: Set<string>
   /** 这一轮往库里的笔记写过字（发过 wrote）：结束时也发 end，那一段下面「AI 在写这一段」跟着收 */
   wrote: boolean
+  /**
+   * AI 对话（不是读 PDF）：AI 往笔记里新加的整段一律包成 [!ai] 块（task-dtc34），头上写哪家哪个模型、链回这段对话；
+   * 我们的工具插的当场包，AI 自己改文件的这一轮结束补包（wrapTurn）
+   */
+  aiWrote?: AiWrote
+  /** 这一轮里库里笔记的每一版（按先后）：own 是软件写的（编辑器存用户打的字），不是的是 AI 写的；补包时认出用户这一轮自己打的整段 */
+  trail: { path: string; own: boolean; text: string }[]
   /** 字和步骤发给界面（AI 对话：ai:event；读 PDF：reading:event） */
   emit(e: AiEvent): void
 }
@@ -266,6 +276,7 @@ function noteMoves(t: Turn, r: { from: string; to: string; touched: string[] }) 
 
 function hostFor(t: Turn): ToolHost {
   return {
+    ...(t.aiWrote ? { wrote: t.aiWrote } : {}),
     context: () => bridge<AgentContext>('context'),
     listNotes: () => needVault().list(),
     readNote: async (path) => {
@@ -281,7 +292,8 @@ function hostFor(t: Turn): ToolHost {
       const cur = (await v.read(rel)).text
       const next = change(cur)
       if (next === cur) return
-      const r = await v.write(rel, next, cur)
+      aiWriting.add(rel)
+      const r = await v.write(rel, next, cur).finally(() => aiWriting.delete(rel))
       if (!r.ok) throw new Error('文件刚被改过，再试一次')
       if (!t.touched.has(rel)) t.touched.set(rel, '改')
       // 主进程写的，监听不到；打开着这篇的编辑器要收到，按外部改动合并（先说是 AI 写的：新的字一点点长出来，task-6kun1）
@@ -393,8 +405,9 @@ function hostFor(t: Turn): ToolHost {
       async insert(text) {
         const path = await docPath()
         await beforeEdit(t, path)
-        // 只写一段：这一段左边竖线里一道光往下走、下面「AI 在写这一段 · 停下 esc」（turn 给界面认是哪一轮）
-        await bridge('docInsert', { path, text, turn: t.id })
+        // 只写一段：这一段左边竖线里一道光往下走、下面「AI 在写这一段 · 停下 esc」（turn 给界面认是哪一轮）；
+        // AI 对话里写的包成 [!ai] 块（task-dtc34，标题、代码留在外面）
+        await bridge('docInsert', { path, text: t.aiWrote ? wrapInsert(text, t.aiWrote) : text, turn: t.id })
         t.touched.set(path, '改')
         t.tally.added++
         return `插好了（${path}）`
@@ -551,6 +564,8 @@ async function commitTurn(v: Vault, t: Turn, message: string): Promise<{ commit:
       }
       kinds[s.path] = s.code.includes('D') ? '删' : s.code === '??' || s.code[0] === 'A' ? '新' : '改'
     }
+  // AI 往笔记里新加、没包进 [!ai] 块的整段补包上（task-dtc34），和 AI 的改动在同一次提交里
+  if (t.aiWrote) await wrapTurn(v, t, kinds)
   // 不是 AI 的先单独提交一次，说明照改了什么写（「删除 15 个文件：…」），不挂 AI 的名字；提交不上就留在工作区，等下次自动提交
   if (others.length)
     await git.commitPaths(v.root, others.map((s) => s.path), git.describeChanges(others)).catch((e: unknown) => {
@@ -570,6 +585,53 @@ async function commitTurn(v: Vault, t: Turn, message: string): Promise<{ commit:
     return { commit: null, kinds, failed: { failed: commitErrorText(e.message), paths, message } }
   }
 }
+
+/** 这一篇在上一次提交里的样子（那时还没有它是空的）；CRLF、BOM 照编辑器读的去掉 */
+async function headText(root: string, path: string): Promise<string> {
+  const there = (await git.git(root, ['ls-tree', '--name-only', 'HEAD', '--', path]).catch(() => '')).trim()
+  if (!there) return ''
+  return (await git.git(root, ['show', `HEAD:${path}`])).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+}
+
+/**
+ * 这一轮结束补包（task-dtc34）：这一轮改了的每篇笔记（不是新建的）和这一轮开始时（上一次提交，开始前用户的字已经单独提交了）比，
+ * AI 纯新增、没包的整段包成 [!ai] 块；改了用户原有字的地方不包（那是「改」，照「AI 动过」的光和历史看）。
+ * 这一轮里用户自己在同一篇打的整段不包：按这一篇的每一版（trail）认，编辑器存下的那一版比上一版多出来的是用户打的。
+ * 写回磁盘、告诉开着这篇的编辑器（按外部改动合并），和 AI 的改动一起提交，「撤回」一下都撤掉
+ */
+async function wrapTurn(v: Vault, t: Turn, kinds: Record<string, string>) {
+  for (const [path, kind] of Object.entries(kinds)) {
+    if (kind !== '改' || !/\.md$/i.test(path) || git.isInternalPath(path)) continue
+    const before = await headText(v.root, path)
+    // 直接读磁盘，不经 Vault（Vault.read 会把这一版记成「软件读到过的」，监听就不再报 AI 刚写的那一下，编辑器收不到）
+    const disk = await readFile(v.abs(path)).then(decodeNote, (e: NodeJS.ErrnoException) => {
+      if (e.code === 'ENOENT') return null
+      throw e
+    })
+    if (!disk) continue
+    let prev = blockKeys(before)
+    const mine = new Set<string>()
+    for (const e of t.trail) {
+      if (e.path !== path) continue
+      const now = blockKeys(e.text)
+      if (e.own) for (const k of now) if (!prev.has(k)) mine.add(k)
+      prev = now
+    }
+    const r = wrapNewBlocks(before, disk.text, t.aiWrote!, (k) => mine.has(k))
+    if (!r.wrapped) continue
+    // 正好这一下编辑器又存了字（磁盘和刚读的不一样）：这次不包，AI 的改动照样提交
+    if (decodeNote(await readFile(v.abs(path))).text !== disk.text) continue
+    // 像外面改的一样写（不记进 Vault）：监听读到磁盘上最新的那一版交给编辑器，编辑器照「外部改动不丢正在打的字」三方合并。
+    // 以前用 Vault.write + 直接发 note:changed：编辑器刚存过字时，这份旧的字排在后面合进去，把用户刚打的字当成被删掉了
+    // 监听报过 AI 写的那一下（编辑器已经拿到 AI 的字、正在长）：这一回只当外部改动合并，不当 AI 又写了一回；
+    // 还没报过（AI 写完这一轮马上就答完，两下会并成一下报）：这一回就是编辑器头一次见到 AI 的字，照旧当 AI 写的、一点点长出来
+    wrapWrites.set(path, { at: Date.now(), grow: await v.changedOutside(path) })
+    await writeFile(v.abs(path), encodeNote(r.text, disk.meta))
+  }
+}
+
+/** 这一轮结束补包写的（路径 → 什么时候、要不要当 AI 写的长出来） */
+const wrapWrites = new Map<string, { at: number; grow: boolean }>()
 
 export interface AgentTurnResult {
   outcome: EngineOutcome | null
@@ -598,9 +660,11 @@ export async function runAgentTurn(o: {
   subject: string
   emit(e: AiEvent): void
   run: Omit<EngineRun, 'cwd' | 'mcp' | 'omni' | 'onStep' | 'signal'>
+  /** AI 往笔记里新加的整段包成 [!ai] 块时头上写的（AI 对话、旁支给；读 PDF 不给，它的笔记有自己的写法） */
+  aiWrote?: AiWrote
 }): Promise<AgentTurnResult> {
   const v = needVault()
-  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit }
+  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), trail: [] }
   let outcome: EngineOutcome | null = null
   let error: string | undefined
   /** 没答完（停下、出错）时引擎给的会话号：已经做了的几步在这个会话里，「接着做」接着它 */
@@ -656,17 +720,32 @@ export async function runAgentTurn(o: {
 }
 
 /** 软件自己写了库里这个文件（编辑器存字、剪藏、速记、改名挪动）：正在答的全能模式那几轮不把它算成 AI 改的 */
-export function agentOwnWrite(path: string) {
-  for (const t of liveTurns) if (t.omni) t.own.add(path)
+export function agentOwnWrite(path: string, text?: string) {
+  for (const t of liveTurns) {
+    if (t.omni) t.own.add(path)
+    if (t.aiWrote && text !== undefined && /\.md$/i.test(path)) t.trail.push({ path, own: !aiWriting.has(path), text })
+  }
 }
+
+/** 我们的工具正在写的这几篇（editNote）：软件自己写的，但是是 AI 的字 */
+const aiWriting = new Set<string>()
 
 /**
  * 监听看到库里这个文件在外面改了（AI 自己的工具改的）：正在答的全能模式那几轮把它算回 AI 改的；
  * 是笔记就告诉界面这是最新那一轮 AI 写的（紧接着的 note:changed 合进编辑器时新的字一点点长出来，task-6kun1）
  */
-export function agentExternal(path: string) {
-  for (const t of liveTurns) if (t.omni) t.external.add(path)
+export function agentExternal(path: string, text?: string) {
+  for (const t of liveTurns) {
+    if (t.omni) t.external.add(path)
+    if (t.aiWrote && text !== undefined && /\.md$/i.test(path)) t.trail.push({ path, own: false, text })
+  }
   if (!/\.md$/i.test(path)) return
+  // 这一轮结束补包成 AI 块写的那一下：编辑器照外部改动合并就好，不是 AI 又写了字
+  const wrapped = wrapWrites.get(path)
+  if (wrapped) {
+    wrapWrites.delete(path)
+    if (!wrapped.grow && Date.now() - wrapped.at < 10_000) return
+  }
   const t = [...liveTurns].reverse().find((x) => x.omni)
   if (t) wroteNote(t, path)
   // 写完紧接着这一轮就答完了（监听晚到几十毫秒）：照样是 AI 写的，只是没有还在答的一轮了（不挂「AI 在写这一段」到这一轮做完）
@@ -734,6 +813,7 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
     } catch (e) {
       return { text: '', commit: null, kinds: {}, error: String((e as Error).message ?? e) }
     }
+    const wrote = wroteFor(req.engine, req, place, req.id)
     const r = await runAgentTurn({
       id: req.id,
       engine: req.engine,
@@ -741,10 +821,12 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
       ac,
       subject: req.subject ?? req.text,
       emit: (e) => emit(req.id, e),
+      aiWrote: wrote,
       run: {
         ...picked,
-        // 开头一行是现在开没开全能模式（系统提示在一个会话里定死了，开关随时会换）；引用的材料：字里的 ①②，后面按同一套编号列出每块
-        prompt: `${modeLine(omni, req.engine, v.root)}\n${describeContext(req.context)}\n\n用户说：\n${withMaterials(req.text, mats)}`,
+        // 开头一行是现在开没开全能模式（系统提示在一个会话里定死了，开关随时会换）；【AI 块】这一问往笔记里新加的段落包成的头；
+        // 引用的材料：字里的 ①②，后面按同一套编号列出每块
+        prompt: `${modeLine(omni, req.engine, v.root)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n\n用户说：\n${withMaterials(req.text, mats)}`,
         system: AGENT_SYSTEM,
         session: place ? store.session(v.root, place.key, req.engine, AGENT_VERSION) : undefined,
         history: chat ? historyOf(chat.msgs.filter((m) => !(m.role === 'user' && m.text === req.text))) : undefined,
@@ -768,6 +850,15 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
 
 /** AI 对话这一格正在答 */
 let dockBusy = false
+
+/**
+ * AI 对话这一问往笔记里新加的段落包成 [!ai] 块时头上写的（task-dtc34）：哪家 · 哪个模型（和回答头上一样，不带 effort），
+ * 有地方时链回这段对话的这一条回答（msg 是 AI 那条消息的编号）
+ */
+function wroteFor(engine: EngineId, req: { model?: unknown }, place: { key: string } | null, msg: number): AiWrote {
+  const p = effectivePick(engine, typeof req.model === 'string' ? { model: req.model } : {})
+  return { by: pickLabel({ engine, ...(p.model ? { model: p.model } : {}) }, modelsFor(engine)), ...(place ? { link: chatLink(place.key, msg) } : {}) }
+}
 
 /**
  * 旁支里问一句（task-4edsc：AI 对话、文档里 AI 讲解块的旁支）。第一问从这个地方主对话的会话整段分叉（fresh 的不分叉，开新会话），
@@ -796,6 +887,8 @@ async function runSideTurn(req: SideTurnRequest): Promise<TurnResult> {
     const mine = store.sideSession(v.root, place.key, side.id, req.engine)
     const base = side.fresh ? undefined : store.session(v.root, place.key, req.engine, AGENT_VERSION)
     const omni = store.omni()
+    // 旁支里写进笔记的也包成 [!ai] 块；不带「回到对话」（旁支的问答不在对话列表里，没有一条能滚到）
+    const wrote = wroteFor(req.engine, req, null, req.id)
     const r = await runAgentTurn({
       id: req.id,
       engine: req.engine,
@@ -803,9 +896,10 @@ async function runSideTurn(req: SideTurnRequest): Promise<TurnResult> {
       ac,
       subject: `旁支：${req.text}`,
       emit: (e) => emit(req.id, e),
+      aiWrote: wrote,
       run: {
         ...picked,
-        prompt: `${modeLine(omni, req.engine, v.root)}\n${describeContext(req.context)}\n\n${sideTurnPrompt({ first: !mine, quote: side.quote, ...(side.ask ? { ask: side.ask } : {}), ...(side.where ? { where: side.where } : {}), question: withMaterials(req.text, mats) })}`,
+        prompt: `${modeLine(omni, req.engine, v.root)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n\n${sideTurnPrompt({ first: !mine, quote: side.quote, ...(side.ask ? { ask: side.ask } : {}), ...(side.where ? { where: side.where } : {}), question: withMaterials(req.text, mats) })}`,
         system: AGENT_SYSTEM,
         session: mine ?? base,
         ...(!mine && base ? { fork: true } : {}),

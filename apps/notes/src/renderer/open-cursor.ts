@@ -93,13 +93,16 @@ function safe(text: string, pos: number): number {
 /** 打开时光标放在哪；saved：上次离开时记下的位置 */
 export function openCursor(text: string, saved?: number | null): number {
   // 记下的是 0（旧版本打开就在最前面）和没记一样
-  if (saved == null || saved <= 0) return safe(text, defaultCursor(text))
+  // 记坏了的（不是数字，task-pyb39）也当没记：NaN 当光标位置给编辑器会抛错
+  if (typeof saved !== 'number' || !Number.isFinite(saved) || saved <= 0) return safe(text, defaultCursor(text))
   return safe(text, Math.min(saved, text.length))
 }
 
 function load(): Record<string, number> {
   try {
-    return JSON.parse(localStorage.getItem(KEY) ?? '{}') as Record<string, number>
+    const v: unknown = JSON.parse(localStorage.getItem(KEY) ?? '{}')
+    // 不是对象（null、数组）当没记：后面要往里写
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, number>) : {}
   } catch {
     return {}
   }

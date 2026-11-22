@@ -8,6 +8,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import * as git from '@cn/git'
 import { BRAND } from '../shared/brand'
+import { hour12, t, tv, uiLang } from '../shared/i18n'
 import { quickMarkdown, type QuickContext } from '../shared/quick'
 import { accelOf } from '../shared/cmd-keys'
 import type { GeneralPrefs } from '../shared/prefs'
@@ -133,7 +134,7 @@ export function setupQuick(o: {
       hasShadow: false,
       alwaysOnTop: true,
       type: 'panel',
-      title: '速记',
+      title: t('速记'),
       webPreferences: { preload: join(__dirname, '../preload/quick.js'), contextIsolation: true, sandbox: true },
     })
     w.setAlwaysOnTop(true, 'floating')
@@ -164,7 +165,7 @@ export function setupQuick(o: {
     }
     prev = null
     const isTrusted = trusted()
-    ctx = { trusted: isTrusted, hint: !isTrusted && o.settings().quickHint !== false, skin: o.skin(), key: o.prefs().quickKey }
+    ctx = { trusted: isTrusted, hint: !isTrusted && o.settings().quickHint !== false, skin: o.skin(), key: o.prefs().quickKey, lang: { ui: uiLang(), hour12: hour12() } }
     if (!E2E) {
       prev = await frontApp().catch(() => null)
       if (prev?.bundle === BRAND.appId || prev?.name === app.getName()) prev = null
@@ -195,13 +196,13 @@ export function setupQuick(o: {
 
   async function save(text: string): Promise<string> {
     const v = o.vault()
-    if (!v) throw new Error(`还没有打开库，先打开 ${BRAND.name} 选一个文件夹`)
-    if (typeof text !== 'string') throw new Error('速记参数不对')
+    if (!v) throw new Error(t('还没有打开库，先打开 {app} 选一个文件夹', { app: BRAND.name }))
+    if (typeof text !== 'string') throw new Error(t('速记参数不对'))
     const body = quickMarkdown(text, ctx)
-    if (!body) throw new Error('速记是空的')
+    if (!body) throw new Error(t('速记是空的'))
     const path = await v.capture(body, new Date(), ctx.url)
     const first = (text.trim() || ctx.selection?.trim() || '').split('\n')[0]!.slice(0, 40)
-    await git.commitPaths(v.root, [path], `速记：${first}`)
+    await git.commitPaths(v.root, [path], tv('速记：{text}', { text: first }))
     o.onSaved(path)
     hide(true)
     return path
@@ -243,11 +244,11 @@ export function setupQuick(o: {
   const buildTrayMenu = () =>
     Menu.buildFromTemplate([
       ...(o.topItems?.() ?? []),
-      { label: '速记', accelerator: registered && key ? key : undefined, registerAccelerator: false, click: () => void show() },
-      { label: `打开 ${BRAND.name}`, click: () => o.openMain() },
-      { label: '现在梦游', click: () => o.dreamNow() },
+      { label: t('速记', { ctx: '菜单栏' }), accelerator: registered && key ? key : undefined, registerAccelerator: false, click: () => void show() },
+      { label: t('打开 {app}', { app: BRAND.name, ctx: '菜单栏' }), click: () => o.openMain() },
+      { label: t('现在梦游', { ctx: '菜单栏' }), click: () => o.dreamNow() },
       { type: 'separator' },
-      { label: '退出', role: 'quit' },
+      { label: t('退出', { ctx: '菜单栏' }), role: 'quit' },
     ])
   const setMenu = () => {
     const menu = buildTrayMenu()

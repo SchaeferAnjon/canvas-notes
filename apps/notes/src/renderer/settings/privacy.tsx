@@ -5,9 +5,11 @@
 import { normalizeWeread } from '../../shared/plugins/weread'
 import { errText, pluginInfo, setPluginEnabled, setPluginSettings, usePlugins } from '../plugins/host'
 import { Toggle, type SettingsProps } from '../Settings'
+import { useT } from '../i18n'
 import { Group, Lnk, Row, useSaid } from './ui'
 
 export function PrivacyPage(props: SettingsProps) {
+  const t = useT()
   const said = useSaid()
   usePlugins()
   const ad = pluginInfo('adblock')
@@ -16,14 +18,14 @@ export function PrivacyPage(props: SettingsProps) {
   const fail = (e: unknown) => said.say(errText(e))
   return (
     <>
-      <Group title="会联网的">
+      <Group title={t('会联网的')}>
         <Row id="netList">
           <Toggle
             on={props.settings.autoUpdate}
-            label="检查更新"
+            label={t('检查更新')}
             onChange={(v) => {
               void props.onChange({ autoUpdate: v })
-              said.saved(v ? '自动检查更新开了（一般页里是同一个开关）' : '不再自己查更新（一般页里是同一个开关）', () => void props.onChange({ autoUpdate: !v }))
+              said.saved(v ? t('自动检查更新开了（一般页里是同一个开关）') : t('不再自己查更新（一般页里是同一个开关）'), () => void props.onChange({ autoUpdate: !v }))
             }}
           />
         </Row>
@@ -31,37 +33,37 @@ export function PrivacyPage(props: SettingsProps) {
           <Row id="netAd">
             <Toggle
               on={ad.enabled}
-              label="拦广告的规则"
+              label={t('拦广告的规则')}
               onChange={(v) => {
                 void setPluginEnabled('adblock', v).catch(fail)
-                said.saved(v ? '拦广告开了：去网站时取规则' : '拦广告关了：不再取规则，网页不拦广告', () => void setPluginEnabled('adblock', !v).catch(fail))
+                said.saved(v ? t('拦广告开了：去网站时取规则') : t('拦广告关了：不再取规则，网页不拦广告'), () => void setPluginEnabled('adblock', !v).catch(fail))
               }}
             />
           </Row>
         )}
         {weread && (
-          <Row id="netWeread" dim={!weread.enabled} desc={weread.enabled ? undefined : '微信读书插件关着；在插件页里打开'}>
+          <Row id="netWeread" dim={!weread.enabled} desc={weread.enabled ? undefined : t('微信读书插件关着；在插件页里打开')}>
             <Toggle
               on={weread.enabled && wereadSync}
-              label="微信读书同步划线"
+              label={t('微信读书同步划线')}
               onChange={(v) => {
                 if (!weread.enabled) return
                 void setPluginSettings('weread', { sync: v }).catch(fail)
-                said.saved(v ? '看微信读书时把划线和想法同步进「阅读」' : '不再把划线和想法同步进「阅读」', () => void setPluginSettings('weread', { sync: !v }).catch(fail))
+                said.saved(v ? t('看微信读书时把划线和想法同步进「阅读」') : t('不再把划线和想法同步进「阅读」'), () => void setPluginSettings('weread', { sync: !v }).catch(fail))
               }}
             />
           </Row>
         )}
         <Row id="netGit">
-          <Lnk onClick={() => props.onGoRow('autoSync')}>去Git和同步</Lnk>
+          <Lnk onClick={() => props.onGoRow('autoSync')}>{t('去Git和同步')}</Lnk>
         </Row>
         <Row id="netAi" info />
         <Row id="netWeb" info />
       </Group>
-      <Group title="不会做的">
+      <Group title={t('不会做的')}>
         <Row id="netNone" info />
       </Group>
-      <p className="sa-note">这里只是把各处的开关列在一起，关这里等于关那里。</p>
+      <p className="sa-note">{t('这里只是把各处的开关列在一起，关这里等于关那里。')}</p>
     </>
   )
 }

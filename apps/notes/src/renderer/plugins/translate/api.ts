@@ -1,5 +1,5 @@
 /**
- * 界面里别的地方（网页阅读视图的对照读、右键「翻译这段」）用的翻译：给一串块，翻好一块回一块。和网页翻译同一个缓存、同一套引擎设置和课程术语表。
+ * 界面里别的地方（网页阅读视图的对照读、右键「翻译这段」）用的翻译：给一串块，翻好一块回一块。和网页翻译同一个缓存、同一套引擎设置。
  *
  *   const job = translateBlocks([{ id: 'p3-1', text: '…' }], { target: 'zh-CN' }, (r) => …)
  *   await job.done      // 全部回来（或者停下）后
@@ -20,7 +20,7 @@ let seq = 0
 
 export function translateBlocks(
   blocks: { id: string; text: string }[],
-  opts: { target?: string; course?: string | null; fresh?: boolean },
+  opts: { target?: string; fresh?: boolean },
   onResult: (r: BlockResult) => void,
 ): { done: Promise<void>; cancel(): void } {
   const req = ++seq + Math.random()

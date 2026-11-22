@@ -9,7 +9,8 @@ import { readFile, stat } from 'node:fs/promises'
 import { join, basename } from 'node:path'
 import * as git from '@cn/git'
 import type { DreamReport } from '../shared/api'
-import { baseName, type DiffEntry, type DiffResult, type DiffSource, fileKindOf, type Hunk, parseHunks, sizeText, summarize } from '../shared/diff'
+import { baseName, type DiffEntry, type DiffResult, type DiffSource, fileKindOf, type Hunk, moveSay, parseHunks, relinkSay, sizeText, summarize } from '../shared/diff'
+import { titleOf } from '../shared/layout'
 
 /** git 的空树：第一次提交没有父提交，跟它比 */
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -160,7 +161,7 @@ export async function diffOf(root: string, src: DiffSource, report: DreamReport 
     const mine = all.filter((f) => !git.isInternalPath(f.path))
     const keep = all.filter((f) => /(^|\/)\.gitkeep$/.test(f.path))
     const files = src.kind === 'commit' && src.hide ? (mine.length ? mine : keep.length ? keep : all) : all
-    return { note, left: parents[0] ? `改之前 · ${short(parents[0])}` : '改之前 · 没有', right: `这次提交后 · ${short(hash!)}`, files }
+    return { note, left: parents[0] ? `改之前 · ${short(parents[0])}` : '改之前 · 没有', right: `这次提交后 · ${short(hash!)}`, files, rev: hash! }
   }
   if (src.kind === 'pair') {
     for (const p of [src.a, src.b]) if (p.startsWith('/') || p.split('/').includes('..')) throw new Error('路径不对')
@@ -178,7 +179,43 @@ export async function diffOf(root: string, src: DiffSource, report: DreamReport 
     return diffOf(root, { kind: 'pair', a: a!, b: b! }, report)
   }
   // 重做过的：从第一次提交之前到最后一次重做
-  const tip = it.redoCommits?.[it.redoCommits.length - 1] ?? it.commit
+  const commits = [it.commit, ...(it.redoCommits ?? [])]
+  const tip = commits[commits.length - 1]!
+  // 这一条动过的每个文件（task-m552v）：挪的那篇，还有改名时别的笔记里 [[旧名]] 换成新名的那几篇（以前只列 it.files，那几篇看不到）
+  const touched = new Set<string>()
+  for (const c of commits)
+    for (const n of parseNameStatus(await git.git(root, ['diff-tree', '--no-commit-id', '--name-status', '-r', '-M', '-z', c]))) {
+      touched.add(n.path)
+      if (n.from) touched.add(n.from)
+    }
   const said = new Map((it.changes ?? []).map((c) => [c.path, c.text]))
-  return { note: `梦游 · ${it.state === 'pending' ? '还没收下' : it.state === 'taken' ? '已收下' : '已丢掉'}`, left: `现在的 · ${report.base}`, right: `梦游改后 · ${report.branch}`, files: await between(root, `${it.commit}^`, tip, it.files, said) }
+  // 挪的那篇按改了什么重拼一句（「挪到剪藏/旅行，标题加「2」，2张图的地址跟着改」）；别的笔记写哪段的 [[旧名]] 换成了什么
+  if (it.move) said.delete(it.move.to)
+  const files = await between(root, `${it.commit}^`, tip, [...touched], said)
+  const vault = basename(root)
+  for (const f of files) {
+    if (!it.move || it.move.from === it.move.to) continue
+    if (f.path === it.move.to) f.summary = moveSay(it.move.from, it.move.to, f.before, f.after, vault)
+    else if (f.status === 'changed' && f.kind === 'md' && !said.has(f.path) && titleOf(it.move.from) !== titleOf(it.move.to)) f.summary = relinkSay(titleOf(it.move.from), titleOf(it.move.to), f.before ?? '', f.after ?? '')
+  }
+  // 挪的那篇在前，别的 md 跟着，HTML 这些在后（可视化那条：笔记在前、新建的 HTML 在后）
+  const rank = (f: DiffEntry) => (f.path === it.move?.to ? 0 : f.kind === 'md' ? 1 : 2)
+  files.sort((a, b) => rank(a) - rank(b))
+  // 「打开「文件名」」开哪一份：原处的；后来收下的归类挪走了的跟过去；还没收下的挪动开原来那份；只在梦游分支上的开分支上那份
+  const moves = report.items.filter((i) => i.move && i.state === 'taken' && i.move.from !== i.move.to).map((i) => i.move!)
+  for (const f of files) {
+    if (f.exists) {
+      f.now = f.path
+      continue
+    }
+    if (f.from && (await exists(root, f.from))) {
+      f.now = f.from
+      continue
+    }
+    let cur: string | null = f.path
+    for (let k = 0; cur && k < 8 && !(await exists(root, cur)); k++) cur = moves.find((m) => m.from === cur)?.to ?? null
+    f.now = cur && (await exists(root, cur)) ? cur : null
+    if (!f.now && f.status === 'new' && it.state === 'pending') f.branch = true
+  }
+  return { note: `梦游 · ${it.state === 'pending' ? '还没收下' : it.state === 'taken' ? '已收下' : '已丢掉'}`, left: `现在的 · ${report.base}`, right: `收下后 · ${report.branch}`, files, rev: tip }
 }

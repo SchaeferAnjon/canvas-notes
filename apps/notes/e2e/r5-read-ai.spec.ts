@@ -296,8 +296,9 @@ test('收下《冰洞》后在外面改名成「冰岛冰洞」、同时添两�
     await dreamNow(page)
     await dreamPanel(page).getByTestId('dream-item').filter({ hasText: /^冰洞\s*从/ }).click()
     await dreamPanel(page).getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
-    const pv = page.getByTestId('preview-toast')
-    await expect(pv).toContainText('收下了1处')
+    // 收下的提示在底栏，带「在历史里看」「撤回」（task-m552v：不再有中间上浮的预览提示条）
+    const pv = page.getByTestId('toast')
+    await expect(pv).toContainText('收下了「冰洞」')
     const taken = join(vault, '剪藏/旅行/冰洞.md')
     await expect.poll(() => existsSync(taken)).toBe(true)
     // 像在访达里改名、再用别的编辑器添两句

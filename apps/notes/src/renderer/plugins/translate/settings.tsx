@@ -1,7 +1,7 @@
 import { composing } from '../../ime'
 /**
  * 设置 › 插件 › 双语翻译（spec 第 5 节）：翻译用什么（自动 / 指定一个、顺序、各家状态、API Key、测试连接、试一句），
- * 默认怎么翻（和网页里菜单是同一份），术语表，缓存。Key 只在主进程：这里只拿得到「有没有、最后 4 位」。
+ * 默认怎么翻（和网页里菜单是同一份），缓存。Key 只在主进程：这里只拿得到「有没有、最后 4 位」。
  */
 import { Codicon } from '@cn/design'
 import { useEffect, useRef, useState } from 'react'
@@ -43,13 +43,11 @@ export function TranslateSettingsPane({ info, onChange, onNotice }: { info: Plug
   const [open, setOpen] = useState<{ id: TrEngineId; how?: boolean } | null>(focusRow.id ? { id: focusRow.id, how: focusRow.how } : null)
   const [cached, setCached] = useState<number | null>(null)
   const [tryRes, setTryRes] = useState<TestResult | null>(null)
-  const [gl, setGl] = useState<{ course: string | null; path: string | null; exists: boolean; count: number } | null>(null)
   const [drag, setDrag] = useState<TrEngineId | null>(null)
 
   useEffect(() => {
     focusRow.id = null
     void window.cnPlugins.call<{ cached: number }>(ID, 'stats').then((r) => setCached(r.cached), () => undefined)
-    void window.cnPlugins.call<typeof gl>(ID, 'glossary').then(setGl, () => undefined)
   }, [])
 
   const list = engines?.list ?? []
@@ -176,20 +174,6 @@ export function TranslateSettingsPane({ info, onChange, onNotice }: { info: Plug
       </div>
       <p className="note trs-note">关着：只存原文。开着：每段原文下面跟一段译文（md里是「&gt; 」引用），只看译文时也照样存原文。</p>
 
-      <h4 className="trs-h">
-        术语表<span>课程文件夹里的 术语表.md</span>
-      </h4>
-      <div className="pair">
-        <span className="wide">中间栏开着哪门课的文件，就照哪门课的术语表翻</span>
-        <span className="sp" />
-        {gl?.exists && gl.path ? (
-          <button type="button" className="btn btn-sm" onClick={() => webHost()?.openNote(gl.path!)}>
-            {`打开${gl.path.replace(/^课程\//, '')}`}
-          </button>
-        ) : (
-          <span className="note plug-inline">{gl?.course ? `${gl.course}还没有，网页里翻译菜单能让AI起个头` : '现在中间栏没开课程里的文件'}</span>
-        )}
-      </div>
       <p className="note trs-note">
         {`翻过的段记在本机${cached !== null ? `（已记${cached}段）` : ''}`}
         {!!cached && (

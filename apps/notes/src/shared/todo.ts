@@ -6,14 +6,16 @@
  */
 import { addDays, diffDays, parseQuick, type Prio, weekday } from '@cn/tasks'
 import { categoryRank, isCategory } from './categories'
+import { t as tNow, uiLang } from './i18n'
 
 /** 快速加的、没写在哪篇里的进这一篇（和画布今日的 INBOX_NOTE 同一篇） */
-export const INBOX_TODO = '收件箱/待办.md'
+export const INBOX_TODO = '收件箱/待办.md' // 不翻：磁盘上的文件
 
 /** 名字正好叫「待办」的笔记：默认用任务界面打开，文件树、首页文件列表、「最近」里不列（设置能打开） */
-export const isTodoNote = (path: string) => path.split('/').pop() === '待办.md'
+export const isTodoNote = (path: string) => path.split('/').pop() === '待办.md' // 不翻：磁盘上的文件名
 
 /** 一个文件夹的那篇「待办」（首页卡加一条写进它，没有就建） */
+// 不翻：磁盘上的文件名
 export const todoNoteOf = (folder: string) => (folder ? `${folder}/待办.md` : '待办.md')
 
 /** 「写作/待办」：每个文件夹都有一篇「待办」，标签上、「打开 写作/待办 ›」里带上文件夹才分得开 */
@@ -98,14 +100,12 @@ export interface CnTodoApi {
 
 export type Bucket = 'over' | 'today' | 'tom' | 'later' | 'none'
 
-/** 分组的先后和名字（原型 BK） */
-export const BUCKETS: readonly (readonly [Bucket, string])[] = [
-  ['over', '过期'],
-  ['today', '今天'],
-  ['tom', '明天'],
-  ['later', '以后'],
-  ['none', '没定日子'],
-]
+/** 分组的先后（原型 BK） */
+export const BUCKETS: readonly Bucket[] = ['over', 'today', 'tom', 'later', 'none']
+
+/** 分组的名字（跟界面语言） */
+export const bucketName = (b: Bucket): string =>
+  b === 'over' ? tNow('过期') : b === 'today' ? tNow('今天') : b === 'tom' ? tNow('明天') : b === 'later' ? tNow('以后') : tNow('没定日子')
 
 export const isOpen = (t: Pick<TodoItem, 'done' | 'cancelled'>) => !t.done && !t.cancelled
 /** 列出来的：最上层的，加上自己写了日子的子任务（和画布今日一样） */
@@ -146,36 +146,40 @@ export function todoGroups(list: readonly TodoItem[], today: string, opts: { dro
   const keep = opts.keep ?? new Set<string>()
   const shown = list.filter(listed)
   const groups: TodoGroup[] = []
-  for (const [b, name] of BUCKETS) {
+  for (const b of BUCKETS) {
     const items = shown.filter((t) => (isOpen(t) || (t.done && keep.has(t.key))) && bucketOf(t, today) === b).sort(byWhen)
     if (!items.length && !(opts.dropEmpty && b !== 'over' && b !== 'none')) continue
-    groups.push({ bucket: b, name, items, red: b === 'over', drop: bucketDrop(b, today) })
+    groups.push({ bucket: b, name: bucketName(b), items, red: b === 'over', drop: bucketDrop(b, today) })
   }
   const done = shown.filter((t) => t.done && !keep.has(t.key)).sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)
   return { groups, done }
 }
 
-const WK = '日一二三四五六'
+const WK = '日一二三四五六' // 不翻：中文的星期写法
+const EN_DAY = { wk: new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: 'UTC' }), md: new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) }
+/** 「2026-11-25」当 UTC 的那一天（只拿来出英文的周几、月日） */
+const utc = (d: string) => new Date(Date.UTC(Number(d.slice(0, 4)), Number(d.slice(5, 7)) - 1, Number(d.slice(8, 10))))
 
-/** 日子的叫法（原型 day()）：今天、明天、昨天，一周以内说周几，再远「11月25日」 */
+/** 日子的叫法（原型 day()）：今天、明天、昨天，一周以内说周几，再远「11月25日」；英文「Today」「Tomorrow」「Thu」「Nov 25」 */
 export function dayName(d: string, today: string): string {
   const n = diffDays(d, today)
-  if (n === 0) return '今天'
-  if (n === 1) return '明天'
-  if (n === -1) return '昨天'
-  if (Math.abs(n) < 7) return '周' + WK[weekday(d)]
-  return `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日`
+  if (n === 0) return tNow('今天')
+  if (n === 1) return tNow('明天')
+  if (n === -1) return tNow('昨天')
+  const en = uiLang() === 'en'
+  if (Math.abs(n) < 7) return en ? EN_DAY.wk.format(utc(d)) : '周' + WK[weekday(d)] // 不翻：中文的星期写法
+  return en ? EN_DAY.md.format(utc(d)) : `${Number(d.slice(5, 7))}月${Number(d.slice(8, 10))}日` // 不翻：中文的日子写法
 }
 
 /** 行尾日子小块的字（原型 chip()）：今天有钟点只写钟点；别的日子写哪天，七天以内（含过去）再带钟点 */
 export function chipText(t: Pick<TodoItem, 'date' | 'time'>, today: string): string {
   if (!t.date) return ''
-  if (t.date === today) return t.time ?? '今天'
+  if (t.date === today) return t.time ?? tNow('今天')
   return dayName(t.date, today) + (t.time && diffDays(t.date, today) < 7 ? ' ' + t.time : '')
 }
 
 /** 「改到明天 15:00」这种（改日子的提示） */
-export const whenText = (date: string | null, time: string | null, today: string) => (date ? dayName(date, today) + (time ? ' ' + time : '') : '不定日期')
+export const whenText = (date: string | null, time: string | null, today: string) => (date ? dayName(date, today) + (time ? ' ' + time : '') : tNow('不定日期'))
 
 export interface FolderGroup {
   folder: string
@@ -208,26 +212,27 @@ export function byFolder(items: readonly TodoItem[], notes: ReadonlySet<string>,
   return [...map]
     .map(([folder, list]) => ({
       folder,
-      name: folder ? folder.split('/').join(' › ') : '最外层',
+      name: folder ? folder.split('/').join(' › ') : tNow('最外层'),
       todo: notes.has(todoNoteOf(folder)) ? todoNoteOf(folder) : null,
       items: list,
       open: list.filter((t) => isOpen(t) && listed(t)).length,
     }))
     .filter((g) => g.open > 0 || g.items.some((t) => keep?.has(t.key)))
+    // 不翻：磁盘上的文件夹名
     .sort((a, b) => Number(b.folder === '收件箱') - Number(a.folder === '收件箱') || Number(!!b.todo) - Number(!!a.todo) || top(a.folder) - top(b.folder) || collator.compare(a.folder, b.folder))
 }
 
-const PRIO_NAME: Record<number, string> = { 3: '优先级高', 2: '优先级中', 1: '优先级低' }
+const prioName = (p: number) => (p === 3 ? tNow('优先级高') : p === 2 ? tNow('优先级中') : tNow('优先级低'))
 
 /** 加一条时输入框下面那行（原型 hintQa）：认出来的日子钟点、重复、标题，回车加进哪；空着是 '' */
 export function quickHint(text: string, today: string, where: string): string {
   const v = text.trim()
   if (!v) return ''
   const q = parseQuick(v, today)
-  const parts = [`认出来：${q.date ? dayName(q.date, today) + (q.time ? ' ' + q.time : '') : '没定日子'}`]
+  const parts = [tNow('认出来：{when}', { when: q.date ? dayName(q.date, today) + (q.time ? ' ' + q.time : '') : tNow('没定日子') })]
   if (q.repeat) parts.push(q.repeat)
-  if (q.prio) parts.push(PRIO_NAME[q.prio]!)
-  parts.push(`「${q.title}」`)
-  parts.push(`回车加进${q.list ? `「#${q.list}」那篇` : where}`)
+  if (q.prio) parts.push(prioName(q.prio))
+  parts.push(tNow('「{title}」', { title: q.title }))
+  parts.push(q.list ? tNow('回车加进「#{list}」那篇', { list: q.list }) : tNow('回车加进{where}', { where }))
   return parts.join(' · ')
 }

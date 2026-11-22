@@ -43,8 +43,8 @@ test('老图：报告里一条，预览按笔记分组列出每张从哪到哪�
     await expect(detail.locator('.dkeep')).toHaveText('2张不挪：1张几篇都在用，1张没有哪篇在用。')
     await shotPart(panel(page), 'old-images-report')
 
-    // 预览：中间一个标签，按笔记分组
-    await detail.getByRole('button', { name: '预览' }).click()
+    // 点这一条中间就开它的预览标签（task-m552v：点一条中间开这一条，小卡里不再另有「预览」），按笔记分组
+    await expect(detail.getByRole('button', { name: '预览' })).toHaveCount(0)
     await expect(tabOn(page)).toHaveText('梦游预览 · 挪老图')
     const pv = page.getByTestId('old-images')
     await expect(pv.locator('h1')).toHaveText('挪3张老图')

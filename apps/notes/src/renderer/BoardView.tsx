@@ -47,7 +47,8 @@ import { openVideo } from './video/actions'
 import { boardMomentStats } from './video/board'
 import { momentsTitle, videoKeyOfCard, videoUrlOfCard } from './video/BoardCards'
 import { useBoardImageDrop } from './web/useImageDrop'
-import { openCapture } from './mindmap/capture-store'
+import { openCapture, setBoardCapture } from './mindmap/capture-store'
+import { settlePlaced } from './mindmap/place'
 import { MindmapLayer } from './mindmap/MindmapLayer'
 import { app } from './ctx/actions'
 import { align, duplicateCard, intoNewColumn, takeOut, tidyGrid } from './ctx/board-ops'
@@ -90,8 +91,10 @@ export interface BoardViewProps {
   onZoom(z: number): void
   /** 这个标签在前面：⌘+ / ⌘− / ⌘0 / ⇧⌘1 才归它 */
   active: boolean
-  /** 标签条右端「80% ▾」菜单用：放大、缩小、100%、适合窗口 */
+  /** 右上角「80% ▾」菜单用：放大、缩小、100%、适合窗口 */
   zoomApi?: React.MutableRefObject<BoardZoomApi | null>
+  /** 右上角浮着的缩放和「收件箱 N」（doc-board/corner.tsx，task-wz7gb） */
+  corner?: React.ReactNode
   readOnly: boolean
   onChange(text: string): void
   onUndo(): void
@@ -281,6 +284,8 @@ export function BoardView(props: BoardViewProps) {
     const n = doc.blocks.length
     return { x: Math.round(w.scrollLeft / scale + 60 + (n % 5) * 24), y: Math.round(w.scrollTop / scale + 60 + (n % 5) * 24) }
   }
+  const freeSpotRef = useRef(freeSpot)
+  freeSpotRef.current = freeSpot
 
   function addBlock(kind: 'card' | 'column', at: Pt, body: string) {
     const id = newId(doc)
@@ -389,6 +394,29 @@ export function BoardView(props: BoardViewProps) {
     } else if (dropped) setFlash(id)
   }
 
+  /** 拍导图（task-wuv05）：做好后是这块白板的子白板（和它同一个文件夹），落点一张子白板卡；这篇、导图、照片一次提交，底栏能撤回 */
+  function captureMap(where: Place) {
+    openCapture({
+      into: { path: props.notePath, as: 'board' },
+      onPlaced: (r) => {
+        const now = latest.current
+        const id = newId(now)
+        commit(addCard(now, id, `[[${titleOf(r.path)}]]`, where))
+        setFlash(id)
+        return settlePlaced(props.notePath, r, '导图放在这里：是这块白板的子白板，文件在它旁边')
+      },
+    })
+  }
+  const captureRef = useRef(captureMap)
+  captureRef.current = captureMap
+  // ⌘K、⇧⌘C、菜单在这块白板前面时拍：同点工具板「拍导图」
+  useEffect(() => {
+    if (!props.active || props.readOnly) return
+    const mine = { path: props.notePath, capture: () => captureRef.current({ at: freeSpotRef.current() }) }
+    setBoardCapture(mine)
+    return () => setBoardCapture(null, mine)
+  }, [props.active, props.readOnly, props.notePath])
+
   // ---------- 拖动 ----------
 
   function onBlockDown(e: React.PointerEvent, id: string) {
@@ -484,16 +512,8 @@ export function BoardView(props: BoardViewProps) {
       // 列只放在画布上；卡片、待办、子白板落在列上就进那一列
       const col = drag.kind === 'column' ? null : columnAt(p)
       if (drag.map) {
-        // 拍导图拖到白板上：拍好、做成导图白板后，落点放一张指向它的卡片
-        const where: Place = col ? { column: col, slot: slotInColumn(doc, rects, col, p.y) } : { at: dropOrigin(p) }
-        openCapture({
-          onPlaced: (path) => {
-            const now = latest.current
-            const id = newId(now)
-            commit(addCard(now, id, `[[${titleOf(path)}]]`, where))
-            setFlash(id)
-          },
-        })
+        // 拍导图拖到白板上：拍好、做成导图白板后，它是这块白板的子白板，落点放一张子白板卡
+        captureMap(col ? { column: col, slot: slotInColumn(doc, rects, col, p.y) } : { at: dropOrigin(p) })
         return
       }
       void createFromPal(drag.kind, col ? { column: col, slot: slotInColumn(doc, rects, col, p.y) } : { at: dropOrigin(p) }, true)
@@ -635,15 +655,7 @@ export function BoardView(props: BoardViewProps) {
       {
         label: '拍导图',
         accel: accelFor('capture'),
-        run: () =>
-          openCapture({
-            onPlaced: (path) => {
-              const now = latest.current
-              const id = newId(now)
-              commit(addCard(now, id, `[[${titleOf(path)}]]`, { at }))
-              setFlash(id)
-            },
-          }),
+        run: () => captureMap({ at }),
       },
       '-',
       // 剪贴板里是图：交给白板接粘贴的那条路（存进附件、放图片卡）；是字：在点的地方放一张卡
@@ -966,13 +978,13 @@ export function BoardView(props: BoardViewProps) {
           ))}
           <hr />
           <button
-            data-tip="拍一张导图：点一下，或按住拖到白板上（做好后落点放一张指向它的卡片）"
+            data-tip="拍一张导图：点一下，或按住拖到白板上（做好后是这块白板的子白板）"
             data-key={keyFor('capture') ?? undefined}
             data-side="right"
             onPointerDown={(e) => startPal(e, 'board', true)}
             onClick={() => {
               if (palDragged.current) return
-              openCapture()
+              captureMap({ at: freeSpot() })
             }}
           >
             <Codicon name="device-camera" size={16} />
@@ -984,7 +996,8 @@ export function BoardView(props: BoardViewProps) {
         <PalGhost kind={drag.kind} client={drag.client} over={drag.over} scale={scale} board={outer.current} />
       )}
 
-      {/* 收件箱：弹窗（和别的白板一样，doc-board/inbox.tsx），标签条「收件箱 N」或 ⇧⌘I 打开 */}
+      {props.corner}
+      {/* 收件箱：弹窗（和别的白板一样，doc-board/inbox.tsx），右上角「收件箱 N」或 ⇧⌘I 打开 */}
       {inboxOpen && props.active && (
         <InboxPop
           items={inbox}

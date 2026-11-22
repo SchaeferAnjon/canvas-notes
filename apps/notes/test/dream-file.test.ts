@@ -187,9 +187,9 @@ describe('归类和改名：在梦游分支上', { timeout: 30_000 }, () => {
     expect(flower.why).toBe('你说「速记放 写作 下面」，随笔放写作')
     expect(flower.redoCommits).toHaveLength(1)
     expect(map.redoCommits).toBeUndefined()
-    // 改了什么：从收件箱直接到写作
+    // 改了什么：从收件箱直接到写作（这一句照真改动说，task-m552v；「按你说的」在小卡的标签上）
     const d = (await diffOf(root, { kind: 'dream', id: flower.id }, r)).files
-    expect(d).toEqual([expect.objectContaining({ path: '写作/花市.md', from: '收件箱/周末去花市.md', status: 'moved', summary: '按你说的挪到 写作' })])
+    expect(d).toEqual([expect.objectContaining({ path: '写作/花市.md', from: '收件箱/周末去花市.md', status: 'moved', summary: '挪到写作并改名' })])
     await takeMany(root, r, [flower.id])
     expect(read('写作/花市.md')).toBe(VAULT['收件箱/周末去花市.md'])
     expect(existsSync(join(root, '生活'))).toBe(false)

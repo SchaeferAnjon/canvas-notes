@@ -101,7 +101,8 @@ test('全能模式下 AI 自己写开着的这篇（像 Write、python 那样在
     await openAi(page)
     await send(page, `自己写文件「${NOTE}」「# 学习笔记\n\n全换成了文字。」`)
     await answered(page)
-    await expect.poll(() => editorText(page)).toBe('# 学习笔记\n\n全换成了文字。')
+    // 整篇换成 AI 写的新字：这一轮结束补包成 AI 块（task-dtc34），编辑器跟着换
+    await expect.poll(() => editorText(page)).toMatch(/^# 学习笔记\n\n> \[!ai\] AI 写的 · Claude Code · Opus 5\.5 · \[回到 AI 对话\]\([^)]+\)\n> 全换成了文字。$/)
   } finally {
     await run.close()
   }

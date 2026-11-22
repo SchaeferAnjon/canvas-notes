@@ -4,20 +4,36 @@
  */
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { basename, dirname } from 'node:path'
 import { normalizeNote, normalizeTags } from '../../shared/plugins/bookmarks'
+import { logDropped } from '../crash-log'
 import type { Bookmark, HistoryEntry } from '../../shared/web-api'
 
 export const BAR = '书签栏'
 const MAX_HISTORY = 5000
 
-function readJson<T>(file: string, fallback: T): T {
+/**
+ * 读书签、历史。坏了的（写到一半、不是数组，task-pyb39）不让软件起不来：原文件改名成 .broken 留着（下次存不会盖掉它），
+ * 记一行日志，当没有
+ */
+function readJson<T extends unknown[]>(file: string, fallback: T): T {
+  let text: string
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as T
+    text = readFileSync(file, 'utf8')
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return fallback
     throw e
   }
+  let v: unknown
+  try {
+    v = JSON.parse(text)
+  } catch (e) {
+    v = e
+  }
+  if (Array.isArray(v)) return v as T
+  renameSync(file, file + '.broken')
+  logDropped('web', `${basename(file)} ${v instanceof Error ? `读不出来：${v.message}` : '不是列表'}，原文件改名成 ${basename(file)}.broken`)
+  return fallback
 }
 
 /** 先写临时文件再换名，写一半断电不会留下坏文件 */

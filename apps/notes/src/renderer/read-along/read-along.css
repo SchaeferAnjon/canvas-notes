@@ -302,29 +302,9 @@
   margin-top: 6px;
 }
 
-/* ---------- 收起中间栏（task-kbnc0）：中间那一列宽 0（gridTracks），里面的东西还在、看不见也点不到；标签条右端一颗「收起中间栏」，样子同「12 ⌄」 ---------- */
+/* ---------- 网页占满（task-kbnc0 收起中间栏，task-05p2w 并进标题栏那颗「网页占满 / 还原」）：中间那一列宽 0（gridTracks），里面的东西还在、看不见也点不到 ---------- */
 .win > main.center.folded {
   visibility: hidden;
   overflow: hidden;
   min-width: 0;
-}
-.tabs .tfold {
-  flex: none;
-  align-self: center;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  margin: 0 0 0 4px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--t2);
-}
-.frame-b .tabs .tfold {
-  margin-bottom: 4px;
-}
-.tabs .tfold:hover {
-  background: var(--fill2);
-  color: var(--t1);
 }

@@ -10,6 +10,7 @@ export const menuApi: CnMenuApi = {
     return () => ipcRenderer.removeListener('ctx:web', h)
   },
   copyText: (text) => ipcRenderer.invoke('ctx:copy', text),
+  copyImage: (png) => ipcRenderer.invoke('ctx:copy-image', png),
   reveal: (path) => ipcRenderer.invoke('ctx:reveal', path),
   openExternal: (url) => ipcRenderer.invoke('ctx:open-external', url),
   moveNote: (path, folder) => ipcRenderer.invoke('ctx:move', path, folder),

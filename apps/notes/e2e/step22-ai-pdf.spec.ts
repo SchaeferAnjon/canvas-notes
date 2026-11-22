@@ -41,7 +41,7 @@ async function answered(page: Page, n: number) {
   await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible()
 }
 
-test('CN-23/28/30：讲解一下、翻译 + 讲一讲、问这一页、⌘↵ 发出后输入框是空的、没有附件小图；改问法留着图、输入框空、光标在里面', async () => {
+test('CN-23/28/30：讲解一下、翻译 + 讲一讲、问这一页、⌘↵ 发出后输入框是空的、没有附件小图；引用：图成为带编号的材料、预填清掉、光标在里面', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -80,18 +80,26 @@ test('CN-23/28/30：讲解一下、翻译 + 讲一讲、问这一页、⌘↵ �
     await expect(box(page)).toHaveValue('')
     await expect(ai(page).getByTestId('reading-att')).toHaveCount(0)
 
-    // 5. 改问法：图留着、输入框空、光标在里面
+    // 5. 引用（task-6cxtc 原来的「改问法」合成这一颗）：预填的「给我讲解一下」清掉，图成为输入框顶上带编号的一块材料，
+    // 字里一个 ①、光标在它后面，框收起
     await drawBox(page, 4, [0.1, 0.2], [0.6, 0.45])
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
-    await cap.getByRole('button', { name: '改问法' }).click()
-    await expect(box(page)).toHaveValue('')
+    await expect(box(page)).toHaveValue('给我讲解一下')
+    await cap.getByRole('button', { name: /^引用/ }).click()
+    await expect(box(page)).toHaveValue('①')
     await expect(box(page)).toBeFocused()
-    await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
-    // 自己打的字发出去也清掉
-    await box(page).fill('这里的箭头是什么意思')
+    await expect(ai(page).getByTestId('reading-att')).toHaveCount(0)
+    await expect(ai(page).getByTestId('ai-mat')).toHaveCount(1)
+    await expect(ai(page).getByTestId('ai-mat').locator('img')).toBeVisible()
+    await expect(ai(page).getByTestId('ai-mat')).toHaveAttribute('data-src', '第4页 · 我框的')
+    await expect(cap).toHaveCount(0)
+    // 自己打的字发出去也清掉，材料一排跟着收起
+    await page.keyboard.type('这里的箭头是什么意思')
+    await expect(box(page)).toHaveValue('①这里的箭头是什么意思')
     await box(page).press('Enter')
     await answered(page, 5)
     await expect(box(page)).toHaveValue('')
+    await expect(ai(page).getByTestId('ai-mat')).toHaveCount(0)
   } finally {
     await run.close()
   }

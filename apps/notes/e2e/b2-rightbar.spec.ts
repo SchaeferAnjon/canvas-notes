@@ -50,10 +50,10 @@ test('右图标栏：笔记一直在原位，用不上时变淡、悬停和点�
     await expect(page.getByRole('complementary', { name: '笔记', exact: true })).toHaveCount(0)
     // 悬停变淡的笔记：名字后面说为什么
     await notes(page).hover()
-    await expect(page.getByTestId('tooltip')).toHaveText('笔记（打开 PDF 时才有边读边记的笔记）')
+    await expect(page.getByTestId('tooltip')).toHaveText('笔记（打开 PDF、或右栏开着配好对的网站时才有笔记）')
     // 点它：不开右栏，旁边说一句
     await notes(page).click()
-    await expect(page.getByTestId('bar-say')).toHaveText('打开 PDF 时才有边读边记的笔记')
+    await expect(page.getByTestId('bar-say')).toHaveText('打开 PDF、或右栏开着配好对的网站时才有笔记')
     await expect(page.getByTestId('tooltip')).toHaveCount(0)
     await expect(page.getByRole('complementary', { name: '笔记', exact: true })).toHaveCount(0)
     expect(await page.locator('.win').evaluate((w) => w.classList.contains('with-right'))).toBe(false)

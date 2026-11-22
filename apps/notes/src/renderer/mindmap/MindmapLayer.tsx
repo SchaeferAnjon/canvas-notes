@@ -9,18 +9,45 @@ import { Codicon } from '@cn/design'
 import { breadthFirst, countNodes, insertAt, keyPath, moveTo, newNode, nodeAt, parseMindmap, pathKey, removeAt, setText, withMindmap, type MapNode } from '@cn/format'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { layoutMindmap, wirePath, type Level } from '../../shared/mindmap-layout'
+import { layoutMindmap, NODE_BOX, NODE_MAX_W, wirePath, type Level, type Measure } from '../../shared/mindmap-layout'
 import { imageSrc } from '../md-widgets'
 import { takeGrow } from './capture-store'
 import { typingIn } from '../typing'
 
-const FONT: Record<Level, string> = { c: '600 15px', l1: '500 13px', l2: '400 13px' }
-let ctx: CanvasRenderingContext2D | null = null
-function measure(text: string, level: Level): number {
-  ctx ??= document.createElement('canvas').getContext('2d')
-  const fam = getComputedStyle(document.body).getPropertyValue('--sans').trim() || '-apple-system, "PingFang SC", sans-serif'
-  ctx!.font = `${FONT[level]} ${fam}`
-  return ctx!.measureText(text || ' ').width
+/**
+ * 量字：放进一个看不见的、和节点同样式的框里量（同一套 CSS，含 body 的 text-autospace 中西文间距）。
+ * 以前用 canvas 的 measureText 量，它不算中西文间距，「1. 主题1」量出 45.5、画出来 47.1，节点就截成「1. 主…」。
+ */
+let probe: { box: HTMLDivElement; t: HTMLSpanElement } | null = null
+const sized = new Map<string, { w: number; h: number }>()
+const measure: Measure = (text, level, maxW) => {
+  const k = `${level}\u0000${maxW}\u0000${text}`
+  const hit = sized.get(k)
+  if (hit) return hit
+  if (sized.size > 4000) sized.clear()
+  if (!probe) {
+    const box = document.createElement('div')
+    box.setAttribute('aria-hidden', 'true')
+    box.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden;pointer-events:none;contain:layout style;padding:0;width:auto;height:auto;display:block'
+    const t = document.createElement('span')
+    t.className = 't'
+    t.style.display = 'inline-block'
+    box.append(t)
+    document.body.append(box)
+    probe = { box, t }
+  }
+  probe.box.className = `mm-node ${level}`
+  probe.t.style.maxWidth = `${maxW}px`
+  probe.t.textContent = text || ' '
+  const r = probe.t.getBoundingClientRect()
+  // 换了行时框是 maxW 宽：取最长那一行的宽，节点右边不空出一截（每行都放得下，断行的位置不变）
+  const range = document.createRange()
+  range.selectNodeContents(probe.t)
+  const lines = [...range.getClientRects()]
+  const w = lines.length ? Math.max(...lines.map((l) => l.right)) - Math.min(...lines.map((l) => l.left)) : r.width
+  const out = { w: Math.min(r.width, w), h: r.height }
+  sized.set(k, out)
+  return out
 }
 
 /** 正文开头（列表前面）第一张图是原照片 */
@@ -385,7 +412,7 @@ function NodeEditor(props: { initial: string; level: Level; onDone(v: string | n
       className="mm-edit"
       aria-label="节点的字"
       value={v}
-      style={{ width: Math.max(48, measure(v, props.level) + 14) }}
+      style={{ width: Math.max(48, measure(v, props.level, NODE_MAX_W - NODE_BOX[props.level].pad).w + 14) }}
       onChange={(e) => setV(e.target.value)}
       onPointerDown={(e) => e.stopPropagation()}
       onBlur={() => finish(v)}

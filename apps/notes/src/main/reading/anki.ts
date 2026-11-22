@@ -7,9 +7,12 @@
  * 笔记类型的定义拷自同一作者的 anki-learn（Core/Sources/AnkiLearnCore/Anki.swift 的 StudyCard），要一字不差。
  * 对接说明：/private/tmp/canvas-notes-anki/接AnkiLearn.md（task-tz7y3 交回时附的）、docs/DEVELOPMENT.md「送进 Anki」。
  */
+import { execFile } from 'node:child_process'
 import { type AskSection, cardKey, type CardText, formatPdfAnchor, mapMath } from '@cn/format'
+import { t } from '../../shared/i18n'
 
-export const ANKI_URL = process.env.CN_ANKI_URL || 'http://127.0.0.1:8765'
+/** AnkiConnect 在哪：测试用 CN_ANKI_URL 换成本机假服务（每次送时读，测试里能换） */
+export const ankiUrl = (): string => process.env.CN_ANKI_URL || 'http://127.0.0.1:8765'
 // ---------------- 笔记类型名、牌组规则只写在这一处（ChatCards 改名、用户换规矩时只改这里） ----------------
 
 /** 不在课程里的 PDF 的卡进「知识」（和 ChatCards 送的同一个） */
@@ -222,20 +225,53 @@ export function tagsFor(c: CardInput): string[] {
   return [FROM_TAG, ...(c.course ? [`主题::${tagWord(c.course)}`] : []), `主题::${tagWord(stem(c.pdf))}`]
 }
 
-/** off：连不上（Anki 没开、没装插件），选的都留着、开了接着送；api：Anki 回了错误 */
+/** off：连不上（Anki 没开、没装插件），选的都留着、开了接着送；port：端口上答话的不是 AnkiConnect（别的程序占着）；api：Anki 回了错误 */
 export class AnkiConnectError extends Error {
   constructor(
     message: string,
-    readonly kind: 'off' | 'api' = 'api',
+    readonly kind: 'off' | 'api' | 'port' = 'api',
   ) {
     super(message)
   }
 }
 
+/** 谁在这个端口上听：lsof 查（两秒没回、没装、查不到都当不知道） */
+export function whoListens(port: number): Promise<{ name: string; pid: number } | null> {
+  if (process.platform === 'win32') return Promise.resolve(null)
+  const lsof = process.platform === 'darwin' ? '/usr/sbin/lsof' : 'lsof'
+  return new Promise((resolve) =>
+    execFile(lsof, ['-nP', '+c', '0', `-iTCP:${port}`, '-sTCP:LISTEN'], { timeout: 2000 }, (err, out) => {
+      if (err) return resolve(null)
+      // COMMAND PID USER …：第一行是表头；+c 0 给全名，名字里的空格 lsof 写成 \x20
+      const m = /^(\S+)\s+(\d+)\s/m.exec(String(out).split('\n').slice(1).join('\n'))
+      resolve(m ? { name: m[1]!.replace(/\\x20/g, ' '), pid: Number(m[2]) } : null)
+    }),
+  )
+}
+
+/**
+ * 端口上答话的不是 AnkiConnect（2026-11-22 用户截图「Anki 的回答读不懂」：`python3 -m http.server 8765` 对 POST 回 501 的 HTML，
+ * AnkiConnect 因为端口被占没起来）：说清楚是哪个程序占着、怎么办
+ */
+async function portBusy(): Promise<AnkiConnectError> {
+  const port = Number(new URL(ankiUrl()).port) || 80
+  const who = await whoListens(port)
+  return new AnkiConnectError(
+    who
+      ? t('{port}端口被别的程序占着（{name}，进程号{pid}），不是AnkiConnect。关掉它，重启Anki再送。', { port, name: who.name, pid: who.pid })
+      : t('{port}端口被别的程序占着，不是AnkiConnect。关掉它，重启Anki再送。', { port }),
+    'port',
+  )
+}
+
+/** AnkiConnect（v6）一律回 200 的 JSON {result, error}；不是这个样子就是别的程序在答话 */
+const isAnkiReply = (j: unknown): j is { result: unknown; error: string | null } =>
+  !!j && typeof j === 'object' && !Array.isArray(j) && 'result' in j && 'error' in j && (j.error === null || typeof j.error === 'string')
+
 export async function call(action: string, params?: Record<string, unknown>, timeoutMs = 15_000): Promise<unknown> {
   let res: Response
   try {
-    res = await fetch(ANKI_URL, {
+    res = await fetch(ankiUrl(), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ action, version: 6, ...(params ? { params } : {}) }),
@@ -244,9 +280,11 @@ export async function call(action: string, params?: Record<string, unknown>, tim
   } catch {
     throw new AnkiConnectError('Anki 没开着，或者没装 AnkiConnect 插件（编号 2055492159）。打开 Anki 再送一次', 'off')
   }
-  if (!res.ok) throw new AnkiConnectError('Anki 的回答读不懂')
-  const j = (await res.json()) as { result?: unknown; error?: string | null }
+  if (!res.ok) throw await portBusy()
+  const j: unknown = await res.json().catch(() => undefined)
+  if (!isAnkiReply(j)) throw await portBusy()
   if (j.error) throw new AnkiConnectError(`Anki 回了一个错误：${j.error.includes('Close the affected editor') ? 'Anki 里开着卡片浏览器或「添加」窗口，关掉它再送' : j.error}`)
+  if (action === 'version' && typeof j.result !== 'number') throw await portBusy()
   return j.result
 }
 

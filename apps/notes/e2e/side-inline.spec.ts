@@ -395,8 +395,10 @@ test.afterAll(() => {
 const web = (page: Page) => page.getByRole('complementary', { name: '网页' })
 const guest = (page: Page, code: string) => page.evaluate((c) => (document.querySelector('.right.web webview.on') as unknown as { executeJavaScript(c: string): Promise<unknown> }).executeJavaScript(c), code)
 
-test('右栏网页框一块问的回答里也能开旁支：就地展开、接着问、收起再开；只记在对话记录里（收件箱那篇不多出一段、不带旁支）', async () => {
-  const run = await launch({ 'plain.md': '# 随手\n' }, { CN_AI_FAKE: '1', CN_FAKE_NOTE_MS: '50' })
+// task-6cxtc 起网页上问的不进收件箱，一问一块 [!ai] 写进这个网页正在剪进去的那篇：这里 plain.md 和这个网站配好对（属性 read-along），
+// 回答记进它（《plain》）；在右栏 AI 回答里开的旁支照旧跟着这段对话存，那篇不多出东西
+test('右栏网页框一块问的回答里也能开旁支：就地展开、接着问、收起再开；只记在对话记录里（记进的那篇不多出一段、不带旁支）', async () => {
+  const run = await launch({ 'plain.md': `---\nread-along: ${base}/\n---\n# 随手\n` }, { CN_AI_FAKE: '1', CN_FAKE_NOTE_MS: '50' })
   const { page, vault } = run
   try {
     await rail(page).getByRole('button', { name: '网页' }).click()
@@ -419,8 +421,9 @@ test('右栏网页框一块问的回答里也能开旁支：就地展开、接�
     await expect(ai).toBeVisible()
     await ai.getByRole('textbox').press('Enter')
     const msg = ai.getByTestId('reading-msg').last()
-    await expect(ai.getByText('已记进收件箱《Rotation matrix 笔记》')).toBeVisible({ timeout: 15_000 })
-    const inbox = () => readFileSync(join(vault, '收件箱/Rotation matrix 笔记.md'), 'utf8')
+    await expect(ai.getByText('已记进《plain》')).toBeVisible({ timeout: 15_000 })
+    const inbox = () => readFileSync(join(vault, 'plain.md'), 'utf8')
+    await expect.poll(inbox).toContain('> [!ai] 讲解一下')
     const before = inbox()
     const txt = msg.locator('.txt')
 
@@ -428,15 +431,16 @@ test('右栏网页框一块问的回答里也能开旁支：就地展开、接�
     await askInBox(page, '为什么是基向量？')
     const s = sideIn(ai)
     await expect(s).toBeVisible()
-    await expect(s.locator('.rec')).toHaveText('跟着这段对话存，不写进笔记')
+    // 记到哪那一行（task-6cxtc）：右栏 AI 里开的跟着这段对话存，在那篇的讲解块上开的才写进那篇
+    await expect(s.locator('.rec')).toHaveText('跟着这段对话存；在那篇的讲解块上开的旁支写进那篇')
     await expect(s.locator('.acts button')).toHaveText(['放进主对话', '拷贝'], { timeout: 15_000 })
     await expectSlim(ai, '跟Claude Code说，在网页上按住 ⌘ 框一块就能问')
     await walk(page, { scope: ai, txt, q1: '为什么是基向量？', q2: '那行呢？', first: /这是旁支的回答/, again: /接着聊/ })
-    // 只在对话记录里：收件箱那篇一个字没变（不多插一段、不带旁支），库里没有没提交的
+    // 只在对话记录里：记进的那篇一个字没变（不多插一段、不带旁支），库里没有没提交的（读到哪.json 是配好对的网页记读到哪的，不算）
     await page.waitForTimeout(1500)
     expect(inbox()).toBe(before)
     expect(inbox()).not.toContain('[!side]')
-    expect(gitStatus(vault)).toBe('')
+    expect(gitStatus(vault).split('\n').filter((l) => l.trim() && !l.includes('读到哪.json'))).toEqual([])
   } finally {
     await run.close()
   }

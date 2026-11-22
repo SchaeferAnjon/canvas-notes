@@ -116,7 +116,7 @@ test('右栏开 3 个网页：窄（默认 380）时别的标签只剩图标、�
     // 窄：别的标签只剩图标（task-sta8n 方向 A，原型 .narrow），名字在悬停提示里
     const others = webTabs(page).and(page.locator(':not(.on)'))
     for (const w of await others.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().width)))) expect(w).toBeLessThanOrEqual(32)
-    await expect(others.first()).toHaveAttribute('title', /第 \d 页 - 雷克雅未克/)
+    await expect(others.first()).toHaveAttribute('data-tip', /第 \d 页 - 雷克雅未克/)
     // 收起左栏、网页栏拉宽到 720 以上：名字摆出来
     await page.locator('main.center').click({ position: { x: 300, y: 300 } })
     await page.keyboard.press('Meta+Backslash')

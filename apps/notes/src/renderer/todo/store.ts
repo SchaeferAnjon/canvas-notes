@@ -7,6 +7,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { dayName, isOpen, listed, type TodoItem, type TodoOp, type TodoWhere, whenText } from '../../shared/todo'
 import { app } from '../ctx/actions'
 import { NoteDoc } from '../note-doc'
+import { t as tNow } from '../../shared/i18n'
 
 interface State {
   items: TodoItem[]
@@ -103,7 +104,7 @@ function say(text: string, undoId: string, title: string) {
 /** 撤回一次改动（提示条上的「撤回」、⌘Z） */
 async function undo(id: string, title: string) {
   const r = await window.cnTodo.undo(id).catch((e: unknown) => ({ ok: false as const, reason: 'failed' as const, message: errText(e) }))
-  if (!r.ok) app().notice(r.reason === 'changed' ? `「${title}」那一行后来又被改过，撤不回了` : r.reason === 'gone' ? '撤不回了' : `没撤回：${r.message ?? ''}`)
+  if (!r.ok) app().notice(r.reason === 'changed' ? tNow('「{title}」那一行后来又被改过，撤不回了', { title }) : r.reason === 'gone' ? tNow('撤不回了') : tNow('没撤回：{err}', { err: r.message ?? '' }))
   app().refresh()
 }
 
@@ -113,7 +114,7 @@ async function edit(t: TodoItem, op: TodoOp) {
   NoteDoc.expectOwnChange([t.path])
   const r = await window.cnTodo.edit({ path: t.path, line: t.line, raw: t.raw, edit: op }).catch((e: unknown) => ({ ok: false as const, reason: 'failed' as const, message: errText(e) }))
   if (!r.ok) {
-    app().notice(r.reason === 'gone' ? `「${t.title}」那一行刚被别处改了，没改` : r.reason === 'readonly' ? (r.message ?? '这一篇只能只读打开') : `没改成：${r.message ?? ''}`)
+    app().notice(r.reason === 'gone' ? tNow('「{title}」那一行刚被别处改了，没改', { title: t.title }) : r.reason === 'readonly' ? (r.message ?? tNow('这一篇只能只读打开')) : tNow('没改成：{err}', { err: r.message ?? '' }))
     app().refresh()
     return null
   }
@@ -131,7 +132,11 @@ export async function tickTodo(t: TodoItem) {
   if (done) keep.add(key)
   else keep.delete(key)
   set({ keep })
-  const said = done ? (r.next ? `勾掉了「${t.title}」 · 下一次${dayName(r.next.date, isoToday())}` : `勾掉了「${t.title}」`) : `取消勾选「${t.title}」`
+  const said = done
+    ? r.next
+      ? tNow('勾掉了「{title}」 · 下一次{when}', { title: t.title, when: dayName(r.next.date, isoToday()) })
+      : tNow('勾掉了「{title}」', { title: t.title })
+    : tNow('取消勾选「{title}」', { ctx: '提示', title: t.title })
   say(said, r.undo, t.title)
 }
 
@@ -140,17 +145,18 @@ export async function dateTodo(t: TodoItem, date: string | null) {
   const r = await edit(t, { op: 'date', date })
   if (!r) return
   flashKey(`${r.path}#${r.line}`)
-  say(`「${t.title}」改到${whenText(date, date ? t.time : null, isoToday())}`, r.undo, t.title)
+  say(tNow('「{title}」改到{when}', { title: t.title, when: whenText(date, date ? t.time : null, isoToday()) }), r.undo, t.title)
 }
 
-const FIELD = { time: '钟点', remind: '提醒', repeat: '重复' } as const
+type Field = 'time' | 'remind' | 'repeat'
 
 /** 详情里改钟点、提醒、重复（'' 是不要） */
-export async function fieldTodo(t: TodoItem, k: keyof typeof FIELD, v: string) {
+export async function fieldTodo(t: TodoItem, k: Field, v: string) {
   const value = v || null
   const r = await edit(t, k === 'time' ? { op: 'time', time: value } : k === 'remind' ? { op: 'remind', remind: value } : { op: 'repeat', repeat: value })
   if (!r) return
-  say(`「${t.title}」改了${FIELD[k]}`, r.undo, t.title)
+  const title = t.title
+  say(k === 'time' ? tNow('「{title}」改了钟点', { title }) : k === 'remind' ? tNow('「{title}」改了提醒', { title }) : tNow('「{title}」改了重复', { title }), r.undo, title)
 }
 
 /** 加一条（认「明天下午三点」）；加上了返回 true，输入框清空 */
@@ -159,11 +165,11 @@ export async function addTodo(text: string, where: TodoWhere): Promise<boolean> 
   await NoteDoc.saveAll()
   const r = await window.cnTodo.add(text, where).catch((e: unknown) => ({ ok: false as const, reason: 'failed' as const, message: errText(e) }))
   if (!r.ok) {
-    app().notice(r.reason === 'empty' ? '只认出了日子，没有要做什么' : r.reason === 'readonly' ? (r.message ?? '这一篇只能只读打开') : `没加上：${r.message ?? ''}`)
+    app().notice(r.reason === 'empty' ? tNow('只认出了日子，没有要做什么') : r.reason === 'readonly' ? (r.message ?? tNow('这一篇只能只读打开')) : tNow('没加上：{err}', { err: r.message ?? '' }))
     return false
   }
   flashKey(`${r.path}#${r.line}`)
-  say(`加上了「${r.title}」${r.date ? ` · ${whenText(r.date, r.time, isoToday())}` : ''}`, r.undo, r.title)
+  say(r.date ? tNow('加上了「{title}」 · {when}', { title: r.title, when: whenText(r.date, r.time, isoToday()) }) : tNow('加上了「{title}」', { title: r.title }), r.undo, r.title)
   app().refresh()
   return true
 }
@@ -173,7 +179,7 @@ export async function openInToday(t: TodoItem) {
   await NoteDoc.saveAll()
   NoteDoc.expectOwnChange([t.path])
   const r = await window.cnTodo.openInToday({ path: t.path, line: t.line, raw: t.raw }).catch((e: unknown) => ({ ok: false as const, reason: 'failed' as const, message: errText(e) }))
-  if (!r.ok) app().notice(r.reason === 'gone' ? `「${t.title}」那一行刚被别处改了` : `没打开：${r.message ?? ''}`)
+  if (!r.ok) app().notice(r.reason === 'gone' ? tNow('「{title}」那一行刚被别处改了', { title: t.title }) : tNow('没打开：{err}', { err: r.message ?? '' }))
   app().refresh()
 }
 

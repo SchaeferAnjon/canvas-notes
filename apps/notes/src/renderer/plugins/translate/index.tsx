@@ -4,15 +4,12 @@
  */
 import type { TrPageState } from '../../../shared/plugins/translate'
 import { keyFor } from '../../keys'
-import { onActiveFile, pageStateOf, usePageState, webHost } from '../host'
+import { pageStateOf, usePageState, webHost } from '../host'
 import type { RendererPlugin, WebPage } from '../types'
 import { TrControl, TrMenu } from './menu'
 import { TranslateSettingsPane } from './settings'
 import { ID, settingsNow, toggleTranslate } from './shared'
 import './translate.css'
-
-// 中间栏换了文件：告诉主进程（照那门课的术语表翻）
-onActiveFile((p) => void window.cnPlugins?.call(ID, 'context', p).catch(() => undefined))
 
 /** 「翻成…」「译文样式…」：打开同一个菜单（里面就是语言、样式列表） */
 function openMenu() {
@@ -53,11 +50,11 @@ export const translate: RendererPlugin = {
       // 开翻译是交给翻译那家跑的：画它的标志；恢复原文、换语言、换样式不经 AI，照旧「ab」
       // ⌘K 没打字时在「网页」一组（DESIGN.v3 3.1）；键在命令表里（默认 ⌥A，设置 › 快捷键、⌘K 里能改）
       { id: 'translate', home: 'web', name: on ? '恢复原文' : '双语翻译', hint: on ? '右栏网页 · 拿掉译文' : '右栏网页', icon: 'whole-word', ...(on ? {} : { ai: 'translate' as const }), run },
-      // 次一级的：只在打字时搜得到
-      { id: 'translate-lang', home: 'web', searchOnly: true, name: '翻成…', hint: '双语翻译 · 换语言', icon: 'whole-word', run: openMenu },
-      { id: 'translate-style', home: 'web', searchOnly: true, name: '译文样式…', hint: '双语翻译 · 淡色、下划线、荧光笔、模糊自测…', icon: 'whole-word', run: openMenu },
+      // 次一级的：⌘K 没打字时在「更多命令」里（task-xy89o）
+      { id: 'translate-lang', home: 'more', name: '翻成…', hint: '双语翻译 · 换语言', icon: 'whole-word', run: openMenu },
+      { id: 'translate-style', home: 'more', name: '译文样式…', hint: '双语翻译 · 淡色、下划线、荧光笔、模糊自测…', icon: 'whole-word', run: openMenu },
       ...(on && settingsNow().style === 'blur' && settingsNow().display === 'below'
-        ? [{ id: 'translate-reveal', home: 'web', searchOnly: true, name: '模糊自测：全部显示', hint: '双语翻译 · 糊着的译文都显出来', icon: 'whole-word' as const, run: () => page && webHost()?.command(page.wcId, ID, 'revealAll') }]
+        ? [{ id: 'translate-reveal', home: 'more', name: '模糊自测：全部显示', hint: '双语翻译 · 糊着的译文都显出来', icon: 'whole-word' as const, run: () => page && webHost()?.command(page.wcId, ID, 'revealAll') }]
         : []),
     ]
   },

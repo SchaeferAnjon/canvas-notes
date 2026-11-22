@@ -223,9 +223,10 @@ test('文档里只写一段只亮这一段；整篇改写整块亮、改到的�
     await expect(doc.getByTestId('ai-acting')).toHaveCount(0)
     // 竖线挨着插进来的那一段（同一行高处）；字一点点长出来（task-6kun1），等这一段显出全文再量
     await expect(doc.locator('.cm-line', { hasText: '为什么先读 SAGE' })).toBeVisible()
+    // 插进来的那一段包成 AI 块（task-dtc34）：竖线从块的头一行起
     const pos = await doc.evaluate((p) => {
       const l = p.querySelector('[data-testid="ai-spot-line"]')!.getBoundingClientRect()
-      const t = [...p.querySelectorAll('.cm-line')].find((x) => x.textContent?.includes('为什么先读 SAGE'))!.getBoundingClientRect()
+      const t = [...p.querySelectorAll('.cm-line.cm-callout-ai.cm-callout-head')].at(-1)!.getBoundingClientRect()
       return { dy: Math.abs(l.top - t.top), left: t.left - l.left }
     })
     expect(pos.dy).toBeLessThan(4)

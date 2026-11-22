@@ -11,14 +11,17 @@ import { when } from '../../shared/when'
 import { setHideInternal, useHideInternal } from '../history-hide'
 import { Toggle, type SettingsProps } from '../Settings'
 import { errText } from '../settings-ai'
+import { t as tNow } from '../../shared/i18n'
+import { useT } from '../i18n'
 import { Group, Lnk, Row, Sel, useSaid } from './ui'
 
 /** 下次同步的时间：只写钟点（15:50） */
 export const hhmm = (ms: number) => new Date(ms).toTimeString().slice(0, 5)
 
-const commitLabel = (m: number) => (m === 0 ? '关' : m < 60 ? `每${m}分钟` : '每小时')
+const commitLabel = (m: number) => (m === 0 ? tNow('关') : m < 60 ? tNow('每{n}分钟', { n: m }) : tNow('每小时'))
 
 export function GitPage(props: SettingsProps) {
+  const t = useT()
   const said = useSaid()
   const hide = useHideInternal()
   const sync = props.settings.sync
@@ -36,64 +39,75 @@ export function GitPage(props: SettingsProps) {
   const min = props.settings.autoCommitMinutes
   return (
     <>
-      <Group title="提交">
+      <Group title={t('提交')}>
         <IdentityRow />
         <Row id="autoCommit">
           <Sel
-            label="自动提交"
+            label={t('自动提交')}
             value={min}
             options={AUTO_COMMIT_CHOICES.map((m) => [m, commitLabel(m)] as const)}
             onChange={(v) => {
               void props.onChange({ autoCommitMinutes: v }).then(props.onGitChanged)
-              said.saved(v === 0 ? '不再自动提交；退出前照样提交' : `${commitLabel(v)}自动提交一次`, () => void props.onChange({ autoCommitMinutes: min }).then(props.onGitChanged))
+              said.saved(v === 0 ? t('不再自动提交；退出前照样提交') : t('{every}自动提交一次', { every: commitLabel(v) }), () => void props.onChange({ autoCommitMinutes: min }).then(props.onGitChanged))
             }}
           />
         </Row>
         <Row id="hideInternal">
           <Toggle
             on={hide}
-            label="历史里藏起软件自己的设置文件"
+            label={t('历史里藏起软件自己的设置文件')}
             onChange={(v) => {
               setHideInternal(v)
-              said.saved(v ? '历史里不列左栏、首页、置顶这些设置的改动；历史头上「⋯」是同一个开关' : '历史里也列出软件自己的设置文件', () => setHideInternal(!v))
+              said.saved(v ? t('历史里不列左栏、首页、置顶这些设置的改动；历史头上「⋯」是同一个开关') : t('历史里也列出软件自己的设置文件'), () => setHideInternal(!v))
             }}
           />
         </Row>
       </Group>
-      <Group title="同步">
+      <Group title={t('同步')}>
         <RemoteRow {...props} onSynced={() => void readState()} />
         <Row
           id="autoSync"
           desc={
             sync.autoMinutes === 0
               ? undefined
-              : `同步 = 先提交，再拉，再推；${autoSyncLabel(sync.autoMinutes)}一次${plan?.nextSync ? `，下次 ${hhmm(plan.nextSync)}` : ''}${plan && !plan.hasRemote ? '（还没填远程地址，填好才同步）' : ''}`
+              : syncLine(t, autoSyncLabel(sync.autoMinutes), plan?.nextSync ? hhmm(plan.nextSync) : null, !!plan && !plan.hasRemote)
           }
         >
           <Sel
-            label="自动同步"
+            label={t('自动同步')}
             value={sync.autoMinutes}
             options={AUTO_SYNC_CHOICES.map((m) => [m, autoSyncLabel(m)] as const)}
-            onChange={(v) => setSync('autoMinutes', v, v === 0 ? '只在你点「同步」时联网' : `${autoSyncLabel(v).replace('每', '每隔')}同步一次 · 底栏「同步」旁会写下次的时间`)}
+            onChange={(v) =>
+              // 不翻：「每」换「每隔」只改中文的说法，英文里没有「每」
+              setSync('autoMinutes', v, v === 0 ? t('只在你点「同步」时联网') : t('{every}同步一次 · 底栏「同步」旁会写下次的时间', { every: autoSyncLabel(v).replace('每', '每隔') }))
+            }
           />
         </Row>
         <Row id="pullOpen">
-          <Toggle on={sync.pullOnOpen} label="打开库时先拉一次" onChange={(v) => setSync('pullOnOpen', v, v ? '下次打开这个库时先拉一次' : '打开库时不再先拉')} />
+          <Toggle on={sync.pullOnOpen} label={t('打开库时先拉一次')} onChange={(v) => setSync('pullOnOpen', v, v ? t('下次打开这个库时先拉一次') : t('打开库时不再先拉'))} />
         </Row>
         <Row id="pushQuit">
-          <Toggle on={sync.pushOnQuit} label="退出前推一次" onChange={(v) => setSync('pushOnQuit', v, v ? '退出前推一次，没网时照常退出' : '退出时不再推')} />
+          <Toggle on={sync.pushOnQuit} label={t('退出前推一次')} onChange={(v) => setSync('pushOnQuit', v, v ? t('退出前推一次，没网时照常退出') : t('退出时不再推'))} />
         </Row>
         <Row id="conflict" info />
       </Group>
-      <Group title="不进Git的">
+      <Group title={t('不进Git的')}>
         <IgnoreRow />
       </Group>
-      <Group title="备份">
+      <Group title={t('备份')}>
         <BackupRow {...props} />
       </Group>
-      <p className="sa-note">同步 = 先提交，再拉，再推。没设远程时，Git历史只在这台Mac上。</p>
+      <p className="sa-note">{t('同步 = 先提交，再拉，再推。没设远程时，Git历史只在这台Mac上。')}</p>
     </>
   )
+}
+
+/** 自动同步那一行的说明：多久一次，下次几点，还没填远程地址时说一声（几种情况各一句，不拼） */
+function syncLine(t: (k: string, p?: Record<string, string>) => string, every: string, next: string | null, noRemote: boolean): string {
+  if (next && noRemote) return t('同步 = 先提交，再拉，再推；{every}一次，下次 {time}（还没填远程地址，填好才同步）', { every, time: next })
+  if (next) return t('同步 = 先提交，再拉，再推；{every}一次，下次 {time}', { every, time: next })
+  if (noRemote) return t('同步 = 先提交，再拉，再推；{every}一次（还没填远程地址，填好才同步）', { every })
+  return t('同步 = 先提交，再拉，再推；{every}一次', { every })
 }
 
 /**
@@ -101,6 +115,7 @@ export function GitPage(props: SettingsProps) {
  * 这里看得到、能改（只改这个库的 .git/config）
  */
 function IdentityRow() {
+  const t = useT()
   const said = useSaid()
   const [id, setId] = useState<{ name: string; email: string; local: boolean } | null | undefined>(undefined)
   const [draft, setDraft] = useState<{ name: string; email: string } | null>(null)
@@ -113,19 +128,19 @@ function IdentityRow() {
       setId(await window.cn.setGitIdentity(draft.name, draft.email))
       setDraft(null)
       setBad('')
-      said.say('提交署名改好了，以后的提交用它')
+      said.say(t('提交署名改好了，以后的提交用它'))
     } catch (err) {
       setBad(errText(err))
     }
   }
   const cancel = () => (setDraft(null), setBad(''))
-  const where = id === undefined ? '' : id?.local ? '写在这个库里，只用在这个库' : id ? '用的是这台Mac上Git的全局设置；改了只改这个库' : '填上后写在这个库里，只用在这个库'
+  const where = id === undefined ? '' : id?.local ? t('写在这个库里，只用在这个库') : id ? t('用的是这台Mac上Git的全局设置；改了只改这个库') : t('填上后写在这个库里，只用在这个库')
   if (draft)
     return (
       <Row id="gitId" full desc={where} more={bad ? <div className="sa-kwarn" role="alert">{bad}</div> : undefined}>
         <form
           className="sa-inline"
-          aria-label="改提交署名"
+          aria-label={t('改提交署名')}
           onSubmit={(e) => {
             e.preventDefault()
             void save()
@@ -139,13 +154,13 @@ function IdentityRow() {
             cancel()
           }}
         >
-          <input className="sa-fld id-name" aria-label="署名的名字" placeholder="名字" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} autoFocus />
-          <input className="sa-fld" aria-label="署名的邮箱" aria-invalid={!!bad || undefined} placeholder="邮箱" value={draft.email} onChange={(e) => (setDraft({ ...draft, email: e.target.value }), setBad(''))} />
+          <input className="sa-fld id-name" aria-label={t('署名的名字')} placeholder={t('名字')} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} autoFocus />
+          <input className="sa-fld" aria-label={t('署名的邮箱')} aria-invalid={!!bad || undefined} placeholder={t('邮箱')} value={draft.email} onChange={(e) => (setDraft({ ...draft, email: e.target.value }), setBad(''))} />
           <button className="sa-btn primary" type="submit" disabled={!draft.name.trim() || !draft.email.trim()}>
-            保存
+            {t('保存')}
           </button>
           <button className="sa-btn ghost" type="button" onClick={cancel}>
-            取消
+            {t('取消')}
           </button>
         </form>
       </Row>
@@ -156,7 +171,7 @@ function IdentityRow() {
       desc={
         <span data-testid="git-identity">
           {id === undefined ? (
-            '正在读…'
+            t('正在读…')
           ) : id ? (
             <>
               {id.name} · {id.email} · {where}
@@ -164,14 +179,14 @@ function IdentityRow() {
           ) : (
             <>
               <i className="dot warn" />
-              还没有，提交会失败 · {where}
+              {t('还没有，提交会失败 · {where}', { where })}
             </>
           )}
         </span>
       }
     >
       <button className="sa-btn" type="button" disabled={id === undefined} onClick={() => setDraft({ name: id?.name ?? '', email: id?.email ?? '' })}>
-        改
+        {t('改', { ctx: '提交署名' })}
       </button>
     </Row>
   )
@@ -179,6 +194,7 @@ function IdentityRow() {
 
 /** 远程地址：整行宽的框，存前「保存」、存后「现在同步」（这一页唯一的黑色主按钮）；框下面一句说存没存、上次同步怎样 */
 function RemoteRow(props: SettingsProps & { onSynced(): void }) {
+  const t = useT()
   const said = useSaid()
   const [remote, setRemote] = useState('')
   const typed = useRef(false)
@@ -204,7 +220,7 @@ function RemoteRow(props: SettingsProps & { onSynced(): void }) {
     try {
       const r = await window.cn.setGitRemote(remote)
       setSaved(r?.url ?? null)
-      said.say('远程地址存好了')
+      said.say(t('远程地址存好了'))
       props.onGitChanged()
     } catch (err) {
       said.say(errText(err))
@@ -218,7 +234,7 @@ function RemoteRow(props: SettingsProps & { onSynced(): void }) {
       const { remote: url, dirty: unsaved } = latest.current
       if (!unsaved) return
       void window.cn.setGitRemote(url).then(
-        () => (props.onNotice('远程地址存好了'), props.onGitChanged()),
+        () => (props.onNotice(tNow('远程地址存好了')), props.onGitChanged()),
         (err: unknown) => props.onNotice(errText(err)),
       )
     },
@@ -228,20 +244,20 @@ function RemoteRow(props: SettingsProps & { onSynced(): void }) {
   const state = dirty ? (
     <>
       <i className="dot warn" />
-      地址还没保存：按 <kbd>↵</kbd> 或点「保存」 · 离开这一页时也会自动存
+      {t('地址还没保存：按')} <kbd>↵</kbd> {t('或点「保存」 · 离开这一页时也会自动存')}
     </>
   ) : saved && syncError ? (
     <>
       <i className="dot warn" />
-      上次同步没成功（{when(syncError.at, { time: true })}）：{syncError.text}
+      {t('上次同步没成功（{when}）：{text}', { when: when(syncError.at, { time: true }), text: syncError.text })}
     </>
   ) : saved ? (
     <>
       <i className="dot ok" />
-      地址存好了 · {lastSync ? `上次同步${when(lastSync, { time: true })}` : '还没同步过：点「现在同步」推上去'}
+      {t('地址存好了')} · {lastSync ? t('上次同步{when}', { when: when(lastSync, { time: true }) }) : t('还没同步过：点「现在同步」推上去')}
     </>
   ) : (
-    '还没有远程仓库：先填地址，再同步'
+    t('还没有远程仓库：先填地址，再同步')
   )
   return (
     <Row id="remote" full desc={<span data-testid="git-remote-state">{state}</span>}>
@@ -252,7 +268,7 @@ function RemoteRow(props: SettingsProps & { onSynced(): void }) {
           if (dirty) void save()
         }}
       >
-        <input className="sa-fld mono" aria-label="远程地址" placeholder="比如git@github.com:你/笔记.git" value={remote} onChange={(e) => ((typed.current = true), setRemote(e.target.value))} />
+        <input className="sa-fld mono" aria-label={t('远程地址')} placeholder={t('比如git@github.com:你/笔记.git')} value={remote} onChange={(e) => ((typed.current = true), setRemote(e.target.value))} />
         {saved && !dirty ? (
           <button
             type="button"
@@ -270,12 +286,12 @@ function RemoteRow(props: SettingsProps & { onSynced(): void }) {
             }}
           >
             <Codicon name="sync" size={14} className={syncing ? 'spin' : undefined} />
-            {syncing ? '正在同步' : '现在同步'}
+            {syncing ? t('正在同步') : t('现在同步')}
           </button>
         ) : (
           <button type="submit" className="sa-btn primary" disabled={!dirty}>
             <Codicon name="save" size={14} />
-            保存
+            {t('保存')}
           </button>
         )}
       </form>
@@ -285,6 +301,7 @@ function RemoteRow(props: SettingsProps & { onSynced(): void }) {
 
 /** 不进Git的文件：库里的 .gitignore（每行一个规则），「编辑…」在这一行里改，存了算一次提交 */
 function IgnoreRow() {
+  const t = useT()
   const said = useSaid()
   const [text, setText] = useState<string | null>(null)
   const [draft, setDraft] = useState<string | null>(null)
@@ -293,11 +310,18 @@ function IgnoreRow() {
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l && !l.startsWith('#'))
+  const shown = rules.slice(0, 3).join(t('、', { ctx: '列举' }))
   const desc =
-    text === null ? '正在读…' : rules.length ? `${rules.slice(0, 3).join('、')}${rules.length > 3 ? ` 等${rules.length}条` : ''} · 写在库里的 .gitignore；已经进了Git的照旧` : '还没有：库里的文件都进Git；写在库里的 .gitignore'
+    text === null
+      ? t('正在读…')
+      : rules.length > 3
+        ? t('{rules} 等{n}条 · 写在库里的 .gitignore；已经进了Git的照旧', { rules: shown, n: rules.length })
+        : rules.length
+          ? t('{rules} · 写在库里的 .gitignore；已经进了Git的照旧', { rules: shown })
+          : t('还没有：库里的文件都进Git；写在库里的 .gitignore')
   if (draft !== null)
     return (
-      <Row id="ignore" full desc="一行一条，比如 *.mp4、大文件夹/；已经进了Git的照旧留着">
+      <Row id="ignore" full desc={t('一行一条，比如 *.mp4、大文件夹/；已经进了Git的照旧留着')}>
         <form
           className="sa-inline"
           onSubmit={(e) => {
@@ -306,18 +330,18 @@ function IgnoreRow() {
               () => {
                 setText(draft)
                 setDraft(null)
-                said.say('已存 · 不进Git的文件：.gitignore 改好了，提交了一次')
+                said.say(t('已存 · 不进Git的文件：.gitignore 改好了，提交了一次'))
               },
               (err: unknown) => said.say(errText(err)),
             )
           }}
         >
-          <textarea className="sa-fld mono" aria-label="不进Git的文件" value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+          <textarea className="sa-fld mono" aria-label={t('不进Git的文件')} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
           <button type="submit" className="sa-btn">
-            保存
+            {t('保存')}
           </button>
           <button type="button" className="sa-btn ghost" onClick={() => setDraft(null)}>
-            取消
+            {t('取消')}
           </button>
         </form>
       </Row>
@@ -325,7 +349,7 @@ function IgnoreRow() {
   return (
     <Row id="ignore" desc={desc}>
       <button type="button" className="sa-btn" disabled={text === null} onClick={() => setDraft(text ?? '')}>
-        编辑…
+        {t('编辑…')}
       </button>
     </Row>
   )
@@ -333,6 +357,7 @@ function IgnoreRow() {
 
 /** 每天备份一份到：iCloud云盘或自己选的文件夹（外接盘），整个库的历史打成一个文件 */
 function BackupRow(props: SettingsProps) {
+  const t = useT()
   const said = useSaid()
   const s = props.settings.sync
   const [st, setSt] = useState<{ at: number | null; file: string | null; error: string | null } | null>(null)
@@ -347,7 +372,7 @@ function BackupRow(props: SettingsProps) {
     }
   }
   const value = s.backup
-  const label = (v: SyncPrefs['backup']) => (v === 'off' ? '不备份' : v === 'icloud' ? 'iCloud云盘' : s.backupDir ? `${s.backupDir.split('/').pop()}（选的文件夹）` : '选文件夹…')
+  const label = (v: SyncPrefs['backup']) => (v === 'off' ? t('不备份') : v === 'icloud' ? t('iCloud云盘') : s.backupDir ? t('{name}（选的文件夹）', { name: s.backupDir.split('/').pop() }) : t('选文件夹…'))
   // 「现在备一份」放在说明后面（不放在下拉旁边，右边那一列只有下拉）
   const desc =
     value === 'off' ? undefined : (
@@ -355,26 +380,26 @@ function BackupRow(props: SettingsProps) {
         {st?.error ? (
           <>
             <i className="dot warn" />
-            上次没备成：{st.error}
+            {t('上次没备成：{err}', { err: st.error })}
           </>
         ) : busy ? (
-          '正在备份…'
+          t('正在备份…')
         ) : st?.at ? (
-          `上次备份 · ${when(st.at, { time: true })} · ${st.file?.replace(/^\/Users\/[^/]+/, '~') ?? ''}`
+          t('上次备份 · {when} · {file}', { when: when(st.at, { time: true }), file: st.file?.replace(/^\/Users\/[^/]+/, '~') ?? '' })
         ) : (
-          '还没备过'
+          t('还没备过')
         )}
-        {!busy && <Lnk onClick={() => void now()}>现在备一份</Lnk>}
+        {!busy && <Lnk onClick={() => void now()}>{t('现在备一份')}</Lnk>}
       </span>
     )
   return (
     <Row id="backup" desc={desc}>
       <Sel
-        label="每天备份一份到"
+        label={t('每天备份一份到')}
         value={value === 'folder' ? 'folder' : value}
         options={[
-          ['off', '不备份'],
-          ['icloud', 'iCloud云盘'],
+          ['off', t('不备份')],
+          ['icloud', t('iCloud云盘')],
           ['folder', label('folder')],
         ]}
         onChange={async (v) => {
@@ -386,7 +411,7 @@ function BackupRow(props: SettingsProps) {
             await props.onChange({ sync: { backup: 'folder', backupDir: dir } })
           } else await props.onChange({ sync: { backup: v } })
           if (v !== 'off') void now()
-          said.saved(v === 'off' ? '不再另存备份' : `每天备份一份到「${v === 'folder' ? '选的文件夹' : 'iCloud云盘'}」；现在先备一份`, () => void props.onChange({ sync: old }))
+          said.saved(v === 'off' ? t('不再另存备份') : t('每天备份一份到「{place}」；现在先备一份', { place: v === 'folder' ? t('选的文件夹') : t('iCloud云盘') }), () => void props.onChange({ sync: old }))
         }}
       />
     </Row>

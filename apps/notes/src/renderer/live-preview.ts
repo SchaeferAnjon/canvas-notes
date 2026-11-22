@@ -1,5 +1,5 @@
 import { syntaxTree } from '@codemirror/language'
-import type { Range } from '@codemirror/state'
+import { Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import { codiconEl } from '@cn/design'
 import { wikiShown } from '@cn/format'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
@@ -111,28 +111,49 @@ function build(view: EditorView): DecorationSet {
       if (n.name === 'InlineCode' || n.name === 'FencedCode' || n.name === 'CodeBlock' || n.name === 'CommentBlock' || n.name === 'HTMLBlock') return true
     return false
   }
+  /** 双链 [[笔记]] 里面那一对 [ ]（lezer 认成链接，双链自己画） */
+  const inWiki = (from: number, to: number) => doc.sliceString(from - 1, from) === '[' && doc.sliceString(to, to + 1) === ']'
+  /** 文里有没有「[字]: 网址」的链接定义（只在碰到光一对方括号时才看全文） */
+  let defs: Set<string> | null = null
+  const refDefined = (label: string) => {
+    defs ??= new Set([...doc.toString().matchAll(/^ {0,3}\[([^\]\n]+)\]:/gm)].map((m) => m[1]!.trim().toLowerCase()))
+    return defs.has(label.trim().toLowerCase())
+  }
   /** 已经整段换成部件的范围（提示块的「> [!question] 」），里面的节点不再加装饰 */
   const skips: [number, number][] = []
 
   /** 提示块：整段 --fill 底的卡，第一行「> [!type] 」换成图标，AI 讲解的标题里「引擎 · 模型 · 看了什么」淡一号 */
+  /** 已经画过的提示块（看得见的范围被块部件隔成几段时，同一个提示块会走到好几次；装饰加两遍，名字套两层、被截成「讲…」） */
+  const calloutsDone = new Set<number>()
+  /** 同上，代码块 */
+  const fencedDone = new Set<number>()
   function callout(from: number, to: number, c: CalloutHead) {
+    if (calloutsDone.has(from)) return
+    calloutsDone.add(from)
     const a = doc.lineAt(from)
     const b = doc.lineAt(to)
     for (let n = a.number; n <= b.number; n++) {
       const cls = ['cm-callout', `cm-callout-${c.kind}`, `cm-tone-${c.tone}`]
       if (n === a.number) cls.push('cm-callout-head')
       if (n === b.number) cls.push('cm-callout-bot')
+      // 块里隔开两段的「>」空行：「>」藏起来以后这一行没有字、高度是 0，两段挤在一起；留出段落间距（task-dtc34）
+      else if (n > a.number && /^\s*>\s*$/.test(doc.line(n).text)) cls.push('cm-callout-blank')
       decos.push(line(cls.join(' ')).range(doc.line(n).from))
     }
     const end = a.from + c.prefix
     skips.push([a.from, end])
     decos.push(Decoration.replace({ widget: new CalloutIcon(c.icon, c.title ? '' : c.label, c.engine, !!c.bare) }).range(a.from, end))
+    // AI 讲解的头固定两行（task-6cxtc 复审）：第一行名字「讲解一下」「你问：原话」，第二行「Claude Code · Opus 5.5 · 2.2.1 读取数据集 ↩」，
+    // 中间那个「 · 」只是不画（md 一个字不变）；回到网页那一段的链接整段不断行，放不下先截小标题（省略号）、留住 ↩
     if (c.kind === 'ai' && c.title) {
       const cut = c.title.indexOf(' · ')
       const t0 = end + (a.text.slice(c.prefix).length - a.text.slice(c.prefix).trimStart().length)
       if (cut > 0) {
-        decos.push(mark('cm-callout-name').range(t0, t0 + cut))
-        decos.push(mark('cm-callout-meta').range(t0 + cut, a.to))
+        const m0 = t0 + cut + 3
+        // 名字一行放不下省略号（你问的原话长），指着看全
+        decos.push(mark('cm-callout-name', { title: c.title.slice(0, cut) }).range(t0, t0 + cut))
+        decos.push(hide.range(t0 + cut, m0))
+        decos.push(mark('cm-callout-meta').range(m0, a.to))
       }
     }
   }
@@ -190,6 +211,8 @@ function build(view: EditorView): DecorationSet {
             return
           case 'Link': {
             const url = node.node.getChild('URL')
+            // 光一对方括号（「tensor([0, 1, 2, 3])」，task-busas）：lezer 也认成链接，可文里没有「[字]: 网址」就不是链接，原样露着
+            if (!url && !node.node.getChild('LinkLabel') && !inWiki(node.from, node.to) && !refDefined(doc.sliceString(node.from + 1, node.to - 1))) return false
             const close = node.node.lastChild
             // 链接的字（「[」后面到「]」前面）；「[」「](网址)」另外藏
             const textEnd = url ? url.from - 2 : node.to
@@ -216,6 +239,8 @@ function build(view: EditorView): DecorationSet {
             markOf(node.from, node.to, true)
             return
           case 'FencedCode':
+            // 提示块里的代码块整块画成部件（md-widgets.ts calloutWidgets，task-83vl3），这里不再加装饰
+            if (parent?.name === 'Blockquote' && parseCallout(doc.lineAt(parent.from).text)) return false
             fenced(node.from, node.to)
             return false
           case 'CodeBlock':
@@ -288,9 +313,11 @@ function build(view: EditorView): DecorationSet {
 
   /**
    * 围栏代码块：--fill 底、圆角 8；上下两行围栏永远藏起来，只当 12 高的内边距（光标进不去，wysiwyg.ts），
-   * 语言名放在右上角。
+   * 语言名放在右上角。提示块里的代码块是 md-widgets.ts 的 calloutWidgets 整块画（上面 FencedCode 那里就跳过了）
    */
   function fenced(from: number, to: number) {
+    if (fencedDone.has(from)) return
+    fencedDone.add(from)
     const a = doc.lineAt(from)
     const b = doc.lineAt(to)
     const m = FENCE.exec(a.text)
@@ -359,4 +386,73 @@ export const livePlugin = ViewPlugin.fromClass(
   },
 )
 
-export const livePreview = [mathPreview, reviewExtension, livePlugin, blockIds, linkCard, EditorView.contentAttributes.of({ class: 'cm-live' })]
+/**
+ * [!ai] 块头第二行放不下时（task-6cxtc 复审）：回到网页那一段的链接整段不断行，先截小标题（省略号）、留住 ↩。
+ * 链接的字得是一整段（点「↩」、按字找都靠它），所以不拆开画：量出这一行超出多少，给最后几个链接外面套一层
+ * 有最宽的 .cm-cut（字尾省略号，↩ 由 ::after 画在右端，editor-blocks.css）。CodeMirror 管着的 DOM 不能直接改，
+ * 量好的宽度走一个装饰（fitField）
+ */
+const setFit = StateEffect.define<{ from: number; to: number; w: number }[]>()
+const fitField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(v, tr) {
+    v = v.map(tr.changes)
+    for (const e of tr.effects)
+      if (e.is(setFit)) v = Decoration.set(e.value.map((c) => Decoration.mark({ class: 'cm-cut', attributes: { style: `max-width:${c.w}px` } }).range(c.from, c.to)), true)
+    return v
+  },
+  // 优先级高的套在里面：套在链接里面，不把块头第二行拆开（低了会套在外面，把第二行拆成两截）
+  provide: (f) => Prec.highest(EditorView.decorations.from(f)),
+})
+
+const calloutFit = ViewPlugin.fromClass(
+  class {
+    constructor(readonly view: EditorView) {
+      this.fit()
+    }
+    update(u: ViewUpdate) {
+      if (u.docChanged || u.viewportChanged || u.geometryChanged || u.transactions.some((t) => t.effects.some((e) => e.is(setFit)))) this.fit()
+    }
+    fit() {
+      this.view.requestMeasure({
+        read: (view) => {
+          const out: { from: number; to: number; w: number }[] = []
+          for (const meta of view.contentDOM.querySelectorAll<HTMLElement>('.cm-callout-meta')) {
+            const links = [...meta.querySelectorAll<HTMLElement>('.cm-link')].filter((l) => /↩\s*$/.test(l.textContent ?? ''))
+            if (!links.length) continue
+            const pad = parseFloat(getComputedStyle(meta).fontSize) * 1.4
+            // 截着的（链接里面套着 .cm-cut）：整段的宽是 scrollWidth 减去给 ↩ 的内边距；没截的就是链接自己的宽
+            const cutOf = (l: HTMLElement) => l.querySelector<HTMLElement>('.cm-cut')
+            const now = links.map((l) => l.getBoundingClientRect().width)
+            const natural = links.map((l, i) => {
+              const c = cutOf(l)
+              return c ? c.scrollWidth - pad : now[i]!
+            })
+            // 链接以外的字（「Claude Code · Opus 5.5 · 」、几个链接之间的「 · 」）：从这一行左边量到每个链接
+            const rects = links.map((l) => l.getBoundingClientRect())
+            let other = rects[0]!.left - (meta.getBoundingClientRect().left + meta.clientLeft)
+            for (let i = 1; i < rects.length; i++) other += rects[i]!.left - rects[i - 1]!.right
+            let over = other + natural.reduce((s, w) => s + w, 0) - meta.clientWidth
+            for (let i = links.length - 1; i >= 0 && over > 0; i--) {
+              const keep = Math.max(pad * 2, Math.floor(natural[i]! - over - 1))
+              over -= natural[i]! - keep
+              const from = view.posAtDOM(links[i]!, 0)
+              // 最宽量的是字（content-box），右边还有给 ↩ 的内边距
+              out.push({ from, to: from + (links[i]!.textContent ?? '').length, w: Math.max(pad, keep - pad) })
+            }
+          }
+          return out.sort((a, b) => a.from - b.from)
+        },
+        write: (out, view) => {
+          const cur: { from: number; to: number; w: number }[] = []
+          view.state.field(fitField).between(0, view.state.doc.length, (from, to, d) => void cur.push({ from, to, w: parseFloat(/max-width:([\d.]+)/.exec(String(d.spec.attributes?.style))?.[1] ?? '0') }))
+          if (JSON.stringify(cur) === JSON.stringify(out)) return
+          // 量的时候不能发改动：等这一轮量完
+          queueMicrotask(() => view.dispatch({ effects: setFit.of(out) }))
+        },
+      })
+    }
+  },
+)
+
+export const livePreview = [mathPreview, reviewExtension, livePlugin, fitField, calloutFit, blockIds, linkCard, EditorView.contentAttributes.of({ class: 'cm-live' })]

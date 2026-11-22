@@ -9,7 +9,7 @@
  */
 import { expect, type Locator, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -400,8 +400,8 @@ test('文档切成的白板：工具板六样、顶上那条说明、右边一�
     const hb = (await hint.boundingBox())!
     // 进场动画（落下 6px 淡入，带着 transform）还在走时量出来是 32.0000076 这种浮点尾数：差在百分之一像素以内就是 32
     expect(hb.height).toBeCloseTo(32, 2)
-    // 收件箱：标签条右端「收件箱 1」，弹窗默认收着（task-8isml）
-    const inbox = acts(page).getByTestId('db-inbox')
+    // 收件箱：白板右上角「收件箱 1」，弹窗默认收着（task-8isml）
+    const inbox = pane(page).getByTestId('db-inbox')
     await expect(inbox).toHaveText('收件箱1')
     await expect(docBoard(page).getByRole('dialog', { name: '收件箱' })).toHaveCount(0)
     expect(file()).toBe(TRAVEL_NOTE)
@@ -548,9 +548,13 @@ test('文档切成的白板：工具板「子白板」建一块白板、在新�
     }, b64)
     await sheet.getByRole('button', { name: '用这张' }).click()
     await sheet.getByRole('button', { name: '做成白板导图' }).click({ timeout: 20_000 })
-    await expect(page.getByTestId('tab-on')).toHaveText(/^导图 /)
-    const title = (await page.getByTestId('tab-on').textContent())!.trim()
+    // 2026-11-22 task-wuv05：导图是这块白板的子白板，和它同一个文件夹，留在这块白板上；那一列多一张导图卡
+    await expect(page.getByTestId('tab-on')).toHaveText('复习')
+    const dir = join(vault, '课程/线性代数')
+    await expect.poll(() => readdirSync(dir).filter((f) => f.startsWith('导图 '))).toHaveLength(1)
+    const title = readdirSync(dir).find((f) => f.startsWith('导图 '))!.replace(/\.md$/, '')
     await expect.poll(file, { timeout: 10_000 }).toContain(`线性映射的定义。\n\n[[${title}]]\n\n## 第四讲`)
+    await expect(col(page, '第三讲').locator('.mm-card-row')).toContainText(`${title}导图 · 15个主题`)
   } finally {
     await run.close()
   }

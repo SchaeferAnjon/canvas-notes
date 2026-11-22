@@ -11,29 +11,37 @@ import { HowTo } from '../reading/CardsDialog'
 import { openCards, unsentOf, useCardsView } from '../reading/cards-store'
 import { AiFeaturePick } from '../settings-ai'
 import { Toggle, type SettingsProps } from '../Settings'
+import { t as tNow } from '../../shared/i18n'
+import { useT } from '../i18n'
 import { Group, Lnk, Row, Sel, useSaid } from './ui'
 
-export const PDF_ZOOMS: [PdfPrefs['zoom'], string][] = [
-  ['width', '适合宽度'],
-  ['page', '适合整页'],
+/** 新打开的 PDF 缩放的几档：中文原句（PdfTab 还拼在中文句子里），设置页画的时候 t() */
+// 不翻：键，画的地方翻
+const PDF_ZOOMS: [PdfPrefs['zoom'], string][] = [
+  ['width', '适合宽度'], // 不翻
+  ['page', '适合整页'], // 不翻
   ['actual', '100%'],
 ]
 export const pdfZoomName = (z: PdfPrefs['zoom']) => PDF_ZOOMS.find((x) => x[0] === z)![1]
+const pdfZooms = (): [PdfPrefs['zoom'], string][] => PDF_ZOOMS.map(([v, n]) => [v, tNow(n)])
 
 /** 「Anki」那一行右边：连上了写版本，没开给「打开Anki」，没装给「怎么装」 */
 function AnkiState(p: { st: AnkiStatus | null; onOpen(): void; onHow(): void }) {
+  const t = useT()
   const { st } = p
   if (!st) return null
   return (
     <span className="sa-anki" data-testid="anki-state">
       <i className={'dot' + (st.connected ? ' g' : ' y')} />
-      {st.connected ? `连上了 · ${st.app?.version ? `Anki ${st.app.version} · ` : ''}AnkiConnect` : st.app ? '没开着 · ' : '没装 · '}
-      {!st.connected && (st.app ? <Lnk onClick={p.onOpen}>打开Anki</Lnk> : <Lnk onClick={p.onHow}>怎么装</Lnk>)}
+      {st.connected ? (st.app?.version ? t('连上了 · Anki {v} · AnkiConnect', { v: st.app.version }) : t('连上了 · AnkiConnect')) : st.app ? t('没开着') : t('没装')}
+      {!st.connected && ' · '}
+      {!st.connected && (st.app ? <Lnk onClick={p.onOpen}>{t('打开Anki')}</Lnk> : <Lnk onClick={p.onHow}>{t('怎么装')}</Lnk>)}
     </span>
   )
 }
 
 export function PdfPage(props: SettingsProps) {
+  const t = useT()
   const said = useSaid()
   const p = props.settings.pdf
   const set = <K extends keyof PdfPrefs>(k: K, v: PdfPrefs[K], hint: string) => {
@@ -57,20 +65,20 @@ export function PdfPage(props: SettingsProps) {
   const openAnki = () => void window.cnReading.openAnki().then((ok) => (ok ? load() : setHow(true)), (e) => props.onNotice(String((e as Error).message ?? e)))
   return (
     <>
-      <Group title="打开时">
+      <Group title={t('打开时')}>
         <Row id="pdfZoom">
-          <Sel label="新打开的PDF缩放" value={p.zoom} options={PDF_ZOOMS} onChange={(v) => set('zoom', v, `下次新打开的PDF用「${pdfZoomName(v)}」；看过的照旧`)} />
+          <Sel label={t('新打开的PDF缩放')} value={p.zoom} options={pdfZooms()} onChange={(v) => set('zoom', v, t('下次新打开的PDF用「{name}」；看过的照旧', { name: t(pdfZoomName(v)) }))} />
         </Row>
         <Row id="pdfAi">
-          <Toggle on={p.openAi} label="打开PDF时开着AI" onChange={(v) => set('openAi', v, v ? '以后打开PDF时右栏的AI一起打开' : '打开PDF时不开AI；框一块、点「问AI」才开')} />
+          <Toggle on={p.openAi} label={t('打开PDF时开着AI')} onChange={(v) => set('openAi', v, v ? t('以后打开PDF时右栏的AI一起打开') : t('打开PDF时不开AI；框一块、点「问AI」才开'))} />
         </Row>
       </Group>
-      <Group title="笔记">
-        <Row id="pdfRecap" desc="用读PDF那一家AI（Claude Code 时用 Haiku）；关了不再问AI，标题和小结截问和答的开头">
-          <Toggle on={p.recap} label="后台写每一轮的标题和小结" onChange={(v) => set('recap', v, v ? '读PDF的笔记里每一轮后台写标题和小结' : '不再后台问AI：标题和小结截问和答的开头')} />
+      <Group title={t('笔记')}>
+        <Row id="pdfRecap" desc={t('用读PDF那一家AI（Claude Code 时用 Haiku）；关了不再问AI，标题和小结截问和答的开头')}>
+          <Toggle on={p.recap} label={t('后台写每一轮的标题和小结')} onChange={(v) => set('recap', v, v ? t('读PDF的笔记里每一轮后台写标题和小结') : t('不再后台问AI：标题和小结截问和答的开头'))} />
         </Row>
       </Group>
-      <Group title="送进Anki">
+      <Group title={t('送进Anki')}>
         <Row id="anki">
           <AnkiState st={st} onOpen={openAnki} onHow={() => setHow(true)} />
         </Row>
@@ -78,26 +86,28 @@ export function PdfPage(props: SettingsProps) {
           id="ankiDeck"
           desc={
             <>
-              按文件夹分牌组；直接放在课里的用PDF的名字，别处的进「知识」
+              {t('按文件夹分牌组；直接放在课里的用PDF的名字，别处的进「知识」')}
               <br />
-              例：<span className="sa-nw">课程/ecp/Week 2/补充材料</span> → <span className="sa-nw">课程::ecp::Week 2::补充材料</span>
+              {t('例：')}
+              {/* 不翻：例子是库里的文件夹名和 Anki 牌组名，照磁盘上的 */}
+              <span className="sa-nw">课程/ecp/Week 2/补充材料</span> → <span className="sa-nw">课程::ecp::Week 2::补充材料</span>
             </>
           }
         >
-          <span className="sa-val">跟着文件夹</span>
+          <span className="sa-val">{t('跟着文件夹')}</span>
         </Row>
         <Row id="ankiSides">
-          <Toggle on={p.ankiSides} label="旁支里问的也送" onChange={(v) => set('ankiSides', v, v ? '旁支里问的也出卡；卡背面「原文」是被问的那一句' : '出卡不算旁支里问的')} />
+          <Toggle on={p.ankiSides} label={t('旁支里问的也送')} onChange={(v) => set('ankiSides', v, v ? t('旁支里问的也出卡；卡背面「原文」是被问的那一句') : t('出卡不算旁支里问的'))} />
         </Row>
         <Row id="ankiEngine">
-          <AiFeaturePick feature="cards" name="改写成卡" onNotice={props.onNotice} />
+          <AiFeaturePick feature="cards" name={t('改写成卡')} onNotice={props.onNotice} />
         </Row>
         <Row id="ankiOff" more={how && st ? <HowTo st={st} onOpen={openAnki} /> : undefined}>
           <button className="btn btn-sm" onClick={() => setHow((h) => !h)}>
-            怎么装
+            {t('怎么装')}
           </button>
         </Row>
-        <Row id="ankiAll" desc={all ? `${all.items.length}问 · ${all.items.filter((x) => x.sent).length}问已在Anki` : ' '}>
+        <Row id="ankiAll" desc={all ? t('{n}问 · {sent}问已在Anki', { n: all.items.length, sent: all.items.filter((x) => x.sent).length }) : ' '}>
           <button
             className="btn btn-sm"
             disabled={!unsent}
@@ -107,7 +117,7 @@ export function PdfPage(props: SettingsProps) {
             }}
           >
             <AiIcon job="cards" size={14} />
-            {`出卡 · ${unsent}问`}
+            {t('出卡 · {n}问', { n: unsent })}
           </button>
         </Row>
       </Group>

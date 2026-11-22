@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { gitStatus, launch, pane, rail, tabOn, leftView } from './app'
 
 // 梦游里的归类和改名 + 预览（task-xfrgu 第 2 段，设计稿 design-mindmap 方向 B 第 7、8 节）：
-// 现在梦游 → 报告里「归类和改名」按去处分组 → 预览（左栏换成改好后的样子，挪来的标「新」，收件箱留影子）
+// 现在梦游 → 报告里「归类和改名」按去处分组 → 在树里看（以前叫「预览」，task-m552v 改名；左栏换成改好后的样子，挪来的标「新」，收件箱留影子）
 // → 跟 AI 说哪里不对、重做 → 逐条丢掉再撤回 → 收下这 N 处（一次提交）→ 撤回；大批量按去处收起。
 // AI 用假引擎（CN_AI_FAKE=1，main/ai.ts 的 fakeFiling / fakeRedo）。
 
@@ -39,7 +39,7 @@ const toast = (page: Page) => page.getByTestId('preview-toast')
 async function dreamNow(page: Page) {
   await leftView(page, '梦游报告')
   await panel(page).getByRole('button', { name: '现在梦游' }).click()
-  await expect(panel(page).getByTestId('dream-summary')).toContainText('点「预览」看改好后的样子', { timeout: 30_000 })
+  await expect(panel(page).getByTestId('dream-summary')).toContainText('收下才合进main', { timeout: 30_000 })
 }
 
 for (const tone of ['light', 'dark'] as const) {
@@ -51,16 +51,17 @@ for (const tone of ['light', 'dark'] as const) {
       await dreamNow(page)
       // 报告：归类和改名按去处分组，拿不准的留着
       const file = panel(page).getByRole('region', { name: '归类和改名' })
-      await expect(file.locator('.dg')).toHaveText('归类和改名2条预览')
+      await expect(file.locator('.dg')).toHaveText('归类和改名2条在树里看')
       await expect(file.locator('.dsub')).toHaveText(['课程/线性代数1条', '生活1条'])
       await expect(file.getByTestId('dream-item')).toHaveText(['第3讲 线性代数 导图从收件箱挪来 · 原名「导图 11-15 21∶40」', '周末去花市买从收件箱挪来 · 原名「一条速记」'])
       await expect(file.locator('.dstay')).toHaveText('收件箱 · 拿不准的1条留着不动，等你自己定')
-      // 点开一条：为什么、挪到哪、改名；收下不再是主按钮
+      // 点开一条：中间开它（task-m552v）：为什么在条目头上，挪到哪、改名在挪动那一块；左栏小卡只留第几条、改了几个文件；收下不再是主按钮
       await file.getByTestId('dream-item').first().click()
       const detail = panel(page).getByTestId('dream-detail')
-      await expect(detail.locator('.pv-k')).toHaveText('归类和改名 · 第1条，共2条')
-      await expect(detail).toContainText('属性里写着课程「线性代数」、第3讲，放进这门课。')
-      await expect(detail.locator('.pv-move')).toHaveText('挪到课程/线性代数/改名导图 11-15 21∶40 → 第3讲 线性代数 导图')
+      await expect(detail.locator('.pv-k')).toHaveText(/^归类和改名 · 第1条，共3条 · 改了\d+个文件$/)
+      const center = page.locator('[data-testid="dream-tab"]:not([hidden])')
+      await expect(center.getByTestId('dream-why')).toHaveText('属性里写着课程「线性代数」、第3讲，放进这门课。')
+      await expect(center.getByTestId('dream-move')).toContainText('收件箱/导图 11-15 21∶40→课程/线性代数/第3讲 线性代数 导图')
       await expect(detail.getByRole('button', { name: '收下' })).not.toHaveClass(/btn-primary/)
       await expect(panel(page).locator('.btn-primary')).toHaveCount(0)
       // main 上什么都没动
@@ -68,8 +69,8 @@ for (const tone of ['light', 'dark'] as const) {
       expect(read('收件箱/导图 11-15 21∶40.md')).toBe(MAP)
       await shot(page, `dream-report-${tone}`)
 
-      // 预览：左栏换成改好后的样子
-      await file.getByRole('button', { name: '预览' }).click()
+      // 在树里看：左栏换成改好后的样子
+      await file.getByRole('button', { name: '在树里看' }).click()
       await expect(bar(page)).toContainText('正在预览梦游的整理 · 2处挪动和改名')
       await expect(bar(page).getByRole('button', { name: '收下这2处' })).toHaveClass(/btn-primary/)
       // 点「预览」左栏换到「文件」页；「最近」页里也是改好后的样子
@@ -162,12 +163,13 @@ for (const tone of ['light', 'dark'] as const) {
       expect(gitStatus(vault)).toBe('')
       await leftView(page, '梦游报告')
       await expect(file.getByTestId('dream-item').filter({ hasText: '已收下' })).toHaveCount(0)
-      // 又能预览，esc 退出
-      await file.getByRole('button', { name: '预览' }).click()
+      // 又能在树里看，esc 退出、回到报告
+      await file.getByRole('button', { name: '在树里看' }).click()
       await expect(bar(page)).toBeVisible()
       await page.keyboard.press('Escape')
       await expect(bar(page)).toHaveCount(0)
       await expect(side(page)).not.toHaveClass(/previewing/)
+      await expect(panel(page)).toBeVisible()
     } finally {
       await run.close()
     }
@@ -183,7 +185,7 @@ test('大批量：40 条按去处分组、默认收起，组里只露 5 条和�
   try {
     await dreamNow(page)
     const file = panel(page).getByRole('region', { name: '归类和改名' })
-    await expect(file.locator('.dg')).toHaveText('归类和改名40条 · 2组预览')
+    await expect(file.locator('.dg')).toHaveText('归类和改名40条 · 2组在树里看')
     const groups = file.getByTestId('dream-bulk')
     await expect(groups.locator('.dbulk-h .tx')).toHaveText(['生活30条挪进来 · 改了30个名字', '剪藏/旅行10条挪进来 · 改了0个名字'])
     // 默认收起：一条都不铺开
@@ -194,7 +196,7 @@ test('大批量：40 条按去处分组、默认收起，组里只露 5 条和�
     await groups.first().getByRole('textbox', { name: '在这组里找' }).fill('备忘 7')
     await expect(groups.first().locator('.dbulk-r')).toHaveText([/原名 备忘 7$/])
     await groups.first().getByRole('textbox', { name: '在这组里找' }).fill('')
-    await file.getByRole('button', { name: '预览' }).click()
+    await file.getByRole('button', { name: '在树里看' }).click()
     await expect(bar(page)).toContainText('40条，分到2个文件夹')
     await expect(bar(page).getByRole('button', { name: '收下全部' })).toBeVisible()
     // 点「预览」左栏换到「文件」页；「最近」页里也是改好后的样子
@@ -220,14 +222,14 @@ test('大批量：40 条按去处分组、默认收起，组里只露 5 条和�
   }
 })
 
-test('收件箱堆了 30 条：点「预览」后第一处「新」滚进左栏视野，不用自己往下翻', async () => {
+test('收件箱堆了 30 条：点「在树里看」后第一处「新」滚进左栏视野，不用自己往下翻', async () => {
   const many = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`收件箱/说不好的 ${String(i + 1).padStart(2, '0')}.md`, `---\ncreated: 2026-11-15 20:30\n---\n一句说不好放哪的话 ${i + 1}。\n`]))
   const run = await launch({ ...VAULT, ...many }, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))
     await dreamNow(page)
-    await panel(page).getByRole('region', { name: '归类和改名' }).getByRole('button', { name: '预览' }).click()
+    await panel(page).getByRole('region', { name: '归类和改名' }).getByRole('button', { name: '在树里看' }).click()
     await expect(bar(page)).toBeVisible()
     const files = page.getByRole('complementary', { name: '文件' })
     const moved = files.locator('.ft-row', { hasText: '第3讲 线性代数 导图' })

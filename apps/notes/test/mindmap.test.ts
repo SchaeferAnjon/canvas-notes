@@ -1,7 +1,7 @@
 import { isMindmap, parseMindmap, prop, aiFilled, type MapNode } from '@cn/format'
 import { describe, expect, it } from 'vitest'
-import { cameraKind, coursesOf, firstJson, fromRows, indentRows, mapTitle, mindmapNote, parseRecognition, photoCaption, photoName, toRows } from '../src/shared/mindmap'
-import { layoutMindmap, mindmapThumb, wirePath } from '../src/shared/mindmap-layout'
+import { cameraKind, coursesOf, firstJson, fromRows, indentRows, mapTitle, mindmapNote, parentName, parseRecognition, photoCaption, photoName, toRows } from '../src/shared/mindmap'
+import { layoutMindmap, mindmapThumb, NODE_MAX_W, wirePath, type Measure } from '../src/shared/mindmap-layout'
 
 describe('认摄像头', () => {
   it('这台 M3 Max 上 Electron 列出来的名字', () => {
@@ -85,6 +85,22 @@ describe('新导图白板', () => {
     expect(aiFilled(t)).toEqual(['课程', '第几讲'])
     expect(t).toContain('![原照片 · 11 月 15 日 21:40 · iPhone](../附件/导图/2026-11-15-2140.jpg)\n\n- 线性映射 <!-- box=0.4,0.4,0.2,0.1 -->\n  - 定义\n')
     expect(parseMindmap(t).roots[0]!.text).toBe('线性映射')
+    expect(parentName(t)).toBeUndefined()
+  })
+
+  it('从白板、笔记拍的：放在那一篇的文件夹里，属性记上所属（面包屑靠它回去），照片链接按新位置算', () => {
+    const base = { title: mapTitle(d), photoPath: '附件/导图/2026-11-15-2140.jpg', caption: photoCaption(d, 'iphone'), roots, from: 'iphone' as const, ai: [], day: '2026-11-15' }
+    const sub = mindmapNote({ ...base, notePath: '课程/线性代数/导图 11-15 21∶40.md', parent: { as: 'board', name: '复习' } })
+    expect(prop(sub, '所属白板')).toBe('[[复习]]')
+    expect(parentName(sub)).toBe('复习')
+    expect(sub).toContain('](../../附件/导图/2026-11-15-2140.jpg)')
+    expect(isMindmap(sub)).toBe(true)
+    const side = mindmapNote({ ...base, notePath: '导图 11-15 21∶40.md', parent: { as: 'note', name: '读书笔记' } })
+    expect(prop(side, '所属笔记')).toBe('[[读书笔记]]')
+    expect(parentName(side)).toBe('读书笔记')
+    expect(side).toContain('](附件/导图/2026-11-15-2140.jpg)')
+    expect(parentName('---\n所属白板: [[a|别名]]\n---\n')).toBe('a')
+    expect(parentName('# 没有属性\n所属白板: "[[a]]"\n')).toBeUndefined()
   })
 
   it('课程列表', () => {
@@ -102,7 +118,8 @@ describe('导图排版', () => {
       ],
     },
   ]
-  const measure = (t: string) => t.length * 10
+  // 一个字 10 宽、一行 18 高；放不下就按行数折
+  const measure: Measure = (t, _l, max) => ({ w: Math.min(t.length * 10, max), h: Math.ceil((t.length * 10) / max) * 18 })
 
   it('照片在左，中心在照片右边 70；每层一列；父节点对着孩子的中间', () => {
     const L = layoutMindmap(tree, measure, 0.75)
@@ -142,6 +159,42 @@ describe('导图排版', () => {
     const p = wirePath(L.byKey['0.0']!, L.byKey['0.0.0']!)
     const b = L.byKey['0.0.0']!
     expect(p.endsWith(`${b.x} ${b.y + b.h}`)).toBe(true)
+  })
+
+  it('长的字到最宽 260 换行、节点变高；变高的节点和上下的不重叠，连线接在新的位置上（task-wuv05）', () => {
+    const long = (n: number) => '字'.repeat(n)
+    const big: MapNode[] = [
+      {
+        text: '中心',
+        children: [
+          { text: '短', children: [{ text: 'a', children: [] }] },
+          // 父节点三行高、只有一个孩子：比孩子高，整棵往下挪
+          { text: long(60), children: [{ text: 'b', children: [] }] },
+          { text: '乙', children: [{ text: long(50), children: [] }, { text: 'c', children: [] }, { text: long(30), children: [] }] },
+          { text: long(80), unsure: true, children: [] },
+        ],
+      },
+    ]
+    const L = layoutMindmap(big, measure, null)
+    for (const n of L.nodes) expect(n.w).toBeLessThanOrEqual(NODE_MAX_W)
+    const p = L.byKey['0.1']!
+    expect(p.w).toBe(NODE_MAX_W)
+    // 60 个字在 232 宽里排 3 行：3 × 18 + 上下 12
+    expect(p.h).toBe(3 * 18 + 12)
+    expect(L.byKey['0.3']!.w).toBe(NODE_MAX_W)
+    expect(L.byKey['0.2.0']!.h).toBe(Math.ceil(500 / 252) * 18 + 6)
+    // 同一列两两不重叠
+    for (const a of L.nodes)
+      for (const b of L.nodes) {
+        if (a === b) continue
+        const hit = a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h
+        expect(hit, `${a.key} 和 ${b.key} 重叠`).toBe(false)
+      }
+    // 父节点还是对着孩子（孩子跟着挪了）
+    const kid = L.byKey['0.1.0']!
+    expect(p.y + p.h / 2).toBeCloseTo(kid.y + kid.h / 2, 0)
+    // 连线从变宽的节点右边出发
+    expect(wirePath(p, kid).startsWith(`M${p.x + p.w} ${p.y + p.h / 2}`)).toBe(true)
   })
 })
 

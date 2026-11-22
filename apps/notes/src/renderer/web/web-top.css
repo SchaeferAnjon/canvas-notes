@@ -340,3 +340,102 @@
 .right.web.w-tiny .wrow1 .wactions {
   display: none;
 }
+
+/* ---------- 网页占满时的「记进《这篇》」小牌（task-05p2w 方向 A，原型 proto.html?dir=a 的 .chip / #m-chip）：
+   26 高、圆角 6、左右 8、间距 6、12px、--acc-soft 底、--acc-t 字，最宽 290，名字放不下省略号；剪过的条数 16 高的 --acc 圆角块 ---------- */
+.right.web .wrow .imp.wfull {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: 4px;
+}
+.right.web .wchip {
+  max-width: 290px;
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font: 12px var(--sans);
+  white-space: nowrap;
+}
+.right.web .wchip:hover,
+.right.web .wchip.open {
+  background: color-mix(in srgb, var(--acc) 18%, transparent);
+}
+.right.web .wchip > svg {
+  flex: none;
+}
+.right.web .wchip .ct {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.right.web .wchip b {
+  font-weight: 500;
+}
+.right.web .wchip .n {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--acc-bg);
+  color: var(--acc-on);
+  font: normal 11px/16px var(--sans);
+}
+/* 点开：330 宽，右边和小牌对齐，离小牌下沿 6；头一行 12 --t3「网页上剪的、问的记进」，行 30 高、圆角 8，右边小字 12 --t3 */
+.right.web .imp .menu.wchip-menu {
+  top: 32px;
+  width: 330px;
+  padding: 6px;
+}
+.right.web .imp .menu.wchip-menu .cap {
+  padding: 6px 10px 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.right.web .imp .menu.wchip-menu button {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.right.web .imp .menu.wchip-menu button > svg {
+  flex: none;
+  color: var(--t2);
+}
+.right.web .imp .menu.wchip-menu button .mlabel {
+  min-width: 0;
+  font-size: 13px;
+  color: var(--t1);
+}
+.right.web .imp .menu.wchip-menu button small {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+}
+.right.web .imp .menu.wchip-menu hr {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* 在中间开成一页的网页：标签条右端「⋯」点开（原型 #m-center）：268 宽，一行「放回右栏」，右边 12 --t3「回到原来那一组」 */
+.shell-menu.wput-pop {
+  width: 268px;
+}
+.shell-menu.wput-pop .mi {
+  gap: 10px;
+  padding: 0 10px;
+}
+.shell-menu.wput-pop .mi > svg {
+  flex: none;
+  color: var(--t2);
+}

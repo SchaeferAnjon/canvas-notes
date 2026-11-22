@@ -3,6 +3,7 @@ import { useKeys } from '../keys'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { menuAt } from '../ctx/menu'
+import { barLayout, fitFold } from './bar-fold'
 
 /**
  * 主界面框架（task-mzstv，设计稿 design-frame/spec.md）：上面标题栏只管「开着什么、找东西」，
@@ -36,8 +37,7 @@ export interface BarItem {
   /** 按住拖上拖下排顺序（摘出来的文件夹，只在同一段里）：key 是自己，onDrop(拖的, 放到谁前面；null 是这一段最后) */
   drag?: { key: string; onDrop(from: string, before: string | null): void }
   /** 窗口矮、放不下时能收进「⋯」的（摘出来的分类和文件夹，从最后一格往前收） */
-  /** 数字：比分类先收，数大的先收（窗口最矮时先收「待办」再收「书桌」，八个分类都留着，2026-11-22 用户定） */
-  fold?: boolean | number
+  fold?: boolean
 }
 
 /**
@@ -57,8 +57,8 @@ const LEFT_DRAG = 'application/x-cn-left'
 
 /**
  * 一条图标栏：只放图标，悬停才出名字；亮着的那个再点一下 = 收起那一侧。
- * 窗口矮、一列放不下时，能收的格子（fold）收进一格「⋯」，点开是这几格的菜单（方案 v2 分类与入口 A2 第 3 条）：先收「待办」、再收「书桌」
- * （「⋯」自己也占一格，只收「待办」腾不出地方），再从最后一格往前收分类和摘上来的文件夹。
+ * 窗口矮、一列放不下时，能收的格子（fold）从最后往前收进一格「⋯」，点开是这几格的菜单（方案 v2 分类与入口 A2 第 3 条）；
+ * 「待办」「书桌」不收（2026-11-22 用户看图定「用旧做法」）。收几格每次尺寸变了都直接算（bar-fold.ts，task-2okp6）。
  * 拖着排、从树里拖文件夹上来时（task-wniqx，原型 proto-pin-folder.html）：落点一道强调色线，栏右边一句「松手：挪到这里」/「松手：放到左边」
  */
 export function ActivityBar(props: { side: 'left' | 'right'; label: string; groups: BarItem[][]; bottom?: React.ReactNode; accept?: BarDrop }) {
@@ -66,41 +66,52 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
   const nav = useRef<HTMLElement>(null)
   /** 收进「⋯」的格子数 */
   const [folded, setFolded] = useState(0)
-  // 从这一串的最后往前收：带数字的（「待办」「书桌」）排在最后、数大的最先收；其余从最后一格往前收
-  const all = props.groups.flat()
-  const foldable = [...all.filter((it) => it.fold === true), ...all.filter((it) => typeof it.fold === 'number').sort((a, b) => (a.fold as number) - (b.fold as number))]
-  const hide = new Set(folded ? foldable.slice(-folded).map((it) => it.id) : [])
-  const key = foldable.map((it) => it.id).join('|')
-  // 量：放不下就再收一格（直到放得下或者都收完）；窗口变高、格子变了重新从 0 量
-  useLayoutEffect(() => {
+  const { hidden, hide, moreGroup: lastFoldGroup, shown } = barLayout(props.groups, folded)
+  // 量（task-2okp6）：栏可用的高 = 栏高 − 上下内边距 − 最下面那几格（库、设置 / AI 圆钮）；一格、一道分隔线的高从画出来的格子上量，
+  // 直接算该收几格。每次画完（格子变了）和栏的尺寸一变（窗口变高变矮，哪怕只差 1 像素）都算，变高时收起的格子跟着放回来
+  const groupsRef = useRef(props.groups)
+  groupsRef.current = props.groups
+  const fit = () => {
     const el = nav.current
     if (!el) return
-    if (el.scrollHeight > el.clientHeight + 1 && folded < foldable.length) setFolded(folded + 1)
-  })
+    const outer = (e: Element | null) => {
+      if (!(e instanceof HTMLElement)) return 0
+      const cs = getComputedStyle(e)
+      return e.offsetHeight + parseFloat(cs.marginTop) + parseFloat(cs.marginBottom)
+    }
+    const cell = outer(el.querySelector(':scope > .abg > .ab'))
+    if (!cell) return
+    const cs = getComputedStyle(el)
+    let below = 0
+    for (let e = el.querySelector(':scope > .grow')?.nextElementSibling; e; e = e.nextElementSibling) below += outer(e)
+    const avail = el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - below
+    const n = fitFold(groupsRef.current, avail, { cell, sep: outer(el.querySelector('.ab-sep')) })
+    setFolded((f) => (f === n ? f : n))
+  }
+  useLayoutEffect(fit)
   useEffect(() => {
     const el = nav.current
     if (!el) return
-    let h = el.clientHeight
-    const ro = new ResizeObserver(() => {
-      if (el.clientHeight !== h) ((h = el.clientHeight), setFolded(0))
-    })
+    const ro = new ResizeObserver(fit)
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  useEffect(() => setFolded(0), [key])
-  const groups = props.groups.map((g) => g.filter((it) => !hide.has(it.id)))
-  const lastFoldGroup = folded ? props.groups.findIndex((g) => g.includes(foldable[foldable.length - folded]!)) : -1
+  // 收起的格子里的数字合在「⋯」上（样子同格子上的数字，有一格是琥珀就琥珀）；收起的那格正开着时「⋯」照普通格子亮着
+  const moreBadge = hidden.reduce((n, it) => n + (it.badge ?? 0), 0)
+  const moreOn = hidden.some((it) => it.on)
   const moreBtn = (
     <button
       key="ab-more"
-      className="ab"
+      className={'ab' + (moreOn ? ' on' : '')}
       aria-label={`还有${folded}个`}
-      data-tip={`还有${folded}个：${foldable.slice(-folded).map((it) => it.label).join('、')}`}
+      aria-pressed={moreOn}
+      data-tip={`还有${folded}个：${hidden.map((it) => it.label + (it.badge ? ` ${it.badge}` : '')).join('、')}`}
       data-side={tipSide}
       data-testid="ab-more"
-      onClick={(e) => void menuAt(e, foldable.slice(-folded).map((it) => ({ label: it.label, checked: it.on, run: () => it.onClick(e) })))}
+      onClick={(e) => void menuAt(e, hidden.map((it) => ({ label: it.label, checked: it.on, run: () => it.onClick(e) })))}
     >
       <Codicon name="ellipsis" size={0} />
+      {moreBadge > 0 && <span className={'badge num' + (hidden.some((it) => it.badge && it.warn) ? ' warn' : '')} data-testid="more-count">{moreBadge}</span>}
     </button>
   )
   /** 点了变淡的那格：旁边说一句为什么（点别处、按 esc 收起） */
@@ -180,10 +191,7 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
           </>,
           document.body,
         )}
-      {groups
-        .map((g, i) => [g, i] as const)
-        .filter(([g, i]) => g.length || i === lastFoldGroup)
-        .map(([g, i], k) => (
+      {shown.map(([g, i], k) => (
           <div className="abg" key={i}>
             {k > 0 && <i className="ab-sep" />}
             {g.map((it) => (
@@ -247,7 +255,7 @@ function Say(props: { text: string; anchor: HTMLElement; side: 'left' | 'right';
   )
 }
 
-/** 标题栏：红绿灯旁收起左栏、后退前进、首页；正中搜索框；最右收起右栏，开着网页时它左边是「移到中间 / 放回右栏」 */
+/** 标题栏：红绿灯旁收起左栏、后退前进、首页；正中搜索框；最右收起右栏，右栏网页看得见时它左边是「网页占满 / 还原」 */
 export function TitleBar(props: {
   leftOpen: boolean
   rightOpen: boolean
@@ -262,12 +270,15 @@ export function TitleBar(props: {
   onForward(): void
   onHome(): void
   onSearch(): void
-  /** 正在看的网页在哪：右栏（按钮写「移到中间」）还是中间的宽标签（「放回右栏」）；中间栏收着、网页占满时是「展开中间栏」（task-kbnc0）；都没在看网页时没有这颗按钮 */
-  web: { where: 'right' | 'center' | 'fold'; onMove(): void } | null
+  /**
+   * 网页占满 ↔ 还原（task-05p2w 方向 A，命令表 fold-center ⌃⌘\）：右栏网页看得见、在一栏里时才有；full 是占满着。
+   * 网页开在中间、没开网页时没有这颗（以前的「移到中间 / 放回右栏 / 展开中间栏」三种意思收成这一个）
+   */
+  web: { full: boolean; onToggle(): void } | null
 }) {
   /** 写在提示上的键照命令表（改了跟着变） */
   const K = useKeys()
-  const webLabel = props.web?.where === 'center' ? '放回右栏' : props.web?.where === 'fold' ? '展开中间栏' : '移到中间'
+  const webLabel = props.web?.full ? '还原' : '网页占满'
   return (
     <header className="titlebar">
       <div className="tb-left">
@@ -300,14 +311,16 @@ export function TitleBar(props: {
           <button
             className="tb-btn tb-web"
             aria-label={webLabel}
-            data-tip={props.web.where === 'center' ? '放回右栏：网页回到右栏，边看边记' : props.web.where === 'fold' ? '展开中间栏：中间那篇回来，网页回到原来的宽' : '移到中间：开成中间的宽标签，右栏空出来'}
-            data-key={props.web.where === 'fold' ? (K('fold-center') ?? undefined) : undefined}
+            aria-pressed={props.web.full}
+            data-tip={props.web.full ? '还原：中间那篇回来，网页回到原来的宽' : '网页占满：中间那篇让出地方，剪的照样记进它'}
+            data-key={K('fold-center') ?? undefined}
             data-side="below-left"
             data-testid="tb-web"
-            onClick={props.web.onMove}
+            onClick={props.web.onToggle}
           >
-            <Codicon name={props.web.where === 'center' ? 'layout-sidebar-right' : props.web.where === 'fold' ? 'screen-normal' : 'layout-centered'} />
+            <Codicon name={props.web.full ? 'screen-normal' : 'screen-full'} />
             <span className="lb">{webLabel}</span>
+            {K('fold-center') && <kbd className="lb">{K('fold-center')}</kbd>}
           </button>
         )}
         <button className="tb-btn" aria-label={props.rightOpen ? '收起右栏' : '展开右栏'} aria-pressed={props.rightOpen} data-tip={props.rightOpen ? '收起右栏' : '展开右栏'} data-key={K('toggle-right') ?? undefined} data-side="below-left" onClick={props.onToggleRight}>

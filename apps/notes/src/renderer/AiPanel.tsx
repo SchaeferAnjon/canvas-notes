@@ -3,6 +3,8 @@ import { onMessageMenu } from './ctx/message-menu'
 import { app } from './ctx/actions'
 import { fmValue, hasOldLayout, isMindmap, resetLayout, splitDoc } from '@cn/format'
 import { Markdown } from './md-render'
+import { AnswerActs } from './ans-acts'
+import { jumpDone, useChatJump } from './chat-jump'
 import { AiError } from './ai-error'
 import { ByLogo } from './engine-logo'
 import { pastedUrl } from './paste-images'
@@ -49,7 +51,7 @@ import {
   dreamSummary,
   TIDY_BOARD,
   summaryPrompt,
-  SYSTEM,
+  system,
   today,
   translatePrompt,
   translateText,
@@ -57,7 +59,7 @@ import {
 } from './ai-commands'
 import { GROUPS } from './dream/useDream'
 import { dreamDoes } from '../shared/dream-settings'
-import { pickLabel } from '../shared/ai-features'
+import { pickLabel, withoutEffort } from '../shared/ai-features'
 import { withKeys } from './keys'
 import { hideToolMarkup } from '../shared/tool-markup'
 import type { NoteDoc, ViewMode } from './note-doc'
@@ -375,7 +377,7 @@ export function AiPanel(props: AiPanelProps) {
   async function askAi(id: number, prompt: string, live: boolean, images?: string[]): Promise<string> {
     if (live) patch(id, { live: true, text: '' })
     try {
-      return await window.cn.aiAsk(id, SYSTEM, prompt, { pick: { engine, ...cp.req }, ...(images?.length ? { images } : {}) })
+      return await window.cn.aiAsk(id, system(), prompt, { pick: { engine, ...cp.req }, ...(images?.length ? { images } : {}) })
     } finally {
       patch(id, { live: false })
     }
@@ -434,6 +436,21 @@ export function AiPanel(props: AiPanelProps) {
     }
   }
 
+  // 文档里点了「回到 AI 对话」（task-83vl3）：这段对话读进来、格子露出来以后滚到那条回答，闪一下；那条没了（点过新对话）说一句
+  const jump = useChatJump()
+  useEffect(() => {
+    if (!jump || jump.key !== place.key || !loaded || props.hidden) return
+    const el = list.current?.querySelector<HTMLElement>(`[data-msg="${jump.msg}"]`)
+    jumpDone(jump.seq)
+    if (!el) return app().notice('这段对话里找不到那条回答了（点过「新对话」）')
+    pinned.current = false
+    el.scrollIntoView({ block: 'center' })
+    el.classList.remove('jumped')
+    void el.offsetWidth
+    el.classList.add('jumped')
+    setTimeout(() => el.classList.remove('jumped'), 1600)
+  }, [jump, place.key, loaded, props.hidden])
+
   // 读 PDF、看视频那一格里打的整个库的命令：换到这段对话来跑（commands/handoff.ts）
   const runRef = useRef(run)
   runRef.current = run
@@ -461,6 +478,7 @@ export function AiPanel(props: AiPanelProps) {
       open: props.onOpen,
       today: today(),
       folder,
+      by: withoutEffort(cp.label),
       propose: (p) => {
         const pid = `p${id}`
         const take = async () => {
@@ -802,7 +820,7 @@ export function AiPanel(props: AiPanelProps) {
 
   /** 现在梦游：改动在单独的分支上，跑完说整理了几条、分几组，给个按钮打开右栏报告 */
   async function dreamNow(id: number) {
-    const does = dreamDoes((await window.cn.settings()).dream)
+    const does = dreamDoes((await window.cn.settings()).dream, 'zh')
     patch(id, { read: `正在梦游${does ? `：${does}` : ''}` })
     // 跟着输入框底行选的那一家、模型、想多久（task-0fhyo）
     const report = await window.cn.dreamNow({ webUrl: props.webUrl, pick: { engine, ...cp.req } })
@@ -1064,6 +1082,8 @@ export function AiPanel(props: AiPanelProps) {
   const hands = web ? HANDS.web : seen.hands
   // 实心主按钮一屏最多一个（DESIGN.md 组件）：只有最新那条带按钮的回答用实心，之前的「打开」「存成卡片」退成次按钮
   const lastActs = msgs.findLastIndex((m) => m.role === 'ai' && !!m.actions?.length)
+  /** 最新那条能复制、插入、引用的回答：它下面那排一直露着，之前的悬停才露 */
+  const lastAnswer = msgs.findLastIndex(plainAnswer)
 
   return (
     <aside className="right aicell ai" aria-label="AI 对话" hidden={props.hidden}>
@@ -1154,6 +1174,10 @@ export function AiPanel(props: AiPanelProps) {
               {m.text && <AnswerText text={m.text} marks={marks.get(m.id)} live={!!m.live || !!m.pending} />}
               {/* 做了几步才断的：「没做完」放在说到一半的字后面（停在哪里一眼看得到） */}
               {m.error && cutOf(m, false).cut && errorOf(m, i)}
+              {/* 回答下面一排：拷贝 · 插进文档 · 引用再问（task-83vl3）；命令的结果（带按钮、改动块、找重复、归档）不出 */}
+              {plainAnswer(m) && (
+                <AnswerActs md={m.text!} {...(m.by ? { by: m.by } : {})} chatKey={place.key} msg={m.id} last={i === lastAnswer} onQuote={() => c.add({ kind: 'quote', text: m.text!.trim().slice(0, 20_000), src: 'AI的回答' })} />
+              )}
               {m.moves && (
                 <div className="moves">
                   {m.moves.map((x) => (
@@ -1392,6 +1416,9 @@ export function AiPanel(props: AiPanelProps) {
 
 /** 找重复一次先列几对 */
 const DUP_PAGE = 50
+
+/** 答完了的一段话（不是命令的结果：带按钮、改动块、找重复、归档、梦游）：下面一排拷贝 · 插进文档 · 引用再问 */
+const plainAnswer = (m: C.Msg) => m.role === 'ai' && !m.pending && !m.live && !!m.text?.trim() && !m.actions?.length && !m.change && !m.dups && !m.moves && !m.dream && !m.draft
 
 /** 找重复的一对对：像的在前 */
 const byScore = (pairs: DuplicatePair[]) => pairs.sort((x, y) => y.score - x.score || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))

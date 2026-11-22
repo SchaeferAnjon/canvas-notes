@@ -80,13 +80,14 @@ export async function launch(
       let timer: NodeJS.Timeout | undefined
       const stuck = await Promise.race([
         app.close().then(() => false),
-        new Promise<boolean>((r) => (timer = setTimeout(() => r(true), 20_000))),
+        new Promise<boolean>((r) => (timer = setTimeout(() => r(true), Number(process.env.CN_E2E_QUIT_WAIT ?? 20) * 1000))),
       ])
       clearTimeout(timer)
       if (stuck) {
         const log = existsSync(join(userData, 'quit.log')) ? readFileSync(join(userData, 'quit.log'), 'utf8').trim().replace(/\n/g, ' → ') : '（没有 quit.log）'
         // 它这会儿起着的子进程（卡在哪个 git 命令上）
-        const ps = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,etime=,command='], { encoding: 'utf8' })
+        // 机器上进程多（几千个、命令行很长）时 ps 的输出超过默认 1MB，execFileSync 报 ENOBUFS 盖掉真正的「没退出」
+        const ps = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,etime=,command='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
           .split('\n')
           .filter((l) => l.trim().split(/\s+/)[1] === String(proc.pid))
           .map((l) => l.trim().slice(0, 200))
@@ -143,17 +144,17 @@ export const pane = (page: Page) => page.locator('.pane:not([hidden])')
 /** 标签条右端：当前这一页的动作（属性、白板 / 文档、页码、问这一页、更多……） */
 export const acts = (page: Page) => page.getByTestId('tab-acts')
 
-/** 白板的收件箱弹窗收着（2026-11-22 起是弹窗、默认就收着，task-8isml）：开着就点标签条「收件箱 N」收起 */
+/** 白板的收件箱弹窗收着（2026-11-22 起是弹窗、默认就收着，task-8isml）：开着就点白板右上角「收件箱 N」收起 */
 export async function foldInbox(page: Page) {
   const p = pane(page).locator('.db-inbox-pop')
-  if (await p.isVisible()) await acts(page).getByTestId('db-inbox').click()
+  if (await p.isVisible()) await pane(page).getByTestId('db-inbox').click()
   await expect(p).toHaveCount(0)
 }
 
-/** 白板的收件箱弹窗（task-8isml）：没开就点标签条「收件箱 N」打开，等落下的动画走完 */
+/** 白板的收件箱弹窗（task-8isml）：没开就点白板右上角「收件箱 N」打开，等落下的动画走完 */
 export async function inboxPop(page: Page) {
   const p = pane(page).getByRole('dialog', { name: '收件箱' })
-  if (!(await p.isVisible())) await acts(page).getByTestId('db-inbox').click()
+  if (!(await p.isVisible())) await pane(page).getByTestId('db-inbox').click()
   await expect(p).toBeVisible()
   await p.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
   return p

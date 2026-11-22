@@ -1,6 +1,7 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { isKey, keyFor } from './keys'
 import {
+  aiBlockAt,
   type BlockEdit,
   blockIndexAt,
   convertible,
@@ -14,6 +15,7 @@ import {
   removeMdBlock,
   shiftMdBlock,
   textChanges,
+  wrapRange,
 } from '@cn/format'
 import { Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap, layer, RectangleMarker, ViewPlugin, type ViewUpdate } from '@codemirror/view'
@@ -22,6 +24,8 @@ import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { cardMarker } from './atomic-blocks'
 import { openRaw } from './block-source'
+import { t } from '../shared/i18n'
+import { markAi, makeMine } from './ai-mark'
 import { AiIcon } from './engine-logo'
 import { app } from './ctx/actions'
 import { drawnBlocks, Popover } from './editor-host'
@@ -180,7 +184,7 @@ function drawnWhole(view: EditorView, b: MdBlock): { from: number; to: number } 
 
 // ---------- 块菜单 ----------
 
-type MenuAction = 'h2' | 'todo' | 'quote' | 'raw' | 'dup' | 'ai' | 'del'
+type MenuAction = 'h2' | 'todo' | 'quote' | 'raw' | 'up' | 'down' | 'dup' | 'ai' | 'del' | 'mine' | 'markai'
 
 interface MenuItem {
   id: MenuAction
@@ -200,14 +204,21 @@ const CONVERT: MenuItem[] = [
   { id: 'quote', label: '转成引用', icon: 'quote' },
 ]
 const RAW: MenuItem[] = [{ id: 'raw', label: '改写法', icon: 'code' }]
+/** AI 块（task-dtc34）：AI 块上是「变成我的字」，普通的段落、列表、引用上是「标成 AI 写的」 */
+const mineItem = (): MenuItem => ({ id: 'mine', label: t('变成我的字'), icon: 'account' })
+const markAiItem = (): MenuItem => ({ id: 'markai', label: t('标成 AI 写的'), icon: 'comment-discussion' })
+// 上移、下移（task-xy89o）：以前只有 ⌥⇧↑↓、拖把手，菜单里翻不到
 const ACTIONS: MenuItem[] = [
+  { id: 'up', label: '上移', icon: 'arrow-up', cmd: 'block-up' },
+  { id: 'down', label: '下移', icon: 'arrow-down', cmd: 'block-down' },
   { id: 'dup', label: '复制一块', icon: 'copy', cmd: 'dup-block' },
   { id: 'ai', label: '问 AI 这一块', icon: 'comment-discussion', ai: true },
   { id: 'del', label: '删除', icon: 'trash', cmd: 'delete' },
 ]
 
-function BlockMenu(props: { top: MenuItem[]; tail: boolean; onPick(a: MenuAction): void; onClose(): void }) {
-  const items = [...props.top, ...ACTIONS.map((a) => (props.tail ? { ...a, off: true } : a))]
+/** first、last：这一块已经在最上、最下（上移、下移灰掉） */
+function BlockMenu(props: { top: MenuItem[]; tail: boolean; first?: boolean; last?: boolean; onPick(a: MenuAction): void; onClose(): void }) {
+  const items = [...props.top, ...ACTIONS.map((a) => (props.tail || (a.id === 'up' && props.first) || (a.id === 'down' && props.last) ? { ...a, off: true } : a))]
   const live = items.filter((x) => !x.off)
   // 照小样：刚弹出来哪一行都不亮，鼠标移上去、按 ↑↓ 才亮
   const [idx, setIdx] = useState(-1)
@@ -240,6 +251,12 @@ function BlockMenu(props: { top: MenuItem[]; tail: boolean; onPick(a: MenuAction
         } else if (isKey(e, 'dup-block') && !props.tail) {
           e.preventDefault()
           props.onPick('dup')
+        } else if (isKey(e, 'block-up') && !props.tail && !props.first) {
+          e.preventDefault()
+          props.onPick('up')
+        } else if (isKey(e, 'block-down') && !props.tail && !props.last) {
+          e.preventDefault()
+          props.onPick('down')
         }
       }}
     >
@@ -678,12 +695,16 @@ class Handles {
     if (!tail && !b) return
     this.menu ??= new Popover('blk-pop')
     const whole = b ? drawnWhole(this.view, b) : null
-    const top = tail || (b && convertible(b) && !whole) ? CONVERT : whole ? RAW : []
+    const conv = tail || (b && convertible(b) && !whole) ? CONVERT : whole ? RAW : []
+    const doc = this.view.state.doc.toString()
+    const aiB = b && !this.view.state.readOnly ? aiBlockAt(doc, b.from) : null
+    const mark = b && !aiB && !this.view.state.readOnly && wrapRange(doc, b.from, b.from).wrapped > 0
+    const top = aiB ? [...conv, mineItem()] : mark ? [...conv, markAiItem()] : conv
     if (b) this.setHot(b)
     this.bar.classList.add('menu-on')
     // 弹在把手右边 6，和把手顶对齐（DESIGN.v3 6.4）
     const g = (this.bar.querySelector('.blk-grip') ?? this.bar).getBoundingClientRect()
-    this.menu.show(<BlockMenu key={Date.now()} top={top} tail={tail} onPick={(a) => this.run(i, a, whole)} onClose={() => this.closeMenu(true)} />, { left: g.right + 6, top: g.top, bottom: g.top - 6 })
+    this.menu.show(<BlockMenu key={Date.now()} top={top} tail={tail} first={i === 0} last={!tail && i === this.blocks.length - 1} onPick={(a) => this.run(i, a, whole)} onClose={() => this.closeMenu(true)} />, { left: g.right + 6, top: g.top, bottom: g.top - 6 })
     document.addEventListener('mousedown', this.onOutside, true)
     window.addEventListener('keydown', this.onEscape, true)
   }
@@ -715,6 +736,9 @@ class Handles {
     if (!b) return
     if (a === 'raw') return openRaw(this.view, whole?.from ?? b.from, whole?.to ?? b.to)
     if (a === 'ai') return app().askAi(plainOf(text, b) || text.slice(b.from, b.to))
+    if (a === 'mine') return void makeMine(this.view, b.from)
+    if (a === 'markai') return void markAi(this.view, b.from, b.from)
+    if (a === 'up' || a === 'down') return applyBlockEdit(this.view, shiftMdBlock(text, i, a === 'up' ? -1 : 1, bs), 0)
     const edit = a === 'dup' ? duplicateMdBlock(text, i, bs) : a === 'del' ? removeMdBlock(text, i, bs) : convertMdBlock(text, i, a, bs)
     applyBlockEdit(this.view, edit, 0, a === 'del' ? 'delete.block' : 'move.block')
   }

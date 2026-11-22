@@ -30,7 +30,7 @@ export interface ReadingThread {
    * 在网页上框着问的（右栏网页）或库里的 HTML：网址（HTML 是库里的路径）、标题、框里的字。
    * 有它时笔记那段的来源写域名、点了回网页
    */
-  web?: { url: string; title: string; text?: string; /** 视频问答块「接着问」：那一问在视频第几秒 */ t?: number; /** 「接着问」：那一问 AI 当时的回答 */ answer?: string }
+  web?: { url: string; title: string; text?: string; /** 视频问答块「接着问」：那一问在视频第几秒 */ t?: number; /** 「接着问」：那一问 AI 当时的回答 */ answer?: string; /** 选的、框的那块上面最近的小标题（task-6cxtc：回到那一段的链接上写它） */ head?: string }
   createdAt: number
 }
 

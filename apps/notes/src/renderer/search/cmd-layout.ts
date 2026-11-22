@@ -1,9 +1,10 @@
 /**
- * ⌘K 没打字时的八组（DESIGN.v3 3.1）：钉住的、最近打开、去哪、新建和导入、让AI做、网页、库和同步、设置和外观，
- * 自己建的组接在后面；最后一组是「加一条自己的命令…」「藏着的 N 条」。
+ * ⌘K 没打字时的几组（DESIGN.v3 3.1）：钉住的、书桌、最近打开、去哪、新建和导入、让AI做、网页、库和同步、设置和外观，
+ * 自己建的组接在后面，再是收成一行的「更多命令 ›」；最后一组是「加一条自己的命令…」「藏着的 N 条」。
  * 纯函数：组和行算好交给 Palette 画。
  */
 import { type CmdConfig, GROUPS, materialize } from '../../shared/commands'
+import { t } from '../../shared/i18n'
 
 export interface LayoutCmd {
   id: string
@@ -12,7 +13,7 @@ export interface LayoutCmd {
   keys?: string
   /** 文件夹首页一个个的：收在「文件夹首页」那一行下面，打字时才一条条出来 */
   folder?: string
-  /** 只在打字时搜得到（翻成…、译文样式… 这些次一级的） */
+  /** 只在打字时出（打「我的疑惑」时那一条说明）：不是命令，没打字时哪组都不放 */
   searchOnly?: boolean
   /** 一张书桌（task-kbnc0）：在「书桌」一组（钉住的后面、最近打开前面），没有自己的菜单 */
   desk?: boolean
@@ -26,6 +27,8 @@ export type EmptyRow =
   | { kind: 'child'; id: string }
   /** 一张书桌（没有 ⋯ 和把手） */
   | { kind: 'desk'; id: string }
+  /** 「更多命令 ›」那一行（点开在下面列出来，task-xy89o） */
+  | { kind: 'more'; n: number; open: boolean }
   | { kind: 'note'; path: string }
   /** 钉住的空了、拖着时的空组：落点 */
   | { kind: 'empty'; gid: string }
@@ -43,9 +46,11 @@ export interface Section {
 
 export const FOLDERS_ID = 'folders'
 
-/** 组名：八组是固定的，自己建的用它的名字 */
+/** 组名：八组是固定的（跟界面语言），自己建的用它的名字（是用户的字，不翻） */
 export function groupName(cfg: CmdConfig, id: string): string {
-  return GROUPS.find((g) => g.id === id)?.name ?? (cfg.groups ?? []).find((g) => g.id === id)?.name ?? '我的一组'
+  const builtin = GROUPS.find((g) => g.id === id)
+  if (builtin) return t(builtin.name)
+  return (cfg.groups ?? []).find((g) => g.id === id)?.name ?? t('我的一组')
 }
 
 export function emptySections(o: {
@@ -55,6 +60,8 @@ export function emptySections(o: {
   recent: readonly string[]
   /** 文件夹首页那一行点开了没有 */
   foldersOpen: boolean
+  /** 「更多命令」那一行点开了没有 */
+  moreOpen?: boolean
   showHidden: boolean
   /** 拖着的时候空组也画出来当落点 */
   dragging: boolean
@@ -69,16 +76,23 @@ export function emptySections(o: {
   const hidden = new Set(o.cfg.hidden)
   const L = materialize(o.cfg, avail)
   const out: Section[] = []
-  for (const g of [...GROUPS.map((x) => x.id), ...L.filter((x) => !GROUPS.some((b) => b.id === x.id)).map((x) => x.id)]) {
+  // 更多命令画在自己建的组后面
+  const order = [...GROUPS.map((x) => x.id).filter((x) => x !== 'more'), ...L.filter((x) => !GROUPS.some((b) => b.id === x.id)).map((x) => x.id), 'more']
+  for (const g of order) {
     if (g === 'recent') {
-      // 书桌（task-kbnc0）：有书桌时一组，在最近打开前面（原型 B4）
-      if (desks.length) out.push({ id: 'desks', name: '书桌', rows: desks.map((c) => ({ kind: 'desk', id: c.id })) })
       if (o.recent.length) out.push({ id: g, name: groupName(o.cfg, g), rows: o.recent.slice(0, 3).map((path) => ({ kind: 'note', path })) })
       continue
     }
     const entry = L.find((x) => x.id === g)
     if (!entry) continue
-    const rows: EmptyRow[] = []
+    if (g === 'more') {
+      // 收成一行「更多命令 › N 条」，点开在下面一条条列出来（照文件夹首页那一行）；拖着时不当落点
+      const ids = entry.items.filter((id) => have.has(id) && !hidden.has(id))
+      if (ids.length) out.push({ id: g, name: '', rows: [{ kind: 'more', n: ids.length, open: !!o.moreOpen }, ...(o.moreOpen ? ids.map((id): EmptyRow => ({ kind: 'cmd', id, gid: g })) : [])] })
+      continue
+    }
+    // 书桌（task-kbnc0）：存好的一张张在前，组里的命令（「存成书桌…」）在后；没有书桌时照样有这一组（task-xy89o）
+    const rows: EmptyRow[] = g === 'desks' ? desks.map((c) => ({ kind: 'desk', id: c.id })) : []
     for (const id of entry.items) {
       if (!have.has(id) || hidden.has(id)) continue
       if (id === FOLDERS_ID) {

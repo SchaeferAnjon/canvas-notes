@@ -62,8 +62,6 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  /* 框好一块的工具条按这一栏的宽收：窄了先藏键帽 */
-  container-type: inline-size;
 }
 .pdfpane .pdfv {
   flex: 1;
@@ -176,18 +174,13 @@
   }
 }
 
-/* 框下面的黑色胶囊工具条 */
-/* 框好一块、选中一段的工具条：样子是 composer.css 的 .capbar（照 CN-92 小样：34 高、圆角 9、13px 白字），这里只管位置 */
+/* 框好一块、选中一段的工具条：样子是 composer.css 的 .capbar（照 CN-92 小样：34 高、圆角 9、13px 白字），这里只管位置；
+   放哪、什么时候藏键帽在 cap-place.ts 量（选区上方 6、限在这一栏里各留 8；整条放不下才加 .nokbd） */
 .pdfpane .cap {
   position: absolute;
   z-index: 6;
+  width: max-content;
   animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-/* 中间栏窄（右栏拉宽、窗口窄）时五颗加键帽放不下：先藏键帽（键写在输入框底行的提示里），工具条整个露着 */
-@container (max-width: 599.98px) {
-  .pdfpane .cap kbd {
-    display: none;
-  }
 }
 @keyframes cap-in {
   from {
@@ -349,13 +342,14 @@
   /* 右栏下格可能很矮（700 高的窗口、上格开着视频、输入框上面挂着待问块）：按它的高收空状态 */
   container-type: size;
 }
-/* 放不下大标题时只留那一句；那一句也放不下就整个不画（输入框里的提示已经说了怎么问），不被拦腰切（第 3 轮美学） */
+/* 放不下大标题时只留那一句；那一句也放不下就整个不画（输入框里的提示已经说了怎么问），不被拦腰切（第 3 轮美学）。
+   那一句只要 24 高：B 风格右栏上下两格、输入框里攒着两块引用时这一格内容高约 90，以前按 96 收，B 里这句没了、A 里还在（task-6cxtc 复审） */
 @container (max-height: 140px) {
   .reading-ai .ai-empty .hi {
     display: none;
   }
 }
-@container (max-height: 96px) {
+@container (max-height: 47.98px) {
   .reading-ai .ai-empty {
     display: none;
   }
@@ -852,6 +846,7 @@
 .htmlpane .cap {
   position: absolute;
   z-index: 6;
+  width: max-content;
   animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 

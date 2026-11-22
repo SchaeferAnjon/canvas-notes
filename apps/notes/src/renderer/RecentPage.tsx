@@ -18,6 +18,8 @@ import { fileIcon } from './Palette'
 import { PageNote, TabActs } from './shell/TabActs'
 import './recent-page.css'
 import { usePrefs } from './settings-store'
+import { useT } from './i18n'
+import { recentLabel } from './Sidebar'
 
 export function RecentPage(props: {
   notes: NoteFile[]
@@ -28,6 +30,7 @@ export function RecentPage(props: {
   /** 写了标题回车：在收件箱里新建这一篇并打开 */
   onCreate(title: string): Promise<void>
 }) {
+  const t = useT()
   const [title, setTitle] = useState('')
   const [q, setQ] = useState('')
   const [type, setType] = useState<TypeFilter>('all')
@@ -51,9 +54,9 @@ export function RecentPage(props: {
     [props.notes, props.archiveDays, type, q, showTodo],
   )
   const create = async () => {
-    const t = title.trim()
-    if (!t) return
-    await props.onCreate(t)
+    const name = title.trim()
+    if (!name) return
+    await props.onCreate(name)
     setTitle('')
   }
 
@@ -61,7 +64,7 @@ export function RecentPage(props: {
     <section className="pane recentp" data-testid="recent-page">
       <TabActs active>
         <PageNote>
-          <span className="num">{m.total}</span>篇 · 按修改时间
+          <span className="num">{t('{n}篇 · 按修改时间', { n: m.total })}</span>
         </PageNote>
       </TabActs>
       <div className="body">
@@ -74,33 +77,33 @@ export function RecentPage(props: {
             }}
           >
             <Codicon name="new-file" size={16} />
-            <input aria-label="新建一篇的标题" placeholder={`写个标题，回车新建一篇 · 放进「${INBOX}」`} value={title} onChange={(e) => setTitle(e.target.value)} />
-            <button className="go" type="submit" aria-label="新建" disabled={!title.trim()}>
+            <input aria-label={t('新建一篇的标题')} placeholder={t('写个标题，回车新建一篇 · 放进「{folder}」', { folder: INBOX })} value={title} onChange={(e) => setTitle(e.target.value)} />
+            <button className="go" type="submit" aria-label={t('新建')} disabled={!title.trim()}>
               <Codicon name="arrow-right" size={14} />
             </button>
           </form>
           <div className="rp-bar">
             <label className="rp-find">
               <Codicon name="search" size={14} />
-              <input aria-label="筛选" placeholder="筛选标题、文件夹、正文" value={q} onChange={(e) => setQ(e.target.value)} />
+              <input aria-label={t('筛选')} placeholder={t('筛选标题、文件夹、正文')} value={q} onChange={(e) => setQ(e.target.value)} />
             </label>
             <TypeChips value={type} onChange={setType} />
           </div>
-          <div role="list" aria-label="最近的笔记">
+          <div role="list" aria-label={t('最近的笔记')}>
             {m.groups.map((g) => {
               const folded = g.key !== 'today' && g.key !== 'week' && !words.length
               const isOpen = !folded || open.has(g.key)
               const limit = shown[g.key] ?? RECENT_PAGE
               return (
-                <div key={g.key} className="rp-group" role="group" aria-label={g.label}>
+                <div key={g.key} className="rp-group" role="group" aria-label={recentLabel(g)}>
                   {folded ? (
                     <button className="rp-fold" aria-expanded={isOpen} onClick={() => setOpen((s) => (s.has(g.key) ? new Set([...s].filter((x) => x !== g.key)) : new Set([...s, g.key])))}>
                       <Codicon name={isOpen ? 'chevron-down' : 'chevron-right'} size={12} />
-                      {g.label}
-                      <span className="c num">{`${g.items.length}篇`}</span>
+                      {recentLabel(g)}
+                      <span className="c num">{t('{n}篇', { n: g.items.length })}</span>
                     </button>
                   ) : (
-                    <div className="rp-g">{g.label}</div>
+                    <div className="rp-g">{recentLabel(g)}</div>
                   )}
                   {isOpen &&
                     g.items.slice(0, limit).map((n) => (
@@ -111,21 +114,21 @@ export function RecentPage(props: {
                           <span className="rt">
                             {folderLabel(folderOfPath(n.path))} · <span className="num">{when(n.mtimeMs, { now })}</span>
                           </span>
-                          <span className="pv">{n.board ? `${n.board.cards}张卡片` : n.excerpt || '空的'}</span>
+                          <span className="pv">{n.board ? t('{n}张卡片', { n: n.board.cards }) : n.excerpt || t('空的')}</span>
                         </button>
                       </div>
                     ))}
                   {isOpen && g.items.length > limit && (
                     <button className="rp-fold rp-more" onClick={() => setShown((s) => ({ ...s, [g.key]: limit + RECENT_PAGE }))}>
                       <Codicon name="chevron-down" size={12} />
-                      <span className="num">{`再显示${Math.min(RECENT_PAGE, g.items.length - limit)}篇`}</span>
-                      <span className="c num">{`还有${g.items.length - limit}篇`}</span>
+                      <span className="num">{t('再显示{n}篇', { n: Math.min(RECENT_PAGE, g.items.length - limit) })}</span>
+                      <span className="c num">{t('还有{n}篇', { n: g.items.length - limit })}</span>
                     </button>
                   )}
                 </div>
               )
             })}
-            {!m.groups.length && <p className="rp-none">{words.length || type !== 'all' ? '没有对得上的笔记' : '还没有笔记。上面写个标题，回车就有第一篇'}</p>}
+            {!m.groups.length && <p className="rp-none">{words.length || type !== 'all' ? t('没有对得上的笔记') : t('还没有笔记。上面写个标题，回车就有第一篇')}</p>}
           </div>
         </div>
       </div>

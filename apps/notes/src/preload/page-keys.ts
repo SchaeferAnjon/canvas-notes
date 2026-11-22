@@ -1,12 +1,12 @@
 /**
- * 网页里自己的脚本认的键（命令表 shared/cmd-table.ts 里的双语翻译、剪下选中的一段，task-spsmf）：
+ * 网页里自己的脚本认的键（命令表 shared/cmd-table.ts 里的双语翻译、剪藏选中的一段、引用选中的一段，task-spsmf）：
  * 主进程推过来（设置 › 快捷键、⌘K 里改了跟着换）；没推到之前用命令表里默认的。在隔离环境里，网页脚本碰不到。
  */
 import { ipcRenderer } from 'electron'
 import { comboOf } from '../shared/cmd-keys'
 import { defaultKeysOf } from '../shared/cmd-table'
 
-const IDS = ['translate', 'clip-selection'] as const
+const IDS = ['translate', 'clip-selection', 'quote-selection'] as const
 type PageKeyId = (typeof IDS)[number]
 
 let keys: Record<string, string | null> = Object.fromEntries(IDS.map((id) => [id, defaultKeysOf(id)[0] ?? null]))

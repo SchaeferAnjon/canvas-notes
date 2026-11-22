@@ -95,7 +95,8 @@
 .tb-btn:disabled {
   opacity: 0.35;
 }
-/* 「移到中间 / 放回右栏」：收起右栏左边，开着网页时才有；A 只有图标（悬停出提示），B 图标加字 */
+/* 「网页占满 / 还原」（task-05p2w 方向 A，原型 proto.html?dir=a 的 .tact）：收起右栏左边，右栏网页看得见时才有；
+   A 只有图标（悬停出提示和键），B 图标 + 字 13 + 键 11（70%），左右 9、间距 6 */
 .tb-web .lb {
   display: none;
 }
@@ -103,18 +104,26 @@
   width: auto;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 0 9px 0 7px;
+  gap: 6px;
+  padding: 0 9px;
+  border-radius: 6px;
   margin-right: 2px;
   background: var(--fill);
-  font: 500 12px var(--sans);
+  font: 13px var(--sans);
   white-space: nowrap;
 }
 .frame-b .tb-web .lb {
   display: inline;
 }
+.frame-b .tb-web kbd.lb {
+  font: 11px var(--sans);
+  opacity: 0.7;
+}
 [data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-web {
   background: rgba(255, 255, 255, 0.14);
+}
+[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-btn.tb-web {
+  color: #fff;
 }
 [data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-web:hover {
   background: rgba(255, 255, 255, 0.22);
@@ -156,7 +165,7 @@
   align-items: center;
   z-index: 4;
   -webkit-app-region: no-drag;
-  /* 窗口矮时不撑高这一行：放不下的分类收进「⋯」（ActivityBar 量 scrollHeight > clientHeight） */
+  /* 窗口矮时不撑高这一行：放不下的分类收进「⋯」（ActivityBar 按栏高直接算收几格，bar-fold.ts） */
   min-height: 0;
   overflow: hidden;
 }
@@ -170,6 +179,10 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+/* 格子一律不被压扁（task-2okp6）：放不下的收进「⋯」，不靠把库、设置压矮挤出地方 */
+.abar > * {
+  flex-shrink: 0;
 }
 .abar .grow {
   flex: 1;
@@ -677,11 +690,17 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
-/* 字里有换行的：一行一段，段间 4 */
+/* 字里有换行的：一行一段，段间 4；框跟着长高（短的两行也一样，task-4emge），键帽跟最后一行齐 */
 .shell-tip .paras {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.shell-tip:has(> .paras) {
+  height: auto;
+  padding: 4px 8px;
+  line-height: 16px;
+  align-items: flex-end;
 }
 /* 分段说明（全能模式开关）：最宽 340（留在 380 宽的右栏里），中文只在标点处折行，不把「跑命令」拆成两行 */
 .shell-tip.tip-para {
@@ -1516,12 +1535,6 @@
 .ab-act.on {
   background: var(--fill2);
   color: var(--t1);
-}
-/* 白板缩放「80% ▾」：比例本身就是按钮；宽度留够 3 位数，变的时候不挤动旁边 */
-.ab-act.zoom {
-  gap: 2px;
-  min-width: 52px;
-  padding: 0 4px 0 6px;
 }
 .ab-act:disabled {
   opacity: 0.4;

@@ -49,8 +49,11 @@ export function askLine(tab: Tab | null, o: { board: boolean; inbox: number; lab
   }
 }
 
-/** 读 PDF、HTML、右栏网页上框着问的那一格（名字去掉 .pdf） */
+/** 读 PDF、HTML 的那一格（名字去掉 .pdf） */
 export const readAsk = (label: string) => `要问《${shortTitle(label.replace(/\.(pdf|html?)$/i, ''))}》哪里？框一块就能问。`
+
+/** 右栏网页那一处：写网页标题（「2.2. 数据预处理」，去掉「 — 书名」那截），网页上选一段、按住 ⌘ 框一块都能问 */
+export const webAsk = (title: string) => `要问《${shortTitle(title)}》哪里？选一段或框一块就能问。`
 
 /** 一排最多几颗（放不下的收进「⋯」） */
 const MOST = 4

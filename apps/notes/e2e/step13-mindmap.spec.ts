@@ -147,8 +147,8 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(board(page).getByTestId('map-photo')).toContainText('原照片 · ')
       await expect(acts(page).getByTestId('page-note')).toHaveText('收件箱 · 今晚梦游时归类、起名')
       await expect(tabOn(page)).toHaveText(/^导图 \d\d-\d\d \d\d∶\d\d$/)
-      // 自己在收件箱里，不算进标签条「收件箱 N」（一条都没有时不写数）
-      await expect(acts(page).getByTestId('db-inbox')).toHaveText('收件箱')
+      // 自己在收件箱里，不算进白板右上角「收件箱 N」（一条都没有时不写数）
+      await expect(pane(page).getByTestId('db-inbox')).toHaveText('收件箱')
       await page.waitForTimeout(400)
       await shot(page, `map-${tone}`)
 
@@ -225,7 +225,7 @@ test('照片从菜单打开的窗口里拖进来、粘贴、隔空投送（含 H
   }
 })
 
-test('白板工具板「拍导图」拖到白板上：做好后落点放一张指向导图的卡片', async () => {
+test('白板工具板「拍导图」拖到白板上：做好后是这块白板的子白板（同一个文件夹），落点放一张导图卡，留在白板上', async () => {
   const run = await launch({ ...COURSES, '复习.md': '---\ntype: board\n---\n# 复习\n' }, env(mkdtempSync(join(tmpdir(), 'cn-airdrop-'))))
   const { page, vault } = run
   try {
@@ -246,9 +246,13 @@ test('白板工具板「拍导图」拖到白板上：做好后落点放一张�
     await sheet(page).getByRole('button', { name: '用这张' }).click()
     await expect(sheet(page).locator('.mm-rows .or')).toHaveCount(15)
     await sheet(page).getByRole('button', { name: '做成白板导图' }).click()
-    await expect(tabOn(page)).toHaveText(/^导图 /)
-    const title = (await tabOn(page).textContent())!
+    // 2026-11-22 task-wuv05：留在父白板上，导图和白板同一个文件夹（这里是库根），不进收件箱
+    await expect(tabOn(page)).toHaveText('复习')
+    await expect.poll(() => readdirSync(vault).filter((f) => f.startsWith('导图 '))).toHaveLength(1)
+    const title = readdirSync(vault).find((f) => f.startsWith('导图 '))!.replace(/\.md$/, '')
+    expect(files(vault, '收件箱')).toEqual([])
     await expect.poll(() => readFileSync(join(vault, '复习.md'), 'utf8'), { timeout: 10_000 }).toContain(`[[${title}]]`)
+    await expect(db.locator('.mm-card-row')).toContainText(title)
   } finally {
     await run.close()
   }

@@ -26,6 +26,9 @@ describe('每一页是哪个地方', () => {
     expect(readLabel('课程/线代/第3讲.pdf')).toBe('第3讲.pdf')
     expect(readLabel('旋转矩阵.html')).toBe('旋转矩阵.html')
     expect(readLabel('web:https://www.youtube.com/watch?v=1', 'Linear maps')).toBe('Linear maps')
+    // 网页标题去掉「 — 书名」那截，同「看得到」和空白提示（task-6cxtc 复审）
+    expect(readLabel('web:https://zh.d2l.ai/chapter_preliminaries/pandas.html', '2.2. 数据预处理 — 动手学深度学习 2.0.0 documentation')).toBe('2.2. 数据预处理')
+    expect(readLabel('web:https://zh.d2l.ai/chapter_preliminaries/pandas.html')).toBe('zh.d2l.ai')
     expect(readLabel('web:https://www.youtube.com/watch?v=1')).toBe('youtube.com')
   })
 })

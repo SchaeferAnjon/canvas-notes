@@ -142,7 +142,7 @@ test('文档白板能缩放：⌘− ⌘0、按住 ⌘ 滚轮，列宽跟着变'
   const { page } = run
   try {
     // 缩放：⌘− 变小、⌘0 回来；列宽跟着变；按住 ⌘ 滚轮也行
-    const zoomBtn = acts(page).getByTestId('board-zoom')
+    const zoomBtn = pane(page).getByTestId('board-zoom')
     await expect(zoomBtn).toHaveText('100%')
     const w0 = (await col(page, '住哪').boundingBox())!.width
     await board(page).click({ position: { x: 900, y: 700 } })

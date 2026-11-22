@@ -52,6 +52,33 @@ export const FORMULA_ANSWER = [
   '水位一到门槛$V_{th}$就发一个 spike，再减掉一个门槛的量（不是清零），见 [第 4 页](#page=4)。',
 ].join('\n')
 
+/**
+ * 问里有「宽内容」时的回答（task-83vl3，照用户截图 r34）：一长串没空格的行内代码、窄表、很多列的宽表、长行的代码块、
+ * 对齐的输出。回答整条不能横着滑：字和行内代码折行，只有代码块、宽表在自己的框里横着滚
+ */
+export const WIDE_ANSWER = [
+  '数字类别的列换成 0/1 数字列。模型只能吃数字，像 `Pave` 这样的文字没法直接用。',
+  '',
+  '| NumRooms | Alley |',
+  '|---|---|',
+  '| 3.0 | Pave |',
+  '| 2.0 | NaN |',
+  '',
+  '或者转张量时写 `torch.tensor(inputs.to_numpy(dtype=float)).reshape(-1,1)`，再看一个长网址 https://zh.d2l.ai/chapter_preliminaries/pandas.html#subsec-preprocessing-convert-to-tensor 。',
+  '',
+  '| 列名 | 第一行 | 第二行 | 第三行 | 第四行 | 第五行 | 第六行 | 第七行 | 第八行 |',
+  '|---|---|---|---|---|---|---|---|---|',
+  '| NumRooms | 3.0 | 2.0 | 4.0 | 3.0 | 5.0 | 1.0 | 2.0 | 6.0 |',
+  '| Alley_Pave | 1 | 0 | 0 | 0 | 1 | 1 | 0 | 0 |',
+  '',
+  '```python',
+  'inputs = pd.get_dummies(inputs, dummy_na=True, dtype=int)  # 把文字列拆成 0/1 列，缺失值也单独成一列',
+  'X = torch.tensor(inputs.to_numpy(dtype=float)); y = torch.tensor(outputs.to_numpy(dtype=float))',
+  '```',
+  '',
+  '做完这一步，表里全是数字，下一步就能转成张量。',
+].join('\n')
+
 /** 问的话里带了几块引用的材料（shared/materials.ts 的 withMaterials 写的「我引用的材料…」下面一行一块） */
 function materialCount(q: string): number {
   const at = q.indexOf('我引用的材料（')
@@ -217,6 +244,7 @@ export function fakeEngine(id: EngineId): Engine {
         // 测试公式（CN-89）：行内的、单独成行的 LaTeX，回答区用 KaTeX 排
         else if (q.includes('公式'))
           await say(FORMULA_ANSWER)
+        else if (q.includes('宽内容')) await say(WIDE_ANSWER)
         else if (/还是不懂|换个方式/.test(q)) await say(`换个方式讲（${seen.join('，')}）：先别看公式，看图。`)
         else await say(`这是讲解（${seen.join('，')}）。用你在 [第 2 页](#page=2) 弄懂的那条：列就是基向量去哪。\n\n〔可以做个可视化〕`)
         // 配图的框（CN-60）：测试里给一个固定的框
@@ -256,6 +284,11 @@ export function fakeEngine(id: EngineId): Engine {
         r.onStep?.({ id: 'b1', tool: 'Bash', input: { command }, status: 'ok' })
         await say(`<invoke name="Bash">\n<parameter name="command">${command}</parameter>\n<parameter name="description">Read the current book note</parameter>\n</invoke>\n`)
         await say('我在文末加了一节「评价」，共两段。\n\n工具调用的标记长这样：\n\n```xml\n<invoke name="Read">\n</invoke>\n```')
+        return { text, session: r.session ?? `fake-${id}` }
+      }
+      // 回答里有长行内代码、宽表、长代码块（task-83vl3）：整条回答不横着滑
+      if (said.includes('宽内容')) {
+        await say(WIDE_ANSWER)
         return { text, session: r.session ?? `fake-${id}` }
       }
       // AI 对话里要几句话的回答（选一句开旁支用）：周记总结成三句话
@@ -327,7 +360,31 @@ export function fakeEngine(id: EngineId): Engine {
         await sleep(Number(process.env.CN_FAKE_OWN_MS ?? 0))
         writeFileSync(abs, `${readFileSync(abs, 'utf8').replace(/\s*$/, '')}\n\n${line}\n`)
         r.onStep?.({ id: 'e1', tool: 'Edit', input: { file_path: abs }, status: 'ok' })
+        // CN_FAKE_TAIL_MS：写完再答一会儿（真 AI 写完还要说几句才答完）
+        await sleep(Number(process.env.CN_FAKE_TAIL_MS ?? 0))
         await say(`加好了。`)
+        return { text, session: `fake-${id}` }
+      }
+      // 全能模式：像用户截图（task-dtc34）那样用 Edit 直接在一篇末尾加「## 评价」和两段普通的字（不包成 [!ai] 块），看软件这一轮结束补包
+      if (/^在「[^」]*」末尾写一节评价/.test(said) && r.omni) {
+        const file = /「([^」]*)」/.exec(said)![1]!
+        const abs = join(r.cwd, file)
+        r.onStep?.({ id: 'e1', tool: 'Edit', input: { file_path: abs }, status: 'run' })
+        await sleep(Number(process.env.CN_FAKE_OWN_MS ?? 0))
+        const review = '## 评价\n\n开篇很克制：从杰姆胳膊肘骨折这件小事讲起，再说"过了一些年"兄妹俩回头谈起它。\n\n"事情就开始了"这一句把源头指向迪尔和怪人拉德利，先抛一个悬念。'
+        writeFileSync(abs, `${readFileSync(abs, 'utf8').replace(/\s*$/, '')}\n\n${review}\n`)
+        r.onStep?.({ id: 'e1', tool: 'Edit', input: { file_path: abs }, status: 'ok' })
+        await say('我在文末加了一节「评价」，共两段。')
+        return { text, session: `fake-${id}` }
+      }
+      // 全能模式：像 Claude Code 用 Edit 改用户原有的字（把「旧」换成「新」），不加新的段落
+      if (/^把「[^」]*」里的「[^」]*」改成「[^」]*」/.test(said) && r.omni) {
+        const [file, from, to] = [...said.matchAll(/「([^」]*)」/g)].map((m) => m[1]!)
+        const abs = join(r.cwd, file!)
+        r.onStep?.({ id: 'e1', tool: 'Edit', input: { file_path: abs }, status: 'run' })
+        writeFileSync(abs, readFileSync(abs, 'utf8').replace(from!, to!))
+        r.onStep?.({ id: 'e1', tool: 'Edit', input: { file_path: abs }, status: 'ok' })
+        await say('改好了。')
         return { text, session: `fake-${id}` }
       }
       const url = /https?:\/\/\S+/.exec(said)?.[0]

@@ -294,7 +294,7 @@ function trashHistory(vault: string) {
   }
 }
 
-test('4 最近删掉的：树最底下一行、中间列表、指着一行、点一条看删掉前的样子', async () => {
+test('4 最近删掉的：图标栏底部一格（task-iq2ow 从树最底下挪上来）、左栏列表、指着一行、点一条看删掉前的样子', async () => {
   test.setTimeout(150_000)
   const run = await launch(
     {
@@ -316,17 +316,16 @@ test('4 最近删掉的：树最底下一行、中间列表、指着一行、点
   const { page } = run
   try {
     await size(run)
-    await page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name: '文件', exact: true }).click()
-    const row = page.getByRole('tree', { name: '全部文件' }).getByRole('button', { name: /^最近删掉的/ })
-    await expect(row.locator('.ft-count')).toHaveText('6')
+    const row = page.getByRole('navigation', { name: '左栏' }).getByTestId('ab-trash')
+    await expect(row.getByTestId('trash-count')).toHaveText('6')
     await row.click()
-    const list = page.getByTestId('trash-page').getByRole('list', { name: '最近删掉的' }).getByRole('listitem')
+    const list = page.getByTestId('trash-panel').getByRole('list', { name: '最近删掉的' }).getByRole('listitem')
     await expect(list).toHaveCount(6)
     await list.nth(2).click()
     await expect(page.getByTestId('trash-page').getByRole('region', { name: '删掉前的样子' })).toContainText('巴菲特传')
     await list.nth(0).hover()
     await full(run, 'trash', true)
-    await marks('trash', { '树最底下': row, '列表': page.getByTestId('trash-page').locator('.tr-list'), '删掉前的样子': page.getByTestId('trash-page').locator('.tr-prev') })
+    await marks('trash', { '图标栏底部': row, '列表': page.getByTestId('trash-panel'), '删掉前的样子': page.getByTestId('trash-page').locator('.tr-prev') })
   } finally {
     await run.close()
   }

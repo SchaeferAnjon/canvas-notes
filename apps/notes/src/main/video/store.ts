@@ -5,6 +5,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { type MomentMark, normalizeVideoSettings, type VideoSettings } from '../../shared/video-api'
+import { logDropped } from '../crash-log'
 
 export interface VideoRecord {
   pos: number
@@ -27,6 +28,44 @@ interface State {
 /** 最多记这么多个视频（多的丢最久没看的） */
 const MAX_VIDEOS = 2000
 
+const num = (v: unknown, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : d)
+const text = (v: unknown) => (typeof v === 'string' ? v : '')
+
+/**
+ * 每个视频的记录对上格式（task-pyb39）：看到哪一秒、时刻不是数字的、时刻不是数组的，补成能用的；整条不是对象的丢掉并记一行日志。
+ * 这些记录打开视频时直接给界面画刻度、时刻列表，坏一条不能让界面渲染抛错
+ */
+function validVideos(v: unknown): Record<string, VideoRecord> {
+  if (v === undefined) return {}
+  if (!v || typeof v !== 'object' || Array.isArray(v)) {
+    logDropped('video', '视频记录不是对象')
+    return {}
+  }
+  const out: Record<string, VideoRecord> = {}
+  let bad = 0
+  for (const [k, r] of Object.entries(v as Record<string, unknown>)) {
+    if (!r || typeof r !== 'object') {
+      bad++
+      continue
+    }
+    const o = r as Record<string, unknown>
+    const moments = Array.isArray(o.moments) ? o.moments.filter((m): m is MomentMark => !!m && typeof m === 'object' && num((m as MomentMark).t, NaN) >= 0 && typeof (m as MomentMark).note === 'string') : []
+    if (Array.isArray(o.moments) && moments.length !== o.moments.length) bad++
+    out[k] = {
+      ...(o as unknown as VideoRecord),
+      pos: num(o.pos),
+      track: typeof o.track === 'string' ? o.track : null,
+      title: text(o.title),
+      channel: text(o.channel),
+      duration: num(o.duration),
+      moments,
+      at: num(o.at),
+    }
+  }
+  if (bad) logDropped('video', `${bad} 个视频记录有坏的地方，丢掉了坏的那部分`)
+  return out
+}
+
 export class VideoStore {
   private s: State
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -38,7 +77,7 @@ export class VideoStore {
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') console.warn('[video] 本机记录读不出来，重新记', (e as Error).message)
     }
-    this.s = { settings: normalizeVideoSettings(raw.settings), videos: raw.videos && typeof raw.videos === 'object' ? raw.videos : {} }
+    this.s = { settings: normalizeVideoSettings(raw?.settings), videos: validVideos(raw?.videos) }
   }
 
   settings(): VideoSettings {

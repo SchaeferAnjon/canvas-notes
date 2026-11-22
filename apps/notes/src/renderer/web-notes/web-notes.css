@@ -1,0 +1,287 @@
+/* 网页的笔记写进那篇（task-6cxtc）：「记到哪篇」弹层（黑底，同网页小条）和右栏「笔记」标签里来自这个网页的几条 */
+
+/* ---------- 记到哪篇：贴着网页小条下面 8，宽 330，黑底白字（浅深一样，同小条） ---------- */
+.wh-pop {
+  position: fixed;
+  z-index: 1200;
+  width: 330px;
+  border-radius: 12px;
+  background: #1c1c1e;
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 16px 40px rgba(0, 0, 0, 0.35);
+  font: 13px/1.5 var(--sans);
+}
+.wh-in {
+  padding: 14px 14px 12px;
+  outline: none;
+}
+.wh-t {
+  margin: 0 2px 8px;
+  font-weight: 600;
+}
+.wh-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wh-opt,
+.wh-list button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wh-opt:hover,
+.wh-opt.on,
+.wh-list button.on {
+  background: rgba(255, 255, 255, 0.08);
+}
+.wh-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.55);
+}
+.wh-opt.on .wh-dot {
+  background: #fff;
+  box-shadow: inset 0 0 0 4px #fff, inset 0 0 0 7px #1c1c1e;
+}
+.wh-l {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wh-r {
+  flex: none;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.wh-find {
+  margin: 2px 0 4px 24px;
+}
+.wh-find input {
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  font: 12px var(--sans);
+  outline: none;
+}
+.wh-find input::placeholder {
+  color: rgba(255, 255, 255, 0.45);
+}
+.wh-list {
+  margin-top: 4px;
+  max-height: 192px;
+  overflow-y: auto;
+}
+.wh-list button {
+  height: 28px;
+  gap: 8px;
+}
+.wh-empty {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+}
+.wh-n {
+  margin: 10px 2px 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.6);
+}
+.wh-b {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.wh-x,
+.wh-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  font: 600 13px var(--sans);
+  cursor: pointer;
+}
+.wh-x {
+  background: none;
+  color: #fff;
+}
+.wh-x:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+.wh-go {
+  background: #fff;
+  color: #111113;
+}
+.wh-go:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.wh-go kbd {
+  font: 12px/1 var(--sans);
+  color: inherit;
+  background: none;
+  padding: 0;
+}
+
+/* ---------- 右栏「笔记」：来自这个网页的几条（和读 PDF 的笔记一个用法，设计稿摆法 B） ---------- */
+.web-notes {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.wn-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 12px 6px;
+}
+.wn-bar [role='tab'] {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+  font: 13px var(--sans);
+  cursor: pointer;
+}
+.wn-bar [role='tab'][aria-selected='true'] {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.wn-bar .wn-find {
+  margin-left: auto;
+}
+.wn-q {
+  margin: 0 12px 6px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.wn-q input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--t1);
+  font: 12px var(--sans);
+  outline: none;
+}
+.wn-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 8px 8px;
+}
+.wn-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--t1);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wn-row:hover,
+.wn-row.on {
+  background: var(--fill2);
+}
+.wn-row .wn-ic {
+  flex: none;
+  display: flex;
+  margin-top: 2px;
+  color: var(--t2);
+}
+.wn-row .wn-tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wn-row .t {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wn-row .s {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.wn-row .wn-go {
+  flex: none;
+  align-self: flex-end;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--acc-t);
+}
+.wn-row .wn-at {
+  flex: none;
+  align-self: flex-end;
+  font-size: 12px;
+  color: var(--t3);
+}
+.wn-row:hover .wn-go,
+.wn-row.on .wn-go {
+  display: inline-flex;
+}
+.wn-row:hover .wn-at,
+.wn-row.on .wn-at {
+  display: none;
+}
+.wn-empty {
+  padding: 16px 14px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--t3);
+}
+.wn-foot {
+  flex: none;
+  padding: 8px 14px 10px;
+  font-size: 12px;
+  color: var(--t3);
+}

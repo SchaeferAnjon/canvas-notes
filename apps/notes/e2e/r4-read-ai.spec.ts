@@ -263,8 +263,9 @@ test(`收下归类后在外面把那篇改了名再点「撤回」：说清是�
     await dreamNow(page)
     await dreamPanel(page).getByTestId('dream-item').filter({ hasText: /^冰洞\s*从/ }).click()
     await dreamPanel(page).getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
-    const pv = page.getByTestId('preview-toast')
-    await expect(pv).toContainText('收下了1处')
+    // 收下的提示在底栏，带「在历史里看」「撤回」（task-m552v：点一条是中间开它，不再有中间上浮的预览提示条）
+    const pv = toast(page)
+    await expect(pv).toContainText('收下了「冰洞」')
     await expect.poll(() => existsSync(join(vault, '收件箱/冰洞.md'))).toBe(false)
     const taken = findFile(vault, '冰洞.md')!
     const renamed = taken.replace(/冰洞\.md$/, '冰洞攻略.md')
@@ -278,7 +279,7 @@ test(`收下归类后在外面把那篇改了名再点「撤回」：说清是�
     expect(said).not.toMatch(/同一处/)
     // 撤不回：哪儿都没有「撤回」了，换成「在历史里看」
     await expect(page.getByRole('button', { name: /^撤回$/ })).toHaveCount(0)
-    await expect(pv).toHaveCount(0)
+    await expect(toast(page).getByRole('button', { name: '在历史里看' })).toHaveCount(1)
     await shotWindow(run, `r4-dream-undo-renamed-${frame}`)
     // 窄窗口：提示条还在底栏里、一行（放不下省略号），按钮不被挤掉
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(960, 800))

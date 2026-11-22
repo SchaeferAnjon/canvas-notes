@@ -1,15 +1,19 @@
 /**
- * 拍导图窗口在哪打开都行（⌘K、菜单、白板工具板）：这里记一个「请打开」，App 里的 CaptureHost 接着开窗口。
+ * 拍导图窗口在哪打开都行（⌘K、菜单、白板工具板、/ 菜单）：这里记一个「请打开」，App 里的 CaptureHost 接着开窗口。
  * 刚做好的导图白板记在 growing 里，白板第一次画它时节点一个个长出来。
+ * 开着的白板登记「在我这儿放一张导图卡」（boardCapture）：⌘K、⇧⌘C、菜单在白板看法里拍，导图就是这块白板的子白板。
  */
 import { useSyncExternalStore } from 'react'
+import type { PlaceInto, Placed } from '../../shared/mindmap'
 
 export interface CaptureRequest {
   seq: number
   /** 从哪门课进来的（课程首页的「拍一张」），AI 先按这门课填 */
   course?: string
-  /** 做好以后（白板工具板拖出来的：在落点放一张指向它的卡片） */
-  onPlaced?(path: string): void
+  /** 挂在哪（task-wuv05）：父白板 / 那篇笔记；不给是进收件箱 */
+  into?: PlaceInto
+  /** 做好以后：在父白板落点放一张子白板卡、在笔记光标处插缩略图块，再三样一起提交（mindmap/place.ts） */
+  onPlaced?(r: Placed): Promise<void> | void
 }
 
 let req: CaptureRequest | null = null
@@ -41,3 +45,16 @@ const growing = new Set<string>()
 export const markGrow = (path: string) => growing.add(path)
 /** 这块白板要不要放长出来的动画（只放一次） */
 export const takeGrow = (path: string) => growing.delete(path)
+
+/** 前面那块白板：在它屏幕正中那一列放一张导图卡（同点工具板「拍导图」） */
+export interface BoardCapture {
+  path: string
+  capture(): void
+}
+let board: BoardCapture | null = null
+/** 白板在前面时登记，退到后面、关掉时拿掉（只拿自己的那一个：换标签时新的一块可能先登记了） */
+export function setBoardCapture(b: BoardCapture | null, mine?: BoardCapture) {
+  if (b) board = b
+  else if (board === mine) board = null
+}
+export const boardCapture = (path: string): BoardCapture | null => (board?.path === path ? board : null)

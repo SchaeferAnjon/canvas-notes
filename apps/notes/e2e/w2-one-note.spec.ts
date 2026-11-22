@@ -92,14 +92,16 @@ test('老库打开整理一次：生成版「我的疑惑」删掉、改过的�
     expect(merged).toContain('## 以前的版本 · 第 3 页 · 第 3 页的小标题')
     expect(merged).toContain('## 从《第4讲 卷积网络 笔记 2》并进来的\n\n### 我自己的总结')
 
-    // 左栏：PDF 和笔记是一行，右端笔记图标 + 问了几问；笔记不单独一行；「我的疑惑」不在
+    // 左栏：PDF 下面挂它的笔记一行写「笔记」，右端问了几问（PDF › 笔记 › 可视化，task-m552v；以前 PDF 和笔记是一行）；「我的疑惑」不在
     await expand(page, '课程', '机器学习')
     await expect(row(page, '第4讲 卷积网络')).toHaveCount(1)
-    await expect(row(page, '第4讲 卷积网络').getByTestId('ft-note')).toHaveText('3')
+    const note4 = tree(page).locator(`[data-path="${NOTE4}"]`)
+    await expect(note4.locator('.truncate')).toHaveText('笔记')
+    await expect(note4.getByTestId('ft-note')).toHaveText('3')
     await expect(row(page, '第4讲 卷积网络').locator('.ft-ext')).toHaveText('PDF')
-    await expect(row(page, '第4讲 卷积网络')).toHaveAttribute('title', 'PDF 和它的笔记是一行：点开 PDF，笔记跟着在旁边')
+    await expect(row(page, '第4讲 卷积网络')).toHaveAttribute('title', 'PDF 和它的笔记：点开 PDF，笔记跟着在旁边')
     await expect(row(page, '第4讲 卷积网络 笔记')).toHaveCount(0)
-    await expect(row(page, '第5讲 注意力机制').getByTestId('ft-note')).toHaveText('1')
+    await expect(tree(page).locator(`[data-path="${NOTE5}"]`).getByTestId('ft-note')).toHaveText('1')
     await expect(row(page, '我的疑惑')).toHaveCount(0)
     // 点这一行：开 PDF，笔记标签跟着开（2轮 · 3问）
     await row(page, '第4讲 卷积网络').click()
@@ -168,8 +170,8 @@ test('读 PDF 问完记笔记不再写「我的疑惑.md」：那次提交里只
     expect(changed).toContain(NOTE5)
     expect(changed.some((p) => p.endsWith('我的疑惑.md'))).toBe(false)
     expect(existsSync(join(vault, DIR, '我的疑惑.md'))).toBe(false)
-    // 左栏那一行：PDF 和笔记合成一行，右端是问了几问
-    await expect(row(page, '第5讲 注意力机制').getByTestId('ft-note')).toHaveText('1')
+    // 左栏：PDF 下面挂出它的笔记一行，右端是问了几问
+    await expect(tree(page).locator(`[data-path="${NOTE5}"]`).getByTestId('ft-note')).toHaveText('1')
     await expect(row(page, '第5讲 注意力机制 笔记')).toHaveCount(0)
   } finally {
     await run.close()

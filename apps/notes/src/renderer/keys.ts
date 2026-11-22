@@ -4,12 +4,13 @@
  * - 写在界面上：React 里 useKey(id) / useKeys()，菜单这种点了才拼的 keyFor(id)、accelFor(id)，一句话里提到键写成 {k:id} 交给 withKeys。
  * - 按下去：全局的命令（命令表 area = app）App 登记一个跑法（setAppRunner），窗口上的按键、编辑器里的按键、网页有焦点时主进程转回来的
  *   按键都走 runAppKey；要看场合的（白板、PDF 上放大，选了字时引用）各自那块用 isKey(e, id) 认。
- * - 交给主进程：网页、视频有焦点时要转回来的键，菜单栏上每一项显示的键，网页里自己的脚本要认的键（双语翻译、剪下选中的一段）。
+ * - 交给主进程：网页、视频有焦点时要转回来的键，菜单栏上每一项显示的键，网页里自己的脚本要认的键（双语翻译、剪藏和引用选中的一段）。
  */
 import { useEffect, useRef } from 'react'
 import { accelOf, comboOf, type KeyLike } from '../shared/cmd-keys'
 import { clashOf, isRebindable, KEYMAP, keyDef, keyProblemFor } from '../shared/cmd-table'
 import { type Avail, effectiveKeys } from '../shared/commands'
+import { t } from '../shared/i18n'
 import { keyLabel } from '../shared/video-api'
 import { cmdConfig, onCmdsChange, registryNow as dynamicNow, useCmds } from './search/cmd-store'
 import { appSettings, usePrefs } from './settings-store'
@@ -75,9 +76,12 @@ export function isKey(e: KeyLike & { isComposing?: boolean }, id: string): boole
   return !!c && keysFor(id).includes(c)
 }
 
-/** 一句话里提到键：{k:new-note} 换成现在的键；这条没有键时换成它的名字（「新建笔记以后先建一块白板」） */
+/** 一句话里提到键：{k:new-note} 换成现在的键；这条没有键时换成它的名字（「新建笔记以后先建一块白板」，名字跟界面语言） */
 export function withKeys(text: string): string {
-  return text.replace(/\{k:([\w-]+)\}/g, (_m, id: string) => keyFor(id) ?? keyDef(id)?.name ?? id)
+  return text.replace(/\{k:([\w-]+)\}/g, (_m, id: string) => {
+    const d = keyDef(id)
+    return keyFor(id) ?? (d ? t(d.name) : id)
+  })
 }
 
 /** 跟着键变：命令表的设置、速记的键、视频的键改了都重画 */
@@ -99,11 +103,16 @@ export function checkKey(id: string, combo: string): { problem: string | null; c
   const problem = keyProblemFor(id, combo)
   if (problem) return { problem, clash: null }
   const extra = dynamicNow().filter((c) => !keyDef(c.id))
-  return { problem: null, clash: clashOf(id, combo, keysFor, extra) }
+  const clash = clashOf(id, combo, keysFor, extra)
+  // 撞了谁：说它界面上的名字（命令表的跟界面语言；插件的、自己加的照交进来的）
+  return { problem: null, clash: clash && { ...clash, name: nameOf(clash.id) } }
 }
 
-/** 一条命令的名字（命令表的，插件、自己加的用交进来的） */
-export const nameOf = (id: string): string => keyDef(id)?.name ?? dynamicNow().find((c) => c.id === id)?.name ?? id
+/** 一条命令界面上的名字：命令表的跟界面语言（命令表里是中文原句），插件、自己加的用交进来的（不翻） */
+export function nameOf(id: string): string {
+  const d = keyDef(id)
+  return d ? t(d.name) : (dynamicNow().find((c) => c.id === id)?.name ?? id)
+}
 
 // ---------------------------------------------------------------- 按下去
 
@@ -189,13 +198,13 @@ export const MENU_CMDS = ['settings', 'new-note', 'new-board', 'capture', 'impor
 let sent = ''
 export function syncKeys() {
   if (!window.cnCmds) return
-  // 网页、视频有焦点时要转回来的：全局命令的键（网页里自己的脚本接的双语翻译、剪下一段不转，不然网页里收不到）
-  const page = new Set([...keysFor('translate'), ...keysFor('clip-selection')])
+  // 网页、视频有焦点时要转回来的：全局命令的键（网页里自己的脚本接的双语翻译、剪藏和引用选中的一段不转，不然网页里收不到）
+  const page = new Set([...keysFor('translate'), ...keysFor('clip-selection'), ...keysFor('quote-selection')])
   const app = new Set<string>()
   for (const d of KEYMAP) if (d.area === 'app' && isRebindable(d) && !d.noForward) for (const k of keysFor(d.id)) if (!page.has(k)) app.add(k)
   for (const c of dynamicNow()) if (!keyDef(c.id) && !c.fixedKeys) for (const k of keysFor(c.id)) if (!page.has(k)) app.add(k)
   const menu = Object.fromEntries(MENU_CMDS.map((id) => [id, keyFor(id)]))
-  const pageKeys = { translate: keyFor('translate'), 'clip-selection': keyFor('clip-selection') }
+  const pageKeys = { translate: keyFor('translate'), 'clip-selection': keyFor('clip-selection'), 'quote-selection': keyFor('quote-selection') }
   const msg = { forward: [...app].sort(), menu, page: pageKeys }
   const sig = JSON.stringify(msg)
   if (sig === sent) return

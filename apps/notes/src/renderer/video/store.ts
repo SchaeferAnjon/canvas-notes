@@ -3,7 +3,7 @@
  * 右栏网页面板借来的本事（给网页发命令、在右栏打开网址），中间栏开着什么（记到哪要用）。
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import { type CenterKind, setVideoTestOrigin } from '../../shared/video'
+import { type CenterKind, setVideoTestOrigin, videoOf } from '../../shared/video'
 import { DEFAULT_VIDEO_SETTINGS, type PlayTick, type VideoSettings, type VideoState } from '../../shared/video-api'
 import type { NoteDoc } from '../note-doc'
 
@@ -66,6 +66,16 @@ export function useVideoState(wcId: number | undefined): VideoState | null {
 }
 
 export const videoStateOf = (wcId: number) => states.get().get(wcId) ?? null
+
+/** 网址是哪个视频、右栏开着它时它的标题（看视频那一格「看得到」、头上胶囊写它，不写网址最后一截「watch」） */
+export function useVideoTitle(url: string | null): string | undefined {
+  useEffect(start, [])
+  const all = useSyncExternalStore(states.sub, states.get)
+  const key = videoOf(url)?.key
+  if (!key) return undefined
+  for (const st of all.values()) if (st.key === key && st.title) return st.title
+  return undefined
+}
 
 export function useVideoSettings(): VideoSettings {
   useEffect(start, [])

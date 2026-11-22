@@ -268,4 +268,18 @@ describe('第 3 轮：像网址的笔记名、意思相近的门槛、按第几�
     expect(keyIsFinal(none, null, 'enter', { text: true, all: false })).toBe(false)
     expect(keyIsFinal(none, null, 'enter', { text: true, all: true })).toBe(true)
   })
+
+  it('PDF 里的字还没回来（搜索进程刚起、在载模型）：默认是命令、名字对上的笔记就能回车；默认在「笔记和PDF里的字」那一组的要等它（task-wuv05）', () => {
+    const cmds = [{ name: '拍一张导图' }, { name: '新建白板' }]
+    const cmd = buildRows(base({ q: '拍一张导图', commands: cmds }))
+    expect(cmd[defaultIndex(cmd)]).toMatchObject({ kind: 'cmd', group: 'best' })
+    expect(keyIsFinal(cmd, null, 'enter', { text: true, pdf: false, all: false })).toBe(true)
+    // 笔记还没回来：照旧等（名字对上的笔记可能比命令分高）
+    expect(keyIsFinal(cmd, null, 'enter', { text: false, pdf: false, all: false })).toBe(false)
+    // 默认是正文命中：PDF 页会和它轮流排进同一组，等 PDF 回来
+    const body = buildRows(base({ q: '特征值', hits: [{ path: '复习.md', snippet: '特征值' }] }))
+    expect(body[defaultIndex(body)]).toMatchObject({ kind: 'note', group: 'text' })
+    expect(keyIsFinal(body, null, 'enter', { text: true, pdf: false, all: false })).toBe(false)
+    expect(keyIsFinal(body, null, 'enter', { text: true, pdf: true, all: false })).toBe(true)
+  })
 })

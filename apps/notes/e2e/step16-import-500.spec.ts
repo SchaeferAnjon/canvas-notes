@@ -80,11 +80,11 @@ test('500 条：导入、梦游分批归类、预览不卡、收下全部', asyn
     // 梦游
     t = Date.now()
     await sheet(page).getByRole('button', { name: '现在就让梦游整理' }).click()
-    await expect(panel(page).getByTestId('dream-summary')).toContainText('点「预览」看改好后的样子', { timeout: 10 * 60_000 })
+    await expect(panel(page).getByTestId('dream-summary')).toContainText('收下才合进main', { timeout: 10 * 60_000 })
     m.dreamMs = Date.now() - t
     const file = panel(page).getByRole('region', { name: '归类和改名' })
     // 大批量：只列按去处分的组，默认收起，一条都不铺开
-    await expect(file.locator('.dg')).toHaveText('归类和改名460条 · 4组预览')
+    await expect(file.locator('.dg')).toHaveText('归类和改名460条 · 4组在树里看')
     await expect(file.getByTestId('dream-item')).toHaveCount(0)
     await expect(file.locator('.dstay')).toContainText('40条留着不动')
     await shot(page, 'import-500-report-light')
@@ -92,7 +92,7 @@ test('500 条：导入、梦游分批归类、预览不卡、收下全部', asyn
 
     // 预览：多久出来、出来时有没有长任务；左栏点一下、滚一下有没有卡
     t = Date.now()
-    await file.getByRole('button', { name: '预览' }).click()
+    await file.getByRole('button', { name: '在树里看' }).click()
     await expect(bar(page)).toContainText('460条，分到4个文件夹')
     await expect(side(page)).toHaveClass(/previewing/)
     m.previewMs = Date.now() - t

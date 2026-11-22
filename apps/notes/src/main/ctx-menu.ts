@@ -6,7 +6,7 @@
  * - 界面没接管的右键（输入框、选了字）这里兜底给标准编辑菜单；右栏网页里的右键转给界面，由界面拼菜单。
  */
 import { hungFolders, moveMany } from './folder-ops'
-import { BrowserWindow, clipboard, ipcMain, Menu, type MenuItemConstructorOptions, nativeImage, shell, webContents as allWebContents, type WebContents } from 'electron'
+import { BrowserWindow, clipboard, ClipboardItem, ipcMain, Menu, type MenuItemConstructorOptions, nativeImage, shell, webContents as allWebContents, type WebContents } from 'electron'
 import { EDIT_ACCEL, EDIT_LABEL, type CtxIcon, type CtxItem, type CtxParams, fallbackItems, tidy, validItems } from '../shared/ctx-menu'
 import { pinNote, repin } from './pins'
 import type { Vault } from './vault'
@@ -134,6 +134,11 @@ export function setupCtxMenu(needVault: () => Vault, onMoved: () => void) {
   ipcMain.handle('ctx:copy', (_e, text: unknown) => {
     if (typeof text !== 'string') throw new Error('参数不对')
     return clipboard.writeText(text)
+  })
+  ipcMain.handle('ctx:copy-image', (_e, png: unknown) => {
+    if (!(png instanceof Uint8Array) || png.length > 40_000_000) throw new Error('参数不对')
+    if (nativeImage.createFromBuffer(Buffer.from(png)).isEmpty()) throw new Error('这块图拷不了')
+    return clipboard.write([new ClipboardItem({ 'image/png': new Blob([new Uint8Array(png)], { type: 'image/png' }) })])
   })
   ipcMain.handle('ctx:clipboard-has', async () => {
     const types = (await clipboard.read()).flatMap((i) => i.types)

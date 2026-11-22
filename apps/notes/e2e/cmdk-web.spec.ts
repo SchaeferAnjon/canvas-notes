@@ -59,9 +59,9 @@ test('网页「⋯」四组；调整这个菜单：点眼睛藏起「稍后再�
     expect(await groupItems(page, '这一页')).toEqual(['剪藏这一页', '稍后再看', '双语翻译'])
     expect(await groupItems(page, '这个网站')).toEqual(['不拦这个网站的广告'])
     await expect(more(page).getByRole('menuitemcheckbox', { name: '在127.0.0.1不拦广告' }).locator('.h')).toHaveText('127.0.0.1')
-    // task-sta8n：书签栏默认不摆，「显示书签栏 ⇧⌘B」在书签一组；浏览器一组多了网页拉到最宽、网页移到中间、收起顶上
+    // task-sta8n：书签栏默认不摆，「显示书签栏 ⇧⌘B」在书签一组；浏览器一组多了收起顶上。task-05p2w：「网页拉到最宽」并成「网页占满」（和右上角那颗同一个开关），「网页移到中间」改名「在中间开成一页」
     expect(await groupItems(page, '书签')).toEqual(['加书签', '书签首页', '书签和历史…', '显示书签栏'])
-    expect(await groupItems(page, '浏览器')).toEqual(['插件…', '导入Chrome登录…', '网页拉到最宽', '网页移到中间', '收起顶上'])
+    expect(await groupItems(page, '浏览器')).toEqual(['插件…', '导入Chrome登录…', '网页占满', '在中间开成一页', '收起顶上'])
     // 量排版宽度（菜单弹出时有一点缩放动画，boundingBox 会小一点）
     expect(await more(page).evaluate((e) => (e as HTMLElement).offsetWidth)).toBe(280)
     await page.screenshot({ path: 'test-results/cmdk-web-menu.png' })

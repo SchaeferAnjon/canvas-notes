@@ -53,6 +53,9 @@ module.exports = {
       NSCameraUsageDescription: `${brand.name} 用摄像头拍你手写的导图，认成白板上的导图。`,
       NSCameraUseContinuityCameraDeviceType: true,
       NSDownloadsFolderUsageDescription: `${brand.name} 拍导图的窗口开着时，拿你用隔空投送传到「下载」里的照片。`,
+      // 让 iPhone / iPad 用这台 Mac 的 AI（task-wwqf0）：设置里打开后用 Bonjour 在局域网里报一声（macOS 15 起这算本地网络权限）
+      NSLocalNetworkUsageDescription: `${brand.name} 在同一个 Wi‑Fi 里让你的 iPhone、iPad 找到这台 Mac，用这里的 AI 回答问题。`,
+      NSBonjourServices: ['_canvasnotes._tcp'],
     },
   },
   dmg: { title: `${brand.name} \${version}` },

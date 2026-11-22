@@ -195,7 +195,8 @@ function find(a: FakeAnki, query: string): number[] {
   return notes.map((n) => n.id)
 }
 
-export async function fakeAnki(o: { decks?: Record<string, number>; notes?: Omit<FakeNote, 'id'>[]; down?: boolean } = {}): Promise<FakeAnki> {
+/** port：在这个端口上听（占着它的程序关掉以后 Anki 在同一个端口起来）；不给让系统挑 */
+export async function fakeAnki(o: { decks?: Record<string, number>; notes?: Omit<FakeNote, 'id'>[]; down?: boolean; port?: number } = {}): Promise<FakeAnki> {
   let nextId = 1_700_000_000_000
   const a: FakeAnki = {
     url: '',
@@ -274,7 +275,7 @@ export async function fakeAnki(o: { decks?: Record<string, number>; notes?: Omit
       }
     })
   })
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  await new Promise<void>((r) => server.listen(o.port ?? 0, '127.0.0.1', r))
   a.url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
   a.close = () => new Promise<void>((r) => server.close(() => r()))
   return a

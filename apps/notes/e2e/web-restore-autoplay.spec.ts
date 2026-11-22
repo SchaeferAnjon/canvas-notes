@@ -195,8 +195,10 @@ test('中间栏的宽网页标签：重开软件后也停着，没点开的不�
     await expect(webTabs(page)).not.toHaveCount(0)
     await goTo(page, A())
     await expect(strip(page)).toBeVisible({ timeout: 15_000 })
-    // 标题栏的「移到中间」：右栏这页开成中间栏的宽网页标签
-    await page.getByTestId('tb-web').click()
+    // 网页 ⋯ 里的「在中间开成一页」（task-05p2w 以前是标题栏的「移到中间」）：右栏这页开成中间栏的宽网页标签
+    const webAside = page.getByRole('complementary', { name: '网页' })
+    await webAside.getByRole('button', { name: '更多' }).click()
+    await webAside.getByRole('menu', { name: '更多' }).getByRole('menuitem', { name: /在中间开成一页/ }).click()
     await expect(page.locator('.wpane:not([hidden]) webview')).toBeVisible({ timeout: 15_000 })
     await expect.poll(async () => (await pageOf(run, A()))?.paused[0], { timeout: 15_000 }).toBe(false)
     // 再开一篇笔记：宽网页标签退到后面

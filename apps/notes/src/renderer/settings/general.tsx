@@ -10,14 +10,18 @@ import { Toggle, type SettingsProps } from '../Settings'
 import { useUpdateState } from '../update'
 import { useKeyRecorder, useKeySlots } from './keys'
 import { Group, hintFor, Row, useSaid } from './ui'
+import { LangGroup } from './lang'
+import { t as tNow } from '../../shared/i18n'
+import { useT } from '../i18n'
 
 const HINT: Partial<Record<keyof GeneralPrefs, (v: boolean) => string>> = {
-  reopen: (v) => (v ? '下次打开接着上次开着的标签和右栏的网页' : '下次打开从首页开始，右栏收着；库照样是上次那个'),
-  tray: (v) => (v ? '菜单栏里又有那一叠卡片了' : '菜单栏图标拿掉了；速记还能按快捷键'),
-  quickSrc: (v) => (v ? '速记时选中了字，记下是哪个软件、哪个网页' : '速记只记选中的字，不记从哪来'),
+  reopen: (v) => (v ? tNow('下次打开接着上次开着的标签和右栏的网页') : tNow('下次打开从首页开始，右栏收着；库照样是上次那个')),
+  tray: (v) => (v ? tNow('菜单栏里又有那一叠卡片了') : tNow('菜单栏图标拿掉了；速记还能按快捷键')),
+  quickSrc: (v) => (v ? tNow('速记时选中了字，记下是哪个软件、哪个网页') : tNow('速记只记选中的字，不记从哪来')),
 }
 
 export function GeneralPage(props: SettingsProps) {
+  const t = useT()
   const said = useSaid()
   const g = props.settings.general
   const set = (k: 'reopen' | 'tray' | 'quickSrc', v: boolean, label: string) => {
@@ -35,22 +39,23 @@ export function GeneralPage(props: SettingsProps) {
   }, [g.quickKey])
   return (
     <>
-      <Group title="启动和窗口">
+      <LangGroup />
+      <Group title={t('启动和窗口')}>
         <Row id="reopen">
-          <Toggle on={g.reopen} label="打开时回到上次的样子" onChange={(v) => set('reopen', v, '打开时回到上次的样子')} />
+          <Toggle on={g.reopen} label={t('打开时回到上次的样子')} onChange={(v) => set('reopen', v, t('打开时回到上次的样子'))} />
         </Row>
         <Row id="tray">
-          <Toggle on={g.tray} label="菜单栏图标" onChange={(v) => set('tray', v, '菜单栏图标')} />
+          <Toggle on={g.tray} label={t('菜单栏图标')} onChange={(v) => set('tray', v, t('菜单栏图标'))} />
         </Row>
       </Group>
-      <Group title="速记">
+      <Group title={t('速记')}>
         <Row
           id="quickKey"
           desc={
             quickOk ? undefined : (
               <>
                 <i className="dot warn" />
-                {`${g.quickKey} 被别的软件占了，现在只能从菜单栏打开速记；换一个键`}
+                {t('{key} 被别的软件占了，现在只能从菜单栏打开速记；换一个键', { key: g.quickKey })}
               </>
             )
           }
@@ -59,7 +64,7 @@ export function GeneralPage(props: SettingsProps) {
           {keys.button(quick)}
         </Row>
         <Row id="quickSrc">
-          <Toggle on={g.quickSrc} label="选中文字时带上来源" onChange={(v) => set('quickSrc', v, '选中文字时带上来源')} />
+          <Toggle on={g.quickSrc} label={t('选中文字时带上来源')} onChange={(v) => set('quickSrc', v, t('选中文字时带上来源'))} />
         </Row>
       </Group>
       <UpdateGroup {...props} />
@@ -69,6 +74,7 @@ export function GeneralPage(props: SettingsProps) {
 
 /** 更新：自动检查、现在的版本和「现在检查」（下好了是「重启更新」） */
 function UpdateGroup(props: SettingsProps) {
+  const t = useT()
   const said = useSaid()
   const st = useUpdateState()
   const [checking, setChecking] = useState(false)
@@ -77,7 +83,7 @@ function UpdateGroup(props: SettingsProps) {
   const off = st.phase === 'off'
   const err = st.phase === 'error' ? updateError(st.error, st.version) : null
   const busy = checking || st.phase === 'checking' || st.phase === 'downloading'
-  const line = moveErr ? `没挪成：${moveErr}` : updateLine(st, props.settings.autoUpdate)
+  const line = moveErr ? t('没挪成：{err}', { err: moveErr }) : updateLine(st, props.settings.autoUpdate)
   async function check() {
     setChecking(true)
     try {
@@ -87,15 +93,15 @@ function UpdateGroup(props: SettingsProps) {
     }
   }
   return (
-    <Group title="更新">
-      <Row id="autoUpdate" dim={off} desc={off ? '开发版和自己打的包不查更新；正式版从官网或GitHub Release下载' : undefined}>
+    <Group title={t('更新')}>
+      <Row id="autoUpdate" dim={off} desc={off ? t('开发版和自己打的包不查更新；正式版从官网或GitHub Release下载') : undefined}>
         <Toggle
           on={props.settings.autoUpdate && !off}
-          label="自动检查更新"
+          label={t('自动检查更新')}
           onChange={(v) => {
             if (off) return
             void props.onChange({ autoUpdate: v })
-            said.saved(v ? '打开30秒后查一次，之后每6小时' : '不再自己查；点「现在检查」查一次', () => void props.onChange({ autoUpdate: !v }))
+            said.saved(v ? t('打开30秒后查一次，之后每6小时') : t('不再自己查；点「现在检查」查一次'), () => void props.onChange({ autoUpdate: !v }))
           }}
         />
       </Row>
@@ -103,7 +109,7 @@ function UpdateGroup(props: SettingsProps) {
         id="checkNow"
         label={
           <>
-            现在是 <span className="num">{st.current}</span>
+            {t('现在是')} <span className="num">{st.current}</span>
           </>
         }
         desc={
@@ -114,7 +120,7 @@ function UpdateGroup(props: SettingsProps) {
               <>
                 {' · '}
                 <button type="button" className="sa-lnk" onClick={() => void window.cn.releaseUrl().then(props.onOpenUrl)}>
-                  看看改了什么
+                  {t('看看改了什么')}
                 </button>
               </>
             )}
@@ -128,33 +134,33 @@ function UpdateGroup(props: SettingsProps) {
       >
         {err?.action === 'site' && (
           <button type="button" className="sa-btn" onClick={() => props.onOpenUrl(BRAND.site)}>
-            去官网下载
+            {t('去官网下载')}
           </button>
         )}
         {st.phase === 'ready' ? (
           <button type="button" className="sa-btn primary" onClick={() => void props.onInstallUpdate()}>
-            重启更新
+            {t('重启更新')}
           </button>
         ) : (
           <button type="button" className="sa-btn" disabled={off || busy} onClick={() => void check()}>
-            {st.phase === 'checking' || checking ? '正在检查' : err ? '再查一次' : '现在检查'}
+            {st.phase === 'checking' || checking ? t('正在检查') : err ? t('再查一次') : t('现在检查')}
           </button>
         )}
       </Row>
       {!st.inApps && !off && (
         <Row
           id="notInApps"
-          label={`${BRAND.name}不在「应用程序」文件夹里`}
+          label={t('{app}不在「应用程序」文件夹里', { app: BRAND.name })}
           desc={
             <>
               <i className="dot warn" />
-              从「下载」或安装盘里直接打开时，新版本可能装不上
+              {t('从「下载」或安装盘里直接打开时，新版本可能装不上')}
             </>
           }
         >
           <button type="button" className="sa-btn ghost" onClick={() => void window.cn.revealApp()}>
             <Codicon name="search" size={14} />
-            在Finder中显示
+            {t('在Finder中显示')}
           </button>
           <button
             type="button"
@@ -164,7 +170,7 @@ function UpdateGroup(props: SettingsProps) {
               void window.cn.moveToApps().catch((e: unknown) => setMoveErr(e instanceof Error ? e.message : String(e)))
             }}
           >
-            挪到「应用程序」并重开
+            {t('挪到「应用程序」并重开')}
           </button>
         </Row>
       )}

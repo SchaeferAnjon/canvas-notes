@@ -1,3 +1,4 @@
+import '../i18n'
 import '@cn/design/tokens.css'
 import '@cn/design/themes.css'
 import '@cn/design/ui.css'

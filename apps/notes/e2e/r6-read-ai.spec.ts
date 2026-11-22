@@ -288,7 +288,11 @@ for (const how of ['全部收下', '单条收下双链'] as const)
       await openNote(page, '极光')
       await dreamNow(page)
       const link = dreamPanel(page).getByTestId('dream-item').filter({ hasText: /^极光\s*↔/ })
-      if (how === '单条收下双链') await link.click()
+      // 点一条中间开它（task-m552v）：回到那篇的标签接着打字，再在左栏小卡里点收下
+      if (how === '单条收下双链') {
+        await link.click()
+        await page.locator('[role="tab"][data-path="收件箱/极光.md"]').click()
+      }
       await typeAtEnd(page, '维克的黑沙滩也能看。')
       const t = Date.now()
       if (how === '全部收下') await dreamPanel(page).getByRole('button', { name: '全部收下' }).click()
@@ -368,8 +372,9 @@ test('收下《冰洞》后在外面改名成「冰岛冰洞」、同时把「�
     await dreamNow(page)
     await dreamPanel(page).getByTestId('dream-item').filter({ hasText: /^冰洞\s*从/ }).click()
     await dreamPanel(page).getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
-    const pv = page.getByTestId('preview-toast')
-    await expect(pv).toContainText('收下了1处')
+    // 收下的提示在底栏，带「在历史里看」「撤回」（task-m552v：不再有中间上浮的预览提示条）
+    const pv = page.getByTestId('toast')
+    await expect(pv).toContainText('收下了「冰洞」')
     const taken = join(vault, '剪藏/旅行/冰洞.md')
     await expect.poll(() => existsSync(taken)).toBe(true)
     const renamed = join(vault, '剪藏/旅行/冰岛冰洞.md')

@@ -1,3 +1,4 @@
+import './lang'
 import { contextBridge, ipcRenderer } from 'electron'
 import type { CnApi } from '../shared/api'
 import { folderApi } from './folder-home'
@@ -14,6 +15,8 @@ import { menuApi } from './ctx-menu'
 import { cmdsApi } from './commands'
 import { readApi } from './read-along'
 import { todoApi } from './todo'
+import { mobileAiApi } from './mobile-ai'
+import { crashApi } from './crash'
 
 const api: CnApi = {
   vault: () => ipcRenderer.invoke('vault:get'),
@@ -28,7 +31,7 @@ const api: CnApi = {
   saveConflictCopy: (path, text) => ipcRenderer.invoke('note:conflictCopy', path, text),
   createNote: (folder, name, text) => ipcRenderer.invoke('note:create', folder, name, text),
   renameNote: (path, newName, free) => ipcRenderer.invoke('note:rename', path, newName, free),
-  createBoard: (folder, name) => ipcRenderer.invoke('board:create', folder, name),
+  createBoard: (folder, name, parent) => ipcRenderer.invoke('board:create', folder, name, parent),
   trashNote: (path) => ipcRenderer.invoke('note:trash', path),
   trashFiles: (paths) => ipcRenderer.invoke('files:trash', paths),
   capture: (text) => ipcRenderer.invoke('inbox:capture', text),
@@ -67,6 +70,7 @@ const api: CnApi = {
   commit: () => ipcRenderer.invoke('git:commit'),
   sync: () => ipcRenderer.invoke('git:sync'),
   history: (limit, opts) => ipcRenderer.invoke('git:history', limit, opts),
+  lineTimes: (path) => ipcRenderer.invoke('git:line-times', path),
   restorable: (hash) => ipcRenderer.invoke('git:restorable', hash),
   restoreDeleted: (hash, only) => ipcRenderer.invoke('git:restore', hash, only),
   undoRestore: (commit) => ipcRenderer.invoke('git:restore-undo', commit),
@@ -215,6 +219,8 @@ const api: CnApi = {
   },
 }
 
+// 出错兜底最先挂上：后面哪个出了问题，出错页也能报日志、重新加载
+contextBridge.exposeInMainWorld('cnCrash', crashApi)
 contextBridge.exposeInMainWorld('cn', api)
 contextBridge.exposeInMainWorld('cnWeb', webApi)
 contextBridge.exposeInMainWorld('cnPlugins', pluginsApi)
@@ -229,6 +235,7 @@ contextBridge.exposeInMainWorld('cnMenu', menuApi)
 contextBridge.exposeInMainWorld('cnCmds', cmdsApi)
 contextBridge.exposeInMainWorld('cnRead', readApi)
 contextBridge.exposeInMainWorld('cnTodo', todoApi)
+contextBridge.exposeInMainWorld('cnMobileAi', mobileAiApi)
 contextBridge.exposeInMainWorld('cnAttach', {
   of: (note, shared) => ipcRenderer.invoke('attach:of', note, shared),
   trashNote: (note, withImages) => ipcRenderer.invoke('attach:trash-note', note, withImages),

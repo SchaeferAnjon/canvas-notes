@@ -1,6 +1,6 @@
 /**
  * 网页阅读视图双语对照读的译文：按段落指纹记着每段译文；看得到的先翻（几段合一次请求），
- * 翻译走双语翻译插件的 translateBlocks（同一个缓存、引擎、术语表、语言）。缓存在主进程，这里只是这次开着时的。
+ * 翻译走双语翻译插件的 translateBlocks（同一个缓存、引擎、语言）。缓存在主进程，这里只是这次开着时的。
  * 照 ParaRead 的 ReflowView：视口上下两屏内的段排队；「重新翻译」不读缓存；只看译文时每段能临时「显示原文」。
  */
 import { blockHash } from '@cn/format'
@@ -73,10 +73,9 @@ export function langsLine(sample: string): string {
 const inflight = new Map<string, Set<string>>()
 
 /**
- * 要这些段的译文（已经有的、正在翻的跳过）。course：照哪门课的术语表（null 不用）。
- * 返回翻完的 Promise。
+ * 要这些段的译文（已经有的、正在翻的跳过）。返回翻完的 Promise。
  */
-export function request(key: string, blocks: { text: string }[], course: string | null, fresh = false): Promise<void> {
+export function request(key: string, blocks: { text: string }[], fresh = false): Promise<void> {
   const s = src(key)
   const busy = inflight.get(key) ?? new Set<string>()
   inflight.set(key, busy)
@@ -95,7 +94,7 @@ export function request(key: string, blocks: { text: string }[], course: string 
   emit()
   const job = translateBlocks(
     [...want].map(([id, text]) => ({ id, text })),
-    { target: s.target, course, ...(fresh ? { fresh: true } : {}) },
+    { target: s.target, ...(fresh ? { fresh: true } : {}) },
     (r) => {
       busy.delete(r.id)
       s.tr[r.id] = r.text !== null ? { state: 'ok', text: r.text } : { state: 'err', error: r.error ? errorTitle(r.error as TrError) : '没翻成' }

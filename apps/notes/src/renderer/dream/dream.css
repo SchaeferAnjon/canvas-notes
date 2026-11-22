@@ -2,6 +2,9 @@
 .dream-panel .rhead .ci {
   color: var(--t2);
 }
+.dream-panel .rhead b {
+  font-size: 13px;
+}
 .dlist {
   flex: 1;
   overflow: auto;
@@ -50,9 +53,10 @@
   font-weight: 500;
   padding: 14px 8px 4px;
   display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .dg span {
-  margin-left: auto;
   font-weight: 400;
 }
 .di {
@@ -131,11 +135,20 @@
   text-decoration: line-through;
 }
 
-/* 展开的那一条 */
+/* 展开的那一条（task-m552v，demo .dcard）：一张短小卡，pop 底、阴影、圆角 10，左边和标题对齐；为什么、谁做的挪到中间的条目头上 */
+/*
+ * 选中那条下面展开的一块（2026-11-22 用户看交付页：「白底有点太窄了 而且有点突兀」）：和上下条目同宽、不缩进，
+ * 和选中那条同一个淡色、连成一块（那条下边不圆，这块下边圆 8），不浮起来
+ */
 .dd {
-  margin: 2px 0 8px 34px;
-  padding: 4px 8px 10px 0;
+  margin: 0 0 6px;
+  padding: 2px 8px 10px;
+  border-radius: 0 0 8px 8px;
+  background: var(--fill2);
   container: dd / inline-size;
+}
+.di.on:has(+ .dd) {
+  border-radius: 8px 8px 0 0;
 }
 .dd .pv-k {
   font-size: 12px;
@@ -166,12 +179,13 @@
   max-width: 100%;
 }
 .dd .dchg {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 8px;
   width: 100%;
-  margin-top: 6px;
-  padding: 8px 10px;
+  margin-top: 4px;
+  padding: 6px 8px;
   border: 0;
   border-radius: 8px;
   background: var(--fill);
@@ -181,8 +195,26 @@
   color: var(--t1);
   cursor: pointer;
 }
-.dd .dchg:hover {
+.dd .dchg:hover,
+.dd .dchg.on {
   background: var(--fill2);
+}
+/* 中间开着的就是这个文件：左边一道竖线 */
+.dd .dchg.on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--acc);
+}
+.dd .dchg .tx > span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .dd .dchg > svg {
   flex: none;
@@ -195,14 +227,18 @@
   flex-direction: column;
 }
 .dd .dchg .p {
-  font: 11px var(--mono);
+  font-style: normal;
+  font-size: 12px;
   color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .dd .pv-acts {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
-  margin-top: 12px;
+  margin-top: 9px;
   flex-wrap: wrap;
 }
 .dd .pv-acts .hint {
@@ -210,19 +246,36 @@
   color: var(--t3);
 }
 .dd .pv-state {
-  margin-top: 12px;
-  padding: 8px 12px;
-  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
   background: color-mix(in srgb, var(--green) 12%, transparent);
   color: var(--green);
   font-size: 12px;
+  white-space: nowrap;
 }
 /* 收下后带提交号：一行，说明在前、放不下省略，提交号不折行 */
 .dd .pv-state.has-commit {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
   white-space: nowrap;
+}
+.dd .pv-state .truncate {
+  min-width: 0;
+}
+.dd .pv-undo {
+  margin-left: auto;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--acc-t);
+  font: inherit;
+  cursor: pointer;
+}
+.dd .pv-undo:hover {
+  text-decoration: underline;
 }
 .dd .pv-state.has-commit code {
   flex: none;
@@ -267,7 +320,8 @@
   gap: 4px;
 }
 .dg .dg-pv {
-  margin: -4px 0 -4px 8px;
+  height: 22px;
+  margin: -4px 0 -4px auto;
   font-weight: 400;
 }
 .dsub {
@@ -820,4 +874,49 @@
 }
 .oi-link .meta {
   color: var(--t3);
+}
+
+/* ---------- 顶上进度（task-m552v，demo .prog）：一条一格；看过的灰、收下的绿、丢掉的淡；当前那格一圈 ---------- */
+.dprog {
+  padding: 4px 6px 8px;
+}
+.dprog .row {
+  font-size: 12px;
+  color: var(--t2);
+}
+.dprog .row b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.dprog .bar {
+  display: flex;
+  gap: 3px;
+  margin-top: 7px;
+}
+.dprog .bar button {
+  flex: 1;
+  min-width: 0;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--fill2);
+  cursor: pointer;
+}
+.dprog .bar button.seen {
+  background: var(--line2);
+}
+.dprog .bar button.taken {
+  background: var(--green);
+}
+.dprog .bar button.dropped {
+  background: var(--t3);
+  opacity: 0.55;
+}
+.dprog .bar button.cur {
+  outline: 1.5px solid var(--acc-ring);
+  outline-offset: 2px;
+}
+.dream-panel {
+  outline: none;
 }

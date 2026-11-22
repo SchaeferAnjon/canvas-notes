@@ -12,6 +12,7 @@ import { useLayoutEffect, useRef } from 'react'
 import { cardEditing } from '../doc-editing'
 import { layoutLines } from '../layout-lines'
 import { livePreview } from '../live-preview'
+import { markEditedOnType } from '../ai-mark'
 import { noteKeys } from '../note-keys'
 import { askPending } from '../video/ask-pending'
 import { videoDocWidgets } from '../video/doc-widgets'
@@ -43,6 +44,7 @@ export function UnitEditor(props: {
           history(),
           markdown({ base: markdownLanguage }),
           livePreview,
+          markEditedOnType,
           layoutLines,
           videoDocWidgets,
           askPending,

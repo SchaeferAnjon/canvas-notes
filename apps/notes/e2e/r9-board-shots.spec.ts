@@ -103,7 +103,7 @@ for (const [tone, skin] of [
       await page.mouse.move(w.x + 900, w.y + 560, { steps: 16 })
       await page.mouse.up()
       await shoot(page, `${tone}-07-inbox-dragged`)
-      // 收件箱收起（esc）：标签条上留「收件箱 N」
+      // 收件箱收起（esc）：白板右上角留「收件箱 N」
       await page.keyboard.press('Escape')
       await shoot(page, `${tone}-08-inbox-closed`)
       // 文档看法：列是标题、卡是段落；文末「提到这篇的」

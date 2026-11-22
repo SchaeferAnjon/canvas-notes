@@ -1,7 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
-import type { Clip } from '../../shared/api'
 import { HOLD_POLICY } from '../../shared/web-api'
-import type { ClipMode } from '../WebPanel'
 import { pageReported } from '../plugins/host'
 import { videoReported } from '../video/store'
 import { noteFavicon } from './favicons'
@@ -11,6 +9,7 @@ import { registerWebMenu, type WebMenuHost } from '../ctx/web-menu'
 import { pageOutside } from './page-outside'
 import { readPosIpc } from '../read-along/web'
 import { type LogoEngine, useAiLogo } from '../engine-logo'
+import { attachWebNotes, webMarkIpc, webNotesNav, webSelIpc } from '../web-notes/bridge'
 
 /** 恢复的标签用的网页设置：要用户在这个网页里动过才许出声自动播（和 Chrome 平常一样）；主进程按它认出这是恢复的标签 */
 const HOLD_PREFS = `autoplayPolicy=${HOLD_POLICY}`
@@ -52,12 +51,10 @@ export function WebView(props: {
    * 只在挂上时看一次（webpreferences 属性只在 webview 挂上时生效）；主进程 did-attach-webview 认它（web/media-hold.ts）
    */
   hold?: boolean
-  clipMode: ClipMode
   onRef(el: WebviewEl | null): void
   onAttach(webContentsId: number): void
   onNav(n: NavState): void
   onTitle(title: string): void
-  onClip(c: Clip): void
   /** 网页里右键菜单的「在新标签打开」「在中间栏打开」「整页剪藏」在这个网页所在的地方怎么做 */
   menuHost: WebMenuHost
 }) {
@@ -73,6 +70,7 @@ export function WebView(props: {
   // 用 layout effect：webview 一插进页面就可能挂上，普通 effect 要等画完才跑，会漏掉 did-attach
   useLayoutEffect(() => {
     const w = ref.current!
+    const offNotes = attachWebNotes(w)
     const nav = (loading: boolean) => {
       if (!ready.current) return
       cb.current.onNav({ url: w.getURL(), back: w.canGoBack(), forward: w.canGoForward(), loading })
@@ -103,16 +101,19 @@ export function WebView(props: {
       const next = pendingUrl.current
       pendingUrl.current = null
       if (next) void w.loadURL(next).catch(() => undefined)
-      w.send('cn:mode', cb.current.clipMode)
       w.send('cn:ai-logo', logosRef.current)
+      // 网页的笔记（task-6cxtc）：小条上剪藏剪进哪篇、网页上问过剪过的那几段
+      webNotesNav(w)
       nav(false)
     }
     const onIpc = (e: Event) => {
       const { channel, args } = e as Event & { channel: string; args: unknown[] }
-      if (channel === 'cn:clip') {
-        const c = args[0] as Partial<Clip> | undefined
-        if (!c || typeof c.text !== 'string' || typeof c.url !== 'string' || typeof c.title !== 'string' || !c.text.trim()) return
-        cb.current.onClip({ text: c.text, url: c.url, title: c.title })
+      if (channel === 'cn:sel') {
+        // 选中一段的小条上点了什么（讲解一下、翻译 + 讲一讲、引用、剪藏、⋯ 里的几样）
+        webSelIpc(w, args[0])
+      } else if (channel === 'cn:mark') {
+        // 网页上问过、剪过那一段左边的小标
+        webMarkIpc(w, args[0])
       } else if (channel === 'cn:drag') {
         const d = args[0] as { src?: unknown; alt?: unknown; url?: unknown; title?: unknown } | undefined
         if (typeof d?.src === 'string' && typeof d.url === 'string') noteWebDrag({ src: d.src, alt: String(d.alt ?? ''), url: d.url, title: String(d.title ?? '') })
@@ -142,10 +143,15 @@ export function WebView(props: {
     const onStart = () => nav(true)
     const onStop = () => nav(false)
     const onNavEv = () => nav(false)
+    // 网页里换了网址（# 后面、单页网站换页）：网页的笔记照新的网址再发一次
+    const onInPage = () => {
+      nav(false)
+      if (ready.current) webNotesNav(w)
+    }
     w.addEventListener('did-attach', onAttach)
     w.addEventListener('dom-ready', onReady)
     w.addEventListener('did-navigate', onNavEv)
-    w.addEventListener('did-navigate-in-page', onNavEv)
+    w.addEventListener('did-navigate-in-page', onInPage)
     w.addEventListener('did-start-loading', onStart)
     w.addEventListener('did-stop-loading', onStop)
     w.addEventListener('page-title-updated', onTitle)
@@ -155,19 +161,16 @@ export function WebView(props: {
       w.removeEventListener('did-attach', onAttach)
       w.removeEventListener('dom-ready', onReady)
       w.removeEventListener('did-navigate', onNavEv)
-      w.removeEventListener('did-navigate-in-page', onNavEv)
+      w.removeEventListener('did-navigate-in-page', onInPage)
       w.removeEventListener('did-start-loading', onStart)
       w.removeEventListener('did-stop-loading', onStop)
       w.removeEventListener('page-title-updated', onTitle)
       w.removeEventListener('page-favicon-updated', onFavicon)
       w.removeEventListener('ipc-message', onIpc)
       offMenu()
+      offNotes()
     }
   }, [])
-
-  useEffect(() => {
-    if (ready.current) ref.current?.send('cn:mode', props.clipMode)
-  }, [props.clipMode.mode, props.clipMode.target])
 
   // 网页里画的「翻译」「讲解一下」用哪家的标志（preload/ai-logo.ts）：打开时和设置里换了都发一次
   const logos = { chat: useAiLogo('chat'), translate: useAiLogo('translate') }

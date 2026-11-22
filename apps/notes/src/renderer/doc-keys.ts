@@ -4,14 +4,20 @@
  *   不再续出 `> `；空的 `> ` 行回车一次就退出。在引用中间回车照旧续写；要在引用里换段用 ⇧回车。
  * - 提示块（`> [!tip] 标题`）不一样（和 Obsidian 一样）：标题行、正文最后一行末尾回车在块里续一行 `> `，
  *   空的 `> ` 行再回车才出块。
- * - Tab / ⇧Tab（CN-18）：列表、待办里缩进一级 / 退一级；别处什么都不做，光标不离开正文（md 里行首制表符会变成代码块，不插）。
- *   键盘要离开正文：先按 Esc 再按 Tab（CodeMirror 自带）。
+ * - Tab / ⇧Tab（CN-18，task-busas；键在命令表里能改：indent、outdent）：
+ *   列表、待办里缩进一级 / 退一级；代码块里插、删一级缩进；
+ *   光标紧跟在剪进来的一段（引文）后面：Tab 给它开一段「我的评价」，光标进去；空着的评价里 ⇧Tab 撤掉（review.ts）；
+ *   别处（普通段落、标题、评价里）什么都不做，光标不离开正文（md 里行首制表符会变成代码块，不插）。
+ *   键盘要离开正文：先按 Esc 再按 Tab（CodeMirror 自带）。输入法正在选字时不接（isKey 不认）。
  */
 import { indentLess, indentMore } from '@codemirror/commands'
 import { insertNewlineContinueMarkup } from '@codemirror/lang-markdown'
-import { syntaxTree } from '@codemirror/language'
+import { indentUnit, syntaxTree } from '@codemirror/language'
 import { type EditorState, Prec } from '@codemirror/state'
 import { type EditorView, keymap } from '@codemirror/view'
+import { comboOf } from '../shared/cmd-keys'
+import { isKey, keysFor } from './keys'
+import { shiftTabOutOfReview, tabToReview } from './review'
 
 /** pos 所在的最外层引用 */
 function quoteAt(state: EditorState, pos: number): { from: number; to: number } | null {
@@ -79,9 +85,57 @@ function inList(state: EditorState): boolean {
   })
 }
 
-const tab = (dir: 1 | -1) => (view: EditorView) => {
-  if (view.state.readOnly || !inList(view.state)) return true
-  return dir === 1 ? indentMore(view) : indentLess(view)
+/** 光标（选区的每一头）在代码块里（围栏那两行不算） */
+function inCode(state: EditorState): boolean {
+  return state.selection.ranges.every((r) =>
+    [r.from, r.to].every((pos) => {
+      for (let n: ReturnType<ReturnType<typeof syntaxTree>['resolveInner']> | null = syntaxTree(state).resolveInner(pos, -1); n; n = n.parent) {
+        if (n.name === 'CodeBlock') return true
+        if (n.name !== 'FencedCode') continue
+        const l = state.doc.lineAt(pos)
+        return l.from !== state.doc.lineAt(n.from).from && !(l.to === state.doc.lineAt(n.to).to && /^\s*(`{3,}|~{3,})\s*$/.test(l.text))
+      }
+      return false
+    }),
+  )
+}
+
+/** 代码块里 Tab：没选字插一级缩进，选了几行整行进一级 */
+function codeTab(view: EditorView): boolean {
+  const sel = view.state.selection.main
+  if (!sel.empty) return indentMore(view)
+  const unit = view.state.facet(indentUnit)
+  view.dispatch({ changes: { from: sel.head, insert: unit }, selection: { anchor: sel.head + unit.length }, userEvent: 'input.indent', scrollIntoView: true })
+  return true
+}
+
+const TAB = comboOf({ key: 'Tab', code: 'Tab' })!
+const BACKTAB = comboOf({ key: 'Tab', code: 'Tab', shiftKey: true })!
+
+/** 按下 Tab / ⇧Tab：命令表里这个键现在给了哪条就做哪条，没给谁就接住不做事；输入法正在选字时让给输入法 */
+const byCombo = (combo: string) => (view: EditorView) => {
+  if (view.composing || view.compositionStarted) return false
+  if (keysFor('indent').includes(combo)) return tabKey(view)
+  if (keysFor('outdent').includes(combo)) return shiftTabKey(view)
+  return true
+}
+
+/** Tab（命令表 indent）：代码块、列表、剪进来的一段后面写评价；别处接住不做事（光标不离开正文） */
+export function tabKey(view: EditorView): boolean {
+  if (view.state.readOnly) return true
+  if (inCode(view.state)) return codeTab(view)
+  if (inList(view.state)) return indentMore(view)
+  tabToReview(view)
+  return true
+}
+
+/** ⇧Tab（命令表 outdent）：代码块、列表退一级；空着的「我的评价」撤掉 */
+export function shiftTabKey(view: EditorView): boolean {
+  if (view.state.readOnly) return true
+  if (inCode(view.state)) return indentLess(view)
+  if (inList(view.state)) return indentLess(view)
+  shiftTabOutOfReview(view)
+  return true
 }
 
 // markdown() 自己的回车是 Prec.high、排在前面，这里要 highest 才先轮到（/ 菜单的回车也是 highest、排在更前面，菜单开着时照旧先给它）
@@ -90,6 +144,10 @@ export const docKeys = Prec.highest(
     { key: 'Enter', run: enterInQuote },
     { key: 'Backspace', run: backspaceOutOfQuote },
     { key: 'Shift-Enter', run: shiftEnter },
-    { key: 'Tab', run: tab(1), shift: tab(-1) },
+    // 真按 Tab、⇧Tab：按命令表现在归谁做（默认缩进 / 写评价、退一级）；改给了别的键就接住不做事，光标不离开正文。
+    // 写成具名的键（不是 any）：hidden-syntax.test 照键表把每个会改文档的键在每种藏起来的语法上按一遍
+    { key: 'Tab', run: byCombo(TAB), shift: byCombo(BACKTAB) },
+    // 改成别的键（⌃] 这种）以后：那个键做缩进 / 写评价、退一级
+    { any: (v, e) => !e.isComposing && e.key !== 'Tab' && (isKey(e, 'indent') ? tabKey(v) : isKey(e, 'outdent') ? shiftTabKey(v) : false) },
   ]),
 )

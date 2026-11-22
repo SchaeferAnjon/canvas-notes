@@ -9,7 +9,9 @@ import { BoardView, type BoardZoomApi } from './BoardView'
 import { loadZoom, saveZoom } from './board-zoom'
 import { type MenuEntry, showMenu } from './ctx/menu'
 import { DocBoardView } from './doc-board/DocBoardView'
-import { InboxButton, inboxOf } from './doc-board/inbox'
+import { PanelGuard } from './crash/Guard'
+import { BoardCorner } from './doc-board/corner'
+import { inboxOf } from './doc-board/inbox'
 import { app } from './ctx/actions'
 import { AiActLayer } from './ai-act'
 import { DocToc, isWide, setWide } from './doc-toc'
@@ -310,9 +312,11 @@ export function NoteTab(props: NoteTabProps) {
 
   // 独占一行的 [[白板]] 画成白板卡：库里白板的颜色、卡片数（board-link.ts）
   const boards = useMemo(
-    () => new Map(props.notes.flatMap((n) => (n.board ? [[titleOf(n.path).toLowerCase(), { path: n.path, color: n.board.color, cards: n.board.nodes ?? n.board.cards, icon: n.board.icon }] as const] : []))),
+    () => new Map(props.notes.flatMap((n) => (n.board ? [[titleOf(n.path).toLowerCase(), { path: n.path, color: n.board.color, cards: n.board.nodes ?? n.board.cards, icon: n.board.icon, ...(n.board.nodes !== undefined ? { map: true } : {}) }] as const] : []))),
     [props.notes],
   )
+  /** 文末「提到这篇的」里白板、导图画它自己的颜色方块（task-wuv05） */
+  const boardColors = useMemo(() => new Map(props.notes.flatMap((n) => (n.board ? [[n.path, n.board.color] as const] : []))), [props.notes])
   useEffect(() => {
     doc.current?.view.dispatch({ effects: setBoards.of(boards) })
   }, [boards, text === null])
@@ -418,6 +422,29 @@ export function NoteTab(props: NoteTabProps) {
     }
   }
 
+  /**
+   * 白板右上角的缩放「80% ▾」和「收件箱 N」（task-wz7gb）：浮在白板上，不在标签条里，切任务 / 白板 / 文档时标签条那一排不动。
+   * 只有当前标签挂（⇧⌘I 只归前面这块白板）
+   */
+  const corner =
+    active && mode === 'board' ? (
+      <BoardCorner
+        pct={Math.round(boardScale * 100)}
+        zoomKeys={[K('zoom-in'), K('zoom-out'), K('zoom-reset')].filter(Boolean).join(' ') || undefined}
+        inboxCount={inboxOf(props.notes, path).length}
+        onZoomMenu={() =>
+          void showMenu([
+            { label: '放大', accel: accelFor('zoom-in'), run: () => zoomApi.current?.step(1) },
+            { label: '缩小', accel: accelFor('zoom-out'), run: () => zoomApi.current?.step(-1) },
+            { label: '100%', accel: accelFor('zoom-reset'), run: () => zoomApi.current?.set(1) },
+            { label: '适合窗口', accel: accelFor('zoom-fit'), run: () => zoomApi.current?.fit() },
+            '-',
+            { label: '触控板捏合、按住 ⌘ 滚动也能缩放', enabled: false, run: () => undefined },
+          ])
+        }
+      />
+    ) : null
+
   return (
     <section className="pane" hidden={!active} data-path={path} ref={paneRef}>
       <TabActs active={active}>
@@ -470,31 +497,6 @@ export function NoteTab(props: NoteTabProps) {
             </button>
           ))}
         </div>
-        {mode === 'board' && (
-          // 比例本身就是按钮，点开是缩放菜单（按钮带菜单）
-          <button
-            className="ab-act zoom"
-            aria-label="缩放"
-            data-testid="board-zoom"
-            data-tip="缩放"
-            data-key={[K('zoom-in'), K('zoom-out'), K('zoom-reset')].filter(Boolean).join(' ') || undefined}
-            data-side="below"
-            onClick={() =>
-              void showMenu([
-                { label: '放大', accel: accelFor('zoom-in'), run: () => zoomApi.current?.step(1) },
-                { label: '缩小', accel: accelFor('zoom-out'), run: () => zoomApi.current?.step(-1) },
-                { label: '100%', accel: accelFor('zoom-reset'), run: () => zoomApi.current?.set(1) },
-                { label: '适合窗口', accel: accelFor('zoom-fit'), run: () => zoomApi.current?.fit() },
-                '-',
-                { label: '触控板捏合、按住 ⌘ 滚动也能缩放', enabled: false, run: () => undefined },
-              ])
-            }
-          >
-            <span className="num">{Math.round(boardScale * 100)}%</span>
-            <Codicon name="chevron-down" size={12} />
-          </button>
-        )}
-        {mode === 'board' && <InboxButton count={inboxOf(props.notes, path).length} />}
         <ActBtn
           icon="ellipsis"
           label="更多"
@@ -531,13 +533,15 @@ export function NoteTab(props: NoteTabProps) {
         <div className={'doc ' + mode + (wide ? ' wide' : '')} ref={host} />
       </div>
       {/* 文末「提到这篇的」：画在编辑器下面（版心里），不写进文件 */}
-      {mode === 'doc' && text !== null && host.current && createPortal(<Backlinks path={path} version={linkVersion} board={fmValue(text, 'type') === 'board'} />, host.current)}
+      {mode === 'doc' && text !== null && host.current && createPortal(<Backlinks path={path} version={linkVersion} board={fmValue(text, 'type') === 'board'} boards={boardColors} />, host.current)}
       {/* AI 在这篇文档里动手（插入、改写）：外圈和顶上「AI 正在改这篇 · 停下 esc」（DESIGN.v3 2.3）；白板看法里由白板自己画 */}
       {mode === 'doc' && <AiActLayer area="doc" path={path} host={paneRef} />}
       {/* 任务界面（task-pd1d1）：这一篇的待办，和左边「待办」格、文件夹首页的待办卡同一份、同一套样子 */}
       {mode === 'task' && <TaskView path={path} />}
       {mode === 'doc' && text !== null && <DocToc text={text} doc={() => doc.current} scroller={() => bodyRef.current} onOpenOutline={() => cb.current.onOpenOutline()} />}
       {/* 白板就是这篇文档（2026-11-21 方向 A，doc-board/）：type: board 的也是；导图和撤回了转写法的旧白板照旧用自由白板 */}
+      {/* 白板出错只白板这一格换成出错卡（task-pyb39），标签头、切回文档照常 */}
+      <PanelGuard area="board" label="白板">
       {mode === 'board' && text !== null && !legacy && (
         <DocBoardView
           text={text}
@@ -549,12 +553,13 @@ export function NoteTab(props: NoteTabProps) {
           zoom={zoom}
           onZoom={setZoom}
           zoomApi={zoomApi}
+          corner={corner}
           onChange={(t) => doc.current?.setText(t)}
           onDraft={(f) => doc.current && (doc.current.draft = f)}
           onNotice={(t) => cb.current.onNotice(t)}
           onCreateSubBoard={async () => {
             const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
-            const p = await window.cn.createBoard(dir, '未命名白板')
+            const p = await window.cn.createBoard(dir, '未命名白板', titleOf(path))
             cb.current.onOpenPath(p, true)
             return titleOf(p)
           }}
@@ -580,6 +585,7 @@ export function NoteTab(props: NoteTabProps) {
           onZoom={setZoom}
           active={active}
           zoomApi={zoomApi}
+          corner={corner}
           readOnly={readOnly}
           onChange={(t) => doc.current?.setText(t)}
           onUndo={() => doc.current?.undo()}
@@ -589,12 +595,13 @@ export function NoteTab(props: NoteTabProps) {
           onDraft={(f) => doc.current && (doc.current.draft = f)}
           onCreateSubBoard={async () => {
             const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
-            const p = await window.cn.createBoard(dir, '未命名白板')
+            const p = await window.cn.createBoard(dir, '未命名白板', titleOf(path))
             cb.current.onOpenPath(p, true)
             return titleOf(p)
           }}
         />
       )}
+      </PanelGuard>
     </section>
   )
 }

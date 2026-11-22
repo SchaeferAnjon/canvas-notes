@@ -32,8 +32,12 @@ async function send(page: Page, text: string) {
 
 /** 白板上卡片的位置和大小（白板坐标） */
 /** 空白处的卡（新写法：前面一行位置 <!-- card id x y -->） */
+/** 白板上的卡：AI 加的包成 [!ai] 块（task-dtc34，一张卡一个块），text 是块里那一行 */
 function cardsOf(md: string) {
-  return [...md.matchAll(/<!-- card id=(\w+) x=(\d+) y=(\d+) -->\n([^\n]+)/g)].map((m) => ({ id: m[1]!, x: +m[2]!, y: +m[3]!, text: m[4]! }))
+  return [...md.matchAll(/<!-- card id=(\w+) x=(\d+) y=(\d+) -->\n([^\n]+)(?:\n([^\n]+))?/g)].map((m) => {
+    const ai = /^> \[!ai\] AI 写的 · Claude Code/.test(m[4]!)
+    return { id: m[1]!, x: +m[2]!, y: +m[3]!, text: ai ? m[5]!.replace(/^> /, '') : m[4]!, ai }
+  })
 }
 
 let server: Server
@@ -139,6 +143,8 @@ test('白板上让 AI 加卡片并排整齐：文件里对、一次提交、撤�
     const md = readFileSync(join(vault, '旅行计划.md'), 'utf8')
     const cards = cardsOf(md)
     expect(cards.map((c) => c.text)).toEqual(['出发前先定住处', '冰岛环岛十天', '订机票', '订租车', '看极光'])
+    // AI 加的三张各是一个 AI 块（不并成一张），原来的两张不动
+    expect(cards.map((c) => c.ai)).toEqual([false, false, true, true, true])
     // 网格：一行 3 个（5 张取平方根向上取整），从上到下、从左到右，原来的顺序是 b a 订机票 订租车 看极光
     const pos = Object.fromEntries(cards.map((c) => [c.text, [c.x, c.y]]))
     expect(pos['冰岛环岛十天']).toEqual([64, 144])
@@ -220,7 +226,8 @@ test('文档里让 AI 在光标处插入：用户没提交的字先单独提交�
     await expect(msg.getByTestId('ai-change')).toContainText('改了1个文件')
     await expect(msg.getByTestId('ai-step')).toHaveText(['读文档', '插入「AI 写的一段」'])
     await expect(pane(page).locator('.cm-content')).toContainText('AI 写的一段')
-    expect(readFileSync(join(vault, '随笔.md'), 'utf8')).toBe('# 随笔\n\n第一段。用户加的\n\nAI 写的一段\n\n第二段。\n')
+    // AI 插的一段包成 AI 块（task-dtc34）：头上写哪家哪个模型、链回这段对话
+    expect(readFileSync(join(vault, '随笔.md'), 'utf8')).toMatch(/^# 随笔\n\n第一段。用户加的\n\n> \[!ai\] AI 写的 · Claude Code · Opus 5\.5 · \[回到 AI 对话\]\(canvas-notes:\/\/chat\?key=[^)\s]+&msg=\d+\)\n> AI 写的一段\n\n第二段。\n$/)
     expect(gitOut(vault, 'log', '-2', '--format=%s').split('\n')).toEqual(['AI：在光标处插入「AI 写的一段」', '更新 1 个文件：随笔'])
 
     await msg.getByRole('button', { name: '撤回' }).click()

@@ -23,17 +23,25 @@ export const newTabId = () => `w${Date.now().toString(36)}${(seq++).toString(36)
 
 const KEY = 'cn.webtabs'
 
-export function loadWebTabs(): WebTabs {
+/** 上次开着的网页标签；坏的丢掉、记一行日志（onDrop，task-pyb39），别的照样恢复 */
+export function loadWebTabs(onDrop: (why: string) => void = () => {}): WebTabs {
   try {
     const raw = localStorage.getItem(KEY)
     if (!raw) return EMPTY
-    const v = JSON.parse(raw) as Partial<WebTabs>
-    const tabs = (v.tabs ?? []).filter((t) => t && typeof t.id === 'string' && typeof t.url === 'string' && /^https?:/.test(t.url))
+    const v = JSON.parse(raw) as Partial<WebTabs> | null
+    if (!v || typeof v !== 'object') throw new Error('不是对象')
+    const all: unknown[] = Array.isArray(v.tabs) ? v.tabs : []
+    const tabs = all.filter((t): t is WebTab => !!t && typeof (t as WebTab).id === 'string' && typeof (t as WebTab).url === 'string' && /^https?:/.test((t as WebTab).url))
+    // 不是 http(s) 的（file:、about:）原来就不恢复，不算坏数据
+    const bad = all.filter((t) => !t || typeof (t as WebTab).id !== 'string' || typeof (t as WebTab).url !== 'string').length
+    if (v.tabs !== undefined && !Array.isArray(v.tabs)) onDrop('网页标签记录里的列表不是数组')
+    else if (bad) onDrop(`丢掉 ${bad} 个网页标签`)
     const active = tabs.some((t) => t.id === v.active) ? v.active! : (tabs[0]?.id ?? null)
-    const owners = Object.fromEntries(Object.entries(v.owners ?? {}).filter(([, id]) => tabs.some((t) => t.id === id)))
+    const owners = Object.fromEntries(Object.entries(v.owners && typeof v.owners === 'object' ? v.owners : {}).filter(([, id]) => tabs.some((t) => t.id === id)))
     return { tabs: tabs.map((t) => ({ id: t.id, url: t.url, title: String(t.title ?? '') })), active, owners }
-  } catch {
+  } catch (e) {
     // 记不住上次开的网页不影响使用
+    onDrop(`网页标签记录读不出来：${(e as Error).message}`)
     return EMPTY
   }
 }

@@ -11,22 +11,24 @@ import { EngineLogo } from './engine-logo'
 /** 主进程报的错去掉 Electron 加的前缀 */
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 import { Group, Row, useSaid } from './settings/ui'
+import { t as tNow } from '../shared/i18n'
+import { useT } from './i18n'
 
 export const CLI_ROW: Record<EngineId, string> = { claude: 'cliClaude', codex: 'cliCodex', gemini: 'cliGemini', opencode: 'cliOpencode' }
 
 /** 说明那一行：前面一个小点（绿 能用，黄 没查成、正在查、只是提醒，红 不兼容、没更新成），后面一句 */
 export function engineStatus(e: EngineInfo): { dot: 'ok' | 'warn' | 'bad' | null; text: string } {
-  if (!e.path) return { dot: null, text: e.broken ? '找到了，运行不了' : '没找到' }
-  if (e.update?.state === 'running') return { dot: 'warn', text: `正在运行 ${e.update.text}…` }
-  if (!e.version) return { dot: 'warn', text: '正在读版本…' }
+  if (!e.path) return { dot: null, text: e.broken ? tNow('找到了，运行不了') : tNow('没找到') }
+  if (e.update?.state === 'running') return { dot: 'warn', text: tNow('正在运行 {cmd}…', { cmd: e.update.text }) }
+  if (!e.version) return { dot: 'warn', text: tNow('正在读版本…') }
   const parts: string[] = []
   let dot: 'ok' | 'warn' | 'bad' = 'ok'
   if (e.update?.state === 'failed') {
-    parts.push(`没更新成：${e.update.why}`)
+    parts.push(tNow('没更新成：{why}', { why: e.update.why }))
     dot = 'bad'
   }
   if (e.checking) {
-    parts.push(`${e.version} · 正在自查…`)
+    parts.push(tNow('{v} · 正在自查…', { v: e.version }))
     if (dot === 'ok') dot = 'warn'
   } else if (e.health) {
     parts.push(healthText(e.health))
@@ -37,9 +39,9 @@ export function engineStatus(e: EngineInfo): { dot: 'ok' | 'warn' | 'bad' | null
     if (dot === 'ok') dot = 'warn'
   }
   // 不兼容时只说问题（模型几个、什么时候拉的这会儿不要紧）
-  if (e.health?.state !== 'bad' && e.pulled) parts.push(e.pulledCount ? `${e.pulledCount}个模型，${e.pulled}` : e.pulled)
-  if (e.update?.state === 'ok' && e.update.from && e.update.to && e.update.from !== e.update.to) parts.push(`刚从 ${e.update.from} 更新到 ${e.update.to}`)
-  if (e.latest) parts.push(`有新版 ${e.latest}`)
+  if (e.health?.state !== 'bad' && e.pulled) parts.push(e.pulledCount ? tNow('{n}个模型，{when}', { n: e.pulledCount, when: e.pulled }) : e.pulled)
+  if (e.update?.state === 'ok' && e.update.from && e.update.to && e.update.from !== e.update.to) parts.push(tNow('刚从 {from} 更新到 {to}', { from: e.update.from, to: e.update.to }))
+  if (e.latest) parts.push(tNow('有新版 {v}', { v: e.latest }))
   if (e.latestNote) parts.push(e.latestNote)
   if (e.updateWith && 'none' in e.updateWith) parts.push(e.updateWith.none)
   return { dot, text: parts.join(' · ') }
@@ -51,6 +53,7 @@ function withCode(text: string) {
 }
 
 export function EngineRows(props: { engines: EngineInfo[]; onNotice(t: string): void }) {
+  const t = useT()
   const said = useSaid()
   /** 正在「检查更新」的那几家（等主进程做完） */
   const [busy, setBusy] = useState<Set<EngineId>>(new Set())
@@ -74,8 +77,8 @@ export function EngineRows(props: { engines: EngineInfo[]; onNotice(t: string): 
   const update = async (e: EngineInfo) => {
     try {
       const r = await window.cn.aiCliUpdate(e.id)
-      if (r.update?.state === 'failed') said.say(`${e.label}没更新成：${r.update.why}`)
-      else if (r.update?.state === 'ok') said.say(r.update.from && r.update.to && r.update.from !== r.update.to ? `${e.label}更新好了：${r.update.from} → ${r.update.to}` : `${e.label}已是最新`)
+      if (r.update?.state === 'failed') said.say(tNow('{name}没更新成：{why}', { name: e.label, why: r.update.why }))
+      else if (r.update?.state === 'ok') said.say(r.update.from && r.update.to && r.update.from !== r.update.to ? tNow('{name}更新好了：{from} → {to}', { name: e.label, from: r.update.from, to: r.update.to }) : tNow('{name}已是最新', { name: e.label }))
     } catch (err) {
       props.onNotice(errText(err))
     }
@@ -83,7 +86,7 @@ export function EngineRows(props: { engines: EngineInfo[]; onNotice(t: string): 
   // 「更新到 x」实心黑只给一颗：不兼容、又有新版的第一家（design 复审：一页一颗主按钮，给真坏了的那家）；别的有新版的是次按钮「更新」
   const urgent = props.engines.find((e) => e.health?.state === 'bad' && e.latest)?.id
   return (
-    <Group title="各家命令行">
+    <Group title={t('各家命令行')}>
       {props.engines.map((e) => {
         const st = engineStatus(e)
         const running = e.update?.state === 'running'
@@ -109,15 +112,15 @@ export function EngineRows(props: { engines: EngineInfo[]; onNotice(t: string): 
               (running ? (
                 <button type="button" className="sa-btn aipk-cli-btn" disabled>
                   <Codicon name="loading" size={14} className="spin" />
-                  正在更新…
+                  {t('正在更新…')}
                 </button>
               ) : e.latest ? (
-                <button type="button" className={'sa-btn aipk-cli-btn' + (e.id === urgent ? ' primary' : '')} aria-label={`更新到 ${e.latest}`} data-tip={`会运行 ${(e.updateWith as { text: string }).text}`} onClick={() => void update(e)}>
-                  {e.id === urgent ? `更新到 ${e.latest}` : '更新'}
+                <button type="button" className={'sa-btn aipk-cli-btn' + (e.id === urgent ? ' primary' : '')} aria-label={t('更新到 {v}', { v: e.latest })} data-tip={t('会运行 {cmd}', { cmd: (e.updateWith as { text: string }).text })} onClick={() => void update(e)}>
+                  {e.id === urgent ? t('更新到 {v}', { v: e.latest }) : t('更新', { ctx: '按钮' })}
                 </button>
               ) : (
                 <button type="button" className="sa-btn aipk-cli-btn" disabled={busy.has(e.id)} onClick={() => void check(e)}>
-                  {busy.has(e.id) ? '正在查…' : '检查更新'}
+                  {busy.has(e.id) ? t('正在查…') : t('检查更新')}
                 </button>
               ))}
           </Row>

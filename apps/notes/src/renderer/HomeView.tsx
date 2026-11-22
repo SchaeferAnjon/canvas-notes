@@ -42,6 +42,8 @@ import './home.css'
 import { dateText, when } from '../shared/when'
 import { appSettings } from './settings-store'
 import { isTodoNote } from '../shared/todo'
+import { rich, useT } from './i18n'
+import { uiLang } from '../shared/i18n'
 
 /** 本周一 0 点 */
 export function weekStart(now = new Date()): number {
@@ -71,7 +73,8 @@ export function useActivity(version: number) {
   return act
 }
 
-const WEEKDAY = '一二三四五六日'
+/** 这周第 i 天（周一是 0）的叫法，跟界面语言：narrow「一」「M」、short「周一」「Mon」、long「星期一」「Monday」 */
+const wk = (i: number, style: 'narrow' | 'short' | 'long') => new Intl.DateTimeFormat(uiLang() === 'en' ? 'en-US' : 'zh-CN', { weekday: style }).format(new Date(2024, 0, 1 + i))
 const ICONS: Record<WidgetId, CodiconName> = {
   cats: 'folder',
   clock: 'clockface',
@@ -117,6 +120,7 @@ const sameCover = (a: Cover, b: Cover) => (a.kind === 'file' ? b.kind === 'file'
  * 组件、编辑、换封面两种一样；设置存在库里的 .canvas-notes/首页.json。
  */
 export function HomeView(props: HomeProps) {
+  const t = useT()
   const cfg = useHomeConfig()
   const act = useActivity(props.version)
   const [editing, setEditing] = useState(false)
@@ -189,8 +193,8 @@ export function HomeView(props: HomeProps) {
           <>
             <button
               className="wgrip"
-              aria-label={`拖动${WIDGETS.find((w) => w.id === id)!.name}`}
-              title="按住拖到别的组件前面"
+              aria-label={t('拖动{name}', { name: t(WIDGETS.find((w) => w.id === id)!.name) })}
+              title={t('按住拖到别的组件前面')}
               onPointerDown={(e) => onGripDown(e, id)}
               onPointerMove={onGripMove}
               onPointerUp={onGripUp}
@@ -202,21 +206,21 @@ export function HomeView(props: HomeProps) {
               {!fixed && (
                 <button onClick={() => save(resizeWidget(cfg, id))}>
                   <Codicon name="arrow-swap" size={12} />
-                  {sizeAction(size)}
+                  {t(sizeAction(size))}
                 </button>
               )}
               <button onClick={() => save(hideWidget(cfg, id))}>
                 <Codicon name="screen-normal" size={12} />
-                收起
+                {t('收起')}
               </button>
             </div>
           </>
         )}
         <div className="wk">
           <Codicon name={ICONS[id]} size={14} />
-          {WIDGETS.find((w) => w.id === id)!.name}
+          {t(WIDGETS.find((w) => w.id === id)!.name)}
           {id === 'wall' && <WallLegend />}
-          {id === 'cats' && <span className="r num">{`${CATEGORIES.length}个 · 点开看它的首页`}</span>}
+          {id === 'cats' && <span className="r num">{t('{n}个 · 点开看它的首页', { n: CATEGORIES.length })}</span>}
         </div>
         <Widget id={id} {...props} a={a} act={act} />
       </div>
@@ -229,25 +233,25 @@ export function HomeView(props: HomeProps) {
         {editing ? (
           <button className="btn btn-primary btn-sm" onClick={() => setEditing(false)}>
             <Codicon name="check" size={14} />
-            完成
+            {t('完成')}
           </button>
         ) : (
           <>
-            <ActBtn icon="edit" label="编辑首页" text onClick={() => setEditing(true)} />
+            <ActBtn icon="edit" label={t('编辑首页')} text onClick={() => setEditing(true)} />
             <ActBtn
               icon="ellipsis"
-              label="更多"
+              label={t('更多')}
               onClick={(e) =>
                 void menuAt(e, [
                   {
-                    label: '换封面',
+                    label: t('换封面'),
                     run: () => {
-                      if (props.winBg) return props.onNotice('首页现在用窗口背景那张图：设置 › 外观 › 首页样式 里取消「整页背景用窗口背景那张图」，就能换封面')
+                      if (props.winBg) return props.onNotice(t('首页现在用窗口背景那张图：设置 › 外观 › 首页样式 里取消「整页背景用窗口背景那张图」，就能换封面'))
                       document.querySelector('.homev:not([hidden]) .hscroll')?.closest('.body')?.scrollTo({ top: 0, behavior: 'smooth' })
                       setGallery(true)
                     },
                   },
-                  { label: '编辑首页', run: () => setEditing(true) },
+                  { label: t('编辑首页'), run: () => setEditing(true) },
                 ])
               }
             />
@@ -302,35 +306,35 @@ export function HomeView(props: HomeProps) {
               window.addEventListener('pointerup', up)
             }}
           >
-            {adjustY !== null && <span className="hint">上下拖动图片，挑一个位置</span>}
+            {adjustY !== null && <span className="hint">{t('上下拖动图片，挑一个位置')}</span>}
             <div className="cacts">
               {props.winBg ? (
                 <button
                   className="cbtn"
                   aria-disabled="true"
-                  aria-label="换封面（整页背景用的是窗口背景那张图，不能换）"
-                  data-tip="整页背景用的是窗口背景那张图：设置 › 外观 › 首页样式 里取消勾选就能换封面"
+                  aria-label={t('换封面（整页背景用的是窗口背景那张图，不能换）')}
+                  data-tip={t('整页背景用的是窗口背景那张图：设置 › 外观 › 首页样式 里取消勾选就能换封面')}
                   data-side="below"
-                  onClick={() => props.onNotice('首页现在用窗口背景那张图：设置 › 外观 › 首页样式 里取消「整页背景用窗口背景那张图」，就能换封面')}
+                  onClick={() => props.onNotice(t('首页现在用窗口背景那张图：设置 › 外观 › 首页样式 里取消「整页背景用窗口背景那张图」，就能换封面'))}
                 >
                   <Codicon name="file-media" size={14} />
-                  换封面
+                  {t('换封面')}
                 </button>
               ) : adjustY === null ? (
                 <>
                   <button className="cbtn" onClick={() => setGallery((v) => !v)} aria-expanded={gallery}>
                     <Codicon name="file-media" size={14} />
-                    换封面
+                    {t('换封面')}
                   </button>
                   <button className="cbtn" onClick={() => (setGallery(false), setAdjustY(cfg.coverY))}>
                     <Codicon name="arrow-swap" size={14} />
-                    调整位置
+                    {t('调整位置')}
                   </button>
                 </>
               ) : (
                 <>
                   <button className="cbtn" onClick={() => setAdjustY(null)}>
-                    取消
+                    {t('取消')}
                   </button>
                   <button
                     className="cbtn pri"
@@ -339,7 +343,7 @@ export function HomeView(props: HomeProps) {
                       setAdjustY(null)
                     }}
                   >
-                    保存位置
+                    {t('保存位置')}
                   </button>
                 </>
               )}
@@ -350,9 +354,13 @@ export function HomeView(props: HomeProps) {
             <div className="hello">
               <div>
                 {/* 空库（还一篇都没有）：先说这是个新库（第三版空库那屏），不问候「夜深了」 */}
-                <h2 data-testid="home-title">{empty ? '欢迎，这是一个新库' : greeting(now)}</h2>
+                <h2 data-testid="home-title">{empty ? t('欢迎，这是一个新库') : t(greeting(now))}</h2>
                 <p className="lead">
-                  {empty ? '先存点东西进来，首页会慢慢长出来。' : `${dateText(now.getTime())} · ${a.wrote + a.clipped ? `这周攒下了${a.wrote + a.clipped}样东西` : '这周还没攒下东西'}`}
+                  {empty
+                    ? t('先存点东西进来，首页会慢慢长出来。')
+                    : a.wrote + a.clipped
+                      ? t('{date} · 这周攒下了{n}样东西', { date: dateText(now.getTime()), n: a.wrote + a.clipped })
+                      : t('{date} · 这周还没攒下东西', { date: dateText(now.getTime()) })}
                 </p>
               </div>
             </div>
@@ -364,14 +372,14 @@ export function HomeView(props: HomeProps) {
               <div className="tray" data-testid="home-tray">
                 <div className="hd">
                   <Codicon name="add" size={14} />
-                  收起来的组件，点一下放回首页
+                  {t('收起来的组件，点一下放回首页')}
                 </div>
                 <div className="items">
-                  {cfg.hidden.length === 0 && <span className="none">都在首页上了</span>}
+                  {cfg.hidden.length === 0 && <span className="none">{t('都在首页上了')}</span>}
                   {cfg.hidden.map((id) => (
                     <button key={id} className="ti" onClick={() => save(showWidget(cfg, id))}>
                       <Codicon name={ICONS[id]} size={14} />
-                      {WIDGETS.find((w) => w.id === id)!.name}
+                      {t(WIDGETS.find((w) => w.id === id)!.name)}
                     </button>
                   ))}
                 </div>
@@ -386,26 +394,27 @@ export function HomeView(props: HomeProps) {
 
 /** 换封面：照片 / 渐变 / 从电脑选 / 随机一张；点一张立即换，弹层不关 */
 export function CoverGallery(props: { cfg: HomeConfig; onPick(c: HomeConfig): void; onNotice(t: string): void; onClose(): void }) {
+  const t = useT()
   const { cfg } = props
   const [tab, setTab] = useState<'photo' | 'grad'>(cfg.cover.kind === 'builtin' && (COVER_GRADIENTS as readonly string[]).includes(cfg.cover.id) ? 'grad' : 'photo')
   const ids: readonly BuiltinCover[] = tab === 'photo' ? COVER_PHOTOS : COVER_GRADIENTS
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const close = (e: MouseEvent) => {
-      const t = e.target as HTMLElement
-      if (!box.current?.contains(t) && !t.closest('.cacts')) props.onClose()
+      const el = e.target as HTMLElement
+      if (!box.current?.contains(el) && !el.closest('.cacts')) props.onClose()
     }
     document.addEventListener('mousedown', close)
     return () => document.removeEventListener('mousedown', close)
   }, [])
   return (
-    <div className="gal" ref={box} role="dialog" aria-label="换封面">
+    <div className="gal" ref={box} role="dialog" aria-label={t('换封面')}>
       <div className="gt">
         <button className={tab === 'photo' ? 'on' : ''} onClick={() => setTab('photo')}>
-          照片
+          {t('照片')}
         </button>
         <button className={tab === 'grad' ? 'on' : ''} onClick={() => setTab('grad')}>
-          渐变
+          {t('渐变')}
         </button>
         <button
           onClick={async () => {
@@ -417,7 +426,7 @@ export function CoverGallery(props: { cfg: HomeConfig; onPick(c: HomeConfig): vo
             }
           }}
         >
-          从电脑选
+          {t('从电脑选')}
         </button>
         <span className="sp" />
         <button
@@ -427,13 +436,13 @@ export function CoverGallery(props: { cfg: HomeConfig; onPick(c: HomeConfig): vo
           }}
         >
           <Codicon name="arrow-swap" size={12} />
-          随机一张
+          {t('随机一张')}
         </button>
       </div>
       <div className="gg">
         {ids.map((id) => {
           const on = cfg.cover.kind === 'builtin' && cfg.cover.id === id
-          const name = COVERS.find((c) => c.id === id)!.name
+          const name = t(COVERS.find((c) => c.id === id)!.name)
           return (
             <button key={id} className={on ? 'on' : ''} aria-pressed={on} aria-label={name} title={name} onClick={() => props.onPick({ ...cfg, cover: { kind: 'builtin', id } })}>
               <i style={{ backgroundImage: coverImage({ kind: 'builtin', id }, true) }} />
@@ -448,16 +457,17 @@ export function CoverGallery(props: { cfg: HomeConfig; onPick(c: HomeConfig): vo
 
 /** 空库时排第一的「从这里开始」：三步，库里有了第一篇东西后自动消失 */
 function StartWidget(props: HomeProps) {
+  const t = useT()
   const steps: [string, string, string, CodiconName, () => void][] = [
-    ['剪一段网页', '在右栏打开网页，选中一段就能剪进收件箱', '开网页', 'globe', props.onOpenWeb],
-    ['建一块白板', '把想法摊开成卡片，拖来拖去排位置', '新建白板', 'layout', props.onNewBoard],
-    ['搬进旧笔记', 'Obsidian之类的文件夹直接打开就能用', '选文件夹', 'root-folder', props.onChooseFolder],
+    [t('剪一段网页'), t('在右栏打开网页，选中一段就能剪进收件箱'), t('开网页'), 'globe', props.onOpenWeb],
+    [t('建一块白板'), t('把想法摊开成卡片，拖来拖去排位置'), t('新建白板'), 'layout', props.onNewBoard],
+    [t('搬进旧笔记'), t('Obsidian之类的文件夹直接打开就能用'), t('选文件夹'), 'root-folder', props.onChooseFolder],
   ]
   return (
     <div className="wd s4 w-start" data-testid="widget-start">
       <div className="wk">
         <Codicon name="rocket" size={14} />
-        从这里开始
+        {t('从这里开始')}
       </div>
       <div className="ssteps">
         {steps.map(([name, note, btn, icon, go], i) => (
@@ -477,31 +487,26 @@ function StartWidget(props: HomeProps) {
 }
 
 function WallLegend() {
+  const t = useT()
   return (
     <span className="hleg r">
-      少
+      {t('少')}
       {[0, 1, 2, 3, 4].map((l) => (
         <i key={l} style={{ background: `var(--w${l})` }} />
       ))}
-      多
+      {t('多')}
     </span>
   )
 }
 
-const DREAM_LINES: Record<DreamGroup, [string, CodiconName]> = {
-  attach: ['张 老图挪进各篇的文件夹', 'file-media'],
-  file: ['处 归类和改名', 'inbox'],
-  viz: ['个 可视化', 'preview'],
-  link: ['处 补了双链', 'link'],
-  dup: ['对 可能重复', 'copy'],
-  week: ['篇 本周小结', 'edit'],
-}
+const DREAM_ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', dup: 'copy', week: 'edit' }
 
 /**
  * 首页的「分类」（方向 C「首页分类卡」）：八张卡四列，上面一条 60 高的封面（和那一类首页的横幅同一张），
  * 下面图标（染那一类的颜色）+ 名字，再一行「4篇 · 放什么」；课程写「2门课 · 1/2讲」。点一张开那一类的首页
  */
 function Categories(props: { onOpen(name: string): void }) {
+  const t = useT()
   const { files } = useVaultFiles()
   const desc = useDesc()
   useLeft()
@@ -519,12 +524,15 @@ function Categories(props: { onOpen(name: string): void }) {
       {CATEGORIES.map((c) => {
         const node = tree.find((n) => n.kind === 'dir' && n.name === c.name)
         const n = node?.count ?? 0
-        const courses = c.name === '课程' && node ? node.children.filter((x) => x.kind === 'dir') : []
+        const courses = c.name === '课程' /* 不翻：磁盘上的文件夹名 */ && node ? node.children.filter((x) => x.kind === 'dir') : []
         const prog = courses.reduce((p, x) => {
           const fp = folderProgress(x)
           return fp ? { done: p.done + fp.done, total: p.total + fp.total } : p
         }, { done: 0, total: 0 })
-        const meta = c.name === '课程' ? [`${courses.length}门课`, ...(prog.total ? [`${prog.done}/${prog.total}讲`] : [])] : [`${n}篇`]
+        // 不翻：磁盘上的文件夹名
+        const meta = c.name === '课程' ? [t('{n}门课', { n: courses.length }), ...(prog.total ? [t('{done}/{total}讲', { done: prog.done, total: prog.total })] : [])] : [t('{n}篇', { n })]
+        /** 「放什么」：用户自己改过的照原样，默认那句跟界面语言 */
+        const d = desc(c.name)
         const look = folderLook(c.name)
         return (
           <button key={c.name} className="ccard" data-testid={`cat-${c.name}`} onClick={() => props.onOpen(c.name)}>
@@ -536,7 +544,7 @@ function Categories(props: { onOpen(name: string): void }) {
                 </span>
                 {c.name}
               </span>
-              <span className="cm">{[...meta, desc(c.name)].join(' · ')}</span>
+              <span className="cm">{[...meta, d === c.desc ? t(c.desc) : d].join(' · ')}</span>
             </span>
           </button>
         )
@@ -547,6 +555,7 @@ function Categories(props: { onOpen(name: string): void }) {
 
 function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumulate>; act: Activity | null }) {
   /** 写在界面上的键照命令表（改了跟着变） */
+  const t = useT()
   const K = useKeys()
   const { a, act, notes } = props
   switch (props.id) {
@@ -566,11 +575,11 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
           <div className="wk-big" data-testid="home-stats">
             <div>
               <b className="num">{a.wrote}</b>
-              <span>篇自己写的</span>
+              <span>{t('篇自己写的', { n: a.wrote })}</span>
             </div>
             <div>
               <b className="num">{a.clipped}</b>
-              <span>段剪来的</span>
+              <span>{t('段剪来的', { n: a.clipped })}</span>
             </div>
           </div>
           <div className={'bars' + (none ? ' none' : '')}>
@@ -578,31 +587,24 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
               <i
                 key={i}
                 className={(i === today ? 'today' : '') + (!none && i === best ? ' best' : '')}
-                title={`周${WEEKDAY[i]} · ${d} 样`}
+                title={t('{day} · {n} 样', { day: wk(i, 'short'), n: d })}
                 style={{ height: none || d === 0 ? undefined : `${Math.max(12, (d / max) * 100)}%` }}
               />
             ))}
           </div>
           <div className="barl">
-            {[...WEEKDAY].map((d) => (
-              <span key={d}>{d}</span>
+            {a.days.map((_, i) => (
+              <span key={i}>{wk(i, 'narrow')}</span>
             ))}
           </div>
           <p className="wk-more">
             {none
-              ? '这周还空着。剪一段网页，或者写一句话，这里就会长出第一根柱子。'
-              : [
-                  more > 0 ? (
-                    <span key="m">
-                      比上周多<b className="num">{`${more}段`}</b>，
-                    </span>
-                  ) : more < 0 ? (
-                    `比上周少${-more}段，`
-                  ) : (
-                    ''
-                  ),
-                  `周${WEEKDAY[best]}存得最多`,
-                ]}
+              ? t('这周还空着。剪一段网页，或者写一句话，这里就会长出第一根柱子。')
+              : more > 0
+                ? rich(t('比上周多{n}，{day}存得最多', { day: wk(best, uiLang() === 'en' ? 'long' : 'short') }), { n: <b className="num">{t('{n}段', { ctx: '本周积累', n: more })}</b> })
+                : more < 0
+                  ? t('比上周少{n}段，{day}存得最多', { n: -more, day: wk(best, uiLang() === 'en' ? 'long' : 'short') })
+                  : t('{day}存得最多', { day: wk(best, uiLang() === 'en' ? 'long' : 'short') })}
           </p>
         </>
       )
@@ -614,9 +616,9 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
         <>
           <button className="big" onClick={props.onInbox}>
             <span className="num">{items.length}</span>
-            <small>{warn ? '条没整理 · 堆多了' : '条没整理'}</small>
+            <small>{warn ? t('条没整理 · 堆多了') : t('条没整理')}</small>
           </button>
-          {items.length === 0 && <p className="empty-note">{`收件箱是空的。在任何软件里按 ${K('quick-note')} 速记，回车就落到这里。`}</p>}
+          {items.length === 0 && <p className="empty-note">{t('收件箱是空的。在任何软件里按 {key} 速记，回车就落到这里。', { key: K('quick-note') })}</p>}
           {items.slice(0, 3).map((n) => (
             <button key={n.path} className="li" onClick={() => props.onOpen(n.path)} onContextMenu={(e) => onFileMenu(e, n.path)}>
               <Codicon name="inbox" size={12} />
@@ -627,7 +629,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
             <div className="wgo">
               <button className={'btn btn-sm' + (warn ? ' btn-primary' : '')} onClick={props.onTidy}>
                 <AiIcon job="chat" size={14} />
-                让AI分一分
+                {t('让AI分一分')}
               </button>
             </div>
           )}
@@ -648,13 +650,9 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
                 <span>
                   <span>
                     {n.board!.nodes !== undefined ? (
-                      <>
-                        <span className="num">{n.board!.nodes}</span>个节点
-                      </>
+                      <span className="num">{t('{n}个节点', { n: n.board!.nodes })}</span>
                     ) : (
-                      <>
-                        <span className="num">{n.board!.cards}</span>张卡片
-                      </>
+                      <span className="num">{t('{n}张卡片', { n: n.board!.cards })}</span>
                     )}
                   </span>
                   <span>· {when(n.mtimeMs)}</span>
@@ -666,7 +664,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
             <button className="th new" onClick={props.onNewBoard}>
               <span>
                 <Codicon name="add" size={16} />
-                建第一块白板
+                {t('建第一块白板')}
               </span>
             </button>
           )}
@@ -678,7 +676,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
     case 'recent': {
       // 名字叫「待办」的笔记在左边「待办」格里，不算写的东西（设置 › 文件打开「文件树里显示待办」才列，task-pd1d1）
       const works = notes.filter((n) => n.kind === 'work' && !n.board && (appSettings().files.showTodo || !isTodoNote(n.path))).sort((x, y) => y.mtimeMs - x.mtimeMs).slice(0, 3)
-      if (!works.length) return <p className="empty-note">还没写东西。左栏「我写的」旁边的加号建一篇。</p>
+      if (!works.length) return <p className="empty-note">{t('还没写东西。左栏「我写的」旁边的加号建一篇。')}</p>
       return (
         <div className="recent">
           {works.map((n) => (
@@ -686,7 +684,7 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
               <Codicon name="file-text" size={14} />
               <span className="truncate">{titleOf(n.path)}</span>
               {/* 和网页配成一对的（task-kbnc0）：点开网页跟着开 */}
-              <span className="t">{n.readAlong ? `网页跟着开 · ${when(n.mtimeMs)}` : when(n.mtimeMs)}</span>
+              <span className="t">{n.readAlong ? t('网页跟着开 · {when}', { when: when(n.mtimeMs) }) : when(n.mtimeMs)}</span>
             </button>
           ))}
         </div>
@@ -698,10 +696,11 @@ function Widget(props: HomeProps & { id: WidgetId; a: ReturnType<typeof accumula
 }
 
 function ClockBody() {
+  const t = useT()
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(t)
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
   }, [])
   const p = (x: number) => String(x).padStart(2, '0')
   return (
@@ -711,25 +710,26 @@ function ClockBody() {
         <small>{p(now.getSeconds())}</small>
       </div>
       <div className="dt">
-        {`${dateText(now.getTime())} · 星期${WEEKDAY[(now.getDay() + 6) % 7]}`}
+        {t('{date} · {weekday}', { ctx: '时钟', date: dateText(now.getTime()), weekday: wk((now.getDay() + 6) % 7, 'long') })}
       </div>
     </div>
   )
 }
 
 function DreamBody(props: HomeProps) {
+  const t = useT()
   const r = props.dream
   if (props.dreamRunning || !r) {
     return (
       <div className="dreamw" data-testid="dream-card">
-        <h3>{props.dreamRunning ? '正在梦游，跑完这里出报告' : '第一晚还没到'}</h3>
-        <p>{props.dreamSettings.auto ? `Mac闲着时自己${dreamDoes(props.dreamSettings) || '梦游'}。` : '自己梦游关着（设置 › 梦游），点「现在梦游」才整理。'}</p>
-        <p>改动放在单独的分支上，你点收下才算数。</p>
+        <h3>{props.dreamRunning ? t('正在梦游，跑完这里出报告') : t('第一晚还没到')}</h3>
+        <p>{props.dreamSettings.auto ? t('Mac闲着时自己{does}。', { does: dreamDoes(props.dreamSettings) || t('梦游', { ctx: '首页梦游卡' }) }) : t('自己梦游关着（设置 › 梦游），点「现在梦游」才整理。')}</p>
+        <p>{t('改动放在单独的分支上，你点收下才算数。')}</p>
         {!props.dreamRunning && (
           <div className="wgo">
             <button className="btn btn-sm" onClick={props.onDreamNow}>
               <AiIcon job="dream" size={14} />
-              现在梦游
+              {t('现在梦游')}
             </button>
           </div>
         )}
@@ -738,37 +738,50 @@ function DreamBody(props: HomeProps) {
   }
   const n = r.items.length
   const left = pendingOf(r)
-  const counts = (Object.keys(DREAM_LINES) as DreamGroup[]).map((g) => [g, r.items.filter((i) => i.group === g).length] as const).filter(([, c]) => c > 0)
+  /** 一行：粗体的数（带量词）和后面那句 */
+  const line = (g: DreamGroup, c: number): [string, string] =>
+    g === 'attach'
+      ? [t('{n}张', { ctx: '梦游卡', n: c }), t('老图挪进各篇的文件夹', { n: c })]
+      : g === 'file'
+        ? [t('{n}处', { ctx: '梦游卡', n: c }), t('归类和改名', { ctx: '梦游卡', n: c })]
+        : g === 'viz'
+          ? [t('{n}个', { ctx: '梦游卡', n: c }), t('可视化', { ctx: '梦游卡', n: c })]
+          : g === 'link'
+            ? [t('{n}处', { ctx: '梦游卡', n: c }), t('补了双链', { ctx: '梦游卡', n: c })]
+            : g === 'dup'
+              ? [t('{n}对', { ctx: '梦游卡', n: c }), t('可能重复', { ctx: '梦游卡', n: c })]
+              : [t('{n}篇', { ctx: '梦游卡', n: c }), t('本周小结', { ctx: '梦游卡', n: c })]
+  const w = dreamWhen(r)
+  const sp = w.indexOf(' ')
+  const counts = (Object.keys(DREAM_ICONS) as DreamGroup[]).map((g) => [g, r.items.filter((i) => i.group === g).length] as const).filter(([, c]) => c > 0)
   return (
     <div className="dreamw" data-testid="dream-card">
-      <span className="dk">{dreamWhen(r).replace(' ', '梦游 · ')}</span>
-      <h3>{n === 0 ? '没什么要整理的' : left === 0 ? `整理了${n}处，都看完了` : `整理了${n}处，等你过目`}</h3>
+      <span className="dk">{sp < 0 ? w : t('{day}梦游 · {time}', { day: w.slice(0, sp), time: w.slice(sp + 1) })}</span>
+      <h3>{n === 0 ? t('没什么要整理的') : left === 0 ? t('整理了{n}处，都看完了', { n }) : t('整理了{n}处，等你过目', { n })}</h3>
       <div className="drows">
         {counts.map(([g, c]) => (
           <div key={g} className="l">
-            <Codicon name={DREAM_LINES[g][1]} size={12} />
-            <b className="num">
-              {c}
-              {DREAM_LINES[g][0].split(' ')[0]}
-            </b>
-            {DREAM_LINES[g][0].split(' ')[1]}
+            <Codicon name={DREAM_ICONS[g]} size={12} />
+            <b className="num">{line(g, c)[0]}</b>
+            {line(g, c)[1]}
           </div>
         ))}
       </div>
       <div className="wgo">
         <button className="btn btn-sm btn-primary" onClick={props.onOpenDream}>
-          看报告
+          {t('看报告')}
         </button>
-        <span className="hint">{`在分支${r.branch}上，收下才进main`}</span>
+        <span className="hint">{t('在分支{branch}上，收下才进main', { branch: r.branch })}</span>
       </div>
     </div>
   )
 }
 
 function FlipBody(props: HomeProps) {
+  const t = useT()
   const clips = props.notes.filter((n) => n.kind === 'clip' || (n.kind === 'inbox' && n.source))
   const [i, setI] = useState(() => Math.floor(Math.random() * 1000))
-  if (!clips.length) return <p className="empty-note">剪来的东西多了，这里每次随手翻一张给你看。</p>
+  if (!clips.length) return <p className="empty-note">{t('剪来的东西多了，这里每次随手翻一张给你看。')}</p>
   const c = clips[i % clips.length]!
   return (
     <div className="flip">
@@ -782,7 +795,7 @@ function FlipBody(props: HomeProps) {
       <div className="wgo">
         <button className="btn btn-sm btn-ghost" onClick={() => setI((x) => x + 1)}>
           <Codicon name="arrow-swap" size={14} />
-          换一张
+          {t('换一张')}
         </button>
       </div>
     </div>
@@ -802,6 +815,7 @@ const hostOf = (u: string) => {
  * 卡片窄到放不下 52 周（首页开着 AI 浮窗、窗口窄）时只画放得下的整周，最近的在右边，最左一列不会被卡片边切成半格（第 5 轮美学）
  */
 function Wall({ days }: { days: Record<string, number> }) {
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const [weeks, setWeeks] = useState(52)
   useLayoutEffect(() => {
@@ -818,9 +832,9 @@ function Wall({ days }: { days: Record<string, number> }) {
   const todayKey = dayKey(now)
   const cells: { k: string; n: number; future: boolean }[] = []
   for (let i = 0; i < weeks * 7; i++) {
-    const t = start + i * 86400_000
-    const k = dayKey(t)
-    cells.push({ k, n: days[k] ?? 0, future: t > now })
+    const ms = start + i * 86400_000
+    const k = dayKey(ms)
+    cells.push({ k, n: days[k] ?? 0, future: ms > now })
   }
   const max = Math.max(1, ...cells.map((c) => c.n))
   const level = (n: number) => (n === 0 ? 0 : Math.min(4, 1 + Math.floor((n / max) * 3.999)))
@@ -829,10 +843,10 @@ function Wall({ days }: { days: Record<string, number> }) {
     <div className="wall" data-testid="wall" ref={ref}>
       <div className="hgrid">
         {cells.map((c) => (
-          <i key={c.k} className={(c.future ? 'future' : 'l' + level(c.n)) + (c.k === todayKey ? ' today' : '')} title={`${c.k} · ${c.n} 样`} />
+          <i key={c.k} className={(c.future ? 'future' : 'l' + level(c.n)) + (c.k === todayKey ? ' today' : '')} title={t('{day} · {n} 样', { day: c.k, n: c.n })} />
         ))}
       </div>
-      {none && <p className="empty-note">每格一天，存得越多颜色越深。今天这一格等你填上。</p>}
+      {none && <p className="empty-note">{t('每格一天，存得越多颜色越深。今天这一格等你填上。')}</p>}
     </div>
   )
 }

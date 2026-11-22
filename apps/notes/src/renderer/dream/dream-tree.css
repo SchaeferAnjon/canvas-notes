@@ -1,0 +1,79 @@
+/*
+ * 目录树里梦游的那几样（task-m552v，demo .tpv .tr.ghost .tr .dd .tr .tag .tr .q）：
+ * 「在树里看」顶上那一条、没收下的可视化（淡、「没收下」）、这条梦游改了的文件后面一个小点、挂在 PDF 下面的笔记问了几问。
+ */
+.ft-dream-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 10px 2px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font-size: 12px;
+}
+.ft-dream-strip .truncate {
+  min-width: 0;
+}
+.ft-dream-strip button {
+  margin-left: auto;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--acc-t);
+  font: 500 12px var(--sans);
+  cursor: pointer;
+}
+.ft-row.ghost > .truncate {
+  color: var(--t3);
+}
+.ft-row.ghost > svg:not(.ft-q svg) {
+  opacity: 0.55;
+}
+.ft-dd {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+.ft-tag {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--fill2);
+  color: var(--t2);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+.ft-tag.acc {
+  background: var(--acc-soft);
+  color: var(--acc-t);
+}
+.ft-q {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--t3);
+  font-size: 12px;
+}
+.ft-cliprule {
+  margin: 0;
+  padding: 4px 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+/* 挂在下面带小标、问数的那几行：小标和数一直看得到，名字让位、末尾省略（同「新」那一行） */
+.ftree .ft-row.ft-fit:has(> .ft-tag, > .ft-q, > .ft-dd) {
+  flex-wrap: nowrap;
+}
+.ftree .ft-row.ft-fit:has(> .ft-tag, > .ft-q, > .ft-dd) > .truncate {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: none;
+}

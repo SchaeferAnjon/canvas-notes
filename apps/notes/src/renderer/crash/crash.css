@@ -1,0 +1,161 @@
+/* 出错兜底（task-pyb39）：整窗出错页、一块的出错卡。说法照 DESIGN.md「AI 出错」：红色 error 小图标 + 一行人话，原话收在「看错误详情 ›」里，等宽能拷 */
+
+/* ---------- 整窗出错页 ---------- */
+.crash-page {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  /* 上边固定（设计复审）：点开原话时整块不往上跳 */
+  align-items: flex-start;
+  justify-content: center;
+  padding: 22vh 24px 48px;
+  background: var(--win);
+  color: var(--t1);
+  overflow: auto;
+}
+/* 标题栏藏起来了（hiddenInset）：顶上一条留给拖窗口、红黄绿 */
+.crash-drag {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 40px;
+  -webkit-app-region: drag;
+}
+.crash-box {
+  width: min(520px, 100%);
+}
+.crash-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+.crash-head h1 {
+  margin: 0;
+  font: 600 15px/1.35 var(--sans);
+  color: var(--t1);
+  text-wrap: pretty;
+}
+.crash-ic {
+  flex: none;
+  color: var(--red);
+  transform: translateY(2px);
+}
+.crash-sub {
+  margin: 8px 0 0 24px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+  text-wrap: pretty;
+}
+.crash-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 0 24px;
+}
+.crash-page .crash-detail {
+  margin: 14px 0 0 24px;
+}
+.crash-log {
+  margin: 10px 0 0 24px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t3);
+}
+
+/* ---------- 能点的字、错误详情 ---------- */
+.crash-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.crash-link:hover {
+  text-decoration: underline;
+}
+.crash-detail-row {
+  display: flex;
+  gap: 12px;
+}
+.crash-tg {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+  cursor: pointer;
+}
+.crash-tg:hover {
+  color: var(--t1);
+}
+.crash-raw {
+  margin: 6px 0 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 12px/1.5 var(--mono);
+  color: var(--t2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ---------- 一块的出错卡 ---------- */
+.crash-fill {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  background: var(--win);
+}
+.crash-pane {
+  overflow: auto;
+}
+/* 白板、PDF 在标签里面：占掉标签剩下的高 */
+.pane > .crash-fill,
+.pdfpane .crash-fill {
+  flex: 1;
+  height: auto;
+}
+.crash-side {
+  overflow: auto;
+}
+/* 贴着这一块的左上角（设计复审）：点开原话时不往上跳 */
+.crash-card {
+  margin: 0;
+  width: min(420px, 100%);
+  padding: 24px 12px;
+  -webkit-app-region: no-drag;
+}
+.crash-card-t {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t1);
+}
+.crash-card-t .crash-ic {
+  transform: translateY(1px);
+}
+.crash-dot {
+  color: var(--t3);
+}
+.crash-card-sub {
+  margin: 2px 0 0 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+  text-wrap: pretty;
+}
+.crash-card .crash-detail {
+  margin: 6px 0 0 18px;
+}

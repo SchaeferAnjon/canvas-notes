@@ -13,21 +13,19 @@ import { FolderGlyph } from '../files/look'
 import { ViewHead } from '../shell/Shell'
 import { todayCount, useToday, useTodos } from './store'
 import { QuickAdd, TodoGroups, TodoPop, useOwner } from './TodoList'
+import { useT } from '../i18n'
 
 type Seg = 'today' | 'week' | 'folder' | 'inbox'
-const SEGS: [Seg, string][] = [
-  ['today', '今天'],
-  ['week', '七天'],
-  ['folder', '按文件夹'],
-  ['inbox', '收件箱'],
-]
+const SEGS: Seg[] = ['today', 'week', 'folder', 'inbox']
 const SEG_KEY = 'cn.todoSeg'
 const FOLD_KEY = 'cn.todoFold'
 
 function load<T>(key: string, d: T): T {
   try {
-    const v = localStorage.getItem(key)
-    return v === null ? d : (JSON.parse(v) as T)
+    const s = localStorage.getItem(key)
+    const v = s === null ? d : (JSON.parse(s) as T)
+    // 记坏了的（该是数组的不是数组，task-pyb39）当没记过
+    return v !== null && Array.isArray(v) === Array.isArray(d) && typeof v === typeof d ? v : d
   } catch {
     return d
   }
@@ -49,12 +47,14 @@ function openGroup(g: FolderGroup) {
 }
 
 export function TodoPanel() {
+  const t = useT()
+  const segName: Record<Seg, string> = { today: t('今天'), week: t('七天'), folder: t('按文件夹'), inbox: t('收件箱') }
   const { items } = useTodos()
   const today = useToday()
   const owner = useOwner()
   const [seg, setSegState] = useState<Seg>(() => {
     const v = load<string>(SEG_KEY, 'folder')
-    return SEGS.some(([k]) => k === v) ? (v as Seg) : 'folder'
+    return SEGS.some((k) => k === v) ? (v as Seg) : 'folder'
   })
   const setSeg = (s: Seg) => (setSegState(s), keep(SEG_KEY, s))
   const [fold, setFoldState] = useState<string[]>(() => load<string[]>(FOLD_KEY, []))
@@ -72,28 +72,28 @@ export function TodoPanel() {
     return []
   }, [items, seg, today])
   return (
-    <aside className="side td-side" aria-label="待办">
-      <ViewHead title="待办" sub={<span className="num">{`今天${todayCount(items, today)}`}</span>} />
+    <aside className="side td-side" aria-label={t('待办')}>
+      <ViewHead title={t('待办')} sub={<span className="num">{t('今天{n}', { n: todayCount(items, today) })}</span>} />
       <div className="td-pane">
-        <div className="td-seg" role="tablist" aria-label="待办分组">
-          {SEGS.map(([k, n]) => (
+        <div className="td-seg" role="tablist" aria-label={t('待办分组')}>
+          {SEGS.map((k) => (
             <button key={k} role="tab" aria-selected={seg === k} className={seg === k ? 'on' : ''} onClick={() => setSeg(k)}>
-              {n}
+              {segName[k]}
             </button>
           ))}
         </div>
-        <QuickAdd where={{ inbox: true }} label="加一条" placeholder="加一条，「明天下午三点交论文」" hintWhere="收件箱" />
-        <div className="td-list" role="list" aria-label="待办">
+        <QuickAdd where={{ inbox: true }} label={t('加一条')} placeholder={t('加一条，「明天下午三点交论文」')} hintWhere="收件箱" /* 不翻：磁盘上的文件夹名 */ />
+        <div className="td-list" role="list" aria-label={t('待办')}>
           {seg === 'folder' ? (
             groups.map((g) => {
               const col = fold.includes(g.folder)
               return (
                 <section key={g.folder} className="td-fg" aria-label={g.name}>
                   <div className="td-fold">
-                    <button className="td-chev" aria-label={`${col ? '展开' : '收起'}${g.name}`} aria-expanded={!col} onClick={() => toggle(g.folder)}>
+                    <button className="td-chev" aria-label={col ? t('展开{name}', { name: g.name }) : t('收起{name}', { name: g.name })} aria-expanded={!col} onClick={() => toggle(g.folder)}>
                       <Codicon name={col ? 'chevron-right' : 'chevron-down'} size={12} />
                     </button>
-                    <button className="td-fname" title={g.todo ? `打开 ${todoLabel(g.todo)}` : '打开这一篇'} onClick={() => openGroup(g)}>
+                    <button className="td-fname" title={g.todo ? t('打开 {name}', { name: todoLabel(g.todo) }) : t('打开这一篇')} onClick={() => openGroup(g)}>
                       <FolderGlyph folder={g.folder} size={14} mono />
                       <span className="truncate">{g.name}</span>
                     </button>
@@ -105,7 +105,7 @@ export function TodoPanel() {
                       {g.todo && (
                         <div className="td-more">
                           <button className="td-link" onClick={() => app().openFile(g.todo!)}>
-                            {`打开 ${todoLabel(g.todo)} ›`}
+                            {t('打开 {name} ›', { name: todoLabel(g.todo) })}
                           </button>
                         </div>
                       )}
@@ -117,7 +117,7 @@ export function TodoPanel() {
           ) : (
             <TodoGroups list={list} owner={owner} dropEmpty={seg !== 'today'} />
           )}
-          {seg === 'folder' && !groups.length && <p className="td-none">没有没做的待办。上面加一条，或者在哪篇笔记里写一行「- [ ] 」。</p>}
+          {seg === 'folder' && !groups.length && <p className="td-none">{t('没有没做的待办。上面加一条，或者在哪篇笔记里写一行「- [ ] 」。')}</p>}
         </div>
       </div>
       <TodoPop owner={owner} />

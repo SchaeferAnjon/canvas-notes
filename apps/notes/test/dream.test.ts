@@ -95,7 +95,7 @@ describe('梦游', { timeout: 30_000 }, () => {
     const link = r.items.find((i) => i.group === 'link')!
     const diff = await diffOf(root, { kind: 'dream', id: link.id }, r)
     expect(diff.files).toEqual([expect.objectContaining({ path: '收件箱/极光.md', status: 'changed', before: DREAM_VAULT['收件箱/极光.md'], after: DREAM_VAULT['收件箱/极光.md'] + '\n相关：[[极光预报]]\n', summary: '末尾加了一行 相关：[[极光预报]]' })])
-    expect(diff).toMatchObject({ left: '现在的 · main', right: `梦游改后 · ${r.branch}` })
+    expect(diff).toMatchObject({ left: '现在的 · main', right: `收下后 · ${r.branch}` })
     await takeItem(root, r, link.id)
     expect(link.state).toBe('taken')
     expect(count()).toBe(before + 1)

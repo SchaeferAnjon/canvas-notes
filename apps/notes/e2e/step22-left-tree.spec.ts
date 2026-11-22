@@ -160,9 +160,9 @@ test('CN-5：文件树工具栏六个按钮；在选中的文件夹里新建文�
     await head.getByRole('button', { name: '定位当前文件' }).click()
     await expect(item(page, 'Lecture05').first()).toBeVisible()
 
-    // 文件夹右键：固定的没有重命名、删除；别的有，还能原地新建文件夹
+    // 文件夹右键：固定的没有重命名、删除；别的有，还能原地新建文件夹；「课程」多一项「新建一门课」（task-xy89o，同 ⌘K「新建一门课」）
     await item(page, '课程').click({ button: 'right' })
-    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建文件夹', '打开首页', '在新标签打开首页', '钉到最上面', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
+    expect(menuLabels(await openedMenu(run))).toEqual(['新建笔记', '新建白板', '新建一门课', '新建文件夹', '打开首页', '在新标签打开首页', '钉到最上面', '从左边拿下', '换图标和颜色…', '在访达中显示', '拷贝路径'])
     await pickMenu(run, '新建文件夹')
     await tree(page).getByRole('textbox', { name: '新文件夹的名字' }).fill('数学')
     await tree(page).getByRole('textbox', { name: '新文件夹的名字' }).press('Enter')
@@ -384,7 +384,7 @@ test('CN-20：白板标签条右端「100% ▾」：⌘+ 两次 125%、切走再
     await item(page, '冰岛十天环岛').click()
     // 以前写法的白板打开时转成「## 列名」（一次提交），白板就是 doc-board，画布按 zoom 缩放
     await expect(pane(page).getByTestId('doc-board')).toBeVisible()
-    const zoom = acts(page).getByTestId('board-zoom')
+    const zoom = pane(page).getByTestId('board-zoom')
     await expect(zoom).toHaveText('100%')
     const planeScale = () => pane(page).locator('.db-plane').evaluate((el) => (el as HTMLElement).style.zoom)
     await page.keyboard.press('Meta+Equal')
@@ -394,7 +394,7 @@ test('CN-20：白板标签条右端「100% ▾」：⌘+ 两次 125%、切走再
     // 切走再回来
     await item(page, '别的').click()
     await expect(tabOn(page)).toHaveText('别的')
-    await expect(acts(page).getByTestId('board-zoom')).toHaveCount(0)
+    await expect(pane(page).getByTestId('board-zoom')).toHaveCount(0)
     await item(page, '冰岛十天环岛').click()
     await expect(zoom).toHaveText('125%')
     // 右栏开着：让位 0.8

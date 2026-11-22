@@ -13,6 +13,7 @@ import { composing } from '../ime'
 import { Popover } from '../shell/Shell'
 import { folderLabel, vaultName } from '../vault-name'
 import { FolderGlyph } from './look'
+import { useT } from '../i18n'
 
 const RECENT_KEY = 'cn.moveRecent'
 const RECENT_MAX = 3
@@ -49,6 +50,7 @@ const byPlace = (a: string, b: string) => {
  * dirs：其中哪些是文件夹（它们和它们里面的不能当去处）；onPick：挑好了去哪
  */
 export function MovePicker(props: { paths: string[]; what?: string; dirs: string[]; anchor: HTMLElement; side?: 'right'; onPick(folder: string): void; onClose(): void }) {
+  const t = useT()
   const [q, setQ] = useState('')
   const [kb, setKb] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -76,15 +78,15 @@ export function MovePicker(props: { paths: string[]; what?: string; dirs: string
   }
   let lastG = ''
   return (
-    <Popover anchor={props.anchor} label="移到" side={props.side} onClose={props.onClose} className="movepick">
-      <div className="mv-hd truncate">{props.what ? `把「${props.what}」移到…` : `把选中的${props.paths.length}个移到…`}</div>
+    <Popover anchor={props.anchor} label={t('移到')} side={props.side} onClose={props.onClose} className="movepick">
+      <div className="mv-hd truncate">{props.what ? t('把「{name}」移到…', { name: props.what }) : t('把选中的{n}个移到…', { n: props.paths.length })}</div>
       <label className="mv-find">
         <Codicon name="search" size={14} />
         <input
           ref={input}
           type="search"
-          aria-label="挪到哪个文件夹"
-          placeholder="挪到哪个文件夹（打字找）"
+          aria-label={t('挪到哪个文件夹')}
+          placeholder={t('挪到哪个文件夹（打字找）')}
           value={q}
           onChange={(e) => (setQ(e.target.value), setKb(0))}
           onKeyDown={(e) => {
@@ -95,9 +97,9 @@ export function MovePicker(props: { paths: string[]; what?: string; dirs: string
           }}
         />
       </label>
-      <div className="mv-list" role="menu" aria-label="文件夹">
+      <div className="mv-list" role="menu" aria-label={t('文件夹')}>
         {list.map(({ f, g }) => {
-          const head = g !== lastG ? <div className="mh">{g === 'r' ? '刚挪去过' : w ? '找到的' : '全部文件夹'}</div> : null
+          const head = g !== lastG ? <div className="mh">{g === 'r' ? t('刚挪去过') : w ? t('找到的') : t('全部文件夹')}</div> : null
           lastG = g
           const where = f ? parentOf(f) : null
           return (
@@ -107,7 +109,7 @@ export function MovePicker(props: { paths: string[]; what?: string; dirs: string
                 className={'mi' + (f === cur ? ' kb' : '')}
                 role="menuitem"
                 disabled={f === here}
-                title={f === here ? '本来就在这里' : folderLabel(f)}
+                title={f === here ? t('本来就在这里') : folderLabel(f)}
                 onMouseMove={() => f !== here && f !== cur && setKb(live.findIndex((x) => x.f === f))}
                 onClick={() => pick(f)}
               >
@@ -118,7 +120,7 @@ export function MovePicker(props: { paths: string[]; what?: string; dirs: string
             </div>
           )
         })}
-        {!list.length && <p className="mv-none">{`没有名字里带「${q.trim()}」的文件夹`}</p>}
+        {!list.length && <p className="mv-none">{t('没有名字里带「{q}」的文件夹', { q: q.trim() })}</p>}
       </div>
     </Popover>
   )

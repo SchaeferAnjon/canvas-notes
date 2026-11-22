@@ -1,6 +1,6 @@
 // 双语翻译补强（2026-11-16，方向 A「按钮带菜单」）：菜单里换语言、显示、七种样式；没翻成说原因和办法；
 // 一个能用的都没有时一开就说；设置里「翻译用什么」（顺序、指定一个、DeepSeek Key 只露 4 位、测试连接、试一句）；
-// 整页剪藏带不带译文；课程术语表（AI 起头、翻译照表、选中加进表）；PDF 不假装在翻。
+// 整页剪藏带不带译文；PDF 不假装在翻（课程术语表 2026-11-22 拿掉了，task-6cxtc；没有了的样子在 6cxtc-selbar.spec.ts）。
 // AI 都是假的：命令行走 CN_AI_FAKE（CN_TR_FAKE_CLI / CN_TR_FAKE_FAIL 定状态和出错），DeepSeek 走本机假的 OpenAI 兼容服务，不用真 Key。
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
@@ -380,53 +380,6 @@ test('整页剪藏带上译文：默认关只存原文；菜单里打开，每�
     await expect(web(page).locator('.wnote')).toContainText('· 带了译文')
     expect(savedSettings(run).clipWithTranslation).toBe(true)
     expect(gitStatus(vault)).toBe('')
-  } finally {
-    await run.close()
-  }
-})
-
-test('课程术语表：中间栏开着课程里的文件，菜单里「让 AI 起个头」写成表（一次提交）并在中间栏打开；翻译照表译；网页里选一个词「加进术语表」', async () => {
-  const run = await launch({ '课程/线性代数/第7讲 特征值.md': '# 第7讲 特征值\n\n先解特征方程。\n' }, { CN_AI_FAKE: '1', CN_AI_FAKE_DELAY_MS: '100' })
-  const { page, vault } = run
-  try {
-    await openNote(page, '第7讲 特征值')
-    await openWeb(page, `${base}/lecture`)
-    await menuBtn(page).click()
-    const row = menu(page).getByLabel('术语表')
-    await expect(row).toContainText('线性代数还没有')
-    await row.getByRole('button', { name: '让AI起个头' }).click()
-    await expect(tabOn(page)).toHaveText('术语表')
-    const md = readFileSync(join(vault, '课程/线性代数/术语表.md'), 'utf8')
-    expect(md).toContain('| 原文 | 译法 | 备注 |')
-    expect(md).toContain('| eigenvalue | 特征值 |  |')
-    expect(md).toContain('| characteristic equation | 特征方程 | 不译「特性方程」 |')
-    expect(execFileSync('git', ['-C', vault, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).trim()).toBe('术语表：AI 起头「线性代数」5 条')
-    expect(gitStatus(vault)).toBe('')
-
-    // 翻译时带上这门课的术语：这批里出现的词进提示（假 AI 在译文后面写出用到的术语）
-    await page.keyboard.press('Escape')
-    await openNote(page, '第7讲 特征值')
-    await trBtn(page).click()
-    await expect.poll(() => trOf(page, 'p2')).toBe(`${fake(SRC.p2)} [特征值、特征向量、特征方程]`)
-    await menuBtn(page).click()
-    await expect(menu(page).getByLabel('术语表')).toContainText('线性代数 · 5条')
-    await page.keyboard.press('Escape')
-
-    // 网页里双击选一个词，工具条上「加进术语表」：加一行，译法先留空，一次提交，在中间栏打开
-    // 右栏默认 340 窄：先拉宽一点，工具条整条露在网页里
-    await widenRight(page, 80)
-    await guest(page, `document.getElementById('term').scrollIntoView({ block: 'center' })`)
-    const w = await guestRect(page, `document.getElementById('term')`)
-    for (let i = 0; i < 3; i++) {
-      await page.mouse.dblclick(w.x, w.y)
-      if (await expect.poll(() => guest(page, 'getSelection().toString().trim()'), { timeout: 1000 }).toBe('eigenspace').then(() => true, () => false)) break
-    }
-    await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.shadowRoot?.querySelector('button.term')?.hidden`)).toBe(false)
-    const b = await guestRect(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button.term')`)
-    await page.mouse.click(b.x, b.y)
-    await expect.poll(() => readFileSync(join(vault, '课程/线性代数/术语表.md'), 'utf8')).toContain('| eigenspace |  |  |')
-    await expect(tabOn(page)).toHaveText('术语表')
-    await expect.poll(() => execFileSync('git', ['-C', vault, 'log', '-1', '--format=%s'], { encoding: 'utf8' }).trim()).toBe('术语表：加「eigenspace」')
   } finally {
     await run.close()
   }

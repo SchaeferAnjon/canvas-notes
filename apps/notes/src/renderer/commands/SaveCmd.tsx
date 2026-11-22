@@ -13,7 +13,7 @@ import { type AiCmd, cleanName, descOf, impactOf, MAX_RULES, RULE_MAX, sameAsBui
 import type { DiffEntry, DiffResult } from '../../shared/diff'
 import { anchorLines, type DistillCommit, type Distilled, type DistillInput, distillPrompt, parseDistill, scopeRule } from '../../shared/distill'
 import { titleOf } from '../../shared/layout'
-import { SYSTEM } from '../ai-commands'
+import { system } from '../ai-commands'
 import { COLLAPSE, type DiffViews, TextDiff } from '../diff/DiffTab'
 import { EngineLogo } from '../engine-logo'
 import { isKey, keyFor, withKeys } from '../keys'
@@ -114,7 +114,7 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
       if (tries > 0) distilled.delete(key)
       let d = distilled.get(key)
       if (!d) {
-        d = parseDistill(await window.cn.aiAsk(id, SYSTEM, distillPrompt(input), { pick: chat.pick }), input)
+        d = parseDistill(await window.cn.aiAsk(id, system(), distillPrompt(input), { pick: chat.pick }), input)
         distilled.set(key, d)
       }
       if (!live) return

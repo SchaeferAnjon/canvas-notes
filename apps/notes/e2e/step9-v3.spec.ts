@@ -41,8 +41,8 @@ test('四条栏：左右两条图标栏只放图标、悬停出名字，点亮�
     const left = page.getByRole('navigation', { name: '左栏' })
     const names = (nav: typeof rail) => nav.getByRole('button').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
     // 「笔记」一直在最上面，不读 PDF 时和「大纲」一样原地变淡（右图标栏方向 A）；左边是八个分类分段（分类与入口方向 A）
-    expect(await names(rail)).toEqual(['笔记（打开 PDF 时才有边读边记的笔记）', '大纲（这一页没有标题，没有大纲）', '网页', '微信读书', '历史', '打开 AI'])
-    expect(await names(left)).toEqual(['文件', '待办', '最近', '书桌', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活', '梦游报告', '库', '设置和外观'])
+    expect(await names(rail)).toEqual(['笔记（打开 PDF、或右栏开着配好对的网站时才有笔记）', '大纲（这一页没有标题，没有大纲）', '网页', '微信读书', '历史', '打开 AI'])
+    expect(await names(left)).toEqual(['文件', '待办', '最近', '书桌', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活', '梦游报告', '最近删掉的', '库', '设置和外观'])
     // 图标栏贴着窗口右边，B 里 44 宽
     const box = (await rail.boundingBox())!
     const width = await page.evaluate(() => window.innerWidth)
@@ -70,9 +70,9 @@ test('四条栏：左右两条图标栏只放图标、悬停出名字，点亮�
     await expect(page.getByRole('complementary', { name: '大纲' })).toContainText('冰岛自驾')
 
     // 左边：点亮着的那个收起左栏，再点展开
-    await left.getByRole('button', { name: '最近' }).click()
+    await left.getByRole('button', { name: '最近', exact: true }).click()
     await expect(page.locator('.win')).toHaveClass(/side-hidden/)
-    await left.getByRole('button', { name: '最近' }).click()
+    await left.getByRole('button', { name: '最近', exact: true }).click()
     await expect(page.locator('.win')).not.toHaveClass(/side-hidden/)
 
     await expect(page.getByTestId('dream-dot')).toHaveCount(0)

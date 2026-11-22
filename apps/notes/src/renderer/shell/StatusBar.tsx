@@ -9,9 +9,17 @@ import { MenuItem, Popover } from './Shell'
 import { autoSyncLabel } from '../../shared/prefs'
 import { usePrefs } from '../settings-store'
 import { openSettingsAt } from '../settings/jump'
+import { useT } from '../i18n'
+import { t as tNow } from '../../shared/i18n'
 
-const KIND: Record<string, string> = { '??': '新', A: '新', M: '改', D: '删', R: '移动' }
-const kindOf = (code: string) => KIND[code] ?? KIND[code.trim()[0] ?? ''] ?? '改'
+type Kind = 'new' | 'mod' | 'del' | 'mv'
+const KIND: Record<string, Kind> = { '??': 'new', A: 'new', M: 'mod', D: 'del', R: 'mv' }
+const kindOf = (code: string) => {
+  const k = KIND[code] ?? KIND[code.trim()[0] ?? ''] ?? 'mod'
+  if (k === 'new') return tNow('新', { ctx: '没提交的改动' })
+  if (k === 'del') return tNow('删', { ctx: '没提交的改动' })
+  return k === 'mv' ? tNow('移动', { ctx: '没提交的改动' }) : tNow('改', { ctx: '没提交的改动' })
+}
 
 /** 后台在做的事（梦游、导入……）：A 每件一项，B 收成「后台 N 件」 */
 export interface Job {
@@ -56,6 +64,7 @@ export function StatusBar(props: {
   /** 在访达里显示那份备份 */
   onRevealStash?(file: string): void
 }) {
+  const t = useT()
   const { git, frame } = props
   const [busy, setBusy] = useState<'commit' | 'sync' | null>(null)
   const [pop, setPop] = useState<{ kind: 'changes' | 'jobs' | 'sync'; el: HTMLElement } | null>(null)
@@ -72,23 +81,23 @@ export function StatusBar(props: {
     }
   }
   const commitBtn = (cls: string) => (
-    <button className={cls} onClick={() => void run('commit', props.onCommit)} disabled={!changed || busy !== null} data-tip="现在提交" data-side="above">
+    <button className={cls} onClick={() => void run('commit', props.onCommit)} disabled={!changed || busy !== null} data-tip={t('现在提交')} data-side="above">
       <Codicon name="git-commit" size={14} />
-      {busy === 'commit' ? '正在提交' : '提交'}
+      {busy === 'commit' ? t('正在提交') : t('提交')}
     </button>
   )
   const syncBtn = (cls: string) => (
-    <button className={cls} onClick={() => void run('sync', props.onSync)} disabled={busy !== null} data-tip="和远端同步" data-side="above">
+    <button className={cls} onClick={() => void run('sync', props.onSync)} disabled={busy !== null} data-tip={t('和远端同步')} data-side="above">
       <Codicon name="sync" size={14} className={busy === 'sync' ? 'spin' : ''} />
-      {busy === 'sync' ? '正在同步' : '同步'}
+      {busy === 'sync' ? t('正在同步') : t('同步')}
     </button>
   )
   /** 自动同步开着时下次的时间（设置 › Git和同步） */
-  const next = git?.nextSync ? `下次 ${new Date(git.nextSync).toTimeString().slice(0, 5)}` : null
+  const next = git?.nextSync ? t('下次 {time}', { time: new Date(git.nextSync).toTimeString().slice(0, 5) }) : null
   /** 「同步」那一处的一行状态：多久同步一次、下次什么时候 */
-  const syncLine = git?.nextSync ? `${autoSyncLabel(autoSyncMinutes)}同步一次 · ${next}` : git?.hasRemote ? '只在你点时同步' : '还没有远程仓库'
+  const syncLine = git?.nextSync ? t('{every}同步一次 · {next}', { every: autoSyncLabel(autoSyncMinutes), next }) : git?.hasRemote ? t('只在你点时同步') : t('还没有远程仓库')
   /** 菜单最下面一项：到设置 › Git和同步「自动同步」那一行（方向 A 的 A3） */
-  const syncSettings = <MenuItem icon="settings-gear" className="go" label="同步设置…" right={<Codicon name="chevron-right" size={12} />} onClick={() => (setPop(null), openSettingsAt('autoSync'))} />
+  const syncSettings = <MenuItem icon="settings-gear" className="go" label={t('同步设置…')} right={<Codicon name="chevron-right" size={12} />} onClick={() => (setPop(null), openSettingsAt('autoSync'))} />
 
   return (
     <footer className={'status gitbar' + (props.previewing ? ' previewing' : '')}>
@@ -109,14 +118,14 @@ export function StatusBar(props: {
         <button className={'bi' + (unsaved.length ? ' err' : '')} data-testid="git-changed" onClick={(e) => setPop(pop?.kind === 'changes' ? null : { kind: 'changes', el: e.currentTarget })} disabled={frame === 'a' && !changed && !unsaved.length}>
           {/* 默认状态不挂标记（DESIGN.md）：都提交了只写字，有改动才出黄点；有写不进去的篇先说它（字只在内存里，不能说都提交了） */}
           {(changed > 0 || unsaved.length > 0) && <i className={'gdot ' + (unsaved.length ? 'err' : 'warn')} />}
-          {unsaved.length ? <span className="num err">{`${unsaved.length}篇写不进去，字只在内存里`}</span> : changed ? <span className="num">{`${changed}处没提交`}</span> : '都提交了'}
+          {unsaved.length ? <span className="num err">{t('{n}篇写不进去，字只在内存里', { n: unsaved.length })}</span> : changed ? <span className="num">{t('{n}处没提交', { n: changed })}</span> : t('都提交了')}
         </button>
       )}
       {frame === 'a' && commitBtn('bi')}
       {frame === 'a' && (
-        <button className="bi" data-testid="sync-btn" disabled={busy !== null} data-tip="和远端同步" data-side="above" onClick={(e) => setPop(pop?.kind === 'sync' ? null : { kind: 'sync', el: e.currentTarget })}>
+        <button className="bi" data-testid="sync-btn" disabled={busy !== null} data-tip={t('和远端同步')} data-side="above" onClick={(e) => setPop(pop?.kind === 'sync' ? null : { kind: 'sync', el: e.currentTarget })}>
           <Codicon name="sync" size={14} className={busy === 'sync' ? 'spin' : ''} />
-          {busy === 'sync' ? '正在同步' : '同步'}
+          {busy === 'sync' ? t('正在同步') : t('同步')}
           {next && busy !== 'sync' && <span className="nxt">· {next}</span>}
         </button>
       )}
@@ -130,17 +139,17 @@ export function StatusBar(props: {
       {frame === 'b' && props.jobs.length > 0 && (
         <button className="bi job" onClick={(e) => setPop(pop?.kind === 'jobs' ? null : { kind: 'jobs', el: e.currentTarget })}>
           <Codicon name="loading" size={14} className="spin" />
-          <span className="num">{`后台${props.jobs.length}件`}</span>
+          <span className="num">{t('后台{n}件', { n: props.jobs.length })}</span>
         </button>
       )}
       {props.tidy && (
         <span className="bi tidy-msg" data-testid="tidy-msg">
           <Codicon name="check" size={14} />
-          <span className="truncate" data-tip={`整理好了：${props.tidy.said}`} data-side="above">{`整理好了：${props.tidy.said}`}</span>
+          <span className="truncate" data-tip={t('整理好了：{said}', { said: props.tidy.said })} data-side="above">{t('整理好了：{said}', { said: props.tidy.said })}</span>
           <button className="lnk" onClick={props.tidy.onUndo}>
-            撤回
+            {t('撤回')}
           </button>
-          <button className="x" aria-label="关掉这一句" onClick={props.tidy.onClose}>
+          <button className="x" aria-label={t('关掉这一句')} onClick={props.tidy.onClose}>
             <Codicon name="close" size={12} />
           </button>
         </span>
@@ -150,15 +159,15 @@ export function StatusBar(props: {
       {props.update}
       {git && (
         <span className="bi" data-testid="week-commits">
-          <span className="num">{`本周${git.weekCommits}次提交`}</span>
+          <span className="num">{t('本周{n}次提交', { n: git.weekCommits })}</span>
         </span>
       )}
       {props.bell}
       {props.ai}
 
       {pop?.kind === 'changes' && git && (
-        <Popover anchor={pop.el} label="没提交的改动" onClose={() => setPop(null)}>
-          {unsaved.length > 0 && <div className="mh">写不进去 · 字只在内存里，先别退出</div>}
+        <Popover anchor={pop.el} label={t('没提交的改动')} onClose={() => setPop(null)}>
+          {unsaved.length > 0 && <div className="mh">{t('写不进去 · 字只在内存里，先别退出')}</div>}
           {unsaved.map((u) => {
             return (
               <MenuItem
@@ -166,18 +175,28 @@ export function StatusBar(props: {
                 className="unsaved"
                 icon="warning"
                 label={u.path}
-                right={u.stash ? '有备份' : '没备份'}
-                title={`${u.path} · ${u.stash ? `字备份在 ${u.stash}，点了在访达里显示` : '备份也没写进去'}`}
+                right={u.stash ? t('有备份') : t('没备份')}
+                title={`${u.path} · ${u.stash ? t('字备份在 {path}，点了在访达里显示', { path: u.stash }) : t('备份也没写进去')}`}
                 onClick={() => (setPop(null), u.stash ? props.onRevealStash?.(u.stash) : props.onOpen(u.path))}
               />
             )
           })}
-          <div className="mh">{changed ? <>没提交的改动 · <span className="num">{`${changed}个文件`}</span></> : unsaved.length ? '别的都提交了' : '都提交了'}</div>
+          <div className="mh">{changed ? (
+              <>
+                {t('没提交的改动')}
+                {' · '}
+                <span className="num">{t('{n}个文件', { n: changed })}</span>
+              </>
+            ) : unsaved.length ? (
+              t('别的都提交了')
+            ) : (
+              t('都提交了')
+            )}</div>
           {changed > 0 && git.autoCommitError && (
             <div className="mwarn" role="status" data-testid="autocommit-error">
               <Codicon name="warning" size={12} className="ic" />
               <span>
-                {`自动提交没成功（${when(git.autoCommitError.at, { time: true })}）：`}
+                {t('自动提交没成功（{when}）：', { when: when(git.autoCommitError.at, { time: true }) })}
                 {git.autoCommitError.text}
               </span>
             </div>
@@ -190,7 +209,7 @@ export function StatusBar(props: {
             {frame === 'b' && syncBtn('btn btn-sm')}
             <button className="btn btn-sm" onClick={() => (setPop(null), props.onHistory())}>
               <Codicon name="history" size={14} />
-              历史
+              {t('历史')}
             </button>
           </div>
           {frame === 'b' && (
@@ -203,16 +222,16 @@ export function StatusBar(props: {
         </Popover>
       )}
       {pop?.kind === 'sync' && (
-        <Popover anchor={pop.el} label="同步" onClose={() => setPop(null)}>
+        <Popover anchor={pop.el} label={t('同步')} onClose={() => setPop(null)}>
           <div className="mtx" data-testid="sync-line">{syncLine}</div>
-          <MenuItem icon="sync" label="现在同步" onClick={() => (setPop(null), void run('sync', props.onSync))} />
+          <MenuItem icon="sync" label={t('现在同步')} onClick={() => (setPop(null), void run('sync', props.onSync))} />
           <div className="ms" />
           {syncSettings}
         </Popover>
       )}
       {pop?.kind === 'jobs' && (
-        <Popover anchor={pop.el} label="后台在做的事" onClose={() => setPop(null)}>
-          <div className="mh">后台在做的事</div>
+        <Popover anchor={pop.el} label={t('后台在做的事')} onClose={() => setPop(null)}>
+          <div className="mh">{t('后台在做的事')}</div>
           {props.jobs.map((j) => (
             <MenuItem key={j.id} icon={j.icon} glyph={j.ai && <AiIcon job={j.ai} size={16} fallback={j.icon} />} label={j.text} onClick={() => (setPop(null), j.onClick?.())} />
           ))}

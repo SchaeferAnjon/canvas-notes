@@ -8,8 +8,10 @@ import { useEffect } from 'react'
 import { isOpen, listed, noteName } from '../../shared/todo'
 import { flashTodo, useTodos } from './store'
 import { QuickAdd, TodoGroups, TodoPop, useOwner } from './TodoList'
+import { useT } from '../i18n'
 
 export function TaskView(props: { path: string }) {
+  const t = useT()
   const { items } = useTodos()
   const owner = useOwner()
   const { path } = props
@@ -28,9 +30,9 @@ export function TaskView(props: { path: string }) {
     <div className="td-wrap" data-testid="task-view">
       <div className="td-view big">
         <h1>{noteName(path)}</h1>
-        <div className="td-meta" data-testid="td-meta">{`${path} · ${open}条没做 · 任务界面（文件还是那几行）`}</div>
-        <QuickAdd where={{ note: path }} label="任务界面加一条" placeholder="加一条，回车写进这一篇" className="big" />
-        <div role="list" aria-label="待办">
+        <div className="td-meta" data-testid="td-meta">{t('{path} · {n}条没做 · 任务界面（文件还是那几行）', { path, n: open })}</div>
+        <QuickAdd where={{ note: path }} label={t('任务界面加一条')} placeholder={t('加一条，回车写进这一篇')} className="big" />
+        <div role="list" aria-label={t('待办')}>
           <TodoGroups list={list} owner={owner} dropEmpty showDone />
         </div>
       </div>

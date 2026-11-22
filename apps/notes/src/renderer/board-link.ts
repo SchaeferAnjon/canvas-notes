@@ -15,6 +15,8 @@ export interface BoardInfo {
   color: string
   cards: number
   icon?: string
+  /** 导图（白板样式: 导图）：cards 是主题数，写「导图 · N 个主题」 */
+  map?: boolean
 }
 
 /** 白板的名字 → 它的颜色、卡片数（名字不分大小写） */
@@ -36,7 +38,7 @@ class BoardCard extends WidgetType {
     super()
   }
   eq(o: BoardCard) {
-    return o.name === this.name && o.info.color === this.info.color && o.info.cards === this.info.cards && o.info.icon === this.info.icon
+    return o.name === this.name && o.info.color === this.info.color && o.info.cards === this.info.cards && o.info.icon === this.info.icon && o.info.map === this.info.map
   }
   toDOM() {
     const wrap = document.createElement('div')
@@ -45,17 +47,17 @@ class BoardCard extends WidgetType {
     card.className = 'cm-boardcard'
     card.dataset.part = '白板链接'
     card.setAttribute('role', 'link')
-    card.setAttribute('aria-label', `白板 ${this.name}，点开在新标签`)
+    card.setAttribute('aria-label', `${this.info.map ? '导图' : '白板'} ${this.name}，点开在新标签`)
     const sq = document.createElement('span')
     sq.className = 'sq'
     sq.style.background = this.info.color
-    sq.appendChild(codiconEl((this.info.icon as CodiconName) || 'layout', 18))
+    sq.appendChild(codiconEl((this.info.icon as CodiconName) || (this.info.map ? 'type-hierarchy-sub' : 'layout'), 18))
     const tx = document.createElement('span')
     tx.className = 'tx'
     const b = document.createElement('b')
     b.textContent = this.name
     const s = document.createElement('span')
-    s.textContent = `白板 · ${this.info.cards} 张卡片 · 点开在新标签`
+    s.textContent = this.info.map ? `导图 · ${this.info.cards} 个主题 · 点开在新标签` : `白板 · ${this.info.cards} 张卡片 · 点开在新标签`
     tx.append(b, s)
     card.append(sq, tx)
     card.addEventListener('mousedown', (e) => {

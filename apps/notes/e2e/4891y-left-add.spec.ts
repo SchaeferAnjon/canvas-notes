@@ -10,7 +10,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { launch, leftView, openNote, tabOn, type Running } from './app'
-import { BOARD, DB_DIR, INBOX_NOTE, LONG_PDF, treeAddVault } from './fixtures/tree-add'
+import { BOARD, DB_DIR, INBOX_NOTE, LONG_NOTE, LONG_PDF, treeAddVault } from './fixtures/tree-add'
 import { armMenus, menuLabels, openedMenu, pickMenu } from './menu'
 
 const side = (page: Page) => page.locator('aside.side')
@@ -98,10 +98,10 @@ test('② 找文件的框：在类型筛选下面，⌥⌘F 到它，打字把�
     await openNote(page, '菜谱')
     await page.keyboard.press('Alt+Meta+KeyF')
     await expect(box).toBeFocused()
-    // 收着的 study project 2 里那份 PDF：展开到它，别的都不在
+    // 收着的 study project 2 里那份 PDF：展开到它，别的都不在（它的笔记名字里也有，挂在它下面一起出来，task-m552v）
     await expect(item(page, '课程/study project 2')).toHaveAttribute('aria-expanded', 'false')
     await page.keyboard.type('Yiting')
-    await expect.poll(() => shownPaths(page)).toEqual(['', '课程', '课程/study project 2', LONG_PDF])
+    await expect.poll(() => shownPaths(page)).toEqual(['', '课程', '课程/study project 2', LONG_PDF, LONG_NOTE])
     await expect(item(page, LONG_PDF).locator('.truncate b')).toHaveText('Yiting')
     // 文件夹名字也算
     await box.fill('stu')
@@ -136,14 +136,20 @@ test('② 找文件的框：在类型筛选下面，⌥⌘F 到它，打字把�
   }
 })
 
-test('④ 长名字的 PDF：默认左栏宽 248 时名字先省略，「PDF」小标和问了几问一直看得到', async () => {
+test('④ 长名字的 PDF：默认左栏宽 248 时名字先省略，「PDF」小标一直看得到；问了几问在它下面挂着的「笔记」那行，也一直看得到', async () => {
   const run = await start()
   const { page } = run
   try {
     await openDir(page, '课程/study project 2')
     expect(await side(page).evaluate((e) => Math.round(e.getBoundingClientRect().width))).toBeLessThanOrEqual(248)
     const row = item(page, LONG_PDF)
-    await expect(row.getByTestId('ft-note')).toHaveText('6')
+    // PDF › 笔记 › 可视化一层挂一层（task-m552v）：问了几问从 PDF 那行挪到它下面「笔记」那行
+    await expect(item(page, LONG_NOTE).getByTestId('ft-note')).toHaveText('6')
+    expect(await item(page, LONG_NOTE).evaluate((r) => {
+      const box = r.getBoundingClientRect()
+      const e = r.querySelector('.ft-q')!.getBoundingClientRect()
+      return e.top - box.top < 28 && e.right <= box.right && e.width > 0
+    })).toBe(true)
     const look = await row.evaluate((r) => {
       const box = r.getBoundingClientRect()
       const seen = (sel: string) => {
@@ -151,9 +157,9 @@ test('④ 长名字的 PDF：默认左栏宽 248 时名字先省略，「PDF」�
         return e.top - box.top < 28 && e.right <= box.right && e.width > 0
       }
       const n = r.querySelector('.truncate') as HTMLElement
-      return { ext: seen('.ft-ext'), asks: seen('.ft-nb'), cut: n.scrollWidth > n.clientWidth, nameW: n.clientWidth, h: box.height }
+      return { ext: seen('.ft-ext'), cut: n.scrollWidth > n.clientWidth, nameW: n.clientWidth, h: box.height }
     })
-    expect(look).toMatchObject({ ext: true, asks: true, cut: true, h: 28 })
+    expect(look).toMatchObject({ ext: true, cut: true, h: 28 })
     // 名字也不缩没了：至少露 3 个字那么宽
     expect(look.nameW).toBeGreaterThanOrEqual(36)
   } finally {

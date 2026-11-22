@@ -36,7 +36,7 @@ test('⌘K 没打字时八组、组间横线；钉住、藏起再从「藏着的
   try {
     await openPal(page)
     // 八组，组名写在横线下面
-    await expect(pal(page).locator('.pal-sec > .pal-g')).toHaveText(['钉住的', '最近打开', '去哪', '新建和导入', '让AI做', '网页', '库和同步', '设置和外观'])
+    await expect(pal(page).locator('.pal-sec > .pal-g')).toHaveText(['钉住的', '书桌', '最近打开', '去哪', '新建和导入', '让AI做', '网页', '库和同步', '设置和外观'])
     const line = await pal(page).locator('.pal-sec').nth(1).evaluate((e) => getComputedStyle(e).borderTopWidth + ' ' + getComputedStyle(e).borderTopStyle)
     expect(line).toBe('1px solid')
     expect(await names(sec(page, '钉住的'))).toEqual(['新建笔记', '问AI', '按名字跳到…'])

@@ -1,7 +1,11 @@
 /**
  * 拍手写导图：界面和主线共用的类型和纯函数。
  * 流程：拍（或拖进来、粘贴、隔空投送）→ 主线存一份临时的照片 → AI 认成一棵树 → 核对窗口里改 →
- * 「做成白板导图」：照片进 附件/导图/，收件箱里新建一块 `白板样式: 导图` 的白板，一次提交。
+ * 「做成白板导图」：照片进 附件/导图/，新建一块 `白板样式: 导图` 的白板，一次提交，能撤回。存在哪（task-wuv05，DESIGN.v3 6.7）：
+ * - 从白板拍的：这块白板的子白板，和它在同一个文件夹（同工具板「子白板」），父白板落点多一张指向它的卡；
+ * - 从笔记拍的：放在这篇旁边（同一个文件夹，同 /白板 › 新建白板），光标处插一块 `![[导图]]` 缩略图；
+ * - 别处拍的（首页、文件夹首页、没开着文档）：进收件箱。
+ * 前两种在属性里记 `所属白板` / `所属笔记`，面包屑靠它回到父白板、那篇笔记。
  */
 import { MAP_STYLE, MAP_STYLE_KEY, mindmapList, relativeLink, type Box, type MapNode } from '@cn/format'
 
@@ -43,8 +47,33 @@ export type Recognition =
   | { ok: true; roots: MapNode[]; course?: string; lecture?: number }
   | { ok: false; reason: 'not-map' | 'blurry'; message: string }
 
+/** 拍好的导图挂在哪：父白板（子白板卡）、笔记（光标处的缩略图块）；不给是进收件箱 */
+export interface PlaceInto {
+  /** 父白板 / 那篇笔记的路径 */
+  path: string
+  as: 'board' | 'note'
+}
+
+/** 属性里记它挂在哪（`所属白板: "[[复习]]"`），面包屑靠它回去 */
+export const PARENT_KEY: Record<PlaceInto['as'], string> = { board: '所属白板', note: '所属笔记' }
+
+/** frontmatter 里 `所属白板` / `所属笔记` 写的那一篇的名字（`"[[复习]]"` → 复习） */
+export function parentName(text: string): string | undefined {
+  const fm = /^---\n([\s\S]*?)\n---/.exec(text)?.[1]
+  if (!fm) return undefined
+  const m = /^(?:所属白板|所属笔记):[ \t]*["']?\[\[([^\]|#\n]+)(?:[|#][^\]\n]*)?\]\]["']?[ \t]*$/m.exec(fm)
+  return m?.[1]?.trim() || undefined
+}
+
+/** 做好的导图：白板和照片的路径。进收件箱的主线已经提交；挂到白板、笔记上的由界面插好链接后三样一起提交 */
+export interface Placed {
+  path: string
+  photo: string
+}
+
 export interface PlaceRequest {
   photo: string
+  into?: PlaceInto
   from: PhotoFrom
   roots: MapNode[]
   course?: string
@@ -67,7 +96,7 @@ export const photoCaption = (d: Date, from: PhotoFrom) =>
   `原照片 · ${d.getMonth() + 1} 月 ${d.getDate()} 日 ${p2(d.getHours())}:${p2(d.getMinutes())}${from in CAMERA_LABEL ? ` · ${CAMERA_LABEL[from as CameraKind]}` : ''}`
 
 /** 新导图白板的全文 */
-export function mindmapNote(o: { title: string; notePath: string; photoPath: string; caption: string; roots: MapNode[]; from: PhotoFrom; course?: string; lecture?: number; ai: string[]; day: string }): string {
+export function mindmapNote(o: { title: string; notePath: string; photoPath: string; caption: string; roots: MapNode[]; from: PhotoFrom; course?: string; lecture?: number; ai: string[]; day: string; parent?: { as: PlaceInto['as']; name: string } }): string {
   const fm = [
     'type: board',
     `${MAP_STYLE_KEY}: ${MAP_STYLE}`,
@@ -77,6 +106,7 @@ export function mindmapNote(o: { title: string; notePath: string; photoPath: str
     `来源: ${FROM_LABEL[o.from]}`,
     `日期: ${o.day}`,
     o.ai.length ? `AI填的: ${o.ai.join(', ')}` : null,
+    o.parent ? `${PARENT_KEY[o.parent.as]}: "[[${o.parent.name}]]"` : null,
   ].filter((l) => l !== null)
   return `---\n${fm.join('\n')}\n---\n# ${o.title}\n\n![${o.caption}](${relativeLink(o.notePath, o.photoPath)})\n\n${mindmapList(o.roots)}`
 }

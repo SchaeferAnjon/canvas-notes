@@ -40,7 +40,8 @@ describe('界面上写着的键都从命令表取', () => {
     const bad: string[] = []
     for (const p of [...files(join(SRC, 'renderer')), ...files(join(SRC, 'main')), ...files(join(SRC, 'preload')), ...files(join(SRC, 'shared'))]) {
       const rel = relative(SRC, p)
-      if (SKIP.has(rel)) continue
+      // 中文表、英文表（shared/i18n/）是命令表里那几句的原句和译文，源头已经查过
+      if (SKIP.has(rel) || rel.startsWith('shared/i18n/')) continue
       stripComments(readFileSync(p, 'utf8'))
         .split('\n')
         .forEach((line, i) => {

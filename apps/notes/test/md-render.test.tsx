@@ -17,7 +17,7 @@ it('AI 回答里的 md 显示成列表、加粗、标题和代码，不留 ** �
 it('AI 回答里的表格排成 <table>，单元格里照常认加粗；分隔行没到之前按段落显示（CN-29）', () => {
   const md = '翻译如下：\n\n| 左：原文 | 右：译文 |\n|---|:---:|\n| **physics-inspired** | 受物理启发 |\n| data-driven | 基于数据 |\n\n后面一段'
   const html = renderToStaticMarkup(<Markdown text={md} />)
-  expect(html).toContain('<div class="md-table"><table>')
+  expect(html).toContain('<div class="scroll-x md-table"><table>')
   expect(html).toContain('<th>左：原文</th>')
   expect(html).toContain('<td><b>physics-inspired</b></td>')
   expect(html).toContain('<td style="text-align:center">受物理启发</td>')

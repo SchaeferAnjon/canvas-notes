@@ -8,6 +8,7 @@ import { COLOR_NAMES, FOLDER_COLORS, type FolderColor, PICK_ICONS, setLook } fro
 import { Popover } from '../shell/Shell'
 import { folderLook, updateLeft, useLeft } from './left-store'
 import './look.css'
+import { useT } from '../i18n'
 
 type Glyphs = Record<string, readonly [string, string, string]>
 let all: Glyphs | null = null
@@ -60,6 +61,7 @@ export function FolderBadge(props: { folder: string; size?: number }) {
 
 /** 「换图标和颜色…」弹层 */
 export function LookPicker(props: { folder: string; anchor: HTMLElement; onClose(): void }) {
+  const t = useT()
   const cfg = useLeft()
   const look = folderLook(props.folder)
   const own = cfg.looks[props.folder] ?? {}
@@ -82,36 +84,36 @@ export function LookPicker(props: { folder: string; anchor: HTMLElement; onClose
   const icons = found ?? [...PICK_ICONS]
   const name = props.folder.split('/').pop()!
   return (
-    <Popover anchor={props.anchor} label="换图标和颜色" onClose={props.onClose} side="right" className="lookpick">
+    <Popover anchor={props.anchor} label={t('换图标和颜色')} onClose={props.onClose} side="right" className="lookpick">
       <div className="lp-hd">
         <FolderBadge folder={props.folder} size={32} />
         <b className="truncate">{name}</b>
       </div>
       <label className="lp-find">
         <Codicon name="search" size={14} />
-        <input ref={input} aria-label="找图标" placeholder="找图标（Codicons）" value={q} onChange={(e) => setQ(e.target.value)} />
+        <input ref={input} aria-label={t('找图标')} placeholder={t('找图标（Codicons）')} value={q} onChange={(e) => setQ(e.target.value)} />
       </label>
-      <div className="lp-lab">{found ? `找到${found.length === 48 ? '48+' : found.length}个` : '图标'}</div>
-      <div className="lp-icons" role="listbox" aria-label="图标">
+      <div className="lp-lab">{found ? t('找到{n}个', { n: found.length === 48 ? '48+' : found.length }) : t('图标')}</div>
+      <div className="lp-icons" role="listbox" aria-label={t('图标')}>
         {icons.map((n) => (
           <button key={n} role="option" aria-selected={look.icon === n} aria-label={n} title={n} className={look.icon === n ? 'on' : ''} onClick={() => put({ icon: n })}>
             <AnyCodicon name={n} />
           </button>
         ))}
-        {found && !found.length && <p className="lp-none">Codicons里没有叫这个的</p>}
+        {found && !found.length && <p className="lp-none">{t('Codicons里没有叫这个的')}</p>}
       </div>
-      <div className="lp-lab">颜色</div>
-      <div className="lp-cols" role="listbox" aria-label="颜色">
-        <button role="option" aria-label="不设颜色" aria-selected={!look.color} className={'none' + (!look.color ? ' on' : '')} onClick={() => put({ color: undefined })} />
+      <div className="lp-lab">{t('颜色')}</div>
+      <div className="lp-cols" role="listbox" aria-label={t('颜色')}>
+        <button role="option" aria-label={t('不设颜色')} aria-selected={!look.color} className={'none' + (!look.color ? ' on' : '')} onClick={() => put({ color: undefined })} />
         {(Object.keys(FOLDER_COLORS) as FolderColor[]).map((c) => (
-          <button key={c} role="option" aria-label={COLOR_NAMES[c]} aria-selected={look.color === FOLDER_COLORS[c]} className={look.color === FOLDER_COLORS[c] ? 'on' : ''} style={{ background: FOLDER_COLORS[c] }} onClick={() => put({ color: c })} />
+          <button key={c} role="option" aria-label={t(COLOR_NAMES[c])} aria-selected={look.color === FOLDER_COLORS[c]} className={look.color === FOLDER_COLORS[c] ? 'on' : ''} style={{ background: FOLDER_COLORS[c] }} onClick={() => put({ color: c })} />
         ))}
       </div>
       <div className="lp-ft">
-        <span>树、首页、图标栏都用它</span>
+        <span>{t('树、首页、图标栏都用它')}</span>
         <button className="lp-reset" disabled={!cfg.looks[props.folder]} onClick={() => void updateLeft((c) => setLook(c, props.folder, null))}>
           <Codicon name="discard" size={14} />
-          恢复默认
+          {t('恢复默认')}
         </button>
       </div>
     </Popover>

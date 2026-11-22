@@ -1,8 +1,9 @@
 /**
  * 梦游夜里做可视化（spec 1.11 最后一条）：挑当天卡得最久的 1 到 3 处（读 PDF 笔记里今天记的段，按问了几轮、
  * 几次「还是不懂 / 换个方式讲」、几条疑惑排），各做一个能拖能点的单文件 HTML，存进那份 PDF 所在的课程文件夹，
- * 挂到笔记那一段的脚上。和梦游别的改动一样在 dream 分支上，一处一个提交，报告里预览了再收下。
- * 这是梦游「只动收件箱、素材、周记」之外的例外：只新建 HTML、只改那篇读 PDF 笔记里那一段的脚，提交前核对。
+ * 嵌进笔记那一段的末尾（单独一段 `![可视化 · 标题](x.html)`，文档里画成能拖的图，task-m552v）。
+ * 和梦游别的改动一样在 dream 分支上，一处一个提交，报告里对照看了再收下。
+ * 这是梦游「只动收件箱、素材、周记」之外的例外：只新建 HTML、只改那篇读 PDF 笔记里那一段的末尾，提交前核对。
  * 不依赖 Electron，单元测试直接跑。
  */
 import { sizeText } from '../shared/diff'
@@ -138,9 +139,9 @@ export async function makeDreamViz(o: {
       stem = rel.split('/').pop()!.replace(/\.html$/, '')
       await mkdir(dirname(join(wt, rel)), { recursive: true })
       await writeFile(join(wt, rel), html)
-      // 挂到笔记那一段的脚上（只换这一段，别的字不动）
+      // 嵌进笔记那一段的末尾（单独一段 ![可视化 · 标题](x.html)，文档里画成能拖的图，task-m552v；只换这一段，别的字不动）
       const text = o.texts.get(spot.note)!
-      const next = upsertSection(text, { ...s, viz: { path: rel, title } }, spot.note)
+      const next = upsertSection(text, { ...s, viz: { path: rel, title, embed: true } }, spot.note)
       await writeFile(join(wt, spot.note), next)
       o.texts.set(spot.note, next)
       await git.git(wt, ['add', '--', rel, spot.note])
@@ -153,8 +154,8 @@ export async function makeDreamViz(o: {
         files: [rel, spot.note],
         ...(o.by ? { by: o.by } : {}),
         changes: [
-          { path: rel, text: `新建「${rel.split('/').pop()}」· ${sizeText(Buffer.byteLength(html))}` },
-          { path: spot.note, text: `第${s.page}页那段末尾加了可视化链接` },
+          { path: rel, text: `新建，${sizeText(Buffer.byteLength(html))}` },
+          { path: spot.note, text: `第${s.page}页那段末尾嵌进可视化` },
         ],
       })
     } catch (e) {

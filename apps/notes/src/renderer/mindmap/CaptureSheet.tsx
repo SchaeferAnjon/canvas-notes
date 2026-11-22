@@ -15,8 +15,8 @@ import './mindmap.css'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
-/** 挂在中间栏里：有人请打开（⌘K、菜单、工具板）就开窗口 */
-export function CaptureHost(props: { notes: NoteFile[]; onPlaced(path: string): void; onNotice(t: string): void }) {
+/** 挂在中间栏里：有人请打开（⌘K、菜单、工具板）就开窗口。onPlaced 的 hung：挂到了白板、笔记上（留在那一篇，不另开导图） */
+export function CaptureHost(props: { notes: NoteFile[]; onPlaced(path: string, hung: boolean): void; onNotice(t: string): void }) {
   const req = useCaptureRequest()
   useEffect(() => window.cnMap.onOpen(() => openCapture()), [])
   if (!req) return null
@@ -48,7 +48,7 @@ type Check =
 
 let reqSeq = 0
 
-function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(path: string): void; onNotice(t: string): void }) {
+function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(path: string, hung: boolean): void; onNotice(t: string): void }) {
   const [step, setStep] = useState<'shoot' | 'check'>('shoot')
   const [photo, setPhoto] = useState<Photo | null>(null)
   const [flash, setFlash] = useState(0)
@@ -171,8 +171,9 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
     setBusy(true)
     try {
       const course = props.req.course ?? meta.course
-      const path = await window.cnMap.place({
+      const r = await window.cnMap.place({
         photo: p.staged.id,
+        ...(props.req.into ? { into: props.req.into } : {}),
         from: p.from,
         roots,
         course,
@@ -182,9 +183,14 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
         at: p.at,
       })
       placed.current = true
-      markGrow(path)
-      props.req.onPlaced?.(path)
-      props.onPlaced(path)
+      markGrow(r.path)
+      // 挂到白板、笔记上：插好卡 / 缩略图块、三样一起提交（照片已经用掉了，出错也关窗口，底栏说清楚）
+      try {
+        await props.req.onPlaced?.(r)
+      } catch (e) {
+        props.onNotice(errText(e))
+      }
+      props.onPlaced(r.path, !!props.req.into)
       closeCapture()
     } catch (e) {
       setNote(errText(e))

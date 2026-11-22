@@ -310,8 +310,9 @@ test('梦游报告里收下归类那条、那篇正开着：标签跟过去，�
     await dreamNow(page)
     await dreamPanel(page).getByTestId('dream-item').filter({ hasText: /^极光\s*从/ }).click()
     await dreamPanel(page).getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
-    const pv = page.getByTestId('preview-toast')
-    await expect(pv).toContainText('收下了1处，已提交到main')
+    // 收下的提示在底栏，带撤回（task-m552v：点一条是中间开它，不再开「在树里看」的预览条）
+    const pv = toast(page)
+    await expect(pv).toContainText('收下了「极光」，一次提交进了main')
     await expect.poll(() => existsSync(join(vault, '收件箱/极光.md'))).toBe(false)
     // 标签跟到新地方（编辑器的「所在文件夹」不再是收件箱），几秒里没有「在外面」那句
     await expect.poll(async () => (await page.evaluate(() => [...document.querySelectorAll('.cm-editor')].length)) > 0).toBe(true)
@@ -325,7 +326,8 @@ test('梦游报告里收下归类那条、那篇正开着：标签跟过去，�
     expect(lastSubject(vault)).not.toMatch(/Revert/)
     await page.waitForTimeout(2000)
     expect((await toasts()).filter((t) => /在外面/.test(t))).toEqual([])
-    // 真在外面（访达）只挪了文件夹：说挪到了哪，不说「改名成了」同一个名字
+    // 真在外面（访达）只挪了文件夹：说挪到了哪，不说「改名成了」同一个名字（中间开着梦游那条：先回到那篇的标签）
+    await page.locator('[role="tab"][data-path="收件箱/极光.md"]').click()
     await expect(tabOn(page)).toHaveText('极光')
     mkdirSync(join(vault, '素材/旅行'), { recursive: true })
     renameSync(join(vault, '收件箱/极光.md'), join(vault, '素材/旅行/极光.md'))
@@ -347,6 +349,8 @@ test('收下挪老图后在图那一行改了字（给图写说明），点「�
     await dreamPanel(page).getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
     await expect(toast(page)).toContainText('梦游挪了图，链接已更新')
     await expect.poll(() => readFileSync(note, 'utf8')).toContain('../../附件/课程/ecp/Lecture05%20笔记/image-1.png')
+    // 点那一条中间开了它的预览（task-m552v）：回到那篇的标签
+    await page.locator('[role="tab"][data-path="课程/ecp/Lecture05 笔记.md"]').click()
     // 改图那一行：悬停图片点「加说明…」写一句（文档里只有这样改得到图那一行，没有「源文件」看法）
     await page.waitForTimeout(800)
     const img = pane(page).locator('.cm-image')

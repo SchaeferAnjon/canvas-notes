@@ -150,6 +150,8 @@ export interface CnMenuApi {
   onWebContext(cb: (wcId: number, p: CtxParams) => void): () => void
   /** 写剪贴板（测试窗口没有焦点，网页里的 navigator.clipboard 用不了，统一走主进程） */
   copyText(text: string): Promise<void>
+  /** 图写进剪贴板（PDF、HTML、网页上框的那一块「⋯ › 拷贝这块」，task-6cxtc） */
+  copyImage(png: Uint8Array): Promise<void>
   /** 库里的文件或文件夹在访达中显示 */
   reveal(path: string): Promise<void>
   /** 用默认浏览器打开（只认 http / https） */

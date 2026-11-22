@@ -63,6 +63,9 @@ port.on('message', async (e) => {
   }
   try {
     await opening
+    // 测试用：搜索进程回得慢（刚启动、机器忙时要载模型、起进程），看 ⌘K 回车会不会被它拖住（e2e/wuv05-cmdk-capture）
+    const slow = Number(process.env.CN_E2E_SLOW_SEARCH_MS) || 0
+    if (slow) await new Promise((r) => setTimeout(r, slow))
     const value = m.t === 'pdfText' ? (ix?.pdfSearch(m.q) ?? []) : ((await ix?.meaning(m.q)) ?? [])
     post({ t: 'reply', id: m.id, ok: true, value })
   } catch (err) {

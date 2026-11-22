@@ -5,14 +5,15 @@
  *    界面按是不是人点链接翻过来的决定记不记（软件自己开的、重开软件恢复的不记）。
  * 2. 回到那段：界面给一段的记法，先按字找（网页可能还在长，3 秒里找几次），找到就让它停在读的那一行、亮 1.6 秒；
  *    找不到（网页改了版）按上次的滚动比例停，告诉界面「没找到」，界面在网页上面浮一句。
+ *    回到选中的那几句（task-6cxtc，笔记里点「↩」、右栏「笔记」里点一条）：quote 给了就在每一段里面找那几句（findQuote），只亮那几句。
  * 只在 http(s) 网页里做（新网页标签那一页不做）。
  */
 import { ipcRenderer } from 'electron'
-import { anchorAt, findAnchor, normText } from '../shared/read-anchor'
-import { cleanHead, type PagePos } from '../shared/read-along'
+import { anchorAt, findAnchor, findQuote } from '../shared/read-anchor'
+import type { PagePos } from '../shared/read-along'
+import { blocks, charsOf, HEAD, mainScroller, rangeOf, scrollerOf, setLastScroller, textOf, topCover } from './webview-blocks'
+import { flashRange } from './webview-marks'
 
-const BLOCKS = 'p, li, pre, blockquote, dd, dt, figcaption, h1, h2, h3, h4, h5, h6'
-const HEAD = /^H[1-6]$/
 /** 读的那一行在窗口高的几成处 */
 const LINE = 0.18
 /** 回到那段时，段落顶边停在读的那一行上面这么多 */
@@ -21,75 +22,6 @@ const ABOVE = 8
 type Kind = 'scroll' | 'land' | 'now'
 
 const isPage = /^https?:$/.test(location.protocol)
-
-const textOf = (el: Element) => (HEAD.test(el.tagName) ? cleanHead(el.textContent ?? '') : normText(el.textContent ?? ''))
-
-/** 能滚的那一块：自己是不是（overflow 能滚、内容比框高） */
-function scrolls(el: Element): boolean {
-  if (el === document.scrollingElement) return el.scrollHeight > el.clientHeight + 4
-  const oy = getComputedStyle(el).overflowY
-  return (oy === 'auto' || oy === 'scroll' || oy === 'overlay') && el.scrollHeight > el.clientHeight + 4
-}
-
-/** 这一段在哪一块里滚：最近的能滚的祖先，没有就是整页 */
-function scrollerOf(el: Element): Element {
-  for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) if (scrolls(p)) return p
-  return document.scrollingElement ?? document.documentElement
-}
-
-/** 正文滚的那一块：人上次滚的那一块；没滚过时挑看得见的面积最大的能滚的那一块（zh.d2l.ai 是正文区，不是整页） */
-let lastScroller: Element | null = null
-function mainScroller(): Element {
-  if (lastScroller?.isConnected && scrolls(lastScroller)) return lastScroller
-  const root = document.scrollingElement ?? document.documentElement
-  let best: Element = root
-  let area = scrolls(root) ? innerWidth * innerHeight : 0
-  for (const el of document.querySelectorAll('main, article, section, div')) {
-    if (el.clientHeight < innerHeight * 0.5 || el.clientWidth < innerWidth * 0.4 || !scrolls(el)) continue
-    const r = el.getBoundingClientRect()
-    const a = Math.max(0, Math.min(r.right, innerWidth) - Math.max(r.left, 0)) * Math.max(0, Math.min(r.bottom, innerHeight) - Math.max(r.top, 0))
-    if (a > area) ((best = el), (area = a))
-  }
-  return best
-}
-
-/** 钉在窗口上的（固定的头、侧栏目录）：它们里面的段落不算读到的地方 */
-function pinned(el: Element, memo: Map<Element, boolean>): boolean {
-  const seen: Element[] = []
-  let p: Element | null = el
-  let hit = false
-  while (p && p !== document.body) {
-    const m = memo.get(p)
-    if (m !== undefined) {
-      hit = m
-      break
-    }
-    seen.push(p)
-    const pos = getComputedStyle(p).position
-    if (pos === 'fixed' || pos === 'sticky') {
-      hit = true
-      break
-    }
-    p = p.parentElement
-  }
-  for (const s of seen) memo.set(s, hit)
-  return hit
-}
-
-/** 正文里一块块的字（按先后）：段落、列表项、代码、引文、小标题；套着里层段落的、藏着的、钉在窗口上的不算 */
-function blocks(sc: Element): HTMLElement[] {
-  const memo = new Map<Element, boolean>()
-  const root = sc === document.scrollingElement ? document.body : sc
-  if (!root) return []
-  return [...root.querySelectorAll<HTMLElement>(BLOCKS)].filter((el) => {
-    if (el.closest('#cn-clip-host')) return false
-    if (el.tagName !== 'PRE' && !HEAD.test(el.tagName) && el.querySelector('p, li, pre')) return false
-    if (el.tagName !== 'PRE' && el.closest('pre')) return false
-    if (!el.getClientRects().length) return false
-    if (textOf(el).length < 2) return false
-    return !pinned(el, memo)
-  })
-}
 
 /** 读的那一行上（或刚在它下面）的那一段；几栏并排时挑最宽的 */
 function readingIndex(els: HTMLElement[]): number {
@@ -146,15 +78,22 @@ const byUser = () => (down || Date.now() - userAt < 1500) && Date.now() > selfUn
 
 // ---------------------------------------------------------------- 回到那段
 
-/** 滚到让这一段停在读的那一行上 */
-function bring(el: HTMLElement) {
+/**
+ * 滚到让这一段停在读的那一行上；给了 range（回到选中的那几句，task-6cxtc）是那几句的第一行，
+ * 这时还要让开网页钉着的头（d2l 那种顶上一条），那几句整个露着
+ */
+function bring(el: HTMLElement, range?: Range | null) {
   selfUntil = Date.now() + 700
+  // 那几句的第一行比段落顶边低多少（长段落中间的一句，停在读的那一行上的是这一句）
+  const first = range?.getClientRects()[0]
+  const dy = first ? Math.max(0, first.top - el.getBoundingClientRect().top) : 0
   el.scrollIntoView({ block: 'start', behavior: 'instant' })
   const sc = scrollerOf(el)
-  const off = el.getBoundingClientRect().top - (innerHeight * LINE - ABOVE)
+  const line = range ? Math.max(innerHeight * LINE - ABOVE, topCover() + 16) : innerHeight * LINE - ABOVE
+  const off = el.getBoundingClientRect().top + dy - line
   if (sc === document.scrollingElement) window.scrollBy({ top: off, behavior: 'instant' })
   else sc.scrollTop += off
-  lastScroller = sc
+  setLastScroller(sc)
 }
 
 /** 那一段亮 1.6 秒（界面给的颜色：主题强调色的淡底），然后 0.4 秒淡掉；网页自己的样式原样放回 */
@@ -183,6 +122,20 @@ interface GotoReq {
   flash: string | null
   /** 从头读：滚到最上面 */
   top?: boolean
+  /** 回到选中的那几句（笔记里的「↩」）：在每一段里面找，只亮那几句；pos.text 是链接里那段开头，quote 是笔记里引着的全文 */
+  quote?: string
+}
+
+/** 那几句在哪：先按笔记里引着的全文找，再按链接里那段开头找 */
+function findSpan(els: HTMLElement[], req: GotoReq): { el: HTMLElement; range: Range | null; how: 'exact' | 'fuzzy' } | null {
+  const chars = els.map(charsOf)
+  const texts = chars.map((c) => c.text)
+  for (const q of [req.quote ?? '', req.pos.text]) {
+    if (!q.trim()) continue
+    const hit = findQuote(texts, q)
+    if (hit) return { el: els[hit.index]!, range: rangeOf(chars[hit.index]!, hit.start, hit.end), how: hit.how }
+  }
+  return null
 }
 
 function goto(req: GotoReq, tries = 0) {
@@ -193,13 +146,26 @@ function goto(req: GotoReq, tries = 0) {
     else sc.scrollTop = 0
     return ipcRenderer.sendToHost('cn:readpos:went', { id: req.id, how: 'top' })
   }
-  const els = blocks(sc)
-  const hit = findAnchor(els.map(textOf), req.pos)
-  if (hit) {
-    const el = els[hit.index]!
-    bring(el)
-    if (req.flash) flash(el, req.flash)
-    return ipcRenderer.sendToHost('cn:readpos:went', { id: req.id, how: hit.how })
+  if (req.quote !== undefined) {
+    // 选中的那几句可能在正文以外的一块（侧栏、页脚）：整页找
+    const span = findSpan(blocks(document.scrollingElement ?? document.documentElement), req)
+    if (span) {
+      bring(span.el, span.range)
+      if (req.flash) {
+        if (span.range) flashRange(span.range, req.flash)
+        else flash(span.el, req.flash)
+      }
+      return ipcRenderer.sendToHost('cn:readpos:went', { id: req.id, how: span.how })
+    }
+  } else {
+    const els = blocks(sc)
+    const hit = findAnchor(els.map(textOf), req.pos)
+    if (hit) {
+      const el = els[hit.index]!
+      bring(el)
+      if (req.flash) flash(el, req.flash)
+      return ipcRenderer.sendToHost('cn:readpos:went', { id: req.id, how: hit.how })
+    }
   }
   // 网页还在长（脚本后加载的正文）：3 秒里再找几次
   if (tries < 12) return void setTimeout(() => goto(req, tries + 1), 250)
@@ -237,7 +203,8 @@ if (isPage) {
     (e) => {
       if (!byUser()) return
       const t = e.target
-      lastScroller = t === document ? (document.scrollingElement ?? document.documentElement) : t instanceof Element ? t : lastScroller
+      if (t === document) setLastScroller(document.scrollingElement ?? document.documentElement)
+      else if (t instanceof Element) setLastScroller(t)
       clearTimeout(timer)
       timer = setTimeout(() => report('scroll'), 400)
     },

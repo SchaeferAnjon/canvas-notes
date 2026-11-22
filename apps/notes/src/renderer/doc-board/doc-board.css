@@ -1069,7 +1069,7 @@
   position: absolute;
   top: 16px;
   left: 92px;
-  right: 14px;
+  right: 16px;
   z-index: 6;
   display: flex;
   align-items: flex-start;
@@ -1171,7 +1171,7 @@
   box-shadow: inset 0 0 0 2px var(--acc-ring);
 }
 
-/* ---------- 收件箱弹窗（task-8isml）：标签条「收件箱 N」下面 6、320 宽、圆角 12、--pop 底、--shadow-up；盖在白板上不占宽，
+/* ---------- 收件箱弹窗（task-8isml）：白板右上角那一小条（task-wz7gb）下面 6、右边和它对齐、320 宽、圆角 12、--pop 底、--shadow-up；盖在白板上不占宽，
    最高 min(中栏高 − 32, 560) 写在 style 上；头、说明、搜索框、底下一行钉住，只有列表滚 ---------- */
 .db-inbox-pop {
   position: absolute;
@@ -1416,7 +1416,86 @@
   flex: none;
   margin-left: auto;
 }
-/* 标签条右端「收件箱 N」：数是 16 高的小胶囊 */
+/* ---------- 白板右上角：缩放「80% ▾」和「收件箱 N」（task-wz7gb；以前在标签条右端，切看法时那一排左右跳） ----------
+   浮在白板上，离右 16、离顶 16，32 高，和顶上那条胶囊同一行（文档白板里放在 .db-top 右端，胶囊在剩下的地方居中、放不下省略号）；
+   底、圆角、阴影照左边工具板（文档白板 --pop、12、--shadow-up；导图那种自由白板的工具板是 14、--shadow，跟它）；
+   每颗 26 高、圆角 8，悬停 --fill，弹窗开着 --fill2；两颗中间一道 16 高的竖线。A 只有图标和数，B 写「收件箱」；白板窄于 560 时只留图标和数、不画 ⌄ */
+.db-corner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+}
+.db-top > .db-corner {
+  margin-left: auto;
+}
+.db-top > .db-hint + .db-corner {
+  margin-left: 0;
+}
+.board > .db-corner {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+}
+.dbc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+}
+.dbc-btn:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.dbc-btn.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+/* 比例本身就是按钮；宽度留够 3 位数，变的时候不挤动旁边 */
+.dbc-btn.zoom {
+  gap: 2px;
+  min-width: 52px;
+  padding: 0 4px 0 6px;
+}
+.dbc-sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--line);
+}
+.dbc-btn .lb {
+  display: none;
+}
+.frame-b .db-corner:not(.narrow) .dbc-btn .lb {
+  display: inline;
+}
+.db-corner.narrow .dbc-btn.zoom {
+  min-width: 40px;
+  padding: 0 6px;
+}
+.db-corner.narrow .dbc-btn.zoom .ci {
+  display: none;
+}
+/* 「收件箱 N」的数是 16 高的小胶囊 */
 .db-inbox-btn .cnt {
   display: inline-grid;
   place-items: center;

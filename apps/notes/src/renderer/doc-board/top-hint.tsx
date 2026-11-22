@@ -104,7 +104,11 @@ export function TopHint(props: {
   useEffect(() => {
     const row = props.area.current?.querySelector<HTMLElement>('.db-top')
     if (!row) return
-    const check = () => setNarrow(row.clientWidth < HINT_ROOM)
+    // 右端白板角上那一小条（缩放、收件箱，task-wz7gb）占的宽不算
+    const check = () => {
+      const c = row.querySelector<HTMLElement>('.db-corner')
+      setNarrow(row.clientWidth - (c ? c.offsetWidth + 8 : 0) < HINT_ROOM)
+    }
     check()
     const ro = new ResizeObserver(check)
     ro.observe(row)

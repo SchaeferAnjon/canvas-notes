@@ -511,7 +511,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  white-space: nowrap;
   font-family: var(--sans);
   color: var(--t1);
   pointer-events: auto;
@@ -590,9 +589,12 @@
     box-shadow: 0 0 0 3px transparent;
   }
 }
+/* 不截字：宽由排版按字量出来（MindmapLayer 的 measure 用同一条规则量），到最宽 260 换行，长英文单词也断开（偏好「导图节点不截字」） */
 .mm-node .t {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .mm-node .q {
   width: 16px;

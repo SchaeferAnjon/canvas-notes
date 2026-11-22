@@ -6,6 +6,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { type AppSettings, normalizeSettings, type SettingsPatch, type SkinInfo } from '../shared/appearance'
 import { patchDream } from '../shared/dream-settings'
+import { logDropped } from './crash-log'
 
 export interface StoredSettings extends Partial<AppSettings> {
   lastVault?: string
@@ -26,13 +27,28 @@ export class SettingsFile {
     private userSkins: () => SkinInfo[] = () => [],
   ) {}
 
+  /**
+   * 坏了的（读不出 JSON、不是对象，task-pyb39）：以前这里一抛，开库、读设置全失败，界面一直空着（白屏）。
+   * 现在原文件改名成 settings.json.broken 留着、记一行日志，按默认设置打开
+   */
   read(): StoredSettings {
+    let text: string
     try {
-      return JSON.parse(readFileSync(this.path, 'utf8')) as StoredSettings
+      text = readFileSync(this.path, 'utf8')
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return {}
       throw e
     }
+    let v: unknown
+    try {
+      v = JSON.parse(text)
+    } catch (e) {
+      v = e
+    }
+    if (v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Error)) return v as StoredSettings
+    renameSync(this.path, this.path + '.broken')
+    logDropped('settings', `settings.json ${v instanceof Error ? `读不出来：${v.message}` : '不是对象'}，原文件改名成 settings.json.broken，按默认设置打开`)
+    return {}
   }
 
   write(s: StoredSettings) {

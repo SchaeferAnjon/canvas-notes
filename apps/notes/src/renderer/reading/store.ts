@@ -16,6 +16,7 @@ import { webHost } from '../plugins/host'
 import { centerNow } from '../video/store'
 import { clearWebBox } from './web-bridge'
 import { ASK_THIS, sideName as nameOf } from '../side/name'
+import { backLabel } from '../../shared/web-link'
 
 /** 框好、还没发的那一块（右栏输入框里那张小图） */
 export interface Pending {
@@ -33,7 +34,7 @@ export interface Pending {
   /** 马上就发（工具条按钮、问这一页、⌘↵）：输入框不预填，也不抢焦点 */
   direct?: boolean
   /** 在右栏网页上框的（或库里的 HTML）：网址、标题、框里的字 */
-  web?: { url: string; title: string; text?: string; /** 视频问答块「接着问」：那一问在视频第几秒 */ t?: number; /** 「接着问」：那一问 AI 当时的回答 */ answer?: string }
+  web?: { url: string; title: string; text?: string; /** 视频问答块「接着问」：那一问在视频第几秒 */ t?: number; /** 「接着问」：那一问 AI 当时的回答 */ answer?: string; /** 上面最近的小标题 */ head?: string }
 }
 
 /** 输入框里打了自己的问题再按 ⌘↵：PDF 标签带上这一页（HTML 带上这一屏）问这句。detail：{ src, text } */
@@ -41,6 +42,13 @@ export const ASK_PAGE = 'cn:reading-ask-page'
 
 /** 来源是右栏网页（中间栏没开 PDF、HTML 时框着问）：「web:<网址>」 */
 export const isWebSrc = (src: string) => src.startsWith('web:')
+/** 一问答好以后一问一块写进这个网页正在剪进去的那篇（task-6cxtc）：网页那一处、不是视频问答块「接着问」那一串（带着视频时刻 t，照旧记进那块问答所在的那篇） */
+const toWebNote = (src: string, web: { t?: number } | undefined) => isWebSrc(src) && web?.t === undefined
+/** 这会儿发一问会不会写进网页的那篇（要先定记到哪篇）：看待问的那块，没有就看接着的那一串 */
+export function sendsToWebNote(src: string): boolean {
+  const r = get(src)
+  return toWebNote(src, r.pending ? r.pending.web : r.state.threads.find((t) => t.id === r.activeThread)?.web)
+}
 
 /** 排着的一问。page：答的时候按 ⌘↵ 排上的，发出时和平时的 ⌘↵ 一样带上那一页；mats：带的材料（字里的 ①② 是它们的位置） */
 export interface Queued {
@@ -96,6 +104,8 @@ export interface Reading {
   sideRunning: Record<string, number>
   /** 让笔记滚到那条旁支（「在笔记里看」、笔记里点小标） */
   sideFocus: { thread: string; quote: string; seq: number } | null
+  /** 网页那一处（web:<网址>）的网页标题：引用、问的时候记下（还没问过时头上、「看得到」、空白提示也写得出它，task-6cxtc 复审） */
+  webTitle?: string
 }
 
 /** 旁支开着哪一条；flash：刚收起的那一条（那句闪 1.4 秒、小标闪一圈） */
@@ -174,6 +184,11 @@ export function addMaterial(pdf: string, mat: Material, o: { doc?: boolean } = {
   update(pdf, (r) => ({ incoming: [...r.incoming, { mat, doc: !!o.doc, seq: nextSeq() }] }))
 }
 
+/** 网页那一处记下网页标题（网页上引用、问的时候） */
+export function setWebTitle(src: string, title: string) {
+  if (title && get(src).webTitle !== title) update(src, () => ({ webTitle: title }))
+}
+
 /** 输入框拿走等着的材料 */
 export function takeIncoming(pdf: string): Reading['incoming'] {
   const got = get(pdf).incoming
@@ -191,12 +206,45 @@ export function setPick(pdf: string, pick: AiPick) {
  * 这一问用的哪家、哪个模型、哪一档和回答头上那一行（CN-91）：哪家跟设置 › AI「AI 对话」那一行，
  * 这份 PDF 的对话自己选过模型、effort 就用自己的（ReadingAi 底行那三颗显示的就是它）
  */
-async function pickNow(pdf: string): Promise<{ pick: AiPick; by: string; req: { model?: string; effort?: string } }> {
+async function pickNow(pdf: string): Promise<{ pick: AiPick; by: string; doc: string; req: { model?: string; effort?: string } }> {
   const ai = await window.cn.aiEngines()
   const pick = convPick(ai.engines, ai.chat, get(pdf).state.pick)
   engineNow = pick.engine
   const models = ai.engines.find((e) => e.id === pick.engine)?.models
-  return { pick, by: pickLabel(pick, models), req: pickReq(pick) }
+  // 写进文档的块头不带档（同视频框一块问写进文档的讲解）
+  return { pick, by: pickLabel(pick, models), doc: pickLabel({ engine: pick.engine, ...(pick.model ? { model: pick.model } : {}) }, models), req: pickReq(pick) }
+}
+
+/**
+ * 网页上问的（不是视频「接着问」）答完以后写进这个网页正在剪进去的那篇（task-6cxtc）：一问一块 [!ai]。
+ * 写法和记到哪篇在 web-notes/flow.ts（它登记进来，免得两边互相引用）；返回记进了哪篇，没记（这次只问不记、还没定）是 null
+ */
+export interface WebNote {
+  src: string
+  thread: ReadingThread
+  question: ReadingMsg
+  answer: string
+  by: string
+}
+type WebNoteWriter = (n: WebNote) => Promise<{ path: string; title: string } | null>
+let webNoteWriter: WebNoteWriter | null = null
+/** 这个网页选了「这次只问，不记」（问了也不写进哪篇） */
+let webSkips: ((url: string) => boolean) | null = null
+export const setWebNoteWriter = (w: WebNoteWriter | null, skips: ((url: string) => boolean) | null = null) => {
+  webNoteWriter = w
+  webSkips = skips
+}
+
+async function writeWebNote(pdf: string, th: ReadingThread, user: ReadingMsg, aiId: number, by: string) {
+  if (!webNoteWriter) return
+  patchMsg(pdf, aiId, { note: 'writing' })
+  try {
+    const answer = withoutVizMark(get(pdf).state.msgs.find((m) => m.id === aiId)?.text ?? '').text
+    const r = await webNoteWriter({ src: pdf, thread: th, question: user, answer, by })
+    patchMsg(pdf, aiId, r ? { note: 'done', noteTo: `《${r.title}》` } : { note: undefined })
+  } catch (e) {
+    patchMsg(pdf, aiId, { note: 'error', noteError: noteErr(e) })
+  }
 }
 
 /** ⌘J、右下角圆钮打开的 AI：打开后光标进输入框（打开 PDF 时自己出来的那次不抢焦点） */
@@ -413,6 +461,38 @@ export function unstage(pdf: string, keepText = false) {
   update(pdf, (x) => ({ pending: null, ...(keepText ? dropQueue(x) : { queued: [] }) }))
 }
 
+/** 一块材料从哪来（输入框顶上那一排小卡上写的）：PDF「第28页」「第28页 · 我框的」，网页「2.2.1 读取数据集 · 我框的」，HTML「旋转矩阵 · 我框的」 */
+function matSrc(pdf: string, p: Pending): string {
+  if (p.web && /^https?:/i.test(p.web.url)) return `${backLabel({ ...(p.web.head ? { head: p.web.head } : {}), title: p.web.title, url: p.web.url })}${p.quote ? '' : ' · 我框的'}`
+  if (p.web) return `${(pdf.split('/').pop() ?? pdf).replace(/\.[^.]+$/, '')} · 我框的`
+  return p.quote ? `第${p.page}页` : `第${p.page}页 · 我框的`
+}
+
+/**
+ * 引用（task-6cxtc 四处小条统一：原来的「改问法」「引用这块」合成这一颗）：框着的这块（截图）、选着的这段（字）成为输入框顶上的一块材料，
+ * 框收起、光标进输入框（输入框拿走材料时放光标）；接着框别处再引用就攒成 ①②。截图还在截时等它好（最多 5 秒）。没有框着的返回 false
+ */
+export async function quotePending(pdf: string): Promise<boolean> {
+  const waiting = () => {
+    const p = get(pdf).pending
+    return !!p && !p.quote && !p.png && !p.image
+  }
+  for (let i = 0; i < 125 && waiting(); i++) await new Promise((res) => setTimeout(res, 40))
+  const p = get(pdf).pending
+  if (!p) return false
+  const src = matSrc(pdf, p)
+  const url = p.web && /^https?:/i.test(p.web.url) ? { url: p.web.url } : {}
+  let mat: Material
+  if (p.quote) mat = { kind: 'quote', text: p.quote.slice(0, 20_000), src, ...url }
+  else if (p.png) mat = { kind: 'image', name: await window.cn.aiPaste(p.png, 'image/png'), src, ...(p.page > 0 ? { page: p.page } : {}), ...url }
+  else return false
+  unstage(pdf)
+  addMaterial(pdf, mat)
+  // 网页那边的框和工具条收起来
+  if (p.web && /^https?:/i.test(p.web.url)) clearWebBox(webHost()?.view() ?? null)
+  return true
+}
+
 /** 这份 PDF（HTML）的标签关了：排着的那一问不发、不记笔记；正在答的那一问照常答完记下 */
 export function closed(pdf: string) {
   if (!docs.has(pdf)) return
@@ -482,7 +562,7 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
   const r = get(pdf)
   const now = Date.now()
   // 谁来答、模型、effort：这份 PDF 的对话选的（没选过用「AI 对话」那一行），回答头上写全
-  const { pick, by, req } = await pickNow(pdf)
+  const { pick, by, doc, req } = await pickNow(pdf)
   const engine = pick.engine
   // 材料里的图和粘贴的图一样附上（按顺序，排在框的那块后面）
   const images = [...pasted, ...imageNames(mats).filter((n) => !pasted.includes(n))]
@@ -491,7 +571,12 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
   if (p) {
     const id = await window.cnReading.newThread(pdf, p.page)
     if (p.image) image = p.image
-    else if (p.png) image = await window.cnReading.saveCrop(pdf, p.page, p.png)
+    // 网页上框着问、这个网站选了「这次只问，不记」（task-6cxtc）：截图不进库（不会写进哪篇，进库就成了没人用的附件），当粘贴的图附上
+    else if (p.png && isWebSrc(pdf) && webSkips?.(p.web?.url ?? pdf.slice(4))) {
+      const name = await window.cn.aiPaste(p.png, 'image/png')
+      images.unshift(name)
+      pasted = [name, ...pasted]
+    } else if (p.png) image = await window.cnReading.saveCrop(pdf, p.page, p.png)
     // 视频「接着问」附的那一帧文档里那块问答已经有了，笔记里不再放一遍
     thread = { id, page: p.page, ...(p.rect ? { rect: p.rect } : {}), ...(p.quote ? { quote: p.quote } : {}), ...(image && !p.image ? { crop: image, ...(p.w ? { cropW: p.w } : {}) } : {}), ...(p.web ? { web: p.web } : {}), createdAt: now }
     // 网页那边的框和工具条收起来
@@ -552,7 +637,10 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     ...changeOf(res),
   })
   if (res.commit || res.failed) window.dispatchEvent(new CustomEvent(AI_CHANGED))
-  if (!res.error && res.text.trim()) void writeNote(pdf, th.id, aiId, engine)
+  if (res.error || !res.text.trim()) return
+  // 网页上问的（中间没开 PDF、HTML）：一问一块写进这个网页正在剪进去的那篇（task-6cxtc）；视频问答块「接着问」照旧
+  if (toWebNote(pdf, th.web)) void writeWebNote(pdf, th, userMsg, aiId, doc)
+  else void writeNote(pdf, th.id, aiId, engine)
 }
 
 /** AI 这一问动手改了库里的文件（2026-11-19）：界面刷新左栏、底栏（App 听这个） */

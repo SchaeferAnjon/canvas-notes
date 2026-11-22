@@ -21,12 +21,19 @@ export interface FileEntry {
   lecture?: number
   /**
    * PDF、HTML 旁边那篇读 PDF 笔记（「<名字> 笔记.md」，一个 PDF 一篇，2026-11-20）和里面问了几问（主问题 + 旁支问题）：
-   * 目录树里 PDF 和它的笔记合成一行，笔记不单独列
+   * 目录树里笔记挂在 PDF 下面，写「笔记」（task-m552v；以前是合成一行）
    */
   /** sent：这篇笔记里问过的都送进 Anki 了（目录树那一行数字后面一个绿勾，task-tz7y3） */
   note?: { path: string; asks: number; sent?: boolean }
   /** 附件（img、att）：多大，字节 */
   bytes?: number
+  /** HTML（可视化）：嵌着、链着它的那篇读 PDF 笔记（目录树里挂到那篇下面，task-m552v） */
+  vizOf?: string
+  /**
+   * 梦游分支上还没收下的可视化（task-m552v）：报告里那一条的身份。库里还没有这个文件，界面按报告补进来：
+   * 目录树里挂在它的笔记下面、淡着写「没收下」，点了开报告里那一条；不算篇数
+   */
+  dream?: string
   /**
    * 文件夹是某个数据库（```base）的记录文件夹（task-5yp97，用户看图定「藏之后」）：几条记录；owner 是同一个文件夹里用它的那一篇
    * （好几篇按名字取最前的）。有 owner 的在目录树里挂到那篇下面；不管挂没挂，「移到」的去处里都不列它（挪进去就成了一条记录）
@@ -166,14 +173,20 @@ export interface TreeNode {
   time: number
   /** 置顶了（笔记写在置顶.json 里，文件夹写成「写作/」） */
   pinned?: boolean
+  /**
+   * 挂在别的文件下面的（task-m552v）：note 是 PDF 下面的那篇读 PDF 笔记，viz 是笔记下面它嵌着的可视化；
+   * sub 是白板下面它的导图、子白板（属性 所属白板 / 所属笔记，task-wuv05），照常算篇数。
+   * 挂着的笔记写 label「笔记」（悬停看全名）、asks 问了几问；筛类型时只因为下面有符合的才留着的 PDF 是 shell（自己不算篇数）
+   */
+  hung?: 'note' | 'viz' | 'sub'
+  label?: string
+  asks?: { n: number; sent?: boolean }
+  shell?: boolean
 }
 
 const KIND_ORDER: Record<FileKind, number> = { dir: 0, pdf: 1, md: 2, html: 3, img: 4, att: 5 }
 /** 顶层分类按这个先后（shared/categories.ts 的顺序），别的文件夹按名字排在后面 */
 export const TOP_ORDER: readonly string[] = CATEGORY_NAMES
-
-/** 一门课里放在最上面的几篇（考前看的）。「我的疑惑」「视频里的疑惑」2026-11-20 起不再是软件汇总的文件，不放最上 */
-const PINNED = ['术语表.md']
 
 /** 「第3讲 xx」「第 12 讲」这种按数字排，不按字 */
 const collator = new Intl.Collator('zh-Hans-CN', { numeric: true, sensitivity: 'base' })
@@ -200,8 +213,14 @@ export interface TreeOpts {
   pins: ReadonlySet<string>
   /** 类型筛选：只留这些文件；留不下文件的文件夹也不画。不给 = 全部（空文件夹也画） */
   keep?: (f: FileEntry) => boolean
+  /**
+   * 目录树（task-m552v）：PDF › 笔记 › 可视化一层挂一层。不给（文件夹首页「里面有什么」）照旧：PDF 和它的笔记算一个，笔记不单独列
+   */
+  hang?: boolean
   /** 用预设的分类（task-wniqx）：关掉时最外层的分类不再排在前面，和别的文件夹一起按名字排 */
   cats?: boolean
+  /** 挂在别的笔记下面的子文件 → 那一篇（同一个文件夹里，白板下的导图、子白板，task-wuv05）；只在 hang 时用 */
+  subOf?: ReadonlyMap<string, string>
 }
 export const DEFAULT_TREE_OPTS: TreeOpts = { sort: 'name-asc', foldersFirst: true, pinsFirst: true, pins: new Set() }
 
@@ -216,8 +235,15 @@ export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): Tre
   const ctime = o.sort.startsWith('ctime')
   const root: TreeNode = { path: '', name: '', kind: 'dir', children: [], count: 0, time: 0 }
   const dirs = new Map<string, TreeNode>([['', root]])
-  // 一个 PDF 一篇笔记：PDF（HTML）在树里时，它旁边那篇笔记不单独列（合成 PDF 那一行）；PDF 被筛掉时笔记照旧单独一行
-  const merged = new Set(files.flatMap((f) => (f.note && (f.kind === 'pdf' || f.kind === 'html') && (!o.keep || o.keep(f)) ? [f.note.path] : [])))
+  // PDF › 笔记 › 可视化（task-m552v）：同一个文件夹里，笔记挂在它的 PDF（或读的 HTML）下面，可视化挂在嵌着它的笔记下面。
+  // 筛类型时 PDF、HTML 跟着自己的笔记走：笔记留着，它的 PDF 也留着（只是个壳，不算篇数）
+  const here = new Map(files.map((f) => [f.path, f]))
+  const kept = (f: FileEntry) => !o.keep || o.keep(f)
+  const hostOf = new Map<string, FileEntry>()
+  if (o.hang) for (const f of files) if (f.note && (f.kind === 'pdf' || f.kind === 'html') && here.has(f.note.path) && folderOfPath(f.note.path) === folderOfPath(f.path)) hostOf.set(f.note.path, f)
+  const shells = new Set(o.keep ? [...hostOf].filter(([note, src]) => !kept(src) && kept(here.get(note)!)).map(([, src]) => src.path) : [])
+  // 不挂的（文件夹首页）：PDF（HTML）在的时候它旁边那篇笔记不单独列（合成 PDF 那一个）；PDF 被筛掉时笔记照旧单独一个
+  const merged = o.hang ? new Set<string>() : new Set(files.flatMap((f) => (f.note && (f.kind === 'pdf' || f.kind === 'html') && kept(f) ? [f.note.path] : [])))
   const dirOf = (path: string): TreeNode => {
     const hit = dirs.get(path)
     if (hit) return hit
@@ -234,10 +260,49 @@ export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): Tre
       d.entry = f
       continue
     }
-    if (o.keep && !o.keep(f)) continue
-    if (merged.has(f.path) || f.hidden) continue
+    const shell = shells.has(f.path)
+    if (!kept(f) && !shell) continue
+    if (f.hidden || merged.has(f.path) || (f.dream && !o.hang)) continue
     const time = ctime ? (f.ctimeMs ?? f.mtimeMs) : f.mtimeMs
-    dirOf(folderOfPath(f.path)).children.push({ path: f.path, name: fileName(f.path), kind: f.kind, entry: f, children: [], count: 1, time })
+    dirOf(folderOfPath(f.path)).children.push({ path: f.path, name: fileName(f.path), kind: f.kind, entry: f, children: [], count: f.dream ? 0 : 1, time, ...(shell ? { shell: true } : {}) })
+  }
+  // 挂起来：先把可视化挂到笔记下面，再把笔记（连着它的可视化）挂到 PDF 下面
+  const hang = (child: string, parent: string, role: 'note' | 'viz') => {
+    const d = dirs.get(folderOfPath(child))
+    if (!d || folderOfPath(parent) !== folderOfPath(child)) return
+    const c = d.children.find((x) => x.path === child && x.kind !== 'dir')
+    const p = d.children.find((x) => x.path === parent && x.kind !== 'dir')
+    if (!c || !p) return
+    d.children = d.children.filter((x) => x !== c)
+    c.hung = role
+    p.children.push(c)
+  }
+  if (o.hang) for (const f of files) if (f.kind === 'html' && f.vizOf) hang(f.path, f.vizOf, 'viz')
+  // 白板下的导图、子白板（task-wuv05）：父的可能已经挂到别人下面了（子白板的子白板），在这个文件夹里一层层找；不挂成环
+  if (o.hang && o.subOf)
+    for (const [child, parent] of o.subOf) {
+      const d = dirs.get(folderOfPath(child))
+      if (!d || folderOfPath(parent) !== folderOfPath(child)) continue
+      const c = d.children.find((x) => x.path === child && x.kind !== 'dir')
+      const find = (list: TreeNode[]): TreeNode | null => {
+        for (const x of list) {
+          if (x.kind === 'dir') continue
+          if (x.path === parent) return x
+          const hit = find(x.children)
+          if (hit) return hit
+        }
+        return null
+      }
+      const p = c ? find(d.children.filter((x) => x !== c)) : null
+      if (!c || !p) continue
+      d.children = d.children.filter((x) => x !== c)
+      c.hung = 'sub'
+      p.children.push(c)
+    }
+  for (const [note, src] of hostOf) {
+    hang(note, src.path, 'note')
+    const n = dirs.get(folderOfPath(note))?.children.find((x) => x.path === src.path)?.children.find((x) => x.path === note)
+    if (n) Object.assign(n, { label: '笔记', asks: { n: src.note!.asks, ...(src.note!.sent ? { sent: true } : {}) } })
   }
   if (o.keep) for (const f of files) if (f.kind === 'dir' && dirs.has(f.path)) dirs.get(f.path)!.entry = f
   // 数据库的记录文件夹挂到用它的那篇下面（task-5yp97「藏之后」）：那篇在同一个文件夹里、也在树里才挂
@@ -251,15 +316,28 @@ export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): Tre
     note.children.push(d)
   }
   const desc = o.sort.endsWith('desc')
+  /**
+   * 挂着东西的文件：数据库挂着的记录文件夹照样算进上面文件夹的篇数（藏起来不等于少了）；
+   * PDF › 笔记 › 可视化 合起来算一篇（demo 里「study project 2」写 1；以前 PDF 和笔记是一行也算一个），只要里面有一样算数
+   */
+  const finishFile = (c: TreeNode) => {
+    for (const d of c.children) {
+      if (d.kind === 'dir') finish(d, false)
+      else if (d.children.length) finishFile(d)
+    }
+    const own = c.shell || c.entry?.dream ? 0 : 1
+    // 挂着的笔记、可视化和它合起来算一篇；白板下的导图、子白板是各自的一篇，照常加
+    const merged = (d: TreeNode) => !!d.hung && d.hung !== 'sub'
+    const hung = c.children.some((d) => merged(d) && d.count > 0) ? 1 : 0
+    c.count = Math.max(own, hung) + c.children.reduce((s, d) => s + (merged(d) ? 0 : d.count), 0)
+    c.children.sort((a, b) => (a.kind === 'dir') !== (b.kind === 'dir') ? (a.kind === 'dir' ? 1 : -1) : collator.compare(stem(a.name), stem(b.name)))
+  }
   const finish = (n: TreeNode, top: boolean) => {
     for (const c of n.children) {
       c.pinned = o.pins.has(c.kind === 'dir' ? c.path + '/' : c.path)
       if (c.kind === 'dir') finish(c, false)
-      else if (c.children.length) {
-        // 挂着数据库记录文件夹的那篇：记录照样算进上面文件夹的篇数（藏起来不等于少了）
-        for (const d of c.children) finish(d, false)
-        c.count = 1 + c.children.reduce((s, d) => s + d.count, 0)
-      }
+      else if (c.children.length) finishFile(c)
+      else if (c.shell) c.count = 0
     }
     n.count = n.children.reduce((s, c) => s + c.count, 0)
     n.time = n.children.reduce((m, c) => Math.max(m, c.time), n.entry?.mtimeMs ?? 0)
@@ -276,9 +354,6 @@ export function buildTree(files: FileEntry[], opts: Partial<TreeOpts> = {}): Tre
         const ib = TOP_ORDER.indexOf(b.name)
         if (ia !== ib) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
       }
-      const pa = PINNED.indexOf(a.name)
-      const pb = PINNED.indexOf(b.name)
-      if (pa !== pb) return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb)
       // 一门课里按讲次排，同一讲 课件 → 笔记 → 可视化；不是哪一讲的排在后面
       if (a.kind !== 'dir' && b.kind !== 'dir') {
         const la = lectureOfNode(a)

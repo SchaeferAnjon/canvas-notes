@@ -326,6 +326,9 @@ test('梦游报告里直接点「收下」：和预览标签一样有提示条�
     await expect.poll(() => existsSync(moved)).toBe(true)
     await page.waitForTimeout(1500)
     await expect(toast(page)).toContainText('梦游挪了图，链接已更新')
+    // 点那一条中间开了它的预览（task-m552v）：回到那篇的标签接着看
+    await page.getByTestId('tab-list').locator('.tab', { hasText: 'Lecture05 笔记' }).first().click()
+    await expect(tabOn(page)).toContainText('Lecture05 笔记')
     await waitSaved(page)
     const md = readFileSync(note, 'utf8')
     expect(md).toContain('最后一段。我正在打的字')

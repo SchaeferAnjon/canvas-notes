@@ -36,7 +36,7 @@ test('活动栏：文件、最近 | 收件箱 | 课程 阅读 剪藏 | 周记 �
   const run = await start()
   const { page } = run
   try {
-    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '梦游报告', '库', '设置和外观'])
+    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '梦游报告', '最近删掉的', '库', '设置和外观'])
     expect(await bar(page).locator('.ab-sep').count()).toBe(4)
     const on = bar(page).getByRole('button', { name: '文件', exact: true })
     const look = await on.evaluate((el) => ({ bg: getComputedStyle(el).backgroundColor, line: getComputedStyle(el, '::before').width }))
@@ -243,7 +243,7 @@ test('放到左边：活动栏最后一段多一格（单色符号）、左栏�
     await pickMenu(run, '放到左边')
     const w = bar(page).getByRole('button', { name: '游记', exact: true })
     await expect(w).toHaveAttribute('aria-pressed', 'true')
-    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '游记', '梦游报告', '库', '设置和外观'])
+    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '游记', '梦游报告', '最近删掉的', '库', '设置和外观'])
     expect(await bar(page).locator('.ab-sep').count()).toBe(5)
     await expect.poll(() => left(vault).左边).toEqual([...CATS, '写作/游记'])
     // 左栏是「写作/游记/」那一枝；新建笔记进游记
@@ -312,7 +312,7 @@ test('放到左边：活动栏最后一段多一格（单色符号）、左栏�
     await expect.poll(() => left(vault).左边.includes('课程')).toBe(false)
     await row(page, '课程').click({ button: 'right' })
     await pickMenu(run, '放到左边')
-    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', '收件箱', '阅读', '剪藏', '课程', '生活', '周记', '写作', '项目', '游记', '梦游报告', '库', '设置和外观'])
+    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', '收件箱', '阅读', '剪藏', '课程', '生活', '周记', '写作', '项目', '游记', '梦游报告', '最近删掉的', '库', '设置和外观'])
     await expect(side(page).locator('.vh .t')).toHaveText('课程')
   } finally {
     await run.close()

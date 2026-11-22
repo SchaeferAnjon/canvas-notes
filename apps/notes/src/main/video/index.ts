@@ -52,13 +52,14 @@ import {
 } from '../../shared/video'
 import { type AskRequest, type AskResult, type Box, FIXED_KEYS, keyLabel, type MomentMark, type MomentResult, type PeekResult, type VideoSettings, type VideoState } from '../../shared/video-api'
 import { CLAUDE_DEFAULT, pickLabel } from '../../shared/ai-features'
+import { answerLangName, answerRule } from '../../shared/answer-lang'
 import { askFast } from '../ai'
 import { comboOf } from '../../shared/cmd-keys'
 import { pageKeysNow } from '../commands'
 import { findCli, INSTALL_HINT } from '../agent/cli'
 import { FAST_MODEL, fastEngine, modelOpt, visionModel } from '../agent'
 import { classify } from '../plugins/translate/errors'
-import { aiCallout } from '@cn/format'
+import { aiCallout, calloutWords } from '@cn/format'
 import { askWithImage } from '../mindmap/vision'
 import { translateService } from '../plugins/translate/service'
 import type { Vault } from '../vault'
@@ -857,7 +858,7 @@ export function askPrompt(a: { title: string; channel: string; time: string; box
     ...(a.subs === null ? [] : ['前后 30 秒的字幕：', a.subs || '（没有字幕）']),
     '用户正在写的笔记（节选）：',
     a.note || '（空）',
-    '用中文回答，只输出一个 JSON：{"doubt":"用用户自己的口气写他卡在哪（一句，不要写「给我讲解一下」）","answer":"讲通的讲法，2 到 5 句，结合框里的东西","points":["要点一","要点二"]}',
+    `${answerRule()}，只输出一个 JSON：{"doubt":"用用户自己的口气写他卡在哪（一句，不要写「给我讲解一下」）","answer":"讲通的讲法，2 到 5 句，结合框里的东西","points":["要点一","要点二"]}`,
   ].join('\n')
 }
 
@@ -948,7 +949,7 @@ async function suggest(card: unknown): Promise<string[]> {
     `图是视频 ${fmtTime(f.t)} 这一帧，紫色框是他框住的那块。`,
     '这一帧前后的字幕：',
     subs || '（没有字幕）',
-    '他看到框住的这块，最可能想问的两个问题。每个不超过 14 个字，口语，用中文，不要「讲解一下」「换个说法」这种。只输出 JSON 数组，比如 ["这个式子怎么来的？","为什么要除以根号 d？"]',
+    `他看到框住的这块，最可能想问的两个问题。每个不超过 14 个字（英文不超过 8 个词），口语，用${answerLangName()}，不要「讲解一下」「换个说法」这种。只输出 JSON 数组，比如 ["这个式子怎么来的？","为什么要除以根号 d？"]`,
   ].join('\n')
   const system = '你替看视频的人想问题。只按要求输出。'
   const signal = AbortSignal.timeout(25_000)
@@ -1065,6 +1066,8 @@ async function askOnce(s: Sess, raw: AskRequest, signal: AbortSignal): Promise<A
   const from = fmtTime(Math.max(0, t - 30))
   const to = fmtTime(t + 30)
   const seen = withSubs ? `看了 ${time} 这一帧、${from}–${to} 的字幕` : `看了 ${time} 这一帧`
+  // 写进笔记的 AI 讲解头跟库语言（task-zojmg）；上面那句是回答上面那一行，跟着视频这一批再翻
+  const seenFile = calloutWords().seenFrame(time, withSubs ? { from, to } : undefined)
   const answer = a.answer + (a.points.length ? '\n\n' + a.points.map((p) => `- ${p}`).join('\n') : '')
   const res: AskResult = { answer, read: `${seen}${raw.noteText ? '、这篇笔记' : ''}`, block: '', files: image ? [image] : [], t, by, ...(image ? { image } : {}) }
   if (!dest) return res
@@ -1089,7 +1092,7 @@ async function askOnce(s: Sess, raw: AskRequest, signal: AbortSignal): Promise<A
     `> **我的疑惑**：${(a.doubt || question).replace(/\n/g, ' ')}`,
     '',
     // AI 的回答放进 [!ai] 提示块，和自己写的分得开（CN-76）；头上写谁答的「Claude Code · 模型」（原型：文档里不带档，问框里带）
-    aiCallout({ by: pickLabel({ engine: 'claude', model }), seen, text: a.answer, points: a.points }),
+    aiCallout({ by: pickLabel({ engine: 'claude', model }), seen: seenFile, text: a.answer, points: a.points }),
   ].join('\n')
   // 一门课的「我的疑惑」直接读文档里的这一块（main/reading/doubts.ts 的 collectVideoDoubts），2026-11-20 起不再另写「视频里的疑惑.md」
   if (dest.kind === 'inbox') {

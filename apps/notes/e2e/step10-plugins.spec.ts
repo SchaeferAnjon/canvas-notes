@@ -157,15 +157,18 @@ test('双语翻译：按钮开、段落下出现译文（跳过代码、导航�
     await page.keyboard.press('Alt+a')
     await expect.poll(() => guest(page, `document.querySelectorAll('cn-tr').length`)).toBe(0)
 
-    // 选中一段，工具条上点「翻译」：选区下面弹译文卡片
+    // 选中一段，小条「⋯ › 只看译文」（task-6cxtc 起「翻译」收进 ⋯）：选区下面弹译文卡片
     await guest(page, 'window.scrollTo(0, 0)')
     const s = await guestRect(page, `document.getElementById('second')`)
     for (let i = 0; i < 3; i++) {
       await page.mouse.click(s.x, s.y, { clickCount: 3 })
       if (await expect.poll(() => guest(page, 'getSelection().toString().length'), { timeout: 1000 }).toBeGreaterThan(0).then(() => true, () => false)) break
     }
-    await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.shadowRoot?.querySelector('button.tr')?.hidden`)).toBe(false)
-    const tb = await guestRect(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button.tr')`)
+    await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`)).toBe('block')
+    const more = await guestRect(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button.more')`)
+    await page.mouse.click(more.x, more.y)
+    await expect.poll(() => guest(page, `!!document.getElementById('cn-clip-host').shadowRoot.querySelector('.menu [data-k="only"]')`)).toBe(true)
+    const tb = await guestRect(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('.menu [data-k="only"]')`)
     await page.mouse.click(tb.x, tb.y)
     await expect
       .poll(() => guest(page, `document.getElementById('cn-tr-card')?.shadowRoot?.querySelector('.body')?.textContent ?? ''`))
@@ -185,7 +188,18 @@ test('双语翻译：按钮开、段落下出现译文（跳过代码、导航�
     await panel.getByRole('switch', { name: '启用 双语翻译' }).click()
     await expect(panel.getByRole('switch', { name: '启用 双语翻译' })).toHaveAttribute('aria-checked', 'false')
     await expect(pluginBar(page).getByRole('button', { name: '双语翻译' })).toHaveCount(0)
-    await expect.poll(() => guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button.tr').hidden`)).toBe(true)
+    // 小条「⋯」里也没有「只看译文」了（先关上插件面板，网页才点得到）
+    await page.keyboard.press('Escape')
+    await expect(panel).toHaveCount(0)
+    for (let i = 0; i < 3; i++) {
+      await page.mouse.click(s.x, s.y, { clickCount: 3 })
+      if (await expect.poll(() => guest(page, `document.getElementById('cn-clip-host').style.display`), { timeout: 1000 }).toBe('block').then(() => true, () => false)) break
+    }
+    const more2 = await guestRect(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button.more')`)
+    await page.mouse.click(more2.x, more2.y)
+    await expect.poll(() => guest(page, `(() => { const m = document.getElementById('cn-clip-host').shadowRoot.querySelector('.menu'); return m.style.display === 'block' ? m.textContent : '' })()`)).toContain('翻译设置…')
+    await expect.poll(() => guest(page, `!!document.getElementById('cn-clip-host').shadowRoot.querySelector('.menu [data-k="only"]')`)).toBe(false)
+    await pressInPage(run, 'Escape')
     // 网页里按 ⌥A 也不动了
     await pressInPage(run, 'A', ['alt'])
     await page.keyboard.press('Alt+a')

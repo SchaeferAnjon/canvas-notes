@@ -3,13 +3,15 @@
  */
 import { openImport } from '../importer/store'
 import type { SettingsProps } from '../Settings'
+import { useT } from '../i18n'
 import { Group, Row } from './ui'
 
 export function VaultPage(props: SettingsProps) {
+  const t = useT()
   const path = props.vault.path.replace(/^\/Users\/[^/]+/, '~')
   return (
     <>
-      <Group title="现在的库">
+      <Group title={t('现在的库')}>
         <Row
           id="vaultNow"
           label={props.vault.name}
@@ -18,16 +20,16 @@ export function VaultPage(props: SettingsProps) {
               <span className="sa-path" title={props.vault.path}>
                 {path}
               </span>
-              <span className="sa-line">一个普通文件夹，里面是md文件；换库前这个库没提交的改动先提交</span>
+              <span className="sa-line">{t('一个普通文件夹，里面是md文件；换库前这个库没提交的改动先提交')}</span>
             </>
           }
         >
           <button type="button" className="sa-btn" onClick={props.onSwitchVault}>
-            打开别的文件夹…
+            {t('打开别的文件夹…')}
           </button>
         </Row>
       </Group>
-      <Group title="导入">
+      <Group title={t('导入')}>
         <Row id="import">
           <button
             type="button"
@@ -37,7 +39,7 @@ export function VaultPage(props: SettingsProps) {
               openImport()
             }}
           >
-            导入旧笔记…
+            {t('导入旧笔记…')}
           </button>
         </Row>
       </Group>

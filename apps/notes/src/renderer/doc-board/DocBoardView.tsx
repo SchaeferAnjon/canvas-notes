@@ -3,7 +3,7 @@
  * 一篇文档（type: board 的也是）按 packages/format/src/doc-board.ts 的规则切成列和卡，摆在点阵上。切过去只看，一个字节不写。
  * - 左边工具板（卡片、待办、列、数据库、子白板｜拍导图）：点一下放进屏幕正中那一列的最后，拖到哪放哪；卡片、待办当场出一张空卡就地写，
  *   打 / 出和文档同一个插入菜单（InlineCard）；数据库弹小菜单挑一个，放一张小表卡，「展开」原地长成整张表（base-card.tsx）；
- * - 收件箱弹窗（inbox.tsx，标签条「收件箱 N」或 ⇧⌘I 打开，盖在白板上不占宽）：拖进一列就插进那一节，拖到空白处加在文末带一行位置；
+ * - 收件箱弹窗（inbox.tsx，白板右上角「收件箱 N」或 ⇧⌘I 打开，盖在白板上不占宽）：拖进一列就插进那一节，拖到空白处加在文末带一行位置；
  * - 拖一张卡进别的列（或同一列里上下挪）：文档里这段也挪进那一节；拖到空白处：这段前面多一行位置，正文顺序不变；
  *   拖着停在另一篇文档的标签上半秒就切过去，松手插进那一篇（cross-doc.ts，两篇一次提交）；
  * - 双击文字卡就地改，别的卡看全文；勾待办只改那一个字；视频卡、时刻卡点一下在右栏播；
@@ -62,7 +62,9 @@ import { type MenuEntry, showMenu } from '../ctx/menu'
 import { sayCardBack, sayMerged, saySameSpot } from '../conflict-say'
 import { useVaultFiles } from '../files/store'
 import { composing } from '../ime'
-import { openCapture } from '../mindmap/capture-store'
+import { openCapture, setBoardCapture } from '../mindmap/capture-store'
+import { settlePlaced } from '../mindmap/place'
+import type { Placed } from '../../shared/mindmap'
 import { Markdown } from '../md-render'
 import { NoteDoc } from '../note-doc'
 import * as Reading from '../reading/store'
@@ -105,8 +107,10 @@ export interface DocBoardViewProps {
   scale: number
   zoom: number
   onZoom(z: number): void
-  /** 标签条「100% ▾」菜单调这里 */
+  /** 右上角「100% ▾」菜单调这里 */
   zoomApi: React.MutableRefObject<BoardZoomApi | null>
+  /** 右上角浮着的缩放和「收件箱 N」（corner.tsx，task-wz7gb）：放在顶上那一行的右端，和胶囊同一行 */
+  corner?: React.ReactNode
   onChange(text: string): void
   /** 「在文档里看」：切到文档，光标放到 pos */
   onOpenDoc(pos: number): void
@@ -371,6 +375,27 @@ export function DocBoardView(props: DocBoardViewProps) {
       return false
     }
   }
+  /**
+   * 拍好的导图挂上来（task-wuv05）：它是这块白板的子白板，落点一张子白板卡（同「子白板」的写法 [[名字]]）；
+   * 这篇、导图、照片一次提交，撤回走底栏那一条（一次全回去），不进白板自己的 ⌘Z
+   */
+  const hangMap = (where: Where, r: Placed) => {
+    if (props.readOnly) return
+    const body = `[[${titleOf(r.path)}]]`
+    const col = 'col' in where ? board.columns[where.col] : undefined
+    const next =
+      'col' in where && col
+        ? insertInColumn(cur.current, col, where.before >= 0 ? (col.cards[where.before] ?? null) : null, body)
+        : 'x' in where
+          ? appendPlaced(cur.current, body, Math.max(0, where.x), Math.max(0, where.y))
+          : null
+    if (next === null) throw new Error('那一列不在了，导图没放上去')
+    setFlash(body)
+    apply(next)
+    return settlePlaced(props.notePath, r, col ? `导图放进了「${col.title ?? '开头'}」：是这块白板的子白板，文件在它旁边` : '导图放在这里：是这块白板的子白板，文件在它旁边')
+  }
+  const hangMapRef = useRef(hangMap)
+  hangMapRef.current = hangMap
   const planeXY = (cx: number, cy: number) => {
     const r = plane.current!.getBoundingClientRect()
     return { x: (cx - r.left) / props.scale, y: (cy - r.top) / props.scale }
@@ -417,9 +442,18 @@ export function DocBoardView(props: DocBoardViewProps) {
       put(where, `[[${name}]]`, { col: '子白板放进了「%s」：文档里多了一个链接', free: '子白板放在这里：文档末尾多了一个链接' })
       return
     }
-    // 拍导图：拍好、做成导图白板后，落点放一张指向它的卡片
-    openCapture({ onPlaced: (path) => put(where, `[[${titleOf(path)}]]`, { col: '导图放进了「%s」', free: '导图放在这里：文档末尾多了一个链接' }) })
+    // 拍导图：拍好、做成导图白板后，它是这块白板的子白板，落点放一张子白板卡（task-wuv05）
+    openCapture({ into: { path: props.notePath, as: 'board' }, onPlaced: (r) => hangMapRef.current(where, r) })
   }
+  // ⌘K、⇧⌘C、菜单在这块白板前面时拍：同点工具板「拍导图」，放进屏幕正中那一列（mindmap/place.ts captureHere）
+  const mapHere = useRef(() => undefined as void)
+  mapHere.current = () => void createAt('map', centerWhere())
+  useEffect(() => {
+    if (!props.active || props.readOnly) return
+    const mine = { path: props.notePath, capture: () => mapHere.current() }
+    setBoardCapture(mine)
+    return () => setBoardCapture(null, mine)
+  }, [props.active, props.readOnly, props.notePath])
   /** 工具板「数据库」挑好了：放一张数据库卡（已有的照它的列；新建一个空的在这篇旁边建文件夹） */
   const placeBase = async (b: BoardBase | 'new', where: Where) => {
     setBaseMenu(null)
@@ -1464,12 +1498,12 @@ export function DocBoardView(props: DocBoardViewProps) {
             <hr />
             <button
               type="button"
-              data-tip="拍一张导图：点一下，或按住拖到白板上（做好后落点放一张指向它的卡片）"
+              data-tip="拍一张导图：点一下放进正中那一列，或按住拖到白板上（做好后是这块白板的子白板）"
               data-key={keyFor('capture') ?? undefined}
               data-side="right"
               data-kind="map"
               onMouseDown={(e) => e.button === 0 && setDrag({ type: 'pal', kind: 'map', start: { x: e.clientX, y: e.clientY }, at: { x: e.clientX, y: e.clientY }, moved: false })}
-              onClick={() => !palDragged.current && openCapture()}
+              onClick={() => !palDragged.current && void createAt('map', centerWhere())}
             >
               <Codicon name="device-camera" size={16} />
               <span>拍导图</span>
@@ -1492,6 +1526,7 @@ export function DocBoardView(props: DocBoardViewProps) {
             area={outer}
             onReset={() => write(resetLayout(cur.current), `摆回原样：去掉了${moved + placedCols}行位置，正文一个字没动`)}
           />
+          {props.corner}
         </div>
         {toast && (
           <div className="db-toast" role="status">

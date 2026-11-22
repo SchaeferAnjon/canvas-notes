@@ -82,7 +82,7 @@ test('白板上改一张卡，切到文档就是那一段；文档里加一段�
   }
 })
 
-test('收件箱弹窗：速记拖进一列插进那一节（那篇移到废纸篓），拖完弹窗不收；整页剪藏拖到空白处挪进「剪藏/这篇/」放一张剪藏卡；撤回放回收件箱；收起后标签条留「收件箱 N」', async () => {
+test('收件箱弹窗：速记拖进一列插进那一节（那篇移到废纸篓），拖完弹窗不收；整页剪藏拖到空白处挪进「剪藏/这篇/」放一张剪藏卡；撤回放回收件箱；收起后白板右上角留「收件箱 N」', async () => {
   const run = await start()
   const { page, vault } = run
   const file = () => readFileSync(join(vault, '项目/冰岛十天环岛.md'), 'utf8')
@@ -121,10 +121,10 @@ test('收件箱弹窗：速记拖进一列插进那一节（那篇移到废纸�
     await expect(drawer).toHaveCount(0)
     await expect(board(page).locator('.db-card.placed[data-face="clipnote"]')).toHaveCount(0)
     await expect.poll(() => readdirSafe(join(vault, '收件箱'))).toContain('Geography of Iceland.md')
-    // 收起：标签条上留「收件箱 1」，再点打开，esc 收起
-    await expect(acts(page).getByTestId('db-inbox')).toContainText('1')
-    await expect(acts(page).getByTestId('db-inbox')).toHaveAttribute('aria-expanded', 'false')
-    await acts(page).getByTestId('db-inbox').click()
+    // 收起：白板右上角留「收件箱 1」，再点打开，esc 收起
+    await expect(pane(page).getByTestId('db-inbox')).toContainText('1')
+    await expect(pane(page).getByTestId('db-inbox')).toHaveAttribute('aria-expanded', 'false')
+    await pane(page).getByTestId('db-inbox').click()
     await expect(drawer.getByRole('listitem', { name: 'Geography of Iceland' })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(drawer).toHaveCount(0)

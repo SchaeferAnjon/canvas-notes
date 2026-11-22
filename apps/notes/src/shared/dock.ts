@@ -514,13 +514,15 @@ function normalize(raw: unknown): Dock | null {
 /**
  * 读本机记着的布局（localStorage 的 cn.dock）；没有、坏了的时候用以前的两个开关（cn.aiOpen：1 开着 AI、notes 只开了笔记；cn.rightW：右栏宽）
  */
-export function loadDock(raw: string | null, legacy: { aiOpen?: string | null; rightW?: string | null }): Dock {
+export function loadDock(raw: string | null, legacy: { aiOpen?: string | null; rightW?: string | null }, onDrop: (why: string) => void = () => {}): Dock {
   if (raw) {
+    // 坏的：当没有，记一行（task-pyb39）
     try {
       const d = normalize(JSON.parse(raw))
       if (d) return d
-    } catch {
-      // 坏的：当没有
+      onDrop('右栏布局对不上格式')
+    } catch (e) {
+      onDrop(`右栏布局读不出来：${(e as Error).message}`)
     }
   }
   const w = Number(legacy.rightW) || COL_DEFAULT

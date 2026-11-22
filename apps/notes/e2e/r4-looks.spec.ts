@@ -287,9 +287,10 @@ test('全软件自己定了底色的按钮（黑色实心、梦游预览条、�
       await expect(panel.getByTestId('dream-summary')).toContainText('整理了', { timeout: 60_000 })
       await panel.getByTestId('dream-item').filter({ hasText: /^冰洞\s*从/ }).click()
       await panel.getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
-      // 归类这条走预览那条提示（中间栏上浮着）
-      const pvToast = page.getByTestId('preview-toast')
+      // 归类这条收下的提示也在底栏（task-m552v：不再有中间上浮的预览提示条），带「在历史里看」「撤回」
+      const pvToast = page.getByTestId('toast')
       await expect(pvToast.getByRole('button', { name: '撤回' })).toBeVisible()
+      await expect(pvToast.getByRole('button', { name: '在历史里看' })).toBeVisible()
       rows.push(...(await allButtonsReadableOnHover(page, pvToast, `${L.tag} 梦游提示`)))
       // 补双链那条走底栏里的提示（黑底，按钮自己是半透明灰底）
       await panel.getByTestId('dream-item').filter({ hasText: /↔/ }).first().click()
@@ -297,8 +298,8 @@ test('全软件自己定了底色的按钮（黑色实心、梦游预览条、�
       const toast = page.getByTestId('toast')
       await expect(toast.getByRole('button', { name: '撤回' })).toBeVisible()
       rows.push(...(await allButtonsReadableOnHover(page, toast, `${L.tag} 底栏提示`)))
-      // 预览条：跟 AI 说、丢掉、收下这 N 处、退出预览
-      await panel.getByRole('button', { name: '预览' }).click()
+      // 预览条：跟 AI 说、丢掉、收下这 N 处、退出预览（「预览」改叫「在树里看」）
+      await panel.getByRole('button', { name: '在树里看' }).click()
       const bar = page.getByTestId('preview-bar')
       await expect(bar).toBeVisible()
       rows.push(...(await allButtonsReadableOnHover(page, bar, `${L.tag} 预览条`)))
@@ -326,7 +327,7 @@ test('全软件自己定了底色的按钮（黑色实心、梦游预览条、�
 
 // ---------------------------------------------------------------- 梦游收下：窄时短写
 
-test('梦游收下：窄时状态条和底部提示短写成「已收下 · 提交号」，提交号整个露着，「合进main」在悬停提示里；宽时照写全句', async () => {
+test('梦游收下：状态条照 demo 一种写法「已收下 · 提交号 撤回」，左栏默认宽一行放下、提交号整个露着；底部提示条开着历史（中间窄）时也是一行、按钮不被挤掉（task-m552v）', async () => {
   const run = await launch({ ...DREAM_VAULT }, { CN_AI_FAKE: '1' })
   const { page } = run
   const panel = page.getByRole('complementary', { name: '梦游报告' })
@@ -336,66 +337,37 @@ test('梦游收下：窄时状态条和底部提示短写成「已收下 · 提�
     await leftView(page, '梦游报告')
     await panel.getByRole('button', { name: '现在梦游' }).click()
     await expect(panel.getByTestId('dream-summary')).toContainText('整理了', { timeout: 60_000 })
-    await panel.getByTestId('dream-item').filter({ hasText: /^极光\s*从/ }).click()
+    const item = panel.getByTestId('dream-item').filter({ hasText: /^极光\s*从/ })
+    await item.click()
     await panel.getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
-    const fit = (loc: Locator) => loc.evaluate((e) => {
-      const vis = (s: string) => { const x = e.querySelector(s) as HTMLElement | null; return x && getComputedStyle(x).display !== 'none' ? x.innerText : null }
-      const c = e.querySelector('code') as HTMLElement
-      const r = e.getBoundingClientRect()
-      const cr = c.getBoundingClientRect()
-      return { long: vis('.long'), short: vis('.short'), cut: Array.from(e.querySelectorAll('span')).some((s) => getComputedStyle(s).display !== 'none' && s.scrollWidth > s.clientWidth + 0.5), codeIn: cr.right <= r.right + 0.5, codeWhole: c.scrollWidth <= c.clientWidth, width: Math.round(r.width), box: Math.round((e.parentElement as HTMLElement).getBoundingClientRect().width) }
-    })
-
-    // 详情里的状态条：左栏默认宽（252）放不下全句，短写，提交号整个露着；悬停看整句
+    await expect(item).toContainText('已收下')
+    // 收下后往下走了一条：点回这一条看它的状态条
+    await item.click()
     const state = panel.locator('.pv-state')
     await expect(state.locator('code')).toHaveText(/^[0-9a-f]{7}$/)
-    const s1 = await fit(state)
-    console.log('状态条 默认宽', JSON.stringify(s1))
-    expect(s1).toMatchObject({ short: '已收下 ·', long: null, cut: false, codeIn: true, codeWhole: true })
-    await state.locator('.short').hover()
-    await expect(page.getByTestId('tooltip')).toHaveText('已收下，合进main')
-    await shotWindow(run, 'r4-dream-state')
-    // 全句要多宽：把全句硬露出来量（说明不省略、提交号整个在行里）
-    const need = await state.evaluate((e) => {
-      const l = e.querySelector('.long') as HTMLElement
-      const sh = e.querySelector('.short') as HTMLElement
-      l.style.cssText = 'display:inline; overflow:visible'
-      sh.style.display = 'none'
-      const cs = getComputedStyle(e)
-      const w = Array.from(e.children).filter((c) => getComputedStyle(c).display !== 'none').reduce((a, c) => a + (c as HTMLElement).scrollWidth, 0) + 4 * (e.children.length - 2) + parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
-      l.style.cssText = ''
-      sh.style.display = ''
-      return Math.ceil(w)
+    await expect(state).toContainText('已收下 ·')
+    const s1 = await state.evaluate((e) => {
+      const r = e.getBoundingClientRect()
+      const c = e.querySelector('code') as HTMLElement
+      const cr = c.getBoundingClientRect()
+      const u = (e.querySelector('.pv-undo') as HTMLElement).getBoundingClientRect()
+      return { oneLine: Math.abs(cr.top - u.top) < 8, codeIn: cr.right <= r.right + 0.5, codeWhole: c.scrollWidth <= c.clientWidth, undoIn: u.right <= r.right + 0.5 }
     })
-    console.log('状态条 全句要', need)
-    expect(need).toBeGreaterThan(s1.width)
-    // 左栏拉宽到放得下（详情那块内容宽到 200）：全句，一个字不省略
-    await page.evaluate(() => ((document.querySelector('.dd') as HTMLElement).style.width = '208px'))
-    const s2 = await fit(state)
-    console.log('状态条 宽', JSON.stringify(s2))
-    expect(s2).toMatchObject({ short: null, long: '已收下，合进main ·', cut: false, codeIn: true, codeWhole: true })
-    await page.evaluate(() => ((document.querySelector('.dd') as HTMLElement).style.width = ''))
+    console.log('状态条 默认宽', JSON.stringify(s1))
+    expect(s1).toMatchObject({ oneLine: true, codeIn: true, codeWhole: true, undoIn: true })
+    await shotWindow(run, 'r4-dream-state')
 
-    // 中间栏上浮着的提示条：开着历史（中间 420 宽）短写
-    const toast = page.getByTestId('preview-toast')
-    await expect(toast.locator('code')).toHaveText(/^[0-9a-f]{7}$/)
+    // 底部提示条：开着历史（中间窄）也是一行，「在历史里看」「撤回」都整个看得到
+    const toast = page.getByTestId('toast')
+    await panel.getByTestId('dream-item').filter({ hasText: /^冰洞\s*从/ }).click()
+    await panel.getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
+    await expect(toast).toContainText('收下了「冰洞」')
     await rail(page).getByRole('button', { name: '历史', exact: true }).click()
     await page.waitForTimeout(400)
-    const narrow = await fit(toast)
-    console.log('提示条 窄', JSON.stringify(narrow))
+    expect((await toast.boundingBox())!.height).toBeLessThanOrEqual(24)
+    await expect(toast.getByRole('button', { name: '在历史里看' })).toBeInViewport({ ratio: 1 })
+    await expect(toast.getByRole('button', { name: '撤回' })).toBeInViewport({ ratio: 1 })
     await shotWindow(run, 'r4-dream-toast-narrow')
-    expect(narrow.box).toBeLessThanOrEqual(520)
-    expect(narrow).toMatchObject({ short: '已收下 ·', long: null, cut: false, codeIn: true, codeWhole: true })
-    await toast.locator('.short').hover()
-    await expect(page.getByTestId('tooltip')).toHaveText('收下了1处，已提交到main')
-    // 关掉历史：中间宽了，全句
-    await rail(page).getByRole('button', { name: '历史', exact: true }).click()
-    await page.waitForTimeout(400)
-    const wide = await fit(toast)
-    console.log('提示条 宽', JSON.stringify(wide))
-    expect(wide.box).toBeGreaterThan(520)
-    expect(wide).toMatchObject({ long: '收下了1处，已提交到main', short: null, cut: false, codeIn: true, codeWhole: true })
-    await shotWindow(run, 'r4-dream-toast-wide')
   } finally {
     await run.close()
   }

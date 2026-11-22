@@ -166,6 +166,14 @@
   font-size: 13px;
   color: var(--t2);
 }
+/* 白板、导图：它自己的颜色方块（12 × 12 圆角 3，同目录树），占 14 的格子 */
+.doc-backlinks .bl-sw {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin: 1px;
+  border-radius: 3px;
+}
 .doc-backlinks .bl button {
   padding: 0;
   border: 0;

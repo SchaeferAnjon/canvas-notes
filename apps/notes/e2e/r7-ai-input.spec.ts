@@ -1,7 +1,7 @@
 // 第 2b 段：AI 输入框（AI 对话、读 PDF 共用一个）
 // - CN-91 方向 C「照 Dispatch 三颗」：谁来答、模型、effort 三颗都在输入框底行，头上没有引擎胶囊；模型和 effort 只管这个对话；
 // - 多段引用方向 B「材料一排加编号」：引用、贴的图、框的图收进输入框顶上一排小卡，字里在光标处多一个编号，发出去变成小圆点数字 + 下面一行一条；
-// - CN-92 方向 A「框着时 ⌘↵」：框着时 ⌘↵ 是改问法，没框时照旧问这一页；
+// - CN-92 方向 A「框着时 ⌘↵」：框着时 ⌘↵ 是引用（task-6cxtc 起，原来的「改问法」「引用这块」合成「引用」：框的这块成为输入框顶上带编号的一块材料），没框时照旧问这一页；
 // - CN-97：框选浮条点外面就收（点 PDF 空白处、右栏空白处连框和图一起取消；点进输入框只收浮条；esc 在哪都收）。
 // 一律无头（CN_E2E=1）、假 AI（CN_AI_FAKE=1）。
 import { _electron as electron, expect, test, type Locator, type Page } from '@playwright/test'
@@ -283,7 +283,7 @@ test('CN-91 方向 C：谁来答、模型、effort 三颗在输入框底行（�
   }
 })
 
-test('多段引用方向 B：回答里选一段点小框的「引用进输入框」、⇧⌘L 再引用一段、粘一张图、PDF 上框一块「引用这块」：一排 4 张卡，编号 ①②③④ 插在光标处；拖第 3 张到最前、删一张，字里的编号跟着改；卡 44 高最宽 132；输入框只多一排；点卡看全文；发出去是小圆点编号和下面的列表', async () => {
+test('多段引用方向 B：回答里选一段点小框的「引用进输入框」、⇧⌘L 再引用一段、粘一张图、PDF 上框一块点「引用」：一排 4 张卡，编号 ①②③④ 插在光标处；拖第 3 张到最前、删一张，字里的编号跟着改；卡 44 高最宽 220；输入框只多一排；点卡看全文；发出去是小圆点编号和下面的列表', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -319,10 +319,10 @@ test('多段引用方向 B：回答里选一段点小框的「引用进输入框
     await pasteImage(page, ta)
     await expect(ta).toHaveValue('①这句和②有关？③')
     await page.keyboard.type('这图')
-    // PDF 上框一块，工具条「引用这块」
+    // PDF 上框一块，工具条点「引用」（task-6cxtc 原来的「引用这块」合成了这一颗）
     await drawBox(page, 2, [0.1, 0.2], [0.6, 0.45])
     await expect(capBar(page)).toBeVisible()
-    await capBar(page).getByRole('button', { name: /引用这块/ }).click()
+    await capBar(page).getByRole('button', { name: /^引用/ }).click()
     await expect(capBar(page)).toHaveCount(0)
     await expect(page.getByTestId('pdf-box')).toHaveCount(0)
     await expect(ta).toHaveValue('①这句和②有关？③这图④')
@@ -335,11 +335,12 @@ test('多段引用方向 B：回答里选一段点小框的「引用进输入框
     await expect(chips.nth(1).locator('.ct')).toHaveText('这是讲解')
     await expect(chips.nth(2)).toHaveAttribute('data-src', '粘贴的图')
     await expect(chips.nth(3)).toHaveAttribute('data-src', '第2页 · 我框的')
-    // 卡 44 高、最宽 132；编号圆 16；一排在输入框顶上，输入框只多这一排（约 57）
+    // 卡 44 高、最宽 220（task-6cxtc 复审：132 只露四五个字）；编号圆 16；一排在输入框顶上，输入框只多这一排（约 57）
     for (let i = 0; i < 4; i++) {
       const b = await box(chips.nth(i))
       expect(b.height).toBe(44)
-      expect(b.width).toBeLessThanOrEqual(132)
+      expect(b.width).toBeLessThanOrEqual(220)
+      expect(await css(chips.nth(i), ['max-width'])).toEqual({ 'max-width': '220px' })
     }
     expect(await box(chips.first().locator('.nb'))).toMatchObject({ width: 16, height: 16 })
     expect((await box(r.getByTestId('ai-shelf'))).y).toBeLessThan((await box(ta)).y)
@@ -402,7 +403,7 @@ test('多段引用方向 B：回答里选一段点小框的「引用进输入框
   }
 })
 
-test('CN-92 方向 A + CN-97：框一块，图在输入框那一排第一张（不带编号、左下角「第2页」）、预填全选；⌘↵（焦点在输入框或 PDF 上）是改问法；没框 ⌘↵ 问这一页；esc、点右栏空白处、点 PDF 空白处、点标签条，浮条都收；点进输入框只收浮条；发出去马上收', async () => {
+test('CN-92 方向 A + CN-97：框一块，图在输入框那一排第一张（不带编号、左下角「第2页」）、预填全选；⌘↵（焦点在输入框或 PDF 上）是引用：这块成为带编号的材料 ①、框收起、光标在输入框；没框 ⌘↵ 问这一页；esc、点右栏空白处、点 PDF 空白处、点标签条，浮条都收；点进输入框只收浮条；发出去马上收', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -418,9 +419,10 @@ test('CN-92 方向 A + CN-97：框一块，图在输入框那一排第一张（�
     await drawBox(page, 2, [0.1, 0.2], [0.6, 0.45])
     const cap = capBar(page)
     await expect(cap).toBeVisible()
-    await expect(cap.getByRole('button')).toHaveText(['讲解一下↵', '翻译 + 讲一讲', '改问法⌘↵', '引用这块⇧⌘L', ''])
+    await expect(cap.getByRole('button')).toHaveText(['讲解一下↵', '翻译 + 讲一讲', '引用⌘↵', '', ''])
+    await expect(cap.getByRole('button').nth(3)).toHaveAttribute('aria-label', '更多')
     await expect(cap.getByRole('button', { name: '取消' })).toBeVisible()
-    // 工具条照小样：34 高、圆角 9、13px；改问法后面一个 ⌘↵ 键帽，样子同讲解一下的 ↵
+    // 工具条照小样：34 高、圆角 9、13px；引用后面一个 ⌘↵ 键帽，样子同讲解一下的 ↵
     expect((await box(cap)).height).toBe(34)
     expect(await css(cap, ['border-radius', 'font-size'])).toEqual({ 'border-radius': '9px', 'font-size': '13px' })
     expect(await css(cap.locator('kbd').nth(1), ['font-size', 'border-radius'])).toEqual(await css(cap.locator('kbd').nth(0), ['font-size', 'border-radius']))
@@ -431,39 +433,47 @@ test('CN-92 方向 A + CN-97：框一块，图在输入框那一排第一张（�
     await expect(ta).toHaveValue('给我讲解一下')
     await expect(ta).toBeFocused()
     expect(await caret(ta)).toEqual([0, 6])
-    await expect(hint).toHaveText('↵ 讲解一下 · ⌘↵ 改问法 · esc 取消这块')
+    await expect(hint).toHaveText('↵ 讲解一下 · ⌘↵ 引用 · esc 取消这块')
 
-    // ⌘↵（焦点在输入框里）：预填清掉、图在、光标在输入框、占位字和提示变；浮条收起，框还在
+    // ⌘↵（焦点在输入框里）：引用。预填清掉，框的这块成为输入框顶上带编号的一块材料（不再是不带编号的第一张），字里一个 ①、
+    // 光标在输入框；浮条、框都收起
+    const chips = r.getByTestId('ai-mat')
     await page.keyboard.press('Meta+Enter')
-    await expect(ta).toHaveValue('')
+    await expect(ta).toHaveValue('①')
     await expect(ta).toBeFocused()
-    await expect(ta).toHaveAttribute('placeholder', '打你自己的问法…')
-    await expect(lead).toBeVisible()
-    await expect(cap).toHaveCount(0)
-    await expect(frame).toBeVisible()
-    await expect(hint).toHaveText('↵ 发送 · esc 取消这块')
-    // 输入框空着按 esc：连图一起取消
-    await page.keyboard.press('Escape')
+    await expect(chips).toHaveCount(1)
+    await expect(chips.first()).toHaveAttribute('data-src', '第2页 · 我框的')
+    await expect(chips.first().locator('.nb')).toHaveText('1')
     await expect(lead).toHaveCount(0)
+    await expect(cap).toHaveCount(0)
     await expect(frame).toHaveCount(0)
+    // 不要这块了：点卡上的 ×，字里的编号跟着去掉，提示回到平时
+    await chips.first().getByRole('button', { name: '删掉这块' }).click()
+    await expect(chips).toHaveCount(0)
+    await expect(ta).toHaveValue('')
     await expect(hint).toHaveText('↵ 发送 · ⌘↵ 问这一页')
 
-    // ⌘↵（焦点在 PDF 上）：一样是改问法
+    // ⌘↵（焦点在 PDF 上）：一样是引用
     await drawBox(page, 2, [0.1, 0.2], [0.6, 0.45])
     await expect(cap).toBeVisible()
     await page.getByTestId('pdf-view').focus()
     await page.keyboard.press('Meta+Enter')
-    await expect(ta).toHaveValue('')
+    await expect(ta).toHaveValue('①')
     await expect(ta).toBeFocused()
-    await expect(lead).toBeVisible()
+    await expect(chips).toHaveCount(1)
+    await expect(lead).toHaveCount(0)
     await expect(cap).toHaveCount(0)
-    // 打自己的问法，回车：带着框的那块发出去
+    await expect(frame).toHaveCount(0)
+    // 打自己的问法，回车：带着引用的那块发出去（字里是编号，下面一行列出「第2页 · 我框的」那张图）
     await page.keyboard.type('这三行什么关系')
     await page.keyboard.press('Enter')
     await expect(r.getByTestId('reading-msg')).toHaveCount(1)
-    await expect(r.locator('.um-wrap').last().locator('.att img')).toBeVisible()
-    await expect(r.locator('.um-wrap').last().locator('.um')).toHaveText('这三行什么关系')
-    await expect(lead).toHaveCount(0)
+    const um = r.locator('.um.mq').last()
+    await expect(um.locator('.mt')).toHaveText('1这三行什么关系')
+    await expect(um.locator('.fnl .fni')).toHaveCount(1)
+    await expect(um.locator('.fnl .fni').first()).toContainText('第2页 · 我框的')
+    await expect(um.locator('.fnl .fni img')).toBeVisible()
+    await expect(chips).toHaveCount(0)
     await expect(r.getByRole('button', { name: '发送' })).toBeVisible({ timeout: 15_000 })
 
     // 没框时 ⌘↵：照旧问这一页
@@ -617,3 +627,110 @@ test('文档里选字 ⌘J、右键「问 AI」成为第一块引用（来源「
     await run.close()
   }
 })
+
+/** 小条和 PDF 那一栏（滚动区看得见的那块，不算竖滚动条）在窗口里的位置 */
+async function capAndView(page: Page) {
+  // 小条出来时有 0.16 秒从上面 4 落下来的动画：等它停稳再量
+  await page.waitForTimeout(250)
+  const cap = await box(capBar(page))
+  const v = await page.getByTestId('pdf-view').evaluate((e) => {
+    const r = e.getBoundingClientRect()
+    return { left: r.left + e.clientLeft, right: r.left + e.clientLeft + e.clientWidth, top: r.top + e.clientTop, sw: e.scrollWidth, cw: e.clientWidth }
+  })
+  return { cap, v }
+}
+
+/** PDF 第 n 页里一行字（textLayer 的 span）上真拖一遍选中它，返回这一行在窗口里的位置 */
+async function selectLine(page: Page, n: number, text: string) {
+  const span = pdfPage(page, n).locator('.textLayer span', { hasText: text }).first()
+  const sb = await box(span)
+  await page.mouse.move(sb.x + 2, sb.y + sb.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(sb.x + sb.width - 2, sb.y + sb.height / 2, { steps: 6 })
+  await page.mouse.up()
+  // 选区（浏览器自己算的）在窗口里的位置
+  return page.evaluate(() => {
+    const r = getSelection()!.getRangeAt(0).getBoundingClientRect()
+    return { x: r.x, y: r.y, width: r.width, height: r.height }
+  })
+}
+
+for (const frame of ['b', 'a'] as const) {
+  test(`task-6cxtc 复审 · 界面风格 ${frame.toUpperCase()}：PDF 小条带 ↵、⌘↵ 键帽（照命令表），整条在这一栏里（左右各留 8）、栏底不出横向滚动条；在选区上方 6，上面放不下放到下面 6；栏再窄才藏键帽`, async () => {
+    const run = await launch(files, { CN_AI_FAKE: '1' }, (vault) => {
+      const ud = join(dirname(vault), 'user-data')
+      mkdirSync(ud, { recursive: true })
+      writeFileSync(join(ud, 'settings.json'), JSON.stringify({ appearance: { followSystem: false, frame } }))
+    })
+    const { page, app } = run
+    try {
+      // 同截图：1440 宽、右栏拉宽 270，中间栏约 444
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))
+      await openPdf(page)
+      await page.keyboard.press('Meta+j')
+      await expect(reading(page)).toBeVisible()
+      await widenRight(page, 270)
+      const span = pdfPage(page, 2).locator('.textLayer span', { hasText: 'for every scalar c' }).first()
+      await span.evaluate((e) => e.scrollIntoView({ block: 'center' }))
+      await page.waitForTimeout(200)
+
+      // 选一行字：小条在选区上方 6
+      const sb = await selectLine(page, 2, 'for every scalar c')
+      const cap = capBar(page)
+      await expect(cap).toBeVisible()
+      await expect(cap.locator('kbd')).toHaveText(['↵', '⌘↵'])
+      for (const k of await cap.locator('kbd').all()) await expect(k).toBeVisible()
+      expect(await css(cap.locator('kbd').first(), ['font-size'])).toEqual({ 'font-size': '11px' })
+      let { cap: c, v } = await capAndView(page)
+      expect(v.right - v.left).toBeGreaterThan(400)
+      expect(v.right - v.left).toBeLessThan(470)
+      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 0.5)
+      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 0.5)
+      expect(v.sw).toBeLessThanOrEqual(v.cw)
+      expect(Math.abs(sb.y - (c.y + c.height) - 6)).toBeLessThanOrEqual(2)
+      await page.screenshot({ path: `test-results/r7-pdf-cap-${frame}.png` })
+
+      // 选区在这一栏最上面：上面放不下，放到选区下面 6
+      await page.keyboard.press('Escape')
+      await expect(cap).toHaveCount(0)
+      await span.evaluate((e) => {
+        const v = e.closest('.pdfv')!
+        v.scrollTop += e.getBoundingClientRect().top - v.getBoundingClientRect().top - 10
+      })
+      await page.waitForTimeout(200)
+      const sb2 = await selectLine(page, 2, 'for every scalar c')
+      await expect(cap).toBeVisible()
+      ;({ cap: c, v } = await capAndView(page))
+      expect(sb2.y - v.top).toBeLessThan(40)
+      expect(Math.abs(c.y - (sb2.y + sb2.height) - 6)).toBeLessThanOrEqual(2)
+      expect(v.sw).toBeLessThanOrEqual(v.cw)
+      await page.screenshot({ path: `test-results/r7-pdf-cap-below-${frame}.png` })
+
+      // 框一块（框靠右）：同样在框上方 6、整条在栏里
+      await page.keyboard.press('Escape')
+      await drawBox(page, 2, [0.55, 0.4], [0.95, 0.5])
+      await expect(cap).toBeVisible()
+      const fb = await box(page.getByTestId('pdf-box'))
+      ;({ cap: c, v } = await capAndView(page))
+      expect(Math.abs(fb.y - (c.y + c.height) - 6)).toBeLessThanOrEqual(2)
+      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 0.5)
+      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 0.5)
+      expect(v.sw).toBeLessThanOrEqual(v.cw)
+
+      // 栏再窄（右栏再拉宽 120）：整条放不下才藏键帽，五颗照样整个露着、在栏里
+      await page.keyboard.press('Escape')
+      await widenRight(page, 120)
+      await drawBox(page, 2, [0.1, 0.4], [0.5, 0.5])
+      await expect(cap).toBeVisible()
+      ;({ cap: c, v } = await capAndView(page))
+      expect(v.right - v.left).toBeLessThan(420)
+      await expect(cap.locator('kbd').first()).toBeHidden()
+      await page.screenshot({ path: `test-results/r7-pdf-cap-narrow-${frame}.png` })
+      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 0.5)
+      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 0.5)
+      expect(v.sw).toBeLessThanOrEqual(v.cw)
+    } finally {
+      await run.close()
+    }
+  })
+}

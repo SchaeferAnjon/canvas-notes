@@ -14,6 +14,8 @@ import { goToLine } from '../goto-line'
 import { composing } from '../ime'
 import { addTodo, dateTodo, fieldTodo, isoToday, itemsNow, openInToday, tickTodo, useTodayInstalled, useTodos, useToday } from './store'
 import './todo.css'
+import { useLang } from '../i18n'
+import { t as tNow } from '../../shared/i18n'
 
 const cls = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).join(' ')
 
@@ -32,13 +34,15 @@ const usePop = () =>
   )
 
 /** 勾选框（原型 cb()）：14 方、圆角 4，重要的黄边，勾上填强调色 */
+// 这几个组件里 t 是那一条待办：界面上的字用 tNow，useLang() 让换语言时重画
 export function Check({ t }: { t: TodoItem }) {
+  useLang()
   return (
     <button
       className={cls('td-cb', t.done && 'on', t.prio === 3 && !t.done && 'hi')}
       role="checkbox"
       aria-checked={t.done}
-      aria-label={`${t.done ? '取消勾选' : '勾掉'}「${t.title}」`}
+      aria-label={t.done ? tNow('取消勾选「{title}」', { title: t.title }) : tNow('勾掉「{title}」', { title: t.title })}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation()
@@ -52,6 +56,7 @@ export function Check({ t }: { t: TodoItem }) {
 
 /** 行尾的日子小块（原型 chip()）：有提醒画铃铛，过期的红字；拖一条到它上面就改成这一天 */
 function Chip({ t, today }: { t: TodoItem; today: string }) {
+  useLang()
   if (!t.date) return null
   return (
     <span className={cls('td-chip', t.date < today && !t.done && 'red')} data-drop={`date:${t.date}`}>
@@ -80,6 +85,7 @@ function Row({ t, today, owner, src, sel, flash }: { t: TodoItem; today: string;
  * showDone 时最后「已完成 N ›」一行，点开列出来（划线）。limit：没做完的最多先列几条（首页卡），多的「还有 N 条 ›」
  */
 export function TodoGroups(props: { list: readonly TodoItem[]; owner: string; src?: boolean; dropEmpty?: boolean; showDone?: boolean; limit?: number }) {
+  useLang()
   const { keep, flash } = useTodos()
   const today = useToday()
   const p = usePop()
@@ -99,7 +105,7 @@ export function TodoGroups(props: { list: readonly TodoItem[]; owner: string; sr
           {g.name}
           {g.items.length > 0 && <span className="n num">{g.items.length}</span>}
         </div>
-        {shown.length ? shown.map(row) : <div className="td-more">{`空着，拖一条到「${g.name}」上就改到这天`}</div>}
+        {shown.length ? shown.map(row) : <div className="td-more">{tNow('空着，拖一条到「{name}」上就改到这天', { name: g.name })}</div>}
       </Fragment>
     )
   })
@@ -109,13 +115,13 @@ export function TodoGroups(props: { list: readonly TodoItem[]; owner: string; sr
       {blocks}
       {hidden > 0 && (
         <button className="td-more td-btn" onClick={() => setAll(true)}>
-          {`还有${hidden}条 ›`}
+          {tNow('还有{n}条 ›', { n: hidden })}
         </button>
       )}
       {props.showDone && done.length > 0 && (
         <>
           <button className="td-more td-btn" aria-expanded={doneOpen} onClick={() => setDoneOpen((x) => !x)}>
-            {`已完成${done.length} ${doneOpen ? '⌄' : '›'}`}
+            {tNow('已完成{n} {arrow}', { n: done.length, arrow: doneOpen ? '⌄' : '›' })}
           </button>
           {doneOpen && done.map(row)}
         </>
@@ -126,6 +132,7 @@ export function TodoGroups(props: { list: readonly TodoItem[]; owner: string; sr
 
 /** 加一条（原型 .qa）：回车加上；hintWhere 给了时下面一行「认出来：…」（左边格子） */
 export function QuickAdd(props: { where: TodoWhere; placeholder: string; label: string; hintWhere?: string; className?: string }) {
+  useLang()
   const [v, setV] = useState('')
   const today = useToday()
   const busy = useRef(false)
@@ -185,11 +192,23 @@ export function TodoPop({ owner }: { owner: string }) {
 }
 
 const TIMES = ['', '09:00', '10:30', '11:00', '15:00', '18:00', '20:00', '23:59']
+// 不翻：选项的值写进那一行（画布今日的写法），界面上的字在 Pop 里翻
 const REMINDS = ['', '准时', '提前10分钟', '提前1小时']
+// 不翻：同上
 const REPEATS = ['', '每天', '每周日', '工作日']
 
 /** 详情小卡（原型 popHtml()）：日期四格、钟点 / 提醒 / 重复、在哪篇第几行、那一行原文、打开笔记到这一行 */
 function Pop({ t, owner }: { t: TodoItem; owner: string }) {
+  useLang()
+  /** 提醒、重复几个选项给人看的字（值照旧写进文件） */
+  const optName: Record<string, string> = {
+    准时: tNow('准时'),
+    提前10分钟: tNow('提前10分钟'),
+    提前1小时: tNow('提前1小时'),
+    每天: tNow('每天'),
+    每周日: tNow('每周日'),
+    工作日: tNow('工作日'),
+  }
   const ref = useRef<HTMLDivElement>(null)
   const today = useToday()
   const installed = useTodayInstalled()
@@ -236,32 +255,32 @@ function Pop({ t, owner }: { t: TodoItem; owner: string }) {
     }
   }, [])
   const picks: [string | null, string][] = [
-    [today, '今天'],
-    [addDays(today, 1), '明天'],
-    [addDays(today, 2), '后天'],
-    [null, '不定'],
+    [today, tNow('今天')],
+    [addDays(today, 1), tNow('明天')],
+    [addDays(today, 2), tNow('后天')],
+    [null, tNow('不定')],
   ]
   const sel = (k: 'time' | 'remind' | 'repeat', label: string, all: string[], v: string | null, none: string) => (
     <select className="td-sel" aria-label={label} value={v ?? ''} onChange={(e) => void fieldTodo(t, k, e.target.value)}>
       {(v && !all.includes(v) ? [...all, v] : all).map((o) => (
         <option key={o} value={o}>
-          {o || none}
+          {o ? (optName[o] ?? o) : none}
         </option>
       ))}
     </select>
   )
   return createPortal(
-    <div ref={ref} className="td-pop" role="dialog" aria-label="详情" style={at ?? { visibility: 'hidden' }}>
+    <div ref={ref} className="td-pop" role="dialog" aria-label={tNow('详情')} style={at ?? { visibility: 'hidden' }}>
       <div className="td-pt">
         <Check t={t} />
         <span className="td-pt-t">{t.title}</span>
-        <button className="td-x" aria-label="关上" onClick={() => setPop(null)}>
+        <button className="td-x" aria-label={tNow('关上')} onClick={() => setPop(null)}>
           <Codicon name="close" size={12} />
         </button>
       </div>
       <div className="td-pl">
         <Codicon name="calendar" size={12} />
-        日期
+        {tNow('日期')}
         {picks.map(([d, l]) => (
           <button key={l} className={cls('td-pick', t.date === d && 'on')} onClick={() => void dateTodo(t, d)}>
             {l}
@@ -270,13 +289,13 @@ function Pop({ t, owner }: { t: TodoItem; owner: string }) {
       </div>
       <div className="td-pl wrap">
         <Codicon name="watch" size={12} />
-        {sel('time', '钟点', TIMES, t.time, '不定时间')}
+        {sel('time', tNow('钟点'), TIMES, t.time, tNow('不定时间'))}
         <Codicon name="bell" size={12} />
-        {sel('remind', '提醒', REMINDS, t.remind, '不提醒')}
+        {sel('remind', tNow('提醒'), REMINDS, t.remind, tNow('不提醒'))}
         <Codicon name="sync" size={12} />
-        {sel('repeat', '重复', REPEATS, t.repeat, '不重复')}
+        {sel('repeat', tNow('重复'), REPEATS, t.repeat, tNow('不重复'))}
       </div>
-      <div className="td-mono" data-testid="td-where">{`${t.path} · 第${t.line + 1}行`}</div>
+      <div className="td-mono" data-testid="td-where">{tNow('{path} · 第{n}行', { path: t.path, n: t.line + 1 })}</div>
       <div className="td-mono td-rawl" data-testid="td-raw">
         {t.raw}
       </div>
@@ -289,11 +308,11 @@ function Pop({ t, owner }: { t: TodoItem; owner: string }) {
             void goToLine(t.path, t.line + 1)
           }}
         >
-          打开笔记，到这一行
+          {tNow('打开笔记，到这一行')}
         </button>
         {installed && (
           <button className="td-link" onClick={() => (setPop(null), void openInToday(t))}>
-            在画布今日里打开
+            {tNow('在画布今日里打开')}
           </button>
         )}
       </div>

@@ -155,7 +155,8 @@ export const HINT_AT = 3
 function readJson<T>(key: string, fallback: T): T {
   try {
     const v = JSON.parse(localStorage.getItem(key) ?? 'null') as T | null
-    return v ?? fallback
+    // 记坏了的（该是数组的不是数组，task-pyb39）当没记过
+    return v !== null && Array.isArray(v) === Array.isArray(fallback) && typeof v === typeof fallback ? v : fallback
   } catch {
     // 记不住就当没记过：只是少一句提示
     return fallback
@@ -186,19 +187,20 @@ export function noteCoOpen(note: string, url: string, now = Date.now()) {
   if (!host || !/^https?:/.test(url)) return
   const all = readJson<Record<string, number[]>>(CO_KEY, {})
   const key = `${note}\n${host}`
-  const list = (all[key] ?? []).filter((t) => typeof t === 'number' && now - t < WEEK)
+  const list = (Array.isArray(all[key]) ? all[key] : []).filter((t) => typeof t === 'number' && now - t < WEEK)
   if (list.length && now - list[list.length - 1]! < GAP) return
   list.push(now)
   all[key] = list
   // 一周以前的整条拿掉
-  for (const k of Object.keys(all)) if (!(all[k] ?? []).some((t) => now - t < WEEK)) delete all[k]
+  for (const k of Object.keys(all)) if (!(Array.isArray(all[k]) ? all[k] : []).some((t) => now - t < WEEK)) delete all[k]
   writeJson(CO_KEY, all)
   coVersion.set(coVersion.get() + 1)
 }
 
 /** 这周这篇和这个网站一起开过几次 */
 export function coOpenCount(note: string, host: string, now = Date.now()): number {
-  return (readJson<Record<string, number[]>>(CO_KEY, {})[`${note}\n${host}`] ?? []).filter((t) => now - t < WEEK).length
+  const list = readJson<Record<string, number[]>>(CO_KEY, {})[`${note}\n${host}`]
+  return (Array.isArray(list) ? list : []).filter((t) => now - t < WEEK).length
 }
 
 /** × 掉的提示：配对的按「这篇 + 网站」记，书桌的按「这篇」记 */

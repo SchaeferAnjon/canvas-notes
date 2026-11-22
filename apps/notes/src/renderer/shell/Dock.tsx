@@ -34,6 +34,8 @@ export interface DockProps {
   widths: Record<string, number>
   /** AI 标签前面画的：正在用的那家的标志 */
   aiLogo: React.ReactNode
+  /** 标签在前面时它后面跟的一句灰字（右栏网页的「笔记」：「《那篇》· 来自这个网页」，task-6cxtc） */
+  subs?: Partial<Record<D.ViewId, string>>
   /** layout：用户挪了布局（底栏说「布局记住了」）；view：开关标签 */
   onDock(next: D.Dock, op: DockOp): void
   onCloseView(v: D.ViewId): void
@@ -88,6 +90,7 @@ function Head(p: { g: D.Group | D.FloatWin; float: boolean; cur: boolean; props:
             </button>
           </div>
         ))}
+        {props.subs?.[g.active] && <span className="dsub">{props.subs[g.active]}</span>}
       </div>
       <div className="dspace" onPointerDown={grab} />
       {g.active === 'web' && <WebFoldButton />}

@@ -104,7 +104,7 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     await expect(webTabs(page)).toHaveCount(3)
     await expect(web(page).getByRole('textbox', { name: '网址' })).toBeFocused()
     // 三个标签挤在 380 的右栏里（task-sta8n 方向 A：窄于 470 时别的标签只剩图标，名字悬停看；宽时名字至少四个字见 step25-web）
-    const room = await webTabs(page).evaluateAll((els) => els.filter((e) => !e.classList.contains('on')).map((e) => ({ name: !!(e.querySelector('.truncate') as HTMLElement).offsetParent, w: Math.round(e.getBoundingClientRect().width), title: e.getAttribute('title') ?? '' })))
+    const room = await webTabs(page).evaluateAll((els) => els.filter((e) => !e.classList.contains('on')).map((e) => ({ name: !!(e.querySelector('.truncate') as HTMLElement).offsetParent, w: Math.round(e.getBoundingClientRect().width), title: e.getAttribute('data-tip') ?? '' })))
     expect(room.every((r) => !r.name && r.w <= 40 && r.title.length > 0), JSON.stringify(room)).toBe(true)
     // 点 × 关掉空的新标签
     await webTabs(page).nth(2).getByRole('button', { name: '关闭网页标签' }).click()
@@ -121,7 +121,9 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     // 点标签换过去（当前那个标签就是地址块，点了是改地址，不换）
     await webTabs(page).nth(1).click()
     await expect.poll(() => guest(page, 'document.readyState')).toBe('complete')
-    await page.getByRole('banner').getByRole('button', { name: '移到中间' }).click()
+    // 网页 ⋯ › 在中间开成一页（task-05p2w 以前是标题栏的「移到中间」）
+    await web(page).getByRole('button', { name: '更多', exact: true }).click()
+    await web(page).getByRole('menu', { name: '更多' }).getByRole('menuitem', { name: /在中间开成一页/ }).click()
     const wide = page.locator('.wpane:not([hidden])')
     await expect(wide.locator('webview')).toBeVisible()
     await expect(page.locator('.center .tabs .tab.on')).toContainText('冰岛的黑沙滩')
@@ -132,7 +134,10 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     await expect(web(page).getByRole('region', { name: '书签首页' })).toHaveCount(0)
     const wideBox = (await wide.locator('webview').boundingBox())!
     expect(wideBox.width).toBeGreaterThan(600)
-    await page.getByRole('banner').getByRole('button', { name: '放回右栏' }).click()
+    // 这一页标签条右端 ⋯ › 放回右栏（task-05p2w）。右上角那颗只管右栏的网页：右栏还开着「第二页」，它写「网页占满」，不是「放回右栏」
+    await expect(page.getByRole('banner').getByTestId('tb-web')).toHaveAccessibleName('网页占满')
+    await page.getByTestId('tab-acts').getByRole('button', { name: '更多' }).click()
+    await page.getByRole('dialog', { name: '这一页' }).getByRole('menuitem', { name: /放回右栏/ }).click()
     await expect(page.locator('.wpane')).toHaveCount(0)
     await expect(webTabs(page)).toHaveText(['第二页', '冰岛的黑沙滩 - 旅行杂志'])
   } finally {

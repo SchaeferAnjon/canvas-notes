@@ -2,7 +2,8 @@ import type { PdfBlock } from '@cn/format'
 import { describe, expect, it } from 'vitest'
 import { askPrompt, fullTextOf, noteDigest, parseSummary, sidePrompt, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, TUTOR_VERSION } from '../src/main/reading/prompts'
 import { AGENT_SYSTEM, AGENT_VERSION, modeLine, MODES_RULE } from '../src/main/agent/index'
-import { SYSTEM as COMMAND_SYSTEM } from '../src/renderer/ai-commands'
+import { system as commandSystem } from '../src/renderer/ai-commands'
+import { setUiLang } from '../src/shared/i18n'
 import { MATH_RULE, type ReadingMsg, type ReadingThread, readLine, VIZ_MARK } from '../src/shared/reading'
 
 const thread: ReadingThread = { id: '.canvas-notes/对话/L3-p5-1.md', page: 5, rect: [0.1, 0.2, 0.3, 0.4], crop: '附件/L3/p5-1.png', createdAt: 0 }
@@ -114,7 +115,7 @@ describe('公式的写法（真 AI 写了 `$dV/dt = $ 输入`，$ 里头结尾�
     expect(MATH_RULE).toContain('开头结尾都不留空格')
     expect(MATH_RULE).toContain('不写 $ dV/dt $ 或 $dV/dt = $')
     expect(MATH_RULE).toContain('单独一行的写 $$…$$')
-    for (const p of [TUTOR_SYSTEM, AGENT_SYSTEM, COMMAND_SYSTEM]) expect(p).toContain(MATH_RULE)
+    for (const p of [TUTOR_SYSTEM, AGENT_SYSTEM, commandSystem()]) expect(p).toContain(MATH_RULE)
     // 讲法改了：旧会话不再接着用记下的旧系统提示（4：能动手、两种模式）
     expect(TUTOR_VERSION).toBe(4)
   })
@@ -131,8 +132,10 @@ describe('两种模式怎么告诉 AI（2026-11-19，全能模式默认开）', 
     // 笔记和文件夹那组工具写进去了
     expect(AGENT_SYSTEM).toContain('note_*、folder_create')
     expect(TUTOR_SYSTEM).toContain('新建、改写、改名、挪动、删笔记')
-    // 系统提示改了：AI 对话的旧会话不再接着用（3：改了开着的文件编辑器当场换，2026-11-21）
-    expect(AGENT_VERSION).toBe(3)
+    // 往笔记里新加的段落写成 [!ai] 块，头一行照每条消息开头的【AI 块】（task-dtc34）
+    expect(AGENT_SYSTEM).toContain('一律写成 AI 块')
+    // 系统提示改了：AI 对话的旧会话不再接着用（3：改了开着的文件编辑器当场换，2026-11-21；4：回答的语言照每条消息开头的【语言】，task-zojmg；5：AI 块，task-dtc34）
+    expect(AGENT_VERSION).toBe(5)
   })
 
   it('AI 改了开着的文件：系统提示说清编辑器当场换成新内容、用户正在打的字合并进来，不叫用户关掉标签再打开（2026-11-21 task-wnbi1）', () => {
@@ -142,10 +145,24 @@ describe('两种模式怎么告诉 AI（2026-11-19，全能模式默认开）', 
 
   it('每条消息开头的【模式】：开着说能做什么、工作目录是库；关着说做不了什么、怎么打开', () => {
     const on = modeLine(true, 'claude', '/库')
-    expect(on).toBe('【模式】全能模式开着：和在终端里用 Claude Code 一样，能读写这台 Mac 上的文件、跑命令、上网、开子 Agent，不用先问；工作目录是库（/库）。')
+    expect(on.split('\n')[0]).toBe('【模式】全能模式开着：和在终端里用 Claude Code 一样，能读写这台 Mac 上的文件、跑命令、上网、开子 Agent，不用先问；工作目录是库（/库）。')
     const off = modeLine(false, 'codex', '/库')
     expect(off).toContain('【模式】全能模式关着：只在库里动手')
     expect(off).toContain('在 AI 输入框下面打开「全能模式」')
     expect(modeLine(true, 'codex', '/库')).toContain('和在终端里用 Codex 一样')
+  })
+
+  it('回答用什么语言（task-zojmg）：默认跟界面语言，用别的语言问就跟着问的语言；写在每条消息开头的【语言】，系统提示里不再写死「用中文回答」', () => {
+    expect(AGENT_SYSTEM).not.toContain('用中文回答，平实')
+    expect(AGENT_SYSTEM).toContain('照每条消息开头的【语言】')
+    expect(commandSystem()).toContain('默认用中文回答；用户用别的语言问，就用他问的那种语言答')
+    expect(modeLine(false, 'claude', '/库').split('\n')[1]).toBe('【语言】默认用中文回答；用户用别的语言问，就用他问的那种语言答。')
+    setUiLang('en')
+    try {
+      expect(modeLine(false, 'claude', '/库').split('\n')[1]).toBe('【语言】默认用英文回答；用户用别的语言问，就用他问的那种语言答。')
+      expect(commandSystem()).toContain('默认用英文回答；用户用别的语言问，就用他问的那种语言答')
+    } finally {
+      setUiLang('zh')
+    }
   })
 })

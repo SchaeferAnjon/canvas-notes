@@ -5,6 +5,7 @@
  * 笔记和文件夹那组（2026-11-19）全能模式关着也有：新建、改写、改名、挪动、删到废纸篓、建文件夹，走软件自己的库操作（vault-ops.ts）。
  * 全能模式下命令行自己的工具（跑命令、写文件、上网搜……）的步骤行也在这里写成人话（stepLabel）。
  */
+import { type AiWrote, isBoardDoc, wrapInsert } from '@cn/format'
 import { homedir } from 'node:os'
 import type { AgentContext } from '../../shared/agent'
 import { type ActTally, changedParas } from '../../shared/ai-act'
@@ -26,6 +27,8 @@ export interface ToolHost {
   context(): Promise<AgentContext>
   listNotes(): Promise<NoteFile[]>
   readNote(path: string): Promise<string>
+  /** AI 对话里：AI 往笔记里新加的一段包成 [!ai] 块时头上写的（task-dtc34）；读 PDF 里没有 */
+  wrote?: AiWrote
   /** 改一篇：先把用户没提交的字单独提交，再写，再告诉打开着的编辑器；这一轮结束时一起提交 */
   editNote(path: string, change: (text: string) => string): Promise<void>
   /** 白板在屏幕上时量到的卡片大小 */
@@ -205,7 +208,9 @@ export const TOOLS: Tool[] = [
         if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
       }
       if (cur === undefined) throw new Error(`没有「${path}」。要新建就用 note_create`)
-      await h.editNote(path, (t) => (append ? `${t.replace(/\s*$/, '')}\n\n${text.trim()}\n` : text.endsWith('\n') ? text : `${text}\n`))
+      // 加在末尾的一段是 AI 写的：包成 [!ai] 块（标题、代码留在外面，task-dtc34）；整篇换掉的这一轮结束时按新旧对比补包
+      const add = h.wrote ? wrapInsert(text.trim(), h.wrote, isBoardDoc(cur)) : text.trim()
+      await h.editNote(path, (t) => (append ? `${t.replace(/\s*$/, '')}\n\n${add}\n` : text.endsWith('\n') ? text : `${text}\n`))
       if (append) h.tally?.('added')
       else h.tally?.('changed', changedParas(cur, text))
       return `${append ? '加好了' : '改好了'}：${path}`

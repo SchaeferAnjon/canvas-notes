@@ -9,6 +9,9 @@
   "repo": "SchaeferAnjon/canvas-notes",
   "site": "https://canvas-note.us-cloud.uk",
   "hub": "https://apps.us-cloud.uk",
+  "github": {
+    "oauthClientId": ""
+  },
   "signing": {
     "identity": "zonghan jia (3H5S5NXPXS)",
     "team": "3H5S5NXPXS",

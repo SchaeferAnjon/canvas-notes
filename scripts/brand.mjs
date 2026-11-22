@@ -37,9 +37,10 @@ function brandTs(b) {
   return `/** 由 scripts/brand.mjs 从 release/brand.json 生成，别手改：改 brand.json 再跑 node scripts/brand.mjs */\nexport const BRAND = ${JSON.stringify(pick, null, 2).replace(/"([a-zA-Z]+)":/g, '$1:')} as const\n`
 }
 
-/** iPhone / iPad 版（apps/apple/project.yml 引用它）：Bundle ID 和 Mac 版同一个（同一个产品的不同平台，照 Apple 规矩共用一个），显示名、签名团队 */
+/** iPhone / iPad 版（apps/apple/project.yml 引用它）：Bundle ID 和 Mac 版同一个（同一个产品的不同平台，照 Apple 规矩共用一个），显示名、签名团队，
+ *  「用 GitHub 登录」的 OAuth App Client ID（不是秘密，设备登录不要 client secret；空着时连库那一屏只有贴令牌）。Info.plist 的 CNGitHubClientID 读它 */
 function appleXcconfig(b) {
-  return `// 由 scripts/brand.mjs 从 release/brand.json 生成，别手改：改 brand.json 再跑 node scripts/brand.mjs\nCN_APP_ID = ${b.appId}\nCN_DISPLAY_NAME = ${b.name}\nDEVELOPMENT_TEAM = ${b.signing.team}\n`
+  return `// 由 scripts/brand.mjs 从 release/brand.json 生成，别手改：改 brand.json 再跑 node scripts/brand.mjs\nCN_APP_ID = ${b.appId}\nCN_DISPLAY_NAME = ${b.name}\nDEVELOPMENT_TEAM = ${b.signing.team}\nCN_GITHUB_CLIENT_ID = ${b.github?.oauthClientId ?? ''}\n`
 }
 
 function packageEdits(b) {

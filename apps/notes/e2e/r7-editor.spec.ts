@@ -259,7 +259,7 @@ test('块菜单照稿：转成标题 / 转成待办 / 转成引用 | 复制一�
     const g = (await grip.boundingBox())!
     await grip.click()
     await expect(menu).toBeVisible()
-    await expect(menu.getByRole('menuitem')).toHaveText(['转成标题', '转成待办', '转成引用', '复制一块⌘D', '问 AI 这一块', '删除⌫'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['转成标题', '转成待办', '转成引用', '标成 AI 写的', '上移⌥⇧↑', '下移⌥⇧↓', '复制一块⌘D', '问 AI 这一块', '删除⌫'])
     const m = (await menu.boundingBox())!
     // 弹在把手右边 6（菜单有 6 的内边距：第一行和把手顶对齐）
     expect(Math.round(m.x - (g.x + g.width))).toBeGreaterThanOrEqual(4)

@@ -10,6 +10,8 @@ import { todoLabel, todoNoteOf } from '../../shared/todo'
 import { app } from '../ctx/actions'
 import { useTodos } from './store'
 import { QuickAdd, TodoGroups, TodoPop, useOwner } from './TodoList'
+import { useT } from '../i18n'
+import { t } from '../../shared/i18n'
 
 /** 正在搬的文件夹（首页画两次、两个标签开着同一个首页时只搬一次） */
 const moving = new Set<string>()
@@ -23,22 +25,23 @@ export async function migrateTodos(folder: string, reload: () => void, force = f
     if (!r) return
     reload()
     app().refresh()
-    const said = `首页待办卡里的${r.moved}条搬进了「${r.path}」`
-    app().noticeUndo(r.commitError ? `${said}；提交没成功：${r.commitError}` : said, () => {
+    const said = t('首页待办卡里的{n}条搬进了「{path}」', { n: r.moved, path: r.path })
+    app().noticeUndo(r.commitError ? t('{said}；提交没成功：{err}', { said, err: r.commitError }) : said, () => {
       void window.cnTodo.unmigrate(r.undo).then((u) => {
-        if (!u.ok) app().notice(u.reason === 'changed' ? `「${r.path}」后来又改过，撤不回了` : '撤不回了')
+        if (!u.ok) app().notice(u.reason === 'changed' ? t('「{path}」后来又改过，撤不回了', { path: r.path }) : t('撤不回了'))
         reload()
         app().refresh()
       })
     })
   } catch (e) {
-    app().notice(`首页待办卡里的待办没搬成：${String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+    app().notice(t('首页待办卡里的待办没搬成：{err}', { err: String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }))
   } finally {
     moving.delete(folder)
   }
 }
 
 export function TodoCard(props: { folder: string; w: WidgetData; reload(): void }) {
+  const t = useT()
   const { items } = useTodos()
   const owner = useOwner()
   const list = items.filter((t) => t.path.startsWith(props.folder + '/'))
@@ -51,15 +54,15 @@ export function TodoCard(props: { folder: string; w: WidgetData; reload(): void 
     void migrateTodos(props.folder, props.reload)
   }, [legacy, props.w.todosKept, props.folder])
   return (
-    <div className="td-card" data-testid="todo-card" role="list" aria-label="待办">
-      {list.length === 0 && !legacy && <p className="fw-empty">没有待办。</p>}
+    <div className="td-card" data-testid="todo-card" role="list" aria-label={t('待办')}>
+      {list.length === 0 && !legacy && <p className="fw-empty">{t('没有待办。')}</p>}
       <TodoGroups list={list} owner={owner} src showDone limit={12} />
       {legacy > 0 && props.w.todosKept && (
         <button className="td-more td-btn td-legacy" onClick={() => void migrateTodos(props.folder, props.reload, true)}>
-          {`首页卡里还有${legacy}条旧待办 · 搬进「${todoNoteOf(props.folder)}」`}
+          {t('首页卡里还有{n}条旧待办 · 搬进「{path}」', { n: legacy, path: todoNoteOf(props.folder) })}
         </button>
       )}
-      <QuickAdd where={{ folder: props.folder }} label="首页加一条" placeholder={`加一条，写进 ${todoNoteOf(props.folder)}`} className="td-qa-card" />
+      <QuickAdd where={{ folder: props.folder }} label={t('首页加一条')} placeholder={t('加一条，写进 {path}', { path: todoNoteOf(props.folder) })} className="td-qa-card" />
       <TodoPop owner={owner} />
     </div>
   )
@@ -67,12 +70,13 @@ export function TodoCard(props: { folder: string; w: WidgetData; reload(): void 
 
 /** 卡头右边「打开 ›」：开这个文件夹的「待办」（任务界面）；还没有那一篇时不出 */
 export function TodoOpen(props: { folder: string }) {
+  const t = useT()
   const { items } = useTodos()
   const path = todoNoteOf(props.folder)
   if (!items.some((t) => t.path === path)) return null
   return (
-    <button className="td-link td-open" aria-label={`打开 ${todoLabel(path)}`} onClick={() => app().openFile(path)}>
-      打开 ›
+    <button className="td-link td-open" aria-label={t('打开 {name}', { name: todoLabel(path) })} onClick={() => app().openFile(path)}>
+      {t('打开 ›')}
     </button>
   )
 }

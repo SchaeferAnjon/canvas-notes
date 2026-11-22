@@ -2,6 +2,7 @@
  * 附件：文档里插图片时把文件拷进库的「附件/」，笔记里写相对链接；
  * 界面用 cn-file://vault/<库里的路径> 显示库里的图片（只认库里的图片文件）；
  * cn-file://app/backgrounds/<文件名> 是设置里自己选的窗口背景，cn-file://app/pasted/<文件名> 是 AI 输入框里粘贴的图，cn-file://app/thumbs/<文件名> 是课件封面（都存在软件设置目录）。
+ * cn-file://rev/<提交号>/<库里的路径>.html 是那次提交里的 HTML（梦游对照里还没收下的可视化、历史里那一版，task-m552v），同一个沙箱规矩。
  */
 import { dialog, ipcMain, net, protocol, type BrowserWindow } from 'electron'
 import { copyFile, mkdir, readdir, readFile, stat } from 'node:fs/promises'
@@ -9,6 +10,7 @@ import { basename, extname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { attachmentDir, pickEmbed } from '@cn/format'
 import { EXT_SCHEME } from '../shared/bookmarkkeeper'
+import { blob } from './diff'
 import type { Vault } from './vault'
 
 export const ATTACHMENTS = '附件'
@@ -28,9 +30,19 @@ export function registerFileScheme() {
 /** 库里 HTML 的隔离规则：脚本和样式只能是文件里自己写的，连不了网、拿不到别的文件 */
 export const HTML_CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:"
 
-async function vaultHtml(abs: string): Promise<Response> {
+/**
+ * 嵌在笔记里、梦游对照里的可视化（地址带 ?fit，task-m552v）：末尾加一小段脚本，把这一页有多高报给外面，
+ * 外面的 iframe 跟着变高（renderer/viz-embed.ts fitFrame），图不再被截在 260 高的框里、要在里面再滚一层。文件本身不动
+ */
+const FIT = Buffer.from(
+  "<script>(()=>{let l=0;const r=()=>{const h=Math.ceil(document.documentElement.getBoundingClientRect().height);if(h&&h!==l){l=h;parent.postMessage({cnFit:h},'*')}};addEventListener('load',r);new ResizeObserver(r).observe(document.documentElement)})()</script>",
+)
+const htmlRes = (body: Uint8Array, fit: boolean) =>
+  new Response(new Uint8Array(fit ? Buffer.concat([body, FIT]) : body), { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': HTML_CSP } })
+
+async function vaultHtml(abs: string, fit: boolean): Promise<Response> {
   try {
-    return new Response(await readFile(abs), { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': HTML_CSP } })
+    return htmlRes(await readFile(abs), fit)
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return new Response('文件不在了', { status: 404 })
     throw e
@@ -89,10 +101,14 @@ export function registerAttachments(getVault: () => Vault, getWin: () => Browser
     const parts = url.pathname.slice(1).split('/').map(decodeURIComponent)
     const rel = parts.join('/')
     // 库里的 HTML（读 PDF 时做的可视化）：放在没有来源的沙箱 iframe 里跑，只许它自己的脚本和样式，不联网
-    if (url.host === 'vault' && /\.html?$/i.test(rel)) return vaultHtml(getVault().abs(rel))
+    const fit = url.searchParams.has('fit')
+    if (url.host === 'vault' && /\.html?$/i.test(rel)) return vaultHtml(getVault().abs(rel), fit)
+    // 那次提交里的 HTML（梦游对照、历史）：同一个沙箱规矩；第一节是提交号
+    if (url.host === 'rev' && /\.html?$/i.test(rel) && /^[0-9a-f]{7,40}$/.test(parts[0] ?? '') && parts.length > 1)
+      return blob(getVault().root, parts[0]!, parts.slice(1).join('/')).then((b) => (b ? htmlRes(new Uint8Array(b), fit) : new Response('那一版里没有这个文件', { status: 404 })))
     // 梦游分支上的 HTML：同一个沙箱规矩
     if (url.host === 'dream' && /\.html?$/i.test(rel) && dreamHtml)
-      return dreamHtml(rel).then((t) => (t === null ? new Response('梦游报告里没有这个文件', { status: 404 }) : new Response(t, { headers: { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': HTML_CSP } })))
+      return dreamHtml(rel).then((t) => (t === null ? new Response('梦游报告里没有这个文件', { status: 404 }) : htmlRes(Buffer.from(t), fit)))
     if (!IMAGE_EXT.includes(extname(rel).slice(1).toLowerCase())) return new Response('不认识的文件', { status: 404 })
     if (url.host === 'vault') return net.fetch(pathToFileURL(getVault().abs(rel)).toString())
     // Obsidian 写法的图片 ![[图.png]]：照 Obsidian 的找法定到库里哪个文件（from 是写着它的那篇笔记）

@@ -1,0 +1,55 @@
+/* 设置 › AI「iPhone 和 iPad」（task-wwqf0）：开关那一行下面整行宽，左边二维码、右边说明和按钮 */
+.mai-pair {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-top: 12px;
+}
+/* 二维码一直白底黑格（深色主题下也是，扫得出来），一圈 --line2、圆角 8 */
+.mai-qr {
+  flex: none;
+  width: 148px;
+  height: 148px;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line2);
+}
+.mai-qr svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.mai-qr.off {
+  opacity: 0.25;
+}
+.mai-txt {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.mai-txt b {
+  font-weight: 500;
+}
+.mai-txt p {
+  margin: 0;
+  color: var(--t2);
+}
+.mai-txt .mai-exp {
+  font-size: 12px;
+  color: var(--t3);
+}
+.mai-acts {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.mai-err {
+  margin: 0;
+  font-size: 13px;
+  color: var(--red);
+}

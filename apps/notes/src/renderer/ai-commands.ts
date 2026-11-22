@@ -5,6 +5,7 @@ import { BRAND } from '../shared/brand'
 import { MATH_RULE } from '../shared/reading'
 import { DOC_BOARD_RULES } from '@cn/format'
 import { builtinByName } from '../shared/ai-cmds'
+import { answerRule } from '../shared/answer-lang'
 
 /** AI 能做的 / 命令 */
 export interface Command {
@@ -32,8 +33,9 @@ export const TIDY_BOARD = `整理当前白板：先用 board_list 看这块白�
 
 ${DOC_BOARD_RULES}`
 
-export const SYSTEM = `你是 ${BRAND.name} 笔记软件里的助手，帮一个人整理和写作自己的笔记。
-用中文回答，平实、直接，不客套，不重复问题。笔记内容在用户消息里，只根据这些内容回答，不编造没有的事。
+/** 回答的语言跟界面语言（task-zojmg），所以每次现取 */
+export const system = () => `你是 ${BRAND.name} 笔记软件里的助手，帮一个人整理和写作自己的笔记。
+${answerRule()}；平实、直接，不客套，不重复问题。笔记内容在用户消息里，只根据这些内容回答，不编造没有的事。
 ${MATH_RULE}`
 
 export const today = () => {

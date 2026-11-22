@@ -39,7 +39,7 @@ test('活动栏平铺：文件、最近 | 收件箱 | 课程 阅读 剪藏 | 周
   const { page } = run
   try {
     const names = await bar(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '梦游报告', '库', '设置和外观'])
+    expect(names).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '梦游报告', '最近删掉的', '库', '设置和外观'])
     // 每段之间一条线：最近后、收件箱后、剪藏后、生活后
     const groups = await bar(page).locator('.abg').evaluateAll((els) => els.map((g) => [...g.querySelectorAll('button.ab')].map((b) => b.getAttribute('aria-label'))))
     expect(groups).toEqual([['文件', '待办', '最近', '书桌'], ['收件箱'], ['课程', '阅读', '剪藏'], ['周记', '写作', '项目', '生活'], ['梦游报告']])
@@ -108,12 +108,11 @@ test('活动栏右键：从左边拿下（底部能撤回）、在「文件」�
     await toast(page).getByRole('button', { name: '撤回' }).click()
     await expect(cell(page, '写作')).toHaveCount(1)
     // 窗口最矮（600）、又摘了三个文件夹上来：放不下的从最后一格往前收进「⋯」，点开是这几格。
-    // 「文件」下面多了「待办」一格以后（task-pd1d1），600 高时先收「待办」、八个分类都留着（2026-11-22 用户定）；
-    // 「⋯」自己也占一格，只收「待办」腾不出地方，接着收「书桌」
+    // 「待办」「书桌」不收（2026-11-22 用户看图定「用旧做法」，task-2okp6）；库、设置不再被压扁腾地方；底部多了「最近删掉的」一格（task-iq2ow）以后 600 高时末尾四个分类收进「⋯」
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1200, 600))
     await page.waitForTimeout(300)
-    await expect(bar(page).getByTestId('ab-more')).toHaveAttribute('data-tip', '还有2个：书桌、待办')
-    for (const c of CATS) await expect(cell(page, c)).toBeVisible()
+    await expect(bar(page).getByTestId('ab-more')).toHaveAttribute('data-tip', '还有4个：周记、写作、项目、生活')
+    for (const c of ['待办', '书桌', ...CATS.slice(0, 4)]) await expect(cell(page, c)).toBeVisible()
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 900))
     for (const [parent, f] of [['项目', '冰岛旅行'], ['项目', '搬家'], ['阅读', '人类简史']] as const) {
       await openFiles(page)
@@ -135,8 +134,8 @@ test('活动栏右键：从左边拿下（底部能撤回）、在「文件」�
     await bar(page).getByTestId('ab-more').click()
     const more = menuLabels(await openedMenu(run))
     expect(more.length).toBe(Number(hidden!.match(/\d+/)![0]))
-    // 菜单里先列从最后一格往前收的，最后是先收的「书桌」「待办」
-    expect(more.slice(-3)).toEqual(['人类简史', '书桌', '待办'])
+    // 从最后一格往前收：菜单最后一项是最先收的那一格
+    expect(more.at(-1)).toBe('人类简史')
     await pickMenu(run, '人类简史')
     await expect(home(page)).toHaveAttribute('data-folder', '阅读/人类简史')
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 900))

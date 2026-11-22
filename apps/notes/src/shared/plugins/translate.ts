@@ -1,4 +1,4 @@
-/** 双语翻译插件：说明、设置、认语言、引擎和出错原因、术语表（主进程、界面、网页预加载都用，只放纯函数） */
+/** 双语翻译插件：说明、设置、认语言、引擎和出错原因（主进程、界面、网页预加载都用，只放纯函数） */
 import { MODEL_ID } from '../ai-features'
 import type { PluginManifest } from '../plugins'
 
@@ -267,69 +267,6 @@ export function stateError(id: TrEngineId, state: EngineState): TrError {
   const code: TrErrorCode =
     state === 'login' ? 'not-logged-in' : state === 'missing' ? 'not-installed' : state === 'nokey' ? 'no-key' : state === 'badkey' ? 'bad-key' : state === 'nobalance' ? 'no-balance' : state === 'badmodel' ? 'bad-model' : 'other'
   return { code, engine: id, raw: `${name}：${STATE_TEXT[state]}` }
-}
-
-// ---------------------------------------------------------------- 课程术语表
-
-export interface Term {
-  src: string
-  dst: string
-  note: string
-}
-
-/** 这篇在哪门课里：「课程/<课>/…」给 <课>，不在课程里给 null */
-export function courseOf(path: string | null | undefined): string | null {
-  const m = /^课程\/([^/]+)\//.exec(path ?? '')
-  return m ? m[1]! : null
-}
-
-export const glossaryPath = (course: string) => `课程/${course}/术语表.md`
-
-/** 读术语表：md 里第一张表，第一列原文、第二列译法、第三列备注（PDF 那边的两列表也认） */
-export function parseGlossary(md: string): Term[] {
-  const out: Term[] = []
-  let inTable = false
-  for (const line of md.split('\n')) {
-    const t = line.trim()
-    if (!t.startsWith('|')) {
-      if (inTable && out.length) break
-      inTable = false
-      continue
-    }
-    const cells = t
-      .replace(/^\||\|$/g, '')
-      .split(/(?<!\\)\|/)
-      .map((c) => c.replace(/\\\|/g, '|').trim())
-    if (cells.every((c) => /^:?-{2,}:?$/.test(c) || c === '')) {
-      inTable = true
-      continue
-    }
-    if (!inTable) continue
-    const [src = '', dst = '', note = ''] = cells
-    if (src && dst) out.push({ src, dst, note })
-  }
-  return out
-}
-
-/** 写成术语表 md（AI 起头、选中加进术语表都用这个格式） */
-export function glossaryMd(terms: Term[], head = '# 术语表\n'): string {
-  const esc = (s: string) => s.replace(/\|/g, '\\|').replace(/\n/g, ' ')
-  return [head, '| 原文 | 译法 | 备注 |', '| --- | --- | --- |', ...terms.map((t) => `| ${esc(t.src)} | ${esc(t.dst)} | ${esc(t.note)} |`)].join('\n') + '\n'
-}
-
-/** 这批段落里出现了哪些原文词（不分大小写、按词边界；中日文没有词边界，直接找），最多 max 条 */
-export function pickTerms(terms: Term[], texts: string[], max = 40): Term[] {
-  const hay = texts.join('\n')
-  const out: Term[] = []
-  for (const t of terms) {
-    const src = t.src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    // 拉丁字母的词按词边界找，复数（eigenvalues）也算
-    const latin = /^[A-Za-z0-9]/.test(t.src) && /[A-Za-z0-9]$/.test(t.src)
-    const re = latin ? new RegExp(`(?<![A-Za-z0-9])${src}(?:s|es)?(?![A-Za-z0-9])`, 'i') : new RegExp(src, 'i')
-    if (re.test(hay)) out.push(t)
-    if (out.length >= max) break
-  }
-  return out
 }
 
 // ---------------------------------------------------------------- 网页报给界面的

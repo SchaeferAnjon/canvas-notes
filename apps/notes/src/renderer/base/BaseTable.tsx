@@ -340,6 +340,8 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
     }
     setAdded((a) => [...a, p])
     setTick((t) => t + 1)
+    // 软件自己建的文件监听不报：告诉左栏的文件树、⌘O 重新列（记录文件夹那一行的「N条」跟着变）
+    app().refresh()
     // 新的一条直接在表里起名字（不用打开那篇、也不用去文件树改名）
     setEditing({ path: p, col: 'file.name' })
   }
@@ -358,6 +360,7 @@ export function BaseTable(props: { spec: BaseSpec; src: string; edit: BaseEdits;
       const file = nameFromTitle(name)
       const to = await window.cn.renameNote(r.path, file, true)
       setAdded((a) => a.map((x) => (x === r.path ? to : x)))
+      app().refresh()
       const said = nameNotice(name, titleOf(to), '条', safeName(file))
       if (said) app().notice(said)
     } catch (e) {

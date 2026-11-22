@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { parseCallout } from './callout'
 import { EngineLogo } from './engine-logo'
 import { MathBlock, MathInline } from './reading/math'
+import { ScrollX } from './scroll-x'
 
 /** 和第 from 行之前那个折叠块配对的 </details> 在第几行（里面套着的折叠块数着开、关跳过）；没有是 -1 */
 function detailsClose(lines: string[], from: number): number {
@@ -142,7 +143,7 @@ export function Markdown({ text, math = true }: { text: string; math?: boolean }
               {cut > 0 ? (
                 <>
                   <span className="md-callout-name">{title.slice(0, cut)}</span>
-                  <span className="md-callout-meta">{title.slice(cut)}</span>
+                  <span className="md-callout-meta">{inline(title.slice(cut), key(), math)}</span>
                 </>
               ) : (
                 <span className="md-callout-name">{title}</span>
@@ -171,7 +172,8 @@ export function Markdown({ text, math = true }: { text: string; math?: boolean }
       const k = key()
       const st = (j: number) => (align[j] ? { textAlign: align[j] } : undefined)
       out.push(
-        <div key={k} className="md-table">
+        // 宽了只在自己框里横着滚，哪边还有列哪边渐隐（scroll-x.tsx，白板卡、AI 回答、读 PDF 讲解卡共用）
+        <ScrollX key={k} className="md-table">
           <table>
             <thead>
               <tr>
@@ -194,7 +196,7 @@ export function Markdown({ text, math = true }: { text: string; math?: boolean }
               ))}
             </tbody>
           </table>
-        </div>,
+        </ScrollX>,
       )
       continue
     }

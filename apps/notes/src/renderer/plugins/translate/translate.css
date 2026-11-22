@@ -257,7 +257,7 @@
   font-size: 13px;
   text-align: left;
 }
-/* 名字不断行、不被挤；说明占剩下的、单行省略（「术语表」以前被挤成两行） */
+/* 名字不断行、不被挤；说明占剩下的、单行省略 */
 .trm-row > span:not(.t3):not(.sp),
 .trm-row > .tr-lnk {
   flex: none;

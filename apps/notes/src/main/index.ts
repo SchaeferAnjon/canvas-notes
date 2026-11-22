@@ -37,6 +37,8 @@ import { registerNoteAttach } from './note-attach'
 import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
 import { E2E, guardScreen } from './test-mode'
+import { RollingLog, shareLog } from './crash-log'
+import { revealLogs, setupCrashLog, watchWindow } from './crash-watch'
 import { Updater } from './updater'
 import { menuLabel, releaseUrl, updateError } from '../shared/update'
 import { SettingsFile } from './settings'
@@ -48,12 +50,15 @@ import { moveReadingState, setupReading } from './reading'
 import { reopenSearch, searchVault, setupSearch } from './search'
 import { registerFiles } from './files'
 import { registerTodo } from './todo'
+import { registerMobileAi } from './mobile-ai'
 import { planCarry, testTrash, trashFiles } from './folder-ops'
 import { setupImport } from './import'
 import { attachEditMenu, closeAllMenus, followOpen, forwardWebContext, popup, setupCtxMenu } from './ctx-menu'
 import { attachWebview, setupWeb } from './web'
 import { noteMediaHold } from './web/media-hold'
 import { attachVideo, flushVideo, setupVideo } from './video'
+import { menuIn, settleVaultLang, setupLang, startLang } from './lang'
+import { t } from '../shared/i18n'
 
 /** 内置浏览器的登录分区：和软件自己的界面分开，导入的 Chrome 登录放这里 */
 const WEB_PARTITION = 'persist:web'
@@ -62,6 +67,8 @@ const webviewPreload = () => join(__dirname, '../preload/webview.js')
 // 设置目录固定叫 canvas-notes（工作名时代就是它）：显示名换了，用户的设置、AI 对话、网页登录不搬家。测试和多开时用自己的
 app.setPath('userData', process.env.CN_USER_DATA || join(app.getPath('appData'), 'canvas-notes'))
 registerFileScheme()
+// 界面语言：交给浏览器内核要在 app ready 之前（main/lang.ts）
+startLang()
 // 端到端测试用 Chromium 的假摄像头：不碰真的摄像头、不弹系统的授权框
 if (E2E) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream')
@@ -233,6 +240,9 @@ function scheduleBackup() {
 /** 导入的 VS Code 主题（设置目录 themes/） */
 const themes = new ThemeStore(join(app.getPath('userData'), 'themes'))
 const userSkins = () => themes.list().map(themeInfo)
+/** 出错日志（task-pyb39）：~/Library/Logs/Canvas Notes/main.log；测试和多开时放在设置目录的 logs/（CN_LOG_DIR 可指定）。先于设置建好：设置坏了也要记 */
+const crashLog = new RollingLog(process.env.CN_LOG_DIR || (E2E || process.env.CN_USER_DATA ? join(app.getPath('userData'), 'logs') : join(app.getPath('home'), 'Library/Logs', BRAND.name)))
+shareLog(crashLog)
 const settings = new SettingsFile(join(app.getPath('userData'), 'settings.json'), userSkins)
 /** 现在窗口用的是哪套主题（速记小窗、窗口底色跟着它） */
 const currentSkin = () => activeSkin(settings.app().appearance, nativeTheme.shouldUseDarkColors)
@@ -259,7 +269,8 @@ function isDir(p: string): boolean {
 
 async function openVault(dir: string): Promise<VaultInfo> {
   const root = resolve(dir)
-  if (!(await git.isRepo(root))) await git.init(root)
+  const fresh = !(await git.isRepo(root))
+  if (fresh) await git.init(root)
   // 这台 Mac 上 git 没有署名（全局、库里都没设）：给这个库设一个，不然所有提交都报「作者身份未知」
   const id = await git.ensureIdentity(root, await macIdentity())
   if (id) console.log('git 没有署名，给库设了', id)
@@ -267,6 +278,8 @@ async function openVault(dir: string): Promise<VaultInfo> {
   if (vault && vault.root !== root) await commitPending().catch((e) => console.error('换库前提交失败', e))
   vault?.close()
   vault = new Vault(root)
+  // 库语言：新建的库照现在的界面语言（英文库的分类文件夹用英文名），已有的照库里记的
+  await settleVaultLang(root, fresh)
   // 老库：「素材/」改名「剪藏/」、「素材/微信读书/」挪到「阅读/」，一次提交（新库、整理过的什么都不做）
   let organizeError: string | undefined
   const organized = await organizeCategories(vault, (from, to) => (moveReadingState(root, from, to), moveChatPlace(root, from, to))).catch((e: Error) => {
@@ -291,7 +304,7 @@ async function openVault(dir: string): Promise<VaultInfo> {
   vault.onMoved = followMoves(vault, () => win?.webContents.send('files:changed'))
   vault.watch(
     (path, text) => {
-      agentExternal(path)
+      agentExternal(path, text)
       win?.webContents.send('note:changed', path, text)
     },
     () => win?.webContents.send('files:changed'),
@@ -396,6 +409,11 @@ function registerIpc() {
   })
   ipcMain.handle('notes:list', () => needVault().list())
   ipcMain.handle('note:read', (_e, path: string) => needVault().read(path))
+  // 那篇每一行是哪次提交写的（右栏「笔记」里别处写的那几条的时间，task-6cxtc）
+  ipcMain.handle('git:line-times', (_e, path: string) => {
+    const v = needVault()
+    return git.lineTimes(v.root, v.rel(v.abs(path)))
+  })
   ipcMain.handle('note:write', (_e, path: string, text: string, base: string) => {
     if (typeof text !== 'string' || typeof base !== 'string') throw new Error('写入参数不对')
     return needVault().write(path, text, base)
@@ -433,9 +451,9 @@ function registerIpc() {
     moveChatPlace(v.root, path, to)
     return to
   })
-  ipcMain.handle('board:create', (_e, folder: string, name: string) => {
-    if (typeof folder !== 'string' || typeof name !== 'string') throw new Error('新建参数不对')
-    return needVault().createBoard(folder, name)
+  ipcMain.handle('board:create', (_e, folder: string, name: string, parent?: unknown) => {
+    if (typeof folder !== 'string' || typeof name !== 'string' || (parent !== undefined && typeof parent !== 'string')) throw new Error('新建参数不对')
+    return needVault().createBoard(folder, name, parent)
   })
   ipcMain.handle('note:trash', async (_e, path: string) => {
     const v = needVault()
@@ -738,10 +756,11 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       webviewTag: true,
-      // 测试时窗口不激活，也要照常渲染
-      ...(E2E ? { backgroundThrottling: false } : {}),
+      // 测试时窗口不激活，也要照常渲染；界面靠 --cn-e2e 知道是测试模式（只在这时能注入渲染错误，task-pyb39）
+      ...(E2E ? { backgroundThrottling: false, additionalArguments: ['--cn-e2e'] } : {}),
     },
   })
+  watchWindow(crashLog, win)
   // 右栏网页：只许用我们的预加载、我们的登录分区，网页拿不到 Node
   win.webContents.on('will-attach-webview', (_e, prefs, params) => {
     delete (prefs as { preloadURL?: string }).preloadURL
@@ -799,6 +818,7 @@ app.whenReady().then(async () => {
     website: BRAND.site,
   })
   registerIpc()
+  setupCrashLog(crashLog, () => win)
   registerAgent({ win: () => win, vault: () => vault, moved: (root, from, to) => moveReadingState(root, from, to) })
   setupMindmap({ win: () => win, vault: () => vault })
   const dreams = setupDream({
@@ -838,6 +858,7 @@ app.whenReady().then(async () => {
   setupSearch({ win: () => win, vault: () => vault, semantic: () => settings.app().editor.semantic })
   registerFiles(() => vault)
   registerTodo({ vault: () => vault, win: () => win })
+  registerMobileAi({ vault: () => vault, win: () => win })
   setupVideo({ window: () => win, vault: () => vault, ses: web, userData: app.getPath('userData') })
   // 退出时最后存一次：窗口都关了以后（before-quit 时网页还在，之后还会改它，留下的定时器会在 Node 收尾时才跑）
   app.on('will-quit', flushVideo)
@@ -847,6 +868,7 @@ app.whenReady().then(async () => {
   else if (!app.isPackaged) app.dock?.setIcon(join(__dirname, '../../build/icon.png'))
   createWindow()
   buildMenu()
+  setupLang({ settings, rebuildMenus: () => (buildMenu(), quick.refreshMenu()) })
   void setupUpdater()
   app.on('activate', () => {
     if (!win) createWindow()
@@ -923,7 +945,7 @@ function checkFromMenu() {
 /** 下好了时菜单栏图标的菜单最上面多这一项 */
 function readyItems(): Electron.MenuItemConstructorOptions[] {
   const st = updater?.status()
-  return st?.phase === 'ready' ? [{ label: `重启并更新到 ${st.version}`, click: () => void installUpdate() }, { type: 'separator' }] : []
+  return st?.phase === 'ready' ? [{ label: t('重启并更新到 {v}', { v: st.version, ctx: '菜单栏' }), click: () => void installUpdate() }, { type: 'separator' }] : []
 }
 
 /**
@@ -941,10 +963,10 @@ function buildMenu() {
   const st = updater?.status()
   const updateItem: Electron.MenuItemConstructorOptions =
     st?.phase === 'ready'
-      ? { label: `重启并更新到 ${st.version}`, click: () => void installUpdate() }
-      : { label: st ? menuLabel(st) : '检查更新…', enabled: !!st && ['idle', 'latest', 'error'].includes(st.phase), click: checkFromMenu }
+      ? { label: t('重启并更新到 {v}', { v: st.version, ctx: '菜单栏' }), click: () => void installUpdate() }
+      : { label: st ? menuLabel(st) : t('检查更新…', { ctx: '菜单栏' }), enabled: !!st && ['idle', 'latest', 'error'].includes(st.phase), click: checkFromMenu }
   Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
+    Menu.buildFromTemplate(menuIn([
       {
         label: app.name,
         submenu: [
@@ -960,8 +982,11 @@ function buildMenu() {
         submenu: [
           cmd('new-note', '新建笔记'),
           cmd('new-board', '新建白板'),
+          cmd('new-course', '新建一门课'),
+          cmd('new-folder', '新建文件夹'),
           cmd('capture', '拍一张导图'),
           cmd('import', '导入旧笔记…'),
+          cmd('save-desk', '存成书桌…'),
           { type: 'separator' },
           // 关闭走界面那条路（CN-98）：主窗口里关当前栏里的东西（标签、网页标签、收起历史这一格……），不关整个窗口；别的窗口照旧关掉，所以这一项注册键
           {
@@ -981,9 +1006,12 @@ function buildMenu() {
         submenu: [
           cmd('toggle-left', '收起 / 展开左栏'),
           cmd('toggle-right', '收起 / 展开右栏'),
+          cmd('fold-center', '收起 / 展开中间栏'),
           { type: 'separator' },
           cmd('left-files', '左栏：文件'),
           cmd('left-recent', '左栏：最近'),
+          cmd('left-desks', '左栏：书桌'),
+          cmd('dream-report', '梦游报告'),
           cmd('outline', '大纲'),
           cmd('open-web', '网页'),
           cmd('history', '历史'),
@@ -1004,7 +1032,9 @@ function buildMenu() {
         submenu: [cmd('back', '后退'), cmd('forward', '前进'), cmd('home', '回到首页'), { type: 'separator' }, cmd('goto', '按名字跳到…'), cmd('search', '搜索…')],
       },
       { role: 'windowMenu' },
-    ]),
+      // 白屏这类问题让用户把日志发过来（task-pyb39）
+      { role: 'help', label: '帮助', submenu: [{ label: '打开日志文件夹', click: () => void revealLogs(crashLog) }] },
+    ])),
   )
 }
 

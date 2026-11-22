@@ -27,12 +27,19 @@ export interface AppActions {
   openWithNote(path: string): void
   /** 右栏网页开一个新标签；reuse：已经开着这个网站（网址以它开头）的标签就切过去 */
   openInWeb(url: string, reuse?: string): void
+  /**
+   * 回到网页那一段（task-6cxtc：笔记里「↩」那种带 #:~:text= 的链接）：右栏网页开到那一页（开着就用它）、滚到那几句、亮 1.6 秒；
+   * quote：笔记里引着的全文（比链接里的开头准）
+   */
+  openWebAt(url: string, quote?: string): void
   /** B 的设置是居中弹窗，要看右栏时先关掉；A 的设置是中间的一个标签，不动 */
   closeSettingsDialog(): void
   /** 中间栏开成宽网页标签 */
   openWide(url: string, title?: string): void
   /** 这段字成为 AI 输入框顶上那一排的第一块引用（src：来源，不给是当前这一页「《文档标题》」），光标在它后面 */
   askAi(text: string, src?: string): void
+  /** 文档里「回到 AI 对话」的链接（task-83vl3）：打开 AI 标签，换到 key 那段对话，滚到那条回答 */
+  openChat(key: string, msg: number): void
   /** 左栏选了好几个「问AI」（task-0tgz2）：打开 AI，「看得到」写「选中的N个」，每一轮把它们交给 AI */
   askAiFiles(items: PickItem[]): void
   /** icon：提示前面的小图标（比如 info） */
@@ -47,6 +54,8 @@ export interface AppActions {
   refresh(): void
   newNote(folder: string): Promise<void>
   newBoard(folder: string): Promise<void>
+  /** 建 课程/新的课程，开它的首页（「课程」右键「新建一门课」，task-xy89o；同 ⌘K「新建一门课」） */
+  newCourse(): Promise<void>
   trash(path: string): Promise<void>
   /** 文件树里选了好几个一起删（CN-105）：一个确认框（有图时带「连同 N 张图」），删完底部能撤回 */
   trashMany(paths: string[]): Promise<void>

@@ -51,6 +51,8 @@ export const SETTINGS_PAGES: SettingsPageInfo[] = [
 
 export const SETTINGS_ITEMS: SettingsItem[] = [
   // ---------- 一般 ----------
+  // 语言（task-zojmg）：英文、中文都搜得到；⌘K 里打「语言」「language」也能跳到这一行
+  { id: 'lang', pg: 'general', grp: '语言', label: '界面语言', desc: '菜单、按钮、提示用哪种语言，改了当场换；笔记、文件夹名和AI已写下的回答不跟着变', kw: '语言 界面语言 language English 英文 中文 简体中文 跟随系统' },
   { id: 'reopen', pg: 'general', grp: '启动和窗口', label: '打开时回到上次的样子', desc: '上次的库、开着的标签、右栏的网页', kw: '恢复 标签 上次 启动' },
   { id: 'tray', pg: 'general', grp: '启动和窗口', label: '菜单栏图标', desc: '菜单栏里一叠卡片的小图标，点开速记', kw: '菜单栏 托盘 图标 状态栏' },
   { id: 'quickKey', pg: 'general', grp: '速记', label: '速记快捷键', desc: '在任何软件里按，弹出小输入框，回车进收件箱', kw: '速记 快捷键 全局 收件箱 捕捉' },
@@ -118,6 +120,8 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'fQuick', pg: 'ai', grp: '各功能用哪个', label: '小活', desc: '视频摘要、起名、插件里的快问', kw: '小活 摘要 起名' },
   { id: 'omni', pg: 'ai', grp: '能动手到哪', label: '全能模式', desc: '开着能读写这台Mac上的文件、跑命令、上网；关着只在库里新建、改名、挪、删笔记。AI输入框下面那颗是同一个开关', kw: '全能 权限 命令 读写' },
   { id: 'prompt', pg: 'ai', grp: '能动手到哪', label: '给AI的长期说明', desc: '每次对话都带上，比如「回答用中文、先说结论」', kw: '提示词 prompt 说明 指令 系统提示' },
+  // iPhone / iPad 用这台 Mac 的 AI（task-wwqf0，main/mobile-ai/）
+  { id: 'mobileAi', pg: 'ai', grp: 'iPhone 和 iPad', label: '让iPhone / iPad用这台Mac的AI', desc: '同一个Wi‑Fi里，手机和平板问AI先找这台Mac，用这里的命令行答；Mac睡着或不在一个网里就换云端。默认关', kw: 'iPhone iPad 手机 平板 配对 二维码 扫码 局域网 Bonjour' },
   // 各家命令行（task-m55m7）：版本、自查能不能用、拉到几个模型、检查更新 / 更新（settings-engines.tsx）
   { id: 'cliClaude', pg: 'ai', grp: '各家命令行', label: 'Claude Code', desc: '版本、能不能用、模型；检查更新', kw: '版本 更新 升级 兼容 命令行 模型 claude update' },
   { id: 'cliCodex', pg: 'ai', grp: '各家命令行', label: 'Codex', desc: '版本、能不能用、模型；检查更新', kw: '版本 更新 升级 兼容 命令行 模型 codex update' },
@@ -155,7 +159,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'netWeb', pg: 'privacy', grp: '会联网的', label: '网页、书签图标、视频卡片', desc: '右栏开着的网页、新网页标签上书签的图标、白板上视频卡的标题和封面，打开时联网；微信读书登录着时，打开软件会问一下登录还在不在', kw: '网页 图标 联网 网站' },
   { id: 'netNone', pg: 'privacy', grp: '不会做的', label: '不收集使用数据', desc: '没有统计、没有崩溃报告；搜索的意思索引在本机算', kw: '统计 隐私 数据 收集' },
   // ---------- 插件（照现在的页） ----------
-  { id: 'plTranslate', pg: 'plugins', grp: '内置插件', label: '双语翻译', desc: '翻译用什么、六个引擎排顺序、试一句、默认怎么翻', kw: '翻译 插件 双语 引擎 DeepSeek 术语表' },
+  { id: 'plTranslate', pg: 'plugins', grp: '内置插件', label: '双语翻译', desc: '翻译用什么、六个引擎排顺序、试一句、默认怎么翻', kw: '翻译 插件 双语 引擎 DeepSeek' },
   { id: 'plBook', pg: 'plugins', grp: '内置插件', label: '书签管家', desc: '新网页标签是它；收藏、标签、备注', kw: '书签 插件 BookmarkKeeper' },
   { id: 'plWeread', pg: 'plugins', grp: '内置插件', label: '微信读书', desc: '划线插进开着的文档；划线和想法同步进「阅读」', kw: '微信读书 插件 划线' },
   { id: 'plAd', pg: 'plugins', grp: '内置插件', label: '拦广告', desc: '规则、现在更新、不拦的网站', kw: '广告 插件 拦截 EasyList' },
@@ -176,16 +180,22 @@ const BY_ID = new Map(SETTINGS_ITEMS.map((i) => [i.id, i]))
 export const pageOf = (id: string): SettingsPageId | null => BY_ID.get(id)?.pg ?? null
 export const settingsItem = (id: string): SettingsItem | null => BY_ID.get(id) ?? null
 
-/** 搜设置：每个词都要打中（名字、说明、别的叫法、组名、页名）；名字里有 3 分、别的叫法里有 2 分、组名里有 1 分，分高的在前，同分照表里的顺序 */
-export function searchSettings(query: string): SettingsItem[] {
+/**
+ * 搜设置：每个词都要打中（名字、说明、别的叫法、组名、页名）；名字里有 3 分、别的叫法里有 2 分、组名里有 1 分，分高的在前，同分照表里的顺序。
+ * also：同一句的另一种语言（task-zojmg：中文、英文都认，换语言后肌肉记忆不丢）
+ */
+export function searchSettings(query: string, also: (s: string) => string = (s) => s): SettingsItem[] {
   const q = query.trim().toLowerCase()
   if (!q) return []
   const words = q.split(/\s+/)
   const hits: [number, SettingsItem][] = []
+  const both = (s: string) => (also(s) === s ? s : `${s} ${also(s)}`).toLowerCase()
   for (const it of SETTINGS_ITEMS) {
-    const hay = [it.label, it.desc ?? '', it.kw ?? '', it.grp, PAGE_NAME.get(it.pg) ?? ''].join(' ').toLowerCase()
+    const label = both(it.label)
+    const grp = both(it.grp)
+    const hay = [label, both(it.desc ?? ''), (it.kw ?? '').toLowerCase(), grp, both(PAGE_NAME.get(it.pg) ?? '')].join(' ')
     if (!words.every((w) => hay.includes(w))) continue
-    const score = (it.label.toLowerCase().includes(q) ? 3 : 0) + ((it.kw ?? '').toLowerCase().includes(q) ? 2 : 0) + (it.grp.toLowerCase().includes(q) ? 1 : 0)
+    const score = (label.includes(q) ? 3 : 0) + ((it.kw ?? '').toLowerCase().includes(q) ? 2 : 0) + (grp.includes(q) ? 1 : 0)
     hits.push([score, it])
   }
   return hits.sort((a, b) => b[0] - a[0]).map((h) => h[1])

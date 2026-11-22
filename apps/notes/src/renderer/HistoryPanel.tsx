@@ -136,7 +136,7 @@ export function HistoryPanel(props: {
               <i className="cdot" />
               <span className="subj">还没提交的改动</span>
               <span className="when">
-                {pendingSettings ? '软件自己的设置' : pending.length === 1 ? name(pending[0]!.path) : `${pending.length}处`} · {props.autoMinutes ? `${autoCommitLabel(props.autoMinutes)}自动提交` : '不自动提交'}
+                {pendingSettings ? '软件自己的设置' : pending.length === 1 ? name(pending[0]!.path) : `${pending.length}处`} · {props.autoMinutes ? `${autoCommitLabel(props.autoMinutes, 'zh')}自动提交` : '不自动提交'}
               </span>
             </button>
             <button

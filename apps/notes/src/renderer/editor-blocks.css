@@ -660,11 +660,91 @@
 .doc .cm-callout-icon .cm-callout-label {
   color: var(--t1);
 }
-/* AI 讲解：「AI 讲解」13/500，后面「引擎 · 模型 · 看了什么」12 --t3 */
+/* AI 讲解的头固定两行（task-6cxtc 复审）：第一行图标 +「讲解一下」/「你问：原话」13/500 --t1，一行放不下省略号；
+   第二行「Claude Code · Opus 5.5 · 2.2.1 读取数据集 ↩」12 --t2（中间那个「 · 」live-preview.ts 不画）。
+   回到网页那一段的链接整段不断行：放不下先截小标题（省略号），↩ 留着 */
+.doc.doc .cm-callout-name {
+  display: inline-block;
+  max-width: calc(100% - 22px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: top;
+  color: var(--t1);
+}
+/* 提示块里的表格、代码块（md-widgets.ts calloutWidgets，task-83vl3：AI 回答插进文档的 [!ai] 块）：外面一层接着提示块的 --fill 底、左右 14，
+   上下和字隔 6，是提示块最后一块时下面 10、下圆角 8；里面照文档的样子，表格、代码块铺 --card 底（不和提示块的 --fill 混成一片） */
+.doc .cm-inquote {
+  padding: 6px 14px;
+  background: var(--fill);
+}
+.doc .cm-inquote.bot {
+  padding-bottom: 10px;
+  border-radius: 0 0 8px 8px;
+}
+.doc .cm-inquote .cm-table table {
+  background: var(--card);
+}
+.doc .cm-inquote-code {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--card);
+  font: 12.5px/1.65 var(--mono);
+  color: var(--md-code, inherit);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 块里隔开两段的「>」空行：「>」藏着时这一行是空的、高度 0，留出和块外段落之间一样的 12（task-dtc34）；光标停上去露出「>」照常一行高 */
+.doc.doc .cm-callout-blank {
+  min-height: 12px;
+}
 .doc.doc .cm-callout-meta {
+  /* 占满一整行（第二行）：行内的满宽块（链接后面藏起来的「](网址)」落在它后面，块级会多出一行空的）；
+     不用 flex：flex 的每一截在 innerText 里各占一行，链接的字也会被拆开 */
+  display: inline-block;
+  width: 100%;
+  vertical-align: top;
+  overflow: hidden;
+  white-space: nowrap;
   font-size: 12px;
   font-weight: 400;
-  color: var(--t3);
+  line-height: 1.6;
+  color: var(--t2);
+}
+.doc.doc .cm-callout-meta .cm-link {
+  /* 第二行整行 --t2，链接靠下划线认 */
+  color: inherit;
+}
+/* 放不下：live-preview.ts 的 calloutFit 量好给一个最宽，小标题省略号，↩ 画在右端（字里那个 ↩ 被截掉了） */
+.doc.doc .cm-callout-meta .cm-cut {
+  position: relative;
+  display: inline-block;
+  box-sizing: content-box;
+  vertical-align: top;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 1.4em;
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.doc.doc .cm-callout-meta .cm-cut::after {
+  content: '↩';
+  position: absolute;
+  right: 0;
+  top: 0;
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+/* AI 块头上的「回到 AI 对话」「小标题 ↩」：和前面的哪家 · 模型同一个颜色（上面 color: inherit，整行 --t2，task-6cxtc 复审），
+   悬停深一档 --t1，下划线照文档链接（task-dtc34 设计复审要的「和前面一样的灰字」；dtc34 分支上那时整行还是 --t3） */
+.doc.doc .cm-callout-meta .cm-link:hover {
+  color: var(--t1);
 }
 /* 标题行右端的收起 / 展开 */
 .doc .cm-callout-fold {

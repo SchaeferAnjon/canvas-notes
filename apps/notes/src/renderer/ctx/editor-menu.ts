@@ -3,12 +3,15 @@
  * 点在链接、双链、图上先给它们的几项；下面是编辑、格式、转成、问 AI / 翻译、复制为 Markdown。
  */
 import { redo, redoDepth, selectAll, undo, undoDepth } from '@codemirror/commands'
-import { blockIndexAt, type BlockTarget, convertible, convertMdBlock, findBlocks, plainOf, resolveLink } from '@cn/format'
+import { aiBlockAt, blockIndexAt, parseChatLink, type BlockTarget, convertible, convertMdBlock, findBlocks, plainOf, resolveLink, wrapRange } from '@cn/format'
 import type { EditorView } from '@codemirror/view'
+import { markAi, makeMine } from '../ai-mark'
+import { t } from '../../shared/i18n'
 import { applyBlockEdit } from '../block-handles'
 import { inHighlight, toggleHighlight } from '../highlight'
 import { accelFor } from '../keys'
 import { toggleFormat } from '../wysiwyg'
+import { parseFragment } from '../../shared/web-link'
 import { app } from './actions'
 import { copy, type MenuEntry, menuAt } from './menu'
 import { translateAt } from './translate'
@@ -46,7 +49,12 @@ export function linkAt(line: string, at: number): LinkHit | null {
  */
 export function openLinkHit(notePath: string, url: string, text: string, wide: boolean, doc = '', pos = 0) {
   const a = app()
+  // 回到网页那一段的链接（#:~:text=，task-6cxtc）：右栏网页翻到那一页那段、亮一下
+  if (!wide && parseFragment(url)) return a.openWebAt(url)
   if (/^https?:/i.test(url)) return wide ? a.openWide(url, text) : a.openInWeb(url, url)
+  // 「回到 AI 对话」（AI 回答插进文档时带的，task-83vl3）：AI 格换到那段对话、滚到那条回答
+  const chat = parseChatLink(url)
+  if (chat) return a.openChat(chat.key, chat.msg)
   if (openPageLink(notePath, url, doc, pos, text)) return
   const local = resolveLink(notePath, url)
   if (local) a.openFile(local)
@@ -129,6 +137,11 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
   }
 
   const canConvert = editable && !!block && convertible(block)
+  // AI 块（task-dtc34）：点在 AI 块里是「变成我的字」，点在普通的段落上（或选了几段）是「标成 AI 写的」
+  const markFrom = sel.empty ? pos : sel.from
+  const markTo = sel.empty ? pos : sel.to
+  const aiHere = editable ? aiBlockAt(text, markFrom) : null
+  const canMark = editable && !aiHere && wrapRange(text, markFrom, markTo).wrapped > 0
   const hl = inHighlight(text, sel.from, sel.to)
   void menuAt(e, [
     ...linkItems,
@@ -148,6 +161,8 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
     editable && !sel.empty && !hit && { label: '加链接', accel: accelFor('add-link'), run: () => addLink(view) },
     '-',
     canConvert && { label: '转成', submenu: TARGETS.map(([t, label]) => ({ label, run: () => applyBlockEdit(view, convertMdBlock(view.state.doc.toString(), bi, t), 0, 'move.block') })) },
+    aiHere ? { label: t('变成我的字'), run: () => makeMine(view, aiHere.from) } : null,
+    canMark ? { label: t('标成 AI 写的'), run: () => markAi(view, markFrom, markTo) } : null,
     '-',
     plain.trim() ? { label: selText.trim() ? '问 AI 这段' : '问 AI 这一块', accel: selText.trim() ? accelFor('ask-ai') : undefined, ai: 'chat', run: () => a.askAi(plain) } : null,
     plain.trim() ? { label: selText.trim() ? '翻译这段' : '翻译这一块', ai: 'translate', run: () => translateAt(plain, { x: e.clientX, y: e.clientY }) } : null,

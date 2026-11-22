@@ -52,6 +52,15 @@ test('打开 HTML：沙箱里跑，右栏是它的 AI；「框一块」拖一个
     await page.mouse.up()
     await expect(pane(page).getByTestId('html-box')).toBeVisible()
     await expect(pane(page).getByRole('toolbar', { name: '框好的这块' })).toBeVisible()
+    // 工具条同 PDF（task-6cxtc 复审）：讲解一下 ↵、引用 ⌘↵ 键帽；在框上方 6（上面有地方），整条在这一栏里、左右各留 8
+    const tb = pane(page).getByRole('toolbar', { name: '框好的这块' })
+    await expect(tb.locator('kbd')).toHaveText(['↵', '⌘↵'])
+    await page.waitForTimeout(250)
+    const [tr, fr, br] = [(await tb.boundingBox())!, (await pane(page).getByTestId('html-box').boundingBox())!, (await pane(page).locator('.htmlbody').boundingBox())!]
+    expect(Math.abs(fr.y - (tr.y + tr.height) - 6)).toBeLessThanOrEqual(2)
+    expect(tr.x).toBeGreaterThanOrEqual(br.x + 8 - 0.5)
+    expect(tr.x + tr.width).toBeLessThanOrEqual(br.x + br.width - 8 + 0.5)
+    await page.screenshot({ path: 'test-results/step16-html-cap.png' })
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
     await pane(page).getByRole('toolbar', { name: '框好的这块' }).getByRole('button', { name: /讲解一下/ }).click()
     await expect(pane(page).getByTestId('html-box')).toHaveCount(0)

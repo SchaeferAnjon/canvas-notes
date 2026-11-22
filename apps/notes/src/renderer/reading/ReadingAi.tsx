@@ -2,13 +2,14 @@
  * 读 PDF 时右栏 AI 那一格（方向 A：和「笔记」用竖条切换）。spec 1.3 发出去前的预览、1.5 AI 右栏。
  * 输入框是共用的那个（composer.tsx，第 2b 段）：底行谁来答 · 模型 · effort，顶上一排材料。
  * 框好的那块是那一排的第一张（不带编号，左下角「第28页」），预填「给我讲解一下」并全选（直接打字就换掉），回车就发；
- * 框着时 ⌘↵ 是改问法（预填清掉、图留着、光标在输入框里，CN-92 方向 A）；回答下面「还是不懂」「换个方式讲」，再下面一行后台记笔记的进度。
+ * 框着时 ⌘↵ 是引用（task-6cxtc：这块成为顶上那一排的一块材料、光标在输入框里，接着框别处攒成 ①②）；回答下面「还是不懂」「换个方式讲」，再下面一行后台记笔记的进度。
  */
 import { when } from '../../shared/when'
 import { isKey, useKeys } from '../keys'
 import { Codicon } from '@cn/design'
 import { ByLogo } from '../engine-logo'
-import { readAsk } from '../ai-greet'
+import { readAsk, webAsk } from '../ai-greet'
+import { pageHead } from '../../shared/read-along'
 import { Greeting, QuickRow } from '../ai-quick'
 import { onMessageMenu } from '../ctx/message-menu'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -34,10 +35,12 @@ import { type Ctx, slashGroups, type SlashItem } from '../../shared/ai-cmds'
 import { useAiCmds } from '../commands/store'
 import { useProposal } from '../commands/proposals'
 import { videoOf } from '../../shared/video'
+import { useVideoTitle } from '../video/store'
 import { useSlash } from '../commands/SlashMenu'
 import { openCmdEditor } from '../commands/editor'
 import { libPlace, runIn } from '../commands/handoff'
 import { runReadingCmd } from './cmds'
+import { ensureBeforeSend } from '../web-notes/flow'
 
 /** 待问那块的小标签：PDF「第28页」；网页、HTML；视频「接着问」是「00:06 · 视频名」 */
 function pendingLabel(p: R.Pending): string {
@@ -56,9 +59,9 @@ const vaultImg = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIC
 const stemOf = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 const stamp = (t: number) => when(t, { time: true })
 
-/** 旁支最下面那一行「记到哪」：读 PDF、HTML 记进这份的笔记（第几页）；网页上框着问的只在对话记录里 */
+/** 旁支最下面那一行「记到哪」：读 PDF、HTML 记进这份的笔记（第几页）；网页上问的旁支跟着这段对话存（那一问写进那篇的讲解块，旁支能在那篇里那一块上开） */
 function recordOf(pdf: string, r: R.Reading, side: { thread: string }): { icon: 'note' | 'comment-discussion'; text: string } {
-  if (R.isWebSrc(pdf)) return { icon: 'comment-discussion', text: '跟着这段对话存，不写进笔记' }
+  if (R.isWebSrc(pdf)) return { icon: 'comment-discussion', text: '跟着这段对话存；在那篇的讲解块上开的旁支写进那篇' }
   const page = r.state.threads.find((t) => t.id === side.thread)?.page ?? 0
   return { icon: 'note', text: `记进《${titleOf(r.note.path)}》${page > 0 ? `第${page}页` : ''}` }
 }
@@ -197,7 +200,7 @@ export function ReadingAi(props: {
     c.restore(back.text, back.mats)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r.restore?.seq])
-  // 外面加进来的材料（PDF 上「引用这块」、右栏网页选字「问 AI」）：编号插在光标处；预填的字不要了
+  // 外面加进来的材料（PDF、HTML、网页上「引用」，右栏网页选字「问 AI」）：编号插在光标处、光标进输入框；预填的字不要了
   const incoming = r.incoming.length ? r.incoming[r.incoming.length - 1]!.seq : 0
   useEffect(() => {
     if (!incoming) return
@@ -251,36 +254,31 @@ export function ReadingAi(props: {
   const own = !!input.trim() && input !== prefilled.current
 
   /** page：⌘↵ 在答的时候排上的，发出时带上这一页 */
-  function send(page?: number) {
+  async function send(page?: number) {
     const mats = c.plain()
     // 只贴了图、字里除了编号一个字都没有：默认问这张图讲的是什么（CN-24）
     const text = sendText(input, mats)
     // 还在答上一问：和点浮条「讲解一下」一样排在后面，答完依次发（store.send 排队）
     if (!text && !mats.length) return
+    // 网页那一处（task-6cxtc）：还没定这个网页记到哪篇先问一句，取消就不发（字留在输入框里）；
+    // 视频问答块「接着问」那一串记进那块问答所在的那篇，不问
+    if (R.sendsToWebNote(pdf) && !(await ensureBeforeSend(r.pending?.web?.url ?? pdf.slice(4)))) return
     c.clear()
     void R.send(pdf, text, [], { ...(page ? { page } : {}), ...(mats.length ? { mats } : {}) })
   }
 
-  /** 框着一块（选着一段）时 ⌘↵：改问法——预填的字清掉，图留着，光标在输入框里（CN-92 方向 A） */
-  function rephrase() {
-    const p = r.pending
-    if (!p) return
-    R.stage(pdf, { ...p, blank: true })
-    // 已经是改问法了（预填已经清掉）：光标回到输入框
-    requestAnimationFrame(() => box.current?.focus())
-  }
-
   /**
-   * ⌘↵：框着一块（不管焦点在 PDF 上还是输入框里）是改问法；没框时输入框里有自己打的问题就带上这一页问这句（HTML 带这一屏），
-   * 空着或只有预填的字交给 PDF 标签「问这一页」
+   * ⌘↵：框着一块（不管焦点在 PDF 上还是输入框里）是引用（这块成为一块材料，task-6cxtc）；没框时输入框里有自己打的问题就带上这一页问这句（HTML 带这一屏），
+   * 空着或只有预填的字交给 PDF 标签「问这一页」；网页那一处没有「这一页」，⌘↵ 只管引用
    */
   function cmdEnter(e: React.KeyboardEvent) {
-    if (R.isWebSrc(pdf)) return
-    if (r.pending && !r.pending.direct) {
+    if (r.pending && !r.pending.direct && !r.pending.blank) {
       e.preventDefault()
       e.stopPropagation()
-      return rephrase()
+      void R.quotePending(pdf)
+      return
     }
+    if (R.isWebSrc(pdf)) return
     if (!own) return
     e.preventDefault()
     e.stopPropagation()
@@ -335,10 +333,14 @@ export function ReadingAi(props: {
     if (key) flashMark(list.current, key)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r.side.flash?.seq])
-  /** 网页上问的那几处的网页标题（头上胶囊、「看得到」写它） */
-  const webTitle = [...r.state.threads].reverse().find((t) => t.web)?.web?.title ?? r.pending?.web?.title
+  /** 视频那一处：右栏开着这个视频时它的标题（从圆钮、⌘J 进来还没问过时，网页标题没人记下） */
+  const videoTitle = useVideoTitle(R.isWebSrc(pdf) ? pdf.slice(4) : null)
+  /** 网页上问的那几处的网页标题（头上胶囊、「看得到」写它）；还没问过、只引用了时用引用时记下的（task-6cxtc 复审）；视频用视频标题 */
+  const webTitle = [...r.state.threads].reverse().find((t) => t.web)?.web?.title ?? r.pending?.web?.title ?? r.webTitle ?? videoTitle
   /** 头上胶囊、空对话里写的：这段对话是哪里的 */
   const label = readLabel(pdf, webTitle)
+  /** 网页那一处：「看得到」和空白提示写这一页叫什么（「2.2. 数据预处理」，不是域名、整串网址） */
+  const webHead = R.isWebSrc(pdf) ? pageHead(webTitle, pdf.slice(4)) : null
   const html = /\.html?$/i.test(pdf)
   const pend = r.pending
   // 输入框顶上那一排的第一张：框好的那块（左下角「第28页」）、选着的那段、视频那一帧
@@ -363,7 +365,7 @@ export function ReadingAi(props: {
   // 底行提示：框着一块时说三个键（CN-92 方向 A），改问法时说怎么发、怎么取消；平时说回车和 ⌘↵
   // 键照命令表（问这一页的键能改）
   const ask = K('ask-page')
-  const hintNow = pend && !pend.direct ? (pend.blank ? `${K('enter')} 发送 · ${K('escape')} 取消这块` : `${K('enter')} 讲解一下${ask ? ` · ${ask} 改问法` : ''} · ${K('escape')} 取消这块`) : undefined
+  const hintNow = pend && !pend.direct ? (pend.blank ? `${K('enter')} 发送 · ${K('escape')} 取消这块` : `${K('enter')} 讲解一下${ask ? ` · ${ask} 引用` : ''} · ${K('escape')} 取消这块`) : undefined
   const hint = R.isWebSrc(pdf) || !ask ? `${K('enter')} 发送` : `${K('enter')} 发送 · ${ask} ${html ? '问这一屏' : '问这一页'}`
 
   return (
@@ -375,7 +377,7 @@ export function ReadingAi(props: {
       ) : (
       <Sees testid="reading-sees">
         {R.isWebSrc(pdf) ? (
-          <Chip on>{`网页 · ${webTitle ?? pdf.slice(4)}`}</Chip>
+          <Chip on>{`网页 · ${webHead}`}</Chip>
         ) : /\.html?$/i.test(pdf) ? (
           <Chip on>{`${stemOf(pdf)}.html`}</Chip>
         ) : (
@@ -420,7 +422,7 @@ export function ReadingAi(props: {
         }}
       >
         {/* 空对话和别处同一个样子（task-0tgz2 打招呼）：怎么框一块问写在那一句和输入框的占位字里；「问这一页」在输入框上面那一排 */}
-        {msgs.length === 0 && <Greeting engine={engine} ask={readAsk(label)} />}
+        {msgs.length === 0 && <Greeting engine={engine} ask={webHead ? webAsk(webHead) : readAsk(label)} />}
         {msgs.map((m, i) => {
           const prev = msgs[i - 1]
           const startsThread = m.role === 'user' && (!prev || prev.thread !== m.thread || (prev.role === 'ai' && m.time - prev.time > 10 * 60_000))

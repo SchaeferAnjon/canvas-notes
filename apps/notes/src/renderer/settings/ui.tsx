@@ -8,15 +8,18 @@ import { withKeys } from '../keys'
 import { createContext, useContext, type ReactNode } from 'react'
 import { type SettingsPageInfo, settingsItem } from '../../shared/settings-index'
 import { AiIcon } from '../engine-logo'
+import { t as tNow } from '../../shared/i18n'
+import { useT } from '../i18n'
 
 /** 页头：图标、名字、一句这页管什么 */
 export function PageHead({ page }: { page: SettingsPageInfo }) {
+  const t = useT()
   return (
     <div className="sa-head" data-testid="settings-head">
       <span className="pi">{page.id === 'ai' ? <AiIcon job="chat" size={18} /> : <Codicon name={page.icon as CodiconName} size={18} />}</span>
       <div>
-        <h2>{page.name}</h2>
-        <p>{page.desc}</p>
+        <h2>{t(page.name)}</h2>
+        <p>{t(page.desc)}</p>
       </div>
     </div>
   )
@@ -49,10 +52,11 @@ export function Row(props: {
   /** 整行宽、跟在说明下面的一句（撞键提示、地址还没保存……） */
   more?: ReactNode
 }) {
+  const t = useT()
   const it = settingsItem(props.id)
-  const label = props.label ?? it?.label
-  // 说明里提到键写成 {k:id}（shared/settings-index.ts），照现在的键写
-  const desc = props.desc !== undefined ? props.desc : it?.desc && withKeys(it.desc)
+  const label = props.label ?? (it?.label && t(it.label))
+  // 说明里提到键写成 {k:id}（shared/settings-index.ts），先翻再照现在的键写
+  const desc = props.desc !== undefined ? props.desc : it?.desc && withKeys(t(it.desc))
   return (
     <div className={'sa-row' + (props.full ? ' full' : '') + (props.info ? ' info' : '') + (props.dim ? ' dim' : '')} data-row={props.id}>
       <div className="sa-txt">
@@ -122,5 +126,6 @@ export const useSaid = () => useContext(SaidContext)
 
 /** 「开了 / 关了 / 改成」的默认说法 */
 export function hintFor(label: string, v: boolean | string): string {
-  return typeof v === 'boolean' ? `「${label}」${v ? '开了' : '关了'}` : `「${label}」改成「${v}」`
+  if (typeof v !== 'boolean') return tNow('「{label}」改成「{value}」', { label, value: v })
+  return v ? tNow('「{label}」开了', { label }) : tNow('「{label}」关了', { label })
 }

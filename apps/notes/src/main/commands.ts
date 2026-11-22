@@ -35,7 +35,7 @@ export async function writeCommands(vault: Vault, raw: unknown): Promise<CmdConf
 
 /** 命令表里默认的键（界面还没交过来之前用；界面一打开库就交） */
 const defaultKey = (id: string): string | null => keyDef(id)?.keys?.[0] ?? null
-const PAGE_IDS = ['translate', 'clip-selection']
+const PAGE_IDS = ['translate', 'clip-selection', 'quote-selection']
 const defaultPage = (): Record<string, string | null> => Object.fromEntries(PAGE_IDS.map((id) => [id, defaultKey(id)]))
 function defaultForward(): Set<string> {
   const page = new Set(PAGE_IDS.flatMap((id) => keyDef(id)?.keys ?? []))
@@ -46,7 +46,7 @@ function defaultForward(): Set<string> {
 let forward = defaultForward()
 /** 菜单栏上每一项显示的键：命令的 id → 键（null 是这一条现在没有键） */
 let menuKeys: Record<string, string | null> = {}
-/** 网页里自己的脚本认的键（双语翻译、剪下选中的一段） */
+/** 网页里自己的脚本认的键（双语翻译、剪藏和引用选中的一段） */
 let pageKeys = defaultPage()
 
 /** 菜单栏上这一项现在的键（界面没交过来时是命令表里默认的） */

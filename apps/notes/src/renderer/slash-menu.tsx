@@ -1,17 +1,20 @@
 import { Codicon, type CodiconName } from '@cn/design'
-import { fmValue, insertMdBlockAfter, relativeLink, tableMarkdown, textChanges } from '@cn/format'
+import { aiCalloutHead, aiWroteHead, calloutWords, fmValue, insertMdBlockAfter, relativeLink, tableMarkdown, textChanges } from '@cn/format'
 import { Facet, Prec, StateEffect, StateField, type EditorState } from '@codemirror/state'
 import { EditorView, keymap, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { useEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { BRAND } from '../shared/brand'
+import { answerLangName } from '../shared/answer-lang'
 import { titleOf } from '../shared/layout'
+import { withoutEffort } from '../shared/ai-features'
 import { insertBase } from './base/base-block'
 import { drawnBlocks, editorHost, Popover } from './editor-host'
 import { AiIcon } from './engine-logo'
 import { toggleFold } from './fold-block'
 import { hiddenOk } from './hidden-syntax'
 import { AiStreamWrite } from './ai-write'
+import { canStream } from './ai-spot'
 import { openTail } from './tail-line'
 
 /**
@@ -303,6 +306,22 @@ const ITEMS: SlashItem[] = [
     },
   },
   {
+    // 从笔记拍导图（task-wuv05）：做好的导图放在这篇旁边，光标处插一块缩略图（![[导图]]）；白板卡里不列（白板上用工具板「拍导图」）
+    id: 'mindmap',
+    group: '图片和表格',
+    label: '拍导图',
+    desc: '拍手写的导图，插一块缩略图',
+    md: '![[ ]]',
+    icon: 'device-camera',
+    keys: 'mindmap map photo camera daotu dt paizhao',
+    async run(view, from, to) {
+      replace(view, from, to, '')
+      // 用到时再拿（note-doc 要 DOM，单元测试里只读这张表）
+      const { captureIntoView } = await import('./mindmap/place')
+      if (!captureIntoView(view)) view.state.facet(editorHost).notice('这一篇是只读的，插不了导图')
+    },
+  },
+  {
     id: 'board',
     group: '链接',
     label: '白板链接',
@@ -438,8 +457,9 @@ function Menu(props: { label: string; rows: Row[]; idx: number; empty: string; f
   )
 }
 
-const AI_SYSTEM = `你是 ${BRAND.name} 笔记软件里的写作助手。用户在写一篇笔记，请你按要求写一段能直接放进文中的文字。
-用中文（除非笔记是别的语言），平实、直接；只输出要插入的那段 Markdown，不加解释、不加引号、不重复原文。`
+/** 写的语言默认跟界面语言（task-zojmg），所以每次现取 */
+const aiSystem = () => `你是 ${BRAND.name} 笔记软件里的写作助手。用户在写一篇笔记，请你按要求写一段能直接放进文中的文字。
+用${answerLangName()}（除非笔记是别的语言），平实、直接；只输出要插入的那段 Markdown，不加解释、不加引号、不重复原文。`
 
 function aiPrompt(path: string, text: string, at: number, want: string): string {
   const note = text.slice(0, at) + '⟨在这里写⟩' + text.slice(at)
@@ -622,8 +642,8 @@ class SlashView {
         },
       }
     }
-    const items = filterItems(q)
     const inCard = this.view.state.facet(slashInCard)
+    const items = filterItems(q).filter((it) => !(inCard && it.id === 'mindmap'))
     // 不打字时分组列出；打了字按组的先后排（组名照样写在每组上面）
     const sorted = GROUPS.flatMap((g) => items.filter((it) => it.group === g))
     return {
@@ -791,13 +811,17 @@ class SlashView {
 
   /**
    * AI 写一段、总结这页：AI 的字边收边写进编辑器、一点点长出来（ai-write.ts，task-6kun1）；第一批字到了问的小框收起。
-   * 写进去的和以前一次插进去的一样：写一段插在那一空行（行里有字另起一段），总结这页插在开头、后面空一行
+   * 写进去的和以前一次插进去的一样：写一段插在那一空行（行里有字另起一段），总结这页插在开头、后面空一行；
+   * 写的字包在一个 [!ai] 块里（task-dtc34）：「AI 写的 · 哪家 · 模型」，总结这页是「AI 总结 · …」
    */
   private async writeAi(want: string, id: number) {
     const s = this.state
     if (!s) return
     const host = this.view.state.facet(editorHost)
     const text = this.view.state.doc.toString()
+    const by = withoutEffort((await window.cn.aiPrefs()).labels.chat)
+    // 白板卡里就地改的小编辑器（不边收边写的那种）：卡就是卡，不包（同白板上 AI 加的卡，task-dtc34）
+    const head = !canStream(this.view.state) ? undefined : s.summary ? aiCalloutHead({ label: calloutWords().summary, ...(by ? { by } : {}) }) : aiWroteHead(by ? { by } : {})
     const w = new AiStreamWrite(this.view, id, host.path(), () => {
       const cur = this.state
       // 字来之前小框已经收了（点回了正文）：不写
@@ -811,12 +835,12 @@ class SlashView {
       this.close(true)
       // 插在空行上就直接放；行里有字就另起一段
       return { pos: at, before: this.view.state.doc.lineAt(at).text.trim() === '' ? '' : '\n\n', after: '' }
-    })
+    }, head)
     const off = window.cn.onAiEvent((eid, e) => {
       if (eid === id && e.type === 'text') w.push(e.delta)
     })
     try {
-      const reply = await window.cn.aiAsk(id, AI_SYSTEM, s.summary ? summaryPrompt(host.path(), text) : aiPrompt(host.path(), text, s.from, want))
+      const reply = await window.cn.aiAsk(id, aiSystem(), s.summary ? summaryPrompt(host.path(), text) : aiPrompt(host.path(), text, s.from, want))
       await w.done(reply)
       if (!w.started && this.state?.mode === 'ai') this.close(true, true)
     } catch (e) {

@@ -12,6 +12,7 @@ import { type CardText, mapMath } from '@cn/format'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { AnkiStatus, CardItem, CardScope, CardsView } from '../../shared/reading'
 import { AiIcon } from '../engine-logo'
+import { useT } from '../i18n'
 import { usePrefs } from '../settings-store'
 import { renderTex } from '../tex'
 import { cardsChanged, closeCards, closeSpot, useCardsOpen, useSpot } from './cards-store'
@@ -102,7 +103,8 @@ function Paper(p: { it: CardItem; card: CardText; editing: boolean; small?: bool
 /** 连上 Anki（anki-learn DESIGN.md「连上 Anki」三行）：出卡弹窗里 Anki 没开时、设置 › 读PDF「Anki 没开、没装时」点「怎么装」 */
 export function HowTo(p: { st: AnkiStatus; onOpen(): void }) {
   const { st } = p
-  const [copied, setCopied] = useState(false)
+  const t = useT()
+  const [copied, setCopied] = useState<'id' | 'cmd' | null>(null)
   return (
     <div className="howto" role="region" aria-label="连上Anki">
       <div className="hrow">
@@ -121,9 +123,9 @@ export function HowTo(p: { st: AnkiStatus; onOpen(): void }) {
         <b>AnkiConnect插件</b>
         <span className={st.addon ? 'ok' : ''}>{st.addon ? '装好了 · 编号2055492159' : 'Anki里「工具 › 附加组件 › 获取附加组件」，粘贴编号2055492159，重启Anki'}</span>
         {!st.addon && (
-          <button className="btn btn-xs" onClick={() => void navigator.clipboard.writeText('2055492159').then(() => setCopied(true))}>
+          <button className="btn btn-xs" onClick={() => void navigator.clipboard.writeText('2055492159').then(() => setCopied('id'))}>
             <Codicon name="copy" size={14} />
-            {copied ? '拷好了' : '复制编号'}
+            {copied === 'id' ? '拷好了' : '复制编号'}
           </button>
         )}
       </div>
@@ -136,6 +138,16 @@ export function HowTo(p: { st: AnkiStatus; onOpen(): void }) {
             打开Anki
           </button>
         )}
+      </div>
+      {/* 8765 被别的程序占着时 AnkiConnect 起不来（2026-11-22 用户截图：python3 -m http.server 8765 占着）：查是谁、关掉、重启 Anki */}
+      <div className="hrow" data-testid="howto-port">
+        <i className="dot none" />
+        <b>{t('8765端口被占时')}</b>
+        <span>{t('复制命令贴进终端，看是哪个程序占着；关掉它，再重启Anki')}</span>
+        <button className="btn btn-xs" onClick={() => void navigator.clipboard.writeText('lsof -nP -iTCP:8765 -sTCP:LISTEN').then(() => setCopied('cmd'))}>
+          <Codicon name="copy" size={14} />
+          {copied === 'cmd' ? t('拷好了') : t('复制命令')}
+        </button>
       </div>
     </div>
   )

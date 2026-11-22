@@ -8,7 +8,7 @@
 import { Codicon } from '@cn/design'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { MergeView, unifiedMergeView } from '@codemirror/merge'
-import { EditorState, type Extension } from '@codemirror/state'
+import { EditorState, type Extension, Prec } from '@codemirror/state'
 import { EditorView, lineNumbers } from '@codemirror/view'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { BIG_LINES, type DiffEntry, type DiffResult, type DiffSource, sizeText } from '../../shared/diff'
@@ -344,7 +344,9 @@ export function TextDiff(props: {
   onViews.current = props.onViews
   useEffect(() => {
     const parent = host.current!
-    const ext = [...baseExt(f.path, look, md), ...(more ?? [])]
+    // 编辑器自己那几样（属性表、图、表格这些块部件）放低一档：@codemirror/merge 的「展开没改的 N 行」是后加进去的、优先级最低，
+    // 文首的属性表就盖住了折叠那段的开头，折叠条映射回的位置和那段起点对不上，点了不展开（录屏里要连点几下，task-m552v）
+    const ext = [Prec.low([...baseExt(f.path, look, md), ...(more ?? [])])]
     const done = (views: DiffViews, destroy: () => void) => {
       onViews.current?.(views)
       return () => {

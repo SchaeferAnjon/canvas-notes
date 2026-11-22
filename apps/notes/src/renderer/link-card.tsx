@@ -7,7 +7,7 @@ import { Codicon } from '@cn/design'
 import { keyFor } from './keys'
 import type { Extension } from '@codemirror/state'
 import { EditorView, ViewPlugin } from '@codemirror/view'
-import { resolveLink } from '@cn/format'
+import { parseChatLink, resolveLink } from '@cn/format'
 import { useEffect, useRef, useState } from 'react'
 import { app } from './ctx/actions'
 import { openLinkHit } from './ctx/editor-menu'
@@ -68,6 +68,8 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
   const input = useRef<HTMLInputElement>(null)
   const path = view.state.facet(editorHost).path()
   const local = !isWeb(link.url) && !/^[a-z][a-z0-9+.-]*:/i.test(link.url) ? resolveLink(path, link.url) : null
+  // AI 回答插进文档时带的「回到 AI 对话」（task-83vl3）：卡上写是哪段对话里的回答，「回到对话」
+  const chat = parseChatLink(link.url)
   const canEdit = !view.state.readOnly
   useEffect(() => {
     editing = edit
@@ -84,7 +86,7 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
   return (
     <div className="lk-card" role="dialog" aria-label="链接">
       <div className="top">
-        {isWeb(link.url) ? <Favicon url={link.url} size={14} /> : <Codicon name={local ? 'file' : 'link'} size={14} />}
+        {isWeb(link.url) ? <Favicon url={link.url} size={14} /> : <Codicon name={chat ? 'comment-discussion' : local ? 'file' : 'link'} size={14} />}
         <b>{link.text || link.url}</b>
       </div>
       <div className="u" title={link.url}>
@@ -100,15 +102,17 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
               if (e.key === 'Escape') (e.preventDefault(), done(null))
             }}
           />
+        ) : chat ? (
+          'AI 对话里的一条回答'
         ) : (
           prettyUrl(link.url)
         )}
       </div>
       <div className="acts">
-        {(isWeb(link.url) || local) && (
+        {(isWeb(link.url) || local || chat) && (
           <button onClick={() => (hideLinkCard(), openLinkHit(path, link.url, link.text, false, view.state.doc.toString(), link.from))}>
-            <Codicon name={local ? 'go-to-file' : 'layout-sidebar-right'} size={13} />
-            {local ? '打开' : '右栏打开'} <span className="k">{keyFor('cmd-click')}</span>
+            <Codicon name={chat ? 'comment-discussion' : local ? 'go-to-file' : 'layout-sidebar-right'} size={13} />
+            {chat ? '回到对话' : local ? '打开' : '右栏打开'} <span className="k">{keyFor('cmd-click')}</span>
           </button>
         )}
         <button onClick={() => void copy(link.url).then(() => setCopied(true))}>

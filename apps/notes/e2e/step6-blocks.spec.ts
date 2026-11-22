@@ -165,8 +165,9 @@ test('/ 菜单：插入标题、待办、表格、链接到笔记、日期；打
     // 打 / 弹出菜单；Esc 关掉，/ 留着当普通字
     await page.keyboard.type('/')
     await expect(slash(page)).toBeVisible()
-    // DESIGN.v3 6.3 的四组 15 项 + 提示块 · 说明、折叠块、日期、数据库（提示块别的类型打字筛选时才列）
-    await expect(slash(page).getByRole('option')).toHaveCount(19)
+    // DESIGN.v3 6.3 的四组 15 项 + 提示块 · 说明、折叠块、日期、数据库、拍导图（提示块别的类型打字筛选时才列；拍导图 task-wuv05 加在「图片和表格」最后）
+    await expect(slash(page).getByRole('option')).toHaveCount(20)
+    await expect(slash(page).getByRole('option', { name: /拍导图/ })).toHaveCount(1)
     await expect(slash(page).locator('.slash-g')).toHaveText(['基本', '图片和表格', '链接', 'AI'])
     await page.keyboard.press('Escape')
     await expect(slash(page)).toBeHidden()
@@ -395,7 +396,8 @@ test('/ 白板 新建子白板并插入链接；/ 图片 拷进附件并显示�
     await page.keyboard.press('Enter')
     await expect(ask).toBeHidden()
     await waitSaved(page)
-    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n这是测试回答。\n\n[[未命名白板]]\n\n![](附件/旅行/猫%20咪.png)\n')
+    // AI 写的一句包成 AI 块（task-dtc34）
+    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n> [!ai] AI 写的 · Claude Code · Opus 5.5\n> 这是测试回答。\n\n[[未命名白板]]\n\n![](附件/旅行/猫%20咪.png)\n')
   } finally {
     await run.close()
     rmSync(tmp, { recursive: true, force: true })

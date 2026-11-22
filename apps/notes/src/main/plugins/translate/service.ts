@@ -1,14 +1,13 @@
 /**
- * 翻译服务：网页、网页阅读视图、视频字幕、右键翻译这段都用这一个。给一串块（标题、段落、列表项…），按设置挑引擎、带上课程术语表，
+ * 翻译服务：网页、网页阅读视图、视频字幕、右键翻译这段都用这一个。给一串块（标题、段落、列表项…），按设置挑引擎，
  * 翻好一块回一块（缓存里有的马上回）。不碰 Electron，能单独测。
  *
  * 主进程里（视频字幕）这样用：
  *   const tr = translateService()
- *   await tr?.translateBlocks([{ id: 'p1-3', text: '…' }], { target: 'zh-CN', course: '线性代数' }, (r) => …, signal)
+ *   await tr?.translateBlocks([{ id: 'p1-3', text: '…' }], { target: 'zh-CN' }, (r) => …, signal)
  * 界面那边用 renderer/plugins/translate/api.ts 的 translateBlocks（同一件事走 ipc）。
  */
 import { isTargetLang, type TrError } from '../../../shared/plugins/translate'
-import type { Glossaries, GlossaryVault } from './glossary'
 import type { EngineRouter } from './router'
 import type { Translator } from './translator'
 
@@ -27,8 +26,6 @@ export interface BlockResult {
 export interface BlockOptions {
   /** 翻成什么（不给用设置里的） */
   target?: string
-  /** 照哪门课的术语表（不给用中间栏开着的那门课；null 不用术语表） */
-  course?: string | null
   /** 重新翻译：不用缓存里的 */
   fresh?: boolean
 }
@@ -58,8 +55,6 @@ export class TranslateService {
   constructor(
     readonly translator: Translator,
     readonly router: EngineRouter,
-    readonly glossaries: Glossaries,
-    private vault: () => GlossaryVault | null,
     private defaultTarget: () => string,
     private styleNow: () => string = () => 'plain',
   ) {}
@@ -74,17 +69,11 @@ export class TranslateService {
     return this.styleNow()
   }
 
-  /** 这次用的术语表 */
-  async glossaryFor(course: string | null | undefined) {
-    const c = course === undefined ? this.glossaries.course() : course
-    return this.glossaries.terms(this.vault(), c)
-  }
 
   /** 翻一串块：一批批并发去问（同时几批由翻译器和各引擎的上限管），翻好一块回一块；signal 停下就不再回 */
   async translateBlocks(blocks: Block[], opts: BlockOptions, onResult: (r: BlockResult) => void, signal: AbortSignal): Promise<void> {
     const target = opts.target ?? this.defaultTarget()
     if (!isTargetLang(target)) throw new Error('目标语言不对')
-    const terms = await this.glossaryFor(opts.course)
     const ids = new Map<number, string>()
     const items = blocks
       .filter((b) => b.text.trim())
@@ -101,7 +90,6 @@ export class TranslateService {
             if (!signal.aborted) onResult({ id: ids.get(n)!, text, ...(error ? { error } : {}) })
           },
           signal,
-          terms,
           opts.fresh === true,
         ),
       ),

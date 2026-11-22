@@ -31,18 +31,86 @@ export const newId = () => `t${Date.now().toString(36)}${(seq++).toString(36)}`
 
 const key = (vault: string) => `cn.tabs:${vault}`
 
-export function loadTabs(vault: string): { tabs: Tab[]; active: string | null } {
+const str = (v: unknown): v is string => typeof v === 'string'
+
+/** 存着的一个标签对不对得上它那一种要的字段（task-pyb39：缺了 path 的笔记标签一渲染就抛错，整窗白屏） */
+export function validTab(t: unknown): t is Tab {
+  if (!t || typeof t !== 'object') return false
+  const o = t as Record<string, unknown>
+  if (!str(o.id) || !o.id) return false
+  switch (o.type) {
+    case 'home':
+    case 'inbox':
+    case 'recent':
+    case 'archive':
+    case 'trash':
+      return true
+    case 'note':
+    case 'pdf':
+    case 'html':
+      return str(o.path) && !!o.path
+    case 'topic':
+      return str(o.topic)
+    case 'web':
+      return str(o.url) && (o.title === undefined || str(o.title))
+    case 'webread':
+      return str(o.url) && str(o.title)
+    case 'folder':
+      return str(o.folder)
+    case 'diff':
+      return !!o.src && typeof o.src === 'object' && str((o.src as Record<string, unknown>).kind) && str(o.title)
+    case 'oldimages':
+      return str(o.item)
+    default:
+      return false
+  }
+}
+
+/**
+ * 上次开着的标签。坏的（不是数组、少字段、不认识的种类、重复的 id）丢掉并记一行日志（onDrop），别的照样恢复。
+ * 原来的「全部笔记」标签换成「最近」；「我的疑惑」那一页 2026-11-22 拿掉了（task-tz7y3），上次开着的不再开
+ */
+export function parseTabs(raw: string | null, onDrop: (why: string) => void = () => {}): { tabs: Tab[]; active: string | null } {
+  if (!raw) return { tabs: [], active: null }
+  let v: unknown
   try {
-    const raw = localStorage.getItem(key(vault))
-    if (!raw) return { tabs: [], active: null }
-    const v = JSON.parse(raw) as { tabs: Tab[]; active: string | null }
-    // 原来的「全部笔记」标签换成「最近」；「我的疑惑」那一页 2026-11-22 拿掉了（task-tz7y3），上次开着的不再开
-    const tabs = v.tabs.filter((t) => (t.type as string) !== 'doubts').map((t): Tab => ((t.type as string) === 'all' ? { id: t.id, type: 'recent' } : t))
-    return { tabs: tabs.map((t) => (t.type === 'note' || t.type === 'folder' ? { ...t, fresh: false } : t)), active: v.active }
+    v = JSON.parse(raw)
   } catch {
-    // 记不住上次开的标签不影响使用
+    onDrop('标签记录不是 JSON')
     return { tabs: [], active: null }
   }
+  const list = v && typeof v === 'object' ? (v as { tabs?: unknown }).tabs : undefined
+  if (!Array.isArray(list)) {
+    onDrop('标签记录里没有标签列表')
+    return { tabs: [], active: null }
+  }
+  const tabs: Tab[] = []
+  const seen = new Set<string>()
+  const bad: string[] = []
+  for (const t of list) {
+    const o = t as { id?: unknown; type?: unknown } | null
+    if (o && typeof o === 'object' && o.type === 'doubts') continue
+    const u = o && typeof o === 'object' && o.type === 'all' && str(o.id) ? { id: o.id, type: 'recent' } : t
+    if (!validTab(u) || seen.has(u.id)) {
+      bad.push(JSON.stringify(o && typeof o === 'object' ? { type: o.type } : typeof o))
+      continue
+    }
+    seen.add(u.id)
+    tabs.push(u.type === 'note' || u.type === 'folder' ? { ...u, fresh: false } : u)
+  }
+  if (bad.length) onDrop(`丢掉 ${bad.length} 个标签：${bad.join('、')}`)
+  const active = (v as { active?: unknown }).active
+  return { tabs, active: str(active) ? active : null }
+}
+
+export function loadTabs(vault: string, onDrop?: (why: string) => void): { tabs: Tab[]; active: string | null } {
+  let raw: string | null = null
+  try {
+    raw = localStorage.getItem(key(vault))
+  } catch {
+    // 本机存储打不开：记不住上次开的标签不影响使用
+  }
+  return parseTabs(raw, onDrop)
 }
 
 export function saveTabs(vault: string, tabs: Tab[], active: string | null) {

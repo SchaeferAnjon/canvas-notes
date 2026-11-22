@@ -6,6 +6,7 @@ import { when } from '../shared/when'
 import { imageSrc } from './md-widgets'
 import { parseMoment, parseVideoCard, videoOf } from '../shared/video'
 import { MomentCard, VideoCard } from './video/BoardCards'
+import { MapCard } from './mindmap/MapThumb'
 import { Attached, inline, Markdown, reviewTag } from './md-render'
 
 /**
@@ -113,6 +114,13 @@ export function CardBody(props: {
   }
   if (info.kind === 'board') {
     const n = props.notes.find((x) => x.path === info.boardPath)!
+    // 导图：上面缩略、下面「导图 · N个主题」（task-wuv05）
+    if (n.board!.nodes !== undefined)
+      return (
+        <div className="cb-map">
+          <MapCard note={n} />
+        </div>
+      )
     return (
       <div className="cb-board">
         <span className="sq" style={{ background: n.board!.color }} />

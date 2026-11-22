@@ -1,6 +1,6 @@
 // AI 空对话打招呼（task-0tgz2，小样 design/ai-empty 方向 A）：钟点问候、跟着在看的东西走的那一句、底部快捷命令挑哪几条
 import { describe, expect, it } from 'vitest'
-import { askLine, hello, quickCmds, shortTitle } from '../src/renderer/ai-greet'
+import { askLine, hello, quickCmds, shortTitle, webAsk } from '../src/renderer/ai-greet'
 
 describe('钟点问候', () => {
   it('0–5 点夜深了，5–11 早上好，11–13 中午好，13–18 下午好，18–24 晚上好', () => {
@@ -37,6 +37,9 @@ describe('跟着在看的东西走的那一句', () => {
   it('网页写标题，读 PDF 说框一块就能问（去掉 .pdf）', () => {
     expect(askLine({ id: 'a', type: 'web', url: 'https://weread.qq.com/', title: '微信读书' }, { ...o, label: '微信读书' })).toBe('要对《微信读书》做点什么？')
     expect(askLine({ id: 'a', type: 'pdf', path: '课程/线代/第3讲.pdf' }, { ...o, label: '第3讲.pdf' })).toBe('要问《第3讲》哪里？框一块就能问。')
+  })
+  it('右栏网页那一处写这一页的标题，选一段、框一块都能问（task-6cxtc 复审）', () => {
+    expect(webAsk('2.2. 数据预处理')).toBe('要问《2.2. 数据预处理》哪里？选一段或框一块就能问。')
   })
 })
 

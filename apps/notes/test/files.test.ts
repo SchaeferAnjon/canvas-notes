@@ -27,7 +27,7 @@ describe('⌘O 按名字筛', () => {
 })
 
 describe('目录树', () => {
-  it('顶层按顶级分类的先后排（收件箱、课程、阅读、剪藏、周记、写作、项目、生活）；文件夹在前；术语表放最上；同一讲的课件、笔记挨着，讲次按数字排', () => {
+  it('顶层按顶级分类的先后排（收件箱、课程、阅读、剪藏、周记、写作、项目、生活）；文件夹在前；同一讲的课件、笔记挨着，讲次按数字排；术语表.md 是普通笔记（2026-11-22 术语表拿掉了，不放最上）', () => {
     const tree = buildTree([
       f('写作/a.md'),
       f('生活/b.md'),
@@ -45,8 +45,8 @@ describe('目录树', () => {
     expect(tree.map((n) => n.name)).toEqual(['课程', '写作', '项目', '生活', '别的', 'README.md'])
     const la = tree[0]!.children[0]!
     expect(la.path).toBe('课程/线性代数')
-    // 「我的疑惑」不再是软件汇总的那篇（2026-11-20）：和别的笔记一样按名字排，不放最上
-    expect(la.children.map((n) => n.name)).toEqual(['术语表.md', '第3讲 线性映射.pdf', '第3讲 线性映射 笔记.md', '向量加法.html', '第10讲 二次型.pdf', '我的疑惑.md', '旋转矩阵.html'])
+    // 「我的疑惑」不再是软件汇总的那篇（2026-11-20）、术语表拿掉了（2026-11-22）：和别的笔记一样按名字排，不放最上
+    expect(la.children.map((n) => n.name)).toEqual(['第3讲 线性映射.pdf', '第3讲 线性映射 笔记.md', '向量加法.html', '第10讲 二次型.pdf', '术语表.md', '我的疑惑.md', '旋转矩阵.html'])
     // 空文件夹也在
     expect(tree[2]!.children.map((n) => [n.name, n.kind])).toEqual([['canvas', 'dir']])
   })
@@ -155,16 +155,64 @@ describe('列出库里的文件（主进程）', () => {
     expect(at('课程/ecp/随手记.md').note).toBeUndefined()
   })
 
-  it('目录树里 PDF 和它的笔记是一行：笔记不单独列；筛掉了 PDF（比如只看文档）时笔记照旧单独一行；不是同一个文件夹的不算', () => {
+  it('目录树里 PDF › 笔记 › 可视化一层挂一层（task-m552v）：笔记挂在 PDF 下面写「笔记」、带问了几问，它嵌着的可视化挂在笔记下面；没收下的可视化不算篇数；不是同一个文件夹的不挂', () => {
     const pdf: FileEntry = { path: '课程/ecp/Lecture05.pdf', kind: 'pdf', mtimeMs: 0, note: { path: '课程/ecp/Lecture05 笔记.md', asks: 4 } }
-    const files = [pdf, f('课程/ecp/Lecture05 笔记.md'), f('课程/ecp/随手记.md'), f('课程/别处/Lecture05 笔记.md')]
-    const ecp = (t: ReturnType<typeof buildTree>) => t[0]!.children.find((n) => n.name === 'ecp')!.children.map((n) => n.name)
-    expect(ecp(buildTree(files))).toEqual(['随手记.md', 'Lecture05.pdf'])
-    expect(buildTree(files)[0]!.children.find((n) => n.name === '别处')!.children.map((n) => n.name)).toEqual(['Lecture05 笔记.md'])
-    // 只看文档：PDF 不在，笔记单独一行
-    expect(ecp(buildTree(files, { keep: (x) => x.kind === 'md' }))).toEqual(['随手记.md', 'Lecture05 笔记.md'])
-    // 文件夹的篇数：合成一行算一个
-    expect(buildTree(files)[0]!.children.find((n) => n.name === 'ecp')!.count).toBe(2)
+    const viz: FileEntry = { path: '课程/ecp/水桶.html', kind: 'html', mtimeMs: 0, vizOf: '课程/ecp/Lecture05 笔记.md' }
+    const ghost: FileEntry = { path: '课程/ecp/新图.html', kind: 'html', mtimeMs: 0, vizOf: '课程/ecp/Lecture05 笔记.md', dream: 'x1' }
+    const files = [pdf, f('课程/ecp/Lecture05 笔记.md'), viz, ghost, f('课程/ecp/随手记.md'), f('课程/别处/Lecture05 笔记.md')]
+    const ecp = (t: ReturnType<typeof buildTree>) => t[0]!.children.find((n) => n.name === 'ecp')!
+    const t = buildTree(files, { hang: true })
+    expect(ecp(t).children.map((n) => n.name)).toEqual(['随手记.md', 'Lecture05.pdf'])
+    const p = ecp(t).children[1]!
+    expect(p.children.map((n) => [n.name, n.hung, n.label])).toEqual([['Lecture05 笔记.md', 'note', '笔记']])
+    expect(p.children[0]!.asks).toEqual({ n: 4 })
+    expect(p.children[0]!.children.map((n) => [n.name, n.hung])).toEqual([
+      ['水桶.html', 'viz'],
+      ['新图.html', 'viz'],
+    ])
+    // 篇数：PDF、它的笔记、收下的可视化合起来算一篇（和 demo 一样；以前 PDF 和笔记是一行也算一个），没收下的不算
+    expect(ecp(t).count).toBe(2)
+    expect(p.count).toBe(1)
+    expect(t[0]!.children.find((n) => n.name === '别处')!.children.map((n) => n.name)).toEqual(['Lecture05 笔记.md'])
+    // 只看文档：PDF 带着它的笔记（PDF 跟着笔记走），可视化不在；PDF 是个壳，这一组照样算一篇
+    const docs = buildTree(files, { keep: (x) => x.kind === 'md', hang: true })
+    expect(ecp(docs).children.map((n) => n.name)).toEqual(['随手记.md', 'Lecture05.pdf'])
+    expect(ecp(docs).children[1]!.children.map((n) => n.name)).toEqual(['Lecture05 笔记.md'])
+    expect(ecp(docs).children[1]!.children[0]!.children).toEqual([])
+    expect(ecp(docs).count).toBe(2)
+    // 什么都不留：PDF 也不在
+    expect(buildTree(files, { keep: () => false, hang: true })).toEqual([])
+    // 文件夹首页（不挂）照旧：PDF 和它的笔记算一个，笔记不单独列，没收下的可视化不在
+    expect(ecp(buildTree(files)).children.map((n) => n.name)).toEqual(['水桶.html', '随手记.md', 'Lecture05.pdf'])
+  })
+
+  it('白板下的导图、子白板（属性 所属白板，task-wuv05）挂在白板下面，照常各算一篇；子白板的子白板一层层挂；成环、不在同一个文件夹的不挂', () => {
+    const d = '课程/线代'
+    const files = [f(`${d}/复习.md`), f(`${d}/导图 1.md`), f(`${d}/细节.md`), f(`${d}/细节的导图.md`), f(`${d}/甲.md`), f(`${d}/乙.md`), f('写作/别处.md')]
+    const subOf = new Map([
+      [`${d}/细节的导图.md`, `${d}/细节.md`],
+      [`${d}/导图 1.md`, `${d}/复习.md`],
+      [`${d}/细节.md`, `${d}/复习.md`],
+      [`${d}/甲.md`, `${d}/乙.md`],
+      [`${d}/乙.md`, `${d}/甲.md`],
+      ['写作/别处.md', `${d}/复习.md`],
+    ])
+    const t = buildTree(files, { hang: true, subOf })
+    const xd = t.find((n) => n.name === '课程')!.children[0]!
+    const board = xd.children.find((n) => n.name === '复习.md')!
+    expect(board.children.map((n) => [n.name, n.hung])).toEqual([
+      ['导图 1.md', 'sub'],
+      ['细节.md', 'sub'],
+    ])
+    expect(board.children[1]!.children.map((n) => [n.name, n.hung])).toEqual([['细节的导图.md', 'sub']])
+    expect(board.count).toBe(4)
+    expect(xd.count).toBe(6)
+    // 甲乙互相所属：只挂一层，不丢
+    const yi = xd.children.find((n) => n.name === '乙.md')!
+    expect(yi.children.map((n) => n.name)).toEqual(['甲.md'])
+    expect(t.find((n) => n.name === '写作')!.children.map((n) => n.name)).toEqual(['别处.md'])
+    // 不挂的（文件夹首页）照旧平铺
+    expect(buildTree(files, { subOf }).find((n) => n.name === '课程')!.children[0]!.children).toHaveLength(6)
   })
 })
 

@@ -1,5 +1,5 @@
 // 右栏网页标签栏（录屏 ① CN-15、16、32、35，方案 A；2026-11-21 task-sta8n 方向 A「紧凑两档」标签和地址并成一行）：
-// 「移到中间 / 放回右栏」在标题栏最右、「收起右栏」左边，网页在哪它都不挪；当前标签就是地址块，+ 跟在标签后面；没有收起网页的 ×；
+// 「网页占满 / 还原」在标题栏最右、「收起右栏」左边（task-05p2w 方向 A，以前是「移到中间 / 放回右栏」）；当前标签就是地址块，+ 跟在标签后面；没有收起网页的 ×；
 // 右栏的当前网页标签不画主题的标记，靠地址块的 --fill 底和别的标签分开。
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -47,7 +47,7 @@ async function shot(run: Running, name: string) {
 }
 
 for (const frame of ['b', 'a'] as const)
-  test(`风格 ${frame.toUpperCase()}：标题栏「移到中间」把网页开到中间，同一个位置变成「放回右栏」，再点回右栏`, async () => {
+  test(`风格 ${frame.toUpperCase()}：标题栏「网页占满」让右栏网页占满（中间那篇让出地方），同一个位置变成「还原」，再点回原样（task-05p2w 方向 A）`, async () => {
     const run = await launch({ 'a.md': '# a\n\n正文\n' }, {}, settingsWith({ skin: 'sky', frame }))
     const { page } = run
     try {
@@ -55,37 +55,35 @@ for (const frame of ['b', 'a'] as const)
       await expect(titleBar(page).getByTestId('tb-web')).toHaveCount(0)
       await rail(page).getByRole('button', { name: '网页' }).click()
       await go(page, `${base}/1`)
-      const move = titleBar(page).getByTestId('tb-web')
-      await expect(move).toHaveAccessibleName('移到中间')
+      const full = titleBar(page).getByTestId('tb-web')
+      await expect(full).toHaveAccessibleName('网页占满')
       // 紧挨着「收起右栏」的左边
-      const box1 = (await move.boundingBox())!
+      const box1 = (await full.boundingBox())!
       const fold = (await titleBar(page).getByRole('button', { name: '收起右栏' }).boundingBox())!
       expect(fold.x - (box1.x + box1.width)).toBeLessThanOrEqual(4)
       expect(fold.x).toBeGreaterThan(box1.x)
-      // B 带字，A 只有图标
-      if (frame === 'b') await expect(move).toContainText('移到中间')
+      // B 带字和键，A 只有图标
+      if (frame === 'b') await expect(full).toContainText('网页占满⌃⌘\\')
       else expect(Math.round(box1.width)).toBe(28)
+      const w1 = (await web(page).boundingBox())!.width
       await shot(run, `webbar-${frame}-right`)
-      await move.click()
-      // 网页到了中间的宽标签，右栏没别的网页就收起
-      await expect(page.locator('.wpane:not([hidden]) webview')).toBeVisible()
-      await expect(page.locator('.center .tabs .tab.on')).toContainText('第 1 页')
-      await expect(web(page)).toBeHidden()
-      await expect(move).toHaveAccessibleName('放回右栏')
-      const box2 = (await move.boundingBox())!
-      // 右边对齐（B 里字数一样，整颗按钮像素一样）
-      expect(Math.round(box2.x + box2.width)).toBe(Math.round(box1.x + box1.width))
-      if (frame === 'b') expect(Math.round(box2.x)).toBe(Math.round(box1.x))
-      await shot(run, `webbar-${frame}-center`)
-      await move.click()
+      await full.click()
+      // 网页还在右栏，宽到占满；中间那一栏收着
+      await expect(page.locator('.win > main.center')).toHaveClass(/folded/)
+      await expect.poll(async () => (await web(page).boundingBox())!.width).toBeGreaterThan(w1 + 300)
       await expect(page.locator('.wpane')).toHaveCount(0)
-      await expect(web(page)).toBeVisible()
+      await expect(full).toHaveAccessibleName('还原')
+      const box2 = (await full.boundingBox())!
+      // 右边对齐
+      expect(Math.round(box2.x + box2.width)).toBe(Math.round(box1.x + box1.width))
+      await shot(run, `webbar-${frame}-full`)
+      await full.click()
+      await expect(page.locator('.win > main.center')).not.toHaveClass(/folded/)
       await expect(webTabs(page)).toHaveText(['第 1 页 - 雷克雅未克'])
-      await expect(move).toHaveAccessibleName('移到中间')
-      // 新网页（书签首页）不是 http 网页：没有「移到中间」
-      await web(page).locator('button.wnew').click()
-      await expect(webTabs(page)).toHaveCount(2)
-      await expect(move).toHaveCount(0)
+      await expect(full).toHaveAccessibleName('网页占满')
+      // 网页收起：这颗跟着没了
+      await titleBar(page).getByRole('button', { name: '收起右栏' }).click()
+      await expect(full).toHaveCount(0)
     } finally {
       await run.close()
     }
@@ -124,7 +122,7 @@ test('标签和地址一行（task-sta8n 方向 A）：当前标签就是地址�
     await rail(page).getByRole('button', { name: '网页' }).click()
     await go(page, `${base}/1`)
     await expect(web(page).getByRole('button', { name: '收起网页' })).toHaveCount(0)
-    await expect(web(page).getByRole('button', { name: '移到中间' })).toHaveCount(0)
+    await expect(web(page).getByRole('button', { name: '网页占满' })).toHaveCount(0)
     const list = web(page).getByRole('tablist', { name: '网页标签' })
     const plus = list.getByRole('button', { name: '新网页' })
     // 当前标签就是地址块

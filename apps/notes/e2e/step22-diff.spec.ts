@@ -183,7 +183,7 @@ test('CN-46 历史文件行：双击打开这篇；右键「打开 · 在新标�
   }
 })
 
-test('CN-57/63 梦游报告：每处改动一行人话（不再铺源码），点了中间开对比标签：左列「现在的 · main」、右列「梦游改后」；周记一列全文；可能重复两篇并排', async () => {
+test('CN-57/63 + task-m552v 梦游报告：每处改动一行人话（不再铺源码），点了中间开梦游对照：左列「现在的 · main」、右列「收下后」；周记左边写 main 上还没有；可能重复两篇并排', async () => {
   const run = await launch(DREAM_VAULT, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -193,34 +193,35 @@ test('CN-57/63 梦游报告：每处改动一行人话（不再铺源码），�
     await panel.getByRole('button', { name: '现在梦游' }).click()
     await expect(panel.getByTestId('dream-summary')).toContainText('整理了', { timeout: 30_000 })
     const branch = (await page.evaluate(() => window.cn.dreamReport()))!.branch
+    const dt = page.locator('[data-testid="dream-tab"]:not([hidden])')
 
     await panel.getByTestId('dream-item').filter({ hasText: '↔ [[极光预报]]' }).click()
     const detail = panel.getByTestId('dream-detail')
     const change = detail.getByTestId('dream-change')
-    await expect(change).toHaveText('极光：末尾加了一行 相关：[[极光预报]]')
+    await expect(change.locator('.tx > span')).toHaveText('极光：末尾加了一行 相关：[[极光预报]]')
+    await expect(change.locator('.p')).toHaveText('收件箱')
     // 侧栏里没有源码：没有 ---、by: 梦游、加减号
     await expect(detail).not.toContainText('by: 梦游')
     await expect(detail.locator('.dl')).toHaveCount(0)
     await change.click()
-    await expect(tabOn(page)).toHaveText('极光 · 梦游改的')
-    const dv = diffTab(page)
-    await expect(dv.locator('.dv-cols > span').first()).toHaveText(/^现在的 · main/)
+    await expect(tabOn(page)).toHaveText('梦游 · 极光')
+    await expect(dt.getByTestId('dream-cols')).toHaveText(`现在的 · main收下后 · ${branch}`)
     await expect(page.getByTestId('tab-acts').getByTestId('page-note')).toHaveText('梦游 · 还没收下')
     await shotWindow(run, 'cn57-dream-diff')
 
-    // 周记：新建的 md，一列全文（文档样子）
+    // 周记：新建的 md，左边写 main 上还没有、右边这一版全文（文档样子）
     await panel.getByTestId('dream-item').filter({ hasText: '周记' }).click()
     await expect(detail.getByTestId('dream-change')).toContainText('新建 周记/')
     await detail.getByTestId('dream-change').click()
-    await expect(diffTab(page).locator('.dv-cols')).toHaveText('这一版全文')
+    await expect(dt.getByTestId('dream-void')).toContainText('main 上还没有这个文件')
+    await expect(dt.locator('.cm-line', { hasText: '这周主要在准备冰岛自驾' })).toBeVisible()
     // 换掉的是同一个预览标签
-    await expect(page.locator('[data-testid="diff-tab"]')).toHaveCount(1)
-    void branch
+    await expect(page.locator('[data-testid="dream-tab"]')).toHaveCount(1)
 
     // 可能重复：两篇并排
     await panel.getByTestId('dream-item').filter({ hasText: '相似度' }).click()
-    await detail.getByTestId('dream-change').click()
-    await expect(diffTab(page).locator('.dv-cols > span')).toHaveText(['剪藏/巴黎/巴黎深度漫游指南.md', '收件箱/巴黎自由行全景指南.md'])
+    await expect(dt.getByTestId('dream-cols').locator('b')).toHaveText(['巴黎深度漫游指南', '巴黎自由行全景指南'])
+    await expect(dt.locator('.dv-mark').first()).toBeVisible()
   } finally {
     await run.close()
   }

@@ -249,7 +249,7 @@
   background: var(--line2);
   border-radius: 3px;
 }
-/* 小卡：44 高、最宽 132、左 6 右 24（图片卡右 22）、圆角 6、--fill 底 */
+/* 小卡：44 高、最宽 220（task-6cxtc 复审：132 只露四五个字）、左 6 右 24（图片卡右 22）、圆角 6、--fill 底 */
 .aiin .chipm {
   position: relative;
   flex: none;
@@ -257,7 +257,7 @@
   align-items: center;
   gap: 6px;
   height: 44px;
-  max-width: 132px;
+  max-width: 220px;
   padding: 0 24px 0 6px;
   border-radius: 6px;
   background: var(--fill);
@@ -619,6 +619,42 @@
   background: rgba(255, 255, 255, 0.16);
   font: 11px/1 var(--sans);
   color: inherit;
+}
+/* 这一栏窄得带键帽放不下一整条：先藏键帽（键写在输入框底行的提示里），五颗照样整个露着（PDF、HTML 的小条，cap-place.ts） */
+.capbar.nokbd kbd {
+  display: none;
+}
+/* 「⋯」「×」只有图标（task-6cxtc 四处小条一个样）；「⋯」开着时同悬停的底 */
+.capbar button.icon {
+  padding: 0 8px;
+}
+.capbar button.icon.on {
+  background: rgba(255, 255, 255, 0.12);
+}
+/* 「⋯」里：拷贝这段 / 拷贝这块、翻译设置…（黑底，同网页小条的「⋯」）；右边和「⋯」对齐，在工具条下面 6 */
+.capbar .capmenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 36px;
+  z-index: 2;
+  min-width: 200px;
+  padding: 6px;
+  border-radius: 10px;
+  background: #1c1c1e;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.capbar .capmenu button {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  gap: 10px;
+  padding: 0 10px;
+}
+.capbar .capmenu .r {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
 }
 .ai-cap {
   position: fixed;

@@ -376,6 +376,9 @@
   border-radius: 50%;
   background: var(--yellow);
 }
+.howto .hrow .dot.none {
+  visibility: hidden;
+}
 .howto .hrow .dot.g {
   background: var(--green);
 }

@@ -7,22 +7,11 @@ import type { CliBackend } from '../src/main/plugins/host'
 import { askApi, PROVIDERS } from '../src/main/plugins/translate/api'
 import { fakeCli } from '../src/main/plugins/translate/cli'
 import { classify, TranslateError } from '../src/main/plugins/translate/errors'
-import { appendTerm, Glossaries, parseDraft } from '../src/main/plugins/translate/glossary'
 import { cleanKey, KeyStore } from '../src/main/plugins/translate/keys'
 import { EngineRouter, noneReason } from '../src/main/plugins/translate/router'
 import { batches, TranslateService } from '../src/main/plugins/translate/service'
 import { buildPrompt, TranslationCache, Translator } from '../src/main/plugins/translate/translator'
-import {
-  courseOf,
-  DEFAULT_TRANSLATE,
-  errorTitle,
-  glossaryMd,
-  normalizeTranslate,
-  parseGlossary,
-  pickTerms,
-  type TranslateSettings,
-  type TrErrorCode,
-} from '../src/shared/plugins/translate'
+import { DEFAULT_TRANSLATE, errorTitle, normalizeTranslate, type TranslateSettings, type TrErrorCode } from '../src/shared/plugins/translate'
 
 let root: string
 beforeEach(() => {
@@ -280,8 +269,8 @@ describe('翻译用什么：自动按顺序换、指定一个就只用它', () =
     const f = fakeCli({ CN_TR_FAKE_CLI: 'claude=login,codex=missing', CN_TR_FAKE_FAIL: 'gemini=boom', CN_AI_FAKE_DELAY_MS: '1' })
     expect([f.state('claude'), f.state('codex'), f.state('gemini')]).toEqual(['login', 'missing', 'ok'])
     await expect(f.ask('gemini', 's', '命令：翻译段落', new AbortController().signal, () => undefined)).rejects.toThrow('boom')
-    const out = await f.ask('opencode', 's', buildPrompt([{ id: 1, text: 'The eigenvalue is 3.' }], 'zh-CN', [{ src: 'eigenvalue', dst: '特征值', note: '' }]), new AbortController().signal, () => undefined)
-    expect(JSON.parse(out.trim())).toEqual({ id: 1, text: '译文：The eigenvalue is 3. [特征值]' })
+    const out = await f.ask('opencode', 's', buildPrompt([{ id: 1, text: 'The eigenvalue is 3.' }], 'zh-CN'), new AbortController().signal, () => undefined)
+    expect(JSON.parse(out.trim())).toEqual({ id: 1, text: '译文：The eigenvalue is 3.' })
   })
 })
 
@@ -296,82 +285,28 @@ describe('设置', () => {
   })
 })
 
-describe('课程术语表', () => {
-  const md = '# 术语表\n\n| 原文 | 译法 | 备注 |\n| --- | --- | --- |\n| eigenvalue | 特征值 | |\n| characteristic equation | 特征方程 | 不译「特性方程」 |\n| a \\| b | 甲或乙 | |\n\n后面的字\n'
-
-  it('读表：三列、两列（PDF 那边的）、竖线转义；写回去读得出来', () => {
-    expect(parseGlossary(md)).toEqual([
-      { src: 'eigenvalue', dst: '特征值', note: '' },
-      { src: 'characteristic equation', dst: '特征方程', note: '不译「特性方程」' },
-      { src: 'a | b', dst: '甲或乙', note: '' },
-    ])
-    expect(parseGlossary('| 英文 | 中文 |\n|---|---|\n| trace | 迹 |\n')).toEqual([{ src: 'trace', dst: '迹', note: '' }])
-    expect(parseGlossary(glossaryMd(parseGlossary(md)))).toEqual(parseGlossary(md))
-    expect(parseGlossary('没有表')).toEqual([])
-  })
-
-  it('挑这批里出现的词：不分大小写、按词边界、复数也算；最多 40 条', () => {
-    const terms = parseGlossary(md)
-    expect(pickTerms(terms, ['The Eigenvalues of A'])).toEqual([terms[0]])
-    expect(pickTerms(terms, ['eigenvaluex'])).toEqual([])
-    expect(pickTerms(terms, ['solve the characteristic equation'])).toEqual([terms[1]])
-    const many = Array.from({ length: 50 }, (_, i) => ({ src: `w${i}`, dst: `词${i}`, note: '' }))
-    expect(pickTerms(many, [many.map((t) => t.src).join(' ')])).toHaveLength(40)
-  })
-
-  it('哪门课：课程/<课>/ 下面的；不在课程里用上一次用过的', async () => {
-    expect(courseOf('课程/线性代数/第7讲.md')).toBe('线性代数')
-    expect(courseOf('收件箱/a.md')).toBeNull()
-    expect(courseOf('课程/x.md')).toBeNull()
-    const vault = { root, abs: (r: string) => join(root, r), read: async (r: string) => ({ text: readFileSync(join(root, r), 'utf8') }), write: async (r: string, t: string) => (writeFileSync(join(root, r), t), { ok: true }) }
-    mkdirSync(join(root, '课程/线性代数'), { recursive: true })
-    writeFileSync(join(root, '课程/线性代数/术语表.md'), md)
-    const g = new Glossaries()
-    g.activePath = '课程/线性代数/第7讲.md'
-    expect((await g.info(vault)).count).toBe(3)
-    g.activePath = '收件箱/a.md'
-    expect(g.course()).toBe('线性代数')
-    expect(await g.info(vault)).toMatchObject({ course: '线性代数', path: '课程/线性代数/术语表.md', exists: true })
-    // 加一行：译法先留空；有了的不再加
-    await appendTerm(vault, '线性代数', 'null space')
-    await appendTerm(vault, '线性代数', 'Eigenvalue')
-    const after = readFileSync(join(root, '课程/线性代数/术语表.md'), 'utf8')
-    expect(after).toContain('| a \\| b | 甲或乙 | |\n| null space |  |  |\n\n后面的字')
-    expect(after.match(/eigenvalue/gi)).toHaveLength(1)
-    // 没有表：新建一张
-    await appendTerm(vault, '概率论', 'variance')
-    expect(readFileSync(join(root, '课程/概率论/术语表.md'), 'utf8')).toBe('# 术语表\n\n| 原文 | 译法 | 备注 |\n| --- | --- | --- |\n| variance |  |  |\n')
-  })
-
-  it('AI 起头的回答：一行一个 {"src","dst","note"}，重复的、坏行不要', () => {
-    expect(parseDraft('好的\n{"src":"eigenvalue","dst":"特征值","note":""}\n{"src":"Eigenvalue","dst":"x"}\n{坏\n{"src":"trace","dst":"迹","note":"不译「痕迹」"},')).toEqual([
-      { src: 'eigenvalue', dst: '特征值', note: '' },
-      { src: 'trace', dst: '迹', note: '不译「痕迹」' },
-    ])
-  })
-
-  it('翻译时这批出现的术语进提示；改了表，用到那条的段重翻，没用到的照样读缓存', async () => {
+describe('不带术语表（2026-11-22 拿掉了，task-6cxtc）', () => {
+  it('翻译的提示不带「术语照这个译」；缓存只按目标语言和原文：库里有 术语表.md 也一样', async () => {
     const prompts: string[] = []
     const t = new Translator(async (_s, prompt) => {
       prompts.push(prompt)
       const items = JSON.parse(prompt.split('\n').pop()!) as { id: number; text: string }[]
       return items.map((i) => JSON.stringify({ id: i.id, text: `译${prompts.length}` })).join('\n')
     }, new TranslationCache(null))
-    const terms = [{ src: 'eigenvalue', dst: '特征值', note: '' }]
     const items = [
       { id: 1, text: 'The eigenvalue is 3.' },
       { id: 2, text: 'Plain sentence.' },
     ]
-    await t.translate(items, 'zh-CN', () => undefined, new AbortController().signal, terms)
-    expect(prompts[0]).toContain('术语照这个译：eigenvalue → 特征值\n')
+    await t.translate(items, 'zh-CN', () => undefined, new AbortController().signal)
+    expect(prompts[0]).not.toContain('术语')
     const got: [number, string | null][] = []
-    await t.translate(items, 'zh-CN', (id, text) => got.push([id, text]), new AbortController().signal, [{ src: 'eigenvalue', dst: '本征值', note: '' }])
-    expect(prompts).toHaveLength(2)
-    expect(JSON.parse(prompts[1]!.split('\n').pop()!)).toEqual([{ id: 1, text: 'The eigenvalue is 3.' }])
+    await t.translate(items, 'zh-CN', (id, text) => got.push([id, text]), new AbortController().signal)
+    expect(prompts).toHaveLength(1)
     expect(got).toEqual([
+      [1, '译1'],
       [2, '译1'],
-      [1, '译2'],
     ])
+    expect(buildPrompt(items, 'zh-CN')).not.toContain('术语')
   })
 
   it('重新翻译（fresh）不读缓存，翻好的换掉缓存里的旧译文', async () => {
@@ -386,7 +321,7 @@ describe('课程术语表', () => {
     const on = (_id: number, text: string | null) => got.push(text)
     await t.translate(items, 'zh-CN', on, new AbortController().signal)
     await t.translate(items, 'zh-CN', on, new AbortController().signal)
-    await t.translate(items, 'zh-CN', on, new AbortController().signal, [], true)
+    await t.translate(items, 'zh-CN', on, new AbortController().signal, true)
     await t.translate(items, 'zh-CN', on, new AbortController().signal)
     expect(got).toEqual(['译1', '译1', '译2', '译2'])
   })
@@ -436,7 +371,7 @@ describe('给网页阅读视图、右键翻译用的接口：一串块进、一�
     expect(empty.cache.get('zh-CN', 'x y')).toBeUndefined()
   })
 
-  it('字符串编号原样回；空块不翻；用指定的课程术语表；停下就不再回', async () => {
+  it('字符串编号原样回；空块不翻；库里有术语表也不带进提示；停下就不再回', async () => {
     const prompts: string[] = []
     const tr = new Translator(async (_s, prompt) => {
       prompts.push(prompt)
@@ -444,11 +379,10 @@ describe('给网页阅读视图、右键翻译用的接口：一串块进、一�
       return items.map((i) => JSON.stringify({ id: i.id, text: `译：${i.text}` })).join('\n')
     }, new TranslationCache(null))
     mkdirSync(join(root, '课程/线代'), { recursive: true })
-    writeFileSync(join(root, '课程/线代/术语表.md'), glossaryMd([{ src: 'trace', dst: '迹', note: '' }]))
-    const vault = { root, abs: (r: string) => join(root, r), read: async () => ({ text: '' }), write: async () => ({ ok: true }) }
+    writeFileSync(join(root, '课程/线代/术语表.md'), '# 术语表\n\n| 原文 | 译法 | 备注 |\n| --- | --- | --- |\n| trace | 迹 |  |\n')
     const keys = new KeyStore(null, null)
     const router = new EngineRouter({ cli: { state: () => 'missing', ask: async () => '' }, keys, settings: () => DEFAULT_TRANSLATE })
-    const svc = new TranslateService(tr, router, new Glossaries(), () => vault, () => 'zh-CN')
+    const svc = new TranslateService(tr, router, () => 'zh-CN')
     const got: unknown[] = []
     await svc.translateBlocks(
       [
@@ -456,7 +390,7 @@ describe('给网页阅读视图、右键翻译用的接口：一串块进、一�
         { id: 'p1-b', text: '  ' },
         { id: 'p2-a', text: 'Second' },
       ],
-      { course: '线代' },
+      {},
       (r) => got.push(r),
       new AbortController().signal,
     )
@@ -464,7 +398,7 @@ describe('给网页阅读视图、右键翻译用的接口：一串块进、一�
       { id: 'p1-a', text: '译：The trace of A' },
       { id: 'p2-a', text: '译：Second' },
     ])
-    expect(prompts[0]).toContain('术语照这个译：trace → 迹')
+    expect(prompts[0]).not.toContain('术语')
     const ac = new AbortController()
     ac.abort()
     const none: unknown[] = []

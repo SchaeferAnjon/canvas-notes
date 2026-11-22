@@ -46,10 +46,10 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
 
     await card.getByRole('button', { name: '看报告' }).click()
     const panel = page.getByRole('complementary', { name: '梦游报告' })
-    await expect(panel.getByTestId('dream-summary')).toContainText(`整理了6处。都在${branch}分支上，点「预览」看改好后的样子，收下才合进main。动了正文的只有：补了1处双链（在正文末尾加了一行）。`)
+    await expect(panel.getByTestId('dream-summary')).toContainText(`在${branch}分支上整理了6处，收下才合进main。动了正文的只有：补了1处双链（在正文末尾加了一行）。`)
     // 不再一律说「你写的正文一个字没动」（补双链在正文末尾加了一行）
     await expect(panel.getByTestId('dream-summary')).not.toContainText('一个字没动')
-    await expect(panel.locator('.dg')).toHaveText(['归类和改名3条预览', '补上的双链1条', '可能重复1条', '本周小结1条'])
+    await expect(panel.locator('.dg')).toHaveText(['归类和改名3条在树里看', '补上的双链1条', '可能重复1条', '本周小结1条'])
     await expect(panel.getByTestId('dream-left')).toHaveText(`还剩6条 · 改动在${branch}分支`)
     await page.screenshot({ path: test.info().outputPath('dream-panel.png') })
 
@@ -58,9 +58,11 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     const link = panel.getByTestId('dream-item').filter({ hasText: '↔ [[极光预报]]' })
     await link.click()
     const detail = panel.getByTestId('dream-detail')
-    await expect(detail).toContainText('两篇都讲到「')
+    // 为什么在中间的条目头上（task-m552v：点一条中间开这一条）
+    const dt = page.locator('[data-testid="dream-tab"]:not([hidden])')
+    await expect(dt.getByTestId('dream-why')).toContainText('两篇都讲到「')
     // 侧栏只写一句人话，点了中间开对比标签（CN-63）
-    await expect(detail.getByTestId('dream-change')).toHaveText('极光：末尾加了一行 相关：[[极光预报]]')
+    await expect(detail.getByTestId('dream-change').locator('.tx > span')).toHaveText('极光：末尾加了一行 相关：[[极光预报]]')
     await page.screenshot({ path: test.info().outputPath('dream-detail.png') })
     await detail.getByRole('button', { name: '收下' }).click()
     await expect(link).toContainText('已收下')
@@ -72,7 +74,7 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     // 2. 丢掉「冰洞」那条挪动：文件留在收件箱，不多提交
     const ice = panel.getByTestId('dream-item').filter({ hasText: '原名「冰洞」' })
     await ice.click()
-    await expect(detail.locator('.pv-move')).toHaveText('挪到剪藏/旅行/')
+    await expect(dt.getByTestId('dream-move')).toContainText('收件箱/冰洞→剪藏/旅行/冰洞')
     await detail.getByRole('button', { name: '丢掉' }).click()
     await expect(ice).toContainText('已丢掉')
     expect(commits(vault)).toBe(before + 1)
@@ -81,9 +83,9 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
 
     // 可能重复：只提醒，能打开两篇
     await panel.getByTestId('dream-item').filter({ hasText: '相似度' }).click()
-    await expect(detail).toContainText('不删也不改任何一篇')
+    await expect(dt.getByTestId('dream-why')).toContainText('不删也不改任何一篇')
     await expect(detail.getByRole('button', { name: '丢掉' })).toHaveCount(0)
-    await detail.getByRole('button', { name: '巴黎深度漫游指南' }).click()
+    await dt.getByRole('button', { name: '打开「巴黎深度漫游指南」' }).click()
     await expect(tabOn(page)).toHaveText('巴黎深度漫游指南')
 
     // 3. 全部收下：剩下的挪动、小结合成一次提交；删掉分支和临时检出

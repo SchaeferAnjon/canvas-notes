@@ -1,6 +1,6 @@
 /**
  * 方向 A「按钮带菜单」：地址栏里的翻译按钮是一对，左边开关、右边小箭头开菜单。
- * 菜单里换翻成什么、对照 / 只看译文、七种样式，术语表和「整页剪藏带上译文」，底下是用谁翻和「翻译设置…」。
+ * 菜单里换翻成什么、对照 / 只看译文、七种样式和「整页剪藏带上译文」，底下是用谁翻和「翻译设置…」（术语表 2026-11-22 拿掉了，task-6cxtc）。
  * 改了就是新的默认值（和设置里同一份），菜单不关，网页上马上变；设好就收起来，下次点开关直接按上次的翻（偏好「设好就收起来」）。
  */
 import { Codicon } from '@cn/design'
@@ -63,9 +63,6 @@ export function TrControl({ page, open, onPopup }: { page: WebPage | null; open:
     return true
   })
 
-  // 网页里「加进术语表」之后：在中间栏打开那张表
-  useEffect(() => window.cnPlugins.on(ID, 'openNote', (p) => webHost()?.openNote((p as { path: string }).path)), [])
-
   // 浏览器自己的 PDF 查看器：网页翻译翻不了，不给这一项（PDF 双语对照 2026-11-18 用户定删掉）
   if (st?.pdf) return null
   const short = SHORT[st?.target ?? s.target] ?? ''
@@ -98,13 +95,6 @@ function StylePreview({ s }: { s: TrStyle }) {
   )
 }
 
-interface GlossaryInfo {
-  course: string | null
-  path: string | null
-  exists: boolean
-  count: number
-}
-
 /** 菜单本身（插件的弹窗）：贴在地址行下面，右边和地址栏右端对齐 */
 export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): void }) {
   /** 写在界面上的键照命令表（改了跟着变） */
@@ -114,8 +104,6 @@ export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): voi
   const st = usePageState<TrPageState>(page?.wcId, ID)
   const s = settingsNow()
   const [engines] = useEngines(false, [s.engineMode, s.pick, s.engineOrder.join()])
-  const [gl, setGl] = useState<GlossaryInfo | null>(null)
-  const [writing, setWriting] = useState<number | null>(null)
   const notice = (t: string) => webHost()?.notice(t)
 
   useLayoutEffect(() => {
@@ -134,11 +122,6 @@ export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): voi
     return () => window.removeEventListener('resize', place)
   }, [])
 
-  useEffect(() => {
-    void window.cnPlugins.call<GlossaryInfo>(ID, 'glossary').then(setGl, (e) => notice(errText(e)))
-    return window.cnPlugins.on(ID, 'glossaryProgress', (p) => setWriting((p as { found: number }).found))
-  }, [])
-
   const set = (patch: Record<string, unknown>) => void setPluginSettings(ID, patch).catch((e) => notice(errText(e)))
   const on = !!st?.on
   const failure = on ? (st.blocked ?? (st.failed && st.error ? st.error : undefined)) : undefined
@@ -150,20 +133,6 @@ export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): voi
       ? `网页本身是${LANG_ZH[primary(pageLang)] ?? langName(pageLang)}，这页改翻成${langName(effectiveTarget(s.target, pageLang))}`
       : `这页是${langName(pageLang)}`
     : ''
-
-  async function draft() {
-    setWriting(0)
-    try {
-      const r = await window.cnPlugins.call<{ path: string; count: number }>(ID, 'glossaryDraft', { wcId: page?.wcId })
-      setGl({ course: gl?.course ?? null, path: r.path, exists: true, count: r.count })
-      notice(`AI写好了术语表，${r.count}条，是一次提交，可撤回`)
-      webHost()?.openNote(r.path)
-    } catch (e) {
-      notice(errText(e))
-    } finally {
-      setWriting(null)
-    }
-  }
 
   const used = (engines?.lastUsed && engines.list.find((e) => e.id === engines.lastUsed && e.state === 'ok')?.id) || engines?.current
   const foot = footText(engines, used ?? null)
@@ -248,7 +217,6 @@ export function TrMenu({ page, onClose }: { page: WebPage | null; onClose(): voi
         <span>在中间栏左右对照读</span>
         <span className="t3">阅读视图，原文跟译文</span>
       </button>
-      <GlossaryRow gl={gl} writing={writing} onOpen={(p) => (webHost()?.openNote(p), onClose())} onDraft={() => void draft()} />
       <div className="trm-row">
         <span>整页剪藏带上译文</span>
         <span className="t3">{s.clipWithTranslation ? '原文下面跟译文' : '关着只存原文'}</span>
@@ -287,50 +255,4 @@ function footText(engines: EnginesInfo | null, used: string | null): string {
     if (p) return `指定用${p.name}（${STATE_TEXT[p.state]}）`
   }
   return '没有能翻的'
-}
-
-function GlossaryRow({ gl, writing, onOpen, onDraft }: { gl: GlossaryInfo | null; writing: number | null; onOpen(path: string): void; onDraft(): void }) {
-  const head = (
-    <>
-      <Codicon name="book" size={14} />
-      <span>术语表</span>
-    </>
-  )
-  if (writing !== null)
-    return (
-      <div className="trm-row" aria-label="术语表">
-        {head}
-        <span className="sp" />
-        <Codicon name="loading" size={12} className="spin" />
-        <span className="t3">{`AI在写${writing ? `，找到${writing}条` : ''}…`}</span>
-      </div>
-    )
-  if (!gl?.course)
-    return (
-      <div className="trm-row" aria-label="术语表">
-        {head}
-        <span className="t3">中间栏开着课程里的文件时，照那门课的表翻</span>
-      </div>
-    )
-  if (gl.exists && gl.path)
-    return (
-      <button type="button" className="trm-row link" aria-label="术语表" onClick={() => onOpen(gl.path!)}>
-        {head}
-        <span className="t3">
-          {`${gl.course} · ${gl.count}条`}
-        </span>
-        <span className="sp" />
-        <span className="tr-lnk">打开</span>
-      </button>
-    )
-  return (
-    <div className="trm-row" aria-label="术语表">
-      {head}
-      <span className="t3">{`${gl.course}还没有`}</span>
-      <span className="sp" />
-      <button type="button" className="tr-lnk" onClick={onDraft}>
-        让AI起个头
-      </button>
-    </div>
-  )
 }

@@ -91,6 +91,18 @@
 .dtabs::-webkit-scrollbar {
   display: none;
 }
+/* 标签后面跟的一句灰字（右栏网页的「笔记」：「《那篇》· 来自这个网页」，task-6cxtc）：放不下先省略它，标签不让位 */
+.dtabs .dsub {
+  flex: 0 1 auto;
+  min-width: 0;
+  align-self: center;
+  margin-left: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--t3);
+}
 .frame-a .dtabs {
   align-items: stretch;
   gap: 0;

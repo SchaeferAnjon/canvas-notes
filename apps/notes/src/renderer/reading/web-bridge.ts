@@ -9,11 +9,13 @@ import type { WebviewEl } from '../web/WebView'
 let seq = 0
 const waiting = new Map<number, { resolve(p: ReaderPage): void; reject(e: Error): void }>()
 
-export type BoxAction = 'stage' | 'explain' | 'translate' | 'rephrase' | 'cancel'
+export type BoxAction = 'stage' | 'explain' | 'translate' | 'quote' | 'copy' | 'settings' | 'cancel'
 export interface WebBoxEvent {
   action: BoxAction
   box?: WebBox
   wcId: number
+  /** 发来的那个网页（问完记到哪篇以后收起它的框：clearWebBox） */
+  view: WebviewEl
 }
 const subs = new Set<(e: WebBoxEvent) => void>()
 
@@ -40,7 +42,10 @@ export function webReadIpc(el: WebviewEl, channel: string, args: unknown[]) {
       return
     }
     const ok = b.rect && typeof b.url === 'string' && typeof b.text === 'string'
-    for (const s of subs) s({ action: b.action, wcId, ...(ok ? { box: b as WebBox } : {}) })
+    // 工具条在哪：四个数都对才用
+    const bar = b.bar
+    if (bar && ![bar.x, bar.y, bar.w, bar.h].every((n) => typeof n === 'number' && Number.isFinite(n))) delete b.bar
+    for (const s of subs) s({ action: b.action, wcId, view: el, ...(ok ? { box: b as WebBox } : {}) })
   }
 }
 

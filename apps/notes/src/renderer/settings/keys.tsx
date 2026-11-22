@@ -15,17 +15,20 @@ import { setVideoSettings, useVideoSettings } from '../video/store'
 import type { SettingsProps } from '../Settings'
 import { Group, Row, useSaid } from './ui'
 import { Toggle } from '../Settings'
+import { type Params, t as tNow } from '../../shared/i18n'
+import { useT } from '../i18n'
 
 /** 一个键：从哪来（速记的全局键、命令表里的命令、视频的 ⌥ 键、固定的） */
 export type KeySlot = { row: string; label: string; desc?: string; key: string | null; keys: string[]; section: KeySection } & (
   { kind: 'quick' } | { kind: 'cmd'; cmd: string; def: string | null; custom: boolean } | { kind: 'video'; video: 'moment' | 'ask' } | { kind: 'fixed'; cmd?: string }
 )
 
-/** 名字下面那一句：在哪儿能按（全局的不写），加上命令表里的说明 */
-const descOf = (area: KeyArea, hint?: string) => [area === 'app' || area === 'system' ? '' : AREA_NAME[area], hint ?? ''].filter(Boolean).join(' · ')
+/** 名字下面那一句：在哪儿能按（全局的不写），加上命令表里的说明（命令表里的字在这里翻） */
+const descOf = (t: (k: string, p?: Params) => string, area: KeyArea, hint?: string) => [area === 'app' || area === 'system' ? '' : t(AREA_NAME[area]), hint ? t(hint) : ''].filter(Boolean).join(' · ')
 
 /** 这一页、一般页（速记快捷键）共用：现在每个键是什么 */
 export function useKeySlots(quickKey: string): KeySlot[] {
+  const t = useT()
   const cfg = useCmds()
   useKeys()
   useVideoSettings()
@@ -33,7 +36,7 @@ export function useKeySlots(quickKey: string): KeySlot[] {
   for (const d of KEYMAP) {
     if (d.area === 'fixed') continue
     const keys = keysFor(d.id)
-    const base = { label: d.name, key: keys[0] ?? null, keys, section: d.section, desc: descOf(d.area, d.hint) }
+    const base = { label: t(d.name), key: keys[0] ?? null, keys, section: d.section, desc: descOf(t, d.area, d.hint) }
     if (d.store === 'quick') slots.push({ ...base, row: 'kQuick', kind: 'quick', key: quickKey, keys: [quickKey] })
     else if (d.store === 'video') slots.push({ ...base, row: d.id === 'video-moment' ? 'kSnap' : 'kBox', kind: 'video', video: d.id === 'video-moment' ? 'moment' : 'ask' })
     else if (!isRebindable(d)) slots.push({ ...base, row: `k-cmd-${d.id}`, kind: 'fixed', cmd: d.id })
@@ -43,7 +46,9 @@ export function useKeySlots(quickKey: string): KeySlot[] {
   for (const c of registryNow()) {
     if (keyDef(c.id) || c.id.startsWith('folder:') || c.id === 'folders') continue
     const keys = keysFor(c.id)
-    const base = { row: `k-cmd-${c.id}`, label: c.name, key: keys[0] ?? null, keys, section: (c.id.startsWith('own-') ? 'go' : 'web') as KeySection, desc: c.id.startsWith('own-') ? '自己加的命令' : '' }
+    const own = c.id.startsWith('own-')
+    // 自己加的命令名是自己起的，不翻；插件的命令名照表翻
+    const base = { row: `k-cmd-${c.id}`, label: own ? c.name : t(c.name), key: keys[0] ?? null, keys, section: (own ? 'go' : 'web') as KeySection, desc: own ? t('自己加的命令') : '' }
     slots.push(c.fixedKeys ? { ...base, kind: 'fixed', cmd: c.id } : { ...base, kind: 'cmd', cmd: c.id, def: c.keys ?? null, custom: cfg.keys[c.id] !== undefined })
   }
   return slots
@@ -57,7 +62,7 @@ const idOf = (s: KeySlot): string => (s.kind === 'quick' ? 'quick-note' : s.kind
 
 /** 这个键能不能放进这一格；不能的说为什么（速记现在的键不算撞） */
 function problemFor(slot: KeySlot, combo: string): string | null {
-  if (slot.kind === 'quick' && !/[⌘⌃]/.test(combo)) return '要带上 ⌘ 或 ⌃，不然打字时会按到'
+  if (slot.kind === 'quick' && !/[⌘⌃]/.test(combo)) return tNow('要带上 ⌘ 或 ⌃，不然打字时会按到')
   return keyProblemFor(idOf(slot), combo)
 }
 
@@ -66,6 +71,7 @@ function problemFor(slot: KeySlot, combo: string): string | null {
  * 一般页的「速记快捷键」也用它（和这一页的「速记」是同一个键）
  */
 export function useKeyRecorder(props: Pick<SettingsProps, 'settings' | 'onChange'>, slots: KeySlot[]) {
+  const t = useT()
   const said = useSaid()
   const [rec, setRec] = useState<string | null>(null)
   /** 撞键、不能给的那一句；pending 是刚按的键（键位上先写它，待定样子），take 换给这一条，swap 两个对调 */
@@ -88,20 +94,21 @@ export function useKeyRecorder(props: Pick<SettingsProps, 'settings' | 'onChange
     // 撞了谁：同一处能按、用着这个键的（编辑器里和 ⌘K 里不会同时按到，不算撞）
     const clash = checkKey(idOf(slot), combo).clash
     const other = clash ? slots.find((s) => idOf(s) === clash.id) : undefined
+    const clashName = clash ? tNow(clash.name) : ''
     if (!clash) {
       setWarn(null)
       await put(slot, combo)
-      return said.say(`「${slot.label}」换成 ${combo}`)
+      return said.say(tNow('「{name}」换成 {key}', { name: slot.label, key: combo }))
     }
     const mine = slot.key
     // 换给这一条：那一条让出来（命令表里的命令才清得掉；速记、视频的键不能空着）
     const canTake = other?.kind === 'cmd'
     // 对调：那一格要放得下这一格原来的键（视频的键只认 ⌥ 加字母，固定的键不动）
     const canSwap = !!other && other.kind !== 'fixed' && !!mine && !problemFor(other, mine)
-    if (!canSwap && !canTake) return setWarn({ row: slot.row, text: `${combo} 已经给了「${clash.name}」，换一个` })
+    if (!canSwap && !canTake) return setWarn({ row: slot.row, text: tNow('{key} 已经给了「{name}」，换一个', { key: combo, name: clashName }) })
     setWarn({
       row: slot.row,
-      text: `${combo} 已经给了「${clash.name}」`,
+      text: tNow('{key} 已经给了「{name}」', { key: combo, name: clashName }),
       pending: combo,
       take: !canTake
         ? undefined
@@ -111,7 +118,7 @@ export function useKeyRecorder(props: Pick<SettingsProps, 'settings' | 'onChange
               await put(slot, combo)
               // 这一格不是命令表里的（速记、视频）：放好以后那条命令再让出来
               if (slot.kind !== 'cmd' && other?.kind === 'cmd') await put(other, null)
-              said.say(`「${slot.label}」换成 ${combo}，「${clash.name}」没有快捷键了`)
+              said.say(tNow('「{name}」换成 {key}，「{other}」没有快捷键了', { name: slot.label, key: combo, other: clashName }))
             })()
           },
       swap: !canSwap
@@ -125,7 +132,7 @@ export function useKeyRecorder(props: Pick<SettingsProps, 'settings' | 'onChange
             await put(other!, mine)
             await put(slot, combo)
           }
-          said.say(`对调了：「${slot.label}」${combo}，「${clash.name}」${mine}`)
+          said.say(tNow('对调了：「{name}」{key}，「{other}」{otherKey}', { name: slot.label, key: combo, other: clashName, otherKey: mine }))
         })()
       },
     })
@@ -166,20 +173,20 @@ export function useKeyRecorder(props: Pick<SettingsProps, 'settings' | 'onChange
   /** 一格的键位按钮（几个默认键的写在一起，⌘K ⌘F） */
   const button = (slot: KeySlot) =>
     slot.kind === 'fixed' ? (
-      <span className="sa-keyb fixed" aria-label={`${slot.label}的快捷键 ${slot.keys.join(' ')}（固定）`} title="固定的键，不能改">
+      <span className="sa-keyb fixed" aria-label={t('{name}的快捷键 {keys}（固定）', { name: slot.label, keys: slot.keys.join(' ') })} title={t('固定的键，不能改')}>
         {slot.keys.join(' ')}
       </span>
     ) : (
       <button
         type="button"
         className={'sa-keyb' + (rec === slot.row ? ' rec' : warn?.row === slot.row && warn.pending ? ' pend' : !slot.keys.length ? ' none' : '')}
-        aria-label={`改 ${slot.label} 的快捷键`}
+        aria-label={t('改 {name} 的快捷键', { name: slot.label })}
         onClick={() => {
           setWarn(null)
           setRec(rec === slot.row ? null : slot.row)
         }}
       >
-        {rec === slot.row ? '按新的组合键…' : warn?.row === slot.row && warn.pending ? warn.pending : slot.keys.length ? slot.keys.join(' ') : '没有'}
+        {rec === slot.row ? t('按新的组合键…') : warn?.row === slot.row && warn.pending ? warn.pending : slot.keys.length ? slot.keys.join(' ') : t('没有', { ctx: '快捷键' })}
       </button>
     )
 
@@ -191,7 +198,7 @@ export function useKeyRecorder(props: Pick<SettingsProps, 'settings' | 'onChange
         <span>{warn.text}</span>
         {warn.swap && (
           <button type="button" className="sa-lnk" onClick={warn.swap}>
-            两个对调
+            {t('两个对调')}
           </button>
         )}
       </div>
@@ -204,13 +211,13 @@ export function useKeyRecorder(props: Pick<SettingsProps, 'settings' | 'onChange
         {warn.text}
         {warn.take && (
           <button type="button" className="sa-lnk" onClick={warn.take}>
-            换给这一条
+            {t('换给这一条')}
           </button>
         )}
         {warn.take && warn.swap && <span className="sep">·</span>}
         {warn.swap && (
           <button type="button" className="sa-lnk" onClick={warn.swap}>
-            两个对调
+            {t('两个对调')}
           </button>
         )}
       </span>
@@ -223,6 +230,7 @@ export function useKeyRecorder(props: Pick<SettingsProps, 'settings' | 'onChange
 const SECTIONS = [...new Set(KEYMAP.filter((d) => d.area !== 'fixed').map((d) => d.section))]
 
 export function KeysPage(props: SettingsProps) {
+  const t = useT()
   const said = useSaid()
   const slots = useKeySlots(props.settings.general.quickKey)
   const { button, line } = useKeyRecorder(props, slots)
@@ -249,16 +257,16 @@ export function KeysPage(props: SettingsProps) {
     s.kind === 'cmd' ? (
       <>
         {/* 两颗一直占着位置（不能用时看不见）：一列一列对齐，录完键别的不挪 */}
-        <button type="button" className="sa-btn ghost sa-ic" hidden={!s.custom} aria-label={`${s.label} 回到默认`} title={s.def ? `回到默认 ${s.def}` : '回到默认：没有键'} onClick={() => void updateCmds((c) => resetKey(c, availNow(), s.cmd)).then(() => said.say(`「${s.label}」回到默认${s.def ? ` ${s.def}` : '：没有键'}`))}>
+        <button type="button" className="sa-btn ghost sa-ic" hidden={!s.custom} aria-label={t('{name} 回到默认', { name: s.label })} title={s.def ? t('回到默认 {key}', { key: s.def }) : t('回到默认：没有键')} onClick={() => void updateCmds((c) => resetKey(c, availNow(), s.cmd)).then(() => said.say(s.def ? t('「{name}」回到默认 {key}', { name: s.label, key: s.def }) : t('「{name}」回到默认：没有键', { name: s.label })))}>
           <Codicon name="discard" size={14} />
         </button>
-        <button type="button" className="sa-btn ghost sa-ic" hidden={!s.keys.length} aria-label={`清掉 ${s.label} 的快捷键`} title="清掉" onClick={() => void updateCmds((c) => setKey(c, availNow(), s.cmd, null)).then(() => said.say(`「${s.label}」的快捷键清掉了`))}>
+        <button type="button" className="sa-btn ghost sa-ic" hidden={!s.keys.length} aria-label={t('清掉 {name} 的快捷键', { name: s.label })} title={t('清掉')} onClick={() => void updateCmds((c) => setKey(c, availNow(), s.cmd, null)).then(() => said.say(t('「{name}」的快捷键清掉了', { name: s.label })))}>
           <Codicon name="close" size={14} />
         </button>
       </>
     ) : null
   const row = (s: KeySlot) => (
-    <Row key={s.row} id={s.row} label={s.label} desc={line(s) ?? (s.desc || (s.kind === 'fixed' ? '固定的键' : ''))}>
+    <Row key={s.row} id={s.row} label={s.label} desc={line(s) ?? (s.desc || (s.kind === 'fixed' ? t('固定的键') : ''))}>
       {tools(s)}
       {button(s)}
     </Row>
@@ -269,20 +277,20 @@ export function KeysPage(props: SettingsProps) {
       <div className="sa-keytools" ref={bar}>
         <label className="sa-srch">
           <Codicon name="search" size={14} />
-          <input value={q} placeholder="搜命令或键" aria-label="搜快捷键" onChange={(e) => setQ(e.currentTarget.value)} />
+          <input value={q} placeholder={t('搜命令或键')} aria-label={t('搜快捷键')} onChange={(e) => setQ(e.currentTarget.value)} />
         </label>
         <label className="sa-only">
-          <Toggle on={onlySet} label="只看已设的" onChange={setOnlySet} />
-          只看已设的
+          <Toggle on={onlySet} label={t('只看已设的')} onChange={setOnlySet} />
+          {t('只看已设的')}
         </label>
       </div>
       {groups.map((g) => (
-        <Group key={g.sec} title={SECTION_NAME[g.sec]}>
+        <Group key={g.sec} title={t(SECTION_NAME[g.sec])}>
           {g.rows.map(row)}
         </Group>
       ))}
-      {!groups.length && <p className="sa-note">{`没有「${q.trim()}」`}</p>}
-      <p className="sa-note">{withKeys('点键位再按新的组合，esc 取消；撞了别的能换给这一条或两个对调。命令和 {k:search} 里的是同一份。')}</p>
+      {!groups.length && <p className="sa-note">{t('没有「{q}」', { q: q.trim() })}</p>}
+      <p className="sa-note">{withKeys(t('点键位再按新的组合，esc 取消；撞了别的能换给这一条或两个对调。命令和 {k:search} 里的是同一份。'))}</p>
     </>
   )
 }

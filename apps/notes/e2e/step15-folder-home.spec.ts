@@ -343,8 +343,9 @@ test('文件夹首页：梦游预览时，挪进这门课的导图在首页标�
     await leftView(page, '梦游报告')
     const panel = page.getByRole('complementary', { name: '梦游报告' })
     await panel.getByRole('button', { name: '现在梦游' }).click()
-    await expect(panel.getByTestId('dream-summary')).toContainText('点「预览」看改好后的样子', { timeout: 30_000 })
-    await panel.getByRole('region', { name: '归类和改名' }).getByRole('button', { name: '预览' }).click()
+    await expect(panel.getByTestId('dream-summary')).toContainText('收下才合进main', { timeout: 30_000 })
+    // 「预览」改名「在树里看」（task-m552v）
+    await panel.getByRole('region', { name: '归类和改名' }).getByRole('button', { name: '在树里看' }).click()
     await expect(page.getByTestId('preview-bar')).toBeVisible()
     // 左栏：只在预览里才有的「微积分」标「新」（预览时左栏先换到「文件」页，再切过来）
     await leftView(page, '课程')

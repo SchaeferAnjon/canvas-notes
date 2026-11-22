@@ -8,7 +8,7 @@ import { type AttachIndex, buildTree, type FileEntry, fileName, filterTree, fold
 import { MovedMark, type DreamPreview } from '../dream/preview'
 import { fileIcon } from '../Palette'
 import { Progress } from '../search/QuickOpen'
-import { onReveal, setTreePicked, takeReveal, useTrashCount, useVaultFiles } from './store'
+import { onReveal, setTreePicked, takeReveal, useVaultFiles } from './store'
 import { folderMenu, onFileMenu, type TreeMenu } from '../ctx/file-menu'
 import { copy, menuAt } from '../ctx/menu'
 import { app } from '../ctx/actions'
@@ -22,6 +22,8 @@ import { MovePicker, noteMovedTo } from './move-pick'
 import { fileType, TypeChips, type TypeFilter, useSideType } from './type-filter'
 import './file-tree.css'
 import { bookName, usePairs } from '../read-along/store'
+import { openDream } from '../dream/nav'
+import { ClipRule, TreeStrip, useDreamTree } from '../dream/tree'
 
 const OPEN_KEY = 'cn.treeOpen'
 /** 筛了类型时符合的不超过这么多篇，装着它们的文件夹自己展开 */
@@ -121,6 +123,13 @@ function coursesProgress(n: TreeNode): { done: number; total: number } | null {
  * 没有谁在用的放最下面「没有笔记的附件」一组。
  * root：摘到活动栏的文件夹，只画它自己那一枝。梦游预览开着时画成改好以后的样子：挪来的标「新」，原来的位置留划掉的影子。
  */
+/** 挂着的子文件左边的线：x 是父文件展开箭头的正中，rails 是上面几层还没走完的竖线，last 是最后一个（拐弯，不再往下） */
+interface Guide {
+  x: number
+  rails: number[]
+  last: boolean
+}
+
 export function FileTree(props: {
   /** 头上的字：「文件」或摘出来的文件夹的名字 */
   title: string
@@ -130,14 +139,14 @@ export function FileTree(props: {
   onNewNote(): void
   onNewBoard(): void
   activePath: string | null
-  /** 中间开着的是「最近删掉的」（最底下那一行是正在看的） */
-  trashOn?: boolean
   onOpen(path: string): void
   onOpenFolder(path: string): void
   preview?: DreamPreview | null
   onRename(path: string, name: string): void
   /** 白板：路径 → 它自己的颜色（目录树里画颜色方块，不画文档图标） */
   boards: Map<string, string>
+  /** 挂在别的笔记下面的子文件 → 那一篇（白板下的导图、子白板，task-wuv05） */
+  subOf: ReadonlyMap<string, string>
   /** md 是哪类（白板、剪藏；没有的是文档），类型筛选用 */
   noteTypes: ReadonlyMap<string, Exclude<TypeFilter, 'all' | 'att'>>
   /** 书摘：图标是 quote（同一篇在哪都是同一个图标） */
@@ -147,8 +156,6 @@ export function FileTree(props: {
   /** 写在界面上的键照命令表（改了跟着变） */
   const K = useKeys()
   const { files, loaded } = useVaultFiles()
-  /** 「最近删掉的」有几篇（task-5yp97）：库里的文件变了就重数 */
-  const trashN = useTrashCount(files)
   const [open, setOpen] = useState(loadOpen)
   const [rootOpen, setRootOpen] = useState(() => {
     try {
@@ -325,10 +332,13 @@ export function FileTree(props: {
   }, [type, files])
 
   const pinSet = useMemo(() => new Set(props.pins), [props.pins])
+  /** 梦游（task-m552v）：没收下的可视化挂在它的笔记下面；正在看的这条改了的文件后面一个小点 */
+  const dream = useDreamTree()
   /** 用预设的分类（task-wniqx）：关掉时最外层不分组，分类和自己的文件夹一起按名字排 */
   const presets = presetsOn(useLeft())
   const { tree, real, ghosts, attOf, newDirs, keep } = useMemo(() => {
-    const opts = { sort: view.sort, foldersFirst: view.foldersFirst, pinsFirst: view.pinsFirst, pins: pinSet, cats: presets }
+    // PDF › 笔记 › 可视化一层挂一层（task-m552v，shared/files.ts 的 hang）
+    const opts = { sort: view.sort, foldersFirst: view.foldersFirst, pinsFirst: view.pinsFirst, pins: pinSet, hang: true, cats: presets, subOf: props.subOf }
     let real = new Map<string, string>()
     let ghosts = new Map<string, string>()
     // 梦游预览里才有的文件夹（要新建的，比如新的一门课）：那一行标「新」
@@ -343,9 +353,9 @@ export function FileTree(props: {
       return { tree: filterTree(props.root ? subtree(all, props.root) : all, q), real, ghosts, attOf, newDirs, keep: undefined }
     }
     const keep = type === 'all' ? undefined : (f: FileEntry) => fileType(f, props.noteTypes) === type
-    let list = files
+    let list = dream.ghosts.length ? [...files, ...dream.ghosts.filter((g) => !files.some((f) => f.path === g.path))] : files
     if (pv) {
-      const p = previewFiles(files, pv.moves)
+      const p = previewFiles(list, pv.moves)
       list = [...p.files, ...p.ghosts.map((g): FileEntry => ({ path: g.from, kind: 'md', mtimeMs: 0 }))]
       real = p.moved
       ghosts = new Map(p.ghosts.map((g) => [g.from, g.to]))
@@ -354,14 +364,9 @@ export function FileTree(props: {
     }
     const all = buildTree(list, { ...opts, keep })
     return { tree: filterTree(props.root ? subtree(all, props.root) : all, q), real, ghosts, attOf: null, newDirs, keep }
-  }, [files, pv, view.sort, view.foldersFirst, view.pinsFirst, pinSet, type, props.noteTypes, props.root, att, q, presets])
-  // 一个 PDF 一篇笔记：开着的是合进 PDF 那一行的笔记（「单独打开笔记」）时，当前的是 PDF 那一行（选中、定位、自动定位都认它）
-  const activePath = useMemo(() => {
-    const a = props.activePath
-    if (!a || type === 'att') return a
-    const pdf = files.find((f) => f.note?.path === a && (!keep || keep(f)))
-    return pdf ? pdf.path : a
-  }, [props.activePath, files, keep, type])
+  }, [files, dream.ghosts, pv, view.sort, view.foldersFirst, view.pinsFirst, pinSet, type, props.noteTypes, props.root, att, q, presets, props.subOf])
+  // 笔记挂在它的 PDF 下面自己一行（task-m552v）：开着的就是它自己那一行
+  const activePath = props.activePath
 
   // 筛了类型（不是「全部」）：装着符合的那几篇的文件夹都展开（CN-104），回到「全部」时回到筛之前的展开。
   // 记在模块里：换到「最近」再回来树是重新挂上的，筛选也是两边共用的
@@ -392,8 +397,14 @@ export function FileTree(props: {
 
   const openTo = (path: string) =>
     setOpen((o) => {
+      // 挂在 PDF、笔记下面的（task-m552v）：一路上收起来的那几行也打开
+      const note = files.find((f) => f.vizOf && f.path === path)?.vizOf ?? path
+      const shut = [note, files.find((f) => f.note?.path === note)?.path].filter((x): x is string => !!x && o.has('shut:' + x)).map((x) => 'shut:' + x)
       const need = ancestors(path).filter((d) => !o.has(d))
-      return need.length ? new Set([...o, ...need]) : o
+      if (!need.length && !shut.length) return o
+      const n = new Set([...o, ...need])
+      for (const k of shut) n.delete(k)
+      return n
     })
   const scrollTo = (path: string) =>
     requestAnimationFrame(() => treeRef.current?.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: 'nearest' }))
@@ -680,11 +691,31 @@ export function FileTree(props: {
   }
 
   /**
+   * 挂着的子文件左边的线（task-wuv05，偏好「挂着的文件缩进加弯线」）：父文件展开箭头的正下方一条 1px 竖线，
+   * 到这一行中间圆角拐到子文件的图标前面（toggle：子文件自己有展开箭头时拐到箭头前面）；不是最后一个的，竖线接着往下；
+   * 上面几层没走完的竖线（rails）一路穿过去。线画在行的底色上面，不打断选中、悬停的底色
+   */
+  const guides = (g: Guide | undefined, depth: number, toggle: boolean) => {
+    if (!g) return null
+    const pad = 8 + depth * 14
+    const end = toggle ? pad - 2 : pad + 16 - 3
+    return (
+      <span className="ft-guides" aria-hidden>
+        {g.rails.map((x) => (
+          <i key={x} className="gl-v" style={{ left: x }} />
+        ))}
+        {!g.last && <i className="gl-v" style={{ left: g.x }} />}
+        <i className="gl-e" data-last={g.last ? '1' : '0'} style={{ left: g.x, width: end - g.x }} />
+      </span>
+    )
+  }
+
+  /**
    * 数据库的记录文件夹（task-5yp97「藏之后」）：挂在用它的那篇下面一行——数据库图标 · 名字 · 「N条」，不画箭头（记录不在树里一条条列）；
    * 点开它的首页（每一条都在），右键照文件夹的菜单（重命名…、移到…）；能拖进别的文件夹（库里的链接、数据库块里的路径一起改，
    * 离开了那篇就照普通文件夹画）；不能往里拖笔记（挪进去就成了一条记录，和「移到」里不列它一样）。那篇挪走时它跟着挪（主进程 folder-ops）
    */
-  const baseRow = (d: TreeNode, depth: number) => {
+  const baseRow = (d: TreeNode, depth: number, g?: Guide) => {
     order.push(d.path)
     const on = activePath === d.path
     const n = d.entry?.base?.records ?? 0
@@ -697,7 +728,7 @@ export function FileTree(props: {
         aria-current={on ? 'page' : undefined}
         tabIndex={-1}
         data-path={d.path}
-        className={'si ft-row ft-dbrow' + (sel.has(d.path) ? ' sel' : '') + (on ? ' on' : '') + (ring?.has(d.path) ? ' ring' : '') + (hit(d.name) ? ' hit' : '')}
+        className={'si ft-row ft-dbrow' + (g ? ' ft-hg' : '') + (sel.has(d.path) ? ' sel' : '') + (on ? ' on' : '') + (ring?.has(d.path) ? ' ring' : '') + (hit(d.name) ? ' hit' : '')}
         style={{ paddingLeft: 8 + depth * 14 }}
         title={`${d.path} · 数据库的${n}条记录（磁盘上是一个文件夹）`}
         {...selProps(d.path)}
@@ -714,6 +745,7 @@ export function FileTree(props: {
           void menuAt(e, folderMenu(d.path, { rename: () => setRenaming(d.path), newFolder: () => startFolder(d.path), look: () => setLook({ folder: d.path, el }), tree: treeMenu(d.path, el) }))
         }}
       >
+        {guides(g, depth, false)}
         <span className="ft-tw" />
         <Codicon name="database" size={16} className="ft-db" />
         {renaming === d.path ? <FolderRename folder={d.path} onDone={() => setRenaming(null)} /> : <span className="truncate">{hl(d.name)}</span>}
@@ -739,7 +771,7 @@ export function FileTree(props: {
   }
 
   const rows: React.ReactNode[] = []
-  const walk = (nodes: TreeNode[], depth: number, dir: string, pageKey = dir) => {
+  const walk = (nodes: TreeNode[], depth: number, dir: string, pageKey = dir, g?: Omit<Guide, 'last'> & { lastAt: number }) => {
     if (making === dir && dir !== '') rows.push(newFolderRow(dir, depth))
     const limit = pages[pageKey] ?? PAGE
     for (const [i, n] of nodes.slice(0, limit).entries()) {
@@ -847,6 +879,13 @@ export function FileTree(props: {
       const dbs = items ? [] : n.children.filter((c) => c.kind === 'dir')
       const dbKey = 'db:' + n.path
       const dbOpen = dbs.length > 0 && (qOn || open.has(dbKey))
+      // PDF › 笔记 › 可视化（task-m552v）：挂在下面的文件默认展开；没收下的可视化（ghost）淡着写「没收下」，点了开报告里那一条
+      const kids = items ? [] : n.children.filter((c) => c.kind !== 'dir')
+      const kidsOpen = kids.length > 0 && (qOn || !open.has('shut:' + n.path))
+      const ghost = n.entry?.dream
+      const hasNote = kids.some((k) => k.hung === 'note')
+      // 挂在别的文件下面的这一行（task-wuv05）：左边的弯线；它自己挂着东西时，往下传它的竖线
+      const mine: Guide | undefined = g ? { x: g.x, rails: g.rails, last: i === g.lastAt } : undefined
       order.push(realPath)
       rows.push(
         <div
@@ -855,27 +894,37 @@ export function FileTree(props: {
           aria-level={depth + 1}
           aria-selected={sel.has(realPath)}
           aria-current={activePath === realPath ? 'page' : undefined}
-          aria-expanded={items ? attOpen : dbs.length ? dbOpen : undefined}
+          aria-expanded={items ? attOpen : dbs.length ? dbOpen : kids.length ? kidsOpen : undefined}
           tabIndex={-1}
           data-path={realPath}
-          className={'si ft-row ft-fit' + (items ? ' att' : '') + (sel.has(realPath) ? ' sel' : '') + (activePath === realPath ? ' on' : '') + (ring?.has(realPath) ? ' ring' : '') + (hit(shown(n.name)) ? ' hit' : '')}
+          className={'si ft-row ft-fit' + (mine || dbOpen || kidsOpen ? ' ft-hg' : '') + (items ? ' att' : '') + (ghost ? ' ghost' : '') + (sel.has(realPath) ? ' sel' : '') + (activePath === realPath ? ' on' : '') + (ring?.has(realPath) ? ' ring' : '') + (hit(shown(n.name)) ? ' hit' : '')}
           style={pad}
-          title={note ? `${n.kind === 'pdf' ? 'PDF' : 'HTML'} 和它的笔记是一行：点开 ${n.kind === 'pdf' ? 'PDF' : 'HTML'}，笔记跟着在旁边` : n.path}
+          title={
+            n.hung === 'viz'
+              ? `从笔记「${shown(fileName(n.entry?.vizOf ?? ''))}」做的可视化${ghost ? '，还没收下：点了开梦游报告里那一条' : ''}`
+              : n.hung === 'note'
+                ? `${shown(n.name)}（挂在它的 PDF 下面）`
+                : note
+                  ? `${n.kind === 'pdf' ? 'PDF' : 'HTML'} 和它的笔记：点开 ${n.kind === 'pdf' ? 'PDF' : 'HTML'}，笔记跟着在旁边`
+                  : n.path
+          }
           data-note={note?.path}
           {...selProps(realPath)}
           // 笔记能拖进别的文件夹（松在文件夹那一行上）
           draggable={n.kind === 'md' && !pv && type !== 'att'}
           onDragStart={(e) => dragMany(e, realPath) || ((e.dataTransfer.setData(DRAG_MIME, realPath), (e.dataTransfer.effectAllowed = 'move')))}
           onDragEnd={() => (stopSpring(), setDropOn(null))}
-          onClick={(e) => pick(e, realPath) || (setPicked(null), note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath))}
+          onClick={(e) => (ghost ? openDream(ghost) : pick(e, realPath) || (setPicked(null), note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath)))}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (note && !pv ? app().openWithNote(realPath) : props.onOpen(realPath))
             if (isKey(e, 'rename') && /\.md$/i.test(realPath)) setRenaming(realPath)
           }}
           onContextMenu={(e) =>
-            many && sel.has(realPath) ? groupMenu(e) : onFileMenu(e, realPath, { rename: () => setRenaming(realPath), ...(note ? { note: note.path } : {}), tree: treeMenu(realPath, e.currentTarget) })
+            ghost ? e.preventDefault() : many && sel.has(realPath) ? groupMenu(e) : onFileMenu(e, realPath, { rename: () => setRenaming(realPath), ...(note ? { note: note.path } : {}), tree: treeMenu(realPath, e.currentTarget) })
           }
         >
+          {guides(mine, depth, items ? false : dbs.length > 0 || kids.length > 0)}
+          {(dbOpen || kidsOpen) && <i className="gl-s" aria-hidden style={{ left: 8 + depth * 14 + 6 }} />}
           <span
             className="ft-tw"
             {...(items
@@ -890,18 +939,34 @@ export function FileTree(props: {
                     'aria-label': `${dbOpen ? '收起' : '展开'} ${shown(n.name)} 的数据库`,
                     onClick: (e: React.MouseEvent) => (e.stopPropagation(), toggle(dbKey)),
                   }
-                : {})}
+                : kids.length
+                  ? {
+                      role: 'button',
+                      'aria-label': `${kidsOpen ? '收起' : '展开'} ${n.label ?? shown(n.name)}`,
+                      onClick: (e: React.MouseEvent) => (e.stopPropagation(), toggle('shut:' + n.path)),
+                    }
+                  : {})}
           >
-            {(items || dbs.length > 0) && <Codicon name={(items ? attOpen : dbOpen) ? 'chevron-down' : 'chevron-right'} size={12} />}
+            {(items || dbs.length > 0 || kids.length > 0) && <Codicon name={(items ? attOpen : dbs.length ? dbOpen : kidsOpen) ? 'chevron-down' : 'chevron-right'} size={12} />}
           </span>
-          {props.boards.has(realPath) ? <i className="sw ft-sw" style={{ background: props.boards.get(realPath) }} /> : <Codicon name={fileIcon(n.path, false, props.digests.has(n.path))} size={16} />}
+          {props.boards.has(realPath) ? (
+            <i className="sw ft-sw" style={{ background: props.boards.get(realPath) }} />
+          ) : (
+            <Codicon name={n.hung === 'note' ? 'note' : n.hung === 'viz' ? 'graph' : fileIcon(n.path, false, props.digests.has(n.path))} size={16} />
+          )}
           {renaming === realPath ? (
             <RenameInput path={realPath} onDone={() => setRenaming(null)} onRename={props.onRename} />
           ) : (
-            <span className="truncate">{hl(shown(n.name))}</span>
+            <span className="truncate">{hl(n.label ?? shown(n.name))}</span>
           )}
-          {/* PDF、HTML 名字后面一个小标（照 Obsidian）；md 不加（默认状态不加标签） */}
-          {(n.kind === 'pdf' || n.kind === 'html') && <span className="ft-ext">{n.kind === 'pdf' ? 'PDF' : 'HTML'}</span>}
+          {/* 正在看的这条梦游改了它（task-m552v） */}
+          {dream.touched.has(realPath) && <span className="ft-dd" aria-label="正在看的这条梦游改了它" data-tip="正在看的这条梦游改了它" data-side="right" />}
+          {/* PDF、HTML 名字后面一个小标（照 Obsidian）；md 不加（默认状态不加标签）；挂在笔记下面的可视化写「可视化」，没收下的写「没收下」 */}
+          {n.hung === 'viz' ? (
+            <span className={'ft-tag' + (ghost ? ' acc' : '')}>{ghost ? '没收下' : '可视化'}</span>
+          ) : (
+            (n.kind === 'pdf' || n.kind === 'html') && <span className="ft-ext">{n.kind === 'pdf' ? 'PDF' : 'HTML'}</span>
+          )}
           {mark && pv && <MovedMark m={mark} pv={pv} />}
           <span className="ft-fl" />
           {/* 和网页配成一对（task-kbnc0）：右边一个网页小标，悬停说点开会怎样 */}
@@ -916,7 +981,18 @@ export function FileTree(props: {
             </span>
           )}
           {items && <span className="ft-count num">{`${items.length}张`}</span>}
-          {note ? (
+          {n.hung === 'note' && n.asks ? (
+            <span className="ft-q num" data-testid="ft-note" aria-label={`问了${n.asks.n}问${n.asks.sent ? '，都送进Anki了' : ''}`}>
+              <Codicon name="comment-discussion" size={13} />
+              {n.asks.n}
+              {n.asks.sent && <Codicon name="check" size={13} className="ft-sent" />}
+            </span>
+          ) : hasNote ? (
+            // 笔记挂在下面（问了几问在笔记那行）：PDF 这一行右端写问到第几页（DESIGN.md「PDF 右端 3/5」）
+            <span className="ft-meta">
+              <Progress p={n.entry?.progress} />
+            </span>
+          ) : note ? (
             <span className="ft-nb num" data-testid="ft-note" aria-label={`笔记里问了${note.asks}问${note.sent ? '，都送进Anki了' : ''}`}>
               <Codicon name="note" size={13} />
               {note.asks}
@@ -931,7 +1007,11 @@ export function FileTree(props: {
           )}
         </div>,
       )
-      if (dbOpen) for (const d of dbs) rows.push(baseRow(d, depth + 1))
+      // 挂着的（记录文件夹、笔记、可视化、导图、子白板）：竖线从这一行的展开箭头下面伸下去，最后一个拐弯
+      const below = { x: 8 + depth * 14 + 6, rails: mine && !mine.last ? [...mine.rails, mine.x] : (mine?.rails ?? []) }
+      const nKids = kidsOpen ? kids.length : 0
+      if (dbOpen) dbs.forEach((d, j) => rows.push(baseRow(d, depth + 1, { ...below, last: nKids === 0 && j === dbs.length - 1 })))
+      if (kidsOpen) walk(kids, depth + 1, '\0' + n.path, 'hang:' + n.path, { ...below, lastAt: Math.min(kids.length, pages['hang:' + n.path] ?? PAGE) - 1 })
       if (items && attOpen) {
         const lim = pages[attKey] ?? ATT_PAGE
         for (const it of items.slice(0, lim)) rows.push(attachRow(it.path, depth + 1, realPath, it.bytes, attKey + '>' + it.path))
@@ -1008,27 +1088,6 @@ export function FileTree(props: {
           )
         walk(g.nodes, 1, '', 'top:' + g.title)
       }
-      // 最底下一行「最近删掉的 N」（task-5yp97，用户看图定「只列 30 天」）：点开中间「最近删掉的」，正在看时同别的行一道竖线。
-      // 样子同一行文件夹，但它不是库里的文件（不当 treeitem，键盘上下、框选、多选都不算它）
-      const trashRow = (
-        <div
-          key="trash"
-          role="button"
-          aria-current={props.trashOn ? 'page' : undefined}
-          tabIndex={0}
-          className={'si ft-row ft-trash' + (props.trashOn ? ' on' : '')}
-          style={{ paddingLeft: 22 }}
-          title="30天里删掉的，放回去还在原来的文件夹"
-          onClick={() => app().openTrash()}
-          onKeyDown={(e) => e.key === 'Enter' && app().openTrash()}
-        >
-          <span className="ft-tw" />
-          <Codicon name="trash" size={16} />
-          <span className="truncate">最近删掉的</span>
-          <span className="ft-fl" />
-          {view.counts && !!trashN && <span className="ft-count num">{trashN}</span>}
-        </div>
-      )
       // 「附件」筛选：最下面两组。读 PDF 的完整对话在用、那份 PDF 的笔记已经不在的（对话记录本身不进树，双击这一张打开那份对话）；没有谁在用的。
       // 名字后面写所在的文件夹（附件/ 最外层的不写）
       if (type === 'att' && att) {
@@ -1057,7 +1116,6 @@ export function FileTree(props: {
             )
         }
       }
-      rows.push(<div key="trash-gap" className="ft-trash-gap" role="presentation" />, trashRow)
     }
   }
   const sortNow = TREE_SORTS.find((s) => s.id === view.sort)!
@@ -1130,6 +1188,7 @@ export function FileTree(props: {
         <HeadBtn icon="collapse-all" label="全部收起" onClick={() => setOpen(new Set())} />
       </ViewHead>
       <TypeChips value={type} onChange={setType} className="side-chips" att />
+      {pv && !props.root && <TreeStrip pv={pv} />}
       {/* 找文件的框（task-4891y ②）：类型筛选下面；空着时右边写命令表里的键（⌥⌘F），有字时是一个 ×；esc 清空，回车开第一个命中的，↓ 到树里 */}
       <label className="ft-find">
         <Codicon name="search" size={14} />
@@ -1204,6 +1263,7 @@ export function FileTree(props: {
             </div>
           )}
           {rows}
+          {type === 'clip' && <ClipRule />}
           {loaded && !tree.length && making === null && props.root && <p className="s-none">{qOn ? `没有名字里带「${q.trim()}」的文件` : type === 'all' ? '这个文件夹还是空的' : '没有这一类的文件'}</p>}
           {lasso && (
             <div

@@ -101,14 +101,15 @@ describe('梦游做可视化', { timeout: 30_000 }, () => {
     // 工作目录没动
     expect(readFileSync(join(root, NOTE), 'utf8')).toBe(before)
     expect(existsSync(join(root, '课程/线性代数/第 5 页.html'))).toBe(false)
-    // 分支上：HTML 带属性，笔记那段脚上挂了可视化，别的段不动
+    // 分支上：HTML 带属性，笔记那段末尾嵌进可视化（task-m552v：单独一段嵌入），别的段不动
     const html = g(root, 'show', `${r.branch}:课程/线性代数/第 5 页.html`)
     expect(html).toContain('<meta name="类型" content="可视化">')
     expect(html).toContain('<meta name="第几讲" content="3">')
     expect(html).toContain('<meta name="做的" content="梦游">')
     expect(html).toContain('<meta name="模型" content="Claude Code · Haiku">')
     const onBranch = parseReadingNote(g(root, 'show', `${r.branch}:${NOTE}`), NOTE)
-    expect(onBranch.find((s) => s.page === 5)!.viz).toEqual({ path: '课程/线性代数/第 5 页.html', title: '第 5 页 · 拖一拖' })
+    expect(onBranch.find((s) => s.page === 5)!.viz).toEqual({ path: '课程/线性代数/第 5 页.html', title: '第 5 页 · 拖一拖', embed: true })
+    expect(g(root, 'show', `${r.branch}:${NOTE}`)).toContain('\n\n![可视化 · 第 5 页 · 拖一拖](第%205%20页.html)\n')
     expect(onBranch.find((s) => s.page === 6)!.viz).toBeUndefined()
     expect(onBranch.find((s) => s.page === 2)!.viz).toBeUndefined()
     // 收下第一处：进到 main

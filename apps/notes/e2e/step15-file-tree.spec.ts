@@ -40,13 +40,16 @@ test('全部文件：整个库的树，PDF 和课程旁边是进度；点文件�
     // 线性代数：3 份课件问完 1 份
     await expect(item(page, '线性代数').locator('.ft-meta')).toHaveText('1/3讲')
 
-    // 点箭头只展开（不开首页）：PDF 和它的笔记是一行（一个 PDF 一篇笔记，2026-11-20），第 10 讲排在第 3 讲后面；「我的疑惑」不再放最上；名字不带扩展名
+    // 点箭头只展开（不开首页）：PDF 下面挂它的笔记写「笔记」（PDF › 笔记 › 可视化，task-m552v；以前是一行），第 10 讲排在第 3 讲后面；「我的疑惑」不再放最上；名字不带扩展名
     await item(page, '线性代数').getByRole('button', { name: '展开 线性代数' }).click()
-    await expect(tree(page).getByRole('treeitem', { level: 4 })).toHaveText([/^第2讲 向量空间PDF0$/, /^第3讲 线性映射PDF0$/, /^第10讲 二次型/, /^我的疑惑/, /^旋转矩阵/])
+    // PDF 一行右端是问到第几页（DESIGN.md 目录树「PDF 右端 11 等宽「3/5」」，task-m552v b997f1a2）：问完的是一个勾、不写字
+    await expect(tree(page).getByRole('treeitem', { level: 4 })).toHaveText([/^第2讲 向量空间PDF$/, /^第3讲 线性映射PDF3\/5$/, /^第10讲 二次型/, /^我的疑惑/, /^旋转矩阵/])
+    await expect(item(page, '第2讲 向量空间').first().locator('.ft-meta svg.done, .ft-meta .done')).toHaveCount(1)
+    await expect(item(page, '第3讲 线性映射').first().locator('.ft-meta')).toHaveText('3/5')
     await expect(page.locator('.tab', { hasText: '线性代数' })).toHaveCount(0)
-    // 有笔记的 PDF 右端是笔记里问了几问（这两篇笔记还没问过：0）；没开始的什么都不写；问到第几页在悬停里
-    await expect(item(page, '第2讲 向量空间').first().getByTestId('ft-note')).toHaveText('0')
-    await expect(item(page, '第3讲 线性映射').first().getByTestId('ft-note')).toHaveText('0')
+    // 挂着的笔记右端是问了几问（这两篇笔记还没问过：0）；没开始的什么都不写
+    await expect(tree(page).getByRole('treeitem', { level: 5 })).toHaveText(['笔记0', '笔记0'])
+    await expect(tree(page).getByRole('treeitem', { level: 5 }).first().getByTestId('ft-note')).toHaveText('0')
     await expect(item(page, '第10讲 二次型').locator('.ft-meta')).toHaveText('')
 
     // 点 PDF 开 PDF 标签，这一行变成当前
@@ -96,8 +99,8 @@ test('梦游预览时目录树画成改好以后的样子：挪来的标「新�
     await leftView(page, '梦游报告')
     const panel = page.getByRole('complementary', { name: '梦游报告' })
     await panel.getByRole('button', { name: '现在梦游' }).click()
-    await expect(panel.getByTestId('dream-summary')).toContainText('点「预览」看改好后的样子', { timeout: 30_000 })
-    await panel.getByRole('region', { name: '归类和改名' }).getByRole('button', { name: '预览' }).click()
+    await expect(panel.getByTestId('dream-summary')).toContainText('收下才合进main', { timeout: 30_000 })
+    await panel.getByRole('region', { name: '归类和改名' }).getByRole('button', { name: '在树里看' }).click()
     await expect(page.getByTestId('preview-bar')).toBeVisible()
 
     // 树里：生活/周末去花市买 是挪来的（标「新」），收件箱里原来那篇留划掉的影子；预览时只画有东西的分类。

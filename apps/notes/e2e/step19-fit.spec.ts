@@ -65,9 +65,10 @@ for (const f of ['a', 'b'] as const) {
       expect((await activeFit(page)).left).toBeGreaterThanOrEqual(0)
       await expect(page.getByTestId('tab-list')).toHaveClass(/\bmore-l\b/)
       await expect(page.getByTestId('tab-list')).not.toHaveClass(/\bmore-r\b/)
-      // B 的动作带字（属性 · 任务 / 白板 / 文档 · 收件箱）时当前标签放不下：动作只留图标，位置让给标签（A 本来就只有图标）
+      // B 的动作带字（属性 · 任务 / 白板 / 文档）时当前标签放不下就只留图标，位置让给标签（A 本来就只有图标）；
+      // 2026-11-22 起缩放和收件箱在白板右上角（task-wz7gb），这一排窄了，1100 宽时带字也放得下：不论哪样，当前标签整个露着（上面量过）
       const segLabel = acts(page).locator('.seg button.on .lb')
-      if (f === 'b') await expect(segLabel).toBeHidden()
+      if (f === 'b') await expect(segLabel).toBeVisible()
       // 中间窄于 900：说明最宽 140，放不下是省略号，悬停看全句
       const nb = (await note.boundingBox())!
       expect(nb.width).toBeLessThanOrEqual(141)
@@ -75,13 +76,13 @@ for (const f of ['a', 'b'] as const) {
       await note.hover()
       await expect(page.getByTestId('tooltip')).toHaveText('收件箱 · 今晚梦游时归类、起名')
 
-      // 回到第一个标签：像人一样先把标签条滚回开头再点（不靠 Playwright 自己把它滚到正中：白板标签的动作区多一颗缩放，换标签时标签条宽度会变），只画右边渐隐
+      // 回到第一个标签：像人一样先把标签条滚回开头再点（不靠 Playwright 自己把它滚到正中：导图标签的动作区多一句页面说明，换标签时标签条宽度会变），只画右边渐隐
       await page.getByTestId('tab-list').evaluate((l) => (l.scrollLeft = 0))
       await page.locator('.tab', { hasText: NAMES[0]! }).locator('.tl').click()
       await expect(tabOn(page)).toHaveText(NAMES[0]!)
       await expect.poll(async () => (await activeFit(page)).left).toBeGreaterThanOrEqual(0)
       await expect(page.getByTestId('tab-list')).toHaveClass(/\bmore-r\b/)
-      // 文档标签的动作少（没有缩放、收件箱、页面说明），带字也放得下：B 的字回来
+      // 文档标签的动作少（没有页面说明），带字也放得下：B 带字
       if (f === 'b') await expect(segLabel).toBeVisible()
       expect((await activeFit(page)).right).toBeGreaterThanOrEqual(0)
       await expect(page.getByTestId('tab-list')).not.toHaveClass(/\bmore-l\b/)
@@ -93,10 +94,10 @@ for (const f of ['a', 'b'] as const) {
       for (const n of NAMES.slice(1)) await page.locator('.tab', { hasText: n }).getByRole('button', { name: '关闭标签' }).click()
       await expect(page.locator('.tabs .tab')).toHaveCount(3)
       await expect(page.getByTestId('tab-list')).not.toHaveClass(/\bmore-l\b|\bmore-r\b/)
-      // 回到导图：1100 宽时带字还是放不下（B 只留图标）；窗口拉到 1500 宽，带字也放得下，B 的字回来、当前标签整个露着
+      // 回到导图：只剩三个标签，带字放得下（B 带字）；窗口拉到 1500 宽，照样带字、当前标签整个露着
       await page.locator('.tab', { hasText: '导图 11-15' }).locator('.tl').click()
       await expect(tabOn(page)).toContainText('导图 11-15')
-      if (f === 'b') await expect(segLabel).toBeHidden()
+      if (f === 'b') await expect(segLabel).toBeVisible()
       expect((await activeFit(page)).right).toBeGreaterThanOrEqual(0)
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1500, 900))
       if (f === 'b') await expect(segLabel).toBeVisible()

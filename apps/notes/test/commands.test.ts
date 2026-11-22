@@ -46,7 +46,7 @@ const items = (c: ReturnType<typeof defaultCommands>, gid: string) => materializ
 describe('⌘K 的自定义（.canvas-notes/命令.json）', () => {
   it('没改过：默认八组，钉住的是新建笔记、问AI、按名字跳到；没写进默认表的插件命令接在它那一组最后；和默认一样不建文件', () => {
     const c = defaultCommands()
-    expect(layoutOf(c).map((g) => g.id)).toEqual(['pin', 'go', 'new', 'ai', 'web', 'lib', 'app'])
+    expect(layoutOf(c).map((g) => g.id)).toEqual(['pin', 'desks', 'go', 'new', 'ai', 'web', 'lib', 'app', 'more'])
     expect(items(c, 'pin')).toEqual(['new-note', 'ask-ai', 'goto'])
     expect(items(c, 'web')).toEqual(['translate', 'plugin:weread:sync'])
     expect(sameAsDefault(c)).toBe(true)
@@ -171,6 +171,33 @@ describe('⌘K 的自定义（.canvas-notes/命令.json）', () => {
     expect(c.alias).toEqual({ dup: 'cf' })
     expect(c.keys).toEqual({ sync: '⌥⌘S' })
     expect(c.own.map((o) => o.id)).toEqual(['own-ok1'])
+  })
+
+  it('旧版存的 命令.json 没有「书桌」「更多命令」两组（task-xy89o）：默认放那两组的从原来那组挪过去；钉住的、自己挪过的不动', () => {
+    const old = normalizeCommands({
+      groups: [
+        { id: 'pin', items: ['new-note', 'inbox', 'outline'] },
+        { id: 'go', items: ['home', 'back', 'forward', 'left-files'] },
+        { id: 'new', items: ['new-board', 'save-desk'] },
+        { id: 'lib', items: ['commit', 'find-file'] },
+      ],
+      homes: { 'find-file': 'lib', outline: 'go' },
+    })
+    const L = layoutOf(old)
+    expect(L.find((g) => g.id === 'desks')!.items).toEqual(['save-desk'])
+    expect(L.find((g) => g.id === 'new')!.items).toEqual(['new-board'])
+    expect(L.find((g) => g.id === 'go')!.items).toEqual(['home'])
+    // 自己挪去「库和同步」的找文件、钉住的大纲留在原处
+    expect(L.find((g) => g.id === 'lib')!.items).toEqual(['commit', 'find-file'])
+    expect(L.find((g) => g.id === 'pin')!.items).toEqual(['new-note', 'inbox', 'outline'])
+    const more = L.find((g) => g.id === 'more')!.items
+    expect(more.slice(0, 2)).toEqual(['back', 'forward'])
+    expect(more).toContain('left-files')
+    expect(more).not.toContain('outline')
+    // 新版存的（已经有这两组）：照存的，不再挪
+    const now = normalizeCommands(JSON.parse(commandsJson(moveCmd(old, AVAIL, 'save-desk', 'new', null))))
+    expect(layoutOf(now).find((g) => g.id === 'new')!.items).toContain('save-desk')
+    expect(layoutOf(now).find((g) => g.id === 'desks')!.items).toEqual([])
   })
 
   it('网页「⋯」：藏起、在组里换顺序；插件…一直在', () => {

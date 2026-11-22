@@ -36,7 +36,7 @@ const NOTE_MD = `---
 
 const git = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'core.quotepath=false', ...args], { encoding: 'utf8' })
 
-test('梦游做可视化：挑今天卡得最久的那处做一个 HTML，报告里「可视化」一组，预览梦游分支上的那份，收下才进课程文件夹、挂到笔记那一段', async () => {
+test('梦游做可视化：挑今天卡得最久的那处做一个 HTML，报告里「可视化」一组，中间对照里就是梦游分支上那张图，收下才进课程文件夹、嵌进笔记那一段', async () => {
   const run = await launch({ '课程/线性代数/第3讲 线性映射.pdf': LECTURE }, { CN_AI_FAKE: '1' }, (vault) => {
     // 今天问过第 5 页（问了 3 轮、1 次还是不懂）：记笔记的那次提交
     mkdirSync(join(vault, '课程/线性代数'), { recursive: true })
@@ -62,29 +62,31 @@ test('梦游做可视化：挑今天卡得最久的那处做一个 HTML，报告
     await expect(item).toContainText('新文件 课程/线性代数/旋转矩阵.html · 挂到「第3讲 线性映射 笔记」第5页')
     await item.click()
     const detail = panel.getByTestId('dream-detail')
-    await expect(detail).toContainText('你今天在第5页「旋转矩阵每个数从哪来」问了3轮、1次还是不懂')
+    // 点一条中间开它（task-m552v）：为什么、谁做的在条目头上
+    const dt = page.locator('[data-testid="dream-tab"]:not([hidden])')
+    await expect(dt.getByTestId('dream-why')).toContainText('你今天在第5页「旋转矩阵每个数从哪来」问了3轮、1次还是不懂')
     // 写着是哪家哪个模型做的（CN-54，设置 › AI 的「梦游」）
-    await expect(detail.getByTestId('dream-by')).toHaveText('Claude Code · Opus 5.5做的')
-    // 侧栏不铺 HTML 源码：一行「新建『旋转矩阵.html』· N KB」带文件夹，一行笔记那一段的人话（CN-55 / 63）
+    await expect(dt.getByTestId('dream-by')).toHaveText('Claude Code · Opus 5.5做的')
+    // 侧栏不铺 HTML 源码：每个文件一行人话带在哪（CN-55 / 63）；笔记在前，HTML 在后
     const changes = detail.getByTestId('dream-change')
-    await expect(changes).toHaveText([/^新建「旋转矩阵.html」· \d+ (B|KB)课程\/线性代数\/$/, '第3讲 线性映射 笔记：第5页那段末尾加了可视化链接'])
+    await expect(changes.locator('.tx > span')).toHaveText(['第3讲 线性映射 笔记：第5页那段末尾嵌进可视化', /^旋转矩阵\.html：新建，\d+ (B|KB)$/])
+    await expect(changes.locator('.p')).toHaveText(['线性代数 › 第3讲 线性映射.pdf', '线性代数 › 第3讲 线性映射.pdf › 笔记'])
     await expect(detail.locator('.dl')).toHaveCount(0)
-    // 点 HTML 那行：对比标签里也是一行，源码默认收起
-    await changes.first().click()
-    const viz = page.locator('[data-testid="diff-tab"]:not([hidden]) [data-file="课程/线性代数/旋转矩阵.html"]')
-    await expect(viz.locator('.dv-one .meta')).toHaveText(/^新文件 · /)
-    await expect(viz.locator('.cm-editor')).toHaveCount(0)
-    // 预览：中间栏开梦游分支上的那份，在沙箱里跑，不能问
-    await detail.getByRole('button', { name: '预览可视化' }).click()
-    const pane = page.locator('.htmlpane:not([hidden])')
+    // 没有「预览可视化」：点 HTML 那行，中间换成它，右边就是那张图（梦游分支上那份，沙箱里能拖）
+    await expect(detail.getByRole('button', { name: '预览可视化' })).toHaveCount(0)
+    await changes.nth(1).click()
+    await expect(dt.getByTestId('dream-void')).toContainText('main 上还没有这个文件')
+    await expect(dt.frameLocator('[data-testid="viz-frame"]').locator('h1')).toHaveText('第 5 页 · 拖动角度')
+    // 「打开「旋转矩阵.html」· 梦游分支上的」：中间开梦游分支上那份，在沙箱里跑，不能问
+    await dt.getByTestId('dream-open').click()
     await expect(acts(page).getByTestId('page-note')).toContainText('梦游做的可视化 · Claude Code · Opus 5.5 · 还没收下')
     await expect(acts(page).getByRole('button', { name: '问这一屏' })).toHaveCount(0)
-    await expect(page.frameLocator('[data-testid="html-frame"]').locator('h1')).toHaveText('第 5 页 · 拖动角度')
-    // 收下：进课程文件夹，笔记那一段的脚上挂着可视化，一次提交
+    await expect(page.frameLocator('.htmlpane:not([hidden]) [data-testid="html-frame"]').locator('h1')).toHaveText('第 5 页 · 拖动角度')
+    // 收下：进课程文件夹，笔记那一段末尾嵌着可视化（task-m552v：写成嵌入），一次提交
     await detail.getByRole('button', { name: '收下' }).click()
     await expect.poll(() => existsSync(join(vault, '课程/线性代数/旋转矩阵.html'))).toBe(true)
     expect(readFileSync(join(vault, '课程/线性代数/旋转矩阵.html'), 'utf8')).toContain('<meta name="做的" content="梦游">')
-    expect(readFileSync(join(vault, NOTE), 'utf8')).toContain('[可视化 · 旋转矩阵 · 拖动角度看基向量](旋转矩阵.html)')
+    expect(readFileSync(join(vault, NOTE), 'utf8')).toContain('\n![可视化 · 旋转矩阵 · 拖动角度看基向量](旋转矩阵.html)\n')
     expect(gitStatus(vault)).toBe('')
   } finally {
     await run.close()

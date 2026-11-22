@@ -1,8 +1,8 @@
 /**
  * 白板收件箱做成弹窗（task-8isml，用户定「一律弹窗」，图在 01-画布笔记小处 inbox-pop-*.png）：
- * - 宽窄都一样：默认收着，点标签条「收件箱 N」从按钮下面弹出 320 宽，盖在白板上、不占白板的宽；点外面、esc 收起；
+ * - 宽窄都一样：默认收着，点白板右上角「收件箱 N」从按钮下面弹出 320 宽，盖在白板上、不占白板的宽；点外面、esc 收起；
  * - ⇧⌘I 开关（命令表「打开 / 收起收件箱」，只在白板上起作用，设置 › 快捷键能改），按钮提示「打开收件箱 ⇧⌘I」；
- * - 最高 min(中栏高 − 32, 560)，头、说明、搜索框钉在上面，「共 N 条 · 打开收件箱文件夹」钉在下面，只有中间列表滚；
+ * - 最高 min(中栏高 − 32, 560)，也不超过白板底边往上 16（挂在白板右上角那一小条下面，task-wz7gb），头、说明、搜索框钉在上面，「共 N 条 · 打开收件箱文件夹」钉在下面，只有中间列表滚；
  * - 按住一条拖出去列表不滚，拖到列表上下边缘自动滚，拖进一列照常写进那一节，拖完弹窗不收；
  * - 「今天 / 更早」组头能收起，记在本机。
  * 正常宽（1440）和中栏 420（右栏开「历史」拉宽）各走一遍。都是真点、真按、真拖。
@@ -10,7 +10,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { acts, launch, type Running, tabOn, waitSaved, widenRight } from './app'
+import { acts, launch, pane, type Running, tabOn, waitSaved, widenRight } from './app'
 import { board, col, FILES, openBoard } from './fixtures/board-doc'
 
 const pop = (page: Page) => board(page).getByRole('dialog', { name: '收件箱' })
@@ -19,7 +19,7 @@ const settled = async (page: Page) => {
   await expect(pop(page)).toBeVisible()
   await pop(page).evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
 }
-const btn = (page: Page) => acts(page).getByTestId('db-inbox')
+const btn = (page: Page) => pane(page).getByTestId('db-inbox')
 const box = async (l: ReturnType<Page['locator']>) => (await l.boundingBox())!
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
@@ -108,7 +108,8 @@ for (const W of [0, 420]) {
       await settled(page)
       await expect(btn(page)).toHaveAttribute('aria-expanded', 'true')
       const p = await box(pop(page))
-      const b = await box(btn(page))
+      // 挂在白板右上角那一小条下面 6、右边和它对齐（task-wz7gb）
+      const b = await box(pane(page).getByTestId('board-corner'))
       expect(Math.round(p.width)).toBe(320)
       expect(Math.abs(p.y - (b.y + b.height + 6))).toBeLessThan(1)
       expect(p.x).toBeGreaterThanOrEqual(host.x + 8 - 0.5)
@@ -297,11 +298,14 @@ for (const W of [0, 420]) {
       await pop(page).getByRole('button', { name: '更早' }).click()
       await expect(pop(page).getByRole('listitem')).toHaveCount(44)
 
-      // 窗口矮了：最高跟着变成中栏高 − 32
+      // 窗口矮了：最高跟着变，底边离白板底 16（弹窗挂在白板右上角那一小条下面 6，task-wz7gb，所以比中栏高 − 32 还矮）
       await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(BrowserWindow.getAllWindows()[0]!.getContentSize()[0]!, 560))
       await expect.poll(async () => Math.round((await box(board(page))).height)).toBeLessThan(560)
       const h2 = await box(board(page))
-      await expect.poll(async () => Math.round((await box(pop(page))).height)).toBe(Math.round(Math.min(h2.height - 32, 560)))
+      const c2 = await box(pane(page).getByTestId('board-corner'))
+      const top2 = c2.y + c2.height + 6
+      await expect.poll(async () => Math.round((await box(pop(page))).y)).toBe(Math.round(top2))
+      await expect.poll(async () => Math.round((await box(pop(page))).height)).toBe(Math.round(Math.min(h2.height - 32, h2.y + h2.height - 16 - top2, 560)))
     } finally {
       await run.close()
     }

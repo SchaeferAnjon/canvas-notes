@@ -5,7 +5,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { acts, launch, type Running, widenRight } from './app'
+import { acts, launch, pane, type Running, widenRight } from './app'
 import { board, col, openBoard } from './fixtures/board-doc'
 
 const DIR = process.env.CN_SHOTS
@@ -87,7 +87,7 @@ async function start(files: Record<string, string>): Promise<Running> {
 }
 
 async function open(page: Page) {
-  await acts(page).getByTestId('db-inbox').click()
+  await pane(page).getByTestId('db-inbox').click()
   await expect(pop(page)).toBeVisible()
   await pop(page).evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
   await page.mouse.move(700, 880)
@@ -142,10 +142,10 @@ test('中栏 420：弹窗开着；收着时指着「收件箱 3」出提示', as
     const clip = { x: pane.x, y: bar.y - 10, width: pane.width, height: pane.y + pane.height - bar.y + 10 }
     await open(page)
     await page.screenshot({ path: name('narrow-open'), clip })
-    await acts(page).getByTestId('db-inbox').click()
+    await board(page).getByTestId('db-inbox').click()
     await expect(pop(page)).toHaveCount(0)
     await page.mouse.move(700, 880)
-    await acts(page).getByTestId('db-inbox').hover()
+    await board(page).getByTestId('db-inbox').hover()
     await expect(page.getByTestId('tooltip')).toContainText('打开收件箱')
     await page.waitForTimeout(300)
     await page.screenshot({ path: name('narrow-tip'), clip })

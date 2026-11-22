@@ -87,3 +87,35 @@ export function findAnchor(blocks: readonly string[], a: ReadAnchor): { index: n
   if (best >= 0 && likeness(text, norm[best]!.slice(0, text.length + 4)) >= FUZZY_MIN) return { index: best, how: 'fuzzy' }
   return null
 }
+
+/**
+ * 找回一段选中的字（task-6cxtc，网页的笔记回到网页那一段、网页上做记号）：选中的常常在一段中间，开头一句对不上段首，
+ * 所以在每一块里面找。先一字不差（空白并成一个）；整段对不上时拿它的第一句找；还没有就在每一块里挪着比，最像的够像才算（网页改了几个字）。
+ * 给第几块、在这一块（空白并好以后的字）里从哪到哪
+ */
+export function findQuote(blocks: readonly string[], quote: string): { index: number; start: number; end: number; how: 'exact' | 'fuzzy' } | null {
+  const q = normText(quote)
+  if (!q) return null
+  const norm = blocks.map(normText)
+  // 选了好几段时整段对不上：拿第一句（太短的第一句 firstSentence 会带长一些，这里另拿真的第一句）
+  const head = q.split(/(?<=[。！？!?；;])/)[0]!.trim()
+  for (const probe of [q, firstSentence(q), ...(head.length >= 6 ? [head] : [])]) {
+    for (let i = 0; i < norm.length; i++) {
+      const at = norm[i]!.indexOf(probe)
+      if (at >= 0) return { index: i, start: at, end: at + probe.length, how: 'exact' }
+    }
+  }
+  const p = firstSentence(q).slice(0, 60)
+  if (p.length < 4) return null
+  let best: { index: number; start: number; score: number } | null = null
+  for (let i = 0; i < norm.length; i++) {
+    const b = norm[i]!
+    const last = Math.max(0, b.length - p.length)
+    for (let k = 0; k <= last; k += 2) {
+      const s = likeness(p, b.slice(k, k + p.length))
+      if (!best || s > best.score) best = { index: i, start: k, score: s }
+    }
+  }
+  if (!best || best.score < FUZZY_MIN) return null
+  return { index: best.index, start: best.start, end: Math.min(norm[best.index]!.length, best.start + p.length), how: 'fuzzy' }
+}

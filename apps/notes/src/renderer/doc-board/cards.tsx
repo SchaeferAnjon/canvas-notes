@@ -10,6 +10,7 @@ import type { EngineId } from '../../shared/agent'
 import { EngineLogo } from '../engine-logo'
 import { type AskSection, type DocUnit, findMath, isSummaryHead, parseSection, parseTable, prop, SUMMARY_LABEL } from '@cn/format'
 import { type ReactNode, useEffect, useState } from 'react'
+import { ScrollX } from '../scroll-x'
 import type { NoteFile } from '../../shared/api'
 import { type FileEntry, fileName } from '../../shared/files'
 import { previewOf, titleOf } from '../../shared/layout'
@@ -22,6 +23,7 @@ import { MathBlock } from '../reading/math'
 import { SideText, type Spot } from '../side/file-side'
 import { videoUrlOfCard } from '../video/BoardCards'
 import { BaseCard } from './base-card'
+import { MapCard } from '../mindmap/MapThumb'
 import { usePdfPage } from './pdf-page'
 
 /** 卡上能点的：勾第几行待办、开一个文件或网页、看全文 */
@@ -446,6 +448,8 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
     case 'clipnote':
       return <ClipNote note={f.note} full={full} />
     case 'board':
+      // 导图（白板样式: 导图）：上面缩略、下面「导图 · N个主题」，不当普通白板写「0张卡片」（task-wuv05）
+      if (f.note.board!.nodes !== undefined) return <MapCard note={f.note} />
       return (
         <div className="db-lnk">
           <span className="sq" style={{ background: f.note.board!.color }} />
@@ -535,8 +539,10 @@ function highlight(code: string, lang: string): ReactNode[] {
   return out
 }
 
+/** 卡里的小表：宽了只在卡里横着滚，右边还有列时渐隐（scroll-x.tsx，task-83vl3） */
 function MiniTable(props: { head: string[]; rows: ReactNode[][]; right?: boolean[]; cls?: (col: number) => string | undefined }) {
   return (
+    <ScrollX className="mt-box">
     <table className="mt">
       <thead>
         <tr>
@@ -559,6 +565,7 @@ function MiniTable(props: { head: string[]; rows: ReactNode[][]; right?: boolean
         ))}
       </tbody>
     </table>
+    </ScrollX>
   )
 }
 

@@ -3,6 +3,7 @@
  * AI 只给要加什么、放哪（shared/cmd-run.ts 拼进文件、再核一遍只改了该改的），写进去走 ai:change（一次提交「AI：/命令 · 对象」，回答下面能撤回）；
  * 自己存的命令和写这周的周记先给你看（摆在中间，收下才写）。用的 AI 跟着输入框底行选的那一家、模型、想多久（env.ask）。
  */
+import { wrapNewBlocks } from '@cn/format'
 import type { AiCmd } from '../../shared/ai-cmds'
 import { draftName, instructionOf } from '../../shared/ai-cmds'
 import type { AiChange, CommitInfo, NoteFile } from '../../shared/api'
@@ -35,6 +36,8 @@ export interface RunEnv {
   today: string
   /** 文件夹首页：这个文件夹 */
   folder: string | null
+  /** 问的这一家、这个模型（「Claude Code · Opus 5.5」，不带档）：自己存的命令改整篇时新加的整段包成 [!ai] 块，头上写它（task-dtc34） */
+  by?: string
 }
 
 const dirOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
@@ -360,7 +363,9 @@ export async function runOwn(env: RunEnv, c: AiCmd, o: { web: boolean }) {
   const inplace = c.write === 'inplace' && source === 'doc'
   const dir = source === 'doc' ? dirOf(path) : source === 'folder' ? path : INBOX
   const target = inplace ? path : `${c.write === 'inbox' || (c.write === 'inplace' && source === 'web') ? INBOX : dir || INBOX}/${draftName(safeTitle(title))}.md`
-  const after = inplace ? R.keepFrontmatter(text, doc) : doc
+  // 改这一篇时 AI 新加的整段包成 [!ai] 块（task-dtc34）：先给你看的对比里就是包好的样子；改了原有字的地方不包
+  const kept = inplace ? R.keepFrontmatter(text, doc) : doc
+  const after = inplace ? wrapNewBlocks(text, kept, env.by ? { by: env.by } : {}).text : kept
   // 改整篇少了整节、规矩里又没说要删：先给你看标红，只给「照样收下」（task-1l29q）
   const gone = inplace ? R.goneSections(text, after) : []
   const warn = gone.length && !R.saysDelete(instruction) ? { lost: gone } : undefined

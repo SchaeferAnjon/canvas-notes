@@ -16,6 +16,7 @@ import { isBookDigest } from '../shared/plugins/weread'
 import { AiPanel, type AiPanelProps } from './AiPanel'
 import type { DockNav } from './ai-head'
 import * as C from './ai-chats'
+import { useChatJump } from './chat-jump'
 import { dropPicked, usePicked } from './ai-pick'
 import { placeOf, readKey, readLabel, readSrc } from './ai-place'
 import { ReadingAi } from './reading/ReadingAi'
@@ -106,6 +107,20 @@ export function AiDock(props: AiDockProps) {
     if (pickOverPdf) dropPicked()
     setAway(c)
   }
+  // 文档里点了「回到 AI 对话」（task-83vl3）：是这里的对话就回到这里，别处的当「看别处的对话」打开（名字照对话菜单里的）
+  const jump = useChatJump()
+  useEffect(() => {
+    if (!jump) return
+    if (jump.key === here.key) return pickAway(null)
+    let live = true
+    void C.flush()
+      .then(() => window.cn.aiChats())
+      .then((l) => live && pickAway({ key: jump.key, label: l.find((c) => c.key === jump.key)?.label ?? C.chatOf(jump.key).label }))
+    return () => {
+      live = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jump?.seq])
   const nav: DockNav = { here, away, pick: pickAway, asks: asksOf }
   const awaySrc = away ? readSrc(away.key) : null
   /** 这一格显示的读 PDF 对话：看别处的读 PDF 对话时是它，不然是这里的（选中了几篇「问AI」时不显示） */

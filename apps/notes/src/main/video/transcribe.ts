@@ -1,6 +1,6 @@
 /**
  * 没字幕的视频生成字幕（CN-69 方向 A）：内置的 yt-dlp 只下音频 → Soniox 异步听写 → 断句成一条字幕轨（存成 WebVTT）。
- * 翻译不在这里：生成的轨交给现在的字幕流程（双语翻译插件、同一套引擎、缓存、术语表）。
+ * 翻译不在这里：生成的轨交给现在的字幕流程（双语翻译插件、同一套引擎、缓存）。
  * 不依赖 Electron：下载器路径、密钥、Soniox 地址都由调用方给，单元测试用假的 yt-dlp 和假的 Soniox 跑。
  *
  * Soniox 异步接口（截至 2026-11-17 文档 https://docs.soniox.com/api-reference/stt/transcriptions/create_transcription ）：

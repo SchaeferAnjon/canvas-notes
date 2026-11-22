@@ -22,6 +22,7 @@
 import type { SearchHit } from '../../shared/api'
 import type { ClaudeFound, MeaningHit, PdfTextHit } from '../../shared/search'
 import { GROUP_MORE, GROUP_SHOW } from '../../shared/search'
+import { t } from '../../shared/i18n'
 
 export interface Cmd {
   name: string
@@ -37,6 +38,10 @@ export interface Cmd {
   usedRank?: number
   /** 名字、说明以外也搜得到它的词（不显示）：出卡打 anki 也找得到 */
   kw?: string
+  /** 别的语言的名字（不显示）：英文界面打中文名、中文界面打英文名照样搜得到，和名字一样算分（换语言后肌肉记忆不丢） */
+  names?: string[]
+  /** 别的语言的说明（不显示） */
+  hints?: string[]
   /** 自己一组、组名是它（「以前的「我的疑惑」」）：不当最合适、不当回车默认 */
   aside?: string
 }
@@ -126,10 +131,10 @@ export function buildRows<C extends Cmd>(o: RowsInput<C>): Row<C>[] {
   const asides: Row<C>[] = []
   for (const cmd of o.commands) {
     const byAlias = !!cmd.alias && cmd.alias.toLowerCase() === k
-    let s = byAlias ? 3000 : nameScore(cmd.name, q)
+    let s = byAlias ? 3000 : Math.max(...[cmd.name, ...(cmd.names ?? [])].map((n) => nameScore(n, q)))
     if (s === 900) s = 2000
     if (!s && cmd.kw?.toLowerCase().includes(k)) s = 400
-    if (!s && cmd.hint?.toLowerCase().includes(k)) s = 150
+    if (!s && [cmd.hint, ...(cmd.hints ?? [])].some((h) => h?.toLowerCase().includes(k))) s = 150
     if (!s) continue
     if (cmd.aside) {
       asides.push({ kind: 'cmd', group: 'aside', cmd, nodefault: true })
@@ -240,37 +245,50 @@ export function step(rows: Row<Cmd>[], cur: Cursor | null, dir: 1 | -1): Cursor 
 
 export type Key = 1 | -1 | 'enter'
 
-/** 文字结果回来以后，后到的（意思相近）插不到它前面的行：最合适、笔记、命令、笔记和PDF里的字，放最前的网址 */
-const fixedRow = (r: Row<Cmd> | undefined) => !!r && (r.group === 'best' || r.group === 'notes' || r.group === 'cmd' || r.group === 'aside' || r.group === 'text' || (r.kind === 'url' && !!r.typed))
+/**
+ * 文字结果回来以后，后到的（意思相近）插不到它前面的行：最合适、笔记、命令、笔记和PDF里的字，放最前的网址。
+ * 「笔记和PDF里的字」那一组里正文和 PDF 页轮流排：PDF 里的字还没回来时这一组还会变，要等它（pdf 为 false）
+ */
+const fixedRow = (r: Row<Cmd> | undefined, pdf = true) =>
+  !!r && (r.group === 'best' || r.group === 'notes' || r.group === 'cmd' || r.group === 'aside' || (r.group === 'text' && pdf) || (r.kind === 'url' && !!r.typed))
 
 /**
  * 这个键现在按下去，和结果都出齐以后再按，落在同一行吗。不一样就先记着，等出齐了再按（Palette 里的 queue）。
  * text：文字结果（笔记、PDF 里的字）回来了；all：意思相近也回来了。
  * 文字回来以后，起点和落点都在文字那一组（或打全名字的命令、明明白白的网址）就不用等：意思相近只会排在它们后面
  */
-export function keyIsFinal(rows: Row<Cmd>[], cur: Cursor | null, key: Key, ready: { text: boolean; all: boolean }): boolean {
+export function keyIsFinal(rows: Row<Cmd>[], cur: Cursor | null, key: Key, ready: { text: boolean; pdf?: boolean; all: boolean }): boolean {
   if (ready.all) return true
   // 自己用鼠标挪到网页、Claude 那一行的：回车马上走
   if (cur && !('local' in cur)) return key === 'enter'
   if (!ready.text) return false
   const at = cur ? rowOf(rows, cur) : defaultIndex(rows)
-  if (!fixedRow(rows[at])) return false
+  const pdf = ready.pdf !== false
+  if (!fixedRow(rows[at], pdf)) return false
   if (key === 'enter') return true
   const next = step(rows, cur, key)
   const to = next ? rowOf(rows, next) : -1
   // 已经在最后一个上再按 ↓：后到的结果会排在下面，现在停住、出齐了却会往下挪，得等
-  return fixedRow(rows[to]) && !(key === 1 && to === at)
+  return fixedRow(rows[to], pdf) && !(key === 1 && to === at)
 }
 
 /** 组头：组名和后面淡一点的说明；why：最合适后面的「最近用过」；Claude 那一行没找完时没有组头（它跟在网页那一行下面） */
 export function groupHead(g: Group, o: { q: string; claudeDone: boolean; why?: string }): { name: string; why?: string } | null {
-  if (g === 'recent') return { name: '最近打开' }
-  if (g === 'best') return o.why ? { name: '最合适', why: `· ${o.why}` } : { name: '最合适' }
-  if (g === 'notes') return { name: '笔记' }
-  if (g === 'text') return { name: '笔记和PDF里的字' }
-  if (g === 'meaning') return { name: '意思相近', why: '· 本机小模型，不联网' }
-  if (g === 'cmd') return { name: '命令' }
-  if (g === 'web') return { name: '网页和AI' }
-  if (g === 'claude' && o.claudeDone) return { name: 'Claude找到的' }
+  if (g === 'recent') return { name: t('最近打开') }
+  if (g === 'best') return o.why ? { name: t('最合适'), why: `· ${o.why}` } : { name: t('最合适') }
+  if (g === 'notes') return { name: t('笔记') }
+  if (g === 'text') return { name: t('笔记和PDF里的字') }
+  if (g === 'meaning') return { name: t('意思相近'), why: t('· 本机小模型，不联网') }
+  if (g === 'cmd') return { name: t('命令') }
+  if (g === 'web') return { name: t('网页和AI') }
+  if (g === 'claude' && o.claudeDone) return { name: t('Claude找到的') }
   return null
+}
+
+/** 正文那一小段开头就是这篇的标题（摘要从「# 标题」那一行起）：行里已经写了名字，不再重复 */
+export function withoutTitle(snippet: string, title: string): string {
+  const head = title.trim()
+  if (!head || !snippet.startsWith(head)) return snippet
+  const rest = snippet.slice(head.length).trimStart()
+  return rest || snippet
 }

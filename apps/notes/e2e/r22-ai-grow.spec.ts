@@ -16,6 +16,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { aiBlock, wrapNewBlocks } from '@cn/format'
 import { editorText, launch, openNote, pane, waitSaved } from './app'
 
 const ai = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
@@ -80,6 +81,13 @@ const REVIEW_SEEN = `${REVIEW_HEAD}\n\n${REVIEW_P1}\n\n${REVIEW_P2}`
 const LONG_PARA = '开篇很克制：从杰姆胳膊肘骨折这件小事讲起，再说过了一些年兄妹俩回头谈起它，一下子定下了整本书的视角。孩子当时的天真和成年人回忆时的距离叠在一起。\n\n“事情就开始了”这一句把源头指向迪尔和怪人拉德利，先抛一个悬念，让人想往下读。'
 const SUMMARY = '这一页记了冰岛自驾要先定的三件事：住处、租车和看极光的两晚。住处还没订，车要四驱。极光看预报再定是哪两晚。'
 
+/** AI 写进来的整段包成 [!ai] 块（task-dtc34）：头上写哪家哪个模型；AI 对话里的还链回对话（比的时候去掉链接） */
+const BY = { by: 'Claude Code · Opus 5.5' }
+const noLink = (s: string) => s.replace(/ · \[回到 AI 对话\]\(canvas-notes:\/\/chat\?[^)]*\)/g, '')
+/** AI 这一轮把 before 改成 after：这一轮结束软件补包以后文件的样子（去掉链接） */
+const wrapped = (before: string, after: string) => wrapNewBlocks(before, after, BY).text
+const disk = (vault: string, f: string) => noLink(readFileSync(join(vault, f), 'utf8'))
+
 /** 在「第一段。」后面回车两下，打「/ai」回车，说要写什么 */
 async function slashWrite(page: Page, want: string) {
   await pane(page).locator('.cm-line', { hasText: '第一段。' }).click()
@@ -112,7 +120,8 @@ test('/ AI 写一段：字边收边写、一点点长出来，竖线的光往下
     await expect(pane(page).getByTestId('ai-spot-line')).toHaveCount(0, { timeout: 6000 })
     await expect(pane(page).getByTestId('ai-spot-bar')).toHaveCount(0)
     await waitSaved(page)
-    expect(readFileSync(join(vault, '书摘.md'), 'utf8')).toBe(`# 书摘\n\n第一段。\n\n${LONG_PARA}\n`)
+    // 包在一个「AI 写的 · 哪家 · 模型」块里（task-dtc34）
+    expect(readFileSync(join(vault, '书摘.md'), 'utf8')).toBe(`# 书摘\n\n第一段。\n\n${aiBlock(LONG_PARA, BY)}\n`)
   } finally {
     await run.close()
   }
@@ -207,7 +216,7 @@ test('/ AI 总结这页：三句话在开头（标题下面）一点点长出来
     await waitSaved(page)
     // 和以前一次插进去的一样：标题下面三句话、后面空一行（打 / 前回车留下的空行照旧在末尾）
     const file = readFileSync(join(vault, '冰岛准备.md'), 'utf8')
-    expect(file.startsWith(`# 冰岛准备\n\n${SUMMARY}\n\n住处还没订。\n\n租四驱车。\n\n第一段。\n`)).toBe(true)
+    expect(file.startsWith(`# 冰岛准备\n\n> [!ai] AI 总结 · Claude Code · Opus 5.5\n> ${SUMMARY}\n\n住处还没订。\n\n租四驱车。\n\n第一段。\n`)).toBe(true)
     expect(file).toBe(await editorText(page))
   } finally {
     await run.close()
@@ -215,7 +224,8 @@ test('/ AI 总结这页：三句话在开头（标题下面）一点点长出来
 })
 
 test('AI 对话里 AI 自己往开着的这篇末尾续写一节（像 Claude Code 用命令一次写进文件）：新的那节先短后长、竖线的光在；esc 一下全显；文件字节就是 AI 写的', async () => {
-  const run = await launch({ '书摘.md': BOOK }, { CN_AI_FAKE: '1', CN_FAKE_OWN_MS: '300' })
+  // 写完再答 4.5 秒（CN_FAKE_TAIL_MS，同真 AI 写完还要说几句）：字长完这一轮才结束、才补包成 AI 块（task-dtc34）
+  const run = await launch({ '书摘.md': BOOK }, { CN_AI_FAKE: '1', CN_FAKE_OWN_MS: '300', CN_FAKE_TAIL_MS: '4500' })
   const { page, vault } = run
   try {
     await openNote(page, '书摘')
@@ -223,15 +233,17 @@ test('AI 对话里 AI 自己往开着的这篇末尾续写一节（像 Claude Co
     const want = `${BOOK.trimEnd()}\n\n${REVIEW}\n`
     // 第一次：不按 esc，从头长到尾
     await send(page, `过一会儿在「书摘.md」末尾加「${REVIEW}」`)
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toBe(want)
-    const f = await frames(page, REVIEW_SEEN, 60, (k) => k >= REVIEW_SEEN.length)
-    expect(f[0]!).toBeLessThan(REVIEW_SEEN.length / 2)
+    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(REVIEW_P2)
+    // 量第一段（这一轮答完补包成 AI 块以后也还是连着的一段字）
+    const f = await frames(page, REVIEW_P1, 60, (k) => k >= REVIEW_P1.length)
+    expect(f[0]!).toBeLessThan(REVIEW_P1.length / 2)
     expect(f.filter((k, i) => i > 0 && k > f[i - 1]!).length).toBeGreaterThanOrEqual(5)
     for (let i = 1; i < f.length; i++) expect(f[i]!).toBeGreaterThanOrEqual(f[i - 1]!)
-    expect(f.at(-1)).toBe(REVIEW_SEEN.length)
-    // 文件就是 AI 写的那样，编辑器没有往回写别的
+    expect(f.at(-1)).toBe(REVIEW_P1.length)
+    // 文件就是 AI 写的那样（这一轮结束补包成 AI 块，task-dtc34），编辑器没有往回写别的
+    await expect.poll(() => disk(vault, '书摘.md')).toBe(wrapped(BOOK, want))
     await waitSaved(page)
-    expect(readFileSync(join(vault, '书摘.md'), 'utf8')).toBe(want)
+    expect(disk(vault, '书摘.md')).toBe(wrapped(BOOK, want))
     await expect(pane(page).getByTestId('ai-spot-line')).toHaveCount(0, { timeout: 8000 })
 
     // 第二次：长到一半按 esc，下一帧就全显；文件还是 AI 写的那样
@@ -257,8 +269,10 @@ test('AI 对话里 AI 自己往开着的这篇末尾续写一节（像 Claude Co
     expect(Math.abs(pill.gap - 13)).toBeLessThan(1.5)
     await page.keyboard.press('Escape')
     await expect.poll(() => shown(page, more), { timeout: 400 }).toBe(more.length)
+    const w1 = wrapped(BOOK, want)
+    await expect.poll(() => disk(vault, '书摘.md')).toBe(wrapped(w1, `${w1.trimEnd()}\n\n${more}\n`))
     await waitSaved(page)
-    expect(readFileSync(join(vault, '书摘.md'), 'utf8')).toBe(`${want.trimEnd()}\n\n${more}\n`)
+    expect(disk(vault, '书摘.md')).toBe(wrapped(w1, `${w1.trimEnd()}\n\n${more}\n`))
     expect(gitOut(vault, 'log', '--format=%s', '-1')).toMatch(/^AI：/)
   } finally {
     await run.close()
@@ -279,12 +293,16 @@ test('AI 写完文件还在答（这一轮没做完）：那一段下面「AI �
     const inl = pane(page).getByTestId('ai-spot-bar')
     await expect(inl).toContainText('AI 在写这一段')
     // 字显完了这一轮还在答：那一颗照样在、光照样走
-    await expect.poll(() => shown(page, REVIEW_SEEN), { timeout: 6000 }).toBe(REVIEW_SEEN.length)
+    // （这一轮答完补包成 AI 块以后框头插在标题和第一段之间，量最后一段）
+    await expect.poll(() => shown(page, REVIEW_P2), { timeout: 6000 }).toBe(REVIEW_P2.length)
     await expect(inl.getByRole('button', { name: '停下 esc' })).toBeVisible()
     // 再写一回、长到一半按 esc：停的是这一轮（AI 那边「停下了」），字一下全显
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible({ timeout: 15_000 })
+    // 这一轮结束补包成 AI 块（task-dtc34）；第二回 AI 照现在的文件接着写
+    await expect.poll(() => disk(vault, '书摘.md')).toBe(wrapped(BOOK, want))
+    const cur = readFileSync(join(vault, '书摘.md'), 'utf8')
     const more = '第三段：拉德利这个人一直没露面，全靠孩子们的想象。他住在街角那栋关着百叶窗的房子里，孩子们每天上学都绕着走。'
-    await send(page, `自己写文件「书摘.md」「${want.trimEnd()}\n\n${more}\n」`)
+    await send(page, `自己写文件「书摘.md」「${cur.trimEnd()}\n\n${more}\n」`)
     await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(more)
     expect(await shown(page, more)).toBeLessThan(more.length)
     await expect(ai(page).getByRole('button', { name: '停下' })).toBeVisible()
@@ -292,8 +310,8 @@ test('AI 写完文件还在答（这一轮没做完）：那一段下面「AI �
     await expect.poll(() => shown(page, more), { timeout: 600 }).toBe(more.length)
     await expect(pane(page).getByTestId('ai-spot-bar').last()).toContainText('停下了：这一段留着')
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible({ timeout: 15_000 })
+    await expect.poll(() => disk(vault, '书摘.md')).toBe(noLink(wrapped(cur, `${cur.trimEnd()}\n\n${more}\n`)))
     await waitSaved(page)
-    expect(readFileSync(join(vault, '书摘.md'), 'utf8')).toBe(`${want.trimEnd()}\n\n${more}\n`)
     await expect.poll(() => gitOut(vault, 'show', 'HEAD:书摘.md')).toContain(more)
   } finally {
     await run.close()
@@ -302,7 +320,7 @@ test('AI 写完文件还在答（这一轮没做完）：那一段下面「AI �
 
 test('用户正在那一段打字：AI 改到这一段不做动画、直接合并，打的字一个不少；在别的段打字，AI 新写的照样长出来', async () => {
   const note = '# 随手记\n\n第一段，我在这里打字。\n\n最后一段'
-  const run = await launch({ '随手记.md': note }, { CN_AI_FAKE: '1', CN_FAKE_OWN_MS: '900' })
+  const run = await launch({ '随手记.md': note }, { CN_AI_FAKE: '1', CN_FAKE_OWN_MS: '900', CN_FAKE_TAIL_MS: '4500' })
   const { page, vault } = run
   try {
     await openNote(page, '随手记')
@@ -322,7 +340,8 @@ test('用户正在那一段打字：AI 改到这一段不做动画、直接合�
     expect(text).toContain(add)
     await expect(pane(page).getByTestId('ai-spot-line')).toHaveCount(0)
 
-    // 2. 在第一段打字，AI 往末尾写：不是同一段，照样一点点长
+    // 2. 在第一段打字，AI 往末尾写：不是同一段，照样一点点长（等上一轮答完、提交好：这一轮结束还要补包 AI 块，task-dtc34）
+    await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible({ timeout: 15_000 })
     const add2 = '第二回 AI 加的一段：用户在别的段打字，这一段照样一个字一个字长出来。'
     await send(page, `过一会儿在「随手记.md」末尾加「${add2}」`)
     await pane(page).locator('.cm-line', { hasText: '第一段' }).click()
@@ -348,8 +367,10 @@ test('减少动态：AI 写进来的字直接全显，竖线不走；/ AI 写一
     await openNote(page, '书摘')
     await page.keyboard.press('Meta+j')
     await send(page, `过一会儿在「书摘.md」末尾加「${REVIEW}」`)
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(REVIEW)
-    expect(await shown(page, REVIEW_SEEN)).toBe(REVIEW_SEEN.length)
+    // 文件里这一轮结束会补包成 AI 块（task-dtc34）：看的是两段字都直接全显
+    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(REVIEW_P2)
+    expect(await shown(page, REVIEW_P1)).toBe(REVIEW_P1.length)
+    expect(await shown(page, REVIEW_P2)).toBe(REVIEW_P2.length)
     // 那一节左边照样一道竖线（标出 AI 写了哪），只是里面的光不走
     const line = pane(page).getByTestId('ai-spot-line').first()
     await expect(line).toBeVisible()
@@ -357,7 +378,7 @@ test('减少动态：AI 写进来的字直接全显，竖线不走；/ AI 写一
     // / 菜单写的也是收到多少显多少，不再一个字一个字等
     await page.keyboard.press('Meta+j')
     await slashWrite(page, '写长一段')
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(LONG_PARA)
+    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(aiBlock(LONG_PARA, BY).split('\n').slice(1).join('\n'))
     expect(await shown(page, LONG_PARA)).toBe(LONG_PARA.length)
   } finally {
     await run.close()

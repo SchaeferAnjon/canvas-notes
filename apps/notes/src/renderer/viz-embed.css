@@ -1,0 +1,81 @@
+/*
+ * 笔记里嵌着的可视化（task-m552v，demo .vizx）：一张卡，头上「可视化 · 标题 · 能拖 · x.html · 梦游做的 …… 放大」，下面是能拖的图。
+ * 块部件不用上下外边距（CodeMirror 量高度不算）；上下的空就是段和段之间那一个空行（block-gaps 压成 12），卡自己不再另加（demo 提示块到卡 10）。
+ */
+.cm-viz {
+  padding: 0;
+}
+.cm-viz .vz {
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  background: var(--card);
+  overflow: hidden;
+}
+.cm-viz .vz-h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--line);
+  font: 12.5px/1.5 var(--sans);
+  color: var(--t1);
+  cursor: default;
+}
+.cm-viz .vz-h > svg:first-child {
+  flex: none;
+  color: var(--acc-t);
+}
+.cm-viz .vz-t {
+  min-width: 0;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-viz .vz-badge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.cm-viz .vz-src {
+  min-width: 0;
+  color: var(--t3);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cm-viz .sp {
+  flex: 1;
+}
+.cm-viz .vz-full {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.cm-viz .vz-full:hover {
+  background: var(--fill);
+}
+.cm-viz .vz-b {
+  padding: 10px 12px 8px;
+}
+.cm-viz iframe {
+  display: block;
+  width: 100%;
+  height: 240px;
+  border: 0;
+  background: transparent;
+}

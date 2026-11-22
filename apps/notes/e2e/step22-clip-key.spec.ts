@@ -1,9 +1,11 @@
-// 网页里选中一段后 ⌘↵ = 点小条上的「剪进文档」（录屏 ① CN-42）；小条写出 ⌘↵；焦点在网页的输入框里时不拦，网页自己的 ⌘↵ 照常用。
+// 网页里选中一段后按键 = 点小条上那一颗（录屏 ① CN-42）。task-6cxtc 起：⌘S = 「剪藏」（剪进这个网页正在剪进去的那篇，没配对时先问记到哪篇），
+// ⌘↵ = 「引用」（这段成为 AI 输入框顶上的一块材料）；小条上写出这两个键；焦点在网页的输入框里时都不拦，网页自己的 ⌘↵、⌘S 照常用。
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { join } from 'node:path'
-import { editorText, launch, openNote, pane, rail, type Running, waitSaved, widenRight } from './app'
+import { editorText, launch, openNote, pane, rail, type Running, waitSaved, webAboveAi, widenRight } from './app'
+import { fragmentUrl, sourceLabel } from '../src/shared/web-link'
 
 let server: Server
 let base: string
@@ -14,7 +16,11 @@ test.beforeAll(async () => {
     res.end(`<title>乔治·赫伯特·沃克·布什 - 维基百科</title><body style="font:16px sans-serif;padding:20px">
       <p id="p1">乔治·赫伯特·沃克·布什，美国政治人物，第41任美国总统。</p>
       <textarea id="c" rows="3" cols="40"></textarea><p id="sent"></p>
-      <script>document.getElementById('c').addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.metaKey) document.getElementById('sent').textContent = '网页提交了：' + e.target.value })</script></body>`)
+      <p id="saved"></p>
+      <script>document.getElementById('c').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && e.metaKey) document.getElementById('sent').textContent = '网页提交了：' + e.target.value
+        if (e.key.toLowerCase() === 's' && e.metaKey) { e.preventDefault(); document.getElementById('saved').textContent = '网页存了：' + e.target.value }
+      })</script></body>`)
   })
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
@@ -49,9 +55,17 @@ async function shot(run: Running, name: string) {
   writeFileSync(join(dir, `${name}.png`), Buffer.from(b64, 'base64'))
 }
 
-test('选中一段按 ⌘↵：文档光标处多一段带来源的引文；在网页的文本框里按 ⌘↵，网页照常提交、文档不变', async () => {
+test('选中一段按 ⌘S：没配对先问记到哪篇，文档光标处多一段带来源的引文；再选一段按 ⌘↵ 是引用，进 AI 输入框、文档不变；在网页的文本框里按 ⌘↵、⌘S，网页照常处理、文档不变', async () => {
   const run = await launch({ '布什.md': '# 布什\n\n笔记：\n' })
   const { page, vault } = run
+  const selectP1 = async () => {
+    const p = await guestRect(page, `document.getElementById('p1')`)
+    for (let i = 0; i < 3; i++) {
+      await page.mouse.click(p.x, p.y, { clickCount: 3 })
+      if (await expect.poll(() => guest(page, 'getSelection().toString().length'), { timeout: 1000 }).toBeGreaterThan(0).then(() => true, () => false)) break
+    }
+    await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`)).toBe('block')
+  }
   try {
     await openNote(page, '布什')
     await pane(page).locator('.cm-line', { hasText: '笔记：' }).click()
@@ -62,14 +76,11 @@ test('选中一段按 ⌘↵：文档光标处多一段带来源的引文；在�
     await addr.press('Enter')
     await expect.poll(() => guest(page, 'document.readyState + "|" + location.href')).toBe(`complete|${base}/bush`)
     // 真的鼠标三击选中一段
-    const p = await guestRect(page, `document.getElementById('p1')`)
-    for (let i = 0; i < 3; i++) {
-      await page.mouse.click(p.x, p.y, { clickCount: 3 })
-      if (await expect.poll(() => guest(page, 'getSelection().toString().length'), { timeout: 1000 }).toBeGreaterThan(0).then(() => true, () => false)) break
-    }
-    await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`)).toBe('block')
-    expect(await guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button.clip kbd').textContent`)).toBe('⌘↵')
-    // 右栏 340 宽里整条小条都在网页里（放不下时先藏键帽，再藏「· 插到：…」）
+    await selectP1()
+    // 小条写出键：剪藏 ⌘S、引用 ⌘↵
+    expect(await guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('button.clip kbd').textContent`)).toBe('⌘S')
+    expect(await guest(page, `[...document.getElementById('cn-clip-host').shadowRoot.querySelectorAll('.bar > button')].find((b) => b.textContent.trim().startsWith('引用')).querySelector('kbd').textContent`)).toBe('⌘↵')
+    // 右栏 340 宽里整条小条都在网页里（放不下时先藏键帽，再只留图标、收进「⋯」）
     expect(await guest(page, `(() => { const b = document.getElementById('cn-clip-host').shadowRoot.querySelector('.bar').getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth })()`)).toBe(true)
     await shot(run, 'clip-key-bar-narrow')
     // 右栏拉宽：键帽露出来
@@ -81,19 +92,40 @@ test('选中一段按 ⌘↵：文档光标处多一段带来源的引文；在�
     }
     expect(await guest(page, `getComputedStyle(document.getElementById('cn-clip-host').shadowRoot.querySelector('button.clip kbd')).display`)).not.toBe('none')
     await shot(run, 'clip-key-bar')
-    await pressInPage(run, 'Enter', ['meta'])
-    await expect(page.locator('.toast-cn')).toContainText('插到「布什」光标处')
+    await pressInPage(run, 'S', ['meta'])
+    // 还没配对：问记到哪篇（默认中间开着的这篇），回车 = 记到这篇
+    const dlg = page.getByRole('dialog', { name: '记到哪篇' })
+    await expect(dlg).toBeVisible()
+    await expect(dlg.getByRole('radio').nth(0)).toHaveAccessibleName(/布什/)
+    await expect(dlg.getByRole('radio').nth(0)).toBeChecked()
+    await page.keyboard.press('Enter')
+    await expect(dlg).toHaveCount(0)
+    await expect(page.locator('.toast-cn')).toContainText('剪进《布什》光标处')
     await waitSaved(page)
-    // 引文后面补一个空段落放光标（编辑器组 CN-17：插入后光标落到下面新空段）
-    const want = `# 布什\n\n笔记：\n\n> 乔治·赫伯特·沃克·布什，美国政治人物，第41任美国总统。\n—— [乔治·赫伯特·沃克·布什 - 维基百科](${base}/bush)\n\n`
+    // 引文后面补一个空段落放光标（编辑器组 CN-17：插入后光标落到下面新空段）；来源一行是回到这一段的链接；配成一对写上 read-along
+    const quote = '乔治·赫伯特·沃克·布什，美国政治人物，第41任美国总统。'
+    const src = `[${sourceLabel({ title: '乔治·赫伯特·沃克·布什 - 维基百科', url: `${base}/bush` })}](${fragmentUrl(`${base}/bush`, quote)})`
+    const want = `---\nread-along: ${base}/\n---\n# 布什\n\n笔记：\n\n> ${quote}\n—— ${src}\n\n`
     expect(await editorText(page)).toBe(want)
     expect(readFileSync(join(vault, '布什.md'), 'utf8')).toBe(want)
     // 小条收起、选区清掉
     await expect.poll(() => guest(page, `document.getElementById('cn-clip-host').style.display`)).toBe('none')
 
-    // 网页自己的文本框：⌘↵ 交给网页
-    // 剪进文档后焦点交回了文档（CN-17）：点网页里的文本框，等焦点真的到了文本框再打字。
-    // 不等的话机器忙时第一下只把焦点给了 webview，⌘A 全选的是整页正文，⌘↵ 就照规矩把整页选区剪进文档了
+    // 再选这段按 ⌘↵：引用，不是剪藏。这段成为网页那一处 AI 输入框顶上的一块材料、光标在输入框，文档不变
+    await selectP1()
+    await pressInPage(run, 'Enter', ['meta'])
+    const ai = page.getByRole('complementary', { name: '边读边问 AI' })
+    const ta = ai.getByRole('textbox', { name: '问 AI' })
+    await expect(ta).toHaveValue('①')
+    await expect(ta).toBeFocused()
+    await expect(ai.getByTestId('ai-mat').locator('.ct')).toHaveText(quote)
+    expect(await editorText(page)).toBe(want)
+    // AI 和网页叠在一组、AI 在前面：像人一样把网页拖到上半，接着在网页里打字
+    await webAboveAi(page)
+
+    // 网页自己的文本框：⌘↵、⌘S 都交给网页
+    // 剪藏后焦点交回了文档（CN-17）、引用后在 AI 输入框：点网页里的文本框，等焦点真的到了文本框再打字。
+    // 不等的话机器忙时第一下只把焦点给了 webview，⌘A 全选的是整页正文，按键就照规矩把整页选区剪走、引走了
     const c = await guestRect(page, `document.getElementById('c')`)
     for (let i = 0; i < 3; i++) {
       await page.mouse.click(c.x, c.y)
@@ -101,12 +133,16 @@ test('选中一段按 ⌘↵：文档光标处多一段带来源的引文；在�
     }
     expect(await guest(page, `document.activeElement && document.activeElement.id`)).toBe('c')
     await run.app.evaluate(({ webContents }, id) => webContents.fromId(id)!.insertText('写一条评论'), await wcId(page))
-    // 文本框里选中自己打的字，再按 ⌘↵：还是网页的
+    // 文本框里选中自己打的字，再按 ⌘↵、⌘S：还是网页的
     await pressInPage(run, 'A', ['meta'])
     await pressInPage(run, 'Enter', ['meta'])
     await expect.poll(() => guest(page, `document.getElementById('sent').textContent`)).toBe('网页提交了：写一条评论')
+    await pressInPage(run, 'S', ['meta'])
+    await expect.poll(() => guest(page, `document.getElementById('saved').textContent`)).toBe('网页存了：写一条评论')
     await page.waitForTimeout(500)
     expect(await editorText(page)).toBe(want)
+    await expect(ai.getByTestId('ai-mat')).toHaveCount(1)
+    await expect(dlg).toHaveCount(0)
   } finally {
     await run.close()
   }

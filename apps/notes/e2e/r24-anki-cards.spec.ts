@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launch, leftView, rail, type Running, tabOn } from './app'
-import { ankiVault, fakeAnki, L5_QUESTIONS, SIDE_QUOTE, weekVault } from './fixtures/anki'
+import { ankiVault, fakeAnki, L4_NOTE, L5_NOTE, L5_QUESTIONS, SIDE_QUOTE, weekVault } from './fixtures/anki'
 
 const notes = (page: Page) => page.getByRole('complementary', { name: '笔记', exact: true })
 const dlg = (page: Page) => page.getByRole('dialog', { name: '出卡' })
@@ -231,7 +231,7 @@ test('Anki 没开：送的时候说清楚、选好的留着；「怎么装」三
     await expect(warn).toContainText('Anki没开着。选的都留着，开了接着送。')
     await warn.getByRole('button', { name: '怎么装' }).click()
     const how = dlg(page).getByRole('region', { name: '连上Anki' })
-    await expect(how.locator('.hrow')).toHaveText([/^Anki桌面版装好了 · 25\.09/, /^AnkiConnect插件装好了 · 编号2055492159/, /^Anki开着没开着打开Anki$/])
+    await expect(how.locator('.hrow')).toHaveText([/^Anki桌面版装好了 · 25\.09/, /^AnkiConnect插件装好了 · 编号2055492159/, /^Anki开着没开着打开Anki$/, '8765端口被占时复制命令贴进终端，看是哪个程序占着；关掉它，再重启Anki复制命令'])
     // 关掉再出卡：上次不送的、改过的都还在，不再问 AI
     await page.keyboard.press('Escape')
     await expect(dlg(page)).toHaveCount(0)
@@ -254,10 +254,10 @@ test('Anki 没开：送的时候说清楚、选好的留着；「怎么装」三
     expect(anki.notes.map((x) => x.fields.Question)).toContain('LIF 发完 spike 为什么减门槛、不清零？')
     expect(anki.notes).toHaveLength(7)
     expect(gitOut(run.vault, 'log', '-1', '--format=%s')).toBe('送进 Anki：ecp 7 张')
-    // 左栏：Lecture05 六问都送了，数字后面一个绿勾；Lecture04 第一问（这次第 1 张）没送，不画
+    // 左栏：Lecture05 六问都送了，数字后面一个绿勾；Lecture04 第一问（这次第 1 张）没送，不画（数字在 PDF 下面挂着的「笔记」那行，task-m552v）
     const tree = page.locator('aside.side')
-    await expect(tree.getByRole('treeitem').filter({ hasText: 'Lecture05' }).locator('.ft-sent')).toBeVisible()
-    await expect(tree.getByRole('treeitem').filter({ hasText: 'Lecture04' }).locator('.ft-sent')).toHaveCount(0)
+    await expect(tree.locator(`[role="treeitem"][data-path="${L5_NOTE}"] .ft-sent`)).toBeVisible()
+    await expect(tree.locator(`[role="treeitem"][data-path="${L4_NOTE}"] .ft-sent`)).toHaveCount(0)
     // 课程首页跟着变：7 问已在 Anki，「今天要复习」从 Anki 读这门课的卡
     await expect(card.locator('.fw-foot .num')).toHaveText('8问 · 7问已在Anki')
     await expect(card.getByRole('button', { name: '出卡 · 没送的1问' })).toBeVisible()

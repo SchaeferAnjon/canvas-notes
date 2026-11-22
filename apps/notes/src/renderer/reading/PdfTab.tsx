@@ -2,8 +2,9 @@ import { composing } from '../ime'
 import { accelFor, isKey, useKeys } from '../keys'
 /**
  * 中间栏的 PDF 标签：一页一页往下滚（只画看得到的几页），文字层能选字；
- * 拖一个框就问（框完右栏 AI 输入框顶上那一排第一张就是这块截图，回车就发），没框时 ⌘↵ 问整页、框着时 ⌘↵ 是改问法（CN-92 方向 A）；
- * 框好的工具条「讲解一下 ↵ · 翻译 + 讲一讲 · 改问法 ⌘↵ · 引用这块 ⇧⌘L · ×」，点外面就收（CN-97）；
+ * 拖一个框就问（框完右栏 AI 输入框顶上那一排第一张就是这块截图，回车就发），没框时 ⌘↵ 问整页、框着时 ⌘↵ 是引用；
+ * 框好、选好的工具条和网页、HTML 上的一个样（task-6cxtc）「讲解一下 ↵ · 翻译 + 讲一讲 · 引用 ⌘↵ ｜ ⋯ · ×」，
+ * 「⋯」里拷贝这段（框的是拷贝这块）、翻译设置…；点外面就收（CN-97）；
  * 页边「这里问过」的小标记，点了右栏切到笔记那一段；从笔记点回来，翻到那页、框闪两下。
  * 照 design/pdf 方向 A（右栏切换）的 spec 1.2–1.4。
  */
@@ -13,7 +14,8 @@ import { appSettings } from '../settings-store'
 import { pdfZoomName } from '../settings/pdf'
 import { openSettingsAt } from '../settings/jump'
 import { AiIcon } from '../engine-logo'
-import { menuAt } from '../ctx/menu'
+import { copy, menuAt } from '../ctx/menu'
+import { openTranslateSettings } from '../plugins/translate/shared'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -21,6 +23,8 @@ import { closePdf, loadPdf, type PdfDoc, pdfjs } from './pdf'
 import * as R from './store'
 import type { Material } from '../../shared/materials'
 import { useDismiss } from '../use-dismiss'
+import { capStyle, clientArea, useCapPlace } from './cap-place'
+import { PanelGuard } from '../crash/Guard'
 
 interface Size {
   w: number
@@ -83,13 +87,13 @@ export function PdfTab(props: {
   const [more, setMore] = useState(false)
   const [drag, setDrag] = useState<Drag | null>(null)
   const [boxed, setBoxed] = useState<Boxed | null>(null)
-  /** 框好的工具条开着（框还在、工具条收了：点进了输入框、按了改问法） */
+  /** 框好的工具条开着（框还在、工具条收了：点进了输入框） */
   const [capOpen, setCapOpen] = useState(false)
+  /** 工具条上「⋯」开着 */
+  const [capMore, setCapMore] = useState(false)
   const capRef = useRef<HTMLDivElement>(null)
   /** 第几块框（每框一块、取消一块加一）：截图截好时已经不是这一块了就丢掉 */
   const boxSeq = useRef(0)
-  /** 工具条伸出这一页右边多少（往左挪回来） */
-  const [capShift, setCapShift] = useState(0)
   const [flash, setFlash] = useState<{ page: number; rect?: Rect; seq: number } | null>(null)
   const [hoverThread, setHoverThread] = useState<string | null>(null)
   const [plusOpen, setPlusOpen] = useState<number | null>(null)
@@ -258,10 +262,9 @@ export function PdfTab(props: {
       setCapOpen(false)
     }
   }, [r.pending])
-  // 改问法了（工具条、⌘↵）：工具条收起，框和图留着（CN-92 方向 A）
   useEffect(() => {
-    if (r.pending?.blank) setCapOpen(false)
-  }, [r.pending?.blank])
+    if (!capOpen) setCapMore(false)
+  }, [capOpen])
   // 工具条点外面就收（CN-97）：点进 AI 输入框（和它弹出来的菜单）只收工具条，框和图留着；点 PDF 空白处、标签条、右栏空白处连框一起取消；
   // esc：焦点在输入框里、输入框里是自己打的字时只收工具条，别的连框和图一起取消；窗口失焦（切到别的软件、点进右栏网页）什么都不动，回来还在
   useDismiss(capOpen, [capRef], (why, target, event) => {
@@ -321,7 +324,6 @@ export function PdfTab(props: {
     const rect: Rect = [Math.min(d.x0, d.x1) / pw, Math.min(d.y0, d.y1) / ph, w / pw, h / ph]
     setBoxed({ page: d.page, rect })
     setCapOpen(true)
-    blankNext.current = false
     props.onAsk()
     const sentAt = R.get(path).sent
     const mine = ++boxSeq.current
@@ -329,9 +331,7 @@ export function PdfTab(props: {
       const c = await R.cropOf(path, d.page, rect)
       // 截好之前已经取消了这块（点了空白处、esc、×）或者又框了一块：晚到的截图丢掉，不再放回去
       if (mine !== boxSeq.current) return URL.revokeObjectURL(c.url)
-      // 截好之前已经按了改问法（手快）：截好的这块直接是改问法的样子
-      R.stage(path, { page: d.page, rect, url: c.url, png: c.png, w: c.cssW, ...(blankNext.current ? { blank: true } : {}) }, sentAt)
-      blankNext.current = false
+      R.stage(path, { page: d.page, rect, url: c.url, png: c.png, w: c.cssW }, sentAt)
     } catch (e) {
       setBoxed(null)
       setCapOpen(false)
@@ -361,7 +361,7 @@ export function PdfTab(props: {
     setCapOpen(true)
   }
 
-  /** 右键（DESIGN.v3 9.2）：选了字是拷贝、问 AI、翻译 + 讲一讲；页面上是问这一页、跳到笔记、在访达中显示 */
+  /** 右键（DESIGN.v3 9.2）：选了字是拷贝、问 AI（就是引用：这段进输入框、光标进去）、讲解一下、翻译 + 讲一讲；页面上是问这一页、跳到笔记、在访达中显示 */
   function onContext(e: React.MouseEvent) {
     const pageEl = pageAt(e.target)
     if (!pageEl) return
@@ -372,7 +372,7 @@ export function PdfTab(props: {
       sel && { edit: 'copy' },
       // AI 那几项（带引擎标志）自成一组
       '-',
-      sel && { label: '问 AI', ai: 'chat', run: () => capAsk('rephrase', sel) },
+      sel && { label: '问 AI', ai: 'chat', run: () => void capQuote(sel) },
       sel && { label: '讲解一下', ai: 'chat', run: () => capAsk('explain', sel) },
       sel && { label: '翻译 + 讲一讲', ai: 'chat', run: () => capAsk('translate', sel) },
       '-',
@@ -393,8 +393,8 @@ export function PdfTab(props: {
   }
 
   /**
-   * 引用这块（⇧⌘L，多段引用方向 B）：框的图成为 AI 输入框顶上那一排的一块材料（来源「第28页 · 我框的」），选着的一段字成为一块引用（「第28页」）；
-   * 框和工具条收起，可以接着框下一块
+   * 引用（⌘↵，⇧⌘L 也行；task-6cxtc 把「改问法」「引用这块」合成这一颗）：框的图成为 AI 输入框顶上那一排的一块材料（来源「第28页 · 我框的」），
+   * 选着的一段字成为一块引用（「第28页」）；框和工具条收起、光标进输入框，可以接着框、选下一块攒成 ①②
    */
   async function capQuote(b = boxed) {
     if (!b) return
@@ -417,27 +417,33 @@ export function PdfTab(props: {
     }
   }
 
+  /** 「⋯ › 拷贝这段 / 拷贝这块」：选的字、框的那块截图写进剪贴板 */
+  async function capCopy(b = boxed) {
+    setCapMore(false)
+    if (!b) return
+    try {
+      if (b.quote) await copy(b.quote)
+      else {
+        const png = R.get(path).pending?.png
+        if (!png) return props.onNotice('这块还没截好，再框一次')
+        await window.cnMenu.copyImage(png)
+      }
+      props.onNotice(b.quote ? '这段拷贝好了' : '这块图拷贝好了')
+    } catch (e) {
+      props.onNotice(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+    }
+  }
+
   /** 已经点过「讲解一下」「翻译 + 讲一讲」的那一块：手快连点两下，第二下不再发（CN-28） */
   const asking = useRef<Boxed | null>(null)
-  /** 框的这块还在截就按了改问法：截好时直接放成改问法的样子 */
-  const blankNext = useRef(false)
-  /** 工具条上的按钮：讲解一下 / 翻译 + 讲一讲 直接发（AI 还在答就排在后面）；改问法（⌘↵）只放好图、工具条收起，光标进输入框 */
-  async function capAsk(kind: 'explain' | 'translate' | 'rephrase', b = boxed) {
+  /** 工具条上的按钮：讲解一下 / 翻译 + 讲一讲 直接发（AI 还在答就排在后面） */
+  async function capAsk(kind: 'explain' | 'translate', b = boxed) {
     if (!b) return
-    if (kind !== 'rephrase') {
-      if (asking.current === b) return
-      asking.current = b
-    }
+    if (asking.current === b) return
+    asking.current = b
     props.onAsk()
-    if (b.quote) R.stage(path, { page: b.page, rect: b.rect, quote: b.quote, ...(kind === 'rephrase' ? { blank: true } : { direct: true }) })
-    else if (kind === 'rephrase') {
-      const pend = R.get(path).pending
-      if (pend) R.stage(path, { ...pend, blank: true })
-      else blankNext.current = true
-    }
-    if (kind === 'rephrase') setCapOpen(false)
+    if (b.quote) R.stage(path, { page: b.page, rect: b.rect, quote: b.quote, direct: true })
     window.getSelection()?.removeAllRanges()
-    if (kind === 'rephrase') return
     // 截图还在截的话等它好；5 秒还没好就不带图问这一块（框的位置还在），晚到的截图丢掉
     for (let i = 0; i < 125 && !b.quote && !R.get(path).pending?.png; i++) await new Promise((res) => setTimeout(res, 40))
     if (!R.get(path).pending) R.stage(path, { page: b.page, rect: b.rect, direct: true })
@@ -461,16 +467,21 @@ export function PdfTab(props: {
     }
   }
 
-  // ⌘↵：框着一块是改问法（CN-92 方向 A），没框问这一页（在 AI 输入框里也一样，那边先接）；⇧⌘L 引用这块；esc 取消框
+  // ⌘↵：框着、选着一块是引用（task-6cxtc），没框问这一页（在 AI 输入框里也一样，那边先接）；⇧⌘L 也是引用；
+  // ↵：选着字、工具条开着、焦点不在输入框里时是讲解一下（框的那块回车由输入框发预填的那句）；esc 取消框
   useEffect(() => {
     if (!props.active) return
     const onKey = (e: KeyboardEvent) => {
       // 键照命令表（问这一页、引用、放大缩小，设置 › 快捷键里能改）；编辑器（边读边记的笔记）先接了的不管
       if (e.defaultPrevented) return
+      const typing = (e.target as Element | null)?.closest?.('textarea, input, .cm-editor')
       if (isKey(e, 'ask-page')) {
         e.preventDefault()
-        if (boxed) void capAsk('rephrase')
+        if (boxed) void capQuote()
         else void askPage()
+      } else if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.isComposing && boxed && capOpen && !typing) {
+        e.preventDefault()
+        void capAsk('explain')
       } else if (isKey(e, 'quote') && boxed) {
         e.preventDefault()
         void capQuote()
@@ -503,19 +514,18 @@ export function PdfTab(props: {
   const current = r.focus?.id ?? null
   const fresh = r.state.threads.length ? r.state.threads.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)) : null
 
-  const cap = boxed && sizes ? capPos(boxed, sizes[boxed.page - 1]!, scale) : null
-  // 工具条比框宽、框靠右时伸出看得见的这一栏：往左挪回来，最多挪到这一栏的左边（页边的空处也用上）
-  useLayoutEffect(() => {
-    const el = capRef.current
-    const view = scroller.current
-    if (!el || !view) return setCapShift(0)
-    const r = el.getBoundingClientRect()
-    const left = r.left - capShift
-    const v = view.getBoundingClientRect()
-    const over = left + r.width - (v.right - 8)
-    setCapShift(over > 0 ? -Math.max(0, Math.min(over, left - (v.left + 8))) : 0)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capOpen, cap?.left, cap?.top, boxed?.quote, width])
+  // 工具条：选区（框）上方 6，上面放不下放下面 6；左右限在这一栏看得见的那块里（不撑宽滚动区）；整条放不下才藏键帽（cap-place.ts）
+  const capAt = useCapPlace(
+    capRef,
+    () => {
+      const slot = capRef.current?.offsetParent as HTMLElement | null
+      if (!boxed || !slot || !scroller.current) return null
+      const r = slot.getBoundingClientRect()
+      const top = r.top + boxed.rect[1] * r.height
+      return { sel: { left: r.left + boxed.rect[0] * r.width, top, right: r.left + (boxed.rect[0] + boxed.rect[2]) * r.width, bottom: top + boxed.rect[3] * r.height }, view: clientArea(scroller.current) }
+    },
+    [capOpen, boxed, width, scale, sizes],
+  )
 
   return (
     <section className="pane pdfpane" hidden={!props.active} data-path={path}>
@@ -578,6 +588,8 @@ export function PdfTab(props: {
       </TabActs>
       <div className="pdfbody">
         {error && <div className="pdferr">打不开这份PDF：{error}</div>}
+        {/* PDF 的页面出错只这一格换成出错卡（task-pyb39），工具条、右栏照常 */}
+        <PanelGuard area="pdf" label="PDF">
         <div
           className={'pdfv' + (drag ? ' drawing' : '')}
           ref={scroller}
@@ -637,36 +649,47 @@ export function PdfTab(props: {
                     ))}
                   </div>
                 )}
-                {capOpen && cap && boxed?.page === n && !r.queued.length && (
+                {capOpen && boxed?.page === n && !r.queued.length && (
                   <div
                     ref={capRef}
-                    className="cap capbar"
-                    style={{ left: cap.left, top: cap.top, ...(capShift ? { translate: `${capShift}px 0` } : {}) }}
+                    className={'cap capbar' + (capAt?.nokbd ? ' nokbd' : '')}
+                    style={capStyle(capAt)}
                     role="toolbar"
                     aria-label="框好的这块"
                     onPointerDown={(e) => e.stopPropagation()}
                   >
                     <button className="main" onClick={() => void capAsk('explain')}>
                       <AiIcon job="chat" size={14} />
-                      讲解一下<kbd>↵</kbd>
+                      讲解一下{K('enter') && <kbd>{K('enter')}</kbd>}
                     </button>
                     <button onClick={() => void capAsk('translate')}>
                       <Codicon name="whole-word" size={14} />
                       翻译 + 讲一讲
                     </button>
-                    <button onClick={() => void capAsk('rephrase')}>
-                      <Codicon name="edit" size={14} />
-                      改问法{K('ask-page') && <kbd>{K('ask-page')}</kbd>}
-                    </button>
                     <button onClick={() => void capQuote()}>
-                      <Codicon name="quote" size={14} />
-                      {boxed.quote ? '引用这段' : '引用这块'}
-                      {K('quote') && <kbd>{K('quote')}</kbd>}
+                      <Codicon name="comment" size={14} />
+                      引用{K('ask-page') && <kbd>{K('ask-page')}</kbd>}
                     </button>
                     <span className="sepv" />
-                    <button aria-label="取消" data-tip="取消 esc" data-side="below" onClick={cancelBox}>
+                    <button className={'icon' + (capMore ? ' on' : '')} aria-label="更多" aria-haspopup="menu" aria-expanded={capMore} onClick={() => setCapMore((v) => !v)}>
+                      <Codicon name="ellipsis" size={14} />
+                    </button>
+                    <button className="icon" aria-label="取消" data-tip={`取消 ${K('escape') ?? ''}`.trim()} data-side="below" onClick={cancelBox}>
                       <Codicon name="close" size={14} />
                     </button>
+                    {capMore && (
+                      <div className="capmenu" role="menu" aria-label={boxed.quote ? '这段还能做什么' : '这块还能做什么'}>
+                        <button role="menuitem" onClick={() => void capCopy()}>
+                          <Codicon name="copy" size={14} />
+                          {boxed.quote ? '拷贝这段' : '拷贝这块'}
+                          {boxed.quote && K('copy') && <span className="r">{K('copy')}</span>}
+                        </button>
+                        <button role="menuitem" onClick={() => (setCapMore(false), openTranslateSettings())}>
+                          <Codicon name="settings-gear" size={14} />
+                          翻译设置…
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -674,17 +697,10 @@ export function PdfTab(props: {
             )
           })}
         </div>
+      </PanelGuard>
       </div>
     </section>
   )
-}
-
-/** 工具条（34 高）放在框下面 8；下面放不下就放上面 */
-function capPos(b: Boxed, s: Size, scale: number) {
-  const ph = s.h * scale
-  const top = (b.rect[1] + b.rect[3]) * ph + 8
-  const above = b.rect[1] * ph - 42
-  return { left: Math.max(0, b.rect[0] * s.w * scale), top: b.quote || top + 34 > ph ? Math.max(0, above) : top }
 }
 
 function where(rect?: Rect) {
