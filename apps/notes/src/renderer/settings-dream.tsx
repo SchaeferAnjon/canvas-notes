@@ -9,7 +9,12 @@ import type { AppSettings } from '../shared/appearance'
 import { ENGINE_LABEL } from '../shared/ai-features'
 import type { EngineId } from '../shared/agent'
 import { CATEGORIES, CATEGORY_IDS, type CatId, catName } from '../shared/categories'
-import { DUP_CHOICES, dreamDoes, type DreamPatch, type DreamStep, GAP_CHOICES, IDLE_CHOICES, LINK_CHOICES, linkFolders, VIZ_CHOICES } from '../shared/dream-settings'
+import { CAP_CHOICES, DUP_CHOICES, extraLinkFolders, guessCat, topFolders, dreamDoes, type DreamPatch, type DreamSettings, type DreamStep, GAP_CHOICES, IDLE_CHOICES, LINK_CHOICES, linkFolders, VIZ_CHOICES } from '../shared/dream-settings'
+import type { AiPrefsView, DreamReport } from '../shared/api'
+import { AiPicker, engineFamily } from './ai-picker'
+import { nextPick, valueOf } from './settings-ai'
+import { LocalModelCard } from './local-model'
+import { EmbedModelRow } from './embed-model'
 import { FOLDER_COLORS } from '../shared/left'
 import { AiIcon, EngineLogo } from './engine-logo'
 import { dreamWhen, errText, useDream } from './dream/useDream'
@@ -228,6 +233,7 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
           )
         })}
       </div>
+      <OtherFolders s={s} set={set} />
       <p className="note">
         {t('课程、写作、项目、生活默认不勾：勾上后梦游会在那里的笔记末尾补双链。例外照旧由上面各自的开关管：可视化挂在课程里读PDF的笔记那一段的脚上；挪老图改引用它那几篇里的图片链接；改名时别处指向它的 [[旧名]] 跟着换；归类时从收件箱挪去哪个分类都行。')}
       </p>
@@ -253,8 +259,10 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
         ))}
       </div>
 
+      <JudgeSection s={s} report={report} set={set} onNotice={props.onNotice} />
+
       <h4>
-        {t('用哪家AI')}
+        {t('归类、小结、可视化用哪家AI')}
         <span>{t('在设置 › AI的「梦游」那一行换')}</span>
       </h4>
       <button className="dset-ai" data-testid="dream-set-ai" data-row="dAi" onClick={props.onAiRow}>
@@ -268,5 +276,141 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
         </span>
       </button>
     </div>
+  )
+}
+
+/**
+ * AI 判断补双链（task-h7oy8，用户定「两种都做，让人来选」「每晚额度封顶，上限在设置里可调」）：
+ * 走订阅（这台 Mac 上登录的命令行，选哪家、哪个模型、想多久）或本地模型（软件自己在本机跑，第一次用时下载）；
+ * 每晚最多判几篇；找候选用的本机向量模型；上次这一步的账（问了几次 AI、还剩几篇明晚接着）
+ */
+function JudgeSection(props: { s: DreamSettings; report: DreamReport | null; set(p: DreamPatch): void; onNotice(t: string): void }) {
+  const t = useT()
+  const { s, set } = props
+  const j = s.judge
+  const [v, setV] = useState<AiPrefsView | null>(null)
+  useEffect(() => {
+    const load = () => void window.cn.aiPrefs().then(setV, () => undefined)
+    load()
+    return window.cn.onAiPrefsChanged(load)
+  }, [])
+  const last = props.report?.judge
+  const via = (
+    [
+      ['cli', t('走订阅'), t('用这台Mac上已登录的命令行（Claude Code、Codex等），算在你的订阅用量里，不另付钱；要先装好、登录一家（设置 › AI 最下面能看）'), 'terminal'],
+      ['local', t('本地模型'), t('软件自己在这台Mac上跑一个小模型，不联网、不花额度；只做初筛：判成相关的都放进「拿不准，你来定」，你点了才连。第一次用时下载一次，要Apple芯片和8GB以上内存'), 'desktop-download'],
+    ] as const
+  ).map(([id, name, desc, icon]) => (
+    <button key={id} className="row radio" role="radio" aria-checked={j.via === id} data-via={id} onClick={() => set({ judge: { via: id } })}>
+      <span className={'rd' + (j.via === id ? ' on' : '')} />
+      <Codicon name={icon} size={16} className="vi" />
+      <span className="tx">
+        <b>{name}</b>
+        <span>{desc}</span>
+      </span>
+    </button>
+  ))
+  return (
+    <>
+      <h4>
+        {t('AI判断补双链')}
+        <span>{t('补双链、拿不准的、复查旧「相关：」都由它判；准确第一，宁可少连')}</span>
+      </h4>
+      <div className="dset-list" role="radiogroup" aria-label={t('AI判断走哪条路')} data-row="dJudge">
+        {via}
+      </div>
+      <div className="dset-judge" data-testid="dream-judge-detail">
+        {j.via === 'cli' ? (
+          v ? (
+            <div className="dset-pick">
+              <span className="tx">
+                <b>{t('哪家、哪个模型、想多久')}</b>
+                <span>{t('默认Sonnet 5.5 · Medium（真库评测准确率97.5%）；换Haiku省额度，自动连的把握线提到0.85')}</span>
+              </span>
+              <AiPicker
+                look="box"
+                ids={{ family: 'dream-judge-family', model: 'dream-judge-model', effort: 'dream-judge-effort' }}
+                familyMenu={t('判断用哪一家')}
+                familyHead={t('判断用哪一家')}
+                label={t('梦游判断')}
+                families={v.engines.map(engineFamily)}
+                value={valueOf({ engine: j.engine, model: j.model, ...(j.effort ? { effort: j.effort } : {}) })}
+                unsetEffort={{ label: t('默认档'), note: t('不指定，用它自己的') }}
+                onFamily={(id) => {
+                  if (!id) return
+                  const p = nextPick({ engine: j.engine, model: j.model, effort: j.effort }, v.engines, { family: id })
+                  set({ judge: { engine: p.engine, model: p.model ?? '', effort: p.effort ?? '' } })
+                }}
+                onModel={(m) => set({ judge: { model: m } })}
+                onEffort={(e) => set({ judge: { effort: e ?? '' } })}
+              />
+            </div>
+          ) : null
+        ) : (
+          <LocalModelCard />
+        )}
+      </div>
+      <div className="dset-list" data-row="dCap">
+        <div className="row">
+          <span className="tx">
+            <b>{t('每晚最多判几篇')}</b>
+            <span>{t('一篇问一次AI；判过又没改过的不再问。第一次整库补全分几晚做完，报告末尾写还剩几篇明晚接着')}</span>
+          </span>
+          <select aria-label={t('每晚最多判几篇')} value={s.nightCap} onChange={(e) => set({ nightCap: Number(e.target.value) })}>
+            {CAP_CHOICES.map((n) => (
+              <option key={n} value={n}>{t('{n}篇', { n })}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <EmbedModelRow />
+      {last && (
+        <p className="note" data-testid="dream-judge-last">
+          {last.left
+            ? t('上次梦游：{by}判了{n}篇、问了{asked}次AI，到了每晚{cap}篇的上限，还剩{left}篇明晚接着', { by: last.by, n: last.notes, asked: last.asked, cap: last.cap, left: last.left })
+            : t('上次梦游：{by}判了{n}篇、问了{asked}次AI，{cached}篇用的是以前判过的结果，全库都判过了', { by: last.by, n: last.notes, asked: last.asked, cached: last.cached })}
+        </p>
+      )}
+    </>
+  )
+}
+
+/**
+ * 库最外层不叫分类名的文件夹（从 Obsidian 搬来的「00-Inbox」「40-Clippings」，task-h7oy8）：也能在里面补双链。
+ * 看名字认得出的（Inbox、Clippings、Reading…）默认勾着、写着像哪一类；点过一次以后只照点的
+ */
+function OtherFolders(props: { s: DreamSettings; set(p: DreamPatch): void }) {
+  const t = useT()
+  const { s, set } = props
+  const [tops, setTops] = useState<string[] | null>(null)
+  useEffect(() => {
+    void window.cn.listNotes().then((ns) => {
+      const cats = new Set<string>(CATEGORIES.map((c) => c.name))
+      setTops(topFolders(ns.map((n) => n.path)).filter((f) => !cats.has(f)))
+    })
+  }, [])
+  if (!tops?.length) return null
+  const on = new Set(extraLinkFolders(s, tops))
+  const toggle = (f: string, v: boolean) => set({ autoFolders: false, extraFolders: v ? [...on, f] : [...on].filter((x) => x !== f) })
+  return (
+    <>
+      <div className="dset-sub">{t('库里别的文件夹：勾上的也补双链')}</div>
+      <div className="dset-folders" role="group" aria-label={t('库里别的文件夹')} data-row="dOtherFolders">
+        {tops.map((f) => {
+          const g = guessCat(f)
+          return (
+            <label key={f} className={'dset-folder' + (on.has(f) ? ' on' : '')}>
+              <input type="checkbox" checked={on.has(f)} aria-label={f} onChange={(e) => toggle(f, e.currentTarget.checked)} />
+              <span className="fi">
+                <Codicon name="folder" size={14} />
+              </span>
+              <b>{f}</b>
+              {/* 不翻：分类的身份，显示这个库磁盘上的名字 */}
+              <span className="truncate">{g ? t('看名字像「{cat}」', { cat: catName(g) }) : t('补双链')}</span>
+            </label>
+          )
+        })}
+      </div>
+    </>
   )
 }

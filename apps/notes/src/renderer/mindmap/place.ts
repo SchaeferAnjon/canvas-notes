@@ -16,7 +16,7 @@ const errText = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Err
 /** 父白板 / 笔记里的链接插好以后：存好、三样一次提交，底栏一句带「撤回」 */
 export async function settlePlaced(into: string, r: Placed, said: string): Promise<void> {
   await NoteDoc.saveAll()
-  const hash = await window.cn.boardCommit([into, r.path, r.photo], `拍导图：${titleOf(r.path).replace('∶', ':')} 放进《${titleOf(into)}》`)
+  const hash = await window.cn.boardCommit([into, r.path, r.photo].filter(Boolean), `拍导图：${titleOf(r.path).replace('∶', ':')} 放进《${titleOf(into)}》`)
   app().noticeUndo(said, () => {
     if (!hash) return
     void NoteDoc.saveAll()

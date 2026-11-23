@@ -1,5 +1,7 @@
+import { WebCover } from './feynman/cover'
 import { WebFind } from './find/WebFind'
 import { Codicon, type CodiconName } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { keyFor, useKeyHandler, useKeys } from './keys'
 import { useKeepPopsInside } from './shell/keep-inside'
 import { revealLeft } from './shell/tab-scroll'
@@ -1078,6 +1080,8 @@ export function WebPanel(props: {
           })}
           {/* AI 在网页里动手：网页外圈和顶上提示条（指针、亮的那段、「✂ 剪成卡片」画在网页里，main/agent/web.ts） */}
           <AiActLayer area="web" host={stack} />
+          {/* 费曼学习讲着：配对的网页盖住，按住看一眼（feynman/cover.tsx） */}
+          <WebCover url={active ? (srcOf(active) ?? null) : null} />
           {/* 网页改了版、上次那段找不到：按比例停在差不多的地方，浮一句（不往网页栏顶上加一排，task-kbnc0） */}
           {lost && lost.tabId === st.active && (
             <div className="wlost" role="alert" data-part="网页改版了的提示">
@@ -1301,14 +1305,14 @@ function MoreMenu(props: {
       }
       setDrag({ id, group, before, line })
     }
-    const up = () => {
-      removeEventListener('pointermove', move)
-      removeEventListener('pointerup', up)
-      setDrag(null)
-      if (before !== undefined) void updateCmds((c) => moveWebItem(c, group, ids, id, before ?? null))
-    }
-    addEventListener('pointermove', move)
-    addEventListener('pointerup', up)
+    // 松手没送到页面（窗口外松手、失焦）：当没拖过，先后不变（trackDrag，task-0nz63）
+    trackDrag<PointerEvent>(e, {
+      move,
+      end: (how) => {
+        setDrag(null)
+        if (how === 'up' && before !== undefined) void updateCmds((c) => moveWebItem(c, group, ids, id, before ?? null))
+      },
+    })
   }
 
   return (

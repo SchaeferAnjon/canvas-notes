@@ -59,6 +59,7 @@ function offThread<T>(job: SimilarJob, onProgress?: (p: SimilarProgress) => void
 
 export const similarOffThread: Similar = {
   links: (texts, loose) => offThread<LinkCand[]>({ t: 'links', texts, loose }).done,
+  ranked: (texts, loose, k) => offThread<LinkCand[]>({ t: 'ranked', texts, loose, k }).done,
   duplicates: (docs) => offThread<DuplicatePair[]>({ t: 'dups', docs }).done,
 }
 

@@ -83,8 +83,8 @@ test('空白处拖出框：碰到的都选上，浮出操作条（照原型的�
     await expect(bar(page)).not.toHaveClass(/\bhide\b/)
     await expect(bar(page).locator('.cnt')).toHaveText('已选3张')
     const names = await bar(page).locator('button.sb').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names).toEqual(['对齐', '放进列', '问AI', 'AI整理', '出卡', '复制', '删除', '更多'])
-    await expect(bar(page).locator('button.sb .lb')).toHaveText(['对齐', '放进列', '问AI', 'AI整理', '出卡'])
+    expect(names).toEqual(['对齐', '放进列', '问AI', 'AI整理', '出卡', '费曼讲这几张', '复制', '删除', '更多'])
+    await expect(bar(page).locator('button.sb .lb')).toHaveText(['对齐', '放进列', '问AI', 'AI整理', '出卡', '费曼讲这几张'])
     const bb = (await bar(page).boundingBox())!
     const top = Math.min(...(await Promise.all(['f1', 'f2', 'f3'].map((id) => box(page, id)))).map((r) => r.y))
     expect(Math.abs(bb.y + bb.height + 10 - top)).toBeLessThan(1.5)

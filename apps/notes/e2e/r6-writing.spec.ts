@@ -181,7 +181,8 @@ test('点一下图片（选中这张图）再打字：整串字落在图下面�
     await page.keyboard.type('xyz')
     await page.keyboard.type('点图后打字')
     await waitSaved(page)
-    expect(read(run, '一图.md')).toBe(DOC.replace('\n\n下一段', '\n\nxyz点图后打字\n下一段'))
+    // 字和下一段隔着空行（task-axoxy 第 13 条：以前紧贴下一段，文件里并成一段）
+    expect(read(run, '一图.md')).toBe(DOC.replace('\n\n下一段', '\n\nxyz点图后打字\n\n下一段'))
     // ⌘Z 一下回到原样（一次打字）
     for (let i = 0; i < 2; i++) await page.keyboard.press('Meta+z')
     await waitSaved(page)

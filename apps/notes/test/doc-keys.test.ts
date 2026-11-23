@@ -30,7 +30,8 @@ describe('引用里回车（CN-14）', () => {
     const v = fake(doc, doc.indexOf('/x)') + 3)
     expect(enterInQuote(v)).toBe(true)
     const head = v.state.selection.main.head
-    expect(v.state.doc.toString()).toBe(`前一段\n\n${CLIP}\n\n\n\n后一段\n`)
+    // 下面多一个空块：两个空行（gap-lines.ts 的数法，task-axoxy）
+    expect(v.state.doc.toString()).toBe(`前一段\n\n${CLIP}\n\n\n后一段\n`)
     expect(v.state.doc.lineAt(head).text).toBe('')
     expect(v.state.doc.lineAt(head - 1).text).toBe('')
   })
@@ -51,6 +52,26 @@ describe('引用里回车（CN-14）', () => {
     expect(enterInQuote(v)).toBe(true)
     expect(v.state.doc.toString()).toBe('> 第一行\n\n')
     expect(v.state.selection.main.head).toBe(v.state.doc.length)
+  })
+
+  it('空的 > 行回车出块，下面还有别的块：正好多一个空块、光标在里面（task-axoxy，gap-lines 的数法；以前多出两个）', () => {
+    const doc = '> 第一行\n> \n\n后一段\n'
+    const v = fake(doc, doc.indexOf('> \n') + 2)
+    expect(enterInQuote(v)).toBe(true)
+    expect(v.state.doc.toString()).toBe('> 第一行\n\n\n后一段\n')
+    expect(v.state.doc.lineAt(v.state.selection.main.head).number).toBe(3)
+    // 下面是标题：标题前那个空行是留白，空块在它上面
+    const h = '> 第一行\n> \n\n## 标题\n'
+    const w = fake(h, h.indexOf('> \n') + 2)
+    expect(enterInQuote(w)).toBe(true)
+    expect(w.state.doc.toString()).toBe('> 第一行\n\n\n\n## 标题\n')
+    expect(w.state.doc.lineAt(w.state.selection.main.head).number).toBe(3)
+    // 引用中间的空 > 行：拆成两段引用，中间一个空块
+    const m = '> 一\n> \n> 二\n'
+    const x = fake(m, m.indexOf('> \n') + 2)
+    expect(enterInQuote(x)).toBe(true)
+    expect(x.state.doc.toString()).toBe('> 一\n\n\n> 二\n')
+    expect(x.state.doc.lineAt(x.state.selection.main.head).number).toBe(3)
   })
 
   it('提示块：标题行、最后一行末尾回车在块里续一行 >，空的 > 行再回车出块', () => {

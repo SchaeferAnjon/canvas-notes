@@ -95,14 +95,17 @@ function askTone(src: string) {
 }
 
 /** 现在是不是深色主题（看 <html data-tone>） */
-let dark = document.documentElement.dataset.tone === 'dark'
+// 单元测试在 node 里会经 note-doc → cite 引到这里：没有 document 时不看主题（当浅色）
+const hasDom = typeof document !== 'undefined'
+let dark = hasDom && document.documentElement.dataset.tone === 'dark'
 const darkSubs = new Set<() => void>()
-new MutationObserver(() => {
-  const d = document.documentElement.dataset.tone === 'dark'
-  if (d === dark) return
-  dark = d
-  darkSubs.forEach((f) => f())
-}).observe(document.documentElement, { attributes: true, attributeFilter: ['data-tone'] })
+if (hasDom)
+  new MutationObserver(() => {
+    const d = document.documentElement.dataset.tone === 'dark'
+    if (d === dark) return
+    dark = d
+    darkSubs.forEach((f) => f())
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-tone'] })
 
 const sub = (set: Set<() => void>) => (f: () => void) => {
   set.add(f)

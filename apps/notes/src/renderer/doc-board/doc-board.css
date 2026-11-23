@@ -610,6 +610,77 @@
   color: var(--t3);
 }
 
+/* 问过 AI（新格式，task-yp8l7）：标题、我框的图（照框在 PDF 上 100% 的宽，不超过卡宽，点了回 PDF）、原文、每一问和回答全文、旁支、小结 */
+.db-ask-tt {
+  margin-bottom: 8px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.db-ask-crop {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--line2);
+  background: #fff;
+}
+.db-ask-crop img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+a.db-ask-crop {
+  cursor: pointer;
+}
+a.db-ask-crop:hover {
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+[data-tone='dark'] .db-ask-crop img {
+  filter: brightness(0.92);
+}
+.db-ask-quote {
+  margin: 8px 0 0;
+  padding-left: 12px;
+  border-left: 2px solid var(--line2);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.db-ask-qa {
+  margin-top: 10px;
+}
+/* 问题条：和文档看法里的问题提示块一个样子（--fill2 底、圆角 6）；不叫 .q（那是引文卡的竖线） */
+.db-card .db-ask-qa > .row.aq:first-child {
+  margin-top: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: var(--fill2);
+  font-size: 13px;
+  font-weight: 500;
+}
+.db-card .row.aq > svg {
+  margin-top: 3px;
+  color: var(--yellow);
+}
+.db-ask-qa > .md {
+  margin-top: 8px;
+}
+.db-ask-side {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line2);
+}
+.db-ask-side .sq {
+  font-size: 12px;
+  color: var(--t3);
+}
+.db-ask-recap {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
 /* 问过 AI：截图（没有就画那一页）+ 标题，疑惑一行，讲通三行，完整对话几轮 */
 .db-ask-top {
   display: flex;
@@ -960,9 +1031,12 @@
 .db-card .card-edit .cm-placeholder {
   color: var(--t3);
 }
-/* 大纲点一项飞过来：外圈闪一下 */
+/* 大纲点一项飞过来、AI 回答里 ⌘点白板卡转过来：外圈闪一下（强调色外圈留到 80%）。
+   带上 .board：白板外层也是 .board，压过 shell.css 里老白板的 .board .flown（淡的 --acc-ring，1.2 秒） */
 .db-card.flown,
-.db-col.flown {
+.db-col.flown,
+.board .db-card.flown,
+.board .db-col.flown {
   animation: db-landed 2.2s ease-out;
 }
 /* AI 总结的卡：卡底一行 */
@@ -1961,4 +2035,7 @@
   color: var(--t1);
   transform: rotate(-1deg);
   pointer-events: none;
+}
+.db-ask-side .row.aq > svg {
+  color: var(--t2);
 }

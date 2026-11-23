@@ -30,6 +30,11 @@ describe('梦游的设置', () => {
       dupMax: 20,
       folders: ['收件箱', '阅读', '剪藏', '周记'],
       autoTake: false,
+      // task-h7oy8：判断默认走订阅里的 Sonnet · Medium（真库评测推荐），每晚最多判 500 篇
+      judge: { via: 'cli', engine: 'claude', model: 'sonnet', effort: 'medium', local: '' },
+      nightCap: 500,
+      extraFolders: [],
+      autoFolders: true,
     })
   })
 
@@ -117,10 +122,12 @@ const sec = (page: number, title: string, rounds: number, failed: number): AskSe
 })
 
 /** 假 AI：收件箱都归到剪藏/旅行，「冰洞」顺手改名「冰洞攻略」；只改名时也给它起这个名字；可视化、小结给固定的 */
+import { fakeJudge, isJudgePrompt } from '../src/main/dream-judge'
 const prompts: string[] = []
 const fakeAsk: Ask = async (_s, prompt) => {
   prompts.push(prompt)
   if (prompt.startsWith('命令：本周小结')) return '这周在准备冰岛。'
+  if (isJudgePrompt(prompt)) return fakeJudge(prompt)
   if (prompt.startsWith('命令：梦游可视化')) {
     const page = /第 (\d+) 页/.exec(prompt)![1]
     return `\`\`\`html\n<!doctype html><html><head><title>第 ${page} 页 · 拖一拖</title></head><body><input type="range"></body></html>\n\`\`\``

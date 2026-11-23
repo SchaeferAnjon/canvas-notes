@@ -48,9 +48,9 @@ test('⌘= ⌘- ⌘0 ⇧⌘1 和「100% ▾」：按档位缩放、按新比例�
     await page.setViewportSize({ width: 1440, height: 900 })
     await openPdf(page, '第3讲 线性映射')
     const view = pdfPane(page).getByTestId('pdf-view')
-    // 新打开照设置（默认适合宽度）：纸宽 = 栏宽 − 左 40 − 右 52
-    const vw = await view.evaluate((el) => el.clientWidth)
-    const fit = (vw - 92) / W
+    // 新打开照设置（默认适合宽度）：纸离栏左右各 40（task-2onrm 去掉了纸外右边放标记的那条，常显的滚动条算在右边 40 里）
+    const vw = await view.evaluate((el) => (el as HTMLElement).offsetWidth)
+    const fit = (vw - 80) / W
     await expect(pill(page)).toHaveText(`${Math.round(fit * 100)}%`)
     await expect(pill(page)).toHaveAttribute('data-key', '⌘= ⌘- ⌘0')
     await expectCrisp(page, Math.round(fit * 1000) / 1000)
@@ -96,7 +96,7 @@ test('⌘= ⌘- ⌘0 ⇧⌘1 和「100% ▾」：按档位缩放、按新比例�
     await page.getByTestId('tab-list').getByRole('tab', { name: /第4讲 特征值\.pdf/ }).click()
     await page.setViewportSize({ width: 1100, height: 900 })
     await expect.poll(() => pct(page)).toBeLessThan(Math.round(fit * 100))
-    const fit2 = ((await pdfPane(page).getByTestId('pdf-view').evaluate((el) => el.clientWidth)) - 92) / W
+    const fit2 = ((await pdfPane(page).getByTestId('pdf-view').evaluate((el) => (el as HTMLElement).offsetWidth)) - 80) / W
     await expect(pill(page)).toHaveText(`${Math.round(fit2 * 100)}%`)
     await page.getByTestId('tab-list').getByRole('tab', { name: /第3讲 线性映射\.pdf/ }).click()
     await expect(pill(page)).toHaveText('200%')
@@ -175,11 +175,13 @@ test('捏合以手指为中心；放大缩小后页边标记、问过的框、�
     // 小条出来时从上面 4px 滑下来（cap-in，0.16 秒）：等它停稳再量，不然量到半路，多出一两个像素
     await cap.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
     const gap0 = await capGap()
+    // 标记在纸里右边那一列（task-2onrm）：和框上沿齐，离看得到的那块纸右边一样远（纸比栏宽时贴着看得到的右边）
     const mkOff = async () => {
       const m = await box(mk)
       const a = await box(asked)
       const p = await box(pdfPage(page, 1))
-      return { dy: m.y - a.y, dx: m.x - (p.x + p.width) }
+      const right = await pdfPane(page).getByTestId('pdf-view').evaluate((el) => el.getBoundingClientRect().left + el.clientWidth)
+      return { dy: m.y - a.y, dx: m.x - Math.min(p.x + p.width, right) }
     }
     const off0 = await mkOff()
 
@@ -203,7 +205,7 @@ test('捏合以手指为中心；放大缩小后页边标记、问过的框、�
     expect(Math.abs(p1.x + fx * p1.width - at.x)).toBeLessThanOrEqual(2)
     expect(Math.abs(p1.y + fy * p1.height - at.y)).toBeLessThanOrEqual(2)
 
-    // 框都跟着页面走（误差 ≤ 2px），小条还在框上方同样的距离，标记还和框上沿齐、在页右边外 8
+    // 框都跟着页面走（误差 ≤ 2px），小条还在框上方同样的距离，标记还和框上沿齐、贴着看得到的纸右边
     expect(await drift(page, asked, fAsked)).toBeLessThanOrEqual(2)
     expect(await drift(page, pending, fPending)).toBeLessThanOrEqual(2)
     await expect(cap).toBeVisible()
@@ -251,7 +253,7 @@ test('捏合以手指为中心；放大缩小后页边标记、问过的框、�
     await page.keyboard.press('Escape')
 
     // 从笔记跳回来：闪的框和问过的框重合
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     const notes = page.getByRole('complementary', { name: '笔记', exact: true })
     await notes.getByRole('button', { name: '第1页 ›' }).click()
     const flash = pdfPane(page).getByTestId('pdf-flash')

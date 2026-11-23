@@ -1,0 +1,262 @@
+/* 语音输入（费曼学习第 2 节，task-yvabi；照 design/feynman/proto.html 的「语音」那几条）
+   录音的红点、红边是 --red 的新用法（DESIGN.md 颜色表）：红点和框的红边用 --red-t（各套对卡片底都 ≥ 4.5，--red 55% 在深湖只有 1.5:1），
+   外圈 --red 12%，按着的麦克风 --red-t 字 + --red 12% 底。
+   选择器写两遍 .dict-rec：外面的框自己的边框规则（.inp、.inp:focus-within）不管写在前写在后都盖不掉它 */
+
+.dict-rec.dict-rec,
+.dict-rec.dict-rec:focus-within {
+  border-color: var(--red-t);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.dict-mic {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--t3);
+  cursor: pointer;
+  touch-action: none;
+}
+.dict-mic:hover {
+  background: var(--fill);
+  color: var(--t2);
+}
+.dict-mic.on,
+.dict-mic.on:hover {
+  color: var(--red-t);
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+}
+.dict-mic:focus-visible {
+  outline: 2px solid var(--acc-ring);
+  outline-offset: 1px;
+}
+
+.dict-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 0;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+  min-width: 0;
+}
+.dict-bar .dict-sp {
+  flex: 1;
+}
+.dict-bar .dict-hint {
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dict-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red-t);
+  flex: none;
+  animation: dict-breath 1.2s ease-in-out infinite;
+}
+.dict-lv {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 14px;
+  flex: none;
+}
+.dict-lv i {
+  width: 2px;
+  height: 3px;
+  border-radius: 1px;
+  background: var(--t2);
+  transition: height 0.1s;
+}
+.dict-tm {
+  font-variant-numeric: tabular-nums;
+  color: var(--t3);
+}
+
+.dict-live {
+  box-sizing: border-box;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+.dict-live .int {
+  color: var(--t3);
+}
+.dict-caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 1.15em;
+  margin-left: 1px;
+  vertical-align: -0.2em;
+  background: var(--acc);
+  animation: dict-blink 1s steps(1) infinite;
+}
+
+.dict-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+  padding: 0 12px 2px;
+}
+.dict-note.err {
+  color: var(--red-t);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 12px;
+}
+.dict-msg {
+  flex: 1 1 14em;
+  min-width: 0;
+}
+.dict-go {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.dict-note.err .dict-go {
+  flex: none;
+  white-space: nowrap;
+}
+.dict-go:hover {
+  text-decoration: underline;
+}
+
+@keyframes dict-breath {
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes dict-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dict-dot,
+  .dict-caret {
+    animation: none;
+  }
+}
+
+/* 测试模式才有的试验框（voice/demo.tsx）：照费曼回答框 .inp 搭 */
+.dict-demo {
+  position: fixed;
+  right: 72px;
+  bottom: 48px;
+  width: 320px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line2);
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  color: var(--t1);
+}
+.dict-demo-q,
+.dict-demo-sent {
+  font-size: 13px;
+  line-height: 1.65;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+}
+.dict-demo-sent {
+  background: var(--fill2);
+}
+.dict-demo-inp {
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  transition: box-shadow 0.2s;
+}
+.dict-demo-inp:focus-within {
+  box-shadow: 0 0 0 3px var(--acc-soft);
+  border-color: var(--acc-ring);
+}
+.dict-demo-inp textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  outline: 0;
+  background: none;
+  resize: none;
+  font: 13px/1.65 var(--sans);
+  color: var(--t1);
+  padding: 9px 12px 4px;
+  min-height: 76px;
+}
+.dict-demo-inp textarea::placeholder {
+  color: var(--t3);
+}
+.dict-demo-f {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 6px;
+}
+.dict-demo-sp {
+  flex: 1;
+}
+.dict-demo-ib {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: var(--t3);
+}
+.dict-demo-ghost {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 0;
+  background: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.dict-demo-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--solid);
+  background: var(--solid);
+  color: var(--solid-t);
+  font-size: 12px;
+  font-weight: 500;
+}
+.dict-demo-send[disabled] {
+  opacity: 0.45;
+}
+.dict-demo-send kbd {
+  font: 11px var(--sans);
+  opacity: 0.7;
+}

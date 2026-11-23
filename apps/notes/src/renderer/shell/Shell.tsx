@@ -494,6 +494,9 @@ export function Tooltips() {
     let left = tip.side === 'right' || tip.side === 'above-start' ? tip.x : tip.side === 'left' ? tip.x - w : tip.side === 'below-left' || tip.side === 'above-left' ? tip.x - w : tip.x - w / 2
     const top = tip.side === 'right' || tip.side === 'left' ? tip.y - h / 2 : tip.side.startsWith('above') ? tip.y - h : tip.y
     left = Math.max(6, Math.min(left, innerWidth - w - 6))
+    // data-tip-in="aside"：收在所在那一栏里、离两边 12（右栏里旁支头上的「全能 / 只在库里」，不伸进中间栏）
+    const col = tip.el.getAttribute('data-tip-in') === 'aside' ? tip.el.closest('aside')?.getBoundingClientRect() : null
+    if (col) left = Math.max(col.left + 12, Math.min(left, col.right - 12 - w))
     el.style.left = left + 'px'
     el.style.top = Math.max(4, top) + 'px'
     el.classList.add('show')

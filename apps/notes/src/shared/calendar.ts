@@ -13,7 +13,8 @@ export interface CalLinkState {
   asking: boolean
   /** 连上了（有小助手、给了完全访问） */
   active: boolean
-  calendars: { id: string; title: string; color: string; source: string }[]
+  /** hidden：左栏右键「不在这里显示」了（和画布今日共用一份，task-ov5bb）；它的日程不画、不占时间 */
+  calendars: { id: string; title: string; color: string; source: string; hidden: boolean }[]
   /** 系统提醒事项里画布今日镜像的那个列表（画布今日那边连了才有）：名字和它自己的颜色 */
   reminders: { title: string; color: string } | null
   error: string | null
@@ -34,6 +35,10 @@ export interface CnCalApi {
   connect(): Promise<CalLinkState>
   events(from: string, to: string): Promise<CalEvent[]>
   openPrivacy(): Promise<void>
+  /** 左栏一个日历：藏起 / 再显示 */
+  hide(id: string, hide: boolean): Promise<CalLinkState>
+  /** 全部显示 */
+  showAll(): Promise<CalLinkState>
   aiInfo(): Promise<{ engine: string; label: string; full: string }>
   aiSchedule(id: string): Promise<SchedResult>
   aiCancel(id: string): Promise<void>

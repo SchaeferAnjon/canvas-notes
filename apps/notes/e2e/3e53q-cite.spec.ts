@@ -50,7 +50,7 @@ test('AI 对话：引用画成能点的链接；点一下出预览卡（标题 +
     await link.click()
     await expect(card(page)).toBeVisible()
     await expect(card(page).locator('.top b')).toHaveText('小论文计划')
-    await expect(card(page).locator('.u')).toHaveText('课程 · 第 42–43 行')
+    await expect(card(page).locator('.u')).toHaveText('课程 · 第42–43行')
     await expect(card(page).locator('.ex p')).toHaveText(['SAGE 排第 2 篇，编号 J52。', '作者和 C72 重叠（Chenpei Xie）。'])
     await expect(card(page).locator('.acts button')).toHaveText(['打开 ⌘点', '新标签打开 ⇧⌘点', '拷贝'])
     expect(await tabs(page).count()).toBe(before)
@@ -106,7 +106,7 @@ test('AI 对话：⇧⌘点 [[笔记#标题]] 开在后面的新标签、不切�
     // 不露 md 记号：「笔记 › 标题」
     await expect(wiki).toHaveText('第3讲 笔记 › 定义')
     await wiki.click()
-    await expect(card(page).locator('.u')).toHaveText('课程/线代 · 第 83–84 行')
+    await expect(card(page).locator('.u')).toHaveText('课程/线代 · 第83–84行')
     await expect(card(page).locator('.ex p')).toHaveText(['定义', '线性：加起来再变和变了再加一样。'])
     await page.keyboard.press('Escape')
 
@@ -122,8 +122,15 @@ test('AI 对话：⇧⌘点 [[笔记#标题]] 开在后面的新标签、不切�
     await expect(flashBar(page)).toBeVisible()
 
     await tabs(page).filter({ hasText: '随手' }).click()
-    // PDF 某页某块（页码小牌，和读 PDF、白板上的一样）：点一下就翻到第 4 页，那块闪一下（以前在 AI 对话里点了没反应）
-    await msg.locator('a.pg.cite', { hasText: '第 4 页那块' }).click()
+    // PDF 某页某块（页码小牌）：和别的链接一样点一下先出卡（那页缩略图、框画出来，已定 1），不开标签；⌘点再翻到第 4 页，那块闪一下
+    const pg = msg.locator('a.pg.cite', { hasText: '第 4 页那块' })
+    const n0 = await tabs(page).count()
+    await pg.click()
+    await expect(card(page).locator('.top .kind')).toHaveText('PDF')
+    await expect(card(page).getByTestId('cite-thumb').locator('.box')).toBeVisible({ timeout: 15_000 })
+    expect(await tabs(page).count()).toBe(n0)
+    await page.keyboard.press('Escape')
+    await pg.click({ modifiers: ['Meta'] })
     await expect(tabOn(page)).toHaveText('第3讲.pdf')
     await expect(acts(page).getByTestId('pdf-pager')).toHaveText('4 / 5', { timeout: 10_000 })
     await expect(pdfPane(page).getByTestId('pdf-flash')).toBeVisible()

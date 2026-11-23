@@ -1,3 +1,4 @@
+import { trackDrag } from '@cn/design/drag-end'
 import { CATEGORIES, catName } from '../shared/categories'
 import { useKeys } from './keys'
 import { dreamDoes, type DreamSettings } from '../shared/dream-settings'
@@ -156,25 +157,30 @@ export function HomeView(props: HomeProps) {
   function onGripDown(e: React.PointerEvent, id: WidgetId) {
     e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
-    setDrag({ id, before: undefined })
-  }
-  function onGripMove(e: React.PointerEvent) {
-    if (!drag) return
-    // 拖到中间栏上下边缘时跟着滚，远处的组件也能拖到
-    const sc = grid.current?.closest('.body')
-    if (sc) {
-      const r = sc.getBoundingClientRect()
-      if (e.clientY < r.top + 48) sc.scrollBy(0, -16)
-      else if (e.clientY > r.bottom - 48) sc.scrollBy(0, 16)
-    }
-    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-widget]')
-    const over = el?.dataset.widget as WidgetId | undefined
-    const inGrid = grid.current?.contains(document.elementFromPoint(e.clientX, e.clientY))
-    setDrag({ id: drag.id, before: over && over !== drag.id ? over : inGrid && !over ? null : undefined })
-  }
-  function onGripUp() {
-    if (drag && drag.before !== undefined) save(moveWidget(cfg!, drag.id, drag.before))
-    setDrag(null)
+    const c = cfg!
+    let before: WidgetId | null | undefined
+    setDrag({ id, before })
+    // 松手没送到页面（窗口外松手、失焦）：当没拖过，组件不挪（trackDrag，task-0nz63）
+    trackDrag<PointerEvent>(e, {
+      move: (ev) => {
+        // 拖到中间栏上下边缘时跟着滚，远处的组件也能拖到
+        const sc = grid.current?.closest('.body')
+        if (sc) {
+          const r = sc.getBoundingClientRect()
+          if (ev.clientY < r.top + 48) sc.scrollBy(0, -16)
+          else if (ev.clientY > r.bottom - 48) sc.scrollBy(0, 16)
+        }
+        const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-widget]')
+        const over = el?.dataset.widget as WidgetId | undefined
+        const inGrid = grid.current?.contains(document.elementFromPoint(ev.clientX, ev.clientY))
+        before = over && over !== id ? over : inGrid && !over ? null : undefined
+        setDrag({ id, before })
+      },
+      end: (how) => {
+        if (how === 'up' && before !== undefined) save(moveWidget(c, id, before))
+        setDrag(null)
+      },
+    })
   }
 
   const widgets = cfg.order.map((id) => {
@@ -196,9 +202,6 @@ export function HomeView(props: HomeProps) {
               aria-label={t('拖动{name}', { name: t(WIDGETS.find((w) => w.id === id)!.name) })}
               title={t('按住拖到别的组件前面')}
               onPointerDown={(e) => onGripDown(e, id)}
-              onPointerMove={onGripMove}
-              onPointerUp={onGripUp}
-              onPointerCancel={() => setDrag(null)}
             >
               <Codicon name="gripper" size={14} />
             </button>
@@ -297,13 +300,8 @@ export function HomeView(props: HomeProps) {
               const startY = e.clientY
               const from = adjustY
               const h = e.currentTarget.offsetHeight
-              const move = (ev: PointerEvent) => setAdjustY(Math.min(100, Math.max(0, Math.round(from - ((ev.clientY - startY) / h) * 100))))
-              const up = () => {
-                window.removeEventListener('pointermove', move)
-                window.removeEventListener('pointerup', up)
-              }
-              window.addEventListener('pointermove', move)
-              window.addEventListener('pointerup', up)
+              // 松手没送到页面：停在最后的位置（还要点「好了」才存；trackDrag，task-0nz63）
+              trackDrag<PointerEvent>(e, { move: (ev) => setAdjustY(Math.min(100, Math.max(0, Math.round(from - ((ev.clientY - startY) / h) * 100)))) })
             }}
           >
             {adjustY !== null && <span className="hint">{t('上下拖动图片，挑一个位置')}</span>}
@@ -499,7 +497,7 @@ function WallLegend() {
   )
 }
 
-const DREAM_ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', dup: 'copy', week: 'edit' }
+const DREAM_ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'preview', link: 'link', unsure: 'question', recheck: 'circle-slash', dup: 'copy', week: 'edit' }
 
 /**
  * 首页的「分类」（方向 C「首页分类卡」）：八张卡四列，上面一条 60 高的封面（和那一类首页的横幅同一张），

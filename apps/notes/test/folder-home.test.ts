@@ -48,7 +48,7 @@ describe('文件夹首页：哪些文件夹有', () => {
 describe('文件夹首页：设置', () => {
   it('默认组件：每门课那套不动；「课程」是在上的课、今天要复习、考试倒计时；别的只放最近改的、待办两块（一样宽）', () => {
     const c = defaultFolderHome('course')
-    expect(c.order).toEqual(['slides', 'review', 'exam', 'notes', 'doubts', 'viz', 'todo', 'links', 'cal'])
+    expect(c.order).toEqual(['slides', 'review', 'exam', 'notes', 'doubts', 'feynman', 'viz', 'todo', 'links', 'cal'])
     expect(c.hidden).toEqual(['board', 'text'])
     expect(c.widgets.notes!.cond).toEqual(NOTES_COND)
     expect(defaultFolderHome('courses').order).toEqual(['courses', 'review', 'exam'])

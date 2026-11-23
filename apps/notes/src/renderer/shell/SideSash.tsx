@@ -2,6 +2,7 @@
  * 左栏右边缘的分隔线（DESIGN：左栏 200 到 400 可拖，记住宽度）：拖它改 --side-w，松手记在本机 cn.sideW；
  * 双击回到默认（A 252；B 248，含岛右边 6 的缝，DESIGN.v3 1.3）。中间至少留 420。左栏收起时不出。
  */
+import { trackDrag } from '@cn/design/drag-end'
 import { useState } from 'react'
 import { useT } from '../i18n'
 
@@ -72,21 +73,26 @@ export function SideSash(props: { frame: 'a' | 'b'; rightW: number; width: numbe
       aria-valuemax={SIDE_MAX}
       aria-valuenow={props.width ?? SIDE_DEFAULT[props.frame]}
       onPointerDown={(e) => {
-        e.currentTarget.setPointerCapture(e.pointerId)
+        const el = e.currentTarget
+        el.setPointerCapture(e.pointerId)
         setDrag(true)
         document.body.classList.add('resizing', 'resizing-left')
-      }}
-      onPointerMove={(e) => {
-        if (!e.currentTarget.hasPointerCapture(e.pointerId)) return
-        // B 的左栏岛右边有 6 的缝，分隔线在缝正中
-        const want = e.clientX - abar + (props.frame === 'b' ? 3 : 0)
-        props.onWidth(clampSideW(want, window.innerWidth, 2 * abar, props.rightW))
-      }}
-      onPointerUp={(e) => {
-        document.body.classList.remove('resizing', 'resizing-left')
-        setDrag(false)
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId)
-        save(props.width)
+        let w = props.width
+        // 松手没送到页面（窗口外松手、失焦）：停在最后拖到的宽，照样记下（trackDrag，task-0nz63）
+        trackDrag<PointerEvent>(e, {
+          move: (ev) => {
+            // B 的左栏岛右边有 6 的缝，分隔线在缝正中
+            const want = ev.clientX - abar + (props.frame === 'b' ? 3 : 0)
+            w = clampSideW(want, window.innerWidth, 2 * abar, props.rightW)
+            props.onWidth(w)
+          },
+          end: (_how, ev) => {
+            document.body.classList.remove('resizing', 'resizing-left')
+            setDrag(false)
+            if (ev && el.hasPointerCapture(ev.pointerId)) el.releasePointerCapture(ev.pointerId)
+            save(w)
+          },
+        })
       }}
       onDoubleClick={() => {
         props.onWidth(null)

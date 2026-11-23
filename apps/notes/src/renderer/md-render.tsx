@@ -1,7 +1,8 @@
 import { Codicon } from '@cn/design'
-import { detailsHead, inlineMath, mathBlockAt, wikiLabel } from '@cn/format'
+import { type CiteRun, codeCite, detailsHead, findAutoCites, inlineMath, linkedSeen, mathBlockAt, wikiLabel } from '@cn/format'
 import type { ReactNode } from 'react'
 import { parseCallout } from './callout'
+import { autoLinkProps, type CiteScope, useCiteRun } from './cite-names'
 import { EngineLogo } from './engine-logo'
 import { MathBlock, MathInline } from './reading/math'
 import { ScrollX } from './scroll-x'
@@ -65,7 +66,47 @@ export function Attached({ wr, children, hooked, clamp }: { wr: boolean; childre
  * math：公式用 KaTeX 排（CN-89；task-o48fa 起白板卡片、文档切成的白板也排，默认开）：哪段算公式和文档编辑器同一个认法
  * （@cn/format 的 inlineMath / mathBlockAt：行内 $…$、\(…\)，单独成行的 $$…$$、\[…\]；「$5 和 $10」这样的钱数、代码里的不算）
  */
-export function Markdown({ text, math = true }: { text: string; math?: boolean }) {
+export function Markdown(p: { text: string; math?: boolean; cites?: CiteScope }) {
+  return p.cites ? <CitedMarkdown {...p} cites={p.cites} /> : <MarkdownBody text={p.text} math={p.math ?? true} />
+}
+
+/**
+ * AI 的回答（task-3e53q）：没写成链接的路径、笔记名也认成链接（cite-names.tsx）。只有带 cites 的才认（AI 对话、读 PDF、旁支、视频问框的回答），
+ * 白板卡、文档里画的 md 是用户自己的字，不认
+ */
+function CitedMarkdown(p: { text: string; math?: boolean; cites: CiteScope }) {
+  const make = useCiteRun(p.cites)
+  const run = make()
+  // AI 自己写成链接的那几篇（不管写在前面还是后面）：回答里光写它们名字的不再按名字认（真 Claude Code 写「第3讲 PDF 的[第 4 页](…第3讲.pdf…)」）
+  for (const m of p.text.matchAll(/\[\[([^\]\n]+)\]\]|\[[^\]\n]+\]\((<[^>\n]+>|[^)\n]+)\)/g)) linkedSeen(m[1] !== undefined ? { wiki: m[1] } : { href: m[2]!.replace(/^<(.*)>$/, '$1').replace(/\s+"[^"]*"$/, '') }, run)
+  return <MarkdownBody text={p.text} math={p.math ?? true} cites={p.cites} auto={{ run, conv: p.cites.conv }} />
+}
+
+/** 正在画的这条回答认链接用的（MarkdownBody 画的时候放上、画完拿掉；inline 同步调，读得到）；标题、折叠块的头里不认 */
+let auto: { run: CiteRun; conv: string } | null = null
+
+function MarkdownBody(p: { text: string; math: boolean; cites?: CiteScope; auto?: { run: CiteRun; conv: string } }) {
+  const outer = auto
+  auto = p.auto ?? null
+  try {
+    return markdownBody(p.text, p.math, p.cites)
+  } finally {
+    auto = outer
+  }
+}
+
+/** 不认链接地画一段（标题、折叠块的头、提示块的头） */
+function bare<T>(f: () => T): T {
+  const a = auto
+  auto = null
+  try {
+    return f()
+  } finally {
+    auto = a
+  }
+}
+
+function markdownBody(text: string, math: boolean, cites: CiteScope | undefined) {
   const lines = text.replace(/\r\n/g, '\n').split('\n')
   const out: ReactNode[] = []
   let i = 0
@@ -103,7 +144,7 @@ export function Markdown({ text, math = true }: { text: string; math?: boolean }
       const level = Math.min(h[1]!.length, 3)
       out.push(
         <div key={key()} className={`md-h md-h${level}`}>
-          {inline(h[2]!, key(), math)}
+          {bare(() => inline(h[2]!, key(), math))}
         </div>,
       )
       i++
@@ -122,9 +163,9 @@ export function Markdown({ text, math = true }: { text: string; math?: boolean }
         <details key={key()} className="md-fold" open={det.open}>
           <summary>
             <Codicon name="chevron-right" size={14} />
-            <span>{inline(det.title, key(), math)}</span>
+            <span>{bare(() => inline(det.title, key(), math))}</span>
           </summary>
-          <Markdown text={lines.slice(i + det.lines, close).join('\n')} math={math} />
+          <Markdown text={lines.slice(i + det.lines, close).join('\n')} math={math} {...(cites ? { cites } : {})} />
         </details>,
       )
       i = close + 1
@@ -145,13 +186,13 @@ export function Markdown({ text, math = true }: { text: string; math?: boolean }
               {cut > 0 ? (
                 <>
                   <span className="md-callout-name">{title.slice(0, cut)}</span>
-                  <span className="md-callout-meta">{inline(title.slice(cut), key(), math)}</span>
+                  <span className="md-callout-meta">{bare(() => inline(title.slice(cut), key(), math))}</span>
                 </>
               ) : (
                 <span className="md-callout-name">{title}</span>
               )}
             </div>
-            {body.length > 1 && <Markdown text={body.slice(1).join('\n')} math={math} />}
+            {body.length > 1 && <Markdown text={body.slice(1).join('\n')} math={math} {...(cites ? { cites } : {})} />}
           </div>,
         )
         continue
@@ -286,7 +327,8 @@ function joinLines(lines: string[], k: number, math: boolean): ReactNode[] {
   return lines.flatMap((l, j) => (j ? [<br key={`${k}-br${j}`} />, ...inline(l, `${k}-${j}`, math)] : inline(l, `${k}-${j}`, math)))
 }
 
-const INLINE = /(!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)|\*\*[^*]+\*\*|==[^=\s](?:[^=]*[^=\s])?==|~~[^~]+~~|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\((?:<[^>\n]+>|[^)\s]+)(?:\s+"[^"]*")?\))/y
+// [字](链接)：链接里有空格的只认 <…> 包着的，和指向 .md / .pdf 的（AI 写「课程/study project 2/x.md」不转 %20，task-3e53q）
+const INLINE = /(!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)|\*\*[^*]+\*\*|==[^=\s](?:[^=]*[^=\s])?==|~~[^~]+~~|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\((?:<[^>\n]+>|[^)\s]+|[^)\n"]+?\.(?:md|pdf)(?:[:#][^)\s]*)?)(?:\s+"[^"]*")?\))/y
 /** 回答里双链露出来的字：不露 md 记号，「笔记#标题」写成「笔记 › 标题」，#^块号 不露（有别名只露别名） */
 const citeLabel = (inner: string) => wikiLabel(inner).replace(/\s*#\^[^#|]*$/, '').replace(/\s*#\s*/, ' › ')
 /** [字](链接 "标题") 里的链接（<…> 包着的去掉尖括号） */
@@ -303,8 +345,22 @@ export function inline(s: string, keyBase: string | number = '', math = true): R
   const out: ReactNode[] = []
   const spans = math ? inlineMath(s) : []
   let text = ''
+  const plain = (x: string) => (math ? x.replace(/\\\$/g, '$') : x)
   const flush = () => {
-    if (text) out.push(math ? text.replace(/\\\$/g, '$') : text)
+    if (!text) return
+    // AI 回答里没写成链接的路径、笔记名（task-3e53q）：认出来的那几截画成链接
+    const hits = auto ? findAutoCites(text, auto.run) : []
+    let at = 0
+    for (const h of hits) {
+      if (h.from > at) out.push(plain(text.slice(at, h.from)))
+      out.push(
+        <a key={`${keyBase}-a${out.length}`} {...autoLinkProps(h.href, h.why, auto!.conv, h.name)}>
+          {plain(text.slice(h.from, h.to))}
+        </a>,
+      )
+      at = h.to
+    }
+    if (at < text.length) out.push(plain(text.slice(at)))
     text = ''
   }
   let k = 0
@@ -337,7 +393,19 @@ export function inline(s: string, keyBase: string | number = '', math = true): R
     // 高亮、删除线：和文档里（live-preview 的 cm-hl、cm-strike）一个样子
     else if (t.startsWith('==')) out.push(<mark key={key} className="md-hl">{t.slice(2, -2)}</mark>)
     else if (t.startsWith('~~')) out.push(<s key={key}>{t.slice(2, -2)}</s>)
-    else if (t.startsWith('`')) out.push(<code key={key}>{t.slice(1, -1)}</code>)
+    else if (t.startsWith('`')) {
+      // 整段是库里一个路径的行内代码（`课程/小论文计划.md`）：认成链接，样子还是代码（task-3e53q）
+      const href = auto ? codeCite(t.slice(1, -1), auto.run.ctx) : null
+      out.push(
+        href ? (
+          <a key={key} {...autoLinkProps(href, 'path', auto!.conv)}>
+            <code>{t.slice(1, -1)}</code>
+          </a>
+        ) : (
+          <code key={key}>{t.slice(1, -1)}</code>
+        ),
+      )
+    }
     // 双链、[字](链接)：引用（task-3e53q）。点了出预览卡、⌘点打开、⇧⌘点新标签（cite.tsx 在整个窗口上接住点击，哪里画的都一样）
     else if (t.startsWith('[[')) out.push(<a key={key} className="wl cite" data-wiki={t.slice(2, -2)}>{citeLabel(t.slice(2, -2))}</a>)
     // 读 PDF 时 AI 回答里的「[第 4 页](#page=4)」：点了 PDF 翻过去（右栏 AI 接住点击）

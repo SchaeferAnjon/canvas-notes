@@ -46,7 +46,7 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
   try {
     await openPdf(page)
     // 读 PDF：竖条上只多「笔记」；AI 只住右栏（第 2a 段）：打开 PDF 不再自己把 AI 打开，右下角的圆钮一直在，点了开右栏 AI 那一格
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '相关', '网页', '微信读书', '记录', '自动化', '历史'])
     await expect(ai(page)).toBeHidden()
     await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
     await expect(rail(page).getByRole('button', { name: '打开 AI' })).toBeVisible()
@@ -109,12 +109,16 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     expect(md2).toContain('> [!question] 还是不懂\n\n换个方式讲（第 3 页，图 0 张，读过全文，接着聊）：先别看公式，看图。\n\n> [!recap] 测试小结：主对话问了 2 句。\n')
     expect(md2).not.toMatch(/\[!ai\]|没讲通|完整对话/)
 
-    // AI 回答里的「第 2 页」：点了 PDF 翻过去
-    await ai(page).getByTestId('reading-msg').first().locator('a.pg', { hasText: '第 2 页' }).click()
+    // AI 回答里的「第 2 页」：和别的引用一样点一下先出预览卡（task-3e53q 已定 1），⌘点 PDF 翻过去
+    const p2 = ai(page).getByTestId('reading-msg').first().locator('a.pg', { hasText: '第 2 页' })
+    await p2.click()
+    await expect(page.getByRole('dialog', { name: '引用' }).locator('.u')).toContainText('第2页')
+    await page.keyboard.press('Escape')
+    await p2.click({ modifiers: ['Meta'] })
     await expect(acts(page).getByTestId('pdf-pager')).toHaveText('2 / 5')
 
     // 竖条「笔记」：小点消失，那段展开着
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notes(page)).toBeVisible()
     await expect(ai(page)).toBeHidden()
     await expect(rail(page).getByTestId('notes-dot')).toHaveCount(0)
@@ -139,7 +143,7 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     await expect(pdfPane(page).getByRole('button', { name: '第 3 页这里问过 2 轮' })).toHaveClass(/cur/)
 
     // 再点竖条「笔记」：收起笔记标签，回到 AI（笔记里就是问答原文，不再有「完整对话」那个入口）
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(ai(page)).toBeVisible()
 
     // 标签上的 × 收起 AI：右栏没有别的了，整栏收起
@@ -150,7 +154,7 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
 
     // 笔记单独在中间打开（⌘O）：就是普通文档，相对链接的截图照常显示。只开了笔记标签：换到这篇文档时笔记标签藏起来、整栏收起，
     // 竖条上「笔记」原地变淡（右图标栏方向 A），AI 还是收着
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notes(page)).toBeVisible()
     await page.keyboard.press('Meta+o')
     await page.keyboard.type('第3讲 线性映射 笔记')
@@ -160,7 +164,7 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     const img = page.locator('.pane:not([hidden]) img[src*="p3-1.png"]').first()
     await expect(img).toBeVisible()
     expect(await img.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(10)
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '相关', '网页', '微信读书', '记录', '自动化', '历史'])
     await expect(rail(page).getByRole('button', { name: /^笔记/ })).toHaveClass(/\bdim\b/)
     await expect(notes(page)).toHaveCount(0)
     await expect(page.locator('.win')).not.toHaveClass(/with-right/)
@@ -171,7 +175,7 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     // 开着 AI、笔记在前面（同一组两个标签）：换到文档，笔记标签藏起来、AI 换成这篇文档自己的对话；回到 PDF 又是笔记在前面
     await rail(page).getByRole('button', { name: '打开 AI' }).click()
     await expect(ai(page)).toBeVisible()
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notes(page)).toBeVisible()
     await page.getByTestId('tab-list').getByRole('tab', { name: /第3讲 线性映射 笔记/ }).click()
     await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeVisible()
@@ -322,7 +326,7 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
 
     // 回到 PDF：笔记里有可视化卡
     await page.locator('.tab', { hasText: '第3讲 线性映射.pdf' }).locator('.tl').click()
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notes(page).getByTestId('viz-card')).toContainText('旋转矩阵 · 拖动角度看基向量')
     // 「我的疑惑」那一页 2026-11-22 拿掉了（task-tz7y3）：⌘K 打它说问过的在哪；不再是文件
     await page.keyboard.press('Meta+k')

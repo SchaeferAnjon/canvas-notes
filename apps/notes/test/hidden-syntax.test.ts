@@ -14,12 +14,13 @@
 import * as cmds from '@codemirror/commands'
 import { deleteCharBackward, deleteCharForward, history, insertNewlineAndIndent, undo } from '@codemirror/commands'
 import { insertNewlineContinueMarkup, markdown } from '@codemirror/lang-markdown'
-import { ChangeSet, EditorSelection, EditorState, type Extension, type SelectionRange, Transaction, type TransactionSpec } from '@codemirror/state'
+import { ChangeSet, EditorSelection, EditorState, type Extension, Prec, type SelectionRange, Transaction, type TransactionSpec } from '@codemirror/state'
 import { findMath } from '@cn/format'
 import { Direction, EditorView, keymap } from '@codemirror/view'
 import { describe, expect, it } from 'vitest'
 import { atomicBlocks, backspaceSelectsBlock } from '../src/renderer/atomic-blocks'
 import { blockFlow } from '../src/renderer/block-flow'
+import { tidyBlocks } from '../src/renderer/tidy-blocks'
 import { docKeys, enterInQuote } from '../src/renderer/doc-keys'
 import { highlightKeys } from '../src/renderer/highlight'
 import { noteKeys } from '../src/renderer/note-keys'
@@ -544,7 +545,8 @@ describe('报告里的几条，按原样走一遍', () => {
 // ---------- 第 6 轮：第 5 轮看守没覆盖到的编辑路径 ----------
 
 /** 文档模式里真有的几套键（优先级和 note-doc.ts、doc-editing.ts 里一样） */
-const withKeys: Extension[] = [...extensions, docKeys, atomicBlocks, highlightKeys, keymap.of(noteKeys), blockFlow]
+// 改完规整（task-axoxy）排在看守前面、同为最高优先级，和文档里一样：每个键按完它也跑，藏着的照样不能被它改坏
+const withKeys: Extension[] = [Prec.highest(tidyBlocks), ...extensions, docKeys, atomicBlocks, highlightKeys, keymap.of(noteKeys), blockFlow]
 
 function openKeys(sample: Sample): View {
   const v = fakeView(EditorState.create({ doc: sample.doc, extensions: withKeys }))
@@ -723,13 +725,14 @@ describe('第 6 轮报告里的几条，按原样走一遍', () => {
     const v = openKeys({ name: '', doc })
     v.dispatch({ selection: EditorSelection.range(from, to), userEvent: 'select.pointer' })
     for (const ch of 'xyz') typeAt(v, ch)
-    expect(v.state.doc.toString()).toBe(doc.replace('\n\n下一段', '\n\nxyz\n下一段'))
+    // 字和下一段隔着空行（task-axoxy 第 13 条：以前是「xyz\n下一段」，文件里并进了下一段；改完规整补上）
+    expect(v.state.doc.toString()).toBe(doc.replace('\n\n下一段', '\n\nxyz\n\n下一段'))
     // 也可能直接插在块后面的空行里（报告里看到的）：后面的字跟着
     const w = openKeys({ name: '', doc })
     w.dispatch({ selection: EditorSelection.range(from, to), userEvent: 'select.pointer' })
     w.dispatch({ changes: { from: to + 1, insert: 'x' }, userEvent: 'input.type' })
     for (const ch of 'yz') typeAt(w, ch)
-    expect(w.state.doc.toString()).toBe(doc.replace('\n\n下一段', '\n\nxyz\n下一段'))
+    expect(w.state.doc.toString()).toBe(doc.replace('\n\n下一段', '\n\nxyz\n\n下一段'))
     // 块下面紧挨着正文（数据库块的 ``` 下面直接一段）：字前后各空一行
     const tight = `# 表\n\n${BASE}\n下一段。\n`
     const t = openKeys({ name: '', doc: tight })

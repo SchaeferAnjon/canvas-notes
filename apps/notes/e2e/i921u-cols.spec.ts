@@ -66,6 +66,8 @@ test('关联、汇总、公式：格子怎么画、关联两边写一次提交�
       await c.scrollIntoViewIfNeeded()
       await page.waitForTimeout(150)
       const box = (await c.boundingBox())!
+      // 单击只选中一格（task-cle3x 格子焦点），再点一下开选择
+      await c.click({ position: { x: box.width - 8, y: box.height / 2 } })
       await c.click({ position: { x: box.width - 8, y: box.height / 2 } })
     }
     await openPick()
@@ -223,6 +225,7 @@ test('关联、汇总、公式：格子怎么画、关联两边写一次提交�
     const lec5 = '课程/ecp/课程计划/第5讲 博弈初步.md'
     const lec5Text = read(vault, lec5)
     await clickSteady(page, cell(page, '第5讲', '状态'))
+    await cell(page, '第5讲', '状态').click()
     const st = page.getByRole('dialog', { name: '第5讲 博弈初步 · 状态' })
     await expect(st.getByRole('group')).toHaveText([/^待开始/, /^进行中/, /^完成/])
     await st.getByRole('menuitemradio', { name: '在学' }).click()

@@ -100,6 +100,7 @@ const IN_CONTEXT: Record<string, string> = {
   translate: '网页里',
   'todo-when': '文档、白板卡里光标在一行待办上，待办详情小卡开着时（pd289-when 按 ⌥⌘T 弹定日子和时间的选择器）',
   'find-in-page': '文档、白板、PDF、网页、导图里（wuv05-find-in-page、wuv05-mindmap-b2 逐个按 ⇧⌘F，改键）',
+  'ai-follow': '从 AI 回答里 ⌘点开一篇以后右栏还在原来那段对话时（3e53q-kinds 按 ⌥⌘J 换成那篇的 AI）',
 }
 
 test('命令表里「软件里」的命令：照命令表的键，在编辑器、AI 输入框、网页、白板有焦点时逐个真按都跑对', async () => {

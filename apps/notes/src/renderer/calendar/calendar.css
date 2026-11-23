@@ -208,12 +208,54 @@
   font-size: 13px;
   color: var(--t1);
 }
+/* 下面「系统提醒事项」那一行（镜像的列表，点不了）：10 的圆点，和上面能点的方色块分开；左右各让 1，名字和上面对齐 */
 .calside-row i {
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
+  width: 10px;
+  height: 10px;
+  margin: 0 1px;
+  border-radius: 999px;
   background: var(--c);
   flex: none;
+}
+/*
+ * 系统日历的色块是一颗按钮（task-ov5bb）：点了「不在这里显示」，藏起的是空心色框、名字变淡，行还在。
+ * 按钮 28 × 26（点得到的最小 28），左右 -8 压回 12 色块的位置；悬停的淡底画在色块外圈 4（看起来是 20 方）
+ */
+.calside-row .calsw {
+  flex: none;
+  width: 28px;
+  height: 26px;
+  margin: 0 -8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  display: grid;
+  place-items: center;
+  cursor: default;
+}
+.calside-row .calsw::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  box-sizing: border-box;
+  border-radius: 3px;
+  background: var(--c);
+}
+.calside-row .calsw:hover::before {
+  box-shadow: 0 0 0 4px var(--fill);
+}
+.calside-row .calsw:focus-visible {
+  outline: none;
+}
+.calside-row .calsw:focus-visible::before {
+  box-shadow: 0 0 0 2px var(--acc-ring);
+}
+.calside-row.off .calsw::before {
+  background: transparent;
+  border: 1.5px solid var(--c);
+}
+.calside-row.off .nm {
+  color: var(--t3);
 }
 .calside-row .nm {
   min-width: 0;

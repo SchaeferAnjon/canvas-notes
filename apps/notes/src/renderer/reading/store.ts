@@ -107,6 +107,8 @@ export interface Reading {
   sideRunning: Record<string, number>
   /** 让笔记滚到那条旁支（「在笔记里看」、笔记里点小标） */
   sideFocus: { thread: string; quote: string; seq: number } | null
+  /** 打开时补了以前缺的截图（task-yp8l7）：右栏笔记顶上说的那一句 */
+  filled?: string | null
   /** 网页那一处（web:<网址>）的网页标题：引用、问的时候记下（还没问过时头上、「看得到」、空白提示也写得出它，task-6cxtc 复审） */
   webTitle?: string
 }
@@ -307,7 +309,7 @@ const settled = (m: ReadingMsg): ReadingMsg =>
 export async function load(pdf: string) {
   if (!listening) {
     listening = true
-    window.cnReading.onAsk((id, e) => (e.type === 'text' ? onAskText(id, e.delta) : onAskStep(id, { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}) })))
+    window.cnReading.onAsk((id, e) => (e.type === 'text' ? onAskText(id, e.delta) : onAskStep(id, { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}), ...(e.paths?.length ? { paths: e.paths } : {}) })))
   }
   if (get(pdf).loaded) return
   const [state, note] = await Promise.all([window.cnReading.state(pdf), window.cnReading.readNote(pdf)])
@@ -580,6 +582,17 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
       images.unshift(name)
       pasted = [name, ...pasted]
     } else if (p.png) image = await window.cnReading.saveCrop(pdf, p.page, p.png)
+    else if (!p.quote && !p.web && p.page > 0 && /\.pdf$/i.test(pdf) && pdfDoc(pdf)) {
+      // 框的这块截图还没好就发了（工具条上的按钮等了 5 秒、排着的那一问）：这里照框重新截一次，笔记里这一处照样有图（task-yp8l7）
+      try {
+        const c = await cropOf(pdf, p.page, p.rect)
+        URL.revokeObjectURL(c.url)
+        image = await window.cnReading.saveCrop(pdf, p.page, c.png)
+        p = { ...p, w: c.cssW }
+      } catch (e) {
+        console.error('框的这块没截成', e)
+      }
+    }
     // 视频「接着问」附的那一帧文档里那块问答已经有了，笔记里不再放一遍
     thread = { id, page: p.page, ...(p.rect ? { rect: p.rect } : {}), ...(p.quote ? { quote: p.quote } : {}), ...(image && !p.image ? { crop: image, ...(p.w ? { cropW: p.w } : {}) } : {}), ...(p.web ? { web: p.web } : {}), createdAt: now, ...(p.cmd ? { cmd: p.cmd } : {}), ...(p.noNote ? { noNote: true as const } : {}) }
     // 网页那边的框和工具条收起来
@@ -704,7 +717,8 @@ export function onAskStep(id: number, step: ToolStep) {
     const steps = [...(m.steps ?? [])]
     const i = steps.findIndex((s) => s.id === step.id)
     if (i === -1) steps.push(step)
-    else steps[i] = step
+    // 读过的文件（task-3e53q）：开始和做完各报一次，有一次报了就留着
+    else steps[i] = step.paths || !steps[i]!.paths ? step : { ...step, paths: steps[i]!.paths }
     return { ...m, steps }
   }
   for (const [pdf, r] of docs) {
@@ -1041,6 +1055,11 @@ export function focusSection(pdf: string, id: string) {
 
 export function showConvo(pdf: string, id: string) {
   update(pdf, () => ({ convo: { id, seq: nextSeq() } }))
+}
+
+/** 补截图那一句：说出来，或者点 × 收起（null） */
+export function setFilled(pdf: string, text: string | null) {
+  update(pdf, () => ({ filled: text }))
 }
 
 export function seenNotes(pdf: string) {

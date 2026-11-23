@@ -298,7 +298,7 @@ test('文档里嵌白板、嵌一节（待办能勾，勾的是原文那一行�
     await acts(page).getByRole('tab', { name: '文档' }).click()
     const bl = pane(page).getByLabel('提到这篇的')
     await expect(bl).toContainText('2026-W47')
-    await expect(bl).toContainText('嵌了这块白板、引用了「出发前」这一节')
+    await expect(bl).toContainText('嵌了这块白板、指着「出发前」')
     await bl.getByRole('button', { name: '2026-W47' }).click()
     await expect(tabOn(page)).toHaveText('2026-W47')
   } finally {

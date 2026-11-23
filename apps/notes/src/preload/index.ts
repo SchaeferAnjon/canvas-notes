@@ -4,6 +4,7 @@ import type { CnApi } from '../shared/api'
 import { folderApi } from './folder-home'
 import { importApi } from './importer'
 import { mapApi } from './mindmap'
+import { afterApi } from './feynman-after'
 import { pluginsApi } from './plugins'
 import { readingApi } from './reading'
 import { searchApi } from './search'
@@ -19,6 +20,8 @@ import { familyApi } from './family'
 import { calApi } from './calendar'
 import { mobileAiApi } from './mobile-ai'
 import { crashApi } from './crash'
+import { voiceApi } from './voice'
+import { feynmanApi } from './feynman'
 
 /** 听主进程发来的一种事，交回取消的函数 */
 function listen<T>(ch: string, cb: (x: T) => void): () => void {
@@ -68,7 +71,14 @@ const api: CnApi = {
   trashCommitPending: (paths) => ipcRenderer.invoke('trash:commit-pending', paths),
   summaryKeepOld: (path, old, converted) => ipcRenderer.invoke('board:summaryKeepOld', path, old, converted),
   boardBases: () => ipcRenderer.invoke('board:bases'),
-  backlinks: (path) => ipcRenderer.invoke('board:backlinks', path),
+  backlinks: (path) => ipcRenderer.invoke('related:backlinks', path),
+  related: (path) => ipcRenderer.invoke('related:get', path),
+  relatedLink: (path, other, near) => ipcRenderer.invoke('related:link', path, other, near),
+  relatedUnrelated: (path, other) => ipcRenderer.invoke('related:unrelated', path, other),
+  relatedUnlink: (path, other, src) => ipcRenderer.invoke('related:unlink', path, other, src),
+  relatedUndo: (u) => ipcRenderer.invoke('related:undo', u),
+  relatedDot: (path) => ipcRenderer.invoke('related:dot', path),
+  relatedSeen: (path) => ipcRenderer.invoke('related:seen', path),
   boardCommit: (paths, message) => ipcRenderer.invoke('board:commit', paths, message),
   boardRevert: (hash) => ipcRenderer.invoke('board:revert', hash),
   baseWrite: (writes, message) => ipcRenderer.invoke('base:write', writes, message),
@@ -116,6 +126,7 @@ const api: CnApi = {
   commit: () => ipcRenderer.invoke('git:commit'),
   sync: () => ipcRenderer.invoke('git:sync'),
   history: (limit, opts) => ipcRenderer.invoke('git:history', limit, opts),
+  commitInfo: (hash) => ipcRenderer.invoke('git:commit-info', hash),
   lineTimes: (path) => ipcRenderer.invoke('git:line-times', path),
   restorable: (hash) => ipcRenderer.invoke('git:restorable', hash),
   restoreDeleted: (hash, only) => ipcRenderer.invoke('git:restore', hash, only),
@@ -263,6 +274,23 @@ const api: CnApi = {
     ipcRenderer.on('dream:changed', h)
     return () => ipcRenderer.removeListener('dream:changed', h)
   },
+  llmStatus: () => ipcRenderer.invoke('llm:status'),
+  llmDownload: (id) => ipcRenderer.invoke('llm:download', id ?? null),
+  llmCancel: () => ipcRenderer.invoke('llm:cancel'),
+  llmSetModel: (id) => ipcRenderer.invoke('llm:setModel', id),
+  llmReveal: () => ipcRenderer.invoke('llm:reveal'),
+  onLlm(cb) {
+    const h = (_e: unknown, s: Parameters<typeof cb>[0]) => cb(s)
+    ipcRenderer.on('llm:changed', h)
+    return () => ipcRenderer.removeListener('llm:changed', h)
+  },
+  embedStatus: () => ipcRenderer.invoke('embed:status'),
+  onEmbed(cb) {
+    const h = (_e: unknown, s: Parameters<typeof cb>[0]) => cb(s)
+    ipcRenderer.on('embed:status', h)
+    return () => ipcRenderer.removeListener('embed:status', h)
+  },
+  embedRetry: () => ipcRenderer.invoke('embed:retry'),
 }
 
 // 出错兜底最先挂上：后面哪个出了问题，出错页也能报日志、重新加载
@@ -271,6 +299,8 @@ contextBridge.exposeInMainWorld('cn', api)
 contextBridge.exposeInMainWorld('cnWeb', webApi)
 contextBridge.exposeInMainWorld('cnPlugins', pluginsApi)
 contextBridge.exposeInMainWorld('cnMap', mapApi)
+contextBridge.exposeInMainWorld('cnAfter', afterApi)
+contextBridge.exposeInMainWorld('cnVoice', voiceApi)
 contextBridge.exposeInMainWorld('cnFolder', folderApi)
 contextBridge.exposeInMainWorld('cnReading', readingApi)
 contextBridge.exposeInMainWorld('cnSearch', searchApi)
@@ -282,6 +312,7 @@ contextBridge.exposeInMainWorld('cnCmds', cmdsApi)
 contextBridge.exposeInMainWorld('cnRead', readApi)
 contextBridge.exposeInMainWorld('cnTodo', todoApi)
 contextBridge.exposeInMainWorld('cnWhen', whenApi)
+contextBridge.exposeInMainWorld('cnFeynman', feynmanApi)
 contextBridge.exposeInMainWorld('cnFamily', familyApi)
 contextBridge.exposeInMainWorld('cnCal', calApi)
 contextBridge.exposeInMainWorld('cnMobileAi', mobileAiApi)

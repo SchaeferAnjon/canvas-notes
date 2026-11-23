@@ -35,7 +35,9 @@ async function clickSteady(page: Page, el: Locator) {
 /** 改一格选项：点格子、在弹出的选项里点一个 */
 async function pickOption(page: Page, row: string, from: string, to: string) {
   const cell = db(page).locator('tbody tr', { hasText: row }).locator('td', { hasText: new RegExp(`^${from}$`) })
+  // 单击只选中一格（task-cle3x 格子焦点），再点一下开选项
   await clickSteady(page, cell)
+  await cell.click()
   await page.getByLabel(`${row} · 分类`).getByText(to, { exact: true }).first().click()
 }
 

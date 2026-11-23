@@ -7,6 +7,7 @@ import { composing } from '../ime'
  * 页面只是看法：怎么改都不动文件夹里的文件。复用主页的 home.css。
  */
 import { Codicon } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import { useEffect, useMemo, useState } from 'react'
 import type { AnkiReview } from '../../shared/reading'
@@ -229,13 +230,8 @@ export function FolderHomeView(props: {
               const startY = e.clientY
               const from = adjustY
               const h = e.currentTarget.offsetHeight
-              const move = (ev: PointerEvent) => setAdjustY(Math.min(100, Math.max(0, Math.round(from - ((ev.clientY - startY) / h) * 100))))
-              const up = () => {
-                window.removeEventListener('pointermove', move)
-                window.removeEventListener('pointerup', up)
-              }
-              window.addEventListener('pointermove', move)
-              window.addEventListener('pointerup', up)
+              // 松手没送到页面：停在最后的位置（还要点「好了」才存；trackDrag，task-0nz63）
+              trackDrag<PointerEvent>(e, { move: (ev) => setAdjustY(Math.min(100, Math.max(0, Math.round(from - ((ev.clientY - startY) / h) * 100)))) })
             }}
             onKeyDown={(e) => e.key === 'Escape' && adjustY !== null && setAdjustY(null)}
           >
@@ -480,15 +476,22 @@ export function FolderHomeView(props: {
                         <button
                           className="wgrip"
                           aria-label={t('拖动{name}', { name: t(info.name) })}
-                          onPointerDown={(e) => (e.currentTarget.setPointerCapture(e.pointerId), setDrag({ id }))}
-                          onPointerMove={(e) => {
-                            if (!drag) return
-                            const over = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-widget]')?.dataset.widget
-                            setDrag({ id: drag.id, before: over && over !== drag.id ? over : undefined })
-                          }}
-                          onPointerUp={() => {
-                            if (drag?.before) save(moveW(home, drag.id, drag.before))
-                            setDrag(null)
+                          onPointerDown={(e) => {
+                            e.currentTarget.setPointerCapture(e.pointerId)
+                            setDrag({ id })
+                            let before: string | undefined
+                            // 松手没送到页面（窗口外松手、失焦）：当没拖过，组件不挪（trackDrag，task-0nz63）
+                            trackDrag<PointerEvent>(e, {
+                              move: (ev) => {
+                                const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>('[data-widget]')?.dataset.widget
+                                before = over && over !== id ? over : undefined
+                                setDrag(before ? { id, before } : { id })
+                              },
+                              end: (how) => {
+                                if (how === 'up' && before) save(moveW(home, id, before))
+                                setDrag(null)
+                              },
+                            })
                           }}
                         >
                           <Codicon name="gripper" size={14} />

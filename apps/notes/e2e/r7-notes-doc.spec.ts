@@ -168,7 +168,7 @@ test('笔记逐字核：问题条是原话（主对话接着问的、旁支问�
     expect(gitOut(vault, 'status', '--porcelain', '--untracked-files=all')).toBe('')
 
     // CN-111：笔记里我框的图按 100% 的宽显示（不超过栏宽），截图是 2 倍
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     const img = notes(page).locator('.rnd .crop img').first()
     await expect(img).toBeVisible()
     const size = await img.evaluate((e: HTMLImageElement) => ({ nat: e.naturalWidth, w: e.getBoundingClientRect().width, col: e.closest('.ndoc')!.clientWidth - 40 }))
@@ -214,9 +214,9 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     // 开着旁支看一眼笔记（直接落在那条旁支上），再回到 AI：这一轮不算「自己点开的」，来了新的一轮照样收成一行
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notes(page).locator('.nside').first()).toBeInViewport()
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(ai(page)).toBeVisible()
     await side(page).getByRole('button', { name: '收起旁支' }).last().click()
     // 第二轮：第 4 页
@@ -224,7 +224,7 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
     await ai(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
     await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记 · 第4页', { timeout: 20_000 })
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     const n = notes(page)
     await expect(n).toBeVisible()
     // 顶上：28 高、圆角 8、--fill 底的搜；下面一行筛选，右边「2轮 · 3问」
@@ -341,7 +341,7 @@ test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、�
   const root = dirname(vault)
   try {
     await openPdf(page)
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     const n = notes(page)
     await expect(n.getByTestId('note-round')).toHaveCount(2)
     await expect(n.getByTestId('cards-open')).toHaveText('出卡 · 2问')
@@ -355,8 +355,9 @@ test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、�
     await expect(r1.locator('.pts li')).toHaveText(['要点一：列就是基向量去哪'])
     await expect(r1.locator('.nsf')).toContainText('完整对话 · 1轮')
     await expect(r1.locator('.nsf .wl')).toHaveText('[[第4讲 特征值]]')
-    // 看过不改写
-    expect(readFileSync(join(vault, NOTE), 'utf8')).toBe(OLD)
+    // 看过不改写；只是有框的位置、没有图的那一段补上一张「我框的」图（task-yp8l7，只插一行，别的字不动）；第 4 页那段没记框的位置，不补
+    const FILLED = OLD.replace('· 10:20\n', '· 10:20\n\n![我框的](../../附件/第3讲/p2-1.png)\n')
+    await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toBe(FILLED)
   } finally {
     await run.close({ keep: true })
   }
@@ -389,6 +390,9 @@ test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、�
       [
         '## 第 2 页 · 测试小标题 p2',
         '[第 2 页](第3讲.pdf#page=2&rect=0.1,0.2,0.5,0.2) · ' + /\[第 2 页\]\(第3讲\.pdf#page=2&rect=0\.1,0\.2,0\.5,0\.2\) · (\d\d:\d\d) <!--/.exec(md)![1] + ' <!-- cn:thread=第3讲-p2-1 -->',
+        '',
+        // 打开时补上的图，换成新格式时留着
+        '![我框的](../../附件/第3讲/p2-1.png)',
         '',
         '> [!question] 给我讲解一下',
         '',

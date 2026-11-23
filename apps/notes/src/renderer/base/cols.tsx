@@ -177,6 +177,7 @@ function RelChip(props: { link: RelLink; to: string; ctx: BaseCtx; col: string }
     <button
       type="button"
       className={'base-rel' + (link.path ? '' : ' gone')}
+      data-peek-href={link.path ?? undefined}
       data-tip={link.path ? (label === link.name ? undefined : link.name) : t('那边没有「{name}」', { name: link.name })}
       aria-label={link.path ? t('打开「{name}」', { name: link.name }) : t('那边没有「{name}」', { name: link.name })}
       disabled={!link.path}
@@ -293,13 +294,35 @@ export function RelationPick(props: { at: PopAnchor; ctx: BaseCtx; path: string;
 // ---------------------------------------------------------------- 状态的选择
 
 /** 点状态格子：按组列出选项（待开始、进行中、完成），选一个就改 */
+/**
+ * 键盘开的选择（task-cle3x 格子焦点：选中状态格按回车）：焦点落在选着的那一项（没选过落在第一项），↑ ↓ 换一项，回车选它，Esc 收起
+ */
+function FocusFirst() {
+  const ref = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    const pop = ref.current?.parentElement
+    const items = [...(pop?.querySelectorAll<HTMLElement>('[role=menuitemradio]') ?? [])]
+    ;(items.find((b) => b.getAttribute('aria-checked') === 'true') ?? items[0])?.focus()
+  }, [])
+  return <span ref={ref} hidden />
+}
+function stepOptions(e: React.KeyboardEvent<HTMLElement>) {
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  e.preventDefault()
+  e.stopPropagation()
+  const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role=menuitemradio]')]
+  const i = items.indexOf(document.activeElement as HTMLElement)
+  items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
+}
+
 export function StatusPick(props: { at: PopAnchor; ctx: BaseCtx; path: string; col: string; onPick(v: string): void }) {
   const { ctx, col } = props
   const rec = ctx.recs.find((r) => r.path === props.path)
   if (!rec) return null
   const cur = rec.props[col]?.trim() ?? ''
   return (
-    <FloatPop at={props.at} className="base-pop base-colmenu base-stpick" role="dialog" aria-label={`${rec.name} · ${col}`}>
+    <FloatPop at={props.at} className="base-pop base-colmenu base-stpick" role="dialog" aria-label={`${rec.name} · ${col}`} onKeyDown={stepOptions}>
+      <FocusFirst />
       {statusGroups(ctx, col).map((g, i) => (
         <div key={g.name} role="group" aria-label={g.name}>
           <div className="hd">{g.name}</div>

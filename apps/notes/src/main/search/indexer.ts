@@ -9,10 +9,11 @@ import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import { decodeNote, type PdfBlock } from '@cn/format'
-import { type MeaningHit, type PdfTextHit, queryWords, type SearchStatus } from '../../shared/search'
+import { type MeaningHit, type PdfTextHit, queryWords, type RelatedNote, type SearchStatus } from '../../shared/search'
 import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
 import { type Chunk, mdChunks, pdfChunks, pdfTextHits } from './chunks'
 import type { Embedder } from './embedder'
+import type { Scorer } from './matmul'
 import { VectorIndex } from './vector-index'
 
 /** md 切段的版本，切法一变就加一（2：摘要去掉 ```base 等数据库块，第 4 轮美学） */
@@ -60,6 +61,8 @@ export interface IndexerOptions {
   /** 多像才算（默认 MEANING；单元测试的假模型分数和真模型不在一个范围，给宽的） */
   meaning?: typeof MEANING
   onStatus(s: SearchStatus): void
+  /** related 算一大块点乘用的（搜索进程给 onnxruntime 的，单元测试不给就用 JS 的） */
+  scorer?: Scorer
 }
 
 interface FileStat {
@@ -76,6 +79,8 @@ export class Indexer {
   private running: Promise<void> | null = null
   private again = false
   private closed = false
+  /** 先不算向量（换大模型时：大模型在建自己那份，这份只管查询和 PDF 里的字，不和它抢） */
+  private held = false
 
   constructor(private o: IndexerOptions) {
     this.index = o.embedder ? VectorIndex.load(o.indexDir, o.embedder.model, o.embedder.dims) : null
@@ -84,6 +89,16 @@ export class Indexer {
 
   get state(): SearchStatus {
     return this.status
+  }
+
+  /** 意思索引用的模型名；没有模型是 null */
+  get model(): string | null {
+    return this.o.embedder?.model ?? null
+  }
+
+  /** 整个库用这个模型建完过一遍（换模型时看它决定什么时候换过去） */
+  get built(): boolean {
+    return this.index?.built ?? false
   }
 
   private set(s: Partial<SearchStatus>) {
@@ -115,6 +130,18 @@ export class Indexer {
 
   close() {
     this.closed = true
+  }
+
+  /** 停下算向量：正在算的这一批算完就停（算好的存盘），以后扫库只读 PDF 的字。查询照常用已有的索引 */
+  holdEmbed() {
+    this.held = true
+  }
+
+  /** 接着算（大模型载不了、建不成时） */
+  resumeEmbed() {
+    if (!this.held) return
+    this.held = false
+    void this.scan()
   }
 
   private async walk(): Promise<{ md: FileStat[]; pdf: FileStat[] }> {
@@ -175,6 +202,10 @@ export class Indexer {
       await tick()
     }
     if (!this.index || !this.o.embedder) return
+    if (this.held) {
+      this.set({ phase: this.index.built ? 'ready' : 'embed', done: 0, total: 0, files: this.index.size })
+      return
+    }
 
     // ---- 意思索引 ----
     const index = this.index
@@ -183,6 +214,10 @@ export class Indexer {
     for (const p of index.paths()) if (!keep.has(p)) index.remove(p)
     const stale = all.filter((f) => !index.fresh(f.path, f.sig))
     if (!stale.length) {
+      if (!index.built) {
+        index.built = true
+        index.save(this.o.indexDir)
+      }
       this.set({ phase: 'ready', done: 0, total: 0, files: index.size })
       return
     }
@@ -200,6 +235,11 @@ export class Indexer {
       const vecs: Float32Array[] = []
       for (let i = 0; i < chunks.length; i += BATCH) {
         if (this.closed) return
+        if (this.held) {
+          index.save(this.o.indexDir)
+          this.set({ phase: index.built ? 'ready' : 'embed', done: 0, total: 0, files: index.size })
+          return
+        }
         vecs.push(...(await this.o.embedder.embed(chunks.slice(i, i + BATCH).map((c) => c.text), 'passage')))
         done += Math.min(BATCH, chunks.length - i)
         this.set({ done })
@@ -212,6 +252,7 @@ export class Indexer {
         sinceSave = 0
       }
     }
+    index.built = true
     index.save(this.o.indexDir)
     this.set({ phase: 'ready', done: total, total, files: index.size })
   }
@@ -254,6 +295,43 @@ export class Indexer {
 
   private filler: Float32Array[] | null = null
 
+  /**
+   * 梦游补双链找候选：每篇在全库里最像的 k 篇（不含自己），按两篇最像的那一对段落的余弦排，带回那一对段落的原文。
+   * 不在索引里的篇是空数组。一篇算完让出去一下，查询插得进来
+   */
+  async related(paths: string[], k: number): Promise<Map<string, RelatedNote[]>> {
+    const out = new Map<string, RelatedNote[]>()
+    if (!this.index) return out
+    const texts = new Map<string, Promise<string[]>>()
+    const textOf = (p: string) => {
+      let t = texts.get(p)
+      if (!t) texts.set(p, (t = this.chunkTexts(p)))
+      return t
+    }
+    for (const path of paths) {
+      if (this.closed) break
+      const hits = await this.index.related(path, k, this.o.scorer)
+      const mine = await textOf(path)
+      out.set(
+        path,
+        await Promise.all(hits.map(async (h) => ({ path: h.path, score: h.score, mine: mine[h.i] ?? '', theirs: (await textOf(h.path))[h.j] ?? '' }))),
+      )
+      await tick()
+    }
+    return out
+  }
+
+  /** 一篇的各段原文（和建索引时同一个切法，去掉每段前面的标题）；读不到的是空 */
+  private async chunkTexts(path: string): Promise<string[]> {
+    const pdf = path.toLowerCase().endsWith('.pdf')
+    const chunks = pdf ? pdfChunks(path, this.pdfs.get(path)?.pages ?? []) : await this.mdChunksOf(path)
+    if (!chunks) return []
+    return chunks.map((c) => {
+      const nl = c.text.indexOf('\n')
+      return nl === -1 ? c.text : c.text.slice(nl + 1)
+    })
+  }
+
   async meaning(q: string): Promise<MeaningHit[]> {
     if (!this.index || !this.o.embedder || !q.trim()) return []
     const e = this.o.embedder
@@ -263,7 +341,7 @@ export class Indexer {
       for (let k = 0; k < a.length; k++) s += a[k]! * b[k]!
       return s
     }
-    const o = this.o.meaning ?? MEANING
+    const o = this.o.meaning ?? e.gate ?? MEANING
     this.filler ??= await e.embed(FILLER, 'passage')
     const filler = this.filler.reduce((s, f) => s + dot(v!, f), 0) / this.filler.length
     // 索引还没建完（「先找建好的」）：真正最像的那篇可能还没算进来，「比最像的低不过 near」就没了依据，

@@ -98,8 +98,11 @@ describe('CN-89 讲透：读 PDF 的讲法', () => {
       '你在 Canvas Notes 里陪一个人读 PDF 课件。他在 PDF 上框一块、或在你的回答里选一句来问你。',
       '把这件事真讲明白：先一句话说清它是什么，再按一条线讲下去：为什么要有它、每一项在干什么、拿一个具体数字或例子走一遍。需要时用小标题和列表。',
       '长短看问题：整块的「讲解一下」要讲透，不怕长；旁支里的小追问简短回答。',
-      `${MATH_RULE}提到别的页写成 [第 4 页](#page=4)。`,
+      // task-3e53q：页码一律写成链接（章节地图、第二次提到、「下一页」也写），真对话里没链的就是这几种
+      `${MATH_RULE}提到这份 PDF 的别的页一律写成链接：[第 4 页](#page=4)；页码范围写 [第 1–2 页](#page=1)，开头的章节地图、列表里的每一项、长讲解里第二次提到同一页、「对照第 4 页的表 II」这种带尾巴的、「下一页」「上一页」这种说法（写成 [下一页](#page=5)）都要写成链接。`,
     ])
+    // 例句也带链接（以前不带链接的「用你在第 4 页弄懂的那条」AI 照抄了 3 次）
+    expect(TUTOR_SYSTEM).toContain('「用你在 [第 4 页](#page=4) 弄懂的那条」')
     expect(TUTOR_SYSTEM).not.toMatch(/300 字|不要 LaTeX|Unicode/)
     expect(TUTOR_SYSTEM).toContain('他笔记里已经弄懂的（每次会附上），直接拿来用')
     expect(TUTOR_SYSTEM).toContain('「还是不懂」「换个方式讲」')
@@ -116,8 +119,8 @@ describe('公式的写法（真 AI 写了 `$dV/dt = $ 输入`，$ 里头结尾�
     expect(MATH_RULE).toContain('不写 $ dV/dt $ 或 $dV/dt = $')
     expect(MATH_RULE).toContain('单独一行的写 $$…$$')
     for (const p of [TUTOR_SYSTEM, AGENT_SYSTEM, commandSystem()]) expect(p).toContain(MATH_RULE)
-    // 讲法改了：旧会话不再接着用记下的旧系统提示（4：能动手、两种模式）
-    expect(TUTOR_VERSION).toBe(4)
+    // 讲法改了：旧会话不再接着用记下的旧系统提示（4：能动手、两种模式；5：库里的东西写成链接，task-3e53q）
+    expect(TUTOR_VERSION).toBe(5)
   })
 })
 
@@ -134,8 +137,8 @@ describe('两种模式怎么告诉 AI（2026-11-19，全能模式默认开）', 
     expect(TUTOR_SYSTEM).toContain('新建、改写、改名、挪动、删笔记')
     // 往笔记里新加的段落写成 [!ai] 块，头一行照每条消息开头的【AI 块】（task-dtc34）
     expect(AGENT_SYSTEM).toContain('一律写成 AI 块')
-    // 系统提示改了：AI 对话的旧会话不再接着用（3：改了开着的文件编辑器当场换，2026-11-21；4：回答的语言照每条消息开头的【语言】，task-zojmg；5：AI 块，task-dtc34）
-    expect(AGENT_VERSION).toBe(5)
+    // 系统提示改了：AI 对话的旧会话不再接着用（3：改了开着的文件编辑器当场换，2026-11-21；4：回答的语言照每条消息开头的【语言】，task-zojmg；5：AI 块，task-dtc34；6：库里的东西写成链接，task-3e53q）
+    expect(AGENT_VERSION).toBe(6)
   })
 
   it('AI 改了开着的文件：系统提示说清编辑器当场换成新内容、用户正在打的字合并进来，不叫用户关掉标签再打开（2026-11-21 task-wnbi1）', () => {

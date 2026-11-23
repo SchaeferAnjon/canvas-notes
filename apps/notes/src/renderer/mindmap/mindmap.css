@@ -1813,3 +1813,134 @@
   stroke: var(--t2);
   stroke-width: 1.2;
 }
+
+/* ---------- 费曼「补进导图」（task-yvabi，设计页 16-费曼学习 第 3 节图 34）：讲错标红、AI 写的正确说法带红框、虚线空框、第一层进度小点 ---------- */
+.mm-node .t {
+  transition: color 0.3s;
+}
+.mm-node.wrong .t {
+  color: var(--red-t);
+}
+/* AI 写的正确说法：带框（偏好「AI 写的一律带框带标志」），红边淡红底，挂在讲错的那个节点下面 */
+.mm-node.fixn {
+  border: 1px solid var(--red);
+  border-radius: 6px;
+  background: var(--red-soft);
+  padding: 0 8px; /* 排版量宽时多留了 FIX_PAD（MindmapLayer） */
+}
+.mm-wires path.ghost {
+  stroke-dasharray: 3 3;
+}
+.mm-wires path.ghost.hid {
+  opacity: 0;
+}
+.mm-wires path.ghost.grow {
+  animation: mm-fade 0.3s ease-out both;
+}
+@keyframes mm-fade {
+  from {
+    opacity: 0;
+  }
+}
+/* 虚线空框「自己补一句」：点开就地填 */
+.mm-blank {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 10px; /* 排版量宽时多留了 BLANK_PAD（MindmapLayer） */
+  border: 1px dashed var(--t3);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--t3);
+  font: 13px var(--sans);
+  white-space: nowrap;
+  cursor: text;
+  pointer-events: auto;
+  transition:
+    opacity 0.25s,
+    transform 0.25s,
+    border-color 0.15s,
+    color 0.15s;
+}
+.mm-blank:hover:not(:disabled) {
+  border-color: var(--acc);
+  color: var(--t2);
+}
+.mm-blank.hid {
+  opacity: 0;
+  transform: translateX(-6px);
+  pointer-events: none;
+}
+.mm-blank.grow {
+  animation: mm-in 0.25s ease-out both;
+}
+/* 第一层进度小点：没讲过空心灰圈、正在讲蓝、过绿、差一点黄、没过红 */
+.mm-node .fdot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 1.2px solid var(--t3);
+}
+.mm-node .fdot.fs-talking {
+  border: 0;
+  background: var(--blue);
+}
+.mm-node .fdot.fs-pass {
+  border: 0;
+  background: var(--green);
+}
+.mm-node .fdot.fs-almost {
+  border: 0;
+  background: var(--yellow);
+}
+.mm-node .fdot.fs-fail {
+  border: 0;
+  background: var(--red);
+}
+.mm-node.dotted {
+  justify-content: space-between;
+}
+/* 中心下面「费曼 讲过 2/3」 */
+.mm-fprog {
+  position: absolute;
+  font: 12px var(--sans);
+  color: var(--t3);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* 费曼「拍成导图」的核对大纲：讲错、AI 写的正确说法、后面留空框 */
+.tag-red,
+.tag-blank {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  flex: none;
+}
+.tag-red {
+  background: var(--red-soft);
+  color: var(--red-t);
+}
+/* 拍成导图（不带照片）的核对窗口：窄一点；带标记的行，字多长框多长，标签紧跟在字后面 */
+.mm-sheet.checking.seeded {
+  width: 720px;
+}
+.mm-rows .or.marked input {
+  flex: 0 1 auto;
+  field-sizing: content;
+  min-width: 40px;
+}
+.mm-rows .or.marked .tag-red,
+.mm-rows .or.marked .tag-blank {
+  margin-left: 2px;
+}
+.tag-blank {
+  border: 1px dashed var(--line2);
+  color: var(--t3);
+}

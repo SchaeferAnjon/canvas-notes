@@ -12,8 +12,10 @@ import { moveSay, relinkSay } from '../src/shared/diff'
 const g = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'core.quotepath=false', ...args], { encoding: 'utf8' })
 
 /** 收件箱都归到剪藏/旅行，名字不改 */
+import { fakeJudge, isJudgePrompt } from '../src/main/dream-judge'
 const ask: Ask = async (_s, prompt) => {
   if (prompt.startsWith('命令：本周小结')) return '这周在准备冰岛。'
+  if (isJudgePrompt(prompt)) return fakeJudge(prompt)
   if (prompt.startsWith('命令：归类和改名')) {
     const paths = [...prompt.matchAll(/^路径：(.+)$/gm)].map((m) => m[1]!)
     return '```json\n' + JSON.stringify(paths.map((path) => ({ path, folder: '剪藏/旅行', name: null, why: '都是旅行的事' }))) + '\n```'

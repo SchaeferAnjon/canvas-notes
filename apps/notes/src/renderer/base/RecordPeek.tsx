@@ -35,6 +35,7 @@ import { baseWrote, toneOf } from './BaseTable'
 import { linkedSrc, openRecord, peekEditor, recordBack, recordGo, recordMoved, useRecord } from './record-open'
 import { loadBaseCtx, useBaseData } from './layout-ctx'
 import { PeekButton } from './button-col'
+import { badNum, clearBad, dropBad, NUM_INPUT, numText, stopStep } from './cell-input'
 import './record-peek.css'
 
 /** 每种列前面的图标（照原型：状态 issues、日期 calendar、数字 symbol-numeric、公式 symbol-method、关联 references、汇总 symbol-operator） */
@@ -423,19 +424,28 @@ export function RecordPeek(props: { shown: boolean; onClose(): void; onFull(path
           <span className="v ed">
             <input
               autoFocus
-              type={col.type === 'date' ? 'date' : col.type === 'number' ? 'number' : 'text'}
+              {...(col.type === 'number' ? NUM_INPUT : { type: col.type === 'date' ? 'date' : 'text' })}
               defaultValue={col.type === 'date' ? raw.slice(0, 10) : raw}
               aria-label={`${name} · ${col.label}`}
               onKeyDown={(e) => {
                 e.stopPropagation()
                 if (composing(e)) return
-                if (e.key === 'Enter') e.currentTarget.blur()
-                if (e.key === 'Escape') ((cancelled.current = true), setEditing(null))
+                stopStep(e)
+                if (e.key === 'Enter') {
+                  // 数字自己认：不是数不收，说一句，框留着改
+                  if (col.type === 'number' && numText(e.currentTarget.value) === null) return (badNum(col.label, e.currentTarget), e.currentTarget.select())
+                  e.currentTarget.blur()
+                }
+                if (e.key === 'Escape') ((cancelled.current = true), dropBad(), setEditing(null))
               }}
+              onInput={clearBad}
               onFocus={() => (cancelled.current = false)}
               onBlur={(e) => {
                 if (cancelled.current) return
-                const next = e.currentTarget.value.trim()
+                const typed = e.currentTarget.value.trim()
+                const next = col.type === 'number' ? numText(typed) : typed
+                if (next === null) return (badNum(col.label, e.currentTarget), setEditing(null))
+                dropBad()
                 // 日期只换日子，原来带的钟点留着
                 const keep = col.type === 'date' && next && /^\d{4}-\d{2}-\d{2}[ T]\d/.test(raw) ? next + raw.slice(10) : next
                 if (keep === raw) return setEditing(null)

@@ -66,8 +66,11 @@ export function buildSection(o: {
     ...(th.rect ? { rect: th.rect } : {}),
     title: o.title,
     time: clockOf(new Date(first?.time ?? th.createdAt)),
-    ...(th.crop ? { crop: th.crop } : {}),
-    ...(th.crop && th.cropW ? { cropW: Math.round(th.cropW) } : {}),
+    // 补上的截图（task-yp8l7）只在笔记里、对话记录里没有：同一处再问时留着
+    ...(th.crop ? { crop: th.crop } : o.old?.crop ? { crop: o.old.crop } : {}),
+    ...(th.crop && th.cropW ? { cropW: Math.round(th.cropW) } : !th.crop && o.old?.crop && o.old.cropW ? { cropW: o.old.cropW } : {}),
+    // 选字问（PDF 上选一段字问，不截图）：那段原文写成第一问上面的引用块（task-yp8l7）
+    ...(!th.crop && !o.old?.crop && !th.web && th.quote?.trim() ? { quote: th.quote.trim() } : !th.crop && o.old?.quote ? { quote: o.old.quote } : {}),
     figures: o.old?.figures ?? [],
     doubts: [],
     good: '',

@@ -26,7 +26,7 @@ test('真 Claude Code（Sonnet · Low）出 Lecture05 的 6 张卡，张张守 C
     await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('Lecture05')
     await page.locator('.pal-row', { hasText: 'Lecture05.pdf' }).first().click()
     await expect(tabOn(page)).toHaveText('Lecture05.pdf')
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     const t0 = Date.now()
     await page.getByRole('complementary', { name: '笔记', exact: true }).getByRole('button', { name: '出卡 · 6问' }).click()
     const dlg = page.getByRole('dialog', { name: '出卡' })

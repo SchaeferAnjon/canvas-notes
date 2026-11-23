@@ -10,6 +10,8 @@ import { editCell, tableCellFlush, tableEditField, TableWidget } from './table-e
 import { isVizUrl, vizHost, VizWidget } from './viz-embed'
 import { parseCallout } from './callout'
 import { calloutFolded, toggleFold } from './fold-block'
+import { openPageLink } from './page-link'
+import { t as tNow } from '../shared/i18n'
 
 /**
  * 文档模式里画成控件的 md：待办的勾选框、表格、图片、嵌着的可视化（库里的 HTML，viz-embed.ts）。
@@ -132,6 +134,21 @@ function imageLine(text: string): { at: number; alt: string; url: string } | nul
   return m ? { at: m[1]!.length, alt: m[2]!, url: m[3]! } : null
 }
 
+/**
+ * 读 PDF 配对笔记里一段的「我框的」「整页」图（task-yp8l7）：往上找这一段回到 PDF 的那一行「[第 N 页](x.pdf#page=N&rect=…)」，
+ * 点图和 ⌘点那个页码一样打开 PDF、翻过去、框闪一下。不是这种图（上面几行没有页码链接、隔着别的段落）返回 null
+ */
+function cropBack(doc: Text, from: number): { href: string; at: number; label: string } | null {
+  const n = doc.lineAt(from).number
+  for (let k = n - 1; k >= Math.max(1, n - 4); k--) {
+    const l = doc.line(k)
+    const m = /^\[(第\s*\d+\s*页)\]\(([^)\s]+)\)/.exec(l.text)
+    if (m) return { href: m[2]!, at: l.from + 1, label: m[1]! }
+    if (l.text.trim() && !/^!\[/.test(l.text)) return null
+  }
+  return null
+}
+
 class ImageWidget extends WidgetType {
   constructor(
     readonly src: string,
@@ -168,6 +185,19 @@ class ImageWidget extends WidgetType {
       fig.textContent = `图片打不开：${caption || (this.embed ? decodeURIComponent(new URL(this.src).pathname.slice(1)) : this.src)}`
     })
     fig.appendChild(img)
+    // 配对笔记里那一段的「我框的」图：点图回到 PDF 那一页、框闪一下（task-yp8l7）
+    const back = !this.embed && /^(我框的|整页)$/.test(caption.trim()) ? cropBack(view.state.doc, this.from) : null
+    if (back) {
+      img.classList.add('jump')
+      img.title = tNow('点一下回到 PDF {label}', { label: back.label })
+      img.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        e.stopPropagation()
+        const now = cropBack(view.state.doc, this.from) ?? back
+        openPageLink(view.state.facet(editorHost).path(), now.href, view.state.doc.toString(), now.at, now.label)
+      })
+    }
     // 库里的图：悬停时右上角写它存在哪（附件 / 未命名 3 / 截图 1.png），能在访达中显示（CN-40）
     const rel = this.src.startsWith('cn-file://vault/') ? this.src.slice('cn-file://vault/'.length).split('/').map(decodeURIComponent).join('/') : null
     if (rel) {

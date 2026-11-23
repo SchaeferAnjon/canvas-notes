@@ -12,6 +12,8 @@ export interface Embedder {
   model: string
   dims: number
   embed(texts: string[], kind: 'query' | 'passage'): Promise<Float32Array[]>
+  /** 意思相近那一层多像才出（不给用 indexer 的 MEANING，那是按 e5 量的；各模型分数的范围不一样） */
+  gate?: { limit: number; near: number; over: number; spread: number }
 }
 
 export const E5_MODEL = 'multilingual-e5-small-int8'

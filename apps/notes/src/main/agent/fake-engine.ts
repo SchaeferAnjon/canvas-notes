@@ -157,6 +157,53 @@ export function fakeEngine(id: EngineId): Engine {
         )
         return { text, session: r.session ?? `fake-${id}` }
       }
+      // 对话目录（task-3e53q「三、b」）：问里有「分几节讲」就答一段带三个小标题的长回答（够长，对话要滚）；
+      // 小标题写成「问的头几个字 · 一句话」，好在目录里认出是哪一问的。读 PDF 问的在「他说：」后面，AI 对话、旁支的在「用户说：」后面
+      const asked = /他说：([\s\S]*)$/.exec(prompt)?.[1]?.trim() ?? said
+      // 截交付图时（CN_FAKE_SECTIONS=1）主对话每一问都这样答，小标题不带问的头几个字
+      const shots = !!process.env.CN_FAKE_SECTIONS && !/这是一条旁支|接着这条旁支问/.test(prompt)
+      if (/分几节讲/.test(asked) || shots) {
+        const head = shots ? '' : (asked.replace(/分几节讲[\s\S]*$/, '').trim().slice(0, 6) || '这一问') + ' · '
+        const para = (k: string) => `${k}：先把每个信号切成 30 秒一窗，再用图注意力看五个信号之间谁影响谁，最后用双向 LSTM 看前后几窗怎么变。每个人的身体底子不一样，随机划分时同一个人的数据会同时出现在练习题和考卷里。`
+        await say([`## ${head}一句话`, '', para('一'), '', para('二'), '', `## ${head}三步`, '', para('三'), '', para('四'), '', `## ${head}结果`, '', para('五'), '', para('六')].join('\n'))
+        return { text, session: r.session ?? `fake-${id}` }
+      }
+
+      // 回答里没写成链接的（task-3e53q 按名字认）：先读一遍《小论文计划》（步骤里记下读过它），回答里光写名字、写反引号路径、写「路径:行号」、
+      // 书名号包着一篇没读过的；同一个名字第二次不认
+      if (/按名字认/.test(said)) {
+        if (r.mcp) await call('note_read', { path: '课程/小论文计划.md' })
+        await say(
+          [
+            'SAGE 在小论文计划里排第 2 篇，作者和 C72 重叠。',
+            '',
+            '- 原文在 `课程/小论文计划.md`，就是 课程/小论文计划.md:42-43 那两行。',
+            '- 线性的定义另见《第3讲 笔记》。',
+            '- 小论文计划里别的几篇先放着。',
+          ].join('\n'),
+        )
+        return { text, session: r.session ?? `fake-${id}` }
+      }
+
+      // 七种引用（task-3e53q 第 ① 条线）：笔记几行、PDF 某页某块、网页某一段、白板卡、数据库一行、待办一条、历史里一次提交。
+      // 提交号跟在「列出七种引用」后面（测试先造好那次提交）
+      const seven = /列出七种引用\s*([0-9a-f]{7,40})?/.exec(r.prompt)
+      if (seven) {
+        await say(
+          [
+            '七种引用：',
+            '',
+            '- 笔记：[小论文计划里排](课程/小论文计划.md#L42-L43)。',
+            '- PDF：[第 4 页](课程/线代/第3讲.pdf#page=4&rect=0.1,0.2,0.5,0.2)。',
+            '- 网页：[注意力那段](https://example.com/attn.html#:~:text=%E6%B3%A8%E6%84%8F%E5%8A%9B)。',
+            '- 白板卡：[LOSO 那张卡](课程/读论文白板.md#^c7)。',
+            '- 数据库：[SAGE 那一行](文献库/SAGE.md)。',
+            '- 待办：[周五前读完 SAGE](待办.md#L3)。',
+            `- 历史：[整理计划那次](canvas-notes://commit/${seven[1] ?? '0000000'})。`,
+          ].join('\n'),
+        )
+        return { text, session: r.session ?? `fake-${id}` }
+      }
 
       // 出卡（task-tz7y3）：一问一行 JSON，隔 CN_FAKE_CARD_MS 出一张。问题「小标题」里：原话；答案是回答第一句里第一个逗号前；原文摘句是回答第一句
       if (r.system.startsWith('你帮人把他读 PDF 课件时问过的问题做成 Anki 记忆卡片')) {

@@ -157,7 +157,7 @@ test('笔记是独立的标签：拖到中间左边成一栏；拖栏头空处�
   const root = dirname(vault)
   try {
     await openPdf(page)
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(view(page, 'note')).toBeVisible()
     await openAi(page)
     await expect.poll(() => tabsOf(page)).toEqual([['note', 'ai']])
@@ -224,7 +224,7 @@ test('不读 PDF 时笔记标签藏起来（它独占的那栏一起藏），回
   const { page } = run
   try {
     await openPdf(page)
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await openAi(page)
     const c = await box(page.locator('main.center'))
     await drag(page, mid(await box(tab(page, 'note'))), { x: c.x + c.width * 0.08, y: c.y + c.height / 2 })

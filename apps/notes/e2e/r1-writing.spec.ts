@@ -209,7 +209,7 @@ test('同一文件夹已经有「未命名」时新建：写标题回车照样�
     expect(await page.evaluate(() => getSelection()?.anchorNode?.parentElement?.closest('.cm-line')?.textContent ?? '(光标不在任何一行里)')).not.toContain('冰岛第二稿')
     await page.keyboard.type('正文。')
     await waitSaved(page)
-    expect(readFileSync(join(vault, '收件箱/冰岛第二稿.md'), 'utf8')).toBe('# 冰岛第二稿\n\n正文。')
+    expect(readFileSync(join(vault, '收件箱/冰岛第二稿.md'), 'utf8')).toBe('# 冰岛第二稿\n\n正文。\n')
     expect(existsSync(join(vault, '收件箱/未命名 2.md'))).toBe(false)
 
     await newBtn.click()
@@ -250,10 +250,10 @@ test('新建笔记连点两下只建一篇；没写内容就关掉的「未命�
     await page.keyboard.press('Enter')
     await page.keyboard.type('留着')
     await waitSaved(page)
-    expect(readFileSync(join(vault, '收件箱/未命名.md'), 'utf8')).toBe('# 未命名\n\n留着')
+    expect(readFileSync(join(vault, '收件箱/未命名.md'), 'utf8')).toBe('# 未命名\n\n留着\n')
     await page.keyboard.press('Meta+w')
     await page.waitForTimeout(800)
-    expect(readFileSync(join(vault, '收件箱/未命名.md'), 'utf8')).toBe('# 未命名\n\n留着')
+    expect(readFileSync(join(vault, '收件箱/未命名.md'), 'utf8')).toBe('# 未命名\n\n留着\n')
   } finally {
     await run.close()
   }
@@ -364,7 +364,7 @@ test('数据库开着筛选点「新一条」：新的那条先留在表底，�
     await page.keyboard.press('Escape')
     // 改成在读：满足筛选，标签去掉
     // 「状态」是选项列：点格子弹选项小框，挑「在读」
-    await added.locator('td').nth(1).click()
+    await added.locator('td').nth(1).dblclick()
     const cell = page.getByRole('dialog', { name: '未命名 · 状态' }).getByRole('textbox', { name: '找一个，或者打一个新的' })
     await cell.fill('在读')
     await cell.press('Enter')

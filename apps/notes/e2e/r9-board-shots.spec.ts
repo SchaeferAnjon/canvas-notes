@@ -70,7 +70,7 @@ for (const [tone, skin] of [
       await shoot(page, `${tone}-03-base-card`)
       await board(page).getByTestId('db-expand').click()
       const big = board(page).locator('.dbx')
-      await big.locator('tbody tr', { hasText: 'Mývatn 小屋' }).locator('td').nth(2).click()
+      await big.locator('tbody tr', { hasText: 'Mývatn 小屋' }).locator('td').nth(2).dblclick()
       await page.keyboard.press('Meta+a')
       await page.keyboard.type('3')
       await page.keyboard.press('Enter')

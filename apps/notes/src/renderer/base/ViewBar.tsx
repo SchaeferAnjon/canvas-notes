@@ -7,6 +7,7 @@
  * 写法都调 packages/format（base-doc.ts），这里不另写一份。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import {
   addView,
   type BaseCtx,
@@ -208,8 +209,6 @@ export function useViewBar(o: {
       setDrag({ from: i, to })
     }
     const up = () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
       setDrag(null)
       if (!started || to === -1) return
       suppress.current = true
@@ -217,8 +216,8 @@ export function useViewBar(o: {
       const dest = to > i ? to - 1 : to
       if (dest !== i) save((s) => moveView(s, i, dest), t('挪了视图「{name}」的位置', { name: doc.views[i]!.name }))
     }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    // 松手没送到页面：当没拖过，视图的先后不变（trackDrag，task-0nz63）
+    trackDrag(e, { move, end: (how) => (how === 'up' ? up() : setDrag(null)) })
   }
 
   const tab = (v: BaseDoc['views'][number], i: number) => {

@@ -53,6 +53,7 @@ import {
 import { type AskRequest, type AskResult, type Box, FIXED_KEYS, keyLabel, type MomentMark, type MomentResult, type PeekResult, type VideoSettings, type VideoState } from '../../shared/video-api'
 import { CLAUDE_DEFAULT, pickLabel } from '../../shared/ai-features'
 import { answerLangName, answerRule } from '../../shared/answer-lang'
+import { CITE_RULE } from '../../shared/cite-rule'
 import { askFast } from '../ai'
 import { comboOf } from '../../shared/cmd-keys'
 import { pageKeysNow } from '../commands'
@@ -842,7 +843,8 @@ async function commitWith(s: Sess, paths: string[], message: string, mark: Momen
 
 // ---------------------------------------------------------------- 框一块问
 
-const ASK_SYSTEM = '你是一位耐心的老师，帮一个人看懂视频里的一段。只按要求输出 JSON。'
+// 回答里提到库里的笔记（他正在写的那篇、别的）也写成链接（task-3e53q）
+const ASK_SYSTEM = `你是一位耐心的老师，帮一个人看懂视频里的一段。只按要求输出 JSON。\n${CITE_RULE}`
 
 /**
  * 视频问答的那段话。subs 是 null：问框里没勾「带上前后字幕」，字幕那一段整个不给；

@@ -1,6 +1,6 @@
 /**
- * 白板选了两张起的那一条（task-5ryf9，设计稿 17-白板框选 方向 A，内容照方向 B 原型白板选中 5 张那条，加「AI整理」、先不放「费曼」）：
- * 已选N张 · 对齐 ▾ · 放进列 ▾ · 问AI · AI整理 · 出卡 ｜ 复制 · 删除 · ⋯
+ * 白板选了两张起的那一条（task-5ryf9，设计稿 17-白板框选 方向 A，内容照方向 B 原型白板选中 5 张那条，加「AI整理」）：
+ * 已选N张 · 对齐 ▾ · 放进列 ▾ · 问AI · AI整理 · 出卡 · 费曼讲这几张 ｜ 复制 · 删除 · ⋯（「费曼讲这几张」task-yvabi：这几张就是材料，直接开始）
  * 每一样都写成对文档那几段的改动（偏好「白板文档一份字」），一步一撤（⌘Z、底部提示的「撤回」）；动到两篇的（挪进新白板、移到别的笔记）两篇一次提交，撤回两篇一起回去。
  */
 import { addSection, appendPlaced, type DocBoard, type DocUnit, freshId, mergeUnits, moveUnits, placeUnits, removeUnits, replaceUnits, splitDoc, unitKeys } from '@cn/format'
@@ -49,10 +49,12 @@ export interface BoardBarCtx {
   focus(): void
   /** 这块白板在前台（标签选中、白板看法）：不在前台不出这条 */
   active: boolean
+  /** 「费曼讲这几张」：这几张交给费曼学习（DocBoardView 摆列、盖卡） */
+  feynman(keys: Set<string>): void
 }
 
 /** 窄了按这个先后收进「⋯」（原型：复制 → 出卡 → 费曼 → 移到 → 对齐 → 放进列；AI整理排在对齐后面） */
-const FOLD = ['copy', 'anki', 'align', 'tidy', 'col']
+const FOLD = ['copy', 'anki', 'feynman', 'align', 'tidy', 'col']
 
 export function useBoardBar(c: BoardBarCtx): { node: ReactNode; act(k: string, el?: HTMLElement): void } {
   const t = useT()
@@ -75,6 +77,7 @@ export function useBoardBar(c: BoardBarCtx): { node: ReactNode; act(k: string, e
     { k: 'ai', label: t('问AI'), ai: true, keep: true, tip: t('把这几张一起交给 AI：总结、出题、画导图'), keys: keyFor('ask-ai') },
     { k: 'tidy', label: t('AI整理'), ai: true, tip: t('AI 把这几张重新归类、排好、起标题：先给你看改前改后，收下才写') },
     { k: 'anki', label: t('出卡'), icon: 'symbol-event', tip: t('出卡：AI 先把这几张改成问答卡，一张张过，再送进 Anki') },
+    { k: 'feynman', label: t('费曼讲这几张'), icon: 'mortar-board', tip: t('费曼学习：讲给 AI 学生听，讲的时候这几张先盖住') },
     { k: 'copy', icon: 'copy', tip: t('复制'), keys: keyFor('copy'), sep: true },
     { k: 'delete', icon: 'trash', tip: t('删除'), keys: keyFor('delete'), red: true },
     { k: 'more', icon: 'ellipsis', tip: t('更多') },
@@ -226,6 +229,8 @@ export function useBoardBar(c: BoardBarCtx): { node: ReactNode; act(k: string, e
       case 'anki':
         if (at) setInfo({ at })
         return
+      case 'feynman':
+        return c.feynman(new Set(c.selected))
       case 'copy':
         return copy()
       case 'delete':

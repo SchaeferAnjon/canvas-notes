@@ -58,7 +58,7 @@ describe('可能重复：去掉停用词再比', () => {
 })
 
 describe('梦游一整次（合成样本库）', { timeout: 60_000 }, () => {
-  it('报告里补上的双链只有真相关的几条，理由写共同的关键词，不写「都讲到」', async () => {
+  it('报告里补上的双链只有真相关的几条：该连的都进得了候选，理由是 AI 说的共同点，不写「都讲到」', async () => {
     const base = mkdtempSync(join(tmpdir(), 'cn-dream-links-'))
     try {
       const root = join(base, '库')
@@ -73,7 +73,22 @@ describe('梦游一整次（合成样本库）', { timeout: 60_000 }, () => {
       }
       g('add', '-A')
       g('commit', '-qm', '样本')
-      const ask: Ask = async () => ''
+      // 照标注答的 AI（task-h7oy8 起补双链要 AI 判）：标了该连的判同一主题，别的判无关；原话取两篇正文第一句。
+      // 这样测的是找候选那一步：该连的每一对都要进得了候选，不该连的一对也不会被连上
+      const yes = new Set(LINKS.filter((l) => l.yes).map((l) => [l.a, l.b].sort().join('\0')))
+      const first = (t: string) => t.replace(/^---\n[\s\S]*?\n---\n/, '').split('\n').map((l) => l.replace(/^>\s*/, '').trim()).find((l) => l && !l.startsWith('#'))!.slice(0, 30)
+      const byTitle = new Map(Object.keys(VAULT).map((p) => [p.replace(/\.md$/, '').split('/').pop()!, p]))
+      const ask: Ask = async (_s, prompt) => {
+        const blocks = [...prompt.matchAll(/^=== (A|B\d+) ===\n标题：(.+)$/gm)].map((m) => ({ id: m[1]!, path: byTitle.get(m[2]!)! }))
+        const a = blocks.find((b) => b.id === 'A')!.path
+        const pairs = blocks
+          .filter((b) => b.id !== 'A')
+          .map((b) => {
+            const hit = yes.has([a, b.path].sort().join('\0'))
+            return { b: Number(b.id.slice(1)), kind: hit ? '同一主题' : '无关', confidence: 0.9, reason: hit ? '两篇讲同一件事' : '无关', quote_a: hit ? first(VAULT[a]!) : '', quote_b: hit ? first(VAULT[b.path]!) : '' }
+          })
+        return '```json\n' + JSON.stringify(pairs) + '\n```'
+      }
       const r = await runDream({ root, scratch: join(base, 'scratch'), ask, trigger: 'manual', now: new Date(2026, 10, 15, 3, 0) })
       const links = r.items.filter((i) => i.group === 'link')
       // 一对只补一头（另一头不再补回来）
@@ -81,7 +96,7 @@ describe('梦游一整次（合成样本库）', { timeout: 60_000 }, () => {
       const pair = (x: string, y: string) => [x, y].sort().join(' ↔ ')
       expect(links.map((i) => pair(i.title, i.sub.replace(/^↔ \[\[(.+)\]\]$/, '$1'))).sort()).toEqual(LINKS.filter((l) => l.yes).map((l) => pair(name(l.a), name(l.b))).sort())
       for (const i of links) {
-        expect(i.why).toMatch(/^两篇共同的关键词：[^。]+、[^。]+、[^。]+。只在这篇末尾加一行/)
+        expect(i.why).toMatch(/^两篇讲同一件事。只在这篇末尾加一行/)
         expect(i.why).not.toContain('都讲到')
       }
       expect(links.some((i) => /Iceland|第三方|未命名/.test(i.title + i.sub))).toBe(false)

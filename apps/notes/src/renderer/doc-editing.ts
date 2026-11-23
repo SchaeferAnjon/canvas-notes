@@ -1,4 +1,4 @@
-import type { Extension } from '@codemirror/state'
+import { type Extension, Prec } from '@codemirror/state'
 import { atomicBlocks } from './atomic-blocks'
 import { baseBlock } from './base/base-block'
 import { blockFlow } from './block-flow'
@@ -17,6 +17,7 @@ import { mdWidgets } from './md-widgets'
 import { pasteHtml } from './paste-html'
 import { slashInCard, slashMenu } from './slash-menu'
 import { tailLine } from './tail-line'
+import { tidyBlocks } from './tidy-blocks'
 import { wysiwyg } from './wysiwyg'
 import { docDates } from './todo/doc-dates'
 import { whenAssist } from './todo/when-assist'
@@ -25,7 +26,8 @@ import './editor-blocks.css'
 /** 文档模式的块编辑：块把手和菜单、/ 菜单、待办勾选、表格和图片 */
 export function docEditing(host: EditorHost): Extension {
   // docDates：待办行尾的日子画成小块、悬停「定日子」（task-kzr3n）；whenAssist：写时间认成灰字预览、打 @ 和 ⌥⌘T 弹选择器（task-pd289）
-  return [editorHost.of(host), blocksField, baseBlock, foldBlock, mdWidgets, docDates, whenAssist, boardLink, docEmbeds(() => host.path()), atomicBlocks, blockGaps, blockHandles, blockSelect, blockSource, slashMenu, tailLine, wysiwyg, docKeys, highlightKeys, hiddenGuard, blockFlow, pasteHtml]
+  // tidyBlocks（改完规整，task-axoxy）排在 hiddenGuard 前面、同为最高优先级：过滤器倒着跑，它在看守挪完光标以后最后一个跑
+  return [editorHost.of(host), Prec.highest(tidyBlocks), blocksField, baseBlock, foldBlock, mdWidgets, docDates, whenAssist, boardLink, docEmbeds(() => host.path()), atomicBlocks, blockGaps, blockHandles, blockSelect, blockSource, slashMenu, tailLine, wysiwyg, docKeys, highlightKeys, hiddenGuard, blockFlow, pasteHtml]
 }
 
 /**

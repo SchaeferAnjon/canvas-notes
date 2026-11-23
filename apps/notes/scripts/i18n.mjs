@@ -58,6 +58,7 @@ export const DONE = [
   'renderer/settings/lang.tsx',
   'renderer/settings-ai.tsx',
   'renderer/settings-dream.tsx',
+  'renderer/embed-model.tsx',
   'renderer/settings-engines.tsx',
   'renderer/plugins/index.tsx',
   // 第一批：⌘K
@@ -131,6 +132,8 @@ export const DONE = [
   'renderer/callout.ts',
   'renderer/fold-block.ts',
   'renderer/doc-toc.tsx',
+  'renderer/chat-toc.tsx',
+  'renderer/peek/peek.tsx',
   'renderer/review.ts',
   'renderer/md-render.tsx',
   'renderer/block-source.tsx',
@@ -287,6 +290,12 @@ export const DONE = [
   'renderer/ai-cards.ts',
   'renderer/commands/tidy.ts',
   'renderer/block-select.tsx',
+  // 费曼的语音输入（task-yvabi）
+  'renderer/voice/dictation.tsx',
+  // 本地模型（梦游判断的另一条路，task-h7oy8）
+  'renderer/local-model.tsx',
+  'main/local-llm/index.ts',
+  'main/local-llm/download.ts',
 ]
 
 /**
@@ -304,6 +313,8 @@ export const DATA = [
   { file: 'shared/commands.ts', props: ['name'] },
   // 分类：说明和组名（文件夹名照磁盘上的，不翻）
   { file: 'shared/categories.ts', props: ['desc', 'group'] },
+  // 本地模型的一句说明（设置 › 梦游的本地模型那张卡）
+  { file: 'shared/local-models.ts', props: ['note'] },
   // 十套主题的名字和一句说明
   { file: 'shared/appearance.ts', props: ['name', 'note'] },
   // 首页组件名、换大小、问候

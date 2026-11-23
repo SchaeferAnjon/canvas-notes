@@ -410,22 +410,22 @@ test('打开 PDF 不再强制打开 AI，框一块照旧打开；读 PDF 时竖�
     const ra = await box(reading(page))
 
     // 竖条「笔记」：同一组里多一个「笔记」标签、在前面（同一个位置），AI 在它后面
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notesCell(page)).toBeVisible()
     await expect(reading(page)).toBeHidden()
     await expect(page.getByTestId('dtab-note')).toHaveText('笔记')
     await expect(page.locator('.dgrp .dtab')).toHaveText(['AI', '笔记'])
     const nb = await box(notesCell(page))
     expect(Math.abs(nb.x - ra.x) + Math.abs(nb.width - ra.width) + Math.abs(nb.height - ra.height)).toBeLessThanOrEqual(2)
-    await expect(rail(page).getByRole('button', { name: '笔记' })).toHaveAttribute('aria-pressed', 'true')
+    await expect(rail(page).getByRole('button', { name: '笔记', exact: true })).toHaveAttribute('aria-pressed', 'true')
     // 笔记开着时圆钮不亮，点它回到 AI
     await expect(fab(page)).not.toHaveClass(/\bon\b/)
     // 再点「笔记」：收起笔记标签，回到 AI
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(reading(page)).toBeVisible()
     await expect(notesCell(page)).toHaveCount(0)
     // 笔记 → ⌘J：换到 AI（笔记还开着，在后面）；AI 看得见时 ⌘J 收起 AI，笔记到前面
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notesCell(page)).toBeVisible()
     await page.keyboard.press('Meta+j')
     await expect(reading(page)).toBeVisible()
@@ -444,7 +444,7 @@ test('只开了笔记（工作区布局记在 cn.dock）：换到文档笔记标
   const { page, vault } = run
   try {
     await openPdf(page)
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notesCell(page)).toBeVisible()
     await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('cn.dock') ?? '{}').cols?.flatMap((c: { groups?: { views: string[] }[] }) => c.groups?.flatMap((g) => g.views) ?? []))).toEqual(['note'])
     // 换到文档：笔记标签藏起来（不换成这篇的 AI），右栏关着，圆钮写「打开 AI」

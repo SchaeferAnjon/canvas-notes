@@ -7,6 +7,7 @@
  * 挪来挪去不重新挂（网页的 webview、AI 正在答的那一轮都不断）。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import * as D from '../../shared/dock'
@@ -15,7 +16,7 @@ import { MenuItem, Popover } from './Shell'
 import { CENTER_MIN } from './SideSash'
 import './dock.css'
 
-const ICON: Record<Exclude<D.ViewId, 'ai' | 'aicol'>, CodiconName> = { web: 'globe', note: 'note', outline: 'list-tree', history: 'history', record: 'file', auto: 'symbol-event' }
+const ICON: Record<Exclude<D.ViewId, 'ai' | 'aicol'>, CodiconName> = { web: 'globe', note: 'note', outline: 'list-tree', related: 'references', history: 'history', record: 'file', auto: 'symbol-event' }
 /** AI 和数据库 AI 列的标签画正在用的那家的标志 */
 const logoView = (v: D.ViewId): v is 'ai' | 'aicol' => v === 'ai' || v === 'aicol'
 /** 标签上写的名字：names 里给了用它（数据库点开的一条写那一条的名字），不然是这一样的名字 */
@@ -158,31 +159,31 @@ interface Drag {
 type Mark = { left: number; top: number; width: number; height: number; label: string; icon: CodiconName } | null
 type Bar = { left: number; top: number; height: number } | null
 
-/** 按下以后挪过 SLOP 才算拖：start 在那时调，move 每次挪，end 松开（没拖过是 click） */
-function track(e: React.PointerEvent, h: { start(ev: PointerEvent): void; move(ev: PointerEvent): void; end(ev: PointerEvent): void; click?(): void }) {
+/**
+ * 按下以后挪过 SLOP 才算拖：start 在那时调，move 每次挪，end 松开（没拖过是 click）。
+ * 松手没送到页面（窗口外松手、失焦）：有 cancel 的（挪标签、挪整栏）当没拖过；没有的（挪浮窗、改浮窗大小）停在最后的样子（trackDrag，task-0nz63）
+ */
+function track(e: { type: string; button: number; clientX: number; clientY: number }, h: { start(ev: PointerEvent): void; move(ev: PointerEvent): void; end(): void; cancel?(): void; click?(): void }) {
   if (e.button !== 0) return
   const sx = e.clientX
   const sy = e.clientY
   let on = false
-  const mv = (ev: PointerEvent) => {
-    if (!on && Math.hypot(ev.clientX - sx, ev.clientY - sy) > SLOP) {
-      on = true
-      document.body.classList.add('docking')
-      h.start(ev)
-    }
-    if (on) h.move(ev)
-  }
-  const up = (ev: PointerEvent) => {
-    removeEventListener('pointermove', mv)
-    removeEventListener('pointerup', up)
-    removeEventListener('pointercancel', up)
-    document.body.classList.remove('docking')
-    if (on) h.end(ev)
-    else h.click?.()
-  }
-  addEventListener('pointermove', mv)
-  addEventListener('pointerup', up)
-  addEventListener('pointercancel', up)
+  trackDrag<PointerEvent>(e, {
+    move: (ev) => {
+      if (!on && Math.hypot(ev.clientX - sx, ev.clientY - sy) > SLOP) {
+        on = true
+        document.body.classList.add('docking')
+        h.start(ev)
+      }
+      if (on) h.move(ev)
+    },
+    end: (how) => {
+      document.body.classList.remove('docking')
+      if (!on) return how === 'up' ? h.click?.() : undefined
+      if (how === 'lost' && h.cancel) h.cancel()
+      else h.end()
+    },
+  })
 }
 
 const rectOf = (el: Element) => el.getBoundingClientRect()
@@ -328,6 +329,7 @@ export function DockFrame(props: DockProps) {
           if (!t) return
           settle(D.dropView(cb.current.stored, v, t, { w: innerWidth, h: innerHeight }), v)
         },
+        cancel: () => (setGhost(null), setMark(null)),
         click: () => {
           if (g && g.group.active !== v) cb.current.onDock(D.activateView(cb.current.stored, v), 'view')
           if (g) cb.current.onPane(g.group.id)
@@ -406,6 +408,7 @@ export function DockFrame(props: DockProps) {
         const next = D.moveColBefore(cb.current.stored, colId, before)
         if (next !== cb.current.stored) cb.current.onDock(next, 'layout')
       },
+      cancel: () => (setGhost(null), setBar(null)),
     })
   }
   // 中间标签条的空处也能拖整栏（App 在那里放了 .tgrab，按下时转到这里）
@@ -497,14 +500,14 @@ function RowSash(p: { a: D.Group; b: D.Group; props: DockProps }) {
         document.body.classList.add('resizing', 'resizing-row')
         const cbp = p.props
         const mv = (ev: PointerEvent) => cbp.onDock(D.setSplit(cbp.stored, p.a.id, p.b.id, (ev.clientY - top) / both), 'layout')
-        const up = () => {
-          setOn(false)
-          document.body.classList.remove('resizing', 'resizing-row')
-          removeEventListener('pointermove', mv)
-          removeEventListener('pointerup', up)
-        }
-        addEventListener('pointermove', mv)
-        addEventListener('pointerup', up)
+        // 松手没送到页面（窗口外松手、失焦）：停在最后拖到的宽窄（trackDrag，task-0nz63）
+        trackDrag<PointerEvent>(e, {
+          move: mv,
+          end: () => {
+            setOn(false)
+            document.body.classList.remove('resizing', 'resizing-row')
+          },
+        })
       }}
       onDoubleClick={() => p.props.onDock(D.resetSplit(p.props.stored, p.a.id, p.b.id), 'layout')}
     />
@@ -553,14 +556,14 @@ function PairSash(p: { i: number; a: D.SideCol; b: D.SideCol; props: DockProps }
         const cbp = p.props
         const { a, total } = measure(cbp)
         const mv = (ev: PointerEvent) => cbp.onDock(D.setPairWidths(cbp.stored, p.a.id, p.b.id, a + ev.clientX - sx, total), 'layout')
-        const up = () => {
-          setOn(false)
-          document.body.classList.remove('resizing')
-          removeEventListener('pointermove', mv)
-          removeEventListener('pointerup', up)
-        }
-        addEventListener('pointermove', mv)
-        addEventListener('pointerup', up)
+        // 松手没送到页面（窗口外松手、失焦）：停在最后拖到的宽窄（trackDrag，task-0nz63）
+        trackDrag<PointerEvent>(e, {
+          move: mv,
+          end: () => {
+            setOn(false)
+            document.body.classList.remove('resizing')
+          },
+        })
       }}
       onDoubleClick={() => {
         const { total } = measure(p.props)
@@ -603,14 +606,14 @@ function CenterSash(p: { i: number; props: DockProps }) {
           const dx = ev.clientX - sx
           cbp.onDock(D.setColWidth(cbp.stored, side.id, Math.min(max, D.isCenter(right) ? w0 + dx : w0 - dx)), 'layout')
         }
-        const up = () => {
-          setOn(false)
-          document.body.classList.remove('resizing')
-          removeEventListener('pointermove', mv)
-          removeEventListener('pointerup', up)
-        }
-        addEventListener('pointermove', mv)
-        addEventListener('pointerup', up)
+        // 松手没送到页面（窗口外松手、失焦）：停在最后拖到的宽窄（trackDrag，task-0nz63）
+        trackDrag<PointerEvent>(e, {
+          move: mv,
+          end: () => {
+            setOn(false)
+            document.body.classList.remove('resizing')
+          },
+        })
       }}
       onDoubleClick={() => {
         const cbp = p.props

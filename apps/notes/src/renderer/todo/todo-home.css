@@ -27,23 +27,19 @@
   font-size: 13px;
   color: var(--t2);
 }
-/* 日历贴在顶上，往下滚清单时一直够得着（拖哪一条都能拖到它上面） */
+/*
+ * 日历贴在顶上，往下滚清单时一直够得着（拖哪一条都能拖到它上面）。
+ * 周条不铺自己的底（--page-bg 在浮岛有图时是透明的，A 和不用图时是 --win，和岛一样）：贴住以后它下面的「加一条」和清单由 TodoHome 从周条下沿剪掉，
+ * 透出来的就是中间岛本身。以前贴住后再铺一层 --isle 加模糊，叠在岛已有的那层 --isle 上，82% 叠 82% 成了一整块白（task-0nz63，用户 0.5.2「一个大白框」）
+ */
 .tdh-cal {
   position: sticky;
   top: 0;
   z-index: 5;
   background: var(--page-bg, var(--win));
   border-bottom: 1px solid var(--line);
-}
-/* 往下滚了（.stuck，TodoHome 量的）：周条底从岛的左边铺到右边（盖住内边距），B 有窗口背景图时铺 --isle 加 --isle-blur（共用 token），A、不用图时是 --win */
-.tdh-cal {
   margin: 10px -32px 0;
   padding: 12px 32px 10px;
-}
-:root:not([data-winbg='none']) .frame-b > .center.glass .tdh-cal.stuck {
-  background: var(--isle);
-  -webkit-backdrop-filter: var(--isle-blur);
-  backdrop-filter: var(--isle-blur);
 }
 /* 共用日历的按钮靠宿主把 button 的默认边框、底色去掉（画布今日 today.css 里有整页的 button 重置，画布笔记没有）：这里只给日历这一块 */
 .tdh-cal button {

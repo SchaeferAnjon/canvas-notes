@@ -111,19 +111,21 @@ export function setupMindmap(d: { vault(): Vault | null; win(): BrowserWindow | 
   ipcMain.handle('map:stop', (_e, reqId: number) => running.get(reqId)?.abort())
 
   ipcMain.handle('map:place', async (_e, req: PlaceRequest) => {
-    if (!req || typeof req.photo !== 'string' || !Array.isArray(req.roots) || !req.roots.length) throw new Error('参数不对')
+    // 费曼「拍成导图」没有照片：from 是 feynman、给了名字
+    const bare = req?.from === 'feynman' && req.photo === undefined && typeof req.title === 'string' && !!req.title.trim()
+    if (!req || (!bare && typeof req.photo !== 'string') || !Array.isArray(req.roots) || !req.roots.length) throw new Error('参数不对')
     if (req.into !== undefined && (typeof req.into?.path !== 'string' || !/\.md$/i.test(req.into.path) || req.into.path.split('/').includes('..') || (req.into.as !== 'board' && req.into.as !== 'note'))) throw new Error('参数不对')
-    const s = staged.get(req.photo)
-    if (!s) throw new Error('照片找不到了，重拍一张')
+    const s = bare ? null : staged.get(req.photo!)
+    if (!bare && !s) throw new Error('照片找不到了，重拍一张')
     const v = needVault()
     // 挂到哪一篇：那一篇得还在（拍的时候被删、被挪走了就说清楚，不悄悄进收件箱）
     if (req.into) await stat(v.abs(req.into.path)).catch(() => Promise.reject(new Error(`《${basename(req.into!.path, '.md')}》不在了，导图没放进去`)))
     const at = new Date(Number.isFinite(req.at) ? req.at : Date.now())
     // 照片进 附件/导图/，名字重了加 -2
     const folder = `${ATTACHMENTS}/导图`
-    await mkdir(v.abs(folder), { recursive: true })
     let photoPath = ''
-    for (let n = 1; ; n++) {
+    if (s) await mkdir(v.abs(folder), { recursive: true })
+    for (let n = 1; s; n++) {
       const name = photoName(at, s.ext).replace(/\.(\w+)$/, n > 1 ? `-${n}.$1` : '.$1')
       try {
         await stat(v.abs(`${folder}/${name}`))
@@ -134,7 +136,7 @@ export function setupMindmap(d: { vault(): Vault | null; win(): BrowserWindow | 
         break
       }
     }
-    const title = mapTitle(at)
+    const title = bare ? req.title!.trim().replace(/[/\\:]/g, '∶').slice(0, 80) : mapTitle(at)
     // 从白板、笔记拍的：放在那一篇所在的文件夹（同子白板、/白板 › 新建白板）；别处拍的进收件箱
     const into = req.into
     const dir = into ? (into.path.includes('/') ? into.path.slice(0, into.path.lastIndexOf('/')) : '') : INBOX
@@ -142,7 +144,7 @@ export function setupMindmap(d: { vault(): Vault | null; win(): BrowserWindow | 
     const text = mindmapNote({
       title,
       notePath,
-      photoPath,
+      ...(photoPath ? { photoPath } : {}),
       caption: photoCaption(at, req.from),
       roots: req.roots.map(cleanNode),
       from: req.from,
@@ -155,9 +157,11 @@ export function setupMindmap(d: { vault(): Vault | null; win(): BrowserWindow | 
     // 名字重了 vault 会加「 2」，同一个文件夹，照片的相对链接不变
     const path = await v.create(dir, title, text)
     // 挂到白板、笔记上的：界面插好链接后三样一起提交（board:commit），这里不提交
-    if (!into) await git.commitPaths(v.root, [path, photoPath], `拍导图：${title.replace('∶', ':')} 进收件箱`)
-    staged.delete(req.photo)
-    await rm(s.file, { force: true })
+    if (!into) await git.commitPaths(v.root, photoPath ? [path, photoPath] : [path], `拍导图：${title.replace('∶', ':')} 进收件箱`)
+    if (s) {
+      staged.delete(req.photo!)
+      await rm(s.file, { force: true })
+    }
     d.win()?.webContents.send('files:changed')
     return { path, photo: photoPath } satisfies Placed
   })
@@ -216,6 +220,8 @@ function cleanNode(n: MapNode): MapNode {
   if (Array.isArray(n.box) && n.box.length === 4 && n.box.every((x) => typeof x === 'number' && Number.isFinite(x))) out.box = n.box
   if (n.unsure === true) out.unsure = true
   if (Array.isArray(n.guesses)) out.guesses = n.guesses.filter((g) => typeof g === 'string').slice(0, 4)
+  // 费曼「拍成导图」：讲错、AI 写的正确说法、留给自己填的空框
+  for (const k of ['wrong', 'fix', 'blank'] as const) if (n[k] === true) out[k] = true
   return out
 }
 

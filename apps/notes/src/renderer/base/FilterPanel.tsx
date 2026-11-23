@@ -29,15 +29,17 @@ import {
 } from '@cn/format'
 import { useEffect, useRef, useState } from 'react'
 import { useT } from '../i18n'
+import { NUM_INPUT, numText, stopStep } from './cell-input'
 import { colText, dayWords, fmt } from './words'
 import { FloatPop, type PopAnchor } from '../pop-place'
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/
 
-/** 这一条填好了没有：要值的条件值不能空 */
+/** 这一条填好了没有：要值的条件值不能空；数字那一列的值得是个数（打了一半、打错的只留在面板上） */
 function complete(c: BaseCond, type: FieldType): boolean {
   const needs = FILTER_OPS[type]?.find((o) => o.op === c.op)?.value ?? true
-  return !needs || c.value.trim() !== ''
+  if (!needs) return true
+  return type === 'number' ? !!numText(c.value) : c.value.trim() !== ''
 }
 
 /** 面板上的草稿 → 写进文件的筛选：没填完的条拿掉，空了的组拿掉 */
@@ -48,7 +50,9 @@ export function cleanFilter(f: BaseFilter, typeOf: (c: string) => FieldType): Ba
       return g ? [g] : []
     }
     if (isRaw(x)) return [x]
-    return complete(x, typeOf(x.prop)) ? [{ ...x, value: x.value.trim() }] : []
+    const type = typeOf(x.prop)
+    if (!complete(x, type)) return []
+    return [{ ...x, value: (type === 'number' ? numText(x.value) : null) ?? x.value.trim() }]
   })
   return items.length ? { conj: f.conj, items } : null
 }
@@ -184,11 +188,14 @@ export function FilterPanel(props: { at: PopAnchor; ctx: BaseCtx; view: BaseView
       <input
         className="field val"
         aria-label={t('值')}
-        type={type === 'date' ? 'date' : type === 'number' ? 'number' : 'text'}
+        {...(type === 'number' ? NUM_INPUT : { type: type === 'date' ? 'date' : 'text' })}
         value={c.value}
         placeholder={t('值')}
         onChange={(e) => set(e.currentTarget.value, type === 'date' ? 0 : 300)}
-        onKeyDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          e.stopPropagation()
+          stopStep(e)
+        }}
       />
     )
   }

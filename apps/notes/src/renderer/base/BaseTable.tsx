@@ -13,6 +13,7 @@
  * 量大时文档里只铺前 50 条（`别把上万条全铺开`），整页打开看全部。写法同 Obsidian Bases，见 packages/format/src/base.ts。
  */
 import { Codicon } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import {
   ADD_COLUMN,
   aiColOf,
@@ -52,13 +53,14 @@ import {
   summaryOf,
 } from '@cn/format'
 import { Fragment, type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { nameNotice, safeName } from '../../shared/file-name'
 import { nameFromTitle } from '../title-follow'
 import { titleOf } from '../../shared/layout'
 import { app } from '../ctx/actions'
 import { RAW_HINT } from '../block-source'
 import { composing } from '../ime'
+import { badNum, clearBad, dropBad, NUM_INPUT, numText } from './cell-input'
 import { anchorOf, FloatPop, type PopAnchor } from '../pop-place'
 import { showMenu } from '../ctx/menu'
 import { fadeEdges } from '../tex'
@@ -77,6 +79,8 @@ import { buttonOf, rulesOf, whereOf } from './auto-ipc'
 import { ButtonAddItem, ButtonCell, ButtonColMenu, editButton, newButton } from './button-col'
 import { AiAddItem, AiCell, AiColMenu, AiDrop, AiHead } from './ai-cells'
 import { calcLabel, calcShort, ShareBar, SumMenu, sumText } from './sums'
+import { editKey, type GridAct, gridKey, gridText, parseGridText, tabFrom } from '../grid-focus'
+import { DatePop, dayOf } from './date-cell'
 
 /** 列菜单「类型」那一格：加一列菜单的「基本」一组（七种存着的类型和状态） */
 const TYPE_CHOICES = ADD_COLUMN[0]!.items as { type: ColType | 'status'; label: string }[]
@@ -111,6 +115,24 @@ const rowOf = (r: BaseRec): BaseRow => ({ path: r.path, name: r.name, props: r.p
  */
 export const BASE_WROTE = 'cn-base-wrote'
 export const baseWrote = (folder: string | null) => folder && window.dispatchEvent(new CustomEvent(BASE_WROTE, { detail: folder }))
+
+/**
+ * 从文档进表（task-cle3x 格子焦点）：整块选中时按回车、↓（从上面来的）、↑（从下面来的），文档那边在这一块的部件上发这个事件，
+ * 表格选中第一行 / 最后一行的第一格、拿到焦点，把 ok 改成 true；表格不在（看板、日历、没有一条）不改，文档照旧挪光标
+ */
+export const GRID_ENTER = 'cn-grid-enter'
+export interface GridEnter {
+  at: 'first' | 'last'
+  ok: boolean
+}
+
+/** 选中的那一格：哪张表（文档里的、整页打开的）、显示出来的第几行、哪一列；path 记着是哪一条（重排、筛掉以后按它找回来） */
+interface Sel {
+  full: boolean
+  idx: number
+  path: string
+  col: string
+}
 
 export interface BaseEdits {
   sort(prop: string, desc: boolean): void
@@ -204,6 +226,7 @@ type Pop =
   | { kind: 'add'; at: At; index: number }
   | { kind: 'sum'; col: string; at: At }
   | { kind: 'options'; path: string; col: string; at: At }
+  | { kind: 'date'; path: string; col: string; at: At }
   | { kind: 'drop'; col: string; at: At }
   | { kind: 'rel'; path: string; col: string; at: At }
   | { kind: 'status'; path: string; col: string; at: At }
@@ -223,7 +246,19 @@ export interface BaseCellWrite {
  * extra：块头最右边多放的（白板上展开的数据库卡放「收起」）；foot：表底那一句换成这句；onCell：改好一格以后；
  * file：这一块在哪篇里（底部提示「只改 ecp 课程计划.md 里 base 块的那几行」）。spec 是以前传进来的第一个视图，现在按当前视图自己算
  */
-export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits; anchor: HTMLElement; extra?: React.ReactNode; foot?: string; file?: string; block?: number; onCell?(w: BaseCellWrite): void }) {
+export function BaseTable(props: {
+  spec?: BaseSpec
+  src: string
+  edit: BaseEdits
+  anchor: HTMLElement
+  extra?: React.ReactNode
+  foot?: string
+  file?: string
+  block?: number
+  onCell?(w: BaseCellWrite): void
+  /** 画在文档里的（base-block.tsx）：格子焦点出表回正文（第一行 ↑、最后一行 ↓、Esc 退回选中整块） */
+  nav?: { leave(dir: 'up' | 'down' | 'block'): void }
+}) {
   const { edit } = props
   useViewState()
   useLang()
@@ -235,7 +270,20 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
   /** 这一块的数据（数据源和关联连到的文件夹，第三批四块共用一份；看板 / 日历 / 画廊也用这一份） */
   const { ctx, reload } = useBaseData(props.src)
   const [full, setFull] = useState(false)
-  const [editing, setEditing] = useState<{ path: string; col: string } | null>(null)
+  /** 正在改的那一格；typed：选中时直接打字进来的（框里先空着，打的字换掉原来的） */
+  const [editing, setEditing] = useState<{ path: string; col: string; typed?: boolean } | null>(null)
+  const editingRef = useRef(editing)
+  editingRef.current = editing
+  /** 选中的那一格（task-cle3x 格子焦点，蓝框）；按键怎么翻在 ../grid-focus.ts，和文档里的普通表格共用 */
+  const [sel, setSel] = useState<Sel | null>(null)
+  const selRef = useRef(sel)
+  selRef.current = sel
+  /** 下一次画完把焦点放到选中的那一格（键盘走格、编辑完回来、浮层收起时要；别处重画不抢焦点） */
+  const wantFocus = useRef(false)
+  /** 走格时自己滚到看得见的时间：紧跟着打字开的浮层不因为这一下滚动收起 */
+  const selfScroll = useRef(0)
+  /** 两张表各自显示出来的行（画的时候记下，键盘走格照它数） */
+  const shownRef = useRef<{ inline: BaseRow[]; full: BaseRow[] }>({ inline: [], full: [] })
   const [pop, setPop] = useState<Pop | null>(null)
   /** 改写法开着：这一块露出 YAML */
   const [raw, setRaw] = useState(false)
@@ -251,10 +299,25 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
 
   /** 算行：这个视图的筛选、排序、分组（只看不写） */
   const res = useMemo(() => (ctx ? queryView(ctx, vi) : null), [ctx, vi])
-  const data = useMemo<Loaded | null>(
-    () => (ctx && res ? { rows: res.rows.map(rowOf), hidden: res.hidden, texts: new Map(ctx.recs.map((r) => [r.path, r.text])), all: ctx.recs.map(rowOf), ctx } : null),
-    [ctx, res],
-  )
+  /**
+   * 刚写下去、还没重读回来的那几条（task-cle3x）：改完一格马上又进这一格、改同一条的别的格子时，照写下去的算
+   * （以前框里还是旧的字，接着改会拿旧的那份去写）。重读回来和写的一样就不要了，最多再撑两次重读
+   */
+  const [fresh, setFresh] = useState(new Map<string, { text: string; props: Record<string, string>; age: number }>())
+  useEffect(() => {
+    if (!ctx || !fresh.size) return
+    setFresh((m) => new Map([...m].filter(([p, f]) => ctx.recs.find((r) => r.path === p)?.text !== f.text && f.age < 2).map(([p, f]) => [p, { ...f, age: f.age + 1 }])))
+  }, [ctx])
+  const data = useMemo<Loaded | null>(() => {
+    if (!ctx || !res) return null
+    const all = ctx.recs.map((r) => {
+      const f = fresh.get(r.path)
+      return f && f.text !== r.text ? { ...rowOf(r), props: f.props } : rowOf(r)
+    })
+    const byPath = new Map(all.map((r) => [r.path, r]))
+    const texts = new Map(ctx.recs.map((r) => [r.path, fresh.get(r.path)?.text ?? r.text]))
+    return { rows: res.rows.map((r) => byPath.get(r.path) ?? rowOf(r)), hidden: res.hidden, texts, all, ctx }
+  }, [ctx, res, fresh])
 
   /**
    * 改了就存（用户选的方向 A）：筛选、排序、分组、视图一改就写进这一块，每次一次写，底部提示说存进了哪、带「撤回」。
@@ -283,9 +346,11 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
     if (!full && !pop) return
     const esc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || composing(e)) return
+      // 整页里正改着一格、选中着一格：Esc 先归格子（退回选中、不选中），再按一下才收回文档里
+      if (!pop && (editingRef.current || selRef.current?.full)) return
       e.preventDefault()
       e.stopPropagation()
-      if (pop) setPop(null)
+      if (pop) closePop()
       else setFull(false)
     }
     window.addEventListener('keydown', esc, true)
@@ -334,6 +399,9 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
     const w = await window.cn.writeNote(r.path, next, old)
     if (!w.ok) app().notice(tNow('《{name}》刚被别处改过，没改成，再试一次', { name: r.name }))
     else {
+      const p = { ...r.props, [col]: value }
+      if (value === '') delete p[col]
+      setFresh((m) => new Map(m).set(r.path, { text: next, props: p, age: 0 }))
       props.onCell?.({ path: r.path, name: r.name, col, value, before: old, after: next })
       baseWrote(spec.folder)
     }
@@ -385,8 +453,12 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
   const inlineRoom = useMemo(() => roomRef('inline'), [])
   const fullRoom = useMemo(() => roomRef('full'), [])
   const widthsOf = (root: HTMLElement | null) => {
-    const ths = root?.querySelectorAll<HTMLElement>(':scope .base-scroll > table > thead th')
-    return ths?.length ? [...ths].map((th) => th.getBoundingClientRect().width) : undefined
+    // 照 <col> 上写着的宽量（task-cle3x 起格子间有竖线：表头格子的框连着半条线，量它定宽每列会挪半像素）；「+」那一列是表宽减去别的
+    const table = root?.querySelector<HTMLTableElement>(':scope .base-scroll > table')
+    const cols = table ? [...table.querySelectorAll<HTMLElement>(':scope > colgroup > col')] : []
+    if (!table || !cols.length) return undefined
+    const ws = cols.slice(0, -1).map((c) => parseFloat(c.style.width) || 0)
+    return [...ws, table.getBoundingClientRect().width - ws.reduce((a, w) => a + w, 0)]
   }
   /** 正在建（主进程还没回话）：这时再点不再建一条 */
   const creating = useRef(false)
@@ -422,6 +494,7 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
       const file = nameFromTitle(name)
       const to = await window.cn.renameNote(r.path, file, true)
       setAdded((a) => a.map((x) => (x === r.path ? to : x)))
+      setSel((s) => (s && s.path === r.path ? { ...s, path: to } : s))
       app().refresh()
       const said = nameNotice(name, titleOf(to), '条', safeName(file)) // 不翻：量词是传给 shared/file-name 选句子的参数
       if (said) app().notice(said)
@@ -430,6 +503,370 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
     }
     reload()
   }
+
+  // ----- 格子焦点（task-cle3x，照 Notion：单击选中一格，回车、打字进编辑，Esc 退回，方向键、Tab 走格，⌘C / ⌘V 一格） -----
+  /** 选中的那一条现在是第几行：原来那一行还是它就是它，重排了按 path 找，筛掉了留在原来的行号 */
+  const selIdx = (s: Sel, rows: BaseRow[]) => {
+    if (rows[s.idx]?.path === s.path) return s.idx
+    const i = rows.findIndex((r) => r.path === s.path)
+    return i >= 0 ? i : Math.min(s.idx, rows.length - 1)
+  }
+  const select = (full: boolean, idx: number, col: string, focus = true) => {
+    const r = shownRef.current[full ? 'full' : 'inline'][idx]
+    if (!r) return
+    if (focus) wantFocus.current = true
+    setSel({ full, idx, path: r.path, col })
+  }
+  const cellEl = (full: boolean, idx: number, col: string) =>
+    [...((full ? fullRef : rootRef).current?.querySelectorAll<HTMLElement>(`td[data-row="${idx}"]`) ?? [])].find((td) => td.dataset.col === col) ?? null
+  /** 浮层收起（选好了、Esc）：焦点回到选中的那一格 */
+  const closePop = () => {
+    setPop(null)
+    if (selRef.current) wantFocus.current = true
+  }
+  /** 回车、打字进来这一格做什么：名字、文字数字链接日期是输入框，选项多选出小框，关联状态出选择，勾选就勾，按钮就按；AI、汇总、公式只看 */
+  type CellKind = 'name' | 'input' | 'date' | 'options' | 'pick' | 'check' | 'button' | 'none'
+  const cellKind = (c: string): CellKind => {
+    if (c === 'file.name') return 'name'
+    if (btnOf(c)) return 'button'
+    if (aiOf(c)) return 'none'
+    const own = ownOf(c)
+    if (own) return own === 'relation' || own === 'status' ? 'pick' : 'none'
+    const t = types[c] ?? 'text'
+    return t === 'check' ? 'check' : t === 'select' || t === 'multi' ? 'options' : t === 'date' ? 'date' : 'input'
+  }
+  /** 进这一格（回车、已选中再点一下、双击；typed：直接打字进来的）。进不去（只看的格子）给 false */
+  const startEdit = (full: boolean, idx: number, r: BaseRow, c: string, typed: boolean): boolean => {
+    const td = cellEl(full, idx, c)
+    switch (cellKind(c)) {
+      case 'name':
+      case 'input':
+        // 打字进来：同一下把框画出来、焦点给它，这个键的字（输入法也是）落进框里，换掉原来的字
+        flushSync(() => setEditing({ path: r.path, col: c, typed }))
+        return true
+      case 'options':
+      case 'date':
+        if (!td) return false
+        flushSync(() => setPop({ kind: cellKind(c) as 'options' | 'date', path: r.path, col: c, at: atOf(td) }))
+        return true
+      case 'pick':
+        if (!td || typed) return false
+        ownClick(r, c, ownOf(c)!, td)
+        return true
+      case 'check':
+        if (typed) return false
+        void save(r, c, /^true$/i.test(r.props[c] ?? '') ? 'false' : 'true')
+        return true
+      case 'button':
+        if (typed) return false
+        td?.querySelector<HTMLButtonElement>('button')?.click()
+        return true
+    }
+    return false
+  }
+  /** 退格、Delete：清空这一格（本来就空的不写） */
+  const clearCell = (r: BaseRow, c: string) => {
+    const k = cellKind(c)
+    if (k === 'input' || k === 'options' || k === 'date') void save(r, c, '')
+    else if (k === 'check' && /^true$/i.test(r.props[c] ?? '')) void save(r, c, 'false')
+  }
+  /** 复制出去的字：存着的值（多选写成「a, b」）；算出来的照格子里看到的 */
+  const copyText = (full: boolean, idx: number, r: BaseRow, c: string) => {
+    if (c === 'file.name') return r.name
+    const k = cellKind(c)
+    const v = r.props[c] ?? ''
+    if (k === 'input' || k === 'check' || k === 'date') return v
+    if (k === 'options') return types[c] === 'multi' ? listOf(v).join(', ') : v
+    return cellEl(full, idx, c)?.innerText.trim() ?? v
+  }
+  /** 贴进这一格的字 → 要写的值；这一列不收（算出来的、不是数字、认不出日期）给 null */
+  const pasteValue = (c: string, text: string): string | null => {
+    const v = text.trim()
+    const k = cellKind(c)
+    if (k === 'name') return v || null
+    if (k === 'check') return /^(true|yes|y|1|x|✓|☑|是|对)$/i.test(v) ? 'true' : /^(false|no|n|0|否|)$/i.test(v) ? 'false' : null
+    if (k === 'options') {
+      if (types[c] !== 'multi') return v
+      const vs = [...new Set(v.replace(/^\[|\]$/g, '').split(/[,，、;；]/).map((x) => x.trim()).filter(Boolean))]
+      return vs.length ? listText(vs) : ''
+    }
+    if (k === 'date') return v === '' ? '' : dayOf(v)
+    if (k !== 'input') return null
+    const t = types[c] ?? 'text'
+    if (t === 'number') {
+      const n = v.replace(/[,\s]/g, '')
+      return n === '' || /^-?\d+(\.\d+)?$/.test(n) ? n : null
+    }
+    return v
+  }
+  /**
+   * 粘贴（照 Notion）：一格的字贴进选中的这一格；从别的表格软件复制的一块（制表符隔开）从这一格往右下铺，
+   * 一条笔记一次写完（同一行几格不分几次写）。铺不下的、这一列不收的跳过，说一句
+   */
+  const pasteCells = async (full: boolean, idx: number, col: string, grid: string[][]) => {
+    const rows = shownRef.current[full ? 'full' : 'inline']
+    const c0 = spec.columns.indexOf(col)
+    if (grid.length === 1 && grid[0]!.length === 1) {
+      const r = rows[idx]!
+      const v = pasteValue(col, grid[0]![0]!)
+      if (v === null) return app().notice(tNow('「{col}」这一列收不了「{text}」', { col: colName(col), text: grid[0]![0]!.trim().slice(0, 40) }))
+      if (col === 'file.name') return void renameTo(r, v)
+      return void save(r, col, v)
+    }
+    let skipped = 0
+    let wrote = false
+    for (let i = 0; i < grid.length; i++) {
+      const r = rows[idx + i]
+      const old = r && data?.texts.get(r.path)
+      if (!r || old === undefined) {
+        skipped += grid[i]!.length
+        continue
+      }
+      let next = old
+      for (let j = 0; j < grid[i]!.length; j++) {
+        const c = spec.columns[c0 + j]
+        const v = c && c !== 'file.name' ? pasteValue(c, grid[i]![j]!) : null
+        if (!c || v === null) {
+          skipped++
+          continue
+        }
+        if ((r.props[c] ?? '') !== v) next = setProp(next, c, v === '' ? undefined : v, { raw: types[c] === 'multi' })
+      }
+      if (next === old) continue
+      const w = await window.cn.writeNote(r.path, next, old)
+      if (!w.ok) app().notice(tNow('《{name}》刚被别处改过，没改成，再试一次', { name: r.name }))
+      else wrote = true
+    }
+    if (skipped) app().notice(tNow('有 {n} 格没贴上（超出表格、名字列或这一列收不了）', { n: skipped }))
+    if (wrote) baseWrote(spec.folder)
+    reload()
+  }
+  /** 粘贴进名字格：和名字格里改名一样 */
+  const renameTo = (r: BaseRow, name: string) => {
+    const el = document.createElement('input')
+    el.value = name
+    return rename(r, el)
+  }
+  /** 选中一格时的键（键在表格上统一收：焦点在选中的那一格上） */
+  const onGridKey = (e: React.KeyboardEvent, full: boolean) => {
+    const s = selRef.current
+    if (!s || s.full !== full || editingRef.current || pop || e.defaultPrevented) return
+    // 键落在输入框里（列菜单改名、筛选框……）不归格子；表格画在文档里，祖先 .cm-content 是 contenteditable，用 isContentEditable 认
+    const t = e.target as HTMLElement
+    if (t.isContentEditable || t.matches('input:not([type=checkbox]), textarea, select')) return
+    const rows = shownRef.current[full ? 'full' : 'inline']
+    const at = { row: selIdx(s, rows), col: spec.columns.indexOf(s.col) }
+    if (at.row < 0 || at.col < 0) return
+    const act = gridKey(e, at, { rows: rows.length, cols: spec.columns.length })
+    if (!act) return
+    e.stopPropagation()
+    const r = rows[at.row]!
+    if (act.kind === 'edit' && act.typed) {
+      // 打的字落进编辑框：这个键不拦（startEdit 同一下把焦点给了框）；进不去的格子吞掉这个键
+      if (!startEdit(full, at.row, r, s.col, true)) e.preventDefault()
+      return
+    }
+    e.preventDefault()
+    gridAct(act, full, at.row, r, s.col)
+  }
+  const gridAct = (act: GridAct, full: boolean, idx: number, r: BaseRow, c: string) => {
+    if (act.kind === 'move') return select(full, act.to.row, spec.columns[act.to.col]!)
+    if (act.kind === 'edit') return void startEdit(full, idx, r, c, false)
+    if (act.kind === 'clear') return clearCell(r, c)
+    // 整页打开的、白板上的表没有正文：↑↓ 停在边上，Esc 只是不选中
+    if (act.kind === 'leave' && (full || !props.nav)) return
+    setSel(null)
+    if (full || !props.nav) return void (document.activeElement as HTMLElement | null)?.blur()
+    props.nav.leave(act.kind === 'leave' ? act.dir : 'block')
+  }
+  /** 点一格：没选中的选中它；已经选中的再点一下进编辑（点的是格子里的按钮、链接、勾选框，归它们自己） */
+  const cellClick = (e: React.MouseEvent, full: boolean, idx: number, r: BaseRow, c: string) => {
+    if (e.metaKey || e.shiftKey) return
+    const own = !!(e.target as HTMLElement).closest('button, a, input')
+    const s = selRef.current
+    const same = !!s && s.full === full && s.col === c && selIdx(s, shownRef.current[full ? 'full' : 'inline']) === idx
+    if (same && !own && !editingRef.current) return void startEdit(full, idx, r, c, false)
+    if (!same) select(full, idx, c, !own)
+  }
+  const cellDbl = (e: React.MouseEvent, full: boolean, idx: number, r: BaseRow, c: string) => {
+    if ((e.target as HTMLElement).closest('button, a, input')) return
+    const ed = editingRef.current
+    if ((ed && ed.path === r.path && ed.col === c) || (pop && 'path' in pop && pop.path === r.path && 'col' in pop && pop.col === c)) return
+    startEdit(full, idx, r, c, false)
+  }
+  /** 一格的公共属性：认它的 data-row / data-col、能拿焦点、选中时蓝框（类名 cn-cell-sel，和普通表格共用） */
+  const cellAttrs = (full: boolean, idx: number, r: BaseRow, c: string, cls?: string) => {
+    const on = !!sel && sel.full === full && sel.col === c && selIdx(sel, shownRef.current[full ? 'full' : 'inline']) === idx && !(editing && editing.path === r.path && editing.col === c)
+    return {
+      'data-row': idx,
+      'data-col': c,
+      tabIndex: -1,
+      className: [cls, on ? 'cn-cell-sel' : ''].filter(Boolean).join(' ') || undefined,
+      'aria-selected': on || undefined,
+      onClick: (e: React.MouseEvent) => cellClick(e, full, idx, r, c),
+      onDoubleClick: (e: React.MouseEvent) => cellDbl(e, full, idx, r, c),
+    }
+  }
+  /** 改完一格回到选中（照 Notion：回车、Esc 停在原格；Tab、⇧Tab 存了走到旁边一格） */
+  const backToSel = (full: boolean, idx: number, c: string, how: 'commit' | 'cancel' | 'next' | 'prev') => {
+    setEditing(null)
+    const rows = shownRef.current[full ? 'full' : 'inline']
+    if (how === 'next' || how === 'prev') {
+      const to = tabFrom({ row: idx, col: spec.columns.indexOf(c) }, { rows: rows.length, cols: spec.columns.length }, how === 'next' ? 1 : -1)
+      return select(full, to.row, spec.columns[to.col]!)
+    }
+    select(full, idx, c)
+  }
+  // 画完：要的话把焦点放到选中的那一格（滚到看得见）
+  useLayoutEffect(() => {
+    if (!wantFocus.current || editing || pop) return
+    wantFocus.current = false
+    if (!sel) return
+    const td = cellEl(sel.full, selIdx(sel, shownRef.current[sel.full ? 'full' : 'inline']), sel.col)
+    if (!td) return
+    td.focus({ preventScroll: true })
+    // 看得见就不滚（滚了会收起刚打字开的浮层：浮层看到「文档滚了」就收）；看不见才滚到看得见
+    const r = td.getBoundingClientRect()
+    const box = td.closest('.base-scroll')?.getBoundingClientRect()
+    const port = (sel.full ? fullRef.current : docBody())?.getBoundingClientRect()
+    const out = (box && (r.left < box.left - 1 || r.right > box.right + 1)) || (port && (r.top < port.top + (td.closest('table')?.dataset.stuck !== undefined ? 36 : 0) || r.bottom > port.bottom))
+    if (out) {
+      selfScroll.current = Date.now()
+      td.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    }
+  })
+  // 选中着一格：点表格外面（浮层除外）不选中；⌘C / ⌘X / ⌘V 归这一格（焦点在选中的那一格上才管）
+  useEffect(() => {
+    if (!sel) return
+    const mine = () => {
+      const a = document.activeElement as HTMLElement | null
+      return !!a && !editingRef.current && a.matches('td[data-row]') && !!(rootRef.current?.contains(a) || fullRef.current?.contains(a))
+    }
+    const down = (e: MouseEvent) => {
+      const t = e.target as HTMLElement
+      if (t.closest?.('.base-pop')) return
+      const td = t.closest?.('td[data-row]')
+      if (td && (rootRef.current?.contains(td) || fullRef.current?.contains(td))) return
+      setSel(null)
+    }
+    const clip = (e: ClipboardEvent) => {
+      const s = selRef.current
+      if (!s || !mine()) return
+      const rows = shownRef.current[s.full ? 'full' : 'inline']
+      const idx = selIdx(s, rows)
+      const r = rows[idx]
+      if (!r) return
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.type === 'paste') return void pasteCells(s.full, idx, s.col, parseGridText(e.clipboardData?.getData('text/plain') ?? ''))
+      e.clipboardData?.setData('text/plain', gridText([[copyText(s.full, idx, r, s.col)]]))
+      if (e.type === 'cut') clearCell(r, s.col)
+    }
+    document.addEventListener('mousedown', down, true)
+    for (const t of ['copy', 'cut', 'paste'] as const) document.addEventListener(t, clip as EventListener, true)
+    return () => {
+      document.removeEventListener('mousedown', down, true)
+      for (const t of ['copy', 'cut', 'paste'] as const) document.removeEventListener(t, clip as EventListener, true)
+    }
+  })
+  // 从文档进表（base-block.tsx 在整块选中时按回车、↓、↑）：选中第一行 / 最后一行的第一格
+  useEffect(() => {
+    const el = props.anchor
+    const enter = (e: Event) => {
+      const d = (e as CustomEvent<GridEnter>).detail
+      const rows = shownRef.current.inline
+      if (isLayoutView(view.kind) || raw || full || !rows.length) return
+      d.ok = true
+      select(false, d.at === 'first' ? 0 : rows.length - 1, spec.columns[0]!)
+    }
+    el.addEventListener(GRID_ENTER, enter)
+    return () => el.removeEventListener(GRID_ENTER, enter)
+  })
+
+  // ----- 表在文档里放宽、表头吸顶（task-cle3x，照 Notion） -----
+  /** 文档里那张表各列本来的宽加起来 */
+  const natural = useRef(0)
+  /** 文档里的表最多能有多宽（栏宽左右各让 56，左边放块把手）：各列加起来比它宽时没拖过的列收窄（table 里的 squeeze） */
+  const [fit, setFit] = useState(0)
+  /** 文档里的表（```base 部件）：用不着它的话 null */
+  const docBody = () => (props.anchor.classList.contains('cm-base') ? props.anchor.closest<HTMLElement>('.body > .doc')?.parentElement ?? null : null)
+  /**
+   * 放宽：各列加起来比正文宽时，部件往右伸到栏宽（栏右边留 56），还不够再往左伸（左边留 56 放块把手）；再宽就收窄没拖过的列、最后横着滚。
+   * 不比正文宽（列少）、看板日历画廊、改写法开着时照正文宽
+   */
+  const widen = useRef(() => {})
+  widen.current = () => {
+    const el = props.anchor
+    const body = docBody()
+    const content = el.parentElement
+    if (!body || !content) return
+    const want = natural.current + 2
+    const text = content.clientWidth
+    const b = body.getBoundingClientRect()
+    const left = content.getBoundingClientRect().left
+    // 左边留出块把手（+ ⋮⋮，52 宽）的地方，右边一样宽（左右对称）
+    const lo = b.left + 56
+    const hi = b.left + body.clientWidth - 56
+    const most = Math.floor(hi - lo)
+    if (most !== fit) setFit(most)
+    // 先往右伸到栏的右边；还不够再往左伸（照 Notion：数据库能用的是整个栏宽，列少时左边和正文对齐）
+    const w = isLayoutView(view.kind) || raw || want <= text ? 0 : Math.max(text, Math.min(want, most))
+    const shift = w ? Math.min(Math.max(0, w - (hi - left)), left - lo) : 0
+    const v = w ? `${Math.floor(w)}px` : ''
+    if (el.style.width !== v) el.style.width = v
+    const m = shift > 0 ? `-${Math.ceil(shift)}px` : ''
+    if (el.style.marginLeft !== m) el.style.marginLeft = m
+  }
+  useLayoutEffect(() => widen.current())
+  /**
+   * 表头吸顶：表的上沿滚出滚动框（文档的 .body、整页打开的那一层）上沿时，表头往下挪同样多（最多挪到表底前一行），
+   * 写进表上的 --base-stick；挪着时 data-stuck，CSS 给表头铺底、下沿一道线
+   */
+  const stick = useRef(() => {})
+  stick.current = () => {
+    for (const [root, scroller] of [
+      [rootRef.current, docBody()],
+      [fullRef.current, fullRef.current],
+    ] as const) {
+      const table = root?.querySelector<HTMLTableElement>(':scope > .base-scroll > table')
+      if (!table?.tHead || !scroller) continue
+      const t = table.getBoundingClientRect()
+      const head = table.tHead.getBoundingClientRect().height
+      const foot = table.tFoot?.getBoundingClientRect().height ?? 0
+      const max = Math.max(0, t.height - head - foot - 36)
+      const shift = Math.round(Math.max(0, Math.min(scroller.getBoundingClientRect().top - t.top, max)))
+      const v = shift + 'px'
+      if (table.style.getPropertyValue('--base-stick') !== v) table.style.setProperty('--base-stick', v)
+      if (shift > 0) table.dataset.stuck = ''
+      else delete table.dataset.stuck
+    }
+  }
+  useLayoutEffect(() => stick.current())
+  useEffect(() => {
+    // 文档里的部件刚画出来时还没挂进文档（找不到 .body）：滚动在 document 上抓（滚动事件不冒泡，用捕获），窗口、栏变宽变窄看部件自己
+    let raf = 0
+    let body: HTMLElement | null = null
+    const tick = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        // 栏变宽变窄（开关左栏、拖右栏）：表跟着重算放多宽
+        const b = docBody()
+        if (b && b !== body) ro.observe((body = b))
+        stick.current()
+        widen.current()
+      })
+    }
+    const ro = new ResizeObserver(tick)
+    ro.observe(props.anchor)
+    document.addEventListener('scroll', tick, { capture: true, passive: true })
+    window.addEventListener('resize', tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+      document.removeEventListener('scroll', tick, { capture: true })
+      window.removeEventListener('resize', tick)
+    }
+  }, [props.anchor])
 
   // ----- 筛选、排序（面板在 ViewBar / FilterPanel，这里是列菜单进来的） -----
   /** 列菜单「按这一列筛选…」：开筛选面板、多一条这一列的（贴着第二行的「筛选」，收成图标时也一样） */
@@ -572,14 +1009,14 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
       w = Math.max(64, Math.round(w0 + ev.clientX - x0))
       setSizing({ col: c, w })
     }
-    const up = () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
-      setSizing(null)
-      if (Math.abs(w - w0) >= 2) edit.src((src) => setBaseColSize(src, c, w, vi))
-    }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    // 松手没送到页面：列宽回原样、不写文件（trackDrag，task-0nz63）
+    trackDrag(e, {
+      move,
+      end: (how) => {
+        setSizing(null)
+        if (how === 'up' && Math.abs(w - w0) >= 2) edit.src((src) => setBaseColSize(src, c, w, vi))
+      },
+    })
   }
   const startMove = (e: React.MouseEvent, c: string) => {
     if (e.button !== 0 || c === 'file.name') return
@@ -597,8 +1034,6 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
       setMoving({ col: c, to })
     }
     const up = () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
       setMoving(null)
       if (!started || to === -1) return
       const cols = spec.columns.filter((x) => x !== c)
@@ -609,8 +1044,8 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
       suppressClick.current = true
       setTimeout(() => (suppressClick.current = false), 0)
     }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    // 松手没送到页面：当没拖过，列的先后不变（trackDrag，task-0nz63）
+    trackDrag(e, { move, end: (how) => (how === 'up' ? up() : setMoving(null)) })
   }
   const suppressClick = useRef(false)
 
@@ -720,7 +1155,7 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
     if (pop.kind === 'rel' && ctx) return <RelationPick at={pop.at} ctx={ctx} path={pop.path} col={pop.col} />
     if (pop.kind === 'status' && ctx) {
       const r = (data?.all ?? []).find((x) => x.path === pop.path)
-      return r ? <StatusPick at={pop.at} ctx={ctx} path={pop.path} col={pop.col} onPick={(v) => (setPop(null), void save(r, pop.col, v))} /> : null
+      return r ? <StatusPick at={pop.at} ctx={ctx} path={pop.path} col={pop.col} onPick={(v) => (closePop(), void save(r, pop.col, v))} /> : null
     }
     if (pop.kind === 'fx' && ctx)
       return (
@@ -753,6 +1188,10 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
       )
     if (pop.kind === 'sum')
       return ctx && res ? <SumMenu at={pop.at} col={pop.col} label={colName(pop.col)} kind={kindOf(pop.col)} cur={spec.summaries[pop.col] ?? null} ctx={ctx} rows={res.rows} onPick={(id) => setSummary(pop.col, id)} /> : null
+    if (pop.kind === 'date') {
+      const r = (data?.all ?? []).find((x) => x.path === pop.path)
+      return r ? <DatePop at={pop.at} label={`${r.name} · ${colName(pop.col)}`} value={r.props[pop.col] ?? ''} onPick={(v) => (closePop(), void save(r, pop.col, v))} /> : null
+    }
     if (pop.kind === 'options') {
       const r = (data?.all ?? []).find((x) => x.path === pop.path)
       if (!r) return null
@@ -765,7 +1204,7 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
           values={valuesOf(pop.col)}
           picked={t === 'multi' ? listOf(r.props[pop.col] ?? '') : (r.props[pop.col] ?? '') ? [r.props[pop.col]!] : []}
           onChange={(vs, close) => {
-            if (close) setPop(null)
+            if (close) closePop()
             void save(r, pop.col, t === 'multi' ? (vs.length ? listText(vs) : '') : (vs[0] ?? ''))
           }}
         />
@@ -788,6 +1227,7 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
         <a
           className="base-url"
           href={v}
+          data-peek-href={v}
           onClick={(e) => {
             e.preventDefault()
             e.stopPropagation()
@@ -816,7 +1256,29 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
      * 列宽（照 Notion，每一列有自己的宽）：拖过的用拖的，没拖过的名字 200、别的 140；比版心窄时按比例撑满版心，宽了就横着滚。
      * 表格一直按这些宽排（table-layout: fixed），起名框、打的字都不把列挤动
      */
-    const widthOf = (c: string, i: number) => (sizing?.col === c ? sizing.w : (locked?.[i] ?? spec.sizes[c] ?? (c === 'file.name' ? 200 : aiOf(c)?.output === 'note' ? 214 : 140)))
+    const own = (c: string, i: number) => (sizing?.col === c ? sizing.w : (locked?.[i] ?? spec.sizes[c] ?? null))
+    const dflt = (c: string) => (c === 'file.name' ? 200 : aiOf(c)?.output === 'note' ? 214 : 140)
+    /**
+     * 文档里的表放宽到栏宽还放不下（task-cle3x：8 列不用横着滑）：没拖过宽的列先收别的列（按比例，最窄 96），
+     * 还放不下再收名字列（最窄 160）；拖过的列照拖的宽。收到最窄还放不下就横着滚（设计复审：名字留宽，少折两行）
+     */
+    const isInline = limit !== Infinity
+    const squeezed = (() => {
+      const out = new Map<string, number>()
+      if (!isInline || !fit) return out
+      const all = spec.columns.reduce((sum, c, i) => sum + (own(c, i) ?? dflt(c)), 0) + 34
+      let need = all - fit
+      if (need <= 0) return out
+      const flex = spec.columns.filter((c, i) => own(c, i) === null && c !== 'file.name')
+      const total = flex.reduce((sum, c) => sum + dflt(c), 0)
+      const cut = Math.min(need, total - 96 * flex.length)
+      if (cut > 0) for (const c of flex) out.set(c, Math.max(96, Math.floor(dflt(c) * (1 - cut / total))))
+      need -= Math.max(0, cut)
+      const ni = spec.columns.indexOf('file.name')
+      if (need > 0 && ni >= 0 && own('file.name', ni) === null) out.set('file.name', Math.max(160, Math.floor(dflt('file.name') - need)))
+      return out
+    })()
+    const widthOf = (c: string, i: number) => own(c, i) ?? squeezed.get(c) ?? dflt(c)
     const fixed = true
     let shown = [...rows.slice(0, limit), ...outRows]
     /**
@@ -875,10 +1337,15 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
       shown = [...flat, ...outRows]
     }
     const sums = spec.columns.some((c) => spec.summaries[c])
+    const isFull = limit === Infinity
+    // 各列本来的宽加起来（连最右「+」那一列 32；不算定住的宽、收窄的比例，那两样是照已经排好的宽算的）：文档里的表比正文宽时照它伸（widen）
+    if (!isFull) natural.current = spec.columns.reduce((sum, c) => sum + (sizing?.col === c ? sizing.w : (spec.sizes[c] ?? dflt(c))), 0) + 32
+    // 键盘走格照这张表显示出来的行数（组头不算）
+    shownRef.current[isFull ? 'full' : 'inline'] = shown
     return (
       <>
-        <div className="base-scroll" ref={limit === Infinity ? fullRoom : inlineRoom}>
-          <table className={fixed ? 'fixed' : undefined}>
+        <div className="base-scroll" ref={isFull ? fullRoom : inlineRoom}>
+          <table className={fixed ? 'fixed' : undefined} onKeyDown={(e) => onGridKey(e, isFull)}>
             <colgroup>
               {/* 比版心窄时按比例撑满（「+」那一列不跟着撑，固定 32）；宽了就照各列自己的宽、横着滚。定住列宽时照量下的宽 */}
               {spec.columns.map((c, i) => {
@@ -950,22 +1417,26 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
                 {heads.get(k)}
                 <tr className={[rows.includes(r) ? '' : 'base-row-out', peek?.path === r.path ? 'base-row-peek' : ''].filter(Boolean).join(' ') || undefined}>
                   {spec.columns.map((c) => {
+                    const cell = (cls?: string) => cellAttrs(isFull, k, r, c, cls)
                     if (c === 'file.name' && editing?.path === r.path && editing.col === c)
                       return (
-                        <td key={c} className={'nm' + (rows.includes(r) ? '' : ' out')}>
+                        <td key={c} {...cell('nm cn-cell-edit' + (rows.includes(r) ? '' : ' out'))}>
                           <input
                             className="base-in"
                             autoFocus
-                            defaultValue={r.name}
+                            defaultValue={editing.typed ? '' : r.name}
                             // 和名字差不多宽：输入框收起时列宽不跳（点别的格子时松手落到别的格子上）
                             size={Math.max(6, Array.from(r.name).length * 2 + 2)}
                             aria-label={tNow('{name} · 名字', { name: r.name })}
-                            onFocus={(e) => e.currentTarget.select()}
+                            onFocus={(e) => !editing.typed && e.currentTarget.select()}
                             onKeyDown={(e) => {
                               e.stopPropagation()
-                              if (composing(e)) return
-                              if (e.key === 'Enter') void rename(r, e.currentTarget)
-                              if (e.key === 'Escape') setEditing(null)
+                              const how = editKey(e)
+                              if (!how) return
+                              e.preventDefault()
+                              if (how !== 'cancel') void rename(r, e.currentTarget)
+                              else named.current.add(e.currentTarget)
+                              backToSel(isFull, k, c, how)
                             }}
                             onBlur={(e) => void rename(r, e.currentTarget)}
                           />
@@ -974,12 +1445,12 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
                       )
                     if (c === 'file.name')
                       return (
-                        <td key={c} className={'nm' + (rows.includes(r) ? '' : ' out')}>
+                        <td key={c} {...cell('nm' + (rows.includes(r) ? '' : ' out'))}>
                           {/* 点名字、悬停出来的「打开」：右栏开这一条（⌘ 点在中间开整页） */}
-                          <button type="button" onClick={(e) => (e.metaKey || e.ctrlKey ? app().openFile(r.path) : openRecord({ path: r.path, src: props.src, view: vi, from: me }))} title={locked ? r.name : undefined}>
+                          <button type="button" tabIndex={-1} data-peek-href={r.path} onClick={(e) => (e.metaKey || e.ctrlKey ? app().openFile(r.path) : openRecord({ path: r.path, src: props.src, view: vi, from: me }))} title={locked ? r.name : undefined}>
                             {r.name}
                           </button>
-                          <button type="button" className="base-open" aria-label={tNow('在右栏打开「{name}」', { name: r.name })} onClick={() => openRecord({ path: r.path, src: props.src, view: vi, from: me })}>
+                          <button type="button" tabIndex={-1} className="base-open" aria-label={tNow('在右栏打开「{name}」', { name: r.name })} onClick={() => openRecord({ path: r.path, src: props.src, view: vi, from: me })}>
                             <Codicon name="layout-sidebar-right" size={12} />
                             {tNow('打开')}
                           </button>
@@ -991,60 +1462,61 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
                     const own = ownOf(c)
                     if (btnOf(c))
                       return (
-                        <td key={c} className="btnc" data-col={c}>
+                        <td key={c} {...cell('btnc')}>
                           <ButtonCell table={me} col={c} path={r.path} name={r.name} />
                         </td>
                       )
                     const aiRec = aiOf(c) ? recOf.get(r.path) : undefined
                     if (aiRec && ctx)
                       return (
-                        <td key={c} className="aic" data-col={c}>
+                        <td key={c} {...cell('aic')}>
                           <AiCell ctx={ctx} rec={aiRec} col={c} folder={spec.folder} table={me} />
                         </td>
                       )
                     const rec = own && ctx ? recOf.get(r.path) : undefined
                     if (own && rec && ctx)
                       return (
-                        <td
-                          key={c}
-                          className={'own ' + own + (own === 'rollup' || own === 'formula' ? ' num' : '')}
-                          data-col={c}
-                          onClick={(e) => ownClick(r, c, own, e.currentTarget)}
-                        >
+                        <td key={c} {...cell('own ' + own + (own === 'rollup' || own === 'formula' ? ' num' : ''))}>
                           <OwnCell ctx={ctx} rec={rec} col={c} type={own} />
                         </td>
                       )
                     if (t === 'check')
                       return (
-                        <td key={c}>
-                          <input type="checkbox" className="base-check" checked={/^true$/i.test(v)} aria-label={`${r.name} · ${colName(c)}`} onChange={(e) => void save(r, c, e.currentTarget.checked ? 'true' : 'false')} />
+                        <td key={c} {...cell()}>
+                          <input type="checkbox" tabIndex={-1} className="base-check" checked={/^true$/i.test(v)} aria-label={`${r.name} · ${colName(c)}`} onChange={(e) => void save(r, c, e.currentTarget.checked ? 'true' : 'false')} />
                         </td>
                       )
                     if (editing?.path === r.path && editing.col === c)
                       return (
-                        <td key={c} className="editing">
-                          <input
-                            className="base-in"
-                            autoFocus
-                            type={t === 'date' ? 'date' : t === 'number' ? 'number' : 'text'}
-                            defaultValue={t === 'date' ? v.slice(0, 10) : v}
-                            aria-label={`${r.name} · ${colName(c)}`}
-                            onKeyDown={(e) => {
-                              e.stopPropagation()
-                              if (composing(e)) return
-                              if (e.key === 'Enter') void save(r, c, e.currentTarget.value.trim())
-                              if (e.key === 'Escape') setEditing(null)
+                        <td key={c} {...cell('editing cn-cell-edit')}>
+                          <CellInput
+                            label={`${r.name} · ${colName(c)}`}
+                            type={t === 'number' ? 'number' : 'text'}
+                            value={editing.typed ? '' : v}
+                            onDone={(raw, how, el) => {
+                              if (how === 'cancel') return dropBad(), backToSel(isFull, k, c, how)
+                              let next = raw
+                              if (t === 'number') {
+                                // 数字自己认（cell-input.ts）：不是数不收、框描红、底栏说一句，回车、Tab 时框留着改，点别处就不改了
+                                const n = numText(raw)
+                                if (n === null) {
+                                  badNum(colName(c), el)
+                                  if (how === 'blur') return void setEditing(null)
+                                  return false
+                                }
+                                next = n
+                                dropBad()
+                              }
+                              // 只是进来又出去（没改字）：什么都不写（打开再保存文件不变）
+                              if (next !== (editing.typed ? '' : v)) void save(r, c, next)
+                              else setEditing(null)
+                              if (how !== 'blur') backToSel(isFull, k, c, how)
                             }}
-                            onBlur={(e) => void save(r, c, e.currentTarget.value.trim())}
                           />
                         </td>
                       )
                     return (
-                      <td
-                        key={c}
-                        className={t === 'number' ? 'num' : t === 'date' ? 'num date' : ''}
-                        onClick={(e) => (t === 'select' || t === 'multi' ? setPop({ kind: 'options', path: r.path, col: c, at: atOf(e.currentTarget) }) : setEditing({ path: r.path, col: c }))}
-                      >
+                      <td key={c} {...cell(t === 'number' ? 'num' : t === 'date' ? 'num date' : '')}>
                         {cellView(r, c, t, v)}
                       </td>
                     )
@@ -1245,7 +1717,7 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
       setPop(null)
     }
     // 浮层是贴着按钮的固定位置：文档一滚就收起，不飘在别处
-    const scroll = (e: Event) => !(e.target as HTMLElement).closest?.('.base-pop') && setPop(null)
+    const scroll = (e: Event) => !(e.target as HTMLElement).closest?.('.base-pop') && Date.now() - selfScroll.current > 300 && setPop(null)
     document.addEventListener('mousedown', down, true)
     window.addEventListener('scroll', scroll, true)
     return () => (document.removeEventListener('mousedown', down, true), window.removeEventListener('scroll', scroll, true))
@@ -1296,6 +1768,42 @@ export function BaseTable(props: { spec?: BaseSpec; src: string; edit: BaseEdits
   )
 }
 
+/**
+ * 正在改的一格（文字、数字、链接）：回车、Tab 存，Esc 不存（都回到选中，grid-focus 的 editKey），点别处也存。
+ * 同一个框只交一次（回车收起时还会再来一次失焦）
+ */
+function CellInput(props: { label: string; type: 'text' | 'number'; value: string; onDone(v: string, how: 'commit' | 'cancel' | 'next' | 'prev' | 'blur', el: HTMLInputElement): void | false }) {
+  const done = useRef(false)
+  const finish = (el: HTMLInputElement, how: 'commit' | 'cancel' | 'next' | 'prev' | 'blur') => {
+    if (done.current) return
+    done.current = true
+    // 交回 false：这个值不收（不是数），框留着改
+    if (props.onDone(el.value.trim(), how, el) === false) {
+      done.current = false
+      el.select()
+    }
+  }
+  return (
+    <input
+      className="base-in"
+      autoFocus
+      // 数字不用浏览器的 type=number（↑ ↓、滚轮会悄悄加减，base-number-keys）
+      {...(props.type === 'number' ? NUM_INPUT : { type: 'text' })}
+      defaultValue={props.value}
+      aria-label={props.label}
+      onKeyDown={(e) => {
+        e.stopPropagation()
+        const how = editKey(e)
+        if (!how) return
+        e.preventDefault()
+        finish(e.currentTarget, how)
+      }}
+      onInput={props.type === 'number' ? clearBad : undefined}
+      onBlur={(e) => finish(e.currentTarget, 'blur')}
+    />
+  )
+}
+
 /** 列菜单最上面：就地改列名（回车、离开就改，esc 不改） */
 function ColRename(props: { name: string; onDone(v: string): void }) {
   const done = useRef(false)
@@ -1327,6 +1835,10 @@ function Options(props: { at: At; multi: boolean; label: string; values: string[
   const [picked, setPicked] = useState(props.picked)
   const list = props.values.filter((v) => !q.trim() || v.toLowerCase().includes(q.trim().toLowerCase()))
   const fresh = q.trim() && !props.values.some((v) => v === q.trim()) ? q.trim().replace(/[,[\]]/g, ' ').trim() : ''
+  /** 能用 ↑ ↓ 挑的几项（task-cle3x，照 Notion）：列出来的值，最后是「建一个」；回车选亮着的那一项，没挪过时亮着的是「建一个」或第一项 */
+  const items = [...list, ...(fresh ? [fresh] : [])]
+  const [hi, setHi] = useState(-1)
+  const on = hi >= 0 && hi < items.length ? hi : fresh ? items.length - 1 : items.length ? 0 : -1
   const pick = (v: string) => {
     if (!props.multi) return props.onChange([v], true)
     const next = picked.includes(v) ? picked.filter((x) => x !== v) : [...picked, v]
@@ -1349,26 +1861,30 @@ function Options(props: { at: At; multi: boolean; label: string; values: string[
           aria-label={tNow('找一个，或者打一个新的')}
           placeholder={picked.length ? '' : tNow('找一个，或者打一个新的')}
           value={q}
-          onChange={(e) => setQ(e.currentTarget.value)}
+          onChange={(e) => (setQ(e.currentTarget.value), setHi(-1))}
           onKeyDown={(e) => {
             e.stopPropagation()
             if (composing(e)) return
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault()
+              if (items.length) setHi((on + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length)
+            }
             if (e.key === 'Enter') {
-              const v = fresh || list[0]
-              if (v) (pick(v), setQ(''))
+              const v = items[on]
+              if (v) (pick(v), setQ(''), setHi(-1))
             }
           }}
         />
       </div>
       <div className="hd">{props.multi ? tNow('选几个，或者建一个') : tNow('选一个，或者建一个')}</div>
-      {list.map((v) => (
-        <button key={v} type="button" role={props.multi ? 'menuitemcheckbox' : 'menuitemradio'} aria-checked={picked.includes(v)} onClick={() => pick(v)}>
+      {list.map((v, i) => (
+        <button key={v} type="button" role={props.multi ? 'menuitemcheckbox' : 'menuitemradio'} aria-checked={picked.includes(v)} className={i === on ? 'kb' : undefined} onMouseEnter={() => setHi(i)} onClick={() => pick(v)}>
           <span className={'base-sel ' + toneOf(v)}>{v}</span>
           {picked.includes(v) && <Codicon name="check" size={14} />}
         </button>
       ))}
       {fresh && (
-        <button type="button" role="menuitem" onClick={() => (pick(fresh), setQ(''))}>
+        <button type="button" role="menuitem" className={on === items.length - 1 ? 'kb' : undefined} onMouseEnter={() => setHi(items.length - 1)} onClick={() => (pick(fresh), setQ(''))}>
           <span className="new">{tNow('建一个')}</span>
           <span className={'base-sel ' + toneOf(fresh)}>{fresh}</span>
         </button>

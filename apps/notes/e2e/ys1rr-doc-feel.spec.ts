@@ -80,7 +80,8 @@ test('代码块删得掉（用户报的）：字删光以后再退格，代码�
     // 空的代码块里退格：代码块没了，这里变成一个空段落，光标还在这里（像 Notion 把块变回正文）
     await page.keyboard.press('Backspace')
     await expect.poll(() => editorText(page)).not.toContain('```')
-    expect(await editorText(page)).toBe('# 码\n\n上一段。\n\n\n\n下一段。\n')
+    // 空行的数法（task-axoxy，照 Tolaria）：两个空行是一道缝加一个空块
+    expect(await editorText(page)).toBe('# 码\n\n上一段。\n\n\n下一段。\n')
     expect((await caret(page)).line).toBe(5)
     // 再退格：空段落也没了，光标回到上一段末尾
     await page.keyboard.press('Backspace')
@@ -198,7 +199,7 @@ test('回车新起一块（像 Notion）：段末回车下面多一个空块、�
   try {
     await toEnd(page, '第一段正文')
     await page.keyboard.press('Enter')
-    expect(await editorText(page)).toBe(FLOW.replace('第一段正文。\n\n', '第一段正文。\n\n\n\n'))
+    expect(await editorText(page)).toBe(FLOW.replace('第一段正文。\n\n', '第一段正文。\n\n\n'))
     expect(await caret(page)).toMatchObject({ line: 5, text: '' })
     // 空块和上下两段之间各隔着一道缝（不是紧贴着上一段的「段里一行」）
     const p1 = (await line(page, '第一段正文').boundingBox())!
@@ -334,6 +335,7 @@ test('退格、Delete 在块边上一下就并（像 Notion）：段首退格并
     // 回车出来的空块：退格删掉它，光标回到上一段末尾
     await toEnd(page, '第二段')
     await page.keyboard.press('Enter')
+    // 下一块是标题：缝、空块、标题上方的留白（gap-lines.ts，task-axoxy）
     expect(await editorText(page)).toBe(FLOW.replace('第二段。\n\n', '第二段。\n\n\n\n'))
     await page.keyboard.press('Backspace')
     await expect.poll(() => editorText(page)).toBe(FLOW)
@@ -427,10 +429,15 @@ test('一篇里只有一个数据库块、块收尾在文件最末（后面没�
   const { page } = run
   try {
     await expect(pane(page).locator('[data-part="数据库块"]')).toBeVisible()
-    // ↓：先选中数据库块，再 ↓ 到块下面那一行（光标和灰字同一行），打字
+    // 两条读进来了再按（表里没有一条时 ↓ 照旧走过块）
+    await expect(pane(page).locator('[data-part="数据库块"] tbody tr')).toHaveCount(2)
+    // ↓：先选中数据库块，再 ↓ 进表的第一行（task-cle3x 格子焦点，照 Notion），在表里 ↓ 走过两行、出表到块下面那一行（光标和灰字同一行），打字
     await toEnd(page, '旅行住宿')
     await page.keyboard.press('ArrowDown')
     expect(await selText(page)).toBe(rooms)
+    await page.keyboard.press('ArrowDown')
+    await expect(pane(page).locator('[data-part="数据库块"] td.cn-cell-sel')).toHaveCount(1)
+    await page.keyboard.press('ArrowDown')
     await page.keyboard.press('ArrowDown')
     await expect.poll(() => caretOnTail(page)).toBe(true)
     // 已经是全篇最后一块：再 ↓、→、⌘↓ 都不动（不跑到它后面那个空行上，把这一行拿掉）

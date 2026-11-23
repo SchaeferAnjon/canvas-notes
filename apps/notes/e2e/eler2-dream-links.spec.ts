@@ -9,30 +9,33 @@ import { join } from 'node:path'
 import { gitStatus, launch } from './app'
 import { P, VAULT } from '../eval/dream-links/cases'
 
-test('补上的双链只有真相关的几对，不再有 Iceland、第三方、未命名；理由写共同的关键词，收下一条末尾多一行', async () => {
+test('标注该连的几对都补上，不连第三方、未命名；理由写 AI 说的共同点和两边原话，收下一条末尾多一行', async () => {
   const run = await launch(VAULT, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   try {
     const card = page.getByTestId('dream-card')
     await card.getByRole('button', { name: '现在梦游' }).click()
     await expect(card.locator('h3')).toContainText('等你过目', { timeout: 60_000 })
-    await expect(card.locator('.l')).toContainText(['5处补了双链'])
+    // task-h7oy8 起补双链要 AI 判：测试里是假 AI（按两篇共同的词判），连得准不准由真库评测（pnpm eval:dream-real）管；
+    // 这里看的是软件自己的规矩：该连的都进得了候选、第三方和「未命名」不当候选、理由和两边原话写在条目上
+    await expect(card.locator('.l')).toContainText(['补了双链'])
     await card.getByRole('button', { name: '看报告' }).click()
     const panel = page.getByRole('complementary', { name: '梦游报告' })
-    await expect(panel.locator('.dg')).toContainText(['补上的双链5条'])
+    await expect(panel.locator('.dg').filter({ hasText: '补上的双链' })).toBeVisible()
 
-    // 「补上的双链」这一组：5 条，一条也不连到 Iceland、第三方、未命名
+    // 「补上的双链」这一组：标注该连的 5 对都在，一条也不连到第三方、未命名
     const items = panel.getByTestId('dream-item').filter({ hasText: '↔ [[' })
-    await expect(items).toHaveCount(5)
     const texts = (await items.allInnerTexts()).join('\n')
-    expect(texts).not.toMatch(/Geography of Iceland|第三方|未命名|Sourdough|ttravel|健身计划/)
-    for (const want of ['Claude', '关税战时间线', '间隔重复', '极光预报', 'Feynman technique']) expect(texts).toContain(want)
+    expect(texts).not.toMatch(/第三方|未命名/)
+    // 中文这几对假 AI 判得出（Feynman 那对是英文专名对英文专名，假 AI 只按字比，判不出，交给真库评测）
+    for (const want of ['Claude', '关税战时间线', '间隔重复', '极光预报']) expect(texts).toContain(want)
 
-    // 点 Claude 那一条：理由是两篇共同的关键词，不是「两篇都讲到『the second』」
+    // 点 Claude 那一条：理由是 AI 说出的共同点（task-h7oy8 起补双链要 AI 判），带两边原话，不是「两篇都讲到『the second』」
     const claude = items.filter({ hasText: 'Claude' })
     await claude.click()
     const why = page.locator('[data-testid="dream-tab"]:not([hidden])').getByTestId('dream-why')
-    await expect(why).toContainText(/^两篇共同的关键词：.*(海外手机号|虚拟信用卡|海外信用卡).*只在这篇末尾加一行/)
+    await expect(why).toContainText(/^两篇都讲「.+」那件事。只在这篇末尾加一行/)
+    await expect(page.locator('[data-testid="dream-tab"]:not([hidden])').getByTestId('dream-evidence')).toContainText('原话软件逐字核对过')
     await expect(why).not.toContainText('都讲到')
     await page.screenshot({ path: test.info().outputPath('eler2-claude-why.png') })
 

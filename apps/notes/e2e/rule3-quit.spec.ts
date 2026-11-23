@@ -239,7 +239,7 @@ test('右键菜单开着时退出（文档里、输入框里各右键一次）�
   }
 })
 
-test('7000 篇的大库后台梦游正算「找重复」（要算好几分钟）时退出：5 秒内存好刚打的字、提交好、退干净', async () => {
+test('7000 篇的大库后台梦游正算「找重复」或排补双链的候选（要算好几分钟）时退出：5 秒内存好刚打的字、提交好、退干净', async () => {
   test.setTimeout(300_000)
   const run = await launch({ '日记.md': '# 日记\n\n今天去了海边。\n' }, { CN_AI_FAKE: '1' }, (v) => void makeBigVault(v))
   const { page, vault, app } = run
@@ -247,10 +247,11 @@ test('7000 篇的大库后台梦游正算「找重复」（要算好几分钟）
     await openNote(page, '日记')
     // 闲了 15 分钟自己开始的梦游（用户实测：开着 5 分钟以后 ⌘Q 卡 13–18 分钟）：这里直接叫它开始
     void page.evaluate(() => void window.cn.dreamNow())
-    // 等它读完全库、做完前几步，算到「找重复」（以前在主进程里一口气算，主进程整段卡住）
+    // 等它读完全库、做完前几步，算到「找重复」或补双链找候选（task-h7oy8 起补双链先在同一个子进程里排候选 ranked，
+    // 7000 篇要算好几分钟；以前在主进程里一口气算，主进程整段卡住）
     await expect
-      .poll(() => app.evaluate(() => (globalThis as unknown as { cnSimilarRunning?: string[] }).cnSimilarRunning ?? []), { timeout: 180_000, intervals: [500] })
-      .toContain('dups')
+      .poll(() => app.evaluate(() => ((globalThis as unknown as { cnSimilarRunning?: string[] }).cnSimilarRunning ?? []).some((t) => t === 'dups' || t === 'ranked')), { timeout: 180_000, intervals: [500] })
+      .toBe(true)
     // 主进程不卡：这会儿问它一句马上回来
     const t = Date.now()
     await page.evaluate(() => window.cn.dreamReport())
@@ -259,8 +260,9 @@ test('7000 篇的大库后台梦游正算「找重复」（要算好几分钟）
     await page.keyboard.press('End')
     await page.keyboard.type('大库退出前的一句')
     await expect(acts(page).getByTestId('save-state')).toHaveAttribute('data-state', 'dirty')
+    const t0 = Date.now()
     const ms = await timedQuit(run)
-    console.log(`大库梦游时退出用了 ${ms} ms`)
+    console.log(`大库梦游时退出用了 ${ms} ms（从 ${t0} 起，到 ${t0 + ms} 进程没了）；quit.log：\n${readFileSync(join(run.userData, 'quit.log'), 'utf8')}`)
     expect(ms).toBeLessThan(5_000)
     expect(readFileSync(join(vault, '日记.md'), 'utf8')).toBe('# 日记\n\n今天去了海边。大库退出前的一句\n')
     expect(gitStatus(vault)).toBe('')

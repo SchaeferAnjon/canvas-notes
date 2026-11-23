@@ -115,7 +115,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'ext', pg: 'web', grp: '网页', label: 'Chrome插件', desc: '能用哪些接口写在每个插件上', kw: 'Chrome 插件 扩展 extension' },
   { id: 'dlDir', pg: 'web', grp: '下载', label: '下载放在', desc: '右栏网页里点了下载的文件放这里；下好了底下说一声', kw: '下载 文件 保存 download' },
   { id: 'autoSubs', pg: 'web', grp: '视频', label: '没字幕的视频打开就生成', desc: '要先填听写密钥；一小时约¥0.7', kw: '字幕 听写 自动 视频' },
-  { id: 'soniox', pg: 'web', grp: '视频', label: '听写（Soniox）密钥', desc: '没字幕的视频「生成字幕」时用；加密存在这台Mac上', kw: 'Soniox 密钥 key 听写 字幕' },
+  { id: 'soniox', pg: 'web', grp: '视频', label: '听写（Soniox）密钥', desc: '生成字幕和费曼的语音输入都用它；加密存在这台Mac上', kw: 'Soniox 密钥 key 听写 字幕 语音 费曼 麦克风 voice' },
   { id: 'subsShow', pg: 'web', grp: '视频', label: '字幕怎么显示、记到哪', desc: '在视频条的字幕菜单里，看视频时改最顺手', kw: '字幕 显示 视频条' },
   // ---------- AI ----------
   { id: 'aiDefault', pg: 'ai', grp: '默认', label: '默认用哪家AI', desc: '用这台Mac上已经登录的命令行，不另存密钥', kw: 'AI 引擎 默认 模型 Claude Codex Gemini OpenCode' },
@@ -126,6 +126,9 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'fQuick', pg: 'ai', grp: '各功能用哪个', label: '小活', desc: '视频摘要、起名、插件里的快问', kw: '小活 摘要 起名' },
   { id: 'omni', pg: 'ai', grp: '能动手到哪', label: '全能模式', desc: '开着能读写这台Mac上的文件、跑命令、上网；关着只在库里新建、改名、挪、删笔记。AI输入框下面那颗是同一个开关', kw: '全能 权限 命令 读写' },
   { id: 'prompt', pg: 'ai', grp: '能动手到哪', label: '给AI的长期说明', desc: '每次对话都带上，比如「回答用中文、先说结论」', kw: '提示词 prompt 说明 指令 系统提示' },
+  // 回答里的链接（task-3e53q，cite-names.tsx）：AI 没写成链接的笔记名也认，能关；不认的名字
+  { id: 'citeNames', pg: 'ai', grp: '回答里的链接', label: '回答里提到的笔记名自动认成链接', desc: '只认库里只有一篇、AI这一轮读过或加了书名号的名字', kw: '链接 引用 名字 自动 认 笔记名 cite' },
+  { id: 'citeSkip', pg: 'ai', grp: '回答里的链接', label: '这些名字不认', desc: '一行一个。「笔记」「计划」「待办」「未命名」「第一条」这类常见名本来就不认', kw: '链接 不认 名单 忽略 常见名' },
   // iPhone / iPad 用这台 Mac 的 AI（task-wwqf0，main/mobile-ai/）
   { id: 'mobileAi', pg: 'ai', grp: 'iPhone 和 iPad', label: '让iPhone / iPad用这台Mac的AI', desc: '同一个Wi‑Fi里，手机和平板问AI先找这台Mac，用这里的命令行答；Mac睡着或不在一个网里就换云端。默认关', kw: 'iPhone iPad 手机 平板 配对 二维码 扫码 局域网 Bonjour' },
   // 各家命令行（task-m55m7）：版本、自查能不能用、拉到几个模型、检查更新 / 更新（settings-engines.tsx）

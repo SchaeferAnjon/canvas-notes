@@ -14,6 +14,7 @@ import { app } from '../ctx/actions'
 import { EngineLogo, type LogoEngine, useChatEngine } from '../engine-logo'
 import { composing } from '../ime'
 import { FloatPop, type PopAnchor } from '../pop-place'
+import { badNum, clearBad, dropBad, NUM_INPUT, numText } from './cell-input'
 import { aiOpenNow, aiRunOf, aiTableOf, closeAiCol, openAiCol, runColumn, sourceChanged, useAiCol, wireAiCol } from './ai-col'
 import { writeBase } from './cols'
 import { openRecord } from './record-open'
@@ -173,9 +174,17 @@ function AiHandEdit(props: { ctx: BaseCtx; rec: BaseRec; col: string; folder: st
   const v = aiCellOf(ctx, rec, col)
   const options = def.output === 'select' ? [...new Set(ctx.recs.map((r) => r.props[col] ?? '').filter(Boolean))] : []
   const id = `aic-opts-${col}`
-  const save = (raw: string) => {
+  const save = (el: HTMLInputElement, enter: boolean) => {
+    const num = def.output === 'number' ? numText(el.value) : ''
+    // 数字自己认：不是数不收，说一句；回车时框留着改
+    if (num === null) {
+      badNum(col, el)
+      return enter ? el.select() : props.onDone()
+    }
+    dropBad()
     props.onDone()
-    const value = def.output === 'multi' ? listOf(raw) : raw.trim()
+    const raw = el.value
+    const value = def.output === 'multi' ? listOf(raw) : def.output === 'number' ? num : raw.trim()
     if ((Array.isArray(value) ? value.join(', ') : value) === v.text) return
     const ws = aiHandEdit(ctx, rec.path, col, value)
     void writeBase(ws, t('改了「{name}」的{col} · 这一格算你写的，AI 的标志去掉了；整列重跑不动它', { name: rec.name, col }), tv('数据库：手改「{name}」的{col}', { name: rec.name, col }), [props.folder ?? ''])
@@ -186,7 +195,7 @@ function AiHandEdit(props: { ctx: BaseCtx; rec: BaseRec; col: string; folder: st
         className="base-in"
         autoFocus
         list={options.length ? id : undefined}
-        type={def.output === 'number' ? 'number' : 'text'}
+        {...(def.output === 'number' ? NUM_INPUT : { type: 'text' })}
         defaultValue={v.text}
         aria-label={`${rec.name} · ${col}`}
         onFocus={(e) => e.currentTarget.select()}
@@ -194,10 +203,11 @@ function AiHandEdit(props: { ctx: BaseCtx; rec: BaseRec; col: string; folder: st
         onKeyDown={(e) => {
           e.stopPropagation()
           if (composing(e)) return
-          if (e.key === 'Enter') save(e.currentTarget.value)
-          if (e.key === 'Escape') props.onDone()
+          if (e.key === 'Enter') save(e.currentTarget, true)
+          if (e.key === 'Escape') (dropBad(), props.onDone())
         }}
-        onBlur={(e) => save(e.currentTarget.value)}
+        onInput={clearBad}
+        onBlur={(e) => save(e.currentTarget, false)}
       />
       {options.length > 0 && (
         <datalist id={id}>

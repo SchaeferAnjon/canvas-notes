@@ -1,3 +1,4 @@
+import { trackDrag } from '@cn/design/drag-end'
 import { composing } from '../ime'
 import { useT } from '../i18n'
 import { accelFor, isKey, useKeyHandler, useKeys } from '../keys'
@@ -610,15 +611,15 @@ export function FileTree(props: {
       }
       setSel(hit)
     }
-    const up = () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
-      setLasso(null)
-      // 只是在空白处点了一下：不再「选着」哪个文件夹，也不再选着好几个
-      if (!moved) (setPicked(null), clearSel())
-    }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    // 松手没送到页面也收：框碰到的行照样选着（trackDrag，task-0nz63）
+    trackDrag(e, {
+      move,
+      end: () => {
+        setLasso(null)
+        // 只是在空白处点了一下：不再「选着」哪个文件夹，也不再选着好几个
+        if (!moved) (setPicked(null), clearSel())
+      },
+    })
   }
   /** 每一行都带：⌘⌫ 认这一行是谁（右键对着选中的那一组时，每种行自己的 onContextMenu 里转给 groupMenu） */
   const selProps = (path: string) => ({ 'data-sel': path })

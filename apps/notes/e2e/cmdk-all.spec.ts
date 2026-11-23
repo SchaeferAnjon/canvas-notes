@@ -50,6 +50,7 @@ const KEY_ONLY: Record<string, string> = {
   quote: 'AI 回答里选了字、PDF 上框着一块时按（那里有「引用」按钮）',
   'ask-page': 'PDF、HTML 上按（那里有「问这一页」按钮）',
   translate: '双语翻译插件自己给 ⌘K 一条（插件开着才有，在「网页」）',
+  'ai-follow': '从 AI 回答里 ⌘点开一篇以后右栏还在原来那段对话时按（右栏头上那颗「切到《X》的 AI」按钮是同一件事，3e53q-kinds 真按）',
 }
 
 const pal = (page: Page) => page.getByRole('dialog', { name: '搜索和命令' })

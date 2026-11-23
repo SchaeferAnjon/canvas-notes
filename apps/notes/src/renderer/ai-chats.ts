@@ -133,7 +133,9 @@ function listen() {
       if (e.type === 'text') return { ...m, text: (m.text ?? '') + e.delta }
       const steps = [...(m.steps ?? [])]
       const i = steps.findIndex((s) => s.id === e.id)
-      const step: ToolStep = { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}) }
+      // 读过的文件（task-3e53q）：开始和做完各报一次，有一次报了就留着
+      const paths = e.paths ?? steps[i]?.paths
+      const step: ToolStep = { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}), ...(paths?.length ? { paths } : {}) }
       if (i === -1) steps.push(step)
       else steps[i] = step
       return { ...m, steps }

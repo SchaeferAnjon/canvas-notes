@@ -114,9 +114,9 @@ export function TodoHome(props: { active: boolean }) {
   const installed = useTodayInstalled()
   const c = useCal()
   const scroller = useRef<HTMLDivElement>(null)
+  const calBar = useRef<HTMLDivElement>(null)
+  const below = useRef<HTMLDivElement>(null)
   const [doneOpen, setDoneOpen] = useState(false)
-  /** 往下滚了：周条铺底（不然滚过去的字从它下面透出来） */
-  const [stuck, setStuck] = useState(false)
   /** 左栏点的那一条：滚过去以后亮一下 */
   const [focus, setFocus] = useState<string | null>(null)
   const sel = usePop()?.key ?? null
@@ -149,6 +149,26 @@ export function TodoHome(props: { active: boolean }) {
     window.addEventListener('cn:todo-focus', f)
     return () => window.removeEventListener('cn:todo-focus', f)
   }, [props.active, owner, items])
+  // 周条贴在顶上时，它下面的「加一条」和清单从周条下沿剪掉（task-0nz63）：周条自己不铺底，透出来的就是中间岛本身（浮岛有图时是半透明面板），
+  // 不再自己叠一层面板色成一整块白，滚过去的字也不会从周条底下透出来。滚动、周条或清单变高时重量一次
+  useEffect(() => {
+    const s = scroller.current, b = calBar.current, w = below.current
+    if (!s || !b || !w) return
+    const clip = () => {
+      const y = Math.round(b.getBoundingClientRect().bottom - w.getBoundingClientRect().top)
+      // 左右、下面放开（负的 inset）：行里伸出去的东西不被剪
+      w.style.clipPath = y > 0 ? `inset(${y}px -100vmax -100vmax)` : ''
+    }
+    clip()
+    s.addEventListener('scroll', clip, { passive: true })
+    const ro = new ResizeObserver(clip)
+    ro.observe(b)
+    ro.observe(w)
+    return () => {
+      s.removeEventListener('scroll', clip)
+      ro.disconnect()
+    }
+  }, [])
   useEffect(() => {
     if (!focus) return
     const el = scroller.current?.querySelector<HTMLElement>(`.td-r[data-key="${CSS.escape(focus)}"]`)
@@ -296,18 +316,20 @@ export function TodoHome(props: { active: boolean }) {
           <ActBtn icon="open-in-product" label={t('在画布今日里打开')} text onClick={openTodayApp} />
         </TabActs>
       )}
-    <div className="tdh-scroll" data-testid="todo-home" ref={scroller} onScroll={(e) => setStuck(e.currentTarget.scrollTop > 0)}>
+    <div className="tdh-scroll" data-testid="todo-home" ref={scroller}>
       <div className="tdh big">
         <h1>{t('待办')}</h1>
         <div className="tdh-meta" data-testid="tdh-meta">
           {over ? t('今天{n}条（含过期{over}条） · 接下来七天{w}条 · 库里每篇笔记的「- [ ]」都在这里', { n, over, w: wkN }) : t('今天{n}条 · 接下来七天{w}条 · 库里每篇笔记的「- [ ]」都在这里', { n, w: wkN })}
         </div>
-        <div className={'tdh-cal' + (stuck ? ' stuck' : '')}>
+        <div className="tdh-cal" ref={calBar}>
           <WeekBar items={calItems} picked={picked} today={today} />
         </div>
-        <HomeAdd picked={picked} />
-        <div role="list" aria-label={t('待办')}>
-          {body}
+        <div ref={below} data-part="周条下面">
+          <HomeAdd picked={picked} />
+          <div role="list" aria-label={t('待办')}>
+            {body}
+          </div>
         </div>
       </div>
       <TodoPop owner={owner} />

@@ -6,6 +6,7 @@ import { FIXTURES } from '../../../packages/format/test/fixtures'
 import { gitStatus, launch, leftView, openNote, pane, waitSaved, acts } from './app'
 import { MAP, MAP_PATH, mapFiles } from './fixtures/mindmap-b1'
 import { MAP2, map2Files } from './fixtures/mindmap-b2'
+import { feynmanVault, MAP_PATH as FEY_PATH, MAP_TEXT as FEY_TEXT } from './fixtures/feynman-after'
 
 // 规矩 1：一篇笔记打开、什么都不改、保存，文件一个字节都不变（Git 里没有假改动）。
 
@@ -187,6 +188,34 @@ test('名字叫「待办」的笔记用任务界面打开（task-pd1d1）：只�
       await page.waitForTimeout(600)
       expect(Buffer.from(readFileSync(join(vault, path))).equals(Buffer.from(bytes)), path).toBe(true)
     }
+    expect(gitStatus(vault)).toBe('')
+  } finally {
+    await run.close()
+  }
+})
+
+test('导图白板上补进过费曼（行尾注释 wrong / fix / blank、费曼一轮那一节和它的注释，task-yvabi）：打开、白板 / 文档来回切、打一个字再删、关掉，一个字节都不变', async () => {
+  const text = FEY_TEXT.replace('    - f(αx) = |α| f(x)\n', '    - f(αx) = |α| f(x) <!-- wrong -->\n      - 是 |α| 倍 <!-- fix -->\n').replace('    - 非负 f(x) ≥ 0\n', '    - 非负 f(x) ≥ 0 <!-- blank -->\n')
+  const run = await launch({ ...feynmanVault(), [FEY_PATH]: text })
+  const { page, vault } = run
+  try {
+    await page.locator('.nav .si', { hasText: '导图 · 线性代数 2.3' }).first().click()
+    await expect(pane(page).getByTestId('map-blank')).toHaveCount(1)
+    for (const v of ['文档', '白板', '文档']) {
+      await acts(page).getByRole('tab', { name: v }).click()
+      await page.waitForTimeout(200)
+    }
+    await pane(page).locator('.cm-content').focus()
+    await page.keyboard.press('Meta+ArrowDown')
+    await page.keyboard.type('x')
+    await expect(acts(page).getByTestId('save-state')).toHaveAttribute('data-state', 'dirty')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.press('Meta+s')
+    await waitSaved(page)
+    expect(readFileSync(join(vault, FEY_PATH), 'utf8')).toBe(text)
+    await page.keyboard.press('Meta+w')
+    await page.waitForTimeout(800)
+    expect(readFileSync(join(vault, FEY_PATH), 'utf8')).toBe(text)
     expect(gitStatus(vault)).toBe('')
   } finally {
     await run.close()

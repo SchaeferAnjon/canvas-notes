@@ -238,7 +238,7 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
                     <SideText spot={turnSpot(c, i, sideText, pageUrl, quoteIn, sideOpen ? dock : null)} md={hideToolMarkup(t.a)} className="ak-tx" testid="ak-answer" />
                   ) : (
                     <div className="ak-tx md" data-testid="ak-answer">
-                      <Markdown text={hideToolMarkup(t.a)} />
+                      <Markdown text={hideToolMarkup(t.a)} cites={{ conv: `video:${pageUrl}` }} />
                     </div>
                   ))}
                 {t.state === 'error' && (

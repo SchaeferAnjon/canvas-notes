@@ -12,6 +12,7 @@
  * 配色和骨架（「布局 ▾」里挑，跟着软件主题）、鱼骨和时间线两种布局。
  */
 import { Codicon } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import {
   addFloating,
   addParent,
@@ -78,6 +79,41 @@ import { type BarAct, MapSelBar } from './MapSelBar'
 import { measure } from './map-measure'
 import { NodeBody, openMapLink, relinkText, unlinkText, useMapLinkCard } from './map-text'
 import { NotePop } from './NotePop'
+import { fillBlank, type MapDot, mapProgress } from '../../shared/feynman/after'
+import { useMapGrow } from '../feynman-after/map-grow'
+
+/**
+ * 费曼「补进导图」留的虚线空框（行尾注释 blank）：排版时当成挂在它下面的最后一个孩子占位置（字是「自己补一句」），
+ * 画成虚线空框，点开自己填；选、拖、方向键都不算它（排好以后从 L 里拿掉，单独画）
+ */
+function withGhosts(roots: MapNode[], text: string): { roots: MapNode[]; ghosts: Map<string, string> } {
+  const ghosts = new Map<string, string>()
+  const walk = (list: MapNode[], base: MapPath): MapNode[] =>
+    list.map((n, i) => {
+      const path = [...base, i]
+      const kids = n.children.length ? walk(n.children, path) : n.children
+      if (!n.blank) return kids === n.children ? n : { ...n, children: kids }
+      ghosts.set(pathKey([...path, kids.length]), pathKey(path))
+      return { ...n, children: [...kids, { text, children: [] }] }
+    })
+  const out = walk(roots, [])
+  return { roots: ghosts.size ? out : roots, ghosts }
+}
+
+/** 第一层节点后面的进度小点占多宽（点 7 + 和字隔 6） */
+const DOT_W = 13
+/** 空框比第二层多的宽：左右内边距各 10、虚线 1（第二层本来留 8） */
+const BLANK_PAD = 14
+/** 正确说法比第二层多的宽：左右内边距各 8、边 1 */
+const FIX_PAD = 10
+
+/** 排好的图里拿掉空框（交互都用拿掉以后的） */
+function stripGhosts(L: MapLayout, ghosts: Map<string, string>): MapLayout {
+  if (!ghosts.size) return L
+  const byKey = { ...L.byKey }
+  for (const k of ghosts.keys()) delete byKey[k]
+  return { ...L, nodes: L.nodes.filter((n) => !ghosts.has(n.key)), byKey, wires: L.wires.filter((w) => !ghosts.has(w.to)) }
+}
 
 /** 正文开头（列表前面）第一张图是原照片 */
 function photoOf(before: string, notePath: string): { src: string; caption: string } | null {
@@ -151,6 +187,23 @@ function plainList(list: MapNode[], depth = 0): string {
     .join('\n')
 }
 
+/** 费曼学习盖住的那几支：底下一块淡色的框（原型的 .selbox），框上浮「讲完再看 · 按住看一眼」 */
+function MapCover(props: { boxes: { x: number; y: number; w: number; h: number }[]; peeking: boolean; chip: React.ReactNode }) {
+  if (!props.boxes.length) return null
+  const x = Math.min(...props.boxes.map((b) => b.x)) - 14
+  const y = Math.min(...props.boxes.map((b) => b.y)) - 12
+  const w = Math.max(...props.boxes.map((b) => b.x + b.w)) + 14 - x
+  const h = Math.max(...props.boxes.map((b) => b.y + b.h)) + 12 - y
+  return (
+    <>
+      <div className={'fy-mapcover' + (props.peeking ? ' peek' : '')} data-testid="fy-mapcover" style={{ left: x, top: y, width: w, height: h }} />
+      <div className="fy-mapchip" style={{ left: x + 12, top: y + 10 }}>
+        {props.chip}
+      </div>
+    </>
+  )
+}
+
 /** 选中的几个里最外面的（一个在另一个下面的，只算上面那个） */
 const outermost = (keys: string[]) => keys.filter((k) => !keys.some((o) => o !== k && k.startsWith(o + '.')))
 
@@ -168,6 +221,12 @@ export interface MindmapLayerProps {
   onNotice(t: string): void
   /** 换了布局整张放不下：白板缩到放得下（BoardView 的 fitMap） */
   onFit?(): void
+  /** 选中的主题变了（费曼学习拿选中的一支当材料，task-yvabi） */
+  onSelect?(keys: string[]): void
+  /**
+   * 费曼学习讲着：这几支（节点的 key，连同下面全部）盖住模糊，上面浮一颗「讲完再看 · 按住看一眼」（chip）；peeking 时露出来
+   */
+  cover?: { keys: string[]; peeking: boolean; chip: React.ReactNode } | null
 }
 
 /** 拖着一个（或选中的几个）主题：按下的地方、现在手在哪（窗口坐标）、动起来没有、松手会去哪 */
@@ -265,16 +324,39 @@ export function MindmapLayer(p: MindmapLayerProps) {
       }),
     [rels, roots, bendDrag],
   )
+  // ---------- 费曼：空框、第一层的进度小点（讲过没有、过没过），中心下面「费曼 讲过 n/m」 ----------
+  const blankText = t('自己补一句')
+  const ghosted = useMemo(() => withGhosts(viewRoots, blankText), [viewRoots, blankText])
+  const progress = useMemo(() => mapProgress(p.text, p.notePath), [p.text, p.notePath])
+  /** 这张图上讲过费曼才画小点：第一层每个点的框多留一个小点的宽 */
+  const dotted = Object.values(progress.dots).some((d) => d.state !== 'none')
+  // 正确说法（带框）、空框比普通第二层多左右内边距（mindmap.css .fixn / .mm-blank 同一组数）
+  const fixTexts = useMemo(() => {
+    const s = new Set<string>()
+    eachNode(roots, (n) => n.fix && s.add(n.text))
+    return s
+  }, [roots])
+  const measureMap = useMemo(
+    () => (txt: string, level: Level, maxW: number) => {
+      const extra = level === 'l1' && dotted ? DOT_W : level === 'l2' && txt === blankText ? BLANK_PAD : level === 'l2' && fixTexts.has(txt) ? FIX_PAD : 0
+      if (!extra) return measure(txt, level, maxW)
+      const m = measure(txt, level, maxW - extra)
+      return { ...m, w: m.w + extra }
+    },
+    [dotted, blankText, fixTexts],
+  )
   const layoutFor = (focusOn: MapPath | null) =>
-    layoutMindmap(viewRoots, measure, photo ? (aspect ?? 0.69) : null, folded, { kind, focus: focusOn, skeleton, imgAspect: (src) => aspects[src], rels: relKeys })
-  const natural = useMemo(() => layoutFor(focusPath), [viewRoots, photo, aspect, folded, kind, focusPath, skeleton, aspects, relKeys])
+    layoutMindmap(ghosted.roots, measureMap, photo ? (aspect ?? 0.69) : null, folded, { kind, focus: focusOn, skeleton, imgAspect: (src) => aspects[src], rels: relKeys })
+  const natural = useMemo(() => layoutFor(focusPath), [ghosted, measureMap, photo, aspect, folded, kind, focusPath, skeleton, aspects, relKeys])
 
   // 换布局（含撤回）、进出只看这一枝、加了挪了浮动主题：中心主题在屏幕上不动（缩放不动；designer 复审提的）。
   // 中心要往右下挪的：白板跟着往右下滚；要往左上挪的（滚不到负的）：整张图往右下让出这么多
   const floatSig = useMemo(() => JSON.stringify(roots.map((r, i) => (isFloating(roots, [i]) ? r.at : null))), [roots])
   const sig = `${kind}|${focusKey ?? ''}|${floatSig}`
   const [shift, setShift] = useState({ sig, x: 0, y: 0 })
-  const L = useMemo(() => (shift.sig === sig && (shift.x || shift.y) ? moveLayout(natural, shift.x, shift.y) : natural), [natural, shift, sig])
+  const Lfull = useMemo(() => (shift.sig === sig && (shift.x || shift.y) ? moveLayout(natural, shift.x, shift.y) : natural), [natural, shift, sig])
+  const L = useMemo(() => stripGhosts(Lfull, ghosted.ghosts), [Lfull, ghosted])
+  const ghostBoxes = useMemo(() => Lfull.nodes.filter((n) => ghosted.ghosts.has(n.key)), [Lfull, ghosted])
   const Lref = useRef(L)
   Lref.current = L
   useEffect(() => p.onSize(L.w, L.h), [L.w, L.h])
@@ -341,7 +423,26 @@ export function MindmapLayer(p: MindmapLayerProps) {
     const tm = setTimeout(() => setPill(null), 6000)
     return () => clearTimeout(tm)
   }, [pill, growing])
-  const visible = (key: string) => shown === Infinity || order.indexOf(key) < shown
+  // 「补进导图」放进去的几处：照放的先后一个个长出来（新节点、标红的、空框）
+  const growReq = useMapGrow(p.notePath)
+  const [late, setLate] = useState<{ seq: number; keys: string[]; shown: number } | null>(null)
+  useEffect(() => {
+    if (growReq) setLate({ seq: growReq.seq, keys: growReq.keys, shown: 0 })
+  }, [growReq?.seq])
+  useEffect(() => {
+    if (!late) return
+    // 一处 0.35 秒；全露出来以后再等一下动画放完，回到普通画法
+    const tm = setTimeout(() => setLate((x) => (x && x.seq === late.seq ? (x.shown >= x.keys.length ? null : { ...x, shown: x.shown + 1 }) : x)), late.shown >= late.keys.length ? 500 : 350)
+    return () => clearTimeout(tm)
+  }, [late])
+  /** 还没轮到长出来的（hid）、正在长的（grow）：长出来以前，节点在、但看不见 */
+  const lateState = (key: string): 'hid' | 'grow' | null => {
+    if (!late) return null
+    const i = late.keys.indexOf(key)
+    if (i === -1) return null
+    return i >= late.shown ? 'hid' : 'grow'
+  }
+  const visible = (key: string) => (shown === Infinity || order.indexOf(key) < shown) && lateState(key) !== 'hid'
 
   // ---------- 选中、改 ----------
   const [sel, setSel] = useState<string | null>(null)
@@ -356,6 +457,8 @@ export function MindmapLayer(p: MindmapLayerProps) {
   const [drag, setDrag] = useState<Drag | null>(null)
   const [noteOf, setNoteOf] = useState<{ key: string; focus: boolean } | null>(null)
   const [inline, setInline] = useState<Inline | null>(null)
+  /** 点开了哪个虚线空框在填（空框的 key） */
+  const [blankEdit, setBlankEdit] = useState<string | null>(null)
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   const [exporting, setExporting] = useState<{ fmt?: 'png' | 'svg' | 'pdf' | 'opml' } | null>(null)
   const [dropImg, setDropImg] = useState<string | null>(null)
@@ -376,6 +479,12 @@ export function MindmapLayer(p: MindmapLayerProps) {
   }, [L])
   const multi = msel.length >= 2
   const selected = multi ? msel : sel ? [sel] : []
+  const selKey = selected.join('\n')
+  useEffect(() => p.onSelect?.(selKey ? selKey.split('\n') : []), [selKey])
+  /** 费曼学习盖住的：这几支和下面全部 */
+  const coverKeys = p.cover?.keys ?? []
+  const under = (k: string) => coverKeys.some((c) => k === c || k.startsWith(c + '.'))
+  const hide = (k: string) => !p.cover?.peeking && under(k)
 
   const commit = (next: MapNode[]) => {
     if (p.readOnly) return
@@ -733,6 +842,9 @@ export function MindmapLayer(p: MindmapLayerProps) {
   }
   const inDrag = (key: string) => !!drag?.moved && drag.keys.some((k) => key === k || key.startsWith(k + '.'))
 
+  /** 拖着主题时每一下挪、松手调的是最新画出来的那一版（拖的那一下以后 drag、roots 都会变） */
+  const nodeDrag = useRef({ move: (_e: PointerEvent) => {}, up: (_e: PointerEvent) => {} })
+  nodeDrag.current = { move: (ev) => onNodeMove(ev), up: (ev) => onNodeUp(ev) }
   function onNodeDown(e: React.PointerEvent, key: string) {
     if (e.button !== 0 || editing === key) return
     e.stopPropagation()
@@ -781,8 +893,10 @@ export function MindmapLayer(p: MindmapLayerProps) {
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     const keys = keepMulti ? outermost(msel).filter((k) => !isCenter(k)) : [key]
     setDrag({ key, keys, start: { x: e.clientX, y: e.clientY }, at: { x: e.clientX, y: e.clientY }, moved: false, drop: null })
+    // 松手没送到页面（窗口外松手、失焦）：当没拖过，主题不挪（trackDrag，task-0nz63）。挪、松手照这一刻画出来的那一版算
+    trackDrag<PointerEvent>(e, { move: (ev) => nodeDrag.current.move(ev), end: (how, ev) => (how === 'up' ? nodeDrag.current.up(ev!) : setDrag(null)) })
   }
-  function onNodeMove(e: React.PointerEvent) {
+  function onNodeMove(e: PointerEvent) {
     if (!drag) return
     const at = { x: e.clientX, y: e.clientY }
     const moved = drag.moved || Math.hypot(at.x - drag.start.x, at.y - drag.start.y) >= 5
@@ -795,7 +909,7 @@ export function MindmapLayer(p: MindmapLayerProps) {
     if (drop && 'beside' in drop && isFloating(roots, keyPath(drag.key))) drop = null
     setDrag({ ...drag, at, moved, drop })
   }
-  function onNodeUp(e: React.PointerEvent) {
+  function onNodeUp(e: PointerEvent) {
     if (!drag) return
     setDrag(null)
     dragged.current = drag.moved
@@ -887,18 +1001,19 @@ export function MindmapLayer(p: MindmapLayerProps) {
       if (e.button !== 0 || !blank(e.target as Element)) return
       const start = toPlane(e.clientX, e.clientY)
       let moved = false
+      let last = { x: e.clientX, y: e.clientY }
       const move = (ev: PointerEvent) => {
         const pt = toPlane(ev.clientX, ev.clientY)
         if (!moved && Math.hypot(pt.x - start.x, pt.y - start.y) * live.current.scale < 5) return
         moved = true
+        last = { x: ev.clientX, y: ev.clientY }
         setMarquee({ x0: start.x, y0: start.y, x1: pt.x, y1: pt.y })
       }
-      const up = (ev: PointerEvent) => {
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', up)
+      // 松手没送到页面（窗口外松手、失焦）：照最后按着时的框选上（trackDrag，task-0nz63）
+      const up = () => {
         if (!moved) return
         setMarquee(null)
-        const pt = toPlane(ev.clientX, ev.clientY)
+        const pt = toPlane(last.x, last.y)
         const x1 = Math.min(start.x, pt.x)
         const x2 = Math.max(start.x, pt.x)
         const y1 = Math.min(start.y, pt.y)
@@ -911,8 +1026,13 @@ export function MindmapLayer(p: MindmapLayerProps) {
         } else selectOnly(keys[0] ?? null)
         layer.current?.focus({ preventScroll: true })
       }
-      window.addEventListener('pointermove', move)
-      window.addEventListener('pointerup', up)
+      trackDrag<PointerEvent>(e, {
+        move,
+        end: (_how, ev) => {
+          if (ev && ev.type === 'pointerup') last = { x: ev.clientX, y: ev.clientY }
+          up()
+        },
+      })
     }
     const dbl = (e: MouseEvent) => {
       if (!blank(e.target as Element)) return
@@ -951,18 +1071,17 @@ export function MindmapLayer(p: MindmapLayerProps) {
     const el = e.currentTarget as HTMLElement
     el.setPointerCapture(e.pointerId)
     let w = w0
-    const move = (ev: PointerEvent) => {
-      w = Math.round(Math.max(40, Math.min(NODE_MAX_W - 16, w0 + (ev.clientX - x0) / p.scale)))
-      setImgDrag({ key, w })
-    }
-    const up = () => {
-      el.removeEventListener('pointermove', move)
-      el.removeEventListener('pointerup', up)
-      setImgDrag(null)
-      if (w !== w0) commit(setAttrs(roots, keyPath(key), { imgW: w }))
-    }
-    el.addEventListener('pointermove', move)
-    el.addEventListener('pointerup', up)
+    // 松手没送到页面（窗口外松手、失焦）：宽度回原样、不写文件（trackDrag，task-0nz63）
+    trackDrag<PointerEvent>(e, {
+      move: (ev) => {
+        w = Math.round(Math.max(40, Math.min(NODE_MAX_W - 16, w0 + (ev.clientX - x0) / p.scale)))
+        setImgDrag({ key, w })
+      },
+      end: (how) => {
+        setImgDrag(null)
+        if (how === 'up' && w !== w0) commit(setAttrs(roots, keyPath(key), { imgW: w }))
+      },
+    })
   }
   function startBend(e: React.PointerEvent, i: number) {
     e.stopPropagation()
@@ -974,19 +1093,18 @@ export function MindmapLayer(p: MindmapLayerProps) {
     const el = e.currentTarget as HTMLElement
     el.setPointerCapture(e.pointerId)
     let bend = b0
-    const move = (ev: PointerEvent) => {
-      // 小圆点在线上 0.28 处：弯度变 1，它往外挪 3 × 0.28 × 0.72 ≈ 0.6
-      bend = Math.round(b0 + (((ev.clientX - s.x) * g.px + (ev.clientY - s.y) * g.py) / p.scale) / 0.6048)
-      setBendDrag({ i, bend })
-    }
-    const up = () => {
-      el.removeEventListener('pointermove', move)
-      el.removeEventListener('pointerup', up)
-      setBendDrag(null)
-      if (bend !== b0) commitText(withMapRels(p.text, rels.map((r, j) => (j === i ? { ...r, bend } : r))))
-    }
-    el.addEventListener('pointermove', move)
-    el.addEventListener('pointerup', up)
+    // 松手没送到页面（窗口外松手、失焦）：弯度回原样、不写文件（trackDrag，task-0nz63）
+    trackDrag<PointerEvent>(e, {
+      move: (ev) => {
+        // 小圆点在线上 0.28 处：弯度变 1，它往外挪 3 × 0.28 × 0.72 ≈ 0.6
+        bend = Math.round(b0 + (((ev.clientX - s.x) * g.px + (ev.clientY - s.y) * g.py) / p.scale) / 0.6048)
+        setBendDrag({ i, bend })
+      },
+      end: (how) => {
+        setBendDrag(null)
+        if (how === 'up' && bend !== b0) commitText(withMapRels(p.text, rels.map((r, j) => (j === i ? { ...r, bend } : r))))
+      },
+    })
   }
 
   // ---------- 右键：主题能做的都写出来，键照命令表 ----------
@@ -1192,7 +1310,7 @@ export function MindmapLayer(p: MindmapLayerProps) {
             <path
               key={w.to}
               pathLength={1}
-              className={(visible(w.to) ? (shown === Infinity ? '' : 'grow') : 'hid') + (b.branch !== undefined ? ' br' : '')}
+              className={(visible(w.to) ? (shown === Infinity && lateState(w.to) !== 'grow' ? '' : 'grow') : 'hid') + (b.branch !== undefined ? ' br' : '') + (hide(w.to) ? ' fy-covered' : '')}
               style={b.branch !== undefined ? ({ '--bc': `var(--mm-b${b.branch})` } as React.CSSProperties) : undefined}
               d={d}
             />
@@ -1201,6 +1319,12 @@ export function MindmapLayer(p: MindmapLayerProps) {
         {L.sums.map((s) => (
           <path key={'s' + s.key} className="sumb" d={s.bracket} />
         ))}
+        {ghostBoxes.map((g) => {
+          const parent = ghosted.ghosts.get(g.key)!
+          const a = Lfull.byKey[parent]
+          const d = a && wireOf(kind, a, g)
+          return d ? <path key={'gw' + g.key} pathLength={1} className={'ghost' + (visible(parent + '#blank') ? (lateState(parent + '#blank') === 'grow' ? ' grow' : '') : ' hid')} d={d} /> : null
+        })}
       </svg>
       {L.frames.map((f) =>
         f.title ? (
@@ -1252,6 +1376,7 @@ export function MindmapLayer(p: MindmapLayerProps) {
           </figcaption>
         </figure>
       )}
+      {coverKeys.length > 0 && <MapCover boxes={L.nodes.filter((b) => under(b.key))} peeking={!!p.cover?.peeking} chip={p.cover?.chip} />}
       {L.nodes.map((b) => {
         const n = nodeAt(viewRoots, keyPath(b.key))!
         const isFolded = folded.has(b.key)
@@ -1267,8 +1392,11 @@ export function MindmapLayer(p: MindmapLayerProps) {
           b.ul ? 'ul' : '',
           b.floatRoot ? 'flt' : '',
           n.img && b.img ? 'hasimg' : '',
-          visible(b.key) ? (shown === Infinity ? '' : 'grow') : 'hid',
+          visible(b.key) ? (shown === Infinity && lateState(b.key) !== 'grow' ? '' : 'grow') : 'hid',
           isSel && !inDrag(b.key) ? 'sel' : '',
+          n.wrong ? 'wrong' : '',
+          n.fix ? 'fixn' : '',
+          dotted && b.depth === 1 && progress.dots[b.key] ? 'dotted' : '',
           cur?.key === b.key ? 'hitcur' : '',
           n.unsure ? 'unsure' : '',
           flash === b.key ? 'flash' : '',
@@ -1276,6 +1404,7 @@ export function MindmapLayer(p: MindmapLayerProps) {
           dropImg === b.key ? 'drop' : '',
           inDrag(b.key) ? 'dim' : '',
           relFrom && relFrom !== b.key ? 'relto' : '',
+          hide(b.key) ? 'fy-covered' : '',
         ]
         return (
           <div
@@ -1284,9 +1413,6 @@ export function MindmapLayer(p: MindmapLayerProps) {
             style={{ left: b.x, top: b.y, width: b.w, height: b.h, ...(b.branch !== undefined ? ({ '--bc': `var(--mm-b${b.branch})` } as React.CSSProperties) : {}) }}
             data-key={b.key}
             onPointerDown={(e) => onNodeDown(e, b.key)}
-            onPointerMove={onNodeMove}
-            onPointerUp={onNodeUp}
-            onPointerCancel={() => setDrag(null)}
             onDoubleClick={(e) => {
               e.stopPropagation()
               if (!p.readOnly) setEditing(b.key)
@@ -1362,6 +1488,7 @@ export function MindmapLayer(p: MindmapLayerProps) {
                 }}
               />
             )}
+            {dotted && b.depth === 1 && progress.dots[b.key] && <ProgressDot dot={progress.dots[b.key]!} />}
             {n.unsure && editing !== b.key && (
               <button
                 className="q"
@@ -1403,6 +1530,54 @@ export function MindmapLayer(p: MindmapLayerProps) {
           </div>
         )
       })}
+      {ghostBoxes.map((g) => {
+        const parent = ghosted.ghosts.get(g.key)!
+        const st = lateState(parent + '#blank')
+        return (
+          <button
+            key={'g' + g.key}
+            type="button"
+            className={'mm-blank' + (st === 'hid' ? ' hid' : st === 'grow' ? ' grow' : '')}
+            style={{ left: g.x, top: g.y, width: g.w, height: g.h }}
+            data-testid="map-blank"
+            data-key={parent}
+            disabled={p.readOnly}
+            data-tip={t('含糊、没讲到：点开自己补一句，就是一次回忆')}
+            data-side="below"
+            onPointerDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!p.readOnly) setBlankEdit(g.key)
+            }}
+          >
+            {blankText}
+          </button>
+        )
+      })}
+      {dotted &&
+        L.nodes
+          .filter((b) => b.depth === 0 && !b.float && b.key === '0')
+          .map((c) => (
+            <div key="fprog" className="mm-fprog num" data-testid="map-feynman-progress" style={{ left: c.x + 4, top: c.y + c.h + 8 }}>
+              {t('费曼 讲过{done}/{total}', { done: progress.done, total: progress.total })}
+            </div>
+          ))}
+      {blankEdit && Lfull.byKey[blankEdit] && (
+        <InlineEdit
+          key={'be' + blankEdit}
+          x={Lfull.byKey[blankEdit]!.x}
+          y={Lfull.byKey[blankEdit]!.y}
+          value=""
+          placeholder={blankText}
+          onDone={(v) => {
+            const parent = ghosted.ghosts.get(blankEdit)
+            setBlankEdit(null)
+            focusLayer()
+            if (parent && v && v.trim()) commit(fillBlank(roots, parent, v))
+          }}
+        />
+      )}
       {L.rels.some(Boolean) && (
         <svg className="mm-rels" width={L.w} height={L.h} data-testid="map-rels">
           {L.rels.map((g, i) =>
@@ -1818,6 +1993,25 @@ function FixPop(props: { overlay: HTMLElement; anchor: HTMLElement | null; node:
 }
 
 /** 给标签条「布局 ▾」、⌘K 用：收起到第一层、全部展开（焦点不在导图上、文档看法里也能改文件；按 ⇧⌘/ 才是来回切） */
+/** 第一层一个点后面的小点：没讲过空心灰圈、正在讲蓝、过绿、差一点黄、没过红；悬停写哪天讲的 */
+function ProgressDot({ dot }: { dot: MapDot }) {
+  const t = useT()
+  const day = dot.day ? dayLabel(dot.day) : ''
+  const tip =
+    dot.state === 'none'
+      ? t('还没讲过')
+      : dot.state === 'talking'
+        ? t('正在讲 · {day}开讲', { day })
+        : t('{verdict} · {day}讲的 · 讲过{n}次', { verdict: t(dot.state === 'pass' ? '过' : dot.state === 'almost' ? '差一点' : '没过'), day, n: Math.max(1, dot.times) })
+  return <i className={'fdot fs-' + dot.state} data-testid="map-feynman-dot" data-state={dot.state} data-tip={tip} aria-label={tip} />
+}
+
+/** 「11月23日」「Nov 23」（跟界面语言） */
+function dayLabel(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return y && m && d ? new Date(y, m - 1, d).toLocaleDateString(document.documentElement.lang || undefined, { month: 'short', day: 'numeric' }) : iso
+}
+
 export function foldAllText(text: string, all: boolean): string {
   const roots = parseMindmap(text).roots
   return withMindmap(text, all ? foldAll(roots) : unfoldAll(roots))

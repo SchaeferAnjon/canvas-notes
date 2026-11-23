@@ -7,6 +7,7 @@
  * dream：梦游分支上还没收下的那份（报告里「预览可视化」），只看不问。
  */
 import { Codicon } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { isKey, useKeys } from '../keys'
 import { AiIcon } from '../engine-logo'
 import { ActBtn, PageNote, TabActs } from '../shell/TabActs'
@@ -145,17 +146,20 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
     setBoxed(null)
     const x = e.clientX - b.left
     const y = e.clientY - b.top
-    setDrag({ x0: x, y0: y, x1: x, y1: y })
+    let d = { x0: x, y0: y, x1: x, y1: y }
+    setDrag(d)
+    // 松手没送到页面（窗口外松手、失焦）：当没框，不截图、不问 AI（trackDrag，task-0nz63）
+    trackDrag<PointerEvent>(e, {
+      move: (ev) => {
+        const r = frameRect()!
+        d = { ...d, x1: Math.min(Math.max(0, ev.clientX - r.left), r.width), y1: Math.min(Math.max(0, ev.clientY - r.top), r.height) }
+        setDrag(d)
+      },
+      end: (how) => (how === 'up' ? void onUp(d) : setDrag(null)),
+    })
   }
-  function onMove(e: React.PointerEvent) {
-    if (!drag) return
-    const b = frameRect()!
-    setDrag({ ...drag, x1: Math.min(Math.max(0, e.clientX - b.left), b.width), y1: Math.min(Math.max(0, e.clientY - b.top), b.height) })
-  }
-  async function onUp() {
-    const d = drag
+  async function onUp(d: { x0: number; y0: number; x1: number; y1: number }) {
     setDrag(null)
-    if (!d) return
     const b = frameRect()!
     const w = Math.abs(d.x1 - d.x0)
     const h = Math.abs(d.y1 - d.y0)
@@ -270,7 +274,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
       </TabActs>
       <div className="htmlbody" ref={body}>
         {props.active && <iframe key={seq} title={meta.title ?? stem(path)} src={src(path, props.dream ? 'dream' : 'vault')} sandbox="allow-scripts" data-testid="html-frame" />}
-        <div className={'htmlframe' + (layer ? ' on' : '')} data-testid="html-frame-layer" onPointerDown={layer ? onDown : undefined} onPointerMove={onMove} onPointerUp={() => void onUp()}>
+        <div className={'htmlframe' + (layer ? ' on' : '')} data-testid="html-frame-layer" onPointerDown={layer ? onDown : undefined}>
           {framing && !drag && <span className="hint">拖一个框问AI · esc 取消</span>}
           {box && (
             <div

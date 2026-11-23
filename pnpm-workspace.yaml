@@ -7,5 +7,7 @@ allowBuilds:
   electron-winstaller: false
   # 本机语义搜索的模型推理：Mac 的二进制包里自带，安装脚本只在 Linux 上下 CUDA，用不着
   onnxruntime-node: false
+  # 本地模型（梦游的判断）：Mac arm64 的 Metal 预编译包 @node-llama-cpp/mac-arm64-metal 自带，安装脚本只在没有预编译的平台上本机编译，用不着
+  node-llama-cpp: false
 minimumReleaseAgeExclude:
   - lucide-react@1.73.0

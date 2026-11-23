@@ -180,6 +180,11 @@ export class Vault {
     return this.index
   }
 
+  /** 上次 list() 读到的修改时间（右栏「相关」排先后用，不另去读盘）；没读过是 0 */
+  mtimeOf(rel: string): number {
+    return this.described.get(rel)?.mtimeMs ?? 0
+  }
+
   /** 库里所有数据库（```base）的数据源文件夹，不管主笔记放在哪个文件夹 */
   async tableFolders(): Promise<Set<string>> {
     if (!this.indexed) await this.list()

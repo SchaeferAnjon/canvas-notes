@@ -46,7 +46,7 @@ test('数据库照 Notion：表头「+」加列选类型、列头菜单改名 / 
     await expect(db.locator('thead th.col')).toHaveText(['名字', '价格', '评分', '标签'])
 
     // 多选格子：建两个值，写回 frontmatter 一行 [a, b]
-    await db.locator('tbody tr', { hasText: '霍芬' }).locator('td').nth(3).click()
+    await db.locator('tbody tr', { hasText: '霍芬' }).locator('td').nth(3).dblclick()
     const opts = page.getByRole('dialog', { name: '霍芬 · 港口客栈 · 标签' })
     const q = opts.getByRole('textbox', { name: '找一个，或者打一个新的' })
     await q.fill('海边')
@@ -81,8 +81,9 @@ test('数据库照 Notion：表头「+」加列选类型、列头菜单改名 / 
     await ins.getByRole('textbox', { name: '新的一列叫什么' }).fill('入住')
     await ins.getByRole('menuitem', { name: '日期' }).click()
     await expect(db.locator('thead th.col')).toHaveText(['名字', '一晚多少钱', '评分', '入住', '标签'])
-    await db.locator('tbody tr', { hasText: '维克' }).locator('td').nth(3).click()
-    const date = db.getByRole('textbox', { name: '维克 · 黑沙滩旅馆 · 入住' })
+    await db.locator('tbody tr', { hasText: '维克' }).locator('td').nth(3).dblclick()
+    // 日期格是能打字的浮层（task-cle3x），挂在最外层，不在块里
+    const date = page.getByRole('textbox', { name: '维克 · 黑沙滩旅馆 · 入住' })
     await date.fill('2026-11-20')
     await date.press('Enter')
     await expect.poll(() => room('维克 · 黑沙滩旅馆')).toContain('入住: 2026-11-20')

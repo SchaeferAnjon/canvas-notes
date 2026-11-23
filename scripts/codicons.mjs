@@ -9,7 +9,7 @@ const pkg = join(root, 'packages/design/node_modules/@vscode/codicons')
 const version = JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version
 
 const USED = `
-account add archive type-hierarchy-sub pass-filled arrow-both eye-closed arrow-circle-up arrow-down arrow-left arrow-right arrow-swap arrow-up beaker bell
+account add archive debug-pause type-hierarchy-sub pass-filled arrow-both eye-closed arrow-circle-up arrow-down arrow-left arrow-right arrow-swap arrow-up beaker bell
 blank book bookmark briefcase calendar check checklist chevron-down chevron-left chevron-right chevron-up circle-filled
 circle-slash circuit-board claude clockface close cloud-download code coffee collapse-all comment
 comment-discussion-sparkle copy cursor desktop-download device-camera device-camera-video device-mobile
@@ -36,6 +36,7 @@ tasklist play-circle run-all
 replace surround-with symbol-namespace export
 milestone merge circle-large case-sensitive
 combine screen-cut indent
+mic-filled
 `.split(/\s+/).filter(Boolean)
 
 const body = USED.map((n) => {

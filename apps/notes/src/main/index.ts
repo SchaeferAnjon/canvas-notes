@@ -21,6 +21,9 @@ import { registerSlides } from './slides'
 import { importCookies, listProfiles } from './chrome-import'
 import { setupDream } from './dream-main'
 import { setupMindmap } from './mindmap'
+import { setupVoice } from './voice'
+import { setupFeynman } from './feynman'
+import { setupFeynmanAfter } from './feynman-after'
 import { setupMapExport } from './mindmap/export'
 import { readAll } from './duplicates'
 import { duplicatesWithProgress, stopSimilar } from './similar'
@@ -33,6 +36,7 @@ import { accelOf } from '../shared/cmd-keys'
 import { registerRestore } from './restore'
 import { registerTrash } from './trash-recent'
 import { registerBoard } from './board'
+import { registerRelated } from './related-main'
 import { registerBaseWrite } from './base-write'
 import { registerAiColumn } from './ai-column'
 import { setupAutomation } from './automation'
@@ -51,7 +55,8 @@ import { Vault } from './vault'
 import { macIdentity } from './git-identity'
 import { setupPlugins } from './plugins'
 import { moveReadingState, setupReading } from './reading'
-import { reopenSearch, searchVault, setupSearch } from './search'
+import { reopenSearch, searchRelated, searchVault, setupSearch } from './search'
+import { setupLocalLlm } from './local-llm'
 import { registerFiles } from './files'
 import { registerTodo } from './todo'
 import { registerWhen } from './when-ai'
@@ -80,6 +85,11 @@ startLang()
 if (E2E) {
   app.commandLine.appendSwitch('use-fake-device-for-media-stream')
   app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+  // 语音输入的测试：假麦克风循环放这段 wav，不用 Chromium 自带的嘀嘀声
+  if (process.env.CN_FAKE_AUDIO) {
+    app.commandLine.appendSwitch('use-file-for-fake-audio-capture', process.env.CN_FAKE_AUDIO)
+    app.commandLine.appendSwitch('disable-features', 'AudioServiceOutOfProcess')
+  }
 }
 
 let win: BrowserWindow | null = null
@@ -741,6 +751,12 @@ function registerIpc() {
   registerRestore(needVault, () => win?.webContents.send('files:changed'))
   registerTrash(needVault, () => win?.webContents.send('files:changed'))
   registerBoard(needVault, () => win?.webContents.send('files:changed'))
+  registerRelated({
+    vault: needVault,
+    settings: () => settings.app().dream,
+    noteChanged: (path, text) => win?.webContents.send('note:changed', path, text),
+    filesChanged: () => win?.webContents.send('files:changed'),
+  })
   registerBaseWrite(needVault, (path, text) => win?.webContents.send('note:changed', path, text), () => win?.webContents.send('files:changed'))
   registerAiColumn(needVault, app.getPath('userData'), (path, text) => win?.webContents.send('note:changed', path, text), () => win?.webContents.send('files:changed'))
   registerReadAlong(needVault)
@@ -756,6 +772,16 @@ function registerIpc() {
         ;(f as { exists?: boolean }).exists = here.get(f.path)
       }
     return commits
+  })
+  // AI 回答里的「canvas-notes://commit/<号>」预览卡（task-3e53q）：那一次提交的说明、时间、改了哪几篇；号不对、库里没有是 null
+  ipcMain.handle('git:commit-info', async (_e, hash: unknown) => {
+    if (typeof hash !== 'string' || !/^[0-9a-f]{7,40}$/i.test(hash)) return null
+    try {
+      return (await git.log(needVault().root, 1, hash.toLowerCase()))[0] ?? null
+    } catch (e) {
+      if (e instanceof git.GitError && /unknown revision|bad revision|ambiguous argument/i.test(e.stderr)) return null
+      throw e
+    }
   })
 }
 
@@ -842,9 +868,17 @@ app.whenReady().then(async () => {
   setupCrashLog(crashLog, () => win)
   registerAgent({ win: () => win, vault: () => vault, moved: (root, from, to) => moveReadingState(root, from, to) })
   setupMindmap({ win: () => win, vault: () => vault })
+  setupVoice({ win: () => win })
+  setupFeynman({ win: () => win, vault: () => vault })
+  setupFeynmanAfter()
   setupMapExport(() => win, () => vault)
   const dreams = setupDream({
     root: () => vault?.root ?? null,
+    // 补双链找候选的向量那一路：搜索索引里每篇切段的向量（意思索引没开、没建好时没有这一路）
+    related: async (paths, k) => {
+      const r = await searchRelated(paths, k)
+      return r ? { model: r.model, map: r } : null
+    },
     // 周记那条自动化开着：梦游的「写本周小结」并进周记，不另写（用户定的 ⑥，task-i921u）
     settings: () => {
       const s = settings.app().dream
@@ -896,6 +930,7 @@ app.whenReady().then(async () => {
   setupPlugins({ window: () => win, vault: () => vault })
   setupReading({ win: () => win, vault: () => vault, recap: () => settings.app().pdf.recap })
   setupSearch({ win: () => win, vault: () => vault, semantic: () => settings.app().editor.semantic })
+  setupLocalLlm({ win: () => win })
   registerFiles(() => vault)
   family = registerFamily({
     vault: () => vault,
@@ -1092,6 +1127,7 @@ function buildMenu() {
           cmd('left-trash', '左栏：最近删掉的'),
           cmd('dream-report', '梦游报告'),
           cmd('outline', '大纲'),
+          cmd('related', '相关'),
           cmd('open-web', '网页'),
           cmd('history', '历史'),
           cmd('ask-ai', 'AI'),

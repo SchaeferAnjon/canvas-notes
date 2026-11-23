@@ -1,6 +1,6 @@
 /**
  * 文档里的 AI 块（`> [!ai]`，task-dtc34）用户这边能做的：
- * - 在 AI 块里改了字：还是 AI 块，头上小字多一个「改过」（和这一下打字同一步，⌘Z 一起撤掉）；
+ * - 在 AI 块里改了字：还是 AI 块，头上小字多一个「改过」（和这一下打字同一步，⌘Z 一起撤掉）；块里的字没变（回车续一行空的再出块）不标；
  * - 「变成我的字」（右键、块菜单）：去掉框，正文变回普通的字；
  * - 「标成 AI 写的」（右键、块菜单）：选中碰到的几段（没选就是光标那一段）包成「AI 写的 · 补标」块，不编是哪家哪个模型。
  * 后两样都是一步撤销。算新文字的是 @cn/format 的纯函数（ai-block.ts）。
@@ -20,6 +20,22 @@ function aiHeadAbove(doc: Text, pos: number): { from: number; to: number; text: 
     line = up
   }
   return isAiHead(line.text) ? { from: line.from, to: line.to, text: line.text } : null
+}
+
+/**
+ * 从头一行起这一块 [!ai] 的正文：每行去掉一层「> 」，空着的行不算。
+ * 块末尾回车（块里续一行空的「> 」）、再回车出块，字没变，不算改过（task-axoxy 第 21 条）
+ */
+function aiBody(doc: Text, headFrom: number): string {
+  const head = doc.lineAt(headFrom)
+  const out: string[] = []
+  for (let n = head.number + 1; n <= doc.lines; n++) {
+    const t = doc.line(n).text
+    if (!/^ {0,3}>/.test(t)) break
+    const b = t.replace(/^ {0,3}> ?/, '')
+    if (b.trim()) out.push(b)
+  }
+  return out.join('\n')
 }
 
 /** 软件写进来的：AI 边写边长、标成 AI 写的 / 变成我的字、插进一块（剪藏、AI 回答、视频问答块和它下面的空段落、接着问，note-doc insertAtCursor 等用 input.clip）、读书同步、旁支写回 */
@@ -53,6 +69,8 @@ export const markEditedOnType = Prec.lowest(
         })
         if (!nl) return
       }
+      // 块里的字没变（只多了、少了空着的「> 」行）：不标
+      if (aiBody(doc, head.from) === aiBody(tr.newDoc, tr.changes.mapPos(head.from, 1))) return
       heads.set(head.from, head)
     })
     if (!heads.size) return tr

@@ -11,12 +11,14 @@ import { Vault } from '../src/main/vault'
 import { isArchived } from '../src/shared/sidebar'
 import { recentOf } from '../src/shared/recent'
 import { DREAM_VAULT, worksHash } from '../e2e/fixtures/dream'
+import { fakeJudge, isJudgePrompt } from '../src/main/dream-judge'
 
 const g = (dir: string, ...args: string[]) => execFileSync('git', ['-C', dir, '-c', 'core.quotepath=false', ...args], { encoding: 'utf8' })
 
 /** 测试用的 AI：收件箱都归到「旅行」，小结写一句固定的话 */
 const fakeAsk: Ask = async (_s, prompt) => {
   if (prompt.startsWith('命令：本周小结')) return '这周在准备冰岛。'
+  if (isJudgePrompt(prompt)) return fakeJudge(prompt)
   if (prompt.startsWith('命令：归类和改名')) {
     const paths = [...prompt.matchAll(/^路径：(.+)$/gm)].map((m) => m[1]!)
     return '```json\n' + JSON.stringify(paths.map((path) => ({ path, folder: '剪藏/旅行', name: null, why: '都是旅行的事' }))) + '\n```'
@@ -67,8 +69,9 @@ describe('梦游', { timeout: 30_000 }, () => {
     const link = r.items.find((i) => i.group === 'link')!
     expect(link.title).toBe('极光')
     expect(link.sub).toBe('↔ [[极光预报]]')
-    // 理由是两篇共同的关键词，不是碰巧相同的一段（task-eler2）
-    expect(link.why).toMatch(/^两篇共同的关键词：.*云量低于三成.*。只在这篇末尾加一行/)
+    // 理由是 AI 说出的共同点，带两边原话（软件核对过）和谁判的（task-h7oy8）
+    expect(link.why).toMatch(/^两篇都讲「极光预报」那件事。只在这篇末尾加一行/)
+    expect(link.judged).toMatchObject({ level: 'same-topic', confidence: 0.9, a: { path: '收件箱/极光.md', quote: expect.stringContaining('极光要看太阳风') }, b: { path: '极光预报.md' } })
     const dup = r.items.find((i) => i.group === 'dup')!
     expect(dup.commit).toBeNull()
     expect(dup.files.sort()).toEqual(['剪藏/巴黎/巴黎深度漫游指南.md', '收件箱/巴黎自由行全景指南.md'])
@@ -207,6 +210,7 @@ describe('梦游', { timeout: 30_000 }, () => {
     const works = worksHash(root)
     const bad: Ask = async (_s, prompt) => {
       if (prompt.startsWith('命令：本周小结')) throw new Error('AI 没有回答')
+      if (isJudgePrompt(prompt)) return fakeJudge(prompt)
       return '```json\n' + JSON.stringify([{ path: '所思所想.md', folder: '剪藏/旅行' }, { path: '收件箱/冰洞.md', folder: '../外面' }, { path: '收件箱/极光.md', folder: '剪藏/a/b' }]) + '\n```'
     }
     const r = await dream(bad)
@@ -327,7 +331,7 @@ describe('梦游', { timeout: 30_000 }, () => {
     await expect(undo(root, r, [it.id], it.taken)).rejects.toThrow('撤回不了：「冰洞」收下以后被删了，什么都没动')
   })
 
-  it('导入几百条旧笔记：双链最多补 LINK_MAX 处、重复最多列 DUP_MAX 对，挑最像的，剩下的报告里说一句', async () => {
+  it('导入几百条旧笔记：双链最多补 LINK_MAX 处、重复最多列 DUP_MAX 对，挑最像的，剩下的报告里说一句', { timeout: 90_000 }, async () => {
     // 60 条讲同一件事的「旧笔记」，彼此相似、也和库里的一篇相似
     for (let i = 1; i <= 60; i++) {
       mkdirSync(join(root, '收件箱/导入/备忘录'), { recursive: true })

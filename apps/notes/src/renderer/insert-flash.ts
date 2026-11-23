@@ -110,7 +110,8 @@ export function insertBlockAt(doc: string, pos: number, text: string, para = tru
   let end = at
   while (doc[end] === '\n') end++
   const rest = end < doc.length
-  const insert = para ? before + text + '\n\n' + (rest ? '\n\n' : '') : before + text + (rest ? '\n\n' : '\n')
+  // 下面的空段落是一个空块（gap-lines.ts 的数法：一串空行第一行是缝、后面每一行一个空块，task-axoxy）
+  const insert = para ? before + text + '\n\n' + (rest ? '\n' : '') : before + text + (rest ? '\n\n' : '\n')
   const from = at + before.length
   return { from: at, to: end, insert, range: { from, to: from + text.length }, cursor: from + text.length + (para ? 2 : 0) }
 }

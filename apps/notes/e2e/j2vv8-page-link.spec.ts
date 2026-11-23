@@ -76,7 +76,7 @@ test('链接卡「打开」、右键「打开」：同样打开 PDF 翻到那页
   }
 })
 
-test('白板看法：卡里的「第 3 页」点了打开 PDF 翻到那页；问答卡里回答的「第 5 页」是链接（不露 md 写法），点了翻到第 5 页', async () => {
+test('白板看法：卡里的「第 3 页」点一下出预览卡（task-3e53q 已定 1），⌘点打开 PDF 翻到那页；问答卡里回答的「第 5 页」是链接（不露 md 写法），⌘点翻到第 5 页', async () => {
   const run = await launch({ [PDF]: LECTURE, [NOTE]: MD })
   const { page } = run
   try {
@@ -84,7 +84,12 @@ test('白板看法：卡里的「第 3 页」点了打开 PDF 翻到那页；问
     await acts(page).getByRole('tab', { name: '白板' }).click()
     const board = pane(page).getByTestId('doc-board')
     await expect(board).toBeVisible()
+    // 点一下：预览卡（哪份 PDF 第几页），不翻
     await board.locator('a.pg', { hasText: '第 3 页' }).click()
+    await expect(page.getByRole('dialog', { name: '引用' }).locator('.u')).toContainText('第3页')
+    await expect(tabs(page).filter({ hasText: '第3讲.pdf' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await board.locator('a.pg', { hasText: '第 3 页' }).click({ modifiers: ['Meta'] })
     await pdfAt(page, 3)
 
     await tabs(page).filter({ hasText: '第3讲 笔记' }).click()
@@ -95,14 +100,14 @@ test('白板看法：卡里的「第 3 页」点了打开 PDF 翻到那页；问
     const inAsk = await style(ask.locator('a.pg', { hasText: '第 5 页' }))
     expect(inAsk).toEqual(await style(board.locator('a.pg', { hasText: '第 3 页' })))
     expect(inAsk).toMatchObject({ w: 'nowrap', cur: 'pointer' })
-    await ask.locator('a.pg', { hasText: '第 5 页' }).click()
+    await ask.locator('a.pg', { hasText: '第 5 页' }).click({ modifiers: ['Meta'] })
     await pdfAt(page, 5)
 
     // 带文件、带 rect 的「第 4 页」：也是能点的页码（以前是一段下划线字，点不动），翻到第 4 页、那块闪一下；页码整颗不折行
     await tabs(page).filter({ hasText: '第3讲 笔记' }).click()
     const p4 = board.locator('a.pg', { hasText: '第 4 页' })
     expect(await p4.evaluate((e) => getComputedStyle(e).whiteSpace)).toBe('nowrap')
-    await p4.click()
+    await p4.click({ modifiers: ['Meta'] })
     await pdfAt(page, 4)
     await expect(pdfPane(page).getByTestId('pdf-flash')).toBeVisible()
     await expect(tabs(page).filter({ hasText: '#page=' })).toHaveCount(0)

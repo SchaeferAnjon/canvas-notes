@@ -480,7 +480,9 @@ test('字幕全文那一篇：章节默认收起（「▸ 展开 · N 行」）�
     await expect(folds.nth(0)).toHaveText('▸ 展开 · 30行')
     await expect(pane(page).getByText('Line 25.')).toHaveCount(0)
     await folds.nth(1).click()
-    await expect(pane(page).getByText('Line 300.')).toBeVisible()
+    // 展开以后视口停在按钮那儿（这一章的末尾，task-axoxy 起文末多画一个空块），露出来的是这一章后半；编辑器只画看得见的，开头那几行不在 DOM 里
+    await expect(pane(page).getByText('Line 495.')).toBeVisible()
+    await expect(pane(page).getByText('第 495 秒的译文。')).toBeVisible()
     await shot(run, 'video-material')
     await page.waitForTimeout(1000)
     expect(read(vault, '剪藏/视频/一集很长的课.md')).toBe(doc)

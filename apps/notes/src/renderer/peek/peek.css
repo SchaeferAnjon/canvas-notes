@@ -1,0 +1,258 @@
+/*
+ * 按住 ⌘ 悬停弹出那一篇（task-hqula，peek.tsx）：链接卡的底和投影（--pop、圆角 12、--shadow-up），520 宽、最高 460，
+ * 头上一行 36 高（图标 14 · 标题 13/500 · 文件夹和哪几行 12 --t2 · 右端「打开 ⌘点」），下面一道 1px --line，正文能滚。
+ * 正文用文档同一套样子（.doc），版心不限宽、四周留 14/22；引到的那几行左边 2px --acc 竖线 + --acc-soft 淡底（同 ⌘点打开时闪的那道）。
+ */
+.pk {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  overflow: hidden;
+  font: 13px/1.5 var(--sans);
+  color: var(--t1);
+}
+.pk-in {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+.pk-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.pk-head > svg,
+.pk-head > .fav,
+.pk-head > .fav-back {
+  flex: none;
+  color: var(--t2);
+}
+.pk-t {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.pk-sub {
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 为什么滚到这里（哪几行、哪一段）比文件夹要紧：深一档 */
+.pk-sub .at {
+  color: var(--t2);
+}
+.pk-open {
+  flex: none;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+}
+.pk-open:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.pk-open .k {
+  color: var(--t3);
+}
+.pk-body {
+  flex: 0 1 auto;
+  min-height: 72px;
+  overflow: auto;
+  /* 滚动条不占宽（左右留白一样）；下面还有时下沿 32 渐隐（同文档里表格、公式的渐隐），滚到底去掉 */
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+.pk-body::-webkit-scrollbar {
+  display: none;
+}
+.pk-body.more {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
+}
+.pk-msg {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* ---------- 整篇 ---------- */
+.pk .doc.pk-doc {
+  max-width: none;
+  margin: 0;
+  padding: 14px 30px 18px 30px;
+}
+/* 引到的那几行：一块淡底从浮窗左边 14 铺到右边 14，左边那 2px 就是强调色竖线（和头部图标左边对齐），字不动；垫在字下面 */
+.pk .pk-hitbar {
+  position: absolute;
+  left: -16px;
+  right: -16px;
+  border-left: 2px solid var(--acc);
+  border-radius: 0 4px 4px 0;
+  background: var(--acc-soft);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ---------- 白板：一列一列，那张卡外圈亮着 ---------- */
+.pk-board {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 14px;
+  background: var(--board);
+}
+.pk-col {
+  flex: none;
+  box-sizing: border-box;
+  width: 220px;
+  padding: 10px 10px 2px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+.pk-col.bare {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.pk-col h4 {
+  margin: 0 2px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 600 13px/1.35 var(--sans);
+}
+.pk-card {
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-card, 8px);
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+  max-height: 9.6em;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.pk-card > :first-child {
+  margin-top: 0;
+}
+.pk-card > :last-child {
+  margin-bottom: 0;
+}
+.pk-card p {
+  margin: 0 0 4px;
+}
+.pk-card.hit {
+  box-shadow:
+    0 0 0 2px var(--acc),
+    0 0 0 5px var(--acc-soft);
+}
+
+/* ---------- PDF 那一页：纸本身的颜色，框是强调色描边 + 淡底 ---------- */
+.pk-pdf {
+  padding: 12px;
+  background: var(--board);
+}
+.pk-page {
+  position: relative;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line);
+}
+[data-tone='dark'] .pk-page {
+  filter: brightness(0.92);
+}
+.pk-page img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.pk-page .box {
+  position: absolute;
+  border: 1.5px solid var(--acc);
+  border-radius: 2px;
+  background: var(--acc-soft);
+}
+
+/* ---------- 网页、图片、一次提交 ---------- */
+.pk-web {
+  padding: 10px 14px 12px;
+}
+.pk-web .q {
+  margin: 0 0 8px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--acc);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.pk-web .url {
+  margin: 0;
+  font-size: 12px;
+  color: var(--t3);
+  word-break: break-all;
+}
+.pk-img {
+  padding: 12px;
+}
+.pk-img img {
+  display: block;
+  max-width: 100%;
+  margin: 0 auto;
+  border-radius: 4px;
+}
+.pk-files {
+  padding: 8px 14px 10px;
+  font-size: 12px;
+}
+.pk-files > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  color: var(--t2);
+}
+.pk-files .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--t1);
+}
+.pk-files .pl {
+  color: var(--ok, var(--t2));
+}
+.pk-files .mi {
+  color: var(--danger, var(--t2));
+}

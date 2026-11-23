@@ -11,21 +11,34 @@
   height: 14px;
   padding: 0;
   border-radius: 4px;
-  border: 1.5px solid var(--line2);
+  /* 没勾的不铺底、边是 @cn/design 的 --cb-line（task-gr4sx，和画布今日、文档里的勾选框同一套） */
+  border: 1.5px solid var(--cb-line);
   display: grid;
   place-items: center;
   color: var(--acc-on);
   background: transparent;
 }
 .td-cb.hi {
-  border-color: var(--yellow);
+  border-color: var(--cb-hi);
 }
 .td-cb.on {
   background: var(--acc-bg);
   border-color: var(--acc-bg);
 }
-.td-cb:not(.on):hover {
-  border-color: var(--t3);
+/* [/] 进行中：下半格填上主色（还能点着勾掉）；[-] 取消了：淡框里一道横线（和画布今日一样） */
+.td-cb.half {
+  border-color: var(--acc-bg);
+  background: linear-gradient(to top, var(--acc-bg) 50%, transparent 50%);
+}
+.td-cb.half.hi {
+  border-color: var(--yellow);
+}
+.td-cb.off {
+  color: var(--t3);
+}
+/* ⏫ 的黄框悬停不变灰 */
+.td-cb:not(.on):not(.hi):not(.half):hover {
+  border-color: var(--t2);
 }
 .big .td-cb {
   width: 16px;
@@ -82,9 +95,20 @@
   font-size: 12px;
   color: var(--t3);
 }
-.td-r.done .td-tt {
+.td-r.done .td-tt,
+.td-r.cancel .td-tt {
   color: var(--t3);
   text-decoration: line-through;
+}
+/* 抄了几处（todo-home.css 的 .td-place 是出处的样子；待办格、首页卡里也用，这里补上） */
+.td-dup {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
 }
 .td-r.flash {
   animation: td-fl 1.4s ease-out;

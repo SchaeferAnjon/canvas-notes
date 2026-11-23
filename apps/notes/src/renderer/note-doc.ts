@@ -263,7 +263,7 @@ export class NoteDoc {
                 // [[笔记#标题]]、[[笔记#^块]]：开了滚到那一段（task-3e53q，cite.tsx）
                 const inner = wiki.dataset.wiki ?? ''
                 // ⇧⌘点：开在后面的新标签（和 AI 回答里的引用一样）
-                if (/#/.test(inner.split('|')[0]!) || e.shiftKey) void findCite({ wiki: inner }, this.path).then((c) => openCite(c, howOf(e)))
+                if (/#/.test(inner.split('|')[0]!) || e.shiftKey) void findCite({ wiki: inner }, this.path).then((c) => openCite(c, howOf(e), '', 'doc'))
                 else this.events.onOpenLink(wiki.dataset.target ?? wiki.textContent ?? '')
                 return true
               }

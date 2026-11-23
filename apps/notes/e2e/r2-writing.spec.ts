@@ -62,7 +62,7 @@ test('同一文件夹第 3 篇起新建：标题和文件名一样（未命名 3
     await expect(tabOn).toHaveText('第四篇')
     await page.keyboard.type('正文')
     await waitSaved(page)
-    expect(readFileSync(join(vault, '收件箱/第四篇.md'), 'utf8')).toBe('# 第四篇\n\n正文')
+    expect(readFileSync(join(vault, '收件箱/第四篇.md'), 'utf8')).toBe('# 第四篇\n\n正文\n')
     expect(existsSync(join(vault, '收件箱/未命名 4.md'))).toBe(false)
     // 第 3 篇空着关掉：进废纸篓
     await page.getByRole('tab', { name: /未命名 3/ }).click()

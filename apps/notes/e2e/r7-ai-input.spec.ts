@@ -684,8 +684,8 @@ for (const frame of ['b', 'a'] as const) {
       let { cap: c, v } = await capAndView(page)
       expect(v.right - v.left).toBeGreaterThan(400)
       expect(v.right - v.left).toBeLessThan(470)
-      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 0.5)
-      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 0.5)
+      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 1) // 小数宽度取整差零点几：差不到 1 都算左右各留 8
+      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 1)
       expect(v.sw).toBeLessThanOrEqual(v.cw)
       expect(Math.abs(sb.y - (c.y + c.height) - 6)).toBeLessThanOrEqual(2)
       await page.screenshot({ path: `test-results/r7-pdf-cap-${frame}.png` })
@@ -713,8 +713,8 @@ for (const frame of ['b', 'a'] as const) {
       const fb = await box(page.getByTestId('pdf-box'))
       ;({ cap: c, v } = await capAndView(page))
       expect(Math.abs(fb.y - (c.y + c.height) - 6)).toBeLessThanOrEqual(2)
-      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 0.5)
-      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 0.5)
+      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 1)
+      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 1)
       expect(v.sw).toBeLessThanOrEqual(v.cw)
 
       // 栏再窄（右栏再拉宽 120）：整条放不下才藏键帽，五颗照样整个露着、在栏里
@@ -726,8 +726,8 @@ for (const frame of ['b', 'a'] as const) {
       expect(v.right - v.left).toBeLessThan(420)
       await expect(cap.locator('kbd').first()).toBeHidden()
       await page.screenshot({ path: `test-results/r7-pdf-cap-narrow-${frame}.png` })
-      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 0.5)
-      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 0.5)
+      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 1)
+      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 1)
       expect(v.sw).toBeLessThanOrEqual(v.cw)
     } finally {
       await run.close()

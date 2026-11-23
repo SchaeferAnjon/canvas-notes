@@ -12,6 +12,7 @@
  * 这一路只回答、不动手（AI 动手改笔记要先在 iPad 上确认，第二块做）。纯函数，不碰 Electron。
  */
 import { MATH_RULE } from '../../shared/reading'
+import { CITE_RULE } from '../../shared/cite-rule'
 
 export type AskKind = 'chat' | 'explain' | 'translate' | 'ask' | 'cmd'
 
@@ -62,7 +63,9 @@ export const CHAT_SYSTEM = `你是 Canvas Notes 笔记软件里的助手，帮�
 - 每条消息开头写着他在看什么（PDF 的哪一页、网页、笔记），用得上就用。
 - 回答用哪种语言照每条消息开头的【语言】；平实、直接，不客套。不编造他的笔记里没有的事。
 - 回答显示在手机上：段落短一点，需要时用小标题和列表。
-- ${MATH_RULE}`
+- ${MATH_RULE}
+
+${CITE_RULE}`
 
 /** 讲解一下、翻译 + 讲一讲、选一段问（照读 PDF 的 TUTOR_SYSTEM 讲法那几行；这一路不动手） */
 export const TUTOR_SYSTEM = `你在 Canvas Notes 里陪一个人读 PDF 课件、网页和笔记。他在 iPhone 或 iPad 上选中一段来问你，问题经他自己的 Mac 转过来（Mac 连不上时直接发到云端）。
@@ -71,7 +74,8 @@ export const TUTOR_SYSTEM = `你在 Canvas Notes 里陪一个人读 PDF 课件�
 ${MATH_RULE}提到别的页写成 [第 4 页](#page=4)。
 他说「还是不懂」「换个方式讲」：上一版就是没讲通，换一个完全不同的角度（比方、画面、具体数字、反例），不要换个说法重复。
 这一路你只回答，不动手：不改文件、不跑命令。你的回答会原样写进他这份 PDF（或网页、笔记）配对的那篇笔记。
-回答用哪种语言照每条消息开头的【语言】。`
+回答用哪种语言照每条消息开头的【语言】。
+${CITE_RULE}`
 
 /** 每条消息开头的【语言】（和 Swift 的 MobileAIPrompt.langLine 同一句） */
 export function langLine(lang: 'zh' | 'en' = 'zh'): string {

@@ -6,7 +6,8 @@
  * - 「块缝」：挨着有字的一行的空行（代码块里的空行是代码，不算）。光标不停在块缝上：↑↓ 跨过去（横向位置不变），
  *   ←→ 一下从上一块末尾到下一块开头，点块缝落到离得近的那一块（横向位置照点的地方）；别的挪光标（PageDown、⌘↓、搜索……）落上去也挪走。
  *   文件最后那个空行紧挨着上一块时也是块缝：光标落上去就在文末新起一段（tail-line.ts），光标和灰字「输入 / 插入块」在同一行。
- * - 「空块」：两边都是空行的那一行（回车新起的、删光了字的一段），一整行高，光标停在这里打字就是新的一块。
+ * - 「空块」：一串空行里第一行以后的那几行（gap-lines.ts，照 Tolaria：N 个空行 = 1 道缝 + (N − 1) 个空块；标题前最后一行是留白），
+ *   一整行高，光标停在这里打字就是新的一块。回车正好加一个换行、退格正好删一个（标题前头一回多加一行留白）。
  * - 回车（正文、标题）：新起一块——段末回车下面多一个空块、光标进去；段中间回车拆成两块；段首回车上面多一个空块；
  *   ⇧回车才是段里换行。全篇最后一块末尾回车等于点文末那一行。列表、待办、引用、提示块、代码块的回车照旧。
  * - 退格（块开头）：块的记号先拿掉（wysiwyg.ts，标题、列表变回正文），正文开头再退格并进上一块末尾；空块里退格删掉这个空块，
@@ -16,13 +17,13 @@
  */
 import { isolateHistory } from '@codemirror/commands'
 import { syntaxTree } from '@codemirror/language'
-import { EditorSelection, EditorState, Prec, type SelectionRange, type Transaction } from '@codemirror/state'
-import { EditorView, keymap, ViewPlugin } from '@codemirror/view'
+import { EditorSelection, EditorState, Prec, type Range, type SelectionRange, type Transaction, type TransactionSpec } from '@codemirror/state'
+import { Decoration, type DecorationSet, EditorView, keymap, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { blockEndingAt } from './atomic-blocks'
 import { parseCallout } from './callout'
 import { type Hidden, hiddenOk, hiddenRanges } from './hidden-syntax'
-import { blankLine, blankRun, gapLine, onGap } from './gap-lines'
-import { closeTail, openTail, settleTail, tailPending } from './tail-line'
+import { blankLine, blankRun, emptiesIn, emptyBlock, gapLine, headingLine, onGap, oneMore } from './gap-lines'
+import { closeTail, moreTail, openTail, tailLineHere, tailPending } from './tail-line'
 import { enterAfterTitle, headingOf } from './title-follow'
 import { blockMarkEnd } from './wysiwyg'
 
@@ -138,7 +139,7 @@ const gapFilter = EditorState.transactionFilter.of((tr) => {
   const state = tr.state
   if (state.selection.ranges.length > 1) return tr
   const r = state.selection.main
-  if (!r.empty) return tr
+  if (!r.empty) return extendOverGap(tr)
   // 选中着的卡片按方向键收起（CodeMirror 收到卡片的头或尾）：走过这张卡，到下一块开头 / 上一块末尾；
   // 那边紧挨着的又是一张卡：选中它（图片下面接着表格，↓ 一下一张，不一下跳过表格）。点的不管
   const held = tr.isUserEvent('select.pointer') ? null : heldCard(tr)
@@ -153,7 +154,8 @@ const gapFilter = EditorState.transactionFilter.of((tr) => {
   }
   const line = state.doc.lineAt(r.head)
   if (line.number === state.doc.lines || !gapLine(state, line.number)) return tr
-  // 从上一块末尾 → 过来：往下走；从下一块开头 ← 过来：往上走；跳过来的（搜索、PageDown、软件放的）：去不是卡片的那一边，先上面
+  // 从上一块末尾 → 过来：往下走；从下一块开头 ← 过来：往上走；挨着走过来的（只挪了一个字：空块里 →、⌃F 到标题上方的留白）：往挪的方向走；
+  // 跳过来的（搜索、PageDown、软件放的）：去不是卡片的那一边，先上面
   const run = blankRun(state, line.number)
   const was = tr.startState.selection.main.head
   const fromAbove = run.prev > 0 && was === state.doc.line(run.prev).to
@@ -161,13 +163,35 @@ const gapFilter = EditorState.transactionFilter.of((tr) => {
   // 跳过来的：上面紧挨着卡片、下面有能停的地方（下一块、空块、文末那一行）就往下，不然往上
   const down = stopFrom(state, line.number + 1, 1)
   const upCard = !run.prev || cardAt(state, run.prev) !== null
-  const dir: 1 | -1 = fromAbove ? 1 : fromBelow ? -1 : upCard && down !== null ? 1 : -1
+  // 挨着走过来的只认键盘挪了一个字、那一边不是卡片（卡片那边照下面「跳过来的」走，点的也是）
+  let step: -1 | 0 | 1 = !tr.isUserEvent('select.pointer') && Math.abs(r.head - was) === 1 ? (r.head > was ? 1 : -1) : 0
+  if ((step < 0 && upCard) || (step > 0 && (!run.next || cardAt(state, run.next) !== null))) step = 0
+  const dir: 1 | -1 = fromAbove ? 1 : fromBelow ? -1 : step || (upCard && down !== null ? 1 : -1)
   const card = fromAbove || fromBelow ? cardNext(state, line.number, dir) : null
   if (card) return [tr, { selection: EditorSelection.single(card.from, card.to), sequential: true }]
   const to = dir > 0 ? (down ?? stopFrom(state, line.number - 1, -1)) : (stopFrom(state, line.number - 1, -1) ?? down)
   if (to === null || to === r.head) return tr
-  return [tr, { selection: EditorSelection.cursor(to, dir > 0 ? 1 : -1), sequential: true }]
+  return [tr, { selection: EditorSelection.cursor(to, dir > 0 ? 1 : -1, undefined, r.goalColumn), sequential: true }]
 })
+
+/**
+ * ⇧→ ⇧←（⇧⌥→ 这些一样）扩选，选区的头落到块缝上：接着往同一个方向走到下一块开头 / 上一块末尾，一下跨块
+ * （task-axoxy 第 17 条：以前第一下选中的是看不见的那个换行，屏上没变化）。⇧↑↓ 在 lineMove 里，拖选不管（松手在哪就选到哪）
+ */
+function extendOverGap(tr: Transaction): TransactionSpec | readonly TransactionSpec[] {
+  if (tr.isUserEvent('select.pointer')) return tr
+  const state = tr.state
+  const r = state.selection.main
+  const start = tr.startState.selection.main
+  const was = start.head
+  // 只管扩选（锚点没动、头挪了）；软件整块选中卡片（头落在卡片后面那一行）这些不管
+  if (was === r.head || r.anchor !== start.anchor) return tr
+  const line = state.doc.lineAt(r.head)
+  if (line.text.trim() !== '' || line.number === state.doc.lines || !gapLine(state, line.number)) return tr
+  const to = r.head > was ? stopFrom(state, line.number + 1, 1) : stopFrom(state, line.number - 1, -1)
+  if (to === null) return tr
+  return [tr, { selection: EditorSelection.range(r.anchor, to), sequential: true }]
+}
 
 /** ↑↓：落到块缝上就接着走，横向位置不变（像两块之间没有那一行）；要离开这一块、那边紧挨着的是卡片：选中它（像 Notion，以前一下跳过去） */
 function lineMove(forward: boolean, extend: boolean) {
@@ -181,21 +205,92 @@ function lineMove(forward: boolean, extend: boolean) {
     if (!extend && next.head !== r.head && state.doc.lineAt(next.head).number !== cur) {
       const card = cardNext(state, cur + (forward ? 1 : -1), forward ? 1 : -1)
       if (card) {
-        view.dispatch({ selection: EditorSelection.single(card.from, card.to), userEvent: 'select', scrollIntoView: true })
+        // 滚到整张卡看得见；卡比窗口高（长的数据库表）时露出走过来的那一头（↓ 露卡头，↑ 露卡底），不跳到另一头（task-cle3x 设计复审）
+        const near = forward ? EditorSelection.range(card.to, card.from) : EditorSelection.range(card.from, card.to)
+        view.dispatch({ selection: EditorSelection.single(card.from, card.to), userEvent: 'select', effects: EditorView.scrollIntoView(near, { y: 'nearest', yMargin: 8 }) })
         return true
       }
     }
+    if (next.head !== r.head && leavesCode(state, cur, next.head)) return codeOut(view, cur, forward, extend, next.goalColumn)
     if (next.head === r.head || !onGap(state, next.head)) return false
     for (let i = 0; i < 4 && onGap(state, next.head); i++) {
       const again = view.moveVertically(next, forward)
       if (again.head === next.head) break
       next = again
     }
+    // 挪不出这道矮缝（缝下面紧挨着空块时 CodeMirror 量不过去）：直接到那边能停的那一行，横向照原来那一列
+    // （task-axoxy 第 14 条：以前交给 gapFilter 挪，横向位置丢了，再往下就到了行首）
+    const nl = state.doc.lineAt(next.head).number
+    if (onGap(state, next.head) && nl < state.doc.lines) {
+      const to = stopFrom(state, nl + (forward ? 1 : -1), forward ? 1 : -1)
+      if (to !== null) next = EditorSelection.cursor(atColumn(view, to, forward, next.goalColumn), forward ? 1 : -1, undefined, next.goalColumn)
+    }
     // 走到头还在块缝上（下面就是文末）：放到这一行，tail-line.ts 接着新起一段
     const sel = extend ? EditorSelection.range(r.anchor, next.head, next.goalColumn) : EditorSelection.cursor(next.head, next.assoc, undefined, next.goalColumn)
-    view.dispatch({ selection: sel, userEvent: 'select', scrollIntoView: true })
+    // 包成 EditorSelection 再交：直接给一个 SelectionRange，CodeMirror 只取 anchor、head 重建，横向位置（goalColumn）就丢了，
+    // 停在空块里再往下走就到了行首（task-axoxy 第 14 条的原因）
+    view.dispatch({ selection: EditorSelection.create([sel]), userEvent: 'select', scrollIntoView: true })
     return true
   }
+}
+
+/**
+ * to 那一行里横向在 goal 那一列的位置（goal 照 CodeMirror 的 goalColumn，从正文左边量；往下走取那一行头一截，往上取最后一截）；
+ * 没给 goal、量不到原样给 to
+ */
+function atColumn(view: EditorView, to: number, forward: boolean, goal: number | undefined): number {
+  if (goal === undefined) return to
+  const line = view.state.doc.lineAt(to)
+  const blk = view.lineBlockAt(line.from)
+  const y = view.documentTop + (forward ? blk.top + Math.min(blk.height / 2, 10) : blk.bottom - Math.min(blk.height / 2, 10))
+  const p = view.posAtCoords({ x: view.contentDOM.getBoundingClientRect().left + goal, y }, false)
+  return p >= line.from && p <= line.to ? p : to
+}
+
+/** 光标从代码块里第 cur 行挪到 pos：出了这一块的字（落到藏着的围栏、块缝、更远） */
+function leavesCode(state: EditorState, cur: number, pos: number): boolean {
+  const code = codeAt(state, cur)
+  if (!code) return false
+  const a = state.doc.lineAt(code.from).number
+  const z = state.doc.lineAt(code.to).number
+  if (cur === a || cur === z) return false
+  const n = state.doc.lineAt(pos).number
+  return n <= a || n >= z
+}
+
+/**
+ * 从代码块第一行 ↑、最后一行 ↓、最后一行末尾 → 出块（task-axoxy 第 9 条）：藏着的围栏、块缝一下过去，到上一块 / 下一块，
+ * ↑↓ 横向位置照原来（goal 给了就按它落，同 CodeMirror 的 goalColumn）；那边紧挨着卡片就选中它。那边没有块（代码块在全篇最后）给 false，照旧交给文末那一行
+ */
+function codeOut(view: EditorView, cur: number, forward: boolean, extend: boolean, goal?: number): boolean {
+  const { state } = view
+  const code = codeAt(state, cur)!
+  const dir: 1 | -1 = forward ? 1 : -1
+  const edge = forward ? state.doc.lineAt(code.to).number + 1 : state.doc.lineAt(code.from).number - 1
+  if (edge < 1 || edge > state.doc.lines) return false
+  const r = state.selection.main
+  const card = extend ? null : cardNext(state, edge, dir)
+  if (card) {
+    view.dispatch({ selection: EditorSelection.single(card.from, card.to), userEvent: 'select', scrollIntoView: true })
+    return true
+  }
+  let to = stopFrom(state, edge, dir)
+  if (to === null) return false
+  to = atColumn(view, to, forward, goal)
+  const sel = extend ? EditorSelection.range(r.anchor, to, goal) : EditorSelection.cursor(to, forward ? 1 : -1, undefined, goal)
+  view.dispatch({ selection: EditorSelection.create([sel]), userEvent: 'select', scrollIntoView: true })
+  return true
+}
+
+/** → ⌃F 在代码块最后一行末尾：出块到下一块开头（以前按了不动：收尾的围栏藏着，光标进不去又被推回来） */
+function rightOutOfCode(view: EditorView): boolean {
+  const { state } = view
+  const r = state.selection.main
+  if (!r.empty || state.selection.ranges.length > 1) return false
+  const line = state.doc.lineAt(r.head)
+  const code = codeAt(state, line.number)
+  if (!code || r.head !== line.to || line.number !== state.doc.lineAt(code.to).number - 1 || line.number === state.doc.lineAt(code.from).number) return false
+  return codeOut(view, line.number, true, false)
 }
 
 /** 点在块缝上：落到离得近的那一块，横向位置照点的地方（卡片那一边不落，落另一边） */
@@ -232,11 +327,14 @@ class MarginClicks {
     const ok = t === this.host || t === view.dom.parentElement || t === view.dom || t === view.scrollDOM || t.classList.contains('blk-bar')
     if (!ok) return
     const c = view.contentDOM.getBoundingClientRect()
-    if (e.clientY < c.top || e.clientY > c.bottom - 2 || (e.clientX >= c.left && e.clientX <= c.right)) return
+    // 点第一行上面的留白（标签条和标题之间，task-axoxy 第 22 条，像 Tolaria）：落到第一行，横向照点的地方
+    const above = e.clientY < c.top
+    if (e.clientY > c.bottom - 2 || (!above && e.clientX >= c.left && e.clientX <= c.right)) return
     // 中间栏的滚动条
     if (t === this.host && e.offsetX >= this.host.clientWidth) return
     const x = Math.max(c.left + 1, Math.min(c.right - 1, e.clientX))
-    const pos = clickPos(view, x, e.clientY)
+    const first = above ? view.viewportLineBlocks.find((b) => b.height > 1) : undefined
+    const pos = clickPos(view, x, first ? view.documentTop + first.top + first.height / 2 : e.clientY)
     const card = cardAt(view.state, view.state.doc.lineAt(pos).number)
     e.preventDefault()
     view.focus()
@@ -287,20 +385,64 @@ function put(view: EditorView, change: { from: number; to?: number; insert?: str
 function blockAfter(view: EditorView, n: number): boolean {
   const { state } = view
   const line = state.doc.line(n)
-  if (state.doc.sliceString(line.to).trim() === '' && state.field(tailPending, false) !== undefined) {
-    // 这一块就是刚在文末那一行打的（还记着是暂时的那一行）：先定下来，再新起一段
-    settleTail(view)
-    return openTail(view) !== null
+  // 全篇最后一块：文末新起一行（只在屏上，打了字才写进文件，tail-line.ts）
+  if (state.doc.sliceString(line.to).trim() === '' && state.field(tailPending, false) !== undefined) return openTail(view) !== null
+  const run = blankLine(state, n + 1) ? blankRun(state, n + 1) : null
+  const add = oneMore(run?.k ?? 0, !!run?.next && headingLine(state, run.next))
+  return put(view, { from: line.to, insert: '\n'.repeat(add) }, line.to + 2)
+}
+
+/** 在 pos 拆块要做的改动（照没选字回车的规矩，见 enterBlock）；拆不了（不是顶层段落、标题）给 null */
+function splitAt(state: EditorState, pos: number): { change: { from: number; insert: string }; anchor: number } | null {
+  const doc = state.doc
+  const line = doc.lineAt(pos)
+  if (blankLine(state, line.number)) return gapLine(state, line.number) ? null : { change: { from: line.from, insert: '\n' }, anchor: line.from + 1 }
+  const blk = textBlock(state, line.number)
+  if (!blk) return null
+  const first = doc.lineAt(blk.from).number
+  const last = doc.lineAt(blk.to).number
+  const start = visibleStart(state, line.number)
+  const end = visibleEnd(state, line.number)
+  const at = pos >= end ? end : pos <= start ? start : splitPoint(state, pos)
+  if (headingOf(doc.toString())?.line === line.number && at < end) return null
+  if (at >= end) {
+    if (line.number !== last) return { change: { from: line.to, insert: '\n\n' }, anchor: line.to + 2 }
+    const run = blankLine(state, line.number + 1) ? blankRun(state, line.number + 1) : null
+    return { change: { from: line.to, insert: '\n'.repeat(oneMore(run?.k ?? 0, !!run?.next && headingLine(state, run.next))) }, anchor: line.to + 2 }
   }
-  const k = blankLine(state, n + 1) ? blankRun(state, n + 1).k : 0
-  return put(view, { from: line.to, insert: '\n'.repeat(Math.max(1, 3 - k)) }, line.to + 2)
+  if (at <= start) {
+    if (line.number !== first) return { change: { from: line.from, insert: '\n' }, anchor: pos + 1 }
+    if (line.number > 1 && !blankLine(state, line.number - 1)) return null
+    const add = oneMore(line.number > 1 ? blankRun(state, line.number - 1).k : 0, headingLine(state, line.number))
+    return { change: { from: line.from, insert: '\n'.repeat(add) }, anchor: pos + add }
+  }
+  return { change: { from: at, insert: '\n\n' }, anchor: at + 2 }
+}
+
+/**
+ * 选着字回车（task-axoxy 第 10 条，像 Notion）：先照删除的规矩删掉选中的（跨块的照跨块删），再在那一点拆块，两下算一步撤销；
+ * 选中的是一整张卡片（第 13 条）：在它下面新起一个空块，光标进去，卡片不动
+ */
+function enterOverSelection(view: EditorView): boolean {
+  const { state } = view
+  const sel = state.selection.main
+  if (sel.empty || state.selection.ranges.length > 1 || state.readOnly) return false
+  const card = cardAt(state, state.doc.lineAt(sel.from).number)
+  if (card && card.from === sel.from && card.to === sel.to) return blockAfter(view, state.doc.lineAt(card.to).number)
+  const del = state.update({ changes: { from: sel.from, to: sel.to }, selection: EditorSelection.cursor(sel.from), userEvent: 'delete.selection' })
+  const split = splitAt(del.state, del.state.selection.main.head)
+  if (!split) return false
+  const changes = del.changes.compose(del.state.changes(split.change))
+  view.dispatch({ changes, selection: EditorSelection.cursor(split.anchor), userEvent: 'input', annotations: [hiddenOk.of(true), isolateHistory.of('full')], scrollIntoView: true })
+  return true
 }
 
 /** 回车（正文、标题）：新起一块（见文件头） */
 export function enterBlock(view: EditorView): boolean {
   const { state } = view
   const sel = state.selection.main
-  if (!sel.empty || state.readOnly) return false
+  if (!sel.empty) return enterOverSelection(view)
+  if (state.readOnly) return false
   const doc = state.doc
   const line = doc.lineAt(sel.head)
   const text = doc.toString()
@@ -308,35 +450,22 @@ export function enterBlock(view: EditorView): boolean {
   if (enterAfterTitle(text, sel.head) !== null) return false
   if (blankLine(state, line.number)) {
     if (gapLine(state, line.number)) return false
-    // 文末那一行（点进来还没打字）：不再多起一行
-    const p = state.field(tailPending, false)
-    if (p && doc.lineAt(Math.min(p.at, doc.length)).number === line.number) return true
+    // 文末那一行里回车：再起一行，也只在屏上（像 Notion 空的最后一块里回车能一直加，task-axoxy 第 15 条）
+    if (tailLineHere(state, line.number)) return moreTail(view)
     // 空块里回车：下面再多一个空块
     return put(view, { from: line.from, insert: '\n' }, line.from + 1)
   }
   const blk = textBlock(state, line.number)
   if (!blk) return false
-  const first = doc.lineAt(blk.from).number
   const last = doc.lineAt(blk.to).number
-  const start = visibleStart(state, line.number)
   const end = visibleEnd(state, line.number)
-  const at = sel.head >= end ? end : sel.head <= start ? start : splitPoint(state, sel.head)
+  const at = sel.head >= end ? end : sel.head
   // 笔记名（开头的一级标题，就是文件名）：只有末尾回车新起一块，中间、开头照旧
   if (headingOf(text)?.line === line.number && at < end) return false
-  if (at >= end) {
-    if (line.number === last) return blockAfter(view, line.number)
-    // 段里一行（软换行）的末尾：下面空出一个空块，后面那几行另成一块
-    return put(view, { from: line.to, insert: '\n\n\n' }, line.to + 2)
-  }
-  if (at <= start) {
-    if (line.number !== first) return put(view, { from: line.from, insert: '\n' }, sel.head + 1)
-    // 段首：上面多一个空块，字跟着往下（上面紧挨着别的东西，比如藏着的位置行：照旧）
-    if (line.number > 1 && !blankLine(state, line.number - 1)) return false
-    const add = Math.max(1, 3 - (line.number > 1 ? blankRun(state, line.number - 1).k : 0))
-    return put(view, { from: line.from, insert: '\n'.repeat(add) }, sel.head + add)
-  }
-  // 段中间：拆成两块，光标在后一块开头
-  return put(view, { from: at, insert: '\n\n' }, at + 2)
+  if (at >= end && line.number === last) return blockAfter(view, line.number)
+  const split = splitAt(state, sel.head)
+  if (!split) return false
+  return put(view, split.change, split.anchor)
 }
 
 // ---------------------------------------------------------------- 退格、Delete
@@ -394,13 +523,17 @@ function backspaceTail(view: EditorView): boolean {
   if (!sel.empty || state.readOnly) return false
   const doc = state.doc
   const line = doc.lineAt(sel.head)
-  const p = state.field(tailPending, false)
-  if (!p || line.text !== '' || doc.lineAt(Math.min(p.at, doc.length)).number !== line.number) return false
+  if (line.text.trim() !== '' || !tailLineHere(state, line.number)) return false
   return closeTail(view, (after) => {
     let m = after.doc.lines
     while (m > 1 && blankLine(after, m)) m--
     return blankLine(after, m) ? null : backInto(view, after, m)
   })
+}
+
+/** 删掉一个空块要删几个换行：下一块是标题、删完只剩缝和留白时连留白一起删（回到一道缝，task-axoxy） */
+function dropCount(state: EditorState, run: { k: number; next: number }): number {
+  return run.next && headingLine(state, run.next) && run.k === 3 ? 2 : 1
 }
 
 /** 退格：空块、块开头（见文件头） */
@@ -415,8 +548,7 @@ export function backspaceBlock(view: EditorView): boolean {
     // 空块：删掉它，光标回到上一块末尾（上面还有空块就回到那个空块）
     const run = blankRun(state, line.number)
     if (!run.prev) return false
-    const n = run.next && run.k === 3 ? 2 : 1
-    const from = line.from - n
+    const from = line.from - dropCount(state, run)
     const after = state.update({ changes: { from, to: line.from } }).state
     const to = line.number === run.first + 1 ? backInto(view, after, run.prev) : EditorSelection.single(from)
     view.dispatch({ changes: { from, to: line.from }, selection: to, userEvent: 'delete.backward', annotations: [hiddenOk.of(true), isolateHistory.of('full')], scrollIntoView: true })
@@ -426,9 +558,9 @@ export function backspaceBlock(view: EditorView): boolean {
   if (line.number === 1 || sel.head !== visibleStart(state, line.number) || !blankLine(state, line.number - 1)) return false
   if (blockMarkEnd(state, line.from) !== null) return false
   const run = blankRun(state, line.number - 1)
-  if (run.k >= 3) {
-    // 中间夹着空块：删掉紧挨着的那一个
-    const n = run.k === 3 ? 2 : 1
+  if (emptiesIn(run.k, headingLine(state, line.number)) > 0 && run.prev) {
+    // 中间夹着空块：删掉紧挨着的那一个（Tolaria 的数法：一个换行就是一个空块）
+    const n = dropCount(state, { k: run.k, next: line.number })
     return put(view, { from: line.from - n, to: line.from }, sel.head - n, 'delete.backward')
   }
   if (!run.prev) return false
@@ -453,9 +585,14 @@ export function deleteBlock(view: EditorView): boolean {
     const run = blankRun(state, line.number)
     if (!run.next) return true
     // 空块：删掉它；下面没有空块了光标到下一块开头
-    const n = run.k === 3 ? 2 : 1
+    const n = dropCount(state, run)
     const after = state.update({ changes: { from: line.from, to: line.from + n } }).state
-    const to = line.number === run.last - 1 ? visibleStart(after, after.doc.lineAt(line.from).number) : line.from
+    let to = line.from
+    if (!emptyBlock(state, line.number + 1)) {
+      let m = after.doc.lineAt(line.from).number
+      while (m < after.doc.lines && blankLine(after, m)) m++
+      to = visibleStart(after, m)
+    }
     return put(view, { from: line.from, to: line.from + n }, to, 'delete.forward')
   }
   if (sel.head !== line.to || sel.head !== visibleEnd(state, line.number)) return false
@@ -463,7 +600,7 @@ export function deleteBlock(view: EditorView): boolean {
   const run = blankRun(state, line.number + 1)
   // 全篇最后一块末尾：不做事（以前吃掉文件末尾的换行，看不见）
   if (!run.next) return true
-  if (run.k >= 3) return put(view, { from: line.to, to: line.to + (run.k === 3 ? 2 : 1) }, line.to, 'delete.forward')
+  if (emptiesIn(run.k, headingLine(state, run.next)) > 0) return put(view, { from: line.to, to: line.to + dropCount(state, run) }, line.to, 'delete.forward')
   const j = joinRange(state, line.number, run.next)
   if (j) return put(view, j, j.from, 'delete.forward')
   // 下一块是卡片：选中它（中间隔两个空行时 atomic-blocks 不认）；代码块、提示块：光标进到第一行的字前面，不删字；别的照旧交给后面
@@ -479,7 +616,88 @@ export function deleteBlock(view: EditorView): boolean {
   return true
 }
 
+/**
+ * 删到行首、删一个词、⌃K 在块边上并块：只在这一块和上一块（下一块）之间没有藏着的整块（折叠块、卡片、公式、代码围栏、位置行……）时做，
+ * 那些交给这个键原来的做法和看守（退格、Delete 有自己一串先轮到的处理，这几个键没有）
+ */
+function plainEdge(run: (view: EditorView) => boolean, dir: 1 | -1) {
+  return (view: EditorView): boolean => {
+    const { state } = view
+    const sel = state.selection.main
+    if (!sel.empty || state.selection.ranges.length > 1) return false
+    const line = state.doc.lineAt(sel.head)
+    let n = line.number + dir
+    while (n >= 1 && n <= state.doc.lines && blankLine(state, n)) n += dir
+    if (n < 1 || n > state.doc.lines) return false
+    const other = state.doc.line(n)
+    const from = Math.min(line.from, other.from)
+    const to = Math.max(line.to, other.to)
+    // 块记号（标题、列表、引用的「## 」「- 」「> 」）不算；位置行、白板的卡片行这些单独成行藏着的都算
+    const mark = (h: Hidden) => h.side === 'to' && h.from === state.doc.lineAt(h.from).from && blockMarkEnd(state, h.from) === h.to
+    if (hiddenRanges(state).some((h) => h.from <= to && h.to >= from && !mark(h))) return false
+    return run(view)
+  }
+}
+
+/**
+ * 选区跨过一块的末尾（⇧→ 从段尾一下选到下一块开头，task-axoxy 第 17 条）：段尾画一小截选区色，表示连那个换行一起选上了
+ * （编辑器用系统选区，换行和压矮的块缝涂不出颜色，屏上看不出选了东西，这时打字、退格会把两块并起来；设计复审 2026-11-23）
+ */
+class SelectedBreak extends WidgetType {
+  eq() {
+    return true
+  }
+  toDOM() {
+    const s = document.createElement('span')
+    s.className = 'cm-selbreak'
+    s.setAttribute('aria-hidden', 'true')
+    return s
+  }
+  ignoreEvent() {
+    return false
+  }
+}
+const selectedBreak = Decoration.widget({ widget: new SelectedBreak(), side: 1 })
+
+function breakMarks(state: EditorState): DecorationSet {
+  const r = state.selection.main
+  if (r.empty || state.selection.ranges.length > 1) return Decoration.none
+  const out: Range<Decoration>[] = []
+  const last = state.doc.lineAt(r.to).number
+  for (let n = state.doc.lineAt(r.from).number; n < last && out.length < 200; n++) {
+    const line = state.doc.line(n)
+    if (line.to < r.from || blankLine(state, n) || !blankLine(state, n + 1)) continue
+    out.push(selectedBreak.range(line.to))
+  }
+  return Decoration.set(out)
+}
+
+const selBreaks = [
+  ViewPlugin.fromClass(
+    class {
+      decorations: DecorationSet
+      constructor(view: EditorView) {
+        this.decorations = breakMarks(view.state)
+      }
+      update(u: ViewUpdate) {
+        if (u.selectionSet || u.docChanged) this.decorations = breakMarks(u.state)
+      }
+    },
+    { decorations: (p) => p.decorations },
+  ),
+  EditorView.baseTheme({
+    '.cm-selbreak': {
+      display: 'inline-block',
+      width: '7px',
+      height: '1.2em',
+      verticalAlign: 'text-bottom',
+      background: 'color-mix(in srgb, var(--acc) 24%, transparent)',
+    },
+  }),
+]
+
 export const blockFlow = [
+  selBreaks,
   gapFilter,
   clickGap,
   ViewPlugin.fromClass(MarginClicks),
@@ -487,6 +705,8 @@ export const blockFlow = [
     keymap.of([
       { key: 'ArrowDown', run: lineMove(true, false), shift: lineMove(true, true) },
       { key: 'ArrowUp', run: lineMove(false, false), shift: lineMove(false, true) },
+      { key: 'ArrowRight', run: rightOutOfCode },
+      { mac: 'Ctrl-f', run: rightOutOfCode },
       { key: 'Backspace', run: backspaceTail },
     ]),
   ),
@@ -497,6 +717,12 @@ export const blockFlow = [
       { key: 'Backspace', run: backspaceBlock },
       { key: 'Delete', run: deleteBlock },
       { mac: 'Ctrl-d', run: deleteBlock },
+      // 删到行首、删一个词在块开头，删到行尾、删一个词在块末尾：和退格、Delete 一样一下并块（task-axoxy 第 12 条，像 Notion）；不在块边上照旧
+      { key: 'Mod-Backspace', run: plainEdge(backspaceBlock, -1) },
+      { key: 'Alt-Backspace', run: plainEdge(backspaceBlock, -1) },
+      { key: 'Alt-Delete', run: plainEdge(deleteBlock, 1) },
+      { key: 'Mod-Delete', run: plainEdge(deleteBlock, 1) },
+      { mac: 'Ctrl-k', run: plainEdge(deleteBlock, 1) },
     ]),
   ),
 ]

@@ -57,8 +57,8 @@ test('白板卡片：右键「复制一份」「转成文档」「删除」', as
 
     await card(page, 'b').click({ button: 'right' })
     await pickMenu(run, '转成文档')
-    await expect.poll(() => existsSync(join(vault, '乙卡片.md'))).toBe(true)
-    expect(readFileSync(join(vault, '乙卡片.md'), 'utf8')).toBe('# 乙卡片\n\n乙卡片\n')
+    // 文件先建出来再写进字（不是原子写），机器忙时刚建好那一下读到的是空的：等到字写进去
+    await expect.poll(() => (existsSync(join(vault, '乙卡片.md')) ? readFileSync(join(vault, '乙卡片.md'), 'utf8') : null)).toBe('# 乙卡片\n\n乙卡片\n')
     await expect.poll(() => file(run)).toContain('[[乙卡片]]')
 
     await card(page, 'd').click({ button: 'right' })

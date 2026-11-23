@@ -5,14 +5,13 @@
  * - 「AI 总结的」卡还是一段普通的字的（task-5yp97 以前存的），第一次打开时一次写成 `> [!ai] AI 总结` 提示块（能选一句开旁支），
  *   单独一次提交；撤回同上，记进 `.canvas-notes/总结卡旧写法.json`，以后不再自动改；
  * - 工具板「数据库」：库里已有的数据库（```base 块的数据源文件夹）、各有几条；
- * - 文档底下「提到这篇的」、白板卡底「X 引用了这张」：哪些篇链接、嵌了这一篇（哪一节）；
  * - 白板上一次改两篇（卡拖进另一个标签里的文档）：一次提交、能撤回。
  */
 import * as git from '@cn/git'
 import { baseFoldersIn, convertBoard, convertSummaryCards, needsConvert, needsSummaryConvert } from '@cn/format'
 import { ipcMain } from 'electron'
 import { readFile } from 'node:fs/promises'
-import type { Backlink, BoardBase, BoardConverted, SummaryConverted } from '../shared/api'
+import type { BoardBase, BoardConverted, SummaryConverted } from '../shared/api'
 import { commitErrorText } from '../shared/git-errors'
 import { titleOf } from '../shared/layout'
 import { writeFileAtomic } from './atomic'
@@ -139,32 +138,6 @@ export async function listBases(v: Vault): Promise<BoardBase[]> {
   return out.sort((a, b) => a.folder.localeCompare(b.folder, 'zh'))
 }
 
-const WIKI = /(!?)\[\[([^\]|#\n]+)(?:#([^\]|\n]*))?(?:\|[^\]\n]*)?\]\]/g
-
-/** 哪些篇链接、嵌了 rel：每篇一条，记下嵌了整篇（白板）、引用了哪几节、只是链接 */
-export async function backlinks(v: Vault, rel: string): Promise<Backlink[]> {
-  const texts = await v.texts()
-  const name = titleOf(rel).toLowerCase()
-  const noExt = rel.replace(/\.md$/i, '').toLowerCase()
-  const out: Backlink[] = []
-  for (const [path, text] of texts) {
-    if (path === rel || !text.includes('[[')) continue
-    let embed = false
-    let link = false
-    const sections = new Set<string>()
-    for (const m of text.matchAll(WIKI)) {
-      const target = m[2]!.trim().replace(/\.md$/i, '').toLowerCase()
-      if (target !== name && target !== noExt && !noExt.endsWith('/' + target)) continue
-      const anchor = (m[3] ?? '').trim()
-      if (anchor && !anchor.startsWith('^')) sections.add(anchor)
-      else if (m[1]) embed = true
-      else link = true
-    }
-    if (embed || link || sections.size) out.push({ path, embed, link, sections: [...sections] })
-  }
-  return out.sort((a, b) => a.path.localeCompare(b.path, 'zh'))
-}
-
 export function registerBoard(vault: () => Vault, changed: () => void) {
   ipcMain.handle('board:convert', async (_e, path: unknown, force: unknown) => {
     if (typeof path !== 'string') throw new Error('白板路径不对')
@@ -191,10 +164,6 @@ export function registerBoard(vault: () => Vault, changed: () => void) {
     return h
   })
   ipcMain.handle('board:bases', () => listBases(vault()))
-  ipcMain.handle('board:backlinks', (_e, path: unknown) => {
-    if (typeof path !== 'string') throw new Error('路径不对')
-    return backlinks(vault(), path)
-  })
   // 白板上一次改了两篇（卡拖进另一个标签里的文档）：只提交这几篇，一次
   ipcMain.handle('board:commit', async (_e, paths: unknown, message: unknown) => {
     if (!Array.isArray(paths) || paths.some((p) => typeof p !== 'string') || typeof message !== 'string' || !message.trim()) throw new Error('提交参数不对')

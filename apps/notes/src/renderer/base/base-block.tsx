@@ -5,13 +5,13 @@
  * 斜杠菜单「数据库」插这个块，同时在旁边建一个放每条记录的文件夹。
  */
 import { baseBlocks as autoBlocks, baseYaml, parseBase, setBaseFilters, setBaseOrder, setBaseSort } from '@cn/format'
-import { type EditorState, type Range, StateField } from '@codemirror/state'
-import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
+import { EditorSelection, type EditorState, Prec, type Range, StateEffect, StateField } from '@codemirror/state'
+import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from '@codemirror/view'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { editorHost } from '../editor-host'
 import { type Hidden, hiddenSyntax, wholeBlock } from '../hidden-syntax'
-import { type BaseEdits, BaseTable } from './BaseTable'
+import { type BaseEdits, BaseTable, GRID_ENTER, type GridEnter } from './BaseTable'
 
 /** 整篇里的 ```base 块：[开头行首, 结尾行尾, 中间的 YAML] */
 export function baseBlocks(text: string): { from: number; to: number; src: string }[] {
@@ -65,7 +65,16 @@ class BaseWidget extends WidgetType {
     // 第几个 base 块（自动化记的「文档路径#第几块」，同 @cn/format 的 baseBlocks 数法）
     const body = view.state.doc.lineAt(this.from).to + 1
     const block = Math.max(0, autoBlocks(view.state.doc.toString()).findIndex((b) => b.from === body))
-    flushSync(() => root.render(<BaseTable spec={parseBase(this.src)} src={this.src} edit={edit} anchor={el} file={view.state.facet(editorHost).path()} block={block} />))
+    /** 格子焦点出表（task-cle3x）：第一行 ↑ 到上面的正文、最后一行 ↓ 到下面的，Esc 退回选中整块。只挪光标，不改字 */
+    const leave = (dir: 'up' | 'down' | 'block') => {
+      const b = blockOf(view, el)
+      if (!b) return
+      view.focus()
+      view.dispatch({ selection: EditorSelection.single(b.from, b.to), effects: arrive.of(null), scrollIntoView: dir === 'block' })
+      // 选中整块再收到头 / 尾：block-flow 的 gapFilter 照「选中的卡片按方向键收起」走到上一块末尾 / 下一块开头
+      if (dir !== 'block') view.dispatch({ selection: EditorSelection.cursor(dir === 'up' ? b.from : b.to), userEvent: 'select', scrollIntoView: true })
+    }
+    flushSync(() => root.render(<BaseTable spec={parseBase(this.src)} src={this.src} edit={edit} anchor={el} file={view.state.facet(editorHost).path()} block={block} nav={{ leave }} />))
   }
   destroy(dom: HTMLElement) {
     const root = (dom as HTMLElement & { _root?: Root })._root
@@ -99,7 +108,62 @@ const field = StateField.define<DecorationSet>({
   ],
 })
 
-export const baseBlock = field
+/** 这个部件画在文档里的哪一块（按它在文档里的位置找，同一份写法出现两次也不认错） */
+function blockOf(view: EditorView, el: HTMLElement): { from: number; to: number } | null {
+  if (!el.isConnected) return null
+  const at = view.posAtDOM(el)
+  return baseBlocks(view.state.doc.toString()).find((x) => x.from === at) ?? null
+}
+
+/** 选区正好是一整个数据库块：那一块 */
+function selectedBase(state: EditorState): { from: number; to: number } | null {
+  const s = state.selection.main
+  if (s.empty || state.selection.ranges.length > 1) return null
+  return baseBlocks(state.doc.toString()).find((b) => b.from === s.from && b.to === s.to) ?? null
+}
+
+/**
+ * 整块选中是从哪边过来的（task-cle3x）：上面按 ↓ 过来（above）再按 ↓ 进表的第一行；下面按 ↑ 过来（below）再按 ↑ 进最后一行；
+ * 往回按照旧走回去。Esc 从表里退出来、点选的记 null（↑↓ 照旧走过去，回车进表）
+ */
+const arrive = StateEffect.define<'above' | 'below' | null>()
+const arrived = StateField.define<'above' | 'below' | null>({
+  create: () => null,
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(arrive)) return e.value
+    if (!tr.selection) return tr.docChanged ? null : v
+    const b = selectedBase(tr.state)
+    if (!b) return null
+    const was = tr.startState.selection.main
+    if (was.from === b.from && was.to === b.to) return v
+    if (tr.isUserEvent('select.pointer')) return null
+    return was.head <= b.from ? 'above' : was.head >= b.to ? 'below' : null
+  },
+})
+
+/** 进表：叫那一块的表格选中第一行 / 最后一行的第一格；表格不在（看板、日历、没有一条）就照旧 */
+function enterGrid(view: EditorView, at: GridEnter['at']): boolean {
+  const b = selectedBase(view.state)
+  if (!b) return false
+  const el = Array.from(view.contentDOM.children).find((c) => c.classList.contains('cm-base') && view.posAtDOM(c) === b.from)
+  if (!el) return false
+  const detail: GridEnter = { at, ok: false }
+  el.dispatchEvent(new CustomEvent(GRID_ENTER, { detail }))
+  if (!detail.ok) return false
+  // 整块的强调色罩子收掉（焦点在格子上，文档的光标不画）
+  view.dispatch({ selection: EditorSelection.cursor(b.from), effects: arrive.of(null) })
+  return true
+}
+
+const gridKeys = Prec.highest(
+  keymap.of([
+    { key: 'Enter', run: (v) => enterGrid(v, 'first') },
+    { key: 'ArrowDown', run: (v) => v.state.field(arrived) === 'above' && enterGrid(v, 'first') },
+    { key: 'ArrowUp', run: (v) => v.state.field(arrived) === 'below' && enterGrid(v, 'last') },
+  ]),
+)
+
+export const baseBlock = [field, arrived, gridKeys]
 
 /** 新建一个空的数据库：在笔记旁边建一个记录文件夹（先放一条），返回 ```base 块（斜杠菜单、白板工具板「数据库」共用） */
 export async function createBase(notePath: string): Promise<string> {

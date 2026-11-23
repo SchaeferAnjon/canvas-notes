@@ -14,9 +14,10 @@ import { NoteDoc } from '../note-doc'
 import { actOn, openDream, setCur, stepDream, undoItem, useDreamNav } from './nav'
 import { crumbOf, dreamIcon } from './DreamTab'
 import { bodyEdits, dreamWhen, errText, GROUPS, pendingOf, takenSay } from './useDream'
+import { actNames, Evidence, groupBy, JudgeLine } from './evidence'
 import { dreamDoes, type DreamSettings } from '../../shared/dream-settings'
 
-const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'graph', link: 'link', dup: 'copy', week: 'edit' }
+const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'graph', link: 'link', unsure: 'question', recheck: 'circle-slash', dup: 'copy', week: 'edit' }
 
 /**
  * 左栏「梦游报告」（task-m552v 照 demo proto.html 重做）：顶上进度（一条一格，看过灰、收下绿、丢掉淡，当前那格一圈）、摘要、按组列出；
@@ -165,6 +166,7 @@ export function DreamPanel(props: {
                 </button>
               </span>
             )}
+            {report.judge && <JudgeLine s={report.judge} />}
             {report.notes.map((n) => (
               <span key={n} className="dnote">
                 {n}
@@ -187,6 +189,11 @@ export function DreamPanel(props: {
                 <div className="dg">
                   {GROUPS[it.group]}
                   <span>{`${items.filter((x) => x.group === it.group).length}条`}</span>
+                  {groupBy(items.filter((x) => x.group === it.group)) && (
+                    <em className="dg-by" data-testid="dream-group-by" title={items.find((x) => x.group === it.group && x.by)?.by}>
+                      {groupBy(items.filter((x) => x.group === it.group))}
+                    </em>
+                  )}
                 </div>
               ) : null
             group = it.group
@@ -305,6 +312,8 @@ function Detail(props: { item: DreamItem; index: number; total: number; base: st
     <div className="dd" data-testid="dream-detail" ref={box}>
       <div className="pv-k">{`${GROUPS[item.group]} · 第${props.index + 1}条，共${props.total}条 · ${dup ? '只是提醒' : `改了${n}个文件`}`}</div>
       {item.oldImages && <OldImagesSummary info={item.oldImages} />}
+      {item.judged && <div className="dwhy">{item.why}</div>}
+      <Evidence item={item} />
       {dup && !item.oldImages && (
         <button className="dchg" data-testid="dream-change" onClick={() => openDream(item.id)}>
           <Codicon name="diff-single" size={14} />
@@ -326,12 +335,12 @@ function Detail(props: { item: DreamItem; index: number; total: number; base: st
         <div className="pv-acts">
           <button className="btn btn-sm" disabled={props.busy} onClick={() => void actOn('take', item)}>
             <Codicon name="check" size={14} />
-            {item.commit ? '收下' : '知道了'}
+            {item.commit ? actNames(item).take : '知道了'}
           </button>
           {item.commit && (
             <button className="btn btn-sm" disabled={props.busy} onClick={() => void actOn('drop', item)}>
               <Codicon name="close" size={14} />
-              丢掉
+              {actNames(item).drop}
             </button>
           )}
           {props.onAsk && (

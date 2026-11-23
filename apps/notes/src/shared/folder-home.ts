@@ -84,6 +84,7 @@ export type FWidget =
   | 'exam'
   | 'notes'
   | 'doubts'
+  | 'feynman'
   | 'viz'
   | 'cal'
   | 'todo'
@@ -110,6 +111,7 @@ export const FWIDGETS: { type: FWidget; name: string; desc: string; size: FSize;
   { type: 'exam', name: '考试倒计时', desc: '填个日期，还有几天', size: 1, cat: 'course' },
   { type: 'notes', name: '笔记和导图', desc: '按第几讲排', size: 2, cat: 'course' },
   { type: 'doubts', name: '读PDF时问过的', desc: '读课件时问过的，没送的一键出卡送进Anki', size: 2, cat: 'course' },
+  { type: 'feynman', name: '费曼', desc: '讲过几个知识点、过没过，下次先讲哪个', size: 2, cat: 'course' },
   { type: 'viz', name: '可视化', desc: '做好的可视化，缩略图墙', size: 2, cat: 'course' },
   { type: 'cal', name: '学习日历', desc: '这学期每天问了多少', size: 4, cat: 'course' },
   { type: 'todo', name: '待办', desc: '作业、要交的', size: 1, cat: 'common' },
@@ -361,7 +363,7 @@ export const COLORS = ['#7C8A9E', '#8E7C9E', '#9E7C86', '#9E8C70', '#7C9E8A', '#
 const BASIC = { order: ['recent', 'todo'] as FWidget[], hidden: [] as FWidget[], sizes: { todo: 2 } as Record<string, FSize> }
 const DEFAULTS: Record<FolderKind, { icon: string; order: FWidget[]; hidden: FWidget[]; sizes?: Record<string, FSize> }> = {
   courses: { icon: 'folder', order: ['courses', 'review', 'exam'], hidden: [], sizes: { review: 2, exam: 2 } },
-  course: { icon: 'sigma', order: ['slides', 'review', 'exam', 'notes', 'doubts', 'viz', 'todo', 'links', 'cal'], hidden: ['board', 'text'] },
+  course: { icon: 'sigma', order: ['slides', 'review', 'exam', 'notes', 'doubts', 'feynman', 'viz', 'todo', 'links', 'cal'], hidden: ['board', 'text'] },
   project: { icon: 'briefcase', ...BASIC },
   writing: { icon: 'pen-line', ...BASIC },
   life: { icon: 'coffee', ...BASIC },

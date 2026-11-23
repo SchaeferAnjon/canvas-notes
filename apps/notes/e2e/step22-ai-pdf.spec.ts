@@ -218,7 +218,7 @@ test('CN-22 / 工作区方向 A：读 PDF 时 AI 是右栏的一个标签，竖�
   const { page } = run
   try {
     await openPdf(page)
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '相关', '网页', '微信读书', '记录', '自动化', '历史'])
     const fab = rail(page).locator('.ai-fab')
     await expect(ai(page)).toBeVisible()
     await expect(fab).toBeVisible()
@@ -251,7 +251,7 @@ test('CN-22 / 工作区方向 A：读 PDF 时 AI 是右栏的一个标签，竖�
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toBeVisible()
     // 笔记标签到前面（和 AI 叠在一组）：圆钮不亮，点它换回 AI
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(fab).not.toHaveClass(/\bon\b/)
     await fab.click()
     await expect(ai(page)).toBeVisible()

@@ -4,7 +4,7 @@
  * 底栏提示带「撤回」。刚勾掉的几条记在 keep 里：三处都划线留在原处（原型 S.just），这一次开软件里一直这样。
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import type { When, WhenFields } from '@cn/tasks'
+import { copiesOf, type When, type WhenFields } from '@cn/tasks'
 import { dayName, isOpen, listed, type TodoItem, type TodoOp, type TodoWhere, whenText } from '../../shared/todo'
 import { app } from '../ctx/actions'
 import { NoteDoc } from '../note-doc'
@@ -118,7 +118,8 @@ async function undo(id: string, title: string) {
 /** 改一行：先把开着的编辑器存好（盘上是最新的），这一篇接下来的改动是软件自己的（不说「外部改动合并进来了」） */
 async function edit(t: TodoItem, op: TodoOp) {
   await NoteDoc.saveAll()
-  NoteDoc.expectOwnChange([t.path])
+  // 抄了好几遍的同一条：主进程会把另外几份一起改，那几篇也算软件自己改的
+  NoteDoc.expectOwnChange([t.path, ...copiesOf(state.items, t).map((c) => c.path)])
   const r = await window.cnTodo.edit({ path: t.path, line: t.line, raw: t.raw, edit: op }).catch((e: unknown) => ({ ok: false as const, reason: 'failed' as const, message: errText(e) }))
   if (!r.ok) {
     app().notice(r.reason === 'gone' ? tNow('「{title}」那一行刚被别处改了，没改', { title: t.title }) : r.reason === 'readonly' ? (r.message ?? tNow('这一篇只能只读打开')) : tNow('没改成：{err}', { err: r.message ?? '' }))
@@ -131,7 +132,8 @@ async function edit(t: TodoItem, op: TodoOp) {
 
 /** 勾掉 / 取消勾选：勾掉的划线留在原处 */
 export async function tickTodo(t: TodoItem) {
-  const done = !t.done
+  // 取消了的 [-] 点一下改回没做完
+  const done = !t.done && !t.cancelled
   const r = await edit(t, { op: 'done', done })
   if (!r) return
   const key = `${r.path}#${r.line}`
@@ -142,7 +144,9 @@ export async function tickTodo(t: TodoItem) {
   const said = done
     ? r.next
       ? tNow('勾掉了「{title}」 · 下一次{when}', { title: t.title, when: dayName(r.next.date, isoToday()) })
-      : tNow('勾掉了「{title}」', { title: t.title })
+      : r.copies
+        ? tNow('勾掉了「{title}」，{n}处一起勾上了', { title: t.title, n: r.copies + 1 })
+        : tNow('勾掉了「{title}」', { title: t.title })
     : tNow('取消勾选「{title}」', { ctx: '提示', title: t.title })
   say(said, r.undo, t.title)
 }

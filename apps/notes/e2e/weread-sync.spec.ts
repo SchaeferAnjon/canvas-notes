@@ -111,8 +111,8 @@ test('CN-130 书摘末尾写字存好，再划一段：写的字还在、新划�
     const first = read(vault, bookPath)
     expect(first).toContain('类型: 书摘\n')
     expect(first).toContain('微信读书的想法：系统 1 就是直觉。')
+    // ⌘End 落到文末新起的那一段（task-ys1rr 块缝，同 3c8f0ee9），直接打字就是新的一段；再按回车会多夹一个空块
     await caretToEnd(page)
-    await page.keyboard.press('Enter')
     await page.keyboard.type('我自己的想法：要多用系统 2')
     await waitSaved(page)
     await expect.poll(() => read(vault, bookPath)).toContain('\n\n我自己的想法：要多用系统 2')

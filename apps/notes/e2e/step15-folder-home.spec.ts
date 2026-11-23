@@ -102,7 +102,7 @@ for (const tone of ['light', 'dark'] as const) {
       // 三份 PDF 和它们旁边的笔记各算一篇（一个 PDF 一篇笔记，和左栏那一行数得一样，task-9okg5）
       await expect(home(page).locator('.fh-title p')).toHaveText(/^课程 \/ 线性代数 · 4讲 · 7篇 · 改于/)
       // 默认的课程首页
-      await expect.poll(() => order(page)).toEqual(['slides', 'review', 'exam', 'notes', 'doubts', 'viz', 'todo', 'links', 'cal'])
+      await expect.poll(() => order(page)).toEqual(['slides', 'review', 'exam', 'notes', 'doubts', 'feynman', 'viz', 'todo', 'links', 'cal'])
       // 课件进度：每份 PDF 一张封面，按第几讲；问到第几页读笔记的「进度」，还没问过的写「没开始」；头上「接着读」问到一半的那份
       await expect(w(page, 'slides').locator('.fw-cover .nm .truncate')).toHaveText(['第1讲 向量', '第2讲 向量空间', '第3讲 线性映射'])
       await expect(w(page, 'slides').locator('.fw-cover .nm .r')).toHaveText(['读完', '没开始', '问到7 / 10页'])
@@ -159,7 +159,7 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(w(page, 'review')).toHaveClass(/\bs2\b/)
       // 拖动：考试倒计时拖到课件进度前面
       await dragWidget(page, w(page, 'exam'), w(page, 'slides'))
-      await expect.poll(() => order(page)).toEqual(['exam', 'slides', 'review', 'notes', 'doubts', 'viz', 'todo', 'links', 'cal'])
+      await expect.poll(() => order(page)).toEqual(['exam', 'slides', 'review', 'notes', 'doubts', 'feynman', 'viz', 'todo', 'links', 'cal'])
       // 收起：进下面的抽屉，点一下放回最后
       await w(page, 'links').getByRole('button', { name: '收起' }).click()
       await expect(w(page, 'links')).toHaveCount(0)
@@ -174,7 +174,7 @@ for (const tone of ['light', 'dark'] as const) {
       // 撤回：回到原来的位置；再删一次
       await fToast(page).getByRole('button', { name: '撤回' }).click()
       await expect(fToast(page)).toHaveCount(0)
-      await expect.poll(() => order(page)).toEqual(['exam', 'slides', 'review', 'notes', 'doubts', 'viz', 'todo', 'cal', 'links'])
+      await expect.poll(() => order(page)).toEqual(['exam', 'slides', 'review', 'notes', 'doubts', 'feynman', 'viz', 'todo', 'cal', 'links'])
       await w(page, 'todo').getByRole('button', { name: '删掉待办' }).click()
       await expect(w(page, 'todo')).toHaveCount(0)
       await expect.poll(() => gitStatus(vault)).toBe('?? 课程/线性代数/.首页.json\n')
@@ -264,7 +264,7 @@ for (const tone of ['light', 'dark'] as const) {
       await expect(courseRow(page, '数值分析')).toBeVisible()
       expect(existsSync(join(vault, '课程/数值分析'))).toBe(true)
       expect(existsSync(join(vault, '课程/新的课程'))).toBe(false)
-      await expect.poll(() => order(page)).toEqual(['exam', 'slides', 'review', 'notes', 'doubts', 'viz', 'cal', 'links', 'todo', 'text'])
+      await expect.poll(() => order(page)).toEqual(['exam', 'slides', 'review', 'notes', 'doubts', 'feynman', 'viz', 'cal', 'links', 'todo', 'text'])
       await expect(home(page).locator('.fh-ico')).toHaveAttribute('data-icon', 'folder-library')
 
       // ---------- 恢复默认（有模板用模板）：先在线性代数删一个，恢复后回来 ----------
@@ -279,12 +279,12 @@ for (const tone of ['light', 'dark'] as const) {
       await reset.getByRole('button', { name: '恢复默认' }).click()
       await expect(fToast(page).locator('span')).toHaveText('恢复成默认的样子了 · 文件一个没动')
       await expect(w(page, 'doubts')).toBeVisible()
-      await expect.poll(() => order(page)).toEqual(['exam', 'slides', 'review', 'notes', 'doubts', 'viz', 'cal', 'links', 'todo', 'text'])
+      await expect.poll(() => order(page)).toEqual(['exam', 'slides', 'review', 'notes', 'doubts', 'feynman', 'viz', 'cal', 'links', 'todo', 'text'])
       await shot(page, `fh-reset-${tone}`)
       // 恢复默认也能撤回
       await fToast(page).getByRole('button', { name: '撤回' }).click()
       await expect(w(page, 'doubts')).toHaveCount(0)
-      await expect.poll(() => homeJson(vault, '课程/线性代数').order).toEqual(['exam', 'slides', 'review', 'notes', 'viz', 'cal', 'links', 'todo', 'text'])
+      await expect.poll(() => homeJson(vault, '课程/线性代数').order).toEqual(['exam', 'slides', 'review', 'notes', 'feynman', 'viz', 'cal', 'links', 'todo', 'text'])
       // 页面只是看法：怎么改都没动课程里的文件
       expect(gitStatus(vault).split('\n').filter((l) => l && !l.includes('.canvas-notes')).sort()).toEqual(['?? 课程/.首页模板.json', '?? 课程/线性代数/.首页.json'])
     } finally {

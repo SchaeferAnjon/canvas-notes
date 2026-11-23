@@ -67,7 +67,7 @@ test('真 Claude Code：一句话填规则、存、改格子触发 AI 写一格�
     // 在表格里真改「机场打车」的金额：触发规则，真 AI 写分类
     await openNote(page, '2026 记账')
     const db = pane(page).locator('[data-part="数据库块"]')
-    await db.locator('tbody tr', { hasText: '机场打车' }).locator('td').nth(1).click()
+    await db.locator('tbody tr', { hasText: '机场打车' }).locator('td').nth(1).dblclick()
     const box = db.locator('input.base-in[aria-label="机场打车 · 金额"]')
     await box.fill('630')
     await box.press('Enter')

@@ -5,6 +5,7 @@
  * - 界面发来的命令：跳到某一秒、播放 / 暂停、进退 5 秒、框一块（⌥D）、记下时闪一下。
  * 字幕和框都画在 shadow DOM 里，网站的样式碰不到，也不改网站的页面结构。
  */
+import { trackDrag } from '@cn/design/drag-end'
 import { ipcRenderer } from 'electron'
 import { playNow } from './media-hold'
 
@@ -302,15 +303,23 @@ function startBox(color?: string) {
     sel = document.createElement('div')
     sel.className = 'sel'
     b.appendChild(sel)
+    // 松手没送到页面（窗口外松手、失焦）：当没框，回到按下前（trackDrag，task-0nz63）
+    trackDrag<PointerEvent>(e, { move, end: (how, ev) => (how === 'up' ? up(ev!) : reset()) })
   })
-  b.addEventListener('pointermove', (e) => {
+  const reset = () => {
+    start = null
+    sel?.remove()
+    sel = null
+    b.classList.add('dim')
+  }
+  const move = (e: PointerEvent) => {
     if (!start || !sel) return
     const r = b.getBoundingClientRect()
     const x = Math.max(0, Math.min(r.width, e.clientX - r.left))
     const y = Math.max(0, Math.min(r.height, e.clientY - r.top))
     sel.style.cssText = `left:${Math.min(x, start.x)}px;top:${Math.min(y, start.y)}px;width:${Math.abs(x - start.x)}px;height:${Math.abs(y - start.y)}px`
-  })
-  b.addEventListener('pointerup', (e) => {
+  }
+  const up = (e: PointerEvent) => {
     if (!start) return
     const r = b.getBoundingClientRect()
     const x = Math.max(0, Math.min(r.width, e.clientX - r.left))
@@ -326,7 +335,7 @@ function startBox(color?: string) {
     b.classList.remove('dim')
     b.classList.add('done')
     ipcRenderer.sendToHost('cn:video', { type: 'box', box, rect: { x: r.left, y: r.top, w: r.width, h: r.height } })
-  })
+  }
 }
 
 ipcRenderer.on('video:cmd', (_e, cmd: string, arg: unknown) => {

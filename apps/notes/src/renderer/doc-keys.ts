@@ -5,7 +5,7 @@
  * - 提示块（`> [!tip] 标题`）不一样（和 Obsidian 一样）：标题行、正文最后一行末尾回车在块里续一行 `> `，
  *   空的 `> ` 行再回车才出块。
  * - Tab / ⇧Tab（CN-18，task-busas；键在命令表里能改：indent、outdent）：
- *   列表、待办里缩进一级 / 退一级；代码块里插、删一级缩进；
+ *   列表、待办里缩进一级 / 退一级（上面没有同一层的一项可挂时 Tab 不做事，像 Notion）；代码块里插、删一级缩进；
  *   光标紧跟在剪进来的一段（引文）后面：Tab 给它开一段「我的评价」，光标进去；空着的评价里 ⇧Tab 撤掉（review.ts）；
  *   别处（普通段落、标题、评价里）什么都不做，光标不离开正文（md 里行首制表符会变成代码块，不插）。
  *   键盘要离开正文：先按 Esc 再按 Tab（CodeMirror 自带）。输入法正在选字时不接（isKey 不认）。
@@ -17,7 +17,10 @@ import { type EditorState, Prec } from '@codemirror/state'
 import { type EditorView, keymap } from '@codemirror/view'
 import { comboOf } from '../shared/cmd-keys'
 import { isKey, keysFor } from './keys'
+import { blankLine, blankRun, headingLine, oneMore } from './gap-lines'
+import { hiddenOk } from './hidden-syntax'
 import { shiftTabOutOfReview, tabToReview } from './review'
+import { openTail, tailPending } from './tail-line'
 
 /** pos 所在的最外层引用 */
 function quoteAt(state: EditorState, pos: number): { from: number; to: number } | null {
@@ -38,9 +41,18 @@ export function enterInQuote(view: EditorView): boolean {
   if (!q) return false
   const empty = /^\s*>\s*$/.test(line.text)
   if (empty && sel.head === line.to) {
-    // 空的 `> ` 行：这一行变成空行，光标到下一行新起一段
-    const insert = '\n'
-    view.dispatch({ changes: { from: line.from, to: line.to, insert }, selection: { anchor: line.from + insert.length }, userEvent: 'input', scrollIntoView: true })
+    // 后面没有别的块了：这一行拿掉，文末新起一行（只在屏上，打了字才写进文件；task-axoxy，文末的空块只在屏上）
+    if (line.number > 1 && state.doc.sliceString(line.to).trim() === '' && state.field(tailPending, false) !== undefined) {
+      view.dispatch({ changes: { from: line.from - 1, to: line.to }, selection: { anchor: line.from - 1 }, userEvent: 'input', annotations: hiddenOk.of(true) })
+      openTail(view)
+      return true
+    }
+    // 空的 `> ` 行：这一行变成空行（缝），下面正好多一个空块、光标进去（gap-lines.ts 的数法：这一行本身就多了一个空行，
+    // 下面原来的空行、下一块是不是标题决定还要补几个；以前一律补一个，出块以后下面多一个空块，task-axoxy 第 21 条的图）
+    const after = line.number < state.doc.lines && blankLine(state, line.number + 1) ? blankRun(state, line.number + 1) : null
+    const next = after ? after.next : line.number < state.doc.lines ? line.number + 1 : 0
+    const extra = Math.max(0, oneMore(after?.k ?? 0, !!next && headingLine(state, next)) - 1)
+    view.dispatch({ changes: { from: line.from, to: line.to, insert: '\n'.repeat(extra) }, selection: { anchor: line.from + 1 }, userEvent: 'input', scrollIntoView: true })
     return true
   }
   if (sel.head !== q.to || line.to !== q.to) return false
@@ -50,7 +62,12 @@ export function enterInQuote(view: EditorView): boolean {
     view.dispatch({ changes: { from: sel.head, insert: '\n' + mark }, selection: { anchor: sel.head + 1 + mark.length }, userEvent: 'input', scrollIntoView: true })
     return true
   }
-  view.dispatch({ changes: { from: sel.head, insert: '\n\n' }, selection: { anchor: sel.head + 2 }, userEvent: 'input', scrollIntoView: true })
+  // 下面多一个空块（gap-lines.ts 的数法：下面原来有几个空行、下一块是不是标题，加的换行不一样；task-axoxy）
+  const run = line.number < state.doc.lines && blankLine(state, line.number + 1) ? blankRun(state, line.number + 1) : null
+  // 全篇最后一块：文末新起一行（只在屏上，tail-line.ts）
+  if (state.doc.sliceString(line.to).trim() === '' && state.field(tailPending, false) !== undefined) return openTail(view) !== null
+  const add = run && !run.next ? 2 : oneMore(run?.k ?? 0, !!run?.next && headingLine(state, run.next))
+  view.dispatch({ changes: { from: sel.head, insert: '\n'.repeat(add) }, selection: { anchor: sel.head + 2 }, userEvent: 'input', scrollIntoView: true })
   return true
 }
 
@@ -81,6 +98,19 @@ function inList(state: EditorState): boolean {
   return state.selection.ranges.every((r) => {
     for (let n: ReturnType<ReturnType<typeof syntaxTree>['resolveInner']> | null = syntaxTree(state).resolveInner(state.doc.lineAt(r.from).from + state.doc.lineAt(r.from).text.search(/\S|$/), 1); n; n = n.parent)
       if (n.name === 'ListItem') return true
+    return false
+  })
+}
+
+/**
+ * 列表项能再缩一级：选区（每一段的第一行）所在的那一项上面有同一层的一项可以挂（像 Notion、Tolaria，task-axoxy 第 16 条）。
+ * 第一项没有：Tab 不做事（以前照样在行首加两个空格，md 里不算层级，屏上却缩进了一级）
+ */
+function canIndent(state: EditorState): boolean {
+  return state.selection.ranges.every((r) => {
+    const line = state.doc.lineAt(r.from)
+    for (let n: ReturnType<ReturnType<typeof syntaxTree>['resolveInner']> | null = syntaxTree(state).resolveInner(line.from + line.text.search(/\S|$/), 1); n; n = n.parent)
+      if (n.name === 'ListItem') return n.prevSibling?.name === 'ListItem'
     return false
   })
 }
@@ -124,7 +154,7 @@ const byCombo = (combo: string) => (view: EditorView) => {
 export function tabKey(view: EditorView): boolean {
   if (view.state.readOnly) return true
   if (inCode(view.state)) return codeTab(view)
-  if (inList(view.state)) return indentMore(view)
+  if (inList(view.state)) return canIndent(view.state) ? indentMore(view) : true
   tabToReview(view)
   return true
 }

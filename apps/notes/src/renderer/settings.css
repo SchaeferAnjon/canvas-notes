@@ -829,6 +829,79 @@
   font-size: 12px;
   color: var(--acc-t);
 }
+/* 找候选用的本机模型（embed-model.tsx，设置 › 梦游）：同 .dset-list 一行；右边现在用的模型（只是字，13 --t2，同设置表里只显示值的那种）；
+   下载、建索引时一条 4 高的进度贴在行底的内边距里，行高不变（不让下面整块跳） */
+.dset-embed .row {
+  position: relative;
+  /* 底下一直留出进度条的地方（4 高 + 上下各 5），有没有进度条行高都一样 */
+  padding-bottom: 14px;
+}
+.dset-embed .bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 5px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line2);
+  overflow: hidden;
+}
+.dset-embed .bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--acc);
+  transition: width var(--dur) var(--ease);
+}
+.dset-embed .tx .err {
+  color: var(--red-t);
+}
+.dset-embed .tx .raw {
+  font: 12px var(--mono);
+  color: var(--t2);
+  overflow-wrap: anywhere;
+}
+.dset-raw {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--t2);
+  cursor: pointer;
+}
+.dset-model {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--t2);
+}
+/* 已就绪：照软件家族「● 已装 0.3.0」，12 --t3 前面一颗 6 的绿点 */
+.dset-model:has(.dot) {
+  font-size: 12px;
+  color: var(--t3);
+}
+.dset-model .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+/* 一行只有一个跳转：贴右边的链接，同「去AI页换 ›」 */
+.dset-go {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--acc-t);
+  cursor: pointer;
+}
 /* 从梦游页点过来：AI 页「梦游」那一行闪一下 */
 .aip-row.flash {
   animation: aip-flash 1.6s ease-out;
@@ -841,4 +914,48 @@
   100% {
     background: transparent;
   }
+}
+
+/* 设置 › 梦游「AI判断补双链」（task-h7oy8）：两行单选（走订阅 / 本地模型）下面接选中那条的细项，再一行每晚上限 */
+.dset-list .row.radio .vi {
+  flex: none;
+  color: var(--t2);
+}
+.dset-judge {
+  margin: 8px 0;
+}
+.dset-judge:empty {
+  display: none;
+}
+.dset-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 7px 12px;
+  border-radius: 12px;
+  background: var(--fill);
+}
+.dset-pick .tx {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dset-pick .tx b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.dset-pick .tx span {
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* 设置 › 梦游「库里别的文件夹」（task-h7oy8）：和上面分类那组同一个样子，前面一行小标题 */
+.dset-sub {
+  margin: 10px 0 6px;
+  font-size: 12px;
+  color: var(--t3);
 }

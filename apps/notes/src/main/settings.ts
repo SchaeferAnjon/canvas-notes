@@ -84,6 +84,7 @@ export class SettingsFile {
         pdf: { ...cur.pdf, ...(p.pdf ?? {}) },
         web: { ...cur.web, ...(p.web ?? {}) },
         sync: { ...cur.sync, ...(p.sync ?? {}) },
+        cite: { ...cur.cite, ...(p.cite ?? {}) },
       },
       this.userSkins(),
     )

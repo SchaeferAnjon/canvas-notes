@@ -29,7 +29,7 @@ const HINT: Record<CameraKind, string> = {
   mac: '把纸举到摄像头前，四角都在框里；字小的话离近一点。',
   desk: '用iPhone夹在屏幕上方，纸平放在键盘前面。',
 }
-const FROM_PILL: Record<Exclude<PhotoFrom, CameraKind>, string> = { file: '从照片选的', paste: '粘贴的照片', airdrop: '隔空投送来的' }
+const FROM_PILL: Record<Exclude<PhotoFrom, CameraKind>, string> = { file: '从照片选的', paste: '粘贴的照片', airdrop: '隔空投送来的', feynman: '费曼讲的' }
 
 interface Photo {
   staged: StagedPhoto
@@ -49,16 +49,17 @@ type Check =
 let reqSeq = 0
 
 function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(path: string, hung: boolean): void; onNotice(t: string): void }) {
-  const [step, setStep] = useState<'shoot' | 'check'>('shoot')
+  const seed = props.req.seed
+  const [step, setStep] = useState<'shoot' | 'check'>(seed ? 'check' : 'shoot')
   const [photo, setPhoto] = useState<Photo | null>(null)
   const [flash, setFlash] = useState(0)
   const [note, setNote] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [check, setCheck] = useState<Check>({ phase: 'reading' })
-  const [rows, setRows] = useState<Row[]>([])
+  const [check, setCheck] = useState<Check>(seed ? { phase: 'done' } : { phase: 'reading' })
+  const [rows, setRows] = useState<Row[]>(() => (seed ? toRows(seed.roots) : []))
   const [sel, setSel] = useState<string | null>(null)
   const [meta, setMeta] = useState<{ course?: string; lecture?: number }>({})
-  const cam = useCamera(step === 'shoot' && !photo)
+  const cam = useCamera(step === 'shoot' && !photo && !seed)
   const reading = useRef<number | null>(null)
   const placed = useRef(false)
   const photoRef = useRef(photo)
@@ -71,6 +72,7 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
 
   // 关掉窗口：没做成导图的照片丢掉；不再看「下载」
   useEffect(() => {
+    if (seed) return
     void window.cnMap.watchAirdrop(true)
     const offA = window.cnMap.onAirdrop((p) => void usePhoto(p, 'airdrop', `收到隔空投送的照片「${p.name}」`))
     const offE = window.cnMap.onAirdropError(setNote)
@@ -167,21 +169,25 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
   async function place() {
     const p = photoRef.current
     const roots = fromRows(rows)
-    if (!p || !roots.length || busy) return
+    if ((!p && !seed) || !roots.length || busy) return
     setBusy(true)
     try {
       const course = props.req.course ?? meta.course
-      const r = await window.cnMap.place({
-        photo: p.staged.id,
-        ...(props.req.into ? { into: props.req.into } : {}),
-        from: p.from,
-        roots,
-        course,
-        lecture: meta.lecture,
-        // 从课程首页进来的课程是用户自己选的，不算 AI 填的
-        ai: [...(course && !props.req.course ? ['课程'] : []), ...(meta.lecture ? ['第几讲'] : [])],
-        at: p.at,
-      })
+      const r = await window.cnMap.place(
+        seed || !p
+          ? { title: seed!.title, ...(props.req.into ? { into: props.req.into } : {}), from: 'feynman', roots, course, ai: [], at: Date.now() }
+          : {
+              photo: p.staged.id,
+              ...(props.req.into ? { into: props.req.into } : {}),
+              from: p.from,
+              roots,
+              course,
+              lecture: meta.lecture,
+              // 从课程首页进来的课程是用户自己选的，不算 AI 填的
+              ai: [...(course && !props.req.course ? ['课程'] : []), ...(meta.lecture ? ['第几讲'] : [])],
+              at: p.at,
+            },
+      )
       placed.current = true
       markGrow(r.path)
       // 挂到白板、笔记上：插好卡 / 缩略图块、三样一起提交（照片已经用掉了，出错也关窗口，底栏说清楚）
@@ -340,8 +346,8 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
           </div>
         </div>
       ) : (
-        <div className="mm-sheet checking" role="dialog" aria-label="核对认出来的">
-          <Head title="核对认出来的" at={2} onClose={close} />
+        <div className={'mm-sheet checking' + (seed ? ' seeded' : '')} role="dialog" aria-label={seed ? '核对要放的导图' : '核对认出来的'}>
+          <Head title={seed ? '核对要放的导图' : '核对认出来的'} at={2} first={seed?.step1} onClose={close} />
           <div className="mm-check">
             {photo && <PhotoBoxes photo={photo} rows={rows} sel={sel} scanning={check.phase === 'reading'} onPick={setSel} />}
             <div className="mm-outline">
@@ -373,13 +379,15 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
                   </div>
                 </div>
               )}
-              {check.phase === 'done' && <Outline rows={rows} sel={sel} onSel={setSel} onRows={setRows} />}
+              {check.phase === 'done' && <Outline rows={rows} sel={sel} photo={!!photo} onSel={setSel} onRows={setRows} />}
             </div>
           </div>
           <div className="mm-ft">
             <span className="help" role="status">
               {note ??
-                (check.phase === 'done' ? (
+                (seed ? (
+                  `${seed.said} · ${counts.all}个节点 · 放上白板后也能改`
+                ) : check.phase === 'done' ? (
                   <>
                     {`认出${counts.all}个节点`}
                     {counts.unsure ? (
@@ -397,10 +405,16 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
                   ''
                 ))}
             </span>
-            <button className="btn" onClick={reshoot}>
-              <Codicon name="discard" size={14} />
-              重拍
-            </button>
+            {seed ? (
+              <button className="btn" onClick={close}>
+                算了
+              </button>
+            ) : (
+              <button className="btn" onClick={reshoot}>
+                <Codicon name="discard" size={14} />
+                重拍
+              </button>
+            )}
             <button className="btn btn-primary" disabled={check.phase !== 'done' || !counts.all || busy} onClick={() => void place()}>
               <Codicon name="type-hierarchy" size={14} />
               做成白板导图
@@ -412,7 +426,7 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
   )
 }
 
-function Head(props: { title: string; at: 1 | 2; onClose(): void }) {
+function Head(props: { title: string; at: 1 | 2; first?: string; onClose(): void }) {
   const step = (n: 1 | 2 | 3, label: string) => {
     const cls = n < props.at ? 'done' : n === props.at ? 'now' : ''
     return (
@@ -426,7 +440,7 @@ function Head(props: { title: string; at: 1 | 2; onClose(): void }) {
     <div className="mm-hd">
       <h3>{props.title}</h3>
       <div className="mm-steps" aria-label="三步">
-        {step(1, '拍')}·{step(2, '核对')}·{step(3, '放上白板')}
+        {step(1, props.first ?? '拍')}·{step(2, '核对')}·{step(3, '放上白板')}
       </div>
       <span className="sp" />
       <button className="iconbtn" aria-label="关闭" onClick={props.onClose}>
@@ -518,7 +532,7 @@ function PhotoBoxes(props: { photo: Photo; rows: Row[]; sel: string | null; scan
 }
 
 /** 右边的大纲：直接改字；Tab / ⇧Tab 改层级；回车加一行同级；空着按退格删这行 */
-function Outline(props: { rows: Row[]; sel: string | null; onSel(k: string): void; onRows(r: Row[]): void }) {
+function Outline(props: { rows: Row[]; sel: string | null; photo: boolean; onSel(k: string): void; onRows(r: Row[]): void }) {
   const { rows } = props
   const box = useRef<HTMLDivElement>(null)
   const focusKey = useRef<string | null>(null)
@@ -534,11 +548,11 @@ function Outline(props: { rows: Row[]; sel: string | null; onSel(k: string): voi
   const set = (i: number, patch: Partial<Row>) => props.onRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   return (
     <div className="mm-rows" ref={box} aria-label="大纲">
-      <p className="mm-tip">大纲：点一行，左边照片框出这一块；直接改字，Tab缩进</p>
+      <p className="mm-tip">{props.photo ? '大纲：点一行，左边照片框出这一块；直接改字，Tab缩进' : '大纲：直接改字，Tab缩进；放上白板后讲错的标红，空框点开自己补一句'}</p>
       {rows.map((r, i) => {
         const level = r.depth === 0 ? 'c' : r.depth === 1 ? 'l1' : 'l2'
         return (
-          <div key={r.key} className={`or ${level}${r.unsure ? ' unsure' : ''}${props.sel === r.key ? ' sel' : ''}`} style={{ paddingLeft: 4 + r.depth * 18 }}>
+          <div key={r.key} className={`or ${level}${r.unsure ? ' unsure' : ''}${r.wrong || r.fix || r.blank ? ' marked' : ''}${props.sel === r.key ? ' sel' : ''}`} style={{ paddingLeft: 4 + r.depth * 18 }}>
             <span className="bul" />
             <input
               data-key={r.key}
@@ -576,6 +590,9 @@ function Outline(props: { rows: Row[]; sel: string | null; onSel(k: string): voi
               }}
             />
             {r.unsure && <span className="tag-yel">拿不准</span>}
+            {r.wrong && <span className="tag-red">讲错</span>}
+            {r.fix && <span className="tag-red">正确说法</span>}
+            {r.blank && <span className="tag-blank">后面留空框</span>}
           </div>
         )
       })}

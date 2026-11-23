@@ -16,6 +16,9 @@ import { useT } from '../i18n'
 import { usePrefs } from '../settings-store'
 import { renderTex } from '../tex'
 import { cardsChanged, closeCards, closeSpot, useCardsOpen, useSpot } from './cards-store'
+import { app } from '../ctx/actions'
+import { type CoreState, STATE_LABEL } from '../../shared/feynman/types'
+import { markGapsSent } from '../feynman-after/after'
 import { t as tNow } from '../../shared/i18n'
 import { dateText } from '../../shared/when'
 import './cards.css'
@@ -28,6 +31,9 @@ const dayOf = (iso: string) => {
   const ms = new Date(iso).getTime()
   return dateText(ms, ms)
 }
+/** 费曼缺口那一条是哪种：讲错、含糊、没讲到、说错后改对、追问后补上、了解即可、讲清了 */
+const gapKind = (k: string) => (k === 'extra' ? tNow('了解即可') : k === 'recap' ? tNow('讲清了') : tNow(STATE_LABEL[k as CoreState] ?? k))
+
 /** AI 没改出来的、以前送的没记字的：照原话和回答开头一段 */
 const plainCard = (it: CardItem): CardText => ({ q: it.question, a: it.lead.replace(/\s+/g, ' ').slice(0, 120), more: '', quote: it.quote ?? '' })
 
@@ -94,8 +100,8 @@ function Paper(p: { it: CardItem; card: CardText; editing: boolean; small?: bool
         )}
       </div>
       <div className="foot">
-        <span>{t('{name} · 第 {page} 页', { name: stem(it.pdf), page: it.page })}</span>
-        <button className="open" onClick={p.onOpen} title={t('回到这份 PDF 的这一页')}>
+        <span>{it.feynman ? it.feynman.source : t('{name} · 第 {page} 页', { name: stem(it.pdf), page: it.page })}</span>
+        <button className="open" onClick={p.onOpen} title={it.feynman ? t('回到这一轮所在的那篇') : t('回到这份 PDF 的这一页')}>
           {t('打开原文')}
         </button>
       </div>
@@ -219,12 +225,18 @@ async function sendNow(scope: CardScope, cards: { id: string; card: CardText }[]
   if (failed && !r.added.length && !r.duplicates.length) return { error: tNow('一张也没送进去：{error}', { error: Object.values(r.failed)[0] ?? '' }) }
   cardsChanged()
   const ids = [...r.added, ...r.duplicates]
+  // 费曼缺口：这一轮里送过的那几条写「✓ 已送进Anki」（记在这一节的注释里，撤回时拿掉）
+  const fey = scope.kind === 'feynman' ? scope : null
+  if (fey) await markGapsSent(fey.note, fey.round, ids, true)
   p.onToast({
     text: sentText(r),
     act: { label: tNow('打开Anki'), run: () => void window.cnReading.openAnki(r.added).catch((e) => p.onNotice(errText(e))) },
     undo: () =>
       void window.cnReading.undoCards(scope, ids).then(
-        (u) => (u.error ? p.onNotice(u.error) : (cardsChanged(), p.onNotice(tNow('撤回了：Anki 里删掉了这{n}张，笔记里不再标已送', { n: r.added.length })))),
+        (u) =>
+          u.error
+            ? p.onNotice(u.error)
+            : (cardsChanged(), fey && void markGapsSent(fey.note, fey.round, ids, false), p.onNotice(tNow('撤回了：Anki 里删掉了这{n}张，笔记里不再标已送', { n: r.added.length }))),
         (e) => p.onNotice(errText(e)),
       ),
   })
@@ -441,7 +453,7 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
   const label = view?.label ?? ''
   const keepN = items.filter((x) => keep[x.id]).length
   const skipN = items.length - keepN
-  const openAt = (x: CardItem) => (closeCards(), p.onOpenPdfAt(x.pdf, x.page))
+  const openAt = (x: CardItem) => (closeCards(), x.feynman ? app().openFile(x.pdf) : p.onOpenPdfAt(x.pdf, x.page))
   let body: ReactNode = null
   if (it && !cards[it.id]) body = (
     <div className="drafting">
@@ -478,8 +490,16 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
           <Paper it={it} card={cards[it.id]!} editing={editing} qRef={qRef} aRef={aRef} onOpen={() => openAt(it)} />
         </div>
         <div className="orig">
-          <Codicon name={it.quote !== undefined ? 'comment-discussion' : 'comment'} size={14} />
-          <span>{it.quote !== undefined ? t('你当时问的：「{q}」 · 旁支，问的是「{quote}…」', { q: it.question, quote: it.quote.slice(0, 14) }) : t('你当时问的：「{q}」', { q: it.question })}</span>
+          <Codicon name={it.feynman ? 'mortar-board' : it.quote !== undefined ? 'comment-discussion' : 'comment'} size={14} />
+          <span>
+            {it.feynman
+              ? it.feynman.said
+                ? t('{kind} · 你当时说：「{said}」', { kind: gapKind(it.feynman.kind), said: it.feynman.said })
+                : t('{kind} · 讲的时候没提到这一条', { kind: gapKind(it.feynman.kind) })
+              : it.quote !== undefined
+                ? t('你当时问的：「{q}」 · 旁支，问的是「{quote}…」', { q: it.question, quote: it.quote.slice(0, 14) })
+                : t('你当时问的：「{q}」', { q: it.question })}
+          </span>
           {edited.has(it.id) && <span className="chip">{t('改过')}</span>}
         </div>
         <div className="keys">

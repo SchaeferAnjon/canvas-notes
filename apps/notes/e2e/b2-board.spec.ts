@@ -379,7 +379,7 @@ test('文档切到白板不露原文：书摘卡头《书》· 章、PDF 页缩�
   }
 })
 
-test('文档切成的白板：工具板六样、顶上那条说明、右边一格收件箱；卡片拖到空白处就地写、拖待办进一列、收件箱拖进一列、加一列并改名、摆回原样', async () => {
+test('文档切成的白板：工具板七样、顶上那条说明、右边一格收件箱；卡片拖到空白处就地写、拖待办进一列、收件箱拖进一列、加一列并改名、摆回原样', async () => {
   const run = await launch(docBoardVault())
   const { page, vault } = run
   const file = () => readFileSync(join(vault, '写作/冰岛十天环岛.md'), 'utf8')
@@ -388,9 +388,9 @@ test('文档切成的白板：工具板六样、顶上那条说明、右边一�
     await openNote(page, '冰岛十天环岛')
     await acts(page).getByRole('tab', { name: '白板' }).click()
     await expect(docBoard(page)).toBeVisible()
-    // 工具板：卡片、待办、列、数据库、子白板｜拍导图（2026-11-21 方向 A 加了数据库）
+    // 工具板：卡片、待办、列、数据库、子白板｜拍导图、费曼学习（2026-11-21 方向 A 加了数据库；task-yvabi 加了费曼学习）
     const pal = docBoard(page).locator('.bpal button')
-    await expect(pal).toHaveText(['卡片', '待办', '列', '数据库', '子白板', '拍导图'])
+    await expect(pal).toHaveText(['卡片', '待办', '列', '数据库', '子白板', '拍导图', '费曼学习'])
     // 顶上居中：第一次打开说一次「按「##」摆成列 · 挪动了才写进文件」，右边 ×；没东西可摆时没有「摆回原样」（task-wn3x5）
     const hint = docBoard(page).locator('.db-hint')
     await expect(hint).toHaveText('按「##」摆成列 · 挪动了才写进文件')

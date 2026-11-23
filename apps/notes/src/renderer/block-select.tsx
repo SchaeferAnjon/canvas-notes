@@ -10,6 +10,7 @@
 import { type CodiconName } from '@cn/design'
 import { convertMdBlocks, duplicateMdBlocks, indentMdBlocks, type MdBlock, removeMdBlocks, selectedMarkdown } from '@cn/format'
 import { undo } from '@codemirror/commands'
+import { trackDrag } from '@cn/design/drag-end'
 import { EditorState, Prec, StateEffect, StateField } from '@codemirror/state'
 import { EditorView, keymap, layer, RectangleMarker, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { useState } from 'react'
@@ -258,36 +259,35 @@ class Framer {
     const sy = e.clientY
     const sTop = this.scroller().scrollTop
     let moved = false
-    const move = (ev: MouseEvent) => {
-      if (!moved) {
-        if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return
-        moved = true
-        framing = true
-        this.hidden = true
-        // 光标收成一点（按下时 CodeMirror、block-flow 可能已经放了光标或开始选字）
-        const at = view.state.selection.main.head
-        view.dispatch({ selection: { anchor: at } })
-        this.box = document.createElement('div')
-        this.box.className = 'cm-blk-marquee'
-        this.box.dataset.testid = 'doc-marquee'
-        document.body.appendChild(this.box)
-      }
-      this.frame(sx, sy + (sTop - this.scroller().scrollTop), ev.clientX, ev.clientY, base)
-      this.autoScroll(ev.clientY)
-    }
-    const up = () => {
-      window.removeEventListener('mousemove', move, true)
-      window.removeEventListener('mouseup', up, true)
-      framing = false
-      this.box?.remove()
-      this.box = null
-      if (!moved) return
-      this.hidden = false
-      this.paint()
-      view.focus()
-    }
-    window.addEventListener('mousemove', move, true)
-    window.addEventListener('mouseup', up, true)
+    // 松手没送到页面（窗口外松手、失焦）也收（trackDrag，task-0nz63）：框碰到的块照样选着，和松手一样
+    trackDrag(e, {
+      move: (ev) => {
+        if (!moved) {
+          if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 4) return
+          moved = true
+          framing = true
+          this.hidden = true
+          // 光标收成一点（按下时 CodeMirror、block-flow 可能已经放了光标或开始选字）
+          const at = view.state.selection.main.head
+          view.dispatch({ selection: { anchor: at } })
+          this.box = document.createElement('div')
+          this.box.className = 'cm-blk-marquee'
+          this.box.dataset.testid = 'doc-marquee'
+          document.body.appendChild(this.box)
+        }
+        this.frame(sx, sy + (sTop - this.scroller().scrollTop), ev.clientX, ev.clientY, base)
+        this.autoScroll(ev.clientY)
+      },
+      end: () => {
+        framing = false
+        this.box?.remove()
+        this.box = null
+        if (!moved) return
+        this.hidden = false
+        this.paint()
+        view.focus()
+      },
+    })
   }
   private scroller(): HTMLElement {
     return this.host.closest<HTMLElement>('.body') ?? this.view.scrollDOM

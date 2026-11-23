@@ -1,3 +1,4 @@
+import { PdfCover } from '../feynman/cover'
 import { composing } from '../ime'
 import { accelFor, isKey, useKeys } from '../keys'
 /**
@@ -5,10 +6,11 @@ import { accelFor, isKey, useKeys } from '../keys'
  * 拖一个框就问（框完右栏 AI 输入框顶上那一排第一张就是这块截图，回车就发），没框时 ⌘↵ 问整页、框着时 ⌘↵ 是引用；
  * 框好、选好的工具条和网页、HTML 上的一个样（task-6cxtc）「讲解一下 ↵ · 翻译 + 讲一讲 · 引用 ⌘↵ ｜ ⋯ · ×」，
  * 「⋯」里拷贝这段（框的是拷贝这块）、翻译设置…；点外面就收（CN-97）；
- * 页边「这里问过」的小标记，点了右栏切到笔记那一段；从笔记点回来，翻到那页、框闪两下。
+ * 纸里右边一列「这里问过」的竖线（PdfMarks，task-2onrm），点了右栏切到笔记那一段、框闪一下；从笔记点回来，翻到那页、框闪两下。
  * 照 design/pdf 方向 A（右栏切换）的 spec 1.2–1.4。
  */
 import { Codicon } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { appSettings } from '../settings-store'
 import { pdfZoomName } from '../settings/pdf'
 import { openSettingsAt } from '../settings/jump'
@@ -20,9 +22,12 @@ import { ActBtn, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { closePdf, loadPdf, type PdfDoc, pdfjs } from './pdf'
+import { fillCrops } from './crop-fill'
 import { PdfFind } from '../find/PdfFind'
+import { PdfMarks } from './PdfMarks'
 import * as R from './store'
 import type { Material } from '../../shared/materials'
+import type { ReadingThread } from '../../shared/reading'
 import { useDismiss } from '../use-dismiss'
 import { capStyle, clientArea, useCapPlace } from './cap-place'
 import { PanelGuard } from '../crash/Guard'
@@ -59,9 +64,8 @@ interface Boxed {
 const PAD_TOP = 24
 const GAP = 24
 const MIN_BOX = 14
-/** 纸左边留给页码、右边留给页边标记的宽 */
-const SIDE_L = 40
-const SIDE_R = 52
+/** 纸左右留白（左边写页码；问过的标记在纸里，右边和左边一样宽，task-2onrm） */
+const SIDE = 40
 /** 一张画布最多这么多像素（同 pdf.js 的 maxCanvasPixels）：放得很大时降低清晰度，不再按 2 倍画，免得一页占几百 MB */
 const MAX_CANVAS_PX = 2 ** 24
 /** 捏合停下这么久后才按新比例重画（捏的过程中先把画好的那张拉一下，跟着手指走） */
@@ -72,7 +76,7 @@ export function PdfTab(props: {
   active: boolean
   /** 框好了：右栏打开到 AI */
   onAsk(): void
-  /** 点了页边标记：右栏切到笔记那一段 */
+  /** 点了纸里那一列问过的：右栏切到笔记那一段 */
   onShowNote(id: string): void
   onNotice(text: string): void
 }) {
@@ -108,6 +112,8 @@ export function PdfTab(props: {
     return z.zoom
   })
   const [height, setHeight] = useState(0)
+  /** 竖着的滚动条占的宽（系统设成「一直显示」时 11 左右，浮着的是 0）：右边留白扣掉它，纸离两边一样远 */
+  const [sbW, setSbW] = useState(0)
   const [visible, setVisible] = useState<Set<number>>(new Set([1, 2]))
   const [page, setPage] = useState(1)
   const [pageEdit, setPageEdit] = useState(false)
@@ -123,7 +129,6 @@ export function PdfTab(props: {
   const boxSeq = useRef(0)
   const [flash, setFlash] = useState<{ page: number; rect?: Rect; seq: number } | null>(null)
   const [hoverThread, setHoverThread] = useState<string | null>(null)
-  const [plusOpen, setPlusOpen] = useState<number | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const restored = useRef(false)
   // 标签关了：排着的那一问不发、不记笔记（正在答的照常答完）
@@ -149,6 +154,11 @@ export function PdfTab(props: {
         setSizes(out)
         // 后台读全文（AI 先把整份读一遍）；读的时候已经能问
         void R.readAll(path, hash, d.numPages)
+        // 以前问过、笔记里那一段没有框的图的：照记下的框补一张（task-yp8l7）
+        fillCrops(path).then(
+          (said) => said && props.onNotice(said),
+          (e) => props.onNotice(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')),
+        )
       },
       (e) => alive && setError(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')),
     )
@@ -161,20 +171,21 @@ export function PdfTab(props: {
   useLayoutEffect(() => {
     const el = scroller.current
     if (!el) return
-    const ro = new ResizeObserver(() => {
+    const measure = () => {
       if (el.clientWidth) setWidth(el.clientWidth)
       if (el.clientHeight) setHeight(el.clientHeight)
-    })
+      setSbW(el.offsetWidth - el.clientWidth - el.clientLeft * 2)
+    }
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
-    if (el.clientWidth) setWidth(el.clientWidth)
-    if (el.clientHeight) setHeight(el.clientHeight)
+    measure()
     return () => ro.disconnect()
   }, [])
 
   const maxW = sizes ? Math.max(...sizes.map((s) => s.w)) : 600
   const maxH = sizes ? Math.max(...sizes.map((s) => s.h)) : 800
-  // 适合宽度 / 整页：左边留 40 写页码、右边 52 放标记，上下各留 24
-  const view = { w: width - SIDE_L - SIDE_R, h: height - PAD_TOP * 2 }
+  // 适合宽度 / 整页：纸离这一栏左右两边各 40（左边写页码；常显的滚动条算在右边那 40 里），上下各留 24
+  const view = { w: width + sbW - SIDE * 2, h: height - PAD_TOP * 2 }
   const fitOf = (f: 'width' | 'page') => fitScale(f, view, maxW, { w: maxW, h: maxH })
   const scale = !sizes || !width ? 1 : clampScale(typeof zoom === 'number' ? zoom : fitOf(zoom))
   /** 正在往哪个比例变（连着捏、连着按时，比例还没画出来就接着变） */
@@ -362,20 +373,22 @@ export function PdfTab(props: {
     const x = e.clientX - b.left
     const y = e.clientY - b.top
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-    setDrag({ page: Number(pageEl.dataset.page), x0: x, y0: y, x1: x, y1: y })
+    let d = { page: Number(pageEl.dataset.page), x0: x, y0: y, x1: x, y1: y }
+    setDrag(d)
+    // 松手没送到页面（窗口外松手、失焦）：当没框，不截图、不问 AI（trackDrag，task-0nz63）
+    trackDrag<PointerEvent>(e, {
+      move: (ev) => {
+        const el = scroller.current?.querySelector<HTMLElement>(`.pdfpage[data-page="${d.page}"]`)
+        if (!el) return
+        const r = el.getBoundingClientRect()
+        d = { ...d, x1: clamp(ev.clientX - r.left, 0, r.width), y1: clamp(ev.clientY - r.top, 0, r.height) }
+        setDrag(d)
+      },
+      end: (how) => (how === 'up' ? void finishBox(d) : setDrag(null)),
+    })
   }
 
-  function onPointerMove(e: React.PointerEvent) {
-    if (!drag) return
-    const pageEl = scroller.current?.querySelector<HTMLElement>(`.pdfpage[data-page="${drag.page}"]`)
-    if (!pageEl) return
-    const b = pageEl.getBoundingClientRect()
-    setDrag({ ...drag, x1: clamp(e.clientX - b.left, 0, b.width), y1: clamp(e.clientY - b.top, 0, b.height) })
-  }
-
-  async function onPointerUp() {
-    if (!drag) return onSelectionEnd()
-    const d = drag
+  async function finishBox(d: { page: number; x0: number; y0: number; x1: number; y1: number }) {
     setDrag(null)
     const s = sizes![d.page - 1]!
     const pw = s.w * scale
@@ -602,9 +615,16 @@ export function PdfTab(props: {
 
   const rounds = (id: string) => r.state.msgs.filter((m) => m.thread === id && m.role === 'user').length
 
-  // ---------- 页边标记：每处问过的地方一颗，一页超过 3 颗时第 3 颗是 +N ----------
+  // ---------- 纸里右边一列问过的（PdfMarks）：点一处右栏切到笔记那一节，框闪一下 ----------
   const current = r.focus?.id ?? null
   const fresh = r.state.threads.length ? r.state.threads.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)) : null
+  const flashSeq = useRef(0)
+  function goThread(t: ReadingThread) {
+    const seq = --flashSeq.current
+    setFlash({ page: t.page, ...(t.rect ? { rect: t.rect } : {}), seq })
+    setTimeout(() => setFlash((f) => (f?.seq === seq ? null : f)), 1900)
+    props.onShowNote(t.id)
+  }
 
   // 工具条：选区（框）上方 6，上面放不下放下面 6；左右限在这一栏看得见的那块里（不撑宽滚动区）；整条放不下才藏键帽（cap-place.ts）
   const capAt = useCapPlace(
@@ -731,6 +751,8 @@ export function PdfTab(props: {
           )}
         </div>
       </TabActs>
+      {/* 费曼学习讲着、材料是这一份：盖住，按住看一眼 */}
+      <PdfCover path={path} />
       <div className="pdfbody" ref={bodyRef}>
         {error && <div className="pdferr">打不开这份PDF：{error}</div>}
         {/* 在这份 PDF 里找（⇧⌘F）：读各页的字找，跳到那一页、文字层上铺淡底 */}
@@ -740,19 +762,18 @@ export function PdfTab(props: {
         <div
           className={'pdfv' + (drag ? ' drawing' : '')}
           ref={scroller}
+          style={{ ['--pad-r' as string]: `${Math.max(0, SIDE - sbW)}px` }}
           tabIndex={0}
           onScroll={onScroll}
           onPointerDown={onPointerDown}
           onContextMenu={onContext}
-          onPointerMove={onPointerMove}
-          onPointerUp={() => void onPointerUp()}
+          // 框一块的松手由 trackDrag 收（按下时开始跟）；没在框时松手是选字选完了
+          onPointerUp={() => !drag && onSelectionEnd()}
           data-testid="pdf-view"
         >
           {sizes?.map((s, i) => {
             const n = i + 1
             const threads = r.state.threads.filter((t) => t.page === n)
-            const shown = threads.length > 3 ? threads.slice(0, 2) : threads
-            const extra = threads.length > 3 ? threads.slice(2) : []
             return (
               <div key={n} className="pdfrow" style={{ marginTop: n === 1 ? PAD_TOP : 0 }}>
               <div className="pdfslot" style={{ width: s.w * scale, height: s.h * scale }}>
@@ -766,35 +787,19 @@ export function PdfTab(props: {
                   )}
                   {flash?.page === n && <div key={flash.seq} className={'fr flash' + (flash.rect ? '' : ' whole')} style={flash.rect ? pct(flash.rect) : undefined} data-testid="pdf-flash" />}
                 </div>
-                {shown.map((t) => (
-                  <button
-                    key={t.id}
-                    className={'mk num' + (current === t.id ? ' cur' : '') + (fresh?.id === t.id && Date.now() - t.createdAt < 1500 ? ' new' : '')}
-                    style={{ top: (t.rect ? t.rect[1] : 0) * s.h * scale }}
-                    title={`这里问过 ${rounds(t.id)} 轮 · 点一下看笔记`}
-                    aria-label={`第 ${n} 页这里问过 ${rounds(t.id)} 轮`}
-                    onMouseEnter={() => setHoverThread(t.id)}
-                    onMouseLeave={() => setHoverThread(null)}
-                    onClick={() => props.onShowNote(t.id)}
-                  >
-                    <Codicon name="comment" size={12} />
-                    {rounds(t.id)}
-                  </button>
-                ))}
-                {extra.length > 0 && (
-                  <button className="mk num" style={{ top: (extra[0]!.rect ? extra[0]!.rect[1] : 0) * s.h * scale }} aria-label={`第 ${n} 页还有 ${extra.length} 处问过`} onClick={() => setPlusOpen(plusOpen === n ? null : n)}>
-                    +{extra.length}
-                  </button>
-                )}
-                {plusOpen === n && (
-                  <div className="mklist" role="menu" style={{ top: (extra[0]!.rect ? extra[0]!.rect[1] : 0) * s.h * scale + 26 }} onMouseLeave={() => setPlusOpen(null)}>
-                    {extra.map((t) => (
-                      <button key={t.id} role="menuitem" onClick={() => (setPlusOpen(null), props.onShowNote(t.id))}>
-                        <span className="num">{where(t.rect)}</span>
-                        <b className="truncate">{r.note.sections.find((x) => x.id === t.id)?.title ?? '还在记'}</b>
-                      </button>
-                    ))}
-                  </div>
+                {threads.length > 0 && (
+                  <PdfMarks
+                    page={n}
+                    height={s.h * scale}
+                    threads={threads}
+                    rounds={rounds}
+                    title={(id) => r.note.sections.find((x) => x.id === id)?.title ?? tNow('还在记')}
+                    current={current}
+                    fresh={fresh && Date.now() - fresh.createdAt < 1500 ? fresh.id : null}
+                    hover={hoverThread}
+                    setHover={setHoverThread}
+                    onGo={goThread}
+                  />
                 )}
                 {capOpen && bar.enabled && boxed?.page === n && !r.queued.length && (
                   <div
@@ -834,12 +839,6 @@ export function PdfTab(props: {
       </div>
     </section>
   )
-}
-
-function where(rect?: Rect) {
-  if (!rect) return '整页'
-  const y = rect[1] + rect[3] / 2
-  return y < 0.33 ? '上方' : y < 0.66 ? '中间' : '下方'
 }
 
 const px = (d: Drag) => ({ left: Math.min(d.x0, d.x1), top: Math.min(d.y0, d.y1), width: Math.abs(d.x1 - d.x0), height: Math.abs(d.y1 - d.y0) })

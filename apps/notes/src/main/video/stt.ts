@@ -51,15 +51,15 @@ export function setupStt(h: SttHost) {
       })
 }
 
-/** 用哪个密钥：设置里填的；没填用环境变量 SONIOX_API_KEY（测试实例只在指了假服务或明说真跑时才用） */
-function key(): string | undefined {
+/** 用哪个密钥：设置里填的；没填用环境变量 SONIOX_API_KEY（测试实例只在指了假服务或明说真跑时才用）。费曼的语音输入（main/voice）也用它 */
+export function sonioxKey(): string | undefined {
   const stored = keys.has('soniox') ? keys.get('soniox') : undefined
   if (stored) return stored
-  if (E2E && !process.env.CN_SONIOX_BASE && process.env.CN_REAL_STT !== '1') return undefined
+  if (E2E && !process.env.CN_SONIOX_BASE && !process.env.CN_SONIOX_RT_URL && process.env.CN_REAL_STT !== '1') return undefined
   return process.env.SONIOX_API_KEY || undefined
 }
 
-export const sttKeyStatus = () => ({ has: !!key(), tail: keys.tail('soniox') ?? null, fromEnv: !keys.has('soniox') && !!key() })
+export const sttKeyStatus = () => ({ has: !!sonioxKey(), tail: keys.tail('soniox') ?? null, fromEnv: !keys.has('soniox') && !!sonioxKey() })
 export function setSttKey(raw: unknown) {
   if (raw === null) keys.delete('soniox')
   else keys.set('soniox', cleanKey(raw))
@@ -116,7 +116,7 @@ async function cookiesFor(ref: VideoRef, dir: string): Promise<string | undefine
 export async function startStt(ref: VideoRef, title: string, bundledYtDlp: string | null): Promise<void> {
   const cur = jobs.get(ref.key)
   if (cur && !cur.state.error) return
-  const k = key()
+  const k = sonioxKey()
   if (!k) throw new Error('先在设置 › AI 里填 Soniox 密钥')
   const bin = findYtDlp(bundledYtDlp)
   if (!bin) throw new Error('找不到下载音频的 yt-dlp：重新装一次软件')

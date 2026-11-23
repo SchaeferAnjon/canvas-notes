@@ -1,4 +1,5 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { isKey, keyFor } from './keys'
 import {
   aiBlockAt,
@@ -510,6 +511,11 @@ class Handles {
     this.bar.style.top = top + 'px'
     this.bar.hidden = false
     this.bar.dataset.kind = i === TAIL ? 'tail' : (this.blocks[i]?.kind ?? '')
+    // 放宽后往左伸出去的数据库表（task-cle3x，BaseTable 的 widen 写在部件的 margin-left 上）：把手跟着挪到卡的左边，不压在卡头上
+    const b = i === TAIL ? null : this.blocks[i]
+    const w = b ? Array.from(this.view.contentDOM.children).find((c) => c.classList.contains('cm-base') && this.view.posAtDOM(c) === b.from) : null
+    const shift = w ? parseFloat((w as HTMLElement).style.marginLeft) || 0 : 0
+    this.bar.style.left = shift ? `${-52 + shift}px` : ''
   }
 
   private showBar(i: number) {
@@ -545,8 +551,8 @@ class Handles {
     e.preventDefault()
     this.tip.hide()
     this.drag = { index: this.index, x: e.clientX, y: e.clientY, started: false, to: -1, faded: [], shift: e.shiftKey, meta: e.metaKey || e.ctrlKey }
-    window.addEventListener('mousemove', this.onDragMove)
-    window.addEventListener('mouseup', this.onDragUp)
+    // 松手没送到页面（窗口外松手、失焦）：当没拖过，像按了 Esc（不挪块、不出菜单；trackDrag，task-0nz63）
+    this.stopTrack = trackDrag(e, { move: this.onDragMove, end: (how) => (how === 'up' ? this.onDragUp() : this.cancelDrag()) })
     window.addEventListener('keydown', this.onDragKey, true)
   }
 
@@ -664,13 +670,20 @@ class Handles {
     if (e.key !== 'Escape') return
     e.preventDefault()
     e.stopPropagation()
+    this.cancelDrag()
+  }
+
+  private cancelDrag() {
     this.endDrag()
     this.setHot(null)
   }
 
+  /** 正在拖的那一次的监听（trackDrag 给的收尾） */
+  private stopTrack: (() => void) | null = null
+
   private endDrag() {
-    window.removeEventListener('mousemove', this.onDragMove)
-    window.removeEventListener('mouseup', this.onDragUp)
+    this.stopTrack?.()
+    this.stopTrack = null
     window.removeEventListener('keydown', this.onDragKey, true)
     this.view.dom.classList.remove('blk-dragging')
     this.drop.hidden = true

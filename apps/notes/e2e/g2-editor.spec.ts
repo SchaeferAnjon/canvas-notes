@@ -494,7 +494,8 @@ test('CN-39 / CN-40 粘贴一张截图：100 毫秒内看到图、只存一张�
     await expect(pane(page).locator('.cm-image-pending')).toHaveCount(0)
     await waitSaved(page)
     // 贴完光标落在图下面空出来的一段（接着打的字在图下面，第 1 轮修）
-    expect(file()).toBe('# 未命名 3\n\n第一段。\n\n![](附件/未命名%203/截图%201.png)\n\n\n\n第二段。\n')
+    // 图下面一个空块放光标（gap-lines.ts 的数法：一道缝加一个空块是两个空行，task-axoxy）
+    expect(file()).toBe('# 未命名 3\n\n第一段。\n\n![](附件/未命名%203/截图%201.png)\n\n\n第二段。\n')
     expect(readdirSync(join(vault, '附件', '未命名 3'))).toEqual(['截图 1.png'])
     expect(existsSync(join(vault, '附件', 'image.png'))).toBe(false)
     // 图下面没有「image」；平时也看不到「加说明…」
@@ -608,7 +609,8 @@ test('CN-19 打 /数据库 插一个 ```base 表格：每条是一篇 md；新�
     expect(existsSync(join(vault, '未命名数据库', '未命名.md'))).toBe(true)
     // 就地改属性：写进那一篇的 frontmatter
     // 「状态」是选项列（照 Notion）：点格子弹选项小框，打一个新的回车就建、写进去
-    await db.locator('tbody tr', { hasText: '第一条' }).locator('td').nth(1).click()
+    // 单击只选中一格（task-cle3x 格子焦点），双击进编辑 / 开选项
+    await db.locator('tbody tr', { hasText: '第一条' }).locator('td').nth(1).dblclick()
     const cell = page.getByRole('dialog', { name: '第一条 · 状态' }).getByRole('textbox', { name: '找一个，或者打一个新的' })
     await cell.fill('在读')
     await cell.press('Enter')
@@ -681,7 +683,7 @@ test('数据库表头：筛选面板（且 / 或）改了就存进视图、面�
     await panel.getByRole('button', { name: '加一条' }).click()
     await row(1).getByRole('combobox', { name: '列' }).selectOption('评分')
     await row(1).getByRole('combobox', { name: '条件' }).selectOption({ label: '≥' })
-    await row(1).getByRole('spinbutton', { name: '值' }).fill('8')
+    await row(1).getByRole('textbox', { name: '值' }).fill('8')
     const c2 = { prop: '评分', op: '>=' as const, value: '8' }
     y = setViewFilter(y, 0, { conj: 'and', items: [c1, c2] })
     await expect.poll(file).toBe(docWith(y))

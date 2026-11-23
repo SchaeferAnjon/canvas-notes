@@ -91,7 +91,8 @@
   min-width: 0;
   overflow: auto;
   background: var(--board);
-  padding: 0 52px 120px 40px;
+  /* 纸离这一栏左右两边一样远（左边写页码；问过的标记在纸里，task-2onrm）：右边扣掉常显的滚动条（--pad-r，PdfTab 量） */
+  padding: 0 var(--pad-r, 40px) 120px 40px;
   outline: none;
   display: flex;
   flex-direction: column;
@@ -214,59 +215,91 @@
   }
 }
 
-/* 页边标记：页右边外 8，和框的上沿齐平 */
-.pdfpane .mk {
+/* 纸里右边一列问过的（PdfMarks，task-2onrm，设计 27 方案 B）：18 宽浅灰竖条，每处一段竖线（上下 = 框的上下沿）。
+   每道 3 宽、隔 2、左右各空 2，最多 3 道（2+3+2+3+2+3+2=17）。
+   竖条 sticky 贴在这一栏看得到的右边（放大后纸比栏宽也不滚出去）；纸在深色里也是白的，竖条的灰照纸调、竖线用 --acc-paper（深色几套是深一档的强调色） */
+.pdfpane .mkwrap {
   position: absolute;
-  left: calc(100% + 8px);
-  z-index: 4;
-  height: 20px;
-  min-width: 26px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--card);
-  box-shadow: 0 0 0 1px var(--line2);
+  inset: 0;
+  z-index: 5;
   display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  color: var(--t2);
-  transform: translateY(-2px);
+  justify-content: flex-end;
+  pointer-events: none;
 }
-.pdfpane .mk:hover {
-  color: var(--t1);
-  box-shadow: 0 0 0 1px var(--acc-ring);
+.pdfpane .mkcol {
+  position: sticky;
+  /* sticky 照滚动区去掉内边距的那块算：减掉 .pdfv 右边的内边距，贴到看得到的右边 */
+  right: calc(-1 * var(--pad-r, 40px));
+  flex: none;
+  width: 18px;
+  height: 100%;
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(17, 17, 19, 0.025);
+  box-shadow: inset 1px 0 0 rgba(17, 17, 19, 0.06);
+  transition: background 0.15s;
 }
-.pdfpane .mk.cur {
-  color: var(--acc-t);
-  box-shadow: 0 0 0 1.5px var(--acc-ring);
+.pdfpane .mkcol:hover,
+.pdfpane .mkcol.open {
+  background: rgba(17, 17, 19, 0.05);
 }
-.pdfpane .mk.new {
-  animation: mk-pop 0.5s;
+.pdfpane .mkcol .tick {
+  position: absolute;
+  width: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
 }
-@keyframes mk-pop {
-  0% {
-    transform: scale(0.4) translateY(-2px);
+.pdfpane .mkcol .tick::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 1.5px;
+  background: var(--acc-paper);
+  opacity: 0.75;
+  transition: opacity 0.15s;
+}
+/* 指着的、右栏正看着的：只变实（不加宽，两道之间只隔 2，加宽就连成一根） */
+.pdfpane .mkcol .tick.on::after {
+  opacity: 1;
+}
+.pdfpane .mkcol .tick.new::after {
+  animation: tick-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transform-origin: top;
+}
+@keyframes tick-in {
+  from {
+    transform: scaleY(0);
     opacity: 0;
   }
-  70% {
-    transform: scale(1.15) translateY(-2px);
-  }
-  100% {
-    transform: scale(1) translateY(-2px);
-  }
 }
-.pdfpane .mklist {
+/* 这一页问过的全部：竖条左边 6、在纸里（不碰右栏）；跟主题（深色卡浮在白纸上） */
+.pdfpane .mkcard {
   position: absolute;
-  left: calc(100% + 8px);
-  z-index: 7;
-  width: 220px;
+  right: calc(100% + 6px);
+  width: 272px;
   padding: 4px;
   border-radius: 12px;
   background: var(--pop);
   box-shadow: var(--shadow-up);
+  cursor: default;
+  animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
-.pdfpane .mklist button {
+.pdfpane .mkcard .h {
+  height: 22px;
+  padding: 4px 8px 0;
+  font-size: 11px;
+  color: var(--t3);
+}
+.pdfpane .mkcard .rows {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.pdfpane .mkcard button {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -280,16 +313,30 @@
   font-size: 13px;
   color: var(--t1);
 }
-.pdfpane .mklist button:hover {
+.pdfpane .mkcard button.hi {
   background: var(--fill2);
 }
-.pdfpane .mklist .num {
-  font-size: 12px;
-  color: var(--t3);
+.pdfpane .mkcard .n {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--fill);
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  color: var(--t2);
 }
-.pdfpane .mklist b {
-  font-weight: 400;
+.pdfpane .mkcard b {
+  flex: 1;
   min-width: 0;
+  font-weight: 400;
+}
+.pdfpane .mkcard i {
+  flex: none;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--t3);
 }
 
 /* pdf.js 文字层（取自 pdf_viewer.css 必要的部分，照 ParaRead） */

@@ -52,6 +52,8 @@ test('对照图：表格、关联的选择、汇总列菜单、公式框、加�
     })
     await page.waitForTimeout(200)
     const b = (await c.boundingBox())!
+    // 单击只选中一格（task-cle3x 格子焦点），再点一下开选择
+    await page.mouse.click(b.x + b.width - 8, b.y + b.height / 2)
     await page.mouse.click(b.x + b.width - 8, b.y + b.height / 2)
     await expect(page.getByRole('dialog', { name: '第3讲 生产 · 练习' })).toBeVisible()
     await page.mouse.move(0, 0)

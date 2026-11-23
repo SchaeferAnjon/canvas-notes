@@ -112,8 +112,11 @@ describe('electron-builder 配置', () => {
     expect(c.files.slice(0, 2)).toEqual(['out/**', 'package.json'])
     expect(c.files.slice(2).every((f: string) => f.startsWith('!'))).toBe(true)
     expect(JSON.stringify(c)).not.toMatch(/anthropic|claude-agent-sdk/i)
-    // 按意思搜的本机模型和它的原生运行库（onnxruntime-node 不能在 asar 里）
-    expect(c.asarUnpack).toEqual(['**/node_modules/onnxruntime-node/**'])
+    // 按意思搜的本机模型和它的原生运行库（onnxruntime-node 不能在 asar 里）；梦游判断的本地模型运行库 node-llama-cpp 同理（task-h7oy8）
+    expect(c.asarUnpack).toEqual(['**/node_modules/onnxruntime-node/**', '**/node_modules/node-llama-cpp/**', '**/node_modules/@node-llama-cpp/**'])
+    // 模型文件（GGUF）不进包，只带 Mac arm64 Metal 的预编译
+    expect(c.files).toContain('!**/*.{gguf,gguf.part}')
+    expect(c.files).toContain('!**/node_modules/@node-llama-cpp/{mac-x64,linux-*,win-*}/**')
     expect(c.extraResources).toContainEqual({ from: 'resources/models/multilingual-e5-small', to: 'models/multilingual-e5-small' })
     expect(c.mac.extendInfo.NSAppleEventsUsageDescription).toContain('Canvas Notes')
     const ent = readFileSync(join(ROOT, 'apps/notes/build/entitlements.mac.plist'), 'utf8')

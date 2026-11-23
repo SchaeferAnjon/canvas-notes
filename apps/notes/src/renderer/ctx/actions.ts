@@ -4,6 +4,8 @@
  */
 import type { CodiconName } from '@cn/design'
 import type { Clip } from '../../shared/api'
+import type { DiffSource } from '../../shared/diff'
+import type { Tab } from '../tabs'
 import type { NoteDoc } from '../note-doc'
 import type { PickItem } from '../ai-pick'
 
@@ -12,6 +14,8 @@ export interface AppActions {
   openFile(path: string): void
   /** 开在后面的新标签（不切过去，开着就不动）：AI 回答里 ⇧⌘点引用（task-3e53q，cite.tsx） */
   openFileBehind(path: string): void
+  /** 对比标签（历史里一次提交改了什么）；behind：开在后面的新标签、不切走（AI 回答里 ⇧⌘点 canvas-notes://commit/<号>，task-3e53q） */
+  openDiff(src: DiffSource, title: string, behind?: boolean): void
   /** 打开 PDF（开着就切过去）翻到那页，有 rect 时那块闪一下（笔记里的「第 3 页」链接，page-link.ts） */
   openPdfAt(path: string, page: number, rect?: [number, number, number, number]): void
   /** 当前标签换成这一篇（它已经开在别的标签就切过去） */
@@ -50,6 +54,10 @@ export interface AppActions {
   runAi(text?: string): void
   /** icon：提示前面的小图标（比如 info） */
   notice(text: string, icon?: CodiconName): void
+  /** 底栏现在说的正是这一句就收掉（数字格「没写进去」，改对或放弃以后，task-cle3x） */
+  noticeDrop(text: string): void
+  /** 底栏说「…开在后面的标签里了」（AI 回答里 ⇧⌘点，task-3e53q）：切到那个标签（is 认）时这句收掉 */
+  noticeBehind(text: string, is: (tab: Tab) => boolean): void
   /** 底栏提示带「撤回」（白板上一次改了两篇：卡拖进另一个标签里的文档） */
   noticeUndo(text: string, run: () => void): void
   /** 底栏提示：前面一个小图标、后面一颗按钮（「看记录」）和「撤回」（数据库自动化跑了、按钮点了） */

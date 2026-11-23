@@ -101,7 +101,7 @@ test('网页上框着问：回答一问一块 [!ai] 插到配好对的那篇光�
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
     await expect(ai(page).getByRole('textbox')).toHaveValue('给我讲解一下')
     // 开着配好对的网页：「笔记」亮着（列那篇里来自这一页的几条）
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '相关', '网页', '微信读书', '记录', '自动化', '历史'])
     await expect(rail(page).getByRole('button', { name: /^笔记/ })).not.toHaveClass(/\bdim\b/)
     await ai(page).getByRole('textbox').press('Enter')
     await expect(ai(page).locator('.um').last()).toHaveText('给我讲解一下')
@@ -212,7 +212,7 @@ test('中间开着 PDF 时在网页上框着问：进这份 PDF 的 AI，「看�
     const md = readFileSync(join(vault, '课程/线性代数/第3讲 线性映射 笔记.md'), 'utf8')
     expect(md).toMatch(/## 第 1 页 · 测试小标题 p\d+\n\[127\.0\.0\.1\]\(http:\/\/127\.0\.0\.1:\d+\/wiki\/Rotation_matrix\)/)
     // 笔记里这段的来源胶囊写域名
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(page.getByRole('complementary', { name: '笔记', exact: true }).getByText('127.0.0.1')).toBeVisible()
     expect(existsSync(join(vault, '收件箱'))).toBe(false)
   } finally {

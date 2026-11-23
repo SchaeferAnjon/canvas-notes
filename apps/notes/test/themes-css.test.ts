@@ -43,6 +43,14 @@ describe('自带的十套主题', () => {
     expect(v['color-scheme'] ?? css.match(new RegExp(`\\[data-skin='${id}'\\] \\{\\s*color-scheme: (\\w+)`))?.[1]).toBe(s.tone)
   })
 
+  // 读 PDF 纸里那一列问过的竖线（task-2onrm）画在纸上：纸不跟主题，浅色是白纸（竖条处 #f9f9f9），深色压暗到 #ebebeb（竖条处 #e5e5e5）；
+  // 竖线用 --acc-paper（没给就是 --acc），指着时不透明，对纸 ≥ 3（图形元素）
+  it.each(SKINS.map((s) => [s.id, s] as const))('%s：--acc-paper 画在纸上 ≥ 3:1', (id, s) => {
+    const v = blocks.get(id)!
+    const paper = hex(s.tone === 'dark' ? '#e5e5e5' : '#f9f9f9')
+    expect(contrast(hex(v['acc-paper'] ?? v.acc), paper)).toBeGreaterThanOrEqual(3)
+  })
+
   // 「写不进去，字只在内存里」是红字（第 6 轮）：12px 也要 ≥ 4.5。--red 是点的颜色，字用 --red-t（没给就是 --red）；
   // A 的底栏是彩色一条的主题（天青、深湖）那一项换成红底白字（--status-err-bg / --status-err-t，照 VS Code 的 errorBackground）
   it.each(SKINS.map((s) => [s.id] as const))('%s：红字对编辑区、侧栏、标签条、两种底栏都 ≥ 4.5', (id) => {

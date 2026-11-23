@@ -97,7 +97,8 @@ test('新网页全是中文：问候、日期和首页一样；问候区底线�
     await expect.poll(() => guest(page, `getComputedStyle(document.getElementById('tabOutDupeBanner')).display`)).toBe('flex')
     expect(await guest(page, `document.querySelector('.tab-cleanup-text').textContent.replace(/\\s+/g, ' ').trim()`)).toBe('开着2个新网页，只留这一个？')
     expect(await guest(page, `document.querySelector('.tab-cleanup-btn').textContent.trim()`)).toBe('关掉多余的')
-    expect(await guest<number>(page, `document.getElementById('tabOutDupeBanner').getBoundingClientRect().top - document.querySelector('header').getBoundingClientRect().bottom`)).toBeLessThanOrEqual(16)
+    // 提示条出来时有 0.5 秒往上浮的动画（style.css fadeUp），机器忙时量到半路：等它落定再量
+    await expect.poll(() => guest<number>(page, `document.getElementById('tabOutDupeBanner').getBoundingClientRect().top - document.querySelector('header').getBoundingClientRect().bottom`)).toBeLessThanOrEqual(16)
     expect(await englishWords(page)).toEqual([])
     await shot(run, 'newtab-zh')
     // 点「关掉多余的」：只剩这一个

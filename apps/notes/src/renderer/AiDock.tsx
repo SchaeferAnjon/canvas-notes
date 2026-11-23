@@ -11,7 +11,7 @@
  * 头上「地方名 ⌄」菜单里点别处的一段：这一格换成那段对话（读 PDF 的用读 PDF 那一套显示、接着问），「看得到」那一行换成
  * 「这是在「X」问的 · 回到「周记」」；换了页面、右键「问 AI」、跑 AI 命令、框一块时回到这里。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { isBookDigest } from '../shared/plugins/weread'
 import { AiPanel, type AiPanelProps } from './AiPanel'
 import type { DockNav } from './ai-head'
@@ -26,6 +26,8 @@ import './reading/reading.css'
 import './reading/side.css'
 import './side/side-inline.css'
 import { useT } from './i18n'
+import { takeStay } from './ai-stay'
+import { useKeyHandler } from './keys'
 
 export interface AiDockProps {
   /** AI 标签开着（在哪一组里都算，在别的标签后面也算） */
@@ -82,10 +84,18 @@ export function AiDock(props: AiDockProps) {
   const herePlace = placeOf(props.chat.tab, digest)
   const hereReading = R.useReading(reading)
   const here = reading ? { key: readKey(reading), label: readLabel(reading, [...(hereReading?.state.threads ?? [])].reverse().find((t) => t.web)?.web?.title) } : herePlace
-  /** 菜单里点开的别处那段对话；null 是这里的 */
-  const [away, setAway] = useState<{ key: string; label: string } | null>(null)
-  // 换了页面、右键「问 AI」带进引文、跑 AI 命令、在这份 PDF 上框了一块：回到这里的对话
-  useEffect(() => setAway(null), [here.key, props.chat.autoRun?.seq, props.chat.draft?.seq])
+  /** 菜单里点开的别处那段对话；null 是这里的。stay：从 AI 回答里的引用 ⌘点开了别的一篇，右栏留在原来那段（ai-stay.ts） */
+  const [away, setAway] = useState<{ key: string; label: string; stay?: boolean } | null>(null)
+  /** 上一次画的时候这一格看着的那段对话（中间换了一篇时，从引用点开的要留在它上面） */
+  const shown = useRef<{ key: string; label: string } | null>(null)
+  // 换了页面、右键「问 AI」带进引文、跑 AI 命令、在这份 PDF 上框了一块：回到这里的对话。
+  // 从 AI 回答里的引用 ⌘点开的那一篇（task-3e53q 已定 3）：不跟着换，留在刚才看着的那段，头上给「切到《X》的 AI」
+  useEffect(() => {
+    const prev = shown.current
+    if (takeStay() && props.shown && prev && prev.key !== here.key) setAway({ ...prev, stay: true })
+    else setAway(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [here.key, props.chat.autoRun?.seq, props.chat.draft?.seq])
   /**
    * 中间开着 PDF 时文件树多选「问AI」（task-0tgz2）：这一格换成普通的 AI 对话（选中的那几篇在「看得到」里），
    * 存成单独一段「选中的N个」，读 PDF 的对话不动；对话菜单点了哪一段、在 PDF 上框了一块、换了标签就回到读 PDF 那一格
@@ -128,6 +138,12 @@ export function AiDock(props: AiDockProps) {
   /** 这一格显示的读 PDF 对话：看别处的读 PDF 对话时是它，不然是这里的（选中了几篇「问AI」时不显示） */
   const shownReading = pickOverPdf ? null : away ? awaySrc : reading
   const chatPlace = pickOverPdf ? { key: PICKED_KEY, label: t('选中的{n}个', { n: picked.items.length }) } : away && !awaySrc ? away : herePlace
+  // 记下这一回看着的是哪段（effect 在上面那个之后跑：中间换了一篇的那一下，上面读到的还是换之前的）
+  useEffect(() => {
+    shown.current = away ? { key: away.key, label: away.label } : shownReading ? here : chatPlace
+  })
+  // 「右栏切到这篇的 AI」（命令 ai-follow）：在看别处的对话时回到这里（中间开着的这一篇）的
+  useKeyHandler('ai-follow', away ? () => (pickAway(null), true) : null)
   return (
     <>
       <AiPanel {...props.chat} digest={digest} place={chatPlace} nav={nav} hidden={!props.shown || !!shownReading} onClose={props.onClose} />

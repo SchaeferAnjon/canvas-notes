@@ -20,13 +20,13 @@ export function blockInsert(doc: Text, pos: number, text: string): { from: numbe
 }
 
 /**
- * 图（到 end 为止）下面留一个新段落给光标：图、空行、光标这一行；后面还有字就再空一行隔开，
- * 不然接着打的字和图、和下一段连成一段（图就变回一行源码）
+ * 图（到 end 为止）下面留一个新段落给光标：图、空行、光标这一行（一个空块）；接着打的字由改完规整（tidy-blocks.ts）和下一段隔开
  */
 export function roomBelow(text: string, end: number): { at: number; insert: string; cursor: number } {
   const rest = text.slice(end)
   const n = /^\n*/.exec(rest)![0].length
-  const need = rest.length === n ? 2 : 4
+  // 图、一道缝、光标这一行（空块）；后面还有字时空块就挨着它（gap-lines.ts 的数法：一串空行第一行是缝、后面每行一个空块，task-axoxy）
+  const need = rest.length === n ? 2 : 3
   return { at: end + Math.min(n, need), insert: '\n'.repeat(Math.max(0, need - n)), cursor: end + 2 }
 }
 

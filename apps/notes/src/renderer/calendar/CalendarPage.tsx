@@ -2,7 +2,7 @@
  * 图标栏「日历」格（task-kzr3n，用户 2026-11-22「这个日历需要做, 并且做的和demo一样就行」「日历做到左边」；
  * 照画布今日 v2 原型「画布笔记 · 日历」那一屏）：
  *   左栏（CalendarSide）：头「日历」+「画布今日」、小月历（今天实心、之后六天淡底、有事的日子一个点）、
- *        没连时「连接系统日历」卡，连上了列系统日历（带锁、只读）和系统提醒事项里「画布今日」那个列表（两边同步）
+ *        没连时「连接系统日历」卡，连上了列系统日历（带锁、只读；右键、点色块能「不在这里显示」，task-ov5bb）和系统提醒事项里「画布今日」那个列表（两边同步）
  *   中间（CalendarPage，标签种类 calendar）：大标题「日历」+「11月22日 – 11月28日 · 系统日历的日程只读，待办能拖」、
  *        ‹ 今天 › ……「帮我排进空着的时间」· 月 / 周，周看法按钟点（系统日程用它自己的颜色、带锁），月看法一个月
  * 日历的样子全是和画布今日共用的 @cn/calendar（CalBar、WeekGrid、MonthGrid、MiniMonth、useDragDrop），这里只接数据：
@@ -15,8 +15,10 @@ import { Codicon } from '@cn/design'
 import { addDays } from '@cn/tasks'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import type { CalLinkState, SchedResult } from '../../shared/calendar'
+import { t as tNow } from '../../shared/i18n'
 import { isOpen, listed, type TodoItem } from '../../shared/todo'
 import { app } from '../ctx/actions'
+import { showMenu } from '../ctx/menu'
 import { EngineLogo, type LogoEngine } from '../engine-logo'
 import { useLang, useT } from '../i18n'
 import { ViewHead } from '../shell/Shell'
@@ -259,6 +261,20 @@ export function CalendarPage(props: { active: boolean }) {
 
 // ---------- 左栏 ----------
 
+/** 藏起 / 显示一个系统日历（task-ov5bb，和画布今日共用一份）：日程重读 */
+async function hideCal(id: string, hide: boolean) {
+  set({ link: await window.cnCal.hide(id, hide), rev: st.rev + 1 })
+}
+
+/** 左栏一个系统日历的右键：不在这里显示 / 在这里显示；有藏起的时再给「全部显示」 */
+function calMenu(x: CalLinkState['calendars'][number], link: CalLinkState) {
+  return showMenu([
+    x.hidden ? { label: tNow('在这里显示'), run: () => hideCal(x.id, false) } : { label: tNow('不在这里显示'), run: () => hideCal(x.id, true) },
+    link.calendars.some((c) => c.hidden) && '-',
+    link.calendars.some((c) => c.hidden) && { label: tNow('全部显示'), run: async () => set({ link: await window.cnCal.showAll(), rev: st.rev + 1 }) },
+  ])
+}
+
 export function CalendarSide() {
   const t = useT()
   const lang = useLang()
@@ -320,14 +336,17 @@ export function CalendarSide() {
               <span className="sp" />
               {new Set(link.calendars.map((x) => x.source)).size === 1 && <span className="src">{link.calendars[0]!.source}</span>}
             </div>
-            {link.calendars.map((x) => (
-              <div className="calside-row" key={x.id} style={{ '--c': x.color } as React.CSSProperties}>
-                <i />
-                <span className="nm">{x.title}</span>
-                <span className="sp" />
-                <Codicon name="lock" size={12} />
-              </div>
-            ))}
+            {link.calendars.map((x) => {
+              const tip = x.hidden ? t('在这里显示「{name}」', { name: x.title }) : t('不在这里显示「{name}」，画布今日里也跟着 · 右键也行', { name: x.title })
+              return (
+                <div className={`calside-row${x.hidden ? ' off' : ''}`} key={x.id} data-cal={x.id} style={{ '--c': x.color } as React.CSSProperties} onContextMenu={(e) => (e.preventDefault(), void calMenu(x, link))}>
+                  <button className="calsw" aria-pressed={!x.hidden} aria-label={tip} data-tip={tip} onClick={() => void hideCal(x.id, !x.hidden)} />
+                  <span className="nm">{x.title}</span>
+                  <span className="sp" />
+                  <Codicon name="lock" size={12} />
+                </div>
+              )
+            })}
             {link.reminders && (
               <>
                 <div className="calside-sec">{t('系统提醒事项')}</div>

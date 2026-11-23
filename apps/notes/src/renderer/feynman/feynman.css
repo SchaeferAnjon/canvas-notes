@@ -1,0 +1,1267 @@
+/* 费曼这一列（原型 design/feynman/proto.html 的 .fc，设计页 16-费曼学习）：330 宽，卡片底、圆角、阴影，和白板的列一个样子 */
+.fy-col {
+  position: absolute;
+  z-index: 3;
+  width: 330px;
+  max-height: min(860px, calc(100vh - 180px));
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  color: var(--t1);
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: default;
+  user-select: text;
+  animation: fy-grow 0.32s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+@keyframes fy-grow {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fy-col,
+  .fy-res,
+  .fy-gaps {
+    animation: none;
+  }
+}
+.fy-col .fy-glow {
+  border-radius: 10px;
+}
+.fy-h {
+  padding: 12px 14px 8px;
+  flex: none;
+}
+.fy-t {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--t2);
+}
+.fy-t b {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--t1);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fy-t .sp,
+.fy-b .sp,
+.fy-col .sp {
+  flex: 1;
+}
+.fy-pz,
+.fy-x {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 0;
+  background: none;
+  color: var(--t2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fy-pz:hover,
+.fy-x:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.fy-m {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 3px;
+  line-height: 1.55;
+}
+.fy-m .by {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--t2);
+  white-space: nowrap;
+  vertical-align: -2px;
+}
+.fy-m .dim {
+  margin: 0 4px;
+}
+.fy-m .peeks {
+  white-space: nowrap;
+}
+.fy-m .peeks::before {
+  content: ' · ';
+}
+/* 列头小点：只有核心占 */
+.fy-dots {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+}
+.fy-dots i,
+.fy-plan .pt .cir {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line2);
+  display: block;
+  box-sizing: border-box;
+  flex: none;
+  transition:
+    background 0.3s,
+    border-color 0.3s;
+}
+.fy-dots i.touched,
+.fy-plan .pt .cir.touched {
+  background: var(--t3);
+  border-color: var(--t3);
+}
+.fy-dots i.ok,
+.fy-plan .pt .cir.ok {
+  background: var(--green);
+  border-color: var(--green);
+}
+.fy-dots i.bad,
+.fy-plan .pt .cir.bad {
+  background: var(--red);
+  border-color: var(--red);
+}
+.fy-dots i.vague,
+.fy-plan .pt .cir.vague {
+  border-color: var(--yellow);
+  background: color-mix(in srgb, var(--yellow) 25%, transparent);
+}
+.fy-dots i.miss,
+.fy-plan .pt .cir.miss {
+  width: 10px;
+  height: 10px;
+  border: 1px dashed var(--t3);
+}
+/* 这一节的进度 */
+.fy-sec {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 4px;
+}
+.fy-sec .secp {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+}
+.fy-sec .secp i {
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line2);
+  display: block;
+}
+.fy-sec .secp i.ok {
+  background: var(--green);
+}
+.fy-sec .secp i.near {
+  background: var(--yellow);
+}
+.fy-sec .secp i.bad {
+  background: var(--red);
+}
+.fy-sec .secp i.cur {
+  background: var(--t1);
+}
+
+.fy-b {
+  overflow: auto;
+  padding: 2px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+/* 按钮 */
+.fy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--card);
+  font: inherit;
+  font-size: 12px;
+  color: var(--t1);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fy-btn:hover {
+  background: var(--fill);
+}
+.fy-btn.ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--t2);
+}
+.fy-btn.ghost:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.fy-btn.solid {
+  background: var(--solid);
+  color: var(--solid-t);
+  border-color: var(--solid);
+  border-radius: 999px;
+  font-weight: 500;
+}
+.fy-btn.solid:hover {
+  background: var(--solid);
+  filter: brightness(1.12);
+}
+.fy-btn[disabled] {
+  opacity: 0.45;
+  cursor: default;
+  filter: none;
+}
+.fy-btn kbd {
+  font: 11px/1 var(--sans);
+  padding: 2px 4px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  opacity: 0.75;
+  margin-left: 2px;
+}
+.fy-col .lnk {
+  border: 0;
+  background: none;
+  color: var(--acc-t);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+/* 这次要讲到 */
+.fy-plan {
+  border-radius: 8px;
+  background: var(--fill);
+  padding: 9px 12px 10px;
+}
+.fy-plan .h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fy-plan .h b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.fy-plan .pt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 4px 0 10px;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  margin-top: 4px;
+  font-size: 13px;
+  position: relative;
+}
+.fy-plan .lite .pt {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  color: var(--t2);
+}
+.fy-plan .pt .tx {
+  flex: 1;
+  min-width: 0;
+}
+.fy-plan .pt .ev {
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 45%;
+}
+.fy-plan .pt .sw {
+  border: 0;
+  background: var(--card);
+  color: var(--acc-t);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 6px;
+  height: 24px;
+  border-radius: 5px;
+  display: none;
+  white-space: nowrap;
+}
+.fy-plan .pt .x {
+  border: 0;
+  background: var(--card);
+  color: var(--t3);
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  place-items: center;
+  cursor: pointer;
+  display: none;
+}
+.fy-plan .lite .pt .sw,
+.fy-plan .lite .pt .x {
+  background: var(--fill);
+}
+.fy-plan .pt:hover .ev {
+  display: none;
+}
+.fy-plan .pt:hover .sw {
+  display: inline-block;
+}
+.fy-plan .pt:hover .x {
+  display: grid;
+}
+.fy-plan .pt .x:hover,
+.fy-plan .pt .sw:hover {
+  background: var(--fill2);
+}
+.fy-plan .lhd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--t3);
+  cursor: pointer;
+  user-select: none;
+  border: 0;
+  background: none;
+  padding: 0;
+}
+.fy-plan .lhd b {
+  font-weight: 500;
+  color: var(--t2);
+}
+.fy-plan .lhd .codicon {
+  transition: transform 0.2s;
+}
+.fy-plan.lopen .lhd .codicon {
+  transform: rotate(90deg);
+}
+.fy-plan .lite {
+  display: none;
+}
+.fy-plan.lopen .lite {
+  display: block;
+}
+.fy-plan .pf {
+  display: flex;
+  align-items: center;
+  margin-top: 10px;
+  gap: 6px;
+}
+.fy-plan .fy-add {
+  flex: 1;
+  height: 28px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--t1);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 13px;
+  outline: 0;
+}
+.fy-plan .fy-add:focus {
+  border-color: var(--acc-ring);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+.fy-split {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--t2);
+}
+/* 开讲以后收成几行名字 */
+.fy-plan.done .pt {
+  background: none;
+  box-shadow: none;
+  min-height: 24px;
+  margin-top: 0;
+  padding-left: 2px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.fy-plan.done .rows {
+  margin-top: 4px;
+}
+
+/* AI 块（[!ai]）：带框带标志 */
+.fy-ai {
+  background: var(--fill);
+  border-radius: 8px;
+  padding: 9px 12px 10px;
+}
+.fy-ai .h,
+.fy-gaps .h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t3);
+  margin-bottom: 3px;
+}
+.fy-ai .h b {
+  font-weight: 500;
+  color: var(--t1);
+  font-size: 13px;
+}
+.fy-ai .h .ic {
+  color: var(--yellow);
+}
+.fy-ai .q {
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.fy-ai .quote {
+  font-size: 12px;
+  color: var(--t2);
+  border-left: 2px solid var(--clip-bar);
+  padding-left: 8px;
+  margin: 2px 0 5px;
+}
+.fy-ai .src,
+.fy-gaps .src {
+  color: var(--acc-t);
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: 4px;
+}
+.fy-col .n {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--fill2);
+  color: var(--t2);
+  font-size: 11px;
+  font-weight: 500;
+  padding: 0 4px;
+}
+.fy-caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 14px;
+  background: var(--acc);
+  vertical-align: -2px;
+  margin-left: 1px;
+  animation: fy-breath 1s infinite;
+}
+
+/* 你讲的：普通段落（带一圈细框）；答的缩进一格 */
+.fy-mine {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px 10px;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+.fy-mine .l {
+  font-size: 12px;
+  color: var(--t3);
+  margin-bottom: 2px;
+}
+.fy-mine .s.fy-hl {
+  background: var(--acc-soft);
+  box-shadow: inset 0 -1.5px 0 var(--acc);
+  border-radius: 2px;
+}
+.fy-mine.reply {
+  margin-left: 20px;
+}
+.fy-round {
+  font-size: 12px;
+  color: var(--t3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fy-round::before,
+.fy-round::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--line);
+}
+
+/* 学生在想 */
+.fy-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t3);
+  padding: 2px;
+}
+.fy-wait .k {
+  color: var(--t3);
+}
+.fy-col .breath {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--acc);
+  flex: none;
+  animation: fy-breath 1.4s ease-in-out infinite;
+}
+@keyframes fy-breath {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.fy-note {
+  font-size: 12px;
+  color: var(--t2);
+  padding: 0 2px;
+}
+.fy-note.err {
+  color: var(--red-t);
+}
+.fy-done {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fy-done > span:first-child {
+  flex: 1;
+}
+
+/* 回答框 */
+.fy-inp {
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--card);
+  transition: box-shadow 0.2s;
+}
+.fy-inp:focus-within {
+  box-shadow: 0 0 0 3px var(--acc-soft);
+  border-color: var(--acc-ring);
+}
+.fy-inp textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  outline: 0;
+  background: none;
+  resize: none;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--t1);
+  padding: 9px 12px 4px;
+  min-height: 76px;
+  max-height: 320px;
+}
+.fy-inp.small textarea {
+  min-height: 44px;
+}
+.fy-inp.reply {
+  margin-left: 20px;
+}
+.fy-inp textarea::placeholder {
+  color: var(--t3);
+}
+.fy-inp .f {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 6px;
+}
+.fy-inp .ib {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: grid;
+  place-items: center;
+  color: var(--t3);
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.fy-inp .ib:hover {
+  background: var(--fill);
+  color: var(--t2);
+}
+.fy-inp .fy-btn.ghost {
+  padding: 0 8px;
+}
+.fy-inp .imgs {
+  display: flex;
+  gap: 6px;
+  padding: 2px 12px 0;
+}
+.fy-inp .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+}
+.fy-inp .chip button {
+  border: 0;
+  background: none;
+  color: var(--t3);
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* 暂停 */
+.fy-pzline {
+  margin: 2px 12px 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+/* 判定 */
+.fy-res {
+  border-radius: 8px;
+  border: 1px solid var(--line2);
+  padding: 10px 12px 11px;
+  background: var(--card);
+  animation: fy-grow 0.4s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.fy-res .rt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fy-res .rt > i {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: block;
+  flex: none;
+}
+.fy-res .rt b {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.fy-res .rt .fy-tag {
+  font-size: 12px;
+  color: var(--t2);
+}
+.fy-res .rt .m {
+  font-size: 12px;
+  color: var(--t3);
+}
+.fy-res.pass .rt > i {
+  background: var(--green);
+}
+.fy-res.almost .rt > i {
+  background: var(--yellow);
+}
+.fy-res.fail .rt > i {
+  background: var(--red);
+}
+.fy-res .why {
+  font-size: 13px;
+  margin-top: 4px;
+  line-height: 1.6;
+}
+.fy-res .nx {
+  font-size: 13px;
+  margin-top: 2px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.fy-res .rows {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fy-res .l1 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+.fy-res .l1 i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  box-sizing: border-box;
+}
+.fy-res .l1 .nm {
+  flex: 1;
+  min-width: 0;
+}
+.fy-res .l1 .st {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--t2);
+}
+.fy-res .qt {
+  font-size: 12px;
+  color: var(--t3);
+  margin-left: 14px;
+  line-height: 1.5;
+}
+.fy-res .st-good .l1 i {
+  background: var(--green);
+}
+.fy-res .st-wrong .l1 i {
+  background: var(--red);
+}
+.fy-res .st-wrong .l1 .st {
+  color: var(--red-t);
+}
+.fy-res .st-vague .l1 i {
+  background: var(--yellow);
+}
+.fy-res .st-vague .l1 .st {
+  color: var(--yellow);
+}
+.fy-res .st-missing .l1 i {
+  width: 9px;
+  height: 9px;
+  border: 1px dashed var(--t3);
+}
+.fy-res .rule {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  line-height: 1.6;
+}
+.fy-res .rm {
+  font-size: 12px;
+  color: var(--t2);
+  margin-top: 6px;
+  line-height: 1.6;
+}
+
+/* 缺口 */
+.fy-gaps {
+  border-radius: 8px;
+  background: var(--fill);
+  padding: 10px 12px 12px;
+  animation: fy-grow 0.4s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.fy-gaps .h b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.fy-gaps .g {
+  padding: 9px 56px 8px 0;
+  border-top: 1px solid var(--line);
+  position: relative;
+}
+.fy-gaps .g:first-of-type {
+  margin-top: 8px;
+}
+.fy-gaps .tg {
+  font-size: 12px;
+  font-weight: 500;
+}
+.fy-gaps .tg.bad {
+  color: var(--red-t);
+}
+.fy-gaps .tg.vague {
+  color: var(--yellow);
+}
+.fy-gaps .tg.miss {
+  color: var(--t2);
+}
+.fy-gaps .nm {
+  font-size: 12px;
+  color: var(--t1);
+  margin-left: 6px;
+}
+.fy-gaps .you {
+  font-size: 12px;
+  color: var(--t2);
+  margin-top: 1px;
+}
+.fy-inp .chip img {
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  object-fit: cover;
+}
+.fy-gaps .fix {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-top: 2px;
+}
+.fy-gaps .g.lite .tg {
+  color: var(--t3);
+}
+.fy-gaps .g.lite .fix {
+  color: var(--t2);
+}
+.fy-gaps .g .st {
+  font-size: 12px;
+  color: var(--green);
+  margin-top: 3px;
+}
+.fy-gaps .ck {
+  position: absolute;
+  right: 0;
+  top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--t2);
+  cursor: pointer;
+  user-select: none;
+}
+.fy-gaps .ck input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.fy-gaps .sq {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1.5px solid var(--line2);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  box-sizing: border-box;
+}
+.fy-gaps .ck.on .sq {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+.fy-gaps .ck:not(.on) .sq .codicon {
+  visibility: hidden;
+}
+.fy-gaps .ck:has(input:focus-visible) .sq {
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+.fy-gaps .fy-wd {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  line-height: 1.6;
+}
+.fy-gaps .fy-wd b {
+  font-weight: 500;
+  color: var(--t2);
+  display: block;
+}
+.fy-gaps .gacts {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+  align-items: center;
+}
+.fy-gaps .gacts .fy-btn {
+  padding: 0 10px;
+}
+.fy-gaps .rv {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t2);
+  margin-top: 8px;
+}
+.fy-gaps .rv .codicon {
+  color: var(--t3);
+  flex: none;
+}
+
+/* PDF 的知识点单子 */
+.fy-pick .h {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--t3);
+  margin-bottom: 6px;
+}
+.fy-pick .h b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.fy-pick .pk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 10px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  font: inherit;
+  font-size: 13px;
+  color: var(--t1);
+  text-align: left;
+  cursor: pointer;
+}
+.fy-pick .pk:hover {
+  background: var(--fill2);
+}
+.fy-pick .pk .tx {
+  flex: 1;
+}
+.fy-pick .pk .ev {
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* 盖住：模糊、变淡；按住「看一眼」露出来 */
+.fy-covered {
+  filter: blur(5px);
+  opacity: 0.55;
+  pointer-events: none;
+  transition:
+    filter 0.5s,
+    opacity 0.5s;
+}
+.fy-cover-chip {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  border-radius: 6px;
+  background: var(--bg-popover);
+  box-shadow: var(--shadow-up);
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+  transform: scale(var(--fy-unzoom, 1));
+  transform-origin: 0 0;
+}
+.fy-cover-chip b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.fy-hold {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--acc-t);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  user-select: none;
+  touch-action: none;
+}
+.fy-hold:hover {
+  background: var(--fill);
+}
+.fy-hold:active {
+  background: var(--acc-soft);
+}
+
+/* 右栏网页、PDF 盖住 */
+.fy-webcover {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+  background: color-mix(in srgb, var(--win, var(--bg)) 55%, transparent);
+}
+.fy-webcover .in {
+  text-align: center;
+  max-width: 260px;
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.6;
+}
+.fy-webcover .in b {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+  margin-bottom: 4px;
+}
+.fy-webcover .fy-hold {
+  margin: 10px auto 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--t1);
+}
+.fy-webcover .s2 {
+  color: var(--t3);
+}
+/* 网页本身也糊一下（webview 是单独的一层，backdrop-filter 盖不到时靠它） */
+webview.fy-blur {
+  filter: blur(12px);
+}
+
+/* 右栏 AI 顶上一句 */
+.fy-ainote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 8px 12px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.6;
+}
+.fy-ainote .codicon {
+  margin-top: 2px;
+  flex: none;
+}
+
+/* 什么都没选时的小框（讲多大一块） */
+.fy-pop {
+  position: fixed;
+  z-index: var(--z-popover);
+  width: 304px;
+  box-sizing: border-box;
+  background: var(--bg-popover);
+  border-radius: 12px;
+  box-shadow: var(--shadow-up);
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--t1);
+  animation: fy-grow 0.2s ease-out both;
+}
+.fy-pop .t {
+  font-weight: 500;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.fy-pop .t .codicon {
+  color: var(--t2);
+}
+.fy-pop .grs {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 8px -6px 10px;
+}
+.fy-pop .gr {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+}
+.fy-pop .gr:hover {
+  background: var(--fill);
+}
+.fy-pop .gr.on {
+  background: var(--fill2);
+}
+/* 只有一种讲法时不画单选：一块说明、输入框和白板上的几样 */
+.fy-pop .gr.one {
+  cursor: default;
+  padding: 4px 8px 8px;
+}
+.fy-pop .gr.one:hover {
+  background: none;
+}
+.fy-pop .or {
+  margin-top: 8px;
+}
+.fy-pop .gr .rd {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line2);
+  flex: none;
+  margin-top: 3px;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+}
+.fy-pop .gr.on .rd {
+  border-color: var(--acc);
+}
+.fy-pop .gr.on .rd::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+}
+.fy-pop .gx {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.fy-pop .gx b {
+  font-weight: 500;
+  font-size: 13px;
+}
+.fy-pop .gx span {
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.5;
+}
+.fy-pop input {
+  margin-top: 6px;
+  width: 100%;
+  box-sizing: border-box;
+  height: 28px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--t1);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 13px;
+  outline: 0;
+}
+.fy-pop input:focus {
+  border-color: var(--acc-ring);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+.fy-pop .row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.fy-pop .from {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  max-height: 168px;
+  overflow: auto;
+}
+.fy-pop .from button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--t1);
+  text-align: left;
+  cursor: pointer;
+}
+.fy-pop .from button:hover {
+  background: var(--fill);
+}
+.fy-pop .from button .codicon {
+  color: var(--t3);
+  flex: none;
+}
+.fy-pop .from button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 导图那一支盖住：底下一块淡强调色的框（原型 .selbox），上面一颗「讲完再看 · 按住看一眼」 */
+.fy-mapcover {
+  position: absolute;
+  border-radius: 10px;
+  background: var(--acc-soft);
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+.fy-mapcover.peek {
+  opacity: 0;
+}
+.fy-mapchip {
+  position: absolute;
+  z-index: 5;
+  pointer-events: auto;
+}
+.mm-node.fy-covered,
+.mm-wires path.fy-covered {
+  filter: blur(5px);
+  opacity: 0.55;
+}

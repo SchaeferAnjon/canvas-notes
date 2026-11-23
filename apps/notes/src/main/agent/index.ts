@@ -25,6 +25,8 @@ import { usesOf } from '../../shared/ai-logo'
 import { checkMaterials, withMaterials } from '../../shared/materials'
 import { BRAND } from '../../shared/brand'
 import { MATH_RULE } from '../../shared/reading'
+import { CITE_FIND, CITE_RULE, notesLine } from '../../shared/cite-rule'
+import { listEntries } from '../files'
 import { logActivity } from '../activity'
 import type { Vault } from '../vault'
 import type { Size } from './board-ops'
@@ -38,7 +40,7 @@ import { type McpServer, startMcpServer } from './mcp-server'
 import { readingChats } from '../reading/chats'
 import type { ChatSummary } from '../../shared/ai-chats'
 import { AgentStore } from './store'
-import { runTool, stepLabel, type ToolHost, toolLabel, toolSpecs } from './tools'
+import { runTool, stepLabel, stepPaths, type ToolHost, toolLabel, toolSpecs } from './tools'
 import * as vops from './vault-ops'
 import { AI_BLOCK_RULE, aiBlockLine, langTail, modeLine, MODES_RULE, userNoteLine } from './modes'
 import { sideTurnPrompt } from './side-prompt'
@@ -67,14 +69,18 @@ ${MODES_RULE}
 - 不管用哪种办法改了库里的文件（canvas 工具、自己写文件、跑命令），开着的编辑器当场换成新内容，用户正在打的字会合并进来，不用叫用户关掉标签再打开。
 ${AI_BLOCK_RULE}
 - 做完用一两句话说做了什么。回答用哪种语言照每条消息开头的【语言】；平实、直接，不客套。不编造笔记里没有的事。
-- ${MATH_RULE}`
+- ${MATH_RULE}
+
+${CITE_RULE}
+${CITE_FIND}`
 
 /**
  * AGENT_SYSTEM 改过就加一：Claude Code 接着聊时一直用会话第一次的系统提示（--system-prompt-snapshot），
  * 版本对不上的会话不再接着聊，开新会话、补上最近几轮（2：全能模式、笔记和文件夹那组工具；3：改了开着的文件编辑器当场换；
- * 4：回答的语言照每条消息开头的【语言】，task-zojmg；5：往笔记里新加的段落写成 [!ai] 块，头一行照每条消息开头的【AI 块】，task-dtc34）
+ * 4：回答的语言照每条消息开头的【语言】，task-zojmg；5：往笔记里新加的段落写成 [!ai] 块，头一行照每条消息开头的【AI 块】，task-dtc34；
+ * 6：提到库里的东西写成链接，路径照每条消息开头的【库里的笔记】，task-3e53q）
  */
-export const AGENT_VERSION = 5
+export const AGENT_VERSION = 6
 
 let engines: Partial<Record<EngineId, Engine>> = {}
 
@@ -447,7 +453,8 @@ async function ensureMcp(): Promise<McpServer> {
         try {
           const r = await runTool(name, args, hostFor(t))
           // 改名、挪动、删的原来是个文件夹：做完步骤行换成文件夹的说法
-          t.emit({ type: 'tool', id: step, label: r.label ?? label, status: r.isError ? 'err' : 'ok', ...(r.isError ? { detail: r.text } : {}) })
+          const paths = r.isError || name === 'notes_list' ? [] : stepPaths(name, args, needVault().root, r.text)
+          t.emit({ type: 'tool', id: step, label: r.label ?? label, status: r.isError ? 'err' : 'ok', ...(r.isError ? { detail: r.text } : {}), ...(paths.length ? { paths } : {}) })
           return { text: r.text, ...(r.isError ? { isError: true } : {}) }
         } catch (e) {
           const detail = String((e as Error).message ?? e)
@@ -689,7 +696,8 @@ export async function runAgentTurn(o: {
       // 命令行自己的那一步（全能模式下跑命令、写文件、上网搜）：在做转圈、做完绿勾，和我们工具的步骤行一样
       onStep: (st) => {
         if (st.status === 'run') noteStep(t, v.root, st.tool, st.input)
-        o.emit({ type: 'tool', id: `${t.id}-${st.id}`, ...stepLabel(st.tool, st.input, v.root), status: st.status, ...(st.detail ? { detail: st.detail } : {}) })
+        const paths = st.tool === 'Glob' ? [] : stepPaths(st.tool, st.input, v.root)
+        o.emit({ type: 'tool', id: `${t.id}-${st.id}`, ...stepLabel(st.tool, st.input, v.root), status: st.status, ...(st.detail ? { detail: st.detail } : {}), ...(paths.length ? { paths } : {}) })
       },
       signal: o.ac.signal,
     })
@@ -826,7 +834,7 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
         ...picked,
         // 开头一行是现在开没开全能模式（系统提示在一个会话里定死了，开关随时会换）；【AI 块】这一问往笔记里新加的段落包成的头；
         // 引用的材料：字里的 ①②，后面按同一套编号列出每块
-        prompt: `${modeLine(omni, req.engine, v.root, req.text)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n\n用户说：\n${withMaterials(req.text, mats)}${langTail(req.text)}`,
+        prompt: `${modeLine(omni, req.engine, v.root, req.text)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n${await vaultNotes(v.root, req.context, req.text)}\n\n用户说：\n${withMaterials(req.text, mats)}${langTail(req.text)}`,
         system: AGENT_SYSTEM,
         session: place ? store.session(v.root, place.key, req.engine, AGENT_VERSION) : undefined,
         history: chat ? historyOf(chat.msgs.filter((m) => !(m.role === 'user' && m.text === req.text))) : undefined,
@@ -850,6 +858,15 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
 
 /** AI 对话这一格正在答 */
 let dockBusy = false
+
+/**
+ * 每条消息开头的【库里的笔记】（task-3e53q）：AI 照着写链接的路径，不用猜。列哪几篇见 shared/cite-rule.ts 的 notesLine；
+ * 读 PDF 也用（current 是那份 PDF）
+ */
+export async function vaultNotes(root: string, c: { tab?: { path?: string }; recent?: string[] } | null, said: string): Promise<string> {
+  const files = await listEntries(root)
+  return notesLine({ files, ...(c?.tab?.path ? { current: c.tab.path } : {}), ...(c?.recent ? { recent: c.recent } : {}), said })
+}
 
 /**
  * AI 对话这一问往笔记里新加的段落包成 [!ai] 块时头上写的（task-dtc34）：哪家 · 哪个模型（和回答头上一样，不带 effort），
@@ -899,7 +916,7 @@ async function runSideTurn(req: SideTurnRequest): Promise<TurnResult> {
       aiWrote: wrote,
       run: {
         ...picked,
-        prompt: `${modeLine(omni, req.engine, v.root, req.text)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n\n${sideTurnPrompt({ first: !mine, quote: side.quote, ...(side.ask ? { ask: side.ask } : {}), ...(side.where ? { where: side.where } : {}), question: withMaterials(req.text, mats) })}${langTail(req.text)}`,
+        prompt: `${modeLine(omni, req.engine, v.root, req.text)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n${await vaultNotes(v.root, req.context, req.text)}\n\n${sideTurnPrompt({ first: !mine, quote: side.quote, ...(side.ask ? { ask: side.ask } : {}), ...(side.where ? { where: side.where } : {}), question: withMaterials(req.text, mats) })}${langTail(req.text)}`,
         system: AGENT_SYSTEM,
         session: mine ?? base,
         ...(!mine && base ? { fork: true } : {}),

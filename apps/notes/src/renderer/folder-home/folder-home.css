@@ -1151,3 +1151,49 @@ button.fw-row:hover {
 .fhome .fw-dragging {
   opacity: 0.4;
 }
+
+/* 费曼（task-yvabi）：一行数，每样前面一个和导图上一样的小点（过绿、差一点黄、没过红、没讲过空心灰圈） */
+.fw-fey {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--t1);
+}
+.fw-fey > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--t2);
+}
+.fw-fey .fd {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.fw-fey .fd.fs-pass {
+  background: var(--green);
+}
+.fw-fey .fd.fs-almost {
+  background: var(--yellow);
+}
+.fw-fey .fd.fs-fail {
+  background: var(--red);
+}
+.fw-fey .fd.fs-none {
+  border: 1.2px solid var(--t3);
+}
+.fw-fey .fd.fs-zero {
+  background: var(--line2);
+}
+.fw-fey-next > .r {
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fw-fey-next > .truncate {
+  flex: 1;
+}

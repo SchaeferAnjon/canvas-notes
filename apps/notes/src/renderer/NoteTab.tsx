@@ -4,6 +4,7 @@ import { fmValue, hasOldLayout, isMindmap, needsConvert, needsSummaryConvert } f
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile, OpenedNote } from '../shared/api'
 import { nameNotice, safeName } from '../shared/file-name'
+import { fillCrops } from './reading/crop-fill'
 import { titleOf } from '../shared/layout'
 import { underCat } from '../shared/categories'
 import { BoardView, type BoardZoomApi } from './BoardView'
@@ -39,6 +40,7 @@ import { TaskView } from './todo/TaskView'
 import { openSettingsAt } from './settings/jump'
 import { useT } from './i18n'
 import { t as tNow } from '../shared/i18n'
+import { onWantView, takeView } from './note-mode'
 
 export interface NoteTabProps {
   /** 标签 id：标签上改名时按它找到这一篇的改名 */
@@ -240,6 +242,14 @@ export function NoteTab(props: NoteTabProps) {
       off = window.cn.onNoteChanged((p, text) => {
         if (d && p === d.path) void d.applyRemote(text)
       })
+      // 读 PDF 的配对笔记（「X 笔记.md」，段里有 cn:thread）：以前问过、那一段没有框的图的，照记下的框补一张（task-yp8l7）；
+      // 主进程写好发 note:changed，编辑器按外部改动合并
+      if (!note.readOnly && / 笔记\.md$/.test(note.path) && note.text.includes('cn:thread=')) {
+        fillCrops(note.path.replace(/ 笔记\.md$/, '.pdf')).then(
+          (said) => said && cb.current.onNotice(said),
+          (e: Error) => cb.current.onNotice(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')),
+        )
+      }
     }
     /**
      * 旧写法的白板（用注释存列的）第一次打开：一次转成「## 列名」写法，主进程写回、单独一次提交（2026-11-21 方向 A），
@@ -382,6 +392,17 @@ export function NoteTab(props: NoteTabProps) {
       cb.current.onNotice(String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     }
   }
+
+  // 别处要这一篇换成某种看法（AI 回答里 ⌘点「白板.md#^卡号」：开白板看法，note-mode.ts）：开出来时、开着时都接
+  useEffect(() => {
+    const go = () => {
+      const m = takeView(pathNow.current)
+      if (m && m !== modeRef.current) pick(m)
+    }
+    go()
+    return onWantView(path, go)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path])
 
   useEffect(() => {
     if (active && !renaming && mode === 'doc' && doc.current) focusTaking(doc.current)

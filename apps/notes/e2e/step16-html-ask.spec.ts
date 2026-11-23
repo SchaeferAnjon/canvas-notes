@@ -32,7 +32,7 @@ test('打开 HTML：沙箱里跑，右栏是它的 AI；「框一块」拖一个
     await acts(page).getByRole('button', { name: '更多' }).click()
     await expect(acts(page).getByTestId('page-note')).toHaveText('可视化 · 第3讲')
     // 读 HTML 时右栏 AI 那一格是它的 AI（AI 只住右栏，第 2a 段）：打开不自己开，右下角的圆钮开它；竖条上只多「笔记」
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '相关', '网页', '微信读书', '记录', '自动化', '历史'])
     await expect(ai(page)).toBeHidden()
     await rail(page).getByRole('button', { name: '打开 AI' }).click()
     await expect(ai(page)).toBeVisible()
@@ -74,7 +74,7 @@ test('打开 HTML：沙箱里跑，右栏是它的 AI；「框一块」拖一个
     expect(gitOut(vault, 'log', '-1', '--format=%s')).toMatch(/^笔记：旋转矩阵 · 测试小标题/)
     expect(gitStatus(vault)).toBe('')
     // 笔记里这一轮的来源是文件名「旋转矩阵.html ›」，点了打开 HTML
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(page.getByRole('complementary', { name: '笔记', exact: true }).locator('.rnd .loc button').first()).toHaveText('旋转矩阵.html ›')
 
     // 问这一屏：整屏直接发

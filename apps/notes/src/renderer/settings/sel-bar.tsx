@@ -8,6 +8,7 @@
  * 改了马上存，底下「已存 · 撤回」，和设置别的页一样。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { PageHead as BasePageHead, Toggle, useSaid } from '@cn/design/settings'
 import { type CSSProperties, Fragment, type PointerEvent as RPointerEvent, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { type AiCmd, cleanName, descOf, rulesOfPrompt, type Where, whereText as cmdWhereText } from '../../shared/ai-cmds'
@@ -220,8 +221,10 @@ function ListView(props: {
     const rr = row.getBoundingClientRect()
     drag.current = { id, x0: e.clientX, y0: e.clientY, off: e.clientY - rr.top, started: false, ghost: null, row, target: null }
     row.setPointerCapture(e.pointerId)
+    // 松手没送到页面（窗口外松手、失焦）：当没拖过，条上的先后不变（trackDrag，task-0nz63）
+    trackDrag<PointerEvent>(e, { move: onRowMove, end: (how) => onRowUp(how === 'up') })
   }
-  function onRowMove(e: RPointerEvent<HTMLDivElement>) {
+  function onRowMove(e: { clientX: number; clientY: number }) {
     const d = drag.current
     const L = list.current
     if (!d || !L) return
@@ -274,7 +277,8 @@ function ListView(props: {
     dl.style.top = `${best.y - lr.top - 1}px`
     d.target = { z: best.z, idx: best.idx }
   }
-  function onRowUp() {
+  /** 松手（drop false：松手没送到，只收拾、不挪） */
+  function onRowUp(drop: boolean) {
     const d = drag.current
     drag.current = null
     setDragDeny(false)
@@ -282,7 +286,7 @@ function ListView(props: {
     d.ghost?.remove()
     d.row.classList.remove('dragging')
     if (dropline.current) dropline.current.style.display = 'none'
-    const tg = d.target
+    const tg = drop ? d.target : null
     if (!tg) return
     if (tg === 'deny') return denyFull()
     const before = zoneOf(bar, d.id)
@@ -409,10 +413,7 @@ function ListView(props: {
                       role="listitem"
                       aria-label={label}
                       onPointerDown={(e) => onRowDown(e, it.id)}
-                      onPointerMove={onRowMove}
-                      onPointerUp={onRowUp}
-                      onPointerCancel={onRowUp}
-                      onLostPointerCapture={onRowUp}
+                      onLostPointerCapture={() => onRowUp(true)}
                     >
                       <span className="sb-grip" title={t('按住拖')}>
                         <Codicon name="gripper" size={16} />

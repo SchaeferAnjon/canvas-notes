@@ -310,6 +310,8 @@ export function ReadingNotes(props: {
       <div
         className="notes ndoc"
         ref={list}
+        // 笔记里光写页码的「第 4 页」是这份 PDF 的：按住 ⌘ 悬停弹出那一页（peek/peek.tsx）
+        data-peek-pdf={isPdf ? pdf : undefined}
         onClick={(e) => {
           const b = (e.target as Element).closest<HTMLElement>('.badge[data-side]')
           if (!b) return
@@ -358,6 +360,15 @@ export function ReadingNotes(props: {
           </>
         ) : (
           <>
+            {r.filled && (
+              <div className="qhint cards-hint" data-testid="crop-filled">
+                <Codicon name="info" size={14} />
+                <span>{r.filled}</span>
+                <button className="x" aria-label={t('知道了')} onClick={() => R.setFilled(pdf, null)}>
+                  <Codicon name="close" size={12} />
+                </button>
+              </div>
+            )}
             {writingNew.map((id) => {
               const th = r.state.threads.find((x) => x.id === id)
               return (
@@ -586,6 +597,11 @@ function Round(p: {
           <img src={vaultImg(s.crop)} alt={cropCaption(s)} style={s.cropW ? { width: s.cropW } : undefined} className={s.cropW ? '' : 'old'} />
         </button>
       )}
+      {s.quote && (
+        <button className="nquote" title={t('翻到这一页，选过的那段闪一下')} onClick={p.onJump}>
+          {s.quote}
+        </button>
+      )}
       {s.figures.map((f) => (
         <figure key={f.path} className="nfig">
           <button className="crop" onClick={() => p.onJumpPage(s.page)}>
@@ -664,7 +680,7 @@ function Round(p: {
             </button>
           )}
           {s.links.map((l) => (
-            <button key={l} className="lnk wl" title={t('双链，跳到那篇')} onClick={() => p.onLink(l.split('#')[0]!)}>
+            <button key={l} className="lnk wl" title={t('双链，跳到那篇')} data-peek-wiki={l} onClick={() => p.onLink(l.split('#')[0]!)}>
               [[{l}]]
             </button>
           ))}

@@ -324,7 +324,7 @@ test('工作区方向 A：开着旁支点竖条「笔记」，笔记标签落在
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toContain('> [!side] 为什么是基向量？\n> > 列就是基向量去哪\n>\n> #### 旁支的回答')
     // 竖条「笔记」：笔记标签开在同一组、在前面；开着旁支切过来：落在正在问的那条旁支上
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notes(page)).toBeVisible()
     await expect(ai(page)).toBeHidden()
     const round = notes(page).getByTestId('note-round')

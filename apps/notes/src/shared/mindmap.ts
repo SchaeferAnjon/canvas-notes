@@ -25,7 +25,7 @@ export function cameraKind(label: string): CameraKind {
 export const CAMERA_LABEL: Record<CameraKind, string> = { iphone: 'iPhone', mac: 'Mac 摄像头', desk: '桌上视角' }
 
 /** 存到「来源」属性里的话 */
-export type PhotoFrom = CameraKind | 'file' | 'paste' | 'airdrop'
+export type PhotoFrom = CameraKind | 'file' | 'paste' | 'airdrop' | 'feynman'
 export const FROM_LABEL: Record<PhotoFrom, string> = {
   iphone: 'iPhone 拍的',
   mac: 'Mac 摄像头拍的',
@@ -33,6 +33,7 @@ export const FROM_LABEL: Record<PhotoFrom, string> = {
   file: '照片',
   paste: '粘贴的照片',
   airdrop: '隔空投送的照片',
+  feynman: '费曼讲的', // 不翻：属性值（写进文件）
 }
 
 /** 照片在主线里先存一份临时的（还没进库），用 id 指它 */
@@ -69,11 +70,15 @@ export function parentName(text: string): string | undefined {
 /** 做好的导图：白板和照片的路径。进收件箱的主线已经提交；挂到白板、笔记上的由界面插好链接后三样一起提交 */
 export interface Placed {
   path: string
+  /** 照片在库里的路径；费曼「拍成导图」没有照片，是空的 */
   photo: string
 }
 
 export interface PlaceRequest {
-  photo: string
+  /** 暂存的照片；费曼「拍成导图」没有照片（from 是 feynman，名字用 title） */
+  photo?: string
+  /** 没有照片时这块导图白板的名字（「范数 导图」）；有照片的照旧按拍的时间起名 */
+  title?: string
   into?: PlaceInto
   from: PhotoFrom
   roots: MapNode[]
@@ -97,7 +102,7 @@ export const photoCaption = (d: Date, from: PhotoFrom) =>
   `原照片 · ${d.getMonth() + 1} 月 ${d.getDate()} 日 ${p2(d.getHours())}:${p2(d.getMinutes())}${from in CAMERA_LABEL ? ` · ${CAMERA_LABEL[from as CameraKind]}` : ''}`
 
 /** 新导图白板的全文 */
-export function mindmapNote(o: { title: string; notePath: string; photoPath: string; caption: string; roots: MapNode[]; from: PhotoFrom; course?: string; lecture?: number; ai: string[]; day: string; parent?: { as: PlaceInto['as']; name: string } }): string {
+export function mindmapNote(o: { title: string; notePath: string; photoPath?: string; caption: string; roots: MapNode[]; from: PhotoFrom; course?: string; lecture?: number; ai: string[]; day: string; parent?: { as: PlaceInto['as']; name: string } }): string {
   const fm = [
     'type: board',
     `${MAP_STYLE_KEY}: ${MAP_STYLE}`,
@@ -109,7 +114,8 @@ export function mindmapNote(o: { title: string; notePath: string; photoPath: str
     o.ai.length ? `AI填的: ${o.ai.join(', ')}` : null,
     o.parent ? `${PARENT_KEY[o.parent.as]}: "[[${o.parent.name}]]"` : null,
   ].filter((l) => l !== null)
-  return `---\n${fm.join('\n')}\n---\n# ${o.title}\n\n![${o.caption}](${relativeLink(o.notePath, o.photoPath)})\n\n${mindmapList(o.roots)}`
+  const photo = o.photoPath ? `![${o.caption}](${relativeLink(o.notePath, o.photoPath)})\n\n` : ''
+  return `---\n${fm.join('\n')}\n---\n# ${o.title}\n\n${photo}${mindmapList(o.roots)}`
 }
 
 // ---------- AI 认照片 ----------
@@ -217,7 +223,13 @@ export interface Row {
   box?: Box
   unsure?: boolean
   guesses?: string[]
+  /** 费曼「拍成导图」带过来的：讲错（红）、AI 写的正确说法、留给自己填的空框 */
+  wrong?: boolean
+  fix?: boolean
+  blank?: boolean
 }
+
+const marksOf = (n: { wrong?: boolean; fix?: boolean; blank?: boolean }) => ({ ...(n.wrong ? { wrong: true } : {}), ...(n.fix ? { fix: true } : {}), ...(n.blank ? { blank: true } : {}) })
 
 let rowSeq = 0
 export const rowKey = () => `r${++rowSeq}`
@@ -226,7 +238,7 @@ export function toRows(roots: MapNode[]): Row[] {
   const out: Row[] = []
   const walk = (list: MapNode[], depth: number) =>
     list.forEach((n) => {
-      out.push({ key: rowKey(), depth, text: n.text, ...(n.box ? { box: n.box } : {}), ...(n.unsure ? { unsure: true } : {}), ...(n.guesses ? { guesses: n.guesses } : {}) })
+      out.push({ key: rowKey(), depth, text: n.text, ...(n.box ? { box: n.box } : {}), ...(n.unsure ? { unsure: true } : {}), ...(n.guesses ? { guesses: n.guesses } : {}), ...marksOf(n) })
       walk(n.children, depth + 1)
     })
   walk(roots, 0)
@@ -241,7 +253,7 @@ export function fromRows(rows: Row[]): MapNode[] {
     const text = r.text.replace(/\s+/g, ' ').trim()
     if (!text) continue
     const depth = Math.min(r.depth, stack.length)
-    const n: MapNode = { text, children: [], ...(r.box ? { box: r.box } : {}), ...(r.unsure ? { unsure: true } : {}), ...(r.guesses?.length ? { guesses: r.guesses } : {}) }
+    const n: MapNode = { text, children: [], ...(r.box ? { box: r.box } : {}), ...(r.unsure ? { unsure: true } : {}), ...(r.guesses?.length ? { guesses: r.guesses } : {}), ...marksOf(r) }
     stack.length = depth
     if (depth === 0) roots.push(n)
     else stack[depth - 1]!.children.push(n)

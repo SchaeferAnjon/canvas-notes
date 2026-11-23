@@ -120,6 +120,9 @@ export function todoItems(path: string, text: string): TodoItem[] {
     title: t.task.title,
     done: t.task.done,
     cancelled: t.task.cancelled,
+    doing: t.task.doing,
+    dupOf: null,
+    dups: [],
     date: t.task.date,
     time: t.task.time,
     remind: t.task.remind,
@@ -129,8 +132,8 @@ export function todoItems(path: string, text: string): TodoItem[] {
   }))
 }
 
-/** 这篇里可能有待办吗（「- [ ]」「1. [x]」这种开头的行）：没有就不必一行行认 */
-export const mayHaveTodos = (text: string) => /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\[[^\[\]]\]/m.test(text)
+/** 这篇里可能有待办吗（「- [ ]」「1. [x]」「> - [ ]」这种开头的行）：没有就不必一行行认 */
+export const mayHaveTodos = (text: string) => /^(?:[ \t]*>[ \t]?)*[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\[[^\[\]]\]/m.test(text)
 
 /** 本地的现在「2026-11-22T16:05」（快速加一条只写了钟点、今天已经过了的算明天，task-pd289） */
 export function localNow(ms = Date.now()): string {

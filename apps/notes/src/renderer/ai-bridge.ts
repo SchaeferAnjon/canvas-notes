@@ -8,7 +8,7 @@ import type { NoteFile } from '../shared/api'
 import { INBOX, titleOf } from '../shared/layout'
 import { folderCount } from './ai-place'
 import { spotRange } from './ai-spot'
-import { vaultFiles } from './files/store'
+import { recentFiles, vaultFiles } from './files/store'
 import { NoteDoc, type ViewMode } from './note-doc'
 import type { Tab } from './tabs'
 
@@ -72,6 +72,8 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
     if (text) ctx.selection = text.length > 2000 ? text.slice(0, 2000) + '…' : text
   }
   if (mentions.length) ctx.mentions = mentions
+  const recent = recentFiles()
+  if (recent.length) ctx.recent = recent
   return ctx
 }
 

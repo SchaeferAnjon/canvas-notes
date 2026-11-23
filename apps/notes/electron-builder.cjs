@@ -16,14 +16,29 @@ module.exports = {
   artifactName: `${brand.artifact}-\${version}-\${os}-\${arch}.\${ext}`,
   copyright: `Copyright © ${brand.year} ${brand.author}`,
   directories: { output: process.env.CN_RELEASE_OUT || 'release', buildResources: 'build' },
-  // AI 用的是用户自己装的命令行（claude、codex、gemini、opencode），包里不带任何 AI 的程序或 SDK；
+  // AI 用的是用户自己装的命令行（claude、codex、gemini、opencode），包里不带任何云端 AI 的程序或 SDK；
   // 按意思搜的本机小模型 multilingual-e5-small（MIT，scripts/fetch-model.mjs 下好的）跑在 onnxruntime-node 上：只带 Mac arm64 那份原生库，别的平台的去掉
-  files: ['out/**', 'package.json', '!**/node_modules/onnxruntime-node/bin/napi-v*/{win32,linux}/**', '!**/node_modules/pdfjs-dist/{web,image_decoders,build}/**', '!**/node_modules/@napi-rs/**', '!**/*.map'],
-  // 原生库（.node、.dylib）不能放在 asar 里
-  asarUnpack: ['**/node_modules/onnxruntime-node/**'],
+  // 梦游判断的本地模型跑在 node-llama-cpp 上（MIT）：只带 Mac arm64 Metal 那份预编译（@node-llama-cpp/mac-arm64-metal），
+  // 不带它本机编译用的 llama.cpp 源码包、CMake 脚本、模板；模型文件（GGUF，几 GB）不进包，第一次用时下到用户的缓存目录（src/main/local-llm）
+  files: [
+    'out/**',
+    'package.json',
+    '!**/node_modules/onnxruntime-node/bin/napi-v*/{win32,linux}/**',
+    '!**/node_modules/pdfjs-dist/{web,image_decoders,build}/**',
+    '!**/node_modules/@napi-rs/**',
+    '!**/node_modules/node-llama-cpp/llama/{gitRelease.bundle,addon,cmake,toolchains,xpack,patches,profiles,CMakeLists.txt}',
+    '!**/node_modules/node-llama-cpp/llama/{addon,cmake,toolchains,xpack,patches,profiles}/**',
+    '!**/node_modules/node-llama-cpp/templates/**',
+    '!**/node_modules/@node-llama-cpp/{mac-x64,linux-*,win-*}/**',
+    '!**/*.{gguf,gguf.part}',
+    '!**/*.map',
+  ],
+  // 原生库（.node、.dylib、Metal 的 .metallib）不能放在 asar 里；node-llama-cpp 按自己的目录结构找预编译，整个解出来
+  asarUnpack: ['**/node_modules/onnxruntime-node/**', '**/node_modules/node-llama-cpp/**', '**/node_modules/@node-llama-cpp/**'],
   // 新网页标签用的 BookmarkKeeper（MIT）：软件只用包里这一份（汉化过，见 resources/bookmarkkeeper/SOURCE.json）
   extraResources: [
     { from: 'resources/bookmarkkeeper', to: 'bookmarkkeeper' },
+    // 大模型 bge-m3 不进包：第一次用时下到用户级缓存（src/main/search/embed-model.ts）
     { from: 'resources/models/multilingual-e5-small', to: 'models/multilingual-e5-small' },
     // 没字幕的视频生成字幕时下载音频用（scripts/fetch-ytdlp.mjs 下好，软件里 main/video/index.ts 的 bundledYtDlp 找它）
     { from: 'resources/bin', to: 'bin' },
@@ -52,6 +67,8 @@ module.exports = {
       // 拍手写导图：用 Mac 摄像头或 iPhone（连续互通相机）拍；拍照窗口开着时看「下载」里隔空投送来的照片
       NSCameraUsageDescription: `${brand.name} 用摄像头拍你手写的导图，认成白板上的导图。`,
       NSCameraUseContinuityCameraDeviceType: true,
+      // 费曼学习的语音输入：麦克风的声音送 Soniox 实时听写成字（task-yvabi）
+      NSMicrophoneUsageDescription: `${brand.name} 在费曼学习里听你讲，用 Soniox 边说边转成字放进回答框。`,
       NSDownloadsFolderUsageDescription: `${brand.name} 拍导图的窗口开着时，拿你用隔空投送传到「下载」里的照片。`,
       // 让 iPhone / iPad 用这台 Mac 的 AI（task-wwqf0）：设置里打开后用 Bonjour 在局域网里报一声（macOS 15 起这算本地网络权限）
       NSLocalNetworkUsageDescription: `${brand.name} 在同一个 Wi‑Fi 里让你的 iPhone、iPad 找到这台 Mac，用这里的 AI 回答问题。`,

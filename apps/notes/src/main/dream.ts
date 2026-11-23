@@ -18,12 +18,14 @@ import { INBOX, previewOf, titleOf } from '../shared/layout'
 import { catName } from '../shared/categories'
 import { VIDEO_FOLDER, videoOf } from '../shared/video'
 import { BRAND } from '../shared/brand'
-import { duplicatesOf, isAutoSummary, type LinkCand, linkCandidates, linkWhy } from './duplicates'
+import { duplicatesOf, isAutoSummary, type LinkCand, linkCandidates, linkRanked } from './duplicates'
+import { type JudgeAsk, judgeLinks, type Related } from './dream-links'
+export { DreamInterrupted } from './dream-links'
 import { oldImagesOnBranch } from './dream-attach'
 import { makeDreamViz } from './dream-viz'
 import { movedText, relinkText } from './dream-file'
 import { FILE_BATCH, foldersOf, type FileMode, inboxEntry, parsePlan, planInBatches, redoPrompt, targetOf, type FilePlan } from '../shared/filing'
-import { DEFAULT_DREAM, type DreamSettings, filesOn, inDreamFolders, linkFolders, weekOn } from '../shared/dream-settings'
+import { DEFAULT_DREAM, type DreamSettings, extraLinkFolders, filesOn, inDreamFolders, linkFolders, topFolders, weekOn } from '../shared/dream-settings'
 
 /** 梦游默认能动的：收件箱、阅读（微信读书同步的书摘 2026-11-18 起在这里）、剪藏、周记；设置 › 梦游 里能改 */
 export const DREAM_FOLDERS = DEFAULT_DREAM.folders
@@ -51,17 +53,34 @@ export interface DreamOptions {
   similar?: Similar
   /** 设置 › 梦游：哪几样做、一晚最多几处、能动哪些文件夹；不给是默认（全做） */
   settings?: DreamSettings
+  /** 补双链、复查、AI 认重复用谁判（设置 › 梦游「AI 判断」）；不给就用 ask */
+  judge?: JudgeAsk
+  /** 判断那一项写的「谁判的」 */
+  judgeBy?: string
+  /** 同时判几篇（命令行 4、本地模型 1） */
+  judgeParallel?: number
+  /** 这一路判断的线（Haiku 0.85，本机模型不自动连） */
+  judgeLine?: import('./dream-judge').JudgeLine
+  /** 判断进度存哪（每个库一份）；不给不存（单元测试） */
+  ledgerFile?: string
+  /** 睡眠、退出时停下：判完的记着，下次接着 */
+  signal?: AbortSignal
 }
 
 /** 补双链、找重复：几千篇的库要算几分钟 */
 export interface Similar {
   links(texts: [string, string][], loose: string[]): Promise<LinkCand[]>
   duplicates(docs: { id: string; text: string }[]): Promise<DuplicatePair[]>
+  /** 补双链找候选的关键词那一路：每篇前 k 篇 */
+  ranked?(texts: [string, string][], loose: string[], k: number): Promise<LinkCand[]>
+  /** 向量那一路（搜索索引里的段向量）；索引没建好给 null */
+  related?: Related
 }
 
 const inProcess: Similar = {
   links: async (texts, loose) => linkCandidates(texts, loose),
   duplicates: async (docs) => duplicatesOf(docs),
+  ranked: async (texts, loose, k) => linkRanked(texts, loose, k),
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -154,7 +173,9 @@ export async function clearStrayDreams(root: string, keep: string | null): Promi
 export async function runDream(o: DreamOptions): Promise<DreamReport> {
   const similar = o.similar ?? inProcess
   const set = o.settings ?? DEFAULT_DREAM
-  const allowed = (p: string) => inDreamFolders(set, p)
+  /** 库最外层不叫分类名、但也补双链的文件夹（「40-Clippings」，设置里认的）；读到库里的文件以后填 */
+  let extra: string[] = []
+  const allowed = (p: string) => inDreamFolders(set, p) || extra.some((d) => p.startsWith(d + '/'))
   const check = (m: string, ok?: ReadonlySet<string>) => commitChecked(wt, m, ok, allowed)
   const { root, ask } = o
   const now = o.now ?? new Date()
@@ -200,7 +221,9 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
       }
     }
     // 补双链补在这几个文件夹里的笔记末尾（默认 收件箱、阅读、剪藏；周记只放小结）
-    const linkIn = linkFolders(set)
+    // 补双链补在这几个文件夹里：勾上的分类，加上库最外层看名字认出来的、设置里点上的（task-h7oy8：从 Obsidian 搬来的库叫 00-Inbox、40-Clippings）
+    extra = extraLinkFolders(set, topFolders(files))
+    const linkIn = [...linkFolders(set), ...extra]
     const loose = files.filter((f) => linkIn.some((d) => f.startsWith(d + '/')))
 
     // 3. 本周小结（新文件，和别的提交互不相干）
@@ -235,34 +258,38 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
       }
     }
 
-    // 4. 补双链：收件箱、剪藏、阅读里的笔记，和库里另一篇讲到同一件事就在末尾加「相关：[[那篇]]」
-    // 先算出每篇最像的那篇，再按像的程度挑前 linkMax 处（设置 › 梦游，默认 30）（导入几百条时一晚上不铺几百条）。
-    // 几千篇的库要算几分钟：交给 similar（软件里在单独的进程算，主进程不卡，退出时直接停掉）
-    const cands = set.steps.link && loose.length ? await similar.links([...texts], loose) : []
-    const linked = new Set<string>()
-    let links = 0
-    for (const c of cands) {
-      if (links >= set.linkMax) break
-      if (linked.has(`${c.to}→${c.p}`)) continue
-      const target = titleOf(c.to)
-      await appendLine(join(wt, c.p), `相关：[[${target}]]`)
-      await git.git(wt, ['add', '--', c.p])
-      const commit = await check(`梦游：「${titleOf(c.p)}」补上 [[${target}]]`)
-      linked.add(`${c.p}→${c.to}`)
-      links++
-      add('link', {
-        title: titleOf(c.p),
-        sub: `↔ [[${target}]]`,
-        why: `${linkWhy(c.terms)}。只在这篇末尾加一行，「${target}」那篇不改`,
-        commit,
-        files: [c.p],
-        changes: [{ path: c.p, text: `末尾加了一行 相关：[[${target}]]` }],
+    // 4. 补双链（task-h7oy8 新底层，dream-links.ts）：三路找候选、AI 一篇一问判、原话核对、过线才提；拿不准的单列一组，
+    // 已有的「相关：」一起复查。判过的记在进度里，一晚问到上限就停，剩下的下一晚接着
+    let aiDups: DreamItem[] = []
+    if (set.steps.link && loose.length) {
+      const got = await judgeLinks({
+        wt,
+        texts,
+        loose,
+        set,
+        ask: o.judge ?? ((s, p) => ask(s, p)),
+        by: o.judgeBy ?? o.by ?? 'AI',
+        ...(similar.ranked ? { ranked: similar.ranked } : {}),
+        ...(similar.related ? { related: similar.related } : {}),
+        ...(o.ledgerFile ? { ledgerFile: o.ledgerFile } : {}),
+        now,
+        parallel: o.judgeParallel ?? 4,
+        ...(o.judgeLine ? { line: o.judgeLine } : {}),
+        ...(o.signal ? { signal: o.signal } : {}),
+        commit: (m) => check(m),
+        add,
+        notes: report.notes,
       })
+      report.judge = got.stats
+      aiDups = got.dups
     }
-    if (cands.length > set.linkMax) report.notes.push(`还有 ${cands.length - links} 处能补双链，这次先补最像的 ${links} 处，下次梦游接着补`)
 
     // 5. 可能重复：只提醒，不改文件，没有提交；最像的 dupMax 对
     const dups = set.steps.dup ? (await similar.duplicates([...texts].map(([id, text]) => ({ id, text })))).sort((a, b) => b.score - a.score) : []
+    // 字面重复的那对以本机比出来的为准；AI 认出的（换了语言、换了说法的）补在后面，一共最多 dupMax 对
+    const literalKey = new Set(dups.map((d) => [d.a, d.b].sort().join('\0')))
+    const ai = set.steps.dup ? aiDups.filter((i) => !literalKey.has([...i.files].sort().join('\0'))) : []
+    const all = dups.length + ai.length
     for (const d of dups.slice(0, set.dupMax)) {
       add('dup', {
         title: `${titleOf(d.a)} + ${titleOf(d.b)}`,
@@ -272,7 +299,8 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
         files: [d.a, d.b],
       })
     }
-    if (dups.length > set.dupMax) report.notes.push(`还有 ${dups.length - set.dupMax} 对可能重复的没列出来，${menuKey('search') ?? '搜索框'}「找重复」能看全部`)
+    for (const { id: _i, group: _g, state: _s, ...it } of ai.slice(0, Math.max(0, set.dupMax - dups.length))) add('dup', it)
+    if (all > set.dupMax) report.notes.push(`还有 ${all - set.dupMax} 对可能重复的没列出来，${menuKey('search') ?? '搜索框'}「找重复」能看全部`)
 
     // 5a. 同一个视频记散在两篇以上（CN-80）：提醒合成一篇；只是提醒，不改文件
     for (const g of set.steps.video ? sameVideoNotes(texts) : []) {
@@ -315,7 +343,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
   }
 
   // 列表按设计稿分组：归类和改名、双链、重复、小结；cherry-pick 按提交顺序
-  const order: DreamGroup[] = ['attach', 'file', 'viz', 'link', 'dup', 'week']
+  const order: DreamGroup[] = ['attach', 'file', 'viz', 'link', 'unsure', 'recheck', 'dup', 'week']
   report.items.sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group))
   report.finished = Date.now()
   ;(report as DreamReportInternal).worktree = wt

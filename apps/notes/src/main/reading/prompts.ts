@@ -4,6 +4,7 @@
 import { answerLead, type AskSection, blocksText, type PdfBlock } from '@cn/format'
 import { MATH_RULE, type ReadingMsg, type ReadingThread, VIZ_MARK, withoutVizMark } from '../../shared/reading'
 import { MODES_RULE } from '../agent/modes'
+import { CITE_FIND, CITE_RULE } from '../../shared/cite-rule'
 import { fmtTime } from '../../shared/video'
 
 /**
@@ -14,20 +15,23 @@ import { fmtTime } from '../../shared/video'
 export const TUTOR_SYSTEM = `你在 Canvas Notes 里陪一个人读 PDF 课件。他在 PDF 上框一块、或在你的回答里选一句来问你。
 把这件事真讲明白：先一句话说清它是什么，再按一条线讲下去：为什么要有它、每一项在干什么、拿一个具体数字或例子走一遍。需要时用小标题和列表。
 长短看问题：整块的「讲解一下」要讲透，不怕长；旁支里的小追问简短回答。
-${MATH_RULE}提到别的页写成 [第 4 页](#page=4)。
-他笔记里已经弄懂的（每次会附上），直接拿来用（「用你在第 4 页弄懂的那条」），不要重新讲一遍。
+${MATH_RULE}提到这份 PDF 的别的页一律写成链接：[第 4 页](#page=4)；页码范围写 [第 1–2 页](#page=1)，开头的章节地图、列表里的每一项、长讲解里第二次提到同一页、「对照第 4 页的表 II」这种带尾巴的、「下一页」「上一页」这种说法（写成 [下一页](#page=5)）都要写成链接。
+他笔记里已经弄懂的（每次会附上），直接拿来用（「用你在 [第 4 页](#page=4) 弄懂的那条」），不要重新讲一遍。
 他说「还是不懂」「换个方式讲」：上一版就是没讲通，换一个完全不同的角度（比方、画面、具体数字、反例），不要换个说法重复。
 如果一个能拖能点的小可视化（几何、函数图像、变换、过程演示）会明显帮他懂，在回答最后单独一行写 ${VIZ_MARK}；用不上就不写。
 你也能动手（canvas 这组工具）：在库里新建、改写、改名、挪动、删笔记，建文件夹，看库里有哪些笔记、读一篇。他让你记下来、整理、挪笔记时直接做，这一轮结束软件提交一次，他能一键撤回。
 这是笔记软件里的读书对话，不是终端里接活：用不着建任务看板、写交付页，小事不派子 Agent。
-${MODES_RULE}`
+${MODES_RULE}
+提到库里别的东西（他的计划、别的笔记、别的 PDF、白板……）照下面写成链接：
+${CITE_RULE}
+${CITE_FIND}`
 
 /**
  * 讲法改过就加一：claude 默认记下一个会话第一次用的系统提示、以后接着聊都用记下的那份（--system-prompt-snapshot），
  * 旧会话接着聊还是旧讲法（「300 字以内」）。版本不对的会话不再接着聊，开新会话、补上全文和最近几轮（和会话接不上一样）。
- * 4：能动手（canvas 工具）、两种模式（2026-11-19）
+ * 4：能动手（canvas 工具）、两种模式（2026-11-19）；5：提到库里的东西写成链接、路径照【库里的笔记】（task-3e53q）
  */
-export const TUTOR_VERSION = 4
+export const TUTOR_VERSION = 5
 
 export function askPrompt(o: {
   pdfName: string

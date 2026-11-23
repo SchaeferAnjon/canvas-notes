@@ -15,6 +15,8 @@ import { flushSaves as flushReading } from './reading/store'
 import { WindowGuard } from './crash/Guard'
 import { installTestCrash, watchGlobalErrors } from './crash/report'
 import { installCiteClicks } from './cite'
+import { installPeek } from './peek/peek'
+import { installDictDemo } from './voice/demo'
 
 // 退出软件、关主窗口前主进程叫它：停手不到 0.8 秒、还没自动保存的字先写到磁盘（这一步等写完才回）；
 // 读 PDF 的对话记录（存盘等 300 毫秒）也马上存掉，答完马上退出也是整条回答、旁支也在；
@@ -34,6 +36,11 @@ watchGlobalErrors()
 installTestCrash()
 // AI 回答里的引用（task-3e53q）：点了出预览卡、⌘点打开，哪里画的回答都一样
 installCiteClicks()
+// 按住 ⌘ 悬停链接弹出那一篇（task-hqula）：哪里的链接都一样
+installPeek()
+// 测试模式：语音输入试验框（费曼那一列做好前，端到端测试在这里真点麦克风）
+if (window.cnCrash?.e2e) installDictDemo()
+// 测试模式：本地模型那张卡（设置 › 梦游正式挂上前，端到端测试在这里真点，task-h7oy8）
 createRoot(document.getElementById('root')!).render(
   <WindowGuard>
     <App />

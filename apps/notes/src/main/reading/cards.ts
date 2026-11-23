@@ -33,6 +33,7 @@ import type { Vault } from '../vault'
 import { AnkiConnectError, browse, connected, countCards, courseDeckOf, DECK, deleteNotes, sendCards } from './anki'
 import { CARD_SYSTEM, cardMaterial, cardPrompt } from './card-prompt'
 import { ANKI_STATE, type AnkiState, collectAsked, courseName, dirOf, readAnkiState, writeAnkiState } from './doubts'
+import { feynmanRound, gapInputs, gapItems } from './feynman-cards'
 
 // ---------------------------------------------------------------- 本机记着的：改好还没送的
 
@@ -107,18 +108,36 @@ export function setupCards(deps: CardsDeps) {
     if (o.kind === 'pdf' && typeof o.pdf === 'string' && /\.pdf$/i.test(o.pdf)) return { kind: 'pdf', pdf: o.pdf }
     if (o.kind === 'folder' && typeof o.folder === 'string') return { kind: 'folder', folder: o.folder }
     if (o.kind === 'vault') return { kind: 'vault' }
+    if (o.kind === 'feynman' && typeof o.note === 'string' && /\.md$/i.test(o.note) && !o.note.split('/').includes('..') && typeof o.round === 'string') return { kind: 'feynman', note: o.note, round: o.round }
     throw new Error(t('出卡的范围不对'))
   }
   const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
   /** 出卡弹窗头上写的范围 */
-  const labelOf = (s: CardScope) => (s.kind === 'pdf' ? stem(s.pdf) : s.kind === 'folder' ? courseName(s.folder) || t('库的根目录') : t('整个库'))
+  const labelOf = (s: CardScope) => (s.kind === 'pdf' ? stem(s.pdf) : s.kind === 'folder' ? courseName(s.folder) || t('库的根目录') : s.kind === 'feynman' ? stem(s.note) : t('整个库'))
   /** 提交说明里写的范围（写进 Git，不翻） */
-  const commitLabel = (s: CardScope) => (s.kind === 'pdf' ? stem(s.pdf) : s.kind === 'folder' ? courseName(s.folder) || '库的根目录' : '整个库') // 不翻
+  const commitLabel = (s: CardScope) => (s.kind === 'pdf' ? stem(s.pdf) : s.kind === 'folder' ? courseName(s.folder) || '库的根目录' : s.kind === 'feynman' ? `费曼缺口 ${stem(s.note)}` : '整个库') // 不翻
   const courseOfPdf = (pdf: string) => courseName(courseRoot(dirOf(pdf)))
+
+  /** 来源「费曼缺口」：一轮的缺口一条一张，字已经是现成的（正确说法当答案），不再问 AI */
+  const feynmanView = async (v: Vault, sc: Extract<CardScope, { kind: 'feynman' }>): Promise<CardsView> => {
+    const [meta, st, d] = await Promise.all([feynmanRound(v, sc.note, sc.round), readAnkiState(v), mine()])
+    const course = courseName(courseRoot(dirOf(sc.note)))
+    const items: CardItem[] = gapItems(meta, sc.note, course).map(({ card, keep, ...it }) => {
+      const at = st.sent[it.id]
+      const sentCard = st.cards?.[it.id]
+      const dr = d[it.id]
+      const src = fnv(`${card.q}\n${card.a}`)
+      // 上次改过、选过不送的接着用（缺口的字变了就不算了）；没有就用现成的字，勾不勾照缺口的「出卡」
+      const draft = dr && dr.src === src ? { card: dr.card, ...(dr.edited ? { edited: true } : {}), ...(dr.skip ? { skip: true } : {}) } : { card, ...(keep ? {} : { skip: true }) }
+      return { ...it, ...(at ? { sent: { at, ...(sentCard ? { card: { q: sentCard.q, a: sentCard.a, more: sentCard.more, quote: sentCard.quote } } : {}) } } : {}), draft }
+    })
+    return { label: t('费曼缺口 · {topic}', { topic: meta.topic }), items, by: t('照这一轮的缺口') }
+  }
 
   ipcMain.handle('reading:cards', async (_e, scope: unknown): Promise<CardsView> => {
     const sc = needScope(scope)
     const v = needVault()
+    if (sc.kind === 'feynman') return feynmanView(v, sc)
     const [items, st, d] = await Promise.all([collectAsked(v, sc), readAnkiState(v), mine()])
     const out: CardItem[] = items.map((it) => {
       const s = it.section
@@ -154,6 +173,8 @@ export function setupCards(deps: CardsDeps) {
     if (typeof job !== 'number' || !Array.isArray(ids) || !ids.every((x) => typeof x === 'string')) throw new Error(t('出卡的参数不对'))
     const sc = needScope(scope)
     const v = needVault()
+    // 费曼缺口的字是现成的，不问 AI
+    if (sc.kind === 'feynman') return void send('reading:cards:event', { job, done: true } satisfies CardEvent)
     const want = new Set(ids as string[])
     const items = (await collectAsked(v, sc)).filter((it) => want.has(it.id))
     const ctl = new AbortController()
@@ -244,7 +265,9 @@ export function setupCards(deps: CardsDeps) {
       if (typeof x?.id !== 'string' || !c) throw new Error(t('要送的卡不对'))
       want.set(x.id, c)
     }
-    const items = new Map((await collectAsked(v, sc)).map((it) => [it.id, it]))
+    const fey = sc.kind === 'feynman' ? await feynmanRound(v, sc.note, sc.round) : null
+    const items = new Map((fey ? [] : await collectAsked(v, sc)).map((it) => [it.id, it]))
+    const feyInputs = fey && sc.kind === 'feynman' ? gapInputs(fey, sc.note, courseName(courseRoot(dirOf(sc.note))), want) : []
     const inputs = await Promise.all(
       [...want].flatMap(([id, card]) => {
         const it = items.get(id)
@@ -266,7 +289,7 @@ export function setupCards(deps: CardsDeps) {
     const st = await readAnkiState(v)
     let r
     try {
-      r = await sendCards(inputs)
+      r = await sendCards([...inputs, ...feyInputs])
     } catch (e) {
       if (e instanceof AnkiConnectError && e.kind === 'off') return { added: [], duplicates: [], failed: {}, off: await status(), commit: null }
       if (e instanceof AnkiConnectError) return { added: [], duplicates: [], failed: {}, error: e.message, commit: null }
@@ -283,7 +306,7 @@ export function setupCards(deps: CardsDeps) {
     // 送过的不再留草稿；这个范围里别的那几问「不送」不留到下次（下次出卡默认都要，同原型）
     const d = await mine()
     for (const id of [...r.added, ...r.duplicates]) delete d[id]
-    for (const id of items.keys()) if (d[id]?.skip) delete d[id]!.skip
+    for (const id of fey ? feyInputs.map((x) => x.id) : items.keys()) if (d[id]?.skip) delete d[id]!.skip
     await saveDrafts()
     send('files:changed')
     return { added: r.added, duplicates: r.duplicates, failed: r.failed, decks: r.decks, commit: await commitInfo(v, hash) }

@@ -5,6 +5,8 @@
  *   开发时是 apps/today 编出来的；CN_CAL_HELPER 指定；测试模式（CN_E2E）一律 --memory <CN_CAL_MEMORY> 的假日历，没给就当没有小助手。
  * 和小助手说话照画布今日的 rem-helper.ts（直接用那一份）；AI 排空档照画布今日的 main/ai.ts、shared/ai-plan.ts（直接用那一份，「小活」那一家）。
  * 只在打开「日历」格时才起小助手（不为它在开软件时多一个进程）。
+ * 左栏每个系统日历能「不在这里显示」（task-ov5bb）：记在设置目录的 calendars.json，和画布今日共用一份（画布今日的 main/cal-hidden.ts，直接用那一份），
+ * 藏起的日历的日程 events() 就不给（周、月、全天、小月历的点、排空档都不算它）；画布今日那边改了，看着文件跟上。
  */
 import type { CalEvent } from '@cn/calendar'
 import { addDays, minutesOf } from '@cn/tasks'
@@ -12,6 +14,7 @@ import { app, type BrowserWindow, ipcMain, shell } from 'electron'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { aiLabel, aiPick, aiSchedule } from '../../../today/src/main/ai'
+import { CAL_PREFS_FILE, HiddenCals, isHidden } from '../../../today/src/main/cal-hidden'
 import { HelperError, RemHelper } from '../../../today/src/main/rem-helper'
 import type { Busy, SchedCandidate } from '../../../today/src/shared/ai-plan'
 import type { CalLinkState, SchedResult } from '../shared/calendar'
@@ -70,6 +73,9 @@ export function registerCalendar(o: { win: () => BrowserWindow | null; todos: ()
   let cals: HelperCal[] = []
   let rem: { title: string; color: string } | null = null
   let error: string | null = null
+  /** 不在这里显示的日历：画布今日那边改了（文件变了）就重读日历、叫界面重读日程 */
+  const hidden = new HiddenCals(join(app.getPath('userData'), CAL_PREFS_FILE), () => void (active() && o.win()?.webContents.send('cal:changed')))
+  app.on('browser-window-focus', () => hidden.check())
 
   const get = () =>
     (ready ??= helperCmd().then((cmd) => {
@@ -91,7 +97,7 @@ export function registerCalendar(o: { win: () => BrowserWindow | null; todos: ()
     auth,
     asking,
     active: active(),
-    calendars: active() ? cals.map((c) => ({ id: c.id, title: c.title, color: c.color ?? GREY, source: c.source })) : [],
+    calendars: active() ? cals.map((c) => ({ id: c.id, title: c.title, color: c.color ?? GREY, source: c.source, hidden: isHidden(c, hidden.get(), cals) })) : [],
     reminders: active() ? rem : null,
     error,
   })
@@ -154,7 +160,8 @@ export function registerCalendar(o: { win: () => BrowserWindow | null; todos: ()
     try {
       const { events } = await helper.request<{ events: HelperEvent[] }>('events', { from, to })
       const byId = new Map(cals.map((c) => [c.id, c]))
-      return events.map((e) => {
+      const off = new Set(cals.filter((c) => isHidden(c, hidden.get(), cals)).map((c) => c.id))
+      return events.filter((e) => !off.has(e.calendar)).map((e) => {
         const c = byId.get(e.calendar)
         return { id: e.id, title: e.title, calendar: c?.title ?? '', color: c?.color ?? GREY, allDay: e.allDay, start: e.start, end: e.end }
       })
@@ -163,6 +170,18 @@ export function registerCalendar(o: { win: () => BrowserWindow | null; todos: ()
       return []
     }
   }
+
+  /** 左栏一个日历：不在这里显示 / 在这里显示（右键、点色块）；全部显示 */
+  ipcMain.handle('cal:hide', (_e, id: unknown, hide: unknown): CalLinkState => {
+    if (typeof id !== 'string' || typeof hide !== 'boolean') throw new Error('日历的参数不对')
+    const c = cals.find((x) => x.id === id)
+    if (c && active()) hidden.set(c, hide, cals)
+    return state()
+  })
+  ipcMain.handle('cal:showAll', (): CalLinkState => {
+    hidden.clear()
+    return state()
+  })
 
   /** 系统设置 › 隐私与安全性 › 日历 */
   ipcMain.handle('cal:openPrivacy', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars'))
@@ -208,5 +227,8 @@ export function registerCalendar(o: { win: () => BrowserWindow | null; todos: ()
   })
   ipcMain.handle('cal:aiCancel', (_e, id: unknown) => void (typeof id === 'string' && jobs.get(id)?.abort()))
 
-  app.on('will-quit', () => helper?.stop())
+  app.on('will-quit', () => {
+    helper?.stop()
+    hidden.close()
+  })
 }

@@ -494,3 +494,9 @@
 .base-fix:hover {
   background: var(--fill2);
 }
+/* 键盘挪到的那一项（task-cle3x：回车开的状态选择，↑ ↓ 换） */
+.base-stpick button:focus-visible,
+.base-stpick button:focus {
+  outline: none;
+  background: var(--fill2);
+}

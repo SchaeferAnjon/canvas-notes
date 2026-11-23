@@ -4,9 +4,9 @@
  */
 import { app, ipcMain, powerMonitor } from 'electron'
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { DreamReport } from '../shared/api'
+import type { DreamItem, DreamReport } from '../shared/api'
 import { ask } from './ai'
 import { chatRun, featureLabel, ownPick } from './agent'
 import { pickLabel } from '../shared/ai-features'
@@ -20,7 +20,10 @@ import { setDreamHtml } from './attachments'
 import { diffOf } from './diff'
 import type { DiffSource } from '../shared/diff'
 import { similarOffThread } from './similar'
-import { type DreamReportInternal, autoTake, clearStrayDreams, closeIfDone, dropItem, dropMany, movesOf, redo, runDream, takeAll, takeItem, takeMany, undo } from './dream'
+import { type DreamReportInternal, autoTake, clearStrayDreams, closeIfDone, DreamInterrupted, dropItem, dropMany, movesOf, redo, runDream, takeAll, takeItem, takeMany, undo } from './dream'
+import { type JudgeAsk, rememberChoice } from './dream-links'
+import { judgeRunner } from './dream-judge-run'
+import { E2E } from './test-mode'
 import { type DreamSettings, idleDue } from '../shared/dream-settings'
 
 /** 测试用：没人动几秒、隔几毫秒算到点（不设就按设置 › 梦游） */
@@ -30,7 +33,26 @@ const GAP_MS = envNum('CN_DREAM_GAP_MS')
 const CHECK_MS = Number(process.env.CN_DREAM_CHECK_MS) || 5 * 60_000
 
 const dir = () => join(app.getPath('userData'), 'dream')
-const reportFile = (root: string) => join(dir(), createHash('sha1').update(root).digest('hex').slice(0, 16) + '.json')
+const vaultKey = (root: string) => createHash('sha1').update(root).digest('hex').slice(0, 16)
+const reportFile = (root: string) => join(dir(), vaultKey(root) + '.json')
+/** 判断的进度（dream-ledger.ts）：判过的每一对、每晚问了几次、不再提的 */
+const ledgerFile = (root: string) => join(dir(), vaultKey(root) + '.ledger.json')
+/** 上次判到一半被睡眠、退出打断：有这个文件时闲下来就接着判，不等「两次之间至少隔」 */
+const resumeFile = (root: string) => join(dir(), vaultKey(root) + '.resume')
+/** 你在报告里点的「收下 / 不要 / 丢掉」记进评测集（设计页 3：只存这台 Mac，不进库、不进仓库） */
+const labelsFile = (root: string) => join(app.getPath('userData'), 'dream-eval', vaultKey(root), 'labels.jsonl')
+/** 右栏「相关」读梦游的这几样（related-main.ts）：报告、判过的一对和不再提的、评测集 */
+export const dreamFiles = (root: string) => ({ report: reportFile(root), ledger: ledgerFile(root), labels: labelsFile(root) })
+
+async function exists(p: string): Promise<boolean> {
+  try {
+    await stat(p)
+    return true
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw e
+  }
+}
 
 async function load(root: string): Promise<DreamReportInternal | null> {
   try {
@@ -65,6 +87,8 @@ export function setupDream(o: {
   followMoves?(moves: { from: string; to: string }[]): Promise<void>
   /** 设置 › 梦游（每次梦游、每次看闲不闲时现读，改了马上算数） */
   settings(): DreamSettings
+  /** 补双链找候选的向量那一路（搜索索引里的段向量）；没给只用关键词和标题 */
+  related?: import('./dream-links').Related
 }) {
   // 报告里还没收下的可视化：从梦游分支上读出来预览（只给报告里列着的文件）
   setDreamHtml(async (rel) => {
@@ -74,6 +98,13 @@ export function setupDream(o: {
     return git.git(root, ['show', `${r.tip ?? r.branch}:${rel}`])
   })
   let running: Promise<DreamReport> | null = null
+  /** 正在梦游的那一次：睡眠、退出时叫停（判完的记着，醒来闲时接着） */
+  let stopper: AbortController | null = null
+  const interrupt = () => stopper?.abort()
+  powerMonitor.on('suspend', interrupt)
+  app.on('before-quit', interrupt)
+  // 测试演一次睡眠（和 suspend 同一条路）
+  if (E2E) (globalThis as unknown as { cnDreamInterrupt: () => void }).cnDreamInterrupt = interrupt
   /** 同一时间只做一件事（梦游、收下、丢掉），免得两个 git 命令抢锁 */
   let chain: Promise<unknown> = Promise.resolve()
   const serial = <T>(f: () => Promise<T>): Promise<T> => {
@@ -107,7 +138,37 @@ export function setupDream(o: {
       await clearStrayDreams(root, old && !old.closed ? old.branch : null)
       // only：自动化「定时整理收件箱」只做归类、改完直接收下（task-i921u）
       const settings = { ...o.settings(), ...only }
-      const r = await runDream({ root, scratch: join(dir(), 'checkouts'), ask: (s, p) => ask(s, p, AbortSignal.timeout(10 * 60_000), undefined, 'dream', pick ? { pick } : {}), by: pick ? pickLabel(chatRunPick(pick)) : featureLabel('dream'), trigger, similar: similarOffThread, settings })
+      const stop = (stopper = new AbortController())
+      const judge = judgeRunner(settings.judge)
+      let r: DreamReportInternal
+      try {
+        r = await runDream({
+          root,
+          scratch: join(dir(), 'checkouts'),
+          ask: (s, p) => ask(s, p, AbortSignal.any([stop.signal, AbortSignal.timeout(10 * 60_000)]), undefined, 'dream', pick ? { pick } : {}),
+          by: pick ? pickLabel(chatRunPick(pick)) : featureLabel('dream'),
+          trigger,
+          similar: { ...similarOffThread, ...(o.related ? { related: o.related } : {}) },
+          settings,
+          judge: judge.ask as JudgeAsk,
+          judgeBy: judge.by,
+          judgeParallel: judge.parallel,
+          judgeLine: judge.line,
+          ledgerFile: ledgerFile(root),
+          signal: stop.signal,
+        })
+      } catch (e) {
+        if (e instanceof DreamInterrupted || stop.signal.aborted) {
+          await mkdir(dir(), { recursive: true })
+          await writeFile(resumeFile(root), String(Date.now()))
+          // 半截的分支下次梦游前清掉（clearStrayDreams）
+          throw new DreamInterrupted()
+        }
+        throw e
+      } finally {
+        stopper = null
+      }
+      await rm(resumeFile(root), { force: true })
       await save(root, r)
       // 改完直接收下：和「全部收下」同一条路（和写笔记排同一个队，挪了的开着的那篇跟过去）；只提醒的留着看
       if (settings.autoTake && r.items.some((i) => i.commit && i.state === 'pending')) {
@@ -154,12 +215,27 @@ export function setupDream(o: {
       try {
         await (moves && o.exclusive ? o.exclusive(run) : run())
       } finally {
+        await remember(root, before, r)
         await save(root, r)
         o.send('files:changed')
         void notify(root)
       }
       return view(r)!
     })
+  }
+
+  /** 这次点了什么：丢掉的那一对以后不再提、复查点了留着的不再查（判断进度里）；拿不准、补双链、复查的选择记进评测集 */
+  async function remember(root: string, before: Map<string, DreamItem['state']>, r: DreamReport) {
+    for (const it of r.items) {
+      const was = before.get(it.id)
+      if (!it.judged || was === it.state) continue
+      if (it.state === 'dropped') await rememberChoice(ledgerFile(root), it, 'drop')
+      else if (was === 'dropped' && it.state === 'pending') await rememberChoice(ledgerFile(root), it, 'undo')
+      if (it.state === 'pending') continue
+      await mkdir(join(labelsFile(root), '..'), { recursive: true })
+      const choice = it.group === 'recheck' ? (it.state === 'taken' ? 'remove' : 'keep') : it.state === 'taken' ? 'link' : 'no-link'
+      await appendFile(labelsFile(root), JSON.stringify({ at: Date.now(), group: it.group, choice, a: it.judged.a.path, b: it.judged.b.path, level: it.judged.level, confidence: it.judged.confidence, why: it.why, by: it.by }) + '\n')
+    }
   }
 
   const str = (x: unknown) => {
@@ -224,9 +300,10 @@ export function setupDream(o: {
     const opts = { s, idleSec, now: Date.now(), ...(IDLE_SEC !== undefined ? { idleNeed: IDLE_SEC } : {}), ...(GAP_MS !== undefined ? { gapMs: GAP_MS } : {}) }
     // 先不读报告看一眼：关着、没闲够就不碰磁盘
     if (!idleDue({ ...opts, last: null })) return
-    void load(root)
-      .then((r) => {
-        if (!idleDue({ ...opts, last: r })) return
+    void Promise.all([load(root), exists(resumeFile(root))])
+      .then(([r, resume]) => {
+        // 上次判到一半被打断：闲下来就接着，不等「两次之间至少隔」
+        if (!idleDue({ ...opts, last: r, ...(resume ? { gapMs: 0 } : {}) })) return
         return dream('idle').then(() => undefined)
       })
       .catch((e) => console.error('闲时梦游失败', e))
@@ -252,7 +329,12 @@ export function setupDream(o: {
       if (!r || r.started < from) return []
       return r.items.filter((i) => i.state === 'taken').map((i) => `${i.title}${i.sub ? ' ' + i.sub : ''}`)
     },
-    stop: () => clearInterval(timer),
+    stop: () => {
+      clearInterval(timer)
+      powerMonitor.off('suspend', interrupt)
+    },
+    /** 测试：演一次睡眠（和 powerMonitor 的 suspend 同一条路） */
+    interrupt,
   }
 }
 

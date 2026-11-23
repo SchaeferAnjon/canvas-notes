@@ -35,7 +35,7 @@ test('右图标栏：笔记一直在原位，用不上时变淡、悬停和点�
     // PDF：五格都亮着（笔记能开）
     await open(page, 'Lecture05')
     await expect(tabOn(page)).toHaveText('Lecture05.pdf')
-    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
+    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记', '大纲', '相关·淡', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
     const atPdf = (await bar(page)).map((b) => b.top)
     // 读 PDF 时开着「笔记」：右栏下格出来
     await notes(page).click()
@@ -45,7 +45,7 @@ test('右图标栏：笔记一直在原位，用不上时变淡、悬停和点�
     await leftView(page, '文件')
     await treeRow(page, '课程').locator('.truncate').click()
     await expect(tabOn(page)).toHaveText('课程')
-    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记·淡', '大纲·淡', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
+    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记·淡', '大纲·淡', '相关·淡', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
     expect((await bar(page)).map((b) => b.top)).toEqual(atPdf)
     await expect(page.getByRole('complementary', { name: '笔记', exact: true })).toHaveCount(0)
     // 悬停变淡的笔记：名字后面说为什么
@@ -74,7 +74,7 @@ test('右图标栏：笔记一直在原位，用不上时变淡、悬停和点�
     // 文档：大纲亮，笔记淡；位置不变
     await open(page, '住哪')
     await expect(tabOn(page)).toHaveText('住哪')
-    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记·淡', '大纲', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
+    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记·淡', '大纲', '相关', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
     expect((await bar(page)).map((b) => b.top)).toEqual(atPdf)
     await outline(page).click()
     await expect(page.getByRole('complementary', { name: '大纲' })).toBeVisible()
@@ -83,12 +83,12 @@ test('右图标栏：笔记一直在原位，用不上时变淡、悬停和点�
     // 首页：笔记、大纲都淡；位置不变
     await page.locator('header.titlebar').getByRole('button', { name: '首页', exact: true }).click()
     await expect(tabOn(page)).toHaveText('首页')
-    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记·淡', '大纲·淡', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
+    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记·淡', '大纲·淡', '相关·淡', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
     expect((await bar(page)).map((b) => b.top)).toEqual(atPdf)
 
     // 回到 PDF：笔记又亮，上次开着的笔记格回来
     await open(page, 'Lecture05')
-    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
+    await expect.poll(async () => (await bar(page)).map((b) => `${b.name}${b.dim ? '·淡' : ''}`)).toEqual(['笔记', '大纲', '相关·淡', '网页', '微信读书', '记录·淡', '自动化·淡', '历史'])
     await expect(page.getByRole('complementary', { name: '笔记', exact: true })).toBeVisible()
     expect((await bar(page)).map((b) => b.top)).toEqual(atPdf)
   } finally {

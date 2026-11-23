@@ -166,7 +166,7 @@ export interface AskResult {
 }
 
 /** 边答边给：字，和动手的每一步（同 AI 对话的 AiEvent） */
-export type AskEvent = { type: 'text'; delta: string } | { type: 'tool'; id: string; label: string; code?: string; status: 'run' | 'ok' | 'err'; detail?: string }
+export type AskEvent = { type: 'text'; delta: string } | { type: 'tool'; id: string; label: string; code?: string; status: 'run' | 'ok' | 'err'; detail?: string; paths?: string[] }
 
 /**
  * 后台的两件小活（CN-93、94、96）：给快的模型看这一轮（主对话 + 旁支）的问答，要这一轮的标题和一句小结。
@@ -222,7 +222,8 @@ export interface WriteSectionResult {
 // ---------------------------------------------------------------- 出卡送 Anki（task-tz7y3，方向 B「AI 先改成卡，一张张过」）
 
 /** 出卡的范围：一份 PDF 的笔记、一门课（一个文件夹和下面的子文件夹）、整个库 */
-export type CardScope = { kind: 'pdf'; pdf: string } | { kind: 'folder'; folder: string } | { kind: 'vault' }
+/** 出卡的范围：一份 PDF、一门课（文件夹）、整个库；feynman 是费曼一轮的缺口（③ feynman-after：note 是这一轮在哪篇，round 是它的编号） */
+export type CardScope = { kind: 'pdf'; pdf: string } | { kind: 'folder'; folder: string } | { kind: 'vault' } | { kind: 'feynman'; note: string; round: string }
 
 /** 出卡里的一问（读 PDF 的笔记里问过的一问：主对话问的、旁支里问的；「还是不懂」并进上一问） */
 export interface CardItem {
@@ -250,6 +251,11 @@ export interface CardItem {
   sent?: { at: string; card?: CardText }
   /** 上次改好、还没送的（AI 改的或自己改过的）；skip：上次选了不送（Anki 没开时选的都留着） */
   draft?: { card: CardText; edited?: boolean; skip?: boolean }
+  /**
+   * 费曼缺口出的卡（来源「费曼缺口」）：kind 是这条缺口的种类（讲错、含糊、没讲到、说错后改对、追问后补上、了解即可、过了的「讲清 X」），
+   * source 是纸底那一条出处（「费曼 · 范数 · 公式 (2.3.10)」）；pdf 填的是这一轮所在的那篇（牌组跟着它的目录走），page 是 0
+   */
+  feynman?: { kind: string; source: string; said?: string }
 }
 
 export interface CardsView {
@@ -319,6 +325,10 @@ export interface CnReadingApi {
   saveState(state: ReadingState): Promise<void>
   /** 框的那块存进 附件/<PDF 名>/，返回库里的路径 */
   saveCrop(pdf: string, page: number, png: Uint8Array): Promise<string>
+  /** 笔记里没有「我框的」图的几段（task-yp8l7）：有框的位置的（have：对话记录里那张图还在库里），没记下位置的几段 */
+  cropGaps(pdf: string): Promise<{ note: string; gaps: { id: string; page: number; rect?: [number, number, number, number]; have?: string }[]; missing: number }>
+  /** 补好的图写进库、插进笔记那几段，一次提交；返回补上了几张 */
+  cropFill(pdf: string, items: { id: string; page: number; png?: Uint8Array; have?: string; w?: number }[]): Promise<number>
   /** 新的一处问的地方：给它一个完整对话的路径 */
   newThread(pdf: string, page: number): Promise<string>
   /** 整份 PDF 的段落块（读全文用）和每页的宽高（搜索命中时算那一段在页上的比例），按内容指纹缓存 */

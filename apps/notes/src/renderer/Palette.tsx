@@ -1,4 +1,5 @@
 import { Codicon, type CodiconName } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import type { Rect } from '@cn/format'
 import { appSettings } from './settings-store'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -576,12 +577,15 @@ export function Palette(props: {
       if (from === to.gid && (items[items.indexOf(d.id) + 1] ?? null) === to.before) return
       change((c) => moveCmd(c, avail, d.id, to.gid, to.before), from !== to.gid ? tNow('「{name}」挪到了「{group}」', { name: d.name, group: groupName(cmdConfig(), to.gid) }) : tNow('「{name}」换了位置', { name: d.name }))
     }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-    return () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-    }
+    // 松手没送到页面（窗口外松手、失焦）：当没拖过，命令不挪（trackDrag，task-0nz63）
+    return trackDrag<PointerEvent>({ type: 'pointerdown', button: 0 }, {
+      move,
+      end: (how) => {
+        if (how === 'up') return up()
+        setDrag(null)
+        input.current?.focus()
+      },
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drag?.id])
 

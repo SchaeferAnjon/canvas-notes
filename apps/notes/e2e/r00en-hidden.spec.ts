@@ -53,7 +53,8 @@ test('斜杠菜单：不打字 5 种提示块都列；打 tishi、tip、callout�
     await page.keyboard.press('Enter')
     await page.keyboard.type('冬天路面结冰。')
     await waitSaved(page)
-    expect(file()).toBe('# 贴士\n\n开头。\n\n> [!warning] 路上小心\n> 冬天路面结冰。\n')
+    // 文末那一行里回车两下是两个空块（像 Notion，task-axoxy 第 15 条），提示块插在第二个里，上面留着一个空块
+    expect(file()).toBe('# 贴士\n\n开头。\n\n\n> [!warning] 路上小心\n> 冬天路面结冰。\n')
   } finally {
     await run.close()
   }

@@ -63,7 +63,7 @@ test('改格子触发规则：发通知、改分类、一次提交、记一行�
     const db = pane(page).locator('[data-part="数据库块"]')
     await expect(db.locator('tbody tr')).toHaveCount(2)
     // 真点「外卖」那一行的金额格，打 620，回车
-    await db.locator('tbody tr', { hasText: '外卖' }).locator('td').nth(1).click()
+    await db.locator('tbody tr', { hasText: '外卖' }).locator('td').nth(1).dblclick()
     const box = db.locator('input.base-in[aria-label="外卖 · 金额"]')
     await box.fill('620')
     await box.press('Enter')
@@ -97,7 +97,7 @@ test('改格子触发规则：发通知、改分类、一次提交、记一行�
     const said = await page.evaluate((w) => window.cn.auto.fromSentence({ sentence: '分类改成报销，就提醒我下周一交报销单', where: w }), where)
     expect(said).toMatchObject({ ok: true, rule: { name: '交报销单 2', when: [{ on: 'changed', prop: '分类', to: '报销' }] }, problems: [] })
     // 用户改「工资」的分类成报销：交报销单（用户改的照样触发）
-    await db.locator('tbody tr', { hasText: '工资' }).locator('td').nth(3).click()
+    await db.locator('tbody tr', { hasText: '工资' }).locator('td').nth(3).dblclick()
     const cat = db.locator('input.base-in[aria-label="工资 · 分类"]')
     await cat.fill('报销')
     await cat.press('Enter')

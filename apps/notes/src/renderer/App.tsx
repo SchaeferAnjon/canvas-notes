@@ -3,7 +3,7 @@ import { jumpToChat } from './chat-jump'
 import { Codicon, type CodiconName } from '@cn/design'
 import { PanelGuard } from './crash/Guard'
 import { dropped } from './crash/report'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { DreamItem, DreamReport, GitState, NoteFile, StrandedNote, TrashItem, VaultInfo } from '../shared/api'
 import { CLIPS, INBOX, titleOf } from '../shared/layout'
 import { AiDock, NotesDock } from './AiDock'
@@ -19,6 +19,7 @@ import * as Dk from '../shared/dock'
 import { StatusBar } from './shell/StatusBar'
 import { BellItem, logNotice, TranslateItem } from './shell/StatusExtras'
 import { OutlineView } from './shell/OutlineView'
+import { RelatedView } from './shell/RelatedView'
 import { ActsSlot, noteLeavers, noteRenamers } from './shell/TabActs'
 import { revealLeft, snapLeft, tabEdges, tabTail } from './shell/tab-scroll'
 import { onFileMenu } from './ctx/file-menu'
@@ -109,6 +110,7 @@ import { ImportHost } from './importer/ImportSheet'
 import { openImport } from './importer/store'
 import { PdfTab } from './reading/PdfTab'
 import { CardsHost } from './reading/CardsDialog'
+import { MergeHost } from './feynman-after/MergeCheck'
 import { useCardCommands } from './reading/card-commands'
 import { HtmlTab } from './reading/HtmlTab'
 import { WebReadTab } from './reading/WebReadTab'
@@ -1112,6 +1114,30 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   )
 
   const activeTab = tabs.find((t) => t.id === active) ?? null
+  // 右栏「相关」：库里笔记变了、梦游报告变了就重读；梦游给开着的这篇连了新的、还没看过时图标上一个小点
+  const notesVersion = useMemo(() => notes.reduce((m, n) => Math.max(m, n.mtimeMs), 0) + notes.length, [notes])
+  const dreamVersion = (dream.report?.items.filter((i) => i.state === 'taken').length ?? 0) + (dream.report?.finished ?? 0)
+  const activeNotePath = useRef<string | null>(null)
+  activeNotePath.current = activeTab?.type === 'note' ? activeTab.path : null
+  const [relatedDot, setRelatedDot] = useState(false)
+  useEffect(() => {
+    const p = activeTab?.type === 'note' ? activeTab.path : null
+    if (!p) return setRelatedDot(false)
+    let live = true
+    void window.cn.relatedDot(p).then(
+      (on) => live && setRelatedDot(on),
+      () => live && setRelatedDot(false),
+    )
+    return () => void (live = false)
+  }, [activeTab?.type === 'note' ? activeTab.path : null, dreamVersion])
+  /** 「开在后面的标签里了」那句（AI 回答里 ⇧⌘点，task-3e53q）：切到那个标签时就不对了，收掉 */
+  const behindNotice = useRef<{ text: string; is(t: Tab): boolean } | null>(null)
+  useEffect(() => {
+    const b = behindNotice.current
+    if (!b || !activeTab) return
+    if (notice !== b.text) return void (behindNotice.current = null)
+    if (b.is(activeTab)) (setNotice(null), (behindNotice.current = null))
+  }, [activeTab?.id, notice])
   /** 中间在前面的那篇笔记、库里的书桌（task-kbnc0：⌘K、网页「⋯」、书桌要它们） */
   const activeNote = activeTab?.type === 'note' ? activeTab.path : null
   /** 从白板、笔记拍的导图：它挂着的那一篇（同一个文件夹里，属性 所属白板 / 所属笔记），面包屑多一节回去（task-wuv05） */
@@ -1819,6 +1845,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         ]
       : []),
     C('outline', 'list-tree', () => openView('outline')),
+    ...(activeTab?.type === 'note' ? [C('related', 'references', () => openView('related'))] : []),
     ...(notesOk ? [C('notes', 'note', () => openView('note'))] : []),
     C('close', 'close', () => closeHereRef.current()),
     ...(activeTab && canRenameTab(activeTab) ? [C('rename', 'edit', () => setRenaming(activeTab.id))] : []),
@@ -1893,6 +1920,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         return (toggleLeft('dream'), true)
       case 'outline':
         return (toggleView('outline'), true)
+      case 'related':
+        return (toggleView('related'), true)
       case 'open-web':
         return (toggleView('web'), true)
       case 'history':
@@ -2295,6 +2324,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       const type = /\.pdf$/i.test(path) ? 'pdf' : /\.html?$/i.test(path) ? 'html' : 'note'
       setTabState((s) => (s.tabs.some((t) => t.type === type && 'path' in t && t.path === path) ? s : { ...s, tabs: [...s.tabs, { id: newId(), type, path } as Tab] }))
     },
+    openDiff(src, title, behind) {
+      if (!behind) return openDiff(src, title)
+      const same = (t: Tab) => t.type === 'diff' && JSON.stringify(t.src) === JSON.stringify(src)
+      setTabState((s) => (s.tabs.some(same) ? s : { ...s, tabs: [...s.tabs, { id: newId(), type: 'diff', src, title }] }))
+    },
     openPdfAt,
     openHere,
     openNoteOnly: (path) => openNote(path, false, true),
@@ -2352,6 +2386,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     },
     notice: (t, icon) => (noticeWithUndo(t), setNoticeIcon(icon ? { text: t, icon } : null)),
     noticeUndo: (t, run) => (noticeWithUndo(t, run), setNoticeIcon(null)),
+    noticeDrop: (t) => setNotice((n) => (n === t ? null : n)),
+    noticeBehind(text, is) {
+      noticeWithUndo(text)
+      setNoticeIcon(null)
+      behindNotice.current = { text, is }
+    },
     toast(x) {
       noticeWithUndo(x.text, x.undo)
       setNoticeIcon(x.icon ? { text: x.text, icon: x.icon } : null)
@@ -2611,6 +2651,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     }
   }
   const noOutline = !activeTab || !['note', 'pdf'].includes(activeTab.type)
+  const noRelated = activeTab?.type !== 'note'
   // 活动栏（左栏按维度组织）：上面「文件」按位置、「最近」按时间；分隔线下面是摘出来的文件夹：默认整套顶级分类，
   // 按「收件箱 | 读进来的 | 自己写的 | 自己摘的」分段（方案 v2 分类与入口方向 A、分类方案 3），单色符号，能右键、能拖着排；再下面梦游
   const barItem = (id: SideView, label: string, icon: BarItem['icon'], extra: Partial<BarItem> = {}): BarItem => ({ id, label, icon, on: !sidebarHidden && shownView === id, onClick: () => toggleLeft(id), ...extra })
@@ -2621,7 +2662,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     // 点它：左栏是待办列表，中间开「待办」首页（task-kzr3n，和分类格开分类首页同一个规矩）；亮着的再点一下收起左栏，标签还在
     barItem('todo', t('待办'), 'checklist', { badge: todoToday, tid: 'todo', onClick: () => (!sidebarHidden && shownView === 'todo' ? setSidebarHidden(true) : (openLeft('todo'), openTodoHome())) }),
     // 「日历」格（画布今日 v2 原型，task-kzr3n；用户「日历做到左边」）：左栏小月历和系统日历，中间整页日历；窗口矮时分类都收完了才收它
-    barItem('calendar', '日历', 'calendar', { fold: true, onClick: () => (!sidebarHidden && shownView === 'calendar' ? setSidebarHidden(true) : (openLeft('calendar'), openCalendar())) }),
+    barItem('calendar', t('日历'), 'calendar', { fold: true, onClick: () => (!sidebarHidden && shownView === 'calendar' ? setSidebarHidden(true) : (openLeft('calendar'), openCalendar())) }),
     barItem('recent', t('最近'), 'clockface', { key: keyFor('left-recent') ?? undefined }),
     // 书桌（task-kbnc0 方向 B）：存好的一整套
     barItem('desks', t('书桌'), 'layout', { tip: t('书桌：存好的一整套（笔记、网页、读到哪）'), key: keyFor('left-desks') ?? undefined }),
@@ -2697,6 +2738,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   ]
   const rightItems: BarItem[] = [
     { id: 'outline', label: noOutline ? t('大纲（这一页没有标题，没有大纲）') : t('大纲'), icon: 'list-tree' as const, dim: noOutline, why: t('这一页没有标题，没有大纲'), on: vis('outline'), onClick: () => toggleView('outline'), key: keyFor('outline') ?? undefined },
+    // 「相关」在大纲下面一格（task-h7oy8，设计页 44 定 2）：默认不开；梦游给这篇连了新的、还没在相关栏里看过时右上一个小点
+    { id: 'related', label: noRelated ? t('相关（这一页不是笔记）') : t('相关'), icon: 'references' as const, dim: noRelated, why: t('这一页不是笔记'), on: vis('related'), dot: relatedDot && !vis('related'), onClick: () => toggleView('related'), key: keyFor('related') ?? undefined },
     { id: 'web', label: t('网页'), icon: 'globe' as const, on: vis('web') && !pluginEntries.some((e) => e.on), onClick: () => toggleView('web'), key: keyFor('open-web') ?? undefined },
     ...pluginEntries,
     {
@@ -2757,7 +2800,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         tools={{ record: <RecordTools /> }}
         onDock={onDock}
         onCloseView={(v) => {
-          if (v === 'note' || v === 'ai' || v === 'outline' || v === 'history' || v === 'web' || v === 'record') lastRight.current = v
+          if (v === 'note' || v === 'ai' || v === 'outline' || v === 'related' || v === 'history' || v === 'web' || v === 'record') lastRight.current = v
           closeView(v)
           if (v === 'auto') closeAuto()
         }}
@@ -2788,6 +2831,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       {/* 文档里一行待办点「看详情」弹的那张小卡（task-kzr3n，todo/doc-dates.ts） */}
       <TodoPop owner={DOC_OWNER} />
       <CardsHost onToast={cardsToast} onNotice={setNotice} onOpenPdfAt={(pdf, page) => openPdfAt(pdf, page)} />
+      <MergeHost />
       {quickOpen && <QuickOpen onOpen={openFile} onOpenFolder={openFolderHome} onClose={() => setQuickOpen(false)} />}
       {paletteOpen && (
         <Palette
@@ -3382,6 +3426,23 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       <div className="dview" data-view="outline" data-testid="dview-outline" hidden={!vis('outline')}>
         <PanelGuard area="outline" label="大纲">
         {Dk.isOpen(dockShown, 'outline') && <OutlineView tab={activeTab} doc={() => activeDoc.current} mode={activeTab?.type === 'note' ? activeMode : undefined} onClose={() => closeView('outline')} onPdfPage={(f, page) => openPdfAt(f, page)} />}
+        </PanelGuard>
+      </div>
+      <div className="dview" data-view="related" data-testid="dview-related" hidden={!vis('related')}>
+        <PanelGuard area="related" label="相关">
+        {Dk.isOpen(dockShown, 'related') && (
+          <RelatedView
+            tab={activeTab}
+            doc={() => activeDoc.current}
+            version={notesVersion + dreamVersion}
+            shown={vis('related')}
+            onClose={() => closeView('related')}
+            onImport={() => openImport()}
+            onDreamSettings={() => openSettings('dream')}
+            onSearchSettings={() => openSettingsAt('semantic')}
+            onSeen={(p) => void window.cn.relatedSeen(p).then(() => activeNotePath.current === p && setRelatedDot(false))}
+          />
+        )}
         </PanelGuard>
       </div>
       <div className="dview" data-view="history" data-testid="dview-history" hidden={!vis('history')}>

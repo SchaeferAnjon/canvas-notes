@@ -286,10 +286,54 @@ export function AiSettingsPage(props: SettingsProps) {
         <PromptRow />
       </Group>
 
+      <CiteGroup {...props} />
+
       <MobileAiGroup onNotice={props.onNotice} />
 
       <EngineRows engines={engines} onNotice={props.onNotice} />
     </>
+  )
+}
+
+/**
+ * 回答里的链接（task-3e53q，已定 4：先做、能关）：AI 光写了笔记名没写成链接时软件按名字认（cite-names.tsx），和不认的名字放一组。
+ * 不认的名字一行一个，离开框时存
+ */
+function CiteGroup(props: SettingsProps) {
+  const t = useT()
+  const said = useSaid()
+  const c = props.settings.cite
+  const [skip, setSkip] = useState(c.skip.join('\n'))
+  const saved = useRef(c.skip.join('\n'))
+  const save = () => {
+    const now = skip
+    if (now === saved.current) return
+    const old = saved.current
+    saved.current = now
+    const list = (s: string) => s.split('\n').map((x) => x.trim()).filter(Boolean)
+    void props.onChange({ cite: { skip: list(now) } })
+    said.saved(t('已存 · 这些名字不再认成链接'), () => {
+      saved.current = old
+      setSkip(old)
+      void props.onChange({ cite: { skip: list(old) } })
+    })
+  }
+  return (
+    <Group title={t('回答里的链接')}>
+      <Row id="citeNames">
+        <Toggle
+          on={c.names}
+          label={t('回答里提到的笔记名自动认成链接')}
+          onChange={(on) => {
+            void props.onChange({ cite: { names: on } })
+            said.saved(on ? t('回答里光写了笔记名的，软件也认成链接') : t('只认AI写成链接的和写了路径的'), () => void props.onChange({ cite: { names: !on } }))
+          }}
+        />
+      </Row>
+      <Row id="citeSkip" full dim={!c.names}>
+        <textarea className="sa-fld" aria-label={t('这些名字不认')} placeholder={t('比如：周报')} value={skip} rows={3} onChange={(e) => setSkip(e.currentTarget.value)} onBlur={save} />
+      </Row>
+    </Group>
   )
 }
 

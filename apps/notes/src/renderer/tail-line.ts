@@ -3,16 +3,18 @@
  * 它不在文件里，是编辑器画出来的：
  * - 最后一行本来就是空行、上面隔着一个空行时，灰字就画在那个空行上（光标点进去就是那一行，打字就是新的一段）；
  * - 别的时候画在文档最后（文件末尾后面），点它、点它下面更远的空白：在文末新起一段（前面和上一块隔一个空行），光标进去。
- *   这时新起的几个换行是「暂时的」：不存盘、不进撤销；光标离开那一行、编辑器失焦、只打了个「/」又没选，就原样拿掉，
- *   文件一个字节都不多（守住「打开再保存文件不变」）。打了正文才算数，和别的打字一样存盘。
+ *   这时新起的几个换行是「暂时的」：不存盘；光标走到它上面、编辑器失焦时只有空白或只打了个「/」又没选，就原样拿掉，
+ *   文件一个字节都不多（守住「打开再保存文件不变」）。打了正文才算数，和别的打字一样存盘。在里面回车再起一行，也是暂时的
+ *   （task-axoxy：文末的空块只在屏上，gap-lines.ts 把这几行当空块）；撤回把字撤光了又算暂时的。
  * 新建的笔记（正文还是空的、文件名跟着标题）这一行写「回车开始写正文；标题改了，文件名和标签跟着改」（CN-11 A 的稿子）。
  * 悬停也出「+ ⋮⋮」（block-handles.tsx 认 .cm-tailline）。
  */
+import { isolateHistory } from '@codemirror/commands'
 import { Annotation, EditorSelection, EditorState, type Range, StateEffect, StateField, Transaction } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { titleOf } from '../shared/layout'
 import { editorHost } from './editor-host'
-import { blankLine, gapLine } from './gap-lines'
+import { emptyBlock, setScreenTail } from './gap-lines'
 import { hiddenOk, hiddenRanges } from './hidden-syntax'
 import { headingOf } from './title-follow'
 import { t as tNow } from '../shared/i18n'
@@ -25,37 +27,53 @@ export const NEW_NOTE_TEXT = '回车开始写正文；标题改了，文件名�
 export const provisional = Annotation.define<boolean>()
 
 interface Pending {
-  /** 新起的那一行行首 */
+  /** 文末那一行（第一行暂时加的空行）行首 */
   at: number
-  /** 暂时加进去的范围（含后来在这一行里打的「/」） */
+  /** 暂时加的字从哪起：从这里到文件末尾只有空白（和打了一半的「/筛选字」）时都不算数、不存盘 */
   from: number
-  to: number
 }
 
 const setPending = StateEffect.define<Pending | null>()
 
-/** 光标还在那一行时一直记着（打了字又删光，离开时照样整段拿掉）；光标离开时才定下来：有正文就算数，没有就拿掉 */
+/**
+ * 记着文末暂时加的那一段（task-axoxy 起：光标离开时打了字也不忘，撤回把字撤光了它又是暂时的，再离开就拿掉；
+ * 再从文末新起一段、或「+」「/」选了一项定下来时才换掉）
+ */
 export const tailPending = StateField.define<Pending | null>({
   create: () => null,
   update(v, tr) {
     for (const e of tr.effects) if (e.is(setPending)) return e.value
     if (!v || !tr.docChanged) return v
-    return { at: tr.changes.mapPos(v.at, -1), from: tr.changes.mapPos(v.from, -1), to: tr.changes.mapPos(v.to, 1) }
+    const from = tr.changes.mapPos(v.from, -1)
+    return { at: Math.max(from, tr.changes.mapPos(v.at, -1)), from }
   },
 })
 
-/** 那一行现在只有空的或「/筛选字」：这几个字不算数 */
-const onlyTyped = (text: string) => /^([/、][^\s/、]*)?$/.test(text)
+/** 只有空白，或只打了一个「/筛选字」：这几个字不算数（task-axoxy：只按了空格也不算，以前文件末尾多出一行空格） */
+const onlyTyped = (text: string) => /^\s*([/、][^\s/、]*)?\s*$/.test(text)
 
 /**
- * 暂时加的那一段（还没打正文）：存盘时不写进去（NoteDoc 存的是去掉它的字），保证「打开再保存文件不变」。
- * 那一行打了正文就返回 null（照常存）
+ * 暂时加的那一段（文末只在屏上的空块，还没打正文）：存盘时不写进去（NoteDoc 存的是去掉它的字），保证「打开再保存文件不变」。
+ * 打了正文就返回 null（照常存）
  */
 export function provisionalRange(state: EditorState): { from: number; to: number } | null {
   const p = state.field(tailPending, false)
-  if (!p || p.to > state.doc.length) return null
-  const line = state.doc.lineAt(Math.min(p.at, state.doc.length))
-  return onlyTyped(line.text) ? { from: p.from, to: p.to } : null
+  if (!p || p.from > state.doc.length) return null
+  return onlyTyped(state.doc.sliceString(p.from)) ? { from: p.from, to: state.doc.length } : null
+}
+
+/** 文末只在屏上的空块从第几行起（暂时的、还没打正文时）；没有是 0 */
+function screenLines(state: EditorState): number {
+  if (!provisionalRange(state)) return 0
+  const p = state.field(tailPending)!
+  return state.doc.lineAt(Math.min(p.at, state.doc.length)).number
+}
+setScreenTail(screenLines)
+
+/** 第 n 行是文末只在屏上的那几行（文末那一行，和在它里面回车加的） */
+export function tailLineHere(state: EditorState, n: number): boolean {
+  const t = screenLines(state)
+  return t > 0 && n >= t && n < state.doc.lines
 }
 
 /** 光标停在文件最后那个空行上，它紧挨着上面有字的一行（文件以一个换行结尾，这一行只是换行后面的空）；只读时不算 */
@@ -65,6 +83,14 @@ function attachedLastLine(state: EditorState): boolean {
   if (!sel.empty || state.readOnly || doc.lines < 2) return false
   const last = doc.line(doc.lines)
   return sel.head === last.from && last.text === '' && doc.line(doc.lines - 1).text.trim() !== ''
+}
+
+/** 光标停在文件最后那个空行上，文件本来以空行结尾（灰字画在这一行，lineSlot）：也在这里新起一段，打了字文件照样以换行结尾 */
+function onSlot(state: EditorState): boolean {
+  const sel = state.selection.main
+  if (!sel.empty || state.readOnly) return false
+  const slot = lineSlot(state)
+  return slot !== null && sel.head === slot
 }
 
 /**
@@ -81,7 +107,7 @@ function pastHiddenEnd(state: EditorState): boolean {
   return hiddenRanges(state).some((h) => h.from <= last.from && h.to >= last.to)
 }
 
-/** 最后一行是空行、上面隔着空行（或者就是第一行）：灰字画在这一行上，不用另起 */
+/** 最后一行是空行、上面隔着空行（或者就是第一行）：灰字画在这一行上 */
 function lineSlot(state: EditorState): number | null {
   const doc = state.doc
   const last = doc.line(doc.lines)
@@ -92,18 +118,21 @@ function lineSlot(state: EditorState): number | null {
 }
 
 /**
- * 文末那一行灰字画在第几行（block-gaps.ts 把它上面那个空行当成块和块之间的空行压矮）：画在最后那个空行上、
- * 点进来还没打字的那一行是那一行；画在文件末尾后面是 doc.lines + 1；没有文末那一行（只读、没装这个扩展）是 0
+ * 文末那一行灰字画在第几行（block-gaps.ts 把它上面那个空行当成块和块之间的空行压矮）：暂时的那几行里光标那一行（没在里面就是第一行）；
+ * 画在文件末尾后面是 doc.lines + 1；没有文末那一行（只读、没装这个扩展）是 0
  */
 export function tailLineAt(state: EditorState): number {
   if (state.readOnly || state.field(tailDeco, false) === undefined) return 0
-  const pending = state.field(tailPending)
-  if (pending) {
-    const line = state.doc.lineAt(Math.min(pending.at, state.doc.length))
-    if (onlyTyped(line.text)) return line.number
-  }
+  const t = screenLines(state)
+  if (t) return caretTailLine(state, t)
   const slot = lineSlot(state)
   return slot !== null ? state.doc.lineAt(slot).number : state.doc.lines + 1
+}
+
+/** 文末那几行（从第 t 行起）里光标那一行；光标不在里面就是第一行 */
+function caretTailLine(state: EditorState, t: number): number {
+  const n = state.doc.lineAt(state.selection.main.head).number
+  return n >= t && n < state.doc.lines ? n : t
 }
 
 /** 正文还是空的（只有 frontmatter、标题和空行），文件名跟着标题：新建的笔记 */
@@ -122,18 +151,32 @@ export function openTail(view: EditorView, pick = false): number | null {
   const state = view.state
   if (state.readOnly) return null
   const pending = state.field(tailPending)
-  if (pending) {
+  if (pending && provisionalRange(state)) {
     if (pick) view.dispatch({ effects: setPending.of(null) })
     view.dispatch({ selection: { anchor: pending.at }, scrollIntoView: true })
     return pending.at
   }
-  const slot = lineSlot(state)
-  if (slot !== null) {
-    view.dispatch({ selection: { anchor: slot }, userEvent: 'select.pointer', scrollIntoView: true })
-    return slot
-  }
+  // 上一回文末新起的那段已经打了字：换成这一回的
+  if (pending) view.dispatch({ effects: setPending.of(null) })
   const doc = state.doc
   const L = doc.length
+  const slot = lineSlot(state)
+  if (slot !== null) {
+    if (pick) {
+      view.dispatch({ selection: { anchor: slot }, userEvent: 'select.pointer', scrollIntoView: true })
+      return slot
+    }
+    // 文件本来以空行结尾：灰字那一行就是文末那一行，后面暂时补一个换行（打了字文件照样以换行结尾，task-axoxy 第 19 条）
+    view.dispatch({
+      changes: { from: L, insert: '\n' },
+      selection: EditorSelection.cursor(slot),
+      effects: setPending.of({ at: slot, from: L }),
+      userEvent: 'select.tail',
+      annotations: [provisional.of(true), hiddenOk.of(true), isolateHistory.of('full')],
+      scrollIntoView: true,
+    })
+    return slot
+  }
   const t = /\n*$/.exec(doc.sliceString(Math.max(0, L - 4), L))![0].length
   // 前面补到和上一块隔一个空行，后面留一个换行（打了字以后文件照样以换行结尾）
   const before = '\n'.repeat(Math.max(0, 2 - t))
@@ -142,18 +185,27 @@ export function openTail(view: EditorView, pick = false): number | null {
   view.dispatch({
     changes: { from: L, insert },
     selection: EditorSelection.cursor(at),
-    effects: pick ? [] : setPending.of({ at, from: L, to: L + insert.length }),
+    effects: pick ? [] : setPending.of({ at, from: L }),
     userEvent: pick ? 'input.block' : 'select.tail',
-    // 暂时的也进撤销：打了字以后 ⌘Z 先撤字、再撤这一行，文件回到原样；没打字就离开时由 dropPending 不进撤销地拿掉
-    annotations: pick ? [hiddenOk.of(true)] : [provisional.of(true), hiddenOk.of(true)],
+    // 暂时的也进撤销：打了字以后 ⌘Z 先撤字、再撤这一行，文件回到原样；没打字就离开时由 dropPending 不进撤销地拿掉。
+    // 单独一步（task-axoxy 第 7 条）：不然半秒内接着打的字和这一行并成一步，⌘Z 一下连这一行一起撤掉，光标跳回原来的地方，重打的字落到别处
+    annotations: pick ? [hiddenOk.of(true), isolateHistory.of('full')] : [provisional.of(true), hiddenOk.of(true), isolateHistory.of('full')],
     scrollIntoView: true,
   })
   return at
 }
 
-/** 文末那一行已经打了正文（还没离开这一行，所以还记着）：定下来，不再算暂时的（在它末尾回车时先这样，再新起一段） */
-export function settleTail(view: EditorView) {
-  if (view.state.field(tailPending, false) && !provisionalRange(view.state)) view.dispatch({ effects: setPending.of(null) })
+/** 文末那几行里回车：再起一行，也只在屏上、不进撤销（像 Notion 空的最后一块里回车能一直加，task-axoxy 第 15 条） */
+export function moreTail(view: EditorView): boolean {
+  const line = view.state.doc.lineAt(view.state.selection.main.head)
+  view.dispatch({
+    changes: { from: line.from, insert: '\n' },
+    selection: EditorSelection.cursor(line.from + 1),
+    userEvent: 'input',
+    annotations: [provisional.of(true), Transaction.addToHistory.of(false), hiddenOk.of(true)],
+    scrollIntoView: true,
+  })
+  return true
 }
 
 /**
@@ -163,22 +215,29 @@ export function settleTail(view: EditorView) {
  */
 export function keepTail(view: EditorView, pos: number): number | null {
   const p = view.state.field(tailPending, false)
-  if (!p) return null
-  const line = view.state.doc.lineAt(Math.min(p.at, view.state.doc.length))
-  if (pos < line.from || pos > line.to) return null
+  if (!p || !provisionalRange(view.state)) return null
+  const line = view.state.doc.lineAt(Math.min(pos, view.state.doc.length))
+  if (!tailLineHere(view.state, line.number)) return null
   view.dispatch({ effects: setPending.of(null) })
   return line.from
 }
 
 /**
- * 文末那一行（点进来还没打字）里按退格：这一行连同暂时加的换行拿掉（不存盘、不进撤销），光标回到上一块
- * （task-ys1rr，像 Notion 删掉空的最后一块）。where 由调用的地方按拿掉以后的文字算（上一段末尾、选中上面的卡）
+ * 文末那几行（还没打字）里按退格：第一行连同暂时加的换行全拿掉（不存盘、不进撤销），光标回到上一块
+ * （task-ys1rr，像 Notion 删掉空的最后一块）；下面几行（回车加的）只拿掉这一行，光标回到上一行。where 由调用的地方按拿掉以后的文字算
  */
 export function closeTail(view: EditorView, where: (state: EditorState) => EditorSelection | null): boolean {
   const p = view.state.field(tailPending, false)
-  if (!p) return false
-  const to = Math.min(p.to, view.state.doc.length)
-  const after = view.state.update({ changes: { from: p.from, to }, effects: setPending.of(null) }).state
+  if (!p || !provisionalRange(view.state)) return false
+  const state = view.state
+  const line = state.doc.lineAt(state.selection.main.head)
+  const at = state.doc.lineAt(Math.min(p.at, state.doc.length))
+  if (line.number > at.number) {
+    view.dispatch({ changes: { from: line.from - 1, to: line.from }, selection: EditorSelection.cursor(line.from - 1), userEvent: 'delete.backward', annotations: [provisional.of(true), Transaction.addToHistory.of(false), hiddenOk.of(true)], scrollIntoView: true })
+    return true
+  }
+  const to = state.doc.length
+  const after = state.update({ changes: { from: p.from, to }, effects: setPending.of(null) }).state
   const sel = where(after)
   view.dispatch({
     changes: { from: p.from, to },
@@ -193,11 +252,10 @@ export function closeTail(view: EditorView, where: (state: EditorState) => Edito
 
 /** 把暂时加的拿掉（光标离开、失焦、只打了「/」没选） */
 function dropPending(view: EditorView) {
-  const p = view.state.field(tailPending)
-  if (!p) return
-  const to = Math.min(p.to, view.state.doc.length)
+  const r = provisionalRange(view.state)
+  if (!r) return
   view.dispatch({
-    changes: { from: p.from, to },
+    changes: { from: r.from, to: r.to },
     effects: setPending.of(null),
     annotations: [provisional.of(true), Transaction.addToHistory.of(false), hiddenOk.of(true)],
   })
@@ -260,15 +318,14 @@ class EmptyBlockWidget extends WidgetType {
   }
 }
 
-/** 光标停在一个空块里（回车新起、还没打字的一块：两边都是空行的那一行，不是文末那一行）：它的行首 */
+/** 光标停在一个空块里（回车新起、还没打字的一块，gap-lines.ts 的数法；不是文末那几行）：它的行首 */
 function emptyBlockAtCaret(state: EditorState): number | null {
   const sel = state.selection.main
   if (!sel.empty || state.selection.ranges.length > 1) return null
   const line = state.doc.lineAt(sel.head)
-  if (line.number === state.doc.lines || !blankLine(state, line.number) || gapLine(state, line.number)) return null
-  // 文末那一行（点进来、还没打字）自己写着灰字
-  const p = state.field(tailPending, false)
-  if (p && state.doc.lineAt(Math.min(p.at, state.doc.length)).number === line.number) return null
+  if (line.number === state.doc.lines || !emptyBlock(state, line.number)) return null
+  // 文末那几行（点进来、还没打字）自己写着灰字
+  if (tailLineHere(state, line.number)) return null
   return line.from
 }
 
@@ -278,15 +335,18 @@ function build(state: EditorState): DecorationSet {
   // 光标所在的空块里也写着这一行灰字（照 Notion 空块里的「Press / to insert blocks」，task-ys1rr 设计复审）；光标走开就没有，不写进文件
   const empty = emptyBlockAtCaret(state)
   if (empty !== null) out.push(Decoration.widget({ widget: new EmptyBlockWidget(), side: 1 }).range(empty))
-  const pending = state.field(tailPending)
+  // 光标所在的空块后面一直到文末都是空行（提示块里空的「> 」回车出块、文件末尾多了几个空行）：灰字只写在光标这一行，
+  // 文末那一行不再写一遍（以前紧挨着上下两行一样的灰字，task-0nz63）
+  if (empty !== null && state.doc.sliceString(empty).trim() === '') return Decoration.set(out, true)
   const fresh = freshNote(state)
   const text = fresh ? NEW_NOTE_TEXT : TAIL_TEXT
-  if (pending) {
-    const line = state.doc.lineAt(Math.min(pending.at, state.doc.length))
-    // 点进来还没打字：灰字就写在这一行上；只打了「/」：这一行在挑块，下面先不画
-    if (line.text === '') out.push(Decoration.widget({ widget: new TailWidget(TAIL_TEXT, false, false), side: 1 }).range(line.from))
-    if (onlyTyped(line.text)) return Decoration.set(out, true)
-    // 打了正文：和平时一样，下面又是一行灰字
+  const t = screenLines(state)
+  if (t) {
+    // 文末那几行（还没打正文）：灰字写在光标那一行（光标不在里面就是第一行）；只打了「/」：这一行在挑块，不画
+    const n = caretTailLine(state, t)
+    const line = state.doc.line(n)
+    if (line.text.trim() === '') out.push(Decoration.widget({ widget: new TailWidget(fresh && n === t && state.selection.main.head !== line.from ? NEW_NOTE_TEXT : TAIL_TEXT, false, false), side: 1 }).range(line.from))
+    return Decoration.set(out, true)
   }
   const slot = lineSlot(state)
   if (slot !== null) {
@@ -312,33 +372,33 @@ const tailDeco = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 })
 
-/** 暂时的那一行：只在里面打「/筛选字」也不算数（不存盘） */
+/**
+ * 暂时的那几行里打「/筛选字」、空格、回车：照样不算数（不存盘）。改之前就已经有正文的（撤回把字撤光）不算：那一下要存盘，文件回到原样
+ */
 const keepProvisional = EditorState.transactionExtender.of((tr) => {
   const p = tr.startState.field(tailPending)
-  if (!p || !tr.docChanged || tr.annotation(provisional)) return null
+  if (!p || !tr.docChanged || tr.annotation(provisional) || !provisionalRange(tr.startState)) return null
   let inside = true
-  tr.changes.iterChangedRanges((fromA, toA) => {
-    if (fromA < p.from || toA > p.to) inside = false
+  tr.changes.iterChangedRanges((fromA) => {
+    if (fromA < p.from) inside = false
   })
-  if (!inside) return null
-  const p2 = tr.state.field(tailPending)
-  return p2 && onlyTyped(tr.state.doc.lineAt(Math.min(p2.at, tr.state.doc.length)).text) ? { annotations: provisional.of(true) } : null
+  return inside && provisionalRange(tr.state) ? { annotations: provisional.of(true) } : null
 })
 
 /**
- * 文末那一行是全篇最后一块：光标不再往下走（↓、→、⌘↓ 到它后面那个只为让文件以换行结尾的空行，会把这一行当成没打字拿掉，
+ * 文末那几行是全篇最后的块：光标不再往下走到只为让文件以换行结尾的那个空行（会把这一行当成没打字拿掉，
  * 光标落回藏着的收尾后面，打的字落不到块后面；task-ys1rr）。像 Notion 最后一块按 ↓ 不动
  */
 const stayOnTail = EditorState.transactionFilter.of((tr) => {
   if (!tr.selection || tr.docChanged) return tr
-  const p = tr.startState.field(tailPending, false)
   const sel = tr.state.selection.main
-  if (!p || !sel.empty || tr.state.selection.ranges.length > 1) return tr
+  if (!sel.empty || tr.state.selection.ranges.length > 1) return tr
+  const t = screenLines(tr.startState)
+  if (!t) return tr
   const doc = tr.state.doc
-  const line = doc.lineAt(Math.min(p.at, doc.length))
-  const was = tr.startState.selection.main.head
-  if (was < line.from || was > line.to || sel.head <= line.to) return tr
-  return [tr, { selection: EditorSelection.cursor(line.to), sequential: true }]
+  const was = doc.lineAt(tr.startState.selection.main.head).number
+  if (was < t || doc.lineAt(sel.head).number < doc.lines) return tr
+  return [tr, { selection: EditorSelection.cursor(doc.line(doc.lines - 1).to), sequential: true }]
 })
 
 class TailView {
@@ -366,24 +426,21 @@ class TailView {
   }
 
   update(u: ViewUpdate) {
-    const p = u.state.field(tailPending)
-    if (!p) {
+    const t = screenLines(u.state)
+    if (!t) {
       // 光标落到文件最后那个空行、它紧挨着上面有字的一块（用户截图：引文下面那一行，灰字却在再下面一行；在这里打字会并进引文）：
       // 那一行是块和块之间的空，不停光标，改成在文末新起一段，光标和灰字在同一行（task-ys1rr）
-      // 最后一个块藏着收尾、后面没有换行，光标走过它停在文件最末尾：也一样
-      const atEnd = (s: EditorState) => attachedLastLine(s) || pastHiddenEnd(s)
+      // 最后一个块藏着收尾、后面没有换行，光标走过它停在文件最末尾；文件本来以空行结尾、光标落在灰字那一行：也一样
+      const atEnd = (s: EditorState) => attachedLastLine(s) || pastHiddenEnd(s) || onSlot(s)
       if (u.selectionSet && !u.docChanged && u.view.hasFocus && !u.view.composing && atEnd(u.state)) queueMicrotask(() => {
-        if (atEnd(this.view.state) && !this.view.state.field(tailPending)) openTail(this.view)
+        if (atEnd(this.view.state) && !screenLines(this.view.state)) openTail(this.view)
       })
       return
     }
-    // 光标离开那一行、编辑器失焦：只有空的或「/」（没选）就整段拿掉；打了正文就定下来
+    // 光标走到文末那几行上面、编辑器失焦：还没打正文（只有空白或「/」没选）就整段拿掉，文件一个字节不多
     const head = u.state.selection.main.head
-    const line = u.state.doc.lineAt(Math.min(p.at, u.state.doc.length))
-    const left = (u.focusChanged && !u.view.hasFocus) || head < line.from || head > line.to
-    if (!left) return
-    if (onlyTyped(line.text)) queueMicrotask(() => dropPending(this.view))
-    else queueMicrotask(() => this.view.dispatch({ effects: setPending.of(null) }))
+    const left = (u.focusChanged && !u.view.hasFocus) || u.state.doc.lineAt(head).number < t
+    if (left) queueMicrotask(() => dropPending(this.view))
   }
 
   destroy() {

@@ -244,19 +244,26 @@ test('/ 菜单：插入标题、待办、表格、链接到笔记、日期；打
     const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
     expect(read(vault, '写作.md')).toBe(
       [
+        // 文末那一行里回车两下是两个空块（像 Notion，task-axoxy 第 15 条）：每一块上面留着一个空块
         '# 写作',
         '',
         '开头一段',
         '',
+        '',
         '## 小节',
+        '',
         '',
         '- [ ] 买菜',
         '',
+        '',
         '1. 第一步',
+        '',
         '',
         '[[工作流]] 和日期 a/b',
         '',
+        '',
         day,
+        '',
         '',
         '| 名字 | 列 2 | 列 3 |',
         '| --- | --- | --- |',
@@ -361,7 +368,8 @@ test('/ 白板 新建子白板并插入链接；/ 图片 拷进附件并显示�
     await page.keyboard.press('Enter')
     await expect(page.locator('.nav .si', { hasText: '未命名白板' })).toBeVisible()
     await waitSaved(page)
-    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n[[未命名白板]]\n\n\n')
+    // 回车两下是两个空块（task-axoxy 第 15 条），链接插在第二个里
+    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n\n[[未命名白板]]\n\n\n')
     expect(read(vault, '未命名白板.md')).toContain('type: board')
 
     // 系统的选文件对话框换成直接给一张图（主进程里替换 dialog）
@@ -376,7 +384,7 @@ test('/ 白板 新建子白板并插入链接；/ 图片 拷进附件并显示�
     await expect.poll(() => existsSync(join(vault, '附件', '旅行', '猫 咪.png'))).toBe(true)
     expect(readFileSync(join(vault, '附件', '旅行', '猫 咪.png')).equals(png)).toBe(true)
     await waitSaved(page)
-    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n[[未命名白板]]\n\n![](附件/旅行/猫%20咪.png)\n')
+    expect(read(vault, '旅行.md')).toBe('# 旅行\n\n正文\n\n\n[[未命名白板]]\n\n![](附件/旅行/猫%20咪.png)\n')
     // 光标移开，图片显示出来（cn-file:// 读的是库里的文件）
     await line(page, '正文').click()
     const img = pane(page).locator('.cm-image img')

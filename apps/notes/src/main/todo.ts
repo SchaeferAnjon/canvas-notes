@@ -6,11 +6,11 @@
  * 画布今日也开着同一个库时：它改了文件，Vault 的监听报 files:changed，界面重读，几百毫秒内三处都变。
  */
 import * as git from '@cn/git'
-import { appendLines, isISODate, lineAt, makeId, newTaskLine, normTime, parseQuick, parseRemind, parseRepeat, type When } from '@cn/tasks'
+import { appendLines, type CopyEdit, copiesOf, editCopy, isISODate, lineAt, makeId, newTaskLine, normTime, parseQuick, parseRemind, parseRepeat, parseTaskLine, sameTasks, type When } from '@cn/tasks'
 import { app, type BrowserWindow, ipcMain, shell } from 'electron'
 import { readFile, rm } from 'node:fs/promises'
 import { homeFileOf, type FolderHome } from '../shared/folder-home'
-import { INBOX_TODO, noteName, type TodoAddResult, type TodoEditReq, type TodoEditResult, type TodoItem, type TodoMigrateResult, type TodoUndoResult, type TodoWhere, todoNoteOf } from '../shared/todo'
+import { INBOX_TODO, noteName, type TodoAddResult, type TodoEditReq, type TodoEditResult, type TodoItem, type TodoMigrateResult, type TodoOp, type TodoUndoResult, type TodoWhere, todoNoteOf } from '../shared/todo'
 import { readFolderHome, writeFolderHome } from './folder-home'
 import { BRAND } from '../shared/brand'
 import { E2E } from './test-mode'
@@ -40,6 +40,36 @@ class ReadOnlyError extends Error {
 function need(v: Vault | null): Vault {
   if (!v) throw new Error('还没有打开库')
   return v
+}
+
+/** 这种改法抄了好几遍的另外几份要不要跟着改、怎么改（@cn/tasks dupes.ts，和画布今日一样）；null 是只改点的那一份 */
+function copyEdit(e: TodoOp): CopyEdit | null {
+  switch (e.op) {
+    case 'done':
+      return { op: 'done', done: e.done }
+    case 'date':
+      return { op: 'when', date: e.date }
+    case 'time':
+      return { op: 'when', time: e.time }
+    case 'when':
+      return { op: 'when', date: e.date, ...(e.time !== undefined ? { time: e.time } : {}) }
+    case 'schedule':
+      return { op: 'when', date: e.when.date, ...(e.when.date ? { time: e.when.time } : {}) }
+    case 'delete':
+      return { op: 'delete' }
+    default:
+      return null
+  }
+}
+
+/** 同一篇改了几次的并成一次（撤回时按「改之前、改之后」退，一篇只能有一份） */
+function oneEach(changes: Change[]): Change[] {
+  const by = new Map<string, Change>()
+  for (const c of changes) {
+    const had = by.get(c.path)
+    by.set(c.path, had ? { path: c.path, before: had.before, after: c.after } : c)
+  }
+  return [...by.values()]
 }
 
 const isNoteRel = (p: string) => typeof p === 'string' && /\.md$/i.test(p) && !p.startsWith('/') && !p.split('/').some((s) => s === '..' || s.startsWith('.'))
@@ -161,9 +191,17 @@ export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserW
         m = { text, items: mayHaveTodos(text) ? todoItems(path, text) : [] }
         memo.set(path, m)
       }
-      for (const t of m.items) out.push(t)
+      for (const t of m.items) out.push({ ...t, dupOf: null, dups: [] })
     }
     for (const p of [...memo.keys()]) if (!texts.has(p)) memo.delete(p)
+    // 抄了好几遍的同一条：全库只显示一份（文件不动）
+    const groups = sameTasks(out.map((t) => ({ key: t.key, path: t.path, line: t.line, title: t.title, date: t.date, block: parseTaskLine(t.raw)?.block ?? null, done: t.done, cancelled: t.cancelled })))
+    for (const t of out) {
+      const g = groups.get(t.key)
+      if (!g) continue
+      if (g.rep === t.key) t.dups = g.all.filter((k) => k !== t.key)
+      else t.dupOf = g.rep
+    }
     return out
   }
   ipcMain.handle('todo:list', list)
@@ -172,19 +210,38 @@ export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserW
     if (!req || !isNoteRel(req.path) || typeof req.raw !== 'string' || !Number.isInteger(req.line) || !req.edit) return { ok: false, reason: 'failed', message: '参数不对' }
     try {
       const v = need(o.vault())
+      const today = localToday()
+      // 抄了好几遍的同一条：勾掉、改日子钟点、删掉写到每一份上（一个撤回），别的只改点的这一份
+      const ce = copyEdit(req.edit)
+      const copies = ce ? copiesOf(await list(), req) : []
       /** 认得出那一行、改了等于没改（本来就是这一天）：不写文件，也不算「那一行没了」 */
       const same: { at: { line: number; raw: string } | null } = { at: null }
       const r = await change(v, req.path, (cur) => {
         if (cur === null) return null
-        const x = editTodoText(cur, req.line, req.raw, req.edit, localToday(), newId)
+        const x = editTodoText(cur, req.line, req.raw, req.edit, today, newId)
         if (!x) {
           const n = locateTodo(cur, req.line, req.raw)
           if (n !== null) same.at = { line: n, raw: lineAt(cur, n) ?? req.raw }
         }
         return x && { text: x.text, result: x }
       })
-      if (!r) return same.at ? { ok: true, undo: '', path: req.path, ...same.at } : { ok: false, reason: 'gone' }
-      return { ok: true, undo: remember([r.change]), path: req.path, line: r.result.line, raw: r.result.raw, ...(r.result.next ? { next: r.result.next } : {}) }
+      const more: Change[] = []
+      for (const c of copies) {
+        // 只读的那一篇改不了：跳过它，点的那一份和别的几份照样改、照样记撤回
+        const rc = await change(v, c.path, (cur) => {
+          const k = cur === null ? null : locateTodo(cur, c.line, c.raw)
+          return k === null ? null : { text: editCopy(cur!, k, ce!, today), result: null }
+        }).catch((e: unknown) => {
+          if (e instanceof ReadOnlyError) return null
+          throw e
+        })
+        if (rc) more.push(rc.change)
+      }
+      if (!r && !more.length) return same.at ? { ok: true, undo: '', path: req.path, ...same.at } : { ok: false, reason: 'gone' }
+      const undo = remember(oneEach([...(r ? [r.change] : []), ...more]))
+      const copied = more.length ? { copies: more.length } : {}
+      if (!r) return { ok: true, undo, path: req.path, line: same.at?.line ?? req.line, raw: same.at?.raw ?? req.raw, ...copied }
+      return { ok: true, undo, path: req.path, line: r.result.line, raw: r.result.raw, ...(r.result.next ? { next: r.result.next } : {}), ...copied }
     } catch (err) {
       if (err instanceof ReadOnlyError) return { ok: false, reason: 'readonly', message: err.message }
       return { ok: false, reason: 'failed', message: String((err as Error).message ?? err) }

@@ -18,6 +18,7 @@ import { useConvPick } from '../composer'
 import { app } from '../ctx/actions'
 import { hiddenOk } from '../hidden-syntax'
 import { isKey } from '../keys'
+import { useCiteSig } from '../cite-names'
 import { Markdown } from '../md-render'
 import { NoteDoc } from '../note-doc'
 import { applyMarks, flashMark, type Mark, rangeText } from '../reading/marks'
@@ -301,13 +302,16 @@ export function SideText(p: { spot: Spot; md: string; className?: string; closed
   const curId = open ? (open.first !== null ? sideIdOf(open.quote, open.first) : freshId(open.fresh)) : null
   const marks: Mark[] = groups.map((g) => ({ side: g.key, quote: mdPlain(g.quote), n: g.ids.length, title: t('这句有 {n} 条旁支', { n: g.ids.length }), cur: !!curId && g.ids.includes(curId) }))
   const sig = JSON.stringify(marks)
-  const mdEl = useMemo(() => <Markdown text={p.md} />, [p.md])
+  // 讲解卡、问框的回答：没写成链接的路径、笔记名也认（task-3e53q）；「不是这篇」记在这一处上
+  const conv = `side:${spot.path ?? spot.host}`
+  const mdEl = useMemo(() => <Markdown text={p.md} cites={{ conv }} />, [p.md, conv])
+  const citeSig = useCiteSig(conv)
 
-  // 划那几句（回答一变整块换掉：key 是回答的字）
+  // 划那几句（回答一变、认出来的链接一变整块换掉：key 是回答的字 + 链接的指纹）
   useLayoutEffect(() => {
     if (!root.current) return
     return applyMarks(root.current, JSON.parse(sig) as Mark[])
-  }, [sig, p.md])
+  }, [sig, p.md, citeSig])
 
   // 开着的那一条挂在那句所在的那一段后面（找不到那句挂在最后）
   const host = useMemo(() => {
@@ -422,7 +426,7 @@ export function SideText(p: { spot: Spot; md: string; className?: string; closed
         toggle(badge.dataset.side!)
       }}
     >
-      <div key={p.md} style={{ display: 'contents' }}>
+      <div key={p.md + citeSig} style={{ display: 'contents' }}>
         {mdEl}
       </div>
       {box && (

@@ -7,12 +7,14 @@ import { app, type BrowserWindow, ipcMain, utilityProcess, type UtilityProcess }
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ClaudeFindResult, SearchStatus } from '../../shared/search'
+import type { ClaudeFindResult, RelatedNote, SearchStatus } from '../../shared/search'
 import { engine, FAST_MODEL } from '../agent'
 import { findCli, INSTALL_HINT } from '../agent/cli'
 import type { Vault } from '../vault'
+import { E2E } from '../test-mode'
 import { FIND_SYSTEM, findPrompt, parseFound, toolStep } from './claude-find'
-import type { FromWorker, Query, ToWorker } from './protocol'
+import { EmbedModel } from './embed-model'
+import type { FromWorker, Query, RelatedReply, ToWorker } from './protocol'
 
 export interface SearchDeps {
   win(): BrowserWindow | null
@@ -27,8 +29,34 @@ function modelDir(): string | null {
   return existsSync(join(dir, 'onnx', 'model_quantized.onnx')) ? dir : null
 }
 
+/**
+ * bge-m3 下到哪：用户级缓存（Mac 上 ~/Library/Caches/<软件名>/models/bge-m3；Electron 的 getPath 没有 cache 这一项），
+ * 别的系统放软件设置目录里的 models/；CN_EMBED_DIR 能换
+ */
+const bigModelDir = () =>
+  process.env.CN_EMBED_DIR ||
+  (process.platform === 'darwin' ? join(app.getPath('home'), 'Library', 'Caches', app.getName(), 'models', 'bge-m3') : join(app.getPath('userData'), 'models', 'bge-m3'))
+
 let openVault: (root: string) => void = () => undefined
 let reopen: () => void = () => undefined
+let statusNow: () => SearchStatus = () => ({ phase: 'loading', done: 0, total: 0, files: 0 })
+/** 搜索索引建到哪了（右栏「相关」写「正在读全库找像的」） */
+export const searchStatus = () => statusNow()
+let askRelated: (paths: string[], k: number) => Promise<RelatedReply> = async () => null
+
+/** 每篇在全库里最像的几篇；model 是算它用的模型名（梦游报告要写） */
+export type RelatedMap = Map<string, RelatedNote[]> & { model: string }
+
+/**
+ * 梦游补双链找候选：每篇在全库里按「两篇最像的那一对段落的余弦」取前 k 篇（不含自己），带回那一对段落的原文。
+ * 读的就是搜索的那一份意思索引（不另算）。意思索引没开（「按意思找」关着、没有模型）或还没建完过一遍时是 null，梦游退回只用关键词。
+ * 不在索引里的篇（新建还没算到、不是 md / PDF）给空数组
+ */
+export async function searchRelated(paths: string[], k = 5): Promise<RelatedMap | null> {
+  const r = await askRelated(paths, k)
+  if (!r) return null
+  return Object.assign(new Map(r.related), { model: r.model })
+}
 
 /** 换库、打开库时叫一声：搜索进程按这个库建索引 */
 export const searchVault = (root: string) => openVault(root)
@@ -42,16 +70,33 @@ export function setupSearch(deps: SearchDeps) {
   let seq = 0
   const pending = new Map<number, { resolve(v: unknown): void; reject(e: Error): void }>()
   let status: SearchStatus = { phase: 'loading', done: 0, total: 0, files: 0 }
+  statusNow = () => status
   const send = (ch: string, ...args: unknown[]) => deps.win()?.webContents.send(ch, ...args)
 
   const post = (m: ToWorker) => proc!.postMessage(m)
-  const openMsg = (r: string): ToWorker => ({ t: 'open', root: r, userData: app.getPath('userData'), indexDir: join(app.getPath('userData'), 'search', createHash('sha1').update(r).digest('hex').slice(0, 16)), modelDir: deps.semantic() ? modelDir() : null })
+  const embedModel = new EmbedModel({
+    dir: bigModelDir(),
+    fake: (E2E || process.env.CN_AI_FAKE === '1') && process.env.CN_EMBED_REAL !== '1',
+    semantic: deps.semantic,
+    onStatus: (s) => send('embed:status', s),
+    onReady: (big) => {
+      if (proc && root) post({ t: 'upgrade', big })
+    },
+    ...(process.env.CN_EMBED_DELAY_MS ? { delayMs: Number(process.env.CN_EMBED_DELAY_MS) } : {}),
+    ...(process.env.CN_EMBED_FAKE_MS ? { fakeMs: Number(process.env.CN_EMBED_FAKE_MS) } : {}),
+  })
+  const openMsg = (r: string): ToWorker => {
+    const on = deps.semantic()
+    return { t: 'open', root: r, userData: app.getPath('userData'), indexDir: join(app.getPath('userData'), 'search', createHash('sha1').update(r).digest('hex').slice(0, 16)), modelDir: on ? modelDir() : null, big: on ? embedModel.big() : null }
+  }
   const start = () => {
     proc = utilityProcess.fork(join(__dirname, 'search-worker.js'), [], { serviceName: '搜索索引', stdio: 'inherit' })
     proc.on('message', (m: FromWorker) => {
       if (m.t === 'status') {
         status = m.s
         send('search:status', m.s)
+      } else if (m.t === 'embed') {
+        embedModel.fromWorker(m.s)
       } else {
         const p = pending.get(m.id)
         pending.delete(m.id)
@@ -87,12 +132,19 @@ export function setupSearch(deps: SearchDeps) {
     root = r
     if (proc) post(openMsg(r))
     else ensure()
+    embedModel.sync()
   }
   reopen = () => {
     if (root && proc) post(openMsg(root))
+    embedModel.sync()
   }
+  // 搜索进程还在读库、建索引（不是 ready）时不排队等它：梦游这晚只用关键词和标题（task-h7oy8）
+  askRelated = async (paths, k) => (root && status.phase === 'ready' ? ask<RelatedReply>({ t: 'related', paths: paths.filter((p): p is string => typeof p === 'string'), k: Math.max(0, Math.floor(k)) }) : null)
+  // 测试从主进程里直接叫（app.evaluate 拿不到模块的导出），e2e/h7oy8-embed-model 用
+  if (E2E) (globalThis as unknown as { cnSearchRelated: typeof searchRelated }).cnSearchRelated = searchRelated
   app.on('will-quit', () => {
     quitting = true
+    embedModel.stop()
     proc?.kill()
   })
 
@@ -103,6 +155,8 @@ export function setupSearch(deps: SearchDeps) {
   ipcMain.handle('search:pdfText', (_e, q: unknown) => ask({ t: 'pdfText', q: needQ(q) }))
   ipcMain.handle('search:meaning', (_e, q: unknown) => ask({ t: 'meaning', q: needQ(q) }))
   ipcMain.handle('search:status', () => status)
+  ipcMain.handle('embed:status', () => embedModel.status())
+  ipcMain.handle('embed:retry', () => embedModel.retry())
 
   // ---------- 让 Claude 帮我找 ----------
   const finding = new Map<number, AbortController>()

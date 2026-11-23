@@ -3,6 +3,7 @@ import type { DreamReport } from '../shared/api'
 import { INBOX, titleOf } from '../shared/layout'
 import { BRAND } from '../shared/brand'
 import { MATH_RULE } from '../shared/reading'
+import { CITE_RULE } from '../shared/cite-rule'
 import { DOC_BOARD_RULES } from '@cn/format'
 import { builtinByName } from '../shared/ai-cmds'
 import { answerRule } from '../shared/answer-lang'
@@ -36,11 +37,12 @@ export const TIDY_BOARD = `整理当前白板：先用 board_list 看这块白�
 
 ${DOC_BOARD_RULES}`
 
-/** 回答的语言跟界面语言（task-zojmg），所以每次现取 */
+/** 回答的语言跟界面语言（task-zojmg），所以每次现取；提到库里的东西写成链接（task-3e53q） */
 // 不翻：给 AI 的提示词
 export const system = () => `你是 ${BRAND.name} 笔记软件里的助手，帮一个人整理和写作自己的笔记。
 ${answerRule()}；平实、直接，不客套，不重复问题。笔记内容在用户消息里，只根据这些内容回答，不编造没有的事。
-${MATH_RULE}`
+${MATH_RULE}
+${CITE_RULE}`
 
 export const today = () => {
   const d = new Date()

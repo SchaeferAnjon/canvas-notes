@@ -19,6 +19,7 @@ import { titleOf } from '../../shared/layout'
 import { blockChanges } from '../diff/blocks'
 import { blockGaps } from '../block-gaps'
 import { type BranchFiles, citeClicks } from '../cite'
+import { peekBranch } from '../peek/peek'
 import { blocksField, editorHost } from '../editor-host'
 import { EngineLogo } from '../engine-logo'
 import { isKey, useKeys } from '../keys'
@@ -32,6 +33,7 @@ import { vaultName as vaultLabel } from '../vault-name'
 import { changeSpots, chunkNotes, chunksOf, delExt, FoldCtl, foldExt, foldPlan, markExt, noteExt, pureExt, type Spot } from './compare'
 import { actOn, dreamNow, openDream, setCur, setCurFile, stepDream, undoItem } from './nav'
 import { GROUPS } from './useDream'
+import { actNames, Evidence } from './evidence'
 import './dream-tab.css'
 import '../diff/diff.css'
 
@@ -403,11 +405,11 @@ function ItemHead(props: { item: DreamItem; index: number; total: number; base: 
                 <>
                   <button className="btn btn-sm" onClick={() => void actOn('drop', item)}>
                     <Codicon name="close" size={14} />
-                    丢掉
+                    {actNames(item).drop}
                   </button>
                   <button className="btn btn-sm" onClick={() => void actOn('take', item)}>
                     <Codicon name="check" size={14} />
-                    收下这条
+                    {item.group === 'unsure' || item.group === 'recheck' ? actNames(item).take : '收下这条'}
                   </button>
                 </>
               )}
@@ -441,6 +443,7 @@ function ItemHead(props: { item: DreamItem; index: number; total: number; base: 
       <div className="why" data-testid="dream-why">
         {item.why}
       </div>
+      <Evidence item={item} />
       {item.by && (
         <div className="by" data-testid="dream-by">
           {engine && <EngineLogo id={engine} size={12} />}
@@ -548,6 +551,7 @@ const dreamBranch = () => branchFiles(dreamNow().report)
 function docExt(path: string, vh: VizHost | null): Extension[] {
   return [
     citeClicks(path, dreamBranch),
+    peekBranch.of(dreamBranch),
     EditorState.readOnly.of(true),
     EditorView.editable.of(false),
     EditorView.lineWrapping,

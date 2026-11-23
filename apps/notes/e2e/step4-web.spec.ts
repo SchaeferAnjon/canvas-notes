@@ -94,7 +94,8 @@ test('文档里剪藏：选中一段点「剪藏」，没配对先问记到哪�
     // 引文后面补了一个空段落放光标（CN-17）
     const quote = 'Seek wealth, not money or status.'
     const src = `[${sourceLabel({ title: 'How to Get Rich', url: `${base}/rich` })}](${fragmentUrl(`${base}/rich`, quote)})`
-    const want = `---\nread-along: ${base}/\n---\n# 所思所想\n\n财富是靠专长、杠杆。\n\n> ${quote}\n—— ${src}\n\n\n\n最后一段。\n`
+    // 引文和「最后一段」之间夹一个空块：多一个空行就是一个空块（task-axoxy 空块一套数法）
+    const want = `---\nread-along: ${base}/\n---\n# 所思所想\n\n财富是靠专长、杠杆。\n\n> ${quote}\n—— ${src}\n\n\n最后一段。\n`
     expect(readFileSync(join(vault, '所思所想.md'), 'utf8')).toBe(want)
     expect(await editorText(page)).toBe(want)
     expect(readdirSync(vault)).not.toContain('收件箱')

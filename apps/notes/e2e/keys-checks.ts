@@ -243,6 +243,7 @@ export const CHECKS: Record<string, Check> = {
   },
   'open-web': railToggle(/^网页$/),
   outline: { ...railToggle(/^大纲/), ctxs: ['editor', 'ai', 'board'] },
+  related: { ...railToggle(/^相关/), ctxs: ['editor', 'ai', 'board'] },
   history: railToggle(/^历史$/),
   // 网页栏顶上收成一行 / 展开、书签栏开关（task-sta8n）：网页那一格看得见时才归它，所以只在网页有焦点时按（别的焦点在 step27-web-top 里按）
   'web-top-fold': { ctxs: ['web'], check: (k, _c, p) => flips(p, () => k.run.page.getByTestId('web-fold').getAttribute('aria-label')) },

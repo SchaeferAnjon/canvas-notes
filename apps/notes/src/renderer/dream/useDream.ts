@@ -27,6 +27,8 @@ export const GROUPS: Record<DreamGroup, string> = {
   file: '归类和改名',
   viz: '可视化',
   link: '补上的双链',
+  unsure: t('拿不准，你来定'),
+  recheck: t('旧「相关：」复查'),
   dup: '可能重复',
   week: '本周小结',
 }

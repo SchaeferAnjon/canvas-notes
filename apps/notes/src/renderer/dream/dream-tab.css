@@ -615,3 +615,10 @@
 .dt .doc .cm-wikilink:hover {
   background: color-mix(in srgb, var(--acc) 22%, transparent);
 }
+
+/* 条目头里的两边原话（task-h7oy8）：和理由同一列，宽度同理由 */
+.dt-head .dev {
+  grid-column: 1;
+  max-width: 72ch;
+  margin: 2px 0 0;
+}

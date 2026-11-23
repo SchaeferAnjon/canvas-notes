@@ -133,7 +133,8 @@ const round = (x: number) => Math.round(x * 100) / 100
  * 余弦够高、而且共同的关键词至少 LINK_MIN_TERMS 个才算。以前按字切三个一片比，两篇英文只要都有「the second」就能连上。
  * 软件汇总的（我的疑惑、视频里的疑惑）不当两头。软件里放在单独的进程算（similar/）
  */
-export function linkCandidates(texts: [string, string][], loose: string[]): LinkCand[] {
+/** 词向量索引：每篇的 TF-IDF 向量（长度归一）、倒排表；补双链的两种用法共用 */
+function linkIndex(texts: [string, string][]) {
   const byPath = new Map(texts)
   const runs = new Map<string, TermRun[]>()
   const tfs = new Map<string, Map<string, number>>()
@@ -173,16 +174,24 @@ export function linkCandidates(texts: [string, string][], loose: string[]): Link
     }
     vecs.set(p, v)
   }
+  return { byPath, runs, tfs, idf, vecs, postings }
+}
+
+/** p 和别的每篇的余弦，从高到低（到 LINK_MIN_SCORE 的） */
+function rankedFor(ix: ReturnType<typeof linkIndex>, p: string): [string, number][] {
+  const mine = ix.vecs.get(p)
+  if (!mine || mine.size < LINK_MIN_TERMS) return []
+  const dot = new Map<string, number>()
+  for (const [k, w] of mine) for (const [q, v] of ix.postings.get(k)!) if (q !== p) dot.set(q, (dot.get(q) ?? 0) + w * v)
+  return [...dot].filter(([, s]) => s >= LINK_MIN_SCORE).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+}
+
+export function linkCandidates(texts: [string, string][], loose: string[]): LinkCand[] {
+  const ix = linkIndex(texts)
+  const { byPath, runs, tfs, idf } = ix
   const cands: LinkCand[] = []
   for (const p of loose) {
-    const mine = vecs.get(p)
-    if (!mine || mine.size < LINK_MIN_TERMS) continue
-    const dot = new Map<string, number>()
-    for (const [k, w] of mine) for (const [q, v] of postings.get(k)!) if (q !== p) dot.set(q, (dot.get(q) ?? 0) + w * v)
-    const ranked = [...dot]
-      .filter(([, s]) => s >= LINK_MIN_SCORE)
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, 5)
+    const ranked = rankedFor(ix, p).slice(0, 5)
     const text = byPath.get(p)!
     for (const [q, s] of ranked) {
       // 已经链着最像的那篇：这篇不用补
@@ -199,6 +208,26 @@ export function linkCandidates(texts: [string, string][], loose: string[]): Link
     }
   }
   return cands.sort((a, b) => b.score - a.score)
+}
+
+/**
+ * 梦游找候选的关键词那一路（task-h7oy8）：每篇按词向量余弦取前 k 篇，带共同关键词。不在这里判连不连：
+ * 已经链着、两步以内连得上、是不是重复都交给梦游和 AI 判断（dream-judge.ts）
+ */
+export function linkRanked(texts: [string, string][], loose: string[], k = 5): LinkCand[] {
+  const ix = linkIndex(texts)
+  const out: LinkCand[] = []
+  for (const p of loose) {
+    let n = 0
+    for (const [q, s] of rankedFor(ix, p)) {
+      if (n >= k) break
+      const terms = sharedTerms(ix.runs.get(p)!, ix.tfs.get(q)!, ix.idf)
+      if (terms.length < 2) continue
+      out.push({ p, to: q, score: round(s), terms: terms.slice(0, 4) })
+      n++
+    }
+  }
+  return out
 }
 
 /** 补双链给人看的理由：两篇共同的几个关键词（不再写「都讲到『the second』」这种碰巧相同的一段） */

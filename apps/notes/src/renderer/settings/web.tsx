@@ -142,7 +142,7 @@ function ChromeRow() {
   )
 }
 
-/** 听写（Soniox）密钥：没字幕的视频「生成字幕」时用（CN-69）。加密存在这台 Mac 上，界面只看得到最后 4 位 */
+/** 听写（Soniox）密钥：没字幕的视频「生成字幕」（CN-69）和费曼的语音输入（task-yvabi）都用它。加密存在这台 Mac 上，界面只看得到最后 4 位 */
 function SttKeyRow() {
   const t = useT()
   const said = useSaid()
@@ -164,7 +164,7 @@ function SttKeyRow() {
       full
       desc={
         <>
-          {t('没字幕的视频「生成字幕」时用')} ·{' '}
+          {t('生成字幕和费曼的语音输入都用它')} ·{' '}
           <span data-testid="stt-key-state">{st?.tail ? t('已填 ••••{tail}，加密存在这台Mac上', { tail: st.tail }) : st?.fromEnv ? t('用的是环境变量SONIOX_API_KEY') : t('还没填：到soniox.com注册后在控制台拿一个API Key')}</span>
         </>
       }

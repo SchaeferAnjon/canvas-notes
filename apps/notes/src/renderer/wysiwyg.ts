@@ -13,10 +13,15 @@ import { isolateHistory } from '@codemirror/commands'
 import { EditorSelection, EditorState, findClusterBreak, Prec, type SelectionRange } from '@codemirror/state'
 import { isKey } from './keys'
 import { syntaxTree } from '@codemirror/language'
+import { insertNewlineContinueMarkup } from '@codemirror/lang-markdown'
 import { EditorView, keymap } from '@codemirror/view'
 import { parseCallout } from './callout'
 import { type Hidden, hiddenOk, hiddenSyntax } from './hidden-syntax'
 import { editCellLater } from './table-edit'
+import { standaloneLine } from '@cn/format'
+import { openTail, tailPending } from './tail-line'
+import { headingOf } from './title-follow'
+import { blankLine } from './gap-lines'
 
 // ---------- 块的记号：登记成藏着的语法 ----------
 
@@ -113,6 +118,8 @@ function moveVisible(forward: boolean, extend: boolean) {
     if (!moved || range.head === sel.head) return false
     // 同一个地方有两个位置（「A|**B」和「A**|B」）：停在左边那个，接着打的字跟左边的字一个样子（像 Notion）
     const head = leftmost(view, range.head)
+    // 退回原地（代码块最后一行末尾，收尾的围栏藏着）：不白按，交给后面（block-flow 出块）
+    if (head === sel.head) return false
     const first = view.moveByChar(EditorSelection.cursor(sel.head, sel.assoc), forward)
     // 一步就走到看得见的别处（没跨记号）：交给 CodeMirror 自己的 ←→
     if (first.head === head) return false
@@ -228,7 +235,33 @@ function backspaceBlockStart(view: EditorView): boolean {
   const line = state.doc.lineAt(sel.head)
   const end = blockMarkEnd(state, line.from)
   if (end === null || sel.head !== end) return false
-  view.dispatch({ changes: { from: line.from, to: end }, selection: { anchor: line.from }, userEvent: 'delete.backward', annotations: hiddenOk.of(true), scrollIntoView: true })
+  // 引用、提示块里不是第一行的（task-axoxy，像 Notion 一块里的换行）：一下并到上一行末尾；上一行是空的「>」就删掉那一行；
+  // 上一行是提示块的标题：不把正文并进标题，光标走到标题末尾。以前只删「> 」，这一行还画在引用里（懒续行），按第二下才并
+  const prev = line.number > 1 ? state.doc.line(line.number - 1) : null
+  if (prev && /^\s{0,3}>/.test(line.text) && /^\s{0,3}>/.test(prev.text)) {
+    if (parseCallout(prev.text)) {
+      view.dispatch({ selection: { anchor: prev.to }, userEvent: 'select', scrollIntoView: true })
+      return true
+    }
+    if (/^[\s>]*$/.test(prev.text)) {
+      view.dispatch({ changes: { from: prev.from, to: line.from }, selection: { anchor: end - (line.from - prev.from) }, userEvent: 'delete.backward', annotations: [hiddenOk.of(true), isolateHistory.of('full')], scrollIntoView: true })
+      return true
+    }
+    if (!/[ \t]+\^[A-Za-z0-9-]+[ \t]*$/.test(prev.text)) {
+      view.dispatch({ changes: { from: prev.to, to: end }, selection: { anchor: prev.to }, userEvent: 'delete.backward', annotations: [hiddenOk.of(true), isolateHistory.of('full')], scrollIntoView: true })
+      return true
+    }
+  }
+  // 标题、列表、待办、引用的第一行：去掉记号，连同上下的空行一起改成独立的一段（task-axoxy，@cn/format 的 standaloneLine）
+  return lineOut(view, line.number, end - line.from, 'delete.backward')
+}
+
+/** 第 n 行变成独立的一段（去掉 mark 长的记号、上下补空行、后面的编号重排），光标在它看得见的开头；改块的结构，单独一步撤销 */
+export function lineOut(view: EditorView, n: number, mark: number, userEvent: string): boolean {
+  const out = standaloneLine(view.state.doc.toString(), n, mark)
+  view.dispatch({ changes: out.changes, selection: { anchor: out.at }, userEvent, annotations: [hiddenOk.of(true), isolateHistory.of('full')], scrollIntoView: true })
+  // 后面没有别的块了：文末新起一行（只在屏上，打了字才写进文件；白板卡里的小编辑器没有文末那一行）
+  if (out.trailing && view.state.field(tailPending, false) !== undefined) openTail(view)
   return true
 }
 
@@ -327,16 +360,21 @@ function backspaceInCode(view: EditorView): boolean {
 }
 
 /**
- * 把 [from, to)（整行）换成一个空段落：上下各和别的块隔一个空行（空段落是一行空行，夹在两个空行中间）；at 是那一行
+ * 把 [from, to)（整行）换成一个空块（gap-lines.ts 的数法：一串空行第一行是缝、后面每一行一个空块；标题前最后一行是留白）：
+ * 上面没有空行就补一道缝；下面原来的那个空行并进来（不然多出一个空块），下面紧挨着标题时留着当留白；at 是那一行
  */
 export function emptyBlockAt(state: EditorState, from: number, to: number): { changes: { from: number; to: number; insert: string }; at: number } {
   const doc = state.doc
   const a = doc.lineAt(from)
   const z = doc.lineAt(to)
-  const blankAbove = a.number === 1 || doc.line(a.number - 1).text.trim() === ''
-  const blankBelow = z.number < doc.lines && doc.line(z.number + 1).text.trim() === ''
+  const blank = (n: number) => n >= 1 && n <= doc.lines && doc.line(n).text.trim() === ''
+  const blankAbove = a.number === 1 || blank(a.number - 1)
+  let next = z.number + 1
+  while (blank(next)) next++
+  const heading = next <= doc.lines && /^ {0,3}#{1,6}(?:[ \t]|$)/.test(doc.line(next).text)
   const pre = blankAbove ? '' : '\n'
-  const post = blankBelow ? '' : '\n'
+  if (blank(z.number + 1) && !heading && next <= doc.lines) return { changes: { from: a.from, to: z.to + 1, insert: pre }, at: a.from + pre.length }
+  const post = heading && next === z.number + 1 ? '\n' : ''
   return { changes: { from: a.from, to: z.to, insert: pre + post }, at: a.from + pre.length }
 }
 
@@ -352,7 +390,11 @@ function codeNodeAt(state: EditorState, pos: number): { from: number; to: number
   return null
 }
 
-/** 标题、引用的字开头回车：上面空出一行，这一块不动（不把「## 」留在上面一行） */
+/**
+ * 标题的字开头回车：上面空出一行，这一块不动（不把「## 」留在上面一行）。
+ * 上面隔着空行（或在文首）的标题交给 block-flow 的 enterBlock：上面多一个空块、光标还在标题上（task-axoxy 第 11 条，像 Notion；
+ * 以前这里先接走，只插一个换行，成了标题上方的留白，光标进不去）。这里只管笔记名那一行、紧贴着上一行的标题
+ */
 function enterAtBlockStart(view: EditorView): boolean {
   const { state } = view
   const sel = state.selection.main
@@ -361,11 +403,15 @@ function enterAtBlockStart(view: EditorView): boolean {
   const end = blockMarkEnd(state, line.from)
   if (end === null || sel.head !== end || end === line.to) return false
   if (!/^ {0,3}#/.test(line.text)) return false
+  if (headingOf(state.doc.toString())?.line !== line.number && (line.number === 1 || blankLine(state, line.number - 1))) return false
   view.dispatch({ changes: { from: line.from, insert: '\n' }, selection: { anchor: sel.head + 1 }, userEvent: 'input', annotations: hiddenOk.of(true), scrollIntoView: true })
   return true
 }
 
-/** 空的列表项、待办（只剩记号）回车：拿掉记号，出列表（像 Notion、Typora），光标留在这一行 */
+/**
+ * 空的列表项、待办（只剩记号）回车：套着的子项先退一级（成了上一级的一项）；顶层的拿掉记号出列表（像 Notion、Typora），
+ * 这一行上下各一个空行，成了一个空块、光标在里面（task-axoxy：以前只删记号，接着写的正文在文件里是上一项的续行）
+ */
 function enterEmptyItem(view: EditorView): boolean {
   const { state } = view
   const sel = state.selection.main
@@ -373,9 +419,40 @@ function enterEmptyItem(view: EditorView): boolean {
   const line = state.doc.lineAt(sel.head)
   const end = blockMarkEnd(state, line.from)
   if (end === null || end !== line.to || sel.head !== end) return false
-  if (!/^[ \t]*([-*+]|\d{1,9}[.)])([ \t]+\[[ xX]\])?[ \t]*$/.test(line.text)) return false
-  view.dispatch({ changes: { from: line.from, to: line.to }, selection: { anchor: line.from }, userEvent: 'input', annotations: hiddenOk.of(true), scrollIntoView: true })
-  return true
+  const m = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+\[[ xX]\])?[ \t]*$/.exec(line.text)
+  if (!m) return false
+  const indent = m[1]!.length
+  if (indent > 0) {
+    // 往上找上一级（缩进比它少的那一项），这一项退到它那一层
+    for (let k = line.number - 1; k >= 1; k--) {
+      const t = state.doc.line(k).text
+      if (t.trim() === '') continue
+      const p = /^([ \t]*)([-*+]|\d{1,9}[.)])[ \t]/.exec(t)
+      const lead = /^[ \t]*/.exec(t)![0].length
+      if (lead >= indent) continue
+      if (!p) break
+      const to = p[1]!.length
+      view.dispatch({ changes: { from: line.from, to: line.from + indent, insert: t.slice(0, to) }, selection: { anchor: sel.head - indent + to }, userEvent: 'input', annotations: [hiddenOk.of(true), isolateHistory.of('full')], scrollIntoView: true })
+      return true
+    }
+  }
+  return lineOut(view, line.number, line.length, 'input')
+}
+
+/**
+ * 编号列表里回车：照 markdown 的续一项、后面的编号往后数，但这一下改的编号在藏着的记号里，看守会把「4」挪到记号后面
+ * （成了「3. 4编号丙」）；这里整个算软件有意改的（task-axoxy）
+ */
+function enterOrdered(view: EditorView): boolean {
+  const { state } = view
+  const sel = state.selection.main
+  if (!sel.empty || state.readOnly) return false
+  const line = state.doc.lineAt(sel.head)
+  if (!/^[ \t]*\d{1,9}[.)][ \t]/.test(line.text) || blockMarkEnd(state, line.from) === null) return false
+  // 命令自己 state.update 时过滤器就跑了：给它一个 update 带着 hiddenOk 的 state
+  const marked = Object.create(state) as EditorState
+  marked.update = (...specs) => state.update(...specs, { annotations: hiddenOk.of(true) })
+  return insertNewlineContinueMarkup({ state: marked, dispatch: (tr) => view.dispatch(tr) })
 }
 
 /** 打「| 日期 | 地点 |」回车：变成表格（分隔行 + 一行空格子），光标进第一格 */
@@ -486,7 +563,7 @@ export const wysiwyg = [
     // 比 markdown() 自己的回车、退格先轮到（/ 菜单开着时它的键更先，在 slash-menu 里是 highest）
     Prec.highest(
       keymap.of([
-        { key: 'Enter', run: (v) => enterEmptyItem(v) || enterTableHead(v) || enterCode(v) || enterAtBlockStart(v) },
+        { key: 'Enter', run: (v) => enterEmptyItem(v) || enterTableHead(v) || enterCode(v) || enterAtBlockStart(v) || enterOrdered(v) },
         { key: 'Backspace', run: (v) => backspaceInCode(v) || backspaceBlockStart(v) || backspaceAfterRule(v) || deleteVisible(false)(v) },
         { key: 'Delete', run: (v) => joinStripsMarks(true)(v) || deleteVisible(true)(v) },
         { key: 'ArrowRight', run: moveVisible(true, false), shift: moveVisible(true, true) },

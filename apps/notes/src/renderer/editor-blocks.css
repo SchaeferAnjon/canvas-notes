@@ -356,6 +356,10 @@
   font-size: 0;
   line-height: var(--gap, 12px);
 }
+/* 空块（Tolaria 的数法，task-axoxy）：一整行高，下面带自己那道 12（它和下一块之间没有缝那一行） */
+.doc .cm-emptyblk {
+  padding-bottom: 12px;
+}
 /* 文件末尾没有换行（最后一行就是正文）：和上一块之间空出块和块之间的 12 */
 .doc .cm-tailline.after.gap {
   padding-top: 15px;
@@ -418,26 +422,33 @@
   opacity: 0.88;
 }
 
-/* ---------- 待办：和白板待办卡同一个勾选框 ---------- */
+/* ---------- 待办：和待办首页、画布今日同一个勾选框（task-gr4sx：没勾的不铺底，边是 @cn/design 的 --cb-line） ---------- */
 .doc .cm-taskbox {
-  display: inline-grid;
-  place-items: center;
+  position: relative;
+  display: inline-block;
   width: 14px;
   height: 14px;
   margin-right: 8px;
   vertical-align: -2px;
   border-radius: 4px;
-  border: 1.5px solid var(--line2);
-  background: var(--card);
+  border: 1.5px solid var(--cb-line);
+  background: transparent;
   box-sizing: border-box;
   cursor: pointer;
+}
+.doc .cm-taskbox:not(.on):not(.hi):hover {
+  border-color: var(--t2);
 }
 .doc .cm-taskbox.on {
   background: var(--acc-bg);
   border-color: var(--acc-bg);
 }
+/* 白勾摆成绝对定位（不当框里的内容）：框里有了内容，框的基线跟着它走，勾上的框会比没勾的低 4px */
 .doc .cm-taskbox.on::after {
   content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
   width: 7px;
   height: 4px;
   border-left: 1.6px solid #fff;
@@ -515,6 +526,23 @@
   max-height: 220px;
   object-fit: cover;
   border-radius: 10px;
+}
+/* 配对笔记里「我框的」图（task-yp8l7）：照框在 PDF 上 100% 的宽、整块不裁（白底、1px 线，和右栏笔记一样），点了回 PDF */
+.doc .cm-image img.jump {
+  width: auto;
+  max-width: 100%;
+  max-height: none;
+  object-fit: contain;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line2);
+  cursor: pointer;
+}
+.doc .cm-image img.jump:hover {
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+[data-tone='dark'] .doc .cm-image img.jump {
+  filter: brightness(0.92);
 }
 .doc .cm-image-cap {
   margin-top: 6px;
@@ -1205,6 +1233,7 @@
   width: 260px;
   max-height: 320px;
   overflow-y: auto;
+  padding-bottom: 6px;
 }
 .base-picked {
   display: flex;
@@ -1251,8 +1280,84 @@
   background: none;
   text-align: left;
 }
-.base-options > button:hover {
+/* 亮着的一项：鼠标停着的、↑ ↓ 挪到的（同一个，task-cle3x）；回车选它 */
+.base-options > button.kb {
   background: var(--fill2);
+}
+/* 日期格的浮层（task-cle3x，照 Notion）：顶上能打字的框，下面一行认成哪天，再下面小月历，底下「清掉」 */
+.base-date {
+  width: 252px;
+  padding: 8px;
+}
+.base-date-in {
+  display: block;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.base-date-in:focus {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.base-date-hint {
+  padding: 6px 8px 4px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-date-hint.bad {
+  color: var(--red-t, var(--red));
+}
+.base-date .cal-mini {
+  padding: 2px 0 4px;
+}
+.base-date .cal-mini-h {
+  padding-left: 8px;
+}
+.base-date .cal-ib {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.base-date .cal-ib:hover {
+  background: var(--fill);
+}
+.base-date-foot {
+  display: flex;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+.base-date-foot button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  cursor: pointer;
+}
+.base-date-foot button:hover:not(:disabled) {
+  background: var(--fill);
+  color: var(--t1);
+}
+.base-date-foot button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .base-options > button .ci {
   margin-left: auto;
@@ -1452,13 +1557,72 @@
   color: var(--t3);
 }
 .base td {
-  cursor: text;
+  cursor: default;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 竖分隔线（task-cle3x，照 Notion）：和横线同一个颜色，列一多分得清哪一列；第一列左边不画 */
+.base th + th,
+.base td + td {
+  border-left: 1px solid var(--line);
+}
+/* 表头吸顶（task-cle3x）：表滚出视野上沿时表头跟着往下挪（--base-stick，BaseTable 量），贴着栏顶；表底露出来就放开。
+   挪的时候盖住下面的行：铺卡片底、下沿一道线 */
+.base thead th {
+  transform: translateY(var(--base-stick, 0px));
+}
+/* 键盘走到的格子滚进来时让出吸顶表头的高度，不躲在表头底下 */
+.base td[data-row] {
+  scroll-margin-top: 40px;
+}
+.base table[data-stuck] thead th {
+  z-index: 3;
+  background: var(--card);
+}
+/* 吸顶时表头下沿一道线（合并边框的表格上 box-shadow 画不出来）：比行线深一级，看得出是边 */
+.base table[data-stuck] thead th::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--line2);
+  pointer-events: none;
+}
+/* 整页打开的表铺在 --win 上：吸顶的表头跟着用 --win，不成一条亮带 */
+.base-full table[data-stuck] thead th {
+  background: var(--win);
+}
+/* 名字换两行时别的格子对齐第一行（照 Notion）：格子的字靠上，上 8 下 4，一行的行照旧 36 高 */
+.base td[data-row]:not(.editing) {
+  vertical-align: top;
+  padding-top: 8px;
+  padding-bottom: 4px;
+}
+/* 名字长了换行（task-cle3x，照 Notion）：最多两行，再长省略号；别的列照旧一行截断 */
+.base td.nm {
+  white-space: normal;
+}
+.base td.nm button:not(.base-open) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  height: auto;
+  max-height: 40px;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* 表在文档里放宽（task-cle3x，照 Notion）：列多了表往右伸到栏宽（宽多少 BaseTable 量了写在部件上），左边和正文对齐。
+   伸出去的部分不能被编辑器的滚动框裁掉：正文本来就折行，不用它横着滚 */
+.body > .doc .cm-scroller {
+  overflow-x: visible;
+}
 .base td.editing {
-  padding: 0 6px;
-  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+  /* 和别的格子一样靠上：框里的字和同一行第一行的字对齐（名字换两行时不掉到中间） */
+  vertical-align: top;
+  padding: 3px 6px 0;
 }
 .base td.nm {
   /* 改名的输入框和存好后的名字一样宽，列宽不跳 */
@@ -1578,6 +1742,19 @@
   height: 30px;
   border: 0;
   background: transparent;
+}
+/* 数字的输入框（task-cle3x，cell-input.ts 的 NUM_INPUT）：和不编辑时的 td.num 一样等宽数字，点开时数字不变窄 */
+input.base-in[inputmode='decimal'],
+.rec-row input[inputmode='decimal'],
+input.field[inputmode='decimal'] {
+  font-variant-numeric: tabular-nums;
+}
+/* 不是数、没收：框描红（--red 在深湖看不清，用 --red-t），打下一个字恢复 */
+.base td.editing:has(.base-in[aria-invalid='true']) {
+  box-shadow: inset 0 0 0 1.5px var(--red-t);
+}
+.base-in[aria-invalid='true'] {
+  border-color: var(--red-t);
 }
 .base-check {
   accent-color: var(--acc-bg);

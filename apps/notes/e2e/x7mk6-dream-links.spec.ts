@@ -2,7 +2,7 @@
  * task-x7mk6：梦游对照里能点的东西接上和文档 ⌘点、AI 回答引用（cite.tsx）同一套点法。
  * 用户（0.5.1 截图：对照「收下后」那一栏末尾新加的「相关 [[第三方]]」点不开）：「这个能不能按住cmd 然后左键打开啊」。
  * 以前对照里的两栏（和「收下后的样子」）是只读编辑器，只装了实时预览，没装文档里接 ⌘点的那段（note-doc.ts），谁都不接点击。
- * 现在：点一下出预览卡；⌘点打开（到那一篇 / 那一页）；⇧⌘点开在后面的新标签；网页 ⌥⌘点在中间栏开；「第 N 页」点一下就翻过去。
+ * 现在：点一下出预览卡；⌘点打开（到那一篇 / 那一页）；⇧⌘点开在后面的新标签；网页 ⌥⌘点在中间栏开；「第 N 页」也是先出卡、⌘点翻过去（task-3e53q 已定 1）。
  * 指向这次梦游新建、改名后还没收下的笔记：开梦游分支上那一份（和文件条「打开「x」· 梦游分支上的」一样）。
  * 样本库照 m552v-dream（e2e/fixtures/dream2.ts），「极光」那篇的「视频 · youtube.com」改成一个网页链接。都是真点，窗口不上屏。
  */
@@ -151,13 +151,19 @@ test('网页链接：点一下卡上写网址，⌥⌘点在中间栏开一个�
   }
 })
 
-test('读 PDF 的笔记里「第 N 页」：点一下就翻到那一页（和 AI 回答里的页码小牌一样）', async () => {
+test('读 PDF 的笔记里「第 N 页」：点一下出预览卡（那页缩略图，和 AI 回答里的页码小牌一样，task-3e53q 已定 1），⌘点翻到那一页', async () => {
   const { run, page, panel } = await dreamed()
   try {
     await openItem(page, panel, VIZ_TITLE)
     const pg = after(page).locator('.cm-link', { hasText: /^第 3 页$/ }).first()
     await pg.scrollIntoViewIfNeeded()
+    const n = await tabs(page).count()
     await pg.click()
+    await expect(card(page).locator('.top .kind')).toHaveText('PDF')
+    await expect(card(page).locator('.u')).toContainText('第3页')
+    expect(await tabs(page).count()).toBe(n)
+    await page.keyboard.press('Escape')
+    await pg.click({ modifiers: ['Meta'] })
     await expect(tabOn(page)).toContainText('.pdf')
     await expect(acts(page).getByTestId('pdf-pager')).toHaveText(/^3 \//, { timeout: 15_000 })
   } finally {

@@ -187,7 +187,7 @@ test('问完底栏说记进了哪篇第几页，笔记在后面时带「在笔�
     await expect(tabOn(page)).toHaveText('第5讲 注意力机制.pdf')
     await expect(page.locator('.pdfpane:not([hidden]) .pdfpage[data-page="1"] canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
     // 笔记和 AI 叠成一组、AI 在前：笔记看不见
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await openAi(page)
     await expect(page.getByTestId('dtab-ai')).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByTestId('dtab-note')).toHaveAttribute('aria-selected', 'false')

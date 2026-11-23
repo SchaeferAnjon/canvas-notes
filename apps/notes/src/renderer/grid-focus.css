@@ -1,0 +1,17 @@
+/*
+ * 格子焦点（grid-focus.ts，task-cle3x，照 Notion）：数据库表格、文档里的普通表格共用的样子。
+ * 选中的一格：2px 强调色内框 + --acc-soft 淡底（主题里分好了深浅：浅色 10%、深色 15%；Notion 是蓝框浅蓝底，我们跟主题的强调色）；
+ * 正在改的一格：同一个框，底换回卡片色（字在上面打）。两种表格只要给格子加这两个类名。
+ * 能改的两个值：--cell-sel-ring（框）、--cell-sel-bg（底），没设时用强调色。
+ */
+.cn-cell-sel,
+.cn-cell-edit {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--cell-sel-ring, var(--acc));
+}
+.cn-cell-sel {
+  background: var(--cell-sel-bg, var(--acc-soft));
+}
+.cn-cell-edit {
+  background: var(--card);
+}

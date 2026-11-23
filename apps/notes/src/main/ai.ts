@@ -9,6 +9,7 @@ import type { AiFeature } from '../shared/ai-features'
 import { fakeCmdAnswer } from '../shared/cmd-run'
 import { fakeDistill } from '../shared/distill'
 import { ask as engineAsk, askFast as engineAskFast, askWith, chatRun } from './agent'
+import { fakeJudge, isJudgePrompt } from './dream-judge'
 import type { EngineImage } from './agent/engines'
 
 /**
@@ -24,8 +25,21 @@ export interface AskWith {
 export async function ask(system: string, prompt: string, signal: AbortSignal, onText: (delta: string) => void = () => {}, feature: AiFeature = 'chat', w: AskWith = {}): Promise<string> {
   if (process.env.CN_AI_FAKE === '1') {
     // 测试看每一问用的哪一家、哪一档（task-0fhyo）、交给 AI 的是什么话：CN_FAKE_PICK_LOG 给了就一问记一行
-    if (process.env.CN_FAKE_PICK_LOG) appendFileSync(process.env.CN_FAKE_PICK_LOG, JSON.stringify({ cmd: /^命令：(\S+)/.exec(prompt)?.[1] ?? '', feature, pick: w.pick ?? null, prompt }) + '\n')
+    if (process.env.CN_FAKE_PICK_LOG) appendFileSync(process.env.CN_FAKE_PICK_LOG, JSON.stringify({ cmd: isJudgePrompt(prompt) ? '梦游判断' : (/^命令：(\S+)/.exec(prompt)?.[1] ?? ''), feature, pick: w.pick ?? null, prompt }) + '\n')
     failOnce(prompt)
+    // 梦游判断（task-h7oy8）：一篇想一会儿（CN_FAKE_JUDGE_MS，默认不等），测「睡眠打断后接着判」时停得下
+    if (isJudgePrompt(prompt)) {
+      const ms = Number(process.env.CN_FAKE_JUDGE_MS ?? 0)
+      if (ms > 0)
+        await new Promise<void>((res, rej) => {
+          const t = setTimeout(res, ms)
+          signal.addEventListener('abort', () => (clearTimeout(t), rej(Object.assign(new Error('停下了'), { name: 'AbortError' }))), { once: true })
+        })
+      if (signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+      const out = fakeJudge(prompt)
+      onText(out)
+      return out
+    }
     // 数据库 AI 列（task-i921u）：一格想一会儿（CN_FAKE_AICOL_MS，默认 400 毫秒），看得到「在写」、按 esc 停得下
     if (/^命令：数据库AI列/.test(prompt)) {
       await new Promise<void>((res, rej) => {

@@ -161,7 +161,8 @@ export function editLinkAt(view: EditorView, pos: number) {
 export const linkCard: Extension = [
   EditorView.domEventHandlers({
     mousemove(e, view) {
-      const el = (e.target as Element | null)?.closest?.('.cm-link') as HTMLElement | null
+      // 按着 ⌘ 是要弹出那一篇（peek/peek.tsx），不出链接卡
+      const el = e.metaKey || e.ctrlKey ? null : ((e.target as Element | null)?.closest?.('.cm-link') as HTMLElement | null)
       if (!el) {
         clearTimeout(hoverT)
         if (showing?.view === view && !editing && !leaveT) leaveT = setTimeout(() => ((leaveT = undefined), !editing && hideLinkCard()), 220)

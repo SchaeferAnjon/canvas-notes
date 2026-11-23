@@ -16,9 +16,16 @@ import {
   withContent,
   withLinks,
   isMindmap,
+  keyPath,
+  type MapNode,
+  mapShown,
+  nodeAt,
+  parseMindmap,
+  pathKey,
 } from '@cn/format'
 import { onFlyToCard } from './shell/OutlineView'
 import { Codicon, type CodiconName } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { CLIPS, previewOf, titleOf } from '../shared/layout'
@@ -47,7 +54,7 @@ import { openVideo } from './video/actions'
 import { boardMomentStats } from './video/board'
 import { momentsTitle, videoKeyOfCard, videoUrlOfCard } from './video/BoardCards'
 import { useBoardImageDrop } from './web/useImageDrop'
-import { openCapture, setBoardCapture } from './mindmap/capture-store'
+import { type CaptureRequest, openCapture, setBoardCapture } from './mindmap/capture-store'
 import { settlePlaced } from './mindmap/place'
 import { MindmapLayer } from './mindmap/MindmapLayer'
 import { BoardFind } from './find/BoardFind'
@@ -62,6 +69,12 @@ import { UnitEditor } from './doc-board/unit-editor'
 import { typingIn } from './typing'
 import { useT } from './i18n'
 import { t as tNow } from '../shared/i18n'
+import { findRounds } from '../shared/feynman/doc'
+import { headOf } from '../shared/feynman/material'
+import type { MaterialRef } from '../shared/feynman/types'
+import { FeynmanColumn, PeekChip, PendingColumn, useCovered } from './feynman/Column'
+import { StartPop, type PickItem } from './feynman/StartPop'
+import * as Fy from './feynman/store'
 
 type Drag =
   | { type: 'block'; id: string; start: Pt; origin: Pt; moved: boolean; delta: Pt }
@@ -82,6 +95,9 @@ const PAL: { kind: PalKind; label: string; title: string; icon: CodiconName }[] 
   { kind: 'column', label: '列', title: '新的列', icon: 'split-horizontal' }, // 不翻
   { kind: 'board', label: '子白板', title: '子白板', icon: 'layout' }, // 不翻
 ]
+
+/** 拖动里用到的只是指针在窗口里的位置 */
+type Ptr = { clientX: number; clientY: number }
 
 export interface BoardViewProps {
   text: string
@@ -150,6 +166,10 @@ export function BoardView(props: BoardViewProps) {
   const els = useRef(new Map<string, HTMLElement>())
   const [rects, setRects] = useState<Record<string, Rect>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  /** 导图里选中的主题（MindmapLayer 报上来的 key）：费曼学习拿选中的一支当材料 */
+  const [mapSel, setMapSel] = useState<string[]>([])
+  /** 什么都没选时点「费曼学习」：讲哪个点的小框 */
+  const [fyPop, setFyPop] = useState<Pt | null>(null)
   const [selLink, setSelLink] = useState<string | null>(null)
   /** 双击的是待办里第几行（文件里的行号） */
   const editRow = useRef<number | null>(null)
@@ -411,9 +431,10 @@ export function BoardView(props: BoardViewProps) {
   }
 
   /** 拍导图（task-wuv05）：做好后是这块白板的子白板（和它同一个文件夹），落点一张子白板卡；这篇、导图、照片一次提交，底栏能撤回 */
-  function captureMap(where: Place) {
+  function captureMap(where: Place, seed?: CaptureRequest['seed']) {
     openCapture({
       into: { path: props.notePath, as: 'board' },
+      ...(seed ? { seed } : {}),
       onPlaced: (r) => {
         const now = latest.current
         const id = newId(now)
@@ -428,7 +449,7 @@ export function BoardView(props: BoardViewProps) {
   // ⌘K、⇧⌘C、菜单在这块白板前面时拍：同点工具板「拍导图」
   useEffect(() => {
     if (!props.active || props.readOnly) return
-    const mine = { path: props.notePath, capture: () => captureRef.current({ at: freeSpotRef.current() }) }
+    const mine = { path: props.notePath, capture: () => captureRef.current({ at: freeSpotRef.current() }), seeded: (seed: NonNullable<CaptureRequest['seed']>) => captureRef.current({ at: freeSpotRef.current() }, seed) }
     setBoardCapture(mine)
     return () => setBoardCapture(null, mine)
   }, [props.active, props.readOnly, props.notePath])
@@ -440,7 +461,8 @@ export function BoardView(props: BoardViewProps) {
     e.stopPropagation()
     outer.current?.focus({ preventScroll: true })
     setSelLink(null)
-    if (e.shiftKey) {
+    // ⇧ 点、⌘ 点都是加减一张（⌘ 点和导图里一样，能和导图节点混选）
+    if (e.shiftKey || e.metaKey) {
       setSelected((s) => {
         const n = new Set(s)
         if (n.has(id)) n.delete(id)
@@ -453,6 +475,7 @@ export function BoardView(props: BoardViewProps) {
     const r = rects[id]
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
     setDrag({ type: 'block', id, start: toPlane(e.clientX, e.clientY), origin: { x: r?.x ?? 0, y: r?.y ?? 0 }, moved: false, delta: { x: 0, y: 0 } })
+    follow(e)
   }
 
   const columnAt = (p: Pt, except?: string) => columnIn(doc, rects, p, except)
@@ -465,12 +488,29 @@ export function BoardView(props: BoardViewProps) {
 
   /** 工具板按钮按下：移过 DRAG_SLOP 才算拖；没移就是点一下，照旧交给 onClick */
   const palDragged = useRef(false)
+  /** 拖着的每一下、松手调最新画出来的 onMove / onUp（拖的时候 drag、doc 都在变） */
+  const dragFns = useRef({ move: (_e: Ptr) => {}, up: (_e: Ptr) => {} })
+  dragFns.current = { move: onMove, up: onUp }
+  /** 按下开始拖：松手没送到页面（窗口外松手、失焦）时当没拖过，像按了 Esc（trackDrag，task-0nz63） */
+  function follow(e: { type: string; button: number }) {
+    trackDrag<PointerEvent>(e, {
+      move: (ev) => dragFns.current.move(ev),
+      end: (how, ev) => {
+        if (how === 'up') return dragFns.current.up(ev!)
+        palDragged.current = true
+        setTimeout(() => (palDragged.current = false), 0)
+        setDrag(null)
+        setDropCol(null)
+      },
+    })
+  }
   function startPal(e: React.PointerEvent, kind: PalKind, map = false) {
     palDragged.current = false
     if (e.button !== 0) return
     e.currentTarget.setPointerCapture(e.pointerId)
     const c = { x: e.clientX, y: e.clientY }
     setDrag({ type: 'pal', kind, start: c, client: c, moved: false, over: false, map })
+    follow(e)
   }
 
   /** 拖完松手，浏览器还会在按钮上补一个 click，那一下不算点 */
@@ -489,7 +529,7 @@ export function BoardView(props: BoardViewProps) {
     return null
   }
 
-  function onMove(e: React.PointerEvent) {
+  function onMove(e: Ptr) {
     if (!drag) return
     if (drag.type === 'block') {
       const p = toPlane(e.clientX, e.clientY)
@@ -511,7 +551,7 @@ export function BoardView(props: BoardViewProps) {
     }
   }
 
-  function onUp(e: React.PointerEvent) {
+  function onUp(e: Ptr) {
     if (!drag) return
     const p = toPlane(e.clientX, e.clientY)
     setDrag(null)
@@ -724,6 +764,66 @@ export function BoardView(props: BoardViewProps) {
     await showMenu(items)
   }
 
+  // ---------- 费曼学习（task-yvabi 方向 B）：导图白板上这一列摆在导图右边，讲的时候那一支和剪自同一页的卡盖住 ----------
+  const rounds = useMemo(() => findRounds(text), [text])
+  const covered = useCovered(props.notePath, text)
+  /** 新的一节插在卡片块前面（卡片块后面的字算最后一张卡的） */
+  const insertAt = (t: string) => {
+    const m = /^<!--\s*(card|column)\b[^\n]*-->[ \t]*$/m.exec(t)
+    return m ? m.index : undefined
+  }
+  const siblingsOf = (k: string): string[] | undefined => {
+    const path = keyPath(k)
+    if (path.length < 2) return undefined
+    const parent = nodeAt(parseMindmap(text).roots, path.slice(0, -1))
+    return parent ? parent.children.map((c) => mapShown(c.text)) : undefined
+  }
+  const mapText = (k: string) => {
+    const n = nodeAt(parseMindmap(text).roots, keyPath(k))
+    return n ? mapShown(n.text) : ''
+  }
+  /** 选中的导图一支、卡（能混选）交给费曼；导图白板上列摆在导图右边，别的白板摆在选中的卡右边 */
+  const feynmanStart = (mapKeys: string[], cardIds: string[]) => {
+    const refs: MaterialRef[] = [
+      ...mapKeys.map((k) => ({ kind: 'map' as const, path: props.notePath, node: k, text: mapText(k) })),
+      ...cardIds.flatMap((id) => {
+        const b = block(id)
+        return b ? [{ kind: 'card' as const, path: props.notePath, id, head: headOf(content(b)) }] : []
+      }),
+    ]
+    if (!refs.length) return false
+    const rs = cardIds.map((id) => rects[id]).filter((r): r is Rect => !!r)
+    const at = !mindmap && rs.length ? { x: Math.max(...rs.map((r) => r.x + r.w)) + 28, y: Math.min(...rs.map((r) => r.y)) } : undefined
+    // 只讲导图的一支：同级的几支就是「这一节」的几个点（列头这一节的进度）
+    const sib = mapKeys.length === 1 && !cardIds.length ? siblingsOf(mapKeys[0]!) : undefined
+    void Fy.start({ path: props.notePath, from: refs, insertAt, ...(at ? { at } : {}), ...(sib ? { siblings: sib } : {}) })
+    setSelected(new Set())
+    return true
+  }
+  const feynmanPal = (at: Pt) => {
+    if (props.readOnly) return
+    const cards = [...selected].filter((id) => block(id)?.kind === 'card')
+    if (feynmanStart(mindmap ? mapSel : [], cards)) return
+    setFyPop(at)
+  }
+  /** 小框里「从这块白板上挑」：导图第一层的每一支、空白处的卡 */
+  const feynmanItems = (): PickItem[] => {
+    const roots = mindmap ? parseMindmap(text).roots : []
+    const branches = roots.flatMap((r, i) => (r.children.length ? r.children.map((c, j) => ({ key: `${i}.${j}`, text: mapShown(c.text) })) : [{ key: String(i), text: mapShown(r.text) }]))
+    return [
+      ...branches.slice(0, 10).map((b) => ({ key: 'm:' + b.key, label: b.text, icon: 'type-hierarchy' as const, start: () => void feynmanStart([b.key], []) })),
+      ...doc.blocks
+        .filter((b) => b.kind === 'card' && content(b).trim())
+        .slice(0, 6)
+        .map((b) => ({ key: 'c:' + attr(b, 'id'), label: headOf(content(b)), icon: 'note' as const, start: () => void feynmanStart([], [attr(b, 'id')!]) })),
+    ]
+  }
+  const feynmanWord = (word: string) => void Fy.start({ path: props.notePath, from: [{ kind: 'word', word }], insertAt, ...(mindmap ? {} : { at: freeSpot() }) })
+  /** 导图那一支要盖住的 key：材料里的导图节点（路径变了按字找回） */
+  const coverKeys = (covered?.map ?? []).map((m) => (mapText(m.node) === m.text ? m.node : (findKeyByText(text, m.text) ?? m.node)))
+  /** 每一轮的列摆在哪：导图右边一列一列往右；别的白板照它的位置行（没有就在右边） */
+  const roundAt = (i: number) => ({ x: (mindmap ? mapSize.w : 0) + 48 + i * 356, y: 0 })
+
   // ---------- 画 ----------
 
   const free = doc.blocks.filter((b) => !attr(b, 'in') && attr(b, 'id'))
@@ -752,7 +852,7 @@ export function BoardView(props: BoardViewProps) {
           if (el) els.current.set(id, el)
           else els.current.delete(id)
         }}
-        className={`bcard k-${info.kind}${inColumn ? ' incol' : ''}${small ? ' small' : ''}${isSel ? ' sel' : ''}${flash === id ? ' flash' : ''}`}
+        className={`bcard k-${info.kind}${inColumn ? ' incol' : ''}${small ? ' small' : ''}${isSel ? ' sel' : ''}${flash === id ? ' flash' : ''}${Fy.cardCovered(covered, id, body) ? ' fy-covered' : ''}`}
         style={style}
         data-id={id}
         onPointerDown={(e) => onBlockDown(e, id)}
@@ -819,6 +919,7 @@ export function BoardView(props: BoardViewProps) {
               e.stopPropagation()
               ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
               setDrag({ type: 'link', from: id, to: toPlane(e.clientX, e.clientY) })
+              follow(e)
             }}
           />
         )}
@@ -829,14 +930,14 @@ export function BoardView(props: BoardViewProps) {
   // 右栏大纲点了一张卡片或一列：滚到正中、选中，闪一下
   useEffect(
     () =>
-      onFlyToCard(props.notePath, (id) => {
+      onFlyToCard(props.notePath, (id, select) => {
         const w = wrap.current
         const el = w?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"]`)
         if (!w || !el) return
         const wr = w.getBoundingClientRect()
         const r = el.getBoundingClientRect()
         w.scrollTo({ left: w.scrollLeft + r.left - wr.left - (wr.width - r.width) / 2, top: w.scrollTop + r.top - wr.top - (wr.height - r.height) / 2, behavior: 'smooth' })
-        setSelected(new Set([id]))
+        if (select) setSelected(new Set([id]))
         el.classList.remove('flown')
         void el.offsetWidth
         el.classList.add('flown')
@@ -852,8 +953,6 @@ export function BoardView(props: BoardViewProps) {
       ref={outer}
       tabIndex={0}
       onKeyDown={onKey}
-      onPointerMove={onMove}
-      onPointerUp={onUp}
       {...imageDrop.handlers}
       onContextMenu={(e) => void onContext(e)}
       data-testid="board"
@@ -922,6 +1021,8 @@ export function BoardView(props: BoardViewProps) {
             onSize={(w, h) => setMapSize((m) => (m.w === w && m.h === h ? m : { w, h }))}
             onFit={fitMap}
             onNotice={props.onNotice}
+            onSelect={setMapSel}
+            cover={covered && coverKeys.length ? { keys: coverKeys, peeking: covered.peeking, chip: <PeekChip id={covered.id} style={{ position: 'relative' }} /> } : null}
           />
         )}
 
@@ -977,6 +1078,23 @@ export function BoardView(props: BoardViewProps) {
             </div>
           )
         })}
+        {/* 费曼这一列（feynman/Column.tsx）：一轮一列，导图右边往右排；还在列要点的先出一列「在列…」 */}
+        {rounds.map((r, i) => (
+          <FeynmanColumn
+            key={'fy' + r.meta.id}
+            path={props.notePath}
+            id={r.meta.id}
+            text={text}
+            readOnly={props.readOnly}
+            fromMap={r.meta.from.some((f) => f.kind === 'map')}
+            active={props.active}
+            style={{ left: roundAt(i).x, top: roundAt(i).y }}
+            onSay={(t, undo) => (undo ? app().noticeUndo(t, undo) : props.onNotice(t))}
+          />
+        ))}
+        {Fy.pendingOf(props.notePath).map((p, i) => (
+          <PendingColumn key={p.key} p={p} style={p.at ? { left: p.at.x, top: p.at.y } : { left: roundAt(rounds.length + i).x, top: roundAt(rounds.length + i).y }} />
+        ))}
       </div>
     </div>
 
@@ -1011,6 +1129,19 @@ export function BoardView(props: BoardViewProps) {
             <Codicon name="device-camera" size={16} />
             <span>{t('拍导图', { ctx: '工具板' })}</span>
           </button>
+          <button
+            data-tip={mindmap ? t('费曼学习：先点导图的一支（能 ⌘ 点几张卡一起），再点这里；什么都没选，写一个词或从白板上挑') : t('费曼学习：先选几张卡再点，就讲这几张；什么都没选，写一个词或从白板上挑')}
+            data-side="right"
+            data-kind="feynman"
+            data-testid="pal-feynman"
+            onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect()
+              feynmanPal({ x: r.right + 10, y: r.top - 10 })
+            }}
+          >
+            <Codicon name="mortar-board" size={16} />
+            <span>{t('费曼学习', { ctx: '工具板' })}</span>
+          </button>
         </div>
       )}
       {drag?.type === 'pal' && drag.moved && outer.current && (
@@ -1018,12 +1149,17 @@ export function BoardView(props: BoardViewProps) {
       )}
 
       {props.corner}
+      {fyPop && <StartPop at={fyPop} items={feynmanItems()} onWord={feynmanWord} onClose={() => setFyPop(null)} />}
       {/* 收件箱：弹窗（和别的白板一样，doc-board/inbox.tsx），右上角「收件箱 N」或 ⇧⌘I 打开 */}
       {inboxOpen && props.active && (
         <InboxPop
           items={inbox}
           readOnly={props.readOnly}
-          onItemDown={(e, n) => !props.readOnly && setDrag({ type: 'loose', key: n.path, text: n.excerpt || n.preview || titleOf(n.path), inboxPath: n.path, at: toPlane(e.clientX, e.clientY), client: { x: e.clientX, y: e.clientY } })}
+          onItemDown={(e, n) => {
+            if (props.readOnly) return
+            setDrag({ type: 'loose', key: n.path, text: n.excerpt || n.preview || titleOf(n.path), inboxPath: n.path, at: toPlane(e.clientX, e.clientY), client: { x: e.clientX, y: e.clientY } })
+            follow(e)
+          }}
         />
       )}
       {drag?.type === 'loose' && (
@@ -1041,6 +1177,7 @@ export function BoardView(props: BoardViewProps) {
     e.stopPropagation()
     outer.current!.setPointerCapture(e.pointerId)
     setDrag({ type: 'loose', ...d, at: toPlane(e.clientX, e.clientY), client: { x: e.clientX, y: e.clientY } })
+    follow(e)
   }
 }
 
@@ -1328,3 +1465,17 @@ function edge(r: Rect, c: Pt, toward: Pt, gap: number): Pt {
 }
 
 export type { Link }
+
+/** 导图里按字找一个主题（路径变了按字找回）：先找一模一样的 */
+function findKeyByText(text: string, want: string): string | null {
+  const walk = (list: MapNode[], at: number[]): string | null => {
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i]!
+      if (mapShown(n.text) === want) return pathKey([...at, i])
+      const k = walk(n.children, [...at, i])
+      if (k) return k
+    }
+    return null
+  }
+  return walk(parseMindmap(text).roots, [])
+}

@@ -95,8 +95,17 @@ export function htmlToMd(html: string): string | null {
   // 代码编辑器（VS Code 这些）复制的：整段等宽、只有 <pre> 或空白照留的 <div>，没有标题列表：照旧粘纯文字
   const pre = body.querySelector('pre')
   if ((pre && body.textContent?.trim() === pre.textContent?.trim()) || /white-space:\s*pre/.test(html)) return null
+  // 只有空白的行（网页里空的 <div><br></div> 转出来是一行两个空格，task-axoxy 第 20 条）清成空行，再压连着的空行；
+  // 围栏代码块里的空白照留
+  let fence = false
   const md = service()
     .turndown(body)
+    .split('\n')
+    .map((l) => {
+      if (/^ {0,3}(`{3,}|~{3,})/.test(l)) fence = !fence
+      return !fence && l.trim() === '' ? '' : l
+    })
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
   return md || null
@@ -112,16 +121,80 @@ function inCode(view: EditorView, pos: number): boolean {
 const BLOCK_START = /^(#{1,6} |[-*+] |\d+[.)] |> |```|~~~|\||\*\*\*$|!\[)/
 const lastBlock = (md: string) => md.slice(md.lastIndexOf('\n\n') + 2)
 
+/** 这一行所在的顶层段落、标题（几行）；别的（列表项、引用、表格……）就这一行 */
+function blockLines(view: EditorView, pos: number): { from: number; to: number } {
+  const state = view.state
+  const line = state.doc.lineAt(pos)
+  for (let x: ReturnType<ReturnType<typeof syntaxTree>['resolveInner']> | null = syntaxTree(state).resolveInner(line.from + line.text.search(/\S|$/), 1); x; x = x.parent) {
+    if ((x.name === 'Paragraph' || /^ATXHeading/.test(x.name)) && x.parent?.name === 'Document') return { from: state.doc.lineAt(x.from).from, to: state.doc.lineAt(x.to).to }
+    if (x.name === 'Document') break
+  }
+  return { from: line.from, to: line.to }
+}
+
+const blankAt = (view: EditorView, n: number) => n >= 1 && n <= view.state.doc.lines && view.state.doc.line(n).text.trim() === ''
+
+/** 没选字时复制、剪切的那一块（编辑器自己记着：再粘贴时认出是整块） */
+let lastBlockCopy: string | null = null
+
+/** 列表项、待办、引用、表格一行：连着的几行在纯文字里本来就是一块，不拆 */
+const LIST_LINE = /^\s*([-*+]|\d{1,9}[.)])\s/
+const kindOf = (l: string): string => (LIST_LINE.test(l) ? 'list' : /^\s*>/.test(l) ? 'quote' : /^\s*\|/.test(l) ? 'table' : /^\s{2,}\S/.test(l) ? 'indent' : 'text')
+
+/**
+ * 纯文本（微信、终端、记事本里复制的几行）写成 md：一行一块（单个换行换成空行，像 Notion），连着的列表、引用、表格行和围栏里的不拆；
+ * 多个空行压成一个，头尾的空行去掉（「一行带尾换行」贴进来就是这一行，task-axoxy 第 5 条）
+ */
+export function plainToMd(text: string): string {
+  const lines = text.replace(/\r\n?/g, '\n').split('\n')
+  const out: string[] = []
+  let fence = false
+  let prev: string | null = null
+  for (const l of lines) {
+    if (fence) {
+      out.push('\n' + l)
+      if (/^\s{0,3}(`{3,}|~{3,})\s*$/.test(l)) fence = false
+      continue
+    }
+    if (l.trim() === '') {
+      if (prev !== null) prev = ''
+      continue
+    }
+    if (prev === null) out.push(l)
+    else {
+      const k = kindOf(l)
+      const same = prev !== '' && (k === 'indent' ? ['list', 'indent'].includes(kindOf(prev)) : k !== 'text' && k === kindOf(prev))
+      out.push((same ? '\n' : '\n\n') + l)
+    }
+    if (/^\s{0,3}(`{3,}|~{3,})/.test(l)) fence = true
+    prev = l
+  }
+  return out.join('')
+}
+
 export const pasteHtml = EditorView.domEventHandlers({
+  /** 没选字 ⌘C：复制这一整块（task-axoxy 第 2 条；以前是 CodeMirror 的整行，贴回来和当前段粘成一段） */
+  copy(e, view) {
+    return copyBlock(e, view, false)
+  },
+  /** 没选字 ⌘X：剪走这一整块，连同一道块缝，光标到下一块开头（最后一块就到上一块末尾） */
+  cut(e, view) {
+    return copyBlock(e, view, true)
+  },
   paste(e, view) {
     const dt = e.clipboardData
     if (!dt || view.state.readOnly || dt.files.length) return false
     const html = dt.getData('text/html')
-    if (!html) return false
     const sel = view.state.selection.main
     if (view.state.selection.ranges.length > 1 || inCode(view, sel.from)) return false
-    const md = htmlToMd(html)
-    if (md === null) return false
+    const plain = dt.getData('text/plain')
+    if (plain && plain === lastBlockCopy && sel.empty) {
+      e.preventDefault()
+      pasteBlock(view, plain)
+      return true
+    }
+    const md = html ? htmlToMd(html) : null
+    if (md === null) return plain ? pastePlain(e, view, plain) : false
     const line = view.state.doc.lineAt(sel.from)
     const end = view.state.doc.lineAt(sel.to)
     const before = view.state.sliceDoc(line.from, sel.from).trim()
@@ -134,3 +207,70 @@ export const pasteHtml = EditorView.domEventHandlers({
     return true
   },
 })
+
+function copyBlock(e: ClipboardEvent, view: EditorView, cut: boolean): boolean {
+  const dt = e.clipboardData
+  const state = view.state
+  if (!dt || state.selection.ranges.length > 1 || !state.selection.main.empty) return false
+  if (inCode(view, state.selection.main.head)) return false
+  const b = blockLines(view, state.selection.main.head)
+  const text = state.sliceDoc(b.from, b.to) + '\n'
+  if (!text.trim()) return false
+  e.preventDefault()
+  dt.clearData()
+  dt.setData('text/plain', text)
+  lastBlockCopy = text
+  if (!cut || state.readOnly) return true
+  const doc = state.doc
+  const a = doc.lineAt(b.from).number
+  const z = doc.lineAt(b.to).number
+  let from = b.from
+  let to = Math.min(doc.length, b.to + 1)
+  let at = from
+  // 下面隔着空行还有块：连同下面一个空行删掉，光标到下一块开头；是最后一块：从上一块末尾删起，光标停在那里
+  let below = z + 1
+  while (blankAt(view, below)) below++
+  if (blankAt(view, z + 1) && below <= doc.lines) to = doc.line(z + 1).to + 1
+  else if (blankAt(view, a - 1) && below > doc.lines) {
+    let up = a - 1
+    while (blankAt(view, up)) up--
+    if (up >= 1) {
+      from = doc.line(up).to
+      to = b.to
+      at = from
+    }
+  }
+  view.dispatch({ changes: { from, to }, selection: { anchor: at }, userEvent: 'delete.cut', scrollIntoView: true })
+  return true
+}
+
+/** 粘贴没选字时复制的一整块：放在光标这一块上面（同 VS Code、CodeMirror 的整行粘贴），和它隔一个空行；光标留在原处 */
+function pasteBlock(view: EditorView, text: string) {
+  const state = view.state
+  const b = blockLines(view, state.selection.main.head)
+  const n = state.doc.lineAt(b.from).number
+  const listy = LIST_LINE.test(text) && LIST_LINE.test(state.doc.line(n).text)
+  const pre = !listy && n > 1 && !blankAt(view, n - 1) ? '\n' : ''
+  const insert = pre + text + (listy ? '' : '\n')
+  view.dispatch({ changes: { from: b.from, insert }, selection: { anchor: state.selection.main.head + insert.length }, userEvent: 'input.paste', scrollIntoView: true })
+}
+
+/** 粘贴带换行的纯文本：一行一块；只有一行（去掉尾巴上的换行以后）的照常交给编辑器 */
+function pastePlain(e: ClipboardEvent, view: EditorView, plain: string): boolean {
+  if (!/[\r\n]/.test(plain)) return false
+  const md = plainToMd(plain)
+  if (!md) return false
+  const state = view.state
+  const sel = state.selection.main
+  const line = state.doc.lineAt(sel.from)
+  const end = state.doc.lineAt(sel.to)
+  const before = state.sliceDoc(line.from, sel.from).trim()
+  const after = state.sliceDoc(sel.to, end.to).trim()
+  const multi = md.includes('\n')
+  const pre = before && multi && BLOCK_START.test(md) ? '\n\n' : ''
+  const post = after && multi && BLOCK_START.test(lastBlock(md)) ? '\n\n' : ''
+  e.preventDefault()
+  const insert = pre + md + post
+  view.dispatch({ changes: { from: sel.from, to: sel.to, insert }, selection: { anchor: sel.from + pre.length + md.length }, userEvent: 'input.paste', scrollIntoView: true })
+  return true
+}

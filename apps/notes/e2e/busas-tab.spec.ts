@@ -92,7 +92,8 @@ test('刚剪进来的一段后面按 Tab：开一段「我的评价」、光标�
     await expect(tag).toHaveCount(0)
     expect(await inEditor(page)).toBe(true)
     await page.keyboard.type('a')
-    await expect.poll(() => editorText(page)).toBe(CLIPPED() + '\na')
+    // 文件本来以空行结尾、在最后那一行打字：照样以换行结尾（文末那一行暂时补的换行，task-axoxy 第 19 条）
+    await expect.poll(() => editorText(page)).toBe(CLIPPED() + '\na\n')
     await page.keyboard.press('Backspace')
     await waitSaved(page)
     expect(file(run)).toBe(CLIPPED() + '\n')

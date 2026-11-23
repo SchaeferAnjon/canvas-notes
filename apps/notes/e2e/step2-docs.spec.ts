@@ -22,7 +22,7 @@ test('新建笔记：点加号、在第一行写标题、回车接着打字，�
     await expect(page.locator('.tab.on')).toContainText('冰岛自驾')
     await page.keyboard.type('先订 2.27 的住处。')
     await waitSaved(page)
-    expect(readFileSync(join(vault, '收件箱/冰岛自驾.md'), 'utf8')).toBe('# 冰岛自驾\n\n先订 2.27 的住处。')
+    expect(readFileSync(join(vault, '收件箱/冰岛自驾.md'), 'utf8')).toBe('# 冰岛自驾\n\n先订 2.27 的住处。\n')
     expect(existsSync(join(vault, '收件箱/未命名.md'))).toBe(false)
     // 新建的笔记进收件箱（CN-11）：在左栏收件箱那一枝里（这一格同时在中间开收件箱的首页）
     await leftView(page, '收件箱')
@@ -37,12 +37,12 @@ test('新建笔记：点加号、在第一行写标题、回车接着打字，�
     await page.keyboard.press('Enter')
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾攻略' })).toBeVisible()
     expect(existsSync(join(vault, '收件箱/冰岛自驾攻略.md'))).toBe(true)
-    // 改名后接着打字，写进新文件
+    // 改名后接着打字，写进新文件（文件以换行结尾，⌘End 到文末那一行，打的字是新的一段，task-axoxy 第 19 条）
     await pane(page).locator('.cm-content').click()
     await page.keyboard.press('Meta+End')
     await page.keyboard.type('再订车。')
     await waitSaved(page)
-    expect(readFileSync(join(vault, '收件箱/冰岛自驾攻略.md'), 'utf8')).toBe('# 冰岛自驾攻略\n\n先订 2.27 的住处。再订车。')
+    expect(readFileSync(join(vault, '收件箱/冰岛自驾攻略.md'), 'utf8')).toBe('# 冰岛自驾攻略\n\n先订 2.27 的住处。\n\n再订车。\n')
     expect(existsSync(join(vault, '收件箱/冰岛自驾.md'))).toBe(false)
   } finally {
     await run.close()

@@ -59,7 +59,7 @@ test('出卡的几个样子', async () => {
     await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('Lecture05')
     await page.locator('.pal-row', { hasText: 'Lecture05.pdf' }).first().click()
     await expect(tabOn(page)).toHaveText('Lecture05.pdf')
-    await rail(page).getByRole('button', { name: '笔记' }).click()
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await notes(page).getByRole('tab', { name: '只看我问的' }).click()
     await shot(run, 'b0-asked')
     // 右栏窄到 300：筛选那一行和「出卡 · 6问」挤不挤

@@ -49,6 +49,28 @@
 .side-inl .sd-head .sp {
   flex: 1;
 }
+/* 「全能 / 只在库里」（task-3e53q「四、c」）：灰底小标签，只显示、不能点，指着出说明 */
+.side-inl .sd-head .mode {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+  cursor: default;
+}
+.side-inl {
+  container-type: inline-size;
+}
+/* 太窄（右栏窄于约 358）：名字整个藏起来，不剩一个字加省略号；全名就是下面第一个问题气泡（设计复审） */
+@container (max-width: 280px) {
+  .side-inl .sd-head .s {
+    display: none;
+  }
+}
 /* 改名：名字那一处就地换成一格 */
 .side-inl .sd-head .rn {
   flex: 0 1 220px;

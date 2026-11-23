@@ -1,7 +1,7 @@
 /**
  * 三层搜索（同一个 ⌘F / ⌘K 框）：界面和主进程之间来回传的东西，加上两边都用的几样纯计算。
  * 1. 文字：笔记（主进程 Vault 的全文缓存）和 PDF 里的字（搜索进程里 pdf-blocks 拼好的每页文字）
- * 2. 意思相近：本机小模型 multilingual-e5-small，按段落算向量，索引存在软件设置目录
+ * 2. 意思相近：本机小模型（包里带 multilingual-e5-small；第一次用时下 bge-m3，下好建完索引后换它），按段落算向量，索引存在软件设置目录
  * 3. 让 Claude 帮我找：Claude Code 只给只读工具（Read、Glob、Grep），自己翻库里的文件
  */
 import type { Rect } from '@cn/format'
@@ -41,6 +41,37 @@ export interface SearchStatus {
   /** 库里建进索引的文件数 */
   files: number
   error?: string
+}
+
+/**
+ * 找候选用的本机模型（2026-11-23 用户定换 bge-m3，第一次用时下载）：
+ * e5：用着包里带的 multilingual-e5-small（还没开始下 bge-m3，或「按意思找」关着）；
+ * downloading / verifying：在下 bge-m3、在校验 sha256（got / size 是字节）；
+ * indexing：下好了，搜索进程在用 bge-m3 重建索引（done / total 是段数），建完以前查询照用 e5 的旧索引；
+ * ready：搜索和梦游都换成 bge-m3 了；error：下载或建索引出错（error 是原话，能重试）。
+ */
+export interface EmbedModelStatus {
+  phase: 'e5' | 'downloading' | 'verifying' | 'indexing' | 'ready' | 'error'
+  /** 现在搜索和梦游实际用的模型名（索引按它认）；「按意思找」关着或没有模型时 null */
+  model: string | null
+  /** 设置 › 文档和白板「按意思找」开着（关着时不下也不建） */
+  semantic: boolean
+  got: number
+  size: number
+  done: number
+  total: number
+  /** 测试模式的假下载（CN_E2E / CN_AI_FAKE）：不联网，「bge-m3」其实是 e5 换了个名字 */
+  fake?: boolean
+  error?: string
+}
+
+/** 梦游补双链的候选：两篇最像的那一对段落（mine 是这篇的，theirs 是那篇的，都是读得懂的纯文字） */
+export interface RelatedNote {
+  path: string
+  /** 两篇最像的那一对段落的余弦 */
+  score: number
+  mine: string
+  theirs: string
 }
 
 /** Claude 找到的一样东西 */

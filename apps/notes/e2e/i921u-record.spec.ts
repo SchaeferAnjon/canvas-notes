@@ -82,7 +82,7 @@ test('数据库点一行在右栏打开：属性逐个能改（只换那一行�
 
     // 改数字：已看 2 → 3，公式「进度」当场跟着变
     await field(page, '已看').click()
-    const num = peek(page).getByRole('spinbutton', { name: '第3讲 生产 · 已看' })
+    const num = peek(page).getByRole('textbox', { name: '第3讲 生产 · 已看' })
     await num.fill('3')
     await num.press('Enter')
     await expect.poll(() => read(L3)).toBe(expected(L3, '已看', '3'))

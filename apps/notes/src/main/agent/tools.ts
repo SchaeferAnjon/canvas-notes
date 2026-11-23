@@ -509,6 +509,30 @@ function fileSaid(p: string, root: string): { title?: string; path?: string } {
 }
 
 /**
+ * 这一步读过、写过的库里文件（相对库根，task-3e53q）：回答里光写了它们的名字也认成链接（「这一轮读过的优先认」）。
+ * 命令行自己的工具看 file_path、path；跑命令的看命令里写的 .md / .pdf 路径；我们的工具看 path 和「建好了：…」。
+ * 只列的（notes_list、Glob）不算读过，调的地方不给
+ */
+export function stepPaths(tool: string, input: Record<string, unknown>, root: string, result = ''): string[] {
+  const rel = (p: string) => {
+    const x = p.trim().replace(/^["']|["']$/g, '')
+    if (!x) return null
+    if (x.startsWith(root + '/')) return x.slice(root.length + 1)
+    if (x.startsWith('/') || x.startsWith('~') || x.startsWith('..')) return null
+    return x.replace(/^\.\//, '')
+  }
+  const out: (string | null)[] = []
+  for (const k of ['file_path', 'path', 'notebook_path']) if (typeof input[k] === 'string') out.push(rel(input[k] as string))
+  if (tool === 'Bash' && typeof input.command === 'string') {
+    for (const m of input.command.matchAll(/"([^"\n]+\.(?:md|pdf))"|'([^'\n]+\.(?:md|pdf))'|([^\s"'|;&<>()]+\.(?:md|pdf))/gi)) out.push(rel(m[1] ?? m[2] ?? m[3] ?? ''))
+  }
+  const made = /^建好了：(.+\.md)$/m.exec(result)
+  if (made) out.push(rel(made[1]!))
+  const ok = (p: string | null): p is string => !!p && /\.(md|pdf)$/i.test(p) && !p.includes('*')
+  return [...new Set(out.filter(ok))]
+}
+
+/**
  * 全能模式下命令行自己那一步的人话（engines.ts 统一成 Claude Code 的叫法）：步骤行 12px 一行。
  * 命令、库外的路径、通配放进 code（等宽、和前面的字之间留 3px，不手打空格）；跑命令的说明是中文时写说明（「跑命令：列出主目录」）
  */

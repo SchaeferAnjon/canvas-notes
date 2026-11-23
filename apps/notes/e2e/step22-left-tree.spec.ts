@@ -252,7 +252,8 @@ test('CN-12：新建笔记写标题、回车，文件名和标签跟着变；同
     await expect(item(page, '冰岛旅游 3')).toBeVisible()
     await waitSaved(page)
     // 回车后光标到标题下空一行的正文处
-    expect(readFileSync(join(vault, '收件箱/冰岛旅游 3.md'), 'utf8')).toBe('# 冰岛旅游 3\n\n十天环岛。')
+    // 文件以换行结尾（同下面「冰岛」那篇）
+    expect(readFileSync(join(vault, '收件箱/冰岛旅游 3.md'), 'utf8')).toBe('# 冰岛旅游 3\n\n十天环岛。\n')
 
     // 同名：存成「冰岛 2」，底栏说一句
     await side(page).getByRole('button', { name: '新建笔记' }).click()

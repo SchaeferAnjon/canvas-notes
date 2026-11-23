@@ -24,7 +24,7 @@ import { NoteDoc } from './note-doc'
 import { MapThumb } from './mindmap/MapThumb'
 import './doc-embeds.css'
 import { useT } from './i18n'
-import { list, uiLang } from '../shared/i18n'
+import { list } from '../shared/i18n'
 import './doc-board/doc-board.css'
 
 /** 库里的笔记（NoteTab 按左栏的列表告诉编辑器） */
@@ -332,9 +332,13 @@ export function docEmbeds(here: () => string) {
   return [notesField, field]
 }
 
-/** 文末「提到这篇的」：哪些篇链接、嵌了这一篇（不写进文件） */
+/**
+ * 文末「提到这篇的」：哪些篇链接、嵌了这一篇（哪一节、哪一段），正文里提到的带那一句（梦游页 W.3）；
+ * 只列了名字的（目录页、「相关」列表、上一篇下一篇）收成一行，点开才列。不放「连上」这类按钮，右栏「相关」是它的全版（同一份数据）。不写进文件
+ */
 export function Backlinks(props: { path: string; version: number; board: boolean; boards?: ReadonlyMap<string, string> }) {
   const [links, setList] = useState<Awaited<ReturnType<typeof window.cn.backlinks>>>([])
+  const [open, setOpen] = useState(false)
   const t = useT()
   useEffect(() => {
     let live = true
@@ -345,23 +349,51 @@ export function Backlinks(props: { path: string; version: number; board: boolean
     return () => void (live = false)
   }, [props.path, props.version])
   if (!links.length) return null
+  const bare = links.filter((r) => r.bare)
+  const shown = open ? links : links.filter((r) => !r.bare)
   return (
     // 不翻：data-part 给 e2e 和样式认
     <div className="doc-backlinks" data-part="反向链接" aria-label={t('提到这篇的')}>
       <div className="bh">{t('提到这篇的')}</div>
-      {links.map((r) => {
-        const sections = r.sections.map((s) => t('「{title}」', { title: s })).join(uiLang() === 'en' ? ', ' : '')
-        const how = list([r.embed ? (props.board ? t('嵌了这块白板') : t('嵌了这一篇')) : '', r.sections.length ? t('引用了{sections}这一节', { sections }) : '', r.link ? t('链接到这篇') : ''].filter(Boolean))
+      {shown.map((r) => {
+        // 说法同右栏「相关」：嵌了的写嵌了，链到一节、一段的写「指着「…」」，普通链接不挂标签
+        const how = list(
+          [
+            r.embed ? (props.board ? t('嵌了这块白板') : t('嵌了这一篇')) : '',
+            ...r.sections.map((s) => t('指着「{name}」', { name: s })),
+            ...r.blocks.map((s) => t('指着「{name}」那一段', { name: s })),
+          ].filter(Boolean),
+        )
         return (
-          <div key={r.path} className="bl">
-            {props.boards?.has(r.path) ? <i className="sw bl-sw" style={{ background: props.boards.get(r.path) }} /> : <Codicon name="file-text" size={14} />}
-            <button type="button" onClick={() => app().openFile(r.path)}>
-              {titleOf(r.path)}
-            </button>
-            <span className="how">{`· ${how}`}</span>
+          <div key={r.path} className="bl-item">
+            <div className="bl">
+              {props.boards?.has(r.path) ? <i className="sw bl-sw" style={{ background: props.boards.get(r.path) }} /> : <Codicon name="file-text" size={14} />}
+              <button type="button" onClick={() => app().openFile(r.path)}>
+                {titleOf(r.path)}
+              </button>
+              {how && <span className="how">{`· ${how}`}</span>}
+            </div>
+            {r.quote && (
+              <div className="bq">
+                {r.quote.mark ? (
+                  <>
+                    {r.quote.text.slice(0, r.quote.mark[0])}
+                    <mark>{r.quote.text.slice(r.quote.mark[0], r.quote.mark[1])}</mark>
+                    {r.quote.text.slice(r.quote.mark[1])}
+                  </>
+                ) : (
+                  r.quote.text
+                )}
+              </div>
+            )}
           </div>
         )
       })}
+      {!open && bare.length > 0 && (
+        <button type="button" className="bl-more" onClick={() => setOpen(true)}>
+          {t('还有{n}篇只列着它的名字（目录页、相关列表）', { n: bare.length })}
+        </button>
+      )}
     </div>
   )
 }

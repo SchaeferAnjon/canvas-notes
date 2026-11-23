@@ -33,7 +33,7 @@ async function openPdf(page: Page, name: string) {
 
 /** 右栏「笔记」标签，筛「只看我问的」 */
 async function askedOnly(page: Page) {
-  if (!(await notes(page).isVisible())) await rail(page).getByRole('button', { name: '笔记' }).click()
+  if (!(await notes(page).isVisible())) await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
   await notes(page).getByRole('tab', { name: '只看我问的' }).click()
 }
 

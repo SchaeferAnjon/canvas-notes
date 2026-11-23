@@ -920,3 +920,66 @@
 .dream-panel {
   outline: none;
 }
+
+/* AI 判的几组（task-h7oy8）：组标题旁写谁判的；展开小卡里先一句理由，再两边原话（这篇 / 那篇各一行，名字在左、原话在右），最后一行判成哪一档和把握 */
+.dg {
+  white-space: nowrap;
+}
+.dg .dg-by {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 4px;
+  text-align: right;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dd .dwhy {
+  color: var(--t2);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 4px 0 6px;
+}
+.dev {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 8px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.dev .q {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--fill);
+}
+.dev .q .w {
+  font-size: 11px;
+  color: var(--t3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dev .q .s {
+  color: var(--t1);
+}
+.dev .lv {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--t3);
+}
+.dsum .djudge {
+  color: var(--t2);
+}
+.dsum .djudge .sk {
+  display: block;
+  margin-top: 2px;
+  color: var(--t3);
+}

@@ -15,6 +15,8 @@ import { CLIPS, kindOf, titleOf } from '../../shared/layout'
 import { catName, isChildOf, underCat } from '../../shared/categories'
 import { useVaultFiles, vaultFiles } from '../files/store'
 import type { AnkiReview, CardItem } from '../../shared/reading'
+import type { CourseSummary } from '../../shared/feynman/api'
+import { startNext } from '../feynman-after/start'
 import { AiIcon } from '../engine-logo'
 import { unsentOf } from '../reading/cards-store'
 import { usePrefs } from '../settings-store'
@@ -67,6 +69,7 @@ const EMPTY: Record<string, string> = {
   exam: '还没填考试日期。点一下填。', // 不翻
   notes: '还没有笔记和导图。读课件时问AI，笔记会自己写好放进来。', // 不翻
   doubts: '还没问过。读课件时框一块问AI，问过的都在这里，能一键出卡。', // 不翻
+  feynman: '还没讲过。在白板上选导图的一支或几张卡，点工具板「费曼学习」讲给AI学生听。', // 不翻
   viz: '还没有可视化。问AI时点「做个可视化」，做好的放这里。', // 不翻
   todo: '没有待办。', // 不翻
   links: '还没有链接。', // 不翻
@@ -207,6 +210,8 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
     }
     case 'doubts':
       return c.asked.length ? <Asked c={c} list={c.asked} /> : <p className="fw-empty">{t(EMPTY.doubts!)}</p>
+    case 'feynman':
+      return <Feynman c={c} />
     case 'viz': {
       const list = inFolder.filter((f) => f.props['类型'] === '可视化') // 不翻：属性键、属性值照文件里的写
       return list.length ? <Viz c={c} list={list} /> : <p className="fw-empty">{t(EMPTY.viz!)}</p>
@@ -574,6 +579,96 @@ function Asked(props: { c: WCtx; list: CardItem[] }) {
         </button>
       </div>
     </>
+  )
+}
+
+/**
+ * 费曼（③ feynman-after，task-yvabi，teaching.md 3.4）：一行数「核心知识点 12个 · 过 5 · 差一点 2 · 没过 1 · 没讲过 4」，
+ * 「下次先讲」一个（点了打开那块白板开讲那一个点），每讲一颗「第1讲 3/5」；一讲的点都讲过了提醒串讲一次（偏好「隔几讲一次费曼」）。
+ * 不另存文件：从这门课各篇里每一节的费曼注释读（① 的 courseSummary）；考试日期用这页「考试倒计时」填的。
+ */
+function Feynman({ c }: { c: WCtx }) {
+  const t = useT()
+  const exam = Object.values(c.home.widgets).find((w) => w.type === 'exam' && w.date)?.date
+  // 这门课里有文件改了（讲完一轮、判过）就重读
+  const sig = useMemo(() => c.files.reduce((m, f) => Math.max(m, f.mtimeMs), 0), [c.files])
+  const [s, setS] = useState<CourseSummary | null>(null)
+  const [err, setErr] = useState<string | null>(null)
+  useEffect(() => {
+    let stale = false
+    const d = new Date()
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    window.cnFeynman.course(c.folder, today, exam).then(
+      (v) => !stale && (setS(v), setErr(null)),
+      (e) => !stale && setErr(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')),
+    )
+    return () => {
+      stale = true
+    }
+  }, [c.folder, exam, sig])
+  if (err) return <p className="fw-empty">{err}</p>
+  if (!s) return null
+  if (!s.total) return <p className="fw-empty">{t(EMPTY.feynman!)}</p>
+  const why: Record<NonNullable<CourseSummary['next']>['why'], string> = {
+    fail: t('上次没过，隔了一天'),
+    almost: t('上次差一点，隔了三天'),
+    new: t('学过了，还没讲过'),
+    due: t('过了一阵，到期再讲一次'),
+    exam: t('考前两周，按章串讲一遍'),
+  }
+  const start = (o: { path: string; topic: string; id?: string; scope?: 'point' | 'section' | 'chapter'; lecture?: number }) => {
+    void startNext({ path: o.path, topic: o.topic, ...(o.id ? { roundId: o.id } : {}), scope: o.scope ?? 'point', ...(o.lecture ? { lecture: o.lecture } : {}) }, c.onOpen).catch((e) =>
+      setErr(String((e as Error).message ?? e)),
+    )
+  }
+  const chainAt = s.chain !== null ? s.topics.find((x) => x.lecture === s.chain) : undefined
+  return (
+    <div>
+      <div className="fw-fey num" data-testid="fw-feynman-count">
+        {t('核心知识点{n}个', { n: s.total })}
+        {(
+          [
+            ['pass', t('过{n}', { n: s.pass }), s.pass],
+            ['almost', t('差一点{n}', { n: s.almost }), s.almost],
+            ['fail', t('没过{n}', { n: s.fail }), s.fail],
+            ['none', t('没讲过{n}', { n: s.never }), s.never],
+          ] as const
+        ).map(([k, label, n]) => (
+          <span key={k}>
+            {/* 数是 0 的小点灰着：红点只给真有没过的 */}
+            <i className={'fd fs-' + (n ? k : 'zero')} />
+            {label}
+          </span>
+        ))}
+      </div>
+      {s.next && (
+        <button className="fw-row fw-fey-next" data-testid="fw-feynman-next" onClick={() => start({ path: s.next!.path, topic: s.next!.topic, id: s.next!.id, ...(s.next!.why === 'exam' ? { scope: 'chapter' } : {}) })}>
+          <Codicon name="mortar-board" size={14} />
+          <span className="truncate">{t('下次先讲：{topic}', { topic: s.next.topic })}</span>
+          <span className="r">{why[s.next.why]}</span>
+        </button>
+      )}
+      {s.lectures.some((l) => l.lecture !== null) && (
+        <div className="fw-chips">
+          {s.lectures
+            .filter((l) => l.lecture !== null)
+            .map((l) => (
+              <span key={l.lecture} className="chip num">
+                {t('第{l}讲 {pass}/{total}', { l: l.lecture!, pass: l.pass, total: l.total })}
+              </span>
+            ))}
+        </div>
+      )}
+      {s.chain !== null && chainAt && (
+        <div className="fw-foot">
+          <span>{t('第{l}讲的点都讲过了，串讲一次：每个点一句话，再讲点和点的关系', { l: s.chain })}</span>
+          <span className="sp" />
+          <button className="btn btn-xs" data-testid="fw-feynman-chain" onClick={() => start({ path: chainAt.path, topic: t('第{l}讲', { l: s.chain! }), scope: 'section', lecture: s.chain! })}>
+            {t('串讲这一讲')}
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 

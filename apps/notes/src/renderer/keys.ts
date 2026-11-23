@@ -194,7 +194,7 @@ function keyEventOf(combo: string): KeyboardEvent | null {
 // ---------------------------------------------------------------- 交给主进程
 
 /** 菜单栏上有快捷键的几项（main/index.ts 的菜单照这些 id 取键） */
-export const MENU_CMDS = ['settings', 'new-note', 'new-board', 'capture', 'import', 'close', 'back', 'forward', 'home', 'goto', 'search', 'toggle-left', 'toggle-right', 'left-files', 'left-recent', 'outline', 'open-web', 'history', 'ask-ai', 'toggle-view', 'zoom-in', 'zoom-out', 'zoom-reset', 'find-in-page'] as const
+export const MENU_CMDS = ['settings', 'new-note', 'new-board', 'capture', 'import', 'close', 'back', 'forward', 'home', 'goto', 'search', 'toggle-left', 'toggle-right', 'left-files', 'left-recent', 'outline', 'related', 'open-web', 'history', 'ask-ai', 'toggle-view', 'zoom-in', 'zoom-out', 'zoom-reset', 'find-in-page'] as const
 
 let sent = ''
 export function syncKeys() {

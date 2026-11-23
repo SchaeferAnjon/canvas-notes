@@ -9,7 +9,7 @@
  * - 小块是一整颗（光标跨过去）；紧跟在小块后面按退格只拿掉日子（🔔 🆔 这些留着），不把整截记号一下删光。
  */
 import { syntaxTree } from '@codemirror/language'
-import { Prec, type Range, StateEffect } from '@codemirror/state'
+import { EditorState, Prec, type Range, StateEffect, StateField, Transaction } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { parseTaskLine, setDate, type TaskLine } from '@cn/tasks'
 import { codiconSvg } from '@cn/design/codicon-svg'
@@ -17,6 +17,7 @@ import { whenText } from '../../shared/todo'
 import { t as tNow } from '../../shared/i18n'
 import { app } from '../ctx/actions'
 import { editorHost } from '../editor-host'
+import { editKind, type Hidden, hiddenOk, hiddenSyntax } from '../hidden-syntax'
 import todayIcon from '../assets/today-icon.png'
 import { findTodoAt, isoToday, openInToday } from './store'
 import { openWhenFor } from './when-assist'
@@ -242,6 +243,78 @@ const plugin = ViewPlugin.fromClass(
   },
 )
 
+// ---------- 没日子的那几条：行尾记号藏起来 ----------
+
+/**
+ * 没有 📅 的待办，行尾的记号（勾掉时写上的「✅ 2026-11-22」、🔼 🆔 这些）不画小块，整截藏起来（task-gr4sx：以前露原文；
+ * v2 原型文档里勾掉的那条也只有划线的字）。和行尾的 ^块编号（block-id.ts）一个藏法：交给 hidden-syntax 看守，
+ * 光标停不进去、打的字落在它前面；在它前面回车，新的一行起在它后面，记号留在原来那一条上；整行删掉时跟着删。
+ * 改日子（input.date / input.when）、勾选（input.toggle）是软件有意改的，不拦。
+ */
+interface Tail {
+  /** 记号那一截 [from, to)，to 是行尾 */
+  from: number
+  to: number
+  line: number
+}
+
+function scanTails(state: EditorState): Tail[] {
+  const doc = state.doc
+  const out: Tail[] = []
+  let last = -1
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (node.name !== 'TaskMarker') return
+      const line = doc.lineAt(node.from)
+      if (line.number === last) return
+      last = line.number
+      const t = parseTaskLine(line.text)
+      if (!t || t.date || !t.fields.length) return
+      out.push({ from: line.from + t.fields[0]!.start, to: line.to, line: line.from })
+    },
+  })
+  return out
+}
+
+const tails = StateField.define<Tail[]>({
+  create: scanTails,
+  update: (v, tr) => (tr.docChanged || syntaxTree(tr.startState) !== syntaxTree(tr.state) ? scanTails(tr.state) : v),
+  provide: (f) => [
+    EditorView.decorations.from(f, (ts) => Decoration.set(ts.map((t) => Decoration.replace({}).range(t.from, t.to)))),
+    EditorView.atomicRanges.of((view) => Decoration.set(view.state.field(f).map((t) => Decoration.replace({}).range(t.from, t.to)))),
+    hiddenSyntax.of((state) => {
+      const len = state.doc.length
+      return state.field(f).map(
+        (t): Hidden => ({ from: t.from, to: t.to < len ? t.to + 1 : t.to, fromOk: true, toOk: t.to < len, side: 'from', unit: { from: t.line, to: t.to } }),
+      )
+    }),
+  ],
+})
+
+/** 在藏着的记号前面（屏上的行尾）回车：换行（列表接着的「- [ ] 」）插在记号后面（同 block-id.ts 的 enterAfter） */
+const enterAfterTail = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged || tr.annotation(hiddenOk) || editKind(tr) !== 'edit') return tr
+  let one: { at: number; text: string } | null = null
+  let n = 0
+  tr.changes.iterChanges((fromA, toA, _fb, _tb, ins) => {
+    n++
+    if (fromA === toA) one = { at: fromA, text: ins.toString() }
+  })
+  const c = one as { at: number; text: string } | null
+  if (n !== 1 || !c || !c.text.startsWith('\n')) return tr
+  const t = tr.startState.field(tails).find((x) => x.from === c.at)
+  if (!t) return tr
+  const head = tr.state.selection.main.head
+  const len = c.text.length
+  return {
+    changes: { from: t.to, insert: c.text },
+    selection: { anchor: head <= c.at ? head : head <= c.at + len ? t.to + (head - c.at) : head },
+    effects: tr.effects,
+    annotations: Transaction.userEvent.of(tr.annotation(Transaction.userEvent)!),
+    scrollIntoView: tr.scrollIntoView,
+  }
+})
+
 /** 紧跟在日子小块后面按退格：只拿掉日子（setDate null），🔔 🆔 这些记号留着 */
 function backspaceDate(view: EditorView): boolean {
   const s = view.state.selection.main
@@ -255,4 +328,4 @@ function backspaceDate(view: EditorView): boolean {
   return true
 }
 
-export const docDates = [plugin, Prec.high(keymap.of([{ key: 'Backspace', run: backspaceDate }]))]
+export const docDates = [plugin, tails, enterAfterTail, Prec.high(keymap.of([{ key: 'Backspace', run: backspaceDate }]))]

@@ -1,7 +1,9 @@
+import { AiNote } from './feynman/cover'
 import { Codicon, type CodiconName } from '@cn/design'
 import { onMessageMenu } from './ctx/message-menu'
 import { app } from './ctx/actions'
 import { fmValue, hasOldLayout, isMindmap, resetLayout, splitDoc } from '@cn/format'
+import { type CiteScope, touchedOf, useCiteSig } from './cite-names'
 import { Markdown } from './md-render'
 import { AnswerActs } from './ans-acts'
 import { jumpDone, useChatJump } from './chat-jump'
@@ -21,6 +23,7 @@ import { AskBox } from './side/AskBox'
 import { showSide as revealSide, useSideHost } from './side/host'
 import { ASK_THIS, sideName } from './side/name'
 import { SideInline } from './side/SideInline'
+import { ChatToc, type TocSide } from './chat-toc'
 import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from './reading/marks'
 import * as C from './ai-chats'
 import { folderCount, HANDS, type Place, seenOf } from './ai-place'
@@ -220,6 +223,9 @@ export function AiPanel(props: AiPanelProps) {
   const host = useSideHost(list, openSide && openGroup ? { msg: openSide.msg, key: openGroup.key } : null)
   // 开着旁支：对话不再自己滚到底（停在那条旁支上）
   if (openSide) pinned.current = false
+  /** 对话目录里的旁支：问过的（和开着的那条），挂在它那一句的小标上 */
+  const tocSides: TocSide[] = [...groups.values()].flat().flatMap((g) => g.sides.filter((x) => x.msgs.length || x.id === openSide?.id).map((x) => ({ id: x.id, name: sideName(x), group: g.key })))
+  const asked = msgs.some((m) => m.role === 'user')
   /** 点小标：这一句开着的那条收起；没开着就打开这一句最后开的那条 */
   const toggleSide = (key: string) => {
     const g = [...groups.values()].flat().find((x) => x.key === key)
@@ -1129,6 +1135,10 @@ export function AiPanel(props: AiPanelProps) {
         {hands && <Chip hands>{`能动手：${hands}`}</Chip>}
       </Sees>
       )}
+      {/* 费曼学习讲着：顶上一句，照常能问、不记（已定 3） */}
+      <AiNote />
+      {/* 对话目录（task-3e53q「三、b」）：问过一问就在右边贴边出一列短横线；包一层好让它贴着这一格的右边 */}
+      <div className={'msgs-box' + (asked ? ' toc' : '')}>
       <div
         className={'msgs' + (empty ? ' greeting' : '')}
         ref={list}
@@ -1153,7 +1163,7 @@ export function AiPanel(props: AiPanelProps) {
         {empty && <Greeting ref={emptyRef} engine={engine} ask={picked ? pickAsk(picked.items.length) : askLine(props.tab, { board: isBoard, inbox: inbox.length, label: place.label })} />}
         {msgs.map((m, i) =>
           m.role === 'user' ? (
-            <div key={m.id} className="um-wrap">
+            <div key={m.id} className="um-wrap" data-toc-q={m.text?.trim() || (m.mats?.length || m.pasted?.length ? t('（图和材料）') : '')}>
               {m.pasted && (
                 <div className="um-imgs">
                   {m.pasted.map((n) => (
@@ -1195,7 +1205,7 @@ export function AiPanel(props: AiPanelProps) {
                   <span>{m.alert}</span>
                 </div>
               )}
-              {m.text && <AnswerText text={m.text} marks={marks.get(m.id)} live={!!m.live || !!m.pending} />}
+              {m.text && <AnswerText text={m.text} marks={marks.get(m.id)} live={!!m.live || !!m.pending} cites={{ conv: place.key, touched: touchedOf(m.steps) }} />}
               {/* 做了几步才断的：「没做完」放在说到一半的字后面（停在哪里一眼看得到） */}
               {m.error && cutOf(m, false).cut && errorOf(m, i)}
               {/* 回答下面一排：拷贝 · 插进文档 · ⋯（task-83vl3；task-bppvn 拿掉了「引用再问」）；命令的结果（带按钮、改动块、找重复、归档）不出 */}
@@ -1343,6 +1353,8 @@ export function AiPanel(props: AiPanelProps) {
             </div>
           ))}
       </div>
+      {asked && <ChatToc list={list} sides={tocSides} openSide={openSide?.id ?? null} onSide={(id) => C.showSide(place.key, id)} />}
+      </div>
       {/* 回答里选一句：同一个小框（task-4edsc，方向 A）：「引用 ⌘↵」（⇧⌘L 也行，task-bppvn）成为输入框顶上那一排的一块，「问这句 ↵」就地开一条旁支 */}
       <AskBox
         list={list}
@@ -1362,6 +1374,7 @@ export function AiPanel(props: AiPanelProps) {
             group={openGroup.sides.map((s) => ({ id: s.id, name: sideName(s) }))}
             running={C.sideRunning(openSide.id) !== undefined}
             record={{ icon: 'comment-discussion', text: '跟着这段对话存，不写进笔记' }}
+            conv={place.key}
             picks={cp.picks}
             onSend={(text, mats) => void sendSide(openSide.id, text, mats)}
             onStop={() => {
@@ -1384,6 +1397,7 @@ export function AiPanel(props: AiPanelProps) {
             onNotice={showNote}
             takeFocus={C.takeSideFocus}
             onGrow={() => revealSide(list.current, host, openGroup.key)}
+            omniWhere={t('收起旁支后，在输入框下面那行改')}
           />,
           host,
         )}
@@ -1452,18 +1466,20 @@ const byScore = (pairs: DuplicatePair[]) => pairs.sort((x, y) => y.score - x.sco
  * 回答原文（md 照排）。问过的那几句（旁支）：答完以后在画好的字上划虚线、插小标（reading/marks.ts）；
  * 有小标时字一变 .txt 整块换掉（key），React 不去动改过的节点；答着的时候不划
  */
-function AnswerText(p: { text: string; marks?: Mark[]; live: boolean }) {
+function AnswerText(p: { text: string; marks?: Mark[]; live: boolean; cites: CiteScope }) {
   const txt = useRef<HTMLDivElement>(null)
   const key = JSON.stringify(p.marks ?? [])
+  // 认出来的链接变了（task-3e53q）：有小标时也整块换掉
+  const sig = useCiteSig(p.cites.conv)
   useLayoutEffect(() => {
     if (!txt.current || !p.marks?.length || p.live) return
     return applyMarks(txt.current, p.marks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, p.text, p.live])
+  }, [key, p.text, p.live, sig])
   return (
-    <div className="txt" key={p.marks?.length ? p.text : 'txt'} ref={txt}>
+    <div className="txt" key={p.marks?.length ? p.text + sig : 'txt'} ref={txt}>
       {/* 模型偶尔把工具调用写成了字（task-ne7cw）：成段的不显示，存的还是原文 */}
-      <Markdown text={hideToolMarkup(p.text, p.live)} math />
+      <Markdown text={hideToolMarkup(p.text, p.live)} math cites={p.cites} />
     </div>
   )
 }

@@ -26,6 +26,7 @@ const WIDGET: Record<FWidget, CodiconName> = {
   exam: 'flag',
   notes: 'note',
   doubts: 'comment',
+  feynman: 'mortar-board',
   viz: 'graph',
   cal: 'calendar',
   todo: 'checklist',

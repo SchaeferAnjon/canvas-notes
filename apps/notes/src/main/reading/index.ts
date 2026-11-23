@@ -20,6 +20,8 @@ import {
   type AskSection,
   attachDirFor,
   CONVO_DIR,
+  cropGaps,
+  insertCrop,
   lectureOf,
   parsePdfAnchor,
   newReadingNote,
@@ -40,7 +42,7 @@ import type { EngineId } from '../../shared/agent'
 import type { CommitInfo } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
 import type { AskEvent, AskRequest, AskResult, PdfFile, ReadingMsg, ReadingSide, ReadingState, ReadingThread, SummarizeRequest, SummarizeResult, VizRequest, VizResult, WriteSectionRequest, WriteSectionResult } from '../../shared/reading'
-import { chatRun, engine, FAST_MODEL, featureLabel, langTail, modeLine, modelOpt, omniOn, runAgentTurn } from '../agent'
+import { chatRun, engine, FAST_MODEL, featureLabel, langTail, modeLine, modelOpt, omniOn, runAgentTurn, vaultNotes } from '../agent'
 import { E2E } from '../test-mode'
 import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
 import type { EngineImage } from '../agent/engines'
@@ -283,6 +285,75 @@ export function setupReading(deps: ReadingDeps) {
     return rel
   })
 
+  // ---------- 补截图（task-yp8l7）：以前问过、笔记里那一段没有「我框的」图的，按记下的框补一张 ----------
+  /**
+   * 这份 PDF 的笔记里哪几段没有图：框的位置先看笔记里那一段的页码链接，没有再看以前的完整对话文件（.canvas-notes/对话/）的「回到第 N 页」、
+   * 这台 Mac 上的对话记录；对话记录里那一处有截图、库里也还在的，直接拿来用（have）。missing：哪儿都没记下框的位置的几段
+   */
+  ipcMain.handle('reading:crop-gaps', async (_e, pdf: unknown) => {
+    const p = needPdf(pdf)
+    const note = notePathFor(p)
+    const v = needVault()
+    // 这份 PDF 不在库里了（笔记还在）：截不了
+    const text = existsSync(v.abs(p)) ? await readText(note) : null
+    if (!text) return { note, gaps: [], missing: 0 }
+    const state = readJson<ReadingState | null>(statePath(p), null)
+    const gaps: { id: string; page: number; rect?: [number, number, number, number]; have?: string }[] = []
+    let missing = 0
+    for (const g of cropGaps(text, note)) {
+      if (g.file !== p) continue
+      const th = state?.threads.find((x) => x.id === g.id)
+      if (th?.crop && existsSync(v.abs(th.crop))) {
+        gaps.push({ id: g.id, page: g.page, have: th.crop })
+        continue
+      }
+      let rect = g.rect ?? th?.rect
+      if (!rect) {
+        const convo = (await readText(g.id)) ?? ''
+        const back = /\[回到第\s*\d+\s*页\]\(([^)]+)\)/.exec(convo)
+        rect = back ? parsePdfAnchor(back[1]!)?.rect : undefined
+      }
+      if (rect) gaps.push({ id: g.id, page: g.page, rect })
+      else missing++
+    }
+    return { note, gaps, missing }
+  })
+
+  /** 补好的图写进库、插进笔记那几段（别的字不动），一次提交；返回补上了几张 */
+  ipcMain.handle('reading:crop-fill', async (_e, pdf: unknown, items: unknown) => {
+    const p = needPdf(pdf)
+    if (!Array.isArray(items)) throw new Error(t('截图不对'))
+    const v = needVault()
+    const note = notePathFor(p)
+    const base = await readText(note)
+    if (base === null) return 0
+    let next = base
+    const files: string[] = []
+    for (const it of items as { id: string; page: number; png?: Uint8Array; have?: string; w?: number }[]) {
+      if (typeof it?.id !== 'string') continue
+      let crop = typeof it.have === 'string' && existsSync(v.abs(it.have)) ? it.have : null
+      if (!crop && it.png instanceof Uint8Array && it.png.length && it.png.length < 20 * 1024 * 1024) {
+        crop = freeName((n) => `${attachOf(p)}/p${Math.max(1, Math.floor(Number(it.page) || 1))}-${n}.png`)
+        await mkdir(dirname(v.abs(crop)), { recursive: true })
+        await writeFile(v.abs(crop), it.png)
+        reserved.delete(crop)
+      }
+      if (!crop) continue
+      const after = insertCrop(next, note, it.id, crop, typeof it.w === 'number' ? it.w : undefined)
+      if (after === next) continue
+      next = after
+      files.push(crop)
+    }
+    if (!files.length) return 0
+    const w = await v.write(note, next, base)
+    if (!w.ok) throw new Error(t('笔记刚被改过，截图没补进去，下次打开再补'))
+    send('note:changed', note, next)
+    // 不翻：提交说明
+    await git.commitPaths(v.root, [note, ...files], `笔记：${stemOf(p)} 补上 ${files.length} 张截图`)
+    send('files:changed')
+    return files.length
+  })
+
   ipcMain.handle('reading:thread', async (_e, pdf: unknown, page: number) => {
     const p = needSource(pdf)
     // 以前问过的几处（笔记里的各段、对话记录里的）都算用掉了：完整对话不再写成文件，光看文件在不在会撞到老的那一段
@@ -387,7 +458,8 @@ export function setupReading(deps: ReadingDeps) {
         run: {
           ...chatRun(req.engine, req),
           // 开头一行是现在开没开全能模式（系统提示在一个会话里定死了，开关随时会换）
-          prompt: `${modeLine(omni, req.engine, v.root, req.text)}\n${prompt}${langTail(req.text)}`,
+          // 【库里的笔记】（task-3e53q）：提到库里的东西照这里的路径写成链接；读的这份 PDF 列在最前面
+          prompt: `${modeLine(omni, req.engine, v.root, req.text)}\n${await vaultNotes(v.root, isWeb(pdf) ? null : { tab: { path: pdf } }, req.text)}\n\n${prompt}${langTail(req.text)}`,
           // 讲透（CN-89）：附在 Claude Code 自己的系统提示后面，带上用户自己的 CLAUDE.md；effort 默认 High（chatRun）
           system: TUTOR_SYSTEM,
           appendSystem: true,

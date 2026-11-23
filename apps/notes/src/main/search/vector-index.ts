@@ -6,6 +6,7 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { MeaningHit } from '../../shared/search'
+import { jsScorer, type Scorer } from './matmul'
 
 /** 库里至少这么多篇（PDF 按页算）才拿中位数卡：篇数太少中位数说明不了「这个库的一般水平」 */
 const SPREAD_FROM = 20
@@ -20,7 +21,17 @@ interface FileEntry {
 interface Saved {
   model: string
   dims: number
+  /** 整个库建完过一遍（换模型时：建完以前查询照用旧模型的索引） */
+  built?: boolean
   files: Record<string, FileEntry>
+}
+
+/** 一篇和另一篇最像的那一对段：i 是这篇的第几段，j 是那篇的第几段 */
+export interface PairHit {
+  path: string
+  score: number
+  i: number
+  j: number
 }
 
 export class VectorIndex {
@@ -29,6 +40,8 @@ export class VectorIndex {
   /** 用到第几行（删掉的行进 free，下回先用） */
   private rows = 0
   private free: number[] = []
+  /** 整个库建完过一遍（Indexer 第一次扫完时设，存进 index.json） */
+  built = false
 
   constructor(
     readonly model: string,
@@ -100,6 +113,41 @@ export class VectorIndex {
     return all.filter((h) => h.score >= o.min && h.score - median >= o.spread && h.score >= top - o.near).slice(0, o.limit)
   }
 
+  /**
+   * 和这篇最像的 k 篇（不含自己）：两篇之间按「最像的那一对段落」的余弦比，带回是哪一对（段的序号）。这篇不在索引里是空的。
+   * 这篇的几段和全库每一段的点乘一次交给 score 算（搜索进程里是 onnxruntime 的 Gemm，7 万段的库一篇几十毫秒；
+   * 单元测试用 JS 的，结果一样），再按篇取最大。算的时候索引可能在变（还在建），先把各篇的行号记下来
+   */
+  async related(path: string, k: number, score: Scorer = jsScorer): Promise<PairHit[]> {
+    const me = this.files.get(path)
+    if (!me?.rows.length || k <= 0) return []
+    const d = this.dims
+    const n = me.rows.length
+    const a = new Float32Array(n * d)
+    me.rows.forEach((r, i) => a.set(this.vec.subarray(r * d, (r + 1) * d), i * d))
+    const m = this.rows
+    const others = [...this.files].filter(([p, f]) => p !== path && f.rows.length).map(([p, f]) => [p, [...f.rows]] as const)
+    const sc = await score(a, n, this.vec.subarray(0, m * d), m, d)
+    const out: PairHit[] = []
+    for (const [p, rows] of others) {
+      let best = -Infinity
+      let bi = 0
+      let bj = 0
+      rows.forEach((r, j) => {
+        for (let i = 0; i < n; i++) {
+          const s = sc[i * m + r]!
+          if (s > best) {
+            best = s
+            bi = i
+            bj = j
+          }
+        }
+      })
+      out.push({ path: p, score: best, i: bi, j: bj })
+    }
+    return out.sort((x, y) => y.score - x.score).slice(0, k)
+  }
+
   /** 写盘：先写临时文件再换名；行号顺手排紧 */
   save(dir: string) {
     mkdirSync(dir, { recursive: true })
@@ -116,9 +164,20 @@ export class VectorIndex {
       files[path] = { ...f, rows }
     }
     writeFileSync(join(dir, 'vectors.f32.tmp'), new Uint8Array(out.buffer))
-    writeFileSync(join(dir, 'index.json.tmp'), JSON.stringify({ model: this.model, dims: this.dims, files } satisfies Saved))
+    writeFileSync(join(dir, 'index.json.tmp'), JSON.stringify({ model: this.model, dims: this.dims, ...(this.built ? { built: true } : {}), files } satisfies Saved))
     renameSync(join(dir, 'vectors.f32.tmp'), join(dir, 'vectors.f32'))
     renameSync(join(dir, 'index.json.tmp'), join(dir, 'index.json'))
+  }
+
+  /** 只看一眼存的是哪个模型、建完过没有（不读向量）；没有或坏了是 null */
+  static peek(dir: string): { model: string; built: boolean } | null {
+    try {
+      const saved = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')) as Saved
+      return { model: saved.model, built: saved.built === true }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT' || e instanceof SyntaxError) return null
+      throw e
+    }
   }
 
   /** 读回来；没有、坏了或模型不一样就是空的 */
@@ -140,6 +199,7 @@ export class VectorIndex {
     ix.vec = vec.length ? vec : ix.vec
     ix.rows = rows
     ix.files = new Map(Object.entries(saved.files))
+    ix.built = saved.built === true
     return ix
   }
 }

@@ -7,6 +7,7 @@
  * 拖一条到白板上交给白板（onItemDown，白板在整个窗口上跟着鼠标走）；拖着停在列表上下边缘 32 以内，列表自己慢慢滚。
  */
 import { Codicon } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
@@ -258,14 +259,14 @@ export function InboxPop(props: { items: NoteFile[]; readOnly: boolean; onItemDo
       p.y = ev.clientY
       p.moved ||= Math.hypot(p.x - x0, p.y - y0) > 4
     }
-    const up = () => {
-      cancelAnimationFrame(raf)
-      pressing.current = false
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
-    }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    // 松手没送到页面也停（白板那边的拖由 DocBoardView 自己收；trackDrag，task-0nz63）
+    trackDrag(e, {
+      move,
+      end: () => {
+        cancelAnimationFrame(raf)
+        pressing.current = false
+      },
+    })
   }
   const fold = (g: Grp) => {
     const next = new Set(folds)

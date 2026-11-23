@@ -216,7 +216,7 @@ test('AI：/翻译 选中的那段；@ 引用笔记加进「看得到」；⌘J 
     // 右栏开着历史时再开 AI（AI 只住右栏，第 2a 段；竖条里没有 AI）。工作区方向 A（task-9okg5）：AI 和历史叠成一组两个标签、
     // AI 在前面占满整栏（不硬切上下两截）；把历史拖到上半（真拖）才是历史在上、AI 在下，各一半高，同一列
     await rail(page).getByRole('button', { name: '历史' }).click()
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '相关', '网页', '微信读书', '记录', '自动化', '历史'])
     await page.keyboard.press('Meta+j')
     await expect(ai(page)).toBeVisible()
     const history = page.getByRole('complementary', { name: '历史' })

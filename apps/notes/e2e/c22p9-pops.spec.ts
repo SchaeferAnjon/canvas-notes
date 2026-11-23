@@ -154,7 +154,9 @@ test('中栏 420：数据库表头最右「+」的加列菜单整个看得见、
     await expect(filter).toHaveCount(0)
 
     // 选项格子的小菜单
+    // 单击只选中一格（task-cle3x 格子焦点），再点一下开选项
     await clickSteady(page, db.locator('tbody tr', { hasText: '第一条' }).locator('td').nth(1))
+    await db.locator('tbody tr', { hasText: '第一条' }).locator('td').nth(1).click()
     const opts = page.getByRole('dialog', { name: '第一条 · 状态' })
     await wholeVisible(opts, center)
     await allHittable(opts.getByRole('menuitemradio'))
@@ -189,7 +191,7 @@ test('中栏 420：数据库表头最右「+」的加列菜单整个看得见、
   }
 })
 
-test('中栏 420：数据库块工具条不挤，标题一行、放不下省略号悬停看全名；按钮都没被切，放不下的收进「⋯」、新一条露着；表头不压标题；表格在块里横着滚，不撑宽版心', async () => {
+test('中栏 420：数据库块工具条不挤，标题一行、放不下省略号悬停看全名；按钮都没被切，放不下的收进「⋯」、新一条露着；表头不压标题；表格在块里横着滚，不出中栏', async () => {
   const long = '一个名字特别长的读书清单数据库'
   const files = Object.fromEntries(Object.entries(FILES).map(([k, v]) => [k.replace('未命名数据库', long), v.replace('未命名数据库', long)]))
   const run = await launch(files, {}, look)
@@ -217,7 +219,8 @@ test('中栏 420：数据库块工具条不挤，标题一行、放不下省略�
       })
       const th = el.querySelector('thead')!.getBoundingClientRect()
       const bar = el.querySelector('.base-vbar')!.getBoundingClientRect()
-      const content = el.closest('.cm-content')!.getBoundingClientRect()
+      // 表在文档里放宽到栏宽（task-cle3x，照 Notion）：量到栏的右边，不出栏
+      const content = el.closest('.body')!.getBoundingClientRect()
       const blk = el.getBoundingClientRect()
       const scroll = el.querySelector<HTMLElement>('.base-scroll')!
       return {

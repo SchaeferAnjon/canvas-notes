@@ -16,6 +16,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { type ReadingMsg, withoutVizMark } from '../../shared/reading'
 import { hideToolMarkup } from '../../shared/tool-markup'
+import { touchedOf, useCiteSig } from '../cite-names'
 import { Markdown } from '../md-render'
 import { AiError } from '../ai-error'
 import { pastedUrl } from '../paste-images'
@@ -28,6 +29,8 @@ import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from './marks
 import { AskBox } from '../side/AskBox'
 import { showSide as revealSide, useSideHost } from '../side/host'
 import { SideInline } from '../side/SideInline'
+import { ChatToc, type TocSide } from '../chat-toc'
+import { t as tNow } from '../../shared/i18n'
 import { titleOf } from '../../shared/layout'
 import * as R from './store'
 import type { DiffSource } from '../../shared/diff'
@@ -54,6 +57,15 @@ const isCmdTurn = (m: ReadingMsg) => m.thread.startsWith('cmd-')
 
 /** 框好一块时预填的那句 */
 const PREFILL = '给我讲解一下'
+
+/**
+ * 对话目录里这一问写什么（task-3e53q）：问的话；框一块直接「给我讲解一下」的好几问长一个样，前面加上第几页好认
+ */
+function tocLabel(m: ReadingMsg): string {
+  const text = m.text.replace(/\s+/g, ' ').trim()
+  if (m.page && (!text || text.startsWith(PREFILL))) return tNow('第{page}页 · {text}', { page: m.page, text: text || tNow('框的那块') })
+  return text || tNow('框的那块')
+}
 
 const vaultImg = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/')
 const stemOf = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
@@ -308,6 +320,9 @@ export function ReadingAi(props: {
   const open = sides.find((s) => s.id === r.side.open) ?? null
   const openGroup = open ? (groups.get(open.msg)?.find((g) => g.sides.includes(open)) ?? null) : null
   sideOpen.current = !!open
+  /** 对话目录里的旁支：问过的（和开着的那条），挂在它那一句的小标上 */
+  const tocSides: TocSide[] = [...groups.values()].flat().flatMap((g) => g.sides.filter((x) => x.msgs.length || x.id === open?.id).map((x) => ({ id: x.id, name: R.sideName(x), group: g.key })))
+  const asked = msgs.some((m) => m.role === 'user')
   const host = useSideHost(list, open && openGroup ? { msg: open.msg, key: openGroup.key } : null)
   /** 点小标：这一句开着的那条收起；没开着就打开这一句最后开的那条 */
   const toggleSide = (key: string) => {
@@ -403,12 +418,17 @@ export function ReadingAi(props: {
         )}
       </Sees>
       )}
+      {/* 对话目录（task-3e53q「三、b」）：问过一问就在右边贴边出一列短横线 */}
+      <div className={'msgs-box' + (asked ? ' toc' : '')}>
       <div
         className={'msgs' + (msgs.length === 0 ? ' greeting' : '')}
         ref={list}
+        // 回答里光写页码的「第 4 页」是这份 PDF 的：和别的引用一样点一下出卡（那页缩略图）、⌘点翻过去（cite.tsx 认 data-cite-pdf，task-3e53q 已定 1）
+        data-cite-pdf={/\.pdf$/i.test(pdf) ? pdf : undefined}
         onClick={(e) => {
+          // HTML 上问的「第 N 屏」照旧点了就翻（cite.tsx 只接 PDF 的）
           const a = (e.target as Element).closest<HTMLElement>('a.pg[data-page]')
-          if (a) R.jumpTo(pdf, Number(a.dataset.page))
+          if (a && !/\.pdf$/i.test(pdf)) R.jumpTo(pdf, Number(a.dataset.page))
           // 问过的那句后面的小标：切到那条旁支，开着的那条再点是关掉
           const b = (e.target as Element).closest<HTMLElement>('.badge[data-side]')
           if (b) toggleSide(b.dataset.side!)
@@ -429,6 +449,7 @@ export function ReadingAi(props: {
           const isNew = r.state.newChatAt && m.time >= r.state.newChatAt && (!prev || prev.time < r.state.newChatAt)
           return (
             <Msg
+              conv={`reading:${pdf}`}
               key={m.id}
               m={m}
               sep={isNew ? `新对话 · ${stamp(r.state.newChatAt!)}` : startsThread ? `${Date.now() - m.time < 10 * 60_000 ? '现在' : stamp(m.time)}${m.page ? ` · 第${m.page}页` : ''}` : null}
@@ -461,6 +482,8 @@ export function ReadingAi(props: {
           )
         })}
       </div>
+      {asked && <ChatToc list={list} sides={tocSides} openSide={open?.id ?? null} onSide={(id) => R.showSide(pdf, id)} />}
+      </div>
       {/* 回答里选中一句（CN-90 方向 A）：选区下方的小框，上面一格先打问题，下面「引用 ⌘↵」（⇧⌘L 也行；输入框顶上那一排的一块，来源「AI的回答 · 第28页」）、「问这句 ↵」（下格开旁支） */}
       <AskBox
         list={list}
@@ -478,6 +501,7 @@ export function ReadingAi(props: {
             group={openGroup.sides.map((s) => ({ id: s.id, name: R.sideName(s) }))}
             running={r.sideRunning[open.id] !== undefined}
             record={recordOf(pdf, r, open)}
+            conv={`reading:${pdf}`}
             picks={cp.picks}
             {...(R.isWebSrc(pdf)
               ? {}
@@ -511,6 +535,7 @@ export function ReadingAi(props: {
             onNotice={props.onNotice}
             takeFocus={R.takeSideFocus}
             onGrow={() => revealSide(list.current, host, openGroup.key)}
+            omniWhere={tNow('收起旁支后，在输入框下面那行改')}
           />,
           host,
         )}
@@ -579,6 +604,8 @@ export function ReadingAi(props: {
 
 function Msg(p: {
   m: ReadingMsg
+  /** 回答里认名字时「不是这篇」记在哪段对话上（task-3e53q） */
+  conv: string
   sep: string | null
   flash: boolean
   last: boolean
@@ -609,11 +636,13 @@ function Msg(p: {
   // 没有小标时不换（答着时每来一段字都整块重画，回答里的表格、公式会一闪一闪地换成新的节点）
   const txt = useRef<HTMLDivElement>(null)
   const marksKey = JSON.stringify(p.marks ?? [])
+  // 认出来的链接变了（task-3e53q）：有小标时也整块换掉
+  const sig = useCiteSig(p.conv)
   useLayoutEffect(() => {
     if (!txt.current || !p.marks?.length || p.running) return
     return applyMarks(txt.current, p.marks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [marksKey, m.text, p.running])
+  }, [marksKey, m.text, p.running, sig])
   // 框的那块（或整页）：放在这一问的气泡最上面
   const crop = m.image ? (
     <div className="att">
@@ -624,7 +653,7 @@ function Msg(p: {
     <>
       {p.sep && <div className="daysep">{p.sep}</div>}
       {m.role === 'user' ? (
-        <div className={'um-wrap' + (p.flash ? ' flash' : '')} data-thread={p.sep ? m.thread : undefined}>
+        <div className={'um-wrap' + (p.flash ? ' flash' : '')} data-thread={p.sep ? m.thread : undefined} data-toc-q={tocLabel(m)}>
           {/* 以前粘贴的图（没有材料那时候）照旧画在气泡上面；带材料的图在气泡里那一排列表里 */}
           {!m.mats?.length &&
             m.pasted?.map((n) => (
@@ -664,8 +693,8 @@ function Msg(p: {
           ))}
           {!m.text && !m.error && !m.cant && !m.steps?.length && <div className="thinking">正在想…</div>}
           {m.text && (
-            <div className="txt md" key={p.marks?.length ? m.text : 'txt'} ref={txt}>
-              <Markdown text={hideToolMarkup(withoutVizMark(m.text).text)} math />
+            <div className="txt md" key={p.marks?.length ? m.text + sig : 'txt'} ref={txt}>
+              <Markdown text={hideToolMarkup(withoutVizMark(m.text).text)} math cites={{ conv: p.conv, touched: touchedOf(m.steps) }} />
             </div>
           )}
           {m.cant && <AiError raw={m.cant} own />}

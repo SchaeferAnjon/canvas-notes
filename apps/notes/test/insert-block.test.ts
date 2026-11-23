@@ -16,12 +16,12 @@ describe('插进文档（剪进文档、AI 回答、记下这一刻）：插在�
   it('段落中间：引文和上下两段各隔一个空行，中间多一个空段落放光标', () => {
     const doc = '# 标题\n\n财富是靠专长。\n\n最后一段。\n'
     const { out, r } = apply(doc, doc.indexOf('专长'), '> 引文\n—— [来源](https://a.cn)')
-    expect(out).toBe('# 标题\n\n财富是靠专长。\n\n> 引文\n—— [来源](https://a.cn)\n\n\n\n最后一段。\n')
+    expect(out).toBe('# 标题\n\n财富是靠专长。\n\n> 引文\n—— [来源](https://a.cn)\n\n\n最后一段。\n')
     expect(out.slice(r.range.from, r.range.to)).toBe('> 引文\n—— [来源](https://a.cn)')
-    // 光标那一行是空行，上一行是空行（不会接到引文后面成为懒续行），下一行也是空行
+    // 光标那一行是空行，上一行是空行（不会接到引文后面成为懒续行）：一串空行第一行是缝，光标在后面那个空块里（gap-lines.ts，task-axoxy）
     const lines = out.split('\n')
     const n = out.slice(0, r.cursor).split('\n').length - 1
-    expect([lines[n - 1], lines[n], lines[n + 1]]).toEqual(['', '', ''])
+    expect([lines[n - 1], lines[n], lines[n + 1]]).toEqual(['', '', '最后一段。'])
   })
 
   it('在最后一段：文件结尾补一个空段落，光标在文件末尾', () => {
@@ -33,13 +33,13 @@ describe('插进文档（剪进文档、AI 回答、记下这一刻）：插在�
   it('光标在两段之间的空行上：不粘到上一段', () => {
     const doc = 'a\n\nb'
     const { out } = apply(doc, 2, 'T')
-    expect(out).toBe('a\n\nT\n\n\n\nb')
+    expect(out).toBe('a\n\nT\n\n\nb')
   })
 
   it('连着插两次（微信读书一次插几条划线）：一条接一条，中间只隔一个空行', () => {
     const one = apply('a\n\nb\n', 0, 'T1')
     const two = apply(one.out, one.r.cursor, 'T2')
-    expect(two.out).toBe('a\n\nT1\n\nT2\n\n\n\nb\n')
+    expect(two.out).toBe('a\n\nT1\n\nT2\n\n\nb\n')
   })
 
   it('后台插的（para: false）：不补空段落，光标在插入的末尾；连着插一条接一条', () => {

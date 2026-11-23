@@ -18,6 +18,8 @@ import { t } from '../shared/i18n'
 const CARD_LINE = /^<!--\s*card\s[^>]*-->\s*$/
 const COLUMN_LINE = /^<!--\s*column\s[^>]*-->\s*$/
 const LAYOUT_LINE = /^<!--\s*(?:card|column)\s[^>]*-->\s*$/
+/** 费曼一轮的注释（`## 费曼 · 范数` 下一行，shared/feynman/doc.ts）：文档里也整行藏起来 */
+const FEYNMAN_LINE = /^<!--\s*feynman\s.*-->\s*$/
 
 /**
  * 这篇还是以前的白板写法（卡上写着 in= / w=：导图、撤回了转写法的）：一行卡片注释管到下一行注释为止。
@@ -35,7 +37,7 @@ function columnTitle(line: string): string {
 
 /** 文档里藏起来的位置行、卡片行、列行（live-preview 不再给它画灰色等宽的样子） */
 export function hiddenLayoutLine(_doc: Text, lineText: string): boolean {
-  return lineText.startsWith('<!--') && LAYOUT_LINE.test(lineText)
+  return lineText.startsWith('<!--') && (LAYOUT_LINE.test(lineText) || FEYNMAN_LINE.test(lineText))
 }
 
 /**
@@ -78,16 +80,19 @@ class ColumnHead extends WidgetType {
 interface Layout {
   /** 单独藏的卡片行（第几行） */
   cards: number[]
+  /** 费曼一轮的注释行（第几行；上面一定是那一节的标题） */
+  metas: number[]
   /** 列行连着紧跟的卡片行：从第 a 行到第 b 行一整块，画成列名 */
   heads: { a: number; b: number; title: string }[]
 }
 
 function scanLayout(doc: Text): Layout {
-  const out: Layout = { cards: [], heads: [] }
+  const out: Layout = { cards: [], metas: [], heads: [] }
   for (let n = 1; n <= doc.lines; n++) {
     const text = doc.line(n).text
     if (!text.startsWith('<!--')) continue
-    if (COLUMN_LINE.test(text) && OLD_COLUMN.test(text)) {
+    if (n > 1 && FEYNMAN_LINE.test(text)) out.metas.push(n)
+    else if (COLUMN_LINE.test(text) && OLD_COLUMN.test(text)) {
       let b = n
       while (b < doc.lines && CARD_LINE.test(doc.line(b + 1).text)) b++
       out.heads.push({ a: n, b, title: columnTitle(text) })
@@ -100,7 +105,9 @@ function scanLayout(doc: Text): Layout {
 function build(state: EditorState): DecorationSet {
   const doc = state.doc
   const out: Range<Decoration>[] = []
-  const { cards, heads } = scanLayout(doc)
+  const { cards, metas, heads } = scanLayout(doc)
+  // 费曼的注释行并到上面标题那一行末尾藏起来
+  for (const n of metas) out.push(Decoration.replace({}).range(doc.line(n).from - 1, doc.line(n).to))
   for (const n of cards) {
     const line = doc.line(n)
     // 第一行上面没有行可并：藏「这一行 + 换行」，光标停在下一行行首
@@ -142,7 +149,11 @@ function ranges(state: EditorState): Hidden[] {
   const doc = state.doc
   const board = isBoard(doc)
   const out: Hidden[] = []
-  const { cards, heads } = scanLayout(doc)
+  const { cards, metas, heads } = scanLayout(doc)
+  for (const n of metas) {
+    const line = doc.line(n)
+    out.push({ from: line.from - 1, to: line.to, fromOk: true, toOk: true, side: 'from', unit: { from: line.from, to: line.to } })
+  }
   for (const n of cards) {
     const line = doc.line(n)
     const unit = { from: line.from, to: board ? cardEnd(doc, n) : paraEnd(doc, n + 1) }

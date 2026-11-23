@@ -868,6 +868,196 @@ a.wl.cite:hover {
 .cite-card .ex.miss {
   color: var(--t3);
 }
+/* 软件按名字认的（cite-names.tsx）：一行小字说为什么认，接在引到的那几行下面；栏窄时说明折行（不截掉「为什么」），按钮贴第一行 */
+.cite-card .why {
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  margin: -2px 0 8px 22px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--t3);
+}
+.cite-card .why > svg {
+  flex: none;
+  margin-top: 4px;
+}
+.cite-card .why > span {
+  min-width: 0;
+  /* 折行时不让最后一个字单独掉到第二行 */
+  text-wrap: pretty;
+}
+/* 栏窄时卡底那排按钮折到第二行，不伸出卡 */
+.cite-card .acts {
+  flex-wrap: wrap;
+}
+/* 行尾「不是这篇」：和卡底那排按钮一个样子（Codicon + 字，24 高、圆角 6），上下 -2 不撑高这一行，字的右边对齐卡右上角的种类 */
+.cite-card .why > button {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  margin: -2px -6px -2px auto;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+}
+.cite-card .why > button:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+/* 七种东西（task-3e53q 第 ① 条线，设计页「二、a」）：右上角小字写是哪种；卡里各画各的，都在标题下面、左边让出图标那 22 */
+.cite-card .top .kind {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--t3);
+}
+/* PDF 那一页：缩略图按卡宽画，框在的那一截滚到当中；框是强调色描边 + 淡底 */
+.cite-card .thumb {
+  position: relative;
+  height: 132px;
+  margin: 0 0 8px 22px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line);
+}
+/* PDF 是纸本身的颜色；深色里压暗一点（同 reading.css 的 .pdfpage） */
+[data-tone='dark'] .cite-card .thumb {
+  filter: brightness(0.92);
+}
+.cite-card .thumb img {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: auto;
+}
+.cite-card .thumb .box {
+  position: absolute;
+  border: 1.5px solid var(--acc);
+  border-radius: 2px;
+  background: var(--acc-soft);
+}
+/* 白板卡：那张卡本身（白板上卡的底色、1px 描边） */
+.cite-card .bc {
+  margin: 0 0 8px 22px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.cite-card .bc b {
+  display: block;
+  font-weight: 600;
+}
+.cite-card .bc b {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 正文照白板上那张卡折行，最多两行 */
+.cite-card .bc p {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+/* 数据库一行：属性名（灰）和值两列 */
+.cite-card .rows {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 3px 12px;
+  margin: 0 0 8px 22px;
+  font-size: 12px;
+}
+.cite-card .rows span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cite-card .rows .k {
+  max-width: 96px;
+  color: var(--t3);
+}
+/* 待办一条：勾选框（和待办里的一样 15 见方）+ 那一条 + 日子 */
+.cite-card .td {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 8px 22px;
+  font-size: 13px;
+}
+.cite-card .td .bx {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  margin-top: 3px;
+  padding: 0;
+  border: 1.5px solid var(--t3);
+  border-radius: 4px;
+  background: none;
+  color: var(--acc-on);
+}
+.cite-card .td .bx:hover {
+  border-color: var(--acc);
+}
+.cite-card .td .bx.on {
+  border-color: var(--acc);
+  background: var(--acc);
+}
+.cite-card .td .tt {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.cite-card .td .done {
+  color: var(--t3);
+  text-decoration: line-through;
+}
+.cite-card .td .due {
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 一次提交：改了哪几篇和加减行数（和历史里文件那一行一样，加绿减红） */
+.cite-card .files {
+  margin: 0 0 8px 22px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.cite-card .files > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+}
+.cite-card .files .nm {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cite-card .files .pl {
+  color: var(--green);
+}
+.cite-card .files .mi {
+  color: var(--red-t);
+}
+.cite-card .files .more {
+  color: var(--t3);
+}
 .doc .cm-wikilink {
   color: var(--acc-t);
   background: var(--acc-soft);

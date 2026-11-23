@@ -14,6 +14,7 @@
  * AI 在这块白板上动手时外圈、顶上提示条、AI 指针由 AiActLayer 画（卡的 data-id 是 unitKeys 的名字，AI 工具用的同一个）。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { accelFor, isKey, keyFor } from '../keys'
 import {
   addSection,
@@ -69,12 +70,13 @@ import { type MenuEntry, showMenu } from '../ctx/menu'
 import { sayCardBack, sayMerged, saySameSpot } from '../conflict-say'
 import { useVaultFiles } from '../files/store'
 import { composing } from '../ime'
-import { openCapture, setBoardCapture } from '../mindmap/capture-store'
+import { type CaptureRequest, openCapture, setBoardCapture } from '../mindmap/capture-store'
 import { settlePlaced } from '../mindmap/place'
 import type { Placed } from '../../shared/mindmap'
 import { Markdown } from '../md-render'
 import { NoteDoc } from '../note-doc'
 import * as Reading from '../reading/store'
+import { clickPage } from '../cite'
 import { openPageLink } from '../page-link'
 import { onFlyToCard } from '../shell/OutlineView'
 import { typingIn } from '../typing'
@@ -96,6 +98,11 @@ import { useT } from '../i18n'
 import { t as tNow, uiLang } from '../../shared/i18n'
 import './doc-board.css'
 import { BoardFind } from '../find/BoardFind'
+import { findRounds } from '../../shared/feynman/doc'
+import { FeynmanColumn, PeekChip, PendingColumn, useCovered } from '../feynman/Column'
+import { StartPop, type PickItem } from '../feynman/StartPop'
+import * as Fy from '../feynman/store'
+import { headOf, unitIdOf } from '../../shared/feynman/material'
 
 /** 列宽、列间距、开头留给工具板的宽、顶上留的高（照小样：276、22，第一列离白板左边 92，离顶 64） */
 const COL_W = 276
@@ -210,6 +217,8 @@ export function DocBoardView(props: DocBoardViewProps) {
   /** 文件树拖笔记进来：落在哪一列 */
   const [noteDrop, setNoteDrop] = useState<boolean>(false)
   const [refs, setRefs] = useState<Backlink[]>([])
+  /** 什么都没选时点「费曼学习」：讲哪个点的小框（feynman/StartPop.tsx） */
+  const [fyPop, setFyPop] = useState<Pt | null>(null)
   const [rects, setRects] = useState<Record<string, Rect>>({})
   useEffect(() => {
     if (!flash) return
@@ -424,6 +433,22 @@ export function DocBoardView(props: DocBoardViewProps) {
     const r = plane.current!.getBoundingClientRect()
     return { x: (cx - r.left) / props.scale, y: (cy - r.top) / props.scale }
   }
+  const seedWhereRef = useRef<(near?: string) => Where>(() => ({ x: 40, y: 80 }))
+  /** 画面正中偏上的空白处（不进列） */
+  const freeWhere = (): Where => {
+    const w = wrap.current
+    if (!w || !plane.current) return { x: 40, y: 80 }
+    // 摆在所有列（含费曼那一列）右边的空白处，和列顶对齐；一列都没有就在画面正中偏上
+    const cols = [...plane.current.querySelectorAll<HTMLElement>('.db-col, [data-testid="fy-col"]')].map((c) => c.getBoundingClientRect())
+    const n = board.placed.length % 6
+    if (cols.length) {
+      const at = planeXY(Math.max(...cols.map((r) => r.right)) + 32 * props.scale, Math.min(...cols.map((r) => r.top)))
+      return { x: Math.round(at.x), y: Math.round(at.y + n * 24) }
+    }
+    const wr = w.getBoundingClientRect()
+    const at = planeXY(wr.left + wr.width / 2 - 120 * props.scale, wr.top + wr.height / 3)
+    return { x: Math.round(at.x + n * 24), y: Math.round(at.y + n * 24) }
+  }
   /** 屏幕正中那一列（点一下工具板放进它的最后）；一列都没有就在画面正中偏上的空白处 */
   const centerWhere = (): Where => {
     const w = wrap.current
@@ -474,7 +499,12 @@ export function DocBoardView(props: DocBoardViewProps) {
   mapHere.current = () => void createAt('map', centerWhere())
   useEffect(() => {
     if (!props.active || props.readOnly) return
-    const mine = { path: props.notePath, capture: () => mapHere.current() }
+    const mine = {
+      path: props.notePath,
+      capture: () => mapHere.current(),
+      // 费曼「拍成导图」：拿这一轮整理成的树进 ② 核对；导图卡放在画面正中的空白处（不放进列：屏幕正中那一列多半就是费曼那一节）
+      seeded: (seed: NonNullable<CaptureRequest['seed']>, near?: string) => openCapture({ into: { path: props.notePath, as: 'board' }, seed, onPlaced: (r) => hangMapRef.current(seedWhereRef.current(near), r) }),
+    }
     setBoardCapture(mine)
     return () => setBoardCapture(null, mine)
   }, [props.active, props.readOnly, props.notePath])
@@ -658,7 +688,8 @@ export function DocBoardView(props: DocBoardViewProps) {
     if ((e.target as HTMLElement).closest('input, button, a, .play, .db-moment, .cb-moment, .db-handle, .card-edit')) return
     outer.current?.focus({ preventScroll: true })
     setSelWire(null)
-    if (e.shiftKey) {
+    // ⇧ 点、⌘ 点都是加减一张（⌘ 点和导图里一样，费曼学习「框选或 ⌘ 点的几张卡」）
+    if (e.shiftKey || e.metaKey) {
       setSelected((s) => {
         const n = new Set(s)
         if (n.has(key)) n.delete(key)
@@ -823,20 +854,23 @@ export function DocBoardView(props: DocBoardViewProps) {
         setToast({ text: String((err as Error).message) })
       }
     }
-    const esc = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      e.stopPropagation()
+    const cancel = () => {
       swallow()
       clearTabHover()
       setDrag(null)
       setDrop(null)
       setDocSpot(null)
     }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      cancel()
+    }
+    // 松手没送到页面（窗口外松手、失焦）：当没拖过，像按了 Esc（trackDrag，task-0nz63）
+    const stop = trackDrag<MouseEvent>({ type: 'mousedown', button: 0 }, { move, end: (how, e) => (how === 'up' ? up(e!) : cancel()) })
     window.addEventListener('keydown', esc, true)
-    return () => (window.removeEventListener('mousemove', move), window.removeEventListener('mouseup', up), window.removeEventListener('keydown', esc, true))
+    return () => (stop(), window.removeEventListener('keydown', esc, true))
   }, [drag, drop, docSpot, text])
 
   /** 一排里的列：鼠标在哪一列的左半边，就是插在它前面那一列（列落在两列之间、列头拖回一排里用） */
@@ -869,15 +903,18 @@ export function DocBoardView(props: DocBoardViewProps) {
     }
   }
 
-  // 视频卡、时刻卡：点一下在右栏播（时刻从那一秒）；卡里的「第 3 页」：打开 PDF 翻到那页（和文档里 ⌘点一样，page-link.ts）
+  // 视频卡、时刻卡：点一下在右栏播（时刻从那一秒）；卡里的「第 3 页」：和 AI 回答里的引用一样点一下出卡（那页缩略图）、⌘点翻过去（cite.tsx）
   const onClick = (e: React.MouseEvent, u: DocUnit) => {
     const t = e.target as HTMLElement
     const m = t.closest<HTMLElement>('.db-moment')
     if (m?.dataset.url) return void openVideo(m.dataset.url)
     const f = faceOf(u, ctx)
+    // 问答卡里框的那块截图（task-yp8l7）：点一下直接回 PDF 那一页、那块闪一下，不出引用预览卡（页码小牌才先出卡）
+    const crop = f.k === 'ask' ? t.closest<HTMLElement>('a.db-ask-crop[data-href]') : null
+    if (crop) return void openPageLink(props.notePath, crop.dataset.href!, cur.current, u.from, crop.dataset.label ?? '')
     // 嵌进来的别的笔记里的链接相对那一篇，不归这块白板认
     const pg = f.k === 'note' || f.k === 'clipnote' || f.k === 'board' ? null : t.closest<HTMLElement>('a.pg[data-page], a.pg[data-href]')
-    if (pg) return void openPageLink(props.notePath, pg.dataset.href ?? `#page=${pg.dataset.page}`, cur.current, u.from, pg.textContent ?? '')
+    if (pg) return void clickPage(e.nativeEvent, pg, props.notePath, pg.dataset.href ?? `#page=${pg.dataset.page}`, cur.current, u.from)
     const video = u.kind === 'video' || (f.k === 'cardbody' && f.kind === 'video')
     if (u.kind === 'moment' || (video && t.closest('.play, .cb-cover'))) playUnit(u)
   }
@@ -1001,7 +1038,94 @@ export function DocBoardView(props: DocBoardViewProps) {
     off: !!edit || !!full || !!expanded,
     focus: () => outer.current?.focus({ preventScroll: true }),
     active: props.active,
+    feynman: (ks) => feynmanCards(ks),
   })
+
+  // ----- 费曼学习（task-yvabi 方向 B）：这块白板上讲的一轮是文档里的一节，画成「费曼 · X」一列（feynman/Column.tsx） -----
+  /** 文档里的每一轮，和它在白板上是哪一列（标题行对上） */
+  const rounds = useMemo(() => findRounds(text), [text])
+  const roundOfCol = (c: DocColumn) => (c.head ? rounds.find((r) => r.head.from === c.head!.from) : undefined)
+  // 费曼「拍成导图」的导图卡：放进材料那张卡所在那一列的末尾（不是费曼那一节）；找不到那张卡就摆在列右边的空白处
+  seedWhereRef.current = (near?: string): Where => {
+    const head = near?.trim().slice(0, 20)
+    const i = head ? board.columns.findIndex((c) => !c.ask && !roundOfCol(c) && c.cards.some((u) => u.text.trim().startsWith(head))) : -1
+    return i >= 0 ? { col: i, before: -1 } : freeWhere()
+  }
+  /** 正在讲的那一轮要盖住的卡 */
+  const covered = useCovered(props.notePath, text)
+  /** 选中的几张交给费曼：材料就是这几张，摆在它们右边 */
+  const feynmanCards = (ks: Iterable<string>) => {
+    const us = [...ks].map((k) => ({ k, u: byKey.get(k) })).filter((x): x is { k: string; u: DocUnit } => !!x.u)
+    if (!us.length) return false
+    const rs = us.map((x) => rects[x.k]).filter((r): r is Rect => !!r)
+    const box = rs.length ? { x: Math.min(...rs.map((r) => r.x)), y: Math.min(...rs.map((r) => r.y)), w: 0, h: 0 } : null
+    if (box) (box.w = Math.max(...rs.map((r) => r.x + r.w)) - box.x), (box.h = Math.max(...rs.map((r) => r.y + r.h)) - box.y)
+    const at = box ? besideFree(box) : undefined
+    // 一张嵌着一整份 PDF 的卡（![[x.pdf]]，没指定哪一页）：当一整份 PDF，先出这一讲的知识点单子挑一个
+    const whole = us.length === 1 ? /^!\[\[([^\]|#]+\.pdf)\]\]$/i.exec(us[0]!.u.text.trim()) : null
+    const pdf = whole ? (files.find((f) => f.path === whole[1] || f.path.endsWith('/' + whole[1]))?.path ?? null) : null
+    void Fy.start({
+      path: props.notePath,
+      from: pdf ? [{ kind: 'pdf', path: pdf }] : us.map((x) => ({ kind: 'card' as const, path: props.notePath, ...(unitIdOf(x.u) ? { id: unitIdOf(x.u) } : {}), head: headOf(x.u.text) })),
+      ...(at ? { at } : {}),
+    })
+    setSelected(new Set())
+    return true
+  }
+  /**
+   * 选中的东西旁边一处空地（330 宽、520 高放得下，不压着别的列和卡）：先看右边，再看下面、左边，挑离选中的最近的一处；
+   * 都不空就往右挪到放得下为止
+   */
+  const besideFree = (sel: Rect) => {
+    // 白板上占着地方的：一排里的列、摆开的列和卡、别的费曼列（白板坐标）
+    const p = plane.current
+    const base = p?.getBoundingClientRect()
+    const sc = props.scale || 1
+    const all: Rect[] = p && base ? [...p.querySelectorAll<HTMLElement>('.db-col, .db-card.placed, .fy-col')].map((el) => {
+      const r = el.getBoundingClientRect()
+      return { x: (r.left - base.left) / sc, y: (r.top - base.top) / sc, w: r.width / sc, h: r.height / sc }
+    }) : Object.values(rects)
+    const W = 330
+    const H = 520
+    const free = (x: number, y: number) => x >= 0 && y >= 0 && !all.some((r) => r.x < x + W && r.x + r.w > x && r.y < y + H && r.y + r.h > y)
+    const tries = [
+      { x: sel.x + sel.w + 28, y: sel.y },
+      { x: sel.x, y: sel.y + sel.h + 28 },
+      { x: sel.x - W - 28, y: sel.y },
+    ]
+    const hit = tries.find((p) => free(p.x, p.y))
+    if (hit) return hit
+    let x = sel.x + sel.w + 28
+    for (let k = 0; k < 40 && !free(x, sel.y); k++) x = Math.max(x + 28, ...all.filter((r) => r.x < x + W && r.x + r.w > x && r.y < sel.y + H && r.y + r.h > sel.y).map((r) => r.x + r.w + 28))
+    return { x, y: sel.y }
+  }
+  /** 工具板「费曼学习」：先选了东西就直接开始；什么都没选出讲哪个点的小框 */
+  const feynmanPal = (at: Pt) => {
+    if (props.readOnly) return
+    if (selected.size && feynmanCards(selected)) return
+    setFyPop(at)
+  }
+  const feynmanWord = (word: string) => {
+    const c = centerWhere()
+    void Fy.start({ path: props.notePath, from: [{ kind: 'word', word }], ...('x' in c ? { at: { x: c.x, y: c.y } } : {}) })
+  }
+  /** 小框里「从这块白板上挑」：一列（这一节的卡）、一张 PDF 卡 */
+  const feynmanItems = (): PickItem[] =>
+    board.columns
+      .filter((c) => c.title && !c.ask && !roundOfCol(c) && c.cards.some((u) => u.kind !== 'gap'))
+      .slice(0, 12)
+      .map((c) => ({ key: 'c:' + c.title, label: c.title!, icon: 'split-horizontal' as const, start: () => void feynmanCards(c.cards.filter((u) => u.kind !== 'gap').map((u) => keys.get(u)!).slice(0, 12)) }))
+  // 新的一轮写进文档以后：摆到选中的那几张右边（列的位置行，和拖列头一样）
+  useEffect(() => {
+    if (props.readOnly) return
+    for (const r of rounds) {
+      const want = Fy.placeOf(r.meta.id)
+      if (!want) continue
+      const col = board.columns.find((c) => c.head?.from === r.head.from)
+      Fy.takePlace(r.meta.id)
+      if (col && !col.place) apply(placeColumn(cur.current, col, Math.round(want.x), Math.round(want.y)))
+    }
+  }, [rounds])
 
   // ----- 框选、平移（task-5ryf9，17-白板框选 方向 A；用户定：空白处拖 = 框选、碰到就选） -----
   /** 空白处按住拖出一个框：碰到的卡都选上（按住 ⇧ 是加在已经选着的上面）；不动松手是取消选中。框只选卡，不选列、不选线 */
@@ -1069,15 +1193,15 @@ export function DocBoardView(props: DocBoardViewProps) {
       update()
       if (!raf) raf = requestAnimationFrame(edge)
     }
-    const up = () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
-      cancelAnimationFrame(raf)
-      setMarq(null)
-      if (!moved) setSelected(new Set())
-    }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    // 松手没送到页面也收：框碰到的卡照样选着（trackDrag，task-0nz63）
+    trackDrag(e, {
+      move,
+      end: () => {
+        cancelAnimationFrame(raf)
+        setMarq(null)
+        if (!moved) setSelected(new Set())
+      },
+    })
   }
   /** 按住空格拖、中键拖：白板跟着手走（两指滑照旧） */
   const startPan = (e: React.MouseEvent) => {
@@ -1094,13 +1218,8 @@ export function DocBoardView(props: DocBoardViewProps) {
       w.scrollLeft = l0 - (ev.clientX - x0)
       w.scrollTop = t0 - (ev.clientY - y0)
     }
-    const up = () => {
-      window.removeEventListener('mousemove', move)
-      window.removeEventListener('mouseup', up)
-      setPanning(false)
-    }
-    window.addEventListener('mousemove', move)
-    window.addEventListener('mouseup', up)
+    // 中键拖也一样：松手没送到页面，停在最后的位置（trackDrag，task-0nz63）
+    trackDrag(e, { move, end: () => setPanning(false) })
   }
   // 按住空格：光标变成小手，这时按住拖是平移（焦点在打字的地方、白板外面时不管）
   useEffect(() => {
@@ -1374,7 +1493,7 @@ export function DocBoardView(props: DocBoardViewProps) {
   // 右栏大纲点了一张卡片或一列：滚到正中、选中，闪一下
   useEffect(
     () =>
-      onFlyToCard(props.notePath, (id) => {
+      onFlyToCard(props.notePath, (id, select) => {
         const w = wrap.current
         // 大纲里的列是「col:列名」
         const el = id.startsWith('col:') ? w?.querySelector<HTMLElement>(`.db-col[aria-label="${CSS.escape(id.slice(4))}"]`) : w?.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"], [data-cid="${CSS.escape(id)}"]`)
@@ -1382,7 +1501,7 @@ export function DocBoardView(props: DocBoardViewProps) {
         const wr = w.getBoundingClientRect()
         const r = el.getBoundingClientRect()
         w.scrollTo({ left: w.scrollLeft + r.left - wr.left - (wr.width - r.width) / 2, top: w.scrollTop + r.top - wr.top - (wr.height - r.height) / 2, behavior: 'smooth' })
-        if (el.dataset.id) setSelected(new Set([el.dataset.id]))
+        if (select && el.dataset.id) setSelected(new Set([el.dataset.id]))
         el.classList.remove('flown')
         void el.offsetWidth
         el.classList.add('flown')
@@ -1462,13 +1581,15 @@ export function DocBoardView(props: DocBoardViewProps) {
       (u.place ? ' placed' : '') +
       (flash && u.text.trim() === flash ? ' flash' : '') +
       (selected.has(key) ? ' sel' : '') +
-      (editing ? ' editing' : '')
+      (editing ? ' editing' : '') +
+      (Fy.cardCovered(covered, unitIdOf(u), u.text) ? ' fy-covered' : '')
     return (
       <div
         key={aiHostOf(u) ?? (key || u.from)}
         className={cls}
         data-i={i}
         data-id={key}
+        data-from={u.from}
         data-kind={u.kind}
         data-face={f.k === 'cardbody' ? f.kind : f.k}
         aria-label={faceName(f)}
@@ -1620,9 +1741,38 @@ export function DocBoardView(props: DocBoardViewProps) {
     )
   }
 
+  /** 一轮画成的那一列 */
+  const fyColumn = (c: DocColumn, style: React.CSSProperties) => {
+    const r = roundOfCol(c)!
+    return (
+      <FeynmanColumn
+        key={'fy' + r.meta.id}
+        path={props.notePath}
+        id={r.meta.id}
+        text={text}
+        readOnly={props.readOnly}
+        fromMap={false}
+        active={props.active}
+        style={style}
+        onSay={(t, undo) => setToast(undo ? { text: t, undo } : { text: t })}
+      />
+    )
+  }
+  /** 盖住的卡上面浮一颗「讲完再看 · 按住看一眼」：摆在盖住的那几张的左上 */
+  const coverChip = () => {
+    // 按住看一眼时也照着算（露出来的那几张），这一颗不卸掉，松手才盖回去
+    const c = covered && { ...covered, peeking: false }
+    const ks = [...keys].filter(([u]) => Fy.cardCovered(c, unitIdOf(u), u.text)).map(([, k]) => rects[k]).filter((r): r is Rect => !!r)
+    if (!ks.length || !covered) return null
+    const x = Math.min(...ks.map((r) => r.x))
+    const y = Math.min(...ks.map((r) => r.y))
+    return <PeekChip id={covered.id} style={{ left: x, top: y - 40 }} />
+  }
+
   const moved = board.placed.length
-  const placedCols = board.columns.filter((c) => c.place).length
-  const placedIds = [...board.placed.map((u) => 'u:' + u.place!.id), ...board.columns.flatMap((c) => (c.place ? ['c:' + c.place.id] : []))]
+  // 费曼那一列是软件摆的，不算「不在原来的地方」
+  const placedCols = board.columns.filter((c) => c.place && !roundOfCol(c)).length
+  const placedIds = [...board.placed.map((u) => 'u:' + u.place!.id), ...board.columns.flatMap((c) => (c.place && !roundOfCol(c) ? ['c:' + c.place.id] : []))]
   // 白板撑多大：摆在空白处的卡、列都要滚得到
   const extent = [...board.placed.map((u) => ({ x: u.place!.x + COL_W + 120, y: u.place!.y + 600 })), ...board.columns.filter((c) => c.place).map((c) => ({ x: c.place!.x + COL_W + 120, y: c.place!.y + 800 }))].reduce(
     (m, p) => ({ x: Math.max(m.x, p.x), y: Math.max(m.y, p.y) }),
@@ -1707,12 +1857,17 @@ export function DocBoardView(props: DocBoardViewProps) {
               <div className="db-cols">
                 {Array.from({ length: Math.ceil(rowCols.length / OPEN_COLS) }, (_, r) => (
                   <div key={r} className="db-row">
-                    {rowCols.slice(r * OPEN_COLS, (r + 1) * OPEN_COLS).map((x, k) => column(x.c, x.ci, r * OPEN_COLS + k))}
+                    {rowCols.slice(r * OPEN_COLS, (r + 1) * OPEN_COLS).map((x, k) => (roundOfCol(x.c) ? fyColumn(x.c, { position: 'relative' }) : column(x.c, x.ci, r * OPEN_COLS + k)))}
                   </div>
                 ))}
               </div>
               {/* 摆在自己位置上的列（旧白板转过来的、列头拖到空白处的） */}
-              {board.columns.map((c, ci) => (c.place ? column(c, ci, 0, { position: 'absolute', left: c.place.x, top: c.place.y }) : null))}
+              {board.columns.map((c, ci) => (c.place ? (roundOfCol(c) ? fyColumn(c, { left: c.place.x, top: c.place.y }) : column(c, ci, 0, { position: 'absolute', left: c.place.x, top: c.place.y })) : null))}
+              {Fy.pendingOf(props.notePath).map((p) => {
+                const c = p.at ?? ('x' in centerWhere() ? (centerWhere() as Pt) : { x: 0, y: 0 })
+                return <PendingColumn key={p.key} p={p} style={{ left: c.x, top: c.y }} />
+              })}
+              {covered && coverChip()}
               {board.placed.map((u) => card(u, -1, { style: { position: 'absolute', left: u.place!.x, top: u.place!.y, width: COL_W } }))}
               {slotWhere && !('col' in slotWhere) && (
                 <div style={{ position: 'absolute', left: slotWhere.x, top: slotWhere.y, width: COL_W }}>{draftCard(0)}</div>
@@ -1794,8 +1949,23 @@ export function DocBoardView(props: DocBoardViewProps) {
               <Codicon name="device-camera" size={16} />
               <span>{t('拍导图', { ctx: '工具板' })}</span>
             </button>
+            <button
+              type="button"
+              data-tip={t('费曼学习：先选几张卡再点，就讲这几张；什么都没选，写一个词或从白板上挑')}
+              data-side="right"
+              data-kind="feynman"
+              data-testid="pal-feynman"
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect()
+                feynmanPal({ x: r.right + 10, y: r.top - 10 })
+              }}
+            >
+              <Codicon name="mortar-board" size={16} />
+              <span>{t('费曼学习', { ctx: '工具板' })}</span>
+            </button>
           </div>
         )}
+        {fyPop && <StartPop at={fyPop} items={feynmanItems()} onWord={feynmanWord} onClose={() => setFyPop(null)} />}
         {/* 顶上那条提示：说明只说一次、真有卡挪离才说挪了几张，都能收起（top-hint.tsx，task-wn3x5） */}
         <div className="db-top">
           <TopHint

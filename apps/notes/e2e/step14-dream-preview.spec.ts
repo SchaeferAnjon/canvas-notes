@@ -39,7 +39,8 @@ const toast = (page: Page) => page.getByTestId('preview-toast')
 async function dreamNow(page: Page) {
   await leftView(page, '梦游报告')
   await panel(page).getByRole('button', { name: '现在梦游' }).click()
-  await expect(panel(page).getByTestId('dream-summary')).toContainText('收下才合进main', { timeout: 30_000 })
+  // 补双链要 AI 一篇篇判（task-h7oy8），40 条的库机器忙时要一分多钟
+  await expect(panel(page).getByTestId('dream-summary')).toContainText('收下才合进main', { timeout: 120_000 })
 }
 
 for (const tone of ['light', 'dark'] as const) {
@@ -211,7 +212,8 @@ test('大批量：40 条按去处分组、默认收起，组里只露 5 条和�
     // 回到左栏的梦游报告页收下一组
     await leftView(page, '梦游报告')
     await groups.nth(1).getByRole('button', { name: '收下这组', exact: true }).click()
-    await expect(toast(page)).toContainText('收下了10处，已提交到main')
+    // 开库 15 秒后搜索进程在后台换 bge-m3 重建索引（测试里是假下载 + 真建），和收下抢 CPU：机器忙时收下 10 处要十来秒
+    await expect(toast(page)).toContainText('收下了10处，已提交到main', { timeout: 30_000 })
     expect(Number(git(vault, 'rev-list', '--count', 'HEAD').trim())).toBe(before + 1)
     expect(existsSync(join(vault, '剪藏/旅行/剪 7.md'))).toBe(true)
     expect(existsSync(join(vault, '收件箱/备忘 7.md'))).toBe(true)

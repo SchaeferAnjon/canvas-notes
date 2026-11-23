@@ -3,6 +3,7 @@
 <!-- hardened runtime 下 Electron 要的：V8 的 JIT、可写可执行内存、加载 Electron 框架里不是同一张证书签的库；
      apple-events：速记用 osascript 问前台浏览器当前网页、让「系统事件」按 ⌘C（Info.plist 里有 NSAppleEventsUsageDescription）；
      device.camera：拍手写导图（Info.plist 里有 NSCameraUsageDescription）；
+     device.audio-input：费曼学习的语音输入（Info.plist 里有 NSMicrophoneUsageDescription）；
      personal-information.calendars：「日历」格经画布今日的小助手只读系统日历（Info.plist 里有 NSCalendarsFullAccessUsageDescription） -->
 <plist version="1.0">
 <dict>
@@ -15,6 +16,8 @@
   <key>com.apple.security.automation.apple-events</key>
   <true/>
   <key>com.apple.security.device.camera</key>
+  <true/>
+  <key>com.apple.security.device.audio-input</key>
   <true/>
   <key>com.apple.security.personal-information.calendars</key>
   <true/>

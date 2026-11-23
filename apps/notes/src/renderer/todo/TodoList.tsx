@@ -5,6 +5,7 @@
  */
 import { Codicon } from '@cn/design'
 import { codiconSvg } from '@cn/design/codicon-svg'
+import { trackDrag } from '@cn/design/drag-end'
 import { addDays, diffDays, weekday } from '@cn/tasks'
 import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
@@ -49,16 +50,17 @@ export const usePop = () =>
     () => pop,
   )
 
-/** 勾选框（原型 cb()）：14 方、圆角 4，重要的黄边，勾上填强调色 */
+/** 勾选框（原型 cb()）：14 方、圆角 4，重要的黄边，勾上填强调色；[/] 进行中填下半格，[-] 取消了画一道横线（点了改回没做完），和画布今日一样 */
 // 这几个组件里 t 是那一条待办：界面上的字用 tNow，useLang() 让换语言时重画
 export function Check({ t }: { t: TodoItem }) {
   useLang()
+  const open = !t.done && !t.cancelled
   return (
     <button
-      className={cls('td-cb', t.done && 'on', t.prio === 3 && !t.done && 'hi')}
+      className={cls('td-cb', t.done && 'on', t.doing && open && 'half', t.cancelled && 'off', t.prio === 3 && open && 'hi')}
       role="checkbox"
-      aria-checked={t.done}
-      aria-label={t.done ? tNow('取消勾选「{title}」', { title: t.title }) : tNow('勾掉「{title}」', { title: t.title })}
+      aria-checked={t.done ? true : t.doing && open ? 'mixed' : false}
+      aria-label={t.done ? tNow('取消勾选「{title}」', { title: t.title }) : t.cancelled ? tNow('「{title}」已取消，改回没做完', { title: t.title }) : t.doing ? tNow('「{title}」进行中，勾掉', { title: t.title }) : tNow('勾掉「{title}」', { title: t.title })}
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation()
@@ -66,6 +68,7 @@ export function Check({ t }: { t: TodoItem }) {
       }}
     >
       {t.done && <Codicon name="check" size={10} />}
+      {t.cancelled && <Codicon name="dash" size={10} />}
     </button>
   )
 }
@@ -100,12 +103,19 @@ const placeOf = (t: TodoItem) => (isTodoNote(t.path) ? (t.path.includes('/') ? t
  */
 export function Row({ t, today, owner, src, place, onlyTime, sel, flash }: { t: TodoItem; today: string; owner: string; src?: boolean; place?: boolean; onlyTime?: boolean; sel: boolean; flash: boolean }) {
   return (
-    <div className={cls('td-r', sel && 'sel', t.done && 'done', flash && 'flash')} data-key={t.key} data-owner={owner} role="listitem">
+    <div className={cls('td-r', sel && 'sel', t.done && 'done', t.cancelled && 'cancel', flash && 'flash')} data-key={t.key} data-owner={owner} role="listitem">
       <Check t={t} />
       <span className="td-tt">
         <span className="td-t">{t.title}</span>
         {src && <span className="td-src">{` · ${noteName(t.path)}`}</span>}
       </span>
+      {place && t.dups.length > 0 && (
+        // 抄了好几遍的同一条（滴答同步进日记的）：全库只显示一份，待办首页写着一共几处（左边窄栏放不下，不写）
+        <span className="td-place td-dup" title={tNow('这一条抄在{n}处（比如滴答同步进每天的日记），这里只显示一份；勾掉、改日子会把{n}处一起改', { n: t.dups.length + 1 })}>
+          <Codicon name="layers" size={11} />
+          {tNow('{n}处', { ctx: '抄件', n: t.dups.length + 1 })}
+        </span>
+      )}
       {place && <span className="td-place">{placeOf(t)}</span>}
       {place && t.repeat && (
         <span className="td-place" title={tNow('重复：{v}', { v: t.repeat })}>
@@ -409,6 +419,17 @@ function installDrag(): () => void {
     const row = el.closest?.<HTMLElement>('.td-r[data-key]')
     if (!row || el.closest('.td-cb, input, select, button')) return
     d = { key: row.dataset.key!, owner: row.dataset.owner!, x: e.clientX, y: e.clientY, moved: false }
+    // 松手没送到页面（窗口外松手、失焦）：当没拖过，日子不改（trackDrag，task-0nz63）
+    stop = trackDrag<PointerEvent>(e, { move, end: (how, ev) => (how === 'up' ? up(ev!) : cancel()) })
+  }
+  let stop: (() => void) | null = null
+  const cancel = () => {
+    const x = d
+    d = null
+    if (!x?.moved) return
+    x.ghost?.remove()
+    clear()
+    document.querySelectorAll('.td-r.dragging').forEach((r) => r.classList.remove('dragging'))
   }
   const move = (e: PointerEvent) => {
     if (!d) return
@@ -475,13 +496,11 @@ function installDrag(): () => void {
     void menuAt(e, todoMenu(t))
   }
   document.addEventListener('pointerdown', down)
-  document.addEventListener('pointermove', move)
-  document.addEventListener('pointerup', up)
   document.addEventListener('contextmenu', ctx)
   return () => {
+    stop?.()
+    cancel()
     document.removeEventListener('pointerdown', down)
-    document.removeEventListener('pointermove', move)
-    document.removeEventListener('pointerup', up)
     document.removeEventListener('contextmenu', ctx)
   }
 }

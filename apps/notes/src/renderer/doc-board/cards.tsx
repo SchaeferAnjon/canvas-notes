@@ -70,7 +70,7 @@ export type Face =
   | { k: 'table'; head: string[]; rows: string[][]; right: boolean[] }
   | { k: 'base'; src: string }
   | { k: 'pdf'; name: string; page: number; file: FileEntry | null }
-  | { k: 'ask'; s: AskSection; pdf: FileEntry | null }
+  | { k: 'ask'; s: AskSection; pdf: FileEntry | null; back?: string }
   | { k: 'details'; title: string; body: string }
   | { k: 'note'; note: NoteFile }
   | { k: 'clipnote'; note: NoteFile }
@@ -233,7 +233,9 @@ export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'fi
       const s = parseSection(u.text, ctx.notePath)
       if (!s) return { k: 'text', md: u.text }
       const pdf = s.file ? (ctx.files.find((f) => f.path === s.file) ?? null) : null
-      return { k: 'ask', s, pdf }
+      // 回到 PDF 那一页那一块的链接（这一段第二行写的）：点「我框的」图时用（task-yp8l7）
+      const back = /^\[第\s*\d+\s*页\]\(([^)\s]+)\)/m.exec(u.text)?.[1]
+      return { k: 'ask', s, pdf, ...(back ? { back } : {}) }
     }
     case 'details': {
       const lines = text.split('\n')
@@ -444,7 +446,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
         </>
       )
     case 'ask':
-      return <AskCard s={f.s} pdf={f.pdf} full={full} />
+      return f.s.qas ? <AskDoc s={f.s} pdf={f.pdf} back={f.back} /> : <AskCard s={f.s} pdf={f.pdf} full={full} />
     case 'details':
       return <Details title={f.title} body={f.body} full={full} />
     case 'note':
@@ -625,7 +627,79 @@ function PdfPage({ file, page }: { file: FileEntry | null; page: number }) {
   return <div className={'db-slide' + (url ? '' : ' wait')}>{url && <img src={url} alt={t('第{page}页', { page })} draggable={false} />}</div>
 }
 
-/** 问过 AI：页码和时间、框下来的截图（没有就画那一页）和标题、疑惑一行、讲通三行、完整对话几轮 */
+/**
+ * 问过 AI（新格式，一段 = 一处问的地方，task-yp8l7）：整段都画出来，和文档看法里一样全：页码和时间、标题、我框的图（点了直接回 PDF 那一块，
+ * DocBoardView 的 onClick 认 a.db-ask-crop，不走页码小牌先出预览卡那一套）、选字问的原文、每一问的原话和回答原文、旁支、小结。
+ * 以前只画第一问的头一段（withDerived 算出来的旧字段），白板看法看着像缺了一大截
+ */
+function AskDoc({ s, pdf, back }: { s: AskSection; pdf: FileEntry | null; back?: string }) {
+  const t = useT()
+  const label = s.page > 0 ? t('第{page}页', { page: s.page }) : s.web?.label || t('问过')
+  return (
+    <>
+      <Kh icon="comment-discussion" right={s.time}>
+        {label}
+      </Kh>
+      {s.crop ? (
+        <>
+          <div className="db-ask-tt">{s.title}</div>
+          {back ? (
+            <a className="db-ask-crop" data-href={back} data-label={label} title={t('点一下回到 PDF {label}', { label })}>
+              <img src={vaultSrc(s.crop)} alt={t('我框的')} draggable={false} style={s.cropW ? { width: s.cropW } : undefined} />
+            </a>
+          ) : (
+            <span className="db-ask-crop">
+              <img src={vaultSrc(s.crop)} alt={t('我框的')} draggable={false} style={s.cropW ? { width: s.cropW } : undefined} />
+            </span>
+          )}
+        </>
+      ) : (
+        <div className="db-ask-top">
+          {s.page > 0 && (
+            <div className="thumb">
+              <PdfPage file={pdf} page={s.page} />
+            </div>
+          )}
+          <div className="tt">{s.title}</div>
+        </div>
+      )}
+      {s.quote && <blockquote className="db-ask-quote">{s.quote}</blockquote>}
+      {(s.qas ?? []).map((qa, i) => (
+        <div key={i} className="db-ask-qa">
+          {qa.q && (
+            <div className="row aq">
+              <Codicon name="question" size={13} />
+              <span>{qa.q}</span>
+            </div>
+          )}
+          {qa.a && <Markdown text={qa.a} />}
+          {qa.sides.map((d, j) => (
+            <div key={j} className="db-ask-side">
+              {d.quote && <div className="sq">{d.quote}</div>}
+              {d.turns.map((x, k) => (
+                <div key={k}>
+                  <div className="row aq">
+                    <Codicon name="comment-discussion" size={13} />
+                    <span>{x.q}</span>
+                  </div>
+                  {x.a && <Markdown text={x.a} />}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ))}
+      {s.recap && (
+        <div className="row g db-ask-recap">
+          <Codicon name="pass" size={13} />
+          <span>{inline(s.recap, 'recap')}</span>
+        </div>
+      )}
+    </>
+  )
+}
+
+/** 问过 AI（以前的格式）：页码和时间、框下来的截图（没有就画那一页）和标题、疑惑一行、讲通三行、完整对话几轮 */
 function AskCard({ s, pdf, full }: { s: AskSection; pdf: FileEntry | null; full: boolean }) {
   const t = useT()
   const failed = s.failed.length

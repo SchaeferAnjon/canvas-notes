@@ -43,6 +43,14 @@ export interface TodoItem {
   done: boolean
   /** [-] 取消了的：不算没做完，也不算做完 */
   cancelled: boolean
+  /** [/] 做了一半：还算没做完，显示成「进行中」 */
+  doing: boolean
+  /**
+   * 抄了好几遍的同一条（滴答同步抄进每天的日记，@cn/tasks dupes.ts）：全库的几处只显示一份，文件不动。
+   * 不显示的那几份这里是显示的那份的 key；显示的那份是 null，它的 dups 是另外几份的 key
+   */
+  dupOf: string | null
+  dups: string[]
   date: string | null
   time: string | null
   remind: string | null
@@ -75,7 +83,7 @@ export interface TodoEditReq {
 }
 
 export type TodoEditResult =
-  | { ok: true; undo: string; path: string; line: number; raw: string; next?: { line: number; date: string } }
+  | { ok: true; undo: string; path: string; line: number; raw: string; next?: { line: number; date: string }; copies?: number }
   | { ok: false; reason: 'gone' | 'readonly' | 'failed'; message?: string }
 
 /** 加一条写进哪：收件箱/待办.md（左边格子）、这一篇（任务界面）、<文件夹>/待办.md（首页卡，没有就建） */
@@ -124,8 +132,8 @@ export const bucketName = (b: Bucket): string =>
   b === 'over' ? tNow('过期') : b === 'today' ? tNow('今天') : b === 'tom' ? tNow('明天') : b === 'later' ? tNow('以后') : tNow('没定日子')
 
 export const isOpen = (t: Pick<TodoItem, 'done' | 'cancelled'>) => !t.done && !t.cancelled
-/** 列出来的：最上层的，加上自己写了日子的子任务（和画布今日一样） */
-export const listed = (t: Pick<TodoItem, 'parent' | 'date'>) => t.parent === null || t.date !== null
+/** 列出来的：最上层的，加上自己写了日子的子任务；抄了好几遍的同一条只列显示的那一份（和画布今日一样） */
+export const listed = (t: Pick<TodoItem, 'parent' | 'date' | 'dupOf'>) => (t.parent === null || t.date !== null) && !t.dupOf
 
 export function bucketOf(t: Pick<TodoItem, 'date'>, today: string): Bucket {
   if (!t.date) return 'none'

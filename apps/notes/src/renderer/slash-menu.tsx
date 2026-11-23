@@ -70,13 +70,21 @@ export const slashField = StateField.define<SlashState | null>({
     }
     const doc = tr.state.doc
     if (!v && tr.docChanged && tr.isUserEvent('input.type')) {
-      tr.changes.iterChanges((_fa, _ta, fb, _tb, ins) => {
-        const s = ins.toString()
-        if (SLASH_CHARS.includes(s)) {
-          const line = doc.lineAt(fb)
-          if (/^[ \t]*$/.test(doc.sliceString(line.from, fb))) v = { mode: 'slash', from: fb, plus: null, q: '', boards: false, made: null, summary: false }
-        } else if (s === '[' && doc.sliceString(fb - 1, fb) === '[') v = { mode: 'link', from: fb - 1, plus: null, q: '', boards: false, made: null, summary: false }
-      })
+      // 打的「/」：看光标前面那个字。块缝规整（tidy-blocks）会把补的空行并进同一个改动（插进去的是「/\n」不是「/」），不能只认插进去的正好是「/」
+      const sel = tr.state.selection.main
+      const at = sel.head - 1
+      if (sel.empty && at >= 0 && SLASH_CHARS.includes(doc.sliceString(at, sel.head))) {
+        let typed = false
+        tr.changes.iterChanges((_fa, _ta, fb, tb, ins) => {
+          if (fb <= at && tb >= sel.head && SLASH_CHARS.some((c) => ins.toString().includes(c))) typed = true
+        })
+        const line = doc.lineAt(at)
+        if (typed && /^[ \t]*$/.test(doc.sliceString(line.from, at))) v = { mode: 'slash', from: at, plus: null, q: '', boards: false, made: null, summary: false }
+      }
+      if (!v)
+        tr.changes.iterChanges((_fa, _ta, fb, _tb, ins) => {
+          if (ins.toString() === '[' && doc.sliceString(fb - 1, fb) === '[') v = { mode: 'link', from: fb - 1, plus: null, q: '', boards: false, made: null, summary: false }
+        })
     }
     // AI 框、「+」开的菜单、白板链接的挑选（文档里没有「/」「[[」）：不按文档里的字关
     if (!v || v.mode === 'ai' || v.plus || v.from < 0) return v

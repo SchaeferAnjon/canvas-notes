@@ -10,6 +10,7 @@
  * 弹出来的菜单、看全文的小卡挂在 body 上（右栏有磨砂，fixed 的子元素会另起坐标、被岛的圆角裁掉），都用 use-dismiss：点外面、esc、失焦收起，再点按钮是收起。
  */
 import { Codicon } from '@cn/design'
+import { trackDrag } from '@cn/design/drag-end'
 import { isKey, keyFor } from './keys'
 import { ComposerGlow } from './ai-glow'
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
@@ -501,7 +502,6 @@ function Shelf(p: { c: Composer; lead: Lead | null }) {
   const ref = useRef<HTMLDivElement>(null)
   const [peek, setPeek] = useState<{ key: string; el: HTMLElement } | null>(null)
   const [drag, setDrag] = useState<{ id: number; to: number } | null>(null)
-  const press = useRef<{ id: number; x: number; y: number; el: HTMLElement; moved: boolean } | null>(null)
   const n = c.mats.length
   // 加了一块：滚到最后，新的那张露出来
   const before = useRef(n)
@@ -559,29 +559,27 @@ function Shelf(p: { c: Composer; lead: Lead | null }) {
           title={m.kind === 'quote' ? t('{src}：{text}', { src: m.src, text: m.text }) : m.src}
           onPointerDown={(e) => {
             if (e.button !== 0 || (e.target as Element).closest('.pxx')) return
-            press.current = { id: m.id, x: e.clientX, y: e.clientY, el: e.currentTarget, moved: false }
-            e.currentTarget.setPointerCapture(e.pointerId)
-          }}
-          onPointerMove={(e) => {
-            const s = press.current
-            if (!s || s.id !== m.id) return
-            if (!s.moved && Math.hypot(e.clientX - s.x, e.clientY - s.y) < 4) return
-            s.moved = true
-            setDrag({ id: m.id, to: slot(e.clientX) })
-          }}
-          onPointerUp={(e) => {
-            const s = press.current
-            press.current = null
-            if (!s || s.id !== m.id) return
-            if (!s.moved) return open(String(m.id), e.currentTarget)
-            const to = slot(e.clientX)
-            setDrag(null)
-            // 放回原处（自己前后）就不动
-            if (to !== i && to !== i + 1) c.move(m.id, to > i ? to - 1 : to)
-          }}
-          onPointerCancel={() => {
-            press.current = null
-            setDrag(null)
+            const el = e.currentTarget
+            const x0 = e.clientX
+            const y0 = e.clientY
+            let moved = false
+            el.setPointerCapture(e.pointerId)
+            // 松手没送到页面（窗口外松手、失焦）：当没拖过，先后不变、也不打开（trackDrag，task-0nz63）
+            trackDrag<PointerEvent>(e, {
+              move: (ev) => {
+                if (!moved && Math.hypot(ev.clientX - x0, ev.clientY - y0) < 4) return
+                moved = true
+                setDrag({ id: m.id, to: slot(ev.clientX) })
+              },
+              end: (how, ev) => {
+                setDrag(null)
+                if (how !== 'up') return
+                if (!moved) return open(String(m.id), el)
+                const to = slot(ev!.clientX)
+                // 放回原处（自己前后）就不动
+                if (to !== i && to !== i + 1) c.move(m.id, to > i ? to - 1 : to)
+              },
+            })
           }}
         >
           <span className="nb">{i + 1}</span>

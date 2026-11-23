@@ -33,15 +33,18 @@ async function pdfOutline(path: string): Promise<OutlineItem[] | null> {
   return out
 }
 
-/** 大纲里点白板的一项：开着这块白板的 BoardView 把那张卡片或那一列滚到正中、选中 */
+/**
+ * 大纲里点白板的一项：开着这块白板的 BoardView 把那张卡片或那一列滚到正中、选中，外圈闪一下。
+ * select false：只滚过去、外圈闪一下，不选中（AI 回答里 ⌘点「白板.md#^卡号」，task-3e53q）
+ */
 const flyBus = new EventTarget()
-export function flyToCard(path: string, id: string) {
-  flyBus.dispatchEvent(new CustomEvent('fly', { detail: { path, id } }))
+export function flyToCard(path: string, id: string, opts: { select?: boolean } = {}) {
+  flyBus.dispatchEvent(new CustomEvent('fly', { detail: { path, id, select: opts.select !== false } }))
 }
-export function onFlyToCard(path: string, f: (id: string) => void): () => void {
+export function onFlyToCard(path: string, f: (id: string, select: boolean) => void): () => void {
   const h = (e: Event) => {
-    const d = (e as CustomEvent<{ path: string; id: string }>).detail
-    if (d.path === path) f(d.id)
+    const d = (e as CustomEvent<{ path: string; id: string; select: boolean }>).detail
+    if (d.path === path) f(d.id, d.select)
   }
   flyBus.addEventListener('fly', h)
   return () => flyBus.removeEventListener('fly', h)

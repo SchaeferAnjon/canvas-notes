@@ -1,0 +1,89 @@
+/* 费曼「补进导图」核对框（设计页 16-费曼学习 第 3 节图 33）：贴着「补进导图」按钮弹，先列出要改的几处 */
+.fa-merge {
+  position: fixed;
+  z-index: 60;
+  width: 380px;
+  max-width: calc(100vw - 24px);
+  box-sizing: border-box;
+  padding: 14px 16px 12px;
+  border-radius: 12px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  color: var(--t1);
+  font: 13px/1.6 var(--sans);
+}
+.fa-merge .fa-hd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.fa-merge .fa-hd b {
+  font-size: 14px;
+  font-weight: 600;
+}
+/* 引号里的节点字、正确说法（常带公式）不拆行 */
+.fa-merge .fa-lines .q {
+  white-space: nowrap;
+}
+.fa-merge .fa-lines {
+  margin: 0;
+  padding: 0 0 0 18px;
+  color: var(--t2);
+}
+.fa-merge .fa-lines li {
+  margin: 4px 0;
+}
+.fa-merge .fa-lines li.kept {
+  color: var(--t3);
+}
+.fa-merge .fa-wait {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  color: var(--t2);
+}
+.fa-merge .fa-spin {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acc);
+  animation: fa-breathe 1.4s ease-in-out infinite;
+}
+@keyframes fa-breathe {
+  50% {
+    opacity: 0.3;
+  }
+}
+.fa-merge .fa-err {
+  color: var(--red-t);
+  margin: 4px 0;
+}
+.fa-merge .fa-empty {
+  margin: 4px 0;
+  color: var(--t2);
+}
+.fa-merge .fa-ft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.fa-merge .fa-ft .sp {
+  flex: 1 0 0;
+}
+.fa-merge .fa-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--t3);
+}
+.fa-merge .fa-ft > button {
+  flex: none;
+}

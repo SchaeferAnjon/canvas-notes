@@ -164,7 +164,7 @@ async function openCards(page: Page) {
   await palInput(page).fill('Lecture05')
   await page.locator('.pal-row', { hasText: 'Lecture05.pdf' }).first().click()
   await expect(tabOn(page)).toHaveText('Lecture05.pdf')
-  if (!(await notes(page).isVisible())) await rail(page).getByRole('button', { name: '笔记' }).click()
+  if (!(await notes(page).isVisible())) await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
   await notes(page).getByRole('tab', { name: '只看我问的' }).click()
   await notes(page).getByRole('button', { name: '出卡 · 6问' }).click()
   await expect(dlg(page).locator('.dh .sub')).toHaveText(/^改好了/, { timeout: 20_000 })

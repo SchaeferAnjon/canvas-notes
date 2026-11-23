@@ -12,6 +12,7 @@ import * as C from './ai-chats'
 import * as R from './reading/store'
 import { useDismiss } from './use-dismiss'
 import { useT } from './i18n'
+import { useKey } from './keys'
 
 /**
  * 这一格在看哪段对话（D 组 CN-132）：这里（当前页面）的，或者菜单里点开的别处的那段。
@@ -19,7 +20,8 @@ import { useT } from './i18n'
  */
 export interface DockNav {
   here: { key: string; label: string }
-  away: { key: string; label: string } | null
+  /** stay：从 AI 回答里的引用 ⌘点开了中间那一篇，右栏留在这段（task-3e53q，AiDock） */
+  away: { key: string; label: string; stay?: boolean } | null
   pick(c: { key: string; label: string } | null): void
   asks(key: string): number | null
 }
@@ -126,17 +128,41 @@ function ConvMenu(props: { nav: DockNav; close(): void }) {
   )
 }
 
-/** 在看别处的对话时，「看得到」那一行换成这一行：「这是在「X」问的 · 回到「周记」」 */
+/**
+ * 在看别处的对话时，「看得到」那一行换成这一行：「这是在「X」问的 · 回到「周记」」。
+ * 从 AI 回答里的引用 ⌘点开了中间那一篇（away.stay，task-3e53q 已定 3）：「这是在「X」问的 · 切到《小论文计划》的 AI ⌥⌘J」
+ */
 export function AwayBar(props: { nav: DockNav }) {
   const t = useT()
+  const key = useKey('ai-follow')
   const { here, away } = props.nav
   if (!away) return null
   return (
-    <div className="away" data-testid="ai-away">
+    <div className={'away' + (away.stay ? ' stay' : '')} data-testid="ai-away">
       <Codicon name="history" size={13} />
-      <span className="tx">{t('这是在「{name}」问的', { name: away.label })}</span>
-      <button onClick={() => props.nav.pick(null)}>{t('回到「{name}」', { name: here.label })}</button>
+      {away.stay ? <StayText name={away.label} /> : <span className="tx">{t('这是在「{name}」问的', { name: away.label })}</span>}
+      {away.stay ? (
+        <button onClick={() => props.nav.pick(null)} data-testid="ai-follow">
+          <span className="lb">{t('切到《{name}》的 AI', { name: here.label })}</span>
+          {key && <span className="k">{key}</span>}
+        </button>
+      ) : (
+        <button onClick={() => props.nav.pick(null)}>{t('回到「{name}」', { name: here.label })}</button>
+      )}
     </div>
+  )
+}
+
+/** 「这是在「X」问的」拆成三截：放不下时只截地方名 */
+function StayText({ name }: { name: string }) {
+  const t = useT()
+  const [a, b = ''] = t('这是在「{name}」问的', { name: '\u0000' }).split('\u0000')
+  return (
+    <span className="tx">
+      <span>{a}</span>
+      <span className="nm">{name}</span>
+      <span>{b}</span>
+    </span>
   )
 }
 

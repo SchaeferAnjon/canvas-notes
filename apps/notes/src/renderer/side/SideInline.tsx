@@ -16,6 +16,7 @@ import { StepRow } from '../AiPanel'
 import { AiError } from '../ai-error'
 import { AiInput, MatMsg, type PicksProps, sendText, useComposer } from '../composer'
 import { copy } from '../ctx/menu'
+import { touchedOf } from '../cite-names'
 import { Markdown } from '../md-render'
 import { useDismiss } from '../use-dismiss'
 import { ASK_THIS } from './name'
@@ -43,6 +44,8 @@ export interface SideView {
 
 export interface SideInlineProps {
   side: SideView
+  /** 回答里认名字时「不是这篇」记在哪段对话上（task-3e53q）；不给按这条旁支记 */
+  conv?: string
   /** 这一句的几条旁支（含这条），按开的先后：两条以上时头下面一排小签 */
   group: { id: string; name: string }[]
   running: boolean
@@ -72,6 +75,30 @@ export interface SideInlineProps {
   takeFocus(): boolean
   /** 问答变了（开、问、出字）：外面那一格把这一块滚进来 */
   onGrow?(): void
+  /** 头上「全能 / 只在库里」那颗标签的说明里，开关在哪改（右栏 AI、读 PDF：收起旁支后输入框下面那行） */
+  omniWhere?: string
+}
+
+/**
+ * 全能模式开没开（task-3e53q「四、c」）：旁支跟着主对话那颗开关走，不单独放开关；设置 › AI、输入框下面那行一改，各处马上跟着变。
+ * 没读到之前不画标签（不先画一个可能是错的）
+ */
+function useOmni(): boolean | null {
+  const [on, setOn] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    const load = () =>
+      void window.cn.aiEngines().then((r) => {
+        if (live) setOn(r.omni)
+      })
+    load()
+    const off = window.cn.onAiPrefsChanged(load)
+    return () => {
+      live = false
+      off()
+    }
+  }, [])
+  return on
 }
 
 /** 钉在别处（dock）就用 portal 画过去：键盘、点击照样冒到这一块（esc 收起这一块） */
@@ -138,6 +165,11 @@ export function SideInline(p: SideInlineProps) {
     p.onSend(text, mats)
   }
 
+  const omni = useOmni()
+  const omniTip = [
+    omni ? t('全能：能读写这台 Mac 上的文件、跑命令、上网。') : t('只在库里：能读库里的笔记，能在库里新建、改名、挪动、删笔记；不碰库外的文件、不跑命令、不上网。'),
+    t('和主对话同一个开关；{where}。', { where: p.omniWhere ?? t('在右栏 AI 输入框下面那行改，设置 › AI 里也能改') }),
+  ].join('\n')
   const sub = p.group.length > 1 ? t('· {n} 条，在第 {i} 条', { n: p.group.length, i: at + 1 }) : `· ${side.name}`
   return (
     <div
@@ -188,9 +220,17 @@ export function SideInline(p: SideInlineProps) {
             }}
           />
         ) : (
-          <span className="s">{sub}</span>
+          <span className="s" data-tip={side.name}>
+            {sub}
+          </span>
         )}
         <span className="sp" />
+        {/* 只显示、不能点：开关在主对话输入框下面那行（旁支开着时那行藏起来） */}
+        {omni !== null && (
+          <span className="mode" data-testid="side-mode" data-tip={omniTip} data-side="below-left" data-tip-class="tip-para" data-tip-in="aside">
+            {omni ? t('全能') : t('只在库里')}
+          </span>
+        )}
         <button className="ib" aria-label={t('这句再开一条旁支')} title={t('这句再开一条旁支')} onClick={p.onNew}>
           <Codicon name="add" size={14} />
         </button>
@@ -224,7 +264,7 @@ export function SideInline(p: SideInlineProps) {
               ))}
               {m.text ? (
                 <div className="sat">
-                  <Markdown text={hideToolMarkup(withoutVizMark(m.text).text)} math />
+                  <Markdown text={hideToolMarkup(withoutVizMark(m.text).text)} math cites={{ conv: p.conv ?? `side:${side.id}`, touched: touchedOf(m.steps) }} />
                 </div>
               ) : m.error ? null : (
                 <p className="wait">{t('在答…')}</p>

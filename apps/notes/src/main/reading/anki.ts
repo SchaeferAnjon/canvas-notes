@@ -197,6 +197,9 @@ export interface CardInput {
   card?: CardText
   /** 截图在 Anki 媒体库里的文件名（storeMediaFile 回的） */
   image?: string
+  /** 费曼缺口的卡：纸底的出处、「打开原文」回到那一篇（不是 PDF 的第几页） */
+  source?: string
+  link?: string
 }
 
 const tagWord = (s: string) => s.trim().split(/\s+/).join('_')
@@ -219,8 +222,8 @@ export function fieldsFor(c: CardInput): Record<string, string> {
     Image: c.image ? `<img class="lead" src="${esc(c.image)}"${s.cropW ? ` width="${Math.round(s.cropW)}"` : ''}>` : '',
     // 不翻：写进 Anki 卡片的字
     Label: esc(`Canvas Notes · ${c.course || stem(c.pdf)}${c.quote ? ' · 旁支' : ''}`),
-    Source: esc(`${stem(c.pdf)} · 第 ${s.page} 页`), // 不翻
-    Link: esc(openLink(c.pdf, s)),
+    Source: esc(c.source ?? `${stem(c.pdf)} · 第 ${s.page} 页`), // 不翻
+    Link: esc(c.link ?? openLink(c.pdf, s)),
     ID: noteId(c.id),
   }
 }

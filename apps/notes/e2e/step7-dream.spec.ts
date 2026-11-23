@@ -49,7 +49,7 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     await expect(panel.getByTestId('dream-summary')).toContainText(`在${branch}分支上整理了6处，收下才合进main。动了正文的只有：补了1处双链（在正文末尾加了一行）。`)
     // 不再一律说「你写的正文一个字没动」（补双链在正文末尾加了一行）
     await expect(panel.getByTestId('dream-summary')).not.toContainText('一个字没动')
-    await expect(panel.locator('.dg')).toHaveText(['归类和改名3条在树里看', '补上的双链1条', '可能重复1条', '本周小结1条'])
+    await expect(panel.locator('.dg')).toHaveText(['归类和改名3条在树里看', '补上的双链1条Sonnet · Medium判的', '可能重复1条本地比对，没用AI', '本周小结1条'])
     await expect(panel.getByTestId('dream-left')).toHaveText(`还剩6条 · 改动在${branch}分支`)
     await page.screenshot({ path: test.info().outputPath('dream-panel.png') })
 
@@ -60,7 +60,7 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     const detail = panel.getByTestId('dream-detail')
     // 为什么在中间的条目头上（task-m552v：点一条中间开这一条）
     const dt = page.locator('[data-testid="dream-tab"]:not([hidden])')
-    await expect(dt.getByTestId('dream-why')).toContainText('两篇共同的关键词：云量低于三成')
+    await expect(dt.getByTestId('dream-why')).toContainText('两篇都讲「极光预报」那件事')
     // 侧栏只写一句人话，点了中间开对比标签（CN-63）
     await expect(detail.getByTestId('dream-change').locator('.tx > span')).toHaveText('极光：末尾加了一行 相关：[[极光预报]]')
     await page.screenshot({ path: test.info().outputPath('dream-detail.png') })
