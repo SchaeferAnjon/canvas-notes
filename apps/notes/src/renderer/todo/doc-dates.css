@@ -1,0 +1,82 @@
+/*
+ * 文档里的待办（task-kzr3n）：数值照画布今日 v2 原型 .dchip / .ln .ltools / .btn.sm / .pop .pi 量的。
+ * 日子小块 22 高、内边距 0 7、圆角 6、--fill2 底、12 --t2（过期 --red-t），图标 12 --t3；
+ * 悬停一行右边几颗：24 高、内边距 0 8、圆角 6、1px --line2 边、--card 底、12 字，间距 4；
+ * 定日子：点日子小块、「定日子」弹的选择器在 @cn/calendar 的 WhenPicker（calendar.css 的 .cal-when，task-pd289）。
+ */
+.cm-tdline {
+  position: relative;
+}
+.cm-tdchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  margin-left: 8px;
+  border-radius: 6px;
+  background: var(--fill2);
+  font-size: 12px;
+  line-height: 22px;
+  color: var(--t2);
+  vertical-align: 1px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  cursor: default;
+}
+.cm-tdchip.red {
+  color: var(--red-t);
+}
+.cm-tdchip svg,
+.cm-tdchip .sub {
+  color: var(--t3);
+  display: inline-flex;
+}
+.cm-tdchip:hover {
+  background: color-mix(in srgb, var(--fill2) 100%, var(--t1) 6%);
+}
+/* 勾掉的那条：小块不跟着划线 */
+.cm-task-done .cm-tdchip {
+  text-decoration: none;
+}
+.cm-tdtools {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  gap: 4px;
+  padding-left: 12px;
+  background: linear-gradient(to right, transparent, var(--win) 10px);
+  font-size: 12px;
+  line-height: 1;
+}
+.cm-tdline:hover .cm-tdtools,
+.cm-tdtools.keep {
+  display: inline-flex;
+}
+.cm-tdbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--card);
+  font: inherit;
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.cm-tdbtn:hover {
+  background: var(--fill);
+}
+.cm-tdbtn svg {
+  color: var(--t2);
+}
+/* ⏫ 的勾选框黄边（同待办三处的 .td-cb.hi；v2 原型文档里的 cb） */
+.doc .cm-taskbox.hi:not(.on) {
+  border-color: var(--yellow);
+}

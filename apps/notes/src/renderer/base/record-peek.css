@@ -1,0 +1,351 @@
+/* 右栏「记录」标签：数据库里点开的一条（数据库第三批第 4 块，照设计页第 4 样 / proto-a 的 .peek） */
+.rpeek {
+  height: 100%;
+  overflow: auto;
+  padding: 14px 20px 40px;
+  outline: none;
+}
+.rpeek.rec-empty {
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  color: var(--t3);
+}
+.dtab[data-view='record'] .dname {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 组头右边：← ↑ ↓ 整页打开 </>（26 方块，同组头别的按钮） */
+.rec-tools {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  gap: 2px;
+  flex: none;
+}
+.rec-tools .dbtn:disabled {
+  opacity: 0.4;
+  background: none;
+}
+.rec-crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+.rec-title,
+.rec-title-in {
+  margin: 8px 0 12px;
+  font: 600 22px/1.35 var(--serif-title);
+  color: var(--t1);
+}
+.rec-title {
+  padding: 0 4px;
+  margin-left: -4px;
+  border-radius: 6px;
+  cursor: text;
+  overflow-wrap: anywhere;
+}
+.rec-title:hover {
+  background: var(--fill);
+}
+.rec-title-in {
+  display: block;
+  width: calc(100% + 8px);
+  margin-left: -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+  outline: none;
+}
+.rec-gone {
+  font-size: 13px;
+  color: var(--t3);
+}
+/* 一行属性：左边 104 宽是名字（12 --t2、图标 --t3），右边是值，点了改（悬停 --fill 底） */
+.rec-row {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  font-size: 13px;
+}
+.rec-row .k {
+  width: 104px;
+  flex: none;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.rec-row .k > svg {
+  flex: none;
+  color: var(--t3);
+}
+.rec-row .v {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: var(--t1);
+  cursor: pointer;
+  outline: none;
+}
+.rec-row .v:hover,
+.rec-row .v:focus-visible {
+  background: var(--fill);
+}
+.rec-row .v.ro {
+  cursor: default;
+}
+.rec-row .v.ro:hover {
+  background: none;
+}
+.rec-row .v.ed {
+  cursor: text;
+}
+.rec-row input {
+  width: 100%;
+  max-width: 220px;
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.rec-row .k input {
+  width: 96px;
+  font-size: 12px;
+}
+.rec-adding .rec-err {
+  margin-left: 6px;
+}
+.rec-none {
+  color: var(--t3);
+}
+.rec-err {
+  font-size: 12px;
+  color: var(--red);
+}
+/* 状态：浅底小块 + 7 的圆点（待开始 --t3、进行中 --yellow、完成 --green） */
+.rec-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: var(--fill2);
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.rec-st i,
+.rec-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  display: inline-block;
+  border-radius: 50%;
+}
+.rec-st .g0,
+.rec-dot.g0 {
+  background: var(--t3);
+}
+.rec-st .g1,
+.rec-dot.g1 {
+  background: var(--yellow);
+}
+.rec-st .g2,
+.rec-dot.g2 {
+  background: var(--green);
+}
+/* 关联：那边的一篇一个小块（--fill 底、字 --acc-t），点了右栏换成那一篇 */
+.rec-rel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0 7px 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill);
+  font: 12px var(--sans);
+  color: var(--acc-t);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rec-rel > svg {
+  color: var(--t3);
+}
+.rec-rel:hover {
+  background: var(--fill2);
+}
+.rec-rel:disabled {
+  color: var(--t3);
+  cursor: default;
+}
+.rec-fx {
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+.rec-hint {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.rec-cb {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1.5px var(--line2);
+}
+.rec-cb.on {
+  background: var(--acc-bg);
+  box-shadow: none;
+  color: var(--acc-on, #fff);
+}
+.rec-add {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t3);
+  cursor: pointer;
+}
+.rec-add:hover {
+  color: var(--t1);
+}
+.rec-hr {
+  margin: 10px 0 14px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+/* 正文：文档的编辑器，版心跟着右栏宽，左右不留把手那 56（把手、加号放在右栏的内边距里） */
+.rpeek .doc.rec-body {
+  max-width: none;
+  margin: 0;
+  padding: 0 0 40px;
+  --doc-size: 14px;
+  --doc-lh: 1.7;
+}
+/* 正文里的标题 15/600（右栏窄，不用文档的 19；同原型 .pbody h4）；分隔线下第一块前面那个空行只留 4（分隔线下 14 + 4，不再叠标题上的 26） */
+.rpeek .doc.rec-body :is(.cm-h1, .cm-h2, .cm-h3) {
+  font: 600 15px/1.5 var(--sans);
+}
+.rpeek .doc.rec-body .cm-content > .cm-gap:first-child,
+.rpeek .doc.rec-body .cm-content > :first-child:not(.cm-line) + .cm-gap {
+  height: 4px;
+  line-height: 4px;
+}
+.rec-rawcap {
+  margin: 8px 0 12px;
+  font: 500 13px var(--sans);
+  color: var(--t2);
+}
+.rec-md {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--fill);
+  font: 12px/1.65 var(--mono);
+  color: var(--t1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.rec-md .hl {
+  background: var(--acc-soft);
+}
+/* 选项弹层：组名 11 --t3，选中的那一项右边一个勾 */
+.shell-menu.rec-pop {
+  width: 220px;
+  padding: 6px;
+  border-radius: 12px;
+}
+.rec-pop .rec-q {
+  width: 100%;
+  height: 28px;
+  margin-bottom: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.rec-pop .rec-gname {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  color: var(--t3);
+}
+.rec-pop .mi .base-sel {
+  width: 10px;
+  height: 10px;
+  margin: 0 3px;
+  padding: 0;
+  border-radius: 3px;
+}
+.rec-pop .mi .rec-dot {
+  margin: 0 4px;
+}
+/* 数据库表里：右栏开着的那一行灰底；名字格悬停出「打开」（贴右边 6，同原型 .bt td.nmc .open） */
+.base tr.base-row-peek td {
+  background: var(--fill2);
+}
+.base td.nm {
+  position: relative;
+}
+.base td.nm button.base-open {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 22px;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  font: 11px var(--sans);
+  color: var(--t2);
+}
+.base tr:hover td.nm button.base-open {
+  display: inline-flex;
+}
+.base td.nm button.base-open:hover {
+  text-decoration: none;
+  color: var(--t1);
+}
+/* 从关联点过来的这一条：两边都写的那一列下面一句（12 --t3，和值对齐） */
+.rec-note {
+  margin: 6px 0 0 104px;
+  font-size: 12px;
+  color: var(--t3);
+}

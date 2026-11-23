@@ -6,7 +6,7 @@
  * .gitkeep 只是给 Git 的：没有它，空文件夹不进提交，换台电脑就没了。
  */
 import * as git from '@cn/git'
-import { ATTACHMENTS_DIR, baseFoldersIn, decodeNote, encodeNote, folderMap, remapLinks } from '@cn/format'
+import { ATTACHMENTS_DIR, attachmentDir, baseFoldersIn, decodeNote, encodeNote, folderMap, notePathFor, parseReadingNote, remapLinks } from '@cn/format'
 import { mkdir, readdir, readFile, rename, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { checkFolderName } from '../shared/folder-home'
@@ -265,6 +265,91 @@ export async function moveMany(v: Vault, paths: unknown, folder: unknown, moved?
     `移动 ${own.length} 个：${names.slice(0, 5).join('、')}${names.length > 5 ? ' 等' : ''} → ${plan.folder || v.name}${carried.length ? `（${own.length > 1 ? '它们' : '它'}的数据库跟着挪：${carried.join('、')}）` : ''}`,
   )
   return { moves, skipped: plan.skipped, commit }
+}
+
+/**
+ * 文件夹首页卡里拖走的一份、缩略图右键「移到…」（task-r00en，用户：「这个pdf能不能拖动到其他的目录?」）：
+ * PDF / HTML 连挂在它下面的读 PDF 笔记（旁边的「<名字> 笔记.md」）和那篇笔记里的可视化一起挪（照目录树「PDF 下挂笔记」的规矩，不分家）；
+ * 拖的是挂着的那篇笔记也整组走。普通笔记走 moveMany（同名存成「X 2」、挂着的数据库跟着）。
+ * 整组时去处有同名的就报错、一个都不挪（PDF 和笔记靠名字配对，不能各自改名）。库里指向它们的链接、置顶跟着改，一次提交
+ */
+export async function moveItem(v: Vault, path: unknown, folder: unknown, moved?: (from: string, to: string) => void): Promise<{ moves: Moved[]; commit: string | null }> {
+  if (typeof path !== 'string' || !path || typeof folder !== 'string') throw new Error('参数不对')
+  if (folder) needFolder(folder)
+  v.abs(path)
+  if (!(await stat(v.abs(path)).catch(() => null))?.isFile()) throw new Error(`没有这个文件：${path}`)
+  const group = await hungGroup(v, path)
+  if (group.length === 1 && /\.md$/i.test(path)) {
+    const r = await moveMany(v, [path], folder, moved)
+    return { moves: r.moves, commit: r.commit }
+  }
+  if (parentOf(group[0]!) === folder) return { moves: [], commit: null }
+  const nameOf = (p: string) => p.split('/').pop()!
+  for (const p of group) if (await exists(v.abs(join2(folder, nameOf(p))))) throw new Error(`「${folder || v.name}」里已经有「${nameOf(p)}」了`)
+  const dest = new Map(group.map((p) => [p, join2(folder, nameOf(p))]))
+  // 笔记自己的附件文件夹（附件/<笔记路径>/）跟着走；读 PDF 的截图在 附件/<PDF 名字>/，只看名字，不用挪
+  const atts: { from: string; to: string }[] = []
+  for (const p of group.filter((x) => /\.md$/i.test(x))) {
+    const a = { from: attachmentDir(p), to: attachmentDir(dest.get(p)!) }
+    if ((await stat(v.abs(a.from)).catch(() => null))?.isDirectory() && !(await exists(v.abs(a.to)))) atts.push(a)
+  }
+  const attMaps = atts.map((a) => folderMap(a.from, a.to))
+  const map = (p: string) => dest.get(p) ?? attMaps.reduce<string | null>((hit, f) => hit ?? f(p), null)
+  const names = group.flatMap((p) => [nameOf(p), nameOf(p).replace(/\.md$/i, '')])
+  const mentions = (t: string) => names.some((n) => t.includes(n) || t.includes(n.replace(/ /g, '%20')) || t.includes(encodeURI(n)))
+  const candidates = new Set<string>()
+  for (const p of await allMd(v)) if (dest.has(p) || mentions(decodeNote(await readFile(v.abs(p))).text)) candidates.add(p)
+  const under = (p: string, d: string) => p === d || p.startsWith(d + '/')
+  const touches = (p: string) => dest.has(p) || [...dest.values()].includes(p) || atts.some((a) => under(p, a.from) || under(p, a.to)) || candidates.has(p) || p === PINS_FILE || p === LEFT_FILE
+  await commitPendingUnder(v.root, touches)
+  // 和写笔记排同一个队：挪的时候编辑器要存的字等着，挪完登记好新路径再写，不写回旧路径
+  await v.exclusive(async () => {
+    await mkdir(folder ? v.abs(folder) : v.root, { recursive: true })
+    for (const [from, to] of dest) await rename(v.abs(from), v.abs(to))
+    for (const a of atts) {
+      await mkdir(v.abs(parentOf(a.to)), { recursive: true })
+      await rename(v.abs(a.from), v.abs(a.to))
+    }
+    for (const [from, to] of dest) if (/\.md$/i.test(from)) await v.followOwnMove(from, to)
+  })
+  for (const [from, to] of dest) moved?.(from, to)
+  for (const oldPath of candidates) {
+    const newPath = map(oldPath) ?? oldPath
+    const { text, meta } = decodeNote(await readFile(v.abs(newPath)))
+    if (meta.readOnly) continue
+    const next = remapLinks(text, oldPath, newPath, map)
+    if (next !== text) await writeFile(v.abs(newPath), encodeNote(next, meta))
+  }
+  for (const [from, to] of dest) await repin(v, from, to)
+  const [main, ...rest] = group
+  const viz = rest.filter((p) => !/\.md$/i.test(p)).length
+  const carried = [rest.some((p) => /\.md$/i.test(p)) ? '笔记' : '', viz ? `${viz} 个可视化` : ''].filter(Boolean).join('、')
+  const commit = await commitTouched(v.root, touches, `移动：${nameOf(main!)} → ${folder || v.name}${carried ? `（连同${carried}）` : ''}`)
+  return { moves: [...dest].map(([from, to]) => ({ from, to })), commit }
+}
+
+/**
+ * 拖走一份时整组走的：PDF / HTML、旁边那篇读 PDF 笔记、笔记里的可视化（同一个文件夹里的，目录树里就挂在它下面）。
+ * 拖的是「<名字> 笔记.md」、旁边有那份 PDF（HTML）时，照拖 PDF 算。第一个是主的那份
+ */
+async function hungGroup(v: Vault, path: string): Promise<string[]> {
+  const dir = parentOf(path)
+  let host: string | null = /\.(pdf|html?)$/i.test(path) ? path : null
+  const m = /^(.*) 笔记\.md$/i.exec(path.split('/').pop()!)
+  if (!host && m) {
+    for (const ext of ['.pdf', '.html']) {
+      const h = join2(dir, m[1] + ext)
+      if (notePathFor(h) === path && (await exists(v.abs(h)))) host = h
+      if (host) break
+    }
+  }
+  if (!host) return [path]
+  const note = notePathFor(host)
+  if (!(await exists(v.abs(note)))) return [host]
+  const viz = parseReadingNote(decodeNote(await readFile(v.abs(note))).text, note).flatMap((s) => (s.viz ? [s.viz.path] : []))
+  const out = [host, note]
+  for (const p of viz) if (!out.includes(p) && parentOf(p) === dir && /\.html?$/i.test(p) && (await exists(v.abs(p)))) out.push(p)
+  return out
 }
 
 /** 挪了的一样：from → to；with 是跟着哪篇（挪到的新路径）一起挪的数据库记录文件夹 */

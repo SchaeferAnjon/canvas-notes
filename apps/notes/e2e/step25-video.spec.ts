@@ -170,14 +170,20 @@ test('第 2 轮：「接着问」带上那一帧和上一问的回答、前后�
     await waitSaved(page)
     await shotWindow(run, 'r2-video-follow-noted')
     const md = readFileSync(join(vault, NOTE), 'utf8')
-    const follow = md.slice(md.indexOf('那第三个箭头呢') - 400)
+    // 接着问记下的这一段：从它的小标题到下一块（或文末）。插在光标那一段（「我先写的一句。」）后面；
+    // 第一问那块问答在哪看第一次点版心落在哪（task-ys1rr 起点版心留白落到最后一行，那块在文末，这一段在它上面），不靠先后
+    const at = md.indexOf('## 测试小标题')
+    expect(at).toBeGreaterThan(0)
+    const next = md.indexOf('\n<!-- ', at)
+    const follow = md.slice(at, next < 0 ? undefined : next)
+    expect(follow).toContain('那第三个箭头呢')
     expect(follow).toMatch(/\[▶ 00:06 · Linear transformations and matrices\]\(http[^)]*t=6s?\) · \d\d:\d\d/)
-    expect(follow).toContain('看了 00:06 这一帧')
+    expect(md).toContain('看了 00:06 这一帧')
     expect(md).not.toContain('看了网页这一段')
     expect(md).not.toMatch(/\[127\.0\.0\.1\]/)
     // 身份写在第二行行尾（cn:thread），完整对话不再另写一份（CN-93）；那一帧上面那块问答里已经有了，这一段不再放一遍
     expect(follow).toMatch(/\) · \d\d:\d\d <!-- cn:thread=视频-youtube-[^\n]+ -->\n\n> \[!question\] 那第三个箭头呢\n/)
-    expect(follow.slice(follow.indexOf('## 测试小标题'))).not.toContain('![')
+    expect(follow).not.toContain('![')
     expect(md).not.toContain('完整对话')
     expect(existsSync(join(vault, '.canvas-notes/对话'))).toBe(false)
   } finally {

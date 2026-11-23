@@ -91,6 +91,7 @@ export async function startMcpServer(handlers: McpHandlers, opts: { name: string
       case 'tools/call': {
         const name = String(m.params?.name ?? '')
         const args = (m.params?.arguments ?? {}) as Record<string, unknown>
+        // 不翻：回给 AI 的工具结果（MCP 协议）
         if (!handlers.tools().some((t) => t.name === name)) return err(-32602, `没有叫 ${name} 的工具`)
         try {
           const r = await handlers.call(name, args, given)
@@ -100,6 +101,7 @@ export async function startMcpServer(handlers: McpHandlers, opts: { name: string
         }
       }
       default:
+        // 不翻：回给 AI 的工具结果（MCP 协议）
         return err(-32601, `不支持 ${m.method}`)
     }
   }
@@ -129,6 +131,7 @@ function readBody(req: IncomingMessage): Promise<string> {
     req.on('data', (c: Buffer) => {
       size += c.length
       if (size > MAX_BODY) {
+        // 不翻：回给 AI 的工具结果（MCP 协议）
         reject(new Error('请求太大'))
         req.destroy()
       } else chunks.push(c)

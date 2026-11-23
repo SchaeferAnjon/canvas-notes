@@ -11,6 +11,7 @@ import { when } from '../shared/when'
 import * as C from './ai-chats'
 import * as R from './reading/store'
 import { useDismiss } from './use-dismiss'
+import { useT } from './i18n'
 
 /**
  * 这一格在看哪段对话（D 组 CN-132）：这里（当前页面）的，或者菜单里点开的别处的那段。
@@ -33,6 +34,7 @@ export function AiHead(props: {
   newDisabled?: boolean
   onNew(): void
 }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   // 对话菜单：点胶囊和菜单以外任何地方、按 Esc、窗口失焦都收起，再点胶囊是收起不是重开（CN-88）
   const box = useRef<HTMLDivElement>(null)
@@ -40,7 +42,7 @@ export function AiHead(props: {
   return (
     <div className="aih">
       <div className="convbox" ref={box}>
-        <button className={'conv' + (open ? ' open' : '')} data-testid="ai-conv" aria-label={`对话：${props.label}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <button className={'conv' + (open ? ' open' : '')} data-testid="ai-conv" aria-label={t('对话：{name}', { name: props.label })} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           <Codicon name="comment-discussion" size={13} className="ic" />
           <span className="t">{props.label}</span>
           <Codicon name="chevron-down" size={12} className="cv" />
@@ -48,7 +50,7 @@ export function AiHead(props: {
         {open && <ConvMenu nav={props.nav} close={() => setOpen(false)} />}
       </div>
       <span className="acts">
-        <button aria-label="新对话" data-tip={props.newTip} data-side="below" disabled={props.newDisabled} onClick={props.onNew}>
+        <button aria-label={t('新对话')} data-tip={props.newTip} data-side="below" disabled={props.newDisabled} onClick={props.onNew}>
           <Codicon name="add" size={16} />
         </button>
       </span>
@@ -64,6 +66,7 @@ const RECENT = 5
  * 「最近在别处问的」（别的地方问过的，含读 PDF 的，按最近时间排，右边时间）、「全部对话…」（同一个菜单里列出全部，能滚）
  */
 function ConvMenu(props: { nav: DockNav; close(): void }) {
+  const t = useT()
   const { here, away } = props.nav
   const [list, setList] = useState<ChatSummary[] | null>(null)
   const [all, setAll] = useState(false)
@@ -92,23 +95,23 @@ function ConvMenu(props: { nav: DockNav; close(): void }) {
   )
   if (all)
     return (
-      <div className="convmenu" role="menu" aria-label="对话">
-        <div className="mh">全部对话</div>
+      <div className="convmenu" role="menu" aria-label={t('对话')}>
+        <div className="mh">{t('全部对话')}</div>
         <div className="all">{(list ?? []).map(row)}</div>
       </div>
     )
   return (
-    <div className="convmenu" role="menu" aria-label="对话">
-      <div className="mh">这里</div>
+    <div className="convmenu" role="menu" aria-label={t('对话')}>
+      <div className="mh">{t('这里')}</div>
       <button className="it" role="menuitemradio" aria-checked={!away} onClick={() => pick(null)}>
         <span className="ck">{!away && <Codicon name="check" size={12} />}</span>
         <span className="lb">{here.label}</span>
-        <span className="r">{hereAsks ? `${hereAsks}问` : '还没问过'}</span>
+        <span className="r">{hereAsks ? t('{n}问', { n: hereAsks }) : t('还没问过')}</span>
       </button>
       {others.length > 0 && (
         <>
           <div className="sep" />
-          <div className="mh">最近在别处问的</div>
+          <div className="mh">{t('最近在别处问的')}</div>
           {others.slice(0, RECENT).map(row)}
         </>
       )}
@@ -117,7 +120,7 @@ function ConvMenu(props: { nav: DockNav; close(): void }) {
         <span className="ck">
           <Codicon name="history" size={12} />
         </span>
-        <span className="lb">全部对话…</span>
+        <span className="lb">{t('全部对话…')}</span>
       </button>
     </div>
   )
@@ -125,13 +128,14 @@ function ConvMenu(props: { nav: DockNav; close(): void }) {
 
 /** 在看别处的对话时，「看得到」那一行换成这一行：「这是在「X」问的 · 回到「周记」」 */
 export function AwayBar(props: { nav: DockNav }) {
+  const t = useT()
   const { here, away } = props.nav
   if (!away) return null
   return (
     <div className="away" data-testid="ai-away">
       <Codicon name="history" size={13} />
-      <span className="tx">{`这是在「${away.label}」问的`}</span>
-      <button onClick={() => props.nav.pick(null)}>{`回到「${here.label}」`}</button>
+      <span className="tx">{t('这是在「{name}」问的', { name: away.label })}</span>
+      <button onClick={() => props.nav.pick(null)}>{t('回到「{name}」', { name: here.label })}</button>
     </div>
   )
 }
@@ -143,9 +147,10 @@ export function AwayBar(props: { nav: DockNav }) {
  */
 /** 「看得到」那一行 */
 export function Sees(props: { testid: string; children: React.ReactNode }) {
+  const t = useT()
   return (
     <div className="sees" data-testid={props.testid}>
-      <span className="k">看得到</span>
+      <span className="k">{t('看得到')}</span>
       {props.children}
     </div>
   )

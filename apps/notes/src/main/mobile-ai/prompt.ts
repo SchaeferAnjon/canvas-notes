@@ -4,7 +4,8 @@
  *
  * 照电脑版的规矩：
  * - 讲解一下、翻译 + 讲一讲的问法和读 PDF 一样（「给我讲解一下」「先把这块翻译成中文，再讲一讲」，reading/prompts.ts 的 askPrompt 那几句）；
- * - 每条消息开头一行【语言】（task-zojmg：默认跟界面语言，用别的语言问就跟着问的语言答，那一句和 shared/answer-lang.ts 的 answerRule 一字不差）；
+ * - 每条消息开头一行【语言】（task-zojmg：默认跟界面语言，用别的语言问就跟着问的语言答）。电脑版后来改成软件看字定、交给 AI 一句直接的话
+ *   （shared/answer-lang.ts 的 answerRule），手机这一路和 Swift 那份（MobileAIPrompt.swift）对照着，还是让 AI 自己判断的那句，两边一起改；
  * - 设置 › AI「给AI的长期说明」放在最前面（agent/modes.ts 的 userNoteLine）；
  * - 不接着会话聊：每一问都开新会话，前面聊过的几轮（最近 10 条、每条 600 字）放在最前面（agent/index.ts 的 historyOf）。
  *   所以没有「系统提示改了、旧会话还用旧的」的问题，用不着 AGENT_VERSION 那样记版本；系统提示改了下一问就用上。
@@ -12,7 +13,7 @@
  */
 import { MATH_RULE } from '../../shared/reading'
 
-export type AskKind = 'chat' | 'explain' | 'translate' | 'ask'
+export type AskKind = 'chat' | 'explain' | 'translate' | 'ask' | 'cmd'
 
 export type AskSource =
   | { kind: 'pdf'; title: string; path: string; page: number; pages: number; pageText?: string }
@@ -25,7 +26,10 @@ export interface AskTurn {
 }
 
 export interface MobileAsk {
-  /** chat：AI 对话里问；explain：讲解一下；translate：翻译 + 讲一讲；ask：选中一段以后自己打的问题 */
+  /**
+   * chat：AI 对话里问；explain：讲解一下；translate：翻译 + 讲一讲；ask：选中一段以后自己打的问题；
+   * cmd：/ 命令（text 是 iPad 照 shared/cmd-run.ts 拼好的整段话：AI 只给要加什么，字由 iPad 拼进笔记、先给他看、点「好」才写）
+   */
   kind: AskKind
   /** 自己打的话（chat、ask）；explain、translate 不看它 */
   text: string
@@ -41,6 +45,8 @@ export interface MobileAsk {
   device?: string
   /** 设置 › AI 的长期说明：Mac 那一路用 Mac 自己设置里的，云端那一路 iPad 带着上一次从 Mac 拿到的 */
   note?: string
+  /** 用 Pencil 圈的那一块截图（PNG 的 base64）：和这一问一起给 AI 看 */
+  image?: string
 }
 
 /** 讲解一下、翻译 + 讲一讲发出去的话（和电脑版读 PDF 一字不差） */
@@ -67,7 +73,7 @@ ${MATH_RULE}提到别的页写成 [第 4 页](#page=4)。
 这一路你只回答，不动手：不改文件、不跑命令。你的回答会原样写进他这份 PDF（或网页、笔记）配对的那篇笔记。
 回答用哪种语言照每条消息开头的【语言】。`
 
-/** 每条消息开头的【语言】（shared/answer-lang.ts 的 answerRule 同一句） */
+/** 每条消息开头的【语言】（和 Swift 的 MobileAIPrompt.langLine 同一句） */
 export function langLine(lang: 'zh' | 'en' = 'zh'): string {
   return `【语言】默认用${lang === 'en' ? '英文' : '中文'}回答；用户用别的语言问，就用他问的那种语言答。`
 }
@@ -86,7 +92,7 @@ const PAGE_NO_TEXT = '（这一页没有能选的字，是图片或扫描件）'
 
 /** 这一问问的那句：讲解一下、翻译 + 讲一讲是固定的；没选中字的讲解一下是问这一页 */
 export function questionOf(a: MobileAsk): string {
-  if (a.kind === 'explain') return a.quote ? EXPLAIN_Q : EXPLAIN_PAGE_Q
+  if (a.kind === 'explain') return a.quote || a.image ? EXPLAIN_Q : EXPLAIN_PAGE_Q
   if (a.kind === 'translate') return TRANSLATE_Q
   return a.text.trim()
 }
@@ -103,7 +109,7 @@ function where(s: AskSource | undefined): string {
 function readingAsk(a: MobileAsk, q: string): string {
   const s = a.source
   const out: string[] = []
-  const picked = a.quote ? `他选中了这段字：「${a.quote}」。` : s?.kind === 'pdf' ? '他问的是整页。' : ''
+  const picked = a.quote ? `他选中了这段字：「${a.quote}」。` : s?.kind === 'pdf' ? (a.image ? '他在这一页上框了一块，就是附上的图。' : '他问的是整页。') : ''
   if (s?.kind === 'pdf') {
     out.push(`他现在在看第 ${s.page} 页（共 ${s.pages} 页），PDF「${s.title}」。这一页的文字：\n<page>\n${s.pageText || PAGE_NO_TEXT}\n</page>`)
   } else if (s?.kind === 'web') {
@@ -122,7 +128,14 @@ export interface BuiltPrompt {
   prompt: string
 }
 
+/** / 命令的系统提示：电脑版 renderer/ai-commands.ts 的 system() 那几句，语言那句照这一问的界面语言（和 Swift 的 cmdSystem 同一句） */
+export const cmdSystem = (lang: 'zh' | 'en' = 'zh') => `你是 Canvas Notes 笔记软件里的助手，帮一个人整理和写作自己的笔记。
+默认用${lang === 'en' ? '英文' : '中文'}回答；用户用别的语言问，就用他问的那种语言答；平实、直接，不客套，不重复问题。笔记内容在用户消息里，只根据这些内容回答，不编造没有的事。
+${MATH_RULE}`
+
 export function buildPrompt(a: MobileAsk): BuiltPrompt {
+  // / 命令：话已经照电脑版拼好（命令：… 文件：… 只输出 JSON……），原样交给 AI
+  if (a.kind === 'cmd') return { system: cmdSystem(a.lang), appendSystem: false, prompt: a.text }
   const q = questionOf(a)
   const head = [historyText(a.history), a.note?.trim() ? noteLine(a.note.trim()) : '', langLine(a.lang), a.device ? `他在${a.device}上问你。` : ''].filter(Boolean)
   if (a.kind === 'chat') {
@@ -141,9 +154,11 @@ const opt = (x: unknown, max: number) => x === undefined || str(x, max)
 export function checkAsk(x: unknown): MobileAsk {
   const o = (x && typeof x === 'object' ? x : {}) as Record<string, unknown>
   const bad = () => new Error('请求不对')
-  if (!['chat', 'explain', 'translate', 'ask'].includes(o.kind as string) || !str(o.text, 20_000)) throw bad()
+  if (!['chat', 'explain', 'translate', 'ask', 'cmd'].includes(o.kind as string) || !str(o.text, o.kind === 'cmd' ? 120_000 : 20_000)) throw bad()
+  // 圈的那一块截图：PNG 的 base64，最多约 4.5 MB
+  if (o.image !== undefined && (!str(o.image, 6_000_000) || !/^[A-Za-z0-9+/]+=*$/.test(o.image as string))) throw bad()
   if (!opt(o.quote, 20_000) || !opt(o.note, 4000) || !opt(o.device, 40) || (o.lang !== undefined && o.lang !== 'zh' && o.lang !== 'en')) throw bad()
-  if ((o.kind === 'chat' || o.kind === 'ask') && !(o.text as string).trim()) throw bad()
+  if ((o.kind === 'chat' || o.kind === 'ask' || o.kind === 'cmd') && !(o.text as string).trim()) throw bad()
   let history: AskTurn[] | undefined
   if (o.history !== undefined) {
     if (!Array.isArray(o.history) || o.history.length > 40) throw bad()
@@ -176,5 +191,6 @@ export function checkAsk(x: unknown): MobileAsk {
     ...(o.lang ? { lang: o.lang as 'zh' | 'en' } : {}),
     ...(o.device ? { device: o.device as string } : {}),
     ...(o.note ? { note: o.note as string } : {}),
+    ...(o.image ? { image: o.image as string } : {}),
   }
 }

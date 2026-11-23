@@ -1,7 +1,7 @@
 /**
  * 「存成命令」那张表（task-9womr，方向 C 第二版摆法 A「设置在右边」，小样 canvas-notes-commands/v2/proto-c2.html）。
  * - 从对话存（chat）：左边对照（改前 · N 轮之前 / 改后 · 现在 / 并排对照，并排用历史里的对比标签那一套），
- *   右边「看出的规矩」（打开就问 AI 比对，指一条左边亮出依据，点一下钉住）和「怎么用」四行，底下整宽「存之前看清它会改什么」；
+ *   右边「看出的规矩」（打开就问 AI 比对，指一条左边亮出依据，点一下钉住）和「怎么用」五行（多了「选中小条」，task-26nz7），底下整宽「存之前看清它会改什么」；
  * - 从头写（new）、改自己的（edit）、复制自带的再改（copy）：同一张表没有左边对照，规矩一条条加；860 宽，影响卡六格排两列。
  * AI 对话、⌘K、/ 菜单用 commands/editor.ts 的 openCmdEditor 开它；App 挂一个 CmdEditorHost。
  */
@@ -20,7 +20,12 @@ import { isKey, keyFor, withKeys } from '../keys'
 import { type CmdEditorInit, onCmdEditor } from './editor'
 import { compact, evidence, foldRanges, type Place, placesOf, sameLines, setSpot, tidyDiff } from './evidence'
 import { newCmdId, saveAiCmd } from './store'
+import { rich, useLang, useT } from '../i18n'
+import { list, t as tNow } from '../../shared/i18n'
 import './save-cmd.css'
+import { putOnBar } from '../sel-bar/run'
+import { zoneOf } from '../../shared/sel-bar'
+import { cmdConfig } from '../search/cmd-store'
 
 type ChatInit = Extract<CmdEditorInit, { kind: 'chat' }>
 type View = 'before' | 'after' | 'split'
@@ -50,11 +55,12 @@ const distilled = new Map<string, Distilled>()
 /** 对照区的编辑器多加的：亮出依据、空行收矮（一个不变的数组，换看法时编辑器才重画） */
 const COMPARE_EXT = [...evidence, ...compact, ...tidyDiff]
 
-const VIEWS: readonly (readonly [View, string])[] = [
-  ['before', '改前'],
-  ['after', '改后'],
-  ['split', '并排里'],
-]
+/** 指着一条时那一种看法里有几处依据 */
+// 不翻：键，画的地方 t(EV_TEXT[view], { n })
+const EV_TEXT: Record<View, string> = { before: '改前 {n} 处依据', after: '改后 {n} 处依据', split: '并排里 {n} 处依据' }
+
+/** 几句引起来：中文「a」「b」挨着，英文 “a”, “b” */
+const quoted = (lang: 'zh' | 'en', xs: readonly string[]) => (lang === 'en' ? list(xs.map((x) => `“${x}”`), 'en') : xs.map((x) => `「${x}」`).join(''))
 
 /** App 挂一个：AI 对话、⌘K、/ 菜单调 openCmdEditor 时开那张表；here 是开着的那一篇（从头写、改的时候拿它举例） */
 export function CmdEditorHost(props: { onNotice(text: string): void; here: string | null }) {
@@ -65,18 +71,28 @@ export function CmdEditorHost(props: { onNotice(text: string): void; here: strin
 }
 
 function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(text: string): void; onClose(): void }) {
+  const t = useT()
+  const lang = useLang()
   const { init } = props
   const chat: ChatInit | null = init.kind === 'chat' ? init : null
   /** 改的是哪一条（再改一次、⌘K 里改这条命令…）：存的时候还是这个编号 */
   const base: AiCmd | undefined = init.kind === 'edit' ? init.cmd : chat?.edit
   const copyOf = init.kind === 'copy' ? init.builtin : null
 
-  const [name, setName] = useState(base?.name ?? (copyOf ? `我的${copyOf.name}` : ''))
+  // 复制自带的：默认名字「我的补双链」（英文 my-add-links：名字里不能有空白）
+  const [name, setName] = useState(base?.name ?? (copyOf ? t('我的{name}', { name: t(copyOf.name) }) : ''))
   const nameTouched = useRef(!!base || !!copyOf)
   const [where, setWhere] = useState<Where[]>(() => [...(base?.where ?? copyOf?.copy.where ?? ['doc'])])
   const [write, setWrite] = useState<Write>(base?.write ?? copyOf?.copy.write ?? 'inplace')
   const [store, setStore] = useState<'vault' | 'local'>(base?.store ?? 'vault')
-  const [rules, setRules] = useState<Rule[]>(() => (chat ? [] : (base?.rules.map((r) => ruleOf(r)) ?? copyOf?.rules.map((t) => ruleOf({ t })) ?? [])))
+  /** 选中小条（task-26nz7）：不放 / 收进 ⋯ / 放上条；改的那条已经在表里的照它现在在哪 */
+  const barAt = (() => {
+    const z = base ? zoneOf(cmdConfig().bar, base.id) : null
+    return z === 'on' || z === 'more' ? z : 'none'
+  })()
+  const [bar, setBar] = useState<'none' | 'more' | 'on'>(barAt)
+  // 复制自带的：它的规矩照界面语言变成你自己的那几条
+  const [rules, setRules] = useState<Rule[]>(() => (chat ? [] : (base?.rules.map((r) => ruleOf(r)) ?? copyOf?.rules.map((r) => ruleOf({ t: t(r) })) ?? [])))
   const [unused, setUnused] = useState<string[]>([])
   /** 对话存：先读改之前那一版、再问 AI 比对（loading），比完 ready；没成写为什么 */
   const [phase, setPhase] = useState<'loading' | 'ready' | { error: string }>(chat ? 'loading' : 'ready')
@@ -131,7 +147,7 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
           : fresh,
       )
       setUnused(d.unused)
-      if (!nameTouched.current) setName(d.name || `整理成${chat.title}的样子`)
+      if (!nameTouched.current) setName(d.name || tNow('整理成{title}的样子', { title: chat.title }))
       setPhase('ready')
     })().catch((e: unknown) => live && setPhase({ error: errText(e) }))
     return () => {
@@ -143,16 +159,16 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
   }, [tries])
 
   /** 举例的那一篇：对话里改的这一篇；从头写时用开着的那一篇，没有就写「这一篇」 */
-  const ex = chat?.example ?? (init.kind !== 'chat' ? init.example : undefined) ?? (props.here ? { title: titleOf(props.here), folder: dirOf(props.here) } : { title: '这一篇', folder: '它在的文件夹' })
+  const ex = chat?.example ?? (init.kind !== 'chat' ? init.example : undefined) ?? (props.here ? { title: titleOf(props.here), folder: dirOf(props.here) } : { title: t('这一篇'), folder: t('它在的文件夹') })
   const clean = cleanName(name)
-  const shown = clean || '我的命令'
+  const shown = clean || t('我的命令', { ctx: '名字' })
   const m = impactOf({ name: clean, where, write, store, example: ex.title, folder: ex.folder, who: init.who })
   const live = rules.filter((r) => !r.off && r.t.trim())
   const offN = rules.filter((r) => r.off).length
   const ready = phase === 'ready'
   /** 底栏左边那句：等比对的是灰字，存不了的是黄字 */
-  const wait = chat && phase === 'loading' ? '正在比对，比完再存' : null
-  const problem = wait ?? (typeof phase === 'object' ? '比对没成，存不了' : !chat && !rules.length ? '先写一条规矩' : saveProblem({ rules, name: clean, where }))
+  const wait = chat && phase === 'loading' ? t('正在比对，比完再存') : null
+  const problem = wait ?? (typeof phase === 'object' ? t('比对没成，存不了') : !chat && !rules.length ? t('先写一条规矩') : saveProblem({ rules, name: clean, where }))
 
   const active = chat && ready ? (hover ?? pin) : null
   const activeRule = active !== null ? (rules[active] ?? null) : null
@@ -175,7 +191,8 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
     }
     try {
       await saveAiCmd(cmd)
-      props.onNotice(withKeys(`存好了：/${cmd.name} · 在 / 菜单和 {k:search} 的「让AI做」里`))
+      if (bar !== barAt) await putOnBar(cmd, bar === 'none' ? null : bar)
+      props.onNotice(withKeys(t('存好了：/{name} · 在 / 菜单和 {k:search} 的「让AI做」里', { name: cmd.name })))
       props.onClose()
     } catch (e) {
       setSaveErr(errText(e))
@@ -215,14 +232,14 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
     return () => window.removeEventListener('keydown', k, true)
   }, [])
 
-  const title = chat ? '存成命令' : init.kind === 'new' ? '加一条 AI 命令' : init.kind === 'edit' ? '改这条命令' : `复制「${copyOf!.name}」再改`
+  const title = chat ? t('存成命令') : init.kind === 'new' ? t('加一条 AI 命令') : init.kind === 'edit' ? t('改这条命令') : t('复制「{name}」再改', { name: t(copyOf!.name) })
   const sub = chat
-    ? `照「${chat.title}」${chat.rounds} 轮之前和现在的样子，看出你要的是哪几条`
+    ? t('照「{title}」{n} 轮之前和现在的样子，看出你要的是哪几条', { title: chat.title, n: chat.rounds })
     : init.kind === 'new'
-      ? '从头写一条，没有对话就没有左边对照，只填规矩'
+      ? t('从头写一条，没有对话就没有左边对照，只填规矩')
       : init.kind === 'edit'
-        ? `改好了点存好，下次打 /${init.cmd.name} 就照新的做`
-        : `自带的「${copyOf!.name}」不能改字：复制一份成你自己的，改哪条都行`
+        ? t('改好了点存好，下次打 /{name} 就照新的做', { name: init.cmd.name })
+        : t('自带的「{name}」不能改字：复制一份成你自己的，改哪条都行', { name: t(copyOf!.name) })
 
   const ruleList = (
     <Rules
@@ -262,34 +279,34 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
           <span className="tt">{title}</span>
           <span className="st">{sub}</span>
           <span className="sp" />
-          <button className="sc-ib" aria-label="关上" title="关上 esc" onClick={props.onClose}>
+          <button className="sc-ib" aria-label={t('关上')} title={t('关上 esc')} onClick={props.onClose}>
             <Codicon name="close" size={16} />
           </button>
         </header>
         {chat ? (
           <div className="sc-body">
-            <section className="sc-cmp" aria-label="对照">
+            <section className="sc-cmp" aria-label={t('对照')}>
               {prep ? (
                 <Compare prep={prep} chat={chat} view={view} onView={setView} rule={activeRule} pinned={pin !== null && active === pin} onUnpin={() => setPin(null)} />
               ) : (
-                <div className="sc-cp">{typeof phase === 'object' ? <p className="sc-note">读不出改之前的样子：{phase.error}</p> : <p className="sc-note">读取中…</p>}</div>
+                <div className="sc-cp">{typeof phase === 'object' ? <p className="sc-note">{t('读不出改之前的样子：{error}', { error: phase.error })}</p> : <p className="sc-note">{t('读取中…')}</p>}</div>
               )}
             </section>
             <section className="sc-rc">
               <div className="sc-sec">
-                <b>看出的规矩</b>
-                <span className="c">勾着的写进说明 · 指一条，左边亮出依据</span>
+                <b>{t('看出的规矩')}</b>
+                <span className="c">{t('勾着的写进说明 · 指一条，左边亮出依据')}</span>
               </div>
               {phase === 'loading' ? (
                 <div className="sc-wait">
                   <Codicon name="loading" size={14} className="spin" />
-                  {`正在比对「${chat.title}」${chat.rounds} 轮之前和现在的样子…`}
+                  {t('正在比对「{title}」{n} 轮之前和现在的样子…', { title: chat.title, n: chat.rounds })}
                 </div>
               ) : typeof phase === 'object' ? (
                 <div className="sc-wait err">
-                  <span>{`比对没成：${phase.error}`}</span>
+                  <span>{t('比对没成：{error}', { error: phase.error })}</span>
                   <button className="btn btn-sm" onClick={() => setTries((n) => n + 1)}>
-                    再试一次
+                    {t('再试一次')}
                   </button>
                 </div>
               ) : (
@@ -298,43 +315,43 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
                   {/* AI 的回答里没有能用的规矩（只剩照提交算的「只改这一篇」）：说一句，能再问一次 */}
                   {!rules.some((r) => !r.scope) && (
                     <div className="sc-wait err">
-                      <span>这次没看出改前改后有什么规矩</span>
+                      <span>{t('这次没看出改前改后有什么规矩')}</span>
                       <button className="btn btn-sm" onClick={() => setTries((n) => n + 1)}>
-                        再试一次
+                        {t('再试一次')}
                       </button>
                     </div>
                   )}
                 </>
               )}
               {ready && unused.length > 0 && (
-                <div className="sc-said" title={`你说过、结果里看不出来的，没算进去：${unused.map((u) => `「${u}」`).join('')}`}>
+                <div className="sc-said" title={t('你说过、结果里看不出来的，没算进去：{list}', { list: quoted(lang, unused) })}>
                   <Codicon name="info" size={12} />
-                  <span>{`没算进去的话：${unused.map((u) => `「${u}」`).join('')}`}</span>
+                  <span>{t('没算进去的话：{list}', { list: quoted(lang, unused) })}</span>
                 </div>
               )}
-              <HowForm name={name} where={where} write={write} store={store} onName={(v) => ((nameTouched.current = true), setName(v))} onWhere={setWhere} onWrite={setWrite} onStore={setStore} />
+              <HowForm name={name} where={where} write={write} store={store} onName={(v) => ((nameTouched.current = true), setName(v))} onWhere={setWhere} onWrite={setWrite} onStore={setStore} bar={bar} onBar={setBar} />
             </section>
           </div>
         ) : (
           <div className="sc-body">
             <section className="sc-lc">
               <div className="sc-sec">
-                <b>规矩</b>
-                <span className="c">勾着的写进说明</span>
+                <b>{t('规矩')}</b>
+                <span className="c">{t('勾着的写进说明')}</span>
               </div>
               {ruleList}
               <AddRule full={rules.length >= MAX_RULES} onAdd={(t) => setRules((rs) => [...rs, ruleOf({ t })])} />
             </section>
             <section className="sc-rc solo">
-              <HowForm name={name} where={where} write={write} store={store} onName={setName} onWhere={setWhere} onWrite={setWrite} onStore={setStore} />
+              <HowForm name={name} where={where} write={write} store={store} onName={setName} onWhere={setWhere} onWrite={setWrite} onStore={setStore} bar={bar} onBar={setBar} />
             </section>
           </div>
         )}
         <Impact m={m} example={ex.title} name={shown} engine={init.engine} ready={ready} />
         <footer className="sc-foot">
           {showText && (
-            <div className="sc-pop" role="dialog" aria-label="说明全文">
-              <div className="t">存进去的说明（AI 每次照这几条做）</div>
+            <div className="sc-pop" role="dialog" aria-label={t('说明全文')}>
+              <div className="t">{t('存进去的说明（AI 每次照这几条做）')}</div>
               <ol>
                 {live.map((r) => (
                   <li key={r.key}>{r.t.trim()}</li>
@@ -342,26 +359,28 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
               </ol>
               {(chat || offN > 0) && (
                 <div className="s">
-                  {chat ? `照「${chat.title}」${chat.rounds} 轮之前和现在的对比提炼。` : ''}
-                  {offN ? `没勾的 ${offN} 条不写进去。` : ''}
+                  {[chat ? t('照「{title}」{n} 轮之前和现在的对比提炼。', { title: chat.title, n: chat.rounds }) : '', offN ? t('没勾的 {n} 条不写进去。', { n: offN }) : '']
+                    .filter(Boolean)
+                    .join(lang === 'en' ? ' ' : '')}
                 </div>
               )}
             </div>
           )}
           <span className={'lt' + ((problem && !wait) || saveErr ? ' warn' : '')}>
             {((problem && !wait) || saveErr) && <Codicon name="warning" size={14} />}
-            {saveErr ? `没存上：${saveErr}` : (problem ?? `勾着的 ${live.length} 条会写成命令的说明`)}
+            {saveErr ? t('没存上：{error}', { error: saveErr }) : (problem ?? t('勾着的 {n} 条会写成命令的说明', { n: live.length }))}
           </span>
           <button className="btn btn-sm btn-ghost" data-act="text" onClick={() => setShowText((v) => !v)}>
             <Codicon name={showText ? 'eye-closed' : 'eye'} size={14} />
-            {showText ? '收起说明' : '看说明全文'}
+            {showText ? t('收起说明') : t('看说明全文')}
           </button>
           <button className="btn btn-sm btn-ghost" onClick={props.onClose}>
-            取消
+            {t('取消')}
           </button>
           <button className="btn btn-sm btn-primary" disabled={!!problem || saving} onClick={() => void save()}>
             <Codicon name="check" size={14} />
-            存好<span className="sc-kbd">{keyFor('submit')}</span>
+            {t('存好')}
+            <span className="sc-kbd">{keyFor('submit')}</span>
           </button>
         </footer>
       </div>
@@ -372,6 +391,7 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
 // ---------------------------------------------------------------- 左边：对照
 
 function Compare(p: { prep: Prep; chat: ChatInit; view: View; onView(v: View): void; rule: Rule | null; pinned: boolean; onUnpin(): void }) {
+  const t = useT()
   const { prep, chat, view, rule } = p
   const before = prep.before ?? ''
   const after = prep.after
@@ -383,27 +403,17 @@ function Compare(p: { prep: Prep; chat: ChatInit; view: View; onView(v: View): v
     return { path: chat.path, status: 'changed', kind: 'md', before: b, after: a, size: a.length, added: stat.add, removed: stat.del, summary: '', exists: true }
   }, [view, before, after, chat.path, stat])
   const res = useMemo<DiffResult>(
-    () => ({ note: '', left: `改之前 · ${chat.rounds} 轮之前 · ${short(prep.beforeHash)}`, right: prep.dirty ? '现在 · 还没提交' : `现在 · ${short(prep.afterHash)}`, files: [] }),
-    [chat.rounds, prep],
+    () => ({ note: '', left: t('改之前 · {n} 轮之前 · {hash}', { n: chat.rounds, hash: short(prep.beforeHash) }), right: prep.dirty ? t('现在 · 还没提交') : t('现在 · {hash}', { hash: short(prep.afterHash) }), files: [] }),
+    [chat.rounds, prep, t],
   )
   /** 两列抬头：提交号用等宽字（和工具条右边同一个号同一种字） */
   const cols = useMemo(
     () =>
       [
-        <>
-          {`改之前 · ${chat.rounds} 轮之前 · `}
-          <span className="mono">{short(prep.beforeHash)}</span>
-        </>,
-        prep.dirty ? (
-          '现在 · 还没提交'
-        ) : (
-          <>
-            {'现在 · '}
-            <span className="mono">{short(prep.afterHash)}</span>
-          </>
-        ),
+        <>{rich(t('改之前 · {n} 轮之前 · {hash}', { n: chat.rounds }), { hash: <span className="mono">{short(prep.beforeHash)}</span> })}</>,
+        prep.dirty ? t('现在 · 还没提交') : <>{rich(t('现在 · {hash}'), { hash: <span className="mono">{short(prep.afterHash)}</span> })}</>,
       ] as const,
-    [chat.rounds, prep],
+    [chat.rounds, prep, t],
   )
   const views = useRef<DiffViews | null>(null)
   const [gen, setGen] = useState(0)
@@ -483,13 +493,13 @@ function Compare(p: { prep: Prep; chat: ChatInit; view: View; onView(v: View): v
 
   let empty: string | null = null
   if (ev) {
-    if (!ev.before.length && !ev.after.length) empty = '这条指不出具体哪几行：依据只有右边那一句'
-    else if (view === 'before' && !ev.before.length) empty = '改前没有这一样：切到「改后」或「并排对照」看它多出来的地方'
-    else if (view === 'after' && !ev.after.length) empty = '改后没有这一样了：切到「改前」或「并排对照」看原来的样子'
+    if (!ev.before.length && !ev.after.length) empty = t('这条指不出具体哪几行：依据只有右边那一句')
+    else if (view === 'before' && !ev.before.length) empty = t('改前没有这一样：切到「改后」或「并排对照」看它多出来的地方')
+    else if (view === 'after' && !ev.after.length) empty = t('改后没有这一样了：切到「改前」或「并排对照」看原来的样子')
   }
   const name = baseName(chat.path)
   const unpin = (
-    <button className="sc-ib sm" aria-label="不钉了" title="不钉了" onClick={p.onUnpin}>
+    <button className="sc-ib sm" aria-label={t('不钉了')} title={t('不钉了')} onClick={p.onUnpin}>
       <Codicon name="close" size={14} />
     </button>
   )
@@ -497,17 +507,17 @@ function Compare(p: { prep: Prep; chat: ChatInit; view: View; onView(v: View): v
   return (
     <>
       <div className="sc-bar">
-        <div className="seg" role="tablist" aria-label="对照的看法">
+        <div className="seg" role="tablist" aria-label={t('对照的看法')}>
           {(
             [
-              ['before', `改前 · ${chat.rounds} 轮之前`],
-              ['after', '改后 · 现在'],
-              ['split', '并排对照'],
+              ['before', t('改前 · {n} 轮之前', { n: chat.rounds })],
+              ['after', t('改后 · 现在')],
+              ['split', t('并排对照')],
             ] as const
-          ).map(([v, t]) => (
+          ).map(([v, label]) => (
             <button key={v} role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => p.onView(v)}>
               {v === 'split' && <Codicon name="split-horizontal" size={14} />}
-              {t}
+              {label}
             </button>
           ))}
         </div>
@@ -515,13 +525,13 @@ function Compare(p: { prep: Prep; chat: ChatInit; view: View; onView(v: View): v
           {ev ? (
             <span className="sc-evp">
               <Codicon name="eye" size={14} />
-              {`${VIEWS.find((x) => x[0] === view)![1]} ${places.length} 处依据`}
+              {t(EV_TEXT[view], { n: places.length })}
               {p.pinned && (
                 <>
-                  <button className="sc-ib sm" aria-label="上一处" title="上一处" onClick={() => go(-1)}>
+                  <button className="sc-ib sm" aria-label={t('上一处')} title={t('上一处')} onClick={() => go(-1)}>
                     <Codicon name="arrow-up" size={14} />
                   </button>
-                  <button className="sc-ib sm" aria-label="下一处" title="下一处" onClick={() => go(1)}>
+                  <button className="sc-ib sm" aria-label={t('下一处')} title={t('下一处')} onClick={() => go(1)}>
                     <Codicon name="arrow-down" size={14} />
                   </button>
                   {unpin}
@@ -531,7 +541,7 @@ function Compare(p: { prep: Prep; chat: ChatInit; view: View; onView(v: View): v
           ) : rule ? (
             <span className="sc-evp">
               <Codicon name="git-commit" size={14} />
-              <span>依据在提交里</span>
+              <span>{t('依据在提交里')}</span>
               {p.pinned && unpin}
             </span>
           ) : (
@@ -539,10 +549,7 @@ function Compare(p: { prep: Prep; chat: ChatInit; view: View; onView(v: View): v
               <span className="num">
                 <span className="add">+{stat.add}</span> <span className="del">−{stat.del}</span>
               </span>
-              <span>
-                {`${chat.rounds} 轮 · `}
-                <span className="mono">{`${short(prep.beforeHash)} → ${prep.dirty ? '现在' : short(prep.afterHash)}`}</span>
-              </span>
+              <span>{rich(t('{n} 轮 · {range}', { n: chat.rounds }), { range: <span className="mono">{`${short(prep.beforeHash)} → ${prep.dirty ? t('现在') : short(prep.afterHash)}`}</span> })}</span>
             </>
           )}
         </span>
@@ -550,13 +557,13 @@ function Compare(p: { prep: Prep; chat: ChatInit; view: View; onView(v: View): v
       <div className={'sc-cp ' + (view === 'split' ? 'v-split' : 'v-one') + (ev ? ' spot' : '')}>
         {rule?.scope && (
           <div className="sc-commits">
-            <div className="t">{`这条看的是提交：${chat.commits.length} 轮都只改了「${name}」`}</div>
+            <div className="t">{t('这条看的是提交：{n} 轮都只改了「{name}」', { n: chat.commits.length, name })}</div>
             {chat.commits.map((c: DistillCommit) => {
               const fl = c.files.find((x) => x.path === chat.path) ?? c.files[0]
               return (
                 <div className="c" key={c.hash}>
                   <span className="mono">{short(c.hash)}</span>
-                  <span className="w" title={c.ask}>{`${baseName(fl?.path ?? chat.path)} · 「${c.ask}」`}</span>
+                  <span className="w" title={c.ask}>{t('{file} · 「{ask}」', { file: baseName(fl?.path ?? chat.path), ask: c.ask })}</span>
                   <span className="num">
                     <span className="a">+{fl?.added ?? 0}</span> <span className="d">−{fl?.removed ?? 0}</span>
                   </span>
@@ -589,6 +596,7 @@ function Rules(p: {
   onEdit(i: number | null): void
   onText(i: number, t: string): void
 }) {
+  const t = useT()
   return (
     <div className="sc-rules" onMouseLeave={() => p.onHover(null)}>
       {p.rules.map((r, i) => (
@@ -601,22 +609,22 @@ function Rules(p: {
             p.onPin(i)
           }}
         >
-          <button className="sc-cb" role="checkbox" aria-checked={!r.off} aria-label="写进说明" onClick={() => p.onCheck(i)}>
+          <button className="sc-cb" role="checkbox" aria-checked={!r.off} aria-label={t('写进说明')} onClick={() => p.onCheck(i)}>
             {!r.off && <Codicon name="check" size={12} />}
           </button>
           <div className="tx">
-            {p.editing === i ? <RuleEdit text={r.t} onDone={(t) => (t !== null && t.trim() && p.onText(i, t.trim().slice(0, RULE_MAX)), p.onEdit(null))} /> : <div className="rt">{r.t}</div>}
+            {p.editing === i ? <RuleEdit text={r.t} onDone={(v) => (v !== null && v.trim() && p.onText(i, v.trim().slice(0, RULE_MAX)), p.onEdit(null))} /> : <div className="rt">{r.t}</div>}
             {(r.e || r.off) && (
               <div className="re">
-                {r.e ? `依据：${r.e}` : ''}
-                {r.off && <span className="cut">{r.e ? ' · 不写进去' : '不写进去'}</span>}
+                {r.e ? t('依据：{text}', { text: r.e }) : ''}
+                {r.off && <span className="cut">{r.e ? ` ${t('· 不写进去')}` : t('不写进去')}</span>}
               </div>
             )}
           </div>
           <button
             className={'sc-ib sm pen' + (p.editing === i ? ' on' : '')}
-            aria-label="改字"
-            title="改字"
+            aria-label={t('改字')}
+            title={t('改字')}
             // 不让输入框先失去焦点（不然点笔收下以后又开一次）
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => p.onEdit(p.editing === i ? null : i)}
@@ -631,15 +639,16 @@ function Rules(p: {
 
 /** 笔改字：回车收下，esc 不改；点别处、再点一下笔（这时是对勾）也收下 */
 function RuleEdit(p: { text: string; onDone(t: string | null): void }) {
+  const t = useT()
   const ref = useRef<HTMLTextAreaElement>(null)
   const done = useRef(false)
   const value = useRef(p.text)
   const onDone = useRef(p.onDone)
   onDone.current = p.onDone
-  const finish = (t: string | null) => {
+  const finish = (v: string | null) => {
     if (done.current) return
     done.current = true
-    onDone.current(t)
+    onDone.current(v)
   }
   const fit = () => {
     const el = ref.current
@@ -660,7 +669,7 @@ function RuleEdit(p: { text: string; onDone(t: string | null): void }) {
     <textarea
       ref={ref}
       className="rt"
-      aria-label="这条规矩"
+      aria-label={t('这条规矩')}
       rows={1}
       maxLength={RULE_MAX}
       defaultValue={p.text}
@@ -685,27 +694,28 @@ function RuleEdit(p: { text: string; onDone(t: string | null): void }) {
 
 /** 从头写时：输入框回车加一条 */
 function AddRule(p: { full: boolean; onAdd(t: string): void }) {
-  const [t, setT] = useState('')
+  const t = useT()
+  const [text, setText] = useState('')
   return (
     <div className="sc-add">
       <Codicon name="add" size={14} />
       <input
-        aria-label="加一条规矩"
-        placeholder={p.full ? `最多 ${MAX_RULES} 条` : '写一条规矩，回车加上'}
+        aria-label={t('加一条规矩')}
+        placeholder={p.full ? t('最多 {n} 条', { n: MAX_RULES }) : t('写一条规矩，回车加上')}
         disabled={p.full}
         maxLength={RULE_MAX}
-        value={t}
-        onChange={(e) => setT(e.target.value)}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return
-          if (e.key === 'Enter' && !e.metaKey && t.trim()) {
+          if (e.key === 'Enter' && !e.metaKey && text.trim()) {
             e.preventDefault()
-            p.onAdd(t.trim())
-            setT('')
-          } else if (e.key === 'Escape' && t) {
+            p.onAdd(text.trim())
+            setText('')
+          } else if (e.key === 'Escape' && text) {
             e.preventDefault()
             e.stopPropagation()
-            setT('')
+            setText('')
           }
         }}
       />
@@ -713,7 +723,7 @@ function AddRule(p: { full: boolean; onAdd(t: string): void }) {
   )
 }
 
-// ---------------------------------------------------------------- 怎么用：四行
+// ---------------------------------------------------------------- 怎么用：五行
 
 function HowForm(p: {
   name: string
@@ -724,19 +734,22 @@ function HowForm(p: {
   onWhere(v: Where[]): void
   onWrite(v: Write): void
   onStore(v: 'vault' | 'local'): void
+  bar: 'none' | 'more' | 'on'
+  onBar(v: 'none' | 'more' | 'on'): void
 }) {
+  const t = useT()
   const dup = sameAsBuiltin(cleanName(p.name))
   return (
-    <div className="sc-form" role="group" aria-label="怎么用">
+    <div className="sc-form" role="group" aria-label={t('怎么用')}>
       <div className="sc-sec">
-        <b>怎么用</b>
+        <b>{t('怎么用')}</b>
       </div>
       <div className="sc-frow">
-        <label htmlFor="sc-name">名字</label>
+        <label htmlFor="sc-name">{t('名字')}</label>
         <div className="ctl">
           <div className="sc-nm">
             <span>/</span>
-            <input id="sc-name" value={p.name} placeholder="起个名字" spellCheck={false} autoComplete="off" maxLength={60} onChange={(e) => p.onName(e.target.value)} />
+            <input id="sc-name" value={p.name} placeholder={t('起个名字')} spellCheck={false} autoComplete="off" maxLength={60} onChange={(e) => p.onName(e.target.value)} />
           </div>
         </div>
       </div>
@@ -745,30 +758,48 @@ function HowForm(p: {
           <span />
           <div className="sc-warn">
             <Codicon name="warning" size={12} />
-            {`和自带的「${cleanName(p.name)}」重名，打 / 时两条都在`}
+            {t('和自带的「{name}」重名，打 / 时两条都在', { name: cleanName(p.name) })}
           </div>
         </div>
       )}
       <div className="sc-frow">
-        <label id="sc-l-where">在哪能用</label>
+        <label id="sc-l-where">{t('在哪能用')}</label>
         <div className="ctl" role="group" aria-labelledby="sc-l-where">
           {WHERE.map(([k, n, icon]) => {
             const on = p.where.includes(k)
             return (
               <button key={k} role="checkbox" aria-checked={on} className={'sc-chip' + (on ? ' on' : '')} onClick={() => p.onWhere(on ? p.where.filter((x) => x !== k) : [...p.where, k])}>
                 <Codicon name={(on ? 'check' : icon) as CodiconName} size={14} />
-                {n}
+                {t(n, { ctx: '在哪能用' })}
               </button>
             )
           })}
         </div>
       </div>
       <div className="sc-frow">
-        <label id="sc-l-write">写到哪</label>
+        <label id="sc-l-write">{t('写到哪')}</label>
         <div className="ctl">
           <div className="seg" role="radiogroup" aria-labelledby="sc-l-write">
             {WRITES.map(([k, n]) => (
               <button key={k} role="radio" aria-checked={p.write === k} onClick={() => p.onWrite(k)}>
+                {t(n, { ctx: '写到哪' })}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="sc-frow">
+        <label id="sc-l-bar">{t('选中小条')}</label>
+        <div className="ctl">
+          <div className="seg" role="radiogroup" aria-labelledby="sc-l-bar">
+            {(
+              [
+                ['none', t('不放')],
+                ['more', t('收进 ⋯')],
+                ['on', t('放上条')],
+              ] as const
+            ).map(([k, n]) => (
+              <button key={k} role="radio" aria-checked={p.bar === k} onClick={() => p.onBar(k)}>
                 {n}
               </button>
             ))}
@@ -776,12 +807,12 @@ function HowForm(p: {
         </div>
       </div>
       <div className="sc-frow">
-        <label id="sc-l-store">存在哪</label>
+        <label id="sc-l-store">{t('存在哪')}</label>
         <div className="ctl">
           <div className="seg" role="radiogroup" aria-labelledby="sc-l-store">
             {STORES.map(([k, n]) => (
               <button key={k} role="radio" aria-checked={p.store === k} onClick={() => p.onStore(k)}>
-                {n}
+                {t(n)}
               </button>
             ))}
           </div>
@@ -793,14 +824,33 @@ function HowForm(p: {
 
 // ---------------------------------------------------------------- 底下：存之前看清它会改什么
 
-function TreeRows(p: { rows: TreeRow[] }) {
+/** 文件夹那行从中间截：保住第一层和最后几个整词（Courses/…Learning），名字整个进悬停提示 */
+function midPath(path: string, max = 17): string {
+  const i = path.indexOf('/')
+  if (path.length <= max || i < 0) return path
+  const budget = max - i - 2
+  const words = path.slice(path.lastIndexOf('/') + 1).split(' ')
+  let tail = ''
+  for (let k = words.length - 1; k >= 0; k--) {
+    const next = words.slice(k).join(' ')
+    if (next.length > budget) break
+    tail = next
+  }
+  return budget > 0 ? `${path.slice(0, i)}/…${tail || path.slice(-budget)}` : path
+}
+
+/** 文件树的行；英文（short）把「改」「新」挪到列头，文件夹那行从中间截（设计复审：小标签把文件名挤成 Lecture …） */
+function TreeRows(p: { rows: TreeRow[]; short?: boolean }) {
+  const t = useT()
   return (
     <>
       {p.rows.map((r, i) => (
         <div key={i} className={'sc-tr' + (r.kind === 'file' ? ' in' : '') + (r.mark ? ' ' + r.mark : '')}>
           <Codicon name={r.kind === 'dir' ? 'folder' : 'file'} size={14} />
-          <span className="n">{r.name}</span>
-          {r.mark && <b>{r.mark === 'mod' ? '改' : '新'}</b>}
+          <span className="n" title={p.short ? r.name : undefined}>
+            {p.short && r.kind === 'dir' ? midPath(r.name) : r.name}
+          </span>
+          {r.mark && !p.short && <b>{r.mark === 'mod' ? t('改') : t('新')}</b>}
         </div>
       ))}
     </>
@@ -808,19 +858,22 @@ function TreeRows(p: { rows: TreeRow[] }) {
 }
 
 /** 影响卡抬头后面那句：拿这一篇举例，再一句说用在别的笔记上就是那一篇 */
-const exampleLine = (example: string, name: string) => `拿「${example}」举例：下次在它上面打 /${name} 会这样；在别的笔记上打，就换成那一篇`
+const exampleLine = (example: string, name: string) => tNow('拿「{example}」举例：下次在它上面打 /{name} 会这样；在别的笔记上打，就换成那一篇', { example, name })
 
 function Impact(p: { m: ReturnType<typeof impactOf>; example: string; name: string; engine: CmdEditorInit['engine']; ready: boolean }) {
+  const t = useT()
+  const short = useLang() === 'en'
   const { m } = p
+  const mark = m.after?.find((r) => r.mark)?.mark
   const facts: { k: string; l: string; v: React.ReactNode; text: string; warn?: boolean }[] = [
     m.appear
-      ? { k: 'appear', l: '在哪出现', v: withKeys(m.appear), text: withKeys(m.appear) }
-      : { k: 'appear', l: '在哪出现', v: [<Codicon key="i" name="warning" size={14} />, '一处都没选：存了也调不出来'], text: '', warn: true },
-    { k: 'touch', l: '能碰的', v: m.touch, text: m.touch },
-    { k: 'preview', l: '先给你看', v: [m.locked && <Codicon key="i" name="lock" size={14} />, <span key="t">{m.preview}</span>], text: m.preview },
-    { k: 'commit', l: '提交', v: m.commit, text: m.commit },
-    { k: 'who', l: '谁来做', v: [<EngineLogo key="i" id={p.engine} size={14} />, <span key="t">{m.who}</span>], text: m.who },
-    { k: 'store', l: '存在哪', v: m.store, text: m.store },
+      ? { k: 'appear', l: t('在哪出现'), v: withKeys(m.appear), text: withKeys(m.appear) }
+      : { k: 'appear', l: t('在哪出现'), v: [<Codicon key="i" name="warning" size={14} />, t('一处都没选：存了也调不出来')], text: '', warn: true },
+    { k: 'touch', l: t('能碰的'), v: m.touch, text: m.touch },
+    { k: 'preview', l: t('先给你看'), v: [m.locked && <Codicon key="i" name="lock" size={14} />, <span key="t">{m.preview}</span>], text: m.preview },
+    { k: 'commit', l: t('提交'), v: m.commit, text: m.commit },
+    { k: 'who', l: t('谁来做'), v: [<EngineLogo key="i" id={p.engine} size={14} />, <span key="t">{m.who}</span>], text: m.who },
+    { k: 'store', l: t('存在哪'), v: m.store, text: m.store },
   ]
   // 改了上面哪一项，变了的那一格闪一下（--acc-soft 渐隐 .8s）；比对完以前的不算
   const els = useRef(new Map<string, HTMLElement>())
@@ -841,14 +894,14 @@ function Impact(p: { m: ReturnType<typeof impactOf>; example: string; name: stri
   const keep = (k: string) => (el: HTMLElement | null) => void (el ? els.current.set(k, el) : els.current.delete(k))
   return (
     <div className="sc-band">
-      <div className="sc-imp" role="group" aria-label="存之前看清它会改什么">
+      <div className="sc-imp" role="group" aria-label={t('存之前看清它会改什么')}>
         <div className="ih">
           <b>
             <Codicon name="eye" size={14} />
-            存之前看清它会改什么
+            {t('存之前看清它会改什么')}
           </b>
           <span className="x" title={exampleLine(p.example, p.name)}>
-            {exampleLine(p.example, p.name)}
+            {short ? t('照「{example}」演示；用在别的笔记上就是那一篇', { example: p.example }) : exampleLine(p.example, p.name)}
           </span>
         </div>
         <div className="sc-ig">
@@ -857,15 +910,18 @@ function Impact(p: { m: ReturnType<typeof impactOf>; example: string; name: stri
               <>
                 <div className="cols">
                   <div className="col">
-                    <div className="h">之前</div>
-                    <TreeRows rows={m.before} />
+                    <div className="h">{t('之前')}</div>
+                    <TreeRows rows={m.before} short={short} />
                   </div>
                   <div className="ar">
                     <Codicon name="arrow-right" size={14} />
                   </div>
                   <div className="col">
-                    <div className="h">之后</div>
-                    <TreeRows rows={m.after} />
+                    <div className="h">
+                      {t('之后')}
+                      {short && mark && <b className={'mk ' + mark}>{mark === 'mod' ? t('改') : t('新')}</b>}
+                    </div>
+                    <TreeRows rows={m.after} short={short} />
                   </div>
                 </div>
                 <div className="cap">{m.cap}</div>

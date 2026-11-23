@@ -15,7 +15,9 @@ import { toggleFold } from './fold-block'
 import { hiddenOk } from './hidden-syntax'
 import { AiStreamWrite } from './ai-write'
 import { canStream } from './ai-spot'
-import { openTail } from './tail-line'
+import { keepTail, openTail } from './tail-line'
+import { useT } from './i18n'
+import { tIn, t as tNow, uiLang } from '../shared/i18n'
 
 /**
  * 文档里的插入菜单（DESIGN.v3 6.3）：在行首打 /（中文输入法打出的「、」也算），或点块旁的「+」，弹出插入菜单；
@@ -160,18 +162,20 @@ export interface SlashItem {
   group: '基本' | '图片和表格' | '链接' | 'AI'
   /** 筛选用的别名（英文、拼音） */
   keys: string
-  /** 只在打字筛选时列出（提示块的别的类型：不打字时只列「说明」一种，菜单不拉太长） */
-  searched?: boolean
   run(view: EditorView, from: number, to: number): void | Promise<void>
 }
 
-/** 斜杠菜单里的提示块：类型、名字、图标（颜色和图标同 callout.ts） */
-const CALLOUTS: [string, string, CodiconName][] = [
-  ['info', '说明', 'info'],
-  ['warning', '注意', 'warning'],
-  ['question', '疑惑', 'question'],
-  ['success', '讲通了', 'pass'],
-  ['danger', '出错', 'error'],
+/**
+ * 斜杠菜单里的提示块：类型、名字、图标（颜色和图标同 callout.ts）、这一种自己的搜法（拼音、英文）。
+ * 5 种不打字就全列（task-r00en，用户定「全部列出来」）；tishi、tip、callout 这类总称 5 种都出，名字的拼音、英文只出那一种
+ */
+// 不翻：键，画的地方翻（菜单项名字整句一条，带「插入菜单」）
+const CALLOUTS: [string, string, CodiconName, string][] = [
+  ['info', '提示块 · 说明', 'info', 'shuoming sm info note'], // 不翻
+  ['warning', '提示块 · 注意', 'warning', 'zhuyi zy warning caution attention'], // 不翻
+  ['question', '提示块 · 疑惑', 'question', 'yihuo yh question faq help'], // 不翻
+  ['success', '提示块 · 讲通了', 'pass', 'jiangtongle jtl success done check'], // 不翻
+  ['danger', '提示块 · 出错', 'error', 'chucuo cc danger error bug failure'], // 不翻
 ]
 
 const prefix = (p: string) => (view: EditorView, from: number, to: number) => replace(view, from, to, p)
@@ -189,22 +193,24 @@ export function itemMd(id: string, inCard: boolean): string {
 }
 const heading = (id: 'h2' | 'h3', md: string) => (view: EditorView, from: number, to: number) => replace(view, from, to, (view.state.facet(slashInCard) ? CARD_MD[id]! : md) + ' ')
 
+// 不翻：组名是键（排序、比较用），画的地方翻
 export const GROUPS = ['基本', '图片和表格', '链接', 'AI'] as const
 
 /** 名字、说明、写法照 DESIGN.v3 6.3 的表；表外的几项（提示块、折叠块、日期、数据库）排在各组最后 */
+// 不翻：名字、说明、组名是键，画的地方翻（名字带「插入菜单」）；插进文档的 md 是写进文件的
 const ITEMS: SlashItem[] = [
-  { id: 'text', group: '基本', label: '正文', desc: '纯文字', md: '', icon: 'text-size', keys: 'text paragraph zhengwen zw p', run: prefix('') },
-  { id: 'h2', group: '基本', label: '标题', desc: '大一号的小标题', md: '##', icon: 'symbol-keyword', keys: 'h2 heading title biaoti bt erji', run: heading('h2', '##') },
-  { id: 'h3', group: '基本', label: '小标题', desc: '再小一号', md: '###', icon: 'symbol-keyword', keys: 'h3 heading xiaobiaoti xbt sanji', run: heading('h3', '###') },
-  { id: 'todo', group: '基本', label: '待办', desc: '带勾选框的一条', md: '- [ ]', icon: 'checklist', keys: 'todo task check daiban db', run: prefix('- [ ] ') },
-  { id: 'bullet', group: '基本', label: '列表', desc: '圆点列表', md: '-', icon: 'list-unordered', keys: 'bullet list ul liebiao lb', run: prefix('- ') },
-  { id: 'ordered', group: '基本', label: '编号列表', desc: '1. 2. 3.', md: '1.', icon: 'list-ordered', keys: 'ordered number list ol bianhao bh', run: prefix('1. ') },
-  { id: 'quote', group: '基本', label: '引用', desc: '左边一道竖线', md: '>', icon: 'quote', keys: 'quote blockquote yinyong yy', run: prefix('> ') },
+  { id: 'text', group: '基本', label: '正文', desc: '纯文字', md: '', icon: 'text-size', keys: 'text paragraph zhengwen zw p', run: prefix('') }, // 不翻
+  { id: 'h2', group: '基本', label: '标题', desc: '大一号的小标题', md: '##', icon: 'symbol-keyword', keys: 'h2 heading title biaoti bt erji', run: heading('h2', '##') }, // 不翻
+  { id: 'h3', group: '基本', label: '小标题', desc: '再小一号', md: '###', icon: 'symbol-keyword', keys: 'h3 heading xiaobiaoti xbt sanji', run: heading('h3', '###') }, // 不翻
+  { id: 'todo', group: '基本', label: '待办', desc: '带勾选框的一条', md: '- [ ]', icon: 'checklist', keys: 'todo task check daiban db', run: prefix('- [ ] ') }, // 不翻
+  { id: 'bullet', group: '基本', label: '列表', desc: '圆点列表', md: '-', icon: 'list-unordered', keys: 'bullet list ul liebiao lb', run: prefix('- ') }, // 不翻
+  { id: 'ordered', group: '基本', label: '编号列表', desc: '1. 2. 3.', md: '1.', icon: 'list-ordered', keys: 'ordered number list ol bianhao bh', run: prefix('1. ') }, // 不翻
+  { id: 'quote', group: '基本', label: '引用', desc: '左边一道竖线', md: '>', icon: 'quote', keys: 'quote blockquote yinyong yy', run: prefix('> ') }, // 不翻
   {
     id: 'code',
-    group: '基本',
-    label: '代码',
-    desc: '等宽，原样保留',
+    group: '基本', // 不翻
+    label: '代码', // 不翻
+    desc: '等宽，原样保留', // 不翻
     md: '```',
     icon: 'code',
     keys: 'code daima dm',
@@ -221,9 +227,9 @@ const ITEMS: SlashItem[] = [
   },
   {
     id: 'hr',
-    group: '基本',
-    label: '分隔线',
-    desc: '一条细线',
+    group: '基本', // 不翻
+    label: '分隔线', // 不翻
+    desc: '一条细线', // 不翻
     md: '***',
     icon: 'dash',
     keys: 'hr divider line fengexian fgx',
@@ -232,45 +238,45 @@ const ITEMS: SlashItem[] = [
   },
   // 提示块（callout）：先写标题，回车在块里写正文，空行再回车出块（doc-keys.ts）
   ...CALLOUTS.map(
-    ([type, name, icon], i): SlashItem => ({
+    ([type, name, icon, own]): SlashItem => ({
       id: 'callout-' + type,
-      group: '基本',
-      searched: i > 0,
-      label: `提示块 · ${name}`,
-      desc: '先写标题，回车写正文',
+      group: '基本', // 不翻
+      label: name,
+      desc: '先写标题，回车写正文', // 不翻
       md: `> [!${type}]`,
       icon,
-      keys: `callout tishikuai tsk tishi ${type}`,
+      keys: `callout tishikuai tsk tishi tip tips ${own}`,
       run: prefix(`> [!${type}] `),
     }),
   ),
   {
     id: 'details',
-    group: '基本',
-    label: '折叠块',
-    desc: '点开才看得到里面的字',
+    group: '基本', // 不翻
+    label: '折叠块', // 不翻
+    desc: '点开才看得到里面的字', // 不翻
     md: '<details>',
     icon: 'chevron-right',
     keys: 'details fold zhedie zdk shouqi',
     run(view, from, to) {
       // 和提示块一样：先写标题（「收起的内容」选中，打字就换掉），回车进块里写正文（fold-block.ts 的 enterInFoldTitle）
+      // 不翻：写进文件的默认标题
       insertOwnBlock(view, from, to, '<details><summary>收起的内容</summary>\n\n\n\n</details>', '<details><summary>'.length, '收起的内容'.length)
       // 刚插的块先展开
       view.dispatch({ effects: toggleFold.of(view.state.doc.lineAt(view.state.selection.main.head).from) })
     },
   },
-  { id: 'date', group: '基本', label: '日期', desc: '今天的日期', md: '', icon: 'calendar', keys: 'date today riqi rq jintian', run: (view, from, to) => replace(view, from, to, today()) },
+  { id: 'date', group: '基本', label: '日期', desc: '今天的日期', md: '', icon: 'calendar', keys: 'date today riqi rq jintian', run: (view, from, to) => replace(view, from, to, today()) }, // 不翻
   {
     id: 'image',
-    group: '图片和表格',
-    label: '图片',
-    desc: '拖进来或从网页剪',
+    group: '图片和表格', // 不翻
+    label: '图片', // 不翻
+    desc: '拖进来或从网页剪', // 不翻
     md: '![]()',
     icon: 'file-media',
     keys: 'image picture img tupian tp',
     async run(view, from, to) {
       const host = view.state.facet(editorHost)
-      if (typeof window.cn.pickImage !== 'function') return host.notice('「图片」这条还在做')
+      if (typeof window.cn.pickImage !== 'function') return host.notice(tNow('「图片」这条还在做'))
       replace(view, from, to, '')
       const picked = await window.cn.pickImage(host.path())
       if (!picked) return
@@ -281,9 +287,9 @@ const ITEMS: SlashItem[] = [
   },
   {
     id: 'table',
-    group: '图片和表格',
-    label: '表格',
-    desc: '几行几列',
+    group: '图片和表格', // 不翻
+    label: '表格', // 不翻
+    desc: '几行几列', // 不翻
     md: '| |',
     icon: 'table',
     keys: 'table biaoge bg',
@@ -294,9 +300,9 @@ const ITEMS: SlashItem[] = [
   },
   {
     id: 'base',
-    group: '图片和表格',
-    label: '数据库',
-    desc: '每一行是一篇笔记',
+    group: '图片和表格', // 不翻
+    label: '数据库', // 不翻
+    desc: '每一行是一篇笔记', // 不翻
     md: '```base',
     icon: 'database',
     keys: 'database base db shujuku sjk biao',
@@ -308,9 +314,10 @@ const ITEMS: SlashItem[] = [
   {
     // 从笔记拍导图（task-wuv05）：做好的导图放在这篇旁边，光标处插一块缩略图（![[导图]]）；白板卡里不列（白板上用工具板「拍导图」）
     id: 'mindmap',
+    // 不翻：名字、说明是键，画的地方翻（DATA 登记了 label、desc）
     group: '图片和表格',
-    label: '拍导图',
-    desc: '拍手写的导图，插一块缩略图',
+    label: '拍导图', // 不翻
+    desc: '拍手写的导图，插一块缩略图', // 不翻
     md: '![[ ]]',
     icon: 'device-camera',
     keys: 'mindmap map photo camera daotu dt paizhao',
@@ -318,14 +325,14 @@ const ITEMS: SlashItem[] = [
       replace(view, from, to, '')
       // 用到时再拿（note-doc 要 DOM，单元测试里只读这张表）
       const { captureIntoView } = await import('./mindmap/place')
-      if (!captureIntoView(view)) view.state.facet(editorHost).notice('这一篇是只读的，插不了导图')
+      if (!captureIntoView(view)) view.state.facet(editorHost).notice(tNow('这一篇是只读的，插不了导图'))
     },
   },
   {
     id: 'board',
-    group: '链接',
-    label: '白板链接',
-    desc: '把一块白板嵌进来',
+    group: '链接', // 不翻
+    label: '白板链接', // 不翻
+    desc: '把一块白板嵌进来', // 不翻
     md: '[[ ]]',
     icon: 'layout',
     keys: 'board canvas baiban bb lianjie',
@@ -337,9 +344,9 @@ const ITEMS: SlashItem[] = [
   },
   {
     id: 'link',
-    group: '链接',
-    label: '链接到笔记',
-    desc: '双链，兼容 Obsidian',
+    group: '链接', // 不翻
+    label: '链接到笔记', // 不翻
+    desc: '双链，兼容 Obsidian', // 不翻
     md: '[[ ]]',
     icon: 'link',
     keys: 'link note wikilink lianjie lj biji shuanglian',
@@ -350,33 +357,41 @@ const ITEMS: SlashItem[] = [
   },
   {
     id: 'ai',
-    group: 'AI',
-    label: 'AI 写一段',
-    desc: '接着上下文往下写',
+    group: 'AI', // 不翻
+    label: 'AI 写一段', // 不翻
+    desc: '接着上下文往下写', // 不翻
     md: '',
     icon: 'edit',
     keys: 'ai write xie xieyiduan',
     run(view, from, to) {
-      if (typeof window.cn.aiAsk !== 'function') return view.state.facet(editorHost).notice('「AI 写一段」这条还在做')
+      if (typeof window.cn.aiAsk !== 'function') return view.state.facet(editorHost).notice(tNow('「AI 写一段」这条还在做'))
       replace(view, from, to, '')
-      view.dispatch({ effects: openSlash.of({ from, mode: 'ai', made: view.state.field(slashMade, false) ?? null }) })
+      view.dispatch({ effects: openSlash.of({ from, mode: 'ai', made: aiMade(view, from) }) })
     },
   },
   {
     id: 'aisum',
-    group: 'AI',
-    label: 'AI 总结这页',
-    desc: '写成三句话放在开头',
+    group: 'AI', // 不翻
+    label: 'AI 总结这页', // 不翻
+    desc: '写成三句话放在开头', // 不翻
     md: '',
     icon: 'list-flat',
     keys: 'ai summary zongjie zj',
     run(view, from, to) {
-      if (typeof window.cn.aiAsk !== 'function') return view.state.facet(editorHost).notice('「AI 总结这页」这条还在做')
+      if (typeof window.cn.aiAsk !== 'function') return view.state.facet(editorHost).notice(tNow('「AI 总结这页」这条还在做'))
       replace(view, from, to, '')
-      view.dispatch({ effects: openSlash.of({ from, mode: 'ai', summary: true, made: view.state.field(slashMade, false) ?? null }) })
+      view.dispatch({ effects: openSlash.of({ from, mode: 'ai', summary: true, made: aiMade(view, from) }) })
     },
   },
 ]
+
+/** AI 两项为它新起的那一行：「+」新起的，或在文末那一行上打「/」选的（那一行定下来，AI 框什么都没写就收起时一起拿掉） */
+function aiMade(view: EditorView, from: number): { from: number; to: number } | null {
+  const made = view.state.field(slashMade, false)
+  if (made) return made
+  const at = keepTail(view, from)
+  return at === null ? null : { from: at, to: at }
+}
 
 /** 点「+」新起的那一行（AI 两项接着用它：AI 框什么都没写就收起时一起拿掉） */
 const setMade = StateEffect.define<{ from: number; to: number } | null>()
@@ -391,8 +406,18 @@ const slashMade = StateField.define<{ from: number; to: number } | null>({
 /** 菜单里列哪几项（2026-11-21 起白板上也画得出数据库卡：白板、文档一样） */
 export function filterItems(q: string): SlashItem[] {
   const s = q.trim().toLowerCase()
-  if (!s) return ITEMS.filter((it) => !it.searched)
-  return ITEMS.filter((it) => it.label.toLowerCase().includes(s) || it.desc.toLowerCase().includes(s) || (it.md && it.md === s) || it.keys.split(' ').some((k) => k.startsWith(s)))
+  if (!s) return ITEMS
+  // 英文界面另认英文名（打 numbered、callout 能找到），只认词头：打 ai 不会因为 Plain text 里有 ai 就排到前面；
+  // 中文界面和以前一样，只认中文名、说明和别名
+  const enHit = (en: string) => en.toLowerCase().split(/[^a-z0-9]+/).some((w) => w && w.startsWith(s))
+  return ITEMS.filter(
+    (it) =>
+      it.label.toLowerCase().includes(s) ||
+      it.desc.toLowerCase().includes(s) ||
+      (it.md && it.md === s) ||
+      it.keys.split(' ').some((k) => k.startsWith(s)) ||
+      (uiLang() === 'en' && (enHit(tIn('en', it.label, { ctx: '插入菜单' })) || enHit(tIn('en', it.desc)))),
+  )
 }
 
 function filterNotes(notes: NoteFile[], q: string, self: string, boards: boolean): NoteFile[] {
@@ -421,6 +446,7 @@ interface Row {
 }
 
 function Menu(props: { label: string; rows: Row[]; idx: number; empty: string; foot: string; onPick(i: number): void; onHover(i: number): void }) {
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   // 当前那一行滚进来（↑↓ 选到下面看不见的）。花括号不能省：Electron 里 scrollIntoView 返回 Promise，
   // 当成清理函数交给 React，重画时报「destroy_ is not a function」，整个菜单被卸掉、打字筛选时偶尔一片空
@@ -432,7 +458,7 @@ function Menu(props: { label: string; rows: Row[]; idx: number; empty: string; f
       {props.rows.length === 0 && <div className="slash-empty">{props.empty}</div>}
       {props.rows.map((r, i) => (
         <div key={r.key} role="none">
-          {r.group && r.group !== props.rows[i - 1]?.group && <div className="slash-g">{r.group}</div>}
+          {r.group && r.group !== props.rows[i - 1]?.group && <div className="slash-g">{t(r.group, { ctx: '插入菜单' })}</div>}
           <button
             role="option"
             aria-selected={i === props.idx}
@@ -458,22 +484,26 @@ function Menu(props: { label: string; rows: Row[]; idx: number; empty: string; f
 }
 
 /** 写的语言默认跟界面语言（task-zojmg），所以每次现取 */
+// 不翻：给 AI 的提示词
 const aiSystem = () => `你是 ${BRAND.name} 笔记软件里的写作助手。用户在写一篇笔记，请你按要求写一段能直接放进文中的文字。
 用${answerLangName()}（除非笔记是别的语言），平实、直接；只输出要插入的那段 Markdown，不加解释、不加引号、不重复原文。`
 
 function aiPrompt(path: string, text: string, at: number, want: string): string {
-  const note = text.slice(0, at) + '⟨在这里写⟩' + text.slice(at)
-  const ask = want || '接着上下文往下写一段'
+  const note = text.slice(0, at) + '⟨在这里写⟩' + text.slice(at) // 不翻：给 AI 的提示词
+  const ask = want || '接着上下文往下写一段' // 不翻：给 AI 的提示词
+  // 不翻：给 AI 的提示词和命令名
   return `命令：写一段\n文件：${path}\n\n要写的：${ask}\n\n下面是这篇笔记现在的内容，⟨在这里写⟩ 是要插入的位置。写一到三段，只输出这段文字。\n\n<note>\n${note}\n</note>`
 }
 
 function summaryPrompt(path: string, text: string): string {
+  // 不翻：给 AI 的提示词和命令名
   return `命令：总结这页\n文件：${path}\n\n把下面这篇笔记写成三句话的总结，放在文章开头。只输出这三句话，不加标题、不加引号。\n\n<note>\n${text}\n</note>`
 }
 
 let aiSeq = 1_000_000
 
 function AiBox(props: { summary: boolean; onSubmit(want: string, id: number): Promise<void>; onClose(): void }) {
+  const t = useT()
   const [want, setWant] = useState('')
   const [busy, setBusy] = useState<number | null>(null)
   const [error, setError] = useState('')
@@ -491,15 +521,15 @@ function AiBox(props: { summary: boolean; onSubmit(want: string, id: number): Pr
     if (props.summary) start('')
   }, [])
   return (
-    <div className="slash-ai" role="dialog" aria-label={props.summary ? 'AI 总结这页' : 'AI 写一段'}>
+    <div className="slash-ai" role="dialog" aria-label={props.summary ? t('AI 总结这页', { ctx: '插入菜单' }) : t('AI 写一段', { ctx: '插入菜单' })}>
       <div className="slash-ai-row">
         <span className="ib">
           <AiIcon job="chat" size={16} />
         </span>
         <input
           autoFocus
-          aria-label="让 AI 写什么"
-          placeholder={busy !== null ? (props.summary ? 'AI正在总结这页…' : 'AI正在写…') : '接着上下文往下写，或者说一句要写什么'}
+          aria-label={t('让 AI 写什么')}
+          placeholder={busy !== null ? (props.summary ? t('AI正在总结这页…') : t('AI正在写…')) : t('接着上下文往下写，或者说一句要写什么')}
           value={want}
           disabled={busy !== null}
           onChange={(e) => setWant(e.target.value)}
@@ -524,16 +554,14 @@ function AiBox(props: { summary: boolean; onSubmit(want: string, id: number): Pr
               props.onClose()
             }}
           >
-            停
+            {t('停')}
           </button>
         )}
       </div>
-      <div className="keys">{error || (busy !== null ? (props.summary ? 'AI正在总结，写好放在开头 · esc 停下' : 'AI正在写，写好插在光标处 · esc 停下') : '↵ 开始写 · esc 关闭')}</div>
+      <div className="keys">{error || (busy !== null ? (props.summary ? t('AI正在总结，写好放在开头 · esc 停下') : t('AI正在写，写好插在光标处 · esc 停下')) : t('↵ 开始写 · esc 关闭'))}</div>
     </div>
   )
 }
-
-const FOOT = '右边是它在 md 里的写法 · ↑↓ 选择 · ↵ 插入 · esc 关闭'
 
 class SlashView {
   private pop = new Popover('slash-pop')
@@ -618,10 +646,10 @@ class SlashView {
         key: n.path,
         icon: n.board ? 'layout' : 'file-text',
         name: titleOf(n.path),
-        desc: n.board ? `白板 · ${n.path}` : n.path,
+        desc: n.board ? tNow('白板 · {path}', { path: n.path }) : n.path,
       }))
       // 白板链接：第一行新建一块（原来「/白板」新建子白板的那一步）
-      if (s.boards) rows.unshift({ key: '+new', icon: 'add', name: '新建白板', desc: '在这篇旁边新建一块白板，插入它的链接' })
+      if (s.boards) rows.unshift({ key: '+new', icon: 'add', name: tNow('新建白板'), desc: tNow('在这篇旁边新建一块白板，插入它的链接') })
       return {
         rows,
         pick: (i) => {
@@ -647,7 +675,7 @@ class SlashView {
     // 不打字时分组列出；打了字按组的先后排（组名照样写在每组上面）
     const sorted = GROUPS.flatMap((g) => items.filter((it) => it.group === g))
     return {
-      rows: sorted.map((it) => ({ key: it.id, icon: it.icon, name: it.label, desc: it.desc, md: itemMd(it.id, inCard), group: it.group, ai: it.group === 'AI' })),
+      rows: sorted.map((it) => ({ key: it.id, icon: it.icon, name: tNow(it.label, { ctx: '插入菜单' }), desc: tNow(it.desc), md: itemMd(it.id, inCard), group: it.group, ai: it.group === 'AI' })),
       pick: (i) => {
         const it = sorted[i]
         if (!it) return
@@ -684,9 +712,9 @@ class SlashView {
 
   private async newBoard(at: number) {
     const host = this.view.state.facet(editorHost)
-    const p = await window.cn.createBoard(folderOf(host.path()), '未命名白板')
+    const p = await window.cn.createBoard(folderOf(host.path()), '未命名白板') // 不翻：新建时的默认名字（文件名）
     this.putBoard(this.view.state.selection.main.head === at ? at : this.view.state.selection.main.head, titleOf(p))
-    host.notice(`新建了白板「${titleOf(p)}」`)
+    host.notice(tNow('新建了白板「{name}」', { name: titleOf(p) }))
   }
 
   /** [[白板]] 独占一行（画成白板卡）：插在光标那一行，前后和别的段落隔开，光标落到卡下面新起的一段 */
@@ -716,11 +744,11 @@ class SlashView {
         const q = queryOf(this.view.state, cur)
         this.pop.show(
           <Menu
-            label={cur.mode === 'link' ? (cur.boards ? '白板链接' : '链接到笔记') : '插入'}
+            label={cur.mode === 'link' ? (cur.boards ? tNow('白板链接', { ctx: '插入菜单' }) : tNow('链接到笔记', { ctx: '插入菜单' })) : tNow('插入')}
             rows={rows}
             idx={this.idx}
-            empty={cur.mode === 'link' ? (cur.boards ? '没有叫这个名字的白板' : '没有叫这个名字的笔记') : `没有叫「${q}」的块`}
-            foot={cur.mode === 'link' ? '↑↓ 选择 · ↵ 插入 · esc 关闭' : FOOT}
+            empty={cur.mode === 'link' ? (cur.boards ? tNow('没有叫这个名字的白板') : tNow('没有叫这个名字的笔记')) : tNow('没有叫「{q}」的块', { q })}
+            foot={cur.mode === 'link' ? tNow('↑↓ 选择 · ↵ 插入 · esc 关闭') : tNow('右边是它在 md 里的写法 · ↑↓ 选择 · ↵ 插入 · esc 关闭')}
             onPick={pick}
             onHover={(i) => {
               this.idx = i
@@ -848,7 +876,7 @@ class SlashView {
       if (!w.started) throw e
       const stopped = w.stopped
       w.stop()
-      if (!stopped) host.notice(`AI 没写完：${String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+      if (!stopped) host.notice(tNow('AI 没写完：{err}', { err: String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }))
     } finally {
       off()
     }

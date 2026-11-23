@@ -1,0 +1,284 @@
+/*
+ * 待办首页（task-kzr3n）：数值照 /private/tmp/canvas-notes-visual/18-待办首页/proto-a.html（方向 A）量的：
+ * 内容最宽 900、内边距 26 32 60；宋体 28 大标题，下面 13 --t2 一行；一条小的周条贴在顶上（--win 底、上 12 下 10、底下 1px --line；2026-11-22 用户改：整页日历在「日历」格），
+ * 加一条 36 高；每组上空 18，组头 14/600（日子 12 --t2、条数 12 --t3），小标题 12/500 --t3 上 12；行 40 高、行间一道 --line（从勾选框右边起）；
+ * 出处 12 --t3 最宽 150；已完成收成一行 32 高。
+ */
+.tdh-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  /* 滚到某一条、某个输入框时让开贴在顶上的周条 */
+  scroll-padding-top: 88px;
+  background: var(--page-bg, var(--win));
+}
+.tdh {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 26px 32px 60px;
+}
+.tdh h1 {
+  font: 400 28px/1.35 var(--serif-title);
+  margin: 0;
+  color: var(--t1);
+}
+.tdh-meta {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--t2);
+}
+/* 日历贴在顶上，往下滚清单时一直够得着（拖哪一条都能拖到它上面） */
+.tdh-cal {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--page-bg, var(--win));
+  border-bottom: 1px solid var(--line);
+}
+/* 往下滚了（.stuck，TodoHome 量的）：周条底从岛的左边铺到右边（盖住内边距），B 有窗口背景图时铺 --isle 加 --isle-blur（共用 token），A、不用图时是 --win */
+.tdh-cal {
+  margin: 10px -32px 0;
+  padding: 12px 32px 10px;
+}
+:root:not([data-winbg='none']) .frame-b > .center.glass .tdh-cal.stuck {
+  background: var(--isle);
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
+}
+/* 共用日历的按钮靠宿主把 button 的默认边框、底色去掉（画布今日 today.css 里有整页的 button 重置，画布笔记没有）：这里只给日历这一块 */
+.tdh-cal button {
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  padding: 0;
+}
+.tdh-cal .cal-ib {
+  color: var(--t2);
+}
+.tdh-cal .cal-ib:hover,
+.tdh-cal .cal-fchip button:hover {
+  background: var(--fill);
+}
+.tdh-cal .cal-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  background: var(--card);
+  font-size: 12px;
+}
+.tdh-cal .cal-btn:hover {
+  background: var(--fill);
+}
+/* 周条：‹ 七格 ›，一格 48 高（周几 11 --t3、日子 13、下面一排小点），今天强调色小方块，选中 --fill2 底 + 1px --line2 内圈 */
+.tdh-wk {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.tdh-wdays {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+.tdh-wc {
+  height: 52px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: default;
+}
+.tdh-wc:hover {
+  background: var(--fill);
+}
+.tdh-wc .tdh-wd {
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--t3);
+}
+.tdh-wc.today .tdh-wd {
+  color: var(--acc-t);
+  font-weight: 500;
+}
+.tdh-wc.sel {
+  background: var(--fill2);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.tdh-wc .cal-sdn {
+  font-size: 13px;
+  min-width: 24px;
+  height: 20px;
+  line-height: 20px;
+  text-align: center;
+  border-radius: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.tdh-wc.today .cal-sdn {
+  background: var(--acc-bg);
+  color: var(--acc-on);
+  font-weight: 600;
+}
+.tdh-sech .cal-fchip {
+  font-weight: 400;
+}
+/* 加一条：和周条之间空 12 */
+.tdh-add {
+  margin-top: 12px;
+}
+
+/* ---------- 加一条 ---------- */
+.tdh .td-qa.big {
+  height: 36px;
+  padding: 0 10px;
+}
+.tdh .td-qa.big input {
+  font-size: 13px;
+}
+.tdh .td-qa:focus-within {
+  box-shadow: 0 0 0 3px var(--acc-soft);
+}
+.tdh-hint {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  min-height: 26px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.tdh-hint .k {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+}
+
+/* ---------- 几组 ---------- */
+.tdh-sec {
+  margin-top: 18px;
+}
+.tdh-sech {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--t1);
+}
+.tdh-sech .n {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t3);
+}
+.tdh-sech .k {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t2);
+}
+.tdh-sech .sp {
+  flex: 1;
+}
+.tdh .td-sub {
+  padding: 12px 10px 4px;
+}
+/* 组名和条数之间空 4（「过期 2」，同原型；不手打空格） */
+.tdh .td-sub > .n {
+  margin-left: 4px;
+}
+/* 按文件夹那组的小标题：文件夹符号 + 名字 --t2，右边「打开 写作/待办 ›」 */
+.tdh-fsub {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--t2);
+}
+.tdh-fsub .fglyph {
+  align-self: center;
+}
+.tdh-open {
+  margin-left: auto;
+  font-weight: 400;
+}
+.tdh-none {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* ---------- 一行（大一号，行间一道细线从勾选框右边起） ---------- */
+.tdh .td-r {
+  position: relative;
+}
+.tdh .td-r + .td-r::before {
+  content: '';
+  position: absolute;
+  left: 38px;
+  right: 0;
+  top: 0;
+  height: 1px;
+  background: var(--line);
+}
+.tdh .td-r.sel::before,
+.tdh .td-r.sel + .td-r::before {
+  display: none;
+}
+.td-place {
+  flex: none;
+  max-width: 150px;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-flex;
+  align-items: center;
+}
+.td-r.dragging {
+  opacity: 0.4;
+}
+/* 拖着经过的落点：日历的格子、组头、某天的小标题（同目录树拖笔记经过的文件夹） */
+.tdh [data-drop].over {
+  background: var(--acc-soft) !important;
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.td-ghost .to {
+  color: var(--acc-t);
+}
+.td-ghost .to:empty {
+  display: none;
+}
+
+/* ---------- 已完成（收成一行） ---------- */
+.tdh-donefold {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 32px;
+  margin-top: 14px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--t3);
+  text-align: left;
+}
+.tdh-donefold:hover {
+  background: var(--fill);
+}
+.tdh-donefold .note {
+  margin-left: 6px;
+}

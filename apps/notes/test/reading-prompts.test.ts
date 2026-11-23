@@ -1,7 +1,7 @@
 import type { PdfBlock } from '@cn/format'
 import { describe, expect, it } from 'vitest'
 import { askPrompt, fullTextOf, noteDigest, parseSummary, sidePrompt, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, TUTOR_VERSION } from '../src/main/reading/prompts'
-import { AGENT_SYSTEM, AGENT_VERSION, modeLine, MODES_RULE } from '../src/main/agent/index'
+import { AGENT_SYSTEM, AGENT_VERSION, langTail, modeLine, MODES_RULE } from '../src/main/agent/index'
 import { system as commandSystem } from '../src/renderer/ai-commands'
 import { setUiLang } from '../src/shared/i18n'
 import { MATH_RULE, type ReadingMsg, type ReadingThread, readLine, VIZ_MARK } from '../src/shared/reading'
@@ -155,12 +155,26 @@ describe('两种模式怎么告诉 AI（2026-11-19，全能模式默认开）', 
   it('回答用什么语言（task-zojmg）：默认跟界面语言，用别的语言问就跟着问的语言；写在每条消息开头的【语言】，系统提示里不再写死「用中文回答」', () => {
     expect(AGENT_SYSTEM).not.toContain('用中文回答，平实')
     expect(AGENT_SYSTEM).toContain('照每条消息开头的【语言】')
-    expect(commandSystem()).toContain('默认用中文回答；用户用别的语言问，就用他问的那种语言答')
-    expect(modeLine(false, 'claude', '/库').split('\n')[1]).toBe('【语言】默认用中文回答；用户用别的语言问，就用他问的那种语言答。')
+    // 命令没有用户自己的话：照界面语言，中文界面和以前一字不差
+    expect(commandSystem()).toContain('\n用中文回答；平实、直接')
+    expect(modeLine(false, 'claude', '/库').split('\n')[1]).toBe('【语言】用中文回答。')
+    expect(modeLine(false, 'claude', '/库', 'What is two plus three?').split('\n')[1]).toBe('【语言】Answer in the language the user’s own words are written in (most likely English).')
     setUiLang('en')
     try {
-      expect(modeLine(false, 'claude', '/库').split('\n')[1]).toBe('【语言】默认用英文回答；用户用别的语言问，就用他问的那种语言答。')
-      expect(commandSystem()).toContain('默认用英文回答；用户用别的语言问，就用他问的那种语言答')
+      expect(modeLine(false, 'claude', '/库', '123').split('\n')[1]).toBe('【语言】Answer in English.')
+      expect(modeLine(false, 'claude', '/库', '二加三等于几？一句话回答。').split('\n')[1]).toBe('【语言】用中文回答。')
+      expect(commandSystem()).toContain('\nAnswer in English；平实、直接')
+    } finally {
+      setUiLang('zh')
+    }
+  })
+
+  it('消息最后再写一遍【语言】（task-zojmg：只写在开头时，真 Claude 在英文界面 9 次里有 1 次照样用中文答「123」）', () => {
+    expect(langTail('What is two plus three?')).toBe('\n\n【语言】Answer in the language the user’s own words are written in (most likely English).')
+    setUiLang('en')
+    try {
+      expect(langTail('123')).toBe('\n\n【语言】Answer in English.')
+      expect(langTail('二加三等于几？')).toBe('\n\n【语言】用中文回答。')
     } finally {
       setUiLang('zh')
     }

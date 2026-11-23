@@ -17,6 +17,10 @@ import { expectDreamChange } from './own-change'
 
 const short = (s: string, n = 16) => (s.length > n ? s.slice(0, n) + '…' : s)
 
+/** 开梦游分支上的一份（还没收下的）：HTML 整页开梦游分支上那份，md 开那次提交里的那一版（只读） */
+const openOnBranch = (o: { openHtml(path: string, branch: boolean): void; openDiff(src: DiffSource, title: string): void }, path: string, rev: string | undefined) =>
+  /\.html?$/i.test(path) ? o.openHtml(path, true) : rev && o.openDiff({ kind: 'version', hash: rev, path }, `${titleOf(path)} · 梦游分支上的`)
+
 /** 梦游对照标签的名字：「梦游 · 极光 2」 */
 export const dreamTabTitle = (it: DreamItem) => `梦游 · ${short(it.title)}`
 
@@ -65,10 +69,17 @@ export function useDreamWiring(o: {
       const d = (e as CustomEvent<{ path: string; pending: boolean }>).detail
       ref.current.openHtml(d.path, d.pending)
     }
+    // 对照里的链接指着梦游分支上才有的那篇（cite.tsx 认出来的，task-x7mk6）
+    const onBranch = (e: Event) => {
+      const d = (e as CustomEvent<{ path: string; rev: string }>).detail
+      openOnBranch(ref.current, d.path, d.rev)
+    }
     window.addEventListener('cn:dream-open-viz', onViz)
+    window.addEventListener('cn:dream-open-branch', onBranch)
     return () => {
       setDreamActs(null)
       window.removeEventListener('cn:dream-open-viz', onViz)
+      window.removeEventListener('cn:dream-open-branch', onBranch)
     }
   }, [])
 }
@@ -110,7 +121,7 @@ export function CompareTab(props: {
       active={props.active}
       gitVersion={props.gitVersion}
       onOpenPath={props.onOpen}
-      onOpenBranch={(p, rev) => (/\.html?$/i.test(p) ? props.onPreviewHtml(p, true) : rev && props.openDiff({ kind: 'version', hash: rev, path: p }, `${titleOf(p)} · 梦游分支上的`))}
+      onOpenBranch={(p, rev) => openOnBranch({ openHtml: props.onPreviewHtml, openDiff: props.openDiff }, p, rev)}
       onFocus={(p) => props.openDiff({ ...src, focus: p } as DiffSource, props.title)}
       onShowInReport={(id) => (props.onShowReport(), openDream(id))}
       onNotice={props.onNotice}

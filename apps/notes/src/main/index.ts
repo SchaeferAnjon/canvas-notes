@@ -21,6 +21,7 @@ import { registerSlides } from './slides'
 import { importCookies, listProfiles } from './chrome-import'
 import { setupDream } from './dream-main'
 import { setupMindmap } from './mindmap'
+import { setupMapExport } from './mindmap/export'
 import { readAll } from './duplicates'
 import { duplicatesWithProgress, stopSimilar } from './similar'
 import { registerHome } from './home'
@@ -32,6 +33,9 @@ import { accelOf } from '../shared/cmd-keys'
 import { registerRestore } from './restore'
 import { registerTrash } from './trash-recent'
 import { registerBoard } from './board'
+import { registerBaseWrite } from './base-write'
+import { registerAiColumn } from './ai-column'
+import { setupAutomation } from './automation'
 import { followMoves, registerReadAlong } from './read-along'
 import { registerNoteAttach } from './note-attach'
 import { readPins, repin } from './pins'
@@ -50,6 +54,9 @@ import { moveReadingState, setupReading } from './reading'
 import { reopenSearch, searchVault, setupSearch } from './search'
 import { registerFiles } from './files'
 import { registerTodo } from './todo'
+import { registerWhen } from './when-ai'
+import { registerFamily } from './family'
+import { registerCalendar } from './calendar'
 import { registerMobileAi } from './mobile-ai'
 import { planCarry, testTrash, trashFiles } from './folder-ops'
 import { setupImport } from './import'
@@ -77,6 +84,8 @@ if (E2E) {
 
 let win: BrowserWindow | null = null
 let vault: Vault | null = null
+/** 设置 › 软件家族（main/family.ts）：换库时看新库里的联动开关 */
+let family: ReturnType<typeof registerFamily> | null = null
 /** 上次同步成功的时间 */
 let lastSync: number | null = null
 /** 最近一次同步没成功的原因（中文）；成功一次就清掉 */
@@ -300,18 +309,28 @@ async function openVault(dir: string): Promise<VaultInfo> {
   scheduleBackup()
   void pullOnOpen(root)
   // 全能模式下 AI 这一轮结束时分清库里多出来的改动谁改的：软件自己写的不算，在外面改的（AI 自己的工具）算
-  vault.onOwnWrite = agentOwnWrite
+  // 自动化（task-i921u）：编辑器存的、外面改的、新文件都让它扫一遍（新加一条、某一列改了）
+  vault.onOwnWrite = (rel, text) => {
+    agentOwnWrite(rel, text)
+    automation?.changed()
+  }
   vault.onMoved = followMoves(vault, () => win?.webContents.send('files:changed'))
   vault.watch(
     (path, text) => {
       agentExternal(path, text)
       win?.webContents.send('note:changed', path, text)
+      automation?.changed()
     },
-    () => win?.webContents.send('files:changed'),
+    () => {
+      win?.webContents.send('files:changed')
+      automation?.changed()
+    },
     (from, to) => win?.webContents.send('note:renamed', from, to),
   )
   settings.patch({ lastVault: root })
+  family?.watch(root)
   searchVault(root)
+  void automation?.open().catch((e) => console.error('自动化没开起来', e))
   return { path: root, name: vault.name, ...(organized ? { organized: organized.moves } : {}), ...(organizeError ? { organizeError } : {}), ...(tidied ? { tidied } : {}), ...(tidyError ? { tidyError } : {}) }
 }
 
@@ -722,6 +741,8 @@ function registerIpc() {
   registerRestore(needVault, () => win?.webContents.send('files:changed'))
   registerTrash(needVault, () => win?.webContents.send('files:changed'))
   registerBoard(needVault, () => win?.webContents.send('files:changed'))
+  registerBaseWrite(needVault, (path, text) => win?.webContents.send('note:changed', path, text), () => win?.webContents.send('files:changed'))
+  registerAiColumn(needVault, app.getPath('userData'), (path, text) => win?.webContents.send('note:changed', path, text), () => win?.webContents.send('files:changed'))
   registerReadAlong(needVault)
   ipcMain.handle('git:history', async (_e, limit: number, opts?: { hideInternal?: boolean }) => {
     const root = needVault().root
@@ -821,9 +842,14 @@ app.whenReady().then(async () => {
   setupCrashLog(crashLog, () => win)
   registerAgent({ win: () => win, vault: () => vault, moved: (root, from, to) => moveReadingState(root, from, to) })
   setupMindmap({ win: () => win, vault: () => vault })
+  setupMapExport(() => win, () => vault)
   const dreams = setupDream({
     root: () => vault?.root ?? null,
-    settings: () => settings.app().dream,
+    // 周记那条自动化开着：梦游的「写本周小结」并进周记，不另写（用户定的 ⑥，task-i921u）
+    settings: () => {
+      const s = settings.app().dream
+      return automation?.weekOn() ? { ...s, steps: { ...s.steps, week: false } } : s
+    },
     send: (ch, ...args) => win?.webContents.send(ch, ...args),
     // 收下、撤回时 git 挪文件、改字：和写笔记排同一个队，挪完开着的那篇跟到新路径、拿新内容重载（单条、一组、全部收下都走这里）
     exclusive: (f) => (vault ? vault.exclusive(f) : f()),
@@ -837,6 +863,20 @@ app.whenReady().then(async () => {
       }
     },
   })
+  automation = setupAutomation({
+    vault: () => vault,
+    win: () => win,
+    userData: app.getPath('userData'),
+    dream: {
+      on: () => settings.app().dream.auto,
+      setOn: (on) => void settings.setApp({ dream: { auto: on } }),
+      now: () => dreams.dreamNow(),
+      tidyInbox: () => dreams.tidyInbox(),
+      weekItems: (from) => dreams.weekItems(from),
+    },
+  })
+  // 库在这之前就开了（窗口先问了 vault:get）：现在开始
+  if (vault) void automation.open().catch((e) => console.error('自动化没开起来', e))
   quick = setupQuick({
     vault: () => vault,
     onSaved: () => win?.webContents.send('files:changed'),
@@ -857,7 +897,25 @@ app.whenReady().then(async () => {
   setupReading({ win: () => win, vault: () => vault, recap: () => settings.app().pdf.recap })
   setupSearch({ win: () => win, vault: () => vault, semantic: () => settings.app().editor.semantic })
   registerFiles(() => vault)
-  registerTodo({ vault: () => vault, win: () => win })
+  family = registerFamily({
+    vault: () => vault,
+    send: (ch, ...a) => win?.webContents.send(ch, ...a),
+    fetchOn: () => settings.app().familyFetch,
+    // 测试模式：装了哪些读 CN_FAMILY_INSTALLED_FILE；CN_TODAY_INSTALLED=1（以前的测试）也算装了画布今日；名单只从 CN_FAMILY_URL 读
+    test: E2E
+      ? {
+          installedFile: process.env.CN_FAMILY_INSTALLED_FILE,
+          url: process.env.CN_FAMILY_URL,
+          extra: process.env.CN_TODAY_INSTALLED === '1' ? { 'canvas-today': { version: '0.3.0', path: '/Applications/Canvas Today.app' } } : {},
+        }
+      : null,
+  })
+  family.watch(vault?.root ?? null)
+  const todo = registerTodo({ vault: () => vault, win: () => win, family })
+  // 「日历」格：系统日历只读、AI 排进空着的时间（task-kzr3n）
+  registerCalendar({ win: () => win, todos: todo.list, root: () => vault?.root ?? null })
+  // 待办写时间：本地认不出的那一行问 AI（task-pd289）
+  registerWhen()
   registerMobileAi({ vault: () => vault, win: () => win })
   setupVideo({ window: () => win, vault: () => vault, ses: web, userData: app.getPath('userData') })
   // 退出时最后存一次：窗口都关了以后（before-quit 时网页还在，之后还会改它，留下的定时器会在 Node 收尾时才跑）
@@ -878,6 +936,8 @@ app.whenReady().then(async () => {
 // 检查更新：正式发布的包（打包时带了 app-update.yml）才查；开发版、本机自己打的包、端到端测试不查。
 // CN_UPDATE_URL：测试时指向本机的更新服务器
 let updater: Updater | null = null
+/** 自动化（task-i921u）：whenReady 里建，打开库时开始 */
+let automation: ReturnType<typeof setupAutomation> | null = null
 let quick: ReturnType<typeof setupQuick>
 async function setupUpdater() {
   const feedUrl = process.env.CN_UPDATE_URL ?? ''
@@ -1000,7 +1060,25 @@ function buildMenu() {
           },
         ],
       },
-      { role: 'editMenu' },
+      // 编辑：系统那几项照旧，多一项「在这一页里找」（⇧⌘F，键照命令表；⌘F 是搜索，在「前往」里）
+      {
+        label: '编辑',
+        submenu: [
+          { role: 'undo' },
+          { role: 'redo' },
+          { type: 'separator' },
+          { role: 'cut' },
+          { role: 'copy' },
+          { role: 'paste' },
+          { role: 'pasteAndMatchStyle' },
+          { role: 'delete' },
+          { role: 'selectAll' },
+          { type: 'separator' },
+          cmd('find-in-page', '在这一页里找'),
+          { type: 'separator' },
+          { label: '朗读', submenu: [{ role: 'startSpeaking' }, { role: 'stopSpeaking' }] },
+        ],
+      },
       {
         label: '显示',
         submenu: [
@@ -1011,6 +1089,7 @@ function buildMenu() {
           cmd('left-files', '左栏：文件'),
           cmd('left-recent', '左栏：最近'),
           cmd('left-desks', '左栏：书桌'),
+          cmd('left-trash', '左栏：最近删掉的'),
           cmd('dream-report', '梦游报告'),
           cmd('outline', '大纲'),
           cmd('open-web', '网页'),

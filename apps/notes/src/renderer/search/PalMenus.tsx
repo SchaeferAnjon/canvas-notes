@@ -24,9 +24,12 @@ export interface MenuCmd {
   ownEditable?: boolean
   /** 快捷键是它自己那块接的（双语翻译 ⌥A）：「设快捷键…」灰着 */
   fixedKeys?: boolean
+  /** 自己的 AI 命令：能「放到选中小条」（task-26nz7）；onBar 是已经在小条上（条上或 ⋯ 里） */
+  ownAi?: boolean
+  onBar?: boolean
 }
 
-export type MenuAct = { kind: 'pin' } | { kind: 'move'; to: string } | { kind: 'newGroup' } | { kind: 'keys' } | { kind: 'alias' } | { kind: 'edit' } | { kind: 'delete' } | { kind: 'hide' }
+export type MenuAct = { kind: 'pin' } | { kind: 'move'; to: string } | { kind: 'newGroup' } | { kind: 'keys' } | { kind: 'alias' } | { kind: 'edit' } | { kind: 'delete' } | { kind: 'hide' } | { kind: 'bar' }
 
 /** x：菜单的右边对齐到这里（照小样：⋯ 开的右边对齐 ⋯，右键开的在指针左边）；y：菜单的顶 */
 export function RowMenu(props: {
@@ -118,6 +121,7 @@ export function RowMenu(props: {
       {c.own && (
         <div role="group">
           {c.ownEditable && item('edit', t('改这条命令…'), { kind: 'edit' })}
+          {c.ownAi && item('list-selection', t('放到选中小条'), { kind: 'bar' }, c.onBar ? <span className="h">{t('已在小条上')}</span> : undefined, '', !!c.onBar)}
           {item('trash', t('删掉这条'), { kind: 'delete' }, undefined, ' danger')}
         </div>
       )}

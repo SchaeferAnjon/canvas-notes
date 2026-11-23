@@ -239,8 +239,8 @@ function build(view: EditorView): DecorationSet {
             markOf(node.from, node.to, true)
             return
           case 'FencedCode':
-            // 提示块里的代码块整块画成部件（md-widgets.ts calloutWidgets，task-83vl3），这里不再加装饰
-            if (parent?.name === 'Blockquote' && parseCallout(doc.lineAt(parent.from).text)) return false
+            // 提示块、引文里的代码块整块画成部件（md-widgets.ts calloutWidgets，task-83vl3、task-6cxtc），这里不再加装饰
+            if (parent?.name === 'Blockquote') return false
             fenced(node.from, node.to)
             return false
           case 'CodeBlock':
@@ -305,7 +305,8 @@ function build(view: EditorView): DecorationSet {
       const target = m[1]!.split('|')[0]!.split('#')[0]!.split('^')[0]!.trim()
       // 只露别名或笔记名（[[课程/ecp/第五讲]] 露「第五讲」），前面的路径、「|」和 .md 跟 [[ ]] 一起藏着，白板卡上同一个认法
       const shown = wikiShown(m[1]!)
-      decos.push(mark('cm-wikilink', { 'data-target': target }).range(start + 2 + shown.from, start + 2 + shown.to))
+      // data-wiki：整截（带 #标题、#^块），⌘点时滚到那里（task-3e53q）
+      decos.push(mark('cm-wikilink', { 'data-target': target, 'data-wiki': m[1]! }).range(start + 2 + shown.from, start + 2 + shown.to))
       markOf(start, start + 2 + shown.from)
       markOf(start + 2 + shown.to, end)
     }

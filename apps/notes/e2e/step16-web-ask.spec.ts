@@ -101,7 +101,7 @@ test('网页上框着问：回答一问一块 [!ai] 插到配好对的那篇光�
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
     await expect(ai(page).getByRole('textbox')).toHaveValue('给我讲解一下')
     // 开着配好对的网页：「笔记」亮着（列那篇里来自这一页的几条）
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
     await expect(rail(page).getByRole('button', { name: /^笔记/ })).not.toHaveClass(/\bdim\b/)
     await ai(page).getByRole('textbox').press('Enter')
     await expect(ai(page).locator('.um').last()).toHaveText('给我讲解一下')

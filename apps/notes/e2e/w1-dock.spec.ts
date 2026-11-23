@@ -40,12 +40,17 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
   await page.mouse.up()
   await page.waitForTimeout(120)
 }
-/** 中间标签条最后一个标签右边的空处 */
+/**
+ * 中间标签条最后一个标签右边的空处，按在空处正中。
+ * 中间被挤到最窄 420 时（左栏 + 右边两栏，1440 宽）读 PDF 的标签条右端有页码、缩放「52%」（task-2onrm 加的，54 宽）、问这一页、⋯，
+ * 两个标签后面只剩 24 来宽的空处：够按住，不再要 40
+ */
 async function tabsBlank(page: Page) {
   const list = await box(page.getByTestId('tab-list'))
   const last = await box(page.getByTestId('tab-list').locator('.tab').last())
-  expect(list.x + list.width - (last.x + last.width)).toBeGreaterThan(40)
-  return { x: last.x + last.width + 24, y: list.y + list.height / 2 }
+  const blank = list.x + list.width - (last.x + last.width)
+  expect(blank).toBeGreaterThan(16)
+  return { x: last.x + last.width + blank / 2, y: list.y + list.height / 2 }
 }
 const markSays = (text: string) => async (page: Page) => {
   await expect(page.getByTestId('drop-mark')).toBeVisible()

@@ -181,7 +181,10 @@
 }
 
 /* ---------- 答完：放进主对话 · 在笔记里看 · 拷贝（24 高、左右 6、圆角 4、12 --t2，图标 12） ---------- */
-.side-inl .acts {
+/* 旁支挂在 AI 回答（.am）里：app.css 的 .am .acts（上边距 8）和这里一样具体，谁赢看两份 CSS 谁在后；
+   打包把这一份拆进 index.css 前面那个 CSS 以后它输了，回答最后一段到这一排成了 14。前面加 .am 不靠先后 */
+.side-inl .acts,
+.am .side-inl .acts {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;

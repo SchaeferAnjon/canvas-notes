@@ -10,7 +10,9 @@ import { dirname, join } from 'node:path'
 import { acts, gitStatus, launch, waitSaved } from './app'
 import { board, col, FILES, openBoard } from './fixtures/board-doc'
 
-const hint = (page: Page) => board(page).locator('.db-hint')
+// 框选那句（task-5ryf9）整个软件只说一次、排在说明后面，另外测；这里看说明和「N张卡离开了」
+const hint = (page: Page) => board(page).locator('.db-hint:not([data-kind="select"])')
+const selectHint = (page: Page) => board(page).locator('.db-hint[data-kind="select"]')
 const TRAVEL = '项目/冰岛十天环岛.md'
 
 async function start(files = FILES, env: Record<string, string> = {}) {
@@ -59,10 +61,17 @@ test('说明只说一次：几秒后自己收起、× 点掉、第一次操作�
     await page.waitForTimeout(2500)
     await expect(hint(page)).toBeVisible()
     await expect(hint(page)).toHaveCount(0, { timeout: 10_000 })
-    // 关掉重开这块白板：不再出
+    // 关掉重开这块白板：说明不再出；这时轮到框选那句（整个软件只说一次，task-5ryf9），点 × 收起
     await reopen(page, '冰岛十天环岛')
     await page.waitForTimeout(800)
     await expect(hint(page)).toHaveCount(0)
+    await expect(selectHint(page)).toHaveText('空白处按住拖是框选 · 按住空格拖是平移')
+    await expect(selectHint(page).locator('b')).toHaveText(['框选', '平移'])
+    await selectHint(page).getByRole('button', { name: '收起这条说明' }).click()
+    await expect(selectHint(page)).toHaveCount(0)
+    await reopen(page, '冰岛十天环岛')
+    await page.waitForTimeout(800)
+    await expect(selectHint(page)).toHaveCount(0)
 
     // 另一块白板：点 × 收起，收起时先淡出再拿掉
     await openBoard(page, '冰岛照片墙')

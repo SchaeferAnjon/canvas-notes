@@ -1,0 +1,210 @@
+/* 设置 › 自动化和周记（task-i921u「当……就……」，照 automations/proto.html 的 .srow / .sgl / .days / .tpl / .mini 量的数） */
+
+.au-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--yellow);
+  background: var(--yellow-soft, var(--fill));
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.au-warn > svg {
+  flex: none;
+  margin-top: 3px;
+}
+.au .e,
+.au-set .au-e,
+.au-mini .e {
+  color: var(--red-t, var(--red));
+}
+
+.au-set .au-b {
+  font-weight: 400;
+  color: var(--t2);
+}
+.au-set .au-gsub {
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--t3);
+}
+.au-set .au-gt {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.au-set .sa-lb > svg {
+  color: var(--t2);
+}
+.au-set .au-rn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+/* 周记那一行整行能点（进周记的设置） */
+.au-set .au-click {
+  border-top: 1px solid var(--line);
+}
+.au-set .au-click:first-child {
+  border-top: 0;
+}
+.au-set .au-click > .sa-row {
+  border-top: 0;
+}
+.au-set .au-click:hover {
+  background: var(--fill);
+}
+.au-set .au-click:first-child:hover {
+  border-radius: 11px 11px 0 0;
+}
+.au-set .sa-lnk.au-inl {
+  margin: 0;
+  font-size: 12px;
+}
+.au-set .au-run {
+  color: var(--t3);
+}
+.au-set .au-none {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--t3);
+  line-height: 1.55;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.au-set .au-none > span {
+  flex: 1;
+}
+.au-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+}
+.au-mini .m {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t2);
+  min-width: 0;
+}
+.au-mini .m .tm {
+  width: 92px;
+  flex: none;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.au-mini .m .nm {
+  width: 110px;
+  flex: none;
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.au-mini .m .u {
+  text-decoration: line-through;
+  color: var(--t3);
+}
+.au-mini .t3 {
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 周记：周几一排方格 */
+.au-days {
+  display: flex;
+  gap: 4px;
+}
+.au-days button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 12px var(--sans);
+  color: var(--t1);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  background: var(--card);
+}
+.au-days button:hover {
+  background: var(--fill);
+}
+.au-days button.on {
+  background: var(--acc-soft);
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+  color: var(--acc-t);
+  font-weight: 500;
+}
+/* 周记的设置那一页的头：← 图标 周记 …… 开关 */
+.au-subhead {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.au-subhead > .ib {
+  width: 26px;
+  height: 26px;
+  margin-top: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.au-subhead > .ib:hover {
+  background: var(--fill);
+}
+.au-subhead > .sa-head {
+  flex: 1;
+  min-width: 0;
+}
+/* 开关和弹窗右上角的 × 隔开：右边留 36 */
+.au-subhead > .sw-toggle {
+  margin-top: 8px;
+  margin-right: 36px;
+  flex: none;
+}
+/* 「放在」：只是写着放在哪（改不了，不画框），贴右列右边 */
+.au-set .au-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--t2);
+}
+.au-set .au-tpl {
+  font: 12px/1.7 var(--mono);
+  background: var(--fill);
+  border-radius: 8px;
+  padding: 8px 12px;
+  white-space: pre;
+  color: var(--t2);
+  margin: 4px 0 0;
+  max-width: 616px;
+}
+.au-set .au-cks {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+}
+.au-set .au-ck {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--t1);
+  height: 26px;
+}
+.au-set .au-ck input {
+  accent-color: var(--acc-bg);
+  margin: 0;
+}

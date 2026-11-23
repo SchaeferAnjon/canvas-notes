@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react'
 import type { AppSettings } from '../shared/appearance'
 import { ENGINE_LABEL } from '../shared/ai-features'
 import type { EngineId } from '../shared/agent'
-import { CATEGORIES } from '../shared/categories'
+import { CATEGORIES, CATEGORY_IDS, type CatId, catName } from '../shared/categories'
 import { DUP_CHOICES, dreamDoes, type DreamPatch, type DreamStep, GAP_CHOICES, IDLE_CHOICES, LINK_CHOICES, linkFolders, VIZ_CHOICES } from '../shared/dream-settings'
 import { FOLDER_COLORS } from '../shared/left'
 import { AiIcon, EngineLogo } from './engine-logo'
@@ -47,10 +47,10 @@ const steps = (t: T): StepRow[] => [
   { step: 'video', name: t('提醒同一个视频记散在多篇'), desc: t('同一个视频的时刻、问答记在两篇以上时提醒合成一篇，不改文件'), icon: 'device-camera-video', effects: ['remind'] },
 ]
 
-/** 勾上一个文件夹，梦游在那里做什么（文件夹名照磁盘上的比） */
-const doesIn = (t: T, name: string) =>
-  // 不翻：和磁盘上的文件夹名比
-  name === '收件箱' ? t('归类、改名、补双链') : name === '周记' ? t('写本周小结') : t('补双链')
+/** 勾上一个文件夹，梦游在那里做什么（按分类的身份认） */
+const doesIn = (t: T, id: CatId) =>
+  // 不翻：分类的身份
+  id === '收件箱' ? t('归类、改名、补双链') : id === '周记' ? t('写本周小结') : t('补双链')
 
 export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { dream: DreamPatch }): Promise<AppSettings>; onNotice(t: string): void; onOpenDream(): void; onAiRow(): void }) {
   const t = useT()
@@ -78,10 +78,10 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
   const does = dreamDoes(s)
   /** 这一样现在为什么不做（文件夹没勾） */
   const blocked = (step: DreamStep): string | null => {
-    // 不翻：和磁盘上的文件夹名比；提示里的文件夹名也照磁盘上的
-    if ((step === 'file' || step === 'rename') && !s.folders.includes('收件箱')) return t('「{folder}」没勾，现在不做', { folder: '收件箱' })
+    // 不翻：存的是分类的身份；提示里的文件夹名照这个库磁盘上的
+    if ((step === 'file' || step === 'rename') && !s.folders.includes('收件箱')) return t('「{folder}」没勾，现在不做', { folder: catName('收件箱') })
     // 不翻：同上
-    if (step === 'week' && !s.folders.includes('周记')) return t('「{folder}」没勾，现在不做', { folder: '周记' })
+    if (step === 'week' && !s.folders.includes('周记')) return t('「{folder}」没勾，现在不做', { folder: catName('周记') })
     if (step === 'link' && !linkFolders(s).length) return t('下面一个能补双链的文件夹都没勾，现在不做')
     return null
   }
@@ -212,16 +212,18 @@ export function DreamSettingsPage(props: { settings: AppSettings; onChange(p: { 
         <span>{t('梦游只在勾上的文件夹里改字、建文件')}</span>
       </h4>
       <div className="dset-folders" role="group" aria-label={t('梦游能动哪些文件夹')} data-row="dFolders">
-        {CATEGORIES.map((c) => {
-          const on = s.folders.includes(c.name)
+        {CATEGORIES.map((c, i) => {
+          // 设置里存分类的身份（中文名），显示这个库磁盘上的名字
+          const id = CATEGORY_IDS[i]!
+          const on = s.folders.includes(id)
           return (
-            <label key={c.name} className={'dset-folder' + (on ? ' on' : '')}>
-              <input type="checkbox" checked={on} aria-label={c.name} onChange={(e) => set({ folders: e.currentTarget.checked ? [...s.folders, c.name] : s.folders.filter((f) => f !== c.name) })} />
+            <label key={id} className={'dset-folder' + (on ? ' on' : '')}>
+              <input type="checkbox" checked={on} aria-label={c.name} onChange={(e) => set({ folders: e.currentTarget.checked ? [...s.folders, id] : s.folders.filter((f) => f !== id) })} />
               <span className="fi" style={{ color: FOLDER_COLORS[c.color] }}>
                 <Codicon name={c.icon as CodiconName} size={14} />
               </span>
               <b>{c.name}</b>
-              <span className="truncate">{doesIn(t, c.name)}</span>
+              <span className="truncate">{doesIn(t, id)}</span>
             </label>
           )
         })}

@@ -25,6 +25,10 @@ export type Tab =
   | { id: string; type: 'oldimages'; item: string }
   /** 最近删掉的（30 天里删的，task-5yp97） */
   | { id: string; type: 'trash' }
+  /** 待办首页（task-kzr3n）：图标栏「待办」「日历」格开的那一页，顶上日历、下面按时间排的清单 */
+  | { id: string; type: 'todo' }
+  /** 图标栏「日历」格开的整页日历（task-kzr3n，照画布今日 v2 原型） */
+  | { id: string; type: 'calendar' }
 
 let seq = 0
 export const newId = () => `t${Date.now().toString(36)}${(seq++).toString(36)}`
@@ -44,6 +48,8 @@ export function validTab(t: unknown): t is Tab {
     case 'recent':
     case 'archive':
     case 'trash':
+    case 'todo':
+    case 'calendar':
       return true
     case 'note':
     case 'pdf':

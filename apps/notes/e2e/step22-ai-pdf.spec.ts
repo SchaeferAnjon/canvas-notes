@@ -218,7 +218,7 @@ test('CN-22 / 工作区方向 A：读 PDF 时 AI 是右栏的一个标签，竖�
   const { page } = run
   try {
     await openPdf(page)
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
     const fab = rail(page).locator('.ai-fab')
     await expect(ai(page)).toBeVisible()
     await expect(fab).toBeVisible()

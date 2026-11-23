@@ -1,7 +1,7 @@
 {
   "name": "@cn/notes",
   "productName": "Canvas Notes",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "main": "out/main/index.js",
   "scripts": {
@@ -13,7 +13,9 @@
   },
   "devDependencies": {
     "@babel/parser": "7.29.14",
+    "@cn/calendar": "workspace:*",
     "@cn/design": "workspace:*",
+    "@cn/family": "workspace:*",
     "@cn/format": "workspace:*",
     "@cn/git": "workspace:*",
     "@cn/tasks": "workspace:*",

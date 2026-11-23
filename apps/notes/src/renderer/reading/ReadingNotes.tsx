@@ -17,6 +17,7 @@ import { when } from '../../shared/when'
 import { Markdown } from '../md-render'
 import { applyMarks, type Mark } from './marks'
 import * as R from './store'
+import { useLang, useT } from '../i18n'
 
 const vaultImg = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/')
 const MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
@@ -24,10 +25,11 @@ const MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
 /** 这一轮问了几问（新格式：主问题 + 旁支问题；以前的段：问了几轮） */
 const asksOf = (s: AskSection) => s.rounds
 type Filter = 'all' | 'q' | 'side'
+// 不翻：键，画的地方 t(label, { ctx: '笔记筛选' })（英文写短：All · Mine · Threads）
 const FILTERS: [Filter, string][] = [
-  ['all', '全部'],
-  ['q', '只看我问的'],
-  ['side', '旁支'],
+  ['all', '全部'], // 不翻
+  ['q', '只看我问的'], // 不翻
+  ['side', '旁支'], // 不翻
 ]
 /** 「只看我问的」「旁支」里的一条：问题原话，下面一行在哪 */
 interface QRow {
@@ -68,6 +70,7 @@ export function ReadingNotes(props: {
   onOpenHtml(path: string): void
   onOpenWeb(url: string): void
 }) {
+  const t = useT()
   const { pdf } = props
   const r = R.useReading(pdf)!
   // 出卡（task-tz7y3）：PDF 的笔记才有；送过的标「已送」，右上「出卡 · N问」是没送的
@@ -135,8 +138,8 @@ export function ReadingNotes(props: {
     if (!isOpen(f.id)) setOpen(f.id, true)
     setRing(f.id)
     requestAnimationFrame(() => list.current?.querySelector(`[data-sec="${CSS.escape(f.id)}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
-    const t = setTimeout(() => setRing((x) => (x === f.id ? null : x)), 2000)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setRing((x) => (x === f.id ? null : x)), 2000)
+    return () => clearTimeout(timer)
   }, [r.focus?.seq, props.hidden])
 
   /** 展开那一轮，滚到那条旁支（离顶 60）；flash：闪一下（「在笔记里看」、点小标），开着旁支切过来时不闪 */
@@ -210,11 +213,11 @@ export function ReadingNotes(props: {
   /** 笔记里一条旁支的名字（对话记录里那一条的：改过的名字、问的第一句） */
   const sideTitle = (thread: string, quote: string) => {
     const s = (r.state.sides ?? []).find((x) => x.thread === thread && x.quote === quote)
-    return s ? `旁支 · ${R.sideName(s)}` : '旁支'
+    return s ? t('旁支 · {name}', { name: R.sideName(s) }) : t('旁支')
   }
 
-  const t = q.trim().toLowerCase()
-  const shown = t ? sections.filter((s) => hayOf(s).includes(t)) : sections
+  const needle = q.trim().toLowerCase()
+  const shown = needle ? sections.filter((s) => hayOf(s).includes(needle)) : sections
   // 还没写进笔记的（AI 在后台写）先占一段
   const writingNew = r.writing.filter((id) => !sections.some((s) => s.id === id))
   const asks = sections.reduce((n, s) => n + asksOf(s), 0)
@@ -228,9 +231,10 @@ export function ReadingNotes(props: {
   // 「只看我问的」：主问题一条一行，旁支里问的缩进；「旁支」：只列旁支里问的
   const rows: QRow[] = []
   for (const s of filter === 'all' ? [] : sections) {
-    const at = `${s.page > 0 ? `第${s.page}页 · ` : ''}${s.title}`
+    const at = s.page > 0 ? t('第{page}页 · {title}', { page: s.page, title: s.title }) : s.title
     const ids = turnIds(pdf, s)
-    const side = (quote: string, q: string, id?: string) => rows.push({ sec: s.id, id, quote, q, sub: `旁支 · ${s.page > 0 ? `第${s.page}页 · ` : ''}「${quote.slice(0, 14)}…」` })
+    const side = (quote: string, q: string, id?: string) =>
+      rows.push({ sec: s.id, id, quote, q, sub: s.page > 0 ? t('旁支 · 第{page}页 · 「{quote}…」', { page: s.page, quote: quote.slice(0, 14) }) : t('旁支 · 「{quote}…」', { quote: quote.slice(0, 14) }) })
     if (!s.qas) {
       if (filter === 'q') rows.push({ sec: s.id, id: s.id, q: s.doubts[0] ?? s.title, sub: at })
       continue
@@ -240,7 +244,7 @@ export function ReadingNotes(props: {
       qa.sides.forEach((d, j) => d.turns.forEach((turn, k) => side(d.quote, turn.q, ids.get(`s${i}.${j}.${k}`))))
     })
   }
-  const qrows = t ? rows.filter((x) => `${x.q}\n${x.sub}`.toLowerCase().includes(t)) : rows
+  const qrows = needle ? rows.filter((x) => `${x.q}\n${x.sub}`.toLowerCase().includes(needle)) : rows
   /** 问题条右端（出卡，task-tz7y3）：送过的「✓ 已送」；没送的悬停出「做成卡」，点了 AI 改好这一问、贴着问题条出一张小卡 */
   const cardMark = (s: AskSection, key: string): ReactNode => {
     const ids = turnIds(pdf, s)
@@ -251,13 +255,13 @@ export function ReadingNotes(props: {
       return (
         <span className="mk">
           <Codicon name="check" size={12} />
-          已送
+          {t('已送')}
         </span>
       )
     return (
       <button
         className="hov"
-        aria-label="做成卡"
+        aria-label={t('做成卡')}
         onClick={(e) => {
           e.stopPropagation()
           openSpot(pdf, id, (e.currentTarget.closest('.qs') as HTMLElement).getBoundingClientRect(), (e.currentTarget.closest('.reading-notes') as HTMLElement).getBoundingClientRect())
@@ -265,7 +269,7 @@ export function ReadingNotes(props: {
       >
         <AiIcon job="cards" size={14} />
         {/* 字画在 CSS 里：问题条的字还是原话（别处读问题条的字不带它） */}
-        <span className="hov-t" data-t="做成卡" />
+        <span className="hov-t" data-t={t('做成卡')} />
       </button>
     )
   }
@@ -279,26 +283,26 @@ export function ReadingNotes(props: {
   }
 
   return (
-    <aside className="right aicell reading-notes" aria-label="笔记" hidden={props.hidden}>
+    <aside className="right aicell reading-notes" aria-label={t('笔记')} hidden={props.hidden}>
       {(text || writingNew.length > 0) && (
         <div className="nsub">
           <label className="srch">
             <Codicon name="search" size={14} />
-            <input placeholder="在这份笔记里找" aria-label="在这份笔记里找" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input placeholder={t('在这份笔记里找')} aria-label={t('在这份笔记里找')} value={q} onChange={(e) => setQ(e.target.value)} />
           </label>
-          <div className="nfil" role="tablist" aria-label="笔记筛选">
+          <div className="nfil" role="tablist" aria-label={t('笔记筛选')}>
             {FILTERS.map(([f, label]) => (
               <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
-                {label}
+                {t(label, { ctx: '笔记筛选' })}
               </button>
             ))}
             {isPdf && sections.length > 0 ? (
-              <button className="btn btn-xs cards-open" data-testid="cards-open" title="AI 把这几问改成能单独看懂的卡，你一张张过，再送进 Anki" onClick={() => openCards({ kind: 'pdf', pdf })}>
+              <button className="btn btn-xs cards-open" data-testid="cards-open" title={t('AI 把这几问改成能单独看懂的卡，你一张张过，再送进 Anki')} onClick={() => openCards({ kind: 'pdf', pdf })}>
                 <AiIcon job="cards" size={14} />
-                {`出卡 · ${unsentOf(cardsView, sides).length}问`}
+                {t('出卡 · {n}问', { ctx: '笔记栏', n: unsentOf(cardsView, sides).length })}
               </button>
             ) : (
-              <span className="cnt num" data-testid="note-count">{`${sections.length}轮 · ${asks}问`}</span>
+              <span className="cnt num" data-testid="note-count">{t('{n}轮 · {asks}问', { n: sections.length, asks })}</span>
             )}
           </div>
         </div>
@@ -316,20 +320,20 @@ export function ReadingNotes(props: {
       >
         {!text && !writingNew.length ? (
           <div className="nempty">
-            <p>还没有笔记。</p>
-            <p>在PDF上框一块问AI，问完它在后台记一段：你框的图、你问的原话和AI的回答，在回答里选一句开的旁支挂在后面。</p>
+            <p>{t('还没有笔记。')}</p>
+            <p>{t('在PDF上框一块问AI，问完它在后台记一段：你框的图、你问的原话和AI的回答，在回答里选一句开的旁支挂在后面。')}</p>
           </div>
         ) : filter !== 'all' ? (
           <>
             {filter === 'side' ? (
-              <div className="qhint">开过的旁支</div>
+              <div className="qhint">{t('开过的旁支')}</div>
             ) : (
               isPdf &&
               hint && (
                 <div className="qhint cards-hint">
                   <Codicon name="info" size={14} />
-                  <span>点右上「出卡」，AI 把这几问改成能单独看懂的卡，你一张张过。</span>
-                  <button className="x" aria-label="知道了" onClick={hideHint}>
+                  <span>{t('点右上「出卡」，AI 把这几问改成能单独看懂的卡，你一张张过。')}</span>
+                  <button className="x" aria-label={t('知道了')} onClick={hideHint}>
                     <Codicon name="close" size={12} />
                   </button>
                 </div>
@@ -345,12 +349,12 @@ export function ReadingNotes(props: {
                 {x.id && sent.has(x.id) && (
                   <span className="st">
                     <Codicon name="check" size={12} />
-                    已送
+                    {t('已送')}
                   </span>
                 )}
               </button>
             ))}
-            {!qrows.length && <div className="nempty">{t ? `这份笔记里没有「${q.trim()}」` : filter === 'q' ? '还没问过。' : '还没开过旁支。'}</div>}
+            {!qrows.length && <div className="nempty">{needle ? t('这份笔记里没有「{q}」', { q: q.trim() }) : filter === 'q' ? t('还没问过。') : t('还没开过旁支。')}</div>}
           </>
         ) : (
           <>
@@ -360,20 +364,20 @@ export function ReadingNotes(props: {
                 <section key={id} className="rnd writing pend" data-sec={id}>
                   <div className="rh">
                     <Codicon name="loading" size={14} className="spin cv" />
-                    <h3>正在记…</h3>
+                    <h3>{t('正在记…')}</h3>
                   </div>
-                  <div className="loc">{th && th.page > 0 ? <span>{`第${th.page}页`}</span> : null}</div>
+                  <div className="loc">{th && th.page > 0 ? <span>{t('第{page}页', { page: th.page })}</span> : null}</div>
                   {th?.crop && (
                     <span className="crop">
                       <img src={vaultImg(th.crop)} alt={cropCaption(th)} style={th.cropW ? { width: th.cropW } : undefined} />
                     </span>
                   )}
-                  <p className="wnote">AI在后台记这一段，你可以接着问</p>
+                  <p className="wnote">{t('AI在后台记这一段，你可以接着问')}</p>
                 </section>
               )
             })}
             {shown.map((s) =>
-              !t && !isOpen(s.id) ? (
+              !needle && !isOpen(s.id) ? (
                 <FoldRow key={s.id} s={s} time={timeOf(s)} grow={grow.has(`r:${s.id}`)} onOpen={() => toggle(s.id)} />
               ) : (
                 <Round
@@ -395,7 +399,7 @@ export function ReadingNotes(props: {
                 />
               ),
             )}
-            {t && !shown.length && <div className="nempty">这份笔记里没有「{q.trim()}」</div>}
+            {needle && !shown.length && <div className="nempty">{t('这份笔记里没有「{q}」', { q: q.trim() })}</div>}
           </>
         )}
       </div>
@@ -405,17 +409,59 @@ export function ReadingNotes(props: {
 
 /** 收成一行的一轮：chevron-right 14 + 「第 27 页 · 标题」 + 小结的前半句（省略号） + 右边「1 问 · 20:14」，点开展开 */
 function FoldRow(p: { s: AskSection; time: string; grow: boolean; onOpen(): void }) {
+  const t = useT()
   const { s } = p
   const recap = (s.qas ? s.recap : s.good) || ''
   return (
     <section className={'rnd fold' + (p.grow ? ' grow' : '')} data-sec={s.id} data-testid="note-round">
       <button className="fh" aria-expanded={false} onClick={p.onOpen}>
         <Codicon name="chevron-right" size={14} className="cv" />
-        <span className="tt">{`${s.page > 0 ? `第${s.page}页 · ` : ''}${s.title}`}</span>
-        <span className="rc">{recap.replace(/\s+/g, ' ')}</span>
-        <span className="r num">{`${asksOf(s)}问${p.time ? ` · ${p.time}` : ''}`}</span>
+        <span className="tt">{s.page > 0 ? t('第{page}页 · {title}', { page: s.page, title: s.title }) : s.title}</span>
+        <Recap text={recap.replace(/\s+/g, ' ')} />
+        <span className="r num">
+          <AskCount n={asksOf(s)} time={p.time} />
+        </span>
       </button>
     </section>
+  )
+}
+
+/**
+ * 一轮问了几问 · 什么时候。英文窄：对话图标 + 数（3 · 20:21），悬停提示写全 3 questions（设计复审）；中文照旧「3问 · 20:21」
+ */
+function AskCount(p: { n: number; time: string }) {
+  const t = useT()
+  if (useLang() !== 'en') return <>{p.time ? t('{n}问 · {time}', { n: p.n, time: p.time }) : t('{n}问', { n: p.n })}</>
+  return (
+    <span className="asks" title={t('{n}问', { n: p.n })}>
+      <Codicon name="comment-discussion" size={12} />
+      {p.time ? t('{n}问 · {time}', { n: p.n, time: p.time }) : p.n}
+    </span>
+  )
+}
+
+/** 收起那行的小结：放不下 4 个字时整段不显示（不留「水…」这种一两个字的头） */
+function Recap(p: { text: string }) {
+  const el = useRef<HTMLSpanElement>(null)
+  const [hide, setHide] = useState(false)
+  useLayoutEffect(() => {
+    const span = el.current
+    if (!span || !p.text) return
+    const cs = getComputedStyle(span)
+    const ctx = document.createElement('canvas').getContext('2d')
+    if (!ctx) return
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`
+    const need = ctx.measureText(Array.from(p.text).slice(0, 4).join('') + '…').width
+    const fit = () => setHide(span.clientWidth < need)
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(span)
+    return () => ro.disconnect()
+  }, [p.text])
+  return (
+    <span ref={el} className="rc" style={hide ? { visibility: 'hidden' } : undefined}>
+      {p.text}
+    </span>
   )
 }
 
@@ -507,24 +553,27 @@ function Round(p: {
   /** 问题条右端的「已送」「做成卡」（key：主对话「q<i>」、旁支「s<i>.<j>.<k>」） */
   cardMark?(key: string): ReactNode
 }) {
+  const t = useT()
   const { s } = p
   const w = s.web
   // 第二行：「第 28 页 ›」（点了 PDF 翻过去、框闪）· 我框的；网页上问的是域名，点了回网页；HTML 上问的是文件名，点了打开
   const loc = w ? (
-    <button title={/^https?:/i.test(w.url) ? `回到网页 ${w.url}` : `打开 ${w.url}`} onClick={() => (/^https?:/i.test(w.url) ? p.onOpenWeb(w.url) : p.onOpenHtml(w.url))}>
+    <button title={/^https?:/i.test(w.url) ? t('回到网页 {url}', { url: w.url }) : t('打开 {url}', { url: w.url })} onClick={() => (/^https?:/i.test(w.url) ? p.onOpenWeb(w.url) : p.onOpenHtml(w.url))}>
       {`${w.label} ›`}
     </button>
   ) : (
-    <button title="翻到这一页，框过的那块闪一下" onClick={p.onJump}>{`第${s.page}页 ›`}</button>
+    <button title={t('翻到这一页，框过的那块闪一下')} onClick={p.onJump}>
+      {t('第{page}页 ›', { page: s.page })}
+    </button>
   )
   let n = 0
   return (
     <section className={'rnd' + (p.ring ? ' flash' : '') + (p.writing ? ' writing' : '') + (p.grow.has(`r:${s.id}`) ? ' grow' : '')} data-sec={s.id} data-testid="note-round">
       <div className="rh" role="button" tabIndex={0} aria-expanded onClick={p.onFold} onKeyDown={(e) => e.key === 'Enter' && p.onFold()}>
         <Codicon name="chevron-right" size={14} className="cv" />
-        <h3>{`${s.page > 0 ? `第${s.page}页 · ` : ''}${s.title}`}</h3>
+        <h3>{s.page > 0 ? t('第{page}页 · {title}', { page: s.page, title: s.title }) : s.title}</h3>
         <span className="r num">
-          {`${asksOf(s)}问${p.time ? ` · ${p.time}` : ''}`}
+          <AskCount n={asksOf(s)} time={p.time} />
           {p.writing && <Codicon name="loading" size={12} className="spin" />}
         </span>
       </div>
@@ -533,7 +582,7 @@ function Round(p: {
         {s.crop && <span>{`· ${cropCaption(s)}`}</span>}
       </div>
       {s.crop && (
-        <button className="crop" title="点一下回到原处" onClick={p.onJump}>
+        <button className="crop" title={t('点一下回到原处')} onClick={p.onJump}>
           <img src={vaultImg(s.crop)} alt={cropCaption(s)} style={s.cropW ? { width: s.cropW } : undefined} className={s.cropW ? '' : 'old'} />
         </button>
       )}
@@ -561,20 +610,20 @@ function Round(p: {
                   <div key={j} className="nside" data-quote={d.quote}>
                     <div className="stag">
                       <Codicon name="comment-discussion" size={11} />
-                      {`旁支 ${j + 1}`}
+                      {t('旁支 {n}', { n: j + 1 })}
                     </div>
                     <div className="q0">
                       <Codicon name="quote" size={12} />
                       <span>{d.quote}</span>
                     </div>
-                    {d.turns.map((t, k) => {
+                    {d.turns.map((turn, k) => {
                       const key = `b:${s.id}:${d.quote}:${k}`
                       return (
                         <div key={k} className={'turn' + (p.grow.has(key) ? ' grow' : '')}>
-                          <QBar t={t} k={key} grow={false} mark={p.cardMark?.(`s${i}.${j}.${k}`)} />
-                          {t.a && (
+                          <QBar t={turn} k={key} grow={false} mark={p.cardMark?.(`s${i}.${j}.${k}`)} />
+                          {turn.a && (
                             <div className="am">
-                              <Answer a={t.a} />
+                              <Answer a={turn.a} />
                             </div>
                           )}
                         </div>
@@ -587,7 +636,7 @@ function Round(p: {
           })}
           {s.recap && (
             <div className={'recap' + (p.grow.has(`rc:${s.id}:${s.recap}`) ? ' grow' : '')}>
-              <b>小结</b>
+              <b>{t('小结')}</b>
               <span>{s.recap}</span>
             </div>
           )}
@@ -602,7 +651,7 @@ function Round(p: {
           </span>
           <span className="tx">
             <b className="truncate">{s.viz.title}</b>
-            <span>可视化 · 能拖能点 · 点开在中间</span>
+            <span>{t('可视化 · 能拖能点 · 点开在中间')}</span>
           </span>
         </button>
       )}
@@ -611,11 +660,11 @@ function Round(p: {
           {!s.qas && (
             <button className="lnk" onClick={p.onConvo}>
               <Codicon name="comment" size={12} />
-              {`完整对话 · ${s.rounds}轮`}
+              {t('完整对话 · {n}轮', { n: s.rounds })}
             </button>
           )}
           {s.links.map((l) => (
-            <button key={l} className="lnk wl" title="双链，跳到那篇" onClick={() => p.onLink(l.split('#')[0]!)}>
+            <button key={l} className="lnk wl" title={t('双链，跳到那篇')} onClick={() => p.onLink(l.split('#')[0]!)}>
               [[{l}]]
             </button>
           ))}
@@ -627,13 +676,14 @@ function Round(p: {
 
 /** 以前格式的一段照旧显示：我的疑惑、讲通的讲法、要点、没讲通的版本 */
 function OldBody({ s }: { s: AskSection }) {
+  const t = useT()
   return (
     <>
       {s.doubts.length > 0 && (
         <div className="doubt">
           <div className="lab2">
             <Codicon name="question" size={12} />
-            我的疑惑
+            {t('我的疑惑')}
           </div>
           {s.doubts.map((d, i) => (
             <p key={i}>{d}</p>
@@ -644,7 +694,8 @@ function OldBody({ s }: { s: AskSection }) {
         <div className="good">
           <div className="lab2">
             <Codicon name="check" size={12} />
-            讲通的讲法{s.goodVersion && <span className="ver">{`第${s.goodVersion}版`}</span>}
+            {t('讲通的讲法')}
+            {s.goodVersion && <span className="ver">{t('第{n}版', { n: s.goodVersion })}</span>}
           </div>
           <p>{s.good}</p>
         </div>
@@ -662,7 +713,7 @@ function OldBody({ s }: { s: AskSection }) {
             <details key={f.version}>
               <summary>
                 <Codicon name="chevron-right" size={12} />
-                {`没讲通 · 第${f.version}版：${f.line}`}
+                {t('没讲通 · 第{n}版：{line}', { n: f.version, line: f.line })}
               </summary>
               <div className="body2">{f.text}</div>
             </details>

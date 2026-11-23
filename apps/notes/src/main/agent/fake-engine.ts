@@ -118,7 +118,9 @@ export function fakeEngine(id: EngineId): Engine {
     id,
     label: LABELS[id],
     async run(r) {
-      const said = /用户说：\n([\s\S]*)$/.exec(r.prompt)?.[1]?.trim() ?? r.prompt
+      // 消息最后软件加的那行【语言】（task-zojmg）不算用户的话，和真 AI 一样不理它
+      const prompt = r.prompt.replace(/\n\n【语言】[^\n]*$/, '')
+      const said = /用户说：\n([\s\S]*)$/.exec(prompt)?.[1]?.trim() ?? prompt
       let text = ''
       const say = async (s: string) => {
         for (const part of s.match(/.{1,4}/gsu) ?? []) {
@@ -140,9 +142,25 @@ export function fakeEngine(id: EngineId): Engine {
       }
       if (r.mcp) await mcp(r.mcp.url, r.mcp.token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fake', version: '0' } })
 
+      // 回答里引用库里的东西（task-3e53q）：相对库根的笔记到几行、只写名字的、绝对路径、[[双链#标题]]、PDF 某页某块、网页某一段。
+      // AI 对话、读 PDF 的 AI、旁支里问「列出引用」都这样答
+      if (/列出引用/.test(r.prompt)) {
+        await say(
+          [
+            'SAGE 是[小论文计划里排](课程/小论文计划.md#L42-L43)第 2 篇的论文。',
+            '',
+            `- 原话在 [小论文计划](${join(r.cwd, '课程/小论文计划.md')}) 里；定义见 [[第3讲 笔记#定义]]。`,
+            '- 图在 [第 4 页那块](课程/线代/第3讲.pdf#page=4&rect=0.1,0.2,0.5,0.2)。',
+            '- 网页上那句：[注意力那段](https://example.com/attn.html#:~:text=%E6%B3%A8%E6%84%8F%E5%8A%9B)。',
+            '- [没有这篇](课程/没有这篇.md)。',
+          ].join('\n'),
+        )
+        return { text, session: r.session ?? `fake-${id}` }
+      }
+
       // 出卡（task-tz7y3）：一问一行 JSON，隔 CN_FAKE_CARD_MS 出一张。问题「小标题」里：原话；答案是回答第一句里第一个逗号前；原文摘句是回答第一句
       if (r.system.startsWith('你帮人把他读 PDF 课件时问过的问题做成 Anki 记忆卡片')) {
-        for (const b of r.prompt.split(/^【第 \d+ 问】/m).slice(1)) {
+        for (const b of prompt.split(/^【第 \d+ 问】/m).slice(1)) {
           if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
           const id = /^编号：(\S+)/m.exec(b)?.[1] ?? ''
           const title = /这一轮：(.*)$/m.exec(b)?.[1]?.trim() ?? ''
@@ -158,24 +176,24 @@ export function fakeEngine(id: EngineId): Engine {
       }
 
       // 读 PDF：后台的两件小活，这一轮的标题和一句小结（只出 JSON）；小结里写主对话、旁支各问了几句（测试看每答完一次都重写）
-      if (r.prompt.includes('输出 JSON：')) {
+      if (prompt.includes('输出 JSON：')) {
         await sleep(Number(process.env.CN_FAKE_NOTE_MS ?? 400))
-        const page = /第 (\d+) 页/.exec(r.prompt)?.[1] ?? '1'
-        const main = (r.prompt.match(/^【他】/gm) ?? []).length
-        const side = (r.prompt.match(/^【他·旁支】/gm) ?? []).length
+        const page = /第 (\d+) 页/.exec(prompt)?.[1] ?? '1'
+        const main = (prompt.match(/^【他】/gm) ?? []).length
+        const side = (prompt.match(/^【他·旁支】/gm) ?? []).length
         const json = { title: `测试小标题 p${page}`, recap: `测试小结：主对话问了 ${main} 句${side ? `，旁支问了 ${side} 句` : ''}。` }
         return { text: JSON.stringify(json), session: undefined }
       }
       // 读 PDF：做个可视化（一个能拖的小网页）
-      if (r.prompt.includes('做一个单文件 HTML 可视化')) {
+      if (prompt.includes('做一个单文件 HTML 可视化')) {
         await sleep(Number(process.env.CN_FAKE_VIZ_MS ?? 600))
-        const page = /第 (\d+) 页/.exec(r.prompt)?.[1] ?? '1'
+        const page = /第 (\d+) 页/.exec(prompt)?.[1] ?? '1'
         const html = `<!doctype html><html><head><meta charset="utf-8"><title>旋转矩阵 · 拖动角度看基向量</title><style>body{font:14px sans-serif;margin:24px}@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}</style></head><body><h1>第 ${page} 页 · 拖动角度</h1><input id="a" type="range" min="0" max="360" value="30" aria-label="角度"><p>角度 <b id="v">30</b>°</p><script>const a=document.getElementById('a');a.oninput=()=>document.getElementById('v').textContent=a.value</script></body></html>`
         return { text: '好的：\n```html\n' + html + '\n```', session: undefined }
       }
       // 让 Claude 帮我找：搜一下、读含有他的话里两个字的那几篇，交一行 JSON
-      if (r.prompt.startsWith('帮他在库里找：')) {
-        const q = r.prompt.slice('帮他在库里找：'.length).trim()
+      if (prompt.startsWith('帮他在库里找：')) {
+        const q = prompt.slice('帮他在库里找：'.length).trim()
         const step = Number(process.env.CN_FAKE_FIND_MS ?? 300)
         await sleep(step)
         r.onTool?.('Grep', { pattern: q })
@@ -202,20 +220,20 @@ export function fakeEngine(id: EngineId): Engine {
       }
       // 测试设置 › AI「给AI的长期说明」真的带进了这一问（AI 对话、读 PDF 都在最前面）
       if (said.includes('复述长期说明')) {
-        const note = /【用户的长期说明】每一问都照这个来：\n([\s\S]*?)\n/.exec(r.prompt)?.[1]
+        const note = /【用户的长期说明】每一问都照这个来：\n([\s\S]*?)\n/.exec(prompt)?.[1]
         await say(note ? `长期说明：${note}` : '没有长期说明')
         return { text, session: r.session }
       }
       // 读 PDF：框一块问、追问
-      if (r.prompt.includes('他说：')) {
-        const q = /他说：([\s\S]*)$/.exec(r.prompt)?.[1]?.trim() ?? ''
-        const page = /他现在在看第 (\d+) 页/.exec(r.prompt)?.[1] ?? '?'
+      if (prompt.includes('他说：')) {
+        const q = /他说：([\s\S]*)$/.exec(prompt)?.[1]?.trim() ?? ''
+        const page = /他现在在看第 (\d+) 页/.exec(prompt)?.[1] ?? '?'
         // 旁支（CN-90）：从给的会话分叉，会话号另起一个；接着聊就还是给的那个
         const fork = !!(r.fork && r.session)
         const session = fork ? `fake-side-${id}-${++sides}` : (r.session ?? `fake-read-${id}`)
         // 引用的材料（多段引用方向 B）：「我引用的材料…」下面一行一块
         const mats = materialCount(q)
-        const seen = [`第 ${page} 页`, `图 ${r.images?.length ?? 0} 张`, ...(mats ? [`材料 ${mats} 块`] : []), r.prompt.includes('<pdf>') || r.history?.includes('<pdf>') ? '读过全文' : '没读全文', fork ? `旁支，从 ${r.session} 分叉` : r.session ? '接着聊' : '新会话', ...(r.prompt.includes('<answer>') ? ['带了上一问的回答'] : []), ...(r.prompt.includes('<subs>') ? ['带了字幕'] : [])]
+        const seen = [`第 ${page} 页`, `图 ${r.images?.length ?? 0} 张`, ...(mats ? [`材料 ${mats} 块`] : []), prompt.includes('<pdf>') || r.history?.includes('<pdf>') ? '读过全文' : '没读全文', fork ? `旁支，从 ${r.session} 分叉` : r.session ? '接着聊' : '新会话', ...(prompt.includes('<answer>') ? ['带了上一问的回答'] : []), ...(prompt.includes('<subs>') ? ['带了字幕'] : [])]
         // 测试设置 › AI 选的模型真的传到了引擎（CN-44）
         if (q.includes('用的什么模型')) {
           await say(modelSaid(r))
@@ -228,8 +246,8 @@ export function fakeEngine(id: EngineId): Engine {
           return { text, session }
         }
         // 旁支（CN-90）：回答里写问的是哪一句、从哪分叉；问里有「公式」照样答带 LaTeX 的
-        if (/这是一条旁支|接着这条旁支问/.test(r.prompt) && !q.includes('公式')) {
-          const quote = /他选中的那句：「(.*)」|问的还是「(.*)」这句/.exec(r.prompt)
+        if (/这是一条旁支|接着这条旁支问/.test(prompt) && !q.includes('公式')) {
+          const quote = /他选中的那句：「(.*)」|问的还是「(.*)」这句/.exec(prompt)
           await say(`#### 旁支的回答\n\n这是旁支的回答（${seen.join('，')}）：讲「${(quote?.[1] ?? quote?.[2] ?? '').slice(0, 12)}」，问的是「${q}」。\n\n第二段：门槛减掉，不清零。`)
           return { text, session }
         }
@@ -248,7 +266,7 @@ export function fakeEngine(id: EngineId): Engine {
         else if (/还是不懂|换个方式/.test(q)) await say(`换个方式讲（${seen.join('，')}）：先别看公式，看图。`)
         else await say(`这是讲解（${seen.join('，')}）。用你在 [第 2 页](#page=2) 弄懂的那条：列就是基向量去哪。\n\n〔可以做个可视化〕`)
         // 配图的框（CN-60）：测试里给一个固定的框
-        if (process.env.CN_FAKE_FIGURE_MARK && r.images?.length && r.prompt.includes('〔配图')) await say(`\n${process.env.CN_FAKE_FIGURE_MARK}`)
+        if (process.env.CN_FAKE_FIGURE_MARK && r.images?.length && prompt.includes('〔配图')) await say(`\n${process.env.CN_FAKE_FIGURE_MARK}`)
         return { text, session }
       }
 
@@ -269,8 +287,8 @@ export function fakeEngine(id: EngineId): Engine {
         return { text, session: r.session ?? `fake-${id}` }
       }
       // 旁支（task-4edsc，AI 对话、文档里 AI 讲解块的）：回答里写问的是哪一句、从哪分叉（文档里的没有会话可分叉，是新会话）
-      if (/这是一条旁支|接着这条旁支问/.test(r.prompt)) {
-        const quote = /他选中的那句：「(.*)」|问的还是「(.*)」这句/.exec(r.prompt)
+      if (/这是一条旁支|接着这条旁支问/.test(prompt)) {
+        const quote = /他选中的那句：「(.*)」|问的还是「(.*)」这句/.exec(prompt)
         const fork = !!(r.fork && r.session)
         const session = r.session && !fork ? r.session : `fake-side-${id}-${++sides}`
         const how = fork ? `旁支，从 ${r.session} 分叉` : r.session ? '接着聊' : `新会话${r.history ? '，带了那段讲解' : ''}`
@@ -301,7 +319,7 @@ export function fakeEngine(id: EngineId): Engine {
         throw new Error("API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). Please try rephrasing your request. Request ID: req_011FAKE")
       // 左栏选了好几个交给 AI（task-0tgz2）：照话里交来的那几篇答；「合成一篇」真用 note_create 建一篇（一次提交、能撤回）
       if (/选中的这几篇/.test(said)) {
-        const picked = /问的「选中的这几篇」就是它们[^：]*：(.*)$/m.exec(r.prompt)?.[1]?.split('、') ?? []
+        const picked = /问的「选中的这几篇」就是它们[^：]*：(.*)$/m.exec(prompt)?.[1]?.split('、') ?? []
         if (!picked.length) {
           await say('没收到选中的是哪几篇。')
           return { text, session: `fake-${id}` }
@@ -328,7 +346,7 @@ export function fakeEngine(id: EngineId): Engine {
       }
       // 现在是什么模式：照引擎拿到的开关和话里开头那一行【模式】说（测试看开关真的传到了引擎）
       if (/什么模式/.test(said)) {
-        const line = /【模式】(全能模式[开关]着)/.exec(r.prompt)?.[1] ?? '没写'
+        const line = /【模式】(全能模式[开关]着)/.exec(prompt)?.[1] ?? '没写'
         await say(`引擎拿到的：全能模式${r.omni ? '开着' : '关着'}；话里写的：${line}。`)
         return { text, session: `fake-${id}` }
       }

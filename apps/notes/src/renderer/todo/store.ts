@@ -4,6 +4,7 @@
  * 底栏提示带「撤回」。刚勾掉的几条记在 keep 里：三处都划线留在原处（原型 S.just），这一次开软件里一直这样。
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
+import type { When, WhenFields } from '@cn/tasks'
 import { dayName, isOpen, listed, type TodoItem, type TodoOp, type TodoWhere, whenText } from '../../shared/todo'
 import { app } from '../ctx/actions'
 import { NoteDoc } from '../note-doc'
@@ -56,6 +57,12 @@ export function useTodos(): State {
 export function isoToday(ms = Date.now()): string {
   const d = new Date(ms)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** 本地的现在「2026-11-22T16:05」（认时间：只写了钟点、今天已经过了的算明天，task-pd289） */
+export function nowLocal(ms = Date.now()): string {
+  const d = new Date(ms)
+  return `${isoToday(ms)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 /** 今天（过了半夜跟着换：分组、日子小块都按它算） */
@@ -148,6 +155,29 @@ export async function dateTodo(t: TodoItem, date: string | null) {
   say(tNow('「{title}」改到{when}', { title: t.title, when: whenText(date, date ? t.time : null, isoToday()) }), r.undo, t.title)
 }
 
+/** 日历格里拖到某天（某个钟点）：日子和钟点一起改，一次撤回；time undefined 是钟点不动、null 是拿掉钟点 */
+export async function whenTodo(t: TodoItem, date: string, time?: string | null) {
+  const r = await edit(t, { op: 'when', date, ...(time !== undefined ? { time } : {}) })
+  if (!r) return
+  flashKey(`${r.path}#${r.line}`)
+  const tm = time === undefined ? t.time : time
+  say(tNow('「{title}」改到{when}', { title: t.title, when: whenText(date, tm, isoToday()) }), r.undo, t.title)
+}
+
+/** AI 排进空着的时间「收下」：几条一起写上钟点 */
+export async function timesTodo(items: { t: TodoItem; time: string }[]): Promise<boolean> {
+  await NoteDoc.saveAll()
+  NoteDoc.expectOwnChange([...new Set(items.map((x) => x.t.path))])
+  const r = await window.cnTodo.times(items.map((x) => ({ path: x.t.path, line: x.t.line, raw: x.t.raw, time: x.time }))).catch((e: unknown) => ({ ok: false as const, reason: 'failed' as const, message: errText(e) }))
+  app().refresh()
+  if (!r.ok) {
+    app().notice(r.reason === 'gone' ? tNow('那几行刚被别处改了，没写上') : tNow('没改成：{err}', { err: r.message ?? '' }))
+    return false
+  }
+  say(tNow('排好了{n}条 · 这几行的 📅 日子后面加上了钟点', { n: items.length }), r.undo, items[0]!.t.title)
+  return true
+}
+
 type Field = 'time' | 'remind' | 'repeat'
 
 /** 详情里改钟点、提醒、重复（'' 是不要） */
@@ -159,11 +189,41 @@ export async function fieldTodo(t: TodoItem, k: Field, v: string) {
   say(k === 'time' ? tNow('「{title}」改了钟点', { title }) : k === 'remind' ? tNow('「{title}」改了提醒', { title }) : tNow('「{title}」改了重复', { title }), r.undo, title)
 }
 
-/** 加一条（认「明天下午三点」）；加上了返回 true，输入框清空 */
-export async function addTodo(text: string, where: TodoWhere): Promise<boolean> {
+/**
+ * 定日子和时间的选择器里改了一项（task-pd289）：四样一起照 w 写进那一行（只换那几个字），不说话，交回改完以后这一行在哪、原文和撤销编号
+ * （选择器关上时 sayWhen 一起说一句、一起撤回）
+ */
+export async function scheduleTodo(t: Pick<TodoItem, 'path' | 'line' | 'raw' | 'title'>, w: WhenFields): Promise<{ line: number; raw: string; undo: string } | null> {
+  const r = await edit(t as TodoItem, { op: 'schedule', when: w })
+  if (!r) return null
+  flashKey(`${r.path}#${r.line}`)
+  return { line: r.line, raw: r.raw, undo: r.undo }
+}
+
+/** 选择器关上：底栏说一句改成了什么，带「撤回」（这一回改的几次倒着一起撤） */
+export function sayWhen(title: string, w: WhenFields, undos: string[]) {
+  const ids = undos.filter(Boolean)
+  if (!ids.length) return
+  const said = w.date ? tNow('「{title}」改到{when}', { title, when: whenText(w.date, w.time, isoToday()) + (w.remind ? ' · 🔔 ' + w.remind : '') + (w.repeat ? ' · 🔁 ' + w.repeat : '') }) : tNow('「{title}」拿掉了日子', { title })
+  app().noticeUndo(said, () => {
+    void (async () => {
+      for (const id of [...ids].reverse()) {
+        const r = await window.cnTodo.undo(id).catch(() => ({ ok: false as const, reason: 'failed' as const }))
+        if (!r.ok) {
+          app().notice(tNow('「{title}」那一行后来又被改过，撤不回了', { title }))
+          break
+        }
+      }
+      app().refresh()
+    })()
+  })
+}
+
+/** 加一条（认「明天下午三点」）；加上了返回 true，输入框清空。day：没写哪天时加到这天（待办首页只看某一天时）；when：AI 认出来的（task-pd289） */
+export async function addTodo(text: string, where: TodoWhere, day?: string | null, when?: When | null): Promise<boolean> {
   if (!text.trim()) return false
   await NoteDoc.saveAll()
-  const r = await window.cnTodo.add(text, where).catch((e: unknown) => ({ ok: false as const, reason: 'failed' as const, message: errText(e) }))
+  const r = await window.cnTodo.add(text, where, day, when).catch((e: unknown) => ({ ok: false as const, reason: 'failed' as const, message: errText(e) }))
   if (!r.ok) {
     app().notice(r.reason === 'empty' ? tNow('只认出了日子，没有要做什么') : r.reason === 'readonly' ? (r.message ?? tNow('这一篇只能只读打开')) : tNow('没加上：{err}', { err: r.message ?? '' }))
     return false
@@ -174,8 +234,37 @@ export async function addTodo(text: string, where: TodoWhere): Promise<boolean> 
   return true
 }
 
+/** 右键「删除」：整行拿掉（连子任务），底栏带「撤回」 */
+export async function deleteTodo(t: TodoItem) {
+  const r = await edit(t, { op: 'delete' })
+  if (!r) return
+  say(tNow('删掉了「{title}」', { title: t.title }), r.undo, t.title)
+}
+
+/** 打开画布今日（左栏头上那一颗） */
+export function openTodayApp() {
+  void window.cnTodo.openToday().catch((e: unknown) => app().notice(tNow('没打开画布今日：{err}', { err: errText(e) })))
+}
+
+/** 没装画布今日：开官网上介绍和下载它的那一节 */
+export function aboutToday() {
+  void window.cnTodo.aboutToday().catch((e: unknown) => app().notice(tNow('没打开：{err}', { err: errText(e) })))
+}
+
+/**
+ * 文档里一行待办点「看详情」（task-kzr3n）：先把开着的编辑器存好、重读一次，再按 路径 + 行号 + 原文 认是哪一条
+ * （行号对不上时找同一篇里原文一样、离得最近的）；认不出是 null
+ */
+export async function findTodoAt(path: string, line: number, raw: string): Promise<TodoItem | null> {
+  await NoteDoc.saveAll()
+  const items = await window.cnTodo.list()
+  set({ items, loaded: true })
+  const same = items.filter((t) => t.path === path && t.raw === raw)
+  return same.find((t) => t.line === line) ?? same.sort((a, b) => Math.abs(a.line - line) - Math.abs(b.line - line))[0] ?? null
+}
+
 /** 在画布今日里打开这一条（没有 🆔 的先给它一个） */
-export async function openInToday(t: TodoItem) {
+export async function openInToday(t: Pick<TodoItem, 'path' | 'line' | 'raw' | 'title'>) {
   await NoteDoc.saveAll()
   NoteDoc.expectOwnChange([t.path])
   const r = await window.cnTodo.openInToday({ path: t.path, line: t.line, raw: t.raw }).catch((e: unknown) => ({ ok: false as const, reason: 'failed' as const, message: errText(e) }))

@@ -29,21 +29,28 @@ import {
   linksOf,
   linkUnits,
   merge3,
+  mergeUnits,
   moveColumn,
   moveUnit,
+  moveUnits,
   placeColumn,
   placeUnit,
+  placeUnits,
   reconcile,
   relinkMovedNote,
   removeColumn,
   removeUnit,
+  removeUnits,
   renameColumn,
+  replaceUnits,
   resetLayout,
   splitDoc,
+  splitMerged,
   toggleTask,
   unitKeys,
   unlink,
   unplaceUnit,
+  baseBlocks as autoBlocks,
 } from '@cn/format'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -83,7 +90,12 @@ import { EMPTY_HINT, InlineCard } from './inline-card'
 import { TopHint } from './top-hint'
 import { UnitEditor } from './unit-editor'
 import { setBoardSelection } from './selection'
+import { type Box, boxOf, hitKeys } from './board-select'
+import { useBoardBar } from './board-bar'
+import { useT } from '../i18n'
+import { t as tNow, uiLang } from '../../shared/i18n'
 import './doc-board.css'
+import { BoardFind } from '../find/BoardFind'
 
 /** 列宽、列间距、开头留给工具板的宽、顶上留的高（照小样：276、22，第一列离白板左边 92，离顶 64） */
 const COL_W = 276
@@ -124,20 +136,25 @@ export interface DocBoardViewProps {
 
 /** 工具板上的几样（照小样的顺序和图标；拍导图在分隔线下面） */
 type PalKind = 'card' | 'todo' | 'column' | 'base' | 'board' | 'map'
+// 不翻：键，画的地方翻（label 是工具板上的字，带「工具板」；tip 是悬停提示）
 const PAL: { kind: PalKind; label: string; tip: string; icon: CodiconName }[] = [
-  { kind: 'card', label: '卡片', tip: '新卡片：点一下放进正中那一列，或按住拖到白板上、拖进一列；卡里打 / 插入块', icon: 'note' },
-  { kind: 'todo', label: '待办', tip: '待办：点一下，或按住拖到白板上、拖进一列', icon: 'checklist' },
-  { kind: 'column', label: '列', tip: '新的列：文档里新起一节；按住拖到两列之间', icon: 'split-horizontal' },
-  { kind: 'base', label: '数据库', tip: '数据库：放一张小表卡，「展开」就地改；每一条是一篇笔记', icon: 'database' },
-  { kind: 'board', label: '子白板', tip: '子白板：新建一块白板，这里放一张指向它的卡片', icon: 'layout' },
+  { kind: 'card', label: '卡片', tip: '新卡片：点一下放进正中那一列，或按住拖到白板上、拖进一列；卡里打 / 插入块', icon: 'note' }, // 不翻
+  { kind: 'todo', label: '待办', tip: '待办：点一下，或按住拖到白板上、拖进一列', icon: 'checklist' }, // 不翻
+  { kind: 'column', label: '列', tip: '新的列：文档里新起一节；按住拖到两列之间', icon: 'split-horizontal' }, // 不翻
+  { kind: 'base', label: '数据库', tip: '数据库：放一张小表卡，「展开」就地改；每一条是一篇笔记', icon: 'database' }, // 不翻
+  { kind: 'board', label: '子白板', tip: '子白板：新建一块白板，这里放一张指向它的卡片', icon: 'layout' }, // 不翻
 ]
 
 /** 新东西落在哪：一列里第几张前面（before -1 是列尾），或者空白处的坐标（白板坐标） */
 type Where = { col: number; before: number } | { x: number; y: number }
 
 type Pt = { x: number; y: number }
+/**
+ * 拖卡：key 是按着的那张；group：按着的是选中的好几张里的一张时，几张一起走（task-5ryf9），
+ * 记下每张起拖时在窗口里的位置（拖影照这个摆，几张一起跟着鼠标）
+ */
 type Drag =
-  | { type: 'unit'; key: string; unit: DocUnit; start: Pt; grab: Pt; moved: boolean; at: Pt; w: number }
+  | { type: 'unit'; key: string; unit: DocUnit; start: Pt; grab: Pt; moved: boolean; at: Pt; w: number; group?: { key: string; unit: DocUnit; r: { left: number; top: number; width: number } }[] }
   | { type: 'pal'; kind: PalKind; start: Pt; at: Pt; moved: boolean }
   | { type: 'inbox'; path: string; text: string; start: Pt; at: Pt; moved: boolean }
   | { type: 'col'; ci: number; start: Pt; at: Pt; grab: Pt; moved: boolean; w: number }
@@ -157,6 +174,7 @@ interface Toast {
 type Rect = { x: number; y: number; w: number; h: number }
 
 export function DocBoardView(props: DocBoardViewProps) {
+  const t = useT()
   const { text } = props
   const board: DocBoard = useMemo(() => splitDoc(text), [text])
   const keys = useMemo(() => unitKeys(board), [board])
@@ -176,6 +194,12 @@ export function DocBoardView(props: DocBoardViewProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   // 选中的那一张记下来：AI 命令「计划拆成待办」拆它（task-9womr）
   useEffect(() => setBoardSelection(props.notePath, selected), [props.notePath, selected])
+  /** 空白处按住拖出来的框（.db-area 里的坐标，task-5ryf9）；拖着时操作条先藏起来 */
+  const [marq, setMarq] = useState<Box | null>(null)
+  /** 按住空格（光标变小手，拖白板平移）、正在平移 */
+  const [space, setSpace] = useState(false)
+  const spaceRef = useRef(false)
+  const [panning, setPanning] = useState(false)
   const [selWire, setSelWire] = useState<string | null>(null)
   /** 展开了的数据库卡 */
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -224,15 +248,15 @@ export function DocBoardView(props: DocBoardViewProps) {
     if (!hit) return undefined
     const title = titleOf(props.notePath)
     // 「AI 总结的」卡（task-5yp97）：说「总结」不说「讲解」
-    const noun = isSummaryHead(hit.sig.head) ? '总结' : '讲解'
+    const noun = isSummaryHead(hit.sig.head) ? '总结' : '讲解' // 不翻：file-side 认的种类（类型就是这两个字），也进给 AI 的话
     return {
       host: hit.host,
       path: props.notePath,
       title,
       text: props.text,
       find: (t) => findAiBlock(t, hit.sig),
-      where: `白板《${title}》上 AI 写的${noun}卡`,
-      record: { icon: 'file', text: `写在这篇文档里，挂在这段${noun}下面` },
+      where: `白板《${title}》上 AI 写的${noun}卡`, // 不翻：给 AI 的话
+      record: { icon: 'file', text: noun === '总结' ? tNow('写在这篇文档里，挂在这段总结下面') : tNow('写在这篇文档里，挂在这段讲解下面') },
       noun,
       onQuote: (q) => app().askAi(q),
       place: `file:${props.notePath}`,
@@ -277,11 +301,11 @@ export function DocBoardView(props: DocBoardViewProps) {
     if (m.conflict) {
       done.current = []
       undone.current = []
-      return '文件在外面改过，这一步撤不回了'
+      return tNow('文件在外面改过，这一步撤不回了')
     }
     apply(m.text)
     to.current.push(redo ? { before: now, after: m.text } : { before: m.text, after: now })
-    return redo ? '重做了这一步' : '撤回了这一步'
+    return redo ? tNow('重做了这一步') : tNow('撤回了这一步')
   }
   const stepRef = useRef(step)
   stepRef.current = step
@@ -315,7 +339,7 @@ export function DocBoardView(props: DocBoardViewProps) {
    */
   const saveCard = (f: { unit: DocUnit; base: string }, body: string, closing = false) => {
     const mine = f.base.slice(0, f.unit.from) + body + f.base.slice(f.unit.to)
-    if (cur.current === f.base) return void write(mine, '改好了：文档里就是这一段')
+    if (cur.current === f.base) return void write(mine, tNow('改好了：文档里就是这一段'))
     // 外面改的是别处（或者只挪了这张卡的位置行），这一段的字没动：就在现在的全文里换掉这一段，外面改的都留着
     const now = splitDoc(cur.current)
     const again = findUnitAgain(f.unit, f.base, cur.current, now)
@@ -328,7 +352,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     const others = r.text !== mine
     // 外面把正在改的这一段删了：这段连同打的字放回去，外面那版存成冲突副本（和以前的自由白板一个说法）
     const said = (copy: { path: string } | { error: string } | null) =>
-      !gone ? saySameSpot(props.notePath, others, copy) : copy ? sayCardBack(copy) : '外面删了你正在改的卡：已放回'
+      !gone ? saySameSpot(props.notePath, others, copy) : copy ? sayCardBack(copy) : tNow('外面删了你正在改的卡：已放回')
     write(r.text, said(null))
     const tell = (t: string) => (closing ? props.onNotice(t) : setToast({ text: t }))
     void window.cn.saveConflictCopy(props.notePath, theirs).then(
@@ -357,7 +381,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     const l = lines[line]
     if (l === undefined) return
     lines[line] = toggleTask(l)
-    write(cur.current.slice(0, u.from) + lines.join('\n') + cur.current.slice(u.to), /\[[xX]\]/.test(lines[line]!) ? '勾上了：文件里只改了这一行的一个字' : '取消勾选：文件里只改了这一行的一个字')
+    write(cur.current.slice(0, u.from) + lines.join('\n') + cur.current.slice(u.to), /\[[xX]\]/.test(lines[line]!) ? tNow('勾上了：文件里只改了这一行的一个字') : tNow('取消勾选：文件里只改了这一行的一个字'))
   }
 
   // ----- 新东西写进文件：放进列就插进那一节，放在空白处就加在文末带一行位置 -----
@@ -367,7 +391,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       if ('col' in where) {
         const col = board.columns[where.col]!
         const before = where.before >= 0 ? (col.cards[where.before] ?? null) : null
-        return write(insertInColumn(cur.current, col, before, body), what.col.replace('%s', col.title ?? '开头'), extra)
+        return write(insertInColumn(cur.current, col, before, body), what.col.replace('%s', col.title ?? tNow('开头')), extra)
       }
       return write(appendPlaced(cur.current, body, Math.max(0, where.x), Math.max(0, where.y)), what.free, extra)
     } catch (err) {
@@ -389,10 +413,10 @@ export function DocBoardView(props: DocBoardViewProps) {
         : 'x' in where
           ? appendPlaced(cur.current, body, Math.max(0, where.x), Math.max(0, where.y))
           : null
-    if (next === null) throw new Error('那一列不在了，导图没放上去')
+    if (next === null) throw new Error(tNow('那一列不在了，导图没放上去'))
     setFlash(body)
     apply(next)
-    return settlePlaced(props.notePath, r, col ? `导图放进了「${col.title ?? '开头'}」：是这块白板的子白板，文件在它旁边` : '导图放在这里：是这块白板的子白板，文件在它旁边')
+    return settlePlaced(props.notePath, r, col ? tNow('导图放进了「{col}」：是这块白板的子白板，文件在它旁边', { col: col.title ?? tNow('开头') }) : tNow('导图放在这里：是这块白板的子白板，文件在它旁边'))
   }
   const hangMapRef = useRef(hangMap)
   hangMapRef.current = hangMap
@@ -431,15 +455,15 @@ export function DocBoardView(props: DocBoardViewProps) {
     if (kind === 'base') return setBaseMenu({ at: at ?? { x: 120, y: 200 }, where })
     if (kind === 'column') {
       const before = 'col' in where ? (board.columns[where.col] ?? null) : null
-      const name = '新的列'
+      const name = '新的列' // 不翻：写进文件的默认节名，下面还拿它认出新加的那一列
       pendingRename.current = { name }
-      write(addSection(cur.current, name, before?.head ? before : null, board.level), '加了一列：文档里新起了一节「## 新的列」')
+      write(addSection(cur.current, name, before?.head ? before : null, board.level), tNow('加了一列：文档里新起了一节「## 新的列」'))
       return
     }
     if (kind === 'board') {
       const name = await props.onCreateSubBoard?.()
       if (!name) return
-      put(where, `[[${name}]]`, { col: '子白板放进了「%s」：文档里多了一个链接', free: '子白板放在这里：文档末尾多了一个链接' })
+      put(where, `[[${name}]]`, { col: tNow('子白板放进了「%s」：文档里多了一个链接'), free: tNow('子白板放在这里：文档末尾多了一个链接') })
       return
     }
     // 拍导图：拍好、做成导图白板后，它是这块白板的子白板，落点放一张子白板卡（task-wuv05）
@@ -459,8 +483,13 @@ export function DocBoardView(props: DocBoardViewProps) {
     setBaseMenu(null)
     try {
       const md = b === 'new' ? await createBase(props.notePath) : '```base\n' + b.src + '\n```'
-      const name = b === 'new' ? '新数据库' : b.name
-      put(where, md, { col: `放了一张「${name}」数据库卡：文档「%s」这一节多了一个数据库块`, free: `放了一张「${name}」数据库卡：文档末尾多了一个数据库块，带一行位置` })
+      put(
+        where,
+        md,
+        b === 'new'
+          ? { col: tNow('放了一张「新数据库」数据库卡：文档「%s」这一节多了一个数据库块'), free: tNow('放了一张「新数据库」数据库卡：文档末尾多了一个数据库块，带一行位置') }
+          : { col: tNow('放了一张「{name}」数据库卡：文档「%s」这一节多了一个数据库块', { name: b.name }), free: tNow('放了一张「{name}」数据库卡：文档末尾多了一个数据库块，带一行位置', { name: b.name }) },
+      )
       if (b === 'new') app().refresh()
     } catch (e) {
       setToast({ text: String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })
@@ -487,12 +516,12 @@ export function DocBoardView(props: DocBoardViewProps) {
     const body = note.text.replace(/^---\n[\s\S]*?\n---\n?/, '').trim()
     if ((/^---\n[\s\S]*?\nsource:/.test(note.text) && /^# /m.test(body)) || body.length > 800) {
       const moved = (await window.cnMenu.moveNote(path, `${CLIPS}/${titleOf(props.notePath)}`)).to
-      put(where, `![[${titleOf(moved)}]]`, { col: `收件箱里那篇放进了「%s」：那篇挪进了「${CLIPS}/${titleOf(props.notePath)}/」，这里是指向它的卡片`, free: `收件箱里那篇放在这里：挪进了「${CLIPS}/${titleOf(props.notePath)}/」，这里是指向它的卡片` }, { undo: () => void window.cnMenu.moveNote(moved, INBOX).then(() => app().refresh()) })
+      put(where, `![[${titleOf(moved)}]]`, { col: tNow('收件箱里那篇放进了「%s」：那篇挪进了「{path}/」，这里是指向它的卡片', { path: `${CLIPS}/${titleOf(props.notePath)}` }), free: tNow('收件箱里那篇放在这里：挪进了「{path}/」，这里是指向它的卡片', { path: `${CLIPS}/${titleOf(props.notePath)}` }) }, { undo: () => void window.cnMenu.moveNote(moved, INBOX).then(() => app().refresh()) })
     } else {
       // 开头那行「# 名字」是那篇的名字，放进文档就不要了（不然文档里多一个一级标题，按节摆就乱了）；图的相对链接按这篇改
       const piece = relinkMovedNote(body.replace(/^#\s+[^\n]*\n+/, ''), path, props.notePath)
       const image = /^!\[[^\]]*\]\([^)]*\)\s*$/.test(piece.trim())
-      const ok = put(where, piece, { col: `收件箱里那条放进了「%s」${image ? '：图还在原来的附件里，这里是它' : '：收件箱里那篇移到了废纸篓'}`, free: '收件箱里那条放在这里：文档末尾多了这一段，带一行位置' }, { undo: () => void window.cn.createNote(INBOX, titleOf(path), note.text).then(() => app().refresh()) })
+      const ok = put(where, piece, { col: image ? tNow('收件箱里那条放进了「%s」：图还在原来的附件里，这里是它') : tNow('收件箱里那条放进了「%s」：收件箱里那篇移到了废纸篓'), free: tNow('收件箱里那条放在这里：文档末尾多了这一段，带一行位置') }, { undo: () => void window.cn.createNote(INBOX, titleOf(path), note.text).then(() => app().refresh()) })
       if (ok) await window.cn.trashNote(path)
     }
     app().refresh()
@@ -642,7 +671,18 @@ export function DocBoardView(props: DocBoardViewProps) {
     // AI 讲解卡的字上按下是选字（选一句开旁支，task-p90ra），不拖卡；拖卡按卡头、卡边
     if (props.readOnly || (e.target as HTMLElement).closest('.side-text')) return
     const card = (e.currentTarget as HTMLElement).getBoundingClientRect()
-    setDrag({ type: 'unit', key, unit: u, start: { x: e.clientX, y: e.clientY }, grab: { x: e.clientX - card.left, y: e.clientY - card.top }, moved: false, at: { x: e.clientX, y: e.clientY }, w: card.width })
+    // 按着的是选中的好几张里的一张：几张一起拖（task-5ryf9）
+    const group =
+      selected.has(key) && selected.size > 1
+        ? [...selected].flatMap((k) => {
+            const unit = byKey.get(k)
+            const el = plane.current?.querySelector<HTMLElement>(`.db-card[data-id="${CSS.escape(k)}"]`)
+            if (!unit || !el) return []
+            const r = el.getBoundingClientRect()
+            return [{ key: k, unit, r: { left: r.left, top: r.top, width: r.width } }]
+          })
+        : undefined
+    setDrag({ type: 'unit', key, unit: u, start: { x: e.clientX, y: e.clientY }, grab: { x: e.clientX - card.left, y: e.clientY - card.top }, moved: false, at: { x: e.clientX, y: e.clientY }, w: card.width, ...(group && group.length > 1 ? { group } : {}) })
   }
   const palDragged = useRef(false)
   const swallow = () => {
@@ -694,7 +734,7 @@ export function DocBoardView(props: DocBoardViewProps) {
         const from = byKey.get(d.from)
         if (!to || !from || to === from) return
         const r = linkUnits(cur.current, from, to)
-        write(r.text, '连好了一条线：文件开头的 links 里多了一条')
+        write(r.text, tNow('连好了一条线：文件开头的 links 里多了一条'))
         return
       }
       if (!d.moved) {
@@ -722,10 +762,10 @@ export function DocBoardView(props: DocBoardViewProps) {
         if (!col?.head) return
         const right = rowColumnAt(e.clientX, e.clientY)
         try {
-          if (right !== null && right !== d.ci) write(moveColumn(cur.current, col, board.columns[right]!), `「${col.title}」这一节挪到了「${board.columns[right]!.title}」前面：文档里整节跟着挪`)
+          if (right !== null && right !== d.ci) write(moveColumn(cur.current, col, board.columns[right]!), tNow('「{name}」这一节挪到了「{before}」前面：文档里整节跟着挪', { name: col.title, before: board.columns[right]!.title }))
           else if (onCanvas(e.clientX, e.clientY)) {
             const p = planeXY(e.clientX - d.grab.x, e.clientY - d.grab.y)
-            write(placeColumn(cur.current, col, Math.max(0, p.x), Math.max(0, p.y)), `「${col.title}」摆在了这里：标题前面多了一行位置，正文没动`)
+            write(placeColumn(cur.current, col, Math.max(0, p.x), Math.max(0, p.y)), tNow('「{name}」摆在了这里：标题前面多了一行位置，正文没动', { name: col.title }))
           }
         } catch (err) {
           setToast({ text: String((err as Error).message) })
@@ -734,7 +774,35 @@ export function DocBoardView(props: DocBoardViewProps) {
       }
       // 拖进了另一篇文档（切过去了的那个标签）
       if (!outer.current?.checkVisibility()) {
-        if (spot) void moveAcross(d.unit, spot)
+        if (spot) void moveAcross(d.group ? d.group.map((g) => g.unit) : [d.unit], spot)
+        return
+      }
+      // 选中的几张一起拖（task-5ryf9）：落进一列就按原来的先后挪进那一节；落在空白处各自停在新位置（只改位置行）
+      if (d.group) {
+        const units = d.group.map((g) => g.unit)
+        const n = units.length
+        try {
+          if (target) {
+            const col = board.columns[target.col]!
+            const before = target.before >= 0 ? col.cards[target.before]! : null
+            const name = col.title ?? t('开头')
+            write(moveUnits(cur.current, units, col, before), t('挪进了「{name}」：文档里这{n}段也挪进了这一节，位置行去掉了', { name, n }))
+          } else {
+            const dx = e.clientX - d.start.x
+            const dy = e.clientY - d.start.y
+            const moves = d.group.map((g) => {
+              const p = planeXY(g.r.left + dx, g.r.top + dy)
+              return { unit: g.unit, x: Math.round(p.x), y: Math.round(p.y) }
+            })
+            const pulled = units.filter((u) => !u.place).length
+            write(
+              placeUnits(cur.current, moves),
+              pulled ? t('挪了{n}张：只改了这{n}张的位置行（从列里拿出来的{m}张多了一行位置），正文顺序不变', { n, m: pulled }) : t('挪了{n}张：只改了这{n}张的位置行，正文顺序不变', { n }),
+            )
+          }
+        } catch (err) {
+          setToast({ text: String((err as Error).message) })
+        }
         return
       }
       try {
@@ -743,13 +811,13 @@ export function DocBoardView(props: DocBoardViewProps) {
           const before = target.before >= 0 ? col.cards[target.before]! : null
           if (before && before.from === d.unit.from) return
           setFlash(d.unit.text.trim())
-          const name = col.title ?? '开头'
+          const name = col.title ?? tNow('开头')
           const same = col.cards.some((x) => x.from === d.unit.from)
-          write(moveUnit(cur.current, d.unit, col, before), same ? `换了位置：文档里「${name}」这一节的先后跟着换` : `挪进了「${name}」：文档里这段也挪进了这一节`)
+          write(moveUnit(cur.current, d.unit, col, before), same ? tNow('换了位置：文档里「{name}」这一节的先后跟着换', { name }) : tNow('挪进了「{name}」：文档里这段也挪进了这一节', { name }))
         } else {
           const p = planeXY(e.clientX - d.grab.x, e.clientY - d.grab.y)
           setFlash(d.unit.text.trim())
-          write(placeUnit(cur.current, d.unit, Math.max(0, p.x), Math.max(0, p.y)), '放在了这里：文档里这段前面多了一行位置，正文顺序不变')
+          write(placeUnit(cur.current, d.unit, Math.max(0, p.x), Math.max(0, p.y)), tNow('放在了这里：文档里这段前面多了一行位置，正文顺序不变'))
         }
       } catch (err) {
         setToast({ text: String((err as Error).message) })
@@ -780,19 +848,21 @@ export function DocBoardView(props: DocBoardViewProps) {
     return right ? Number(right.dataset.col) : null
   }
 
-  /** 卡拖进另一个标签里的文档：那篇插进去、这篇删掉这段，两篇存好一次提交，提示能撤回 */
-  const moveAcross = async (u: DocUnit, spot: DocSpot) => {
-    const body = cur.current.slice(u.from, u.to)
+  /** 卡拖进另一个标签里的文档：那篇插进去、这篇删掉这段，两篇存好一次提交，提示能撤回；选中的几张一起拖的，几段一起挪（按原来的先后） */
+  const moveAcross = async (us: DocUnit[], spot: DocSpot) => {
+    const order = [...us].sort((a, b) => a.from - b.from)
+    const body = order.map((u) => cur.current.slice(u.from, u.to)).join('\n\n')
     const target = spot.doc.path
     insertInto(spot, body)
-    apply(removeUnit(cur.current, u))
+    apply(order.length > 1 ? removeUnits(cur.current, order) : removeUnit(cur.current, order[0]!))
     try {
       await NoteDoc.saveAll()
-      const msg = `挪了一段：《${titleOf(props.notePath)}》→《${titleOf(target)}》`
+      // 不翻：提交说明（写进 Git）
+      const msg = order.length > 1 ? `挪了${order.length}段：《${titleOf(props.notePath)}》→《${titleOf(target)}》` : `挪了一段：《${titleOf(props.notePath)}》→《${titleOf(target)}》`
       const hash = await window.cn.boardCommit([props.notePath, target], msg)
-      app().noticeUndo(`${msg}，两篇一起提交了`, () => {
+      app().noticeUndo(tNow('挪了一段：《{from}》→《{to}》，两篇一起提交了', { from: titleOf(props.notePath), to: titleOf(target) }), () => {
         if (!hash) return
-        void NoteDoc.saveAll().then(() => window.cn.boardRevert(hash).then(() => app().notice('撤回了：那一段回到了白板上')))
+        void NoteDoc.saveAll().then(() => window.cn.boardRevert(hash).then(() => app().notice(tNow('撤回了：那一段回到了白板上'))))
       })
     } catch (e) {
       app().notice(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
@@ -836,7 +906,8 @@ export function DocBoardView(props: DocBoardViewProps) {
       const m = (e.target as HTMLElement).closest<HTMLElement>('.db-moment')
       return m?.dataset.url ? void openVideo(m.dataset.url) : playUnit(u)
     }
-    if (!props.readOnly && inlineKinds.has(u.kind)) return setEdit({ kind: 'unit', key, unit: u, base: cur.current })
+    // 合成的一张（几段）不就地改：看全文（「拆开」在右键菜单里）
+    if (!props.readOnly && inlineKinds.has(u.kind) && !u.parts) return setEdit({ kind: 'unit', key, unit: u, base: cur.current })
     setFull({ unit: u, base: cur.current })
   }
   /** 就地改完一张已有的卡：字空了就是删掉这一段 */
@@ -846,7 +917,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       // 字删光了就是删掉这一段；外面也改了这一段时不删（留着外面那版）
       const now = splitDoc(cur.current)
       const again = findUnitAgain(e.unit, e.base, cur.current, now)
-      if ('same' in again && again.same) write(removeUnit(cur.current, again.unit), '字删光了，这张卡也删了：文档里这一段没了')
+      if ('same' in again && again.same) write(removeUnit(cur.current, again.unit), tNow('字删光了，这张卡也删了：文档里这一段没了'))
       return
     }
     if (v !== e.unit.text) saveCard({ unit: e.unit, base: e.base }, v, closing)
@@ -856,29 +927,45 @@ export function DocBoardView(props: DocBoardViewProps) {
     setEdit(null)
     if (v === null) return
     const todo = /^\s*[-*] \[[ xX]\]/.test(v)
-    put(e.where, v, { col: `${todo ? '待办' : '新卡片'}放进了「%s」：文档这一节多了这一段`, free: `${todo ? '待办' : '新卡片'}放在这里：文档末尾多了这一段和一行位置` })
+    put(
+      e.where,
+      v,
+      todo
+        ? { col: tNow('待办放进了「%s」：文档这一节多了这一段'), free: tNow('待办放在这里：文档末尾多了这一段和一行位置') }
+        : { col: tNow('新卡片放进了「%s」：文档这一节多了这一段'), free: tNow('新卡片放在这里：文档末尾多了这一段和一行位置') },
+    )
   }
 
   // ----- 选中的卡：⌫ 删、Esc 取消 -----
   const removeKeys = (ks: Iterable<string>) => {
-    let t = cur.current
-    let n = 0
-    for (const k of ks) {
-      const b = splitDoc(t)
-      const u = [...unitKeys(b)].find(([, x]) => x === k)?.[0]
-      if (!u) continue
-      t = removeUnit(t, u)
-      n++
-    }
-    if (n) write(t, `删了${n}张卡：文档里这${n === 1 ? '一段' : `${n}段`}一起删了`)
+    // 按名字在现在的全文里找回这几张（连按 ⌫ 时 props.text 可能还没跟上），一次删掉（连着它们的线一起去掉）
+    const now = [...unitKeys(splitDoc(cur.current))]
+    const units = [...ks].flatMap((k) => now.filter(([, x]) => x === k).map(([u]) => u))
+    const n = units.length
+    if (n) write(removeUnits(cur.current, units), n === 1 ? tNow('删了{n}张卡：文档里这一段一起删了', { n }) : tNow('删了{n}张卡：文档里这{n}段一起删了', { n }))
     setSelected(new Set())
   }
   const onKey = (e: React.KeyboardEvent) => {
     if (typingIn(e.target) || edit) return
+    // ⌘A 全选（白板上的卡，task-5ryf9）、⌘C 复制选中的几张的 md 原文、⌘D 复制一份
+    if (isKey(e.nativeEvent, 'select-all')) {
+      e.preventDefault()
+      setSelWire(null)
+      setSelected(new Set(keys.values()))
+      return
+    }
+    if (selected.size && isKey(e.nativeEvent, 'copy')) {
+      e.preventDefault()
+      return bar.act('copy')
+    }
+    if (selected.size && isKey(e.nativeEvent, 'dup-block') && !props.readOnly) {
+      e.preventDefault()
+      return bar.act('dup')
+    }
     if ((e.key === 'Backspace' || e.key === 'Delete') && !props.readOnly) {
       if (selWire) {
         const [from, to] = selWire.split('>')
-        write(unlink(cur.current, from!, to!), '删了这条线')
+        write(unlink(cur.current, from!, to!), tNow('删了这条线'))
         setSelWire(null)
       } else if (selected.size) removeKeys(selected)
       else return
@@ -889,6 +976,161 @@ export function DocBoardView(props: DocBoardViewProps) {
       setExpanded(null)
     }
   }
+
+  // 选了两张起的那一条（board-bar.tsx）
+  const bar = useBoardBar({
+    notePath: props.notePath,
+    readOnly: props.readOnly,
+    board,
+    keys,
+    byKey,
+    selected,
+    setSelected,
+    rects,
+    colW: COL_W,
+    cur,
+    write: (next, what, extra) => write(next, what, extra),
+    apply: (next) => apply(next),
+    toast: (text, undo) => setToast(undo ? { text, undo } : { text }),
+    pendingRename,
+    removeKeys,
+    notes: props.notes,
+    plane,
+    wrap,
+    hidden: !!marq || (drag?.type === 'unit' && drag.moved),
+    off: !!edit || !!full || !!expanded,
+    focus: () => outer.current?.focus({ preventScroll: true }),
+    active: props.active,
+  })
+
+  // ----- 框选、平移（task-5ryf9，17-白板框选 方向 A；用户定：空白处拖 = 框选、碰到就选） -----
+  /** 空白处按住拖出一个框：碰到的卡都选上（按住 ⇧ 是加在已经选着的上面）；不动松手是取消选中。框只选卡，不选列、不选线 */
+  const startMarquee = (e: React.MouseEvent) => {
+    const w = wrap.current
+    const area = w?.parentElement
+    if (!w || !area) return
+    if (!(e.target as HTMLElement).closest('button, input, a, textarea')) e.preventDefault()
+    const base = e.shiftKey ? new Set(selected) : new Set<string>()
+    if (!e.shiftKey) setSelected(new Set())
+    const wr0 = w.getBoundingClientRect()
+    const sx0 = w.scrollLeft
+    const sy0 = w.scrollTop
+    // 卡在白板内容里的位置（按下时量一次；拖到边上自己滚的时候照样对得上）
+    const cards = [...(plane.current?.querySelectorAll<HTMLElement>('.db-card[data-id]') ?? [])].flatMap((el) => {
+      const k = el.dataset.id
+      if (!k || !byKey.has(k)) return []
+      const r = el.getBoundingClientRect()
+      return [{ key: k, r: { left: r.left - wr0.left + sx0, top: r.top - wr0.top + sy0, right: r.right - wr0.left + sx0, bottom: r.bottom - wr0.top + sy0 } }]
+    })
+    const inContent = (cx: number, cy: number) => {
+      const r = w.getBoundingClientRect()
+      return { x: cx - r.left + w.scrollLeft, y: cy - r.top + w.scrollTop }
+    }
+    const start = inContent(e.clientX, e.clientY)
+    let moved = false
+    let last = { x: e.clientX, y: e.clientY }
+    let shown = ''
+    let raf = 0
+    const update = () => {
+      const cur = inContent(last.x, last.y)
+      const hits = hitKeys(boxOf(start, cur), cards)
+      const next = [...new Set([...base, ...hits])]
+      const id = next.join('\n')
+      if (id !== shown) {
+        shown = id
+        setSelected(new Set(next))
+      }
+      // 画框：.db-area 里的坐标，夹在这一块里
+      const ar = area.getBoundingClientRect()
+      const wr = w.getBoundingClientRect()
+      const toArea = (p: Pt) => ({ x: p.x - w.scrollLeft + wr.left - ar.left, y: p.y - w.scrollTop + wr.top - ar.top })
+      const b = boxOf(toArea(start), toArea(cur))
+      setMarq({ left: Math.max(0, b.left), top: Math.max(0, b.top), right: Math.min(ar.width, b.right), bottom: Math.min(ar.height, b.bottom) })
+    }
+    // 拖到白板边上：往那边滚（越靠边越快），框跟着长
+    const edge = () => {
+      raf = 0
+      if (!moved) return
+      const r = w.getBoundingClientRect()
+      const dx = last.x < r.left + 32 ? -1 : last.x > r.right - 32 ? 1 : 0
+      const dy = last.y < r.top + 32 ? -1 : last.y > r.bottom - 32 ? 1 : 0
+      if (!dx && !dy) return
+      w.scrollLeft += dx * 14
+      w.scrollTop += dy * 14
+      update()
+      raf = requestAnimationFrame(edge)
+    }
+    const move = (ev: MouseEvent) => {
+      last = { x: ev.clientX, y: ev.clientY }
+      if (!moved) {
+        if (Math.hypot(ev.clientX - e.clientX, ev.clientY - e.clientY) < 4) return
+        moved = true
+      }
+      update()
+      if (!raf) raf = requestAnimationFrame(edge)
+    }
+    const up = () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      cancelAnimationFrame(raf)
+      setMarq(null)
+      if (!moved) setSelected(new Set())
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+  /** 按住空格拖、中键拖：白板跟着手走（两指滑照旧） */
+  const startPan = (e: React.MouseEvent) => {
+    const w = wrap.current
+    if (!w) return
+    e.preventDefault()
+    e.stopPropagation()
+    const x0 = e.clientX
+    const y0 = e.clientY
+    const l0 = w.scrollLeft
+    const t0 = w.scrollTop
+    setPanning(true)
+    const move = (ev: MouseEvent) => {
+      w.scrollLeft = l0 - (ev.clientX - x0)
+      w.scrollTop = t0 - (ev.clientY - y0)
+    }
+    const up = () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      setPanning(false)
+    }
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+  }
+  // 按住空格：光标变成小手，这时按住拖是平移（焦点在打字的地方、白板外面时不管）
+  useEffect(() => {
+    if (!props.active) return
+    const set = (on: boolean) => {
+      if (spaceRef.current === on) return
+      spaceRef.current = on
+      setSpace(on)
+    }
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.metaKey || e.ctrlKey || e.altKey || e.isComposing || typingIn(e.target)) return
+      const o = outer.current
+      if (!o?.checkVisibility()) return
+      const a = document.activeElement
+      if (a && a !== document.body && !o.contains(a)) return
+      e.preventDefault()
+      set(true)
+    }
+    const up = (e: KeyboardEvent) => e.code === 'Space' && set(false)
+    const blur = () => set(false)
+    window.addEventListener('keydown', down, true)
+    window.addEventListener('keyup', up, true)
+    window.addEventListener('blur', blur)
+    return () => {
+      window.removeEventListener('keydown', down, true)
+      window.removeEventListener('keyup', up, true)
+      window.removeEventListener('blur', blur)
+      set(false)
+    }
+  }, [props.active])
 
   // ----- 从访达拖图、⌘V 贴图：存进附件，落在哪放在哪 -----
   const lastDrop = useRef<Pt | null>(null)
@@ -913,7 +1155,7 @@ export function DocBoardView(props: DocBoardViewProps) {
         } else t = appendPlaced(t, md, at.x + i * 24, at.y + i * 24)
       })
       setFlash(mds[mds.length - 1]!.trim())
-      write(t, `放了${mds.length}张图：存进了这篇的附件，${slot ? '文档那一节多了一段' : '文档末尾多了一段，带一行位置'}`)
+      write(t, slot ? tNow('放了{n}张图：存进了这篇的附件，文档那一节多了一段', { n: mds.length }) : tNow('放了{n}张图：存进了这篇的附件，文档末尾多了一段，带一行位置', { n: mds.length }))
     },
   })
 
@@ -956,8 +1198,19 @@ export function DocBoardView(props: DocBoardViewProps) {
       } else t = appendPlaced(t, m, Math.max(0, p.x - 24 + i * 24), Math.max(0, p.y - 16 + i * 24))
     })
     setFlash(md[md.length - 1]!)
-    const what = paths.length === 1 ? `《${titleOf(paths[0]!)}》` : `${paths.length}篇`
-    write(t, slot ? `${what}放进了「${board.columns[slot.col]?.title ?? '开头'}」：文档里多了${paths.length === 1 ? '一行嵌入' : `${paths.length}行嵌入`}` : `${what}放在这里：文档末尾多了嵌入，带位置`)
+    const single = paths.length === 1 ? titleOf(paths[0]!) : null
+    const n = paths.length
+    const col = slot ? (board.columns[slot.col]?.title ?? tNow('开头')) : ''
+    write(
+      t,
+      slot
+        ? single !== null
+          ? tNow('《{name}》放进了「{col}」：文档里多了一行嵌入', { name: single, col })
+          : tNow('{n}篇放进了「{col}」：文档里多了{n}行嵌入', { n, col })
+        : single !== null
+          ? tNow('《{name}》放在这里：文档末尾多了嵌入，带位置', { name: single })
+          : tNow('{n}篇放在这里：文档末尾多了嵌入，带位置', { n }),
+    )
     return true
   }
 
@@ -966,11 +1219,11 @@ export function DocBoardView(props: DocBoardViewProps) {
   const cardToDoc = async (u: DocUnit) => {
     const body = u.text
     const first = body.split('\n').find((l) => l.trim())?.replace(/^[#>*\-\s[\]x]+/i, '').replace(/[*_`[\]]/g, '').trim() ?? ''
-    const name = first.slice(0, 40) || '卡片'
+    const name = first.slice(0, 40) || '卡片' // 不翻：新建文档的文件名，写进库里
     const dir = props.notePath.includes('/') ? props.notePath.slice(0, props.notePath.lastIndexOf('/')) : ''
     const doc = /^#\s/.test(body.trimStart()) ? body.trim() + '\n' : `# ${name}\n\n${body.trim()}\n`
     const path = await window.cn.createNote(dir, name, doc)
-    write(cur.current.slice(0, u.from) + `[[${titleOf(path)}]]` + cur.current.slice(u.to), `转成了文档「${titleOf(path)}」：这里换成指向它的链接`)
+    write(cur.current.slice(0, u.from) + `[[${titleOf(path)}]]` + cur.current.slice(u.to), tNow('转成了文档「{name}」：这里换成指向它的链接', { name: titleOf(path) }))
     app().refresh()
   }
   const cardMenu = (u: DocUnit, key: string): MenuEntry[] => {
@@ -979,24 +1232,26 @@ export function DocBoardView(props: DocBoardViewProps) {
     const inCol = !u.place
     const colOf = board.columns.find((c) => c.cards.includes(u))
     return [
-      target ? { label: '打开', run: () => app().openFile(target) } : !videoUrlOfCard(u.text) && { label: '编辑', run: () => (inlineKinds.has(u.kind) ? setEdit({ kind: 'unit', key, unit: u, base: cur.current }) : setFull({ unit: u, base: cur.current, edit: true })) },
-      { label: '复制一份', run: () => (setFlash(u.text.trim()), write(duplicateUnit(cur.current, u), '复制了一份：文档里紧跟着多了这一段')) },
+      target ? { label: tNow('打开'), run: () => app().openFile(target) } : !videoUrlOfCard(u.text) && { label: tNow('编辑'), run: () => (inlineKinds.has(u.kind) && !u.parts ? setEdit({ kind: 'unit', key, unit: u, base: cur.current }) : setFull({ unit: u, base: cur.current, edit: true })) },
+      // 合成的一张（task-5ryf9）：拆开就是去掉前面那一行注释
+      u.parts && { label: tNow('拆开'), run: () => write(splitMerged(cur.current, u), tNow('拆开了：去掉了前面那一行注释，{n}段各是各的卡', { n: u.parts!.length })) },
+      { label: tNow('复制一份'), run: () => (setFlash(u.text.trim()), write(duplicateUnit(cur.current, u), tNow('复制了一份：文档里紧跟着多了这一段'))) },
       inCol && colOf?.head
         ? {
-            label: '从列里拿出来',
+            label: tNow('从列里拿出来'),
             run: () => {
               const r = rects[key]
               const c = rects['col:' + board.columns.indexOf(colOf)]
-              write(placeUnit(cur.current, u, Math.round((c ? c.x + c.w : (r?.x ?? 0) + (r?.w ?? 0)) + 24), Math.round(r?.y ?? 0)), '拿出来了：放在列的右边，文档里这段前面多了一行位置')
+              write(placeUnit(cur.current, u, Math.round((c ? c.x + c.w : (r?.x ?? 0) + (r?.w ?? 0)) + 24), Math.round(r?.y ?? 0)), tNow('拿出来了：放在列的右边，文档里这段前面多了一行位置'))
             },
           }
-        : u.place && { label: '放回那一节', run: () => write(unplaceUnit(cur.current, u), '放回了那一节：位置行去掉了，正文没动') },
+        : u.place && { label: tNow('放回那一节'), run: () => write(unplaceUnit(cur.current, u), tNow('放回了那一节：位置行去掉了，正文没动')) },
       '-',
-      u.text.trim() && { label: '问 AI 这张', ai: 'chat', run: () => app().askAi(u.text) },
+      u.text.trim() && { label: tNow('问 AI 这张'), ai: 'chat', run: () => app().askAi(u.text) },
       '-',
-      !target && u.text.trim() && { label: '转成文档', run: () => cardToDoc(u) },
+      !target && u.text.trim() && { label: tNow('转成文档'), run: () => cardToDoc(u) },
       '-',
-      { label: '删除', accel: accelFor('delete'), run: () => removeKeys([key]) },
+      { label: tNow('删除', { ctx: '白板菜单' }), accel: accelFor('delete'), run: () => removeKeys([key]) },
     ]
   }
   const manyMenu = (ks: Set<string>): MenuEntry[] => {
@@ -1008,7 +1263,7 @@ export function DocBoardView(props: DocBoardViewProps) {
         const u = [...unitKeys(splitDoc(t))].find(([, x]) => x === k)?.[0]
         if (u?.place) t = placeUnit(t, u, edgeKey === 'x' ? v : u.place.x, edgeKey === 'y' ? v : u.place.y)
       }
-      write(t, edgeKey === 'x' ? '左对齐了：只改了这几行位置' : '顶对齐了：只改了这几行位置')
+      write(t, edgeKey === 'x' ? tNow('左对齐了：只改了这几行位置') : tNow('顶对齐了：只改了这几行位置'))
     }
     const tidy = () => {
       const order = [...placed].sort((a, b) => a.place!.y - b.place!.y || a.place!.x - b.place!.x)
@@ -1026,10 +1281,10 @@ export function DocBoardView(props: DocBoardViewProps) {
         const u = [...unitKeys(splitDoc(t))].find(([, x]) => x === k)?.[0]
         if (u) t = placeUnit(t, u, p.x, p.y)
       }
-      write(t, '排整齐了：只改了这几行位置')
+      write(t, tNow('排整齐了：只改了这几行位置'))
     }
     const intoColumn = () => {
-      let t = addSection(cur.current, '新的列', null, board.level)
+      let t = addSection(cur.current, '新的列', null, board.level) // 不翻：写进文件的默认节名
       const order = [...ks].map((k) => byKey.get(k)).filter((u): u is DocUnit => !!u).sort((a, b) => a.from - b.from)
       for (const u0 of order) {
         const b = splitDoc(t)
@@ -1038,40 +1293,40 @@ export function DocBoardView(props: DocBoardViewProps) {
         const col = b.columns[b.columns.length - 1]!
         if (u) t = moveUnit(t, u, col, null)
       }
-      pendingRename.current = { name: '新的列', filled: true }
-      write(t, `放进了新的一列：文档末尾新起一节，这${order.length}段挪了进去`)
+      pendingRename.current = { name: '新的列', filled: true } // 不翻：拿它认出上面新加的那一节
+      write(t, tNow('放进了新的一列：文档末尾新起一节，这{n}段挪了进去', { n: order.length }))
       setSelected(new Set())
     }
     return [
-      { label: '左对齐', enabled: placed.length > 1, run: () => alignTo('x') },
-      { label: '顶对齐', enabled: placed.length > 1, run: () => alignTo('y') },
-      { label: '排整齐', enabled: placed.length > 1, run: tidy },
+      { label: tNow('左对齐'), enabled: placed.length > 1, run: () => alignTo('x') },
+      { label: tNow('顶对齐'), enabled: placed.length > 1, run: () => alignTo('y') },
+      { label: tNow('排整齐'), enabled: placed.length > 1, run: tidy },
       '-',
-      { label: '放进新列', run: intoColumn },
+      { label: tNow('放进新列'), run: intoColumn },
       '-',
-      { label: `删除 ${ks.size} 张`, accel: accelFor('delete'), run: () => removeKeys(ks) },
+      { label: tNow('删除 {n} 张', { n: ks.size }), accel: accelFor('delete'), run: () => removeKeys(ks) },
     ]
   }
   const emptyMenu = async (at: Pt, slot: Where | null): Promise<MenuEntry[]> => {
     const clip = await window.cnMenu.clipboardHas()
     const where: Where = slot ?? at
     return [
-      { label: '新卡片', run: () => draftAt(where) },
-      { label: '新待办', run: () => draftAt(where, '- [ ] ') },
-      { label: '新列', run: () => createAt('column', slot && 'col' in slot ? slot : at) },
-      { label: '新子白板', run: () => createAt('board', where) },
+      { label: tNow('新卡片'), run: () => draftAt(where) },
+      { label: tNow('新待办'), run: () => draftAt(where, '- [ ] ') },
+      { label: tNow('新列'), run: () => createAt('column', slot && 'col' in slot ? slot : at) },
+      { label: tNow('新子白板'), run: () => createAt('board', where) },
       '-',
-      { label: '拍导图', accel: accelFor('capture'), run: () => createAt('map', where) },
+      { label: tNow('拍导图'), accel: accelFor('capture'), run: () => createAt('map', where) },
       '-',
       clip.image
         ? { edit: 'paste' }
         : {
-            label: '粘贴',
+            label: tNow('粘贴'),
             accel: accelFor('paste'),
             enabled: clip.text,
             run: async () => {
               const t = (await window.cnMenu.readClipboardText()).trim()
-              if (t) put(where, t, { col: '贴进了「%s」：文档这一节多了这一段', free: '贴在了这里：文档末尾多了这一段，带一行位置' })
+              if (t) put(where, t, { col: tNow('贴进了「%s」：文档这一节多了这一段'), free: tNow('贴在了这里：文档末尾多了这一段，带一行位置') })
             },
           },
     ]
@@ -1091,7 +1346,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       setSelWire(key)
       setSelected(new Set())
       const [from, to] = key.split('>')
-      items = [{ label: '删除连线', accel: accelFor('delete'), run: () => (write(unlink(cur.current, from!, to!), '删了这条线'), setSelWire(null)) }]
+      items = [{ label: tNow('删除连线'), accel: accelFor('delete'), run: () => (write(unlink(cur.current, from!, to!), tNow('删了这条线')), setSelWire(null)) }]
     } else if (cardEl?.dataset.id && byKey.get(cardEl.dataset.id)) {
       const key = cardEl.dataset.id
       setSelWire(null)
@@ -1105,9 +1360,9 @@ export function DocBoardView(props: DocBoardViewProps) {
       const col = board.columns[ci]
       if (!col?.head) return
       items = [
-        { label: '改名', run: () => setRenaming(ci) },
+        { label: tNow('改名'), run: () => setRenaming(ci) },
         '-',
-        { label: '删除列（卡片留下）', run: () => write(removeColumn(cur.current, col), `删了「${col.title}」这一列：只删了标题那一行，卡并进了上一节`) },
+        { label: tNow('删除列（卡片留下）'), run: () => write(removeColumn(cur.current, col), tNow('删了「{name}」这一列：只删了标题那一行，卡并进了上一节', { name: col.title })) },
       ]
     } else {
       const p = planeXY(e.clientX, e.clientY)
@@ -1196,13 +1451,13 @@ export function DocBoardView(props: DocBoardViewProps) {
     if (u.kind === 'gap') return <div key={'g' + u.from} className="db-gap" />
     const key = keys.get(u) ?? ''
     const f = faceOf(u, ctx)
-    const dragging = drag?.type === 'unit' && drag.moved && drag.key === key
+    const dragging = drag?.type === 'unit' && drag.moved && (drag.key === key || !!drag.group?.some((g) => g.key === key))
     const editing = editUnit === u
     const side = f.k === 'callout' && f.kind === 'ai' ? sideSpot(u) : undefined
     const acts: CardActs = { onToggle: (line) => toggle(u, line), onOpen: openTarget, onFull: () => setFull({ unit: u, base: cur.current }), onExpand: () => (setSelected(new Set()), setExpanded(key)), ...(side ? { side } : {}) }
     const cls =
-      `db-card ${faceClass(f)}` +
-      (u.kind === 'video' && u.moments ? ' group' : '') +
+      `db-card ${u.parts ? 'merged' : faceClass(f)}` +
+      (u.kind === 'video' && u.moments && !u.parts ? ' group' : '') +
       (dragging ? ' dragging' : '') +
       (u.place ? ' placed' : '') +
       (flash && u.text.trim() === flash ? ' flash' : '') +
@@ -1224,6 +1479,13 @@ export function DocBoardView(props: DocBoardViewProps) {
       >
         {editing ? (
           <div className="db-edit-slot" ref={hostAt} style={{ display: 'contents' }} />
+        ) : u.parts ? (
+          // 合成的一张（task-5ryf9）：几段各照自己的样子画，中间一道细线
+          u.parts.map((p) => (
+            <div key={p.from} className="db-part" data-face={faceClass(faceOf(p, ctx))}>
+              <UnitBody u={p} f={faceOf(p, ctx)} ctx={ctx} acts={{ ...acts, onToggle: (line) => toggle(p, line) }} />
+            </div>
+          ))
         ) : u.kind === 'video' && u.moments ? (
           <>
             <div className="face fc-media">
@@ -1238,11 +1500,11 @@ export function DocBoardView(props: DocBoardViewProps) {
         ) : (
           <UnitBody u={u} f={f} ctx={ctx} acts={acts} />
         )}
-        {u.attrs?.ai && !editing && <div className="aifoot">{`AI 总结的 · ${u.attrs.ai}`}</div>}
+        {u.attrs?.ai && !editing && <div className="aifoot">{t('AI 总结的 · {engine}', { engine: u.attrs.ai })}</div>}
         {!props.readOnly && !editing && (
           <span
             className="db-handle"
-            title="拖到另一张卡上连线"
+            title={t('拖到另一张卡上连线')}
             onMouseDown={(e) => {
               if (e.button !== 0) return
               e.stopPropagation()
@@ -1278,7 +1540,7 @@ export function DocBoardView(props: DocBoardViewProps) {
         data-id={c.head && c.title ? c.title : undefined}
         data-ask={c.ask ? '1' : '0'}
         data-head={c.head ? '1' : '0'}
-        aria-label={c.title ?? '开头'}
+        aria-label={c.title ?? t('开头')}
         style={style}
         onClick={() => folded && setOpen(new Set(open).add(ci))}
       >
@@ -1286,7 +1548,7 @@ export function DocBoardView(props: DocBoardViewProps) {
           (renaming === ci ? (
             <input
               className="db-col-name"
-              aria-label="列名"
+              aria-label={t('列名')}
               defaultValue={c.title ?? ''}
               autoFocus
               onFocus={(e) => e.currentTarget.select()}
@@ -1294,7 +1556,7 @@ export function DocBoardView(props: DocBoardViewProps) {
               onBlur={(e) => {
                 setRenaming(null)
                 const t = e.currentTarget.value.trim()
-                if (t && t !== c.title) write(renameColumn(cur.current, c, t), `列名改成了「${t}」：文档里这一节的标题跟着改了`)
+                if (t && t !== c.title) write(renameColumn(cur.current, c, t), tNow('列名改成了「{name}」：文档里这一节的标题跟着改了', { name: t }))
               }}
               onKeyDown={(e) => {
                 // 输入法还在组字：回车、Esc 交给输入法（CN-115）
@@ -1311,11 +1573,11 @@ export function DocBoardView(props: DocBoardViewProps) {
                 setDrag({ type: 'col', ci, start: { x: e.clientX, y: e.clientY }, at: { x: e.clientX, y: e.clientY }, grab: { x: e.clientX - r.left, y: e.clientY - r.top }, moved: false, w: r.width })
               }}
               onDoubleClick={(e) => c.head && !props.readOnly && (e.stopPropagation(), setRenaming(ci))}
-              title={c.head && !props.readOnly ? '双击改列名；按住列名拖到空白处摆在那里' : undefined}
+              title={c.head && !props.readOnly ? t('双击改列名；按住列名拖到空白处摆在那里') : undefined}
             >
               {c.ask && <Codicon name="comment-discussion" size={14} />}
               <span className="truncate">{c.title}</span>
-              <span className="meta num">{c.ask ? `${count}处` : `${count}张`}</span>
+              <span className="meta num">{c.ask ? t('{n}处', { ctx: '问过 AI', n: count }) : t('{n}张', { n: count })}</span>
               {folded && <Codicon name="chevron-down" size={14} />}
             </h3>
           ))}
@@ -1324,10 +1586,10 @@ export function DocBoardView(props: DocBoardViewProps) {
             <Codicon name="references" size={13} />
             {cited.map((r, k) => (
               <button key={r.path} type="button" onMouseDown={(e) => e.stopPropagation()} onClick={() => app().openFile(r.path)}>
-                {(k ? '、' : '') + titleOf(r.path)}
+                {(k ? (uiLang() === 'en' ? ', ' : '、') : '') + titleOf(r.path)}
               </button>
             ))}
-            <span>引用了这一节</span>
+            <span>{t('引用了这一节')}</span>
           </div>
         )}
         {!folded &&
@@ -1347,11 +1609,11 @@ export function DocBoardView(props: DocBoardViewProps) {
           })}
         {!folded && drop?.col === ci && drop.before === -1 && <div className="db-drop" />}
         {!folded && draftHere === -1 && draftCard(-1)}
-        {!folded && !lead && c.cards.length === 0 && draftHere === null && <div className="db-empty">把卡片拖进来</div>}
+        {!folded && !lead && c.cards.length === 0 && draftHere === null && <div className="db-empty">{t('把卡片拖进来')}</div>}
         {!folded && !showAll && cards.length > per && (
           <button type="button" className="db-more" onClick={() => setMore(new Set(more).add(ci))}>
             <Codicon name="chevron-down" size={14} />
-            {`还有${cards.length - per}张，点开`}
+            {t('还有{n}张，点开', { n: cards.length - per })}
           </button>
         )}
       </section>
@@ -1369,7 +1631,19 @@ export function DocBoardView(props: DocBoardViewProps) {
   const exp = expanded ? byKey.get(expanded) : undefined
   const expRect = expanded ? rects[expanded] : undefined
   const ghost =
-    drag?.type === 'unit' && drag.moved ? (
+    drag?.type === 'unit' && drag.moved && drag.group ? (
+      // 选中的几张一起拖（task-5ryf9）：几张一起跟着鼠标走，鼠标右下一个「N张」
+      <>
+        {drag.group.slice(0, 12).map((g) => (
+          <div key={g.key} className={`db-card db-drag-card ${g.unit.parts ? 'merged' : faceClass(faceOf(g.unit, ctx))}`} style={{ left: g.r.left + drag.at.x - drag.start.x, top: g.r.top + drag.at.y - drag.start.y, width: g.r.width }}>
+            <UnitBody u={g.unit} f={faceOf(g.unit, ctx)} ctx={ctx} acts={{ onToggle: () => undefined, onOpen: () => undefined, onFull: () => undefined }} />
+          </div>
+        ))}
+        <div className="db-drag-count num" data-testid="db-drag-count" style={{ left: drag.at.x + 14, top: drag.at.y + 14 }}>
+          {t('{n}张', { n: drag.group.length })}
+        </div>
+      </>
+    ) : drag?.type === 'unit' && drag.moved ? (
       <div className={`db-card db-drag-card ${faceClass(faceOf(drag.unit, ctx))}`} style={{ left: drag.at.x - drag.grab.x, top: drag.at.y - drag.grab.y, width: drag.w }}>
         <UnitBody u={drag.unit} f={faceOf(drag.unit, ctx)} ctx={ctx} acts={{ onToggle: () => undefined, onOpen: () => undefined, onFull: () => undefined }} />
       </div>
@@ -1379,7 +1653,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       </div>
     ) : drag && (drag.type === 'pal' || drag.type === 'inbox') && drag.moved ? (
       <div className={'db-pal-ghost' + (onCanvas(drag.at.x, drag.at.y) ? '' : ' off')} style={{ left: drag.at.x - 24, top: drag.at.y - 16 }}>
-        {drag.type === 'inbox' ? previewOf(drag.text, 60) : drag.kind === 'todo' ? '待办' : drag.kind === 'column' ? '新的列' : drag.kind === 'base' ? '数据库' : drag.kind === 'board' ? '子白板' : drag.kind === 'map' ? '拍一张导图' : '新卡片'}
+        {drag.type === 'inbox' ? previewOf(drag.text, 60) : drag.kind === 'todo' ? t('待办') : drag.kind === 'column' ? t('新的列') : drag.kind === 'base' ? t('数据库') : drag.kind === 'board' ? t('子白板') : drag.kind === 'map' ? t('拍一张导图') : t('新卡片')}
       </div>
     ) : null
 
@@ -1387,6 +1661,8 @@ export function DocBoardView(props: DocBoardViewProps) {
     <div
       className={'board db-board' + (imageDrop.dropping || noteDrop ? ' dropping' : '')}
       data-testid="doc-board"
+      // 卡里的 [字](链接) 相对这篇认（cite.tsx）
+      data-cite-base={props.notePath}
       ref={outer}
       tabIndex={0}
       onKeyDown={onKey}
@@ -1400,16 +1676,24 @@ export function DocBoardView(props: DocBoardViewProps) {
       }}
       onPaste={imageDrop.handlers.onPaste}
     >
+      {/* 在这块白板里找（⇧⌘F）：卡片里的字，跳到那张卡闪一下 */}
+      <BoardFind root={() => outer.current} cards=".db-card" on={props.active} owner={props.notePath} />
       <div className="db-area">
         <div
-          className="board-wrap"
+          className={'board-wrap' + (space || panning ? ' grab' : '') + (panning ? ' grabbing' : '')}
           ref={wrap}
+          // 按住空格拖、中键拖：平移（task-5ryf9；按在卡上也是平移，不拖卡）
+          onMouseDownCapture={(e) => {
+            if (e.button === 1 || (e.button === 0 && spaceRef.current)) startPan(e)
+          }}
+          onAuxClick={(e) => e.button === 1 && e.preventDefault()}
           onMouseDown={(e) => {
             if (e.button !== 0) return
-            if ((e.target as HTMLElement).closest('.db-card, .db-col h3, .dbx')) return
-            setSelected(new Set())
+            if ((e.target as HTMLElement).closest('.db-card, .db-col h3, .dbx, .db-col-name')) return
             setSelWire(null)
             outer.current?.focus({ preventScroll: true })
+            // 空白处（列里的空处也算）按住拖：框选，碰到的卡都选上；按住 ⇧ 是在已经选着的上面再加
+            startMarquee(e)
           }}
           onDoubleClick={(e) => {
             if (props.readOnly || (e.target as HTMLElement).closest('.db-card, .db-col, .dbx')) return
@@ -1439,7 +1723,7 @@ export function DocBoardView(props: DocBoardViewProps) {
                   edit.kind === 'unit' ? (
                     <InlineCard text={edit.unit.text} notePath={props.notePath} onDone={(v, closing) => doneUnit(edit, v, closing)} onNotice={(t) => setToast({ text: t })} onDraft={props.onDraft} />
                   ) : (
-                    <InlineCard text={edit.body} notePath={props.notePath} label="新卡片的字" onDone={(v) => doneNew(edit, v)} onNotice={(t) => setToast({ text: t })} onDraft={props.onDraft} />
+                    <InlineCard text={edit.body} notePath={props.notePath} label={t('新卡片的字')} onDone={(v) => doneNew(edit, v)} onNotice={(t) => setToast({ text: t })} onDraft={props.onDraft} />
                   ),
                   editHost,
                 )}
@@ -1448,6 +1732,8 @@ export function DocBoardView(props: DocBoardViewProps) {
                 <div className="dbx-at" style={{ left: expRect.x - 8, top: expRect.y - 8 }}>
                   <BaseExpand
                     src={exp.text.replace(/^(```|~~~)base[^\n]*\n/, '').replace(/\n(```|~~~)\s*$/, '')}
+                    file={props.notePath}
+                    block={Math.max(0, autoBlocks(props.text).findIndex((b) => exp.text.includes(b.src)))}
                     write={(next) => {
                       const u = byKey.get(expanded!)
                       if (!u) return
@@ -1459,14 +1745,14 @@ export function DocBoardView(props: DocBoardViewProps) {
                       } catch (e) {
                         return setToast({ text: String((e as Error).message) })
                       }
-                      if (src !== m[2]) write(cur.current.slice(0, u.from) + m[1] + src + m[3] + cur.current.slice(u.to), '改了这张表的写法：文档里这个数据库块跟着变')
+                      if (src !== m[2]) write(cur.current.slice(0, u.from) + m[1] + src + m[3] + cur.current.slice(u.to), tNow('改了这张表的写法：文档里这个数据库块跟着变'))
                     }}
                     onClose={() => setExpanded(null)}
                     onCell={(w: BaseCellWrite) =>
                       setToast({
-                        text: `「${w.name}」的${w.col.replace(/^note\./, '')}改成了「${w.value}」`,
-                        path: `写进 ${w.path}`,
-                        undo: () => void window.cn.writeNote(w.path, w.before, w.after).then((r) => setToast({ text: r.ok ? '撤回了：那一条改回去了' : '那一条刚被别处改过，撤不回了' })),
+                        text: tNow('「{name}」的{col}改成了「{value}」', { name: w.name, col: w.col.replace(/^note\./, ''), value: w.value }),
+                        path: tNow('写进 {path}', { path: w.path }),
+                        undo: () => void window.cn.writeNote(w.path, w.before, w.after).then((r) => setToast({ text: r.ok ? tNow('撤回了：那一条改回去了') : tNow('那一条刚被别处改过，撤不回了') })),
                       })
                     }
                   />
@@ -1481,7 +1767,7 @@ export function DocBoardView(props: DocBoardViewProps) {
               <button
                 key={it.kind}
                 type="button"
-                data-tip={it.tip}
+                data-tip={t(it.tip)}
                 data-side="right"
                 data-kind={it.kind}
                 onMouseDown={(e) => e.button === 0 && setDrag({ type: 'pal', kind: it.kind, start: { x: e.clientX, y: e.clientY }, at: { x: e.clientX, y: e.clientY }, moved: false })}
@@ -1492,13 +1778,13 @@ export function DocBoardView(props: DocBoardViewProps) {
                 }}
               >
                 <Codicon name={it.icon} size={16} />
-                <span>{it.label}</span>
+                <span>{t(it.label, { ctx: '工具板' })}</span>
               </button>
             ))}
             <hr />
             <button
               type="button"
-              data-tip="拍一张导图：点一下放进正中那一列，或按住拖到白板上（做好后是这块白板的子白板）"
+              data-tip={t('拍一张导图：点一下放进正中那一列，或按住拖到白板上（做好后是这块白板的子白板）')}
               data-key={keyFor('capture') ?? undefined}
               data-side="right"
               data-kind="map"
@@ -1506,7 +1792,7 @@ export function DocBoardView(props: DocBoardViewProps) {
               onClick={() => !palDragged.current && void createAt('map', centerWhere())}
             >
               <Codicon name="device-camera" size={16} />
-              <span>拍导图</span>
+              <span>{t('拍导图', { ctx: '工具板' })}</span>
             </button>
           </div>
         )}
@@ -1524,7 +1810,7 @@ export function DocBoardView(props: DocBoardViewProps) {
             active={props.active}
             away={!!expanded}
             area={outer}
-            onReset={() => write(resetLayout(cur.current), `摆回原样：去掉了${moved + placedCols}行位置，正文一个字没动`)}
+            onReset={() => write(resetLayout(cur.current), tNow('摆回原样：去掉了{n}行位置，正文一个字没动', { n: moved + placedCols }))}
           />
           {props.corner}
         </div>
@@ -1534,13 +1820,16 @@ export function DocBoardView(props: DocBoardViewProps) {
             <span title={toast.text}>{toast.text}</span>
             {toast.path && <span className="path">{toast.path}</span>}
             {toast.undo && (
-              <button type="button" className="db-pill" onClick={() => (setToast(null), toast.undo!())}>
+              <button type="button" className="db-pill" onClick={() => (setToast(null), toast.undo!(), outer.current?.focus({ preventScroll: true }))}>
                 <Codicon name="discard" size={13} />
-                撤回
+                {t('撤回')}
               </button>
             )}
           </div>
         )}
+        {/* 空白处按住拖出来的框（task-5ryf9）：1px 强调色边、淡强调色底 */}
+        {marq && <div className="db-marquee" data-testid="db-marquee" style={{ left: marq.left, top: marq.top, width: marq.right - marq.left, height: marq.bottom - marq.top }} />}
+        {bar.node}
         {/* AI 在这块白板上动手（DESIGN.v3 2.3）：盖白板这一格 */}
         <AiActLayer area="board" path={props.notePath} host={outer} />
       </div>
@@ -1625,9 +1914,9 @@ function edge(r: Rect, c: Pt, toward: Pt, gap: number): Pt {
 /** 这张卡在文档里哪一节 */
 function sectionOf(b: DocBoard, u: DocUnit): string {
   const placed = b.placed.find((x) => x.from === u.from)
-  if (placed) return placed.section ?? '开头'
-  for (const c of b.columns) if (c.cards.some((x) => x.from === u.from)) return c.ask ? (/^##\s*(.+)$/m.exec(u.text)?.[1] ?? '问过 AI') : (c.title ?? '开头')
-  return '开头'
+  if (placed) return placed.section ?? tNow('开头')
+  for (const c of b.columns) if (c.cards.some((x) => x.from === u.from)) return c.ask ? (/^##\s*(.+)$/m.exec(u.text)?.[1] ?? tNow('问过 AI')) : (c.title ?? tNow('开头'))
+  return tNow('开头')
 }
 
 /** 插入菜单（/）开着：Esc 先关它，不关弹层 */
@@ -1651,6 +1940,7 @@ function FullCard(props: {
   onSave(body: string): void
   onNotice(text: string): void
 }) {
+  const t = useT()
   const [body, setBody] = useState(props.unit.text)
   const [editing, setEditing] = useState(props.startEditing && !props.readOnly)
   const bodyNow = useRef(body)
@@ -1665,39 +1955,41 @@ function FullCard(props: {
     return () => window.removeEventListener('keydown', esc, true)
   }, [])
   const f = faceOf(props.unit, props.ctx)
+  // 节名夹在一句话中间：整句一个模板，按 {sec} 切成前后两段（中间的节名单独截断）
+  const where = t('· 在文档「{sec}」里').split('{sec}')
   return (
     <div className="db-full-back" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="db-full" role="dialog" aria-label="全文">
+      <div className="db-full" role="dialog" aria-label={t('全文')}>
         <div className="db-full-hd">
           <Codicon name="preview" size={14} />
           <b>{faceName(f)}</b>
           {/* 只截中间的节名，「· 在文档「」和「」里」一直露着（设计复审） */}
           <span className="where">
-            <span>· 在文档「</span>
+            <span>{where[0]}</span>
             <span className="sec">{props.section}</span>
-            <span>」里</span>
+            <span>{where[1]}</span>
           </span>
           <span className="sp" />
           {!props.readOnly && !editing && (
             <button type="button" className="db-pill" onClick={() => setEditing(true)}>
               <Codicon name="edit" size={13} />
-              改字
+              {t('改字')}
             </button>
           )}
           <button type="button" className="db-pill" onClick={() => (close(), props.onOpenDoc(props.unit.from))}>
             <Codicon name="file-text" size={13} />
-            在文档里看
+            {t('在文档里看')}
           </button>
-          <button type="button" className="db-ib" aria-label="关掉" onClick={close}>
+          <button type="button" className="db-ib" aria-label={t('关掉')} onClick={close}>
             <Codicon name="close" size={15} />
           </button>
         </div>
         {editing ? (
           <>
-            <UnitEditor text={body} notePath={props.ctx.notePath} onChange={setBody} onNotice={props.onNotice} placeholder={EMPTY_HINT} />
+            <UnitEditor text={body} notePath={props.ctx.notePath} onChange={setBody} onNotice={props.onNotice} placeholder={t(EMPTY_HINT)} />
             <div className="db-full-ft edit">
               <button type="button" className="btn" onClick={() => props.onSave(body)}>
-                存好
+                {t('存好')}
               </button>
             </div>
           </>

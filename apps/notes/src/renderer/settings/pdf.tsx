@@ -12,6 +12,7 @@ import { openCards, unsentOf, useCardsView } from '../reading/cards-store'
 import { AiFeaturePick } from '../settings-ai'
 import { Toggle, type SettingsProps } from '../Settings'
 import { t as tNow } from '../../shared/i18n'
+import { catName } from '../../shared/categories'
 import { useT } from '../i18n'
 import { Group, Lnk, Row, Sel, useSaid } from './ui'
 
@@ -89,8 +90,8 @@ export function PdfPage(props: SettingsProps) {
               {t('按文件夹分牌组；直接放在课里的用PDF的名字，别处的进「知识」')}
               <br />
               {t('例：')}
-              {/* 不翻：例子是库里的文件夹名和 Anki 牌组名，照磁盘上的 */}
-              <span className="sa-nw">课程/ecp/Week 2/补充材料</span> → <span className="sa-nw">课程::ecp::Week 2::补充材料</span>
+              {/* 不翻：例子是库里的文件夹名和 Anki 牌组名，照这个库磁盘上的（「补充材料」是例子里的一个子文件夹） */}
+              <span className="sa-nw">{`${catName('课程')}/ecp/Week 2/补充材料`}</span> → <span className="sa-nw">{`${catName('课程')}::ecp::Week 2::补充材料`}</span>
             </>
           }
         >

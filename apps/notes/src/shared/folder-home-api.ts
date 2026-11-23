@@ -34,6 +34,11 @@ export interface CnFolderApi {
   make(parent: string, name: string): Promise<string>
   /** 文件夹挪进另一个文件夹（'' 是最外层）：链接、置顶、左栏跟着换，一次提交；返回新文件夹 */
   move(folder: string, parent: string): Promise<string>
+  /**
+   * 首页卡里拖走的一份、缩略图右键「移到…」（task-r00en）：PDF 连挂着的笔记、可视化一起挪进 folder，链接改好，一次提交；
+   * moves 第一个是拖的那份（拖的是挂着的笔记时是它的 PDF），已经在那里是空的
+   */
+  moveItem(path: string, folder: string): Promise<{ moves: { from: string; to: string }[]; commit: string | null }>
   /** 左栏摘了哪些文件夹、文件夹的图标和颜色（.canvas-notes/左栏.json） */
   left(): Promise<LeftConfig>
   setLeft(c: LeftConfig): Promise<LeftConfig>

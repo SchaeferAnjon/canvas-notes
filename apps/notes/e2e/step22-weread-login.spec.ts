@@ -163,7 +163,7 @@ test('右竖条「微信读书」：在网页下面；点开书架，再点收�
     await cookieLogin(run)
     // 名字后面的快捷键、变淡时说的为什么都不算（右图标栏方向 A：「笔记」一直在最上面，用不上时变淡）
     const labels = () => rail(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')!.replace(/ · .*/, '').replace(/（.*）$/, '')))
-    await expect.poll(labels).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
+    await expect.poll(labels).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
     await entry(page).click()
     await expect(web(page)).toBeVisible()
     await expect.poll(() => guest(page, `document.getElementById('shelf')?.textContent ?? ''`)).toBe('我的书架')
@@ -197,7 +197,7 @@ test('右竖条「微信读书」：在网页下面；点开书架，再点收�
     await page.getByRole('button', { name: '插件' }).click()
     await page.getByRole('region', { name: '微信读书' }).getByRole('switch', { name: '启用 微信读书' }).click()
     await page.keyboard.press('Escape')
-    await expect.poll(labels).toEqual(['笔记', '大纲', '网页', '历史'])
+    await expect.poll(labels).toEqual(['笔记', '大纲', '网页', '记录', '自动化', '历史'])
   } finally {
     await run.close()
   }

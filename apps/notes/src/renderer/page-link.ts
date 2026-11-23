@@ -4,6 +4,7 @@
  */
 import { notePdfCandidates, pageLinkOf } from '@cn/format'
 import { app } from './ctx/actions'
+import { t } from '../shared/i18n'
 
 const base = (p: string) => p.slice(p.lastIndexOf('/') + 1)
 
@@ -24,7 +25,7 @@ export function openPageLink(note: string, href: string, text: string, pos: numb
     // 写的路径在库里没有（PDF 挪过）：按名字找
     const file = want.find((p) => pdfs.includes(p)) ?? want.map((p) => pdfs.find((q) => base(q) === base(p))).find(Boolean)
     if (file) app().openPdfAt(file, a.page, a.rect)
-    else app().notice(`不知道「${label}」是哪份 PDF 的：这篇没写来源，旁边也没有同名的 PDF`)
+    else app().notice(t('不知道「{label}」是哪份 PDF 的：这篇没写来源，旁边也没有同名的 PDF', { label }))
   })
   return true
 }

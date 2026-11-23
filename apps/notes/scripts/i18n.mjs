@@ -25,6 +25,8 @@ const HAN = /\p{Script=Han}/u
 const CJK_OR_WORD = /[\p{Script=Han}　-〿！-｠A-Za-z]/u
 /** 取字的函数：t（界面语言）、tNow（组件里要「说的那一刻」的语言时，全局的 t 换个名字引进来）、tv（库语言）、tIn（指定语言，第二个参数是键） */
 const CALLS = { t: 0, tNow: 0, tv: 0, tIn: 1 }
+/** 参数是分类身份（中文名，shared/categories.ts 的 CatId）的函数：换成这个库的文件夹名，不是界面字 */
+const ID_CALLS = new Set(['catName', 'underCat', 'isChildOf'])
 
 /**
  * 抽完的文件（按批加）：这些文件里中文只能在 t() 里，或者在标了「不翻」的地方。路径相对 apps/notes/src
@@ -49,6 +51,7 @@ export const DONE = [
   'renderer/settings/keys.tsx',
   'renderer/settings/pdf.tsx',
   'renderer/settings/privacy.tsx',
+  'renderer/settings/family.tsx',
   'renderer/settings/ui.tsx',
   'renderer/settings/vault.tsx',
   'renderer/settings/web.tsx',
@@ -75,6 +78,215 @@ export const DONE = [
   'renderer/update.tsx',
   'renderer/shell/StatusBar.tsx',
   'renderer/shell/StatusExtras.tsx',
+  // 第一批抽过、这一批补登记的：待办、最近、废纸篓页、左栏的几个小文件
+  'renderer/todo/store.ts',
+  'renderer/todo/TaskView.tsx',
+  'renderer/todo/TodoCard.tsx',
+  'renderer/todo/TodoList.tsx',
+  'renderer/todo/TodoPanel.tsx',
+  'renderer/RecentPage.tsx',
+  'renderer/TrashPage.tsx',
+  'renderer/files/category-store.ts',
+  'renderer/files/left-store.ts',
+  'renderer/files/reveal.ts',
+  // 第二批（task-zojmg）：外壳和设置 › 文件和附件（App.tsx、FileTree.tsx 还有几段在别的分支正改着，那几句合进来再抽，这两个先不登记）
+  'renderer/shell/Shell.tsx',
+  'renderer/shell/OutlineView.tsx',
+  'renderer/shell/SideSash.tsx',
+  'renderer/settings/files.tsx',
+  'renderer/files/store.ts',
+  // 第二批：白板、文档切成的白板
+  'renderer/BoardView.tsx',
+  'renderer/CardBody.tsx',
+  'renderer/ListView.tsx',
+  'renderer/board-drop.ts',
+  'renderer/board-edit.ts',
+  'renderer/board-link.ts',
+  'renderer/board-zoom.ts',
+  'renderer/doc-board/DocBoardView.tsx',
+  'renderer/doc-board/base-card.tsx',
+  'renderer/doc-board/cards.tsx',
+  'renderer/doc-board/cross-doc.ts',
+  'renderer/doc-board/inbox.tsx',
+  'renderer/doc-board/inline-card.tsx',
+  'renderer/doc-board/pdf-page.ts',
+  'renderer/doc-board/selection.ts',
+  'renderer/doc-board/top-hint.tsx',
+  'renderer/doc-board/unit-editor.tsx',
+  // 第二批：文档（/ 菜单、属性、嵌入）和数据库
+  'renderer/slash-menu.tsx',
+  'renderer/NoteTab.tsx',
+  'renderer/PropsAttach.tsx',
+  'renderer/doc-embeds.tsx',
+  'renderer/base/BaseTable.tsx',
+  'renderer/base/base-block.tsx',
+  // 第二批：编辑器零碎、全部笔记、移到废纸篓、历史
+  'renderer/HistoryPanel.tsx',
+  'renderer/NoteIndex.tsx',
+  'renderer/TrashDialog.tsx',
+  'renderer/tex.ts',
+  'renderer/block-handles.tsx',
+  'renderer/link-card.tsx',
+  'renderer/conflict-say.ts',
+  'renderer/callout.ts',
+  'renderer/fold-block.ts',
+  'renderer/doc-toc.tsx',
+  'renderer/review.ts',
+  'renderer/md-render.tsx',
+  'renderer/block-source.tsx',
+  'renderer/tail-line.ts',
+  'renderer/table-edit.ts',
+  'renderer/page-link.ts',
+  'renderer/note-menu.tsx',
+  'renderer/md-link.ts',
+  'renderer/layout-lines.ts',
+  'renderer/engine-logo.tsx',
+  // 第二批：文件夹首页、文档里的文件夹小块、右键菜单（ctx/actions、editor-menu、translate 在别的分支正改着）
+  'renderer/folder-home/FolderHomeView.tsx',
+  'renderer/folder-home/FolderContent.tsx',
+  'renderer/folder-home/widgets.tsx',
+  'renderer/folder-home/dialogs.tsx',
+  'renderer/folder-home/cover.tsx',
+  'renderer/folder-home/icons.tsx',
+  'renderer/folder-home/slide-covers.ts',
+  'renderer/folder-home/store.ts',
+  'renderer/folder-chip.ts',
+  'renderer/ctx/file-menu.ts',
+  'renderer/ctx/web-menu.ts',
+  'renderer/ctx/message-menu.ts',
+  'renderer/ctx/link-row-menu.ts',
+  'renderer/ctx/move-menu.ts',
+  'renderer/ctx/board-ops.ts',
+  'renderer/ctx/menu.ts',
+  // 第二批：属性弹层和文档开头的属性表
+  'renderer/mindmap/PropsButton.tsx',
+  'renderer/mindmap/props-block.ts',
+  // 第三批（task-zojmg）：AI 对话（AiPanel.tsx、ai-write.ts、ai-greet.ts 在别的分支正改着，合进来再抽）
+  'renderer/composer.tsx',
+  'shared/materials.ts',
+  'renderer/AiDock.tsx',
+  'renderer/ai-chats.ts',
+  'renderer/ai-pick.ts',
+  'renderer/ai-spot.ts',
+  'renderer/ai-quick.tsx',
+  'renderer/ai-place.ts',
+  'renderer/ai-picker.tsx',
+  'renderer/folder-ai.ts',
+  'renderer/ai-bridge.ts',
+  'renderer/ai-head.tsx',
+  'renderer/ai-act.tsx',
+  'renderer/ai-act-store.ts',
+  'renderer/ai-glow.tsx',
+  'renderer/ai-card-grow.ts',
+  'renderer/ai-commands.ts',
+  'renderer/ai-error.tsx',
+  'shared/ai-act.ts',
+  'shared/ai-errors.ts',
+  'shared/agent.ts',
+  'shared/ai-grow.ts',
+  'shared/ai-logo.ts',
+  // 第三批：AI 命令（commands/run.ts 在别的分支正改着）
+  'shared/ai-cmds.ts',
+  'renderer/commands/SlashMenu.tsx',
+  'renderer/commands/SaveCmd.tsx',
+  'renderer/commands/handoff.ts',
+  'renderer/commands/proposals.ts',
+  'renderer/commands/evidence.ts',
+  'renderer/commands/store.ts',
+  'renderer/commands/editor.ts',
+  // 选中小条能自定义（task-26nz7）
+  'shared/sel-bar.ts',
+  'renderer/sel-bar/store.ts',
+  'renderer/sel-bar/web.ts',
+  'renderer/sel-bar/run.ts',
+  'renderer/sel-bar/doc.ts',
+  'renderer/sel-bar/doc-key.ts',
+  'renderer/sel-bar/CapBar.tsx',
+  'renderer/settings/sel-bar.tsx',
+  // 第三批：旁支
+  'renderer/side/name.ts',
+  'renderer/side/side-core.ts',
+  'renderer/side/AskBox.tsx',
+  'renderer/side/SideInline.tsx',
+  'renderer/side/doc-side.tsx',
+  'renderer/side/file-side.tsx',
+  'renderer/side/host.ts',
+  // 第三批：读 PDF 的笔记栏、出卡、/ 命令（PdfTab、ReadingAi、HtmlTab、WebReadTab、reading/store、双语在别的分支正改着）
+  'renderer/reading/CardsDialog.tsx',
+  'renderer/reading/ReadingNotes.tsx',
+  'renderer/reading/cmds.ts',
+  'renderer/reading/card-commands.ts',
+  'renderer/reading/marks.ts',
+  'renderer/reading/cards-store.ts',
+  'renderer/reading/math.tsx',
+  'renderer/reading/pdf.ts',
+  // 第三批：主进程里给人看的报错（回给 AI 的话、写进文件和 Anki 的字标了不翻；agent/index.ts、tools.ts、reading/prompts.ts 在别的分支正改着）
+  'main/reading/index.ts',
+  'main/reading/anki.ts',
+  'main/reading/cards.ts',
+  'main/reading/capture.ts',
+  'main/reading/section.ts',
+  'main/reading/doubts.ts',
+  'main/reading/card-prompt.ts',
+  'main/reading/chats.ts',
+  'main/agent/engines.ts',
+  'main/agent/cli.ts',
+  'main/agent/jsonrpc.ts',
+  'main/agent/store.ts',
+  'main/agent/engine-update.ts',
+  'main/agent/engine-watch.ts',
+  'main/agent/engine-models.ts',
+  'main/agent/engine-check.ts',
+  'main/agent/engine-proc.ts',
+  'main/agent/web.ts',
+  'main/agent/vault-ops.ts',
+  'main/agent/context.ts',
+  'main/agent/side-prompt.ts',
+  'main/agent/board-ops.ts',
+  'main/agent/doc-board-ops.ts',
+  'main/agent/mcp-server.ts',
+  // 数据库第三批第 2 块（task-i921u）：看板、日历、画廊
+  'renderer/base/BaseLayout.tsx',
+  'renderer/base/BaseKanban.tsx',
+  'renderer/base/BaseCalendar.tsx',
+  'renderer/base/BaseGallery.tsx',
+  'renderer/base/layout-ctx.ts',
+  // 数据库第三批第 3、4、5 块和 AI 列（task-i921u）：视图标签条和筛选、右栏一条、关联汇总公式列、AI 列
+  'renderer/base/ViewBar.tsx',
+  'renderer/base/FilterPanel.tsx',
+  'renderer/base/view-state.ts',
+  'renderer/base/record-open.ts',
+  'renderer/base/RecordPeek.tsx',
+  'renderer/base/cols.tsx',
+  'renderer/base/ai-cells.tsx',
+  'renderer/base/ai-col.ts',
+  'renderer/base/AiColPane.tsx',
+  'renderer/base/words.ts',
+  // 数据库自动化、按钮列、设置 › 自动化和周记（task-i921u「当……就……」）
+  'renderer/base/AutoPane.tsx',
+  'renderer/base/auto-state.ts',
+  'renderer/base/auto-text.tsx',
+  'renderer/base/auto-ipc.ts',
+  'renderer/base/button-col.tsx',
+  'renderer/settings/auto.tsx',
+  // 数据库表底合计（task-i921u「通用合计」）：表底算什么的菜单、表底一格、组头占比条
+  'renderer/base/sums.tsx',
+  // 思维导图第一批（task-wuv05）：标签条「布局 ▾」
+  'renderer/mindmap/LayoutMenu.tsx',
+  // 合进 dev 后补登记的（task-zojmg）：白板右上角的缩放和收件箱（task-wz7gb）、白板里的导图卡（task-wuv05）
+  'renderer/doc-board/corner.tsx',
+  'renderer/mindmap/MapThumb.tsx',
+  // AI 对话回答下面那一排（task-83vl3）：拷贝 · 插进文档 · ⋯
+  'renderer/ans-acts.tsx',
+  // 白板框选、文档选多块的操作条（task-5ryf9）
+  'renderer/multi-select/SelBar.tsx',
+  'renderer/multi-select/SelMenu.tsx',
+  'renderer/doc-board/board-bar.tsx',
+  'renderer/doc-board/board-select.ts',
+  'renderer/multi-select/SelPopups.tsx',
+  'renderer/ai-cards.ts',
+  'renderer/commands/tidy.ts',
+  'renderer/block-select.tsx',
 ]
 
 /**
@@ -115,6 +327,77 @@ export const DATA = [
   // 首页封面的名字、窗口背景的说法
   { file: 'renderer/covers.ts', props: ['name'] },
   { file: 'renderer/theme.ts', within: 'winBgName', all: true },
+
+  // ---------- 第二批（task-zojmg）：外壳和目录树 ----------
+  // 设置 › 文件和附件：新笔记放哪、删之前问不问
+  { file: 'renderer/settings/files.tsx', within: 'WHERE', all: true },
+  { file: 'renderer/settings/files.tsx', within: 'ASK', all: true },
+  // App 交给 ⌘K 的那几条命令（Palette 画的时候 t(c.name)）；右栏几个标签的名字；目录树的排法
+  { file: 'renderer/App.tsx', within: 'commands', props: ['name', 'hint'] },
+  { file: 'shared/dock.ts', objects: ['VIEW_NAME'] },
+  { file: 'shared/files.ts', within: 'TREE_SORTS', props: ['label', 'hint'] },
+  // 目录树最外层的组名：分类的两组在 categories.ts 登记了，这里是最后一组「不在分类里的」
+  { file: 'shared/files.ts', within: 'topGroups', all: true },
+  // 白板：工具板（格子里一个短词，悬停提示写全）、文档卡的种类、行内卡的空提示
+  { file: 'renderer/BoardView.tsx', within: 'PAL', props: ['label'], ctx: '工具板' },
+  { file: 'renderer/BoardView.tsx', within: 'PAL', props: ['title'], ctx: '工具板提示' },
+  { file: 'renderer/doc-board/DocBoardView.tsx', within: 'PAL', props: ['label'], ctx: '工具板' },
+  { file: 'renderer/doc-board/DocBoardView.tsx', within: 'PAL', props: ['tip'] },
+  { file: 'renderer/doc-board/cards.tsx', objects: ['KIND_NAME'], ctx: '卡片种类' },
+  { file: 'renderer/doc-board/inline-card.tsx', within: 'EMPTY_HINT', all: true },
+  // 文档：/ 菜单（名字带「插入菜单」）、数据库的列类型、筛选条件、计算（@cn/format 里的表，路径相对 apps/notes/src）
+  { file: 'renderer/slash-menu.tsx', within: 'ITEMS', props: ['label'], ctx: '插入菜单' },
+  { file: 'renderer/slash-menu.tsx', within: 'ITEMS', props: ['desc'] },
+  { file: 'renderer/slash-menu.tsx', within: 'CALLOUTS', all: true, ctx: '插入菜单' },
+  { file: 'renderer/slash-menu.tsx', arrays: ['GROUPS'], ctx: '插入菜单' },
+  { file: '../../../packages/format/src/base.ts', props: ['label'], objects: ['CALC_LABEL', 'DATE_CALC_LABEL'], ctx: '数据库' },
+  // 数据库第三批（task-i921u）：列的类型、看法、加一列的几组、汇总怎么算、筛选条件和日期的几个选择（画的时候 t(label, { ctx: '数据库' })，renderer/base/words.ts）
+  { file: '../../../packages/format/src/base-types.ts', props: ['label', 'group'], ctx: '数据库' },
+  { file: '../../../packages/format/src/base-filter.ts', props: ['label'], objects: ['OTHER_OPS', 'DATE_OTHER'], ctx: '数据库' },
+  // 自动化「当」「就」的菜单（task-i921u，AutoPane.tsx 画的时候 t(label, { ctx: '数据库' })）
+  { file: '../../../packages/format/src/automation.ts', within: 'AUTO_WHENS', props: ['label', 'desc'], ctx: '数据库' },
+  { file: '../../../packages/format/src/automation.ts', within: 'AUTO_STEPS', props: ['label', 'group'], ctx: '数据库' },
+  // 编辑器零碎：全部笔记的筛选、提示块的名字、块菜单、改写法的提示、文末那一行
+  { file: 'renderer/NoteIndex.tsx', within: 'KINDS', all: true },
+  { file: 'renderer/callout.ts', within: 'KINDS', props: ['label'] },
+  { file: 'renderer/block-handles.tsx', props: ['label'], ctx: '块菜单' },
+  { file: 'renderer/block-source.tsx', within: 'RAW_HINT', all: true },
+  { file: 'renderer/tail-line.ts', within: 'TAIL_TEXT', all: true },
+  { file: 'renderer/tail-line.ts', within: 'NEW_NOTE_TEXT', all: true },
+  // 文件夹首页：空着时的话、星期、加组件的分组、条件的值；组件目录、文件夹种类、条件（shared/folder-home.ts，存进 .首页.json 的原值不翻，画的时候 t）
+  { file: 'renderer/folder-home/widgets.tsx', objects: ['EMPTY'] },
+  { file: 'renderer/folder-home/widgets.tsx', arrays: ['WEEK'], ctx: '星期' },
+  { file: 'renderer/folder-home/dialogs.tsx', within: 'GROUPS', all: true },
+  { file: 'renderer/folder-home/dialogs.tsx', within: 'VALUES', all: true },
+  { file: 'shared/folder-home.ts', props: ['name', 'desc'] },
+  { file: 'shared/folder-home.ts', objects: ['KIND_LABEL'], ctx: '文件夹种类' },
+  { file: 'shared/folder-home.ts', within: 'COND_OPS', all: true, ctx: '条件' },
+  { file: 'shared/folder-home.ts', within: 'matchRule', all: true },
+  // 属性弹层：属性的名字（文件里的键不改，界面上照软件的语言）、类型下拉的值（写进文件的值不改，显示翻）
+  { file: 'shared/prop-view.ts', objects: ['LABELS'] },
+  { file: 'shared/prop-view.ts', arrays: ['COMMON'] },
+  { file: 'shared/prop-view.ts', within: 'KEYS_BY_TYPE', all: true },
+  { file: 'renderer/mindmap/PropsButton.tsx', arrays: ['TYPES'], ctx: '笔记类型' },
+  // ---------- 第三批（task-zojmg）：AI 和读 ----------
+  // AI 对话：「能动手」那颗的几句（AiPanel 画的时候 t）、整块动手时顶上那条
+  { file: 'renderer/ai-place.ts', objects: ['HANDS'] },
+  { file: 'renderer/ai-act.tsx', objects: ['TEXT'] },
+  // AI 命令：自带命令的名字、说明、小标签、规矩（复制一份再改时照界面语言），在哪能用、写到哪、存在哪
+  { file: 'shared/ai-cmds.ts', within: 'BUILTINS', all: true },
+  { file: 'shared/ai-cmds.ts', within: 'WHERE', all: true, ctx: '在哪能用' },
+  { file: 'shared/ai-cmds.ts', within: 'WRITES', all: true, ctx: '写到哪' },
+  { file: 'shared/ai-cmds.ts', within: 'STORES', all: true },
+  // 选中小条（task-26nz7）：在哪出现、自带的几颗、提示词里的空、编辑页的例子
+  { file: 'shared/sel-bar.ts', within: 'BAR_PLACES', all: true, ctx: '在哪能用' },
+  { file: 'shared/sel-bar.ts', within: 'BAR_BUILTINS', props: ['name', 'note', 'r'] },
+  { file: 'shared/sel-bar.ts', within: 'PROMPT_VARS', props: ['zh'] },
+  { file: 'renderer/settings/sel-bar.tsx', within: 'SUGS', all: true },
+  { file: 'shared/ai-cmds.ts', within: 'WRITE_TAG', all: true },
+  { file: 'shared/ai-cmds.ts', within: 'tagsOf', all: true },
+  { file: 'renderer/commands/SaveCmd.tsx', objects: ['EV_TEXT'] },
+  // 旁支里空着回车问的那句；读 PDF 笔记栏的筛选（英文写短 All · Mine · Threads）
+  { file: 'renderer/side/name.ts', within: 'ASK_THIS', all: true },
+  { file: 'renderer/reading/ReadingNotes.tsx', within: 'FILTERS', all: true, ctx: '笔记筛选' },
 ]
 
 const read = (rel) => readFileSync(join(SRC, rel), 'utf8')
@@ -172,6 +455,7 @@ export function scanCode(code, file = '') {
     if (n.type === 'CallExpression') {
       const c = n.callee
       if (c.type === 'MemberExpression' && c.object.type === 'Identifier' && c.object.name === 'console') return false
+      if (c.type === 'Identifier' && ID_CALLS.has(c.name)) return false
       const name = calleeName(n)
       if (name) {
         const arg = n.arguments[CALLS[name]]

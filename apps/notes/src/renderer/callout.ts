@@ -9,6 +9,7 @@ import type { CodiconName } from '@cn/design'
 import { isSummaryHead } from '@cn/format'
 import type { EngineId } from '../shared/agent'
 import { ENGINE_LABEL } from '../shared/ai-features'
+import { t as tNow } from '../shared/i18n'
 
 export const CALLOUT_HEAD = /^(\s*>\s*)\[!([A-Za-z][\w-]*)\]([+-]?)[ \t]*(.*)$/
 
@@ -19,24 +20,25 @@ export interface CalloutKind {
   kind: string
   icon: CodiconName
   tone: CalloutTone
-  /** 没写标题时显示的名字 */
+  /** 没写标题时显示的名字（界面语言；只画不写进文件） */
   label: string
 }
 
+// 不翻：label 是键，calloutKind 交出去时翻（只画在没写标题的提示块上，不写进文件）
 const KINDS: [string[], Omit<CalloutKind, 'kind'> & { kind: string }][] = [
-  [['question', 'faq', 'help'], { kind: 'question', icon: 'question', tone: 'yellow', label: '疑惑' }],
-  [['success', 'check', 'done'], { kind: 'success', icon: 'pass', tone: 'green', label: '讲通了' }],
-  [['note'], { kind: 'note', icon: 'info', tone: 't2', label: '注' }],
-  [['info', 'todo', 'abstract', 'summary', 'tldr', 'example', 'tip', 'hint', 'important'], { kind: 'info', icon: 'info', tone: 't2', label: '说明' }],
-  [['warning', 'caution', 'attention'], { kind: 'warning', icon: 'warning', tone: 'yellow', label: '注意' }],
-  [['danger', 'error', 'failure', 'fail', 'missing', 'bug'], { kind: 'danger', icon: 'error', tone: 'red', label: '出错' }],
-  [['quote', 'cite'], { kind: 'quote', icon: 'quote', tone: 't2', label: '引文' }],
-  [['ai'], { kind: 'ai', icon: 'comment-discussion', tone: 'acc', label: 'AI 讲解' }],
+  [['question', 'faq', 'help'], { kind: 'question', icon: 'question', tone: 'yellow', label: '疑惑' }], // 不翻
+  [['success', 'check', 'done'], { kind: 'success', icon: 'pass', tone: 'green', label: '讲通了' }], // 不翻
+  [['note'], { kind: 'note', icon: 'info', tone: 't2', label: '注' }], // 不翻
+  [['info', 'todo', 'abstract', 'summary', 'tldr', 'example', 'tip', 'hint', 'important'], { kind: 'info', icon: 'info', tone: 't2', label: '说明' }], // 不翻
+  [['warning', 'caution', 'attention'], { kind: 'warning', icon: 'warning', tone: 'yellow', label: '注意' }], // 不翻
+  [['danger', 'error', 'failure', 'fail', 'missing', 'bug'], { kind: 'danger', icon: 'error', tone: 'red', label: '出错' }], // 不翻
+  [['quote', 'cite'], { kind: 'quote', icon: 'quote', tone: 't2', label: '引文' }], // 不翻
+  [['ai'], { kind: 'ai', icon: 'comment-discussion', tone: 'acc', label: 'AI 讲解' }], // 不翻
 ]
 
 export function calloutKind(type: string): CalloutKind {
   const t = type.toLowerCase()
-  for (const [names, k] of KINDS) if (names.includes(t)) return k
+  for (const [names, k] of KINDS) if (names.includes(t)) return { ...k, label: tNow(k.label) }
   // 不认识的类型按 note 画，标题照写
   return { kind: 'note', icon: 'info', tone: 't2', label: type }
 }

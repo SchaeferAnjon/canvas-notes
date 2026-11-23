@@ -43,7 +43,8 @@ function build(): NonNullable<typeof cache> {
   // 全局命令的键：命令表里在「软件里」的在前（同一个键不会两条都在，命令表和设键时让过了）
   const app = new Map<string, string>()
   for (const d of KEYMAP) if (d.area === 'app' && isRebindable(d)) for (const k of keysFor(d.id)) if (!app.has(k)) app.set(k, d.id)
-  for (const c of dynamicNow()) if (!keyDef(c.id) && !c.fixedKeys) for (const k of keysFor(c.id)) if (!app.has(k)) app.set(k, c.id)
+  // 自己的命令放上选中小条时可以用 ⌥ 加字母（task-26nz7）：那只在选着字时认（网页、PDF、HTML、文档各自接），不当全局键，打字时按不到
+  for (const c of dynamicNow()) if (!keyDef(c.id) && !c.fixedKeys) for (const k of keysFor(c.id)) if (!app.has(k) && (/[⌘⌃]/.test(k) || !/^own-/.test(c.id))) app.set(k, c.id)
   cache.app = app
   return cache
 }
@@ -193,7 +194,7 @@ function keyEventOf(combo: string): KeyboardEvent | null {
 // ---------------------------------------------------------------- 交给主进程
 
 /** 菜单栏上有快捷键的几项（main/index.ts 的菜单照这些 id 取键） */
-export const MENU_CMDS = ['settings', 'new-note', 'new-board', 'capture', 'import', 'close', 'back', 'forward', 'home', 'goto', 'search', 'toggle-left', 'toggle-right', 'left-files', 'left-recent', 'outline', 'open-web', 'history', 'ask-ai', 'toggle-view', 'zoom-in', 'zoom-out', 'zoom-reset'] as const
+export const MENU_CMDS = ['settings', 'new-note', 'new-board', 'capture', 'import', 'close', 'back', 'forward', 'home', 'goto', 'search', 'toggle-left', 'toggle-right', 'left-files', 'left-recent', 'outline', 'open-web', 'history', 'ask-ai', 'toggle-view', 'zoom-in', 'zoom-out', 'zoom-reset', 'find-in-page'] as const
 
 let sent = ''
 export function syncKeys() {
@@ -202,7 +203,10 @@ export function syncKeys() {
   const page = new Set([...keysFor('translate'), ...keysFor('clip-selection'), ...keysFor('quote-selection')])
   const app = new Set<string>()
   for (const d of KEYMAP) if (d.area === 'app' && isRebindable(d) && !d.noForward) for (const k of keysFor(d.id)) if (!page.has(k)) app.add(k)
-  for (const c of dynamicNow()) if (!keyDef(c.id) && !c.fixedKeys) for (const k of keysFor(c.id)) if (!page.has(k)) app.add(k)
+  // 放上选中小条的自己那几颗（task-26nz7）：网页里选着字时网页自己接（小条上那颗），不转回来
+  const bar = cmdConfig().bar
+  const onBar = new Set([...bar.on, ...bar.more])
+  for (const c of dynamicNow()) if (!keyDef(c.id) && !c.fixedKeys && !onBar.has(c.id)) for (const k of keysFor(c.id)) if (!page.has(k)) app.add(k)
   const menu = Object.fromEntries(MENU_CMDS.map((id) => [id, keyFor(id)]))
   const pageKeys = { translate: keyFor('translate'), 'clip-selection': keyFor('clip-selection'), 'quote-selection': keyFor('quote-selection') }
   const msg = { forward: [...app].sort(), menu, page: pageKeys }

@@ -1,0 +1,854 @@
+/* 数据库自动化（task-i921u「当……就……」方向 B，照 automations/proto.html 量的数）：右栏一页、记录、编辑一条、小菜单 */
+
+/* ---------- 右栏一页：上面能滚、底下一条（.dview 是一格的网格，这里自己排一列） ---------- */
+.au {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  font-size: 13px;
+  color: var(--t1);
+}
+.au.au-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--t3);
+  padding: 24px;
+}
+.au .t3 {
+  color: var(--t3);
+}
+.au .sm {
+  font-size: 12px;
+}
+.au .sp {
+  flex: 1;
+}
+/* 两边留一样宽的滚动条位置（滚动条一直在时卡片左右照样各 15） */
+.au-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+  padding: 8px 5px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 规则 N · 记录 N …… 数据库「账目」 */
+.au-seg {
+  display: flex;
+  gap: 2px;
+  padding: 10px 14px 4px;
+  align-items: center;
+  flex: none;
+}
+.au-seg .s {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+}
+.au-seg .s:hover {
+  background: var(--fill);
+}
+.au-seg .s.on {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+.au-seg .s .n {
+  color: var(--t3);
+  font-weight: 400;
+}
+
+/* 按钮（照原型 .btn：26 高、圆角 6；solid 实心；ghost 无底） */
+.btn-au {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  font: 12px var(--sans);
+  white-space: nowrap;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  color: var(--t1);
+  flex: none;
+}
+.btn-au:hover {
+  background: var(--fill);
+}
+.btn-au.solid {
+  background: var(--solid);
+  color: var(--solid-t);
+  box-shadow: none;
+}
+.btn-au.solid:hover {
+  opacity: 0.9;
+}
+.btn-au.ghost {
+  background: none;
+  box-shadow: none;
+  color: var(--t2);
+}
+.btn-au.ghost:hover {
+  background: var(--fill);
+}
+.btn-au:disabled {
+  opacity: 0.45;
+}
+.au .ib {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+  flex: none;
+}
+.au .ib:hover {
+  background: var(--fill);
+}
+.au .ib.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.au-addl {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t3);
+  align-self: flex-start;
+}
+.au-addl:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.au .pill {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.au .pill:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.au .note12 {
+  font-size: 12px;
+  color: var(--t3);
+  line-height: 1.55;
+}
+.au-var {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--fill2);
+  color: var(--t1);
+  font-size: 11.5px;
+  margin: 0 1px;
+}
+
+/* ---------- 说一句 ---------- */
+.au-say {
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  background: var(--card);
+  padding: 10px 12px;
+}
+.au-say .h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t2);
+  margin-bottom: 6px;
+}
+.au-say textarea {
+  display: block;
+  width: 100%;
+  height: 48px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: none;
+  font: 13px/1.5 var(--sans);
+  color: var(--t1);
+  padding: 0;
+}
+.au-say textarea::placeholder {
+  color: var(--t3);
+}
+.au-say .exs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+  align-items: center;
+}
+.au-say .exs .t3 {
+  font-size: 12px;
+  margin-right: 2px;
+}
+.au-say .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.au-say .row .au-addl {
+  margin-left: -6px;
+  align-self: center;
+}
+
+/* ---------- 一条一张卡 ---------- */
+.au-card {
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  padding: 10px 10px 10px 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  cursor: default;
+  background: var(--pop);
+  outline: 0;
+}
+.au-card:hover,
+.au-card:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--line2);
+  background: var(--fill);
+}
+.au-card .nm {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.au-card .nm span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.au-card .ctl {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.au-card .sum {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.55;
+}
+.au-card .sum b {
+  font-weight: 500;
+  color: var(--t1);
+}
+.au-card .am {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--t3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.au-card.off .nm,
+.au-card.off .sum {
+  opacity: 0.5;
+}
+.au-card.running {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.au-card .runline {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t2);
+  margin-top: 4px;
+}
+.au-card .runline .aic-shim {
+  flex: 1;
+}
+
+/* 页脚：一句 + 「设置里看全部 ›」 */
+.au-foot {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--t3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 1.5;
+}
+.au-foot > svg {
+  flex: none;
+}
+.au-foot code {
+  font: 11.5px var(--mono);
+}
+.au-link {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: 12px var(--sans);
+  color: var(--acc-t);
+  white-space: nowrap;
+}
+.au-link:hover {
+  text-decoration: underline;
+}
+
+/* ---------- 记录 ---------- */
+.au-log {
+  display: flex;
+  flex-direction: column;
+}
+.au-lrow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1px 8px;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.au-lrow .t {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--t3);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.au-lrow .t b {
+  font-weight: 500;
+  color: var(--t1);
+  font-size: 13px;
+}
+.au-lrow .num {
+  font-variant-numeric: tabular-nums;
+}
+.au-lrow .w {
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.5;
+  min-width: 0;
+}
+.au-lrow .w .k {
+  color: var(--t3);
+}
+.au-lrow .w .e {
+  color: var(--red-t, var(--red));
+}
+.au-lrow .u {
+  align-self: end;
+}
+.au-lrow .sub {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--t3);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  line-height: 1.5;
+}
+.au-lrow.undone .w,
+.au-lrow.undone .t b {
+  text-decoration: line-through;
+  color: var(--t3);
+}
+
+/* ---------- 编辑一条 ---------- */
+.au-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 0 8px;
+  flex: none;
+}
+.au-top .nmi {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  outline: 0;
+  border-radius: 6px;
+  background: none;
+  font: 600 15px var(--sans);
+  color: var(--t1);
+  padding: 0 6px;
+}
+.au-top .nmi::placeholder {
+  color: var(--t3);
+}
+.au-top .nmi:hover,
+.au-top .nmi:focus {
+  background: var(--fill);
+}
+.au-top .nmi[readonly]:hover {
+  background: none;
+}
+.au-ed {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable both-edges;
+  padding: 6px 5px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.au-filled {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t2);
+  background: var(--fill);
+  border-radius: 8px;
+  padding: 6px 10px;
+  line-height: 1.5;
+}
+.au-filled > svg,
+.au-filled > img {
+  flex: none;
+}
+.au-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.au-sec .lab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t2);
+}
+.au-sec .lab .t3 {
+  font-weight: 400;
+}
+.au-sec .lab > svg {
+  color: var(--t3);
+}
+.au-sec .box {
+  border-radius: 10px;
+  background: var(--fill);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.au-ed.filling .box {
+  position: relative;
+  overflow: hidden;
+}
+.au-ed.filling .box::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, var(--acc-soft) 45%, transparent 90%);
+  background-size: 200% 100%;
+  animation: au-shim 1.1s linear infinite;
+}
+@keyframes au-shim {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .au-ed.filling .box::after {
+    animation: none;
+  }
+}
+.au .trow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-height: 28px;
+  font-size: 13px;
+}
+.au .trow .or {
+  font-size: 12px;
+  color: var(--t3);
+  width: 24px;
+  text-align: right;
+  flex: none;
+}
+.au .trow .x {
+  margin-left: auto;
+}
+/* 小块：能点开、能改（按钮、下拉、输入框都长这样） */
+:is(.au, .au-pop) .ch {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  outline: 0;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  font: 12.5px var(--sans);
+  white-space: nowrap;
+  color: var(--t1);
+  min-width: 0;
+}
+:is(.au, .au-pop) .ch:hover,
+:is(.au, .au-pop) .ch:focus {
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+}
+:is(.au, .au-pop) .ch > svg {
+  color: var(--t3);
+  flex: none;
+}
+:is(.au, .au-pop) .ch.unset {
+  color: var(--t3);
+  flex: none;
+  flex-direction: row;
+}
+/* 带图标的小块：图标 + 撑开的输入框（框本身不画边） */
+:is(.au, .au-pop) .ch.with-ic {
+  gap: 5px;
+}
+:is(.au, .au-pop) .ch.with-ic > input.bare {
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  min-width: 0;
+}
+:is(.au, .au-pop) .ch.with-ic:focus-within {
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+}
+:is(.au, .au-pop) .ch.vars {
+  cursor: text;
+  gap: 2px;
+}
+:is(.au, .au-pop) .ch .t3 {
+  color: var(--t3);
+}
+:is(.au, .au-pop) .ch.ro:hover {
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+:is(.au, .au-pop) .ch::placeholder {
+  color: var(--t3);
+}
+:is(.au, .au-pop) select.ch {
+  appearance: none;
+  padding-right: 8px;
+  max-width: 100%;
+}
+:is(.au, .au-pop) input.ch {
+  max-width: 100%;
+}
+.au .offrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t2);
+  flex-wrap: wrap;
+}
+.au-step {
+  border-radius: 8px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line);
+  padding: 8px 8px 8px 10px;
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 2px 6px;
+  align-items: start;
+}
+.au-step .no {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--fill2);
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--t2);
+  margin-top: 1px;
+}
+.au-step .tt {
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+}
+.au-step .pp {
+  grid-column: 2 / -1;
+  font-size: 12px;
+  color: var(--t2);
+  line-height: 1.6;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  align-items: center;
+}
+.au-step .pp .ch {
+  height: 22px;
+  font-size: 12px;
+  padding: 0 6px;
+}
+.au-step .warn {
+  grid-column: 2 / -1;
+  font-size: 12px;
+  color: var(--yellow);
+  line-height: 1.5;
+}
+.au-trial {
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+  background: var(--acc-soft);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t1);
+}
+.au-trial b {
+  font-weight: 500;
+}
+.au-yaml {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font: 12px/1.65 var(--mono);
+  background: var(--fill);
+  white-space: pre;
+  overflow: auto;
+  max-height: 260px;
+  color: var(--t1);
+  user-select: text;
+}
+.au-edfoot {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t2);
+  background: var(--pop);
+}
+
+/* ---------- 数据库块头那一颗「自动化 N」（原型 .tb.auto：26 高、内边距 7、字 12；开着这一页时 --fill2 底） ---------- */
+.base-top > .base-btn.base-auto {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 7px;
+  font: 12px var(--sans);
+  color: var(--t1);
+  white-space: nowrap;
+}
+.base-top > .base-btn.base-auto > svg {
+  color: var(--t2);
+}
+.base-top > .base-btn.base-auto .cnt {
+  font-size: 11px;
+  color: var(--t3);
+  margin-left: 1px;
+}
+.base-top > .base-btn.base-auto.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+
+/* ---------- 小菜单（当什么时候、加一步、Mac 关着时、⋯） ---------- */
+.au-pop {
+  width: 240px;
+  font-size: 13px;
+}
+.au-pop.wide {
+  width: 300px;
+}
+.au-pop .mlab {
+  font-size: 12px;
+  color: var(--t3);
+  padding: 6px 8px 2px;
+}
+.au-pop .sep {
+  height: 1px;
+  background: var(--line);
+  margin: 5px 4px;
+}
+.au-pop .hint2 {
+  font-size: 12px;
+  color: var(--t3);
+  padding: 2px 8px 6px;
+  line-height: 1.5;
+}
+.au-mi {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+  text-align: left;
+  white-space: nowrap;
+  min-width: 0;
+}
+.au-mi > svg {
+  color: var(--t2);
+  flex: none;
+}
+.au-mi:hover {
+  background: var(--fill);
+}
+.au-mi .desc {
+  font-size: 12px;
+  color: var(--t3);
+  margin-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.au-mi.on {
+  color: var(--t1);
+}
+.au-mi .ok {
+  margin-left: auto;
+  color: var(--acc-t);
+  flex: none;
+}
+.au-pop .au-wp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 8px;
+}
+
+/* ---------- 按钮列：格子里一颗（原型 .rbtn：24 高、内边距 8、圆角 6、字 12）、右栏一条里那一颗、「先问一句」 ---------- */
+/* 加一列菜单里「按钮」那一行：30 高，名字 500，后面一句 12 --t3（原型 .mi .d2） */
+.base-addcol .au-addbtn {
+  gap: 8px;
+}
+.base-addcol .au-addbtn > span {
+  flex: none;
+  font-weight: 500;
+}
+.base-addcol .au-addbtn small {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--t3);
+}
+td.btnc {
+  white-space: nowrap;
+}
+.au-rbtn {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  font: 12px var(--sans);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  color: var(--t1);
+  white-space: nowrap;
+  max-width: 100%;
+}
+.au-rbtn > svg {
+  color: var(--t2);
+  flex: none;
+}
+.au-rbtn:hover {
+  background: var(--fill);
+}
+.au-rbtn.run,
+.au-rbtn:disabled {
+  color: var(--t3);
+}
+.au-peekbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: -2px;
+}
+.au-peekbtn .t3 {
+  font-size: 12px;
+  color: var(--t3);
+}
+.au-ask {
+  width: 260px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.au-ask p {
+  margin: 0 0 10px;
+  line-height: 1.5;
+}
+.au-ask .row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

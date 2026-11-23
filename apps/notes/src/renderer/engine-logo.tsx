@@ -165,7 +165,7 @@ export function logoPng(id: LogoEngine): Promise<MenuIcon> {
         c.getContext('2d')!.drawImage(img, 2, 2, px - 4, px - 4)
         resolve({ png: c.toDataURL('image/png'), template: MONO.includes(id) })
       }
-      img.onerror = () => reject(new Error(`${id} 的标志画不出来`))
+      img.onerror = () => reject(new Error(`${id} 的标志画不出来`)) // 不翻：只进 console（ctx/menu.ts）
       // 单色的（currentColor）画成黑的：做模板图时系统只看透明度
       img.src = svg ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace(/currentColor/g, '#000').replace(/<svg([^>]*)>/, (_m, a: string) => `<svg${a.replace(/\s(width|height)="[^"]*"/g, '')} width="${px}" height="${px}">`)) : geminiPng
     })

@@ -14,10 +14,10 @@ import { Decoration, type DecorationSet, EditorView, keymap, ViewPlugin, type Vi
 import { isBookDigest } from '../shared/plugins/weread'
 import { blankGlue, type Hidden, hiddenOk, hiddenSyntax } from './hidden-syntax'
 import './review.css'
+import { t as tNow } from '../shared/i18n'
 
-export const REVIEW_TAG = '我的评价'
-export const THOUGHT_TAG = '微信读书的想法'
-export const REVIEW_PLACEHOLDER = '写下你对这一段的看法…'
+export const REVIEW_TAG = '我的评价' // 不翻：写进文件的标签（照文件里的字画，认的时候也比这几个字）
+export const THOUGHT_TAG = '微信读书的想法' // 不翻：写进文件的标签
 
 type Kind = 'me' | 'wr'
 
@@ -201,7 +201,7 @@ class ReviewPlaceholder extends WidgetType {
   toDOM() {
     const s = document.createElement('span')
     s.className = 'cm-review-ph'
-    s.textContent = REVIEW_PLACEHOLDER
+    s.textContent = tNow('写下你对这一段的看法…')
     s.setAttribute('aria-hidden', 'true')
     return s
   }
@@ -297,8 +297,8 @@ class ReviewButton extends WidgetType {
     const b = document.createElement('button')
     b.type = 'button'
     b.className = 'cm-review-btn'
-    b.setAttribute('aria-label', '写评价')
-    b.append(codiconEl('comment', 13), document.createTextNode('写评价'))
+    b.setAttribute('aria-label', tNow('写评价'))
+    b.append(codiconEl('comment', 13), document.createTextNode(tNow('写评价')))
     // 点它不挪光标、不让编辑器先拿到这一下
     b.addEventListener('mousedown', (e) => {
       e.preventDefault()

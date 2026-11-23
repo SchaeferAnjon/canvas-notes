@@ -5,6 +5,7 @@
 import { useSyncExternalStore } from 'react'
 import { goneSections, sectionNames } from '../../shared/cmd-run'
 import type { DiffResult } from '../../shared/diff'
+import { t } from '../../shared/i18n'
 
 export interface ProposalFile {
   path: string
@@ -92,8 +93,8 @@ export function proposalDiff(p: Proposal): DiffResult {
   return {
     // 还没写进去这层意思底下那一条已经说了，标签条右端、文件条不再重复
     note: '',
-    left: '现在',
-    right: `/${p.name} 改后`,
+    left: t('现在'),
+    right: t('/{name} 改后', { name: p.name }),
     files: p.files.map((f) => {
       const c = counts(f.before ?? '', f.after)
       // 改完少了整节：文件条那句人话写出来（+N −N 看不出是后面几节整个没了，task-1l29q）
@@ -107,7 +108,7 @@ export function proposalDiff(p: Proposal): DiffResult {
         size: new TextEncoder().encode(f.after).length,
         added: f.before === null ? f.after.split('\n').length : c.added,
         removed: f.before === null ? 0 : c.removed,
-        summary: gone.length ? `删了${gone.length}节：${sectionNames(gone)}` : (f.note ?? ''),
+        summary: gone.length ? t('删了{n}节：{names}', { n: gone.length, names: sectionNames(gone) }) : (f.note ?? ''),
         ...(gone.length && p.warn ? { warn: true } : {}),
         exists: f.before !== null,
       }

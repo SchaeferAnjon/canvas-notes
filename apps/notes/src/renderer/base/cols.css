@@ -1,0 +1,496 @@
+/* 数据库第三批第 5 块：关联、汇总、公式、状态的格子和浮层（照 14-数据库第三批 proto-a.html） */
+
+/* ---------- 格子 ---------- */
+.base td.own {
+  cursor: pointer;
+}
+/* 状态：22 高小块，--fill2 底，前面 7 的圆点按组上色（待开始 --t3、进行中 --yellow、完成 --green） */
+.base-st {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 4px;
+  background: var(--fill2);
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.base-st i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--t3);
+}
+.base-st i.g1 {
+  background: var(--yellow);
+}
+.base-st i.g2 {
+  background: var(--green);
+}
+/* 关联：一排 22 高的小块（文件图标 + 名字），强调色字，点了开那一篇 */
+.base-rels {
+  display: inline-flex;
+  gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  vertical-align: middle;
+}
+.base-rel {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px 0 5px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill);
+  font: 12px var(--sans);
+  color: var(--acc-t);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.base-rel .ci {
+  color: var(--t3);
+}
+.base-rel:hover {
+  background: var(--fill2);
+}
+.base-rel.gone {
+  color: var(--t3);
+  text-decoration: line-through;
+  cursor: default;
+}
+/* 汇总、公式：小进度条 28×4 + 数（--t2，等宽数字） */
+.base-bar {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 4px;
+  margin-right: 8px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--fill2);
+  vertical-align: middle;
+}
+.base-bar b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 2px;
+  background: var(--green);
+}
+.base-fx {
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+/* 算不出：一句短的，悬停看哪里错 */
+.base-err {
+  color: var(--t3);
+  font-size: 12px;
+}
+
+/* ---------- 浮层里共用 ---------- */
+.base-field {
+  display: block;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.base-field:focus {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+/* 列菜单最上面的列名框：和别的浮层里的框一个样子（30 高 --fill 底、内圈 --line，四边离菜单 4） */
+.base-pop .base-colname {
+  width: calc(100% - 8px);
+  height: 30px;
+  margin: 4px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.base-pop .base-colname:focus {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.base-pop .base-note {
+  padding: 2px 8px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+.base-pop .base-empty {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-pop.base-colmenu.wide {
+  width: 260px;
+}
+.base-colmenu .k,
+.base-relpick .k {
+  flex: none;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-colmenu button .k {
+  flex: none;
+}
+/* 关联的说明一行（不能点）、「两边都写」开关一行 */
+.base-info,
+.base-swrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.base-info .ci {
+  color: var(--t2);
+}
+.base-swrow {
+  cursor: default;
+}
+.base-swrow > span {
+  flex: 1;
+}
+.base-colmenu .base-swrow button.sw-toggle {
+  width: 32px;
+  height: 18px;
+  padding: 0;
+  border-radius: 5px;
+  background: var(--fill2);
+}
+.base-colmenu .base-swrow button.sw-toggle.on {
+  background: var(--acc-bg);
+}
+/* 汇总三个下拉：左边 52 宽的字，右边 30 高 --fill 底 */
+.base-frow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 0 6px;
+}
+.base-frow > span {
+  width: 52px;
+  flex: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.base-frow select {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 22px 0 10px;
+  border: 0;
+  border-radius: 6px;
+  /* 去掉系统的下拉箭头：右边 12 处一个 4 的 --t3 小三角（照原型） */
+  appearance: none;
+  background-color: var(--fill);
+  background-image: linear-gradient(45deg, transparent 50%, var(--t3) 50%), linear-gradient(135deg, var(--t3) 50%, transparent 50%);
+  background-position:
+    calc(100% - 12px) 13px,
+    calc(100% - 8px) 13px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: 13px var(--sans);
+  color: var(--t1);
+}
+.base-code {
+  padding: 2px 8px 6px;
+  font: 11.5px/1.5 var(--mono);
+  color: var(--t3);
+  white-space: normal;
+  word-break: break-all;
+}
+.base-code.one {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+/* ---------- 加一列（300 宽，三组两列一格） ---------- */
+.base-pop.base-addcol {
+  width: 300px;
+}
+/* 名字框、搜索框四边留 4（照原型 280 宽） */
+.base-addcol .base-field,
+.base-relpick .base-field {
+  width: calc(100% - 8px);
+  margin: 4px;
+}
+.base-addcol .base-types {
+  row-gap: 0;
+}
+.base-addcol .base-types button {
+  height: 30px;
+}
+.base-addcol .hd {
+  padding: 6px 8px 2px;
+}
+
+/* ---------- 关联的选择（300 宽） ---------- */
+.base-pop.base-relpick {
+  width: 300px;
+}
+.base-relpick .hd {
+  padding: 6px 8px 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-relpick-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.base-relpick-list button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+  text-align: left;
+  white-space: nowrap;
+}
+.base-relpick-list button:hover {
+  background: var(--fill2);
+}
+.base-relpick-list button:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+.base-relpick-list .n {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 方角勾选框：14，勾上强调色底 */
+.base-cb {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1.5px var(--line2);
+}
+.base-cb.on {
+  background: var(--acc-bg);
+  box-shadow: none;
+  color: var(--acc-on);
+}
+.base-relpick > .base-note {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- 状态的选项 ---------- */
+.base-stpick button > span {
+  flex: 1;
+}
+
+/* ---------- 公式框（440 宽） ---------- */
+.base-fxbox {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+}
+.base-fx-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 0;
+}
+.base-fx-top .base-field {
+  width: 140px;
+  flex: none;
+}
+.base-fx-top .base-note {
+  padding: 0;
+}
+.base-fx-src {
+  display: block;
+  width: calc(100% - 12px);
+  height: 64px;
+  margin: 8px 6px 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: 13px/1.6 var(--mono);
+  color: var(--t1);
+  resize: none;
+  outline: none;
+}
+.base-fx-src:focus {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.base-fx-src.bad:focus {
+  box-shadow: inset 0 0 0 1.5px var(--red);
+}
+.base-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 0;
+}
+.base-fx-src + .base-pills {
+  padding-top: 6px;
+}
+.base-pills .lab {
+  width: 34px;
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.base-pill:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.base-pill.code {
+  font: 11.5px var(--mono);
+}
+.base-fx-pv {
+  padding: 8px 8px 0;
+}
+.base-fx-pv .base-note {
+  padding: 0;
+}
+.base-fx-pv table {
+  width: 100%;
+  margin-top: 4px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.base-fx-pv td {
+  height: 26px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+}
+.base-fx-pv td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.base-fx-pv .t3 {
+  color: var(--t3);
+}
+.base-fx-err {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-height: 18px;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--red-t, var(--red));
+}
+.base-fx-err .hint {
+  color: var(--t3);
+}
+.base-fx-at {
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill);
+  font: 11.5px/1.6 var(--mono);
+  color: var(--t2);
+  white-space: pre;
+  cursor: pointer;
+}
+.base-fx-at mark {
+  background: none;
+  color: var(--red-t, var(--red));
+  text-decoration: underline wavy;
+  text-underline-offset: 3px;
+}
+.base-fx-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  padding: 6px 8px 4px;
+  border-top: 1px solid var(--line);
+}
+.base-fx-foot .btn {
+  flex: none;
+}
+.base-fx-foot .btn-ghost {
+  color: var(--t2);
+}
+.base-fx-foot .btn:disabled {
+  opacity: 0.4;
+}
+
+/* ---------- 两边对不上：块底一行一句 ---------- */
+.base-issues {
+  padding: 4px 12px;
+  border-top: 1px solid var(--line);
+}
+.base-issue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.base-issue .ci {
+  color: var(--yellow);
+}
+.base-issue.more {
+  padding-left: 21px;
+  color: var(--t3);
+}
+.base-fix {
+  height: 22px;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--fill);
+  font: 12px var(--sans);
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.base-fix:hover {
+  background: var(--fill2);
+}

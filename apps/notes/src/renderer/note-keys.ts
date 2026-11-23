@@ -10,6 +10,8 @@
 import { defaultKeymap, historyKeymap, toggleBlockComment, toggleComment } from '@codemirror/commands'
 import type { KeyBinding } from '@codemirror/view'
 import { runAppKey } from './keys'
+import { editorHost } from './editor-host'
+import { docBarKey } from './sel-bar/doc-key'
 import { enterAfterTitle } from './title-follow'
 
 /** 按了不做事、也不往外传的键 */
@@ -18,6 +20,8 @@ export const noop = () => true
 export const noteKeys: KeyBinding[] = [
   // 软件的快捷键（命令表里「软件里」的）比下面 CodeMirror 自带的先轮到：⌘[ ⌘] 是后退前进、⌥⌘\ 收右栏，不是缩进；
   // 文档自己的（加粗、高亮……）在更高一层先认，也比这里先
+  // 选着字时选中小条上自己那几颗的键（task-26nz7，⌥ 加字母也行）：比软件的快捷键先轮到
+  { any: (v, e) => docBarKey(v, e, () => v.state.facet(editorHost).path() || null) },
   { any: (_v, e) => runAppKey(e) },
   {
     // 新建的笔记：标题末尾回车，光标到标题下空一行的正文处（title-follow.ts）

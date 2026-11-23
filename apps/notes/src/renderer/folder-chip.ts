@@ -18,6 +18,8 @@ import { faviconEl } from './web/favicons'
 import { openChipMenu, openPairPop } from './read-along/ReadAlongLayer'
 import { hintKey, hintOff, type Hint, rightPage } from './read-along/store'
 import { keyFor } from './keys'
+import { t } from '../shared/i18n'
+import { INBOX } from '../shared/layout'
 
 /** 这篇改名、挪走以后，NoteDoc 用它告诉编辑器新路径 */
 export const setNotePath = StateEffect.define<string>()
@@ -118,9 +120,9 @@ class FolderChip extends WidgetType {
     b.className = 'cm-folder'
     b.type = 'button'
     const here = folderOf(this.path)
-    b.setAttribute('aria-label', `所在文件夹：${label(here)}，点开移到别处`)
+    b.setAttribute('aria-label', t('所在文件夹：{name}，点开移到别处', { name: label(here) }))
     // 只写所在的那一层（整条路径标题栏的位置里已经有了），整条路径放在悬停提示里（设计复审）
-    b.dataset.tip = here.includes('/') ? `${here.split('/').join(' / ')} · 移到…` : '移到…'
+    b.dataset.tip = here.includes('/') ? t('{path} · 移到…', { path: here.split('/').join(' / ') }) : t('移到…')
     b.dataset.side = 'below'
     const name = document.createElement('span')
     name.className = 'cm-folder-name'
@@ -130,7 +132,7 @@ class FolderChip extends WidgetType {
     b.addEventListener('mousedown', (e) => e.preventDefault())
     b.addEventListener('click', () => {
       const a = app()
-      void showMenu(moveMenu([...new Set([...a.allFolders(), '收件箱'])], here, (f) => a.moveNote(this.path, f)))
+      void showMenu(moveMenu([...new Set([...a.allFolders(), INBOX])], here, (f) => a.moveNote(this.path, f)))
     })
     // 每一项（文件夹、改于、字数、剪自）各是一块，整块不拆：放不下时整块换到下一行（偏好「标题下那行不折成竖排」）；
     // 「 · 」跟在前一项后面，下一项换了行时它落在行尾，藏起来（只是看不见，占的宽不变，不会来回跳）
@@ -143,12 +145,12 @@ class FolderChip extends WidgetType {
     if (host) {
       const src = document.createElement('span')
       src.className = 'cm-meta-src'
-      src.dataset.part = '来源行'
+      src.dataset.part = '来源行' // 不翻：data-part 是设计复审圈图认的名字，不显示
       src.title = this.source!
       const label = document.createElement('span')
       label.className = 'cm-meta-host'
       label.textContent = host
-      src.append(document.createTextNode('剪自'), faviconEl(this.source!, 14), label)
+      src.append(document.createTextNode(t('剪自')), faviconEl(this.source!, 14), label)
       const it = item(src, false)
       it.classList.add('src')
       box.append(it)
@@ -185,16 +187,16 @@ function raLine(ra: NonNullable<ReadAlongView['chip']>, path: string): HTMLEleme
   b.type = 'button'
   b.className = 'cm-ra'
   b.setAttribute('aria-haspopup', 'dialog')
-  b.dataset.part = '对着看'
+  b.dataset.part = '对着看' // 不翻：data-part 是设计复审圈图认的名字，不显示
   const word = document.createElement('span')
-  word.textContent = '对着看'
+  word.textContent = t('对着看')
   const name = document.createElement('b')
   name.textContent = ra.title
   b.append(codiconEl('link', 12), word, faviconEl(ra.book, 12), name)
   if (ra.at) {
     const at = document.createElement('span')
     at.className = 'ra-at'
-    at.textContent = `· 读到 ${ra.at}`
+    at.textContent = t('· 读到 {at}', { at: ra.at })
     b.append(at)
   }
   b.append(codiconEl('chevron-down', 12))
@@ -222,18 +224,20 @@ class ReadHint extends WidgetType {
     const box = document.createElement('div')
     box.className = 'cm-ra-hint'
     box.setAttribute('role', 'note')
-    box.setAttribute('aria-label', h.kind === 'pair' ? '配成一对？' : '存成一张书桌？')
-    box.dataset.part = h.kind === 'pair' ? '配对提示' : '书桌提示'
-    const t = document.createElement('span')
-    t.className = 't'
+    box.setAttribute('aria-label', h.kind === 'pair' ? t('配成一对？') : t('存成一张书桌？'))
+    box.dataset.part = h.kind === 'pair' ? '配对提示' : '书桌提示' // 不翻：data-part 是设计复审圈图认的名字，不显示
+    const txt = document.createElement('span')
+    txt.className = 't'
     const name = document.createElement('b')
-    name.textContent = `「${h.title}」`
-    if (h.kind === 'pair') t.append('网页', name, `这周和这篇一起开了 ${h.n} 次。配成一对？以后点开这篇，它跟着开到上次读到的那段。`)
-    else t.append('这篇和网页', name, `这周一起开了 ${h.n} 次。存成一张书桌？以后一下回到这一整套。`)
+    name.textContent = t('「{title}」', { title: h.title })
+    // 整句一个模板，{title} 换成加粗的名字（title 不给值，原样留着好切开）
+    const say = h.kind === 'pair' ? t('网页{title}这周和这篇一起开了 {n} 次。配成一对？以后点开这篇，它跟着开到上次读到的那段。', { n: h.n }) : t('这篇和网页{title}这周一起开了 {n} 次。存成一张书桌？以后一下回到这一整套。', { n: h.n })
+    const [before, after] = say.split('{title}')
+    txt.append(before ?? '', name, after ?? '')
     const go = document.createElement('button')
     go.type = 'button'
     go.className = 'btn btn-sm ra-26'
-    go.append(codiconEl(h.kind === 'pair' ? 'link' : 'layout', 13), h.kind === 'pair' ? '配成一对' : '存成书桌…')
+    go.append(codiconEl(h.kind === 'pair' ? 'link' : 'layout', 13), h.kind === 'pair' ? t('配成一对') : t('存成书桌…'))
     go.addEventListener('mousedown', (e) => e.preventDefault())
     go.addEventListener('click', () => {
       const page = rightPage()
@@ -243,21 +247,21 @@ class ReadHint extends WidgetType {
     const x = document.createElement('button')
     x.type = 'button'
     x.className = 'cm-ra-x'
-    x.setAttribute('aria-label', '不用，不再提')
-    x.dataset.tip = '不用，不再提'
+    x.setAttribute('aria-label', t('不用，不再提'))
+    x.dataset.tip = t('不用，不再提')
     x.append(codiconEl('close', 15))
     x.addEventListener('mousedown', (e) => e.preventDefault())
     x.addEventListener('click', () => {
       if (h.kind === 'pair') {
         hintOff(hintKey('pair', this.path, h.host))
-        app().notice('不再提这一对。想配时：右键这篇「和右栏这个网页配成一对…」')
+        app().notice(t('不再提这一对。想配时：右键这篇「和右栏这个网页配成一对…」'))
       } else {
         hintOff(hintKey('desk', this.path))
         const k = keyFor('search')
-        app().notice(`不再提。想存时：${k ?? '搜索框'}「存成书桌…」或左栏「书桌」的 +`)
+        app().notice(t('不再提。想存时：{where}「存成书桌…」或左栏「书桌」的 +', { where: k ?? t('搜索框') }))
       }
     })
-    box.append(h.kind === 'pair' && rightPage() ? faviconEl(rightPage()!.url, 14) : codiconEl('layout', 15), t, go, x)
+    box.append(h.kind === 'pair' && rightPage() ? faviconEl(rightPage()!.url, 14) : codiconEl('layout', 15), txt, go, x)
     wrap.append(box)
     return wrap
   }
@@ -282,8 +286,8 @@ function chips(state: EditorState, m: Omit<Meta, 'deco'>): DecorationSet {
   if (!h || h.line > state.doc.lines) return Decoration.none
   const line = state.doc.line(h.line)
   const n = countWords(text)
-  const at = m.fresh && n === 0 ? '刚建' : m.mtime ? `改于${when(m.mtime, { time: true })}` : ''
-  const rest = [at, `${thousands(n)} 字`].filter(Boolean)
+  const at = m.fresh && n === 0 ? t('刚建') : m.mtime ? t('改于{when}', { when: when(m.mtime, { time: true }) }) : ''
+  const rest = [at, t('{n} 字', { n: thousands(n) })].filter(Boolean)
   const out: Range<Decoration>[] = [Decoration.widget({ widget: new FolderChip(m.path, rest, sourceOf(text), m.ra?.chip ?? null), block: true, side: 1 }).range(line.to)]
   if (m.ra?.hint) out.push(Decoration.widget({ widget: new ReadHint(m.path, m.ra.hint), block: true, side: 2 }).range(line.to))
   return Decoration.set(out)

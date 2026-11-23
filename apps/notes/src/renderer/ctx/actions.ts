@@ -10,6 +10,8 @@ import type { PickItem } from '../ai-pick'
 export interface AppActions {
   /** 新标签打开库里的文件（已经开着就切过去）：md、PDF、HTML 按类型开 */
   openFile(path: string): void
+  /** 开在后面的新标签（不切过去，开着就不动）：AI 回答里 ⇧⌘点引用（task-3e53q，cite.tsx） */
+  openFileBehind(path: string): void
   /** 打开 PDF（开着就切过去）翻到那页，有 rect 时那块闪一下（笔记里的「第 3 页」链接，page-link.ts） */
   openPdfAt(path: string, page: number, rect?: [number, number, number, number]): void
   /** 当前标签换成这一篇（它已经开在别的标签就切过去） */
@@ -38,14 +40,20 @@ export interface AppActions {
   openWide(url: string, title?: string): void
   /** 这段字成为 AI 输入框顶上那一排的第一块引用（src：来源，不给是当前这一页「《文档标题》」），光标在它后面 */
   askAi(text: string, src?: string): void
+  /** 打开 AI 对话、直接问这一句（文档里选中小条上那颗「只在 AI 栏答」，task-26nz7） */
+  sendAi(text: string): void
   /** 文档里「回到 AI 对话」的链接（task-83vl3）：打开 AI 标签，换到 key 那段对话，滚到那条回答 */
   openChat(key: string, msg: number): void
   /** 左栏选了好几个「问AI」（task-0tgz2）：打开 AI，「看得到」写「选中的N个」，每一轮把它们交给 AI */
   askAiFiles(items: PickItem[]): void
+  /** 打开 AI；给了 text 就当场跑这一句（白板、文档操作条的「AI整理」跑 /整理这几张，task-5ryf9） */
+  runAi(text?: string): void
   /** icon：提示前面的小图标（比如 info） */
   notice(text: string, icon?: CodiconName): void
   /** 底栏提示带「撤回」（白板上一次改了两篇：卡拖进另一个标签里的文档） */
   noticeUndo(text: string, run: () => void): void
+  /** 底栏提示：前面一个小图标、后面一颗按钮（「看记录」）和「撤回」（数据库自动化跑了、按钮点了） */
+  toast(t: { text: string; icon?: CodiconName; act?: { label: string; icon: CodiconName; run(): void }; undo?: () => void }): void
   /** 中间开着的文档（不是白板、不是只读）：剪进文档、插进文档用 */
   doc(): NoteDoc | null
   /** 剪一段：inbox 进收件箱成一张卡，doc 插到中间文档的光标处 */
@@ -82,6 +90,8 @@ export interface AppActions {
   takeOffLeft(folder: string): void
   /** 挪到另一个文件夹（开着的标签跟着换路径） */
   moveNote(path: string, folder: string): Promise<void>
+  /** 文件夹首页卡里拖走、右键「移到…」的一份（task-r00en）：PDF 连挂着的笔记、可视化一起走，一次提交，底栏能撤回 */
+  moveItem(path: string, folder: string): Promise<void>
   /** 库里的相对路径 → 绝对路径（拷贝路径） */
   absPath(rel: string): string
   /** 中间开「最近删掉的」（目录树最底下那一行，task-5yp97） */

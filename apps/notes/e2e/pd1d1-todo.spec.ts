@@ -52,13 +52,19 @@ const subs = (scope: Locator) => scope.locator('.td-sub').evaluateAll((els) => e
 const toast = (page: Page) => page.getByTestId('toast')
 const treeRows = (page: Page) => page.locator('aside.side').getByRole('treeitem').locator('.truncate').allTextContents()
 
-/** 打开写作的首页（图标栏「写作」那一格），再把左栏换成「待办」格 */
+/**
+ * 打开写作的首页（图标栏「写作」那一格），再把左栏换成「待办」格；
+ * 「待办」格同时在中间开「待办」首页（task-kzr3n），点回「写作」那个标签看首页卡
+ */
 async function writingHomeAndCell(page: Page) {
   await page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name: '写作', exact: true }).click()
   await expect(tabOn(page)).toHaveText('写作')
   await expect(card(page)).toBeVisible()
   await leftView(page, '待办')
   await expect(cell(page)).toBeVisible()
+  await expect(tabOn(page)).toHaveText('待办')
+  await page.getByTestId('tab-list').getByRole('tab', { name: '写作' }).click()
+  await expect(card(page)).toBeVisible()
 }
 
 /** 按住一行拖到某个落点（组名），慢慢挪过去再松手 */
@@ -79,7 +85,7 @@ test('左边待办格：图标栏「文件」下面一格，数字是今天没�
   const { page } = run
   try {
     const bar = page.getByRole('navigation', { name: '左栏' })
-    expect((await bar.locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).slice(0, 3)).toEqual(['文件', '待办', '最近'])
+    expect((await bar.locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))).slice(0, 4)).toEqual(['文件', '待办', '日历', '最近'])
     await expect(page.getByTestId('todo-count')).toHaveText('5')
     await leftView(page, '待办')
     await expect(cell(page).locator('.vh h2')).toHaveText(/^待办\s*今天\s*5$/)
@@ -264,18 +270,19 @@ test('加一条：左边写进 收件箱/待办.md（认「明天下午三点」
 
     // 首页卡：写进 写作/待办.md
     await card(page).getByRole('textbox', { name: '首页加一条' }).click()
-    await page.keyboard.type('周末整理参考文献')
+    // 「周末」现在认成日子（task-pd289）：这里只看写进哪一篇，用不带时间词的一句
+    await page.keyboard.type('整理参考文献')
     await page.keyboard.press('Enter')
-    await expect.poll(() => read(run, '写作/待办.md')).toBe(WTODO.replace(`- [x] 交读书报告 📅 ${Y2} ✅ ${T0}\n`, `- [x] 交读书报告 📅 ${Y2} ✅ ${T0}\n- [ ] 周末整理参考文献\n`))
-    await expect(row(card(page), '周末整理参考文献').locator('.td-src')).toHaveText('· 待办')
-    await expect(row(folderGroup(page, '写作'), '周末整理参考文献')).toBeVisible()
+    await expect.poll(() => read(run, '写作/待办.md')).toBe(WTODO.replace(`- [x] 交读书报告 📅 ${Y2} ✅ ${T0}\n`, `- [x] 交读书报告 📅 ${Y2} ✅ ${T0}\n- [ ] 整理参考文献\n`))
+    await expect(row(card(page), '整理参考文献').locator('.td-src')).toHaveText('· 待办')
+    await expect(row(folderGroup(page, '写作'), '整理参考文献')).toBeVisible()
 
     // 任务界面：写进这一篇
     await folderGroup(page, '写作').getByRole('button', { name: '打开 写作/待办 ›' }).click()
     await view(page).getByRole('textbox', { name: '任务界面加一条' }).click()
     await page.keyboard.type('后天上午十点交稿')
     await page.keyboard.press('Enter')
-    await expect.poll(() => read(run, '写作/待办.md')).toContain(`- [ ] 周末整理参考文献\n- [ ] 交稿 📅 ${T2} 10:00\n`)
+    await expect.poll(() => read(run, '写作/待办.md')).toContain(`- [ ] 整理参考文献\n- [ ] 交稿 📅 ${T2} 10:00\n`)
     await expect(row(view(page), '交稿')).toBeVisible()
 
     // 写作首页没有「待办」那篇的别的文件夹：首页卡加一条时建 <文件夹>/待办.md

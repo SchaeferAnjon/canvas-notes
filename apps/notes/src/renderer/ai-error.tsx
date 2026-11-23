@@ -2,6 +2,7 @@ import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import { aiErrorView } from '../shared/ai-errors'
 import { openEnginePick } from './ai-picker'
+import { useT } from './i18n'
 
 /** 去设置 › AI（App 听这个事件开设置；各处不用一层层传回调） */
 export const openAiSettings = () => window.dispatchEvent(new CustomEvent('cn:open-settings', { detail: 'ai' }))
@@ -23,6 +24,7 @@ export function AiError(props: {
   /** 我们自己说的「这次没做」（/ 命令跑不了的原因）：照原话写，不认原因、不给下一步、没有原话可看 */
   own?: boolean
 }) {
+  const t = useT()
   const v = props.own ? { code: 'own', title: props.raw.trim(), acts: [] as ReturnType<typeof aiErrorView>['acts'], raw: null } : aiErrorView(props.raw, props.engine)
   const [open, setOpen] = useState(false)
   const cut = props.cut
@@ -31,11 +33,11 @@ export function AiError(props: {
     <div className="aierr" data-testid="ai-error" data-code={v.code}>
       <div className="t">
         <Codicon name="error" size={12} className="ic" />
-        <span>{cut ? `没做完：${v.title}` : v.title}</span>
+        <span>{cut ? t('没做完：{title}', { title: v.title }) : v.title}</span>
       </div>
       {cut?.at && (
         <div className="at">
-          {`做到：${cut.at.label}`}
+          {t('做到：{step}', { step: cut.at.label })}
           {cut.at.code && <code className="sc">{cut.at.code}</code>}
         </div>
       )}
@@ -44,31 +46,31 @@ export function AiError(props: {
           {cut?.onContinue && (
             <button className="btn btn-xs" onClick={cut.onContinue}>
               <Codicon name="play" size={12} />
-              接着做
+              {t('接着做')}
             </button>
           )}
           {acts.includes('retry') && (
             <button className="btn btn-xs" onClick={props.onRetry}>
               <Codicon name="refresh" size={12} />
-              再问一次
+              {t('再问一次')}
             </button>
           )}
           {acts.includes('rephrase') && (
             <button className="btn btn-xs" onClick={props.onRephrase}>
               <Codicon name="edit" size={12} />
-              换个问法
+              {t('换个问法')}
             </button>
           )}
           {acts.includes('switch') && (
             <button className="btn btn-xs" onClick={openEnginePick}>
               <Codicon name="arrow-swap" size={12} />
-              换一家
+              {t('换一家')}
             </button>
           )}
           {acts.includes('settings') && (
             <button className="btn btn-xs" onClick={openAiSettings}>
               <Codicon name="settings-gear" size={12} />
-              去设置 › AI
+              {t('去设置 › AI')}
             </button>
           )}
         </div>
@@ -76,7 +78,7 @@ export function AiError(props: {
       {v.raw && (
         <>
           <button className="raw-tg" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-            {open ? '收起原话' : '看原话'}
+            {open ? t('收起原话') : t('看原话')}
             <Codicon name={open ? 'chevron-down' : 'chevron-right'} size={12} />
           </button>
           {open && <pre className="raw">{v.raw}</pre>}

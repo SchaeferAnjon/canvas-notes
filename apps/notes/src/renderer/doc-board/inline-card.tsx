@@ -7,12 +7,14 @@
 import type { EditorView } from '@codemirror/view'
 import { useEffect, useRef } from 'react'
 import { UnitEditor } from './unit-editor'
+import { useT } from '../i18n'
 
 /** 空卡的灰字：和文档文末那一行一个说法，看得出能打 / */
+// 不翻：键，画的地方翻
 export const EMPTY_HINT = '输入 / 插入块，或者直接写'
 
-/** 点在这些地方不算「点别处」：卡自己、插入菜单（挂在 body 上）、数据库的小浮层 */
-const INSIDE = '.ed-pop, .base-pop, .base-full'
+/** 点在这些地方不算「点别处」：卡自己、插入菜单（挂在 body 上）、数据库的小浮层、定日子和时间的选择器（task-pd289） */
+const INSIDE = '.ed-pop, .base-pop, .base-full, .cn-whenpick'
 
 export function InlineCard(props: {
   text: string
@@ -24,6 +26,7 @@ export function InlineCard(props: {
   onDraft?(flush: (() => void) | null): void
   label?: string
 }) {
+  const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const value = useRef(props.text)
   const done = useRef(false)
@@ -84,7 +87,7 @@ export function InlineCard(props: {
         e.stopPropagation()
       }}
     >
-      <UnitEditor text={props.text} notePath={props.notePath} label={props.label ?? '卡片内容'} keys={keys} className="card-ed" placeholder={EMPTY_HINT} onChange={(t) => (value.current = t)} onNotice={props.onNotice} />
+      <UnitEditor text={props.text} notePath={props.notePath} label={props.label ?? t('卡片内容')} keys={keys} className="card-ed" placeholder={t(EMPTY_HINT)} onChange={(v) => (value.current = v)} onNotice={props.onNotice} />
     </div>
   )
 }

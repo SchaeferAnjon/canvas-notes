@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { resolveLink } from '@cn/format'
 import * as git from '@cn/git'
-import { fixedFolder, GITKEEP, makeFolder, moveFolder, moveMany, planCarry, renameFolder, testTrash, trashFiles, trashFolder } from '../src/main/folder-ops'
+import { fixedFolder, GITKEEP, makeFolder, moveFolder, moveItem, moveMany, planCarry, renameFolder, testTrash, trashFiles, trashFolder } from '../src/main/folder-ops'
 import { Vault } from '../src/main/vault'
 
 const roots: string[] = []
@@ -389,5 +389,106 @@ describe('挪一篇笔记：挂在它下面的数据库记录文件夹跟着一�
     expect(existsSync(join(root, '项目/库/二号.md'))).toBe(true)
     expect(existsSync(join(root, '项目/库/一号.md'))).toBe(false)
     expect(read(root, '项目/表.md')).toBe(`# 表\n\n${B('项目/库')}\n`)
+  })
+})
+
+describe('首页卡里拖走一份（task-r00en）：PDF 连挂着的笔记、可视化一起挪，链接改好，一次提交', () => {
+  const NOTE = [
+    '# Lecture05 笔记',
+    '',
+    '## 第 5 页 · 旋转矩阵',
+    '[第 5 页](Lecture05.pdf#page=5&rect=0.1,0.2,0.3,0.4) · 10:20',
+    '',
+    '![我框的](../../附件/Lecture05/p5-1.png)',
+    '',
+    '> [!question] 我的疑惑',
+    '> 旋转矩阵怎么来的',
+    '',
+    '![图](图%201.png)',
+    '',
+    '[完整对话 · 1 轮](../../.canvas-notes/对话/Lecture05-p5-1.md) · [可视化 · 旋转](旋转.html)',
+    '',
+  ].join('\n')
+  const ITEM: Record<string, string> = {
+    ...SAMPLE,
+    '课程/ecp/Lecture05 笔记.md': NOTE,
+    '课程/ecp/旋转.html': '<html><head><meta name="第几讲" content="5"></head><body>转</body></html>\n',
+    '课程/ecp/别的.html': '<html><body>不挂</body></html>\n',
+    '附件/Lecture05/p5-1.png': 'png',
+    '课程/ml/.gitkeep': '',
+  }
+
+  it('拖 PDF 到「课程/ml」：PDF、它的笔记、笔记里的可视化一起过去；附件/<PDF名>/ 不动；库里链接都点得开；一次提交、git 干净；拖回去回到原样', async () => {
+    const { root, v } = vaultWith(ITEM)
+    expect(brokenLinks(root)).toEqual([])
+    const n0 = commits(root)
+    const moved: string[] = []
+    const r = await moveItem(v, '课程/ecp/Lecture05.pdf', '课程/ml', (from, to) => moved.push(`${from} → ${to}`))
+    expect(r.moves.map((m) => `${m.from} → ${m.to}`)).toEqual([
+      '课程/ecp/Lecture05.pdf → 课程/ml/Lecture05.pdf',
+      '课程/ecp/Lecture05 笔记.md → 课程/ml/Lecture05 笔记.md',
+      '课程/ecp/旋转.html → 课程/ml/旋转.html',
+    ])
+    expect(moved).toEqual(r.moves.map((m) => `${m.from} → ${m.to}`))
+    for (const p of ['课程/ml/Lecture05.pdf', '课程/ml/Lecture05 笔记.md', '课程/ml/旋转.html', '附件/Lecture05/p5-1.png', '课程/ecp/别的.html', '课程/ecp/图 1.png']) expect(existsSync(join(root, p)), p).toBe(true)
+    for (const p of ['课程/ecp/Lecture05.pdf', '课程/ecp/Lecture05 笔记.md', '课程/ecp/旋转.html']) expect(existsSync(join(root, p)), p).toBe(false)
+    expect(brokenLinks(root)).toEqual([])
+    // 笔记里：PDF、可视化同在一处，照旧；留在原处的图换成新的相对路径；附件同深度不变
+    const note = readFileSync(join(root, '课程/ml/Lecture05 笔记.md'), 'utf8')
+    expect(note).toContain('[第 5 页](Lecture05.pdf#page=5&rect=0.1,0.2,0.3,0.4)')
+    expect(note).toContain('[可视化 · 旋转](旋转.html)')
+    expect(note).toContain('![图](../ecp/图%201.png)')
+    expect(note).toContain('![我框的](../../附件/Lecture05/p5-1.png)')
+    // 别处：带路径的双链、相对链接、置顶都换
+    expect(readFileSync(join(root, '复习.md'), 'utf8')).toBe('# 复习\n\n[[课程/ml/Lecture05 笔记]] · [讲义](课程/ml/Lecture05.pdf#page=2) · ![图](课程/ecp/图%201.png) · [[Lecture05 笔记]]\n')
+    expect(readFileSync(join(root, '.canvas-notes/对话/Lecture05-p5-1.md'), 'utf8')).toContain('(../../课程/ml/Lecture05.pdf#page=5)')
+    expect(JSON.parse(readFileSync(join(root, '.canvas-notes/置顶.json'), 'utf8'))).toEqual(['课程/ml/Lecture05 笔记.md', '复习.md'])
+    expect(commits(root)).toBe(n0 + 1)
+    expect(lastMsg(root)).toBe('移动：Lecture05.pdf → 课程/ml（连同笔记、1 个可视化）')
+    expect(r.commit).toBe(g(root, 'rev-parse', 'HEAD').trim())
+    expect(status(root)).toBe('')
+    // 再拖回去（界面的「撤回」）：回到原样，又一次提交
+    const back = await moveItem(v, '课程/ml/Lecture05.pdf', '课程/ecp')
+    expect(back.moves).toHaveLength(3)
+    for (const p of Object.keys(ITEM)) expect(readFileSync(join(root, p), 'utf8'), p).toBe(ITEM[p])
+    expect(status(root)).toBe('')
+  })
+
+  it('拖的是 PDF 下挂着的那篇笔记：和拖 PDF 一样整组走（笔记不和它的 PDF 分家）', async () => {
+    const { root, v } = vaultWith(ITEM)
+    const r = await moveItem(v, '课程/ecp/Lecture05 笔记.md', '课程/ml')
+    expect(r.moves.map((m) => m.to)).toEqual(['课程/ml/Lecture05.pdf', '课程/ml/Lecture05 笔记.md', '课程/ml/旋转.html'])
+    expect(brokenLinks(root)).toEqual([])
+    expect(status(root)).toBe('')
+  })
+
+  it('那里已经有同名的：报错，一个都不挪；已经在那里：什么都不做；用户没提交的字先单独提交', async () => {
+    const { root, v } = vaultWith({ ...ITEM, '课程/ml/Lecture05.pdf': '%PDF 别的\n' })
+    writeFileSync(join(root, '复习.md'), ITEM['复习.md'] + '\n刚打的字\n')
+    await expect(moveItem(v, '课程/ecp/Lecture05.pdf', '课程/ml')).rejects.toThrow('「课程/ml」里已经有「Lecture05.pdf」了')
+    expect(existsSync(join(root, '课程/ecp/Lecture05 笔记.md'))).toBe(true)
+    const n0 = commits(root)
+    expect(await moveItem(v, '课程/ecp/Lecture05.pdf', '课程/ecp')).toEqual({ moves: [], commit: null })
+    expect(commits(root)).toBe(n0)
+    // 换一个没同名的地方：用户的字单独一次提交在前，挪是后一次
+    const r = await moveItem(v, '课程/ecp/Lecture05.pdf', '写作')
+    expect(r.moves).toHaveLength(3)
+    expect(commits(root)).toBe(n0 + 2)
+    expect(g(root, 'show', '--stat', '--format=', 'HEAD~1').trim()).toContain('复习.md')
+    expect(readFileSync(join(root, '复习.md'), 'utf8')).toContain('刚打的字')
+    expect(brokenLinks(root)).toEqual([])
+    expect(status(root)).toBe('')
+  })
+
+  it('可视化单独拖走：只挪它，笔记里那条链接改好；普通笔记照「移到」那一套（同名存成「X 2」）', async () => {
+    const { root, v } = vaultWith({ ...ITEM, '课程/ml/读后感.md': '# 别的读后感\n' })
+    const r = await moveItem(v, '课程/ecp/旋转.html', '课程/ml')
+    expect(r.moves.map((m) => m.to)).toEqual(['课程/ml/旋转.html'])
+    expect(readFileSync(join(root, '课程/ecp/Lecture05 笔记.md'), 'utf8')).toContain('[可视化 · 旋转](../ml/旋转.html)')
+    expect(brokenLinks(root)).toEqual([])
+    const n = await moveItem(v, '写作/读后感.md', '课程/ml')
+    expect(n.moves.map((m) => m.to)).toEqual(['课程/ml/读后感 2.md'])
+    expect(brokenLinks(root)).toEqual([])
+    expect(status(root)).toBe('')
   })
 })

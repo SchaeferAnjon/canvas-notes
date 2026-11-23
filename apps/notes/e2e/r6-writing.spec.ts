@@ -90,19 +90,28 @@ test('白板上正改着一张卡，外面把这张卡删了：框不消失，�
 
 const CALLOUT = '# 块\n\n上一段。\n\n> [!tip] 提示标题\n> 提示正文。\n\n下一段。\n'
 
-test('展开的提示块下面的空行里打字：另起一段，下一段不并进提示块；下一段按 ⌥↑ 不挪进提示块', async () => {
+test('展开的提示块和下一段之间：↑ 进提示块最后一行（task-ys1rr 起不停在中间的空行上），回车新起一段打字，下一段不并进提示块；下一段按 ⌥↑ 不挪进提示块', async () => {
   const run = await launch({ '块.md': CALLOUT })
   const { page } = run
   try {
     await openNote(page, '块')
     await clickLineStart(page, '下一段')
+    // 下一段段首退格：光标走进提示块最后一行末尾，字不动（下一段不并进提示块）
+    await page.keyboard.press('Backspace')
+    await waitSaved(page)
+    expect(read(run, '块.md')).toBe(CALLOUT)
+    // 下一段段首回车：上面多一个空块（像 Notion），↑ 进去打字
+    await clickLineStart(page, '下一段')
+    await page.keyboard.press('Enter')
     await page.keyboard.press('ArrowUp')
     await page.keyboard.type('新打的字')
     await waitSaved(page)
-    expect(read(run, '块.md')).toBe(CALLOUT.replace('\n\n下一段', '\n\n新打的字\n下一段'))
+    expect(read(run, '块.md')).toBe(CALLOUT.replace('\n\n下一段', '\n\n新打的字\n\n下一段'))
     // 「新打的字」「下一段」不画在提示块里
     await expect(line(page, '新打的字')).not.toHaveClass(/cm-callout/)
     await expect(line(page, '下一段')).not.toHaveClass(/cm-callout/)
+    // 打的字、回车各是一步撤销
+    await page.keyboard.press('Meta+z')
     await page.keyboard.press('Meta+z')
     await waitSaved(page)
     expect(read(run, '块.md')).toBe(CALLOUT)

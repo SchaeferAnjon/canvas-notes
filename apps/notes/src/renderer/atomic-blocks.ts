@@ -14,6 +14,7 @@ import { syntaxTree } from '@codemirror/language'
 import { EditorSelection, type EditorState, type Line, Prec, StateField, type Text } from '@codemirror/state'
 import { EditorView, keymap, layer, type LayerMarker } from '@codemirror/view'
 import { parseCallout } from './callout'
+import { offGap } from './gap-lines'
 import { hiddenOk, hiddenRanges } from './hidden-syntax'
 
 /** 正好在 pos 结束（end）或开始（start）的整块 */
@@ -117,8 +118,10 @@ function deleteSelectedBlock(forward: boolean) {
       } else if (above) s--
     }
     const r = lineRange(doc, s, e)
-    // 删掉的范围前面的位置不变：Delete 停在上面那一行末尾；退格停在删掉的地方（就是下面那一行行首）
-    const head = forward ? (s > 1 ? doc.line(s - 1).to : 0) : r.from
+    // 删掉的范围前面的位置不变：Delete 停在上面那一行末尾；退格停在删掉的地方（就是下面那一行行首）。
+    // 落在块和块之间的空行上（task-ys1rr 起光标不停在那里）：退格去下一块开头（按键的那一边），Delete 回上一块末尾
+    const at = forward ? (s > 1 ? doc.line(s - 1).to : 0) : r.from
+    const head = offGap(view.state.update({ changes: r }).state, at, forward ? 'up' : 'down')
     view.dispatch({
       changes: r,
       selection: EditorSelection.cursor(head),

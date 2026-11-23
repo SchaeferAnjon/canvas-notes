@@ -4,6 +4,7 @@ import { pdfDoc } from '../reading/pdf'
 import type { Tab } from '../tabs'
 import { boardOutline, docOutline, type OutlineItem } from './outline'
 import { HeadBtn, ViewHead } from './Shell'
+import { useT } from '../i18n'
 
 type PdfOutlineNode = { title: string; dest: string | unknown[] | null; items: PdfOutlineNode[] }
 
@@ -48,6 +49,7 @@ export function onFlyToCard(path: string, f: (id: string) => void): () => void {
 
 /** 右栏「大纲」：文档的标题、PDF 的目录、白板的列和卡片 */
 export function OutlineView(props: { tab: Tab | null; doc(): NoteDoc | null; onClose(): void; onPdfPage(path: string, page: number): void; mode?: 'doc' | 'board' }) {
+  const t = useT()
   const { tab } = props
   const [items, setItems] = useState<OutlineItem[] | null>(null)
   const [cur, setCur] = useState(-1)
@@ -105,15 +107,15 @@ export function OutlineView(props: { tab: Tab | null; doc(): NoteDoc | null; onC
     setCur(i)
   }
 
-  const sub = kind === 'pdf' ? 'PDF自带的目录' : items && path ? path.split('/').pop()!.replace(/\.md$/i, '') : undefined
+  const sub = kind === 'pdf' ? t('PDF自带的目录') : items && path ? path.split('/').pop()!.replace(/\.md$/i, '') : undefined
   return (
-    <aside className="right outline" aria-label="大纲">
-      <ViewHead title="大纲" sub={sub}>
-        <HeadBtn icon="close" label="收起右栏" onClick={props.onClose} />
+    <aside className="right outline" aria-label={t('大纲')}>
+      <ViewHead title={t('大纲')} sub={sub}>
+        <HeadBtn icon="close" label={t('收起右栏')} onClick={props.onClose} />
       </ViewHead>
-      <div className="vbody" role="list" aria-label="大纲条目">
-        {!kind && <p className="none">这一页没有大纲。文档、PDF、白板才有。</p>}
-        {kind && items?.length === 0 && <p className="none">{kind === 'pdf' ? '这份PDF没有自带目录。' : '还没有标题。用 # 写标题，这里就会列出来。'}</p>}
+      <div className="vbody" role="list" aria-label={t('大纲条目')}>
+        {!kind && <p className="none">{t('这一页没有大纲。文档、PDF、白板才有。')}</p>}
+        {kind && items?.length === 0 && <p className="none">{kind === 'pdf' ? t('这份PDF没有自带目录。') : t('还没有标题。用 # 写标题，这里就会列出来。')}</p>}
         {items?.map((o, i) => (
           <button key={i} role="listitem" className={'ol' + (i === cur ? ' on' : '')} style={{ '--d': o.depth } as React.CSSProperties} onClick={() => go(o, i)}>
             <span className="truncate">{o.text}</span>

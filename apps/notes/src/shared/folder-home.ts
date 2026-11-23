@@ -5,7 +5,8 @@
  * 设置存在那个文件夹里的 .首页.json（跟着 Git 走）；模板存在 课程/.首页模板.json、项目/.首页模板.json。纯函数，主线和界面都用。
  */
 import { notePathFor } from '@cn/format'
-import { categoryOf, isCategory } from './categories'
+import { catId, catName, categoryOf, isCategory } from './categories'
+import { t } from './i18n'
 import type { Cover } from './home'
 import { type FolderColor, FOLDER_COLORS } from './left'
 import { when } from './when'
@@ -18,15 +19,16 @@ export type FolderKind = 'courses' | 'course' | 'project' | 'life' | 'writing' |
 
 export const KIND_LABEL: Record<FolderKind, string> = { courses: '课程', course: '课程', project: '项目', life: '生活', writing: '写作', folder: '文件夹' }
 
-/** 有自己那套组件的文件夹：「课程」本身、课程和项目下面一层、生活、写作 */
+/** 有自己那套组件的文件夹：「课程」本身、课程和项目下面一层、生活、写作（分类名照这个库的，英文库是 Courses、Projects…） */
 export function folderKind(folder: string): FolderKind | null {
   const p = folder.split('/')
   if (p.some((x) => x === '' || x === '.' || x === '..' || x.startsWith('.'))) return null
-  if (p.length === 1 && p[0] === '课程') return 'courses'
-  if (p.length === 2 && p[0] === '课程') return 'course'
-  if (p.length === 2 && p[0] === '项目') return 'project'
-  if (p.length === 1 && p[0] === '生活') return 'life'
-  if (p.length === 1 && p[0] === '写作') return 'writing'
+  const id = catId(p[0]!)
+  if (p.length === 1 && id === '课程') return 'courses'
+  if (p.length === 2 && id === '课程') return 'course'
+  if (p.length === 2 && id === '项目') return 'project'
+  if (p.length === 1 && id === '生活') return 'life'
+  if (p.length === 1 && id === '写作') return 'writing'
   return null
 }
 
@@ -64,15 +66,16 @@ export function foldersOfPaths(paths: string[]): string[] {
 /** 新建的课程、项目起名：不能带斜杠、冒号，不能点开头；返回不行的原因 */
 export function checkFolderName(name: string): string | null {
   const n = name.trim()
-  if (!n) return '名字不能是空的'
-  if (/[/\\:]/.test(n) || n.startsWith('.')) return '名字里不能有 / \\ :，也不能用点开头'
-  if (n.length > 60) return '名字太长了'
+  if (!n) return t('名字不能是空的')
+  if (/[/\\:]/.test(n) || n.startsWith('.')) return t('名字里不能有 / \\ :，也不能用点开头')
+  if (n.length > 60) return t('名字太长了')
   return null
 }
 
 export const homeFileOf = (folder: string) => `${folder}/.首页.json`
 /** 课程、项目各一份模板；生活、写作只有一页，不要模板 */
-export const templateFileOf = (kind: FolderKind) => (kind === 'course' ? '课程/.首页模板.json' : kind === 'project' ? '项目/.首页模板.json' : null)
+// 不翻：库里的配置文件名（.首页模板.json 不跟语言换，放在这个库的「课程」「项目」文件夹里）
+export const templateFileOf = (kind: FolderKind) => (kind === 'course' ? `${catName('课程')}/.首页模板.json` : kind === 'project' ? `${catName('项目')}/.首页模板.json` : null)
 
 export type FWidget =
   | 'courses'
@@ -271,15 +274,15 @@ function isDraft(f: PropFile): boolean {
 export function folderLead(folder: string, files: PropFile[], opts: { courses?: number; now?: number; presets?: boolean } = {}): string {
   const kind = homeKindOf(folder)
   // 关掉预设的分类时（task-wniqx）分类写「文件夹」（图 2-关掉以后：「文件夹 · 2门课 · 2篇」）
-  const head = isCategory(folder) ? [opts.presets === false ? '文件夹' : '分类', ...(opts.courses ? [`${opts.courses}门课`] : [])] : [folder.split('/').join(' / ')]
-  if (!files.length) return [...head, '还没有文件'].join(' · ')
+  const head = isCategory(folder) ? [opts.presets === false ? t('文件夹', { ctx: '首页那一行' }) : t('分类', { ctx: '首页那一行' }), ...(opts.courses ? [t('{n}门课', { n: opts.courses })] : [])] : [folder.split('/').join(' / ')]
+  if (!files.length) return [...head, t('还没有文件')].join(' · ')
   // 几讲：认得出第几讲的按讲数；认不出的课件 PDF（名字里没有「第 N 讲」「Lecture N」）每份也算一讲，和左栏「0/5 讲」数得一样
   const lectures = kind === 'course' ? new Set(files.map((f) => Number(f.props['第几讲'])).filter((x) => x > 0)).size + files.filter((f) => f.props['类型'] === '课件' && !(Number(f.props['第几讲']) > 0)).length : 0
-  const t = files.reduce((m, f) => Math.max(m, f.mtimeMs), 0)
+  const last = files.reduce((m, f) => Math.max(m, f.mtimeMs), 0)
   // 一个 PDF 一篇笔记（2026-11-20）：PDF（HTML）和它旁边那篇笔记算一篇，和左栏那一行、「里面有什么」数得一样
   const merged = new Set(files.flatMap((f) => (/\.(pdf|html?)$/i.test(f.path) ? [notePathFor(f.path)] : [])))
   const n = files.filter((f) => !merged.has(f.path)).length
-  return [...head, ...(lectures ? [`${lectures}讲`] : []), `${n}篇`, `改于${when(t, { time: true, now: opts.now })}`].join(' · ')
+  return [...head, ...(lectures ? [t('{n}讲', { n: lectures })] : []), t('{n}篇', { n }), t('改于{when}', { when: when(last, { time: true, now: opts.now }) })].join(' · ')
 }
 
 export const NOTES_COND: Cond = {

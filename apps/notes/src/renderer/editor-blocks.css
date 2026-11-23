@@ -70,7 +70,18 @@
 }
 /* 正在拖、正在开菜单的那块：盖在上面一层强调色 24%，和退格选中整块（.cm-blk-selbg）一个颜色（block-handles.tsx 的 hotLayer，task-qkx1j）；
    块部件大小、圆角跟卡自己，文字块比版心左右各宽出 8、上下各 4，圆角 6 */
-.doc .cm-blkHotLayer {
+.doc .cm-blkHotLayer,
+.doc .cm-blkSelLayer {
+  pointer-events: none;
+}
+/* 文档里从字外面拖出来的框（task-5ryf9，block-select.tsx）：和白板框选一个样子，1px 强调色边、淡强调色底、圆角 2 */
+.cm-blk-marquee {
+  position: fixed;
+  z-index: 50;
+  box-sizing: border-box;
+  border: 1px solid var(--acc);
+  border-radius: 2px;
+  background: var(--acc-soft);
   pointer-events: none;
 }
 .doc .cm-blk-hotbg {
@@ -332,7 +343,8 @@
   cursor: text;
 }
 .doc .cm-tailline.after {
-  padding: 3px 0;
+  /* 留白都放在下面：点进去变成文末那一行（同一位置的一行字）时灰字不挪位（task-ys1rr） */
+  padding: 0 0 6px;
   font-family: var(--doc-font, var(--sans));
   font-size: var(--doc-size, 15px);
   line-height: var(--doc-lh, 1.75);
@@ -348,8 +360,13 @@
 .doc .cm-tailline.after.gap {
   padding-top: 15px;
 }
-.doc .cm-tailline.inline {
+.doc .cm-tailline.inline,
+.doc .cm-blockph {
   pointer-events: none;
+}
+/* 光标所在的空块里的灰字（task-ys1rr）：和文末那一行同一个颜色 */
+.doc .cm-blockph {
+  color: var(--t3);
 }
 
 /* ---------- 块上露写法（「改写法」）：只在这一块里露出它的 md，下面「只在这一块里露出写法 · esc 收回」和「完成」 ---------- */
@@ -681,6 +698,15 @@
 .doc .cm-inquote.bot {
   padding-bottom: 10px;
   border-radius: 0 0 8px 8px;
+}
+/* 普通引文（剪藏进来的一段）里的代码块：外面接着引文的竖线（同 app.css 的 .cm-quote，字离竖线 18），代码块 --fill 底 */
+.doc .cm-inquote.q {
+  padding: 4px 0 4px 16px;
+  background: none;
+  border-left: 2px solid var(--clip-bar);
+}
+.doc .cm-inquote.q .cm-inquote-code {
+  background: var(--fill);
 }
 .doc .cm-inquote .cm-table table {
   background: var(--card);
@@ -1071,7 +1097,10 @@
   font-weight: 400;
 }
 .base-colmenu {
-  width: 220px;
+  /* 至少 220；英文的类型名（Multi-select）长，菜单跟着字宽一点，最宽 300（task-zojmg） */
+  min-width: 220px;
+  width: max-content;
+  max-width: 300px;
 }
 .base-colmenu button {
   display: flex;
@@ -1134,6 +1163,7 @@
 }
 .base-types button {
   height: 28px;
+  white-space: nowrap;
 }
 .base-types button.on {
   background: var(--fill2);
@@ -1568,7 +1598,7 @@
   background: var(--fill);
   color: var(--t2);
 }
-/* 计算行（有一列选了「算什么」才有）：选过的写「求和 3210」，没选的列悬停露「计算」，靠右 */
+/* 计算行（有一列选了「算什么」才有）：没选的列悬停露「计算」。一格的样子（34 高、靠左、小字加数）在 base/sums.css，盖过这里 */
 .base tr.base-sums td {
   height: 30px;
   padding: 0 6px;
@@ -1592,10 +1622,10 @@
   color: var(--t1);
   font-variant-numeric: tabular-nums;
 }
-.base tr.base-sums td:not(.set) .base-sum {
+.base tr.base-sums td:not(.on-sum) .base-sum {
   opacity: 0;
 }
-.base tr.base-sums:hover td:not(.set) .base-sum,
+.base tr.base-sums:hover td:not(.on-sum) .base-sum,
 .base-sum:focus-visible {
   opacity: 1;
 }

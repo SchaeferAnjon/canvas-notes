@@ -1,15 +1,18 @@
 import { composing } from '../ime'
+import { useT } from '../i18n'
 import { accelFor, isKey, useKeyHandler, useKeys } from '../keys'
 import { Codicon } from '@cn/design'
 import { openSettingsAt } from '../settings/jump'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { type AttachItem, sizeText } from '../../shared/attach'
+import { catName } from '../../shared/categories'
 import { type AttachIndex, buildTree, type FileEntry, fileName, filterTree, folderOfPath, folderProgress, isTreeSort, previewFiles, subtree, topGroups, TREE_SORTS, type TreeNode, type TreeSort } from '../../shared/files'
 import { MovedMark, type DreamPreview } from '../dream/preview'
 import { fileIcon } from '../Palette'
 import { Progress } from '../search/QuickOpen'
 import { onReveal, setTreePicked, takeReveal, useVaultFiles } from './store'
 import { folderMenu, onFileMenu, type TreeMenu } from '../ctx/file-menu'
+import { DRAG_ITEM, draggedItem } from '../folder-home/drag-item'
 import { copy, menuAt } from '../ctx/menu'
 import { app } from '../ctx/actions'
 import { AiIcon } from '../engine-logo'
@@ -81,9 +84,9 @@ function loadView(): TreeView {
 function loadOpen(): Set<string> {
   try {
     const v = JSON.parse(localStorage.getItem(OPEN_KEY) ?? 'null') as unknown
-    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : ['课程'])
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [catName('课程')])
   } catch {
-    return new Set(['课程'])
+    return new Set([catName('课程')])
   }
 }
 
@@ -155,6 +158,7 @@ export function FileTree(props: {
 }) {
   /** 写在界面上的键照命令表（改了跟着变） */
   const K = useKeys()
+  const t = useT()
   const { files, loaded } = useVaultFiles()
   const [open, setOpen] = useState(loadOpen)
   const [rootOpen, setRootOpen] = useState(() => {
@@ -209,13 +213,24 @@ export function FileTree(props: {
     spring.current = null
   }
   useEffect(() => () => stopSpring(), [])
+  useEffect(() => {
+    if (dropOn === null) return
+    // 从文件夹首页拖来的（task-r00en）按 esc 取消、松在别处：行自己的 onDragEnd 管不到，冒泡到 window 时收起亮着的那一行
+    const end = () => (stopSpring(), setDropOn(null))
+    window.addEventListener('dragend', end)
+    window.addEventListener('drop', end)
+    return () => (window.removeEventListener('dragend', end), window.removeEventListener('drop', end))
+  }, [dropOn !== null])
   const many = sel.size > 1
   /** key：这一行在 dropOn 里记成什么（钉住那一组的行和树里同一个文件夹分开亮） */
   const dropProps = (folder: string, closed = false, key = folder) => ({
     onDragOver: (e: React.DragEvent) => {
       const types = [...e.dataTransfer.types]
       const dir = types.includes(DRAG_DIR) ? draggingDir.current : null
-      if (!types.includes(DRAG_MIME) && !types.includes(DRAG_MANY) && !dir) return
+      // 文件夹首页卡里拖来的一份（task-r00en）：和拖树里的笔记一样，本来就在的那个文件夹不亮
+      const item = types.includes(DRAG_ITEM) ? draggedItem() : null
+      if (!types.includes(DRAG_MIME) && !types.includes(DRAG_MANY) && !dir && !item) return
+      if (item && folderOfPath(item) === folder) return
       // 文件夹不能拖进它自己、它里面，拖回原来的上一层也不算
       if (dir && (folder === dir || folder.startsWith(dir + '/') || folderOfPath(dir) === folder)) return
       e.preventDefault()
@@ -243,13 +258,16 @@ export function FileTree(props: {
       const path = e.dataTransfer.getData(DRAG_MIME)
       const dir = e.dataTransfer.getData(DRAG_DIR)
       const list = e.dataTransfer.getData(DRAG_MANY)
+      const item = e.dataTransfer.getData(DRAG_ITEM)
       setDropOn(null)
       stopSpring()
       draggingDir.current = null
-      if (!path && !dir && !list) return
+      if (!path && !dir && !list && !item) return
       e.preventDefault()
       e.stopPropagation()
-      if (list) {
+      if (item) {
+        if (folderOfPath(item) !== folder) (noteMovedTo(folder), void app().moveItem(item, folder))
+      } else if (list) {
         const paths = (JSON.parse(list) as string[]).filter((p) => p !== folder && !folder.startsWith(p + '/'))
         if (paths.length) (noteMovedTo(folder), void app().moveMany(paths, folder).then(() => setSel(new Set())))
       } else if (dir) {
@@ -454,15 +472,15 @@ export function FileTree(props: {
       const f = await window.cnFolder.make(parent, name)
       setPicked(f)
       app().refresh()
-      app().notice(`建好了「${f}」`)
+      app().notice(t('建好了「{name}」', { name: f }))
     } catch (e) {
       app().notice(String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
     }
   }
   /** 定位当前文件：展开到它那一层，滚过去，一圈外圈 2 秒 */
   const reveal = () => {
-    if (!activePath) return app().notice('现在没有开着库里的文件')
-    if (!inRoot(activePath)) return app().notice(`开着的文件不在「${props.title}」里`)
+    if (!activePath) return app().notice(t('现在没有开着库里的文件'))
+    if (!inRoot(activePath)) return app().notice(t('开着的文件不在「{name}」里', { name: props.title }))
     if (type !== 'all') setType('all')
     setRootOpen(true)
     openTo(activePath)
@@ -528,17 +546,17 @@ export function FileTree(props: {
     const paths = selList()
     const el = e.currentTarget as HTMLElement
     void menuAt(e, [
-      { label: '打开', enabled: false, run: () => undefined },
+      { label: t('打开'), enabled: false, run: () => undefined },
       // 交给 AI（task-0tgz2，偏好「多选文件能交给 AI」）：和底部那一条的「问AI」一样
-      { label: '问 AI', ai: 'chat', run: () => askSel() },
+      { label: t('问 AI'), ai: 'chat', run: () => askSel() },
       '-',
-      { label: '重命名…', enabled: false, run: () => undefined },
-      { label: '移到…', run: () => openMover(paths, el, 'right') },
-      { label: '放到左边', enabled: false, run: () => undefined },
+      { label: t('重命名…'), enabled: false, run: () => undefined },
+      { label: t('移到…'), run: () => openMover(paths, el, 'right') },
+      { label: t('放到左边'), enabled: false, run: () => undefined },
       '-',
-      { label: '拷贝路径', run: () => copy(paths.map((p) => app().absPath(p)).join('\n')) },
+      { label: t('拷贝路径'), run: () => copy(paths.map((p) => app().absPath(p)).join('\n')) },
       '-',
-      { label: `移到废纸篓（${paths.length}个）`, accel: accelFor('tree-trash'), run: () => void app().trashMany(paths).then(() => setSel(new Set())) },
+      { label: t('移到废纸篓（{n}个）', { n: paths.length }), accel: accelFor('tree-trash'), run: () => void app().trashMany(paths).then(() => setSel(new Set())) },
     ])
   }
   /** ⌘⌫：删选中的（没选好几个时删现在这一行），和右键「移到废纸篓」同一个确认 */
@@ -631,9 +649,9 @@ export function FileTree(props: {
       <Codicon name="folder" size={16} />
       <input
         className="si-rename"
-        aria-label="新文件夹的名字"
+        aria-label={t('新文件夹的名字')}
         autoFocus
-        placeholder="新文件夹"
+        placeholder={t('新文件夹')}
         onBlur={(e) => void makeFolder(parent, e.currentTarget.value)}
         onKeyDown={(e) => {
           if (composing(e)) return
@@ -668,9 +686,9 @@ export function FileTree(props: {
         onContextMenu={(e) => {
           if (many && sel.has(path)) return groupMenu(e)
           void menuAt(e, [
-            { label: '在访达中显示', run: () => void window.cnMenu.reveal(path) },
-            { label: '拷贝路径', run: () => copy(app().absPath(path)) },
-            note && { label: `打开用它的《${shown(fileName(note))}》`, run: () => props.onOpen(note) },
+            { label: t('在访达中显示'), run: () => void window.cnMenu.reveal(path) },
+            { label: t('拷贝路径'), run: () => copy(app().absPath(path)) },
+            note && { label: t('打开用它的《{name}》', { name: shown(fileName(note)) }), run: () => props.onOpen(note) },
           ])
         }}
       >
@@ -730,7 +748,7 @@ export function FileTree(props: {
         data-path={d.path}
         className={'si ft-row ft-dbrow' + (g ? ' ft-hg' : '') + (sel.has(d.path) ? ' sel' : '') + (on ? ' on' : '') + (ring?.has(d.path) ? ' ring' : '') + (hit(d.name) ? ' hit' : '')}
         style={{ paddingLeft: 8 + depth * 14 }}
-        title={`${d.path} · 数据库的${n}条记录（磁盘上是一个文件夹）`}
+        title={t('{path} · 数据库的{n}条记录（磁盘上是一个文件夹）', { path: d.path, n })}
         {...selProps(d.path)}
         {...dirDrag(d.path)}
         onClick={(e) => pick(e, d.path) || openFolder(d.path)}
@@ -750,7 +768,7 @@ export function FileTree(props: {
         <Codicon name="database" size={16} className="ft-db" />
         {renaming === d.path ? <FolderRename folder={d.path} onDone={() => setRenaming(null)} /> : <span className="truncate">{hl(d.name)}</span>}
         <span className="ft-fl" />
-        {view.counts && <span className="ft-count num">{`${n}条`}</span>}
+        {view.counts && <span className="ft-count num">{t('{n}条', { n, ctx: '目录树' })}</span>}
       </div>
     )
   }
@@ -778,7 +796,7 @@ export function FileTree(props: {
       const pad = { paddingLeft: 8 + depth * 14 }
       if (n.kind === 'dir') {
         const isOpen = qOn || open.has(n.path)
-        const fp = n.path === '课程' ? coursesProgress(n) : folderProgress(n)
+        const fp = n.path === catName('课程') ? coursesProgress(n) : folderProgress(n)
         const on = activePath === n.path
         order.push(n.path)
         rows.push(
@@ -812,7 +830,7 @@ export function FileTree(props: {
             <span
               className="ft-tw"
               role="button"
-              aria-label={`${isOpen ? '收起' : '展开'} ${n.name}`}
+              aria-label={isOpen ? t('收起 {name}', { name: n.name }) : t('展开 {name}', { name: n.name })}
               onClick={(e) => {
                 e.stopPropagation()
                 toggle(n.path)
@@ -824,21 +842,21 @@ export function FileTree(props: {
             {renaming === n.path ? <FolderRename folder={n.path} onDone={() => setRenaming(null)} /> : <span className="truncate">{hl(n.name)}</span>}
             {newDirs.has(n.path) && (
               <span className="pv-mark">
-                <span className="tag-new" title="梦游要新建的文件夹，收下以后才有">
-                  新
+                <span className="tag-new" title={t('梦游要新建的文件夹，收下以后才有')}>
+                  {t('新')}
                 </span>
               </span>
             )}
             <span className="ft-fl" />
             {n.pinned && (
-              <span className="ft-pin" aria-label="置顶了">
+              <span className="ft-pin" aria-label={t('置顶了')}>
                 <Codicon name="pinned" size={12} />
               </span>
             )}
             {/* 课程文件夹：问完了几讲 / 一共几讲（一讲都没问完不写）；「课程」这一行是几门课加起来；别的写篇数 */}
             {fp && fp.done > 0 && type !== 'att' ? (
               <span className="ft-meta num">
-                {`${fp.done}/${fp.total}讲`}
+                {t('{done}/{total}讲', { done: fp.done, total: fp.total })}
               </span>
             ) : (
               view.counts && !qOn && <span className="ft-count num">{n.count}</span>
@@ -851,18 +869,18 @@ export function FileTree(props: {
       }
       if (isAttach(n.kind)) {
         // 附件/<笔记路径>/ 里的：双击开那篇笔记
-        const owner = n.path.startsWith('附件/') ? n.path.slice('附件/'.length, n.path.lastIndexOf('/')) + '.md' : null
+        const owner = n.path.startsWith('附件/') ? n.path.slice('附件/'.length, n.path.lastIndexOf('/')) + '.md' : null // 不翻：磁盘上的附件文件夹名
         rows.push(attachRow(n.path, depth, owner && files.some((f) => f.path === owner) ? owner : null, undefined))
         continue
       }
       const ghostTo = ghosts.get(n.path)
       if (ghostTo) {
         rows.push(
-          <div key={'ghost:' + n.path} role="treeitem" aria-level={depth + 1} aria-selected={false} className="si ft-row pv-ghost" style={pad} title={`挪到 ${ghostTo}`}>
+          <div key={'ghost:' + n.path} role="treeitem" aria-level={depth + 1} aria-selected={false} className="si ft-row pv-ghost" style={pad} title={t('挪到 {path}', { path: ghostTo })}>
             <span className="ft-tw" />
             <Codicon name="inbox" size={16} />
             <s className="truncate">{shown(n.name)}</s>
-            <span className="to truncate">{`挪到${fileName(folderOfPath(ghostTo))}`}</span>
+            <span className="to truncate">{t('挪到{name}', { name: fileName(folderOfPath(ghostTo)) })}</span>
           </div>,
         )
         continue
@@ -930,13 +948,13 @@ export function FileTree(props: {
             {...(items
               ? {
                   role: 'button',
-                  'aria-label': `${attOpen ? '收起' : '展开'} ${shown(n.name)} 的附件`,
+                  'aria-label': attOpen ? t('收起 {name} 的附件', { name: shown(n.name) }) : t('展开 {name} 的附件', { name: shown(n.name) }),
                   onClick: (e: React.MouseEvent) => (e.stopPropagation(), toggle(attKey)),
                 }
               : dbs.length
                 ? {
                     role: 'button',
-                    'aria-label': `${dbOpen ? '收起' : '展开'} ${shown(n.name)} 的数据库`,
+                    'aria-label': dbOpen ? t('收起 {name} 的数据库', { name: shown(n.name) }) : t('展开 {name} 的数据库', { name: shown(n.name) }),
                     onClick: (e: React.MouseEvent) => (e.stopPropagation(), toggle(dbKey)),
                   }
                 : kids.length
@@ -971,12 +989,12 @@ export function FileTree(props: {
           <span className="ft-fl" />
           {/* 和网页配成一对（task-kbnc0）：右边一个网页小标，悬停说点开会怎样 */}
           {pairs.has(realPath) && (
-            <span className="ft-pair" aria-label="和网页配成一对" data-tip={`和网页「${bookName(pairs.get(realPath)!)}」配成一对：点开这篇，网页跟着在右栏开到上次读到的那段`} data-side="right">
+            <span className="ft-pair" aria-label={t('和网页配成一对')} data-tip={t('和网页「{name}」配成一对：点开这篇，网页跟着在右栏开到上次读到的那段', { name: bookName(pairs.get(realPath)!) })} data-side="right">
               <Codicon name="globe" size={13} />
             </span>
           )}
           {n.pinned && (
-            <span className="ft-pin" aria-label="置顶了">
+            <span className="ft-pin" aria-label={t('置顶了')}>
               <Codicon name="pinned" size={12} />
             </span>
           )}
@@ -1018,7 +1036,7 @@ export function FileTree(props: {
         if (items.length > lim)
           rows.push(
             <button key={'more:' + attKey} className="si s-more ft-more" style={{ paddingLeft: 36 + (depth + 1) * 14 }} onClick={() => setPages((p) => ({ ...p, [attKey]: items.length }))}>
-              <span className="num">{`再显示${items.length - lim}张`}</span>
+              <span className="num">{t('再显示{n}张', { n: items.length - lim })}</span>
             </button>,
           )
       }
@@ -1026,7 +1044,7 @@ export function FileTree(props: {
     if (nodes.length > limit) {
       rows.push(
         <button key={'more:' + pageKey} className="si s-more ft-more" style={{ paddingLeft: 36 + depth * 14 }} onClick={() => setPages((p) => ({ ...p, [pageKey]: limit + PAGE }))}>
-          <span className="num">{`还有${nodes.length - limit}个 · 再显示${Math.min(PAGE, nodes.length - limit)}个`}</span>
+          <span className="num">{t('还有{n}个 · 再显示{more}个', { n: nodes.length - limit, more: Math.min(PAGE, nodes.length - limit) })}</span>
         </button>,
       )
     }
@@ -1051,11 +1069,11 @@ export function FileTree(props: {
         onClick={() => setRootOpen((o) => !o)}
         onContextMenu={(e) =>
           void menuAt(e, [
-            { label: '新建笔记', run: () => app().newNote('') },
-            { label: '新建白板', run: () => app().newBoard('') },
-            { label: '新建文件夹', run: () => (setPicked(null), startFolder('')) },
+            { label: t('新建笔记'), run: () => app().newNote('') },
+            { label: t('新建白板'), run: () => app().newBoard('') },
+            { label: t('新建文件夹'), run: () => (setPicked(null), startFolder('')) },
             '-',
-            { label: '在访达中显示', run: () => void window.cnMenu.reveal('') },
+            { label: t('在访达中显示'), run: () => void window.cnMenu.reveal('') },
           ])
         }
       >
@@ -1073,7 +1091,7 @@ export function FileTree(props: {
       if (qOn && !tree.length)
         rows.push(
           <p key="q-none" className="s-none ft-qnone">
-            {`没有名字里带「${q.trim()}」的文件`}
+            {t('没有名字里带「{q}」的文件', { q: q.trim() })}
           </p>,
         )
       // 最外层按顶级分类分组：收件箱 | 读进来的 | 自己写的 | 不在分类里的（筛类型、找文件时没有东西的分类不画）；
@@ -1082,7 +1100,7 @@ export function FileTree(props: {
         if (g.title)
           rows.push(
             <div key={'gh:' + g.title} className="ft-gh" role="presentation" style={{ paddingLeft: 22 }}>
-              <span>{g.title}</span>
+              <span>{t(g.title)}</span>
               <span className="ln" />
             </div>,
           )
@@ -1092,8 +1110,8 @@ export function FileTree(props: {
       // 名字后面写所在的文件夹（附件/ 最外层的不写）
       if (type === 'att' && att) {
         const groups: [string, string, { path: string; bytes: number; convo?: string }[]][] = [
-          ['convos', '完整对话在用的附件', att.convos],
-          ['orphans', '没有笔记的附件', att.orphans],
+          ['convos', t('完整对话在用的附件'), att.convos],
+          ['orphans', t('没有笔记的附件'), att.orphans],
         ]
         for (const [key, title, list] of groups) {
           if (!list.length) continue
@@ -1111,7 +1129,7 @@ export function FileTree(props: {
           if (list.length > lim)
             rows.push(
               <button key={'more:' + key} className="si s-more ft-more" style={{ paddingLeft: 50 }} onClick={() => setPages((p) => ({ ...p, [key]: lim + PAGE }))}>
-                <span className="num">{`还有${list.length - lim}张 · 再显示${Math.min(PAGE, list.length - lim)}张`}</span>
+                <span className="num">{t('还有{n}张 · 再显示{more}张', { n: list.length - lim, more: Math.min(PAGE, list.length - lim) })}</span>
               </button>,
             )
         }
@@ -1165,7 +1183,7 @@ export function FileTree(props: {
               {dir ? <FolderGlyph folder={path} /> : props.boards.has(path) ? <i className="sw ft-sw" style={{ background: props.boards.get(path) }} /> : <Codicon name={fileIcon(path, false, props.digests.has(path))} size={16} />}
               <span className="truncate">{dir ? n.name : shown(n.name)}</span>
               <span className="ft-fl" />
-              <span className="ft-pin" aria-label="钉住了">
+              <span className="ft-pin" aria-label={t('钉住了')}>
                 <Codicon name="pinned" size={12} />
               </span>
               {dir && view.counts && <span className="ft-count num">{n.count}</span>}
@@ -1177,11 +1195,11 @@ export function FileTree(props: {
   return (
     <>
       <ViewHead title={props.title}>
-        <HeadBtn icon="new-file" label="新建笔记" keys={K('new-note') ?? undefined} onClick={props.onNewNote} />
-        <HeadBtn icon="new-folder" label="新建文件夹" keys={target ? `放进「${fileName(target)}」` : `放在「${props.vaultName}」最外层`} onClick={() => startFolder(target)} />
-        <HeadBtn icon="layout" label="新建白板" onClick={props.onNewBoard} />
-        <HeadBtn icon="target" label="定位当前文件" onClick={reveal} />
-        <HeadBtn icon="sort-precedence" label="排序" keys={`${sortNow.label} · ${sortNow.hint}`} on={!!sortMenu} onClick={(e) => {
+        <HeadBtn icon="new-file" label={t('新建笔记')} keys={K('new-note') ?? undefined} onClick={props.onNewNote} />
+        <HeadBtn icon="new-folder" label={t('新建文件夹')} keys={target ? t('放进「{name}」', { name: fileName(target) }) : t('放在「{name}」最外层', { name: props.vaultName })} onClick={() => startFolder(target)} />
+        <HeadBtn icon="layout" label={t('新建白板')} onClick={props.onNewBoard} />
+        <HeadBtn icon="target" label={t('定位当前文件')} onClick={reveal} />
+        <HeadBtn icon="sort-precedence" label={t('排序')} keys={`${t(sortNow.label)} · ${t(sortNow.hint)}`} on={!!sortMenu} onClick={(e) => {
           const el = e.currentTarget
           setSortMenu((m) => (m ? null : el))
         }} />
@@ -1195,8 +1213,8 @@ export function FileTree(props: {
         <input
           ref={findRef}
           type="search"
-          aria-label="找文件"
-          placeholder="找文件、文件夹"
+          aria-label={t('找文件')}
+          placeholder={t('找文件、文件夹')}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           onKeyDown={(e) => {
@@ -1207,7 +1225,7 @@ export function FileTree(props: {
           }}
         />
         {q ? (
-          <button className="ft-x" aria-label="清空" onClick={() => (setQ(''), findRef.current?.focus())}>
+          <button className="ft-x" aria-label={t('清空')} onClick={() => (setQ(''), findRef.current?.focus())}>
             <Codicon name="close" size={14} />
           </button>
         ) : (
@@ -1215,29 +1233,29 @@ export function FileTree(props: {
         )}
       </label>
       {sortMenu && (
-        <Popover anchor={sortMenu} label="排序" onClose={() => setSortMenu(null)} className="sortpop">
-          <div className="mh">排序</div>
+        <Popover anchor={sortMenu} label={t('排序')} onClose={() => setSortMenu(null)} className="sortpop">
+          <div className="mh">{t('排序')}</div>
           {TREE_SORTS.map((s) => (
-            <MenuItem key={s.id} icon={view.sort === s.id ? 'check' : undefined} label={s.label} right={s.hint} onClick={() => setV({ sort: s.id })} />
+            <MenuItem key={s.id} icon={view.sort === s.id ? 'check' : undefined} label={t(s.label)} right={t(s.hint)} onClick={() => setV({ sort: s.id })} />
           ))}
           <div className="ms" />
-          <MenuItem icon={view.foldersFirst ? 'check' : undefined} label="文件夹排在前面" onClick={() => setV({ foldersFirst: !view.foldersFirst })} />
-          <MenuItem icon={view.pinsFirst ? 'check' : undefined} label="置顶的排在最前" onClick={() => setV({ pinsFirst: !view.pinsFirst })} />
-          <MenuItem icon={view.counts ? 'check' : undefined} label="显示篇数" onClick={() => setV({ counts: !view.counts })} />
+          <MenuItem icon={view.foldersFirst ? 'check' : undefined} label={t('文件夹排在前面')} onClick={() => setV({ foldersFirst: !view.foldersFirst })} />
+          <MenuItem icon={view.pinsFirst ? 'check' : undefined} label={t('置顶的排在最前')} onClick={() => setV({ pinsFirst: !view.pinsFirst })} />
+          <MenuItem icon={view.counts ? 'check' : undefined} label={t('显示篇数')} onClick={() => setV({ counts: !view.counts })} />
           <div className="ms" />
-          <MenuItem icon={view.autoReveal ? 'check' : undefined} label="自动定位当前文件" onClick={() => setV({ autoReveal: !view.autoReveal })} />
+          <MenuItem icon={view.autoReveal ? 'check' : undefined} label={t('自动定位当前文件')} onClick={() => setV({ autoReveal: !view.autoReveal })} />
           {/* 从用的地方跳到设置（方向 A 的 A3）：文件树头上的菜单最下面一项到设置 › 文件和附件 */}
           <div className="ms" />
-          <MenuItem icon="settings-gear" className="go" label="新笔记放哪、附件、删除…" right={<Codicon name="chevron-right" size={12} />} onClick={() => (setSortMenu(null), openSettingsAt('newWhere'))} />
+          <MenuItem icon="settings-gear" className="go" label={t('新笔记放哪、附件、删除…')} right={<Codicon name="chevron-right" size={12} />} onClick={() => (setSortMenu(null), openSettingsAt('newWhere'))} />
         </Popover>
       )}
       {look && <LookPicker folder={look.folder} anchor={look.el} onClose={() => setLook(null)} />}
       {mover && <MovePicker {...mover} onPick={(f) => moveTo(mover.paths, f)} onClose={() => setMover(null)} />}
-      <nav className="nav" aria-label="笔记">
+      <nav className="nav" aria-label={t('笔记')}>
         <div
           className="ftree"
           role="tree"
-          aria-label={props.root ? `${props.title} 的文件` : '全部文件'}
+          aria-label={props.root ? t('{name} 的文件', { name: props.title }) : t('全部文件')}
           aria-multiselectable
           tabIndex={-1}
           ref={treeRef}
@@ -1247,16 +1265,16 @@ export function FileTree(props: {
           onContextMenu={(e) =>
             e.target === e.currentTarget &&
             void menuAt(e, [
-              { label: '新建笔记', run: () => app().newNote(props.root ?? '') },
-              { label: '新建白板', run: () => app().newBoard(props.root ?? '') },
-              { label: '新建文件夹', run: () => (setPicked(null), startFolder(props.root ?? '')) },
+              { label: t('新建笔记'), run: () => app().newNote(props.root ?? '') },
+              { label: t('新建白板'), run: () => app().newBoard(props.root ?? '') },
+              { label: t('新建文件夹'), run: () => (setPicked(null), startFolder(props.root ?? '')) },
             ])
           }
         >
           {pinRows.length > 0 && (
-            <div className="ft-pins" role="group" aria-label="钉住">
+            <div className="ft-pins" role="group" aria-label={t('钉住')}>
               <div className="ft-gh" role="presentation" style={{ paddingLeft: 22 }}>
-                <span>钉住</span>
+                <span>{t('钉住')}</span>
                 <span className="ln" />
               </div>
               {pinRows}
@@ -1275,28 +1293,28 @@ export function FileTree(props: {
         </div>
       </nav>
       {selN > 1 && (
-        <div className="ft-selbar" role="toolbar" aria-label="选中的">
+        <div className="ft-selbar" role="toolbar" aria-label={t('选中的')}>
           <Codicon name="check" size={14} />
-          <b className="num">{`已选${selN}个`}</b>
+          <b className="num">{t('已选{n}个', { n: selN })}</b>
           {/* 「问AI」（task-0tgz2）：前面是 AI 对话那一家的标志（偏好「AI 图标用引擎标志」） */}
           <button className="act" onClick={askSel}>
             <AiIcon job="chat" size={14} />
-            问AI
+            {t('问AI')}
           </button>
           {/* 左栏窄（默认 240）放不下三颗带字的：「移到…」「删除」只留图标（名字在 aria-label 和悬停提示里），file-tree.css 的容器查询 */}
           <button
             className="act"
-            aria-label="移到…"
-            data-tip="移到…"
+            aria-label={t('移到…')}
+            data-tip={t('移到…')}
             data-side="above"
             onClick={(e) => openMover(selList(), e.currentTarget)}
           >
             <Codicon name="folder-opened" size={14} />
-            <span className="lb">移到…</span>
+            <span className="lb">{t('移到…')}</span>
           </button>
-          <button className="act" aria-label="删除" data-tip="删除" data-side="above" onClick={() => trashSel(null)}>
+          <button className="act" aria-label={t('删除')} data-tip={t('删除')} data-side="above" onClick={() => trashSel(null)}>
             <Codicon name="trash" size={14} />
-            <span className="lb">删除</span>
+            <span className="lb">{t('删除')}</span>
           </button>
         </div>
       )}

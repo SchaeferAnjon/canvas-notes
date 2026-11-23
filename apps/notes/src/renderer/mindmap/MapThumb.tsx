@@ -8,6 +8,7 @@ import { Codicon } from '@cn/design'
 import { parseMindmap } from '@cn/format'
 import { useEffect, useMemo, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
+import { t } from '../../shared/i18n'
 import { titleOf } from '../../shared/layout'
 import { layoutMindmap, wirePath, type Level, type Measure } from '../../shared/mindmap-layout'
 import { imageSrc } from '../md-widgets'
@@ -85,11 +86,12 @@ export function MapThumb(props: { path: string }) {
 }
 
 /** 「导图 · 16个主题」 */
-export const mapCount = (note: NoteFile) => `导图 · ${note.board?.nodes ?? 0}个主题`
+export const mapCount = (note: NoteFile) => t('导图 · {n}个主题', { n: note.board?.nodes ?? 0 })
 
 /** 白板里的导图卡（子白板卡的导图版）：上面一块缩略，下面图标 + 名字 + 「导图 · N个主题」；双击打开（打开交给白板） */
 export function MapCard(props: { note: NoteFile }) {
   return (
+    // 不翻：data-part 给 e2e 和样式认
     <div className="mm-card" data-part="白板里的导图卡">
       <div className="mm-card-th">
         <MapThumb path={props.note.path} />

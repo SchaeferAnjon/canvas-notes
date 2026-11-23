@@ -40,16 +40,19 @@ export async function waitLoaded(since: number, timeoutMs = 20_000): Promise<Web
     if (wc && (loadedAt.get(wc) ?? 0) >= since && !wc.isLoading()) return wc
     await sleep(100)
   }
+  // 不翻：回给 AI 的工具结果、网页里的脚本
   throw new Error('网页 20 秒还没打开，可能网络不通')
 }
 
 function need(): WebContents {
   const wc = webContents()
+  // 不翻：回给 AI 的工具结果、网页里的脚本
   if (!wc) throw new Error('右栏网页没开。先用 web_open 打开一个网址。')
   return wc
 }
 
 /** 给能点的东西编上号（data-cn-ref），web_click / web_type 按号找 */
+// 不翻：回给 AI 的工具结果、网页里的脚本
 const READ = `(() => {
   const vis = (el) => { const r = el.getBoundingClientRect(); const s = getComputedStyle(el); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' }
   const label = (el) => (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.title || el.name || '').replace(/\\s+/g, ' ').trim().slice(0, 80)
@@ -92,6 +95,7 @@ function locate(target: { ref?: number; text?: string }): string {
 export async function click(target: { ref?: number; text?: string }): Promise<string> {
   const wc = need()
   const at = (await wc.executeJavaScript(locate(target), true)) as { x: number; y: number; label: string } | null
+  // 不翻：回给 AI 的工具结果、网页里的脚本
   if (!at) throw new Error('网页上没找到这个链接或按钮。先 web_read 看一下现在有什么。')
   const before = Date.now()
   wc.sendInputEvent({ type: 'mouseMove', x: at.x, y: at.y })
@@ -100,6 +104,7 @@ export async function click(target: { ref?: number; text?: string }): Promise<st
   // 点了可能会跳页：等一会儿，跳了就等它载完
   await sleep(400)
   if (wc.isLoading()) await waitLoaded(before, 15_000).catch(() => undefined)
+  // 不翻：回给 AI 的工具结果、网页里的脚本
   return `点了「${at.label}」。现在是：${wc.getTitle()}\n${wc.getURL()}`
 }
 
@@ -109,6 +114,7 @@ export async function type(ref: number, text: string, submit: boolean): Promise<
     `(() => { const el = document.querySelector('[data-cn-ref="${Number(ref)}"]'); if (!el) return false; el.scrollIntoView({ block: 'center' }); el.focus(); if (el.select) el.select(); else document.execCommand('selectAll'); return true })()`,
     true,
   )) as boolean
+  // 不翻：回给 AI 的工具结果、网页里的脚本
   if (!ok) throw new Error('没找到这个输入框。先 web_read 拿到编号。')
   if (text) wc.insertText(text)
   else wc.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' })
@@ -120,6 +126,7 @@ export async function type(ref: number, text: string, submit: boolean): Promise<
     await sleep(400)
     if (wc.isLoading()) await waitLoaded(before, 15_000).catch(() => undefined)
   }
+  // 不翻：回给 AI 的工具结果、网页里的脚本
   return submit ? `输入好了，按了回车。现在是：${wc.getTitle()}\n${wc.getURL()}` : '输入好了'
 }
 
@@ -131,6 +138,7 @@ export async function scroll(to: 'down' | 'up' | 'top' | 'bottom'): Promise<stri
     bottom: 'scrollTo(0, document.documentElement.scrollHeight)',
   }[to]
   const r = (await need().executeJavaScript(`(() => { ${code}; return [Math.round(scrollY), document.documentElement.scrollHeight - innerHeight] })()`, true)) as [number, number]
+  // 不翻：回给 AI 的工具结果、网页里的脚本
   return `滚到了 ${r[0]} / ${Math.max(0, r[1])}`
 }
 
@@ -146,6 +154,7 @@ export interface AccentColors {
 }
 
 /** 网页里画这些用的样式和指针：只在第一次用时加一次，样式写在网页自己的 <head> 里，名字都带 cn-ai 不和网站打架 */
+// 不翻：回给 AI 的工具结果、网页里的脚本
 const SETUP = (c: AccentColors, engine: EngineId) => `(() => {
   const c = ${JSON.stringify(c)}
   const logo = ${JSON.stringify(logoHtml(engine))}
@@ -188,6 +197,7 @@ export async function pickBlock(text: string, colors: AccentColors, engine: Engi
   const wc = need()
   await wc.executeJavaScript(SETUP(colors, engine), true)
   const found = (await wc.executeJavaScript(
+    // 不翻：回给 AI 的工具结果、网页里的脚本
     `(() => {
       const want = ${JSON.stringify(text.replace(/\s+/g, ' ').trim())}
       const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim()
@@ -233,6 +243,7 @@ export async function markClip(path: string, colors: AccentColors, engine: Engin
   await wc.executeJavaScript(SETUP(colors, engine), true)
   const id = `m${++markSeq}`
   const ok = (await wc.executeJavaScript(
+    // 不翻：回给 AI 的工具结果、网页里的脚本
     `(() => {
       let el = document.querySelector('[data-cn-ai-pick]')
       if (!el) {
@@ -293,6 +304,7 @@ export async function pageForClip(whole: boolean): Promise<{ text: string; url: 
     true,
   )) as { sel: string; body: string; url: string; title: string }
   const text = !whole && r.sel ? r.sel : r.body
+  // 不翻：回给 AI 的工具结果、网页里的脚本
   if (!text) throw new Error('这个网页上没有字可剪')
   return { text: text.slice(0, 20000), url: r.url, title: r.title }
 }

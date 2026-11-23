@@ -10,6 +10,7 @@ import { type EditorState, Facet, type Range, StateField } from '@codemirror/sta
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { bookMeta } from '../../shared/plugins/weread'
 import { type Hidden, hiddenOk, hiddenSyntax } from '../hidden-syntax'
+import { t } from '../../shared/i18n'
 
 /** 画不画属性表：编辑器不画；历史对比的文档看法画（只读，看改了哪个属性） */
 export const showPropsTable = Facet.define<boolean, boolean>({ combine: (v) => v.some(Boolean) })
@@ -50,20 +51,20 @@ class PropsTable extends WidgetType {
   toDOM(view: EditorView) {
     const box = document.createElement('div')
     box.className = 'cm-props'
-    box.setAttribute('aria-label', '属性')
+    box.setAttribute('aria-label', t('属性', { ctx: '属性弹层' }))
     for (const p of this.props) {
       const row = document.createElement('div')
       row.className = 'pr'
-      row.title = '点一下改'
+      row.title = t('点一下改')
       const k = document.createElement('span')
       k.className = 'k'
-      k.textContent = p.key
+      k.textContent = t(p.key)
       const v = document.createElement('span')
       v.className = 'v'
       v.textContent = p.value
       const ai = document.createElement('span')
       ai.className = 'ai'
-      ai.textContent = this.ai.includes(p.key) ? 'AI填的' : ''
+      ai.textContent = this.ai.includes(p.key) ? t('AI 填的') : ''
       row.append(k, v, ai)
       row.addEventListener('mousedown', (e) => {
         e.preventDefault()

@@ -15,7 +15,11 @@ import { MenuItem, Popover } from './Shell'
 import { CENTER_MIN } from './SideSash'
 import './dock.css'
 
-const ICON: Record<Exclude<D.ViewId, 'ai'>, CodiconName> = { web: 'globe', note: 'note', outline: 'list-tree', history: 'history' }
+const ICON: Record<Exclude<D.ViewId, 'ai' | 'aicol'>, CodiconName> = { web: 'globe', note: 'note', outline: 'list-tree', history: 'history', record: 'file', auto: 'symbol-event' }
+/** AI 和数据库 AI 列的标签画正在用的那家的标志 */
+const logoView = (v: D.ViewId): v is 'ai' | 'aicol' => v === 'ai' || v === 'aicol'
+/** 标签上写的名字：names 里给了用它（数据库点开的一条写那一条的名字），不然是这一样的名字 */
+const nameOf = (p: { names?: Partial<Record<D.ViewId, string>> }, v: D.ViewId) => p.names?.[v] || D.VIEW_NAME[v]
 const CN_NUM = ['零', '一', '两', '三', '四', '五']
 /** 按下挪过这么多才算拖，不然是点 */
 const SLOP = 4
@@ -36,6 +40,10 @@ export interface DockProps {
   aiLogo: React.ReactNode
   /** 标签在前面时它后面跟的一句灰字（右栏网页的「笔记」：「《那篇》· 来自这个网页」，task-6cxtc） */
   subs?: Partial<Record<D.ViewId, string>>
+  /** 标签上写的名字换成这个（数据库点开的一条：「第3讲 生产」） */
+  names?: Partial<Record<D.ViewId, string>>
+  /** 这一样在前面时组头右边多放的按钮（数据库点开的一条：上一条、下一条、看写法、整页打开） */
+  tools?: Partial<Record<D.ViewId, React.ReactNode>>
   /** layout：用户挪了布局（底栏说「布局记住了」）；view：开关标签 */
   onDock(next: D.Dock, op: DockOp): void
   onCloseView(v: D.ViewId): void
@@ -83,9 +91,9 @@ function Head(p: { g: D.Group | D.FloatWin; float: boolean; cur: boolean; props:
             data-testid={`dtab-${v}`}
             onPointerDown={(e) => drag.startView(e, v)}
           >
-            {v === 'ai' ? <span className="dic">{props.aiLogo}</span> : <Codicon name={ICON[v]} size={15} />}
-            <span className="dname">{D.VIEW_NAME[v]}</span>
-            <button className="x" aria-label={`收起${D.VIEW_NAME[v]}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => props.onCloseView(v)}>
+            {logoView(v) ? <span className="dic">{props.aiLogo}</span> : <Codicon name={ICON[v]} size={15} />}
+            <span className="dname">{nameOf(props, v)}</span>
+            <button className="x" aria-label={`收起${nameOf(props, v)}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => props.onCloseView(v)}>
               <Codicon name="close" size={12} />
             </button>
           </div>
@@ -94,6 +102,7 @@ function Head(p: { g: D.Group | D.FloatWin; float: boolean; cur: boolean; props:
       </div>
       <div className="dspace" onPointerDown={grab} />
       {g.active === 'web' && <WebFoldButton />}
+      {props.tools?.[g.active]}
       <div className="dgrab" data-tip={p.float ? '按住拖动浮窗' : '按住拖动这一栏，换左右位置'} data-side="below" onPointerDown={grab}>
         <span className="grip">
           <Codicon name="gripper" size={14} />
@@ -113,7 +122,7 @@ function Head(p: { g: D.Group | D.FloatWin; float: boolean; cur: boolean; props:
         <Popover anchor={menu} label="这一栏的布局" className="dock-menu" align="end" onClose={() => setMenu(null)}>
           <MenuItem
             icon="multiple-windows"
-            label={`把「${D.VIEW_NAME[g.active]}」浮起来`}
+            label={`把「${nameOf(props, g.active)}」浮起来`}
             onClick={() => {
               const r = menu.getBoundingClientRect()
               setMenu(null)
@@ -308,7 +317,7 @@ export function DockFrame(props: DockProps) {
       track(e, {
         start: () => cb.current.onHintDone(),
         move: (ev) => {
-          ghostAt(ev, v === 'ai' ? <span className="dic">{cb.current.aiLogo}</span> : <Codicon name={ICON[v]} size={14} />, D.VIEW_NAME[v])
+          ghostAt(ev, logoView(v) ? <span className="dic">{cb.current.aiLogo}</span> : <Codicon name={ICON[v]} size={14} />, nameOf(cb.current, v))
           const h = hit(v, ev.clientX, ev.clientY)
           t = h?.target ?? null
           setMark(h?.mark ?? null)

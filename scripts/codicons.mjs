@@ -30,6 +30,12 @@ comment-discussion symbol-operator location references
 reply multiple-windows split-vertical mention
 symbol-event
 arrow-circle-right watch
+group-by-ref-type issues symbol-method
+expand-all
+tasklist play-circle run-all
+replace surround-with symbol-namespace export
+milestone merge circle-large case-sensitive
+combine screen-cut indent
 `.split(/\s+/).filter(Boolean)
 
 const body = USED.map((n) => {

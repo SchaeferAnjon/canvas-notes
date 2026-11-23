@@ -283,7 +283,7 @@ test('CN-91 方向 C：谁来答、模型、effort 三颗在输入框底行（�
   }
 })
 
-test('多段引用方向 B：回答里选一段点小框的「引用进输入框」、⇧⌘L 再引用一段、粘一张图、PDF 上框一块点「引用」：一排 4 张卡，编号 ①②③④ 插在光标处；拖第 3 张到最前、删一张，字里的编号跟着改；卡 44 高最宽 220；输入框只多一排；点卡看全文；发出去是小圆点编号和下面的列表', async () => {
+test('多段引用方向 B：回答里选一段点小框的「引用」、⇧⌘L 再引用一段、粘一张图、PDF 上框一块点「引用」：一排 4 张卡，编号 ①②③④ 插在光标处；拖第 3 张到最前、删一张，字里的编号跟着改；卡 44 高最宽 220；输入框只多一排；点卡看全文；发出去是小圆点编号和下面的列表', async () => {
   const run = await launch(files, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -299,18 +299,18 @@ test('多段引用方向 B：回答里选一段点小框的「引用进输入框
     await expect(r.getByRole('button', { name: '发送' })).toBeVisible()
     const h0 = (await box(inp)).height
 
-    // 回答里选一段：选区下方的小框（读 PDF 的旁支，上面一格打问题，下面「引用进输入框 ⇧⌘L」「问这句 ↵」），点「引用进输入框」
+    // 回答里选一段：选区下方的小框（读 PDF 的旁支，上面一格打问题，下面「引用 ⌘↵」「问这句 ↵」，task-bppvn 起和别处小条一个叫法），点「引用」
     await selectText(page, answer, '列就是', '去哪')
     const qbox = page.getByRole('dialog', { name: '选中的这句' })
     await expect(qbox).toBeVisible()
-    await expect(qbox.getByRole('button')).toHaveText(['引用进输入框⇧⌘L', '问这句↵'])
-    await qbox.getByRole('button', { name: /引用进输入框/ }).click()
+    await expect(qbox.getByRole('button')).toHaveText(['引用⌘↵', '问这句↵'])
+    await qbox.getByRole('button', { name: /^引用/ }).click()
     await expect(qbox).toHaveCount(0)
     await expect(ta).toHaveValue('①')
     await expect(ta).toBeFocused()
     expect(await caret(ta)).toEqual([1, 1])
     await page.keyboard.type('这句和')
-    // 再选一段，⇧⌘L
+    // 再选一段，⇧⌘L（小条上不写，照旧能用）
     await selectText(page, answer, '这是', '讲解')
     await page.keyboard.press('Meta+Shift+KeyL')
     await expect(ta).toHaveValue('①这句和②')

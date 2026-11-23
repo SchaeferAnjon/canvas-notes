@@ -6,6 +6,7 @@
 import type { CodiconName } from '@cn/design'
 import type { NoteFile } from '../shared/api'
 import { previewOf, titleOf } from '../shared/layout'
+import { t } from '../shared/i18n'
 
 export type FolderSugKind = 'sum' | 'file' | 'new'
 export interface FolderSug {
@@ -72,12 +73,12 @@ export function folderSugs(folder: string, notes: readonly NoteFile[], day: stri
   const latest = latestNote(folder, notes)
   const weekly = isWeekly(latest)
   const out: FolderSug[] = []
-  if (sumTargets(folder, notes).length) out.push({ kind: 'sum', icon: 'notebook', text: weekly ? `把这周的${name}总结成三句话` : `把「${name}」总结成三句话` })
-  if (notes.some((n) => n.kind === 'inbox')) out.push({ kind: 'file', icon: 'inbox', text: `收件箱里和${name}有关的挪进来` })
+  if (sumTargets(folder, notes).length) out.push({ kind: 'sum', icon: 'notebook', text: weekly ? t('把这周的{name}总结成三句话', { name }) : t('把「{name}」总结成三句话', { name }) })
+  if (notes.some((n) => n.kind === 'inbox')) out.push({ kind: 'file', icon: 'inbox', text: t('收件箱里和{name}有关的挪进来', { name }) })
   const from = latest ? titleOf(latest.path) : null
   const next = from ? nextName(from, day) : null
   if (from && next && !notes.some((n) => n.path === `${folder}/${next}.md`))
-    out.push({ kind: 'new', icon: 'new-file', text: weekly ? `照上周的样子开一篇 ${next}` : `照「${from}」的样子开一篇「${next}」` })
+    out.push({ kind: 'new', icon: 'new-file', text: weekly ? t('照上周的样子开一篇 {name}', { name: next }) : t('照「{from}」的样子开一篇「{name}」', { from, name: next }) })
   return out
 }
 
@@ -127,12 +128,15 @@ export function skeleton(text: string, from: string, to: string, day: string): s
 /** 「把这周的周记总结成三句话」交给 AI 的话 */
 export function folderSumPrompt(folder: string, items: { path: string; text: string }[]): string {
   const ctx = items.map((c) => `<note path="${c.path}">\n${c.text.slice(0, 4000)}\n</note>`).join('\n\n')
+  // 不翻：给 AI 的提示词
   return `命令：文件夹小结\n文件夹：${folder}\n\n请把下面这几篇读一遍，用三句话总结：每句一件事，先说最要紧的、还没定的。只输出这三句话。\n\n${ctx}`
 }
 
 /** 「收件箱里和周记有关的挪进来」交给 AI 的话：文件夹、里面已有的几篇、收件箱每一条 */
 export function fileInPrompt(folder: string, items: { path: string; text: string }[], have: string[]): string {
+  // 不翻：给 AI 的提示词
   const list = items.map((i) => `路径：${i.path}\n内容：${previewOf(i.text, 300)}`).join('\n\n')
+  // 不翻：给 AI 的提示词
   return `命令：挪进文件夹\n文件夹：${folder}\n这个文件夹里已有：${have.join('、') || '（还没有）'}\n\n下面是收件箱里的东西。挑出和这个文件夹讲的是一回事、该放进去的；拿不准的不要列。
 只输出一个 JSON 代码块：["收件箱/…"]\n\n${list}`
 }
@@ -140,9 +144,9 @@ export function fileInPrompt(folder: string, items: { path: string; text: string
 /** 从回答里取要挪进来的路径（只要收件箱里真有的） */
 export function parseFileIn(reply: string, inbox: readonly NoteFile[]): string[] {
   const m = /```(?:json)?\s*([\s\S]*?)```/.exec(reply) ?? /(\[[\s\S]*\])/.exec(reply)
-  if (!m) throw new Error('AI没给出能用的方案')
+  if (!m) throw new Error(t('AI没给出能用的方案'))
   const raw = JSON.parse(m[1]!) as unknown
-  if (!Array.isArray(raw)) throw new Error('AI没给出能用的方案')
+  if (!Array.isArray(raw)) throw new Error(t('AI没给出能用的方案'))
   const paths = new Set(inbox.map((n) => n.path))
   return [...new Set(raw.filter((x): x is string => typeof x === 'string' && paths.has(x)))]
 }

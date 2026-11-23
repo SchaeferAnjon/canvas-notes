@@ -60,7 +60,7 @@ test('梦游一整次：现在梦游 → 报告分组 → 收下一条（main �
     const detail = panel.getByTestId('dream-detail')
     // 为什么在中间的条目头上（task-m552v：点一条中间开这一条）
     const dt = page.locator('[data-testid="dream-tab"]:not([hidden])')
-    await expect(dt.getByTestId('dream-why')).toContainText('两篇都讲到「')
+    await expect(dt.getByTestId('dream-why')).toContainText('两篇共同的关键词：云量低于三成')
     // 侧栏只写一句人话，点了中间开对比标签（CN-63）
     await expect(detail.getByTestId('dream-change').locator('.tx > span')).toHaveText('极光：末尾加了一行 相关：[[极光预报]]')
     await page.screenshot({ path: test.info().outputPath('dream-detail.png') })

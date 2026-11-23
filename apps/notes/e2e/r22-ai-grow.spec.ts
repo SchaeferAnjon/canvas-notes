@@ -88,11 +88,10 @@ const noLink = (s: string) => s.replace(/ · \[回到 AI 对话\]\(canvas-notes:
 const wrapped = (before: string, after: string) => wrapNewBlocks(before, after, BY).text
 const disk = (vault: string, f: string) => noLink(readFileSync(join(vault, f), 'utf8'))
 
-/** 在「第一段。」后面回车两下，打「/ai」回车，说要写什么 */
+/** 在「第一段。」后面回车（它是最后一块：回车就到文末那一行，task-ys1rr 6.4b），打「/ai」回车，说要写什么 */
 async function slashWrite(page: Page, want: string) {
   await pane(page).locator('.cm-line', { hasText: '第一段。' }).click()
   await page.keyboard.press('End')
-  await page.keyboard.press('Enter')
   await page.keyboard.press('Enter')
   await page.keyboard.type('/ai')
   await page.keyboard.press('Enter')
@@ -122,6 +121,32 @@ test('/ AI 写一段：字边收边写、一点点长出来，竖线的光往下
     await waitSaved(page)
     // 包在一个「AI 写的 · 哪家 · 模型」块里（task-dtc34）
     expect(readFileSync(join(vault, '书摘.md'), 'utf8')).toBe(`# 书摘\n\n第一段。\n\n${aiBlock(LONG_PARA, BY)}\n`)
+  } finally {
+    await run.close()
+  }
+})
+
+test('文末那一行打「/ai」，问的小框开着时那一行留着（AI 的字要写在那里，不再贴在上一段下面），什么都没写就 esc：那一行一起拿掉，文件一个字节不变', async () => {
+  const doc = '# 书摘\n\n第一段。\n'
+  const run = await launch({ '书摘.md': doc }, { CN_AI_FAKE: '1', CN_FAKE_SAY_MS: '40' })
+  const { page, vault } = run
+  try {
+    await openNote(page, '书摘')
+    await pane(page).locator('.cm-line', { hasText: '第一段。' }).click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('/ai')
+    await page.keyboard.press('Enter')
+    const ask = page.getByRole('textbox', { name: '让 AI 写什么' })
+    await expect(ask).toBeFocused()
+    // 小框开着：文末那一行还在（没被当成没打字拿掉）
+    await expect.poll(() => editorText(page)).toBe(doc + '\n\n')
+    await page.keyboard.press('Escape')
+    await expect(ask).toBeHidden()
+    await expect.poll(() => editorText(page)).toBe(doc)
+    await page.keyboard.press('ArrowUp')
+    await waitSaved(page)
+    expect(readFileSync(join(vault, '书摘.md'), 'utf8')).toBe(doc)
   } finally {
     await run.close()
   }

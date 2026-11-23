@@ -5,7 +5,9 @@
  * - 收过来：小条上点了什么（cn:sel → flow.ts），网页上点了小标（cn:mark → 笔记标签翻到那几条）。
  */
 import { titleOf } from '../../shared/layout'
-import type { WebSel } from '../../shared/web-reader'
+import { SEL_ACTIONS, type WebSel } from '../../shared/web-reader'
+import { markFresh } from '../sel-bar/store'
+import { onWebBarChange, webBarSpec } from '../sel-bar/web'
 import { webEntries } from '../../shared/web-notes'
 import type { WebviewEl } from '../web/WebView'
 import { NoteDoc } from '../note-doc'
@@ -55,6 +57,8 @@ async function push(el: WebviewEl) {
     return
   }
   el.send('cn:clip-to', clipTo(url, center(), inCenterTab(el)))
+  // 选中小条（task-26nz7）：条上、⋯ 里有哪几颗，总开关、不弹的网站
+  el.send('cn:bar', webBarSpec(accColor()))
   const t = /^https?:/i.test(url) ? targetNow(url) : null
   const marks = t ? webEntries(await textOf(t).catch(() => ''), url).map((e) => ({ id: e.key, quote: e.quote, text: e.text })) : []
   el.send('cn:marks', { marks, color: accColor() })
@@ -74,16 +78,32 @@ export function refreshWebNotes() {
   for (const v of views) void push(v)
 }
 
-if (typeof window !== 'undefined') window.addEventListener(WEB_NOTES_CHANGED, () => refreshWebNotes())
+if (typeof window !== 'undefined') {
+  window.addEventListener(WEB_NOTES_CHANGED, () => refreshWebNotes())
+  // 选中小条的表、自己的命令、刚存好的那颗变了：每个网页的小条照新的画（只发小条那一份）
+  onWebBarChange(() => {
+    const spec = webBarSpec(accColor())
+    for (const v of views) {
+      try {
+        v.send('cn:bar', spec)
+      } catch {
+        // 还没挂好的网页：挂好时 push 会发
+      }
+    }
+  })
+}
+
+/** 网页说刚存好的那颗已经描过一圈了 */
+export const webBarSeen = () => markFresh(null)
 
 /** 小条上点了什么（网页预加载 cn:sel）：查一遍再交给 flow.ts */
 export function webSelIpc(el: WebviewEl, raw: unknown) {
   const s = raw as Partial<WebSel> | undefined
-  const ok = new Set(['explain', 'translate', 'quote', 'clip', 'settings', 'target', 'copy'])
-  if (!s || typeof s.action !== 'string' || !ok.has(s.action) || typeof s.text !== 'string' || typeof s.url !== 'string' || typeof s.title !== 'string') return
+  if (!s || typeof s.action !== 'string' || !SEL_ACTIONS.includes(s.action) || typeof s.text !== 'string' || typeof s.url !== 'string' || typeof s.title !== 'string') return
+  if (s.action === 'cmd' && (typeof s.cmd !== 'string' || !/^own-[\w-]{1,40}$/.test(s.cmd))) return
   const b = s.bar
   const bar = b && [b.x, b.y, b.w, b.h].every((n) => typeof n === 'number' && Number.isFinite(n)) ? b : { x: 0, y: 0, w: 0, h: 0 }
-  const sel: WebSel = { action: s.action, text: s.text.slice(0, 20_000), url: s.url, title: s.title.slice(0, 300), bar, ...(typeof s.head === 'string' && s.head ? { head: s.head.slice(0, 200) } : {}) }
+  const sel: WebSel = { action: s.action, ...(s.action === 'cmd' ? { cmd: s.cmd } : {}), text: s.text.slice(0, 20_000), ...(typeof s.md === 'string' && s.md.trim() ? { md: s.md.slice(0, 40_000) } : {}), url: s.url, title: s.title.slice(0, 300), bar, ...(typeof s.head === 'string' && s.head ? { head: s.head.slice(0, 200) } : {}) }
   // 定了记到哪篇（或不用问）告诉网页：小条收起、选区清掉；取消了 keep，小条和选区留着
   void onSel(sel, el.getBoundingClientRect(), (keep) => el.send('cn:sel-done', keep), inCenterTab(el))
 }

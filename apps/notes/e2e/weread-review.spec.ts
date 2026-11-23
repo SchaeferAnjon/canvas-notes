@@ -254,7 +254,7 @@ test('CN-119 夹具里的每一篇在文档看法下都没有横向滚动（文�
   }
 })
 
-test('书摘照小样的疏密：两段之间 12、评价下面 14、章节标题上面 26 下面 10、标题到摘要 6；光标停在空行上照常一整行高', async () => {
+test('书摘照小样的疏密：两段之间 12、评价下面 14、章节标题上面 26 下面 10、标题到摘要 6；块缝一直是矮的，↓ 走过它下面的字不跳', async () => {
   const run = await open()
   const { page } = run
   try {
@@ -276,14 +276,24 @@ test('书摘照小样的疏密：两段之间 12、评价下面 14、章节标�
       }
     })
     expect(gaps).toEqual({ titleToMeta: 6, metaToH2: 26, h2ToQuote: 10, quoteToQuote: 12, reviewToPara: 14, thoughtToQuote: 14, paraToH2: 26 })
-    // 光标停在两条引文之间的空行：这一行回到一整行高，打的字看得见
-    const between = () => quote(page, 1).evaluate((el) => ({ h: el.nextElementSibling!.getBoundingClientRect().height, cls: el.nextElementSibling!.className }))
-    expect((await between()).h).toBeCloseTo(12, 0)
+    // 两条引文之间的空行是块缝（task-ys1rr，DESIGN.v3 6.4b、6.5）：光标不停在上面，↓ 一下到下一块；这一行一直是矮的 12，下面的字不跳
+    const between = () =>
+      quote(page, 1).evaluate((el) => {
+        const gap = el.nextElementSibling!
+        const n = document.getSelection()?.focusNode
+        const caretLine = (n?.nodeType === 1 ? (n as Element) : n?.parentElement)?.closest('.cm-line')
+        return { h: gap.getBoundingClientRect().height, cls: gap.className, nextTop: gap.nextElementSibling!.getBoundingClientRect().top, caretOnNext: caretLine === gap.nextElementSibling }
+      })
+    const before = await between()
+    expect(before.h).toBeCloseTo(12, 0)
     const q = (await box(quote(page, 1)))
     await page.mouse.click(q.x + 60, q.y + q.h - 8)
     await page.keyboard.press('ArrowDown')
-    await expect.poll(async () => (await between()).cls).not.toMatch(/cm-dg-gap/)
-    expect((await between()).h).toBeGreaterThan(24)
+    await expect.poll(async () => (await between()).caretOnNext).toBe(true)
+    const after = await between()
+    expect(after.cls).toMatch(/cm-dg-gap/)
+    expect(after.h).toBeCloseTo(12, 0)
+    expect(after.nextTop).toBeCloseTo(before.nextTop, 0)
   } finally {
     await run.close()
   }

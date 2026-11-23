@@ -239,7 +239,7 @@ test('拖一块：原块变淡（保持选中底）、拖影跟着鼠标（略�
   }
 })
 
-test('竖向疏密照小样：两块之间 12、二级标题上 26 下 10、元信息行到正文 26；光标停在空行上这一行一整行高；代码块里的空行不压；文件不变', async () => {
+test('竖向疏密照小样：两块之间 12、二级标题上 26 下 10、元信息行到正文 26；点两块之间的缝光标落到上一段末尾、缝不撑开；代码块里的空行不压；文件不变', async () => {
   const md = '# 疏密\n\n第一段。\n\n第二段。\n\n## 小节\n\n第三段。\n\n```js\nconst a = 1\n\nconst b = 2\n```\n\n最后一段。\n'
   const run = await launch({ '疏密.md': md })
   const { page, vault } = run
@@ -259,13 +259,18 @@ test('竖向疏密照小样：两块之间 12、二级标题上 26 下 10、元�
     expect(Math.round((await box('第一段')).y - (meta.y + meta.height))).toBe(26)
     // 代码块里的空行是代码：照常一整行
     expect(await gap('const a = 1', 'const b = 2')).toBeGreaterThan(18)
-    // 点进第一段和第二段之间的空行：这一行恢复一整行高，好在这里打字
+    // 点第一段和第二段之间的缝（上半）：光标落到第一段末尾，缝还是 12、下面的字不跳（task-ys1rr 起块缝不停光标；
+    // 以前这一行撑成一整行，打的字并进第一段成了它的第二行）。回车新起一块再打字：单独一段，上下各隔一道缝
     const first = await box('第一段')
-    await page.mouse.click(first.x + 30, first.y + first.height + 6)
-    await expect.poll(() => gap('第一段', '第二段')).toBeGreaterThan(25)
+    await page.mouse.click(first.x + first.width - 4, first.y + first.height + 3)
+    await page.waitForTimeout(200)
+    expect(await gap('第一段', '第二段')).toBe(12)
+    await page.keyboard.press('Enter')
     await page.keyboard.type('插一段')
     await waitSaved(page)
-    expect(read(vault, '疏密.md')).toBe(md.replace('第一段。\n\n', '第一段。\n插一段\n'))
+    expect(read(vault, '疏密.md')).toBe(md.replace('第一段。\n\n', '第一段。\n\n插一段\n\n'))
+    expect(await gap('第一段', '插一段')).toBe(12)
+    expect(await gap('插一段', '第二段')).toBe(12)
   } finally {
     await run.close()
   }

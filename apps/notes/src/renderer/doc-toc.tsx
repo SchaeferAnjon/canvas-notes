@@ -8,6 +8,7 @@ import { keyFor } from './keys'
 import { useEffect, useRef, useState } from 'react'
 import type { NoteDoc } from './note-doc'
 import { docOutline, type OutlineItem } from './shell/outline'
+import { useT } from './i18n'
 
 export const TOC_MIN_HEADINGS = 3
 
@@ -19,6 +20,7 @@ export function tocItems(md: string): OutlineItem[] {
 }
 
 export function DocToc(props: { text: string; doc: () => NoteDoc | null; scroller: () => HTMLElement | null; onOpenOutline(): void }) {
+  const t = useT()
   const items = tocItems(props.text)
   const [long, setLong] = useState(false)
   const [cur, setCur] = useState(0)
@@ -75,17 +77,17 @@ export function DocToc(props: { text: string; doc: () => NoteDoc | null; scrolle
 
   return (
     <div className="doc-toc-wrap" onMouseEnter={enter} onMouseLeave={leave}>
-      <div className="doc-toc" data-part="目录条" aria-hidden={open}>
+      <div className="doc-toc" data-part="目录条" /* 不翻：data-part 是 e2e、设计复审认的 */ aria-hidden={open}>
         {items.map((it, i) => (
           <i key={i} className={(it.depth === 0 ? 'd0' : it.depth === 1 ? 'd1' : 'd2') + (i === cur ? ' on' : '')} />
         ))}
       </div>
       {open && (
-        <nav className="doc-tocpop" aria-label="目录" data-part="目录浮层">
+        <nav className="doc-tocpop" aria-label={t('目录')} data-part="目录浮层" /* 不翻：data-part 是 e2e、设计复审认的 */>
           <div className="hd">
-            <span>目录</span>
+            <span>{t('目录')}</span>
             <button type="button" className="to-right" onClick={() => (setOpen(false), props.onOpenOutline())}>
-              {keyFor('outline') ? `${keyFor('outline')} 在右栏打开` : '在右栏打开'}
+              {keyFor('outline') ? t('{key} 在右栏打开', { key: keyFor('outline') }) : t('在右栏打开')}
             </button>
           </div>
           <div className="rows">

@@ -7,6 +7,7 @@ import { forwardRef, Fragment, useEffect, useLayoutEffect, useRef, useState } fr
 import type { EngineId } from '../shared/agent'
 import { hello } from './ai-greet'
 import { EngineLogo } from './engine-logo'
+import { useT } from './i18n'
 
 /** 引擎标志 + 钟点问候（宋体 600 22），下面一句（13 --t2）跟着在看的东西走 */
 export const Greeting = forwardRef<HTMLDivElement, { engine: EngineId; ask: string }>(function Greeting(props, ref) {
@@ -37,6 +38,7 @@ export interface Quick {
  * 最后「全部命令 /」（就是在输入框打「/」）；不换第二排。以后「存成命令」做好了，自己的命令接在后面
  */
 export function QuickRow(props: { items: Quick[]; /** 「⋯」最后一行「全部命令 /」：在输入框打「/」（读 PDF 那一排只有「问这一页」一颗，收不进「⋯」，不给） */ onAll?(): void }) {
+  const t = useT()
   const row = useRef<HTMLDivElement>(null)
   const moreBtn = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -80,8 +82,8 @@ export function QuickRow(props: { items: Quick[]; /** 「⋯」最后一行「�
   useEffect(() => {
     if (!menu) return
     const down = (e: MouseEvent) => {
-      const t = e.target as Node
-      if (!menuRef.current?.contains(t) && !moreBtn.current?.contains(t)) setMenu(false)
+      const at = e.target as Node
+      if (!menuRef.current?.contains(at) && !moreBtn.current?.contains(at)) setMenu(false)
     }
     const key = (e: KeyboardEvent) => e.key === 'Escape' && setMenu(false)
     document.addEventListener('mousedown', down)
@@ -107,12 +109,12 @@ export function QuickRow(props: { items: Quick[]; /** 「⋯」最后一行「�
             </button>
           </Fragment>
         ))}
-        <button ref={moreBtn} className={'qc more' + (menu ? ' on' : '')} aria-label="更多命令" title="更多命令" hidden={!folded.length} onClick={() => setMenu(!menu)}>
+        <button ref={moreBtn} className={'qc more' + (menu ? ' on' : '')} aria-label={t('更多命令')} title={t('更多命令')} hidden={!folded.length} onClick={() => setMenu(!menu)}>
           <Codicon name="ellipsis" size={14} />
         </button>
       </div>
       {menu && (
-        <div className="qmenu" role="menu" aria-label="更多命令" ref={menuRef} style={{ left: Math.max(0, Math.min((moreBtn.current?.offsetLeft ?? 0) - 6, (row.current?.clientWidth ?? 0) - 220)) }}>
+        <div className="qmenu" role="menu" aria-label={t('更多命令')} ref={menuRef} style={{ left: Math.max(0, Math.min((moreBtn.current?.offsetLeft ?? 0) - 6, (row.current?.clientWidth ?? 0) - 220)) }}>
           {folded.map((q, i) => (
             <Fragment key={q.text}>
               {/* 自己的命令和自带的之间一道横线（和那一排里的竖线一个意思） */}
@@ -128,7 +130,7 @@ export function QuickRow(props: { items: Quick[]; /** 「⋯」最后一行「�
               <div className="sep" />
               <button role="menuitem" onClick={() => (setMenu(false), props.onAll!())}>
                 <Codicon name="comment-discussion" size={14} />
-                <span className="truncate">全部命令</span>
+                <span className="truncate">{t('全部命令')}</span>
                 <span className="k">/</span>
               </button>
             </>

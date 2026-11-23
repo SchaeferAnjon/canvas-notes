@@ -10,6 +10,7 @@
  */
 import { randomBytes } from 'node:crypto'
 import { createServer } from 'node:http'
+import { fakeCmdAnswer } from '../../shared/cmd-run'
 import { advertise, type Advert } from './advertise'
 import type { MobileAsk } from './prompt'
 import { b64u, newKeyPair, pairLink, PROTO_VERSION } from './protocol'
@@ -26,11 +27,19 @@ let server: MobileServer | null = null
 let advert: Advert | null = null
 let port = Number(process.env.CN_FAKE_MAC_PORT || 0)
 
-/** 假 AI 的回答：说清是 Mac 上的假 AI、问的是什么，讲解里带页码和选中的字 */
+/**
+ * 假 AI 的回答：说清是 Mac 上的假 AI、问的是什么，讲解里带页码和选中的字；圈的一块（带图）写「框住的这块（带图 N KB）」；
+ * / 命令照电脑版测试用的固定回答（shared/cmd-run.ts 的 fakeCmdAnswer，自测题、补双链、每页讲什么都是能读的 JSON）
+ */
 function answer(q: MobileAsk): string {
   const where = q.source?.kind === 'pdf' ? `第 ${q.source.page} 页` : ''
+  if (q.kind === 'cmd') {
+    const cmd = /^命令：(\S+)/.exec(q.text)?.[1] ?? ''
+    return fakeCmdAnswer(q.text) ?? (cmd === '总结' ? 'Mac 上的假 AI 总结：第一句。第二句。第三句。' : cmd === '翻译' ? 'Mac 上的假 AI 译文：Grid lines stay straight.' : `Mac 上的假 AI 跑了「${cmd}」。`)
+  }
   if (q.kind === 'chat') return `Mac 上的假 AI 回答：${q.text.slice(0, 20)}。\n\n- 第一点\n- 第二点`
-  return `Mac 上的假 AI ${q.kind === 'translate' ? '翻译并讲解' : '讲解'}${where}「${(q.quote ?? '').slice(0, 24)}」。\n\n这一段说的是：网格线还是直线。`
+  const what = q.image ? `框住的这块（带图 ${Math.round((q.image.length * 3) / 4 / 1024)} KB）` : `「${(q.quote ?? '').slice(0, 24)}」`
+  return `Mac 上的假 AI ${q.kind === 'translate' ? '翻译并讲解' : '讲解'}${where}${what}。\n\n这一段说的是：网格线还是直线。`
 }
 
 async function up() {

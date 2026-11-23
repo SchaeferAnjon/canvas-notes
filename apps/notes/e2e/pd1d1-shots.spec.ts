@@ -56,6 +56,8 @@ for (const [skin, frame] of LOOKS) {
       await page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name: '写作', exact: true }).click()
       await expect(tabOn(page)).toHaveText('写作')
       await leftView(page, '待办')
+      // 「待办」格同时在中间开「待办」首页（task-kzr3n）：点回「写作」标签
+      await page.getByTestId('tab-list').getByRole('tab', { name: '写作' }).click()
       await expect(pane(page).getByTestId('todo-card')).toBeVisible()
       await shot(run, `1-start-${tag}`)
       // 「在哪」标注图要的框（天青 B 那一套）

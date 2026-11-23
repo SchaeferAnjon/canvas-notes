@@ -8,7 +8,7 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import type { EngineId } from '../../shared/agent'
 import { EngineLogo } from '../engine-logo'
-import { type AskSection, type DocUnit, findMath, isSummaryHead, parseSection, parseTable, prop, SUMMARY_LABEL } from '@cn/format'
+import { type AskSection, type DocUnit, findMath, isSummaryHead, parseSection, parseTable, prop } from '@cn/format'
 import { type ReactNode, useEffect, useState } from 'react'
 import { ScrollX } from '../scroll-x'
 import type { NoteFile } from '../../shared/api'
@@ -25,6 +25,8 @@ import { videoUrlOfCard } from '../video/BoardCards'
 import { BaseCard } from './base-card'
 import { MapCard } from '../mindmap/MapThumb'
 import { usePdfPage } from './pdf-page'
+import { useT } from '../i18n'
+import { t as tNow, uiLang } from '../../shared/i18n'
 
 /** 卡上能点的：勾第几行待办、开一个文件或网页、看全文 */
 export interface CardActs {
@@ -80,32 +82,33 @@ export type Face =
   | { k: 'images'; imgs: { alt: string; src: string }[] }
 
 /** 卡头一行的种类名（看全文的浮层头上也用），照小样的叫法 */
+// 不翻：键，画的地方翻（faceName 里 tNow(…, { ctx: '卡片种类' })）
 export const KIND_NAME: Record<string, string> = {
-  text: '正文',
-  list: '列表',
-  html: '正文',
-  todo: '待办',
-  callout: '提示块',
-  ai: 'AI 讲解',
-  code: '代码',
-  math: '公式',
-  table: '表格',
-  base: '数据库',
-  pdf: 'PDF 页',
-  ask: '问过 AI',
-  details: '折叠块',
-  note: '嵌入的笔记',
-  clipnote: '网页剪藏',
-  board: '白板',
-  link: '双链',
-  embedimg: '图片',
-  image: '图片',
-  images: '图集',
-  video: '视频',
-  moment: '视频时刻',
-  book: '书摘',
-  web: '网页引文',
-  quote: '引文',
+  text: '正文', // 不翻
+  list: '列表', // 不翻
+  html: '正文', // 不翻
+  todo: '待办', // 不翻
+  callout: '提示块', // 不翻
+  ai: 'AI 讲解', // 不翻
+  code: '代码', // 不翻
+  math: '公式', // 不翻
+  table: '表格', // 不翻
+  base: '数据库', // 不翻
+  pdf: 'PDF 页', // 不翻
+  ask: '问过 AI', // 不翻
+  details: '折叠块', // 不翻
+  note: '嵌入的笔记', // 不翻
+  clipnote: '网页剪藏', // 不翻
+  board: '白板', // 不翻
+  link: '双链', // 不翻
+  embedimg: '图片', // 不翻
+  image: '图片', // 不翻
+  images: '图集', // 不翻
+  video: '视频', // 不翻
+  moment: '视频时刻', // 不翻
+  book: '书摘', // 不翻
+  web: '网页引文', // 不翻
+  quote: '引文', // 不翻
 }
 
 /** 卡的整体样子：素材卡（浅底）、提示块（灰底）、媒体卡（图满宽，没有内边距） */
@@ -119,11 +122,11 @@ export function faceClass(f: Face): string {
 }
 
 export function faceName(f: Face): string {
-  // 「AI 总结的」卡写成 [!ai] 提示块以后（task-5yp97）头一个词是「AI 总结」
-  if (f.k === 'callout') return f.kind === 'ai' ? (isSummaryHead(f.title) ? SUMMARY_LABEL : KIND_NAME.ai!) : KIND_NAME.callout!
-  if (f.k === 'quote') return f.source?.book ? KIND_NAME.book! : f.source ? KIND_NAME.web! : KIND_NAME.quote!
-  if (f.k === 'cardbody') return KIND_NAME[f.kind]!
-  return KIND_NAME[f.k] ?? '正文'
+  // 「AI 总结的」卡写成 [!ai] 提示块以后（task-5yp97）头一个词是「AI 总结」（界面上的种类名跟界面语言；@cn/format 的 SUMMARY_LABEL 是写进文件、认块用的那个说法）
+  if (f.k === 'callout') return f.kind === 'ai' ? (isSummaryHead(f.title) ? tNow('AI 总结', { ctx: '卡片种类' }) : tNow(KIND_NAME.ai!, { ctx: '卡片种类' })) : tNow(KIND_NAME.callout!, { ctx: '卡片种类' })
+  if (f.k === 'quote') return tNow(f.source?.book ? KIND_NAME.book! : f.source ? KIND_NAME.web! : KIND_NAME.quote!, { ctx: '卡片种类' })
+  if (f.k === 'cardbody') return tNow(KIND_NAME[f.kind]!, { ctx: '卡片种类' })
+  return KIND_NAME[f.k] ? tNow(KIND_NAME[f.k]!, { ctx: '卡片种类' }) : tNow('正文', { ctx: '卡片种类' })
 }
 
 const WIKI = /^!?\[\[([^\]|#^]+)(?:#([^\]|]*))?(?:\|([^\]]*))?\]\]\s*$/
@@ -252,21 +255,21 @@ export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'fi
         const page = Number(/page=(\d+)/.exec(anchor)?.[1] ?? 1)
         const file = nearest(fileHits.filter((f) => f.kind === 'pdf'), ctx.notePath)
         if (u.kind === 'embed') return { k: 'pdf', name: target.replace(/\.pdf$/i, ''), page, file }
-        return { k: 'link', title: alias || target, sub: `PDF${anchor ? ` · 第${page}页` : ''}`, icon: 'file-pdf', open: file ? { kind: 'file', path: file.path, page } : null }
+        return { k: 'link', title: alias || target, sub: anchor ? tNow('PDF · 第{page}页', { page }) : 'PDF', icon: 'file-pdf', open: file ? { kind: 'file', path: file.path, page } : null }
       }
       if (ext && /^(png|jpe?g|gif|webp|svg|avif)$/.test(ext)) return { k: 'embedimg', src: embedImageSrc(ctx.notePath, target), alt: alias && !/^\d{1,5}(x\d{1,5})?$/.test(alias) ? alias : '' }
       const notes = ctx.notes.filter((n) => titleOf(n.path).toLowerCase() === low || n.path.toLowerCase() === low + '.md')
       const note = nearest(notes, ctx.notePath)
       if (note?.board) return { k: 'board', note }
       if (note && u.kind === 'embed') return note.source ? { k: 'clipnote', note } : { k: 'note', note }
-      if (note) return { k: 'link', title: alias || titleOf(note.path), sub: '笔记', icon: 'file-text', open: { kind: 'file', path: note.path } }
+      if (note) return { k: 'link', title: alias || titleOf(note.path), sub: tNow('笔记', { ctx: '卡片种类' }), icon: 'file-text', open: { kind: 'file', path: note.path } }
       // 没写后缀的 HTML、别的文件：按不带后缀的名字找
       const other = nearest(ctx.files.filter((f) => f.kind !== 'dir' && f.kind !== 'md' && fileName(f.path).replace(/\.[^.]+$/, '').toLowerCase() === low), ctx.notePath) ?? nearest(fileHits, ctx.notePath)
       if (other) {
         const kind = other.kind === 'html' ? 'HTML' : other.kind === 'pdf' ? 'PDF' : (/\.([^.]+)$/.exec(other.path)?.[1] ?? '').toUpperCase()
         return { k: 'link', title: alias || titleOf(other.path).replace(/\.[^.]+$/, ''), sub: `${fileName(other.path).replace(/\.[^.]+$/, '')} · ${kind}`, icon: other.kind === 'html' ? 'file-code' : other.kind === 'pdf' ? 'file-pdf' : 'file', open: { kind: 'file', path: other.path } }
       }
-      return { k: 'link', title: alias || target, sub: '库里还没有这一篇', icon: 'file', open: null }
+      return { k: 'link', title: alias || target, sub: tNow('库里还没有这一篇'), icon: 'file', open: null }
     }
     case 'image': {
       const m = /!\[([^\]]*)\]\(([^)\s]+)/.exec(text)
@@ -328,6 +331,7 @@ export function UnitBody(props: { u: DocUnit; f: Face; ctx: CardCtx; acts: CardA
 }
 
 function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; acts: CardActs; name?: string }) {
+  const t = useT()
   const full = ctx.full
   switch (f.k) {
     case 'text':
@@ -344,7 +348,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
       return (
         <>
           <Kh icon="checklist" right={`${done}/${f.rows.length}`}>
-            {name ? <span className="truncate">{name}</span> : '待办'}
+            {name ? <span className="truncate">{name}</span> : t('待办', { ctx: '卡片种类' })}
           </Kh>
           <div className="cb-todo db-todo">
             {shown.map((r) => (
@@ -354,7 +358,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
               </label>
             ))}
           </div>
-          {f.rows.length > shown.length && <div className="from">{`还有${f.rows.length - shown.length}条`}</div>}
+          {f.rows.length > shown.length && <div className="from">{t('还有{n}条', { n: f.rows.length - shown.length })}</div>}
         </>
       )
     }
@@ -384,13 +388,13 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
         <>
           <Kh
             icon="code"
-            right={`${f.lines.length}行`}
+            right={t('{n}行', { n: f.lines.length })}
             extra={
               <button
                 type="button"
                 className="cp"
-                aria-label="复制代码"
-                data-tip="复制代码"
+                aria-label={t('复制代码')}
+                data-tip={t('复制代码')}
                 onMouseDown={(e) => e.stopPropagation()}
                 onClick={() => void navigator.clipboard.writeText(f.lines.join('\n'))}
               >
@@ -398,7 +402,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
               </button>
             }
           >
-            {f.lang || '代码'}
+            {f.lang || t('代码', { ctx: '卡片种类' })}
           </Kh>
           <pre className={'db-code' + (!full && f.lines.length > 8 ? ' fade' : '')}>{highlight(lines.join('\n'), f.lang)}</pre>
         </>
@@ -407,7 +411,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
     case 'math':
       return (
         <>
-          <Kh icon="symbol-operator">公式</Kh>
+          <Kh icon="symbol-operator">{t('公式', { ctx: '卡片种类' })}</Kh>
           <div className="db-math">
             {f.tex.map((t, i) => (
               <MathBlock key={i} latex={t} />
@@ -419,11 +423,11 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
       const rows = full ? f.rows : f.rows.slice(0, 4)
       return (
         <>
-          <Kh icon="table" right={`${f.rows.length}行 × ${f.head.length}列`}>
-            表格
+          <Kh icon="table" right={t('{rows}行 × {cols}列', { rows: f.rows.length, cols: f.head.length })}>
+            {t('表格', { ctx: '卡片种类' })}
           </Kh>
           <MiniTable head={f.head} rows={rows} right={f.right} />
-          {f.rows.length > rows.length && <div className="from">{`还有${f.rows.length - rows.length}行 · 双击看全部`}</div>}
+          {f.rows.length > rows.length && <div className="from">{t('还有{n}行 · 双击看全部', { n: f.rows.length - rows.length })}</div>}
         </>
       )
     }
@@ -434,7 +438,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
         <>
           <Kh icon="file-pdf">
             <b>{f.name}</b>
-            <span className="pg">{` · 第${f.page}页`}</span>
+            <span className="pg">{` · ${t('第{page}页', { page: f.page })}`}</span>
           </Kh>
           <PdfPage file={f.file} page={f.page} />
         </>
@@ -455,7 +459,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
           <span className="sq" style={{ background: f.note.board!.color }} />
           <span>
             <b>{titleOf(f.note.path)}</b>
-            <span>{`白板 · ${f.note.board!.cards}张卡片 · 双击打开`}</span>
+            <span>{t('白板 · {n}张卡片 · 双击打开', { n: f.note.board!.cards })}</span>
           </span>
         </div>
       )
@@ -467,7 +471,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
           </span>
           <span>
             <b>{f.title}</b>
-            <span>{f.open ? `${f.sub} · 双击打开` : f.sub}</span>
+            <span>{f.open ? t('{sub} · 双击打开', { sub: f.sub }) : f.sub}</span>
           </span>
         </div>
       )
@@ -500,7 +504,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
           </div>
           <div className="cap">
             <Codicon name="file-media" size={13} />
-            {` ${f.imgs.length}张图${names.length ? ' · ' + names.slice(0, 3).join('、') + (names.length > 3 ? '…' : '') : ''}`}
+            {` ${names.length ? t('{n}张图 · {names}', { n: f.imgs.length, names: names.slice(0, 3).join(uiLang() === 'en' ? ', ' : '、') + (names.length > 3 ? '…' : '') }) : t('{n}张图', { n: f.imgs.length })}`}
           </div>
         </>
       )
@@ -574,6 +578,7 @@ function MiniTable(props: { head: string[]; rows: ReactNode[][]; right?: boolean
  * 卡底出处（书摘是「《书》· 章 … 回原文」，网页是域名）
  */
 function Quote({ f, acts, full }: { f: Extract<Face, { k: 'quote' }>; acts: CardActs; full: boolean }) {
+  const t = useT()
   const s = f.source
   const web = s?.url && /^https?:/i.test(s.url) ? s.url : null
   return (
@@ -596,7 +601,7 @@ function Quote({ f, acts, full }: { f: Extract<Face, { k: 'quote' }>; acts: Card
           <span className="truncate">{`《${s.book.name}》${s.book.chapter ? `· ${s.book.chapter}` : ''}`}</span>
           {web && (
             <button type="button" className="at back" onMouseDown={(e) => e.stopPropagation()} onClick={() => acts.onOpen({ kind: 'url', url: web })}>
-              回原文
+              {t('回原文')}
             </button>
           )}
         </div>
@@ -612,23 +617,25 @@ function Quote({ f, acts, full }: { f: Extract<Face, { k: 'quote' }>; acts: Card
 
 /** PDF 一页的缩略图（画一次存在软件设置目录，按路径 + 修改时间 + 页码） */
 function PdfPage({ file, page }: { file: FileEntry | null; page: number }) {
+  const t = useT()
   // 一页画一份（560 宽，卡上 2 倍屏、全文里都够清楚），卡上和全文共用
   const url = usePdfPage(file?.path ?? null, file?.mtimeMs ?? 0, page, 560)
-  if (!file) return <div className="db-slide none">库里没找到这份 PDF</div>
-  if (url === 'failed') return <div className="db-slide none">这一页画不出来</div>
-  return <div className={'db-slide' + (url ? '' : ' wait')}>{url && <img src={url} alt={`第${page}页`} draggable={false} />}</div>
+  if (!file) return <div className="db-slide none">{t('库里没找到这份 PDF')}</div>
+  if (url === 'failed') return <div className="db-slide none">{t('这一页画不出来')}</div>
+  return <div className={'db-slide' + (url ? '' : ' wait')}>{url && <img src={url} alt={t('第{page}页', { page })} draggable={false} />}</div>
 }
 
 /** 问过 AI：页码和时间、框下来的截图（没有就画那一页）和标题、疑惑一行、讲通三行、完整对话几轮 */
 function AskCard({ s, pdf, full }: { s: AskSection; pdf: FileEntry | null; full: boolean }) {
+  const t = useT()
   const failed = s.failed.length
   return (
     <>
       <Kh icon="comment-discussion" right={s.time}>
-        {s.page > 0 ? `第${s.page}页` : s.web?.label || '问过'}
+        {s.page > 0 ? t('第{page}页', { page: s.page }) : s.web?.label || t('问过')}
       </Kh>
       <div className="db-ask-top">
-        <div className={'thumb' + (full ? ' big' : '')}>{s.crop ? <img src={vaultSrc(s.crop)} alt="我框的" draggable={false} /> : s.page > 0 ? <PdfPage file={pdf} page={s.page} /> : null}</div>
+        <div className={'thumb' + (full ? ' big' : '')}>{s.crop ? <img src={vaultSrc(s.crop)} alt={t('我框的')} draggable={false} /> : s.page > 0 ? <PdfPage file={pdf} page={s.page} /> : null}</div>
         <div className="tt">{s.title}</div>
       </div>
       {s.doubts.length > 0 && (
@@ -656,14 +663,14 @@ function AskCard({ s, pdf, full }: { s: AskSection; pdf: FileEntry | null; full:
           <details key={x.version} className="md-fold">
             <summary>
               <Codicon name="chevron-right" size={14} />
-              <span>{`没讲通 · 第${x.version}版：${x.line}`}</span>
+              <span>{t('没讲通 · 第{v}版：{line}', { v: x.version, line: x.line })}</span>
             </summary>
             <Markdown text={x.text} />
           </details>
         ))}
       <div className="foot">
         <Codicon name="comment-discussion" size={13} />
-        {`完整对话 · ${s.rounds}轮${failed ? ` · 没讲通${failed}版` : ''}`}
+        {failed ? t('完整对话 · {rounds}轮 · 没讲通{failed}版', { rounds: s.rounds, failed }) : t('完整对话 · {rounds}轮', { rounds: s.rounds })}
       </div>
     </>
   )
@@ -671,13 +678,14 @@ function AskCard({ s, pdf, full }: { s: AskSection; pdf: FileEntry | null; full:
 
 /** 折叠块：一行「›  标题 … 折着」，点开就地展开（只在白板上，不改文件） */
 function Details({ title, body, full }: { title: string; body: string; full: boolean }) {
+  const t = useT()
   const [open, setOpen] = useState(full)
   return (
     <>
       <button type="button" className="det" aria-expanded={open} onMouseDown={(e) => e.stopPropagation()} onClick={() => setOpen(!open)}>
         <Codicon name={open ? 'chevron-down' : 'chevron-right'} size={14} />
         <span className="nm">{inline(title)}</span>
-        {!open && <span className="r">折着</span>}
+        {!open && <span className="r">{t('折着')}</span>}
       </button>
       {open && (
         <div className="det-b">
@@ -718,14 +726,15 @@ function firstPara(text: string, full: boolean): string {
 
 /** 嵌入的笔记：卡头「嵌入的笔记 … 所在的文件夹」，名字加粗，下面三行开头 */
 function EmbedNote({ note, full }: { note: NoteFile; full: boolean }) {
+  const t = useT()
   const text = useNoteText(note.path)
   const name = titleOf(note.path)
-  const where = note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')).split('/').join(' / ') : '库'
+  const where = note.path.includes('/') ? note.path.slice(0, note.path.lastIndexOf('/')).split('/').join(' / ') : t('库')
   const body = text === null ? '' : firstPara(text, full)
   return (
     <>
       <Kh icon="file-text" right={where}>
-        嵌入的笔记
+        {t('嵌入的笔记', { ctx: '卡片种类' })}
       </Kh>
       <div className="emb">
         <b>{name}</b>
@@ -737,6 +746,7 @@ function EmbedNote({ note, full }: { note: NoteFile; full: boolean }) {
 
 /** 整页剪藏：封面（正文里的第一张图）、标题、三行摘要、来源和剪的日子；不露 md 和长链接 */
 function ClipNote({ note, full }: { note: NoteFile; full: boolean }) {
+  const t = useT()
   const text = useNoteText(note.path)
   const name = titleOf(note.path)
   const body = text ?? ''
@@ -754,7 +764,7 @@ function ClipNote({ note, full }: { note: NoteFile; full: boolean }) {
       </div>
       <div className="src">
         <Codicon name="globe" size={13} />
-        <span className="truncate">{src ? domainOf(src) : '剪藏'}</span>
+        <span className="truncate">{src ? domainOf(src) : t('剪藏')}</span>
         <span className="at">{when(Number.isFinite(at) ? at : note.createdMs)}</span>
       </div>
     </>

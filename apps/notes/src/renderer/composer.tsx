@@ -22,6 +22,8 @@ import { copy } from './ctx/menu'
 import { EngineLogo } from './engine-logo'
 import { imageFiles, MAX_PASTED, pastedUrl, toBytes } from './paste-images'
 import { useDismiss } from './use-dismiss'
+import { useT } from './i18n'
+import { t as tNow } from '../shared/i18n'
 import './composer.css'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -110,11 +112,11 @@ export function useComposer(onNotice: (text: string) => void): Composer {
         }
       }
       if (mats.length >= MAX_MATERIALS) {
-        notice.current(`最多${MAX_MATERIALS}块`)
+        notice.current(tNow('最多{n}块', { n: MAX_MATERIALS }))
         return false
       }
       if (m.kind === 'image' && images() >= MAX_PASTED) {
-        notice.current(`最多${MAX_PASTED}张`)
+        notice.current(tNow('最多{n}张', { n: MAX_PASTED }))
         return false
       }
       const mat = { ...m, id: ++matSeq, ...(o.doc ? { doc: o.doc } : {}) } as Mat
@@ -181,12 +183,12 @@ export function useComposer(onNotice: (text: string) => void): Composer {
       if (!imgs.length) return false
       for (const f of imgs) {
         if (images() >= MAX_PASTED) {
-          notice.current(`最多${MAX_PASTED}张`)
+          notice.current(tNow('最多{n}张', { n: MAX_PASTED }))
           break
         }
         try {
           const { bytes, mime } = await toBytes(f)
-          c.add({ kind: 'image', name: await window.cn.aiPaste(bytes, mime), src: '粘贴的图' })
+          c.add({ kind: 'image', name: await window.cn.aiPaste(bytes, mime), src: tNow('粘贴的图') })
         } catch (e) {
           notice.current(errText(e))
         }
@@ -195,7 +197,7 @@ export function useComposer(onNotice: (text: string) => void): Composer {
     },
     async pickImages() {
       const room = MAX_PASTED - images()
-      if (room <= 0) return notice.current(`最多${MAX_PASTED}张`)
+      if (room <= 0) return notice.current(tNow('最多{n}张', { n: MAX_PASTED }))
       try {
         for (const g of await window.cn.aiPickImages(room)) c.add({ kind: 'image', name: g.name, src: g.label })
       } catch (e) {
@@ -215,15 +217,15 @@ export function useComposer(onNotice: (text: string) => void): Composer {
 
 /**
  * 发出去的那句话：字里只有编号（没打别的字）、带的全是图时，问「这张图讲的是什么」（CN-24，编号不留，图在下面那一行里）；
- * 别的照原样（去掉头尾空白）
+ * 别的照原样（去掉头尾空白）。替用户问的这句跟界面语言（气泡里看得到，AI 也照它的语言答）
  */
 export function sendText(text: string, mats: readonly Material[]): string {
   const bare = !text.replace(/[①-⑳\s]/g, '')
-  return bare && mats.length && mats.every((m) => m.kind === 'image') ? '这张图讲的是什么' : text.trim()
+  return bare && mats.length && mats.every((m) => m.kind === 'image') ? tNow('这张图讲的是什么') : text.trim()
 }
 
 /** 底行提示：有材料时「3段引用、2张图 · 字里的 ①② 是它们的位置」 */
-export const matsHint = (mats: readonly Material[]) => `${countLine(mats)} · 字里的 ①② 是它们的位置`
+export const matsHint = (mats: readonly Material[]) => tNow('{count} · 字里的 ①② 是它们的位置', { count: countLine(mats) })
 
 // ---------- 输入框 ----------
 
@@ -279,6 +281,7 @@ export interface AiInputProps {
 
 export function AiInput(p: AiInputProps) {
   const { c } = p
+  const t = useT()
   const [drop, setDrop] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const shelf = !!p.lead || c.mats.length > 0
@@ -315,8 +318,8 @@ export function AiInput(p: AiInputProps) {
         data-testid="ai-input-slim"
         role="button"
         tabIndex={0}
-        aria-label="回到主对话的输入框"
-        title="点这里收起旁支、回到主对话"
+        aria-label={t('回到主对话的输入框')}
+        title={t('点这里收起旁支、回到主对话')}
         onClick={go}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -361,7 +364,7 @@ export function AiInput(p: AiInputProps) {
         <textarea
           ref={c.ta}
           rows={1}
-          aria-label="问 AI"
+          aria-label={t('问 AI')}
           placeholder={p.placeholder}
           value={c.text}
           data-own={p.own ? '1' : undefined}
@@ -378,7 +381,7 @@ export function AiInput(p: AiInputProps) {
           }}
         />
         <div className={'ft' + (row.tight ? ' tight' : '')} ref={row.ref}>
-          <button className="pick add" aria-label="加图" data-tip="加图" data-side="above" onClick={() => void c.pickImages()}>
+          <button className="pick add" aria-label={t('加图')} data-tip={t('加图')} data-side="above" onClick={() => void c.pickImages()}>
             <Codicon name="add" size={14} />
           </button>
           {p.picks && <AiPicks {...p.picks} />}
@@ -386,11 +389,11 @@ export function AiInput(p: AiInputProps) {
             {hint}
           </span>
           {p.running ? (
-            <button className="send" aria-label="停下" onClick={p.onStop}>
+            <button className="send" aria-label={t('停下')} onClick={p.onStop}>
               <Codicon name="primitive-square" size={12} />
             </button>
           ) : (
-            <button className="send" aria-label="发送" disabled={p.sendDisabled} data-tip={p.sendTip} data-side="above-left" onClick={p.onSend}>
+            <button className="send" aria-label={t('发送')} disabled={p.sendDisabled} data-tip={p.sendTip} data-side="above-left" onClick={p.onSend}>
               <Codicon name="arrow-up" size={14} />
             </button>
           )}
@@ -451,23 +454,41 @@ export interface OmniProps {
   onToggle(): void
 }
 
-/** 悬停说清两种模式各能做什么（两段：开着、关着） */
+/** 悬停说清两种模式各能做什么（三段：开着、关着、两种都一样的） */
 export const omniTip = (engine: string) =>
-  `开着：和在终端里用${engine}一样，AI能读写这台Mac上的文件、跑命令、上网搜、开子Agent，不停下来问你。\n` +
-  '关着：AI只在库里动手（新建、改写、改名、挪动、删笔记，建文件夹），不碰库外的文件、不跑命令、不上网搜。\n' +
-  '两种都是一轮改动提交一次，能撤回；AI对话和读PDF共用这一个开关。'
+  [
+    tNow('开着：和在终端里用{engine}一样，AI能读写这台Mac上的文件、跑命令、上网搜、开子Agent，不停下来问你。', { engine }),
+    tNow('关着：AI只在库里动手（新建、改写、改名、挪动、删笔记，建文件夹），不碰库外的文件、不跑命令、不上网搜。'),
+    tNow('两种都是一轮改动提交一次，能撤回；AI对话和读PDF共用这一个开关。'),
+  ].join('\n')
 
 /**
  * 方角开关（`方角开关`：轨道和滑块都是小圆角方形）+「全能模式」+ 一句现在能做什么；点一下切换，全局记住。
- * 开着时轨道是强调色（开关是「选中」，强调色只给选中和标记）
+ * 开着时轨道是强调色（开关是「选中」，强调色只给选中和标记）。
+ * 那句说明放不下时整句藏起来（不省略成半截），只留开关和「全能模式」，悬停提示里有全文（英文版设计稿第 2 节）
  */
 function OmniLine(p: OmniProps) {
+  const t = useT()
+  const say = useRef<HTMLSpanElement>(null)
+  const [fits, setFits] = useState(true)
+  useLayoutEffect(() => {
+    const el = say.current
+    if (!el?.parentElement) return
+    const check = () => setFits(el.scrollWidth <= el.clientWidth + 1)
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el.parentElement)
+    return () => ro.disconnect()
+  }, [p.on, t])
   return (
     <div className="ai-omni" data-testid="ai-omni">
-      <button className="om" role="switch" aria-checked={p.on} aria-label="全能模式" data-tip={omniTip(p.engine)} data-side="above-start" data-tip-class="tip-para" onClick={p.onToggle}>
+      <button className="om" role="switch" aria-checked={p.on} aria-label={t('全能模式')} data-tip={omniTip(p.engine)} data-side="above-start" data-tip-class="tip-para" onClick={p.onToggle}>
         <span className="sw" aria-hidden="true" />
-        <span className="nm">全能模式</span>
-        <span className="say">{p.on ? '能读写这台Mac上的文件、跑命令、上网' : '关着：只在库里新建、改名、挪动、删笔记'}</span>
+        <span className="nm">{t('全能模式')}</span>
+        {/* 放不下时藏起来、照样占着那一格：宽了量得出它又放得下（composer.css 别的分支正改着，样式写在这里） */}
+        <span ref={say} className="say" style={fits ? undefined : { visibility: 'hidden' }}>
+          {p.on ? t('能读写这台Mac上的文件、跑命令、上网') : t('关着：只在库里新建、改名、挪动、删笔记')}
+        </span>
       </button>
     </div>
   )
@@ -476,6 +497,7 @@ function OmniLine(p: OmniProps) {
 /** 顶上那一排：第一张是框好的那块（不带编号），后面是材料 ①②③；点一张看全文，× 删掉，按住拖着换顺序 */
 function Shelf(p: { c: Composer; lead: Lead | null }) {
   const { c } = p
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const [peek, setPeek] = useState<{ key: string; el: HTMLElement } | null>(null)
   const [drag, setDrag] = useState<{ id: number; to: number } | null>(null)
@@ -499,7 +521,7 @@ function Shelf(p: { c: Composer; lead: Lead | null }) {
   const shown = peek && (peek.key === 'lead' ? p.lead : c.mats.find((m) => String(m.id) === peek.key))
 
   return (
-    <div className="shelf" ref={ref} data-testid="ai-shelf" aria-label="引用的材料">
+    <div className="shelf" ref={ref} data-testid="ai-shelf" aria-label={t('引用的材料')}>
       {p.lead && (
         <div
           className={'chipm lead' + (p.lead.quote !== undefined ? ' q' : ' img')}
@@ -534,7 +556,7 @@ function Shelf(p: { c: Composer; lead: Lead | null }) {
           data-testid="ai-mat"
           data-src={m.src}
           className={'chipm' + (m.kind === 'image' ? ' img' : '') + (drag?.id === m.id ? ' dragging' : '') + (drag && drag.to === i ? ' dropat' : '') + (drag && drag.to === n && i === n - 1 ? ' dropend' : '')}
-          title={m.kind === 'quote' ? `${m.src}：${m.text}` : m.src}
+          title={m.kind === 'quote' ? t('{src}：{text}', { src: m.src, text: m.text }) : m.src}
           onPointerDown={(e) => {
             if (e.button !== 0 || (e.target as Element).closest('.pxx')) return
             press.current = { id: m.id, x: e.clientX, y: e.clientY, el: e.currentTarget, moved: false }
@@ -571,7 +593,7 @@ function Shelf(p: { c: Composer; lead: Lead | null }) {
               <span className="ct">{m.text}</span>
             </span>
           )}
-          <button className="pxx" aria-label="删掉这块" data-tip="删掉这块" data-side="above" onClick={() => c.remove(m.id)}>
+          <button className="pxx" aria-label={t('删掉这块')} data-tip={t('删掉这块')} data-side="above" onClick={() => c.remove(m.id)}>
             <Codicon name="close" size={11} />
           </button>
         </div>
@@ -583,6 +605,7 @@ function Shelf(p: { c: Composer; lead: Lead | null }) {
 
 /** 点一张卡：在它上面弹 360 宽的小卡看全文（图看大图 + 来源），点外面、esc 收起 */
 function Peek(p: { item: Mat | Lead; anchor: HTMLElement; onClose(): void }) {
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const anchor = useRef<HTMLElement | null>(p.anchor)
   anchor.current = p.anchor
@@ -598,7 +621,7 @@ function Peek(p: { item: Mat | Lead; anchor: HTMLElement; onClose(): void }) {
   const img = 'kind' in it ? (it.kind === 'image' ? pastedUrl(it.name) : null) : (it.img ?? null)
   const src = 'kind' in it ? it.src : it.label
   return createPortal(
-    <div ref={ref} className="ai-peek" data-testid="ai-peek" data-composer-pop="" role="dialog" aria-label="看全文" style={pos ?? { visibility: 'hidden' }}>
+    <div ref={ref} className="ai-peek" data-testid="ai-peek" data-composer-pop="" role="dialog" aria-label={t('看全文')} style={pos ?? { visibility: 'hidden' }}>
       {img && <img src={img} alt={src} />}
       {quote !== null && <div className="pt">{quote}</div>}
       <div className="ps">{src}</div>
@@ -675,6 +698,7 @@ export function useConvPick(own: AiPick | null | undefined, setOwn: (p: AiPick) 
 
 /** 输入框底行：谁来答 · 模型 · effort（CN-91 方向 C），用和设置 › AI 同一个选择器（ai-picker.tsx 的 bar 样子） */
 export function AiPicks(p: PicksProps) {
+  const t = useT()
   async function locate(id: string) {
     try {
       const e = await window.cn.aiPickCli(id as EngineId)
@@ -687,13 +711,13 @@ export function AiPicks(p: PicksProps) {
     <AiPicker
       look="bar"
       ids={{ family: 'ai-engine', model: 'ai-model', effort: 'ai-effort' }}
-      familyMenu="AI 引擎"
-      familyHead="谁来答"
+      familyMenu={t('AI 引擎')}
+      familyHead={t('谁来答')}
       families={p.engines.map(engineFamily)}
       value={{ family: p.pick.engine, model: p.pick.model ?? '', ...(p.pick.effort ? { effort: p.pick.effort } : {}) }}
       // Claude Code、Codex 一直有一档（没选是 High）；OpenCode 的模型不选就是它自己的默认档
-      unsetEffort={hasEffort(p.pick.engine) ? null : { label: '默认档', note: '它自己的' }}
-      effortFoot="只管这个对话；默认在设置 › AI「AI对话」那一行。"
+      unsetEffort={hasEffort(p.pick.engine) ? null : { label: t('默认档'), note: t('它自己的') }}
+      effortFoot={t('只管这个对话；默认在设置 › AI「AI对话」那一行。')}
       hideFamily={p.engine === false}
       onFamily={(id) => id && p.onEngine(id as EngineId)}
       onModel={p.onModel}
@@ -764,7 +788,7 @@ function answerSelection(list: HTMLElement | null): { text: string; rect: DOMRec
   if (!a || a !== at(sel.focusNode) || !list.contains(a)) return null
   const text = sel.toString().replace(/\s+/g, ' ').trim()
   if (text.length < 2) return null
-  return { text, rect: sel.getRangeAt(0).getBoundingClientRect(), src: a.closest<HTMLElement>('[data-src]')?.dataset.src ?? 'AI的回答' }
+  return { text, rect: sel.getRangeAt(0).getBoundingClientRect(), src: a.closest<HTMLElement>('[data-src]')?.dataset.src ?? tNow('AI的回答') }
 }
 
 /**
@@ -773,6 +797,7 @@ function answerSelection(list: HTMLElement | null): { text: string; rect: DOMRec
  */
 export function QuoteCap(p: { list: RefObject<HTMLElement | null>; active: boolean; onQuote(text: string, src: string): void }) {
   /** cx：选区横着的中点；浮条画出来量了宽再居中（照小样：选区上方 8、横着居中，放不下往里挪） */
+  const t = useT()
   const [cap, setCap] = useState<{ text: string; src: string; cx: number; top: number } | null>(null)
   const [left, setLeft] = useState<number | null>(null)
   const ref = useRef<HTMLDivElement>(null)
@@ -819,7 +844,7 @@ export function QuoteCap(p: { list: RefObject<HTMLElement | null>; active: boole
   }, [cap, left])
   if (!cap) return null
   return createPortal(
-    <div ref={ref} className="capbar ai-cap" role="toolbar" aria-label="选中的这段" data-composer-pop="" style={{ left: left ?? cap.cx, top: cap.top, ...(left === null ? { visibility: 'hidden' } : {}) }}>
+    <div ref={ref} className="capbar ai-cap" role="toolbar" aria-label={t('选中的这段')} data-composer-pop="" style={{ left: left ?? cap.cx, top: cap.top, ...(left === null ? { visibility: 'hidden' } : {}) }}>
       <button
         className="main"
         onMouseDown={(e) => e.preventDefault()}
@@ -830,7 +855,8 @@ export function QuoteCap(p: { list: RefObject<HTMLElement | null>; active: boole
         }}
       >
         <Codicon name="quote" size={14} />
-        引用{keyFor('quote') && <kbd>{keyFor('quote')}</kbd>}
+        {t('引用')}
+        {keyFor('quote') && <kbd>{keyFor('quote')}</kbd>}
       </button>
       <span className="sepv" />
       <button
@@ -841,7 +867,7 @@ export function QuoteCap(p: { list: RefObject<HTMLElement | null>; active: boole
         }}
       >
         <Codicon name="copy" size={14} />
-        拷贝
+        {t('拷贝')}
       </button>
     </div>,
     document.body,

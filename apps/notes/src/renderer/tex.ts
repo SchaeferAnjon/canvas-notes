@@ -6,6 +6,7 @@
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import './math.css'
+import { t } from '../shared/i18n'
 
 export type Tex = { html: string; error: null } | { html: null; error: string }
 
@@ -14,15 +15,15 @@ const OPTIONS = { throwOnError: true, trust: false, strict: 'ignore', output: 'h
 /** KaTeX 的英文错误换成一句中文；不认得的照原话 */
 export function texError(raw: string, position: number | undefined): string {
   const rules: [RegExp, (...m: string[]) => string][] = [
-    [/^Undefined control sequence: (.+)$/, (c) => `不认识的命令 ${c}`],
-    [/^Expected '(.+)', got 'EOF'/, (c) => `少了一个 ${c}`],
-    [/^Expected '(.+)', got '(.+)'/, (c, g) => `这里该是 ${c}，写的是 ${g}`],
-    [/^Expected group (?:as argument to|after) '(.+)'/, (c) => `${c} 后面少了 {…}`],
-    [/^Extra (.+)$/, (c) => `多了一个 ${c}`],
-    [/^Unexpected end of input in a macro argument/, () => '少了一个 }'],
-    [/^Can't use function '(.+)' in (math|text) mode/, (c, m) => `${c} 不能用在${m === 'math' ? '公式' : '文字'}里`],
-    [/^Missing \\right/, () => '少了配对的 \\right'],
-    [/^Double (superscript|subscript)/, (k) => `连着两个${k === 'superscript' ? '上标 ^' : '下标 _'}，要加 {} 分开`],
+    [/^Undefined control sequence: (.+)$/, (c) => t('不认识的命令 {c}', { c })],
+    [/^Expected '(.+)', got 'EOF'/, (c) => t('少了一个 {c}', { c })],
+    [/^Expected '(.+)', got '(.+)'/, (c, g) => t('这里该是 {c}，写的是 {g}', { c, g })],
+    [/^Expected group (?:as argument to|after) '(.+)'/, (c) => t('{c} 后面少了 {…}', { c })],
+    [/^Extra (.+)$/, (c) => t('多了一个 {c}', { c })],
+    [/^Unexpected end of input in a macro argument/, () => t('少了一个 }')],
+    [/^Can't use function '(.+)' in (math|text) mode/, (c, m) => (m === 'math' ? t('{c} 不能用在公式里', { c }) : t('{c} 不能用在文字里', { c }))],
+    [/^Missing \\right/, () => t('少了配对的 \\right')],
+    [/^Double (superscript|subscript)/, (k) => (k === 'superscript' ? t('连着两个上标 ^，要加 {} 分开') : t('连着两个下标 _，要加 {} 分开'))],
   ]
   let say = raw
   for (const [re, f] of rules) {
@@ -32,7 +33,7 @@ export function texError(raw: string, position: number | undefined): string {
       break
     }
   }
-  return `公式写错了：${say}${position !== undefined ? `（第 ${position + 1} 个字）` : ''}`
+  return position !== undefined ? t('公式写错了：{say}（第 {n} 个字）', { say, n: position + 1 }) : t('公式写错了：{say}', { say })
 }
 
 const cache = new Map<string, Tex>()

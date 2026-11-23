@@ -50,6 +50,7 @@ import { useBoardImageDrop } from './web/useImageDrop'
 import { openCapture, setBoardCapture } from './mindmap/capture-store'
 import { settlePlaced } from './mindmap/place'
 import { MindmapLayer } from './mindmap/MindmapLayer'
+import { BoardFind } from './find/BoardFind'
 import { app } from './ctx/actions'
 import { align, duplicateCard, intoNewColumn, takeOut, tidyGrid } from './ctx/board-ops'
 import { type MenuEntry, showMenu } from './ctx/menu'
@@ -59,6 +60,8 @@ import { inboxOf, InboxPop, useInboxOpen } from './doc-board/inbox'
 import type { EditorView } from '@codemirror/view'
 import { UnitEditor } from './doc-board/unit-editor'
 import { typingIn } from './typing'
+import { useT } from './i18n'
+import { t as tNow } from '../shared/i18n'
 
 type Drag =
   | { type: 'block'; id: string; start: Pt; origin: Pt; moved: boolean; delta: Pt }
@@ -72,11 +75,12 @@ const PAL_ROOM = 96
 /** 上边让出的高：右上「N未整理」（上 16、高 32）下面再空 16，从 y=0 摆起的卡不贴标签条、不被它压住（第 3 轮美学） */
 const TOP_ROOM = 64
 
+// 不翻：键，画的地方翻（label 是工具板上的字，带「工具板」；title 进悬停提示，带「工具板提示」）
 const PAL: { kind: PalKind; label: string; title: string; icon: CodiconName }[] = [
-  { kind: 'card', label: '卡片', title: '新卡片', icon: 'note' },
-  { kind: 'todo', label: '待办', title: '待办', icon: 'checklist' },
-  { kind: 'column', label: '列', title: '新的列', icon: 'split-horizontal' },
-  { kind: 'board', label: '子白板', title: '子白板', icon: 'layout' },
+  { kind: 'card', label: '卡片', title: '新卡片', icon: 'note' }, // 不翻
+  { kind: 'todo', label: '待办', title: '待办', icon: 'checklist' }, // 不翻
+  { kind: 'column', label: '列', title: '新的列', icon: 'split-horizontal' }, // 不翻
+  { kind: 'board', label: '子白板', title: '子白板', icon: 'layout' }, // 不翻
 ]
 
 export interface BoardViewProps {
@@ -124,6 +128,7 @@ export interface BoardZoomApi {
 }
 
 export function BoardView(props: BoardViewProps) {
+  const t = useT()
   const { text, notes, scale } = props
   const [editing, setEditing] = useState<string | null>(null)
   /**
@@ -202,6 +207,17 @@ export function BoardView(props: BoardViewProps) {
     const z = fitZoom(box, { w: w.clientWidth - room, h: w.clientHeight - roomTop }, factor)
     const s = z * factor
     const to = box ? { left: Math.max(0, (box.x - 40) * s), top: Math.max(0, (box.y - 40) * s) } : { left: 0, top: 0 }
+    if (z === liveZoom.current) return void ((w.scrollLeft = to.left), (w.scrollTop = to.top))
+    pendingScroll.current = to
+    liveZoom.current = z
+    props.onZoom(z)
+  }
+  /** 导图换了布局放不下（鱼骨、时间线、向下常常更宽更高）：缩到整张放得下（只缩不放，最小 50%），滚到整张的左上（designer 复审提的） */
+  const fitMap = () => {
+    const w = wrap.current
+    if (!w || !mapSize.w) return
+    const z = Math.min(liveZoom.current, Math.max(0.5, fitZoom({ x: 0, y: 0, w: mapSize.w, h: mapSize.h }, { w: w.clientWidth - room, h: w.clientHeight - roomTop }, factor)))
+    const to = { left: 0, top: 0 }
     if (z === liveZoom.current) return void ((w.scrollLeft = to.left), (w.scrollTop = to.top))
     pendingScroll.current = to
     liveZoom.current = z
@@ -403,7 +419,7 @@ export function BoardView(props: BoardViewProps) {
         const id = newId(now)
         commit(addCard(now, id, `[[${titleOf(r.path)}]]`, where))
         setFlash(id)
-        return settlePlaced(props.notePath, r, '导图放在这里：是这块白板的子白板，文件在它旁边')
+        return settlePlaced(props.notePath, r, tNow('导图放在这里：是这块白板的子白板，文件在它旁边'))
       },
     })
   }
@@ -595,14 +611,14 @@ export function BoardView(props: BoardViewProps) {
   /** 卡片转成文档：开头一行当名字，新建在这块白板旁边，卡片换成指向它的双链 */
   async function cardToDoc(id: string, body: string) {
     const first = body.split('\n').find((l) => l.trim())?.replace(/^[#>*\-\s\[\]x]+/i, '').replace(/[*_`[\]]/g, '').trim() ?? ''
-    const name = first.slice(0, 40) || '卡片'
+    const name = first.slice(0, 40) || '卡片' // 不翻：新建文档的文件名，写进库里
     const dir = props.notePath.includes('/') ? props.notePath.slice(0, props.notePath.lastIndexOf('/')) : ''
     const text = /^#\s/.test(body.trimStart()) ? body.trim() + '\n' : `# ${name}\n\n${body.trim()}\n`
     const path = await window.cn.createNote(dir, name, text)
     const now = latest.current
     commit({ ...now, blocks: now.blocks.map((b) => (attr(b, 'id') === id ? withContent(b, `[[${titleOf(path)}]]`) : b)) })
     app().refresh()
-    props.onNotice(`转成了文档「${titleOf(path)}」，卡片指向它`)
+    props.onNotice(t('转成了文档「{name}」，卡片指向它', { name: titleOf(path) }))
   }
 
   function cardMenu(id: string): MenuEntry[] {
@@ -614,46 +630,46 @@ export function BoardView(props: BoardViewProps) {
     const col = attr(b, 'in')
     return [
       target
-        ? { label: '打开', run: () => props.onOpen(target) }
-        : !videoUrlOfCard(body) && { label: '编辑', run: () => ((editRow.current = null), setEditing(id)) },
-      { label: '复制一份', run: () => {
+        ? { label: t('打开'), run: () => props.onOpen(target) }
+        : !videoUrlOfCard(body) && { label: t('编辑'), run: () => ((editRow.current = null), setEditing(id)) },
+      { label: t('复制一份'), run: () => {
           const r = duplicateCard(doc, id)
           commit(r.doc)
           setFlash(r.id)
         } },
-      col && { label: '从列里拿出来', run: () => commit(takeOut(doc, id, rects[id])) },
+      col && { label: t('从列里拿出来'), run: () => commit(takeOut(doc, id, rects[id])) },
       '-',
-      body.trim() && { label: '问 AI 这张', ai: 'chat', run: () => app().askAi(body) },
+      body.trim() && { label: t('问 AI 这张'), ai: 'chat', run: () => app().askAi(body) },
       // 「问 AI 这张」带引擎标志，自成一组
       '-',
-      !target && body.trim() && { label: '转成文档', run: () => cardToDoc(id, body) },
+      !target && body.trim() && { label: t('转成文档'), run: () => cardToDoc(id, body) },
       '-',
-      { label: '删除', accel: accelFor('delete'), run: () => (removeBlocks(new Set([id])), setSelected(new Set())) },
+      { label: t('删除', { ctx: '白板菜单' }), accel: accelFor('delete'), run: () => (removeBlocks(new Set([id])), setSelected(new Set())) },
     ]
   }
 
   function manyMenu(ids: Set<string>): MenuEntry[] {
     return [
-      { label: '左对齐', run: () => commit(align(doc, ids, 'left')) },
-      { label: '顶对齐', run: () => commit(align(doc, ids, 'top')) },
-      { label: '排整齐', run: () => commit(tidyGrid(doc, ids, rects)) },
+      { label: t('左对齐'), run: () => commit(align(doc, ids, 'left')) },
+      { label: t('顶对齐'), run: () => commit(align(doc, ids, 'top')) },
+      { label: t('排整齐'), run: () => commit(tidyGrid(doc, ids, rects)) },
       '-',
-      { label: '放进新列', run: () => commit(intoNewColumn(doc, ids, rects)) },
+      { label: t('放进新列'), run: () => commit(intoNewColumn(doc, ids, rects)) },
       '-',
-      { label: `删除 ${ids.size} 张`, accel: accelFor('delete'), run: () => (removeBlocks(ids), setSelected(new Set())) },
+      { label: t('删除 {n} 张', { n: ids.size }), accel: accelFor('delete'), run: () => (removeBlocks(ids), setSelected(new Set())) },
     ]
   }
 
   async function emptyMenu(at: Pt): Promise<MenuEntry[]> {
     const clip = await window.cnMenu.clipboardHas()
     return [
-      { label: '新卡片', run: () => setEditing(addBlock('card', at, '')) },
-      { label: '新待办', run: () => createFromPal('todo', { at }, false) },
-      { label: '新列', run: () => createFromPal('column', { at }, false) },
-      { label: '新子白板', run: () => createFromPal('board', { at }, true) },
+      { label: t('新卡片'), run: () => setEditing(addBlock('card', at, '')) },
+      { label: t('新待办'), run: () => createFromPal('todo', { at }, false) },
+      { label: t('新列'), run: () => createFromPal('column', { at }, false) },
+      { label: t('新子白板'), run: () => createFromPal('board', { at }, true) },
       '-',
       {
-        label: '拍导图',
+        label: t('拍导图'),
         accel: accelFor('capture'),
         run: () => captureMap({ at }),
       },
@@ -661,7 +677,7 @@ export function BoardView(props: BoardViewProps) {
       // 剪贴板里是图：交给白板接粘贴的那条路（存进附件、放图片卡）；是字：在点的地方放一张卡
       clip.image
         ? { edit: 'paste' }
-        : { label: '粘贴', accel: accelFor('paste'), enabled: clip.text, run: async () => {
+        : { label: t('粘贴'), accel: accelFor('paste'), enabled: clip.text, run: async () => {
             const t = (await window.cnMenu.readClipboardText()).trim()
             if (!t) return
             const now = latest.current
@@ -687,7 +703,7 @@ export function BoardView(props: BoardViewProps) {
       const key = wireEl.dataset.link!
       setSelLink(key)
       setSelected(new Set())
-      items = [{ label: '删除连线', accel: accelFor('delete'), run: () => (commit(withLinks(doc, links.filter((l) => `${l.from}>${l.to}` !== key))), setSelLink(null)) }]
+      items = [{ label: tNow('删除连线'), accel: accelFor('delete'), run: () => (commit(withLinks(doc, links.filter((l) => `${l.from}>${l.to}` !== key))), setSelLink(null)) }]
     } else if (cardEl?.dataset.id) {
       const id = cardEl.dataset.id
       setSelLink(null)
@@ -700,9 +716,9 @@ export function BoardView(props: BoardViewProps) {
       const id = colEl.dataset.id
       setSelected(new Set([id]))
       items = [
-        { label: '改名', run: () => setRenameCol((r) => ({ id, seq: (r?.seq ?? 0) + 1 })) },
+        { label: tNow('改名'), run: () => setRenameCol((r) => ({ id, seq: (r?.seq ?? 0) + 1 })) },
         '-',
-        { label: '删除列（卡片留下）', run: () => (removeBlocks(new Set([id])), setSelected(new Set())) },
+        { label: tNow('删除列（卡片留下）'), run: () => (removeBlocks(new Set([id])), setSelected(new Set())) },
       ]
     } else items = await emptyMenu(toPlane(e.clientX, e.clientY))
     await showMenu(items)
@@ -794,11 +810,11 @@ export function BoardView(props: BoardViewProps) {
             }}
           />
         )}
-        {attr(b, 'ai') && editing !== id && <div className="aifoot">AI总结的 · {attr(b, 'ai')}</div>}
+        {attr(b, 'ai') && editing !== id && <div className="aifoot">{t('AI总结的 · {engine}', { engine: attr(b, 'ai') })}</div>}
         {!props.readOnly && editing !== id && (
           <span
             className="handle"
-            title="拖到另一张卡上连线"
+            title={t('拖到另一张卡上连线')}
             onPointerDown={(e) => {
               e.stopPropagation()
               ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
@@ -831,6 +847,8 @@ export function BoardView(props: BoardViewProps) {
   return (
     <div
       className={'board' + (imageDrop.dropping ? ' dropping' : '')}
+      // 卡里的 [字](链接) 相对这块白板认（cite.tsx）
+      data-cite-base={props.notePath}
       ref={outer}
       tabIndex={0}
       onKeyDown={onKey}
@@ -889,6 +907,8 @@ export function BoardView(props: BoardViewProps) {
           )}
         </svg>
 
+        {/* 在这块白板里找（⇧⌘F）：卡片里的字；导图白板由导图自己找 */}
+        <BoardFind root={() => outer.current} cards=".bcard" on={!mindmap} owner={props.notePath} />
         {mindmap && (
           <MindmapLayer
             text={text}
@@ -900,6 +920,7 @@ export function BoardView(props: BoardViewProps) {
             onUndo={props.onUndo}
             onRedo={props.onRedo}
             onSize={(w, h) => setMapSize((m) => (m.w === w && m.h === h ? m : { w, h }))}
+            onFit={fitMap}
             onNotice={props.onNotice}
           />
         )}
@@ -926,10 +947,10 @@ export function BoardView(props: BoardViewProps) {
               data-id={id}
             >
               <ColumnTitle
-                title={attr(b, 'title') ?? '新的列'}
+                title={attr(b, 'title') ?? t('新的列')}
                 count={members.length}
                 sub={videoTitle}
-                unit={moments ? '个' : '张卡片'}
+                moments={!!moments}
                 onDown={(e) => onBlockDown(e, id)}
                 onRename={(t) => setBlockAttrs(id, { title: t })}
                 editSeq={renameCol?.id === id ? renameCol.seq : 0}
@@ -949,10 +970,10 @@ export function BoardView(props: BoardViewProps) {
                     })
                   }
                 >
-                  {open ? '收起，只摆最近3个' : `还有${members.length - 3}个，按时间排`}
+                  {open ? t('收起，只摆最近3个') : t('还有{n}个，按时间排', { n: members.length - 3 })}
                 </button>
               )}
-              {members.length === 0 && <div className="col-empty">把卡片拖进来</div>}
+              {members.length === 0 && <div className="col-empty">{t('把卡片拖进来')}</div>}
             </div>
           )
         })}
@@ -964,7 +985,7 @@ export function BoardView(props: BoardViewProps) {
           {PAL.map((it) => (
             <button
               key={it.kind}
-              data-tip={`${it.title}：点一下，或按住拖到白板上`}
+              data-tip={t('{name}：点一下，或按住拖到白板上', { name: t(it.title, { ctx: '工具板提示' }) })}
               data-side="right"
               onPointerDown={(e) => startPal(e, it.kind)}
               onClick={() => {
@@ -973,12 +994,12 @@ export function BoardView(props: BoardViewProps) {
               }}
             >
               <Codicon name={it.icon} size={16} />
-              <span>{it.label}</span>
+              <span>{t(it.label, { ctx: '工具板' })}</span>
             </button>
           ))}
           <hr />
           <button
-            data-tip="拍一张导图：点一下，或按住拖到白板上（做好后是这块白板的子白板）"
+            data-tip={t('拍一张导图：点一下，或按住拖到白板上（做好后是这块白板的子白板）')}
             data-key={keyFor('capture') ?? undefined}
             data-side="right"
             onPointerDown={(e) => startPal(e, 'board', true)}
@@ -988,7 +1009,7 @@ export function BoardView(props: BoardViewProps) {
             }}
           >
             <Codicon name="device-camera" size={16} />
-            <span>拍导图</span>
+            <span>{t('拍导图', { ctx: '工具板' })}</span>
           </button>
         </div>
       )}
@@ -1025,6 +1046,7 @@ export function BoardView(props: BoardViewProps) {
 
 /** 从工具板拖出来时跟着鼠标的半透明预览：样子和大小跟落下后差不多，跟着白板缩放；不在画布上（松手会取消）时更淡 */
 function PalGhost(props: { kind: PalKind; client: Pt; over: boolean; scale: number; board: HTMLElement }) {
+  const t = useT()
   const { kind, scale } = props
   const base = props.board.getBoundingClientRect()
   const size = PAL_SIZE[kind]
@@ -1040,17 +1062,17 @@ function PalGhost(props: { kind: PalKind; client: Pt; over: boolean; scale: numb
     return (
       <div className={cls + ' bcol'} style={style} data-testid="pal-ghost" data-kind={kind}>
         <h3>
-          新的列
-          <span className="meta num">0张卡片</span>
+          {t('新的列')}
+          <span className="meta num">{t('{n}张卡片', { n: 0 })}</span>
         </h3>
-        <div className="col-empty">把卡片拖进来</div>
+        <div className="col-empty">{t('把卡片拖进来')}</div>
       </div>
     )
   return (
     <div className={`${cls} bcard k-${kind === 'card' ? 'note' : kind}`} style={style} data-testid="pal-ghost" data-kind={kind}>
       {kind === 'card' && (
         <div className="cb-note">
-          <p className="ph">新卡片</p>
+          <p className="ph">{t('新卡片')}</p>
         </div>
       )}
       {kind === 'todo' && <CardBody text={TODO_BODY} info={{ kind: 'todo' }} notes={[]} onToggle={() => {}} />}
@@ -1058,8 +1080,8 @@ function PalGhost(props: { kind: PalKind; client: Pt; over: boolean; scale: numb
         <div className="cb-board">
           <span className="sq" />
           <span>
-            <b>子白板</b>
-            <span className="meta num">0张卡片</span>
+            <b>{t('子白板')}</b>
+            <span className="meta num">{t('{n}张卡片', { n: 0 })}</span>
           </span>
         </div>
       )}
@@ -1070,7 +1092,8 @@ function PalGhost(props: { kind: PalKind; client: Pt; over: boolean; scale: numb
 /** 速记这类没标题的：文件名就是正文开头几个字，卡上不再重复一遍 */
 export const sameStart = (n: NoteFile) => !!n.excerpt && n.excerpt.startsWith(titleOf(n.path))
 
-function ColumnTitle(props: { title: string; count: number; sub?: string; unit?: string; onDown(e: React.PointerEvent): void; onRename(t: string): void; editSeq: number }) {
+function ColumnTitle(props: { title: string; count: number; sub?: string; /** 视频列：数的是时刻（「N个」） */ moments?: boolean; onDown(e: React.PointerEvent): void; onRename(t: string): void; editSeq: number }) {
+  const t = useT()
   const [edit, setEdit] = useState(false)
   // 右键「改名」
   useEffect(() => {
@@ -1080,15 +1103,15 @@ function ColumnTitle(props: { title: string; count: number; sub?: string; unit?:
     return (
       <input
         className="col-title-input"
-        aria-label="列名"
+        aria-label={t('列名')}
         defaultValue={props.title}
         autoFocus
         onFocus={(e) => e.currentTarget.select()}
         onPointerDown={(e) => e.stopPropagation()}
         onBlur={(e) => {
           setEdit(false)
-          const t = e.currentTarget.value.trim()
-          if (t && t !== props.title) props.onRename(t)
+          const v = e.currentTarget.value.trim()
+          if (v && v !== props.title) props.onRename(v)
         }}
         onKeyDown={(e) => {
           if (composing(e)) return
@@ -1102,7 +1125,7 @@ function ColumnTitle(props: { title: string; count: number; sub?: string; unit?:
       {props.title}
       {props.sub && <span className="col-sub">{props.sub}</span>}
       {/* 数和单位写成一个文本节点（DESIGN.md 字体那条，统一写法） */}
-      <span className="meta num">{`${props.count}${props.unit ?? '张卡片'}`}</span>
+      <span className="meta num">{props.moments ? t('{n}个', { ctx: '视频时刻', n: props.count }) : t('{n}张卡片', { n: props.count })}</span>
     </h3>
   )
 }
@@ -1114,6 +1137,7 @@ function isWholeDoc(text: string, body: string): boolean {
 
 /** 待办卡片的编辑：标题一行，下面每条一行勾选框加输入框；回车加一条，空着按退格删这条，esc 不改，点别处存 */
 function TodoEditor(props: { initial: string; focusLine: number | null; onDraft: BoardViewProps['onDraft']; onDone(v: string | null): void }) {
+  const t = useT()
   const lines = props.initial.split('\n')
   const head = lines[0] && !TODO.test(lines[0]) ? lines[0].replace(/^#+\s*|\*\*/g, '').trim() : ''
   const [title, setTitle] = useState(head)
@@ -1135,9 +1159,9 @@ function TodoEditor(props: { initial: string; focusLine: number | null; onDraft:
     if (done.current) return
     done.current = true
     if (!save) return props.onDone(null)
-    const { title: t, rows: rs } = state.current
+    const { title: tt, rows: rs } = state.current
     const kept = rs.filter((r) => r.text.trim())
-    const out = [t.trim() ? `**${t.trim()}**` : null, ...(kept.length ? kept : [{ done: false, text: '' }]).map((r) => `- [${r.done ? 'x' : ' '}] ${r.text.trim()}`)]
+    const out = [tt.trim() ? `**${tt.trim()}**` : null, ...(kept.length ? kept : [{ done: false, text: '' }]).map((r) => `- [${r.done ? 'x' : ' '}] ${r.text.trim()}`)]
     props.onDone(out.filter((l) => l !== null).join('\n'))
   }
   useDraft(props.onDraft, () => finish(true))
@@ -1177,8 +1201,8 @@ function TodoEditor(props: { initial: string; focusLine: number | null; onDraft:
       <input
         type="text"
         className="todo-title"
-        aria-label="待办标题"
-        placeholder="标题（可不写）"
+        aria-label={t('待办标题')}
+        placeholder={t('标题（可不写）')}
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         onKeyDown={(e) => {
@@ -1187,11 +1211,11 @@ function TodoEditor(props: { initial: string; focusLine: number | null; onDraft:
       />
       {rows.map((r, i) => (
         <div key={r.key} className={'td' + (r.done ? ' done' : '')}>
-          <input type="checkbox" aria-label="做完了" checked={r.done} onChange={() => update(i, { done: !r.done })} />
+          <input type="checkbox" aria-label={t('做完了')} checked={r.done} onChange={() => update(i, { done: !r.done })} />
           <input
             type="text"
-            aria-label="待办事项"
-            placeholder="写一条，回车加下一条"
+            aria-label={t('待办事项')}
+            placeholder={t('写一条，回车加下一条')}
             value={r.text}
             onChange={(e) => update(i, { text: e.target.value })}
             onKeyDown={(e) => {
@@ -1210,7 +1234,7 @@ function TodoEditor(props: { initial: string; focusLine: number | null; onDraft:
           />
         </div>
       ))}
-      <div className="todo-hint">{`回车加一条 · 空着按退格删掉 · ${keyFor('submit')} 或点别处存`}</div>
+      <div className="todo-hint">{t('回车加一条 · 空着按退格删掉 · {key} 或点别处存', { key: String(keyFor('submit')) })}</div>
     </div>
   )
 }
@@ -1229,6 +1253,7 @@ const closesTab = (e: React.KeyboardEvent) => e.metaKey && !e.altKey && !e.ctrlK
  * 点别处、Esc、⌘↵ 都存下；⌘W 交给软件关标签（关之前先把框里的字存回去）
  */
 function CardEditor(props: { initial: string; notePath: string; onNotice(t: string): void; onDraft: BoardViewProps['onDraft']; onDone(v: string | null): void }) {
+  const t = useT()
   const box = useRef<HTMLDivElement>(null)
   const value = useRef(props.initial)
   const done = useRef(false)
@@ -1279,7 +1304,7 @@ function CardEditor(props: { initial: string; notePath: string; onNotice(t: stri
         e.stopPropagation()
       }}
     >
-      <UnitEditor text={props.initial} notePath={props.notePath} label="卡片内容" keys={keys} className="card-ed" onChange={(t) => (value.current = t)} onNotice={props.onNotice} />
+      <UnitEditor text={props.initial} notePath={props.notePath} label={t('卡片内容')} keys={keys} className="card-ed" onChange={(v) => (value.current = v)} onNotice={props.onNotice} />
     </div>
   )
 }

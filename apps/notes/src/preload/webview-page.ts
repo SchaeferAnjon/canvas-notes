@@ -8,11 +8,31 @@ import { ipcRenderer } from 'electron'
 import TurndownService from 'turndown'
 import { mdUrl } from '../shared/layout'
 import { prepareClip } from './plugins/translate'
+import { codeLang, prepareMath } from './webview-md'
+
+/** 抽正文前先做的事（webview.ts 设：把 MathJax 3 的公式原文记到容器上） */
+let beforeExtract: () => Promise<unknown> = async () => {}
+export const setBeforeExtract = (f: () => Promise<unknown>) => void (beforeExtract = f)
 
 /** 直接转 DOM 节点，不拼 HTML 字符串（有的网站开了 Trusted Types，innerHTML 会被拦） */
 function toMarkdown(node: Node): string {
   const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-', emDelimiter: '*' })
   td.remove(['script', 'style', 'noscript', 'iframe', 'form', 'button'])
+  // 公式（prepareMath 换好的小块）：行内 $…$，块级单独几行 $$ … $$（文档里照 LaTeX 画）
+  td.addRule('cnTex', {
+    // Readability 会把只有字的 div 换成 p（属性跟着走）：按属性认，不管是什么标签
+    filter: (n) => n.nodeType === 1 && (n as Element).hasAttribute('data-cn-tex'),
+    replacement: (_c, node) => {
+      const tex = ((node as Element).getAttribute('data-cn-tex') ?? '').trim()
+      if (!tex) return ''
+      return (node as Element).hasAttribute('data-cn-display') ? `\n\n$$\n${tex}\n$$\n\n` : `$${tex}$`
+    },
+  })
+  // 代码块：没套 <code> 的 <pre>（Sphinx、d2l）也写成围栏，语言从 class 认（highlight-python）
+  td.addRule('cnPre', {
+    filter: (n) => n.nodeName === 'PRE' && !(n.firstChild && n.firstChild.nodeName === 'CODE'),
+    replacement: (_c, node) => `\n\n\`\`\`${(node as Element).getAttribute('data-cn-lang') || codeLang(node as Element)}\n${(node.textContent ?? '').replace(/\n+$/, '')}\n\`\`\`\n\n`,
+  })
   // 链接：不带 title（「"珍珠楼"」这种重复的字），网址里的 %E7%8F%8D 还原成能读的字
   td.addRule('link', {
     filter: (n) => n.nodeName === 'A' && !!(n as HTMLAnchorElement).getAttribute('href'),
@@ -108,6 +128,8 @@ export function stripNoise(root: Document) {
 
 export function extract(): { url: string; title: string; byline?: string; markdown: string } {
   const clone = document.cloneNode(true) as Document
+  // 公式写成 TeX、没显示的页签拿掉（要和原网页按先后对上，先做）
+  prepareMath(document, clone)
   // 双语翻译插进去的译文：按「整页剪藏带上译文」开关拿掉或写成引用
   prepareClip(clone)
   fixLazyImages(clone)
@@ -126,8 +148,10 @@ export function extract(): { url: string; title: string; byline?: string; markdo
   return { url: location.href, title: document.title.trim(), markdown: body ? toMarkdown(body) : '' }
 }
 
-ipcRenderer.on('cn:extract', (_e, id: number) => {
+ipcRenderer.on('cn:extract', async (_e, id: number) => {
   try {
+    // MathJax 3 的公式原文先记到容器上，克隆里才读得到
+    await beforeExtract()
     ipcRenderer.send('cn:extracted', id, extract(), null)
   } catch (e) {
     ipcRenderer.send('cn:extracted', id, null, `网页正文抽不出来：${(e as Error).message}`)

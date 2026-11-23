@@ -26,6 +26,8 @@ import { blockOf, showSide } from './host'
 import { ASK_THIS, sideAsks, sideName } from './name'
 import { askSide, nameOf, setName, sideIndex } from './side-core'
 import { SideInline, type SideMsgView } from './SideInline'
+import { useT } from '../i18n'
+import { t as tNow } from '../../shared/i18n'
 
 /** 一处挂旁支的地方（一张白板卡、问框里的一问） */
 export interface Spot {
@@ -47,7 +49,7 @@ export interface Spot {
   body?: string
   /** 最下面那一行：记到了哪 */
   record: { icon: CodiconName; text: string }
-  /** 小框「引用进输入框」 */
+  /** 小框「引用」 */
   onQuote(quote: string): void
   /** 选的模型、effort 跟哪一份对话（AI 对话那一行的 place） */
   place: string
@@ -197,12 +199,12 @@ function sidesOf(spot: Spot, b: DocAiBlock | null): MemSide[] {
 /** 问：交给 ai:side，答好了写进那块讲解下面（新开的写在最后，接着问的写在那条最后一块后面） */
 async function send(spot: Spot, open: Open, text: string, mats: Material[], how: { engine: AiPick['engine']; req: { model?: string; effort?: string } }) {
   const b = spot.path ? spot.find(spot.text) : null
-  if (spot.path && !b) return app().notice('那段讲解不在了')
+  if (spot.path && !b) return app().notice(tNow('那段讲解不在了'))
   const side = open.first !== null ? sidesOf(spot, b).find((s) => foldQuote(s.quote) === foldQuote(open.quote) && s.turns[0]?.q === open.first) : undefined
   const done = side?.turns ?? []
   const mine = (p: Pend) => p.host === open.host && (open.first !== null ? p.first === open.first && foldQuote(p.quote) === foldQuote(open.quote) : p.first === null && p.fresh === open.fresh)
   if (st.pend.some((p) => mine(p) && p.running)) return
-  const q = text.trim() || (done.length || st.pend.some((p) => mine(p) && !p.error) ? '' : ASK_THIS)
+  const q = text.trim() || (done.length || st.pend.some((p) => mine(p) && !p.error) ? '' : tNow(ASK_THIS))
   if (!q) return
   if (!listening) {
     listening = true
@@ -216,7 +218,7 @@ async function send(spot: Spot, open: Open, text: string, mats: Material[], how:
   set({ pend: [...st.pend.filter((p) => !(mine(p) && p.error)), pend] })
   const res = await askSide({
     id,
-    path: spot.path ?? `问框:${spot.host}`,
+    path: spot.path ?? `问框:${spot.host}`, // 不翻：只问不记的那一份的名字（会话、旁支名认它）
     title: spot.title,
     text: spot.path ? spot.text : '',
     block: b ?? { head: -1, end: -1, paras: [], sides: [], tail: null },
@@ -232,7 +234,7 @@ async function send(spot: Spot, open: Open, text: string, mats: Material[], how:
   const now = st.pend.find((p) => p.id === id)
   const answer = (res.text || now?.a || '').trim()
   const fail = (error: string) => set({ pend: st.pend.map((p) => (p.id === id ? { ...p, running: false, error } : p)) })
-  if (res.error || !answer) return fail(res.error ?? '没有回答')
+  if (res.error || !answer) return fail(res.error ?? tNow('没有回答'))
   const target = open.first !== null ? { quote: open.quote, first: open.first } : null
   // 新开的一条答好了：它的第一问就是这一问（开着的那条、在答的接着问跟着认它）
   const named = (o: Open | null) => (o && o.first === null && o.fresh === open.fresh && o.host === open.host ? { ...o, first: q } : o)
@@ -250,7 +252,7 @@ async function send(spot: Spot, open: Open, text: string, mats: Material[], how:
     const ins = sideInsert(t, blk, sideIndex(blk, target), { q, a: answer }, open.quote)
     return { from: ins.at, to: ins.at, insert: ins.insert }
   })
-  if (!ok) return fail('那段讲解不在了，这条回答没写进去')
+  if (!ok) return fail(tNow('那段讲解不在了，这条回答没写进去'))
   set({ pend: st.pend.map((p) => (p.id === id ? { ...p, running: false, written: true, first: p.first ?? q } : p.first === null && p.fresh === open.fresh && p.host === open.host ? { ...p, first: q } : p)), open: named(st.open) })
 }
 
@@ -261,6 +263,7 @@ async function send(spot: Spot, open: Open, text: string, mats: Material[], how:
  * className 给外面那一格（白板卡的 db-md、问框的 ak-tx md）；closedClass 只在没开着旁支时加（白板卡只露五行）
  */
 export function SideText(p: { spot: Spot; md: string; className?: string; closedClass?: string; testid?: string }): ReactNode {
+  const t = useT()
   const { spot } = p
   const s = useStore()
   const root = useRef<HTMLDivElement>(null)
@@ -296,7 +299,7 @@ export function SideText(p: { spot: Spot; md: string; className?: string; closed
   }, [sides, s.pend, open, spot.host])
 
   const curId = open ? (open.first !== null ? sideIdOf(open.quote, open.first) : freshId(open.fresh)) : null
-  const marks: Mark[] = groups.map((g) => ({ side: g.key, quote: mdPlain(g.quote), n: g.ids.length, title: `这句有 ${g.ids.length} 条旁支`, cur: !!curId && g.ids.includes(curId) }))
+  const marks: Mark[] = groups.map((g) => ({ side: g.key, quote: mdPlain(g.quote), n: g.ids.length, title: t('这句有 {n} 条旁支', { n: g.ids.length }), cur: !!curId && g.ids.includes(curId) }))
   const sig = JSON.stringify(marks)
   const mdEl = useMemo(() => <Markdown text={p.md} />, [p.md])
 
@@ -456,6 +459,7 @@ const howOf = (e: Awaited<ReturnType<typeof window.cn.aiEngines>>, own: AiPick |
 
 /** 开着的那一条（SideInline，和读 PDF、AI 对话、文档里的同一个） */
 function OpenSide(p: { spot: Spot; sides: MemSide[]; groups: { key: string; quote: string; ids: string[]; names: { first: string | null; fresh: number }[] }[]; open: Open; host: HTMLElement }) {
+  const t = useT()
   const { spot, open } = p
   const s = useStore()
   const [own, setOwn] = useState<AiPick | null>(null)
@@ -497,7 +501,7 @@ function OpenSide(p: { spot: Spot; sides: MemSide[]; groups: { key: string; quot
   const id = open.first !== null ? sideIdOf(open.quote, open.first) : freshId(open.fresh)
   const msgs = msgsOf(me, open.quote)
   const running = s.pend.some((x) => x.host === spot.host && x.running && foldQuote(x.quote) === foldQuote(open.quote) && (open.first !== null ? x.first === open.first : x.first === null && x.fresh === open.fresh))
-  const all = p.groups.flatMap((x) => x.names.map((w, i) => ({ id: x.ids[i]!, name: nameOfWho(w, x.quote), right: `${sideAsks({ msgs: msgsOf(w, x.quote) })} 问` })))
+  const all = p.groups.flatMap((x) => x.names.map((w, i) => ({ id: x.ids[i]!, name: nameOfWho(w, x.quote), right: t('{n} 问', { n: sideAsks({ msgs: msgsOf(w, x.quote) }) }) })))
 
   return (
     <SideInline
@@ -521,15 +525,16 @@ function OpenSide(p: { spot: Spot; sides: MemSide[]; groups: { key: string; quot
         }
       }}
       onPut={(text) => {
-        app().askAi(text, `旁支 · ${nameOfWho(me, open.quote)}`)
-        app().notice('放进了主对话的输入框，没发')
+        app().askAi(text, t('旁支 · {name}', { name: nameOfWho(me, open.quote) }))
+        app().notice(t('放进了主对话的输入框，没发'))
       }}
       menu={{
-        title: spot.path ? `这段${spot.noun ?? '讲解'}的旁支` : '这个问框的旁支',
-        all: all.some((x) => x.id === id) ? all : [...all, { id, name: nameOfWho(me, open.quote), right: '0 问' }],
+        // 不翻：noun 是讲解块的种类（「讲解」「总结」两个字），比的是身份
+        title: spot.path ? (spot.noun === '总结' ? t('这段总结的旁支') : t('这段讲解的旁支')) : t('这个问框的旁支'),
+        all: all.some((x) => x.id === id) ? all : [...all, { id, name: nameOfWho(me, open.quote), right: t('{n} 问', { n: 0 }) }],
         onRename: (name) => {
-          if (!open.first) return app().notice('先问一句，再给这条旁支改名')
-          if (!spot.path) return app().notice('只问不记的旁支不能改名')
+          if (!open.first) return app().notice(t('先问一句，再给这条旁支改名'))
+          if (!spot.path) return app().notice(t('只问不记的旁支不能改名'))
           setName(path, open.quote, open.first, name)
           set({ named: st.named + 1 })
         },

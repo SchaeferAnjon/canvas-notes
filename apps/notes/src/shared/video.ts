@@ -4,6 +4,8 @@
  * 时刻和视频卡的 md 写法、字幕全文那一篇、记到哪的规矩、白板「时刻」列。主进程、界面、网页预加载、测试都用，不碰 Electron。
  */
 import { defaultKeysOf } from './cmd-table'
+import { catName } from './categories'
+import { onVaultLang, vaultLang } from './i18n/vault'
 
 export type Site = 'youtube' | 'bilibili'
 
@@ -427,7 +429,10 @@ export function parseVideoCard(text: string): { ref: VideoRef; url: string; titl
 
 // ---------------------------------------------------------------- 字幕全文进剪藏
 
-export const VIDEO_FOLDER = '剪藏/视频'
+/** 视频的字幕全文放在剪藏下面这个文件夹；英文库（库语言）是 Clippings/Videos，跟着开着的库换 */
+const videoFolder = () => `${catName('剪藏')}/${vaultLang() === 'en' ? 'Videos' : '视频'}`
+export let VIDEO_FOLDER = videoFolder()
+onVaultLang(() => (VIDEO_FOLDER = videoFolder()))
 
 export interface Chapter {
   start: number
@@ -551,7 +556,7 @@ export type CenterKind = { kind: 'doc'; path: string; title: string } | { kind: 
 /** 记下的东西落在哪；new：中间没开文档，记的时候新建「收件箱/<视频标题>.md」在中间打开（已经有就用那篇），再当文档插 */
 export type Dest = { kind: 'doc'; path: string; title: string } | { kind: 'board'; path: string; title: string } | { kind: 'inbox'; path: string; title: string } | { kind: 'new'; path: string; title: string }
 
-export const inboxPathFor = (title: string) => `收件箱/${safeTitle(title)}.md`
+export const inboxPathFor = (title: string) => `${catName('收件箱')}/${safeTitle(title)}.md`
 
 /**
  * 记到哪（spec 第 2 节）：开着文档插到光标处；开着白板进这个视频的「时刻」列；

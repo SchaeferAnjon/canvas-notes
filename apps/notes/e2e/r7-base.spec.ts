@@ -28,7 +28,7 @@ test('数据库照 Notion：表头「+」加列选类型、列头菜单改名 / 
     await openNote(page, '冰岛行程')
     const db = pane(page).locator('[data-part="数据库块"]')
     await expect(db.locator('tbody tr')).toHaveCount(3)
-    await expect(db.locator('.base-count')).toHaveText('表格 · 3 条')
+    await expect(db.locator('.base-count')).toHaveText('3 条')
     // 只看不改：文件不变
     await page.waitForTimeout(800)
     expect(file()).toBe(ROOM_FILES['冰岛行程.md'])
@@ -38,8 +38,9 @@ test('数据库照 Notion：表头「+」加列选类型、列头菜单改名 / 
     await db.getByRole('button', { name: '加一列' }).click()
     const addCol = page.getByRole('dialog', { name: '加一列' })
     await addCol.getByRole('textbox', { name: '新的一列叫什么' }).fill('标签')
-    await addCol.getByRole('radio', { name: '多选' }).click()
-    await addCol.getByRole('button', { name: '加「多选」列' }).click()
+    // 第三批（task-i921u）：加一列的菜单分三组，点类型就加上（照原型，不再另点「加」）
+    await expect(addCol.getByRole('menuitem')).toHaveText(['文字', '数字', '选项', '多选', '状态', '日期', '勾选', '链接', '关联', '汇总', '公式', /^按钮点一下跑一串动作/, /^AI 生成一列说要什么/])
+    await addCol.getByRole('menuitem', { name: '多选' }).click()
     await expect.poll(file).toContain('      - 评分\n      - 标签\n')
     expect(file()).toContain('properties:\n  标签:\n    type: multi\n```')
     await expect(db.locator('thead th.col')).toHaveText(['名字', '价格', '评分', '标签'])
@@ -60,7 +61,7 @@ test('数据库照 Notion：表头「+」加列选类型、列头菜单改名 / 
     await db.getByRole('button', { name: '价格', exact: true }).click()
     const menu = page.getByRole('menu', { name: '价格 这一列' })
     await expect(menu.getByRole('menuitem')).toHaveText(['按这一列筛选…', '计算…', '左边插入一列', '右边插入一列', '隐藏这一列', '删除这一列'])
-    await expect(menu.getByRole('menuitemradio')).toHaveText(['文字', '数字', '选项', '多选', '日期', '勾选', '链接'])
+    await expect(menu.getByRole('menuitemradio')).toHaveText(['文字', '数字', '选项', '多选', '状态', '日期', '勾选', '链接'])
     const nameBox = menu.getByRole('textbox', { name: '列名' })
     await nameBox.fill('一晚多少钱')
     await nameBox.press('Enter')
@@ -78,8 +79,7 @@ test('数据库照 Notion：表头「+」加列选类型、列头菜单改名 / 
     await page.getByRole('menu', { name: '评分 这一列' }).getByRole('menuitem', { name: '右边插入一列' }).click()
     const ins = page.getByRole('dialog', { name: '加一列' })
     await ins.getByRole('textbox', { name: '新的一列叫什么' }).fill('入住')
-    await ins.getByRole('radio', { name: '日期' }).click()
-    await ins.getByRole('textbox', { name: '新的一列叫什么' }).press('Enter')
+    await ins.getByRole('menuitem', { name: '日期' }).click()
     await expect(db.locator('thead th.col')).toHaveText(['名字', '一晚多少钱', '评分', '入住', '标签'])
     await db.locator('tbody tr', { hasText: '维克' }).locator('td').nth(3).click()
     const date = db.getByRole('textbox', { name: '维克 · 黑沙滩旅馆 · 入住' })
@@ -100,9 +100,10 @@ test('数据库照 Notion：表头「+」加列选类型、列头菜单改名 / 
     await expect(db.locator('.base-sums')).toHaveCount(0)
     await db.getByRole('button', { name: '一晚多少钱', exact: true }).click()
     await page.getByRole('menu', { name: '一晚多少钱 这一列' }).getByRole('menuitem', { name: '计算…' }).click()
-    await page.getByRole('menu', { name: '一晚多少钱 算什么' }).getByRole('menuitemradio', { name: '求和' }).click()
+    // 表底算什么的菜单（task-i921u「通用合计」）：每样后面带着现在算出来的数
+    await page.getByRole('menu', { name: '「一晚多少钱」算什么 · 这个视图' }).getByRole('menuitemradio').filter({ hasText: /^求和3,210$/ }).click()
     await expect.poll(file).toContain('    summaries:\n      一晚多少钱: Sum')
-    await expect(db.locator('.base-sums td.set')).toContainText('求和3210')
+    await expect(db.locator('.base-sums td.on-sum')).toContainText('求和3,210')
 
     // 拖列宽：「评分」右边的缝往右拖 60，写进 columnSize
     const handle = db.getByRole('separator', { name: '拖动改「评分」的列宽' })
@@ -148,7 +149,7 @@ test('数据库「改写法」：只在这一块露出写法，「完成」写�
     await db.getByRole('button', { name: '完成' }).click()
     await expect.poll(file).toContain('    - 价格 < 1000\nviews:')
     await expect(db.locator('tbody tr')).toHaveCount(1)
-    await expect(db.locator('.base-tag')).toHaveText(['价格 < 1000'])
+    await expect(db.locator('.base-fchip')).toHaveText(['价格 < 1000'])
     // 再点「改写法」（照小样）：选中的是最后一条筛选条件，直接打字就改；框 132 高
     await db.getByRole('button', { name: '改写法' }).click()
     await expect(raw).toBeFocused()
@@ -174,14 +175,15 @@ test('数据库块头「排序」「筛选」是纯字按钮（不带条数）�
     // 排序：按价格降序
     await db.getByRole('button', { name: '排序', exact: true }).click()
     const panel = page.getByRole('dialog', { name: '排序' })
+    await panel.getByRole('button', { name: '加一个排序' }).click()
     await panel.getByRole('combobox', { name: '排序的列' }).selectOption('价格')
     await expect.poll(file).toContain('    sort:\n      - property: 价格\n        direction: ASC')
     await panel.getByRole('combobox', { name: '升序还是降序' }).selectOption('desc')
     await expect.poll(file).toContain('        direction: DESC')
     await expect(db.locator('tbody tr').first()).toContainText('霍芬')
-    // 块头多了一颗「↓ 价格」：点它也开排序面板；× 不排序，sort 那几行整个拿掉
-    await expect(db.locator('.base-chip')).toHaveText('价格')
-    await panel.getByRole('button', { name: '不排序' }).click()
+    // 第三行多了一颗「↓ 价格」：点它也开排序面板；× 不排序，sort 那几行整个拿掉
+    await expect(db.locator('.base-fchip')).toHaveText('价格')
+    await panel.getByRole('button', { name: '去掉这个排序' }).click()
     await expect.poll(file).not.toContain('sort:')
     expect(file()).toBe(ROOM_FILES['冰岛行程.md'])
     // 改写法开着：只留「完成」一颗实心，「新一条」先收起来

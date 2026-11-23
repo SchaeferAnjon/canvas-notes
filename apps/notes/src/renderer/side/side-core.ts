@@ -102,7 +102,9 @@ export async function askSide(o: {
   how: { engine: AiPick['engine']; req: { model?: string; effort?: string } }
 }): Promise<{ text: string; error?: string }> {
   const history = [
+    // 不翻：给 AI 的话（那段讲解、这条旁支问过的）
     `【那段讲解】（${o.where}）${o.lead ? `\n${o.lead}` : ''}\n${o.body ?? aiBodyOf(o.text, o.block)}`,
+    // 不翻
     ...(o.done.length ? [`【这条旁支问过的】\n${o.done.map((t) => `他问：${t.q}\n你答：${t.a.slice(0, 2000)}`).join('\n')}`] : []),
   ].join('\n\n')
   const sid = 'd-' + hash(`${o.path}\n${o.quote}\n${o.done[0]?.q ?? o.q}`)

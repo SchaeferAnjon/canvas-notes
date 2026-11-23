@@ -243,7 +243,8 @@ test('梦游「全部收下」时那篇正开着、还在打字：标签跟过�
     expect((await toasts()).filter((t) => /在外面/.test(t))).toEqual([])
     await expect(tabOn(page)).toHaveText('冰洞')
     const moved = findFile(vault, '冰洞.md')!
-    await expect.poll(() => readFileSync(moved, 'utf8')).toMatch(/收下前打的。收下时打的。\n?$/)
+    // ⌘End 落在文末那一行，每次打的字各新起一段（task-ys1rr 文档块照 Notion）
+    await expect.poll(() => readFileSync(moved, 'utf8')).toMatch(/订。\n\n收下前打的。\n\n收下时打的。\n$/)
     await shotWindow(run, 'r4-dream-takeall-open')
   } finally {
     await run.close()

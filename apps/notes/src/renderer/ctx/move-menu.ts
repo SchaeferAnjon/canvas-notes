@@ -6,6 +6,7 @@
 import { categoryRank } from '../../shared/categories'
 import { vaultName } from '../vault-name'
 import type { MenuEntry } from './menu'
+import { t } from '../../shared/i18n'
 
 /** 库里出现过的全部文件夹：文件路径的每一层上级，加上另外列出的（空文件夹） */
 export function allFolders(paths: readonly string[], dirs: readonly string[] = []): string[] {
@@ -38,7 +39,7 @@ export function moveMenu(folders: readonly string[], here: string | null, pick: 
     const self = f !== here
     // 这篇本来就在的文件夹（3-藏之后 图）：灰着，看得出在哪、点不了
     if (!sub.length) return self ? { label: nameOf(f), run: () => pick(f) } : { label: nameOf(f), run: () => undefined, enabled: false }
-    return { label: nameOf(f), submenu: [self && { label: `放进「${nameOf(f)}」`, run: () => pick(f) }, self && '-', ...sub] }
+    return { label: nameOf(f), submenu: [self && { label: t('放进「{name}」', { name: nameOf(f) }), run: () => pick(f) }, self && '-', ...sub] }
   }
   // 最外层：顶级分类按分类表的先后在前（收件箱、课程、阅读、剪藏、周记、写作、项目、生活），别的按名字在后
   const top = (kids.get('') ?? []).sort((a, b) => categoryRank(a) - categoryRank(b) || a.localeCompare(b, 'zh')).map(node).filter(Boolean)

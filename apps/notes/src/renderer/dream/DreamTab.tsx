@@ -18,6 +18,7 @@ import { indexOf } from '../../shared/dream-order'
 import { titleOf } from '../../shared/layout'
 import { blockChanges } from '../diff/blocks'
 import { blockGaps } from '../block-gaps'
+import { type BranchFiles, citeClicks } from '../cite'
 import { blocksField, editorHost } from '../editor-host'
 import { EngineLogo } from '../engine-logo'
 import { isKey, useKeys } from '../keys'
@@ -29,7 +30,7 @@ import { ActBtn, PageNote, TabActs } from '../shell/TabActs'
 import { fitFrame, fitSrc, type VizHost, vizHost } from '../viz-embed'
 import { vaultName as vaultLabel } from '../vault-name'
 import { changeSpots, chunkNotes, chunksOf, delExt, FoldCtl, foldExt, foldPlan, markExt, noteExt, pureExt, type Spot } from './compare'
-import { actOn, openDream, setCur, setCurFile, stepDream, undoItem } from './nav'
+import { actOn, dreamNow, openDream, setCur, setCurFile, stepDream, undoItem } from './nav'
 import { GROUPS } from './useDream'
 import './dream-tab.css'
 import '../diff/diff.css'
@@ -132,6 +133,8 @@ export function DreamTab(props: {
   const [spots, setSpots] = useState<Spot[]>([])
   const [flash, setFlash] = useState<{ top: number; height: number; left: number; width: number; n: number } | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
+  /** 闪了第几下，一直往上数（闪完收起也不归零）：data-n 让测试认得出是不是新闪的那一下 */
+  const flashSeq = useRef(0)
 
   /** 编辑器画好了（或改了折叠）：量每处改动在哪；first：打开时滚到第一处、闪一下 */
   const measure = (first: boolean) => {
@@ -160,13 +163,24 @@ export function DreamTab(props: {
     // 闪的外圈和那一栏的字一样宽（收下后的样子是 760 居中的那一列，不是整栏）
     const col = (v.dom ?? (s.kind === 'del' && v.a ? v.a.contentDOM : (v.b ?? v.a)?.contentDOM))?.getBoundingClientRect()
     const box = sc.getBoundingClientRect()
-    setFlash((p) => ({ top: s.top, height: s.bottom - s.top, left: col ? col.left - box.left : 0, width: col ? col.width : sc.clientWidth, n: (p?.n ?? 0) + 1 }))
+    setFlash({ top: s.top, height: s.bottom - s.top, left: col ? col.left - box.left : 0, width: col ? col.width : sc.clientWidth, n: ++flashSeq.current })
   }
   useEffect(() => {
     if (!flash) return
     const t = setTimeout(() => setFlash(null), 1700)
     return () => clearTimeout(t)
   }, [flash?.n])
+
+  /**
+   * 对照滚了（打开时滚到第一处改动、上一处 / 下一处、小地图、用户自己滚）：叫两栏的编辑器照新位置重画看得见的那几行。
+   * CodeMirror 只在自己的「在不在页面上」观察回报以后才理会外层的滚动，刚建好时那一回报还没到（机器忙时常见），
+   * 这一滚它不理，画着的还是开头那几屏，滚到的地方是空的（改动那一行、链接都不在页面上）
+   */
+  function onScroll() {
+    setSpots((s) => [...s])
+    viewsRef.current?.a?.requestMeasure()
+    viewsRef.current?.b?.requestMeasure()
+  }
 
   /** 上一处 / 下一处：这个文件里的改动，按在页面上的位置 */
   function step(d: 1 | -1) {
@@ -315,7 +329,7 @@ export function DreamTab(props: {
 
       {res && !('error' in res) && (dup || f) && (
         <div className="dt-wrap" data-testid="dream-cmp">
-          <div className="dt-scroll" ref={scroller} data-testid="dream-scroll" onScroll={() => setSpots((s) => [...s])}>
+          <div className="dt-scroll" ref={scroller} data-testid="dream-scroll" onScroll={onScroll}>
             {dup && item ? (
               <DupView files={files} res={res} onOpenPath={props.onOpenPath} viewsRef={viewsRef} onReady={() => measure(false)} />
             ) : html ? (
@@ -328,7 +342,7 @@ export function DreamTab(props: {
               <MdView key={`${f!.path}:${mode}:${shown}:${whole}`} f={f!} res={res} mode={mode} layout={shown} whole={whole} item={item} hist={hist} viewsRef={viewsRef} onReady={(first) => measure(first)} />
             )}
             <div className="dt-tail" />
-            {flash && <div key={flash.n} className="dv-flash" style={{ top: flash.top, height: flash.height, left: flash.left, width: flash.width }} />}
+            {flash && <div key={flash.n} className="dv-flash" data-n={flash.n} style={{ top: flash.top, height: flash.height, left: flash.left, width: flash.width }} />}
           </div>
           <Minimap spots={spots} scroller={scroller} onJump={(s) => (scroller.current && (scroller.current.scrollTop = Math.max(0, s.top - scroller.current.clientHeight * 0.3)), requestAnimationFrame(() => flashAt(s)))} />
         </div>
@@ -518,9 +532,22 @@ function MoveBlock(props: { item: DreamItem; files: DiffEntry[] }) {
   )
 }
 
-/** 文档样子的编辑器：只读，用编辑器现成的实时预览画（标题是标题、图是图、嵌着的可视化能拖） */
+/** 还没收下的几条在梦游分支上新建、挪去改名的文件 → 那条最后一次提交（链接指着它们时开分支上那份） */
+function branchFiles(report: DreamReport | null): BranchFiles {
+  const out = new Map<string, string>()
+  for (const it of report?.items ?? []) {
+    if (it.state !== 'pending' || !it.commit) continue
+    const rev = it.redoCommits?.at(-1) ?? it.commit
+    for (const p of [...it.files, ...(it.move ? [it.move.to] : [])]) out.set(p, rev)
+  }
+  return out
+}
+const dreamBranch = () => branchFiles(dreamNow().report)
+
+/** 文档样子的编辑器：只读，用编辑器现成的实时预览画（标题是标题、图是图、嵌着的可视化能拖）；链接、双链、图和文档里一样能点（cite.tsx） */
 function docExt(path: string, vh: VizHost | null): Extension[] {
   return [
+    citeClicks(path, dreamBranch),
     EditorState.readOnly.of(true),
     EditorView.editable.of(false),
     EditorView.lineWrapping,

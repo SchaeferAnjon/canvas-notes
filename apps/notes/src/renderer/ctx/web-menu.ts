@@ -10,6 +10,7 @@ import { saveImages } from '../web/image-drop'
 import { app } from './actions'
 import { copy, fromShared, type MenuEntry, showMenu } from './menu'
 import { translateAt } from './translate'
+import { t } from '../../shared/i18n'
 
 /** 网页所在的地方（右栏还是中间栏）各自怎么做的几件事 */
 export interface WebMenuHost {
@@ -62,10 +63,10 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
   if (link) {
     const text = p.linkText.trim()
     out.push(
-      { label: '在新标签打开', run: () => host.openTab(link) },
-      host.openWide && { label: '在中间栏打开', run: () => host.openWide!(link, text || link) },
-      { label: '拷贝链接', run: () => copy(link) },
-      { label: '剪进收件箱', run: () => a.clip({ text: text ? `[${text}](${link})` : link, url: http ? url : link, title: http ? title : text || link }, 'inbox') },
+      { label: t('在新标签打开'), run: () => host.openTab(link) },
+      host.openWide && { label: t('在中间栏打开'), run: () => host.openWide!(link, text || link) },
+      { label: t('拷贝链接'), run: () => copy(link) },
+      { label: t('剪进收件箱'), run: () => a.clip({ text: text ? `[${text}](${link})` : link, url: http ? url : link, title: http ? title : text || link }, 'inbox') },
       '-',
     )
   }
@@ -74,22 +75,22 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
     const source = http ? { title, url } : undefined
     out.push(
       { copyImageAt: { x: p.x, y: p.y } },
-      { label: '拷贝图片地址', run: () => copy(img) },
+      { label: t('拷贝图片地址'), run: () => copy(img) },
       {
-        label: '存进附件',
+        label: t('存进附件'),
         run: async () => {
           const saved = await window.cnWeb.saveImage({ kind: 'url', url: img })
           a.refresh()
-          a.notice(`图存进了${saved.path}`)
+          a.notice(t('图存进了{path}', { path: saved.path }))
         },
       },
       doc && {
-        label: '插进文档',
+        label: t('插进文档'),
         run: async () => {
           const r = await saveImages(doc.path, [{ src: { kind: 'url', url: img }, alt: '', ...(source ? { source } : {}) }], '\n\n')
           if (r.errors.length) throw new Error(r.errors[0])
           doc.insertAtCursor(r.md.join('\n\n'))
-          a.notice('图插进了文档光标处')
+          a.notice(t('图插进了文档光标处'))
         },
       },
       '-',
@@ -103,26 +104,26 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
     out.push(
       { edit: 'copy' },
       '-',
-      http && { label: '剪成卡片', run: () => a.clip(clip, 'inbox') },
-      http && doc && { label: '剪进文档', run: () => a.clip(clip, 'doc') },
+      http && { label: t('剪成卡片'), run: () => a.clip(clip, 'inbox') },
+      http && doc && { label: t('剪进文档'), run: () => a.clip(clip, 'doc') },
       // AI 那两项（带引擎标志）自成一组
       '-',
-      { label: '翻译', ai: 'translate', run: () => translateAt(sel, { x: page.rect().left + p.x, y: page.rect().top + p.y }) },
-      { label: '问 AI', ai: 'chat', run: () => a.askAi(sel, title ? `网页《${title}》` : '网页') },
+      { label: t('翻译'), ai: 'translate', run: () => translateAt(sel, { x: page.rect().left + p.x, y: page.rect().top + p.y }) },
+      { label: t('问 AI'), ai: 'chat', run: () => a.askAi(sel, title ? t('网页《{title}》', { title }) : t('网页')) },
       '-',
     )
   }
   const trOn = http && !!pluginInfo(TRANSLATE)?.enabled
   const translating = !!pageStateOf<{ on?: boolean }>(wcId, TRANSLATE)?.on
   out.push(
-    { label: '后退', enabled: page.canGoBack(), run: () => page.goBack() },
-    { label: '前进', enabled: page.canGoForward(), run: () => page.goForward() },
-    { label: '重新载入', run: () => page.reload() },
+    { label: t('后退'), enabled: page.canGoBack(), run: () => page.goBack() },
+    { label: t('前进'), enabled: page.canGoForward(), run: () => page.goForward() },
+    { label: t('重新载入'), run: () => page.reload() },
     '-',
     // 双语翻译（带引擎标志）自成一组
-    trOn && { label: translating ? '恢复原文' : '双语翻译', accel: accelFor('translate'), ...(translating ? {} : { ai: 'translate' as const }), run: () => toggleTranslate({ wcId, url, title }) },
+    trOn && { label: translating ? t('恢复原文') : t('双语翻译'), accel: accelFor('translate'), ...(translating ? {} : { ai: 'translate' as const }), run: () => toggleTranslate({ wcId, url, title }) },
     '-',
-    http && { label: '剪藏这一页', run: () => host.clipPage() },
+    http && { label: t('剪藏这一页'), run: () => host.clipPage() },
   )
   return out
 }

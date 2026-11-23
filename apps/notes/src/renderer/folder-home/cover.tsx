@@ -9,6 +9,7 @@ import { coverGradient, type FolderCover } from '../../shared/folder-home'
 import { COLOR_NAMES, type FolderColor, FOLDER_COLORS } from '../../shared/left'
 import { COVERS, coverImage } from '../covers'
 import { leftConfig } from '../files/left-store'
+import { useT } from '../i18n'
 
 /** 画廊里照片的先后（小样 IMGS_ALL 的顺序） */
 const PHOTOS = ['aurora', 'ice-cave', 'icebergs', 'kirkjufell', 'black-beach', 'myvatn', 'vik', 'gullfoss'] as const
@@ -30,11 +31,12 @@ export function folderCoverCss(c: FolderCover, folder: string): string {
 export const coverIsImage = (c: FolderCover) => c.kind === 'file' || (c.kind === 'builtin' && COVERS.find((x) => x.id === c.id)?.kind === 'photo')
 
 export function FolderCoverGallery(props: { cover: FolderCover; onPick(c: FolderCover): void; onNotice(t: string): void; onClose(): void }) {
+  const t = useT()
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const close = (e: MouseEvent) => {
-      const t = e.target as HTMLElement
-      if (!box.current?.contains(t) && !t.closest('[data-cover-pick]')) props.onClose()
+      const el = e.target as HTMLElement
+      if (!box.current?.contains(el) && !el.closest('[data-cover-pick]')) props.onClose()
     }
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && props.onClose()
     document.addEventListener('mousedown', close)
@@ -46,24 +48,24 @@ export function FolderCoverGallery(props: { cover: FolderCover; onPick(c: Folder
   }, [])
   const c = props.cover
   return (
-    <div className="gal fgal" ref={box} role="dialog" aria-label="换封面">
+    <div className="gal fgal" ref={box} role="dialog" aria-label={t('换封面')}>
       <div className="ft-hd">
-        <b>换封面</b>
-        <span className="r">只改这个文件夹</span>
+        <b>{t('换封面')}</b>
+        <span className="r">{t('只改这个文件夹')}</span>
       </div>
-      <div className="gh2">图片</div>
+      <div className="gh2">{t('图片', { ctx: '换封面' })}</div>
       <div className="fgrid">
         {PHOTOS.map((id) => {
-          const name = COVERS.find((x) => x.id === id)!.name
+          const name = t(COVERS.find((x) => x.id === id)!.name)
           const on = c.kind === 'builtin' && c.id === id
           return <button key={id} className={'th' + (on ? ' on' : '')} aria-pressed={on} aria-label={name} title={name} style={{ backgroundImage: coverImage({ kind: 'builtin', id }, true) }} onClick={() => props.onPick({ kind: 'builtin', id })} />
         })}
       </div>
-      <div className="gh2">颜色（没选图时用文件夹自己的颜色）</div>
+      <div className="gh2">{t('颜色（没选图时用文件夹自己的颜色）')}</div>
       <div className="fgrid">
         {COLORS.map((color) => {
           const on = c.kind === 'color' && c.color === color
-          return <button key={color} className={'th sw' + (on ? ' on' : '')} aria-pressed={on} aria-label={COLOR_NAMES[color]} title={COLOR_NAMES[color]} style={{ backgroundImage: coverGradient(color) }} onClick={() => props.onPick({ kind: 'color', color })} />
+          return <button key={color} className={'th sw' + (on ? ' on' : '')} aria-pressed={on} aria-label={t(COLOR_NAMES[color])} title={t(COLOR_NAMES[color])} style={{ backgroundImage: coverGradient(color) }} onClick={() => props.onPick({ kind: 'color', color })} />
         })}
       </div>
       <div className="row">
@@ -79,11 +81,11 @@ export function FolderCoverGallery(props: { cover: FolderCover; onPick(c: Folder
           }}
         >
           <Codicon name="folder-opened" size={14} />
-          从电脑选一张…
+          {t('从电脑选一张…')}
         </button>
         <button className="btn btn-sm" onClick={() => props.onPick({ kind: 'none' })}>
           <Codicon name="trash" size={14} />
-          去掉图片
+          {t('去掉图片')}
         </button>
       </div>
     </div>

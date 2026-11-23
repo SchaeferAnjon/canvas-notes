@@ -7,6 +7,7 @@ import { reconcile, textChanges } from '@cn/format'
 import type { OpenedNote } from '../shared/api'
 import { titleOf } from '../shared/layout'
 import { sayMerged, saySameSpot } from './conflict-say'
+import { findCite, howOf, openCite } from './cite'
 import { addLink, editorMenu, linkAt, openLinkHit } from './ctx/editor-menu'
 import { app } from './ctx/actions'
 import { parseFragment } from '../shared/web-link'
@@ -29,6 +30,7 @@ import { docSides } from './side/doc-side'
 import { summaryRetry } from './video/summary-retry'
 import { provisional, provisionalRange } from './tail-line'
 import { appSettings } from './settings-store'
+import { noteDocRef } from './note-doc-ref'
 
 /** 块头下面引着的那几句（`> > 原文`，几段时去掉 ①②）：回到网页时按它找，比链接里的开头准 */
 function quoteBelow(doc: Text, n: number): string | undefined {
@@ -258,7 +260,11 @@ export class NoteDoc {
               const wiki = (e.target as HTMLElement).closest<HTMLElement>('.cm-wikilink')
               if (wiki) {
                 e.preventDefault()
-                this.events.onOpenLink(wiki.dataset.target ?? wiki.textContent ?? '')
+                // [[笔记#标题]]、[[笔记#^块]]：开了滚到那一段（task-3e53q，cite.tsx）
+                const inner = wiki.dataset.wiki ?? ''
+                // ⇧⌘点：开在后面的新标签（和 AI 回答里的引用一样）
+                if (/#/.test(inner.split('|')[0]!) || e.shiftKey) void findCite({ wiki: inner }, this.path).then((c) => openCite(c, howOf(e)))
+                else this.events.onOpenLink(wiki.dataset.target ?? wiki.textContent ?? '')
                 return true
               }
               // ⌘ 点链接：右栏网页开（同一个网址开着就切过去）；⌘⌥ 点：中间栏开（同右键「在中间栏打开」）
@@ -268,7 +274,7 @@ export class NoteDoc {
               const hit = linkAt(line.text, pos - line.from)
               if (hit?.kind !== 'url') return false
               e.preventDefault()
-              openLinkHit(this.path, hit.url, hit.text, e.altKey, view.state.doc.toString(), pos)
+              openLinkHit(this.path, hit.url, hit.text, e.altKey, view.state.doc.toString(), pos, e.shiftKey)
               return true
             },
           }),
@@ -304,6 +310,8 @@ export class NoteDoc {
     this.view.dom.addEventListener('contextmenu', this.onContextMenu)
     // 编辑器外框上挂一个只读的 cnText：端到端测试直接读 md 原文（软件里没有「源文件」看法可切了）
     Object.defineProperty(this.view.dom, 'cnText', { get: () => this.text })
+    // 光标和选区（md 原文里的位置）：端到端测试量光标停在哪一行、第几个字
+    Object.defineProperty(this.view.dom, 'cnSel', { get: () => ({ anchor: this.view.state.selection.main.anchor, head: this.view.state.selection.main.head }) })
     // 按住 ⌘：指着的链接变 --acc-t 加下划线、鼠标变手（点了在右栏开）
     window.addEventListener('keydown', this.onMeta)
     window.addEventListener('keyup', this.onMeta)
@@ -453,6 +461,8 @@ export class NoteDoc {
       if (r.ok) {
         this.base = local
         this.events.onSaved()
+        // 同一篇开在两个编辑器里（中间一个、右栏数据库点开的一条一个）：自己写的文件不会再来「外面改了」的通知，另一个直接合进来
+        for (const d of NoteDoc.open) if (d !== this && d.path === this.path) void d.applyRemote(local)
         if (r.recreated) this.events.onNotice(`「${titleOf(r.recreated)}」原来的文件不在了，打的字存回了「${r.recreated.replace(/\.md$/i, '')}」`)
       } else {
         await this.reconcile(r.diskText)
@@ -519,3 +529,6 @@ export class NoteDoc {
 
 /** 编辑器的 spellcheck：Chromium 用系统的拼写检查，英文拼错的词下面画红线，中文不查 */
 const spellAttr = (on: boolean) => EditorView.contentAttributes.of({ spellcheck: on ? 'true' : 'false' })
+
+// block-select 从这里拿（见 note-doc-ref.ts）
+noteDocRef.cls = NoteDoc

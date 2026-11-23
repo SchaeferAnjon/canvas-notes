@@ -9,6 +9,7 @@
  */
 import { execFile } from 'node:child_process'
 import { type AskSection, cardKey, type CardText, formatPdfAnchor, mapMath } from '@cn/format'
+import { catName } from '../../shared/categories'
 import { t } from '../../shared/i18n'
 
 /** AnkiConnect 在哪：测试用 CN_ANKI_URL 换成本机假服务（每次送时读，测试里能换） */
@@ -16,20 +17,19 @@ export const ankiUrl = (): string => process.env.CN_ANKI_URL || 'http://127.0.0.
 // ---------------- 笔记类型名、牌组规则只写在这一处（ChatCards 改名、用户换规矩时只改这里） ----------------
 
 /** 不在课程里的 PDF 的卡进「知识」（和 ChatCards 送的同一个） */
-export const DECK = '知识'
+export const DECK = '知识' // 不翻：Anki 里的牌组名（写进 Anki 的字照旧）
 /**
  * 课程里的 PDF 的卡牌组跟着目录来（2026-11-22 用户：「在对应的课程下面，比如说 ecp」「这个命名就跟目录来」）：
  * 课程/<课>/ 下面的文件夹整条进牌组名，课程/ecp/Week 2/x.pdf 进「课程::ecp::Week 2」，再套的 Week 2/补充材料/ 进「课程::ecp::Week 2::补充材料」；
  * 直接放在课里的用 PDF 自己的名字（课程::ecp::Lecture05）。不按 PDF 书签分章；不在课程里的进「知识」
  */
-export const COURSE_DECK = '课程'
 const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 /** 牌组名的一节：不能带「::」（会多建一层），太长截到 40 个字 */
 const part = (s: string) => [...s.replace(/::/g, '：').replace(/\s+/g, ' ').trim()].slice(0, 40).join('')
-/** 这门课的牌组：课程/<课>/… 是「课程::<课>」；不在课程里是 null */
+/** 这门课的牌组：课程/<课>/… 是「课程::<课>」；不在课程里是 null。最前面一节就是这个库「课程」文件夹的名字（英文库 Courses::<课>） */
 export const courseDeckOf = (path: string): string | null => {
-  const m = /^课程\/([^/]+)\//.exec(path)
-  return m ? `${COURSE_DECK}::${part(m[1]!)}` : null
+  const [top, course, ...rest] = path.split('/')
+  return top === catName('课程') && course && rest.length ? `${top}::${part(course)}` : null
 }
 /** 这份 PDF 的卡进哪个牌组：课程里的「课程::<课>::<课下面的文件夹，一层一节；直接放在课里的是 PDF 的名字>」，别的进「知识」 */
 export function deckFor(pdf: string): string {
@@ -38,25 +38,28 @@ export function deckFor(pdf: string): string {
   const dirs = pdf.split('/').slice(2, -1)
   return [course, ...(dirs.length ? dirs : [stem(pdf)]).map(part)].join('::')
 }
-export const FROM_TAG = '来自::Canvas_Notes'
+export const FROM_TAG = '来自::Canvas_Notes' // 不翻：写进 Anki 的标签
 
+// 不翻：Anki 里的笔记类型、模板名，和 anki-learn 一字不差
 export const StudyCard = {
-  name: '学习卡 · 问答',
+  name: '学习卡 · 问答', // 不翻
   /** 同名的笔记类型不是我们的（字段对不上）就改用这个名字，不碰你的 */
-  otherName: '学习卡 · 问答 2',
+  otherName: '学习卡 · 问答 2', // 不翻
   fields: ['Question', 'Answer', 'More', 'Quote', 'Image', 'Label', 'Source', 'Link', 'ID'],
-  templateName: '问答',
+  templateName: '问答', // 不翻
   version: 3,
 }
 
 const TOP = `<div class="top">{{#Label}}<div class="meta">{{Label}}</div>{{/Label}}<div class="q">{{Question}}</div>{{#Image}}<div class="shot">{{Image}}</div>{{/Image}}</div>`
 export const FRONT = `<div class="fam">\n${TOP}\n</div>`
+// 不翻：Anki 卡片模板（写进 Anki）
 export const BACK = `<div class="fam back">
 ${TOP}
 <div class="ans"><div class="a">{{Answer}}</div>{{#More}}<div class="more">{{More}}</div>{{/More}}</div>
 <div class="foot"><div class="src">{{#Source}}<span>{{Source}}</span>{{/Source}}{{#Link}}<a class="open" href="{{text:Link}}">打开原文</a>{{/Link}}</div>{{#Quote}}<details><summary>原文</summary><div class="body">{{Quote}}</div></details>{{/Quote}}{{#Image}}<details class="pic"><summary>当时的画面</summary><div class="body">{{Image}}</div></details>{{/Image}}</div>
 </div>`
 
+// 不翻：Anki 卡片的样式，第一行「卡片家族 vN」是版本号
 export const CSS = `/* 卡片家族 v3 */
 .card {
   --bg: #FFFFFF; --surface: #F4F4F6;
@@ -214,15 +217,16 @@ export function fieldsFor(c: CardInput): Record<string, string> {
     Quote: c.quote ? html(c.quote) : k ? html(k.quote) : s.doubts.length > 1 ? html(s.doubts.slice(1).join('\n')) : '',
     // 我框的图是 2 倍图：照它在 PDF 上 100% 时的宽画（和笔记里一样大，不然 Anki 里大一倍）
     Image: c.image ? `<img class="lead" src="${esc(c.image)}"${s.cropW ? ` width="${Math.round(s.cropW)}"` : ''}>` : '',
+    // 不翻：写进 Anki 卡片的字
     Label: esc(`Canvas Notes · ${c.course || stem(c.pdf)}${c.quote ? ' · 旁支' : ''}`),
-    Source: esc(`${stem(c.pdf)} · 第 ${s.page} 页`),
+    Source: esc(`${stem(c.pdf)} · 第 ${s.page} 页`), // 不翻
     Link: esc(openLink(c.pdf, s)),
     ID: noteId(c.id),
   }
 }
 
 export function tagsFor(c: CardInput): string[] {
-  return [FROM_TAG, ...(c.course ? [`主题::${tagWord(c.course)}`] : []), `主题::${tagWord(stem(c.pdf))}`]
+  return [FROM_TAG, ...(c.course ? [`主题::${tagWord(c.course)}`] : []), `主题::${tagWord(stem(c.pdf))}`] // 不翻：写进 Anki 的标签
 }
 
 /** off：连不上（Anki 没开、没装插件），选的都留着、开了接着送；port：端口上答话的不是 AnkiConnect（别的程序占着）；api：Anki 回了错误 */
@@ -278,12 +282,12 @@ export async function call(action: string, params?: Record<string, unknown>, tim
       signal: AbortSignal.timeout(timeoutMs),
     })
   } catch {
-    throw new AnkiConnectError('Anki 没开着，或者没装 AnkiConnect 插件（编号 2055492159）。打开 Anki 再送一次', 'off')
+    throw new AnkiConnectError(t('Anki 没开着，或者没装 AnkiConnect 插件（编号 2055492159）。打开 Anki 再送一次'), 'off')
   }
   if (!res.ok) throw await portBusy()
   const j: unknown = await res.json().catch(() => undefined)
   if (!isAnkiReply(j)) throw await portBusy()
-  if (j.error) throw new AnkiConnectError(`Anki 回了一个错误：${j.error.includes('Close the affected editor') ? 'Anki 里开着卡片浏览器或「添加」窗口，关掉它再送' : j.error}`)
+  if (j.error) throw new AnkiConnectError(t('Anki 回了一个错误：{error}', { error: j.error.includes('Close the affected editor') ? t('Anki 里开着卡片浏览器或「添加」窗口，关掉它再送') : j.error }))
   if (action === 'version' && typeof j.result !== 'number') throw await portBusy()
   return j.result
 }
@@ -323,7 +327,7 @@ async function noteType(): Promise<string> {
     }
     return name
   }
-  throw new AnkiConnectError(`「${StudyCard.name}」和「${StudyCard.otherName}」都是别的笔记类型`)
+  throw new AnkiConnectError(t('「{a}」和「{b}」都是别的笔记类型', { a: StudyCard.name, b: StudyCard.otherName }))
 }
 
 /** 这几个牌组缺了就建（Anki 里已经有的、你自己改过的不动） */
@@ -363,18 +367,18 @@ export async function sendCards(cards: (CardInput & { png?: Buffer })[]): Promis
   const notes = go.map((c) => ({ deckName: deckFor(c.pdf), modelName: model, fields: fieldsFor(c), tags: tagsFor(c), options: { allowDuplicate: false, duplicateScope: 'deck' } }))
   if (!notes.length) return r
   const checks = (await call('canAddNotesWithErrorDetail', { notes })) as { canAdd: boolean; error?: string }[]
-  if (!Array.isArray(checks) || checks.length !== go.length) throw new AnkiConnectError('Anki 的回答读不懂')
+  if (!Array.isArray(checks) || checks.length !== go.length) throw new AnkiConnectError(t('Anki 的回答读不懂'))
   const fresh: number[] = []
   checks.forEach((ch, i) => {
     if (ch.canAdd) fresh.push(i)
     else if (/duplicate/i.test(ch.error ?? '')) r.duplicates.push(go[i]!.id)
-    else r.failed[go[i]!.id] = ch.error ?? '加不进去'
+    else r.failed[go[i]!.id] = ch.error ?? t('加不进去')
   })
   if (fresh.length) {
     const ids = (await call('addNotes', { notes: fresh.map((i) => notes[i]) })) as (number | null)[]
     fresh.forEach((i, k) => {
       const id = ids?.[k]
-      if (id == null) r.failed[go[i]!.id] = '加不进去'
+      if (id == null) r.failed[go[i]!.id] = t('加不进去')
       else {
         r.added.push(go[i]!.id)
         r.notes[go[i]!.id] = id

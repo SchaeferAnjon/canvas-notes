@@ -6,6 +6,7 @@
 import { useSyncExternalStore } from 'react'
 import type { FileEntry } from '../shared/files'
 import { titleOf } from '../shared/layout'
+import { t } from '../shared/i18n'
 
 /** 选中的一个：dir 是文件夹 */
 export interface PickItem {
@@ -63,5 +64,5 @@ export function pickedFiles(items: readonly PickItem[], files: readonly FileEntr
 
 /** 「看得到」那颗的悬停提示：一个一行，文件夹写里面几篇 */
 export function pickTip(items: readonly PickItem[], files: readonly FileEntry[]): string {
-  return items.map((it) => (it.dir ? `${it.path.split('/').pop()}（${pickedFiles([it], files).length}篇）` : titleOf(it.path))).join('\n')
+  return items.map((it) => (it.dir ? t('{name}（{n}篇）', { name: it.path.split('/').pop()!, n: pickedFiles([it], files).length }) : titleOf(it.path))).join('\n')
 }

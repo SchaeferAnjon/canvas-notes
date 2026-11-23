@@ -29,12 +29,12 @@ const ROWS: { f: AiFeature | 'translate'; row: string }[] = [
   { f: 'quick', row: 'fQuick' },
 ]
 
-const valueOf = (p: AiPick | null | undefined): PickerValue => (p ? { family: p.engine, model: p.model ?? '', ...(p.effort ? { effort: p.effort } : {}) } : { family: null })
+export const valueOf = (p: AiPick | null | undefined): PickerValue => (p ? { family: p.engine, model: p.model ?? '', ...(p.effort ? { effort: p.effort } : {}) } : { family: null })
 
 /**
  * 选择器上点了一下以后的那一家那个模型那一档：换了家从这家的默认模型开始（Claude Code 是 Opus），换了模型时那一档这个模型不认就不带
  */
-function nextPick(cur: AiPick | null, engines: EngineInfo[], ch: { family?: string; model?: string; effort?: string | null }): AiPick {
+export function nextPick(cur: AiPick | null, engines: EngineInfo[], ch: { family?: string; model?: string; effort?: string | null }): AiPick {
   if (ch.family !== undefined) {
     if (cur?.engine === ch.family) return cur
     return ch.family === 'claude' ? { engine: 'claude', model: CLAUDE_DEFAULT } : { engine: ch.family as EngineId }

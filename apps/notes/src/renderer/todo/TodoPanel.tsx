@@ -11,9 +11,11 @@ import { byFolder, type FolderGroup, INBOX_TODO, type TodoItem, todoLabel } from
 import { app } from '../ctx/actions'
 import { FolderGlyph } from '../files/look'
 import { ViewHead } from '../shell/Shell'
-import { todayCount, useToday, useTodos } from './store'
+import { aboutToday, openTodayApp, todayCount, useToday, useTodayInstalled, useTodos } from './store'
+import todayIcon from '../assets/today-icon.png'
 import { QuickAdd, TodoGroups, TodoPop, useOwner } from './TodoList'
 import { useT } from '../i18n'
+import { catName } from '../../shared/categories'
 
 type Seg = 'today' | 'week' | 'folder' | 'inbox'
 const SEGS: Seg[] = ['today', 'week', 'folder', 'inbox']
@@ -52,6 +54,7 @@ export function TodoPanel() {
   const { items } = useTodos()
   const today = useToday()
   const owner = useOwner()
+  const installed = useTodayInstalled()
   const [seg, setSegState] = useState<Seg>(() => {
     const v = load<string>(SEG_KEY, 'folder')
     return SEGS.some((k) => k === v) ? (v as Seg) : 'folder'
@@ -73,7 +76,19 @@ export function TodoPanel() {
   }, [items, seg, today])
   return (
     <aside className="side td-side" aria-label={t('待办')}>
-      <ViewHead title={t('待办')} sub={<span className="num">{t('今天{n}', { n: todayCount(items, today) })}</span>} />
+      <ViewHead title={t('待办')} sub={<span className="num">{t('今天{n}', { n: todayCount(items, today) })}</span>}>
+        {/* 头上「画布今日」那一颗（v2 原型 25b，task-kzr3n）：装了打开画布今日；没装是「了解画布今日」，开官网上下载它的那一节 */}
+        {installed ? (
+          <button className="td-today" aria-label={t('在画布今日里打开')} data-tip={t('在画布今日里打开')} data-side="below" onClick={openTodayApp}>
+            <img src={todayIcon} width={14} height={14} alt="" />
+            {t('画布今日')}
+          </button>
+        ) : (
+          <button className="td-link td-about" onClick={aboutToday}>
+            {t('了解画布今日')}
+          </button>
+        )}
+      </ViewHead>
       <div className="td-pane">
         <div className="td-seg" role="tablist" aria-label={t('待办分组')}>
           {SEGS.map((k) => (
@@ -82,7 +97,7 @@ export function TodoPanel() {
             </button>
           ))}
         </div>
-        <QuickAdd where={{ inbox: true }} label={t('加一条')} placeholder={t('加一条，「明天下午三点交论文」')} hintWhere="收件箱" /* 不翻：磁盘上的文件夹名 */ />
+        <QuickAdd where={{ inbox: true }} label={t('加一条')} placeholder={t('加一条，「明天下午三点交论文」')} hintWhere={catName('收件箱')} />
         <div className="td-list" role="list" aria-label={t('待办')}>
           {seg === 'folder' ? (
             groups.map((g) => {

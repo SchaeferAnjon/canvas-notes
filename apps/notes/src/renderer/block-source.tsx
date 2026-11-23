@@ -7,8 +7,10 @@
 import { type EditorState, Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { hiddenOk } from './hidden-syntax'
+import { t as tNow } from '../shared/i18n'
 
-export const RAW_HINT = '只在这一块里露出写法 · esc 收回'
+/** 改写法下面那行提示（数据库块头上也用）：键，画的地方 t(RAW_HINT) */
+export const RAW_HINT = '只在这一块里露出写法 · esc 收回' // 不翻：键，画的地方翻
 
 const openRawEffect = StateEffect.define<{ from: number; to: number } | null>()
 
@@ -37,20 +39,20 @@ export function closeRaw(view: EditorView) {
 export function rawEditor(src: string, done: (text: string) => void, cancel: () => void): HTMLElement {
   const box = document.createElement('div')
   box.className = 'cm-raw'
-  box.dataset.part = '改写法'
+  box.dataset.part = '改写法' // 不翻：e2e 认的 data-part
   const ta = document.createElement('textarea')
   ta.className = 'cm-raw-text'
   ta.spellcheck = false
   ta.value = src
-  ta.setAttribute('aria-label', '这一块的写法')
+  ta.setAttribute('aria-label', tNow('这一块的写法'))
   const foot = document.createElement('div')
   foot.className = 'cm-raw-foot'
   const hint = document.createElement('span')
-  hint.textContent = RAW_HINT
+  hint.textContent = tNow(RAW_HINT)
   const ok = document.createElement('button')
   ok.type = 'button'
   ok.className = 'cm-raw-done'
-  ok.textContent = '完成'
+  ok.textContent = tNow('完成')
   ok.addEventListener('mousedown', (e) => e.preventDefault())
   ok.addEventListener('click', () => done(ta.value))
   foot.append(hint, ok)

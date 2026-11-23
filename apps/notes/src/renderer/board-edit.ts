@@ -29,7 +29,7 @@ function put(doc: BoardDoc, i: number, body: string): BoardDoc {
 export function cardSave(base: string, theirs: string, id: string, body: string): CardSave {
   const baseDoc = parseBoard(base)
   const i = indexOf(baseDoc, id)
-  if (i === -1) throw new Error(`开框时的白板里没有卡 ${id}`)
+  if (i === -1) throw new Error(`开框时的白板里没有卡 ${id}`) // 不翻：程序内部的断言，不上界面
   const theirDoc = parseBoard(theirs)
   const j = indexOf(theirDoc, id)
   if (j !== -1 && content(theirDoc.blocks[j]!) === content(baseDoc.blocks[i]!)) {

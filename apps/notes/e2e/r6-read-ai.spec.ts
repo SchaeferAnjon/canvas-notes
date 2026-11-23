@@ -44,6 +44,7 @@ async function recordToasts(page: Page) {
   })
   return () => page.evaluate(() => (window as unknown as { toasts: string[] }).toasts)
 }
+// ⌘↓ 落到文末那一行，打的字是新的一块（task-ys1rr，DESIGN.v3 6.4b）：文件里是「\n\n字\n」
 async function typeAtEnd(page: Page, text: string) {
   await pane(page).locator('.cm-content').click()
   await page.keyboard.press('Meta+End')
@@ -92,7 +93,7 @@ for (const then of ['退出', '先提交再退出'] as const)
       await expect(tabOn(page)).toHaveText(/^随手记（没存上的字 \d\d-\d\d）$/)
       await typeAtEnd(page, '在另存的那篇里接着写的一大段。')
       await expect(saveState(page)).toHaveAttribute('data-state', 'saved', { timeout: 10_000 })
-      expect(readFileSync(join(vault, copy), 'utf8')).toBe('# 随手记\n\n正文。\n锁上以后打的。在另存的那篇里接着写的一大段。')
+      expect(readFileSync(join(vault, copy), 'utf8')).toBe('# 随手记\n\n正文。\n\n锁上以后打的。\n\n在另存的那篇里接着写的一大段。\n')
       if (then === '先提交再退出') {
         await gitAct(page, '提交')
         await expect(page.getByTestId('git-changed')).toHaveText('都提交了', { timeout: 10_000 })
@@ -100,7 +101,7 @@ for (const then of ['退出', '先提交再退出'] as const)
       }
       expect((await toasts()).filter((t) => /外面|冲突/.test(t))).toEqual([])
       await quit(run)
-      expect(readFileSync(join(vault, copy), 'utf8')).toBe('# 随手记\n\n正文。\n锁上以后打的。在另存的那篇里接着写的一大段。')
+      expect(readFileSync(join(vault, copy), 'utf8')).toBe('# 随手记\n\n正文。\n\n锁上以后打的。\n\n在另存的那篇里接着写的一大段。\n')
       expect(readFileSync(file, 'utf8')).toBe('# 随手记\n\n正文。\n')
       expect(withText(vault, '在另存的那篇里接着写')).toEqual([copy])
       expect(git(vault, 'status', '--porcelain')).toBe('')
@@ -134,13 +135,13 @@ test('另存以后另存那篇也写不进去了（盘满了）：不再另存�
     await expect(page.getByTestId('git-changed')).toHaveText('1篇写不进去，字只在内存里')
     expect(allFiles(vault).filter((f) => f.includes('没存上的字'))).toEqual([copy])
     const stashDir = join(run.userData, '没存上的字')
-    await expect.poll(() => (existsSync(stashDir) ? readdirSync(stashDir).map((f) => readFileSync(join(stashDir, f), 'utf8')) : [])).toEqual(['# 随手记\n\n正文。\n锁上以后打的。盘满以后打的。'])
+    await expect.poll(() => (existsSync(stashDir) ? readdirSync(stashDir).map((f) => readFileSync(join(stashDir, f), 'utf8')) : [])).toEqual(['# 随手记\n\n正文。\n\n锁上以后打的。\n\n盘满以后打的。\n'])
     // 腾出空间：再打一个字就存回另存那篇，红字消失
     for (const p of locked) chmodSync(p, p.endsWith('.md') ? 0o644 : 0o755)
     await typeAtEnd(page, '腾出空间以后打的。')
     await expect(saveState(page)).toHaveAttribute('data-state', 'saved', { timeout: 10_000 })
     await expect(page.getByTestId('git-changed')).not.toContainText('写不进去')
-    expect(readFileSync(join(vault, copy), 'utf8')).toBe('# 随手记\n\n正文。\n锁上以后打的。盘满以后打的。腾出空间以后打的。')
+    expect(readFileSync(join(vault, copy), 'utf8')).toBe('# 随手记\n\n正文。\n\n锁上以后打的。\n\n盘满以后打的。\n\n腾出空间以后打的。\n')
     expect(readFileSync(file, 'utf8')).toBe('# 随手记\n\n正文。\n')
   } finally {
     for (const p of locked) chmodSync(p, p.endsWith('.md') ? 0o644 : 0o755)
@@ -171,7 +172,7 @@ test('原文件和旁边、库最外层都写不进去（像盘满了）：标�
     const stashDir = join(run.userData, '没存上的字')
     await expect.poll(() => (existsSync(stashDir) ? readdirSync(stashDir) : []).length).toBe(1)
     const stash = join(stashDir, readdirSync(stashDir)[0]!)
-    expect(readFileSync(stash, 'utf8')).toContain('第一行。\n锁上以后打的。')
+    expect(readFileSync(stash, 'utf8')).toContain('第一行。\n\n锁上以后打的。\n')
     await shotWindow(run, 'r6-stranded')
     // 底栏弹层说清楚，点那一篇在访达里显示备份
     await page.getByTestId('git-changed').click()
@@ -181,7 +182,7 @@ test('原文件和旁边、库最外层都写不进去（像盘满了）：标�
     await expect.poll(() => screen(run)).toContain(`在访达中显示 ${stash}`)
     // 再打几个字：备份跟着更新，还是同一个文件
     await typeAtEnd(page, '又打的。')
-    await expect.poll(() => readFileSync(stash, 'utf8')).toContain('锁上以后打的。又打的。')
+    await expect.poll(() => readFileSync(stash, 'utf8')).toContain('锁上以后打的。\n\n又打的。')
     expect(readdirSync(stashDir)).toHaveLength(1)
     // ⌘Q：先弹确认（测试模式下回「先不退出」），不退
     await run.app.evaluate(({ app }) => app.quit())
@@ -189,7 +190,7 @@ test('原文件和旁边、库最外层都写不进去（像盘满了）：标�
     await page.waitForTimeout(1500)
     expect(run.app.process().exitCode).toBeNull()
     await expect(saveState(page)).toHaveText('写不进去，字只在内存里')
-    expect(await editorText(page)).toContain('锁上以后打的。又打的。')
+    expect(await editorText(page)).toContain('锁上以后打的。\n\n又打的。')
     expect(quitLog(run)).toMatch(/没退出/)
     // 用户点「仍然退出」
     await run.app.evaluate(({ dialog }) => {
@@ -198,7 +199,7 @@ test('原文件和旁边、库最外层都写不进去（像盘满了）：标�
     await quit(run)
     expect(quitLog(run)).toMatch(/没存好：甲\/乙\/深处\.md 写不进去，字只在内存里/)
     expect(quitLog(run)).not.toMatch(/存完/)
-    expect(readFileSync(stash, 'utf8')).toContain('锁上以后打的。又打的。')
+    expect(readFileSync(stash, 'utf8')).toContain('锁上以后打的。\n\n又打的。')
   } finally {
     for (const p of locked) chmodSync(p, p.endsWith('.md') ? 0o644 : 0o755)
     await run.close().catch(() => undefined)

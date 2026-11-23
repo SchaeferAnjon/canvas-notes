@@ -28,4 +28,10 @@ export interface CnMapApi {
   onAirdropError(cb: (message: string) => void): () => void
   /** 菜单「文件 › 拍一张导图」 */
   onOpen(cb: () => void): () => void
+  /** 导出导图（第二批）：PNG 给字节，SVG、OPML 给文字；存储面板里挑地方，取消是 null，存好了返回路径 */
+  exportFile(fmt: 'png' | 'svg' | 'opml', name: string, data: Uint8Array | string): Promise<string | null>
+  /** 导出 PDF：界面画好的 SVG 打印成一页 PDF；paper 是导图的大小（像素）或 A4 横放、竖放 */
+  exportPdf(name: string, svg: string, paper: { w: number; h: number } | 'a4-land' | 'a4-port'): Promise<string | null>
+  /** 库里的一张图读成 data: 网址（导出时嵌进 SVG）；读不到是 null */
+  imageData(path: string): Promise<string | null>
 }

@@ -14,9 +14,18 @@ import { webApi } from './web'
 import { menuApi } from './ctx-menu'
 import { cmdsApi } from './commands'
 import { readApi } from './read-along'
-import { todoApi } from './todo'
+import { todoApi, whenApi } from './todo'
+import { familyApi } from './family'
+import { calApi } from './calendar'
 import { mobileAiApi } from './mobile-ai'
 import { crashApi } from './crash'
+
+/** 听主进程发来的一种事，交回取消的函数 */
+function listen<T>(ch: string, cb: (x: T) => void): () => void {
+  const h = (_e: unknown, x: T) => cb(x)
+  ipcRenderer.on(ch, h)
+  return () => ipcRenderer.removeListener(ch, h)
+}
 
 const api: CnApi = {
   vault: () => ipcRenderer.invoke('vault:get'),
@@ -62,6 +71,43 @@ const api: CnApi = {
   backlinks: (path) => ipcRenderer.invoke('board:backlinks', path),
   boardCommit: (paths, message) => ipcRenderer.invoke('board:commit', paths, message),
   boardRevert: (hash) => ipcRenderer.invoke('board:revert', hash),
+  baseWrite: (writes, message) => ipcRenderer.invoke('base:write', writes, message),
+  aiColRun: (run) => ipcRenderer.invoke('aicol:run', run),
+  aiColStop: (job) => ipcRenderer.invoke('aicol:stop', job),
+  aiColUndo: (writes, message) => ipcRenderer.invoke('aicol:undo', writes, message),
+  onAiColProgress(cb) {
+    const h = (_e: unknown, p: Parameters<typeof cb>[0]) => cb(p)
+    ipcRenderer.on('aicol:progress', h)
+    return () => ipcRenderer.removeListener('aicol:progress', h)
+  },
+  onAiColDone(cb) {
+    const h = (_e: unknown, d: Parameters<typeof cb>[0]) => cb(d)
+    ipcRenderer.on('aicol:done', h)
+    return () => ipcRenderer.removeListener('aicol:done', h)
+  },
+  aiColSources: (folder, col) => ipcRenderer.invoke('aicol:sources', folder, col),
+  aiColFresh: (folder, col, paths) => ipcRenderer.invoke('aicol:fresh', folder, col, paths),
+  aiColNotes: (paths) => ipcRenderer.invoke('aicol:notes', paths),
+  auto: {
+    list: (where) => ipcRenderer.invoke('auto:list', where),
+    save: (req) => ipcRenderer.invoke('auto:save', req),
+    toggle: (ref, on) => ipcRenderer.invoke('auto:toggle', ref, on),
+    remove: (ref) => ipcRenderer.invoke('auto:remove', ref),
+    run: (req) => ipcRenderer.invoke('auto:run', req),
+    button: (req) => ipcRenderer.invoke('auto:button', req),
+    stop: (run) => ipcRenderer.invoke('auto:stop', run),
+    trial: (req) => ipcRenderer.invoke('auto:trial', req),
+    log: (req) => ipcRenderer.invoke('auto:log', req),
+    undo: (id) => ipcRenderer.invoke('auto:undo', id),
+    fromSentence: (req) => ipcRenderer.invoke('auto:fromSentence', req),
+    prefs: (patch) => ipcRenderer.invoke('auto:prefs', patch),
+    system: (id, on) => ipcRenderer.invoke('auto:system', id, on),
+    systemRun: (id) => ipcRenderer.invoke('auto:systemRun', id),
+    onStarted: (cb) => listen('auto:started', cb),
+    onDone: (cb) => listen('auto:done', cb),
+    onCommand: (cb) => listen('auto:command', cb),
+    onChanged: (cb) => listen('auto:changed', () => cb()),
+  },
   search: (q) => ipcRenderer.invoke('search', q),
   pins: () => ipcRenderer.invoke('pins:get'),
   logActivity: (kind, path) => ipcRenderer.invoke('activity:log', kind, path),
@@ -235,6 +281,9 @@ contextBridge.exposeInMainWorld('cnMenu', menuApi)
 contextBridge.exposeInMainWorld('cnCmds', cmdsApi)
 contextBridge.exposeInMainWorld('cnRead', readApi)
 contextBridge.exposeInMainWorld('cnTodo', todoApi)
+contextBridge.exposeInMainWorld('cnWhen', whenApi)
+contextBridge.exposeInMainWorld('cnFamily', familyApi)
+contextBridge.exposeInMainWorld('cnCal', calApi)
 contextBridge.exposeInMainWorld('cnMobileAi', mobileAiApi)
 contextBridge.exposeInMainWorld('cnAttach', {
   of: (note, shared) => ipcRenderer.invoke('attach:of', note, shared),

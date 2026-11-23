@@ -18,11 +18,13 @@ import { app, type BrowserWindow, ipcMain, shell } from 'electron'
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { t } from '../../shared/i18n'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import * as git from '@cn/git'
 import { blocksText, type CardText, cardText, type DoubtItem, parseCardLines } from '@cn/format'
 import type { CommitInfo } from '../../shared/api'
+import { catName } from '../../shared/categories'
 import type { AnkiReview, AnkiStatus, CardEvent, CardItem, CardScope, CardSendResult, CardsView } from '../../shared/reading'
 import { engine, featureLabel, modelOpt, pickFor } from '../agent'
 import { pdfHash, readTextCache } from '../pdf-text-cache'
@@ -63,7 +65,7 @@ export interface CardsDeps {
 export function setupCards(deps: CardsDeps) {
   const needVault = () => {
     const v = deps.vault()
-    if (!v) throw new Error('还没有打开库')
+    if (!v) throw new Error(t('还没有打开库'))
     return v
   }
   const send = (ch: string, ...args: unknown[]) => deps.win()?.webContents.send(ch, ...args)
@@ -105,10 +107,13 @@ export function setupCards(deps: CardsDeps) {
     if (o.kind === 'pdf' && typeof o.pdf === 'string' && /\.pdf$/i.test(o.pdf)) return { kind: 'pdf', pdf: o.pdf }
     if (o.kind === 'folder' && typeof o.folder === 'string') return { kind: 'folder', folder: o.folder }
     if (o.kind === 'vault') return { kind: 'vault' }
-    throw new Error('出卡的范围不对')
+    throw new Error(t('出卡的范围不对'))
   }
   const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
-  const labelOf = (s: CardScope) => (s.kind === 'pdf' ? stem(s.pdf) : s.kind === 'folder' ? courseName(s.folder) || '库的根目录' : '整个库')
+  /** 出卡弹窗头上写的范围 */
+  const labelOf = (s: CardScope) => (s.kind === 'pdf' ? stem(s.pdf) : s.kind === 'folder' ? courseName(s.folder) || t('库的根目录') : t('整个库'))
+  /** 提交说明里写的范围（写进 Git，不翻） */
+  const commitLabel = (s: CardScope) => (s.kind === 'pdf' ? stem(s.pdf) : s.kind === 'folder' ? courseName(s.folder) || '库的根目录' : '整个库') // 不翻
   const courseOfPdf = (pdf: string) => courseName(courseRoot(dirOf(pdf)))
 
   ipcMain.handle('reading:cards', async (_e, scope: unknown): Promise<CardsView> => {
@@ -146,7 +151,7 @@ export function setupCards(deps: CardsDeps) {
   ipcMain.handle('reading:cards:stop', (_e, job: unknown) => jobs.get(Number(job))?.abort())
 
   ipcMain.handle('reading:cards:draft', async (_e, job: unknown, scope: unknown, ids: unknown) => {
-    if (typeof job !== 'number' || !Array.isArray(ids) || !ids.every((x) => typeof x === 'string')) throw new Error('出卡的参数不对')
+    if (typeof job !== 'number' || !Array.isArray(ids) || !ids.every((x) => typeof x === 'string')) throw new Error(t('出卡的参数不对'))
     const sc = needScope(scope)
     const v = needVault()
     const want = new Set(ids as string[])
@@ -210,17 +215,17 @@ export function setupCards(deps: CardsDeps) {
       jobs.delete(job)
     }
     const missing = items.filter((it) => !got.has(it.id)).length
-    emit({ job, done: true, ...(failed ? { error: failed } : missing && !ctl.signal.aborted ? { error: `AI 没改出${missing}问，先照你问的原话，按 E 能自己改` } : {}) })
+    emit({ job, done: true, ...(failed ? { error: failed } : missing && !ctl.signal.aborted ? { error: t('AI 没改出{n}问，先照你问的原话，按 E 能自己改', { n: missing }) } : {}) })
   })
 
   ipcMain.handle('reading:cards:keep', async (_e, id: unknown, patch: unknown) => {
-    if (typeof id !== 'string') throw new Error('出卡的参数不对')
+    if (typeof id !== 'string') throw new Error(t('出卡的参数不对'))
     const d = await mine()
     if (patch === null) delete d[id]
     else {
       const p = (patch && typeof patch === 'object' ? patch : {}) as { card?: unknown; edited?: unknown; skip?: unknown }
       const card = p.card === undefined ? d[id]?.card : cardText(p.card)
-      if (!card) throw new Error('卡的字不对')
+      if (!card) throw new Error(t('卡的字不对'))
       d[id] = { ...d[id], card, src: d[id]?.src ?? '', ...(typeof p.edited === 'boolean' ? { edited: p.edited } : {}), ...(typeof p.skip === 'boolean' ? { skip: p.skip } : {}) }
     }
     await saveDrafts()
@@ -231,12 +236,12 @@ export function setupCards(deps: CardsDeps) {
 
   ipcMain.handle('reading:cards:send', async (_e, scope: unknown, cards: unknown): Promise<CardSendResult> => {
     const sc = needScope(scope)
-    if (!Array.isArray(cards)) throw new Error('要送的卡不对')
+    if (!Array.isArray(cards)) throw new Error(t('要送的卡不对'))
     const v = needVault()
     const want = new Map<string, CardText>()
     for (const x of cards as { id?: unknown; card?: unknown }[]) {
       const c = cardText(x?.card)
-      if (typeof x?.id !== 'string' || !c) throw new Error('要送的卡不对')
+      if (typeof x?.id !== 'string' || !c) throw new Error(t('要送的卡不对'))
       want.set(x.id, c)
     }
     const items = new Map((await collectAsked(v, sc)).map((it) => [it.id, it]))
@@ -274,7 +279,7 @@ export function setupCards(deps: CardsDeps) {
       st.cards[id] = { ...want.get(id)!, ...(r.notes[id] ? { note: r.notes[id] } : {}) }
     }
     await writeAnkiState(v, st)
-    const hash = await git.commitPaths(v.root, [ANKI_STATE], `送进 Anki：${labelOf(sc)} ${r.added.length} 张`)
+    const hash = await git.commitPaths(v.root, [ANKI_STATE], `送进 Anki：${commitLabel(sc)} ${r.added.length} 张`) // 不翻：提交说明（写进 Git）
     // 送过的不再留草稿；这个范围里别的那几问「不送」不留到下次（下次出卡默认都要，同原型）
     const d = await mine()
     for (const id of [...r.added, ...r.duplicates]) delete d[id]
@@ -286,14 +291,14 @@ export function setupCards(deps: CardsDeps) {
 
   ipcMain.handle('reading:cards:undo', async (_e, scope: unknown, ids: unknown): Promise<{ commit: CommitInfo | null; error?: string }> => {
     const sc = needScope(scope)
-    if (!Array.isArray(ids) || !ids.every((x) => typeof x === 'string')) throw new Error('要撤回的卡不对')
+    if (!Array.isArray(ids) || !ids.every((x) => typeof x === 'string')) throw new Error(t('要撤回的卡不对'))
     const v = needVault()
     const st = await readAnkiState(v)
     const notes = (ids as string[]).flatMap((id) => (st.cards?.[id]?.note ? [st.cards[id]!.note!] : []))
     try {
       await deleteNotes(notes)
     } catch (e) {
-      if (e instanceof AnkiConnectError) return { commit: null, error: e.kind === 'off' ? 'Anki 没开着，撤回不了：打开 Anki 再点一次撤回' : e.message }
+      if (e instanceof AnkiConnectError) return { commit: null, error: e.kind === 'off' ? t('Anki 没开着，撤回不了：打开 Anki 再点一次撤回') : e.message }
       throw e
     }
     for (const id of ids as string[]) {
@@ -301,7 +306,7 @@ export function setupCards(deps: CardsDeps) {
       delete st.cards?.[id]
     }
     await writeAnkiState(v, st)
-    const hash = await git.commitPaths(v.root, [ANKI_STATE], `撤回送进 Anki：${labelOf(sc)} ${notes.length} 张`)
+    const hash = await git.commitPaths(v.root, [ANKI_STATE], `撤回送进 Anki：${commitLabel(sc)} ${notes.length} 张`) // 不翻：提交说明（写进 Git）
     send('files:changed')
     return { commit: await commitInfo(v, hash) }
   })
@@ -316,12 +321,12 @@ export function setupCards(deps: CardsDeps) {
     // 开着就在卡片浏览器里只看这几张；没开先把 Anki 打开（开了再点「打开Anki」就能看）
     if (Array.isArray(ids) && ids.length && ids.every((x) => typeof x === 'string') && (await connected())) await browse(ids as string[]).catch((e) => console.error('在 Anki 里看没成功', e))
     const err = await shell.openPath(a.path)
-    if (err) throw new Error(`打不开 Anki：${err}`)
+    if (err) throw new Error(t('打不开 Anki：{error}', { error: err }))
     return true
   })
 
   ipcMain.handle('reading:anki:review', async (_e, folder: unknown): Promise<AnkiReview> => {
-    if (typeof folder !== 'string') throw new Error('文件夹不对')
+    if (typeof folder !== 'string') throw new Error(t('文件夹不对'))
     const v = needVault()
     const [items, st] = await Promise.all([collectAsked(v, { kind: 'folder', folder }), readAnkiState(v)])
     const sent = items.filter((it) => st.sent[it.id]).length
@@ -330,7 +335,7 @@ export function setupCards(deps: CardsDeps) {
     const deck = courseDeckOf(`${root}/x.pdf`) ?? DECK
     if (!sent || !(await connected())) return { sent, deck, connected: false }
     // deck: 连下面跟着文件夹分的牌组一起数
-    const q = deck === DECK ? `"deck:${DECK}" "tag:主题::${courseName(root).trim().split(/\s+/).join('_')}"` : `"deck:${deck}"`
+    const q = deck === DECK ? `"deck:${DECK}" "tag:主题::${courseName(root).trim().split(/\s+/).join('_')}"` : `"deck:${deck}"` // 不翻：Anki 的查找（标签照写进去的）
     const [newCards, due] = await Promise.all([countCards(`${q} is:new`), countCards(`${q} is:due`)])
     return { sent, deck, connected: true, newCards, due }
   })
@@ -338,8 +343,8 @@ export function setupCards(deps: CardsDeps) {
 
 /** 一门课的根：在 课程/<课>/ 下面（PDF 可能在课里的子文件夹）就是 课程/<课>，别的就是这个文件夹自己 */
 export function courseRoot(folder: string): string {
-  const m = /^(课程\/[^/]+)(?:\/|$)/.exec(folder)
-  return m ? m[1]! : folder
+  const [top, course] = folder.split('/')
+  return top === catName('课程') && course ? `${top}/${course}` : folder
 }
 
 /** 每一问那一页 PDF 上的字（读 PDF 时 pdf.js 拼好存在 userData 的全文缓存里；没打开过的 PDF 没有） */

@@ -7,6 +7,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import type { ChatSide, StoredMsg, ToolStep } from '../shared/agent'
 import type { AiPick } from '../shared/ai-features'
 import type { Place } from './ai-place'
+import { t } from '../shared/i18n'
 
 /** 存下来的部分 + 只在这次打开时有的（还在生成、按钮） */
 export type Msg = StoredMsg & {
@@ -48,7 +49,7 @@ export function stored(m: Msg): StoredMsg {
   void live
   void actions
   void dupProgress
-  return pending && !rest.text && !rest.error ? { ...rest, error: '没做完（软件关了）' } : rest
+  return pending && !rest.text && !rest.error ? { ...rest, error: t('没做完（软件关了）') } : rest
 }
 
 const storedSide = (s: Side): ChatSide => ({ ...s, msgs: s.msgs.map(stored) })

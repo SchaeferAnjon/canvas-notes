@@ -816,6 +816,58 @@ button.bi[data-testid='git-changed']:disabled {
 .lk-card .acts .k {
   color: var(--t3);
 }
+/* AI 回答里的引用（task-3e53q，cite.tsx）：和文档里的链接一样只画一道淡下划线；指着变强调色、鼠标变手（点一下出预览卡） */
+a.cite {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+a.cite:hover {
+  color: var(--acc-t);
+  text-decoration-color: currentColor;
+}
+a.wl.cite,
+a.wl.cite:hover {
+  color: var(--acc-t);
+  text-decoration: none;
+}
+a.wl.cite:hover {
+  background: color-mix(in srgb, var(--acc) 22%, transparent);
+}
+/* 预览卡：链接卡的样子，多一块引到的那几行（左边 2px 强调色竖线，同文档里闪的那道）；栏窄时跟着窄（cite.tsx 给 --cite-w） */
+.lk-card.cite-card {
+  width: var(--cite-w, 372px);
+}
+.cite-card .u .at {
+  color: var(--t3);
+}
+.cite-card .ex {
+  margin: -2px 0 8px 22px;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid var(--line2);
+  max-height: 9.6em;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t2);
+}
+.cite-card .ex.hit {
+  border-left-color: var(--acc);
+  color: var(--t1);
+}
+.cite-card .ex p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cite-card .ex .more,
+.cite-card .ex.miss {
+  color: var(--t3);
+}
 .doc .cm-wikilink {
   color: var(--acc-t);
   background: var(--acc-soft);
@@ -1312,8 +1364,12 @@ button.bi[data-testid='git-changed']:disabled {
   color: var(--t1);
 }
 .hist-pending .when {
+  min-width: 0;
+  overflow: hidden;
   font-size: 12px;
   color: var(--t3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .hist-pending .btn {
   flex: none;

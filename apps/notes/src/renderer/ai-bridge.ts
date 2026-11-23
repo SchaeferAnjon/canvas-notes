@@ -5,7 +5,7 @@
 import { useEffect, useRef } from 'react'
 import type { AgentContext, BridgeOp } from '../shared/agent'
 import type { NoteFile } from '../shared/api'
-import { titleOf } from '../shared/layout'
+import { INBOX, titleOf } from '../shared/layout'
 import { folderCount } from './ai-place'
 import { spotRange } from './ai-spot'
 import { vaultFiles } from './files/store'
@@ -27,38 +27,43 @@ export interface BridgeState {
   retarget(from: string, to: string): void
 }
 
+/** 交给 AI 的「现在看的是什么」：标签名是给 AI 看的，不翻 */
 export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext {
   const t = s.tab
   const tab: AgentContext['tab'] =
     !t
-      ? { type: 'none', title: '没有打开的标签' }
+      ? { type: 'none', title: '没有打开的标签' } // 不翻：给 AI 的上下文
       : t.type === 'note'
         ? { type: 'note', title: titleOf(t.path), path: t.path, mode: s.mode, board: !!s.notes.find((n) => n.path === t.path)?.board }
         : t.type === 'inbox'
-          ? { type: 'inbox', title: '收件箱' }
+          ? { type: 'inbox', title: INBOX }
           : t.type === 'home'
-            ? { type: 'home', title: '首页' }
+            ? { type: 'home', title: '首页' } // 不翻
             : t.type === 'web'
-              ? { type: 'none', title: `中间栏的网页：${t.title || t.url}` }
+              ? { type: 'none', title: `中间栏的网页：${t.title || t.url}` } // 不翻
               : t.type === 'pdf'
                 ? { type: 'none', title: `PDF：${t.path}` }
               : t.type === 'html'
                 ? { type: 'none', title: `HTML：${t.path}` }
               : t.type === 'webread'
-                ? { type: 'none', title: `阅读视图：${t.title}（${t.url}）` }
+                ? { type: 'none', title: `阅读视图：${t.title}（${t.url}）` } // 不翻
               : t.type === 'recent'
-                ? { type: 'none', title: '最近' }
+                ? { type: 'none', title: '最近' } // 不翻
                 : t.type === 'archive'
-                  ? { type: 'none', title: '归档' }
+                  ? { type: 'none', title: '归档' } // 不翻
                   : t.type === 'folder'
                     ? { type: 'folder', title: t.folder.split('/').pop() || t.folder, path: t.folder, count: folderCount(t.folder, vaultFiles()) }
                     : t.type === 'diff'
-                      ? { type: 'none', title: `对比：${t.title}` }
+                      ? { type: 'none', title: `对比：${t.title}` } // 不翻
                       : t.type === 'oldimages'
-                        ? { type: 'none', title: '梦游预览 · 挪老图' }
+                        ? { type: 'none', title: '梦游预览 · 挪老图' } // 不翻
                       : t.type === 'trash'
-                        ? { type: 'none', title: '最近删掉的' }
-                      : { type: 'topic', title: `素材 / ${t.topic}` }
+                        ? { type: 'none', title: '最近删掉的' } // 不翻
+                      : t.type === 'todo'
+                        ? { type: 'none', title: '待办首页' } // 不翻
+                      : t.type === 'calendar'
+                        ? { type: 'none', title: '日历' } // 不翻
+                      : { type: 'topic', title: `素材 / ${t.topic}` } // 不翻
   const ctx: AgentContext = { tab, web: { open: s.webOpen, url: s.webUrl } }
   const d = s.doc
   if (d && t?.type === 'note' && d.path === t.path && s.mode !== 'board') {
@@ -70,12 +75,12 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
   return ctx
 }
 
-/** 当前文档的编辑器；路径对不上（用户中途换了标签）就不动 */
+/** 当前文档的编辑器；路径对不上（用户中途换了标签）就不动。出错的话是回给 AI 的工具结果，不翻 */
 function docFor(s: BridgeState, path?: string): NoteDoc {
   const d = s.doc
-  if (!d || s.tab?.type !== 'note' || d.path !== s.tab.path || s.mode === 'board') throw new Error('现在打开的不是文档')
-  if (path && d.path !== path) throw new Error(`用户换到了别的标签（现在是 ${d.path}），这次没改`)
-  if (d.readOnly) throw new Error('这篇只能只读打开，不能改')
+  if (!d || s.tab?.type !== 'note' || d.path !== s.tab.path || s.mode === 'board') throw new Error('现在打开的不是文档') // 不翻：回给 AI
+  if (path && d.path !== path) throw new Error(`用户换到了别的标签（现在是 ${d.path}），这次没改`) // 不翻：回给 AI
+  if (d.readOnly) throw new Error('这篇只能只读打开，不能改') // 不翻：回给 AI
   return d
 }
 
@@ -117,7 +122,7 @@ async function handle(s: BridgeState, op: BridgeOp, arg: unknown): Promise<unkno
     case 'context':
       return contextOf(s)
     case 'openWeb':
-      if (!s.tab) throw new Error('先打开一个标签，网页跟着标签走')
+      if (!s.tab) throw new Error('先打开一个标签，网页跟着标签走') // 不翻：回给 AI
       s.openWeb(String(arg))
       return null
     case 'measure':
@@ -147,7 +152,7 @@ async function handle(s: BridgeState, op: BridgeOp, arg: unknown): Promise<unkno
       const { path, text, turn } = arg as { path: string; text: string; turn?: number }
       const d = docFor(s, path)
       const sel = d.view.state.selection.main
-      if (sel.empty) throw new Error('文档里没有选中的字。请用户先选中要换的那段。')
+      if (sel.empty) throw new Error('文档里没有选中的字。请用户先选中要换的那段。') // 不翻：回给 AI
       d.view.dispatch({ changes: { from: sel.from, to: sel.to, insert: text }, selection: { anchor: sel.from, head: sel.from + text.length }, userEvent: 'input.ai' })
       if (turn !== undefined) spotRange(d.view, { from: sel.from, to: sel.from + text.length }, turn)
       await d.save()

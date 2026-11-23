@@ -1,0 +1,65 @@
+/*
+ * 待办这一行认出时间以后的样子（task-pd289）：要从标题里拿掉的字划掉、--t3；行尾灰字预览照标准写法，--t3，13 字，
+ * 离前面 8；后面一个小键帽「⇥」（11 字、圆角 4、1px --line2 边，同 DESIGN 的键帽）；AI 认出来的前面画那一家的标志 12。
+ * AI 正在想：只有标志和一个淡的「…」，一闪一闪。
+ */
+.cm-when-cut {
+  color: var(--t3);
+  text-decoration: line-through;
+  text-decoration-color: var(--t3);
+}
+.cm-when-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  color: var(--t3);
+  font-size: 13px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  vertical-align: 1px;
+}
+.cm-when-ghost:hover .cm-when-tail {
+  color: var(--t2);
+}
+.cm-when-emo {
+  filter: grayscale(1);
+  opacity: 0.55;
+}
+.cm-when-logo {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+}
+.cm-when-logo svg,
+.cm-when-logo img {
+  width: 12px;
+  height: 12px;
+}
+.cm-when-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  font: 11px/1 var(--sans);
+  color: var(--t3);
+}
+.cm-when-ghost.wait {
+  cursor: default;
+  animation: cm-when-wait 1.2s ease-in-out infinite;
+}
+@keyframes cm-when-wait {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-when-ghost.wait {
+    animation: none;
+  }
+}

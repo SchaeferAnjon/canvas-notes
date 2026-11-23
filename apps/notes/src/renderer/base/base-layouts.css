@@ -1,0 +1,395 @@
+/*
+ * 数据库的看板 / 日历 / 画廊（数据库第三批第 2 块）：数值照 14-数据库第三批 方向 A 原型（.kb .kcol .kcard / .cal .tray .cgrid .cday .cit / .gal .gcard）。
+ * 拖动的样子（名字小牌、落点亮一圈、拖着的那张变淡）是 @cn/calendar 的 .cal-ghost / .cal-over / .cal-lift，和画布今日同一套。
+ */
+@import '@cn/calendar/calendar.css';
+
+.bl-wait,
+.bl-empty {
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.bl-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-block;
+}
+.bl-more {
+  font-size: 12px;
+  color: var(--t3);
+  padding: 6px 6px 0;
+}
+
+/* 卡片下面那一行的一项：日期带日历图标、汇总带图标 */
+.bl-f {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.bl-f .ci {
+  color: var(--t3);
+}
+.bl-f.fx {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 看板 ---------- */
+.bl-kb {
+  container-type: inline-size;
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  align-items: flex-start;
+}
+.bl-kcol {
+  flex: 1 0 180px;
+  max-width: 240px;
+  background: var(--fill);
+  border-radius: 10px;
+  padding: 8px;
+  min-height: 120px;
+  transition: background 0.12s;
+}
+/* 窄栏（块窄于 560，原型 .db.narrow）：列收到 170，第三列在渐隐边里多露一点 */
+@container (max-width: 560px) {
+  .bl-kcol {
+    flex-basis: 170px;
+  }
+}
+.bl-khead {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t1);
+}
+.bl-khead .nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bl-khead .c {
+  color: var(--t3);
+  font-weight: 400;
+}
+.bl-kcard {
+  background: var(--card);
+  /* --line2：块底是 --card（原型是 --win），--line 在深湖里卡片和块底分不开 */
+  box-shadow: inset 0 0 0 1px var(--line2);
+  border-radius: var(--r-card);
+  padding: 10px 12px;
+  margin-top: 8px;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.bl-kcard:hover {
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.bl-kcard .n {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  color: var(--t1);
+  overflow-wrap: anywhere;
+}
+.bl-kcard .m {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  row-gap: 2px;
+}
+.bl-kcard.naming {
+  cursor: text;
+  padding: 6px 8px;
+}
+.bl-name {
+  width: 100%;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  padding: 0 4px;
+  background: var(--fill);
+  font: 500 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.bl-knew {
+  width: 100%;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  margin-top: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t3);
+  text-align: left;
+}
+.bl-knew:hover {
+  background: var(--fill2);
+  color: var(--t2);
+}
+
+/* ---------- 日历 ---------- */
+.bl-cal {
+  padding: 10px 12px 12px;
+}
+.bl-calh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+}
+.bl-calh b {
+  font-size: 13px;
+  font-weight: 600;
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.bl-calh .hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bl-ib {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.bl-ib:hover,
+.bl-today:hover {
+  background: var(--fill);
+}
+.bl-today {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  flex: none;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+}
+/* 没排日子的：虚线框，拖进来清掉日期（落点亮起来时 .cal-over 换底和边） */
+.bl-tray {
+  margin: 6px 0 8px;
+  border: 1px dashed var(--line2);
+  border-radius: 8px;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  font-size: 12px;
+  color: var(--t3);
+  flex-wrap: wrap;
+}
+.bl-tray.cal-over {
+  border-color: var(--acc-ring);
+  box-shadow: none;
+}
+.bl-tray-tip {
+  margin-left: auto;
+}
+/* 共用月历在数据库里的样子：格子 66 高、表头 11 字、今天实心圆、一条是带小圆点的白色小牌（原型 .cday .dn .cit） */
+.bl-cal .cal-month {
+  display: block;
+  border-top: 1px solid var(--line);
+  border-left: 1px solid var(--line);
+}
+.bl-cal .cal-mweek.head > div {
+  font-size: 11px;
+  color: var(--t3);
+  padding: 4px 6px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.bl-cal .cal-mrows {
+  border: 0;
+}
+.bl-cal .cal-mcell {
+  height: 66px;
+  padding: 4px;
+  gap: 3px;
+}
+.bl-cal .cal-dn {
+  font-size: 11px;
+  padding: 0;
+  flex: none;
+}
+.bl-cal .cal-dn b {
+  font-weight: 400;
+  height: 18px;
+  min-width: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+.bl-cal .cal-mcell.today .cal-dn b {
+  padding: 0 4px;
+  border-radius: 9px;
+  font-weight: 400;
+}
+.bl-cal .cal-chip.mad,
+.bl-tray .cal-chip.mad {
+  height: 22px;
+  line-height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  font-size: 12px;
+  color: var(--t1);
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.bl-tray .cal-chip.mad {
+  max-width: 220px;
+  /* 没排日子的那几条字随虚线框是灰的（原型），格子里排好的照旧 --t1 */
+  color: var(--t3);
+}
+.bl-cal .cal-more {
+  font-size: 11px;
+  padding: 0 2px;
+}
+
+/* ---------- 画廊 ---------- */
+.bl-gal {
+  padding: 12px;
+  container-type: inline-size;
+}
+.bl-galgrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.bl-gal.full .bl-galgrid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+@container (max-width: 520px) {
+  .bl-galgrid,
+  .bl-gal.full .bl-galgrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@container (max-width: 300px) {
+  .bl-galgrid,
+  .bl-gal.full .bl-galgrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bl-gcard {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  border-radius: var(--r-card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  overflow: hidden;
+  background: var(--card);
+}
+.bl-gcard:hover {
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+}
+.bl-gcov {
+  height: 96px;
+  background: var(--clip);
+  overflow: hidden;
+  position: relative;
+  border-bottom: 1px solid var(--line);
+}
+.bl-gcov img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+.bl-gcov .txt {
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t2);
+  white-space: pre-line;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+}
+.bl-ginfo {
+  padding: 8px 12px 10px;
+}
+.bl-ginfo .n {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--t1);
+}
+.bl-ginfo .m {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+  display: flex;
+  align-items: center;
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.bl-ginfo .bl-f {
+  gap: 6px;
+}
+.bl-ginfo .bl-f + .bl-f {
+  margin-left: 4px;
+}
+/* 「学完 · 11月10日」：点前后各 4（点和后面的字之间本来有 gap 6，往回收 2） */
+.bl-ginfo .bl-f + .bl-f::before {
+  content: '·';
+  margin-right: -2px;
+}

@@ -29,7 +29,10 @@ test('设置 › 一般 › 更新：开发版不查更新；应用菜单有检�
     const first = menu[0]!.items
     expect(first.find((i) => i.label === '检查更新…')).toEqual({ label: '检查更新…', enabled: false })
     expect(first.some((i) => i.label === '设置…')).toBe(true)
-    expect(menu.map((m) => m.role)).toEqual(expect.arrayContaining(['editmenu', 'windowmenu']))
+    expect(menu.map((m) => m.role)).toContain('windowmenu')
+    // 「编辑」从 role: 'editMenu' 改成自己列的一份（task-wuv05 多一项「在这一页里找」）：系统那几项还在
+    const edit = await app.evaluate(({ Menu }) => Menu.getApplicationMenu()!.items.find((m) => m.label === '编辑')?.submenu?.items.map((i) => i.role ?? i.label) ?? [])
+    expect(edit).toEqual(expect.arrayContaining(['undo', 'redo', 'cut', 'copy', 'paste', 'selectall', '在这一页里找']))
   } finally {
     await run.close()
   }

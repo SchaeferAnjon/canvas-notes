@@ -1,0 +1,230 @@
+/* 选中操作条（task-5ryf9，17-白板框选 方向 A；白板、文档同一条）：40 高、圆角 12、--pop、--shadow-up，内边距 0/4、间距 2 */
+.selbar {
+  position: fixed;
+  z-index: 900;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  line-height: 1;
+  color: var(--t1);
+  white-space: nowrap;
+  user-select: none;
+  transition: opacity 0.12s;
+}
+/* 拖着的时候藏起来，松手再出来 */
+.selbar.hide {
+  opacity: 0;
+  pointer-events: none;
+}
+/* 「已选N张」：500 --t1，左 10 右 8 */
+.selbar .cnt {
+  padding: 0 8px 0 10px;
+  font-weight: 500;
+  color: var(--t1);
+}
+/* 竖线：1 × 20 --line2，左右 4 */
+.selbar .vs {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: var(--line2);
+}
+/* 一颗按钮：32 高、圆角 8、内边距 0/9、图标和字隔 6；--t2，悬停、开着菜单 --fill2 底 --t1 */
+.selbar .sb {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  color: var(--t2);
+  cursor: pointer;
+}
+.selbar .sb > svg {
+  flex: none;
+}
+.selbar .sb:hover,
+.selbar .sb.open {
+  background: var(--fill2);
+  color: var(--t1);
+}
+/* 小箭头 12 --t3，往左靠 2 */
+.selbar .sb .dn {
+  margin-left: -2px;
+  color: var(--t3);
+}
+.selbar .sb.red {
+  color: var(--red-t);
+}
+/* 窄了只留图标（问AI 留字）：内边距 0/8 */
+.selbar.l1 .sb:not(.keep) .lb,
+.selbar.l1 .sb:not(.keep) .dn {
+  display: none;
+}
+.selbar.l1 .sb:not(.keep) {
+  padding: 0 8px;
+}
+
+/* 操作条的菜单（原型 .menu）：最窄 220、内边距 6、圆角 12；行 30 高、图标 14 --t2；组头、说明 12 --t3；右边的键 11 等宽 --t3 */
+.sel-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 220px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  color: var(--t1);
+  outline: none;
+}
+.sel-menu-in {
+  outline: none;
+}
+.sel-menu .sm-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  color: var(--t1);
+  cursor: pointer;
+}
+.sel-menu .sm-item > svg {
+  flex: none;
+  color: var(--t2);
+}
+.sel-menu .sm-item .lb {
+  flex: 1;
+}
+.sel-menu .sm-item kbd {
+  margin-left: auto;
+  padding-left: 16px;
+  font: 11px var(--mono);
+  color: var(--t3);
+}
+.sel-menu .sm-item.on {
+  background: var(--fill2);
+}
+.sel-menu .sm-item.off {
+  color: var(--t3);
+  cursor: default;
+}
+.sel-menu .sm-item.off > svg {
+  color: var(--t3);
+}
+.sel-menu .sm-item.red,
+.sel-menu .sm-item.red > svg {
+  color: var(--red-t);
+}
+.sel-menu .sm-head {
+  padding: 4px 8px 2px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--t3);
+}
+.sel-menu .sm-note {
+  max-width: 250px;
+  padding: 4px 8px 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+  color: var(--t3);
+}
+.sel-menu .sm-sep {
+  margin: 5px 4px;
+  border-top: 1px solid var(--line);
+}
+.sel-menu .glyph {
+  flex: none;
+  color: var(--t2);
+}
+/* 挑一篇笔记（移到别的笔记）：顶上一个筛选框 */
+.sel-menu .sm-find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  margin: 0 0 4px;
+  padding: 0 8px;
+  border-radius: 8px;
+  background: var(--fill);
+  color: var(--t3);
+}
+.sel-menu .sm-find input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  font: inherit;
+  color: var(--t1);
+}
+.sel-menu .sm-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.sel-menu .sm-item .sub {
+  margin-left: auto;
+  padding-left: 12px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--t3);
+}
+
+/* 说明小卡（原型 .info）：300 宽、内边距 14/16、圆角 12；头 13/600 带图标，正文 --t2，右下「知道了」 */
+.sel-info {
+  position: fixed;
+  z-index: 1000;
+  width: 300px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t1);
+  outline: none;
+}
+.sel-info h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.sel-info p {
+  margin: 0 0 10px;
+  color: var(--t2);
+}
+.sel-info .row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

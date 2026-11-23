@@ -85,6 +85,7 @@ export function estimateHeight(body: string, w: number): number {
 
 function index(doc: BoardDoc, id: string): number {
   const i = doc.blocks.findIndex((b) => attr(b, 'id') === id)
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (i === -1) throw new Error(`白板上没有 id 是 ${id} 的卡片或列`)
   return i
 }
@@ -132,12 +133,14 @@ export interface NewCard {
 }
 
 export function addCard(text: string, card: NewCard, sizes: Record<string, Size> = {}): { text: string; id: string } {
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (!card.text.trim()) throw new Error('卡片内容是空的')
   if (docBoard(text)) return docOps.addCard(text, card)
   const doc = parseBoard(text)
   const id = newId(doc)
   if (card.column) {
     const col = doc.blocks[index(doc, card.column)]!
+    // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
     if (col.kind !== 'column') throw new Error(`${card.column} 不是列`)
     const attrs: Record<string, string> = { id, in: card.column }
     if (card.color) attrs.color = card.color
@@ -158,15 +161,18 @@ export function addColumn(text: string, col: { title: string; x?: number; y?: nu
   const doc = parseBoard(text)
   const id = newId(doc)
   const spot = col.x !== undefined && col.y !== undefined ? { x: col.x, y: col.y } : nextSpot(doc, sizes)
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   const attrs = { id, x: Math.round(spot.x), y: Math.round(spot.y), w: COL_W, title: col.title.trim() || '新的列' }
   return { text: serializeBoard(appendBlock(doc, newBlock('column', attrs))), id }
 }
 
 export function setCardText(text: string, id: string, body: string): string {
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (!body.trim()) throw new Error('卡片内容是空的；要删卡片请让用户自己删')
   if (docBoard(text)) return docOps.setCardText(text, id, body)
   const doc = parseBoard(text)
   const i = index(doc, id)
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (doc.blocks[i]!.kind !== 'card') throw new Error(`${id} 是列，不是卡片`)
   return serializeBoard({ ...doc, blocks: doc.blocks.map((b, j) => (j === i ? withContent(b, body) : b)) })
 }
@@ -188,8 +194,10 @@ export function putInColumn(text: string, id: string, column: string, position?:
   const doc = parseBoard(text)
   const i = index(doc, id)
   const b = doc.blocks[i]!
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (b.kind !== 'card') throw new Error(`${id} 不是卡片`)
   const col = doc.blocks[index(doc, column)]!
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (col.kind !== 'column') throw new Error(`${column} 不是列`)
   const updated = withAttrs(b, { in: column, x: undefined, y: undefined, w: undefined })
   const next = { ...doc, blocks: doc.blocks.map((x, j) => (j === i ? updated : x)) }
@@ -202,7 +210,9 @@ export function putInColumn(text: string, id: string, column: string, position?:
 export function link(text: string, from: string, to: string): string {
   if (docBoard(text)) return docOps.link(text, from, to)
   const doc = parseBoard(text)
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   for (const id of [from, to]) if (doc.blocks[index(doc, id)]!.kind !== 'card') throw new Error(`${id} 不是卡片，只有卡片之间能连线`)
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (from === to) throw new Error('不能自己连自己')
   const links = parseLinks(doc)
   if (links.some((l) => l.from === from && l.to === to)) return text

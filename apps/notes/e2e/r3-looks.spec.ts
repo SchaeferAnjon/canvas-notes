@@ -56,14 +56,16 @@ test('数据库开着筛选点「新一条」：起名前、起名框出来、�
       expect(await cols(db)).toEqual(before)
       await page.keyboard.press('Enter')
       await expect.poll(() => existsSync(join(vault, '书单', `${typed}.md`))).toBe(true)
-      await expect(added.locator('td.nm button')).toHaveText(typed)
+      // 名字格里还有一颗悬停才出的「在右栏打开」（数据库第三批 task-i921u），名字按钮按名字找
+      const nmBtn = added.locator('td.nm').getByRole('button', { name: typed, exact: true })
+      await expect(nmBtn).toHaveText(typed)
       await expect(added.locator('.base-out')).toHaveText('新 · 不在当前筛选里')
       expect(await cols(db)).toEqual(before)
       expect((await added.boundingBox())!.height).toBe(rowH)
       // 小标签整个在名字格里，不压名字
       const cell = (await added.locator('td.nm').boundingBox())!
       const tag = (await added.locator('.base-out').boundingBox())!
-      const nm = (await added.locator('td.nm button').boundingBox())!
+      const nm = (await nmBtn.boundingBox())!
       expect(tag.x + tag.width).toBeLessThanOrEqual(cell.x + cell.width)
       expect(nm.x + nm.width).toBeLessThanOrEqual(tag.x)
       await shotWindow(run, `r3-db-named-${w}`)
@@ -161,7 +163,8 @@ test('数和单位合成一个文本节点（全软件统一改）：「最近�
     await page.keyboard.press('Meta+ArrowDown')
     await page.keyboard.type('再一句。')
     await waitSaved(page)
-    expect(readFileSync(join(run.vault, '随记.md'), 'utf8')).toBe('# 随记\n\n一句。\n再一句。')
+    // 文末那一行是块缝（task-ys1rr，DESIGN.v3 6.4b）：⌘↓ 再打字是新起的一段，不并进「一句。」
+    expect(readFileSync(join(run.vault, '随记.md'), 'utf8')).toBe('# 随记\n\n一句。\n\n再一句。\n')
     await expect(page.getByTestId('git-changed')).toContainText('1处没提交', { timeout: 10_000 })
     expect(await gaps('[data-testid="git-changed"]')).toEqual([])
     await shotWindow(run, 'cjk-node-status')

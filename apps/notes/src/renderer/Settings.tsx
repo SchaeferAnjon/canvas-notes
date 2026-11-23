@@ -1,10 +1,11 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { DreamSettingsPage } from './settings-dream'
+import { AutoSettingsPage } from './settings/auto'
 import { AiIcon } from './engine-logo'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import type { VaultInfo } from '../shared/api'
-import { activeSkin, allSkins, type AppSettings, pickSkin, type SettingsPatch, setFollowSystem, type SkinInfo, SKINS, type WinBg } from '../shared/appearance'
-import { searchSettings, SETTINGS_PAGES, SETTINGS_SECTIONS, type SettingsItem, type SettingsPageId } from '../shared/settings-index'
+import { activeSkin, allSkins, type AppSettings, pickSkin, type SettingsPatch, setFollowSystem, type WinBg } from '../shared/appearance'
+import { searchSettings, settingsItem, SETTINGS_PAGES, SETTINGS_SECTIONS, type SettingsItem, type SettingsPageId } from '../shared/settings-index'
 import { COVER_GRADIENTS, COVER_PHOTOS, hideWidget, showWidget, WIDGETS, type Cover } from '../shared/home'
 import { COVERS, coverImage, WINBG_THUMBS } from './covers'
 import { homeWinBg, reloadUserThemes, userSkinInfos, useUserThemes, winBgName } from './theme'
@@ -12,7 +13,11 @@ import { saveHome, useHomeConfig } from './home-store'
 import { list, t as tNow, tIn } from '../shared/i18n'
 import { useLangInfo, useT } from './i18n'
 import { PluginsSettings } from './plugins'
-import { PageHead, type Said, SaidContext } from './settings/ui'
+import { PageHead } from './settings/ui'
+import { AppearancePage, SettingsShell, Toggle, useSaid } from '@cn/design/settings'
+
+/** 方角开关：共用的那个（设置各页、插件、视频条从这里拿） */
+export { Toggle }
 import { composing } from './ime'
 import { AiSettingsPage } from './settings-ai'
 import { GeneralPage } from './settings/general'
@@ -23,12 +28,15 @@ import { WebPage } from './settings/web'
 import { VaultPage } from './settings/vault'
 import { GitPage } from './settings/git'
 import { PrivacyPage } from './settings/privacy'
+import { FamilySettingsPage } from './settings/family'
 import { KeysPage } from './settings/keys'
 import { AdvancedPage } from './settings/advanced'
+import { SelBarPage } from './settings/sel-bar'
+import '@cn/design/settings.css'
 import './settings.css'
 import './settings/settings-a.css'
 
-/** 设置的 15 页（方向 A，shared/settings-index.ts） */
+/** 设置的 16 页（方向 A，shared/settings-index.ts） */
 export type SettingsPage = SettingsPageId
 
 type Patch = SettingsPatch
@@ -56,7 +64,7 @@ export interface SettingsProps {
   onGoRow(row: string): void
 }
 
-/** 设置：B 里是居中弹窗，A 里是中间的一个标签（⌘, 打开）。左边分段的侧栏和搜索，右边一页 */
+/** 设置：B 里是居中弹窗，A 里是中间的一个标签（⌘, 打开）。左边分段的侧栏和搜索，右边一页。框架是共用的 @cn/design/settings（画布今日也用） */
 export function Settings(
   props: SettingsProps & {
     page: SettingsPage
@@ -71,223 +79,160 @@ export function Settings(
 ) {
   const t = useT()
   const [q, setQ] = useState('')
-  const body = useRef<HTMLDivElement>(null)
-  const input = useRef<HTMLInputElement>(null)
-  /** 底下的提示条：一句说这次改了会怎样，带「撤回」，4 秒后收起（鼠标停在上面不计时） */
-  const [toast, setToast] = useState<{ text: string; ok: boolean; undo?: () => void; seq: number } | null>(null)
-  const [toastHover, setToastHover] = useState(false)
-  const said = useMemo<Said>(
-    () => ({
-      saved: (hint, undo) => setToast({ text: tNow('已存 · {hint}', { hint }), ok: true, undo, seq: Date.now() }),
-      say: (text) => setToast({ text, ok: false, seq: Date.now() }),
-    }),
-    [],
-  )
-  useEffect(() => {
-    if (!toast || toastHover) return
-    const t = setTimeout(() => setToast(null), 4200)
-    return () => clearTimeout(t)
-  }, [toast, toastHover])
-  useEffect(() => {
-    if (props.appNotice) said.say(props.appNotice)
-  }, [props.appNotice])
-  /** 设置开着时页里的话都在设置底下说（B 的弹窗盖住了底栏的提示） */
-  const notice = (t: string) => said.say(t)
-
-  useEffect(() => {
-    if (props.asTab) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        props.onClose()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [props.onClose, props.asTab])
-
-  // 换页：从顶上看起；带着要闪的那一行（搜索回车、从用的地方跳过来）时翻到那一行、--acc-soft 闪 1.6 秒，
-  // 那一页的内容是读出来的（AI、Git）就等它画出来。两件事在一处：先后各做会互相盖掉
-  const flashedSeq = useRef(0)
+  /** 设置 › 自动化里点了「周记」：那一页换成周记的设置（换页就回来） */
+  const [autoSub, setAutoSub] = useState<'weekly' | null>(null)
+  useEffect(() => setAutoSub(null), [props.page])
+  // 搜到、或从别处跳到周记那几项（每周几、几点……）：先进周记那一页，那一行才在（不然翻到自动化页、哪一行都不闪）
+  // 只认新的一次跳（seq 变了）：之后点侧栏回到自动化页不再进周记
+  const subSeq = useRef(0)
   useEffect(() => {
     const f = props.focus
-    const b = body.current
-    if (!f || f.seq === flashedSeq.current) {
-      if (b) b.scrollTop = 0
-      return
-    }
-    flashedSeq.current = f.seq
-    let tries = 0
-    let off: ReturnType<typeof setTimeout> | undefined
-    const find = () => {
-      const row = body.current?.querySelector<HTMLElement>(`[data-row="${CSS.escape(f.row)}"]`)
-      const bb = body.current
-      if (!bb || !row) {
-        if (tries++ < 40) off = setTimeout(find, 50)
-        return
-      }
-      const top = row.getBoundingClientRect().top - bb.getBoundingClientRect().top + bb.scrollTop
-      bb.scrollTop = Math.max(0, top - bb.clientHeight / 2 + row.offsetHeight / 2)
-      row.classList.remove('sa-flash')
-      void row.offsetWidth
-      row.classList.add('sa-flash')
-      off = setTimeout(() => row.classList.remove('sa-flash'), 1600)
-    }
-    find()
-    return () => clearTimeout(off)
+    if (props.page !== 'auto' || !f || f.seq === subSeq.current) return
+    subSeq.current = f.seq
+    setAutoSub(settingsItem(f.row)?.sub ?? null)
   }, [props.page, props.focus?.seq])
-
+  const input = useRef<HTMLInputElement>(null)
   // 「界面语言」那一行没放出来时搜不到（main/lang.ts 的 LANG_SWITCH）
   const langOn = !!useLangInfo()?.available
   const hits = useMemo(() => searchSettings(q, (s) => tIn('en', s)).filter((it) => it.id !== 'lang' || langOn), [q, langOn])
   const go = (it: SettingsItem) => props.onGoRow(it.id)
   const page = SETTINGS_PAGES.find((p) => p.id === props.page) ?? SETTINGS_PAGES[0]!
-  const pp = { ...props, onNotice: notice }
+  const sections = SETTINGS_SECTIONS.map((sec) => ({
+    name: t(sec),
+    pages: SETTINGS_PAGES.filter((p) => p.sec === sec).map((p) => ({
+      id: p.id,
+      name: t(p.name),
+      // AI 这一页画 AI 对话现在用的那一家的标志（同右下角圆钮）
+      icon: p.id === 'ai' ? <AiIcon job="chat" size={16} /> : <Codicon name={p.icon as CodiconName} />,
+      after: p.id === 'general' && props.updateReady ? <span className="udot nav" aria-label={t('新版本已下好')} /> : undefined,
+    })),
+  }))
+  const search = (
+    <label className="sa-srch">
+      <Codicon name="search" size={14} />
+      <input
+        ref={input}
+        value={q}
+        placeholder={t('搜设置：字号、同步…')}
+        aria-label={t('搜设置')}
+        onChange={(e) => setQ(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          // 输入法组字时的回车是选字，不算（CN-115）
+          if (e.key === 'Enter' && !composing(e) && hits[0]) {
+            e.preventDefault()
+            go(hits[0])
+          }
+          if (e.key === 'Escape' && q) {
+            // esc 先清空搜索，再按一次才关设置
+            e.preventDefault()
+            e.stopPropagation()
+            e.nativeEvent.stopImmediatePropagation()
+            setQ('')
+          }
+        }}
+      />
+      {q && (
+        <button type="button" className="clr" aria-label={t('清空')} onClick={() => (setQ(''), input.current?.focus())}>
+          <Codicon name="close" size={14} />
+        </button>
+      )}
+    </label>
+  )
+  const results = q ? (
+    <div className="sa-res" role="list" aria-label={t('搜到的设置')}>
+      {hits.length ? (
+        <>
+          <div className="sa-rhead">{t('{n} 项', { n: hits.length })}</div>
+          {hits.slice(0, 30).map((it, i) => (
+            <button key={it.id} type="button" role="listitem" className={'sa-rrow' + (i === 0 ? ' sel' : '')} data-go={it.id} onClick={() => go(it)}>
+              <b>
+                <Mark text={t(it.label)} q={q} />
+              </b>
+              <small>{t('{page} › {group}', { page: t(SETTINGS_PAGES.find((p) => p.id === it.pg)!.name), group: t(it.grp) })}</small>
+            </button>
+          ))}
+        </>
+      ) : (
+        <div className="sa-rempty">
+          {t('没找到「{q}」。', { q: q.trim() })}
+          <br />
+          {t('试试')}{' '}
+          {[t('字号'), t('同步'), t('下载')].map((w, i) => (
+            <Fragment key={w}>
+              {i > 0 && t('、', { ctx: '列举' })}
+              <button type="button" className="sa-lnk" onClick={() => setQ(w)}>
+                {w}
+              </button>
+            </Fragment>
+          ))}
+        </div>
+      )}
+    </div>
+  ) : undefined
+  const text = useMemo(() => ({ title: t('设置'), nav: t('设置分页'), close: t('关上设置'), closeTip: t('关上 esc'), saved: (hint: string) => tNow('已存 · {hint}', { hint }), undo: t('撤回') }), [t])
 
   return (
-    <SaidContext.Provider value={said}>
-      <div className={props.asTab ? 'pane setpane' : 'set-back'} onMouseDown={(e) => !props.asTab && e.target === e.currentTarget && props.onClose()}>
-        <div className={'set' + (props.asTab ? ' set-tab' : '')} role={props.asTab ? 'region' : 'dialog'} aria-label={t('设置')}>
-          <nav className="set-nav" aria-label={t('设置分页')}>
-            <h3>{t('设置')}</h3>
-            <label className="sa-srch">
-              <Codicon name="search" size={14} />
-              <input
-                ref={input}
-                value={q}
-                placeholder={t('搜设置：字号、同步…')}
-                aria-label={t('搜设置')}
-                onChange={(e) => setQ(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  // 输入法组字时的回车是选字，不算（CN-115）
-                  if (e.key === 'Enter' && !composing(e) && hits[0]) {
-                    e.preventDefault()
-                    go(hits[0])
-                  }
-                  if (e.key === 'Escape' && q) {
-                    // esc 先清空搜索，再按一次才关设置
-                    e.preventDefault()
-                    e.stopPropagation()
-                    e.nativeEvent.stopImmediatePropagation()
-                    setQ('')
-                  }
-                }}
-              />
-              {q && (
-                <button type="button" className="clr" aria-label={t('清空')} onClick={() => (setQ(''), input.current?.focus())}>
-                  <Codicon name="close" size={14} />
-                </button>
-              )}
-            </label>
-            {q ? (
-              <div className="sa-res" role="list" aria-label={t('搜到的设置')}>
-                {hits.length ? (
-                  <>
-                    <div className="sa-rhead">{t('{n} 项', { n: hits.length })}</div>
-                    {hits.slice(0, 30).map((it, i) => (
-                      <button key={it.id} type="button" role="listitem" className={'sa-rrow' + (i === 0 ? ' sel' : '')} data-go={it.id} onClick={() => go(it)}>
-                        <b>
-                          <Mark text={t(it.label)} q={q} />
-                        </b>
-                        <small>{t('{page} › {group}', { page: t(SETTINGS_PAGES.find((p) => p.id === it.pg)!.name), group: t(it.grp) })}</small>
-                      </button>
-                    ))}
-                  </>
-                ) : (
-                  <div className="sa-rempty">
-                    {t('没找到「{q}」。', { q: q.trim() })}
-                    <br />
-                    {t('试试')}{' '}
-                    {[t('字号'), t('同步'), t('下载')].map((w, i) => (
-                      <Fragment key={w}>
-                        {i > 0 && t('、', { ctx: '列举' })}
-                        <button type="button" className="sa-lnk" onClick={() => setQ(w)}>
-                          {w}
-                        </button>
-                      </Fragment>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="sa-navlist">
-                {SETTINGS_SECTIONS.map((sec) => (
-                  <Fragment key={sec}>
-                    <div className="sa-sec">{t(sec)}</div>
-                    {SETTINGS_PAGES.filter((p) => p.sec === sec).map((p) => (
-                      <button key={p.id} className={'si' + (props.page === p.id ? ' on' : '')} aria-current={props.page === p.id ? 'page' : undefined} onClick={() => props.onPage(p.id)}>
-                        {/* AI 这一页画 AI 对话现在用的那一家的标志（同右下角圆钮） */}
-                        {p.id === 'ai' ? <AiIcon job="chat" size={16} /> : <Codicon name={p.icon as CodiconName} />}
-                        {t(p.name)}
-                        {p.id === 'general' && props.updateReady && <span className="udot nav" aria-label={t('新版本已下好')} />}
-                      </button>
-                    ))}
-                  </Fragment>
-                ))}
-              </div>
-            )}
-          </nav>
-          {/* × 在滚动区外面：页面滚动、有没有滚动条它都不动 */}
-          <button className="iconbtn set-x" hidden={props.asTab} aria-label={t('关上设置')} title={t('关上 esc')} onClick={props.onClose}>
-            <Codicon name="close" size={16} />
-          </button>
-          <div className="set-body" ref={body}>
-            <PageHead page={page} />
-            {props.page === 'general' && <GeneralPage {...pp} />}
-            {props.page === 'look' && (
-              <div className="sa-keep">
-                <LookPage {...pp} />
-              </div>
-            )}
-            {props.page === 'home' && (
-              <div className="sa-keep">
-                <HomePage {...pp} />
-              </div>
-            )}
-            {props.page === 'editor' && <EditorPage {...pp} />}
-            {props.page === 'files' && <FilesPage {...pp} />}
-            {props.page === 'pdf' && <PdfPage {...pp} />}
-            {props.page === 'web' && <WebPage {...pp} />}
-            {props.page === 'ai' && <AiSettingsPage {...pp} />}
-            {props.page === 'dream' && (
-              <div className="sa-keep">
-                <DreamSettingsPage settings={props.settings} onChange={props.onChange} onNotice={notice} onOpenDream={props.onOpenDream} onAiRow={() => props.onGoRow('fDream')} />
-              </div>
-            )}
-            {props.page === 'vault' && <VaultPage {...pp} />}
-            {props.page === 'git' && <GitPage {...pp} />}
-            {props.page === 'privacy' && <PrivacyPage {...pp} />}
-            {props.page === 'plugins' && (
-              <div className="sa-keep">
-                <PluginsSettings onNotice={notice} />
-              </div>
-            )}
-            {props.page === 'keys' && <KeysPage {...pp} />}
-            {props.page === 'advanced' && <AdvancedPage {...pp} />}
-          </div>
-          <div className={'sa-toast' + (toast ? ' show' : '') + (toast?.undo ? ' with-act' : '')} role="status" data-testid="settings-toast" onMouseEnter={() => setToastHover(true)} onMouseLeave={() => setToastHover(false)}>
-            {toast && (
-              <>
-                <Codicon name={toast.ok ? 'pass-filled' : 'info'} size={14} className={toast.ok ? 'ok' : undefined} />
-                <span>{toast.text}</span>
-                {toast.undo && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      toast.undo!()
-                      setToast(null)
-                      setToastHover(false)
-                    }}
-                  >
-                    {t('撤回')}
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+    <SettingsShell
+      text={text}
+      sections={sections}
+      page={props.page}
+      onPage={(id) => props.onPage(id as SettingsPage)}
+      onClose={props.onClose}
+      asTab={props.asTab}
+      navTop={search}
+      navBody={results}
+      focus={props.focus}
+      appNotice={props.appNotice}
+    >
+      {/* 选中小条那一页自己画页头（编辑一颗时换成那一颗的）；自动化点了「周记」换成周记的页头 */}
+      {props.page !== 'selbar' && !(props.page === 'auto' && autoSub) && <PageHead page={page} />}
+      <SettingsPageBody {...props} autoSub={props.page === 'auto' ? autoSub : null} onAutoSub={setAutoSub} />
+    </SettingsShell>
+  )
+}
+
+/** 右边这一页的内容：设置开着时页里的话都在设置底下说（B 的弹窗盖住了底栏的提示） */
+function SettingsPageBody(props: SettingsProps & { page: SettingsPage; autoSub: 'weekly' | null; onAutoSub(s: 'weekly' | null): void }) {
+  const said = useSaid()
+  const notice = said.say
+  const pp = { ...props, onNotice: notice }
+  return (
+    <>
+      {props.page === 'general' && <GeneralPage {...pp} />}
+      {props.page === 'look' && (
+        <div className="sa-keep">
+          <LookPage {...pp} />
         </div>
-      </div>
-    </SaidContext.Provider>
+      )}
+      {props.page === 'home' && (
+        <div className="sa-keep">
+          <HomePage {...pp} />
+        </div>
+      )}
+      {props.page === 'editor' && <EditorPage {...pp} />}
+      {props.page === 'files' && <FilesPage {...pp} />}
+      {props.page === 'pdf' && <PdfPage {...pp} />}
+      {props.page === 'web' && <WebPage {...pp} />}
+      {props.page === 'ai' && <AiSettingsPage {...pp} />}
+      {props.page === 'dream' && (
+        <div className="sa-keep">
+          <DreamSettingsPage settings={props.settings} onChange={props.onChange} onNotice={notice} onOpenDream={props.onOpenDream} onAiRow={() => props.onGoRow('fDream')} />
+        </div>
+      )}
+      {props.page === 'auto' && <AutoSettingsPage {...pp} sub={props.autoSub} onSub={props.onAutoSub} />}
+      {props.page === 'selbar' && <SelBarPage />}
+      {props.page === 'vault' && <VaultPage {...pp} />}
+      {props.page === 'git' && <GitPage {...pp} />}
+      {props.page === 'privacy' && <PrivacyPage {...pp} />}
+      {props.page === 'family' && <FamilySettingsPage {...pp} />}
+      {props.page === 'plugins' && (
+        <div className="sa-keep">
+          <PluginsSettings onNotice={notice} />
+        </div>
+      )}
+      {props.page === 'keys' && <KeysPage {...pp} />}
+      {props.page === 'advanced' && <AdvancedPage {...pp} />}
+    </>
   )
 }
 
@@ -305,149 +250,19 @@ function Mark({ text, q }: { text: string; q: string }) {
   )
 }
 
-/** 方角开关（用户偏好：开关的轨道和滑块都是小圆角方形） */
-export function Toggle(props: { on: boolean; label: string; onChange(v: boolean): void }) {
-  return <button className={'sw-toggle' + (props.on ? ' on' : '')} role="switch" aria-checked={props.on} aria-label={props.label} onClick={() => props.onChange(!props.on)} />
-}
-
-/** 一套主题的小窗口预览：用那套主题自己的变量画，结构也照它（标题栏、图标栏、侧栏、标签条和当前标签的标记、卡片、底栏） */
-function Mini({ skin }: { skin: SkinInfo }) {
-  return (
-    <div className="mini" data-skin={skin.id} data-tabmark={skin.tab} aria-hidden="true">
-      <i className="m-title" />
-      <div className="m-body">
-        <div className="m-bar">
-          <i className="on" />
-          <i />
-          <i />
-        </div>
-        <div className="m-side">
-          <i />
-          <i className="on" />
-          <i />
-          <i />
-        </div>
-        <div className="m-main">
-          <div className="m-tabs">
-            <i className="on" />
-            <i />
-          </div>
-          <div className="m-doc">
-            <em />
-            <s />
-            <s className="short" />
-            <b />
-            <u />
-          </div>
-        </div>
-      </div>
-      <i className="m-status" />
-    </div>
-  )
-}
-
-/**
- * 界面风格 A 的小图：用现在这套主题的颜色，照主题卡的画法画出 VS Code 的样子——
- * 标题栏、左右图标栏、侧栏、标签条（当前标签的标记）、面包屑、底栏一条
- */
-function FrameMiniA({ tab }: { tab: SkinInfo['tab'] }) {
-  return (
-    <span className="mini fr-mini-a" data-tabmark={tab} aria-hidden="true">
-      <i className="m-title" />
-      <span className="m-body">
-        <span className="m-bar">
-          <i className="on" />
-          <i />
-          <i />
-        </span>
-        <span className="m-side">
-          <i />
-          <i className="on" />
-          <i />
-          <i />
-        </span>
-        <span className="m-main">
-          <span className="m-tabs">
-            <i className="on" />
-            <i />
-          </span>
-          <span className="m-crumb">
-            <i />
-          </span>
-          <span className="m-doc">
-            <em />
-            <s />
-            <s className="short" />
-          </span>
-        </span>
-        <span className="m-bar m-rbar">
-          <i />
-          <i />
-        </span>
-      </span>
-      <i className="m-status" />
-    </span>
-  )
-}
-
-function SkinCard(props: { skin: SkinInfo; on: boolean; slot: string | null; onPick(): void; onRemove?(): void }) {
-  const t = useT()
-  const s = props.skin
-  // 自带的十套照英文名（Mint、Pine…）；导入的 VS Code 主题用它自己的名字
-  const name = t(s.name)
-  const note = t(s.note)
-  return (
-    <div className={'sk' + (props.on ? ' on' : '')}>
-      <button className="sk-pick" role="radio" aria-checked={props.on} aria-label={name} aria-description={note} data-tip={note} data-side="below" data-skin-card={s.id} onClick={props.onPick}>
-        <Mini skin={s} />
-        <span className="nm">
-          <span className="t">{name}</span>
-          {props.slot && <em className="slot">{props.slot}</em>}
-        </span>
-      </button>
-      {props.onRemove && (
-        <button className="iconbtn sk-x" aria-label={t('删掉 {name}', { name })} data-tip={t('删掉这套导入的主题')} onClick={props.onRemove}>
-          <Codicon name="trash" size={14} />
-        </button>
-      )}
-    </div>
-  )
-}
-
 function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(p: Patch): Promise<AppSettings>; onNotice(t: string): void }) {
   const t = useT()
   const a = props.settings.appearance
-  const now = activeSkin(a, props.systemDark)
   const set = (appearance: Partial<AppSettings['appearance']>) => void props.onChange({ appearance })
   const user = userSkinInfos(useUserThemes())
-  const all = allSkins(user)
-  const [importing, setImporting] = useState(false)
+  // 自带的十套照英文名（Mint、Pine…）；导入的 VS Code 主题用它自己的名字
+  const skins = allSkins(user).map((s) => ({ id: s.id, tab: s.tab, tone: s.tone, name: t(s.name), note: t(s.note), imported: s.imported }))
   const bgs: { id: WinBg; name: string; bg: string }[] = [
     { id: 'none', name: t('不用图'), bg: 'var(--title)' },
     { id: 'aurora', name: t('极光照片'), bg: `url("${WINBG_THUMBS.aurora}") center/cover` },
     { id: 'cave', name: t('冰洞照片'), bg: `url("${WINBG_THUMBS.cave}") center/cover` },
   ]
-  const card = (s: SkinInfo) => (
-    <SkinCard
-      key={s.id}
-      skin={s}
-      on={now === s.id}
-      slot={a.followSystem ? (a.day === s.id ? t('白天') : a.night === s.id ? t('夜里') : null) : null}
-      onPick={() => set(pickSkin(a, s))}
-      onRemove={
-        s.imported
-          ? async () => {
-              const next = await window.cn.removeTheme(s.id)
-              await reloadUserThemes()
-              await props.onChange({ appearance: next.appearance })
-              props.onNotice(tNow('删掉了「{name}」', { name: s.name }))
-            }
-          : undefined
-      }
-    />
-  )
   const importTheme = async () => {
-    setImporting(true)
     try {
       const r = await window.cn.importTheme()
       if (!r) return
@@ -456,137 +271,91 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
       props.onNotice(r.added.length > 1 ? tNow('导入了{n}套：{names}', { n: r.added.length, names: list(r.added.map((x) => x.name)) }) : tNow('导入了「{name}」，已经用上', { name: r.added[0]!.name }))
     } catch (e) {
       props.onNotice(tNow('导入失败：{err}', { err: String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }))
-    } finally {
-      setImporting(false)
     }
   }
   return (
-    <>
-      <h4>
-        {t('主题')}
-        <span>{a.followSystem ? t('跟着系统：点浅色换白天那套，点深色换夜里那套') : t('点一张就换')}</span>
-      </h4>
-      <div role="radiogroup" aria-label={t('主题')} data-row="skin">
-        <div className="skins-h">{t('浅色')}</div>
-        <div className="skins">{SKINS.filter((s) => s.tone === 'light').map(card)}</div>
-        <div className="skins-h">{t('深色')}</div>
-        <div className="skins">{SKINS.filter((s) => s.tone === 'dark').map(card)}</div>
-        {user.length > 0 && (
-          <>
-            <div className="skins-h">{t('导入的VS Code主题')}</div>
-            <div className="skins">{user.map(card)}</div>
-          </>
-        )}
-      </div>
-      <div className="pair plain imp-theme" data-row="importTheme">
-        <button className="btn" onClick={() => void importTheme()} disabled={importing}>
-          <Codicon name={importing ? 'loading' : 'add'} size={14} className={importing ? 'spin' : undefined} />
-          {t('导入VS Code主题…')}
-        </button>
-        <span className="note">{t('选 .json或 .vsix；对不上的颜色按底色和字色算')}</span>
-      </div>
-
-      <div className="pair" data-row="follow">
-        <Toggle on={a.followSystem} label={t('跟着系统换浅深')} onChange={(v) => set(setFollowSystem(a, v, props.systemDark))} />
-        <span>{t('跟着系统换浅深')}</span>
-        {a.followSystem && (
-          <>
-            <span className="sp" />
-            <label>
-              {t('白天用')}
-              <select aria-label={t('白天用')} value={a.day} onChange={(e) => set({ day: e.target.value })}>
-                {all
-                  .filter((s) => s.tone === 'light')
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {t(s.name)}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label>
-              {t('夜里用')}
-              <select aria-label={t('夜里用')} value={a.night} onChange={(e) => set({ night: e.target.value })}>
-                {all
-                  .filter((s) => s.tone === 'dark')
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {t(s.name)}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          </>
-        )}
-      </div>
-
-      <h4>
-        {t('界面风格')}
-        <span>{t('结构一样，只换样子和几处位置')}</span>
-      </h4>
-      <div className="hstyles frames" role="radiogroup" aria-label={t('界面风格')} data-row="frame">
-        {(
-          [
-            ['a', t('照VS Code'), t('平的、细线分区；标签下有位置；底栏写满，AI在底栏最右')],
-            ['b', t('浮岛书桌'), t('背景图铺满窗口，三块圆角磨砂面板；AI是右下角圆按钮')],
-          ] as const
-        ).map(([id, name, note]) => (
-          <button key={id} role="radio" aria-checked={a.frame === id} className={'hs' + (a.frame === id ? ' on' : '')} onClick={() => set({ frame: id })}>
-            {id === 'a' ? (
-              <FrameMiniA tab={(all.find((s) => s.id === now) ?? all[0]!).tab} />
-            ) : (
-              <span className={'fr-pv ' + id} style={{ ['--pv' as string]: coverImage({ kind: 'builtin', id: 'aurora' }, true) }}>
-                <i className="ab" />
-                <i className="sd" />
-                <i className="md" />
-                <i className="sd" />
-                <i className="ab" />
-              </span>
-            )}
-            <span className="nm">
-              {id.toUpperCase()} · {name}
-            </span>
-            <span className="ds">{note}</span>
+    <AppearancePage
+      text={{
+        theme: t('主题'),
+        themeHint: t('点一张就换'),
+        themeHintSys: t('跟着系统：点浅色换白天那套，点深色换夜里那套'),
+        light: t('浅色'),
+        dark: t('深色'),
+        imported: t('导入的VS Code主题'),
+        day: t('白天'),
+        night: t('夜里'),
+        follow: t('跟着系统换浅深'),
+        dayUse: t('白天用'),
+        nightUse: t('夜里用'),
+        frame: t('界面风格'),
+        frameHint: t('结构一样，只换样子和几处位置'),
+        winBg: t('窗口背景'),
+        winBgHintA: t('换成B浮岛书桌时铺满整个窗口；A照VS Code不用'),
+        winBgHintB: t('浮岛书桌铺满整个窗口，哪套主题都能配；照片会压暗一点'),
+      }}
+      skins={skins}
+      current={activeSkin(a, props.systemDark)}
+      followSystem={a.followSystem}
+      day={a.day}
+      night={a.night}
+      onPick={(s) => set(pickSkin(a, s))}
+      onFollow={(v) => set(setFollowSystem(a, v, props.systemDark))}
+      onDay={(day) => set({ day })}
+      onNight={(night) => set({ night })}
+      frame={{
+        value: a.frame,
+        pv: coverImage({ kind: 'builtin', id: 'aurora' }, true),
+        a: { name: t('照VS Code'), note: t('平的、细线分区；标签下有位置；底栏写满，AI在底栏最右') },
+        b: { name: t('浮岛书桌'), note: t('背景图铺满窗口，三块圆角磨砂面板；AI是右下角圆按钮') },
+        onChange: (frame) => set({ frame }),
+      }}
+      winBg={{
+        value: a.winBg,
+        options: bgs,
+        onChange: (winBg) => set({ winBg }),
+        extra: (
+          <button
+            role="radio"
+            aria-checked={a.winBg === 'custom'}
+            className={a.winBg === 'custom' ? 'on' : ''}
+            onClick={async () => {
+              if (a.winBg !== 'custom' || !a.winBgFile) {
+                const next = await window.cn.pickWinBg()
+                if (next) await props.onChange({ appearance: next.appearance })
+              } else set({ winBg: 'custom' })
+            }}
+          >
+            <i className="up" style={a.winBgFile ? { background: `url("cn-file://app/backgrounds/${encodeURIComponent(a.winBgFile)}") center/cover` } : undefined}>
+              {!a.winBgFile && <Codicon name="add" size={16} />}
+            </i>
+            {t('从电脑选')}
           </button>
-        ))}
-      </div>
-
-      <h4>
-        {t('窗口背景')}
-        <span>{a.frame === 'b' ? t('浮岛书桌铺满整个窗口，哪套主题都能配；照片会压暗一点') : t('换成B浮岛书桌时铺满整个窗口；A照VS Code不用')}</span>
-      </h4>
-      <div className="bgs" role="radiogroup" aria-label={t('窗口背景')} data-row="winbg">
-        {bgs.map((b) => (
-          <button key={b.id} role="radio" aria-checked={a.winBg === b.id} className={a.winBg === b.id ? 'on' : ''} onClick={() => set({ winBg: b.id })}>
-            <i style={{ background: b.bg }} />
-            {b.name}
-          </button>
-        ))}
-        <button
-          role="radio"
-          aria-checked={a.winBg === 'custom'}
-          className={a.winBg === 'custom' ? 'on' : ''}
-          onClick={async () => {
-            if (a.winBg !== 'custom' || !a.winBgFile) {
-              const next = await window.cn.pickWinBg()
-              if (next) await props.onChange({ appearance: next.appearance })
-            } else set({ winBg: 'custom' })
-          }}
-        >
-          <i className="up" style={a.winBgFile ? { background: `url("cn-file://app/backgrounds/${encodeURIComponent(a.winBgFile)}") center/cover` } : undefined}>
-            {!a.winBgFile && <Codicon name="add" size={16} />}
-          </i>
-          {t('从电脑选')}
-        </button>
-      </div>
-
-      <h4>
-        {t('首页样式')}
-        <span>{t('两种都能自己摆组件、换封面')}</span>
-      </h4>
-      <HomeStylePicker value={a.homeStyle} onChange={(homeStyle) => set({ homeStyle })} />
-      <HomeWinBgRow settings={props.settings} onChange={(homeWinBg) => set({ homeWinBg })} />
-    </>
+        ),
+      }}
+      importTheme={{
+        label: t('导入VS Code主题…'),
+        note: t('选 .json或 .vsix；对不上的颜色按底色和字色算'),
+        run: importTheme,
+        removeLabel: (name) => t('删掉 {name}', { name }),
+        removeTip: t('删掉这套导入的主题'),
+        remove: async (s) => {
+          const next = await window.cn.removeTheme(s.id)
+          await reloadUserThemes()
+          await props.onChange({ appearance: next.appearance })
+          props.onNotice(tNow('删掉了「{name}」', { name: s.name }))
+        },
+      }}
+      home={{
+        title: t('首页样式'),
+        hint: t('两种都能自己摆组件、换封面'),
+        body: (
+          <>
+            <HomeStylePicker value={a.homeStyle} onChange={(homeStyle) => set({ homeStyle })} />
+            <HomeWinBgRow settings={props.settings} onChange={(homeWinBg) => set({ homeWinBg })} />
+          </>
+        ),
+      }}
+    />
   )
 }
 

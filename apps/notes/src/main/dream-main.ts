@@ -92,7 +92,7 @@ export function setupDream(o: {
   }
 
   /** pick：AI 输入框里打 /现在梦游 时输入框底行选的那一家、模型、想多久（task-0fhyo）；夜里自己梦游照设置 › AI「梦游」那一行 */
-  function dream(trigger: DreamReport['trigger'], pick?: AiAskPick): Promise<DreamReport> {
+  function dream(trigger: DreamReport['trigger'], pick?: AiAskPick, only?: Partial<DreamSettings>): Promise<DreamReport> {
     if (running) return running
     const root = needRoot()
     running = serial(async () => {
@@ -105,7 +105,8 @@ export function setupDream(o: {
       }
       // 上次被 ⌘Q 打断留下的半截分支：清掉（开着的报告的分支留着）
       await clearStrayDreams(root, old && !old.closed ? old.branch : null)
-      const settings = o.settings()
+      // only：自动化「定时整理收件箱」只做归类、改完直接收下（task-i921u）
+      const settings = { ...o.settings(), ...only }
       const r = await runDream({ root, scratch: join(dir(), 'checkouts'), ask: (s, p) => ask(s, p, AbortSignal.timeout(10 * 60_000), undefined, 'dream', pick ? { pick } : {}), by: pick ? pickLabel(chatRunPick(pick)) : featureLabel('dream'), trigger, similar: similarOffThread, settings })
       await save(root, r)
       // 改完直接收下：和「全部收下」同一条路（和写笔记排同一个队，挪了的开着的那篇跟过去）；只提醒的留着看
@@ -234,6 +235,23 @@ export function setupDream(o: {
   return {
     /** 菜单栏「现在梦游」 */
     dreamNow: () => dream('manual'),
+    /**
+     * 自动化「定时整理收件箱」（task-i921u）：梦游只做归类和改名、改完直接收下（报告里能撤回）；
+     * 交回挪了几篇（梦游的提交号在报告里）
+     */
+    async tidyInbox(): Promise<{ moved: number; stay: number; notes: string[] }> {
+      const base = o.settings()
+      const steps = Object.fromEntries(Object.keys(base.steps).map((k) => [k, k === 'file' || k === 'rename'])) as DreamSettings['steps']
+      const r = await dream('manual', undefined, { steps, autoTake: true })
+      return { moved: r.items.filter((i) => i.group === 'file' && i.state === 'taken').length, stay: r.stay ?? 0, notes: r.notes }
+    },
+    /** 这周梦游整理了什么（周记的 AI 摘要读）：最近一份报告是 from 以后的，收下了的那几条 */
+    async weekItems(from: number): Promise<string[]> {
+      const root = o.root()
+      const r = root ? await load(root) : null
+      if (!r || r.started < from) return []
+      return r.items.filter((i) => i.state === 'taken').map((i) => `${i.title}${i.sub ? ' ' + i.sub : ''}`)
+    },
     stop: () => clearInterval(timer),
   }
 }

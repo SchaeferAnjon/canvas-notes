@@ -1,3 +1,4 @@
+import { WebFind } from './find/WebFind'
 import { Codicon, type CodiconName } from '@cn/design'
 import { keyFor, useKeyHandler, useKeys } from './keys'
 import { useKeepPopsInside } from './shell/keep-inside'
@@ -1027,6 +1028,8 @@ export function WebPanel(props: {
         </div>
       )}
       <div className="rbody webbody">
+        {/* 在这个网页里找（⇧⌘F）：交给网页自己找（findInPage） */}
+        <WebFind view={() => (st.active ? views.current.get(st.active) : undefined)} host={() => stack.current} on={!props.hidden && !!st.active} owner="web" tab={st.active} />
         <div className="wstack" ref={stack}>
           {st.tabs.map((t) => {
             const src = srcOf(t)

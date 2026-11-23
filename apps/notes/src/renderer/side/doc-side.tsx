@@ -1,7 +1,7 @@
 /**
  * 文档里 AI 写的那一块（`> [!ai]` 提示块：视频框一块问的讲解、AI 回答插进文档的、AI 命令写的）上开旁支
  * （task-4edsc，用户选的方向 A「就地展开」，原型 proto.html#dir=a 的「文档里的 AI 讲解」）：
- * - 讲解里拖选一句：离选中高亮的下沿 8 同一个小框（AskBoxView）「引用进输入框 ⇧⌘L · 问这句 ↵」；自己写的字不出（照旧右键、⌘J 问 AI）；
+ * - 讲解里拖选一句：离选中高亮的下沿 8 同一个小框（AskBoxView）「引用 ⌘↵ · 问这句 ↵」；自己写的字不出（照旧右键、⌘J 问 AI）；
  * - 「问这句」：那句所在的那一段下面长出旁支（块部件，createRoot 画 SideInline），右栏 AI 的输入框不缩（旁支在中间）；
  * - 问答写进这篇：挂在这块讲解下面 `> [!side] 问题` + `> > 那一句` + 回答（@cn/format 的 doc-side.ts，和读 PDF 笔记一个写法），
  *   答好了一次写进去（不进撤销，软件写的）；文档里那几行藏起来，只在那句后面露小标（一句一个，数字是这一句几条），点小标开 / 收；
@@ -28,6 +28,8 @@ import { AskBoxView, highlightBottom } from './AskBox'
 import { ASK_THIS, sideAsks, sideName } from './name'
 import { askSide, blockAgain, nameOf, setName, type SideTarget, sideIndex, writeOnDisk } from './side-core'
 import { SideInline, type SideMsgView } from './SideInline'
+import { useT } from '../i18n'
+import { t as tNow } from '../../shared/i18n'
 
 /** 开着的那一条：哪一块讲解（头一行行首，跟着改动挪）、第几条（等于已有的条数是刚开、还没写进去的那条）、那一句 */
 interface Open {
@@ -121,7 +123,7 @@ const field = StateField.define<State>({
         next = { ...next, open: e.value, flash }
       } else if (e.is(pendAdd)) next = { ...next, pend: [...next.pend.filter((p) => !(p.head === e.value.head && p.side === e.value.side && !p.running)), e.value] }
       else if (e.is(pendText)) next = { ...next, pend: next.pend.map((p) => (p.id === e.value.id ? { ...p, a: p.a + e.value.delta } : p)) }
-      else if (e.is(pendEnd)) next = { ...next, pend: e.value.drop ? next.pend.filter((p) => p.id !== e.value.id) : next.pend.map((p) => (p.id === e.value.id ? { ...p, running: false, error: e.value.error ?? '没有回答' } : p)) }
+      else if (e.is(pendEnd)) next = { ...next, pend: e.value.drop ? next.pend.filter((p) => p.id !== e.value.id) : next.pend.map((p) => (p.id === e.value.id ? { ...p, running: false, error: e.value.error ?? tNow('没有回答') } : p)) }
       else if (e.is(pendWrote)) {
         const { head, slot, at } = e.value
         const move = (i: number) => (i === slot ? at : i >= at && i < slot ? i + 1 : i)
@@ -307,6 +309,7 @@ function msgsOf(b: DocAiBlock | undefined, side: number, pend: Pend[], head: num
 }
 
 function DocSide({ view }: { view: EditorView }): ReactNode {
+  const t = useT()
   const st = view.state.field(field)
   const open = st.open
   const path = view.state.facet(editorHost).path()
@@ -338,7 +341,7 @@ function DocSide({ view }: { view: EditorView }): ReactNode {
   const running = st.pend.some((p) => p.head === open.head && p.side === open.side && p.running)
   const all = st.blocks.flatMap((x) => {
     const h = lineFrom(view.state, x.head)
-    return x.sides.map((s, i) => ({ id: `${h}:${i}`, name: sideName({ name: nameOf(path, s.quote, s.turns[0]?.q), quote: s.quote, msgs: s.turns.map((t) => ({ role: 'user', text: t.q })) }), right: `${sideAsks({ msgs: s.turns.map(() => ({ role: 'user' })) })} 问` }))
+    return x.sides.map((s, i) => ({ id: `${h}:${i}`, name: sideName({ name: nameOf(path, s.quote, s.turns[0]?.q), quote: s.quote, msgs: s.turns.map((t) => ({ role: 'user', text: t.q })) }), right: t('{n} 问', { n: sideAsks({ msgs: s.turns.map(() => ({ role: 'user' })) }) }) }))
   })
   const current = `${open.head}:${open.side}`
   return (
@@ -346,7 +349,7 @@ function DocSide({ view }: { view: EditorView }): ReactNode {
       side={{ id: current, quote: open.quote, name: nameAt(open.side), msgs }}
       group={(g?.idx ?? [open.side]).map((i) => ({ id: `${open.head}:${i}`, name: nameAt(i) }))}
       running={running}
-      record={{ icon: 'file', text: `写在这篇文档里，挂在这段${isSummaryHead(view.state.doc.line(b.head + 1).text) ? '总结' : '讲解'}下面` }}
+      record={{ icon: 'file', text: isSummaryHead(view.state.doc.line(b.head + 1).text) ? t('写在这篇文档里，挂在这段总结下面') : t('写在这篇文档里，挂在这段讲解下面') }}
       picks={cp.picks}
       onSend={(text, mats) => void send(view, open, text, mats, { engine: cp.pick.engine, req: cp.req })}
       onStop={() => {
@@ -365,15 +368,15 @@ function DocSide({ view }: { view: EditorView }): ReactNode {
         view.dispatch({ effects: setOpen.of({ head: h, side: i, quote: to?.sides[i]?.quote ?? open.quote }) })
       }}
       onPut={(text) => {
-        app().askAi(text, `旁支 · ${nameAt(open.side)}`)
-        app().notice('放进了主对话的输入框，没发')
+        app().askAi(text, t('旁支 · {name}', { name: nameAt(open.side) }))
+        app().notice(t('放进了主对话的输入框，没发'))
       }}
       menu={{
-        title: '这篇文档的旁支',
-        all: all.length && all.some((x) => x.id === current) ? all : [...all, { id: current, name: nameAt(open.side), right: '0 问' }],
+        title: t('这篇文档的旁支'),
+        all: all.length && all.some((x) => x.id === current) ? all : [...all, { id: current, name: nameAt(open.side), right: t('{n} 问', { n: 0 }) }],
         onRename: (name) => {
           const first = firstQ(open.side)
-          if (!first) return app().notice('先问一句，再给这条旁支改名')
+          if (!first) return app().notice(t('先问一句，再给这条旁支改名'))
           setName(path, open.quote, first, name)
           setNamed((n) => n + 1)
         },
@@ -408,7 +411,7 @@ async function send(view: EditorView, open: Open, text: string, mats: Material[]
   const b = st.blocks.find((x) => lineFrom(view.state, x.head) === open.head)
   if (!b || st.pend.some((p) => p.head === open.head && p.side === open.side && p.running)) return
   const done = b.sides[open.side]?.turns ?? []
-  const q = text.trim() || (done.length ? '' : ASK_THIS)
+  const q = text.trim() || (done.length ? '' : tNow(ASK_THIS))
   if (!q) return
   if (!listening) {
     listening = true
@@ -436,8 +439,9 @@ async function send(view: EditorView, open: Open, text: string, mats: Material[]
     quote: open.quote,
     q,
     done,
+    // 不翻：给 AI 的话（他当时问的、那段讲解在哪）
     ...(above ? { lead: `他当时问的：${above.replace(/^\s*>\s*\*\*我的疑惑\*\*：/, '')}` } : {}),
-    where: `文档《${title}》里 AI 写的${isSummaryHead(lines[b.head] ?? '') ? '总结' : '讲解'}`,
+    where: `文档《${title}》里 AI 写的${isSummaryHead(lines[b.head] ?? '') ? '总结' : '讲解'}`, // 不翻
     mats,
     how,
   })
@@ -450,7 +454,7 @@ async function send(view: EditorView, open: Open, text: string, mats: Material[]
     return
   }
   if (res.error || !answer) {
-    view.dispatch({ effects: pendEnd.of({ id, drop: false, error: res.error ?? '没有回答' }) })
+    view.dispatch({ effects: pendEnd.of({ id, drop: false, error: res.error ?? tNow('没有回答') }) })
     return
   }
   // 写进文档：这块讲解（跟着改动挪过的位置）下面，新开的写在最后、接着问的写在那条最后一块后面
@@ -458,7 +462,7 @@ async function send(view: EditorView, open: Open, text: string, mats: Material[]
   const head = pend?.head ?? open.head
   const blk = now.field(field).blocks.find((x) => lineFrom(now, x.head) === head)
   if (!blk) {
-    view.dispatch({ effects: pendEnd.of({ id, drop: false, error: '那段讲解不在了，这条回答没写进文档' }) })
+    view.dispatch({ effects: pendEnd.of({ id, drop: false, error: tNow('那段讲解不在了，这条回答没写进文档') }) })
     return
   }
   const at = sideIndex(blk, target)

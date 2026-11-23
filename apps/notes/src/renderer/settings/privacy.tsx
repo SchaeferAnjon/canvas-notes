@@ -29,6 +29,16 @@ export function PrivacyPage(props: SettingsProps) {
             }}
           />
         </Row>
+        <Row id="netFamily">
+          <Toggle
+            on={props.settings.familyFetch}
+            label={t('每天看一次家族名单')}
+            onChange={(v) => {
+              void props.onChange({ familyFetch: v })
+              said.saved(v ? t('每天看一次家族里有没有新软件') : t('不再去总站看家族名单，只用软件里带的那份'), () => void props.onChange({ familyFetch: !v }))
+            }}
+          />
+        </Row>
         {ad && (
           <Row id="netAd">
             <Toggle

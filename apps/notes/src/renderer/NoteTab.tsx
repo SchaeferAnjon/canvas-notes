@@ -5,6 +5,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile, OpenedNote } from '../shared/api'
 import { nameNotice, safeName } from '../shared/file-name'
 import { titleOf } from '../shared/layout'
+import { underCat } from '../shared/categories'
 import { BoardView, type BoardZoomApi } from './BoardView'
 import { loadZoom, saveZoom } from './board-zoom'
 import { type MenuEntry, showMenu } from './ctx/menu'
@@ -18,6 +19,11 @@ import { DocToc, isWide, setWide } from './doc-toc'
 import { followsTitle, headingOf, titleRename } from './title-follow'
 import { moveCursor, openCursor, saveCursor, savedCursor } from './open-cursor'
 import { PropsButton } from './mindmap/PropsButton'
+import { MapLayoutButton, useMapCommands } from './mindmap/LayoutMenu'
+import { requestExport } from './mindmap/export-store'
+import { requestFind } from './find/find-hub'
+import { DocFind } from './find/DocFind'
+import { tv } from '../shared/i18n'
 import { NoteDoc, type SaveState, type ViewMode } from './note-doc'
 import { setNoteMeta, setReadAlong } from './folder-chip'
 import { useReadAlongView } from './read-along/note-view'
@@ -31,6 +37,8 @@ import { isTodoNote } from '../shared/todo'
 import type { NoteView } from '../shared/prefs'
 import { TaskView } from './todo/TaskView'
 import { openSettingsAt } from './settings/jump'
+import { useT } from './i18n'
+import { t as tNow } from '../shared/i18n'
 
 export interface NoteTabProps {
   /** 标签 id：标签上改名时按它找到这一篇的改名 */
@@ -111,6 +119,7 @@ function focusTaking(d: NoteDoc) {
 
 export function NoteTab(props: NoteTabProps) {
   const { path, active, fresh } = props
+  const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const doc = useRef<NoteDoc | null>(null)
   const [state, setState] = useState<SaveState>('saved')
@@ -203,7 +212,7 @@ export function NoteTab(props: NoteTabProps) {
         const from = titleOf(firstPath.current)
         lastTitle.current = ''
         void followTitle().then(() => {
-          if (pathNow.current !== firstPath.current) cb.current.onNotice(`《${from}》按第一行标题改名为《${titleOf(pathNow.current)}》`)
+          if (pathNow.current !== firstPath.current) cb.current.onNotice(tNow('《{from}》按第一行标题改名为《{to}》', { from, to: titleOf(pathNow.current) }))
         })
       }
       const board = fmValue(note.text, 'type') === 'board'
@@ -239,18 +248,18 @@ export function NoteTab(props: NoteTabProps) {
     const convert = async (note: OpenedNote): Promise<OpenedNote> => {
       if (note.readOnly || !needsConvert(note.text)) return note
       const r = await window.cn.boardConvert(note.path).catch((e: Error) => {
-        cb.current.onNotice(`《${titleOf(note.path)}》没转成新写法：${String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+        cb.current.onNotice(tNow('《{name}》没转成新写法：{err}', { name: titleOf(note.path), err: String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }))
         return null
       })
       if (!r) return note
       const name = titleOf(note.path)
-      const said = `《${name}》改成了按「##」分列的写法：${r.columns}列、${r.cards}张卡，位置都留着`
-      app().noticeUndo(r.commitError ? `${said}；提交没成功：${r.commitError}` : said, () => {
+      const said = tNow('《{name}》改成了按「##」分列的写法：{columns}列、{cards}张卡，位置都留着', { name, columns: r.columns, cards: r.cards })
+      app().noticeUndo(r.commitError ? tNow('{said}；提交没成功：{err}', { said, err: r.commitError }) : said, () => {
         void (async () => {
           await NoteDoc.saveAll()
           await window.cn.boardKeepOld(pathNow.current, r.old, d?.text ?? r.text)
           if (d) await d.applyRemote(r.old)
-          cb.current.onNotice(`撤回了：《${name}》回到以前的写法，以后打开不再自动转；「⋯」里能再转`)
+          cb.current.onNotice(tNow('撤回了：《{name}》回到以前的写法，以后打开不再自动转；「⋯」里能再转', { name }))
           cb.current.onSaved()
         })().catch((e: Error) => cb.current.onNotice(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
       })
@@ -264,18 +273,18 @@ export function NoteTab(props: NoteTabProps) {
     const convertSummary = async (note: OpenedNote): Promise<OpenedNote> => {
       if (note.readOnly || !needsSummaryConvert(note.text)) return note
       const r = await window.cn.summaryConvert(note.path).catch((e: Error) => {
-        cb.current.onNotice(`《${titleOf(note.path)}》里的 AI 总结卡没改成新写法：${String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`)
+        cb.current.onNotice(tNow('《{name}》里的 AI 总结卡没改成新写法：{err}', { name: titleOf(note.path), err: String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') }))
         return null
       })
       if (!r) return note
       const name = titleOf(note.path)
-      const said = `《${name}》里${r.cards > 1 ? `${r.cards}张` : '的'}「AI 总结的」卡改了写法：能选一句开旁支了`
-      app().noticeUndo(r.commitError ? `${said}；提交没成功：${r.commitError}` : said, () => {
+      const said = r.cards > 1 ? tNow('《{name}》里{n}张「AI 总结的」卡改了写法：能选一句开旁支了', { name, n: r.cards }) : tNow('《{name}》里的「AI 总结的」卡改了写法：能选一句开旁支了', { name })
+      app().noticeUndo(r.commitError ? tNow('{said}；提交没成功：{err}', { said, err: r.commitError }) : said, () => {
         void (async () => {
           await NoteDoc.saveAll()
           await window.cn.summaryKeepOld(pathNow.current, r.old, d?.text ?? r.text)
           if (d) await d.applyRemote(r.old)
-          cb.current.onNotice(`撤回了：《${name}》里的总结卡回到以前的写法，以后打开不再自动改`)
+          cb.current.onNotice(tNow('撤回了：《{name}》里的总结卡回到以前的写法，以后打开不再自动改', { name }))
           cb.current.onSaved()
         })().catch((e: Error) => cb.current.onNotice(String(e.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
       })
@@ -309,6 +318,8 @@ export function NoteTab(props: NoteTabProps) {
 
   /** 用以前的自由白板看：导图、撤回了转写法还是旧写法的白板 */
   const legacy = text !== null && (isMindmap(text) || (fmValue(text, 'type') === 'board' && hasOldLayout(text)))
+  // ⌘K 里「导图：收起到第一层」「导图：全部展开」（task-wuv05）：当前这篇是导图白板时归它
+  useMapCommands(active && !readOnly && text !== null && isMindmap(text), text, (t) => doc.current?.setText(t), path, () => modeRef.current !== 'board' && pick('board'))
 
   // 独占一行的 [[白板]] 画成白板卡：库里白板的颜色、卡片数（board-link.ts）
   const boards = useMemo(
@@ -365,7 +376,7 @@ export function NoteTab(props: NoteTabProps) {
       pathNow.current = p
       cb.current.onRenamed(p)
       // 标题里有「?」这类不能当文件名的字：说清换成了什么；真撞了名才说「已经有」
-      const said = nameNotice(lastTitle.current, titleOf(p), '篇', safeName(name))
+      const said = nameNotice(lastTitle.current, titleOf(p), '篇', safeName(name)) // 不翻：量词是传给 shared/file-name 选句子的参数
       if (said) cb.current.onNotice(said)
     } catch (e) {
       cb.current.onNotice(String((e as Error).message).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
@@ -434,12 +445,12 @@ export function NoteTab(props: NoteTabProps) {
         inboxCount={inboxOf(props.notes, path).length}
         onZoomMenu={() =>
           void showMenu([
-            { label: '放大', accel: accelFor('zoom-in'), run: () => zoomApi.current?.step(1) },
-            { label: '缩小', accel: accelFor('zoom-out'), run: () => zoomApi.current?.step(-1) },
+            { label: t('放大'), accel: accelFor('zoom-in'), run: () => zoomApi.current?.step(1) },
+            { label: t('缩小'), accel: accelFor('zoom-out'), run: () => zoomApi.current?.step(-1) },
             { label: '100%', accel: accelFor('zoom-reset'), run: () => zoomApi.current?.set(1) },
-            { label: '适合窗口', accel: accelFor('zoom-fit'), run: () => zoomApi.current?.fit() },
+            { label: t('适合窗口'), accel: accelFor('zoom-fit'), run: () => zoomApi.current?.fit() },
             '-',
-            { label: '触控板捏合、按住 ⌘ 滚动也能缩放', enabled: false, run: () => undefined },
+            { label: t('触控板捏合、按住 ⌘ 滚动也能缩放'), enabled: false, run: () => undefined },
           ])
         }
       />
@@ -450,20 +461,22 @@ export function NoteTab(props: NoteTabProps) {
       <TabActs active={active}>
         <span className={'txt' + (state === 'failed' ? ' failed' : '')} hidden={state === 'saved'} data-testid="save-state" data-state={state}>
           {state === 'failed' && <i className="gdot err" />}
-          {state === 'saving' ? '正在保存' : state === 'saved' ? '' : state === 'failed' ? '写不进去，字只在内存里' : '未保存'}
+          {state === 'saving' ? t('正在保存') : state === 'saved' ? '' : state === 'failed' ? t('写不进去，字只在内存里') : t('未保存')}
         </span>
         {/* 原文件写不进去、字另存到了这一篇（标签跟过来了）：说清楚这篇是什么 */}
-        {doc.current?.rescuedFrom && doc.current.path === path && <PageNote strong tip={`原文件 ${doc.current.rescuedFrom} 写不进去（锁成了只读或盘满了），打的字都存在这一篇`}>原文件写不进去，字在这里</PageNote>}
+        {doc.current?.rescuedFrom && doc.current.path === path && <PageNote strong tip={t('原文件 {path} 写不进去（锁成了只读或盘满了），打的字都存在这一篇', { path: doc.current.rescuedFrom })}>{t('原文件写不进去，字在这里')}</PageNote>}
         {readOnly && (
-          <span className="txt warn" data-testid="page-note" title="文件里有软件读不懂的字节，为了不改坏它，不保存">
-            只读
+          <span className="txt warn" data-testid="page-note" title={t('文件里有软件读不懂的字节，为了不改坏它，不保存')}>
+            {t('只读')}
           </span>
         )}
-        {!readOnly && text !== null && isMindmap(text) && path.startsWith('收件箱/') && (
+        {!readOnly && text !== null && isMindmap(text) && underCat(path, '收件箱') && (
           <PageNote>
-            收件箱 · 今晚梦游时归类、起名
+            {t('收件箱 · 今晚梦游时归类、起名')}
           </PageNote>
         )}
+        {/* 导图白板才有的「布局 ▾」（task-wuv05）：文档、白板两种看法都在，切换时这一排不跳 */}
+        {text !== null && isMindmap(text) && <MapLayoutButton text={text} readOnly={readOnly} onChange={(t) => doc.current?.setText(t)} />}
         {text !== null && (
           <PropsButton
             path={path}
@@ -483,12 +496,12 @@ export function NoteTab(props: NoteTabProps) {
             }}
           />
         )}
-        <div className="seg" role="tablist" aria-label="看法">
+        <div className="seg" role="tablist" aria-label={t('看法')}>
           {(
             [
-              ['task', 'checklist', '任务'],
-              ['board', 'layout', '白板'],
-              ['doc', 'file-text', '文档'],
+              ['task', 'checklist', t('任务')],
+              ['board', 'layout', t('白板')],
+              ['doc', 'file-text', t('文档')],
             ] as const
           ).map(([m, icon, name]) => (
             <button key={m} className={mode === m ? 'on' : ''} onClick={() => pick(m)} role="tab" aria-selected={mode === m} aria-label={name} data-tip={name} data-key={mode === m || m === 'task' ? undefined : (K('toggle-view') ?? undefined)} data-side="below">
@@ -499,11 +512,11 @@ export function NoteTab(props: NoteTabProps) {
         </div>
         <ActBtn
           icon="ellipsis"
-          label="更多"
+          label={t('更多')}
           onClick={(e) =>
             props.onMenu(e, [
               mode === 'doc' && {
-                label: '宽版',
+                label: t('宽版'),
                 checked: wide,
                 run: () => {
                   setWide(path, !wide)
@@ -512,19 +525,29 @@ export function NoteTab(props: NoteTabProps) {
               },
               // 撤回过转写法、还用以前的自由白板的：能再转（导图不转）
               legacy && !readOnly && text !== null && !isMindmap(text) && {
-                label: '改成按「##」分列的写法',
+                label: t('改成按「##」分列的写法'),
                 run: async () => {
                   await NoteDoc.saveAll()
                   const r = await window.cn.boardConvert(path, true)
-                  if (!r) return cb.current.onNotice('这块白板已经是按「##」分列的写法了')
+                  if (!r) return cb.current.onNotice(t('这块白板已经是按「##」分列的写法了'))
                   await doc.current?.applyRemote(r.text)
-                  cb.current.onNotice(`改成了按「##」分列的写法：${r.columns}列、${r.cards}张卡，位置都留着`)
+                  cb.current.onNotice(t('改成了按「##」分列的写法：{columns}列、{cards}张卡，位置都留着', { columns: r.columns, cards: r.cards }))
                   cb.current.onSaved()
                 },
               },
+              // 导图（第二批 ④⑫）：在导图里找、导出图片 / PDF / OPML 大纲（导出要照画出来的样子画，文档看法里点了先切到白板）
+              ...(text !== null && isMindmap(text)
+                ? [
+                    '-' as const,
+                    { label: tv('在导图里找'), accel: accelFor('find-in-page'), run: () => (modeRef.current !== 'board' && pick('board'), requestFind(path)) },
+                    { label: tv('导出图片…'), run: () => (requestExport(path, 'png'), modeRef.current !== 'board' && pick('board')) },
+                    { label: tv('导出 PDF…'), run: () => (requestExport(path, 'pdf'), modeRef.current !== 'board' && pick('board')) },
+                    { label: tv('导出 OPML 大纲…'), run: () => (requestExport(path, 'opml'), modeRef.current !== 'board' && pick('board')) },
+                  ]
+                : []),
               // 从用的地方跳到设置（方向 A 的 A3）：最下面一项到设置 › 文档和白板，那一行闪一下
               '-',
-              mode === 'board' ? { label: '白板设置：点阵、右栏开着时缩小…', run: () => openSettingsAt('boardShrink') } : { label: '字体、字号、版心…', run: () => openSettingsAt('size') },
+              mode === 'board' ?{ label: t('白板设置：点阵、右栏开着时缩小…'), run: () => openSettingsAt('boardShrink') } : { label: t('字体、字号、版心…'), run: () => openSettingsAt('size') },
             ])
           }
         />
@@ -538,10 +561,12 @@ export function NoteTab(props: NoteTabProps) {
       {mode === 'doc' && <AiActLayer area="doc" path={path} host={paneRef} />}
       {/* 任务界面（task-pd1d1）：这一篇的待办，和左边「待办」格、文件夹首页的待办卡同一份、同一套样子 */}
       {mode === 'task' && <TaskView path={path} />}
+      {/* 在这一篇里找（⇧⌘F）：文档看法里；白板看法里由白板、导图自己找 */}
+      <DocFind view={() => doc.current?.view ?? null} host={() => paneRef.current} on={active && mode === 'doc' && text !== null} readOnly={readOnly} owner={path} />
       {mode === 'doc' && text !== null && <DocToc text={text} doc={() => doc.current} scroller={() => bodyRef.current} onOpenOutline={() => cb.current.onOpenOutline()} />}
       {/* 白板就是这篇文档（2026-11-21 方向 A，doc-board/）：type: board 的也是；导图和撤回了转写法的旧白板照旧用自由白板 */}
       {/* 白板出错只白板这一格换成出错卡（task-pyb39），标签头、切回文档照常 */}
-      <PanelGuard area="board" label="白板">
+      <PanelGuard area="board" label={t('白板')}>
       {mode === 'board' && text !== null && !legacy && (
         <DocBoardView
           text={text}
@@ -559,7 +584,7 @@ export function NoteTab(props: NoteTabProps) {
           onNotice={(t) => cb.current.onNotice(t)}
           onCreateSubBoard={async () => {
             const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
-            const p = await window.cn.createBoard(dir, '未命名白板', titleOf(path))
+            const p = await window.cn.createBoard(dir, '未命名白板', titleOf(path)) // 不翻：新建时的默认名字（文件名）
             cb.current.onOpenPath(p, true)
             return titleOf(p)
           }}
@@ -595,7 +620,7 @@ export function NoteTab(props: NoteTabProps) {
           onDraft={(f) => doc.current && (doc.current.draft = f)}
           onCreateSubBoard={async () => {
             const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
-            const p = await window.cn.createBoard(dir, '未命名白板', titleOf(path))
+            const p = await window.cn.createBoard(dir, '未命名白板', titleOf(path)) // 不翻：新建时的默认名字（文件名）
             cb.current.onOpenPath(p, true)
             return titleOf(p)
           }}

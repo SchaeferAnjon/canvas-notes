@@ -32,6 +32,10 @@ export interface ReadingThread {
    */
   web?: { url: string; title: string; text?: string; /** 视频问答块「接着问」：那一问在视频第几秒 */ t?: number; /** 「接着问」：那一问 AI 当时的回答 */ answer?: string; /** 选的、框的那块上面最近的小标题（task-6cxtc：回到那一段的链接上写它） */ head?: string }
   createdAt: number
+  /** 选中小条上自己加的那颗问的（task-26nz7）：命令的名字，写进笔记时块头写它 */
+  cmd?: string
+  /** 那颗选了「只在 AI 栏答」：答完不写进笔记 */
+  noNote?: true
 }
 
 export interface ReadingMsg {

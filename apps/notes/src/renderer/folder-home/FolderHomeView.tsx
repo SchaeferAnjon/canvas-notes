@@ -13,8 +13,9 @@ import type { AnkiReview } from '../../shared/reading'
 import { app } from '../ctx/actions'
 import { openCards, showAsked, useCardsView } from '../reading/cards-store'
 import type { NoteFile } from '../../shared/api'
-import { categoryOf } from '../../shared/categories'
-import { fixedFolder } from '../../shared/files'
+import { categoryOf, isChildOf } from '../../shared/categories'
+import { fileName, fixedFolder } from '../../shared/files'
+import { MovePicker } from '../files/move-pick'
 import {
   addWidget,
   type Cond,
@@ -31,6 +32,7 @@ import {
   setWidget,
   showW,
   sizeOfW,
+  templateFileOf,
   wInfo,
 } from '../../shared/folder-home'
 import type { DreamPreview } from '../dream/preview'
@@ -51,6 +53,8 @@ import { CaptureAction, CondBody, condResult, SlidesResume, type WCtx, WidgetBod
 import { TodoOpen } from '../todo/TodoCard'
 import { isTodoNote } from '../../shared/todo'
 import { usePrefs } from '../settings-store'
+import { useT } from '../i18n'
+import { list } from '../../shared/i18n'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -72,6 +76,7 @@ export function FolderHomeView(props: {
   onRename(name: string): Promise<string | null>
 }) {
   const { folder, pv } = props
+  const t = useT()
   const kind = homeKindOf(folder)!
   const title = folder.split('/').pop()!
   /** 自带的顶级分类：多一行「放什么」，不改名；关掉预设的分类时（task-wniqx）当普通文件夹，不写「分类」和「放什么」 */
@@ -81,7 +86,7 @@ export function FolderHomeView(props: {
   const descOf = useDesc()
   const { files: vaultFiles } = useVaultFiles()
   /** 「课程」下面有几门课（名字下面那一行写「2门课」） */
-  const courses = useMemo(() => (kind === 'courses' ? vaultFiles.filter((f) => f.kind === 'dir' && f.path.startsWith('课程/') && !f.path.slice(3).includes('/')).length : 0), [kind, vaultFiles])
+  const courses = useMemo(() => (kind === 'courses' ? vaultFiles.filter((f) => f.kind === 'dir' && isChildOf(f.path, '课程')).length : 0), [kind, vaultFiles])
   const [lookAt, setLookAt] = useState<HTMLElement | null>(null)
   /** 正在改「放什么」 */
   const [descEdit, setDescEdit] = useState(false)
@@ -98,6 +103,8 @@ export function FolderHomeView(props: {
   const [lib, setLib] = useState(false)
   const [cond, setCond] = useState<string | null>(null)
   const [drag, setDrag] = useState<{ id: string; before?: string | null } | null>(null)
+  /** 卡里一份右键「移到…」弹的小弹层（task-r00en）：挪哪一份、贴着谁 */
+  const [mover, setMover] = useState<{ path: string; anchor: HTMLElement } | null>(null)
   const [flash, setFlash] = useState<string | null>(null)
   /** 从访达拖着文件经过这一页（课件进度卡亮起来，CN-2） */
   const [dropOver, setDropOver] = useState(false)
@@ -137,8 +144,8 @@ export function FolderHomeView(props: {
   }, [folder, kind, asked])
   useEffect(() => {
     if (!flash) return
-    const t = setTimeout(() => setFlash(null), 2000)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setFlash(null), 2000)
+    return () => clearTimeout(timer)
   }, [flash])
 
   /** 名字叫「待办」的笔记显示不显示（设置 › 文件，task-pd1d1）：头上那行的篇数跟着 */
@@ -154,7 +161,7 @@ export function FolderHomeView(props: {
     const prev = home
     save({ ...home, cover })
     setGallery(false)
-    props.onNotice('封面换好了', () => save(prev))
+    props.onNotice(t('封面换好了'), () => save(prev))
   }
   // 课件进度卡在这页上才收拖进来的 PDF
   const slidesId = kind === 'course' ? home.order.find((id) => home.widgets[id]!.type === 'slides') : undefined
@@ -177,12 +184,13 @@ export function FolderHomeView(props: {
           const paths = [...e.dataTransfer.files].map((f) => window.cnFolder.pathOf(f)).filter(Boolean)
           try {
             const r = await window.cnFolder.importPdfs(folder, paths)
-            const names = (l: string[]) => l.map((p) => p.split('/').pop()).join('、')
-            const had = r.already.length ? `${title}里已经有${r.already.length > 1 || r.added.length ? `「${names(r.already)}」` : '这份'}了` : ''
-            if (!r.added.length) return props.onNotice(had || '课件进度只收PDF')
+            const names = (l: string[]) => list(l.map((p) => p.split('/').pop()!))
+            const had = r.already.length ? (r.already.length > 1 || r.added.length ? t('{folder}里已经有「{names}」了', { folder: title, names: names(r.already) }) : t('{folder}里已经有这份了', { folder: title })) : ''
+            if (!r.added.length) return props.onNotice(had || t('课件进度只收PDF'))
             setJustIn((s) => new Set([...s, ...r.added]))
             setFlash(slidesId)
-            props.onNotice(`拷进了${title}：${names(r.added)}${had ? ` · ${had}` : ''}${r.skipped.length ? ` · ${r.skipped.length}个不是PDF，没收` : ''}`, () => {
+            const skipped = r.skipped.length ? t('{n}个不是PDF，没收', { n: r.skipped.length }) : ''
+            props.onNotice([t('拷进了{folder}：{names}', { folder: title, names: names(r.added) }), had, skipped].filter(Boolean).join(' · '), () => {
               void window.cnFolder.unimportPdfs(r.added).catch((err) => props.onNotice(errText(err)))
             })
           } catch (err) {
@@ -191,12 +199,16 @@ export function FolderHomeView(props: {
         },
       }
     : {}
-  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, asked: asked?.items ?? [], review, onAsked: (pdf) => (app().openWithNote(pdf), showAsked(pdf)), onCards: () => openCards({ kind: 'folder', folder }), onOpenAnki: () => void window.cnReading.openAnki().catch((e) => props.onNotice(errText(e))), onAll: props.onOpenAll, onCapture: () => openCapture({ course: title }), save, reload: () => void window.cnFolder.get(folder).then((r) => setHome(r.home)), home, id })
+  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, asked: asked?.items ?? [], review, onAsked: (pdf) => (app().openWithNote(pdf), showAsked(pdf)), onCards: () => openCards({ kind: 'folder', folder }), onOpenAnki: () => void window.cnReading.openAnki().catch((e) => props.onNotice(errText(e))), onAll: props.onOpenAll, onCapture: () => openCapture({ course: title }), movable: !editing && !pv.on, onMoveTo: (p, anchor) => setMover({ path: pv.realPath(p), anchor }), save, reload: () => void window.cnFolder.get(folder).then((r) => setHome(r.home)), home, id })
   const inFolder = files.filter((f) => f.path.startsWith(folder + '/'))
   // 「N篇」和下面「里面有什么」、文件树数得一样：名字叫「待办」的笔记不显示时也不算（task-pd1d1）
   const lead = folderLead(folder, showTodo ? inFolder : inFolder.filter((f) => !isTodoNote(f.path)), { courses, presets })
   const coverY = adjustY ?? home.coverY
-  const tplName = kind === 'course' ? '课程模板' : kind === 'project' ? '项目模板' : null
+  const tplName = kind === 'course' ? t('课程模板', { ctx: '设为模板' }) : kind === 'project' ? t('项目模板', { ctx: '设为模板' }) : null
+  /** 「恢复成默认的课程首页？」里的种类（说的是这一类，不是磁盘上的文件夹名） */
+  const kindLabel = t(KIND_LABEL[kind], { ctx: '文件夹种类' })
+  /** 「放什么」：没改过的是分类表里的那句，跟界面语言；自己改过的照原样 */
+  const descShown = cat ? (descOf(cat.name) === cat.desc ? t(cat.desc) : descOf(cat.name)) : undefined
 
   const add = (type: (typeof FWIDGETS)[number]['type'], c?: Cond) => {
     const r = addWidget(home, type, kind, c)
@@ -230,7 +242,7 @@ export function FolderHomeView(props: {
             {adjustY !== null && (
               <span className="hint">
                 <Codicon name="move" size={14} />
-                上下拖动图片
+                {t('上下拖动图片')}
               </span>
             )}
             <div className="cacts">
@@ -239,14 +251,14 @@ export function FolderHomeView(props: {
                   <span className="cpick">
                     <button className="cbtn" data-cover-pick onClick={() => setGallery((v) => !v)} aria-expanded={gallery}>
                       <Codicon name="file-media" size={14} />
-                      换封面
+                      {t('换封面')}
                     </button>
                     {gallery && <FolderCoverGallery cover={home.cover} onPick={pickCover} onNotice={props.onNotice} onClose={() => setGallery(false)} />}
                   </span>
                   {coverIsImage(home.cover) && (
                     <button className="cbtn" onClick={() => (setGallery(false), setAdjustY(home.coverY))}>
                       <Codicon name="move" size={14} />
-                      调整位置
+                      {t('调整位置')}
                     </button>
                   )}
                 </>
@@ -257,13 +269,14 @@ export function FolderHomeView(props: {
                     onClick={() => {
                       save({ ...home, coverY: adjustY })
                       setAdjustY(null)
-                      props.onNotice('位置存好了：写在这个文件夹的「.首页.json」里')
+                      // 不翻：.首页.json 是磁盘上的文件名
+                      props.onNotice(t('位置存好了：写在这个文件夹的「{file}」里', { file: '.首页.json' }))
                     }}
                   >
-                    存好
+                    {t('存好')}
                   </button>
                   <button className="cbtn" autoFocus onClick={() => setAdjustY(null)}>
-                    取消
+                    {t('取消')}
                   </button>
                 </>
               )}
@@ -278,7 +291,7 @@ export function FolderHomeView(props: {
                 {naming && !fixed ? (
                   <input
                     className="fh-name"
-                    aria-label="文件夹名字"
+                    aria-label={t('文件夹名字')}
                     defaultValue={title}
                     autoFocus
                     onFocus={(e) => e.currentTarget.select()}
@@ -296,10 +309,10 @@ export function FolderHomeView(props: {
                   />
                 ) : (
                   <h2
-                    data-tip="双击改名"
+                    data-tip={t('双击改名')}
                     data-side="below"
                     onDoubleClick={() =>
-                      fixed ? props.onNotice(cat ? `「${title}」是软件自带的分类，不改名；封面、图标、颜色都能换` : `「${title}」是软件自带的文件夹，不改名`) : setNaming(true)
+                      fixed ? props.onNotice(cat ? t('「{name}」是软件自带的分类，不改名；封面、图标、颜色都能换', { name: title }) : t('「{name}」是软件自带的文件夹，不改名', { name: title })) : setNaming(true)
                     }
                   >
                     {title}
@@ -312,42 +325,42 @@ export function FolderHomeView(props: {
               {editing ? (
                 <button className="btn btn-primary btn-sm" onClick={() => setEditing(false)}>
                   <Codicon name="check" size={14} />
-                  完成
+                  {t('完成')}
                 </button>
               ) : (
-                <ActBtn icon="edit" label="编辑首页" text onClick={() => setEditing(true)} />
+                <ActBtn icon="edit" label={t('编辑首页', { ctx: '文件夹首页' })} text onClick={() => setEditing(true)} />
               )}
               <div className="fh-menu">
-                <ActBtn icon="ellipsis" label="更多" aria-expanded={menu !== null} onClick={() => setMenu(menu ? null : 'more')} />
+                <ActBtn icon="ellipsis" label={t('更多')} aria-expanded={menu !== null} onClick={() => setMenu(menu ? null : 'more')} />
                 {menu === 'more' && (
-                  <div className="fh-pop menu" role="menu" aria-label="首页的更多">
+                  <div className="fh-pop menu" role="menu" aria-label={t('首页的更多')}>
                     {tplName && (
                       <button role="menuitem" onClick={() => setMenu('tpl')}>
                         <Codicon name="bookmark" size={14} />
-                        {`设为${tplName}`}
+                        {t('设为{name}', { name: tplName })}
                       </button>
                     )}
                     <button role="menuitem" onClick={() => setMenu('reset')}>
                       <Codicon name="discard" size={14} />
-                      恢复默认
+                      {t('恢复默认')}
                     </button>
                     <button role="menuitem" onClick={() => (setMenu(null), setEditing(true))}>
                       <Codicon name="layout" size={14} />
-                      编辑首页
+                      {t('编辑首页', { ctx: '文件夹首页' })}
                     </button>
                   </div>
                 )}
                 {(menu === 'tpl' || menu === 'reset') && (
-                  <div className="fh-pop confirm" role="dialog" aria-label={menu === 'tpl' ? `设为${tplName}？` : `恢复成默认的${KIND_LABEL[kind]}首页？`}>
-                    <h4>{menu === 'tpl' ? `设为${tplName}？` : `恢复成默认的${KIND_LABEL[kind]}首页？`}</h4>
+                  <div className="fh-pop confirm" role="dialog" aria-label={menu === 'tpl' ? t('设为{name}？', { name: tplName }) : t('恢复成默认的{kind}首页？', { kind: kindLabel })}>
+                    <h4>{menu === 'tpl' ? t('设为{name}？', { name: tplName }) : t('恢复成默认的{kind}首页？', { kind: kindLabel })}</h4>
                     <p>
                       {menu === 'tpl'
-                        ? `以后新建的${KIND_LABEL[kind]}文件夹，首页都用这一页的组件、排法和外观。已有的不变。存在${kind === 'course' ? '课程' : '项目'}/.首页模板.json。`
-                        : '组件、排法、外观回到默认的样子（有模板就用模板）。这只是一页看法：文件一个不动。'}
+                        ? t('以后新建的{kind}文件夹，首页都用这一页的组件、排法和外观。已有的不变。存在{path}。', { kind: kindLabel, path: templateFileOf(kind) })
+                        : t('组件、排法、外观回到默认的样子（有模板就用模板）。这只是一页看法：文件一个不动。')}
                     </p>
                     <div className="act">
                       <button className="btn btn-ghost btn-sm" onClick={() => setMenu(null)}>
-                        取消
+                        {t('取消')}
                       </button>
                       <button
                         className="btn btn-primary btn-sm"
@@ -358,18 +371,18 @@ export function FolderHomeView(props: {
                             if (which === 'tpl') {
                               await window.cnFolder.set(folder, home)
                               await window.cnFolder.setTemplate(folder)
-                              props.onNotice(`设为${tplName}了 · 以后新建的${KIND_LABEL[kind]}用这个样子`)
+                              props.onNotice(t('设为{name}了 · 以后新建的{kind}用这个样子', { name: tplName, kind: kindLabel }))
                             } else {
                               const prev = home
                               setHome(await window.cnFolder.reset(folder))
-                              props.onNotice('恢复成默认的样子了 · 文件一个没动', () => save(prev))
+                              props.onNotice(t('恢复成默认的样子了 · 文件一个没动'), () => save(prev))
                             }
                           } catch (e) {
                             props.onNotice(errText(e))
                           }
                         }}
                       >
-                        {menu === 'tpl' ? '设为模板' : '恢复默认'}
+                        {menu === 'tpl' ? t('设为模板') : t('恢复默认')}
                       </button>
                     </div>
                   </div>
@@ -379,69 +392,70 @@ export function FolderHomeView(props: {
             </div>
             {cat && (
               <div className="fh-desc" data-testid="cat-desc">
-                <span className="q">放什么：</span>
+                <span className="q">{t('放什么：')}</span>
                 {descEdit ? (
                   <input
-                    aria-label="这一类放什么"
-                    defaultValue={descOf(cat.name)}
+                    aria-label={t('这一类放什么')}
+                    defaultValue={descShown}
                     autoFocus
                     onFocus={(e) => e.currentTarget.select()}
                     onKeyDown={(e) => {
                       // 输入法还在组字：回车、Esc 交给输入法（CN-115）
                       if (composing(e)) return
                       if (e.key === 'Enter') e.currentTarget.blur()
-                      if (e.key === 'Escape') ((e.currentTarget.value = descOf(cat.name)), e.currentTarget.blur())
+                      if (e.key === 'Escape') ((e.currentTarget.value = descShown!), e.currentTarget.blur())
                     }}
                     onBlur={(e) => {
                       const text = e.currentTarget.value.trim()
                       setDescEdit(false)
-                      if (!text || text === descOf(cat.name)) return
+                      if (!text || text === descShown) return
                       void setDesc(cat.name, text).then(
-                        () => props.onNotice('写进了库里的「.canvas-notes/分类.json」：梦游归类、「移到…」菜单都按这句排'),
+                        // 不翻：.canvas-notes/分类.json 是磁盘上的文件名
+                        () => props.onNotice(t('写进了库里的「{file}」：梦游归类、「移到…」菜单都按这句排', { file: '.canvas-notes/分类.json' })),
                         (err) => props.onNotice(errText(err)),
                       )
                     }}
                   />
                 ) : (
-                  <span className="ed" role="button" tabIndex={0} aria-label={`这一类放什么：${descOf(cat.name)}（点一下改）`} onClick={() => setDescEdit(true)} onKeyDown={(e) => e.key === 'Enter' && setDescEdit(true)}>
-                    {descOf(cat.name)}
+                  <span className="ed" role="button" tabIndex={0} aria-label={t('这一类放什么：{desc}（点一下改）', { desc: descShown })} onClick={() => setDescEdit(true)} onKeyDown={(e) => e.key === 'Enter' && setDescEdit(true)}>
+                    {descShown}
                     <Codicon name="edit" size={12} className="pen" />
                   </span>
                 )}
               </div>
             )}
             {editing && (
-              <div className="fh-ebar" role="toolbar" aria-label="编辑首页">
+              <div className="fh-ebar" role="toolbar" aria-label={t('编辑首页', { ctx: '文件夹首页' })}>
                 {(
                   <>
-                    <span className="k">样式</span>
+                    <span className="k">{t('样式')}</span>
                     <div className="seg">
                       <button className={home.style === 'a' ? 'on' : ''} onClick={() => save({ ...home, style: 'a' })}>
-                        A封面
+                        {t('A封面')}
                       </button>
                       <button className={home.style === 'b' ? 'on' : ''} onClick={() => save({ ...home, style: 'b' })}>
-                        B整页背景
+                        {t('B整页背景')}
                       </button>
                     </div>
                     <span className="bar" />
                     <button className="btn btn-sm" onClick={() => (setMenu(null), setGallery(true), document.querySelector('.fhome .hscroll')?.scrollTo({ top: 0, behavior: 'smooth' }))}>
                       <Codicon name="file-media" size={14} />
-                      换封面
+                      {t('换封面')}
                     </button>
                   </>
                 )}
                 <button className="btn btn-sm" onClick={(e) => setLookAt(lookAt ? null : e.currentTarget)}>
                   <Codicon name="symbol-color" size={14} />
-                  图标和颜色
+                  {t('图标和颜色')}
                 </button>
                 {lookAt && <LookPicker folder={folder} anchor={lookAt} onClose={() => setLookAt(null)} />}
                 <span className="bar" />
                 <button className="btn btn-sm" onClick={() => setLib(true)}>
                   <Codicon name="add" size={14} />
-                  加组件
+                  {t('加组件')}
                 </button>
                 <span className="sp" />
-                <span className="hint">设为模板、恢复默认在「完成」旁的「⋯」</span>
+                <span className="hint">{t('设为模板、恢复默认在「完成」旁的「⋯」')}</span>
               </div>
             )}
             {home.order.length > 0 && (
@@ -457,15 +471,15 @@ export function FolderHomeView(props: {
                   <div key={id} data-widget={id} data-testid={`fw-${id}`} className={`wd s${size}${drag?.id === id ? ' dragging' : ''}${drag?.before === id ? ' drop-before' : ''}${flash === id ? ' flash' : ''}${dropOver && id === slidesId ? ' drop-hot' : ''}`}>
                     {dropOver && id === slidesId && (
                       <div className="fw-dropover" data-testid="slides-drop">
-                        <b>{`松手收进${title}`}</b>
-                        <span>拷一份进这门课的文件夹，访达里的原文件不动</span>
+                        <b>{t('松手收进{name}', { name: title })}</b>
+                        <span>{t('拷一份进这门课的文件夹，访达里的原文件不动')}</span>
                       </div>
                     )}
                     {editing && (
                       <>
                         <button
                           className="wgrip"
-                          aria-label={`拖动${info.name}`}
+                          aria-label={t('拖动{name}', { name: t(info.name) })}
                           onPointerDown={(e) => (e.currentTarget.setPointerCapture(e.pointerId), setDrag({ id }))}
                           onPointerMove={(e) => {
                             if (!drag) return
@@ -481,25 +495,25 @@ export function FolderHomeView(props: {
                         </button>
                         <div className="wedit">
                           {w.cond && (
-                            <button onClick={() => setCond(id)} aria-label="条件" title="改条件">
+                            <button onClick={() => setCond(id)} aria-label={t('条件', { ctx: '按条件列出' })} title={t('改条件')}>
                               <Codicon name="settings" size={12} />
-                              <span className="lbl">条件</span>
+                              <span className="lbl">{t('条件', { ctx: '按条件列出' })}</span>
                             </button>
                           )}
-                          <button onClick={() => save(resizeW(home, id))} aria-label={size === 1 ? '变宽' : size === 2 ? '整行' : '变窄'} title={size === 1 ? '变宽' : size === 2 ? '整行' : '变窄'}>
+                          <button onClick={() => save(resizeW(home, id))} aria-label={size === 1 ? t('变宽') : size === 2 ? t('整行') : t('变窄')} title={size === 1 ? t('变宽') : size === 2 ? t('整行') : t('变窄')}>
                             <Codicon name={size === 4 ? 'screen-normal' : 'arrow-both'} size={12} />
-                            <span className="lbl">{size === 1 ? '变宽' : size === 2 ? '整行' : '变窄'}</span>
+                            <span className="lbl">{size === 1 ? t('变宽') : size === 2 ? t('整行') : t('变窄')}</span>
                           </button>
-                          <button onClick={() => save(hideW(home, id))} aria-label="收起" title="收起到下面的抽屉">
+                          <button onClick={() => save(hideW(home, id))} aria-label={t('收起')} title={t('收起到下面的抽屉')}>
                             <Codicon name="screen-normal" size={12} />
-                            <span className="lbl">收起</span>
+                            <span className="lbl">{t('收起')}</span>
                           </button>
                           <button
-                            aria-label={`删掉${w.cond?.name ?? info.name}`}
-                            title="删掉这个组件（文件不动）"
+                            aria-label={t('删掉{name}', { name: t(w.cond?.name ?? info.name) })}
+                            title={t('删掉这个组件（文件不动）')}
                             onClick={() => {
                               save(removeWidget(home, id))
-                              props.onNotice(`删了「${w.cond?.name ?? info.name}」组件 · 文件一个没动`, () => save(home))
+                              props.onNotice(t('删了「{name}」组件 · 文件一个没动', { name: t(w.cond?.name ?? info.name) }), () => save(home))
                             }}
                           >
                             <Codicon name="trash" size={12} />
@@ -509,11 +523,12 @@ export function FolderHomeView(props: {
                     )}
                     <div className="wk">
                       <Codicon name={widgetIcon(w.type)} size={14} />
-                      <span className="truncate">{w.type === 'list' ? w.cond!.name : info.name}</span>
+                      {/* 条件的名字存在 .首页.json 里：还是默认的那几个时翻，自己起的照原样（t 找不到就原样） */}
+                      <span className="truncate">{t(w.type === 'list' ? w.cond!.name : info.name)}</span>
                       <span className="sp" />
                       {total > 0 && <span className="n num">{total}</span>}
-                      {w.type === 'courses' && courses > 0 && <span className="n num">{`${courses}门`}</span>}
-                      {w.type === 'doubts' && !!asked?.items.length && <span className="n num">{`${asked.items.length}问`}</span>}
+                      {w.type === 'courses' && courses > 0 && <span className="n num">{t('{n}门', { n: courses })}</span>}
+                      {w.type === 'doubts' && !!asked?.items.length && <span className="n num">{t('{n}问', { n: asked.items.length })}</span>}
                       {w.type === 'notes' && !editing && <CaptureAction onCapture={() => openCapture({ course: title })} />}
                       {w.type === 'slides' && !editing && <SlidesResume c={ctx(id)} />}
                       {w.type === 'todo' && !editing && <TodoOpen folder={folder} />}
@@ -526,22 +541,23 @@ export function FolderHomeView(props: {
             )}
             {editing && (
               <div className="tray">
-                <div className="hd">收起来的组件，点一下放回首页</div>
+                <div className="hd">{t('收起来的组件，点一下放回首页')}</div>
                 <div className="items">
-                  {home.hidden.length === 0 && <span className="none">都在首页上了</span>}
+                  {home.hidden.length === 0 && <span className="none">{t('都在首页上了')}</span>}
                   {home.hidden.map((id) => (
                     <button key={id} className="ti" onClick={() => save(showW(home, id))}>
                       <Codicon name={widgetIcon(home.widgets[id]!.type)} size={14} />
-                      {home.widgets[id]!.cond?.name ?? wInfo(home.widgets[id]!.type).name}
+                      {t(home.widgets[id]!.cond?.name ?? wInfo(home.widgets[id]!.type).name)}
                     </button>
                   ))}
                 </div>
               </div>
             )}
-            {!editing && <FolderContent folder={folder} notes={props.notes} onOpen={props.onOpen} onOpenFolder={props.onOpenFolder} />}
+            {!editing && <FolderContent folder={folder} notes={props.notes} onOpen={props.onOpen} onOpenFolder={props.onOpenFolder} movable={!pv.on} onMoveTo={(p, anchor) => setMover({ path: p, anchor })} />}
           </div>
         </div>
       </div>
+      {mover && <MovePicker paths={[mover.path]} what={fileName(mover.path).replace(/\.md$/i, '')} dirs={[]} anchor={mover.anchor} onPick={(f) => void app().moveItem(mover.path, f)} onClose={() => setMover(null)} />}
       {lib && <WidgetLibrary title={title} home={home} kind={kind} onAdd={add} onClose={() => setLib(false)} />}
       {cond && home.widgets[cond] && (
         <CondEditor
@@ -551,7 +567,7 @@ export function FolderHomeView(props: {
             <div className="wd s2">
               <div className="wk">
                 <Codicon name={widgetIcon(home.widgets[cond]!.type)} size={14} />
-                <span className="truncate">{c.name}</span>
+                <span className="truncate">{t(c.name)}</span>
                 <span className="n num">{condResult(ctx(cond), c).length}</span>
                 <span className="sp" />
                 {home.widgets[cond]!.type === 'notes' && kind === 'course' && <CaptureAction onCapture={() => undefined} />}

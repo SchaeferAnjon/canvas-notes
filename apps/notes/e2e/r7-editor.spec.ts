@@ -68,7 +68,8 @@ test('CN-124 打字像 Typora：记号都不露；标题行首退格变正文；
     await page.keyboard.type('```')
     await page.keyboard.press('Enter')
     await page.keyboard.type('总共 ISK 420000')
-    expect(await editorText(page)).toContain('## 预算\n```\n总共 ISK 420000\n```')
+    // 标题末尾回车是新起一块（task-ys1rr，像 Notion），和下面的代码块隔一个空行
+    expect(await editorText(page)).toContain('## 预算\n\n```\n总共 ISK 420000\n```')
     // 代码块最后一行空着再回车：出块，接着写正文
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
@@ -231,15 +232,14 @@ test('CN-107 点「+」直接弹插入菜单不写「/」，点别处什么都�
     await waitSaved(page)
     expect(read(vault, '加块.md')).toBe('# 加块\n\n第一段\n\n### 中间的小标题\n\n第二段\n')
 
-    // 打「/」弹菜单，打的那一行左边出「+ ⋮⋮」；没选就点别的行：「/」拿掉
-    await line(page, '第二段').click()
+    // 打「/」弹菜单，打的那一行左边出「+ ⋮⋮」；没选就点别的行：「/」拿掉（第一段末尾回车新起的空块里打，task-ys1rr 起回车是新起一块）
+    await line(page, '第一段').click()
     await page.keyboard.press('End')
-    await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
     await page.keyboard.type('/')
     await expect(slash(page)).toBeVisible()
     await expect(pane(page).locator('.blk-bar:not([hidden]) .blk-add')).toBeVisible()
-    await line(page, '第一段').click()
+    await line(page, '第二段').click()
     await expect(slash(page)).toBeHidden()
     expect(await editorText(page)).not.toContain('/')
   } finally {

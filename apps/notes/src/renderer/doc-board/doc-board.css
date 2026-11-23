@@ -1917,3 +1917,48 @@
   background: var(--fill);
   color: var(--t1);
 }
+
+/* ---------- 框选（task-5ryf9，17-白板框选 方向 A）：空白处按住拖出来的框，1px 强调色边、淡强调色底、圆角 2 ---------- */
+.db-marquee {
+  position: absolute;
+  z-index: 30;
+  box-sizing: border-box;
+  border: 1px solid var(--acc);
+  border-radius: 2px;
+  background: var(--acc-soft);
+  pointer-events: none;
+}
+/* 按住空格：光标变成小手，拖着是抓着的手（按在卡上也是平移） */
+.db-board .board-wrap.grab,
+.db-board .board-wrap.grab * {
+  cursor: grab !important;
+}
+.db-board .board-wrap.grabbing,
+.db-board .board-wrap.grabbing * {
+  cursor: grabbing !important;
+}
+/* 选中：空白处的剪藏卡自己的描边不再盖掉外圈（以前 .fc-clip.placed 的阴影把 2px 强调色圈盖了，选上了看不出来） */
+.db-board .db-card.sel:not(.editing),
+.db-board .db-col .db-card.sel:not(.editing),
+.db-board .db-card.fc-clip.placed.sel:not(.editing) {
+  box-shadow: 0 0 0 2px var(--acc);
+}
+/* 合成的一张：几段各照自己的样子，中间一道细线（照原型 .card.merged） */
+.db-card.merged .db-part + .db-part {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+/* 几张一起拖：鼠标右下「N张」（照原型 .ghostcount） */
+.db-drag-count {
+  position: fixed;
+  z-index: 61;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 12px;
+  color: var(--t1);
+  transform: rotate(-1deg);
+  pointer-events: none;
+}

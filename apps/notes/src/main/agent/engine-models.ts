@@ -13,6 +13,7 @@ import { cliEnv } from './cli'
 import { geminiLoggedIn } from './engines'
 import { RpcProcess } from './jsonrpc'
 import { lastLine, runProc } from './engine-proc'
+import { t } from '../../shared/i18n'
 
 const APP = { name: 'canvas-notes', version: '0.0.1' }
 
@@ -39,7 +40,7 @@ export function claudeModelOptions(list: unknown): ModelOption[] {
         label,
         efforts: m.supportsEffort === false ? [] : effortsOf(m.supportedEffortLevels),
         ...(typeof m.resolvedModel === 'string' && m.resolvedModel !== m.value ? { resolved: m.resolvedModel } : {}),
-        ...(m.value.startsWith('claude-') ? { group: '具体型号' } : {}),
+        ...(m.value.startsWith('claude-') ? { group: t('具体型号') } : {}),
       },
     ]
   })
@@ -66,7 +67,7 @@ export function claudeModels(exe: string, timeoutMs = 20_000): Promise<{ models:
       setTimeout(() => child.kill('SIGTERM'), 500).unref()
       f()
     }
-    const timer = setTimeout(() => done(() => reject(new Error(`Claude Code ${Math.round(timeoutMs / 1000)} 秒没报模型`))), timeoutMs)
+    const timer = setTimeout(() => done(() => reject(new Error(t('Claude Code {s} 秒没报模型', { s: Math.round(timeoutMs / 1000) })))), timeoutMs)
     child.stdout!.setEncoding('utf8')
     child.stdout!.on('data', (d: string) => {
       buf += d
@@ -83,17 +84,17 @@ export function claudeModels(exe: string, timeoutMs = 20_000): Promise<{ models:
         }
         if (m.type !== 'control_response' || m.response?.request_id !== id) continue
         const r = m.response
-        if (r.subtype === 'error') return done(() => reject(new Error(r.error || 'Claude Code 没报模型')))
+        if (r.subtype === 'error') return done(() => reject(new Error(r.error || t('Claude Code 没报模型'))))
         const models = claudeModelOptions(r.response?.models)
         const version = typeof r.response?.claude_code_version === 'string' ? r.response.claude_code_version : undefined
-        if (!models.length) return done(() => reject(new Error('Claude Code 报的模型是空的')))
+        if (!models.length) return done(() => reject(new Error(t('Claude Code 报的模型是空的'))))
         return done(() => resolve({ models, ...(version ? { version } : {}) }))
       }
     })
     child.stderr!.setEncoding('utf8')
     child.stderr!.on('data', (d: string) => (stderr = (stderr + d).slice(-4000)))
-    child.on('error', (e) => done(() => reject(new Error(`${exe} 启动不了：${e.message}`))))
-    child.on('close', (code) => done(() => reject(new Error(`Claude Code 没报模型就退出了（${code}）${stderr.trim() ? `：${lastLine(stderr)}` : ''}`))))
+    child.on('error', (e) => done(() => reject(new Error(t('{name} 启动不了：{error}', { name: exe, error: e.message })))))
+    child.on('close', (code) => done(() => reject(new Error(stderr.trim() ? t('Claude Code 没报模型就退出了（{code}）：{why}', { code, why: lastLine(stderr) }) : t('Claude Code 没报模型就退出了（{code}）', { code })))))
     child.stdin!.on('error', () => undefined)
     child.stdin!.write(JSON.stringify({ type: 'control_request', request_id: id, request: { subtype: 'initialize' } }) + '\n')
   })
@@ -132,10 +133,11 @@ export function parseOpencodeModels(out: string): ModelOption[] {
 
 export async function opencodeModels(exe: string): Promise<ModelOption[]> {
   const r = await runProc(exe, ['models', '--verbose'], { timeoutMs: 45_000 })
-  if (r.timedOut) throw new Error('opencode models 45 秒没跑完')
-  if (r.code !== 0) throw new Error(`opencode models 出错（${r.code ?? r.error}）${lastLine(r.stderr || r.stdout) ? `：${lastLine(r.stderr || r.stdout)}` : ''}`)
+  if (r.timedOut) throw new Error(t('opencode models 45 秒没跑完'))
+  const tail = lastLine(r.stderr || r.stdout)
+  if (r.code !== 0) throw new Error(tail ? t('opencode models 出错（{code}）：{why}', { code: r.code ?? r.error, why: tail }) : t('opencode models 出错（{code}）', { code: r.code ?? r.error }))
   const list = parseOpencodeModels(r.stdout)
-  if (!list.length) throw new Error('opencode models 一个模型都没列')
+  if (!list.length) throw new Error(t('opencode models 一个模型都没列'))
   return list
 }
 
@@ -165,9 +167,9 @@ export async function acpHandshake(exe: string, args: string[], o: { session?: s
 
 /** Gemini CLI 的模型：登录了才开得了会话，没登录直接说 */
 export async function geminiModels(exe: string): Promise<ModelOption[]> {
-  if (!geminiLoggedIn()) throw new Error('Gemini 没登录')
+  if (!geminiLoggedIn()) throw new Error(t('Gemini 没登录'))
   const { session } = await acpHandshake(exe, ['--acp'], { session: homedir() })
   const list = acpModelOptions(session ?? {})
-  if (!list.length) throw new Error('Gemini 开会话时没报模型')
+  if (!list.length) throw new Error(t('Gemini 开会话时没报模型'))
   return list
 }

@@ -10,6 +10,9 @@ import { t } from '../../shared/i18n'
 import { applyBlockEdit } from '../block-handles'
 import { inHighlight, toggleHighlight } from '../highlight'
 import { accelFor } from '../keys'
+import { accelOf } from '../../shared/cmd-keys'
+import { docBtns, mineNow } from '../sel-bar/store'
+import { cmdConfig } from '../search/cmd-store'
 import { toggleFormat } from '../wysiwyg'
 import { parseFragment } from '../../shared/web-link'
 import { app } from './actions'
@@ -17,6 +20,7 @@ import { copy, type MenuEntry, menuAt } from './menu'
 import { translateAt } from './translate'
 import { mdLinkAt } from '../md-link'
 import { openPageLink } from '../page-link'
+import { runDocCmd } from '../sel-bar/doc'
 
 export type LinkHit =
   | { kind: 'wiki'; target: string }
@@ -47,7 +51,7 @@ export function linkAt(line: string, at: number): LinkHit | null {
  * 打开文档里的一个链接：网址在右栏网页开（同一个网址已经开着就切过去），wide 时在中间栏开；
  * 库里文件的链接（附件/…pdf）开那个文件；PDF 某一页的（「第 3 页」，doc、pos：笔记全文和链接在哪）打开 PDF 翻到那页
  */
-export function openLinkHit(notePath: string, url: string, text: string, wide: boolean, doc = '', pos = 0) {
+export function openLinkHit(notePath: string, url: string, text: string, wide: boolean, doc = '', pos = 0, behind = false) {
   const a = app()
   // 回到网页那一段的链接（#:~:text=，task-6cxtc）：右栏网页翻到那一页那段、亮一下
   if (!wide && parseFragment(url)) return a.openWebAt(url)
@@ -57,7 +61,10 @@ export function openLinkHit(notePath: string, url: string, text: string, wide: b
   if (chat) return a.openChat(chat.key, chat.msg)
   if (openPageLink(notePath, url, doc, pos, text)) return
   const local = resolveLink(notePath, url)
-  if (local) a.openFile(local)
+  if (!local) return
+  // 「笔记.md#L12」「笔记.md#标题」：开了滚到那里、闪一下（task-3e53q；以前把 # 后面当成文件名，开出一个空标签）。
+  // 交给 cite.tsx（它在窗口上接这个事件；这里不引它：右键菜单的单元测试在 Node 里载这个文件，引了打包时样式先后也变）
+  window.dispatchEvent(new CustomEvent('cn:open-link', { detail: { note: notePath, href: url, label: text, local: local.replace(/#.*$/, ''), behind } }))
 }
 
 /** 选中的字变成 [字](网址)：剪贴板里是网址就用它，不然光标停在括号里等人填 */
@@ -85,6 +92,11 @@ const TARGETS: [BlockTarget, string][] = [
 
 /** 文件地址 cn-file://vault/<路径> → 库里的相对路径 */
 const vaultPathOf = (src: string) => (src.startsWith('cn-file://vault/') ? src.slice('cn-file://vault/'.length).split('/').map(decodeURIComponent).join('/') : null)
+
+/** 文档里勾了「文档」的那几颗（照表里的先后） */
+const docBarEntries = () => docBtns(cmdConfig().bar, mineNow())
+/** 菜单栏写法；认不出的键（按住 ⌘ 拖这种）不写 */
+const accelOfKey = (k: string) => (/^[⌃⌥⇧⌘]*([A-Z0-9]|F\d+|[,./;'[\]\\\-=`↵⌫⌦⇥↑↓←→]|Space)$/.test(k) ? accelOf(k) : undefined)
 
 export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
   const state = view.state
@@ -143,7 +155,13 @@ export function editorMenu(view: EditorView, e: MouseEvent, notePath: string) {
   const aiHere = editable ? aiBlockAt(text, markFrom) : null
   const canMark = editable && !aiHere && wrapRange(text, markFrom, markTo).wrapped > 0
   const hl = inHighlight(text, sel.from, sel.to)
+  // 选中小条（task-26nz7）：选了字时最上面一组是勾了「文档」的那几颗（文档里选字不弹条，会挡着打字），键照样能按
+  const barItems: MenuEntry[] = !sel.empty && selText.trim() && editable
+    ? docBarEntries().map((b) => ({ label: b.label, ...(b.key ? { accel: accelOfKey(b.key) } : {}), ai: 'chat' as const, run: () => void runDocCmd(view, b.id, notePath) }))
+    : []
   void menuAt(e, [
+    ...barItems,
+    '-',
     ...linkItems,
     '-',
     { label: '撤销', accel: accelFor('undo'), enabled: editable && undoDepth(state) > 0, run: () => (undo(view), view.focus()) },

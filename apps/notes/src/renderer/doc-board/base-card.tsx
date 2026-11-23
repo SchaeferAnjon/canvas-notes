@@ -12,6 +12,7 @@ import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 're
 import type { BoardBase } from '../../shared/api'
 // 选项色块：和文档里的数据库表同一个算法（同一个值总是同一个颜色）
 import { BASE_WROTE, type BaseCellWrite, type BaseEdits, BaseTable, toneOf } from '../base/BaseTable'
+import { useT } from '../i18n'
 
 
 interface Rows {
@@ -51,16 +52,17 @@ function useRows(spec: BaseSpec): Rows | null {
 function pickCols(spec: BaseSpec, types: Record<string, string>): { num: string | null; sel: string | null } {
   const cols = [...spec.columns.filter((c) => c !== 'file.name'), ...Object.keys(types).filter((k) => !spec.columns.includes(k))]
   const typeOf = (c: string) => types[c] ?? spec.types[c] ?? 'text'
-  const sel = cols.find((c) => c === '状态' && typeOf(c) === 'select') ?? cols.find((c) => typeOf(c) === 'select') ?? null
+  const sel = cols.find((c) => c === '状态' /* 不翻：笔记里的属性名 */ && typeOf(c) === 'select') ?? cols.find((c) => typeOf(c) === 'select') ?? null
   const num = cols.find((c) => typeOf(c) === 'number') ?? null
   return { num, sel }
 }
 
 /** 白板上的数据库卡（看全文时 full：整张表铺开，没有「展开」） */
 export function BaseCard(props: { src: string; full: boolean; onExpand(): void }) {
+  const t = useT()
   const spec = parseBase(props.src)
   const data = useRows(spec)
-  const name = spec.folder ? spec.folder.split('/').pop()! : '数据库'
+  const name = spec.folder ? spec.folder.split('/').pop()! : t('数据库')
   const rows = data ? (props.full ? data.rows : data.rows.slice(0, 4)) : []
   const { num, sel } = pickCols(spec, data?.types ?? {})
   const more = data ? data.total - rows.length : 0
@@ -68,8 +70,8 @@ export function BaseCard(props: { src: string; full: boolean; onExpand(): void }
     <>
       <div className="kh">
         <Codicon name="database" size={14} />
-        <span>{`${name} · ${spec.view || '表格'}`}</span>
-        <span className="r num">{data ? `${data.total}条` : ''}</span>
+        <span>{`${name} · ${spec.view || t('表格')}`}</span>
+        <span className="r num">{data ? t('{n}条', { n: data.total }) : ''}</span>
       </div>
       <table className="mt db-mini">
         <colgroup>
@@ -88,11 +90,11 @@ export function BaseCard(props: { src: string; full: boolean; onExpand(): void }
         </tbody>
       </table>
       <div className="dbfoot">
-        <span>{more > 0 ? `还有${more}条` : spec.folder ? `${spec.folder}/` : '还没写数据源'}</span>
+        <span>{more > 0 ? t('还有{n}条', { n: more }) : spec.folder ? `${spec.folder}/` : t('还没写数据源')}</span>
         {!props.full && (
           <button type="button" className="db-expand" data-testid="db-expand" onMouseDown={(e) => e.stopPropagation()} onClick={props.onExpand}>
             <Codicon name="screen-full" size={13} />
-            展开
+            {t('展开')}
           </button>
         )}
       </div>
@@ -104,7 +106,8 @@ export function BaseCard(props: { src: string; full: boolean; onExpand(): void }
  * 展开：原地长成整张表。write(next)：把这一块 ```base 里的 YAML 换成 next 算出来的（写回这篇文档）；
  * onCell：改好一格（提示条说写进了哪篇、能撤回）
  */
-export function BaseExpand(props: { src: string; write(next: (src: string) => string): void; onClose(): void; onCell(w: BaseCellWrite): void }) {
+export function BaseExpand(props: { src: string; file?: string; block?: number; write(next: (src: string) => string): void; onClose(): void; onCell(w: BaseCellWrite): void }) {
+  const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   useLayoutEffect(() => setAnchor(ref.current), [])
@@ -129,12 +132,13 @@ export function BaseExpand(props: { src: string; write(next: (src: string) => st
     src: (next) => props.write(next),
   }
   const extra: ReactNode = (
-    <button type="button" className="base-btn wt" aria-label="收起" data-testid="db-collapse" onClick={props.onClose}>
+    <button type="button" className="base-btn wt" aria-label={t('收起', { ctx: '数据库卡' })} data-testid="db-collapse" onClick={props.onClose}>
       <Codicon name="screen-normal" size={14} />
-      <span>收起</span>
+      <span>{t('收起', { ctx: '数据库卡' })}</span>
     </button>
   )
   return (
+    // 不翻：data-part 是 e2e 认的
     <div className="dbx" ref={ref} data-part="展开的数据库" onMouseDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       {anchor && (
         <BaseTable
@@ -143,7 +147,9 @@ export function BaseExpand(props: { src: string; write(next: (src: string) => st
           edit={edit}
           anchor={anchor}
           extra={extra}
-          foot={spec.folder ? `每一条是「${spec.folder}/」里的一篇笔记；在这里改，文档里这张表一起变` : undefined}
+          file={props.file}
+          block={props.block}
+          foot={spec.folder ? t('每一条是「{folder}/」里的一篇笔记；在这里改，文档里这张表一起变', { folder: spec.folder }) : undefined}
           onCell={props.onCell}
         />
       )}
@@ -153,6 +159,7 @@ export function BaseExpand(props: { src: string; write(next: (src: string) => st
 
 /** 工具板「数据库」点一下 / 拖到地方：弹一个小菜单挑放哪个 */
 export function BaseMenu(props: { at: { x: number; y: number }; onPick(b: BoardBase | 'new'): void; onClose(): void }) {
+  const t = useT()
   const [list, setList] = useState<BoardBase[] | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -176,20 +183,20 @@ export function BaseMenu(props: { at: { x: number; y: number }; onPick(b: BoardB
     el.style.top = Math.max(8, Math.min(props.at.y, window.innerHeight - r.height - 8)) + 'px'
   })
   return (
-    <div className="db-menu" ref={ref} role="menu" aria-label="放一张数据库卡" style={{ left: props.at.x, top: props.at.y }}>
-      <div className="mh">放一张数据库卡</div>
-      {list === null && <div className="mi dim">正在找库里的数据库…</div>}
+    <div className="db-menu" ref={ref} role="menu" aria-label={t('放一张数据库卡')} style={{ left: props.at.x, top: props.at.y }}>
+      <div className="mh">{t('放一张数据库卡')}</div>
+      {list === null && <div className="mi dim">{t('正在找库里的数据库…')}</div>}
       {list?.map((b) => (
         <button key={b.folder} type="button" role="menuitem" className="mi" onClick={() => props.onPick(b)}>
           <Codicon name="database" size={14} />
           <span className="truncate">{b.name}</span>
-          <span className="r">{`${b.folder} · ${b.count}条`}</span>
+          <span className="r">{t('{folder} · {n}条', { folder: b.folder, n: b.count })}</span>
         </button>
       ))}
       {list !== null && list.length > 0 && <hr />}
       <button type="button" role="menuitem" className="mi" onClick={() => props.onPick('new')}>
         <Codicon name="add" size={14} />
-        <span>新建一个空的数据库</span>
+        <span>{t('新建一个空的数据库')}</span>
       </button>
     </div>
   )

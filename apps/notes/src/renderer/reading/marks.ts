@@ -6,6 +6,7 @@
  * 找那一句时空白算一个（选区里的换行和页面上的不一样），KaTeX 给读屏的那一份（.katex-mathml）、小标自己、零宽空格都不算。
  */
 import { codiconEl } from '@cn/design'
+import { t } from '../../shared/i18n'
 
 /** 不算字的：KaTeX 给读屏的那一份、小标、小框、回答里挂着的旁支那一块 */
 const SKIP = '.katex-mathml, .badge, .askbox, .side-host'
@@ -118,7 +119,7 @@ export const groupMark = (g: { key: string; quote: string; sides: { id: string }
   side: g.key,
   quote: g.quote,
   n: g.sides.length,
-  title: `这句有 ${g.sides.length} 条旁支`,
+  title: t('这句有 {n} 条旁支', { n: g.sides.length }),
   cur: !!open && g.sides.some((s) => s.id === open),
 })
 
@@ -177,7 +178,7 @@ export function badgeEl(m: Mark): HTMLSpanElement {
   badge.setAttribute('role', 'button')
   badge.tabIndex = 0
   badge.title = m.title
-  badge.setAttribute('aria-label', `${m.title}（小标 ${m.n}）`)
+  badge.setAttribute('aria-label', t('{title}（小标 {n}）', { title: m.title, n: m.n }))
   badge.append(codiconEl('comment-discussion', 11), String(m.n))
   return badge
 }

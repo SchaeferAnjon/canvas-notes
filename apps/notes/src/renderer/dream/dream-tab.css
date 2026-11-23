@@ -600,3 +600,18 @@
 .frame-b .center.compact .acts .seg.dt-seg .lb {
   display: none;
 }
+
+/* 对照里的链接、双链、附件图片和 AI 回答里的引用一样能点（task-x7mk6，cite.tsx 的 citeClicks）：
+   点一下出预览卡、⌘点打开，所以不用按 ⌘ 鼠标就变手；指着链接变强调色、双链底色深一点（同 a.cite） */
+.dt .doc .cm-link,
+.dt .doc .cm-wikilink,
+.dt .doc .cm-image img {
+  cursor: pointer;
+}
+.dt .doc .cm-link:hover {
+  color: var(--acc-t);
+  text-decoration-color: currentColor;
+}
+.dt .doc .cm-wikilink:hover {
+  background: color-mix(in srgb, var(--acc) 22%, transparent);
+}

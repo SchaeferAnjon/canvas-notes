@@ -15,13 +15,15 @@ import { copy } from './ctx/menu'
 import { editorHost, Popover } from './editor-host'
 import { type MdLink, mdLinkAt, prettyUrl } from './md-link'
 import { Favicon } from './web/favicons'
+import { t as tNow } from '../shared/i18n'
+import { useT } from './i18n'
 
 const isWeb = (url: string) => /^https?:/i.test(url)
 
 /** 去掉链接：只留字（一次改动，⌘Z 撤回） */
 export function unlink(view: EditorView, l: MdLink) {
   view.dispatch({ changes: { from: l.from, to: l.to, insert: l.text }, userEvent: 'input.unlink' })
-  app().notice(`「${l.text}」不再是链接 · ${keyFor('undo')} 撤回`)
+  app().notice(tNow('「{text}」不再是链接 · {key} 撤回', { text: l.text, key: keyFor('undo') }))
 }
 
 /** 改链接：只换网址那几个字 */
@@ -29,7 +31,7 @@ function relink(view: EditorView, l: MdLink, url: string) {
   const u = url.trim()
   if (!u || u === l.url) return
   view.dispatch({ changes: { from: l.urlFrom, to: l.urlTo, insert: u.replace(/[()\s]/g, encodeURIComponent) }, userEvent: 'input.relink' })
-  app().notice('链接改好了')
+  app().notice(tNow('链接改好了'))
 }
 
 let pop: Popover | null = null
@@ -63,6 +65,7 @@ function popover(): Popover {
 
 function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
   const { view, link } = props
+  const t = useT()
   const [copied, setCopied] = useState(false)
   const [edit, setEdit] = useState(!!props.edit)
   const input = useRef<HTMLInputElement>(null)
@@ -84,7 +87,7 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
     view.focus()
   }
   return (
-    <div className="lk-card" role="dialog" aria-label="链接">
+    <div className="lk-card" role="dialog" aria-label={t('链接')}>
       <div className="top">
         {isWeb(link.url) ? <Favicon url={link.url} size={14} /> : <Codicon name={chat ? 'comment-discussion' : local ? 'file' : 'link'} size={14} />}
         <b>{link.text || link.url}</b>
@@ -93,7 +96,7 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
         {edit ? (
           <input
             ref={input}
-            aria-label="链接的网址"
+            aria-label={t('链接的网址')}
             defaultValue={link.url}
             onKeyDown={(e) => {
               e.stopPropagation()
@@ -103,7 +106,7 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
             }}
           />
         ) : chat ? (
-          'AI 对话里的一条回答'
+          t('AI 对话里的一条回答')
         ) : (
           prettyUrl(link.url)
         )}
@@ -112,23 +115,23 @@ function Card(props: { view: EditorView; link: MdLink; edit?: boolean }) {
         {(isWeb(link.url) || local || chat) && (
           <button onClick={() => (hideLinkCard(), openLinkHit(path, link.url, link.text, false, view.state.doc.toString(), link.from))}>
             <Codicon name={chat ? 'comment-discussion' : local ? 'go-to-file' : 'layout-sidebar-right'} size={13} />
-            {chat ? '回到对话' : local ? '打开' : '右栏打开'} <span className="k">{keyFor('cmd-click')}</span>
+            {chat ? t('回到对话') : local ? t('打开') : t('右栏打开')} <span className="k">{keyFor('cmd-click')}</span>
           </button>
         )}
         <button onClick={() => void copy(link.url).then(() => setCopied(true))}>
           <Codicon name={copied ? 'check' : 'copy'} size={13} />
-          {copied ? '已拷贝' : '拷贝'}
+          {copied ? t('已拷贝') : t('拷贝')}
         </button>
         {canEdit && (
           <button onClick={() => setEdit(true)}>
             <Codicon name="edit" size={13} />
-            改链接
+            {t('改链接')}
           </button>
         )}
         {canEdit && (
           <button onClick={() => (hideLinkCard(), unlink(view, link), view.focus())}>
             <Codicon name="close" size={13} />
-            去掉链接
+            {t('去掉链接')}
           </button>
         )}
       </div>

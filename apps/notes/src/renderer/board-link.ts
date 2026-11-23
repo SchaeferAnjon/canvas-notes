@@ -8,6 +8,7 @@ import { codiconEl, type CodiconName } from '@cn/design'
 import { type EditorState, type Range, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { app } from './ctx/actions'
+import { t } from '../shared/i18n'
 import { type Hidden, hiddenSyntax, wholeBlock } from './hidden-syntax'
 
 export interface BoardInfo {
@@ -45,9 +46,9 @@ class BoardCard extends WidgetType {
     wrap.className = 'cm-boardwrap'
     const card = document.createElement('div')
     card.className = 'cm-boardcard'
-    card.dataset.part = '白板链接'
+    card.dataset.part = '白板链接' // 不翻：e2e 认的 data-part
     card.setAttribute('role', 'link')
-    card.setAttribute('aria-label', `${this.info.map ? '导图' : '白板'} ${this.name}，点开在新标签`)
+    card.setAttribute('aria-label', this.info.map ? t('导图 {name}，点开在新标签', { name: this.name }) : t('白板 {name}，点开在新标签', { name: this.name }))
     const sq = document.createElement('span')
     sq.className = 'sq'
     sq.style.background = this.info.color
@@ -57,7 +58,7 @@ class BoardCard extends WidgetType {
     const b = document.createElement('b')
     b.textContent = this.name
     const s = document.createElement('span')
-    s.textContent = this.info.map ? `导图 · ${this.info.cards} 个主题 · 点开在新标签` : `白板 · ${this.info.cards} 张卡片 · 点开在新标签`
+    s.textContent = this.info.map ? t('导图 · {n} 个主题 · 点开在新标签', { n: this.info.cards }) : t('白板 · {n} 张卡片 · 点开在新标签', { n: this.info.cards })
     tx.append(b, s)
     card.append(sq, tx)
     card.addEventListener('mousedown', (e) => {

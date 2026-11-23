@@ -7,7 +7,16 @@ import { launch } from './app'
 const files = { '所思所想.md': '# 所思所想\n\n## 第一节\n\n**粗体** 和 `代码`。\n\n> 一句引文\n' }
 const FIX = join(__dirname, '../test/fixtures/vscode-themes')
 const settingsDialog = (page: Page) => page.getByRole('dialog', { name: '设置' })
-const winBg = (page: Page) => page.locator('main.center').evaluate((el) => getComputedStyle(el).backgroundColor)
+// 量主题的 --win：中间岛在 B 有背景图的首页一类页上是半透明的（task-kzr3n），直接量 main.center 会是透明，所以用一个临时块量 var(--win)
+const winBg = (page: Page) =>
+  page.evaluate(() => {
+    const p = document.createElement('div')
+    p.style.background = 'var(--win)'
+    document.body.append(p)
+    const c = getComputedStyle(p).backgroundColor
+    p.remove()
+    return c
+  })
 const oldSettings = (appearance: object) => (vault: string) => {
   const ud = join(dirname(vault), 'user-data')
   mkdirSync(ud, { recursive: true })

@@ -4,7 +4,7 @@
  * 要直接改写法点块头上的「改写法」，只在这一块露出 YAML（方向 A「块上露写法」）。
  * 斜杠菜单「数据库」插这个块，同时在旁边建一个放每条记录的文件夹。
  */
-import { baseYaml, parseBase, setBaseFilters, setBaseOrder, setBaseSort } from '@cn/format'
+import { baseBlocks as autoBlocks, baseYaml, parseBase, setBaseFilters, setBaseOrder, setBaseSort } from '@cn/format'
 import { type EditorState, type Range, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { flushSync } from 'react-dom'
@@ -62,7 +62,10 @@ class BaseWidget extends WidgetType {
       order: (columns) => write((src) => setBaseOrder(src, columns)),
       src: (next) => write(next),
     }
-    flushSync(() => root.render(<BaseTable spec={parseBase(this.src)} src={this.src} edit={edit} anchor={el} />))
+    // 第几个 base 块（自动化记的「文档路径#第几块」，同 @cn/format 的 baseBlocks 数法）
+    const body = view.state.doc.lineAt(this.from).to + 1
+    const block = Math.max(0, autoBlocks(view.state.doc.toString()).findIndex((b) => b.from === body))
+    flushSync(() => root.render(<BaseTable spec={parseBase(this.src)} src={this.src} edit={edit} anchor={el} file={view.state.facet(editorHost).path()} block={block} />))
   }
   destroy(dom: HTMLElement) {
     const root = (dom as HTMLElement & { _root?: Root })._root
@@ -102,13 +105,14 @@ export const baseBlock = field
 export async function createBase(notePath: string): Promise<string> {
   const dir = notePath.includes('/') ? notePath.slice(0, notePath.lastIndexOf('/')) : ''
   const names = new Set((await window.cn.listNotes()).map((n) => n.path.split('/').slice(0, -1).join('/')))
-  let name = '未命名数据库'
-  for (let n = 2; names.has(dir ? `${dir}/${name}` : name); n++) name = `未命名数据库 ${n}`
+  let name = '未命名数据库' // 不翻：新建时的默认名字（文件夹名）
+  for (let n = 2; names.has(dir ? `${dir}/${name}` : name); n++) name = `未命名数据库 ${n}` // 不翻：同上
   const folder = dir ? `${dir}/${name}` : name
   const d = new Date()
   const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  // 不翻：写进文件的默认名字、属性键和值
   await window.cn.createNote(folder, '第一条', `---\n状态: 未开始\n日期: ${today}\n---\n`)
-  return '```base\n' + baseYaml(folder, ['file.name', '状态', '日期']) + '\n```'
+  return '```base\n' + baseYaml(folder, ['file.name', '状态', '日期']) + '\n```' // 不翻：写进文件的属性键
 }
 
 /** 斜杠菜单「数据库」：在笔记旁边建一个记录文件夹（先放一条），插一个 ```base 块 */

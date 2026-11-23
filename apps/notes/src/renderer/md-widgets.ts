@@ -1,4 +1,5 @@
 import { contentBlocks, imageEmbed, resolveLink, splitImageAlt, toggleTask, type MdBlock } from '@cn/format'
+import { parseTaskLine } from '@cn/tasks'
 import { syntaxTree } from '@codemirror/language'
 import { type EditorState, type Range, StateField, type Text } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
@@ -18,15 +19,19 @@ import { calloutFolded, toggleFold } from './fold-block'
 // ---------- 待办 ----------
 
 class TaskBox extends WidgetType {
-  constructor(readonly checked: boolean) {
+  /** hi：⏫ 的（勾选框黄边，同待办三处，task-kzr3n） */
+  constructor(
+    readonly checked: boolean,
+    readonly hi = false,
+  ) {
     super()
   }
   eq(o: TaskBox) {
-    return o.checked === this.checked
+    return o.checked === this.checked && o.hi === this.hi
   }
   toDOM(view: EditorView) {
     const box = document.createElement('span')
-    box.className = 'cm-taskbox' + (this.checked ? ' on' : '')
+    box.className = 'cm-taskbox' + (this.checked ? ' on' : '') + (this.hi ? ' hi' : '')
     box.setAttribute('role', 'checkbox')
     box.setAttribute('aria-checked', String(this.checked))
     box.setAttribute('aria-label', this.checked ? '已完成，点一下取消' : '点一下勾上')
@@ -59,7 +64,8 @@ function taskDecos(view: EditorView): DecorationSet {
         const checked = /x/i.test(doc.sliceString(node.from, node.to))
         let end = node.to
         if (doc.sliceString(end, end + 1) === ' ') end++
-        out.push(Decoration.replace({ widget: new TaskBox(checked) }).range(mark.from, end))
+        const hi = !checked && parseTaskLine(doc.lineAt(node.from).text)?.prio === 3
+        out.push(Decoration.replace({ widget: new TaskBox(checked, hi) }).range(mark.from, end))
         if (checked) out.push(Decoration.mark({ class: 'cm-task-done' }).range(end, doc.lineAt(end).to))
       },
     })
@@ -308,7 +314,8 @@ const quotedIn = new WeakMap<Text, boolean>()
  * 提示块（`> [!ai] AI 回答 · …` 这些）里的表格、代码块（task-83vl3：AI 对话的回答插进文档写成 [!ai] 块，回答里常带表格、代码；
  * task-6cxtc：网页上讲解一下写进那篇的 [!ai] 块同一套）：每行去掉「> 」照文档里的样子画（表格同文档的表格、宽了自己横着滚；
  * 代码块等宽、--card 底的一块），套在提示块的底里。点进去（光标在那几行里）露原文、能改，点出来又画回去；块外的表格是点格子就地改，
- * 提示块里的行前面有「> 」，就地改写回去会丢「> 」，所以这里是把光标放进那一行原文。提示块收着时不画（整块正文藏着）
+ * 提示块里的行前面有「> 」，就地改写回去会丢「> 」，所以这里是把光标放进那一行原文。提示块收着时不画（整块正文藏着）。
+ * 普通引文（剪藏进来的一段，task-6cxtc）里的代码块同样画成一块，外面接着引文的竖线；普通引文里的表格不在这里画
  */
 function calloutWidgets(state: EditorState, out: Range<Decoration>[]) {
   const doc = state.doc
@@ -317,11 +324,14 @@ function calloutWidgets(state: EditorState, out: Range<Decoration>[]) {
   let any = false
   for (let n = 1; n <= doc.lines; n++) {
     const first = doc.line(n)
-    if (!first.text.startsWith('>') || !parseCallout(first.text)) continue
+    if (!QUOTE.test(first.text)) continue
+    const head = first.text.startsWith('>') ? parseCallout(first.text) : null
     let last = n
     while (last < doc.lines && QUOTE.test(doc.line(last + 1).text)) last++
-    if (!calloutFolded(state, first.from)) {
-      const body = Array.from({ length: last - n }, (_, k) => ({ n: n + 1 + k, text: doc.line(n + 1 + k).text.replace(QUOTE, '') }))
+    if (!head || !calloutFolded(state, first.from)) {
+      // 提示块从头一行下面算起（头一行是块头），普通引文从头一行算起
+      const start = head ? n + 1 : n
+      const body = Array.from({ length: last - start + 1 }, (_, k) => ({ n: start + k, text: doc.line(start + k).text.replace(QUOTE, '') }))
       for (let i = 0; i < body.length; ) {
         const t = body[i]!.text
         const fence = FENCE_IN.exec(t)
@@ -337,12 +347,12 @@ function calloutWidgets(state: EditorState, out: Range<Decoration>[]) {
               const l = doc.line(b.n)
               return l.from + (QUOTE.exec(l.text)?.[0].length ?? 0)
             })
-            if (!editing(from, to)) out.push(Decoration.replace({ widget: new QuotedCode(lines.map((b) => b.text).join('\n'), fence[2] ?? '', body[j]!.n === last, starts), block: true }).range(from, to))
+            if (!editing(from, to)) out.push(Decoration.replace({ widget: new QuotedCode(lines.map((b) => b.text).join('\n'), fence[2] ?? '', body[j]!.n === last, starts, !head), block: true }).range(from, to))
             i = j + 1
             continue
           }
         }
-        if (ROW.test(t) && i + 1 < body.length && DELIM.test(body[i + 1]!.text)) {
+        if (head && ROW.test(t) && i + 1 < body.length && DELIM.test(body[i + 1]!.text)) {
           let j = i + 2
           while (j < body.length && ROW.test(body[j]!.text)) j++
           any = true
@@ -369,15 +379,17 @@ class QuotedCode extends WidgetType {
     readonly bot: boolean,
     /** 每一行代码在文里从哪儿起（「> 」后面） */
     readonly starts: number[],
+    /** 在普通引文里（不是提示块）：外面接着引文的竖线，不铺块的底 */
+    readonly plain = false,
   ) {
     super()
   }
   eq(o: QuotedCode) {
-    return o.code === this.code && o.lang === this.lang && o.bot === this.bot && o.starts.join() === this.starts.join()
+    return o.code === this.code && o.lang === this.lang && o.bot === this.bot && o.starts.join() === this.starts.join() && o.plain === this.plain
   }
   toDOM(view: EditorView) {
     const box = document.createElement('div')
-    box.className = 'cm-inquote' + (this.bot ? ' bot' : '')
+    box.className = 'cm-inquote' + (this.plain ? ' q' : this.bot ? ' bot' : '')
     const pre = document.createElement('pre')
     pre.className = 'cm-inquote-code'
     if (this.lang) pre.dataset.lang = this.lang

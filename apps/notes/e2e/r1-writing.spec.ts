@@ -358,7 +358,7 @@ test('数据库开着筛选点「新一条」：新的那条先留在表底，�
     // 底下的条数和表里对得上
     await expect(db.locator('.base-foot')).toHaveText('另有1条刚建的不在筛选里 · 每条是「书单」里的一篇笔记')
     // 筛选面板底下不写开发者的词
-    await db.getByRole('button', { name: '筛选' }).click()
+    await db.getByRole('button', { name: '筛选', exact: true }).click()
     await expect(page.getByRole('dialog', { name: '筛选' })).not.toContainText('filters')
     await expect(page.getByRole('dialog', { name: '筛选' })).not.toContainText('代码块')
     await page.keyboard.press('Escape')

@@ -60,7 +60,7 @@ test('AI 只住右栏：右下角的圆钮打开右栏 AI 那一格，切引擎�
   try {
     // 右边竖条里没有 AI
     await page.locator('.nav .si', { hasText: '随笔' }).click()
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
     const fab = page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '打开 AI' })
     await expect(fab).toBeVisible()
     await fab.click()

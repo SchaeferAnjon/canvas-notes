@@ -613,6 +613,9 @@ export function prepareClip(doc: Document) {
 }
 
 /** 选区剪藏取的字：开关关着时选区里的译文去掉，只留原文 */
+/** 剪的时候带不带夹着的译文（「整页剪藏带上译文」） */
+export const clipKeepsTranslation = () => pluginEnabled(ID) && settings().clipWithTranslation
+
 export function selectionText(sel: Selection): string {
   let s = sel.toString()
   if (pluginEnabled(ID) && settings().clipWithTranslation) return s

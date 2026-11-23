@@ -84,6 +84,69 @@ describe('命令表', () => {
   })
 })
 
+describe('导图里（task-wuv05 第一批）', () => {
+  const MM = ['mm-child', 'mm-after', 'mm-before', 'mm-parent', 'mm-up', 'mm-down', 'mm-fold', 'mm-fold-all', 'mm-unfold-all', 'mm-focus', 'mm-edit', 'mm-del', 'mm-del-one']
+  it('键照 XMind，都在命令表的「导图里」，都能改', () => {
+    const k = (id: string) => keyDef(id)?.keys
+    expect(MM.map((id) => keyDef(id)?.area)).toEqual(MM.map(() => 'mindmap'))
+    expect(MM.every((id) => isRebindable(keyDef(id)!))).toBe(true)
+    expect([k('mm-child'), k('mm-after'), k('mm-before'), k('mm-parent'), k('mm-up'), k('mm-down')]).toEqual([['⇥'], ['↵'], ['⇧↵'], ['⌘↵'], ['⌥↑'], ['⌥↓']])
+    expect([k('mm-fold'), k('mm-fold-all'), k('mm-focus'), k('mm-edit'), k('mm-del'), k('mm-del-one')]).toEqual([['Space'], ['⇧⌘/'], ['⌥↵'], ['F2'], ['⌫', '⌦'], ['⌘⌫']])
+    // ⌘K 里找得到（不打字往下翻也在「设置和外观」）
+    expect([keyDef('mm-fold-all')?.home, keyDef('mm-unfold-all')?.home]).toEqual(['app', 'app'])
+  })
+
+  it('同一处不撞：⌘↵ 和问这一页、F2 和改名是有意同键（焦点在导图上先轮到导图）；和文档里、⌘K 里、梦游里的不撞', () => {
+    expect(clashOf('mm-parent', '⌘↵', keysOf())).toBeNull()
+    expect(clashOf('mm-edit', 'F2', keysOf())).toBeNull()
+    expect(clashOf('mm-del-one', '⌘⌫', keysOf())).toBeNull()
+    expect(clashOf('mm-focus', '⌥↵', keysOf())).toBeNull()
+    expect(clashOf('mm-child', '↵', keysOf())).toEqual({ id: 'mm-after', name: '导图：在后面加同级' })
+    // 全局的键在导图里也能按：给导图的命令就撞
+    expect(clashOf('mm-fold', '⌘N', keysOf())).toEqual({ id: 'new-note', name: '新建笔记' })
+  })
+
+  it('不带 ⌘ 的回车、⌫、空格、Tab 只给导图里的命令（文档里打字要用）；导图里单个字母也行', () => {
+    expect(keyProblemFor('mm-child', '↵')).toBeNull()
+    expect(keyProblemFor('mm-fold', '⇥')).toBeNull()
+    expect(keyProblemFor('mm-del', 'Space')).toBeNull()
+    expect(keyProblemFor('mm-edit', 'E')).toBeNull()
+    expect(keyProblemFor('bold', '↵')).toBe('↵ 编辑时要用，换一个')
+    expect(keyProblemFor('bold', 'Space')).toBe('Space 编辑时要用，换一个')
+    expect(keyProblemFor('sync', '↵')).toBe('↵ 编辑时要用，换一个')
+    expect(keyProblemFor('sync', 'E')).toBe('要带上 ⌘ 或 ⌃，不然打字时会按到')
+    // 方向键是在主题之间走的，不给
+    expect(keyProblemFor('mm-child', '→')).toBe('→ 编辑时要用，换一个')
+  })
+})
+
+describe('导图里第二批、在这一页里找（task-wuv05）', () => {
+  it('⇧⌘N 备注、⇧⌘B 外框、⇧⌘R 联系线照 XMind；焦点在导图上先轮到导图，和新建白板、书签栏、左栏最近不撞', () => {
+    expect(['mm-note', 'mm-frame', 'mm-rel'].map((id) => keyDef(id)?.keys)).toEqual([['⇧⌘N'], ['⇧⌘B'], ['⇧⌘R']])
+    expect(clashOf('mm-note', '⇧⌘N', keysOf())).toBeNull()
+    expect(clashOf('mm-frame', '⇧⌘B', keysOf())).toBeNull()
+    expect(clashOf('mm-rel', '⇧⌘R', keysOf())).toBeNull()
+    // 导出导图…没有默认键，在 ⌘K「新建和导入」里
+    expect(keyDef('mm-export')?.keys ?? []).toEqual([])
+    expect(keyDef('mm-export')?.home).toBe('new')
+  })
+
+  it('别处对调把 ⇧⌘N 换给了新建笔记：导图里的备注键还在（不被清掉）；导图里的别的键照旧和全局的撞', () => {
+    const c = swapKey(defaultCommands(), AVAIL, 'new-board', '⌘N')
+    expect(keysOf(c)('new-note')).toEqual(['⇧⌘N'])
+    expect(keysOf(c)('mm-note')).toEqual(['⇧⌘N'])
+    expect(c.keys['mm-note']).toBeUndefined()
+    expect(clashOf('mm-fold', '⇧⌘N', keysOf(c))).toEqual({ id: 'new-note', name: '新建笔记' })
+  })
+
+  it('在这一页里找 ⇧⌘F（软件里、能改键、⌘K 里在「去哪」）；⌘F 照旧是搜索', () => {
+    expect(keyDef('find-in-page')).toMatchObject({ area: 'app', keys: ['⇧⌘F'], home: 'go' })
+    expect(isRebindable(keyDef('find-in-page')!)).toBe(true)
+    expect(keyDef('search')?.keys).toEqual(['⌘K', '⌘F'])
+    expect(clashOf('find-in-page', '⇧⌘F', keysOf())).toBeNull()
+  })
+})
+
 describe('设键、清掉、回到默认、对调', () => {
   it('两个默认键的（搜索 ⌘K ⌘F）：别人拿走一个，留着另一个；回到默认两个都回来，拿走的那条让出来', () => {
     let c = setKey(defaultCommands(), AVAIL, 'sync', '⌘F')

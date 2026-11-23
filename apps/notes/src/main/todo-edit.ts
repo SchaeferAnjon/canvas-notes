@@ -5,7 +5,7 @@
  * 文字是 Vault 读出来的（换行统一成 \n、去掉了 BOM，写回时照原样恢复）。
  */
 import { merge3 } from '@cn/format'
-import { addDays, appendTask, completeTask, editLine, type ISODate, lineAt, parseTaskLine, scanTasks, setDate, setDone, setId, setRemind, setRepeat, setTime, splitLines } from '@cn/tasks'
+import { addDays, appendTask, completeTask, editLine, type ISODate, lineAt, parseTaskLine, removeBlock, scanTasks, setDate, setDone, setId, setRemind, setRepeat, setTime, setWhen, splitLines } from '@cn/tasks'
 import type { TodoItem, TodoOp } from '../shared/todo'
 
 /** 文字里认那一行：先看原来的行号，再找原文一样、离得最近的，再按 🆔（和画布今日 main/edits.ts 的 locate 一样） */
@@ -56,9 +56,23 @@ export function editTodoText(text: string, line: number, raw: string, e: TodoOp,
     case 'repeat':
       after = editLine(text, n, (l) => setRepeat(l, e.repeat))
       break
+    case 'when':
+      after = editLine(text, n, (l) => {
+        const x = setDate(l, e.date)
+        return e.time === undefined ? x : setTime(x, e.time, today)
+      })
+      break
+    case 'schedule':
+      // 选择器（task-pd289）：四样一起写，有提醒没 🆔 的给一个
+      after = editLine(text, n, (l) => setWhen(l, e.when, newId))
+      break
+    case 'delete':
+      // 右键「删除」（task-kzr3n）：这一行连它下面缩进的子任务一起拿掉
+      after = removeBlock(text, n).text
+      break
   }
   if (after === text) return null
-  return { text: after, line: n, raw: lineAt(after, n) ?? '', ...(next ? { next } : {}) }
+  return { text: after, line: n, raw: e.op === 'delete' ? '' : (lineAt(after, n) ?? ''), ...(next ? { next } : {}) }
 }
 
 /** 给这一条一个 🆔（在画布今日里打开要它）；已经有了原样返回 */
@@ -117,6 +131,12 @@ export function todoItems(path: string, text: string): TodoItem[] {
 
 /** 这篇里可能有待办吗（「- [ ]」「1. [x]」这种开头的行）：没有就不必一行行认 */
 export const mayHaveTodos = (text: string) => /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]+\[[^\[\]]\]/m.test(text)
+
+/** 本地的现在「2026-11-22T16:05」（快速加一条只写了钟点、今天已经过了的算明天，task-pd289） */
+export function localNow(ms = Date.now()): string {
+  const d = new Date(ms)
+  return `${localToday(ms)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
 
 /** 本地的今天（写 ✅ 用；和界面上分组用的是同一个钟） */
 export function localToday(ms = Date.now()): ISODate {

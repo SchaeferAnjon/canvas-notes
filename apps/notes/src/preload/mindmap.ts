@@ -21,4 +21,7 @@ export const mapApi: CnMapApi = {
   onAirdrop: (cb) => on('map:airdropped', cb),
   onAirdropError: (cb) => on('map:airdrop-error', cb),
   onOpen: (cb) => on('map:open', () => cb()),
+  exportFile: (fmt, name, data) => ipcRenderer.invoke('map:export', fmt, name, data),
+  exportPdf: (name, svg, paper) => ipcRenderer.invoke('map:export-pdf', name, svg, paper),
+  imageData: (path) => ipcRenderer.invoke('map:image-data', path),
 }

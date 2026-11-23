@@ -12,8 +12,19 @@ const files = { '冰岛自驾.md': ICELAND, '住宿.md': LODGING, '所思所想.
 const settingsOf = (userData: string) => JSON.parse(readFileSync(join(userData, 'settings.json'), 'utf8'))
 const homeFile = (vault: string) => join(vault, '.canvas-notes', '首页.json')
 const settingsDialog = (page: Page) => page.getByRole('dialog', { name: '设置' })
-// 编辑区（中间的岛）是主题的 --win；窗口本身在 B 里铺背景图
-const winBg = (page: Page) => page.locator('main.center').evaluate((el) => getComputedStyle(el).backgroundColor)
+/**
+ * 编辑区的底色（主题的 --win）：首页一类的页中间岛是半透明面板（task-kzr3n，shell.css .center.glass），岛本身不再是 --win，
+ * 在中间放一个 var(--win) 底的小块量它
+ */
+const winBg = (page: Page) =>
+  page.locator('main.center').evaluate((el) => {
+    const d = document.createElement('div')
+    d.style.background = 'var(--win)'
+    el.append(d)
+    const c = getComputedStyle(d).backgroundColor
+    d.remove()
+    return c
+  })
 
 async function openSettings(page: Page, tab: string) {
   await page.keyboard.press('Meta+,')
@@ -41,8 +52,8 @@ test('四条栏：左右两条图标栏只放图标、悬停出名字，点亮�
     const left = page.getByRole('navigation', { name: '左栏' })
     const names = (nav: typeof rail) => nav.getByRole('button').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
     // 「笔记」一直在最上面，不读 PDF 时和「大纲」一样原地变淡（右图标栏方向 A）；左边是八个分类分段（分类与入口方向 A）
-    expect(await names(rail)).toEqual(['笔记（打开 PDF、或右栏开着配好对的网站时才有笔记）', '大纲（这一页没有标题，没有大纲）', '网页', '微信读书', '历史', '打开 AI'])
-    expect(await names(left)).toEqual(['文件', '待办', '最近', '书桌', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活', '梦游报告', '最近删掉的', '库', '设置和外观'])
+    expect(await names(rail)).toEqual(['笔记（打开 PDF、或右栏开着配好对的网站时才有笔记）', '大纲（这一页没有标题，没有大纲）', '网页', '微信读书', '记录（在数据库里点一条，在这里打开）', '自动化（在数据库块头点「自动化」，在这里打开）', '历史', '打开 AI'])
+    expect(await names(left)).toEqual(['文件', '待办', '日历', '最近', '书桌', '收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活', '梦游报告', '最近删掉的', '库', '设置和外观'])
     // 图标栏贴着窗口右边，B 里 44 宽
     const box = (await rail.boundingBox())!
     const width = await page.evaluate(() => window.innerWidth)

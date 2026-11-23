@@ -14,6 +14,7 @@ import { noteLeavers } from './shell/TabActs'
 import { flushSaves as flushReading } from './reading/store'
 import { WindowGuard } from './crash/Guard'
 import { installTestCrash, watchGlobalErrors } from './crash/report'
+import { installCiteClicks } from './cite'
 
 // 退出软件、关主窗口前主进程叫它：停手不到 0.8 秒、还没自动保存的字先写到磁盘（这一步等写完才回）；
 // 读 PDF 的对话记录（存盘等 300 毫秒）也马上存掉，答完马上退出也是整条回答、旁支也在；
@@ -31,6 +32,8 @@ import { installTestCrash, watchGlobalErrors } from './crash/report'
 // 出错兜底（task-pyb39）：没接住的异常记进日志；整个窗口包一层，渲染里抛错显示出错页，不白屏
 watchGlobalErrors()
 installTestCrash()
+// AI 回答里的引用（task-3e53q）：点了出预览卡、⌘点打开，哪里画的回答都一样
+installCiteClicks()
 createRoot(document.getElementById('root')!).render(
   <WindowGuard>
     <App />

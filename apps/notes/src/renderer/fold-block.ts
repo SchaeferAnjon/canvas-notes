@@ -11,6 +11,7 @@ import { ChangeSet, EditorSelection, EditorState, Prec, type Range, StateEffect,
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from '@codemirror/view'
 import { parseCallout } from './callout'
 import { blankGlue, type Hidden, hiddenOk, hiddenSyntax } from './hidden-syntax'
+import { t as tNow } from '../shared/i18n'
 
 /** 点了某一块的开关：pos 是这一块第一行的行首 */
 export const toggleFold = StateEffect.define<number>()
@@ -112,7 +113,7 @@ class DetailsHead extends WidgetType {
     row.setAttribute('aria-expanded', String(this.open))
     row.appendChild(codiconEl(this.open ? 'chevron-down' : 'chevron-right', 14))
     const t = document.createElement('span')
-    t.textContent = this.title || '收起的内容'
+    t.textContent = this.title || tNow('收起的内容')
     row.appendChild(t)
     row.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return
@@ -142,7 +143,7 @@ class DetailsChevron extends WidgetType {
     const b = document.createElement('span')
     b.className = 'cm-fold-chev'
     b.setAttribute('role', 'button')
-    b.setAttribute('aria-label', '收起')
+    b.setAttribute('aria-label', tNow('收起', { ctx: '折叠' }))
     b.setAttribute('aria-expanded', 'true')
     b.appendChild(codiconEl('chevron-down', 14))
     b.addEventListener('mousedown', (e) => {
@@ -154,7 +155,7 @@ class DetailsChevron extends WidgetType {
     const wrap = document.createElement('span')
     const ph = document.createElement('span')
     ph.className = 'cm-fold-ph'
-    ph.textContent = '收起的内容'
+    ph.textContent = tNow('收起的内容')
     wrap.append(b, ph)
     return wrap
   }
@@ -177,8 +178,8 @@ class CalloutToggle extends WidgetType {
     const b = document.createElement('span')
     b.className = 'cm-callout-fold'
     b.setAttribute('role', 'button')
-    b.setAttribute('aria-label', this.folded ? '展开' : '收起')
-    b.title = this.folded ? '展开' : '收起'
+    b.setAttribute('aria-label', this.folded ? tNow('展开') : tNow('收起', { ctx: '折叠' }))
+    b.title = this.folded ? tNow('展开') : tNow('收起', { ctx: '折叠' })
     b.appendChild(codiconEl(this.folded ? 'chevron-right' : 'chevron-down', 14))
     b.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return

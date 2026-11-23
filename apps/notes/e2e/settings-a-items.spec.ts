@@ -336,7 +336,8 @@ test('写死的值放进设置：一般、文档和白板、文件和附件、�
     await page.locator('.pal-row', { hasText: '第3讲' }).first().click()
     await expect(tabOn(page)).toHaveText('第3讲.pdf')
     await expect(page.getByRole('button', { name: '收起 AI', exact: true }).first()).toBeVisible()
-    await expect.poll(() => page.evaluate(() => Number(localStorage.getItem('cn.pdfZoom:课程/线代/第3讲.pdf')))).not.toBe(1)
+    await expect(acts(page).getByTestId('pdf-zoom')).toHaveText('100%')
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('cn.pdfScale:课程/线代/第3讲.pdf'))).toBe('1')
     await expect(acts(page).getByRole('button', { name: '更多' })).toBeVisible()
     // 网页：新网页标签打开空白页；没字幕的视频打开就生成（和视频条里那个开关是同一个）
     await goPage(page, '网页和视频')

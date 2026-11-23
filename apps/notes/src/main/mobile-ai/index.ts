@@ -8,6 +8,7 @@
  */
 import { app, type BrowserWindow, ipcMain, safeStorage } from 'electron'
 import { execFileSync } from 'node:child_process'
+import { rmSync, writeFileSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { hostname, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
@@ -122,15 +123,23 @@ export function registerMobileAi(deps: MobileAiDeps) {
           async ask(q, onText, signal) {
             const p = chatPick()
             const built = buildPrompt({ ...q, note: aiSettings.prompt().trim() })
-            await engine(p.engine).run({
-              prompt: built.prompt,
-              system: built.system,
-              appendSystem: built.appendSystem,
-              cwd: deps.vault()?.root ?? app.getPath('home'),
-              signal,
-              onText,
-              ...chatRun(p.engine, {}),
-            })
+            // 圈的那一块截图：存成这一问自己的临时文件（Codex 要文件路径），答完删掉
+            const img = q.image ? join(app.getPath('temp'), `cn-mobile-ai-${randomBytes(6).toString('hex')}.png`) : null
+            if (img) writeFileSync(img, Buffer.from(q.image!, 'base64'), { mode: 0o600 })
+            try {
+              await engine(p.engine).run({
+                prompt: built.prompt,
+                system: built.system,
+                appendSystem: built.appendSystem,
+                cwd: deps.vault()?.root ?? app.getPath('home'),
+                signal,
+                onText,
+                ...chatRun(p.engine, {}),
+                ...(img ? { images: [{ mime: 'image/png' as const, data: q.image!, path: img }] } : {}),
+              })
+            } finally {
+              if (img) rmSync(img, { force: true })
+            }
           },
           log,
         },

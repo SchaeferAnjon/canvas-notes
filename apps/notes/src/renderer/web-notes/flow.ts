@@ -25,6 +25,11 @@ import { askWhere, type Where } from './Where'
 import { chosenFor, isSkipped, setChosen, skip, targetOf } from './target'
 import { notesChanged, noteTime } from './times'
 import { type Wrote, writeInto } from './write'
+import { t } from '../../shared/i18n'
+import { withKeys } from '../keys'
+import { muteSite, siteKey, today } from '../../shared/sel-bar'
+import { updateBar } from '../sel-bar/store'
+import { cmdById, cmdOut, cmdText, openBarSettings } from '../sel-bar/run'
 
 export interface WebNotesHost {
   /** 中间看得见的那篇（文档看法、能写）；中间收起了、开的不是文档（白板、PDF、首页）是 null */
@@ -54,6 +59,8 @@ export interface WebNotesHost {
   full(): { note: string | null; pick: string | null; inbox: boolean } | null
   /** 占满时剪进了一篇：「看一眼」还原、那篇里刚剪的那段亮一下 */
   peek(path: string, md: string): void
+  /** 右栏换回网页标签（小条上那颗「只在 AI 栏答」以后底栏的「回网页」） */
+  showWeb(): void
 }
 
 let host: WebNotesHost | null = null
@@ -131,12 +138,27 @@ export async function onSel(sel: WebSel, frame: DOMRect, done: (keep: boolean) =
     if (sel.action === 'settings') return H().openTranslateSettings()
     if (sel.action === 'target') return void (await pickTarget(sel.url, at))
     if (sel.action === 'clip') {
-      const c = { text: sel.text, url: sel.url, title: sel.title, ...(sel.head ? { head: sel.head } : {}) }
+      const c = { text: sel.text, ...(sel.md ? { md: sel.md } : {}), url: sel.url, title: sel.title, ...(sel.head ? { head: sel.head } : {}) }
       // 在中间开成一页的网页（task-05p2w）：剪的进收件箱（⋯ 菜单里那一项旁边写着）
       const to = inCenter ? 'inbox' : await clipTarget(c, at)
       settle(to === null)
       if (to === null) return
       return await (to === 'inbox' ? inbox(c) : clipInto(c, to))
+    }
+    // 选中小条能自定义（task-26nz7）：⋯ 里「加一颗…」「小条设置…」，× 的小菜单，自己加的那颗
+    const sample = { text: sel.md ?? sel.text, title: sel.title, url: sel.url, ...(sel.head ? { head: sel.head } : {}) }
+    if (sel.action === 'add') return openBarSettings({ view: 'edit', sample })
+    if (sel.action === 'barset') return openBarSettings({ view: 'list', sample })
+    if (sel.action === 'mute-site') return await muteSiteOf(sel.url)
+    if (sel.action === 'mute-all') return await muteAll()
+    if (sel.action === 'cmd') {
+      const c = cmdById(sel.cmd ?? '')
+      if (!c) return H().notice(t('这条命令没有了'))
+      const out = cmdOut(c)
+      // 写进笔记的先定记到哪篇；只在 AI 栏答的不用问
+      if (out === 'note' && !H().readingDoc() && !(await ensureAsk(sel.url, at))) return settle(true)
+      settle(false)
+      return await runOwnWeb(sel, cmdText(c, sample), c.name, out)
     }
     // 中间开着 PDF、HTML 的进它的 AI，不用问
     if (!H().readingDoc() && !(await ensureAsk(sel.url, at))) return settle(true)
@@ -158,7 +180,7 @@ async function askWeb(sel: WebSel, at: PopAnchor, prompt: string) {
     // 中间开着 PDF、HTML：进它的 AI，记进它的笔记（同网页上框着问，对上这一页）
     H().askIn(doc)
     await Reading.load(doc)
-    Reading.stage(doc, { page: /\.pdf$/i.test(doc) ? Reading.get(doc).state.page : 0, quote: sel.text, web, direct: true })
+    Reading.stage(doc, { page: /\.pdf$/i.test(doc) ? Reading.get(doc).state.page : 0, quote: sel.md ?? sel.text, web, direct: true })
     return Reading.send(doc, prompt)
   }
   if (!(await ensureAsk(sel.url, at))) return
@@ -166,13 +188,45 @@ async function askWeb(sel: WebSel, at: PopAnchor, prompt: string) {
   H().askIn(src)
   await Reading.load(src)
   Reading.setWebTitle(src, sel.title)
-  Reading.stage(src, { page: 0, quote: sel.text, web, direct: true })
+  Reading.stage(src, { page: 0, quote: sel.md ?? sel.text, web, direct: true })
   await Reading.send(src, prompt)
+}
+
+/**
+ * 自己加的那颗：选中的这段带进这个网页那一处的 AI（中间开着 PDF、HTML 的进它的），照那颗的提示词问；
+ * 写进笔记的答完一块 [!ai] 写进正在剪进去的那篇（块头写那颗的名字），只在 AI 栏答的不写
+ */
+async function runOwnWeb(sel: WebSel, prompt: string, name: string, out: 'note' | 'answer') {
+  const web = { url: sel.url, title: sel.title || sel.url, text: sel.text, ...(sel.head ? { head: sel.head } : {}) }
+  const extra = { cmd: name, ...(out === 'answer' ? { noNote: true as const } : {}) }
+  const doc = H().readingDoc()
+  const src = doc ?? `web:${sel.url}`
+  H().askIn(src)
+  await Reading.load(src)
+  if (!doc) Reading.setWebTitle(src, sel.title)
+  Reading.stage(src, { page: doc && /\.pdf$/i.test(doc) ? Reading.get(doc).state.page : 0, quote: sel.md ?? sel.text, web, direct: true, ...extra })
+  const sent = Reading.send(src, prompt)
+  if (out === 'answer') H().notice(t('答在右栏 AI 里，没动笔记'), { act: { label: t('回网页'), icon: 'globe', run: () => H().showWeb() } })
+  await sent
+}
+
+/** × 的小菜单「这个网站不弹」：记进库里的名单；底栏带撤回、改名单 */
+async function muteSiteOf(url: string) {
+  const site = siteKey(url)
+  if (!site) return
+  const undo = await updateBar((b) => muteSite(b, site, today()))
+  H().notice(withKeys(t('{site} 不再弹小条，选了字按 {k:enter}、{k:quote-selection} 照样能用', { site })), { act: { label: t('改名单'), icon: 'list-selection', run: () => openBarSettings({ view: 'list', focus: 'sites' }) }, undo: () => void undo() })
+}
+
+/** × 的小菜单「哪里都不弹」：关掉总开关；底栏带撤回、在设置里打开 */
+async function muteAll() {
+  const undo = await updateBar((b) => ({ ...b, enabled: false }))
+  H().notice(t('哪里都不弹小条了'), { act: { label: t('在设置里打开'), icon: 'settings-gear', run: () => openBarSettings({ view: 'list', focus: 'on' }) }, undo: () => void undo() })
 }
 
 /** 引用：这段成为那一处 AI 输入框顶上的一块材料（来源写那段上面的小标题），光标进去 */
 async function quoteWeb(sel: WebSel, at: PopAnchor) {
-  const mat: Material = { kind: 'quote', text: sel.text.trim().slice(0, 20_000), src: backLabel(sel), url: sel.url }
+  const mat: Material = { kind: 'quote', text: (sel.md ?? sel.text).trim().slice(0, 20_000), src: backLabel(sel), url: sel.url }
   const doc = H().readingDoc()
   if (doc) {
     H().askIn(doc)
@@ -189,7 +243,8 @@ async function quoteWeb(sel: WebSel, at: PopAnchor) {
 // ---------------------------------------------------------------- 剪藏
 
 /** 剪下来的一段写成什么：引文 + 「—— [小标题 · 书名](回到这一段的链接)」 */
-export const clipMdOf = (c: Clip & { head?: string }) => clipMarkdown(c.text, sourceLabel(c), fragmentUrl(c.url, c.text))
+/** 剪下来的写 md（公式 $…$、代码块，webview-md.ts）；回到这一段的链接照网页上看得到的字 */
+export const clipMdOf = (c: Clip & { head?: string; md?: string }) => clipMarkdown(c.md ?? c.text, sourceLabel(c), fragmentUrl(c.url, c.text))
 
 /**
  * 剪藏：写进这个网页正在剪进去的那篇。还没定时：中间开着能写的文档就问一句（默认它）；中间是白板、首页、PDF 就照旧剪成卡片进收件箱
@@ -231,8 +286,8 @@ async function clipInto(c: Clip & { head?: string }, path: string) {
   })
 }
 
-async function inbox(c: Clip) {
-  await H().clipToInbox({ text: c.text, url: fragmentUrl(c.url, c.text), title: c.title })
+async function inbox(c: Clip & { md?: string }) {
+  await H().clipToInbox({ text: c.md ?? c.text, url: fragmentUrl(c.url, c.text), title: c.title })
   clipped('inbox')
 }
 
@@ -329,7 +384,8 @@ async function writeAsk(n: Reading.WebNote): Promise<{ path: string; title: stri
   // 框的那块截图：这一处的第一问放一次（接着问的不再放）
   const first = !Reading.get(n.src).state.msgs.some((m) => m.thread === th.id && m.role === 'user' && m.id !== q.id && m.time <= q.time)
   const image = first && th.crop ? relLink(path, th.crop) : undefined
-  const label = askLabel(q.text)
+  // 选中小条上自己加的那颗问的（task-26nz7）：块头写那颗的名字（这一处的第一问；接着问的照旧「你问：…」）
+  const label = first && th.cmd ? th.cmd : askLabel(q.text)
   const md = webAskBlock({ label, by: n.by, links, quotes, ...(image ? { image } : {}), answer: n.answer })
   const wrote = await put(path, md, false)
   noteTime(path, md)
@@ -338,6 +394,11 @@ async function writeAsk(n: Reading.WebNote): Promise<{ path: string; title: stri
   const short = label.startsWith(`${ASKED}：`) ? ASKED : label
   await window.cnReading.commit([path], `笔记：网页「${pageHead(web?.title, url)}」· ${short} → ${title}`)
   H().refresh()
+  // 选中小条上自己加的那颗（task-26nz7）：底栏一句写进了哪篇（照原型「「名字」写进了《那篇》」）
+  if (first && th.cmd) {
+    H().notice(t('「{name}」写进了《{title}》', { name: th.cmd, title }), wrote.where === 'end' && !H().notesShown() ? { act: { label: t('在笔记里看'), icon: 'note', run: () => H().showNote(path, md.split('\n')[0]) } } : undefined)
+    return { path, title }
+  }
   // 写在末尾（中间看不见那篇）：底栏说记进了哪，带「在笔记里看」
   if (wrote.where === 'end') {
     const text = `记进《${title}》· ${links[0]!.text.replace(/\s*↩$/, '')}`

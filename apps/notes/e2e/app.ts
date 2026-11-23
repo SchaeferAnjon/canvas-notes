@@ -133,9 +133,10 @@ export async function starItem(page: Page) {
  * AI 只住右栏以后（第 2a 段）打开 PDF 不再自己把 AI 打开，开关记在本机，重开软件照旧
  */
 export async function openAi(page: Page) {
-  const entry = page.getByRole('button', { name: '打开 AI', exact: true })
+  // 英文界面（task-zojmg 第二批起）叫 Show AI chat / Hide AI chat
+  const entry = page.getByRole('button', { name: /^(打开 AI|Show AI chat)$/ })
   if (await entry.count()) await entry.first().click()
-  await expect(page.getByRole('button', { name: '收起 AI', exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: /^(收起 AI|Hide AI chat)$/ }).first()).toBeVisible()
 }
 
 /** 当前标签的内容区 */
@@ -162,7 +163,8 @@ export async function inboxPop(page: Page) {
 
 /** 左边图标栏换到某一页（文件、最近、摘在左边的分类和别的文件夹、梦游报告；分类和文件夹那一格同时开它的首页）；已经开着就不再点（再点是收起） */
 export async function leftView(page: Page, name: '文件' | '最近' | '课程' | '收件箱' | '梦游报告' | (string & {})) {
-  const b = page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name, exact: true })
+  // 英文界面（task-zojmg）左栏叫 Left sidebar
+  const b = page.getByRole('navigation', { name: /^(左栏|Left sidebar)$/ }).getByRole('button', { name, exact: true })
   if ((await b.getAttribute('aria-pressed')) !== 'true') await b.click()
   await expect(b).toHaveAttribute('aria-pressed', 'true')
 }

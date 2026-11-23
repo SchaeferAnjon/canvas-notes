@@ -8,6 +8,7 @@ import { Prec, StateEffect, StateField } from '@codemirror/state'
 import { EditorView, WidgetType } from '@codemirror/view'
 import { hiddenOk } from './hidden-syntax'
 import { fadeEdges, renderTex } from './tex'
+import { t as tNow } from '../shared/i18n'
 
 /** 正在改的那一格：表格从哪开始（文字位置）、第几行（-1 表头）、第几列 */
 export interface CellAt {
@@ -114,7 +115,7 @@ export class TableWidget extends WidgetType {
     const t = parseTable(this.src, { kind: 'table', from: 0, to: this.src.length })
     const wrap = document.createElement('div')
     wrap.className = 'cm-table scroll-x'
-    wrap.dataset.part = '表格'
+    wrap.dataset.part = '表格' // 不翻：e2e 认的 data-part
     // 放不下横着滚时，哪一边还有列哪一边渐隐（和公式同一套，task-c22p9）
     unfade.set(wrap, fadeEdges(wrap))
     const table = document.createElement('table')
@@ -169,7 +170,7 @@ export class TableWidget extends WidgetType {
     const input = document.createElement('input')
     input.className = 'cm-cellin'
     input.value = text
-    input.setAttribute('aria-label', row < 0 ? `表头第 ${col + 1} 格` : `第 ${row + 1} 行第 ${col + 1} 格`)
+    input.setAttribute('aria-label', row < 0 ? tNow('表头第 {col} 格', { col: col + 1 }) : tNow('第 {row} 行第 {col} 格', { row: row + 1, col: col + 1 }))
     let done = false
     /** 写回这一格并换到 next 那一格（null：不再改格子；keepSel：光标留在人点的地方） */
     const commit = (next: { row: number; col: number; all?: boolean } | null, opts: { addRow?: boolean; keepSel?: boolean } = {}) => {

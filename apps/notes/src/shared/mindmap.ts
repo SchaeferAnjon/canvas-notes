@@ -8,6 +8,7 @@
  * 前两种在属性里记 `所属白板` / `所属笔记`，面包屑靠它回到父白板、那篇笔记。
  */
 import { MAP_STYLE, MAP_STYLE_KEY, mindmapList, relativeLink, type Box, type MapNode } from '@cn/format'
+import { catName } from './categories'
 
 export type CameraKind = 'iphone' | 'mac' | 'desk'
 
@@ -266,8 +267,9 @@ export function indentRows(rows: Row[], i: number, delta: 1 | -1): Row[] {
 export function coursesOf(paths: string[]): string[] {
   const out = new Set<string>()
   for (const p of paths) {
-    const m = /^课程\/([^/]+)\//.exec(p)
-    if (m) out.add(m[1]!)
+    // 这个库「课程」文件夹的名字（英文库 Courses）
+    const [top, course, ...rest] = p.split('/')
+    if (top === catName('课程') && course && rest.length) out.add(course)
   }
   return [...out].sort((a, b) => a.localeCompare(b, 'zh-CN'))
 }

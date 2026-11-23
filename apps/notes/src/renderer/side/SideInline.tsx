@@ -19,6 +19,7 @@ import { copy } from '../ctx/menu'
 import { Markdown } from '../md-render'
 import { useDismiss } from '../use-dismiss'
 import { ASK_THIS } from './name'
+import { useT } from '../i18n'
 import './side-inline.css'
 
 export { ASK_THIS, sideName } from './name'
@@ -83,6 +84,7 @@ const lastAnswer = (s: SideView) => {
 }
 
 export function SideInline(p: SideInlineProps) {
+  const t = useT()
   const { side } = p
   const c = useComposer(p.onNotice)
   const qa = useRef<HTMLDivElement>(null)
@@ -103,8 +105,8 @@ export function SideInline(p: SideInlineProps) {
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return
-      const t = e.target instanceof HTMLElement ? e.target : null
-      if (t && !root.current?.contains(t) && t.closest('textarea, input, [contenteditable="true"], webview')) return
+      const at = e.target instanceof HTMLElement ? e.target : null
+      if (at && !root.current?.contains(at) && at.closest('textarea, input, [contenteditable="true"], webview')) return
       e.preventDefault()
       closeNow.current()
     }
@@ -136,13 +138,13 @@ export function SideInline(p: SideInlineProps) {
     p.onSend(text, mats)
   }
 
-  const sub = p.group.length > 1 ? `· ${p.group.length} 条，在第 ${at + 1} 条` : `· ${side.name}`
+  const sub = p.group.length > 1 ? t('· {n} 条，在第 {i} 条', { n: p.group.length, i: at + 1 }) : `· ${side.name}`
   return (
     <div
       ref={root}
       className="side-inl"
       role="region"
-      aria-label="旁支"
+      aria-label={t('旁支')}
       data-side={side.id}
       onKeyDown={(e) => {
         // 焦点在这一块里按 esc：收起（弹出来的菜单先收，use-dismiss 拦住了）
@@ -155,15 +157,15 @@ export function SideInline(p: SideInlineProps) {
       onContextMenu={(e) => e.stopPropagation()}
     >
       <div className="sd-head">
-        <button className="ib" aria-label="收起旁支" title="收起 esc" onClick={p.onClose}>
+        <button className="ib" aria-label={t('收起旁支')} title={t('收起 esc')} onClick={p.onClose}>
           <Codicon name="chevron-down" size={12} />
         </button>
         <Codicon name="comment-discussion" size={14} />
-        <b>旁支</b>
+        <b>{t('旁支')}</b>
         {renaming !== null ? (
           <input
             className="rn"
-            aria-label="旁支的名字"
+            aria-label={t('旁支的名字')}
             autoFocus
             value={renaming}
             onChange={(e) => setRenaming(e.target.value)}
@@ -189,18 +191,18 @@ export function SideInline(p: SideInlineProps) {
           <span className="s">{sub}</span>
         )}
         <span className="sp" />
-        <button className="ib" aria-label="这句再开一条旁支" title="这句再开一条旁支" onClick={p.onNew}>
+        <button className="ib" aria-label={t('这句再开一条旁支')} title={t('这句再开一条旁支')} onClick={p.onNew}>
           <Codicon name="add" size={14} />
         </button>
-        <button ref={menuBtn} className={'ib' + (menu ? ' open' : '')} aria-label="旁支菜单" aria-haspopup="menu" aria-expanded={menu} title="改名、删掉、别的旁支" onClick={() => setMenu((v) => !v)}>
+        <button ref={menuBtn} className={'ib' + (menu ? ' open' : '')} aria-label={t('旁支菜单')} aria-haspopup="menu" aria-expanded={menu} title={t('改名、删掉、别的旁支')} onClick={() => setMenu((v) => !v)}>
           <Codicon name="ellipsis" size={14} />
         </button>
-        <button className="ib" aria-label="收起旁支" title="收起 esc" onClick={p.onClose}>
+        <button className="ib" aria-label={t('收起旁支')} title={t('收起 esc')} onClick={p.onClose}>
           <Codicon name="close" size={14} />
         </button>
       </div>
       {p.group.length > 1 && (
-        <div className="chips" role="tablist" aria-label="这一句的旁支">
+        <div className="chips" role="tablist" aria-label={t('这一句的旁支')}>
           {p.group.map((g, i) => (
             <button key={g.id} className={'chip' + (g.id === side.id ? ' on' : '')} role="tab" aria-selected={g.id === side.id} title={g.name} onClick={() => g.id !== side.id && p.onSwitch(g.id)}>
               <b>{i + 1}</b>
@@ -225,7 +227,7 @@ export function SideInline(p: SideInlineProps) {
                   <Markdown text={hideToolMarkup(withoutVizMark(m.text).text)} math />
                 </div>
               ) : m.error ? null : (
-                <p className="wait">在答…</p>
+                <p className="wait">{t('在答…')}</p>
               )}
               {m.error && <AiError raw={m.error} engine={{ id: m.engine ?? p.picks.pick.engine }} />}
             </div>
@@ -233,15 +235,15 @@ export function SideInline(p: SideInlineProps) {
         )}
       </div>
       {answered && !p.running && (
-        <div className="acts" role="group" aria-label="这条回答">
+        <div className="acts" role="group" aria-label={t('这条回答')}>
           <button onClick={() => p.onPut(lastAnswer(side))}>
             <Codicon name="reply" size={12} />
-            放进主对话
+            {t('放进主对话')}
           </button>
           {p.onNote && (
             <button onClick={p.onNote}>
               <Codicon name="note" size={12} />
-              在笔记里看
+              {t('在笔记里看')}
             </button>
           )}
           <button
@@ -252,7 +254,7 @@ export function SideInline(p: SideInlineProps) {
             }}
           >
             <Codicon name={copied ? 'check' : 'copy'} size={12} />
-            {copied ? '已拷贝' : '拷贝'}
+            {copied ? t('已拷贝') : t('拷贝')}
           </button>
         </div>
       )}
@@ -262,8 +264,8 @@ export function SideInline(p: SideInlineProps) {
           <AiInput
             c={c}
             className="side-in"
-            placeholder={asked ? '接着问这条旁支…' : `问这句…（直接 ↵ 就是「${ASK_THIS}」）`}
-            hint="↵ 发送"
+            placeholder={asked ? t('接着问这条旁支…') : t('问这句…（直接 ↵ 就是「{q}」）', { q: t(ASK_THIS) })}
+            hint={t('↵ 发送')}
             picks={{ ...p.picks, engine: false }}
             running={p.running}
             sendDisabled={asked && !c.text.trim() && !c.mats.length}
@@ -328,19 +330,20 @@ function SideMenu(p: {
     setPos({ left: Math.max(8, Math.min(a.right - 300, window.innerWidth - 308)), top: a.bottom + 6 })
   }, [p.anchor])
   useDismiss(true, [ref, p.anchor], p.onClose)
+  const t = useT()
   return createPortal(
-    <div ref={ref} className="ai-menu side-menu" role="menu" aria-label="旁支" data-composer-pop="" style={{ width: 300, ...(pos ?? { visibility: 'hidden' }) }}>
+    <div ref={ref} className="ai-menu side-menu" role="menu" aria-label={t('旁支')} data-composer-pop="" style={{ width: 300, ...(pos ?? { visibility: 'hidden' }) }}>
       <button className="it" role="menuitem" onClick={p.onRename}>
         <span className="ck">
           <Codicon name="edit" size={13} />
         </span>
-        <span className="nm">改名…</span>
+        <span className="nm">{t('改名…')}</span>
       </button>
       <button className="it" role="menuitem" onClick={p.onDelete}>
         <span className="ck">
           <Codicon name="close" size={13} />
         </span>
-        <span className="nm">删掉这条旁支</span>
+        <span className="nm">{t('删掉这条旁支')}</span>
       </button>
       <div className="sep" />
       <div className="mh">{p.title}</div>

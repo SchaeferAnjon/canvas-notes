@@ -1,7 +1,9 @@
 /**
  * AI 没答出来时的原话认成几种原因（CN-75）：AI 对话、边读边问、视频框一块问、拍导图、翻译共用。
- * 界面只给一句中文和能点的下一步，英文原话收在「看原话 ›」里。不碰 Electron，能单独测。
+ * 界面只给一句说明（跟界面语言）和能点的下一步，英文原话收在「看原话 ›」里。不碰 Electron，能单独测。
+ * 认原因照中文原句：英文界面里软件自己说的英文先换回中文原句（shared/i18n 的 zhOf）再认，中英两种界面认出来的一样。
  */
+import { t, zhOf } from './i18n'
 
 export type AiErrorCode =
   | 'blocked'
@@ -23,7 +25,7 @@ export type AiErrorCode =
  * 先认 API 的状态码，再按原话里的字认；都不像的是 other。
  */
 export function aiErrorCode(raw: string, status?: number): AiErrorCode {
-  const s = raw.trim()
+  const s = zhOf(raw.trim()) ?? raw.trim()
   // 命令行更新后不兼容（task-m55m7）：主进程加的「【不兼容】」那一行，或者命令行自己说不认我们给的参数
   if (s.startsWith(INCOMPATIBLE) || /unknown option '--|' argument '[^']*' is invalid\. Allowed choices|Unknown --[\w-]+ value '/.test(s)) return 'incompatible'
   // 被安全检查拦下：Claude 的 safeguards / flagged / 使用政策（aup）；先认它，原话里也带 API Error
@@ -42,7 +44,7 @@ export function aiErrorCode(raw: string, status?: number): AiErrorCode {
 }
 
 /** 主进程在不兼容的原话前面加的那一行的开头（agent/index.ts 的 explain） */
-export const INCOMPATIBLE = '【不兼容】'
+export const INCOMPATIBLE = '【不兼容】' // 不翻：主进程加的记号，认的时候比
 
 /** 出错时能点的下一步；switch 是「换一家」（打开输入框底下谁来答那一列） */
 export type AiErrorAct = 'retry' | 'rephrase' | 'settings' | 'switch'
@@ -65,41 +67,49 @@ const ownWords = (s: string) => s.length <= 60 && !/[A-Za-z]{4,}/.test(s.replace
 
 /** 原话 → 界面上那一行、下一步、收起来的原话 */
 export function aiErrorView(raw: string, engine?: { id?: string; label?: string }): AiErrorView {
-  const s = raw.trim() || '没答出来'
+  const s = raw.trim() || t('没答出来')
   const code = aiErrorCode(s)
   const name = engine?.label ?? 'AI'
   const vendor = (engine?.id && VENDOR[engine.id]) || name
-  const keep = ownWords(s) ? null : s
+  // 是不是我们自己的话照中文原句看（英文界面里软件自己说的英文换得回中文）
+  const keep = ownWords(zhOf(s) ?? s) ? null : s
   switch (code) {
     case 'blocked':
-      return { code, title: `被${vendor}的安全检查拦下了，常是误拦`, acts: ['retry', 'rephrase'], raw: keep }
+      return { code, title: t('被{vendor}的安全检查拦下了，常是误拦', { vendor }), acts: ['retry', 'rephrase'], raw: keep }
     case 'not-logged-in':
-      return { code, title: `${name}还没登录：在终端里运行${(engine?.id && LOGIN[engine.id]) || 'claude'}登录一下`, acts: ['retry'], raw: keep }
+      return { code, title: t('{name}还没登录：在终端里运行{cmd}登录一下', { name, cmd: (engine?.id && LOGIN[engine.id]) || 'claude' }), acts: ['retry'], raw: keep }
     case 'network':
-      return { code, title: '网络断了，没问成', acts: ['retry'], raw: keep }
+      return { code, title: t('网络断了，没问成'), acts: ['retry'], raw: keep }
     case 'bad-model':
-      return { code, title: `${name}用不了设置的模型：去设置 › AI换一个`, acts: ['settings'], raw: keep }
+      return { code, title: t('{name}用不了设置的模型：去设置 › AI换一个', { name }), acts: ['settings'], raw: keep }
     case 'timeout':
-      return { code, title: `${name}等太久没回应`, acts: ['retry'], raw: keep }
+      return { code, title: t('{name}等太久没回应', { name }), acts: ['retry'], raw: keep }
     case 'not-installed':
-      return { code, title: `这台Mac上没装${name}：去设置 › AI换一个`, acts: ['settings'], raw: keep }
+      return { code, title: t('这台Mac上没装{name}：去设置 › AI换一个', { name }), acts: ['settings'], raw: keep }
     case 'bad-key':
-      return { code, title: `${name}的Key不对：去设置 › AI换一个`, acts: ['settings'], raw: keep }
+      return { code, title: t('{name}的Key不对：去设置 › AI换一个', { name }), acts: ['settings'], raw: keep }
     case 'no-balance':
-      return { code, title: `${name}余额不够`, acts: ['settings'], raw: keep }
+      return { code, title: t('{name}余额不够', { name }), acts: ['settings'], raw: keep }
     case 'rate-limit':
-      return { code, title: `问得太快，${name}让等一会儿`, acts: ['retry'], raw: keep }
+      return { code, title: t('问得太快，{name}让等一会儿', { name }), acts: ['retry'], raw: keep }
     case 'exited':
-      return { code, title: keep ? `${name}中途退出了，没答完` : s, acts: ['retry'], raw: keep }
+      return { code, title: keep ? t('{name}中途退出了，没答完', { name }) : s, acts: ['retry'], raw: keep }
     case 'bad-output':
-      return { code, title: `${name}给的格式不对`, acts: ['retry'], raw: keep }
+      return { code, title: t('{name}给的格式不对', { name }), acts: ['retry'], raw: keep }
     case 'incompatible': {
       // 「【不兼容】Claude Code 9.9.0 有一个参数不认了：--x，AI 对话可能出错」→「…：--x，这一问没答上」；原话收在「看原话」里
+      // 主进程加的那一行（agent/index.ts，还没抽字）照原样接上「这一问没答上」；命令行自己说不认参数的用我们的话
       const [head, ...rest] = s.split('\n')
-      const said = head!.startsWith(INCOMPATIBLE) ? head!.slice(INCOMPATIBLE.length).replace(/，[^，]*可能出错$/, '') : `${name}不认我们给的参数，多半是命令行更新了`
-      return { code, title: `${said.replace(/，多半是命令行更新了$/, '')}，这一问没答上`, acts: ['switch', 'settings'], raw: head!.startsWith(INCOMPATIBLE) ? rest.join('\n').trim() || null : s }
+      const own = head!.startsWith(INCOMPATIBLE)
+      const said = own ? head!.slice(INCOMPATIBLE.length).replace(/，[^，]*可能出错$/, '').replace(/，多半是命令行更新了$/, '') : null
+      return {
+        code,
+        title: said !== null ? t('{said}，这一问没答上', { said }) : t('{name}不认我们给的参数，这一问没答上', { name }),
+        acts: ['switch', 'settings'],
+        raw: own ? rest.join('\n').trim() || null : s,
+      }
     }
     default:
-      return { code, title: keep ? `${name}没答出来` : s, acts: keep ? ['retry'] : [], raw: keep }
+      return { code, title: keep ? t('{name}没答出来', { name }) : s, acts: keep ? ['retry'] : [], raw: keep }
   }
 }

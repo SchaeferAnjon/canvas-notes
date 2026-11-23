@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { type ChatSummary, LEGACY } from '../../shared/ai-chats'
+import { t } from '../../shared/i18n'
 import type { ChatSide, EngineId, StoredMsg } from '../../shared/agent'
 import { type AiPick, type AiPrefs, CLAUDE_DEFAULT, normalizePick, normalizePrefs, resolvePick } from '../../shared/ai-features'
 
@@ -86,13 +87,13 @@ export class AgentStore {
   }
 
   setCliPath(id: EngineId, path: string) {
-    if (!ENGINES.includes(id)) throw new Error('没有这个引擎')
+    if (!ENGINES.includes(id)) throw new Error(t('没有这个引擎'))
     this.write('settings.json', { ...this.read<object>('settings.json', {}), cli: { ...this.cliPaths(), [id]: path } })
   }
 
   /** 换默认那家（Claude Code 用它的默认模型） */
   setEngine(e: EngineId) {
-    if (!ENGINES.includes(e)) throw new Error('没有这个引擎')
+    if (!ENGINES.includes(e)) throw new Error(t('没有这个引擎'))
     const p = this.prefs()
     this.setPrefs({ ...p, default: p.default.engine === e ? p.default : { engine: e } })
   }
@@ -102,7 +103,7 @@ export class AgentStore {
    * 选的就是默认那家：回到「跟默认」；已经在用这家：不变（Claude Code 选好的模型留着）
    */
   setChatEngine(e: EngineId) {
-    if (!ENGINES.includes(e)) throw new Error('没有这个引擎')
+    if (!ENGINES.includes(e)) throw new Error(t('没有这个引擎'))
     const p = this.prefs()
     if (resolvePick(p, 'chat').engine === e) return
     const features = { ...p.features }
@@ -117,7 +118,7 @@ export class AgentStore {
    */
   setChatPick(pick: AiPick) {
     const n = normalizePick(pick)
-    if (!n) throw new Error('AI 参数不对')
+    if (!n) throw new Error(t('AI 参数不对'))
     const p = this.prefs()
     const features = { ...p.features }
     if (JSON.stringify(n) === JSON.stringify(normalizePick(p.default))) delete features.chat

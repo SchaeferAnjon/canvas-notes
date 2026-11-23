@@ -1,6 +1,7 @@
-// AI 回答下面一排「拷贝 · 插进文档 · 引用再问」（task-83vl3 第 3 条，用户：「每次回答完之后，我觉得应该有复制、插入文档或者其他的操作」）。
+// AI 回答下面一排「拷贝 · 插进文档 · ⋯」（task-83vl3 第 3 条，用户：「每次回答完之后，我觉得应该有复制、插入文档或者其他的操作」；
+// 「引用再问」task-bppvn 拿掉了，选一句引用在 bppvn-quote-sentence.spec.ts）。
 // 真点：拷贝进剪贴板的是整条回答的 md；插入到文档插在光标处（没点进过文档接在末尾），文件里多出来回答原文 + 一行出处和链回对话，
-// 打开再保存文件不变；点那条链接 AI 格回到那段对话、那条回答；引用再问把回答引进输入框。无头、假 AI、临时库。
+// 打开再保存文件不变；点那条链接 AI 格回到那段对话、那条回答。无头、假 AI、临时库。
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -20,7 +21,7 @@ async function ask(page: Page, text: string) {
 
 const NOTE = '# 学习笔记\n\n第一段。\n\n第二段。\n'
 
-test('拷贝、引用再问、插进文档（光标处）：剪贴板、输入框、文件里的字都对；打开再保存不变；点「回到 AI 对话」回到那条回答', async () => {
+test('拷贝、插进文档（光标处）：剪贴板、输入框、文件里的字都对；打开再保存不变；点「回到 AI 对话」回到那条回答', async () => {
   const run = await launch({ '学习笔记.md': NOTE, '别的.md': '# 别的\n\n一段。\n' }, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   try {
@@ -33,7 +34,10 @@ test('拷贝、引用再问、插进文档（光标处）：剪贴板、输入�
     await expect(second.locator('.txt')).toContainText('下周要把论文计划')
     const row1 = first.getByTestId('ai-ans-acts')
     const row2 = second.getByTestId('ai-ans-acts')
-    await expect(row2.getByRole('button')).toHaveText(['拷贝', '插进文档', '引用再问'])
+    await expect(row2.getByRole('button')).toHaveText(['拷贝', '插进文档', ''])
+    // 第 3 颗是 ⋯（task-r00en），只有图标；没有「引用再问」（task-bppvn）
+    await expect(row2.getByRole('button').nth(2)).toHaveAccessibleName('这条回答还能做什么')
+    await expect(row2.getByRole('button', { name: '引用再问' })).toHaveCount(0)
     // 最新那条一直露着；之前那条平时看不见、指着那条回答才露
     await page.mouse.move(5, 5)
     await expect(row2).toHaveCSS('opacity', '1')
@@ -49,19 +53,6 @@ test('拷贝、引用再问、插进文档（光标处）：剪贴板、输入�
     await expect(row1.getByRole('button', { name: '已拷贝' })).toBeVisible()
     expect(await clipboardText(run)).toBe(WIDE_ANSWER)
     await expect(row1.getByRole('button', { name: '拷贝' })).toBeVisible({ timeout: 3000 })
-
-    // 引用再问：输入框顶上多一块引用（来源「AI的回答」），光标在输入框里，接着打字发出去，AI 拿到的话里带着这段回答
-    await second.hover()
-    await row2.getByRole('button', { name: '引用再问' }).click()
-    const mat = chat(page).getByTestId('ai-mat')
-    await expect(mat).toHaveCount(1)
-    await expect(mat).toHaveAttribute('data-src', 'AI的回答')
-    await expect(mat).toHaveAttribute('title', /^AI的回答：这周主要在赶第5讲的作业/)
-    await expect(chat(page).getByRole('textbox', { name: '问 AI' })).toBeFocused()
-    await page.keyboard.type('第二句再展开说说')
-    await expect(chat(page).getByRole('textbox', { name: '问 AI' })).toHaveValue('①第二句再展开说说')
-    await chat(page).getByRole('textbox', { name: '问 AI' }).fill('')
-    await chat(page).getByTestId('ai-mat').getByRole('button', { name: '删掉这块' }).click()
 
     // 插进文档：先在文档「第一段。」末尾点一下放光标，再点按钮
     const ed = pane(page).locator('.cm-content')
@@ -168,7 +159,7 @@ test('中间没开文档时「插进文档」变淡、点了不插，悬停说�
     await ins.click({ force: true })
     await page.waitForTimeout(500)
     expect(readFileSync(join(vault, '学习笔记.md'), 'utf8')).toBe(NOTE)
-    // 拷贝、引用再问照样能用
+    // 拷贝照样能用
     await row.getByRole('button', { name: '拷贝' }).click()
     expect(await clipboardText(run)).toBe('这周主要在赶第5讲的作业，注意力机制那部分花了两个晚上才弄懂。\n\n周三开始每天早上跑步，三次都坚持下来了。\n\n下周要把论文计划的第一节写完，并约导师见一面。')
   } finally {

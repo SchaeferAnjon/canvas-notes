@@ -13,7 +13,9 @@ export function openImport() {
   emit()
 }
 
-export function closeImport() {
+/** which：只关这一次打开的（撤回要等 git 提交完才关窗口，这期间又点了「导入旧笔记…」重开的那个不跟着关） */
+export function closeImport(which?: number) {
+  if (which !== undefined && which !== open) return
   open = 0
   emit()
 }

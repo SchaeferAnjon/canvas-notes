@@ -11,6 +11,8 @@ import { app } from './actions'
 import { copy, type MenuEntry, menuAt } from './menu'
 import { moveMenu } from './move-menu'
 import { pairOf, rightPage } from '../read-along/store'
+import { catName } from '../../shared/categories'
+import { t } from '../../shared/i18n'
 
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const nameOf = (p: string) => p.split('/').pop()!
@@ -23,12 +25,15 @@ export interface TreeMenu {
   moveTo(): void
 }
 const pinItem = (pinned: boolean, key: string, tree?: TreeMenu): MenuEntry => ({
-  label: pinned ? (tree ? '取消钉住' : '取消置顶') : tree ? '钉到最上面' : '置顶',
+  label: pinned ? (tree ? t('取消钉住') : t('取消置顶')) : tree ? t('钉到最上面') : t('置顶', { ctx: '右键菜单' }),
   run: () => app().togglePin(key, !pinned),
 })
 
-/** rename：这个地方能原地改名时给（左栏、全部笔记、标签）；note：PDF、HTML 和它的笔记合成一行时那篇笔记（多一项「单独打开笔记」）；tree：左栏目录树里 */
-export function fileMenu(path: string, on: { rename?(): void; note?: string; tree?: TreeMenu } = {}): MenuEntry[] {
+/**
+ * rename：这个地方能原地改名时给（左栏、全部笔记、标签）；note：PDF、HTML 和它的笔记合成一行时那篇笔记（多一项「单独打开笔记」）；tree：左栏目录树里；
+ * home：文件夹首页卡里的一份（task-r00en）：「移到…」弹打字找的小弹层，PDF、HTML 也有（挂着的笔记、可视化一起走）
+ */
+export function fileMenu(path: string, on: { rename?(): void; note?: string; tree?: TreeMenu; home?: TreeMenu } = {}): MenuEntry[] {
   const a = app()
   const md = /\.md$/i.test(path)
   const pinned = a.pins().includes(path)
@@ -38,22 +43,22 @@ export function fileMenu(path: string, on: { rename?(): void; note?: string; tre
   const paired = md && !!pairOf(path)
   const page = rightPage()
   return [
-    { label: '打开', run: () => a.openHere(path) },
-    { label: '在新标签打开', run: () => a.openFile(path) },
-    on.note && { label: '单独打开笔记', run: () => a.openFile(on.note!) },
-    paired && { label: '只打开笔记，网页不跟着开', run: () => a.openNoteOnly(path) },
+    { label: t('打开'), run: () => a.openHere(path) },
+    { label: t('在新标签打开'), run: () => a.openFile(path) },
+    on.note && { label: t('单独打开笔记'), run: () => a.openFile(on.note!) },
+    paired && { label: t('只打开笔记，网页不跟着开'), run: () => a.openNoteOnly(path) },
     '-',
-    paired ? { label: '解除和网页的配对', run: () => a.unpairWeb(path) } : md && page && { label: '和右栏这个网页配成一对…', run: () => a.pairWeb(path) },
+    paired ? { label: t('解除和网页的配对'), run: () => a.unpairWeb(path) } : md && page && { label: t('和右栏这个网页配成一对…'), run: () => a.pairWeb(path) },
     '-',
-    md && on.rename && { label: '重命名', run: () => on.rename!() },
-    md && targets.length > 0 && (on.tree ? { label: '移到…', run: () => on.tree!.moveTo() } : { label: '移到', submenu: targets }),
+    md && on.rename && { label: t('重命名'), run: () => on.rename!() },
+    on.home ? { label: t('移到…'), run: () => on.home!.moveTo() } : md && targets.length > 0 && (on.tree ? { label: t('移到…'), run: () => on.tree!.moveTo() } : { label: t('移到'), submenu: targets }),
     md && pinItem(pinned, path, on.tree),
     '-',
-    { label: '在访达中显示', run: () => window.cnMenu.reveal(path) },
-    { label: '拷贝路径', run: () => copy(a.absPath(path)) },
-    { label: '拷贝双链', run: () => copy(`[[${md ? titleOf(path) : nameOf(path)}]]`) },
+    { label: t('在访达中显示'), run: () => window.cnMenu.reveal(path) },
+    { label: t('拷贝路径'), run: () => copy(a.absPath(path)) },
+    { label: t('拷贝双链'), run: () => copy(`[[${md ? titleOf(path) : nameOf(path)}]]`) },
     '-',
-    { label: '移到废纸篓', run: () => a.trash(path) },
+    { label: t('移到废纸篓'), run: () => a.trash(path) },
   ]
 }
 
@@ -71,29 +76,29 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
   // 挪到哪：库里任何文件夹；不能挪进自己里面，也不挪回原处
   const targets = moveMenu(a.allFolders(), here, (f) => a.moveFolder(folder, f), (f) => f === folder || f.startsWith(folder + '/'))
   return [
-    { label: '新建笔记', accel: accelFor('new-note'), run: () => a.newNote(folder) },
-    { label: '新建白板', run: () => a.newBoard(folder) },
+    { label: t('新建笔记'), accel: accelFor('new-note'), run: () => a.newNote(folder) },
+    { label: t('新建白板'), run: () => a.newBoard(folder) },
     // 「课程」上多一项（task-xy89o）：以前只有 ⌘K 里有
-    folder === '课程' && { label: '新建一门课', run: () => a.newCourse() },
-    on.newFolder && { label: '新建文件夹', run: () => on.newFolder!() },
+    folder === catName('课程') && { label: t('新建一门课'), run: () => a.newCourse() },
+    on.newFolder && { label: t('新建文件夹'), run: () => on.newFolder!() },
     '-',
-    { label: '打开首页', run: () => a.openFolderHere(folder) },
-    { label: '在新标签打开首页', run: () => a.openFolderHome(folder) },
+    { label: t('打开首页'), run: () => a.openFolderHere(folder) },
+    { label: t('在新标签打开首页'), run: () => a.openFolderHome(folder) },
     '-',
     pinItem(pinned, folderPinKey(folder), on.tree),
-    onLeft ? { label: '从左边拿下', run: () => a.takeOffLeft(folder) } : { label: '放到左边', run: () => a.putOnLeft(folder) },
-    on.look && { label: '换图标和颜色…', run: () => on.look!() },
+    onLeft ? { label: t('从左边拿下'), run: () => a.takeOffLeft(folder) } : { label: t('放到左边'), run: () => a.putOnLeft(folder) },
+    on.look && { label: t('换图标和颜色…'), run: () => on.look!() },
     '-',
-    !fixed && on.rename && { label: '重命名…', accel: accelFor('rename'), run: () => on.rename!() },
-    !fixed && targets.length > 0 && (on.tree ? { label: '移到…', run: () => on.tree!.moveTo() } : { label: '移到', submenu: targets }),
+    !fixed && on.rename && { label: t('重命名…'), accel: accelFor('rename'), run: () => on.rename!() },
+    !fixed && targets.length > 0 && (on.tree ? { label: t('移到…'), run: () => on.tree!.moveTo() } : { label: t('移到'), submenu: targets }),
     '-',
-    { label: '在访达中显示', run: () => window.cnMenu.reveal(folder) },
-    { label: '拷贝路径', run: () => copy(a.absPath(folder)) },
+    { label: t('在访达中显示'), run: () => window.cnMenu.reveal(folder) },
+    { label: t('拷贝路径'), run: () => copy(a.absPath(folder)) },
     '-',
-    !fixed && { label: '移到废纸篓', accel: accelFor('tree-trash'), run: () => a.trashFolder(folder) },
+    !fixed && { label: t('移到废纸篓'), accel: accelFor('tree-trash'), run: () => a.trashFolder(folder) },
   ]
 }
 
 /** 右键事件里直接用；extra：这一处自己多的几项，放在最后（文档「⋯」里的宽版） */
-export const onFileMenu = (e: React.MouseEvent, path: string, on: { rename?(): void; note?: string; tree?: TreeMenu } = {}, extra: MenuEntry[] = []) =>
+export const onFileMenu = (e: React.MouseEvent, path: string, on: { rename?(): void; note?: string; tree?: TreeMenu; home?: TreeMenu } = {}, extra: MenuEntry[] = []) =>
   void menuAt(e, [...fileMenu(path, on), ...(extra.some(Boolean) ? ['-' as const, ...extra] : [])])

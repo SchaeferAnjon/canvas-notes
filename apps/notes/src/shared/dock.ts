@@ -4,10 +4,14 @@
  * 再加几个浮窗。一个标签只在一个地方。这里全是纯函数：给一个布局、返回新的布局（没变就返回原来那个），界面和单元测试都用。
  */
 
-export type ViewId = 'web' | 'note' | 'ai' | 'outline' | 'history'
-/** 恢复默认时标签的先后（照原型：网页、笔记、AI，再是大纲、历史） */
-export const VIEW_ORDER: readonly ViewId[] = ['web', 'note', 'ai', 'outline', 'history']
-export const VIEW_NAME: Record<ViewId, string> = { web: '网页', note: '笔记', ai: 'AI', outline: '大纲', history: '历史' }
+/**
+ * record：数据库里点开的一条（数据库第三批第 4 块，标签上写那一条的名字）；aicol：数据库 AI 列的右栏一页（「AI 生成一列」，标签上写列名）；
+ * auto：数据库的「自动化」一页（规则、记录、编辑一条、按钮列做的事）
+ */
+export type ViewId = 'web' | 'note' | 'ai' | 'outline' | 'history' | 'record' | 'aicol' | 'auto'
+/** 恢复默认时标签的先后（照原型：网页、笔记、AI，再是大纲、历史；数据库点开的一条在最后） */
+export const VIEW_ORDER: readonly ViewId[] = ['web', 'note', 'ai', 'outline', 'history', 'aicol', 'auto', 'record']
+export const VIEW_NAME: Record<ViewId, string> = { web: '网页', note: '笔记', ai: 'AI', outline: '大纲', history: '历史', record: '记录', aicol: 'AI 列', auto: '自动化' }
 
 export interface Group {
   id: string

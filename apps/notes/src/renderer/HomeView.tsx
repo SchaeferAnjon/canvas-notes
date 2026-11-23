@@ -1,4 +1,4 @@
-import { CATEGORIES } from '../shared/categories'
+import { CATEGORIES, catName } from '../shared/categories'
 import { useKeys } from './keys'
 import { dreamDoes, type DreamSettings } from '../shared/dream-settings'
 import { buildTree, folderProgress } from '../shared/files'
@@ -524,13 +524,13 @@ function Categories(props: { onOpen(name: string): void }) {
       {CATEGORIES.map((c) => {
         const node = tree.find((n) => n.kind === 'dir' && n.name === c.name)
         const n = node?.count ?? 0
-        const courses = c.name === '课程' /* 不翻：磁盘上的文件夹名 */ && node ? node.children.filter((x) => x.kind === 'dir') : []
+        const courses = c.name === catName('课程') && node ? node.children.filter((x) => x.kind === 'dir') : []
         const prog = courses.reduce((p, x) => {
           const fp = folderProgress(x)
           return fp ? { done: p.done + fp.done, total: p.total + fp.total } : p
         }, { done: 0, total: 0 })
         // 不翻：磁盘上的文件夹名
-        const meta = c.name === '课程' ? [t('{n}门课', { n: courses.length }), ...(prog.total ? [t('{done}/{total}讲', { done: prog.done, total: prog.total })] : [])] : [t('{n}篇', { n })]
+        const meta = c.name === catName('课程') ? [t('{n}门课', { n: courses.length }), ...(prog.total ? [t('{done}/{total}讲', { done: prog.done, total: prog.total })] : [])] : [t('{n}篇', { n })]
         /** 「放什么」：用户自己改过的照原样，默认那句跟界面语言 */
         const d = desc(c.name)
         const look = folderLook(c.name)

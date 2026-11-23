@@ -9,22 +9,33 @@ import { accelFor, isKey, useKeys } from '../keys'
  * 照 design/pdf 方向 A（右栏切换）的 spec 1.2–1.4。
  */
 import { Codicon } from '@cn/design'
-import type { PdfPrefs } from '../../shared/prefs'
 import { appSettings } from '../settings-store'
 import { pdfZoomName } from '../settings/pdf'
 import { openSettingsAt } from '../settings/jump'
 import { AiIcon } from '../engine-logo'
-import { copy, menuAt } from '../ctx/menu'
+import { copy, menuAt, showMenu } from '../ctx/menu'
+import { clampScale, fitScale, loadZoom, PRESETS, type PdfZoom, saveZoom, stepScale, wheelScale } from './pdf-zoom'
 import { openTranslateSettings } from '../plugins/translate/shared'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import type { Rect } from '@cn/format'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { closePdf, loadPdf, type PdfDoc, pdfjs } from './pdf'
+import { PdfFind } from '../find/PdfFind'
 import * as R from './store'
 import type { Material } from '../../shared/materials'
 import { useDismiss } from '../use-dismiss'
 import { capStyle, clientArea, useCapPlace } from './cap-place'
 import { PanelGuard } from '../crash/Guard'
+import { CapButtons, ownKeyHit } from '../sel-bar/CapBar'
+import { useBar } from '../sel-bar/store'
+import { cmdById, cmdOut, cmdText, openBarSettings } from '../sel-bar/run'
+import { comboOf } from '../../shared/cmd-keys'
+import { t as tNow } from '../../shared/i18n'
+import { linkOn } from '@cn/family'
+import { useFamily } from '../family-store'
+
+/** 「⋯」里提 ParaRead 的那一句点过 × 了（这台 Mac 上记着） */
+const PARAREAD_TIP = 'cn.familyTip.pararead'
 
 interface Size {
   w: number
@@ -48,8 +59,13 @@ interface Boxed {
 const PAD_TOP = 24
 const GAP = 24
 const MIN_BOX = 14
-
-const zoomKey = (p: string) => `cn.pdfZoom:${p}`
+/** 纸左边留给页码、右边留给页边标记的宽 */
+const SIDE_L = 40
+const SIDE_R = 52
+/** 一张画布最多这么多像素（同 pdf.js 的 maxCanvasPixels）：放得很大时降低清晰度，不再按 2 倍画，免得一页占几百 MB */
+const MAX_CANVAS_PX = 2 ** 24
+/** 捏合停下这么久后才按新比例重画（捏的过程中先把画好的那张拉一下，跟着手指走） */
+const SETTLE_MS = 160
 
 export function PdfTab(props: {
   path: string
@@ -63,22 +79,33 @@ export function PdfTab(props: {
   /** 写在界面上的键照命令表（改了跟着变） */
   const K = useKeys()
   const { path } = props
+  /** 选中小条的表（task-26nz7）：条上、⋯ 里有哪几颗；总开关关着时不弹（键照样能按） */
+  const { bar, mine } = useBar()
   const r = R.useReading(path)!
+  // 设置 › 软件家族：装了 ParaRead、联动开着时「⋯」里多一项换到 ParaRead 读
+  const fam = useFamily()
+  const paraRead = !!fam?.installed.pararead && linkOn(fam.list, fam.links, 'pr-menu')
+  // 没装 ParaRead：「⋯」最下面顺手提一句（不弹窗；点 × 这台 Mac 上不再提，task-59o3v「用得上的地方顺手提一句」）
+  const [tipOff, setTipOff] = useState(() => {
+    try {
+      return localStorage.getItem(PARAREAD_TIP) === '1'
+    } catch {
+      return false
+    }
+  })
+  const paraTip = !!fam && !fam.installed.pararead && !tipOff
   const [doc, setDoc] = useState<PdfDoc | null>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [sizes, setSizes] = useState<Size[] | null>(null)
   const [width, setWidth] = useState(0)
-  /** 这份第一次打开（本机没记过缩放）：照设置 › 读PDF「新打开的PDF缩放」，页面量好以后算一次 */
-  const firstZoom = useRef<PdfPrefs['zoom'] | null>(null)
-  const [zoom, setZoom] = useState(() => {
-    try {
-      const v = Number(localStorage.getItem(zoomKey(path)))
-      if (v) return v
-    } catch {
-      // 读不到当第一次打开
-    }
-    firstZoom.current = appSettings().pdf.zoom
-    return 1
+  /** 旧写法记的「适合宽度的几倍」：量好栏宽后换成比例 */
+  const legacyRel = useRef<number | null>(null)
+  /** 缩放：适合宽度 / 适合整页 / 定死的比例；这份没记过照设置 › 读PDF「新打开的PDF缩放」 */
+  const [zoom, setZoom] = useState<PdfZoom>(() => {
+    const z = loadZoom(path, appSettings().pdf.zoom)
+    legacyRel.current = z.rel ?? null
+    return z.zoom
   })
   const [height, setHeight] = useState(0)
   const [visible, setVisible] = useState<Set<number>>(new Set([1, 2]))
@@ -145,17 +172,20 @@ export function PdfTab(props: {
   }, [])
 
   const maxW = sizes ? Math.max(...sizes.map((s) => s.w)) : 600
-  // 适合宽度：左边留 40 写页码、右边 52 放标记
-  const fit = width ? (width - 40 - 52) / maxW : 1
-  const scale = Math.max(0.25, Math.min(fit * zoom, 6))
-  // 第一次打开、不是适合宽度：量好宽高后换成「适合整页」（第一页整页放得下）或「100%」，之后这份照记下的
+  const maxH = sizes ? Math.max(...sizes.map((s) => s.h)) : 800
+  // 适合宽度 / 整页：左边留 40 写页码、右边 52 放标记，上下各留 24
+  const view = { w: width - SIDE_L - SIDE_R, h: height - PAD_TOP * 2 }
+  const fitOf = (f: 'width' | 'page') => fitScale(f, view, maxW, { w: maxW, h: maxH })
+  const scale = !sizes || !width ? 1 : clampScale(typeof zoom === 'number' ? zoom : fitOf(zoom))
+  /** 正在往哪个比例变（连着捏、连着按时，比例还没画出来就接着变） */
+  const liveScale = useRef(scale)
+  liveScale.current = scale
   useEffect(() => {
-    const want = firstZoom.current
-    if (!want || !sizes?.length || !width || !height) return
-    firstZoom.current = null
-    if (want === 'actual') setZoom(1 / fit)
-    else if (want === 'page') setZoom(Math.min(1, (height - PAD_TOP * 2) / sizes[0]!.h / fit))
-  }, [sizes, width, height])
+    if (legacyRel.current === null || !sizes || !width) return
+    setZoom(clampScale(fitOf('width') * legacyRel.current))
+    legacyRel.current = null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sizes, width])
 
   const pageTop = useCallback(
     (n: number) => {
@@ -167,30 +197,72 @@ export function PdfTab(props: {
     [sizes, scale],
   )
 
-  // 缩放前记住看到哪页、页里哪里，换了比例滚回去
-  const anchor = useRef<{ page: number; frac: number } | null>(null)
-  const prevScale = useRef(scale)
-  if (prevScale.current !== scale && scroller.current && sizes) {
-    const st = scroller.current.scrollTop
-    let y = PAD_TOP
-    let n = 1
-    for (let i = 0; i < sizes.length; i++) {
-      const h = sizes[i]!.h * prevScale.current
-      if (y + h + GAP > st) {
-        n = i + 1
+  /**
+   * 缩放时钉住的一点：窗口里 (x, y) 那里是第 page 页上 (fx, fy) 处（这一页上的比例）；换了比例后滚到这一点还在 (x, y)。
+   * 捏合钉在手指下，按键和菜单钉在这一栏正中，栏宽变了（适合宽度跟着变）钉在顶上
+   */
+  const anchor = useRef<{ page: number; fx: number; fy: number; x: number; y: number } | null>(null)
+  function pinAt(x: number, y: number) {
+    const slots = scroller.current?.querySelectorAll<HTMLElement>('.pdfslot')
+    if (!slots?.length) return
+    let i = slots.length - 1
+    for (let k = 0; k < slots.length; k++) {
+      if (slots[k]!.getBoundingClientRect().bottom + GAP / 2 >= y) {
+        i = k
         break
       }
-      y += h + GAP
     }
-    anchor.current = { page: n, frac: (st - y) / (sizes[n - 1]!.h * prevScale.current) }
+    const r = slots[i]!.getBoundingClientRect()
+    anchor.current = { page: i + 1, fx: (x - r.left) / r.width, fy: (y - r.top) / r.height, x, y }
+  }
+  const pinMiddle = () => {
+    const b = scroller.current?.getBoundingClientRect()
+    if (b) pinAt(b.left + b.width / 2, b.top + b.height / 2)
+  }
+  // 比例变了但没人钉过（栏宽变了、第一次量好）：这一刻 DOM 还是旧比例，钉住顶上那一行
+  const prevScale = useRef(scale)
+  if (prevScale.current !== scale) {
     prevScale.current = scale
+    if (!anchor.current && scroller.current && restored.current) {
+      const b = scroller.current.getBoundingClientRect()
+      pinAt(b.left + b.width / 2, b.top + 1)
+    }
   }
   useLayoutEffect(() => {
-    if (!anchor.current || !scroller.current || !sizes) return
     const a = anchor.current
-    scroller.current.scrollTop = pageTop(a.page) + a.frac * sizes[a.page - 1]!.h * scale
+    const el = scroller.current
     anchor.current = null
-  }, [scale, sizes, pageTop])
+    const slot = a && el?.querySelectorAll<HTMLElement>('.pdfslot')[a.page - 1]
+    if (!a || !el || !slot) return
+    const r = slot.getBoundingClientRect()
+    el.scrollLeft += r.left + a.fx * r.width - a.x
+    el.scrollTop += r.top + a.fy * r.height - a.y
+  }, [scale])
+
+  /** 换一个缩放（at：钉住的那一点，不给钉在这一栏正中） */
+  function zoomTo(z: PdfZoom, at?: { x: number; y: number }) {
+    if (at) pinAt(at.x, at.y)
+    else pinMiddle()
+    if (typeof z === 'number') liveScale.current = clampScale(z)
+    setZoom(typeof z === 'number' ? clampScale(z) : z)
+  }
+  const zoomStep = (dir: 1 | -1) => zoomTo(stepScale(liveScale.current, dir))
+
+  // 捏合（触控板捏合是带 ctrlKey 的滚轮）、按住 ⌘ 滚动：以手指为中心连续缩放
+  const lastPinch = useRef(0)
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      lastPinch.current = Date.now()
+      zoomTo(wheelScale(liveScale.current, e.deltaY), { x: e.clientX, y: e.clientY })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // 回到上次看到的那页（只在打开时一次）；不是第 1 页就在底栏正中说一声（和别的提示一样，不压在页面上）
   useLayoutEffect(() => {
@@ -234,13 +306,7 @@ export function PdfTab(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sizes, width, scale])
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(zoomKey(path), String(zoom))
-    } catch {
-      // 记不住缩放不影响看
-    }
-  }, [path, zoom])
+  useEffect(() => saveZoom(path, zoom), [path, zoom])
 
   // ---------- 从笔记跳回来：翻到那页，框的上沿停在视口上方约 80，框闪两下 ----------
   useEffect(() => {
@@ -450,6 +516,26 @@ export function PdfTab(props: {
     await R.send(path, kind === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲')
   }
 
+  /**
+   * 选中小条上自己加的那颗（task-26nz7）：选的字（框的是那块截图）照它的提示词问；写进笔记的答完记进这份的笔记，只在 AI 栏答的不记
+   */
+  async function capCmd(id: string, b = boxed) {
+    const c = cmdById(id)
+    if (!b || !c) return
+    if (asking.current === b) return
+    asking.current = b
+    props.onAsk()
+    const extra = { cmd: c.name, ...(cmdOut(c) === 'answer' ? { noNote: true as const } : {}) }
+    if (b.quote) R.stage(path, { page: b.page, rect: b.rect, quote: b.quote, direct: true, ...extra })
+    window.getSelection()?.removeAllRanges()
+    for (let i = 0; i < 125 && !b.quote && !R.get(path).pending?.png; i++) await new Promise((res) => setTimeout(res, 40))
+    const p = R.get(path).pending
+    if (!p) R.stage(path, { page: b.page, rect: b.rect, direct: true, ...extra })
+    else if (!b.quote) R.stage(path, { ...p, ...extra })
+    const title = (path.split('/').pop() ?? path).replace(/\.pdf$/i, '')
+    await R.send(path, cmdText(c, { text: b.quote ?? tNow('框下来的那张图'), title: `${title} · ${tNow('第{n}页', { n: b.page })}` }))
+  }
+
   /** 问这一页：整页当一个框，直接发出；text：输入框里自己打的那句（不给是「给我讲解一下这一页」），mats：输入框里带的材料 */
   const pageAsking = useRef(false)
   async function askPage(n = page, text = '给我讲解一下这一页', mats: Material[] = []) {
@@ -475,7 +561,12 @@ export function PdfTab(props: {
       // 键照命令表（问这一页、引用、放大缩小，设置 › 快捷键里能改）；编辑器（边读边记的笔记）先接了的不管
       if (e.defaultPrevented) return
       const typing = (e.target as Element | null)?.closest?.('textarea, input, .cm-editor')
-      if (isKey(e, 'ask-page')) {
+      // 选中小条上自己加的那颗的键（框着、选着时）
+      const own = boxed && !typing && !e.isComposing ? ownKeyHit(comboOf(e), 'pdf', bar, mine) : null
+      if (own) {
+        e.preventDefault()
+        void capCmd(own)
+      } else if (isKey(e, 'ask-page')) {
         e.preventDefault()
         if (boxed) void capQuote()
         else void askPage()
@@ -486,9 +577,10 @@ export function PdfTab(props: {
         e.preventDefault()
         void capQuote()
       } else if (e.key === 'Escape' && boxed && !(e.target as Element)?.closest?.('textarea')) cancelBox()
-      else if (isKey(e, 'zoom-in')) (e.preventDefault(), setZoom((z) => Math.min(4, z * 1.15)))
-      else if (isKey(e, 'zoom-out')) (e.preventDefault(), setZoom((z) => Math.max(0.4, z / 1.15)))
-      else if (isKey(e, 'zoom-reset')) (e.preventDefault(), setZoom(1))
+      else if (isKey(e, 'zoom-in')) (e.preventDefault(), zoomStep(1))
+      else if (isKey(e, 'zoom-out')) (e.preventDefault(), zoomStep(-1))
+      else if (isKey(e, 'zoom-reset')) (e.preventDefault(), zoomTo('width'))
+      else if (isKey(e, 'zoom-fit')) (e.preventDefault(), zoomTo('page'))
     }
     // 输入框里打了自己的问题再按 ⌘↵：带上这一页问这句（ReadingAi 发来，带着输入框里的材料）
     const onAskPage = (e: Event) => {
@@ -520,12 +612,31 @@ export function PdfTab(props: {
     () => {
       const slot = capRef.current?.offsetParent as HTMLElement | null
       if (!boxed || !slot || !scroller.current) return null
+      // 选着的字还在（缩放不重建文字层）：量选区本身，字的高度不完全按比例变，照记下的比例算会差几个像素
+      const live = boxed.quote ? selectionBox() : null
+      const b = live?.page === boxed.page ? live : boxed
       const r = slot.getBoundingClientRect()
-      const top = r.top + boxed.rect[1] * r.height
-      return { sel: { left: r.left + boxed.rect[0] * r.width, top, right: r.left + (boxed.rect[0] + boxed.rect[2]) * r.width, bottom: top + boxed.rect[3] * r.height }, view: clientArea(scroller.current) }
+      const top = r.top + b.rect[1] * r.height
+      return { sel: { left: r.left + b.rect[0] * r.width, top, right: r.left + (b.rect[0] + b.rect[2]) * r.width, bottom: top + b.rect[3] * r.height }, view: clientArea(scroller.current) }
     },
     [capOpen, boxed, width, scale, sizes],
   )
+
+  /** 「100% ▾」：放大、缩小、适合宽度 / 整页、几档常用比例；勾的是现在这一个 */
+  function zoomMenu() {
+    const at = Math.round(scale * 100)
+    void showMenu([
+      { label: '放大', accel: accelFor('zoom-in'), enabled: scale < 5, run: () => zoomStep(1) },
+      { label: '缩小', accel: accelFor('zoom-out'), enabled: scale > 0.25, run: () => zoomStep(-1) },
+      '-',
+      { label: '适合宽度', accel: accelFor('zoom-reset'), checked: zoom === 'width', run: () => zoomTo('width') },
+      { label: '适合整页', accel: accelFor('zoom-fit'), checked: zoom === 'page', run: () => zoomTo('page') },
+      '-',
+      ...PRESETS.map((s) => ({ label: `${Math.round(s * 100)}%`, checked: typeof zoom === 'number' && Math.round(s * 100) === at, run: () => zoomTo(s) })),
+      '-',
+      { label: '触控板捏合、按住 ⌘ 滚动也能缩放', enabled: false, run: () => undefined },
+    ])
+  }
 
   return (
     <section className="pane pdfpane" hidden={!props.active} data-path={path}>
@@ -554,27 +665,38 @@ export function PdfTab(props: {
             )}
           </div>
         )}
+        {sizes && (
+          // 比例本身就是按钮（同白板右上角的「80% ▾」），点开是缩放菜单
+          <button
+            type="button"
+            className="pzoom num"
+            data-testid="pdf-zoom"
+            aria-label="缩放"
+            data-tip="缩放"
+            data-key={[K('zoom-in'), K('zoom-out'), K('zoom-reset')].filter(Boolean).join(' ') || undefined}
+            data-side="below"
+            onClick={zoomMenu}
+          >
+            <span>{Math.round(scale * 100)}%</span>
+            <Codicon name="chevron-down" size={12} />
+          </button>
+        )}
         <ActBtn icon="comment-discussion" ai="chat" label="问这一页" keys={K('ask-page') ?? undefined} disabled={!doc || r.running !== null} onClick={() => void askPage()} />
         <div className="pdfmore">
           <ActBtn icon="ellipsis" label="更多" aria-expanded={more} onClick={() => setMore((v) => !v)} />
           {more && (
             <div className="menu" role="menu" aria-label="更多" onMouseLeave={() => setMore(false)}>
-              <button role="menuitem" onClick={() => (setZoom((z) => Math.min(4, z * 1.15)), setMore(false))}>
-                <Codicon name="zoom-in" size={14} />
-                放大{K('zoom-in') && <kbd>{K('zoom-in')}</kbd>}
-              </button>
-              <button role="menuitem" onClick={() => (setZoom((z) => Math.max(0.4, z / 1.15)), setMore(false))}>
-                <Codicon name="zoom-out" size={14} />
-                缩小{K('zoom-out') && <kbd>{K('zoom-out')}</kbd>}
-              </button>
-              <button role="menuitem" onClick={() => (setZoom(1), setMore(false))}>
-                <Codicon name="arrow-both" size={14} />
-                适合宽度{K('zoom-reset') && <kbd>{K('zoom-reset')}</kbd>}
-              </button>
               <button role="menuitem" onClick={() => (void window.cnReading.reveal(path), setMore(false))}>
                 <Codicon name="folder-opened" size={14} />
                 在访达中显示
               </button>
+              {/* 设置 › 软件家族：装了 ParaRead、「PDF的『⋯』里放『在ParaRead里读（双语）』」开着时 */}
+              {paraRead && (
+                <button role="menuitem" onClick={() => (setMore(false), void window.cnFamily.readInParaRead(path).catch((e: unknown) => props.onNotice(String((e as Error).message ?? e))))}>
+                  <Codicon name="link-external" size={14} />
+                  {tNow('在ParaRead里读（双语）')}
+                </button>
+              )}
               <div className="sep" />
               {/* 从用的地方跳到设置（方向 A 的 A3）：最下面一项写清现在的值 */}
               <button role="menuitem" className="go" onClick={() => (setMore(false), openSettingsAt('pdfZoom'))}>
@@ -582,12 +704,37 @@ export function PdfTab(props: {
                 {`新打开的PDF默认用「${pdfZoomName(appSettings().pdf.zoom)}」`}
                 <Codicon name="chevron-right" size={12} className="go-r" />
               </button>
+              {paraTip && (
+                <div className="fam-tip" data-testid="pararead-tip">
+                  <button role="menuitem" onClick={() => (setMore(false), openSettingsAt('fam-pararead'))}>
+                    {tNow('想原文下面跟着译文读：ParaRead')}
+                    <Codicon name="chevron-right" size={12} />
+                  </button>
+                  <button
+                    className="iconbtn"
+                    aria-label={tNow('不再提ParaRead')}
+                    data-tip={tNow('不再提')}
+                    onClick={() => {
+                      try {
+                        localStorage.setItem(PARAREAD_TIP, '1')
+                      } catch {
+                        // 存不下就只这一回不提
+                      }
+                      setTipOff(true)
+                    }}
+                  >
+                    <Codicon name="close" size={12} />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
       </TabActs>
-      <div className="pdfbody">
+      <div className="pdfbody" ref={bodyRef}>
         {error && <div className="pdferr">打不开这份PDF：{error}</div>}
+        {/* 在这份 PDF 里找（⇧⌘F）：读各页的字找，跳到那一页、文字层上铺淡底 */}
+        <PdfFind doc={doc} host={() => bodyRef.current} scroller={() => scroller.current} goPage={goPage} on={props.active} owner={path} />
         {/* PDF 的页面出错只这一格换成出错卡（task-pyb39），工具条、右栏照常 */}
         <PanelGuard area="pdf" label="PDF">
         <div
@@ -610,7 +757,7 @@ export function PdfTab(props: {
               <div key={n} className="pdfrow" style={{ marginTop: n === 1 ? PAD_TOP : 0 }}>
               <div className="pdfslot" style={{ width: s.w * scale, height: s.h * scale }}>
                 <span className="pno num">{n}</span>
-                <PageView doc={doc!} n={n} w={s.w * scale} h={s.h * scale} scale={scale} render={!!doc && visible.has(n)} />
+                <PageView doc={doc!} n={n} w={s.w * scale} h={s.h * scale} scale={scale} render={!!doc && visible.has(n)} lastPinch={lastPinch} />
                 <div className="pdfover">
                   {drag?.page === n && <div className="fr drawing" style={px(drag)} />}
                   {boxed?.page === n && !boxed.quote && <div className="fr pending" style={pct(boxed.rect)} data-testid="pdf-box" />}
@@ -649,7 +796,7 @@ export function PdfTab(props: {
                     ))}
                   </div>
                 )}
-                {capOpen && boxed?.page === n && !r.queued.length && (
+                {capOpen && bar.enabled && boxed?.page === n && !r.queued.length && (
                   <div
                     ref={capRef}
                     className={'cap capbar' + (capAt?.nokbd ? ' nokbd' : '')}
@@ -658,38 +805,24 @@ export function PdfTab(props: {
                     aria-label="框好的这块"
                     onPointerDown={(e) => e.stopPropagation()}
                   >
-                    <button className="main" onClick={() => void capAsk('explain')}>
-                      <AiIcon job="chat" size={14} />
-                      讲解一下{K('enter') && <kbd>{K('enter')}</kbd>}
-                    </button>
-                    <button onClick={() => void capAsk('translate')}>
-                      <Codicon name="whole-word" size={14} />
-                      翻译 + 讲一讲
-                    </button>
-                    <button onClick={() => void capQuote()}>
-                      <Codicon name="comment" size={14} />
-                      引用{K('ask-page') && <kbd>{K('ask-page')}</kbd>}
-                    </button>
-                    <span className="sepv" />
-                    <button className={'icon' + (capMore ? ' on' : '')} aria-label="更多" aria-haspopup="menu" aria-expanded={capMore} onClick={() => setCapMore((v) => !v)}>
-                      <Codicon name="ellipsis" size={14} />
-                    </button>
-                    <button className="icon" aria-label="取消" data-tip={`取消 ${K('escape') ?? ''}`.trim()} data-side="below" onClick={cancelBox}>
-                      <Codicon name="close" size={14} />
-                    </button>
-                    {capMore && (
-                      <div className="capmenu" role="menu" aria-label={boxed.quote ? '这段还能做什么' : '这块还能做什么'}>
-                        <button role="menuitem" onClick={() => void capCopy()}>
-                          <Codicon name="copy" size={14} />
-                          {boxed.quote ? '拷贝这段' : '拷贝这块'}
-                          {boxed.quote && K('copy') && <span className="r">{K('copy')}</span>}
-                        </button>
-                        <button role="menuitem" onClick={() => (setCapMore(false), openTranslateSettings())}>
-                          <Codicon name="settings-gear" size={14} />
-                          翻译设置…
-                        </button>
-                      </div>
-                    )}
+                    <CapButtons
+                      place="pdf"
+                      quote={!!boxed.quote}
+                      more={capMore}
+                      setMore={setCapMore}
+                      onCancel={cancelBox}
+                      escKey={K('escape')}
+                      acts={{
+                        explain: () => void capAsk('explain'),
+                        translate: () => void capAsk('translate'),
+                        quote: () => void capQuote(),
+                        copy: () => void capCopy(),
+                        cmd: (id) => void capCmd(id),
+                        trSettings: () => openTranslateSettings(),
+                        add: () => openBarSettings({ view: 'edit', sample: { text: boxed.quote ?? tNow('框下来的那张图'), title: (path.split('/').pop() ?? path).replace(/\.pdf$/i, '') } }),
+                        settings: () => openBarSettings({ view: 'list' }),
+                      }}
+                    />
                   </div>
                 )}
               </div>
@@ -719,46 +852,70 @@ function same(a: Set<number>, b: Set<number>) {
   return true
 }
 
-/** 一页：看得到才画（画布 + 文字层）；看不到的只占位 */
-const PageView = memo(function PageView(p: { doc: PdfDoc; n: number; w: number; h: number; scale: number; render: boolean }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+/**
+ * 一页：看得到才画（画布 + 文字层）；看不到的只占位。
+ * 换了比例：先把画好的那张拉到新大小（画布宽高跟着页面，文字层按 --total-scale-factor 跟着走），再按新比例画一张新的，画好了换上；
+ * 捏合的过程中不每一下都重画，停下 SETTLE_MS 后画一次。文字层只建一次，换比例时 update 重新排（选着的字、找到的高亮都还在）
+ */
+const PageView = memo(function PageView(p: { doc: PdfDoc; n: number; w: number; h: number; scale: number; render: boolean; lastPinch: React.RefObject<number> }) {
+  const holder = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
+  const tl = useRef<{ layer: pdfjs.TextLayer; ready: Promise<unknown> } | null>(null)
+  // 离开看得到的范围：画布和文字层都丢掉（回来重画）
+  useEffect(() => {
+    if (p.render) return
+    holder.current?.replaceChildren()
+    textRef.current?.replaceChildren()
+    tl.current?.layer.cancel()
+    tl.current = null
+  }, [p.render])
   useEffect(() => {
     if (!p.render || !p.doc) return
     let cancelled = false
     let task: ReturnType<pdfjs.PDFPageProxy['render']> | null = null
-    let tl: pdfjs.TextLayer | null = null
-    void (async () => {
-      const page = await p.doc.getPage(p.n)
-      if (cancelled) return
-      const vp = page.getViewport({ scale: p.scale })
-      const dpr = window.devicePixelRatio || 1
-      const canvas = canvasRef.current!
-      // 换了比例重画：画好之前不算画好
-      delete canvas.dataset.ready
-      canvas.width = Math.floor(vp.width * dpr)
-      canvas.height = Math.floor(vp.height * dpr)
-      task = page.render({ canvas, viewport: vp, ...(dpr !== 1 ? { transform: [dpr, 0, 0, dpr, 0, 0] } : {}) })
-      try {
-        await task.promise
-      } catch {
-        return
-      }
-      if (cancelled || !textRef.current) return
-      textRef.current.replaceChildren()
-      tl = new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: textRef.current, viewport: vp })
-      await tl.render().catch(() => undefined)
-      if (!cancelled) canvas.dataset.ready = '1'
-    })()
+    const had = !!holder.current?.querySelector('canvas[data-ready]')
+    const wait = had && Date.now() - (p.lastPinch.current ?? 0) < SETTLE_MS ? SETTLE_MS : 0
+    const timer = setTimeout(() => {
+      void (async () => {
+        const page = await p.doc.getPage(p.n)
+        if (cancelled) return
+        const vp = page.getViewport({ scale: p.scale })
+        // 2 倍屏按 2 倍画；整张超过 MAX_CANVAS_PX 时降下来（不低于 1 倍就不糊）
+        const dpr = Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_CANVAS_PX / (vp.width * vp.height)))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.floor(vp.width * dpr)
+        canvas.height = Math.floor(vp.height * dpr)
+        task = page.render({ canvas, viewport: vp, ...(dpr !== 1 ? { transform: [dpr, 0, 0, dpr, 0, 0] } : {}) })
+        try {
+          await task.promise
+        } catch {
+          return
+        }
+        if (cancelled || !holder.current || !textRef.current) return
+        canvas.dataset.ready = '1'
+        canvas.dataset.scale = String(p.scale)
+        holder.current.replaceChildren(canvas)
+        if (!tl.current) {
+          const layer = new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: textRef.current, viewport: vp })
+          textRef.current.replaceChildren()
+          tl.current = { layer, ready: layer.render().catch(() => undefined) }
+        } else {
+          const t = tl.current
+          await t.ready
+          if (!cancelled && tl.current === t) t.layer.update({ viewport: vp })
+        }
+      })()
+    }, wait)
     return () => {
       cancelled = true
+      clearTimeout(timer)
       task?.cancel()
-      tl?.cancel()
     }
-  }, [p.doc, p.n, p.scale, p.render])
+  }, [p.doc, p.n, p.scale, p.render, p.lastPinch])
+  useEffect(() => () => tl.current?.layer.cancel(), [])
   return (
     <div className="pdfpage" data-page={p.n} style={{ width: p.w, height: p.h, ['--total-scale-factor' as string]: p.scale, ['--scale-round-x' as string]: '1px', ['--scale-round-y' as string]: '1px' }}>
-      <canvas ref={canvasRef} style={{ width: p.w, height: p.h }} />
+      <div className="pdfcanvas" ref={holder} />
       <div className="textLayer" ref={textRef} />
     </div>
   )

@@ -123,14 +123,14 @@ for (const [skin, frame] of LOOKS) {
       await selectIn(page, 'p1', '举一个例子', '写入CSV文件中。')
       await shot(run, `1-web-bar-${tag}`)
       // ② 指着「剪藏」：提示剪进哪篇
-      const clip = await barPoint(page, 'button.clip')
+      const clip = await barPoint(page, 'button[data-k="clip"]')
       await page.mouse.move(clip.x, clip.y)
       await expect.poll(() => guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('.tip').style.display`)).toBe('block')
       await shot(run, `1-web-tip-${tag}`)
       // ③ ⋯
-      const more = await barPoint(page, 'button.more')
+      const more = await barPoint(page, 'button[data-k="__more"]')
       await page.mouse.click(more.x, more.y)
-      await expect.poll(() => guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('.menu').style.display`)).toBe('block')
+      await expect.poll(() => guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('.more-menu').style.display`)).toBe('block')
       await shot(run, `1-web-more-${tag}`)
       await page.mouse.click(more.x, more.y)
       // ④ 网页的笔记写进那篇：网页上的小标和点线（网页滚到 2.2.1）

@@ -2,6 +2,9 @@
  * 在读 PDF、看视频的那一格里打了整个库的命令（整理收件箱、现在梦游、找重复、剪藏这一页、写这周的周记，task-9womr）：
  * AI 那一格换到收件箱或首页那段对话（「这是在…问的 · 回到…」），在那里跑；这里记着要跑哪一句，那段对话的 AiPanel 一挂上就拿走跑。
  */
+import { t } from '../../shared/i18n'
+import { INBOX } from '../../shared/layout'
+
 let pending: { key: string; text: string } | null = null
 const subs = new Set<() => void>()
 
@@ -26,4 +29,5 @@ export function onRunIn(f: () => void): () => void {
 }
 
 /** 整个库的命令在哪段对话里跑：收件箱的两条在收件箱，别的在首页 */
-export const libPlace = (name: string): { key: string; label: string } => (name === '整理收件箱' || name === '现在梦游' ? { key: 'inbox', label: '收件箱' } : { key: 'home', label: '首页' })
+// 不翻：比的是命令名（BUILTINS 的身份）；收件箱那段对话的名字是磁盘上的文件夹名（和 ai-place.ts 的 placeOf 一样）
+export const libPlace = (name: string): { key: string; label: string } => (name === '整理收件箱' || name === '现在梦游' ? { key: 'inbox', label: INBOX } : { key: 'home', label: t('首页') })

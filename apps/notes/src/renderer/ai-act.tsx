@@ -16,6 +16,7 @@ import { type ActEntry, actEntries, actVersion, lastGrab, onActs, onWrote, still
 import { watchBoard } from './ai-card-grow'
 import { type EdgePhase, GlowEdge, GlowRing, type RingMode } from './ai-glow'
 import { AiIcon } from './engine-logo'
+import { useT } from './i18n'
 import './ai-act.css'
 
 export { stopActing }
@@ -24,6 +25,7 @@ export function useActs(): number {
   return useSyncExternalStore(onActs, actVersion)
 }
 
+// 不翻：键，画的地方翻（ActBar 里 t(TEXT[area])）
 const TEXT: Record<AiActArea, string> = { board: 'AI 正在整理这块白板', doc: 'AI 正在改这篇', web: 'AI 正在操作这个网页' }
 
 type Box = { x: number; y: number; w: number; h: number; r: string }
@@ -37,11 +39,12 @@ function edgePhase(e: ActEntry): EdgePhase {
 
 /** 顶上那条：进行中、停下了、整理好了…撤回 */
 function ActBar(props: { e: ActEntry; area: AiActArea }) {
+  const t = useT()
   const { e, area } = props
   const end = e.end
   const fin = !!end && !end.stopped && end.step >= 2
   const halt = e.stopping || !!end?.stopped
-  const text = fin ? (end!.undone ? '撤回了' : actDoneText(area, end!.tally)) : end?.stopped ? actHaltText(end.tally) : e.stopping ? '停下了：这一步做完就停' : TEXT[area]
+  const text = fin ? (end!.undone ? t('撤回了') : actDoneText(area, end!.tally)) : end?.stopped ? actHaltText(end.tally) : e.stopping ? t('停下了：这一步做完就停') : t(TEXT[area])
   const running = !end && !e.stopping
   return (
     <div className={'ai-actbar' + (fin ? ' fin' : '') + (halt ? ' halt' : '') + (end?.step === 3 ? ' hide' : '')} role="status" data-testid="ai-actbar">
@@ -50,12 +53,12 @@ function ActBar(props: { e: ActEntry; area: AiActArea }) {
       <span>{text}</span>
       {fin && end!.commit && !end!.undone && (
         <button type="button" className="undo" onClick={() => undoActing(e)}>
-          撤回
+          {t('撤回')}
         </button>
       )}
       {!end && !e.stopping && (
         <button type="button" className="ai-stop" onClick={stopActing}>
-          停下
+          {t('停下')}
           <kbd>esc</kbd>
         </button>
       )}
@@ -209,6 +212,7 @@ export function AiActLayer(props: { area: AiActArea; path?: string | null; host:
 
 /** 只加一张卡：那张卡边上一道光一直绕，卡下面「AI 在写这张卡 · 停下 esc」；做完停成一圈 1.2 秒淡掉，停下的说一句再淡掉 */
 function SpotCard(props: { e: ActEntry; find(id: string): HTMLElement | null; rectOf(el: HTMLElement): Box; room(): { w: number; h: number } }) {
+  const t = useT()
   const { e } = props
   const [box, setBox] = useState<Box | null>(null)
   const inl = useRef<HTMLDivElement>(null)
@@ -239,7 +243,7 @@ function SpotCard(props: { e: ActEntry; find(id: string): HTMLElement | null; re
   if (!box) return null
   const end = e.end
   const mode: RingMode | null = !end ? 'loop' : end.stopped ? null : end.step >= 2 ? 'fade' : 'settle'
-  const said = !end ? 'AI 在写这张卡' : end.stopped ? '停下了：这张卡留着' : null
+  const said = !end ? t('AI 在写这张卡') : end.stopped ? t('停下了：这张卡留着') : null
   return (
     <>
       {mode && (
@@ -259,7 +263,7 @@ function SpotCard(props: { e: ActEntry; find(id: string): HTMLElement | null; re
           <span>{said}</span>
           {!end && !e.stopping && (
             <button type="button" className="stop" onClick={stopActing}>
-              停下 esc
+              {t('停下 esc')}
             </button>
           )}
         </div>

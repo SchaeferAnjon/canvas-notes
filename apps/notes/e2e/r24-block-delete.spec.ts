@@ -27,6 +27,14 @@ const caret = (page: Page) =>
     return { text: ln?.textContent ?? null, prev: prev?.textContent ?? null }
   })
 
+/** 光标那一行上画着文末那一行灰字「输入 / 插入块」 */
+const caretOnTail = (page: Page) =>
+  page.evaluate(() => {
+    const n = document.getSelection()?.focusNode
+    const el = (n?.nodeType === 1 ? n : n?.parentElement) as HTMLElement | null
+    return !!el?.closest('.cm-line')?.querySelector('.cm-tailline')
+  })
+
 // ---------------------------------------------------------------- 用户那一篇
 
 const PARA = '"事情就开始了"这一句把源头指向迪尔和怪人拉德利，先抛一个悬念：一场孩子的游戏，怎么会一路牵出让人多年后还要"谈论"的过往。第一章还没讲什么大事，但这种倒叙的框架已经让人想往下读。'
@@ -55,12 +63,14 @@ test('task-6lsvd 用户那一篇：数据库块下面一行行首退格，先选
     await openNote(page, '杀死一只知更鸟（同名电影原著）')
     const db = pane(page).locator('[data-part="数据库块"]')
     await expect(db).toBeVisible()
-    await expect(db.locator('.base-count')).toHaveText('表格 · 0 条')
+    await expect(db.locator('.base-count')).toHaveText('0 条')
     // 点数据库块下面那一行（用户截图里光标那一行）
     const card = (await db.boundingBox())!
     await clickBelow(page, '.cm-base')
-    expect(await caret(page)).toEqual({ text: '', prev: expect.stringContaining('表格 · 0 条') })
-    const tail = pane(page).locator('.cm-tailline')
+    // task-ys1rr：块下面紧挨着的那个空行不停光标，点它就在文末新起一段，光标和灰字「输入 / 插入块」在同一行
+    expect(await caretOnTail(page)).toBe(true)
+    // 量灰字本身（文末那一行点进来时画在那一行里，关上以后画在文末下面：两处字的位置一样）
+    const tail = pane(page).locator('.cm-tail-ph')
     const tailY = (await tail.boundingBox())!.y
 
     // 第一下：选中整块，字不变，光标没跑到上一段。选中的样子和公式一样：强调色 24% 盖在卡上，大小、圆角跟卡自己
@@ -94,11 +104,11 @@ test('task-6lsvd 用户那一篇：数据库块下面一行行首退格，先选
     expect(Buffer.from(readFileSync(join(vault, BOOK_PATH))).equals(Buffer.from(BOOK))).toBe(true)
     expect(gitStatus(vault)).toBe('')
 
-    // 上面一行行尾按 Delete：同样先选中、再删；⌘Z 回来
+    // 上面一段段尾按 Delete（中间隔着一个空行）：同样先选中、再删；⌘Z 回来
     await line(page, '想往下读').click()
     await page.keyboard.press('End')
-    await page.keyboard.press('ArrowDown')
-    expect((await caret(page)).text).toBe('')
+    await page.keyboard.press('End')
+    expect((await caret(page)).text).toContain('想往下读')
     await page.keyboard.press('Delete')
     await expect(selBg(page)).toHaveCount(1)
     expect(await editorText(page)).toBe(BOOK)
@@ -130,12 +140,16 @@ test('task-6lsvd 选中整块以后：方向键、点别处取消选中，字不
       await below()
       await page.keyboard.press(k)
       await expect(selBg(page), k).toHaveCount(0)
-      expect(await editorText(page), k).toBe(BOOK)
+      await waitSaved(page)
+      expect(readFileSync(join(run.vault, BOOK_PATH), 'utf8'), k).toBe(BOOK)
     }
-    // ↑ 收起选中停在块上面（空行），不跳进上一段
+    // ↑ ←：收起选中走到上一段末尾（task-ys1rr，像 Notion；块和块之间的空行不停光标）；↓ →：块是全篇最后一样，到文末那一行
     await below()
     await page.keyboard.press('ArrowUp')
-    expect((await caret(page)).text).not.toContain('想往下读')
+    expect(await caret(page)).toEqual({ text: expect.stringContaining('想往下读'), prev: expect.anything() })
+    await below()
+    await page.keyboard.press('ArrowDown')
+    expect(await caretOnTail(page)).toBe(true)
     // 点别处
     await below()
     await line(page, '开篇很克制').click()
@@ -197,21 +211,20 @@ for (const [name, block] of KINDS) {
     try {
       await openNote(page, '块')
       await page.waitForTimeout(300)
+      // task-ys1rr 起块和块之间的空行不停光标：「块下面」是下一段段首，「块上面」是上一段段尾（中间隔着一个空行）
       for (const [key, place] of [
-        ['Backspace', async () => (await line(page, '下一段').click({ position: { x: 2, y: 6 } }), await page.keyboard.press('ArrowUp'))],
-        ['Delete', async () => (await line(page, '上一段').click(), await page.keyboard.press('End'), await page.keyboard.press('ArrowDown'))],
+        ['Backspace', async () => await line(page, '下一段').click({ position: { x: 2, y: 6 } })],
+        ['Delete', async () => (await line(page, '上一段').click(), await page.keyboard.press('End'))],
       ] as const) {
         await place()
-        // 在块旁边的空行上
-        expect((await caret(page)).text, key).toBe('')
         await page.keyboard.press(key)
         await expect(pane(page).locator('.cm-blk-selbg, .cm-math-sel'), key).toHaveCount(1)
         expect(await editorText(page), key).toBe(doc)
         await page.keyboard.press(key)
         await expect.poll(() => editorText(page), key).toBe(gone)
-        // 光标在上一段和下一段之间的空行上
+        // 光标在按键的那一边：退格在下一段段首、Delete 在上一段段尾（不停在上一段和下一段之间的空行上）
         const c = await caret(page)
-        expect(c, key).toEqual({ text: '', prev: '上一段。' })
+        expect(c.text, key).toBe(key === 'Backspace' ? '下一段。' : '上一段。')
         await waitSaved(page)
         expect(readFileSync(join(vault, '块.md'), 'utf8'), key).toBe(gone)
         await page.keyboard.press('Meta+z')
@@ -236,7 +249,7 @@ const TEXT_KINDS: [string, string, string, string][] = [
   ['AI 讲解（收着）', '> [!ai]- 讲解\n> 正文一', '讲解', '讲解'],
 ]
 
-test('task-6lsvd 能改字的块（代码块、提示块、AI 讲解）：下面一行行首退格、上面一行行尾 Delete 走进块里，记号不丢、光标不跳走', async () => {
+test('task-6lsvd 能改字的块（代码块、提示块、AI 讲解）：下一段段首退格、上一段段尾 Delete 走进块里，记号不丢、光标不跳走', async () => {
   const files: Record<string, string> = {}
   TEXT_KINDS.forEach(([, block], i) => (files[`字块${i}.md`] = `# 字块${i}\n\n上一段。\n\n${block}\n\n下一段。\n`))
   const run = await launch(files)
@@ -246,15 +259,13 @@ test('task-6lsvd 能改字的块（代码块、提示块、AI 讲解）：下面
       const doc = files[`字块${i}.md`]!
       await openNote(page, `字块${i}`)
       await page.waitForTimeout(300)
+      // 下一段段首退格、上一段段尾 Delete（task-ys1rr 起中间的空行不停光标）
       await line(page, '下一段').click({ position: { x: 2, y: 6 } })
-      await page.keyboard.press('ArrowUp')
-      expect((await caret(page)).text, name).toBe('')
       await page.keyboard.press('Backspace')
       expect(await editorText(page), name).toBe(doc)
       expect((await caret(page)).text, name + ' 退格').toContain(atBs)
       await line(page, '上一段').click()
       await page.keyboard.press('End')
-      await page.keyboard.press('ArrowDown')
       await page.keyboard.press('Delete')
       expect(await editorText(page), name).toBe(doc)
       expect((await caret(page)).text, name + ' Delete').toContain(atDel)

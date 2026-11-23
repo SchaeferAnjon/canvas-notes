@@ -90,7 +90,7 @@ const IN_CONTEXT: Record<string, string> = {
   'zoom-in': '白板上、PDF 上',
   'zoom-out': '白板上、PDF 上',
   'zoom-reset': '白板上、PDF 上',
-  'zoom-fit': '白板上',
+  'zoom-fit': '白板上、PDF 上',
   'board-inbox': '白板上（8isml-inbox-pop 按 ⇧⌘I 开关收件箱弹窗、设置里改键）',
   'ask-page': '读 PDF（step13-pdf、r2-read-ai 等按 ⌘↵）',
   quote: 'AI 回答里选了字（r7-ai-input 按 ⇧⌘L）',
@@ -98,6 +98,8 @@ const IN_CONTEXT: Record<string, string> = {
   'web-address': '网页里',
   'web-reload': '网页里',
   translate: '网页里',
+  'todo-when': '文档、白板卡里光标在一行待办上，待办详情小卡开着时（pd289-when 按 ⌥⌘T 弹定日子和时间的选择器）',
+  'find-in-page': '文档、白板、PDF、网页、导图里（wuv05-find-in-page、wuv05-mindmap-b2 逐个按 ⇧⌘F，改键）',
 }
 
 test('命令表里「软件里」的命令：照命令表的键，在编辑器、AI 输入框、网页、白板有焦点时逐个真按都跑对', async () => {
@@ -212,7 +214,7 @@ test('文档里：⌘E 切白板、F2 改名、⌘W 关标签；加粗、斜体�
   }
 })
 
-test('白板上：⌘= ⌘- ⌘0 ⇧⌘1 缩放（比例按钮上的数跟着变）；PDF 上 ⌘= ⌘- ⌘0 缩放（记在本机的比例跟着变）', async () => {
+test('白板上：⌘= ⌘- ⌘0 ⇧⌘1 缩放（比例按钮上的数跟着变）；PDF 上 ⌘= ⌘- ⌘0 缩放（「100% ▾」和记在本机的比例跟着变）', async () => {
   const run = await launch({ ...KEY_FILES, '课程/线代/第3讲.pdf': LECTURE })
   const { page } = run
   try {
@@ -243,15 +245,19 @@ test('白板上：⌘= ⌘- ⌘0 ⇧⌘1 缩放（比例按钮上的数跟着变
     await page.keyboard.press('Enter')
     await expect(tabOn(page)).toHaveText('第3讲.pdf')
     await expect(pane(page).locator('canvas').first()).toBeVisible()
-    const pdfZoom = () => page.evaluate(() => Number(localStorage.getItem('cn.pdfZoom:课程/线代/第3讲.pdf') ?? '1'))
-    const z0 = await pdfZoom()
+    // 工具条「100% ▾」上的数跟着变，记在本机的也跟着变；⌘0 回到适合宽度
+    const pdfPct = async () => Number((await acts(page).getByTestId('pdf-zoom').textContent())!.replace('%', ''))
+    const stored = () => page.evaluate(() => localStorage.getItem('cn.pdfScale:课程/线代/第3讲.pdf'))
+    const z0 = await pdfPct()
     await page.keyboard.press('Meta+Equal')
-    await expect.poll(pdfZoom).toBeGreaterThan(z0)
+    await expect.poll(pdfPct).toBeGreaterThan(z0)
+    await expect.poll(stored).not.toBe('width')
     await page.keyboard.press('Meta+Minus')
     await page.keyboard.press('Meta+Minus')
-    await expect.poll(pdfZoom).toBeLessThan(z0)
+    await expect.poll(pdfPct).toBeLessThan(z0)
     await page.keyboard.press('Meta+Digit0')
-    await expect.poll(pdfZoom).toBe(1)
+    await expect.poll(pdfPct).toBe(z0)
+    await expect.poll(stored).toBe('width')
   } finally {
     await run.close()
   }

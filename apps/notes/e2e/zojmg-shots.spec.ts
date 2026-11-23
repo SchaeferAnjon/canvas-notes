@@ -4,6 +4,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { launch, leftView, type Running } from './app'
+import { L } from './zojmg-lib'
 
 const DIR = process.env.CN_SHOTS ?? ''
 const DARK = process.env.CN_SHOT_TONE === 'dark'
@@ -108,15 +109,15 @@ async function walk(lang: 'zh' | 'en') {
     await expect.poll(() => page.evaluate(() => innerHeight)).toBe(887)
     await page.waitForTimeout(800)
     // 首页 + 左栏「最近」
-    await leftView(page, '最近')
+    await leftView(page, L(lang, '最近', 'Recent'))
     await shot(page, 'home', lang)
     // 左栏「文件」（目录树的样子归下一批，这里看头上的类型筛选和底栏）
-    await leftView(page, '文件')
+    await leftView(page, L(lang, '文件', 'Files'))
     await shot(page, 'files', lang)
     // 左边「待办」格
     await page.getByTestId('ab-todo').click()
     await shot(page, 'todo', lang)
-    await leftView(page, '最近')
+    await leftView(page, L(lang, '最近', 'Recent'))
     // ⌘K：没打字时、打了几个字时
     await page.keyboard.press('Meta+k')
     await page.waitForTimeout(300)

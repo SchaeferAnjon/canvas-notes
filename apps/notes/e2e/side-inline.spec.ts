@@ -313,7 +313,7 @@ test('AI 对话：回答里选一句也能「问这句」，就地展开、主�
     // 选一句：同一个小框（不再是「引用 · 拷贝」那条黑胶囊）
     await selectText(page, txt, '周三开始', '下来了。')
     await expect(page.getByRole('toolbar', { name: '选中的这段' })).toHaveCount(0)
-    await expect(askbox(page).locator('.it')).toHaveText(['引用进输入框⇧⌘L', '问这句↵'])
+    await expect(askbox(page).locator('.it')).toHaveText(['引用⌘↵', '问这句↵'])
     await askInBox(page, '三次都是几点跑的？')
     const s = sideIn(ai)
     await expect(s).toBeVisible()

@@ -14,7 +14,7 @@ import { B2_VAULT, withTimes } from './fixtures/b2-vault'
 import { armMenus, menuLabels, openedMenu, pickMenu } from './menu'
 
 const CATS = ['收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活']
-const ALL = ['文件', '待办', '最近', '书桌', ...CATS, '梦游报告', '最近删掉的', '库', '设置和外观']
+const ALL = ['文件', '待办', '日历', '最近', '书桌', ...CATS, '梦游报告', '最近删掉的', '库', '设置和外观']
 const pad = (n: number) => String(n).padStart(2, '0')
 const d = new Date()
 const TODAY = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -115,22 +115,26 @@ for (const frame of ['b', 'a'] as const) {
     const run = await start(frame)
     const { page } = run
     try {
-      await height(run, 900)
+      // 2026-11-22 图标栏多了「日历」一格（task-kzr3n）：A 格子大，900 高已经要收两格，从 960 起量（那里一格不收）
+      const top = frame === 'a' ? 960 : 900
+      await height(run, top)
       const down = new Map<number, number>()
-      for (let h = 900; h >= 600; h -= 10) {
+      for (let h = top; h >= 600; h -= 10) {
         await height(run, h)
         down.set(h, await check(page, frame, h))
       }
-      expect(down.get(900)).toBe(0)
+      expect(down.get(top)).toBe(0)
+      expect(down.get(900)).toBe(frame === 'b' ? 0 : 2)
       // 越矮收得越多
       const seq = [...down.values()]
       for (let i = 1; i < seq.length; i++) expect(seq[i]).toBeGreaterThanOrEqual(seq[i - 1]!)
-      // 600 高：收的是末尾的分类（B 三格「写作、项目、生活」，以前「库」「设置」压成 26 高才只收两格；A 格子大，收六格），「待办」「书桌」和数字 3 都还在
-      expect(down.get(600)).toBe(frame === 'b' ? 4 : 7)
+      // 600 高：收的是末尾的分类（B 五格「剪藏」到「生活」；A 格子大，八个分类全收），「待办」「书桌」「日历」和数字 3 都还在（多了「日历」一格以前是 B 四格、A 七格）
+      expect(down.get(600)).toBe(frame === 'b' ? 5 : 8)
+      await expect(bar(page).getByRole('button', { name: '日历', exact: true })).toBeInViewport()
       await expect(bar(page).getByRole('button', { name: '待办', exact: true })).toBeInViewport()
       await expect(bar(page).getByRole('button', { name: '书桌', exact: true })).toBeInViewport()
       await expect(bar(page).getByTestId('todo-count')).toHaveText('3')
-      for (let h = 610; h <= 900; h += 10) {
+      for (let h = 610; h <= top; h += 10) {
         await height(run, h)
         expect(await check(page, frame, h), `变高到 ${h}，收的格数和变矮时不一样`).toBe(down.get(h))
       }
@@ -145,7 +149,8 @@ for (const frame of ['b', 'a'] as const) {
     const { page } = run
     try {
       const inbox = await bar(page).getByTestId('inbox-count').textContent()
-      for (let h = 900; h >= 600; h -= 50) await height(run, h)
+      // A 在 600 高时连收件箱都收了（多了「日历」一格，task-kzr3n）：停在 650，只收分类
+      for (let h = 900; h >= (frame === 'a' ? 650 : 600); h -= 50) await height(run, h)
       await expect(more(page)).toBeVisible()
       await expect(more(page)).toHaveAttribute('aria-pressed', 'false')
       // 收起的都是分类，没有数字：「⋯」上没有数字

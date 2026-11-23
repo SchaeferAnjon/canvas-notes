@@ -13,8 +13,10 @@ import { type AiCmd, type Builtin, type Ctx, hiddenHere, hideSlash, moveInGroup,
 import { EngineLogo } from '../engine-logo'
 import { isKey, keyFor } from '../keys'
 import { useDismiss } from '../use-dismiss'
+import { useT } from '../i18n'
 import { deleteAiCmd, updateSlash, useAiCmds } from './store'
 import './slash.css'
+import { putOnBar } from '../sel-bar/run'
 
 export interface SlashOpts {
   /** 输入框里的字（/ 开头、中间没空格时菜单开着） */
@@ -37,10 +39,16 @@ export interface SlashOpts {
 const LIST_H = 392
 const FOOT_H = 28
 
+/** 自带的命令名字、说明照界面语言（名字是键）；自己存的照原样 */
+const nameOf = (t: (k: string) => string, it: SlashItem) => (it.builtin ? t(it.name) : it.name)
+const descOf = (t: (k: string) => string, it: SlashItem) => (it.builtin ? t(it.desc) : it.desc)
+
 /** 一条命令的小菜单里的一项 */
 interface RowAction {
   label: string
   icon: CodiconName
+  /** 前面一道线（藏起那一项） */
+  sep?: boolean
   red?: boolean
   disabled?: boolean
   run(): void
@@ -53,6 +61,7 @@ interface Toast {
 }
 
 export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onKey(e: React.KeyboardEvent): boolean; menu: ReactNode } {
+  const t = useT()
   const { mine, slash } = useAiCmds()
   const m = /^\/(\S*)$/.exec(o.text)
   const open = !!m
@@ -71,8 +80,8 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
   }, [open])
   useEffect(() => {
     if (!toast) return
-    const t = setTimeout(() => setToast(null), 6000)
-    return () => clearTimeout(t)
+    const timer = setTimeout(() => setToast(null), 6000)
+    return () => clearTimeout(timer)
   }, [toast])
   const at = Math.min(sel, Math.max(0, items.length - 1))
 
@@ -86,17 +95,21 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
     const g = groupOf(item)
     const ids = g?.items.map((x) => x.id) ?? []
     const i = ids.indexOf(item.id)
-    const move = (dir: -1 | 1) => act(`「${item.name}」${dir < 0 ? '往上' : '往下'}挪了一格`, updateSlash((s) => ({ ...s, order: moveInGroup(s.order, ids, item.id, dir) })))
+    const name = nameOf(t, item)
+    const move = (dir: -1 | 1) => act(dir < 0 ? t('「{name}」往上挪了一格', { name }) : t('「{name}」往下挪了一格', { name }), updateSlash((s) => ({ ...s, order: moveInGroup(s.order, ids, item.id, dir) })))
     return [
       ...(item.mine
-        ? [{ label: '改这条命令…', icon: 'edit' as const, run: () => o.onEdit(item.mine!) }]
+        ? [{ label: t('改这条命令…'), icon: 'edit' as const, run: () => o.onEdit(item.mine!) }]
         : item.builtin
-          ? [{ label: '复制一份再改…', icon: 'copy' as const, run: () => o.onCopy(item.builtin!) }]
+          ? [{ label: t('复制一份再改…'), icon: 'copy' as const, run: () => o.onCopy(item.builtin!) }]
           : []),
-      { label: '往上挪', icon: 'arrow-up', disabled: i <= 0, run: () => move(-1) },
-      { label: '往下挪', icon: 'arrow-down', disabled: i < 0 || i >= ids.length - 1, run: () => move(1) },
-      { label: '藏起', icon: 'eye-closed', run: () => act(`藏起了「${item.name}」，在最下面「藏着的」里放回`, updateSlash((s) => hideSlash(s, item.id))) },
-      ...(item.mine ? [{ label: '删掉这条', icon: 'trash' as const, red: true, run: () => act(`删掉了「${item.name}」`, deleteAiCmd(item.mine!)) }] : []),
+      ...(item.mine
+        ? [{ label: t('放到选中小条'), icon: 'list-selection' as const, run: () => act(t('「{name}」放到了选中小条', { name }), putOnBar(item.mine!, 'on').then((r) => r.undo)) }]
+        : []),
+      { label: t('往上挪'), icon: 'arrow-up', disabled: i <= 0, run: () => move(-1) },
+      { label: t('往下挪'), icon: 'arrow-down', disabled: i < 0 || i >= ids.length - 1, run: () => move(1) },
+      { label: t('藏起'), icon: 'eye-closed', sep: true, run: () => act(t('藏起了「{name}」，在最下面「藏着的」里放回', { name }), updateSlash((s) => hideSlash(s, item.id))) },
+      ...(item.mine ? [{ label: t('删掉这条'), icon: 'trash' as const, red: true, run: () => act(t('删掉了「{name}」', { name }), deleteAiCmd(item.mine!)) }] : []),
     ]
   }
 
@@ -166,7 +179,7 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
   let k = 0
   const menu = open ? (
     <div className="slash" data-testid="slash-menu" ref={root} onMouseDown={(e) => e.preventDefault()}>
-      <div className="sl-list" ref={list} role="listbox" aria-label="命令" style={{ height: listH }}>
+      <div className="sl-list" ref={list} role="listbox" aria-label={t('命令')} style={{ height: listH }}>
         {items.length || groups.some((g) => g.ph) ? (
           groups.map((g, gi) => (
             <Fragment key={g.key}>
@@ -194,21 +207,21 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
                     <span className="ico">{icon(it)}</span>
                     <div className="tx">
                       <div className="l1">
-                        <span className="n">{it.name}</span>
+                        <span className="n">{nameOf(t, it)}</span>
                         <span className="tg">
-                          {it.tags.map(([t, c]) => (
-                            <span key={t} className={c ?? ''}>
-                              {t}
+                          {it.tags.map(([tag, c]) => (
+                            <span key={tag} className={c ?? ''}>
+                              {t(tag)}
                             </span>
                           ))}
                         </span>
                       </div>
-                      <div className="d">{it.desc}</div>
+                      <div className="d">{descOf(t, it)}</div>
                     </div>
                     <button
                       className="more"
-                      aria-label={`「${it.name}」能做什么`}
-                      title={`改顺序、藏起（右键也行${keyFor('pal-menu') ? `，选中时 ${keyFor('pal-menu')}` : ''}）`}
+                      aria-label={t('「{name}」能做什么', { name: nameOf(t, it) })}
+                      title={keyFor('pal-menu') ? t('改顺序、藏起（右键也行，选中时 {key}）', { key: keyFor('pal-menu') }) : t('改顺序、藏起（右键也行）')}
                       onClick={(e) => {
                         e.stopPropagation()
                         openMenuFor(it, e.currentTarget.parentElement)
@@ -222,14 +235,14 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
             </Fragment>
           ))
         ) : (
-          <div className="ph none">没有这条命令，回车直接交给AI去做</div>
+          <div className="ph none">{t('没有这条命令，回车直接交给AI去做')}</div>
         )}
         {hidden.length > 0 && (
           <>
             <div className="g hid" role="presentation">
               <button className="hid-row" aria-expanded={showHidden} onClick={() => setShowHidden(!showHidden)}>
                 <Codicon name="eye-closed" size={14} />
-                {`藏着的 ${hidden.length} 条`}
+                {t('藏着的 {n} 条', { n: hidden.length })}
                 <Codicon name={showHidden ? 'chevron-down' : 'chevron-right'} size={12} />
               </button>
             </div>
@@ -239,12 +252,12 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
                   <span className="ico">{icon(it)}</span>
                   <div className="tx">
                     <div className="l1">
-                      <span className="n">{it.name}</span>
+                      <span className="n">{nameOf(t, it)}</span>
                     </div>
-                    <div className="d">{it.desc}</div>
+                    <div className="d">{descOf(t, it)}</div>
                   </div>
-                  <button className="put-back" onClick={() => act(`放回了「${it.name}」`, updateSlash((s) => unhideSlash(s, it.id)))}>
-                    放回
+                  <button className="put-back" onClick={() => act(t('放回了「{name}」', { name: nameOf(t, it) }), updateSlash((s) => unhideSlash(s, it.id)))}>
+                    {t('放回')}
                   </button>
                 </div>
               ))}
@@ -262,14 +275,14 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
                   setToast(null)
                 }}
               >
-                撤回
+                {t('撤回')}
               </button>
             )}
           </span>
         ) : (
           <>
-            <span>↑↓ 选择 · ↵ 执行 · esc 关闭</span>
-            <span className="r" data-testid="slash-count">{`${q ? '筛出' : '这里能用'} ${items.length} 条`}</span>
+            <span>{t('↑↓ 选择 · ↵ 执行 · esc 关闭')}</span>
+            <span className="r" data-testid="slash-count">{q ? t('筛出 {n} 条', { n: items.length }) : t('这里能用 {n} 条', { n: items.length })}</span>
           </>
         )}
       </div>
@@ -281,6 +294,8 @@ export function useSlash(o: SlashOpts): { open: boolean; items: SlashItem[]; onK
 
 /** 一条命令的小菜单（照 ⌘K 一条命令的菜单：230 宽、圆角 12，头一行命令名） */
 function RowMenu(p: { item: SlashItem; at: { left: number; top: number }; actions: RowAction[]; onClose(): void }) {
+  const t = useT()
+  const name = nameOf(t, p.item)
   const box = useRef<HTMLDivElement>(null)
   useDismiss(true, [box], () => p.onClose())
   // 往下放不下就往上弹
@@ -291,11 +306,11 @@ function RowMenu(p: { item: SlashItem; at: { left: number; top: number }; action
   }, [p.at.top])
   // 挂在 body 上：右栏的磨砂（backdrop-filter）不裁它
   return createPortal(
-    <div className="sl-menu" role="menu" aria-label={p.item.name} ref={box} style={{ left: p.at.left, top }} data-composer-pop="" onMouseDown={(e) => e.preventDefault()}>
-      <div className="h">{p.item.name}</div>
+    <div className="sl-menu" role="menu" aria-label={name} ref={box} style={{ left: p.at.left, top }} data-composer-pop="" onMouseDown={(e) => e.preventDefault()}>
+      <div className="h">{name}</div>
       {p.actions.map((a, i) => (
         <Fragment key={a.label}>
-          {a.label === '藏起' && i > 0 && <div className="sep" />}
+          {a.sep && i > 0 && <div className="sep" />}
           <button
             role="menuitem"
             className={a.red ? 'red' : ''}

@@ -7,6 +7,7 @@ import { app } from '../ctx/actions'
 import { type NavState, WebView, type WebviewEl } from './WebView'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import { Popover } from '../shell/Shell'
+import { WebFind } from '../find/WebFind'
 
 /** 中间栏里的宽网页标签：一个网页单独开成一个标签读 */
 export function WebTab(props: {
@@ -21,6 +22,7 @@ export function WebTab(props: {
   onPutBack(): void
 }) {
   const view = useRef<WebviewEl | null>(null)
+  const body = useRef<HTMLDivElement>(null)
   const [wc, setWc] = useState<number | null>(null)
   const [nav, setNav] = useState<NavState | null>(null)
   const [title, setTitle] = useState('')
@@ -95,7 +97,9 @@ export function WebTab(props: {
           <Codicon name="quote" size={14} />
         </button>
       </div>
-      <div className="wbody">
+      <div className="wbody" ref={body}>
+        {/* 在这个网页里找（⇧⌘F） */}
+        <WebFind view={() => view.current} host={() => body.current} on={props.active} owner={'webtab:' + props.url} tab={props.url} />
         {shown && (
           <WebView
             initialUrl={props.url}

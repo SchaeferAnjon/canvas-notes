@@ -2,6 +2,7 @@
  * 文档里的一段 [字](网址)：在哪、字和网址各在哪（链接卡的改链接、去掉链接，右键菜单用）；卡上那一行网址怎么写。
  * 纯函数，不碰 DOM（右键菜单的单元测试也载它）。
  */
+import { t } from '../shared/i18n'
 
 /** 一行里的 [字](网址)（! 开头的是图，不算） */
 const MD_LINK = /(!?)\[([^\]\n]*)\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"\n]*")?\s*\)/g
@@ -32,7 +33,7 @@ export function mdLinkAt(doc: { lineAt(pos: number): { from: number; text: strin
 
 /** 卡上那一行网址：不写 https:// 和 www.，中文解码，去掉末尾的 /；微信读书的书写「微信读书」 */
 export function prettyUrl(url: string): string {
-  if (/^weread:/i.test(url)) return '微信读书'
+  if (/^weread:/i.test(url)) return t('微信读书')
   let s = url
   try {
     s = decodeURI(url)

@@ -49,3 +49,25 @@ export const clock = (ms: number, lang: Lang = uiLang()) => {
   if (lang === 'en' && hour12()) return EN.h12.format(d)
   return `${p2(d.getHours())}:${p2(d.getMinutes())}`
 }
+
+/**
+ * 往后的一天（待办的日子、到点提醒，task-i921u 自动化「加一条待办」）：「今天 09:00」「明天 21:00」、这周还没到的「周五 09:00」、
+ * 下周「下周一 09:00」，再往后「11月30日 09:00」、往年带年。day 是写进文件的 2026-11-30，time 是 09:00 或没有。英文「Today」「Tomorrow」「Mon」「Nov 30」
+ */
+export function dueText(day: string, time: string | null, nowMs = Date.now(), lang: Lang = uiLang()): string {
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number]
+  const date = new Date(y, m - 1, d)
+  const now = new Date(nowMs)
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const days = Math.round((date.getTime() - today.getTime()) / DAY_MS)
+  /** 周一开头：今天是这周第几天（0 是周一） */
+  const wd = (today.getDay() + 6) % 7
+  const week = (x: Date) => (lang === 'en' ? EN.weekday.format(x) : '周' + '日一二三四五六'[x.getDay()]) // 不翻：中文的星期写法
+  let text: string
+  if (days === 0) text = tIn(lang, '今天')
+  else if (days === 1) text = tIn(lang, '明天')
+  else if (days > 1 && days < 7 - wd) text = week(date)
+  else if (days >= 7 - wd && days < 14 - wd) text = lang === 'en' ? `${tIn(lang, '下周')} ${week(date)}` : '下' + week(date) // 不翻：中文「下周一」
+  else text = dateText(date.getTime(), nowMs, lang)
+  return time ? `${text} ${time}` : text
+}

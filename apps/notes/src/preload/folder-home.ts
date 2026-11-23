@@ -13,6 +13,7 @@ export const folderApi: CnFolderApi = {
   make: (parent, name) => ipcRenderer.invoke('folder:create', parent, name),
   trash: (folder, confirmed) => ipcRenderer.invoke('folder:trash', folder, confirmed === true),
   move: (folder, parent) => ipcRenderer.invoke('folder:move', folder, parent),
+  moveItem: (path, folder) => ipcRenderer.invoke('folder:moveItem', path, folder),
   left: () => ipcRenderer.invoke('left:get'),
   descs: () => ipcRenderer.invoke('cat:descs'),
   setDesc: (name, text) => ipcRenderer.invoke('cat:setDesc', name, text),

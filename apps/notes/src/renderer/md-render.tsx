@@ -5,6 +5,7 @@ import { parseCallout } from './callout'
 import { EngineLogo } from './engine-logo'
 import { MathBlock, MathInline } from './reading/math'
 import { ScrollX } from './scroll-x'
+import { t as tNow } from '../shared/i18n'
 
 /** 和第 from 行之前那个折叠块配对的 </details> 在第几行（里面套着的折叠块数着开、关跳过）；没有是 -1 */
 function detailsClose(lines: string[], from: number): number {
@@ -29,7 +30,7 @@ function detailsClose(lines: string[], from: number): number {
 export function reviewTag(line: string): { wr: boolean; len: number } | null {
   const m = /^(\*\*)?(我的评价|微信读书的想法)(\*\*)?([：:])?(\*\*)?[ \t]*/.exec(line)
   if (!m) return null
-  const wr = m[2] === '微信读书的想法'
+  const wr = m[2] === '微信读书的想法' // 不翻：写进文件的标签
   if (wr && !m[4]) return null
   return { wr, len: m[0].length }
 }
@@ -39,6 +40,7 @@ export function reviewTag(line: string): { wr: boolean; len: number } | null {
  * 和文档里（review.css 的 cm-review-tag）一个样子，卡片里小一号
  */
 export function Attached({ wr, children, hooked, clamp }: { wr: boolean; children: ReactNode; hooked: boolean; clamp?: string }) {
+  // 不翻：写进文件的标签，照文件里的字画（同文档里 review.ts 的标签小块）
   const tag = <span className={'md-review-tag' + (wr ? ' wr' : '')}>{wr ? '微信读书的想法' : '我的评价'}</span>
   return (
     <div className={'md-attached' + (hooked ? ' hooked' : '')} data-kind={wr ? 'wr' : 'me'}>
@@ -284,7 +286,11 @@ function joinLines(lines: string[], k: number, math: boolean): ReactNode[] {
   return lines.flatMap((l, j) => (j ? [<br key={`${k}-br${j}`} />, ...inline(l, `${k}-${j}`, math)] : inline(l, `${k}-${j}`, math)))
 }
 
-const INLINE = /(!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)|\*\*[^*]+\*\*|==[^=\s](?:[^=]*[^=\s])?==|~~[^~]+~~|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\([^)\s]+(?:\s+"[^"]*")?\))/y
+const INLINE = /(!\[[^\]]*\]\([^)\s]+(?:\s+"[^"]*")?\)|\*\*[^*]+\*\*|==[^=\s](?:[^=]*[^=\s])?==|~~[^~]+~~|\*[^*\s][^*]*\*|`[^`]+`|\[\[[^\]]+\]\]|\[[^\]]+\]\((?:<[^>\n]+>|[^)\s]+)(?:\s+"[^"]*")?\))/y
+/** 回答里双链露出来的字：不露 md 记号，「笔记#标题」写成「笔记 › 标题」，#^块号 不露（有别名只露别名） */
+const citeLabel = (inner: string) => wikiLabel(inner).replace(/\s*#\^[^#|]*$/, '').replace(/\s*#\s*/, ' › ')
+/** [字](链接 "标题") 里的链接（<…> 包着的去掉尖括号） */
+const linkHref = (t: string) => t.slice(t.indexOf('](') + 2, -1).replace(/\s+"[^"]*"$/, '').replace(/^<(.*)>$/, '$1')
 /** 汉字、假名、谚文（中西文之间要留 1/8 字宽的那一边；标点不算） */
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u
 
@@ -325,20 +331,21 @@ export function inline(s: string, keyBase: string | number = '', math = true): R
     }
     flush()
     // 正文中间的图片只留说明文字：卡片里放大图会把卡片撑得很长
-    if (t.startsWith('![')) out.push(<span key={key} className="img-alt">{t.slice(2, t.indexOf(']')) || '图片'}</span>)
+    if (t.startsWith('![')) out.push(<span key={key} className="img-alt">{t.slice(2, t.indexOf(']')) || tNow('图片')}</span>)
     // 加粗里面的公式、代码照常排
     else if (t.startsWith('**')) out.push(<b key={key}>{inline(t.slice(2, -2), key, math)}</b>)
     // 高亮、删除线：和文档里（live-preview 的 cm-hl、cm-strike）一个样子
     else if (t.startsWith('==')) out.push(<mark key={key} className="md-hl">{t.slice(2, -2)}</mark>)
     else if (t.startsWith('~~')) out.push(<s key={key}>{t.slice(2, -2)}</s>)
     else if (t.startsWith('`')) out.push(<code key={key}>{t.slice(1, -1)}</code>)
-    else if (t.startsWith('[[')) out.push(<span key={key} className="wl">{wikiLabel(t.slice(2, -2))}</span>)
+    // 双链、[字](链接)：引用（task-3e53q）。点了出预览卡、⌘点打开、⇧⌘点新标签（cite.tsx 在整个窗口上接住点击，哪里画的都一样）
+    else if (t.startsWith('[[')) out.push(<a key={key} className="wl cite" data-wiki={t.slice(2, -2)}>{citeLabel(t.slice(2, -2))}</a>)
     // 读 PDF 时 AI 回答里的「[第 4 页](#page=4)」：点了 PDF 翻过去（右栏 AI 接住点击）
     else if (/\]\(#page=\d+\)$/.test(t)) out.push(<a key={key} className="pg" data-page={/#page=(\d+)/.exec(t)![1]}>{t.slice(1, t.indexOf(']'))}</a>)
     // 笔记里带文件的「[第 4 页](x.pdf#page=4&rect=…)」：和上面一个样子；指的是哪份 PDF 由用的地方按笔记路径认（白板卡里点，page-link.ts）。
     // 不带 data-page：右栏 AI 那边只认光写页码的（它翻的是开着的那份）
-    else if (/\]\((?![a-z][a-z0-9+.-]*:)[^)\s]+\.pdf#(?:[^)\s]*&)?page=\d+[^)\s]*\)$/i.test(t)) out.push(<a key={key} className="pg" data-href={t.slice(t.indexOf('](') + 2, -1)}>{t.slice(1, t.indexOf(']'))}</a>)
-    else if (t.startsWith('[')) out.push(<u key={key}>{t.slice(1, t.indexOf(']'))}</u>)
+    else if (/\]\((?![a-z][a-z0-9+.-]*:)[^)\s]+\.pdf#(?:[^)\s]*&)?page=\d+[^)\s]*\)$/i.test(t)) out.push(<a key={key} className="pg cite" data-href={t.slice(t.indexOf('](') + 2, -1)}>{t.slice(1, t.indexOf(']'))}</a>)
+    else if (t.startsWith('[')) out.push(<a key={key} className="cite" data-href={linkHref(t)}>{t.slice(1, t.indexOf(']'))}</a>)
     else out.push(<i key={key}>{inline(t.slice(1, -1), key, math)}</i>)
     p += t.length
   }

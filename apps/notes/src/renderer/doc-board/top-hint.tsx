@@ -9,8 +9,13 @@
  */
 import { Codicon } from '@cn/design'
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { rich, useT } from '../i18n'
 
 const SEEN = 'cn.boardHint.seen:'
+/** 「空白处按住拖是框选 · 按住空格拖是平移」整个软件只说一次（task-5ryf9） */
+const SELECT = 'cn.boardHint.select'
+/** 框选那句停多久（设计稿 17-白板框选：9 秒） */
+export const SELECT_MS = 9000
 const HIDDEN = 'cn.boardHint.hidden:'
 /** 说明不动它停多久 */
 export const INTRO_MS = 6000
@@ -47,7 +52,7 @@ function saveHidden(path: string, ids: Set<string>) {
 }
 
 /** 这一刻条子上写的东西（收起淡出时照旧显示它） */
-type Shown = { kind: 'intro' | 'moved'; moved: number; placedCols: number; total: number; per: number; openCols: number }
+type Shown = { kind: 'intro' | 'moved' | 'select'; moved: number; placedCols: number; total: number; per: number; openCols: number }
 
 /** 顶上那一行至少这么宽才出这条（ⓘ + 6 个字左右 + …… + ×）；再窄字只剩一两个，不如不出 */
 const HINT_ROOM = 160
@@ -70,9 +75,26 @@ export function TopHint(props: {
   area: RefObject<HTMLElement | null>
   onReset: () => void
 }) {
+  const t = useT()
   const { path, placedIds } = props
   const [seen, setSeen] = useState(() => loadSeen(path))
   const [hidden, setHidden] = useState(() => loadHidden(path))
+  // 框选那句：这一次打开时这块白板的说明已经说过（同一次打开只出一条，说明优先）、整个软件还没说过，才说
+  const [selectOn, setSelectOn] = useState(() => {
+    try {
+      return loadSeen(path) && localStorage.getItem(SELECT) !== '1'
+    } catch {
+      return false
+    }
+  })
+  const markSelect = () => {
+    setSelectOn(false)
+    try {
+      localStorage.setItem(SELECT, '1')
+    } catch {
+      // 记不住只是下次再说一次
+    }
+  }
   /** 指着 ×：说明先不计时（悬停提示 400ms 才出来，别刚出来条子就没了） */
   const [onX, setOnX] = useState(false)
   // 改名、换了一篇：按新路径重读
@@ -117,7 +139,7 @@ export function TopHint(props: {
   }, [path])
 
   const movedOn = placedIds.some((id) => !hidden.has(id))
-  const kind: Shown['kind'] | null = movedOn ? 'moved' : !seen ? 'intro' : null
+  const kind: Shown['kind'] | null = movedOn ? 'moved' : !seen ? 'intro' : selectOn ? 'select' : null
 
   const markSeen = () => {
     setSeen(true)
@@ -128,12 +150,13 @@ export function TopHint(props: {
     if (movedOn && !seen) markSeen()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [movedOn, seen])
-  // 说明：在前台停 INTRO_MS 自己收起；白板上第一次操作就收起
+  // 说明：在前台停 INTRO_MS（框选那句 SELECT_MS）自己收起；白板上第一次操作就收起
   useEffect(() => {
-    if (kind !== 'intro' || !props.active || props.away || narrow) return
-    const t = onX ? undefined : setTimeout(markSeen, INTRO_MS)
+    if ((kind !== 'intro' && kind !== 'select') || !props.active || props.away || narrow) return
+    const done = kind === 'select' ? markSelect : markSeen
+    const t = onX ? undefined : setTimeout(done, kind === 'select' ? SELECT_MS : INTRO_MS)
     const el = props.area.current
-    const op = () => markSeen()
+    const op = () => done()
     el?.addEventListener('pointerdown', op, true)
     el?.addEventListener('wheel', op, { capture: true, passive: true })
     el?.addEventListener('keydown', op, true)
@@ -185,24 +208,25 @@ export function TopHint(props: {
       <Codicon name="info" size={14} />
       {s.kind === 'moved' ? (
         <span className="tx">
-          <b>{s.moved && s.placedCols ? `${s.moved}张卡、${s.placedCols}列` : s.moved ? `${s.moved}张卡` : `${s.placedCols}列`}</b>
-          {`${s.moved && !s.placedCols ? '离开了自己那一节' : '不在原来的地方'} · 文件里多了${n}行位置`}
+          {rich(s.moved && !s.placedCols ? t('{what}离开了自己那一节 · 文件里多了{n}行位置', { n }) : t('{what}不在原来的地方 · 文件里多了{n}行位置', { n }), {
+            what: <b>{s.moved && s.placedCols ? t('{n}张卡、{cols}列', { n: s.moved, cols: s.placedCols }) : s.moved ? t('{n}张卡', { n: s.moved }) : t('{n}列', { n: s.placedCols })}</b>,
+          })}
         </span>
+      ) : s.kind === 'select' ? (
+        <span className="tx">{rich(t('空白处按住拖是{a} · 按住空格拖是{b}'), { a: <b>{t('框选')}</b>, b: <b>{t('平移')}</b> })}</span>
       ) : s.total > 200 ? (
         <span className="tx">
-          {`这篇有${s.total}段 · `}
-          <b>{`每节先摆${s.per}张，第${s.openCols + 1}节起只留列头`}</b>
+          {rich(t('这篇有{total}段 · {rule}', { total: s.total }), { rule: <b>{t('每节先摆{per}张，第{k}节起只留列头', { per: s.per, k: s.openCols + 1 })}</b> })}
         </span>
       ) : (
         <span className="tx">
-          {'按「##」摆成列 · '}
-          <b>挪动了才写进文件</b>
+          {rich(t('按「##」摆成列 · {rule}'), { rule: <b>{t('挪动了才写进文件')}</b> })}
         </span>
       )}
       {s.kind === 'moved' && !props.readOnly && (
         <button type="button" className="db-pill" onClick={props.onReset}>
           <Codicon name="discard" size={13} />
-          摆回原样
+          {t('摆回原样')}
         </button>
       )}
       <button
@@ -210,9 +234,10 @@ export function TopHint(props: {
         className="db-hint-x"
         onPointerEnter={() => setOnX(true)}
         onPointerLeave={() => setOnX(false)}
-        aria-label={s.kind === 'moved' ? '先藏起这条' : '收起这条说明'}
-        data-tip={s.kind === 'moved' ? '先藏起，再有卡或列挪离自己那一节时出来' : '收起，这块白板以后不再出这条说明'}
+        aria-label={s.kind === 'moved' ? t('先藏起这条') : t('收起这条说明')}
+        data-tip={s.kind === 'moved' ? t('先藏起，再有卡或列挪离自己那一节时出来') : t('收起，这块白板以后不再出这条说明')}
         onClick={() => {
+          if (s.kind === 'select') return markSelect()
           if (s.kind === 'intro') return markSeen()
           const next = new Set(placedIds)
           setHidden(next)

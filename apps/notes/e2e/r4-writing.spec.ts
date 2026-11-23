@@ -138,13 +138,13 @@ test('白板上单独摆着的段落：文档里 ←、Home 两下、Ctrl+A、�
     await expect(pane(page).locator('.cm-content')).not.toContainText('<!--')
   }
   try {
-    // ←：从段首往前到上面的空行，打的字在空行里
+    // ←：从段首走到上一段末尾（task-ys1rr 起块和块之间的空行不停光标；以前停在空行上，打的字并进上一段成了它的第二行），位置行不碰
     await openNote(page, '左移')
     await clickMiddle()
     await page.keyboard.press('Home')
     await page.keyboard.press('ArrowLeft')
     await page.keyboard.type('Y')
-    await check('左移', NOTE('左移').replace(`\n\n${LINE}`, `\nY\n${LINE}`))
+    await check('左移', NOTE('左移').replace('第二段卡片。', '第二段卡片。Y'))
     // Home 两下：停在段首
     await openNote(page, '两下')
     await clickMiddle()

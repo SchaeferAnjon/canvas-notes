@@ -57,9 +57,10 @@ async function selectAndClip(page: Page, id: string, tip: string) {
     await page.mouse.click(p.x, p.y, { clickCount: 3 })
     if (await expect.poll(() => guest(page, 'getSelection().toString().length'), { timeout: 1000 }).toBeGreaterThan(0).then(() => true, () => false)) break
   }
+  // task-26nz7 选中小条能自定义：⋯ 后面多一颗 ×（右键：这个网站不弹），没有字，所以最后两格都是空的
   await expect
     .poll(() => guest(page, `(() => { const h = ${HOST}; return h ? [...h.shadowRoot.querySelectorAll('.bar > button')].map((b) => b.textContent.replace(/\\s+/g, ' ').trim()).join('|') + '|' + h.style.display : '' })()`))
-    .toBe('讲解一下↵|翻译 + 讲一讲|引用⌘↵|剪藏⌘S||block')
+    .toBe('讲解一下↵|翻译 + 讲一讲|引用⌘↵|剪藏⌘S|||block')
   const b = await guestRect(page, `${HOST}.shadowRoot.querySelector('button.clip')`)
   await page.mouse.move(b.x, b.y)
   await expect.poll(() => guest(page, `${HOST}.shadowRoot.querySelector('.tip')?.innerText.replace(/\\n+/g, '|')`)).toBe(tip)

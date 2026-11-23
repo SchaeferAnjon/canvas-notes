@@ -11,6 +11,9 @@ import { pastedUrl } from './paste-images'
 import { AiHead, AwayBar, Chip, type DockNav, Sees } from './ai-head'
 import { askLine, MULTI, pickAsk, quickCmds } from './ai-greet'
 import { dropPicked, pickedFiles, pickTip, usePicked } from './ai-pick'
+import { dropCards, pickText, useCardPick } from './ai-cards'
+import { runTidy } from './commands/tidy'
+import { t } from '../shared/i18n'
 import { Greeting, type Quick, QuickRow } from './ai-quick'
 import { AiInput, MatMsg, sendText, useComposer, useConvPick } from './composer'
 import { createPortal } from 'react-dom'
@@ -96,6 +99,9 @@ const RUNNERS: Record<string, (env: RunEnv) => Promise<void>> = {
   字幕整理成一篇: runVideoText,
   书摘按主题分节: runBookThemes,
   写这周的周记: runWeek,
+  // 白板、文档操作条的「AI整理」（task-5ryf9）
+  整理这几张: (env) => runTidy(env, 'board'),
+  整理这几段: (env) => runTidy(env, 'doc'),
 }
 
 const lastSeg = (p: string) => p.split('/').pop() || p
@@ -254,12 +260,16 @@ export function AiPanel(props: AiPanelProps) {
   pickedNow.current = picked
   const knownFiles = useKnownFiles()
   const pickList = useMemo(() => (picked ? pickedFiles(picked.items, knownFiles) : []), [picked, knownFiles])
+  // 白板框选的几张、文档拖选的几块（task-5ryf9）：只在那一篇开着时算
+  const cardPick = useCardPick()
+  const cardsHere = cardPick && props.tab?.type === 'note' && props.tab.path === cardPick.path ? cardPick : null
   const draftSeq = useRef(0)
   // 文档里带进来的那一块跟着那个标签：换了标签就拿掉它（和它在字里的编号），自己接着打的问题留着，不拿上一篇的话问这一篇
   useEffect(() => {
     c.dropDocQuotes(props.tab?.id ?? null)
     // 左栏选了好几个「问AI」也跟着那时的标签：换了标签就拿掉（task-0tgz2）
     if (pickedNow.current && pickedNow.current.tab !== (props.tab?.id ?? null)) dropPicked()
+    if (cardPick && !(props.tab?.type === 'note' && props.tab.path === cardPick.path)) dropCards()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.tab?.id])
   useEffect(() => {
@@ -343,6 +353,11 @@ export function AiPanel(props: AiPanelProps) {
   function quickItems(folder: string | null): Quick[] {
     // 左栏选了好几个：好几篇用得上的（点了就是发那一问，是哪几篇跟着「看得到」交给 AI）
     if (picked) return MULTI.map((m) => ({ text: m.text, icon: m.icon, tip: m.ask, go: () => void run(m.ask) }))
+    // 白板、文档里选中的几样（task-5ryf9，原型右栏那一排）
+    if (cardsHere) {
+      const qs = cardsHere.where === 'board' ? [t('总结这几张'), t('出几道题'), t('画成导图'), t('它们有什么联系')] : [t('讲一讲这几块'), t('出几道题'), t('改写得更清楚'), t('画成导图')]
+      return qs.map((q) => ({ text: q, icon: 'comment-discussion' as const, tip: q, go: () => void run(q) }))
+    }
     const web = !!(props.webOpen && props.webUrl)
     const cmd = (name: string): Quick => ({
       text: name,
@@ -748,7 +763,11 @@ export function AiPanel(props: AiPanelProps) {
   async function agentTurn(id: number, text: string, mats: Material[] = [], subject?: string) {
     // 回答头上写全「Claude Code · Opus 5.5 · High」：这个对话这一问用的
     patch(id, { live: true, engine, text: '', by: cp.label })
-    const ctx = { ...props.context(mentions), ...(picked ? { picked: { count: picked.items.length, files: pickList } } : {}) }
+    const ctx = {
+      ...props.context(mentions),
+      ...(picked ? { picked: { count: picked.items.length, files: pickList } } : {}),
+      ...(cardsHere ? { cards: { where: cardsHere.where, count: cardsHere.items.length, text: pickText(cardsHere) } } : {}),
+    }
     const pasted = imageNames(mats)
     try {
       // 接着这个地方自己的会话（D 组 CN-132）；模型和 effort 是这个对话选的（CN-91）
@@ -1077,7 +1096,7 @@ export function AiPanel(props: AiPanelProps) {
     ro.observe(box)
     return () => ro.disconnect()
   })
-  const sees: { label: string; on?: boolean }[] = [{ label: seen.see, on: !picked }, ...(web ? [{ label: `网页：${hostOf(web)}` }] : []), ...mentions.map((m) => ({ label: `@${titleOf(m)}` }))]
+  const sees: { label: string; on?: boolean }[] = [{ label: seen.see, on: !picked && !cardsHere }, ...(web ? [{ label: `网页：${hostOf(web)}` }] : []), ...mentions.map((m) => ({ label: `@${titleOf(m)}` }))]
   // 它在这一页能替你做的动作（右栏网页开着时是网页的，最可能是要它动网页）
   const hands = web ? HANDS.web : seen.hands
   // 实心主按钮一屏最多一个（DESIGN.md 组件）：只有最新那条带按钮的回答用实心，之前的「打开」「存成卡片」退成次按钮
@@ -1095,6 +1114,11 @@ export function AiPanel(props: AiPanelProps) {
         {picked && (
           <Chip on testid="ai-picked" title={pickTip(picked.items, knownFiles)}>
             {`选中的${picked.items.length}个`}
+          </Chip>
+        )}
+        {cardsHere && !picked && (
+          <Chip on testid="ai-cards" title={cardsHere.items.map((x) => x.text.trim().split('\n')[0]!.slice(0, 40)).join('\n')}>
+            {cardsHere.where === 'board' ? t('白板上选中的{n}张', { n: cardsHere.items.length }) : t('这篇里选中的{n}块', { n: cardsHere.items.length })}
           </Chip>
         )}
         {sees.map((s) => (
@@ -1174,9 +1198,9 @@ export function AiPanel(props: AiPanelProps) {
               {m.text && <AnswerText text={m.text} marks={marks.get(m.id)} live={!!m.live || !!m.pending} />}
               {/* 做了几步才断的：「没做完」放在说到一半的字后面（停在哪里一眼看得到） */}
               {m.error && cutOf(m, false).cut && errorOf(m, i)}
-              {/* 回答下面一排：拷贝 · 插进文档 · 引用再问（task-83vl3）；命令的结果（带按钮、改动块、找重复、归档）不出 */}
+              {/* 回答下面一排：拷贝 · 插进文档 · ⋯（task-83vl3；task-bppvn 拿掉了「引用再问」）；命令的结果（带按钮、改动块、找重复、归档）不出 */}
               {plainAnswer(m) && (
-                <AnswerActs md={m.text!} {...(m.by ? { by: m.by } : {})} chatKey={place.key} msg={m.id} last={i === lastAnswer} onQuote={() => c.add({ kind: 'quote', text: m.text!.trim().slice(0, 20_000), src: 'AI的回答' })} />
+                <AnswerActs md={m.text!} {...(m.by ? { by: m.by } : {})} chatKey={place.key} msg={m.id} last={i === lastAnswer} />
               )}
               {m.moves && (
                 <div className="moves">
@@ -1319,7 +1343,7 @@ export function AiPanel(props: AiPanelProps) {
             </div>
           ))}
       </div>
-      {/* 回答里选一句：同一个小框（task-4edsc，方向 A）：「引用进输入框 ⇧⌘L」成为输入框顶上那一排的一块，「问这句 ↵」就地开一条旁支 */}
+      {/* 回答里选一句：同一个小框（task-4edsc，方向 A）：「引用 ⌘↵」（⇧⌘L 也行，task-bppvn）成为输入框顶上那一排的一块，「问这句 ↵」就地开一条旁支 */}
       <AskBox
         list={list}
         active={!props.hidden}
@@ -1417,7 +1441,7 @@ export function AiPanel(props: AiPanelProps) {
 /** 找重复一次先列几对 */
 const DUP_PAGE = 50
 
-/** 答完了的一段话（不是命令的结果：带按钮、改动块、找重复、归档、梦游）：下面一排拷贝 · 插进文档 · 引用再问 */
+/** 答完了的一段话（不是命令的结果：带按钮、改动块、找重复、归档、梦游）：下面一排拷贝 · 插进文档 · ⋯ */
 const plainAnswer = (m: C.Msg) => m.role === 'ai' && !m.pending && !m.live && !!m.text?.trim() && !m.actions?.length && !m.change && !m.dups && !m.moves && !m.dream && !m.draft
 
 /** 找重复的一对对：像的在前 */

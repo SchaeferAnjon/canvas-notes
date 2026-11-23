@@ -161,7 +161,7 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
   }
   /** 开着旁支时钉旁支输入框的那一格（问框底部） */
   const [dock, setDock] = useState<HTMLDivElement | null>(null)
-  /** 旁支小框「引用进输入框」：那句进问框的输入框 */
+  /** 旁支小框「引用」：那句进问框的输入框 */
   const quoteIn = (quote: string) => {
     setQ((x) => `「${quote}」${x}`)
     if (sideOpen) wake()

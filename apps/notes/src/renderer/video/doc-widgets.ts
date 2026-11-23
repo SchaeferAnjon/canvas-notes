@@ -17,6 +17,7 @@ import { openVideo } from './actions'
 import { centerNow } from './store'
 
 import { HEAD } from './block-head'
+import { catName } from '../../shared/categories'
 
 /** 第 n 行起的一块：到空行为止 */
 export function videoBlocks(state: EditorState): { from: number; to: number; kind: string; key: string }[] {
@@ -91,7 +92,9 @@ class MomentWidget extends WidgetType {
     hd.appendChild(el('span', 'ttl', m.asked ? '问过 AI · 自动记下的' : m.title))
     if (m.asked) {
       // 在课程里的文档：这一问也在那门课的「我的疑惑」里（课程首页、⌘K「我的疑惑」直接读这一块）
-      const course = /^课程\/([^/]+)\//.exec(this.notePath)?.[1]
+      // 「课程」文件夹照这个库的名字（英文库 Courses）
+      const [top, name, ...rest] = this.notePath.split('/')
+      const course = top === catName('课程') && rest.length ? name : undefined
       if (course) hd.appendChild(el('span', 'asked', `也在「${course}」的「我的疑惑」里`))
       box.appendChild(hd)
       const body = el('div', 'body')

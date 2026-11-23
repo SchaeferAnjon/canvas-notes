@@ -4,6 +4,7 @@
  */
 import type { DreamItem, DreamReport, NoteFile } from './api'
 import { kindOf, titleOf } from './layout'
+import { catName } from './categories'
 
 export interface Moved {
   id: string
@@ -67,7 +68,7 @@ export function fileGroups(items: DreamItem[]): FileGroup[] {
   const m = new Map<string, DreamItem[]>()
   for (const i of items) {
     if (i.group !== 'file' || !i.move) continue
-    const f = i.state === 'dropped' && i.move.to === i.move.from ? '收件箱' : folderOf(i.move.to)
+    const f = i.state === 'dropped' && i.move.to === i.move.from ? catName('收件箱') : folderOf(i.move.to)
     m.set(f, [...(m.get(f) ?? []), i])
   }
   return [...m]

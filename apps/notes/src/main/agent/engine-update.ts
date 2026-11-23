@@ -10,6 +10,7 @@
  */
 import { existsSync, realpathSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { t } from '../../shared/i18n'
 import type { EngineId } from '../../shared/agent'
 import { parseVersion } from '../../shared/engine-health'
 import { lastLine, runProc } from './engine-proc'
@@ -39,18 +40,18 @@ export function latestUrl(id: EngineId, path: string): { url: string; text: bool
 
 /** 读最新的版本号（10 秒）；读不到报一句中文 */
 export async function latestVersion(id: EngineId, path: string): Promise<string> {
-  if (offline()) throw new Error('测试里不连网')
+  if (offline()) throw new Error(t('测试里不连网'))
   const { url, text } = latestUrl(id, path)
   let res: Response
   try {
     res = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { accept: text ? 'text/plain' : 'application/json' } })
   } catch (e) {
-    throw new Error(/abort|timeout/i.test(String((e as Error).name) + String((e as Error).message)) ? '10 秒没连上' : '连不上')
+    throw new Error(/abort|timeout/i.test(String((e as Error).name) + String((e as Error).message)) ? t('10 秒没连上') : t('连不上'))
   }
-  if (!res.ok) throw new Error(`发布的地方回了 ${res.status}`)
+  if (!res.ok) throw new Error(t('发布的地方回了 {status}', { status: res.status }))
   const body = await res.text()
   const v = text ? parseVersion(body.trim()) : parseVersion(String((JSON.parse(body) as { version?: unknown }).version ?? ''))
-  if (!v) throw new Error('读不出版本号')
+  if (!v) throw new Error(t('读不出版本号'))
   return v
 }
 
@@ -66,7 +67,7 @@ function npmOf(path: string): string {
 /** 这一家怎么更新（照它装在哪认装法） */
 export function updatePlan(id: EngineId, path: string): UpdatePlan {
   const app = /\/([^/]+\.app)\/Contents\//.exec(path)?.[1]
-  if (app) return { none: `跟着 ${app} 一起更新` }
+  if (app) return { none: t('跟着 {app} 一起更新', { app }) }
   if (id === 'claude') return { cmd: path, args: ['update'], text: 'claude update' }
   if (id === 'codex') return { cmd: path, args: ['update'], text: 'codex update' }
   if (id === 'opencode') return { cmd: path, args: ['upgrade'], text: 'opencode upgrade' }
@@ -76,14 +77,14 @@ export function updatePlan(id: EngineId, path: string): UpdatePlan {
     return { cmd: brew, args: ['upgrade', 'gemini-cli'], text: 'brew upgrade gemini-cli' }
   }
   if (/\/node_modules\/@google\/gemini-cli\//.test(where)) return { cmd: npmOf(path), args: ['install', '-g', '@google/gemini-cli@latest'], text: 'npm install -g @google/gemini-cli@latest' }
-  return { none: `认不出 ${dirname(path)} 里的 gemini 是怎么装的：在终端里照它装的办法更新` }
+  return { none: t('认不出 {dir} 里的 gemini 是怎么装的：在终端里照它装的办法更新', { dir: dirname(path) }) }
 }
 
 /** 跑更新（最多 10 分钟）；成没成看退出码，没成带它最后一句原话 */
 export async function runUpdate(plan: { cmd: string; args: string[]; text: string }): Promise<{ ok: true } | { ok: false; why: string }> {
   const r = await runProc(plan.cmd, plan.args, { timeoutMs: 10 * 60_000 })
-  if (r.error) return { ok: false, why: `${plan.text} 跑不起来：${r.error}` }
-  if (r.timedOut) return { ok: false, why: `${plan.text} 10 分钟没跑完` }
-  if (r.code !== 0) return { ok: false, why: lastLine(r.stderr) || lastLine(r.stdout) || `${plan.text} 退出码 ${r.code}` }
+  if (r.error) return { ok: false, why: t('{cmd} 跑不起来：{error}', { cmd: plan.text, error: r.error }) }
+  if (r.timedOut) return { ok: false, why: t('{cmd} 10 分钟没跑完', { cmd: plan.text }) }
+  if (r.code !== 0) return { ok: false, why: lastLine(r.stderr) || lastLine(r.stdout) || t('{cmd} 退出码 {code}', { cmd: plan.text, code: r.code }) }
   return { ok: true }
 }

@@ -165,8 +165,8 @@ test('/ 菜单：插入标题、待办、表格、链接到笔记、日期；打
     // 打 / 弹出菜单；Esc 关掉，/ 留着当普通字
     await page.keyboard.type('/')
     await expect(slash(page)).toBeVisible()
-    // DESIGN.v3 6.3 的四组 15 项 + 提示块 · 说明、折叠块、日期、数据库、拍导图（提示块别的类型打字筛选时才列；拍导图 task-wuv05 加在「图片和表格」最后）
-    await expect(slash(page).getByRole('option')).toHaveCount(20)
+    // DESIGN.v3 6.3 的四组 15 项 + 提示块 5 种、折叠块、日期、数据库、拍导图（提示块 5 种不打字就全列，task-r00en；拍导图 task-wuv05 加在「图片和表格」最后）
+    await expect(slash(page).getByRole('option')).toHaveCount(24)
     await expect(slash(page).getByRole('option', { name: /拍导图/ })).toHaveCount(1)
     await expect(slash(page).locator('.slash-g')).toHaveText(['基本', '图片和表格', '链接', 'AI'])
     await page.keyboard.press('Escape')
@@ -327,9 +327,9 @@ test('待办：直接打 [] 空格变待办；点勾选框改的是 md 里的 [ 
     await waitSaved(page)
     expect(read(vault, '要订的.md')).toBe('# 要订的\n\n- [x] 车\n- [ ] 机票\n')
 
+    // 标题末尾回车一次就新起一块（task-ys1rr，像 Notion；以前回车两下才空出一行）
     await line(page, '要订的').click()
     await page.keyboard.press('End')
-    await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
     await page.keyboard.type('[] 住处')
     await expect(boxes).toHaveCount(3)
@@ -383,10 +383,9 @@ test('/ 白板 新建子白板并插入链接；/ 图片 拷进附件并显示�
     await expect(img).toBeVisible()
     await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBe(1)
 
-    // AI 写一段
+    // AI 写一段（段末回车一次就新起一块，task-ys1rr）
     await line(page, '正文').click()
     await page.keyboard.press('End')
-    await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
     await page.keyboard.type('/ai')
     await page.keyboard.press('Enter')

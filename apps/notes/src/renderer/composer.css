@@ -656,6 +656,15 @@
   font-size: 12px;
   color: rgba(255, 255, 255, 0.5);
 }
+/* 选中小条能自定义（task-26nz7）：⋯ 里分组的细线、刚存好那颗描的一圈强调色 */
+.capbar .capmenu .ms {
+  height: 1px;
+  margin: 5px 4px;
+  background: rgba(255, 255, 255, 0.12);
+}
+.capbar button.new {
+  box-shadow: 0 0 0 1.5px var(--acc) inset;
+}
 .ai-cap {
   position: fixed;
   z-index: 1000;

@@ -9,6 +9,7 @@
  * - ⌘B、⌘I：选中的字加粗、斜体，再按一次取消（按语法树认，不把加粗当成斜体剥掉一个 *）；
  * - 选中字粘贴一个网址：变成 [字](网址)，字留着。
  */
+import { isolateHistory } from '@codemirror/commands'
 import { EditorSelection, EditorState, findClusterBreak, Prec, type SelectionRange } from '@codemirror/state'
 import { isKey } from './keys'
 import { syntaxTree } from '@codemirror/language'
@@ -74,10 +75,11 @@ const blockMarks = hiddenSyntax.of((state, prev) => {
       continue
     }
     // 代码块的围栏行：整行藏着（连同把它和上一行隔开的换行），光标跨过去。
-    // 只认收了尾的代码块：正在打的「```」还没回车（没收尾）时照常是一行字，光标留在行尾
+    // 只认收了尾的代码块：正在打的「```」还没回车（没收尾）时照常是一行字，光标留在行尾。
+    // 删除盖住了整个代码块（从上一段拖选到下一段、选中整块）时围栏跟着删（task-ys1rr，以前 unit 是 null：字删了、两行围栏永远删不掉，剩一个空代码块）
     const code = FENCE.test(line.text) ? codeNodeAt(state, line.from) : null
     if (code && closedFence(state, code)) {
-      out.push({ from: Math.max(0, line.from - 1), to: Math.min(len, line.to + 1), fromOk: line.from > 0, toOk: true, side: 'near', unit: null })
+      out.push({ from: Math.max(0, line.from - 1), to: Math.min(len, line.to + 1), fromOk: line.from > 0, toOk: true, side: 'near', unit: code })
     }
   }
   return out
@@ -115,6 +117,23 @@ function moveVisible(forward: boolean, extend: boolean) {
     // 一步就走到看得见的别处（没跨记号）：交给 CodeMirror 自己的 ←→
     if (first.head === head) return false
     view.dispatch({ selection: extend ? EditorSelection.range(sel.anchor, head) : EditorSelection.cursor(head), userEvent: 'select', scrollIntoView: true })
+    return true
+  }
+}
+
+/**
+ * ← 在一行看得见的开头（列表、待办、引用、标题的记号藏在前面）：走到上一行末尾（task-ys1rr）。
+ * 不走这一步时 CodeMirror 挪进记号里（列表的圆点画在那里，屏上的位置变了），看守又把光标推回原处，按了不动
+ */
+function leftOverMark(extend: boolean) {
+  return (view: EditorView): boolean => {
+    const { state } = view
+    const sel = state.selection.main
+    if (!extend && !sel.empty) return false
+    const line = state.doc.lineAt(sel.head)
+    if (line.number === 1 || blockMarkEnd(state, line.from) !== sel.head || sel.head === line.from) return false
+    const to = line.from - 1
+    view.dispatch({ selection: extend ? EditorSelection.range(sel.anchor, to) : EditorSelection.cursor(to), userEvent: 'select', scrollIntoView: true })
     return true
   }
 }
@@ -281,6 +300,46 @@ function enterCode(view: EditorView): boolean {
   return true
 }
 
+/**
+ * 代码块里退格（task-ys1rr，用户报「代码块删不掉」：围栏藏着、删不到，空代码块按退格没反应）：
+ * - 代码块是空的（里面只有空行）：整块换成一个空段落，光标留在这里（像 Notion 把块变回正文），再退格照常删掉这个空段落；
+ * - 光标在第一行最前面：先选中整个代码块（再按一次删掉，atomic-blocks 的 deleteSelectedBlock，同卡片）。
+ */
+function backspaceInCode(view: EditorView): boolean {
+  const { state } = view
+  const sel = state.selection.main
+  if (!sel.empty || state.readOnly) return false
+  const code = codeNodeAt(state, sel.head)
+  if (!code || !closedFence(state, code)) return false
+  const open = state.doc.lineAt(code.from)
+  const close = state.doc.lineAt(code.to)
+  const line = state.doc.lineAt(sel.head)
+  if (line.number <= open.number || line.number >= close.number) return false
+  const inner = state.doc.sliceString(open.to + 1, close.from)
+  if (inner.trim() === '') {
+    const e = emptyBlockAt(state, open.from, close.to)
+    view.dispatch({ changes: e.changes, selection: { anchor: e.at }, userEvent: 'delete.backward', annotations: [hiddenOk.of(true), isolateHistory.of('full')], scrollIntoView: true })
+    return true
+  }
+  if (line.number !== open.number + 1 || sel.head !== line.from) return false
+  view.dispatch({ selection: EditorSelection.range(code.from, code.to), userEvent: 'select', scrollIntoView: true })
+  return true
+}
+
+/**
+ * 把 [from, to)（整行）换成一个空段落：上下各和别的块隔一个空行（空段落是一行空行，夹在两个空行中间）；at 是那一行
+ */
+export function emptyBlockAt(state: EditorState, from: number, to: number): { changes: { from: number; to: number; insert: string }; at: number } {
+  const doc = state.doc
+  const a = doc.lineAt(from)
+  const z = doc.lineAt(to)
+  const blankAbove = a.number === 1 || doc.line(a.number - 1).text.trim() === ''
+  const blankBelow = z.number < doc.lines && doc.line(z.number + 1).text.trim() === ''
+  const pre = blankAbove ? '' : '\n'
+  const post = blankBelow ? '' : '\n'
+  return { changes: { from: a.from, to: z.to, insert: pre + post }, at: a.from + pre.length }
+}
+
 /** 代码块有收尾的围栏（最后一行是 ``` 而且不是开头那一行） */
 function closedFence(state: EditorState, code: { from: number; to: number }): boolean {
   const a = state.doc.lineAt(code.from)
@@ -428,10 +487,10 @@ export const wysiwyg = [
     Prec.highest(
       keymap.of([
         { key: 'Enter', run: (v) => enterEmptyItem(v) || enterTableHead(v) || enterCode(v) || enterAtBlockStart(v) },
-        { key: 'Backspace', run: (v) => backspaceBlockStart(v) || backspaceAfterRule(v) || deleteVisible(false)(v) },
+        { key: 'Backspace', run: (v) => backspaceInCode(v) || backspaceBlockStart(v) || backspaceAfterRule(v) || deleteVisible(false)(v) },
         { key: 'Delete', run: (v) => joinStripsMarks(true)(v) || deleteVisible(true)(v) },
         { key: 'ArrowRight', run: moveVisible(true, false), shift: moveVisible(true, true) },
-        { key: 'ArrowLeft', run: moveVisible(false, false), shift: moveVisible(false, true) },
+        { key: 'ArrowLeft', run: (v) => leftOverMark(false)(v) || moveVisible(false, false)(v), shift: (v) => leftOverMark(true)(v) || moveVisible(false, true)(v) },
         // 加粗、斜体的键照命令表（设置 › 快捷键里能改）
         { any: (v, e) => isKey(e, 'bold') && toggleFormat('StrongEmphasis')(v) },
         { any: (v, e) => isKey(e, 'italic') && toggleFormat('Emphasis')(v) },

@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react'
 import { type AttachItem, TRASH_IMAGES_KEY } from '../shared/attach'
 import { titleOf } from '../shared/layout'
 import './trash.css'
+import { useT } from './i18n'
 
 export interface TrashAsk {
   /** 要删的（一篇时标题写《名字》，好几个时写「选中的N个」） */
@@ -33,6 +34,7 @@ const imgUrl = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURICom
 
 export function TrashDialog(props: { ask: TrashAsk }) {
   const { ask } = props
+  const t = useT()
   const [on, setOn] = useState(loadTrashImages)
   const [shared, setShared] = useState<number | null>(null)
   const ok = useRef<HTMLButtonElement>(null)
@@ -45,7 +47,7 @@ export function TrashDialog(props: { ask: TrashAsk }) {
     }
   }, [ask])
   const n = ask.own.length - (shared ?? 0)
-  const title = ask.paths.length === 1 ? `把《${titleOf(ask.paths[0]!)}》移到废纸篓？` : `把选中的${ask.paths.length}个移到废纸篓？`
+  const title = ask.paths.length === 1 ? t('把《{name}》移到废纸篓？', { name: titleOf(ask.paths[0]!) }) : t('把选中的{n}个移到废纸篓？', { n: ask.paths.length })
   const answer = (v: boolean | null) => {
     if (v !== null) {
       try {
@@ -67,14 +69,14 @@ export function TrashDialog(props: { ask: TrashAsk }) {
         }}
       >
         <h3>{title}</h3>
-        <p className="sub">在废纸篓里能找回，Git里也留着这一版。</p>
+        <p className="sub">{t('在废纸篓里能找回，Git里也留着这一版。')}</p>
         {ask.own.length > 0 && (
           <>
             <label className={'trash-imgs' + (n > 0 ? '' : ' none')}>
-              <input type="checkbox" aria-label="连同图一起移到废纸篓" checked={on && n > 0} disabled={n <= 0} onChange={(e) => setOn(e.target.checked)} />
+              <input type="checkbox" aria-label={t('连同图一起移到废纸篓')} checked={on && n > 0} disabled={n <= 0} onChange={(e) => setOn(e.target.checked)} />
               <span className="tx">
-                <span className="t1">{n > 0 ? `连同${n}张图一起移到废纸篓` : `${ask.paths.length === 1 ? '这篇' : '这些'}的图别的笔记都在用，一张不删`}</span>
-                <span className="t2">{ask.dirs.length > 1 ? `${ask.dirs[0]}/ 等${ask.dirs.length}处` : `${ask.dirs[0]}/`}</span>
+                <span className="t1">{n > 0 ? t('连同{n}张图一起移到废纸篓', { n }) : ask.paths.length === 1 ? t('这篇的图别的笔记都在用，一张不删') : t('这些的图别的笔记都在用，一张不删')}</span>
+                <span className="t2">{ask.dirs.length > 1 ? t('{dir}/ 等{n}处', { dir: ask.dirs[0], n: ask.dirs.length }) : `${ask.dirs[0]}/`}</span>
               </span>
               <span className="trash-thumbs">
                 {ask.own.slice(0, 3).map((i) => (
@@ -83,18 +85,21 @@ export function TrashDialog(props: { ask: TrashAsk }) {
               </span>
             </label>
             <p className="note" data-testid="trash-note">
-              {shared === null ? '正在查别的笔记有没有也在用这些图…' : shared > 0 ? `别的笔记也在用的${shared}张不会一起删。` : '别的笔记也在用的图不会一起删。'}
-              勾不勾下次照这次。
+              {shared === null
+                ? t('正在查别的笔记有没有也在用这些图…勾不勾下次照这次。')
+                : shared > 0
+                  ? t('别的笔记也在用的{n}张不会一起删。勾不勾下次照这次。', { n: shared })
+                  : t('别的笔记也在用的图不会一起删。勾不勾下次照这次。')}
             </p>
           </>
         )}
         <div className="act">
           <button className="btn btn-sm" onClick={() => answer(null)}>
-            取消
+            {t('取消')}
           </button>
           <button className="btn btn-primary btn-sm" ref={ok} onClick={() => answer(true)}>
             <Codicon name="trash" size={14} />
-            移到废纸篓
+            {t('移到废纸篓')}
           </button>
         </div>
       </div>

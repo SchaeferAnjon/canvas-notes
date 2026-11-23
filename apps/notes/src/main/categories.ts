@@ -8,6 +8,7 @@
 import { readdir, readFile, rm, stat } from 'node:fs/promises'
 import { CATEGORY_FILE, type CategoryDescs, descsJson, isCategory, normalizeDescs } from '../shared/categories'
 import { LEFT_FILE } from '../shared/left'
+import { vaultLang } from '../shared/i18n'
 import { PINS_FILE } from '../shared/sidebar'
 import { writeFileAtomic } from './atomic'
 import * as git from '@cn/git'
@@ -54,6 +55,8 @@ export interface Organized {
  * 挪不进去（重名）的留在原处，不覆盖任何东西。moved：每个文件挪了（本机记着的读 PDF 进度跟着换）
  */
 export async function organizeCategories(v: Vault, moved?: (from: string, to: string) => void): Promise<Organized | null> {
+  // 英文库（库语言，task-zojmg）都是分类出来以后新建的，没有老的「素材/」；那里叫「素材」的是用户自己的文件夹，不动
+  if (vaultLang() === 'en') return null
   if (!(await isDir(v.abs(OLD_CLIPS)))) return null
   // 用户还没提交的字先单独提交一次（只在动手之前一次），这次整理的提交里只有整理：素材、剪藏、阅读和它们的附件、提到它们的笔记、置顶、左栏
   const near = (p: string) => [OLD_CLIPS, '剪藏', '阅读'].some((d) => p === d || p.startsWith(d + '/') || p.startsWith(`附件/${d}/`)) || p === PINS_FILE || p === LEFT_FILE

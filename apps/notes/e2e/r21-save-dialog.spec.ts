@@ -220,8 +220,10 @@ test('存成命令：打开就问 AI 比对，三种对照、指一条亮出依�
     expect(await d.locator('.sc-facts').evaluate((e) => getComputedStyle(e).gridTemplateColumns.split(' ').length)).toBe(3)
     expect(await d.locator('.sc-frow').evaluateAll((rows) => rows.map((r) => [r.querySelector('label')!.textContent, Math.round(r.getBoundingClientRect().height), Math.round(r.querySelector('.ctl')!.getBoundingClientRect().x - r.getBoundingClientRect().x)]))).toEqual([
       ['名字', 32, 76],
-      ['在哪能用', 32, 76],
+      // task-26nz7：「在哪能用」多了 PDF、HTML 两颗（放上选中小条时用），折成两行；多一行「选中小条」
+      ['在哪能用', 52, 76],
       ['写到哪', 32, 76],
+      ['选中小条', 32, 76],
       ['存在哪', 32, 76],
     ])
     // 影响卡整宽一条接在底栏上面（173 高：文件树和六格都在里面，不压到底栏）
@@ -458,7 +460,7 @@ test('存成命令：打开就问 AI 比对，三种对照、指一条亮出依�
     await expect(r.locator('.lc')).toHaveText('改这一篇 · 先给你看 · 能撤回')
     await expect(r.locator('.eng-logo')).toHaveCount(1)
     await r.click({ button: 'right' })
-    await expect(palMenu(page).getByRole('menuitem')).toHaveText(['钉住⌘P', '挪到', '设快捷键…', '起别名…', '改这条命令…', '删掉这条', '藏起⌘⌫'])
+    await expect(palMenu(page).getByRole('menuitem')).toHaveText(['钉住⌘P', '挪到', '设快捷键…', '起别名…', '改这条命令…', '放到选中小条', '删掉这条', '藏起⌘⌫'])
     await palMenu(page).getByRole('menuitem', { name: '设快捷键…' }).click()
     await page.keyboard.press('Alt+Meta+KeyT')
     await page.keyboard.press('Enter')

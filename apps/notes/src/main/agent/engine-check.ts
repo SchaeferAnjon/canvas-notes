@@ -13,6 +13,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { EngineId } from '../../shared/agent'
+import { t } from '../../shared/i18n'
 import { CLAUDE_EFFORTS } from '../../shared/ai-features'
 import type { EngineProblem } from '../../shared/engine-health'
 import { cliEnv } from './cli'
@@ -95,8 +96,8 @@ async function checkClaude(exe: string, probe: boolean): Promise<CheckResult> {
       // 一次只报第一个不认的：拿掉它再跑，最多找 8 个
       for (let round = 0; round < 8; round++) {
         const r = await runProc(exe, args, { input: '', timeoutMs: 20_000, cwd: dir })
-        if (r.error) return { problems, note: `跑不起来：${r.error}`, partial: true }
-        if (r.timedOut) return { problems, note: '空着输入试参数，20 秒没反应', partial: true }
+        if (r.error) return { problems, note: t('跑不起来：{error}', { error: r.error }), partial: true }
+        if (r.timedOut) return { problems, note: t('空着输入试参数，20 秒没反应'), partial: true }
         const e = claudeParseError(`${r.stderr}\n${r.stdout}`)
         if (!e) break
         bad.push(e)
@@ -124,8 +125,9 @@ async function checkClaude(exe: string, probe: boolean): Promise<CheckResult> {
 
 /** 真问一个字（Haiku、Low、不给工具、不留会话），看我们读的三样输出还在不在 */
 async function claudeProbe(exe: string, cwd: string, problems: EngineProblem[]): Promise<{ asked?: boolean; note?: string }> {
+  // 不翻：给 AI 的话
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages', '--model', 'haiku', '--effort', 'low', '--system-prompt', '只回一个字。', '--setting-sources=', '--strict-mcp-config', '--tools', '', '--max-turns', '1', '--no-session-persistence']
-  const r = await runProc(exe, args, { input: '回一个字：好', timeoutMs: 90_000, cwd })
+  const r = await runProc(exe, args, { input: '回一个字：好', timeoutMs: 90_000, cwd }) // 不翻：给 AI 的话
   let init = false
   let delta = false
   let result: { ok: boolean; text: string } | null = null
@@ -142,9 +144,9 @@ async function claudeProbe(exe: string, cwd: string, problems: EngineProblem[]):
     if (m.type === 'result') result = { ok: m.subtype === 'success' && !m.is_error, text: typeof m.result === 'string' ? m.result : String(m.subtype ?? '') }
   }
   // 没问成（没登录、没网、额度用完）：说不清输出变没变，不算不兼容
-  if (!result?.ok) return { note: `真问一个字没问成：${result?.text || lastLine(r.stderr) || (r.timedOut ? '90 秒没回' : `退出码 ${r.code}`)}` }
-  if (!init) add(problems, { kind: 'format', what: '开头的 init（会话号）', scope: 'all' })
-  if (!delta) add(problems, { kind: 'format', what: '逐字输出（stream_event）', scope: 'all' })
+  if (!result?.ok) return { note: t('真问一个字没问成：{why}', { why: result?.text || lastLine(r.stderr) || (r.timedOut ? t('90 秒没回') : t('退出码 {n}', { n: r.code })) }) }
+  if (!init) add(problems, { kind: 'format', what: t('开头的 init（会话号）'), scope: 'all' })
+  if (!delta) add(problems, { kind: 'format', what: t('逐字输出（stream_event）'), scope: 'all' })
   return { asked: true }
 }
 
@@ -202,7 +204,7 @@ const CODEX_PARAMS: [string, string, string[], Scope][] = [
 async function checkCodex(exe: string): Promise<CheckResult> {
   const problems: EngineProblem[] = []
   const help = await runProc(exe, ['--help'], { timeoutMs: 20_000 })
-  if (help.error) return { problems, note: `跑不起来：${help.error}`, partial: true }
+  if (help.error) return { problems, note: t('跑不起来：{error}', { error: help.error }), partial: true }
   if (!/\bapp-server\b/.test(help.stdout + help.stderr)) add(problems, { kind: 'method', what: 'codex app-server', scope: 'all' })
   const ash = await runProc(exe, ['app-server', '--help'], { timeoutMs: 20_000 })
   if (!/--config\b/.test(ash.stdout + ash.stderr)) add(problems, { kind: 'flag', what: '-c/--config', scope: 'all' })
@@ -212,7 +214,7 @@ async function checkCodex(exe: string): Promise<CheckResult> {
   try {
     const gen = await runProc(exe, ['app-server', 'generate-json-schema', '--experimental', '--out', dir], { timeoutMs: 30_000 })
     if (gen.code !== 0) {
-      note = `接口定义没导出来：${lastLine(gen.stderr || gen.stdout) || `退出码 ${gen.code}`}`
+      note = t('接口定义没导出来：{why}', { why: lastLine(gen.stderr || gen.stdout) || t('退出码 {n}', { n: gen.code }) })
       partial = true
     }
     else {
@@ -253,12 +255,12 @@ async function checkCodex(exe: string): Promise<CheckResult> {
 async function checkAcp(exe: string, args: string[], problems: EngineProblem[]): Promise<string | undefined> {
   try {
     const { init } = await acpHandshake(exe, args, { timeoutMs: 30_000 })
-    if (init.protocolVersion !== 1) add(problems, { kind: 'format', what: `ACP 协议版本 ${String(init.protocolVersion)}`, scope: 'all' })
+    if (init.protocolVersion !== 1) add(problems, { kind: 'format', what: t('ACP 协议版本 {v}', { v: String(init.protocolVersion) }), scope: 'all' })
     const http = (init.agentCapabilities as { mcpCapabilities?: { http?: unknown } } | undefined)?.mcpCapabilities?.http
-    if (http !== true) add(problems, { kind: 'format', what: '接 http 的 MCP', scope: 'chat' })
+    if (http !== true) add(problems, { kind: 'format', what: t('接 http 的 MCP'), scope: 'chat' })
     return undefined
   } catch (e) {
-    return `ACP 握手没成：${(e as Error).message}`
+    return t('ACP 握手没成：{error}', { error: (e as Error).message })
   }
 }
 
@@ -268,7 +270,7 @@ const inHelp = (help: string, flag: string) => new RegExp(`(^|[\\s,])${flag.repl
 async function checkGemini(exe: string): Promise<CheckResult> {
   const problems: EngineProblem[] = []
   const help = await runProc(exe, ['--help'], { timeoutMs: 30_000 })
-  if (help.error) return { problems, note: `跑不起来：${help.error}`, partial: true }
+  if (help.error) return { problems, note: t('跑不起来：{error}', { error: help.error }), partial: true }
   const text = help.stdout + help.stderr
   const flags = new Set([...geminiArgs(true, 'p'), ...geminiArgs(false, 'p')].filter((a) => a.startsWith('--')))
   for (const f of flags) if (!inHelp(text, f)) add(problems, { kind: 'flag', what: f, scope: 'all' })
@@ -281,7 +283,7 @@ async function checkGemini(exe: string): Promise<CheckResult> {
 async function checkOpencode(exe: string): Promise<CheckResult> {
   const problems: EngineProblem[] = []
   const help = await runProc(exe, ['--help'], { timeoutMs: 30_000 })
-  if (help.error) return { problems, note: `跑不起来：${help.error}`, partial: true }
+  if (help.error) return { problems, note: t('跑不起来：{error}', { error: help.error }), partial: true }
   if (!/\bacp\b/.test(help.stdout + help.stderr)) add(problems, { kind: 'method', what: 'opencode acp', scope: 'all' })
   const acpHelp = await runProc(exe, ['acp', '--help'], { timeoutMs: 30_000 })
   if (!inHelp(acpHelp.stdout + acpHelp.stderr, '--cwd')) add(problems, { kind: 'flag', what: '--cwd', scope: 'all' })
@@ -294,7 +296,7 @@ async function checkOpencode(exe: string): Promise<CheckResult> {
     const rules = (JSON.parse(built.stdout) as { permission?: { permission?: string; action?: string }[] }).permission ?? []
     for (const key of Object.keys(locked.permission)) if (!rules.some((r) => r.permission === key && r.action === 'deny')) add(problems, { kind: 'feature', what: key, scope: 'chat' })
   } catch {
-    note ??= '全能模式关着时的权限没查成'
+    note ??= t('全能模式关着时的权限没查成')
   }
   return { problems, ...(note ? { note } : {}), ...(shake ? { partial: true } : {}) }
 }

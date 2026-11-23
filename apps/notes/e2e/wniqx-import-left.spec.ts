@@ -174,7 +174,7 @@ test('② 设置 › 文件和附件 › 左栏「用预设的分类」：关掉
     await pickMenu(run, '放到左边')
     await leftView(page, '文件')
     const CATS = ['收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活']
-    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '读书笔记', '梦游报告', '最近删掉的', '库', '设置和外观'])
+    expect(await barNames(page)).toEqual(['文件', '待办', '日历', '最近', '书桌', ...CATS, '读书笔记', '梦游报告', '最近删掉的', '库', '设置和外观'])
     expect(await groupHeads(page)).toEqual(['读进来的', '自己写的', '不在分类里的'])
     const notesBefore = git(vault, 'ls-files').split('\n').filter((p) => p.endsWith('.md')).sort()
 
@@ -195,7 +195,7 @@ test('② 设置 › 文件和附件 › 左栏「用预设的分类」：关掉
     await expect(settings(page)).toHaveCount(0)
 
     // 图标栏：收件箱和自己放的那一格
-    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', '收件箱', '读书笔记', '梦游报告', '最近删掉的', '库', '设置和外观'])
+    expect(await barNames(page)).toEqual(['文件', '待办', '日历', '最近', '书桌', '收件箱', '读书笔记', '梦游报告', '最近删掉的', '库', '设置和外观'])
     // 树：没有分组标题；收件箱在最前，别的按名字排；空的写作、生活不画；分类是普通文件夹的图标
     expect(await groupHeads(page)).toEqual([])
     expect(await topNames(page)).toEqual(['收件箱', '读书笔记', '工作', '剪藏', '课程', '灵感', '日记', '项目', '阅读', '周记', '首页'])
@@ -217,7 +217,7 @@ test('② 设置 › 文件和附件 › 左栏「用预设的分类」：关掉
     await page.keyboard.press('Meta+,')
     await settings(page).getByRole('switch', { name: '用预设的分类' }).click()
     await page.keyboard.press('Escape')
-    expect(await barNames(page)).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '读书笔记', '梦游报告', '最近删掉的', '库', '设置和外观'])
+    expect(await barNames(page)).toEqual(['文件', '待办', '日历', '最近', '书桌', ...CATS, '读书笔记', '梦游报告', '最近删掉的', '库', '设置和外观'])
     await leftView(page, '文件')
     expect(await groupHeads(page)).toEqual(['读进来的', '自己写的', '不在分类里的'])
     await expect.poll(() => leftJson(vault).预设分类).toBeUndefined()

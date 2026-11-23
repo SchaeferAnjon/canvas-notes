@@ -1,0 +1,630 @@
+/* 数据库 AI 列（第三批 task-i921u「AI 生成一列」方向 B，照 proto-ai-column.html#dir=b 的尺寸） */
+
+/* ---------- 右栏一页：上面能滚的一页、底下一条进度（.dview 是一格的网格，这里自己再排一列） ---------- */
+.aicol {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.aipane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--t1);
+}
+.aipane.aip-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  font-size: 13px;
+  color: var(--t3);
+  padding: 24px;
+}
+.dtab[data-view='aicol'] .dname {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 这一页、格子里的按钮都不要浏览器自带的边框（描边用 box-shadow 画） */
+.aipane button,
+.pfoot button,
+td.aic button {
+  border: 0;
+  font: inherit;
+}
+/* 按钮（照原型：26 高、6 圆角；盖过全局 .btn 的胶囊） */
+.aipane .btn,
+.pfoot .btn {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  background: var(--card);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  color: var(--t1);
+  flex: none;
+}
+.aipane .btn.solid,
+.pfoot .btn.solid {
+  background: var(--solid);
+  color: var(--solid-t);
+  box-shadow: none;
+}
+.aipane .btn.ghost,
+.pfoot .btn.ghost {
+  background: none;
+  box-shadow: none;
+  color: var(--t2);
+}
+.aipane .btn.ghost:hover,
+.pfoot .btn.ghost:hover {
+  background: var(--fill);
+}
+.aipane .btn:disabled,
+.pfoot .btn:disabled {
+  opacity: 0.45;
+}
+.aipane .btn .k,
+.pfoot .btn .k {
+  font-size: 11px;
+  color: var(--t3);
+  margin-left: 2px;
+}
+.aipane .ib {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--t2);
+  flex: none;
+}
+.aipane .ib:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.aipane .t3 {
+  color: var(--t3);
+}
+
+/* 表单 */
+.aif {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.aif .l {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--t2);
+  margin-bottom: 6px;
+}
+.aif .l .guess {
+  font-size: 12px;
+}
+.aif textarea {
+  width: 100%;
+  height: 58px;
+  resize: none;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  padding: 8px 10px;
+  font: 13px/1.5 var(--sans);
+  color: var(--t1);
+  box-shadow: inset 0 0 0 1px var(--line);
+  outline: none;
+  display: block;
+}
+.aif textarea:focus {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.aif .exs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  align-items: center;
+}
+.aif .exs .t3 {
+  font-size: 12px;
+  margin-right: 2px;
+}
+.aif .pill {
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.aif .pill:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.aif .pill.on {
+  background: var(--acc-soft);
+  color: var(--acc-t);
+}
+.aif .outs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.aif .outs .o {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--line2);
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+  background: var(--card);
+  min-width: 0;
+}
+.aif .outs .o.wide {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  padding: 0 10px;
+}
+.aif .outs .o.on {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+  background: var(--acc-soft);
+  color: var(--acc-t);
+}
+.aif .hint {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.aif .frow2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.aif .frow2 .k {
+  width: 64px;
+  flex: none;
+  font-size: 12px;
+  color: var(--t2);
+}
+.aif .field {
+  height: 28px;
+  border-radius: 6px;
+  background: var(--fill);
+  border: 0;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--t1);
+  width: 100%;
+  min-width: 0;
+  box-shadow: inset 0 0 0 1px var(--line);
+  outline: none;
+}
+.aif select.field {
+  appearance: none;
+  padding-right: 28px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--t3) 50%), linear-gradient(135deg, var(--t3) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 12px,
+    calc(100% - 14px) 12px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+.aif .field:focus {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.aif .field:disabled {
+  color: var(--t2);
+}
+.aif .frow2 > .aipk {
+  flex: 1;
+  min-width: 0;
+}
+.aif .ffoot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+.aif .ffoot .t3 {
+  font-size: 12px;
+  min-width: 0;
+}
+.aif .ffoot .sp,
+.aipane .sect .sp,
+.pfoot .sp {
+  flex: 1;
+}
+
+/* 这一列的要求（一张小卡） */
+.sumcard {
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--line);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--t2);
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  row-gap: 4px;
+  column-gap: 8px;
+  line-height: 18px;
+}
+.sumcard .v {
+  color: var(--t1);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sumcard .ed {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+
+/* 样例、这一列的每一格 */
+.aipane .sect {
+  font-size: 12px;
+  color: var(--t3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: -6px;
+}
+.scard {
+  border-radius: 8px;
+  background: var(--fill);
+  padding: 10px 12px 8px;
+}
+.scard .h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  min-height: 26px;
+}
+.scard .h .nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scard .h .ib:first-of-type {
+  margin-left: auto;
+}
+.scard ol {
+  margin: 6px 0 2px;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.scard .one {
+  font-size: 13px;
+  line-height: 1.6;
+  margin-top: 4px;
+}
+.scard.run .one {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+}
+.rowlist .r {
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  border-radius: 6px;
+  padding: 0 6px;
+}
+.rowlist .r:hover {
+  background: var(--fill);
+}
+.rowlist .r .n {
+  width: 96px;
+  flex: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rowlist .r .v {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t2);
+}
+.rowlist .r .ib {
+  width: 22px;
+  height: 22px;
+}
+
+/* 底下一条：进度、停下 */
+.pfoot {
+  flex: none;
+  border-top: 1px solid var(--line);
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--t2);
+  background: var(--pop, var(--card));
+  position: relative;
+  min-height: 47px;
+}
+.pfoot .msg {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.pfoot .pbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -1px;
+  height: 2px;
+}
+.pfoot .pbar i {
+  display: block;
+  height: 100%;
+  background: var(--acc);
+  transition: width 0.3s;
+}
+
+/* ---------- 表里的格子 ---------- */
+.aiv {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.aiv .tx {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.aiv .tx.t2 {
+  color: var(--t2);
+}
+.aiv .tx.num {
+  font-variant-numeric: tabular-nums;
+}
+.aiv .wait,
+.aipane .wait {
+  font-size: 12px;
+  color: var(--t3);
+}
+.aiv .base-sel {
+  flex: none;
+}
+.mine-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t3);
+  flex: none;
+}
+.aic-note {
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font-size: 12px;
+  flex: none;
+  white-space: nowrap;
+}
+.aic-note:hover {
+  background: var(--acc-bg, var(--acc-soft));
+}
+.aic-shim {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  max-width: 120px;
+  background: linear-gradient(90deg, var(--fill2) 0%, var(--acc-soft) 40%, var(--fill2) 80%);
+  background-size: 200% 100%;
+  animation: aic-shim 1.2s linear infinite;
+}
+@keyframes aic-shim {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+.aic-pulse {
+  animation: aic-pulse 1.4s ease-in-out infinite;
+}
+@keyframes aic-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aic-shim,
+  .aic-pulse {
+    animation: none;
+  }
+}
+/* 原文改过：一个小点，点一下重跑 */
+.aic-changed {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+.aic-changed::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--yellow);
+}
+.aic-changed:hover {
+  background: var(--fill2);
+}
+td.aic {
+  position: relative;
+  cursor: default;
+}
+td.aic:hover {
+  background: var(--fill);
+}
+td.aic .cbtns {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  gap: 2px;
+}
+td.aic:hover .cbtns {
+  display: inline-flex;
+}
+td.aic .cbtns button {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--t2);
+}
+td.aic .cbtns button:hover {
+  color: var(--t1);
+}
+td.aic .aiv > button:not(.aic-note):not(.aic-changed) {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--t2);
+}
+/* 列头：标志 14 + 列名（--t1，原型 th.ai）+ 在跑时「3/8」 */
+.base .base-th.ai,
+.base-th.ai {
+  color: var(--t1);
+}
+/* 列菜单里点不了的一项（只跑空着的、没有空着的时）：字灰、图标半透明 */
+.base-colmenu button:disabled {
+  color: var(--t3);
+  cursor: default;
+}
+.base-colmenu button:disabled:hover {
+  background: none;
+}
+.base-colmenu button:disabled svg {
+  opacity: 0.5;
+}
+.base-th .aic-prog {
+  font-weight: 400;
+  color: var(--t3);
+  margin-left: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 列菜单最上面 AI 列那一段 */
+.aic-menu .aic-mhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+.aic-menu .aic-mprompt {
+  margin: 2px 8px 6px;
+  font-size: 12px;
+  color: var(--t3);
+  line-height: 1.5;
+}
+.aic-menu .k {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+}
+.aic-menu .aic-auto {
+  gap: 8px;
+}
+.aic-menu .aic-auto .sw-toggle {
+  margin-left: auto;
+}
+.base-confirm .aic-written {
+  color: var(--t2);
+}
+
+/* 加一列菜单最下面「AI 生成一列」 */
+.base-addcol .aic-add {
+  height: auto;
+  align-items: flex-start;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  gap: 8px;
+}
+.base-addcol .aic-add .eng-logo {
+  flex: none;
+  margin-top: 2px;
+}
+.base-addcol .aic-add .aic-add-t {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+}
+.base-addcol .aic-add .aic-add-t > span:first-child {
+  font-weight: 500;
+}
+.base-addcol .aic-add small {
+  font-size: 12px;
+  color: var(--t3);
+}

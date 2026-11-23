@@ -1,8 +1,10 @@
 /**
  * 回答里选中一句：离选中高亮的下沿 8、横着居中的小框（CN-90 照 Dispatch，2026-11-21 起读 PDF、AI 对话、网页框一块问的回答、文档里的 AI 讲解都用它，task-4edsc；
  * 2026-11-22 用户看图定「离选中高亮的下沿 8」，task-5yp97：以前离的是字的下沿，高亮比字高出半个行距，看着贴在字上）：
- * 上面一格先能打问题（占位「问这句…（空着 ↵ 就是打开旁支自己打）」），分隔线，下面「引用进输入框 ⇧⌘L」「问这句 ↵」。
- * 点外面、失焦收起，esc 收起并取消选区；小框开着、焦点不在输入的地方时回车就是「问这句」。
+ * 上面一格先能打问题（占位「问这句…（空着 ↵ 就是打开旁支自己打）」），分隔线，下面「引用 ⌘↵」「问这句 ↵」。
+ * 「引用」的叫法和键同网页、PDF、HTML 的选中小条（task-bppvn，DESIGN.md「选中后的小条」：⌘↵ 是「问这一页」那个键，选着时是引用；⇧⌘L 照旧也是引用，不写）。
+ * 点外面、失焦收起，esc 收起并取消选区；小框开着、焦点不在输入的地方时回车就是「问这句」；小框开着时 ⌘↵ 是引用
+ * （焦点在小框那一格里、打了问题时 ⌘↵ 同 ↵ 发这句：多行框里 ⌘↵ 是提交，命令表 submit）。
  * AskBox 挂在回答列表上（选区在 .am[data-msg] .txt 里，旁支那一块里的不算）；文档里的由编辑器那一半直接给位置（AskBoxView）。
  */
 import { Codicon } from '@cn/design'
@@ -12,6 +14,8 @@ import { AiIcon } from '../engine-logo'
 import { isKey, keyFor } from '../keys'
 import { rangeText } from '../reading/marks'
 import { useDismiss } from '../use-dismiss'
+import { useT } from '../i18n'
+import { t as tNow } from '../../shared/i18n'
 
 /**
  * 选中高亮的下沿（屏幕坐标）：浏览器把选区底色铺满那一行的行盒，比字的下沿（getClientRects 给的）低一截。
@@ -58,28 +62,44 @@ function answerSelection(list: HTMLElement | null): { text: string; rect: DOMRec
   const range = sel.getRangeAt(0)
   const text = rangeText(range)
   if (text.length < 2) return null
-  return { text, rect: range.getBoundingClientRect(), bottom: highlightBottom(range), msg: Number(am.dataset.msg), src: am.dataset.src ?? 'AI的回答', range: range.cloneRange() }
+  return { text, rect: range.getBoundingClientRect(), bottom: highlightBottom(range), msg: Number(am.dataset.msg), src: am.dataset.src ?? tNow('AI的回答'), range: range.cloneRange() }
 }
 
 /** 小框本身：at 是选区的横中点和选中高亮的下沿（屏幕坐标，highlightBottom），within 是要收在哪一格里（离两边 8） */
 export function AskBoxView(p: { at: { cx: number; bottom: number }; within: DOMRect | null; onQuote(): void; onAsk(question: string): void; onClose(why: 'esc' | 'outside' | 'blur'): void }) {
+  const t = useT()
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const [q, setQ] = useState('')
   const ref = useRef<HTMLDivElement>(null)
   useDismiss(true, [ref], (why) => p.onClose(why))
   const ask = useRef(p.onAsk)
   ask.current = p.onAsk
+  const quote = useRef(p.onQuote)
+  quote.current = p.onQuote
   // 小框开着、焦点不在输入的地方：回车就是「问这句」
   useEffect(() => {
     const enter = (e: KeyboardEvent) => {
       if (e.key !== 'Enter' || e.isComposing || e.shiftKey || e.metaKey) return
-      const t = e.target as HTMLElement | null
-      if (t?.closest('textarea, input, [contenteditable="true"]')) return
+      const at = e.target as HTMLElement | null
+      if (at?.closest('textarea, input, [contenteditable="true"]')) return
       e.preventDefault()
       ask.current('')
     }
     window.addEventListener('keydown', enter)
     return () => window.removeEventListener('keydown', enter)
+  }, [])
+  // ⌘↵（「问这一页」那个键）：引用。先于读 PDF 的「问这一页」、编辑器里的 ⌘↵ 接住（窗口上的捕获阶段）
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!isKey(e, 'ask-page')) return
+      e.preventDefault()
+      e.stopPropagation()
+      const own = (e.target as HTMLElement | null)?.closest('.askbox textarea') as HTMLTextAreaElement | null
+      if (own?.value.trim()) ask.current(own.value)
+      else quote.current()
+    }
+    window.addEventListener('keydown', key, true)
+    return () => window.removeEventListener('keydown', key, true)
   }, [])
   // 量了高再放：离选中高亮的下沿 8、横着居中；左右收进那一格（离两边 8），格子比小框还窄时贴着格子右边；下面放不下贴着窗口底
   useLayoutEffect(() => {
@@ -94,12 +114,13 @@ export function AskBoxView(p: { at: { cx: number; bottom: number }; within: DOMR
     setPos({ left, top: Math.max(8, Math.min(p.at.bottom + GAP + RING, window.innerHeight - h - 12)) })
   }, [pos, p.at, p.within])
   return createPortal(
-    <div ref={ref} className="menu askbox" role="dialog" aria-label="选中的这句" data-composer-pop="" style={pos ?? { left: p.at.cx, top: p.at.bottom + GAP + RING, visibility: 'hidden' }}>
+    <div ref={ref} className="menu askbox" role="dialog" aria-label={t('选中的这句')} data-composer-pop="" style={pos ?? { left: p.at.cx, top: p.at.bottom + GAP + RING, visibility: 'hidden' }}>
       <textarea
         rows={1}
         value={q}
-        aria-label="问这句"
-        placeholder="问这句…（空着 ↵ 就是打开旁支自己打）"
+        aria-label={t('问这句')}
+        placeholder={t('问这句…（空着 ↵ 就是打开旁支自己打）')}
+        title={t('空着 ↵ 就是打开旁支自己打')}
         onChange={(e) => setQ(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -112,15 +133,17 @@ export function AskBoxView(p: { at: { cx: number; bottom: number }; within: DOMR
       <div className="sep" />
       <button className="it" onMouseDown={(e) => e.preventDefault()} onClick={p.onQuote}>
         <span className="ck">
-          <Codicon name="quote" size={14} />
+          <Codicon name="comment" size={14} />
         </span>
-        引用进输入框{keyFor('quote') && <span className="r">{keyFor('quote')}</span>}
+        {t('引用')}
+        {keyFor('ask-page') && <span className="r">{keyFor('ask-page')}</span>}
       </button>
       <button className="it" onMouseDown={(e) => e.preventDefault()} onClick={() => p.onAsk(q)}>
         <span className="ck">
           <AiIcon job="chat" size={14} />
         </span>
-        问这句<span className="r">↵</span>
+        {t('问这句')}
+        <span className="r">↵</span>
       </button>
     </div>,
     document.body,

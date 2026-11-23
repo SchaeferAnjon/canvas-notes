@@ -8,6 +8,7 @@ import { parseMoment, parseVideoCard, videoOf } from '../shared/video'
 import { MomentCard, VideoCard } from './video/BoardCards'
 import { MapCard } from './mindmap/MapThumb'
 import { Attached, inline, Markdown, reviewTag } from './md-render'
+import { useT } from './i18n'
 
 /**
  * 卡片里的 md 显示成什么样。只认卡片里常见的写法，全部走 React 元素（不拼 HTML）。
@@ -80,6 +81,7 @@ export function CardBody(props: {
   small?: boolean
   onToggle(line: number): void
 }) {
+  const t = useT()
   const { text, info } = props
   const lines = text.split('\n')
   if (info.kind === 'video') return <VideoCard text={text} notePath={props.notePath ?? ''} stats={props.videoStats} />
@@ -91,7 +93,7 @@ export function CardBody(props: {
       <div className="cb-color">
         <div className="sw" style={{ background: m[1] }} />
         <div className="nm">
-          <b>{m[2] ?? '颜色'}</b>
+          <b>{m[2] ?? t('颜色')}</b>
           <span className="mono">{m[1]!.toUpperCase()}</span>
         </div>
       </div>
@@ -126,7 +128,7 @@ export function CardBody(props: {
         <span className="sq" style={{ background: n.board!.color }} />
         <span>
           <b>{titleOf(n.path)}</b>
-          <span className="meta num">{`${n.board!.cards}张卡片`}</span>
+          <span className="meta num">{t('{n}张卡片', { n: n.board!.cards })}</span>
         </span>
       </div>
     )
@@ -137,7 +139,7 @@ export function CardBody(props: {
     // 摘要从正文开始：去掉开头重复的标题
     const summary = n.preview?.startsWith(title) ? n.preview.slice(title.length).trim() : n.preview
     return (
-      <div className="cb-doc" title={n.source ? '双击看全文' : '双击打开'}>
+      <div className="cb-doc" title={n.source ? t('双击看全文') : t('双击打开')}>
         <b>{title}</b>
         {summary && <p>{summary}</p>}
         <div className="src">

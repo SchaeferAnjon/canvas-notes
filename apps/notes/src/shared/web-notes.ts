@@ -45,7 +45,13 @@ const linkText = (s: string) => s.replace(/[[\]]/g, ' ').trim()
  */
 export function webAskBlock(a: WebAsk): string {
   const many = a.quotes.length > 1
-  const lead = [...a.quotes.map((q, i) => `> ${many ? `${MARKS[i] ?? ''} ` : ''}${oneLine(q)}`), ...(a.image ? [`![我框的](${mdUrl(a.image)})`] : [])]
+  // 引着的原文可以有几行（块级公式、代码块）：每行前面「> 」，空行写「>」不断开这段引文；几段时第一行前面 ①②
+  const quoted = (q: string, i: number) =>
+    q
+      .trim()
+      .split('\n')
+      .map((l, k) => (l.trim() ? `> ${k === 0 && many ? `${MARKS[i] ?? ''} ` : ''}${l}` : '>'))
+  const lead = [...a.quotes.flatMap(quoted), ...(a.image ? [`![我框的](${mdUrl(a.image)})`] : [])]
   const seen = a.links.map((l) => `[${linkText(l.text)}](${l.url})`).join(' · ')
   return aiCallout({ label: oneLine(a.label), ...(a.by ? { by: a.by } : {}), ...(seen ? { seen } : {}), text: [...lead, ...(lead.length ? [''] : []), a.answer.trim()].join('\n') })
 }

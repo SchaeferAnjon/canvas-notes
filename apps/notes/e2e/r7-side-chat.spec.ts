@@ -1,5 +1,5 @@
 // 读 PDF 的旁支：CN-90 的小框和问法照旧，2026-11-21 起开法换成方向 A「就地展开」（task-4edsc，原型 /private/tmp/canvas-notes-branch/proto.html#dir=a）。
-// 在 AI 的回答里选中一句 → 选区下方的小框（先能打问题；「引用进输入框 ⇧⌘L」「问这句 ↵」）→ 那一段下面长出旁支（不再开下格），
+// 在 AI 的回答里选中一句 → 选区下方的小框（先能打问题；「引用 ⌘↵」「问这句 ↵」）→ 那一段下面长出旁支（不再开下格），
 // 问过的那句划虚线、后面一个小标（一句一个，数字是这一句几条）；头上 ⋯ 改名、删掉、切到别的旁支；放进主对话、在笔记里看、拷贝；
 // esc 收起；重开软件旁支还在。四处（读 PDF、AI 对话、网页、文档）各走一遍的在 side-inline.spec.ts。
 // 一律无头（CN_E2E=1）、假 AI（CN_AI_FAKE=1）。
@@ -117,7 +117,7 @@ test('小框（照小样）、空着回车就地开旁支光标在旁支里、�
     const ta = ab.getByRole('textbox', { name: '问这句' })
     await expect(ta).toHaveAttribute('placeholder', '问这句…（空着 ↵ 就是打开旁支自己打）')
     expect((await box(ta)).height).toBe(32)
-    await expect(ab.locator('.it')).toHaveText(['引用进输入框⇧⌘L', '问这句↵'])
+    await expect(ab.locator('.it')).toHaveText(['引用⌘↵', '问这句↵'])
     expect(await css(ab, ['border-radius', 'padding'])).toEqual({ 'border-radius': '12px', padding: '6px' })
     expect((await box(ab.locator('.it').first())).height).toBe(30)
     // esc：小框收起、选区取消

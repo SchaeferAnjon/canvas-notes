@@ -56,6 +56,9 @@ module.exports = {
       // 让 iPhone / iPad 用这台 Mac 的 AI（task-wwqf0）：设置里打开后用 Bonjour 在局域网里报一声（macOS 15 起这算本地网络权限）
       NSLocalNetworkUsageDescription: `${brand.name} 在同一个 Wi‑Fi 里让你的 iPhone、iPad 找到这台 Mac，用这里的 AI 回答问题。`,
       NSBonjourServices: ['_canvasnotes._tcp'],
+      // 「日历」格读系统日历（只读，task-kzr3n）：起的是画布今日的小助手，系统把它记在画布笔记名下问权限
+      NSCalendarsFullAccessUsageDescription: `${brand.name} 在「日历」里只读显示系统日历的日程，排时间时避开它们。`,
+      NSCalendarsUsageDescription: `${brand.name} 在「日历」里只读显示系统日历的日程，排时间时避开它们。`,
     },
   },
   dmg: { title: `${brand.name} \${version}` },

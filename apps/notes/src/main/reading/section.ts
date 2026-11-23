@@ -89,11 +89,12 @@ export function roundText(msgs: ReadingMsg[], sides: ReadingSide[], max = 1200):
   const pairs = pairsOf(msgs)
   const ids = new Set(pairs.map((p) => p.ai.id))
   for (const p of pairs) {
-    out.push(`【他】${p.user.text.trim()}\n【AI】${cut(answerMd(p.ai.text))}`)
+    out.push(`【他】${p.user.text.trim()}\n【AI】${cut(answerMd(p.ai.text))}`) // 不翻：给 AI 的话
     // 找不到被问的那条回答的旁支（那条删了）挂在最后一问后面，和笔记里一样
     for (const s of sides.filter((x) => x.msg === p.ai.id || (p === pairs[pairs.length - 1] && !ids.has(x.msg)))) {
       const turns = pairsOf(s.msgs)
       if (!turns.length) continue
+      // 不翻：给 AI 的话
       out.push(`【旁支】他在回答里选中「${s.quote}」另问：\n${turns.map((t) => `【他·旁支】${t.user.text.trim()}\n【AI·旁支】${cut(answerMd(t.ai.text))}`).join('\n')}`)
     }
   }

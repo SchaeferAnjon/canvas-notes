@@ -74,7 +74,7 @@ export function MobileAiGroup(props: { onNotice(t: string): void }) {
                       </button>
                       <button
                         type="button"
-                        className="sa-btn ghost"
+                        className="sa-btn"
                         disabled={expired}
                         title="拷贝以后在iPhone或iPad上粘贴（同一个Apple账号能用通用剪贴板）"
                         onClick={() => void navigator.clipboard.writeText(s.pair!.link).then(() => said.say('拷贝好了：在iPhone或iPad的「扫码配对」里粘贴'))}
@@ -86,7 +86,7 @@ export function MobileAiGroup(props: { onNotice(t: string): void }) {
                 </>
               ) : (
                 <div className="mai-txt">
-                  <p>{s.devices.length ? '配好的设备随时能问。要再配一台，点下面换一个配对码。' : '还没配对设备。'}</p>
+                  <p>{s.devices.length ? '配好的设备随时能问。要再配一台，点「配一台新的」。' : '还没配对设备。'}</p>
                   <div className="mai-acts">
                     <button type="button" className="sa-btn" onClick={() => void run(window.cnMobileAi.newCode())}>
                       配一台新的
@@ -112,7 +112,7 @@ export function MobileAiGroup(props: { onNotice(t: string): void }) {
         <Row key={d.id} id={`mobileAiDev-${d.id}`} label={d.name === d.kind ? d.kind : `${d.kind}「${d.name}」`} desc={`配对于${ago(d.pairedAt, now)}${d.lastSeen ? ` · ${ago(d.lastSeen, now)}问过` : ' · 还没问过'}`}>
           <button
             type="button"
-            className="sa-btn ghost"
+            className="sa-btn"
             onClick={() => void run(window.cnMobileAi.unpair(d.id), () => said.say(`取消配对了：${d.kind}「${d.name}」要再用得重新扫码`))}
           >
             取消配对

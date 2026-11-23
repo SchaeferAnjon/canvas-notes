@@ -3,6 +3,7 @@
  * 双击回到默认（A 252；B 248，含岛右边 6 的缝，DESIGN.v3 1.3）。中间至少留 420。左栏收起时不出。
  */
 import { useState } from 'react'
+import { useT } from '../i18n'
 
 export const SIDE_KEY = 'cn.sideW'
 export const SIDE_MIN = 200
@@ -50,6 +51,7 @@ export function clampSideW(want: number, winW: number, abars: number, rightW: nu
 }
 
 export function SideSash(props: { frame: 'a' | 'b'; rightW: number; width: number | null; onWidth(w: number | null): void }) {
+  const t = useT()
   const [drag, setDrag] = useState(false)
   const abar = props.frame === 'a' ? 48 : 44
   const save = (w: number | null) => {
@@ -65,7 +67,7 @@ export function SideSash(props: { frame: 'a' | 'b'; rightW: number; width: numbe
       className={'hsplit' + (drag ? ' dragging' : '')}
       role="separator"
       aria-orientation="vertical"
-      aria-label="拖动调整左栏宽度"
+      aria-label={t('拖动调整左栏宽度')}
       aria-valuemin={SIDE_MIN}
       aria-valuemax={SIDE_MAX}
       aria-valuenow={props.width ?? SIDE_DEFAULT[props.frame]}

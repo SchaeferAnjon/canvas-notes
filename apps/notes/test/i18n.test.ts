@@ -103,6 +103,8 @@ describe('扫描', () => {
         "const e = '写进文件的' // 不翻：写进文件",
         "console.log('日志不算')",
         "const f = { kw: '别名 不算' }",
+        // 分类的身份（中文名）换成这个库的文件夹名：不是界面字
+        "const g = catName('课程') + underCat(p, '周记') + isChildOf(f, '阅读')",
       ].join('\n'),
     )
     expect(r.keys.map((k: { key: string; ctx?: string }) => (k.ctx ? `${k.ctx}::${k.key}` : k.key))).toEqual(['关掉了「{name}」', '插入菜单::标题', 'AI 讲解', '设置', '已存', '已存'])

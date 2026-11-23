@@ -1,0 +1,9 @@
+{
+  "name": "@cn/today-borrowed",
+  "private": true,
+  "description": "Canvas Notes 借用的 Canvas Today 文件，路径和 SchaeferAnjon/canvas-today 里一样",
+  "license": "GPL-3.0-or-later",
+  "dependencies": {
+    "@cn/tasks": "workspace:*"
+  }
+}

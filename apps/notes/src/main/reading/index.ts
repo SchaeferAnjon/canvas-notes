@@ -40,7 +40,7 @@ import type { EngineId } from '../../shared/agent'
 import type { CommitInfo } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
 import type { AskEvent, AskRequest, AskResult, PdfFile, ReadingMsg, ReadingSide, ReadingState, ReadingThread, SummarizeRequest, SummarizeResult, VizRequest, VizResult, WriteSectionRequest, WriteSectionResult } from '../../shared/reading'
-import { chatRun, engine, FAST_MODEL, featureLabel, modeLine, modelOpt, omniOn, runAgentTurn } from '../agent'
+import { chatRun, engine, FAST_MODEL, featureLabel, langTail, modeLine, modelOpt, omniOn, runAgentTurn } from '../agent'
 import { E2E } from '../test-mode'
 import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
 import type { EngineImage } from '../agent/engines'
@@ -52,6 +52,8 @@ import { readingKey } from './chats'
 import { setupBilingual } from './bilingual'
 import { setupCapture } from './capture'
 import { courseName, dirOf } from './doubts'
+import { t } from '../../shared/i18n'
+import { catName } from '../../shared/categories'
 import { logDropped } from '../crash-log'
 
 const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
@@ -69,7 +71,7 @@ export interface ReadingDeps {
 const stemOf = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 
 function needPdf(path: unknown): string {
-  if (typeof path !== 'string' || !/\.pdf$/i.test(path)) throw new Error('不是 PDF')
+  if (typeof path !== 'string' || !/\.pdf$/i.test(path)) throw new Error(t('不是 PDF'))
   return path
 }
 
@@ -77,7 +79,7 @@ function needPdf(path: unknown): string {
  * 边读边问的来源：库里的 PDF、库里的 HTML（中间栏开着的可视化），或「web:<网址>」（右栏网页上框着问、中间栏没开 PDF 时）
  */
 function needSource(path: unknown): string {
-  if (typeof path !== 'string' || !(/\.(pdf|html?)$/i.test(path) || /^web:https?:\/\//i.test(path))) throw new Error('不是 PDF、HTML 或网页')
+  if (typeof path !== 'string' || !(/\.(pdf|html?)$/i.test(path) || /^web:https?:\/\//i.test(path))) throw new Error(t('不是 PDF、HTML 或网页'))
   return path
 }
 const isWeb = (p: string) => p.startsWith('web:')
@@ -86,6 +88,7 @@ const isWeb = (p: string) => p.startsWith('web:')
 function nameOf(p: string): string {
   if (!isWeb(p)) return stemOf(p)
   const v = videoOf(p.slice(4))
+  // 不翻：磁盘上的名字
   return v ? `视频-${v.site}-${v.id}${v.p && v.p > 1 ? `-p${v.p}` : ''}` : `网页-${siteOf(p.slice(4))}`
 }
 
@@ -94,7 +97,7 @@ function webSource(web: { url: string; title: string; t?: number }): { url: stri
   if (web.t !== undefined) return { url: web.url, label: `▶ ${fmtTime(web.t)} · ${web.title}`, t: web.t }
   return { url: web.url, label: /^https?:/i.test(web.url) ? siteOf(web.url) : (web.url.split('/').pop() ?? '') }
 }
-const attachOf = (p: string) => (isWeb(p) ? `${ATTACH_DIR}/网页` : attachDirFor(p))
+const attachOf = (p: string) => (isWeb(p) ? `${ATTACH_DIR}/网页` : attachDirFor(p)) // 不翻：磁盘上的文件夹名
 
 
 /** 文件挪了（文件夹改名）：本机记着的读到哪、AI 会话跟着换到新路径 */
@@ -111,7 +114,7 @@ export function setupReading(deps: ReadingDeps) {
   const dir = join(app.getPath('userData'), 'reading')
   const needVault = () => {
     const v = deps.vault()
-    if (!v) throw new Error('还没有打开库')
+    if (!v) throw new Error(t('还没有打开库'))
     return v
   }
   const send = (ch: string, ...args: unknown[]) => deps.win()?.webContents.send(ch, ...args)
@@ -171,7 +174,7 @@ export function setupReading(deps: ReadingDeps) {
   ipcMain.handle('reading:pdf', async (_e, path: unknown) => {
     const abs = needVault().abs(needPdf(path))
     const st = await stat(abs)
-    if (st.size > MAX_PDF) throw new Error(`这份 PDF 有 ${Math.round(st.size / 1024 / 1024)} MB，太大了打不开`)
+    if (st.size > MAX_PDF) throw new Error(t('这份 PDF 有 {mb} MB，太大了打不开', { mb: Math.round(st.size / 1024 / 1024) }))
     const data = await readFile(abs)
     return { data: new Uint8Array(data), hash: pdfHash(data) }
   })
@@ -210,7 +213,7 @@ export function setupReading(deps: ReadingDeps) {
   if (app.isPackaged && !E2E) app.setAsDefaultProtocolClient('canvas-notes')
 
   ipcMain.handle('reading:htmlMeta', async (_e, path: unknown) => {
-    if (typeof path !== 'string' || !/\.html?$/i.test(path)) throw new Error('不是 HTML')
+    if (typeof path !== 'string' || !/\.html?$/i.test(path)) throw new Error(t('不是 HTML'))
     const all = await readFile(needVault().abs(path), 'utf8')
     const head = all.slice(0, 20_000)
     const props: Record<string, string> = {}
@@ -240,18 +243,18 @@ export function setupReading(deps: ReadingDeps) {
     try {
       s = readJson<ReadingState | null>(statePath(p), null)
     } catch (e) {
-      logDropped('reading', `本机的对话记录读不出来：${(e as Error).message}`)
+      logDropped('reading', `本机的对话记录读不出来：${(e as Error).message}`) // 不翻：写进日志
       return fresh
     }
     if (!s || typeof s !== 'object' || s.pdf !== p) return fresh
     if (!Array.isArray(s.msgs) || !Array.isArray(s.threads) || (s.sides !== undefined && !Array.isArray(s.sides))) {
-      logDropped('reading', '本机的对话记录少了消息或框的列表')
+      logDropped('reading', '本机的对话记录少了消息或框的列表') // 不翻：写进日志
       return fresh
     }
     return typeof s.page === 'number' && Number.isFinite(s.page) ? s : { ...s, page: 1 }
   })
   ipcMain.handle('reading:state:save', (_e, s: ReadingState) => {
-    if (!s || !Array.isArray(s.msgs) || !Array.isArray(s.threads)) throw new Error('读 PDF 的记录不对')
+    if (!s || !Array.isArray(s.msgs) || !Array.isArray(s.threads)) throw new Error(t('读 PDF 的记录不对'))
     writeJson(statePath(needSource(s.pdf)), s)
   })
 
@@ -271,7 +274,7 @@ export function setupReading(deps: ReadingDeps) {
 
   ipcMain.handle('reading:crop', async (_e, pdf: unknown, page: number, png: Uint8Array) => {
     const p = needSource(pdf)
-    if (!(png instanceof Uint8Array) || png.length > 20 * 1024 * 1024) throw new Error('截图不对')
+    if (!(png instanceof Uint8Array) || png.length > 20 * 1024 * 1024) throw new Error(t('截图不对'))
     const rel = freeName((n) => `${attachOf(p)}/${isWeb(p) ? `${nameOf(p).slice(3)}-` : ''}p${Math.max(1, Math.floor(page))}-${n}.png`)
     const abs = needVault().abs(rel)
     await mkdir(dirname(abs), { recursive: true })
@@ -292,7 +295,7 @@ export function setupReading(deps: ReadingDeps) {
   // ---------- 全文（pdf-blocks 拼好的段落块，按内容指纹缓存） ----------
   ipcMain.handle('reading:text:set', (_e, hash: string, pdf: unknown, pages: PdfBlock[][], sizes: [number, number][]) => {
     const p = needPdf(pdf)
-    if (typeof hash !== 'string' || !Array.isArray(pages) || !Array.isArray(sizes)) throw new Error('全文不对')
+    if (typeof hash !== 'string' || !Array.isArray(pages) || !Array.isArray(sizes)) throw new Error(t('全文不对'))
     writeJson(textPath(hash), { pdf: p, pages, sizes } satisfies PdfTextCache)
   })
   const textOf = (hash: string) => readTextCache(app.getPath('userData'), hash)?.pages ?? null
@@ -330,10 +333,10 @@ export function setupReading(deps: ReadingDeps) {
   }
 
   ipcMain.handle('reading:ask', async (_e, req: AskRequest): Promise<AskResult> => {
-    if (!req || typeof req.id !== 'number' || typeof req.text !== 'string' || !IDS.includes(req.engine) || !Array.isArray(req.images)) throw new Error('AI 参数不对')
+    if (!req || typeof req.id !== 'number' || typeof req.text !== 'string' || !IDS.includes(req.engine) || !Array.isArray(req.images)) throw new Error(t('AI 参数不对'))
     const side = req.side
     const optStr = (x: unknown) => x === undefined || (typeof x === 'string' && x.length <= 20_000)
-    if (side !== undefined && (!side || typeof side.id !== 'string' || !/^[\w-]{1,80}$/.test(side.id) || typeof side.history !== 'string' || !optStr(side.quote) || !optStr(side.ask) || !optStr(side.title))) throw new Error('AI 参数不对')
+    if (side !== undefined && (!side || typeof side.id !== 'string' || !/^[\w-]{1,80}$/.test(side.id) || typeof side.history !== 'string' || !optStr(side.quote) || !optStr(side.ask) || !optStr(side.title))) throw new Error(t('AI 参数不对'))
     const pdf = needSource(req.pdf)
     const v = needVault()
     const mats = checkMaterials(req.mats)
@@ -355,7 +358,7 @@ export function setupReading(deps: ReadingDeps) {
       const prompt = side
         ? sidePrompt({ first: !mine, quote: side.quote ?? req.thread.quote ?? '', page: req.thread.page, ...(side.title ? { title: side.title } : {}), ...(side.ask ? { ask: side.ask } : {}), question: withMaterials(req.text, mats, req.images.length) })
         : askPrompt({
-        pdfName: isWeb(pdf) ? (req.thread.web?.title ?? '网页') : stemOf(pdf),
+        pdfName: isWeb(pdf) ? (req.thread.web?.title ?? '网页') : stemOf(pdf), // 不翻：给 AI 的话
         ...(req.thread.web ? { web: req.thread.web } : {}),
         ...(req.thread.web?.t !== undefined ? { subs: subsAround(req.thread.web.url, req.thread.web.t) } : {}),
         ...(/\.html?$/i.test(pdf) ? { html: true } : {}),
@@ -379,12 +382,12 @@ export function setupReading(deps: ReadingDeps) {
         engine: req.engine,
         omni,
         ac,
-        subject: `读${isWeb(pdf) ? (req.thread.web?.title ?? '网页') : stemOf(pdf)}时：${req.text}`,
+        subject: `读${isWeb(pdf) ? (req.thread.web?.title ?? '网页') : stemOf(pdf)}时：${req.text}`, // 不翻：提交说明（写进 Git）
         emit: (e) => send('reading:event', req.id, e satisfies AskEvent),
         run: {
           ...chatRun(req.engine, req),
           // 开头一行是现在开没开全能模式（系统提示在一个会话里定死了，开关随时会换）
-          prompt: `${modeLine(omni, req.engine, v.root)}\n${prompt}`,
+          prompt: `${modeLine(omni, req.engine, v.root, req.text)}\n${prompt}${langTail(req.text)}`,
           // 讲透（CN-89）：附在 Claude Code 自己的系统提示后面，带上用户自己的 CLAUDE.md；effort 默认 High（chatRun）
           system: TUTOR_SYSTEM,
           appendSystem: true,
@@ -401,7 +404,7 @@ export function setupReading(deps: ReadingDeps) {
       })
       const done = { ...(turn.commit ? { commit: turn.commit, kinds: turn.kinds } : {}), ...(turn.failed ? { failed: turn.failed, kinds: turn.kinds } : {}), ...(turn.moved ? { moved: turn.moved } : {}) }
       const r = turn.outcome
-      if (!r) return { text, error: turn.error ?? '没有回答', ...done }
+      if (!r) return { text, error: turn.error ?? t('没有回答'), ...done }
       const next = readSessions(pdf)
       if (r.session && side) next.sides = { ...next.sides, [side.id]: { ...next.sides?.[side.id], [req.engine]: r.session } }
       else if (r.session) {
@@ -413,7 +416,7 @@ export function setupReading(deps: ReadingDeps) {
       writeJson(sessionsPath(pdf), next)
       return { text: (r.text || text).replace(/\n{3,}/g, '\n\n'), ...(turn.error ? { error: turn.error } : {}), ...done }
     } catch (e) {
-      return { text, error: (e as Error).name === 'AbortError' || ac.signal.aborted ? '停下了' : String((e as Error).message ?? e) }
+      return { text, error: (e as Error).name === 'AbortError' || ac.signal.aborted ? t('停下了') : String((e as Error).message ?? e) }
     } finally {
       asking.delete(req.id)
     }
@@ -423,7 +426,7 @@ export function setupReading(deps: ReadingDeps) {
   /** 界面给的旁支（对话记录里的那几条）：只收这一处的，形状不对的不收 */
   const sidesOf = (sides: unknown, thread: string): ReadingSide[] => {
     if (sides === undefined) return []
-    if (!Array.isArray(sides)) throw new Error('旁支不对')
+    if (!Array.isArray(sides)) throw new Error(t('旁支不对'))
     return (sides as ReadingSide[]).filter((s) => s && s.thread === thread && typeof s.quote === 'string' && Array.isArray(s.msgs))
   }
 
@@ -467,7 +470,7 @@ export function setupReading(deps: ReadingDeps) {
     if (isWeb(src)) {
       // 网页上问的：中间栏开着文档就交回 md 让界面插到光标处；没开就进收件箱那篇
       if (req.target?.kind === 'doc') return writeWebToDoc(req, req.target.path)
-      const note = webNotePath(req.thread.web?.title ?? '网页')
+      const note = webNotePath(req.thread.web?.title ?? '网页') // 不翻：文件名
       return queued(note, () => writeSection(req, note))
     }
     const note = notePathFor(src)
@@ -482,7 +485,7 @@ export function setupReading(deps: ReadingDeps) {
   // ---------- 做个可视化（后台） ----------
   ipcMain.handle('reading:viz', async (_e, req: VizRequest): Promise<VizResult> => {
     const pdf = needPdf(req.pdf)
-    if (!IDS.includes(req.engine) || !req.thread || typeof req.thread.id !== 'string') throw new Error('可视化参数不对')
+    if (!IDS.includes(req.engine) || !req.thread || typeof req.thread.id !== 'string') throw new Error(t('可视化参数不对'))
     const v = needVault()
     const note = notePathFor(pdf)
     const msgs = req.msgs.filter((m) => m.thread === req.thread.id)
@@ -499,11 +502,12 @@ export function setupReading(deps: ReadingDeps) {
       onText: () => undefined,
     })
     const raw = extractHtml(r.text)
-    if (!raw) throw new Error('AI 没做出能打开的网页，再点一次试试')
-    const title = vizTitle(raw, `第 ${req.thread.page} 页的可视化`)
+    if (!raw) throw new Error(t('AI 没做出能打开的网页，再点一次试试'))
+    const title = vizTitle(raw, `第 ${req.thread.page} 页的可视化`) // 不翻：写进文件的标题
     const folder = dirOf(pdf)
     const course = courseName(folder)
     const lec = lectureOf(pdf)
+    // 不翻：写进文件的属性
     const html = withVizMeta(raw, { 类型: '可视化', 课程: course, 第几讲: lec !== undefined ? String(lec) : '', 来源: `[[${pdf.split('/').pop()}]] 第 ${req.thread.page} 页`, 模型: featureLabel('chat') })
     return queued(note, async () => {
       const path = freeName((n) => `${folder ? folder + '/' : ''}${vizFileStem(title)}${n > 1 ? ` ${n}` : ''}.html`)
@@ -520,7 +524,7 @@ export function setupReading(deps: ReadingDeps) {
           paths.push(note)
         }
       } else pendingViz.set(req.thread.id, { path, title, embed: true })
-      const hash = await git.commitPaths(v.root, paths, `可视化：${title}（${stemOf(pdf)} 第 ${req.thread.page} 页）`)
+      const hash = await git.commitPaths(v.root, paths, `可视化：${title}（${stemOf(pdf)} 第 ${req.thread.page} 页）`) // 不翻：提交说明
       send('files:changed')
       return { path, title, commit: hash ? ((await git.log(v.root, 1))[0] ?? null) : null }
     })
@@ -569,7 +573,7 @@ export function setupReading(deps: ReadingDeps) {
     const paths = [note, ...mats.values()]
     let fig: { path: string; caption: string } | null = null
     if (req.figurePng instanceof Uint8Array && req.figurePng.length) {
-      fig = { path: `${attachDirFor(pdf)}/${threadName(th.id).replace(/^.*-(p\d+-\d+)$/, '$1')}-fig.png`, caption: req.figureCaption || `第 ${th.page} 页的图` }
+      fig = { path: `${attachDirFor(pdf)}/${threadName(th.id).replace(/^.*-(p\d+-\d+)$/, '$1')}-fig.png`, caption: req.figureCaption || `第 ${th.page} 页的图` } // 不翻：写进笔记的图说
       await mkdir(dirname(v.abs(fig.path)), { recursive: true })
       await writeFile(v.abs(fig.path), req.figurePng)
       paths.push(fig.path)
@@ -605,6 +609,7 @@ export function setupReading(deps: ReadingDeps) {
       if (fig) s.figures = [fig]
       let next = upsertSection(cur ?? (isWeb(pdf) ? newWebNote(th.web) : newReadingNote(pdf)), s, note)
       // 进度：问到第几页（问过的最大页码）/ 一共几页
+      // 不翻：属性键
       if (req.pages > 0) next = setProp(next, '进度', `${Math.max(...parseReadingNote(next, note).map((x) => x.page))}/${req.pages}`)
       const w = await v.write(note, next, base)
       if (w.ok) {
@@ -612,7 +617,7 @@ export function setupReading(deps: ReadingDeps) {
         if (next !== base) send('note:changed', note, next)
         break
       }
-      if (tries >= 2) throw new Error('笔记刚被改过，写不进去，等一下再问一轮会再记')
+      if (tries >= 2) throw new Error(t('笔记刚被改过，写不进去，等一下再问一轮会再记'))
     }
     pendingViz.delete(th.id)
     if (req.commit === false) {
@@ -620,6 +625,7 @@ export function setupReading(deps: ReadingDeps) {
       return { note, commit: null }
     }
     unsaved.delete(note)
+    // 不翻：提交说明
     const hash = await git.commitPaths(v.root, [...new Set(paths)], `笔记：${isWeb(pdf) ? (th.web?.title ?? '网页') : stemOf(pdf)}${th.page > 0 ? ` 第 ${th.page} 页` : ''} · ${s.title}`)
     let commit: CommitInfo | null = null
     if (hash) commit = (await git.log(v.root, 1))[0] ?? null
@@ -641,7 +647,7 @@ export function setupReading(deps: ReadingDeps) {
   }
 
   ipcMain.handle('reading:commit', async (_e, paths: unknown, message: unknown) => {
-    if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string') || typeof message !== 'string') throw new Error('提交的参数不对')
+    if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string') || typeof message !== 'string') throw new Error(t('提交的参数不对'))
     const v = needVault()
     for (const p of paths as string[]) v.abs(p)
     const hash = await git.commitPaths(v.root, paths as string[], message.slice(0, 200))
@@ -652,16 +658,18 @@ export function setupReading(deps: ReadingDeps) {
 
 /** 网页上问、中间栏没开文档时记进的那篇：收件箱/<网页标题> 笔记.md */
 function webNotePath(title: string): string {
+  // 不翻：文件名；收件箱照这个库磁盘上的名字（英文库是 Inbox）
   const safe = title.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || '网页'
-  return `收件箱/${safe} 笔记.md`
+  return `${catName('收件箱')}/${safe} 笔记.md` // 不翻
 }
 
 /** 收件箱里新的网页笔记开头：类型 笔记、来源网址、日期 */
 function newWebNote(web: { url: string; title: string } | undefined): string {
-  let t = setProp('', '类型', '笔记')
-  if (web) t = setProp(t, '来源', web.url)
-  t = setProp(t, '日期', dayOf(new Date()))
-  return `${t}\n# ${web?.title ?? '网页'} 笔记\n`
+  // 不翻：写进文件的属性和标题
+  let s = setProp('', '类型', '笔记')
+  if (web) s = setProp(s, '来源', web.url) // 不翻
+  s = setProp(s, '日期', dayOf(new Date())) // 不翻
+  return `${s}\n# ${web?.title ?? '网页'} 笔记\n` // 不翻
 }
 
 export const VIZ_TIMEOUT = 8 * 60_000
@@ -670,7 +678,9 @@ export const VIZ_TIMEOUT = 8 * 60_000
 function historyOf(msgs: ReadingMsg[], full: string): string | undefined {
   const recent = msgs.filter((m) => m.text.trim() && !m.error).slice(-10)
   const parts: string[] = []
+  // 不翻：给 AI 的话
   if (full) parts.push(`整份 PDF 的文字：\n<pdf>\n${full}\n</pdf>`)
+  // 不翻：给 AI 的话
   if (recent.length) parts.push(`之前聊过的（供参考）：\n${recent.map((m) => `${m.role === 'user' ? '他' : 'AI'}（第 ${m.page ?? '?'} 页）：${m.text.slice(0, 600)}`).join('\n')}`)
   return parts.length ? parts.join('\n\n') : undefined
 }

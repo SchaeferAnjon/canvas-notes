@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto'
 import { copyFile, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, relative, sep } from 'node:path'
 import type { Vault } from './vault'
+import { isChildOf } from '../shared/categories'
 
 /** 拷进来的、还能撤回的（库里的路径） */
 const imported = new Set<string>()
@@ -50,7 +51,7 @@ async function sameIn(dir: string, file: string, size: number): Promise<string |
 
 /** 拷进课程文件夹：只收 PDF；返回拷进来的库里路径、没收的文件名、这门课里已经有一模一样的（库里那份的路径） */
 export async function importPdfs(v: Vault, folder: string, paths: string[]): Promise<{ added: string[]; skipped: string[]; already: string[] }> {
-  if (!/^课程\/[^/]+$/.test(folder)) throw new Error('只能拷进一门课的文件夹')
+  if (!isChildOf(folder, '课程')) throw new Error('只能拷进一门课的文件夹')
   const dir = v.abs(folder)
   await mkdir(dir, { recursive: true })
   const added: string[] = []

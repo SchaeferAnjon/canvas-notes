@@ -16,6 +16,8 @@ import { openFolderHome } from '../folder-home/store'
 import { useKey, useKeyHandler } from '../keys'
 import { imageSrc } from '../md-widgets'
 import { INBOX_DIR } from '../Sidebar'
+import { useT } from '../i18n'
+import { t as tNow } from '../../shared/i18n'
 
 // ---------- 开着还是收着：只在这一次（默认收着，几块白板共用一个） ----------
 
@@ -59,6 +61,7 @@ export const inboxOf = (notes: NoteFile[], self: string) => notes.filter((n) => 
 
 /** 白板右上角「收件箱 N」：开关弹窗；只有白板看法时挂着（标签不在前面时 TabActs 外的白板整块藏着），⇧⌘I 也只在这时归它 */
 export function InboxButton(props: { count: number }) {
+  const t = useT()
   const on = useInboxOpen()
   const k = useKey('board-inbox')
   useKeyHandler('board-inbox', () => (setInboxOpen(!open), true))
@@ -68,15 +71,15 @@ export function InboxButton(props: { count: number }) {
       className={'dbc-btn db-inbox-btn' + (on ? ' on' : '')}
       aria-expanded={on}
       aria-haspopup="dialog"
-      aria-label={`收件箱${props.count ? ` ${props.count}条` : ''}`}
+      aria-label={props.count ? t('收件箱 {n}条', { n: props.count }) : t('收件箱')}
       data-testid="db-inbox"
-      data-tip={on ? '收起收件箱' : '打开收件箱'}
+      data-tip={on ? t('收起收件箱') : t('打开收件箱')}
       data-key={k ?? undefined}
       data-side="below"
       onClick={() => setInboxOpen(!on)}
     >
       <Codicon name="inbox" size={14} />
-      <span className="lb">收件箱</span>
+      <span className="lb">{t('收件箱')}</span>
       {props.count > 0 && <span className="cnt num">{props.count}</span>}
     </button>
   )
@@ -107,12 +110,13 @@ function faceOf(n: NoteFile, text: string | null): Face {
   const img = IMG.exec(body)
   // 只有一张图（手机发来的、拖进收件箱的）：画图
   if (img && body.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/^——.*$/gm, '').trim() === '')
-    return { k: 'image', src: imageSrc(n.path, img[2]!), name: img[1] || titleOf(n.path), domain: n.source ? domainOf(n.source) : '收件箱' }
+    return { k: 'image', src: imageSrc(n.path, img[2]!), name: img[1] || titleOf(n.path), domain: n.source ? domainOf(n.source) : tNow('收件箱') }
   if (n.source) return { k: 'clip', title: titleOf(n.path), sum: n.excerpt ?? '', domain: domainOf(n.source), thumb: img ? imageSrc(n.path, img[2]!) : null }
   return { k: 'quick', text: n.excerpt || n.preview || titleOf(n.path) }
 }
 
 function Item(props: { n: NoteFile; onDown(e: React.MouseEvent, n: NoteFile): void }) {
+  const t = useT()
   const { n } = props
   const text = useText(n.path)
   const f = faceOf(n, text)
@@ -146,7 +150,7 @@ function Item(props: { n: NoteFile; onDown(e: React.MouseEvent, n: NoteFile): vo
           <div className="dbr-tx">{f.text}</div>
           <div className="dbr-src">
             <Codicon name="note" size={12} />
-            <span>{`速记 · ${at}`}</span>
+            <span>{t('速记 · {at}', { at })}</span>
           </div>
         </>
       )}
@@ -177,6 +181,7 @@ const buttonRect = () => [...document.querySelectorAll<HTMLElement>('[data-testi
 
 /** 弹窗：直接放在白板这一格（中栏）里，量着它和按钮摆 */
 export function InboxPop(props: { items: NoteFile[]; readOnly: boolean; onItemDown(e: React.MouseEvent, n: NoteFile): void }) {
+  const t = useT()
   const [q, setQ] = useState('')
   const [folds, setFolds] = useState(readFolds)
   const [at, setAt] = useState<{ left: number; top: number; maxH: number } | null>(null)
@@ -274,15 +279,15 @@ export function InboxPop(props: { items: NoteFile[]; readOnly: boolean; onItemDo
   const shown = s ? all.filter((n) => titleOf(n.path).toLowerCase().includes(s) || (n.excerpt ?? '').toLowerCase().includes(s)) : all
   const start = new Date(new Date().setHours(0, 0, 0, 0)).getTime()
   const groups: { g: Grp; name: string; items: NoteFile[] }[] = [
-    { g: 'today', name: '今天', items: shown.filter((n) => n.createdMs >= start) },
-    { g: 'older', name: '更早', items: shown.filter((n) => n.createdMs < start) },
+    { g: 'today', name: t('今天'), items: shown.filter((n) => n.createdMs >= start) },
+    { g: 'older', name: t('更早'), items: shown.filter((n) => n.createdMs < start) },
   ]
   return (
     <div
       ref={self}
       className="db-inbox-pop"
       role="dialog"
-      aria-label="收件箱"
+      aria-label={t('收件箱')}
       style={at ? { left: at.left, top: at.top, maxHeight: at.maxH } : { visibility: 'hidden' }}
       onMouseDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
@@ -290,24 +295,24 @@ export function InboxPop(props: { items: NoteFile[]; readOnly: boolean; onItemDo
     >
       <div className="dbr-head">
         <Codicon name="inbox" size={15} />
-        <b>收件箱</b>
-        <span className="num">{`${all.length}条`}</span>
+        <b>{t('收件箱')}</b>
+        <span className="num">{t('{n}条', { n: all.length })}</span>
         <span className="grow" />
         {k && <kbd>{k}</kbd>}
       </div>
       {all.length ? (
         <>
           <div className="dbr-hint">
-            <span>拖进一列，就放进文档的那一节；</span>
-            <span>拖到空白处，就放在那里。</span>
+            <span>{t('拖进一列，就放进文档的那一节；')}</span>
+            <span>{t('拖到空白处，就放在那里。')}</span>
           </div>
           {all.length > 20 && (
             <label className="dbr-search">
               <Codicon name="search" size={13} />
-              <input aria-label="在收件箱里找" placeholder="在收件箱里找" value={q} onChange={(e) => setQ(e.currentTarget.value)} />
+              <input aria-label={t('在收件箱里找')} placeholder={t('在收件箱里找')} value={q} onChange={(e) => setQ(e.currentTarget.value)} />
             </label>
           )}
-          <div className="dbr-list" ref={list} role="list" aria-label="收件箱里的">
+          <div className="dbr-list" ref={list} role="list" aria-label={t('收件箱里的')}>
             {groups.map(({ g, name, items }) => {
               if (!items.length) return null
               // 找的时候不管收没收，找到的都列出来
@@ -320,21 +325,21 @@ export function InboxPop(props: { items: NoteFile[]; readOnly: boolean; onItemDo
                 ...(shut ? [] : items.map((n) => <Item key={n.path} n={n} onDown={down} />)),
               ]
             })}
-            {!shown.length && <div className="dbr-none">{`收件箱里没有「${q.trim()}」`}</div>}
+            {!shown.length && <div className="dbr-none">{t('收件箱里没有「{q}」', { q: q.trim() })}</div>}
           </div>
         </>
       ) : (
         <div className="dbr-empty">
           <Codicon name="inbox" size={32} />
-          <b>收件箱是空的</b>
-          剪藏、速记、手机发来的都先到这里。
+          <b>{t('收件箱是空的')}</b>
+          {t('剪藏、速记、手机发来的都先到这里。')}
         </div>
       )}
       <div className="dbr-foot">
-        <span>{`共 ${all.length} 条`}</span>
+        <span>{t('共 {n} 条', { n: all.length })}</span>
         <span className="grow" />
         <button type="button" className="dbr-folder" onClick={() => (setInboxOpen(false), openFolderHome(INBOX_DIR))}>
-          打开收件箱文件夹
+          {t('打开收件箱文件夹')}
           <Codicon name="chevron-right" size={12} />
         </button>
       </div>

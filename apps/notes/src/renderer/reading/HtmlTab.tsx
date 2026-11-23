@@ -17,6 +17,11 @@ import * as R from './store'
 import { capStyle, useCapPlace } from './cap-place'
 import type { Material } from '../../shared/materials'
 import './reading.css'
+import { CapButtons, ownKeyHit } from '../sel-bar/CapBar'
+import { useBar } from '../sel-bar/store'
+import { cmdById, cmdOut, cmdText, openBarSettings } from '../sel-bar/run'
+import { comboOf } from '../../shared/cmd-keys'
+import { t as tNow } from '../../shared/i18n'
 
 const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 const src = (p: string, host = 'vault') => `cn-file://${host}/` + p.split('/').map(encodeURIComponent).join('/')
@@ -33,6 +38,8 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
   /** 写在界面上的键照命令表（改了跟着变） */
   const K = useKeys()
   const { path } = props
+  /** 选中小条的表（task-26nz7）：条上、⋯ 里有哪几颗；总开关关着时不弹（键照样能按） */
+  const { bar, mine } = useBar()
   const [meta, setMeta] = useState<{ type?: string; lecture?: string; title?: string; by?: string }>({})
   const [seq, setSeq] = useState(0)
   const [more, setMore] = useState(false)
@@ -80,7 +87,11 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
     const down = (e: KeyboardEvent) => {
       if (e.key === 'Meta') setCmd(true)
       else if (e.key === 'Escape' && (boxed || framing) && !(e.target as Element)?.closest?.('textarea')) cancel()
-      else if (!e.defaultPrevented && isKey(e, 'ask-page')) {
+      else if (!e.defaultPrevented && boxed && !e.isComposing && ownKeyHit(comboOf(e), 'html', bar, mine)) {
+        // 选中小条上自己加的那颗的键（框着时）
+        e.preventDefault()
+        void capCmd(ownKeyHit(comboOf(e), 'html', bar, mine)!)
+      } else if (!e.defaultPrevented && isKey(e, 'ask-page')) {
         e.preventDefault()
         if (boxed) void capQuote()
         else void askScreen()
@@ -166,6 +177,16 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
     const p = R.get(path).pending
     if (!p) return
     await R.send(path, kind === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲')
+  }
+
+  /** 选中小条上自己加的那颗（task-26nz7）：框的那块照它的提示词问；只在 AI 栏答的不记笔记 */
+  async function capCmd(id: string) {
+    const c = cmdById(id)
+    const p = R.get(path).pending
+    if (!c || !p) return
+    props.onAsk()
+    R.stage(path, { ...p, cmd: c.name, ...(cmdOut(c) === 'answer' ? { noNote: true as const } : {}) })
+    await R.send(path, cmdText(c, { text: tNow('框下来的那张图'), title: meta.title ?? stem(path) }))
   }
 
   /** 引用：框的这块截图成为右栏输入框顶上那一排的一块材料，框收起、光标进输入框，接着框下一块攒成 ①② */
@@ -258,7 +279,7 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
               style={{ left: Math.min(box.x0, box.x1), top: Math.min(box.y0, box.y1), width: Math.abs(box.x1 - box.x0), height: Math.abs(box.y1 - box.y0) }}
             />
           )}
-          {boxed && !drag && (
+          {boxed && !drag && bar.enabled && (
             <div
               ref={capRef}
               className={'cap capbar' + (capAt?.nokbd ? ' nokbd' : '')}
@@ -267,37 +288,24 @@ export function HtmlTab(props: { path: string; active: boolean; onAsk(): void; o
               style={capStyle(capAt)}
               onPointerDown={(e) => e.stopPropagation()}
             >
-              <button className="main" onClick={() => void capAsk('explain')}>
-                <AiIcon job="chat" size={14} />
-                讲解一下{K('enter') && <kbd>{K('enter')}</kbd>}
-              </button>
-              <button onClick={() => void capAsk('translate')}>
-                <Codicon name="whole-word" size={14} />
-                翻译 + 讲一讲
-              </button>
-              <button onClick={() => void capQuote()}>
-                <Codicon name="comment" size={14} />
-                引用{K('ask-page') && <kbd>{K('ask-page')}</kbd>}
-              </button>
-              <span className="sepv" />
-              <button className={'icon' + (capMore ? ' on' : '')} aria-label="更多" aria-haspopup="menu" aria-expanded={capMore} onClick={() => setCapMore((v) => !v)}>
-                <Codicon name="ellipsis" size={14} />
-              </button>
-              <button className="icon" aria-label="取消" data-tip={`取消 ${K('escape') ?? ''}`.trim()} data-side="below" onClick={cancel}>
-                <Codicon name="close" size={14} />
-              </button>
-              {capMore && (
-                <div className="capmenu" role="menu" aria-label="这块还能做什么">
-                  <button role="menuitem" onClick={() => void capCopy()}>
-                    <Codicon name="copy" size={14} />
-                    拷贝这块
-                  </button>
-                  <button role="menuitem" onClick={() => (setCapMore(false), openTranslateSettings())}>
-                    <Codicon name="settings-gear" size={14} />
-                    翻译设置…
-                  </button>
-                </div>
-              )}
+              <CapButtons
+                place="html"
+                quote={false}
+                more={capMore}
+                setMore={setCapMore}
+                onCancel={cancel}
+                escKey={K('escape')}
+                acts={{
+                  explain: () => void capAsk('explain'),
+                  translate: () => void capAsk('translate'),
+                  quote: () => void capQuote(),
+                  copy: () => void capCopy(),
+                  cmd: (id) => void capCmd(id),
+                  trSettings: () => openTranslateSettings(),
+                  add: () => openBarSettings({ view: 'edit', sample: { text: tNow('框下来的那张图'), title: meta.title ?? stem(path) } }),
+                  settings: () => openBarSettings({ view: 'list' }),
+                }}
+              />
             </div>
           )}
         </div>

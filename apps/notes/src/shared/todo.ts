@@ -4,12 +4,15 @@
  * 任务就是库里笔记中的一行「- [ ]」，读和改那一行用画布今日的 @cn/tasks（只换那几个字）；这里是三处共用的纯计算：
  * 哪篇算「待办」、按 过期 / 今天 / 明天 / 以后 / 没定日子 分组、行尾日子小块怎么写、按文件夹分组、加一条时那行「认出来：…」。
  */
-import { addDays, diffDays, parseQuick, type Prio, weekday } from '@cn/tasks'
-import { categoryRank, isCategory } from './categories'
-import { t as tNow, uiLang } from './i18n'
+import { addDays, diffDays, parseQuick, type Prio, type When, type WhenFields, weekday } from '@cn/tasks'
+import { catName, categoryRank, isCategory } from './categories'
+import { onVaultLang, t as tNow, uiLang } from './i18n'
 
-/** 快速加的、没写在哪篇里的进这一篇（和画布今日的 INBOX_NOTE 同一篇） */
-export const INBOX_TODO = '收件箱/待办.md' // 不翻：磁盘上的文件
+/** 快速加的、没写在哪篇里的进这一篇（和画布今日的 INBOX_NOTE 同一篇）；英文库在 Inbox/ 里（收件箱的文件夹名跟库语言，「待办」这个名字还没跟） */
+// 不翻：磁盘上的文件
+export let INBOX_TODO = `${catName('收件箱')}/待办.md`
+// 不翻：磁盘上的文件
+onVaultLang(() => (INBOX_TODO = `${catName('收件箱')}/待办.md`))
 
 /** 名字正好叫「待办」的笔记：默认用任务界面打开，文件树、首页文件列表、「最近」里不列（设置能打开） */
 export const isTodoNote = (path: string) => path.split('/').pop() === '待办.md' // 不翻：磁盘上的文件名
@@ -56,6 +59,12 @@ export type TodoOp =
   | { op: 'time'; time: string | null }
   | { op: 'remind'; remind: string | null }
   | { op: 'repeat'; repeat: string | null }
+  /** 日子、钟点、提醒、重复一起照这样写（定日子和时间的选择器，task-pd289；null 是拿掉那一项） */
+  | { op: 'schedule'; when: WhenFields }
+  /** 整行拿掉（连子任务；右键「删除」，能撤回） */
+  | { op: 'delete' }
+  /** 日子和钟点一起改（日历格里拖到某天某个钟点；time 是 null 拿掉钟点，undefined 钟点不动） */
+  | { op: 'when'; date: string; time?: string | null }
 
 export interface TodoEditReq {
   path: string
@@ -86,7 +95,8 @@ export interface CnTodoApi {
   /** 库里所有笔记的待办 */
   list(): Promise<TodoItem[]>
   edit(req: TodoEditReq): Promise<TodoEditResult>
-  add(text: string, where: TodoWhere): Promise<TodoAddResult>
+  /** day：没写哪天时加到这一天（待办首页只看某一天时）；when：AI 认出来的（task-pd289，标题和时间照它，不再认这句话） */
+  add(text: string, where: TodoWhere, day?: string | null, when?: When | null): Promise<TodoAddResult>
   undo(id: string): Promise<TodoUndoResult>
   /** 首页卡里的旧待办搬进 <文件夹>/待办.md；没有要搬的是 null。force：撤回过的（todosKept）也搬（卡里那句「搬进…」） */
   migrate(folder: string, force?: boolean): Promise<TodoMigrateResult>
@@ -96,6 +106,12 @@ export interface CnTodoApi {
   todayInstalled(): Promise<boolean>
   /** 在画布今日里打开这一条（没有 🆔 的先给它一个，只加那几个字） */
   openInToday(req: Omit<TodoEditReq, 'edit'>): Promise<TodoEditResult>
+  /** AI 排进空着的时间收下：几条一起写上钟点（一次改动，一个撤回） */
+  times(items: { path: string; line: number; raw: string; time: string }[]): Promise<TodoEditResult>
+  /** 打开画布今日（左栏头上那一颗） */
+  openToday(): Promise<void>
+  /** 没装画布今日：开官网上介绍和下载它的那一节 */
+  aboutToday(): Promise<void>
 }
 
 export type Bucket = 'over' | 'today' | 'tom' | 'later' | 'none'
@@ -218,19 +234,25 @@ export function byFolder(items: readonly TodoItem[], notes: ReadonlySet<string>,
       open: list.filter((t) => isOpen(t) && listed(t)).length,
     }))
     .filter((g) => g.open > 0 || g.items.some((t) => keep?.has(t.key)))
-    // 不翻：磁盘上的文件夹名
-    .sort((a, b) => Number(b.folder === '收件箱') - Number(a.folder === '收件箱') || Number(!!b.todo) - Number(!!a.todo) || top(a.folder) - top(b.folder) || collator.compare(a.folder, b.folder))
+    .sort((a, b) => Number(b.folder === catName('收件箱')) - Number(a.folder === catName('收件箱')) || Number(!!b.todo) - Number(!!a.todo) || top(a.folder) - top(b.folder) || collator.compare(a.folder, b.folder))
 }
 
 const prioName = (p: number) => (p === 3 ? tNow('优先级高') : p === 2 ? tNow('优先级中') : tNow('优先级低'))
 
-/** 加一条时输入框下面那行（原型 hintQa）：认出来的日子钟点、重复、标题，回车加进哪；空着是 '' */
-export function quickHint(text: string, today: string, where: string): string {
+/**
+ * 加一条时输入框下面那行（原型 hintQa）：认出来的日子钟点、重复、提醒、标题，回车加进哪；空着是 ''。
+ * now：「2026-11-22」或带钟点（只写了钟点、已经过了的算明天）；ai：本地认不出、AI 认出来的（task-pd289），照它写、开头写「AI 认出来」
+ */
+export function quickHint(text: string, now: string, where: string, ai?: When | null): string {
   const v = text.trim()
   if (!v) return ''
-  const q = parseQuick(v, today)
-  const parts = [tNow('认出来：{when}', { when: q.date ? dayName(q.date, today) + (q.time ? ' ' + q.time : '') : tNow('没定日子') })]
+  const today = now.slice(0, 10)
+  const q = parseQuick(v, now)
+  if (ai) Object.assign(q, { title: ai.title, date: ai.date, time: ai.time, repeat: ai.repeat, remind: ai.date ? ai.remind : null })
+  const when = q.date ? dayName(q.date, today) + (q.time ? ' ' + q.time : '') : tNow('没定日子')
+  const parts = [ai ? tNow('AI 认出来：{when}', { when }) : tNow('认出来：{when}', { when })]
   if (q.repeat) parts.push(q.repeat)
+  if (q.remind) parts.push(tNow('提醒：{v}', { v: q.remind }))
   if (q.prio) parts.push(prioName(q.prio))
   parts.push(tNow('「{title}」', { title: q.title }))
   parts.push(q.list ? tNow('回车加进「#{list}」那篇', { list: q.list }) : tNow('回车加进{where}', { where }))

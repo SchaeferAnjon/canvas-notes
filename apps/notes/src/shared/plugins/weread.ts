@@ -6,6 +6,8 @@
 import { readProps, setProp } from '@cn/format'
 import type { PluginManifest } from '../plugins'
 import { when } from '../when'
+import { catName } from '../categories'
+import { onVaultLang } from '../i18n/vault'
 
 export const WEREAD: PluginManifest = {
   id: 'weread',
@@ -16,8 +18,9 @@ export const WEREAD: PluginManifest = {
   entry: { name: '微信读书', icon: 'book', url: 'https://weread.qq.com/web/shelf' },
 }
 
-/** 书摘放在库最外层的「阅读」（2026-11-18 顶级分类：「微信读书」改叫「阅读」，从「素材」下面挪出来，CN-126） */
-export const WEREAD_FOLDER = '阅读'
+/** 书摘放在库最外层的「阅读」（2026-11-18 顶级分类：「微信读书」改叫「阅读」，从「素材」下面挪出来，CN-126）；英文库是 Reading，跟着开着的库换 */
+export let WEREAD_FOLDER = catName('阅读')
+onVaultLang(() => (WEREAD_FOLDER = catName('阅读')))
 /** 以前书摘放的地方：库还没挪的时候，这里的书摘照样认，不另建一份 */
 export const OLD_WEREAD_FOLDER = '素材/微信读书'
 /** 引文下面一段：微信读书里写的想法、用户自己写的评价（编辑器里画成小标签加弯钩） */

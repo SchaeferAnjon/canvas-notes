@@ -1,40 +1,25 @@
 /**
  * 设置方向 A 的几块积木（原型 proto-a.html）：页头、一组一张细线表、一行（左边名字和说明、右边 220 一列）、
  * 220 宽的下拉和分段、键位按钮；改了马上存，底下提示条一句说会怎样、带「撤回」（SaidContext）。
- * 每一行带 data-row（同 shared/settings-index.ts 的 id），搜索回车、从用的地方跳过来时翻到它、闪 1.6 秒。
+ * 框架（组、一行、下拉、分段、开关、提示条）在 @cn/design/settings，画布今日也用；这里只把画布笔记自己的说法接上：
+ * 一行的名字、说明照 shared/settings-index.ts 的 id 拿（文字只写一处），页头照那一页的信息画（AI 页画 AI 的标志）。
+ * 每一行带 data-row（同 settings-index 的 id），搜索回车、从用的地方跳过来时翻到它、闪 1.6 秒。
  */
 import { Codicon, type CodiconName } from '@cn/design'
+import { PageHead as BasePageHead, Row as BaseRow } from '@cn/design/settings'
 import { withKeys } from '../keys'
-import { createContext, useContext, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { type SettingsPageInfo, settingsItem } from '../../shared/settings-index'
 import { AiIcon } from '../engine-logo'
 import { t as tNow } from '../../shared/i18n'
 import { useT } from '../i18n'
 
+export { Group, Lnk, type Said, SaidContext, Seg, Sel, useSaid } from '@cn/design/settings'
+
 /** 页头：图标、名字、一句这页管什么 */
 export function PageHead({ page }: { page: SettingsPageInfo }) {
   const t = useT()
-  return (
-    <div className="sa-head" data-testid="settings-head">
-      <span className="pi">{page.id === 'ai' ? <AiIcon job="chat" size={18} /> : <Codicon name={page.icon as CodiconName} size={18} />}</span>
-      <div>
-        <h2>{t(page.name)}</h2>
-        <p>{t(page.desc)}</p>
-      </div>
-    </div>
-  )
-}
-
-/** 一组：组名 + 一张细线表 */
-export function Group(props: { title: string; children: ReactNode; label?: string }) {
-  return (
-    <>
-      <div className="sa-grph">{props.title}</div>
-      <div className="sa-card" role="group" aria-label={props.label ?? props.title}>
-        {props.children}
-      </div>
-    </>
-  )
+  return <BasePageHead icon={page.id === 'ai' ? <AiIcon job="chat" size={18} /> : <Codicon name={page.icon as CodiconName} size={18} />} title={t(page.name)} desc={t(page.desc)} />
 }
 
 /**
@@ -54,75 +39,12 @@ export function Row(props: {
 }) {
   const t = useT()
   const it = settingsItem(props.id)
-  const label = props.label ?? (it?.label && t(it.label))
+  // label={null}：这一行不写名字（组名已经说了，比如「最近跑的」），不回落到索引里的名字
+  const label = props.label !== undefined ? props.label : it?.label && t(it.label)
   // 说明里提到键写成 {k:id}（shared/settings-index.ts），先翻再照现在的键写
   const desc = props.desc !== undefined ? props.desc : it?.desc && withKeys(t(it.desc))
-  return (
-    <div className={'sa-row' + (props.full ? ' full' : '') + (props.info ? ' info' : '') + (props.dim ? ' dim' : '')} data-row={props.id}>
-      <div className="sa-txt">
-        <div className="sa-lb">{label}</div>
-        {desc ? <div className="sa-ds">{desc}</div> : null}
-      </div>
-      {!props.info && <div className="sa-cc">{props.children}</div>}
-      {props.more && <div className="sa-more">{props.more}</div>}
-    </div>
-  )
+  return <BaseRow {...props} label={label} desc={desc} />
 }
-
-/** 220 宽的下拉：选项是 [值, 写给人看的字] */
-export function Sel<T extends string | number>(props: { label: string; value: T; options: readonly (readonly [T, string, boolean?])[]; onChange(v: T): void; disabled?: boolean }) {
-  return (
-    <select
-      className="sa-sel"
-      aria-label={props.label}
-      value={String(props.value)}
-      disabled={props.disabled}
-      onChange={(e) => {
-        const o = props.options.find(([v]) => String(v) === e.currentTarget.value)
-        if (o) props.onChange(o[0])
-      }}
-    >
-      {props.options.map(([v, text, off]) => (
-        <option key={String(v)} value={String(v)} disabled={off}>
-          {text}
-        </option>
-      ))}
-    </select>
-  )
-}
-
-/** 220 宽的分段（两三样里挑一样，比如「文档 / 白板」） */
-export function Seg<T extends string>(props: { label: string; value: T; options: readonly (readonly [T, string])[]; onChange(v: T): void }) {
-  return (
-    <div className="sa-seg" role="radiogroup" aria-label={props.label}>
-      {props.options.map(([v, text]) => (
-        <button key={v} type="button" role="radio" aria-checked={props.value === v} className={props.value === v ? 'on' : ''} onClick={() => props.value !== v && props.onChange(v)}>
-          {text}
-        </button>
-      ))}
-    </div>
-  )
-}
-
-/** 说明里的小链接（「排顺序 ›」「去Git和同步 ›」） */
-export function Lnk(props: { children: ReactNode; onClick(): void; label?: string }) {
-  return (
-    <button type="button" className="sa-lnk" aria-label={props.label} onClick={props.onClick}>
-      {props.children}
-      <Codicon name="chevron-right" size={12} />
-    </button>
-  )
-}
-
-/** 设置里改了一项之后，底下提示条说的话：已存 · 会怎样，带「撤回」；别的事（存好了、导入了）只说一句 */
-export interface Said {
-  /** 改了一项：hint 是这次改了会怎样，undo 撤回成原来的值 */
-  saved(hint: string, undo?: () => void): void
-  /** 只说一句（不带撤回） */
-  say(text: string): void
-}
-export const SaidContext = createContext<Said>({ saved: () => undefined, say: () => undefined })
-export const useSaid = () => useContext(SaidContext)
 
 /** 「开了 / 关了 / 改成」的默认说法 */
 export function hintFor(label: string, v: boolean | string): string {

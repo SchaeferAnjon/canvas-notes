@@ -40,12 +40,12 @@ import type { ChatSummary } from '../../shared/ai-chats'
 import { AgentStore } from './store'
 import { runTool, stepLabel, type ToolHost, toolLabel, toolSpecs } from './tools'
 import * as vops from './vault-ops'
-import { AI_BLOCK_RULE, aiBlockLine, modeLine, MODES_RULE, userNoteLine } from './modes'
+import { AI_BLOCK_RULE, aiBlockLine, langTail, modeLine, MODES_RULE, userNoteLine } from './modes'
 import { sideTurnPrompt } from './side-prompt'
 import * as web from './web'
 
 export { attachWeb, markedClips, unmarkClips } from './web'
-export { modeLine, MODES_RULE } from './modes'
+export { langTail, modeLine, MODES_RULE } from './modes'
 
 const FAKE = () => process.env.CN_AI_FAKE === '1'
 const IDS: EngineId[] = ['claude', 'codex', 'gemini', 'opencode']
@@ -826,7 +826,7 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
         ...picked,
         // 开头一行是现在开没开全能模式（系统提示在一个会话里定死了，开关随时会换）；【AI 块】这一问往笔记里新加的段落包成的头；
         // 引用的材料：字里的 ①②，后面按同一套编号列出每块
-        prompt: `${modeLine(omni, req.engine, v.root)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n\n用户说：\n${withMaterials(req.text, mats)}`,
+        prompt: `${modeLine(omni, req.engine, v.root, req.text)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n\n用户说：\n${withMaterials(req.text, mats)}${langTail(req.text)}`,
         system: AGENT_SYSTEM,
         session: place ? store.session(v.root, place.key, req.engine, AGENT_VERSION) : undefined,
         history: chat ? historyOf(chat.msgs.filter((m) => !(m.role === 'user' && m.text === req.text))) : undefined,
@@ -899,7 +899,7 @@ async function runSideTurn(req: SideTurnRequest): Promise<TurnResult> {
       aiWrote: wrote,
       run: {
         ...picked,
-        prompt: `${modeLine(omni, req.engine, v.root)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n\n${sideTurnPrompt({ first: !mine, quote: side.quote, ...(side.ask ? { ask: side.ask } : {}), ...(side.where ? { where: side.where } : {}), question: withMaterials(req.text, mats) })}`,
+        prompt: `${modeLine(omni, req.engine, v.root, req.text)}\n${aiBlockLine(aiWroteHead(wrote))}\n${describeContext(req.context)}\n\n${sideTurnPrompt({ first: !mine, quote: side.quote, ...(side.ask ? { ask: side.ask } : {}), ...(side.where ? { where: side.where } : {}), question: withMaterials(req.text, mats) })}${langTail(req.text)}`,
         system: AGENT_SYSTEM,
         session: mine ?? base,
         ...(!mine && base ? { fork: true } : {}),
@@ -975,6 +975,16 @@ function effectivePick(id: EngineId, req: { model?: string; effort?: string } = 
 
 /** 「AI 对话」这一行现在选的：哪家、哪个模型、想多久（effort 没设过是 High；Gemini、OpenCode 没有 effort） */
 export const chatPick = (): AiPick => effectivePick(pickFor('chat').engine)
+
+/**
+ * 数据库 AI 列这一格用哪家（task-i921u）：这一列单独选了的照选的（家不认识就跟 AI 对话），没选跟「AI 对话」那一行；
+ * by 是新建那篇 [!ai] 块头上写的「Claude Code · Opus 5.5」（和 AI 写的块一样，不带 effort）
+ */
+export function columnPick(own: { engine: string; model?: string; effort?: string } | null): { pick: AiPick; by: string } {
+  const engine = own && IDS.includes(own.engine as EngineId) ? (own.engine as EngineId) : null
+  const p = engine ? effectivePick(engine, { ...(own?.model ? { model: own.model } : {}), ...(own?.effort ? { effort: own.effort } : {}) }) : chatPick()
+  return { pick: p, by: pickLabel({ engine: p.engine, ...(p.model ? { model: p.model } : {}) }, modelsFor(p.engine)) }
+}
 
 /** 「Claude Code · Opus 5.5 · High」：AI 对话、读 PDF 回答头上那行（CN-91） */
 export const chatLabel = () => {

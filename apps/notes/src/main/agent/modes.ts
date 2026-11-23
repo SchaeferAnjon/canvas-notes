@@ -5,7 +5,7 @@
  */
 import type { EngineId } from '../../shared/agent'
 import { LABELS } from './engines'
-import { answerRule } from '../../shared/answer-lang'
+import { answerLine } from '../../shared/answer-lang'
 
 export const MODES_RULE = `两种模式，用户在 AI 输入框下面一键切换；现在是哪种写在每条消息开头的【模式】里，以它为准（和上一条可能不一样）：
 - 全能模式开着：和用户在终端里用你这个命令行一样能干：读写这台 Mac 上的任何文件、跑命令、上网搜和读网页、开子 Agent，不用先问。
@@ -13,15 +13,22 @@ export const MODES_RULE = `两种模式，用户在 AI 输入框下面一键切�
 做不了的事直接说做不了、为什么；是因为全能模式关着的（看库外的文件夹、跑命令、上网搜……），请用户在 AI 输入框下面打开「全能模式」再说一次。权限只由这个开关决定：不要建议用户去改 Claude Code、Codex 这些命令行的权限或设置文件，软件不看那些。`
 
 /**
- * 每条消息开头的【模式】：现在开没开全能模式、能做什么；下一行【语言】：这会儿用哪种语言答（task-zojmg：默认跟界面语言，
- * 用户用别的语言问就跟着问的语言答；界面语言随时会换，所以和模式一样写在每条消息开头，不写死在系统提示里）
+ * 每条消息开头的【模式】：现在开没开全能模式、能做什么；下一行【语言】：这一问用哪种语言答（task-zojmg：默认跟界面语言，
+ * 用户用别的语言问就跟着问的语言答；界面语言随时会换，所以和模式一样写在每条消息开头，不写死在系统提示里）。
+ * said 是用户自己打的那句话，由 answer-lang 看字定用哪种语言
  */
-export function modeLine(omni: boolean, engine: EngineId, root: string): string {
+export function modeLine(omni: boolean, engine: EngineId, root: string, said?: string): string {
   const mode = omni
     ? `【模式】全能模式开着：和在终端里用 ${LABELS[engine]} 一样，能读写这台 Mac 上的文件、跑命令、上网、开子 Agent，不用先问；工作目录是库（${root}）。`
     : '【模式】全能模式关着：只在库里动手（canvas 这组工具：新建、改写、改名、挪动、删笔记，建文件夹，白板、文档、右栏网页）；看库外的文件、跑命令、上网搜都做不了，用户要这些就请他在 AI 输入框下面打开「全能模式」，不要建议改命令行的权限设置。'
-  return `${mode}\n【语言】${answerRule()}。`
+  return `${mode}\n${answerLine(said)}`
 }
+
+/**
+ * 消息最后再写一遍【语言】（AI 对话、旁支、读 PDF 都接在用户的话后面）：前面软件加的字都是中文，只写在开头时，
+ * 真 Claude（Sonnet · Low）在英文界面 9 次里有 1 次照样用中文答「123」；最后读到的那句最管用
+ */
+export const langTail = (said?: string): string => `\n\n${answerLine(said)}`
 
 /** 用户在设置 › AI 写的「给AI的长期说明」：放在每条消息最前面（系统提示一个会话里定死，改了要下一问就用上） */
 export function userNoteLine(note: string): string {

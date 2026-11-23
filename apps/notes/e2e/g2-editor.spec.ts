@@ -12,6 +12,7 @@ import { solidPng } from './fixtures/png'
 import { armMenus, menuLabels, openedMenu, pickMenu } from './menu'
 import { fragmentUrl, sourceLabel } from '../src/shared/web-link'
 import { webAskBlock } from '../src/shared/web-notes'
+import { setViewFilter, setViewSort } from '@cn/format'
 
 let server: Server
 let base: string
@@ -118,9 +119,8 @@ test('CN-86 光标从下面走进问答块也一直是卡片：↑ 跨过整块�
     // 再往上就到了时刻块上面：光标不会停在块的原文里
     expect(await caretLine(page)).not.toContain('我的疑惑')
 
-    // 块下面那一行（空行）行首按退格：先选中这一块，文字不变；再按一次才删
+    // 块下面那一段段首按退格：先选中这一块，文字不变；再按一次才删（task-ys1rr 起块和块之间的空行不停光标，「块下面」就是下面那一段的段首）
     await para.click({ position: { x: 2, y: 6 } })
-    await page.keyboard.press('ArrowUp')
     await page.keyboard.press('Backspace')
     await expect(pane(page).locator('.cm-blk-selbg')).toHaveCount(1)
     await expect(ask).toBeVisible()
@@ -601,7 +601,7 @@ test('CN-19 打 /数据库 插一个 ```base 表格：每条是一篇 md；新�
     expect(existsSync(join(vault, '未命名数据库', '第一条.md'))).toBe(true)
     await expect(db.locator('tbody tr')).toHaveCount(1)
     await expect(db.locator('.base-foot')).toHaveText('每条是「未命名数据库」里的一篇笔记')
-    await expect(db.locator('.base-count')).toHaveText('表格 · 1 条')
+    await expect(db.locator('.base-count')).toHaveText('1 条')
     // 新一条
     await db.getByRole('button', { name: '新一条' }).click()
     await expect(db.locator('tbody tr')).toHaveCount(2)
@@ -626,17 +626,21 @@ test('CN-19 打 /数据库 插一个 ```base 表格：每条是一篇 md；新�
     await expect(full.locator('tbody tr')).toHaveCount(2)
     await page.keyboard.press('Escape')
     await expect(full).toHaveCount(0)
-    // 点名字：在新标签打开那一篇
-    await pane(page).locator('[data-part="数据库块"]').getByRole('button', { name: '第一条' }).click()
+    // 点名字：右栏开那一条（数据库第三批第 4 块）；⌘ 点在中间新标签打开那一篇
+    await pane(page).locator('[data-part="数据库块"]').getByRole('button', { name: '第一条', exact: true }).click()
+    await expect(page.getByTestId('dtab-record')).toHaveText('第一条')
+    await pane(page).locator('[data-part="数据库块"]').getByRole('button', { name: '第一条', exact: true }).click({ modifiers: ['Meta'] })
     await expect(page.getByTestId('tab-on')).toHaveText('第一条')
   } finally {
     await run.close()
   }
 })
 
-test('数据库表头：筛选面板（全部 / 任一）、筛选小标签 ×、列头菜单降序 / 按这一列筛选 / 隐藏、eye-closed 勾回来；写回代码块同 Obsidian Bases，只看不改文件不变', async () => {
-  const base = '```base\nfilters:\n  and:\n    - file.inFolder("书单")\nviews:\n  - type: table\n    name: 表格\n    order:\n      - file.name\n      - 作者\n      - 状态\n      - 评分\n      - 读完\n```'
+test('数据库表头：筛选面板（且 / 或）改了就存进视图、面板里去掉一条、列头菜单降序 / 按这一列筛选 / 隐藏、eye-closed 勾回来；每一步和 packages/format 算的一样，只看不改文件不变', async () => {
+  const yaml = 'filters:\n  and:\n    - file.inFolder("书单")\nviews:\n  - type: table\n    name: 表格\n    order:\n      - file.name\n      - 作者\n      - 状态\n      - 评分\n      - 读完'
+  const base = '```base\n' + yaml + '\n```'
   const doc = `# 读书\n\n今年想读完的书。\n\n${base}\n\n下一段。\n`
+  const docWith = (y: string) => doc.replace(yaml, y)
   const books: Record<string, string> = {
     明朝那些事儿: '作者: 当年明月\n状态: 读完\n评分: 9\n读完: 2026-11-02',
     人类简史: '作者: 赫拉利\n状态: 在读\n评分: 9',
@@ -659,47 +663,60 @@ test('数据库表头：筛选面板（全部 / 任一）、筛选小标签 ×�
     await page.waitForTimeout(1200)
     expect(file()).toBe(doc)
 
-    // 筛选面板：状态 是 在读
-    await db.getByRole('button', { name: '筛选' }).click()
+    // 筛选面板：加一条「状态 是 在读」，值选了才写进视图（改了就存，task-i921u）
+    const filterBtn = db.locator('.base-tools').getByRole('button', { name: '筛选', exact: true })
+    await filterBtn.click()
     const panel = page.getByRole('dialog', { name: '筛选' })
     await expect(panel).toBeVisible()
-    const row = (i: number) => panel.locator('.base-filter-row').nth(i)
+    await panel.getByRole('button', { name: '加一条' }).click()
+    const row = (i: number) => panel.locator('.fbody > .frow').nth(i)
     await row(0).getByRole('combobox', { name: '列' }).selectOption('状态')
     await row(0).getByRole('combobox', { name: '条件' }).selectOption({ label: '是' })
     await row(0).getByRole('combobox', { name: '值' }).selectOption('在读')
-    await expect.poll(file).toContain('    - file.inFolder("书单")\n    - 状态 == "在读"\nviews:')
+    const c1 = { prop: '状态', op: '==' as const, value: '在读' }
+    let y = setViewFilter(yaml, 0, { conj: 'and', items: [c1] })
+    await expect.poll(file).toBe(docWith(y))
     await expect(db.locator('tbody tr')).toHaveCount(3)
     // 加一条：评分 ≥ 8（打字，停手后写回）
     await panel.getByRole('button', { name: '加一条' }).click()
     await row(1).getByRole('combobox', { name: '列' }).selectOption('评分')
     await row(1).getByRole('combobox', { name: '条件' }).selectOption({ label: '≥' })
     await row(1).getByRole('spinbutton', { name: '值' }).fill('8')
-    await expect.poll(file).toContain('    - 状态 == "在读"\n    - 评分 >= 8\nviews:')
+    const c2 = { prop: '评分', op: '>=' as const, value: '8' }
+    y = setViewFilter(y, 0, { conj: 'and', items: [c1, c2] })
+    await expect.poll(file).toBe(docWith(y))
     await expect(db.locator('tbody tr')).toHaveCount(2)
-    await expect(db.locator('.base-count')).toHaveText('表格 · 2 条')
-    await expect(db.getByRole('button', { name: '筛选' })).toHaveText('筛选')
+    await expect(db.locator('.base-count')).toHaveText('2 条 · 筛掉 4 条')
+    await expect(filterBtn).toHaveText('筛选 2')
     await page.screenshot({ path: 'test-results/g2-19-filter.png' })
-    // 任一满足：写成 and 里套 or（数据源文件夹照样要满足）
-    await panel.getByRole('combobox', { name: '全部还是任一' }).selectOption('or')
-    await expect.poll(file).toContain('    - file.inFolder("书单")\n    - or:\n        - 状态 == "在读"\n        - 评分 >= 8\nviews:')
+    // 或：满足任一条
+    await row(1).getByRole('combobox', { name: '且还是或' }).selectOption('or')
+    y = setViewFilter(y, 0, { conj: 'or', items: [c1, c2] })
+    await expect.poll(file).toBe(docWith(y))
     await expect(db.locator('tbody tr')).toHaveCount(5)
-    await panel.getByRole('combobox', { name: '全部还是任一' }).selectOption('and')
+    await row(1).getByRole('combobox', { name: '且还是或' }).selectOption('and')
+    y = setViewFilter(y, 0, { conj: 'and', items: [c1, c2] })
+    await expect.poll(file).toBe(docWith(y))
     await expect(db.locator('tbody tr')).toHaveCount(2)
     await page.keyboard.press('Escape')
     await expect(panel).toHaveCount(0)
-    // 小标签 ×：去掉「评分 ≥ 8」
-    await expect(db.locator('.base-tag')).toHaveText(['状态 是 在读', '评分 ≥ 8'])
-    await db.getByRole('button', { name: '去掉「评分 ≥ 8」' }).click()
-    await expect.poll(file).toContain('    - 状态 == "在读"\nviews:')
+    // 小标签写着整个筛选；面板里去掉「评分 ≥ 8」
+    await expect(db.locator('.base-fchip')).toHaveText(['状态 是 在读 且 评分 ≥ 8'])
+    await db.locator('.base-fchip .t').click()
+    await row(1).getByRole('button', { name: '去掉这一条' }).click()
+    y = setViewFilter(y, 0, { conj: 'and', items: [c1] })
+    await expect.poll(file).toBe(docWith(y))
     await expect(db.locator('tbody tr')).toHaveCount(3)
+    await page.keyboard.press('Escape')
 
     // 列头菜单：评分 降序
     await db.getByRole('button', { name: '评分', exact: true }).click()
     const menu = page.getByRole('menu', { name: '评分 这一列' })
     await menu.getByRole('menuitemcheckbox', { name: '降序' }).click()
-    await expect.poll(file).toContain('      - 读完\n    sort:\n      - property: 评分\n        direction: DESC\n```')
+    y = setViewSort(y, 0, [{ prop: '评分', desc: true }])
+    await expect.poll(file).toBe(docWith(y))
     await expect(db.locator('tbody tr').first()).toContainText('人类简史')
-    // 隐藏「读完」：从 order 里拿掉；表头最右边 eye-closed 1，点开勾回来
+    // 隐藏「读完」：从 order 里拿掉；分组筛选排序前面 eye-closed 1，点开勾回来
     await db.getByRole('button', { name: '读完', exact: true }).click()
     await page.getByRole('menu', { name: '读完 这一列' }).getByRole('menuitem', { name: '隐藏这一列' }).click()
     await expect.poll(file).not.toContain('      - 读完\n')
@@ -707,7 +724,7 @@ test('数据库表头：筛选面板（全部 / 任一）、筛选小标签 ×�
     await page.screenshot({ path: 'test-results/g2-19-hidden.png' })
     await db.getByRole('button', { name: '隐藏了 1 列' }).click()
     await page.getByRole('menu', { name: '隐藏的列' }).getByRole('menuitemcheckbox', { name: '读完' }).click()
-    await expect.poll(file).toContain('      - 评分\n      - 读完\n    sort:')
+    await expect.poll(file).toBe(docWith(y))
     // 按这一列筛选…：面板打开，先填好这一列
     await db.getByRole('button', { name: '作者', exact: true }).click()
     await page.getByRole('menu', { name: '作者 这一列' }).getByRole('menuitem', { name: '按这一列筛选…' }).click()
@@ -715,12 +732,12 @@ test('数据库表头：筛选面板（全部 / 任一）、筛选小标签 ×�
     await expect(row(1).getByRole('combobox', { name: '列' })).toHaveValue('作者')
     await row(1).getByRole('combobox', { name: '条件' }).selectOption({ label: '包含' })
     await row(1).getByRole('textbox', { name: '值' }).fill('赫')
-    await expect.poll(file).toContain('    - 状态 == "在读"\n    - 作者.contains("赫")\nviews:')
+    y = setViewFilter(y, 0, { conj: 'and', items: [c1, { prop: '作者', op: 'contains', value: '赫' }] })
+    await expect.poll(file).toBe(docWith(y))
     await expect(db.locator('tbody tr')).toHaveCount(1)
-    // 其余行原样：除了 filters、order、sort，代码块和正文都没动
-    const now = file()
-    expect(now.startsWith('# 读书\n\n今年想读完的书。\n\n```base\nfilters:\n  and:\n')).toBe(true)
-    expect(now.endsWith('```\n\n下一段。\n')).toBe(true)
+    // 其余行原样：除了这个视图的 filters、sort，代码块和正文都没动
+    expect(file().startsWith('# 读书\n\n今年想读完的书。\n\n```base\nfilters:\n  and:\n    - file.inFolder("书单")\nviews:\n')).toBe(true)
+    expect(file().endsWith('```\n\n下一段。\n')).toBe(true)
   } finally {
     await run.close()
   }
@@ -825,6 +842,7 @@ test('task-6cxtc 复审：[!ai] 块头固定两行：第一行「讲解一下」
           nameFont: `${cs(name).fontSize}/${cs(name).fontWeight}`,
           nameColor: cs(name).color === colorOf('--t1'),
           metaFont: cs(meta).fontSize,
+          // 块头第二行整行 --t2，里面的链接和前面同色（editor-blocks.css「color: inherit」，task-6cxtc 复审定的，覆盖 dtc34 当时的 --t3），悬停 --t1
           metaColor: cs(meta).color === colorOf('--t2') && links.every((l) => cs(l).color === colorOf('--t2')),
           metaText: meta.innerText.trim(),
           linkRects: links.map((l) => l.getClientRects().length),

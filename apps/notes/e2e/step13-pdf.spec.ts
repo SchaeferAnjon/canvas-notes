@@ -46,7 +46,7 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
   try {
     await openPdf(page)
     // 读 PDF：竖条上只多「笔记」；AI 只住右栏（第 2a 段）：打开 PDF 不再自己把 AI 打开，右下角的圆钮一直在，点了开右栏 AI 那一格
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
     await expect(ai(page)).toBeHidden()
     await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
     await expect(rail(page).getByRole('button', { name: '打开 AI' })).toBeVisible()
@@ -160,7 +160,7 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     const img = page.locator('.pane:not([hidden]) img[src*="p3-1.png"]').first()
     await expect(img).toBeVisible()
     expect(await img.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(10)
-    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '历史'])
+    await expect.poll(() => railItems(page)).toEqual(['笔记', '大纲', '网页', '微信读书', '记录', '自动化', '历史'])
     await expect(rail(page).getByRole('button', { name: /^笔记/ })).toHaveClass(/\bdim\b/)
     await expect(notes(page)).toHaveCount(0)
     await expect(page.locator('.win')).not.toHaveClass(/with-right/)

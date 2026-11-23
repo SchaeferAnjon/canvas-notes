@@ -13,6 +13,7 @@ import { ChangeSet, type ChangeSpec, EditorSelection, EditorState, Prec, type Ra
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from '@codemirror/view'
 import { hasOldLayout } from '@cn/format'
 import { editKind, type Hidden, hiddenOk, hiddenRanges, hiddenSyntax } from './hidden-syntax'
+import { t } from '../shared/i18n'
 
 const CARD_LINE = /^<!--\s*card\s[^>]*-->\s*$/
 const COLUMN_LINE = /^<!--\s*column\s[^>]*-->\s*$/
@@ -29,7 +30,7 @@ const OLD_COLUMN = /\btitle=/
 /** 列那一行写的列名（白板上没写名字的列叫「新的列」，BoardView 一样） */
 function columnTitle(line: string): string {
   const m = /\btitle=(?:"([^"]*)"|(\S+?))(?=\s|-->)/.exec(line)
-  return (m?.[1] ?? m?.[2] ?? '').trim() || '新的列'
+  return (m?.[1] ?? m?.[2] ?? '').trim() || t('新的列')
 }
 
 /** 文档里藏起来的位置行、卡片行、列行（live-preview 不再给它画灰色等宽的样子） */

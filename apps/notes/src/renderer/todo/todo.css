@@ -190,6 +190,11 @@
 .td-qa-card {
   margin-top: 6px;
 }
+.td-hint .td-ailogo {
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
 .td-hint {
   min-height: 6px;
   font-size: 12px;
@@ -206,6 +211,30 @@
 }
 
 /* ---------- 左边「待办」格（原型 todoPanel） ---------- */
+/* 头上「画布今日」（v2 原型 .btn.ghost.sm：24 高、圆角 6、12 字，画布今日的图标 14） */
+.td-today {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.td-today:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.td-about {
+  margin-left: auto;
+  white-space: nowrap;
+}
 .td-side {
   display: flex;
   flex-direction: column;
@@ -401,10 +430,37 @@ select.td-sel {
 .td-rawl {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  background: var(--fill);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+/* 「写作/待办.md · 第4行」（18-待办首页原型 popHtml：12 无衬线 --t2） */
+.td-where {
+  font-size: 12px;
+  color: var(--t2);
 }
 .td-links {
   display: flex;
-  gap: 16px;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* 底下两颗描边小按钮（原型 .btn：24 高、圆角 6、1px --line2） */
+.td-pbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--card);
+  font: inherit;
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.td-pbtn:hover {
+  background: var(--fill);
 }
 
 /* ---------- 拖着的那一条（原型 .ghost） ---------- */

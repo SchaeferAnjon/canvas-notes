@@ -28,7 +28,7 @@ export const PAL_SIZE: Record<PalKind, { w: number; h: number }> = {
   board: { w: CARD_W, h: 72 },
 }
 
-export const TODO_BODY = '**待办**\n- [ ] '
+export const TODO_BODY = '**待办**\n- [ ] ' // 不翻：写进白板文件的默认正文
 
 export function movedEnough(from: Pt, to: Pt): boolean {
   return Math.abs(to.x - from.x) > DRAG_SLOP || Math.abs(to.y - from.y) > DRAG_SLOP
@@ -82,6 +82,6 @@ export function addCard(doc: BoardDoc, id: string, body: string, place: Place): 
 }
 
 /** 加一列：列只放在画布上，不进别的列 */
-export function addColumn(doc: BoardDoc, id: string, at: Pt, title = '新的列'): BoardDoc {
+export function addColumn(doc: BoardDoc, id: string, at: Pt, title = '新的列' /* 不翻：新建时写进文件的默认列名 */): BoardDoc {
   return appendBlock(doc, newBlock('column', { id, x: Math.round(at.x), y: Math.round(at.y), w: COL_W, title }, ''))
 }

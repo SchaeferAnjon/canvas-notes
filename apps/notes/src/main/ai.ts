@@ -26,6 +26,16 @@ export async function ask(system: string, prompt: string, signal: AbortSignal, o
     // 测试看每一问用的哪一家、哪一档（task-0fhyo）、交给 AI 的是什么话：CN_FAKE_PICK_LOG 给了就一问记一行
     if (process.env.CN_FAKE_PICK_LOG) appendFileSync(process.env.CN_FAKE_PICK_LOG, JSON.stringify({ cmd: /^命令：(\S+)/.exec(prompt)?.[1] ?? '', feature, pick: w.pick ?? null, prompt }) + '\n')
     failOnce(prompt)
+    // 数据库 AI 列（task-i921u）：一格想一会儿（CN_FAKE_AICOL_MS，默认 400 毫秒），看得到「在写」、按 esc 停得下
+    if (/^命令：数据库AI列/.test(prompt)) {
+      await new Promise<void>((res, rej) => {
+        const t = setTimeout(res, Number(process.env.CN_FAKE_AICOL_MS ?? 400))
+        signal.addEventListener('abort', () => (clearTimeout(t), rej(Object.assign(new Error('停下了'), { name: 'AbortError' }))), { once: true })
+      })
+      const out = fakeAiColumn(prompt)
+      onText(out)
+      return out
+    }
     let out = fakeCmdAnswer(prompt) ?? (/^命令：提炼规矩/.test(prompt) ? fakeDistill(prompt) : fake(prompt))
     // 测试看输入框选的模型和想多久真的交到了引擎这一层（task-0fhyo）：照引擎真会拿到的说出来
     if (process.env.CN_FAKE_SAY_PICK === '1' && w.pick) {
@@ -74,10 +84,51 @@ function failOnce(prompt: string) {
   throw new Error('Claude Code 退出了（1）：测试用的失败')
 }
 
+/** 同一列同一条问了几次（重跑换一组题） */
+const aiColAsked = new Map<string, number>()
+
+/**
+ * 测试用的数据库 AI 列回答：照「放成」答（练习题三道、单选「中」、多选两个词、数字、一句话），题目照那一条正文的第一句出；
+ * 同一条再问一次换一组（重跑看得出换了）
+ */
+function fakeAiColumn(prompt: string): string {
+  const name = /^这一条：(.+)$/m.exec(prompt)?.[1] ?? ''
+  const kind = /^放成：(.+)$/m.exec(prompt)?.[1] ?? ''
+  const body = /<<<\n([\s\S]*?)\n>>>/.exec(prompt)?.[1] ?? ''
+  const first = (body.replace(/^#+.*$/gm, '').split(/[。！？\n]/).map((x) => x.trim()).find(Boolean) ?? name).slice(0, 24)
+  const key = `${/^列名：(.+)$/m.exec(prompt)?.[1] ?? ''}|${name}`
+  const n = (aiColAsked.get(key) ?? 0) + 1
+  aiColAsked.set(key, n)
+  const again = n > 1 ? `（第 ${n} 组）` : ''
+  if (/^一篇笔记/.test(kind)) return `1. ${first}，为什么？${again}\n2. 《${name}》里最重要的一个词是什么？\n3. 举一个生活里的例子说明这一讲。`
+  if (/^从选项里挑/.test(kind)) return ['易', '中', '难'][((/第[12]讲/.test(name) ? 0 : /第[34]讲/.test(name) ? 1 : 2) + n - 1) % 3]!
+  if (/^1 到 3 个/.test(kind)) return `${name.split(' ').pop()}、${n > 1 ? '复习' : '入门'}`
+  if (/^只写一个数/.test(kind)) return String(name.length + n - 1)
+  return `${first}${again}`
+}
+
 /** 测试用的固定回答：提示第一行是「命令：xxx」 */
+/** 假 AI 把一句话填成规则（照原型那四句；别的说法回一条「新加一条就通知」） */
+function fakeAutoRule(said: string): string {
+  const yaml = (lines: string[]) => '```yaml\n' + lines.join('\n') + '\n```'
+  if (/报销/.test(said)) return yaml(['- name: 交报销单', '  when: {changed: 分类, to: 报销}', '  do:', '    - todo: 交报销单：{{名字}} {{金额}}', '      file: 生活/待办.md', '      date: 下周一 9:00'])
+  const big = /超过\s*(\d+)/.exec(said)
+  if (big) return yaml(['- name: 大额支出提醒', '  when: [{added: true}, {changed: 金额}]', `  if: {and: [收支 == "支出", 金额 > ${big[1]}]}`, '  do:', '    - notify: 这笔有点大：{{名字}} {{金额}}'])
+  if (/每周日/.test(said)) return yaml(['- name: 提醒记账', '  when: {every: week, day: 日, at: "21:00"}', '  missed: once', '  do:', '    - todo: 记这周的账', '      file: 生活/待办.md', '      date: 今天 21:00'])
+  if (/每月最后一天|月底/.test(said)) return yaml(['- name: 月底写账单摘要', '  when: {every: month, day: last, at: "21:00"}', '  missed: once', '  do:', '    - ai: summary', '      rows: 日期.month == today().month', '      prompt: 收入、支出、结余，花得最多的三类', '      folder: 生活/记账/账单摘要'])
+  return yaml(['- name: 新加就通知', '  when: {added: true}', '  do:', `    - notify: ${said.slice(0, 20) || '新加了一条'}`])
+}
+
 function fake(prompt: string): string {
   const cmd = /^命令：(\S+)/.exec(prompt)?.[1]
   switch (cmd) {
+    // 自动化「先说一句」（task-i921u）：照原型「比如」里那四句认关键词，回同一种 YAML
+    case '自动化规则':
+      return fakeAutoRule(/用户说的：\n([\s\S]*)$/.exec(prompt)?.[1]?.trim() ?? '')
+    case '自动化写摘要': {
+      const n = (prompt.match(/^- /gm) ?? []).length
+      return `这段时间一共 ${n} 条。（测试：自动化写的摘要）`
+    }
     case '总结':
       return '这块白板讲了三件事：住处还没订、极光看哪两晚、还没订的车。'
     case '写成文章':
@@ -121,6 +172,16 @@ function fake(prompt: string): string {
     }
     case '归类和改名':
       return '```json\n' + JSON.stringify(fakeFiling(prompt)) + '\n```'
+    case '整理这几张':
+    case '整理这几段': {
+      // AI整理（task-5ryf9）：写着「矩阵」的放一组，别的一组；白板上两张以上写着「矩阵」的头两张合成一张，补一句小结
+      const items = [...prompt.matchAll(/^\[(\d+)\]\n([\s\S]*?)(?=\n\n\[\d+\]\n|$)/gm)].map((m) => ({ n: Number(m[1]), text: m[2]! }))
+      const mx = items.filter((x) => x.text.includes('矩阵')).map((x) => x.n)
+      const rest = items.filter((x) => !x.text.includes('矩阵')).map((x) => x.n)
+      const groups = [...(mx.length ? [{ title: '矩阵乘法', items: mx }] : []), ...(rest.length ? [{ title: '其他', items: rest }] : [])]
+      if (cmd === '整理这几段') return '```json\n' + JSON.stringify({ sections: groups.map((g) => ({ title: g.title, blocks: g.items })), drop: [] }) + '\n```'
+      return '```json\n' + JSON.stringify({ groups: groups.map((g) => ({ title: g.title, cards: g.items })), merge: mx.length >= 2 ? [mx.slice(0, 2)] : [], drop: [], summary: '这几张讲了矩阵乘法和别的几件事。' }) + '\n```'
+    }
     case '按反馈重做归类':
       return '```json\n' + JSON.stringify(fakeRedo(prompt)) + '\n```'
     default:

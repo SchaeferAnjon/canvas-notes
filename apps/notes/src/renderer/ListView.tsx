@@ -5,6 +5,7 @@ import { useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
 import { when } from '../shared/when'
+import { useT } from './i18n'
 
 const PAGE = 60
 
@@ -18,6 +19,7 @@ export function ListView(props: {
   onCaptured(path: string): void
   onNotice(t: string): void
 }) {
+  const t = useT()
   const [text, setText] = useState('')
   /** 导入几百条旧笔记后收件箱很长：先画最新的 PAGE 条，往下点一次多画一页 */
   const [shown, setShown] = useState(PAGE)
@@ -39,7 +41,7 @@ export function ListView(props: {
     <section className="pane">
       <TabActs active>
         <PageNote>
-          <span className="num">{items.length}</span>条 · {props.hint}
+          <span className="num">{t('{n}条', { n: items.length })}</span> · {props.hint}
         </PageNote>
       </TabActs>
       <div className="body">
@@ -54,17 +56,17 @@ export function ListView(props: {
             >
               <Codicon name="inbox" size={14} />
               <input
-                aria-label="速记"
-                placeholder="随手记一句，回车放进收件箱"
+                aria-label={t('速记')}
+                placeholder={t('随手记一句，回车放进收件箱')}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
               />
-              <button className="send" type="submit" aria-label="放进收件箱" disabled={!text.trim()}>
+              <button className="send" type="submit" aria-label={t('放进收件箱')} disabled={!text.trim()}>
                 <Codicon name="arrow-up" size={14} />
               </button>
             </form>
           )}
-          {items.length === 0 && <p className="list-empty">这里还没有东西。</p>}
+          {items.length === 0 && <p className="list-empty">{t('这里还没有东西。')}</p>}
           <div className="cards">
             {items.slice(0, shown).map((n) => (
               <button key={n.path} className={'lcard' + (n.kind !== 'work' && n.source ? ' clip' : '')} onClick={() => props.onOpen(n.path)} onContextMenu={(e) => onFileMenu(e, n.path)}>
@@ -78,7 +80,7 @@ export function ListView(props: {
           </div>
           {items.length > shown && (
             <button className="btn btn-ghost btn-sm list-more" onClick={() => setShown((s) => s + PAGE)}>
-              <span className="num">{`再显示${Math.min(PAGE, items.length - shown)}条 · 还有${items.length - shown}条`}</span>
+              <span className="num">{t('再显示{more}条 · 还有{n}条', { more: Math.min(PAGE, items.length - shown), n: items.length - shown })}</span>
             </button>
           )}
         </div>

@@ -12,11 +12,14 @@ import { Annotation, EditorSelection, EditorState, type Range, StateEffect, Stat
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { titleOf } from '../shared/layout'
 import { editorHost } from './editor-host'
-import { hiddenOk } from './hidden-syntax'
+import { blankLine, gapLine } from './gap-lines'
+import { hiddenOk, hiddenRanges } from './hidden-syntax'
 import { headingOf } from './title-follow'
+import { t as tNow } from '../shared/i18n'
 
+// 不翻：两句灰字是键，画的地方（TailWidget）翻
 export const TAIL_TEXT = '输入 / 插入块，或者直接写'
-export const NEW_NOTE_TEXT = '回车开始写正文；标题改了，文件名和标签跟着改'
+export const NEW_NOTE_TEXT = '回车开始写正文；标题改了，文件名和标签跟着改' // 不翻：键，画的地方翻
 
 /** 只是为文末那一行暂时加的字（还没打正文）：NoteDoc 不为它存盘 */
 export const provisional = Annotation.define<boolean>()
@@ -53,6 +56,29 @@ export function provisionalRange(state: EditorState): { from: number; to: number
   if (!p || p.to > state.doc.length) return null
   const line = state.doc.lineAt(Math.min(p.at, state.doc.length))
   return onlyTyped(line.text) ? { from: p.from, to: p.to } : null
+}
+
+/** 光标停在文件最后那个空行上，它紧挨着上面有字的一行（文件以一个换行结尾，这一行只是换行后面的空）；只读时不算 */
+function attachedLastLine(state: EditorState): boolean {
+  const sel = state.selection.main
+  const doc = state.doc
+  if (!sel.empty || state.readOnly || doc.lines < 2) return false
+  const last = doc.line(doc.lines)
+  return sel.head === last.from && last.text === '' && doc.line(doc.lines - 1).text.trim() !== ''
+}
+
+/**
+ * 光标停在文件最末尾，最后一行整行藏着（画成卡片的数据库块、图片，代码块的收尾围栏，在文件最末、后面没有换行）：
+ * 光标在藏着的记号后面，打的字落不到块后面（看守把它挪到块上面去了）；改成在文末新起一段（task-ys1rr，用户报的「只有一个数据库块时文末打不了字，
+ * 光标进不去块后面」：↓、→ 走过最后一个块就停在这里）
+ */
+function pastHiddenEnd(state: EditorState): boolean {
+  const sel = state.selection.main
+  const doc = state.doc
+  if (!sel.empty || state.readOnly || sel.head !== doc.length) return false
+  const last = doc.line(doc.lines)
+  if (last.text.trim() === '') return false
+  return hiddenRanges(state).some((h) => h.from <= last.from && h.to >= last.to)
 }
 
 /** 最后一行是空行、上面隔着空行（或者就是第一行）：灰字画在这一行上，不用另起 */
@@ -125,6 +151,46 @@ export function openTail(view: EditorView, pick = false): number | null {
   return at
 }
 
+/** 文末那一行已经打了正文（还没离开这一行，所以还记着）：定下来，不再算暂时的（在它末尾回车时先这样，再新起一段） */
+export function settleTail(view: EditorView) {
+  if (view.state.field(tailPending, false) && !provisionalRange(view.state)) view.dispatch({ effects: setPending.of(null) })
+}
+
+/**
+ * 文末那一行（点进来、还没打正文）上打「/」选了 AI 两项：这一行定下来，和「+」从文末新起的一行一样算数，返回行首；
+ * pos 不在那一行上是 null。不定下来的话，问 AI 写什么的小框一拿走焦点，这一行就被当成没打字拿掉，
+ * AI 的字落到上一段紧下面（不隔空行、文件末尾也没了换行）。AI 框什么都没写就收起时，由斜杠菜单的 made 把它拿掉。
+ */
+export function keepTail(view: EditorView, pos: number): number | null {
+  const p = view.state.field(tailPending, false)
+  if (!p) return null
+  const line = view.state.doc.lineAt(Math.min(p.at, view.state.doc.length))
+  if (pos < line.from || pos > line.to) return null
+  view.dispatch({ effects: setPending.of(null) })
+  return line.from
+}
+
+/**
+ * 文末那一行（点进来还没打字）里按退格：这一行连同暂时加的换行拿掉（不存盘、不进撤销），光标回到上一块
+ * （task-ys1rr，像 Notion 删掉空的最后一块）。where 由调用的地方按拿掉以后的文字算（上一段末尾、选中上面的卡）
+ */
+export function closeTail(view: EditorView, where: (state: EditorState) => EditorSelection | null): boolean {
+  const p = view.state.field(tailPending, false)
+  if (!p) return false
+  const to = Math.min(p.to, view.state.doc.length)
+  const after = view.state.update({ changes: { from: p.from, to }, effects: setPending.of(null) }).state
+  const sel = where(after)
+  view.dispatch({
+    changes: { from: p.from, to },
+    effects: setPending.of(null),
+    ...(sel ? { selection: sel } : {}),
+    userEvent: 'select',
+    annotations: [provisional.of(true), Transaction.addToHistory.of(false), hiddenOk.of(true)],
+    scrollIntoView: true,
+  })
+  return true
+}
+
 /** 把暂时加的拿掉（光标离开、失焦、只打了「/」没选） */
 function dropPending(view: EditorView) {
   const p = view.state.field(tailPending)
@@ -152,11 +218,11 @@ class TailWidget extends WidgetType {
   toDOM(view: EditorView) {
     const el = document.createElement(this.after ? 'div' : 'span')
     el.className = 'cm-tailline' + (this.after ? ' after' : ' inline') + (this.gap ? ' gap' : '')
-    el.dataset.part = '文末那一行'
+    el.dataset.part = '文末那一行' // 不翻：e2e 认的 data-part
     el.setAttribute('aria-hidden', 'true')
     const t = document.createElement('span')
     t.className = 'cm-tail-ph'
-    t.textContent = this.text
+    t.textContent = tNow(this.text)
     el.appendChild(t)
     if (this.after)
       el.addEventListener('mousedown', (e) => {
@@ -176,9 +242,42 @@ class TailWidget extends WidgetType {
   }
 }
 
+/** 空块里的灰字：和文末那一行同一个样子，但不是文末那一行（点它、悬停把手都照普通的一行） */
+class EmptyBlockWidget extends WidgetType {
+  eq() {
+    return true
+  }
+  toDOM() {
+    const el = document.createElement('span')
+    el.className = 'cm-blockph'
+    el.dataset.part = '空块的灰字' // 不翻：e2e 认的 data-part
+    el.setAttribute('aria-hidden', 'true')
+    el.textContent = tNow(TAIL_TEXT)
+    return el
+  }
+  ignoreEvent() {
+    return false
+  }
+}
+
+/** 光标停在一个空块里（回车新起、还没打字的一块：两边都是空行的那一行，不是文末那一行）：它的行首 */
+function emptyBlockAtCaret(state: EditorState): number | null {
+  const sel = state.selection.main
+  if (!sel.empty || state.selection.ranges.length > 1) return null
+  const line = state.doc.lineAt(sel.head)
+  if (line.number === state.doc.lines || !blankLine(state, line.number) || gapLine(state, line.number)) return null
+  // 文末那一行（点进来、还没打字）自己写着灰字
+  const p = state.field(tailPending, false)
+  if (p && state.doc.lineAt(Math.min(p.at, state.doc.length)).number === line.number) return null
+  return line.from
+}
+
 function build(state: EditorState): DecorationSet {
   if (state.readOnly) return Decoration.none
   const out: Range<Decoration>[] = []
+  // 光标所在的空块里也写着这一行灰字（照 Notion 空块里的「Press / to insert blocks」，task-ys1rr 设计复审）；光标走开就没有，不写进文件
+  const empty = emptyBlockAtCaret(state)
+  if (empty !== null) out.push(Decoration.widget({ widget: new EmptyBlockWidget(), side: 1 }).range(empty))
   const pending = state.field(tailPending)
   const fresh = freshNote(state)
   const text = fresh ? NEW_NOTE_TEXT : TAIL_TEXT
@@ -186,7 +285,7 @@ function build(state: EditorState): DecorationSet {
     const line = state.doc.lineAt(Math.min(pending.at, state.doc.length))
     // 点进来还没打字：灰字就写在这一行上；只打了「/」：这一行在挑块，下面先不画
     if (line.text === '') out.push(Decoration.widget({ widget: new TailWidget(TAIL_TEXT, false, false), side: 1 }).range(line.from))
-    if (onlyTyped(line.text)) return Decoration.set(out)
+    if (onlyTyped(line.text)) return Decoration.set(out, true)
     // 打了正文：和平时一样，下面又是一行灰字
   }
   const slot = lineSlot(state)
@@ -195,13 +294,13 @@ function build(state: EditorState): DecorationSet {
     const head = state.selection.main.head
     const here = head >= slot && head <= state.doc.line(state.doc.lines).to
     out.push(Decoration.widget({ widget: new TailWidget(fresh && !here ? NEW_NOTE_TEXT : TAIL_TEXT, false, false), side: 1 }).range(slot))
-    return Decoration.set(out)
+    return Decoration.set(out, true)
   }
   const doc = state.doc
   // 文件末尾没有换行（最后一行就是正文）：和上一块之间空出一行的高度
   const gap = doc.line(doc.lines).text !== ''
   out.push(Decoration.widget({ widget: new TailWidget(text, true, gap), block: true, side: 1 }).range(doc.length))
-  return Decoration.set(out)
+  return Decoration.set(out, true)
 }
 
 const tailDeco = StateField.define<DecorationSet>({
@@ -224,6 +323,22 @@ const keepProvisional = EditorState.transactionExtender.of((tr) => {
   if (!inside) return null
   const p2 = tr.state.field(tailPending)
   return p2 && onlyTyped(tr.state.doc.lineAt(Math.min(p2.at, tr.state.doc.length)).text) ? { annotations: provisional.of(true) } : null
+})
+
+/**
+ * 文末那一行是全篇最后一块：光标不再往下走（↓、→、⌘↓ 到它后面那个只为让文件以换行结尾的空行，会把这一行当成没打字拿掉，
+ * 光标落回藏着的收尾后面，打的字落不到块后面；task-ys1rr）。像 Notion 最后一块按 ↓ 不动
+ */
+const stayOnTail = EditorState.transactionFilter.of((tr) => {
+  if (!tr.selection || tr.docChanged) return tr
+  const p = tr.startState.field(tailPending, false)
+  const sel = tr.state.selection.main
+  if (!p || !sel.empty || tr.state.selection.ranges.length > 1) return tr
+  const doc = tr.state.doc
+  const line = doc.lineAt(Math.min(p.at, doc.length))
+  const was = tr.startState.selection.main.head
+  if (was < line.from || was > line.to || sel.head <= line.to) return tr
+  return [tr, { selection: EditorSelection.cursor(line.to), sequential: true }]
 })
 
 class TailView {
@@ -252,7 +367,16 @@ class TailView {
 
   update(u: ViewUpdate) {
     const p = u.state.field(tailPending)
-    if (!p) return
+    if (!p) {
+      // 光标落到文件最后那个空行、它紧挨着上面有字的一块（用户截图：引文下面那一行，灰字却在再下面一行；在这里打字会并进引文）：
+      // 那一行是块和块之间的空，不停光标，改成在文末新起一段，光标和灰字在同一行（task-ys1rr）
+      // 最后一个块藏着收尾、后面没有换行，光标走过它停在文件最末尾：也一样
+      const atEnd = (s: EditorState) => attachedLastLine(s) || pastHiddenEnd(s)
+      if (u.selectionSet && !u.docChanged && u.view.hasFocus && !u.view.composing && atEnd(u.state)) queueMicrotask(() => {
+        if (atEnd(this.view.state) && !this.view.state.field(tailPending)) openTail(this.view)
+      })
+      return
+    }
     // 光标离开那一行、编辑器失焦：只有空的或「/」（没选）就整段拿掉；打了正文就定下来
     const head = u.state.selection.main.head
     const line = u.state.doc.lineAt(Math.min(p.at, u.state.doc.length))
@@ -267,4 +391,4 @@ class TailView {
   }
 }
 
-export const tailLine = [tailPending, tailDeco, keepProvisional, ViewPlugin.fromClass(TailView)]
+export const tailLine = [tailPending, tailDeco, keepProvisional, stayOnTail, ViewPlugin.fromClass(TailView)]

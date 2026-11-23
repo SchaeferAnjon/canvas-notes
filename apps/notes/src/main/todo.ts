@@ -6,17 +6,22 @@
  * 画布今日也开着同一个库时：它改了文件，Vault 的监听报 files:changed，界面重读，几百毫秒内三处都变。
  */
 import * as git from '@cn/git'
-import { appendLines, lineAt, makeId, newTaskLine, parseQuick } from '@cn/tasks'
+import { appendLines, isISODate, lineAt, makeId, newTaskLine, normTime, parseQuick, parseRemind, parseRepeat, type When } from '@cn/tasks'
 import { app, type BrowserWindow, ipcMain, shell } from 'electron'
 import { readFile, rm } from 'node:fs/promises'
 import { homeFileOf, type FolderHome } from '../shared/folder-home'
 import { INBOX_TODO, noteName, type TodoAddResult, type TodoEditReq, type TodoEditResult, type TodoItem, type TodoMigrateResult, type TodoUndoResult, type TodoWhere, todoNoteOf } from '../shared/todo'
 import { readFolderHome, writeFolderHome } from './folder-home'
+import { BRAND } from '../shared/brand'
 import { E2E } from './test-mode'
-import { addTodoText, editTodoText, idTodoText, legacyTodoLines, localToday, locateTodo, mayHaveTodos, revertText, todoItems } from './todo-edit'
+import { addTodoText, editTodoText, idTodoText, legacyTodoLines, localNow, localToday, locateTodo, mayHaveTodos, revertText, todoItems } from './todo-edit'
 import type { Vault } from './vault'
+import type { Installed } from '@cn/family'
 
 const newId = () => makeId(Math.random)
+
+/** 官网上画布今日那一节：介绍和下载（apps/today/brand.json 的 site） */
+export const TODAY_SITE = `${BRAND.site}/#today`
 
 /** 一次改动：哪一篇、改之前（null 是本来没有）、改之后 */
 interface Change {
@@ -39,7 +44,22 @@ function need(v: Vault | null): Vault {
 
 const isNoteRel = (p: string) => typeof p === 'string' && /\.md$/i.test(p) && !p.startsWith('/') && !p.split('/').some((s) => s === '..' || s.startsWith('.'))
 
-export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserWindow | null }) {
+/** 界面交来的 AI 认出来的那一份：照 @cn/tasks 的写法再验一遍，不对的那项丢掉；没有标题、什么都不剩是 null */
+function aiWhen(x: unknown): When | null {
+  if (!x || typeof x !== 'object') return null
+  const o = x as Record<string, unknown>
+  const s = (k: string) => (typeof o[k] === 'string' && (o[k] as string).trim() ? (o[k] as string).trim() : null)
+  const title = s('title')
+  if (!title) return null
+  const date = s('date') && isISODate(s('date')!) ? s('date') : null
+  const time = s('time') ? normTime(s('time')!) : null
+  const remind = s('remind') && parseRemind(s('remind')!) ? s('remind') : null
+  const repeat = s('repeat') && parseRepeat(s('repeat')!) ? s('repeat') : null
+  if (!date && !time && !remind && !repeat) return null
+  return { title, date: date ?? (time ? localToday() : null), time, remind, repeat, hits: [] }
+}
+
+export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserWindow | null; family: { installed(): Promise<Installed> } }) {
   /** 每篇认出来的待办，按文字记着（文字没变就不再认） */
   const memo = new Map<string, { text: string; items: TodoItem[] }>()
   /** 撤销：编号 → 那一次改的几篇（最多留 100 次） */
@@ -129,7 +149,7 @@ export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserW
     return true
   }
 
-  ipcMain.handle('todo:list', async (): Promise<TodoItem[]> => {
+  const list = async (): Promise<TodoItem[]> => {
     const v = o.vault()
     if (!v) return []
     const texts = await v.texts()
@@ -145,7 +165,8 @@ export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserW
     }
     for (const p of [...memo.keys()]) if (!texts.has(p)) memo.delete(p)
     return out
-  })
+  }
+  ipcMain.handle('todo:list', list)
 
   ipcMain.handle('todo:edit', async (_e, req: TodoEditReq): Promise<TodoEditResult> => {
     if (!req || !isNoteRel(req.path) || typeof req.raw !== 'string' || !Number.isInteger(req.line) || !req.edit) return { ok: false, reason: 'failed', message: '参数不对' }
@@ -170,12 +191,17 @@ export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserW
     }
   })
 
-  ipcMain.handle('todo:add', async (_e, text: unknown, where: TodoWhere): Promise<TodoAddResult> => {
-    if (typeof text !== 'string' || !where || typeof where !== 'object') return { ok: false, reason: 'failed', message: '参数不对' }
+  ipcMain.handle('todo:add', async (_e, text: unknown, where: TodoWhere, day: unknown, when: unknown): Promise<TodoAddResult> => {
+    if (typeof text !== 'string' || !where || typeof where !== 'object' || (day !== undefined && day !== null && (typeof day !== 'string' || !isISODate(day)))) return { ok: false, reason: 'failed', message: '参数不对' }
     try {
       const v = need(o.vault())
       const today = localToday()
-      const q = parseQuick(text.trim(), today)
+      const q = parseQuick(text.trim(), localNow())
+      // AI 认出来的（task-pd289）：标题、日子、钟点、提醒、重复照它（界面上「认出来」那一行写的就是它），#清单、!优先级照旧从原话认
+      const w = aiWhen(when)
+      if (w) Object.assign(q, { title: w.title, date: w.date, time: w.time, remind: w.date ? w.remind : null, repeat: w.repeat })
+      // 待办首页只看某一天时加的：没写哪天就加到那天（task-kzr3n）
+      if (!q.date && day) q.date = day
       let title = q.title
       let path = 'note' in where ? where.note : 'folder' in where ? todoNoteOf(where.folder) : INBOX_TODO
       // #清单：对上库里哪篇的名字就写进哪篇（和画布今日一样）；对不上 # 那几个字留在标题里
@@ -187,7 +213,7 @@ export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserW
       }
       if (!isNoteRel(path)) return { ok: false, reason: 'failed', message: `写不进「${path}」` }
       if (!title) return { ok: false, reason: 'empty' }
-      const line = newTaskLine({ title, date: q.date, time: q.time, repeat: q.repeat, prio: q.prio })
+      const line = newTaskLine({ title, date: q.date, time: q.time, remind: q.date ? q.remind : null, repeat: q.repeat, prio: q.prio })
       const r = await change(v, path, (cur) => {
         const a = addTodoText(cur, noteName(path), line)
         return { text: a.text, result: { line: a.line, created: cur === null } }
@@ -271,8 +297,56 @@ export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserW
     return { ok: true }
   })
 
-  /** 装了画布今日没有：认 canvas-today:// 的软件。测试模式里看 CN_TODAY_INSTALLED（不看这台 Mac 上真装没装） */
-  ipcMain.handle('todo:todayInstalled', () => (E2E ? process.env.CN_TODAY_INSTALLED === '1' : !!app.getApplicationNameForProtocol('canvas-today://')))
+  /**
+   * 装了画布今日没有：和设置 › 软件家族同一个认法（按身份号问系统，只认「应用程序」里的，开发机上项目文件夹里打包出来的那份不算；
+   * 以前按 canvas-today:// 认，会把那份认成装了）。测试模式里看 CN_TODAY_INSTALLED 或 CN_FAMILY_INSTALLED_FILE
+   */
+  ipcMain.handle('todo:todayInstalled', async () => !!(await o.family.installed())['canvas-today'])
+
+  /** AI 排进空着的时间收下（task-kzr3n）：按篇分，每篇一次改完，几篇记成一次撤回 */
+  ipcMain.handle('todo:times', async (_e, items: unknown): Promise<TodoEditResult> => {
+    if (!Array.isArray(items) || !items.length) return { ok: false, reason: 'failed', message: '参数不对' }
+    const ok = items.every((x) => x && isNoteRel(x.path) && Number.isInteger(x.line) && typeof x.raw === 'string' && typeof x.time === 'string' && /^\d{2}:\d{2}$/.test(x.time))
+    if (!ok) return { ok: false, reason: 'failed', message: '参数不对' }
+    try {
+      const v = need(o.vault())
+      const today = localToday()
+      const changes: Change[] = []
+      const byPath = new Map<string, { line: number; raw: string; time: string }[]>()
+      for (const x of items as { path: string; line: number; raw: string; time: string }[]) byPath.set(x.path, [...(byPath.get(x.path) ?? []), x])
+      for (const [path, list] of byPath) {
+        const r = await change(v, path, (cur) => {
+          if (cur === null) return null
+          let text = cur
+          for (const x of list) {
+            const e = editTodoText(text, x.line, x.raw, { op: 'time', time: x.time }, today, newId)
+            if (e) text = e.text
+          }
+          return text === cur ? null : { text, result: null }
+        })
+        if (r) changes.push(r.change)
+      }
+      if (!changes.length) return { ok: false, reason: 'gone' }
+      const first = items[0] as { path: string; line: number; raw: string }
+      return { ok: true, undo: remember(changes), path: first.path, line: first.line, raw: first.raw }
+    } catch (err) {
+      if (err instanceof ReadOnlyError) return { ok: false, reason: 'readonly', message: err.message }
+      return { ok: false, reason: 'failed', message: String((err as Error).message ?? err) }
+    }
+  })
+
+  /**
+   * 打开画布今日（task-kzr3n，左栏头上那一颗）：找到认 canvas-today:// 的那个软件，打开它（已经开着就换到前面）；
+   * canvas-today:// 不带哪一条时画布今日不换到前面，所以直接开那个 App。测试模式里不看这台 Mac 上装没装，记一笔「打开 Canvas Today.app」
+   */
+  ipcMain.handle('todo:openToday', async (): Promise<void> => {
+    const path = E2E ? 'Canvas Today.app' : (await app.getApplicationInfoForProtocol('canvas-today://')).path
+    const err = await shell.openPath(path)
+    if (err) throw new Error(err)
+  })
+
+  /** 没装画布今日：开官网上画布今日那一节（下载在那里） */
+  ipcMain.handle('todo:aboutToday', () => shell.openExternal(TODAY_SITE))
 
   /** 在画布今日里打开这一条：canvas-today://task/<🆔>；没有 🆔 的先给它一个（只加那几个字，能撤回） */
   ipcMain.handle('todo:openInToday', async (_e, req: Omit<TodoEditReq, 'edit'>): Promise<TodoEditResult> => {
@@ -296,4 +370,5 @@ export function registerTodo(o: { vault: () => Vault | null; win: () => BrowserW
       return { ok: false, reason: 'failed', message: String((err as Error).message ?? err) }
     }
   })
+  return { list }
 }

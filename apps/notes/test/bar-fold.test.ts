@@ -14,6 +14,14 @@ const GROUPS = [
 const B = { cell: 38, sep: 9 }
 
 describe('barLayout', () => {
+  it('「日历」格（task-kzr3n）能收，但排在分类前面：分类全收完了才收它，「⋯」跟到第一段', () => {
+    const g = [[c('文件'), c('待办'), c('日历', true), c('最近'), c('书桌')], ...GROUPS.slice(1)]
+    expect(barLayout(g, 8).hidden.map((x) => x.id)).not.toContain('日历')
+    const l = barLayout(g, 9)
+    expect(l.hidden.map((x) => x.id)[0]).toBe('日历')
+    expect(l.moreGroup).toBe(0)
+    expect(l.shown[0]![0].map((x) => x.id)).toEqual(['文件', '待办', '最近', '书桌'])
+  })
   it('从最后一个分类往前收，「待办」「书桌」不收；「⋯」跟在最先收的那一格那一段', () => {
     const l = barLayout(GROUPS, 2)
     expect(l.hidden.map((x) => x.id)).toEqual(['项目', '生活'])

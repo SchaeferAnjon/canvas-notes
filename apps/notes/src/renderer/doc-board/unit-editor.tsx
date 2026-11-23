@@ -17,6 +17,7 @@ import { noteKeys } from '../note-keys'
 import { askPending } from '../video/ask-pending'
 import { videoDocWidgets } from '../video/doc-widgets'
 import { materialFold } from '../video/material-fold'
+import { t as tNow } from '../../shared/i18n'
 
 export function UnitEditor(props: {
   text: string
@@ -54,7 +55,7 @@ export function UnitEditor(props: {
           ...(props.placeholder ? [placeholder(props.placeholder)] : []),
           Prec.highest(keymap.of(props.keys ?? [])),
           keymap.of(noteKeys),
-          EditorView.contentAttributes.of({ 'aria-label': props.label ?? '这张卡的字' }),
+          EditorView.contentAttributes.of({ 'aria-label': props.label ?? tNow('这张卡的字') }),
           EditorView.updateListener.of((u) => u.docChanged && cb.current.onChange(u.state.doc.toString())),
         ],
       }),

@@ -39,10 +39,10 @@ test('活动栏平铺：文件、最近 | 收件箱 | 课程 阅读 剪藏 | 周
   const { page } = run
   try {
     const names = await bar(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names).toEqual(['文件', '待办', '最近', '书桌', ...CATS, '梦游报告', '最近删掉的', '库', '设置和外观'])
+    expect(names).toEqual(['文件', '待办', '日历', '最近', '书桌', ...CATS, '梦游报告', '最近删掉的', '库', '设置和外观'])
     // 每段之间一条线：最近后、收件箱后、剪藏后、生活后
     const groups = await bar(page).locator('.abg').evaluateAll((els) => els.map((g) => [...g.querySelectorAll('button.ab')].map((b) => b.getAttribute('aria-label'))))
-    expect(groups).toEqual([['文件', '待办', '最近', '书桌'], ['收件箱'], ['课程', '阅读', '剪藏'], ['周记', '写作', '项目', '生活'], ['梦游报告']])
+    expect(groups).toEqual([['文件', '待办', '日历', '最近', '书桌'], ['收件箱'], ['课程', '阅读', '剪藏'], ['周记', '写作', '项目', '生活'], ['梦游报告']])
     await openFiles(page)
     const root = tree(page).locator('.ft-root')
     await expect(root).toContainText('测试库')
@@ -108,11 +108,12 @@ test('活动栏右键：从左边拿下（底部能撤回）、在「文件」�
     await toast(page).getByRole('button', { name: '撤回' }).click()
     await expect(cell(page, '写作')).toHaveCount(1)
     // 窗口最矮（600）、又摘了三个文件夹上来：放不下的从最后一格往前收进「⋯」，点开是这几格。
-    // 「待办」「书桌」不收（2026-11-22 用户看图定「用旧做法」，task-2okp6）；库、设置不再被压扁腾地方；底部多了「最近删掉的」一格（task-iq2ow）以后 600 高时末尾四个分类收进「⋯」
+    // 「待办」「书桌」不收（2026-11-22 用户看图定「用旧做法」，task-2okp6）；库、设置不再被压扁腾地方；底部多了「最近删掉的」一格（task-iq2ow）以后 600 高时末尾四个分类收进「⋯」，
+    // 又多了「日历」一格（task-kzr3n）以后是末尾五个
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1200, 600))
     await page.waitForTimeout(300)
-    await expect(bar(page).getByTestId('ab-more')).toHaveAttribute('data-tip', '还有4个：周记、写作、项目、生活')
-    for (const c of ['待办', '书桌', ...CATS.slice(0, 4)]) await expect(cell(page, c)).toBeVisible()
+    await expect(bar(page).getByTestId('ab-more')).toHaveAttribute('data-tip', '还有5个：剪藏、周记、写作、项目、生活')
+    for (const c of ['待办', '日历', '书桌', ...CATS.slice(0, 3)]) await expect(cell(page, c)).toBeVisible()
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 900))
     for (const [parent, f] of [['项目', '冰岛旅行'], ['项目', '搬家'], ['阅读', '人类简史']] as const) {
       await openFiles(page)
@@ -661,7 +662,7 @@ test('老库打开时整理一次：素材 → 剪藏、素材/微信读书 → 
     expect(existsSync(join(vault, '阅读/人类简史.md'))).toBe(true)
     expect(readFileSync(join(vault, '写作/游记.md'), 'utf8')).toContain('(../剪藏/冰岛旅行/住哪.md)')
     const names = await bar(page).locator('button.ab').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')))
-    expect(names.slice(4, 12)).toEqual(CATS)
+    expect(names.slice(5, 13)).toEqual(CATS)
     await openFiles(page)
     await expect(row(page, '剪藏')).toHaveCount(1)
     await expect(row(page, '素材')).toHaveCount(0)

@@ -19,6 +19,7 @@ import { findMath } from '@cn/format'
 import { Direction, EditorView, keymap } from '@codemirror/view'
 import { describe, expect, it } from 'vitest'
 import { atomicBlocks, backspaceSelectsBlock } from '../src/renderer/atomic-blocks'
+import { blockFlow } from '../src/renderer/block-flow'
 import { docKeys, enterInQuote } from '../src/renderer/doc-keys'
 import { highlightKeys } from '../src/renderer/highlight'
 import { noteKeys } from '../src/renderer/note-keys'
@@ -543,7 +544,7 @@ describe('报告里的几条，按原样走一遍', () => {
 // ---------- 第 6 轮：第 5 轮看守没覆盖到的编辑路径 ----------
 
 /** 文档模式里真有的几套键（优先级和 note-doc.ts、doc-editing.ts 里一样） */
-const withKeys: Extension[] = [...extensions, docKeys, atomicBlocks, highlightKeys, keymap.of(noteKeys)]
+const withKeys: Extension[] = [...extensions, docKeys, atomicBlocks, highlightKeys, keymap.of(noteKeys), blockFlow]
 
 function openKeys(sample: Sample): View {
   const v = fakeView(EditorState.create({ doc: sample.doc, extensions: withKeys }))
@@ -674,15 +675,16 @@ describe('第 6 轮报告里的几条，按原样走一遍', () => {
   const keys6 = chains(EditorState.create({ doc: '', extensions: withKeys }))
   const key = (v: View, k: string) => press(v, keys6.get(k)!)
 
-  it('展开的提示块下面的空行里打字、粘贴：另起一段，空行留着，下一段不并进提示块', () => {
+  it('展开的提示块下面的空行（块缝，task-ys1rr 起光标不停在这里）：光标落上去挪到提示块末尾，打字、粘贴不把下一段并进提示块', () => {
     const v = openKeys({ name: '', doc: CALLOUT })
     v.dispatch({ selection: { anchor: CALLOUT.indexOf('\n\n下一段') + 1 }, userEvent: 'select' })
+    expect(v.state.selection.main.head).toBe(CALLOUT.indexOf('\n\n下一段'))
     for (const ch of '新打的字') typeAt(v, ch)
-    expect(v.state.doc.toString()).toBe(CALLOUT.replace('\n\n下一段', '\n\n新打的字\n下一段'))
+    expect(v.state.doc.toString()).toBe(CALLOUT.replace('提示正文。', '提示正文。新打的字'))
     const p = openKeys({ name: '', doc: CALLOUT })
     p.dispatch({ selection: { anchor: CALLOUT.indexOf('\n\n下一段') + 1 }, userEvent: 'select' })
     keys['粘贴']!(p)
-    expect(p.state.doc.toString()).toBe(CALLOUT.replace('\n\n下一段', '\n\n贴\n\n进来\n下一段'))
+    expect(p.state.doc.toString()).toMatch(/提示正文。贴\n+(> )?进来\n\n下一段。\n$/)
   })
 
   it('⌥↑ / ⌥↓ 挨着提示块、图片、视频卡、时刻块：块不和正文并在一起（不挪）', () => {
@@ -1112,7 +1114,7 @@ describe('task-6lsvd 文件里块挨着块、在文件头尾：删掉整块不�
   })
 })
 
-describe('task-6lsvd 能改字的块（代码块、提示块、AI 讲解、旁支）：下面一行行首退格、上面一行行尾 Delete 走进块里，不删记号、不跳走', () => {
+describe('task-6lsvd 能改字的块（代码块、提示块、AI 讲解、旁支）：下面一块段首退格、上面一块段尾 Delete 走进块里，不删记号、不跳走', () => {
   const TEXT_BLOCKS: [string, string, string, string][] = [
     // 名字、块、退格后光标前面的字、Delete 后光标后面的字
     ['代码块', '```js\nlet a = 1\n```', 'let a = 1', 'let a = 1'],
@@ -1120,17 +1122,16 @@ describe('task-6lsvd 能改字的块（代码块、提示块、AI 讲解、旁�
     ['AI 讲解（展开）', '> [!ai]+ 讲解\n> 正文一', '正文一', '讲解'],
     ['旁支块', '> [!ai]+ 讲解\n> 正文一\n>\n> [!side] 问题\n> > 那一句\n> 回答。', '回答。', '讲解'],
   ]
+  // task-ys1rr 起块和块之间那个空行不停光标：「下面一行」是隔着空行的下一段段首，「上面一行」是上一段段尾
   it.each(TEXT_BLOCKS)('%s', (_n, block, before, after) => {
     const doc = docOf(block)
-    const from = doc.indexOf(block)
-    const to = from + block.length
-    const b = openBlock(doc, to + 1)
+    const b = openBlock(doc, doc.indexOf('下一段'))
     pressKey(b, 'Backspace')
     expect(b.state.doc.toString()).toBe(doc)
     expect(b.state.selection.main.empty).toBe(true)
     expect(doc.slice(0, b.state.selection.main.head).endsWith(before), `退格后光标在 ${b.state.selection.main.head}`).toBe(true)
     for (const k of ['Delete', 'Ctrl-d']) {
-      const d = openBlock(doc, from - 1)
+      const d = openBlock(doc, doc.indexOf('上一段。') + 4)
       pressKey(d, k)
       expect(d.state.doc.toString(), k).toBe(doc)
       expect(doc.slice(d.state.selection.main.head).startsWith(after), `${k} 后光标在 ${d.state.selection.main.head}`).toBe(true)

@@ -25,6 +25,7 @@ import * as R from './reading/store'
 import './reading/reading.css'
 import './reading/side.css'
 import './side/side-inline.css'
+import { useT } from './i18n'
 
 export interface AiDockProps {
   /** AI 标签开着（在哪一组里都算，在别的标签后面也算） */
@@ -75,6 +76,7 @@ function useDigest(chat: AiDockProps['chat']): boolean {
 }
 
 export function AiDock(props: AiDockProps) {
+  const t = useT()
   const { reading } = props
   const digest = useDigest(props.chat)
   const herePlace = placeOf(props.chat.tab, digest)
@@ -125,7 +127,7 @@ export function AiDock(props: AiDockProps) {
   const awaySrc = away ? readSrc(away.key) : null
   /** 这一格显示的读 PDF 对话：看别处的读 PDF 对话时是它，不然是这里的（选中了几篇「问AI」时不显示） */
   const shownReading = pickOverPdf ? null : away ? awaySrc : reading
-  const chatPlace = pickOverPdf ? { key: PICKED_KEY, label: `选中的${picked.items.length}个` } : away && !awaySrc ? away : herePlace
+  const chatPlace = pickOverPdf ? { key: PICKED_KEY, label: t('选中的{n}个', { n: picked.items.length }) } : away && !awaySrc ? away : herePlace
   return (
     <>
       <AiPanel {...props.chat} digest={digest} place={chatPlace} nav={nav} hidden={!props.shown || !!shownReading} onClose={props.onClose} />

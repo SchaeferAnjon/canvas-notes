@@ -21,6 +21,7 @@ import { actEntries, onActs, spotWrote, still, stopActing, writing } from './ai-
 import { finishCards } from './ai-card-grow'
 import { ringElement } from './ai-glow'
 import { hiddenOk } from './hidden-syntax'
+import { t as tNow } from '../shared/i18n'
 
 interface Spot {
   id: number
@@ -270,7 +271,9 @@ class InlWidget extends WidgetType {
     const wrap = document.createElement('div')
     wrap.className = 'cm-ai-inl'
     wrap.dataset.spot = String(this.id)
-    wrap.innerHTML = '<span class="pill" data-testid="ai-spot-bar"><i class="dot on"></i><span class="t">AI 在写这一段</span><button type="button" class="stop">停下 esc</button></span>'
+    wrap.innerHTML = '<span class="pill" data-testid="ai-spot-bar"><i class="dot on"></i><span class="t"></span><button type="button" class="stop"></button></span>'
+    wrap.querySelector('.t')!.textContent = tNow('AI 在写这一段')
+    wrap.querySelector('.stop')!.textContent = tNow('停下 esc')
     wrap.querySelector('.stop')!.addEventListener('mousedown', (e) => {
       e.preventDefault()
       stopSpot(view, this.id)
@@ -538,7 +541,7 @@ class SpotBars {
       if (inl) {
         if (stopped) {
           const cut = this.view.state.field(aiDoc).spots.find((x) => x.id === id)?.cut
-          inl.querySelector('.t')!.textContent = cut ? '停下了：写到一半的这段留着' : '停下了：这一段留着'
+          inl.querySelector('.t')!.textContent = cut ? tNow('停下了：写到一半的这段留着') : tNow('停下了：这一段留着')
           inl.querySelector('.stop')?.remove()
           inl.querySelector('.dot')?.classList.remove('on')
         } else inl.classList.add('hide')

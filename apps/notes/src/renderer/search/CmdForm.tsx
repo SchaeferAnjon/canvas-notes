@@ -8,6 +8,7 @@ import type { OwnCommand } from '../../shared/commands'
 import { AiIcon } from '../engine-logo'
 import { recentFiles, useVaultFiles } from '../files/store'
 import { useT } from '../i18n'
+import { catName } from '../../shared/categories'
 
 export interface FormValue {
   kind: 'open' | 'url'
@@ -103,7 +104,7 @@ export function CmdForm(props: { edit: OwnCommand | null; group: string; alias: 
         <label htmlFor="pal-f-target">{v.kind === 'open' ? t('打开哪里') : t('网址')}</label>
         <div>
           {/* 不翻：收件箱是磁盘上的文件夹名 */}
-          <input id="pal-f-target" name="target" placeholder={v.kind === 'open' ? sugg[0] ?? '收件箱' : 'https://'} value={v.target} onChange={(x) => set({ target: x.target.value })} />
+          <input id="pal-f-target" name="target" placeholder={v.kind === 'open' ? sugg[0] ?? catName('收件箱') : 'https://'} value={v.target} onChange={(x) => set({ target: x.target.value })} />
           {v.kind === 'open' && sugg.length > 0 && (
             <div className="sugg" role="group" aria-label={t('建议')}>
               {sugg.map((s) => (
@@ -119,7 +120,7 @@ export function CmdForm(props: { edit: OwnCommand | null; group: string; alias: 
         <label htmlFor="pal-f-name">{t('名字')}</label>
         <div>
           {/* 不翻：收件箱是磁盘上的文件夹名 */}
-          <input id="pal-f-name" placeholder={v.kind === 'open' ? t('打开 {name}', { name: lastPart(sugg[0] ?? '收件箱') }) : t('打开课程网站')} value={v.name} onChange={(x) => set({ name: x.target.value })} />
+          <input id="pal-f-name" placeholder={v.kind === 'open' ? t('打开 {name}', { name: lastPart(sugg[0] ?? catName('收件箱')) }) : t('打开课程网站')} value={v.name} onChange={(x) => set({ name: x.target.value })} />
           {err && (
             <div className="f-err" role="alert">
               {err}

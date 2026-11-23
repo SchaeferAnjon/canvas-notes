@@ -766,9 +766,10 @@
   backdrop-filter: blur(12px);
 }
 .home-b .wd {
-  background: color-mix(in srgb, var(--pop) 74%, transparent);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
-  backdrop-filter: blur(24px) saturate(150%);
+  /* 和画布今日 B 的三栏、中间岛半透明同一套共用 token（@cn/design themes.css） */
+  background: var(--isle-pop);
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
 }
 .home-b .wgrid > .wd.w-clock:first-child {
   background: transparent;

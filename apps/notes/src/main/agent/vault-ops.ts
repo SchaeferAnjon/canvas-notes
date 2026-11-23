@@ -45,6 +45,7 @@ const SKIP = new Set(['.git', 'node_modules', '.trash', '.obsidian'])
 const parentOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const join2 = (dir: string, name: string) => (dir ? `${dir}/${name}` : name)
 const baseOf = (p: string) => p.slice(p.lastIndexOf('/') + 1)
+// 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
 const where = (folder: string) => `「${folder || '库的最外层'}」`
 
 async function kind(v: Vault, rel: string): Promise<'dir' | 'file' | null> {
@@ -64,8 +65,10 @@ async function kind(v: Vault, rel: string): Promise<'dir' | 'file' | null> {
 export function relPath(v: Vault, p: unknown, what: string, empty = false): string {
   if (p === undefined || p === null) {
     if (empty) return ''
+    // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
     throw new Error(`缺参数 ${what}`)
   }
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (typeof p !== 'string') throw new Error(`参数 ${what} 要是字符串`)
   let s = p.trim().replace(/\\/g, '/')
   if (s === v.root || s === v.root + '/') s = ''
@@ -73,8 +76,10 @@ export function relPath(v: Vault, p: unknown, what: string, empty = false): stri
   s = s.replace(/^(\.\/)+/, '').replace(/\/+$/, '')
   if (s === '.' || s === '') {
     if (empty) return ''
+    // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
     throw new Error(`缺参数 ${what}`)
   }
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (s.startsWith('/') || s.startsWith('~') || s.split('/').some((x) => x === '..')) throw new Error(`「${p}」在库外：只能动库里的笔记和文件夹（写相对库的路径，比如「课程/线代」）`)
   v.abs(s)
   return s
@@ -83,6 +88,7 @@ export function relPath(v: Vault, p: unknown, what: string, empty = false): stri
 /** 一个已有的文件夹（空的是库的最外层） */
 async function folderOf(v: Vault, p: unknown, what: string): Promise<string> {
   const f = relPath(v, p, what, true)
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (f && (await kind(v, f)) !== 'dir') throw new Error(`没有「${f}」这个文件夹。要先建就用 folder_create`)
   return f
 }
@@ -94,6 +100,7 @@ async function target(v: Vault, p: unknown): Promise<{ rel: string; dir: boolean
   if (k === 'dir') return { rel, dir: true }
   if (k === 'file') return { rel, dir: false }
   if (!/\.md$/i.test(rel) && (await kind(v, rel + '.md')) === 'file') return { rel: rel + '.md', dir: false }
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   throw new Error(`没有「${rel}」。先用 notes_list 看看库里有哪些`)
 }
 
@@ -120,11 +127,14 @@ async function mdWith(v: Vault, needle: string): Promise<Set<string>> {
 /** 新建一篇：放进已有的文件夹；正文开头没有「# 标题」（也不是 frontmatter）就补上，和软件里新建的一样 */
 export async function createNote(v: Vault, folderArg: unknown, titleArg: unknown, textArg: unknown): Promise<{ path: string; touched: string[] }> {
   const folder = await folderOf(v, folderArg, 'folder')
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (typeof titleArg !== 'string' || !titleArg.trim()) throw new Error('缺参数 title')
   const title = titleArg.trim().replace(/\.md$/i, '')
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (title.includes('/')) throw new Error('标题里不能有 /：要放进文件夹就写在 folder 里')
   const name = safeName(title)
   const rel = join2(folder, `${name}.md`)
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (await kind(v, rel)) throw new Error(`${where(folder)}里已经有一篇叫「${name}」了（${rel}）。换个名字，或者用 note_write 改写它`)
   const text = typeof textArg === 'string' ? textArg : ''
   const body = /^(# |---\n)/.test(text.trimStart()) ? text.replace(/\n*$/, '\n') : `# ${name}\n\n${text.trim() ? text.trim() + '\n' : ''}`
@@ -135,12 +145,15 @@ export async function createNote(v: Vault, folderArg: unknown, titleArg: unknown
 /** 新建文件夹：放一个看不见的 .gitkeep（Git 才记得住空文件夹，和文件树里新建一样） */
 export async function makeFolder(v: Vault, parentArg: unknown, nameArg: unknown): Promise<{ path: string; touched: string[] }> {
   const parent = await folderOf(v, parentArg, 'parent')
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (typeof nameArg !== 'string' || !nameArg.trim()) throw new Error('缺参数 name')
   const name = nameArg.trim()
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (name.includes('/')) throw new Error('名字里不能有 /：要建在别的文件夹里就写在 parent 里')
   const bad = checkFolderName(name)
   if (bad) throw new Error(bad)
   const f = join2(parent, name)
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (await kind(v, f)) throw new Error(`${where(parent)}里已经有「${name}」了`)
   await mkdir(v.abs(f), { recursive: true })
   await writeFile(v.abs(`${f}/${GITKEEP}`), '')
@@ -150,17 +163,22 @@ export async function makeFolder(v: Vault, parentArg: unknown, nameArg: unknown)
 /** 改名：一篇笔记（库里的 [[旧名]] 换成新名，开头「# 旧名」跟着改，附件文件夹跟过去）或一个文件夹（写着它路径的链接、置顶、左栏跟着改） */
 export async function renamePath(v: Vault, deps: OpsDeps, pathArg: unknown, nameArg: unknown): Promise<Relocated> {
   const { rel, dir } = await target(v, pathArg)
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (typeof nameArg !== 'string' || !nameArg.trim()) throw new Error('缺参数 name')
   const asked = nameArg.trim().replace(/\.md$/i, '')
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (asked.includes('/')) throw new Error('新名字里不能有 /：要挪到别的文件夹用 note_move')
   const parent = parentOf(rel)
   if (dir) {
+    // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
     if (fixedFolder(rel)) throw new Error(`「${rel}」是固定的文件夹，不改名`)
     const bad = checkFolderName(asked)
     if (bad) throw new Error(bad)
     const to = join2(parent, asked)
+    // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
     if (to === rel) throw new Error('名字没变')
     // 只改大小写（ecp → ECP）在 Mac 上是同一个文件夹，不算重名
+    // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
     if (to.toLowerCase() !== rel.toLowerCase() && (await kind(v, to))) throw new Error(`${where(parent)}里已经有「${asked}」了`)
     const plan = await planRelocate(v, rel, to)
     await commitPendingUnder(v.root, plan.touches)
@@ -171,10 +189,13 @@ export async function renamePath(v: Vault, deps: OpsDeps, pathArg: unknown, name
     const touched = await statusPaths(v.root, (p) => plan.inFolder(p) || relinked.includes(p) || p === PINS_FILE || p === LEFT_FILE)
     return { from: rel, to, folder: true, relinked, touched }
   }
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (!/\.md$/i.test(rel)) throw new Error(`「${rel}」不是笔记：只改笔记和文件夹的名字`)
   const name = safeName(asked)
   const to = join2(parent, `${name}.md`)
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (to === rel) throw new Error('名字没变')
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (to.toLowerCase() !== rel.toLowerCase() && (await kind(v, to))) throw new Error(`${where(parent)}里已经有一篇叫「${name}」了（${to}）`)
   const old = baseOf(rel).replace(/\.md$/i, '')
   // 写着它名字的（[[旧名]]、[字](旧名.md)）：改名时链接跟着改，先把它们上面没提交的字提交掉
@@ -186,6 +207,7 @@ export async function renamePath(v: Vault, deps: OpsDeps, pathArg: unknown, name
   const cur = await v.read(rel)
   if (!cur.readOnly && cur.text.startsWith(`# ${old}\n`)) {
     const w = await v.write(rel, `# ${name}\n` + cur.text.slice(old.length + 3), cur.text)
+    // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
     if (!w.ok) throw new Error('这篇刚被改过，再试一次')
   }
   const got = await v.rename(rel, name)
@@ -199,12 +221,16 @@ export async function renamePath(v: Vault, deps: OpsDeps, pathArg: unknown, name
 /** 挪进另一个文件夹（空的是库的最外层）：一篇笔记连它的附件，或一个文件夹连里面的；库里指向它们的相对链接、置顶、左栏跟着改 */
 export async function movePath(v: Vault, deps: OpsDeps, pathArg: unknown, folderArg: unknown): Promise<Relocated> {
   const { rel, dir } = await target(v, pathArg)
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (!dir && !/\.md$/i.test(rel)) throw new Error(`「${rel}」不是笔记：只挪笔记和文件夹（PDF、HTML 在文件树里挪）`)
   const folder = await folderOf(v, folderArg, 'folder')
   const base = baseOf(rel)
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (parentOf(rel) === folder) throw new Error(`「${base}」已经在${where(folder)}里了`)
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (dir && (folder === rel || folder.startsWith(rel + '/'))) throw new Error(`不能把「${base}」挪进它自己里面`)
   const dest = join2(folder, base)
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (await kind(v, dest)) throw new Error(`${where(folder)}里已经有「${base.replace(/\.md$/i, '')}」了（${dest}）`)
   const plan = await planMoveMany(v, [rel], folder)
   await commitPendingUnder(v.root, plan.touches)
@@ -223,6 +249,7 @@ export async function movePath(v: Vault, deps: OpsDeps, pathArg: unknown, folder
 export async function trashPath(v: Vault, deps: OpsDeps, pathArg: unknown): Promise<{ path: string; folder: boolean; files: number; images: number; kept: number; touched: string[] }> {
   const { rel, dir } = await target(v, pathArg)
   if (dir) {
+    // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
     if (fixedFolder(rel)) throw new Error(`「${rel}」是固定的文件夹，不能删`)
     const files = await countFiles(v, rel)
     const inside = (p: string) => p === rel || p.startsWith(rel + '/') || p === PINS_FILE || p === LEFT_FILE
@@ -233,6 +260,7 @@ export async function trashPath(v: Vault, deps: OpsDeps, pathArg: unknown): Prom
     await relookAll(v, (p) => (p === rel || p.startsWith(rel + '/') ? null : undefined))
     return { path: rel, folder: true, files, images: 0, kept: 0, touched: await statusPaths(v.root, inside) }
   }
+  // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
   if (!/\.md$/i.test(rel)) throw new Error(`「${rel}」不是笔记：只删笔记和文件夹（PDF、HTML 在文件树里删）`)
   const own = attachmentDir(rel) + '/'
   const mine = new Set((await noteAttachments(v, rel, false)).items.filter((i) => i.mine).map((i) => i.path))
@@ -248,6 +276,7 @@ export async function listFolders(v: Vault): Promise<string[]> {
   const out: string[] = []
   const walk = async (dir: string) => {
     for (const e of await readdir(dir ? v.abs(dir) : v.root, { withFileTypes: true })) {
+      // 不翻：回给 AI 的工具结果（附件是磁盘上的文件夹名）
       if (!e.isDirectory() || e.name.startsWith('.') || SKIP.has(e.name) || (!dir && e.name === '附件')) continue
       const rel = join2(dir, e.name)
       out.push(rel)

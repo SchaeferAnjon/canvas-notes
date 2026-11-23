@@ -1,0 +1,548 @@
+/*
+ * 数据库块头第二行、小标签、分组、筛选 / 排序面板（第三批 task-i921u，照方向 A 原型 proto-a.html 量的数）。
+ * 块头两行：名字一行（.base-top，38）、视图标签一行（.base-vbar，34，筛选、排序、分组在它右边）。
+ */
+
+/* 第一行照原型：内边距 0 8 0 12、间距 6；改写法、新一条内边距 9、图标和字间距 5（第二行标签的图标和名字起点对齐） */
+.base > .base-top,
+.base-full > .base-top {
+  gap: 6px;
+  padding: 0 8px 0 12px;
+}
+.base-top > .base-raw,
+.base-top > .base-new {
+  gap: 5px;
+  padding: 0 9px;
+}
+
+/* 第一行和标签条之间不画线（标签条自己底下一道 --line2） */
+.base-top:has(+ .base-vbar) {
+  border-bottom: 0;
+}
+
+/* ---------- 第二行：视图标签条 …… 分组、筛选、排序 ---------- */
+.base-vbar {
+  display: flex;
+  align-items: stretch;
+  height: 34px;
+  padding: 0 8px 0 6px;
+  border-bottom: 1px solid var(--line2);
+}
+.base-vbar .sp {
+  flex: 1;
+  min-width: 8px;
+}
+.base-vtabs {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
+}
+.base-vtab {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+  cursor: default;
+}
+.base-vtab:hover {
+  color: var(--t1);
+}
+.base-vtab.on {
+  color: var(--t1);
+  font-weight: 500;
+  box-shadow: inset 0 -2px 0 var(--acc);
+}
+.base-vtab .ci {
+  flex: none;
+}
+.base-vtab .chev {
+  margin-left: -2px;
+  color: var(--t3);
+}
+.base-vtab input {
+  width: 88px;
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+  font: 500 12px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.base-vtab.moving {
+  opacity: 0.5;
+}
+.base-vtab.drop-before::before,
+.base-vtab.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--acc);
+}
+.base-vtab.drop-before::before {
+  left: -1px;
+}
+.base-vtab.drop-after::after {
+  right: -1px;
+}
+.base-vadd {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0 6px;
+  border: 0;
+  background: none;
+  color: var(--t3);
+}
+.base-vadd:hover {
+  color: var(--t1);
+}
+.base-tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.base-tb {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+}
+.base-tb:hover {
+  background: var(--fill);
+}
+.base-tb.on {
+  color: var(--acc-t);
+}
+
+/* ---------- 第三行：开着的筛选、排序小标签 ---------- */
+.base-cbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line2);
+}
+.base-fchip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 4px 0 8px;
+  border-radius: 6px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.base-fchip button {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+}
+.base-fchip .t {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0;
+}
+.base-fchip .t span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.base-fchip .x {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 5px;
+  padding: 0;
+  border-radius: 4px;
+}
+.base-fchip .x:hover {
+  background: var(--acc-soft);
+}
+
+/* ---------- 表格分组：组头一行 34，--fill 底，点了收起 ---------- */
+.base tr.base-grp td {
+  height: 34px;
+  padding: 0 0 0 8px;
+  background: var(--fill);
+  font-weight: 500;
+  cursor: default;
+}
+.base tr.base-grp .grp {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--t1);
+}
+.base tr.base-grp .ci {
+  color: var(--t3);
+}
+.base tr.base-grp .c {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t3);
+}
+.base-sdot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 6px 0 8px;
+  border-radius: 50%;
+  background: var(--t3);
+}
+.base-sdot.g1 {
+  background: var(--yellow);
+}
+.base-sdot.g2 {
+  background: var(--green);
+}
+.base-sdot.none {
+  width: 0;
+  margin-right: 2px;
+}
+
+/* ---------- 浮层：视图菜单、加一个视图、分组、窄栏的视图下拉 ---------- */
+.base-vmenu,
+.base-fpanel,
+.base-spanel {
+  font-size: 13px;
+}
+.base-vmenu .mi {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+  text-align: left;
+  white-space: nowrap;
+}
+.base-vmenu .mi > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.base-vmenu .mi:hover:not(:disabled) {
+  background: var(--fill);
+}
+.base-vmenu .mi .ci {
+  flex: none;
+  color: var(--t2);
+}
+.base-vmenu .mi .k {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-vmenu .mi .ci.k {
+  color: var(--t2);
+}
+.base-vmenu .mi:disabled {
+  color: var(--t3);
+}
+.base-vmenu .mi.danger:hover:not(:disabled) {
+  color: var(--red-t, var(--red));
+}
+.base-vmenu .msep,
+.base-spanel .msep {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--line);
+}
+.base-vmenu .mlab,
+.base-spanel .mlab {
+  padding: 6px 8px 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-vmenu .mnone,
+.base-fpanel .none,
+.base-spanel .none {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-spanel .none {
+  padding: 2px 8px 6px;
+}
+
+/* ---------- 筛选面板（500 宽）、排序面板（320 宽） ---------- */
+.base-fpanel {
+  width: 500px;
+  max-width: calc(100vw - 32px);
+}
+.base-spanel {
+  width: 320px;
+}
+.base-fpanel .fhd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 2px;
+}
+.base-fpanel .fhd b {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.base-fpanel .fhd .sub {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.base-fpanel .fhd .left {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.base-fpanel .fbody {
+  padding: 0 6px;
+}
+.base-fpanel .frow,
+.base-spanel .frow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.base-spanel .frow {
+  padding: 0 6px;
+}
+.base-fpanel .frow.top {
+  align-items: flex-start;
+}
+.base-fpanel .conj {
+  flex: none;
+  width: 44px;
+  padding-right: 4px;
+  font-size: 12px;
+  color: var(--t2);
+  text-align: right;
+}
+.base-fpanel .conj select {
+  width: 44px;
+  height: 26px;
+  padding: 0 4px;
+  font-size: 12px;
+  background-position:
+    calc(100% - 10px) 11px,
+    calc(100% - 6px) 11px;
+}
+.base-fpanel .field,
+.base-spanel .field {
+  height: 30px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background-color: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font: 13px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.base-fpanel .field:focus,
+.base-spanel .field:focus {
+  box-shadow: inset 0 0 0 1.5px var(--acc-ring);
+}
+.base-fpanel select.field,
+.base-spanel select.field {
+  appearance: none;
+  padding-right: 22px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--t3) 50%), linear-gradient(135deg, var(--t3) 50%, transparent 50%);
+  background-position:
+    calc(100% - 12px) 13px,
+    calc(100% - 8px) 13px;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+}
+.base-fpanel .field.col {
+  flex: none;
+  width: 96px;
+}
+.base-fpanel .field.op {
+  flex: none;
+  width: 84px;
+}
+.base-fpanel .val {
+  flex: 1;
+  min-width: 0;
+}
+.base-spanel .field.col {
+  flex: 1;
+}
+.base-spanel .field.dir {
+  flex: none;
+  width: 90px;
+}
+.base-fpanel .raw {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0 8px;
+  font: 12px var(--mono);
+  color: var(--t2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.base-fpanel .ib,
+.base-spanel .ib {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+}
+.base-fpanel .ib:hover,
+.base-spanel .ib:hover {
+  background: var(--fill);
+}
+.base-fpanel .fgroup {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 8px 8px;
+  border-radius: 8px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.base-fpanel .fgroup .gt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.base-fpanel .fgroup .gt .ib {
+  margin-left: auto;
+}
+.base-fpanel select.field.empty {
+  color: var(--t3);
+}
+.base-fpanel select.field option {
+  color: var(--t1);
+}
+.base-fpanel .ffoot {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px 6px 4px;
+  border-top: 1px solid var(--line);
+}
+.base-spanel .sadd {
+  padding: 6px 6px 2px;
+}
+.base-fpanel .gbtn,
+.base-spanel .gbtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+}
+.base-fpanel .gbtn:hover:not(:disabled),
+.base-spanel .gbtn:hover:not(:disabled) {
+  background: var(--fill);
+}
+.base-spanel .gbtn:disabled {
+  opacity: 0.5;
+}
+.base-fpanel .gbtn.end {
+  margin-left: auto;
+}
+
+/* 「+」加一个视图菜单最后一行「AI 生成一列」（和表头「+」那一行同一个样子） */
+.base-vmenu .sep {
+  height: 1px;
+  margin: 5px 4px;
+  background: var(--line);
+}
+.base-vmenu .aic-add {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: 13px var(--sans);
+  color: var(--t1);
+  text-align: left;
+}
+.base-vmenu .aic-add:hover {
+  background: var(--fill);
+}
+.base-vmenu .aic-add .eng-logo {
+  flex: none;
+  margin-top: 2px;
+}
+.base-vmenu .aic-add-t {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.base-vmenu .aic-add-t > span:first-child {
+  font-weight: 500;
+}
+.base-vmenu .aic-add small {
+  font-size: 12px;
+  color: var(--t3);
+}

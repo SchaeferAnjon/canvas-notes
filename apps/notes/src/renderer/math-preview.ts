@@ -7,11 +7,13 @@
  * - 排好的公式是一整颗：退格（在它后面）、Delete（在它前面）先选中它，再按一次才删；挪行、删词这些键改不到它的半截
  *   （hidden-syntax 的看守）；选中复制带出原来的 $…$ 写法（复制的是文件里的字）；
  * - 写错的不排：原文照写，红色波浪线，悬停（和光标在里面时的浮层）说哪里错。
+ * - 引文、提示块里单独成行的（剪藏进来的 `> $$ … > $$`，task-6cxtc）照样排成一整块，外面接着引文的竖线、提示块的底。
  * 只加装饰，不动文字，所以不影响「打开再保存文件不变」。
  */
 import { findMath, type MathSpan } from '@cn/format'
-import { EditorSelection, type EditorState, Prec, type Range, type SelectionRange, StateField, type Text } from '@codemirror/state'
+import { EditorSelection, type EditorState, type Line, Prec, type Range, type SelectionRange, StateField, type Text } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap, showTooltip, type Tooltip, WidgetType } from '@codemirror/view'
+import { parseCallout } from './callout'
 import { type Hidden, hiddenSyntax } from './hidden-syntax'
 import { fadeEdges, renderTex } from './tex'
 
@@ -42,6 +44,18 @@ export interface Placed {
   selected: boolean
   html: string | null
   error: string | null
+  /** 在引文里（「 q」：接着画竖线）、提示块里（「 c」：接着画块的底，「 c bot」是块的最后几行）；不在是 '' */
+  inq: string
+}
+
+/** 引文里的公式在普通引文还是提示块里、是不是块的最后几行 */
+function quoteCtx(doc: Text, span: MathSpan): string {
+  if (!span.quote) return ''
+  let first = doc.lineAt(span.from).number
+  while (first > 1 && /^\s*>/.test(doc.line(first - 1).text)) first--
+  const last = doc.lineAt(span.to).number
+  const bot = last === doc.lines || !/^\s*>/.test(doc.line(last + 1).text)
+  return parseCallout(doc.line(first).text) ? ` c${bot ? ' bot' : ''}` : ' q'
 }
 
 function inside(r: SelectionRange, p: { a: number; b: number; block: boolean }): boolean {
@@ -72,6 +86,7 @@ export function placedMath(state: EditorState): Placed[] {
       selected: state.selection.ranges.some((r) => !r.empty && r.from <= a && r.to >= b),
       html: t.html,
       error: t.error,
+      inq: block ? quoteCtx(doc, span) : '',
     }
   })
   placedCache.set(state, out)
@@ -84,7 +99,10 @@ const shut = (state: EditorState) => placedMath(state).filter((p) => !p.open && 
 /** 点排好的公式：光标放进写法末尾（结尾记号前面；单独成行、结尾记号自己一行的，放在上一行末尾） */
 function caretOf(state: EditorState, p: Placed): number {
   const end = p.span.to - p.span.close
-  return p.block && end > p.span.from + p.span.open && state.doc.sliceString(end - 1, end) === '\n' ? end - 1 : end
+  if (!p.block || end <= p.span.from + p.span.open) return end
+  // 结尾记号自己一行（引文里的那一行前面只有「> 」）：放在上一行末尾
+  const line = state.doc.lineAt(end)
+  return line.from > p.span.from && end === line.from + (p.span.quote?.length ?? 0) ? line.from - 1 : end
 }
 
 class MathWidget extends WidgetType {
@@ -98,11 +116,13 @@ class MathWidget extends WidgetType {
     readonly preview = false,
     /** 行内的紧挨着汉字：那一边留 1/8 字宽（「 gl」「 gr」，同 AI 回答的 md-render） */
     readonly gap = '',
+    /** 引文、提示块里的（Placed.inq）：外面套一层接着画竖线、块的底 */
+    readonly inq = '',
   ) {
     super()
   }
   eq(o: MathWidget) {
-    return o.html === this.html && o.block === this.block && o.from === this.from && o.selected === this.selected && o.preview === this.preview && o.gap === this.gap
+    return o.html === this.html && o.block === this.block && o.from === this.from && o.selected === this.selected && o.preview === this.preview && o.gap === this.gap && o.inq === this.inq
   }
   toDOM(view: EditorView) {
     const el: HTMLElement = document.createElement(this.block ? 'div' : 'span')
@@ -110,7 +130,14 @@ class MathWidget extends WidgetType {
     el.setAttribute('role', 'math')
     el.setAttribute('aria-label', this.tex)
     el.innerHTML = this.html
-    if (this.block) (el as HTMLElement & { unfade?: () => void }).unfade = fadeEdges(el)
+    let dom = el
+    if (this.inq) {
+      // 宽了横着滚的是里面那层，竖线、块的底在外面这层不跟着滚
+      dom = document.createElement('div')
+      dom.className = 'cm-math-inquote' + this.inq
+      dom.appendChild(el)
+    }
+    if (this.block) (dom as HTMLElement & { unfade?: () => void }).unfade = fadeEdges(el)
     el.addEventListener('mousedown', (e) => {
       if (e.button !== 0 || e.metaKey || e.ctrlKey) return
       e.preventDefault()
@@ -119,7 +146,7 @@ class MathWidget extends WidgetType {
       view.focus()
       view.dispatch({ selection: { anchor: caretOf(view.state, p) }, userEvent: 'select.pointer', scrollIntoView: true })
     })
-    return el
+    return dom
   }
   destroy(dom: HTMLElement) {
     ;(dom as HTMLElement & { unfade?: () => void }).unfade?.()
@@ -142,7 +169,7 @@ function build(state: EditorState): DecorationSet {
     const { span } = p
     if (p.html !== null && !p.open) {
       const gap = p.block ? '' : `${CJK.test(doc.sliceString(p.a - 1, p.a)) ? ' gl' : ''}${CJK.test(doc.sliceString(p.b, p.b + 1)) ? ' gr' : ''}`
-      out.push(Decoration.replace({ widget: new MathWidget(p.html, span.tex, p.block, span.from, p.selected, false, gap), block: p.block }).range(p.a, p.b))
+      out.push(Decoration.replace({ widget: new MathWidget(p.html, span.tex, p.block, span.from, p.selected, false, gap, p.inq), block: p.block }).range(p.a, p.b))
       continue
     }
     // 露着写法（光标在里面）或者写错了：原文照写
@@ -160,7 +187,7 @@ function build(state: EditorState): DecorationSet {
     if (p.open) {
       if (!p.block) out.push(srcMark.range(span.from, span.to))
       out.push(delimMark.range(span.from, span.from + span.open), delimMark.range(span.to - span.close, span.to))
-      if (p.block && p.html !== null) out.push(Decoration.widget({ widget: new MathWidget(p.html, span.tex, true, span.from, false, true), block: true, side: 1 }).range(p.b))
+      if (p.block && p.html !== null) out.push(Decoration.widget({ widget: new MathWidget(p.html, span.tex, true, span.from, false, true, '', p.inq), block: true, side: 1 }).range(p.b))
     }
   }
   return Decoration.set(out, true)
@@ -245,7 +272,8 @@ function cursorAt(view: EditorView): number | null {
 export function enterRight(view: EditorView): boolean {
   const h = cursorAt(view)
   if (h === null) return false
-  const p = shut(view.state).find((x) => (x.block ? x.a - 1 === h : x.a === h))
+  const line = view.state.doc.lineAt(h)
+  const p = shut(view.state).find((x) => !x.block && x.a === h) ?? (h === line.to ? blockBeside(view.state, line, true) : undefined)
   return p ? move(view, p.block ? p.a : p.a + p.span.open) : false
 }
 
@@ -253,8 +281,23 @@ export function enterRight(view: EditorView): boolean {
 export function enterLeft(view: EditorView): boolean {
   const h = cursorAt(view)
   if (h === null) return false
-  const p = shut(view.state).find((x) => (x.block ? x.b + 1 === h : x.b === h))
+  const line = view.state.doc.lineAt(h)
+  const p = shut(view.state).find((x) => !x.block && x.b === h) ?? (h === line.from ? blockBeside(view.state, line, false) : undefined)
   return p ? move(view, p.block ? p.b : p.b - p.span.close) : false
+}
+
+/**
+ * 单独成行的公式紧挨着第 line 行下面（down）/ 上面，或者中间只隔一个空行（块缝：光标不停在那里，task-ys1rr，
+ * 以前要先走到空行上、再按一下才进公式；现在从上一块末尾、下一块开头直接进去、选中它）
+ */
+function blockBeside(state: EditorState, line: Line, down: boolean): Placed | undefined {
+  const doc = state.doc
+  const at = (pos: number) => shut(state).find((x) => x.block && (down ? x.a === pos : x.b === pos))
+  const direct = down ? at(line.to + 1) : at(line.from - 1)
+  if (direct) return direct
+  const n = line.number + (down ? 1 : -1)
+  if (n < 1 || n > doc.lines || doc.line(n).text.trim() !== '') return undefined
+  return down ? at(doc.line(n).to + 1) : at(doc.line(n).from - 1)
 }
 
 /** ↓ ↑ 要离开这一行、挨着的那一行是单独成行的公式：进到它的第一行行首 / 最后一行末尾 */
@@ -263,7 +306,7 @@ function enterVertical(down: boolean) {
     const h = cursorAt(view)
     if (h === null) return false
     const line = view.state.doc.lineAt(h)
-    const p = shut(view.state).find((x) => x.block && (down ? x.a === line.to + 1 : x.b === line.from - 1))
+    const p = blockBeside(view.state, line, down)
     if (!p) return false
     // 一行折成好几行显示时，先在这一行里上下走
     const next = view.moveVertically(EditorSelection.cursor(h), down)
@@ -276,7 +319,8 @@ function enterVertical(down: boolean) {
 export function backspaceMath(view: EditorView): boolean {
   const h = cursorAt(view)
   if (h === null || view.state.readOnly) return false
-  const p = shut(view.state).find((x) => (x.block ? x.b + 1 === h : x.b === h))
+  const line = view.state.doc.lineAt(h)
+  const p = shut(view.state).find((x) => !x.block && x.b === h) ?? (h === line.from ? blockBeside(view.state, line, false) : undefined)
   return p ? select(view, p) : false
 }
 
@@ -284,7 +328,8 @@ export function backspaceMath(view: EditorView): boolean {
 export function deleteMath(view: EditorView): boolean {
   const h = cursorAt(view)
   if (h === null || view.state.readOnly) return false
-  const p = shut(view.state).find((x) => (x.block ? x.a - 1 === h : x.a === h))
+  const line = view.state.doc.lineAt(h)
+  const p = shut(view.state).find((x) => !x.block && x.a === h) ?? (h === line.to ? blockBeside(view.state, line, true) : undefined)
   return p ? select(view, p) : false
 }
 

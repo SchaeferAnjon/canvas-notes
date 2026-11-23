@@ -84,6 +84,26 @@ describe('自带的十套主题', () => {
     expect(contrast(hex(v.t2), hex(v.win))).toBeGreaterThan(contrast(t3, hex(v.win)))
   })
 
+  // 导图配色「彩虹」（task-wuv05 第二批 ⑩）：第一层每枝一个颜色。线（2px 连线、下划线）对白板底 ≥ 3:1；
+  // 第一层卡片铺 16% 的这个颜色，卡片上的主题字 ≥ 4.5:1（13px 的字照 WCAG AA）；六个颜色两两分得开
+  it.each(SKINS.map((s) => [s.id] as const))('%s：导图彩虹配色的六个颜色线看得见、卡片上的字看得清、彼此分得开', (id) => {
+    const v = blocks.get(id)!
+    const board = hex(v.board)
+    const card = hex(v.card)
+    const t1 = hex(v.t1)
+    const cols = [0, 1, 2, 3, 4, 5].map((i) => hex(v[`mm-b${i}`]))
+    for (const [i, c] of cols.entries()) {
+      expect(contrast(c, board), `${id} --mm-b${i} 对白板底`).toBeGreaterThanOrEqual(3)
+      const tint: [number, number, number, number] = [0, 1, 2].map((k) => c[k]! * 0.16 + card[k]! * 0.84).concat(1) as [number, number, number, number]
+      expect(contrast(t1, tint), `${id} 正文对 --mm-b${i} 16% 的卡片`).toBeGreaterThanOrEqual(4.5)
+    }
+    for (let i = 0; i < 6; i++)
+      for (let j = i + 1; j < 6; j++) {
+        const [a, b] = [cols[i]!, cols[j]!]
+        expect(Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]), `${id} --mm-b${i} 和 --mm-b${j}`).toBeGreaterThan(60)
+      }
+  })
+
   it('配色真不一样：两两之间编辑区、侧栏、强调色至少有一样差得多', () => {
     const ids = [...blocks.keys()]
     for (let i = 0; i < ids.length; i++)

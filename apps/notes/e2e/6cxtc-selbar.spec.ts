@@ -215,10 +215,11 @@ test('网页选字的小条：讲解一下 ↵ · 翻译 + 讲一讲 · 引用 �
     await widenRight(page, 260)
     await openWeb(page, site.pandas)
     await selectIn(page, 'p1', '举一个例子', '写入CSV文件中。')
-    expect(await barTexts(page)).toEqual(['讲解一下↵', '翻译 + 讲一讲', '引用⌘↵', '剪藏⌘S', ''])
+    // task-26nz7：⋯ 前面也一道竖线，最后多一颗 ×（右键：这个网站不弹）
+    expect(await barTexts(page)).toEqual(['讲解一下↵', '翻译 + 讲一讲', '引用⌘↵', '剪藏⌘S', '', ''])
     // 离选中的底色 6（designer 复审：原来只差 1）
     expect(Math.abs((await barGap(page)) - 6)).toBeLessThanOrEqual(1)
-    expect(await guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('.bar > button:last-of-type').getAttribute('aria-label')`)).toBe('更多')
+    expect(await guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('.bar > button:last-of-type').getAttribute('aria-label')`)).toBe('收起（右键或按住：这个网站不弹…）')
     // 「引用」和「剪藏」之间一道竖线：后面是网页自己特有的
     expect(await guest(page, `(() => { const b = document.getElementById('cn-clip-host').shadowRoot.querySelector('.bar'); const kids = [...b.children]; const s = kids.findIndex((e) => e.classList.contains('sep')); return [kids[s - 1].textContent.trim().startsWith('引用'), kids[s + 1].textContent.trim().startsWith('剪藏')] })()`)).toEqual([true, true])
     // 指着「剪藏」：说剪进哪篇、剪完底栏能撤回、能换一篇
@@ -228,8 +229,8 @@ test('网页选字的小条：讲解一下 ↵ · 翻译 + 讲一讲 · 引用 �
     // ⋯
     await clickBar(page, '更多')
     await expect
-      .poll(() => guest(page, `[...document.getElementById('cn-clip-host').shadowRoot.querySelectorAll('.menu [role=menuitem]')].map((b) => b.textContent.replace(/\\s+/g, ' ').trim())`))
-      .toEqual(['只看译文不进对话', '翻译设置…', `剪到哪篇…${TITLE}`, '拷贝⌘C'])
+      .poll(() => guest(page, `[...document.getElementById('cn-clip-host').shadowRoot.querySelectorAll('.more-menu [role=menuitem]')].map((b) => b.textContent.replace(/\\s+/g, ' ').trim())`))
+      .toEqual(['只看译文不进对话', '拷贝⌘C', '翻译设置…', `剪到哪篇…${TITLE}`, '加一颗…拿这段试', '小条设置…'])
     await pressInPage(run, 'Escape')
 
     // 选一个词：没有「加进术语表」，⋯ 里也没有「固定这个词的译法」
@@ -242,7 +243,7 @@ test('网页选字的小条：讲解一下 ↵ · 翻译 + 讲一讲 · 引用 �
     await expect.poll(() => guest(page, `document.getElementById('cn-clip-host').style.display`)).toBe('block')
     expect((await barTexts(page)).join('|')).not.toContain('术语')
     await clickBar(page, '更多')
-    await expect.poll(() => guest<number>(page, `document.getElementById('cn-clip-host').shadowRoot.querySelectorAll('.menu [role=menuitem]').length`)).toBe(4)
+    await expect.poll(() => guest<number>(page, `document.getElementById('cn-clip-host').shadowRoot.querySelectorAll('.more-menu [role=menuitem]').length`)).toBe(6)
     expect(await guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('.menu').textContent`)).not.toMatch(/术语|固定这个词/)
   } finally {
     await run.close()
@@ -278,14 +279,14 @@ test('四处小条一个样：网页按住 ⌘ 框一块、PDF 选字、PDF 框�
     await expect(cap.getByRole('button').nth(3)).toHaveAttribute('aria-label', '更多')
     await expect(cap.getByRole('button').nth(4)).toHaveAttribute('aria-label', '取消')
     await cap.getByRole('button', { name: '更多' }).click()
-    await expect(page.getByRole('menu', { name: '这段还能做什么' }).getByRole('menuitem')).toHaveText(['拷贝这段⌘C', '翻译设置…'])
+    await expect(page.getByRole('menu', { name: '这段还能做什么' }).getByRole('menuitem')).toHaveText(['拷贝这段⌘C', '翻译设置…', '加一颗…拿这段试', '小条设置…'])
     await page.keyboard.press('Escape')
     // PDF 框一块
     await drawPdfBox(page, 2)
     await expect(cap).toBeVisible()
     await expect(cap.getByRole('button')).toHaveText(['讲解一下↵', '翻译 + 讲一讲', '引用⌘↵', '', ''])
     await cap.getByRole('button', { name: '更多' }).click()
-    await expect(page.getByRole('menu', { name: '这块还能做什么' }).getByRole('menuitem')).toHaveText(['拷贝这块', '翻译设置…'])
+    await expect(page.getByRole('menu', { name: '这块还能做什么' }).getByRole('menuitem')).toHaveText(['拷贝这块', '翻译设置…', '加一颗…拿这段试', '小条设置…'])
     await page.keyboard.press('Escape')
     await page.keyboard.press('Escape')
 

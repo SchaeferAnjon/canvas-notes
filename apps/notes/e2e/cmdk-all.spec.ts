@@ -17,6 +17,9 @@ const FILES = {
 
 /** 只在某个场合才有的（App.tsx 里带条件的那几条）：场合 */
 const SCENE: Record<string, string> = {
+  'mm-fold-all': '开着导图白板时（NoteTab 的 useMapCommands 登记）',
+  'mm-unfold-all': '开着导图白板时（NoteTab 的 useMapCommands 登记）',
+  'mm-export': '开着导图白板时（NoteTab 的 useMapCommands 登记）',
   notes: '读 PDF 时（右栏「读PDF时的笔记」那一格有东西）',
   rename: '当前标签能改名（笔记、白板、PDF）',
   'toggle-view': '中间开着笔记',
@@ -31,17 +34,18 @@ const SCENE: Record<string, string> = {
 
 /**
  * 不进 ⌘K 的（命令表里没有 home）：只按键才说得通，在它自己的地方按。
- * 在哪儿能按（area）是文档里、⌘K 里、网页里、目录树里、视频、梦游、固定的键的，本来就只在那一处按（设置 › 快捷键里列着）；
+ * 在哪儿能按（area）是文档里、⌘K 里、网页里、目录树里、视频、梦游、导图里、固定的键的，本来就只在那一处按（设置 › 快捷键里列着）；
  * 「软件里」「在任何软件里」的写在这里
  */
-const KEY_AREAS = new Set(['editor', 'palette', 'page', 'tree', 'video', 'dream', 'fixed'])
+const KEY_AREAS = new Set(['editor', 'palette', 'page', 'tree', 'video', 'dream', 'mindmap', 'fixed'])
 const KEY_ONLY: Record<string, string> = {
+  'todo-when': '文档、白板卡里光标在一行待办上、待办详情小卡开着时按，弹那一行的定日子和时间选择器（pd289-when 真按）',
   'quick-note': '全局键，软件没在前面时也能按',
   search: '就是 ⌘K 自己',
   'zoom-in': '白板、PDF 上按；别处是系统的放大整个窗口',
   'zoom-out': '同上',
   'zoom-reset': '同上',
-  'zoom-fit': '白板上按',
+  'zoom-fit': '白板、PDF 上按',
   'board-inbox': '白板上按（标签条「收件箱」那个弹窗有按钮）',
   quote: 'AI 回答里选了字、PDF 上框着一块时按（那里有「引用」按钮）',
   'ask-page': 'PDF、HTML 上按（那里有「问这一页」按钮）',

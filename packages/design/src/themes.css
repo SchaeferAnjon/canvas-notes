@@ -38,6 +38,17 @@
   --blur: none;
   --paper: transparent;
   --paper-sh: none;
+  /* 浮岛书桌的岛：半透明、透出窗口背景图（2026-11-22 用户：「这个大白底能不能做成…半透明的」；画布今日 B 的三栏、画布笔记首页 B 的组件都用这几个），
+     配 backdrop-filter: var(--isle-blur)。透多少是每套的 --isle-k：再透，次要字在照片最亮、最暗的地方对比不到 4.5 */
+  --isle: color-mix(in srgb, var(--win) var(--isle-k, 82%), transparent);
+  --isle-side: color-mix(in srgb, var(--side) var(--isle-k, 82%), transparent);
+  --isle-pop: color-mix(in srgb, var(--pop) var(--isle-k, 82%), transparent);
+  /* 岛里的卡片、当前标签：比岛实一点 */
+  --isle-card: color-mix(in srgb, var(--card) 72%, transparent);
+  --isle-blur: blur(24px) saturate(150%);
+  /* 岛上的次要字、提示字往正文色靠 30%：照片最亮、最暗的地方次要字对岛底也有 4.5 */
+  --isle-t2: color-mix(in srgb, var(--t2) 70%, var(--t1));
+  --isle-t3: color-mix(in srgb, var(--t3) 70%, var(--t1));
 }
 
 /* ---------- 薄荷 · 浅（白天默认，GitHub Light 的结构 + Everforest 的绿） ---------- */
@@ -74,6 +85,7 @@
   --shadow: 0 0 0 1px rgba(23, 70, 50, 0.08), 0 1px 2px rgba(23, 70, 50, 0.05), 0 8px 24px rgba(23, 70, 50, 0.07);
   --shadow-up: 0 0 0 1px rgba(23, 70, 50, 0.1), 0 2px 6px rgba(23, 70, 50, 0.06), 0 24px 56px -12px rgba(23, 70, 50, 0.24);
   --glass: rgba(250, 253, 251, 0.86);
+  --isle-k: 80%;
   --green: #1f8a4c;
   --yellow: #a86b00;
   --red: #cf3440;
@@ -87,6 +99,13 @@
   --r-card: 10px;
   --r-wid: 14px;
   --seg-on: var(--fill2);
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #4f86a8;
+  --mm-b1: #c0784a;
+  --mm-b2: #5d9460;
+  --mm-b3: #9a6aa8;
+  --mm-b4: #a8892a;
+  --mm-b5: #c06478;
 }
 
 /* ---------- 天青 · 浅（Light Owl / VS Code Light+）：底栏一条青色，卡片只描边，当前标签下沿 ---------- */
@@ -123,6 +142,7 @@
   --shadow: 0 0 0 1px rgba(15, 70, 100, 0.12);
   --shadow-up: 0 0 0 1px rgba(15, 70, 100, 0.14), 0 18px 44px -14px rgba(15, 50, 80, 0.26);
   --glass: rgba(251, 253, 254, 0.86);
+  --isle-k: 80%;
   --green: #1c8a4e;
   --yellow: #a86b00;
   --red: #cf3440;
@@ -140,6 +160,13 @@
   --r-card: 8px;
   --r-wid: 10px;
   --seg-on: var(--fill2);
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #4f86a8;
+  --mm-b1: #c0784a;
+  --mm-b2: #5d9460;
+  --mm-b3: #9a6aa8;
+  --mm-b4: #a8892a;
+  --mm-b5: #c06478;
 }
 
 /* ---------- 樱花 · 浅（Horizon Bright）：当前标签整块染色，卡片软投影，圆角大一号 ---------- */
@@ -176,6 +203,7 @@
   --shadow: 0 0 0 1px rgba(120, 40, 60, 0.07), 0 10px 28px rgba(120, 40, 60, 0.08);
   --shadow-up: 0 0 0 1px rgba(120, 40, 60, 0.1), 0 24px 56px -12px rgba(120, 40, 60, 0.26);
   --glass: rgba(255, 251, 252, 0.86);
+  --isle-k: 80%;
   --green: #2e8a57;
   --yellow: #a86500;
   --red: #c8302f;
@@ -189,6 +217,13 @@
   --r-card: 12px;
   --r-wid: 16px;
   --seg-on: var(--fill2);
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #4f86a8;
+  --mm-b1: #c0784a;
+  --mm-b2: #5d9460;
+  --mm-b3: #9a6aa8;
+  --mm-b4: #a8892a;
+  --mm-b5: #c06478;
 }
 
 /* ---------- 丁香 · 浅（Noctis Lilac，强调换成李子紫） ---------- */
@@ -225,6 +260,7 @@
   --shadow: 0 0 0 1px rgba(70, 40, 100, 0.08), 0 8px 24px rgba(70, 40, 100, 0.08);
   --shadow-up: 0 0 0 1px rgba(70, 40, 100, 0.1), 0 24px 56px -12px rgba(70, 40, 100, 0.26);
   --glass: rgba(253, 251, 255, 0.86);
+  --isle-k: 80%;
   --green: #1f8a4c;
   --yellow: #a86b00;
   --red: #cf3440;
@@ -238,6 +274,13 @@
   --r-card: 10px;
   --r-wid: 14px;
   --seg-on: var(--fill2);
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #4f86a8;
+  --mm-b1: #c0784a;
+  --mm-b2: #5d9460;
+  --mm-b3: #9a6aa8;
+  --mm-b4: #a8892a;
+  --mm-b5: #c06478;
 }
 
 /* ---------- 石白 · 浅（照 Dispatch Light）：没有分隔线、只靠两层底色；黑按钮，当前标签只靠白底 ---------- */
@@ -274,6 +317,7 @@
   --shadow: 0 0 0 1px rgba(28, 25, 23, 0.06), 0 1px 3px rgba(28, 25, 23, 0.06), 0 8px 24px rgba(28, 25, 23, 0.06);
   --shadow-up: 0 0 0 1px rgba(28, 25, 23, 0.08), 0 24px 56px -12px rgba(28, 25, 23, 0.22);
   --glass: rgba(255, 255, 255, 0.86);
+  --isle-k: 80%;
   --green: #008235;
   --yellow: #c05a00;
   --red: #e7000b;
@@ -289,6 +333,13 @@
   --seg-on: var(--fill2);
   --acc-on: #fafaf9;
   --seam: transparent;
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #4f86a8;
+  --mm-b1: #c0784a;
+  --mm-b2: #5d9460;
+  --mm-b3: #9a6aa8;
+  --mm-b4: #a8892a;
+  --mm-b5: #c06478;
 }
 
 /* ---------- 松林 · 深（夜里默认，Everforest Dark） ---------- */
@@ -325,6 +376,7 @@
   --shadow: 0 0 0 1px rgba(211, 198, 170, 0.08), 0 10px 26px rgba(0, 0, 0, 0.28);
   --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.6);
   --glass: rgba(39, 46, 51, 0.84);
+  --isle-k: 82%;
   --green: #a7c080;
   --yellow: #dbbc7f;
   --red: #e67e80;
@@ -339,6 +391,13 @@
   --r-wid: 14px;
   --seg-on: var(--fill2);
   --acc-on: #232a2e;
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #6fa8c8;
+  --mm-b1: #d7976a;
+  --mm-b2: #86b882;
+  --mm-b3: #b98fc6;
+  --mm-b4: #c8bb5c;
+  --mm-b5: #d98a9b;
 }
 
 /* ---------- 深湖 · 深（Solarized Dark）：底栏一条深青，卡片只描边，当前标签下沿 ---------- */
@@ -375,6 +434,7 @@
   --shadow: 0 0 0 1px rgba(147, 161, 161, 0.14);
   --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.7);
   --glass: rgba(0, 37, 47, 0.84);
+  --isle-k: 82%;
   --green: #859900;
   --yellow: #b58900;
   --red: #dc322f;
@@ -393,6 +453,13 @@
   --r-wid: 10px;
   --seg-on: var(--fill2);
   --acc-on: #002b36;
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #6fa8c8;
+  --mm-b1: #d7976a;
+  --mm-b2: #86b882;
+  --mm-b3: #b98fc6;
+  --mm-b4: #c8bb5c;
+  --mm-b5: #d98a9b;
 }
 
 /* ---------- 可可 · 深（Monokai Pro Ristretto）：当前标签整块染色，卡片投影 ---------- */
@@ -429,6 +496,7 @@
   --shadow: 0 0 0 1px rgba(255, 241, 243, 0.07), 0 10px 26px rgba(0, 0, 0, 0.3);
   --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.65);
   --glass: rgba(38, 32, 32, 0.84);
+  --isle-k: 82%;
   --green: #adda78;
   --yellow: #f9cc6c;
   --red: #fd6883;
@@ -443,6 +511,13 @@
   --r-wid: 16px;
   --seg-on: var(--fill2);
   --acc-on: #211c1c;
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #6fa8c8;
+  --mm-b1: #d7976a;
+  --mm-b2: #86b882;
+  --mm-b3: #b98fc6;
+  --mm-b4: #c8bb5c;
+  --mm-b5: #d98a9b;
 }
 
 /* ---------- 墨夜 · 深（Ayu Dark）：近黑底、橙色强调，卡片只描边，当前标签下沿 ---------- */
@@ -479,6 +554,7 @@
   --shadow: 0 0 0 1px rgba(230, 225, 207, 0.1);
   --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.85);
   --glass: rgba(11, 14, 20, 0.84);
+  --isle-k: 82%;
   --green: #aad94c;
   --yellow: #e6b450;
   --red: #f26d78;
@@ -492,6 +568,13 @@
   --r-wid: 10px;
   --seg-on: var(--fill2);
   --acc-on: #0b0e14;
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #6fa8c8;
+  --mm-b1: #d7976a;
+  --mm-b2: #86b882;
+  --mm-b3: #b98fc6;
+  --mm-b4: #c8bb5c;
+  --mm-b5: #d98a9b;
 }
 
 /* ---------- 石墨 · 深（照 Dispatch Dark）：没有分隔线、只靠两层底色；白按钮黑字，当前标签只靠黑底 ---------- */
@@ -528,6 +611,7 @@
   --shadow: 0 0 0 1px rgba(255, 255, 255, 0.07), 0 10px 28px rgba(0, 0, 0, 0.45);
   --shadow-up: 0 0 0 1px color-mix(in srgb, var(--t3) 60%, transparent), 0 24px 56px -12px rgba(0, 0, 0, 0.8);
   --glass: rgba(28, 25, 23, 0.84);
+  --isle-k: 82%;
   --green: #0ca34c;
   --yellow: #ff8904;
   --red: #ff6467;
@@ -542,4 +626,11 @@
   --seg-on: var(--fill2);
   --acc-on: #1c1917;
   --seam: transparent;
+  /* 导图配色「彩虹」第一层每枝一个颜色（task-wuv05 第二批）：收着的低饱和色，没有靛蓝；线对白板底 ≥ 3:1 */
+  --mm-b0: #6fa8c8;
+  --mm-b1: #d7976a;
+  --mm-b2: #86b882;
+  --mm-b3: #b98fc6;
+  --mm-b4: #c8bb5c;
+  --mm-b5: #d98a9b;
 }

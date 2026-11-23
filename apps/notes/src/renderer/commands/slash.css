@@ -74,19 +74,27 @@
   min-width: 0;
   height: 19px;
 }
+/* 命令名不截（设计复审）：名字不让位，小标签让；名字本身比整行还宽时才省略号 */
 .slash .it .n {
+  flex: none;
+  max-width: 100%;
   font-size: 13px;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  min-width: 0;
 }
+/* 小标签放不下的整个换到第二行藏起来，不截半个 */
 .slash .it .tg {
   margin-left: auto;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  height: 18px;
+  overflow: hidden;
 }
 .slash .it .tg span {
   height: 18px;

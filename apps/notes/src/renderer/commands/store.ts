@@ -23,6 +23,13 @@ async function loadLocal() {
   emit()
 }
 
+/** 只在这台 Mac 上的那几条变了（选中小条要重画） */
+export function onLocalAiCmds(cb: () => void): () => void {
+  subs.add(cb)
+  void loadLocal()
+  return () => subs.delete(cb)
+}
+
 function useLocal(): AiCmd[] {
   useSyncExternalStore(
     (cb) => {
@@ -48,6 +55,9 @@ export function useAiCmds(): { mine: AiCmd[]; slash: SlashConfig } {
 /** 只在这台 Mac 上的那几条（App 交给 ⌘K 的命令表） */
 export const useLocalAiCmds = (): AiCmd[] => useLocal()
 export const localAiCmds = () => local
+
+/** 只在这台 Mac 上的那几条整份换掉（撤回用） */
+export const setLocalAiCmds = (list: AiCmd[]) => setLocal(list)
 
 async function setLocal(list: AiCmd[]) {
   local = list

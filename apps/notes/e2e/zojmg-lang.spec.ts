@@ -216,7 +216,8 @@ test('左栏类型筛选：英文一排放不下时末尾收进「⋯」（选�
     const { page, app } = run
     try {
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))
-      await leftView(page, '文件')
+      // 第二批起图标栏也是英文
+      await leftView(page, lang === 'en' ? 'Files' : '文件')
       const chips = page.locator('aside.side .side-chips').first()
       await expect(chips.getByRole('tab').first()).toBeVisible()
       // 每一颗都整个在左栏里，不被截

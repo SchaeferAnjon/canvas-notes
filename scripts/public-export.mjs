@@ -30,6 +30,23 @@ export const LEAKS = [
 ]
 const TEXT = /\.(md|ts|tsx|js|mjs|cjs|json|yml|yaml|html|css|txt|plist|svg|py)$|^[^.]+$/
 
+/** 一个文件里 import 的东西（同画布今日导出脚本的写法）：相对路径和包名 */
+function importsOf(code) {
+  const out = []
+  const re = /(?:^|[^\w.])(?:import|export)\s+(?:type\s+)?(?:[\w*{}\s,$]+?\s+from\s+)?['"]([^'"\n]+)['"]|import\(\s*['"]([^'"\n]+)['"]\s*\)/g
+  for (let m; (m = re.exec(code)); ) out.push(m[1] ?? m[2])
+  return out
+}
+
+function resolveRel(dir, from, spec) {
+  const base = path.join(path.dirname(path.join(dir, from)), spec.replace(/\?.*$/, ''))
+  for (const ext of ['', '.ts', '.tsx', '.mjs', '.js', '.json', '/index.ts', '/index.tsx']) {
+    const p = base + ext
+    if (fs.existsSync(p) && fs.statSync(p).isFile()) return path.relative(dir, p)
+  }
+  return null
+}
+
 /** rules 默认是上面的 LEAKS；画布今日的导出（apps/today/scripts/public-export.mjs）另加几条 */
 export function scan(dir, rules = LEAKS) {
   const found = []
@@ -71,9 +88,33 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     execFileSync('tar', ['-x', '-C', dest], { input: tar })
     const out = excluder(fs.readFileSync(path.join(ROOT, 'release/public-exclude.txt'), 'utf8'))
     const files = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean)
+    // 画布笔记 import 了排除掉的画布今日的几份源码（日历用它的提醒事项小助手和排时间，task-kzr3n）：照画布今日借画布笔记文件的做法，
+    // 顺着 import 找出来原样留着（路径不变），apps/today/package.json 现生成、只写这几份 import 的包
+    const kept = (f) => !out(f) || borrowed.has(f)
+    const borrowed = new Set()
+    const bare = new Set()
+    const queue = files.filter((f) => !out(f) && /\.(ts|tsx|mjs|js|cjs)$/.test(f))
+    const seen = new Set(queue)
+    while (queue.length) {
+      const f = queue.shift()
+      for (const spec of importsOf(fs.readFileSync(path.join(dest, f), 'utf8'))) {
+        if (!spec.startsWith('.')) {
+          if (borrowed.has(f) && !spec.startsWith('node:')) bare.add(spec.split('/').slice(0, spec.startsWith('@') ? 2 : 1).join('/'))
+          continue
+        }
+        const rel = resolveRel(dest, f, spec)
+        if (!rel || kept(rel)) continue
+        if (!rel.startsWith('apps/today/src/')) throw new Error(`${f} import 了不公开的 ${rel}`)
+        borrowed.add(rel)
+        if (!seen.has(rel)) {
+          seen.add(rel)
+          queue.push(rel)
+        }
+      }
+    }
     let dropped = 0
     for (const f of files) {
-      if (!out(f)) continue
+      if (!out(f) || borrowed.has(f)) continue
       fs.rmSync(path.join(dest, f), { force: true })
       dropped++
     }
@@ -88,9 +129,23 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     const pkg = JSON.parse(fs.readFileSync(rootPkg, 'utf8'))
     pkg.scripts.typecheck = pkg.scripts.typecheck
       .split(' && ')
-      .filter((c) => !/^tsc -p /.test(c) || fs.existsSync(path.join(dest, c.slice('tsc -p '.length))))
+      .filter((c) => !/^tsc -p /.test(c) || fs.existsSync(path.join(dest, c.slice('tsc -p '.length), 'tsconfig.json')))
       .join(' && ')
     fs.writeFileSync(rootPkg, JSON.stringify(pkg, null, 2) + '\n')
+    if (borrowed.size) {
+      const todayPkg = JSON.parse(execFileSync('git', ['show', 'HEAD:apps/today/package.json'], { cwd: ROOT, encoding: 'utf8' }))
+      const spec = (n) => todayPkg.dependencies?.[n] ?? todayPkg.devDependencies?.[n] ?? (() => { throw new Error(`画布今日的 package.json 里没有 ${n}`) })()
+      const brand = JSON.parse(fs.readFileSync(path.join(dest, 'release/brand.json'), 'utf8'))
+      fs.writeFileSync(
+        path.join(dest, 'apps/today/package.json'),
+        JSON.stringify({ name: '@cn/today-borrowed', private: true, description: `${brand.name} 借用的 Canvas Today 文件，路径和 SchaeferAnjon/canvas-today 里一样`, license: brand.license, dependencies: Object.fromEntries([...bare].sort().map((n) => [n, spec(n)])) }, null, 2) + '\n',
+      )
+      fs.writeFileSync(
+        path.join(dest, 'apps/today/README.md'),
+        ['# 借用的 Canvas Today 文件', '', '画布笔记的日历用画布今日的提醒事项小助手读系统日历、用它的规矩排空着的时间，下面这些文件原样拷自 [SchaeferAnjon/canvas-today](https://github.com/SchaeferAnjon/canvas-today) 的同一路径（导出时顺着 import 自动找出来的）。要改请去那边改，这里在下一次导出时会被换掉。', '', ...[...borrowed].sort().map((f) => `- \`${f}\``), ''].join('\n'),
+      )
+      console.log(`借用画布今日的 ${borrowed.size} 个文件：${[...borrowed].sort().join('、')}`)
+    }
     console.log('pnpm install --lockfile-only：去掉锁文件里排除掉的软件用的包…')
     execFileSync('pnpm', ['install', '--lockfile-only', '--ignore-scripts'], { cwd: dest, stdio: 'inherit', timeout: 600_000 })
     console.log(`导出 ${files.length - dropped} 个文件到 ${dest}（去掉 ${dropped} 个，见 release/public-exclude.txt）`)

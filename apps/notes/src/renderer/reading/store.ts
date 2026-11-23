@@ -35,6 +35,9 @@ export interface Pending {
   direct?: boolean
   /** 在右栏网页上框的（或库里的 HTML）：网址、标题、框里的字 */
   web?: { url: string; title: string; text?: string; /** 视频问答块「接着问」：那一问在视频第几秒 */ t?: number; /** 「接着问」：那一问 AI 当时的回答 */ answer?: string; /** 上面最近的小标题 */ head?: string }
+  /** 选中小条上自己加的那颗（task-26nz7）：命令的名字（写进笔记时块头写它）、只在 AI 栏答（不写进笔记） */
+  cmd?: string
+  noNote?: true
 }
 
 /** 输入框里打了自己的问题再按 ⌘↵：PDF 标签带上这一页（HTML 带上这一屏）问这句。detail：{ src, text } */
@@ -578,7 +581,7 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
       pasted = [name, ...pasted]
     } else if (p.png) image = await window.cnReading.saveCrop(pdf, p.page, p.png)
     // 视频「接着问」附的那一帧文档里那块问答已经有了，笔记里不再放一遍
-    thread = { id, page: p.page, ...(p.rect ? { rect: p.rect } : {}), ...(p.quote ? { quote: p.quote } : {}), ...(image && !p.image ? { crop: image, ...(p.w ? { cropW: p.w } : {}) } : {}), ...(p.web ? { web: p.web } : {}), createdAt: now }
+    thread = { id, page: p.page, ...(p.rect ? { rect: p.rect } : {}), ...(p.quote ? { quote: p.quote } : {}), ...(image && !p.image ? { crop: image, ...(p.w ? { cropW: p.w } : {}) } : {}), ...(p.web ? { web: p.web } : {}), createdAt: now, ...(p.cmd ? { cmd: p.cmd } : {}), ...(p.noNote ? { noNote: true as const } : {}) }
     // 网页那边的框和工具条收起来
     if (p.web && /^https?:/i.test(p.web.url)) clearWebBox(webHost()?.view() ?? null)
   } else {
@@ -638,6 +641,8 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
   })
   if (res.commit || res.failed) window.dispatchEvent(new CustomEvent(AI_CHANGED))
   if (res.error || !res.text.trim()) return
+  // 选中小条上那颗选了「只在 AI 栏答」（task-26nz7）：答在这里，不写进笔记
+  if (th.noNote) return
   // 网页上问的（中间没开 PDF、HTML）：一问一块写进这个网页正在剪进去的那篇（task-6cxtc）；视频问答块「接着问」照旧
   if (toWebNote(pdf, th.web)) void writeWebNote(pdf, th, userMsg, aiId, doc)
   else void writeNote(pdf, th.id, aiId, engine)

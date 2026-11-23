@@ -95,7 +95,11 @@ async function narrowCenter(page: Page) {
   await expect.poll(async () => Math.round((await page.locator('.win > .center').boundingBox())!.width)).toBe(420)
 }
 
-const TYPES = ['文字', '数字', '选项', '多选', '日期', '勾选', '链接']
+const TYPES = ['文字', '数字', '选项', '多选', '状态', '日期', '勾选', '链接']
+/** 加一列的菜单（第三批 task-i921u）：基本八种，连起来（关联、汇总），算出来（公式） */
+// 最下面一组「AI 生成一列」（数据库 AI 列，task-i921u）
+// 「动手」一组：按钮列（自动化那一套动作）、AI 生成一列（task-i921u）
+const ADD_TYPES = [...TYPES, '关联', '汇总', '公式', /^按钮/, /^AI 生成一列/]
 
 test('中栏 420：数据库表头最右「+」的加列菜单整个看得见、不出中栏、七种类型都点得到，选「勾选」真加上一列；列头菜单、筛选、选项、⋯ 里的排序也一样', async () => {
   const run = await launch(FILES, {}, look)
@@ -121,16 +125,15 @@ test('中栏 420：数据库表头最右「+」的加列菜单整个看得见、
     await expect(add).toBeVisible()
     await expect(add.getByRole('textbox', { name: '新的一列叫什么' })).toBeFocused()
     await wholeVisible(add, center)
-    await expect(add.getByRole('radio')).toHaveText(TYPES)
-    await allHittable(add.getByRole('radio'))
+    await expect(add.getByRole('menuitem')).toHaveText(ADD_TYPES)
+    await allHittable(add.getByRole('menuitem'))
     // 菜单贴着「+」：右边放不下就往左翻，右边和「+」对齐
     const plus = (await db.getByRole('button', { name: '加一列' }).boundingBox())!
     const box = (await add.boundingBox())!
     expect(Math.round(box.x + box.width)).toBe(Math.round(plus.x + plus.width))
     expect(Math.abs(box.y - (plus.y + plus.height + 4))).toBeLessThan(1)
     await add.getByRole('textbox', { name: '新的一列叫什么' }).fill('读完了')
-    await add.getByRole('radio', { name: '勾选' }).click()
-    await add.getByRole('button', { name: '加「勾选」列' }).click()
+    await add.getByRole('menuitem', { name: '勾选' }).click()
     await expect.poll(file).toContain('      - 读完了\n')
     expect(file()).toContain('  读完了:\n    type: check')
     await expect(add).toHaveCount(0)
@@ -158,23 +161,27 @@ test('中栏 420：数据库表头最右「+」的加列菜单整个看得见、
     await opts.getByRole('menuitemradio', { name: '在读' }).click()
     await expect.poll(() => readFileSync(join(vault, '阅读/未命名数据库/第一条.md'), 'utf8')).toContain('状态: 在读')
 
-    // 排序：窄的时候在「⋯」里；排序面板整个看得见
+    // 第一行放不下的在「⋯」里（420 宽，块 286：条上留名字、「N 条」、⋯、新一条；自动化、整页打开、改写法收进来）
     const more = db.getByRole('button', { name: '工具条上放不下的' })
     await expect(more).toBeVisible()
     await more.click()
-    // 420 宽（块 286）：条上留名字、⋯、新一条；「表格 · 2 条」、筛选、排序、整页打开、改写法收进来
-    await expect(db.locator('.base-top').getByRole('button', { name: '筛选' })).toHaveCount(0)
-    expect(menuLabels(await openedMenu(run))).toEqual(['表格 · 2 条', '筛选…', '排序…', '整页打开', '改写法'])
-    await pickMenu(run, '排序…')
+    expect(menuLabels(await openedMenu(run))).toEqual(['自动化', '整页打开', '改写法'])
+    await pickMenu(run, '整页打开')
+    const full = page.getByRole('dialog', { name: '数据库 未命名数据库' })
+    await expect(full).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(full).toHaveCount(0)
+    // 排序在第二行（窄了只留图标），排序面板整个看得见（第三批 task-i921u）
+    await db.locator('.base-tools').getByRole('button', { name: '排序', exact: true }).click()
     const sort = page.getByRole('dialog', { name: '排序' })
     await wholeVisible(sort)
+    await sort.getByRole('button', { name: '加一个排序' }).click()
     await sort.getByRole('combobox', { name: '排序的列' }).selectOption('日期')
-    await expect.poll(file).toContain('sort:')
+    await expect.poll(file).toContain('    sort:\n      - property: 日期\n        direction: ASC')
     // 加过列（有 properties）再排序也写进视图里，表真按日期排了（以前落进 properties，排不上）
     await expect(db.locator('tbody tr').first()).toContainText('第二条')
-    // 排序的小标签「↑ 日期」块头放不下，收进「⋯」：「⋯」右上角一个强调色点
-    await expect(more).toHaveClass(/\bdot\b/)
-    await expect(db.locator('.base-top .base-chip')).toHaveCount(0)
+    // 排序的小标签「↑ 日期」在第三行，窄了照样露着
+    await expect(db.locator('.base-cbar .base-fchip')).toHaveText('日期')
     await page.keyboard.press('Escape')
     await expect(sort).toHaveCount(0)
   } finally {
@@ -192,8 +199,8 @@ test('中栏 420：数据库块工具条不挤，标题一行、放不下省略�
     await openNote(page, '杀死一只知更鸟')
     const db = pane(page).locator('[data-part="数据库块"]')
     const top = db.locator('.base-top')
-    // 宽的时候：工具条全在、没有「⋯」
-    await expect(top.getByRole('button', { name: '筛选' })).toBeVisible()
+    // 宽的时候：工具条全在、没有「⋯」（筛选、排序、分组在第二行，task-i921u）
+    await expect(db.locator('.base-tools').getByRole('button', { name: '筛选', exact: true })).toBeVisible()
     await expect(top.getByRole('button', { name: '改写法' })).toBeVisible()
     await expect(db.getByRole('button', { name: '工具条上放不下的' })).toHaveCount(0)
 
@@ -203,12 +210,13 @@ test('中栏 420：数据库块工具条不挤，标题一行、放不下省略�
       const top = el.querySelector('.base-top')!.getBoundingClientRect()
       const b = el.querySelector<HTMLElement>('.base-top b')!
       const line = parseFloat(getComputedStyle(b).lineHeight) || parseFloat(getComputedStyle(b).fontSize) * 1.5
-      const kids = [...el.querySelectorAll<HTMLElement>('.base-top > *')].filter((k) => k.offsetWidth > 0)
+      const kids = [...el.querySelectorAll<HTMLElement>('.base-top > *, .base-vbar button')].filter((k) => k.offsetWidth > 0)
       const cut = kids.filter((k) => {
         const r = k.getBoundingClientRect()
-        return r.left < top.left - 0.5 || r.right > top.right + 0.5 || r.height > 30
+        return r.left < top.left - 0.5 || r.right > top.right + 0.5 || r.height > 34
       })
       const th = el.querySelector('thead')!.getBoundingClientRect()
+      const bar = el.querySelector('.base-vbar')!.getBoundingClientRect()
       const content = el.closest('.cm-content')!.getBoundingClientRect()
       const blk = el.getBoundingClientRect()
       const scroll = el.querySelector<HTMLElement>('.base-scroll')!
@@ -221,7 +229,7 @@ test('中栏 420：数据库块工具条不挤，标题一行、放不下省略�
         tip: b.getAttribute('data-tip'),
         cut: cut.map((k) => k.className + ' ' + k.textContent),
         thTop: th.top,
-        topBottom: top.bottom,
+        topBottom: bar.bottom,
         blkRight: blk.right,
         contentRight: content.right,
         scrollable: scroll.scrollWidth > scroll.clientWidth,
@@ -252,7 +260,7 @@ test('中栏 420：数据库块工具条不挤，标题一行、放不下省略�
   }
 })
 
-test('中栏 420、开着排序和筛选：小标签放不下收进「⋯」，「⋯」右上角一个强调色点；⋯ 里能去掉那条筛选，写回 md', async () => {
+test('中栏 420、开着排序和筛选：小标签在第三行照样露着（放不下整个换行，不收进「⋯」）；× 能去掉那条筛选，写回 md', async () => {
   const base = BASE.replace('    - file.inFolder("阅读/未命名数据库")', '    - file.inFolder("阅读/未命名数据库")\n    - 状态 != "放弃"').replace(
     '      - 日期\n```',
     '      - 日期\n    sort:\n      - property: 日期\n        direction: DESC\n```',
@@ -266,20 +274,18 @@ test('中栏 420、开着排序和筛选：小标签放不下收进「⋯」，�
     await armMenus(run)
     await openNote(page, '杀死一只知更鸟')
     const db = pane(page).locator('[data-part="数据库块"]')
-    // 宽的时候小标签在条上
-    await expect(db.locator('.base-top [data-part="筛选小标签"]')).toBeVisible()
+    // 小标签在第三行（task-i921u）：宽的、窄的都露着
+    const chips = db.locator('[data-part="筛选排序小标签"] .base-fchip')
+    await expect(chips).toHaveText(['状态 不是 放弃', '日期'])
     await narrowCenter(page)
-    const more = db.getByRole('button', { name: '工具条上放不下的' })
-    await expect(db.locator('.base-top [data-part="筛选小标签"]')).toHaveCount(0)
-    await expect(more).toHaveClass(/\bdot\b/)
-    await expect(more).toHaveAttribute('data-tip', '更多 · 开着排序或筛选')
-    await shot(page, 'doc-420-more-dot')
-    await more.click()
-    const labels = menuLabels(await openedMenu(run))
-    expect(labels).toContain('按「日期」降序')
-    const drop = labels.find((l) => l.startsWith('去掉筛选「'))!
-    expect(drop).toContain('状态')
-    await pickMenu(run, drop)
+    await expect(chips).toHaveText(['状态 不是 放弃', '日期'])
+    const cut = await db.evaluate((el) => {
+      const box = el.getBoundingClientRect()
+      return [...el.querySelectorAll<HTMLElement>('.base-fchip')].filter((c) => c.getBoundingClientRect().right > box.right + 0.5 || c.getBoundingClientRect().height > 26).length
+    })
+    expect(cut).toBe(0)
+    await shot(page, 'doc-420-chips')
+    await db.getByRole('button', { name: '去掉筛选' }).click()
     await expect.poll(file).not.toContain('状态 != "放弃"')
     expect(file()).toContain('direction: DESC')
   } finally {
@@ -304,9 +310,9 @@ test('白板上展开的数据库表：缩放 50%、69%、144% 各点一次表�
       await board.getByRole('region', { name: '住哪', exact: true }).locator('.db-card[data-face="base"]').getByTestId('db-expand').click()
       const big = board.locator('.dbx')
       await expect(big.locator('tbody tr')).toHaveCount(8)
-      // 块头收哪几样不跟缩放变：660 宽的表三个比例都放得下，筛选、排序、整页打开、收起都在，没有「⋯」
-      for (const name of ['筛选', '排序', '整页打开', '收起']) await expect(big.locator('.base-top').getByRole('button', { name, exact: true })).toBeVisible()
-      await expect(big.locator('.base-more')).toHaveCount(0)
+      // 块头收哪几样不跟缩放变：660 宽的表三个比例都放得下，筛选、排序、整页打开、收起都在；「⋯」里只收着「自动化」（白板卡上一直收着，task-i921u）
+      for (const name of ['筛选', '排序', '整页打开', '收起']) await expect(big.locator('.base-top, .base-tools').getByRole('button', { name, exact: true })).toBeVisible()
+      await expect(big.locator('.base-more')).toHaveCount(1)
       const plusBtn = big.getByRole('button', { name: '加一列' })
       await plusBtn.scrollIntoViewIfNeeded()
       await plusBtn.click()
@@ -316,9 +322,9 @@ test('白板上展开的数据库表：缩放 50%、69%、144% 各点一次表�
       await page.waitForTimeout(300)
       await wholeVisible(add)
       const box = (await add.boundingBox())!
-      expect(Math.round(box.width)).toBe(220)
-      const one = (await add.getByRole('radio', { name: '文字' }).boundingBox())!
-      expect(Math.round(one.height)).toBe(28)
+      expect(Math.round(box.width)).toBe(300)
+      const one = (await add.getByRole('menuitem', { name: '文字' }).boundingBox())!
+      expect(Math.round(one.height)).toBe(30)
       // 贴着「+」：上边在「+」下面 4，或者翻到「+」上面
       const plus = (await plusBtn.boundingBox())!
       const below = Math.abs(box.y - (plus.y + plus.height + 4)) < 1
@@ -326,8 +332,8 @@ test('白板上展开的数据库表：缩放 50%、69%、144% 各点一次表�
       expect(below || above, `菜单 ${JSON.stringify(box)} 没贴着「+」${JSON.stringify(plus)}`).toBe(true)
       expect(box.x).toBeLessThanOrEqual(plus.x + plus.width)
       expect(box.x + box.width).toBeGreaterThanOrEqual(plus.x)
-      await expect(add.getByRole('radio')).toHaveText(TYPES)
-      await allHittable(add.getByRole('radio'))
+      await expect(add.getByRole('menuitem')).toHaveText(ADD_TYPES)
+      await allHittable(add.getByRole('menuitem'))
       await page.keyboard.press('Escape')
       await expect(add).toHaveCount(0)
       await page.keyboard.press('Escape')

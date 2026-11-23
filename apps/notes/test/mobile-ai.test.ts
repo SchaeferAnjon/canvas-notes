@@ -133,6 +133,25 @@ describe('拼给 AI 的话', () => {
     expect(() => checkAsk({ kind: 'explain', text: '', source: { kind: 'web', title: 'a', url: 'file:///etc/passwd' } })).toThrow()
     expect(() => checkAsk({ kind: 'chat', text: 'x', history: [{ role: 'system', text: 'x' }] })).toThrow()
   })
+
+  test('第二块：Pencil 圈的一块带截图（只收 base64，太大不收），问法照读 PDF 框一块；/ 命令的话原样交给 AI，系统提示照电脑版 / 命令', () => {
+    const pdf = { kind: 'pdf' as const, title: 'L', path: 'L.pdf', page: 3, pages: 9, pageText: '字' }
+    const a = checkAsk({ kind: 'explain', text: '', source: pdf, image: 'iVBORw0KGgo=' })
+    expect(a.image).toBe('iVBORw0KGgo=')
+    expect(() => checkAsk({ kind: 'explain', text: '', image: 'not base64!' })).toThrow()
+    expect(() => checkAsk({ kind: 'explain', text: '', image: 'A'.repeat(6_000_001) })).toThrow()
+    const p = buildPrompt(a).prompt
+    expect(p).toContain('他在这一页上框了一块，就是附上的图。\n他说：给我讲解一下')
+    expect(buildPrompt({ kind: 'explain', text: '', source: pdf }).prompt).toContain('他问的是整页。\n他说：给我讲解一下这一页')
+    const cmd = checkAsk({ kind: 'cmd', text: '命令：总结\n文件：a.md\n\n<note>\nx\n</note>', lang: 'en' })
+    const b = buildPrompt(cmd)
+    expect(b.prompt).toBe(cmd.text)
+    expect(b.appendSystem).toBe(false)
+    expect(b.system).toContain('默认用英文回答')
+    expect(b.system).toContain('笔记内容在用户消息里，只根据这些内容回答')
+    expect(() => checkAsk({ kind: 'cmd', text: '  ' })).toThrow()
+    expect(checkAsk({ kind: 'cmd', text: 'x'.repeat(100_000) }).text.length).toBe(100_000)
+  })
 })
 
 describe('二维码', () => {

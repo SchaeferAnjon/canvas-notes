@@ -62,7 +62,7 @@ async function askedIn(v: Vault, pdf: string): Promise<DoubtItem[]> {
     if ((e as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw e
   }
-  const lec = Number(prop(text, '第几讲'))
+  const lec = Number(prop(text, '第几讲')) // 不翻：文件里的属性键
   const lecture = Number.isFinite(lec) && lec > 0 ? lec : lectureOf(pdf)
   return parseReadingNote(text, note).flatMap((section) => doubtItems(pdf, section, lecture))
 }
@@ -81,7 +81,7 @@ export async function collectDoubts(v: Vault, folder: string): Promise<DoubtItem
   return out
 }
 
-const SKIP = new Set(['node_modules', '附件'])
+const SKIP = new Set(['node_modules', '附件']) // 不翻：磁盘上的附件文件夹名
 
 /** 一个文件夹和下面所有子文件夹里的 PDF（点开头的、附件/ 不看），按路径排（第 10 讲排在第 3 讲后面） */
 async function pdfsUnder(v: Vault, folder: string): Promise<string[]> {

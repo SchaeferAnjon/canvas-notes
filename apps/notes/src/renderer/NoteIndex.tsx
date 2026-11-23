@@ -9,14 +9,16 @@ import { RenameInput } from './note-menu'
 import { onFileMenu } from './ctx/file-menu'
 import { fileIcon } from './Palette'
 import './note-index.css'
+import { rich, useT } from './i18n'
 
 type Kind = 'any' | 'work' | 'board' | 'clip' | 'inbox'
+// 不翻：键，画的地方翻
 const KINDS: [Kind, string][] = [
-  ['any', '全部'],
-  ['work', '文档'],
-  ['board', '白板'],
-  ['clip', '剪藏'],
-  ['inbox', '收件箱'],
+  ['any', '全部'], // 不翻
+  ['work', '文档'], // 不翻
+  ['board', '白板'], // 不翻
+  ['clip', '剪藏'], // 不翻
+  ['inbox', '收件箱'], // 不翻
 ]
 const kindOf = (n: NoteFile): Kind => (n.board ? 'board' : n.kind)
 
@@ -49,6 +51,7 @@ export function NoteIndex(props: {
   onRename(path: string, name: string): void
   onOpenSettings(): void
 }) {
+  const t = useT()
   const [q, setQ] = useState('')
   const [kind, setKind] = useState<Kind>('any')
   const [oldFirst, setOldFirst] = useState(false)
@@ -88,51 +91,53 @@ export function NoteIndex(props: {
     <section className="pane ix" data-testid={archive ? 'archive-view' : 'all-view'}>
       <TabActs active>
         <PageNote>
-          <span className="num">{pool.length}</span>篇 · {archive ? (off ? '没开自动归档' : `${props.archiveDays}天没改过的，左栏不显示`) : '按修改时间排'}
+          {rich(archive ? (off ? t('{count} · 没开自动归档') : t('{count} · {n}天没改过的，左栏不显示', { n: props.archiveDays })) : t('{count} · 按修改时间排'), {
+            count: <span className="num">{t('{n}篇', { n: pool.length })}</span>,
+          })}
         </PageNote>
       </TabActs>
       <div className="ix-bar">
         <label className="ix-find">
           <Codicon name="search" size={14} />
-          <input aria-label="筛选" placeholder="筛选标题或文件夹" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} />
+          <input aria-label={t('筛选')} placeholder={t('筛选标题或文件夹')} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Escape' && setQ('')} />
           {q && (
-            <button className="ix-clear" aria-label="清空筛选" onClick={() => setQ('')}>
+            <button className="ix-clear" aria-label={t('清空筛选')} onClick={() => setQ('')}>
               <Codicon name="close" size={12} />
             </button>
           )}
         </label>
-        <div className="seg" role="tablist" aria-label="类型">
+        <div className="seg" role="tablist" aria-label={t('类型')}>
           {kinds.map(([k, name]) => (
             <button key={k} role="tab" aria-selected={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>
-              {name}
+              {t(name)}
             </button>
           ))}
         </div>
         <span className="sp" />
-        <div className="seg" role="tablist" aria-label="排序">
+        <div className="seg" role="tablist" aria-label={t('排序')}>
           <button role="tab" aria-selected={!oldFirst} className={!oldFirst ? 'on' : ''} onClick={() => setOldFirst(false)}>
-            新的在前
+            {t('新的在前')}
           </button>
           <button role="tab" aria-selected={oldFirst} className={oldFirst ? 'on' : ''} onClick={() => setOldFirst(true)}>
-            旧的在前
+            {t('旧的在前')}
           </button>
         </div>
       </div>
       <div className="body" ref={body} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}>
         {off ? (
           <div className="ix-empty">
-            <p>没开自动归档，所有笔记都按「这周动过」进左栏。</p>
+            <p>{t('没开自动归档，所有笔记都按「这周动过」进左栏。')}</p>
             <button className="btn btn-sm" onClick={props.onOpenSettings}>
               <Codicon name="settings-gear" size={14} />
-              在设置里打开
+              {t('在设置里打开')}
             </button>
           </div>
         ) : rows.length === 0 ? (
           <div className="ix-empty">
-            <p>{q || kind !== 'any' ? `没有符合「${[q.trim(), kind !== 'any' ? kinds.find(([k]) => k === kind)![1] : ''].filter(Boolean).join(' · ')}」的笔记` : archive ? '还没有归档的笔记。' : '库里还没有笔记。'}</p>
+            <p>{q || kind !== 'any' ? t('没有符合「{what}」的笔记', { what: [q.trim(), kind !== 'any' ? t(kinds.find(([k]) => k === kind)![1]) : ''].filter(Boolean).join(' · ') }) : archive ? t('还没有归档的笔记。') : t('库里还没有笔记。')}</p>
           </div>
         ) : (
-          <div className="ix-list" role="list" aria-label={archive ? '归档的笔记' : '全部笔记'} aria-rowcount={rows.length} style={{ height: rows.length * ROW_H }}>
+          <div className="ix-list" role="list" aria-label={archive ? t('归档的笔记') : t('全部笔记')} aria-rowcount={rows.length} style={{ height: rows.length * ROW_H }}>
             {rows.slice(first, last).map((n, i) => {
               const folder = n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : ''
               return (
@@ -151,11 +156,11 @@ export function NoteIndex(props: {
                     )}
                     {folder && <span className="f truncate">{folder}</span>}
                     {pinSet.has(n.path) && (
-                      <span className="pin" title="置顶的">
+                      <span className="pin" title={t('置顶的')}>
                         <Codicon name="pin" size={12} />
                       </span>
                     )}
-                    {!archive && isArchived(n, now, props.archiveDays, pinSet) && <span className="tag">归档</span>}
+                    {!archive && isArchived(n, now, props.archiveDays, pinSet) && <span className="tag">{t('归档')}</span>}
                     <span className="d num">{when(n.mtimeMs)}</span>
                   </button>
                 </div>

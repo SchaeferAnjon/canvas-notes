@@ -1,0 +1,120 @@
+/* ---------- 表底合计（task-i921u「通用合计」，原型 automations/proto.html 的 tfoot、tr.gh、.share） ---------- */
+
+/* 表底一格：34 高，靠左；「求和」11 --t3 小字在前，数 13 粗 500（原型「求和 25,200」）；没选的悬停露「计算 ▾」 */
+.base tfoot tr.base-sums td {
+  height: 34px;
+  padding: 0;
+  border-bottom: 0;
+  text-align: left;
+}
+.base tr.base-sums .base-sum {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  gap: 0;
+  padding: 0 10px;
+  border-radius: 0;
+  align-items: baseline;
+  font: 500 13px/34px var(--sans);
+  color: var(--t1);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.base tr.base-sums .base-sum .k {
+  flex: none;
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--t3);
+}
+.base tr.base-sums td:not(.on-sum) .base-sum .k {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+}
+.base tr.base-sums .base-sum .v {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.base tr.base-sums .base-sum:hover {
+  background: var(--fill);
+}
+.base tr.base-sums td.on .base-sum {
+  opacity: 1;
+  background: var(--fill2);
+}
+
+/* 组头：组名那一格横到第一个有小计的列前面，小计 13 粗 500（原型 tr.gh td.gv）；组名和占比条在同一条中线上 */
+.base tr.base-grp td.gl {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.base tr.base-grp td.gl .grp {
+  vertical-align: middle;
+}
+.base tr.base-grp td.gv {
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+  font-variant-numeric: tabular-nums;
+  background: var(--fill);
+}
+.base tr.base-grp td.base-td-plus {
+  background: var(--fill);
+}
+
+/* 占比条：150 × 6 灰条（--t3 填），后面「73%」12 --t2；组名格窄时条跟着缩 */
+.base-share {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 14px;
+  vertical-align: middle;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+.base-share .tr {
+  position: relative;
+  display: inline-block;
+  flex: 0 1 150px;
+  width: 150px;
+  min-width: 40px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--fill2);
+}
+.base-share .tr b {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 3px;
+  background: var(--t3);
+}
+
+/* 表底算什么的菜单：250 宽；每样后面是现在算出来的数（12 --t3），选中的打勾；最下面一句说明 */
+.base-pop.base-summenu {
+  width: 250px;
+}
+.base-summenu .mi .d2 {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.base-summenu .mi .ok {
+  margin-left: auto;
+  color: var(--acc-t);
+}
+.base-summenu .hint2 {
+  padding: 2px 8px 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}

@@ -311,6 +311,10 @@
 .fhome .wd.s1 .wedit .lbl {
   display: none;
 }
+/* 编辑时窄卡右上三颗图标按钮压在组件名上：名字让出按钮那么宽，放不下的省略号（英文「Exam countdown」，task-zojmg） */
+.fhome.editing .wd.s1 .wk {
+  padding-right: 96px;
+}
 .fhome .wd.drop-before {
   box-shadow: var(--shadow);
 }
@@ -1076,11 +1080,13 @@ button.fw-row:hover {
 }
 .fh-win.cond .rule .op {
   flex: none;
-  width: 76px;
+  /* 英文「is any of」「contains」比中文长：跟着字宽，至少 76（task-zojmg） */
+  width: auto;
+  min-width: 76px;
 }
 .fh-win.cond .rule .val {
-  flex: none;
-  width: 110px;
+  flex: 0 1 110px;
+  min-width: 72px;
 }
 .fh-win.cond .add {
   margin-left: -8px;
@@ -1139,4 +1145,9 @@ button.fw-row:hover {
 }
 .fw-course > .truncate {
   flex: 1;
+}
+
+/* 卡里一份拖起来以后（task-r00en）：原处变淡，看得出拖走的是哪一份；松手或取消就回来 */
+.fhome .fw-dragging {
+  opacity: 0.4;
 }

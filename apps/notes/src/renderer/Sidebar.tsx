@@ -20,18 +20,24 @@ import { useNewNoteBusy } from './new-note-hold'
 import { AiIcon, EngineLogo, useChatEngine } from './engine-logo'
 import { usePrefs } from './settings-store'
 import { useT } from './i18n'
-import { t, uiLang } from '../shared/i18n'
+import { onVaultLang, t, uiLang } from '../shared/i18n'
+import { catName } from '../shared/categories'
 
 /**
  * 左栏（2026-11-17 用户定 `左栏按维度组织`）：「文件」按位置（目录树）、「最近」按时间；
  * 分隔线下面是摘到活动栏的文件夹，各占一格（dir:<文件夹>）：都是它自己那一枝目录树（2026-11-18 方向 A「活动栏平铺」：
  * 收件箱、课程这些顶级分类也一样），底下一行「在「文件」里看位置」。梦游报告由 App 直接放 DreamPanel。
  */
-export type SideView = 'files' | 'todo' | 'recent' | 'dream' | 'desks' | 'trash' | `dir:${string}`
-export const COURSES = '课程' // 不翻：磁盘上的文件夹名
-export const INBOX_DIR = '收件箱' // 不翻：磁盘上的文件夹名
+export type SideView = 'files' | 'todo' | 'calendar' | 'recent' | 'dream' | 'desks' | 'trash' | `dir:${string}`
+/** 课程、收件箱这两格的文件夹：照这个库磁盘上的名字（英文库是 Courses、Inbox，跟着开着的库换） */
+export let COURSES = catName('课程')
+export let INBOX_DIR = catName('收件箱')
+onVaultLang(() => {
+  COURSES = catName('课程')
+  INBOX_DIR = catName('收件箱')
+})
 /** 一格的名字：摘出来的文件夹照磁盘上的名字，不翻 */
-export const viewName = (v: SideView) => (v === 'files' ? t('文件') : v === 'todo' ? t('待办') : v === 'recent' ? t('最近') : v === 'dream' ? t('梦游报告') : v === 'desks' ? t('书桌') : v === 'trash' ? t('最近删掉的') : v.slice(4).split('/').pop()!)
+export const viewName = (v: SideView) => (v === 'files' ? t('文件') : v === 'todo' ? t('待办') : v === 'calendar' ? t('日历') : v === 'recent' ? t('最近') : v === 'dream' ? t('梦游报告') : v === 'desks' ? t('书桌') : v === 'trash' ? t('最近删掉的') : v.slice(4).split('/').pop()!)
 
 const EN_MONTH = { now: new Intl.DateTimeFormat('en-US', { month: 'long' }), old: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }) }
 
@@ -47,7 +53,7 @@ export function recentLabel(g: RecentGroup): string {
 }
 
 export function Sidebar(props: {
-  view: Exclude<SideView, 'dream' | 'desks' | 'todo'>
+  view: Exclude<SideView, 'dream' | 'desks' | 'todo' | 'calendar'>
   notes: NoteFile[]
   pins: string[]
   archiveDays: ArchiveDays

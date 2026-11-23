@@ -1,0 +1,235 @@
+/*
+ * 「日历」格（task-kzr3n，照画布今日 v2 原型「画布笔记 · 日历」）：日历本身的样子在共用的 @cn/calendar/calendar.css，
+ * 这里只给离边的距离、页头、AI 那一条、左栏的连接卡和系统日历列表（数值照画布今日 today.css 的 .vhead / .aibar / .conn / .calrow，两个软件一个样）。
+ */
+.calp {
+  min-height: 0;
+}
+/* 共用日历的按钮靠宿主去掉 button 的默认边框（画布今日整页有 button 重置，画布笔记没有） */
+.calp button,
+.calside .cal-mini button {
+  font: inherit;
+  color: inherit;
+}
+.calp .cal-ib,
+.calp .cal-seg button,
+.calside .cal-ib {
+  border: 0;
+  background: none;
+  padding: 0;
+}
+/* 小月历的日子：只用低一级的选择器去掉默认底色，今天（.td）、这一周（.wk）、悬停的底照共用样式 */
+.cal-mini-g button {
+  border: 0;
+  padding: 0;
+  background: none;
+}
+.calp .cal-seg button {
+  padding: 0 8px;
+}
+.calp .cal-ib:hover,
+.calp .cal-seg button:hover,
+.calside .cal-ib:hover {
+  background: var(--fill);
+}
+.calp .cal-seg button.on {
+  background: var(--fill2);
+}
+.calp-head {
+  padding: 22px 32px 6px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex: none;
+}
+.calp-head h1 {
+  font: 600 28px/1.35 var(--serif-title);
+  margin: 0;
+  white-space: nowrap;
+  color: var(--t1);
+}
+.calp-head .t2 {
+  font-size: 12px;
+  color: var(--t2);
+}
+/* 周看法的格子一直显示滚动条时窄 --cal-sbw（WeekGrid 量的）：上面那一排、AI 那条右边跟着让出来 */
+.calp > .cal-bar {
+  padding: 0 calc(24px + var(--cal-sbw, 0px)) 8px 24px;
+  flex: none;
+}
+/* 周看法：头不动、钟点格滚（共用的 .cal-wk）；滚动条贴着面板右边，格子和日子头离边 24（同画布今日 today.css） */
+.calp > .cal-wk > .cal-stick {
+  padding: 0 calc(24px + var(--cal-sbw, 0px)) 0 24px;
+}
+.calp > .cal-wk > .cal-week {
+  padding: 0 24px 12px;
+}
+.calp > .cal-month {
+  padding: 0 24px 16px;
+}
+
+/* ---------- AI 帮我排进空着的时间（原型 .aibar） ---------- */
+.calp-ai {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 calc(24px + var(--cal-sbw, 0px)) 8px 24px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px dashed var(--acc-ring);
+  background: var(--acc-soft);
+  font-size: 12px;
+  color: var(--t2);
+  flex: none;
+}
+.calp-ai b {
+  color: var(--t1);
+  font-weight: 500;
+}
+.calp-ai b.err {
+  flex: 1;
+  color: var(--red-t);
+  font-weight: 400;
+}
+.calp-ai .sp {
+  flex: 1;
+}
+.calp-thinking {
+  display: inline-block;
+  width: 46px;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--fill2), var(--acc-ring), var(--fill2));
+  background-size: 200% 100%;
+  animation: calp-thinking 1s linear infinite;
+  flex: none;
+}
+@keyframes calp-thinking {
+  to {
+    background-position: -200% 0;
+  }
+}
+/* 小按钮（原型 .btn.sm）：pri 是黑胶囊，ghost 不描边 */
+.calp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line2);
+  background: var(--card);
+  font: inherit;
+  font-size: 12px;
+  color: var(--t1);
+  white-space: nowrap;
+}
+.calp-btn:hover {
+  background: var(--fill);
+}
+.calp-btn.pri {
+  background: var(--solid);
+  color: var(--solid-t);
+  border-color: transparent;
+  border-radius: 999px;
+  padding: 0 12px;
+}
+.calp-btn.pri:hover {
+  opacity: 0.88;
+}
+.calp-btn.ghost {
+  border-color: transparent;
+  background: none;
+  color: var(--t2);
+}
+.calp-btn.ghost:hover {
+  background: var(--fill);
+}
+.calp-btn:disabled {
+  opacity: 0.5;
+}
+
+/* ---------- 左栏 ---------- */
+.calside {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.calside-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 2px 8px 12px;
+}
+.calside-conn {
+  margin: 6px 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--card);
+  font-size: 13px;
+}
+.calside-conn b {
+  font-weight: 500;
+  display: block;
+  margin-bottom: 4px;
+}
+.calside-conn p,
+.calside-conn ol {
+  font-size: 12px;
+  color: var(--t2);
+  margin: 0 0 10px;
+}
+.calside-conn ol {
+  padding-left: 18px;
+}
+.calside-sec {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--t3);
+  padding: 12px 8px 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.calside-sec .sp,
+.calside-row .sp {
+  flex: 1;
+}
+.calside-sec .src {
+  font-weight: 400;
+}
+.calside-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 13px;
+  color: var(--t1);
+}
+.calside-row i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  background: var(--c);
+  flex: none;
+}
+.calside-row .nm {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.calside-row svg {
+  color: var(--t3);
+}
+.calside-row .two {
+  font-size: 12px;
+  color: var(--t3);
+}
+.calside-hint {
+  font-size: 12px;
+  color: var(--t3);
+  padding: 4px 8px 0;
+}

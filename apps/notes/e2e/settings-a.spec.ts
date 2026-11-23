@@ -1,5 +1,5 @@
 // 设置方向 A「分组侧栏」（2026-11-21 用户选 A，task-f7rib；原型 /private/tmp/canvas-notes-settings/proto-a.html）：
-// 侧栏 5 段 15 页、每页一个头、侧栏顶上搜索（名字、说明、组名、页名、别的叫法都算，回车去第一项、那一行闪一下）、
+// 侧栏 5 段 17 页、每页一个头、侧栏顶上搜索（名字、说明、组名、页名、别的叫法都算，回车去第一项、那一行闪一下）、
 // 改了马上存（底下提示条一句说会怎样、带撤回）、关掉重开还在、从用的地方跳过来（五处）。一律无头（CN_E2E=1）、临时库、临时设置目录。
 import { _electron as electron, expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
@@ -51,13 +51,13 @@ async function relaunch(run: Running) {
   return { app, page }
 }
 
-test('侧栏 5 段 15 页、每页一个头；窗口 960 × 680', async () => {
+test('侧栏 5 段 18 页、每页一个头；窗口 960 × 740', async () => {
   const run = await launch(files)
   const { page } = run
   try {
     await openSettings(page)
     const box = (await dlg(page).boundingBox())!
-    expect([Math.round(box.width), Math.round(box.height)]).toEqual([960, 680])
+    expect([Math.round(box.width), Math.round(box.height)]).toEqual([960, 740])
     await expect(nav(page).locator('.sa-sec')).toHaveText(['常用', '写和读', 'AI', '库和同步', '其他'])
     await expect(nav(page).locator('button.si')).toHaveText(SETTINGS_PAGES.map((p) => p.name))
     for (const p of SETTINGS_PAGES) {

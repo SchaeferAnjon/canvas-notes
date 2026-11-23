@@ -9,6 +9,7 @@ import {
   duplicateMdBlock,
   type MdBlock,
   moveMdBlock,
+  moveMdBlocks,
   movable,
   nearestBlock,
   plainOf,
@@ -23,8 +24,9 @@ import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { cardMarker } from './atomic-blocks'
+import { blockSel, inSel, selectBlocks, selIndices, setBlockSel } from './block-select'
+import { undo } from '@codemirror/commands'
 import { openRaw } from './block-source'
-import { t } from '../shared/i18n'
 import { markAi, makeMine } from './ai-mark'
 import { AiIcon } from './engine-logo'
 import { app } from './ctx/actions'
@@ -32,6 +34,8 @@ import { drawnBlocks, Popover } from './editor-host'
 import { hiddenOk } from './hidden-syntax'
 import { openPlus, slashLine } from './slash-menu'
 import { openTail, tailPending } from './tail-line'
+import { t as tNow } from '../shared/i18n'
+import { useT } from './i18n'
 
 /**
  * 文档里的块（DESIGN.v3 6.2、6.4）：悬停时左边 56 的槽里出现「+」和拖动把手（六个点），各带一条深色提示；
@@ -198,26 +202,28 @@ interface MenuItem {
   off?: boolean
 }
 
+// 不翻：块菜单的字是键，画的地方翻（t(label, { ctx: '块菜单' })）
 const CONVERT: MenuItem[] = [
-  { id: 'h2', label: '转成标题', icon: 'symbol-keyword' },
-  { id: 'todo', label: '转成待办', icon: 'checklist' },
-  { id: 'quote', label: '转成引用', icon: 'quote' },
+  { id: 'h2', label: '转成标题', icon: 'symbol-keyword' }, // 不翻
+  { id: 'todo', label: '转成待办', icon: 'checklist' }, // 不翻
+  { id: 'quote', label: '转成引用', icon: 'quote' }, // 不翻
 ]
-const RAW: MenuItem[] = [{ id: 'raw', label: '改写法', icon: 'code' }]
+const RAW: MenuItem[] = [{ id: 'raw', label: '改写法', icon: 'code' }] // 不翻
 /** AI 块（task-dtc34）：AI 块上是「变成我的字」，普通的段落、列表、引用上是「标成 AI 写的」 */
-const mineItem = (): MenuItem => ({ id: 'mine', label: t('变成我的字'), icon: 'account' })
-const markAiItem = (): MenuItem => ({ id: 'markai', label: t('标成 AI 写的'), icon: 'comment-discussion' })
+const mineItem = (): MenuItem => ({ id: 'mine', label: '变成我的字', icon: 'account' }) // 不翻：块菜单的字是键，画的地方翻
+const markAiItem = (): MenuItem => ({ id: 'markai', label: '标成 AI 写的', icon: 'comment-discussion' }) // 不翻：块菜单的字是键，画的地方翻
 // 上移、下移（task-xy89o）：以前只有 ⌥⇧↑↓、拖把手，菜单里翻不到
 const ACTIONS: MenuItem[] = [
-  { id: 'up', label: '上移', icon: 'arrow-up', cmd: 'block-up' },
-  { id: 'down', label: '下移', icon: 'arrow-down', cmd: 'block-down' },
-  { id: 'dup', label: '复制一块', icon: 'copy', cmd: 'dup-block' },
-  { id: 'ai', label: '问 AI 这一块', icon: 'comment-discussion', ai: true },
-  { id: 'del', label: '删除', icon: 'trash', cmd: 'delete' },
+  { id: 'up', label: '上移', icon: 'arrow-up', cmd: 'block-up' }, // 不翻
+  { id: 'down', label: '下移', icon: 'arrow-down', cmd: 'block-down' }, // 不翻
+  { id: 'dup', label: '复制一块', icon: 'copy', cmd: 'dup-block' }, // 不翻
+  { id: 'ai', label: '问 AI 这一块', icon: 'comment-discussion', ai: true }, // 不翻
+  { id: 'del', label: '删除', icon: 'trash', cmd: 'delete' }, // 不翻
 ]
 
 /** first、last：这一块已经在最上、最下（上移、下移灰掉） */
 function BlockMenu(props: { top: MenuItem[]; tail: boolean; first?: boolean; last?: boolean; onPick(a: MenuAction): void; onClose(): void }) {
+  const t = useT()
   const items = [...props.top, ...ACTIONS.map((a) => (props.tail || (a.id === 'up' && props.first) || (a.id === 'down' && props.last) ? { ...a, off: true } : a))]
   const live = items.filter((x) => !x.off)
   // 照小样：刚弹出来哪一行都不亮，鼠标移上去、按 ↑↓ 才亮
@@ -230,7 +236,7 @@ function BlockMenu(props: { top: MenuItem[]; tail: boolean; first?: boolean; las
       ref={ref}
       className="blk-menu"
       role="menu"
-      aria-label="块菜单"
+      aria-label={t('块菜单')}
       tabIndex={-1}
       onMouseLeave={() => setIdx(-1)}
       onKeyDown={(e) => {
@@ -272,7 +278,7 @@ function BlockMenu(props: { top: MenuItem[]; tail: boolean; first?: boolean; las
             onClick={() => !it.off && props.onPick(it.id)}
           >
             {it.ai ? <AiIcon job="chat" size={14} /> : <Codicon name={it.icon} size={14} />}
-            <span className="lb">{it.label}</span>
+            <span className="lb">{t(it.label, { ctx: '块菜单' })}</span>
             {it.cmd && keyFor(it.cmd) && <kbd>{keyFor(it.cmd)}</kbd>}
           </button>
         </div>
@@ -332,7 +338,10 @@ class Handles {
   private ghost: HTMLDivElement | null = null
   /** 现在把手对着的块（TAIL：文末那一行） */
   private index = -1
-  private drag: { index: number; x: number; y: number; started: boolean; to: number; faded: HTMLElement[] } | null = null
+  /** group：拖的是选着的几块里的一块，几块一起挪（task-5ryf9）；shift、meta：按下把手时按着 ⇧、⌘（不动松手是连选、加减） */
+  private drag: { index: number; x: number; y: number; started: boolean; to: number; faded: HTMLElement[]; group?: number[]; shift?: boolean; meta?: boolean } | null = null
+  /** 上一次点把手打开菜单的那一块（⇧ 点另一块的把手从它连过去） */
+  private lastClicked: number | null = null
   private leaveTimer: ReturnType<typeof setTimeout> | undefined
 
   constructor(readonly view: EditorView) {
@@ -347,8 +356,8 @@ class Handles {
           <button
             className="blk-add"
             tabIndex={-1}
-            aria-label="插入块"
-            onMouseEnter={(e) => this.tip.show(e.currentTarget, '点一下插入块 · 也可以打 /')}
+            aria-label={tNow('插入块')}
+            onMouseEnter={(e) => this.tip.show(e.currentTarget, tNow('点一下插入块 · 也可以打 /'))}
             onMouseLeave={() => this.tip.hide()}
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => this.add()}
@@ -358,8 +367,8 @@ class Handles {
           <button
             className="blk-grip"
             tabIndex={-1}
-            aria-label="拖动挪位置，点一下打开菜单"
-            onMouseEnter={(e) => this.tip.show(e.currentTarget, '拖动挪位置 · 点一下打开菜单')}
+            aria-label={tNow('拖动挪位置，点一下打开菜单')}
+            onMouseEnter={(e) => this.tip.show(e.currentTarget, tNow('拖动挪位置 · 点一下打开菜单'))}
             onMouseLeave={() => this.tip.hide()}
             onMouseDown={(e) => this.gripDown(e.nativeEvent)}
           >
@@ -535,10 +544,37 @@ class Handles {
     if (e.button !== 0 || this.index === -1) return
     e.preventDefault()
     this.tip.hide()
-    this.drag = { index: this.index, x: e.clientX, y: e.clientY, started: false, to: -1, faded: [] }
+    this.drag = { index: this.index, x: e.clientX, y: e.clientY, started: false, to: -1, faded: [], shift: e.shiftKey, meta: e.metaKey || e.ctrlKey }
     window.addEventListener('mousemove', this.onDragMove)
     window.addEventListener('mouseup', this.onDragUp)
     window.addEventListener('keydown', this.onDragKey, true)
+  }
+
+  /** 选着两块起、点的是其中一块的把手：选中不变（不出块菜单） */
+  private keepsGroup(i: number): boolean {
+    const b = this.blocks[i]
+    return !!b && this.view.state.field(blockSel).ranges.length >= 2 && inSel(this.view, b)
+  }
+
+  /** ⇧ 点把手：从上次选的那块连到这块；⌘ 点把手：加减这一块（task-5ryf9，照 Notion、访达） */
+  private pickWith(i: number, shift: boolean, meta: boolean) {
+    const bs = this.blocks
+    const b = bs[i]
+    if (!b) return
+    const sel = this.view.state.field(blockSel)
+    if (!shift && !meta) return
+    if (shift) {
+      const from = sel.anchor ?? this.lastClicked ?? bs[nearestBlock(bs, this.view.state.selection.main.head)]?.from ?? b.from
+      const a = Math.max(0, bs.findIndex((x) => x.from <= from && from <= x.to))
+      selectBlocks(this.view, bs.slice(Math.min(a, i), Math.max(a, i) + 1).filter(movable), bs[a]!.from)
+    } else {
+      const have = sel.ranges.length ? sel.ranges : this.lastClicked !== null ? bs.filter((x) => x.from === this.lastClicked).map((x) => ({ from: x.from, to: x.to })) : []
+      const on = have.some((r) => r.from >= b.from && r.from <= b.to)
+      const next = on ? have.filter((r) => !(r.from >= b.from && r.from <= b.to)) : [...have, { from: b.from, to: b.to }].sort((x, y) => x.from - y.from)
+      this.view.dispatch({ effects: setBlockSel.of(next.length ? { ranges: next, anchor: b.from } : null) })
+    }
+    this.lastClicked = b.from
+    this.view.focus()
   }
 
   /** 这一块在正文里的那几个元素（行、块部件），拖着时变淡 */
@@ -565,15 +601,18 @@ class Handles {
       d.started = true
       this.view.dom.classList.add('blk-dragging')
       const b = this.blocks[d.index]!
-      this.setHot(b, true)
+      // 拖的是选着的几块里的一块：几块一起走（task-5ryf9），拖影写「N块」
+      const idx = selIndices(this.view)
+      if (idx.length >= 2 && idx.includes(d.index)) d.group = idx
+      if (!d.group) this.setHot(b, true)
       // 原来那块变淡（保持选中底）；块部件（图片、表格）没有行装饰，直接给它加
-      d.faded = this.blockEls(b)
+      d.faded = d.group ? d.group.flatMap((i) => this.blockEls(this.blocks[i]!)) : this.blockEls(b)
       for (const el of d.faded) el.classList.add('blk-faded')
       // 拖影：--pop 底、略歪、最多一行字，在鼠标右边
       const g = document.createElement('div')
       g.className = 'blk-ghost'
       g.dataset.testid = 'blk-ghost'
-      g.textContent = plainOf(this.view.state.doc.toString(), b).split('\n').find((l) => l.trim())?.trim() || '（一块）'
+      g.textContent = d.group ? tNow('{n}块', { n: d.group.length }) : plainOf(this.view.state.doc.toString(), b).split('\n').find((l) => l.trim())?.trim() || tNow('（一块）')
       document.body.appendChild(g)
       this.ghost = g
     }
@@ -593,7 +632,23 @@ class Handles {
     this.endDrag()
     if (!d) return
     if (!d.started) {
+      if (d.index !== TAIL && (d.shift || d.meta || this.keepsGroup(d.index))) return this.pickWith(d.index, !!d.shift, !!d.meta)
+      if (this.view.state.field(blockSel).ranges.length) this.view.dispatch({ effects: setBlockSel.of(null) })
+      this.lastClicked = this.blocks[d.index]?.from ?? null
       this.openMenu(d.index)
+      return
+    }
+    if (d.group) {
+      // 几块一起挪：按原来的先后挨着放到落点（task-5ryf9）
+      const n = d.group.length
+      const edit = moveMdBlocks(this.view.state.doc.toString(), d.group, d.to, this.blocks)
+      if (applyBlockEdit(this.view, edit) && edit) {
+        const bs = this.blocks
+        const start = bs.findIndex((b) => b.from === edit.at)
+        if (start >= 0) selectBlocks(this.view, bs.slice(start, start + n))
+        app().noticeUndo(tNow('挪了{n}块：md 里这{n}段整段挪过去，字不变', { n }), () => (this.view.focus(), undo(this.view)))
+      }
+      this.view.focus()
       return
     }
     this.setHot(null)

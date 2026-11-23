@@ -279,14 +279,37 @@ const guardChanges = EditorState.transactionFilter.of((tr) => {
     let tail = 0
     // 选中了一整块（点了图片、退格先选中了视频卡）再打字、粘贴：块留着，字另起一段接在块下面
     // （第 6 轮：选区换成第一个字后光标回到块前面，第一个字落在块下面，后面的字跑到块上面、并进上一段）
-    const block = text && fromA < toA ? hs.find((h) => h.side === 'near' && h.unit && h.unit.from === fromA && h.unit.to === toA) : undefined
+    // 同一块登记了好几段（代码块的两行围栏、画成卡片的 ```base 本身）：取伸得最远的那段，字接在整块后面，不落进开头的围栏后面
+    const block =
+      text && fromA < toA
+        ? hs.filter((h) => h.side === 'near' && h.unit && h.unit.from === fromA && h.unit.to === toA).reduce<Hidden | undefined>((a, h) => (!a || h.to > a.to ? h : a), undefined)
+        : undefined
     // 这次删除盖住了一整块的：那一块不护着，块里面藏着的也跟着删（task-6lsvd：```base 画成的数据库表，
     // 它的两行围栏另外登记成「永不删」（wysiwyg.ts 的代码块围栏），选中整块删只删掉中间的写法、空的一个字都删不掉）
     const covered = block || fromA >= toA ? [] : hs.filter((h) => h.unit && fromA <= h.unit.from && toA >= h.unit.to)
-    const keep = hs.filter((h) => !covered.some((c) => h.from >= c.from && h.to <= c.to))
-    let pieces: [number, number][] = fromA < toA && !block ? [[fromA, toA]] : []
-    for (const h of keep) if (h.from < toA && h.to > fromA) pieces = subtract(pieces, h.from, h.to)
-    for (const h of keep) for (const g of h.glue ?? []) if (g.from < toA && g.to > fromA) pieces = subtract(pieces, g.from, g.to)
+    // 跨行删除：后面一行行首的块记号（列表、待办、引用、标题）整个在删除里、它前面的换行也删掉了，这一行的字并进上一行，
+    // 记号跟着删（task-ys1rr，像 Notion：从引用中间拖选到待办中间删，剩下的字并进引用；以前记号留着，成了「> 一- [ ] 办一」）
+    const joined =
+      block || fromA >= toA
+        ? []
+        : hs.filter((h) => {
+            const line = start.doc.lineAt(h.from)
+            return h.side === 'to' && !h.fromOk && h.unit && h.from === line.from && h.from > fromA && h.to <= toA && h.unit.from === line.from && h.unit.to === line.to
+          })
+    const cut = (keep: readonly Hidden[]) => {
+      let pieces: [number, number][] = fromA < toA && !block ? [[fromA, toA]] : []
+      for (const h of keep) if (h.from < toA && h.to > fromA) pieces = subtract(pieces, h.from, h.to)
+      for (const h of keep) for (const g of h.glue ?? []) if (g.from < toA && g.to > fromA) pieces = subtract(pieces, g.from, g.to)
+      return pieces
+    }
+    let keep = hs.filter((h) => !covered.some((c) => h.from >= c.from && h.to <= c.to) && !joined.includes(h))
+    let pieces = cut(keep)
+    // 那一行前面的换行护着没删（块边上留住的空行）：这一行还是自己一行，记号照旧留着
+    const stay = joined.filter((h) => !pieces.some(([a, z]) => a < h.from && z >= h.from))
+    if (stay.length) {
+      keep = keep.concat(stay)
+      pieces = cut(keep)
+    }
     if (block || pieces.length !== (fromA < toA ? 1 : 0) || (pieces[0] && (pieces[0][0] !== fromA || pieces[0][1] !== toA))) changed = true
     let at = block ? block.to : pieces.length ? pieces[0]![0] : fromA
     if (block && at < len && start.doc.lineAt(at).text !== '') {

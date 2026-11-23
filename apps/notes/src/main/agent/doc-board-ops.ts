@@ -25,12 +25,15 @@ const COL_W = 276
 function find(text: string, id: string): { b: DocBoard; u: DocUnit } {
   const b = splitDoc(text)
   for (const [u, k] of unitKeys(b)) if (k === id) return { b, u }
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   throw new Error(`白板上没有 id 是 ${id} 的卡片（先用 board_list 看现在的 id，改过字的卡 id 会变）`)
 }
 
 function column(b: DocBoard, id: string): DocColumn {
   const c = b.columns.find((x) => x.head && (x.title === id || x.place?.id === id))
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (!c) throw new Error(`白板上没有叫「${id}」的列（列的 id 就是列名）`)
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (c.ask) throw new Error('「问过 AI」这一列是软件记的，不能往里放')
   return c
 }
@@ -49,7 +52,9 @@ export function summarize(text: string): BoardSummary {
   const out: BoardSummary = { cards: [], columns: [], links: linksOf(text), loose: [] }
   b.columns.forEach((c, i) => {
     const cards = c.cards.filter((u) => u.kind !== 'gap')
+    // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
     const id = c.title ?? '开头'
+    // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
     if (c.head || cards.length) out.columns.push({ id, title: c.title ?? '（开头没有列名的一组）', x: c.place?.x ?? i * (COL_W + 22), y: c.place?.y ?? 64, w: COL_W, cards: cards.map((u) => keys.get(u)!) })
     for (const u of cards) out.cards.push({ id: keys.get(u)!, text: u.text, column: id })
   })
@@ -59,6 +64,7 @@ export function summarize(text: string): BoardSummary {
 
 /** 加一张卡：给 column（列名）就插进那一节末尾；给坐标就放在空白处（文末带一行位置）；都不给就加在文末那一节 */
 export function addCard(text: string, card: NewCard): { text: string; id: string } {
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (!card.text.trim()) throw new Error('卡片内容是空的')
   const b = splitDoc(text)
   let next: string
@@ -78,6 +84,7 @@ export function addCard(text: string, card: NewCard): { text: string; id: string
 
 /** 加一列 = 文档末尾新起一节；列的 id 就是列名 */
 export function addColumn(text: string, col: { title: string }): { text: string; id: string } {
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   const title = col.title.replace(/\s+/g, ' ').trim() || '新的列'
   const b = splitDoc(text)
   if (b.columns.some((c) => c.title === title)) return { text, id: title }
@@ -85,6 +92,7 @@ export function addColumn(text: string, col: { title: string }): { text: string;
 }
 
 export function setCardText(text: string, id: string, body: string): string {
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (!body.trim()) throw new Error('卡片内容是空的；要删卡片请让用户自己删')
   const { u } = find(text, id)
   return text.slice(0, u.from) + body.trim() + text.slice(u.to)
@@ -106,6 +114,7 @@ export function putInColumn(text: string, id: string, col: string, position?: nu
 }
 
 export function link(text: string, from: string, to: string): string {
+  // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
   if (from === to) throw new Error('不能自己连自己')
   const a = find(text, from).u
   const b = find(text, to).u

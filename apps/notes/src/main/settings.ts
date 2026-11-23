@@ -75,6 +75,7 @@ export class SettingsFile {
         ...(p.autoCommitMinutes !== undefined ? { autoCommitMinutes: p.autoCommitMinutes } : {}),
         ...(p.archiveDays !== undefined ? { archiveDays: p.archiveDays } : {}),
         ...(p.autoUpdate !== undefined ? { autoUpdate: p.autoUpdate } : {}),
+        ...(p.familyFetch !== undefined ? { familyFetch: p.familyFetch } : {}),
         appearance: { ...cur.appearance, ...(p.appearance ?? {}) },
         dream: p.dream ? patchDream(cur.dream, p.dream) : cur.dream,
         general: { ...cur.general, ...(p.general ?? {}) },

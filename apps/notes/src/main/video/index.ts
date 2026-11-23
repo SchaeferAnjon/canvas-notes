@@ -9,7 +9,7 @@ import { revertRetry } from '../git-retry'
 import { app, type BrowserWindow, ipcMain, type IpcMainInvokeEvent, nativeImage, type Session, type WebContents } from 'electron'
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { errorTitle, langName, primary, type TrError } from '../../shared/plugins/translate'
 import {
   askCalloutEnd,
@@ -795,7 +795,7 @@ function checkDest(d: unknown): Dest {
 async function appendInbox(v: Vault, s: Sess, dest: Dest, block: string, coverRel: string | null): Promise<string> {
   const abs = v.abs(dest.path)
   if (!existsSync(abs)) {
-    await mkdir(v.abs('收件箱'), { recursive: true })
+    await mkdir(v.abs(dirname(dest.path)), { recursive: true })
     const card = videoCardMd(s.ref, s.meta, coverRel ? relLink(dest.path, coverRel) : null, { comment: true })
     const r = await v.write(dest.path, `# ${safeTitle(s.meta.title)}\n\n${card}\n\n${block}\n`, '')
     if (!r.ok) throw new Error('收件箱里那篇刚被改了，再按一次')
@@ -858,7 +858,7 @@ export function askPrompt(a: { title: string; channel: string; time: string; box
     ...(a.subs === null ? [] : ['前后 30 秒的字幕：', a.subs || '（没有字幕）']),
     '用户正在写的笔记（节选）：',
     a.note || '（空）',
-    `${answerRule()}，只输出一个 JSON：{"doubt":"用用户自己的口气写他卡在哪（一句，不要写「给我讲解一下」）","answer":"讲通的讲法，2 到 5 句，结合框里的东西","points":["要点一","要点二"]}`,
+    `${answerRule(a.question)}，只输出一个 JSON：{"doubt":"用用户自己的口气写他卡在哪（一句，不要写「给我讲解一下」）","answer":"讲通的讲法，2 到 5 句，结合框里的东西","points":["要点一","要点二"]}`,
   ].join('\n')
 }
 

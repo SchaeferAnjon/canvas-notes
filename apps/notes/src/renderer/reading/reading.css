@@ -44,6 +44,29 @@
   font: 12px var(--sans);
   color: var(--t1);
 }
+/* 缩放「100% ▾」（标签条右端，挨着页码）：和页码按钮同一种样子（24 高、圆角 5、12 等宽数字），比例本身就是按钮，点开是缩放菜单 */
+.acts .pzoom {
+  flex: none;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  font: 12px var(--sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--t2);
+}
+.acts .pzoom:hover {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.acts .pzoom span {
+  min-width: 4ch;
+  text-align: right;
+}
 .pdfpane .tool .btn {
   font-size: 12px;
 }
@@ -97,6 +120,8 @@
 .pdfpane .pdfpage canvas {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   display: block;
 }
 .pdfpane .pdfv.drawing,

@@ -61,6 +61,22 @@
 .cm-editor .cm-math-block .katex {
   font-size: 1.1em;
 }
+/*
+ * 引文、提示块里单独成行的（剪藏进来的 `> $$ … > $$`，task-6cxtc）：外面一层接着引文的样子——
+ * 普通引文左边 2px 竖线、公式离竖线 18（同 app.css 的 .cm-quote）；提示块里铺块的 --fill 底、左右 14（同 .cm-callout），最后几行圆角 8
+ */
+.doc .cm-math-inquote.q {
+  padding-left: 16px;
+  border-left: 2px solid var(--clip-bar);
+}
+.doc .cm-math-inquote.c {
+  padding: 0 14px;
+  background: var(--fill);
+}
+.doc .cm-math-inquote.c.bot {
+  padding-bottom: 10px;
+  border-radius: 0 0 8px 8px;
+}
 /* 整颗选中（退格、Delete 先选中，拖选盖住它）：和系统选区一个颜色 */
 .cm-editor .cm-math-sel {
   background: color-mix(in srgb, var(--acc) 24%, transparent);

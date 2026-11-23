@@ -24,6 +24,7 @@ import { langApi, useT } from './i18n'
 import { type Params, t as tNow, tIn } from '../shared/i18n'
 import { openSettingsAt } from './settings/jump'
 import './search/palette.css'
+import { putOnBar } from './sel-bar/run'
 
 export interface PaletteCommand {
   /** 记在 命令.json 里的身份（钉住、藏起、别名、快捷键都按它）；不给就用名字 */
@@ -487,6 +488,14 @@ export function Palette(props: {
         return openCmdEditor({ kind: 'edit', cmd, ...aiWho })
       }
       setForm({ edit: view.get(id)?.own ?? null })
+    } else if (a.kind === 'bar') {
+      // 放到选中小条（task-26nz7）：条上有空上条，满了进 ⋯
+      const cmd = mine.find((c) => c.id === id)
+      if (cmd)
+        void putOnBar(cmd, 'on').then(
+          (r) => setToast({ text: r.zone === 'on' ? tNow('「{name}」放上了选中小条', { name: cmd.name }) : tNow('「{name}」收进了选中小条的 ⋯', { name: cmd.name }), undoFn: r.undo, seq: ++toastSeq }),
+          (e: unknown) => say(String((e as Error)?.message ?? e)),
+        )
     } else if (a.kind === 'delete') {
       const cmd = mine.find((c) => c.id === id)
       if (!cmd) change((c) => deleteOwn(c, id), t('删掉了这条自己的命令'))
@@ -948,7 +957,7 @@ export function Palette(props: {
       </div>
       {menu && menuCmd && (
         <RowMenu
-          cmd={{ id: menu.id, name: menuCmd.name, keys: menuCmd.keys ?? null, alias: menuCmd.alias, pinned: !!menuCmd.pinned, own: !!menuCmd.own, ownEditable: menuCmd.own?.kind === 'open' || menuCmd.own?.kind === 'url' || menuCmd.own?.kind === 'ai', fixedKeys: menuCmd.fixedKeys }}
+          cmd={{ id: menu.id, name: menuCmd.name, keys: menuCmd.keys ?? null, alias: menuCmd.alias, pinned: !!menuCmd.pinned, own: !!menuCmd.own, ownEditable: menuCmd.own?.kind === 'open' || menuCmd.own?.kind === 'url' || menuCmd.own?.kind === 'ai', fixedKeys: menuCmd.fixedKeys, ownAi: mine.some((c) => c.id === menu.id), onBar: [...cfg.bar.on, ...cfg.bar.more].includes(menu.id) }}
           x={menu.x}
           byKey={menu.byKey}
           y={menu.y}

@@ -23,6 +23,8 @@ import { inline, Markdown } from './md-render'
 import { NoteDoc } from './note-doc'
 import { MapThumb } from './mindmap/MapThumb'
 import './doc-embeds.css'
+import { useT } from './i18n'
+import { list, uiLang } from '../shared/i18n'
 import './doc-board/doc-board.css'
 
 /** 库里的笔记（NoteTab 按左栏的列表告诉编辑器） */
@@ -90,8 +92,9 @@ function NoteEmbed(props: { note: NoteFile; notes: NoteFile[] }) {
   const ctx: CardCtx = { notePath: props.note.path, notes: props.notes, files, full: false }
   const f = faceOf(unit, ctx)
   const open = () => app().openFile(props.note.path)
+  const t = useT()
   return (
-    <div className="emb-note db-card" data-face={f.k} onDoubleClick={open} title="双击打开这一篇">
+    <div className="emb-note db-card" data-face={f.k} onDoubleClick={open} title={t('双击打开这一篇')}>
       <UnitBody u={unit} f={f} ctx={ctx} acts={{ onToggle: () => undefined, onOpen: open, onFull: open }} />
     </div>
   )
@@ -102,11 +105,13 @@ function NoteEmbed(props: { note: NoteFile; notes: NoteFile[] }) {
  * `type-hierarchy-sub` +「名字 · N个主题」+「打开 ›」；下面 170 高的导图缩略，不露列表原文和行尾注释
  */
 function MapEmbed(props: { note: NoteFile }) {
+  const t = useT()
   const name = titleOf(props.note.path)
   const open = () => app().openFile(props.note.path)
   return (
-    <div className="emb" data-part="笔记里的导图块" aria-label={`导图「${name}」`}>
-      <Head icon="type-hierarchy-sub" go="打开 ›" onGo={open}>{`${name} · ${props.note.board?.nodes ?? 0}个主题`}</Head>
+    // 不翻：data-part 给 e2e 和样式认
+    <div className="emb" data-part="笔记里的导图块" aria-label={t('导图「{name}」', { name })}>
+      <Head icon="type-hierarchy-sub" go={t('打开 ›')} onGo={open}>{t('{name} · {n}个主题', { name, n: props.note.board?.nodes ?? 0 })}</Head>
       <div className="emb-map" onMouseDown={(e) => (e.preventDefault(), open())}>
         <MapThumb path={props.note.path} />
       </div>
@@ -128,9 +133,11 @@ function ColumnsEmbed(props: { note: NoteFile; notes: NoteFile[] }) {
   const total = b ? b.total : 0
   const ctx: CardCtx = { notePath: props.note.path, notes: props.notes, files, full: false }
   const open = () => app().openFile(props.note.path)
+  const t = useT()
   return (
-    <div className="emb" data-part="文档里嵌白板" aria-label={`白板「${name}」`}>
-      <Head icon="layout" go="打开白板 ›" onGo={open}>{`白板「${name}」 · ${cols.filter((c) => c.head).length}列 ${total}张卡`}</Head>
+    // 不翻：data-part 给 e2e 和样式认
+    <div className="emb" data-part="文档里嵌白板" aria-label={t('白板「{name}」', { name })}>
+      <Head icon="layout" go={t('打开白板 ›')} onGo={open}>{t('白板「{name}」 · {cols}列 {n}张卡', { name, cols: cols.filter((c) => c.head).length, n: total })}</Head>
       <div className="emb-board" onMouseDown={(e) => (e.preventDefault(), open())}>
         <div className="emb-plane">
           <div className="emb-row">
@@ -142,7 +149,7 @@ function ColumnsEmbed(props: { note: NoteFile; notes: NoteFile[] }) {
                   {c.head && (
                     <h3>
                       <span className="truncate">{c.title}</span>
-                      <span className="meta num">{`${c.cards.filter((u) => u.kind !== 'gap').length}张`}</span>
+                      <span className="meta num">{t('{n}张', { n: c.cards.filter((u) => u.kind !== 'gap').length })}</span>
                     </h3>
                   )}
                   {c.cards
@@ -192,6 +199,7 @@ const TODO = /^(\s*[-*+]\s+)\[([ xX])\]\s?(.*)$/
 function SectionEmbed(props: { note: NoteFile; section: string }) {
   const [text, setText] = useTextState(props.note.path)
   const name = titleOf(props.note.path)
+  const t = useT()
   const sec = text === null ? null : sectionOf(text, props.section)
   const toggle = async (line: number) => {
     const cur = (await window.cn.readNote(props.note.path)).text
@@ -200,11 +208,11 @@ function SectionEmbed(props: { note: NoteFile; section: string }) {
     ls[line] = toggleTask(ls[line]!)
     const next = ls.join('\n')
     const w = await window.cn.writeNote(props.note.path, next, cur)
-    if (!w.ok) return app().notice(`《${name}》刚被别处改过，没勾上，再点一次`)
+    if (!w.ok) return app().notice(t('《{name}》刚被别处改过，没勾上，再点一次', { name }))
     setText(next)
     // 那一篇开在别的标签里：编辑器跟着变（自己写的不会再来「外面改了」的通知）
     for (const d of NoteDoc.open) if (d.path === props.note.path) void d.applyRemote(next)
-    app().notice(`${/\[[xX]\]/.test(ls[line]!) ? '勾上了' : '取消勾选'}：《${name}》里只改了这一行的一个字`)
+    app().notice(/\[[xX]\]/.test(ls[line]!) ? t('勾上了：《{name}》里只改了这一行的一个字', { name }) : t('取消勾选：《{name}》里只改了这一行的一个字', { name }))
   }
   // 连着的待办画成能勾的一组，别的照文档的样子画
   const parts: ({ todo: { line: number; done: boolean; text: string }[] } | { md: string })[] = []
@@ -219,10 +227,11 @@ function SectionEmbed(props: { note: NoteFile; section: string }) {
     else parts.push({ md: l })
   })
   return (
-    <div className="emb" data-part="嵌进来的一节" aria-label={`引用自《${name}》 ${props.section}`}>
-      <Head icon="references" go="去原文 ›" onGo={() => app().openFile(props.note.path)}>{`引用自《${name}》› ${props.section}`}</Head>
+    // 不翻：data-part 给 e2e 和样式认
+    <div className="emb" data-part="嵌进来的一节" aria-label={t('引用自《{name}》 {section}', { name, section: props.section })}>
+      <Head icon="references" go={t('去原文 ›')} onGo={() => app().openFile(props.note.path)}>{t('引用自《{name}》› {section}', { name, section: props.section })}</Head>
       <div className="emb-sec">
-        {text !== null && !sec && <p className="none">{`《${name}》里没有「${props.section}」这一节`}</p>}
+        {text !== null && !sec && <p className="none">{t('《{name}》里没有「{section}」这一节', { name, section: props.section })}</p>}
         {parts.map((p, i) =>
           'todo' in p ? (
             <div key={i} className="emb-todo">
@@ -325,7 +334,8 @@ export function docEmbeds(here: () => string) {
 
 /** 文末「提到这篇的」：哪些篇链接、嵌了这一篇（不写进文件） */
 export function Backlinks(props: { path: string; version: number; board: boolean; boards?: ReadonlyMap<string, string> }) {
-  const [list, setList] = useState<Awaited<ReturnType<typeof window.cn.backlinks>>>([])
+  const [links, setList] = useState<Awaited<ReturnType<typeof window.cn.backlinks>>>([])
+  const t = useT()
   useEffect(() => {
     let live = true
     void window.cn.backlinks(props.path).then(
@@ -334,12 +344,14 @@ export function Backlinks(props: { path: string; version: number; board: boolean
     )
     return () => void (live = false)
   }, [props.path, props.version])
-  if (!list.length) return null
+  if (!links.length) return null
   return (
-    <div className="doc-backlinks" data-part="反向链接" aria-label="提到这篇的">
-      <div className="bh">提到这篇的</div>
-      {list.map((r) => {
-        const how = [r.embed ? (props.board ? '嵌了这块白板' : '嵌了这一篇') : '', r.sections.length ? `引用了${r.sections.map((s) => `「${s}」`).join('')}这一节` : '', r.link ? '链接到这篇' : ''].filter(Boolean).join('、')
+    // 不翻：data-part 给 e2e 和样式认
+    <div className="doc-backlinks" data-part="反向链接" aria-label={t('提到这篇的')}>
+      <div className="bh">{t('提到这篇的')}</div>
+      {links.map((r) => {
+        const sections = r.sections.map((s) => t('「{title}」', { title: s })).join(uiLang() === 'en' ? ', ' : '')
+        const how = list([r.embed ? (props.board ? t('嵌了这块白板') : t('嵌了这一篇')) : '', r.sections.length ? t('引用了{sections}这一节', { sections }) : '', r.link ? t('链接到这篇') : ''].filter(Boolean))
         return (
           <div key={r.path} className="bl">
             {props.boards?.has(r.path) ? <i className="sw bl-sw" style={{ background: props.boards.get(r.path) }} /> : <Codicon name="file-text" size={14} />}

@@ -56,7 +56,7 @@ test('白板上改一张卡，切到文档就是那一段；文档里加一段�
     await pane(page).locator('.cm-line', { hasText: '南岸在维克住两晚' }).click()
     await page.keyboard.press('End')
     // 文档里另起一段（一块）：回车两下（回车一下是同一段里换行，白板上还是那一张卡）
-    await page.keyboard.press('Enter')
+    // 段末回车一次就新起一块（task-ys1rr，像 Notion）
     await page.keyboard.press('Enter')
     await page.keyboard.type('蓝湖就在去机场的路上，最后一天顺便泡一下。')
     await waitSaved(page)

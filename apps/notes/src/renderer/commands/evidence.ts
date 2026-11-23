@@ -6,6 +6,7 @@
 import { Chunk, getChunks } from '@codemirror/merge'
 import { type EditorState, RangeSet, RangeSetBuilder, StateEffect, StateField, Text } from '@codemirror/state'
 import { type BlockInfo, Decoration, type DecorationSet, EditorView, gutter, GutterMarker, gutterLineClass, ViewPlugin, type WidgetType } from '@codemirror/view'
+import { t } from '../../shared/i18n'
 
 /** 这个编辑器里亮哪几行（从 1 起）；on：正指着一条规矩，别的行淡下去、折起的写里面有几处 */
 export interface Spot {
@@ -52,7 +53,7 @@ function markFolds(view: EditorView) {
         tag.className = 'sc-evn'
         el.append(tag)
       }
-      tag.textContent = `里面有 ${n} 处依据`
+      tag.textContent = t('里面有 {n} 处依据', { n })
     }
   }
 }

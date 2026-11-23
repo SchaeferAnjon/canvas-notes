@@ -150,15 +150,17 @@ test('task-o48fa 文档里的公式：照截图那篇排好，光标走进去露
     // 选中时公式不露写法（选中前后每一行的宽高都不变）
     await expect(ed(page).locator('.cm-math-src')).toHaveCount(0)
 
-    // 单独成行的：从上一行 ↓ 走进去，露出写法（三行等宽、--fill 底），下面接着排；再 ↓ 走出去又排好
+    // 单独成行的：从上一段 ↓ 走进去（中间那个空行不停光标，task-ys1rr：一下就进到第一行），露出写法（三行等宽、--fill 底），下面接着排；再 ↓ 走出去又排好
     await line(page, '线性回归：').click()
     await page.keyboard.press('End')
     await page.keyboard.press('ArrowDown')
+    await expect(ed(page).locator('.cm-math-line')).toHaveCount(3)
     await page.keyboard.press('ArrowDown')
     await expect(ed(page).locator('.cm-math-line')).toHaveCount(3)
     await expect(ed(page).locator('.cm-math-preview .katex-display')).toBeVisible()
     await expect(ed(page).locator('.cm-math-block:not(.cm-math-preview)')).toHaveCount(BLOCKS - 1)
-    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown')
+    // 第二行 → 第三行 → 出到下一段
+    for (let i = 0; i < 2; i++) await page.keyboard.press('ArrowDown')
     await expect(ed(page).locator('.cm-math-line')).toHaveCount(0)
     await expect(ed(page).locator('.cm-math-block')).toHaveCount(BLOCKS)
     // 点单独成行的：光标进写法最后一行末尾

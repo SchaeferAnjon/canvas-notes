@@ -9,7 +9,7 @@ import { registerWebMenu, type WebMenuHost } from '../ctx/web-menu'
 import { pageOutside } from './page-outside'
 import { readPosIpc } from '../read-along/web'
 import { type LogoEngine, useAiLogo } from '../engine-logo'
-import { attachWebNotes, webMarkIpc, webNotesNav, webSelIpc } from '../web-notes/bridge'
+import { attachWebNotes, webBarSeen, webMarkIpc, webNotesNav, webSelIpc } from '../web-notes/bridge'
 
 /** 恢复的标签用的网页设置：要用户在这个网页里动过才许出声自动播（和 Chrome 平常一样）；主进程按它认出这是恢复的标签 */
 const HOLD_PREFS = `autoplayPolicy=${HOLD_POLICY}`
@@ -28,6 +28,9 @@ export interface WebviewEl extends HTMLElement {
   executeJavaScript(code: string): Promise<unknown>
   getWebContentsId(): number
   focus(): void
+  /** 在这一页里找（⇧⌘F）：findNext 是开始一轮新的找（换了字），不给是在这一轮里往下 / 往上 */
+  findInPage(text: string, opts?: { forward?: boolean; findNext?: boolean; matchCase?: boolean }): number
+  stopFindInPage(action: 'clearSelection' | 'keepSelection' | 'activateSelection'): void
   /** 换网址：网页还没载好（dom-ready 之前 loadURL 会抛错）就先记着，载好了再换（WebView 装上的） */
   go(url: string): void
 }
@@ -111,6 +114,9 @@ export function WebView(props: {
       if (channel === 'cn:sel') {
         // 选中一段的小条上点了什么（讲解一下、翻译 + 讲一讲、引用、剪藏、⋯ 里的几样）
         webSelIpc(w, args[0])
+      } else if (channel === 'cn:bar-seen') {
+        // 刚存好的那颗在小条上描过一圈了（task-26nz7）
+        webBarSeen()
       } else if (channel === 'cn:mark') {
         // 网页上问过、剪过那一段左边的小标
         webMarkIpc(w, args[0])

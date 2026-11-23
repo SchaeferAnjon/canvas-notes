@@ -88,6 +88,7 @@ test('多个标签：各自保存，来回切不串；⌘W 关标签', async () 
   const { page, vault } = run
   try {
     await openNote(page, '甲')
+    // ⌘↓ 到文末那一行，打的字是新的一块（task-ys1rr，DESIGN.v3 6.4b）
     await page.keyboard.press('Meta+End')
     await page.keyboard.type('在甲里打的')
     await openNote(page, '乙')
@@ -96,8 +97,8 @@ test('多个标签：各自保存，来回切不串；⌘W 关标签', async () 
     await page.locator('.tab', { hasText: '甲' }).locator('.tl').click()
     await expect(tabOn(page)).toHaveText('甲')
     await waitSaved(page)
-    expect(readFileSync(join(vault, '甲.md'), 'utf8')).toBe('甲\n在甲里打的')
-    await expect.poll(() => readFileSync(join(vault, '乙.md'), 'utf8')).toBe('乙\n在乙里打的')
+    expect(readFileSync(join(vault, '甲.md'), 'utf8')).toBe('甲\n\n在甲里打的\n')
+    await expect.poll(() => readFileSync(join(vault, '乙.md'), 'utf8')).toBe('乙\n\n在乙里打的\n')
     await page.keyboard.press('Meta+w')
     await expect(page.locator('.tab')).toHaveCount(2) // 首页 + 乙
     await expect(tabOn(page)).toHaveText('乙')
@@ -155,7 +156,9 @@ test('Git 底栏：看改了哪些文件、提交、本周加一、历史里看�
     await expect(hist.locator('.commit')).toHaveCount(2)
     await expect(hist.locator('.commit').first()).toContainText('更新 1 个文件：甲')
     await expect(hist.locator('.commit.open .fr')).toContainText('甲.md')
-    await expect(hist.locator('.commit.open .fr .add')).toHaveText('+1')
+    // ⌘End 落在文末那一行，打的字新起一段（task-ys1rr 文档块照 Notion）：文件成了「甲\n\n加一行\n」，空行加正文两行
+    expect(readFileSync(join(vault, '甲.md'), 'utf8')).toBe('甲\n\n加一行\n')
+    await expect(hist.locator('.commit.open .fr .add')).toHaveText('+2')
     // 右栏开着时中间栏还在，宽度够写字
     const box = await page.locator('.center').boundingBox()
     expect(box!.width).toBeGreaterThan(600)

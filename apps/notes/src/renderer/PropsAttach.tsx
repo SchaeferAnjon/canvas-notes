@@ -8,6 +8,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { type AttachItem, type NoteAttachments, sizeText } from '../shared/attach'
 import { copy, menuAt } from './ctx/menu'
 import './props-attach.css'
+import { useT } from './i18n'
+import { t as tNow } from '../shared/i18n'
 
 const LIST = 5
 const imgUrl = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/')
@@ -31,12 +33,12 @@ export function useAttachments(path: string, text: string): [NoteAttachments | n
 
 function itemMenu(e: React.MouseEvent, i: AttachItem, reload: () => void) {
   void menuAt(e, [
-    { label: '在访达中显示', run: () => window.cnMenu.reveal(i.path) },
+    { label: tNow('在访达中显示'), run: () => window.cnMenu.reveal(i.path) },
     { copyImageAt: { x: e.clientX, y: e.clientY } },
-    { label: '拷贝路径', run: () => copy(i.path) },
+    { label: tNow('拷贝路径'), run: () => copy(i.path) },
     '-',
     {
-      label: '移到废纸篓',
+      label: tNow('移到废纸篓'),
       // 文中用到的删了链接就断了：只有没用到的能在这里删
       enabled: i.offset === null,
       run: async () => {
@@ -50,17 +52,18 @@ function itemMenu(e: React.MouseEvent, i: AttachItem, reload: () => void) {
 /** 属性下面那一组：最多 5 行 */
 export function AttachList(props: { a: NoteAttachments; onAll(): void; onReveal(): void; reload(): void }) {
   const { a } = props
+  const t = useT()
   if (!a.items.length) return null
   const unused = a.items.filter((i) => i.offset === null).length
   return (
-    <section className="pa-sec" aria-label="附件">
+    <section className="pa-sec" aria-label={t('附件')}>
       <div className="pa-hd">
-        <b>附件</b>
+        <b>{t('附件')}</b>
         <span className="num">
-          {`${a.items.length} 张 · ${sizeText(a.bytes)}`}
+          {t('{n} 张 · {size}', { n: a.items.length, size: sizeText(a.bytes) })}
         </span>
         <span className="sp" />
-        <button className="pa-ib" aria-label="在访达里打开附件文件夹" data-tip="在访达里打开附件文件夹" data-side="below" onClick={props.onReveal}>
+        <button className="pa-ib" aria-label={t('在访达里打开附件文件夹')} data-tip={t('在访达里打开附件文件夹')} data-side="below" onClick={props.onReveal}>
           <Codicon name="folder-opened" size={16} />
         </button>
       </div>
@@ -69,23 +72,23 @@ export function AttachList(props: { a: NoteAttachments; onAll(): void; onReveal(
           <img src={imgUrl(i.path)} alt="" />
           <span className="tx">
             <span className="n truncate">{nameOf(i.path)}</span>
-            <span className="w truncate">{i.where ?? '文中没用到'}</span>
+            <span className="w truncate">{i.where ?? t('文中没用到')}</span>
           </span>
           <span className="sz num">{sizeText(i.bytes)}</span>
           <span className="rv">
             <Codicon name="go-to-file" size={14} />
-            在访达中显示
+            {t('在访达中显示')}
           </span>
         </button>
       ))}
       {a.items.length > LIST && (
         <div className="pa-more">
           <button onClick={props.onAll}>
-            {`全部 ${a.items.length} 张`}
+            {t('全部 {n} 张', { n: a.items.length })}
             <Codicon name="chevron-right" size={12} />
           </button>
           <span>
-            {`还有 ${a.items.length - LIST} 张${unused ? ` · ${unused} 张文中没用到` : ''}`}
+            {unused ? t('还有 {n} 张 · {unused} 张文中没用到', { n: a.items.length - LIST, unused }) : t('还有 {n} 张', { n: a.items.length - LIST })}
           </span>
         </div>
       )}
@@ -98,6 +101,7 @@ type Order = 'text' | 'size' | 'unused'
 /** 「全部 N 张」：同一个弹层换成 4 列缩略图网格 */
 export function AttachGrid(props: { a: NoteAttachments; onBack(): void; onReveal(): void; onJump(offset: number): void; reload(): void }) {
   const { a } = props
+  const t = useT()
   const [q, setQ] = useState('')
   const [order, setOrder] = useState<Order>('text')
   const unused = a.items.filter((i) => i.offset === null)
@@ -111,28 +115,28 @@ export function AttachGrid(props: { a: NoteAttachments; onBack(): void; onReveal
   return (
     <div className="pa-grid-pop">
       <div className="pa-hd">
-        <button className="pa-ib" aria-label="回到属性" onClick={props.onBack}>
+        <button className="pa-ib" aria-label={t('回到属性')} onClick={props.onBack}>
           <Codicon name="arrow-left" size={16} />
         </button>
-        <b>附件</b>
+        <b>{t('附件')}</b>
         <span className="num">
-          {`${a.items.length} 张 · ${sizeText(a.bytes)}`}
+          {t('{n} 张 · {size}', { n: a.items.length, size: sizeText(a.bytes) })}
         </span>
         <span className="sp" />
-        <button className="pa-ib" aria-label="在访达里打开附件文件夹" onClick={props.onReveal}>
+        <button className="pa-ib" aria-label={t('在访达里打开附件文件夹')} onClick={props.onReveal}>
           <Codicon name="folder-opened" size={16} />
         </button>
       </div>
       <label className="pa-find">
         <Codicon name="search" size={14} />
-        <input aria-label="找名字" placeholder="找名字" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+        <input aria-label={t('找名字')} placeholder={t('找名字')} value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
       </label>
-      <div className="pa-tg" role="tablist" aria-label="怎么排">
+      <div className="pa-tg" role="tablist" aria-label={t('怎么排')}>
         {(
           [
-            ['text', '按文中先后'],
-            ['size', '按大小'],
-            ['unused', `文中没用到 ${unused.length}`],
+            ['text', t('按文中先后')],
+            ['size', t('按大小')],
+            ['unused', t('文中没用到 {n}', { n: unused.length })],
           ] as const
         ).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={order === k} className={order === k ? 'on' : ''} onClick={() => setOrder(k)}>
@@ -141,7 +145,7 @@ export function AttachGrid(props: { a: NoteAttachments; onBack(): void; onReveal
           </button>
         ))}
       </div>
-      <div className="pa-grid" role="list" aria-label="全部附件">
+      <div className="pa-grid" role="list" aria-label={t('全部附件')}>
         {list.map((i) => (
           <button
             key={i.path}
@@ -153,12 +157,12 @@ export function AttachGrid(props: { a: NoteAttachments; onBack(): void; onReveal
             onContextMenu={(e) => itemMenu(e, i, props.reload)}
           >
             <img src={imgUrl(i.path)} alt="" />
-            <span className="n truncate">{i.offset === null ? `没用到 · ${nameOf(i.path)}` : nameOf(i.path)}</span>
+            <span className="n truncate">{i.offset === null ? t('没用到 · {name}', { name: nameOf(i.path) }) : nameOf(i.path)}</span>
           </button>
         ))}
-        {!list.length && <p className="pa-none">{q ? `没有名字里带「${q}」的` : '没有文中没用到的图'}</p>}
+        {!list.length && <p className="pa-none">{q ? t('没有名字里带「{q}」的', { q }) : t('没有文中没用到的图')}</p>}
       </div>
-      <p className="pa-foot">点一张在访达中显示 · 双击跳到文中那一处 · 右键拷贝、删除</p>
+      <p className="pa-foot">{t('点一张在访达中显示 · 双击跳到文中那一处 · 右键拷贝、删除')}</p>
     </div>
   )
 }

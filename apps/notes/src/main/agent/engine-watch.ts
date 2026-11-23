@@ -9,6 +9,7 @@
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { t } from '../../shared/i18n'
 import type { EngineId, EngineInfo } from '../../shared/agent'
 import type { ModelOption } from '../../shared/ai-features'
 import { type EngineHealth, isNewer, parseVersion, pulledText, stateOf, VERIFIED } from '../../shared/engine-health'
@@ -138,7 +139,7 @@ function check(id: EngineId, path: string, version: string): Promise<void> {
     try {
       r = await checkEngine(id, path, { probe: !verified })
     } catch (e) {
-      r = { problems: [], note: `自查出错：${short(e)}`, partial: true }
+      r = { problems: [], note: t('自查出错：{error}', { error: short(e) }), partial: true }
     }
     // 查的时候版本又变了（正在更新）：这次的不算
     if (saved[id]?.version !== version) return
@@ -185,11 +186,11 @@ function latest(id: EngineId, path: string, asked: boolean): Promise<void> {
       s.latest = v
       s.latestAt = Date.now()
       // 点了「检查更新」、没有更新的：说一声「已是最新」
-      l.latestNote = asked && !isNewer(v, s.version) ? '已是最新' : undefined
+      l.latestNote = asked && !isNewer(v, s.version) ? t('已是最新') : undefined
       save()
     } catch (e) {
       // 后台看不到就算了（不说）；点了「检查更新」才说为什么
-      l.latestNote = asked ? `没查到新版本：${short(e)}` : l.latestNote
+      l.latestNote = asked ? t('没查到新版本：{error}', { error: short(e) }) : l.latestNote
     }
   })().finally(() => {
     l.latestBusy = undefined
@@ -208,7 +209,7 @@ export async function checkNow(id: EngineId): Promise<void> {
 /** 「更新」：跑它官方的更新；成了重读版本、再自查、再拉模型；没成照实说它最后一句原话 */
 export async function updateNow(id: EngineId): Promise<void> {
   const hit = locateCli(id)
-  if (!hit) throw new Error('这台Mac上没找到它')
+  if (!hit) throw new Error(t('这台Mac上没找到它'))
   const plan = updatePlan(id, hit.path)
   if ('none' in plan) throw new Error(plan.none)
   const l = live[id]

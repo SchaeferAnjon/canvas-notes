@@ -3,9 +3,17 @@
  * - 收件箱/        新东西默认进这里（速记、剪藏）
  * - 剪藏/<主题>/   剪来的东西，按主题分文件夹（2026-11-18 以前叫「素材」，打开老库时改名）
  * - 其他 md 文件   我写的
+ * 英文库（task-zojmg，库语言）里叫 Inbox、Clippings：INBOX、CLIPS 跟着开着的库换（ES 模块的导出是活的，import 进去的地方读到的就是现在的名字）
  */
-export const INBOX = '收件箱'
-export const CLIPS = '剪藏'
+import { catName } from './categories'
+import { onVaultLang } from './i18n/vault'
+
+export let INBOX = catName('收件箱')
+export let CLIPS = catName('剪藏')
+onVaultLang(() => {
+  INBOX = catName('收件箱')
+  CLIPS = catName('剪藏')
+})
 
 export type NoteKind = 'inbox' | 'clip' | 'work'
 
@@ -63,11 +71,17 @@ export const mdUrl = (url: string) => url.replace(/[()\s]/g, (c) => '%' + c.char
 
 /** 剪下来的一段：`> 原文` 下一行 `—— [标题](网址)` */
 export function clipMarkdown(text: string, title: string, url: string): string {
-  const quote = text
-    .trim()
-    .split(/\n+/)
-    .map((l) => '> ' + l.trim())
-    .join('\n')
+  // 围栏代码块里的行原样（缩进、空行都留着）；别的照旧去掉空行、去掉两头空白
+  let fence = false
+  const lines: string[] = []
+  for (const l of text.trim().split('\n')) {
+    if (/^\s*(```|~~~)/.test(l)) {
+      fence = !fence
+      lines.push('> ' + l.trim())
+    } else if (fence) lines.push(l.trimEnd() ? '> ' + l.trimEnd() : '>')
+    else if (l.trim()) lines.push('> ' + l.trim())
+  }
+  const quote = lines.join('\n')
   const t = (title.trim() || url).replace(/[\[\]]/g, '')
   return `${quote}\n—— [${t}](${mdUrl(url)})`
 }

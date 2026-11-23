@@ -1,11 +1,11 @@
 /**
- * 设置的分页和每一项（2026-11-21 用户选方向 A「分组侧栏」，task-f7rib）：侧栏 5 段 15 页、侧栏顶上的搜索、
+ * 设置的分页和每一项（2026-11-21 用户选方向 A「分组侧栏」，task-f7rib）：侧栏 5 段 16 页（2026-11-23 加了「软件家族」，task-59o3v）、侧栏顶上的搜索、
  * 从用的地方跳过来（翻到那页、那一行闪 1.6 秒）都从这一张表出。外观、首页、梦游、插件这几页照现在的样子画，
  * 表里只记它们能被搜到、能跳到的那几块（页面里同名的 data-row）。
  * 搜索：名字、说明、组名、页名、别的叫法（kw）都算，几个词用空格隔开时每个都要打中；名字里有的排前面。纯数据和纯函数。
  */
 
-export type SettingsPageId = 'general' | 'look' | 'home' | 'editor' | 'files' | 'pdf' | 'web' | 'ai' | 'dream' | 'vault' | 'git' | 'privacy' | 'plugins' | 'keys' | 'advanced'
+export type SettingsPageId = 'general' | 'look' | 'home' | 'editor' | 'files' | 'pdf' | 'web' | 'ai' | 'dream' | 'auto' | 'selbar' | 'vault' | 'git' | 'privacy' | 'family' | 'plugins' | 'keys' | 'advanced'
 
 export interface SettingsPageInfo {
   id: SettingsPageId
@@ -27,6 +27,8 @@ export interface SettingsItem {
   desc?: string
   /** 别的叫法（搜索用） */
   kw?: string
+  /** 在那一页里再点一下才到的子页（设置 › 自动化里点「周记」）：搜到这一项、从别处跳过来时先进这一页 */
+  sub?: 'weekly'
 }
 
 export const SETTINGS_SECTIONS = ['常用', '写和读', 'AI', '库和同步', '其他'] as const
@@ -41,9 +43,13 @@ export const SETTINGS_PAGES: SettingsPageInfo[] = [
   { id: 'web', name: '网页和视频', icon: 'globe', sec: '写和读', desc: '右栏网页、下载、看视频和生成字幕' },
   { id: 'ai', name: 'AI', icon: 'comment-discussion', sec: 'AI', desc: '用哪家AI、能动手到哪' },
   { id: 'dream', name: '梦游', icon: 'wand', sec: 'AI', desc: '闲时整理库：什么时候、做哪些事' },
+  { id: 'auto', name: '自动化', icon: 'symbol-event', sec: 'AI', desc: '到点或满足条件就做事。在哪建的都列在这里：开关、上次做了什么、现在跑一次' },
+  // 选中小条（task-26nz7）：网页、PDF、HTML 里选了字弹出的那一条
+  { id: 'selbar', name: '选中小条', icon: 'list-selection', sec: 'AI', desc: '网页、PDF、HTML 里选了字弹出的那一条：放哪几颗、在哪出现、哪些网站不弹' },
   { id: 'vault', name: '库', icon: 'library', sec: '库和同步', desc: '现在的库、导入旧笔记' },
   { id: 'git', name: 'Git和同步', icon: 'git-branch', sec: '库和同步', desc: '提交、同步到远程、备份' },
   { id: 'privacy', name: '隐私和联网', icon: 'shield', sec: '库和同步', desc: '软件什么时候联网、联到哪' },
+  { id: 'family', name: '软件家族', icon: 'multiple-windows', sec: '其他', desc: '同一个人做的几个软件：装了的能互相接上，没装的先看看能做什么' },
   { id: 'plugins', name: '插件', icon: 'extensions', sec: '其他', desc: '内置的四个插件' },
   { id: 'keys', name: '快捷键', icon: 'record-keys', sec: '其他', desc: '每条命令都能设键；点一个键就能改，撞了别的会告诉你' },
   { id: 'advanced', name: '高级', icon: 'tools', sec: '其他', desc: '出问题时用' },
@@ -128,6 +134,10 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'cliGemini', pg: 'ai', grp: '各家命令行', label: 'Gemini', desc: '版本、能不能用、模型；检查更新', kw: '版本 更新 升级 兼容 命令行 模型 gemini' },
   { id: 'cliOpencode', pg: 'ai', grp: '各家命令行', label: 'OpenCode', desc: '版本、能不能用、模型；检查更新', kw: '版本 更新 升级 兼容 命令行 模型 opencode upgrade' },
   // ---------- 梦游（照现在的页） ----------
+  // ---------- 选中小条（task-26nz7） ----------
+  { id: 'barList', pg: 'selbar', grp: '按钮', label: '小条上的按钮', desc: '条上最多5颗，其余收进 ⋯ 或不出现；能加自己的', kw: '小条 工具条 选中 Monica 按钮 自定义 提示词 排序' },
+  { id: 'barOn', pg: 'selbar', grp: '弹不弹', label: '选好字就弹小条', desc: '关着时哪里都不弹，键照样能用', kw: '小条 工具条 不弹 弹出 Monica' },
+  { id: 'barSites', pg: 'selbar', grp: '这些网站不弹', label: '这些网站不弹', desc: '默认哪里都弹；存在库里', kw: '小条 工具条 不弹 网站 名单 Monica' },
   { id: 'dAuto', pg: 'dream', grp: '什么时候梦游', label: '自己梦游', desc: '关了只在点「现在梦游」时梦游', kw: '梦游 自动 闲时' },
   { id: 'dIdle', pg: 'dream', grp: '什么时候梦游', label: '没人动多久算闲', desc: '这台Mac没人碰键盘和鼠标这么久', kw: '梦游 闲' },
   { id: 'dGap', pg: 'dream', grp: '什么时候梦游', label: '两次之间至少隔', desc: '从上次梦游完算起', kw: '梦游 间隔' },
@@ -136,6 +146,24 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'dFolders', pg: 'dream', grp: '能动哪些文件夹', label: '能动哪些文件夹', desc: '梦游只在勾上的文件夹里改字、建文件', kw: '梦游 文件夹 分类' },
   { id: 'dTake', pg: 'dream', grp: '改完怎么收', label: '改完怎么收', desc: '先预览，收下才进库；或改完直接收下', kw: '梦游 预览 收下' },
   { id: 'dAi', pg: 'dream', grp: '用哪家AI', label: '梦游用哪家AI', desc: '在设置 › AI的「梦游」那一行换', kw: '梦游 AI 引擎' },
+  // ---------- 自动化（task-i921u「当……就……」：软件自带的周记、梦游、定时整理收件箱，和数据库里建的规则） ----------
+  { id: 'autoAll', pg: 'auto', grp: '全部的开关', label: '自动化', desc: '关掉就全部停下，规则都留着；开回来不补跑停着的那段', kw: '自动化 总开关 暂停 规则 当 就 automation' },
+  { id: 'autoMissed', pg: 'auto', grp: '全部的开关', label: 'Mac 关着时错过的', desc: '定时的那几样，打开画布笔记时怎么办', kw: '自动化 错过 补跑 关机 定时' },
+  { id: 'autoTell', pg: 'auto', grp: '全部的开关', label: '跑完告诉我', desc: '底栏一句能撤回；周记、发通知那一步再加系统通知', kw: '自动化 通知 提示' },
+  { id: 'autoWeekly', pg: 'auto', grp: '软件自带的', label: '周记', desc: '到点新建本周那篇；点进去改哪天、什么时候、模板', kw: '自动化 周记 每周 现在跑一次' },
+  { id: 'autoDream', pg: 'auto', grp: '软件自带的', label: '梦游', desc: '没人动时自己整理；开关和梦游页是同一个', kw: '自动化 梦游 闲时' },
+  { id: 'autoInbox', pg: 'auto', grp: '软件自带的', label: '定时整理收件箱', desc: '到点让 AI 把收件箱分进各个分类', kw: '自动化 整理收件箱 定时 现在跑一次' },
+  { id: 'autoBase', pg: 'auto', grp: '数据库里建的', label: '数据库里建的', desc: '在数据库块头「自动化」里建的规则，开关和数据库那边是同一个', kw: '自动化 数据库 规则 当 如果 就' },
+  { id: 'autoRecent', pg: 'auto', grp: '最近跑的', label: '最近跑的', desc: '几点、哪一样、做了什么', kw: '自动化 记录 最近 撤回' },
+  { id: 'weekDay', pg: 'auto', sub: 'weekly', grp: '周记', label: '每周几', desc: '那天到点新建；这周那篇已经有了就不新建，只往里补', kw: '周记 星期 周几 每周' },
+  { id: 'weekAt', pg: 'auto', sub: 'weekly', grp: '周记', label: '几点', desc: 'Mac 关着、画布笔记没开时，下次打开补跑一次', kw: '周记 时间 几点' },
+  { id: 'weekFolder', pg: 'auto', sub: 'weekly', grp: '周记', label: '放在', desc: '新建的那篇放进哪个顶级分类', kw: '周记 文件夹' },
+  { id: 'weekTitle', pg: 'auto', sub: 'weekly', grp: '周记', label: '标题', kw: '周记 标题 周 ISO' },
+  { id: 'weekTpl', pg: 'auto', sub: 'weekly', grp: '周记', label: '模板', kw: '周记 模板' },
+  { id: 'weekAi', pg: 'auto', sub: 'weekly', grp: '周记', label: '建好以后让 AI 先填一段', kw: '周记 AI 摘要 写这周的周记' },
+  { id: 'weekMerge', pg: 'auto', sub: 'weekly', grp: '周记', label: '梦游的「写本周小结」', desc: '并进这里：梦游不再另写一篇小结，周记只有这一篇', kw: '周记 梦游 小结' },
+  { id: 'weekRemind', pg: 'auto', sub: 'weekly', grp: '周记', label: '建好就提醒', desc: '发一条系统通知，再加一条今天 21:00 提醒你写的待办，提醒交给画布今日', kw: '周记 提醒 通知 待办' },
+  { id: 'weekRun', pg: 'auto', sub: 'weekly', grp: '周记', label: '现在跑一次', kw: '周记 现在 试 跑' },
   // ---------- 库 ----------
   { id: 'vaultNow', pg: 'vault', grp: '现在的库', label: '现在的库', desc: '一个普通文件夹，里面是md文件', kw: '库 文件夹 换库 vault' },
   { id: 'import', pg: 'vault', grp: '导入', label: '导入旧笔记', desc: '备忘录或旧的Obsidian库：先进收件箱，梦游时分好类', kw: '导入 Obsidian 备忘录 迁移' },
@@ -152,12 +180,23 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'backup', pg: 'git', grp: '备份', label: '每天备份一份到', desc: '没设远程时，Git历史只在这台Mac上；另存一份到iCloud云盘或外接盘', kw: '备份 iCloud 外接盘 安全' },
   // ---------- 隐私和联网 ----------
   { id: 'netList', pg: 'privacy', grp: '会联网的', label: '检查更新', desc: '连 GitHub Release；打开30秒后一次，之后每6小时', kw: '联网 隐私 更新' },
+  { id: 'netFamily', pg: 'privacy', grp: '会联网的', label: '每天看一次家族名单', desc: 'apps.us-cloud.uk；看家族里有没有新软件，关了只用软件里带的那份', kw: '家族 名单 联网 软件家族 总站' },
   { id: 'netAd', pg: 'privacy', grp: '会联网的', label: '拦广告的规则', desc: '每周取一次 EasyList、EasyPrivacy；关了网页不拦广告', kw: '拦广告 联网' },
   { id: 'netWeread', pg: 'privacy', grp: '会联网的', label: '微信读书同步划线', desc: '看微信读书时把每本书的划线和想法同步进「阅读」；插件页里那个开关是同一个', kw: '微信读书 同步 联网' },
   { id: 'netGit', pg: 'privacy', grp: '会联网的', label: 'Git同步', desc: '只在你点「同步」时（或开了自动同步）', kw: '同步 联网' },
   { id: 'netAi', pg: 'privacy', grp: '会联网的', label: 'AI、翻译、听写', desc: '你问、点翻译、点生成字幕、闲时梦游时，由各家的命令行或接口联网；软件自己不往外传你的笔记', kw: 'AI 联网 隐私 数据 梦游' },
   { id: 'netWeb', pg: 'privacy', grp: '会联网的', label: '网页、书签图标、视频卡片', desc: '右栏开着的网页、新网页标签上书签的图标、白板上视频卡的标题和封面，打开时联网；微信读书登录着时，打开软件会问一下登录还在不在', kw: '网页 图标 联网 网站' },
   { id: 'netNone', pg: 'privacy', grp: '不会做的', label: '不收集使用数据', desc: '没有统计、没有崩溃报告；搜索的意思索引在本机算', kw: '统计 隐私 数据 收集' },
+  // ---------- 软件家族（task-59o3v）：每个软件一项，搜软件名、「下载」「联动」「家族」都到这一页、那一张表闪一下 ----------
+  { id: 'fam-canvas-today', pg: 'family', grp: '能和画布笔记接上的', label: '画布今日', desc: '待办旁边放「在画布今日里打开」、用同一个库', kw: '家族 联动 下载 打开 Canvas Today 任务 待办' },
+  { id: 'fam-pararead', pg: 'family', grp: '能和画布笔记接上的', label: 'ParaRead', desc: 'PDF换到ParaRead读双语、写进配对笔记', kw: '家族 联动 下载 打开 论文 双语 PDF' },
+  { id: 'fam-meetcaption', pg: 'family', grp: '能和画布笔记接上的', label: 'MeetCaption', desc: '课堂笔记、会议纪要写进库', kw: '家族 联动 下载 打开 字幕 会议 纪要' },
+  { id: 'fam-bookmarkkeeper', pg: 'family', grp: '能和画布笔记接上的', label: 'BookmarkKeeper', desc: '网页的新标签页；开关在插件 › 书签管家', kw: '家族 联动 下载 打开 书签 新标签页' },
+  { id: 'fam-chatcards', pg: 'family', grp: '能和画布笔记接上的', label: 'ChatCards', desc: '出的卡长一个样，在Anki里一起复习', kw: '家族 联动 下载 打开 Anki 卡片 Anki Learn' },
+  { id: 'fam-askfree', pg: 'family', grp: '家族里还有', label: 'Ask Free', desc: '按一个键说出问题，AI看着你的屏幕回答', kw: '家族 下载 打开' },
+  { id: 'fam-getnewword', pg: 'family', grp: '家族里还有', label: 'GetNewWord', desc: '框住外语词，马上出这句里的意思', kw: '家族 下载 打开 单词 Anki' },
+  { id: 'fam-typeright', pg: 'family', grp: '家族里还有', label: 'TypeRight', desc: 'Mac上的英文打字助手', kw: '家族 下载 打开 英文 打字' },
+  { id: 'fam-dispatch', pg: 'family', grp: '家族里还有', label: 'Dispatch', desc: '给Claude Code、Codex套的Mac窗口', kw: '家族 下载 打开 Claude Code Codex' },
   // ---------- 插件（照现在的页） ----------
   { id: 'plTranslate', pg: 'plugins', grp: '内置插件', label: '双语翻译', desc: '翻译用什么、六个引擎排顺序、试一句、默认怎么翻', kw: '翻译 插件 双语 引擎 DeepSeek' },
   { id: 'plBook', pg: 'plugins', grp: '内置插件', label: '书签管家', desc: '新网页标签是它；收藏、标签、备注', kw: '书签 插件 BookmarkKeeper' },

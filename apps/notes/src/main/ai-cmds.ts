@@ -13,6 +13,7 @@ import * as git from '@cn/git'
 import { aiCmdJson, aiCmdOf } from '../shared/ai-cmds'
 import { isoWeek, newHighlights, newQuestions, type WeekInfo, weekPath } from '../shared/cmd-run'
 import { titleOf } from '../shared/layout'
+import { underCat } from '../shared/categories'
 import { WEREAD_FOLDER } from '../shared/plugins/weread'
 import { writeFileAtomic } from './atomic'
 import type { EngineImage } from './agent/engines'
@@ -96,7 +97,7 @@ export async function weekInfo(vault: Vault, now = new Date()): Promise<WeekInfo
   const books: WeekInfo['books'] = []
   for (const c of commits)
     for (const f of c.files) {
-      if (seen.has(f) || !/\.md$/i.test(f) || git.isInternalPath(f) || f.startsWith('周记/') || !existsSync(vault.abs(f))) continue
+      if (seen.has(f) || !/\.md$/i.test(f) || git.isInternalPath(f) || underCat(f, '周记') || !existsSync(vault.abs(f))) continue
       seen.add(f)
       const pdf = / 笔记\.md$/.test(f) && existsSync(vault.abs(f.replace(/ 笔记\.md$/, '.pdf')))
       if (f.startsWith(WEREAD_FOLDER + '/') || pdf) {

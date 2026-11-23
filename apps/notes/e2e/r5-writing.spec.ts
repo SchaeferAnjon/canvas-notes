@@ -152,8 +152,9 @@ test('展开的折叠块：后面那段段首退格三下，</details> 不丢；
   const MULTI = '# 多行标题\n\n<details>\n<summary>\n多行的\n标题\n</summary>\n\n第一段里面。\n\n</details>\n'
   const run = await launch({ '折叠退格.md': FOLD, '折叠下移.md': PLACED, '多行标题.md': MULTI })
   const { page } = run
+  // 真点标题条（按下、松手）：只派一个 mousedown 不松手的话，文档拉框（task-5ryf9）一直等着松手，下一次挪鼠标就当成拉框，后面的点不进字里
   const expand = async () => {
-    await pane(page).locator('.cm-fold-head').first().dispatchEvent('mousedown', { button: 0 })
+    await pane(page).locator('.cm-fold-head').first().click()
     await expect(pane(page).locator('.cm-fold-headline').first()).toBeVisible()
   }
   try {

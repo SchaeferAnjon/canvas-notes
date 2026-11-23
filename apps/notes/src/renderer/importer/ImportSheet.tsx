@@ -62,7 +62,10 @@ export function ImportHost(props: { onOpenInbox(): void; onShowFiles(): void; on
             if (!running) setProgress(null)
             closeImport()
           }}
-          onUndo={(r) => void undo(r).then(closeImport)}
+          onUndo={(r) => {
+            const mine = open
+            void undo(r).then(() => closeImport(mine))
+          }}
           onOpenInbox={() => (closeImport(), props.onOpenInbox())}
           onShowFiles={() => (closeImport(), props.onShowFiles())}
           onDreamNow={() => (closeImport(), setProgress(null), props.onDreamNow())}

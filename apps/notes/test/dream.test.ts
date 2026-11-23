@@ -67,7 +67,8 @@ describe('梦游', { timeout: 30_000 }, () => {
     const link = r.items.find((i) => i.group === 'link')!
     expect(link.title).toBe('极光')
     expect(link.sub).toBe('↔ [[极光预报]]')
-    expect(link.why).toMatch(/两篇都讲到「.*云量低于三成.*」/)
+    // 理由是两篇共同的关键词，不是碰巧相同的一段（task-eler2）
+    expect(link.why).toMatch(/^两篇共同的关键词：.*云量低于三成.*。只在这篇末尾加一行/)
     const dup = r.items.find((i) => i.group === 'dup')!
     expect(dup.commit).toBeNull()
     expect(dup.files.sort()).toEqual(['剪藏/巴黎/巴黎深度漫游指南.md', '收件箱/巴黎自由行全景指南.md'])

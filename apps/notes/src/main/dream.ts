@@ -15,9 +15,10 @@ import { decodeNote, encodeNote, merge3Fine, readProps } from '@cn/format'
 import * as git from '@cn/git'
 import type { DreamGroup, DreamItem, DreamReport, DuplicatePair } from '../shared/api'
 import { INBOX, previewOf, titleOf } from '../shared/layout'
+import { catName } from '../shared/categories'
 import { VIDEO_FOLDER, videoOf } from '../shared/video'
 import { BRAND } from '../shared/brand'
-import { duplicatesOf, isAutoSummary, type LinkCand, linkCandidates } from './duplicates'
+import { duplicatesOf, isAutoSummary, type LinkCand, linkCandidates, linkWhy } from './duplicates'
 import { oldImagesOnBranch } from './dream-attach'
 import { makeDreamViz } from './dream-viz'
 import { movedText, relinkText } from './dream-file'
@@ -204,7 +205,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
 
     // 3. 本周小结（新文件，和别的提交互不相干）
     const week = isoWeek(now)
-    const weekPath = `周记/${week}.md`
+    const weekPath = `${catName('周记')}/${week}.md`
     if (weekOn(set) && !texts.has(weekPath) && !(await exists(join(wt, weekPath)))) {
       try {
         const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7))
@@ -222,11 +223,11 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
             )
           ).trim()
           if (reply) {
-            await mkdir(join(wt, '周记'), { recursive: true })
+            await mkdir(join(wt, catName('周记')), { recursive: true })
             await writeFile(join(wt, weekPath), `---\nby: 梦游\ncreated: ${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}\n---\n# ${week} 小结\n\n${reply}\n`)
             await git.git(wt, ['add', '--', weekPath])
             const c = await check(`梦游：写了本周小结 ${weekPath}`)
-            add('week', { title: `周记 ${week}`, sub: `新文件 ${weekPath}`, why: '梦游按这周的提交写的，收下前可以改；你写的正文不会动', commit: c, files: [weekPath], changes: [{ path: weekPath, text: `新建 ${weekPath}` }] })
+            add('week', { title: `${catName('周记')} ${week}`, sub: `新文件 ${weekPath}`, why: '梦游按这周的提交写的，收下前可以改；你写的正文不会动', commit: c, files: [weekPath], changes: [{ path: weekPath, text: `新建 ${weekPath}` }] })
           }
         }
       } catch (e) {
@@ -252,7 +253,7 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
       add('link', {
         title: titleOf(c.p),
         sub: `↔ [[${target}]]`,
-        why: `两篇都讲到「${c.passage}」。只在这篇末尾加一行，「${target}」那篇不改`,
+        why: `${linkWhy(c.terms)}。只在这篇末尾加一行，「${target}」那篇不改`,
         commit,
         files: [c.p],
         changes: [{ path: c.p, text: `末尾加了一行 相关：[[${target}]]` }],

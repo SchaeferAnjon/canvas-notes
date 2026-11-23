@@ -27,4 +27,19 @@ describe('旁支的名字（原型 nameOf）', () => {
     expect(sideName({ quote: '列就是基向量去哪', msgs: msgs('讲讲这句') })).toBe('列就是基向量去哪')
     expect(sideName({ quote: 'x', msgs: [] })).toBe('新旁支')
   })
+
+  it('英文按整词截，连省略号 18 个字符（选的那一句、问的第一句都是）；中文照旧按字截；空着问 Explain this 也用那一句', () => {
+    const msgs = (q: string) => [{ role: 'user', text: q }]
+    const quote = 'Each word then mixes the other words in proportion to those weights.'
+    expect(sideName({ quote, msgs: msgs('讲讲这句') })).toBe('Each word then…')
+    expect(sideName({ quote, msgs: msgs('Explain this') })).toBe('Each word then…')
+    expect(sideName({ quote: 'x', msgs: msgs('Why do the weights add up to one?') })).toBe('Why do the…')
+    expect(sideName({ quote: 'x', msgs: msgs('Why softmax?') })).toBe('Why softmax')
+    expect(sideName({ quote: 'Short quote.', msgs: msgs('讲讲这句') })).toBe('Short quote.')
+    // 一个词就超了才在词中间截；截在逗号后面的把逗号去掉
+    expect(sideName({ quote: 'Supercalifragilisticexpialidocious words', msgs: msgs('讲讲这句') })).toBe('Supercalifragilis…')
+    expect(sideName({ quote: 'One, two, three, four, five, six', msgs: msgs('讲讲这句') })).toBe('One, two, three…')
+    // 夹着汉字的按中文规矩
+    expect(sideName({ quote: 'Roofline 的拐点是算力和带宽', msgs: msgs('讲讲这句') })).toBe('Roofline…')
+  })
 })

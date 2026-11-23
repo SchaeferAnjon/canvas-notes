@@ -27,8 +27,9 @@ import {
 } from '../shared/folder-home'
 import { writeFileAtomic } from './atomic'
 import { followOpen } from './ctx-menu'
-import { countFiles, GITKEEP, makeFolder, moveFolder, renameFolder, testTrash, trashFolder } from './folder-ops'
+import { countFiles, GITKEEP, makeFolder, moveFolder, moveItem, renameFolder, testTrash, trashFolder } from './folder-ops'
 import { readDescs, writeDesc } from './categories'
+import { catName } from '../shared/categories'
 import { readLeft, writeLeft } from './left'
 import type { Vault } from './vault'
 
@@ -171,8 +172,9 @@ async function subdirs(v: Vault, rel: string): Promise<string[]> {
 
 /** 库里有首页的文件夹，带它首页选的图标和颜色（左栏、标签上用） */
 export async function listFolderHomes(v: Vault): Promise<FolderEntry[]> {
-  const folders = [...(await subdirs(v, '课程')), ...(await subdirs(v, '项目'))]
-  for (const top of ['生活', '写作']) if ((await stat(v.abs(top)).catch(() => null))?.isDirectory()) folders.push(top)
+  // 分类文件夹名照这个库的（英文库是 Courses、Projects、Life、Writing）
+  const folders = [...(await subdirs(v, catName('课程'))), ...(await subdirs(v, catName('项目')))]
+  for (const top of [catName('生活'), catName('写作')]) if ((await stat(v.abs(top)).catch(() => null))?.isDirectory()) folders.push(top)
   const out = await Promise.all(
     folders.map(async (folder) => {
       const { home } = await readFolderHome(v, folder)
@@ -254,6 +256,16 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     const follow = followOpen(e.sender)
     try {
       return (await moveFolder(v, folder, parent, (from, to) => (moved?.(v.root, from, to), follow(from, to)))).to
+    } finally {
+      changed()
+    }
+  })
+  // 首页卡里拖走一份（task-r00en）：PDF 连挂着的笔记、可视化一起挪；读 PDF 记在本机的进度、开着的编辑器跟到新路径
+  ipcMain.handle('folder:moveItem', async (e, path: unknown, folder: unknown) => {
+    const v = getVault()
+    const follow = followOpen(e.sender)
+    try {
+      return await moveItem(v, path, folder, (from, to) => (moved?.(v.root, from, to), follow(from, to)))
     } finally {
       changed()
     }

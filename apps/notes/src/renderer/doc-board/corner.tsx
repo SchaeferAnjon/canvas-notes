@@ -6,6 +6,7 @@
  */
 import { Codicon } from '@cn/design'
 import { useLayoutEffect, useRef, useState } from 'react'
+import { useT } from '../i18n'
 import { InboxButton } from './inbox'
 
 /** 白板这一格窄于它：两颗只留图标和数 */
@@ -19,6 +20,7 @@ export function BoardCorner(props: {
   onZoomMenu(): void
   inboxCount: number
 }) {
+  const t = useT()
   const self = useRef<HTMLDivElement>(null)
   const [narrow, setNarrow] = useState(false)
   // 量白板这一格（文档白板 doc-board、导图那种自由白板 .board）的宽
@@ -42,7 +44,7 @@ export function BoardCorner(props: {
       onDoubleClick={(e) => e.stopPropagation()}
     >
       {/* 比例本身就是按钮，点开是缩放菜单 */}
-      <button type="button" className="dbc-btn zoom" aria-label="缩放" data-testid="board-zoom" data-tip="缩放" data-key={props.zoomKeys} data-side="below" onClick={props.onZoomMenu}>
+      <button type="button" className="dbc-btn zoom" aria-label={t('缩放')} data-testid="board-zoom" data-tip={t('缩放')} data-key={props.zoomKeys} data-side="below" onClick={props.onZoomMenu}>
         <span className="num">{props.pct}%</span>
         <Codicon name="chevron-down" size={12} />
       </button>

@@ -10,6 +10,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { ask, pairWith } from '../src/main/mobile-ai/client'
 import { type Frame, parsePairLink } from '../src/main/mobile-ai/protocol'
+import { parseQuiz } from '../src/shared/cmd-run'
 import { launch, type Running } from './app'
 
 test.skip(!process.env.CN_REAL_AI, '真 AI 才跑：CN_REAL_AI=1')
@@ -82,6 +83,36 @@ test('真 AI：iPad 配对以后问 Mac，Mac 用本机的命令行答，一帧�
     console.log(`讲解一下：${answer.slice(0, 300)}`)
     expect(answer).toMatch(/[一-鿿]/)
     expect(answer.length).toBeGreaterThan(40)
+
+    // 第二块：Pencil 圈的一块（截图交给 Mac，Mac 存成临时文件交给命令行）：图里写着一个方程，这一页没有字，AI 只能看图答
+    const png = await page.evaluate(() => {
+      const c = document.createElement('canvas')
+      c.width = 520
+      c.height = 120
+      const g = c.getContext('2d')!
+      g.fillStyle = '#fff'
+      g.fillRect(0, 0, c.width, c.height)
+      g.fillStyle = '#000'
+      g.font = '56px serif'
+      g.fillText('3x + 4 = 19', 40, 80)
+      return c.toDataURL('image/png').split(',')[1]!
+    })
+    const crop = await ask(pad, { kind: 'explain', text: '', source: { kind: 'pdf', title: '方程', path: '方程.pdf', page: 1, pages: 1 }, image: png, device: 'iPad' })
+    expect(crop.at(-1)).toMatchObject({ t: 'done' })
+    const cropAnswer = textOf(crop)
+    console.log(`圈一块讲解：${cropAnswer.slice(0, 300)}`)
+    expect(cropAnswer).toMatch(/19|x\s*=\s*5|＝\s*5|等于\s*5/)
+
+    // / 命令：iPad 照电脑版拼好的话（出几道自测题），AI 只给 JSON
+    const cmd = await ask(pad, {
+      kind: 'cmd',
+      text: '命令：出几道自测题\n文件：线代.md\n\n照下面这篇出 5 道自测题，考要紧的概念、做法和为什么，不考书名、日期这类细节。答案两三句，讲清为什么；只用这篇里有的内容。\n只输出 JSON：[{"q":"问题","a":"答案"}]\n\n<note title="线代">\n# 线性映射\n\n线性映射保持加法和数乘：T(u+v)=T(u)+T(v)，T(cu)=cT(u)。网格线变完还是直线、平行、等距，原点不动。\n</note>',
+      device: 'iPad',
+    })
+    expect(cmd.at(-1)).toMatchObject({ t: 'done' })
+    const json = textOf(cmd)
+    console.log(`/出几道自测题：${json.slice(0, 200)}`)
+    expect(parseQuiz(json).length).toBeGreaterThanOrEqual(3)
   } finally {
     await run.close()
     if (ENGINE === 'codex') forgetCodex(run, since)

@@ -4,6 +4,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { menuAt } from '../ctx/menu'
 import { barLayout, fitFold } from './bar-fold'
+import { list } from '../../shared/i18n'
+import { rich, useT } from '../i18n'
 
 /**
  * 主界面框架（task-mzstv，设计稿 design-frame/spec.md）：上面标题栏只管「开着什么、找东西」，
@@ -62,6 +64,7 @@ const LEFT_DRAG = 'application/x-cn-left'
  * 拖着排、从树里拖文件夹上来时（task-wniqx，原型 proto-pin-folder.html）：落点一道强调色线，栏右边一句「松手：挪到这里」/「松手：放到左边」
  */
 export function ActivityBar(props: { side: 'left' | 'right'; label: string; groups: BarItem[][]; bottom?: React.ReactNode; accept?: BarDrop }) {
+  const t = useT()
   const tipSide = props.side === 'left' ? 'right' : 'left'
   const nav = useRef<HTMLElement>(null)
   /** 收进「⋯」的格子数 */
@@ -103,9 +106,9 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
     <button
       key="ab-more"
       className={'ab' + (moreOn ? ' on' : '')}
-      aria-label={`还有${folded}个`}
+      aria-label={t('还有{n}个', { n: folded })}
       aria-pressed={moreOn}
-      data-tip={`还有${folded}个：${hidden.map((it) => it.label + (it.badge ? ` ${it.badge}` : '')).join('、')}`}
+      data-tip={t('还有{n}个：{names}', { n: folded, names: list(hidden.map((it) => it.label + (it.badge ? ` ${it.badge}` : ''))) })}
       data-side={tipSide}
       data-testid="ab-more"
       onClick={(e) => void menuAt(e, hidden.map((it) => ({ label: it.label, checked: it.on, run: () => it.onClick(e) })))}
@@ -139,11 +142,11 @@ export function ActivityBar(props: { side: 'left' | 'right'; label: string; grou
       const g = props.groups.find((x) => x.some((it) => it.drag?.key === dragKey.current))
       if (!g) return null
       keys = g.filter((it) => it.drag && !hide.has(it.id)).map((it) => [it.id, it.drag!.key] as const)
-      text = '松手：挪到这里'
+      text = t('松手：挪到这里')
     } else if (props.accept && types.includes(props.accept.type) && props.accept.ok()) {
       keys = props.accept.cells.filter((id) => !hide.has(id)).map((id) => [id, id] as const)
       after = props.accept.after
-      text = '松手：放到左边'
+      text = t('松手：放到左边')
     } else return null
     const el = (id: string) => nav.current?.querySelector<HTMLElement>(`[data-bar-id="${CSS.escape(id)}"]`) ?? null
     const rects = keys.map(([id, key]) => [key, el(id)?.getBoundingClientRect()] as const).filter((x): x is readonly [string, DOMRect] => !!x[1])
@@ -278,30 +281,29 @@ export function TitleBar(props: {
 }) {
   /** 写在提示上的键照命令表（改了跟着变） */
   const K = useKeys()
-  const webLabel = props.web?.full ? '还原' : '网页占满'
+  const t = useT()
+  const webLabel = props.web?.full ? t('还原') : t('网页占满')
   return (
     <header className="titlebar">
       <div className="tb-left">
-        <button className="tb-btn" aria-label={props.leftOpen ? '收起左栏' : '展开左栏'} aria-pressed={props.leftOpen} data-tip={props.leftOpen ? '收起左栏' : '展开左栏'} data-key={K('toggle-left') ?? undefined} data-side="below" onClick={props.onToggleLeft}>
+        <button className="tb-btn" aria-label={props.leftOpen ? t('收起左栏') : t('展开左栏')} aria-pressed={props.leftOpen} data-tip={props.leftOpen ? t('收起左栏') : t('展开左栏')} data-key={K('toggle-left') ?? undefined} data-side="below" onClick={props.onToggleLeft}>
           <Codicon name={props.leftOpen ? 'layout-sidebar-left' : 'layout-sidebar-left-off'} />
         </button>
-        <button className="tb-btn" aria-label="后退" data-tip="后退" data-key={K('back') ?? undefined} data-side="below" disabled={!props.canBack} onClick={props.onBack}>
+        <button className="tb-btn" aria-label={t('后退')} data-tip={t('后退')} data-key={K('back') ?? undefined} data-side="below" disabled={!props.canBack} onClick={props.onBack}>
           <Codicon name="arrow-left" />
         </button>
-        <button className="tb-btn" aria-label="前进" data-tip="前进" data-key={K('forward') ?? undefined} data-side="below" disabled={!props.canForward} onClick={props.onForward}>
+        <button className="tb-btn" aria-label={t('前进')} data-tip={t('前进')} data-key={K('forward') ?? undefined} data-side="below" disabled={!props.canForward} onClick={props.onForward}>
           <Codicon name="arrow-right" />
         </button>
-        <button className="tb-btn" aria-label="首页" data-tip="首页" data-key={K('home') ?? undefined} data-side="below" onClick={props.onHome}>
+        <button className="tb-btn" aria-label={t('首页')} data-tip={t('首页')} data-key={K('home') ?? undefined} data-side="below" onClick={props.onHome}>
           <Codicon name="home" />
         </button>
       </div>
-      <button className="cmd" aria-label="搜索" data-tip="搜索笔记、输入网址或命令" data-key={K('search') ?? undefined} data-side="below" onClick={props.onSearch}>
+      <button className="cmd" aria-label={t('搜索')} data-tip={t('搜索笔记、输入网址或命令')} data-key={K('search') ?? undefined} data-side="below" onClick={props.onSearch}>
         <Codicon name="search" />
         <span className="ph truncate">
           {props.location ?? (
-            <>
-              搜索<b>{props.vaultName}</b>：笔记、PDF、命令、网址
-            </>
+            <>{rich(t('搜索{vault}：笔记、PDF、命令、网址'), { vault: <b>{props.vaultName}</b> })}</>
           )}
         </span>
         {K('search') && <kbd>{K('search')}</kbd>}
@@ -312,7 +314,7 @@ export function TitleBar(props: {
             className="tb-btn tb-web"
             aria-label={webLabel}
             aria-pressed={props.web.full}
-            data-tip={props.web.full ? '还原：中间那篇回来，网页回到原来的宽' : '网页占满：中间那篇让出地方，剪的照样记进它'}
+            data-tip={props.web.full ? t('还原：中间那篇回来，网页回到原来的宽') : t('网页占满：中间那篇让出地方，剪的照样记进它')}
             data-key={K('fold-center') ?? undefined}
             data-side="below-left"
             data-testid="tb-web"
@@ -323,7 +325,7 @@ export function TitleBar(props: {
             {K('fold-center') && <kbd className="lb">{K('fold-center')}</kbd>}
           </button>
         )}
-        <button className="tb-btn" aria-label={props.rightOpen ? '收起右栏' : '展开右栏'} aria-pressed={props.rightOpen} data-tip={props.rightOpen ? '收起右栏' : '展开右栏'} data-key={K('toggle-right') ?? undefined} data-side="below-left" onClick={props.onToggleRight}>
+        <button className="tb-btn" aria-label={props.rightOpen ? t('收起右栏') : t('展开右栏')} aria-pressed={props.rightOpen} data-tip={props.rightOpen ? t('收起右栏') : t('展开右栏')} data-key={K('toggle-right') ?? undefined} data-side="below-left" onClick={props.onToggleRight}>
           <Codicon name={props.rightOpen ? 'layout-sidebar-right' : 'layout-sidebar-right-off'} />
         </button>
       </div>
@@ -396,6 +398,8 @@ export function Popover(props: {
       else if (props.anchor.closest('.abar.left')) ((left = r.right + 6), (top = Math.min(r.top, floor)))
       else if (props.anchor.closest('.abar.right')) ((left = r.left - w - 6), (top = Math.min(r.top, floor)))
       else if (r.top > innerHeight - 80) top = r.top - h - 6
+      // 下面放不下（贴着高的东西弹，比如课件封面右键「移到…」，task-r00en）：上面放得下就翻到上面，都放不下就底边贴着底栏上沿往上 8，不出窗口
+      else if (top > floor) top = r.top - h - 4 >= 8 ? r.top - h - 4 : floor
       setPos({ left: Math.max(8, Math.min(left, innerWidth - w - 8)), top: Math.max(8, top) })
     }
     place()

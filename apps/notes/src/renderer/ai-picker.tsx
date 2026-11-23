@@ -14,6 +14,8 @@ import { CLAUDE_EFFORTS, effortOption, findModel, modelLabel as nameOf, type Mod
 import { problemText } from '../shared/engine-health'
 import { EngineLogo, type LogoEngine } from './engine-logo'
 import { useDismiss } from './use-dismiss'
+import { useT } from './i18n'
+import { t as tNow } from '../shared/i18n'
 import './ai-picker.css'
 
 /** 家这一列的一项 */
@@ -85,7 +87,7 @@ export interface AiPickerProps {
 /** 谁来答这一列的一家（task-m55m7）：右边写版本和在哪找到（没找到、运行不了灰掉），自查出问题的标红 */
 export function engineFamily(e: EngineInfo): Family {
   const bad = e.health?.state === 'bad' ? problemText(e.health.problems) : undefined
-  const where = e.path || !e.broken ? e.where : '运行不了'
+  const where = e.path || !e.broken ? e.where : tNow('运行不了')
   return {
     id: e.id,
     label: e.label,
@@ -94,7 +96,7 @@ export function engineFamily(e: EngineInfo): Family {
     ...(e.version ? { version: e.version } : {}),
     ...(bad ? { warn: bad } : {}),
     off: !e.path,
-    title: e.broken ? `${e.broken}。${e.hint ?? ''}` : (e.hint ?? e.path ?? ''),
+    title: e.broken ? tNow('{a}。{b}', { a: e.broken, b: e.hint ?? '' }) : (e.hint ?? e.path ?? ''),
     models: e.models,
     ...(e.pulled ? { pulled: e.pulled } : {}),
   }
@@ -106,6 +108,7 @@ type Which = 'family' | 'model' | 'effort'
 export const openEnginePick = () => window.dispatchEvent(new CustomEvent('cn:engine-pick'))
 
 export function AiPicker(p: AiPickerProps) {
+  const t = useT()
   const [open, setOpen] = useState<Which | null>(null)
   const famBtn = useRef<HTMLButtonElement>(null)
   const fam = p.value.family === null ? null : (p.families.find((f) => f.id === p.value.family) ?? null)
@@ -126,7 +129,7 @@ export function AiPicker(p: AiPickerProps) {
   }, [p.hideFamily, box])
 
   // 名字：拉到的列表里的；不在列表里时 Claude Code 用自带的叫法（Opus 5.5），再没有写型号本身
-  const modelLabel = model?.label ?? (p.value.model ? (fam?.id === 'claude' ? nameOf('claude', p.value.model) : p.value.model) : '默认模型')
+  const modelLabel = model?.label ?? (p.value.model ? (fam?.id === 'claude' ? nameOf('claude', p.value.model) : p.value.model) : t('默认模型'))
   const effortLabel = p.value.effort ? effortOption(p.value.effort).label : (p.unsetEffort?.label ?? '')
   const showModel = !!fam && models.length > 0
   const showEffort = !!fam && efforts.length > 0 && !!effortLabel
@@ -143,8 +146,8 @@ export function AiPicker(p: AiPickerProps) {
         onToggle={toggle}
         onClose={close}
         look={p.look}
-        label={p.label ? `${p.label}用哪一家` : '选 AI 引擎'}
-        tip={fam?.warn ? warnTip(fam) : box ? undefined : fam ? `谁来答：${fam.name ?? fam.label}` : '谁来答'}
+        label={p.label ? t('{name}用哪一家', { name: p.label }) : t('选 AI 引擎')}
+        tip={fam?.warn ? warnTip(fam) : box ? undefined : fam ? t('谁来答：{name}', { name: fam.name ?? fam.label }) : t('谁来答')}
         testid={p.ids.family}
         className={box ? 'fam' + (fam ? '' : ' lead') : 'eng'}
         warn={fam?.warn}
@@ -177,12 +180,12 @@ export function AiPicker(p: AiPickerProps) {
         onToggle={toggle}
         onClose={close}
         look={p.look}
-        label={p.label ? `${p.label}用哪个模型` : '选模型'}
-        tip={box ? undefined : '模型'}
+        label={p.label ? t('{name}用哪个模型', { name: p.label }) : t('选模型')}
+        tip={box ? undefined : t('模型')}
         testid={p.ids.model}
         className="mdl"
         width={models.some((m) => m.group) ? 300 : 280}
-        menuLabel="模型"
+        menuLabel={t('模型')}
         menu={<ModelMenu family={fam!} value={model?.id ?? p.value.model ?? ''} current={model ? null : modelLabel} close={close} onModel={p.onModel} />}
       >
         <span className="lb">{modelLabel}</span>
@@ -199,15 +202,15 @@ export function AiPicker(p: AiPickerProps) {
         onToggle={toggle}
         onClose={close}
         look={p.look}
-        label={p.label ? `${p.label}想多久` : '选想多久（effort）'}
-        tip={box ? undefined : '想多久（effort）'}
+        label={p.label ? t('{name}想多久', { name: p.label }) : t('选想多久（effort）')}
+        tip={box ? undefined : t('想多久（effort）')}
         testid={p.ids.effort}
         className="eff"
         width={280}
-        menuLabel="想多久（effort）"
+        menuLabel={t('想多久（effort）')}
         menu={
           <>
-            <div className="mh">想多久（effort）</div>
+            <div className="mh">{t('想多久（effort）')}</div>
             {p.unsetEffort && (
               <button className="it" role="menuitemradio" aria-checked={!p.value.effort} onClick={() => (close(), p.onEffort(null))}>
                 <span className="ck">{!p.value.effort && <Codicon name="check" size={14} />}</span>
@@ -232,7 +235,7 @@ export function AiPicker(p: AiPickerProps) {
   }
   if (!box) return <>{segs}</>
   return (
-    <div className={'aipk' + (fam ? '' : ' leading')} role="group" aria-label={p.label ? `${p.label}用哪个AI` : '用哪个AI'}>
+    <div className={'aipk' + (fam ? '' : ' leading')} role="group" aria-label={p.label ? t('{name}用哪个AI', { name: p.label }) : t('用哪个AI')}>
       {segs}
     </div>
   )
@@ -339,11 +342,12 @@ const warnTip = (f: Family) => `${f.name ?? f.label}${f.version ? ` ${f.version}
 
 /** 家这一列：（跟默认 / 按顺序）· 每家一行：勾 · 标志 · 名字 · 右边版本和在哪（没装、运行不了灰掉；自查出问题的标红，照样能选）；输入框里最下面「装在别处？指定位置…」 */
 function FamilyMenu(p: AiPickerProps & { current: string | null; close(): void }) {
+  const t = useT()
   const [which, setWhich] = useState(false)
   if (which)
     return (
       <>
-        <div className="mh">指定哪一家装在哪</div>
+        <div className="mh">{t('指定哪一家装在哪')}</div>
         {p.families.map((f) => (
           <button key={f.id} className="it" role="menuitem" data-tip={f.title} data-side="left" onClick={() => (p.close(), p.locate!(f.id))}>
             <span className="ck" />
@@ -386,7 +390,7 @@ function FamilyMenu(p: AiPickerProps & { current: string | null; close(): void }
           <EngineLogo id={f.logo} size={14} />
           <span className="nm">{f.label}</span>
           {/* 自查出问题的：右边写版本和问题的头一截（「9.9.0 · 有一个参数不认了」），全文悬停看 */}
-          <span className="r truncate">{f.warn ? `${f.version ? `${f.version} · ` : ''}${f.warn.split('：')[0]}` : f.note}</span>
+          <span className="r truncate">{f.warn ? `${f.version ? `${f.version} · ` : ''}${f.warn.split(/[：:]/)[0]}` : f.note}</span>
         </button>
       ))}
       {p.locate && (
@@ -403,7 +407,7 @@ function FamilyMenu(p: AiPickerProps & { current: string | null; close(): void }
             }}
           >
             <span className="ck" />
-            装在别处？指定位置…
+            {t('装在别处？指定位置…')}
           </button>
         </>
       )}
@@ -411,8 +415,12 @@ function FamilyMenu(p: AiPickerProps & { current: string | null; close(): void }
   )
 }
 
+/** 默认模型（id 是空串）在列表里的 React key */
+const DEFAULT_KEY = '(默认)' // 不翻：React 的 key，不显示
+
 /** 模型这一列：头「Claude Code的模型」、多于 12 个时顶上一个找模型的框、按分组（OpenCode 按服务商）列，底下一句什么时候拉的 */
 function ModelMenu(p: { family: Family; value: string; /** 选着的不在拉到的列表里：它的名字（放在第一行打勾，右边写「这次没拉到」） */ current: string | null; close(): void; onModel(id: string): void }) {
+  const t = useT()
   const [q, setQ] = useState('')
   const find = useRef<HTMLInputElement>(null)
   const long = p.family.models.length > 12
@@ -424,8 +432,8 @@ function ModelMenu(p: { family: Family; value: string; /** 选着的不在拉到
   let group: string | undefined
   return (
     <>
-      <div className="mh">{`${p.family.name ?? p.family.label}的模型`}</div>
-      {long && <input ref={find} className="aipk-find" placeholder={`找模型（${p.family.models.length} 个）`} aria-label="找模型" value={q} onChange={(e) => setQ(e.currentTarget.value)} />}
+      <div className="mh">{t('{name}的模型', { name: p.family.name ?? p.family.label })}</div>
+      {long && <input ref={find} className="aipk-find" placeholder={t('找模型（{n} 个）', { n: p.family.models.length })} aria-label={t('找模型')} value={q} onChange={(e) => setQ(e.currentTarget.value)} />}
       <div className="aipk-list">
         {p.current && p.value && !q && (
           <button className="it" role="menuitemradio" aria-checked="true" title={p.value} onClick={p.close}>
@@ -433,14 +441,14 @@ function ModelMenu(p: { family: Family; value: string; /** 选着的不在拉到
               <Codicon name="check" size={14} />
             </span>
             <span className="nm">{p.current}</span>
-            <span className="r">这次没拉到</span>
+            <span className="r">{t('这次没拉到')}</span>
           </button>
         )}
         {shown.map((m) => {
           const head = m.group && m.group !== group ? m.group : null
           group = m.group
           return (
-            <div key={m.id || '(默认)'} className="aipk-gr">
+            <div key={m.id || DEFAULT_KEY} className="aipk-gr">
               {head && <div className="mh">{head}</div>}
               <button className="it" role="menuitemradio" aria-checked={m.id === p.value} title={m.id || undefined} onClick={() => (p.close(), p.onModel(m.id))}>
                 <span className="ck">{m.id === p.value && <Codicon name="check" size={14} />}</span>
@@ -449,7 +457,7 @@ function ModelMenu(p: { family: Family; value: string; /** 选着的不在拉到
             </div>
           )
         })}
-        {!shown.length && <div className="sub">没有叫这个的</div>}
+        {!shown.length && <div className="sub">{t('没有叫这个的')}</div>}
       </div>
       {p.family.pulled && <div className="sub foot">{p.family.pulled}</div>}
     </>

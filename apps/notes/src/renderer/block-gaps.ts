@@ -1,9 +1,9 @@
 /**
  * 文档的竖向疏密（照小样 proposals2/D-读书与AI入口/v2/doc/proto-a.html，DESIGN.v3 6.1）：md 里块和块之间隔的那一个空行
  * 不占整整一行（15/1.75 是 26），压成小样里段落之间的距离：两块之间 12；标题上面 26、下面 10（三级以下 18、6）；
- * 标题下的元信息行到正文 26。光标停在这个空行上时照常一整行高，好在这里打字；光标所在的空行、文末那一行灰字
- * 当成一块算（新起一段、点了文末，前面那个空行马上就是 12，打第一个字时不跳）。连着好几个空行是用户自己空的，照常一整行一整行。
- * 只加行装饰，不动文字。代码块里的空行是代码，不压。
+ * 标题下的元信息行到正文 26。2026-11-22 起（task-ys1rr，照 Notion）光标不停在这种空行上（block-flow.ts 的「块缝」），它一直是矮的，
+ * 光标走过不再撑开、下面的字不跳；连着好几个空行时只有挨着字的头尾两行压矮，中间的是「空块」（回车新起的一块、删光了字的一段），一整行高；
+ * 文末那一行灰字算一块。只加行装饰，不动文字。代码块里的空行是代码，不压。
  * 微信读书的书摘照它自己的疏密（review.ts 的 digestGaps：评价下面 14 等），这里整篇不管；引文和挂着的评价之间那一行（8、10）也是 review.ts 画。
  */
 import { syntaxTree } from '@codemirror/language'
@@ -53,21 +53,25 @@ function build(view: EditorView): DecorationSet {
   const head = doc.sliceString(0, Math.min(doc.length, 20000))
   if (isBookDigest(head)) return Decoration.none
   const review = new Set((state.field(reviewGroups, false)?.groups ?? []).flatMap((g) => g.gaps))
-  // 退格 / Delete 选中整块时：光标原来那一行照旧算光标所在的行（task-6lsvd：不然它压成 12，下面的字跳一下）
+  // 退格 / Delete 选中整块时：光标原来那一行照旧一整行高（task-6lsvd：不然它压成 12，下面的字跳一下）
   const hold = heldLine(state)
-  const caret = hold === null ? doc.lineAt(state.selection.main.head).number : doc.lineAt(hold).number
+  const held = hold === null ? 0 : doc.lineAt(hold).number
   const tail = tailLineAt(state)
   const title = headingOf(head)?.line ?? 0
-  /** 这一行算一块：有字，或者是光标所在的行、文末那一行灰字 */
-  const filled = (n: number) => n === caret || n === tail || (n >= 1 && n <= doc.lines && doc.line(n).text.trim() !== '')
+  /** 这一行有字（空行、文末那一行灰字不算；代码块里的空行算字） */
+  const text = (n: number) => n >= 1 && n <= doc.lines && n !== tail && (doc.line(n).text.trim() !== '' || inCode(state, doc.line(n).from))
   for (const { from, to } of view.visibleRanges) {
     for (let n = Math.max(2, doc.lineAt(from).number); n <= doc.lineAt(to).number; n++) {
       const l = doc.line(n)
-      if (l.text !== '' || n === caret || n === tail || review.has(l.from)) continue
-      if (!filled(n - 1) || !filled(n + 1)) continue
+      if (l.text.trim() !== '' || n === held || n === tail || review.has(l.from)) continue
+      // 块缝（挨着有字的一行的空行，task-ys1rr）压矮，光标不停在这里（block-flow.ts）；两边都是空行的是空块，照常一整行
+      const up = text(n - 1)
+      const down = text(n + 1)
+      if (!up && !down) continue
       if (inCode(state, l.from)) continue
-      const next = n + 1 <= doc.lines ? doc.line(n + 1).text : ''
-      out.push(gap(Math.max(below(doc.line(n - 1).text, n - 1 === title), above(next))).range(l.from))
+      // 挨着空块的那一边，空块当一段正文算（它下面要 12、上面不留）
+      const px = Math.max(up ? below(doc.line(n - 1).text, n - 1 === title) : 12, down ? above(doc.line(n + 1).text) : 0)
+      out.push(gap(px).range(l.from))
     }
   }
   return Decoration.set(out)

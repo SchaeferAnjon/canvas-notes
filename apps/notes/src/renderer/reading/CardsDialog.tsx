@@ -16,15 +16,17 @@ import { useT } from '../i18n'
 import { usePrefs } from '../settings-store'
 import { renderTex } from '../tex'
 import { cardsChanged, closeCards, closeSpot, useCardsOpen, useSpot } from './cards-store'
+import { t as tNow } from '../../shared/i18n'
+import { dateText } from '../../shared/when'
 import './cards.css'
 
 const vaultImg = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/')
 const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
-/** 「11月21日」 */
+/** 「11月21日」「Nov 21」（不带年） */
 const dayOf = (iso: string) => {
-  const d = new Date(iso)
-  return `${d.getMonth() + 1}月${d.getDate()}日`
+  const ms = new Date(iso).getTime()
+  return dateText(ms, ms)
 }
 /** AI 没改出来的、以前送的没记字的：照原话和回答开头一段 */
 const plainCard = (it: CardItem): CardText => ({ q: it.question, a: it.lead.replace(/\s+/g, ' ').slice(0, 120), more: '', quote: it.quote ?? '' })
@@ -49,12 +51,13 @@ function Tx({ text }: { text: string }) {
 
 /** 一张卡（纸）：照 Anki 里「学习卡 · 问答」那张纸（答案接棒），正面背面接在一起 */
 function Paper(p: { it: CardItem; card: CardText; editing: boolean; small?: boolean; qRef?: React.RefObject<HTMLDivElement | null>; aRef?: React.RefObject<HTMLDivElement | null>; onOpen?(): void }) {
+  const t = useT()
   const { it, card } = p
   const more = card.more.split('\n').map((x) => x.trim().replace(/^[-•·*]\s*/, '')).filter(Boolean)
   return (
     <div className={'paper' + (p.small ? ' small' : '')}>
       <div className="top">
-        <div className="meta">{`Canvas Notes · ${it.course}${it.quote !== undefined ? ' · 旁支' : ''}`}</div>
+        <div className="meta">{it.quote !== undefined ? t('Canvas Notes · {course} · 旁支', { course: it.course }) : `Canvas Notes · ${it.course}`}</div>
         {p.editing ? (
           <div className="pq" ref={p.qRef} contentEditable suppressContentEditableWarning>
             {card.q}
@@ -66,7 +69,7 @@ function Paper(p: { it: CardItem; card: CardText; editing: boolean; small?: bool
         )}
         {it.crop && (
           <div className="shot">
-            <img src={vaultImg(it.crop)} alt="我框的" style={it.cropW ? { width: it.cropW } : undefined} />
+            <img src={vaultImg(it.crop)} alt={t('我框的')} style={it.cropW ? { width: it.cropW } : undefined} />
           </div>
         )}
       </div>
@@ -91,9 +94,9 @@ function Paper(p: { it: CardItem; card: CardText; editing: boolean; small?: bool
         )}
       </div>
       <div className="foot">
-        <span>{`${stem(it.pdf)} · 第 ${it.page} 页`}</span>
-        <button className="open" onClick={p.onOpen} title="回到这份 PDF 的这一页">
-          打开原文
+        <span>{t('{name} · 第 {page} 页', { name: stem(it.pdf), page: it.page })}</span>
+        <button className="open" onClick={p.onOpen} title={t('回到这份 PDF 的这一页')}>
+          {t('打开原文')}
         </button>
       </div>
     </div>
@@ -102,40 +105,40 @@ function Paper(p: { it: CardItem; card: CardText; editing: boolean; small?: bool
 
 /** 连上 Anki（anki-learn DESIGN.md「连上 Anki」三行）：出卡弹窗里 Anki 没开时、设置 › 读PDF「Anki 没开、没装时」点「怎么装」 */
 export function HowTo(p: { st: AnkiStatus; onOpen(): void }) {
-  const { st } = p
   const t = useT()
+  const { st } = p
   const [copied, setCopied] = useState<'id' | 'cmd' | null>(null)
   return (
-    <div className="howto" role="region" aria-label="连上Anki">
+    <div className="howto" role="region" aria-label={t('连上Anki')}>
       <div className="hrow">
         <i className={'dot' + (st.app ? ' g' : '')} />
-        <b>Anki桌面版</b>
-        <span className={st.app ? 'ok' : ''}>{st.app ? `装好了${st.app.version ? ` · ${st.app.version}` : ''}` : '没装'}</span>
+        <b>{t('Anki桌面版')}</b>
+        <span className={st.app ? 'ok' : ''}>{st.app ? (st.app.version ? t('装好了 · {v}', { v: st.app.version }) : t('装好了')) : t('没装')}</span>
         {!st.app && (
           <button className="btn btn-xs" onClick={() => void window.cnReading.ankiDownload()}>
             <Codicon name="cloud-download" size={14} />
-            下载Anki
+            {t('下载Anki')}
           </button>
         )}
       </div>
       <div className="hrow">
         <i className={'dot' + (st.addon ? ' g' : '')} />
-        <b>AnkiConnect插件</b>
-        <span className={st.addon ? 'ok' : ''}>{st.addon ? '装好了 · 编号2055492159' : 'Anki里「工具 › 附加组件 › 获取附加组件」，粘贴编号2055492159，重启Anki'}</span>
+        <b>{t('AnkiConnect插件')}</b>
+        <span className={st.addon ? 'ok' : ''}>{st.addon ? t('装好了 · 编号2055492159') : t('Anki里「工具 › 附加组件 › 获取附加组件」，粘贴编号2055492159，重启Anki')}</span>
         {!st.addon && (
           <button className="btn btn-xs" onClick={() => void navigator.clipboard.writeText('2055492159').then(() => setCopied('id'))}>
             <Codicon name="copy" size={14} />
-            {copied === 'id' ? '拷好了' : '复制编号'}
+            {copied === 'id' ? t('拷好了') : t('复制编号')}
           </button>
         )}
       </div>
       <div className="hrow">
         <i className={'dot' + (st.connected ? ' g' : '')} />
-        <b>Anki开着</b>
-        <span className={st.connected ? 'ok' : ''}>{st.connected ? '开着' : '没开着'}</span>
+        <b>{t('Anki开着')}</b>
+        <span className={st.connected ? 'ok' : ''}>{st.connected ? t('开着') : t('没开着')}</span>
         {!st.connected && st.app && (
           <button className="btn btn-xs" onClick={p.onOpen}>
-            打开Anki
+            {t('打开Anki')}
           </button>
         )}
       </div>
@@ -155,9 +158,9 @@ export function HowTo(p: { st: AnkiStatus; onOpen(): void }) {
 
 /** Anki 没开、没装、连不上插件：一行说清楚，选的都留着 */
 function offText(st: AnkiStatus): string {
-  if (!st.app) return '没找到Anki。装好Anki和AnkiConnect插件再送，选的都留着。'
-  if (!st.addon) return 'Anki里没装AnkiConnect插件。装好插件、重启Anki再送，选的都留着。'
-  return 'Anki没开着。选的都留着，开了接着送。'
+  if (!st.app) return tNow('没找到Anki。装好Anki和AnkiConnect插件再送，选的都留着。')
+  if (!st.addon) return tNow('Anki里没装AnkiConnect插件。装好插件、重启Anki再送，选的都留着。')
+  return tNow('Anki没开着。选的都留着，开了接着送。')
 }
 
 export interface CardsHostProps {
@@ -191,16 +194,20 @@ function sentText(r: { added: string[]; duplicates: string[]; failed: Record<str
   const subs = decks.filter((d) => d !== top).map((d) => d.slice(top.length + 2))
   const where =
     decks.length < 2
-      ? `牌组「${decks[0] ?? '知识'}」`
+      ? tNow('牌组「{deck}」', { deck: decks[0] ?? '知识' }) // 不翻：没课程时 Anki 里的牌组名
       : !top
-        ? `${decks.length}个牌组`
+        ? tNow('{n}个牌组', { n: decks.length })
         : !decks.includes(top)
-          ? `牌组「${top}」下的${decks.length}个牌组`
+          ? tNow('牌组「{deck}」下的{n}个牌组', { deck: top, n: decks.length })
           : subs.length === 1
-            ? `牌组「${top}」和下面的「${subs[0]}」`
-            : `牌组「${top}」和下面${subs.length}个牌组`
+            ? tNow('牌组「{deck}」和下面的「{sub}」', { deck: top, sub: subs[0]! })
+            : tNow('牌组「{deck}」和下面{n}个牌组', { deck: top, n: subs.length })
   const failed = Object.keys(r.failed).length
-  return `已送进Anki · ${r.added.length}张（${where}）${r.duplicates.length ? `，${r.duplicates.length}张Anki里已经有了，跳过` : ''}${failed ? `，${failed}张没送进去：${Object.values(r.failed)[0]}` : ''}`
+  const p = { n: r.added.length, where, dups: r.duplicates.length, failed, error: Object.values(r.failed)[0] ?? '' }
+  if (p.dups && failed) return tNow('已送进Anki · {n}张（{where}），{dups}张Anki里已经有了，跳过，{failed}张没送进去：{error}', p)
+  if (p.dups) return tNow('已送进Anki · {n}张（{where}），{dups}张Anki里已经有了，跳过', p)
+  if (failed) return tNow('已送进Anki · {n}张（{where}），{failed}张没送进去：{error}', p)
+  return tNow('已送进Anki · {n}张（{where}）', p)
 }
 
 /** 送：送好了提示条带「打开Anki」「撤回」；Anki 没开返回它的样子 */
@@ -209,15 +216,15 @@ async function sendNow(scope: CardScope, cards: { id: string; card: CardText }[]
   if (r.off) return { off: r.off }
   if (r.error) return { error: r.error }
   const failed = Object.keys(r.failed).length
-  if (failed && !r.added.length && !r.duplicates.length) return { error: `一张也没送进去：${Object.values(r.failed)[0]}` }
+  if (failed && !r.added.length && !r.duplicates.length) return { error: tNow('一张也没送进去：{error}', { error: Object.values(r.failed)[0] ?? '' }) }
   cardsChanged()
   const ids = [...r.added, ...r.duplicates]
   p.onToast({
     text: sentText(r),
-    act: { label: '打开Anki', run: () => void window.cnReading.openAnki(r.added).catch((e) => p.onNotice(errText(e))) },
+    act: { label: tNow('打开Anki'), run: () => void window.cnReading.openAnki(r.added).catch((e) => p.onNotice(errText(e))) },
     undo: () =>
       void window.cnReading.undoCards(scope, ids).then(
-        (u) => (u.error ? p.onNotice(u.error) : (cardsChanged(), p.onNotice(`撤回了：Anki 里删掉了这${r.added.length}张，笔记里不再标已送`))),
+        (u) => (u.error ? p.onNotice(u.error) : (cardsChanged(), p.onNotice(tNow('撤回了：Anki 里删掉了这{n}张，笔记里不再标已送', { n: r.added.length })))),
         (e) => p.onNotice(errText(e)),
       ),
   })
@@ -225,6 +232,7 @@ async function sendNow(scope: CardScope, cards: { id: string; card: CardText }[]
 }
 
 function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
+  const t = useT()
   const sides = usePrefs((s) => s.pdf.ankiSides)
   const [view, setView] = useState<CardsView | null>(null)
   const [cards, setCards] = useState<Record<string, CardText>>({})
@@ -312,7 +320,14 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
   const go = items.filter((x) => keep[x.id] && cards[x.id])
   const drafting = pending.size > 0
   const done = fresh.filter((x) => cards[x.id] && !pending.has(x.id)).length
-  const sub = !view ? '' : drafting ? `AI 在改写 ${done}/${fresh.length}…` : `改好了${fresh.length}张${items.length - fresh.length ? ` · ${items.length - fresh.length}张送过了，不再改写` : ''} · ${view.by}`
+  const sentN = items.length - fresh.length
+  const sub = !view
+    ? ''
+    : drafting
+      ? t('AI 在改写 {done}/{total}…', { done, total: fresh.length })
+      : sentN
+        ? t('改好了{n}张 · {sent}张送过了，不再改写 · {by}', { n: fresh.length, sent: sentN, by: view.by })
+        : t('改好了{n}张 · {by}', { n: fresh.length, by: view.by })
 
   const step = (d: number) => {
     setEditing(false)
@@ -370,27 +385,27 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
   useEffect(() => {
     if (!waiting) return
     let n = 0
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       void window.cnReading.ankiStatus().then((st) => {
         setOff(st)
         if (st.connected) {
-          clearInterval(t)
+          clearInterval(timer)
           setWaiting(false)
           setOff(null)
           void sendRef.current()
         } else if (++n > 60) {
-          clearInterval(t)
+          clearInterval(timer)
           setWaiting(false)
         }
       })
     }, 1000)
-    return () => clearInterval(t)
+    return () => clearInterval(timer)
   }, [waiting])
   // 「怎么装」开着：每 2 秒查一次
   useEffect(() => {
     if (!how || waiting) return
-    const t = setInterval(() => void window.cnReading.ankiStatus().then(setOff), 2000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => void window.cnReading.ankiStatus().then(setOff), 2000)
+    return () => clearInterval(timer)
   }, [how, waiting])
 
   // 键：空格要不要、E 改、← → 换张、esc 关；改的时候回车改好、esc 不改了
@@ -431,7 +446,7 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
   if (it && !cards[it.id]) body = (
     <div className="drafting">
       <AiIcon job="cards" size={14} />
-      <span className="shimmer">{`AI 在把第${i + 1}问改成卡…`}</span>
+      <span className="shimmer">{t('AI 在把第{n}问改成卡…', { n: i + 1 })}</span>
     </div>
   )
   else if (it && it.sent && !force.has(it.id))
@@ -442,7 +457,7 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
         </div>
         <div className="orig done">
           <Codicon name="check" size={14} className="ok" />
-          {`这一问送过了（${dayOf(it.sent.at)}），这次不送。`}
+          {t('这一问送过了（{day}），这次不送。', { day: dayOf(it.sent.at) })}
           <button
             className="btn btn-xs"
             onClick={() => {
@@ -451,7 +466,7 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
             }}
           >
             <Codicon name="refresh" size={14} />
-            还是再送一张
+            {t('还是再送一张')}
           </button>
         </div>
       </>
@@ -464,30 +479,33 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
         </div>
         <div className="orig">
           <Codicon name={it.quote !== undefined ? 'comment-discussion' : 'comment'} size={14} />
-          <span>{`你当时问的：「${it.question}」${it.quote !== undefined ? ` · 旁支，问的是「${it.quote.slice(0, 14)}…」` : ''}`}</span>
-          {edited.has(it.id) && <span className="chip">改过</span>}
+          <span>{it.quote !== undefined ? t('你当时问的：「{q}」 · 旁支，问的是「{quote}…」', { q: it.question, quote: it.quote.slice(0, 14) }) : t('你当时问的：「{q}」', { q: it.question })}</span>
+          {edited.has(it.id) && <span className="chip">{t('改过')}</span>}
         </div>
         <div className="keys">
           {editing ? (
-            <button className="btn btn-xs btn-primary" aria-label="改好了" onClick={saveEdit}>
+            <button className="btn btn-xs btn-primary" aria-label={t('改好了', { ctx: '按钮' })} onClick={saveEdit}>
               <Codicon name="check" size={14} />
-              改好了<kbd>↵</kbd>
+              {t('改好了', { ctx: '按钮' })}
+              <kbd>↵</kbd>
             </button>
           ) : (
             <>
-              <button className="btn btn-xs" aria-label={keep[it.id] ? '不送这张' : '要这张'} onClick={toggle}>
+              <button className="btn btn-xs" aria-label={keep[it.id] ? t('不送这张') : t('要这张')} onClick={toggle}>
                 <Codicon name={keep[it.id] ? 'circle-slash' : 'check'} size={14} />
-                {keep[it.id] ? '不送这张' : '要这张'}
-                <kbd>空格</kbd>
+                {keep[it.id] ? t('不送这张') : t('要这张')}
+                <kbd>{t('空格')}</kbd>
               </button>
-              <button className="btn btn-xs" aria-label="改" onClick={startEdit}>
-                <Codicon name="edit" size={14} />改<kbd>E</kbd>
+              <button className="btn btn-xs" aria-label={t('改', { ctx: '按钮' })} onClick={startEdit}>
+                <Codicon name="edit" size={14} />
+                {t('改', { ctx: '按钮' })}
+                <kbd>E</kbd>
               </button>
-              <button className="btn btn-xs" aria-label="上一张" onClick={() => step(-1)}>
+              <button className="btn btn-xs" aria-label={t('上一张')} onClick={() => step(-1)}>
                 <Codicon name="chevron-left" size={14} />
                 <kbd>←</kbd>
               </button>
-              <button className="btn btn-xs" aria-label="下一张" onClick={() => step(1)}>
+              <button className="btn btn-xs" aria-label={t('下一张')} onClick={() => step(1)}>
                 <Codicon name="chevron-right" size={14} />
                 <kbd>→</kbd>
               </button>
@@ -499,22 +517,22 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
 
   return (
     <div className="pal-back cards-back" onMouseDown={() => closeCards()}>
-      <div className="cardsdlg" role="dialog" aria-label="出卡" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="cardsdlg" role="dialog" aria-label={t('出卡')} onMouseDown={(e) => e.stopPropagation()}>
         <div className="dh">
           <AiIcon job="cards" size={14} />
-          <b>{`出卡 · ${label}`}</b>
+          <b>{t('出卡 · {name}', { name: label })}</b>
           <span className="sub">{sub}</span>
-          <button className="x" aria-label="关闭" onClick={() => closeCards()}>
+          <button className="x" aria-label={t('关闭')} onClick={() => closeCards()}>
             <Codicon name="close" size={16} />
           </button>
         </div>
         <div className="strip">
-          <div className="sq" role="group" aria-label="每一张">
+          <div className="sq" role="group" aria-label={t('每一张')}>
             {items.map((x, k) => (
               <button
                 key={x.id}
                 className={[keep[x.id] ? '' : 'skip', k === i ? 'cur' : '', cards[x.id] ? '' : 'wait'].filter(Boolean).join(' ')}
-                aria-label={`第${k + 1}张`}
+                aria-label={t('第{n}张', { n: k + 1 })}
                 onClick={() => (setEditing(false), setI(k))}
               >
                 {k + 1}
@@ -525,35 +543,35 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
           <span className="lg">
             <span>
               <i />
-              要送
+              {t('要送')}
             </span>
             <span>
               <i className="d" />
-              不送
+              {t('不送')}
             </span>
             <span>
               <span className="dot" />
-              已在Anki
+              {t('已在Anki')}
             </span>
           </span>
         </div>
         <div className="rvbody">
-          {!view ? null : items.length ? body : <div className="drafting">这里还没问过。读 PDF 时框一块问 AI，问过的都能出卡。</div>}
+          {!view ? null : items.length ? body : <div className="drafting">{t('这里还没问过。读 PDF 时框一块问 AI，问过的都能出卡。')}</div>}
           {failed && !drafting && <div className="orig warn">{failed}</div>}
         </div>
         {off && (
           <>
             <div className="warnrow" data-testid="anki-off">
               {waiting ? <Codicon name="loading" size={14} className="spin" /> : <Codicon name="warning" size={14} className="wr" />}
-              <span>{waiting ? '在等Anki打开…打开了接着送' : offText(off)}</span>
+              <span>{waiting ? t('在等Anki打开…打开了接着送') : offText(off)}</span>
               <span className="sp" />
               <button className="btn btn-xs" onClick={() => setHow((h) => !h)}>
                 <Codicon name="question" size={14} />
-                怎么装
+                {t('怎么装')}
               </button>
               {off.app && !waiting && (
                 <button className="btn btn-xs" onClick={() => void openAnki()}>
-                  打开Anki
+                  {t('打开Anki')}
                 </button>
               )}
             </div>
@@ -567,21 +585,21 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
           </div>
         )}
         <div className="df">
-          <span className="cnt num">{`要送${keepN}张${skipN ? ` · 不送${skipN}张` : ''}`}</span>
+          <span className="cnt num">{skipN ? t('要送{n}张 · 不送{skip}张', { n: keepN, skip: skipN }) : t('要送{n}张', { n: keepN })}</span>
           <span className="sp" />
           <button className="btn btn-sm" onClick={() => closeCards()}>
-            取消
+            {t('取消')}
           </button>
           <button className="btn btn-sm btn-primary" disabled={!go.length || drafting || busy || editing} onClick={() => void send()}>
             {busy ? (
               <>
                 <Codicon name="loading" size={14} className="spin" />
-                正在送…
+                {t('正在送…')}
               </>
             ) : (
               <>
                 <Codicon name="send" size={14} />
-                {`送进Anki · ${keepN}张`}
+                {t('送进Anki · {n}张', { n: keepN })}
               </>
             )}
           </button>
@@ -593,6 +611,7 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
 
 /** 问题条上「做成卡」：AI 改好这一问，小卡贴在问题条下面（放不下往上挪），能改，送进 Anki */
 function SpotCard(p: CardsHostProps & { spot: NonNullable<ReturnType<typeof useSpot>> }) {
+  const t = useT()
   const scope = useMemo<CardScope>(() => ({ kind: 'pdf', pdf: p.spot.pdf }), [p.spot.pdf])
   const [it, setIt] = useState<CardItem | null>(null)
   const [card, setCard] = useState<CardText | null>(null)
@@ -654,7 +673,7 @@ function SpotCard(p: CardsHostProps & { spot: NonNullable<ReturnType<typeof useS
     setBusy(true)
     try {
       const r = await sendNow(scope, [{ id: it.id, card }], p)
-      if (r?.off) p.onNotice('Anki 没开着：这张改好的留着，开了在笔记栏「出卡」里接着送')
+      if (r?.off) p.onNotice(t('Anki 没开着：这张改好的留着，开了在笔记栏「出卡」里接着送'))
       if (r?.error) p.onNotice(r.error)
       closeSpot()
     } catch (e) {
@@ -668,11 +687,11 @@ function SpotCard(p: CardsHostProps & { spot: NonNullable<ReturnType<typeof useS
   const W = Math.min(340, pane.right - pane.left - 16)
   const left = Math.max(pane.left + 8, Math.min(p.spot.at.right - W, pane.right - W - 8))
   return (
-    <div className="cardpop" ref={box} role="dialog" aria-label="做成卡" style={{ left, top, width: W }}>
+    <div className="cardpop" ref={box} role="dialog" aria-label={t('做成卡')} style={{ left, top, width: W }}>
       {!it || !card ? (
         <div className="drafting">
           <AiIcon job="cards" size={14} />
-          <span className="shimmer">AI 在把这一问改成卡…</span>
+          <span className="shimmer">{t('AI 在把这一问改成卡…')}</span>
         </div>
       ) : (
         <>
@@ -681,20 +700,21 @@ function SpotCard(p: CardsHostProps & { spot: NonNullable<ReturnType<typeof useS
             {editing ? (
               <button className="btn btn-xs btn-primary" onClick={save}>
                 <Codicon name="check" size={14} />
-                改好了
+                {t('改好了', { ctx: '按钮' })}
               </button>
             ) : (
               <button className="btn btn-xs" onClick={() => setEditing(true)}>
-                <Codicon name="edit" size={14} />改
+                <Codicon name="edit" size={14} />
+                {t('改', { ctx: '按钮' })}
               </button>
             )}
             <span className="sp" />
             <button className="btn btn-xs btn-ghost" onClick={() => closeSpot()}>
-              算了
+              {t('算了')}
             </button>
             <button className="btn btn-xs btn-primary" disabled={busy || editing} onClick={() => void send()}>
               <Codicon name="send" size={14} />
-              送进Anki
+              {t('送进Anki')}
             </button>
           </div>
         </>
