@@ -203,8 +203,8 @@ export function registerAiCmds(d: { vault(): Vault; userData: string }) {
 
   /** 右栏网页的字（在网页上用自己的命令时拿它当「这一篇」） */
   ipcMain.handle('aicmd:page', async () => {
-    if (!web.webContents()) return null
-    return web.pageForClip(true)
+    const wc = web.webContents()
+    return wc ? web.pageForClip(wc, true) : null
   })
 
 }

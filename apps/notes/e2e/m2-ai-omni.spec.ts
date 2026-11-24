@@ -106,6 +106,8 @@ test('全能模式开关：默认开着，悬停说清两种模式；点一下�
       await expect(chat(p2).getByRole('switch', { name: '全能模式' })).toHaveAttribute('aria-checked', 'false')
       await openPdf(p2)
       await openAi(p2)
+      // 刚才那段问过：换页留着（AI 对话绑页面），点头上那颗切到这一页的 AI
+      await chat(p2).getByTestId('ai-follow').click()
       const rsw = reading(p2).getByRole('switch', { name: '全能模式' })
       await expect(rsw).toHaveAttribute('aria-checked', 'false')
       await rsw.click()

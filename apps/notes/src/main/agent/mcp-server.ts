@@ -5,6 +5,7 @@
  * 走 MCP 的 Streamable HTTP：POST 一条 JSON-RPC，回一条 JSON（不开 SSE 流，GET 回 405）。
  * 只实现工具：initialize、tools/list、tools/call、ping。
  */
+import type { WebRisk } from '../../shared/agent'
 import { randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 
@@ -17,6 +18,8 @@ export interface ToolSpec {
 export interface ToolResult {
   text: string
   isError?: boolean
+  /** 要先问用户的那一下（没做）是什么：步骤行画成「等你点头」，回答下面换成「可以，<动作> · 不要」 */
+  ask?: WebRisk
 }
 
 export interface McpHandlers {

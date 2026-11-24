@@ -72,6 +72,8 @@ test('CN-88：读 PDF 右栏的引擎菜单，点 AI 回答正文、PDF、右图
     // 别处的 AI 对话（同一格，AI 还开着）的引擎菜单也一样：点文档正文收起，AI 还在
     await openNote(page, '随手记')
     await openAi(page)
+    // 刚才那段问过：换页留着（AI 对话绑页面），点头上那颗切到这一页的 AI
+    await page.getByRole('complementary', { name: '边读边问 AI' }).getByTestId('ai-follow').click()
     const float = page.getByRole('complementary', { name: 'AI 对话' })
     await float.getByTestId('ai-engine').click()
     await expect(menu(page)).toBeVisible()

@@ -414,6 +414,8 @@ export const DATA = [
   // ---------- 第三批（task-zojmg）：AI 和读 ----------
   // AI 对话：「能动手」那颗的几句（AiPanel 画的时候 t）、整块动手时顶上那条
   { file: 'renderer/ai-place.ts', objects: ['HANDS'] },
+  // AI 操纵哪个网页：「看得到」那几颗写在哪（右栏、中间栏、分屏的那一格）
+  { file: 'shared/web-pages.ts', objects: ['WEB_PAGE_SAID'] },
   { file: 'renderer/ai-act.tsx', objects: ['TEXT'] },
   // AI 命令：自带命令的名字、说明、小标签、规矩（复制一份再改时照界面语言），在哪能用、写到哪、存在哪
   { file: 'shared/ai-cmds.ts', within: 'BUILTINS', all: true },

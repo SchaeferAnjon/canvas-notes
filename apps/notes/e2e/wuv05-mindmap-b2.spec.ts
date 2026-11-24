@@ -478,11 +478,17 @@ test('④⑫ 导出：⌘K「导出导图…」和标签条「⋯」都能开；
     expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true)
     for (const t of ['线性映射', '秩-零化度定理', '详见 第3讲 矩阵乘法']) expect(svg).toContain(`>${t}<`)
     expect(svg).toContain('<image href="data:image/jpeg;base64,')
-    // PDF、OPML
+    // PDF、OPML。印 PDF 的那个看不见的窗口不降成后台（降了的话 Mac 一忙它分不到 CPU，一张要半分钟以上）
+    await run.app.evaluate(({ app }) => {
+      app.once('browser-window-created', (_e, w) => {
+        ;(globalThis as { pdfThrottle?: boolean }).pdfThrottle = w.webContents.getBackgroundThrottling()
+      })
+    })
     await acts(page).getByRole('button', { name: '更多' }).click()
     await pickMenu(run, '导出 PDF…')
     await dlg.getByTestId('map-export-go').click()
     await expect.poll(() => readdirSync(out), { timeout: 30_000 }).toContain('导图 11-22 17∶51.pdf')
+    expect(await run.app.evaluate(() => (globalThis as { pdfThrottle?: boolean }).pdfThrottle)).toBe(false)
     await expect.poll(() => readFileSync(join(out, '导图 11-22 17∶51.pdf')).subarray(0, 5).toString()).toBe('%PDF-')
     await acts(page).getByRole('button', { name: '更多' }).click()
     await pickMenu(run, '导出 OPML 大纲…')

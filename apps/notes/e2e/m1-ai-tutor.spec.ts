@@ -160,6 +160,8 @@ test('CN-89：读 PDF 问一句，起的 claude 带 --append-system-prompt（读
     // 别处的 AI 对话（同一格，AI 开着就还开着）：全能模式下系统提示附在 Claude Code 自己的后面、一个设置都不读、给我们的工具；effort 也是 High
     await openNote(page, '随手记')
     await openAi(page)
+    // 刚才那段问过：换页留着（AI 对话绑页面），点头上那颗切到这一页的 AI
+    await ai(page).getByTestId('ai-follow').click()
     const float = page.getByRole('complementary', { name: 'AI 对话' })
     await float.getByRole('textbox', { name: '问 AI' }).fill('你好')
     await float.getByRole('textbox', { name: '问 AI' }).press('Enter')

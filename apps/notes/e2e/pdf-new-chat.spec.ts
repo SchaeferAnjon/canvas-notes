@@ -63,11 +63,11 @@ test('读 PDF 答完点「+」：一段空的新对话；以前那段在对话�
     await expect(msgs(page)).toHaveCount(0)
     await expect(ai(page).locator('.msgs.greeting')).toBeVisible()
     await expect(ai(page)).not.toContainText('新对话 ·')
-    // 头上对话菜单：「这里」还没问过；「之前的对话」一行，名字是那段第一问，右边「1问 · 时间」
+    // 头上对话菜单「这里」（对话菜单按页归组）：现在这段「新对话」，下面收起来的那段一行，名字是那段第一问，右边「时间 · 1问」
     await ai(page).getByTestId('ai-conv').click()
     await expect(menu(page).getByRole('menuitemradio').first()).toContainText('新对话')
-    await expect(menu(page)).toContainText('之前的对话')
     await expect(older(page)).toHaveCount(1)
+    await expect(older(page).locator('.r')).toHaveText(/^今天 \d\d:\d\d · 1问$/)
     await expect(older(page).first()).toContainText('第一段：这一页讲什么')
     await expect(older(page).first()).toHaveAttribute('title', /1问$/)
     mkdirSync(SHOTS, { recursive: true })

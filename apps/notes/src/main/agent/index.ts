@@ -9,10 +9,12 @@
  * 改了库里哪些文件我们事先不知道：这一轮开始先把用户没提交的字提交掉，结束时库里新冒出来的改动就是这一轮的，
  * 和我们工具改的一起提交成「AI：…」（编辑器自己存的字、软件自己写的不算，除非监听看到外面又改了它）。
  */
-import { app, type BrowserWindow, dialog, ipcMain, shell } from 'electron'
-import { realpathSync } from 'node:fs'
+import { app, type BrowserWindow, dialog, ipcMain, shell, type WebContents, webContents } from 'electron'
+import { readdirSync, realpathSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { findLost, knownSessions } from './recover'
 import { readFile, rename } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, join, resolve, sep } from 'node:path'
 import { type AiWrote, aiWroteHead, blockKeys, chatLink, decodeNote, encodeNote, wrapInsert, wrapNewBlocks } from '@cn/format'
 import * as git from '@cn/git'
 import { type ActTally, actScope, noTally } from '../../shared/ai-act'
@@ -28,7 +30,7 @@ import { installClaudeCode, loginClaudeCode } from './cc-setup'
 import { apiKey, apiKeyTail, bundledOpencode, initSources, localFound, probeAll, removeKey, setKey, sourceModels, sourceReady } from './sources'
 import { BRAND } from '../../shared/brand'
 import { t } from '../../shared/i18n'
-import { MATH_RULE } from '../../shared/reading'
+import { MATH_RULE, PRE_MARK } from '../../shared/reading'
 import { CITE_FIND, CITE_RULE, notesLine } from '../../shared/cite-rule'
 import { listEntries } from '../files'
 import { logActivity } from '../activity'
@@ -39,11 +41,12 @@ import { brokenHint, checkCli, checkNow, type CliFound, COMMAND, createEngines, 
 import { fakeCodexModels, fakeEngine } from './fake-engine'
 import { pastedImages } from '../pasted'
 import { type McpServer, startMcpServer } from './mcp-server'
-import { readingChats } from '../reading/chats'
-import type { ChatSummary } from '../../shared/ai-chats'
+import { readingChats, readingRows } from '../reading/chats'
+import type { ChatSummary, ConvoRow, ConvPages } from '../../shared/ai-chats'
 import { checkTarget } from '../../shared/ai-note'
 import { AgentStore } from './store'
-import { runTool, stepLabel, stepPaths, type ToolHost, toolLabel, toolSpecs } from './tools'
+import { cardPerPara, runTool, stepLabel, stepPaths, type ToolHost, toolLabel, toolSpecs, type WebAsk, type WebOpts } from './tools'
+import { pageFor, WEB_PAGE_SAID, type WebPageId, type WebSeen } from '../../shared/web-pages'
 import * as vops from './vault-ops'
 import { AI_BLOCK_RULE, aiBlockLine, langTail, modeLine, MODES_RULE, userNoteLine } from './modes'
 import * as web from './web'
@@ -73,6 +76,7 @@ ${MODES_RULE}
 ${AI_BLOCK_RULE}
 - 做完用一两句话说做了什么。回答用哪种语言照每条消息开头的【语言】；平实、直接，不客套。不编造笔记里没有的事。
 - ${MATH_RULE}
+- 他问的这一问要讲的主要不是他正在看的网页、视频、文档本身写了什么，而是读懂它要的、它外面的基础知识（大 O 复杂度怎么算、自注意力一般怎么算、某个数学工具、领域常识），在回答最后单独一行写 ${PRE_MARK}；讲眼前这份内容本身的、帮他整理和改笔记的都不写。
 
 ${CITE_RULE}
 ${CITE_FIND}`
@@ -81,9 +85,9 @@ ${CITE_FIND}`
  * AGENT_SYSTEM 改过就加一：Claude Code 接着聊时一直用会话第一次的系统提示（--system-prompt-snapshot），
  * 版本对不上的会话不再接着聊，开新会话、补上最近几轮（2：全能模式、笔记和文件夹那组工具；3：改了开着的文件编辑器当场换；
  * 4：回答的语言照每条消息开头的【语言】，task-zojmg；5：往笔记里新加的段落写成 [!ai] 块，头一行照每条消息开头的【AI 块】，task-dtc34；
- * 6：提到库里的东西写成链接，路径照每条消息开头的【库里的笔记】，task-3e53q）
+ * 6：提到库里的东西写成链接，路径照每条消息开头的【库里的笔记】，task-3e53q；7：讲眼前内容外的前置知识时回答末尾标〔前置知识〕，功能小三件）
  */
-export const AGENT_VERSION = 6
+export const AGENT_VERSION = 7
 
 /**
  * 引擎表（共用包 @cn/ai-engines 的 createEngines，ParaRead 用同一个）：Key、本机模型、自带 OpenCode 从 sources.ts 来；
@@ -116,8 +120,15 @@ interface Turn {
   acts: Set<AiActArea>
   /** 其中整块亮着的（四边一道光、顶上提示条）；只亮一处的（只加一张卡）不在这里 */
   whole: Set<AiActArea>
-  /** 这一轮改到的每一篇（文档工具、命令行写盘、监听看到的）：每篇发一次 start，开着它的文档栏四边亮、顶上「AI 正在改这篇」 */
-  docs: Set<string>
+  /** 这一轮亮过的网页（右栏 right，中间栏、分屏那一格是它标签的 id）：每页第一次动手发 start（webGlow） */
+  webLit: Set<string>
+  /**
+   * 这一轮改到的每一篇（文档工具、命令行写盘、监听看到的）：每篇发一次 start，开着它的那一格（文档看法、白板看法）四边亮、顶上「AI 正在改这篇」；
+   * 'doc'：只是白板工具改的（白板那一格自己画整块或那张卡，只亮文档看法那一格），后来又被别的改了再发一次不带 docOnly 的
+   */
+  docs: Map<string, 'all' | 'doc'>
+  /** 正在跑的白板工具（board_*）有几个：这时写的那一篇白板那一格自己画 */
+  boardTools: number
   /** 这一轮做了多少：做完时「整理好了 · 挪了N张卡」、停下时「做完的N步留着」 */
   tally: ActTally
   /** 用户按了停下（esc、提示条「停下」、发送键）：一长串的下一步不做了 */
@@ -150,6 +161,8 @@ interface Turn {
   trail: { path: string; own: boolean; text: string }[]
   /** 字和步骤发给界面（AI 对话：ai:event；读 PDF：reading:event） */
   emit(e: AiEvent): void
+  /** 这一轮操纵过的网页：不给 page 的下一下接着用它（agent/index.ts webFor） */
+  web?: WebContents
 }
 
 export interface AgentDeps {
@@ -395,34 +408,94 @@ function hostFor(t: Turn): ToolHost {
         return r.path
       },
     },
+    // 每一样都 held：AI 开的网页常在 AI 后面看不见，用着的时候不让它当后台页降级（agent/web.ts held）；
+    // 操纵哪个网页 webFor 定（给了 page 照 page，不给接着这一轮用过的，再不然是用户正在看的那个）
     web: {
-      async open(url) {
-        if (!/^https?:\/\//i.test(url)) throw new Error('只开 http(s) 网址')
-        const since = Date.now()
-        const wc = web.webContents()
-        if (wc) void wc.loadURL(url).catch(() => undefined)
-        else await bridge('openWeb', url)
-        const done = await web.waitLoaded(since)
-        return { url: done.getURL(), title: done.getTitle() }
-      },
-      read: () => web.readPage(),
-      click: (t) => web.click(t),
-      type: (ref, text, submit) => web.type(ref, text, submit),
-      scroll: (to) => web.scroll(to),
-      async clip(whole, text) {
-        const v = needVault()
-        const colors = await accent()
-        // 给了那一段里的几个字：指针先去找到那一段、亮一下、选中它，再剪（DESIGN.v3 2.3、B3）
-        if (text && !whole && !(await web.pickBlock(text, colors, t.engine, () => t.signal.aborted))) throw new Error(`网页上没找到含「${text.slice(0, 20)}」的那一段。先 web_read 看看原文。`)
-        const c = await web.pageForClip(whole)
-        const path = await v.clip(c.text, c.url, c.title.slice(0, 300))
-        t.touched.set(path, '新')
-        // 剪下的那一段：左边一道竖线、段尾「✂ 剪成卡片」，撤回后去掉
-        if (!whole) await web.markClip(path, colors, t.engine)
-        await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
-        send('files:changed')
-        return path
-      },
+      open: (url, o = {}) =>
+        web.held(async () => {
+          if (!/^https?:\/\//i.test(url)) throw new Error('只开 http(s) 网址')
+          const since = Date.now()
+          const pages = await webPages()
+          const hit = o.page ? pageFor(pages, o.page) : undefined
+          const have = o.page ? live(hit?.wc) : sticky(t) ?? live(pages.find((p) => p.default)?.wc) ?? web.webContents()
+          if (have) {
+            web.use(have)
+            webGlow(t, pages, have)
+            void have.loadURL(url).catch(() => undefined)
+            const done = await web.waitLoaded(since, 20_000, have)
+            t.web = done
+            return { url: done.getURL(), title: done.getTitle(), where: whereOf_(pages, done) }
+          }
+          // 没有那一页：中间栏开一个宽网页标签，右栏开右栏（右栏没开会自动打开）
+          if (o.page && o.page !== 'right' && o.page !== 'center') throw new Error(noPage(o.page, pages))
+          await bridge(o.page === 'center' ? 'openWide' : 'openWeb', url)
+          const done = await web.waitLoaded(since)
+          t.web = web.use(done)
+          webGlow(t, await webPages(), done)
+          // 不翻：回给 AI 的工具结果
+          return { url: done.getURL(), title: done.getTitle(), where: o.page === 'center' ? '中间栏' : '右栏' }
+        }),
+      read: (o) =>
+        web.held(async () => {
+          const { wc, where } = await webFor(t, o)
+          return { ...(await web.readPage(wc)), ...(where ? { where } : {}) }
+        }),
+      click: (target, o) =>
+        web.held(async () => {
+          const { wc } = await webFor(t, o)
+          const r = await web.clickRisk(wc, target)
+          // 选文件的框：web.click 自己说「用 web_upload」，不在这里问
+          const ask = r?.risk && r.risk !== 'upload' && askFirst(t, wc, r.risk, r.label, o?.confirmed)
+          return ask || web.click(wc, target)
+        }),
+      type: (ref, text, submit, o) =>
+        web.held(async () => {
+          const { wc } = await webFor(t, o)
+          if (submit) {
+            const r = await web.enterRisk(wc, ref)
+            const ask = r.risk && askFirst(t, wc, r.risk, r.label, o?.confirmed)
+            if (ask) return ask
+          }
+          return web.type(wc, ref, text, submit)
+        }),
+      select: (target, option, o) => web.held(async () => web.select((await webFor(t, o)).wc, target, option)),
+      check: (target, on, o) => web.held(async () => web.check((await webFor(t, o)).wc, target, on)),
+      upload: (target, files, o) =>
+        web.held(async () => {
+          const { wc } = await webFor(t, o)
+          const paths = files.map((f) => uploadable(f))
+          const ask = askFirst(t, wc, 'upload', paths.map((p) => p.split('/').pop()).join('、'), o?.confirmed)
+          return ask || web.upload(wc, target, paths)
+        }),
+      hover: (target, o) => web.held(async () => web.hover((await webFor(t, o)).wc, target)),
+      press: (keys, ref, times, o) =>
+        web.held(async () => {
+          const { wc } = await webFor(t, o)
+          if (/(enter|return|↵)\s*$/i.test(keys)) {
+            const r = await web.enterRisk(wc, ref)
+            const ask = r.risk && askFirst(t, wc, r.risk, r.label, o?.confirmed)
+            if (ask) return ask
+          }
+          return web.press(wc, keys, ref, times)
+        }),
+      drag: (from, to, o) => web.held(async () => web.drag((await webFor(t, o)).wc, from, to)),
+      scroll: (to, o) => web.held(async () => web.scroll((await webFor(t, o)).wc, to)),
+      clip: (whole, text, o) =>
+        web.held(async () => {
+          const v = needVault()
+          const { wc } = await webFor(t, o)
+          const colors = await accent()
+          // 给了那一段里的几个字：指针先去找到那一段、亮一下、选中它，再剪（DESIGN.v3 2.3、B3）
+          if (text && !whole && !(await web.pickBlock(wc, text, colors, t.engine, () => t.signal.aborted))) throw new Error(`网页上没找到含「${text.slice(0, 20)}」的那一段。先 web_read 看看原文。`)
+          const c = await web.pageForClip(wc, whole)
+          const path = await v.clip(c.text, c.url, c.title.slice(0, 300))
+          t.touched.set(path, '新')
+          // 剪下的那一段：左边一道竖线、段尾「✂ 剪成卡片」，撤回后去掉
+          if (!whole) await web.markClip(wc, path, colors, t.engine)
+          await logActivity(v.root, { t: Date.now(), kind: 'clip', path })
+          send('files:changed')
+          return path
+        }),
     },
     doc: {
       read: () => bridge('docRead'),
@@ -448,6 +521,129 @@ function hostFor(t: Turn): ToolHost {
   }
 }
 
+// ---------- 网页：操纵哪一页（右栏、中间栏、分屏的那一格）、要先问用户的那几下 ----------
+
+const live = (id?: number): WebContents | null => {
+  if (id === undefined) return null
+  const wc = webContents.fromId(id)
+  return wc && !wc.isDestroyed() ? wc : null
+}
+const sticky = (t: Turn) => (t.web && !t.web.isDestroyed() ? t.web : null)
+/** 界面上开着的网页（shared/web-pages.ts）：窗口关了、界面没回话时当没有 */
+const webPages = () => bridge<WebSeen[]>('webPages').catch(() => [] as WebSeen[])
+const whereOf_ = (pages: WebSeen[], wc: WebContents) => {
+  const p = pages.find((x) => x.wc === wc.id)
+  return p ? WEB_PAGE_SAID[p.page] : undefined
+}
+// 不翻：回给 AI 的工具结果
+const noPage = (page: WebPageId, pages: WebSeen[]) => `没有${WEB_PAGE_SAID[page]}的网页。现在开着的：${pages.map((p) => `page=${p.page}（${WEB_PAGE_SAID[p.page]}）`).join('、') || '没有'}`
+
+/**
+ * 这一下操纵哪个网页：给了 page 照 page；不给接着这一轮用过的那个（AI 刚开的网页在 AI 后面，用户的焦点在别处也接着用它），
+ * 再不然是界面标着默认的（用户正在看、最后点过的），都没有是最后挂上、切到的那个
+ */
+async function webFor(t: Turn, o?: WebOpts): Promise<{ wc: WebContents; where?: string }> {
+  const pages = await webPages()
+  let wc: WebContents | null
+  if (o?.page) {
+    wc = live(pageFor(pages, o.page)?.wc)
+    if (!wc) throw new Error(noPage(o.page, pages))
+  } else wc = sticky(t) ?? live(pages.find((p) => p.default)?.wc) ?? web.webContents()
+  // 不翻：回给 AI 的工具结果
+  if (!wc) throw new Error('网页没开。先用 web_open 打开一个网址。')
+  t.web = web.use(wc)
+  webGlow(t, pages, wc)
+  // 看不见的那一页（在 AI 后面）：给它一个窗口大小再动手
+  const seen = pages.find((p) => p.wc === wc.id)
+  await web.fit(wc, seen?.shown, seen?.size)
+  const where = whereOf_(pages, wc)
+  return where ? { wc, where } : { wc }
+}
+
+/**
+ * 这一轮动到的那一页网页亮起来（右栏、中间栏、分屏的那一格都算）：那一页四边一道光、顶上「AI 正在操作这个网页 · 停下 esc」，
+ * 每页第一次发 start，这一轮做完一起收（换去操纵另一页时两页都亮到做完）。认不出是界面上哪一页（界面没回话）不画
+ */
+function webGlow(t: Turn, pages: WebSeen[], wc: WebContents) {
+  t.acts.add('web')
+  const key = pages.find((p) => p.wc === wc.id)?.key
+  if (!key || t.webLit.has(key)) return
+  t.webLit.add(key)
+  act({ turn: t.id, kind: 'start', area: 'web', path: key })
+}
+
+/**
+ * 要先问用户的那几下（提交表单、登录、付款、上传文件，2026-11-24 用户定）：第一次回「先问」（什么都不做），AI 在对话里问一句、停下；
+ * 用户回话以后（下一轮）AI 带 confirmed 再来才做。同一轮里自己带 confirmed 不算：问过、用户回了话才算。问过的记半小时
+ */
+const asked = new Map<string, { turn: Turn; at: number }>()
+const ASK_MS = 30 * 60_000
+// 不翻：回给 AI 的工具结果
+const RISK_SAID: Record<web.Risk, string> = { submit: '提交表单', login: '登录', pay: '付款', upload: '上传文件' }
+function askFirst(t: Turn, wc: WebContents, risk: web.Risk, label: string, confirmed?: boolean): WebAsk | null {
+  let host = ''
+  try {
+    host = new URL(wc.getURL()).host
+  } catch {
+    // about:blank 这类
+  }
+  const key = `${risk}|${host}|${label}`
+  const had = asked.get(key)
+  if (confirmed && had && had.turn !== t && Date.now() - had.at < ASK_MS) {
+    asked.delete(key)
+    return null
+  }
+  asked.set(key, { turn: t, at: Date.now() })
+  // 不翻：回给 AI 的工具结果
+  const what = risk === 'upload' ? `把 ${label} 传到 ${host || '这个网页'}` : `点「${label}」`
+  // 不翻：回给 AI 的工具结果
+  const why = !confirmed ? '' : had?.turn === t ? '同一轮里不能自己说可以，要用户回话。' : '这一下还没问过用户。'
+  return {
+    // 不翻：回给 AI 的工具结果
+    ask: `${why}这一下是${RISK_SAID[risk]}，什么都还没做。先在对话里问用户一句「要我${what}吗？」，然后停下等用户回话；用户说可以以后，再调一次这个工具、参数一样，带上 confirmed: true。用户说不要就别做。`,
+    // 不翻：步骤行（和别的步骤行一样是中文）
+    label: risk === 'upload' ? `等你点头：上传「${label}」` : `等你点头：点「${label}」`,
+    risk,
+  }
+}
+
+/** 用户在对话里给过的文件（消息里写的绝对路径、贴的图）：web_upload 只能传它们和库里的 */
+const givenFiles = new Set<string>()
+function noteGiven(prompt: string, images: { path: string }[] = []) {
+  const found = [...images.map((i) => i.path)]
+  for (const m of prompt.matchAll(/[「『"']((?:~|\/)[^「」『』"'\n]+)[」』"']|(?:^|[\s(（])((?:~|\/)[^\s「」『』"'()（）,，。、；;]+)/g)) found.push((m[1] ?? m[2] ?? '').trim())
+  for (const f of found) {
+    const abs = f.replace(/^~(?=\/|$)/, homedir())
+    if (!isAbsolute(abs)) continue
+    try {
+      const real = realpathSync(abs)
+      if (statSync(real).isFile()) givenFiles.add(real)
+    } catch {
+      // 不是文件（话里写的别的路径）
+    }
+  }
+}
+
+/** web_upload 的一个文件 → 本机的真路径：库里的（相对库根、或库里的绝对路径），或用户给过的；别的不让传 */
+function uploadable(f: string): string {
+  const v = needVault()
+  const p = f.trim().replace(/^~(?=\/|$)/, homedir())
+  let real: string
+  try {
+    real = realpathSync(isAbsolute(p) ? p : resolve(v.root, p))
+  } catch {
+    // 不翻：回给 AI 的工具结果
+    throw new Error(`没有这个文件：${f}`)
+  }
+  // 不翻：回给 AI 的工具结果
+  if (!statSync(real).isFile()) throw new Error(`「${f}」不是文件`)
+  const root = realpathSync(v.root)
+  const inVault = real.startsWith(root + sep) && !real.slice(root.length + 1).split(sep).some((s) => s === '.git')
+  // 不翻：回给 AI 的工具结果
+  if (!inVault && !givenFiles.has(real)) throw new Error(`「${f}」不在库里，也不是用户在对话里给的文件。只能传库里的文件，或者用户给的。`)
+  return real
+}
+
 const opsDeps = (v: Vault): vops.OpsDeps => ({ put: toTrash, stage: join(app.getPath('userData'), 'trash-undo'), moved: (from, to) => movedFiles(v.root, from, to) })
 
 async function docPath(): Promise<string> {
@@ -468,11 +664,15 @@ async function ensureMcp(): Promise<McpServer> {
         const step = `${t.id}-${Math.random().toString(36).slice(2, 8)}`
         const label = toolLabel(name, args)
         t.emit({ type: 'tool', id: step, label, status: 'run' })
+        const board = name.startsWith('board_')
+        if (board) t.boardTools++
         try {
-          const r = await runTool(name, args, hostFor(t))
+          const r = await runTool(name, args, hostFor(t)).finally(() => {
+            if (board) t.boardTools--
+          })
           // 改名、挪动、删的原来是个文件夹：做完步骤行换成文件夹的说法
           const paths = r.isError || name === 'notes_list' ? [] : stepPaths(name, args, needVault().root, r.text)
-          t.emit({ type: 'tool', id: step, label: r.label ?? label, status: r.isError ? 'err' : 'ok', ...(r.isError ? { detail: r.text } : {}), ...(paths.length ? { paths } : {}) })
+          t.emit({ type: 'tool', id: step, label: r.label ?? label, status: r.isError ? 'err' : r.ask ? 'ask' : 'ok', ...(r.ask && !r.isError ? { risk: r.ask } : {}), ...(r.isError ? { detail: r.text } : {}), ...(paths.length ? { paths } : {}) })
           return { text: r.text, ...(r.isError ? { isError: true } : {}) }
         } catch (e) {
           const detail = String((e as Error).message ?? e)
@@ -494,7 +694,8 @@ async function ensureMcp(): Promise<McpServer> {
  */
 async function announce(t: Turn, name: string, args: Record<string, unknown>) {
   if (!/^(board_|doc_|web_|note_write$)/.test(name)) return
-  if (name.startsWith('web_') && t.whole.has('web')) return
+  // 网页：动的是哪一页要等 webFor 定了才知道，那里亮（webGlow）
+  if (name.startsWith('web_')) return void t.acts.add('web')
   const ctx = name.startsWith('web_') ? null : await bridge<AgentContext>('context').catch(() => null)
   const tab = ctx?.tab.type === 'note' && ctx.tab.path ? ctx.tab : null
   const scope = actScope(name, args, { path: tab?.path ?? null, mode: tab?.mode ?? null, board: !!tab?.board })
@@ -510,14 +711,19 @@ async function announce(t: Turn, name: string, args: Record<string, unknown>) {
 
 /**
  * 这一轮改到这一篇（文档工具、整篇改写、全能模式下命令行写盘 / Edit、git 改回去，监听看到的都算）：每篇第一次发 start，
- * 界面上开着它的文档栏照白板那样四边一道光、顶上「AI 正在改这篇 · 停下 esc」，到这一轮做完收成「改好了 · +N −M · 撤回」；
+ * 界面上开着它的文档栏照白板那样四边一道光、顶上「AI 正在改这篇 · 停下 esc」（以白板看法开着的白板那一格也亮，「AI 正在改这块白板」），
+ * 到这一轮做完收成「改好了 · +N −M · 撤回」；
  * 没开着的那篇界面不画。改到的那一段竖线、字一点点长出来照旧（ai-spot.ts）
  */
 function docGlow(t: Turn, path: string | null) {
-  if (!path || t.docs.has(path)) return
-  t.docs.add(path)
+  if (!path) return
+  // 白板工具正在改（整理、加卡）：白板那一格自己画整块或只那张卡，这里只亮文档看法那一格
+  const how = t.boardTools > 0 ? 'doc' : 'all'
+  const was = t.docs.get(path)
+  if (was === 'all' || was === how) return
+  t.docs.set(path, how)
   t.acts.add('doc')
-  act({ turn: t.id, kind: 'start', area: 'doc', path })
+  act({ turn: t.id, kind: 'start', area: 'doc', path, ...(how === 'doc' ? { docOnly: true as const } : {}) })
 }
 
 function emit(id: number, e: AiEvent) {
@@ -655,7 +861,7 @@ async function wrapTurn(v: Vault, t: Turn, kinds: Record<string, string>) {
       if (e.own) for (const k of now) if (!prev.has(k)) mine.add(k)
       prev = now
     }
-    const r = wrapNewBlocks(before, disk.text, t.aiWrote!, (k) => mine.has(k))
+    const r = wrapNewBlocks(before, disk.text, t.aiWrote!, (k) => mine.has(k), await cardPerPara(disk.text, path, () => bridge<AgentContext>('context')))
     if (!r.wrapped) continue
     // 正好这一下编辑器又存了字（磁盘和刚读的不一样）：这次不包，AI 的改动照样提交
     if (decodeNote(await readFile(v.abs(path))).text !== disk.text) continue
@@ -702,7 +908,7 @@ export async function runAgentTurn(o: {
   aiWrote?: AiWrote
 }): Promise<AgentTurnResult> {
   const v = needVault()
-  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), docs: new Set(), tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), trail: [] }
+  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), webLit: new Set(), docs: new Map(), boardTools: 0, tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), trail: [] }
   let outcome: EngineOutcome | null = null
   let error: string | undefined
   /** 没答完（停下、出错）时引擎给的会话号：已经做了的几步在这个会话里，「接着做」接着它 */
@@ -710,6 +916,8 @@ export async function runAgentTurn(o: {
   let token: { token: string; own: boolean } | null = null
   liveTurns.add(t)
   turns.set(o.id, o.ac)
+  // 话里写的、贴的文件：web_upload 能传它们
+  noteGiven(o.run.prompt, o.run.images)
   try {
     await bridge('saveAll')
     if (o.omni) for (const p of await commitUserPending(v.root)) t.before.add(p)
@@ -1264,6 +1472,31 @@ function aiPrefsView() {
   return { prefs, labels: Object.fromEntries(FEATURES.map((f) => [f, featureLabel(f)])) as Record<AiFeature, string>, engines: engineInfo(), uses: usesOf(prefs, installed) }
 }
 
+/** 这次开着软件看过要不要找回的库 */
+const recoverSeen = new Set<string>()
+/**
+ * 找回 0.5.10 以前点「+」清掉的对话（recover.ts）：每个库只做一次。Claude Code 的配置目录照 CLAUDE_CONFIG_DIR，没设是 ~/.claude；
+ * 测试实例只看 CN_CLAUDE_DIR（不读这台 Mac 上真的记录）
+ */
+function recoverOnce(root: string) {
+  if (recoverSeen.has(root)) return
+  recoverSeen.add(root)
+  const dir = process.env.CN_CLAUDE_DIR || (process.env.CN_E2E === '1' ? null : process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'))
+  if (!dir) return
+  const reading = join(app.getPath('userData'), 'reading')
+  let id = -Date.now() * 1000
+  const n = store.recoverOnce(root, () => {
+    let rs: string[] = []
+    try {
+      rs = readdirSync(reading).filter((f) => f.endsWith('.sessions.json')).map((f) => join(reading, f))
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    }
+    return findLost(dir, root, knownSessions([...store.chatFiles(root), ...rs]), () => id--)
+  })
+  if (n) console.log(`找回了 ${n} 段以前清掉的对话`)
+}
+
 /** 文件改了名、挪了地方（标签上改名、文件夹改名挪走里面的）：这个文件的 AI 对话跟过去 */
 export function moveChatPlace(root: string, from: string, to: string) {
   if (!store || !/\.md$/i.test(from)) return
@@ -1436,7 +1669,53 @@ export function registerAgent(d: AgentDeps) {
   ipcMain.handle('ai:chats', (): ChatSummary[] => {
     const v = deps.vault()
     if (!v) return []
-    return [...store.list(v.root), ...readingChats(join(app.getPath('userData'), 'reading'), v.root)].sort((a, b) => b.at - a.at)
+    recoverOnce(v.root)
+    const pages = store.pages(v.root)
+    return [...store.list(v.root), ...readingChats(join(app.getPath('userData'), 'reading'), v.root)]
+      .map((c) => (pages[c.key] ? { ...c, page: pages[c.key]!.page } : c))
+      .sort((a, b) => b.at - a.at)
+  })
+  // 点「+」收起来的几段（AI 对话绑页面第二步，照读 PDF 的「之前的对话」）；第一次看时顺手找回以前清掉的（recover.ts）
+  ipcMain.handle('ai:chat:shelve', (_e, place: unknown) => {
+    const v = deps.vault()
+    const p = placeOf({ key: place, label: '' })!
+    if (v) store.shelve(v.root, p.key)
+  })
+  ipcMain.handle('ai:chat:older', (_e, place: unknown) => {
+    const v = deps.vault()
+    const p = placeOf({ key: place, label: '' })!
+    if (v) recoverOnce(v.root)
+    return v ? store.olderList(v.root, p.key) : []
+  })
+  ipcMain.handle('ai:chat:switch', (_e, place: unknown, id: unknown) => {
+    const v = deps.vault()
+    const p = placeOf({ key: place, label: '' })!
+    if (typeof id !== 'number') throw new Error('AI 参数不对')
+    return v ? store.switchOlder(v.root, p.key, id) : false
+  })
+  ipcMain.handle('ai:chat:detach', (_e, place: unknown, label: unknown) => {
+    const v = deps.vault()
+    const p = placeOf({ key: place, label })!
+    return v ? store.detach(v.root, p.key, p.label) : null
+  })
+  // 「全部对话」：每段一行（收起来的也是），连读 PDF 那一套的，新的在前
+  ipcMain.handle('ai:convos', (): ConvoRow[] => {
+    const v = deps.vault()
+    if (!v) return []
+    recoverOnce(v.root)
+    return [...store.rows(v.root), ...readingRows(join(app.getPath('userData'), 'reading'), v.root)].sort((a, b) => b.at - a.at)
+  })
+  // 「这段 → 那页」表（AI 对话绑页面，shared/ai-chats.ts ConvPages）
+  ipcMain.handle('ai:pages', (): ConvPages => {
+    const v = deps.vault()
+    return v ? store.pages(v.root) : {}
+  })
+  ipcMain.handle('ai:page:set', (_e, convo: unknown, to: unknown) => {
+    const v = deps.vault()
+    if (typeof convo !== 'string' || !convo) throw new Error('AI 参数不对')
+    const t = to as { page?: unknown; label?: unknown } | null
+    if (t !== null && (typeof t?.page !== 'string' || !t.page || typeof t.label !== 'string')) throw new Error('AI 参数不对')
+    if (v) store.setPage(v.root, convo, t ? { page: t.page as string, label: t.label as string } : null)
   })
   ipcMain.handle('ai:reply', (_e, id: number, ok: boolean, value: unknown) => {
     const c = calls.get(id)

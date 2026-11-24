@@ -276,6 +276,8 @@ export function attachWebview(wc: WebContents, win: BrowserWindow) {
     history.title(wc.getURL(), title)
     recentWeb.title(wc.getURL(), title)
   })
+  // 网页自己拿到焦点（点进正文）：告诉界面是哪个网页，它所在的栏成当前栏（窗口不在前面时直接点进网页，界面收不到 blur）
+  wc.on('focus', () => send('web:focused', wc.id))
   // 书签管家新标签页里的网站图标用右栏开过的网站报的图标
   wc.on('page-favicon-updated', (_e, icons) => noteIcon(wc.getURL(), icons))
   wc.on('before-input-event', (e, input) => {

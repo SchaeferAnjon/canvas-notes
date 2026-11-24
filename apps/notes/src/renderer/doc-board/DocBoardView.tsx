@@ -1402,6 +1402,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       return 'x' in w ? w : { x: 40, y: 80 }
     },
     onNotice: (t) => setToast({ text: t }),
+    pasteText: (t) => put(centerWhere(), t, { col: tNow('贴进了「%s」：文档这一节多了这一段'), free: tNow('贴在了这里：文档末尾多了这一段，带一行位置') }),
     addCards(mds, at) {
       const slot = lastDrop.current ? slotAt(lastDrop.current.x, lastDrop.current.y) : null
       lastDrop.current = null

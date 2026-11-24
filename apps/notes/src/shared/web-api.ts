@@ -120,6 +120,8 @@ export interface CnWebApi {
   setActiveTab(webContentsId: number | null): Promise<void>
   /** 网页里点了新窗口链接、插件开了新标签：交给界面开一个网页标签。reqId 有值时开好后调 tabCreated */
   onOpenTab(cb: (req: { url: string; reqId?: number; background?: boolean }) => void): () => void
+  /** 一个网页自己拿到了焦点（点进正文）：它的 webContents id，界面拿来换当前栏 */
+  onFocused(cb: (id: number) => void): () => void
   tabCreated(reqId: number, webContentsId: number): void
   /**
    * 插件要切换 / 关掉 / 换网址某个标签：Chrome 插件按 webContentsId 说，BookmarkKeeper 新标签页按网页标签 id（tabId，宽标签是 wide:<id>）说；

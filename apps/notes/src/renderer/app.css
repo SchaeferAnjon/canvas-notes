@@ -668,6 +668,18 @@ button.bi[data-testid='git-changed']:disabled {
 .doc.doc .cm-h6 {
   font-weight: 600;
 }
+/* 小标题末尾的 #前置知识（前置知识标签，live-preview.ts）：一颗小标签，和右栏笔记 .pre-tag、白板列头 .db-pre-tag 同一个样子 */
+.doc.doc .cm-pre-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font: 400 12px/16px var(--sans);
+  vertical-align: 2px;
+  white-space: nowrap;
+}
 /* 白板用文档看法打开：列那一行（<!-- column … title=… -->，layout-lines.ts）画成和 ## 一样的小节标题（一列就是一节，偏好「白板先按节摆再自由」） */
 .doc.doc .cm-colhead {
   font: 600 19px/1.35 var(--sans);
@@ -954,6 +966,9 @@ a.wl.cite:hover {
   border: 1.5px solid var(--acc);
   border-radius: 2px;
   background: var(--acc-soft);
+}
+.cite-card .thumb .box.quote {
+  border-width: 1px;
 }
 /* 白板卡：那张卡本身（白板上卡的底色、1px 描边） */
 .cite-card .bc {
@@ -2423,6 +2438,12 @@ a.wl.cite:hover {
      要横着滚的（代码块、表格）、一行省略的（步骤行）各自另说 */
   overflow-wrap: anywhere;
 }
+/* 上面还有滚出去的（follow.tsx 记的 data-above）：上沿 20 渐隐。以前字直接切在「看得到」那一行的底线上，
+   跟着到底时最上面那一行像被头部盖住了半截（bug 三组）；滚到顶就不隐 */
+.msgs[data-above] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 20px);
+  mask-image: linear-gradient(to bottom, transparent, #000 20px);
+}
 /* 空对话打招呼（task-0tgz2，小样 design/ai-empty 方向 A「贴着输入框」）：问候靠底、左对齐，下面紧跟输入框上面那排快捷命令。
    引擎标志 22 + 8 + 宋体 600 22/1.35 的钟点问候；下面 4，13/1.5 --t2 一句跟着在看的东西走 */
 .msgs.greeting {
@@ -3096,59 +3117,6 @@ a.wl.cite:hover {
   color: var(--t2);
   text-decoration: underline;
   text-underline-offset: 2px;
-}
-.cmdmenu {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: calc(100% + 6px);
-  padding: 6px;
-  border-radius: 12px;
-  background: var(--pop);
-  -webkit-backdrop-filter: var(--blur);
-  backdrop-filter: var(--blur);
-  box-shadow: var(--shadow-up);
-  z-index: 20;
-}
-.cmdmenu button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 6px 8px;
-  border: 0;
-  border-radius: 8px;
-  background: none;
-  text-align: left;
-  color: var(--t1);
-}
-.cmdmenu button.on {
-  background: var(--fill2);
-}
-.cmdmenu .ib {
-  width: 26px;
-  height: 26px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 6px;
-  background: var(--fill);
-  color: var(--t2);
-}
-.cmdmenu b {
-  display: block;
-  font-weight: 500;
-  font-size: 13px;
-}
-.cmdmenu button span > span {
-  display: block;
-  font-size: 12px;
-  color: var(--t2);
-}
-.cmdmenu .keys {
-  padding: 6px 8px 2px;
-  font-size: 11px;
-  color: var(--t3);
 }
 .nocmd {
   position: absolute;

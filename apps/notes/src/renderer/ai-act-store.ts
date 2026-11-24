@@ -28,6 +28,8 @@ export interface ActEntry {
   path: string | null
   /** 整块亮（四边一道光、顶上提示条）；false 是只亮一处 */
   whole: boolean
+  /** 文档整篇亮、但只是白板工具改的：只亮文档看法那一格（白板那一格自己画整块或那张卡） */
+  docOnly?: boolean
   /** 按了停下，等这一步做完 */
   stopping: boolean
   /** 只亮一处时是哪几样（白板卡片的 id）；文档那一段由编辑器自己记 */
@@ -68,21 +70,26 @@ export function onActs(f: () => void): () => void {
   return () => subs.delete(f)
 }
 /**
- * 正开着的文档栏（AiActLayer 挂着的，分屏两格各算一次）：AI 改的那篇没开着时界面上什么都不画，esc 也不当「停下」接走
+ * 正开着这篇的那一格（AiActLayer 挂着的文档看法、白板看法，分屏两格各算一次）：AI 改的那篇没开着时界面上什么都不画，esc 也不当「停下」接走
  */
 const docsShown = new Map<string, number>()
-export function showDoc(path: string): () => void {
-  docsShown.set(path, (docsShown.get(path) ?? 0) + 1)
+const boardsShown = new Map<string, number>()
+export function showDoc(path: string, board: boolean): () => void {
+  const m = board ? boardsShown : docsShown
+  m.set(path, (m.get(path) ?? 0) + 1)
   emit()
   return () => {
-    const n = (docsShown.get(path) ?? 1) - 1
-    if (n > 0) docsShown.set(path, n)
-    else docsShown.delete(path)
+    const n = (m.get(path) ?? 1) - 1
+    if (n > 0) m.set(path, n)
+    else m.delete(path)
     emit()
   }
 }
+/** 整篇亮的这一篇白板那一格也画（以白板看法开着、被命令行写盘、文档工具改了；只是白板工具改的白板那一格自己画） */
+export const boardShowsDoc = (e: ActEntry) => e.area === 'doc' && e.whole && !e.docOnly
 /** 界面上画着的那几处（整篇亮的文档只算开着的那篇）：AI 输入框边上那圈光这时让给它们 */
-export const shownActs = () => list.filter((e) => e.area !== 'doc' || !e.whole || (!!e.path && docsShown.has(e.path)))
+export const shownActs = () =>
+  list.filter((e) => e.area !== 'doc' || !e.whole || (!!e.path && (docsShown.has(e.path) || (boardShowsDoc(e) && boardsShown.has(e.path)))))
 /** 有没有正在动手的（还没做完、看得见的）：esc 这时是「停下」 */
 const acting = () => shownActs().some((e) => !e.end)
 /** 减少动态：光不走、不绕，只有不动的一圈 */
@@ -143,8 +150,10 @@ function on(e: AiAct) {
     list = list.filter((x) => !(x.end && x.area === e.area && x.path === e.path))
     const cur = list.find((x) => same(x, e))
     const spot = e.kind === 'spot' && e.ids ? { ids: e.ids, seq: ++seq } : null
-    if (!cur) list = [...list, { turn: e.turn, area: e.area, path: e.path, whole: e.kind === 'start', stopping: false, spot, end: null }]
-    else if (e.kind === 'start') patch(cur, { whole: true, spot: null })
+    const docOnly = e.kind === 'start' && !!e.docOnly
+    if (!cur) list = [...list, { turn: e.turn, area: e.area, path: e.path, whole: e.kind === 'start', ...(docOnly ? { docOnly } : {}), stopping: false, spot, end: null }]
+    // 先是白板工具改的、后来又被命令行改了：白板那一格也亮起来
+    else if (e.kind === 'start') patch(cur, { whole: true, spot: null, docOnly: (!cur.whole || !!cur.docOnly) && docOnly })
     else if (!cur.whole && spot) patch(cur, { spot })
   } else if (e.kind === 'grab') grab = { ...e, seq: ++seq }
   else if (e.kind === 'wrote') {

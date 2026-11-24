@@ -81,14 +81,34 @@ export async function launch(
       if (clip) await restoreClipboard(app, clip)
       // 关不掉时别把整条测试的时间耗完：20 秒还没退出就杀掉，报出退出卡在哪一步（软件在 quit.log 里记的）
       const proc = app.process()
+      const quitAt = Date.now()
+      let exitAt = 0
+      proc.once('exit', () => (exitAt = Date.now()))
+      // CN_QUIT_PROBE=<文件夹>：2.5 秒（CN_QUIT_PROBE_MS）还没退出时把主进程 sample 两秒、带这个设置目录的进程列出来存进去（查退得慢卡在哪）
+      const probe = process.env.CN_QUIT_PROBE ? setTimeout(() => {
+        const out = `${process.env.CN_QUIT_PROBE}/sample-${proc.pid}-${Date.now()}`
+        try {
+          execFileSync('sh', ['-c', `ps -A -o pid,ppid,pri,stat,etime,command | grep -F -- "${userData}" | grep -v grep | cut -c1-260 > "${out}.ps"; /usr/bin/sample ${proc.pid} 2 -file "${out}.txt" >/dev/null 2>&1`], { timeout: 10_000 })
+        } catch (e) {
+          console.error(`[退出慢] 取样没取成：${String(e)}`)
+        }
+      }, Number(process.env.CN_QUIT_PROBE_MS ?? 2500)) : undefined
       let timer: NodeJS.Timeout | undefined
       const stuck = await Promise.race([
         app.close().then(() => false),
         new Promise<boolean>((r) => (timer = setTimeout(() => r(true), Number(process.env.CN_E2E_QUIT_WAIT ?? 20) * 1000))),
       ])
       clearTimeout(timer)
+      clearTimeout(probe)
+      const quitMs = Date.now() - quitAt
+      const logOf = (f: string, none: string) => (existsSync(join(userData, f)) ? readFileSync(join(userData, f), 'utf8').trim().replace(/\n/g, ' → ') : none)
+      // 盯网络进程的那个 sh 做了什么（quit-fast.ts，测试模式才记）：网络进程什么时候杀的、主进程什么时候没的
+      const shSaid = () => `盯网络进程的 sh：${logOf('quit-sh.log', '没记')}`
+      // 退得慢（还没到关不掉）也报一行：退出走到哪、主进程过多久才真的没了（偶尔关不掉的来源要靠这一行找）
+      if (!stuck && quitMs > 5000)
+        console.error(`[退出慢] ${(quitMs / 1000).toFixed(1)} 秒（主进程过 ${exitAt ? `${exitAt - quitAt} 毫秒` : '？'}才没）· ${logOf('quit.log', '（没有 quit.log）')} · ${shSaid()}`)
       if (stuck) {
-        const log = existsSync(join(userData, 'quit.log')) ? readFileSync(join(userData, 'quit.log'), 'utf8').trim().replace(/\n/g, ' → ') : '（没有 quit.log）'
+        const log = `${logOf('quit.log', '（没有 quit.log）')} · ${shSaid()}`
         // 它这会儿起着的子进程（卡在哪个 git 命令上）
         // 机器上进程多（几千个、命令行很长）时 ps 的输出超过默认 1MB，execFileSync 报 ENOBUFS 盖掉真正的「没退出」
         const all = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,etime=,command='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\n')

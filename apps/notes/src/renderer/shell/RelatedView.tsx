@@ -205,7 +205,7 @@ export function RelatedView(props: {
     setSel(it.id)
     const how = e.metaKey && e.shiftKey ? 'behind' : 'open'
     const line = (it.line ?? 0) + 1
-    openCite({ kind: 'note', path: it.path, ...(it.line !== undefined ? { anchor: { line, end: line } } : {}) }, how, titleOf(it.path), 'doc')
+    openCite({ kind: 'note', path: it.path, ...(it.line !== undefined ? { anchor: { line, end: line } } : {}) }, how, titleOf(it.path))
   }
 
   /** ⌘ 停在一条上：弹出那篇的开头（设计页 1.4） */
@@ -478,7 +478,7 @@ export function RelatedView(props: {
     )
   }
 
-  const openNote = (p: string, e?: React.MouseEvent) => openCite({ kind: 'note', path: p }, e?.metaKey && e.shiftKey ? 'behind' : 'open', titleOf(p), 'doc')
+  const openNote = (p: string, e?: React.MouseEvent) => openCite({ kind: 'note', path: p }, e?.metaKey && e.shiftKey ? 'behind' : 'open', titleOf(p))
 
   /** 最上面那张「词条」卡（梦游 Wiki 那节 C1）：梦游建议过、还没有词条页 →「建词条页…」，点了才建；建好了 → 那一页，点了打开 */
   function entryCard(e: NonNullable<RelatedResult['entry']>) {

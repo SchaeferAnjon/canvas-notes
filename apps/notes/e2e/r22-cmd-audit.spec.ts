@@ -374,6 +374,8 @@ test('翻译不带属性；PDF 上翻全文；复习提纲再收换掉旧的那�
     await page.locator('.pal-row', { hasText: '第3讲.pdf' }).first().click()
     await expect(tabOn(page)).toHaveText('第3讲.pdf')
     await openAi(page)
+    // 刚才在冰岛自驾攻略上问过：换页留着那段（AI 对话绑页面），点头上那颗切到这份 PDF 的 AI
+    await page.getByTestId('ai-follow').click()
     const rchat = page.getByRole('complementary', { name: '边读边问 AI' })
     const rbox = rchat.getByRole('textbox', { name: '问 AI' })
     const rlast = () => rchat.getByTestId('reading-msg').last()

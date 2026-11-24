@@ -1,5 +1,6 @@
 /** 每一轮发给 AI 的第一段：用户现在在看什么（当前标签、右栏网页、选中的字、@ 点名的笔记） */
 import type { AgentContext } from '../../shared/agent'
+import { pagesSaid } from '../../shared/web-pages'
 
 /** 左栏选中的交给 AI 时最多列几篇 */
 const PICK_LIST = 200
@@ -15,8 +16,12 @@ export function describeContext(c: AgentContext): string {
   else if (t.type === 'none') lines.push(`当前标签：${t.title || '没有打开的标签'}`)
   // 不翻：给 AI 的上下文
   else lines.push(`当前标签：${t.title}`)
+  const pages = c.web.pages ?? []
+  // 好几个网页（右栏、中间栏、分屏的那一格）：网页工具的 page 参数选操纵哪个，不给是标着默认的那个
   // 不翻：给 AI 的上下文
-  lines.push(c.web.open ? `右栏网页：开着${c.web.url ? `，${c.web.url}` : '，还没打开网址'}` : '右栏网页：没开')
+  if (pages.length) lines.push(`网页（网页工具的 page 参数选操纵哪个）：\n${pagesSaid(pages).join('\n')}`)
+  // 不翻：给 AI 的上下文
+  else lines.push(c.web.open ? `右栏网页：开着${c.web.url ? `，${c.web.url}` : '，还没打开网址'}` : '右栏网页：没开')
   // 不翻：给 AI 的上下文
   if (c.selection) lines.push(`文档里选中的字：${c.selection}`)
   // 不翻：给 AI 的上下文

@@ -9,7 +9,9 @@
  *
  * 对话跟着地方走（D 组 CN-132）：每个文件、文件夹、首页、收件箱各存各的（ai-chats.ts），读 PDF 的按来源存（reading/store.ts）。
  * 头上「地方名 ⌄」菜单里点别处的一段：这一格换成那段对话（读 PDF 的用读 PDF 那一套显示、接着问），「看得到」那一行换成
- * 「这是在「X」问的 · 回到「周记」」；换了页面、右键「问 AI」、跑 AI 命令、框一块时回到这里。
+ * 「这是在《X》问的 · 回到《周记》」。
+ * 换了页面（AI 对话绑页面方向 A，2026-11-24，偏好「AI对话绑页面不跟着换」）：右栏空着才接上这一页的对话，不然留着正聊的那段，
+ * 头上「这页有 N 段对话 · 打开 ⌥⌘J」；右键「问 AI」、跑 AI 命令进右栏开着的那段；在 PDF 上框一块回到这份 PDF 的。
  */
 import { useEffect, useRef, useState } from 'react'
 import { isBookDigest } from '../shared/plugins/weread'
@@ -26,8 +28,9 @@ import './reading/reading.css'
 import './reading/side.css'
 import '@cn/ai-chat/side/side-inline.css'
 import { useT } from './i18n'
-import { takeStay } from './ai-stay'
-import { clearStay, setShown, setStay, stayOf, useStays, useWantConvo, wantDone } from './ai-web-stay'
+import { clearStay, hasDraft, setShown, setStay, stayOf, useStays, useWantConvo, wantDone } from './ai-web-stay'
+import { pagesNow, setPage, usePages } from './ai-pages'
+import { type ChatSummary, isMovedConvo, NO_PAGE, pageOfConvo } from '../shared/ai-chats'
 import { useKeyHandler } from './keys'
 
 export interface AiDockProps {
@@ -60,6 +63,17 @@ function asksOf(key: string): number | null {
   return c.loaded ? c.msgs.filter((m) => m.role === 'user').length : null
 }
 
+/** 这段算空着（换页时能换走）：没问过、输入框没字没引用、没在答 */
+function idle(key: string): boolean {
+  if (hasDraft(key)) return false
+  const src = readSrc(key)
+  if (src) {
+    const r = R.get(src)
+    if (R.busy(r)) return false
+  } else if (C.runningNow()?.key === key) return false
+  return !asksOf(key)
+}
+
 /** 开着的这篇是不是书摘（认开头的 bookId，同标签上的书摘图标）：是的话头上胶囊和「看得到」写短书名「书摘：趣说明朝276年」 */
 function useDigest(chat: AiDockProps['chat']): boolean {
   const path = chat.tab?.type === 'note' ? chat.tab.path : null
@@ -85,18 +99,51 @@ export function AiDock(props: AiDockProps) {
   const herePlace = placeOf(props.chat.tab, digest)
   const hereReading = R.useReading(reading)
   const here = reading ? { key: readKey(reading), label: readLabel(reading, [...(hereReading?.state.threads ?? [])].reverse().find((t) => t.web)?.web?.title) } : herePlace
-  /** 菜单里点开的别处那段对话；null 是这里的。stay：从 AI 回答里的引用 ⌘点开了别的一篇，右栏留在原来那段（ai-stay.ts） */
-  const [away, setAway] = useState<{ key: string; label: string; stay?: boolean } | null>(null)
-  /** 上一次画的时候这一格看着的那段对话（中间换了一篇时，从引用点开的要留在它上面） */
+  /** 菜单里点开的别处那段对话；null 是这里的。kept：换了页面右栏留着的那段（AI 对话绑页面方向 A） */
+  const [away, setAway] = useState<{ key: string; label: string; kept?: boolean } | null>(null)
+  /** 上一次画的时候这一格看着的那段对话、AI 标签开没开着（换页那一下看它定接不接） */
   const shown = useRef<{ key: string; label: string } | null>(null)
-  // 换了页面、右键「问 AI」带进引文、跑 AI 命令、在这份 PDF 上框了一块：回到这里的对话。
-  // 从 AI 回答里的引用 ⌘点开的那一篇（task-3e53q 已定 3）：不跟着换，留在刚才看着的那段，头上给「切到《X》的 AI」
-  useEffect(() => {
+  const wasOpen = useRef(props.open)
+  /** 换页时接上了这一页的对话：等数出这页有对话，胶囊闪一下（不出底栏提示：每换一页记一条通知太吵） */
+  const joining = useRef<string | null>(null)
+  const [joined, setJoined] = useState(0)
+  // 换了页面（AI 对话绑页面方向 A，2026-11-24）：右栏空着（AI 收着；或这段没问过、输入框没字、没带引用、没在答）就接上这一页的对话，
+  // 不然留着刚才那段，头上给「这是在《A》问的 · 这页有 N 段对话 · 打开 ⌥⌘J」。画的时候就定（不先画一下这一页的再跳回去）
+  const [seenHere, setSeenHere] = useState(here.key)
+  if (seenHere !== here.key) {
+    setSeenHere(here.key)
     const prev = shown.current
-    if (takeStay() && props.shown && prev && prev.key !== here.key) setAway({ ...prev, stay: true })
-    else setAway(null)
+    const keep = !!prev && prev.key !== here.key && prev.key !== PICKED_KEY && wasOpen.current && !idle(prev.key)
+    // 刚才看着的那段就挂在这一页上（搬过来的）：照这一页的接着看
+    const mine = !!prev && prev.key !== here.key && pageOfConvo(prev.key, pagesNow()) === here.key
+    setAway(mine ? { ...prev! } : keep ? { ...prev, kept: true } : null)
+    joining.current = !keep && wasOpen.current && prev && prev.key !== here.key ? here.key : null
+  }
+  // 右键「问 AI」带进引文、跑 AI 命令：进右栏开着的那段（同网页引用的 convoFor）；AI 刚才收着，或开着的是读 PDF 那一套的，回到这里的
+  useEffect(() => {
+    if (away && (readSrc(away.key) || !wasOpen.current)) setAway(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [here.key, props.chat.autoRun?.seq, props.chat.draft?.seq])
+  }, [props.chat.autoRun?.seq, props.chat.draft?.seq])
+  // 这一页有几段对话（头上那一行「这页有 N 段对话」）：刚问完没存的先存掉再问主进程
+  const [list, setList] = useState<ChatSummary[] | null>(null)
+  useEffect(() => {
+    let live = true
+    void Promise.all([R.flushSaves(), C.flush()])
+      .then(() => window.cn.aiChats())
+      .then((l) => live && setList(l))
+    return () => {
+      live = false
+    }
+  }, [here.key, away?.key])
+  usePages()
+  const hereCount = (list ?? []).filter((c) => c.key !== away?.key && pageOfConvo(c.key, pagesNow()) === here.key).reduce((n, c) => n + (c.n ?? 1), 0)
+  useEffect(() => {
+    if (!list || joining.current !== here.key) return
+    joining.current = null
+    if (!hereCount) return
+    setJoined((j) => j + 1)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list])
   /**
    * 中间开着 PDF 时文件树多选「问AI」（task-0tgz2）：这一格换成普通的 AI 对话（选中的那几篇在「看得到」里），
    * 存成单独一段「选中的N个」，读 PDF 的对话不动；对话菜单点了哪一段、在 PDF 上框了一块、换了标签就回到读 PDF 那一格
@@ -108,13 +155,14 @@ export function AiDock(props: AiDockProps) {
     if (pickOverPdf) C.clear(PICKED_KEY)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [picked])
+  // 在这份 PDF / HTML 上框了一块、选字引用（incoming）：回到这份的对话
   useEffect(() => {
-    if (hereReading?.pending) {
+    if (hereReading?.pending || hereReading?.incoming.length) {
       setAway(null)
       if (pickOverPdf) dropPicked()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hereReading?.pending])
+  }, [hereReading?.pending, hereReading?.incoming.length])
   // 看的那段被清掉了（别处点了新对话）不用管：菜单里没有了，点「回到」照常回来
   const pickAway = (c: { key: string; label: string } | null) => {
     if (pickOverPdf) dropPicked()
@@ -147,17 +195,45 @@ export function AiDock(props: AiDockProps) {
   const web = props.chat.webOpen && props.chat.webUrl && /^https?:/i.test(props.chat.webUrl) ? props.chat.webUrl : null
   const stayed = web ? stayOf(web) : null
   const ownWeb = reading?.startsWith('web:') ? reading.slice(4) : null
+  const onPage = !!away && pageOfConvo(away.key, pagesNow()) === here.key
+  /** 看着的这段（菜单「挂到这一页」「不挂任何页」搬的就是它） */
+  const shownKey = away?.key ?? (pickOverPdf ? PICKED_KEY : here.key)
+  const canMove = shownKey !== PICKED_KEY && !(C.runningNow()?.key === shownKey) && !!(asksOf(shownKey) ?? 0)
+  /** 搬家：页自己的那段另起一段（这页留一段空的），搬出来的和读 PDF 的只改「这段 → 那页」表 */
+  const move = async (to: { page: string; label: string }) => {
+    let key = shownKey
+    if (!readSrc(key) && !isMovedConvo(key)) {
+      const moved = await C.flush().then(() => window.cn.aiChatDetach(key, to.label))
+      if (!moved) return
+      await C.reload(key)
+      key = moved
+    }
+    await setPage(key, to)
+    pickAway(key === here.key ? null : { key, label: to.label })
+  }
   const nav: DockNav = {
     here,
     away,
-    // 自己在菜单里、「回到」点了别的一段：这个网页不再留在原来那段
+    onPage,
+    openRow: (r) => {
+      const src = readSrc(r.key)
+      const label = r.key === here.key ? here.label : (pagesNow()[r.key]?.label ?? r.label)
+      const show = () => nav.pick(r.key === here.key ? null : { key: r.key, label })
+      if (r.id === undefined) return show()
+      const id = r.id
+      void (src ? R.load(src).then(() => R.switchChat(src, id)) : C.switchOlder(r.key, id)).then(show)
+    },
+    ...(canMove ? { bindHere: () => void move({ page: here.key, label: here.label }), unbind: () => void move({ page: NO_PAGE, label: t('没挂页面') }) } : {}),
+    // 自己在菜单里、「回到」点了别的一段：这个网页不再留在原来那段（换页留着的那段点「切到这页的 AI」不算：那是换页，不是不留了）
     pick: (c) => {
-      if (web && stayed && (c?.key ?? here.key) !== stayed.key) clearStay(web)
+      if (web && stayed && !away?.kept && (c?.key ?? here.key) !== stayed.key) clearStay(web)
       pickAway(c)
     },
     asks: asksOf,
-    ...(away && !away.stay && ownWeb ? { stayHere: () => setStay(ownWeb, away) } : {}),
+    ...(away && !away.kept && ownWeb ? { stayHere: () => setStay(ownWeb, away) } : {}),
     ...(away && stayed?.key === away.key ? { stayed: true } : {}),
+    hereCount,
+    joined,
   }
   const awaySrc = away ? readSrc(away.key) : null
   /** 这一格显示的读 PDF 对话：看别处的读 PDF 对话时是它，不然是这里的（选中了几篇「问AI」时不显示） */
@@ -166,6 +242,7 @@ export function AiDock(props: AiDockProps) {
   // 记下这一回看着的是哪段（effect 在上面那个之后跑：中间换了一篇的那一下，上面读到的还是换之前的）
   useEffect(() => {
     shown.current = away ? { key: away.key, label: away.label } : shownReading ? here : chatPlace
+    wasOpen.current = props.open
     setShown({ ...shown.current, open: props.open })
   })
   // 「右栏切到这篇的 AI」（命令 ai-follow）：在看别处的对话时回到这里（中间开着的这一篇）的

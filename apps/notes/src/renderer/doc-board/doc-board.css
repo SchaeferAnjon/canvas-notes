@@ -466,6 +466,34 @@
   font-weight: 400;
   color: var(--t3);
 }
+/* AI 卡的块名（「AI 写的」「AI 讲解」）不省略：一行放不下时省略的是右边「引擎 · 模型」那截 */
+.db-card .cl[data-kind='ai'] .ct .nm {
+  flex: none;
+  max-width: calc(100% - 20px);
+}
+/* AI 卡头带「回到 AI 对话」时两行（「✳ AI 写的」，下一行「Claude Code · Opus 5.5 · 回到 AI 对话」），和问答组、文档里的回答框一样；
+   以前挤在一行，块名被省略成「AI …」、链接也只剩「…」 */
+.db-card .cl[data-kind='ai'] .ct:has(.db-chat) {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.db-card .cl[data-kind='ai'] .ct:has(.db-chat) .eng {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+/* 「回到 AI 对话」和前面「Claude Code · Opus 5.5」同色，靠下划线认（和文档里回答框第二行的链接一样） */
+.db-card .cl .ct .eng .db-chat {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.db-card .cl .ct .eng .db-chat:hover {
+  color: var(--t1);
+  text-decoration-color: var(--t2);
+}
 .db-card .cl.tone-yellow .ct .ci {
   color: var(--yellow);
 }
@@ -2336,7 +2364,7 @@ a.db-ask-src:hover {
   border-radius: 4px;
   background: var(--acc-soft);
   color: var(--acc-t);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   line-height: 16px;
   vertical-align: 1px;

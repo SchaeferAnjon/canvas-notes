@@ -279,6 +279,8 @@ export async function askCardQuestion(text: string, pick: VisionPick, pageUrl = 
         by: withoutEffort(r.by),
         ...(first && r.image ? { crop: { path: r.image } } : {}),
         src: webSrc(note, `▶ ${fmtTime(r.t)} · ${c.title}`, v ? timeUrl(v, r.t) : c.url),
+        // 讲的是视频外的前置知识：小标题末尾带 #前置知识（照读 PDF 那套；框住的这一帧引出的，照旧记在这里）
+        ...(r.pre ? { pre: true as const } : {}),
       },
       place: { heading: c.title },
       inline: true,

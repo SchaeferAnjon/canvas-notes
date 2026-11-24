@@ -377,9 +377,9 @@ function LookPage(props: { settings: AppSettings; systemDark: boolean; onChange(
           on: t('左栏、中间、右栏几块面板透出窗口背景多少'),
           off: t('B浮岛书桌配了窗口背景时面板才透，现在是实的'),
         },
-        value: a.glass,
+        value: a.glassLevel,
         enabled: panelsGlass(a),
-        onChange: (glass) => set({ glass }),
+        onChange: (glassLevel) => set({ glassLevel }),
       }}
       importTheme={{
         label: t('导入VS Code主题…'),

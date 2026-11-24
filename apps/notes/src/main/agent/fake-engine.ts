@@ -129,6 +129,9 @@ function fakeRounds(): { say: string; path: string; file: string; reply?: string
 /** 问「用的什么模型」时说的：模型和 effort 都说出来（测试看设置、输入框底行选的真的传到了引擎，CN-44、CN-91） */
 const modelSaid = (r: { model?: string; effort?: string }) => `模型：${r.model ?? '没指定'}，effort：${r.effort ?? '没指定'}`
 
+/** 网页工具问过用户、停下等点头的那一下：用户回「可以…」带 confirmed 再调一次，回「不要」就不做（同真 AI） */
+let waiting: [string, Record<string, unknown>] | null = null
+
 export function fakeEngine(id: EngineId): Engine {
   let sides = 0
   return {
@@ -391,6 +394,15 @@ export function fakeEngine(id: EngineId): Engine {
         await say(WIDE_ANSWER)
         return { text, session: r.session ?? `fake-${id}` }
       }
+      // 网页、视频、文档的 AI 对话里问论文外的基础知识（功能小三件 3）：回答末尾单独一行〔前置知识〕；问眼前这一段的不标
+      if (/什么是 softmax|什么是向量/.test(said)) {
+        await say('这是眼前内容外的前置知识：softmax 把一串数变成加起来是 1 的一组权重，大的更大、小的更小。\n\n〔前置知识〕')
+        return { text, session: r.session ?? `fake-${id}` }
+      }
+      if (/这一段讲了什么/.test(said)) {
+        await say('这一段讲的是注意力怎么在几个词之间分配权重。')
+        return { text, session: r.session ?? `fake-${id}` }
+      }
       // AI 对话里要几句话的回答（选一句开旁支用）：周记总结成三句话
       if (/总结成三句话/.test(said)) {
         await say('这周主要在赶第5讲的作业，注意力机制那部分花了两个晚上才弄懂。\n\n周三开始每天早上跑步，三次都坚持下来了。\n\n下周要把论文计划的第一节写完，并约导师见一面。')
@@ -411,6 +423,41 @@ export function fakeEngine(id: EngineId): Engine {
           await call('note_create', { title: '合成的笔记', text: names.map((n) => `## ${n}\n`).join('\n') })
           await say(`合成好了：《合成的笔记》，来自${picked.length}篇。`)
         } else await say(`这是测试回答（选中的${picked.length}篇：${picked.join('、')}）。`)
+        return { text, session: `fake-${id}` }
+      }
+      // 网页工具一个个照写好的调（测试用）：「网页工具：[["web_select", {"label": "城市", "option": "上海"}], …]」。
+      // 每个的结果原样说出来；回了「先问用户」就照它问一句、停下（同真 AI）；出错说一句、停下
+      if (waiting && /^(可以|Yes)/.test(said)) {
+        const [name, args] = waiting
+        waiting = null
+        const out = await call(name, { ...args, confirmed: true }).catch((e: Error) => `出错：${e.message}`)
+        await say(`【${name}】${out}\n`)
+        return { text, session: `fake-${id}` }
+      }
+      if (waiting && /^(不要|No)$/.test(said)) {
+        waiting = null
+        await say('好，不做了。')
+        return { text, session: `fake-${id}` }
+      }
+      if (said.startsWith('网页工具：')) {
+        waiting = null
+        const steps = JSON.parse(said.slice('网页工具：'.length)) as [string, Record<string, unknown>][]
+        for (const [name, args] of steps) {
+          let out: string
+          try {
+            out = await call(name, args)
+          } catch (e) {
+            await say(`【${name}】出错：${(e as Error).message}\n`)
+            break
+          }
+          const ask = /问用户一句「(.*?)」，然后停下/.exec(out)?.[1]
+          if (ask) {
+            waiting = [name, args]
+            await say(`【${name}】${ask}\n`)
+            break
+          }
+          await say(`【${name}】${out}\n`)
+        }
         return { text, session: `fake-${id}` }
       }
       const did = await vaultCommand(said, call).catch((e: Error) => `没做成：${e.message}`)

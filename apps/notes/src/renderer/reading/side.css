@@ -700,7 +700,7 @@
   --hl: #ff4015;
 }
 
-/* 问题条上的小标签「前置知识」（前置知识标签）：11 / 400，强调色字；问题条是半透明 --fill2，底用 --card 字才够 4.5:1；圆角 4，跟在问的那句后面 */
+/* 问题条上的小标签「前置知识」（前置知识标签）：12 / 400，强调色字；问题条是半透明 --fill2，底用 --card 字才够 4.5:1；圆角 4，跟在问的那句后面 */
 .reading-notes .pre-tag {
   display: inline-block;
   margin-left: 6px;
@@ -708,7 +708,7 @@
   border-radius: 4px;
   background: var(--card);
   color: var(--acc-t);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   line-height: 16px;
   vertical-align: 1px;

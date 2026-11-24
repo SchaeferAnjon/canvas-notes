@@ -1,14 +1,16 @@
 /**
- * 梦游对照滚动卡（梦游对比滚动）用的样本，照用户截图那一条的规模造：
- * 一条「可以建的词条页」建议（只是提醒，没有提交），对照里是两篇长笔记并排（左 SAGE 那篇读 PDF 笔记、右《学习笔记：动手学深度学习》），
- * 两篇各三千多行，有标题、列表、粗体、引用、提示块、长段落（会折行），右边那篇比左边改了 36 处（标题 1 处，改字、加段、删段 35 处）。
- * 报告不跑梦游，直接写进测试实例的 user-data/dream/<库的键>.json（梦游那边的读法，dream-main.ts reportFile）。
+ * 梦游对照滚动卡（梦游对比滚动）用的样本，照用户截图那一条的规模造：一篇三千多行的长笔记《学习笔记：动手学深度学习》，
+ * 有标题、列表、粗体、引用、提示块、长段落（会折行），梦游分支上那次提交改了 36 处（标题 1 处，改字、加段、删段 35 处）。
+ * 用户截图里那一条是「可以建的词条页」，那是只是提醒的条目、本来就不该按字比（梦游对照复审改成两篇整篇并排），
+ * 这里换成一条真有提交的改动（本周小结），对照还是同样规模的两版长文。
+ * 报告不跑梦游，直接写进测试实例的 user-data/dream/<库的键>.json（梦游那边的读法，dream-main.ts reportFile）；
+ * 那次提交在 prepare 里真提交到 dream/11-24 分支上。
  */
+import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
-export const LONG_A = '课程/study project 2/YitingWei_2026_J52_SAGE_stress_workload_JBHI 笔记.md'
 export const LONG_B = '课程/study project 2/学习笔记：动手学深度学习.md'
 export const LONG_CHANGES = 36
 
@@ -49,14 +51,26 @@ export function longPair(sections = 160): { a: string; b: string } {
 }
 
 const LONG = longPair()
+/** main 上：那篇是改前的样子 */
 export const LONG_VAULT: Record<string, string> = {
-  [LONG_A]: LONG.a,
-  [LONG_B]: LONG.b,
-  '所思所想.md': '# 所思所想\n\nSeek wealth, not money or status.\n',
+  [LONG_B]: LONG.a,
 }
 
-/** 测试实例 user-data 下写一份梦游报告：一条「可以建的词条页」，对照就是这两篇并排；launch 的 prepare 里调 */
+/**
+ * launch 的 prepare 里调：main 上提交改前那版，dream/11-24 分支上提交改后那版（梦游那一条的提交），回到 main；
+ * 测试实例 user-data 下写一份梦游报告，一条就是这次改动
+ */
 export function prepareLong(vault: string) {
+  const git = (...args: string[]) => execFileSync('git', ['-C', vault, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], { encoding: 'utf8' }).trim()
+  git('add', '-A')
+  git('commit', '-q', '-m', '改前')
+  git('checkout', '-q', '-b', 'dream/11-24')
+  writeFileSync(join(vault, LONG_B), LONG.b)
+  git('commit', '-q', '-am', '梦游：学习笔记：动手学深度学习 改了 36 处')
+  const commit = git('rev-parse', 'HEAD')
+  git('checkout', '-q', 'main')
+  // launch 接着还要提交一次「样本」：给它一篇新的
+  writeFileSync(join(vault, '所思所想.md'), '# 所思所想\n\nSeek wealth, not money or status.\n')
   const userData = join(dirname(vault), 'user-data')
   const now = Date.now()
   const report = {
@@ -70,19 +84,14 @@ export function prepareLong(vault: string) {
     closed: false,
     items: [
       {
-        id: 'entry-1',
-        group: 'entry',
-        title: '「《动手学深度学习》」',
-        sub: '库里 3 篇提到，还没有讲它的一篇',
-        why: '点「建词条页」才建：开头两三句导语（每句挂出处），下面嵌进讲它的那几段，原文改了这里跟着变。不建也没关系，提到它的那几篇不改',
-        commit: null,
-        files: [LONG_A, LONG_B],
+        id: 'week-1',
+        group: 'week',
+        title: '《学习笔记：动手学深度学习》',
+        sub: '改了36处',
+        why: '这周读的几节补上直观解释，改掉两处说法',
+        commit,
+        files: [LONG_B],
         state: 'pending',
-        entry: {
-          name: '《动手学深度学习》',
-          count: 3,
-          notes: [LONG_A, LONG_B],
-        },
       },
     ],
   }

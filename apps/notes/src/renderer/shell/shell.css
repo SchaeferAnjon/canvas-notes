@@ -1055,7 +1055,7 @@
  * 都是半透明面板、透出窗口背景图，不是一整块 --win / --pop。透不透只认 <html data-glass>（skin.ts：现在是「B + 有窗口背景图」），A 不配背景和「不用图」照旧实色。
  * 选择器写 .win 不写 .frame-b：A 配上窗口背景（task-aph2j）时 skin.ts 置上 data-glass，左栏、中间、右栏照同一套透。
  * 颜色、透多少、模糊是 @cn/design themes.css 的共用 token：左栏 --isle-side、中间 --isle、右栏 --isle-pop，模糊 --isle-blur（和画布今日 B 的三栏同一套）；
- * 透多少再跟设置 › 外观 ›「面板透明度」走（--isle-shift，@cn/design/glass）。
+ * 透多少再跟设置 › 外观 ›「面板透明度」走（--isle-p，@cn/design/glass）。
  * 岛里把铺底的变量换成透明（--win、--board、--tabbar、--page-bg）、卡片和按钮换成 --isle-card、次要字换成往正文色靠的 --isle-t2 / --isle-t3；
  * 要挡住底下东西的地方（贴在顶上的条、横着滚的渐隐）用 .win 上先记下的实色 --win-solid、--card-solid。
  * 网页内容区、PDF 的纸、图片本身是实的，不动；弹层、菜单是 --pop，不在这里换。

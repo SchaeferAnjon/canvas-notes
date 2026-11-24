@@ -36,6 +36,10 @@ export function setupPlugins(d: { window(): BrowserWindow | null; vault(): Vault
       cli: process.env.CN_AI_FAKE === '1' ? fakeCli() : realCli(dir),
       sendApp,
       filesChanged: () => sendApp('files:changed'),
+      appAlive: () => {
+        const w = d.window()
+        return !!w && !w.isDestroyed() && !w.webContents.isDestroyed() && !w.webContents.isCrashed()
+      },
       onQuit: (fn) => quits.push(fn),
     },
     {

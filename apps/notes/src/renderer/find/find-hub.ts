@@ -1,7 +1,7 @@
 /**
  * 在这一页里找（⇧⌘F，命令表 find-in-page；⌘F 照旧是全库搜索，2026-11-22 用户定）：
- * 每一种页面（文档、网页、PDF、白板、导图）开着时登记一个「找」的目标，按 ⇧⌘F（菜单栏「编辑」、⌘K 里点也一样）时交给焦点所在的那一栏；
- * 焦点不在任何一栏里（刚点过标签条、⌘K 刚关上）时交给中间栏里看得见的那一个，再没有就随便一个看得见的。
+ * 每一种页面（文档、网页、PDF、白板、导图、AI 对话）开着时登记一个「找」的目标，按 ⇧⌘F（菜单栏「编辑」、⌘K 里点也一样）时交给当前栏（runFindInPage）；
+ * 当前栏里没有能找的（大纲、历史）时交给焦点所在的那一个，再是中间栏里看得见的那一个，再没有就随便一个看得见的。
  * 找的条是同一个组件 FindBar，各页面自己摆在自己那一栏的右上角。
  */
 import { useEffect, useRef } from 'react'
@@ -41,20 +41,32 @@ const shown = (el: HTMLElement | null): el is HTMLElement => !!el && el.isConnec
 
 const targets = () => [...slots].map((s) => s.current).filter((t): t is FindTarget => t !== null)
 
-/** 按 ⇧⌘F：交给该找的那一栏；没有能找的返回 false */
+/** 这一个目标在不在当前栏里（App 把当前栏写在 .win 的 data-pane 上：left、center 或右边一组的 id，CN-98） */
+function inPane(el: HTMLElement, pane: string): boolean {
+  if (pane === 'center') return !!el.closest('main.center')
+  if (pane === 'left') return !!el.closest('.win > .side')
+  return el.closest('[data-group]')?.getAttribute('data-group') === pane
+}
+
+/**
+ * 按 ⇧⌘F：交给该找的那一栏；没有能找的返回 false。
+ * 先看当前栏（查找跟着焦点，2026-11-24 用户定）：点过、焦点到过、网页里点进去过的那一栏，和 ⌘W 关的是同一栏。
+ * 只看 document.activeElement 不够：点网页的标签条、工具条、滚网页都不挪焦点，焦点还留在 AI 输入框或文档里，⇧⌘F 就落到中间的文档上。
+ * 当前栏里有几个（中间分屏两格）：焦点在哪格是哪格，再是分屏里当前那格（.cslot[data-on]）
+ */
 export function runFindInPage(): boolean {
-  const list = targets()
+  const list = targets().filter((t) => shown(t.el()))
   const active = document.activeElement
+  const holds = (t: FindTarget) => !!active && active !== document.body && t.el()!.contains(active)
+  const pane = document.querySelector<HTMLElement>('.win')?.dataset.pane
+  const here = pane ? list.filter((t) => inPane(t.el()!, pane)) : []
   const pick =
-    list.find((t) => {
-      const el = t.el()
-      return shown(el) && !!active && active !== document.body && el.contains(active)
-    }) ??
-    list.find((t) => {
-      const el = t.el()
-      return shown(el) && !!el.closest('main.center')
-    }) ??
-    list.find((t) => shown(t.el()))
+    here.find(holds) ??
+    here.find((t) => !!t.el()!.closest('.cslot[data-on]')) ??
+    here[0] ??
+    list.find(holds) ??
+    list.find((t) => !!t.el()!.closest('main.center')) ??
+    list[0]
   if (!pick) return false
   pick.open()
   return true

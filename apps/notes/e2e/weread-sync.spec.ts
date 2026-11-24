@@ -174,6 +174,81 @@ test('CN-130 打着字还没存时划线：正在打的字不丢、没有冲突�
   }
 })
 
+/**
+ * 界面忙（合并请求 hold 毫秒后才处理），这段时间里一直边打边存：书摘一旦有了这条划线就不再丢、打的字都在、没有冲突副本。
+ * 以前主进程只等 5 秒，超时自己写文件（划线插在用户那段前面），编辑器接着存打的字时和它撞在相邻几行，三方合并留了编辑器那版、
+ * 划线进了冲突副本（weread-sync:154 偶发「划线先进了书摘，存盘后又没了」，书摘合并改成只有一个写的人）
+ */
+async function typeWhileBusy(run: Running, extra: Record<string, string>) {
+  const { page, vault } = run
+  await login(run)
+  await openBook(run)
+  await caretToEnd(page)
+  await page.keyboard.type('我的读后感')
+  await waitSaved(page)
+  const quote = `> ${PARAS[2]!.slice(0, 12)}`
+  let had = false
+  let lost = ''
+  const watch = setInterval(() => {
+    const md = read(vault, bookPath)
+    if (md.includes(quote)) had = true
+    else if (had && !lost) {
+      lost = md
+      if (process.env.CN_SHOTS) void page.screenshot({ path: join(process.env.CN_SHOTS, 'weread-busy-lost.png') })
+    }
+  }, 50)
+  try {
+    await highlight(page, 'p2', 12)
+    // 光标回到「读后感」后面接着打：每打一个字停 0.9 秒（自动存盘 0.8 秒），一直打过 hold 的时间
+    await pane(page).locator('.cm-content').focus()
+    const typed: string[] = []
+    const until = Date.now() + Number(extra.CN_WEREAD_MERGE_HOLD_MS) + 3000
+    for (let i = 0; Date.now() < until; i++) {
+      const c = '一二三四五六七八九十'[i % 10]!
+      typed.push(c)
+      await page.keyboard.type(c)
+      await page.waitForTimeout(900)
+    }
+    await expect.poll(() => read(vault, bookPath), { timeout: 20_000 }).toContain(quote)
+    await waitSaved(page)
+    await page.waitForTimeout(500)
+    if (process.env.CN_SHOTS) await page.screenshot({ path: join(process.env.CN_SHOTS, `weread-busy-${extra.CN_WEREAD_MERGE_WAIT_MS ? 'wait' : 'hold'}.png`) })
+    const md = read(vault, bookPath)
+    expect(lost, '划线进了书摘又没了').toBe('')
+    expect(md).toContain('我的读后感' + typed.join(''))
+    expect(md.split(quote).length).toBe(2)
+    expect(conflicts(vault)).toEqual([])
+    await expect(page.getByTestId('toast').filter({ hasText: '冲突' })).toHaveCount(0)
+    await expect(pane(page).locator('.cm-content')).toContainText(PARAS[2]!.slice(0, 12))
+  } finally {
+    clearInterval(watch)
+  }
+}
+
+test('CN-130 界面忙得 7 秒才处理合并（比以前主进程等的 5 秒长），一直边打边存：划线进了就不丢、打的字都在、没有冲突副本', async () => {
+  const extra = { CN_WEREAD_MERGE_HOLD_MS: '7000' }
+  const run = await launch({ 'a.md': '# a\n' }, { ...env(), ...extra })
+  try {
+    await typeWhileBusy(run, extra)
+    // 主进程没写这篇：同步的提交是编辑器存好以后的那一次，只有一次
+    await expect.poll(() => commits(run.vault).filter((c) => c === `微信读书：同步《${BOOK.title}》2 条划线`).length).toBe(1)
+  } finally {
+    await run.close()
+  }
+})
+
+test('CN-130 编辑器开着却一直没回话（等到头了）：主进程这次不写文件；编辑器晚到的合并照样进书摘，不丢不冲突', async () => {
+  const extra = { CN_WEREAD_MERGE_HOLD_MS: '6000', CN_WEREAD_MERGE_WAIT_MS: '2500' }
+  const run = await launch({ 'a.md': '# a\n' }, { ...env(), ...extra })
+  try {
+    await typeWhileBusy(run, extra)
+    // 主进程等到头就不同步了：没有同步的提交（编辑器晚到的那次回话没人收）
+    expect(commits(run.vault)).not.toContain(`微信读书：同步《${BOOK.title}》2 条划线`)
+  } finally {
+    await run.close()
+  }
+})
+
 test('CN-130 删掉一条引文、改了类型，再同步：删掉的不加回来，类型还是改过的那个，只有一个类型字段', async () => {
   const run = await launch({ 'a.md': '# a\n' }, env())
   const { page, vault } = run

@@ -31,6 +31,7 @@ import { summaryRetry } from './video/summary-retry'
 import { provisional, provisionalRange } from './tail-line'
 import { appSettings } from './settings-store'
 import { noteDocRef } from './note-doc-ref'
+import { focusKeepsCaret } from './focus-caret'
 
 /** 块头下面引着的那几句（`> > 原文`，几段时去掉 ①②）：回到网页时按它找，比链接里的开头准 */
 /** 新写法（@cn/format ai-note.ts）的引文：来源一行「> —— [… ↩](…)」在引的那段下面，往上收到引用开头（去掉 ①②） */
@@ -246,6 +247,7 @@ export class NoteDoc {
             }),
           ),
           history(),
+          focusKeepsCaret,
           insertPoint,
           markdown({ base: markdownLanguage }),
           docMode,
@@ -275,7 +277,7 @@ export class NoteDoc {
                 // [[笔记#标题]]、[[笔记#^块]]：开了滚到那一段（task-3e53q，cite.tsx）
                 const inner = wiki.dataset.wiki ?? ''
                 // ⇧⌘点：开在后面的新标签（和 AI 回答里的引用一样）
-                if (/#/.test(inner.split('|')[0]!) || e.shiftKey) void findCite({ wiki: inner }, this.path).then((c) => openCite(c, howOf(e), '', 'doc'))
+                if (/#/.test(inner.split('|')[0]!) || e.shiftKey) void findCite({ wiki: inner }, this.path).then((c) => openCite(c, howOf(e)))
                 else this.events.onOpenLink(wiki.dataset.target ?? wiki.textContent ?? '')
                 return true
               }

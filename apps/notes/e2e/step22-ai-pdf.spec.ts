@@ -189,6 +189,8 @@ test('CN-24：读 PDF 的输入框和别处的 AI 对话都能 ⌘V 粘图：输
     // 别处的 AI 对话（同一格，AI 开着就还开着）：开一篇文档，粘图，发出去
     await openNote(page, '随手记')
     await openAi(page)
+    // PDF 那段问过：换页留着（AI 对话绑页面），点头上那颗切到这篇的
+    await ai(page).getByTestId('ai-follow').click()
     const float = page.getByRole('complementary', { name: 'AI 对话' })
     await expect(float).toBeVisible()
     await pasteImage(page, '.ai:not(.reading-ai):not([hidden]) textarea')

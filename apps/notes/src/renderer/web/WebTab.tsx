@@ -8,9 +8,13 @@ import { type NavState, WebView, type WebviewEl } from './WebView'
 import { ActBtn, TabActs } from '../shell/TabActs'
 import { Popover } from '../shell/Shell'
 import { WebFind } from '../find/WebFind'
+import { noteWebWc, touchWeb } from './web-pages'
+import { AiActLayer } from '../ai-act'
 
 /** 中间栏里的宽网页标签：一个网页单独开成一个标签读 */
 export function WebTab(props: {
+  /** 这个标签的 id（AI 操纵哪个网页认它，web/web-pages.ts） */
+  id: string
   url: string
   active: boolean
   /** 重开软件时恢复的标签：点开才载入，网页里的视频不自己播（task-0t4jq） */
@@ -38,6 +42,14 @@ export function WebTab(props: {
 
   useEffect(() => {
     if (props.active && wc !== null) void window.cnWeb.setActiveTab(wc)
+  }, [props.active, wc])
+  // AI 操纵哪个网页：这一页的 webContents；换到这个标签算用户切到了它
+  useEffect(() => {
+    noteWebWc(props.id, wc)
+    return () => noteWebWc(props.id, null)
+  }, [props.id, wc])
+  useEffect(() => {
+    if (props.active && wc !== null) touchWeb(props.id)
   }, [props.active, wc])
 
   // 中间开着的宽网页：地址栏、重新载入的键（命令表）先归它；关掉是「关掉」（关当前标签）
@@ -98,6 +110,8 @@ export function WebTab(props: {
         </button>
       </div>
       <div className="wbody" ref={body}>
+        {/* AI 在这一页动手：网页外圈和顶上提示条（和右栏那一页一样） */}
+        <AiActLayer area="web" path={props.id} host={body} />
         {/* 在这个网页里找（⇧⌘F） */}
         <WebFind view={() => view.current} host={() => body.current} on={props.active} owner={'webtab:' + props.url} tab={props.url} />
         {shown && (

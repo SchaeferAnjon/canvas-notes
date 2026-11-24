@@ -865,7 +865,7 @@ export function askPrompt(a: { title: string; channel: string; time: string; box
     ...(a.subs === null ? [] : ['前后 30 秒的字幕：', a.subs || '（没有字幕）']),
     '用户正在写的笔记（节选）：',
     a.note || '（空）',
-    `${answerRule(a.question)}，只输出一个 JSON：{"doubt":"用用户自己的口气写他卡在哪（一句，不要写「给我讲解一下」）","answer":"讲通的讲法，2 到 5 句，结合框里的东西","points":["要点一","要点二"]}`,
+    `${answerRule(a.question)}，只输出一个 JSON：{"doubt":"用用户自己的口气写他卡在哪（一句，不要写「给我讲解一下」）","answer":"讲通的讲法，2 到 5 句，结合框里的东西","points":["要点一","要点二"],"pre":false}；这一问要讲的主要不是视频里这一段本身，而是看懂它要的、视频外面的基础知识（某个数学工具、领域常识）时 pre 写 true`,
   ].join('\n')
 }
 
@@ -973,16 +973,18 @@ async function suggest(card: unknown): Promise<string[]> {
   }
 }
 
-export function parseAnswer(out: string): { doubt: string; answer: string; points: string[] } {
+export function parseAnswer(out: string): { doubt: string; answer: string; points: string[]; pre?: true } {
   const body = /\{[\s\S]*\}/.exec(out)?.[0]
   if (body) {
     try {
-      const o = JSON.parse(body) as { doubt?: unknown; answer?: unknown; points?: unknown }
+      const o = JSON.parse(body) as { doubt?: unknown; answer?: unknown; points?: unknown; pre?: unknown }
       if (typeof o.answer === 'string' && o.answer.trim())
         return {
           doubt: typeof o.doubt === 'string' ? o.doubt.trim() : '',
           answer: o.answer.trim(),
           points: Array.isArray(o.points) ? o.points.filter((p): p is string => typeof p === 'string' && !!p.trim()).slice(0, 5) : [],
+          // 讲的是视频外的前置知识（前置知识标签）：记进笔记那一问的小标题带 #前置知识
+          ...(o.pre === true ? { pre: true as const } : {}),
         }
     } catch {
       // 不是 JSON：整段当回答
@@ -992,6 +994,8 @@ export function parseAnswer(out: string): { doubt: string; answer: string; point
 }
 
 const FAKE_ANSWER = JSON.stringify({ doubt: '框里这两个箭头为什么能决定整个网格怎么动？', answer: '框里是 i 帽和 j 帽变换后的位置。任何向量都是它俩的组合，所以它俩落到哪，整个网格就跟着落到哪。', points: ['只要知道两个基向量落在哪', '矩阵的两列就是这两个落点'] })
+/** 问的是视频外的基础知识（测试问「什么是向量」）：假 AI 标 pre */
+const FAKE_PRE_ANSWER = JSON.stringify({ doubt: '向量到底是什么？', answer: '这是视频外的前置知识：向量就是一个有方向、有长短的箭头，也能写成一列数。', points: ['箭头和一列数是同一个东西'], pre: true })
 
 /** 框一块问：每一问自己能停（文档里占位上的「停下 esc」，CN-84） */
 const asking = new Map<number, AbortController>()
@@ -1011,16 +1015,17 @@ async function ask(raw: AskRequest): Promise<AskResult> {
 const MODEL_ID = /^[\w.:\-[\]/]{1,200}$/
 
 /** 假 AI（CN_AI_FAKE）答一问：回答分几截在 CN_AI_FAKE_ASK_MS 里慢慢来（问框里看得到长出来） */
-async function fakeAnswer(signal: AbortSignal, onText: (d: string) => void): Promise<string> {
+async function fakeAnswer(signal: AbortSignal, onText: (d: string) => void, question: string): Promise<string> {
   const total = Number(process.env.CN_AI_FAKE_ASK_MS ?? process.env.CN_AI_FAKE_DELAY_MS) || 400
-  const cut = FAKE_ANSWER.indexOf('"answer":"') + 10
-  const parts = [FAKE_ANSWER.slice(0, cut + 4), FAKE_ANSWER.slice(cut + 4, cut + 20), FAKE_ANSWER.slice(cut + 20)]
+  const full = question.includes('什么是向量') ? FAKE_PRE_ANSWER : FAKE_ANSWER
+  const cut = full.indexOf('"answer":"') + 10
+  const parts = [full.slice(0, cut + 4), full.slice(cut + 4, cut + 20), full.slice(cut + 20)]
   await sleep(total * 0.4, signal)
   for (const p of parts) {
     onText(p)
     await sleep((total * 0.6) / parts.length, signal)
   }
-  return FAKE_ANSWER
+  return full
 }
 
 async function askOnce(s: Sess, raw: AskRequest, signal: AbortSignal): Promise<AskResult> {
@@ -1062,7 +1067,7 @@ async function askOnce(s: Sess, raw: AskRequest, signal: AbortSignal): Promise<A
     if (typeof raw.card === 'number') send('video:ask:text', raw.card, part)
   }
   let out: string
-  if (process.env.CN_AI_FAKE === '1') out = await fakeAnswer(signal, onText)
+  if (process.env.CN_AI_FAKE === '1') out = await fakeAnswer(signal, onText, question)
   else {
     const exe = findCli('claude')
     if (!exe) throw new Error(`看画面问要用 Claude Code（要能看图）。${INSTALL_HINT.claude}`)
@@ -1076,7 +1081,7 @@ async function askOnce(s: Sess, raw: AskRequest, signal: AbortSignal): Promise<A
   // 写进笔记的 AI 讲解头跟库语言（task-zojmg）；上面那句是回答上面那一行，跟着视频这一批再翻
   const seenFile = calloutWords().seenFrame(time, withSubs ? { from, to } : undefined)
   const answer = a.answer + (a.points.length ? '\n\n' + a.points.map((p) => `- ${p}`).join('\n') : '')
-  const res: AskResult = { answer, read: `${seen}${raw.noteText ? '、这篇笔记' : ''}`, block: '', files: image ? [image] : [], t, by, ...(image ? { image } : {}) }
+  const res: AskResult = { answer, read: `${seen}${raw.noteText ? '、这篇笔记' : ''}`, block: '', files: image ? [image] : [], t, by, ...(image ? { image } : {}), ...(a.pre ? { pre: true as const } : {}) }
   if (!dest) return res
   if (prior.length) {
     // 接着问：接在第一问那块讲解里面、最后（同一块）

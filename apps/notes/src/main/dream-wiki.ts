@@ -670,8 +670,9 @@ function suggestEntries(o: WikiOptions, ledger: Ledger): number {
   ledger.entries = picked.map((e) => ({ ...e, notes: e.notes.slice(0, 40), night }))
   for (const e of picked)
     o.add('entry', {
-      title: `「${e.name}」`,
-      sub: `库里 ${e.count} 篇提到，还没有讲它的一篇`,
+      // 名字本来带书名号（《动手学深度学习》）时不再套「」；数字和中文之间不手打空格（DESIGN 字体一节，间距交给 text-autospace）
+      title: /^[《「]/.test(e.name) ? e.name : `「${e.name}」`,
+      sub: `库里${e.count}篇提到，还没有讲它的一篇`,
       why: `点「建词条页」才建：开头两三句导语（每句挂出处），下面嵌进讲它的那几段，原文改了这里跟着变。不建也没关系，提到它的那几篇不改`,
       by: o.by,
       commit: null,

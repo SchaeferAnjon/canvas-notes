@@ -14,6 +14,7 @@
  */
 import { app, session } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { join } from 'node:path'
 
 /** 网络进程给多久自己退 */
 export const NET_GRACE_MS = 800
@@ -38,25 +39,29 @@ const reEscape = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * 之后每 0.2 秒再看一次；parent 没了以后扫 1 秒孤儿（命令行带 --type= 和这个设置目录、父进程是 1 的 Chromium 子进程）；最多看 watchMs。
  * 起一个脱离的 sh（主进程退了它照样跑），返回它。认法写在环境变量里，sh 自己的命令行里没有，不会把自己认成网络进程
  */
-export function killNetworkLater(parent: number, userData: string, delayMs = NET_GRACE_MS, watchMs = NET_WATCH_MS, mark = NET_MARK): ChildProcess {
+export function killNetworkLater(parent: number, userData: string, delayMs = NET_GRACE_MS, watchMs = NET_WATCH_MS, mark = NET_MARK, log = ''): ChildProcess {
   if (!Number.isInteger(parent) || parent <= 1) throw new Error(`进程号不对：${parent}`)
   if (!userData.startsWith('/')) throw new Error(`设置目录不对：${userData}`)
   const script = [
     'sleep "$DELAY"',
+    // 测试模式记下自己做了什么（退得慢时 e2e 报出来：网络进程什么时候杀的、主进程什么时候没的）
+    'say() { [ -n "$LOG" ] && /bin/echo "$(/bin/date +%s) $*" >> "$LOG"; }',
+    'say 醒了',
     'left=5; n=0',
     'while [ $n -lt "$TRIES" ]; do',
     '  if /bin/kill -0 "$MAIN" 2>/dev/null; then',
     // 主进程还在：它名下的网络进程（和已经成了孤儿的）杀掉
     '    for p in $(/usr/bin/pgrep -f -- "$NET"); do',
     '      pp=$(/bin/ps -o ppid= -p "$p" | tr -d " ")',
-    '      if [ "$p" != "$$" ] && { [ "$pp" = "$MAIN" ] || [ "$pp" = 1 ]; }; then /bin/kill -9 "$p"; fi',
+    '      if [ "$p" != "$$" ] && { [ "$pp" = "$MAIN" ] || [ "$pp" = 1 ]; }; then /bin/kill -9 "$p"; say 杀网络进程 "$p"; fi',
     '    done',
     '  else',
     // 主进程没了：它留下的孤儿（网络进程、忙着的网页进程……）扫 1 秒
     '    for p in $(/usr/bin/pgrep -f -- "$ANY"); do',
     '      pp=$(/bin/ps -o ppid= -p "$p" | tr -d " ")',
-    '      if [ "$p" != "$$" ] && [ "$pp" = 1 ]; then /bin/kill -9 "$p"; fi',
+    '      if [ "$p" != "$$" ] && [ "$pp" = 1 ]; then /bin/kill -9 "$p"; say 杀孤儿 "$p"; fi',
     '    done',
+    '    [ $left = 5 ] && say 主进程没了',
     '    left=$((left-1)); [ $left -le 0 ] && exit 0',
     '  fi',
     '  sleep 0.2; n=$((n+1))',
@@ -71,6 +76,7 @@ export function killNetworkLater(parent: number, userData: string, delayMs = NET
     TRIES: String(Math.max(1, Math.ceil((watchMs - delayMs) / 200))),
     NET: `${reEscape(mark)}.*${ud}`,
     ANY: `--type=.*${ud}`,
+    LOG: log,
   }
   const sh = spawn('/bin/sh', ['-c', script], { detached: true, stdio: 'ignore', env })
   sh.unref()
@@ -81,6 +87,7 @@ export function killNetworkLater(parent: number, userData: string, delayMs = NET
 export function capNetworkWait(): string | null {
   const net = app.getAppMetrics().find((m) => m.serviceName === 'network.mojom.NetworkService')
   if (!net) return null
-  killNetworkLater(process.pid, app.getPath('userData'))
+  const ud = app.getPath('userData')
+  killNetworkLater(process.pid, ud, NET_GRACE_MS, NET_WATCH_MS, NET_MARK, process.env.CN_E2E === '1' ? join(ud, 'quit-sh.log') : '')
   return `盯着网络进程 ${net.pid}（${NET_GRACE_MS} 毫秒后主进程还在就杀）`
 }

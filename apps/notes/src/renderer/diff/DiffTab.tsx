@@ -24,6 +24,7 @@ import { proposalDiff, useProposal } from '../commands/proposals'
 import { sectionNames } from '../../shared/cmd-run'
 import { blockChanges } from './blocks'
 import { LINE_DIFF } from './line-diff'
+import { deletedAsDoc } from './deleted-doc'
 import './diff.css'
 
 export type Look = 'doc' | 'source'
@@ -62,6 +63,23 @@ export function baseExt(path: string, look: Look, md: boolean): Extension[] {
     ...(md ? [markdown({ base: markdownLanguage })] : []),
     // 文档：用编辑器现成的实时预览画（标题是标题、链接是链接、图片是图片）
     ...(md && look === 'doc' ? [livePreview, propsBlock, showPropsTable.of(true), editorHost.of({ path: () => path, notice: () => {} }), blocksField, mdWidgets, blockChanges] : []),
+  ]
+}
+
+/** 合一里删掉的那几行的文档样子（deleted-doc.ts）：只读、实时预览，没有行号；side 是改前那一边多加的（链接按那篇的路径点开） */
+function deletedDocExt(path: string, side: Extension[]): Extension {
+  return [
+    EditorState.readOnly.of(true),
+    EditorView.editable.of(false),
+    EditorView.lineWrapping,
+    markdown({ base: markdownLanguage }),
+    livePreview,
+    propsBlock,
+    showPropsTable.of(true),
+    editorHost.of({ path: () => path, notice: () => {} }),
+    blocksField,
+    mdWidgets,
+    ...side,
   ]
 }
 
@@ -336,6 +354,35 @@ function hashMono(label: string): React.ReactNode {
 }
 
 /**
+ * 并排两栏一直对齐（梦游对照复审：两栏错开约 24px，一行字的高）。@codemirror/merge 只在「高变了、而且这次更新不是它自己刚调过空白」时重新对齐：
+ * 调空白的那次更新里，别处的高也跟着变了（没画过的长段估的是一行、画出来折成两行，图读完，展开折起的）就漏掉，之后再没人叫它对，
+ * 两栏就一直错开。这里哪一栏的高一变都在下一帧再对一次：编辑器报的高变了（不管是不是调空白那一次），
+ * 或者内容实际的高变了（编辑器自己还没量到的）先叫两边量一次。对出来和现在一样时它不再改，不会来回。
+ */
+function keepAligned(): { ext: Extension; start(mv: MergeView): () => void } {
+  let again = () => {}
+  return {
+    ext: EditorView.updateListener.of((u) => u.heightChanged && again()),
+    start(mv) {
+      // scheduleMeasure 是 MergeView 自己对齐用的（下一帧对一次，已经排着就不重复排）；没公开，这里借用
+      const merge = mv as unknown as { scheduleMeasure(): void }
+      again = () => merge.scheduleMeasure()
+      const ro = new ResizeObserver(() => {
+        mv.a.requestMeasure()
+        mv.b.requestMeasure()
+        again()
+      })
+      ro.observe(mv.a.contentDOM)
+      ro.observe(mv.b.contentDOM)
+      return () => {
+        ro.disconnect()
+        again = () => {}
+      }
+    },
+  }
+}
+
+/**
  * 一个文本文件的对比：两边都有 → 并排或合一；只有一边（新建、删掉）→ 一列全文。
  * 「存成命令」那张表也用它画对照（task-9womr）：ext 是多加的编辑器扩展（亮出依据），onViews 拿到画出来的编辑器（钉住时展开折起的、滚到下一处）。
  * 梦游对照也用它（梦游对比滚动）：sides 是只加在改前（a）、之后（b）一边的（链接按各自那篇的路径点开、之后那边画梦游分支上的可视化）；
@@ -383,16 +430,18 @@ export function TextDiff(props: {
       return done({ one: v }, () => v.destroy())
     }
     if (layout === 'split') {
+      const align = keepAligned()
       const mv = new MergeView({
         parent,
-        a: { doc: f.before!, extensions: side('a') },
-        b: { doc: f.after!, extensions: side('b') },
+        a: { doc: f.before!, extensions: [...side('a'), align.ext] },
+        b: { doc: f.after!, extensions: [...side('b'), align.ext] },
         collapseUnchanged: COLLAPSE,
         gutter: true,
         highlightChanges: true,
         diffConfig: LINE_DIFF,
       })
-      return done({ a: mv.a, b: mv.b }, () => mv.destroy())
+      const stop = align.start(mv)
+      return done({ a: mv.a, b: mv.b }, () => (stop(), mv.destroy()))
     }
     const v = new EditorView({
       parent,
@@ -408,6 +457,8 @@ export function TextDiff(props: {
             syntaxHighlightDeletions: false,
             diffConfig: LINE_DIFF,
           }),
+          // 文档看法：删掉的那几行也画成文档样子，不露「# 」「**」（偏好「只文档白板不露源码」）
+          ...(md && look === 'doc' ? [deletedAsDoc(deletedDocExt(f.from ?? f.path, sides?.a ?? []))] : []),
         ],
       }),
     })

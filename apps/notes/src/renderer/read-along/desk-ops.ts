@@ -81,6 +81,8 @@ export function snapshotDesk(name: string, books: Iterable<string>, pick?: (id: 
 /** 存一张新的：底栏能撤回（删掉这张） */
 export async function saveNewDesk(d: Desk): Promise<void> {
   const h = H()
+  // 左栏马上换到「书桌」：等存好、列好再换的话，这中间用户点了别的（左栏「文件」）会被拉回来
+  h.showDesks()
   let file: string
   try {
     file = await window.cnRead.saveDesk(d)
@@ -90,7 +92,6 @@ export async function saveNewDesk(d: Desk): Promise<void> {
   await loadDesks()
   const name = desksNow().find((x) => x.file === file)?.desk.name ?? d.name
   if (d.auto) turnOn(file)
-  h.showDesks()
   h.notice(`存好了书桌「${name}」：${d.notes.length} 篇笔记、${d.web.length} 个网页`, {
     undo: () =>
       void window.cnRead.removeDesk(file).then(

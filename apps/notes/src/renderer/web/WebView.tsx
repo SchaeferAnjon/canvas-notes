@@ -93,6 +93,8 @@ export function WebView(props: {
         return
       }
       reported = true
+      // 主进程报「这个网页拿到焦点了」时按它找到这个 <webview>（App 的当前栏）
+      w.dataset.wc = String(id)
       cb.current.onAttach(id)
       offMenu = registerWebMenu(
         id,

@@ -67,7 +67,7 @@ export function useAppSettings(): [AppSettings, (p: Parameters<typeof window.cn.
     // 导入的主题读到之前先不套（不然选的是导入主题时会先闪一下薄荷）
     if (user === null) return
     const a = s.appearance
-    applySkin(skinOf(activeSkin(a, dark), userSkinInfos(user)), a.frame, winBgUrl(s), a.glass, a.winBg === 'wall')
+    applySkin(skinOf(activeSkin(a, dark), userSkinInfos(user)), a.frame, winBgUrl(s), a.glassLevel, a.winBg === 'wall')
     applyWall({ mix: a.wallMix, move: a.wallMove, speed: a.wallSpeed }, { e2e: window.cnCrash?.e2e })
   }, [s, dark, user])
   const set = async (p: Parameters<typeof window.cn.setSettings>[0]) => {

@@ -8,6 +8,7 @@ import type { ChatSide, StoredMsg, ToolStep } from '../shared/agent'
 import type { AiPick } from '@cn/ai-engines/shared'
 import type { Place } from './ai-place'
 import type { NoteTarget } from '../shared/ai-note'
+import type { OlderSummary } from '../shared/ai-chats'
 import { t } from '../shared/i18n'
 
 /** 存下来的部分 + 只在这次打开时有的（还在生成、按钮） */
@@ -34,6 +35,8 @@ interface Chat {
   sides: Side[]
   /** 这段对话记进哪篇（AI 对话记笔记开关，主进程记在这个地方的对话文件里，新对话清掉）；没选过没有 */
   noteTo?: NoteTarget | null
+  /** 点「+」收起来的几段（新的在前；AI 对话绑页面：照读 PDF「之前的对话」，不再清掉） */
+  older?: OlderSummary[]
 }
 
 const chats = new Map<string, Chat>()
@@ -90,11 +93,11 @@ async function load(place: Place) {
   if (chats.get(place.key)?.loaded || loading.has(place.key)) return
   loading.add(place.key)
   try {
-    const [msgs, pick, sides, noteTo] = await Promise.all([window.cn.aiChatLoad(place.key), window.cn.aiChatPick(place.key), window.cn.aiChatSides(place.key), window.cn.aiChatNote(place.key)])
+    const [msgs, pick, sides, noteTo, older] = await Promise.all([window.cn.aiChatLoad(place.key), window.cn.aiChatPick(place.key), window.cn.aiChatSides(place.key), window.cn.aiChatNote(place.key), window.cn.aiChatOlder(place.key)])
     // 读的时候已经往里加了（读得慢、刚打开就发了一句）：加的排在后面；读的时候已经换了模型、effort：留着刚换的
     const cur = chats.get(place.key)
     const now = cur?.msgs ?? []
-    chats.set(place.key, { label: place.label, msgs: [...msgs, ...now], loaded: true, pick: cur?.pick !== undefined ? cur.pick : pick, sides: [...sides, ...(cur?.sides ?? [])], noteTo: cur?.noteTo !== undefined ? cur.noteTo : noteTo })
+    chats.set(place.key, { label: place.label, msgs: [...msgs, ...now], loaded: true, pick: cur?.pick !== undefined ? cur.pick : pick, sides: [...sides, ...(cur?.sides ?? [])], noteTo: cur?.noteTo !== undefined ? cur.noteTo : noteTo, older })
     emit()
     if (now.length) save(place.key)
   } finally {
@@ -139,7 +142,7 @@ function listen() {
       const i = steps.findIndex((s) => s.id === e.id)
       // 读过的文件（task-3e53q）：开始和做完各报一次，有一次报了就留着
       const paths = e.paths ?? steps[i]?.paths
-      const step: ToolStep = { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}), ...(paths?.length ? { paths } : {}) }
+      const step: ToolStep = { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.risk ? { risk: e.risk } : {}), ...(e.detail ? { detail: e.detail } : {}), ...(paths?.length ? { paths } : {}) }
       if (i === -1) steps.push(step)
       else steps[i] = step
       return { ...m, steps }
@@ -179,7 +182,35 @@ export function setNoteTo(key: string, to: NoteTarget | null) {
   void window.cn.aiChatSetNote(key, to)
 }
 
-/** 新对话：这个地方的对话清掉（会话号、选的模型和 effort、记进哪篇主进程一起清） */
+/**
+ * 新对话（头上「+」）：问过的现在这段原样收起来（主进程记进这个地方的 older，对话菜单这里下面一行，能切回），开一段空的
+ * （AI 对话绑页面第二步；以前是清掉，首页点几次「+」旧对话就没了）。没存的先存掉再收
+ */
+export async function shelve(key: string) {
+  await flush()
+  await window.cn.aiChatShelve(key)
+  await reload(key)
+}
+
+/** 切回收起来的一段：现在这段问过就收起来，那段原样回来（会话号也回来） */
+export async function switchOlder(key: string, id: number) {
+  if (running?.key === key) return
+  await flush()
+  await window.cn.aiChatSwitch(key, id)
+  await reload(key)
+}
+
+/** 主进程改了这个地方的对话（收起、切回、搬走）：整段重新读 */
+export async function reload(key: string) {
+  const c = chats.get(key)
+  if (!c) return
+  const [msgs, pick, sides, noteTo, older] = await Promise.all([window.cn.aiChatLoad(key), window.cn.aiChatPick(key), window.cn.aiChatSides(key), window.cn.aiChatNote(key), window.cn.aiChatOlder(key)])
+  chats.set(key, { ...c, msgs, pick, sides, noteTo, older, loaded: true })
+  ui.delete(key)
+  emit()
+}
+
+/** 清掉这个地方的对话（会话号、选的模型和 effort、记进哪篇主进程一起清）：只给文件树多选「问AI」那段（每次重选从头开始） */
 export function clear(key: string) {
   const c = chats.get(key)
   if (c) chats.set(key, { ...c, msgs: [], pick: null, sides: [], noteTo: null })

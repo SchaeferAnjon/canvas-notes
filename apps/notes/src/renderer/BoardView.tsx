@@ -346,6 +346,12 @@ export function BoardView(props: BoardViewProps) {
     toPlane,
     freeSpot,
     onNotice: props.onNotice,
+    pasteText(t) {
+      const now = latest.current
+      const id = newId(now)
+      commit(addCard(now, id, t, { at: freeSpotRef.current() }))
+      setFlash(id)
+    },
     addCards(texts, at) {
       let next = latest.current
       let last = ''

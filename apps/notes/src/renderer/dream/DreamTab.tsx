@@ -39,6 +39,7 @@ import { chunksOf, markExt } from './compare'
 import { actOn, dreamNow, openDream, setCur, setCurFile, stepDream, undoItem } from './nav'
 import { GROUPS } from './useDream'
 import { actNames, Evidence } from './evidence'
+import { EntryActs } from './entry-acts'
 import './dream-tab.css'
 import '../diff/diff.css'
 
@@ -72,11 +73,15 @@ export function DreamTab(props: {
   const [narrow, setNarrow] = useState(false)
   const root = useRef<HTMLElement>(null)
   // 读这一条的两版：换了条、这条收下 / 丢掉 / 撤回了（打开哪一份跟着变）、历史里库变了，重读
-  const key = JSON.stringify({ ...src, focus: undefined }) + `:${item?.state}:${item?.taken ?? ''}:${hist ? props.gitVersion : ''}`
+  const focus = 'focus' in src ? src.focus : undefined
+  // 词条页那条：提到它的几篇，左边一直是第一篇，右边是点的那篇（默认第二篇；梦游对照复审：以前只看得到两篇）
+  const mentions = item?.entry && !item.commit && item.files.length > 1 ? item.files : null
+  const right = mentions ? (focus && focus !== mentions[0] && mentions.includes(focus) ? focus : mentions[1]!) : undefined
+  const key = JSON.stringify({ ...src, focus: undefined }) + `:${item?.state}:${item?.taken ?? ''}:${hist ? props.gitVersion : ''}:${right ?? ''}`
   const readFor = useRef('')
   useEffect(() => {
     let stale = false
-    const fetchSrc: DiffSource = src.kind === 'dream' ? { kind: 'dream', id: src.id } : src.kind === 'commit' ? { kind: 'commit', hash: src.hash } : src
+    const fetchSrc: DiffSource = mentions && right ? { kind: 'pair', a: mentions[0]!, b: right } : src.kind === 'dream' ? { kind: 'dream', id: src.id } : src.kind === 'commit' ? { kind: 'commit', hash: src.hash } : src
     if (readFor.current !== JSON.stringify(fetchSrc)) setRes(null)
     readFor.current = JSON.stringify(fetchSrc)
     window.cn.diffFiles(fetchSrc).then(
@@ -102,11 +107,11 @@ export function DreamTab(props: {
   }, [])
 
   const files = res && !('error' in res) ? res.files : []
-  const focus = 'focus' in src ? src.focus : undefined
   const fi = focus ? Math.max(0, files.findIndex((f) => f.path === focus || f.from === focus)) : 0
   const f = files[fi] ?? null
   const shown: Layout = narrow ? 'unified' : layout
-  const dup = item?.group === 'dup'
+  // 只是提醒、没有提交的（可能重复、可以建的词条页）：不是改动，两篇整篇并排（梦游对照复审：以前词条页那条拿两篇无关的笔记按字比，满屏红绿、写「改了 36 处」）
+  const dup = !!item && !item.commit
   const html = f?.kind === 'html'
   // 左栏小卡里这一行亮着
   useEffect(() => {
@@ -164,6 +169,25 @@ export function DreamTab(props: {
       {!res && <p className="dv-empty">读取中…</p>}
       {res && 'error' in res && <p className="dv-empty">读不出这一条的改动：{res.error}</p>}
       {res && !('error' in res) && !files.length && <p className="dv-empty">这一条没有改动</p>}
+      {item && mentions && mentions.length > 2 && (
+        <div className="dt-files" role="tablist" aria-label="提到它的几篇" data-testid="dream-mentions">
+          <span className="lb">{t('提到它的{n}篇', { n: mentions.length })}</span>
+          {mentions.map((p, k) => (
+            <button
+              key={p}
+              className={'dt-chip' + (k === 0 || p === right ? ' on' : '')}
+              role="tab"
+              aria-selected={k === 0 || p === right}
+              data-tip={k === 0 ? t('左边一直是这篇') : undefined}
+              data-side="below"
+              onClick={() => k > 0 && openDream(item.id, p)}
+            >
+              <Codicon name="file-text" size={14} />
+              <span className="truncate">{titleOf(p)}</span>
+            </button>
+          ))}
+        </div>
+      )}
       {res && !('error' in res) && item && !dup && files.length > 1 && (
         <div className="dt-files" role="tablist" aria-label="这条改的文件">
           <span className="lb">{`这条改了${files.length}个文件`}</span>
@@ -189,7 +213,7 @@ export function DreamTab(props: {
       {res && !('error' in res) && (dup || f) && (
         <div className="dv-body" ref={scroller} data-testid="dream-scroll">
           {dup && item ? (
-            <DupView files={files} onOpenPath={props.onOpenPath} />
+            <DupView files={files} entry={item.entry?.name} onOpenPath={props.onOpenPath} />
           ) : html ? (
             <HtmlView key={f!.path} f={f!} res={res} layout={shown} item={item} />
           ) : f!.kind === 'image' ? (
@@ -233,7 +257,9 @@ function ItemHead(props: { item: DreamItem; index: number; total: number; base: 
         {item.state === 'pending' ? (
           <>
             <div className="r">
-              {dup ? (
+              {item.entry ? (
+                <EntryActs item={item} busy={false} solid testId="dream-head-entry" />
+              ) : dup ? (
                 <button className="btn btn-sm" onClick={() => void actOn('take', item)}>
                   <Codicon name="check" size={14} />
                   知道了
@@ -243,7 +269,7 @@ function ItemHead(props: { item: DreamItem; index: number; total: number; base: 
                 <ChangeBar testId="dream-change-bar" reject={{ label: actNames(item).drop, onClick: () => void actOn('drop', item) }} accept={{ label: actNames(item).take, onClick: () => void actOn('take', item) }} solid />
               )}
             </div>
-            <div className="hint">{dup ? '只是提醒，不改任何文件' : [props.keys.take && `${props.keys.take} ${actNames(item).take}`, props.keys.drop && `${props.keys.drop} ${actNames(item).drop}`, `收下 = 一次提交进${props.base}`].filter(Boolean).join(' · ')}</div>
+            <div className="hint">{item.entry ? t('点了才建，建好后底栏能撤销') : dup ? '只是提醒，不改任何文件' : [props.keys.take && `${props.keys.take} ${actNames(item).take}`, props.keys.drop && `${props.keys.drop} ${actNames(item).drop}`, `收下 = 一次提交进${props.base}`].filter(Boolean).join(' · ')}</div>
           </>
         ) : (
           <div className="r">
@@ -461,16 +487,21 @@ function FitFrame(props: { src: string; title: string; testid?: string }) {
   return <iframe ref={ref} className="dt-viz" title={props.title} sandbox="allow-scripts" src={fitSrc(props.src)} data-testid={props.testid} style={{ height: 200 }} />
 }
 
-/** 可能重复：两篇整篇并排，两篇说同一件事的那几段淡底 */
-function DupView(props: { files: DiffEntry[]; onOpenPath(path: string): void }) {
+/**
+ * 只是提醒的两篇（可能重复、可以建的词条页）：两篇整篇并排，抬头写两篇名字，说同一件事的那几段淡底，不比字、不写改了几处。
+ * 词条页那条：淡底的是两篇里提到那个词的段（没有一段提到时退回按字像不像找）
+ */
+function DupView(props: { files: DiffEntry[]; entry?: string; onOpenPath(path: string): void }) {
   const f = props.files[0]
   const aPath = f?.from ?? ''
   const bPath = f?.path ?? ''
   const ha = useRef<HTMLDivElement>(null)
   const hb = useRef<HTMLDivElement>(null)
+  const marks = useMemo(() => (f && f.before !== null && f.after !== null ? marksOf(f.before, f.after, props.entry) : null), [f, props.entry])
+  const same = !!marks && (marks.a.length > 0 || marks.b.length > 0)
   useEffect(() => {
-    if (!f || f.before === null || f.after === null) return
-    const { a, b } = sameParas(f.before, f.after)
+    if (!f || f.before === null || f.after === null || !marks) return
+    const { a, b } = marks
     const va = new EditorView({ parent: ha.current!, state: EditorState.create({ doc: f.before, extensions: [...docExt(aPath), markExt(a)] }) })
     const vb = new EditorView({ parent: hb.current!, state: EditorState.create({ doc: f.after, extensions: [...docExt(bPath), markExt(b)] }) })
     return () => {
@@ -478,15 +509,15 @@ function DupView(props: { files: DiffEntry[]; onOpenPath(path: string): void }) 
       vb.destroy()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [f])
+  }, [f, marks])
   const head = (p: string) => (
     <span className="dt-duph">
       <Codicon name="file-text" size={14} />
-      <b>{titleOf(p)}</b>
-      <span className="truncate">{dirOf(p) || vaultLabel()}</span>
-      <button className="btn btn-ghost btn-xs" onClick={() => props.onOpenPath(p)}>
+      <b className="truncate">{titleOf(p)}</b>
+      <span className="dir truncate">{dirOf(p) || vaultLabel()}</span>
+      <button className="btn btn-ghost btn-xs" aria-label={`打开「${titleOf(p)}」`} data-tip={`打开「${titleOf(p)}」`} data-side="below" onClick={() => props.onOpenPath(p)}>
         <Codicon name="go-to-file" size={14} />
-        <span className="truncate">{`打开「${titleOf(p)}」`}</span>
+        打开
       </button>
     </span>
   )
@@ -496,13 +527,37 @@ function DupView(props: { files: DiffEntry[]; onOpenPath(path: string): void }) 
         {head(aPath)}
         {head(bPath)}
       </div>
+      {same && <p className="dt-same">{marks!.word && props.entry ? t('浅色底的几段都提到{name}。', { name: quoteName(props.entry) }) : '浅色底的几段两篇说的是同一件事。'}</p>}
       <div className="dt-rows">
         <div className="doc dt-cell" ref={ha} />
         <div className="doc dt-cell" ref={hb} />
       </div>
-      <p className="dt-same">浅色底的几段两篇说的是同一件事。</p>
     </div>
   )
+}
+
+/** 「《动手学深度学习》」那样带书名号的词照原样写，别的加「」 */
+const quoteName = (name: string) => (/^[《「]/.test(name) ? name : `「${name}」`)
+
+/** 两篇里一个词出现在哪几段（一行算一段；比的时候不分大小写，书名号可有可无） */
+function parasWith(text: string, name: string): { from: number; to: number }[] {
+  const bare = name.replace(/^[《「](.*)[》」]$/, '$1').toLowerCase()
+  const out: { from: number; to: number }[] = []
+  let pos = 0
+  for (const line of text.split('\n')) {
+    if (bare && line.toLowerCase().includes(bare)) out.push({ from: pos, to: pos + line.length })
+    pos += line.length + 1
+  }
+  return out
+}
+
+/** 淡底铺哪几段：词条页那条是提到那个词的段，别的（和词条页两篇都没提到时）是两篇说同一件事的段 */
+function marksOf(a: string, b: string, entry?: string): { a: { from: number; to: number }[]; b: { from: number; to: number }[]; word: boolean } {
+  if (entry) {
+    const m = { a: parasWith(a, entry), b: parasWith(b, entry), word: true }
+    if (m.a.length || m.b.length) return m
+  }
+  return { ...sameParas(a, b), word: false }
 }
 
 /** 两篇里说同一件事的段落：按字的两两相邻（二元组）比，像的一半以上算 */

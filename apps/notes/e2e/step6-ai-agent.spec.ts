@@ -195,6 +195,10 @@ test('网页上让 AI 打开网址并读出标题：网页开在 AI 后面、底
     const msg = ai(page).getByTestId('ai-msg').last()
     await expect(msg.locator('.txt')).toContainText('网页标题是「极光预报站」', { timeout: 30_000 })
     await expect(msg.getByTestId('ai-step')).toHaveText(['打开网页 127.0.0.1', '读网页'])
+    // 网页在 AI 后面看不见，AI 用过它以后渲染进程照前台优先级跑：以前 Chromium 把它降成后台（ps 的 pri 是 4），
+    // Mac 一忙它就分不到 CPU，网页一直载不完、读网页的脚本不回话，AI 说不出标题（agent/web.ts held）
+    const pid = await run.app.evaluate(({ webContents }) => webContents.getAllWebContents().find((w) => w.getType() === 'webview')!.getOSProcessId())
+    expect(Number(execFileSync('ps', ['-o', 'pri=', '-p', String(pid)], { encoding: 'utf8' }).trim())).toBeGreaterThan(4)
     // 工作区方向 A（task-9okg5）：AI 看得见时网页开在 AI 那一组的后面，AI 不被换下去；底栏说一句，带「看网页」
     await expect(ai(page)).toBeVisible()
     await expect(page.getByTestId('dtab-web')).toHaveAttribute('aria-selected', 'false')

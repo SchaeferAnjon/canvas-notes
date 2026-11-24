@@ -6,7 +6,7 @@
  * 只读微信读书，不往它那边写任何东西。界面那半在 renderer/plugins/weread/，网页里那半在 preload/plugins/weread.ts。
  * 以前问的是手机 App 的接口 i.weread.qq.com：网页里登录拿到的 cookie 它不认（回 -2012 登录超时），划线不插、设置里一直「没登录」（CN-37、CN-53）。
  * 登录：右栏 persist:web 里的 wr_vid、wr_skey；接口前先 HEAD 一次网站续 cookie（十分钟一次），说登录超时就再续一次重试。
- * 测试：CN_WEREAD_ORIGIN（假的微信读书网站，网页和接口都在它上面），CN_WEREAD_API 只换接口。
+ * 测试：CN_WEREAD_ORIGIN（假的微信读书网站，网页和接口都在它上面），CN_WEREAD_API 只换接口；CN_WEREAD_MERGE_HOLD_MS 让界面晚这么久才合并书摘，CN_WEREAD_MERGE_WAIT_MS 改主进程最多等多久（都只在 CN_E2E=1 时认）。
  */
 import { prop } from '@cn/format'
 import { commitPaths, describeChanges, status as gitStatus } from '@cn/git'
@@ -112,6 +112,8 @@ interface PageBook extends BookInfo {
 
 /** 编辑器合并完回的话（和 mergeBook 的结果一样） */
 type EditorMerge = BookMerge
+/** 问编辑器合并的结果：合好存好了、这篇没开着（主进程写）、开着但合不了、开着但一直没回话 */
+type EditorReply = EditorMerge | 'closed' | 'failed' | 'waited'
 
 export const wereadPlugin: MainPlugin<WereadSettings> = {
   manifest: WEREAD,
@@ -222,36 +224,50 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
     }
 
     /** 等界面回话的合并：编号 → 收到回话 */
-    const asking = new Map<number, (r: EditorMerge | null) => void>()
+    const asking = new Map<number, (r: EditorReply) => void>()
     let askSeq = 0
+    /** 只给测试：界面收到合并请求后先停这么久再合（机器忙、界面卡住）；主进程最多等多久 */
+    const mergeHold = process.env.CN_E2E === '1' ? Number(process.env.CN_WEREAD_MERGE_HOLD_MS) || 0 : 0
+    const mergeWait = (process.env.CN_E2E === '1' && Number(process.env.CN_WEREAD_MERGE_WAIT_MS)) || 60_000
     /**
-     * 书摘开着（哪个标签都算）：交给那个编辑器合并、存盘（和剪进文档同一条路，正在打的字不丢、不出冲突副本）。
-     * 没开着、5 秒没回话（窗口关着）是 null，在这里写文件
+     * 一篇书摘只有一个写的人：开着（哪个标签都算）就由那个编辑器合并、存盘（和剪进文档同一条路，正在打的字不丢、不出冲突副本），
+     * 主进程不碰文件；界面说没开着（closed）、窗口没了，才由主进程写。
+     * 以前等 5 秒没回话主进程就自己写：机器忙时界面还没处理到，主进程先把划线写进文件（插在用户正在写的那段前面），
+     * 编辑器接着存打的字时和它撞在相邻几行，三方合并留了编辑器那版，划线进了冲突副本、书摘里没了（weread-sync:154 偶发）。
+     * 开着却 mergeWait 还没回话、或者界面合不了：这次不同步（不写），抛错，下次划线、「现在同步」再来
      */
-    function askEditor(path: string, input: BookSync): Promise<EditorMerge | null> {
+    function askEditor(path: string, input: BookSync, title: string): Promise<EditorMerge | 'closed'> {
       const id = ++askSeq
-      return new Promise((resolve) => {
-        const timer = setTimeout(() => (asking.delete(id), resolve(null)), 5000)
-        asking.set(id, (r) => {
+      return new Promise((resolve, reject) => {
+        const finish = (r: EditorReply) => {
           clearTimeout(timer)
+          clearInterval(alive)
           asking.delete(id)
-          resolve(r)
-        })
-        host.emit('merge', { id, path, input })
+          if (r === 'failed') reject(new Error(`《${title}》的书摘开着，编辑器这次没合并上，下次再同步`))
+          else if (r === 'waited') reject(new Error(`《${title}》的书摘开着，编辑器 ${Math.round(mergeWait / 1000)} 秒没回话，这次没同步，下次再同步`))
+          else resolve(r)
+        }
+        const timer = setTimeout(() => finish('waited'), mergeWait)
+        // 窗口关了、界面进程没了：没有编辑器了，主进程写
+        const alive = setInterval(() => host.appAlive() || finish('closed'), 500)
+        asking.set(id, finish)
+        if (!host.appAlive()) return finish('closed')
+        host.emit('merge', { id, path, input, ...(mergeHold ? { hold: mergeHold } : {}) })
       })
     }
     host.handle('merged', (_ctx, arg) => {
-      const a = (arg ?? {}) as { id?: unknown; handled?: unknown; text?: unknown; written?: unknown; added?: unknown }
+      const a = (arg ?? {}) as { id?: unknown; handled?: unknown; open?: unknown; text?: unknown; written?: unknown; added?: unknown }
       const done = asking.get(Number(a.id))
       if (!done) return
-      if (a.handled !== true || typeof a.text !== 'string' || !Array.isArray(a.written) || !Array.isArray(a.added)) return done(null)
-      done({ text: a.text, written: a.written.filter((x): x is string => typeof x === 'string'), added: a.added as Mark[] })
+      if (a.handled === true && typeof a.text === 'string' && Array.isArray(a.written) && Array.isArray(a.added))
+        return done({ text: a.text, written: a.written.filter((x): x is string => typeof x === 'string'), added: a.added as Mark[] })
+      done(a.open === false ? 'closed' : 'failed')
     })
 
     let writing: Promise<unknown> = Promise.resolve()
     /**
      * 同步一本书进它的书摘（CN-130）：只往里加新划线、新想法（mergeBook），用户写的不动；内容没变不写不提交。
-     * 开着的书摘交给编辑器合并；用户在这篇里还没提交的字先单独提交，同步的提交里只有同步加的。
+     * 开着的书摘只交给编辑器合并（askEditor），没开着才在这里写；用户在这篇里还没提交的字先单独提交，同步的提交里只有同步加的。
      * 有新加的划线就告诉界面（提示「已同步到《书名》· 章节」）
      */
     function writeBook(book: BookInfo, marks: Mark[], url: string, why: string): Promise<boolean> {
@@ -266,10 +282,10 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
           const pending = (await gitStatus(v.root)).filter((s) => s.path === path)
           if (pending.length) await commitPaths(v.root, [path], describeChanges(pending))
         }
-        const viaEditor = found.text === null ? null : await askEditor(path, input)
+        const viaEditor = found.text === null ? 'closed' : await askEditor(path, input, book.title)
         let r: EditorMerge
         let changed: boolean
-        if (viaEditor) {
+        if (viaEditor !== 'closed') {
           r = viaEditor
           changed = r.text !== found.text
         } else {
@@ -286,6 +302,8 @@ export const wereadPlugin: MainPlugin<WereadSettings> = {
               if (changed && !(await v.write(path, r.text, w.diskText)).ok) throw new Error(`《${book.title}》的书摘正被改着，这次没同步上，下次再同步`)
             }
           }
+          // 说没开着以后刚好又打开了（或者界面进程重来过）：那个编辑器照外部改动合进来，不留旧字
+          if (changed) host.noteChanged(path, r.text)
         }
         saved.written[book.bookId] = r.written
         saved.files[book.bookId] = path

@@ -176,7 +176,7 @@ test('网页上点引用进右栏正开着的那段对话；「留在这个对�
     await expect(chat(page)).toBeVisible()
     const away = chat(page).getByTestId('ai-away')
     await expect(away).toBeVisible()
-    await expect(away.getByRole('button')).toHaveText(['留在这个对话', /^回到「.+」$/])
+    await expect(away.getByRole('button')).toHaveText(['留在这个对话', /^回到《.+》$/])
     await onPara(page, 'p1', '引用')
     await expect(chat(page).getByTestId('ai-mat')).toHaveCount(1)
     await expect(away).toBeVisible()
@@ -243,6 +243,8 @@ test('网页上点引用进右栏正开着的那段对话；「留在这个对�
     await expect(p2.locator('.vault b')).toHaveText('测试库')
     await openNote(p2, '随手记')
     await openAi(p2)
+    // 重开时 AI 开着、看着学习笔记那段（问过）：换到随手记留着它（AI 对话绑页面），点头上那颗切到随手记的
+    await chat(p2).getByTestId('ai-follow').click()
     await expect(chat(p2).getByTestId('ai-conv')).toHaveText('随手记')
     await openWeb(p2)
     if ((await p2.locator('.dgrp').count()) < 2) await webAboveAi(p2)

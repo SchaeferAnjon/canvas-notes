@@ -25,6 +25,12 @@ const host: ToolHost = {
     read: async () => ({ url: 'https://x.test/', title: '网页', text: '正文', items: [{ ref: 1, kind: 'link', text: '下一页', href: 'https://x.test/2' }], selection: '' }),
     click: async () => '点了',
     type: async () => '输入好了',
+    select: async () => '选了',
+    check: async () => '勾上了',
+    upload: async () => '选好了',
+    hover: async () => '移过去了',
+    press: async () => '按了',
+    drag: async () => '拖了',
     scroll: async () => '滚了',
     clip: async () => '收件箱/x.md',
   },
@@ -121,7 +127,7 @@ describe('MCP 服务', () => {
   it('列出网页、白板、文档三组工具，每个都有说明和参数格式', async () => {
     const tools = (await rpc('tools/list', {})).body!.result!.tools as { name: string; description: string; inputSchema: { type: string } }[]
     const names = tools.map((t) => t.name)
-    for (const n of ['web_open', 'web_read', 'web_click', 'web_type', 'web_scroll', 'web_clip', 'board_list', 'board_add_card', 'board_update_card', 'board_move', 'board_put_in_column', 'board_link', 'board_arrange', 'doc_read', 'doc_insert', 'doc_replace_selection'])
+    for (const n of ['web_open', 'web_read', 'web_click', 'web_type', 'web_select', 'web_check', 'web_upload', 'web_hover', 'web_press', 'web_drag', 'web_scroll', 'web_clip', 'board_list', 'board_add_card', 'board_update_card', 'board_move', 'board_put_in_column', 'board_link', 'board_arrange', 'doc_read', 'doc_insert', 'doc_replace_selection'])
       expect(names).toContain(n)
     for (const t of tools) {
       expect(t.description.length).toBeGreaterThan(5)

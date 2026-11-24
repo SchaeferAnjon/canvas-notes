@@ -159,6 +159,8 @@ test('选一句出的横向小条在选中高亮上方 6（±1）、不盖住选
     // 2. AI 对话：回答里选一句
     await openNote(page, '2026-W47')
     await openAi(page)
+    // 读 PDF 那段问过：换页留着（AI 对话绑页面），点头上那颗切到这篇的 AI
+    await reading.getByTestId('ai-follow').click()
     const chat = page.getByRole('complementary', { name: 'AI 对话' })
     const ta = chat.getByRole('textbox', { name: '问 AI' })
     await ta.fill('把这周的周记总结成三句话')

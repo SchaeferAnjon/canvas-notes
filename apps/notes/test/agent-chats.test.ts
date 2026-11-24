@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { readingChats, readingKey } from '../src/main/reading/chats'
 import { AgentStore } from '../src/main/agent/store'
+import { findLost, knownSessions, projectDirName, RECOVERED } from '../src/main/agent/recover'
 import type { StoredMsg } from '../src/shared/agent'
 
 let dir: string
@@ -30,7 +31,7 @@ describe('AgentStore 按地方存', () => {
     expect(s.chat(V, 'file:随手记.md').sessions).toEqual({})
     expect(s.chat(V, 'inbox').msgs).toEqual([])
     // 按最后问的时间，新的在前；首页没问过不列
-    expect(s.list(V)).toEqual([
+    expect(s.list(V)).toMatchObject([
       { key: 'file:随手记.md', label: '随手记', asks: 1, at: 2000 },
       { key: 'folder:周记', label: '周记', asks: 1, at: 1001 },
     ])
@@ -65,7 +66,7 @@ describe('AgentStore 按地方存', () => {
     s.move(V, 'file:草稿.md', 'file:写作/定稿.md', '定稿')
     expect(s.chat(V, 'file:写作/定稿.md').msgs.map((m) => m.text)).toEqual(['帮我改改'])
     expect(s.chat(V, 'file:草稿.md').msgs).toEqual([])
-    expect(s.list(V)).toEqual([{ key: 'file:写作/定稿.md', label: '定稿', asks: 1, at: 5 }])
+    expect(s.list(V)).toMatchObject([{ key: 'file:写作/定稿.md', label: '定稿', asks: 1, at: 5 }])
   })
 })
 
@@ -79,7 +80,7 @@ describe('AI 对话里的旁支（task-4edsc）：跟着这段对话存', () => 
     s.saveMsgs(V, 'file:周记.md', '周记', [q(1, '总结', 1000), a(2, '三句话', 1001), q(3, '还有呢', 1002)])
     expect(s.sides(V, 'file:周记.md').map((x) => x.id)).toEqual(['cs-1'])
     // 菜单里的「N问」只数主对话
-    expect(s.list(V)).toEqual([{ key: 'file:周记.md', label: '周记', asks: 2, at: 1002 }])
+    expect(s.list(V)).toMatchObject([{ key: 'file:周记.md', label: '周记', asks: 2, at: 1002 }])
     s.setSession(V, 'file:周记.md', 'claude', 'main-sess')
     s.setSideSession(V, 'file:周记.md', 'cs-1', 'claude', 'side-sess')
     expect(s.sideSession(V, 'file:周记.md', 'cs-1', 'claude')).toBe('side-sess')
@@ -132,10 +133,106 @@ describe('读 PDF 的对话也列进菜单', () => {
     mkdirSync(join(rd, 'text'))
     const got = readingChats(rd, V).sort((x, y) => y.at - x.at)
     expect(got).toEqual([
-      { key: 'read:web:https://www.youtube.com/watch?v=1', label: 'Linear maps', asks: 1, at: 900 },
-      { key: 'read:课程/线代/第3讲.pdf', label: '第3讲.pdf', asks: 1, at: 310 },
+      { key: 'read:web:https://www.youtube.com/watch?v=1', label: 'Linear maps', asks: 1, at: 900, first: '这一帧' },
+      { key: 'read:课程/线代/第3讲.pdf', label: '第3讲.pdf', asks: 1, at: 310, first: '讲讲' },
     ])
     expect(readingChats(join(dir, '没有'), V)).toEqual([])
     expect(readdirSync(rd).length).toBe(6)
+  })
+})
+
+describe('「这段 → 那页」表（AI 对话绑页面，2026-11-24）', () => {
+  it('只记搬过家的；挂回自己那页从表里拿掉；文件改名时这段和挂到它上面的几段跟着改；按库分开', () => {
+    const s = new AgentStore(dir)
+    expect(s.pages(V)).toEqual({})
+    s.setPage(V, 'file:甲.md', { page: 'read:web:https://a.com/x', label: '甲' })
+    s.setPage(V, 'folder:周记', { page: 'file:甲.md', label: '周记' })
+    // 挂到自己那页：不记
+    s.setPage(V, 'home', { page: 'home', label: '首页' })
+    expect(Object.keys(s.pages(V)).sort()).toEqual(['file:甲.md', 'folder:周记'])
+    expect(s.pages(V)['file:甲.md']).toMatchObject({ page: 'read:web:https://a.com/x', label: '甲' })
+    expect(s.pages('/库/别的')).toEqual({})
+    s.move(V, 'file:甲.md', 'file:课/甲.md', '甲')
+    expect(s.pages(V)['file:课/甲.md']?.page).toBe('read:web:https://a.com/x')
+    expect(s.pages(V)['file:甲.md']).toBeUndefined()
+    expect(s.pages(V)['folder:周记']?.page).toBe('file:课/甲.md')
+    s.setPage(V, 'folder:周记', null)
+    expect(Object.keys(s.pages(V))).toEqual(['file:课/甲.md'])
+  })
+})
+
+describe('「+」收起来不删（2026-11-24 用户：首页点了几次新建对话就看不到曾经的对话了）', () => {
+  it('问过的收进 older（会话号一起），空的不收；切回原样回来、现在这段收起；菜单那一条算上收起来的', () => {
+    const s = new AgentStore(dir)
+    s.saveMsgs(V, 'home', '首页', [q(1, '第一段', 1000), a(2, '答一', 1001)])
+    s.setSession(V, 'home', 'claude', 'sess-1')
+    s.shelve(V, 'home')
+    expect(s.chat(V, 'home')).toMatchObject({ msgs: [], sessions: {} })
+    s.shelve(V, 'home')
+    expect(s.olderList(V, 'home').map((o) => o.label)).toEqual(['第一段'])
+    s.saveMsgs(V, 'home', '首页', [q(3, '第二段', 2000)])
+    expect(s.list(V)).toEqual([{ key: 'home', label: '首页', asks: 2, at: 2000, n: 2, first: '第二段' }])
+    const id = s.olderList(V, 'home')[0]!.id
+    expect(s.switchOlder(V, 'home', id)).toBe(true)
+    expect(s.chat(V, 'home').msgs.map((m) => m.text)).toEqual(['第一段', '答一'])
+    expect(s.chat(V, 'home').sessions).toEqual({ claude: 'sess-1' })
+    expect(s.olderList(V, 'home').map((o) => o.label)).toEqual(['第二段'])
+    expect(s.switchOlder(V, 'home', 12345)).toBe(false)
+  })
+
+  it('搬出去（挂到别页、不挂）：现在这段另起 conv: key，这一处开一段空的，收起来的留着', () => {
+    const s = new AgentStore(dir)
+    s.saveMsgs(V, 'file:甲.md', '甲', [q(1, '旧的', 1000)])
+    s.shelve(V, 'file:甲.md')
+    s.saveMsgs(V, 'file:甲.md', '甲', [q(2, '要搬的', 2000)])
+    const key = s.detach(V, 'file:甲.md', '乙')!
+    expect(key).toMatch(/^conv:/)
+    expect(s.chat(V, key)).toMatchObject({ label: '乙', msgs: [{ text: '要搬的' }] })
+    expect(s.chat(V, 'file:甲.md').msgs).toEqual([])
+    expect(s.olderList(V, 'file:甲.md').map((o) => o.label)).toEqual(['旧的'])
+    expect(s.detach(V, 'file:甲.md', '乙')).toBeNull()
+  })
+})
+
+describe('找回清掉的对话（Claude Code 的会话记录，一次性）', () => {
+  const line = (o: object) => JSON.stringify(o)
+  const userLine = (ctx: string, text: string, ts: string) =>
+    line({ type: 'user', timestamp: ts, message: { role: 'user', content: `模式说明\n${ctx}\n右栏网页：没开\n\n用户说：\n${text}\n\n【语言】用中文答。` } })
+  const aiLine = (text: string, ts: string) => line({ type: 'assistant', timestamp: ts, message: { content: [{ type: 'thinking', thinking: '想' }, { type: 'text', text }] } })
+  const tool = line({ type: 'user', timestamp: '2026-11-20T10:00:03Z', message: { content: [{ type: 'tool_result', content: '工具' }] } })
+
+  it('只收没被引用的会话：认出首页、文档的进那一处的「之前的对话」，认不出的进「找回的对话」；读 PDF 的（没有「用户说」）不收；只做一次', () => {
+    const cdir = join(dir, 'claude')
+    const proj = join(cdir, 'projects', projectDirName(V))
+    mkdirSync(proj, { recursive: true })
+    const id = (n: number) => `0000000${n}-aaaa-bbbb-cccc-dddddddddddd`
+    writeFileSync(join(proj, `${id(1)}.jsonl`), [userLine('当前标签：首页', '首页问的', '2026-11-20T10:00:00Z'), aiLine('先查一下', '2026-11-20T10:00:02Z'), tool, aiLine('首页答的', '2026-11-20T10:00:05Z'), userLine('当前标签：首页', '再问', '2026-11-20T10:01:00Z'), aiLine('再答', '2026-11-20T10:01:05Z')].join('\n'))
+    writeFileSync(join(proj, `${id(2)}.jsonl`), [userLine('当前标签：文档「甲」（课/甲.md）', '甲问的', '2026-11-21T10:00:00Z'), aiLine('甲答的', '2026-11-21T10:00:05Z')].join('\n'))
+    writeFileSync(join(proj, `${id(3)}.jsonl`), [userLine('当前标签：归档', '归档问的', '2026-11-22T10:00:00Z')].join('\n'))
+    writeFileSync(join(proj, `${id(4)}.jsonl`), [line({ type: 'user', timestamp: '2026-11-22T10:00:00Z', message: { content: '读 PDF 的提示词' } })].join('\n'))
+    // 还被引用着的不收
+    writeFileSync(join(proj, `${id(5)}.jsonl`), [userLine('当前标签：首页', '还在的', '2026-11-23T10:00:00Z')].join('\n'))
+    const s = new AgentStore(dir)
+    s.saveMsgs(V, 'home', '首页', [q(1, '还在的', 1000)])
+    s.setSession(V, 'home', 'claude', id(5))
+    let n = -1
+    const run = () => s.recoverOnce(V, () => findLost(cdir, V, knownSessions(s.chatFiles(V)), () => n--))
+    expect(run()).toBe(3)
+    const home = s.chat(V, 'home')
+    expect(home.msgs.map((m) => m.text)).toEqual(['还在的'])
+    expect(home.older?.[0]?.msgs.map((m) => [m.role, m.text])).toEqual([
+      ['user', '首页问的'],
+      ['ai', '先查一下\n\n首页答的'],
+      ['user', '再问'],
+      ['ai', '再答'],
+    ])
+    expect(home.older?.[0]?.sessions).toEqual({ claude: id(1) })
+    expect(s.olderList(V, 'file:课/甲.md').map((o) => o.label)).toEqual(['甲问的'])
+    expect(s.chat(V, 'file:课/甲.md').label).toBe('甲')
+    expect(s.olderList(V, RECOVERED.key).map((o) => o.label)).toEqual(['归档问的'])
+    expect(s.list(V).map((c) => c.key).sort()).toEqual(['file:课/甲.md', 'home', 'recovered'])
+    // 只做一次
+    expect(run()).toBe(0)
+    expect(s.olderList(V, 'home')).toHaveLength(1)
   })
 })

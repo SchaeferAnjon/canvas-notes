@@ -331,8 +331,8 @@ test('存成快捷回复：AI 对话里悬停你发的那句点「存成快捷�
     await page.getByRole('textbox', { name: '按名字跳到文件' }).fill('第3讲')
     await page.keyboard.press('Enter')
     await expect(tabOn(page)).toHaveText('第3讲.pdf')
-    // AI 开着：右栏换成这份 PDF 的边读边问；没换过来再按 ⌘J
-    if (!(await reading(page).waitFor({ state: 'visible', timeout: 3000 }).then(() => true, () => false))) await page.keyboard.press('Meta+j')
+    // 刚才那段问过：换页留着（AI 对话绑页面），点头上那颗切到这一页的 AI
+    await chat(page).getByTestId('ai-follow').click()
     await expect(reading(page)).toBeVisible()
     await acts(page).getByRole('button', { name: /问这一页/ }).click()
     await expect(reading(page).getByTestId('reading-msg').last().locator('.txt')).toContainText('列就是基向量去哪', { timeout: 20_000 })

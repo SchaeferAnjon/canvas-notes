@@ -75,7 +75,7 @@ export interface Seen {
 
 // 不翻：键，画的地方翻（AiPanel 里「能动手」那颗 t(hands)）
 export const HANDS = {
-  web: '滚动、选中、剪藏网页', // 不翻
+  web: '点、填表、剪藏网页', // 不翻
   board: '挪卡片、排成列、合并', // 不翻
   doc: '改写、插入、挪块', // 不翻
   folder: '整理、归类、写小结', // 不翻

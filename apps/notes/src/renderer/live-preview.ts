@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language'
 import { Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import { codiconEl } from '@cn/design'
-import { splitImageAlt, wikiShown } from '@cn/format'
+import { splitImageAlt, splitPreTag, wikiShown } from '@cn/format'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { blockIds } from './block-id'
 import { hiddenLayoutLine } from './layout-lines'
@@ -45,6 +45,29 @@ class ZeroWidth extends WidgetType {
   }
 }
 const zeroWidth = new ZeroWidth()
+
+/**
+ * 小标题末尾的前置知识标签（`### 什么是 softmax #前置知识`，前置知识标签）：画成一颗小标签「前置知识」，和右栏笔记、白板列头的同一个样子；
+ * 文件里照旧是 `#前置知识`，整颗是原子的（光标一下跨过去，不拆开）
+ */
+class PreTag extends WidgetType {
+  constructor(readonly label: string) {
+    super()
+  }
+  eq(o: PreTag) {
+    return o.label === this.label
+  }
+  toDOM() {
+    const el = document.createElement('span')
+    el.className = 'cm-pre-tag'
+    el.dataset.testid = 'doc-pre-tag'
+    el.textContent = this.label
+    return el
+  }
+  ignoreEvent() {
+    return false
+  }
+}
 const line = (cls: string) => Decoration.line({ class: cls })
 /** 行尾的划线注释 <!-- cn:hl=p2-h1 k=key -->：取键 */
 const HL_KEY = /<!--\s*cn:hl=\S+?\s+k=([a-z][a-z0-9-]*)\s*-->/
@@ -289,7 +312,10 @@ function build(view: EditorView): DecorationSet {
         const name = node.name
         const h = /^ATXHeading(\d)$/.exec(name)
         if (h) {
-          decos.push(line(`cm-h cm-h${h[1]}`).range(doc.lineAt(node.from).from))
+          const ln = doc.lineAt(node.from)
+          decos.push(line(`cm-h cm-h${h[1]}`).range(ln.from))
+          const pre = splitPreTag(ln.text)
+          if (pre.pre) decos.push(Decoration.replace({ widget: new PreTag(ln.text.slice(pre.text.length).trim().slice(1)) }).range(ln.from + pre.text.length, ln.to))
           return
         }
         const parent = node.node.parent

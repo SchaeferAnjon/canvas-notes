@@ -10,6 +10,7 @@ import { basename, extname, join } from 'node:path'
 import { E2E } from '../test-mode'
 import type { Vault } from '../vault'
 import { atomicWrite } from '@cn/atomic'
+import { wakeHidden } from '../wake'
 
 /** 导出时嵌进 SVG 的图（库里的原照片、主题上的图）：界面的 CSP 不让 fetch cn-file:，在这里读成 data: 网址 */
 const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.avif': 'image/avif', '.bmp': 'image/bmp' }
@@ -70,7 +71,10 @@ export function setupMapExport(win: () => BrowserWindow | null, vault: () => Vau
     // SVG 里嵌着图（几 MB），写成一个临时网页再开，不走 data: 网址
     const dir = await mkdtemp(join(tmpdir(), 'cn-map-pdf-'))
     const page = join(dir, 'map.html')
-    const w = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true } })
+    // 看不见的窗口照前台优先级跑（../wake.ts）：不然 Mac 一忙它的渲染进程分不到 CPU，导出一张 PDF 要半分钟以上（14 个满载进程下量过：
+    // 不叫醒 30 秒没印完，叫醒 1 秒内）。渲染进程什么时候起来没有事件可等，这个窗口只活一两秒，就每 0.2 秒叫一次直到关掉
+    const w = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, backgroundThrottling: false } })
+    const tick = setInterval(() => wakeHidden(w.webContents), 200)
     try {
       const css = fit ? 'svg{display:block;width:100vw;height:100vh}' : 'svg{display:block;width:100vw;height:100vh;object-fit:contain}'
       await writeFile(page, `<!doctype html><html><head><meta charset="utf-8"><style>@page{margin:0}html,body{margin:0;padding:0}${css}</style></head><body>${svg.replace(/<svg /, '<svg preserveAspectRatio="xMidYMid meet" ')}</body></html>`)
@@ -84,6 +88,7 @@ export function setupMapExport(win: () => BrowserWindow | null, vault: () => Vau
       })
       await atomicWrite(path, pdf)
     } finally {
+      clearInterval(tick)
       w.destroy()
       await rm(dir, { recursive: true, force: true })
     }

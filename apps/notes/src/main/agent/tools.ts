@@ -7,20 +7,76 @@
  */
 import { type AiWrote, isBoardDoc, wrapInsert } from '@cn/format'
 import { homedir } from 'node:os'
-import type { AgentContext } from '../../shared/agent'
+import type { AgentContext, WebRisk } from '../../shared/agent'
 import { type ActTally, changedParas } from '../../shared/ai-act'
 import type { NoteFile } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
 import * as ops from './board-ops'
 import type { ToolResult, ToolSpec } from './mcp-server'
+import { WEB_PAGE_IDS, type WebPageId } from '../../shared/web-pages'
+import { keyName, parseKeys } from './web-keys'
+
+export interface WebItem {
+  ref: number
+  /** 链接、按钮、输入框、下拉框、勾选框、单选、选文件的框、能拖的东西 */
+  kind: 'link' | 'button' | 'input' | 'select' | 'checkbox' | 'radio' | 'file' | 'drag'
+  text: string
+  href?: string
+  /** 输入框不是普通文字时的种类（date、number、password……） */
+  type?: string
+  /** 现在的值（下拉框是选着的那几项，选文件的框是选了的文件名） */
+  value?: string
+  options?: string[]
+  multiple?: boolean
+  checked?: boolean
+  /** 单选是哪一组 */
+  group?: string
+  disabled?: boolean
+  /** 点了会提交表单、登录、付款、弹选文件框：动手前先问用户 */
+  risk?: 'submit' | 'login' | 'pay' | 'upload'
+}
 
 export interface WebPage {
   url: string
   title: string
   text: string
-  /** 能点的东西：ref 给 web_click / web_type 用 */
-  items: { ref: number; kind: 'link' | 'button' | 'input'; text: string; href?: string }[]
+  /** 能点能填的东西：ref 给 web_click / web_type / web_select…… 用 */
+  items: WebItem[]
   selection: string
+  /** 读的是哪个网页（「右栏」「中间栏」） */
+  where?: string
+}
+
+/** 网页工具共用的：操纵哪个网页（不给是用户正在看的那个），要先问用户的那几下用户说了可以没有 */
+export interface WebOpts {
+  page?: WebPageId
+  confirmed?: boolean
+}
+
+/** 要先问用户的那一下：没做，回给 AI 一句「先问」，步骤行写 label */
+export interface WebAsk {
+  ask: string
+  label: string
+  risk: WebRisk
+}
+
+export type WebDone = string | WebAsk
+
+/** 网页上的哪一个：web_read 给的编号，或者它上面、旁边写的字 */
+export interface WebTarget {
+  ref?: number
+  text?: string
+}
+
+/**
+ * AI 新加的几段要一段一个 [!ai] 块（白板上一段一张卡）：type: board 的白板，或者正以白板看法开着的普通文档
+ * （看法不写进文件，只有界面知道；以前只认 type: board，白板看法开着的文档里 AI 写的两段包成一块、白板上并成一张卡）
+ */
+export async function cardPerPara(text: string, path: string, context: () => Promise<AgentContext>): Promise<boolean> {
+  if (isBoardDoc(text)) return true
+  // 没有窗口（界面关了）问不到：照文档包
+  const c = await context().catch(() => null)
+  return c?.tab.type === 'note' && c.tab.path === path && c.tab.mode === 'board'
 }
 
 export interface ToolHost {
@@ -46,14 +102,21 @@ export interface ToolHost {
   spot?(path: string, ids: string[]): void
   /** 记下这一轮做了多少（做完的提示条「整理好了 · 挪了N张卡」、停下的「做完的N步留着」） */
   tally?(k: keyof ActTally, n?: number): void
+  /** 网页（右栏、中间栏、分屏的那一格，o.page 选；agent/web.ts 真动手，agent/index.ts 定是哪一页、要不要先问） */
   web: {
-    open(url: string): Promise<{ url: string; title: string }>
-    read(): Promise<WebPage>
-    click(target: { ref?: number; text?: string }): Promise<string>
-    type(ref: number, text: string, submit: boolean): Promise<string>
-    scroll(to: 'down' | 'up' | 'top' | 'bottom'): Promise<string>
+    open(url: string, o?: WebOpts): Promise<{ url: string; title: string; where?: string }>
+    read(o?: WebOpts): Promise<WebPage>
+    click(target: WebTarget, o?: WebOpts): Promise<WebDone>
+    type(ref: number, text: string, submit: boolean, o?: WebOpts): Promise<WebDone>
+    select(target: WebTarget, option: string | string[], o?: WebOpts): Promise<string>
+    check(target: WebTarget, on: boolean, o?: WebOpts): Promise<string>
+    upload(target: WebTarget, files: string[], o?: WebOpts): Promise<WebDone>
+    hover(target: WebTarget, o?: WebOpts): Promise<string>
+    press(keys: string, ref: number | undefined, times: number, o?: WebOpts): Promise<WebDone>
+    drag(from: WebTarget, to: WebTarget & { x?: number; y?: number }, o?: WebOpts): Promise<string>
+    scroll(to: 'down' | 'up' | 'top' | 'bottom' | WebTarget, o?: WebOpts): Promise<string>
     /** 选中的字或整页进收件箱，返回新文件路径；text：先找到含这几个字的那一段、选中它再剪 */
-    clip(whole: boolean, text?: string): Promise<string>
+    clip(whole: boolean, text?: string, o?: WebOpts): Promise<string>
   }
   doc: {
     read(): Promise<{ path: string; text: string; selection: string }>
@@ -80,7 +143,7 @@ interface Tool extends ToolSpec {
   /** 浮窗里显示的一句话 */
   label(args: Args): string
   /** 回给 AI 的话；label：做完以后步骤行换成这句（改名、挪动、删的原来是个文件夹） */
-  run(args: Args, host: ToolHost): Promise<string | { text: string; label: string }>
+  run(args: Args, host: ToolHost): Promise<string | { text: string; label: string; ask?: WebRisk }>
 }
 
 const str = (desc: string) => ({ type: 'string', description: desc })
@@ -147,6 +210,50 @@ const host_ = (url: string) => {
   }
 }
 
+// ---------- 网页工具共用 ----------
+const PAGE = { type: 'string', enum: [...WEB_PAGE_IDS], description: '操纵哪个网页：right 右栏，center 中间栏（分屏时 center-left / center-right 或 center-top / center-bottom 是那一格）。不给是用户正在看的那个（上下文「网页」那几行里标着默认的）' }
+const CONFIRMED = { type: 'boolean', description: '用户在对话里已经说了可以（提交表单、登录、付款、上传文件要先问）。只在问过、用户回话同意以后填 true' }
+const webOpts = (a: Args): WebOpts => ({ ...(typeof a.page === 'string' && (WEB_PAGE_IDS as readonly string[]).includes(a.page) ? { page: a.page as WebPageId } : {}), ...(a.confirmed === true ? { confirmed: true } : {}) })
+function target(a: Args): WebTarget {
+  const ref = optNum(a.ref)
+  const text = opt(a.text)
+  if (ref === undefined && !text) throw new Error('要给 ref 或 text')
+  return { ref, text }
+}
+/** 表单那几样：ref 或旁边写的字（label） */
+function labelTarget(a: Args): WebTarget {
+  const ref = optNum(a.ref)
+  const text = opt(a.label)
+  if (ref === undefined && !text) throw new Error('要给 ref 或 label')
+  return { ref, text }
+}
+const labelSaid = (a: Args) => (opt(a.label) ? short(String(a.label)) : `#${String(a.ref ?? '')}`)
+const filesSaid = (f: unknown) => (Array.isArray(f) ? f.map((x) => String(x).split('/').pop()).join('、') : '')
+const keySaid = (k: string) => {
+  const p = parseKeys(k)
+  return p ? keyName(p) : k
+}
+/** 要先问用户的那一下：步骤行写「先问你：…」，回给 AI 的是先问的那句 */
+const done = (r: WebDone) => (typeof r === 'string' ? r : { text: r.ask, label: r.label, ask: r.risk })
+
+/** web_read 里一样东西那一行：种类、名字、现在的值、选项、勾没勾、要不要先问 */
+function itemLine(i: WebItem): string {
+  const kind = { link: '链接', button: '按钮', input: '输入框', select: '下拉框', checkbox: '勾选框', radio: '单选', file: '上传文件', drag: '能拖的' }[i.kind]
+  const bits: string[] = []
+  if (i.type) bits.push(i.type)
+  if (i.group) bits.push(`组 ${i.group}`)
+  if (i.multiple) bits.push('能多选')
+  if (i.disabled) bits.push('灰着')
+  let line = `[${i.ref}] ${kind} ${i.text}${bits.length ? `（${bits.join('，')}）` : ''}`
+  if (i.href) line += ` → ${i.href}`
+  if (i.kind === 'checkbox') line += i.checked ? '：已勾上' : '：没勾'
+  if (i.kind === 'radio') line += i.checked ? '：选着' : '：没选'
+  if (i.kind === 'select') line += `：${i.value ? `选着「${i.value}」` : '没选'}；选项：${(i.options ?? []).join(' / ')}`
+  else if ((i.kind === 'input' || i.kind === 'file') && i.value) line += `：现在是「${i.value}」`
+  if (i.risk) line += `  ⚠ 点了会${{ submit: '提交表单', login: '登录', pay: '付款', upload: '选文件上传' }[i.risk]}，先问用户`
+  return line
+}
+
 export const TOOLS: Tool[] = [
   {
     name: 'canvas_context',
@@ -209,7 +316,7 @@ export const TOOLS: Tool[] = [
       }
       if (cur === undefined) throw new Error(`没有「${path}」。要新建就用 note_create`)
       // 加在末尾的一段是 AI 写的：包成 [!ai] 块（标题、代码留在外面，task-dtc34）；整篇换掉的这一轮结束时按新旧对比补包
-      const add = h.wrote ? wrapInsert(text.trim(), h.wrote, isBoardDoc(cur)) : text.trim()
+      const add = h.wrote ? wrapInsert(text.trim(), h.wrote, await cardPerPara(cur, path, h.context)) : text.trim()
       await h.editNote(path, (t) => (append ? `${t.replace(/\s*$/, '')}\n\n${add}\n` : text.endsWith('\n') ? text : `${text}\n`))
       if (append) h.tally?.('added')
       else h.tally?.('changed', changedParas(cur, text))
@@ -395,65 +502,147 @@ export const TOOLS: Tool[] = [
   },
 
   // ---------- 网页 ----------
+  // 都能给 page 选操纵哪个网页（右栏、中间栏、分屏的那一格），不给是用户正在看的那个；全能模式关着也有（同笔记那组）
   {
     name: 'web_open',
-    description: '在右栏的内置浏览器里打开一个网址（右栏没开会自动打开）。打开后用 web_read 读内容。',
-    inputSchema: obj({ url: str('网址，http 或 https') }, ['url']),
+    description: '在内置浏览器里打开一个网址：不给 page 就在用户正在看的那个网页里打开（一个都没开时开在右栏）；page=right 开在右栏，page=center 开在中间栏（中间没有网页时新开一个标签）。打开后用 web_read 读内容。',
+    inputSchema: obj({ url: str('网址，http 或 https'), page: PAGE }, ['url']),
     label: (a) => `打开网页 ${host_(String(a.url ?? ''))}`,
     run: async (a, h) => {
-      const r = await h.web.open(need<string>(a.url, 'url', 'string'))
-      return `打开了：${r.title || '（没有标题）'}\n${r.url}`
+      const r = await h.web.open(need<string>(a.url, 'url', 'string'), webOpts(a))
+      return `打开了：${r.title || '（没有标题）'}${r.where ? `（${r.where}）` : ''}\n${r.url}`
     },
   },
   {
     name: 'web_read',
-    description: '读右栏当前网页：标题、网址、正文文字、能点的链接按钮和输入框（每个带 ref 编号，给 web_click / web_type 用）、用户选中的字。',
-    inputSchema: obj({}),
+    description:
+      '读网页：标题、网址、正文文字、能点能填的东西（每个带 ref 编号，给别的网页工具用）、用户选中的字。下拉框带选项和选着的那项，勾选框、单选带勾没勾，输入框带种类和现在的值；点了会提交表单、登录、付款、上传的按钮标着「先问用户」。',
+    inputSchema: obj({ page: PAGE }),
     label: () => '读网页',
-    run: async (_a, h) => {
-      const p = await h.web.read()
-      const items = p.items.map((i) => `[${i.ref}] ${i.kind === 'input' ? '输入框' : i.kind === 'button' ? '按钮' : '链接'} ${i.text}${i.href ? ` → ${i.href}` : ''}`).join('\n')
-      return `标题：${p.title}\n网址：${p.url}\n${p.selection ? `选中的字：${p.selection}\n` : ''}\n正文：\n${p.text}\n\n能点的：\n${items || '（没有）'}`
+    run: async (a, h) => {
+      const p = await h.web.read(webOpts(a))
+      const items = p.items.map(itemLine).join('\n')
+      return `标题：${p.title}\n网址：${p.url}\n${p.where ? `哪个网页：${p.where}\n` : ''}${p.selection ? `选中的字：${p.selection}\n` : ''}\n正文：\n${p.text}\n\n能点能填的：\n${items || '（没有）'}`
     },
   },
   {
     name: 'web_click',
-    description: '点网页上的一个链接或按钮：用 web_read 给的 ref，或者写它上面的字。',
-    inputSchema: obj({ ref: int('web_read 给的编号'), text: str('链接或按钮上的字') }),
+    description:
+      '点网页上的一个链接或按钮：用 web_read 给的 ref，或者写它上面的字。网页自己画的下拉框、弹出式的日期选择器也用它一下一下点（先点开，web_read 看出来的格子，再点）。点了会提交表单、登录、付款的按钮：先在对话里问用户一句，用户说可以以后再带 confirmed=true 点。',
+    inputSchema: obj({ ref: int('web_read 给的编号'), text: str('链接或按钮上的字'), page: PAGE, confirmed: CONFIRMED }),
     label: (a) => `点「${a.text ? short(String(a.text)) : `#${String(a.ref ?? '')}`}」`,
-    run: (a, h) => {
-      const ref = optNum(a.ref)
-      const text = opt(a.text)
-      if (ref === undefined && !text) throw new Error('要给 ref 或 text')
-      return h.web.click({ ref, text })
-    },
+    run: async (a, h) => done(await h.web.click(target(a), webOpts(a))),
   },
   {
     name: 'web_type',
-    description: '在网页的输入框里输入文字（先清空），submit=true 时再按回车。',
-    inputSchema: obj({ ref: int('web_read 给的输入框编号'), text: str('要输入的字'), submit: { type: 'boolean', description: '输入后按回车' } }, ['ref', 'text']),
+    description:
+      '在网页的输入框里输入文字（先清空），submit=true 时再按回车。日期、时间、数字、颜色这几种框直接给值：日期 2026-11-24、时间 14:30、日期加时间 2026-11-24T14:30、月份 2026-11。回车会提交表单（登录、注册、多个框的表）时先问用户，用户说可以以后再带 confirmed=true。',
+    inputSchema: obj({ ref: int('web_read 给的输入框编号'), text: str('要输入的字'), submit: { type: 'boolean', description: '输入后按回车' }, page: PAGE, confirmed: CONFIRMED }, ['ref', 'text']),
     label: (a) => `输入「${short(String(a.text ?? ''))}」`,
-    run: (a, h) => h.web.type(need<number>(a.ref, 'ref', 'number'), typeof a.text === 'string' ? a.text : '', a.submit === true),
+    run: async (a, h) => done(await h.web.type(need<number>(a.ref, 'ref', 'number'), typeof a.text === 'string' ? a.text : '', a.submit === true, webOpts(a))),
+  },
+  {
+    name: 'web_select',
+    description: '在下拉框（原生的 <select>）里选一项：option 写选项上的字或它的值；能多选的下拉框 option 可以给几项。网页自己画的下拉框用 web_click 点开再点选项。',
+    inputSchema: obj(
+      {
+        ref: int('web_read 给的下拉框编号'),
+        label: str('下拉框旁边写的名字（没有 ref 时用）'),
+        option: { anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }], description: '要选的那一项（多选时可以给几项）' },
+        page: PAGE,
+      },
+      ['option'],
+    ),
+    label: (a) => `选「${short(Array.isArray(a.option) ? a.option.join('、') : String(a.option ?? ''))}」`,
+    run: (a, h) => {
+      const option = Array.isArray(a.option) ? a.option.filter((x): x is string => typeof x === 'string' && !!x.trim()) : need<string>(a.option, 'option', 'string')
+      if (Array.isArray(option) && !option.length) throw new Error('缺参数 option')
+      return h.web.select(labelTarget(a), option, webOpts(a))
+    },
+  },
+  {
+    name: 'web_check',
+    description: '勾选框、开关、单选：checked=true 勾上（单选是选上），false 去掉勾。已经是了就不动。',
+    inputSchema: obj({ ref: int('web_read 给的编号'), label: str('它旁边写的字（没有 ref 时用）'), checked: { type: 'boolean', description: 'true 勾上，false 去掉' }, page: PAGE }, ['checked']),
+    label: (a) => (a.checked === false ? `去掉「${labelSaid(a)}」的勾` : `勾上「${labelSaid(a)}」`),
+    run: async (a, h) => {
+      if (typeof a.checked !== 'boolean') throw new Error('缺参数 checked')
+      const r = await h.web.check(labelTarget(a), a.checked, webOpts(a))
+      // 步骤行照做了什么写：单选是「选上」，本来就是了写「本来就勾着」（不写成又勾了一次）
+      const same = /^「(.+)」本来就(勾上了|选上了|没勾|没选)，没动/.exec(r)
+      if (same) return { text: r, label: `「${short(same[1]!)}」本来就${{ 勾上了: '勾着', 选上了: '选着', 没勾: '没勾', 没选: '没选' }[same[2]!]}` }
+      const radio = /^「(.+)」选上了$/.exec(r)
+      return radio ? { text: r, label: `选上「${short(radio[1]!)}」` } : r
+    },
+  },
+  {
+    name: 'web_upload',
+    description:
+      '往网页上传文件：ref 是选文件的框（web_read 里写「上传文件」的）或网页自己的「上传」按钮。files 只能是库里的文件（相对库根的路径）或用户在对话里给的文件。每次传之前先在对话里问用户一句「要把 X 传到 Y 吗」，用户说可以以后再带 confirmed=true 调。',
+    inputSchema: obj({ ref: int('web_read 给的编号'), label: str('选文件的框旁边写的字（没有 ref 时用）'), files: { type: 'array', items: { type: 'string' }, description: '要传的文件：库里的相对路径，或用户给的绝对路径' }, page: PAGE, confirmed: CONFIRMED }, ['files']),
+    label: (a) => `上传 ${short(filesSaid(a.files), 30)}`,
+    run: async (a, h) => {
+      const files = Array.isArray(a.files) ? a.files.filter((x): x is string => typeof x === 'string' && !!x.trim()) : []
+      if (!files.length) throw new Error('缺参数 files')
+      return done(await h.web.upload(labelTarget(a), files, webOpts(a)))
+    },
+  },
+  {
+    name: 'web_hover',
+    description: '鼠标移到网页上的一个东西上停着（悬停出菜单、出提示）：回出来了哪些新的能点的东西。鼠标会一直停在那里，接着 web_read、web_click 点菜单里的项。',
+    inputSchema: obj({ ref: int('web_read 给的编号'), text: str('它上面的字'), page: PAGE }),
+    label: (a) => `移到「${a.text ? short(String(a.text)) : `#${String(a.ref ?? '')}`}」上`,
+    run: (a, h) => h.web.hover(target(a), webOpts(a)),
+  },
+  {
+    name: 'web_press',
+    description:
+      '在网页里按键或组合键：Enter、Escape、Tab、Shift+Tab、ArrowDown、PageDown、Backspace、Meta+A（全选）、Meta+C、Meta+V……给了 ref 先把焦点放到那个元素上再按；times 按几下。回车会提交表单时先问用户，用户说可以以后再带 confirmed=true。',
+    inputSchema: obj({ keys: str('要按的键，如 Enter、Escape、Shift+Tab、Meta+A'), ref: int('先把焦点放到这个元素上（web_read 给的编号）'), times: int('按几下（默认 1）'), page: PAGE, confirmed: CONFIRMED }, ['keys']),
+    label: (a) => `按 ${keySaid(String(a.keys ?? ''))}${optNum(a.times) && optNum(a.times)! > 1 ? ` ×${optNum(a.times)}` : ''}`,
+    run: async (a, h) => done(await h.web.press(need<string>(a.keys, 'keys', 'string'), optNum(a.ref), optNum(a.times) ?? 1, webOpts(a))),
+  },
+  {
+    name: 'web_drag',
+    description: '在网页上拖拽：从一个东西（from_ref 或 from_text）拖到另一个东西（to_ref 或 to_text）或网页里的坐标（to_x、to_y，按网页现在这一屏的像素）。排序、拖进框里、拖滑块都用它。',
+    inputSchema: obj({
+      from_ref: int('从哪拖：web_read 给的编号'),
+      from_text: str('从哪拖：它上面的字'),
+      to_ref: int('拖到哪：web_read 给的编号'),
+      to_text: str('拖到哪：那里写的字'),
+      to_x: int('拖到哪：横坐标'),
+      to_y: int('拖到哪：纵坐标'),
+      page: PAGE,
+    }),
+    label: (a) => `拖「${a.from_text ? short(String(a.from_text), 12) : `#${String(a.from_ref ?? '')}`}」到${a.to_text ? `「${short(String(a.to_text), 12)}」` : a.to_ref !== undefined ? `「#${String(a.to_ref)}」` : `(${String(a.to_x ?? '')}, ${String(a.to_y ?? '')})`}`,
+    run: (a, h) => {
+      const from = { ref: optNum(a.from_ref), text: opt(a.from_text) }
+      if (from.ref === undefined && !from.text) throw new Error('要给 from_ref 或 from_text')
+      return h.web.drag(from, { ref: optNum(a.to_ref), text: opt(a.to_text), x: optNum(a.to_x), y: optNum(a.to_y) }, webOpts(a))
+    },
   },
   {
     name: 'web_scroll',
-    description: '滚动网页：down 往下一屏、up 往上一屏、top 回到顶、bottom 到底。',
-    inputSchema: obj({ to: { type: 'string', enum: ['down', 'up', 'top', 'bottom'] } }, ['to']),
-    label: (a) => ({ down: '往下滚', up: '往上滚', top: '滚到顶', bottom: '滚到底' })[String(a.to)] ?? '滚动网页',
+    description: '滚动网页：to=down 往下一屏、up 往上一屏、top 回到顶、bottom 到底；或者给 ref（web_read 给的编号）、text（网页里的一句字，原文照抄几个字）滚到那个元素、那句字所在的地方。',
+    inputSchema: obj({ to: { type: 'string', enum: ['down', 'up', 'top', 'bottom'] }, ref: int('滚到这个元素（web_read 给的编号）'), text: str('滚到这句字所在的地方'), page: PAGE }),
+    label: (a) => (opt(a.text) ? `滚到「${short(String(a.text))}」` : optNum(a.ref) !== undefined ? `滚到 #${String(a.ref)}` : (({ down: '往下滚', up: '往上滚', top: '滚到顶', bottom: '滚到底' }) as Record<string, string>)[String(a.to)] ?? '滚动网页'),
     run: (a, h) => {
+      const ref = optNum(a.ref)
+      const text = opt(a.text)
+      if (ref !== undefined || text) return h.web.scroll({ ref, text }, webOpts(a))
       const to = String(a.to)
-      if (!['down', 'up', 'top', 'bottom'].includes(to)) throw new Error('to 只能是 down、up、top、bottom')
-      return h.web.scroll(to as 'down' | 'up' | 'top' | 'bottom')
+      if (!['down', 'up', 'top', 'bottom'].includes(to)) throw new Error('to 只能是 down、up、top、bottom，或者给 ref、text')
+      return h.web.scroll(to as 'down' | 'up' | 'top' | 'bottom', webOpts(a))
     },
   },
   {
     name: 'web_clip',
     description:
       '把网页里的一段剪进收件箱（带来源）：给 text（那一段里的几个字）就先找到那一段、选中再剪，一次剪一段，要剪几段就调几次；不给 text 剪用户选中的字；whole=true 或者没选中时剪整页正文。',
-    inputSchema: obj({ text: str('要剪的那一段里的几个字（原文照抄，十来个字就够）'), whole: { type: 'boolean', description: '剪整页' } }),
+    inputSchema: obj({ text: str('要剪的那一段里的几个字（原文照抄，十来个字就够）'), whole: { type: 'boolean', description: '剪整页' }, page: PAGE }),
     label: (a) => (a.whole ? '整页剪进收件箱' : opt(a.text) ? `剪「${short(String(a.text))}」` : '剪进收件箱'),
     run: async (a, h) => {
-      const path = await h.web.clip(a.whole === true, opt(a.text))
+      const path = await h.web.clip(a.whole === true, opt(a.text), webOpts(a))
       h.tally?.('clipped')
       return `剪好了：${path}`
     },

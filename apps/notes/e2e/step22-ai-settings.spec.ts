@@ -64,7 +64,8 @@ test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对�
     await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('第3讲')
     await page.locator('.pal-row', { hasText: '第3讲' }).first().click()
     await expect(tabOn(page)).toHaveText('第3讲.pdf')
-    // AI 那一格开着就还开着，换成读 PDF 的 AI
+    // AI 那一格开着就还开着；随手记那段问过，换页留着（AI 对话绑页面），点头上那颗换成读 PDF 的 AI
+    await float.getByTestId('ai-follow').click()
     const ai = page.getByRole('complementary', { name: '边读边问 AI' })
     await ai.getByRole('textbox', { name: '问 AI' }).fill('这一页你用的什么模型')
     await ai.getByRole('textbox', { name: '问 AI' }).press('Enter')
@@ -86,6 +87,8 @@ test('CN-44：设置 › AI 默认一行、五个功能各一个下拉；AI 对�
     await page.keyboard.press('Escape')
     await openNote(page, '随手记')
     await openAi(page)
+    // PDF 那段问过：换页留着，点头上那颗切回随手记的
+    await ai.getByTestId('ai-follow').click()
     await expect(float.getByTestId('ai-engine')).toHaveText('Codex')
     await float.getByRole('textbox', { name: '问 AI' }).fill('现在用的什么模型')
     await float.getByRole('textbox', { name: '问 AI' }).press('Enter')

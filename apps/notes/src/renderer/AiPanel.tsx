@@ -10,22 +10,26 @@ import { AnswerRow } from './answer-row'
 import { UserMsgActs } from './replies/save-reply'
 import { sayOf } from './replies/store'
 import { fillReply } from '../shared/replies'
+import { withoutVizMark } from '../shared/reading'
 import { type AbMenuItem, ChangeBar, UndoButton } from '@cn/ai-chat/answer-bar'
 import { jumpDone, useChatJump } from '@cn/ai-chat/chat-jump'
-import { feedDone, useFeed } from './ai-web-stay'
+import { feedDone, setDraft, useFeed } from './ai-web-stay'
 import { AiError } from '@cn/ai-chat/ai-error'
 import { openAiSettings, pastedUrl } from './ai-chat-host'
 import { AiIntro, SetupCard } from './ai-setup'
 import { ByLogo } from './engine-logo'
-import { AiHead, AwayBar, Chip, type DockNav, Sees } from './ai-head'
+import { AiHead, AwayBar, Chip, type DockNav, type OlderChat, Sees } from './ai-head'
 import { askLine, MULTI, pickAsk, quickCmds } from './ai-greet'
 import { dropPicked, pickedFiles, pickTip, usePicked } from './ai-pick'
 import { dropCards, pickText, useCardPick } from './ai-cards'
 import { runTidy } from './commands/tidy'
 import { t } from '../shared/i18n'
+import { BoardFind } from './find/BoardFind'
 import { ChangeBlock, FilePath } from './ai-change'
 import { Greeting, type Quick, QuickRow } from './ai-quick'
 import { AiInput, MatMsg, sendText, useComposer, useConvPick } from '@cn/ai-chat/composer'
+import { MentionText } from '@cn/ai-chat/mention'
+import type { AtItem } from '@cn/ai-chat/mentions'
 import type { AiPick, EngineInfo } from '@cn/ai-engines/shared'
 import { createPortal } from 'react-dom'
 import { AskBox } from '@cn/ai-chat/side/AskBox'
@@ -38,8 +42,10 @@ import { StepRow } from '@cn/ai-chat/steps'
 import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from '@cn/ai-chat/side/marks'
 import * as C from './ai-chats'
 import { folderCount, HANDS, type Place, seenOf } from './ai-place'
+import { WEB_PAGE_SAID, type WebSeen } from '../shared/web-pages'
 import { type FolderSug, fileInPrompt, folderSugs, folderSumPrompt, newTarget, parseFileIn, skeleton, sumTargets } from './folder-ai'
 import { useKnownFiles } from './files/store'
+import { composing } from './ime'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentContext, StoredMsg, ToolStep } from '../shared/agent'
 import { imageNames, type Material } from '../shared/materials'
@@ -176,8 +182,10 @@ export interface AiPanelProps {
   doc(): NoteDoc | null
   notes: NoteFile[]
   webUrl: string | null
-  /** 右栏开着网页（「看得到」多一颗网页，能动手换成网页的） */
+  /** 右栏开着网页 */
   webOpen: boolean
+  /** AI 能操纵的网页（「看得到」每个一颗，写清在哪；能动手写默认操纵的那个，shared/web-pages.ts） */
+  webPages: WebSeen[]
   /** 现在看的是什么（当前标签、右栏网页、选中的字），每一轮发给 AI */
   context(mentions: string[]): AgentContext
   onClose(): void
@@ -201,7 +209,7 @@ export interface AiPanelProps {
 export function AiPanel(props: AiPanelProps) {
   const place = props.place
   // 每个地方各存各的对话（D 组 CN-132，ai-chats.ts）；正在答的那一轮全软件一个，记着是哪个地方的
-  const { msgs, loaded, pick: ownPick, sides, noteTo } = C.useChat(place)
+  const { msgs, loaded, pick: ownPick, sides, noteTo, older } = C.useChat(place)
   const turn = C.runningNow()
   /** 这个地方正在答的那一轮 */
   const running = turn?.key === place.key ? turn.id : null
@@ -217,6 +225,12 @@ export function AiPanel(props: AiPanelProps) {
   const c = useComposer(showNote)
   const input = c.text
   const setInput = c.setText
+  // 输入框有字、带着引用：换页时这段不算空着，不换走（AI 对话绑页面，AiDock）
+  const drafting = !!input.trim() || c.mats.length > 0
+  useEffect(() => {
+    setDraft(place.key, drafting)
+    return () => setDraft(place.key, false)
+  }, [place.key, drafting])
   // 谁来答 · 模型 · effort（CN-91 方向 C）：模型和 effort 记在这个地方的对话里，没选过用设置 › AI「AI 对话」那一行
   // 一个 AI 都没接上（task-587os）：空对话里放三选一卡；接上以后卡留着到点「开始用」；发出去的那一问记着，开始用后接着发
   const [setup, setSetup] = useState(false)
@@ -227,9 +241,17 @@ export function AiPanel(props: AiPanelProps) {
   }, [cp.none])
   const engine = cp.pick.engine
   const engines = cp.engines
-  const [menuIdx, setMenuIdx] = useState(0)
+  /**
+   * 这段对话里 @ 点名过的文档（发出去以后一直在「看得到」里、每一轮都交给 AI，开新对话清掉）；
+   * 输入框里还没发的那几颗胶囊在 c.mentions。轮里读 ref：发出去的那一刻 state 还没画到
+   */
   const [mentions, setMentions] = useState<string[]>([])
+  const namedRef = useRef<string[]>([])
+  namedRef.current = mentions
   const list = useRef<HTMLDivElement>(null)
+  /** 这一格、对话那一块：在这段对话里找（⇧⌘F）焦点在这一格里（输入框也算）就归它，条摆在对话那一块右上角 */
+  const cell = useRef<HTMLElement>(null)
+  const msgsBox = useRef<HTMLDivElement>(null)
   const box = c.ta
 
   // 旁支（task-4edsc，方向 A「就地展开」）：回答里选一句「问这句」，就在那一段下面长出来；一句一个小标，数字是这一句开了几条
@@ -469,13 +491,23 @@ export function AiPanel(props: AiPanelProps) {
     onEdit: (cmd) => openCmdEditor({ kind: 'edit', cmd, who: cp.label, engine, pick: { engine, ...cp.req } }),
     onCopy: (builtin) => openCmdEditor({ kind: 'copy', builtin, who: cp.label, engine, pick: { engine, ...cp.req } }),
   })
-  const at = /(?:^|\s)@(\S*)$/.exec(input)
-  const atItems = at
-    ? props.notes
-        .filter((n) => n.kind === 'work' && titleOf(n.path).toLowerCase().includes(at[1]!.toLowerCase()) && !mentions.includes(n.path))
-        .slice(0, 8)
-    : []
-  const menuLen = sl.open ? 0 : at ? atItems.length : 0
+  /**
+   * @ 候选（@文档胶囊）：自己写的文档和白板、剪来的网页、库里的 PDF 和 HTML，名字里有打的那几个字；名字打头的排前面。
+   * 已经点过的（这段对话里发过的、输入框里那几颗）不再列。/ 菜单开着时没有
+   */
+  const findAt = (q: string): AtItem[] => {
+    if (sl.open) return []
+    const lq = q.toLowerCase()
+    const md: AtItem[] = props.notes
+      .filter((n) => n.kind !== 'inbox')
+      .map((n) => ({ path: n.path, title: titleOf(n.path), ...(n.board ? { kind: 'board' as const, sub: t('白板 · {n}张卡片', { n: n.board.cards }) } : n.kind === 'clip' ? { kind: 'web' as const, sub: t('剪藏的网页') } : { kind: 'doc' as const, sub: t('文档') }) }))
+    const other: AtItem[] = files.flatMap((f): AtItem[] => {
+      const name = f.path.split('/').pop()!
+      return f.kind === 'pdf' ? [{ path: f.path, title: name.replace(/\.pdf$/i, ''), kind: 'pdf', sub: 'PDF' }] : f.kind === 'html' ? [{ path: f.path, title: name.replace(/\.html?$/i, ''), kind: 'html', sub: 'HTML' }] : []
+    })
+    const hits = [...md, ...other].filter((x) => x.title.toLowerCase().includes(lq) && !mentions.includes(x.path))
+    return [...hits.filter((x) => x.title.toLowerCase().startsWith(lq)), ...hits.filter((x) => !x.title.toLowerCase().startsWith(lq))]
+  }
 
   /**
    * 空对话输入框上面那排快捷命令（task-0tgz2）：这一页用得上的 / 命令（ai-greet.ts 的 quickCmds），点了就是选了那条；
@@ -729,6 +761,13 @@ export function AiPanel(props: AiPanelProps) {
     // / 命令只看字：材料留在输入框里
     const cmdLine = /^\//.test(text)
     const own = cmdLine ? [] : mats
+    // 输入框里的那几颗胶囊（发的是输入框里的字时）：记在问的这条上（消息里照样画成胶囊），并进这段对话点名过的
+    const named = !cmdLine && raw === c.text ? c.mentions : []
+    if (named.length) {
+      const all = [...namedRef.current, ...named.map((m) => m.path).filter((p) => !namedRef.current.includes(p))]
+      namedRef.current = all
+      setMentions(all)
+    }
     if (own.length) c.clear()
     else setInput('')
     // 记笔记按发问这一刻的开关算（/ 命令不记）：开着就把记进哪篇记在问的这条上，答完照它写
@@ -736,7 +775,7 @@ export function AiPanel(props: AiPanelProps) {
     const webUrl = own.find((m) => m.url && /^https?:/i.test(m.url))?.url
     const webTo = webUrl && !cmdLine ? webNoteTo(webUrl) : null
     const noteAt: NoteTarget | null = webTo ? { path: webTo, inline: true } : noteOn && !cmdLine ? target : null
-    push({ id: seq++, role: 'user', text, ...(own.length ? { mats: own } : {}), ...(noteAt ? { noteAt } : {}) })
+    push({ id: seq++, role: 'user', text, ...(own.length ? { mats: own } : {}), ...(named.length ? { mentions: named } : {}), ...(noteAt ? { noteAt } : {}) })
     const id = seq++
     const cmd = /^\/(\S+)/.exec(text)?.[1]
     push({ id, role: 'ai', pending: true })
@@ -924,7 +963,7 @@ export function AiPanel(props: AiPanelProps) {
     // 回答头上写全「Claude Code · Opus 5.5 · High」：这个对话这一问用的
     patch(id, { live: true, engine, text: '', by: cp.label })
     const ctx = {
-      ...props.context(mentions),
+      ...props.context(namedRef.current),
       ...(picked ? { picked: { count: picked.items.length, files: pickList } } : {}),
       ...(cardsHere ? { cards: { where: cardsHere.where, count: cardsHere.items.length, text: pickText(cardsHere) } } : {}),
     }
@@ -1106,6 +1145,19 @@ export function AiPanel(props: AiPanelProps) {
     )
   }
 
+  /**
+   * AI 停下等用户点头（网页上提交、登录、付款、上传；偏好「等点头给两颗按钮」）：最后那条回答下面那排换成「不要 · 可以，上传」，
+   * 点了等于回一句（「可以，…」AI 接着做那一步，「不要」AI 不做、说一声）；自己打字回照旧。用户回过话、正在答时不出
+   */
+  function askBar(m: C.Msg, i: number) {
+    if (i !== msgs.length - 1 || m.pending || m.live || running !== null) return null
+    const risk = m.steps?.findLast((s) => s.status === 'ask')?.risk
+    if (!risk) return null
+    const yes = { submit: t('可以，提交'), login: t('可以，登录'), pay: t('可以，付款'), upload: t('可以，上传') }[risk]
+    const no = t('不要', { ctx: '等点头' })
+    return <ChangeBar testId="ai-ask-bar" solid reject={{ label: no, onClick: () => void run(no) }} accept={{ label: yes, onClick: () => void run(yes) }} />
+  }
+
   /** 没答出来那一块（AiError）：出错的那一轮、它前面那句问话（「再问一次」「换个问法」用） */
   function errorOf(m: Msg, i: number) {
     const q = msgs[i - 1]?.role === 'user' ? msgs[i - 1]!.text : undefined
@@ -1158,7 +1210,7 @@ export function AiPanel(props: AiPanelProps) {
         place: { key: place.key, label: place.label },
         text: q,
         side: { id, quote: side.quote, ...(ask ? { ask } : {}), history: `【那一轮】\n${ask ? `他问：${ask}\n` : ''}你答：${answer.slice(0, 3000)}` },
-        context: props.context(mentions),
+        context: props.context(namedRef.current),
         ...cp.req,
         ...(pasted.length ? { pasted } : {}),
         ...(mats.length ? { mats } : {}),
@@ -1181,21 +1233,10 @@ export function AiPanel(props: AiPanelProps) {
 
   /** 新对话：这个地方的对话清掉（会话号一起清） */
   function newChat() {
-    C.clear(place.key)
+    void C.shelve(place.key)
     forgetNoted(place.key)
     setNoteTip(null)
     setMentions([])
-  }
-
-  // ---------- 输入 ----------
-  function pick(i: number) {
-    if (at) {
-      const n = atItems[i]
-      if (!n) return
-      setMentions((m) => [...m, n.path])
-      setInput(input.slice(0, input.length - at[1]!.length - 1) + '@' + titleOf(n.path) + ' ')
-    }
-    setMenuIdx(0)
   }
 
   // ---------- 存成命令（方向 C：照这几轮前后的对比提炼） ----------
@@ -1240,14 +1281,10 @@ export function AiPanel(props: AiPanelProps) {
   }
 
   function onKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.nativeEvent.isComposing) return
+    // 输入法还在组字：这一下是输入法的（Safari 那种组字结束的回车 keyCode 229 也算，ime.ts）
+    if (composing(e)) return
     if (sl.onKey(e)) return
-    if (menuLen) {
-      if (e.key === 'ArrowDown') return (e.preventDefault(), setMenuIdx((i) => (i + 1) % menuLen))
-      if (e.key === 'ArrowUp') return (e.preventDefault(), setMenuIdx((i) => (i - 1 + menuLen) % menuLen))
-      if (e.key === 'Enter') return (e.preventDefault(), pick(menuIdx))
-      if (e.key === 'Escape') return (e.preventDefault(), setInput(''))
-    }
+    // @ 候选的 ↑↓、Tab、↵、esc 在输入框里先接了（@cn/ai-chat 的 AiInput at）
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       void run(input, c.plain())
@@ -1260,7 +1297,12 @@ export function AiPanel(props: AiPanelProps) {
   const files = useKnownFiles()
   const count = useMemo(() => (folder === null ? 0 : folderCount(folder, files)), [folder, files])
   const seen = seenOf(props.tab, { board: isBoard, digest: props.digest, inbox: inbox.length, count: () => count })
-  const web = props.webOpen ? props.webUrl : null
+  // 网页（右栏、中间分屏的另一格）各一颗，写清在哪；中间开着的网页是「这一页」那颗。默认操纵的那个写在「能动手」里
+  const webTab = props.tab?.type === 'web' ? props.tab.id : null
+  const webSees = props.webPages
+    .filter((p) => p.url && p.key !== webTab)
+    .map((p) => ({ label: t('{where}网页：{host}', { where: t(WEB_PAGE_SAID[p.page]), host: hostOf(p.url) }), title: [t(WEB_PAGE_SAID[p.page]), p.title, p.url].filter(Boolean).join(' · ') }))
+  const webHand = props.webPages.find((p) => p.default)
   // 问候放不下时一级级收：先藏标志和那一行问候，再不行整个不画（按这一格实际放不放得下量：那一句有一行有两行）；
   // 底下那排快捷命令不在消息区里，一直在
   const empty = loaded && msgs.length === 0
@@ -1284,18 +1326,21 @@ export function AiPanel(props: AiPanelProps) {
     ro.observe(box)
     return () => ro.disconnect()
   })
-  const sees: { label: string; on?: boolean }[] = [{ label: seen.see, on: !picked && !cardsHere }, ...(web ? [{ label: `网页：${hostOf(web)}` }] : []), ...mentions.map((m) => ({ label: `@${titleOf(m)}` }))]
+  const sees: { label: string; on?: boolean; title?: string }[] = [{ label: seen.see, on: !picked && !cardsHere }, ...webSees, ...[...mentions, ...c.mentions.map((m) => m.path).filter((p) => !mentions.includes(p))].map((m) => ({ label: `@${titleOf(m)}` }))]
   // 它在这一页能替你做的动作（右栏网页开着时是网页的，最可能是要它动网页）
-  const hands = web ? HANDS.web : seen.hands
+  // 默认操纵的是这一页（中间开着的网页）时不写在哪，同别的「能动手」；是别的网页时写和那一颗一样的叫法
+  const hands = !webHand ? seen.hands : webHand.key === webTab ? t(HANDS.web) : t('在{where}网页点、填表、剪藏', { where: t(WEB_PAGE_SAID[webHand.page]) })
+  /** 对话菜单「之前的对话」：点「+」收起来的那几段，新的在上；名字是那段第一问的原话（同读 PDF） */
+  const olderItems: OlderChat[] = (older ?? []).map((c) => ({ id: c.id, label: c.label || place.label, at: c.at, asks: c.asks, pick: () => void C.switchOlder(place.key, c.id), disabled: running !== null }))
   // 实心主按钮一屏最多一个（DESIGN.md 组件）：只有最新那条带按钮的回答用实心，之前的「打开」「存成卡片」退成次按钮
   const lastActs = msgs.findLastIndex((m) => m.role === 'ai' && !!m.actions?.length)
   /** 最新那条能复制、插入、引用的回答：它下面那排一直露着，之前的悬停才露 */
   const lastAnswer = msgs.findLastIndex(plainAnswer)
 
   return (
-    <aside className="right aicell ai" aria-label="AI 对话" hidden={props.hidden}>
-      <AiHead label={place.label} nav={props.nav} newTip="新对话" newDisabled={running !== null} onNew={newChat} />
-      {props.nav.away ? (
+    <aside ref={cell} className="right aicell ai" aria-label="AI 对话" hidden={props.hidden}>
+      <AiHead label={place.label} nav={props.nav} newTip="新对话：现在这段收进对话菜单，能切回" newDisabled={running !== null} onNew={newChat} older={olderItems} />
+      {props.nav.away && !props.nav.onPage ? (
         <AwayBar nav={props.nav} />
       ) : (
       <Sees testid="ai-sees">
@@ -1310,11 +1355,15 @@ export function AiPanel(props: AiPanelProps) {
           </Chip>
         )}
         {sees.map((s) => (
-          <Chip key={s.label} on={s.on}>
+          <Chip key={s.label} on={s.on} {...(s.title ? { title: s.title } : {})}>
             {s.label}
           </Chip>
         ))}
-        {hands && <Chip hands>{`能动手：${hands}`}</Chip>}
+        {hands && (
+          <Chip hands {...(webHand ? { title: t('AI 不说是哪个网页时动这一个；你点进别的网页就换成那个') } : {})}>
+            {`能动手：${hands}`}
+          </Chip>
+        )}
         {/* 记笔记开着：「● 正在记进《…》」，点了打开那篇（还没记过一问、那篇还没建时点不了） */}
         {noteOn && <RecChip target={titleOf(target!.path)} side={sideNoteOn} {...(props.notes.some((n) => n.path === target!.path) ? { onOpen: () => props.onOpen(target!.path) } : {})} />}
       </Sees>
@@ -1322,7 +1371,9 @@ export function AiPanel(props: AiPanelProps) {
       {/* 费曼学习讲着：顶上一句，照常能问、不记（已定 3） */}
       <AiNote />
       {/* 对话目录（task-3e53q「三、b」）：问过一问就在右边贴边出一列短横线；包一层好让它贴着这一格的右边 */}
-      <div className={'msgs-box' + (asked ? ' toc' : '')}>
+      <div ref={msgsBox} className={'msgs-box' + (asked ? ' toc' : '')}>
+      {/* 在这段对话里找（⇧⌘F）：问过的、答过的每一条，跳到那一处的字 */}
+      <BoardFind root={() => cell.current} host={() => msgsBox.current} cards=".um-wrap, .am" on={!props.hidden && !empty} owner="ai" placeholder={t('在这段对话里找')} toText />
       <div
         className={'msgs' + (empty ? ' greeting' : '') + (setup ? ' setup' : '')}
         ref={list}
@@ -1354,10 +1405,10 @@ export function AiPanel(props: AiPanelProps) {
                 </div>
               )}
               {m.mats?.length ? (
-                <MatMsg text={m.text ?? ''} mats={m.mats} onContextMenu={(e) => onMessageMenu(e, m.text ?? '', { user: 'chat' })} />
+                <MatMsg text={m.text ?? ''} mats={m.mats} {...(m.mentions ? { mentions: m.mentions } : {})} onContextMenu={(e) => onMessageMenu(e, m.text ?? '', { user: 'chat' })} />
               ) : (
                 <div className="um" onContextMenu={(e) => onMessageMenu(e, m.text ?? '', { user: 'chat' })}>
-                  {m.text}
+                  <MentionText text={m.text ?? ''} {...(m.mentions ? { mentions: m.mentions } : {})} />
                 </div>
               )}
               {/* 你发的那句下面悬停出「拷贝 · 存成快捷回复」（task-eavzx） */}
@@ -1392,27 +1443,28 @@ export function AiPanel(props: AiPanelProps) {
               {m.text && <AnswerText text={m.text} marks={marks.get(m.id)} live={!!m.live || !!m.pending} cites={{ conv: place.key, touched: touchedOf(m.steps) }} />}
               {/* 做了几步才断的：「没做完」放在说到一半的字后面（停在哪里一眼看得到） */}
               {m.error && cutOf(m, false).cut && errorOf(m, i)}
-              {/* 回答下面一排：拷贝 · 插进文档 · ⋯（task-83vl3；task-bppvn 拿掉了「引用再问」）；命令的结果（带按钮、改动块、找重复、归档）不出 */}
-              {plainAnswer(m) && (
-                <AnswerRow
-                  md={m.text!}
-                  {...(m.by ? { by: m.by } : {})}
-                  chatKey={place.key}
-                  msg={m.id}
-                  noteItem={noteItemFor(m.id)}
-                  last={i === lastAnswer}
-                  host={{
-                    place: 'chat',
-                    busy: running !== null,
-                    send: (text) => void run(text),
-                    side: (text) => {
-                      const id = C.openSide(place.key, place.label, { msg: m.id, quote: sideQuote(m.text!) })
-                      void sendSide(id, text, [])
-                    },
-                    vars: () => ({ question: (msgs[i - 1]?.role === 'user' && msgs[i - 1]!.text) || '' }),
-                  }}
-                />
-              )}
+              {/* 回答下面一排：拷贝 · 插进文档 · ⋯（task-83vl3；task-bppvn 拿掉了「引用再问」）；命令的结果（带按钮、改动块、找重复、归档）不出；AI 等点头时换成「不要 · 可以，…」 */}
+              {askBar(m, i) ??
+                (plainAnswer(m) && (
+                  <AnswerRow
+                    md={withoutVizMark(m.text!).text}
+                    {...(m.by ? { by: m.by } : {})}
+                    chatKey={place.key}
+                    msg={m.id}
+                    noteItem={noteItemFor(m.id)}
+                    last={i === lastAnswer}
+                    host={{
+                      place: 'chat',
+                      busy: running !== null,
+                      send: (text) => void run(text),
+                      side: (text) => {
+                        const id = C.openSide(place.key, place.label, { msg: m.id, quote: sideQuote(m.text!) })
+                        void sendSide(id, text, [])
+                      },
+                      vars: () => ({ question: (msgs[i - 1]?.role === 'user' && msgs[i - 1]!.text) || '' }),
+                    }}
+                  />
+                ))}
               {m.moves && (
                 <div className="moves">
                   {m.moves.map((x) => (
@@ -1643,28 +1695,12 @@ export function AiPanel(props: AiPanelProps) {
         onSend={() => void run(input, c.plain())}
         onStop={stop}
         onKeyDown={onKey}
-        onChange={() => setMenuIdx(0)}
+        at={findAt}
         onNotice={showNote}
         list={list}
       >
         {pasteNote && <div className="nocmd">{pasteNote}</div>}
         {sl.menu}
-        {menuLen > 0 && (
-          <div className="cmdmenu" role="listbox" aria-label="引用笔记">
-            {atItems.map((n, i) => (
-              <button key={n.path} role="option" aria-selected={i === menuIdx} className={i === menuIdx ? 'on' : ''} onMouseDown={(e) => (e.preventDefault(), pick(i))}>
-                <span className="ib">
-                  <Codicon name={n.board ? 'layout' : 'file-text'} size={14} />
-                </span>
-                <span>
-                  <b>{titleOf(n.path)}</b>
-                  <span>{n.board ? `白板 · ${n.board.cards}张卡片` : '文档'}</span>
-                </span>
-              </button>
-            ))}
-            <div className="keys">↑↓ 选择 · ↵ 执行 · esc 关闭</div>
-          </div>
-        )}
       </AiInput>
       {noteMenu && (
         <TargetMenu
@@ -1713,7 +1749,7 @@ function AnswerText(p: { text: string; marks?: Mark[]; live: boolean; cites: Cit
   return (
     <div className="txt" key={p.marks?.length ? p.text + sig : 'txt'} ref={txt}>
       {/* 模型偶尔把工具调用写成了字（task-ne7cw）：成段的不显示，存的还是原文 */}
-      <Markdown text={hideToolMarkup(p.text, p.live)} math cites={p.cites} />
+      <Markdown text={hideToolMarkup(withoutVizMark(p.text).text, p.live)} math cites={p.cites} />
     </div>
   )
 }

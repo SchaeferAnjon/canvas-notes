@@ -53,19 +53,29 @@ describe('外观设置', () => {
     expect(normalizeSettings({ appearance: { winBg: 'custom', winBgFile: 'a.jpg' } }).appearance).toMatchObject({ winBg: 'custom', winBgFile: 'a.jpg' })
   })
 
-  it('面板透明度（task-jgely）：默认是用户认可的那版（0），读进来取整、收到量过对比度的两头，乱写回到默认', () => {
-    expect(DEFAULT_SETTINGS.appearance.glass).toBe(GLASS_DEFAULT)
-    expect(GLASS_DEFAULT).toBe(0)
-    expect(GLASS_MIN).toBeLessThan(0)
-    expect(GLASS_MAX).toBeGreaterThan(0)
-    const g = (v: unknown) => normalizeSettings({ appearance: { glass: v } }).appearance.glass
+  it('面板透明度（task-jgely）：0 实、100 透、默认 50（用户认可的那版），读进来取整、收到两头，乱写回到默认', () => {
+    expect(DEFAULT_SETTINGS.appearance.glassLevel).toBe(GLASS_DEFAULT)
+    expect([GLASS_MIN, GLASS_DEFAULT, GLASS_MAX]).toEqual([0, 50, 100])
+    const g = (v: unknown) => normalizeSettings({ appearance: { glassLevel: v } }).appearance.glassLevel
     expect(g(5)).toBe(5)
     expect(g(4.6)).toBe(5)
-    expect(g(100)).toBe(GLASS_MAX)
+    expect(g(130)).toBe(GLASS_MAX)
     expect(g(-100)).toBe(GLASS_MIN)
-    expect(g('8')).toBe(0)
-    expect(g(Number.NaN)).toBe(0)
-    expect(g(undefined)).toBe(0)
+    expect(g('8')).toBe(50)
+    expect(g(Number.NaN)).toBe(50)
+    expect(g(undefined)).toBe(50)
+  })
+
+  it('面板透明度：2026-11-24 前存的老键 glass（在默认上再透几个百分点，-16…12）照浅色主题同样的不透明度换成新数；新键在就不看老键', () => {
+    const g = (a: Record<string, unknown>) => normalizeSettings({ appearance: a }).appearance
+    expect(g({ glass: 0 }).glassLevel).toBe(50)
+    expect(g({ glass: 12 }).glassLevel).toBe(88)
+    expect(g({ glass: -16 }).glassLevel).toBe(10)
+    expect(g({ glass: 8 }).glassLevel).toBe(75)
+    expect(g({ glass: 40 }).glassLevel).toBe(88)
+    expect(g({ glass: 'x' }).glassLevel).toBe(50)
+    expect(g({ glass: 12, glassLevel: 20 }).glassLevel).toBe(20)
+    expect(g({ glass: 12 })).not.toHaveProperty('glass')
   })
 
   it('面板这会儿透不透（设置里滑杆能不能拉）：B 浮岛书桌 + 有窗口背景才透', () => {

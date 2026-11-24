@@ -1,10 +1,10 @@
 /**
  * 面板透明度（task-jgely）两头和默认都看得清：十套主题 × 两张自带窗口背景（极光、冰洞）× 透明度最低 / 默认 / 最高，
  * B 浮岛书桌几个主要页面（首页、文档 + 右栏大纲、白板、数据库表格 + 右栏一条、待办、日历、设置），逐像素量正文 ≥ 7、次要字 ≥ 4.5（量法 e2e/contrast.ts）。
- * 透明度直接改 <html> 的 --isle-shift（和设置里拖滑杆、@cn/design/glass 的 applyGlass 一样）；滑杆本身真拖在 jgely-glass.spec.ts。
+ * 透明度直接改 <html> 的 --isle-p / --isle-n（和设置里拖滑杆、@cn/design/glass 的 applyGlass 一样）；滑杆本身真拖在 jgely-glass.spec.ts。
  * 每页先量一次「实的」（去掉 data-glass，主题本身的实底）：主题实底时就不到线的地方（松绿当前标签名 6.9、设置左栏选中那项 5.4 这类），
  * 半透明时那处正文只要求不比实底差 0.3 以上；别的正文都要 ≥ 7，次要字一律 ≥ 4.5。
- * 很慢（二十次开软件、每次几十张），只在给了 CN_CONTRAST=1 时跑；CN_CONTRAST_LEVELS=-16,0,20 换几档（找范围用），CN_CONTRAST_OUT=目录 每次开软件存一个 json，
+ * 很慢（二十次开软件、每次几十张），只在给了 CN_CONTRAST=1 时跑；CN_CONTRAST_LEVELS=0,50,100 换几档（找范围用；CN_CONTRAST_VARS='--isle-far:12%' 顺手改几个 <html> 上的变量试），CN_CONTRAST_OUT=目录 每次开软件存一个 json，
  * CN_CONTRAST_SKINS=sky,petrol 只量几套。
  */
 import { expect, type Page, test } from '@playwright/test'
@@ -24,6 +24,8 @@ const LEVELS = [SOLID, ...(process.env.CN_CONTRAST_LEVELS ? process.env.CN_CONTR
 const ALL = ['mint', 'sky', 'sakura', 'lilac', 'stone', 'pine', 'petrol', 'cocoa', 'ink', 'graphite']
 const SKINS = process.env.CN_CONTRAST_SKINS ? process.env.CN_CONTRAST_SKINS.split(',') : ALL
 const OUT = process.env.CN_CONTRAST_OUT
+/** 窗口背景：默认两张自带照片；CN_CONTRAST_BGS=wall 量主题渐变（浓那档，面板默认就透 25%，最透时透得最多） */
+const BGS = process.env.CN_CONTRAST_BGS ? process.env.CN_CONTRAST_BGS.split(',') : ['aurora', 'cave']
 
 const pad = (n: number) => String(n).padStart(2, '0')
 const D = (n: number) => {
@@ -58,28 +60,32 @@ interface Row {
 
 /** 透明度 v（SOLID 是「实的」：去掉 data-glass，看主题本身实底时这些字有多少，好分清是不是透出来造成的） */
 async function level(page: Page, v: number) {
-  await page.evaluate((v) => {
+  await page.evaluate(([v, vars]) => {
     document.documentElement.toggleAttribute('data-glass', v !== -99)
     const st = document.documentElement.style
-    if (v === 0 || v === -99) {
-      st.removeProperty('--isle-shift')
+    if (v === 50 || v === -99) {
+      st.removeProperty('--isle-p')
       st.removeProperty('--isle-n')
     } else {
-      st.setProperty('--isle-shift', `${v}%`)
-      st.setProperty('--isle-n', String(v))
+      st.setProperty('--isle-p', String(v))
+      st.setProperty('--isle-n', String(((v - 50) * 12) / 50))
     }
-  }, v)
+    for (const kv of (vars as string).split(';').filter(Boolean)) {
+      const [k, x] = kv.split(':')
+      st.setProperty(k!, x!)
+    }
+  }, [v, process.env.CN_CONTRAST_VARS ?? ''] as const)
   await page.waitForTimeout(200)
 }
 
 for (const skin of SKINS) {
-  for (const bg of ['aurora', 'cave'] as const) {
+  for (const bg of BGS) {
     test(`对比度：${skin} · ${bg}`, async () => {
       test.setTimeout(400_000)
       const run: Running = await launch(FILES, { CN_AI_FAKE: '1' }, (vault) => {
         const ud = join(dirname(vault), 'user-data')
         mkdirSync(ud, { recursive: true })
-        writeFileSync(join(ud, 'settings.json'), JSON.stringify({ appearance: { followSystem: false, skin, frame: 'b', winBg: bg } }))
+        writeFileSync(join(ud, 'settings.json'), JSON.stringify({ appearance: { followSystem: false, skin, frame: 'b', winBg: bg, wallMove: false, wallMix: 'rich' } }))
       })
       const { page } = run
       const rows: Row[] = []
@@ -90,7 +96,7 @@ for (const skin of SKINS) {
           const m = await measure(run)
           for (const [where, r] of Object.entries(m.byWhere)) rows.push({ skin, bg, level: v, page: name, where, ...r })
         }
-        await level(page, 0)
+        await level(page, GLASS_DEFAULT)
       }
       try {
         await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))

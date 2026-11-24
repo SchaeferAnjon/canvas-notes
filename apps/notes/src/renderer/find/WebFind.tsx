@@ -23,6 +23,8 @@ export function WebFind(props: { view: () => WebviewEl | null | undefined; host:
   })
   const [seq, setSeq] = useState(0)
   const [q, setQ] = useState('')
+  /** 区分大小写（同文档里找的那颗开关） */
+  const [caseSens, setCaseSens] = useState(false)
   const [count, setCount] = useState<{ at: number; total: number } | null>(null)
   const input = useRef<HTMLInputElement | null>(null)
   const req = useRef(0)
@@ -60,16 +62,16 @@ export function WebFind(props: { view: () => WebviewEl | null | undefined; host:
       return
     }
     try {
-      req.current = v.findInPage(text, opts)
+      req.current = v.findInPage(text, { ...opts, matchCase: caseSens })
     } catch {
       // 网页还没载好（dom-ready 之前）：先不找，等再按
       setCount({ at: 0, total: 0 })
     }
   }
-  // 换了字：重新找一轮；换了标签：在新的网页里接着找
+  // 换了字、换了区分大小写：重新找一轮；换了标签：在新的网页里接着找
   useEffect(() => {
     if (open) find(q, { findNext: true })
-  }, [open, q, props.tab])
+  }, [open, q, caseSens, props.tab])
 
   const close = () => {
     setOpen(false)
@@ -89,6 +91,7 @@ export function WebFind(props: { view: () => WebviewEl | null | undefined; host:
       onPrev={() => find(q, { forward: false })}
       onClose={close}
       placeholder={t('在这个网页里找')}
+      toggles={[{ key: 'case', icon: 'case-sensitive', label: t('区分大小写'), on: caseSens, onToggle: () => setCaseSens((v) => !v) }]}
       focusSeq={seq}
       inputRef={input}
     />,

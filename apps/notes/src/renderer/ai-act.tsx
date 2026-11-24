@@ -1,11 +1,12 @@
 /**
- * AI 动手看得见（DESIGN.v3 2.3；流光方向 A2，原型 design/glow/proto-a2.html）。画在被操作的那一块（白板、文档、右栏网页）上面：
+ * AI 动手看得见（DESIGN.v3 2.3；流光方向 A2，原型 design/glow/proto-a2.html）。画在被操作的那一块（白板、文档、网页（右栏、中间栏、分屏那一格））上面：
  * - 整块改（整理白板、改开着的文档、操作网页）：四边一道柔光绕圈（ai-glow.tsx），顶上居中一条 32 高的胶囊，边上同一道光：
  *   「AI 正在整理这块白板 · 停下 esc」；做完光收成一圈再淡掉，胶囊换成「✓ 整理好了 · 挪了N张卡 · 撤回」1.8 秒后收起；
  *   按了停下光停住变灰，「停下了：这一步做完就停」→「停下了 · 做完的N步留着」，再淡掉。
  * - 只加一张卡：整块不亮，只那张卡边上一道光绕圈，卡下面「AI 在写这张卡 · 停下 esc」；做完停成一圈再淡掉。
  *   文档：AI 这一轮改到开着的这篇（文档工具、全能模式下命令行写盘、Edit，2026-11-24）整篇四边亮、顶上「AI 正在改这篇 · 停下 esc」，
  *   做完「✓ 改好了 · +20 −0 · 撤回」；改到的那一段竖线、字一点点长出来由编辑器自己画（ai-spot.ts）
+ *   这篇以白板看法开着（或是白板文件）时白板那一格照样整块亮，顶上「AI 正在改这块白板 · 停下 esc」，收尾同一句「改好了 · +N −M」
  * - 「AI」小指针（20 的箭头 + 右下一个「AI」小胶囊）每去拿一样东西先移过去（0.55 秒），到了那样东西边上跑一圈光，挪的时候跟着走。
  * 主进程在 ai:act 里说（ai-act-store.ts 记着）。网页里的指针和「✂ 剪成卡片」画在网页自己里面（main/agent/web.ts）。
  */
@@ -14,7 +15,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } fr
 import { Codicon } from '@cn/design'
 import type { AiActArea } from '../shared/agent'
 import { type ActLines, actDoneText, actHaltText, docLinesHead } from '../shared/ai-act'
-import { type ActEntry, actEntries, actVersion, lastGrab, onActs, onWrote, showDoc, still, stopActing, undoActing } from './ai-act-store'
+import { type ActEntry, actEntries, actVersion, boardShowsDoc, lastGrab, onActs, onWrote, showDoc, still, stopActing, undoActing } from './ai-act-store'
 import { watchBoard } from './ai-card-grow'
 import { type EdgePhase, GlowEdge, GlowRing, type RingMode } from './ai-glow'
 import { AiIcon } from './engine-logo'
@@ -53,12 +54,14 @@ function ActBar(props: { e: ActEntry; area: AiActArea }) {
     : fin
       ? end!.undone
         ? t('撤回了')
-        : actDoneText(area, end!.tally)
+        : actDoneText(e.area, end!.tally)
       : end?.stopped
         ? actHaltText(end.tally)
         : e.stopping
           ? t('停下了：这一步做完就停')
-          : t(TEXT[area])
+          : e.area === 'doc' && area === 'board'
+            ? t('AI 正在改这块白板')
+            : t(TEXT[area])
   const running = !end && !e.stopping
   return (
     <div className={'ai-actbar' + (fin ? ' fin' : '') + (halt ? ' halt' : '') + (end?.step === 3 ? ' hide' : '')} role="status" data-testid="ai-actbar">
@@ -90,18 +93,20 @@ function LinesSaid(props: { l: ActLines; stopped: boolean }) {
 
 /**
  * 画在这一块（host，position: relative，不随内容滚动）上面。
+ * path：白板、文档是那一篇；网页是哪一页（右栏 right，中间栏、分屏那一格是它标签的 id），只亮 AI 正在动的那一页。
  * bar：顶上那条要不要（右栏网页太窄、网页里自己画指针时只要四边的光）
  */
 export function AiActLayer(props: { area: AiActArea; path?: string | null; host: React.RefObject<HTMLElement | null>; bar?: boolean }) {
   useActs()
   const { area, host } = props
   const path = props.path ?? null
-  const mine = actEntries().filter((a) => a.area === area && (area === 'web' || a.path === path))
+  // 白板这一格也认「这篇整篇在改」（文档以白板看法开着、白板文件，被 AI 用命令行写盘、Edit 改了，主进程只知道改的是哪个文件）
+  const mine = actEntries().filter((a) => (area === 'web' ? a.area === 'web' && a.path === path : a.path === path && (a.area === area || (area === 'board' && boardShowsDoc(a)))))
   const whole = mine.find((a) => a.whole) ?? null
   const live = mine.find((a) => !a.end) ?? null
   const spots = area === 'board' ? mine.filter((a) => !a.whole && a.spot) : []
-  // 这篇开着：AI 这一轮改到它时整篇亮（ai-act-store 只认开着的文档栏，没开着的那篇不画、esc 不接走）
-  useEffect(() => (area === 'doc' && path ? showDoc(path) : undefined), [area, path])
+  // 这篇开着（文档看法、白板看法都算）：AI 这一轮改到它时整篇亮（ai-act-store 只认开着的那一格，没开着的那篇不画、esc 不接走）
+  useEffect(() => (area !== 'web' && path ? showDoc(path, area === 'board') : undefined), [area, path])
   /** 指针在哪；dur：这一下移过去用多久（一长串时短一点，和主进程的节奏一样） */
   const [cur, setCur] = useState<{ x: number; y: number; shown: boolean; follow: boolean; dur?: number }>({ x: 0, y: 0, shown: false, follow: false })
   const [ring, setRing] = useState<{ seq: number; once: number; at: number; boxes: Box[] } | null>(null)

@@ -206,3 +206,26 @@ test('同步：没有远程时说清楚；有远程时拉下另一台电脑的�
     await run.close()
   }
 })
+
+test('焦点给回文档（不是点进来的）、界面这会儿正忙：光标留在原处，接着打的字不跑到文首', async () => {
+  const run = await launch({ '笔记.md': '# 笔记\n\n第一段。\n\n第二段。\n' })
+  const { page } = run
+  try {
+    await openNote(page, '笔记')
+    const cm = pane(page).locator('.cm-content')
+    await pane(page).locator('.cm-line', { hasText: '第二段。' }).click()
+    await page.keyboard.press('End')
+    // 焦点走开、页面上的选区没了（外面同步改了这篇、重画了那几行时就是这样）
+    await cm.evaluate((el) => {
+      el.blur()
+      getSelection()!.removeAllRanges()
+      // 给回焦点那一下界面忙 400 毫秒（Mac 忙、正重画）：CodeMirror 自己只认 200 毫秒内读到的那次选区变化
+      el.addEventListener('focus', () => { const end = performance.now() + 400; while (performance.now() < end); }, { once: true })
+    })
+    await cm.focus()
+    await page.keyboard.type('接着写')
+    await expect.poll(() => editorText(page)).toBe('# 笔记\n\n第一段。\n\n第二段。接着写\n')
+  } finally {
+    await run.close()
+  }
+})

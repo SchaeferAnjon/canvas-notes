@@ -406,3 +406,29 @@ test('从一篇笔记点书桌卡跳过去：底栏「回到刚才」、⌘Z、�
     } else await run.close()
   }
 })
+
+test('存盘慢时点了「存成书桌」紧接着点左栏「文件」：存好以后不再被拉回「书桌」（左栏在点下去那一下就换到书桌）', async () => {
+  const run = await launch({ [A]: A_TEXT, [B]: B_TEXT })
+  const { page, app } = run
+  try {
+    await openInTree(page, B)
+    // 存盘慢（盘忙、库大）：存书桌那一次 IPC 晚 1.5 秒才回
+    await app.evaluate(({ ipcMain }) => {
+      const m = (ipcMain as unknown as { _invokeHandlers: Map<string, (...a: unknown[]) => unknown> })._invokeHandlers
+      const orig = m.get('desk:save')!
+      m.set('desk:save', async (...a: unknown[]) => (await new Promise((r) => setTimeout(r, 1500)), orig(...a)))
+    })
+    await palette(page, '存成书桌', '存成书桌…')
+    const dlg = page.getByRole('dialog', { name: '存成书桌' })
+    await dlg.getByRole('textbox', { name: '书桌的名字' }).fill('读书')
+    await dlg.getByRole('button', { name: '存成书桌', exact: true }).click()
+    // 点下去马上回左栏「文件」（存好还要 1.5 秒）
+    const bar = page.getByRole('navigation', { name: '左栏' })
+    await leftView(page, '文件')
+    await expect(toast(page)).toContainText('存好了书桌「读书」')
+    await expect(bar.getByRole('button', { name: '文件', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(tree(page)).toBeVisible()
+  } finally {
+    await run.close()
+  }
+})

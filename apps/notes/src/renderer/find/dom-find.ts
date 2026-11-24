@@ -3,9 +3,9 @@
  * 不改页面的 DOM（卡片、文字层自己重画时不打架）。按钮、输入框、找的条自己里面的字不算。
  */
 
-/** 这几块里找 q（不分大小写）：每一处是哪一块、哪一段 */
-export function findRanges(blocks: readonly Element[], q: string): { block: Element; range: Range }[] {
-  const needle = q.toLowerCase()
+/** 这几块里找 q（caseSens 不给时不分大小写）：每一处是哪一块、哪一段 */
+export function findRanges(blocks: readonly Element[], q: string, caseSens = false): { block: Element; range: Range }[] {
+  const needle = caseSens ? q : q.toLowerCase()
   const out: { block: Element; range: Range }[] = []
   if (!needle) return out
   for (const block of blocks) {
@@ -20,7 +20,7 @@ export function findRanges(blocks: readonly Element[], q: string): { block: Elem
       nodes.push(n as Text)
       text += (n as Text).data
     }
-    const hay = text.toLowerCase()
+    const hay = caseSens ? text : text.toLowerCase()
     // 转小写后长短变了的字（极少见）：这一块不找，免得位置对不上
     if (hay.length !== text.length) continue
     /** 第 pos 个字落在哪个字节点的哪儿；end 时取前一个节点的末尾 */

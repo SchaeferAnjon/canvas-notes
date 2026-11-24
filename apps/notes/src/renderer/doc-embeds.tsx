@@ -266,7 +266,7 @@ function BlockEmbed(props: { note: NoteFile; id: string }) {
   return (
     // 不翻：data-part 给 e2e 和样式认
     <div className="emb" data-part="嵌进来的一段" aria-label={t('引用自《{name}》里的一段', { name })}>
-      <Head icon="references" go={t('去原文 ›')} onGo={() => openCite({ kind: 'note', path: props.note.path, anchor: { block: props.id } }, 'open', name, 'doc')}>
+      <Head icon="references" go={t('去原文 ›')} onGo={() => openCite({ kind: 'note', path: props.note.path, anchor: { block: props.id } }, 'open', name)}>
         {section ? t('引用自《{name}》›「{section}」里的一段', { name, section }) : t('引用自《{name}》里的一段', { name })}
       </Head>
       <div className="emb-sec">

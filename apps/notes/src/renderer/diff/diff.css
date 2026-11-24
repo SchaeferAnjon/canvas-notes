@@ -231,6 +231,17 @@
 .dv-diff .cm-deletedChunk .cm-deletedLine {
   padding: 0 16px 0 8px;
 }
+/* 文档看法里合一删掉的那几行是一个只读的小编辑器（deleted-doc.ts）：不另加上下内边距，行和别的行一样左 8 右 16 */
+.dv-diff .cm-deletedChunk .dv-deldoc .cm-content {
+  padding: 0;
+}
+.dv-diff .cm-deletedChunk .dv-deldoc .cm-scroller {
+  overflow: visible;
+}
+/* 列表行：文档里 .doc.doc .cm-li 把左内边距换成按级缩进（第一级 0），对比里先补回每一行的 8 再缩进，圆点不贴着左边 */
+.dv-diff .doc.doc .cm-li {
+  padding-left: calc(8px + var(--li-depth, 0) * 24px) !important;
+}
 /* 一级标题和正文从同一个位置起：文档里 .doc.doc .cm-h1 把左右内边距清成 0，这里照对比里每一行的补回来 */
 .dv-diff .doc.doc .cm-h1 {
   padding-left: 8px;

@@ -220,7 +220,7 @@
 }
 .dt-fbar .dir {
   flex: 0 1 auto;
-  min-width: 40px;
+  min-width: 0;
   font-size: 12px;
   color: var(--t3);
 }
@@ -289,7 +289,8 @@
   border-bottom: 1px solid var(--line);
   background: linear-gradient(var(--fill), var(--fill)) var(--win);
 }
-.dt .dt-cols > span {
+/* 两列抬头的字和上面文件条的图标左边齐（都是左 20；历史那一套的抬头是 16，梦游对照复审量出来差 4–6px） */
+.dt .dv-cols > span {
   padding: 0 20px;
 }
 .dt .dt-cols.dup > span {
@@ -298,15 +299,24 @@
   gap: 6px;
   min-width: 0;
 }
-.dt .dt-cols.dup b {
+.dt .dt-cols.dup > span > svg {
   flex: none;
+}
+/* 名字长（没有空格的文件名）时名字先收、省略号；文件夹最宽 30%；「打开」不收，悬停写打开哪篇（梦游对照复审） */
+.dt .dt-cols.dup b {
+  flex: 0 1 auto;
+  min-width: 0;
   font-weight: 500;
   color: var(--t1);
 }
+.dt .dt-cols.dup .dir {
+  flex: 0 1 auto;
+  max-width: 30%;
+  min-width: 0;
+}
 .dt .dt-cols.dup .btn {
   margin-left: auto;
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: none;
   height: 22px;
 }
 .dt .dt-cols.dup {
@@ -335,6 +345,10 @@
 .dt .dt-diff .doc.doc .cm-h1 {
   padding-left: 22px;
   padding-right: 20px;
+}
+/* 列表行同正文左 22（文档里第一级列表的左内边距是 0，圆点会贴着格子左边） */
+.dt .dt-diff .doc.doc .cm-li {
+  padding-left: calc(22px + var(--li-depth, 0) * 24px) !important;
 }
 .dt .dt-diff .doc.doc .cm-quote {
   padding-left: 40px !important;
@@ -367,11 +381,9 @@
     linear-gradient(var(--red), var(--red)) 6px 4px / 3px calc(100% - 8px) no-repeat,
     color-mix(in srgb, var(--red) 9%, transparent);
 }
-/* 可能重复：两篇说同一件事的段左边一道强调色竖线、淡底 */
+/* 可能重复、词条页：两篇说同一件事的段只铺淡底（梦游对照复审：以前左边还有一道竖线，和改动加的行太像） */
 .dt .dt-diff .dv-mark {
-  background:
-    linear-gradient(var(--acc), var(--acc)) 6px 4px / 2px calc(100% - 8px) no-repeat,
-    var(--acc-soft);
+  background: var(--acc-soft);
 }
 /* 可视化：新建的左边空着写一句，右边整格淡绿，就是那张能拖的图 */
 .dt .dt-rows {
@@ -419,9 +431,11 @@
   border-radius: 6px;
   background: var(--card);
 }
+/* 两列抬头下面第一行：淡底是什么意思（第一屏就看得到） */
 .dt .dt-same {
   margin: 0;
-  padding: 6px 22px;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--line);
   font-size: 12px;
   color: var(--t3);
 }

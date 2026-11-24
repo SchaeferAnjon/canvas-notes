@@ -161,12 +161,14 @@ function onSynced(p: { path: string; title: string; added: { text: string; chapt
 
 /**
  * 主进程要合并书摘（CN-130）：这篇开着（哪个标签都算）就在编辑器里合——只插新的那几段、改开头的两个数，
- * 光标、正在打的字都不动，不进撤销；存好盘再回话。没开着回 handled: false，主进程自己写文件
+ * 光标、正在打的字都不动，不进撤销；存好盘再回话。开着时只有这里写这篇（主进程等着，不自己写）；
+ * 没开着回 open: false，主进程自己写文件；合不了回 open: true，这次不同步
  */
-async function onMerge(p: { id: number; path: string; input: BookSync }) {
+async function onMerge(p: { id: number; path: string; input: BookSync; hold?: number }) {
+  if (p.hold) await new Promise((r) => setTimeout(r, p.hold))
   const doc = [...NoteDoc.open].find((d) => d.path === p.path && !d.readOnly)
-  const reply = (r: { handled: boolean; text?: string; written?: string[]; added?: Mark[] }) => window.cnPlugins.call(ID, 'merged', { id: p.id, ...r }).catch(() => undefined)
-  if (!doc) return void reply({ handled: false })
+  const reply = (r: { handled: true; text: string; written: string[]; added: Mark[] } | { open: boolean }) => window.cnPlugins.call(ID, 'merged', { id: p.id, ...r }).catch(() => undefined)
+  if (!doc) return void reply({ open: false })
   try {
     const before = doc.text
     const r = mergeBook(before, p.input)
@@ -179,8 +181,8 @@ async function onMerge(p: { id: number; path: string; input: BookSync }) {
     await doc.save()
     void reply({ handled: true, text: doc.text, written: r.written, added: r.added })
   } catch (e) {
-    console.warn('[weread] 编辑器里合并书摘没成，交回主进程', e)
-    void reply({ handled: false })
+    console.warn('[weread] 编辑器里合并书摘没成，这次不同步', e)
+    void reply({ open: true })
   }
 }
 

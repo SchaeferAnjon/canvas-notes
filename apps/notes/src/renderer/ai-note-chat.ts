@@ -4,7 +4,7 @@
  * 「已记进」以笔记里认出来的为准（refreshNoted 问 noteHas），重开软件不靠内存；一段对话的写排队（补进去按问的先后）。
  */
 import { useSyncExternalStore } from 'react'
-import { type AskMat, type NoteAsk, webSrc } from '@cn/format'
+import { type AskMat, type NoteAsk, PREREQ, webSrc } from '@cn/format'
 import type { NoteTarget } from '../shared/ai-note'
 import { type Material, PASTED_NAME } from '../shared/materials'
 import { fragmentUrl } from '../shared/web-link'
@@ -12,6 +12,7 @@ import { writeAskInto } from './web-notes/flow'
 import { titleOf } from '../shared/layout'
 import { withoutEffort } from '@cn/ai-engines/shared'
 import { hideToolMarkup } from '../shared/tool-markup'
+import { withoutVizMark } from '../shared/reading'
 import type { NotedState } from './ai-note-ui'
 import * as C from './ai-chats'
 
@@ -87,8 +88,10 @@ const matsOf = (mats?: Material[]): AskMat[] =>
     return PASTED_NAME.test(m.name) ? [{ kind: 'image', path: m.name, src: m.src }] : []
   })
 
-/** 回答原文（去掉模型写成字的工具调用，和画出来的一样；步骤不在字里） */
-const answerOf = (m: C.Msg) => hideToolMarkup(m.text ?? '', false).trim()
+/** 回答原文（去掉模型写成字的工具调用，和画出来的一样；步骤不在字里；末尾的〔前置知识〕不写进去） */
+const answerOf = (m: C.Msg) => withoutVizMark(hideToolMarkup(m.text ?? '', false)).text.trim()
+/** AI 标了这一问讲的是眼前内容外的前置知识（回答末尾〔前置知识〕）：记进笔记那一问的小标题带 #前置知识（照读 PDF 那套） */
+const preOf = (m: C.Msg): { pre?: true } => (withoutVizMark(m.text ?? '').pre ? { pre: true } : {})
 
 /** 答完了、能记的一条回答：有字、没出错，不是命令的结果（按钮、挪的几条、找重复…）；动了文件的照样记字 */
 export const notable = (m: C.Msg | undefined): m is C.Msg => !!m && m.role === 'ai' && !m.pending && !m.live && !m.error && !!m.text?.trim() && !m.actions?.length && !m.dups && !m.moves && !m.dream && !m.draft
@@ -104,7 +107,7 @@ export function mainAsk(key: string, msg: number): NoteAsk | null {
   const q = msgs[i - 1]
   if (!notable(a) || !askable(q)) return null
   const mats = matsOf(q.mats)
-  return { key, msg, q: q.text ?? '', a: answerOf(a), ...(a.by ? { by: withoutEffort(a.by) } : {}), ...(mats.length ? { mats } : {}) }
+  return { key, msg, q: q.text ?? '', a: answerOf(a), ...(a.by ? { by: withoutEffort(a.by) } : {}), ...(mats.length ? { mats } : {}), ...preOf(a) }
 }
 
 /** 旁支里这条回答记进去的一问：引用那一句、被问那一问的原话、那一问回答的编号（插在它后面） */
@@ -130,6 +133,7 @@ export function sideAsk(key: string, msg: number): NoteAsk | null {
     ...(a.by ? { by: withoutEffort(a.by) } : {}),
     side: { quote: side.quote, ...(parent ? { parent } : {}), of: side.msg },
     ...(mats.length ? { mats } : {}),
+    ...preOf(a),
   }
 }
 
@@ -139,8 +143,11 @@ export function noteOne(key: string, msg: number, to: NoteTarget, heading: strin
     const ask = mainAsk(key, msg) ?? sideAsk(key, msg)
     if (!ask) return
     put(key, msg, { state: 'writing', note: to.path })
+    // 前置知识、没引网页 / 文档里哪一段（没有引用的字和图）、记进另一篇的：照读 PDF 那套进那篇末尾「## 前置知识」一节；
+    // 写进那篇本身的（光标处或末尾）照旧在那里，只带标签
+    const loose = ask.pre && !ask.side && !to.inline && !ask.mats?.length
     try {
-      const r = await window.cnReading.noteAppend({ note: to.path, ask, place: { heading }, ...(to.create ? { create: to.create } : {}), ...(to.inline ? { inline: true } : {}) })
+      const r = await window.cnReading.noteAppend({ note: to.path, ask, place: { heading: loose ? PREREQ : heading }, ...(to.create ? { create: to.create } : {}), ...(to.inline ? { inline: true } : {}) })
       // 写进那篇本身的（看着的文档、网页上引了一段问的记进剪藏那篇）：插在光标处或接在末尾、提交
       if (r.md !== undefined) await writeAskInto(r.note, r.md, { files: r.files ?? [], subject: ask.q })
       put(key, msg, { state: 'done', to: titleOf(r.note), note: r.note })

@@ -153,11 +153,8 @@ test('插进文档只有一种做法：读 PDF 的回答（看别处的对话）
     await armMenus(run)
     await openPdf(page)
     await askPdf(page, '给我讲解一下这一页', 1)
-    // 中间换成文档；右栏 AI 对话的「对话 ⌄」里点读 PDF 那段：读 PDF 那一套显示，这时中间有文档能插
+    // 中间换成文档：右栏留着读 PDF 那段（AI 对话绑页面，换页不换走），读 PDF 那一套显示，这时中间有文档能插
     await openNote(page, '学习笔记')
-    await expect(chat(page)).toBeVisible()
-    await chat(page).getByTestId('ai-conv').click()
-    await page.getByRole('menu', { name: '对话' }).getByRole('menuitemradio').filter({ hasText: '第3讲 线性映射.pdf' }).click()
     const away = reading(page)
     await expect(away.getByTestId('ai-away')).toBeVisible()
     const rmsg = away.getByTestId('reading-msg').first()
@@ -187,7 +184,7 @@ test('插进文档只有一种做法：读 PDF 的回答（看别处的对话）
     expect(blocks[0]).toBe(blocks[1])
 
     // 回到这篇的 AI 对话，问一句、插进文档：同一种块头，链的是 AI 对话那段
-    await away.getByTestId('ai-away').getByRole('button', { name: /^回到/ }).click()
+    await away.getByTestId('ai-follow').click()
     const box = chat(page).getByRole('textbox', { name: '问 AI' })
     await box.fill('把这周总结成三句话')
     await box.press('Enter')

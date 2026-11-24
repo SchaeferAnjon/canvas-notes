@@ -82,6 +82,8 @@ test('多选 3 篇，底部那一条点「问AI」：AI 打开、看得到「选
     // 换了标签：「选中的3个」拿掉，问候回到这一篇的
     await openNote(page, '菜谱')
     await expect(ai.getByTestId('ai-picked')).toHaveCount(0)
+    // 刚才那段问过：换页留着（AI 对话绑页面），点头上那颗切到这篇的
+    await ai.getByTestId('ai-follow').click()
     await expect(ai.getByTestId('ai-greet').locator('p')).toHaveText('要对《菜谱》做点什么？')
   } finally {
     await run.close()
@@ -158,9 +160,9 @@ test('中间开着 PDF 时多选 3 篇「问AI」：切到普通的 AI 对话（
     await expect(ai.getByRole('textbox', { name: '问 AI' })).toBeFocused()
     await pickQuick(ai, '总结这几篇')
     await expect(ai.getByTestId('ai-msg').last().locator('.txt')).toHaveText('这是测试回答（选中的3篇：冰岛.md、菜谱.md、随手记.md）。')
-    // 对话菜单点回 PDF：读 PDF 那一格回来，刚才那一问还在
+    // 对话菜单点回 PDF：中间开着 PDF，它那段在「这里」一组（一行写第一问，对话菜单按页归组），读 PDF 那一格回来，刚才那一问还在
     await ai.getByTestId('ai-conv').click()
-    await page.getByRole('menu', { name: '对话' }).getByRole('menuitemradio').filter({ hasText: '第3讲.pdf' }).first().click()
+    await page.getByRole('menu', { name: '对话' }).getByTestId('ai-convo').filter({ hasText: '给我讲讲这一页' }).click()
     await expect(reading).toBeVisible()
     await expect(reading.locator('.um').first()).toHaveText('给我讲讲这一页')
     await expect(ai).toBeHidden()

@@ -196,12 +196,12 @@ test('右栏开着网页时网页和 AI 是同一组两个标签（不硬切两�
     expect(w.y).toBeLessThan(a.y)
     expect(Math.abs(w.height - a.height)).toBeLessThanOrEqual(2)
     expect(Math.abs(a.y + a.height - (b1.y + b1.height))).toBeLessThanOrEqual(1)
-    // 右栏开着网页时「看得到」多一颗网页，能动手换成网页的
-    await expect(chat(page).getByTestId('ai-sees').locator('.chip').nth(1)).toHaveText('网页：127.0.0.1')
+    // 右栏开着网页时「看得到」多一颗网页（写清是右栏的），能动手换成网页的（AI网页工具）
+    await expect(chat(page).getByTestId('ai-sees').locator('.chip').nth(1)).toHaveText('右栏网页：127.0.0.1')
     // 下半格矮：快捷命令那一排还在，「剪藏这一页」排第一，文档不出「总结这块白板」；收件箱空着不放整理收件箱（task-0tgz2）
     expect(await quickTexts(chat(page))).toEqual(['剪藏这一页', '翻译'])
     await expect(chat(page).getByTestId('ai-quick').locator('.qc').first()).toBeVisible()
-    await expect(chat(page).getByTestId('ai-sees').locator('.chip.hands')).toHaveText('能动手：滚动、选中、剪藏网页')
+    await expect(chat(page).getByTestId('ai-sees').locator('.chip.hands')).toHaveText('能动手：在右栏网页点、填表、剪藏')
     // 只开网页（AI 收起）：圆钮还在原处；再开 AI 回到它原来那一组（中间右边第一栏的第一组：网页那一组，叠成标签）
     await page.keyboard.press('Meta+j')
     await expect(chat(page)).toBeHidden()
@@ -245,7 +245,10 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     // 读 PDF 也是同一个头：AI +「第3讲.pdf ⌄」
     await expect(reading(page).getByTestId('ai-conv')).toHaveText('第3讲.pdf')
 
+    // 换到文件夹页：右栏留着 PDF 那段（AI 对话绑页面，换页不换走），头上「切到《周记》的 AI ⌥⌘J」，点了才换
     await openFolder(page, '周记')
+    await expect(reading(page).getByTestId('ai-away')).toHaveText('这是在《第3讲.pdf》问的切到《周记》的 AI⌥⌘J')
+    await reading(page).getByTestId('ai-follow').click()
     const ai = chat(page)
     await expect(ai).toBeVisible()
     await expect(ai.getByTestId('ai-greet').locator('p')).toHaveText('要对「周记」做点什么？')
@@ -255,14 +258,16 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     await ai.getByTestId('ai-conv').click()
     const menu = convMenu(page)
     await expect(menu).toBeVisible()
-    expect(Math.round((await box(menu)).width)).toBe(300)
+    expect(Math.round((await box(menu)).width)).toBe(316)
     await expect(menu.locator('.mh')).toHaveText(['这里', '最近在别处问的'])
     const here = menu.getByRole('menuitemradio').first()
     await expect(here).toHaveAttribute('aria-checked', 'true')
     await expect(here.locator('.lb')).toHaveText('周记')
     await expect(here.locator('.r')).toHaveText('还没问过')
     const pdfRow = menu.getByRole('menuitemradio').filter({ hasText: '第3讲.pdf' })
-    await expect(pdfRow.locator('.r')).toHaveText(/^今天 \d\d:\d\d$/)
+    // 一行一页（对话菜单按页归组）：页名 + 灰色路径「课程 › 线代」+「1 段 · 今天 几点」
+    await expect(pdfRow.locator('.path')).toHaveText('课程 › 线代')
+    await expect(pdfRow.locator('.r')).toHaveText(/^1 段 · 今天 \d\d:\d\d$/)
     await expect(menu.getByRole('menuitem', { name: '全部对话…' })).toBeVisible()
     // 菜单点外面收起，再点胶囊是收起不是重开
     await ai.locator('.msgs').click()
@@ -277,7 +282,7 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     await menu.getByRole('menuitemradio').filter({ hasText: '第3讲.pdf' }).click()
     const away = reading(page)
     await expect(away).toBeVisible()
-    await expect(away.getByTestId('ai-away')).toHaveText('这是在「第3讲.pdf」问的回到「周记」')
+    await expect(away.getByTestId('ai-away')).toHaveText('这是在《第3讲.pdf》问的回到《周记》')
     await expect(away.getByTestId('reading-sees')).toHaveCount(0)
     await expect(away.getByTestId('ai-conv')).toHaveText('第3讲.pdf')
     await expect(away.locator('.um').first()).toHaveText('给我讲讲这一页')
@@ -287,7 +292,7 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     await q2.press('Enter')
     await expect(away.getByTestId('reading-msg').last().locator('.txt')).toContainText('换个方式讲', { timeout: 15_000 })
     // 回到「周记」
-    await away.getByTestId('ai-away').getByRole('button', { name: '回到「周记」' }).click()
+    await away.getByTestId('ai-away').getByRole('button', { name: '回到《周记》' }).click()
     await expect(chat(page)).toBeVisible()
     await expect(chat(page).getByTestId('ai-conv')).toHaveText('周记')
     await expect(chat(page).getByTestId('ai-sees')).toContainText('文件夹：周记 · 1篇')
@@ -298,6 +303,9 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     await box1.press('Enter')
     await expect(chat(page).getByTestId('ai-msg').last().locator('.txt')).toHaveText('这是测试回答（Claude Code）。', { timeout: 15_000 })
     await openDoc(page, '随手记')
+    // 周记那段问过：留着，头上点「切到《随手记》的 AI」才换
+    await expect(chat(page).getByTestId('ai-away')).toHaveText('这是在《周记》问的切到《随手记》的 AI⌥⌘J')
+    await chat(page).getByTestId('ai-follow').click()
     await expect(chat(page).getByTestId('ai-sees').locator('.chip').first()).toHaveText('文档：随手记')
     await expect(chat(page).getByTestId('ai-msg')).toHaveCount(0)
     await expect(chat(page).getByTestId('ai-greet').locator('p')).toHaveText('要对《随手记》做点什么？')
@@ -308,7 +316,9 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     // 全部对话…：同一个菜单里列全部，能滚
     await menu.getByRole('menuitem', { name: '全部对话…' }).click()
     await expect(menu.locator('.mh')).toHaveText(['全部对话'])
-    await expect(menu.getByRole('menuitemradio').locator('.lb')).toHaveText(['周记', '第3讲.pdf'])
+    // 按文件夹、页归组：组头「课程 › 线代 › 第3讲.pdf · 1 段」，一行是那段第一问
+    await expect(menu.locator('.gh')).toHaveText(['周记 · 1 段', '课程 › 线代 › 第3讲.pdf · 1 段'])
+    await expect(menu.getByRole('menuitemradio').locator('.lb')).toHaveText(['周记里写了什么', '给我讲讲这一页'])
     expect(await menu.locator('.all').evaluate((e) => getComputedStyle(e).overflowY)).toBe('auto')
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
@@ -316,7 +326,7 @@ test('按地方存对话：PDF 上问过一句，文件夹页是空的「周记�
     await expect(chat(page).locator('.um')).toHaveText(['周记里写了什么'])
     // 这里那一行写「1问」
     await chat(page).getByTestId('ai-conv').click()
-    await expect(menu.getByRole('menuitemradio').first().locator('.r')).toHaveText('1问')
+    await expect(menu.getByRole('menuitemradio').first().locator('.r')).toHaveText(/1问$/)
     await page.keyboard.press('Escape')
     await page.waitForTimeout(600)
 
@@ -365,7 +375,7 @@ test('以前全库只存一份的对话迁成一条「以前的对话」，列�
     const old = convMenu(page).getByRole('menuitemradio').filter({ hasText: '以前的对话' })
     await expect(old).toBeVisible()
     await old.click()
-    await expect(chat(page).getByTestId('ai-away')).toHaveText('这是在「以前的对话」问的回到「随手记」')
+    await expect(chat(page).getByTestId('ai-away')).toHaveText('这是在《以前的对话》问的回到《随手记》')
     await expect(chat(page).locator('.um')).toHaveText(['冰岛几月去最好'])
     await expect(chat(page).getByTestId('ai-msg').locator('.txt')).toHaveText(['九月到三月看极光。'])
     // 接着问：进的是以前那段对话
@@ -378,7 +388,7 @@ test('以前全库只存一份的对话迁成一条「以前的对话」，列�
     await page.waitForTimeout(600)
     expect(readdirSync(join(ud, 'ai')).filter((f) => /^chat-[0-9a-f]{12}\.json$/.test(f))).toEqual([])
     // 回到随手记：还是空的
-    await chat(page).getByTestId('ai-away').getByRole('button', { name: '回到「随手记」' }).click()
+    await chat(page).getByTestId('ai-away').getByRole('button', { name: '回到《随手记》' }).click()
     await expect(chat(page).getByTestId('ai-msg')).toHaveCount(0)
   } finally {
     await run.close()
@@ -592,7 +602,7 @@ test('书摘开着时「看得到」写「书摘：趣说明朝276年」，对�
     await addr.fill(url)
     await addr.press('Enter')
     await webAboveAi(page)
-    await expect(sees.locator('.chip').nth(1)).toHaveText('网页：127.0.0.1')
+    await expect(sees.locator('.chip').nth(1)).toHaveText('右栏网页：127.0.0.1')
     expect(Math.abs((await box(sees.locator('.chip').nth(0))).y - (await box(sees.locator('.chip').nth(1))).y)).toBeLessThanOrEqual(1)
     // 下半格：问候按放不放得下一级级收（先藏标志和那一行问候，再整个不画，task-0tgz2），哪一块都不被拦腰切；
     // 快捷命令在消息区外面，一直在；收起网页回到整栏高，问候整个回来

@@ -5,7 +5,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { acts, launch, openNote, pane, rail, tabOn } from './app'
+import { acts, launch, pane, rail, tabOn } from './app'
 import { LECTURE } from './fixtures/pdf'
 
 const PDF = '课程/线代/第3讲.pdf'
@@ -45,6 +45,14 @@ async function openPdf(page: Page) {
   await expect(pdfPage(page, 1).locator('canvas[data-ready="1"]')).toBeAttached({ timeout: 15_000 })
   await page.keyboard.press('Meta+j')
   await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文5页')
+}
+/** 开配对笔记：左栏「最近」里配对笔记并进 PDF 那一行，点那一行右边的「笔记」小字（同 paste-img-locate）；开在文档看法 */
+async function openPairNote(page: Page) {
+  const row = page.locator('aside.side .nav .si').filter({ hasText: '第3讲' }).filter({ has: page.locator('.s-note') })
+  await row.first().locator('.s-note').click()
+  await expect(tabOn(page)).toHaveText('第3讲 笔记')
+  if ((await acts(page).getByRole('tab', { name: '白板' }).getAttribute('aria-selected')) === 'true') await acts(page).getByRole('tab', { name: '文档' }).click()
+  await expect(pane(page).locator('.cm-content')).toBeVisible()
 }
 async function drawBox(page: Page, n: number, a: [number, number], b: [number, number]) {
   const el = pdfPage(page, n)
@@ -142,7 +150,7 @@ test('拖框问：工具条两颗、自己加的那颗、输入框回车、接�
     await backToPdf(page, 1)
 
     // 文档看法：第 2 页那一节第一问的标题下面就是那张图，图下面是回到第 2 页的来源行；点图回 PDF 第 2 页、框闪一下
-    await openNote(page, '第3讲 笔记')
+    await openPairNote(page)
     const img = pane(page).locator('.cm-image img.jump[src*="p2-1.png"]')
     await img.scrollIntoViewIfNeeded()
     await expect(img).toBeVisible()
@@ -211,7 +219,7 @@ test('选字问：工具条「翻译 + 讲一讲」、自己加的那颗，原�
     await backToPdf(page, 5)
 
     // 白板看法：卡里是那段原文，没有图
-    await openNote(page, '第3讲 笔记')
+    await openPairNote(page)
     await acts(page).getByRole('tab', { name: '白板' }).click()
     const card = pane(page).getByTestId('doc-board').locator('.db-col', { hasText: '第5页 · ' })
     await expect(card.locator('.db-ask-quote')).toHaveText(q5![1]!)

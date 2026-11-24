@@ -200,6 +200,8 @@ export interface AskResult {
   by: string
   /** 框的那一帧存在库里的哪（只问不记时没有） */
   image?: string
+  /** AI 标了这一问讲的是视频外的前置知识：记进笔记那一问的小标题带 #前置知识 */
+  pre?: true
 }
 
 export interface CnVideoApi {

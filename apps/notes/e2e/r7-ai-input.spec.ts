@@ -186,6 +186,8 @@ test('CN-91 方向 C：谁来答、模型、effort 三颗在输入框底行（�
 
     // 换一篇：那篇的对话是默认的；回来还是这篇自己选的
     await openNote(page, '周记')
+    // 刚才那段问过：换页留着（AI 对话绑页面），点头上那颗切到这篇的；回随手记时右栏空着，自己接上随手记那段
+    await ai.getByTestId('ai-follow').click()
     await expect(model).toHaveText('Opus 5.5')
     await expect(effort).toHaveText('High')
     await openNote(page, '随手记')
@@ -245,6 +247,8 @@ test('CN-91 方向 C：谁来答、模型、effort 三颗在输入框底行（�
 
     // 读 PDF：同一套三颗；effort 换成 Max 只管这份 PDF 的对话
     await openPdf(page)
+    // 随手记那段问过：换页留着，点头上那颗切到这份 PDF 的
+    await ai.getByTestId('ai-follow').click()
     const r = reading(page)
     await expect(r).toBeVisible()
     await expect(r.getByTestId('ai-engine')).toHaveText('Claude Code')
@@ -272,6 +276,8 @@ test('CN-91 方向 C：谁来答、模型、effort 三颗在输入框底行（�
       await expect(p2.locator('.vault b')).toHaveText('测试库')
       await expect(reading(p2).getByTestId('ai-effort')).toHaveText('Max')
       await openNote(p2, '随手记')
+      // PDF 那段问过：换页留着，点头上那颗切到随手记的
+      await reading(p2).getByTestId('ai-follow').click()
       await expect(chat(p2).getByTestId('ai-model')).toHaveText('Sonnet')
       await expect(chat(p2).getByTestId('ai-effort')).toHaveText('Low')
     } finally {

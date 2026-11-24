@@ -5,7 +5,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, expect, it } from 'vitest'
-import { killNetworkLater } from '../src/main/quit-fast'
+import { killNetworkLater, NET_MARK } from '../src/main/quit-fast'
 
 const MARK = '--utility-sub-type=network.mojom.NetworkService'
 // 设置目录里带空格和正则里有意思的字（真的设置目录在 Application Support 里）
@@ -85,6 +85,19 @@ it('主进程已经没了：留下的这个软件的孤儿（网页进程也算�
   process.kill(stranger, 'SIGTERM')
   mine.kill()
 })
+
+it('给了记录文件（测试模式）：醒了、杀了哪个网络进程、主进程什么时候没的，一行一样记下来', async () => {
+  const main = spawn('/bin/sleep', ['0.8'])
+  const net = await orphanNet()
+  const log = join(dir, 'quit-sh.log')
+  const sh = killNetworkLater(main.pid!, UD, 100, 3_000, NET_MARK, log)
+  expect(await until(() => !alive(net))).toBe(true)
+  await gone(sh)
+  const lines = readFileSync(log, 'utf8').trim().split('\n').map((l) => l.replace(/^\d+ /, ''))
+  expect(lines[0]).toBe('醒了')
+  expect(lines).toContain(`杀网络进程 ${net}`)
+  expect(lines.at(-1)).toBe('主进程没了')
+}, 15_000)
 
 it('进程号、设置目录不对就报错，不起 sh', () => {
   expect(() => killNetworkLater(1, UD)).toThrow('进程号不对')

@@ -1,3 +1,4 @@
+import { noteWebWc, touchWeb } from './web/web-pages'
 import { WebCover } from './feynman/cover'
 import { WebFind } from './find/WebFind'
 import { Codicon, type CodiconName } from '@cn/design'
@@ -272,6 +273,11 @@ export function WebPanel(props: {
   useEffect(() => {
     if (activeWc !== undefined && !props.hidden) void window.cnWeb.setActiveTab(activeWc)
   }, [activeWc, props.hidden])
+  // AI 操纵哪个网页（web/web-pages.ts）：右栏是当前这个标签；切了标签（看得见时）算用户切到了右栏
+  useEffect(() => noteWebWc('right', activeWc ?? null), [activeWc])
+  useEffect(() => {
+    if (activeWc !== undefined && !props.hidden) touchWeb('right')
+  }, [active?.id, props.hidden])
 
   useEffect(() => {
     const r = props.openRequest
@@ -1079,7 +1085,7 @@ export function WebPanel(props: {
             ) : null
           })}
           {/* AI 在网页里动手：网页外圈和顶上提示条（指针、亮的那段、「✂ 剪成卡片」画在网页里，main/agent/web.ts） */}
-          <AiActLayer area="web" host={stack} />
+          <AiActLayer area="web" path="right" host={stack} />
           {/* 费曼学习讲着：配对的网页盖住，按住看一眼（feynman/cover.tsx） */}
           <WebCover url={active ? (srcOf(active) ?? null) : null} />
           {/* 网页改了版、上次那段找不到：按比例停在差不多的地方，浮一句（不往网页栏顶上加一排，task-kbnc0） */}

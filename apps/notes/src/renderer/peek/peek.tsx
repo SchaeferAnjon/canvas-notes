@@ -27,7 +27,7 @@ import { blockGaps } from '../block-gaps'
 import { type BranchFiles, citeClicks, findCite, type Found, hideCiteCard, openCite, pageCite, pageOfOpenPdf } from '../cite'
 import { app } from '../ctx/actions'
 import { linkAt } from '../ctx/editor-menu'
-import { usePdfPage } from '../doc-board/pdf-page'
+import { usePdfPage, usePdfQuote } from '../doc-board/pdf-page'
 import { blocksField, editorHost } from '../editor-host'
 import { keyFor } from '../keys'
 import { hideLinkCard } from '../link-card'
@@ -55,7 +55,7 @@ const GAP = 6
 export const peekBranch = Facet.define<() => BranchFiles, (() => BranchFiles) | null>({ combine: (v) => v[0] ?? null })
 
 /** 指着的一个链接：el 是浮窗贴着的那个元素；key 认「还是不是同一个」；from：文档里的照文档的开法（右栏 AI 跟着换），别处照引用的 */
-type Link = { el: HTMLElement; key: string; label: string; from: 'cite' | 'doc'; resolve(): Promise<Found> }
+type Link = { el: HTMLElement; key: string; label: string; resolve(): Promise<Found> }
 type Layer = { el: HTMLDivElement; root: Root; src: HTMLElement; key: string }
 
 // ---------- 读一次记着 ----------
@@ -96,7 +96,7 @@ function linkUnder(at: Element | null): Link | null {
   if (cite) {
     const link = { href: cite.dataset.href, wiki: cite.dataset.wiki, label: textOf(cite) }
     const base = baseOf(cite)
-    return { el: cite, key: 'e' + idOf(cite), label: link.label, from: 'cite', resolve: () => findCite(link, base) }
+    return { el: cite, key: 'e' + idOf(cite), label: link.label, resolve: () => findCite(link, base) }
   }
   // 光写页码的「第 4 页」：读 PDF 的 AI 回答、读 PDF 的笔记里是开着的那份；白板卡里按这块白板的来源、前后的页码链接找
   const pg = at.closest<HTMLElement>('a.pg[data-page]')
@@ -104,18 +104,18 @@ function linkUnder(at: Element | null): Link | null {
     const page = Number(pg.dataset.page)
     const label = textOf(pg)
     const pdf = pg.closest<HTMLElement>('[data-cite-pdf]')?.dataset.citePdf ?? pg.closest<HTMLElement>('[data-peek-pdf]')?.dataset.peekPdf
-    if (pdf) return { el: pg, key: 'e' + idOf(pg), label, from: 'cite', resolve: () => pageOfOpenPdf(pdf, page, pg.dataset.text) }
+    if (pdf) return { el: pg, key: 'e' + idOf(pg), label, resolve: () => pageOfOpenPdf(pdf, page, pg.dataset.text) }
     const card = pg.closest<HTMLElement>('[data-from]')
     const note = baseOf(pg)
     if (!card || !note) return null
     const href = pg.dataset.href ?? `#page=${page}`
-    return { el: pg, key: 'e' + idOf(pg), label, from: 'cite', resolve: async () => pageCite(note, href, await noteText(note), Number(card.dataset.from), label) }
+    return { el: pg, key: 'e' + idOf(pg), label, resolve: async () => pageCite(note, href, await noteText(note), Number(card.dataset.from), label) }
   }
   const mark = at.closest<HTMLElement>('[data-peek-href], [data-peek-wiki]')
   if (mark) {
     const link = { href: mark.dataset.peekHref, wiki: mark.dataset.peekWiki, label: textOf(mark) }
     const base = baseOf(mark)
-    return { el: mark, key: 'e' + idOf(mark), label: link.label, from: 'cite', resolve: () => findCite(link, base) }
+    return { el: mark, key: 'e' + idOf(mark), label: link.label, resolve: () => findCite(link, base) }
   }
   const ed = at.closest<HTMLElement>('.cm-editor')
   return ed ? editorLink(ed, at) : null
@@ -132,7 +132,7 @@ function editorLink(ed: HTMLElement, at: Element): Link | null {
   if (wiki) {
     const w = wiki.dataset.wiki ?? ''
     const line = view.state.doc.lineAt(view.posAtDOM(wiki, 0))
-    return { el: wiki, key: `cm${vid}:${line.from}:${w}`, label: wiki.dataset.target ?? textOf(wiki), from: 'doc', resolve: () => findCite({ wiki: w }, base, branch?.()) }
+    return { el: wiki, key: `cm${vid}:${line.from}:${w}`, label: wiki.dataset.target ?? textOf(wiki), resolve: () => findCite({ wiki: w }, base, branch?.()) }
   }
   const el = at.closest<HTMLElement>('.cm-link')
   if (!el) return null
@@ -140,13 +140,12 @@ function editorLink(ed: HTMLElement, at: Element): Link | null {
   const line = view.state.doc.lineAt(pos)
   const hit = linkAt(line.text, pos - line.from)
   if (!hit || hit.kind === 'image') return null
-  if (hit.kind === 'wiki') return { el, key: `cm${vid}:${line.from}:${hit.target}`, label: hit.target, from: 'doc', resolve: () => findCite({ wiki: hit.target }, base, branch?.()) }
+  if (hit.kind === 'wiki') return { el, key: `cm${vid}:${line.from}:${hit.target}`, label: hit.target, resolve: () => findCite({ wiki: hit.target }, base, branch?.()) }
   const { url, text } = hit
   return {
     el,
     key: `cm${vid}:${line.from}:${url}`,
     label: text,
-    from: 'doc',
     resolve: () => (pageLinkOf(base, url) ? pageCite(base, url, view.state.doc.toString(), pos, text) : findCite({ href: url, label: text }, base, branch?.())),
   }
 }
@@ -247,7 +246,7 @@ async function open(link: Link, parent: number) {
   document.body.appendChild(el)
   const root = createRoot(el)
   layers.push({ el, root, src: link.el, key: link.key })
-  flushSync(() => root.render(<Peek c={found} label={link.label} from={link.from} />))
+  flushSync(() => root.render(<Peek c={found} label={link.label} />))
   // 右栏「相关」那种整栏都是条目的：浮窗放在那一栏左边，顶和这一条对齐（设计页 44 1.4），不盖住别的条目
   const beside = link.el.closest<HTMLElement>('[data-peek-side="left"]')
   if (beside) placeLeft(el, link.el.getBoundingClientRect(), beside.getBoundingClientRect())
@@ -551,10 +550,12 @@ function BoardBody({ path, id }: { path: string; id: string }) {
 
 /** PDF 那一页：整页，框画出来、滚到框在的那一截 */
 function PageBody({ c }: { c: PdfFound }) {
-  const page = c.page ?? 1
-  const url = usePdfPage(c.path, c.mtimeMs, page, 960)
+  // 带着引的那句（页码链接跳到段）：框出点了会跳到的那一段，找到的在后一页 / 前一页就画那一页；找着的时候先不画
+  const q = usePdfQuote(c.path, c.mtimeMs, c.page ?? 1, c.rect ? undefined : c.text)
+  const page = q?.page ?? c.page ?? 1
+  const url = usePdfPage(q === undefined ? null : c.path, c.mtimeMs, page, 960)
   const box = useRef<HTMLSpanElement>(null)
-  const r = c.rect
+  const r = c.rect ?? q?.rect
   const center = () => {
     const b = box.current
     const body = b?.closest<HTMLElement>('.pk-body')
@@ -568,7 +569,15 @@ function PageBody({ c }: { c: PdfFound }) {
     <div className="pk-pdf" data-testid="peek-pdf">
       <div className="pk-page">
         {url && <img src={url} alt="" onLoad={center} />}
-        {url && r && <span ref={box} className="box" style={{ left: `${r[0] * 100}%`, top: `${r[1] * 100}%`, width: `${r[2] * 100}%`, height: `${r[3] * 100}%` }} />}
+        {/* 按引的那句找到的那一段：框往外放 3（屏幕像素，不跟页一起缩），不贴着字 */}
+        {url && r && (
+          <span
+            ref={box}
+            className="box"
+            data-testid="peek-pdf-box"
+            style={c.rect ? { left: `${r[0] * 100}%`, top: `${r[1] * 100}%`, width: `${r[2] * 100}%`, height: `${r[3] * 100}%` } : { left: `calc(${r[0] * 100}% - 3px)`, top: `calc(${r[1] * 100}% - 3px)`, width: `calc(${r[2] * 100}% + 6px)`, height: `calc(${r[3] * 100}% + 6px)` }}
+          />
+        )}
       </div>
     </div>
   )
@@ -612,7 +621,7 @@ function Body({ children }: { children: ReactNode }) {
   )
 }
 
-function Peek({ c, label, from }: { c: Found; label: string; from: 'cite' | 'doc' }) {
+function Peek({ c, label }: { c: Found; label: string }) {
   let icon: CodiconName = 'file'
   let title = label
   let sub = ''
@@ -715,7 +724,7 @@ function Peek({ c, label, from }: { c: Found; label: string; from: 'cite' | 'doc
           {at && <span className="at">{at}</span>}
         </span>
         {canOpen && (
-          <button type="button" className="pk-open" onClick={() => (closeSoon(), openCite(c, 'open', label, from))}>
+          <button type="button" className="pk-open" onClick={() => (closeSoon(), openCite(c, 'open', label))}>
             {open} <span className="k">{keyFor('cmd-click')}</span>
           </button>
         )}

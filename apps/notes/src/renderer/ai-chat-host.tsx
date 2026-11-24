@@ -85,6 +85,8 @@ const chat: ChatHost = {
   },
   // 网页上引的那段：回到右栏网页里那几句、亮一下（引用留在当前对话）
   openQuoteSource: (url, text) => app().openWebAt(fragmentUrl(url, text)),
+  // @ 点名的那颗胶囊（输入框里、发出去的那条里）：打开那篇（PDF、HTML 照它们自己的开法）
+  openMention: (m) => app().openFile(m.path),
 }
 
 function SideRow(o: SideAnswerRow) {

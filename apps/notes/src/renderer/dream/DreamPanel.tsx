@@ -17,10 +17,10 @@ import { actOn, openDream, setCur, stepDream, undoItem, useDreamNav } from './na
 import { crumbOf, dreamIcon } from './DreamTab'
 import { bodyEdits, dreamWhen, errText, GROUPS, pendingOf, takenSay } from './useDream'
 import { actNames, Evidence, groupBy, JudgeLine, WikiLine } from './evidence'
+import { EntryActs } from './entry-acts'
 import { dreamDoes, type DreamSettings } from '../../shared/dream-settings'
 import { GrowthSide, NightThumb } from '../growth/GrowthSide'
 import { loadGrowth, setGrowth, useGrowth } from '../growth/store'
-import { app } from '../ctx/actions'
 
 const ICONS: Record<DreamGroup, CodiconName> = { attach: 'file-media', file: 'inbox', viz: 'graph', link: 'link', unsure: 'question', recheck: 'circle-slash', dup: 'copy', week: 'edit', alias: 'tag', entry: 'book' }
 
@@ -361,10 +361,17 @@ function Detail(props: { item: DreamItem; index: number; total: number; base: st
   const shown = props.file ?? rows?.[0]?.path ?? null
   return (
     <div className="dd" data-testid="dream-detail" ref={box}>
-      <div className="pv-k">{`${GROUPS[item.group]} · 第${props.index + 1}条，共${props.total}条 · ${dup ? '只是提醒' : `改了${n}个文件`}`}</div>
+      {/* 一段一段不折开，放不下只在「 · 」处换行（梦游对照复审：「改了1」和「个文件」被折开） */}
+      <div className="pv-k">
+        {[GROUPS[item.group], `第${props.index + 1}条，共${props.total}条`, dup ? '只是提醒' : `改了${n}个文件`].map((x, i) => (
+          <Fragment key={i}>
+            {i ? ' · ' : ''}
+            <span>{x}</span>
+          </Fragment>
+        ))}
+      </div>
       {item.oldImages && <OldImagesSummary info={item.oldImages} />}
-      {/* Wiki 链接的为什么、原话在中间的条目头上（DESIGN.v3 2.5），小卡只留第几条、改了哪几个文件和按钮 */}
-      {!item.wiki && (item.judged || item.entry || item.alias) && <div className="dwhy">{item.why}</div>}
+      {/* 为什么在中间的条目头上（DESIGN.v3 2.5、2.7a），小卡不再写一遍；Wiki 链接的原话也在中间 */}
       {!item.wiki && <Evidence item={item} />}
       {dup && !item.oldImages && !item.entry && (
         <button className="dchg" data-testid="dream-change" onClick={() => openDream(item.id)}>
@@ -383,9 +390,9 @@ function Detail(props: { item: DreamItem; index: number; total: number; base: st
           </span>
         </button>
       ))}
-      {item.entry && <EntryWhere entry={item.entry} />}
+      {item.entry && <EntryWhere item={item} file={props.file ?? null} />}
       {item.state === 'pending' && item.entry ? (
-        <EntryActs item={item} busy={props.busy} />
+        <EntryActs item={item} busy={props.busy} className="pv-cb" testId="dream-panel-entry" />
       ) : item.state === 'pending' ? (
         item.commit ? (
           // 收不收那一套（task-eavzx）：跟 AI 说（梦游那一家的标志，左栏窄只留图标）……… 不要 · 收下，顺序和中间一样；中间已有实心的，这颗描边
@@ -430,65 +437,27 @@ function Detail(props: { item: DreamItem; index: number; total: number; base: st
   )
 }
 
-/** 词条页建议：哪几篇提到它（点了打开） */
-function EntryWhere(props: { entry: NonNullable<DreamItem['entry']> }) {
-  const { entry } = props
+/**
+ * 词条页建议：哪几篇提到它，一篇一行（同上面文件行的样子：图标、名字最多两行、下一行在哪个文件夹）；
+ * 点了中间右边换成这篇（左边一直是第一篇），中间开着的两篇亮着（梦游对照复审：以前连成一段，长文件名按字母断成几行）
+ */
+function EntryWhere(props: { item: DreamItem; file: string | null }) {
+  const { entry, files } = { entry: props.item.entry!, files: props.item.files }
+  const right = props.file && props.file !== files[0] && files.includes(props.file) ? props.file : files[1]
   return (
     <div className="dentry" data-testid="dream-entry-notes">
-      <span className="k">{t('提到它的')}</span>
-      {entry.notes.slice(0, 5).map((p, i) => (
-        <Fragment key={p}>
-          <a onClick={() => app().openFile(p)}>{titleOf(p)}</a>
-          {i < Math.min(5, entry.notes.length) - 1 && <span className="sep">·</span>}
-        </Fragment>
+      <span className="k">{t('提到它的{n}篇', { n: entry.count })}</span>
+      {files.slice(0, 5).map((p, i) => (
+        <button key={p} className={'dchg' + (i === 0 || p === right ? ' on' : '')} data-testid="dream-mention" onClick={() => openDream(props.item.id, i === 0 ? (right ?? undefined) : p)}>
+          <Codicon name="file-text" size={14} />
+          <span className="tx">
+            <span>{titleOf(p)}</span>
+            <i className="p">{crumbOf(p, [], props.item)}</i>
+          </span>
+        </button>
       ))}
       {entry.count > 5 && <span className="more">{t('等{n}篇', { n: entry.count })}</span>}
     </div>
-  )
-}
-
-/** 词条页建议的按钮：「建词条页」（AI 起草、一次提交，底栏能撤销）/「不要」（以后不再建议） */
-function EntryActs(props: { item: DreamItem; busy: boolean }) {
-  const { item } = props
-  const [making, setMaking] = useState(false)
-  const [err, setErr] = useState('')
-  const make = async () => {
-    setMaking(true)
-    setErr('')
-    try {
-      const u = await window.cn.relatedEntry(item.entry!.name, item.files[0] ?? '')
-      app().openFile(u.b)
-      const n = new Set((u.linked ?? []).map((l) => l.path)).size
-      const say = n
-        ? t('建好了词条页《{name}》，{n}篇里提到它的字链过来了；拿不准的{k}处列在那几篇右栏「相关」的「像但还没连的」里，你来定', { name: titleOf(u.b), n, k: u.unsure?.length ?? 0 })
-        : t('建好了词条页《{name}》：开头几句是 AI 起草的，下面嵌进库里讲它的段', { name: titleOf(u.b) })
-      app().noticeUndo(say, () =>
-        void window.cn.relatedUndo(u).then(
-          () => app().notice(t('词条页撤销了，几篇原文回到建之前，一字不差')),
-          (e: Error) => app().notice(errText(e)),
-        ),
-      )
-      await actOn('take', item)
-    } catch (e) {
-      setErr(errText(e))
-    } finally {
-      setMaking(false)
-    }
-  }
-  return (
-    <>
-      <div className="pv-acts">
-        <button className="btn btn-sm" disabled={props.busy || making} onClick={() => void make()} data-testid="dream-entry-make">
-          <Codicon name={making ? 'loading' : 'book'} size={14} className={making ? 'spin' : undefined} />
-          {making ? t('正在起草…') : t('建词条页')}
-        </button>
-        <button className="btn btn-sm" disabled={props.busy || making} onClick={() => void actOn('drop', item)}>
-          <Codicon name="close" size={14} />
-          {t('不要')}
-        </button>
-      </div>
-      {err && <p className="derr">{err}</p>}
-    </>
   )
 }
 

@@ -62,9 +62,19 @@
 .cn-findbar button:hover:not(:disabled) {
   background: var(--fill);
 }
-.cn-findbar button.on {
+.cn-findbar button.on,
+.cn-findbar button.on:hover:not(:disabled) {
   background: var(--fill2);
   color: var(--t1);
+}
+/* AI 对话里找（BoardFind toText）：条开着时对话顶上让出条的高度（上 14 + 条 40 + 8），第一条里搜到的字不被条盖住、滚过去也停在条下面；
+   对话目录那列短横线挪到条下面（和文档里目录从 64 起一样） */
+.msgs-box.finding > .msgs {
+  padding-top: 62px;
+  scroll-padding-top: 62px;
+}
+.msgs-box.finding .chat-toc-wrap {
+  top: 62px;
 }
 .cn-findbar button:disabled {
   opacity: 0.4;

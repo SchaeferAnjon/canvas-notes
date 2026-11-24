@@ -5,7 +5,10 @@
 import { expect, type Page, test } from '@playwright/test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { GLASS_MAX, GLASS_MIN } from '../../../packages/design/src/glass'
+import { GLASS_DEFAULT, GLASS_MAX, GLASS_MIN } from '../../../packages/design/src/glass'
+
+/** 透明度 v 时天青（浅色，默认 80% 不透明）面板的不透明度：0 到 50 从 100% 匀着降到 80%，50 到 100 再匀着降到 64%（@cn/design/glass） */
+const op = (v: number) => Math.round(v <= GLASS_DEFAULT ? 100 - (20 * v) / GLASS_DEFAULT : 80 - (16 * (v - GLASS_DEFAULT)) / (GLASS_MAX - GLASS_DEFAULT))
 import { launch, type Running } from './app'
 
 const FILES = { '写作/小论文计划.md': '# 小论文计划\n\n截稿前把实验和初稿弄完。\n' }
@@ -27,7 +30,7 @@ const alphas = (page: Page) =>
     return { side: a('.win > .side'), center: a('.win > .center') }
   })
 
-const saved = (run: Running) => JSON.parse(readFileSync(join(run.userData, 'settings.json'), 'utf8')).appearance.glass as number
+const saved = (run: Running) => JSON.parse(readFileSync(join(run.userData, 'settings.json'), 'utf8')).appearance.glassLevel as number
 
 async function openLook(page: Page) {
   await page.keyboard.press('Meta+Comma')
@@ -46,12 +49,12 @@ test('拖面板透明度：窗口跟着变、存下、重开记得', async () =>
   try {
     const { page } = run
     await expect(page.locator('html')).toHaveAttribute('data-glass', '')
-    // 默认：用户认可的那版（天青浅色，面板 80% 不透明，透 20%）
+    // 默认：用户认可的那版（天青浅色，面板 80% 不透明，透 20%），滑杆在正中 50
     expect(await alphas(page)).toEqual({ side: 80, center: 80 })
     const { slider, row } = await openLook(page)
-    await expect(slider).toHaveValue('0')
+    await expect(slider).toHaveValue(String(GLASS_DEFAULT))
     await expect(slider).toBeEnabled()
-    await expect(row.locator('.gl-val')).toHaveText('20%')
+    await expect(row.locator('.gl-val')).toHaveText(`${GLASS_DEFAULT}%`)
     await expect(row.getByRole('button', { name: '恢复默认' })).toBeHidden()
 
     // 真拖：按住滑块拖到最右（最透）
@@ -64,8 +67,8 @@ test('拖面板透明度：窗口跟着变、存下、重开记得', async () =>
     await page.mouse.move(b.x + b.width + 30, b.y + b.height / 2, { steps: 5 })
     await page.mouse.up()
     await expect(slider).toHaveValue(String(GLASS_MAX))
-    await expect(row.locator('.gl-val')).toHaveText(`${20 + GLASS_MAX}%`)
-    expect(await alphas(page)).toEqual({ side: 80 - GLASS_MAX, center: 80 - GLASS_MAX })
+    await expect(row.locator('.gl-val')).toHaveText(`${GLASS_MAX}%`)
+    expect(await alphas(page)).toEqual({ side: op(GLASS_MAX), center: op(GLASS_MAX) })
     // 停手 300ms 后存进设置
     await expect.poll(() => saved(run)).toBe(GLASS_MAX)
 
@@ -73,7 +76,8 @@ test('拖面板透明度：窗口跟着变、存下、重开记得', async () =>
     await slider.focus()
     await page.keyboard.press('Home')
     await expect(slider).toHaveValue(String(GLASS_MIN))
-    expect(await alphas(page)).toEqual({ side: 80 - GLASS_MIN, center: 80 - GLASS_MIN })
+    expect(await alphas(page)).toEqual({ side: op(GLASS_MIN), center: op(GLASS_MIN) })
+    await expect(row.locator('.gl-val')).toHaveText(`${GLASS_MIN}%`)
     await page.keyboard.press('ArrowRight')
     await page.keyboard.press('ArrowRight')
     await expect(slider).toHaveValue(String(GLASS_MIN + 2))
@@ -81,9 +85,9 @@ test('拖面板透明度：窗口跟着变、存下、重开记得', async () =>
 
     // 恢复默认
     await row.getByRole('button', { name: '恢复默认' }).click()
-    await expect(slider).toHaveValue('0')
+    await expect(slider).toHaveValue(String(GLASS_DEFAULT))
     expect(await alphas(page)).toEqual({ side: 80, center: 80 })
-    await expect.poll(() => saved(run)).toBe(0)
+    await expect.poll(() => saved(run)).toBe(GLASS_DEFAULT)
 
     // 拖到最左（最实），关掉设置再退出：重开还是最实
     await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
@@ -95,10 +99,10 @@ test('拖面板透明度：窗口跟着变、存下、重开记得', async () =>
     await expect.poll(() => saved(run)).toBe(GLASS_MIN)
     await run.close({ keep: true })
     again = await launch(FILES, { CN_USER_DATA: run.userData })
-    expect(await alphas(again.page)).toEqual({ side: 80 - GLASS_MIN, center: 80 - GLASS_MIN })
+    expect(await alphas(again.page)).toEqual({ side: op(GLASS_MIN), center: op(GLASS_MIN) })
     const o = await openLook(again.page)
     await expect(o.slider).toHaveValue(String(GLASS_MIN))
-    await expect(o.row.locator('.gl-val')).toHaveText(`${20 + GLASS_MIN}%`)
+    await expect(o.row.locator('.gl-val')).toHaveText(`${GLASS_MIN}%`)
   } finally {
     if (again) await again.close()
     rmSync(join(run.userData, '..'), { recursive: true, force: true })
@@ -107,6 +111,7 @@ test('拖面板透明度：窗口跟着变、存下、重开记得', async () =>
 
 test('A 照 VS Code、不用图：面板是实的，滑杆灰着', async () => {
   test.setTimeout(90_000)
+  // 2026-11-24 前存的老键 glass（在默认上再透几个百分点）：8 换成新数 75，面板 72% 不透明和以前一样
   const run = await launch(FILES, {}, lookOf({ winBg: 'none', glass: 8 }))
   try {
     const { page } = run

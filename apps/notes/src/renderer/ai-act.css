@@ -39,6 +39,10 @@
 .ai-act-doc .ai-actbar {
   top: 4px;
 }
+/* 白板：和右上角「80% · 收件箱」那组同一行（离顶 16，中线对齐） */
+.ai-act-board .ai-actbar {
+  top: 16px;
+}
 /* 「改好了 · +20 −0」：数字照改动卡上色、等宽 */
 .ai-actbar .n {
   font-variant-numeric: tabular-nums;
@@ -233,7 +237,7 @@
 .db-board.ai-on .db-hint {
   visibility: hidden;
 }
-/* 右栏网页：外圈画在网页上面（网页是另一个进程画的，叠在它上面） */
+/* 网页（右栏、中间栏）：外圈画在网页上面（网页是另一个进程画的，叠在它上面） */
 .ai-act-web {
   z-index: 3;
 }

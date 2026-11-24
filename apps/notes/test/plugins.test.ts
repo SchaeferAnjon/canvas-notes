@@ -208,6 +208,7 @@ describe('插件表：权限、开关、谁能调', () => {
       aiLabel: () => 'Claude Code · Haiku',
       sendApp: () => undefined,
       filesChanged: () => undefined,
+      appAlive: () => true,
       onQuit: () => undefined,
     }
     const r = new PluginRegistry(deps, { read: () => state, write: (s) => written.push(JSON.parse(JSON.stringify(s))) })

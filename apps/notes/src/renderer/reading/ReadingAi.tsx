@@ -31,6 +31,7 @@ import { ChangeBar } from '@cn/ai-chat/answer-bar'
 import { jumpDone, useChatJump } from '@cn/ai-chat/chat-jump'
 import { app } from '../ctx/actions'
 import { readKey, readLabel } from '../ai-place'
+import { setDraft } from '../ai-web-stay'
 import { fmtTime } from '../../shared/video'
 import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from '@cn/ai-chat/side/marks'
 import { AskBox } from '@cn/ai-chat/side/AskBox'
@@ -122,6 +123,12 @@ export function ReadingAi(props: {
   const c = useComposer(props.onNotice)
   const input = c.text
   const setInput = c.setText
+  // 输入框有字、带着引用：换页时这段不算空着，不换走（AI 对话绑页面，AiDock）
+  const drafting = !!input.trim() || c.mats.length > 0
+  useEffect(() => {
+    setDraft(readKey(pdf), drafting)
+    return () => setDraft(readKey(pdf), false)
+  }, [pdf, drafting])
   const box = c.ta
   // 谁来答 · 模型 · effort（CN-91 方向 C）：模型和 effort 记在这份 PDF 的对话里，没选过用设置 › AI「AI 对话」那一行
   const cp = useConvPick<AiPick, EngineInfo>(r.state.pick, (p) => R.setPick(pdf, p), props.onNotice)
@@ -578,7 +585,7 @@ export function ReadingAi(props: {
     <aside className="right aicell reading-ai ai" aria-label="边读边问 AI" hidden={props.hidden}>
       <AiHead label={label} nav={props.nav} newTip="新对话：现在这段收进对话菜单，能切回；笔记都留着" newDisabled={R.busy(r)} onNew={() => void R.newChat(pdf)} older={props.nav.away ? undefined : olderItems} />
       {/* 看得到（A 组读 PDF 小样）：这份 PDF · 第几页 | ✓ 读过全文几页 | 笔记几轮（还没记过不画）；看别处的对话时换成「这是在…问的」；下格开着旁支时藏起来 */}
-      {props.nav.away ? (
+      {props.nav.away && !props.nav.onPage ? (
         <AwayBar nav={props.nav} />
       ) : (
       <Sees testid="reading-sees">

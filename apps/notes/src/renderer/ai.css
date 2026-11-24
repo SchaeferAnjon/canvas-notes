@@ -9,7 +9,6 @@
   left: 34px;
   top: 40px;
   z-index: 30;
-  width: 300px;
   max-width: calc(100% - 40px);
   padding: 6px;
   border-radius: 12px;
@@ -81,8 +80,113 @@
   max-height: 320px;
   overflow-y: auto;
 }
+/* 对话菜单按页归组（2026-11-24）：316 宽；「最近在别处问的」一行一页：页名 13 --t1 + 路径 12 --t3（放不下先省略路径）+ 右边「3 段 · 今天 13:35」+ 展开箭头 22 */
+.convmenu {
+  width: 316px;
+}
+.convmenu .pgrow {
+  display: flex;
+  align-items: center;
+}
+.convmenu .it.pg {
+  flex: 1;
+  min-width: 0;
+}
+.convmenu .it.pg .lb {
+  flex: none;
+  max-width: 45%;
+}
+.convmenu .path {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--t3);
+}
+.convmenu .fold {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t3);
+}
+.convmenu .fold:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.convmenu .fold.open svg {
+  transform: rotate(90deg);
+}
+/* 展开的几段、全部对话里的一段：往里缩一格，字 --t2 */
+.convmenu .it.sub {
+  padding-left: 22px;
+  color: var(--t2);
+}
+.convmenu .it.more .lb {
+  color: var(--t3);
+}
+/* 全部对话：宽 380，顶上一个搜框（28 高、圆角 6、--fill 底），组头 12 --t2「课程 › study project 2 › 情绪识别调研 · 3 段」 */
+.convmenu.wide {
+  width: 380px;
+}
+.convmenu.wide .all {
+  max-height: 380px;
+}
+.convmenu .find {
+  display: block;
+  width: calc(100% - 12px);
+  height: 28px;
+  margin: 2px 6px 6px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  font-size: 13px;
+  color: var(--t1);
+  outline: none;
+}
+.convmenu .find:focus {
+  box-shadow: 0 0 0 1px var(--acc-ring);
+}
+.convmenu .agrp + .agrp {
+  margin-top: 4px;
+}
+.convmenu .gh {
+  display: flex;
+  min-width: 0;
+  padding: 4px 8px 2px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.convmenu .gh .path {
+  flex: 0 1 auto;
+  white-space: pre;
+}
+.convmenu .gh .nm {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--t1);
+}
+.convmenu .gh .n {
+  flex: none;
+  white-space: pre;
+  color: var(--t3);
+}
+.convmenu .none {
+  padding: 8px 8px 8px 30px;
+  font-size: 12px;
+  color: var(--t3);
+}
 
-/* 看别处的对话（D 组小样 .away）：「看得到」那一行换成 history 13 +「这是在「X」问的」+ 右边 --acc-t「回到「周记」」 */
+/* 看别处的对话（D 组小样 .away）：「看得到」那一行换成 history 13 +「这是在《X》问的」+ 右边 --acc-t「回到《周记》」 */
 .away {
   flex: none;
   display: flex;
@@ -127,7 +231,7 @@
   flex: none;
   color: var(--t3);
 }
-/* 从引用 ⌘点开了中间那一篇、右栏留在原来那段（task-3e53q 已定 3）：右边一颗按钮「切到《X》的 AI ⌥⌘J」，名字太长时截短 */
+/* 换了页面、右栏留在原来那段（AI 对话绑页面方向 A）：右边一颗按钮「这页有 N 段对话 · 打开 ⌥⌘J」或「切到《X》的 AI ⌥⌘J」，放不下时截短 */
 .away.stay button {
   display: flex;
   align-items: center;
@@ -408,6 +512,20 @@
     background: var(--acc-soft);
   }
   to {
+    background: transparent;
+  }
+}
+
+/* 换页时接上了这一页的对话（AI 对话绑页面方向 A）：胶囊强调色淡底闪 1.4 秒 */
+.aih .conv.joined {
+  animation: conv-joined 1.4s ease-out;
+}
+@keyframes conv-joined {
+  0%,
+  60% {
+    background: var(--acc-soft);
+  }
+  100% {
     background: transparent;
   }
 }

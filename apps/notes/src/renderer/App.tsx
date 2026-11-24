@@ -102,6 +102,7 @@ import { WhereHost } from './web-notes/Where'
 import { anchorOf, boxIntoConvo, CLIPPED, clipWeb, ensureAsk, type NoticeAct, pickTarget, setWebNotesHost } from './web-notes/flow'
 import { readSrc } from '../shared/ai-chats'
 import { convoFor } from './ai-web-stay'
+import { loadPages } from './ai-pages'
 import { FullChip } from './web/FullChip'
 import { refreshWebNotes, setBridgeCenter, setMarkHandler } from './web-notes/bridge'
 import { targetOf, useTargets } from './web-notes/target'
@@ -114,6 +115,8 @@ import { DeskDialogHost, DeskPanel, openDeskDialog } from './read-along/Desks'
 import { backToBefore, deskChanged, openDesk, quietAway, setDeskHost } from './read-along/desk-ops'
 import { awayNow, flushPositions, loadAway, loadDesks, loadPositions, noteCoOpen, notesOfUrl, pairOf, rightPage, setPairNotes, useAway, useDesks, usePairs } from './read-along/store'
 import { WebTab } from './web/WebTab'
+import { touchWc, useLastWeb } from './web/web-pages'
+import { type WebSeen, webPages } from '../shared/web-pages'
 import { CaptureHost } from './mindmap/CaptureSheet'
 import { captureHere } from './mindmap/place'
 import { ImportHost } from './importer/ImportSheet'
@@ -214,6 +217,8 @@ export function App() {
 function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: VaultInfo): void }) {
   const [settings, setSettings, systemDark] = useAppSettings()
   const t = useT()
+  // 「这段 → 那页」表（AI 对话绑页面）：这个库的读进来；网页上引用进哪段要用
+  useEffect(() => void loadPages().catch((e: unknown) => console.error('读「这段 → 那页」表失败', e)), [])
   // 设置 › 文档和白板：字体、字号、行距、版心、白板点阵、拼写检查，改了开着的文档当场跟着变
   useEffect(() => applyEditorPrefs(settings.editor), [settings.editor])
   /** 设置面板开着哪一页（⌘, 打开） */
@@ -544,20 +549,34 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       const p = paneOf(e.target)
       if (p && p !== paneNow.current) setPane(p)
     }
-    // 点进右栏网页正文：宿主页面收不到 pointerdown、focusin，只有窗口的 blur，焦点落到 <webview> 上
+    /** 点进了这个网页的正文：它所在的栏成当前栏；在中间分屏的一格里时那一格成当前格（⇧⌘F、⌘W 都跟着它） */
+    const intoWeb = (w: Element) => {
+      on({ target: w } as unknown as Event)
+      // AI 默认操纵用户最后点进的那个网页（web/web-pages.ts）
+      const wc = Number((w as HTMLElement).dataset.wc)
+      if (Number.isFinite(wc)) touchWc(wc)
+      const slot = w.closest<HTMLElement>('main.center > .cslot[data-pane]')
+      if (slot && splitNow.current) goPane(Number(slot.dataset.pane) as Sp.PaneNo)
+    }
+    // 点进网页正文：宿主页面收不到 pointerdown、focusin，只有窗口的 blur，焦点落到 <webview> 上
     let t = 0
     const onBlur = (e: FocusEvent) => {
       if (e.target !== window) return
       clearTimeout(t)
       t = window.setTimeout(() => {
         const a = document.activeElement
-        if (a?.tagName === 'WEBVIEW') on({ target: a } as unknown as Event)
+        if (a?.tagName === 'WEBVIEW') intoWeb(a)
       })
     }
+    // 窗口不在前面时直接点进网页，窗口收不到 blur：主进程报是哪个网页拿到了焦点（web:focused）
+    const offWeb = window.cnWeb.onFocused((id) => {
+      const w = document.querySelector(`webview[data-wc="${id}"]`)
+      if (w) intoWeb(w)
+    })
     window.addEventListener('pointerdown', on, true)
     window.addEventListener('focusin', on, true)
     window.addEventListener('blur', onBlur)
-    return () => (clearTimeout(t), window.removeEventListener('pointerdown', on, true), window.removeEventListener('focusin', on, true), window.removeEventListener('blur', onBlur))
+    return () => (clearTimeout(t), offWeb(), window.removeEventListener('pointerdown', on, true), window.removeEventListener('focusin', on, true), window.removeEventListener('blur', onBlur))
   }, [])
   /** 竖条上点一格：看得见再点是收起，开着在后面是换到它，没开是开；开了的那一组成了当前栏 */
   const toggleView = (v: Dk.ViewId) => {
@@ -613,6 +632,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
    * 圆钮就当右栏没开视频（task-ajtr9）；右栏自己按中间标签切网页（web-tabs 的 owners），这里只认它现在显示的
    */
   const [rightWeb, setRightWeb] = useState<string | null>(null)
+  /** 用户最后点进、切到的那个网页（AI 默认操纵它，web/web-pages.ts） */
+  const lastWebKey = useLastWeb()
   /** 右栏开一本书读到的地方（点开配好对的笔记、对着看的菜单、书桌，task-kbnc0） */
   const [readReq, setReadReq] = useState<BookRequest | null>(null)
   /** 右栏网页借给书桌的本事、问它现在读到哪 */
@@ -1158,7 +1179,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const t = tabs[i]
     if (!t) return
     if (tabs.length === 1 && t.type === 'home') return
-    const blank = t.type === 'note' && freshNotes.current.has(t.path) && [...NoteDoc.open].find((d) => d.path === t.path)?.view.state.doc.toString().trim() === `# ${titleOf(t.path)}`
+    const blank = t.type === 'note' && freshNotes.current.has(t.path) && !tabs.some((x) => x.id !== id && x.type === 'note' && x.path === t.path) && [...NoteDoc.open].find((d) => d.path === t.path)?.view.state.doc.toString().trim() === `# ${titleOf(t.path)}`
     const left = leaveTabs([t])
     setTabState((s) => {
       const rest = s.tabs.filter((x) => x.id !== id)
@@ -1242,9 +1263,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   function leaveTabs(closing: Tab[]): Map<string, Promise<string | null>> {
     /** 标签 id → 关掉以后那篇在哪（跟着标题改了名就是新名字）；空的新笔记扔了是 null */
     const out = new Map<string, Promise<string | null>>()
+    const gone = new Set(closing.map((t) => t.id))
     for (const t of closing) {
       if (t.type !== 'note') continue
-      const fresh = freshNotes.current.has(t.path)
+      // 另一个标签还开着这一篇（对照看收回、分屏关掉一份）：不算关掉这篇，空着也不扔，留到最后一份关掉时再看
+      const kept = tabsNow.current.some((x) => !gone.has(x.id) && x.type === 'note' && x.path === t.path)
+      const fresh = !kept && freshNotes.current.has(t.path)
       const leave = noteLeavers.get(t.id)
       const done = (async () => {
         const now = leave ? await leave() : t.path
@@ -2507,6 +2531,13 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     webOpen: Dk.isOpen(dockShown, 'web'),
     webUrl: rightWeb,
     openWeb: openWebForAi,
+    openWide: (url: string) => openWide(url),
+    webPages: () => webPagesNow(),
+    webBox: () => {
+      const g = Dk.findView(dockNow.current, 'web')?.group
+      const r = g && document.querySelector(`.dview[data-view="${g.active}"]`)?.getBoundingClientRect()
+      return r && r.width > 0 ? { w: r.width, h: r.height } : null
+    },
     closeUnder: (path: string) =>
       setTabState((s) => {
         const tabs = tabsOutside(s.tabs, path)
@@ -2954,6 +2985,21 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const rightOpen = Dk.hasSide(dockShown)
   /** 当前栏那一组收起了：回中间 */
   const livePane: Pane = pane === 'left' && sidebarHidden ? 'center' : pane !== 'left' && pane !== 'center' && !Dk.findGroup(dockShown, pane) ? 'center' : pane
+  /**
+   * AI 能操纵的网页（shared/web-pages.ts）：中间每一格前面的网页标签、右栏网页（在 AI 后面也算），
+   * 默认是用户最后点进、切到的那个（看得见的）。「看得到」那一行、交给 AI 的上下文、主进程找 webContents 都按它
+   */
+  const webPagesNow = (): WebSeen[] => {
+    const center: { key: string; url: string; title?: string; pane: Sp.PaneNo }[] = []
+    const add = (id: string | null, at: Sp.PaneNo) => {
+      const t = id ? tabs.find((x) => x.id === id) : undefined
+      if (t?.type === 'web') center.push({ key: t.id, url: t.url, ...(t.title ? { title: t.title } : {}), pane: at })
+    }
+    add(shown, split ? focusPane : 0)
+    if (split) add(otherShown, focusPane === 0 ? 1 : 0)
+    const rightOpen = Dk.isOpen(dockShown, 'web')
+    return webPages({ right: rightOpen ? { open: true, shown: Dk.isShown(dockShown, 'web'), url: rightWeb } : null, center, split: split?.dir ?? null, focus: focusPane, live: livePane === 'center', last: lastWebKey })
+  }
   // 两条图标栏，加上 B 的缝：各栏之间一道 6，中间在最右时它和右图标栏之间也一道 6（shell/Dock.tsx 的 gridTracks），
   // 左栏收起时最左一栏左边也有一道 6（左栏开着时那道缝算在左栏宽里）。不算进去中间就少 6，变成 414
   const sideCols = Dk.sideCols(dockShown)
@@ -3485,7 +3531,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           const p = Sp.paneOf(split, t.id)
           return (
           // 一个标签一格位置（中间栏分屏）：分着时 .p0 / .p1 摆到那一格，挪格只换样式、不重新挂（网页、PDF 不重新载入）
-          <div key={t.id} className={'cslot' + (split ? ` p${p}` : '')} data-pane={p} hidden={!seen(t.id)} onPointerDownCapture={split ? () => goPane(p) : undefined} onFocusCapture={split ? () => goPane(p) : undefined}>
+          <div key={t.id} className={'cslot' + (split ? ` p${p}` : '')} data-pane={p} data-on={split && p === focusPane ? '' : undefined} hidden={!seen(t.id)} onPointerDownCapture={split ? () => goPane(p) : undefined} onFocusCapture={split ? () => goPane(p) : undefined}>
           <ActsSlot.Provider value={p === 1 ? acts2El : actsEl}>
           <PaneFocus.Provider value={!split || p === focusPane}>
           <PanelGuard area={`tab:${t.type}`} label={`「${tabName(t)}」`} shape="pane" hidden={!seen(t.id)}>
@@ -3599,6 +3645,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           ) : t.type === 'web' ? (
             <WebTab
               key={t.id}
+              id={t.id}
               url={t.url}
               active={seen(t.id)}
               restored={restoredWeb.has(t.id)}
@@ -3750,6 +3797,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             notes,
             webUrl: aiState.webUrl,
             webOpen: Dk.isOpen(dockShown, 'web'),
+            webPages: webPagesNow(),
             context: (mentions) => contextOf(aiState, mentions),
             onOpen: (p) => openNote(p),
             onShowHistory: () => openView('history'),

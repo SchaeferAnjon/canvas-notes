@@ -146,6 +146,9 @@
   border-radius: 0 0 8px 8px;
   background: var(--fill2);
   container: dd / inline-size;
+  /* 没有空格的长文件名（YitingWei_2026_J52_SAGE_…）放不下时在字中间折，不把小卡撑出横向滚动条 */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .di.on:has(+ .dd) {
   border-radius: 8px 8px 0 0;
@@ -153,6 +156,9 @@
 .dd .pv-k {
   font-size: 12px;
   color: var(--t3);
+}
+.dd .pv-k > span {
+  white-space: nowrap;
 }
 .dd .pv-why {
   color: var(--t2);
@@ -927,7 +933,7 @@
   outline: none;
 }
 
-/* AI 判的几组（task-h7oy8）：组标题旁写谁判的；展开小卡里先一句理由，再两边原话（这篇 / 那篇各一行，名字在左、原话在右），最后一行判成哪一档和把握 */
+/* AI 判的几组（task-h7oy8）：组标题旁写谁判的；展开小卡里两边原话（理由在中间的条目头上）（这篇 / 那篇各一行，名字在左、原话在右），最后一行判成哪一档和把握 */
 .dg {
   white-space: nowrap;
 }
@@ -942,12 +948,6 @@
   color: var(--t3);
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.dd .dwhy {
-  color: var(--t2);
-  font-size: 13px;
-  line-height: 1.6;
-  margin: 4px 0 6px;
 }
 .dev {
   display: flex;
@@ -1029,31 +1029,15 @@
 }
 
 /* 词条页建议（梦游 Wiki 那节 C1）：提到它的几篇，点了打开 */
+/* 提到它的几篇：一行 12 --t3 组名，下面一篇一行（同上面的文件行 .dchg） */
 .dd .dentry {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 2px 6px;
-  margin: 0 0 8px;
+  margin: 4px 0 8px;
   font-size: 12px;
   line-height: 1.6;
-  color: var(--t2);
 }
-.dd .dentry .k {
-  color: var(--t3);
-}
-.dd .dentry a {
-  color: var(--t1);
-  cursor: pointer;
-  text-decoration: underline;
-  text-decoration-color: var(--line2);
-  text-underline-offset: 2px;
-}
-.dd .dentry a:hover {
-  text-decoration-color: var(--acc);
-}
-.dd .dentry .sep,
+.dd .dentry .k,
 .dd .dentry .more {
+  display: block;
   color: var(--t3);
 }
 .dd .derr {

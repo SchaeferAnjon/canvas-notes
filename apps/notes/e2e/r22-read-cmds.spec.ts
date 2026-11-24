@@ -209,6 +209,8 @@ test('读 PDF、看视频那一格里命令结果下面：没有「还是不懂�
     await page.getByTestId('tab-list').locator('.tab', { hasText: '第3讲 线性映射.pdf' }).getByRole('button', { name: '关闭标签' }).click()
     await openVideo(page)
     await openAi(page)
+    // 刚才在 PDF 上问过：换页留着那段（AI 对话绑页面），点头上那颗切到这个视频的 AI
+    await rchat(page).getByTestId('ai-follow').click()
     // 看得到写这个视频叫什么（task-6cxtc：写页面的名字，不写整串网址；也不是网址最后一截「watch」）
     await expect(rchat(page).getByTestId('reading-sees')).toHaveText(/网页 · Linear transformations and matrices/)
     await runCmd(page, '视频要点带时间')

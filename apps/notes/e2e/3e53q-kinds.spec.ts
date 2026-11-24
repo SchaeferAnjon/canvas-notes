@@ -300,7 +300,7 @@ test('读 PDF 的旁支里 ⌘点一篇笔记：右栏还是读 PDF 的 AI、旁
     await expect(side(page)).toBeVisible()
     await expect(chat(page)).toBeHidden()
     const away = reader(page).getByTestId('ai-away')
-    await expect(away).toContainText('这是在「第3讲.pdf」问的')
+    await expect(away).toContainText('这是在《第3讲.pdf》问的')
     await expect(away.getByTestId('ai-follow')).toHaveText('切到《小论文计划》的 AI⌥⌘J')
     // 按 ⌥⌘J：右栏换成《小论文计划》的 AI 对话
     await page.keyboard.press('Alt+Meta+KeyJ')
@@ -333,7 +333,7 @@ test('右栏 AI 对话里 ⌘点一篇：右栏留在「随手」那段，点头
     await expect(chat(page).getByTestId('ai-conv')).toContainText('随手')
     await expect(msg).toBeVisible()
     const away = chat(page).getByTestId('ai-away')
-    await expect(away).toContainText('这是在「随手」问的')
+    await expect(away).toContainText('这是在《随手》问的')
     await away.getByTestId('ai-follow').click()
     await expect(chat(page).getByTestId('ai-conv')).toContainText('小论文计划')
     await expect(chat(page).getByTestId('ai-away')).toHaveCount(0)

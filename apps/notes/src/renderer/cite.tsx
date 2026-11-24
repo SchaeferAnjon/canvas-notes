@@ -25,13 +25,12 @@ import { when } from '../shared/when'
 import { parseFragment } from '../shared/web-link'
 import { titleOf } from '../shared/layout'
 import { citeAuto } from './cite-names'
-import { stayAi } from './ai-stay'
 import { loadBaseCtx } from './base/layout-ctx'
 import { openRecord } from './base/record-open'
 import { app } from './ctx/actions'
 import { linkAt } from './ctx/editor-menu'
 import { copy } from './ctx/menu'
-import { usePdfPage } from './doc-board/pdf-page'
+import { usePdfPage, usePdfQuote } from './doc-board/pdf-page'
 import { Popover } from './editor-host'
 import { goToLines, whenShown } from './goto-line'
 import { keyFor } from './keys'
@@ -140,12 +139,10 @@ function revealCard(path: string, id: string) {
 /**
  * 打开引用。网页没有「开在后面」：⇧⌘、⌥⌘ 都在中间栏开；笔记、PDF 的 ⌥⌘ 和 ⌘ 一样。
  * 笔记带了几行 / 标题 / 块：开好后滚到那里、闪一下；找不到那一处底栏说一句（照样开着）。
- * from：cite 是 AI 回答里点的（中间换了一篇右栏 AI 不跟着换，已定 3）；doc 是文档里 ⌘点链接（照旧跟着换）
  */
-export function openCite(c: Found, how: CiteHow = 'open', label = '', from: 'cite' | 'doc' = 'cite') {
+export function openCite(c: Found, how: CiteHow = 'open', label = '') {
   const a = app()
   const behind = how === 'behind'
-  if (from === 'cite' && !behind && c.kind !== 'chat' && c.kind !== 'row') stayAi()
   const back = (path: string) => behind && a.noticeBehind(t('《{name}》开在后面的标签里了', { name: /\.md$/i.test(path) ? titleOf(path) : baseName(path) }), (x) => 'path' in x && x.path === path)
   switch (c.kind) {
     case 'missing':
@@ -318,18 +315,27 @@ function kindName(c: Found): string | null {
 /** PDF 那一页的缩略图：按卡宽画，框在的那一截滚到当中，框画出来（强调色描边 + 淡底）；没框是那页上面一截 */
 const THUMB_H = 132
 function PdfThumb({ c }: { c: PdfCite }) {
-  const page = c.page ?? 1
-  const url = usePdfPage(c.path, c.mtimeMs, page, 720)
+  // 带着引的那句（页码链接跳到段）：框出点了会跳到的那一段（peek.tsx 的 PageBody 同一个找法）
+  const q = usePdfQuote(c.path, c.mtimeMs, c.page ?? 1, c.rect ? undefined : c.text)
+  const page = q?.page ?? c.page ?? 1
+  const url = usePdfPage(q === undefined ? null : c.path, c.mtimeMs, page, 720)
   const [w, setW] = useState(0)
   const [ratio, setRatio] = useState(0)
   if (url === 'failed') return null
   const h = w * ratio
-  const r = c.rect
+  const r = c.rect ?? q?.rect
   const off = r && h > THUMB_H ? Math.min(Math.max(0, (r[1] + r[3] / 2) * h - THUMB_H / 2), h - THUMB_H) : 0
   return (
     <div className="thumb" ref={(el) => void (el && el.clientWidth !== w && setW(el.clientWidth))} data-testid="cite-thumb">
       {url && <img src={url} alt="" style={{ top: -off }} onLoad={(e) => setRatio(e.currentTarget.naturalHeight / e.currentTarget.naturalWidth)} />}
-      {r && ratio > 0 && <span className="box" style={{ left: `${r[0] * 100}%`, width: `${r[2] * 100}%`, top: r[1] * h - off, height: r[3] * h }} />}
+      {/* 按引的那句找到的那一段：框往外放 3（屏幕像素）、描边 1，小图上也不贴着字 */}
+      {r && ratio > 0 && (
+        <span
+          className={'box' + (c.rect ? '' : ' quote')}
+          data-testid="cite-thumb-box"
+          style={c.rect ? { left: `${r[0] * 100}%`, width: `${r[2] * 100}%`, top: r[1] * h - off, height: r[3] * h } : { left: `calc(${r[0] * 100}% - 3px)`, width: `calc(${r[2] * 100}% + 6px)`, top: r[1] * h - off - 3, height: r[3] * h + 6 }}
+        />
+      )}
     </div>
   )
 }
@@ -625,7 +631,7 @@ export function installCiteClicks() {
   // 文档里 ⌘点、链接卡「打开」、右键「打开」库里的链接（ctx/editor-menu.ts 的 openLinkHit 发来）：带 #L12、#标题 的开了滚到那里；库里没有的照旧开（新建）
   window.addEventListener('cn:open-link', (e) => {
     const d = (e as CustomEvent<{ note: string; href: string; label: string; local: string; behind?: boolean }>).detail
-    void findCite({ href: d.href, label: d.label }, d.note).then((c) => (c.kind === 'missing' ? app().openFile(d.local) : openCite(c, d.behind ? 'behind' : 'open', d.label, 'doc')))
+    void findCite({ href: d.href, label: d.label }, d.note).then((c) => (c.kind === 'missing' ? app().openFile(d.local) : openCite(c, d.behind ? 'behind' : 'open', d.label)))
   })
   // 白板卡上的链接：按下不拖卡、不选卡（点了是看引用）
   window.addEventListener(

@@ -5,7 +5,7 @@
  * ⌃\ 分屏、⌘1 / ⌘2 换格、⌘W 关当前格的、⌘O 打开落在当前格；同一篇两格一边打字另一边跟着、看法各看各的；重开软件布局还在。
  */
 import { _electron as electron, expect, test, type Locator, type Page } from '@playwright/test'
-import { readFileSync, rmSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import electronPath from 'electron'
 import { gitStatus, launch, openAi, tabOn } from './app'
@@ -321,6 +321,45 @@ test('对照看：一下分出右边那格用白板开同一篇；左边文档�
     await acts1.getByRole('tab', { name: '白板' }).click({ modifiers: ['Alt'] })
     await expect(center(page)).toHaveClass(/\bsplit row\b/)
     await expect(acts1.getByRole('tab', { name: '文档' })).toHaveAttribute('aria-selected', 'true')
+  } finally {
+    await run.close()
+  }
+})
+
+test('对照看收回时新建、还空着的笔记不扔（另一格还开着它）；最后一份关掉时空着照样进废纸篓', async () => {
+  const run = await launch({ '收件箱/旧的.md': '# 旧的\n' })
+  const { page, vault, trash } = run
+  const newBtn = page.locator('aside.side .vh').getByRole('button', { name: '新建笔记' })
+  const acts1 = page.getByTestId('tab-acts')
+  const file = (name: string) => join(vault, `收件箱/${name}.md`)
+  try {
+    await newBtn.click()
+    await expect(tabOn(page)).toHaveText('未命名')
+    await acts1.getByRole('button', { name: '对照看：另一格用白板开这一篇' }).click()
+    await expect(center(page)).toHaveClass(/\bsplit row\b/)
+    await expect(slot(page, 1).getByTestId('doc-board')).toBeVisible()
+    // 收回：白板那一份关掉，左边文档那一份还开着这一篇
+    await acts1.getByRole('button', { name: '收回对照' }).click()
+    await expect(center(page)).not.toHaveClass(/\bsplit\b/)
+    expect(await names(list1(page))).toEqual(['首页', '未命名'])
+    // 接着在留下的那份里写正文：写到盘上时废纸篓里什么都没有（以前收回那一下就把它扔了）
+    await slot(page, 0).locator('.cm-line').last().click()
+    await page.keyboard.type('正文')
+    await expect.poll(() => (existsSync(file('未命名')) ? readFileSync(file('未命名'), 'utf8') : null), { timeout: 10_000 }).toBe('# 未命名\n\n正文\n')
+    expect(readdirSync(trash)).toEqual([])
+
+    // 再新建一篇：对照看、收回以后它还算新建的，最后一份 ⌘W 关掉时空着就进废纸篓
+    await newBtn.click()
+    await expect(tabOn(page)).toHaveText('未命名 2')
+    await acts1.getByRole('button', { name: '对照看：另一格用白板开这一篇' }).click()
+    await expect(center(page)).toHaveClass(/\bsplit row\b/)
+    await acts1.getByRole('button', { name: '收回对照' }).click()
+    await expect(center(page)).not.toHaveClass(/\bsplit\b/)
+    await expect(tabOn(page)).toHaveText('未命名 2')
+    expect(existsSync(file('未命名 2'))).toBe(true)
+    await page.keyboard.press('Meta+w')
+    await expect.poll(() => existsSync(file('未命名 2')), { timeout: 10_000 }).toBe(false)
+    expect(readdirSync(trash).length).toBe(1)
   } finally {
     await run.close()
   }

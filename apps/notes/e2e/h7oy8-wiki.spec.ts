@@ -127,7 +127,7 @@ test('词条页只建议、点了才建：右栏「相关」顶上「建词条�
   await expect(sug).toContainText('还没有讲它的一篇', { timeout: 60_000 })
   await sug.click()
   await expect(panel.getByTestId('dream-entry-notes')).toContainText('提到它的')
-  await expect(panel.getByTestId('dream-entry-make')).toHaveText('建词条页')
+  await expect(panel.getByTestId('dream-panel-entry').locator('[data-act="accept"]')).toHaveText('建词条页')
   await page.screenshot({ path: test.info().outputPath('05-report-entry.png') })
   expect(existsSync(join(vault, '收件箱/海德堡.md'))).toBe(false)
   expect(existsSync(join(vault, '词条/海德堡.md'))).toBe(false)

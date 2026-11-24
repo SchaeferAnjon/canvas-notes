@@ -227,6 +227,8 @@ test('设置里改「AI 对话」：开着的读 PDF 面板和文档浮窗马上
     // 文档里的 AI 对话开着时（同一格，开着就还开着）去设置改「AI 对话」成 Codex：马上是 Codex
     await openNote(page, '随手记')
     await openAi(page)
+    // PDF 那段问过：换页留着（AI 对话绑页面），点头上那颗切到这篇的
+    await ai(page).getByTestId('ai-follow').click()
     const float = page.getByRole('complementary', { name: 'AI 对话' })
     await expect(float.getByTestId('ai-engine')).toHaveText('Claude Code')
     await openAiSettings(page)

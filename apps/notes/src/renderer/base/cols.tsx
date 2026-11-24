@@ -43,7 +43,7 @@ import {
   toggleRelation,
   undoWrites,
 } from '@cn/format'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { BoardBase } from '../../shared/api'
 import { t, tv } from '../../shared/i18n'
 import { fmt } from './words'
@@ -577,6 +577,8 @@ export function FormulaBox(props: { at: PopAnchor; ctx: BaseCtx; name: string; s
   const taken = props.isNew ? Object.hasOwn(ctx.doc.formulas, n) : n !== props.name && Object.hasOwn(ctx.doc.formulas, n)
   const ok = !!check?.ok && !taken
   const done = () => ok && props.onDone(n, src.trim())
+  /** 插完以后光标放哪（下面 useLayoutEffect 放） */
+  const caretNext = useRef<number | null>(null)
   /** 插在光标处：前面紧挨着字时先空一格；带括号的光标落进第一个括号里 */
   const insert = (ins: string) => {
     const b = box.current!
@@ -585,12 +587,19 @@ export function FormulaBox(props: { at: PopAnchor; ctx: BaseCtx; name: string; s
     const next = src.slice(0, s) + pre + ins + src.slice(b.selectionEnd)
     const paren = ins.indexOf('(')
     const caret = s + pre.length + (paren >= 0 && !ins.startsWith('.') && ins !== 'today()' ? paren + 1 : ins.length)
+    caretNext.current = caret
     setSrc(next)
-    requestAnimationFrame(() => {
-      b.focus()
-      b.setSelectionRange(caret, caret)
-    })
   }
+  // 插好的字一画上去就放光标（同一帧里，不等下一帧）：React 换 value 时光标先跳到最后，等到下一帧才挪回来的话，
+  // 这一会儿里接着打的字会落在括号外面
+  useLayoutEffect(() => {
+    const c = caretNext.current
+    const b = box.current
+    if (c === null || !b) return
+    caretNext.current = null
+    b.focus()
+    b.setSelectionRange(c, c)
+  }, [src])
   const showAt = (at: number) => {
     const b = box.current!
     b.focus()

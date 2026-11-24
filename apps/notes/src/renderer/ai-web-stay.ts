@@ -1,6 +1,6 @@
 /**
  * 网页上点「引用」「讲解一下」「翻译 + 讲一讲」进哪段对话（偏好「引用留在当前对话」，2026-11-24）：
- * 1. 这个网页点过「留在这个对话」：进那段（这台 Mac 记着：网页 → 那段，关了再开照旧）；
+ * 1. 这个网页点过「留在这个对话」：进那段（那段挂到了这个网页上，「这段 → 那页」表 ai-pages.ts，关了再开照旧）；
  * 2. 不然右栏 AI 标签开着、看着的是一段普通对话或 PDF / HTML 的对话（不是哪个网页自己那段）：进它；
  * 3. 都不是：进这个网页自己那段（照旧，web-notes/flow.ts）。
  * 记进哪篇跟着那段对话走（读 PDF 的记进那份的笔记，普通对话照它自己的规矩），web-notes/target.ts 不管这里。
@@ -8,6 +8,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import type { Material } from '../shared/materials'
+import { convosOn, setPage, usePages, webPage } from './ai-pages'
 
 export interface Convo {
   key: string
@@ -26,50 +27,26 @@ let shown: (Convo & { open: boolean }) | null = null
 /** AiDock：这一格看着的那段；open 是 AI 标签开着（在别的标签后面也算） */
 export const setShown = (c: (Convo & { open: boolean }) | null) => void (shown = c)
 
-// ---------------------------------------------------------------- 留在这个对话
+/** 输入框里有字或带着引用、材料的那段（AiPanel、ReadingAi 每画一次报一回）：换页时这段不算空着，不换走（AI 对话绑页面） */
+const drafts = new Map<string, boolean>()
+export const setDraft = (key: string, has: boolean) => void (has ? drafts.set(key, true) : drafts.delete(key))
+export const hasDraft = (key: string) => drafts.has(key)
 
-const KEY = 'cn.webStay'
-/** 一个网页：去掉 #（同一页里跳来跳去、回到那一段的链接都算这一页） */
-const pageOf = (url: string) => url.replace(/#.*$/, '')
+// ---------------------------------------------------------------- 留在这个对话（并进「这段 → 那页」表，ai-pages.ts）
 
-let stays: Record<string, Convo> = read()
-let version = 0
+/** 这个网页留在哪段：挂到这个网页上的那几段里新挂的那段 */
+export const stayOf = (url: string): Convo | null => convosOn(webPage(url))[0] ?? null
 
-function read(): Record<string, Convo> {
-  try {
-    const v = JSON.parse(localStorage.getItem(KEY) ?? '{}') as unknown
-    return v && typeof v === 'object' ? (v as Record<string, Convo>) : {}
-  } catch {
-    return {}
-  }
-}
+/** 「留在这个对话」：这段挂到这个网页上（搬家，一段只挂一页） */
+export const setStay = (url: string, c: Convo) => void setPage(c.key, { page: webPage(url), label: c.label })
 
-function save() {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(stays))
-  } catch {
-    // 记不住：这次开着软件时照样留着
-  }
-  version++
-  bump()
-}
-
-export const stayOf = (url: string): Convo | null => stays[pageOf(url)] ?? null
-
-export function setStay(url: string, c: Convo) {
-  stays = { ...stays, [pageOf(url)]: { key: c.key, label: c.label } }
-  save()
-}
-
+/** 不留了：挂在这个网页上的几段都回到自己那一页 */
 export function clearStay(url: string) {
-  if (!stays[pageOf(url)]) return
-  const { [pageOf(url)]: _, ...rest } = stays
-  stays = rest
-  save()
+  for (const c of convosOn(webPage(url))) void setPage(c.key, null)
 }
 
 /** 留的变了就重画（头上那一行出不出） */
-export const useStays = () => useSyncExternalStore(sub, () => version)
+export const useStays = usePages
 
 /** 是哪个网页自己那段（read:web:…） */
 const isWebConvo = (key: string) => key.startsWith('read:web:')

@@ -48,6 +48,10 @@ export interface PluginHost<S> {
   cli(): CliBackend
   /** 告诉界面库里的文件变了 */
   filesChanged(): void
+  /** 插件写了一篇笔记：开着它的编辑器照外部改动合并（主进程自己写的，监听不报） */
+  noteChanged(path: string, text: string): void
+  /** 界面窗口还在、界面进程活着（发给界面的事件有人收） */
+  appAlive(): boolean
   /** 退出前要做的（存缓存之类） */
   onQuit(fn: () => void): void
 }
@@ -68,6 +72,7 @@ export interface HostDeps {
   cli: CliBackend
   sendApp(channel: string, ...args: unknown[]): void
   filesChanged(): void
+  appAlive(): boolean
   onQuit(fn: () => void): void
 }
 
@@ -132,6 +137,8 @@ export class PluginRegistry {
         return deps.cli
       },
       filesChanged: () => deps.filesChanged(),
+      noteChanged: (path, text) => deps.sendApp('note:changed', path, text),
+      appAlive: () => deps.appAlive(),
       onQuit: (fn) => deps.onQuit(fn),
     }
     plugin.setup(host)

@@ -264,6 +264,13 @@ const api: CnApi = {
   aiSide: (req) => ipcRenderer.invoke('ai:side', req),
   aiChatClear: (place) => ipcRenderer.invoke('ai:chat:clear', place),
   aiChats: () => ipcRenderer.invoke('ai:chats'),
+  aiPages: () => ipcRenderer.invoke('ai:pages'),
+  aiConvos: () => ipcRenderer.invoke('ai:convos'),
+  aiChatShelve: (place) => ipcRenderer.invoke('ai:chat:shelve', place),
+  aiChatOlder: (place) => ipcRenderer.invoke('ai:chat:older', place),
+  aiChatSwitch: (place, id) => ipcRenderer.invoke('ai:chat:switch', place, id),
+  aiChatDetach: (place, label) => ipcRenderer.invoke('ai:chat:detach', place, label),
+  aiSetPage: (convo, to) => ipcRenderer.invoke('ai:page:set', convo, to),
   onAiEvent(cb) {
     const h = (_e: unknown, id: number, ev: Parameters<typeof cb>[1]) => cb(id, ev)
     ipcRenderer.on('ai:event', h)

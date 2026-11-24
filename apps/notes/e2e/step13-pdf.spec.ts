@@ -176,6 +176,8 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notes(page)).toBeVisible()
     await page.getByTestId('tab-list').getByRole('tab', { name: /第3讲 线性映射 笔记/ }).click()
+    // PDF 那段问过：换页留着（AI 对话绑页面），点头上那颗切到这篇文档的
+    await ai(page).getByTestId('ai-follow').click()
     await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeVisible()
     await expect(notes(page)).toHaveCount(0)
     await expect(page.getByRole('navigation', { name: '右栏' }).getByRole('button', { name: '收起 AI' })).toBeVisible()

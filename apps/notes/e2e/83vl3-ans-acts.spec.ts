@@ -126,8 +126,9 @@ test('拷贝、插进文档（光标处）：剪贴板、输入框、文件里�
     await expect(first).toHaveClass(/jumped/)
     await expect(first).toBeInViewport()
 
-    // 换到别的文档：AI 格换成「别的」那段对话；在「别的」里点那条链接，AI 格当「看别处的对话」打开「学习笔记」那段、滚到那条
+    // 换到别的文档：学习笔记那段问过，换页留着（AI 对话绑页面），点头上那颗换成「别的」那段；在「别的」里点那条链接，AI 格当「看别处的对话」打开「学习笔记」那段、滚到那条
     await openNote(page, '别的')
+    await chat(page).getByTestId('ai-follow').click()
     await expect(chat(page).getByTestId('ai-msg')).toHaveCount(0)
     await pane(page).locator('.cm-content').click()
     await page.keyboard.press('Meta+End')

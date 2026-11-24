@@ -64,6 +64,7 @@ export const webApi: CnWebApi = {
   },
   setActiveTab: (id) => ipcRenderer.invoke('web:active', id),
   onOpenTab: (cb) => on('web:open-tab', cb),
+  onFocused: (cb) => on('web:focused', cb),
   tabCreated: (reqId, id) => ipcRenderer.send('web:tab-created', reqId, id),
   onTabCommand: (cb) => on('web:tab-command', cb),
   setTabs: (list) => ipcRenderer.send('web:tabs', list),

@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { clipText } from '@cn/ai-chat/paste'
 import { imagesFrom, looksLikeImage, mayHaveImage, saveImages } from './image-drop'
 
 type Pt = { x: number; y: number }
@@ -7,6 +8,7 @@ const editable = (t: EventTarget | null) => t instanceof HTMLElement && !!t.clos
 
 /**
  * 白板接图片：拖进来（网页、访达）、粘贴进来（剪贴板）。存进附件后在落点（粘贴时在看得到的地方）放图片卡。
+ * 粘贴时剪贴板里字和图都有（微信多条聊天记录、Excel 单元格另附一张渲染图）：贴成一张文字卡，不存图（粘贴优先文字，规矩同 AI 输入框、文档，@cn/ai-chat/paste 的 clipText）。
  */
 export function useBoardImageDrop(opts: {
   notePath: string
@@ -14,6 +16,8 @@ export function useBoardImageDrop(opts: {
   toPlane(clientX: number, clientY: number): Pt
   freeSpot(): Pt
   addCards(texts: string[], at: Pt): void
+  /** 粘贴进来的是字（剪贴板里字和图都有）：在看得到的地方放一张文字卡，和右键「粘贴」一样 */
+  pasteText(text: string): void
   onNotice(t: string): void
 }) {
   const [dropping, setDropping] = useState(false)
@@ -54,7 +58,9 @@ export function useBoardImageDrop(opts: {
         if (o.current.readOnly || editable(e.target) || !e.clipboardData) return
         if (!Array.from(e.clipboardData.items).some((i) => i.kind === 'file' && i.type.startsWith('image/'))) return
         e.preventDefault()
-        void place(e.clipboardData, null, true)
+        const text = clipText(e.clipboardData).trim()
+        if (text) o.current.pasteText(text)
+        else void place(e.clipboardData, null, true)
       },
     },
   }

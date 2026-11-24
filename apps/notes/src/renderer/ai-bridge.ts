@@ -11,6 +11,8 @@ import { spotRange } from './ai-spot'
 import { recentFiles, vaultFiles } from './files/store'
 import { NoteDoc, type ViewMode } from './note-doc'
 import type { Tab } from './tabs'
+import type { WebSeen } from '../shared/web-pages'
+import { wcOf } from './web/web-pages'
 
 export interface BridgeState {
   tab: Tab | null
@@ -21,6 +23,12 @@ export interface BridgeState {
   webUrl: string | null
   /** 在右栏打开网址（右栏没开就打开） */
   openWeb(url: string): void
+  /** 在中间栏开一个宽网页标签（AI 给了 page=center、中间还没有网页时） */
+  openWide(url: string): void
+  /** AI 能操纵的网页（右栏、中间栏、分屏的那一格），默认的标着（shared/web-pages.ts） */
+  webPages(): WebSeen[]
+  /** 右栏网页在 AI 后面看不见时，它那一组现在多大（AI 动手时照这个大小给网页排版） */
+  webBox(): { w: number; h: number } | null
   /** AI 要把这篇 / 这个文件夹删到废纸篓：开着的标签先关（编辑器接着存字会把删掉的建回来） */
   closeUnder(path: string): void
   /** AI 改了名、挪了地方（一篇或一个文件夹）：开着的标签、编辑器跟到新路径 */
@@ -66,7 +74,8 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
                       : t.type === 'growth'
                         ? { type: 'none', title: '生长图' } // 不翻
                       : { type: 'topic', title: `素材 / ${t.topic}` } // 不翻
-  const ctx: AgentContext = { tab, web: { open: s.webOpen, url: s.webUrl } }
+  const pages = s.webPages()
+  const ctx: AgentContext = { tab, web: { open: s.webOpen, url: s.webUrl, ...(pages.length ? { pages } : {}) } }
   const d = s.doc
   if (d && t?.type === 'note' && d.path === t.path && s.mode !== 'board') {
     const sel = d.view.state.selection.main
@@ -129,6 +138,15 @@ async function handle(s: BridgeState, op: BridgeOp, arg: unknown): Promise<unkno
       if (!s.tab) throw new Error('先打开一个标签，网页跟着标签走') // 不翻：回给 AI
       s.openWeb(String(arg))
       return null
+    case 'openWide':
+      s.openWide(String(arg))
+      return null
+    case 'webPages':
+      // 交给主进程时填上每一页的 webContents 编号（主进程按它找到那一页）
+      return s.webPages().map((p) => {
+        const box = p.shown ? null : s.webBox()
+        return { ...p, ...(wcOf(p.key) !== undefined ? { wc: wcOf(p.key) } : {}), ...(box ? { size: box } : {}) }
+      })
     case 'measure':
       return measure(String(arg))
     case 'closeTabs':

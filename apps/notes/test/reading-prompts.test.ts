@@ -4,7 +4,7 @@ import { askPrompt, fullTextOf, noteDigest, sidePrompt, TUTOR_SYSTEM, TUTOR_VERS
 import { AGENT_SYSTEM, AGENT_VERSION, langTail, modeLine, MODES_RULE } from '../src/main/agent/index'
 import { system as commandSystem } from '../src/renderer/ai-commands'
 import { setUiLang } from '../src/shared/i18n'
-import { MATH_RULE, type ReadingMsg, type ReadingThread, readLine, VIZ_MARK } from '../src/shared/reading'
+import { MATH_RULE, PRE_MARK, type ReadingMsg, type ReadingThread, readLine, VIZ_MARK } from '../src/shared/reading'
 
 const thread: ReadingThread = { id: '.canvas-notes/对话/L3-p5-1.md', page: 5, rect: [0.1, 0.2, 0.3, 0.4], crop: '附件/L3/p5-1.png', createdAt: 0 }
 let n = 0
@@ -110,7 +110,7 @@ describe('公式的写法（真 AI 写了 `$dV/dt = $ 输入`，$ 里头结尾�
     expect(MATH_RULE).toContain('单独一行的写 $$…$$')
     for (const p of [TUTOR_SYSTEM, AGENT_SYSTEM, commandSystem()]) expect(p).toContain(MATH_RULE)
     // 讲法改了：旧会话不再接着用记下的旧系统提示（4：能动手、两种模式；5：库里的东西写成链接，task-3e53q；6：页码链接带引的那句原文；7：前置知识标记）
-    expect(TUTOR_VERSION).toBe(7)
+    expect(TUTOR_VERSION).toBe(8)
     // 前置知识标签：讲论文外的基础知识时回答末尾单独一行〔前置知识〕
     expect(TUTOR_SYSTEM).toContain('在回答最后单独一行写 〔前置知识〕')
     // 页码链接跳到段：说某一段时链接接 &text=原文开头几个词，抄原文不抄译文
@@ -132,8 +132,10 @@ describe('两种模式怎么告诉 AI（2026-11-19，全能模式默认开）', 
     expect(TUTOR_SYSTEM).toContain('新建、改写、改名、挪动、删笔记')
     // 往笔记里新加的段落写成 [!ai] 块，头一行照每条消息开头的【AI 块】（task-dtc34）
     expect(AGENT_SYSTEM).toContain('一律写成 AI 块')
-    // 系统提示改了：AI 对话的旧会话不再接着用（3：改了开着的文件编辑器当场换，2026-11-21；4：回答的语言照每条消息开头的【语言】，task-zojmg；5：AI 块，task-dtc34；6：库里的东西写成链接，task-3e53q）
-    expect(AGENT_VERSION).toBe(6)
+    // 系统提示改了：AI 对话的旧会话不再接着用（3：改了开着的文件编辑器当场换，2026-11-21；4：回答的语言照每条消息开头的【语言】，task-zojmg；5：AI 块，task-dtc34；6：库里的东西写成链接，task-3e53q；7：前置知识标记，功能小三件）
+    expect(AGENT_VERSION).toBe(7)
+    // 网页、视频、文档的问答也标前置知识（回答末尾〔前置知识〕，记进笔记那一问带 #前置知识）
+    expect(AGENT_SYSTEM).toContain(PRE_MARK)
   })
 
   it('AI 改了开着的文件：系统提示说清编辑器当场换成新内容、用户正在打的字合并进来，不叫用户关掉标签再打开（2026-11-21 task-wnbi1）', () => {
