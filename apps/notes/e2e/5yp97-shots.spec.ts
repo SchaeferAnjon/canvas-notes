@@ -126,7 +126,7 @@ test('1 选句小框离高亮 8：读 PDF、AI 对话、文档、白板', async 
     await expect(reading.getByTestId('reading-att').locator('img')).toBeVisible()
     await reading.getByRole('textbox', { name: '问 AI' }).press('Enter')
     const rmsg = reading.getByTestId('reading-msg').last()
-    await expect(rmsg.locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(rmsg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     await selectText(page, rmsg.locator('.txt'), '列就是', '去哪')
     await expect(askbox(page)).toBeVisible()
     await full(run, 'askbox-pdf', true)

@@ -336,6 +336,9 @@ test('存成快捷回复：AI 对话里悬停你发的那句点「存成快捷�
     await expect(reading(page)).toBeVisible()
     await acts(page).getByRole('button', { name: /问这一页/ }).click()
     await expect(reading(page).getByTestId('reading-msg').last().locator('.txt')).toContainText('列就是基向量去哪', { timeout: 20_000 })
+    // 等记进笔记（底栏说的那句「记进《…》」先出完，不和下面存快捷回复的那句撞）
+    await expect(reading(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
+    await expect(page.getByTestId('toast')).toContainText('记进《')
     const rum = reading(page).locator('.um-wrap').last()
     // 悬停也有那一小排
     await rum.locator('.um').hover()

@@ -63,10 +63,14 @@ test('全能模式开关：默认开着，悬停说清两种模式；点一下�
     await expect(sw).toHaveAttribute('aria-checked', 'true')
     await expect(chat(page).getByTestId('ai-omni')).toContainText('全能模式能读写这台Mac上的文件、跑命令、上网')
     // 开关在输入框下面，左边和输入框里的「+」对齐（照 Dispatch 输入框下面的权限那一行）
+    // （2026-11-24 起中间夹着「记笔记 ·《…》｜ 旁支」那一排：它紧贴输入框，全能模式紧贴它）
     const input = (await chat(page).getByTestId('ai-input').boundingBox())!
+    const noteRow = (await chat(page).getByTestId('ai-note-sw').boundingBox())!
     const line = (await chat(page).getByTestId('ai-omni').boundingBox())!
-    expect(line.y).toBeGreaterThan(input.y + input.height)
-    expect(line.y - (input.y + input.height)).toBeLessThan(8)
+    expect(noteRow.y).toBeGreaterThan(input.y + input.height)
+    expect(noteRow.y - (input.y + input.height)).toBeLessThan(8)
+    expect(line.y).toBeGreaterThanOrEqual(noteRow.y + noteRow.height)
+    expect(line.y - (noteRow.y + noteRow.height)).toBeLessThan(8)
     // 悬停：两种模式各能做什么，一种一段；左边和开关对齐、不伸出右栏
     await sw.hover()
     const tip = page.getByTestId('tooltip')

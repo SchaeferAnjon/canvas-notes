@@ -10,6 +10,8 @@ import { dirname, join } from 'node:path'
 import electronPath from 'electron'
 import { gitStatus, launch, tabOn } from './app'
 import { LECTURE } from './fixtures/pdf'
+import { MAP, MAP_PATH } from './fixtures/mindmap-b1'
+import { armMenus, openedMenu, pickMenu } from './menu'
 
 const PDF = '课程/线代/第3讲.pdf'
 const files = {
@@ -319,6 +321,57 @@ test('对照看：一下分出右边那格用白板开同一篇；左边文档�
     await acts1.getByRole('tab', { name: '白板' }).click({ modifiers: ['Alt'] })
     await expect(center(page)).toHaveClass(/\bsplit row\b/)
     await expect(acts1.getByRole('tab', { name: '文档' })).toHaveAttribute('aria-selected', 'true')
+  } finally {
+    await run.close()
+  }
+})
+
+test('窗口窄于 1200：「对照看」收进「⋯」，标签条给标签让出地方；⋯ 里点「对照看」照样分出白板那格、再点收回；⌥ 点「白板」照样能用；1400 宽按钮回到标签条', async () => {
+  const run = await launch({ ...files, [MAP_PATH]: MAP })
+  const { page } = run
+  const acts = page.getByTestId('tab-acts')
+  const cmpBtn = acts.getByRole('button', { name: /^(对照看|收回对照)/ })
+  const size = (w: number) => run.app.evaluate(({ BrowserWindow }, w) => BrowserWindow.getAllWindows()[0]!.setContentSize(w, 887), w)
+  const map = '导图 11-22 17∶51'
+  try {
+    await armMenus(run)
+    await size(1400)
+    await open(page, map)
+    await expect(cmpBtn).toBeVisible()
+    const wide = (await box(acts)).width
+    const btnW = (await box(cmpBtn)).width
+
+    // 1100 宽开着导图：按钮不在标签条，右端那一排至少窄了这颗按钮那么宽（让给标签）
+    await size(1100)
+    await expect(cmpBtn).toHaveCount(0)
+    expect((await box(acts)).width).toBeLessThanOrEqual(wide - btnW + 1)
+    if (process.env.CN_SHOTS) await page.screenshot({ path: join(process.env.CN_SHOTS, '1-1100宽标签条.png') })
+    // ⋯ 里有「对照看」，点了照样对照
+    await acts.getByRole('button', { name: '更多' }).click()
+    const m = await openedMenu(run)
+    expect(m.find((i) => i.label === '对照看')).toMatchObject({ enabled: true, checked: false })
+    await pickMenu(run, '对照看')
+    await expect(center(page)).toHaveClass(/\bsplit row\b/)
+    await expect(page.getByTestId('tab-on-other')).toHaveText(map)
+    await expect(cmpBtn).toHaveCount(0)
+    // 再从 ⋯ 点一次（打着勾）：收回一格
+    await acts.getByRole('button', { name: '更多' }).click()
+    expect((await openedMenu(run)).find((i) => i.label === '对照看')?.checked).toBe(true)
+    await pickMenu(run, '对照看')
+    await expect(center(page)).not.toHaveClass(/\bsplit\b/)
+
+    // ⌥ 点「白板」照样能用
+    await open(page, '甲')
+    await acts.getByRole('tab', { name: '白板' }).click({ modifiers: ['Alt'] })
+    await expect(center(page)).toHaveClass(/\bsplit row\b/)
+    await expect(acts.getByRole('tab', { name: '文档' })).toHaveAttribute('aria-selected', 'true')
+
+    // 拉回 1400 宽：按钮回到标签条（正对照着：「收回对照」）
+    await size(1400)
+    await expect(acts.getByRole('button', { name: '收回对照' })).toBeVisible()
+    await acts.getByRole('button', { name: '收回对照' }).click()
+    await expect(center(page)).not.toHaveClass(/\bsplit\b/)
+    await expect(acts.getByRole('button', { name: '对照看：另一格用白板开这一篇' })).toBeVisible()
   } finally {
     await run.close()
   }

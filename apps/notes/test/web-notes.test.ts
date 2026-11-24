@@ -1,4 +1,5 @@
 // 网页的笔记写进正在剪进去的那篇（task-6cxtc）：回到那一段的链接、一问一块 [!ai]、剪藏的来源一行、从那篇里认回来自这个网页的几条。
+import { appendAsk, renderAsk, webSrc } from '@cn/format'
 import { describe, expect, it } from 'vitest'
 import { clipMarkdown } from '../src/shared/layout'
 import { findQuote } from '../src/shared/read-anchor'
@@ -104,6 +105,39 @@ describe('那篇里来自这一页的几条', () => {
     expect(got[1]!.keyAt).toBe(got[1]!.line)
     expect(webEntries(md, ndarray).map((e) => e.title)).toEqual(['讲解一下「张量表示一个由数值组成的数组」'])
     expect(webEntries('# 空\n', PAGE)).toEqual([])
+  })
+
+  it('新写法的一问：认成「问的」，不算剪藏；旁支、别的网页不算；点一条回到那一段', () => {
+    const NOTE = '学习/学习笔记.md'
+    const key = `read:web:${PAGE}`
+    const at = { heading: '2.2. 数据预处理' }
+    const passage = '下面我们将数据集按行写入CSV文件中。'
+    let ai = '# 学习笔记\n'
+    ai = appendAsk(ai, NOTE, { key, msg: 2, th: 'web-1', q: '给我讲解一下', a: '回答。', quote: passage, src: webSrc(NOTE, '2.2.1 读取数据集 · 动手学深度学习 ↩', fragmentUrl(PAGE, passage)) }, at)
+    ai = appendAsk(ai, NOTE, { key, msg: 4, th: 'web-1', q: '为什么要按行写？', a: '回答二。', side: { quote: '按行', parent: '给我讲解一下', of: 2 } }, at)
+    ai = appendAsk(ai, NOTE, { key, msg: 6, th: 'web-2', q: '插值法和删除法各适合什么时候？', a: '回答三。', src: webSrc(NOTE, '2.2.2 处理缺失值 ↩', fragmentUrl(PAGE, '典型的方法包括插值法和删除法')) }, at)
+    ai = appendAsk(ai, NOTE, { key, msg: 8, th: 'web-3', q: '给我讲解一下', a: '别处。', quote: '张量', src: webSrc(NOTE, '2.1.1 入门 ↩', fragmentUrl(ndarray, '张量')) }, at)
+    const got = webEntries(ai, PAGE)
+    expect(got.map((e) => [e.kind, e.label, e.title, e.head])).toEqual([
+      ['ask', '讲解一下', `讲解一下「${passage}」`, '2.2.1 读取数据集'],
+      ['ask', '你问', '插值法和删除法各适合什么时候？', '2.2.2 处理缺失值'],
+    ])
+    expect(got[0]!.url).toBe(fragmentUrl(PAGE, passage))
+    expect(got[0]!.quote).toBe(passage)
+    const lines = ai.split('\n')
+    expect(lines[got[0]!.line]).toBe('### 给我讲解一下')
+    expect(got.map((e) => lines[e.keyAt] + '\n1')).toEqual(got.map((e) => e.key))
+    expect(webEntries(ai, ndarray).map((e) => e.label)).toEqual(['讲解一下'])
+  })
+})
+
+describe('剪藏那篇里新写法的一问：来源在 ① 引文上', () => {
+  it('引文的来源回到这一页的认成「你问」，quote 是引的那段；别的网页的不认', () => {
+    const passage = '下面我们将数据集按行写入CSV文件中。'
+    const md = '# 学习笔记\n\n我自己打的字。\n\n' + renderAsk({ key: 'read:web:x', msg: 3, th: 'web-1', q: '①这部分看不懂是说什么', a: '回答。', mats: [{ kind: 'quote', text: passage, src: '2.2.1 读取数据集 · 动手学深度学习 ↩', href: fragmentUrl(PAGE, passage) }] }, '学习/学习笔记.md')
+    const got = webEntries(md, PAGE)
+    expect(got.map((e) => [e.kind, e.label, e.title, e.head, e.quote])).toEqual([['ask', '你问', '①这部分看不懂是说什么', '2.2.1 读取数据集', passage]])
+    expect(webEntries(md, 'https://zh.d2l.ai/chapter_preliminaries/ndarray.html')).toEqual([])
   })
 })
 

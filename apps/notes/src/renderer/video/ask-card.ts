@@ -1,18 +1,22 @@
 /**
  * 框一块问的问框（task-sta8n，方向 A，原型 /private/tmp/canvas-notes-webbar/proto.html#dir=a；和旁支 A「就地展开」同一套样子）：
  * 框好一块 → 问框（框住那块的小图、带上前后字幕、四个建议、多行输入、谁来答 · 模型 · effort、记到哪）；
- * 回车：问框里就地长出回答（主进程边答边推），同时照旧写进文档的 AI 讲解块（光标处先出占位，答好换成问答块和 [!ai] 提示块，一次提交）；
- * 接着问也写进同一块讲解；「在 AI 标签里聊」把问答带去 AI 标签。问框的样子在 AskCard.tsx。
+ * 回车：问框里就地长出回答（主进程边答边推）。答好一问记一问进「记到哪」那篇下面挂的那篇本身
+ * （2026-11-24 方向 A，shared/ai-note.ts：小标题是视频名、一问一个小标题、框住那块的小图、回到那一秒的来源行、一块 AI 回答；
+ * 视频的「记笔记」关着、「记到哪」选了只问不记就不记，按第一问发问那一刻定）；「在 AI 标签里聊」把问答带去 AI 标签。问框的样子在 AskCard.tsx。
  */
-import { type DocAiBlock, docAiBlocks } from '@cn/format'
-import { EditorView } from '@codemirror/view'
+import { type DocAiBlock, docAiBlocks, parseChatLink, webSrc } from '@cn/format'
 import { useSyncExternalStore } from 'react'
-import { askCalloutEnd, askHead, type Dest, fmtTime } from '../../shared/video'
+import { type Dest, fmtTime, timeUrl, videoOf } from '../../shared/video'
 import type { Box } from '../../shared/video-api'
-import { askDestNow, place, placeAsk, videoCardFor } from './actions'
-import { beginAsk } from './ask-pending'
-import { prepareDest } from './dest'
+import { writeAskInto } from '../web-notes/flow'
+import { readKey } from '../../shared/ai-chats'
+import { titleOf } from '../../shared/layout'
+import { withoutEffort } from '../../shared/ai-features'
+import { askDestNow } from './actions'
+import { videoParent } from './note-parent'
 import { centerNow, clearBox, videoHost, videoStateOf } from './store'
+import { noteSwitchNow } from '../ai-note-switch'
 import * as Reading from '../reading/store'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
@@ -25,6 +29,8 @@ export interface AskTurn {
   error?: string
   /** 谁答的「Claude Code · Opus 5.5 · Low」 */
   by: string
+  /** 这一问的编号：记进笔记时「回到 AI 对话」认它，带去 AI 标签时那条回答照用 */
+  id: number
 }
 
 export interface AskCardState {
@@ -46,7 +52,7 @@ export interface AskCardState {
   /** 带上前后字幕 */
   ctx: boolean
   turns: AskTurn[]
-  /** 记进了哪（第一问答好以后）：那一篇；只问不记是 'none' */
+  /** 记进了哪（第一问答好以后）：「记到哪」那篇（dest 是它自己，显示名字用）；只问不记是 'none' */
   saved: { dest: Dest; path: string } | 'none' | null
   /** 第一问记进笔记时那一帧存在库里的哪（带去 AI 标签时附上） */
   image?: string
@@ -79,12 +85,15 @@ export function askTurnFor(i: number): { q: string; a: string; url: string; titl
   if (!c || !turn || turn.state !== 'done') return null
   return { q: turn.q, a: turn.a, url: c.url, title: c.title, t: c.t ?? 0, ...(c.image ? { image: c.image } : {}), ...(c.saved && c.saved !== 'none' ? { note: c.saved.path } : {}) }
 }
-/** 那一问（key、t）的讲解块（问答块后面那块 [!ai]）：旁支挂在它下面（task-p90ra）；找不到是 null */
-export function findAskBlock(text: string, key: string, t: number): DocAiBlock | null {
-  const head = askHead(key, t)
-  const line = text.split('\n').findIndex((l) => l.trim() === head)
-  if (line < 0) return null
-  return docAiBlocks(text).find((b) => b.head > line && b.head <= line + 12) ?? null
+/** 那一问记进笔记的那块 [!ai]（块头「回到 AI 对话」链接里是这一问的编号）：旁支挂在它下面（task-p90ra）；找不到是 null */
+export function findAskBlock(text: string, msg: number): DocAiBlock | null {
+  const lines = text.split('\n')
+  return (
+    docAiBlocks(text).find((b) => {
+      for (const m of (lines[b.head] ?? '').matchAll(/\]\((canvas-notes:\/\/chat\?[^)\s]+)\)/g)) if (parseChatLink(m[1]!)?.msg === msg) return true
+      return false
+    }) ?? null
+  )
 }
 
 export function useAskCard(): AskCardState | null {
@@ -205,11 +214,13 @@ export interface VisionPick {
   effort?: string
 }
 
+let turnSeq = Date.now()
+
 /**
- * 问（空着是「讲解这一块」）：第一问时按「记到哪」先开好那一篇、光标处出占位；问出去焦点回到视频（空格照样播放暂停）。
- * 答好：第一问那块问答写进文档（一次提交），接着问的接在那块讲解后面（一次提交）；只问不记的只在问框里
+ * 问（空着是「讲解这一块」）：问出去焦点回到视频（空格照样播放暂停）。
+ * 答好：记一问进「记到哪」那篇本身（中间看得见插在光标处，不然接在末尾）（第一问带框住那块的小图，一次提交；收件箱那篇还没有时先建好）；只问不记的只在问框里
  */
-export async function askCardQuestion(text: string, pick: VisionPick) {
+export async function askCardQuestion(text: string, pick: VisionPick, pageUrl = '') {
   const c = state
   const st = c ? videoStateOf(c.wcId) : null
   const center = centerNow()
@@ -218,44 +229,25 @@ export async function askCardQuestion(text: string, pick: VisionPick) {
   const s = c.seq
   const i = c.turns.length
   const first = i === 0
+  const id = ++turnSeq
   const prior = c.turns.filter((t) => t.state === 'done').map((t) => ({ q: t.q, a: t.a }))
-  patch(s, (x) => ({ turns: [...x.turns, { q, a: '', state: 'wait', by: '' }] }))
+  patch(s, (x) => ({ turns: [...x.turns, { q, a: '', state: 'wait', by: '', id }] }))
   // 焦点回到视频：空格照样暂停 / 播放（弹窗不抢焦点）
   videoHost()?.focus(c.wcId)
   let stopped = false
-  let wait: ReturnType<typeof beginAsk> | null = null
   stopNow = () => {
     stopped = true
-    wait?.end()
   }
   try {
-    const want = first ? askDestNow(st) : c.saved && c.saved !== 'none' ? c.saved.dest : null
-    let dest: Dest | null = want
-    let from: string | null = null
-    let inDoc = false
-    let noteText = ''
-    if (first && want) {
-      // 「记到哪」是新建一篇、或是没起名的那篇：先建好 / 改好名（视频组的 prepareDest）
-      const p = await prepareDest(want, st)
-      dest = p.dest
-      from = p.from
-      const doc = center.doc()
-      inDoc = dest.kind === 'doc' && !!doc && doc.path === dest.path && !doc.readOnly
-      noteText = doc && doc.path === dest.path ? doc.text : ''
-      wait = beginAsk({
-        view: inDoc ? doc!.view : null,
-        label: `AI正在看${c.t !== null ? fmtTime(c.t) : ''}这一帧…`,
-        job: `AI在记笔记 · ${dest.title}`,
-        onStop: stopAskCard,
-      })
-    }
-    if (stopped) return
+    // 记不记按第一问发问那一刻定：视频的「记笔记」开着、「记到哪」不是只问不记；接着问的跟第一问
+    const record = first ? noteSwitchNow('video').main && !!askDestNow(st) : !!c.saved && c.saved !== 'none'
     const r = await window.cnVideo.ask({
       wcId: c.wcId,
-      dest,
+      dest: null,
+      ...(record ? { keep: true } : {}),
       box: c.box,
       question: q,
-      noteText,
+      noteText: '',
       ...(c.card !== null ? { card: c.card } : {}),
       subs: c.ctx,
       model: pick.model,
@@ -264,30 +256,44 @@ export async function askCardQuestion(text: string, pick: VisionPick) {
     })
     if (stopped || state?.seq !== s) return
     patchTurn(s, i, { a: r.answer, state: 'done', by: r.by })
-    if (first) {
-      if (!dest) patch(s, { saved: 'none' })
-      else {
-        let path = dest.path
-        if (dest.kind !== 'inbox') {
-          const card = videoCardFor(st, dest)
-          path = inDoc ? placeAsk(dest, st.key, r.block, card, wait?.pos() ?? null) : place(dest, st.key, r.block, card)
-          await centerNow()?.doc()?.save()
-          await window.cnVideo.commit([path, ...(from ? [from] : []), ...r.files], `视频：问 AI ${fmtTime(r.t)}《${st.title.slice(0, 40)}》→ ${dest.title}`, { wcId: c.wcId, t: r.t, note: dest.title, asked: true, text: q })
-        }
-        patch(s, { saved: { dest, path }, ...(r.image ? { image: r.image } : {}) })
-        center.refresh()
-      }
-    } else if (dest && dest.kind !== 'inbox' && r.follow) {
-      await appendFollow(dest, st.key, r.t, r.follow)
-      await window.cnVideo.commit([dest.path], `视频：接着问 ${fmtTime(r.t)}《${st.title.slice(0, 40)}》→ ${dest.title}`, { wcId: c.wcId, t: r.t, note: dest.title, asked: true, text: c.turns[0]?.q ?? q })
-      center.refresh()
+    if (!record) {
+      if (first) patch(s, { saved: 'none' })
+      return
     }
+    const was = state.saved && state.saved !== 'none' ? state.saved.path : null
+    // 写进「记到哪」那篇本身（偏好「剪藏和AI笔记同一篇」）：中间看得见那篇插在光标处，不然接在末尾
+    const note = was ?? (await videoParent(c.url, st.title))
+    if (!note) {
+      patch(s, { saved: 'none' })
+      return
+    }
+    const v = videoOf(c.url)
+    const res = await window.cnReading.noteAppend({
+      note,
+      ask: {
+        // 和「在 AI 标签里聊」带过去的那段对话同一个（右栏网页的网址）
+        key: readKey(`web:${pageUrl || c.url}`),
+        msg: id,
+        q,
+        a: r.answer,
+        by: withoutEffort(r.by),
+        ...(first && r.image ? { crop: { path: r.image } } : {}),
+        src: webSrc(note, `▶ ${fmtTime(r.t)} · ${c.title}`, v ? timeUrl(v, r.t) : c.url),
+      },
+      place: { heading: c.title },
+      inline: true,
+      files: first && r.image ? [r.image] : [],
+    })
+    if (res.md !== undefined) await writeAskInto(res.note, res.md, { files: res.files ?? [], subject: q })
+    // 视频条刻度上记一个「问过」的空心圆（只记这一刻，不再提交：上面已经提交过了）
+    if (first) await window.cnVideo.commit([], '', { wcId: c.wcId, t: r.t, note: titleOf(res.note), asked: true, text: q })
+    if (state?.seq === s) patch(s, { saved: { dest: { kind: 'doc', path: res.note, title: titleOf(res.note) }, path: res.note }, ...(r.image ? { image: r.image } : {}) })
+    center.refresh()
   } catch (e) {
     if (stopped) return
     // 原话存着：问框里 AiError 认原因、写一句中文，原话收进「看原话」（task-eavzx）
     patchTurn(s, i, { state: 'error', error: errText(e) })
   } finally {
-    wait?.end()
     if (state?.seq === s) stopNow = null
   }
 }
@@ -299,48 +305,11 @@ export function dropFailedTurn() {
   patch(c.seq, (x) => ({ turns: x.turns.slice(0, -1) }))
 }
 
-/** 接着问的那几行接在那块讲解后面：那一篇开着就在编辑器里插（光标不动），没开着直接改文件 */
-async function appendFollow(dest: Dest, key: string, t: number, follow: string) {
-  const doc = centerNow()?.doc()
-  if (doc && doc.path === dest.path && !doc.readOnly) {
-    const at = askCalloutEnd(doc.text, key, t)
-    if (at < 0) throw new Error(`《${dest.title}》里找不到这一问的讲解了，接着问没记进去`)
-    // 白板看法改的是同一段字（setText）；文档在编辑器里插，光标不动
-    if (dest.kind === 'board') doc.setText(doc.text.slice(0, at) + '\n' + follow + doc.text.slice(at))
-    else doc.view.dispatch({ changes: { from: at, insert: '\n' + follow }, userEvent: 'input.clip' })
-    await doc.save()
-    return
-  }
-  const cur = await window.cn.readNote(dest.path)
-  const at = askCalloutEnd(cur.text, key, t)
-  if (at < 0) throw new Error(`《${dest.title}》里找不到这一问的讲解了，接着问没记进去`)
-  const w = await window.cn.writeNote(dest.path, cur.text.slice(0, at) + '\n' + follow + cur.text.slice(at), cur.text)
-  if (!w.ok) throw new Error(`《${dest.title}》刚被改了，接着问没记进去，再问一次`)
-}
-
-/** 「已记进《…》›」：文档滚到那块问答（屏幕正中）、外圈闪一下；那一篇没开着就先在中间打开 */
+/** 「已记进《…》›」：在中间打开记进的那篇 */
 export function goToSaved() {
   const c = state
   if (!c || !c.saved || c.saved === 'none') return
-  const path = c.saved.path
-  const center = centerNow()
-  if (!center) return
-  const doc = center.doc()
-  if (!doc || doc.path !== path) {
-    center.open(path)
-    return
-  }
-  const view = doc.view
-  const head = view.state.doc.toString().indexOf(askHead(c.key, c.t ?? 0))
-  if (head < 0) return
-  view.dispatch({ effects: EditorView.scrollIntoView(head, { y: 'center' }) })
-  requestAnimationFrame(() => {
-    const el = [...view.dom.querySelectorAll<HTMLElement>('[data-part="问答块"]')].find((x) => Math.abs(view.posAtDOM(x) - head) < 4)
-    if (!el) return
-    el.classList.remove('ak-flash')
-    void el.offsetWidth
-    el.classList.add('ak-flash')
-  })
+  centerNow()?.open(c.saved.path)
 }
 
 /**
@@ -352,6 +321,6 @@ export async function chatInAiTab(pageUrl: string) {
   if (!c) return
   const done = c.turns.filter((t) => t.state === 'done')
   if (!done.length) return
-  await Reading.adoptVideoQa(`web:${pageUrl}`, { url: c.url, title: c.title, t: c.t ?? 0, ...(c.image ? { image: c.image } : {}), qa: done.map((t) => ({ q: t.q, a: t.a, by: t.by })) })
+  await Reading.adoptVideoQa(`web:${pageUrl}`, { url: c.url, title: c.title, t: c.t ?? 0, ...(c.image ? { image: c.image } : {}), ...(c.saved && c.saved !== 'none' ? { note: c.saved.path } : {}), qa: done.map((t) => ({ q: t.q, a: t.a, by: t.by, id: t.id })) })
   centerNow()?.askInRight()
 }

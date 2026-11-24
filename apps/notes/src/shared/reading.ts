@@ -5,6 +5,7 @@ import type { AiCommitFailed, CommitInfo } from './api'
 import type { EngineId, ToolStep } from './agent'
 import type { AiPick } from './ai-features'
 import type { Material } from './materials'
+import type { CnAiNoteApi } from './ai-note'
 
 /** 库里的一份 PDF（⌘K 里列出来、能打开） */
 export interface PdfFile {
@@ -36,6 +37,8 @@ export interface ReadingThread {
   cmd?: string
   /** 那颗选了「只在 AI 栏答」：答完不写进笔记 */
   noNote?: true
+  /** 视频问框带过来的那一处（adoptVideoQa）：问框记进的那篇 AI 笔记，在这里接着问的也记进它 */
+  note?: string
 }
 
 export interface ReadingMsg {
@@ -59,9 +62,15 @@ export interface ReadingMsg {
   engine?: EngineId
   /** 哪家哪个模型答的（「Claude Code · Opus 5.5」，CN-54） */
   by?: string
-  /** 这一轮记进笔记了没有 */
+  /**
+   * 问的那条：发问那一刻「记笔记」（旁支是「旁支」开关、这条旁支的标签）关着，答完不记（2026-11-24 开关按发问那一刻算）
+   */
+  noNote?: true
+  /** 答的那条记进笔记了没有：在记、记进了 notePath、没记成（noteError） */
   note?: 'writing' | 'done' | 'error'
-  /** 记到了别处（网页上问的：「《文档名》」「收件箱」） */
+  /** 记进的那篇（库里的路径；撤回、⋯「从《…》拿掉」用它）。旧版记的（旧写法整段）没有，只有 noteTo 那句话 */
+  notePath?: string
+  /** 旧版记到别处时的那句话（「《文档名》」「收件箱」）：只用来显示以前那几条 */
   noteTo?: string
   noteError?: string
   /** AI 觉得这一处适合做个可视化（回答最后那行标记，界面上不显示） */
@@ -100,6 +109,8 @@ export interface ReadingSide {
   quote: string
   /** 改过的名字（没改过按问的话或那一句起） */
   name?: string
+  /** 这条旁支框头的小标签「记进笔记 / 不记」单拨过：true 记、false 不记；没拨过跟「旁支」开关 */
+  note?: boolean
   /** 旁支里的问答（和主对话的消息一样） */
   msgs: ReadingMsg[]
   createdAt: number
@@ -167,57 +178,6 @@ export interface AskResult {
 
 /** 边答边给：字，和动手的每一步（同 AI 对话的 AiEvent） */
 export type AskEvent = { type: 'text'; delta: string } | { type: 'tool'; id: string; label: string; code?: string; status: 'run' | 'ok' | 'err'; detail?: string; paths?: string[] }
-
-/**
- * 后台的两件小活（CN-93、94、96）：给快的模型看这一轮（主对话 + 旁支）的问答，要这一轮的标题和一句小结。
- * 问题、回答都原样写进笔记，不让 AI 改写；每答完一次（主对话或旁支）重写小结
- */
-export interface SummarizeRequest {
-  pdf: string
-  engine: EngineId
-  thread: ReadingThread
-  msgs: ReadingMsg[]
-  sides?: ReadingSide[]
-  /** 这一页的块（给标题和小结看这一页讲什么） */
-  blocks: PdfBlock[]
-  /** 已经有的标题：内容没变就照抄 */
-  title?: string
-}
-
-export interface SummarizeResult {
-  title: string
-  recap: string
-}
-
-/**
- * 写笔记里的一段：主进程按这一处的问答（主对话 + 旁支）收成一段（问题原话、回答原文），写进笔记、提交。
- * title、recap 不给时用笔记里原来那段的（答完马上先写一次，标题和小结晚一点再补；那一次 commit: false，不提交）
- */
-export interface WriteSectionRequest {
-  pdf: string
-  title?: string
-  recap?: string
-  /** AI 回答里给的配图框截好的 PNG 和说明 */
-  figurePng?: Uint8Array
-  figureCaption?: string
-  thread: ReadingThread
-  msgs: ReadingMsg[]
-  sides?: ReadingSide[]
-  /** false：只写不提交（答完马上先写的那一次，等标题和小结写好再一起提交） */
-  commit?: boolean
-  /** PDF 一共几页（笔记属性里的进度「问到 5/10」） */
-  pages: number
-  /** 网页上问的（来源是 web:<网址>）记到哪：中间栏开着的文档（插到光标处）或收件箱 */
-  target?: { kind: 'doc'; path: string } | { kind: 'inbox' }
-}
-
-export interface WriteSectionResult {
-  note: string
-  commit: CommitInfo | null
-  /** 记到文档里的：这一段的 md（界面插到光标处）和要一起提交的文件 */
-  markdown?: string
-  files?: string[]
-}
 
 // ---------------------------------------------------------------- 出卡送 Anki（task-tz7y3，方向 B「AI 先改成卡，一张张过」）
 
@@ -336,7 +296,7 @@ export interface FolderReads {
   items: { pdf: string; note: boolean; read?: ReadAt; readLabel?: string; confused: number; asked?: string }[]
 }
 
-export interface CnReadingApi {
+export interface CnReadingApi extends CnAiNoteApi {
   /** 划线（ParaRead 联动）：含义表、划、换含义、删、改名前数几条、一起改名 */
   hlKinds(): Promise<HlKind[]>
   saveHlKinds(kinds: HlKind[]): Promise<HlKind[]>
@@ -370,8 +330,6 @@ export interface CnReadingApi {
   ask(req: AskRequest): Promise<AskResult>
   stop(id: number): Promise<void>
   onAsk(cb: (id: number, e: AskEvent) => void): () => void
-  summarize(req: SummarizeRequest): Promise<SummarizeResult>
-  writeSection(req: WriteSectionRequest): Promise<WriteSectionResult>
   /** 新对话：忘掉这份 PDF 的 AI 会话（下一句重新读全文） */
   forget(pdf: string): Promise<void>
   /** 出卡：这个范围里问过的每一问，带送过没有、上次改好的 */

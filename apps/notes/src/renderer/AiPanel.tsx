@@ -1,4 +1,5 @@
 import { AiNote } from './feynman/cover'
+import { noteName } from '../shared/ai-note'
 import { Codicon, type CodiconName } from '@cn/design'
 import { onMessageMenu } from './ctx/message-menu'
 import { app } from './ctx/actions'
@@ -9,7 +10,7 @@ import { AnswerRow } from './answer-row'
 import { UserMsgActs } from './replies/save-reply'
 import { sayOf } from './replies/store'
 import { fillReply } from '../shared/replies'
-import { ChangeBar, UndoButton } from '@cn/design/answer-bar'
+import { type AbMenuItem, ChangeBar, UndoButton } from '@cn/design/answer-bar'
 import { jumpDone, useChatJump } from './chat-jump'
 import { feedDone, useFeed } from './ai-web-stay'
 import { AiError, openAiSettings } from './ai-error'
@@ -39,7 +40,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { AgentContext, StoredMsg, ToolStep } from '../shared/agent'
 import { imageNames, type Material } from '../shared/materials'
 import type { CommitInfo, DuplicatePair, NoteFile } from '../shared/api'
-import { CLIPS, titleOf } from '../shared/layout'
+import { CLIPS, INBOX, titleOf } from '../shared/layout'
 import { inboxEntry, placesOf, planInBatches } from '../shared/filing'
 import './ai.css'
 import { type AiCmd, type Ctx, tagsOf, whereCtx } from '../shared/ai-cmds'
@@ -76,6 +77,14 @@ import { withKeys } from './keys'
 import { hideToolMarkup } from '../shared/tool-markup'
 import type { NoteDoc, ViewMode } from './note-doc'
 import type { Tab } from './tabs'
+import { type NoteKind, type NoteTarget } from '../shared/ai-note'
+import { safeName } from '../shared/file-name'
+import { setNoteSwitch, useNoteSwitch } from './ai-note-switch'
+import { NotedLine, RecChip } from './ai-note-ui'
+import { askable, forgetNoted, mainAsk, notable, noteOne, refreshNoted, unnote, useNoted } from './ai-note-chat'
+import { showAskIn, webNoteTo } from './web-notes/flow'
+import { NoteTip, TargetMenu } from './ai-note-target'
+import { anchorOf, type PopAnchor } from './pop-place'
 
 type Msg = C.Msg
 type Action = NonNullable<Msg['actions']>[number]
@@ -188,7 +197,7 @@ export interface AiPanelProps {
 export function AiPanel(props: AiPanelProps) {
   const place = props.place
   // 每个地方各存各的对话（D 组 CN-132，ai-chats.ts）；正在答的那一轮全软件一个，记着是哪个地方的
-  const { msgs, loaded, pick: ownPick, sides } = C.useChat(place)
+  const { msgs, loaded, pick: ownPick, sides, noteTo } = C.useChat(place)
   const turn = C.runningNow()
   /** 这个地方正在答的那一轮 */
   const running = turn?.key === place.key ? turn.id : null
@@ -268,6 +277,117 @@ export function AiPanel(props: AiPanelProps) {
   const isBoard = !!noteFile?.board || props.mode === 'board'
   const inbox = props.notes.filter((n) => n.kind === 'inbox')
   const engineLabel = engines.find((e) => e.id === engine)?.label ?? 'Claude Code'
+
+  // ---------- 记笔记开关（2026-11-24 方向 A，shared/ai-note.ts）：看文档写进这篇本身，没开东西先问记进哪篇；带着网页引用的一问照网页的开关写进剪藏那篇 ----------
+  /** 这段对话是一篇 md 文档的（看文档）：那篇；别的（首页、收件箱、文件夹……）是 null */
+  const noteDoc = /^file:.+\.md$/i.test(place.key) ? place.key.slice(5) : null
+  const noteKind: NoteKind = noteDoc ? 'doc' : 'none'
+  const sw = useNoteSwitch(noteKind)
+  /** 看文档没选过时记进哪篇：这篇本身（2026-11-24 偏好「剪藏和AI笔记同一篇」），插在光标处 */
+  const noteDefault: NoteTarget | null = noteDoc ? { path: noteDoc, inline: true } : null
+  /** 记进哪篇：这段对话选过的；没选过照上面；没开东西没选过是 null（拨开时先问） */
+  const target: NoteTarget | null = noteTo ?? noteDefault
+  /** 开着：开关开、有记进的那篇 */
+  const noteOn = sw.main && !!target
+  const sideNoteOn = sw.side && !!target
+  const noted = useNoted(place.key)
+  const [noteMenu, setNoteMenu] = useState<{ at: PopAnchor; anchor: HTMLElement; then?: 'on' | { one: number } } | null>(null)
+  const [noteTip, setNoteTip] = useState<{ text: string; ok?: boolean; acts?: { label: string; primary?: boolean; onClick(): void }[]; seq: number } | null>(null)
+  const tipSeq = useRef(0)
+  /** 提示一句；ms 给了几秒后自己收（中途关是 4 秒），带按钮的等点 */
+  const tip = (text: string, o: { ok?: boolean; ms?: number; acts?: { label: string; primary?: boolean; onClick(): void }[] } = {}) => {
+    const s = ++tipSeq.current
+    setNoteTip({ text, seq: s, ...(o.ok ? { ok: true } : {}), ...(o.acts ? { acts: o.acts } : {}) })
+    if (o.ms) setTimeout(() => setNoteTip((x) => (x?.seq === s ? null : x)), o.ms)
+  }
+  /** 「已记进」照笔记里认：这段对话记进过的几篇（现在的那篇、每一问发问时记着的那篇）问一遍 */
+  const notePaths = [...new Set([target?.path, ...msgs.map((m) => m.noteAt?.path), ...sides.flatMap((s) => s.msgs.map((m) => m.noteAt?.path))].filter((x): x is string => !!x))]
+  const notePathsSig = notePaths.join('\n')
+  useEffect(() => {
+    if (!loaded || !notePaths.length) return
+    refreshNoted(place.key, notePaths).catch((e: unknown) => console.error('认记过的问失败', e))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [place.key, loaded, notePathsSig])
+  /** 没开东西时「收件箱新建一篇」：收件箱里「和 AI 聊：<头一问>」（还没问是对话名），撞名加「 2」 */
+  const inboxTarget = (): NoteTarget => {
+    const first = msgs.find((m) => m.role === 'user' && m.text?.trim())?.text?.replace(/\s+/g, ' ').trim()
+    const name = noteName((first ?? place.label).replace(/[？?。！!，,、；;：:]+$/u, ''), 16)
+    const title = safeName(`和 AI 聊：${name}`) // 不翻：文件名
+    const have = new Set(props.notes.map((n) => n.path))
+    let path = `${INBOX}/${title}.md`
+    for (let n = 2; have.has(path); n++) path = `${INBOX}/${title} ${n}.md`
+    return { path, create: { title: titleOf(path) } }
+  }
+  /** 前面答完了、能记、还没记的几问（主对话的回答编号，按先后） */
+  const unnotedMain = () => msgs.flatMap((m, i) => (notable(m) && askable(msgs[i - 1]) && !noted.has(m.id) ? [m.id] : []))
+  const unnotedSide = () => sides.flatMap((s) => s.msgs.flatMap((m, i) => (notable(m) && s.msgs[i - 1]?.role === 'user' && !noted.has(m.id) ? [m.id] : [])))
+  const switchFail = (e: unknown) => tip(t('开关没存上：{why}', { why: errText(e) }), { ms: 4000 })
+  /** 按先后补记进 to（补进去） */
+  async function backfill(to: NoteTarget, ids: number[]) {
+    setNoteTip(null)
+    for (const id of ids) await noteOne(place.key, id, to, place.label)
+    tip(t('补进去了，按问的先后排好'), { ok: true, ms: 3000 })
+  }
+  /** 开了（拨开、没开东西时选好了那篇）：前面有没记的问一句补不补 */
+  function turnedOn(to: NoteTarget) {
+    if (!sw.main) setNoteSwitch(noteKind, { ...sw, main: true }).catch(switchFail)
+    const miss = unnotedMain()
+    if (miss.length)
+      tip(t('前面 {n} 问没记', { n: miss.length }), {
+        acts: [
+          { label: t('补进去'), primary: true, onClick: () => void backfill(to, miss) },
+          { label: t('只记以后的'), onClick: () => setNoteTip(null) },
+        ],
+      })
+    else tip(t('之后答一条记一条，记进《{name}》', { name: noteName(titleOf(to.path), 18) }), { ok: true, ms: 3500 })
+  }
+  /** 弹「记进哪篇」：贴着输入框下面那一排的「《…》▾」（⋯ 里点的也弹在这里） */
+  function openNoteMenu(el: HTMLElement | null, then?: 'on' | { one: number }) {
+    const anchor = el ?? list.current?.closest('aside')?.querySelector<HTMLElement>('[data-testid="ai-note-target"]') ?? null
+    if (!anchor) return
+    setNoteMenu((m) => (m && m.anchor === anchor && !then ? null : { at: anchorOf(anchor), anchor, ...(then ? { then } : {}) }))
+  }
+  function pickNoteTarget(to: NoteTarget) {
+    const then = noteMenu?.then
+    setNoteMenu(null)
+    // 看文档选回默认的那篇就是没选过
+    C.setNoteTo(place.key, noteDefault && to.path === noteDefault.path ? null : to)
+    if (then === 'on') turnedOn(to)
+    else if (then) void noteOne(place.key, then.one, to, place.label)
+    else if (sw.main) tip(t('之后答一条记一条，记进《{name}》', { name: noteName(titleOf(to.path), 18) }), { ok: true, ms: 3500 })
+  }
+  function toggleNoteMain() {
+    if (noteOn) {
+      setNoteSwitch(noteKind, { ...sw, main: false }).catch(switchFail)
+      const done = msgs.filter((m) => noted.get(m.id)?.state === 'done').length
+      tip(done ? t('之后的不记了；已记的 {n} 问留在《{name}》里', { n: done, name: noteName(titleOf(target!.path), 18) }) : t('之后的不记了'), { ms: 4000 })
+      return
+    }
+    if (!target) return openNoteMenu(null, 'on')
+    turnedOn(target)
+  }
+  function toggleNoteSide() {
+    const next = !sw.side
+    setNoteSwitch(noteKind, { ...sw, side: next }).catch(switchFail)
+    const miss = next && target ? unnotedSide() : []
+    if (miss.length)
+      tip(t('前面 {n} 条旁支没记', { n: miss.length }), {
+        acts: [
+          { label: t('补进去'), primary: true, onClick: () => void backfill(target!, miss) },
+          { label: t('只记以后的'), onClick: () => setNoteTip(null) },
+        ],
+      })
+    else tip(next ? t('之后开的旁支也记，挂在被问那条下面') : t('之后的旁支不记'), { ms: 3000 })
+  }
+  /** 回答下面 ⋯ 最前面那一项：记了的「从《…》拿掉」，没记的「记进《…》」（开关关着也能单记这一条，没目标先问记进哪篇） */
+  function noteItemFor(msg: number): AbMenuItem | null {
+    const v = noted.get(msg)
+    if (v?.state === 'done')
+      return { id: 'note-out', icon: 'note', label: t('从《{name}》拿掉', { name: noteName(v.to, 12) }), tip: t('只拿掉这一问写进去的那几行'), onClick: () => void unnote(place.key, msg) }
+    if (v?.state === 'writing' || !mainAsk(place.key, msg)) return null
+    if (!target) return { id: 'note-in', icon: 'note', label: t('记进笔记…'), tip: t('先选记进哪篇，再记这一条'), onClick: () => openNoteMenu(null, { one: msg }) }
+    return { id: 'note-in', icon: 'note', label: t('记进《{name}》', { name: noteName(titleOf(target.path), 12) }), tip: t('只记这一条，开关关着也能记'), onClick: () => void noteOne(place.key, msg, target, place.label) }
+  }
 
   useEffect(() => {
     if (!props.hidden) box.current?.focus()
@@ -629,7 +749,12 @@ export function AiPanel(props: AiPanelProps) {
     const own = cmdLine ? [] : mats
     if (own.length) c.clear()
     else setInput('')
-    push({ id: seq++, role: 'user', text, ...(own.length ? { mats: own } : {}) })
+    // 记笔记按发问这一刻的开关算（/ 命令不记）：开着就把记进哪篇记在问的这条上，答完照它写
+    // 带着网页上引的一段、框的一块（偏好「引用留在当前对话」进了这段对话的）：网页的「记笔记」开着、定了记进哪篇时写进剪藏那篇
+    const webUrl = own.find((m) => m.url && /^https?:/i.test(m.url))?.url
+    const webTo = webUrl && !cmdLine ? webNoteTo(webUrl) : null
+    const noteAt: NoteTarget | null = webTo ? { path: webTo, inline: true } : noteOn && !cmdLine ? target : null
+    push({ id: seq++, role: 'user', text, ...(own.length ? { mats: own } : {}), ...(noteAt ? { noteAt } : {}) })
     const id = seq++
     const cmd = /^\/(\S+)/.exec(text)?.[1]
     push({ id, role: 'ai', pending: true })
@@ -730,6 +855,8 @@ export function AiPanel(props: AiPanelProps) {
         return
       }
       await agentTurn(id, text, own)
+      // 答完、没出错（noteOne 里再看一遍：出错、只有步骤没有字的不记）
+      if (noteAt) void noteOne(place.key, id, noteAt, place.label)
     } catch (e) {
       if (e instanceof CommitFailed) patch(id, { pending: false, warn: `改好了，提交没成功：${e.message}`, retry: e.retry })
       else patch(id, { pending: false, error: errText(e) })
@@ -1020,7 +1147,7 @@ export function AiPanel(props: AiPanelProps) {
 
   /**
    * 旁支里问一句（空着是「讲讲这句」）：第一问从这个地方主对话的会话分叉，之后接着旁支自己的会话；旁支的问答和主对话分开存，
-   * 不往主对话里加东西、不写进笔记（记到哪那一行「跟着这段对话存，不写进笔记」）
+   * 不往主对话里加东西。输入框下面「旁支」开着（发问那一刻）就记进这段对话记进的那篇，挂在被问那一问后面
    */
   async function sendSide(id: string, text: string, mats: Material[]) {
     const side = C.chatOf(place.key).sides.find((s) => s.id === id)
@@ -1030,7 +1157,8 @@ export function AiPanel(props: AiPanelProps) {
     const uid = ++seq
     const aid = ++seq
     const now = Date.now()
-    C.updateSides(place.key, (all) => all.map((s) => (s.id === id ? { ...s, msgs: [...s.msgs, { id: uid, role: 'user', text: q, time: now, ...(mats.length ? { mats } : {}) }, { id: aid, role: 'ai', text: '', time: now, pending: true, live: true, engine, by: cp.label }] } : s)))
+    const noteAt = sideNoteOn ? target : null
+    C.updateSides(place.key, (all) => all.map((s) => (s.id === id ? { ...s, msgs: [...s.msgs, { id: uid, role: 'user', text: q, time: now, ...(mats.length ? { mats } : {}), ...(noteAt ? { noteAt } : {}) }, { id: aid, role: 'ai', text: '', time: now, pending: true, live: true, engine, by: cp.label }] } : s)))
     C.setSideRunning(id, aid)
     // 被问的那一轮：那条回答和它前面那一问（分叉不了时放在第一问前面）
     const all = C.chatOf(place.key).msgs
@@ -1055,6 +1183,7 @@ export function AiPanel(props: AiPanelProps) {
       })
       C.patch(aid, (m) => ({ ...m, pending: false, live: false, text: r.text || m.text || '', ...(r.error ? { error: r.error } : {}), ...(r.commit ? { change: { commit: r.commit, kinds: r.kinds, ...(r.moved ? { moved: r.moved } : {}) } } : {}) }))
       if (r.commit || r.failed) props.onChanged()
+      if (noteAt && !r.error) void noteOne(place.key, aid, noteAt, place.label)
     } catch (e) {
       C.patch(aid, { pending: false, live: false, error: errText(e) })
     } finally {
@@ -1071,6 +1200,8 @@ export function AiPanel(props: AiPanelProps) {
   /** 新对话：这个地方的对话清掉（会话号一起清） */
   function newChat() {
     C.clear(place.key)
+    forgetNoted(place.key)
+    setNoteTip(null)
     setMentions([])
   }
 
@@ -1202,6 +1333,8 @@ export function AiPanel(props: AiPanelProps) {
           </Chip>
         ))}
         {hands && <Chip hands>{`能动手：${hands}`}</Chip>}
+        {/* 记笔记开着：「● 正在记进《…》」，点了打开那篇（还没记过一问、那篇还没建时点不了） */}
+        {noteOn && <RecChip target={titleOf(target!.path)} side={sideNoteOn} {...(props.notes.some((n) => n.path === target!.path) ? { onOpen: () => props.onOpen(target!.path) } : {})} />}
       </Sees>
       )}
       {/* 费曼学习讲着：顶上一句，照常能问、不记（已定 3） */}
@@ -1288,6 +1421,7 @@ export function AiPanel(props: AiPanelProps) {
                   {...(m.by ? { by: m.by } : {})}
                   chatKey={place.key}
                   msg={m.id}
+                  noteItem={noteItemFor(m.id)}
                   last={i === lastAnswer}
                   host={{
                     place: 'chat',
@@ -1405,6 +1539,8 @@ export function AiPanel(props: AiPanelProps) {
                 </div>
               )}
               {m.change && <ChangeBlock change={m.change} onRevert={() => void revert(m.id, m.change!)} onHistory={props.onShowHistory} />}
+              {/* 记进笔记的这一问：「✓ 已记进《…》 · 撤回」（正在记、没记成也在这一行） */}
+              {noted.get(m.id) && <NotedLine s={noted.get(m.id)!} onUndo={() => void unnote(place.key, m.id)} onOpen={() => showAskIn(noted.get(m.id)!.note, m.id)} />}
             </div>
           ),
         )}
@@ -1471,7 +1607,7 @@ export function AiPanel(props: AiPanelProps) {
             side={{ id: openSide.id, quote: openSide.quote, name: sideName(openSide), msgs: openSide.msgs.map((m) => ({ id: m.id, role: m.role, text: m.text ?? '', ...(m.error ? { error: m.error } : {}), ...(m.mats ? { mats: m.mats } : {}), ...(m.engine ? { engine: m.engine } : {}), ...(m.steps ? { steps: m.steps } : {}) })) }}
             group={openGroup.sides.map((s) => ({ id: s.id, name: sideName(s) }))}
             running={C.sideRunning(openSide.id) !== undefined}
-            record={{ icon: 'comment-discussion', text: '跟着这段对话存，不写进笔记' }}
+            record={sideNoteOn ? { icon: 'note', text: t('答完记进《{name}》', { name: noteName(titleOf(target!.path), 18) }) } : { icon: 'comment-discussion', text: '跟着这段对话存，不写进笔记' }}
             conv={place.key}
             picks={cp.picks}
             link={{ key: place.key, msg: openSide.msg }}
@@ -1510,6 +1646,8 @@ export function AiPanel(props: AiPanelProps) {
           }}
         />
       )}
+      {/* 中途拨记笔记开关的那一条：输入框上面的灰底条（和读 PDF 那边同一个样子，设计复审） */}
+      {noteTip && !pasteNote && <NoteTip text={noteTip.text} {...(noteTip.ok ? { ok: true } : {})} {...(noteTip.acts ? { acts: noteTip.acts } : {})} />}
       <AiInput
         c={c}
         placeholder={cp.none ? t('跟AI说，/ 选命令，@ 引用笔记') : t('跟{name}说，/ 选命令，@ 引用笔记', { name: engines.find((e) => e.id === engine)?.label ?? 'Claude Code' })}
@@ -1518,6 +1656,8 @@ export function AiPanel(props: AiPanelProps) {
         // 开着旁支时缩成一行灰字（方向 A：不和旁支的输入框摞着），点它收起旁支、回到这里；全能模式那行一起藏起来
         slim={openSide ? { onWake: () => C.showSide(place.key, null) } : null}
         omni={openSide ? null : cp.omni}
+        // 全能模式上面那一排「记笔记 ·《记进哪篇》▾ ｜ 旁支」（没开东西、还没选那篇时「记笔记」显示关着，拨它先问记进哪篇）
+        note={openSide ? null : { main: noteOn, side: sw.side, target: target ? titleOf(target.path) : null, onMain: toggleNoteMain, onSide: toggleNoteSide, onTarget: (el) => openNoteMenu(el) }}
         running={running !== null}
         sendDisabled={(!input.trim() && !c.mats.length) || busyElsewhere}
         sendTip={busyElsewhere ? `「${turn!.label}」那边还在答，答完再发` : undefined}
@@ -1547,6 +1687,19 @@ export function AiPanel(props: AiPanelProps) {
           </div>
         )}
       </AiInput>
+      {noteMenu && (
+        <TargetMenu
+          at={noteMenu.at}
+          anchor={noteMenu.anchor}
+          doc={noteDoc}
+          current={noteDoc ? target : (noteTo ?? null)}
+          inbox={noteDoc ? null : inboxTarget()}
+          hint={noteDoc ? t('看文档时默认：记笔记关、旁支关。改了这两颗，下次看文档照改后的来。') : t('以后在{place}聊：每段对话打开「记笔记」时都先问这一句。', { place: place.label })}
+          notes={props.notes.map((n) => n.path).filter((p) => /\.md$/i.test(p))}
+          onPick={pickNoteTarget}
+          onClose={() => setNoteMenu(null)}
+        />
+      )}
     </aside>
   )
 }

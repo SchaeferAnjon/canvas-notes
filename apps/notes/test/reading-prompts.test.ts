@@ -1,6 +1,6 @@
 import type { PdfBlock } from '@cn/format'
 import { describe, expect, it } from 'vitest'
-import { askPrompt, fullTextOf, noteDigest, parseSummary, sidePrompt, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, TUTOR_VERSION } from '../src/main/reading/prompts'
+import { askPrompt, fullTextOf, noteDigest, sidePrompt, TUTOR_SYSTEM, TUTOR_VERSION } from '../src/main/reading/prompts'
 import { AGENT_SYSTEM, AGENT_VERSION, langTail, modeLine, MODES_RULE } from '../src/main/agent/index'
 import { system as commandSystem } from '../src/renderer/ai-commands'
 import { setUiLang } from '../src/shared/i18n'
@@ -58,28 +58,6 @@ describe('问 AI 的话', () => {
     expect(first.endsWith('他说：为什么减掉门槛？')).toBe(true)
     const more = sidePrompt({ first: false, quote: '水位一到门槛就发一个 spike', page: 28, question: '那门槛是多少？' })
     expect(more).toBe('（接着这条旁支问，问的还是「水位一到门槛就发一个 spike」这句。）\n他说：那门槛是多少？')
-  })
-})
-
-describe('后台两件小活：这一轮的标题和一句小结（CN-93、94、96）', () => {
-  const msgs = [u('给我讲解一下'), a('用公式推……'), u('还是不懂'), a('看图：……')]
-  it('只要标题（16 字以内）和小结（40 字以内）：不让 AI 写疑惑、讲通的讲法、要点、没讲通的版本，不挑图、不挑双链', () => {
-    const p = summarizePrompt({ pdfName: '第3讲', thread, round: '【他】给我讲解一下\n【AI】用公式推……', blocks })
-    expect(p).toContain('【他】给我讲解一下\n【AI】用公式推……')
-    expect(p).toContain('"title": "这一处讲的是什么，16 个字以内')
-    expect(p).toContain('"recap": "一句小结，40 个字以内')
-    expect(p).not.toMatch(/doubts|good|points|failed|figure|links|疑惑|讲通|要点|双链/)
-    expect(SUMMARY_SYSTEM).not.toMatch(/疑惑|讲通/)
-    // 已经有标题：内容没变就照抄，不每次都换
-    expect(summarizePrompt({ pdfName: '第3讲', thread, round: '…', blocks, title: '旋转矩阵' })).toContain('已经有小标题「旋转矩阵」')
-  })
-  it('读回 JSON（前后有废话也行）', () => {
-    expect(parseSummary('好的：\n{"title":"旋转矩阵","recap":"列是基向量转完的位置。"}', { thread, msgs })).toEqual({ title: '旋转矩阵', recap: '列是基向量转完的位置。' })
-  })
-  it('AI 没给出 JSON：标题用原来的或问的话（「给我讲解一下」不算）、小结用最后一个回答的开头', () => {
-    expect(parseSummary('出错了', { thread, msgs })).toEqual({ title: '还是不懂', recap: '看图：……' })
-    expect(parseSummary('出错了', { thread, msgs, title: '旋转矩阵' }).title).toBe('旋转矩阵')
-    expect(parseSummary('{}', { thread, msgs: [u('给我讲解一下'), a('## 标题\n\n' + '长'.repeat(60))] })).toEqual({ title: '第 5 页', recap: '长'.repeat(40) + '…' })
   })
 })
 

@@ -329,7 +329,6 @@ test('写死的值放进设置：一般、文档和白板、文件和附件、�
     await flip('pdfAi')
     await row(page, 'pdfZoom').getByRole('combobox').selectOption('actual')
     await expect(toast(page)).toContainText('下次新打开的PDF用「100%」；看过的照旧')
-    await flip('pdfRecap')
     await page.keyboard.press('Escape')
     await page.keyboard.press('Meta+k')
     await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('第3讲')

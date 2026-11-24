@@ -58,7 +58,8 @@ export function stuckSpots(texts: Map<string, string>, today: { stem: string; pa
     const stem = src.replace(/\.pdf$/i, '')
     const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : ''
     for (const s of parseReadingNote(text, path)) {
-      if (s.viz || s.web) continue
+      // 新写法（AI 对话记笔记，只往后加）的一处不整段重写，梦游可视化先不挂（以后加一行嵌入）
+      if (s.viz || s.web || s.doc) continue
       if (!want.has(`${stem}\0${s.page}\0${s.title}`)) continue
       if (s.rounds < 2 && !againOf(s)) continue
       spots.push({ note: path, pdf: dir + src, section: s, score: stuckScore(s) })

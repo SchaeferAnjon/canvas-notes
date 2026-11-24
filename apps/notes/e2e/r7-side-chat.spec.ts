@@ -95,7 +95,7 @@ async function askFirst(page: Page) {
   await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
   await ai(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
   const msg = ai(page).getByTestId('reading-msg').last()
-  await expect(msg.locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+  await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
   return msg
 }
 
@@ -290,6 +290,8 @@ test('⋯ 菜单（300 宽、往下弹、右对齐）改名真能改、两条旁
     await expect(side(page).locator('.sq')).toHaveText(['为什么是基向量？'])
 
     // ⋯ 里插进主对话：这条回答作为一块引用进主对话输入框那一排（不自动发），底栏说一句；输入框这时缩成一行，收起后看得到那一块
+    // 先等两条旁支都记进笔记（记好时底栏会说「旁支也记进了笔记…」，晚到会盖掉下面要看的那一句）
+    await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toContain('#### 旁支：新会话是什么意思？\n')
     await side(page).locator('.acts [data-act="more"]').click()
     await page.getByRole('menuitem', { name: '插进主对话' }).click()
     await expect(page.getByTestId('toast')).toContainText('插进了主对话的输入框，没发')
@@ -301,15 +303,19 @@ test('⋯ 菜单（300 宽、往下弹、右对齐）改名真能改、两条旁
     await expect(ai(page).getByRole('textbox', { name: '问 AI' })).toHaveValue('①')
     await expect(ai(page).getByTestId('reading-msg')).toHaveCount(1)
 
-    // 删掉第 2 条：对话记录里、笔记里都没了；菜单里只剩第 1 条
+    // 删掉第 2 条：对话记录里没了、小标只剩 1 条；已经记进笔记的照旧留着（AI 对话记笔记开关：撤回在「已记进」那一行和 ⋯ 里，store.ts deleteSide）
     await badgeOf('这是讲解').click()
     await expect(side(page).locator('.sq')).toHaveText(['新会话是什么意思？'])
     await side(page).locator('.sd-head').getByRole('button', { name: '旁支菜单' }).click()
     await menu.getByRole('menuitem', { name: '删掉这条旁支' }).click()
     await expect(side(page)).toHaveCount(0)
     await expect(txt.locator('.badge')).toHaveText(['1'])
-    await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).not.toContain('新会话是什么意思？')
-    expect(readFileSync(join(vault, NOTE), 'utf8')).toContain('> [!side] 为什么是基向量？')
+    await badgeOf('列就是').click()
+    await side(page).locator('.sd-head').getByRole('button', { name: '旁支菜单' }).click()
+    await expect(menu.getByRole('menuitemradio')).toHaveText(['列为什么是基向量第 2 页 · 1 问'])
+    await page.keyboard.press('Escape')
+    await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toContain('#### 旁支：新会话是什么意思？\n')
+    expect(readFileSync(join(vault, NOTE), 'utf8')).toContain('#### 旁支：为什么是基向量？\n')
   } finally {
     await run.close()
   }
@@ -327,7 +333,9 @@ test('工作区方向 A：开着旁支点竖条「笔记」，笔记标签落在
     await sideBox(page).fill('为什么是基向量？')
     await sideBox(page).press('Enter')
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
-    await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toContain('> [!side] 为什么是基向量？\n> > 列就是基向量去哪\n>\n> #### 旁支的回答')
+    await expect
+      .poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 })
+      .toMatch(/\n#### 旁支：为什么是基向量？\n\n> 列就是基向量去哪\n> —— 在「给我讲解一下」的回答里\n\n> \[!ai\] 旁支回答 · [^\n]*\n> #### 旁支的回答\n/)
     // 竖条「笔记」：笔记标签开在同一组、在前面；开着旁支切过来：落在正在问的那条旁支上
     await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notes(page)).toBeVisible()
@@ -340,7 +348,7 @@ test('工作区方向 A：开着旁支点竖条「笔记」，笔记标签落在
     await expect(ai(page)).toBeVisible()
     await expect(side(page)).toBeVisible()
     await expect(notes(page)).toBeVisible()
-    // 接着问：笔记里这一问马上长出来（先写一次，标题小结晚一点补），闪一下
+    // 接着问：笔记里这一问马上长出来（答完写一次，新写法没有标题小结那第二次），闪一下
     await sideBox(page).fill('那行呢？')
     await sideBox(page).press('Enter')
     const grown = round.locator('.nside .turn').nth(1)
@@ -349,10 +357,10 @@ test('工作区方向 A：开着旁支点竖条「笔记」，笔记标签落在
     await expect(grown.locator('.qs')).toBeInViewport()
     await expect(round).not.toHaveClass(/\bflash\b/)
     expect(await css(grown, ['animation-duration'])).toEqual({ 'animation-duration': '1.6s' })
-    // 小结跟着重写（旁支答完一次也重写）
-    await expect(round.locator('.recap span')).toHaveText('测试小结：主对话问了 1 句，旁支问了 2 句。', { timeout: 15_000 })
-    // 同一条旁支的追问在笔记里不带引用句
-    expect(readFileSync(join(vault, NOTE), 'utf8')).toContain('> [!side] 那行呢？\n>\n> #### 旁支的回答')
+    // 新写法不让快模型写小结：右栏这一轮没有小结
+    await expect(round.locator('.recap')).toHaveCount(0)
+    // 同一条旁支的追问在笔记里不带引用句：标题下面直接是旁支回答
+    expect(readFileSync(join(vault, NOTE), 'utf8')).toMatch(/\n#### 旁支：那行呢？\n\n> \[!ai\] 旁支回答 · [^\n]*\n> #### 旁支的回答\n/)
 
     // 「在笔记里看」：笔记滚到那条旁支（先把笔记滚回顶上）
     await notes(page).locator('.notes').evaluate((e) => (e.scrollTop = 0))
@@ -412,7 +420,7 @@ test('长回答下半截的一句开旁支：那句一直在那一块的正上�
     await ta.fill('讲讲这页的三条公式')
     await ta.press('Enter')
     const msg = ai(page).getByTestId('reading-msg').last()
-    await expect(msg.locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     const txt = msg.locator('.txt')
     await selectText(page, txt, '水位一到门槛', '不是清零')
     await expect(askbox(page)).toBeVisible()

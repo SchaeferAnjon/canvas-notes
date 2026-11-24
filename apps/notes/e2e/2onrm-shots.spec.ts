@@ -34,7 +34,7 @@ async function ask(page: Page, a: [number, number], b: [number, number]) {
   await expect(input).toBeFocused()
   await input.press('Enter')
   await expect(ai(page).locator('.um-wrap')).toHaveCount(before + 1)
-  await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+  await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
 }
 
 /** 改后：悬停竖条上第 2 处（右栏中间挨着的第一块）；改前：点「+N」 */

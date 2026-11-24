@@ -90,7 +90,7 @@ test('现问：拖框问一块、选字问一段，右栏笔记里的图和原�
     await page.mouse.move(sb.x + sb.width - 2, sb.y + sb.height / 2, { steps: 6 })
     await page.mouse.up()
     await page.getByRole('toolbar', { name: '框好的这块' }).getByRole('button', { name: '翻译 + 讲一讲' }).click()
-    await expect(ai.getByTestId('reading-msg').nth(0).locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(ai.getByTestId('reading-msg').nth(0).getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     // 拖框问：第 3 页那张图
     await pg(3).scrollIntoViewIfNeeded()
     const r = (await pg(3).boundingBox())!
@@ -100,7 +100,7 @@ test('现问：拖框问一块、选字问一段，右栏笔记里的图和原�
     await page.mouse.up()
     await expect(ai.getByTestId('reading-att').locator('img')).toBeVisible()
     await page.getByRole('toolbar', { name: '框好的这块' }).getByRole('button', { name: '讲解一下' }).click()
-    await expect(ai.getByTestId('reading-msg').nth(1).locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(ai.getByTestId('reading-msg').nth(1).getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     const notes = page.getByRole('complementary', { name: '笔记', exact: true })
     await expect(notes.locator('.crop img').first()).toBeVisible()

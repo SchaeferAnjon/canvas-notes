@@ -1,0 +1,261 @@
+/* AI 对话记笔记开关（2026-11-24 方向 A）：头上「● 正在记进《…》」、回答下面「✓ 已记进《…》 · 撤回」 */
+
+/* 头上那一排（「看得到」下面）：一颗 22 高的小牌，强调色浅底、强调色字，前面一个呼吸的强调色圆点 */
+.ai-rec-row {
+  display: flex;
+  min-width: 0;
+  margin-top: 6px;
+}
+/* 放在「看得到」那一行里（AI 对话）：自己占一整行，在那一行的下边线上面 */
+.sees .ai-rec-row {
+  flex-basis: 100%;
+  margin-top: 1px;
+}
+.rec-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font: 12px/18px var(--sans);
+  white-space: nowrap;
+}
+.rec-chip:not(:disabled):hover {
+  box-shadow: inset 0 0 0 1px var(--acc-ring);
+}
+.rec-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--acc-ring);
+}
+.rec-chip .tx {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rec-chip .dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+  animation: rec-breathe 2.4s ease-in-out infinite;
+}
+@keyframes rec-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rec-chip .dot {
+    animation: none;
+  }
+}
+
+/* 回答下面「✓ 已记进《…》 · 撤回」：12px --t3，名字和「撤回」能点（读 PDF 那边 .reading-ai .noted 同一个样子） */
+.noted {
+  margin-top: 8px;
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.noted.err {
+  color: var(--red);
+}
+.noted .lnk {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  color: var(--t2);
+  text-decoration: none;
+}
+.noted .lnk:not(:disabled):hover {
+  color: var(--t1);
+  background: var(--fill);
+}
+.noted .lnk.undo {
+  color: var(--acc-t);
+}
+
+/* 「记进哪篇 ▾」菜单（proto 的 .menu）：和对话菜单同一套（--pop 底、圆角 12、每行 30 高圆角 8、左边 14 宽的勾或图标、右边 12 --t3） */
+.ntm-pop {
+  position: fixed;
+  z-index: 1200;
+  width: 300px;
+  max-width: calc(100vw - 16px);
+  border-radius: 12px;
+  background: var(--pop);
+  -webkit-backdrop-filter: var(--blur);
+  backdrop-filter: var(--blur);
+  box-shadow: var(--shadow-up);
+  font: 13px/1.5 var(--sans);
+  color: var(--t1);
+}
+.ntm {
+  padding: 6px;
+}
+.ntm .mh {
+  padding: 4px 8px 2px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.ntm .it,
+.ntm .fl button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  color: var(--t1);
+  text-align: left;
+  white-space: nowrap;
+}
+.ntm .it:hover,
+.ntm .fl button.on {
+  background: var(--fill);
+}
+.ntm .it:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--acc-ring);
+}
+.ntm .ck {
+  flex: none;
+  width: 14px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--acc-t);
+}
+.ntm .ck.ic {
+  color: var(--t2);
+}
+.ntm .lb {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ntm .r {
+  flex: none;
+  max-width: 50%;
+  margin-left: auto;
+  padding-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--t3);
+}
+.ntm .find {
+  margin: 2px 0 2px 22px;
+}
+.ntm .find input {
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 12px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
+.ntm .find input:focus-visible {
+  box-shadow: 0 0 0 2px var(--acc-ring);
+}
+.ntm .fl {
+  margin-top: 4px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.ntm .fl button {
+  height: 28px;
+}
+.ntm .fl .none {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.ntm .sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+.ntm .note {
+  padding: 2px 8px 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t3);
+}
+
+/* 「记进哪篇 ▾」的菜单：同 .ai-menu，宽 260 到 340，说明那一句能折行 */
+.ai-note-menu {
+  min-width: 260px;
+  max-width: 340px;
+}
+.ai-note-menu .sub {
+  white-space: normal;
+}
+
+/* 中途拨开关的那一条：输入框上面，灰底圆角 8，12.5px；按钮强调色字，「只记以后的」灰字 */
+.ai-note-tip.inline {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 6px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--fill);
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--t1);
+}
+.ai-note-tip.inline .sp {
+  flex: 1;
+}
+.ai-note-tip.inline .lnk {
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  color: var(--acc-t);
+}
+.ai-note-tip.inline .lnk.dim {
+  font-weight: 400;
+  color: var(--t2);
+}
+.ai-note-tip.inline .lnk:hover {
+  background: var(--fill2);
+}
+.ai-note-tip.inline > svg {
+  flex: none;
+  color: var(--acc-t);
+}
+
+/* 读 PDF 那边回答下面的「撤回」：和别处 AI 对话一样强调色（DESIGN.v3 2.4d） */
+.reading-ai .noted .lnk.undo {
+  color: var(--acc-t);
+}

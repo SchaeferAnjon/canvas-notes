@@ -33,7 +33,7 @@ test('真的问：带矢量图的那页，AI 给框，笔记里裁下来的是�
     await acts(page).getByRole('button', { name: /问这一页/ }).click()
     const ai = page.getByRole('complementary', { name: '边读边问 AI' })
     const msg = ai.getByTestId('reading-msg').last()
-    await expect(msg.locator('.noted')).toContainText('已记进笔记', { timeout: 240_000 })
+    await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 240_000 })
     const md = readFileSync(join(vault, '课程/公开课/讲义 笔记.md'), 'utf8')
     console.log(md)
     const fig = new RegExp(`!\\[第 ${PAGE} 页 · ([^\\]]+)\\]\\(\\.\\./\\.\\./附件/讲义/(p${PAGE}-\\d+-fig\\.png)\\)`).exec(md)

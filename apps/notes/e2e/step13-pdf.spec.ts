@@ -78,20 +78,18 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     await expect(msg.locator('.txt')).toContainText('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
     await expect(msg.locator('.read')).toHaveText('读了第3页 · Claude Code · Opus 5.5 · High')
     // 不让人等：先「正在记进笔记…」，写好「已记进笔记 · 第 3 页」，竖条「笔记」上一个小点
-    await expect(msg.locator('.noted')).toContainText('已记进笔记 · 第3页', { timeout: 15_000 })
+    await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     await expect(rail(page).getByTestId('notes-dot')).toBeVisible()
 
-    // 库里：笔记（我框的图、问题原话、回答原文、小结）、截图，一次提交；完整对话不再另写一份（CN-93、94、96）
+    // 库里：笔记（2026-11-24 新写法：一问一个小标题是原话、我框的图、回到那一块、回答原文一块 [!ai]）、截图，一次提交；完整对话不再另写一份
     const md = readFileSync(join(vault, NOTE), 'utf8')
     expect(md).toContain('类型: 笔记\n课程: 线性代数\n第几讲: 3\n来源: "[[第3讲 线性映射.pdf]]"')
     expect(md).toContain('AI填的: 课程, 第几讲')
-    expect(md).toContain('## 第 3 页 · 测试小标题 p3\n[第 3 页](第3讲%20线性映射.pdf#page=3&rect=')
-    expect(md).toMatch(/ <!-- cn:thread=第3讲 线性映射-p3-1 -->\n\n!\[我框的\|\d+\]\(\.\.\/\.\.\/附件\/第3讲%20线性映射\/p3-1\.png\)\n\n> \[!question\] 给我讲解一下\n\n这是讲解（第 3 页，图 1 张，读过全文，新会话）。/)
-    expect(md).toContain('> [!recap] 测试小结：主对话问了 1 句。')
-    expect(md).not.toMatch(/我的疑惑|整块没看懂|讲通的讲法|完整对话/)
+    expect(md).toMatch(/\n## 第 3 页[^\n]*\n\n### 给我讲解一下\n\n!\[我框的\|\d+\]\(\.\.\/\.\.\/附件\/第3讲%20线性映射\/p3-1\.png\)\n\n—— \[第 3 页\]\(第3讲%20线性映射\.pdf#page=3&rect=[\d.,]+\)\n\n> \[!ai\] AI 回答 · [^\n]+\n> 这是讲解（第 3 页，图 1 张，读过全文，新会话）。/)
+    expect(md).not.toMatch(/我的疑惑|整块没看懂|讲通的讲法|完整对话|\[!recap\]|cn:thread/)
     expect(existsSync(join(vault, '附件/第3讲 线性映射/p3-1.png'))).toBe(true)
     expect(existsSync(join(vault, '.canvas-notes/对话'))).toBe(false)
-    expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('笔记：第3讲 线性映射 第 3 页 · 测试小标题 p3')
+    expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('笔记：第3讲 线性映射 笔记 · 给我讲解一下')
     expect(gitOut(vault, 'status', '--porcelain', '--untracked-files=all')).toBe('')
 
     // 页边标记：第 3 页这里问过 1 轮
@@ -102,12 +100,12 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     await msg.getByRole('button', { name: '还是不懂' }).click()
     const msg2 = ai(page).getByTestId('reading-msg').last()
     await expect(msg2.locator('.txt')).toContainText('换个方式讲（第 3 页，图 0 张，读过全文，接着聊）')
-    await expect(msg2.locator('.noted')).toContainText('已记进笔记', { timeout: 15_000 })
+    await expect(msg2.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     await expect(pdfPane(page).getByRole('button', { name: '第 3 页这里问过 2 轮' })).toBeVisible()
     const md2 = readFileSync(join(vault, NOTE), 'utf8')
     expect(md2.match(/^## /gm)?.length).toBe(1)
-    expect(md2).toContain('> [!question] 还是不懂\n\n换个方式讲（第 3 页，图 0 张，读过全文，接着聊）：先别看公式，看图。\n\n> [!recap] 测试小结：主对话问了 2 句。\n')
-    expect(md2).not.toMatch(/\[!ai\]|没讲通|完整对话/)
+    expect(md2).toMatch(/\n### 还是不懂\n\n> \[!ai\] AI 回答 · [^\n]+\n> 换个方式讲（第 3 页，图 0 张，读过全文，接着聊）：先别看公式，看图。\n/)
+    expect(md2).not.toMatch(/没讲通|完整对话|\[!recap\]/)
 
     // AI 回答里的「第 2 页」：和别的引用一样点一下先出预览卡（task-3e53q 已定 1），⌘点 PDF 翻过去
     const p2 = ai(page).getByTestId('reading-msg').first().locator('a.pg', { hasText: '第 2 页' })
@@ -123,10 +121,10 @@ test('PDF 框一块问：右栏 AI 带图回答，后台记笔记（我框的图
     await expect(ai(page)).toBeHidden()
     await expect(rail(page).getByTestId('notes-dot')).toHaveCount(0)
     const sec = notes(page).getByTestId('note-round')
-    await expect(sec.locator('.rh h3')).toHaveText('第3页 · 测试小标题 p3')
+    // 新写法不再让快模型起标题、写小结：这一处的标题是第一问的原话（右栏笔记照文档看法改是施工线另一块）
+    await expect(sec.locator('.rh h3')).toHaveText('第3页 · 给我讲解一下')
     await expect(sec.locator('.qs')).toHaveText(['给我讲解一下', '还是不懂'])
     await expect(sec.locator('.am').first()).toContainText('这是讲解（第 3 页，图 1 张，读过全文，新会话）')
-    await expect(sec.locator('.recap span')).toHaveText('测试小结：主对话问了 2 句。')
     await expect(sec.locator('.crop img')).toHaveCount(1)
 
     // 笔记 → PDF：点「第 3 页 ›」，翻到第 3 页，框过的那块闪一下
@@ -206,7 +204,7 @@ test('⌘↵ 问整页；选中一段字问；esc 取消框；重开软件回到
     const msg = ai(page).getByTestId('reading-msg').last()
     await expect(msg.locator('.txt')).toContainText('这是讲解（第 4 页，图 1 张')
     await expect(ai(page).locator('.um').last()).toHaveText('给我讲解一下这一页')
-    await expect(msg.locator('.noted')).toContainText('已记进笔记 · 第4页', { timeout: 15_000 })
+    await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     // 整页问的标记在页顶
     await expect(pdfPane(page).getByRole('button', { name: '第 4 页这里问过 1 轮' })).toBeVisible()
 
@@ -229,7 +227,7 @@ test('⌘↵ 问整页；选中一段字问；esc 取消框；重开软件回到
     await expect(bar).toBeVisible()
     await bar.getByRole('button', { name: /讲解一下/ }).click()
     await expect(ai(page).locator('.uq').last()).toContainText('scalar')
-    await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记 · 第2页', { timeout: 15_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     const md = readFileSync(join(vault, NOTE), 'utf8')
     // 按页排：第 2 页在第 4 页前面
     expect([...md.matchAll(/^## 第 (\d+) 页/gm)].map((m) => m[1])).toEqual(['2', '4'])
@@ -291,10 +289,12 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
     await expect(ai(page).getByRole('textbox', { name: '问 AI' })).toHaveValue('给我讲解一下')
     await ai(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
     const msg = ai(page).getByTestId('reading-msg').first()
-    await expect(msg.locator('.noted')).toContainText('已记进笔记 · 第3页', { timeout: 15_000 })
+    await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     // 回答最后那行标记不显示，换成「做个可视化」
     await expect(msg.locator('.txt')).not.toContainText('〔')
-    await expect(ai(page).getByTestId('reading-sees').locator('.chip').last()).toHaveText('笔记1轮')
+    // 记笔记开着、头上有「正在记进《…》」小牌时，「看得到」里不再单列「笔记N轮」（设计复审）：记进哪篇看小牌
+    await expect(ai(page).getByTestId('ai-note-rec')).toHaveText(/^正在记进《[^》]*笔记》$/)
+    await expect(ai(page).getByTestId('reading-sees').locator('.chip')).toHaveText(['第3讲 线性映射.pdf · 第3页', '读过全文5页'])
     await expect(ai(page).getByTestId('pdf-progress')).toHaveCount(0)
     await expect(acts(page).getByTestId('pdf-pager')).toContainText(' / 5')
     await expect(acts(page).getByTestId('pdf-progress')).toHaveCount(0)
@@ -330,10 +330,10 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
     await frame.getByRole('slider', { name: '角度' }).fill('90')
     await expect(frame.locator('#v')).toHaveText('90')
 
-    // 回到 PDF：笔记里有可视化卡
+    // 回到 PDF：笔记里那一问后面挂着可视化那一行（2026-11-24 新写法：插在这一处最后一问的 AI 块后面；
+    // 右栏笔记的可视化卡认新写法那一行，等右栏「笔记」照文档看法改，施工线另一块）
     await page.locator('.tab', { hasText: '第3讲 线性映射.pdf' }).locator('.tl').click()
-    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
-    await expect(notes(page).getByTestId('viz-card')).toContainText('旋转矩阵 · 拖动角度看基向量')
+    expect(readFileSync(join(vault, NOTE), 'utf8')).toMatch(/\n> 这是讲解[^\n]*(\n>[^\n]*)*\n\n!\[可视化 · 旋转矩阵 · 拖动角度看基向量\]\(旋转矩阵\.html\)\n/)
     // 「我的疑惑」那一页 2026-11-22 拿掉了（task-tz7y3）：⌘K 打它说问过的在哪；不再是文件
     await page.keyboard.press('Meta+k')
     await page.getByRole('textbox', { name: '搜索笔记、输入网址或命令' }).fill('我的疑惑')
@@ -341,7 +341,8 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
     await page.keyboard.press('Escape')
     expect(existsSync(join(vault, '课程/线性代数/我的疑惑.md'))).toBe(false)
 
-    // 出卡：AI 改成卡（假 AI），一张张过，送进 Anki；送过的标「已送」，一次提交
+    // 出卡：AI 改成卡（假 AI），一张张过，送进 Anki；送过的标「已送」，一次提交（右图标栏点「笔记」打开右栏笔记）
+    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await notes(page).getByRole('tab', { name: '只看我问的' }).click()
     await notes(page).getByRole('button', { name: '出卡 · 1问' }).click()
     const dlg = page.getByRole('dialog', { name: '出卡' })
@@ -352,7 +353,8 @@ test('第 2 段：做个可视化（后台做好挂进笔记、中间栏沙箱�
     await expect(page.locator('.toast-cn')).toContainText('已送进Anki · 1张（牌组「课程::线性代数::第3讲 线性映射」）')
     await expect(notes(page).locator('.qonly .st')).toHaveText(['已送'])
     await expect(notes(page).getByRole('button', { name: '出卡 · 0问' })).toBeVisible()
-    expect(added.map((n) => [n.deckName, n.fields.Question])).toEqual([['课程::线性代数::第3讲 线性映射', '「测试小标题 p3」里：给我讲解一下']])
+    // 假 AI 出卡照「「这一处的标题」里：原话」拼问题；新写法不再起标题，这一处的标题就是第一问的原话
+    expect(added.map((n) => [n.deckName, n.fields.Question])).toEqual([['课程::线性代数::第3讲 线性映射', '「给我讲解一下」里：给我讲解一下']])
     // 背面：AI 改写的答案；原文摘句是回答里原样的一句
     expect(added[0]!.fields.Answer).toContain('这是讲解')
     expect(added[0]!.fields.Image).toMatch(/^<img class="lead" src="canvasnotes-\w+\.png"( width="\d+")?>$/)

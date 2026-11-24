@@ -2,7 +2,8 @@
 // 偏好「选中小条统一、合成那颗叫引用」「网页的笔记记在正在剪进去的那篇」「术语表功能拿掉」）：
 // - 四处小条一个顺序：讲解一下 ↵ · 翻译 + 讲一讲 · 引用 ⌘↵ ｜ 各自特有的（网页选字「剪藏 ⌘S」）· ⋯（框着的还有 ×）；
 // - 引用：这段（字或截图）成为那一处 AI 输入框顶上的一块材料、光标进去，接着选别处再点攒成 ①②；
-// - 网页上讲解一下、翻译 + 讲一讲、引用后问的，一问一块 [!ai] 写进这个网页正在剪进去的那篇，块头带回到网页那一段的链接；
+// - 网页上讲解一下、翻译 + 讲一讲、引用后问的，写进这个网页正在剪进去的那篇本身（2026-11-24 AI 对话记笔记开关，
+//   偏好「剪藏和AI笔记同一篇」：中间开着插在光标处，一问一个小标题，选的那段带回到网页那一段的来源行，再是 AI 回答框）；
 //   剪藏 ⌘S 也写进那篇，来源那一行是同样的链接；底栏说剪到了哪，带「撤回」「换一篇」；
 // - 右栏「笔记」标签在开着配好对的网页时也亮，只列那篇里来自这一页的，点一条网页跳回那段、亮一下；
 // - 还没配对时第一次问 / 剪，小条下面问一句记到哪篇，「记到这篇」顺手配成一对；
@@ -10,7 +11,7 @@
 // 一律无头（CN_E2E=1）、假 AI（CN_AI_FAKE=1）、本机假网页（fixtures/d2l-pandas.ts），不上网。
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { editorText, launch, openNote, pane, rail, type Running, tabOn, waitSaved, webAboveAi, widenRight } from './app'
 import { d2l, type D2l, P1, P1_LAST, P2, P2_PART } from './fixtures/d2l-pandas'
@@ -19,6 +20,7 @@ import { fragmentUrl } from '../src/shared/web-link'
 
 const NOTE = '课程/学习笔记：动手学深度学习.md'
 const TITLE = '学习笔记：动手学深度学习'
+const noteMd = (vault: string) => (existsSync(join(vault, NOTE)) ? readFileSync(join(vault, NOTE), 'utf8') : '')
 const NOTE2 = '课程/第二章的习题.md'
 const TITLE2 = '第二章的习题'
 const PDF = '课程/线代/第3讲.pdf'
@@ -404,7 +406,7 @@ test('网页剪藏 ⌘S：写进配好对的那篇光标处，来源一行是回
   }
 })
 
-test('网页上讲解一下：那篇光标处多一块 [!ai]，块头带回到网页那一段的链接；点「↩」网页滚回那段、亮一下', async () => {
+test('网页上讲解一下：写进剪藏那篇本身、插在光标处（问的原话做小标题、选的那段带回到网页那一段的链接、AI 回答框）；点「↩」网页滚回那段、亮一下', async () => {
   const run = await launch({ [NOTE]: paired() }, { CN_AI_FAKE: '1', CN_FAKE_NOTE_MS: '50' })
   const { page, vault } = run
   try {
@@ -417,14 +419,24 @@ test('网页上讲解一下：那篇光标处多一块 [!ai]，块头带回到�
     await clickBar(page, '讲解一下')
     await expect(reading(page).locator('.um').last()).toHaveText('给我讲解一下')
     const link = `[2.2.1 读取数据集 ↩](${fragmentUrl(site.pandas, P1_LAST)})`
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(link)
-    const md = await editorText(page)
-    expect(md).toMatch(new RegExp(`> \\[!ai\\] 讲解一下 · Claude Code · [^\\n]+ · ${link.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n> > ${P1_LAST}\\n>\\n> 这是讲解`))
+    await expect.poll(() => noteMd(vault), { timeout: 15_000 }).toContain(link)
+    expect(noteMd(vault)).toContain(`### 给我讲解一下\n\n> ${P1_LAST}\n> —— ${link}\n\n> [!ai] AI 回答 · Claude Code · `)
+    await expect.poll(() => gitOut(vault, 'log', '-1', '--format=%s')).toBe(`笔记：${TITLE} · 给我讲解一下`)
+    await expect(reading(page).getByTestId('ai-noted')).toContainText(`已记进《${TITLE}》`)
     await waitSaved(page)
-    await expect.poll(() => gitOut(vault, 'log', '-1', '--format=%s')).toBe(`笔记：网页「2.2. 数据预处理」· 讲解一下 → ${TITLE}`)
-    await expect(reading(page).getByText(`已记进《${TITLE}》`)).toBeVisible()
+    // 插在光标处：自己那句后面接着问的那句
+    expect(noteMd(vault)).toContain('先把数据读进来，再处理缺失值。\n\n### 给我讲解一下\n')
+    expect(noteMd(vault)).not.toContain('AI 笔记')
 
-    // 网页滚走，点块头那个「↩」：网页回到那段、亮一下
+    // 「已记进」点了中间是那篇、定位到这一问（亮一下）；右栏网页不动（这篇和网页配成一对，以前点了网页跟着跳回书的开头）
+    const before = await guest<string>(page, 'location.href')
+    await reading(page).getByTestId('ai-noted').getByRole('button').first().click()
+    await expect(tabOn(page)).toContainText(TITLE)
+    await expect(pane(page).locator('.cm-line', { hasText: '给我讲解一下' }).first()).toBeInViewport()
+    await page.waitForTimeout(600)
+    expect(await guest<string>(page, 'location.href')).toBe(before)
+    expect(await guest<boolean>(page, '!!document.getElementById("p1")')).toBe(true)
+    // 网页滚走，点来源行那个「↩」：网页回到那段、亮一下
     await guest(page, 'window.scrollTo(0, document.body.scrollHeight)')
     await expect.poll(() => inView(page, 'p1')).toBe(false)
     await clickShown(page, '2.2.1 读取数据集 ↩')
@@ -523,7 +535,7 @@ test('网页上的小标画在段落左边的空白里、离段首的字 6，不
   }
 })
 
-test('还没配对：第一次点讲解一下，小条下面问记到哪篇（默认中间开着的那篇）；「记到这篇」顺手配成一对，回答写进那篇；再问不再问', async () => {
+test('还没配对：第一次点讲解一下，小条下面问记到哪篇（默认中间开着的那篇）；「记到这篇」顺手配成一对，回答写进那篇本身；再问不再问', async () => {
   const run = await launch({ [NOTE]: BODY }, { CN_AI_FAKE: '1', CN_FAKE_NOTE_MS: '50' })
   const { page, vault } = run
   try {
@@ -567,16 +579,17 @@ test('还没配对：第一次点讲解一下，小条下面问记到哪篇（�
     expect(await guest<string>(page, 'getSelection().toString()')).toBe('')
     // 配成一对：属性里写上这个网站
     await expect.poll(() => editorText(page)).toContain(`read-along: ${site.base}/`)
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(`[2.2.1 读取数据集 ↩](${fragmentUrl(site.pandas, P1_LAST)})`)
+    await expect.poll(() => noteMd(vault), { timeout: 15_000 }).toContain(`[2.2.1 读取数据集 ↩](${fragmentUrl(site.pandas, P1_LAST)})`)
+    await expect.poll(() => editorText(page)).toContain('### 给我讲解一下')
+    expect(await editorText(page)).not.toContain('AI 笔记')
     await waitSaved(page)
     // 再问一段：不再问记到哪篇（AI 叠在网页前面：把网页拖到上半，同人一边看一边问）
     await webAboveAi(page)
     await selectIn(page, 'p2', '典型的方法', '插值法和删除法')
     await clickBar(page, '讲解一下')
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(`[2.2.2 处理缺失值 ↩](${fragmentUrl(site.pandas, P2_PART)})`)
+    await expect.poll(() => noteMd(vault), { timeout: 15_000 }).toContain(`[2.2.2 处理缺失值 ↩](${fragmentUrl(site.pandas, P2_PART)})`)
     await expect(dlg).toHaveCount(0)
-    await waitSaved(page)
-    expect(readFileSync(join(vault, NOTE), 'utf8')).toContain(`> > ${P2_PART}`)
+    expect(noteMd(vault)).toContain(`> ${P2_PART}`)
     void P2
   } finally {
     await run.close()
@@ -598,14 +611,14 @@ test('选区刚换、小条还没跟上就按回车：讲解的是现在选中�
       page,
       `(() => { const t = document.getElementById('p1').firstChild; const i = t.data.indexOf(${JSON.stringify(P1_LAST)}); const r = document.createRange(); r.setStart(t, i); r.setEnd(t, i + ${P1_LAST.length}); const s = getSelection(); s.removeAllRanges(); s.addRange(r); document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })) })()`,
     )
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(`> > ${P1_LAST}`)
-    expect(await editorText(page)).not.toContain('> > 典型的方法')
+    await expect.poll(() => noteMd(run.vault), { timeout: 15_000 }).toContain(`> ${P1_LAST}`)
+    expect(noteMd(run.vault)).not.toContain('> 典型的方法')
   } finally {
     await run.close()
   }
 })
 
-test('网页上按住 ⌘ 框一块点「讲解一下」（还没配对）：框和工具条留着，记到哪篇贴在工具条下面；取消了框照旧在，记到这篇以后框收起、回答带截图写进那篇', async () => {
+test('网页上按住 ⌘ 框一块点「讲解一下」（还没配对）：框和工具条留着，记到哪篇贴在工具条下面；取消了框照旧在，记到这篇以后框收起、回答带截图写进那篇本身', async () => {
   const run = await launch({ [NOTE]: BODY }, { CN_AI_FAKE: '1', CN_FAKE_NOTE_MS: '50' })
   const { page } = run
   const explainAt = () => guestPoint(page, `document.getElementById('cn-box-host').shadowRoot.querySelector('[data-k="explain"]')`)
@@ -647,9 +660,9 @@ test('网页上按住 ⌘ 框一块点「讲解一下」（还没配对）：框
     await dlg.getByRole('button', { name: /记到这篇/ }).click()
     await expect(dlg).toHaveCount(0)
     await expect.poll(() => boxBar(page)).toBeNull()
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain('> ![我框的](')
+    await expect.poll(() => noteMd(run.vault), { timeout: 15_000 }).toContain('### 给我讲解一下\n\n![我框的')
     expect(await editorText(page)).toContain(`read-along: ${site.base}/`)
-    expect(await editorText(page)).toMatch(/> \[!ai\] 讲解一下 · .*\[2\.2\.1 读取数据集 ↩\]\(http:\/\/127\.0\.0\.1:\d+\/chapter_preliminaries\/pandas\.html#:~:text=/)
+    expect(noteMd(run.vault)).toMatch(/\n—— \[2\.2\.1 读取数据集 ↩\]\(http:\/\/127\.0\.0\.1:\d+\/chapter_preliminaries\/pandas\.html#:~:text=[^)]+\)\n\n> \[!ai\] AI 回答 · /)
   } finally {
     await run.close()
   }

@@ -233,6 +233,7 @@ test('问框里的回答选一句也能开旁支：就地长在问框里那一�
   test.setTimeout(150_000)
   const run = await launch({ [NOTE]: '# 看视频的笔记\n\n我先写的一句。\n' }, { CN_AI_FAKE: '1', CN_AI_FAKE_DELAY_MS: '150', CN_AI_FAKE_ASK_MS: '600', CN_VIDEO_TEST_ORIGIN: base })
   const { page, vault } = run
+  // 问框的问答写进「记到哪」那篇本身（2026-11-24 AI 对话记笔记开关），问框里开的旁支也写在那里、挂在那一问的 AI 块下面
   const md = () => readFileSync(join(vault, NOTE), 'utf8')
   try {
     await openNote(page, '看视频的笔记')
@@ -260,7 +261,7 @@ test('问框里的回答选一句也能开旁支：就地长在问框里那一�
     await expect(ans).toContainText('任何向量都是它俩的组合', { timeout: 15_000 })
     await expect(ask.getByRole('button', { name: /已记进《看视频的笔记》/ })).toBeVisible()
     await waitSaved(page)
-    await expect.poll(md).toContain('> [!ai] AI 讲解')
+    await expect.poll(md).toContain('> [!ai] AI 回答')
 
     // 回答里选一句：同一个小框，问这句 → 问框里就地长出旁支
     await selectText(page, ans, '任何向量', '的组合，')
@@ -272,13 +273,13 @@ test('问框里的回答选一句也能开旁支：就地长在问框里那一�
     await expect(s.getByTestId('side-msg').last()).toContainText('旁支的回答', { timeout: 15_000 })
     // 旁支的输入框和「记到哪」钉在问框底部（主输入框那一行的位置，task-5yp97 选法 2）：主输入框让给它，不在旁支那一块里
     const dock = ask.getByTestId('ak-side-dock')
-    await expect(dock.locator('.rec')).toHaveText('写在《看视频的笔记》里，挂在这段讲解下面')
+    await expect(dock.locator('.rec')).toHaveText('写在《看视频的笔记》里，挂在这段回答下面')
     await expect(s.getByRole('textbox')).toHaveCount(0)
     await expect(dock.getByRole('textbox')).toBeVisible()
     await expect(ask.getByRole('textbox', { name: '想问什么' })).toHaveCount(0)
     // 写进那篇：挂在讲解块下面
     await expect.poll(md, { timeout: 15_000 }).toMatch(/\n\n> \[!side\] 为什么是组合？\n> > 任何向量都是它俩的组合，\n>\n> #### 旁支的回答/)
-    const ai = md().indexOf('> [!ai] AI 讲解')
+    const ai = md().indexOf('> [!ai] AI 回答')
     expect(md().indexOf('> [!side] 为什么是组合？')).toBeGreaterThan(ai)
 
     await walk(page, { scope: ask, txt: ans, q1: '为什么是组合？', q2: '那三维呢？', input: dock.getByRole('textbox') })
@@ -295,18 +296,20 @@ test('问框里的回答选一句也能开旁支：就地长在问框里那一�
     const input = ask.getByRole('textbox', { name: '想问什么' })
     await expect(input).toBeFocused()
 
-    // 问框里接着问：照样写进同一块讲解，在旁支前面（旁支挂在讲解块后面）
+    // 问框里接着问：一问一个小标题接在后面（旁支挂在第一问的 AI 块下面，在它前面）
     await input.fill('那网格线为什么还平行？')
     await input.press('Enter')
     await expect(ask.getByTestId('ak-answer')).toHaveCount(2)
-    await expect.poll(md, { timeout: 15_000 }).toContain('> **接着问**：那网格线为什么还平行？')
+    await expect.poll(md, { timeout: 15_000 }).toContain('\n### 那网格线为什么还平行？\n')
     const t = md()
-    expect(t.indexOf('**接着问**')).toBeLessThan(t.indexOf('> [!side] 为什么是组合？'))
+    expect(t.indexOf('### 那网格线为什么还平行？')).toBeGreaterThan(t.indexOf('> [!side] 为什么是组合？'))
     // 第一问的小标还在
     await expect(ans.locator('.badge')).toHaveText('1')
 
-    // 文档里是同一份：小标、点开问答都在
+    // 那篇里是同一份（「已记进」点了中间是它）：小标、点开问答都在
     await waitSaved(page)
+    await ask.getByRole('button', { name: /已记进/ }).click()
+    await expect(page.getByTestId('tab-on')).toContainText('看视频的笔记')
     const content = pane(page).locator('.cm-content')
     await expect(content.locator('.badge')).toHaveText('1')
     await content.locator('.badge').click()

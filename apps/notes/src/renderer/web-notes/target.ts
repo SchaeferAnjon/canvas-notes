@@ -3,7 +3,7 @@
  * 1. 「记到这篇」「换一篇」「剪到哪篇…」选过的那篇（这台 Mac 记着，cn.webTarget：网站 → 那篇）：还配着这个网站、或这个网站没配别的篇时用它
  *    （那篇已经配了别的网站时不动它的配对，只记在这里）；
  * 2. 和这个网页配成一对的那篇（笔记属性 read-along 对得上这个网址）；几篇都配了它时中间开着的那篇优先，不然第一篇；
- * 3. 都没有：第一次问、剪时问一句（Where.tsx）。选了「这次只问，不记」的网站，软件开着时不再问（skip）。
+ * 3. 都没有：第一次问、剪时问一句（Where.tsx）。问的时候选「这次只问，不记」是把网页的「记笔记」关掉（AI 栏输入框下面那一排），关着不再问。
  */
 import { useSyncExternalStore } from 'react'
 import { notesOfUrl, usePairs } from '../read-along/store'
@@ -45,15 +45,6 @@ export function setChosen(url: string, path: string) {
   } catch {
     // 记不住：下次再问一句
   }
-  skipped.delete(siteOf(url))
-  bump()
-}
-
-/** 选了「这次只问，不记」的网站（软件开着时不再问） */
-const skipped = new Set<string>()
-export const isSkipped = (url: string) => skipped.has(siteOf(url))
-export function skip(url: string) {
-  skipped.add(siteOf(url))
   bump()
 }
 

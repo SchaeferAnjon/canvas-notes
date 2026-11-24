@@ -112,13 +112,22 @@ async function expectLooks(s: Locator) {
   const send = s.locator('.aiin .send')
   expect([(await box(send)).width, (await box(send)).height]).toEqual([24, 24])
   expect(await css(s.locator('.rec'), ['font-size', 'margin-top'])).toEqual({ 'font-size': '12px', 'margin-top': '6px' })
-  // 回答最后一段到回答下面那排隔 8（段下 6 + 按钮行上 2，原型 .sa p 的下边距），不贴着
+  // 回答最后一段到下面那一样隔 8，不贴着：读 PDF 记笔记开着时是「✓ 已记进《…》」那一行（AI 对话记笔记开关，记在每条回答下面），
+  // 它再隔 2 是回答下面那排；没记的时候直接是那排（段下 6 + 按钮行上 2，原型 .sa p 的下边距）
   const gap = await s.evaluate((el) => {
-    const mds = el.querySelectorAll('.sa .md')
-    const last = mds[mds.length - 1]!.lastElementChild!.getBoundingClientRect()
-    return el.querySelector('.acts')!.getBoundingClientRect().top - last.bottom
+    const sas = el.querySelectorAll('.sa')
+    const sa = sas[sas.length - 1]!
+    const last = sa.querySelector('.md')!.lastElementChild!.getBoundingClientRect()
+    const noted = sa.querySelector(':scope > .noted')?.getBoundingClientRect()
+    const acts = el.querySelector('.acts')!.getBoundingClientRect()
+    return noted ? { toNext: noted.top - last.bottom, notedToActs: acts.top - noted.bottom } : { toNext: acts.top - last.bottom, notedToActs: null }
   })
-  expect(Math.round(gap)).toBe(8)
+  expect(Math.round(gap.toNext)).toBe(8)
+  // 「已记进」那一行 20 高、字居中，取整后落在 2 到 3 之间（小数像素）
+  if (gap.notedToActs !== null) {
+    expect(gap.notedToActs).toBeGreaterThanOrEqual(1.5)
+    expect(gap.notedToActs).toBeLessThanOrEqual(3)
+  }
 }
 
 /** 那句后面的小标：左右各隔 2、图标和数字隔 3（原型 .badge） */
@@ -216,7 +225,7 @@ test('读 PDF：选一句「问这句」就地展开在那一段下面（不再�
     await expect(ai.getByTestId('reading-att').locator('img')).toBeVisible()
     await ai.getByRole('textbox', { name: '问 AI' }).press('Enter')
     const msg = ai.getByTestId('reading-msg').last()
-    await expect(msg.locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     const txt = msg.locator('.txt')
 
     await selectText(page, txt, '列就是', '去哪')
@@ -239,7 +248,7 @@ test('读 PDF：选一句「问这句」就地展开在那一段下面（不再�
     await expect(s.getByTestId('side-msg').last()).toContainText('旁支，从 fake-read-claude 分叉', { timeout: 15_000 })
     // 回答下面那排（task-eavzx）：拷贝 · 插进文档 · ⋯，插进主对话、在笔记里看进 ⋯
     await expect(s.locator('.acts [data-act]')).toHaveText(['拷贝', '插进文档', ''])
-    await expect(s.locator('.rec')).toHaveText('记进《第3讲 笔记》第2页')
+    await expect(s.locator('.rec')).toHaveText('记进《第3讲 笔记》，挂在被问那一问后面')
     await expectLooks(s)
     // 旁支不往主对话里加东西
     await expect(ai.getByTestId('reading-msg')).toHaveCount(1)
@@ -260,10 +269,12 @@ test('读 PDF：选一句「问这句」就地展开在那一段下面（不再�
 
     await twoOnOne(page, { scope: ai, txt, name1: '为什么是基向量' })
 
-    // 记进笔记：照旧挂在被问那一问的回答后面（第一问带引用句，同一条追问不带）
+    // 记进笔记（新写法）：挂在被问那一问的回答后面，一问一个「#### 旁支：…」、一块旁支回答；每条旁支第一问带引用句和「在「…」的回答里」，同一条的追问不带
     await expect
       .poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 20_000 })
-      .toMatch(/> \[!side\] 为什么是基向量？\n> > 列就是基向量去哪\n>\n> #### 旁支的回答[\s\S]*> \[!side\] 那行呢？\n>\n> #### 旁支的回答[\s\S]*> \[!side\] 讲讲这句\n> > 列就是基向量去哪/)
+      .toMatch(
+        /\n> \[!ai\] AI 回答 · [^\n]*\n[\s\S]*\n#### 旁支：为什么是基向量？\n\n> 列就是基向量去哪\n> —— 在「[^」\n]+」的回答里\n\n> \[!ai\] 旁支回答 · [^\n]*\[回到 AI 对话\][\s\S]*\n#### 旁支：那行呢？\n\n> \[!ai\] 旁支回答 · [\s\S]*\n#### 旁支：讲讲这句\n\n> 列就是基向量去哪\n> —— 在「[^」\n]+」的回答里\n\n> \[!ai\] 旁支回答 · /,
+      )
 
     // 在笔记里看：换到笔记标签，落在那条旁支上；⌘J 换回 AI
     await txt.locator('.badge').click()
@@ -400,7 +411,7 @@ const guest = (page: Page, code: string) => page.evaluate((c) => (document.query
 
 // task-6cxtc 起网页上问的不进收件箱，一问一块 [!ai] 写进这个网页正在剪进去的那篇：这里 plain.md 和这个网站配好对（属性 read-along），
 // 回答记进它（《plain》）；在右栏 AI 回答里开的旁支照旧跟着这段对话存，那篇不多出东西
-test('右栏网页框一块问的回答里也能开旁支：就地展开、接着问、收起再开；只记在对话记录里（记进的那篇不多出一段、不带旁支）', async () => {
+test('右栏网页框一块问的回答里也能开旁支：就地展开、接着问、收起再开；旁支写进剪藏那篇、挂在那一问后面', async () => {
   const run = await launch({ 'plain.md': `---\nread-along: ${base}/\n---\n# 随手\n` }, { CN_AI_FAKE: '1', CN_FAKE_NOTE_MS: '50' })
   const { page, vault } = run
   try {
@@ -425,24 +436,27 @@ test('右栏网页框一块问的回答里也能开旁支：就地展开、接�
     await ai.getByRole('textbox').press('Enter')
     const msg = ai.getByTestId('reading-msg').last()
     await expect(ai.getByText('已记进《plain》')).toBeVisible({ timeout: 15_000 })
-    const inbox = () => readFileSync(join(vault, 'plain.md'), 'utf8')
-    await expect.poll(inbox).toContain('> [!ai] 讲解一下')
-    const before = inbox()
+    const note = () => readFileSync(join(vault, 'plain.md'), 'utf8')
+    // 2026-11-24 AI 对话记笔记开关：问答写进剪藏那篇本身（中间没开着它：接在末尾）
+    await expect.poll(note).toContain('# 随手\n\n### 给我讲解一下\n')
+    expect(note()).not.toContain('AI 笔记')
     const txt = msg.locator('.txt')
 
     await selectText(page, txt, '列就是', '去哪')
     await askInBox(page, '为什么是基向量？')
     const s = sideIn(ai)
     await expect(s).toBeVisible()
-    // 记到哪那一行（task-6cxtc）：右栏 AI 里开的跟着这段对话存，在那篇的讲解块上开的才写进那篇
-    await expect(s.locator('.rec')).toHaveText('跟着这段对话存；在那篇的讲解块上开的旁支写进那篇')
+    // 记到哪那一行：记进剪藏那篇、挂在被问那一问后面（「旁支」开关默认开）
+    await expect(s.locator('.rec')).toHaveText('记进《plain》，挂在被问那一问后面')
     await expect(s.locator('.acts [data-act]')).toHaveText(['拷贝', '插进文档', ''], { timeout: 15_000 })
     await expectSlim(ai, '跟Claude Code说，在网页上按住 ⌘ 框一块就能问')
     await walk(page, { scope: ai, txt, q1: '为什么是基向量？', q2: '那行呢？', first: /这是旁支的回答/, again: /接着聊/ })
-    // 只在对话记录里：记进的那篇一个字没变（不多插一段、不带旁支），库里没有没提交的（读到哪.json 是配好对的网页记读到哪的，不算）
+    // 旁支记在那篇里那一问后面（「#### 旁支：」写法，不是 `> [!side]`），库里没有没提交的（读到哪.json 是配好对的网页记读到哪的，不算）
+    await expect.poll(note, { timeout: 15_000 }).toContain('#### 旁支：为什么是基向量？')
+    await expect.poll(note, { timeout: 15_000 }).toContain('#### 旁支：那行呢？')
+    expect(note().indexOf('#### 旁支：为什么是基向量？')).toBeGreaterThan(note().indexOf('> [!ai] AI 回答'))
     await page.waitForTimeout(1500)
-    expect(inbox()).toBe(before)
-    expect(inbox()).not.toContain('[!side]')
+    expect(note()).not.toContain('[!side]')
     expect(gitStatus(vault).split('\n').filter((l) => l.trim() && !l.includes('读到哪.json'))).toEqual([])
   } finally {
     await run.close()

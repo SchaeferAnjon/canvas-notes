@@ -5,6 +5,7 @@
  * 框着时 ⌘↵ 是引用（task-6cxtc：这块成为顶上那一排的一块材料、光标在输入框里，接着框别处攒成 ①②）；回答下面「还是不懂」「换个方式讲」，再下面一行后台记笔记的进度。
  */
 import { when } from '../../shared/when'
+import { noteName } from '../../shared/ai-note'
 import { isKey, useKeys } from '../keys'
 import { Codicon } from '@cn/design'
 import { ByLogo } from '../engine-logo'
@@ -50,7 +51,12 @@ import { useSlash } from '../commands/SlashMenu'
 import { openCmdEditor } from '../commands/editor'
 import { libPlace, runIn } from '../commands/handoff'
 import { runReadingCmd } from './cmds'
-import { ensureBeforeSend } from '../web-notes/flow'
+import { ensureBeforeSend, pickTarget, showAskIn } from '../web-notes/flow'
+import { useTargets } from '../web-notes/target'
+import { setNoteSwitch, useNoteSwitch } from '../ai-note-switch'
+import { type NotedState, NotedLine, NoteTargetMenu, type NoteTargetItem, NoteTip, type NoteTipState, RecChip } from '../ai-note-ui'
+import type { AbMenuItem } from '@cn/design/answer-bar'
+import type { PopAnchor } from '../pop-place'
 
 /** 待问那块的小标签：PDF「第28页」；网页、HTML；视频「接着问」是「00:06 · 视频名」 */
 function pendingLabel(p: R.Pending): string {
@@ -78,12 +84,19 @@ const vaultImg = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIC
 const stemOf = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
 const stamp = (t: number) => when(t, { time: true })
 
-/** 旁支最下面那一行「记到哪」：读 PDF、HTML 记进这份的笔记（第几页）；网页上问的旁支跟着这段对话存（那一问写进那篇的讲解块，旁支能在那篇里那一块上开） */
-function recordOf(pdf: string, r: R.Reading, side: { thread: string }): { icon: 'note' | 'comment-discussion'; text: string } {
-  if (R.isWebSrc(pdf)) return { icon: 'comment-discussion', text: '跟着这段对话存；在那篇的讲解块上开的旁支写进那篇' }
-  const page = r.state.threads.find((t) => t.id === side.thread)?.page ?? 0
-  return { icon: 'note', text: `记进《${titleOf(r.note.path)}》${page > 0 ? `第${page}页` : ''}` }
+/** 旁支最下面那一行「记到哪」：记进的那篇（挂在被问那一问后面）；这条旁支不记、还没定记进哪篇时说只跟着这段对话存 */
+function recordOf(target: string | null, on: boolean): { icon: 'note' | 'comment-discussion'; text: string } {
+  if (!target || !on) return { icon: 'comment-discussion', text: tNow('不记进笔记，跟着这段对话存') }
+  return { icon: 'note', text: tNow('记进《{name}》，挂在被问那一问后面', { name: target }) }
 }
+
+/** 一个元素在窗口里的位置（「换一篇…」贴着它问） */
+const anchorOf = (el: HTMLElement): PopAnchor => {
+  const b = el.getBoundingClientRect()
+  return { left: b.left, top: b.top, bottom: b.bottom, right: b.right }
+}
+
+/** 名字太长截一截（⋯ 菜单里《》里最多 n 个字） */
 
 export function ReadingAi(props: {
   pdf: string
@@ -415,6 +428,118 @@ export function ReadingAi(props: {
   const hintNow = pend && !pend.direct ? (pend.blank ? `${K('enter')} 发送 · ${K('escape')} 取消这块` : `${K('enter')} 讲解一下${ask ? ` · ${ask} 引用` : ''} · ${K('escape')} 取消这块`) : undefined
   const hint = R.isWebSrc(pdf) || !ask ? `${K('enter')} 发送` : `${K('enter')} 发送 · ${ask} ${html ? '问这一屏' : '问这一页'}`
 
+  // ---------- 记笔记开关（2026-11-24 方向 A「开关两颗」，shared/ai-note.ts） ----------
+  const activeTh = r.state.threads.find((t) => t.id === r.activeThread) ?? null
+  /** 在看什么：PDF 和库里的 HTML 是 pdf；网页上问的看是视频还是网页 */
+  const noteKind = R.kindOf(pdf, pend ?? activeTh)
+  const sw = useNoteSwitch(noteKind)
+  // 网页的剪藏那篇（AI 笔记挂在它下面）换了、配了对：重画
+  useTargets()
+  const target = R.noteTargetNow(pdf, pend ? null : activeTh)
+  const targetName = target ? titleOf(target.note) : null
+  const [tip, setTipNow] = useState<NoteTipState | null>(null)
+  const tipTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const showTip = (next: NoteTipState | null, ms?: number) => {
+    clearTimeout(tipTimer.current)
+    setTipNow(next)
+    if (next && ms) tipTimer.current = setTimeout(() => setTipNow(null), ms)
+  }
+  useEffect(() => () => clearTimeout(tipTimer.current), [])
+  const [menuAt, setMenuAt] = useState<HTMLElement | null>(null)
+  const [undoing, setUndoing] = useState<ReadonlySet<number>>(new Set())
+  /** 这一处「只在 AI 栏答」的（选中小条上自己加的那颗） */
+  const noNoteTh = (thread: string) => !!r.state.threads.find((t) => t.id === thread)?.noNote
+  /** 主对话里答好的几问（/ 命令那一轮、只在 AI 栏答的不算） */
+  const answeredAis = msgs.filter((m) => m.role === 'ai' && m.text.trim() && !m.error && !isCmdTurn(m) && !noNoteTh(m.thread))
+  const unnoted = answeredAis.filter((m) => !m.note)
+  const noted = answeredAis.filter((m) => m.note === 'done')
+  const toastErr = (e: unknown) => props.onNotice(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+
+  /** 补进去：前面没记的几问按先后记进去 */
+  async function backfill(ids: number[]) {
+    showTip(null)
+    for (const id of ids) await R.noteAsk(pdf, id)
+    showTip({ ok: true, text: tNow('补进去了，按问的先后排好') }, 3000)
+  }
+
+  async function toggleMain(at: HTMLElement | null) {
+    const on = !sw.main
+    // 网页还没定剪藏那篇（AI 笔记挂在它下面）：先选一篇，取消就不开
+    if (on && !target && noteKind === 'web' && webUrl) {
+      const w = await pickTarget(webUrl, anchorOf(at ?? document.body))
+      if (w?.kind !== 'doc') return
+    }
+    try {
+      await setNoteSwitch(noteKind, { ...sw, main: on })
+    } catch (e) {
+      return toastErr(e)
+    }
+    const name = noteName(titleOf(R.noteTargetNow(pdf, pend ? null : activeTh)?.note ?? ''), 18)
+    if (on) {
+      const ids = unnoted.map((m) => m.id)
+      if (ids.length) showTip({ text: tNow('前面 {n} 问没记', { n: ids.length }), acts: [{ label: tNow('补进去'), run: () => void backfill(ids) }, { label: tNow('只记以后的'), dim: true, run: () => showTip(null) }] })
+      else showTip({ ok: true, text: tNow('之后答一条记一条，记进《{name}》', { name }) }, 3500)
+    } else showTip({ text: noted.length ? tNow('之后的不记了；已记的 {n} 问留在《{name}》里', { n: noted.length, name: noteName(name, 14) }) : tNow('之后的不记了') }, 4000)
+  }
+
+  async function toggleNoteSide() {
+    try {
+      await setNoteSwitch(noteKind, { ...sw, side: !sw.side })
+    } catch (e) {
+      return toastErr(e)
+    }
+    showTip({ text: !sw.side ? tNow('之后开的旁支也记，挂在被问那条下面') : tNow('之后的旁支不记') }, 3000)
+  }
+
+  /** 「记进哪篇 ▾」的菜单：PDF 只有配对那篇；网页是剪藏那篇本身（能换一篇），视频是「记到哪」那篇本身 */
+  const menuItems: NoteTargetItem[] =
+    noteKind === 'pdf'
+      ? [{ id: 'pair', label: targetName ?? '', sub: tNow('配对的那篇'), checked: true }]
+      : [
+          ...(targetName && target ? [{ id: 'self', label: targetName, sub: noteKind === 'web' ? tNow('剪藏那篇') : tNow('记到的那篇'), checked: true, onClick: () => props.onOpen(target.note) }] : []),
+          ...(noteKind === 'web' && webUrl ? [{ id: 'other', label: targetName ? tNow('换一篇…') : tNow('选一篇…'), onClick: () => void pickTarget(webUrl, anchorOf(menuAt ?? document.body)) }] : []),
+          ...(noteKind === 'video' && !targetName ? [{ id: 'none', label: tNow('只问不记（视频那一行「记到」选的）') }] : []),
+        ]
+  const menuFoot =
+    noteKind === 'pdf'
+      ? tNow('读 PDF 时默认：记笔记开、旁支开。改了这两颗，下次读 PDF 照改后的来。')
+      : noteKind === 'web'
+        ? tNow('问答记进剪藏那篇下面挂的 AI 笔记。看网页时默认：记笔记开、旁支开；改了这两颗，下次照改后的来。')
+        : tNow('问答记进视频那一行「记到」那篇下面挂的 AI 笔记。看视频时默认：记笔记开、旁支开；改了这两颗，下次照改后的来。')
+
+  const notedOf = (m: ReadingMsg): NotedState | null => {
+    if (m.note === 'writing') return { state: 'writing' }
+    if (m.note === 'error') return { state: 'error', error: m.noteError ?? '' }
+    if (m.note !== 'done') return null
+    // 旧版记的（旧写法整段，没有 notePath）：照旧说记进了哪，不给撤回
+    const to = m.notePath ? titleOf(m.notePath) : (m.noteTo?.replace(/^.*《(.*)》.*$/, '$1') ?? titleOf(r.note.path))
+    return { state: 'done', to, ...(undoing.has(m.id) ? { undoing: true } : {}) }
+  }
+  async function undoNote(id: number, side?: string) {
+    setUndoing((x) => new Set(x).add(id))
+    try {
+      await R.unnoteAsk(pdf, id, side)
+    } catch (e) {
+      toastErr(e)
+    } finally {
+      setUndoing((x) => {
+        const n = new Set(x)
+        n.delete(id)
+        return n
+      })
+    }
+  }
+  /** 「已记进《…》」点了：PDF 的笔记在右栏「笔记」里看；网页、视频的在中间打开那篇、定位到这一问，右栏网页不动 */
+  const openNote = (m: ReadingMsg) => (m.notePath && R.isWebSrc(pdf) ? showAskIn(m.notePath, m.id) : props.onShowNote(m.thread))
+  /** ⋯ 最前面那一项：记了的「从《…》拿掉」，没记的「记进《…》」（开关关着也能单记这一条） */
+  const noteItemOf = (m: ReadingMsg): AbMenuItem | null => {
+    if (isCmdTurn(m) || m.note === 'writing') return null
+    if (m.note === 'done') return m.notePath ? { id: 'unnote', icon: 'note', label: tNow('从《{name}》拿掉', { name: noteName(titleOf(m.notePath), 12) }), tip: tNow('只拿掉记进去的这一问（连着它的旁支）'), onClick: () => void undoNote(m.id) } : null
+    return targetName ? { id: 'note', icon: 'note', label: tNow('记进《{name}》', { name: noteName(targetName, 12) }), tip: tNow('只把这一条记进去'), onClick: () => void R.noteAsk(pdf, m.id) } : null
+  }
+  /** 开着的那条旁支记不记：单拨过照它，没拨过跟「旁支」开关 */
+  const openSideOn = open ? (open.note ?? sw.side) : false
+
   return (
     <aside className="right aicell reading-ai ai" aria-label="边读边问 AI" hidden={props.hidden}>
       <AiHead label={label} nav={props.nav} newTip="新对话：AI 从头读这份 PDF，问过的和笔记都留着" newDisabled={running} onNew={() => void R.newChat(pdf)} />
@@ -443,11 +568,14 @@ export function ReadingAi(props: {
               <span className="num">{`读过全文${r.pages}页`}</span>
             </Chip>
           ))}
-        {!R.isWebSrc(pdf) && sectionCount > 0 && (
+        {/* 正在记进的小牌出来时不再单列「笔记N轮」（设计复审：省一行） */}
+        {!R.isWebSrc(pdf) && sectionCount > 0 && !(sw.main && targetName && target) && (
           <Chip>
             <span className="num">{`笔记${sectionCount}轮`}</span>
           </Chip>
         )}
+        {/* 开着「记笔记」、定了记进哪篇：「● 正在记进《…》」，点了打开那篇 */}
+        {sw.main && targetName && target && <RecChip target={targetName} side={sw.side} onOpen={() => (noteKind === 'pdf' ? props.onShowNotes() : props.onOpen(target.note))} />}
       </Sees>
       )}
       {/* 对话目录（task-3e53q「三、b」）：问过一问就在右边贴边出一列短横线 */}
@@ -520,6 +648,9 @@ export function ReadingAi(props: {
               onRevert={() => void R.revertChange(pdf, m.id).catch((e: unknown) => props.onNotice(String((e as Error).message ?? e)))}
               onViz={() => void R.makeViz(pdf, m.id)}
               onOpenHtml={props.onOpenHtml}
+              noted={m.role === 'ai' ? notedOf(m) : null}
+              {...(m.notePath ? { onUndoNote: () => void undoNote(m.id), onOpenNote: () => openNote(m) } : m.note === 'done' ? { onOpenNote: () => openNote(m) } : {})}
+              noteItem={m.role === 'ai' ? noteItemOf(m) : null}
             />
           )
         })}
@@ -542,7 +673,13 @@ export function ReadingAi(props: {
             side={{ id: open.id, quote: open.quote, name: R.sideName(open), msgs: open.msgs }}
             group={openGroup.sides.map((s) => ({ id: s.id, name: R.sideName(s) }))}
             running={r.sideRunning[open.id] !== undefined}
-            record={recordOf(pdf, r, open)}
+            record={recordOf(targetName, openSideOn)}
+            noteTag={{ on: openSideOn, onToggle: () => void R.setSideNote(pdf, open.id, !openSideOn).catch(toastErr) }}
+            noted={(id) => {
+              const sm = open.msgs.find((x) => x.id === id)
+              const st = sm ? notedOf(sm) : null
+              return sm && st ? <NotedLine s={st} testId="side-noted" {...(sm.notePath ? { onUndo: () => void undoNote(id, open.id), onOpen: () => openNote(sm) } : {})} /> : null
+            }}
             conv={`reading:${pdf}`}
             picks={cp.picks}
             {...(R.isWebSrc(pdf)
@@ -589,6 +726,8 @@ export function ReadingAi(props: {
           items={[{ text: html ? '问这一屏' : '问这一页', engine, go: () => window.dispatchEvent(new CustomEvent(R.ASK_PAGE, { detail: { src: pdf, text: html ? '给我讲解一下这一屏' : '给我讲解一下这一页' } })) }]}
         />
       )}
+      {tip && !open && <NoteTip tip={tip} />}
+      {menuAt && <NoteTargetMenu anchor={menuAt} items={menuItems} foot={menuFoot} onClose={() => setMenuAt(null)} />}
       <AiInput
         c={c}
         className="reading-in"
@@ -600,6 +739,7 @@ export function ReadingAi(props: {
         // 开着旁支时缩成一行灰字（方向 A：不和旁支的输入框摞着），点它收起旁支、回到这里；全能模式那行一起藏起来
         slim={open ? { onWake: () => R.closeSide(pdf) } : null}
         omni={open ? null : cp.omni}
+        note={open || props.nav.away ? null : { main: sw.main, side: sw.side, target: targetName, onMain: () => void toggleMain(document.querySelector<HTMLElement>('.reading-ai [data-testid="ai-note-main"]')), onSide: () => void toggleNoteSide(), onTarget: (at) => setMenuAt((x) => (x ? null : at)) }}
         running={running}
         sendDisabled={!input.trim() && !c.mats.length}
         own={own}
@@ -678,6 +818,12 @@ function Msg(p: {
   onOpenHtml(path: string): void
   /** 这条回答里问过的那几句（旁支）：虚线 + 小标 */
   marks?: Mark[]
+  /** 记进笔记那一行（在记、记进了哪、没记成）；没记是 null */
+  noted: NotedState | null
+  onUndoNote?(): void
+  onOpenNote?(): void
+  /** ⋯ 最前面：记进《…》/ 从《…》拿掉 */
+  noteItem: AbMenuItem | null
 }) {
   const { m } = p
   const cmd = isCmdTurn(m)
@@ -787,32 +933,11 @@ function Msg(p: {
                 vars: () => ({ question: p.ask ?? '', ...(m.page ? { page: String(m.page) } : {}) }),
               }}
               menu={p.onShowNotes ? [{ id: 'note', icon: 'note', label: tNow('在笔记里看'), onClick: p.onShowNotes }] : []}
+              noteItem={p.noteItem}
               testId="reading-ans-acts"
             />
           )}
-          {m.note === 'writing' && (
-            <div className="noted">
-              <Codicon name="loading" size={12} className="spin" />
-              正在记进笔记…
-            </div>
-          )}
-          {m.note === 'done' && (
-            <div className="noted">
-              <Codicon name="check" size={12} />
-              {m.noteTo ? (
-                `已记进${m.noteTo}`
-              ) : (
-                <>
-                  {'已记进笔记 · '}
-                  <button className="lnk" onClick={p.onShowNote}>
-                    {`第${m.page ?? ''}页`}
-                    <Codicon name="chevron-right" size={12} />
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-          {m.note === 'error' && <div className="noted err">没记进笔记：{m.noteError}</div>}
+          {p.noted && <NotedLine s={p.noted} {...(p.onUndoNote ? { onUndo: p.onUndoNote } : {})} {...(p.onOpenNote ? { onOpen: p.onOpenNote } : {})} />}
           {m.change && <ChangeBlock change={m.change} onRevert={p.onRevert} />}
           {m.warn && <div className="noted err">{m.warn}</div>}
           {m.viz?.state === 'making' && (

@@ -245,6 +245,14 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.wn-row .q {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--t2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .wn-row .s {
   font-size: 12px;
   line-height: 1.5;

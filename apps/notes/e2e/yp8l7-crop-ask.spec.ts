@@ -26,13 +26,16 @@ const pdfPage = (page: Page, n: number) => pdfPane(page).locator(`.pdfpage[data-
 const cap = (page: Page) => page.getByRole('toolbar', { name: '框好的这块' })
 const pager = (page: Page) => acts(page).getByTestId('pdf-pager')
 const md = (vault: string) => readFileSync(join(vault, NOTE), 'utf8')
-/** 笔记里这一处的一段（到下一个 ## 为止） */
+/** 笔记里这一处的一段（到下一个 ## 为止）：新写法里认这一处是 AI 块头「回到 AI 对话」链接里的 th（AI 对话记笔记开关） */
 const sectionOf = (vault: string, name: string) => {
   const t = md(vault)
-  const at = t.lastIndexOf('\n## ', t.indexOf(`<!-- cn:thread=${name} -->`))
+  const mark = `&th=${encodeURIComponent(name)})`
+  expect(t, `笔记里没有 ${name} 这一处`).toContain(mark)
+  const at = t.lastIndexOf('\n## ', t.indexOf(mark))
   const end = t.indexOf('\n## ', at + 1)
   return t.slice(at + 1, end < 0 ? undefined : end)
 }
+const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 async function openPdf(page: Page) {
   await page.keyboard.press('Meta+k')
@@ -67,11 +70,16 @@ async function selectLine(page: Page, n: number, k: number) {
   return (await span.textContent())!.trim()
 }
 async function noted(page: Page, n: number) {
-  await expect(ai(page).getByTestId('reading-msg').nth(n - 1).locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+  await expect(ai(page).getByTestId('reading-msg').nth(n - 1).getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
 }
-/** 图在问题上面：一节里图那一行在第一问那一行前面，中间只隔一个空行 */
-function cropAbove(section: string, cap: '我框的' | '整页', file: string, q: string) {
-  const m = new RegExp(`<!-- cn:thread=[^>]+ -->\\n\\n!\\[${cap}\\|(\\d+)\\]\\(\\.\\./\\.\\./附件/第3讲/${file}\\)\\n\\n> \\[!question\\] ${q}\\n`).exec(section)
+/**
+ * 图在第一问下面（新写法 packages/format/src/ai-note.ts）：一节里第一个 ### 是这一问，紧跟框的图（说明、宽度、附件路径），
+ * 再是回到 PDF 那一页的来源行，然后才是这一问的 AI 回答块；返回图的宽
+ */
+function cropAbove(section: string, cap: '我框的' | '整页', file: string, q: string, page: number) {
+  const first = /^### (.+)$/m.exec(section)
+  expect(first?.[1], section).toBe(q)
+  const m = new RegExp(`\\n### ${esc(q)}\\n\\n!\\[${cap}\\|(\\d+)\\]\\(\\.\\./\\.\\./附件/第3讲/${esc(file)}\\)\\n\\n—— \\[第 ${page} 页\\]\\(第3讲\\.pdf#page=${page}[^)]*\\)\\n\\n> \\[!ai\\] AI 回答 · `).exec(section)
   expect(m, section).not.toBeNull()
   return Number(m![1])
 }
@@ -91,19 +99,20 @@ test('拖框问：工具条两颗、自己加的那颗、输入框回车、接�
     await drawBox(page, 2, [0.11, 0.085], [0.42, 0.135])
     await cap(page).getByRole('button', { name: '讲解一下' }).click()
     await noted(page, ++n)
-    const w2 = cropAbove(sectionOf(vault, '第3讲-p2-1'), '我框的', 'p2-1.png', '给我讲解一下')
+    const w2 = cropAbove(sectionOf(vault, '第3讲-p2-1'), '我框的', 'p2-1.png', '给我讲解一下', 2)
     expect(Math.abs(w2 - 612 * 0.31)).toBeLessThanOrEqual(2)
     expect(existsSync(join(vault, '附件/第3讲/p2-1.png'))).toBe(true)
 
     await drawBox(page, 3, [0.11, 0.085], [0.6, 0.2])
     await cap(page).getByRole('button', { name: '翻译 + 讲一讲' }).click()
     await noted(page, ++n)
-    cropAbove(sectionOf(vault, '第3讲-p3-1'), '我框的', 'p3-1.png', '先把这块翻译成中文，再讲一讲')
+    cropAbove(sectionOf(vault, '第3讲-p3-1'), '我框的', 'p3-1.png', '先把这块翻译成中文，再讲一讲', 3)
 
     await drawBox(page, 4, [0.11, 0.085], [0.6, 0.2])
     await cap(page).getByRole('button', { name: MINE }).click()
     await noted(page, ++n)
-    cropAbove(sectionOf(vault, '第3讲-p4-1'), '我框的', 'p4-1.png', '先把这块翻译成中文，再讲一讲框下来的那张图')
+    // 自己加的那颗：这一处第一问的标题写那颗的名字，不写一长段提示词（task-26nz7）
+    cropAbove(sectionOf(vault, '第3讲-p4-1'), '我框的', 'p4-1.png', MINE, 4)
 
     // 框好以后在右栏输入框里回车（预填的「给我讲解一下」），再接着问一句：图还是一张，在第一问上面
     await drawBox(page, 5, [0.11, 0.08], [0.6, 0.2])
@@ -112,16 +121,17 @@ test('拖框问：工具条两颗、自己加的那颗、输入框回车、接�
     await ai(page).getByTestId('reading-msg').last().getByRole('button', { name: '还是不懂' }).click()
     await noted(page, ++n)
     const s5 = sectionOf(vault, '第3讲-p5-1')
-    cropAbove(s5, '我框的', 'p5-1.png', '给我讲解一下')
+    cropAbove(s5, '我框的', 'p5-1.png', '给我讲解一下', 5)
     expect(s5.split('![').length - 1).toBe(1)
-    expect(s5).toContain('> [!question] 还是不懂')
+    // 接着问的那一问接在后面，不再带图、不再写来源行
+    expect(s5).toMatch(/\n### 还是不懂\n\n> \[!ai\] AI 回答 · /)
 
     // ⌘↵ 整页问（焦点在 PDF 上、没框）：整页的图，说明写「整页」，宽 612
     await pdfPage(page, 1).scrollIntoViewIfNeeded()
     await pdfPage(page, 1).click({ position: { x: 6, y: 6 } })
     await page.keyboard.press('Meta+Enter')
     await noted(page, ++n)
-    expect(cropAbove(sectionOf(vault, '第3讲-p1-1'), '整页', 'p1-1.png', '给我讲解一下这一页')).toBe(612)
+    expect(cropAbove(sectionOf(vault, '第3讲-p1-1'), '整页', 'p1-1.png', '给我讲解一下这一页', 1)).toBe(612)
 
     // 右栏笔记：最近一段展开，点图回 PDF
     await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
@@ -131,18 +141,22 @@ test('拖框问：工具条两颗、自己加的那颗、输入框回车、接�
     await round.locator('.crop').first().click()
     await backToPdf(page, 1)
 
-    // 文档看法：第 2 页那一节的图在第一问上面，点图回 PDF 第 2 页、框闪一下
+    // 文档看法：第 2 页那一节第一问的标题下面就是那张图，图下面是回到第 2 页的来源行；点图回 PDF 第 2 页、框闪一下
     await openNote(page, '第3讲 笔记')
     const img = pane(page).locator('.cm-image img.jump[src*="p2-1.png"]')
     await img.scrollIntoViewIfNeeded()
     await expect(img).toBeVisible()
-    // 图下面（跳过空行）紧跟的就是这一节的第一问
-    const below = await img.evaluate((el) => {
-      let n = el.closest('.cm-image')!.nextElementSibling
-      while (n && !n.textContent!.trim()) n = n.nextElementSibling
-      return n?.textContent ?? ''
+    const near = await img.evaluate((el) => {
+      const fig = el.closest('.cm-image')!
+      const step = (n: Element | null, up: boolean) => {
+        n = up ? n!.previousElementSibling : n!.nextElementSibling
+        while (n && !n.textContent!.trim()) n = up ? n.previousElementSibling : n.nextElementSibling
+        return n?.textContent ?? ''
+      }
+      return { above: step(fig, true), below: step(fig, false) }
     })
-    expect(below).toContain('给我讲解一下')
+    expect(near.above).toContain('给我讲解一下')
+    expect(near.below).toContain('第 2 页')
     await img.click()
     await backToPdf(page, 2)
 
@@ -152,7 +166,7 @@ test('拖框问：工具条两颗、自己加的那颗、输入框回车、接�
     const crops = pane(page).getByTestId('doc-board').locator('a.db-ask-crop img')
     await expect(crops).toHaveCount(5)
     // 一处一列（配对笔记白板分列）：标题在列头，图在这一列第一张卡里
-    const card2 = pane(page).getByTestId('doc-board').locator('.db-col', { hasText: '测试小标题 p2' })
+    const card2 = pane(page).getByTestId('doc-board').locator('.db-col', { hasText: '第2页 · ' })
     await expect(card2.locator('a.db-ask-crop img')).toHaveAttribute('style', `width: ${w2}px;`)
     await card2.locator('a.db-ask-crop').click()
     await backToPdf(page, 2)
@@ -171,7 +185,8 @@ test('选字问：工具条「翻译 + 讲一讲」、自己加的那颗，原�
     await cap(page).getByRole('button', { name: '翻译 + 讲一讲' }).click()
     await noted(page, 1)
     const s1 = sectionOf(vault, '第3讲-p1-1')
-    const q1 = /<!-- cn:thread=第3讲-p1-1 -->\n\n> ([^\n]+)\n\n> \[!question\] 先把这块翻译成中文，再讲一讲\n/.exec(s1)?.[1] ?? ''
+    // 新写法：问的原话做小标题，下面是选的那段原文（引用块）和回到 PDF 那一页的来源行，再是 AI 回答块
+    const q1 = /\n### 先把这块翻译成中文，再讲一讲\n\n> ([^\n]+)\n> —— \[第 1 页\]\(第3讲\.pdf#page=1[^)]*\)\n\n> \[!ai\] AI 回答 · /.exec(s1)?.[1] ?? ''
     // 原文是鼠标选中的那段（选到这一行最后一个字前面）
     expect(q1.length).toBeGreaterThan(20)
     expect(said1.startsWith(q1)).toBe(true)
@@ -181,8 +196,10 @@ test('选字问：工具条「翻译 + 讲一讲」、自己加的那颗，原�
     await cap(page).getByRole('button', { name: MINE }).click()
     await noted(page, 2)
     const s5 = sectionOf(vault, '第3讲-p5-1')
-    const q5 = /<!-- cn:thread=第3讲-p5-1 -->\n\n> ([^\n]+)\n\n> \[!question\] 先把这块翻译成中文，再讲一讲([^\n]+)\n/.exec(s5)
-    expect(q5?.[1]).toBe(q5?.[2])
+    // 自己加的那颗：标题写那颗的名字（task-26nz7），下面照样是选的那段原文和来源行
+    const q5 = new RegExp(`\\n### ${MINE}\\n\\n> ([^\\n]+)\\n> —— \\[第 5 页\\]\\(第3讲\\.pdf#page=5[^)]*\\)\\n\\n> \\[!ai\\] AI 回答 · `).exec(s5)
+    expect(q5, s5).not.toBeNull()
+    expect(q5![1]!.length).toBeGreaterThan(20)
     expect(said5.startsWith(q5![1]!)).toBe(true)
     expect(s5).not.toContain('![')
 
@@ -196,7 +213,7 @@ test('选字问：工具条「翻译 + 讲一讲」、自己加的那颗，原�
     // 白板看法：卡里是那段原文，没有图
     await openNote(page, '第3讲 笔记')
     await acts(page).getByRole('tab', { name: '白板' }).click()
-    const card = pane(page).getByTestId('doc-board').locator('.db-col', { hasText: '测试小标题 p5' })
+    const card = pane(page).getByTestId('doc-board').locator('.db-col', { hasText: '第5页 · ' })
     await expect(card.locator('.db-ask-quote')).toHaveText(q5![1]!)
     await expect(card.locator('.db-ask-crop')).toHaveCount(0)
   } finally {

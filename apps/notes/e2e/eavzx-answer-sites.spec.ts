@@ -96,9 +96,10 @@ test('读 PDF：回答下面 拷贝 · 插进文档（变淡）· ⋯ ｜ 还是
     // 「还是不懂」那颗画那一家的标志
     await expect(row.locator('[data-reply="still"] .cn-ab-logo')).toHaveCount((await row.locator('[data-reply="still"]').count()) ? 1 : 0)
 
-    // ⋯ 里：存进收件箱 · 在笔记里看 · 拷贝为 Markdown，最下面 调整这一排…
+    // ⋯ 里：最前面记进 / 拿掉这一条（AI 对话记笔记开关，记好了是「从《…》拿掉」）· 在笔记里看 · 存进收件箱 · 拷贝为 Markdown，最下面 调整这一排…
+    await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     await row.locator('[data-act="more"]').click()
-    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['在笔记里看', '拷贝为 Markdown', '调整这一排…', '存进收件箱'])
+    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['从《第3讲 线性映射 笔记》拿掉', '在笔记里看', '拷贝为 Markdown', '调整这一排…', '存进收件箱'])
     await page.keyboard.press('Escape')
 
     // 右键这条回答：和 AI 对话同一套，插进文档灰着（中间是 PDF）
@@ -253,9 +254,9 @@ test('网页上框着问：回答下面同一排，快捷回复两颗（还是�
     const row = ai.getByTestId('reading-msg').last().getByTestId('reading-ans-acts')
     expect(await row.locator('[data-act]').evaluateAll((els) => els.map((e) => e.getAttribute('data-act')))).toEqual(['copy', 'insert', 'more'])
     expect(await replyNames(page, row)).toEqual(['还是不懂', '换个方式讲'])
-    // ⋯ 里没有「在笔记里看」（网页那一问记进了配对的那篇，不是读 PDF 的笔记）
+    // ⋯ 里没有「在笔记里看」（网页那一问写进了剪藏那篇本身，不是读 PDF 的笔记）；最前面是「从《…》拿掉」
     await row.locator('[data-act="more"]').click()
-    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['拷贝为 Markdown', '调整这一排…', '存进收件箱'])
+    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['从《plain》拿掉', '拷贝为 Markdown', '调整这一排…', '存进收件箱'])
     await page.keyboard.press('Escape')
     await clickReply(page, row, '换个方式讲')
     await expect(ai.locator('.um').last()).toHaveText('换个方式讲')

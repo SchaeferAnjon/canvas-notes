@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { launch, acts, openAi, tabOn, openNote, rail, railItems } from './app'
 import { solidPng } from './fixtures/png'
 import { LECTURE, lecturePdf } from './fixtures/pdf'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 // 录屏 86 条里 AI 与 PDF 这一组（G3）：发出去以后输入框空、粘贴图片、表格、出错的说法
@@ -260,14 +260,12 @@ test('CN-22 / 工作区方向 A：读 PDF 时 AI 是右栏的一个标签，竖�
   }
 })
 
-/** PNG 的宽高（文件头里读） */
-const pngSize = (buf: Buffer) => [buf.readUInt32BE(16), buf.readUInt32BE(20)] as const
 
 // 第 1 页下半是一张矢量画的图（一堆小色块，没有图片块），老办法挑不出图
 const VECTOR = lecturePdf([{ title: 'Computation Stack', lines: ['The stack has nine layers from applications to physics.'], heavy: 400 }, { title: 'Next', lines: ['More.'] }])
 
-test('CN-60：AI 回答里给配图的框，笔记按框从重新画的页面裁图（矢量画的图也裁得到）；框是整页不算配图（后台只写标题和小结，不再另挑图，CN-94）', async () => {
-  const run = await launch({ '课程/ecp/Lecture05.pdf': VECTOR, [PDF]: LECTURE }, { CN_AI_FAKE: '1', CN_FAKE_FIGURE_MARK: '〔配图 0.03,0.52,0.94,0.42 · 测试结构图〕' })
+test('CN-60 拿掉了（2026-11-24 新写法不配图）：AI 回答里给的配图框那一行不显示，笔记里不另裁配图，只有附的整页截图（写「整页」和这一页 100% 的宽）', async () => {
+  const run = await launch({ '课程/ecp/Lecture05.pdf': VECTOR }, { CN_AI_FAKE: '1', CN_FAKE_FIGURE_MARK: '〔配图 0.03,0.52,0.94,0.42 · 测试结构图〕' })
   const { page, vault } = run
   try {
     await page.keyboard.press('Meta+k')
@@ -278,33 +276,15 @@ test('CN-60：AI 回答里给配图的框，笔记按框从重新画的页面裁
     await expect(ai(page).getByTestId('reading-sees')).toContainText('读过全文2页', { timeout: 15_000 })
     await acts(page).getByRole('button', { name: /问这一页/ }).click()
     const msg = ai(page).getByTestId('reading-msg').last()
-    await expect(msg.locator('.noted')).toContainText('已记进笔记', { timeout: 15_000 })
+    await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     // 那一行不显示
     await expect(msg.locator('.txt')).not.toContainText('配图')
     const md = readFileSync(join(vault, '课程/ecp/Lecture05 笔记.md'), 'utf8')
-    expect(md).toMatch(/!\[第 1 页 · 测试结构图\]\(\.\.\/\.\.\/附件\/Lecture05\/p1-1-fig\.png\)/)
-    // 裁下来的就是那个框：宽高比和框一样（0.94×612 : 0.42×792）
-    const [w, h] = pngSize(readFileSync(join(vault, '附件/Lecture05/p1-1-fig.png')))
-    expect(Math.abs(w / h - (0.94 * 612) / (0.42 * 792))).toBeLessThan(0.05)
+    expect(md).not.toContain('-fig.png')
+    expect(md).not.toContain('测试结构图')
+    expect(md).toContain('![整页|612](../../附件/Lecture05/p1-1.png)')
+    expect(existsSync(join(vault, '附件/Lecture05/p1-1-fig.png'))).toBe(false)
   } finally {
     await run.close()
-  }
-
-  // 框是整页：不算配图；后台不再从图片块里另挑（CN-94：后台只剩标题和小结），这一段只有附的整页截图
-  const run2 = await launch({ [PDF]: LECTURE }, { CN_AI_FAKE: '1', CN_FAKE_FIGURE_MARK: '〔配图 0,0,1,1 · 整页〕' })
-  try {
-    await openPdf(run2.page)
-    // 翻到第 3 页，问这一页（附的是整页，框 0,0,1,1 就是整页）
-    await pdfPage(run2.page, 3).evaluate((el) => el.scrollIntoView({ block: 'start' }))
-    await expect(acts(run2.page).getByTestId('pdf-pager')).toHaveText('3 / 5')
-    await acts(run2.page).getByRole('button', { name: /问这一页/ }).click()
-    await expect(ai(run2.page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 15_000 })
-    const md = readFileSync(join(run2.vault, '课程/线性代数/第3讲 线性映射 笔记.md'), 'utf8')
-    expect(md).not.toContain('-fig.png')
-    // AI 给的「整页」框没被当配图（附的整页截图本身写「整页」，宽是这一页 100% 时的宽，CN-111）
-    expect(md).not.toContain('第 3 页 · 整页')
-    expect(md).toContain('![整页|612](../../附件/第3讲%20线性映射/p3-1.png)')
-  } finally {
-    await run2.close()
   }
 })

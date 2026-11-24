@@ -8,7 +8,7 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import type { EngineId } from '../../shared/agent'
 import { EngineLogo } from '../engine-logo'
-import { type AskPart, type AskSection, type DocUnit, findMath, isSummaryHead, parseHlLine, parseSection, parseTable, plainQ, prop } from '@cn/format'
+import { type AskPart, type AskSection, askSectionsOf, type DocUnit, findMath, isSummaryHead, parseHlLine, parseSection, parseTable, plainQ, prop } from '@cn/format'
 import { type ReactNode, useEffect, useState } from 'react'
 import { ScrollX } from '../scroll-x'
 import type { NoteFile } from '../../shared/api'
@@ -65,7 +65,8 @@ interface Source {
 export type Face =
   | { k: 'text' | 'list' | 'html'; md: string }
   | { k: 'todo'; rows: { line: number; done: boolean; text: string }[] }
-  | { k: 'callout'; kind: string; icon: CodiconName; engine: EngineId | null; bare?: boolean; tone: string; title: string; meta: string; body: string }
+  /** chat：AI 块头上「回到 AI 对话」那条链接（卡头画成一个能点的「回到 AI 对话」） */
+  | { k: 'callout'; kind: string; icon: CodiconName; engine: EngineId | null; bare?: boolean; tone: string; title: string; meta: string; body: string; chat?: string }
   | { k: 'code'; lang: string; lines: string[] }
   | { k: 'math'; tex: string[] }
   | { k: 'table'; head: string[]; rows: string[][]; right: boolean[] }
@@ -152,6 +153,14 @@ function sourceOf(title: string, url: string | null): Source {
 
 /** 问过 AI 那一列里的一张：拼上这一节的标题行、链接行，照笔记的认法（parseSection）认 */
 function askFace(part: AskPart, head: string, text: string, ctx: Pick<CardCtx, 'notePath' | 'files'>): Face {
+  // AI 对话写进笔记的新写法（ai-note.ts）：head 是「## 那一节」+ 这一问（### 到 AI 块末尾）；旁支那张自己就是一问（#### 旁支：…）
+  if (/\n#{3,4} /.test(head)) {
+    const h2 = head.split('\n', 1)[0]!
+    const s = part === 'more' ? null : (askSectionsOf(part === 'side' ? `${h2}\n\n${text}` : head, ctx.notePath)[0] ?? null)
+    const back = /^>?\s*—— \[[^\]]*\]\(([^)\s]+)\)\s*$/m.exec(head)?.[1]
+    const pdf = s?.file ? (ctx.files.find((f) => f.path === s.file) ?? null) : null
+    return { k: 'askpart', part, s, pdf, ...(back && s?.file ? { back } : {}), md: part === 'more' || part === 'q' ? text : '', marks: [] }
+  }
   const back = /^\[第\s*\d+\s*页\]\(([^)\s]+)\)/m.exec(part === 'old' ? text : head)?.[1]
   const marks = part === 'marks' ? text.split('\n').flatMap((l) => {
     const h = parseHlLine(l, ctx.notePath)
@@ -209,6 +218,14 @@ function quoteFace(text: string): Face {
 }
 
 export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'files'>): Face {
+  // AI 对话写进笔记的新写法：回答那一张就是那块 [!ai]（和文档里一样带框带标志，问句只在列头），用户补的字是普通的字
+  if (u.ask && /\n#{3,4} /.test(u.ask.head) && (u.ask.part === 'qa' || u.ask.part === 'more')) {
+    const { ask: _ask, ...plain } = u
+    void _ask
+    // 卡头只写「AI 回答 · 哪家 · 模型」：「回到 AI 对话」那个链接在卡上不画（点卡就回文档那一处）
+    // 混排一节里问答组的回答（kind 已是 callout，7b）：照原型留着「回到 AI 对话」；配对笔记一问一列的照旧不画
+    return u.ask.part === 'qa' ? faceOf({ ...plain, kind: 'callout', text: u.kind === 'callout' ? u.text : u.text.replace(/ · \[[^\]]*\]\(canvas-notes:\/\/chat\?[^)]*\)/, '') }, ctx) : { k: 'text', md: u.text }
+  }
   if (u.ask) return askFace(u.ask.part, u.ask.head, u.text, ctx)
   const text = u.lead ? u.text.slice(u.lead).replace(/^\s+/, '') : u.text
   const t = text.trim()
@@ -232,7 +249,10 @@ export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'fi
       const own = text.split('\n').slice(1)
       const end = own.findIndex((l) => !l.trim())
       const body = (end < 0 ? own : own.slice(0, end)).map((l) => l.replace(/^\s*>\s?/, '')).join('\n')
-      return { k: 'callout', kind: c.kind, icon: c.icon, engine: c.engine, ...(c.bare ? { bare: true } : {}), tone: c.tone, title: cut > 0 ? title.slice(0, cut) : title, meta: cut > 0 ? title.slice(cut + 3) : '', body }
+      // AI 块头上的链接卡上不露写法：「回到 AI 对话」单独画成能点的一截（和文档里的回答框一样），回网页的「[6.2.1 … ↩](…)」只留字
+      const chat = c.kind === 'ai' ? /\[[^\]]*\]\((canvas-notes:\/\/chat\?[^)\s]*)\)/.exec(title)?.[1] : undefined
+      const meta = cut > 0 ? title.slice(cut + 3).replace(/(?:\s*·\s*)?\[[^\]]*\]\(canvas-notes:\/\/chat\?[^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)\s]*\)/g, '$1') : ''
+      return { k: 'callout', kind: c.kind, icon: c.icon, engine: c.engine, ...(c.bare ? { bare: true } : {}), tone: c.tone, title: cut > 0 ? title.slice(0, cut) : title, meta, body, ...(chat ? { chat } : {}) }
     }
     case 'quote':
       // 网页剪下来的一段（> 原文 + —— [标题](网址)）、书摘（—— [《书》 · 章](阅读页)、> [!quote] [《书》 · 章](…)）
@@ -335,6 +355,8 @@ function Kh(props: { icon: CodiconName; children: ReactNode; right?: ReactNode; 
   )
 }
 
+/** 材料的编号（和 ai-note.ts 写进文件的同一套） */
+const MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
 const vaultSrc = (path: string) => 'cn-file://vault/' + path.split('/').map(encodeURIComponent).join('/')
 
 /** 一张卡的正文（u 是这张卡，f 是 faceOf 认出的样子） */
@@ -394,7 +416,19 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
             {/* 没写哪家的「AI 总结」块不画图标（task-5yp97） */}
             {f.engine ? <EngineLogo id={f.engine} size={14} /> : f.bare ? null : <Codicon name={f.icon} size={14} />}
             <span className="nm">{f.title}</span>
-            {f.meta && <span className="eng">{f.meta}</span>}
+            {(f.meta || f.chat) && (
+              <span className="eng">
+                {f.meta}
+                {f.chat && (
+                  <>
+                    {f.meta ? ' · ' : ''}
+                    <a className="db-chat" data-chat={f.chat}>
+                      {t('回到 AI 对话')}
+                    </a>
+                  </>
+                )}
+              </span>
+            )}
           </div>
           {f.body.trim() &&
             (f.kind === 'ai' && acts.side ? (
@@ -753,7 +787,7 @@ function AskPartBody({ f }: { f: Extract<Face, { k: 'askpart' }> }) {
       return (
         <>
           <div className="kh">
-            <span>{s.crop ? t('框的图') : s.quote ? t('选的字') : t('这一页')}</span>
+            <span>{s.crop ? (s.doc ? t('我框的') : t('框的图')) : s.quote ? t('选的字') : t('这一页')}</span>
             {s.time && <span className="r num">{s.time}</span>}
           </div>
           {s.crop ? (
@@ -796,6 +830,67 @@ function AskPartBody({ f }: { f: Extract<Face, { k: 'askpart' }> }) {
           <Markdown text={f.md} />
         </div>
       )
+    case 'q': {
+      // 混排一节里一问一答那一组的头一张（doc-board.ts 7b）：问的那句、① 引文（公式照排）和回到网页那一段的来源、框的图、贴的图，照文件里的先后
+      const qa = s?.qas?.[0]
+      if (!s || !qa) return <Markdown text={f.md} />
+      const src = (label: string, href: string | undefined) =>
+        href ? (
+          <a className="db-ask-src" data-href={href} title={t('点一下回到网页那一段')}>
+            {'—— ' + (label || '↩') + ' ↩'}
+          </a>
+        ) : label ? (
+          <span className="db-ask-src">{'—— ' + label}</span>
+        ) : null
+      const img = (p: string) => (
+        <span key={p} className="db-ask-crop">
+          <img src={vaultSrc(p)} alt={t('我框的')} draggable={false} />
+        </span>
+      )
+      return (
+        <div className="db-ask-q">
+          <div className="row aq">
+            <Codicon name="comment-discussion" size={14} />
+            <span>{plainQ(qa.q)}</span>
+          </div>
+          {s.quote && (
+            <blockquote className="db-ask-quote">
+              <span>{inline(s.quote, 'q')}</span>
+              {src(s.web?.label ?? '', s.web?.url)}
+            </blockquote>
+          )}
+          {(qa.mats ?? []).map((m, i) =>
+            m.kind === 'image' ? (
+              img(m.path)
+            ) : (
+              <blockquote key={i} className="db-ask-quote">
+                <span>{inline(`${MARKS[i] ?? ''} ${m.text}`.trim(), 'm' + i)}</span>
+                {src(m.src, m.href)}
+              </blockquote>
+            ),
+          )}
+          {s.crop && img(s.crop)}
+        </div>
+      )
+    }
+    case 'sideq': {
+      // 混排一节里问答组的旁支问的那张（7b）：「旁支」、被问的那一句（公式照排）、问题；回答是下面那张浅底卡
+      const d = s?.qas?.[0]?.sides?.[0]
+      return (
+        <>
+          <Kh icon="git-branch">{t('旁支')}</Kh>
+          <div className="db-ask-side">
+            {d?.quote && <div className="sq">{inline(d.quote, 'sq')}</div>}
+            {d?.turns[0] && (
+              <div className="row aq sq-q">
+                <Codicon name="comment-discussion" size={13} />
+                <span>{plainQ(d.turns[0].q)}</span>
+              </div>
+            )}
+          </div>
+        </>
+      )
+    }
     case 'side': {
       const sides = s?.qas?.[0]?.sides ?? []
       return (
@@ -803,7 +898,8 @@ function AskPartBody({ f }: { f: Extract<Face, { k: 'askpart' }> }) {
           <Kh icon="git-branch">{t('旁支')}</Kh>
           {sides.map((d, j) => (
             <div key={j} className="db-ask-side">
-              {d.quote && <div className="sq">{d.quote}</div>}
+              {/* 被问的那一句照文档排公式（以前露出 $k\times k$ 原文） */}
+              {d.quote && <div className="sq">{inline(d.quote, 'sq')}</div>}
               {d.turns.map((x, k) => (
                 <div key={k}>
                   <div className="row aq sq-q">

@@ -66,12 +66,12 @@ test('打开 HTML：沙箱里跑，右栏是它的 AI；「框一块」拖一个
     await expect(pane(page).getByTestId('html-box')).toHaveCount(0)
     await expect(ai(page).locator('.um').last()).toHaveText('给我讲解一下')
     await expect(ai(page).getByText('看了框的这一块')).toBeVisible()
-    await expect(ai(page).getByText(/已记进笔记/)).toBeVisible({ timeout: 15_000 })
+    await expect(ai(page).getByTestId('ai-noted').last()).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     const md = readFileSync(join(vault, '课程/线性代数/旋转矩阵 笔记.md'), 'utf8')
     expect(md).toContain('来源: "[[旋转矩阵.html]]"')
-    expect(md).toMatch(/## 测试小标题 p\d+\n\[旋转矩阵\.html\]\(旋转矩阵\.html\) · \d\d:\d\d/)
-    expect(md).toContain('![我框的](../../附件/旋转矩阵/p1-1.png)')
-    expect(gitOut(vault, 'log', '-1', '--format=%s')).toMatch(/^笔记：旋转矩阵 · 测试小标题/)
+    // 2026-11-24 新写法：一节写 HTML 的名字，一问一个小标题，框的图、回到那份 HTML 的来源行，一块 AI 回答
+    expect(md).toMatch(/\n## 旋转矩阵\n\n### 给我讲解一下\n\n!\[我框的(\|\d+)?\]\(\.\.\/\.\.\/附件\/旋转矩阵\/p1-1\.png\)\n\n—— \[旋转矩阵\.html\]\(旋转矩阵\.html\)\n\n> \[!ai\] AI 回答 · /)
+    await expect.poll(() => gitOut(vault, 'log', '-1', '--format=%s')).toBe('笔记：旋转矩阵 笔记 · 给我讲解一下')
     expect(gitStatus(vault)).toBe('')
     // 笔记里这一轮的来源是文件名「旋转矩阵.html ›」，点了打开 HTML
     await rail(page).getByRole('button', { name: '笔记', exact: true }).click()

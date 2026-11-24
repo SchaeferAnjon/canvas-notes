@@ -44,6 +44,7 @@ import { pastedImages } from '../pasted'
 import { type McpServer, startMcpServer } from './mcp-server'
 import { readingChats } from '../reading/chats'
 import type { ChatSummary } from '../../shared/ai-chats'
+import { checkTarget } from '../../shared/ai-note'
 import { AgentStore } from './store'
 import { runTool, stepLabel, stepPaths, type ToolHost, toolLabel, toolSpecs } from './tools'
 import * as vops from './vault-ops'
@@ -1428,6 +1429,19 @@ export function registerAgent(d: AgentDeps) {
     const v = deps.vault()
     const p = placeOf({ key: place, label: '' })!
     if (v) store.setPick(v.root, p.key, pick === null ? null : ownPick(pick))
+  })
+  // 这段对话记进哪篇（AI 对话记笔记开关，shared/ai-note.ts）：和选的模型同一处存，新对话清掉
+  ipcMain.handle('ai:chat:note', (_e, place: unknown) => {
+    const v = deps.vault()
+    const p = placeOf({ key: place, label: '' })!
+    return v ? checkTarget(store.chat(v.root, p.key).noteTo) : null
+  })
+  ipcMain.handle('ai:chat:note:set', (_e, place: unknown, to: unknown) => {
+    const v = deps.vault()
+    const p = placeOf({ key: place, label: '' })!
+    const target = to === null ? null : checkTarget(to)
+    if (to !== null && !target) throw new Error('AI 参数不对')
+    if (v) store.setNoteTo(v.root, p.key, target)
   })
   ipcMain.handle('ai:chat:clear', (_e, place: unknown) => {
     const v = deps.vault()

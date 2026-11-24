@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { launch, openNote, pane, rail, waitSaved } from './app'
 import { FAKE_VIDEO_ID, startFakeVideoSite } from './fixtures/fake-video'
+import { OLD_ASK_FRAME, oldAskBlock, oldAskFrame } from './fixtures/old-ask-block'
 import { shotTone, shotWindow } from './shots'
 
 let server: Server
@@ -63,30 +64,15 @@ test('CN-70：视频播着点「记下这一刻」，焦点回到视频（按钮
   }
 })
 
-test('CN-84：问答块上「接着问」：引文标「00:06 · 视频名」不写「第 0 页」；追问的回答记进同一篇文档，没有英文报错', async () => {
-  const run = await launch({ [NOTE]: '# 看视频的笔记\n\n我先写的一句。\n' }, env())
+// 2026-11-24 起问答写进那篇本身（小标题 + AI 回答框），不再插老的问答块；老文档里的问答块「接着问」照样能用：先把那一块写进文档
+test('CN-84：问答块上「接着问」：引文标「00:06 · 视频名」不写「第 0 页」；追问的回答写进那篇本身，没有英文报错', async () => {
+  const run = await launch({ [NOTE]: `# 看视频的笔记\n\n我先写的一句。\n\n${oldAskBlock(base)}\n`, [OLD_ASK_FRAME]: oldAskFrame() }, env())
   const { page, vault } = run
   try {
     await shotTone(page)
     await openNote(page, '看视频的笔记')
-    await pane(page).locator('.cm-content').click()
-    await page.keyboard.press('Meta+End')
     await openVideo(page)
     await seek(page, 6)
-    await pane(page).locator('.cm-content').click()
-    await page.keyboard.press('Alt+KeyD')
-    await expect.poll(() => guest(page, `!!document.getElementById('cn-video-host').shadowRoot.querySelector('.box')`)).toBe(true)
-    const wv = (await web(page).locator('webview.on').boundingBox())!
-    await page.mouse.move(wv.x + 120, wv.y + 60)
-    await page.mouse.down()
-    await page.mouse.move(wv.x + 220, wv.y + 140, { steps: 6 })
-    await page.mouse.up()
-    const ask = web(page).getByRole('dialog', { name: '问 AI' })
-    await expect(ask).toBeVisible()
-    await ask.getByRole('textbox', { name: '想问什么' }).press('Enter')
-    // 回答在问框里就地出来、同时写进文档（task-sta8n）：问框底行「已记进《…》」
-    await expect(ask.getByRole('button', { name: /已记进/ })).toBeVisible({ timeout: 15_000 })
-    await waitSaved(page)
 
     // 光标放回第一句，点问答块上的「接着问」：右栏下格开 AI，引文标视频时刻和视频名
     await pane(page).getByText('我先写的一句。').click()
@@ -107,41 +93,28 @@ test('CN-84：问答块上「接着问」：引文标「00:06 · 视频名」不
     await box.fill('那第三个箭头呢')
     await box.press('Enter')
     const msg = reading.getByTestId('reading-msg').last()
-    await expect(msg.locator('.noted')).toContainText('已记进《看视频的笔记》', { timeout: 15_000 })
+    await expect(msg.getByTestId('ai-noted')).toContainText('已记进《看视频的笔记》', { timeout: 15_000 })
     await expect(msg.locator('.read')).toContainText('接着00:06那一问')
     await expect(reading.locator('.msgs')).not.toContainText('第 0 页')
     await expect(reading.locator('.msgs')).not.toContainText('TypeError')
     await waitSaved(page)
     const md = readFileSync(join(vault, NOTE), 'utf8')
-    expect(md).toContain('那第三个箭头呢')
+    expect(md).toContain('### 那第三个箭头呢')
+    expect(md).toContain(oldAskBlock(base))
+    expect(md).not.toContain('AI 笔记')
   } finally {
     await run.close()
   }
 })
 
-test('第 2 轮：「接着问」带上那一帧和上一问的回答、前后字幕；视频跳回那一秒停住；记进文档的来源是「▶ 00:06 · 视频名」不是网页', async () => {
-  const run = await launch({ [NOTE]: '# 看视频的笔记\n\n我先写的一句。\n' }, env())
+test('第 2 轮：「接着问」带上那一帧和上一问的回答、前后字幕；视频跳回那一秒停住；写进那篇的来源是「▶ 00:06 · 视频名」不是网页', async () => {
+  const run = await launch({ [NOTE]: `# 看视频的笔记\n\n我先写的一句。\n\n${oldAskBlock(base)}\n`, [OLD_ASK_FRAME]: oldAskFrame() }, env())
   const { page, vault } = run
   try {
     await shotTone(page)
     await openNote(page, '看视频的笔记')
-    await pane(page).locator('.cm-content').click()
-    await page.keyboard.press('Meta+End')
     await openVideo(page)
     await seek(page, 6)
-    await pane(page).locator('.cm-content').click()
-    await page.keyboard.press('Alt+KeyD')
-    await expect.poll(() => guest(page, `!!document.getElementById('cn-video-host').shadowRoot.querySelector('.box')`)).toBe(true)
-    const wv = (await web(page).locator('webview.on').boundingBox())!
-    await page.mouse.move(wv.x + 120, wv.y + 60)
-    await page.mouse.down()
-    await page.mouse.move(wv.x + 220, wv.y + 140, { steps: 6 })
-    await page.mouse.up()
-    const ask = web(page).getByRole('dialog', { name: '问 AI' })
-    await ask.getByRole('textbox', { name: '想问什么' }).press('Enter')
-    // 回答在问框里就地出来、同时写进文档（task-sta8n）：问框底行「已记进《…》」
-    await expect(ask.getByRole('button', { name: /已记进/ })).toBeVisible({ timeout: 15_000 })
-    await waitSaved(page)
 
     // 视频接着播到 00:20 停下，再点「接着问」：跳回 00:06 停住
     await seek(page, 20)
@@ -166,25 +139,20 @@ test('第 2 轮：「接着问」带上那一帧和上一问的回答、前后�
     await expect(msg.locator('.txt')).toContainText('图 1 张', { timeout: 15_000 })
     await expect(msg.locator('.txt')).toContainText('带了上一问的回答')
     await expect(msg.locator('.txt')).toContainText('带了字幕')
-    await expect(msg.locator('.noted')).toContainText('已记进《看视频的笔记》', { timeout: 15_000 })
+    await expect(msg.getByTestId('ai-noted')).toContainText('已记进《看视频的笔记》', { timeout: 15_000 })
     await waitSaved(page)
     await shotWindow(run, 'r2-video-follow-noted')
-    const md = readFileSync(join(vault, NOTE), 'utf8')
-    // 接着问记下的这一段：从它的小标题到下一块（或文末）。插在光标那一段（「我先写的一句。」）后面；
-    // 第一问那块问答在哪看第一次点版心落在哪（task-ys1rr 起点版心留白落到最后一行，那块在文末，这一段在它上面），不靠先后
-    const at = md.indexOf('## 测试小标题')
-    expect(at).toBeGreaterThan(0)
-    const next = md.indexOf('\n<!-- ', at)
-    const follow = md.slice(at, next < 0 ? undefined : next)
-    expect(follow).toContain('那第三个箭头呢')
-    expect(follow).toMatch(/\[▶ 00:06 · Linear transformations and matrices\]\(http[^)]*t=6s?\) · \d\d:\d\d/)
-    expect(md).toContain('看了 00:06 这一帧')
-    expect(md).not.toContain('看了网页这一段')
-    expect(md).not.toMatch(/\[127\.0\.0\.1\]/)
-    // 身份写在第二行行尾（cn:thread），完整对话不再另写一份（CN-93）；那一帧上面那块问答里已经有了，这一段不再放一遍
-    expect(follow).toMatch(/\) · \d\d:\d\d <!-- cn:thread=视频-youtube-[^\n]+ -->\n\n> \[!question\] 那第三个箭头呢\n/)
-    expect(follow).not.toContain('![')
-    expect(md).not.toContain('完整对话')
+    // 写进那篇本身：一问一个小标题（不另起一节视频名），来源行回到那一秒（不是网页的域名）；那一帧文档里那块问答已经有了，不再放一遍
+    const all = readFileSync(join(vault, NOTE), 'utf8')
+    expect(all).toContain(oldAskBlock(base))
+    // 光标在「我先写的一句。」那行，新的一问插在那里（旧那块问答在它后面）：只看插进去的这一问
+    const md = all.slice(all.indexOf('### 那第三个箭头呢'), all.indexOf(oldAskBlock(base)))
+    expect(all.indexOf('### 那第三个箭头呢')).toBeGreaterThan(all.indexOf('我先写的一句。'))
+    expect(all.indexOf(oldAskBlock(base))).toBeGreaterThan(all.indexOf('### 那第三个箭头呢'))
+    expect(md).toMatch(/^### 那第三个箭头呢\n\n—— \[▶ 00:06 · Linear transformations and matrices\]\(http[^)]*t=6s?\)\n\n> \[!ai\] AI 回答 · /)
+    expect(all).not.toContain('## Linear transformations and matrices')
+    expect(md).not.toContain('![')
+    expect(md).not.toMatch(/\[127\.0\.0\.1\]|看了网页这一段|cn:thread|\[!question\]/)
     expect(existsSync(join(vault, '.canvas-notes/对话'))).toBe(false)
   } finally {
     await run.close()

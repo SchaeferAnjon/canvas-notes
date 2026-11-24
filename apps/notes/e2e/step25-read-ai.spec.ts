@@ -111,7 +111,7 @@ test('框一块连点两下「讲解一下」只发一次、笔记只记一段',
     await cap(page).getByRole('button', { name: /讲解一下/ }).dblclick()
     await answered(page, 1)
     // 记笔记、晚到的第二下都过去了也还是一问一答
-    await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 15_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     await page.waitForTimeout(800)
     await expect(userMsgs(page)).toHaveCount(1)
     await expect(ai(page).getByTestId('reading-msg')).toHaveCount(1)

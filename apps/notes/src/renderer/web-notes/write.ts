@@ -2,6 +2,7 @@
  * 网页的问答、剪藏写进那篇（task-6cxtc）：中间看得见那篇时插在它的光标处（和以前的剪进文档一样：左边一道竖线 1.6 秒）；
  * 中间收起了、没开着这篇时接在末尾（编辑器里开着就改编辑器，没开着先比后写文件）。返回写在哪、能撤回（只拿掉写进去的那几行，之后打的字不动）。
  */
+import { pastAsk } from '@cn/format'
 import { NoteDoc } from '../note-doc'
 
 export interface Wrote {
@@ -48,7 +49,8 @@ export async function writeInto(path: string, md: string, o: { cursor: boolean; 
   const d = openDoc(path)
   if (d) {
     const before = d.text
-    if (o.cursor) d.insertAtCursor(md, { focus: o.focus === true })
+    // 光标还停在刚记进去的一问末尾（或在一问里面）：插到这一问和它的旁支后面，不把旁支和它那一问隔开
+    if (o.cursor) d.insertAtCursor(md, { focus: o.focus === true, at: pastAsk })
     else d.setText(appendTo(before, md))
     const add = addedOf(before, d.text)
     await d.save()

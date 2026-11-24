@@ -10,9 +10,11 @@
  *   自己问的（引用以后打的问题）头一个词是「你问：问题原话」；引了几段时每段前面 ①②，和问题里的编号对得上。框一块问的放那块的截图。
  * - 剪藏照旧是引文 + 来源一行，来源一行的链接也是回到那一段的（「—— [2.2.1 读取数据集 · 动手学深度学习](…#:~:text=…)」）。
  * - 右栏「笔记」标签、网页上的小标从那篇里认回「来自这一页的几条」（webEntries）。
+ * - 2026-11-24 起问答照「记笔记」开关写进剪藏那篇本身（偏好「剪藏和AI笔记同一篇」，@cn/format 的 ai-note.ts 新写法：问的那句做小标题、
+ *   引用那几段带回到这一段的来源、图、一块带「回到 AI 对话」链接的 AI 回答框）：webEntries 也认这种，认成「问的」，不算剪藏。
  * 纯函数：界面、测试都用，不碰 Electron。
  */
-import { aiCallout } from '@cn/format'
+import { aiCallout, askUnits } from '@cn/format'
 import { mdUrl } from './layout'
 import { normText } from './read-anchor'
 import { parseFragment, samePage } from './web-link'
@@ -119,9 +121,41 @@ export function webEntries(md: string, page: string): WebEntry[] {
     seen.set(s, n)
     return `${s}\n${n}`
   }
+  // 新写法的一问（引用后紧跟带对话链接的 AI 块）：来源行回到这一页的，认成「问的」；它占的那几行不再当剪藏、旧块认
+  const lineAt = (pos: number) => md.slice(0, pos).split('\n').length - 1
+  const taken: [number, number][] = []
+  for (const u of askUnits(md, '')) {
+    const from = lineAt(u.from)
+    taken.push([from, lineAt(u.end)])
+    if (u.ask.side) continue
+    // 回到这一页的那条链接：来源行（选的那段、框的那块），或带着 ①② 引的那几段的来源
+    const links = [...(u.ask.src ? [{ ...u.ask.src, quote: u.ask.quote ?? '' }] : []), ...(u.ask.mats ?? []).flatMap((m) => (m.kind === 'quote' && m.href ? [{ label: m.src, href: m.href, quote: m.text }] : []))]
+    const hit = links.map((l) => ({ l, frag: parseFragment(l.href) })).find((x) => x.frag && samePage(x.frag.page, page))
+    if (!hit) continue
+    const frag = hit.frag!
+    const href = hit.l.href
+    const q = oneLine(u.ask.q)
+    const label = askLabel(q)
+    const asked = label.startsWith(`${ASKED}：`)
+    const quote = normText(hit.l.quote) || frag.text
+    out.push({
+      kind: 'ask',
+      label: asked ? ASKED : label,
+      title: asked ? q : `${label}「${short(quote, 40)}」`,
+      head: hit.l.label.replace(/\s*↩\s*$/, '').split(' · ')[0]!.trim(),
+      url: href,
+      text: frag.text,
+      quote,
+      line: from,
+      key: keyOf(lines[from]!),
+      keyAt: from,
+    })
+  }
+  const inAsk = (i: number) => taken.some(([a, b]) => i >= a && i < b)
   let fence = false
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i]!
+    if (inAsk(i)) continue
     if (/^\s*(```|~~~)/.test(l)) {
       fence = !fence
       continue
@@ -189,5 +223,5 @@ export function webEntries(md: string, page: string): WebEntry[] {
       keyAt: i,
     })
   }
-  return out
+  return out.sort((a, b) => a.line - b.line)
 }

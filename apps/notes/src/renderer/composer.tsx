@@ -10,6 +10,7 @@
  * 弹出来的菜单、看全文的小卡挂在 body 上（右栏有磨砂，fixed 的子元素会另起坐标、被岛的圆角裁掉），都用 use-dismiss：点外面、esc、失焦收起，再点按钮是收起。
  */
 import { Codicon } from '@cn/design'
+import { noteName } from '../shared/ai-note'
 import { trackDrag } from '@cn/design/drag-end'
 import { isKey, keyFor } from './keys'
 import { ComposerGlow } from './ai-glow'
@@ -292,6 +293,8 @@ export interface AiInputProps {
   list?: RefObject<HTMLElement | null>
   /** 输入框下面那一行的全能模式开关（AI 对话、读 PDF 有；旁支不放，跟主对话） */
   omni?: OmniProps | null
+  /** 全能模式上面那一排「记笔记 ·《记进哪篇》▾ ｜ 旁支」（AI 对话记笔记开关，shared/ai-note.ts）；旁支里不放 */
+  note?: NoteLineProps | null
   /**
    * 开着旁支（task-4edsc 方向 A「就地展开」）：缩成一行灰字（打了的字或占位字），不和旁支的输入框摞着；
    * 点它 onWake（收起旁支），光标回到这里。字和材料都留着
@@ -376,7 +379,7 @@ export function AiInput(p: AiInputProps) {
     <>
       <div
         ref={root}
-        className={'aiin' + (p.className ? ' ' + p.className : '') + (drop ? ' hot' : '') + (p.omni ? ' with-omni' : '')}
+        className={'aiin' + (p.className ? ' ' + p.className : '') + (drop ? ' hot' : '') + (p.omni || p.note ? ' with-omni' : '')}
         data-testid="ai-input"
         data-composer=""
         onDragOver={(e) => {
@@ -456,6 +459,7 @@ export function AiInput(p: AiInputProps) {
           )}
         </div>
       </div>
+      {p.note && <NoteLine {...p.note} />}
       {p.omni && <OmniLine {...p.omni} />}
     </>
   )
@@ -500,6 +504,48 @@ function useTightRow() {
     return () => ro.disconnect()
   }, [ft])
   return { ref, tight }
+}
+
+// ---------- 输入框下面、全能模式上面那一排：记笔记开关（2026-11-24 方向 A「开关两颗」，shared/ai-note.ts） ----------
+
+export interface NoteLineProps {
+  /** 主对话记不记 */
+  main: boolean
+  /** 旁支记不记 */
+  side: boolean
+  /** 记进哪篇（名字，不带书名号）；还没定是 null，显示「选一篇」 */
+  target: string | null
+  onMain(): void
+  onSide(): void
+  /** 点「《记进哪篇》▾」：在 at 下面弹「记进哪篇」 */
+  onTarget(at: HTMLElement): void
+}
+
+
+/**
+ * 两颗方角开关分开：「记笔记 ·《记进哪篇》▾」在左，竖线后「旁支」在右；样子和全能模式那一行同一套（.ai-omni 的 .om / .sw）。
+ * 关着时「《记进哪篇》」照样显示，点得开换一篇
+ */
+function NoteLine(p: NoteLineProps) {
+  const t = useT()
+  return (
+    <div className="ai-omni ai-note-sw" data-testid="ai-note-sw">
+      <button className="om" role="switch" aria-checked={p.main} aria-label={t('记笔记')} data-testid="ai-note-main" data-tip={t('这段对话答一条记一条，记进下面这篇')} data-side="above-start" onClick={p.onMain}>
+        <span className="sw" aria-hidden="true" />
+        <span className="nm">{t('记笔记')}</span>
+      </button>
+      <button className="tgt" data-testid="ai-note-target" aria-label={t('记进哪篇')} data-tip={t('记进哪篇')} data-side="above" onClick={(e) => p.onTarget(e.currentTarget)}>
+        {p.target ? <span className="nm">{`《${noteName(p.target, 15)}》`}</span> : <span className="dim">{t('选一篇')}</span>}
+        <Codicon name="chevron-down" size={12} />
+      </button>
+      <span className="gap" />
+      <span className="vr" aria-hidden="true" />
+      <button className="om" role="switch" aria-checked={p.side} aria-label={t('旁支也记')} data-testid="ai-note-side" data-tip={t('旁支答完也记进去；单条旁支在它框头上另拨')} data-side="above-end" onClick={p.onSide}>
+        <span className="sw" aria-hidden="true" />
+        <span className="nm">{t('旁支')}</span>
+      </button>
+    </div>
+  )
 }
 
 // ---------- 输入框下面那一行：全能模式（2026-11-19，照 Dispatch 输入框下面的权限那一行） ----------

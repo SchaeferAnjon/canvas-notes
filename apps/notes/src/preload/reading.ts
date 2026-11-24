@@ -3,6 +3,12 @@ import { ipcRenderer } from 'electron'
 import type { AskEvent, CardEvent, CnReadingApi } from '../shared/reading'
 
 export const readingApi: CnReadingApi = {
+  noteSwitches: () => ipcRenderer.invoke('ainote:switches'),
+  setNoteSwitch: (kind, s) => ipcRenderer.invoke('ainote:switch:set', kind, s),
+  noteAppend: (req) => ipcRenderer.invoke('ainote:append', req),
+  noteAsk: (req) => ipcRenderer.invoke('reading:note:ask', req),
+  noteRemove: (req) => ipcRenderer.invoke('ainote:remove', req),
+  noteHas: (note, key) => ipcRenderer.invoke('ainote:has', note, key),
   hlKinds: () => ipcRenderer.invoke('reading:hl:kinds'),
   saveHlKinds: (kinds) => ipcRenderer.invoke('reading:hl:kinds:save', kinds),
   hlAdd: (req) => ipcRenderer.invoke('reading:hl:add', req),
@@ -31,8 +37,6 @@ export const readingApi: CnReadingApi = {
     ipcRenderer.on('reading:event', h)
     return () => ipcRenderer.removeListener('reading:event', h)
   },
-  summarize: (req) => ipcRenderer.invoke('reading:summarize', req),
-  writeSection: (req) => ipcRenderer.invoke('reading:section', req),
   readNote: (pdf) => ipcRenderer.invoke('reading:note', pdf),
   reveal: (pdf) => ipcRenderer.invoke('reading:reveal', pdf),
   htmlMeta: (path) => ipcRenderer.invoke('reading:htmlMeta', path),

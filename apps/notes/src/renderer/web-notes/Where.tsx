@@ -8,6 +8,7 @@ import { keyFor } from '../keys'
 import { FloatPop, type PopAnchor } from '../pop-place'
 import { onPageOutside } from '../web/page-outside'
 import { titleOf } from '../../shared/layout'
+import { t } from '../../shared/i18n'
 import './web-notes.css'
 
 export type Where = { kind: 'doc'; path: string } | { kind: 'none' } | { kind: 'inbox' }
@@ -140,6 +141,8 @@ function WherePop({ r }: { r: NonNullable<typeof req> }) {
   }
 
   const enter = keyFor('enter')
+  // 问的时候选「这次只问，不记」= 关掉 AI 栏的「记笔记」（2026-11-24）
+  const note = r.kind === 'ask' && pick === 'none' ? t('AI 栏输入框下面的「记笔记」跟着关上：之后在网页上问的都不记，在那里能再打开') : '记好以后这个网站和这篇配成一对：以后在这里讲解、引用、剪藏的都记进这篇，不再问。'
   const noneLabel = r.kind === 'clip' ? '剪成卡片，放进收件箱' : '这次只问，不记'
   const goLabel = pick === 'none' ? (r.kind === 'clip' ? '剪进收件箱' : '只问这次') : '记到这篇'
   const radio = (p: Pick, label: string, right?: string) => (
@@ -172,7 +175,7 @@ function WherePop({ r }: { r: NonNullable<typeof req> }) {
           )}
           {radio('none', noneLabel)}
         </div>
-        <p className="wh-n">记好以后这个网站和这篇配成一对：以后在这里讲解、引用、剪藏的都记进这篇，不再问。</p>
+        <p className="wh-n">{note}</p>
         <div className="wh-b">
           <button type="button" className="wh-x" onClick={() => r.done(null)}>
             取消

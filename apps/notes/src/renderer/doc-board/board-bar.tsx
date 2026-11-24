@@ -326,7 +326,7 @@ export function useBoardBar(c: BoardBarCtx): { node: ReactNode; act(k: string, e
           const area = c.wrap.current?.parentElement
           if (!area || !c.wrap.current?.checkVisibility()) return null
           const rs = [...c.selected].flatMap((k) => {
-            const el = c.plane.current?.querySelector<HTMLElement>(`.db-card[data-id="${CSS.escape(k)}"]`)
+            const el = c.plane.current?.querySelector<HTMLElement>(`.db-card[data-id="${CSS.escape(k)}"], .db-askgroup[data-id="${CSS.escape(k)}"]`)
             return el ? [el.getBoundingClientRect()] : []
           })
           const a = area.getBoundingClientRect()

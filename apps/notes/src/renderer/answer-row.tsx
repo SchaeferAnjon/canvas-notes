@@ -78,8 +78,10 @@ export function AnswerRow(p: {
   /** 最新那条：一直露着 */
   last: boolean
   host?: ReplyHost
-  /** ⋯ 里存进收件箱后面那几样 */
+  /** ⋯ 里宿主加的几样（在笔记里看……） */
   menu?: AbMenuItem[]
+  /** ⋯ 最前面：记进《…》/ 从《…》拿掉（只管这一条，AI 对话记笔记开关）；「存进收件箱」照旧在最后一组 */
+  noteItem?: AbMenuItem | null
   /** 不给快捷回复（命令结果、出错那条） */
   noReplies?: boolean
   /** 挤了先把快捷回复收进 ⋯、功能按钮照样带字（旁支、视频问框） */
@@ -116,8 +118,9 @@ export function AnswerRow(p: {
       onClick: () => void insertAnswer({ md: p.md, ...(by ? { by } : {}), ...(p.chatKey ? { key: p.chatKey } : {}), ...(p.msg !== undefined ? { msg: p.msg } : {}) }),
     },
   ]
-  // ⋯ 里：宿主加的几样（在笔记里看、插进主对话…）· 拷贝为 Markdown ｜ 放不下的快捷回复 ｜ 调整这一排… ｜ 存进收件箱
+  // ⋯ 里：记进《…》/ 从《…》拿掉（只管这一条）· 宿主加的几样（在笔记里看、插进主对话…）· 拷贝为 Markdown ｜ 放不下的快捷回复 ｜ 调整这一排… ｜ 存进收件箱
   // （用户 r100「这放到收件箱 我感觉没什么用」：挪到最后一组）
+  const head: AbMenuItem[] = p.noteItem ? [p.noteItem] : []
   const menu: AbMenuItem[] = [...(p.menu ?? []), { id: 'copy-md', icon: 'markdown', label: t('拷贝为 Markdown'), onClick: () => void copy(p.md.trim()) }]
   const tail: AbMenuItem[] = [{ id: 'inbox', icon: 'inbox', label: t('存进收件箱'), tip: t('这条回答原样存成收件箱里的一篇，之后再分'), onClick: () => void saveToInbox(p.md) }]
 
@@ -149,6 +152,7 @@ export function AnswerRow(p: {
         replies={on}
         moreReplies={more}
         adjust={{ id: 'adjust', icon: 'settings-gear', label: t('调整这一排…'), onClick: () => openRepliesSettings({ view: 'list', place }) }}
+        head={head}
         tail={tail}
         logo={logo}
         text={{ more: t('这条回答还能做什么'), moreTip: t('更多'), moreReplies: t('快捷回复（这一排放不下的）') }}

@@ -2142,3 +2142,129 @@ a.db-ask-page:hover {
 .db-ask-side .row.aq > svg {
   color: var(--t2);
 }
+
+/* ---------- 混排一节里的一问一答（doc-board.ts 7b）：问的那张、浅底回答、旁支排成一组，左边一道中性细线，组里有卡选中时变强调色 ---------- */
+.db-askgroup {
+  position: relative;
+  margin: 0 0 16px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line2);
+}
+.db-askgroup.sel {
+  border-left-color: var(--acc);
+}
+.db-askgroup.dragging {
+  opacity: 0.35;
+}
+.db-col .db-askgroup > .db-card {
+  margin-bottom: 6px;
+}
+.db-col .db-askgroup > .db-card:last-child {
+  margin-bottom: 0;
+}
+/* 摆在空白处的一组：组里的卡照列里的样子描边 */
+.db-askgroup.placed > .db-card,
+.db-askgroup.placed .db-askside > .db-card {
+  margin-bottom: 6px;
+  box-shadow: 0 0 0 1px var(--line);
+}
+/* 旁支挂在它那一问的回答下面：往里缩一格，外面一道虚线（不画在卡自己的边上） */
+.db-askside {
+  margin: 0 0 6px 4px;
+  padding-left: 10px;
+  border-left: 2px dashed var(--line2);
+}
+.db-askside:last-child {
+  margin-bottom: 0;
+}
+.db-col .db-askside > .db-card {
+  margin-bottom: 6px;
+}
+.db-col .db-askside > .db-card:last-child {
+  margin-bottom: 0;
+}
+.db-askgroup.placed .db-askside > .db-card {
+  box-shadow: 0 0 0 1px var(--line);
+}
+/* 旁支问的那张：被问的那一句是一道引文竖线，问题不带竖线 */
+.db-card[data-part='sideq'] .db-ask-side {
+  margin-top: 4px;
+  padding-left: 0;
+  border-left: 0;
+}
+.db-card[data-part='sideq'] .db-ask-side .sq {
+  padding-left: 10px;
+  border-left: 2px solid var(--line2);
+}
+.db-card[data-part='sideq'] .db-ask-side .sq-q {
+  margin-top: 6px;
+  font-weight: 600;
+}
+/* 组前面那张卡和组之间也空 16（卡自己下边 8 + 这里 8），一组和前后分得开 */
+.db-sub-wrap + .db-sub-wrap > .db-askgroup {
+  margin-top: 8px;
+}
+.db-ask-q > .row.aq {
+  display: flex;
+  gap: 6px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.db-ask-q > .row.aq > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--t3);
+}
+.db-ask-q .db-ask-quote {
+  margin-top: 8px;
+}
+.db-ask-q .db-ask-quote > span {
+  display: block;
+}
+.db-ask-src {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--t3);
+}
+a.db-ask-src {
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+a.db-ask-src:hover {
+  color: var(--acc);
+}
+.db-ask-q .db-ask-crop {
+  margin-top: 8px;
+}
+.db-ask-q .db-ask-crop img {
+  max-height: 200px;
+  object-fit: contain;
+}
+/* 按剪藏来源分的小列（7c）：列名上面一行小字是它在哪一节 */
+.db-col-sec {
+  margin: 0 2px 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--t3);
+}
+/* 问答组里的回答、混排小列里的 AI 块：框头两行（「✳ AI 回答」，下一行「Claude Code · Opus 5.5」），和文档里的回答框一样，不挤掉标题 */
+.db-askgroup .cl[data-kind='ai'] .ct,
+.db-col[data-slice] .cl[data-kind='ai'] .ct {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.db-askgroup .cl[data-kind='ai'] .ct .eng,
+.db-col[data-slice] .cl[data-kind='ai'] .ct .eng {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+.db-askgroup .cl[data-kind='ai'] .ct .nm,
+.db-col[data-slice] .cl[data-kind='ai'] .ct .nm {
+  flex: 1 1 0;
+}

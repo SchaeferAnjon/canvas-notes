@@ -70,8 +70,8 @@ test('AI 对话默认排上 还是不懂 · 换个方式讲；⋯ 里 拷贝为 
     // ⋯ 的顺序：拷贝为 Markdown ｜ 调整这一排… ｜ 存进收件箱（最后一组，分隔线下面）
     await row.getByRole('button', { name: '这条回答还能做什么' }).click()
     const menu = page.getByRole('menu', { name: '这条回答还能做什么' })
-    await expect(menu.getByRole('menuitem')).toHaveText(['拷贝为 Markdown', '调整这一排…', '存进收件箱'])
-    expect(await menu.evaluate((m) => [...m.children].map((c) => (c.classList.contains('cn-ab-hr') ? '|' : (c as HTMLElement).innerText.trim())))).toEqual(['拷贝为 Markdown', '|', '调整这一排…', '|', '存进收件箱'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['记进《学习笔记》', '拷贝为 Markdown', '调整这一排…', '存进收件箱'])
+    expect(await menu.evaluate((m) => [...m.children].map((c) => (c.classList.contains('cn-ab-hr') ? '|' : (c as HTMLElement).innerText.trim())))).toEqual(['记进《学习笔记》', '|', '拷贝为 Markdown', '|', '调整这一排…', '|', '存进收件箱'])
     await page.screenshot({ path: test.info().outputPath('chat-more.png') })
     await page.keyboard.press('Escape')
     await expect(menu).toHaveCount(0)
@@ -161,7 +161,7 @@ test('放不下的快捷回复进 ⋯，左边先收成图标；右栏拉宽又�
     await row.getByRole('button', { name: '这条回答还能做什么' }).click()
     const menu = page.getByRole('menu', { name: '这条回答还能做什么' })
     await expect(menu.locator('.cn-ab-mh')).toHaveText('快捷回复（这一排放不下的）')
-    await expect(menu.getByRole('menuitem')).toHaveText(['拷贝为 Markdown', ...names.slice(shown), '调整这一排…', '存进收件箱'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['记进《学习笔记》', '拷贝为 Markdown', ...names.slice(shown), '调整这一排…', '存进收件箱'])
     await page.screenshot({ path: test.info().outputPath('narrow-more.png') })
     await menu.getByRole('menuitem', { name: '再短一点' }).click()
     await expect(chat(page).locator('.um').last()).toHaveText('再说短一点')
@@ -177,7 +177,7 @@ test('放不下的快捷回复进 ⋯，左边先收成图标；右栏拉宽又�
     await expect(row2).not.toHaveAttribute('data-icons')
     await expect(row2.getByRole('button', { name: '拷贝' })).toHaveText('拷贝')
     await row2.getByRole('button', { name: '这条回答还能做什么' }).click()
-    await expect(menu.getByRole('menuitem')).toHaveText(['拷贝为 Markdown', '调整这一排…', '存进收件箱'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['记进《学习笔记》', '拷贝为 Markdown', '调整这一排…', '存进收件箱'])
     await page.keyboard.press('Escape')
     // {这条回答} 填进那句：发出去的是带着上一条回答的
     await row2.getByRole('button', { name: '考考我' }).click()

@@ -33,6 +33,18 @@ import { appSettings } from './settings-store'
 import { noteDocRef } from './note-doc-ref'
 
 /** 块头下面引着的那几句（`> > 原文`，几段时去掉 ①②）：回到网页时按它找，比链接里的开头准 */
+/** 新写法（@cn/format ai-note.ts）的引文：来源一行「> —— [… ↩](…)」在引的那段下面，往上收到引用开头（去掉 ①②） */
+function quoteAbove(doc: Text, n: number): string | undefined {
+  if (!/^\s*>\s*——\s*\[/.test(doc.line(n).text)) return undefined
+  const out: string[] = []
+  for (let k = n - 1; k >= 1; k--) {
+    const m = /^\s*>\s?(.*)$/.exec(doc.line(k).text)
+    if (!m) break
+    out.unshift(m[1]!)
+  }
+  return out.join(' ').replace(/^[①-⑳]\s*/, '').trim() || undefined
+}
+
 function quoteBelow(doc: Text, n: number): string | undefined {
   for (let k = n + 1; k <= doc.lines; k++) {
     const t = doc.line(k).text
@@ -253,7 +265,7 @@ export class NoteDoc {
                 const hit = linkAt(line.text, pos - line.from)
                 if (hit?.kind !== 'url' || !/↩\s*$/.test(hit.text) || !parseFragment(hit.url)) return false
                 e.preventDefault()
-                app().openWebAt(hit.url, quoteBelow(view.state.doc, line.number))
+                app().openWebAt(hit.url, quoteBelow(view.state.doc, line.number) ?? quoteAbove(view.state.doc, line.number))
                 return true
               }
               if (!(e.metaKey || e.ctrlKey)) return false
@@ -361,10 +373,12 @@ export class NoteDoc {
    * 插完光标落在下面新的一个空段落；focus：把焦点交回文档（用户点了按钮的那几处）。
    * 后台插入的传 focus: false：不抢焦点，也不补空段落（光标停在插入的末尾，连着插几条时一条接一条）。
    */
-  /** ai：AI 这一轮只写这一段（turn）：这一段左边竖线里光往下走、下面「停下」那一颗（ai-spot.ts），不闪「刚插进来」；end：接在文末，不看光标 */
-  insertAtCursor(text: string, opts: { focus?: boolean; ai?: number; end?: boolean } = {}): { from: number; to: number } {
+  /** ai：AI 这一轮只写这一段（turn）：这一段左边竖线里光往下走、下面「停下」那一颗（ai-spot.ts），不闪「刚插进来」；end：接在文末，不看光标；at：从光标挪一下再插（光标 → 插在哪） */
+  insertAtCursor(text: string, opts: { focus?: boolean; ai?: number; end?: boolean; at?: (doc: string, head: number) => number } = {}): { from: number; to: number } {
     const state = this.view.state
-    const r = insertBlockAt(state.doc.toString(), opts.end ? state.doc.length : state.selection.main.head, text, opts.focus !== false)
+    const doc = state.doc.toString()
+    const head = state.selection.main.head
+    const r = insertBlockAt(doc, opts.end ? state.doc.length : opts.at ? opts.at(doc, head) : head, text, opts.focus !== false)
     this.view.dispatch({
       changes: { from: r.from, to: r.to, insert: r.insert },
       selection: { anchor: r.cursor },

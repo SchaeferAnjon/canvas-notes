@@ -36,6 +36,19 @@ async function start(env: Record<string, string> = {}): Promise<Running> {
 
 const fileText = (run: Running, rel: string) => readFileSync(join(run.vault, rel), 'utf8')
 
+/** 「按住看一眼」那颗整颗在白板可见区里、正中点下去是它自己：是就回 'fy-hold'，不是回在哪 */
+async function holdInView(page: Page): Promise<string> {
+  return pane(page).evaluate((p) => {
+    const w = p.querySelector('.board-wrap')!.getBoundingClientRect()
+    const h = p.querySelector('[data-testid="fy-peek"] [data-testid="fy-hold"]')?.getBoundingClientRect()
+    if (!h) return 'none'
+    const where = JSON.stringify([Math.round(h.x), Math.round(h.y), Math.round(w.x), Math.round(w.y), Math.round(w.right), Math.round(w.bottom)])
+    if (h.left < w.left || h.top < w.top || h.right > w.right || h.bottom > w.bottom) return 'outside ' + where
+    const hit = document.elementFromPoint(h.x + h.width / 2, h.y + h.height / 2)
+    return hit?.closest('[data-testid="fy-hold"]') ? 'fy-hold' : 'covered by ' + (hit?.className || 'nothing') + ' ' + where
+  })
+}
+
 /** 在回答框里打一段，点「讲完了 / 回」 */
 async function say(c: Locator, text: string) {
   const box = c.getByTestId('fy-answer')
@@ -103,8 +116,20 @@ test('框选操作条「费曼讲这几张」：这次要讲到能改；开始�
     await shot(page, 'doc-ainote')
     await page.keyboard.press('Meta+j')
 
-    // 按住看一眼：露出来，松手盖回去，记一次
+    // 「按住看一眼」那颗：开讲后白板平移去露出费曼那一列，盖住的卡顶滚出画面也不跟着出去，贴着可见区边、点得到（不被顶上提示条压着）
     const hold = pane(page).getByTestId('fy-peek').getByTestId('fy-hold')
+    await expect.poll(() => holdInView(page)).toBe('fy-hold')
+    await shot(page, 'peek-chip')
+    // 把白板平移到一边（盖住的卡全在可见区左边、上边外面）：这一颗贴着可见区左上收住；平移回来照旧
+    const wrapEl = pane(page).locator('.board-wrap')
+    const s0 = await wrapEl.evaluate((w) => ({ left: w.scrollLeft, top: w.scrollTop }))
+    await wrapEl.evaluate((w) => w.scrollTo({ left: w.scrollWidth, top: w.scrollHeight }))
+    await expect.poll(() => holdInView(page)).toBe('fy-hold')
+    await shot(page, 'peek-chip-edge')
+    await wrapEl.evaluate((w, s) => w.scrollTo(s), s0)
+    await expect.poll(() => holdInView(page)).toBe('fy-hold')
+
+    // 按住看一眼：露出来，松手盖回去，记一次
     const hb = (await hold.boundingBox())!
     await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2)
     await page.mouse.down()

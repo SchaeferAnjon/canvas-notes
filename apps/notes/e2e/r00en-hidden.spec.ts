@@ -97,7 +97,7 @@ test('AI 回答下面那排：最后一颗 ⋯，点开「存进收件箱」，�
     await orow.getByRole('button', { name: '这条回答还能做什么' }).click()
     const menu = page.getByRole('menu', { name: '这条回答还能做什么' })
     await expect(menu).toBeVisible()
-    await expect(menu.getByRole('menuitem')).toHaveText(['拷贝为 Markdown', '调整这一排…', '存进收件箱'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['记进《学习笔记》', '拷贝为 Markdown', '调整这一排…', '存进收件箱'])
     await menu.getByRole('menuitem').first().hover()
     await expect(orow).toHaveCSS('opacity', '1')
     await expect(orow.getByRole('button', { name: '这条回答还能做什么' })).toHaveAttribute('aria-expanded', 'true')

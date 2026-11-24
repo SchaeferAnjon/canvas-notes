@@ -13,6 +13,7 @@
  * 每种卡长什么样在 cards.tsx。每个动作改的是编辑器里的文字，底部提示带「撤回」。⌘Z / ⇧⌘Z 只撤、重做这块白板自己做过的动作。
  * AI 在这块白板上动手时外圈、顶上提示条、AI 指针由 AiActLayer 画（卡的 data-id 是 unitKeys 的名字，AI 工具用的同一个）。
  */
+import { jumpToChat } from '../chat-jump'
 import { Codicon, type CodiconName } from '@cn/design'
 import { trackDrag } from '@cn/design/drag-end'
 import { accelFor, isKey, keyFor } from '../keys'
@@ -31,6 +32,7 @@ import {
   linkUnits,
   merge3,
   mergeUnits,
+  parseChatLink,
   moveColumn,
   moveUnit,
   moveUnits,
@@ -181,12 +183,63 @@ interface Toast {
 /** 量到的每张卡、每列在白板上的位置（白板坐标） */
 type Rect = { x: number; y: number; w: number; h: number }
 
+/**
+ * 「讲完再看 · 按住看一眼」那一颗：摆在盖住的那几张左上（白板坐标），但夹进白板看得见的那一块里。
+ * 开讲后白板会平移去露出费曼那一列（摆在盖住的卡下面），盖住的卡顶滚出画面时这一颗贴着可见区的边收住，不跟着出去；
+ * 上边让开顶上的提示条和缩放、收件箱，左边让开工具板。滚动、平移、窗口变大小都重算
+ */
+function CoverChip(props: { id: string; at: Pt; scale: number; wrap: React.RefObject<HTMLDivElement | null>; plane: React.RefObject<HTMLDivElement | null> }) {
+  const chip = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState(props.at)
+  const { x, y } = props.at
+  useLayoutEffect(() => {
+    const w = props.wrap.current
+    if (!w) return
+    const place = () => {
+      const pl = props.plane.current
+      const el = chip.current
+      if (!pl || !el) return
+      const s = props.scale
+      const wr = w.getBoundingClientRect()
+      const pr = pl.getBoundingClientRect()
+      const cr = el.getBoundingClientRect()
+      const pal = w.parentElement?.querySelector<HTMLElement>(':scope > .bpal')?.getBoundingClientRect()
+      // 可见区（屏幕坐标）减去边距，再换成白板坐标
+      const l = Math.max(wr.left + 8, pal && pal.width ? pal.right + 8 : 0)
+      const t = wr.top + 56
+      const r = Math.min(wr.right, w.clientWidth ? wr.left + w.clientWidth : wr.right) - 8 - cr.width
+      const b = Math.min(wr.bottom, w.clientHeight ? wr.top + w.clientHeight : wr.bottom) - 8 - cr.height
+      const sx = Math.max(l, Math.min(r, pr.left + x * s))
+      const sy = Math.max(t, Math.min(b, pr.top + y * s))
+      const next = { x: (sx - pr.left) / s, y: (sy - pr.top) / s }
+      setPos((p) => (Math.abs(p.x - next.x) < 0.5 && Math.abs(p.y - next.y) < 0.5 ? p : next))
+    }
+    place()
+    w.addEventListener('scroll', place, { passive: true })
+    const ro = new ResizeObserver(place)
+    ro.observe(w)
+    window.addEventListener('resize', place)
+    return () => {
+      w.removeEventListener('scroll', place)
+      ro.disconnect()
+      window.removeEventListener('resize', place)
+    }
+  }, [x, y, props.scale, props.wrap, props.plane])
+  return <PeekChip id={props.id} chipRef={chip} style={{ left: pos.x, top: pos.y }} />
+}
+
 export function DocBoardView(props: DocBoardViewProps) {
   const t = useT()
   const { text } = props
   const board: DocBoard = useMemo(() => splitDoc(text), [text])
   const keys = useMemo(() => unitKeys(board), [board])
   const byKey = useMemo(() => new Map([...keys].map(([u, k]) => [k, u])), [keys])
+  /** 混排一节里问答那一组（doc-board.ts 7b）：组里每张的名字 → 整组的名字。选、删、拖、连线、复制都是整组，就地改是那一张 */
+  const groupKeyOf = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const [u, k] of keys) for (const g of u.group ?? []) m.set(keys.get(g) ?? '', k)
+    return (k: string) => m.get(k) ?? k
+  }, [keys])
   const links = useMemo(() => linksOf(text), [text])
   const { files } = useVaultFiles()
   const inboxOpen = useInboxOpen()
@@ -241,7 +294,9 @@ export function DocBoardView(props: DocBoardViewProps) {
    * 读 PDF 的配对笔记（「X 笔记.md」，里面有问过 AI 的节）：所有列都完整显示、排成一行往右延伸（2026-11-24 用户「收起来看不到我问的内容」，
    * 偏好「配对笔记默认展开」）；白板四周能拖（board-slack.ts），不靠收成列头省地方。普通文档照旧：一排 6 列、第 7 列起只留列头、每列先摆 6 张
    */
-  const paired = / 笔记\.md$/.test(props.notePath) && board.columns.some((c) => c.ask)
+  // 混排的文档里有问答成组（7b）：和配对笔记一样全部展开，不收成只剩列头、不收进「还有N张」（偏好「配对笔记默认展开」）
+  const mixed = board.columns.some((c) => c.cards.some((u) => u.group)) || board.placed.some((u) => u.group)
+  const paired = (/ 笔记\.md$/.test(props.notePath) && board.columns.some((c) => c.ask)) || mixed
   const rowSize = paired ? Math.max(1, board.columns.length) : OPEN_COLS
   const per = paired ? Infinity : board.total > 200 ? PER_COL_LONG : PER_COL
   const inbox = inboxOf(props.notes, props.notePath)
@@ -664,7 +719,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     const base = p.getBoundingClientRect()
     const s = props.scale || 1
     const next: Record<string, Rect> = {}
-    for (const el of p.querySelectorAll<HTMLElement>('.db-card[data-id], .db-col[data-cid]')) {
+    for (const el of p.querySelectorAll<HTMLElement>('.db-card[data-id], .db-askgroup[data-id], .db-col[data-cid]')) {
       const r = el.getBoundingClientRect()
       next[el.dataset.id ?? 'col:' + el.dataset.cid] = { x: (r.left - base.left) / s, y: (r.top - base.top) / s, w: r.width / s, h: r.height / s }
     }
@@ -689,7 +744,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     const colEl = (document.elementsFromPoint(cx, cy) as HTMLElement[]).find((el) => el.classList?.contains('db-col'))
     if (!colEl || colEl.dataset.ask === '1' || colEl.classList.contains('fold') || !plane.current?.contains(colEl)) return null
     const ci = Number(colEl.dataset.col)
-    const cards = [...colEl.querySelectorAll<HTMLElement>(':scope > .db-sub-wrap > .db-card[data-i]')].filter((c) => !c.classList.contains('dragging') && Number(c.dataset.i) !== except)
+    const cards = [...colEl.querySelectorAll<HTMLElement>(':scope > .db-sub-wrap > .db-card[data-i], :scope > .db-sub-wrap > .db-askgroup[data-i]')].filter((c) => !c.classList.contains('dragging') && Number(c.dataset.i) !== except)
     const i = cards.find((c) => cy < c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2)
     return { col: ci, before: i ? Number(i.dataset.i) : -1 }
   }
@@ -699,8 +754,30 @@ export function DocBoardView(props: DocBoardViewProps) {
     return !!el && !!wrap.current?.contains(el)
   }
   /** 卡上按下：拖、点一下选中 */
-  const onDown = (e: React.MouseEvent, u: DocUnit, key: string) => {
+  const onDown = (e: React.MouseEvent, u: DocUnit, key: string, askGroup?: DocUnit) => {
     if (e.button !== 0) return
+    // 问答那一组里的一张：选中、拖的都是整组（位置行写在问的标题前面），字上按下照旧选字开旁支
+    if (askGroup) {
+      const group = askGroup
+      if ((e.target as HTMLElement).closest('input, button, a, .db-handle, .card-edit')) return
+      outer.current?.focus({ preventScroll: true })
+      setSelWire(null)
+      const gk = keys.get(group) ?? ''
+      if (e.shiftKey || e.metaKey) {
+        setSelected((s) => {
+          const n = new Set(s)
+          if (n.has(gk)) n.delete(gk)
+          else n.add(gk)
+          return n
+        })
+        return
+      }
+      if (!selected.has(gk)) setSelected(new Set([gk]))
+      if (props.readOnly || (e.target as HTMLElement).closest('.side-text')) return
+      const box = ((e.currentTarget as HTMLElement).closest('.db-askgroup') ?? e.currentTarget).getBoundingClientRect()
+      setDrag({ type: 'unit', key: gk, unit: group, start: { x: e.clientX, y: e.clientY }, grab: { x: e.clientX - box.left, y: e.clientY - box.top }, moved: false, at: { x: e.clientX, y: e.clientY }, w: box.width })
+      return
+    }
     if ((e.target as HTMLElement).closest('input, button, a, .play, .db-moment, .cb-moment, .db-handle, .card-edit')) return
     outer.current?.focus({ preventScroll: true })
     setSelWire(null)
@@ -731,7 +808,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       selected.has(key) && selected.size > 1
         ? [...selected].flatMap((k) => {
             const unit = byKey.get(k)
-            const el = plane.current?.querySelector<HTMLElement>(`.db-card[data-id="${CSS.escape(k)}"]`)
+            const el = plane.current?.querySelector<HTMLElement>(`.db-card[data-id="${CSS.escape(k)}"], .db-askgroup[data-id="${CSS.escape(k)}"]`)
             if (!unit || !el) return []
             const r = el.getBoundingClientRect()
             return [{ key: k, unit, r: { left: r.left, top: r.top, width: r.width } }]
@@ -785,7 +862,7 @@ export function DocBoardView(props: DocBoardViewProps) {
       clearTabHover()
       if (d.type === 'wire') {
         const el = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>('.db-card[data-id]')
-        const to = el?.dataset.id && byKey.get(el.dataset.id)
+        const to = el?.dataset.id && byKey.get(groupKeyOf(el.dataset.id))
         const from = byKey.get(d.from)
         if (!to || !from || to === from) return
         const r = linkUnits(cur.current, from, to)
@@ -936,6 +1013,13 @@ export function DocBoardView(props: DocBoardViewProps) {
     // 问答卡里框的那块截图（task-yp8l7）：点一下直接回 PDF 那一页、那块闪一下，不出引用预览卡（页码小牌才先出卡）
     const crop = f.k === 'ask' || f.k === 'askpart' ? t.closest<HTMLElement>('a.db-ask-crop[data-href], a.db-ask-page[data-href]') : null
     if (crop) return void openPageLink(props.notePath, crop.dataset.href!, cur.current, u.from, crop.dataset.label ?? '')
+    // AI 块卡头的「回到 AI 对话」：右栏 AI 换到那段对话、滚到那条回答（和文档里那条链接一样）
+    const chatA = t.closest<HTMLElement>('a.db-chat[data-chat]')
+    const chat = chatA ? parseChatLink(chatA.dataset.chat!) : null
+    if (chat) return void jumpToChat(chat.key, chat.msg)
+    // 问答组里问的那张：「—— 6.1.2 … ↩」点一下右栏网页回到那一段（和文档里的来源行一样）
+    const back = f.k === 'askpart' ? t.closest<HTMLElement>('a.db-ask-src[data-href]') : null
+    if (back) return void (/^https?:/i.test(back.dataset.href!) ? app().openWebAt(back.dataset.href!) : openPageLink(props.notePath, back.dataset.href!, cur.current, u.from, ''))
     // 嵌进来的别的笔记里的链接相对那一篇，不归这块白板认
     const pg = f.k === 'note' || f.k === 'clipnote' || f.k === 'board' ? null : t.closest<HTMLElement>('a.pg[data-page], a.pg[data-href]')
     if (pg) return void clickPage(e.nativeEvent, pg, props.notePath, pg.dataset.href ?? `#page=${pg.dataset.page}`, cur.current, u.from)
@@ -1012,7 +1096,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     if (isKey(e.nativeEvent, 'select-all')) {
       e.preventDefault()
       setSelWire(null)
-      setSelected(new Set(keys.values()))
+      setSelected(new Set([...keys.values()].filter((k) => groupKeyOf(k) === k)))
       return
     }
     if (selected.size && isKey(e.nativeEvent, 'copy')) {
@@ -1213,7 +1297,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     let raf = 0
     const update = () => {
       const cur = inContent(last.x, last.y)
-      const hits = hitKeys(boxOf(start, cur), cards)
+      const hits = hitKeys(boxOf(start, cur), cards).map(groupKeyOf)
       const next = [...new Set([...base, ...hits])]
       const id = next.join('\n')
       if (id !== shown) {
@@ -1401,13 +1485,14 @@ export function DocBoardView(props: DocBoardViewProps) {
     write(cur.current.slice(0, u.from) + `[[${titleOf(path)}]]` + cur.current.slice(u.to), tNow('转成了文档「{name}」：这里换成指向它的链接', { name: titleOf(path) }))
     app().refresh()
   }
-  const cardMenu = (u: DocUnit, key: string): MenuEntry[] => {
+  const cardMenu = (u: DocUnit, key: string, one?: { unit: DocUnit; key: string }): MenuEntry[] => {
     const f = faceOf(u, ctx)
+    const ed = one ?? { unit: u, key }
     const target = f.k === 'board' || f.k === 'note' || f.k === 'clipnote' ? f.note.path : f.k === 'link' && f.open?.kind === 'file' ? f.open.path : null
     const inCol = !u.place
     const colOf = board.columns.find((c) => c.cards.includes(u))
     return [
-      target ? { label: tNow('打开'), run: () => app().openFile(target) } : !videoUrlOfCard(u.text) && { label: tNow('编辑'), run: () => (inlineKinds.has(u.kind) && !u.parts ? setEdit({ kind: 'unit', key, unit: u, base: cur.current }) : setFull({ unit: u, base: cur.current, edit: true })) },
+      target ? { label: tNow('打开'), run: () => app().openFile(target) } : !videoUrlOfCard(u.text) && { label: tNow('编辑'), run: () => (inlineKinds.has(ed.unit.kind) && !ed.unit.parts ? setEdit({ kind: 'unit', key: ed.key, unit: ed.unit, base: cur.current }) : setFull({ unit: ed.unit, base: cur.current, edit: true })) },
       // 合成的一张（task-5ryf9）：拆开就是去掉前面那一行注释
       u.parts && { label: tNow('拆开'), run: () => write(splitMerged(cur.current, u), tNow('拆开了：去掉了前面那一行注释，{n}段各是各的卡', { n: u.parts!.length })) },
       { label: tNow('复制一份'), run: () => (setFlash(u.text.trim()), write(duplicateUnit(cur.current, u), tNow('复制了一份：文档里紧跟着多了这一段'))) },
@@ -1523,12 +1608,13 @@ export function DocBoardView(props: DocBoardViewProps) {
       const [from, to] = key.split('>')
       items = [{ label: tNow('删除连线'), accel: accelFor('delete'), run: () => (write(unlink(cur.current, from!, to!), tNow('删了这条线')), setSelWire(null)) }]
     } else if (cardEl?.dataset.id && byKey.get(cardEl.dataset.id)) {
-      const key = cardEl.dataset.id
+      const key = groupKeyOf(cardEl.dataset.id)
       setSelWire(null)
       if (selected.has(key) && selected.size > 1) items = manyMenu(selected)
       else {
         setSelected(new Set([key]))
-        items = cardMenu(byKey.get(key)!, key)
+        // 问答那一组里的一张：「编辑」改这一张，别的（复制、拿出来、删）是整组
+        items = cardMenu(byKey.get(key)!, key, key !== cardEl.dataset.id ? { unit: byKey.get(cardEl.dataset.id)!, key: cardEl.dataset.id } : undefined)
       }
     } else if (headEl) {
       const ci = Number(headEl.closest<HTMLElement>('.db-col')!.dataset.col)
@@ -1623,9 +1709,35 @@ export function DocBoardView(props: DocBoardViewProps) {
       </div>
     ) : null
 
-  const card = (u: DocUnit, i: number, extra?: { style?: React.CSSProperties }) => {
+  const card = (u: DocUnit, i: number, extra?: { style?: React.CSSProperties }, group?: DocUnit) => {
     if (u.kind === 'gap') return <div key={'g' + u.from} className="db-gap" />
     const key = keys.get(u) ?? ''
+    // 混排一节里的一问一答（7b）：问的那张、浅底的回答、挂在下面的旁支排成一组，左边一道细线（选中时变强调色）
+    if (u.group) {
+      const draggingG = drag?.type === 'unit' && drag.moved && drag.key === key
+      return (
+        <div
+          key={key || u.from}
+          className={'db-askgroup' + (u.place ? ' placed' : '') + (draggingG ? ' dragging' : '') + (selected.has(key) ? ' sel' : '') + (flash && u.text.trim() === flash ? ' flash' : '')}
+          data-i={i}
+          data-id={key}
+          data-from={u.from}
+          style={extra?.style}
+        >
+          {u.group.map((g, k) =>
+            // 旁支（问的那张 + 浅底回答）往里缩一格，外面一道虚线
+            g.ask?.part === 'sideq' ? (
+              <div key={'s' + g.from} className="db-askside">
+                {card(g, i, undefined, u)}
+                {u.group![k + 1] && card(u.group![k + 1]!, i, undefined, u)}
+              </div>
+            ) : u.group![k - 1]?.ask?.part === 'sideq' ? null : (
+              card(g, i, undefined, u)
+            ),
+          )}
+        </div>
+      )
+    }
     const f = faceOf(u, ctx)
     const dragging = drag?.type === 'unit' && drag.moved && (drag.key === key || !!drag.group?.some((g) => g.key === key))
     const editing = editUnit === u
@@ -1652,7 +1764,7 @@ export function DocBoardView(props: DocBoardViewProps) {
         data-face={f.k === 'cardbody' ? f.kind : f.k}
         aria-label={faceName(f)}
         style={extra?.style}
-        onMouseDown={(e) => onDown(e, u, key)}
+        onMouseDown={(e) => onDown(e, u, key, group)}
         onClick={(e) => onClick(e, u)}
         onDoubleClick={(e) => onDouble(e, u, f, key)}
       >
@@ -1680,7 +1792,7 @@ export function DocBoardView(props: DocBoardViewProps) {
           <UnitBody u={u} f={f} ctx={ctx} acts={acts} />
         )}
         {u.attrs?.ai && !editing && <div className="aifoot">{t('AI 总结的 · {engine}', { engine: u.attrs.ai })}</div>}
-        {!props.readOnly && !editing && (
+        {!props.readOnly && !editing && !group && (
           <span
             className="db-handle"
             title={t('拖到另一张卡上连线')}
@@ -1702,7 +1814,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     const folded = rowIndex >= rowSize && !open.has(ci)
     const cards = c.cards.filter((u) => u.kind !== 'gap')
     // 列头的张数照小样：挂在视频下面的时刻也是一张卡
-    const count = cards.reduce((n, u) => n + 1 + (u.moments?.length ?? 0), 0)
+    const count = cards.reduce((n, u) => n + (u.group?.length ?? 1) + (u.moments?.length ?? 0), 0)
     // 问过 AI 的一处：主对话问了几问、开了几条旁支
     const asks = c.ask ? cards.filter((u) => u.ask?.part === 'qa' || u.ask?.part === 'side' || u.ask?.part === 'old').length : 0
     const showAll = more.has(ci)
@@ -1721,10 +1833,13 @@ export function DocBoardView(props: DocBoardViewProps) {
         data-id={c.head && c.title ? c.title : undefined}
         data-ask={c.ask ? '1' : '0'}
         data-head={c.head ? '1' : '0'}
+        data-slice={c.slice ? (c.slice.first ? 'first' : '1') : undefined}
         aria-label={c.title ?? t('开头')}
         style={style}
         onClick={() => folded && setOpen(new Set(open).add(ci))}
       >
+        {/* 按剪藏来源分的小列：上面一行小字是它在哪一节 */}
+        {c.slice && c.slice.section && c.title !== c.slice.section && <div className="db-col-sec">{c.slice.section}</div>}
         {!lead &&
           (renaming === ci ? (
             <input
@@ -1749,17 +1864,19 @@ export function DocBoardView(props: DocBoardViewProps) {
           ) : (
             <h3
               onMouseDown={(e) => {
-                if (e.button !== 0 || props.readOnly || !c.head || e.detail > 1) return
+                // 按剪藏来源分的小列（7c）只是看法：不整列拖
+                if (e.button !== 0 || props.readOnly || !c.head || c.slice || e.detail > 1) return
                 const r = (e.currentTarget.closest('.db-col') as HTMLElement).getBoundingClientRect()
                 setDrag({ type: 'col', ci, start: { x: e.clientX, y: e.clientY }, at: { x: e.clientX, y: e.clientY }, grab: { x: e.clientX - r.left, y: e.clientY - r.top }, moved: false, w: r.width })
               }}
-              onDoubleClick={(e) => c.head && !c.ask && !props.readOnly && (e.stopPropagation(), setRenaming(ci))}
-              title={c.head && !props.readOnly ? (c.ask ? t('按住拖到空白处摆在那里') : t('双击改列名；按住列名拖到空白处摆在那里')) : undefined}
+              onDoubleClick={(e) => c.head && !c.ask && !c.slice && !props.readOnly && (e.stopPropagation(), setRenaming(ci))}
+              title={c.head && !c.slice && !props.readOnly ? (c.ask ? t('按住拖到空白处摆在那里') : t('双击改列名；按住列名拖到空白处摆在那里')) : undefined}
             >
               {c.ask && <Codicon name="comment-discussion" size={14} />}
               {/* 问过 AI 的一处：文件里写「第 3 页」，画成「第3页」（中文和数字之间不手打空格，只改画法；标题是文件里的字，不翻） */}
               <span className="truncate">{c.ask ? c.title?.replace(/^(第)\s*(\d+)\s*(页)/, '$1$2$3') : c.title}</span>
-              <span className="meta num">{c.ask ? t('{n}问', { n: asks }) : t('{n}张', { n: count })}</span>
+              {/* 新写法一问一列（列头就是那一问，没有标题行）：不写「1问」 */}
+              {(!c.ask || c.head) && <span className="meta num">{c.ask ? t('{n}问', { n: asks }) : t('{n}张', { n: count })}</span>}
               {folded && <Codicon name="chevron-down" size={14} />}
             </h3>
           ))}
@@ -1828,7 +1945,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     if (!ks.length || !covered) return null
     const x = Math.min(...ks.map((r) => r.x))
     const y = Math.min(...ks.map((r) => r.y))
-    return <PeekChip id={covered.id} style={{ left: x, top: y - 40 }} />
+    return <CoverChip id={covered.id} at={{ x, y: y - 40 }} scale={props.scale} wrap={wrap} plane={plane} />
   }
 
   const moved = board.placed.length
@@ -1856,8 +1973,9 @@ export function DocBoardView(props: DocBoardViewProps) {
         </div>
       </>
     ) : drag?.type === 'unit' && drag.moved ? (
-      <div className={`db-card db-drag-card ${faceClass(faceOf(drag.unit, ctx))}`} style={{ left: drag.at.x - drag.grab.x, top: drag.at.y - drag.grab.y, width: drag.w }}>
-        <UnitBody u={drag.unit} f={faceOf(drag.unit, ctx)} ctx={ctx} acts={{ onToggle: () => undefined, onOpen: () => undefined, onFull: () => undefined }} />
+      // 问答那一组：跟着鼠标走的是问的那张
+      <div className={`db-card db-drag-card ${faceClass(faceOf(drag.unit.group?.[0] ?? drag.unit, ctx))}`} style={{ left: drag.at.x - drag.grab.x, top: drag.at.y - drag.grab.y, width: drag.w }}>
+        <UnitBody u={drag.unit.group?.[0] ?? drag.unit} f={faceOf(drag.unit.group?.[0] ?? drag.unit, ctx)} ctx={ctx} acts={{ onToggle: () => undefined, onOpen: () => undefined, onFull: () => undefined }} />
       </div>
     ) : drag?.type === 'col' && drag.moved ? (
       <div className="db-pal-ghost col" style={{ left: drag.at.x - drag.grab.x, top: drag.at.y - drag.grab.y, width: drag.w }}>

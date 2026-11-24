@@ -3,7 +3,7 @@
 // 一律无头（CN_E2E=1）、假 AI（CN_AI_FAKE=1）、本机假网页（fixtures/d2l-pandas.ts），不上网。
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { editorText, launch, openNote, pane, rail, webAboveAi, widenRight } from './app'
 import { d2l, type D2l, P1, P1_LAST, P2_PART } from './fixtures/d2l-pandas'
@@ -139,7 +139,9 @@ test('别处写的几条（git 里有、本机没记）右边也有时间：用�
     await selectIn(page, 'p1', '下面我们将', '写入CSV文件中。')
     const clicked = Date.now()
     await clickBar(page, '讲解一下')
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(`[2.2.1 读取数据集 ↩](${fragmentUrl(site.pandas, P1_LAST)})`)
+    // 问答写进剪藏那篇本身（2026-11-24 AI 对话记笔记开关）；新的这条时间从这次提交来
+    const notePath = join(run.vault, NOTE)
+    await expect.poll(() => (existsSync(notePath) ? readFileSync(notePath, 'utf8') : ''), { timeout: 15_000 }).toContain(`[2.2.1 读取数据集 ↩](${fragmentUrl(site.pandas, P1_LAST)})`)
     if (!(await n.isVisible())) await page.getByTestId('dtab-note').click()
     await expect(rows).toHaveCount(4)
     await expect(rows.locator('.t')).toHaveText([`讲解一下「${P1_LAST}」`, `讲解一下「${P2_PART}」`, /^「举一个例子，我们首先创建一个人工数据集/, '插值法和删除法各适合什么时候？'])

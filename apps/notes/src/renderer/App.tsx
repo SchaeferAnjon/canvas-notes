@@ -1,6 +1,7 @@
 import { composing } from './ime'
 import { jumpToChat } from './chat-jump'
 import { Codicon, type CodiconName } from '@cn/design'
+import { askUnits } from '@cn/format'
 import { PanelGuard } from './crash/Guard'
 import { dropped } from './crash/report'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
@@ -99,6 +100,7 @@ import { CLIP_PAGE_EVENT, hostOf, WebPanel, type WebDeskApi } from './WebPanel'
 import { WebNotes } from './web-notes/WebNotes'
 import { WhereHost } from './web-notes/Where'
 import { anchorOf, boxIntoConvo, CLIPPED, clipWeb, ensureAsk, type NoticeAct, pickTarget, setWebNotesHost } from './web-notes/flow'
+import { readSrc } from '../shared/ai-chats'
 import { convoFor } from './ai-web-stay'
 import { FullChip } from './web/FullChip'
 import { refreshWebNotes, setBridgeCenter, setMarkHandler } from './web-notes/bridge'
@@ -2377,6 +2379,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         try {
           if (to && e.action === 'stage') return
           if (to && (e.action === 'explain' || e.action === 'translate' || e.action === 'quote')) {
+            // 进普通对话的问答也照网页的「记笔记」写进剪藏那篇（AiPanel 认带着网页图的一问）：没定记到哪篇先问一句
+            const r = e.box.rect
+            if (!readSrc(to.key) && !(await ensureAsk(e.box.url, anchorOf(e.box.bar ?? { x: r.x, y: r.y + r.h + 8, w: r.w, h: 32 }, e.view.getBoundingClientRect())))) return
             const png = await window.cnReading.capture(e.wcId, e.box.rect)
             clearWebBox(e.view)
             return await boxIntoConvo(to, { url: e.box.url, title: e.box.title, text: e.box.text, ...(e.box.head ? { head: e.box.head } : {}) }, png, e.action)
@@ -2547,6 +2552,20 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   }
   /** 中间看得见、能写的那篇（文档看法，中间没收起） */
   const webCenterNow = () => (docMode && !folded && activeDoc.current && !activeDoc.current.readOnly && activeDoc.current.path === activeTab.path ? activeTab.path : null)
+  /** 那篇（不在中间就开它，配成一对的网页不跟着跳）里 find 找到的那段滚到当中、左边亮一道；找不到只打开 */
+  const showInNote = (path: string, find: (text: string) => { from: number; to: number } | null) => {
+    showCenter()
+    if (activeNote !== path) openNote(path, false, true)
+    let tries = 0
+    const look = () => {
+      const d = [...NoteDoc.open].find((x) => x.path === path)
+      const r = d ? find(d.text) : null
+      if (!d || !r || !d.view.dom.getClientRects().length) return void (tries++ < 30 && setTimeout(look, 50))
+      d.view.dispatch({ effects: EditorView.scrollIntoView(r.from, { y: 'center' }) })
+      flashRange(d.view, r)
+    }
+    requestAnimationFrame(look)
+  }
   setWebNotesHost({
     center: webCenterNow,
     readingDoc: () => readingDoc,
@@ -2578,21 +2597,19 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       setWebAsk(null)
       openView('web')
     },
+    // 「看一眼」：还原，那篇里刚剪的那段滚到当中、左边亮一道
     peek: (path, md) => {
-      // 「看一眼」：还原，那篇（不在中间就开它，网页不跟着跳）里刚剪的那段滚到当中、左边亮一道
-      showCenter()
-      if (activeNote !== path) openNote(path, false, true)
       const want = md.trimEnd()
-      let tries = 0
-      const look = () => {
-        const d = [...NoteDoc.open].find((x) => x.path === path)
-        const at = d ? d.text.lastIndexOf(want) : -1
-        if (!d || at < 0 || !d.view.dom.getClientRects().length) return void (tries++ < 30 && setTimeout(look, 50))
-        d.view.dispatch({ effects: EditorView.scrollIntoView(at, { y: 'center' }) })
-        flashRange(d.view, { from: at, to: at + want.length })
-      }
-      requestAnimationFrame(look)
+      showInNote(path, (text) => {
+        const at = text.lastIndexOf(want)
+        return at < 0 ? null : { from: at, to: at + want.length }
+      })
     },
+    showAsk: (path, msg) =>
+      showInNote(path, (text) => {
+        const u = askUnits(text, path).find((x) => x.ask.msg === msg)
+        return u ? { from: u.from, to: u.end } : null
+      }),
   })
   setBridgeCenter(webCenterNow)
   // 网页上点了问过、剪过那一段的小标：右栏笔记标签翻到那几条里的第一条

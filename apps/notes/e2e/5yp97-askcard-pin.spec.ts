@@ -4,7 +4,7 @@
 // 收起旁支再回来），上面一条细线和滚着的问答分开；旁支问多长、回答区滚到哪，输入框都在问框里看得见、点得到，也不往上挡视频。
 // 一律无头（CN_E2E=1）、假 AI（CN_AI_FAKE=1）；视频站是本机假的（fixtures/fake-video.ts）。
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { join } from 'node:path'
 import { launch, openNote, pane, rail, waitSaved } from './app'
@@ -87,7 +87,8 @@ test('问框里开旁支：旁支的输入框和「记到哪」钉在问框底�
   test.setTimeout(150_000)
   const run = await launch({ [NOTE]: '# 看视频的笔记\n\n我先写的一句。\n' }, { CN_AI_FAKE: '1', CN_AI_FAKE_DELAY_MS: '60', CN_AI_FAKE_ASK_MS: '300', CN_VIDEO_TEST_ORIGIN: base })
   const { page, vault } = run
-  const md = () => readFileSync(join(vault, NOTE), 'utf8')
+  // 视频问框的问答写进「记到哪」那篇本身（AI 对话记笔记开关）
+  const md = () => (existsSync(join(vault, NOTE)) ? readFileSync(join(vault, NOTE), 'utf8') : '')
   try {
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 900))
     await openNote(page, '看视频的笔记')
@@ -147,7 +148,7 @@ test('问框里开旁支：旁支的输入框和「记到哪」钉在问框底�
     await expect(dock).toBeVisible()
     await expect(dock.getByRole('textbox')).toHaveAttribute('placeholder', '接着问这条旁支…')
     await expect(s.getByRole('textbox')).toHaveCount(0)
-    await expect(dock.locator('.rec')).toHaveText('写在《看视频的笔记》里，挂在这段讲解下面')
+    await expect(dock.locator('.rec')).toHaveText('写在《看视频的笔记》里，挂在这段回答下面')
     await expect(ask.getByRole('textbox', { name: '想问什么' })).toHaveCount(0)
     await expect(ask.getByTestId('ai-input-slim')).toHaveCount(0)
     await inputReachable(ask, sin)
@@ -170,7 +171,9 @@ test('问框里开旁支：旁支的输入框和「记到哪」钉在问框底�
     await page.keyboard.press('Enter')
     await expect(s.locator('.sq').last()).toHaveText('最后一问')
     await expect(s.locator('.acts')).toBeVisible({ timeout: 15_000 })
-    await expect.poll(md, { timeout: 15_000 }).toContain('> [!side] 最后一问')
+    // 旁支的问答记进那篇、挂在这一问后面。问框旁支现在还是 doc-side 的 `> [!side]` 写法（没换成「#### 旁支：…」，另记待办），这里只核记进去了、记在哪
+    await expect.poll(md, { timeout: 15_000 }).toMatch(/\n### 讲解这一块\n[\s\S]*\n> \[!ai\] AI 回答 · [\s\S]*最后一问\n[\s\S]*问的是「最后一问」/)
+    expect(md()).not.toContain('AI 笔记')
 
     // 收起旁支：钉着的那一行不见了，主输入框回来、光标在里面
     await s.getByRole('button', { name: '收起旁支' }).first().click()

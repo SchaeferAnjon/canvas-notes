@@ -167,6 +167,8 @@ export function WebNotes(props: {
             <span className="wn-ic">{e.kind === 'clip' ? <Codicon name="quote" size={14} /> : e.label === '你问' ? <Codicon name="comment" size={14} /> : <AiIcon job="chat" size={14} />}</span>
             <span className="wn-tx">
               <span className="t">{e.title}</span>
+              {/* 自己问的露出引的那段（①），旧写法的 [!ai] 块、新写法都认（2026-11-24 用户：「把那个问题、引用也都显示出来」） */}
+              {e.kind === 'ask' && e.label === '你问' && e.quote && <span className="q">{`「${e.quote.length > 60 ? e.quote.slice(0, 59) + '…' : e.quote}」`}</span>}
               <span className="s">{`${e.head} · ${e.label}`}</span>
             </span>
             {at > 0 && <span className="wn-at num">{when(at)}</span>}

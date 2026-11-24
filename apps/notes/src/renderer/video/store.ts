@@ -77,6 +77,14 @@ export function useVideoTitle(url: string | null): string | undefined {
   return undefined
 }
 
+/** 同上，不是钩子：右栏开着这个视频时它的标题 */
+export function videoTitleOf(url: string): string | undefined {
+  const key = videoOf(url)?.key
+  if (!key) return undefined
+  for (const st of states.get().values()) if (st.key === key && st.title) return st.title
+  return undefined
+}
+
 export function useVideoSettings(): VideoSettings {
   useEffect(start, [])
   return useSyncExternalStore(settings.sub, settings.get)

@@ -107,7 +107,6 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   // ---------- 读PDF ----------
   { id: 'pdfZoom', pg: 'pdf', grp: '打开时', label: '新打开的PDF缩放', desc: '每份看到哪、缩放多少都记着；这里只管第一次打开', kw: 'PDF 缩放 大小 页面' },
   { id: 'pdfAi', pg: 'pdf', grp: '打开时', label: '打开PDF时开着AI', desc: '关着时框一块、点「问AI」才开', kw: 'PDF AI 右栏' },
-  { id: 'pdfRecap', pg: 'pdf', grp: '笔记', label: '后台写每一轮的标题和小结', desc: '用读PDF那一家AI（Claude Code 时用 Haiku）；关了不再问AI，标题和小结截问和答的开头', kw: 'PDF 笔记 小结 标题' },
   // 划线颜色（ParaRead 联动）：颜色带含义，名字能改能加减，和 ParaRead 共用一份
   { id: 'hlKinds', pg: 'pdf', grp: '划线颜色', label: '划线颜色和含义', desc: '选中PDF里一段字时小条上这几颗，键1到4；写进配对笔记，和ParaRead共用。改名时问一次要不要把已写的一起改', kw: '划线 高亮 颜色 重点 定义 想引用 看不懂 ParaRead highlight' },
   // 送进Anki（task-tz7y3，方向 B「AI 先改成卡，一张张过」）：笔记类型、牌组照 ChatCards，出卡用哪家 AI，整个库没送的一次出卡

@@ -28,6 +28,7 @@ import { AnswerRow } from '../answer-row'
 import { AiError } from '../ai-error'
 import { t as tNow } from '../../shared/i18n'
 import { useTick, videoHost, videoStateOf } from './store'
+import { useNoteSwitch } from '../ai-note-switch'
 import { DestPickMenu } from './VideoStrip'
 import { hideToolMarkup } from '../../shared/tool-markup'
 import './ask-card.css'
@@ -131,7 +132,7 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
     if (!vision.pick || asking) return
     setQ('')
     input.current?.blur()
-    void askCardQuestion(text, vision.pick)
+    void askCardQuestion(text, vision.pick, pageUrl)
   }
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'Escape' || e.defaultPrevented || composing(e)) return
@@ -145,9 +146,11 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
   const families: Family[] = vision.engines.map((e) => (e.id === 'claude' ? { ...engineFamily(e), note: '能看图' } : { ...engineFamily(e), note: '看不了图', off: true, title: '看图问只有 Claude Code 能看图' }))
   const by = vision.pick ? pickLabel({ engine: 'claude', model: vision.pick.model, ...(vision.pick.effort ? { effort: vision.pick.effort } : {}) }) : ''
   const sugg = c.sugg.length ? [FIXED[0], ...c.sugg, FIXED[1]] : [...FIXED]
-  const dest = st ? askDestNow(st) : null
+  // 写进「记到哪」那篇本身（2026-11-24 偏好「剪藏和AI笔记同一篇」）；视频的「记笔记」关着就不记
+  const sw = useNoteSwitch('video')
+  const dest = st && sw.main ? askDestNow(st) : null
   const saved = c.saved
-  const destName = !dest ? '只问不记' : dest.kind === 'inbox' ? '收件箱' : dest.kind === 'new' ? `新建：${dest.title}` : dest.title
+  const destName = !dest ? tNow('只问不记') : titleOfPath(dest.path)
   const last = c.turns.length - 1
   // 开着的旁支是不是这个问框里的（看全软件那一份，不靠各问回报）
   const sideOpen = (useFileSideHost() ?? '').startsWith(`ask:${c.seq}:`)
@@ -339,7 +342,7 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
         {saved && saved !== 'none' ? (
           <button type="button" className="ak-dst saved" onClick={goToSaved}>
             <Codicon name="check" size={12} />
-            <span className="truncate">{`已记进《${saved.dest.kind === 'inbox' ? '收件箱' : saved.dest.title}》`}</span>
+            <span className="truncate">{`已记进《${saved.dest.title}》`}</span>
             <Codicon name="chevron-right" size={10} />
           </button>
         ) : saved === 'none' ? (
@@ -350,7 +353,7 @@ function Card({ c, pageUrl }: { c: AskCardState; pageUrl: string }) {
         ) : (
           <button type="button" className="ak-dst" aria-haspopup="menu" aria-expanded={destOpen} disabled={answered} onClick={() => setDestOpen((o) => !o)}>
             <Codicon name="note" size={13} />
-            <span className="truncate">{dest ? `记进《${destName}》` : '只问不记'}</span>
+            <span className="truncate">{dest ? `记进《${destName}》` : sw.main ? '只问不记' : tNow('只问不记 · 记笔记关着')}</span>
             <Codicon name="chevron-down" size={10} />
           </button>
         )}
@@ -375,11 +378,11 @@ function turnSpot(c: AskCardState, i: number, text: string, pageUrl: string, onQ
     path: saved?.path ?? null,
     title,
     text,
-    find: (x) => findAskBlock(x, c.key, c.t ?? 0),
+    find: (x) => findAskBlock(x, t.id),
     where: `看视频《${c.title}》${time} 这一帧时问框里 AI 的回答`,
     lead: `他当时问的：${t.q}`,
     body: t.a,
-    record: saved ? { icon: 'file', text: `写在《${title}》里，挂在这段讲解下面` } : { icon: 'comment-discussion', text: '只在这个问框里，没记进笔记' },
+    record: saved ? { icon: 'file', text: `写在《${title}》里，挂在这段回答下面` } : { icon: 'comment-discussion', text: '只在这个问框里，没记进笔记' },
     onQuote,
     place: saved ? `file:${saved.path}` : `web:${pageUrl}`,
     readOnly: c.saved === null,

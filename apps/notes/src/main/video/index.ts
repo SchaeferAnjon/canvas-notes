@@ -1037,7 +1037,7 @@ async function askOnce(s: Sess, raw: AskRequest, signal: AbortSignal): Promise<A
   const f: CardFrame = card && card.wcId === s.wc.id ? card : { wcId: s.wc.id, ...(await frame(s, box)), box }
   const { jpeg, t } = f
   let image = f.image
-  if (!image && dest) {
+  if (!image && (dest || raw.keep === true)) {
     image = await saveJpeg(v, `${attachDir(s.ref)}/${timeSlug(t)}-问.jpg`, jpeg)
     f.image = image
   }

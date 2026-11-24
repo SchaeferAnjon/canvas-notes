@@ -79,6 +79,20 @@ export interface NoteTabProps {
   compare?: { on: boolean; toggle(): void }
 }
 
+/** 窗口窄于这个宽度：标签条上的「对照看」收进「⋯」菜单 */
+const CMP_MIN_W = 1200
+
+/** 窗口宽度小于 w */
+function useNarrowWindow(w: number): boolean {
+  const [narrow, setNarrow] = useState(() => window.innerWidth < w)
+  useEffect(() => {
+    const on = () => setNarrow(window.innerWidth < w)
+    window.addEventListener('resize', on)
+    return () => window.removeEventListener('resize', on)
+  }, [w])
+  return narrow
+}
+
 /** 三种看法：任务（task-pd1d1，名字叫「待办」的默认）、白板、文档 */
 type Mode = NoteView
 
@@ -134,6 +148,7 @@ export function NoteTab(props: NoteTabProps) {
   const focusedNow = useRef(focused)
   focusedNow.current = focused
   const t = useT()
+  const cmpInMenu = useNarrowWindow(CMP_MIN_W)
   const host = useRef<HTMLDivElement>(null)
   const doc = useRef<NoteDoc | null>(null)
   const [state, setState] = useState<SaveState>('saved')
@@ -547,7 +562,7 @@ export function NoteTab(props: NoteTabProps) {
         </div>
         {/* 对照看（中间栏分屏）：另一格用白板开同一篇，同一份字；再点收回成一格。⌥ 点「白板」也是它 */}
         {/* 任务看法里留在原处变淡（这一排切换时不跳） */}
-        {props.compare && (
+        {props.compare && !cmpInMenu && (
           <ActBtn
             icon="split-horizontal"
             text
@@ -563,6 +578,14 @@ export function NoteTab(props: NoteTabProps) {
           label={t('更多')}
           onClick={(e) =>
             props.onMenu(e, [
+              // 窗口窄于 1200：「对照看」收进这里，标签条多放得下标签（⌥ 点「白板」照样能用）
+              cmpInMenu && props.compare && {
+                label: t('对照看'),
+                checked: props.compare.on,
+                enabled: mode !== 'task',
+                run: () => props.compare!.toggle(),
+              },
+              cmpInMenu && props.compare && '-',
               // 读 PDF 的配对笔记（ParaRead 联动「互跳」）：回 ParaRead 读那份 PDF，翻到两边合一的「读到哪」
               pairedPdf && {
                 label: t('在ParaRead里读（双语）'),

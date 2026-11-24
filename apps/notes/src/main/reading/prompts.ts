@@ -122,54 +122,6 @@ export function sidePrompt(o: { first: boolean; quote: string; page: number; tit
   return `（这是一条旁支：他在你前面的一个回答里选中了一句另问，问完回到主对话，主对话照旧。）\n${round}\n他选中的那句：「${o.quote}」\n他说：${o.question}`
 }
 
-export const SUMMARY_SYSTEM = `你帮一个人给他和 AI 老师关于 PDF 课件某一处的问答起一个笔记小标题、写一句小结。只输出一个 JSON 对象，不要别的字，不要代码块。`
-
-/** 这一轮（主对话 + 旁支）给快的模型看：问题原话、回答原文（拼好的字见 section.ts 的 roundText） */
-export function summarizePrompt(o: { pdfName: string; thread: ReadingThread; round: string; blocks: PdfBlock[]; title?: string }): string {
-  const w = o.thread.web
-  const head = w
-    ? `${/^https?:/i.test(w.url) ? `网页「${w.title}」（${w.url}）` : `可视化「${w.title}」`}，他框了一块问。
-
-框里的字：
-${w.text || blocksText(o.blocks) || '（没有能读的字）'}`
-    : `PDF「${o.pdfName}」第 ${o.thread.page} 页${o.thread.quote ? `，他选中的字：「${o.thread.quote}」` : o.thread.rect ? '，他框了一块问' : '，他问的是整页'}。
-
-这一页的文字（[图 pX-bY] 是图，[表 pX-bY] 是表）：
-${blocksText(o.blocks) || '（没有能选的字）'}`
-  return `${head}
-
-这一轮的问答（【他】是他发出去的原话，【AI】是回答；【旁支】是他在回答里选中一句另问的）：
-${o.round || '（还没有）'}
-
-输出 JSON：
-{
-  "title": "这一处讲的是什么，16 个字以内，像笔记小标题${o.title ? `（已经有小标题「${o.title}」：讲的还是这个就原样照抄）` : ''}",
-  "recap": "一句小结，40 个字以内：这一轮讲明白了什么；接着问了、旁支里另问了什么也带一句"
-}`
-}
-
-/** AI 写的 JSON 读回来；读不出来时标题用原来的（或问的话），小结用最后一个回答的开头（笔记照样记上，不让这一轮白问） */
-export function parseSummary(raw: string, o: { thread: ReadingThread; msgs: ReadingMsg[]; title?: string }): { title: string; recap: string } {
-  const answers = o.msgs.filter((m) => m.role === 'ai' && m.text.trim() && !m.error)
-  const last = answers[answers.length - 1]?.text ?? ''
-  const asked = o.msgs.filter((m) => m.role === 'user').map((m) => m.text.trim())
-  let j: Record<string, unknown> = {}
-  const a = raw.indexOf('{')
-  const b = raw.lastIndexOf('}')
-  if (a !== -1 && b > a) {
-    try {
-      j = JSON.parse(raw.slice(a, b + 1)) as Record<string, unknown>
-    } catch {
-      j = {}
-    }
-  }
-  const str = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '')
-  return {
-    title: str(j.title).slice(0, 40) || o.title || oneLine(asked.find((q) => !/^给我讲解一下/.test(q)) ?? `第 ${o.thread.page} 页`, 16),
-    recap: oneLine(str(j.recap), 80) || oneLine(answerLead(withoutVizMark(last).text).replace(/[*_`#>$]/g, ''), 40),
-  }
-}
-
 function oneLine(s: string, n: number): string {
   const t = s.replace(/\s+/g, ' ').trim()
   return t.length > n ? t.slice(0, n) + '…' : t

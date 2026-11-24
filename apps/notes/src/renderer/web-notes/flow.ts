@@ -10,12 +10,10 @@ import type { CodiconName } from '@cn/design'
 import type { Clip } from '../../shared/api'
 import { clipMarkdown, titleOf } from '../../shared/layout'
 import type { Material } from '../../shared/materials'
-import { bookPrefix, pageHead } from '../../shared/read-along'
-import type { ReadingMsg, ReadingThread } from '../../shared/reading'
+import { bookPrefix } from '../../shared/read-along'
 import { backLabel, fragmentUrl, sourceLabel } from '../../shared/web-link'
-import { askLabel, ASKED, webAskBlock, webEntries } from '../../shared/web-notes'
+import { webEntries } from '../../shared/web-notes'
 import type { PageRect, WebSel } from '../../shared/web-reader'
-import { relLink } from '../../shared/video'
 import { WEB_IMG_CLIPPED } from '../web/image-drop'
 import { copy } from '../ctx/menu'
 import type { PopAnchor } from '../pop-place'
@@ -25,7 +23,9 @@ import * as Reading from '../reading/store'
 import { askWhere, type Where } from './Where'
 import { readSrc } from '../../shared/ai-chats'
 import { type Convo, convoFor, feedConvo, showConvo } from '../ai-web-stay'
-import { chosenFor, isSkipped, setChosen, skip, targetOf } from './target'
+import { chosenFor, setChosen, targetOf } from './target'
+import { noteSwitchNow, setNoteSwitch } from '../ai-note-switch'
+import { videoParent, videoParentNow } from '../video/note-parent'
 import { notesChanged, noteTime } from './times'
 import { noteText, type Wrote, writeInto } from './write'
 import { t } from '../../shared/i18n'
@@ -71,6 +71,8 @@ export interface WebNotesHost {
   full(): { note: string | null; pick: string | null; inbox: boolean } | null
   /** 占满时剪进了一篇：「看一眼」还原、那篇里刚剪的那段亮一下 */
   peek(path: string, md: string): void
+  /** 「已记进《…》」点了：中间打开那篇（配成一对的网页不跟着开，右栏网页不动），滚到那一问（AI 块带的消息号是 msg）、亮一下 */
+  showAsk(path: string, msg: number): void
   /** 右栏换回网页标签（小条上那颗「只在 AI 栏答」以后底栏的「回网页」） */
   showWeb(): void
 }
@@ -118,14 +120,16 @@ async function choose(url: string, path: string) {
 }
 
 /**
- * 问、引用之前：这个网页记进哪篇定了没有，没定（也没说过这次不记）就问一句。取消返回 false（这一下不做了）
+ * 问、引用之前：这个网页记进哪篇定了没有，没定（「记笔记」开着）就问一句；选「这次只问，不记」是把网页的「记笔记」关掉
+ * （AI 栏输入框下面那一排的开关，问答都不记；选了一篇照旧配成一对）。取消返回 false（这一下不做了）
  */
 export async function ensureAsk(url: string, at: PopAnchor): Promise<boolean> {
-  if (targetNow(url) || isSkipped(url)) return true
+  const sw = noteSwitchNow('web')
+  if (targetNow(url) || !sw.main) return true
   const w = await askWhere({ kind: 'ask', at, center: H().center(), notes: H().notes() })
   if (!w) return false
   if (w.kind === 'doc') await choose(url, w.path)
-  else skip(url)
+  else await setNoteSwitch('web', { ...sw, main: false }).catch((e: unknown) => H().notice(errText(e)))
   return true
 }
 
@@ -169,14 +173,15 @@ export async function onSel(sel: WebSel, frame: DOMRect, done: (keep: boolean) =
       const out = cmdOut(c)
       // 进哪段对话同引用（convoFor）；进这个网页自己那段、写进笔记的先定记到哪篇，只在 AI 栏答的不用问
       const to = H().readingDoc() ? null : convoFor(sel.url)
-      if (out === 'note' && !H().readingDoc() && !to && !(await ensureAsk(sel.url, at))) return settle(true)
+      if (out === 'note' && !H().readingDoc() && !(to && readSrc(to.key)) && !(await ensureAsk(sel.url, at))) return settle(true)
       settle(false)
       return await runOwnWeb(sel, cmdText(c, sample), c.name, out, to)
     }
     // 进哪段对话：中间开着 PDF、HTML 的进它的 AI（照旧）；不然留过的、右栏正看着的那段（ai-web-stay.ts）；都不是进这个网页自己那段。
-    // 只有进这个网页自己那段时才要定记到哪篇（别的对话记进哪篇跟着那段走）
+    // 进这个网页自己那段、普通对话（看文档、首页……）的先定记到哪篇：问答照网页的「记笔记」写进剪藏那篇（AiPanel 认带着网页引用的一问，webNoteTo）；
+    // 进读 PDF 那一套的记进它自己的笔记
     const to = H().readingDoc() ? null : convoFor(sel.url)
-    if (!H().readingDoc() && !to && !(await ensureAsk(sel.url, at))) return settle(true)
+    if (!H().readingDoc() && !(to && readSrc(to.key)) && !(await ensureAsk(sel.url, at))) return settle(true)
     settle(false)
     if (sel.action === 'quote') return await quoteWeb(sel, at, to)
     await askWeb(sel, at, sel.action === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲', to)
@@ -383,7 +388,7 @@ async function clipInto(c: Clip & { head?: string }, path: string, again = false
 function imgClipped(path: string, md: string, url: string) {
   void window.cn.logActivity('clip', path)
   noteTime(path, md)
-  if (host && !targetNow(url) && !isSkipped(url)) setChosen(url, path)
+  if (host && !targetNow(url)) setChosen(url, path)
   notesChanged()
   clipped(path)
 }
@@ -458,60 +463,54 @@ export async function pickTarget(url: string, at: PopAnchor): Promise<Where | nu
   return w
 }
 
-// ---------------------------------------------------------------- 问完写进那篇
+// ---------------------------------------------------------------- 问完写进剪藏那篇
 
-/** 网页上问的答完了：一问一块 [!ai] 写进这个网页正在剪进去的那篇；没定（这次只问不记）是 null */
-async function writeAsk(n: Reading.WebNote): Promise<{ path: string; title: string } | null> {
-  const url = n.thread.web?.url ?? n.src.slice(4)
-  // 还没定记到哪篇（框一块以后在输入框里回车、接着问的）：答好了贴着 AI 输入框问一句；这次只问不记的不问
-  if (!targetNow(url) && !isSkipped(url) && !(await ensureAsk(url, composerAnchor()))) return null
-  const path = targetNow(url)
-  if (!path) return null
-  const th: ReadingThread = n.thread
-  const q: ReadingMsg = n.question
-  const links: { text: string; url: string }[] = []
-  const quotes: string[] = []
-  const web = th.web
-  // 这一处（选的那段、框的那块）
-  const passage = th.quote ?? web?.text ?? ''
-  if (web && passage.trim()) {
-    links.push({ text: `${backLabel({ ...(web.head ? { head: web.head } : {}), title: web.title, url: web.url })} ↩`, url: fragmentUrl(web.url, passage) })
-    if (th.quote) quotes.push(th.quote)
-  }
-  // 引用进来的几段（网页上的带回链接）
-  for (const m of q.mats ?? []) {
-    if (m.kind !== 'quote') continue
-    quotes.push(m.text)
-    if (m.url) {
-      const l = { text: `${m.src} ↩`, url: fragmentUrl(m.url, m.text) }
-      if (!links.some((x) => x.url === l.url)) links.push(l)
-    }
-  }
-  if (!links.length) links.push({ text: `${pageHead(web?.title, url)} ↩`, url })
-  // 框的那块截图：这一处的第一问放一次（接着问的不再放）
-  const first = !Reading.get(n.src).state.msgs.some((m) => m.thread === th.id && m.role === 'user' && m.id !== q.id && m.time <= q.time)
-  const image = first && th.crop ? relLink(path, th.crop) : undefined
-  // 选中小条上自己加的那颗问的（task-26nz7）：块头写那颗的名字（这一处的第一问；接着问的照旧「你问：…」）
-  const label = first && th.cmd ? th.cmd : askLabel(q.text)
-  const md = webAskBlock({ label, by: n.by, links, quotes, ...(image ? { image } : {}), answer: n.answer })
-  const wrote = await put(path, md, false)
-  noteTime(path, md)
+/**
+ * 一问写进那篇本身（2026-11-24 偏好「剪藏和AI笔记同一篇」「一篇里混排舒服」）：网页、视频的问答写进剪藏那篇 / 「记到哪」那篇，
+ * 看着的文档的问答写进它自己（AiPanel）。md 是主进程拼好的那几行（@cn/format renderAsk：问的那句、引用带回到网页那段的来源、图、AI 回答框）。
+ * 中间看得见那篇时插在光标处，不然接在末尾（同剪藏，write.ts）；一问一次提交；写在末尾时底栏说一句，带「在笔记里看」
+ */
+export async function writeAskInto(note: string, md: string, o: { files: string[]; subject: string }): Promise<void> {
+  const wrote = await put(note, md.trimEnd(), false)
+  noteTime(note, md)
   notesChanged()
-  const title = titleOf(path)
-  const short = label.startsWith(`${ASKED}：`) ? ASKED : label
-  await window.cnReading.commit([path], `笔记：网页「${pageHead(web?.title, url)}」· ${short} → ${title}`)
+  const title = titleOf(note)
+  const q = o.subject.replace(/\s+/g, ' ').trim()
+  // 不翻：提交说明（写进 Git）
+  await window.cnReading.commit([note, ...o.files], `笔记：${title} · ${[...q].length > 40 ? [...q].slice(0, 40).join('') + '…' : q}`)
+  if (!host) return
   H().refresh()
-  // 选中小条上自己加的那颗（task-26nz7）：底栏一句写进了哪篇（照原型「「名字」写进了《那篇》」）
-  if (first && th.cmd) {
-    H().notice(t('「{name}」写进了《{title}》', { name: th.cmd, title }), wrote.where === 'end' && !H().notesShown() ? { act: { label: t('在笔记里看'), icon: 'note', run: () => H().showNote(path, md.split('\n')[0]) } } : undefined)
-    return { path, title }
-  }
-  // 写在末尾（中间看不见那篇）：底栏说记进了哪，带「在笔记里看」
-  if (wrote.where === 'end') {
-    const text = `记进《${title}》· ${links[0]!.text.replace(/\s*↩$/, '')}`
-    H().notice(text, H().notesShown() ? undefined : { act: { label: '在笔记里看', icon: 'note', run: () => H().showNote(path, md.split('\n')[0]) } })
-  }
-  return { path, title }
+  if (wrote.where === 'end') H().notice(t('记进《{title}》末尾', { title }), H().notesShown() ? undefined : { act: { label: t('在笔记里看'), icon: 'note', run: () => H().showNote(note, md.split('\n')[0]) } })
 }
 
-Reading.setWebNoteWriter(writeAsk, isSkipped)
+// 记了一问、撤回了一问：右栏「笔记」那几条重读
+if (typeof window !== "undefined") window.addEventListener(Reading.NOTE_WRITTEN, () => notesChanged())
+
+/** 「已记进《…》」点了：在那篇里定位到这一问，右栏网页不换（以前走通用的打开笔记，配对的网页跟着跳回书的开头） */
+export function showAskIn(path: string, msg: number) {
+  H().showAsk(path, msg)
+}
+
+/**
+ * 网页、视频那一处写进哪篇：网页是配成一对的剪藏那篇（还没定就贴着 AI 输入框问一句；选了「这次只问，不记」= 把网页的「记笔记」关掉），
+ * 视频由视频那边定（video/note-parent.ts）
+ */
+Reading.setNoteParents({
+  now: (kind, url) => (kind === 'web' ? (host ? targetNow(url) : null) : videoParentNow(url)),
+  async ask(kind, url, title) {
+    if (kind === 'video') return videoParent(url, title)
+    if (!host) return null
+    if (!targetNow(url) && !(await ensureAsk(url, composerAnchor()))) return null
+    return targetNow(url)
+  },
+  put: (note, md, o) => writeAskInto(note, md, o),
+})
+
+/**
+ * 别的一段对话（看文档、首页……，AiPanel）里问的带着网页上引的一段：网页的「记笔记」开着、这个网页定了记进哪篇时，这一问写进那篇
+ * （偏好「引用留在当前对话」以后，引用进了右栏正开着的那段对话，以前就不记了：原因见 ai-web-stay.ts）
+ */
+export function webNoteTo(url: string): string | null {
+  if (!host || !/^https?:/i.test(url) || !noteSwitchNow('web').main) return null
+  return targetNow(url)
+}

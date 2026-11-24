@@ -17,23 +17,26 @@ import { mkdir, readdir, readFile, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import * as git from '@cn/git'
 import {
-  type AskSection,
+  askUnits,
   attachDirFor,
+  cleanQuestion,
   CONVO_DIR,
+  cropCaption,
   cropGaps,
+  insertAfterAsk,
   insertCrop,
   lectureOf,
+  linkFrom,
+  type NoteAsk,
   parsePdfAnchor,
-  newReadingNote,
   notePathFor,
   parseReadingNote,
+  pdfSrc,
   type PdfBlock,
   upsertSection,
-  setProp,
   ATTACH_DIR,
-  dayOf,
-  renderSection,
   threadName,
+  webSrc,
 } from '@cn/format'
 import { siteOf } from '../../shared/web-reader'
 import { fmtTime, videoOf } from '../../shared/video'
@@ -41,15 +44,18 @@ import { subsAround } from '../video'
 import type { EngineId } from '../../shared/agent'
 import type { CommitInfo } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
-import type { AskEvent, AskRequest, AskResult, PdfFile, ReadingMsg, ReadingSide, ReadingState, ReadingThread, SummarizeRequest, SummarizeResult, VizRequest, VizResult, WriteSectionRequest, WriteSectionResult } from '../../shared/reading'
-import { chatRun, engine, FAST_MODEL, featureLabel, langTail, modeLine, modelOpt, omniOn, runAgentTurn, vaultNotes } from '../agent'
+import type { AskEvent, AskRequest, AskResult, PdfFile, ReadingMsg, ReadingSide, ReadingState, ReadingThread, VizRequest, VizResult } from '../../shared/reading'
+import type { NoteAppendResult, NoteAskRequest } from '../../shared/ai-note'
+import { withoutEffort } from '../../shared/ai-features'
+import { chatRun, engine, featureLabel, langTail, modeLine, modelOpt, omniOn, runAgentTurn, vaultNotes } from '../agent'
 import { E2E } from '../test-mode'
 import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
 import type { EngineImage } from '../agent/engines'
 import type { Vault } from '../vault'
-import { askPrompt, extractHtml, fullTextOf, noteDigest, parseSummary, sidePrompt, SUMMARY_SYSTEM, summarizePrompt, TUTOR_SYSTEM, TUTOR_VERSION, VIZ_SYSTEM, vizFileStem, vizPrompt, vizTitle, withVizMeta } from './prompts'
-import { buildSection, roundText } from './section'
+import { askPrompt, extractHtml, fullTextOf, noteDigest, sidePrompt, TUTOR_SYSTEM, TUTOR_VERSION, VIZ_SYSTEM, vizFileStem, vizPrompt, vizTitle, withVizMeta } from './prompts'
+import { answerMd, matsOf, questionOf } from './section'
 import { setupCards } from './cards'
+import { setupAiNote } from './ai-note'
 import { readingKey } from './chats'
 import { setupBilingual } from './bilingual'
 import { setupCapture } from './capture'
@@ -68,8 +74,6 @@ const MAX_PDF = 300 * 1024 * 1024
 export interface ReadingDeps {
   win(): BrowserWindow | null
   vault(): Vault | null
-  /** 设置 › 读PDF「后台写每一轮的标题和小结」 */
-  recap(): boolean
 }
 
 const stemOf = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
@@ -82,6 +86,12 @@ function needPdf(path: unknown): string {
 /**
  * 边读边问的来源：库里的 PDF、库里的 HTML（中间栏开着的可视化），或「web:<网址>」（右栏网页上框着问、中间栏没开 PDF 时）
  */
+/** 记进的笔记：库里的相对路径、.md */
+function needNote(p: unknown): string {
+  if (typeof p !== 'string' || !/\.md$/i.test(p) || p.startsWith('/') || p.split('/').includes('..')) throw new Error(t('笔记路径不对'))
+  return p
+}
+
 function needSource(path: unknown): string {
   if (typeof path !== 'string' || !(/\.(pdf|html?)$/i.test(path) || /^web:https?:\/\//i.test(path))) throw new Error(t('不是 PDF、HTML 或网页'))
   return path
@@ -96,11 +106,6 @@ function nameOf(p: string): string {
   return v ? `视频-${v.site}-${v.id}${v.p && v.p > 1 ? `-p${v.p}` : ''}` : `网页-${siteOf(p.slice(4))}`
 }
 
-/** 笔记那段第二行的来源：视频「接着问」写「▶ 00:06 · 视频名」（和那块问答一样），网页写域名，HTML 写文件名 */
-function webSource(web: { url: string; title: string; t?: number }): { url: string; label: string; t?: number } {
-  if (web.t !== undefined) return { url: web.url, label: `▶ ${fmtTime(web.t)} · ${web.title}`, t: web.t }
-  return { url: web.url, label: /^https?:/i.test(web.url) ? siteOf(web.url) : (web.url.split('/').pop() ?? '') }
-}
 const attachOf = (p: string) => (isWeb(p) ? `${ATTACH_DIR}/网页` : attachDirFor(p)) // 不翻：磁盘上的文件夹名
 
 
@@ -512,41 +517,7 @@ export function setupReading(deps: ReadingDeps) {
     }
   })
 
-  // ---------- 后台记笔记 ----------
-  /** 界面给的旁支（对话记录里的那几条）：只收这一处的，形状不对的不收 */
-  const sidesOf = (sides: unknown, thread: string): ReadingSide[] => {
-    if (sides === undefined) return []
-    if (!Array.isArray(sides)) throw new Error(t('旁支不对'))
-    return (sides as ReadingSide[]).filter((s) => s && s.thread === thread && typeof s.quote === 'string' && Array.isArray(s.msgs))
-  }
-
-  // 后台的两件小活（CN-93、94、96）：这一轮的标题和一句小结，给快的模型；问题、回答原样写，不再让 AI 写疑惑、讲通的讲法、要点
-  ipcMain.handle('reading:summarize', async (_e, req: SummarizeRequest): Promise<SummarizeResult> => {
-    const pdf = needSource(req.pdf)
-    const v = needVault()
-    const msgs = req.msgs.filter((m) => m.thread === req.thread.id)
-    const id = IDS.includes(req.engine) ? req.engine : 'claude'
-    const title = typeof req.title === 'string' ? req.title : undefined
-    // 设置里关了：不问 AI，标题和小结截问和答的开头（和问不成时一样兜着）
-    if (!deps.recap()) return parseSummary('', { thread: req.thread, msgs, ...(title ? { title } : {}) })
-    let raw = ''
-    try {
-      const r = await engine(id).run({
-        prompt: summarizePrompt({ pdfName: req.thread.web?.title ?? stemOf(pdf), thread: req.thread, round: roundText(msgs, sidesOf(req.sides, req.thread.id)), blocks: req.blocks, ...(title ? { title } : {}) }),
-        system: SUMMARY_SYSTEM,
-        cwd: v.root,
-        ...(id === 'claude' ? { model: FAST_MODEL } : {}),
-        signal: AbortSignal.timeout(180_000),
-        onText: () => undefined,
-      })
-      raw = r.text
-    } catch (e) {
-      // 写不成就用原来的标题、最后一个回答的开头兜着，原因写进日志；这一处问过的照样记上
-      console.error('写标题和小结失败', e)
-    }
-    return parseSummary(raw, { thread: req.thread, msgs, ...(title ? { title } : {}) })
-  })
-
+  // ---------- 记笔记（2026-11-24 新写法，shared/ai-note.ts）：一问答完、开着「记笔记」时记一问，只往后加 ----------
   /** 同一篇笔记一次只写一样（连着问几处、可视化做好时排队） */
   const queues = new Map<string, Promise<unknown>>()
   function queued<T>(note: string, f: () => Promise<T>): Promise<T> {
@@ -555,19 +526,63 @@ export function setupReading(deps: ReadingDeps) {
     queues.set(note, run)
     return run
   }
-  ipcMain.handle('reading:section', (_e, req: WriteSectionRequest) => {
-    const src = needSource(req.pdf)
-    if (isWeb(src)) {
-      // 网页上问的：中间栏开着文档就交回 md 让界面插到光标处；没开就进收件箱那篇
-      if (req.target?.kind === 'doc') return writeWebToDoc(req, req.target.path)
-      const note = webNotePath(req.thread.web?.title ?? '网页') // 不翻：文件名
-      return queued(note, () => writeSection(req, note))
-    }
-    const note = notePathFor(src)
-    return queued(note, () => writeSection(req, note))
+  // AI 对话写进笔记（新写法、开关）：读 PDF 记一问和别处记一问同一个排队
+  const aiNote = setupAiNote({ vault: needVault, readText, send, queued })
+
+  /**
+   * 读 PDF、库里的 HTML、网页、视频「接着问」记一问：问的原话（看不懂那一问写回「看不懂：原文」）、回答原文、材料里的图拷进库；
+   * 这一处在这篇里第一次记时带上框的图（或选的那段）和来源行；笔记里有这一处旧写法那一段时接在它后面（旧的一字节不动）
+   */
+  ipcMain.handle('reading:note:ask', (_e, req: NoteAskRequest): Promise<NoteAppendResult> => {
+    const src = needSource(req?.src)
+    const note = needNote(req.note)
+    const th = req.thread
+    if (!th || typeof th.id !== 'string' || !req.user || !req.ai || typeof req.ai.id !== 'number' || typeof req.key !== 'string' || !req.place || typeof req.place.heading !== 'string') throw new Error(t('记笔记的参数不对'))
+    return queued(note, async () => {
+      const cur = (await readText(note)) ?? ''
+      const name = threadName(th.id)
+      const old = parseReadingNote(cur, note).find((x) => x.id === th.id && !x.doc)
+      const mats = await copyMats(src, th, [req.user], [])
+      const ask: NoteAsk = {
+        key: req.key,
+        msg: req.ai.id,
+        th: name,
+        q: questionOf(req.user.text, old),
+        a: answerMd(req.ai.text),
+        // 写进文档的 AI 块头不带档（同 AI 讲解）
+        ...(req.ai.by ? { by: withoutEffort(req.ai.by) } : {}),
+      }
+      const m = matsOf(req.user.mats, (n) => mats.get(n) ?? '')
+      if (m) ask.mats = m
+      const files = [...mats.values()]
+      if (req.side) ask.side = { quote: req.side.quote, ...(req.side.parent ? { parent: cleanQuestion(req.side.parent) } : {}), of: req.side.of }
+      else {
+        // 这一处在这篇里第一次记：带上框的图（或选的那段）；接着问的不再放
+        const first = !askUnits(cur, note).some((u) => u.ask.th === name && !u.ask.side)
+        const crop = first && th.crop && !(old && old.crop) ? th.crop : null
+        if (crop) {
+          // 不翻：写进文件的图说（cropCaption 给的）
+          ask.crop = { path: crop, ...(th.cropW ? { w: th.cropW } : {}), ...(cropCaption(th) !== '我框的' ? { caption: cropCaption(th) } : {}) }
+          files.push(crop)
+        }
+        // 「接着问」（文档里视频问答块、问框带到 AI 标签）的 quote 是上一问的原话，不是选中的那句：不写成引用（带着 web.answer 的就是这两条路）
+        else if (first && !old && th.quote?.trim() && !th.web?.answer) ask.quote = th.quote.trim()
+        // 来源行：网页那一段、视频那一秒每一问都写（右栏「笔记」认它回网页）；PDF、库里的 HTML 只在这一处第一次记时写（旧写法那段里已经有了不写）
+        if (req.from) ask.src = webSrc(note, req.from.label, req.from.url)
+        else if (first && !old && /\.pdf$/i.test(src) && th.page > 0) ask.src = pdfSrc(note, src, th.page, th.rect)
+        else if (first && !old && !isWeb(src)) ask.src = webSrc(note, `${stemOf(src)}.html`, src) // 不翻：写进文件的字（文件名）
+      }
+      return aiNote.appendNow({
+        note,
+        ask,
+        place: { heading: req.place.heading, ...(req.place.page ? { page: req.place.page } : {}), ...(old ? { after: old.id } : {}) },
+        ...(req.create ? { create: req.create } : {}),
+        ...(req.inline ? { inline: true } : {}),
+        files,
+        ...(req.pages ? { pages: req.pages } : {}),
+      })
+    })
   })
-  /** 可视化做好时笔记里还没有那一段：先记着，写那一段时挂上 */
-  const pendingViz = new Map<string, { path: string; title: string; embed?: boolean }>()
 
   // ---------- 出卡送 Anki（task-tz7y3，cards.ts）：问过的每一问 AI 改成卡、一张张过、送进 Anki；「我的疑惑」那一页 2026-11-22 拿掉了 ----------
   setupCards({ vault: deps.vault, win: deps.win })
@@ -604,24 +619,27 @@ export function setupReading(deps: ReadingDeps) {
       await atomicWrite(v.abs(path), html)
       reserved.delete(path)
       const paths = [path]
+      // 挂进笔记：新写法在这一处最后一问的 AI 块后面插一行；旧写法那一段照旧写进那一段；这一处没记进笔记就不挂
       const cur = await readText(note)
-      const sec = cur ? parseReadingNote(cur, note).find((x) => x.id === req.thread.id) : undefined
-      if (cur && sec) {
-        const next = upsertSection(cur, { ...sec, viz: { path, title, embed: true } }, note)
+      let next = cur
+      if (cur) {
+        const name = threadName(req.thread.id)
+        next = insertAfterAsk(cur, note, name, `![可视化 · ${title.replace(/[[\]]/g, '')}](${linkFrom(note, path)})`) // 不翻：写进笔记的字
+        const sec = next === cur ? parseReadingNote(cur, note).find((x) => x.id === req.thread.id && !x.doc) : undefined
+        if (sec) next = upsertSection(cur, { ...sec, viz: { path, title, embed: true } }, note)
+      }
+      if (cur && next && next !== cur) {
         const w = await v.write(note, next, cur)
         if (w.ok) {
           send('note:changed', note, next)
           paths.push(note)
         }
-      } else pendingViz.set(req.thread.id, { path, title, embed: true })
+      }
       const hash = await git.commitPaths(v.root, paths, `可视化：${title}（${stemOf(pdf)} 第 ${req.thread.page} 页）`) // 不翻：提交说明
       send('files:changed')
       return { path, title, commit: hash ? ((await git.log(v.root, 1))[0] ?? null) : null }
     })
   })
-
-  /** 答完马上先写的那一次没提交：等标题、小结写好的那一次一起提交，不当成用户自己改的字先提交掉 */
-  const unsaved = new Set<string>()
 
   /**
    * 材料里的图（软件设置目录 pasted/ 里，不在库里）拷进这份 PDF 的附件：<这一处>-<名字前 8 位>.png（同一张拷过不再拷）。
@@ -650,92 +668,6 @@ export function setupReading(deps: ReadingDeps) {
     return out
   }
 
-  /**
-   * 写笔记里这一处的那一段（新格式）：问题原话、回答原文、旁支挂在被问那一问后面；标题和小结用这一次给的，
-   * 没给（答完马上先写的那一次）用笔记里原来那段的。笔记里原来那段的双链、可视化、配的图留着
-   */
-  async function writeSection(req: WriteSectionRequest, note: string): Promise<WriteSectionResult> {
-    const v = needVault()
-    const pdf = req.pdf
-    const th = req.thread
-    const sides = sidesOf(req.sides, th.id)
-    const mats = await copyMats(pdf, th, req.msgs, sides)
-    const paths = [note, ...mats.values()]
-    let fig: { path: string; caption: string } | null = null
-    if (req.figurePng instanceof Uint8Array && req.figurePng.length) {
-      fig = { path: `${attachDirFor(pdf)}/${threadName(th.id).replace(/^.*-(p\d+-\d+)$/, '$1')}-fig.png`, caption: req.figureCaption || `第 ${th.page} 页的图` } // 不翻：写进笔记的图说
-      await mkdir(dirname(v.abs(fig.path)), { recursive: true })
-      await atomicWrite(v.abs(fig.path), req.figurePng)
-      paths.push(fig.path)
-    }
-    for (const m of req.msgs) if (m.thread === th.id && m.image) paths.push(m.image)
-    if (th.crop) paths.push(th.crop)
-    // 笔记里用户自己没提交的字先单独提交，这次提交里只有记的这一段（答完马上先写、还没提交的那一次不算用户的）
-    if (!unsaved.has(note)) {
-      const pending = (await git.status(v.root)).filter((x) => x.path === note)
-      if (pending.length) await git.commitPaths(v.root, [note], git.describeChanges(pending))
-    }
-    // 收件箱这类文件夹可能还没有
-    await mkdir(dirname(v.abs(note)), { recursive: true })
-    const fallback = parseSummary('', { thread: th, msgs: req.msgs.filter((m) => m.thread === th.id) })
-    let s: AskSection | null = null
-    for (let tries = 0; ; tries++) {
-      const cur = await readText(note)
-      const base = cur ?? ''
-      const old = parseReadingNote(base, note).find((x) => x.id === th.id) ?? null
-      s = buildSection({
-        pdf,
-        thread: th,
-        msgs: req.msgs,
-        sides,
-        title: req.title ?? old?.title ?? fallback.title,
-        recap: req.recap ?? (old?.qas ? old.recap : undefined) ?? fallback.recap,
-        old,
-        ...(th.web ? { web: webSource(th.web) } : {}),
-        matPath: (n) => mats.get(n) ?? '',
-      })
-      const viz = pendingViz.get(th.id)
-      if (viz) s.viz = viz
-      if (fig) s.figures = [fig]
-      let next = upsertSection(cur ?? (isWeb(pdf) ? newWebNote(th.web) : newReadingNote(pdf)), s, note)
-      // 进度：问到第几页（问过的最大页码）/ 一共几页
-      // 不翻：属性键
-      if (req.pages > 0) next = setProp(next, '进度', `${Math.max(...parseReadingNote(next, note).map((x) => x.page))}/${req.pages}`)
-      const w = await v.write(note, next, base)
-      if (w.ok) {
-        // 主进程自己写的监听不到；开着这篇的编辑器按外部改动合并
-        if (next !== base) send('note:changed', note, next)
-        break
-      }
-      if (tries >= 2) throw new Error(t('笔记刚被改过，写不进去，等一下再问一轮会再记'))
-    }
-    pendingViz.delete(th.id)
-    if (req.commit === false) {
-      unsaved.add(note)
-      return { note, commit: null }
-    }
-    unsaved.delete(note)
-    // 不翻：提交说明
-    const hash = await git.commitPaths(v.root, [...new Set(paths)], `笔记：${isWeb(pdf) ? (th.web?.title ?? '网页') : stemOf(pdf)}${th.page > 0 ? ` 第 ${th.page} 页` : ''} · ${s.title}`)
-    let commit: CommitInfo | null = null
-    if (hash) commit = (await git.log(v.root, 1))[0] ?? null
-    send('files:changed')
-    return { note, commit }
-  }
-
-  /** 网页上问的、中间栏开着文档：这一段的 md（新格式）交回界面插到光标处（界面存好后再一起提交） */
-  async function writeWebToDoc(req: WriteSectionRequest, doc: string): Promise<WriteSectionResult> {
-    const v = needVault()
-    v.abs(doc)
-    const th = req.thread
-    const sides = sidesOf(req.sides, th.id)
-    const mats = await copyMats(req.pdf, th, req.msgs, sides)
-    const fallback = parseSummary('', { thread: th, msgs: req.msgs.filter((m) => m.thread === th.id) })
-    const s = buildSection({ pdf: req.pdf, thread: th, msgs: req.msgs, sides, title: req.title ?? fallback.title, recap: req.recap ?? fallback.recap, ...(th.web ? { web: webSource(th.web) } : {}), matPath: (n) => mats.get(n) ?? '' })
-    const files = [...(s.crop ? [s.crop] : []), ...mats.values(), ...req.msgs.flatMap((m) => (m.thread === th.id && m.image ? [m.image] : []))]
-    return { note: doc, commit: null, markdown: renderSection(s, doc), files: [...new Set(files)] }
-  }
-
   ipcMain.handle('reading:commit', async (_e, paths: unknown, message: unknown) => {
     if (!Array.isArray(paths) || !paths.every((p) => typeof p === 'string') || typeof message !== 'string') throw new Error(t('提交的参数不对'))
     const v = needVault()
@@ -744,22 +676,6 @@ export function setupReading(deps: ReadingDeps) {
     send('files:changed')
     return hash ? ((await git.log(v.root, 1))[0] ?? null) : null
   })
-}
-
-/** 网页上问、中间栏没开文档时记进的那篇：收件箱/<网页标题> 笔记.md */
-function webNotePath(title: string): string {
-  // 不翻：文件名；收件箱照这个库磁盘上的名字（英文库是 Inbox）
-  const safe = title.replace(/[\\/:*?"<>|#^[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) || '网页'
-  return `${catName('收件箱')}/${safe} 笔记.md` // 不翻
-}
-
-/** 收件箱里新的网页笔记开头：类型 笔记、来源网址、日期 */
-function newWebNote(web: { url: string; title: string } | undefined): string {
-  // 不翻：写进文件的属性和标题
-  let s = setProp('', '类型', '笔记')
-  if (web) s = setProp(s, '来源', web.url) // 不翻
-  s = setProp(s, '日期', dayOf(new Date())) // 不翻
-  return `${s}\n# ${web?.title ?? '网页'} 笔记\n` // 不翻
 }
 
 export const VIZ_TIMEOUT = 8 * 60_000

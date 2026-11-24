@@ -107,7 +107,7 @@ test('读 PDF：340 开着、一句三条、收起只剩小标；480 开着', as
     await page.mouse.up()
     await ai.getByRole('textbox', { name: '问 AI' }).press('Enter')
     const msg = ai.getByTestId('reading-msg').last()
-    await expect(msg.locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(msg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     const txt = msg.locator('.txt')
     await selectText(page, txt, '列就是', '去哪')
     await askbox(page).getByRole('textbox').fill('为什么是基向量？')

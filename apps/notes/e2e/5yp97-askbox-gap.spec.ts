@@ -158,7 +158,7 @@ test('选一句出的小框离选中高亮的下沿 8（±1）：读 PDF 的回�
     await expect(reading.getByTestId('reading-att').locator('img')).toBeVisible()
     await reading.getByRole('textbox', { name: '问 AI' }).press('Enter')
     const rmsg = reading.getByTestId('reading-msg').last()
-    await expect(rmsg.locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(rmsg.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     await selectText(page, rmsg.locator('.txt'), '列就是', '去哪')
     got['读 PDF'] = await gapOf(page)
     await closeBox(page)

@@ -95,7 +95,6 @@ export const SELBAR: Table = {
   '已在 ⋯ 里': 'Already in ⋯',
   '已在「不出现」里': 'Already in “Hidden”',
   '{store} · {where}': '{store} · {where}',
-  '「{name}」写进了《{title}》': '“{name}” written into “{title}”',
   '还没存过命令：在 AI 对话里调出满意的样子后点「存成命令」': 'No saved commands yet: get a result you like in AI chat, then click “Save as command”',
 
   // ---------- 弹不弹、名单 ----------

@@ -33,9 +33,11 @@ async function ask(page: Page, a: [number, number], b: [number, number]) {
   await drag(page, a, b)
   const input = ai(page).getByRole('textbox', { name: '问 AI' })
   await expect(input).toBeFocused()
+  // 上一问发完焦点就留在输入框里，toBeFocused 马上过：等框的这块进了输入框（待问区那张图）再回车，不然回车时还是空的
+  await expect(ai(page).getByTestId('reading-att')).toHaveCount(1)
   await input.press('Enter')
   await expect(ai(page).getByTestId('reading-msg')).toHaveCount(n + 1)
-  await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+  await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
 }
 
 /** 纸离这一栏左右两边多远（常显的滚动条算在右边留白里） */

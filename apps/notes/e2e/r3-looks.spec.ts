@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { acts, launch, leftView, openAi, openNote, pane, rail, tabOn, waitSaved } from './app'
 import { DREAM_VAULT } from './fixtures/dream'
 import { FAKE_VIDEO_ID, startFakeVideoSite } from './fixtures/fake-video'
+import { OLD_ASK_FRAME, oldAskBlock, oldAskFrame } from './fixtures/old-ask-block'
 import { measureGaps } from './cjk-gap'
 import { LECTURE } from './fixtures/pdf'
 import { shotTone, shotWindow } from './shots'
@@ -191,7 +192,8 @@ async function emptyFits(page: Page) {
 
 test('窗口 700 高、上格开着视频时点「接着问」：下格 AI 的空状态放不下大标题就只留那一句，再放不下就不画，不被拦腰切；1600×1000 下整个露着', async () => {
   const NOTE = '看视频的笔记.md'
-  const run = await launch({ [NOTE]: '# 看视频的笔记\n\n我先写的一句。\n' }, { CN_AI_FAKE: '1', CN_AI_FAKE_DELAY_MS: '150', CN_VIDEO_TEST_ORIGIN: videoBase })
+  // 2026-11-24 起问框的问答写成小标题 + AI 回答框、不再插老的问答块：老文档里的问答块先写好
+  const run = await launch({ [NOTE]: `# 看视频的笔记\n\n我先写的一句。\n\n${oldAskBlock(videoBase)}\n`, [OLD_ASK_FRAME]: oldAskFrame() }, { CN_AI_FAKE: '1', CN_AI_FAKE_DELAY_MS: '150', CN_VIDEO_TEST_ORIGIN: videoBase })
   const { page } = run
   const web = page.getByRole('complementary', { name: '网页' })
   const guest = (code: string) => page.evaluate((c) => (document.querySelector('.right.web webview.on') as unknown as { executeJavaScript(c: string): Promise<unknown> }).executeJavaScript(c), code)
@@ -209,18 +211,6 @@ test('窗口 700 高、上格开着视频时点「接着问」：下格 AI 的�
     await expect(web.getByRole('region', { name: '视频条' })).toBeVisible({ timeout: 15_000 })
     await guest(`(() => { const v = document.querySelector('video'); v.currentTime = 6; v.pause(); return true })()`)
     await expect.poll(async () => Math.round(Number(await guest('document.querySelector("video").currentTime')))).toBe(6)
-    await pane(page).locator('.cm-content').click()
-    await page.keyboard.press('Alt+KeyD')
-    await expect.poll(() => guest(`!!document.getElementById('cn-video-host').shadowRoot.querySelector('.box')`)).toBe(true)
-    const wv = (await web.locator('webview.on').boundingBox())!
-    await page.mouse.move(wv.x + 120, wv.y + 60)
-    await page.mouse.down()
-    await page.mouse.move(wv.x + 220, wv.y + 140, { steps: 6 })
-    await page.mouse.up()
-    await web.getByRole('dialog', { name: '问 AI' }).getByRole('textbox', { name: '想问什么' }).press('Enter')
-    // 回答在问框里就地出来、同时写进文档（task-sta8n）：问框底行「已记进《…》」
-    await expect(web.getByRole('dialog', { name: '问 AI' }).getByRole('button', { name: /已记进/ })).toBeVisible({ timeout: 15_000 })
-    await waitSaved(page)
 
     // 文档里问答块「接着问」：右栏下格开 AI，输入框上面挂着那一帧和那一问
     await pane(page).getByText('我先写的一句。').click()

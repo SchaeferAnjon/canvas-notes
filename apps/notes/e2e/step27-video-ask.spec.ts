@@ -2,7 +2,8 @@
 // 问框在视频下面、不挡视频；头上是框住那块的小图、「问框住的这一块」、「00:06 这一帧 ·」和默认勾上的「带上前后字幕」；
 // 四个建议（「讲解这一块」「换个说法讲」两颗固定，另两颗小活看字幕现想）；多行输入；谁来答 · 模型 · effort（看不了图的灰着写「看不了图」）；
 // 最底下「记进《…》▾」能换（开着的这篇、新建一篇、收件箱、只问不记），这个视频记住。回车后回答在问框里就地出来，
-// 同时照旧写进文档的 AI 讲解块；接着问也写进同一块；「在 AI 标签里聊」把问答带去 AI 标签。esc：在答时停下，答完关掉。
+// 写进那篇本身、插在光标处（2026-11-24 AI 对话记笔记开关：一问一个小标题 + AI 回答框，不再插老的讲解块）；
+// 接着问也记进去；「在 AI 标签里聊」把问答带去 AI 标签。esc：在答时停下，答完关掉。
 // 视频站是本机假的（e2e/fixtures/fake-video.ts，当成 YouTube），AI 是假的（CN_AI_FAKE）。
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
@@ -63,7 +64,7 @@ async function videoBottom(page: Page): Promise<number> {
 
 const md = (vault: string) => readFileSync(join(vault, NOTE), 'utf8')
 
-test('问框：小图、带上前后字幕、四个建议、谁来答（看不了图的灰着）、多行输入、换记到哪；回车后回答在问框里出来、文档写进讲解块；接着问写进同一块；在 AI 标签里聊带过去', async () => {
+test('问框：小图、带上前后字幕、四个建议、谁来答（看不了图的灰着）、多行输入、换记到哪；回车后回答在问框里出来、写进那篇本身；接着问接在后面；在 AI 标签里聊带过去', async () => {
   test.setTimeout(120_000)
   const run = await launch({ [NOTE]: '# 看视频的笔记\n\n我先写的一句。\n' }, env())
   const { page, vault } = run
@@ -119,7 +120,7 @@ test('问框：小图、带上前后字幕、四个建议、谁来答（看不�
     const dm = web(page).getByRole('menu', { name: '记到哪' })
     await expect(dm.getByRole('menuitemradio')).toHaveText([/看视频的笔记.*开着的这篇/, /新建一篇.*用视频标题/, /收件箱/, /只问不记.*回答只在这张卡里/])
     await dm.getByRole('menuitemradio', { name: /收件箱/ }).click()
-    await expect(dest).toContainText('记进《收件箱》')
+    await expect(dest).toContainText('记进《Linear transformations and matrices》')
     await dest.click()
     await dm.getByRole('menuitemradio', { name: /开着的这篇/ }).click()
     await expect(dest).toContainText('记进《看视频的笔记》')
@@ -131,22 +132,21 @@ test('问框：小图、带上前后字幕、四个建议、谁来答（看不�
     await page.keyboard.type('为什么能定整个网格？')
     expect(await input.inputValue()).toBe('这两个箭头\n为什么能定整个网格？')
     expect((await input.boundingBox())!.height).toBeGreaterThan(h1 + 10)
-    // 回车问：问框里先是「AI 正在看 00:06 这一帧…」和停下；文档光标处同时出占位；焦点回到视频
+    // 回车问：问框里先是「AI 正在看 00:06 这一帧…」和停下；焦点回到视频（文档里不再出占位：答好才写进那篇）
     await page.keyboard.press('Enter')
     await expect(ask).toContainText('你问：这两个箭头')
     await expect(ask.getByTestId('ak-wait')).toContainText('AI 正在看 00:06 这一帧…')
     await expect(ask.getByRole('button', { name: /停下/ })).toBeVisible()
-    await expect(pane(page).locator('.cm-aiwait')).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.activeElement?.tagName.toLowerCase())).toBe('webview')
-    // 答好：回答在问框里，头上写着看了哪一帧、谁答的；文档里那块换成讲解块；底行「已记进《…》」
+    // 答好：回答在问框里，头上写着看了哪一帧、谁答的；写进那篇（问的原话做小标题、框住那块的小图）；底行「已记进《…》」
     const answer = ask.getByTestId('ak-answer').first()
     await expect(answer).toContainText('框里是 i 帽和 j 帽变换后的位置', { timeout: 15_000 })
     await expect(ask.getByTestId('ak-meta').first()).toContainText('看了 00:06 这一帧 · Claude Code · Opus 5.5 · Low')
     await expect(ask.getByRole('button', { name: /已记进《看视频的笔记》/ })).toBeVisible()
-    await expect(pane(page).locator('.cm-aiwait')).toHaveCount(0)
+    await expect.poll(() => md(vault)).toContain('我先写的一句。\n\n### 这两个箭头\n\n为什么能定整个网格？\n\n![我框的](')
+    expect(md(vault)).toContain('> [!ai] AI 回答 · Claude Code · Opus 5.5 · [回到 AI 对话](')
     await waitSaved(page)
-    await expect.poll(() => md(vault)).toContain('> [!ai] AI 讲解')
-    expect(md(vault)).toContain('<!-- moment-ask video=youtube:')
+    expect(md(vault)).not.toContain('moment-ask')
     // 回答下面那排（task-eavzx）：拷贝 · 插进文档 · ⋯ ｜ 还是不懂 · 换个方式讲；「接着问」拿掉了（问框下面就是输入框）
     const acts = ask.getByTestId('ak-ans-acts')
     // 问框窄：功能按钮带字，快捷回复排得下的排上、放不下的进 ⋯（eavzx-answer-sites 里数全两颗）
@@ -175,11 +175,12 @@ test('问框：小图、带上前后字幕、四个建议、谁来答（看不�
         return q.top >= r.top - 1 && q.bottom <= r.bottom + 1
       }),
     ).toBe(true)
-    await expect.poll(() => md(vault), { timeout: 10_000 }).toContain('> **接着问**：那网格线为什么还平行？')
-    expect(md(vault).match(/moment-ask/g)).toHaveLength(1)
-    // 「已记进」点了：文档滚到那块
+    await expect.poll(() => md(vault), { timeout: 10_000 }).toContain('\n### 那网格线为什么还平行？\n')
+    expect(md(vault).match(/^### /gm)).toHaveLength(2)
+    expect(md(vault)).not.toContain('AI 笔记')
+    // 「已记进」点了：中间是那篇
     await ask.getByRole('button', { name: /已记进/ }).click()
-    await expect(pane(page).locator('[data-part="问答块"]')).toBeInViewport()
+    await expect(page.getByTestId('tab-on')).toContainText('看视频的笔记')
 
     // ⋯ 里「到 AI 对话里接着聊」：问答都带过去
     await ask.getByTestId('ak-ans-acts').locator('[data-act="more"]').click()
@@ -215,6 +216,7 @@ test('问框：esc 在答时停下（这一问不记），答完关掉；只问�
     await expect(ask).toHaveCount(0)
     await page.waitForTimeout(3000)
     expect(md(vault)).not.toContain('moment-ask')
+    expect(md(vault)).not.toContain('[!ai]')
 
     // 只问不记：回答只在问框里，文档不动；记住这个视频选的
     await pane(page).getByText('我先写的一句。').click()
@@ -227,6 +229,7 @@ test('问框：esc 在答时停下（这一问不记），答完关掉；只问�
     await expect(ask).toContainText('没记进笔记（只问不记）')
     await page.waitForTimeout(800)
     expect(md(vault)).not.toContain('moment-ask')
+    expect(md(vault)).not.toContain('[!ai]')
     // 答完 esc：关掉问框
     await page.keyboard.press('Escape')
     await expect(ask).toHaveCount(0)

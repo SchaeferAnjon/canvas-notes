@@ -51,6 +51,8 @@ export interface AbReply {
 
 export interface AnswerBarProps {
   acts: readonly AbAct[]
+  /** ⋯ 最上面自成一组（分隔线上面，画布笔记放「记进《…》/ 从《…》拿掉」） */
+  head?: readonly AbMenuItem[]
   /** ⋯ 上面那一段：固定的功能 */
   menu?: readonly AbMenuItem[]
   /** 排上的快捷回复（放不下的进 ⋯） */
@@ -234,6 +236,10 @@ export function AnswerBar(p: AnswerBarProps) {
       {shown.map((r) => replyBtn(r))}
       {menu && (
         <AbMenu anchor={menu} label={p.text.more} onClose={close}>
+          {(p.head ?? []).map((it) => (
+            <MenuRow key={it.id} it={it} logo={p.logo} close={close} />
+          ))}
+          {(p.head ?? []).length > 0 && <div className="cn-ab-hr" />}
           {(p.menu ?? []).map((it) => (
             <MenuRow key={it.id} it={it} logo={p.logo} close={close} />
           ))}

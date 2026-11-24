@@ -88,7 +88,7 @@ async function relaunch(vault: string, userData: string) {
   return { app, page }
 }
 
-test('笔记逐字核：问题条是原话（主对话接着问的、旁支问的）、回答原文、旁支挂在被问那一问后面（追问不带引用句）、小结每答完一次重写、cn:thread 注释、我框的写宽度；图按 PDF 100% 的宽显示、截图 2 倍；我的疑惑是原话', async () => {
+test('笔记逐字核（2026-11-24 新写法）：一问一个小标题是原话（主对话接着问的、旁支问的）、回答原文、旁支挂在被问那一问后面（追问不带引用句）、不再有小结和身份注释、我框的写宽度；图按 PDF 100% 的宽显示、截图 2 倍；出卡是原话', async () => {
   const run = await launch({ [PDF]: LECTURE }, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   try {
@@ -100,66 +100,75 @@ test('笔记逐字核：问题条是原话（主对话接着问的、旁支问�
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
     await ai(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
     const first = ai(page).getByTestId('reading-msg').first()
-    await expect(first.locator('.noted')).toContainText('已记进笔记 · 第2页', { timeout: 20_000 })
+    await expect(first.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     let md = readFileSync(join(vault, NOTE), 'utf8')
-    const anchor = /\n\[第 2 页\]\(第3讲\.pdf#page=2&rect=([\d.]+),([\d.]+),([\d.]+),([\d.]+)\) · (\d\d:\d\d) <!-- cn:thread=第3讲-p2-1 -->\n/.exec(md)!
+    // 2026-11-24 AI 对话记笔记开关（偏好「不要PDF自动笔记样式」）：普通文档，一页一节「第 N 页 · 那页第一行大字」、一问一个「### 问的原话」，
+    // 框的图写宽度、「—— [第 N 页](…)」回到那一块、回答原文一块 [!ai]（块头带回到对话的链接）；不再有身份注释、问题条、小结，不让快模型起标题
+    const anchor = /\n## 第 2 页 · 3\.2 Definition\n\n### 给我讲解一下\n\n!\[我框的\|(\d+)\]\(\.\.\/\.\.\/附件\/第3讲\/p2-1\.png\)\n\n—— \[第 2 页\]\(第3讲\.pdf#page=2&rect=([\d.]+),([\d.]+),([\d.]+),([\d.]+)\)\n\n> \[!ai\] AI 回答 · Claude Code · Opus 5\.5 · \[回到 AI 对话\]\(canvas-notes:\/\/chat\?[^)]+\)\n> 这是讲解（第 2 页，图 1 张，读过全文，新会话）。用你在 \[第 2 页\]\(#page=2\) 弄懂的那条：列就是基向量去哪。\n/.exec(md)!
     expect(anchor).not.toBeNull()
-    const cropW = Number(/!\[我框的\|(\d+)\]\(\.\.\/\.\.\/附件\/第3讲\/p2-1\.png\)/.exec(md)![1])
+    const cropW = Number(anchor[1])
     // 我框的图的宽 = 框在 PDF 上 100% 时的宽（612 宽的页 × 框的比例）
-    expect(Math.abs(cropW - 612 * Number(anchor[3]))).toBeLessThanOrEqual(1)
-    // 问题原话、回答原文（去掉可视化那一行标记），不再有我的疑惑、讲通的讲法、要点、完整对话
-    expect(md).toContain(`<!-- cn:thread=第3讲-p2-1 -->\n\n![我框的|${cropW}](../../附件/第3讲/p2-1.png)\n\n> [!question] 给我讲解一下\n\n这是讲解（第 2 页，图 1 张，读过全文，新会话）。用你在 [第 2 页](#page=2) 弄懂的那条：列就是基向量去哪。\n\n> [!recap] 测试小结：主对话问了 1 句。\n`)
-    expect(md).not.toMatch(/我的疑惑|讲通的讲法|要点|完整对话|\[!ai\]|〔/)
-    expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('笔记：第3讲 第 2 页 · 测试小标题 p2')
+    expect(Math.abs(cropW - 612 * Number(anchor[4]))).toBeLessThanOrEqual(1)
+    expect(md).not.toMatch(/我的疑惑|讲通的讲法|要点|完整对话|cn:thread|\[!question\]|\[!recap\]|测试小标题|〔/)
+    await expect.poll(() => gitOut(vault, 'log', '-1', '--format=%s')).toBe('笔记：第3讲 笔记 · 给我讲解一下')
 
-    // 主对话接着问（「还是不懂」）：再一个问题条，小结重写
+    // 主对话接着问（「还是不懂」）：再一问，接在这一节后面，不再放图和来源行
     await first.getByRole('button', { name: '还是不懂' }).click()
-    await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     // 旁支：在第一个回答里选一句，问，再追问一句
     await selectText(page, first.locator('.txt'), '列就是', '去哪')
     await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么是列？')
     await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
+    await expect(side(page).getByTestId('side-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     await side(page).getByRole('textbox', { name: '问 AI' }).fill('那行呢？')
     await side(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
     await expect(side(page).getByTestId('side-msg')).toHaveCount(2)
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
-    await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toContain('> [!recap] 测试小结：主对话问了 2 句，旁支问了 2 句。')
+    await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toContain('#### 旁支：那行呢？')
     md = readFileSync(join(vault, NOTE), 'utf8')
-    const section = md.slice(md.indexOf('## 第 2 页'))
+    const section = md.slice(md.indexOf('## 第 2 页')).replace(/\]\(canvas-notes:\/\/chat\?[^)]+\)/g, '](L)')
+    // 旁支挂在被问那一问后面（在「还是不懂」之前）；同一条旁支追问的不再引那一句
     expect(section).toBe(
       [
-        '## 第 2 页 · 测试小标题 p2',
-        `[第 2 页](第3讲.pdf#page=2&rect=${anchor.slice(1, 5).join(',')}) · ${anchor[5]} <!-- cn:thread=第3讲-p2-1 -->`,
+        '## 第 2 页 · 3.2 Definition',
+        '',
+        '### 给我讲解一下',
         '',
         `![我框的|${cropW}](../../附件/第3讲/p2-1.png)`,
         '',
-        '> [!question] 给我讲解一下',
+        `—— [第 2 页](第3讲.pdf#page=2&rect=${anchor.slice(2, 6).join(',')})`,
         '',
-        '这是讲解（第 2 页，图 1 张，读过全文，新会话）。用你在 [第 2 页](#page=2) 弄懂的那条：列就是基向量去哪。',
+        '> [!ai] AI 回答 · Claude Code · Opus 5.5 · [回到 AI 对话](L)',
+        '> 这是讲解（第 2 页，图 1 张，读过全文，新会话）。用你在 [第 2 页](#page=2) 弄懂的那条：列就是基向量去哪。',
         '',
-        '> [!side] 为什么是列？',
-        '> > 列就是基向量去哪',
-        '>',
+        '#### 旁支：为什么是列？',
+        '',
+        '> 列就是基向量去哪',
+        '> —— 在「给我讲解一下」的回答里',
+        '',
+        '> [!ai] 旁支回答 · Claude Code · Opus 5.5 · [回到 AI 对话](L)',
+        // 假 AI 的旁支回答自己带这个小标题（回答原文照写）
         '> #### 旁支的回答',
         '>',
         '> 这是旁支的回答（第 ? 页，图 0 张，没读全文，旁支，从 fake-read-claude 分叉）：讲「列就是基向量去哪」，问的是「为什么是列？」。',
         '>',
         '> 第二段：门槛减掉，不清零。',
         '',
-        '> [!side] 那行呢？',
-        '>',
+        '#### 旁支：那行呢？',
+        '',
+        '> [!ai] 旁支回答 · Claude Code · Opus 5.5 · [回到 AI 对话](L)',
+        // 假 AI 的旁支回答自己带这个小标题（回答原文照写）
         '> #### 旁支的回答',
         '>',
         '> 这是旁支的回答（第 ? 页，图 0 张，没读全文，接着聊）：讲「列就是基向量去哪」，问的是「那行呢？」。',
         '>',
         '> 第二段：门槛减掉，不清零。',
         '',
-        '> [!question] 还是不懂',
+        '### 还是不懂',
         '',
-        '换个方式讲（第 2 页，图 0 张，读过全文，接着聊）：先别看公式，看图。',
-        '',
-        '> [!recap] 测试小结：主对话问了 2 句，旁支问了 2 句。',
+        '> [!ai] AI 回答 · Claude Code · Opus 5.5 · [回到 AI 对话](L)',
+        '> 换个方式讲（第 2 页，图 0 张，读过全文，接着聊）：先别看公式，看图。',
         '',
       ].join('\n'),
     )
@@ -199,7 +208,8 @@ test('笔记逐字核：问题条是原话（主对话接着问的、旁支问�
   }
 })
 
-test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶上搜、下面「全部 · 只看我问的 · 旁支」+ N轮 · N问，最近一轮展开、旧的收成一行（第N页 · 标题、小结前半句、几问 · 时间），点开展开；问题条、旁支、小结的样子；「第N页 ›」点了 PDF 翻过去框闪；搜得到原话、回答、小结', async () => {
+// AI 对话记笔记开关（新写法）起：不再让快模型起段标题、写小结，一轮的标题是问的原话，没有小结那一行；右栏照新写法显示问的原话、回答原文、旁支
+test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶上搜、下面「全部 · 只看我问的 · 旁支」+ N轮 · N问，最近一轮展开、旧的收成一行（第N页 · 问的原话、几问 · 时间），点开展开；问题条、回答原文、旁支的样子，没有 AI 标题和小结；「第N页 ›」点了 PDF 翻过去框闪；搜得到原话、回答、旁支', async () => {
   const run = await launch({ [PDF]: LECTURE }, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -209,7 +219,7 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
     await ai(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
     const first = ai(page).getByTestId('reading-msg').first()
-    await expect(first.locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(first.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     await selectText(page, first.locator('.txt'), '列就是', '去哪')
     await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么是列？')
     await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
@@ -224,7 +234,7 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     await drawBox(page, 4, [0.1, 0.2], [0.6, 0.4])
     await expect(ai(page).getByTestId('reading-att').locator('img')).toBeVisible()
     await ai(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
-    await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记 · 第4页', { timeout: 20_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     const n = notes(page)
     await expect(n).toBeVisible()
@@ -235,23 +245,27 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     expect(await css(srch, ['border-radius'])).toEqual({ 'border-radius': '8px' })
     await expect(n.getByTestId('cards-open')).toHaveText('出卡 · 3问')
     await expect(n.getByRole('tablist', { name: '笔记筛选' }).getByRole('tab')).toHaveText(['全部', '只看我问的', '旁支'])
-    // 每一轮默认展开（2026-11-23 起）；点「全部收起」都收成一行：40 高，「第2页 · 标题」500 + 小结前半句（12 --t3 省略号）+ 右边「2问 · 今天 时间」
+    // 每一轮默认展开（2026-11-23 起）；点「全部收起」都收成一行：40 高，「第2页 · 问的原话」+ 右边「2问 · 今天 时间」（新写法没有小结）
     const rounds = n.getByTestId('note-round')
     await expect(rounds).toHaveCount(2)
-    await expect(rounds.locator('.rh h3')).toHaveText(['第2页 · 测试小标题 p2', '第4页 · 测试小标题 p4'])
+    await expect(rounds.locator('.rh h3')).toHaveText(['第2页 · 给我讲解一下', '第4页 · 给我讲解一下'])
+    await expect(n.getByText('测试小标题')).toHaveCount(0)
+    await expect(n.locator('.recap')).toHaveCount(0)
+    // 回答原文照排：两轮的回答都在
+    await expect(rounds.first().locator('.qa > .am').first()).toContainText('这是讲解（第 2 页')
+    await expect(rounds.last().locator('.qa > .am').first()).toContainText('这是讲解（第 4 页')
     await n.getByTestId('notes-fold-all').click()
     await expect(rounds.locator('.fh')).toHaveCount(2)
     const fold = rounds.first()
     await expect(fold).toHaveClass(/\bfold\b/)
     expect((await box(fold.locator('.fh'))).height).toBe(40)
-    await expect(fold.locator('.tt')).toHaveText('第2页 · 测试小标题 p2')
-    await expect(fold.locator('.rc')).toHaveText('测试小结：主对话问了 1 句，旁支问了 1 句。')
-    expect(await css(fold.locator('.rc'), ['font-size', 'text-overflow'])).toEqual({ 'font-size': '12px', 'text-overflow': 'ellipsis' })
+    await expect(fold.locator('.tt')).toHaveText('第2页 · 给我讲解一下')
+    await expect(fold.locator('.rc')).toHaveText('')
     await expect(fold.locator('.r')).toHaveText(/^2问 · 今天 \d\d:\d\d$/)
-    // 点开第 4 页那轮：「第4页 · 标题」15/600 + 右边「1问 · 时间」，下一行「第4页 ›」「· 我框的」，主问题条整栏宽 --fill2 圆角 6
+    // 点开第 4 页那轮：「第4页 · 问的原话」15/600 + 右边「1问 · 时间」，下一行「第4页 ›」「· 我框的」，主问题条整栏宽 --fill2 圆角 6
     await rounds.last().locator('.fh').click()
     const open = rounds.last()
-    await expect(open.locator('.rh h3')).toHaveText('第4页 · 测试小标题 p4')
+    await expect(open.locator('.rh h3')).toHaveText('第4页 · 给我讲解一下')
     expect(await css(open.locator('.rh h3'), ['font-size', 'font-weight'])).toEqual({ 'font-size': '15px', 'font-weight': '600' })
     await expect(open.locator('.rh .r')).toHaveText(/^1问 · 今天 \d\d:\d\d$/)
     await expect(open.locator('.loc')).toHaveText('第4页 ›· 我框的')
@@ -259,8 +273,8 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     await expect(qs).toHaveText(['给我讲解一下'])
     expect(await css(qs, ['border-radius', 'font-weight'])).toEqual({ 'border-radius': '6px', 'font-weight': '500' })
     expect(Math.abs((await box(qs)).width - (await box(open)).width)).toBeLessThanOrEqual(1)
-    await expect(open.locator('.recap b')).toHaveText('小结')
-    await expect(open.locator('.recap span')).toHaveText('测试小结：主对话问了 1 句。')
+    await expect(open.locator('.qa > .am').first()).toContainText('这是讲解（第 4 页')
+    await expect(open.locator('.recap')).toHaveCount(0)
     // 「第 4 页 ›」：PDF 翻过去，框闪
     await open.locator('.loc button').click()
     await expect(pdfPane(page).locator('.pdfslot').nth(3).getByTestId('pdf-flash')).toBeAttached()
@@ -268,7 +282,7 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     // 点开旧的那轮：展开；旁支缩进一级（左边距 18、左内边距 12、2px 竖线），被问的那句一行 12 --t3，旁支的问题条 78% 宽
     await fold.locator('.fh').click()
     const r2 = rounds.first()
-    await expect(r2.locator('.rh h3')).toHaveText('第2页 · 测试小标题 p2')
+    await expect(r2.locator('.rh h3')).toHaveText('第2页 · 给我讲解一下')
     const sd = r2.locator('.nside')
     expect(await css(sd, ['margin-left', 'padding-left', 'border-left-width', 'border-left-style'])).toEqual({ 'margin-left': '18px', 'padding-left': '12px', 'border-left-width': '2px', 'border-left-style': 'solid' })
     // 不带上左栏（.side）的样子：没有底色、右边线、上边的空，也不是拖窗口的区域（以前撞名，旁支那块点不了、选不了字）
@@ -284,16 +298,16 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     await expect(sd.locator('.am .md-h')).toHaveText('旁支的回答')
     await expect(r2.locator('.qa > .am .asked')).toHaveText('列就是基向量去哪。')
     await expect(r2.locator('.qa > .am .badge')).toHaveText('1')
-    // 搜：原话、回答、小结都搜得到；搜的时候命中的那几轮都展开
+    // 搜：原话、回答、旁支都搜得到；搜的时候命中的那几轮都展开
     const find = n.getByRole('textbox', { name: '在这份笔记里找' })
     await find.fill('为什么是列')
     await expect(rounds).toHaveCount(1)
     await expect(n.getByTestId('cards-open')).toHaveText('出卡 · 3问')
     await find.fill('门槛减掉')
     await expect(rounds).toHaveCount(1)
-    await find.fill('主对话问了 1 句。')
+    await find.fill('第 4 页，图 1 张')
     await expect(rounds).toHaveCount(1)
-    await expect(rounds.locator('.rh h3')).toHaveText('第4页 · 测试小标题 p4')
+    await expect(rounds.locator('.rh h3')).toHaveText('第4页 · 给我讲解一下')
     await find.fill('没有这句话')
     await expect(rounds).toHaveCount(0)
     await expect(n.locator('.nempty')).toHaveText('这份笔记里没有「没有这句话」')
@@ -340,7 +354,8 @@ const OLD = [
   '',
 ].join('\n')
 
-test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、讲通的讲法、要点、完整对话），不自动改写；同一处再问时这一段整段换成新格式，别的段、自己写的字不动', async () => {
+test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、讲通的讲法、要点、完整对话），不自动改写；同一处再问时新写法接在那一段后面（那一段一字节不动），别的段、自己写的字不动', async () => {
+  const FILLED = OLD.replace('· 10:20\n', '· 10:20\n\n![我框的](../../附件/第3讲/p2-1.png)\n')
   const run = await launch({ [PDF]: LECTURE, [NOTE]: OLD, '课程/线代/第4讲 特征值.md': '# 第4讲 特征值\n' }, { CN_AI_FAKE: '1' })
   const { page, vault, userData } = run
   const root = dirname(vault)
@@ -362,7 +377,6 @@ test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、�
     await expect(r1.locator('.nsf')).toContainText('完整对话 · 1轮')
     await expect(r1.locator('.nsf .wl')).toHaveText('[[第4讲 特征值]]')
     // 看过不改写；只是有框的位置、没有图的那一段补上一张「我框的」图（task-yp8l7，只插一行，别的字不动）；第 4 页那段没记框的位置，不补
-    const FILLED = OLD.replace('· 10:20\n', '· 10:20\n\n![我框的](../../附件/第3讲/p2-1.png)\n')
     await expect.poll(() => readFileSync(join(vault, NOTE), 'utf8'), { timeout: 15_000 }).toBe(FILLED)
   } finally {
     await run.close({ keep: true })
@@ -389,32 +403,16 @@ test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、�
     const ta = ai(page).getByRole('textbox', { name: '问 AI' })
     await ta.fill('那第二条呢？')
     await ta.press('Enter')
-    await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     const md = readFileSync(join(vault, NOTE), 'utf8')
-    // 这一段换成新格式：身份还是那一处，问题原话、回答原文；双链留着
-    expect(md).toContain(
-      [
-        '## 第 2 页 · 测试小标题 p2',
-        '[第 2 页](第3讲.pdf#page=2&rect=0.1,0.2,0.5,0.2) · ' + /\[第 2 页\]\(第3讲\.pdf#page=2&rect=0\.1,0\.2,0\.5,0\.2\) · (\d\d:\d\d) <!--/.exec(md)![1] + ' <!-- cn:thread=第3讲-p2-1 -->',
-        '',
-        // 打开时补上的图，换成新格式时留着
-        '![我框的](../../附件/第3讲/p2-1.png)',
-        '',
-        '> [!question] 给我讲解一下',
-        '',
-        '以前的回答：先看图，再看公式。',
-        '',
-        '> [!question] 那第二条呢？',
-        '',
-      ].join('\n'),
-    )
-    expect(md).toContain('> [!recap] 测试小结：主对话问了 2 句。\n\n[[第4讲 特征值]]\n')
-    expect(md).not.toContain('旧的一段')
-    expect(md).not.toContain('整块没看懂：第 2 页框的这块')
+    // 2026-11-24 起旧的那一段不再整段换：一字节不动（打开时补上的图照旧在），同一处接着问的用新写法接在它后面（同一页新起一节）
+    const old2 = FILLED.slice(FILLED.indexOf('## 第 2 页'), FILLED.indexOf('## 第 4 页'))
+    expect(md).toContain(old2 + '## 第 2 页 · 3.2 Definition\n\n### 那第二条呢？\n\n> [!ai] AI 回答 · ')
+    expect(md).toContain('旧的一段')
+    expect(md).not.toMatch(/\[!recap\] 测试小结|测试小标题/)
     // 别的段、自己写的字原样
     expect(md).toContain(OLD.slice(OLD.indexOf('## 第 4 页'), OLD.indexOf('## 我自己记的')))
     expect(md.endsWith('## 我自己记的\n\n考试要考。\n')).toBe(true)
-    expect(md.match(/^## 第 2 页/gm)).toHaveLength(1)
   } finally {
     await app.close()
     rmSync(root, { recursive: true, force: true })

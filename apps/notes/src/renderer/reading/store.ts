@@ -3,7 +3,7 @@
  * 对话、问过的地方、框好还没发的那块、笔记读回来的段、要跳到哪、要看笔记哪一段。
  * 存盘的部分（看到哪页、对话）交给主进程存在软件设置目录；笔记本身在库里。
  */
-import { type AskSection, blocksText, CONFUSED, confusedAsk, confusedOf, DEFAULT_KINDS, type HlKind, decorativeImages, documentBlocks, type FigureBox, insideCrop, locateFigure, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect, toPageRect } from '@cn/format'
+import { type AskSection, blocksText, CONFUSED, confusedAsk, confusedOf, DEFAULT_KINDS, type HlKind, documentBlocks, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect } from '@cn/format'
 import { useSyncExternalStore } from 'react'
 import { setHlKindsNow } from './hl-kinds'
 import type { EngineId, ToolStep } from '../../shared/agent'
@@ -11,13 +11,17 @@ import { type AiPick, convPick, pickLabel, pickReq } from '../../shared/ai-featu
 import { imageNames, type Material, shiftMarks } from '../../shared/materials'
 import { type AskResult, type ReadingMsg, type ReadingSide, type ReadingState, type ReadingThread, readLine, withoutVizMark } from '../../shared/reading'
 import { titleOf } from '../../shared/layout'
-import { fmtTime } from '../../shared/video'
+import { fmtTime, timeUrl, videoOf } from '../../shared/video'
 import { pageText, pdfDoc, renderCrop } from './pdf'
+import { pageTitle } from '../../shared/pdf-page-title'
+import { type NoteAppendRequest, type NoteKind } from '../../shared/ai-note'
+import { readKey } from '../../shared/ai-chats'
+import { noteSwitchNow } from '../ai-note-switch'
 import { webHost } from '../plugins/host'
-import { centerNow } from '../video/store'
 import { clearWebBox } from './web-bridge'
 import { ASK_THIS, sideName as nameOf } from '../side/name'
-import { backLabel } from '../../shared/web-link'
+import { backLabel, fragmentUrl } from '../../shared/web-link'
+import { pageHead } from '../../shared/read-along'
 
 /** 框好、还没发的那一块（右栏输入框里那张小图） */
 export interface Pending {
@@ -46,12 +50,14 @@ export const ASK_PAGE = 'cn:reading-ask-page'
 
 /** 来源是右栏网页（中间栏没开 PDF、HTML 时框着问）：「web:<网址>」 */
 export const isWebSrc = (src: string) => src.startsWith('web:')
-/** 一问答好以后一问一块写进这个网页正在剪进去的那篇（task-6cxtc）：网页那一处、不是视频问答块「接着问」那一串（带着视频时刻 t，照旧记进那块问答所在的那篇） */
-const toWebNote = (src: string, web: { t?: number } | undefined) => isWebSrc(src) && web?.t === undefined
-/** 这会儿发一问会不会写进网页的那篇（要先定记到哪篇）：看待问的那块，没有就看接着的那一串 */
+/**
+ * 这会儿发一问会不会记进网页那篇的 AI 笔记（要先定挂在哪篇，task-6cxtc 的「记到哪篇」）：网页那一处、「记笔记」开着；
+ * 看待问的那块，没有就看接着的那一串（视频问框带过来的那一串记进问框那篇，不问）
+ */
 export function sendsToWebNote(src: string): boolean {
   const r = get(src)
-  return toWebNote(src, r.pending ? r.pending.web : r.state.threads.find((t) => t.id === r.activeThread)?.web)
+  const th = r.pending ?? r.state.threads.find((t) => t.id === r.activeThread)
+  return kindOf(src, th) === 'web' && !(th && 'note' in th && th.note) && noteSwitchNow('web').main
 }
 
 /** 排着的一问。page：答的时候按 ⌘↵ 排上的，发出时和平时的 ⌘↵ 一样带上那一页；mats：带的材料（字里的 ①② 是它们的位置） */
@@ -212,45 +218,47 @@ export function setPick(pdf: string, pick: AiPick) {
  * 这一问用的哪家、哪个模型、哪一档和回答头上那一行（CN-91）：哪家跟设置 › AI「AI 对话」那一行，
  * 这份 PDF 的对话自己选过模型、effort 就用自己的（ReadingAi 底行那三颗显示的就是它）
  */
-async function pickNow(pdf: string): Promise<{ pick: AiPick; by: string; doc: string; req: { model?: string; effort?: string } }> {
+async function pickNow(pdf: string): Promise<{ pick: AiPick; by: string; req: { model?: string; effort?: string } }> {
   const ai = await window.cn.aiEngines()
   const pick = convPick(ai.engines, ai.chat, get(pdf).state.pick)
   engineNow = pick.engine
   const models = ai.engines.find((e) => e.id === pick.engine)?.models
-  // 写进文档的块头不带档（同视频框一块问写进文档的讲解）
-  return { pick, by: pickLabel(pick, models), doc: pickLabel({ engine: pick.engine, ...(pick.model ? { model: pick.model } : {}) }, models), req: pickReq(pick) }
+  return { pick, by: pickLabel(pick, models), req: pickReq(pick) }
+}
+
+/** 这一处在看什么（记笔记开关按它分，shared/ai-note.ts）：PDF、库里的 HTML 是 pdf；网页上问的看是视频（视频网页、问框带过来的那一处）还是网页 */
+export function kindOf(src: string, th?: { web?: { t?: number } } | null): Extract<NoteKind, 'pdf' | 'web' | 'video'> {
+  if (!isWebSrc(src)) return 'pdf'
+  return th?.web?.t !== undefined || videoOf(src.slice(4)) ? 'video' : 'web'
 }
 
 /**
- * 网页上问的（不是视频「接着问」）答完以后写进这个网页正在剪进去的那篇（task-6cxtc）：一问一块 [!ai]。
- * 写法和记到哪篇在 web-notes/flow.ts（它登记进来，免得两边互相引用）；返回记进了哪篇，没记（这次只问不记、还没定）是 null
+ * 网页、视频那一处的问答写进哪篇（2026-11-24 偏好「剪藏和AI笔记同一篇」）：网页是配成一对的剪藏那篇，视频是「记到哪」那篇，写进那篇本身、
+ * 和剪藏混排。web-notes/flow.ts 登记进来（免得两边互相引用）。
+ * now：现在定没定（界面显示用，不问）；ask：答完要记了，还没定就问一句（网页贴着输入框问记到哪篇、视频照「记到哪」建好那篇），取消、只问不记是 null；
+ * put：把拼好的那几行写进那篇（中间看得见那篇插在光标处，不然接在末尾）、提交
  */
-export interface WebNote {
-  src: string
-  thread: ReadingThread
-  question: ReadingMsg
-  answer: string
-  by: string
+export interface NoteParents {
+  now(kind: 'web' | 'video', url: string): string | null
+  ask(kind: 'web' | 'video', url: string, title: string): Promise<string | null>
+  put(note: string, md: string, o: { files: string[]; subject: string; src: string }): Promise<void>
 }
-type WebNoteWriter = (n: WebNote) => Promise<{ path: string; title: string } | null>
-let webNoteWriter: WebNoteWriter | null = null
-/** 这个网页选了「这次只问，不记」（问了也不写进哪篇） */
-let webSkips: ((url: string) => boolean) | null = null
-export const setWebNoteWriter = (w: WebNoteWriter | null, skips: ((url: string) => boolean) | null = null) => {
-  webNoteWriter = w
-  webSkips = skips
+let parents: NoteParents | null = null
+export const setNoteParents = (p: NoteParents | null) => void (parents = p)
+
+/** 这一处记进哪篇（库里的路径）、还没有时怎么建；还没定是 null。th：哪一处（视频问框带过来的记进问框那篇） */
+export function noteTargetNow(src: string, th?: ReadingThread | null): { note: string; create?: NoteAppendRequest['create']; inline?: true } | null {
+  const kind = kindOf(src, th)
+  if (kind === 'pdf') return { note: get(src).note.path, create: { pdf: src } }
+  const note = th?.note ?? parents?.now(kind, th?.web?.url ?? src.slice(4)) ?? null
+  return note ? { note, inline: true } : null
 }
 
-async function writeWebNote(pdf: string, th: ReadingThread, user: ReadingMsg, aiId: number, by: string) {
-  if (!webNoteWriter) return
-  patchMsg(pdf, aiId, { note: 'writing' })
-  try {
-    const answer = withoutVizMark(get(pdf).state.msgs.find((m) => m.id === aiId)?.text ?? '').text
-    const r = await webNoteWriter({ src: pdf, thread: th, question: user, answer, by })
-    patchMsg(pdf, aiId, r ? { note: 'done', noteTo: `《${r.title}》` } : { note: undefined })
-  } catch (e) {
-    patchMsg(pdf, aiId, { note: 'error', noteError: noteErr(e) })
-  }
+async function noteTarget(src: string, th: ReadingThread): Promise<{ note: string; create?: NoteAppendRequest['create']; inline?: true } | null> {
+  const kind = kindOf(src, th)
+  if (kind === 'pdf' || th.note) return noteTargetNow(src, th)
+  const note = (await parents?.ask(kind, th.web?.url ?? src.slice(4), th.web?.title ?? get(src).webTitle ?? '')) ?? null
+  return note ? { note, inline: true } : null
 }
 
 /** ⌘J、右下角圆钮打开的 AI：打开后光标进输入框（打开 PDF 时自己出来的那次不抢焦点） */
@@ -321,11 +329,14 @@ export async function load(pdf: string) {
   const sides = (state.sides ?? []).filter((s) => s.msgs.length).map((s) => ({ ...s, msgs: s.msgs.map(settled) }))
   const last = [...msgs].reverse().find((m) => m.role === 'user')
   update(pdf, () => ({ loaded: true, state: { ...state, msgs, sides }, activeThread: last?.thread ?? null, note: { ...note, sections: parseReadingNote(note.text, note.path) } }))
+  void syncNoted(pdf).catch((e: unknown) => console.error('认记过的问没认成', e))
 }
 
+/** 笔记重读（记了一问、划了线、笔记改了）：「已记进」那几行跟着笔记里认 */
 export async function reloadNote(pdf: string) {
   const note = await window.cnReading.readNote(pdf)
   update(pdf, () => ({ note: { ...note, sections: parseReadingNote(note.text, note.path) } }))
+  await syncNoted(pdf)
 }
 
 export function setPage(pdf: string, page: number) {
@@ -487,19 +498,6 @@ async function blocksOf(pdf: string, page: number): Promise<PdfBlock[]> {
   return pageBlocks(await pageText(doc, page), page)
 }
 
-/**
- * 记笔记用的块：去掉校徽、页眉 logo 这类小图和每页重复的图（CN-60），AI 挑配图时看不到它们；
- * 这一页挑不出图时就不放第二张图（上面已经有整页或框选的截图）
- */
-async function figureBlocks(pdf: string, page: number): Promise<PdfBlock[]> {
-  const blocks = await blocksOf(pdf, page)
-  const doc = pdfDoc(pdf)
-  if (!doc || !blocks.some((b) => b.kind === 'image')) return blocks
-  const vp = (await doc.getPage(page)).getViewport({ scale: 1 })
-  const drop = decorativeImages(blocks, { w: vp.width, h: vp.height }, Object.values(get(pdf).blocks))
-  return blocks.filter((b) => !drop.has(b.id))
-}
-
 // ---------- 框一块、问 ----------
 
 /**
@@ -523,17 +521,18 @@ export function stage(pdf: string, p: Pending, sentAt?: number) {
  * （记着视频、第几秒、那几问和回答，框的那一帧是这一处的图），几问几答照原样摆成消息，第一问带着那一帧；
  * 这一处成了接着问的那一处：在 AI 标签里问，AI 看得到那一帧（第一次附上）、那几问和回答、前后字幕
  */
-export async function adoptVideoQa(src: string, v: { url: string; title: string; t: number; image?: string; qa: { q: string; a: string; by: string }[] }) {
+export async function adoptVideoQa(src: string, v: { url: string; title: string; t: number; image?: string; note?: string; qa: { q: string; a: string; by: string; id?: number }[] }) {
   if (!v.qa.length) return
   await load(src)
   const now = Date.now()
   const id = await window.cnReading.newThread(src, 0)
   const answer = v.qa.map((x, i) => (i ? `接着问：${x.q}\n${x.a}` : x.a)).join('\n\n')
-  const th: ReadingThread = { id, page: 0, quote: v.qa[0]!.q, ...(v.image ? { crop: v.image } : {}), web: { url: v.url, title: v.title, t: v.t, answer: answer.slice(0, 4000) }, createdAt: now }
+  // 问框记进的那篇 AI 笔记：在这里接着问的也记进它（问框记过的几问已经在那篇里，那几条回答照用问框的编号，认得出记过了）
+  const th: ReadingThread = { id, page: 0, quote: v.qa[0]!.q, ...(v.image ? { crop: v.image } : {}), web: { url: v.url, title: v.title, t: v.t, answer: answer.slice(0, 4000) }, createdAt: now, ...(v.note ? { note: v.note } : {}) }
   const read = `看了 ${fmtTime(v.t)} 这一帧`
   const msgs: ReadingMsg[] = v.qa.flatMap((x, i): ReadingMsg[] => [
     { id: nextSeq(), role: 'user', thread: id, text: x.q, time: now, page: 0, ...(i === 0 && v.image ? { image: v.image } : {}) },
-    { id: nextSeq(), role: 'ai', thread: id, text: x.a, time: now, page: 0, read, by: x.by },
+    { id: x.id ?? nextSeq(), role: 'ai', thread: id, text: x.a, time: now, page: 0, read, by: x.by, ...(v.note && x.id ? { note: 'done' as const, notePath: v.note } : {}) },
   ])
   update(src, (r) => ({ activeThread: id, state: { ...r.state, threads: [...r.state.threads, th], msgs: [...r.state.msgs, ...msgs] } }))
   save(src)
@@ -672,7 +671,7 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
   const r = get(pdf)
   const now = Date.now()
   // 谁来答、模型、effort：这份 PDF 的对话选的（没选过用「AI 对话」那一行），回答头上写全
-  const { pick, by, doc, req } = await pickNow(pdf)
+  const { pick, by, req } = await pickNow(pdf)
   const engine = pick.engine
   // 材料里的图和粘贴的图一样附上（按顺序，排在框的那块后面）
   const images = [...pasted, ...imageNames(mats).filter((n) => !pasted.includes(n))]
@@ -681,8 +680,8 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
   if (p) {
     const id = await window.cnReading.newThread(pdf, p.page)
     if (p.image) image = p.image
-    // 网页上框着问、这个网站选了「这次只问，不记」（task-6cxtc）：截图不进库（不会写进哪篇，进库就成了没人用的附件），当粘贴的图附上
-    else if (p.png && isWebSrc(pdf) && webSkips?.(p.web?.url ?? pdf.slice(4))) {
+    // 网页上框着问、「记笔记」关着（Where「这次只问，不记」也是关它）：截图不进库（不会写进哪篇，进库就成了没人用的附件），当粘贴的图附上
+    else if (p.png && isWebSrc(pdf) && !noteSwitchNow(kindOf(pdf, p)).main) {
       const name = await window.cn.aiPaste(p.png, 'image/png')
       images.unshift(name)
       pasted = [name, ...pasted]
@@ -712,6 +711,8 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
   const th = thread
   // 视频问框带过来的那一处（adoptVideoQa）：在这里第一次问 AI 时附上框的那一帧（之后接着这个会话，不再附）
   const carried = !p && th.web?.t !== undefined && th.crop && !r.state.msgs.some((m) => m.thread === th.id && m.role === 'ai' && m.engine) ? th.crop : undefined
+  // 记不记按发问那一刻的「记笔记」开关算（关掉后再答完的这一问也不记）
+  const noNote = !noteSwitchNow(kindOf(pdf, th)).main
   const userMsg: ReadingMsg = {
     id: nextSeq(),
     role: 'user',
@@ -719,6 +720,7 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     text: text.trim(),
     time: now,
     page: th.page,
+    ...(noNote ? { noNote: true as const } : {}),
     ...(image ? { image } : {}),
     ...(pasted.length ? { pasted } : {}),
     ...(mats.length ? { mats } : {}),
@@ -746,24 +748,19 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     ...(mats.length ? { mats } : {}),
   })
   const full = res.text || get(pdf).state.msgs.find((m) => m.id === aiId)?.text || ''
-  const { text: answer, viz, figure } = withoutVizMark(full)
-  // 配图的框：附的是框的那块就换成整页上的比例（附的是整页就原样）
-  const fig = figure && image && !isWebSrc(pdf) ? { rect: toPageRect(figure.rect, th.rect), caption: figure.caption } : null
+  const { text: answer, viz } = withoutVizMark(full)
   patchMsg(pdf, aiId, {
     text: answer,
     read: readOf(th, answer, get(pdf).note.sections),
     ...(viz && !res.error ? { vizOk: true } : {}),
-    ...(fig ? { fig } : {}),
     ...(res.error ? { error: res.error } : {}),
     ...changeOf(res),
   })
   if (res.commit || res.failed) window.dispatchEvent(new CustomEvent(AI_CHANGED))
   if (res.error || !res.text.trim()) return
-  // 选中小条上那颗选了「只在 AI 栏答」（task-26nz7）：答在这里，不写进笔记
-  if (th.noNote) return
-  // 网页上问的（中间没开 PDF、HTML）：一问一块写进这个网页正在剪进去的那篇（task-6cxtc）；视频问答块「接着问」照旧
-  if (toWebNote(pdf, th.web)) void writeWebNote(pdf, th, userMsg, aiId, doc)
-  else void writeNote(pdf, th.id, aiId, engine)
+  // 选中小条上那颗选了「只在 AI 栏答」（task-26nz7）、发问时「记笔记」关着：答在这里，不写进笔记
+  if (th.noNote || noNote) return
+  void noteAsk(pdf, aiId)
 }
 
 /** AI 这一问动手改了库里的文件（2026-11-19）：界面刷新左栏、底栏（App 听这个） */
@@ -901,7 +898,7 @@ export function renameSide(pdf: string, id: string, name: string) {
   save(pdf)
 }
 
-/** 删掉一条旁支：对话记录里拿掉，笔记里那一处跟着重写（这条旁支的问答不在了） */
+/** 删掉一条旁支：对话记录里拿掉；已经记进笔记的照旧留着（撤回在记进去的那一行、⋯ 里） */
 export function deleteSide(pdf: string, id: string) {
   const side = sidesOf(get(pdf)).find((s) => s.id === id)
   if (!side) return
@@ -909,7 +906,6 @@ export function deleteSide(pdf: string, id: string) {
   if (running !== undefined) void window.cnReading.stop(running)
   update(pdf, (x) => ({ state: { ...x.state, sides: sidesOf(x).filter((s) => s.id !== id) }, side: x.side.open === id ? { open: null, flash: null } : x.side }))
   save(pdf)
-  if (side.msgs.some((m) => m.role === 'ai' && m.text.trim()) && get(pdf).note.sections.some((s) => s.id === side.thread)) void writeNote(pdf, side.thread, null, engineNow)
 }
 
 /** 「在笔记里看」、笔记里点小标：笔记滚到那条旁支 */
@@ -945,7 +941,9 @@ export async function sendSide(pdf: string, id: string, text: string, mats: Mate
   const now = Date.now()
   const { pick, by, req } = await pickNow(pdf)
   const aiId = nextSeq()
-  const user: ReadingMsg = { id: nextSeq(), role: 'user', thread: th.id, text: q, time: now, ...(mats.length ? { mats } : {}) }
+  // 记不记按发问那一刻算：这条旁支单拨过（框头的小标签）照它，没拨过跟「旁支」开关
+  const noNote = !(side.note ?? noteSwitchNow(kindOf(pdf, th)).side)
+  const user: ReadingMsg = { id: nextSeq(), role: 'user', thread: th.id, text: q, time: now, ...(mats.length ? { mats } : {}), ...(noNote ? { noNote: true as const } : {}) }
   const ai: ReadingMsg = { id: aiId, role: 'ai', thread: th.id, text: '', time: now, engine: pick.engine, by }
   setSides(pdf, (all) => all.map((s) => (s.id === id ? { ...s, msgs: [...s.msgs, user, ai] } : s)))
   update(pdf, (x) => ({ sideRunning: { ...x.sideRunning, [id]: aiId } }))
@@ -988,8 +986,17 @@ export async function sendSide(pdf: string, id: string, text: string, mats: Mate
     void _done
     return { sideRunning: rest }
   })
-  // 记进笔记（挂在被问那一问的回答后面）；网页上框着问的没有笔记，旁支只在对话记录里（不再插一份进文档、收件箱）
-  if (!res.error && full.trim() && !isWebSrc(pdf)) void writeNote(pdf, th.id, null, pick.engine, { quote: side.quote, ...(ask ? { ask } : {}) })
+  // 记进笔记（挂在被问那一问的回答后面）：发问时开着、这一处不是「只在 AI 栏答」的
+  if (!res.error && full.trim() && !noNote && !th.noNote) void noteAsk(pdf, aiId, id)
+}
+
+/** 旁支框头的小标签「记进笔记 / 不记」：只管这一条旁支以后问的；拨成记进时这条旁支前面答好、没记的补进去 */
+export async function setSideNote(pdf: string, id: string, on: boolean) {
+  setSides(pdf, (all) => all.map((s) => (s.id === id ? { ...s, note: on } : s)))
+  save(pdf)
+  const side = sidesOf(get(pdf)).find((s) => s.id === id)
+  if (!on || !side) return
+  for (const m of side.msgs) if (m.role === 'ai' && m.text.trim() && !m.error && !m.note && get(pdf).sideRunning[id] !== m.id) await noteAsk(pdf, m.id, id)
 }
 
 /** 停下旁支正在答的那一问 */
@@ -1024,85 +1031,145 @@ function readOf(th: ReadingThread, answer: string, sections: AskSection[] = []):
   return answer ? readLine(th.page, answer, sections) : `读了第${th.page}页`
 }
 
-// ---------- 后台记笔记 ----------
+// ---------- 记进笔记（2026-11-24 新写法，shared/ai-note.ts） ----------
 
-/** 同一处连着记了几次（主对话、旁支差不多同时答完）：标题小结写好时已经有更新的一次在记了，这一次不再写（那一次带着全部的问答） */
-const noteGen = new Map<string, number>()
+/** 一条消息（主对话的，或旁支里的）记笔记那几样改一下 */
+function patchNote(pdf: string, id: number, side: string | undefined, p: Partial<ReadingMsg>) {
+  if (side) patchSideMsg(pdf, side, id, () => p)
+  else patchMsg(pdf, id, p)
+}
+
+/** 这一问记进笔记时的二级标题：PDF「第 28 页 · 那页第一行大字」（取不到只写页码），HTML 是文件名，网页是网页标题，视频是视频名 */
+async function headingOf(src: string, th: ReadingThread): Promise<string> {
+  if (th.web?.t !== undefined) return th.web.title
+  // 网页标题去掉站名那一截（「2.2. 数据预处理 — 动手学深度学习」写「2.2. 数据预处理」）
+  if (isWebSrc(src)) return pageHead(th.web?.title || get(src).webTitle, th.web?.url ?? src.slice(4))
+  if (!/\.pdf$/i.test(src) || th.page < 1) return (src.split('/').pop() ?? src).replace(/\.[^.]+$/, '')
+  const doc = pdfDoc(src)
+  const title = doc ? pageTitle(await pageText(doc, th.page).catch(() => null)) : ''
+  // 不翻：写进文件的字（和旧写法的「第 N 页」一样）
+  return `第 ${th.page} 页${title ? ` · ${title}` : ''}`
+}
+
+/** 来源行：网页回那一段、视频回那一秒（PDF、库里的 HTML 主进程照那一页那一块写） */
+function fromOf(src: string, th: ReadingThread): { label: string; url: string } | undefined {
+  const w = th.web
+  if (!w || !/^https?:/i.test(w.url)) return undefined
+  if (w.t !== undefined) {
+    const v = videoOf(w.url)
+    return { label: `▶ ${fmtTime(w.t)} · ${w.title}`, url: v ? timeUrl(v, w.t) : w.url }
+  }
+  const passage = th.quote ?? w.text ?? ''
+  if (passage.trim()) return { label: `${backLabel({ ...(w.head ? { head: w.head } : {}), title: w.title, url: w.url })} ↩`, url: fragmentUrl(w.url, passage) }
+  return { label: `${pageHead(w.title, w.url)} ↩`, url: w.url }
+}
 
 /**
- * 记进笔记（CN-93–96）：问题原话、回答原文、旁支挂在被问那一问后面，主进程照这一处的对话收成一段。
- * 这一段已经在笔记里时，答完马上先写一次（问答马上长出来），再让快的模型写这一轮的标题和一句小结，写好再写一次、提交。
- * aiId：主对话那条回答（下面「已记进笔记」那一行跟着变）；旁支答完、删掉旁支时是 null。
- * side：旁支答完记的（底栏说挂在哪一问下面）；主对话记好、旁支记好都在底栏说一句（told），删掉旁支重写的不说
+ * 记一问进笔记（答完、补进去、⋯「记进《…》」、旁支标签拨成记进）：aiId 是那条回答（side：旁支编号，aiId 是旁支里那条）。
+ * 记在那条回答上：在记 → 记进了哪篇（notePath）/ 没记成；同一条记过不再写（主进程认）。记好底栏说一句（PDF）
  */
-async function writeNote(pdf: string, threadId: string, aiId: number | null, engine: EngineId, side?: { quote: string; ask?: string }) {
-  const key = `${pdf}\0${threadId}`
-  const gen = (noteGen.get(key) ?? 0) + 1
-  noteGen.set(key, gen)
-  if (aiId !== null) patchMsg(pdf, aiId, { note: 'writing' })
-  update(pdf, (r) => ({ writing: [...r.writing.filter((w) => w !== threadId), threadId] }))
-  /** 这一处现在的问答（每次写都用最新的，不用开始时的那一份） */
-  const now = () => {
-    const r = get(pdf)
-    return { thread: r.state.threads.find((t) => t.id === threadId)!, msgs: r.state.msgs.filter((m) => m.thread === threadId), sides: sidesOf(r).filter((s) => s.thread === threadId && s.msgs.length) }
-  }
+export async function noteAsk(pdf: string, aiId: number, sideId?: string): Promise<void> {
+  const r = get(pdf)
+  const side = sideId ? sidesOf(r).find((s) => s.id === sideId) : undefined
+  const msgs = side ? side.msgs : r.state.msgs
+  const i = msgs.findIndex((m) => m.id === aiId)
+  const ai = msgs[i]
+  const user = msgs[i - 1]
+  if (!ai || ai.role !== 'ai' || user?.role !== 'user' || !ai.text.trim() || ai.error || ai.note === 'writing') return
+  const th = r.state.threads.find((t) => t.id === (side?.thread ?? ai.thread))
+  if (!th) return
+  patchNote(pdf, aiId, sideId, { note: 'writing', noteError: undefined })
   try {
-    let cur = now()
-    const thread = cur.thread
-    const web = isWebSrc(pdf)
-    const old = get(pdf).note.sections.find((s) => s.id === threadId)
-    const pages = /\.pdf$/i.test(pdf) ? get(pdf).pages : 0
-    if (old && !web) {
-      await window.cnReading.writeSection({ pdf, thread, msgs: cur.msgs, sides: cur.sides, pages, commit: false })
+    const tg = await noteTarget(pdf, th)
+    if (!tg) {
+      // 还没定记进哪篇、选了只问不记：这一问不记
+      patchNote(pdf, aiId, sideId, { note: undefined })
+      return
+    }
+    // 旁支：它那一问的原话（在笔记里写「在「…」的回答里」）
+    const at = side ? r.state.msgs.findIndex((m) => m.id === side.msg) : -1
+    const parent = side && at > 0 && r.state.msgs[at - 1]?.role === 'user' ? r.state.msgs[at - 1]!.text : undefined
+    const from = side ? undefined : fromOf(pdf, th)
+    // 选中小条上自己加的那颗问的（task-26nz7）：这一处的第一问标题写那颗的名字，不写一长段提示词
+    const firstCmd = !side && th.cmd && !r.state.msgs.some((m) => m.thread === th.id && m.role === 'user' && m.time < user.time)
+    const res = await window.cnReading.noteAsk({
+      src: pdf,
+      note: tg.note,
+      key: readKey(pdf),
+      thread: th,
+      user: firstCmd ? { ...user, text: th.cmd!, mats: [] } : user,
+      ai,
+      // 同一条旁支接着问的不再引一遍那一句（笔记里接在它前一问后面，读回来归成同一条旁支）；这条旁支还没记过的照样引
+      ...(side ? { side: { quote: side.msgs.some((m) => m.notePath && m.id !== aiId) ? '' : side.quote, ...(parent ? { parent } : {}), of: side.msg } } : {}),
+      place: { heading: await headingOf(pdf, th), ...(/\.pdf$/i.test(pdf) && th.page > 0 ? { page: th.page } : {}) },
+      ...(from ? { from } : {}),
+      ...(tg.create ? { create: tg.create } : {}),
+      ...(tg.inline ? { inline: true } : {}),
+      ...(/\.pdf$/i.test(pdf) && get(pdf).pages ? { pages: get(pdf).pages } : {}),
+    })
+    // 写进那篇本身的（网页、视频）：拼好的那几行插进去（光标处或末尾）、提交
+    if (res.md !== undefined) {
+      if (!parents) throw new Error('记笔记还没准备好')
+      await parents.put(res.note, res.md, { files: res.files ?? [], subject: firstCmd ? th.cmd! : user.text, src: pdf })
+    }
+    patchNote(pdf, aiId, sideId, { note: 'done', notePath: res.note })
+    if (!isWebSrc(pdf)) {
       await reloadNote(pdf)
       update(pdf, () => ({ fresh: true }))
+      if (!res.had) told(pdf, th, side ? { quote: side.quote, ...(parent ? { ask: parent } : {}) } : undefined)
     }
-    const blocks = web || thread.web ? [] : await figureBlocks(pdf, thread.page)
-    const sum = await window.cnReading.summarize({ pdf, engine, thread, msgs: cur.msgs, sides: cur.sides, blocks, ...(old?.title ? { title: old.title } : {}) })
-    if (noteGen.get(key) !== gen) {
-      if (aiId !== null) patchMsg(pdf, aiId, { note: 'done' })
-      return
-    }
-    cur = now()
-    // 配图（CN-60）：AI 回答里给的框；这一段已经配过图就不再截；就在我框的那块里的不配（「我框的」截图已经是它）
-    let figure: { figurePng: Uint8Array; figureCaption: string } | null = null
-    if (!web && !thread.web && !old?.figures.length) {
-      const fig = await pickFigure(pdf, thread.page, cur.msgs)
-      if (fig && !(thread.rect && insideCrop(fig.rect, thread.rect))) {
-        const crop = await renderCrop(pdfDoc(pdf)!, thread.page, clamp(fig.rect), 600)
-        URL.revokeObjectURL(crop.url)
-        figure = { figurePng: crop.png, figureCaption: `第 ${thread.page} 页 · ${fig.caption}` }
-      }
-    }
-    if (web) {
-      // 网页上问的：中间栏开着文档插到光标处，没开进收件箱
-      const c = centerNow()
-      const doc = c?.center.kind === 'doc' ? c.doc() : null
-      const target = doc && c?.center.kind === 'doc' && doc.path === c.center.path && !doc.readOnly ? ({ kind: 'doc', path: doc.path } as const) : ({ kind: 'inbox' } as const)
-      const res = await window.cnReading.writeSection({ pdf, title: sum.title, recap: sum.recap, thread, msgs: cur.msgs, sides: cur.sides, pages: 0, target })
-      if (res.markdown !== undefined) {
-        const d = centerNow()?.doc()
-        if (!d || d.path !== res.note) throw new Error('那篇文档关了，没记进去')
-        d.insertAtCursor(res.markdown.trimEnd(), { focus: false })
-        await d.save()
-        const from = thread.web?.t !== undefined ? `视频「${thread.web.title} · ${fmtTime(thread.web.t)}」` : `网页「${thread.web?.title ?? ''}」`
-        await window.cnReading.commit([res.note, ...(res.files ?? [])], `笔记：${from}· ${sum.title} → ${titleOf(res.note)}`)
-        centerNow()?.refresh()
-      }
-      if (aiId !== null) patchMsg(pdf, aiId, { note: 'done', noteTo: res.markdown !== undefined ? `《${titleOf(res.note)}》` : `收件箱《${titleOf(res.note)}》` })
-      return
-    }
-    await window.cnReading.writeSection({ pdf, title: sum.title, recap: sum.recap, thread, msgs: cur.msgs, sides: cur.sides, pages, ...(figure ?? {}) })
-    await reloadNote(pdf)
-    if (aiId !== null) patchMsg(pdf, aiId, { note: 'done', ...(thread.web && /^https?:/i.test(thread.web.url) ? { noteTo: `网页（记在${titleOf(get(pdf).note.path)}里）` } : {}) })
-    update(pdf, () => ({ fresh: true }))
-    if (!thread.web && (aiId !== null || side)) told(pdf, thread, side)
+    window.dispatchEvent(new CustomEvent(NOTE_WRITTEN, { detail: res.note }))
   } catch (e) {
-    if (aiId !== null) patchMsg(pdf, aiId, { note: 'error', noteError: noteErr(e) })
-    else console.error('旁支没记进笔记', e)
-  } finally {
-    if (noteGen.get(key) === gen) update(pdf, (r) => ({ writing: r.writing.filter((w) => w !== threadId) }))
+    patchNote(pdf, aiId, sideId, { note: 'error', noteError: noteErr(e) })
   }
+}
+
+/** 记了一问（任何一处）：右栏网页的「笔记」那几条重读（detail 是那篇的路径） */
+export const NOTE_WRITTEN = 'cn:reading-note-written'
+
+/** 撤回、⋯「从《…》拿掉」：只拿掉写进去的那几行（主对话那一问连着它的旁支），这条回答回到没记 */
+export async function unnoteAsk(pdf: string, aiId: number, sideId?: string): Promise<void> {
+  const r = get(pdf)
+  const msgs = sideId ? (sidesOf(r).find((s) => s.id === sideId)?.msgs ?? []) : r.state.msgs
+  const m = msgs.find((x) => x.id === aiId)
+  if (!m?.notePath) return
+  const note = m.notePath
+  await window.cnReading.noteRemove({ note, key: readKey(pdf), msg: aiId })
+  patchNote(pdf, aiId, sideId, { note: undefined, notePath: undefined })
+  // 主对话那一问拿掉时它的旁支一起拿掉了（removeAsk）：那几条也回到没记
+  if (!sideId) for (const s of sidesOf(get(pdf)).filter((x) => x.msg === aiId)) for (const x of s.msgs) if (x.notePath === note) patchSideMsg(pdf, s.id, x.id, () => ({ note: undefined, notePath: undefined }))
+  if (!isWebSrc(pdf)) await reloadNote(pdf)
+  window.dispatchEvent(new CustomEvent(NOTE_WRITTEN, { detail: note }))
+}
+
+/**
+ * 「已记进」照笔记里认（重开软件、笔记被改过以后），不靠内存：问主进程那几篇里记着这段对话的哪几条，
+ * 记着的标成记进了那篇；以前记过、笔记里已经没有的回到没记。旧版记的（旧写法，没有 notePath）不动；在记的不动
+ */
+async function syncNoted(pdf: string) {
+  const r = get(pdf)
+  const key = readKey(pdf)
+  const all = [...r.state.msgs, ...sidesOf(r).flatMap((s) => s.msgs)]
+  const paths = new Set(all.flatMap((m) => (m.notePath ? [m.notePath] : [])))
+  const tg = noteTargetNow(pdf)
+  if (tg) paths.add(tg.note)
+  const has = new Map<number, string>()
+  for (const p of paths) for (const id of await window.cnReading.noteHas(p, key)) has.set(id, p)
+  const fix = (m: ReadingMsg): Partial<ReadingMsg> | null => {
+    if (m.role !== 'ai' || m.note === 'writing') return null
+    const at = has.get(m.id)
+    if (at) return m.note === 'done' && m.notePath === at ? null : { note: 'done', notePath: at, noteError: undefined }
+    return m.notePath ? { note: undefined, notePath: undefined } : null
+  }
+  for (const m of get(pdf).state.msgs) {
+    const p = fix(m)
+    if (p) patchMsg(pdf, m.id, p)
+  }
+  for (const s of sidesOf(get(pdf)))
+    for (const m of s.msgs) {
+      const p = fix(m)
+      if (p) patchSideMsg(pdf, s.id, m.id, () => p)
+    }
 }
 
 /** 没记成的原因：主进程给的中文原样说；软件自己的错（英文的 TypeError 这些）说一句中文，原话进控制台 */
@@ -1111,21 +1178,6 @@ function noteErr(e: unknown): string {
   if (/[\u4e00-\u9fff]/.test(raw)) return raw
   console.error('记笔记出错', e)
   return '软件出了错，这段没记进去'
-}
-
-/**
- * 笔记配哪张图（CN-60）：AI 回答里给的框（矢量画的图也框得到）；框不合理或没给就不配（记笔记那一步只写标题和小结，不再挑图）
- */
-async function pickFigure(pdf: string, page: number, msgs: ReadingMsg[]): Promise<FigureBox | null> {
-  if (!pdfDoc(pdf) || page < 1) return null
-  const fromAi = [...msgs].reverse().find((m) => m.role === 'ai' && m.fig)?.fig ?? null
-  return locateFigure([{ name: 'AI 回答里的框', locate: () => fromAi }])
-}
-
-function clamp(r: Rect): Rect {
-  const x = Math.max(0, r[0])
-  const y = Math.max(0, r[1])
-  return [x, y, Math.min(1 - x, r[2]), Math.min(1 - y, r[3])]
 }
 
 // ---------- 做个可视化（后台做，做好挂进笔记） ----------

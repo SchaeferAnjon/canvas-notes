@@ -52,9 +52,12 @@ export function FeynmanColumn(p: ColumnProps) {
   useEffect(() => {
     const first = !mounted.current
     mounted.current = true
+    watchPan(col.current)
     if (first && !S.isFresh(p.id)) return
     // 还要摆到落点去（写进文档时先出在一排的末尾）：摆好、重画以后再平移，不往一排末尾那里滚
     if (S.placeOf(p.id)) return
+    // 讲着时归下面「回答框跟着」管（它也把这一列露出来）
+    if (status === 'talking' && S.liveOf(p.id)) return
     reveal(col.current)
   }, [status === 'draft', status === 'talking'])
   // 讲着时 esc：学生在想先停下它，再按一次暂停（列在前台、焦点不在别的输入框、输入法没在组字）
@@ -112,6 +115,22 @@ export function FeynmanColumn(p: ColumnProps) {
     mo.observe(b, { childList: true })
     return () => (ro.disconnect(), mo.disconnect())
   }, [bodyEl])
+  // 开讲、每来一问（学生追问、提示、说穿、问收尾）：白板平移到回答框整个看得见（follow）。问的字一点点长出来、列跟着长高的这几秒接着跟；
+  // 打开白板时早就讲着的一轮不平移（同上面 reveal）
+  const ask = status === 'talking' && live ? `${count}|${live.input ?? ''}|${live.thinking ? 1 : 0}` : ''
+  const lastAsk = useRef<string | null>(null)
+  useEffect(() => {
+    const prev = lastAsk.current
+    lastAsk.current = ask
+    const el = col.current
+    if (!ask || !el || (prev === null && !S.isFresh(p.id))) return
+    const since = performance.now()
+    follow(el, since)
+    const ro = new ResizeObserver(() => follow(el, since))
+    ro.observe(el)
+    const stop = setTimeout(() => ro.disconnect(), 4500)
+    return () => (clearTimeout(stop), ro.disconnect())
+  }, [ask])
   // 列很长：滚远了（过了一屏）列头出「回到开头」；滚过一点列头下面一条线
   const [top, setTop] = useState(false)
   const lastTop = useRef(0)
@@ -304,15 +323,97 @@ export function FeynmanColumn(p: ColumnProps) {
 export function reveal(el: HTMLElement | null) {
   const wrap = el?.closest<HTMLElement>('.board-wrap')
   if (!el || !wrap) return
-  const w = wrap.getBoundingClientRect()
-  const r = el.getBoundingClientRect()
+  const { dx, dy } = revealDelta(wrap.getBoundingClientRect(), el.getBoundingClientRect())
+  pan(wrap, dx, dy)
+}
+
+function revealDelta(w: DOMRect, r: DOMRect) {
   let dx = 0
   let dy = 0
   if (r.right > w.right - 24) dx = r.right - (w.right - 24)
   if (r.left - dx < w.left + 96) dx = r.left - (w.left + 96)
   if (r.bottom > w.bottom - 24) dy = r.bottom - (w.bottom - 24)
   if (r.top - dy < w.top + 64) dy = r.top - (w.top + 64)
+  return { dx, dy }
+}
+
+/**
+ * 用户自己动白板的旁听（白板的平移是 .board-wrap 自己的滚动：两指滑、按住空格拖、中键拖）：
+ * 用户正按着白板（拖白板、框选、拖卡）、或刚滑过拖过，讲着时回答框不去抢。听的是手上的动作（滚轮、按着拖），
+ * 不听滚动本身：程序滚的（这里的平移、缩放、点一颗看不全的按钮时浏览器替你滚过去）不算用户滚的
+ */
+interface PanWatch {
+  held: boolean
+  /** 按着的这一下拖动过 */
+  moved: boolean
+  /** 用户最后一次滑、拖白板（performance.now） */
+  manualAt: number
+}
+const watches = new WeakMap<HTMLElement, PanWatch>()
+/** 用户手动滑过、拖过白板多久之内回答框不抢 */
+const FOLLOW_QUIET_MS = 2000
+
+function watchOf(wrap: HTMLElement): PanWatch {
+  const had = watches.get(wrap)
+  if (had) return had
+  const s: PanWatch = { held: false, moved: false, manualAt: 0 }
+  watches.set(wrap, s)
+  // 费曼这一列里的（打字、按住说、滚列里的长谈）不算动白板
+  const inCol = (e: Event) => !!(e.target as Element | null)?.closest?.('.fy-col')
+  wrap.addEventListener('wheel', (e) => void (!inCol(e) && (s.manualAt = performance.now())), { capture: true, passive: true })
+  wrap.addEventListener('pointerdown', (e) => void (!inCol(e) && ((s.held = true), (s.moved = false))), true)
+  window.addEventListener(
+    'pointermove',
+    (e) => {
+      if (!s.held) return
+      // 在窗口外松的手没送回来：再动的时候没按着就算松了
+      if (!e.buttons) return void (s.held = false)
+      s.moved = true
+      s.manualAt = performance.now()
+    },
+    true,
+  )
+  const up = () => {
+    if (s.held && s.moved) s.manualAt = performance.now()
+    s.held = false
+  }
+  window.addEventListener('pointerup', up, true)
+  window.addEventListener('pointercancel', up, true)
+  window.addEventListener('blur', up)
+  return s
+}
+
+function pan(wrap: HTMLElement, dx: number, dy: number) {
   if (dx || dy) wrap.scrollBy({ left: dx, top: dy, behavior: still() ? 'auto' : 'smooth' })
+}
+
+/**
+ * 讲着时回答框跟着：白板平移到这一列露出来（同 reveal），回答框（问收尾时是那两颗按钮、三轮问完是「讲完了，看判定」那块）
+ * 整个看得见，底边离可见区下沿 24；放不下时回答框优先于列头。用户正按着白板、或来一问前 2 秒内自己滚过，不抢。不改缩放
+ */
+function follow(col: HTMLElement, since: number) {
+  const wrap = col.closest<HTMLElement>('.board-wrap')
+  if (!wrap) return
+  const s = watchOf(wrap)
+  // since：这一问来的时刻；之前 2 秒内或之后用户滑过、拖过，这一问（连同字长出来时接着跟的）不跟
+  if (s.held || s.manualAt > since - FOLLOW_QUIET_MS) return
+  const w = wrap.getBoundingClientRect()
+  const c = col.getBoundingClientRect()
+  const { dx, dy: dy0 } = revealDelta(w, c)
+  let dy = dy0
+  const box = col.querySelector<HTMLElement>('[data-testid="fy-answer"], .fy-ai.offer .acts, .fy-done')?.getBoundingClientRect()
+  if (box && box.height) {
+    const bottom = Math.min(box.bottom, c.bottom)
+    if (bottom - dy > w.bottom - 24) dy = bottom - (w.bottom - 24)
+    if (box.top - dy < w.top + 64) dy = box.top - (w.top + 64)
+  }
+  pan(wrap, dx, dy)
+}
+
+/** 挂上旁听（列一出来就挂：开讲前用户滚过也算） */
+function watchPan(el: HTMLElement | null) {
+  const wrap = el?.closest<HTMLElement>('.board-wrap')
+  if (wrap) watchOf(wrap)
 }
 
 /** 列头第二行：照什么核对（没记下时按材料猜一句） */
@@ -1220,10 +1321,10 @@ function pickNote(c: Candidate, t: ReturnType<typeof useT>): string {
 }
 
 /** 盖住的东西上浮的一颗「讲完再看 · 按住看一眼」：按住露出、松手又盖上，每按一次记一次 */
-export function PeekChip({ id, style, testid = 'fy-peek' }: { id: string; style?: React.CSSProperties; testid?: string }) {
+export function PeekChip({ id, style, testid = 'fy-peek', chipRef }: { id: string; style?: React.CSSProperties; testid?: string; chipRef?: React.Ref<HTMLDivElement> }) {
   const t = useT()
   return (
-    <div className="fy-cover-chip" style={style} data-testid={testid} onMouseDown={(e) => e.stopPropagation()}>
+    <div className="fy-cover-chip" ref={chipRef} style={style} data-testid={testid} onMouseDown={(e) => e.stopPropagation()}>
       <Codicon name="eye-closed" size={14} />
       <b>{t('讲完再看')}</b>
       <HoldPeek id={id} />

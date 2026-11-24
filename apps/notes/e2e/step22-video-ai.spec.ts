@@ -1,10 +1,11 @@
 // 录屏 86 条里看视频时 AI 这一组（G3）：「记到哪」菜单的样子（CN-78）、底部提示在窄栏里不截断（CN-85）、
 // 框一块问就地答进文档、不再弹浮窗（CN-84 B）。视频站是本机假的（e2e/fixtures/fake-video.ts），AI 是假的（CN_AI_FAKE）。
 import { expect, test, type ElectronApplication, type Page } from '@playwright/test'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import type { Server } from 'node:http'
 import { join } from 'node:path'
 import { launch, openNote, pane, rail, type Running, waitSaved } from './app'
+import { OLD_ASK_FRAME, oldAskBlock, oldAskFrame } from './fixtures/old-ask-block'
 import { FAKE_VIDEO_ID, startFakeVideoSite } from './fixtures/fake-video'
 
 let server: Server
@@ -167,51 +168,43 @@ async function boxAsk(page: Page) {
   await ask.getByRole('textbox', { name: '想问什么' }).press('Enter')
 }
 
-test('CN-84 B / CN-76：框一块问不弹浮窗，文档里先出占位（esc 停下），答好原地变成 [!ai] 提示块，块下面空一段、光标在那里；「接着问」和 ⌘J 开在右栏下格', async () => {
-  const run = await launch({ '看视频的笔记.md': '# 看视频的笔记\n\n我先写的一句。\n' }, { ...env(), CN_AI_FAKE_ASK_MS: '1500' })
+// 2026-11-24 AI 对话记笔记开关：问框的问答写进那篇本身（新写法：小标题 + AI 回答框），文档里不再出占位、不再插老的问答块；
+// 老文档里的问答块「接着问」照样开在右栏下格（先把那一块写进文档）
+test('CN-84 B：框一块问不弹浮窗，答好写进那篇本身、老问答块不动（esc 停下这一问不记）；问答块的「接着问」和 ⌘J 开在右栏下格', async () => {
+  const run = await launch({ '看视频的笔记.md': `# 看视频的笔记\n\n我先写的一句。\n\n${oldAskBlock(base)}\n`, [OLD_ASK_FRAME]: oldAskFrame() }, { ...env(), CN_AI_FAKE_ASK_MS: '1500' })
   const { page, vault } = run
   const float = page.getByRole('complementary', { name: 'AI 对话' })
+  const doc = () => readFileSync(join(vault, '看视频的笔记.md'), 'utf8')
   try {
     await openNote(page, '看视频的笔记')
     await openVideo(page)
     await seek(page, 6)
-    // 网页每 250 毫秒报一次播到哪（视频条、占位上的时间用它）
     await page.waitForTimeout(400)
+    const before = doc()
 
-    // 第一问：占位出在文档里，浮窗不出来，底栏「后台 1 件」
+    // 第一问：浮窗不出来、文档里不出占位；答好写进那篇
     await boxAsk(page)
-    const wait = pane(page).locator('.cm-aiwait')
-    await expect(wait).toBeVisible()
-    await expect(wait).toContainText('AI正在看00:06这一帧…')
-    await expect(wait.getByRole('button', { name: /停下/ })).toBeVisible()
+    await expect(pane(page).locator('.cm-aiwait')).toHaveCount(0)
     await expect(float).toBeHidden()
-    await expect(page.locator('.status')).toContainText('后台1件')
-    await shot(run, 'CN-84-waiting')
-    // 答好了：占位换成问答块 + 提示块，提示「AI 讲完了」
     await expect(web(page).getByRole('dialog', { name: '问 AI' }).getByRole('button', { name: /已记进《看视频的笔记》/ })).toBeVisible({ timeout: 15_000 })
-    await expect(wait).toHaveCount(0)
-    await expect(float).toBeHidden()
-    // 焦点留在视频上（不抢焦点）；回到文档（焦点回来、不点别处）光标就停在提示块下面的空段落：直接打字
-    await page.evaluate(() => (document.querySelector('.pane:not([hidden]) .cm-content') as HTMLElement).focus())
-    await page.keyboard.type('我自己的理解：两个落点定一切')
-    await expect.poll(() => readFileSync(join(vault, '看视频的笔记.md'), 'utf8'), { timeout: 10_000 }).toContain('我自己的理解')
+    await expect.poll(doc).toContain('### 讲解这一块')
+    expect(doc()).toContain('> 框里是 i 帽和 j 帽变换后的位置。')
     await waitSaved(page)
-    const md = readFileSync(join(vault, '看视频的笔记.md'), 'utf8')
-    expect(md).toMatch(/我先写的一句。\n+<!-- video video=youtube:/)
-    expect(md).toContain('> **我的疑惑**：框里这两个箭头为什么能决定整个网格怎么动？\n\n> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了 00:06 这一帧、00:00–00:36 的字幕\n> 框里是 i 帽和 j 帽变换后的位置。')
-    expect(md).toContain('> - 矩阵的两列就是这两个落点\n\n我自己的理解：两个落点定一切\n')
-    expect(md).not.toContain('AI正在看')
-    await shot(run, 'CN-76-answered')
+    // 老的问答块一字不动，只多了新写的这一问
+    expect(doc()).toContain(oldAskBlock(base))
+    expect(doc()).toContain('我先写的一句。')
+    expect(doc().match(/moment-ask/g)).toHaveLength(1)
+    expect(doc()).not.toContain('AI 笔记')
+    expect(existsSync(join(vault, '看视频的笔记 · AI 笔记.md'))).toBe(false)
+    void before
 
-    // 第二问：esc 停下，文档不多东西
-    await boxAsk(page)
-    await expect(wait).toBeVisible()
-    await pane(page).getByText('我先写的一句。').click()
+    // 第二问：esc 停下，那篇不多东西
     await page.keyboard.press('Escape')
-    await expect(wait).toHaveCount(0)
+    await boxAsk(page)
+    await page.keyboard.press('Escape')
     await expect(page.getByText('停下了，这一问没记')).toBeVisible()
     await page.waitForTimeout(1800)
-    expect(readFileSync(join(vault, '看视频的笔记.md'), 'utf8').match(/moment-ask/g)).toHaveLength(1)
+    expect(doc().match(/^### 讲解这一块$/gm)).toHaveLength(1)
 
     // 「接着问」：开 AI 标签，这条疑惑放进输入框当引文；不弹浮窗
     const reading = page.getByRole('complementary', { name: '边读边问 AI' })

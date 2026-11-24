@@ -67,7 +67,9 @@ async function boxP1(page: Page) {
 // 配好对的那篇，属性 read-along），块头带回到网页那一段的链接（网址 + #:~:text=那段开头），框一块问的放那块截图。
 // 原来「关掉文档再框一块进收件箱」那半段改成：关掉文档再问，接在配好对的那篇末尾、底栏说记进了哪，不建收件箱。
 // 没配对时先问记到哪篇、「这次只问，不记」在下面那条。
-test('网页上框着问：回答一问一块 [!ai] 插到配好对的那篇光标处（块头带回到那一段的链接、框的截图），一次提交；关掉文档再问接在那篇末尾、底栏说记进了哪，不进收件箱；⌘ 点一下链接还是网页自己的', async () => {
+// 2026-11-24 AI 对话记笔记开关（偏好「剪藏和AI笔记同一篇」）：问答写进配好对的那篇本身（中间开着插在光标处，不然接在末尾），
+// 一问一个小标题、框的截图、回到那一段的来源行、一块 [!ai]，不另开 AI 笔记。
+test('网页上框着问：写进配好对的那篇本身、插在光标处（框的截图、回到那一段的链接），一次提交；关掉文档再问接在那篇末尾，不进收件箱；⌘ 点一下链接还是网页自己的', async () => {
   const START = `---\nread-along: ${base}/\n---\n# 线性代数 草稿\n\n我的草稿。\n`
   const run = await launch({ '线性代数 草稿.md': START }, { CN_AI_FAKE: '1', CN_FAKE_NOTE_MS: '50' })
   const { page, vault } = run
@@ -110,30 +112,30 @@ test('网页上框着问：回答一问一块 [!ai] 插到配好对的那篇光�
     await waitSaved(page)
     const back = `[Rotation matrix ↩](${fragmentUrl(`${base}/wiki/Rotation_matrix`, P1)})`
     const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const md = file()
-    expect(md.startsWith(START)).toBe(true)
-    // 一问一块：头一行「讲解一下 · 谁答的 · 回到那一段的链接」，下面框的那块截图，再是回答；插在光标处（草稿那段后面）
-    const m = md.match(new RegExp(`\n> \\[!ai\\] 讲解一下 · Claude Code · [^\\n]+ · ${esc(back)}\n> !\\[我框的\\]\\(([^)]+\\.png)\\)\n>\n> \\S`))
-    expect(m, md).not.toBeNull()
+    // 那篇：光标在「我的草稿。」后面，接着一问一个小标题，框的那块截图、回到那一段的链接，再是回答；没有 AI 笔记属性
+    const am = file()
+    expect(am).not.toContain('AI 笔记')
+    expect(existsSync(join(vault, '线性代数 草稿 · AI 笔记.md'))).toBe(false)
+    const m = am.match(new RegExp(`# 线性代数 草稿\n\n我的草稿。\n\n### 给我讲解一下\n\n!\\[我框的(?:\\|\\d+)?\\]\\(([^)]+\\.png)\\)\n\n—— ${esc(back)}\n\n> \\[!ai\\] AI 回答 · Claude Code · `))
+    expect(m, am).not.toBeNull()
     expect(existsSync(join(vault, decodeURI(m![1]!)))).toBe(true)
-    expect(md.indexOf('我的草稿。')).toBeLessThan(md.indexOf('[!ai]'))
     // 不再写「## 小标题」那一段、身份注释、完整对话
-    expect(md).not.toMatch(/## 测试小标题|cn:thread=|完整对话/)
-    expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('笔记：网页「Rotation matrix」· 讲解一下 → 线性代数 草稿')
+    expect(am).not.toMatch(/## 测试小标题|cn:thread=|完整对话/)
+    expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('笔记：线性代数 草稿 · 给我讲解一下')
     // 那篇和截图一次提交干净（读到哪.json 是配好对的网页记读到哪的，跟着自动提交走，不算这一问的）
     expect(dirty()).toEqual([])
     expect(existsSync(join(vault, '.canvas-notes/对话'))).toBe(false)
 
-    // 关掉文档：再框一块，不再问记到哪篇，接在配好对的那篇末尾；底栏说记进了哪
+    // 关掉文档：再框一块，不再问记到哪篇，接在那篇末尾（提示「记进《…》末尾」）
     await page.locator('main.center .tab', { hasText: '线性代数 草稿' }).getByRole('button', { name: '关闭标签' }).click()
     await boxP1(page)
     await expect(ai(page).getByRole('textbox')).toHaveValue('给我讲解一下')
     await ai(page).getByRole('textbox').press('Enter')
-    await expect(page.getByTestId('toast')).toContainText('记进《线性代数 草稿》· Rotation matrix', { timeout: 15_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     await expect(dlg).toHaveCount(0)
-    await expect.poll(() => file().split('[!ai] 讲解一下').length - 1).toBe(2)
-    await expect(page.getByTestId('toast').getByRole('button', { name: '在笔记里看' })).toBeVisible()
-    // 接在末尾：最后一块后面再没有别的
+    await expect(page.getByText('记进《线性代数 草稿》末尾')).toBeVisible()
+    await expect.poll(() => file().split('### 给我讲解一下').length - 1).toBe(2)
+    // 接在末尾：最后一块 AI 回答后面再没有别的
     expect(file().slice(file().lastIndexOf('\n> [!ai]') + 1).trimEnd().split('\n').every((l) => l.startsWith('>'))).toBe(true)
     expect(existsSync(join(vault, '收件箱'))).toBe(false)
     await expect.poll(() => dirty()).toEqual([])
@@ -145,7 +147,7 @@ test('网页上框着问：回答一问一块 [!ai] 插到配好对的那篇光�
 // 还没配对时网页上框着问：第一次问先问记到哪篇（默认中间开着的那篇），「记到这篇」顺手配成一对、回答写进那篇；
 // 另一个没配对的网站选「这次只问，不记」：照样答，库里什么都不写（DESIGN「网页的笔记」）。
 // 框着的工具条点「讲解一下」先问（App.tsx onWebBox → web-notes/flow.ts 的 ensureAsk）；框好以后在输入框里回车的，答好了贴着输入框问（writeAsk）。
-test('网页上框着问（还没配对）：先问记到哪篇，「记到这篇」配成一对、回答写进那篇；「这次只问，不记」照样答、什么都不写', async () => {
+test('网页上框着问（还没配对）：先问记到哪篇，「记到这篇」配成一对、回答写进那篇本身；「这次只问，不记」照样答、只关掉网页的「记笔记」（记一次开关的提交），别的什么都不写', async () => {
   const START = '# 线性代数 草稿\n\n我的草稿。\n'
   const run = await launch({ '线性代数 草稿.md': START }, { CN_AI_FAKE: '1', CN_FAKE_NOTE_MS: '50' })
   const { page, vault } = run
@@ -186,15 +188,18 @@ test('网页上框着问（还没配对）：先问记到哪篇，「记到这�
     await expect(ai(page).locator('.um').last()).toHaveText('给我讲解一下')
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible({ timeout: 15_000 })
     await expect(ai(page).getByText(/已记进/)).toHaveCount(0)
+    await expect(ai(page).getByTestId('ai-note-main')).toHaveAttribute('aria-checked', 'false')
     expect(file()).toBe(before)
-    expect(gitOut(vault, 'rev-list', '--count', 'HEAD')).toBe(commits)
+    // 只多一次开关的提交（.canvas-notes/ai-note.json）
+    await expect.poll(() => gitOut(vault, 'rev-list', '--count', 'HEAD')).toBe(String(Number(commits) + 1))
+    expect(gitOut(vault, 'log', '-1', '--format=%s')).toBe('设置：AI 记笔记开关（web）')
     expect(existsSync(join(vault, '收件箱'))).toBe(false)
   } finally {
     await run.close()
   }
 })
 
-test('中间开着 PDF 时在网页上框着问：进这份 PDF 的 AI，「看得到」多一颗网页；笔记那段记进 PDF 的笔记，来源写域名', async () => {
+test('中间开着 PDF 时在网页上框着问：进这份 PDF 的 AI，「看得到」多一颗网页；这一问记进 PDF 的配对笔记，来源行回到网页那一段', async () => {
   const run = await launch({ '课程/线性代数/第3讲 线性映射.pdf': LECTURE }, { CN_AI_FAKE: '1', CN_FAKE_NOTE_MS: '50' })
   const { page, vault } = run
   try {
@@ -208,12 +213,9 @@ test('中间开着 PDF 时在网页上框着问：进这份 PDF 的 AI，「看�
     await expect(ai(page).getByTestId('reading-sees')).toContainText('网页 · Rotation matrix')
     await ai(page).getByRole('textbox').press('Enter')
     await expect(ai(page).getByText('读了网页这一段 · 对上第1页')).toBeVisible()
-    await expect(ai(page).getByText('已记进网页（记在第3讲 线性映射 笔记里）')).toBeVisible({ timeout: 15_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toContainText('已记进《第3讲 线性映射 笔记》', { timeout: 15_000 })
     const md = readFileSync(join(vault, '课程/线性代数/第3讲 线性映射 笔记.md'), 'utf8')
-    expect(md).toMatch(/## 第 1 页 · 测试小标题 p\d+\n\[127\.0\.0\.1\]\(http:\/\/127\.0\.0\.1:\d+\/wiki\/Rotation_matrix\)/)
-    // 笔记里这段的来源胶囊写域名
-    await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
-    await expect(page.getByRole('complementary', { name: '笔记', exact: true }).getByText('127.0.0.1')).toBeVisible()
+    expect(md).toMatch(/\n## 第 1 页[^\n]*\n\n### 给我讲解一下\n\n!\[我框的[^\n]*\n\n—— \[Rotation matrix ↩\]\(http:\/\/127\.0\.0\.1:\d+\/wiki\/Rotation_matrix#:~:text=[^)]+\)\n/)
     expect(existsSync(join(vault, '收件箱'))).toBe(false)
   } finally {
     await run.close()
@@ -253,7 +255,8 @@ for (const frame of ['b', 'a'] as const) {
       await page.mouse.click(w.x + p.x, w.y + p.y)
     }
     try {
-      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))
+      // 输入框下面多了「记笔记 ｜ 旁支」那一排（2026-11-24），窗口高一点，空白提示照样放得下
+      await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 960))
       await openNote(page, '学习笔记：动手学深度学习')
       if (!(await web(page).isVisible())) await rail(page).getByRole('button', { name: '网页', exact: true }).click()
       const addr = web(page).getByRole('textbox', { name: '网址' })

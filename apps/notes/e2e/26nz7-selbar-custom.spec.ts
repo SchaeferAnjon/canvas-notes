@@ -6,7 +6,7 @@
 // - 文档里选了字的右键菜单最上面是勾了「文档」的几颗，点了在下面长出那颗的 AI 块；PDF 上的工具条也有它。
 // 一律无头（CN_E2E=1）、假 AI（CN_AI_FAKE=1）、本机假网页（fixtures/d2l-pandas.ts），不上网。
 import { expect, test, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { editorText, launch, openNote, pane, rail, type Running, tabOn, waitSaved, widenRight } from './app'
 import { armMenus, menuLabels, openedMenu, pickMenu } from './menu'
@@ -15,6 +15,7 @@ import { LECTURE } from './fixtures/pdf'
 
 const NOTE = '课程/学习笔记：动手学深度学习.md'
 const TITLE = '学习笔记：动手学深度学习'
+const noteMd = (vault: string) => (existsSync(join(vault, NOTE)) ? readFileSync(join(vault, NOTE), 'utf8') : '')
 const CMDS = '.canvas-notes/命令.json'
 const PDF = '课程/线代/第3讲.pdf'
 
@@ -187,17 +188,18 @@ test('原型那条路：网页上拖选 → ⋯ →「加一颗…」→ 例子�
     expect(await barTexts(page)).toEqual(['讲解一下↵', '翻译 + 讲一讲', '引用⌘↵', '用高中生能懂的话讲⌥G', '|', '剪藏⌘S', '|', '', ''])
     expect(await guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelector('.bar button.new')?.textContent.trim()`)).toBe('用高中生能懂的话讲⌥G')
     await clickBar(page, '用高中生能懂的话讲')
-    await expect.poll(() => editorText(page), { timeout: 15_000 }).toMatch(/> \[!ai\] 用高中生能懂的话讲 · Claude Code · [^\n]+\n> > 注意，“NaN”项代表缺失值。/)
-    expect(await editorText(page)).toContain('> 这是讲解')
-    await expect(page.getByTestId('toast')).toContainText(`「用高中生能懂的话讲」写进了《${TITLE}》`)
+    // 写进剪藏那篇本身（2026-11-24 AI 对话记笔记开关）：小标题写那颗的名字（不写一长段提示词），选的那段带回到网页的链接
+    await expect.poll(() => noteMd(vault), { timeout: 15_000 }).toMatch(/\n### 用高中生能懂的话讲\n\n> 注意，“NaN”项代表缺失值。[^\n]*\n> —— \[[^\n]+\n\n> \[!ai\] AI 回答 · Claude Code · [^\n]+\n> 这是讲解/)
+    await expect(reading(page).getByTestId('ai-noted').last()).toContainText(`已记进《${TITLE}》`)
     await expect(reading(page).locator('.um').last()).toContainText('用高中生能听懂的话讲注意，“NaN”项代表缺失值。')
     // 第二次不再描圈；按 ⌥G 也一样写进去（右栏和「讲解一下」一样换到了 AI，点回网页）
     await rail(page).getByRole('button', { name: '网页' }).click()
     await selectIn(page, 'p1', '举一个例子', '写入CSV文件中。')
     expect(await guest(page, `document.getElementById('cn-clip-host').shadowRoot.querySelectorAll('.bar button.new').length`)).toBe(0)
     await pressInPage(run, 'G', ['alt'])
-    await expect.poll(async () => (await editorText(page)).split('[!ai] 用高中生能懂的话讲').length - 1, { timeout: 15_000 }).toBe(2)
+    await expect.poll(async () => noteMd(vault).split('### 用高中生能懂的话讲').length - 1, { timeout: 15_000 }).toBe(2)
     await waitSaved(page)
+    expect(noteMd(vault)).not.toContain('AI 笔记')
   } finally {
     await run.close()
   }

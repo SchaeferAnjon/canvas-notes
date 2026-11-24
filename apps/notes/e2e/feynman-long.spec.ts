@@ -629,3 +629,77 @@ test('聊了多久（单次最多 10 分钟、暂停不算）、聊过 20 分钟
     await run.close()
   }
 })
+
+/** 回答框（底边离白板可见区下沿至少 24）和它里面的麦克风都整个在白板可见区里，也在窗口里 */
+const answerSeen = (c: Locator) =>
+  c.evaluate((el) => {
+    const w = el.closest('.board-wrap')!.getBoundingClientRect()
+    const a = el.querySelector('[data-testid="fy-answer"]')?.getBoundingClientRect()
+    const m = el.querySelector('[data-testid="fy-answer"] .dict-mic')?.getBoundingClientRect()
+    const inside = (r?: DOMRect) => !!r && r.top >= w.top && r.left >= w.left && r.right <= w.right && r.bottom <= w.bottom && r.bottom <= innerHeight
+    return inside(a) && w.bottom - a!.bottom >= 23.5 && inside(m)
+  })
+/** 问的字长完、白板平移停下以后，回答框和麦克风看得见 */
+async function settled(page: Page, c: Locator) {
+  await page.waitForTimeout(4_500)
+  await expect.poll(() => answerSeen(c), { timeout: 3_000 }).toBe(true)
+}
+const boardTop = (page: Page) => board(page).locator('.board-wrap').evaluate((w) => Math.round(w.scrollTop))
+
+test('887 高窗口讲着时回答框跟着：开讲、每来一问白板平滑滚到回答框和麦克风整个看得见；手动拖开后 2 秒内来一问不抢，之后来一问滚回来', async () => {
+  test.setTimeout(120_000)
+  const run = await start()
+  const { page } = run
+  try {
+    const c = await openWord(page)
+    await c.getByTestId('fy-mode-long').click()
+    await c.getByTestId('fy-begin').click()
+    await expect.poll(() => answerSeen(c), { timeout: 8_000 }).toBe(true)
+
+    // 每来一问（追问、换角度、提示）：回答框底边离下沿 24、麦克风看得见
+    const top0 = await boardTop(page)
+    await say(c, '先随便猜一个初始值，然后一步步往下走。每一步把 θ 减去学习率乘坡度，沿负梯度走。')
+    await asked(c)
+    await expect(lastStudent(c)).toContainText('学习率太大、太小会怎样')
+    // 问的字长出来、列长高（开讲时列多半还矮）：字长完（最多 4 秒）回答框还整个看得见，白板没往上走
+    await settled(page, c)
+    expect(await boardTop(page)).toBeGreaterThanOrEqual(top0)
+    await say(c, '学习率就是一个数吧。')
+    await asked(c)
+    await expect(lastStudent(c)).toHaveAttribute('data-step', 'angle')
+    await settled(page, c)
+    await shot(run, '10-回答框跟着')
+
+    // 手动把白板往上拖开（两指滑），回答框滚出下沿；2 秒内来一问：不抢
+    const field = c.getByTestId('fy-answer').locator('textarea')
+    await field.fill('它影响速度吧。')
+    const cr = (await c.boundingBox())!
+    await page.mouse.move(cr.x - 14, cr.y + cr.height - 40)
+    await page.mouse.wheel(0, -500)
+    await expect.poll(() => answerSeen(c)).toBe(false)
+    await page.waitForTimeout(300)
+    const away = await boardTop(page)
+    await page.keyboard.press('Meta+Enter')
+    await asked(c)
+    await expect(lastStudent(c)).toHaveAttribute('data-step', 'hint')
+    // 问的字长完、列长高的这几秒也不抢
+    await page.waitForTimeout(3_000)
+    expect(await boardTop(page)).toBe(away)
+    expect(await answerSeen(c)).toBe(false)
+
+    // 打下一段（往看不见的框里打字，浏览器自己把框滚出来），再滑开；过了 2 秒再来一问：滚回来
+    await field.evaluate((el: HTMLTextAreaElement) => el.focus({ preventScroll: true }))
+    await page.keyboard.insertText('它是每一步迈多大。')
+    await page.mouse.move(cr.x - 14, cr.y + cr.height - 40)
+    await page.mouse.wheel(0, -500)
+    await expect.poll(() => answerSeen(c)).toBe(false)
+    await page.waitForTimeout(2_300)
+    const away2 = await boardTop(page)
+    await page.keyboard.press('Meta+Enter')
+    await asked(c)
+    await expect.poll(() => boardTop(page), { timeout: 8_000 }).toBeGreaterThan(away2)
+    await settled(page, c)
+  } finally {
+    await run.close()
+  }
+})

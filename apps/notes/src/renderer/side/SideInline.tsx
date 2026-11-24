@@ -83,6 +83,10 @@ export interface SideInlineProps {
   onGrow?(): void
   /** 头上「全能 / 只在库里」那颗标签的说明里，开关在哪改（右栏 AI、读 PDF：收起旁支后输入框下面那行） */
   omniWhere?: string
+  /** 头上「记进笔记 / 不记」那颗小标签（AI 对话记笔记开关，2026-11-24 方向 A）：只管这一条旁支；不给不画 */
+  noteTag?: { on: boolean; onToggle(): void } | null
+  /** 每条回答下面那一行（「✓ 已记进《…》 · 撤回」）：给这条回答的编号，画什么由外面定 */
+  noted?: (id: number) => ReactNode
 }
 
 /**
@@ -244,6 +248,18 @@ export function SideInline(p: SideInlineProps) {
           </span>
         )}
         <span className="sp" />
+        {p.noteTag && (
+          <button
+            className={'tagbtn' + (p.noteTag.on ? ' on' : '')}
+            data-testid="side-note-tag"
+            aria-pressed={p.noteTag.on}
+            data-tip={p.noteTag.on ? t('这条旁支答完记进笔记；点一下这条以后不记') : t('这条旁支不记进笔记；点一下记进去（答好的也补进去）')}
+            data-side="below-left"
+            onClick={p.noteTag.onToggle}
+          >
+            {p.noteTag.on ? t('记进笔记') : t('不记')}
+          </button>
+        )}
         {/* 只显示、不能点：开关在主对话输入框下面那行（旁支开着时那行藏起来） */}
         {omni !== null && (
           <span className="mode" data-testid="side-mode" data-tip={omniTip} data-side="below-left" data-tip-class="tip-para" data-tip-in="aside">
@@ -289,6 +305,7 @@ export function SideInline(p: SideInlineProps) {
                 <p className="wait">{t('在答…')}</p>
               )}
               {m.error && <AiError raw={m.error} engine={{ id: m.engine ?? p.picks.pick.engine }} {...(i === side.msgs.length - 1 ? retryOf(i) : {})} />}
+              {p.noted?.(m.id)}
             </div>
           ),
         )}

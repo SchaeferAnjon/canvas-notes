@@ -58,7 +58,7 @@ for (const [skin, name] of [
       // 问过一处：页边有标记
       await drag(page, [0.1, 0.12], [0.75, 0.2])
       await ai(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
-      await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+      await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
       await expect(page.getByTestId('toast')).toHaveCount(0, { timeout: 15_000 })
       // ① 适合宽度，指着「100% ▾」出提示
       await pill(page).hover()

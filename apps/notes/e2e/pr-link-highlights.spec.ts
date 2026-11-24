@@ -104,7 +104,7 @@ test('读 PDF 划四种线：写进配对笔记、纸面上画出来、右栏按
     // 看不懂一键问 AI（假 AI）：回答接在看不懂那一问下面，那一问还是原文和身份注释
     await notes(page).getByTestId('note-confused').getByTestId('hl-ask').click()
     await expect(ai(page)).toBeVisible()
-    await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 30_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 30_000 })
     await expect.poll(() => note()).toMatch(/> \[!question\] 看不懂\n> ==The kernel is the set of vectors sent to zero\.== <!-- cn:hl=p4-h1 k=confused -->\n\n\S/)
     expect(note()).not.toContain('这句看不懂：')
 

@@ -135,7 +135,7 @@ function imageLine(text: string): { at: number; alt: string; url: string } | nul
 }
 
 /**
- * 读 PDF 配对笔记里一段的「我框的」「整页」图（task-yp8l7）：往上找这一段回到 PDF 的那一行「[第 N 页](x.pdf#page=N&rect=…)」，
+ * 读 PDF 配对笔记里一段的「我框的」「整页」图（task-yp8l7）：往上找这一段回到 PDF 的那一行「[第 N 页](x.pdf#page=N&rect=…)」（新写法往下找「—— [第 N 页](…)」），
  * 点图和 ⌘点那个页码一样打开 PDF、翻过去、框闪一下。不是这种图（上面几行没有页码链接、隔着别的段落）返回 null
  */
 function cropBack(doc: Text, from: number): { href: string; at: number; label: string } | null {
@@ -144,7 +144,14 @@ function cropBack(doc: Text, from: number): { href: string; at: number; label: s
     const l = doc.line(k)
     const m = /^\[(第\s*\d+\s*页)\]\(([^)\s]+)\)/.exec(l.text)
     if (m) return { href: m[2]!, at: l.from + 1, label: m[1]! }
-    if (l.text.trim() && !/^!\[/.test(l.text)) return null
+    if (l.text.trim() && !/^!\[/.test(l.text)) break
+  }
+  // AI 对话记笔记的新写法（@cn/format ai-note.ts）：来源行「—— [第 N 页](…)」在图下面
+  for (let k = n + 1; k <= Math.min(doc.lines, n + 4); k++) {
+    const l = doc.line(k)
+    const m = /^—— \[(第\s*\d+\s*页)\]\(([^)\s]+)\)/.exec(l.text)
+    if (m) return { href: m[2]!, at: l.from + 4, label: m[1]! }
+    if (l.text.trim()) return null
   }
   return null
 }

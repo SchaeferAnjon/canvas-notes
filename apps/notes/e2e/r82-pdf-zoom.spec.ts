@@ -159,7 +159,7 @@ test('捏合以手指为中心；放大缩小后页边标记、问过的框、�
     }
     await drag([0.1, 0.12], [0.7, 0.2])
     await ai(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
-    await expect(ai(page).getByTestId('reading-msg').last().locator('.noted')).toContainText('已记进笔记', { timeout: 20_000 })
+    await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     const mk = pdfPane(page).getByRole('button', { name: '第 1 页这里问过 1 轮' })
     const asked = pdfPage(page, 1).locator('xpath=..').locator('.fr.asked')
     await expect(mk).toBeVisible()

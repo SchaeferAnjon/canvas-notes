@@ -7,6 +7,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import type { ChatSide, StoredMsg, ToolStep } from '../shared/agent'
 import type { AiPick } from '../shared/ai-features'
 import type { Place } from './ai-place'
+import type { NoteTarget } from '../shared/ai-note'
 import { t } from '../shared/i18n'
 
 /** 存下来的部分 + 只在这次打开时有的（还在生成、按钮） */
@@ -31,6 +32,8 @@ interface Chat {
   pick?: AiPick | null
   /** 这段对话里开的旁支（和对话一起存，不往主对话里加东西） */
   sides: Side[]
+  /** 这段对话记进哪篇（AI 对话记笔记开关，主进程记在这个地方的对话文件里，新对话清掉）；没选过没有 */
+  noteTo?: NoteTarget | null
 }
 
 const chats = new Map<string, Chat>()
@@ -87,11 +90,11 @@ async function load(place: Place) {
   if (chats.get(place.key)?.loaded || loading.has(place.key)) return
   loading.add(place.key)
   try {
-    const [msgs, pick, sides] = await Promise.all([window.cn.aiChatLoad(place.key), window.cn.aiChatPick(place.key), window.cn.aiChatSides(place.key)])
+    const [msgs, pick, sides, noteTo] = await Promise.all([window.cn.aiChatLoad(place.key), window.cn.aiChatPick(place.key), window.cn.aiChatSides(place.key), window.cn.aiChatNote(place.key)])
     // 读的时候已经往里加了（读得慢、刚打开就发了一句）：加的排在后面；读的时候已经换了模型、effort：留着刚换的
     const cur = chats.get(place.key)
     const now = cur?.msgs ?? []
-    chats.set(place.key, { label: place.label, msgs: [...msgs, ...now], loaded: true, pick: cur?.pick !== undefined ? cur.pick : pick, sides: [...sides, ...(cur?.sides ?? [])] })
+    chats.set(place.key, { label: place.label, msgs: [...msgs, ...now], loaded: true, pick: cur?.pick !== undefined ? cur.pick : pick, sides: [...sides, ...(cur?.sides ?? [])], noteTo: cur?.noteTo !== undefined ? cur.noteTo : noteTo })
     emit()
     if (now.length) save(place.key)
   } finally {
@@ -168,10 +171,18 @@ export function setPick(key: string, pick: AiPick) {
   void window.cn.aiChatSetPick(key, pick)
 }
 
-/** 新对话：这个地方的对话清掉（会话号、选的模型和 effort 主进程一起清） */
+/** 这段对话记进哪篇（AI 对话记笔记开关）：马上记下；null 回到没选过 */
+export function setNoteTo(key: string, to: NoteTarget | null) {
+  const c = chats.get(key) ?? { label: key, msgs: [], loaded: false, sides: [] }
+  chats.set(key, { ...c, noteTo: to })
+  emit()
+  void window.cn.aiChatSetNote(key, to)
+}
+
+/** 新对话：这个地方的对话清掉（会话号、选的模型和 effort、记进哪篇主进程一起清） */
 export function clear(key: string) {
   const c = chats.get(key)
-  if (c) chats.set(key, { ...c, msgs: [], pick: null, sides: [] })
+  if (c) chats.set(key, { ...c, msgs: [], pick: null, sides: [], noteTo: null })
   ui.delete(key)
   clearTimeout(timers.get(key))
   emit()

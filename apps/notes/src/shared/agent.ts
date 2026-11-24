@@ -5,6 +5,7 @@ import type { EngineHealth } from './engine-health'
 import type { Material } from './materials'
 import type { ActTally } from './ai-act'
 import type { AiCommitFailed, CommitInfo } from './api'
+import type { NoteTarget } from './ai-note'
 
 /**
  * 哪一家：本机命令行四家（照旧排第一），API Key 四家，本机模型两家（task-587os，三条路见 shared/ai-sources.ts）。
@@ -179,6 +180,8 @@ export interface StoredMsg {
   draft?: { path: string; words: number; head: string }
   /** 要提醒的一句（AI 命令先给你看里比原文少了整节、命令没说要删，task-1l29q）：回答上面一行，前面红色 warning 图标 */
   alert?: string
+  /** 问的那条：发问那一刻「记笔记」（旁支里是「旁支」）开着，答完记进这篇（AI 对话记笔记开关，shared/ai-note.ts） */
+  noteAt?: NoteTarget
 }
 
 /**

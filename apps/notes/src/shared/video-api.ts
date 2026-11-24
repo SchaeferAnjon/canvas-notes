@@ -164,8 +164,10 @@ export interface PeekResult {
 
 export interface AskRequest {
   wcId: number
-  /** 记到哪；null 是只问不记（回答只在问框里，不存图、不提交） */
+  /** 记到哪；null 是不写问答块、不提交（问框 2026-11-24 起都给 null，记进 AI 笔记由界面写） */
   dest: Dest | null
+  /** 要记进 AI 笔记：dest 是 null 时也把那一帧存进库（结果里的 image），不写、不提交 */
+  keep?: boolean
   box: Box
   question: string
   /** 当前文档的字（给 AI 看） */

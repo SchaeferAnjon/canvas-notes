@@ -261,7 +261,7 @@ test('什么都没开（首页）：新建「收件箱/<视频标题>.md」在�
   }
 })
 
-test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；不弹浮窗，就地答进文档（[!ai] 提示块）和「视频里的疑惑」，一次提交；刻度上多一个空心圆', async () => {
+test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；不弹浮窗，写进那篇本身、插在光标处（2026-11-24 AI 对话记笔记开关），一次提交；刻度上多一个空心圆', async () => {
   const run = await launch({ '课程/线性代数/第3讲 笔记.md': '# 第3讲 笔记\n\n线性 = 直线变完还是直线。\n' }, env())
   const { page, vault } = run
   try {
@@ -296,24 +296,22 @@ test('⌥D 框一块问：视频暂停、拖一个框、问话框里回车；不
     await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeHidden()
     await shot(run, 'video-asked')
     await waitSaved(page)
+    const NOTE = '课程/线性代数/第3讲 笔记.md'
+    const am = readFileSync(join(vault, NOTE), 'utf8')
+    const jpg = `附件/视频/youtube-${FAKE_VIDEO_ID}/${tt.replace(':', '-')}-问.jpg`
+    expect(am).toContain(`\n\n### 讲解这一块\n\n![我框的](../../${jpg})\n\n—— [▶ ${tt} · Linear transformations and matrices](`)
+    expect(am).toContain('> [!ai] AI 回答 · Claude Code · Opus 5.5 · [回到 AI 对话](')
+    expect(am).toContain('> 框里是 i 帽和 j 帽变换后的位置。')
+    // 新写法（小标题 + AI 回答框），不是老的 moment-ask 问答块；没有一节视频名的大标题、没有 AI 笔记属性
     const md = await editorText(page)
-    expect(md).toContain(`<!-- moment-ask video=youtube:${FAKE_VIDEO_ID} t=${at}`)
-    expect(md).toContain('> **我的疑惑**：框里这两个箭头为什么能决定整个网格怎么动？')
-    expect(md).toContain('> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了')
-    expect(md).toContain('> 框里是 i 帽和 j 帽变换后的位置。')
-    expect(md).toContain(`![${tt} 框住的地方](../../附件/视频/youtube-${FAKE_VIDEO_ID}/${tt.replace(':', '-')}-问.jpg)`)
-    // 「视频里的疑惑」不再另写一篇（2026-11-20）：这门课的「我的疑惑」直接读文档里这一块
+    expect(md).not.toContain('moment-ask')
+    expect(md).toContain('线性 = 直线变完还是直线。')
+    expect(am).not.toContain('## Linear transformations and matrices')
+    expect(am).not.toContain('AI 笔记')
     expect(existsSync(join(vault, '课程/线性代数/视频里的疑惑.md'))).toBe(false)
     await expect.poll(() => gitStatus(vault)).toBe('')
-    expect(filesOf(vault, `视频：问 AI ${tt}《Linear transformations and matrices》→ 第3讲 笔记`).sort()).toEqual(['课程/线性代数/第3讲 笔记.md', `附件/视频/youtube-${FAKE_VIDEO_ID}/${tt.replace(':', '-')}-问.jpg`].sort())
+    expect(filesOf(vault, '笔记：第3讲 笔记 · 讲解这一块').sort()).toEqual([NOTE, jpg].sort())
     await expect(strip(page).locator('.vmark.asked')).toHaveCount(1)
-    // 文档里画成问答块；点时间胶囊回到那一秒
-    await pane(page).getByText('线性 = 直线变完还是直线。').click()
-    const block = pane(page).locator('[data-part="问答块"]')
-    await expect(block).toBeVisible()
-    await seek(page, 20)
-    await block.locator('.vpill').click()
-    await expect.poll(async () => Math.floor(await videoTime(page))).toBe(at)
   } finally {
     await run.close()
   }

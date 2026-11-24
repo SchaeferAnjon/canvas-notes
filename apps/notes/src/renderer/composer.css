@@ -248,6 +248,62 @@
   text-overflow: ellipsis;
 }
 
+/* ---------- 全能模式上面那一排：记笔记 ·《记进哪篇》▾ ｜ 旁支（2026-11-24 AI 对话记笔记开关） ---------- */
+/* 和全能模式那行一样 22 高、12px；这一排到全能模式那行空 2 */
+.ai-note-sw {
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+.ai-note-sw .om {
+  flex: none;
+}
+.ai-note-sw .tgt {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px 0 2px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: 12px/18px var(--sans);
+  color: var(--t2);
+  white-space: nowrap;
+}
+/* 篇名能缩（.ai-omni .nm 是 flex: none，不改的话窄时篇名不省略、▾ 挤到按钮外面，面板横着多出来） */
+.ai-note-sw .tgt .nm {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-note-sw .tgt .dim {
+  color: var(--t3);
+}
+.ai-note-sw .tgt svg {
+  flex: none;
+}
+.ai-note-sw .tgt:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+.ai-note-sw .tgt:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--acc-ring);
+}
+.ai-note-sw .gap {
+  flex: 1;
+}
+.ai-note-sw .vr {
+  flex: none;
+  width: 1px;
+  height: 12px;
+  margin: 0 4px;
+  background: var(--line);
+}
+
 /* ---------- 顶上一排材料：横着排、间距 6、横向滚，下边 1px --line，下内边距 6、下外边距 6 ---------- */
 /* 高定死 51（卡 44 + 下内边距 6 + 线 1）：放不下要横着滚时，滚动条落在下内边距里，不把输入框撑高 */
 .aiin .shelf {

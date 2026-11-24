@@ -950,7 +950,7 @@ app.whenReady().then(async () => {
   })
   await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault, downloads: () => settings.app().web.downloads })
   setupPlugins({ window: () => win, vault: () => vault })
-  setupReading({ win: () => win, vault: () => vault, recap: () => settings.app().pdf.recap })
+  setupReading({ win: () => win, vault: () => vault })
   setupSearch({ win: () => win, vault: () => vault, semantic: () => settings.app().editor.semantic })
   registerFiles(() => vault)
   family = registerFamily({
