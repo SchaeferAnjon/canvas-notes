@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { actDoneText, actHaltText, actScope, changedParas, noTally } from '../src/shared/ai-act'
+import { actDoneText, actHaltText, actScope, changedParas, docLinesHead, noTally } from '../src/shared/ai-act'
 
 const board = { path: '冰岛.md', mode: 'board' as const, board: false }
 const doc = { path: '周报.md', mode: 'doc' as const, board: false }
@@ -19,9 +19,9 @@ describe('actScope：光在哪亮', () => {
     expect(actScope('board_arrange', {}, doc)).toBeNull()
     expect(actScope('board_arrange', {}, { path: 'b.md', mode: 'doc', board: true })?.path).toBe('b.md')
   })
-  it('文档里写一段、换掉选中的那段只亮那一处；白板看法下不算', () => {
-    expect(actScope('doc_insert', { text: 'x' }, doc)).toEqual({ area: 'doc', whole: false, path: '周报.md' })
-    expect(actScope('doc_replace_selection', { text: 'x' }, doc)?.whole).toBe(false)
+  it('文档里写一段、换掉选中的那段也整篇四边亮（2026-11-24）；白板看法下不算', () => {
+    expect(actScope('doc_insert', { text: 'x' }, doc)).toEqual({ area: 'doc', whole: true, path: '周报.md' })
+    expect(actScope('doc_replace_selection', { text: 'x' }, doc)?.whole).toBe(true)
     expect(actScope('doc_insert', { text: 'x' }, board)).toBeNull()
   })
   it('整篇改写开着的这篇：整块亮（文档看法是文档，白板看法是白板）；改别的笔记不画', () => {
@@ -56,5 +56,12 @@ describe('changedParas：整篇改写改了几段', () => {
     expect(changedParas(a, '# 标题\n\n第一段\n\n\n第二段改了\n\n第三段改了\n')).toBe(2)
     expect(changedParas(a, a + '\n第四段\n')).toBe(1)
     expect(changedParas('同一段\n\n同一段\n', '同一段\n\n同一段\n\n同一段\n')).toBe(1)
+  })
+})
+
+describe('docLinesHead：文档栏收尾那句的前半', () => {
+  it('做完「改好了」，停下「停下了 · 改的留着」', () => {
+    expect(docLinesHead(false)).toBe('改好了')
+    expect(docLinesHead(true)).toBe('停下了 · 改的留着')
   })
 })

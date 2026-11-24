@@ -12,7 +12,7 @@ const BEFORE = '# 学习笔记\n\n张量就是多维数组。\n\n广播：形状
 const AFTER = '# 学习笔记\n\n## 2.1 数据操作\n\n张量就是多维数组。\n\n## 2.2 广播\n\n广播：形状不同时自动扩展。\n'
 
 const chat = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const side = (page: Page) => chat(page).getByRole('region', { name: '旁支' })
 const slashMenu = (page: Page) => page.getByTestId('slash-menu')
 
@@ -63,8 +63,10 @@ test('旁支开着：主输入框缩成一行不出 / 菜单，旁支的输入�
     // 回答里选一句开旁支：主输入框缩成一行
     await selectText(page, msg.locator('.txt'), '按书的', '正文没动。')
     await expect(askbox(page)).toBeVisible()
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么这样分？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('为什么这样分？')
+    await page.keyboard.press('Enter')
     await expect(side(page)).toBeVisible()
     await expect(chat(page).getByTestId('ai-input-slim')).toBeVisible()
     await expect(side(page).getByTestId('side-msg').last()).toContainText('旁支', { timeout: 15_000 })

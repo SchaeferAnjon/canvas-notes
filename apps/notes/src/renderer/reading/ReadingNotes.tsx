@@ -26,7 +26,7 @@ const MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
 
 /** 这一轮问了几问（新格式：主问题 + 旁支问题；以前的段：问了几轮） */
 const asksOf = (s: AskSection) => s.rounds
-type Filter = 'all' | 'q' | 'side'
+type Filter = 'all' | 'q' | 'side' | 'pre'
 
 /**
  * 每份笔记哪几轮收着：all 是点了「全部收起」，flip 是和 all 反着的那几轮（自己单点开、单收起的）。
@@ -39,6 +39,7 @@ const FILTERS: [Filter, string][] = [
   ['all', '全部'], // 不翻
   ['q', '只看我问的'], // 不翻
   ['side', '旁支'], // 不翻
+  ['pre', '前置知识'], // 不翻（有标了前置知识的那一问才露这一颗）
 ]
 /** 「只看我问的」「旁支」里的一条：问题原话，下面一行在哪 */
 interface QRow {
@@ -49,6 +50,8 @@ interface QRow {
   quote?: string
   q: string
   sub: string
+  /** 标了前置知识 */
+  pre?: true
 }
 
 /** 搜的时候看的字：标题、问题原话、回答、旁支、小结（以前的段：疑惑、讲通的讲法、要点） */
@@ -252,17 +255,19 @@ export function ReadingNotes(props: {
   for (const s of filter === 'all' ? [] : sections) {
     const at = s.page > 0 ? t('第{page}页 · {title}', { page: s.page, title: s.title }) : s.title
     const ids = turnIds(pdf, s)
-    const side = (quote: string, q: string, id?: string) =>
-      rows.push({ sec: s.id, id, quote, q, sub: s.page > 0 ? t('旁支 · 第{page}页 · 「{quote}…」', { page: s.page, quote: quote.slice(0, 14) }) : t('旁支 · 「{quote}…」', { quote: quote.slice(0, 14) }) })
+    const side = (quote: string, q: string, id?: string, pre?: true) =>
+      rows.push({ sec: s.id, id, quote, q, ...(pre ? { pre } : {}), sub: s.page > 0 ? t('旁支 · 第{page}页 · 「{quote}…」', { page: s.page, quote: quote.slice(0, 14) }) : t('旁支 · 「{quote}…」', { quote: quote.slice(0, 14) }) })
     if (!s.qas) {
       if (filter === 'q') rows.push({ sec: s.id, id: s.id, q: s.doubts[0] ?? s.title, sub: at })
       continue
     }
     s.qas.forEach((qa, i) => {
-      if (filter === 'q' && qa.q.trim()) rows.push({ sec: s.id, id: ids.get(`q${i}`), q: qa.q, sub: at })
-      qa.sides.forEach((d, j) => d.turns.forEach((turn, k) => side(d.quote, turn.q, ids.get(`s${i}.${j}.${k}`))))
+      if ((filter === 'q' || (filter === 'pre' && qa.pre)) && qa.q.trim()) rows.push({ sec: s.id, id: ids.get(`q${i}`), q: qa.q, sub: s.page > 0 || !qa.pre ? at : t('笔记末尾 · 前置知识'), ...(qa.pre ? { pre: true } : {}) })
+      qa.sides.forEach((d, j) => d.turns.forEach((turn, k) => (filter !== 'pre' || turn.pre) && side(d.quote, turn.q, ids.get(`s${i}.${j}.${k}`), turn.pre)))
     })
   }
+  /** 有标了前置知识的问（主对话或旁支）：筛选那一排才露「前置知识」 */
+  const hasPre = sections.some((s) => s.qas?.some((qa) => qa.pre || qa.sides.some((d) => d.turns.some((x) => x.pre))))
   const qrows = needle ? rows.filter((x) => `${x.q}\n${x.sub}`.toLowerCase().includes(needle)) : rows
   /** 问题条右端（出卡，task-tz7y3）：送过的「✓ 已送」；没送的悬停出「做成卡」，点了 AI 改好这一问、贴着问题条出一张小卡 */
   const cardMark = (s: AskSection, key: string): ReactNode => {
@@ -310,11 +315,12 @@ export function ReadingNotes(props: {
             <input placeholder={t('在这份笔记里找')} aria-label={t('在这份笔记里找')} value={q} onChange={(e) => setQ(e.target.value)} />
           </label>
           <div className="nfil" role="tablist" aria-label={t('笔记筛选')}>
-            {FILTERS.map(([f, label]) => (
+            {FILTERS.filter(([f]) => f !== 'pre' || hasPre || filter === 'pre').map(([f, label]) => (
               <button key={f} role="tab" aria-selected={filter === f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
                 {t(label, { ctx: '笔记筛选' })}
               </button>
             ))}
+            <span className="nend">
             {sections.length > 0 && (
               // 全部收起 / 全部展开：有一轮开着就是「全部收起」
               <button
@@ -336,6 +342,7 @@ export function ReadingNotes(props: {
             ) : (
               <span className="cnt num" data-testid="note-count">{t('{n}轮 · {asks}问', { n: sections.length, asks })}</span>
             )}
+            </span>
           </div>
           {hls.length > 0 && (
             <div className="nmean" role="tablist" aria-label={t('按含义筛划线')} data-testid="hl-filter">
@@ -358,8 +365,10 @@ export function ReadingNotes(props: {
       <div
         className="notes ndoc"
         ref={list}
-        // 笔记里光写页码的「第 4 页」是这份 PDF 的：按住 ⌘ 悬停弹出那一页（peek/peek.tsx）
+        // 笔记里光写页码的「第 4 页」是这份 PDF 的：按住 ⌘ 悬停弹出那一页（peek/peek.tsx）；
+        // 点一下出卡、⌘点翻过去，带引的那句的跳到那一段（cite.tsx 认 data-cite-pdf，和 AI 回答里一样；页码链接跳到段）
         data-peek-pdf={isPdf ? pdf : undefined}
+        data-cite-pdf={isPdf ? pdf : undefined}
         onClick={(e) => {
           const b = (e.target as Element).closest<HTMLElement>('.badge[data-side]')
           if (!b) return
@@ -399,6 +408,8 @@ export function ReadingNotes(props: {
           <>
             {filter === 'side' ? (
               <div className="qhint">{t('开过的旁支')}</div>
+            ) : filter === 'pre' ? (
+              <div className="qhint">{t('讲论文外基础知识的问：挂在哪一页的照旧在那一页，没挂在哪一处的在笔记末尾「前置知识」一节')}</div>
             ) : (
               isPdf &&
               hint && (
@@ -415,7 +426,10 @@ export function ReadingNotes(props: {
               <button key={i} className={'qonly' + (filter === 'q' && x.quote !== undefined ? ' br' : '') + (x.id && sent.has(x.id) ? ' done' : '')} data-testid="note-q" onClick={() => goRow(x)}>
                 <Codicon name={x.quote !== undefined ? 'comment-discussion' : 'comment'} size={14} />
                 <span className="qt">
-                  <span className="q">{x.q}</span>
+                  <span className="q">
+                    {x.q}
+                    {x.pre && filter !== 'pre' && <PreTag />}
+                  </span>
                   <span className="s">{x.sub}</span>
                 </span>
                 {x.id && sent.has(x.id) && (
@@ -426,7 +440,7 @@ export function ReadingNotes(props: {
                 )}
               </button>
             ))}
-            {!qrows.length && <div className="nempty">{needle ? t('这份笔记里没有「{q}」', { q: q.trim() }) : filter === 'q' ? t('还没问过。') : t('还没开过旁支。')}</div>}
+            {!qrows.length && <div className="nempty">{needle ? t('这份笔记里没有「{q}」', { q: q.trim() }) : filter === 'q' ? t('还没问过。') : filter === 'pre' ? t('还没有标了前置知识的问。') : t('还没开过旁支。')}</div>}
           </>
         ) : (
           <>
@@ -582,13 +596,26 @@ function withDots(q: string, n: number): ReactNode[] {
 }
 
 /** 一问的问题条（主问题整栏宽 --fill2，旁支里的 78% 宽 --fill）：comment 14 + 原话 500；带的材料在下面一行一条 */
+/** 问题条上的小标签「前置知识」（AI 标了这一问讲的是论文外的基础知识，笔记里小标题末尾 #前置知识） */
+function PreTag() {
+  const t = useT()
+  return (
+    <span className="pre-tag" data-testid="pre-tag">
+      {t('前置知识')}
+    </span>
+  )
+}
+
 function QBar(p: { t: AskTurn; k: string; grow: boolean; mark?: ReactNode }) {
   const mats = p.t.mats ?? []
   return (
     <>
       <div className={'qs' + (p.grow ? ' grow' : '')} data-k={p.k}>
         <Codicon name="comment" size={14} />
-        <span className="qt">{withDots(p.t.q, mats.length)}</span>
+        <span className="qt">
+          {withDots(p.t.q, mats.length)}
+          {p.t.pre && <PreTag />}
+        </span>
         {p.mark}
       </div>
       {mats.length > 0 && (
@@ -675,10 +702,13 @@ function Round(p: {
           {p.writing && <Codicon name="loading" size={12} className="spin" />}
         </span>
       </div>
-      <div className="loc">
-        {loc}
-        {s.crop && <span>{`· ${cropCaption(s)}`}</span>}
-      </div>
+      {/* 没挂在哪一页的（末尾「前置知识」「没定位的问答」那两节，page 0）：不写「第 0 页 ›」 */}
+      {(w || s.page > 0 || s.crop) && (
+        <div className="loc">
+          {(w || s.page > 0) && loc}
+          {s.crop && <span>{`· ${cropCaption(s)}`}</span>}
+        </div>
+      )}
       {s.crop && (
         <button className="crop" title={t('点一下回到原处')} onClick={p.onJump}>
           <img src={vaultImg(s.crop)} alt={cropCaption(s)} style={s.cropW ? { width: s.cropW } : undefined} className={s.cropW ? '' : 'old'} />

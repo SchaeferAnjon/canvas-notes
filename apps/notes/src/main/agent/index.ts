@@ -114,8 +114,10 @@ interface Turn {
   checked: Set<string>
   /** 这一轮动过手的地方（白板、文档、网页）：界面上画流光和提示条，做完收起（DESIGN.v3 2.3） */
   acts: Set<AiActArea>
-  /** 其中整块亮着的（四边一道光、顶上提示条）；只亮一处的（只加一张卡、只写一段）不在这里 */
+  /** 其中整块亮着的（四边一道光、顶上提示条）；只亮一处的（只加一张卡）不在这里 */
   whole: Set<AiActArea>
+  /** 这一轮改到的每一篇（文档工具、命令行写盘、监听看到的）：每篇发一次 start，开着它的文档栏四边亮、顶上「AI 正在改这篇」 */
+  docs: Set<string>
   /** 这一轮做了多少：做完时「整理好了 · 挪了N张卡」、停下时「做完的N步留着」 */
   tally: ActTally
   /** 用户按了停下（esc、提示条「停下」、发送键）：一长串的下一步不做了 */
@@ -162,6 +164,8 @@ let store: AgentStore
 let dockTurn: Turn | null = null
 /** 正在答的每一轮（AI 对话、读 PDF） */
 const liveTurns = new Set<Turn>()
+/** 答完了、正在提交、还没告诉界面做完（end）的那几轮 */
+const closing = new Set<Turn>()
 /** 每一轮自己的令牌 → 那一轮（Claude Code 一轮一个进程，令牌写在那一轮的配置文件里） */
 const byToken = new Map<string, Turn>()
 /** Codex、Gemini、OpenCode 的进程一直开着、令牌在起进程时给：一家一个令牌，算在这家正在答的最新那一轮上 */
@@ -495,12 +499,25 @@ async function announce(t: Turn, name: string, args: Record<string, unknown>) {
   const tab = ctx?.tab.type === 'note' && ctx.tab.path ? ctx.tab : null
   const scope = actScope(name, args, { path: tab?.path ?? null, mode: tab?.mode ?? null, board: !!tab?.board })
   if (!scope) return
+  if (scope.area === 'doc') return docGlow(t, scope.path)
   t.acts.add(scope.area)
   if (scope.whole) {
     if (t.whole.has(scope.area)) return
     t.whole.add(scope.area)
     act({ turn: t.id, kind: 'start', area: scope.area, path: scope.path })
-  } else if (scope.area === 'doc' && scope.path && !t.whole.has('doc')) act({ turn: t.id, kind: 'spot', area: 'doc', path: scope.path })
+  }
+}
+
+/**
+ * 这一轮改到这一篇（文档工具、整篇改写、全能模式下命令行写盘 / Edit、git 改回去，监听看到的都算）：每篇第一次发 start，
+ * 界面上开着它的文档栏照白板那样四边一道光、顶上「AI 正在改这篇 · 停下 esc」，到这一轮做完收成「改好了 · +N −M · 撤回」；
+ * 没开着的那篇界面不画。改到的那一段竖线、字一点点长出来照旧（ai-spot.ts）
+ */
+function docGlow(t: Turn, path: string | null) {
+  if (!path || t.docs.has(path)) return
+  t.docs.add(path)
+  t.acts.add('doc')
+  act({ turn: t.id, kind: 'start', area: 'doc', path })
 }
 
 function emit(id: number, e: AiEvent) {
@@ -685,7 +702,7 @@ export async function runAgentTurn(o: {
   aiWrote?: AiWrote
 }): Promise<AgentTurnResult> {
   const v = needVault()
-  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), trail: [] }
+  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), docs: new Set(), tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), trail: [] }
   let outcome: EngineOutcome | null = null
   let error: string | undefined
   /** 没答完（停下、出错）时引擎给的会话号：已经做了的几步在这个会话里，「接着做」接着它 */
@@ -720,6 +737,7 @@ export async function runAgentTurn(o: {
     session = sessionOf(e)
   } finally {
     liveTurns.delete(t)
+    closing.add(t)
     if (t.omni) omniEndedAt = Date.now()
     turns.delete(o.id)
     if (token?.own) {
@@ -734,7 +752,10 @@ export async function runAgentTurn(o: {
     done = await commitTurn(v, t, `AI：${subject(o.subject)}`)
   } finally {
     // 提交好了再收光：做完的提示条带「撤回」（就是这一次提交），停下、出错的变灰淡掉；提交出了错也收
-    if (t.acts.size || t.wrote) act({ turn: t.id, kind: 'end', stopped: o.ac.signal.aborted || !!error, commit: done?.commit?.hash ?? null, tally: t.tally })
+    // 改到的每一篇这次提交里加减了几行（和改动卡上的 +N −M 同一个数）
+    const lines = t.docs.size && done?.commit ? Object.fromEntries(done.commit.files.filter((f) => t.docs.has(f.path)).map((f) => [f.path, { added: f.added, removed: f.removed }])) : undefined
+    closing.delete(t)
+    if (t.acts.size || t.wrote) act({ turn: t.id, kind: 'end', stopped: o.ac.signal.aborted || !!error, commit: done?.commit?.hash ?? null, tally: t.tally, ...(lines ? { lines } : {}) })
   }
   const { commit, kinds, failed } = done
   const moved = t.moved.size ? Object.fromEntries(t.moved) : undefined
@@ -768,7 +789,8 @@ export function agentExternal(path: string, text?: string) {
     wrapWrites.delete(path)
     if (!wrapped.grow && Date.now() - wrapped.at < 10_000) return
   }
-  const t = [...liveTurns].reverse().find((x) => x.omni)
+  // 答完了、还在提交（还没发 end）的那一轮也算：AI 写完紧接着答完，监听晚到几十毫秒，那篇照样整篇亮、和这一轮一起收
+  const t = [...liveTurns].reverse().find((x) => x.omni) ?? [...closing].reverse().find((x) => x.omni)
   if (t) wroteNote(t, path)
   // 写完紧接着这一轮就答完了（监听晚到几十毫秒）：照样是 AI 写的，只是没有还在答的一轮了（不挂「AI 在写这一段」到这一轮做完）
   else if (Date.now() - omniEndedAt < 3000) act({ turn: 0, kind: 'wrote', path })
@@ -780,6 +802,8 @@ let omniEndedAt = 0
 /** 这一轮 AI 写了这一篇：界面上开着它的编辑器、白板认这一下（DESIGN.v3 2.3「字一点点长出来」） */
 function wroteNote(t: Turn, path: string) {
   t.wrote = true
+  // 先亮整篇再说写了：编辑器合进这次改动时已经认得是整篇在改（那一段只画竖线、不再挂一颗「停下」）
+  docGlow(t, path)
   act({ turn: t.id, kind: 'wrote', path })
 }
 

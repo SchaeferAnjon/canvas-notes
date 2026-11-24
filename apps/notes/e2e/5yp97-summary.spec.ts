@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { acts, gitStatus, launch, openAi, openNote, pane, waitSaved } from './app'
 import { board, col } from './fixtures/board-doc'
 
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const sideIn = (scope: Locator) => scope.getByRole('region', { name: '旁支' })
 const toast = (page: Page) => page.locator('footer, .status')
 
@@ -97,8 +97,10 @@ test('以前存的「AI 总结的」卡：第一次打开一次改成 AI 总结�
     // 卡里拖选一句 → 同一个小框 → 问这句：旁支就地长在卡里
     await selectText(page, body, '分数除以', '变成权重，')
     await expect(askbox(page)).toBeVisible()
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么要除以 √d？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('为什么要除以 √d？')
+    await page.keyboard.press('Enter')
     const s = sideIn(card)
     await expect(s).toBeVisible()
     await expect(body.locator('.asked.on')).toHaveText('分数除以 √d 再过 softmax 变成权重，')
@@ -209,7 +211,7 @@ test('新存的总结直接是 AI 总结块（头一行写哪家、哪个模型�
     await expect(card.locator('.ct > :first-child')).not.toHaveClass(/\bnm\b/)
     await selectText(page, card.locator('.side-text'), '这块白板', '三件事')
     await expect(askbox(page)).toBeVisible()
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
     await expect(sideIn(card)).toBeVisible()
     await expect(sideIn(card).locator('.rec')).toHaveText('写在这篇文档里，挂在这段总结下面')
     // 打开再保存：新存的不会被当成以前的写法再改一次

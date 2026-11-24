@@ -7,6 +7,7 @@ import { type EditorState, type Range, StateEffect, StateField, type Text } from
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { asClip, imagesFrom, looksLikeImage, saveImages, webDragLive, webImgClipped } from './image-drop'
 import { hiddenOk } from '../hidden-syntax'
+import { clipText } from '@cn/ai-chat/paste'
 
 /** 落在哪一行就插在那一段后面（落在空行上就插在空行处），前后各空一行；插在最后时以换行结尾 */
 export function blockInsert(doc: Text, pos: number, text: string): { from: number; insert: string } {
@@ -196,7 +197,8 @@ export function docImageDrop(notePath: () => string, onNotice: (t: string) => vo
       },
       paste(e, view) {
         const items = Array.from(e.clipboardData?.items ?? [])
-        if (view.state.readOnly || !items.some((i) => i.kind === 'file' && i.type.startsWith('image/'))) return false
+        // 字和图都有（微信多条聊天记录、Excel 单元格另附的渲染图）：贴字，交给 paste-html / CodeMirror（粘贴优先文字）
+        if (view.state.readOnly || !items.some((i) => i.kind === 'file' && i.type.startsWith('image/')) || clipText(e.clipboardData!)) return false
         e.preventDefault()
         handle(view, e.clipboardData!, view.state.selection.main.head, true)
         return true

@@ -6,7 +6,7 @@
  * 减少动态（prefers-reduced-motion）时不建动画，只有不动的一圈。
  */
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { actEntries, actVersion, onActs, still } from './ai-act-store'
+import { actVersion, onActs, shownActs, still } from './ai-act-store'
 import './ai-glow.css'
 
 /** 绕一圈多久（原型 A 是 2.4 秒，用户嫌快；A2 定 7 秒） */
@@ -154,7 +154,7 @@ export function GlowRing(props: { mode: RingMode; once?: number; className?: str
 export function ComposerGlow(props: { running: boolean }) {
   useSyncExternalStore(onActs, actVersion)
   // 动手的地方亮着（含做完收尾的那两秒）时都让给它，不在收尾时又在输入框上闪一下
-  const on = props.running && !actEntries().length && !still()
+  const on = props.running && !shownActs().length && !still()
   const [mode, setMode] = useState<RingMode | null>(null)
   const was = useRef(false)
   useEffect(() => {

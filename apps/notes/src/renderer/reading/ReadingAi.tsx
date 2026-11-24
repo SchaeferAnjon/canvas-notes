@@ -21,10 +21,10 @@ import { type ReadingMsg, withoutVizMark } from '../../shared/reading'
 import { useCiteSig } from '../cite-names'
 import { AiError } from '@cn/ai-chat/ai-error'
 import { AnswerTurn, UserTurn } from '@cn/ai-chat/turns'
-import { AiHead, AwayBar, Chip, type DockNav, Sees } from '../ai-head'
+import { AiHead, AwayBar, Chip, type DockNav, type OlderChat, Sees } from '../ai-head'
 import { AiInput, type Lead, MatMsg, sendText, useComposer, useConvPick } from '@cn/ai-chat/composer'
 import type { AiPick, EngineInfo } from '@cn/ai-engines/shared'
-import { ChangeBlock } from '../AiPanel'
+import { ChangeBlock } from '../ai-change'
 import { StepRow } from '@cn/ai-chat/steps'
 import { AnswerRow } from '../answer-row'
 import { ChangeBar } from '@cn/ai-chat/answer-bar'
@@ -304,6 +304,9 @@ export function ReadingAi(props: {
   const jump = useChatJump()
   useEffect(() => {
     if (!jump || jump.key !== readKey(pdf) || props.hidden) return
+    // 那条回答在点「+」收起来的一段里：先切回那段，画出来再滚过去（这个 effect 跟着 msgs 再跑一次）
+    const old = R.olderWith(pdf, (m) => String(m.id) === String(jump.msg))
+    if (old !== null && !R.busy(r)) return void R.switchChat(pdf, old)
     const el = list.current?.querySelector<HTMLElement>(`[data-msg="${jump.msg}"]`)
     jumpDone(jump.seq)
     if (!el) return app().notice(tNow('这段对话里找不到那条回答了（点过「新对话」）'))
@@ -313,7 +316,7 @@ export function ReadingAi(props: {
     void el.offsetWidth
     el.classList.add('jumped')
     setTimeout(() => el.classList.remove('jumped'), 1600)
-  }, [jump, pdf, props.hidden])
+  }, [jump, pdf, props.hidden, r.state.msgs])
 
   /** 输入框里是自己打的字（不是预填的、不是空的） */
   const own = !!input.trim() && input !== prefilled.current
@@ -357,6 +360,18 @@ export function ReadingAi(props: {
 
   const running = r.running !== null
   const msgs = r.state.msgs
+  /** 对话菜单「之前的对话」：点「+」收起来的那几段，新的在上；名字是那段第一问的原话 */
+  const olderItems: OlderChat[] = [...(r.state.older ?? [])].reverse().map((c) => {
+    const asks = c.msgs.filter((m) => m.role === 'user')
+    return {
+      id: c.id,
+      label: asks[0]?.text.trim().split('\n')[0] || tNow('框着问的一块'),
+      at: c.msgs.reduce((t, m) => Math.max(t, m.time), 0),
+      asks: asks.length,
+      pick: () => void R.switchChat(pdf, c.id),
+      disabled: R.busy(r),
+    }
+  })
   const lastAi = [...msgs].reverse().find((m) => m.role === 'ai')
   /** 实心的「打开」只给最后一个能打开的（和 AI 对话里一样：一屏一颗实心按钮） */
   const lastOpen = [...msgs].reverse().find((m) => m.open && !m.change?.reverted)
@@ -525,13 +540,14 @@ export function ReadingAi(props: {
     return { state: 'done', to, ...(undoing.has(m.id) ? { undoing: true } : {}) }
   }
   /** 「放到第 N 页」：这一处是贴截图问的、没认出是哪一页（或照正看着的那页定的），中间正看着的不是这一页 */
-  const moveOf = (m: ReadingMsg): { move?: { lost: boolean; from: number; page: number; onMove(): void } } => {
+  const moveOf = (m: ReadingMsg): { move?: { lost: boolean; pre?: boolean; from: number; page: number; onMove(): void } } => {
     const th = r.state.threads.find((t) => t.id === m.thread)
     const at = r.state.page
     if (!th || (th.found !== 'none' && th.found !== 'view') || at < 1 || at === th.page || m.note === 'writing' || !m.text || m.error) return {}
     // 照正看着的那页定的：只在最后一条回答下面给（翻页时前面每条都冒出一句太吵）；没定位的一直给，直到挪走
     if (th.found === 'view' && r.state.msgs.findLast((x) => x.role === 'ai')?.id !== m.id) return {}
-    return { move: { lost: th.found === 'none', from: th.page, page: at, onMove: () => void R.moveAsk(pdf, m.id, at).catch((e: unknown) => props.onNotice(String((e as Error).message ?? e))) } }
+    // 讲前置知识的（AI 标了〔前置知识〕）记进了笔记末尾「前置知识」那一节
+    return { move: { lost: th.found === 'none', ...(m.pre && m.notePath ? { pre: true } : {}), from: th.page, page: at, onMove: () => void R.moveAsk(pdf, m.id, at).catch((e: unknown) => props.onNotice(String((e as Error).message ?? e))) } }
   }
   async function undoNote(id: number, side?: string) {
     setUndoing((x) => new Set(x).add(id))
@@ -560,7 +576,7 @@ export function ReadingAi(props: {
 
   return (
     <aside className="right aicell reading-ai ai" aria-label="边读边问 AI" hidden={props.hidden}>
-      <AiHead label={label} nav={props.nav} newTip="新对话：AI 从头读这份 PDF，问过的和笔记都留着" newDisabled={running} onNew={() => void R.newChat(pdf)} />
+      <AiHead label={label} nav={props.nav} newTip="新对话：现在这段收进对话菜单，能切回；笔记都留着" newDisabled={R.busy(r)} onNew={() => void R.newChat(pdf)} older={props.nav.away ? undefined : olderItems} />
       {/* 看得到（A 组读 PDF 小样）：这份 PDF · 第几页 | ✓ 读过全文几页 | 笔记几轮（还没记过不画）；看别处的对话时换成「这是在…问的」；下格开着旁支时藏起来 */}
       {props.nav.away ? (
         <AwayBar nav={props.nav} />
@@ -624,7 +640,6 @@ export function ReadingAi(props: {
         {msgs.map((m, i) => {
           const prev = msgs[i - 1]
           const startsThread = m.role === 'user' && (!prev || prev.thread !== m.thread || (prev.role === 'ai' && m.time - prev.time > 10 * 60_000))
-          const isNew = r.state.newChatAt && m.time >= r.state.newChatAt && (!prev || prev.time < r.state.newChatAt)
           return (
             <Msg
               place={replyPlace}
@@ -632,7 +647,7 @@ export function ReadingAi(props: {
               chatKey={readKey(pdf)}
               key={m.id}
               m={m}
-              sep={isNew ? `新对话 · ${stamp(r.state.newChatAt!)}` : startsThread ? `${Date.now() - m.time < 10 * 60_000 ? '现在' : stamp(m.time)}${m.page ? ` · 第${m.page}页` : ''}` : null}
+              sep={startsThread ? `${Date.now() - m.time < 10 * 60_000 ? '现在' : stamp(m.time)}${m.page ? ` · 第${m.page}页` : ''}` : null}
               flash={flashMsg === m.thread && startsThread}
               last={m === lastAi && !running}
               primary={m === lastOpen}
@@ -845,7 +860,7 @@ function Msg(p: {
   /** ⋯ 最前面：记进《…》/ 从《…》拿掉 */
   noteItem: AbMenuItem | null
   /** 贴截图问的、没认出是哪一页（或照正看着的那页定的）：「放到第 N 页」挪到中间正看着的那页（0.5.9） */
-  move?: { lost: boolean; from: number; page: number; onMove(): void }
+  move?: { lost: boolean; pre?: boolean; from: number; page: number; onMove(): void }
 }) {
   const { m } = p
   const cmd = isCmdTurn(m)
@@ -941,7 +956,7 @@ function Msg(p: {
           {p.noted && <NotedLine s={p.noted} {...(p.onUndoNote ? { onUndo: p.onUndoNote } : {})} {...(p.onOpenNote ? { onOpen: p.onOpenNote } : {})} />}
           {p.move && (
             <div className="noted move" data-testid="reading-move">
-              <span>{p.move.lost ? tNow('记在「没定位的问答」里') : tNow('照正看着的第 {n} 页记的', { n: p.move.from })}</span>
+              <span>{p.move.pre ? tNow('记在「前置知识」里') : p.move.lost ? tNow('记在「没定位的问答」里') : tNow('照正看着的第 {n} 页记的', { n: p.move.from })}</span>
               <span className="go">
                 <span aria-hidden="true">·</span>
                 <button className="lnk" onClick={p.move.onMove}>
@@ -950,7 +965,7 @@ function Msg(p: {
               </span>
             </div>
           )}
-          {m.change && <ChangeBlock change={m.change} onRevert={p.onRevert} />}
+          {m.change && <ChangeBlock change={m.change} onRevert={p.onRevert} onOpen={p.onOpen} />}
           {m.warn && <div className="noted err">{m.warn}</div>}
           {m.viz?.state === 'making' && (
             <div className="vizpill" role="status">

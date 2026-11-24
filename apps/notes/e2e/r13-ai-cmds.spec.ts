@@ -68,7 +68,7 @@ test('/写成文章：草稿写在白板所在的文件夹，回答卡片和改�
     expect(subjects(vault, 1)).toEqual(['AI：/写成文章 · 冰岛自驾'])
     const first = read(vault, path)
     // 点「打开」开的就是这一篇
-    await msg.getByRole('button', { name: '打开' }).click()
+    await msg.getByRole('button', { name: '打开', exact: true }).click()
     await expect(tabOn(page)).toHaveText('冰岛自驾：文章草稿')
 
     // 再写一次：同一个文件夹里加「 2」，第一篇不动
@@ -79,8 +79,8 @@ test('/写成文章：草稿写在白板所在的文件夹，回答卡片和改�
     expect(read(vault, path)).toBe(first)
     expect(existsSync(join(vault, '课程/机器学习/冰岛自驾：文章草稿 2.md'))).toBe(true)
     // 实心「打开」一屏只有一个：最新那条是实心，上一条退成次按钮
-    await expect(msg2.getByRole('button', { name: '打开' })).toHaveClass(/btn-primary/)
-    await expect(chat(page).getByTestId('ai-msg').filter({ has: page.locator('.dprev') }).first().getByRole('button', { name: '打开' })).not.toHaveClass(/btn-primary/)
+    await expect(msg2.getByRole('button', { name: '打开', exact: true })).toHaveClass(/btn-primary/)
+    await expect(chat(page).getByTestId('ai-msg').filter({ has: page.locator('.dprev') }).first().getByRole('button', { name: '打开', exact: true })).not.toHaveClass(/btn-primary/)
     // 右栏拉窄到 340：放不下时先省略文件夹那一截，文件名整个露着、悬停看整条；「· N字 · AI写的草稿」不折行
     const narrow = async (to: number) => {
       const aside = chat(page)
@@ -153,7 +153,7 @@ test('AI 里 /剪藏这一页：回答下面有「打开」和「改了1个文�
     expect(subjects(vault, 1)).toEqual(['剪藏整页：张量'])
     // 打开：中间开的是剪下的那篇（AI 那一格换成这一篇的对话）
     const where = (await chat(page).getByTestId('ai-conv').innerText()).trim()
-    await msg.getByRole('button', { name: '打开' }).click()
+    await msg.getByRole('button', { name: '打开', exact: true }).click()
     await expect(tabOn(page)).toHaveText('张量')
     await expect(pane(page)).toContainText('张量是多维数组')
     // 回到剪藏那段对话（头上「张量 ⌄」里点它），点撤回：那一篇不在了，历史里多一次「撤回剪藏整页：张量」

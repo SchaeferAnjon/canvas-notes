@@ -30,7 +30,7 @@ const NOTE = '课程/线代/第3讲 笔记.md'
 
 const ai = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' })
 const side = (page: Page) => ai(page).getByRole('region', { name: '旁支' })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const pdfPane = (page: Page) => page.locator('.pdfpane:not([hidden])')
 const pdfPage = (page: Page, n: number) => pdfPane(page).locator(`.pdfpage[data-page="${n}"]`)
 const msgs = (page: Page) => ai(page).getByTestId('reading-msg')
@@ -186,8 +186,10 @@ test('读 PDF：问一句记进配对笔记（新写法）；关「记笔记」�
 
     // 旁支：选第一个回答里的一句问，「旁支」开着 → 记在它那一问后面
     await selectText(page, first.locator('.txt'), '列就是', '去哪')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么是列？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('为什么是列？')
+    await page.keyboard.press('Enter')
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     await expect(side(page).getByTestId('side-note-tag')).toHaveText('记进笔记')
     await expect(side(page).getByTestId('side-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
@@ -212,8 +214,10 @@ test('读 PDF：问一句记进配对笔记（新写法）；关「记笔记」�
     await expect(sw.getByTestId('ai-note-side')).toHaveAttribute('aria-checked', 'false')
     await expect(ai(page).getByTestId('ai-note-rec')).toContainText('旁支不记')
     await selectText(page, second.locator('.txt'), '先别看', '公式')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('看哪张图？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('看哪张图？')
+    await page.keyboard.press('Enter')
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     await expect(side(page).getByTestId('side-note-tag')).toHaveText('不记')
     await page.waitForTimeout(800)

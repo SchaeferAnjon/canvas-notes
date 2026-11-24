@@ -408,8 +408,16 @@ export function inline(s: string, keyBase: string | number = '', math = true): R
     }
     // 双链、[字](链接)：引用（task-3e53q）。点了出预览卡、⌘点打开、⇧⌘点新标签（cite.tsx 在整个窗口上接住点击，哪里画的都一样）
     else if (t.startsWith('[[')) out.push(<a key={key} className="wl cite" data-wiki={t.slice(2, -2)}>{citeLabel(t.slice(2, -2))}</a>)
-    // 读 PDF 时 AI 回答里的「[第 4 页](#page=4)」：点了 PDF 翻过去（右栏 AI 接住点击）
-    else if (/\]\(#page=\d+\)$/.test(t)) out.push(<a key={key} className="pg" data-page={/#page=(\d+)/.exec(t)![1]}>{t.slice(1, t.indexOf(']'))}</a>)
+    // 读 PDF 时 AI 回答里的「[第 4 页](#page=4)」：点了 PDF 翻过去（右栏 AI 接住点击）；
+    // 带着引的那句「#page=4&text=We%20propose」的：data-text 写那句，翻过去跳到那一段（页码链接跳到段）
+    else if (/\]\(#page=\d+(?:&text=[^)\s]*)?\)$/.test(t)) {
+      const q = new URLSearchParams(linkHref(t).slice(1))
+      out.push(
+        <a key={key} className="pg" data-page={q.get('page')!} data-text={q.get('text')?.trim() || undefined}>
+          {t.slice(1, t.indexOf(']'))}
+        </a>,
+      )
+    }
     // 笔记里带文件的「[第 4 页](x.pdf#page=4&rect=…)」：和上面一个样子；指的是哪份 PDF 由用的地方按笔记路径认（白板卡里点，page-link.ts）。
     // 不带 data-page：右栏 AI 那边只认光写页码的（它翻的是开着的那份）
     else if (/\]\((?![a-z][a-z0-9+.-]*:)[^)\s]+\.pdf#(?:[^)\s]*&)?page=\d+[^)\s]*\)$/i.test(t)) out.push(<a key={key} className="pg cite" data-href={t.slice(t.indexOf('](') + 2, -1)}>{t.slice(1, t.indexOf(']'))}</a>)

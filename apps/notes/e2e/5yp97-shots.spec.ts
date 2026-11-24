@@ -22,7 +22,7 @@ const look = (vault: string) => {
   mkdirSync(ud, { recursive: true })
   writeFileSync(join(ud, 'settings.json'), JSON.stringify({ appearance: { followSystem: false, skin: DARK ? 'petrol' : 'sky', frame: 'b', winBg: 'aurora' } }))
 }
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const sideIn = (scope: Locator) => scope.getByRole('region', { name: '旁支' })
 
 /** 「在哪」标注图要的框：几个要看的东西在窗口里的位置（CSS 像素），和整窗图放在一起 */
@@ -207,8 +207,10 @@ test('2 问框里旁支输入框钉在问框底部', async () => {
     const ans = ask.getByTestId('ak-answer').first()
     await expect(ask.getByRole('button', { name: /已记进/ })).toBeVisible({ timeout: 15_000 })
     await selectText(page, ans, '任何向量', '的组合，')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么是组合？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('为什么是组合？')
+    await page.keyboard.press('Enter')
     const s = sideIn(ask)
     await expect(s.locator('.acts')).toBeVisible({ timeout: 15_000 })
     await page.mouse.move(289, 600)
@@ -236,8 +238,10 @@ test('3 「AI 总结的」卡写成 AI 总结块：白板上开旁支、切到�
     if ((await acts(page).getByRole('tab', { name: '白板' }).getAttribute('aria-selected')) !== 'true') await acts(page).getByRole('tab', { name: '白板' }).click()
     const card = board(page).locator('.db-card[aria-label="AI 总结"]')
     await selectText(page, card.locator('.side-text'), '分数除以', '变成权重，')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么要除以 √d？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('为什么要除以 √d？')
+    await page.keyboard.press('Enter')
     await expect(sideIn(card).locator('.acts')).toBeVisible({ timeout: 15_000 })
     const bb = (await board(page).boundingBox())!
     await page.mouse.click(bb.x + bb.width - 40, bb.y + bb.height - 40)

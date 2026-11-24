@@ -12,7 +12,7 @@ import { armMenus, dismissMenu, menuLabels, openedMenu } from './menu'
 
 const SHOTS = process.env.CN_SHOTS
 const chat = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 
 /** 浅色天青、B 款（交付图用这一套） */
 const sky = (vault: string) => {
@@ -95,9 +95,9 @@ test('回答下面一排只剩「拷贝 · 插进文档 · ⋯」；选一句点
     expect(await page.evaluate(() => window.getSelection()!.toString())).toBe(S2)
     const ab = askbox(page)
     await expect(ab).toBeVisible()
-    await expect(ab.locator('.it')).toHaveText(['引用⌘↵', '问这句↵'])
+    await expect(ab.locator(':scope > button')).toHaveText(['问这句↵', '引用⌘↵'])
     // 「引用」的图标同网页、PDF 小条上的引用：comment（quote 那个 ” 在网页小条上是剪藏）
-    expect(await ab.locator('.it').first().locator('svg path').first().getAttribute('d')).toBe(/ d="([^"]+)"/.exec(CODICONS.comment[1])![1])
+    expect(await ab.locator(':scope > button').nth(1).locator('svg path').first().getAttribute('d')).toBe(/ d="([^"]+)"/.exec(CODICONS.comment[1])![1])
     const ib = (await chat(page).locator('.aiin').boundingBox())!
     const abb = (await ab.boundingBox())!
     await shot(run, 'bppvn-askbox-light', { x: panel.x, y: mb.y - 16, width: panel.width, height: abb.y + abb.height + 16 - (mb.y - 16) })
@@ -192,7 +192,7 @@ test('读 PDF 的回答里选一句按 ⌘↵：是引用（输入框顶上一�
     const n = await r.getByTestId('reading-msg').count()
     await drag(page, answer, '列就是', '去哪')
     await expect(askbox(page)).toBeVisible()
-    await expect(askbox(page).locator('.it')).toHaveText(['引用⌘↵', '问这句↵'])
+    await expect(askbox(page).locator(':scope > button')).toHaveText(['问这句↵', '引用⌘↵'])
     await page.keyboard.press('Meta+Enter')
     await expect(askbox(page)).toHaveCount(0)
     const mats = r.getByTestId('ai-mat')

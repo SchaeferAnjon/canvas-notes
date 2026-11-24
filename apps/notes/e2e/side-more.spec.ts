@@ -14,7 +14,7 @@ import { board, col } from './fixtures/board-doc'
 import { FAKE_VIDEO_ID, startFakeVideoSite } from './fixtures/fake-video'
 import { FIXTURES } from '../../../packages/format/test/fixtures'
 
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const sideIn = (scope: Locator) => scope.getByRole('region', { name: '旁支' })
 const box = async (l: Locator) => (await l.boundingBox())!
 
@@ -51,9 +51,12 @@ async function selectText(page: Page, scope: Locator, from: string, to: string) 
 
 async function askInBox(page: Page, q: string) {
   await expect(askbox(page)).toBeVisible()
-  const t = askbox(page).getByRole('textbox', { name: '问这句' })
-  if (q) await t.fill(q)
-  await t.press('Enter')
+  // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+  await askbox(page).getByRole('button', { name: '问这句' }).click()
+  if (q) {
+    await page.keyboard.insertText(q)
+    await page.keyboard.press('Enter')
+  }
   await expect(askbox(page)).toHaveCount(0)
 }
 

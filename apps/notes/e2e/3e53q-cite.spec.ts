@@ -153,7 +153,7 @@ test('AI 对话：⇧⌘点 [[笔记#标题]] 开在后面的新标签、不切�
 
 const ai = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' })
 const side = (page: Page) => ai(page).getByRole('region', { name: '旁支' })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 
 async function selectText(page: Page, scope: Locator, from: string, to: string) {
   const pts = await scope.evaluate(
@@ -199,8 +199,10 @@ test('用户截图那一处：读 PDF 时 AI 回答里开旁支，旁支回答�
     await expect(msg.locator('.txt')).toContainText('列就是基向量去哪', { timeout: 20_000 })
     await selectText(page, msg.locator('.txt'), '列就是', '去哪')
     await expect(askbox(page)).toBeVisible()
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('列出引用')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('列出引用')
+    await page.keyboard.press('Enter')
     const ans = side(page).getByTestId('side-msg').last()
     await expect(ans).toContainText('没有这篇', { timeout: 20_000 })
 

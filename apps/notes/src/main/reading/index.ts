@@ -34,6 +34,7 @@ import {
   notePathFor,
   parseReadingNote,
   pdfSrc,
+  PREREQ,
   type PdfBlock,
   upsertSection,
   ATTACH_DIR,
@@ -277,6 +278,11 @@ export function setupReading(deps: ReadingDeps) {
     if (!Array.isArray(s.msgs) || !Array.isArray(s.threads) || (s.sides !== undefined && !Array.isArray(s.sides))) {
       logDropped('reading', '本机的对话记录少了消息或框的列表') // 不翻：写进日志
       return fresh
+    }
+    // 收起来的那几段（点「+」，task 读PDF新建对话）记坏了：只丢它们，现在这段照旧
+    if (s.older !== undefined && !(Array.isArray(s.older) && s.older.every((c) => c && typeof c.id === 'number' && Array.isArray(c.msgs) && (c.sides === undefined || Array.isArray(c.sides))))) {
+      logDropped('reading', '本机的对话记录里以前那几段记坏了') // 不翻：写进日志
+      s = { ...s, older: [] }
     }
     return typeof s.page === 'number' && Number.isFinite(s.page) ? s : { ...s, page: 1 }
   })
@@ -567,7 +573,11 @@ export function setupReading(deps: ReadingDeps) {
         a: answerMd(req.ai.text),
         // 写进文档的 AI 块头不带档（同 AI 讲解）
         ...(req.ai.by ? { by: withoutEffort(req.ai.by) } : {}),
+        // AI 标了讲的是论文外的前置知识：小标题末尾带 #前置知识
+        ...(req.ai.pre ? { pre: true as const } : {}),
       }
+      // 不挂在论文哪一处的前置知识进末尾「前置知识」一节（界面给的标题）：不写回到哪一页的来源行
+      const loose = req.place.heading === PREREQ && !req.place.page
       const m = matsOf(req.user.mats, (n) => mats.get(n) ?? '')
       if (m) ask.mats = m
       const files = [...mats.values()]
@@ -586,7 +596,7 @@ export function setupReading(deps: ReadingDeps) {
         // 来源行：网页那一段、视频那一秒每一问都写（右栏「笔记」认它回网页）；PDF、库里的 HTML 只在这一处第一次记时写（旧写法那段里已经有了不写）
         if (req.from) ask.src = webSrc(note, req.from.label, req.from.url)
         // 贴截图问、没定位或挪过来的：截图不是从那一页截的，不写来源行
-        else if (first && !old && /\.pdf$/i.test(src) && th.page > 0 && th.found !== 'moved') ask.src = pdfSrc(note, src, th.page, th.rect)
+        else if (first && !old && !loose && /\.pdf$/i.test(src) && th.page > 0 && th.found !== 'moved') ask.src = pdfSrc(note, src, th.page, th.rect)
         else if (first && !old && !isWeb(src) && !/\.pdf$/i.test(src)) ask.src = webSrc(note, `${stemOf(src)}.html`, src) // 不翻：写进文件的字（文件名）
       }
       return aiNote.appendNow({

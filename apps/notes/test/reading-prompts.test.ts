@@ -109,8 +109,13 @@ describe('公式的写法（真 AI 写了 `$dV/dt = $ 输入`，$ 里头结尾�
     expect(MATH_RULE).toContain('不写 $ dV/dt $ 或 $dV/dt = $')
     expect(MATH_RULE).toContain('单独一行的写 $$…$$')
     for (const p of [TUTOR_SYSTEM, AGENT_SYSTEM, commandSystem()]) expect(p).toContain(MATH_RULE)
-    // 讲法改了：旧会话不再接着用记下的旧系统提示（4：能动手、两种模式；5：库里的东西写成链接，task-3e53q）
-    expect(TUTOR_VERSION).toBe(5)
+    // 讲法改了：旧会话不再接着用记下的旧系统提示（4：能动手、两种模式；5：库里的东西写成链接，task-3e53q；6：页码链接带引的那句原文；7：前置知识标记）
+    expect(TUTOR_VERSION).toBe(7)
+    // 前置知识标签：讲论文外的基础知识时回答末尾单独一行〔前置知识〕
+    expect(TUTOR_SYSTEM).toContain('在回答最后单独一行写 〔前置知识〕')
+    // 页码链接跳到段：说某一段时链接接 &text=原文开头几个词，抄原文不抄译文
+    expect(TUTOR_SYSTEM).toContain('[第 2 页](#page=2&text=We%20additionally%20extract%20a%20static%20feature%20stream)')
+    expect(TUTOR_SYSTEM).toContain('照 PDF 原文的语言一字不改地抄（不是你的译文）')
   })
 })
 

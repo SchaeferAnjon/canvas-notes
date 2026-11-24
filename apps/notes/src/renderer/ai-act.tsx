@@ -1,10 +1,11 @@
 /**
  * AI 动手看得见（DESIGN.v3 2.3；流光方向 A2，原型 design/glow/proto-a2.html）。画在被操作的那一块（白板、文档、右栏网页）上面：
- * - 整块改（整理白板、整篇改写、操作网页）：四边一道柔光绕圈（ai-glow.tsx），顶上居中一条 32 高的胶囊，边上同一道光：
+ * - 整块改（整理白板、改开着的文档、操作网页）：四边一道柔光绕圈（ai-glow.tsx），顶上居中一条 32 高的胶囊，边上同一道光：
  *   「AI 正在整理这块白板 · 停下 esc」；做完光收成一圈再淡掉，胶囊换成「✓ 整理好了 · 挪了N张卡 · 撤回」1.8 秒后收起；
  *   按了停下光停住变灰，「停下了：这一步做完就停」→「停下了 · 做完的N步留着」，再淡掉。
  * - 只加一张卡：整块不亮，只那张卡边上一道光绕圈，卡下面「AI 在写这张卡 · 停下 esc」；做完停成一圈再淡掉。
- *   （文档里只写一段由编辑器自己画：ai-spot.ts）
+ *   文档：AI 这一轮改到开着的这篇（文档工具、全能模式下命令行写盘、Edit，2026-11-24）整篇四边亮、顶上「AI 正在改这篇 · 停下 esc」，
+ *   做完「✓ 改好了 · +20 −0 · 撤回」；改到的那一段竖线、字一点点长出来由编辑器自己画（ai-spot.ts）
  * - 「AI」小指针（20 的箭头 + 右下一个「AI」小胶囊）每去拿一样东西先移过去（0.55 秒），到了那样东西边上跑一圈光，挪的时候跟着走。
  * 主进程在 ai:act 里说（ai-act-store.ts 记着）。网页里的指针和「✂ 剪成卡片」画在网页自己里面（main/agent/web.ts）。
  */
@@ -12,8 +13,8 @@ import { UndoButton } from '@cn/ai-chat/answer-bar'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Codicon } from '@cn/design'
 import type { AiActArea } from '../shared/agent'
-import { actDoneText, actHaltText } from '../shared/ai-act'
-import { type ActEntry, actEntries, actVersion, lastGrab, onActs, onWrote, still, stopActing, undoActing } from './ai-act-store'
+import { type ActLines, actDoneText, actHaltText, docLinesHead } from '../shared/ai-act'
+import { type ActEntry, actEntries, actVersion, lastGrab, onActs, onWrote, showDoc, still, stopActing, undoActing } from './ai-act-store'
 import { watchBoard } from './ai-card-grow'
 import { type EdgePhase, GlowEdge, GlowRing, type RingMode } from './ai-glow'
 import { AiIcon } from './engine-logo'
@@ -45,13 +46,25 @@ function ActBar(props: { e: ActEntry; area: AiActArea }) {
   const end = e.end
   const fin = !!end && !end.stopped && end.step >= 2
   const halt = e.stopping || !!end?.stopped
-  const text = fin ? (end!.undone ? t('撤回了') : actDoneText(area, end!.tally)) : end?.stopped ? actHaltText(end.tally) : e.stopping ? t('停下了：这一步做完就停') : t(TEXT[area])
+  // 文档栏有这次提交的加减行数时说行数（「改好了 · +20 −0」，和改动卡同一个数、同样上色），没有（提交没成）照段数说
+  const lines = (fin && !end!.undone) || end?.stopped ? end!.lines : undefined
+  const text = lines
+    ? null
+    : fin
+      ? end!.undone
+        ? t('撤回了')
+        : actDoneText(area, end!.tally)
+      : end?.stopped
+        ? actHaltText(end.tally)
+        : e.stopping
+          ? t('停下了：这一步做完就停')
+          : t(TEXT[area])
   const running = !end && !e.stopping
   return (
     <div className={'ai-actbar' + (fin ? ' fin' : '') + (halt ? ' halt' : '') + (end?.step === 3 ? ' hide' : '')} role="status" data-testid="ai-actbar">
       {running && !still() && <GlowRing mode="loop" testid="ai-bar-glow" />}
       {fin ? <Codicon name="check" size={12} className="ok" /> : <i className={'pulse' + (running ? ' on' : '')} />}
-      <span>{text}</span>
+      {lines ? <LinesSaid l={lines} stopped={!!end?.stopped} /> : <span>{text}</span>}
       {/* 撤回：各处同一颗（无边框、discard 图标，task-eavzx） */}
       {fin && end!.commit && !end!.undone && <UndoButton label={t('撤回')} onClick={() => undoActing(e)} />}
       {!end && !e.stopping && (
@@ -61,6 +74,17 @@ function ActBar(props: { e: ActEntry; area: AiActArea }) {
         </button>
       )}
     </div>
+  )
+}
+
+/** 「改好了 · +20 −0」：数字照改动卡（加的绿、删的红，是 0 的那一半淡下去），等宽数字 */
+function LinesSaid(props: { l: ActLines; stopped: boolean }) {
+  const { l } = props
+  return (
+    <span>
+      {docLinesHead(props.stopped)} ·{' '}
+      <span className={'n add' + (l.added ? '' : ' zero')}>+{l.added}</span> <span className={'n del' + (l.removed ? '' : ' zero')}>−{l.removed}</span>
+    </span>
   )
 }
 
@@ -76,6 +100,8 @@ export function AiActLayer(props: { area: AiActArea; path?: string | null; host:
   const whole = mine.find((a) => a.whole) ?? null
   const live = mine.find((a) => !a.end) ?? null
   const spots = area === 'board' ? mine.filter((a) => !a.whole && a.spot) : []
+  // 这篇开着：AI 这一轮改到它时整篇亮（ai-act-store 只认开着的文档栏，没开着的那篇不画、esc 不接走）
+  useEffect(() => (area === 'doc' && path ? showDoc(path) : undefined), [area, path])
   /** 指针在哪；dur：这一下移过去用多久（一长串时短一点，和主进程的节奏一样） */
   const [cur, setCur] = useState<{ x: number; y: number; shown: boolean; follow: boolean; dur?: number }>({ x: 0, y: 0, shown: false, follow: false })
   const [ring, setRing] = useState<{ seq: number; once: number; at: number; boxes: Box[] } | null>(null)

@@ -2,7 +2,7 @@
  * 读 PDF 边读边问的提示词，和把 AI 收好的笔记段读回来（纯函数，单元测试测）。
  */
 import { answerLead, type AskSection, blocksText, type PdfBlock } from '@cn/format'
-import { MATH_RULE, type ReadingMsg, type ReadingThread, VIZ_MARK, withoutVizMark } from '../../shared/reading'
+import { MATH_RULE, PRE_MARK, type ReadingMsg, type ReadingThread, VIZ_MARK, withoutVizMark } from '../../shared/reading'
 import { MODES_RULE } from '../agent/modes'
 import { CITE_FIND, CITE_RULE } from '../../shared/cite-rule'
 import { fmtTime } from '../../shared/video'
@@ -16,9 +16,11 @@ export const TUTOR_SYSTEM = `你在 Canvas Notes 里陪一个人读 PDF 课件�
 把这件事真讲明白：先一句话说清它是什么，再按一条线讲下去：为什么要有它、每一项在干什么、拿一个具体数字或例子走一遍。需要时用小标题和列表。
 长短看问题：整块的「讲解一下」要讲透，不怕长；旁支里的小追问简短回答。
 ${MATH_RULE}提到这份 PDF 的别的页一律写成链接：[第 4 页](#page=4)；页码范围写 [第 1–2 页](#page=1)，开头的章节地图、列表里的每一项、长讲解里第二次提到同一页、「对照第 4 页的表 II」这种带尾巴的、「下一页」「上一页」这种说法（写成 [下一页](#page=5)）都要写成链接。
+说的是那一页上某一段、某一句时（「§III-B 开头一句话带过」「原文这样写」），链接里接上 &text= 和那段原文开头的 6 到 12 个词：照 PDF 原文的语言一字不改地抄（不是你的译文），空格写 %20，抄到括号、方括号、引号前就停，像 [第 2 页](#page=2&text=We%20additionally%20extract%20a%20static%20feature%20stream)；软件按它跳到那一段。说整页的不写 text。
 他笔记里已经弄懂的（每次会附上），直接拿来用（「用你在 [第 4 页](#page=4) 弄懂的那条」），不要重新讲一遍。
 他说「还是不懂」「换个方式讲」：上一版就是没讲通，换一个完全不同的角度（比方、画面、具体数字、反例），不要换个说法重复。
 如果一个能拖能点的小可视化（几何、函数图像、变换、过程演示）会明显帮他懂，在回答最后单独一行写 ${VIZ_MARK}；用不上就不写。
+这一问要讲的主要不是这份 PDF 本身写了什么，而是读懂它要的、PDF 外面的基础知识（大 O 复杂度怎么算、自注意力一般怎么算、某个数学工具、领域常识），在回答最后单独一行写 ${PRE_MARK}；讲 PDF 本身内容的不写。
 你也能动手（canvas 这组工具）：在库里新建、改写、改名、挪动、删笔记，建文件夹，看库里有哪些笔记、读一篇。他让你记下来、整理、挪笔记时直接做，这一轮结束软件提交一次，他能一键撤回。
 这是笔记软件里的读书对话，不是终端里接活：用不着建任务看板、写交付页，小事不派子 Agent。
 ${MODES_RULE}
@@ -29,9 +31,10 @@ ${CITE_FIND}`
 /**
  * 讲法改过就加一：claude 默认记下一个会话第一次用的系统提示、以后接着聊都用记下的那份（--system-prompt-snapshot），
  * 旧会话接着聊还是旧讲法（「300 字以内」）。版本不对的会话不再接着聊，开新会话、补上全文和最近几轮（和会话接不上一样）。
- * 4：能动手（canvas 工具）、两种模式（2026-11-19）；5：提到库里的东西写成链接、路径照【库里的笔记】（task-3e53q）
+ * 4：能动手（canvas 工具）、两种模式（2026-11-19）；5：提到库里的东西写成链接、路径照【库里的笔记】（task-3e53q）；
+ * 6：页码链接带引的那句原文 &text=（页码链接跳到段）；7：讲论文外的前置知识时回答末尾标〔前置知识〕（前置知识标签）
  */
-export const TUTOR_VERSION = 5
+export const TUTOR_VERSION = 7
 
 export function askPrompt(o: {
   pdfName: string

@@ -144,7 +144,7 @@ test('AI：/写成文章 新建一篇草稿，左栏「我写的」多一篇标�
     const draft = join(vault, '收件箱/冰岛自驾：文章草稿.md')
     expect(readFileSync(draft, 'utf8')).toMatch(/^---\ndraft: true\nfrom: "\[\[冰岛自驾\]\]"\n---\n# 冰岛自驾\n/)
     await expect(page.locator('.nav .si', { hasText: '冰岛自驾：文章草稿' })).toContainText('草稿')
-    await msg.getByRole('button', { name: '打开' }).click()
+    await msg.getByRole('button', { name: '打开', exact: true }).click()
     await expect(tabOn(page)).toHaveText('冰岛自驾：文章草稿')
     expect(lastSubject(vault)).toBe('AI：/写成文章 · 冰岛自驾')
     expect(readFileSync(join(vault, '冰岛自驾.md'), 'utf8')).toBe(converted)

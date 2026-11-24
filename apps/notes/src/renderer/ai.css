@@ -42,8 +42,15 @@
   color: var(--t1);
   text-align: left;
 }
-.convmenu .it:hover {
+.convmenu .it:hover:not(:disabled) {
   background: var(--fill);
+}
+/* 「之前的对话」（读 PDF 点「+」收起来的那几段）：组名上方多 6，不像一行灰掉的条目；正在答时不能切 */
+.convmenu .mh.older {
+  margin-top: 6px;
+}
+.convmenu .it:disabled {
+  color: var(--t3);
 }
 .convmenu .ck {
   flex: none;
@@ -62,6 +69,7 @@
   margin-left: auto;
   font-size: 12px;
   color: var(--t3);
+  font-variant-numeric: tabular-nums;
 }
 .convmenu .sep {
   height: 1px;

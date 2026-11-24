@@ -155,10 +155,12 @@ test('回答上划了旁支小标时点「不是这篇」、⌘Z：小标还在�
     const txt = msg.locator('.txt')
     // 选「线性的定义另见」开一条旁支，收起后那句划着虚线、后面一个小标
     await selectText(page, txt, '线性的定义', '另见')
-    const box = page.getByRole('dialog', { name: '选中的这句' })
+    const box = page.getByRole('toolbar', { name: '选中的这句' })
     await expect(box).toBeVisible()
-    await box.getByRole('textbox', { name: '问这句' }).fill('这是哪一篇？')
-    await box.getByRole('textbox', { name: '问这句' }).press('Enter')
+    await box.getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('这是哪一篇？')
+    await page.keyboard.press('Enter')
     const side = chat(page).getByRole('region', { name: '旁支' })
     await expect(side.getByTestId('side-msg').last()).not.toContainText('在答…', { timeout: 15_000 })
     await page.keyboard.press('Escape')

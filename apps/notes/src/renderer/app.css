@@ -2908,9 +2908,141 @@ a.wl.cite:hover {
 .aichg .hd .sp {
   flex: 1;
 }
+.aichg .hd .tot {
+  display: inline-flex;
+  gap: 4px;
+  font: 400 12px var(--sans);
+  font-variant-numeric: tabular-nums;
+}
+.aichg .hd .tot .add {
+  color: var(--green);
+}
+.aichg .hd .tot .del {
+  color: var(--red);
+}
 .aichg .fr {
   height: 28px;
+  padding: 0;
   font-size: 12px;
+}
+.aichg .fr .num {
+  font-variant-numeric: tabular-nums;
+}
+.aichg .fr:hover,
+.aichg .fi.on .fr {
+  background: var(--fill);
+}
+/* 文件行整行是一颗：点了就地展开这次的改动，再点收起（改动卡展开）；展开时和下面那块连成一块淡底 */
+.aichg .fi.on .fr {
+  border-radius: 8px 8px 0 0;
+}
+.aichg .frb {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 4px;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.aichg .frb .tw {
+  flex: none;
+  margin-right: -4px;
+  color: var(--t3);
+}
+.aichg .fx {
+  margin: 0 0 6px;
+  border-radius: 0 0 8px 8px;
+  background: var(--fill);
+  overflow: hidden;
+}
+/* 顶上一条：一句人话 --t3，右端两颗 22 无边框图标 */
+.aichg .fx-bar {
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 0 26px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t3);
+}
+.aichg .fx-bar .truncate {
+  flex: 1;
+  min-width: 0;
+}
+.aichg .fx-bar .acts {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+.aichg .fx-bar .ib {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--t2);
+  cursor: pointer;
+}
+.aichg .fx-bar .ib:hover:not(:disabled) {
+  background: var(--fill2);
+  color: var(--t1);
+}
+.aichg .fx-bar .ib:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* 历史那套画法（行号、淡绿淡红、没改的折起），最高 280 露前十几行，里面能滚 */
+.aichg .fx-scroll {
+  max-height: 280px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  overscroll-behavior: contain;
+}
+.aichg .fx .dv-cols {
+  display: none;
+}
+.aichg .fx .dv-diff.src-look .cm-scroller {
+  font: 12px/1.6 var(--mono);
+}
+.aichg .fx .dv-diff .cm-gutters {
+  font: 11px/1.6 var(--mono);
+}
+.aichg .fx .dv-diff .cm-lineNumbers .cm-gutterElement {
+  min-width: 28px;
+  padding: 0 6px 0 8px;
+}
+.aichg .fx .dv-diff .cm-line,
+.aichg .fx .dv-diff .cm-deletedChunk .cm-deletedLine {
+  padding: 0 10px 0 6px;
+}
+/* 新建的整篇都是加上来的：只铺整行淡绿，不再叠一层更深的「改的字」 */
+.aichg .fx.is-new .dv-diff .cm-changedText {
+  background: none;
+}
+.aichg .fx .dv-imgs {
+  padding: 10px;
+}
+.aichg .fi.on > .fx-msg {
+  margin-bottom: 6px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 8px 8px;
+  background: var(--fill);
+}
+.aichg .fx-msg {
+  padding: 6px 10px 8px 26px;
+  font-size: 12px;
+  color: var(--t3);
 }
 /* 一条库内路径（AiPanel 的 FilePath）：文件夹 --t3 先省略，文件名 --t1 最后才省略 */
 .fpath {

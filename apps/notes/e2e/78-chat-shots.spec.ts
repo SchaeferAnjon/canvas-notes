@@ -79,15 +79,17 @@ test('对照图', async () => {
     // 回答里选一句「引用」进输入框，再发：发出去那一条带材料（MatMsg）
     const a1 = col.getByTestId('reading-msg').first()
     await selectText(page, a1.locator('.txt'), '三：先把', '30 秒一窗')
-    const ab = page.getByRole('dialog', { name: '选中的这句' })
+    const ab = page.getByRole('toolbar', { name: '选中的这句' })
     await ab.getByRole('button', { name: /^引用/ }).click()
     await expect(col.getByTestId('ai-mat')).toHaveCount(1)
     await ask(col, 'reading-msg', '① 这里为什么这么切？')
     // 第二问的回答里开一条旁支并问一句
     const a2 = col.getByTestId('reading-msg').nth(1)
     await selectText(page, a2.locator('.txt'), '三：先把', '30 秒一窗')
-    await ab.getByRole('textbox', { name: '问这句' }).fill('窗口为什么切成 30 秒？')
-    await ab.getByRole('textbox', { name: '问这句' }).press('Enter')
+    await ab.getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('窗口为什么切成 30 秒？')
+    await page.keyboard.press('Enter')
     const side = col.getByRole('region', { name: '旁支' })
     await expect(side.getByTestId('side-msg').last()).toContainText('第二段', { timeout: 20_000 })
     await page.mouse.move(700, 500)

@@ -26,11 +26,15 @@ const sec = (over: Partial<AskSection>): AskSection => ({
 
 describe('做个可视化', () => {
   it('回答最后那行标记：界面上去掉，记下这一处适合做；边生成时半截的标记也藏起来', () => {
-    expect(withoutVizMark('讲解。\n\n〔可以做个可视化〕')).toEqual({ text: '讲解。', viz: true, figure: null })
-    expect(withoutVizMark('讲解。')).toEqual({ text: '讲解。', viz: false, figure: null })
+    expect(withoutVizMark('讲解。\n\n〔可以做个可视化〕')).toEqual({ text: '讲解。', viz: true, figure: null, pre: false })
+    expect(withoutVizMark('讲解。')).toEqual({ text: '讲解。', viz: false, figure: null, pre: false })
     expect(withoutVizMark('讲解。\n\n〔可以做').text).toBe('讲解。')
+    // 前置知识那一行（前置知识标签）：去掉，记下这一问讲的是论文外的知识；和可视化标记一起也行；半截的也藏
+    expect(withoutVizMark('大 O 是……\n\n〔前置知识〕')).toEqual({ text: '大 O 是……', viz: false, figure: null, pre: true })
+    expect(withoutVizMark('大 O 是……\n\n〔前置知识〕\n〔可以做个可视化〕')).toMatchObject({ text: '大 O 是……', viz: true, pre: true })
+    expect(withoutVizMark('大 O 是……\n\n〔前置').text).toBe('大 O 是……')
     // 配图的框那一行（CN-60）：也去掉，框交给记笔记用
-    expect(withoutVizMark('讲解。\n\n〔可以做个可视化〕\n〔配图 0.1,0.4,0.6,0.3 · 结构图〕')).toEqual({ text: '讲解。', viz: true, figure: { rect: [0.1, 0.4, 0.6, 0.3], caption: '结构图' } })
+    expect(withoutVizMark('讲解。\n\n〔可以做个可视化〕\n〔配图 0.1,0.4,0.6,0.3 · 结构图〕')).toEqual({ text: '讲解。', viz: true, figure: { rect: [0.1, 0.4, 0.6, 0.3], caption: '结构图' }, pre: false })
   })
   it('从回答里取出 HTML（包在代码块里也行），标题取 <title>，文件名去掉不能用的字', () => {
     const html = '<!doctype html><html><head><title>旋转矩阵 · 拖动角度看基向量</title></head><body>x</body></html>'

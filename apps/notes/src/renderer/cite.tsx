@@ -99,9 +99,9 @@ export async function findCite(link: { href?: string; wiki?: string; label?: str
 }
 
 /** 读 PDF 的 AI 回答里光写页码的「[第 4 页](#page=4)」：开着的那份 PDF 的那一页 */
-async function pageOfOpenPdf(path: string, page: number): Promise<Found> {
+async function pageOfOpenPdf(path: string, page: number, text?: string): Promise<Found> {
   const f = (await window.cnFiles.all()).find((x) => x.path === path)
-  return { kind: 'pdf', path, page, mtimeMs: f?.mtimeMs ?? 0 }
+  return { kind: 'pdf', path, page, ...(text ? { text } : {}), mtimeMs: f?.mtimeMs ?? 0 }
 }
 
 /** 笔记里的「[第 4 页](x.pdf#page=4&rect=…)」「[第 4 页](#page=4)」：光写页码的按这篇的来源、旁边同名的、前后最近的页码链接找是哪份 PDF */
@@ -113,7 +113,7 @@ async function pageCite(note: string, href: string, text: string, pos: number, l
   // 写的路径在库里没有（PDF 挪过）：按名字找
   const f = want.map((p) => pdfs.find((q) => q.path === p)).find(Boolean) ?? want.map((p) => pdfs.find((q) => baseName(q.path) === baseName(p))).find(Boolean)
   if (!f) return { kind: 'missing', label }
-  return { kind: 'pdf', path: f.path, page: a.page, ...(a.rect ? { rect: a.rect } : {}), mtimeMs: f.mtimeMs }
+  return { kind: 'pdf', path: f.path, page: a.page, ...(a.rect ? { rect: a.rect } : {}), ...(a.text ? { text: a.text } : {}), mtimeMs: f.mtimeMs }
 }
 
 const lineText = (from: number, to: number) => (to > from ? t('第{from}–{to}行', { from, to }) : t('第{line}行', { line: from }))
@@ -182,8 +182,8 @@ export function openCite(c: Found, how: CiteHow = 'open', label = '', from: 'cit
       back(c.path)
       return revealCard(c.path, c.id)
     case 'pdf': {
-      const { path, page, rect } = c
-      if (!behind) return page ? a.openPdfAt(path, page, rect) : a.openFile(path)
+      const { path, page, rect, text } = c
+      if (!behind) return page ? a.openPdfAt(path, page, rect, text) : a.openFile(path)
       a.openFileBehind(path)
       back(path)
       if (!page) return
@@ -191,7 +191,7 @@ export function openCite(c: Found, how: CiteHow = 'open', label = '', from: 'cit
       const t0 = Date.now()
       const find = () => {
         const el = [...document.querySelectorAll<HTMLElement>('section.pdfpane')].find((x) => x.dataset.path === path)
-        if (el) return whenShown(el, () => Reading.jumpTo(path, page, rect))
+        if (el) return whenShown(el, () => Reading.jumpTo(path, page, rect, text))
         if (Date.now() - t0 < 4000) setTimeout(find, 50)
       }
       return find()
@@ -456,7 +456,7 @@ function CiteCard({ c, label, el }: { c: Found; label: string; el?: HTMLElement 
       title = baseName(c.path)
       sub = folderName(c.path) + (c.page ? ' · ' + t('第{page}页', { page: c.page }) : '')
       body = <PdfThumb c={c} />
-      if (c.page) open = t('翻到这页')
+      if (c.page) open = c.text ? t('翻到这段') : t('翻到这页')
       break
     case 'file':
       title = baseName(c.path)
@@ -618,7 +618,7 @@ export function installCiteClicks() {
       e.preventDefault()
       e.stopPropagation()
       const label = el.textContent ?? ''
-      clickCite(e, el, () => (pdf ? pageOfOpenPdf(pdf, Number(el.dataset.page)) : findCite(linkOf(el), baseOf(el))), label)
+      clickCite(e, el, () => (pdf ? pageOfOpenPdf(pdf, Number(el.dataset.page), el.dataset.text) : findCite(linkOf(el), baseOf(el))), label)
     },
     true,
   )

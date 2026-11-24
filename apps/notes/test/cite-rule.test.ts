@@ -19,7 +19,7 @@ describe('系统提示', () => {
     expect(CITE_RULE).toContain('canvas-notes://commit/')
     expect(CITE_RULE).toContain('不编行号、不编页码')
     expect(AGENT_VERSION).toBe(6)
-    expect(TUTOR_VERSION).toBe(5)
+    expect(TUTOR_VERSION).toBe(7)
     // 读 PDF：这份 PDF 的页照旧
     expect(TUTOR_SYSTEM).toContain('[第 4 页](#page=4)')
   })

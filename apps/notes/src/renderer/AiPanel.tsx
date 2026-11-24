@@ -23,6 +23,7 @@ import { dropPicked, pickedFiles, pickTip, usePicked } from './ai-pick'
 import { dropCards, pickText, useCardPick } from './ai-cards'
 import { runTidy } from './commands/tidy'
 import { t } from '../shared/i18n'
+import { ChangeBlock, FilePath } from './ai-change'
 import { Greeting, type Quick, QuickRow } from './ai-quick'
 import { AiInput, MatMsg, sendText, useComposer, useConvPick } from '@cn/ai-chat/composer'
 import type { AiPick, EngineInfo } from '@cn/ai-engines/shared'
@@ -1515,7 +1516,7 @@ export function AiPanel(props: AiPanelProps) {
                   ))}
                 </div>
               )}
-              {m.change && <ChangeBlock change={m.change} onRevert={() => void revert(m.id, m.change!)} onHistory={props.onShowHistory} />}
+              {m.change && <ChangeBlock change={m.change} onRevert={() => void revert(m.id, m.change!)} onHistory={props.onShowHistory} onOpen={props.onOpen} />}
               {/* 记进笔记的这一问：「✓ 已记进《…》 · 撤回」（正在记、没记成也在这一行） */}
               {noted.get(m.id) && <NotedLine s={noted.get(m.id)!} onUndo={() => void unnote(place.key, m.id)} onOpen={() => showAskIn(noted.get(m.id)!.note, m.id)} />}
             </div>
@@ -1714,74 +1715,6 @@ function AnswerText(p: { text: string; marks?: Mark[]; live: boolean; cites: Cit
       {/* 模型偶尔把工具调用写成了字（task-ne7cw）：成段的不显示，存的还是原文 */}
       <Markdown text={hideToolMarkup(p.text, p.live)} math cites={p.cites} />
     </div>
-  )
-}
-
-/**
- * AI 这一轮的改动预览（DESIGN.md「AI 改动预览」）：改了几个文件 · 提交号 · 撤回；读 PDF 的回答下面也用它（没有「在历史里看」时不放那颗）。
- * 改名、挪动的一篇只占一行「旧名 → 新名」（Git 没认出改名时旧路径那行不单列，加减行数也不写：那是整篇删了又加的数）
- */
-export function ChangeBlock({ change, onRevert, onHistory }: { change: Change; onRevert(): void; onHistory?(): void }) {
-  const c: CommitInfo = change.commit
-  const moved = change.moved ?? {}
-  const olds = new Set(Object.values(moved))
-  const listed = new Set(c.files.map((f) => f.path))
-  const files = c.files.filter((f) => !olds.has(f.path))
-  return (
-    <div className={'aichg' + (change.reverted ? ' reverted' : '')} data-testid="ai-change">
-      <div className="hd">
-        <Codicon name="git-commit" size={14} />
-        {change.reverted ? '已撤回' : `改了${files.length}个文件`}
-        <code>{(change.reverted ?? c).hash.slice(0, 7)}</code>
-        <span className="sp" />
-        {/* 撤回：各处同一颗（无边框、discard 图标，task-eavzx） */}
-        {!change.reverted && <UndoButton label={t('撤回')} onClick={onRevert} />}
-      </div>
-      {files.map((f) => {
-        const from = moved[f.path]
-        // Git 自己认出了改名（旧路径不在单子上）：加减行数是真的改了几行；没认出时那是整篇删了又加，不写
-        const counts = !from || !listed.has(from)
-        return (
-          <div key={f.path} className={'fr' + (from ? ' renamed' : '')}>
-            {from ? (
-              <span className="truncate" title={`${from} → ${f.path}`}>
-                <span className="was">{from}</span>
-                <Codicon name="arrow-right" size={12} className="to" />
-                {f.path}
-              </span>
-            ) : (
-              <FilePath path={f.path} />
-            )}
-            <span className="k">{change.kinds[f.path] ?? (f.removed === 0 && f.added > 0 ? '新' : '改')}</span>
-            {counts && <span className="num add">+{f.added}</span>}
-            {counts && <span className="num del">−{f.removed}</span>}
-          </div>
-        )
-      })}
-      <div className="ft">
-        {change.reverted ? '又做了一次反向提交，文件回到了AI改之前' : change.only ? '自动提交收进去的' : '已提交到main'}
-        {onHistory && (
-          <button className="lnk" onClick={onHistory}>
-            在历史里看
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/**
- * 一条库内路径：文件夹 --t3 在前、放不下先省略这一截，文件名 --t1 尽量整个露着（DESIGN.md「AI 改动预览」每个文件一行写文件名）；
- * 悬停看整条。改动块的文件行、写成文章草稿卡的路径行用
- */
-function FilePath({ path, code }: { path: string; code?: boolean }) {
-  const at = path.lastIndexOf('/')
-  const Tag = code ? 'code' : 'span'
-  return (
-    <Tag className="fpath" title={path}>
-      {at > 0 && <span className="dir">{path.slice(0, at + 1)}</span>}
-      <span className="fn">{path.slice(at + 1)}</span>
-    </Tag>
   )
 }
 

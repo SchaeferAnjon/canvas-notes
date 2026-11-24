@@ -967,10 +967,10 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   )
   /** 打开 PDF 翻到那一页、那一块闪一下（出卡的卡上、Anki 卡上的「打开原文」） */
   const openPdfAt = useCallback(
-    (path: string, page: number, rect?: [number, number, number, number]) => {
+    (path: string, page: number, rect?: [number, number, number, number], text?: string) => {
       openPdf(path)
       // PDF 标签刚开时页面还没量好；等它画出来再跳
-      setTimeout(() => Reading.jumpTo(path, page, rect), 300)
+      setTimeout(() => Reading.jumpTo(path, page, rect, text), 300)
     },
     [openPdf],
   )

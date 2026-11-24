@@ -30,8 +30,7 @@ const CMDS_TEXT =
   ) + '\n'
 
 const chat = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
-const mine = (page: Page) => askbox(page).getByRole('group', { name: '我的命令' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const sideIn = (scope: Locator) => scope.getByRole('region', { name: '旁支' })
 
 /** 在 scope 里用鼠标从 from 拖到 to（真拖，选区是浏览器自己算的；同 side-inline.spec） */
@@ -86,15 +85,15 @@ test('截图：薄荷，小菜单（收着、更多展开）、设置那一节',
     await expect(txt).toContainText('周三开始每天早上跑步', { timeout: 15_000 })
     await expect(panel.getByRole('button', { name: '发送' })).toBeVisible()
     await selectText(page, txt, '周三开始', '下来了。')
-    await expect(mine(page)).toBeVisible()
+    await expect(askbox(page)).toBeVisible()
     await page.waitForTimeout(300)
     const aside = (await panel.boundingBox())!
-    await page.screenshot({ path: join(DIR, '1-小菜单.png') })
-    await page.screenshot({ path: join(DIR, '1-小菜单-近看.png'), clip: { x: aside.x, y: aside.y + 200, width: aside.width, height: 560 } })
-    await mine(page).getByRole('button', { name: /更多…/ }).click()
+    await page.screenshot({ path: join(DIR, '1-小条.png') })
+    await page.screenshot({ path: join(DIR, '1-小条-近看.png'), clip: { x: aside.x, y: aside.y + 200, width: aside.width, height: 560 } })
+    await askbox(page).getByRole('button', { name: '更多' }).click()
     await page.waitForTimeout(300)
-    await page.screenshot({ path: join(DIR, '2-更多展开-近看.png'), clip: { x: aside.x, y: aside.y + 200, width: aside.width, height: 640 } })
-    await askbox(page).getByRole('button', { name: '调整…' }).click()
+    await page.screenshot({ path: join(DIR, '2-⋯展开-近看.png'), clip: { x: aside.x, y: aside.y + 200, width: aside.width, height: 640 } })
+    await askbox(page).getByRole('menuitem', { name: '调整…' }).click()
     const sec = page.getByRole('dialog', { name: '设置' }).getByTestId('replies-sel')
     await expect(sec).toBeInViewport()
     await page.waitForTimeout(1800)

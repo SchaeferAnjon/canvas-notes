@@ -1874,7 +1874,15 @@ export function DocBoardView(props: DocBoardViewProps) {
             >
               {c.ask && <Codicon name="comment-discussion" size={14} />}
               {/* 问过 AI 的一处：文件里写「第 3 页」，画成「第3页」（中文和数字之间不手打空格，只改画法；标题是文件里的字，不翻） */}
-              <span className="truncate">{c.ask ? c.title?.replace(/^(第)\s*(\d+)\s*(页)/, '$1$2$3') : c.title}</span>
+              <span className="truncate">
+                {c.ask ? c.title?.replace(/^(第)\s*(\d+)\s*(页)/, '$1$2$3') : c.title}
+                {/* 那一问标了前置知识（小标题末尾 #前置知识）：标签紧跟标题文字 */}
+                {c.pre && (
+                  <span className="db-pre-tag" data-testid="board-pre-tag">
+                    {t('前置知识')}
+                  </span>
+                )}
+              </span>
               {/* 新写法一问一列（列头就是那一问，没有标题行）：不写「1问」 */}
               {(!c.ask || c.head) && <span className="meta num">{c.ask ? t('{n}问', { n: asks }) : t('{n}张', { n: count })}</span>}
               {folded && <Codicon name="chevron-down" size={14} />}

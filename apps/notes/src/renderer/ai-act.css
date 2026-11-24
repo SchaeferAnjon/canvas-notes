@@ -35,6 +35,23 @@
   position: relative;
   z-index: 2;
 }
+/* 文档栏：顶上留给标题的位置少，胶囊贴近格顶（离标题约 11，不压字） */
+.ai-act-doc .ai-actbar {
+  top: 4px;
+}
+/* 「改好了 · +20 −0」：数字照改动卡上色、等宽 */
+.ai-actbar .n {
+  font-variant-numeric: tabular-nums;
+}
+.ai-actbar .n.add {
+  color: var(--green);
+}
+.ai-actbar .n.del {
+  color: var(--red);
+}
+.ai-actbar .n.zero {
+  color: var(--t3);
+}
 /* 停下了、整理好了：没有「停下」那颗，右边留 14 */
 .ai-actbar.fin,
 .ai-actbar.halt {

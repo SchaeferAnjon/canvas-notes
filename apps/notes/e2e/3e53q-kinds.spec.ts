@@ -228,7 +228,7 @@ test('历史里一次提交：卡上说明、时间、改了哪几篇和加减�
 
 const reader = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' })
 const side = (page: Page) => reader(page).getByRole('region', { name: '旁支' })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 
 async function selectText(page: Page, scope: Locator, from: string, to: string) {
   const pts = await scope.evaluate(
@@ -286,8 +286,10 @@ test('读 PDF 的旁支里 ⌘点一篇笔记：右栏还是读 PDF 的 AI、旁
 
     // 开旁支，问出引用
     await selectText(page, msg.locator('.txt'), '列就是', '去哪')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('列出引用')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('列出引用')
+    await page.keyboard.press('Enter')
     const ans = side(page).getByTestId('side-msg').last()
     await expect(ans).toContainText('没有这篇', { timeout: 20_000 })
 

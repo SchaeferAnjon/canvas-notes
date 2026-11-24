@@ -17,7 +17,8 @@ export interface AppActions {
   /** 对比标签（历史里一次提交改了什么）；behind：开在后面的新标签、不切走（AI 回答里 ⇧⌘点 canvas-notes://commit/<号>，task-3e53q） */
   openDiff(src: DiffSource, title: string, behind?: boolean): void
   /** 打开 PDF（开着就切过去）翻到那页，有 rect 时那块闪一下（笔记里的「第 3 页」链接，page-link.ts） */
-  openPdfAt(path: string, page: number, rect?: [number, number, number, number]): void
+  /** text：引的那句原文，翻过去找是哪一段（页码链接跳到段） */
+  openPdfAt(path: string, page: number, rect?: [number, number, number, number], text?: string): void
   /** 当前标签换成这一篇（它已经开在别的标签就切过去） */
   openHere(path: string): void
   /** 配好对的笔记只打开笔记，网页不跟着开（右键，task-kbnc0） */

@@ -8,6 +8,7 @@
 import { syntaxTree } from '@codemirror/language'
 import { EditorView } from '@codemirror/view'
 import TurndownService from 'turndown'
+import { clipText } from '@cn/ai-chat/paste'
 import { mdUrl } from '../shared/layout'
 
 /** 带格式、值得转的 HTML：有标题、列表、引用、表格、图、链接、加粗这些，或者好几段 */
@@ -183,7 +184,8 @@ export const pasteHtml = EditorView.domEventHandlers({
   },
   paste(e, view) {
     const dt = e.clipboardData
-    if (!dt || view.state.readOnly || dt.files.length) return false
+    // 带文件的（截图、访达里拷的图）归 doc-image-drop 存附件；字和图都有的照字贴（粘贴优先文字）
+    if (!dt || view.state.readOnly || (dt.files.length && !clipText(dt))) return false
     const html = dt.getData('text/html')
     const sel = view.state.selection.main
     if (view.state.selection.ranges.length > 1 || inCode(view, sel.from)) return false

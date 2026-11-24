@@ -1,15 +1,14 @@
-// 选中一句后弹出的「问这句」小框，离选中高亮的下沿 8（task-5yp97；用户看了 /private/tmp/canvas-notes-visual/01-画布笔记小处
-// 的 askbox-*.png 说「这里是可以的」，偏好「选句小框离高亮 8」）。四处一起量：读 PDF 右边 AI 的回答、AI 对话的回答、
-// 文档里的 AI 讲解块、白板上的 AI 讲解卡。以前放在字的下沿下面 8，可选中的底色比字高出半个行距，眼睛看着只离 2 到 3.6。
-// 高亮的下沿用像素量：同一块截两张，一张带选区底色、一张把 ::selection 的底色换成透明，差出来的最下面一行就是高亮的下沿。
-// 小框这一头量到眼睛看得见的边：--shadow-up 第一层是贴着框的一圈 1px 外环（设计复审：看到的边是这圈外环）。
+// 选中一句后浮出的横向小条（r129 用户「选中这个文字的时候 我希望它变成一个小条 浮现在文字的上方」，偏好「回答里选中出横条」）：
+// 在选中高亮的上沿上方 6（同网页、PDF 的选中小条），不盖住选中的字。以前是选区下方 8 的竖着的小框（task-5yp97）。
+// 四处一起量：读 PDF 右边 AI 的回答、AI 对话的回答、文档里的 AI 讲解块、白板上的 AI 讲解卡。
+// 高亮的上沿用像素量：同一块截两张，一张带选区底色、一张把 ::selection 的底色换成透明，差出来的最上面一行就是高亮的上沿。
 // 一律无头（CN_E2E=1）、假 AI（CN_AI_FAKE=1）；都是真拖选。
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { acts, launch, openAi, openNote, pane, tabOn } from './app'
 import { col } from './fixtures/board-doc'
 import { LECTURE } from './fixtures/pdf'
 
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 
 /** 在 scope 里用鼠标从 from 拖到 to（真拖，选区是浏览器自己算的） */
 async function selectText(page: Page, scope: Locator, from: string, to: string) {
@@ -42,26 +41,21 @@ async function selectText(page: Page, scope: Locator, from: string, to: string) 
   await page.mouse.up()
 }
 
-/**
- * 小框上沿离选中高亮下沿多远（还有离字的下沿多远，旧的量法）：选区最后一行那一截截两张图（带底色、底色透明），
- * 逐行比，整行都差的是高亮，最下面那一行按差了多少算盖住了几分（高亮下沿常落在半个像素上）
- */
+/** 小条下沿离选中高亮上沿多远（正数是在上面、没盖住）；text：离字的上沿多远 */
 async function gapOf(page: Page): Promise<{ highlight: number; text: number }> {
   await expect(askbox(page)).toBeVisible()
-  // 看得见的上沿：框的上沿再往外那圈外环（box-shadow 第一层 0 0 0 Npx）
-  const ring = await askbox(page).evaluate((el) => {
-    const m = /0px 0px 0px (\d+(?:\.\d+)?)px/.exec(getComputedStyle(el).boxShadow)
-    return m ? Number(m[1]) : 0
-  })
-  expect(ring).toBe(1)
-  const top = (await askbox(page).boundingBox())!.y - ring
-  const last = await page.evaluate(() => {
+  // 小条出来时有 0.16 秒的淡入：等它停了再截（不然两张差出来的是小条的阴影）
+  await askbox(page).evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
+  const bar = (await askbox(page).boundingBox())!
+  const first = await page.evaluate(() => {
     const r = getSelection()!.getRangeAt(0)
     const rs = [...r.getClientRects()].filter((x) => x.width > 1)
-    const l = rs.reduce((a, b) => (b.bottom > a.bottom ? b : a))
-    return { left: l.left, right: l.right, top: l.top, bottom: l.bottom }
+    const f = rs.reduce((a, b) => (b.top < a.top ? b : a))
+    return { left: f.left, right: f.right, top: f.top, bottom: f.bottom }
   })
-  const clip = { x: Math.round(last.left) + 2, y: Math.floor(last.top) - 2, width: Math.max(8, Math.round(last.right - last.left) - 4), height: Math.ceil(top) - Math.floor(last.top) + 2 }
+  const bottom = bar.y + bar.height
+  expect(bottom, '小条在选区上方').toBeLessThan(first.bottom)
+  const clip = { x: Math.round(first.left) + 2, y: Math.floor(bottom) + 1, width: Math.max(8, Math.round(first.right - first.left) - 4), height: Math.ceil(first.bottom) - Math.floor(bottom) }
   const shot = async () => (await page.screenshot({ clip })).toString('base64')
   const withSel = await shot()
   await page.evaluate(() => {
@@ -99,12 +93,11 @@ async function gapOf(page: Page): Promise<{ highlight: number; text: number }> {
   )
   const full = Math.max(...rows)
   expect(full).toBeGreaterThan(3)
-  let lastRow = -1
-  rows.forEach((d, i) => d > full * 0.08 && (lastRow = i))
-  const cover = Math.min(1, rows[lastRow]! / full)
+  const firstRow = rows.findIndex((d) => d > full * 0.08)
+  const cover = Math.min(1, rows[firstRow]! / full)
   const scale = h / clip.height
-  const bottom = clip.y + (lastRow + cover) / scale
-  return { highlight: Math.round((top - bottom) * 10) / 10, text: Math.round((top - last.bottom) * 10) / 10 }
+  const top = clip.y + (firstRow + 1 - cover) / scale
+  return { highlight: Math.round((top - bottom) * 10) / 10, text: Math.round((first.top - bottom) * 10) / 10 }
 }
 
 async function closeBox(page: Page) {
@@ -131,7 +124,7 @@ const DOC_TEXT = [
   '',
 ].join('\n')
 
-test('选一句出的小框离选中高亮的下沿 8（±1）：读 PDF 的回答、AI 对话的回答、文档里的 AI 讲解块、白板上的 AI 讲解卡四处一样', async () => {
+test('选一句出的横向小条在选中高亮上方 6（±1）、不盖住选区：读 PDF 的回答、AI 对话的回答、文档里的 AI 讲解块、白板上的 AI 讲解卡四处一样', async () => {
   test.setTimeout(150_000)
   const run = await launch({ [PDF]: LECTURE, [WEEK]: '# 2026-W47\n\n周一：第5讲的作业开了个头。\n\n周三：早上开始跑步，5 公里。\n', [DOC]: DOC_TEXT }, { CN_AI_FAKE: '1' })
   const { page } = run
@@ -193,8 +186,8 @@ test('选一句出的小框离选中高亮的下沿 8（±1）：读 PDF 的回�
     got['白板'] = await gapOf(page)
     await closeBox(page)
 
-    console.log('小框离高亮下沿 / 离字的下沿：', JSON.stringify(got))
-    for (const [where, g] of Object.entries(got)) expect(Math.abs(g.highlight - 8), `${where}：离高亮下沿 ${g.highlight}`).toBeLessThanOrEqual(1)
+    console.log('小条离高亮上沿 / 离字的上沿：', JSON.stringify(got))
+    for (const [where, g] of Object.entries(got)) expect(Math.abs(g.highlight - 6), `${where}：离高亮上沿 ${g.highlight}`).toBeLessThanOrEqual(1)
   } finally {
     await run.close()
   }

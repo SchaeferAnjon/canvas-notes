@@ -104,7 +104,7 @@ function linkUnder(at: Element | null): Link | null {
     const page = Number(pg.dataset.page)
     const label = textOf(pg)
     const pdf = pg.closest<HTMLElement>('[data-cite-pdf]')?.dataset.citePdf ?? pg.closest<HTMLElement>('[data-peek-pdf]')?.dataset.peekPdf
-    if (pdf) return { el: pg, key: 'e' + idOf(pg), label, from: 'cite', resolve: () => pageOfOpenPdf(pdf, page) }
+    if (pdf) return { el: pg, key: 'e' + idOf(pg), label, from: 'cite', resolve: () => pageOfOpenPdf(pdf, page, pg.dataset.text) }
     const card = pg.closest<HTMLElement>('[data-from]')
     const note = baseOf(pg)
     if (!card || !note) return null
@@ -658,7 +658,7 @@ function Peek({ c, label, from }: { c: Found; label: string; from: 'cite' | 'doc
       title = baseName(c.path)
       sub = folderName(c.path)
       at = c.page ? t('第{page}页', { page: c.page }) : null
-      if (c.page) open = t('翻到这页')
+      if (c.page) open = c.text ? t('翻到这段') : t('翻到这页')
       body = <PageBody c={c} />
       break
     case 'file':

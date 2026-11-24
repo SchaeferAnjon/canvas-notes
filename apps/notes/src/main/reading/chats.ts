@@ -23,8 +23,10 @@ function summarize(p: string): Seen | null {
     return null
   }
   if (!s || typeof s.pdf !== 'string' || !Array.isArray(s.msgs)) return null
-  const asks = s.msgs.filter((m) => m.role === 'user').length
-  const at = s.msgs.reduce((t, m) => Math.max(t, typeof m.time === 'number' ? m.time : 0), 0)
+  // 点「+」收起来的那几段也算：只问过以前那段、现在这段是空的，菜单里照样列这份 PDF（点进去从「之前的对话」切回）
+  const all = [...s.msgs, ...(Array.isArray(s.older) ? s.older.flatMap((c) => (Array.isArray(c?.msgs) ? c.msgs : [])) : [])]
+  const asks = all.filter((m) => m.role === 'user').length
+  const at = all.reduce((t, m) => Math.max(t, typeof m.time === 'number' ? m.time : 0), 0)
   const title = Array.isArray(s.threads) ? [...s.threads].reverse().find((t) => t.web?.title)?.web?.title : undefined
   return { pdf: s.pdf, asks, at, ...(title ? { title } : {}) }
 }

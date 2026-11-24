@@ -302,9 +302,9 @@ test('多段引用方向 B：回答里选一段点小框的「引用」、⇧⌘
 
     // 回答里选一段：选区下方的小框（读 PDF 的旁支，上面一格打问题，下面「引用 ⌘↵」「问这句 ↵」，task-bppvn 起和别处小条一个叫法），点「引用」
     await selectText(page, answer, '列就是', '去哪')
-    const qbox = page.getByRole('dialog', { name: '选中的这句' })
+    const qbox = page.getByRole('toolbar', { name: '选中的这句' })
     await expect(qbox).toBeVisible()
-    await expect(qbox.getByRole('button')).toHaveText(['引用⌘↵', '问这句↵'])
+    await expect(qbox.getByRole('button')).toHaveText(['问这句↵', '引用⌘↵'])
     await qbox.getByRole('button', { name: /^引用/ }).click()
     await expect(qbox).toHaveCount(0)
     await expect(ta).toHaveValue('①')

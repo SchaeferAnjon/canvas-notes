@@ -206,7 +206,7 @@ test('文档、书摘、白板上的新命令：截图转成文字只在图下�
     // 拆成白板卡片：旁边新建一块白板（按小标题分列），原文不动
     const beforeSplit = read(vault, lec)
     await slash(page, '拆成', '拆成白板卡片')
-    await expect(lastMsg(page).getByRole('button', { name: '打开' })).toBeVisible({ timeout: 15_000 })
+    await expect(lastMsg(page).getByRole('button', { name: '打开', exact: true })).toBeVisible({ timeout: 15_000 })
     const board = read(vault, '课程/第2讲 预备知识：白板.md')
     expect(board).toMatch(/^---\ntype: board\nfrom: "\[\[第2讲 预备知识\]\]"\n---\n## 张量\n\n/)
     expect(board).toContain('## 广播')

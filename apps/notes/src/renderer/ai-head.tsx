@@ -30,6 +30,19 @@ export interface DockNav {
   stayed?: boolean
 }
 
+/** 对话菜单「之前的对话」里的一段（读 PDF 点「+」收起来的，点了切回） */
+export interface OlderChat {
+  id: number
+  /** 那段第一问的原话 */
+  label: string
+  /** 最后一次问答的时间 */
+  at: number
+  asks: number
+  pick(): void
+  /** 正在答：先不能切 */
+  disabled?: boolean
+}
+
 export function AiHead(props: {
   /** 胶囊上写的：正在看的这段对话是哪里的 */
   label: string
@@ -39,6 +52,8 @@ export function AiHead(props: {
   newTip: string
   newDisabled?: boolean
   onNew(): void
+  /** 这里以前的几段（读 PDF 的「+」收起来的） */
+  older?: OlderChat[]
 }) {
   const t = useT()
   const [open, setOpen] = useState(false)
@@ -53,7 +68,7 @@ export function AiHead(props: {
           <span className="t">{props.label}</span>
           <Codicon name="chevron-down" size={12} className="cv" />
         </button>
-        {open && <ConvMenu nav={props.nav} close={() => setOpen(false)} />}
+        {open && <ConvMenu nav={props.nav} older={props.older ?? []} close={() => setOpen(false)} />}
       </div>
       <span className="acts">
         <button aria-label={t('新对话')} data-tip={props.newTip} data-side="below" disabled={props.newDisabled} onClick={props.onNew}>
@@ -71,7 +86,7 @@ const RECENT = 5
  * 对话菜单（D 组小样 convMenu）：300 宽；「这里」一组（这个地方，没在看别处时打勾，右边「N问」或「还没问过」）、
  * 「最近在别处问的」（别的地方问过的，含读 PDF 的，按最近时间排，右边时间）、「全部对话…」（同一个菜单里列出全部，能滚）
  */
-function ConvMenu(props: { nav: DockNav; close(): void }) {
+function ConvMenu(props: { nav: DockNav; older: OlderChat[]; close(): void }) {
   const t = useT()
   const { here, away } = props.nav
   const [list, setList] = useState<ChatSummary[] | null>(null)
@@ -112,8 +127,34 @@ function ConvMenu(props: { nav: DockNav; close(): void }) {
       <button className="it" role="menuitemradio" aria-checked={!away} onClick={() => pick(null)}>
         <span className="ck">{!away && <Codicon name="check" size={12} />}</span>
         <span className="lb">{here.label}</span>
-        <span className="r">{hereAsks ? t('{n}问', { n: hereAsks }) : t('还没问过')}</span>
+        <span className="r">{hereAsks ? t('{n}问', { n: hereAsks }) : props.older.length ? t('新对话') : t('还没问过')}</span>
       </button>
+      {props.older.length > 0 && (
+        <>
+          <div className="mh older">{t('之前的对话')}</div>
+          <div className="all">
+            {props.older.map((c) => (
+              <button
+                key={c.id}
+                className="it"
+                role="menuitem"
+                data-testid="ai-older"
+                disabled={c.disabled}
+                title={c.disabled ? t('答完再切') : `${c.label} · ${t('{n}问', { n: c.asks })}`}
+                onClick={() => {
+                  props.close()
+                  props.nav.pick(null)
+                  c.pick()
+                }}
+              >
+                <span className="ck" />
+                <span className="lb">{c.label}</span>
+                <span className="r">{when(c.at, { time: true })}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       {others.length > 0 && (
         <>
           <div className="sep" />

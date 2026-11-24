@@ -936,7 +936,15 @@ function AskPartBody({ f, full }: { f: Extract<Face, { k: 'askpart' }>; full: bo
         <div className="db-ask-q">
           <div className="row aq">
             <Codicon name="comment-discussion" size={14} />
-            <span>{plainQ(qa.q)}</span>
+            <span>
+              {plainQ(qa.q)}
+              {/* 标了前置知识的那一问（小标题末尾 #前置知识）：同右栏笔记的小标签 */}
+              {qa.pre && (
+                <span className="db-pre-tag" data-testid="board-pre-tag">
+                  {t('前置知识')}
+                </span>
+              )}
+            </span>
           </div>
           {s.quote && (
             <blockquote className="db-ask-quote">

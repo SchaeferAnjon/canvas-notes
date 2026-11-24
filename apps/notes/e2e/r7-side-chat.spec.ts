@@ -17,7 +17,7 @@ const files = { [PDF]: LECTURE }
 const ai = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' })
 const side = (page: Page) => ai(page).getByRole('region', { name: '旁支' })
 const notes = (page: Page) => page.getByRole('complementary', { name: '笔记', exact: true })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const sideBox = (page: Page) => side(page).getByRole('textbox', { name: '问 AI' })
 const pdfPane = (page: Page) => page.locator('.pdfpane:not([hidden])')
 const pdfPage = (page: Page, n: number) => pdfPane(page).locator(`.pdfpage[data-page="${n}"]`)
@@ -79,10 +79,10 @@ async function selectText(page: Page, scope: Locator, from: string, to: string) 
   return page.evaluate(() => {
     const range = window.getSelection()!.getRangeAt(0)
     const r = range.getBoundingClientRect()
-    // 选中高亮的下沿：底色铺满行高，比字的下沿低半个行距（task-5yp97 小框离它 8）
-    const last = [...range.getClientRects()].filter((x) => x.width > 0).reduce((a, x) => (x.bottom > a.bottom ? x : a))
-    const lh = parseFloat(getComputedStyle(range.endContainer.parentElement!).lineHeight)
-    return { left: r.left, right: r.right, bottom: r.bottom, highlight: last.bottom + (lh - last.height) / 2 }
+    // 选中高亮的上沿：底色铺满行高，比字的上沿高半个行距（r129 小条在它上方 6）
+    const first = [...range.getClientRects()].filter((x) => x.width > 0).reduce((a, x) => (x.top < a.top ? x : a))
+    const lh = parseFloat(getComputedStyle(range.startContainer.parentElement!).lineHeight)
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, highlight: first.top - (lh - first.height) / 2 }
   })
 }
 
@@ -105,21 +105,19 @@ test('小框（照小样）、空着回车就地开旁支光标在旁支里、�
   try {
     const msg = await askFirst(page)
     const txt = msg.locator('.txt')
-    // 回答里选中一句：离选中高亮的下沿 8 的小框（task-5yp97，以前离字的下沿 8），300 宽；上面一格能先打问题，下面两行
+    // 回答里选中一句：选中高亮上方 6 的横向小条（r129，同网页、PDF 的选中小条：34 高黑色胶囊），横着对着选区居中；不盖住选中的字
     const sel = await selectText(page, txt, '列就是', '去哪')
     const ab = askbox(page)
     await expect(ab).toBeVisible()
+    await ab.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)))
     const b = await box(ab)
-    expect(b.width).toBe(300)
-    // 量到看得见的边：框外那圈 1px 外环（--shadow-up 第一层）离高亮下沿 8，框本身再往下 1
-    expect(Math.abs(b.y - 1 - (sel.highlight + 8))).toBeLessThanOrEqual(1)
-    expect(Math.abs(b.x + 150 - (sel.left + sel.right) / 2)).toBeLessThanOrEqual(1.5)
-    const ta = ab.getByRole('textbox', { name: '问这句' })
-    await expect(ta).toHaveAttribute('placeholder', '问这句…（空着 ↵ 就是打开旁支自己打）')
-    expect((await box(ta)).height).toBe(32)
-    await expect(ab.locator('.it')).toHaveText(['引用⌘↵', '问这句↵'])
-    expect(await css(ab, ['border-radius', 'padding'])).toEqual({ 'border-radius': '12px', padding: '6px' })
-    expect((await box(ab.locator('.it').first())).height).toBe(30)
+    expect(b.height).toBe(34)
+    expect(Math.abs(b.y + b.height + 6 - sel.highlight)).toBeLessThanOrEqual(1)
+    expect(b.y + b.height).toBeLessThan(sel.top)
+    expect(Math.abs(b.x + b.width / 2 - (sel.left + sel.right) / 2)).toBeLessThanOrEqual(1.5)
+    // 问题那一格不常驻：条上只有按钮（「问这句」直接开旁支自己打）
+    await expect(ab.getByRole('textbox')).toHaveCount(0)
+    await expect(ab.locator(':scope > button')).toHaveText(['问这句↵', '引用⌘↵'])
     // esc：小框收起、选区取消
     await page.keyboard.press('Escape')
     await expect(ab).toHaveCount(0)
@@ -260,8 +258,10 @@ test('⋯ 菜单（300 宽、往下弹、右对齐）改名真能改、两条旁
 
     // 第二条旁支：另选一句，在小框里先打问题
     await selectText(page, txt, '这是讲解', '新会话')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('新会话是什么意思？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('新会话是什么意思？')
+    await page.keyboard.press('Enter')
     await expect(side(page).locator('.sq')).toHaveText(['新会话是什么意思？'])
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     // 小标：两句各一个，开着的是第二句
@@ -464,7 +464,6 @@ test('回答里选中靠左的一句：小框收在 AI 那一格里（离两边 
       const ab = askbox(page)
       await expect(ab).toBeVisible()
       const b = await box(ab)
-      expect(b.width).toBe(300)
       expect(b.x).toBeGreaterThanOrEqual(cell.x + 8 - 0.5)
       expect(b.x + b.width).toBeLessThanOrEqual(cell.x + cell.width - 8 + 0.5)
       await page.keyboard.press('Escape')

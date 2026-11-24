@@ -14,7 +14,7 @@ test.skip(!process.env.CN_REAL_AI, '真 AI 才跑：CN_REAL_AI=1')
 test.setTimeout(10 * 60_000)
 
 const DIR = process.env.CN_SHOTS ?? ''
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const sideIn = (scope: Locator) => scope.getByRole('region', { name: '旁支' })
 
 async function shot(run: Running, name: string) {
@@ -87,7 +87,7 @@ test('真 Claude Code：以前存的「AI 总结的」卡打开时改成 AI 总�
     const card = board(page).locator('.db-card[aria-label="AI 总结"]')
     await selectText(page, card.locator('.side-text'), '分数除以', '变成权重，')
     await expect(askbox(page)).toBeVisible()
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
     const s = sideIn(card)
     await expect(s).toBeVisible()
     await s.getByTestId('ai-effort').click()

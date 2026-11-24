@@ -5,7 +5,7 @@
  * AI 没在动手时这里是空的，什么都不画、不跑。
  */
 import type { AiAct, AiActArea } from '../shared/agent'
-import type { ActTally } from '../shared/ai-act'
+import type { ActLines, ActTally } from '../shared/ai-act'
 
 export interface ActEnd {
   stopped: boolean
@@ -18,6 +18,8 @@ export interface ActEnd {
   step: 0 | 1 | 2 | 3
   /** 点了提示条上的「撤回」 */
   undone?: boolean
+  /** 文档栏：这一篇在这次提交里加减了几行（「改好了 · +20 −0」） */
+  lines?: ActLines
 }
 
 export interface ActEntry {
@@ -65,8 +67,24 @@ export function onActs(f: () => void): () => void {
   subs.add(f)
   return () => subs.delete(f)
 }
-/** 有没有正在动手的（还没做完的）：AI 输入框边上那圈光这时让给动手的地方 */
-const acting = () => list.some((e) => !e.end)
+/**
+ * 正开着的文档栏（AiActLayer 挂着的，分屏两格各算一次）：AI 改的那篇没开着时界面上什么都不画，esc 也不当「停下」接走
+ */
+const docsShown = new Map<string, number>()
+export function showDoc(path: string): () => void {
+  docsShown.set(path, (docsShown.get(path) ?? 0) + 1)
+  emit()
+  return () => {
+    const n = (docsShown.get(path) ?? 1) - 1
+    if (n > 0) docsShown.set(path, n)
+    else docsShown.delete(path)
+    emit()
+  }
+}
+/** 界面上画着的那几处（整篇亮的文档只算开着的那篇）：AI 输入框边上那圈光这时让给它们 */
+export const shownActs = () => list.filter((e) => e.area !== 'doc' || !e.whole || (!!e.path && docsShown.has(e.path)))
+/** 有没有正在动手的（还没做完、看得见的）：esc 这时是「停下」 */
+const acting = () => shownActs().some((e) => !e.end)
 /** 减少动态：光不走、不绕，只有不动的一圈 */
 export const still = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -78,9 +96,11 @@ function patch(e: ActEntry, p: Partial<ActEntry>) {
 }
 
 /** 收尾的几步；时间照原型 A（做完 0.65 → 1.05 → 2.85 → 3.15 秒；停下 1.6 → 1.9 秒；一处 0.25 → 1.5 秒） */
-function finish(turn: number, end: Omit<ActEnd, 'step'>) {
+function finish(turn: number, all: Omit<ActEnd, 'step' | 'lines'>, lines?: Record<string, ActLines>) {
   const rm = still()
   for (const e of list.filter((x) => x.turn === turn && !x.end)) {
+    const l = e.area === 'doc' && e.path ? lines?.[e.path] : undefined
+    const end = l ? { ...all, lines: l } : all
     const key = { turn: e.turn, area: e.area, path: e.path }
     const at = (ms: number, step: ActEnd['step']) =>
       setTimeout(() => {
@@ -136,7 +156,7 @@ function on(e: AiAct) {
   } else {
     if (grab?.turn === e.turn) grab = null
     writingTurns.delete(e.turn)
-    finish(e.turn, { stopped: e.stopped, commit: e.commit, tally: e.tally })
+    finish(e.turn, { stopped: e.stopped, commit: e.commit, tally: e.tally }, e.lines)
   }
   emit()
 }

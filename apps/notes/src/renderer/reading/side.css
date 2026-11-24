@@ -43,10 +43,14 @@
 }
 .reading-notes .nfil {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
+  gap: 4px 2px;
 }
+/* 筛选几颗不在字中间断开（多了「前置知识」那一颗，窄栏时整颗换到下一行） */
 .reading-notes .nfil button {
+  flex: none;
+  white-space: nowrap;
   height: 22px;
   padding: 0 8px;
   border: 0;
@@ -221,6 +225,18 @@
 }
 .reading-notes .nfil button.nfold:hover {
   color: var(--t1);
+}
+/* 全部收起 + 出卡（或 N轮 · N问）一组靠右：窄栏换行时整组一起到下一行右端 */
+.reading-notes .nfil .nend {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.reading-notes .nfil .nend > .nfold,
+.reading-notes .nfil .nend > .cards-open,
+.reading-notes .nfil .nend > .cnt {
+  margin-left: 0;
 }
 .reading-notes .nfil .nfold + .cards-open,
 .reading-notes .nfil .nfold + .cnt {
@@ -682,4 +698,19 @@
 .reading-notes .qs.cf .qt .wv {
   font-weight: 400;
   --hl: #ff4015;
+}
+
+/* 问题条上的小标签「前置知识」（前置知识标签）：11 / 400，强调色字；问题条是半透明 --fill2，底用 --card 字才够 4.5:1；圆角 4，跟在问的那句后面 */
+.reading-notes .pre-tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--card);
+  color: var(--acc-t);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  vertical-align: 1px;
+  white-space: nowrap;
 }

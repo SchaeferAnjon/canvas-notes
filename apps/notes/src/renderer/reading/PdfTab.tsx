@@ -19,10 +19,10 @@ import { copy, menuAt, showMenu } from '../ctx/menu'
 import { clampScale, fitScale, loadZoom, PRESETS, type PdfZoom, saveZoom, stepScale, wheelScale } from './pdf-zoom'
 import { openTranslateSettings } from '../plugins/translate/shared'
 import { ActBtn, TabActs } from '../shell/TabActs'
-import { CONFUSED, highlightsOf, HL_DOT, type HlKind, type Rect } from '@cn/format'
+import { CONFUSED, highlightsOf, HL_DOT, type HlKind, quoteRect, type Rect } from '@cn/format'
 import { type HlBox, PageHighlights } from './PdfHighlights'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { closePdf, loadPdf, type PdfDoc, pdfjs } from './pdf'
+import { closePdf, loadPdf, pageText, type PdfDoc, pdfjs } from './pdf'
 import { fillCrops } from './crop-fill'
 import { PdfFind } from '../find/PdfFind'
 import { PdfMarks } from './PdfMarks'
@@ -336,15 +336,35 @@ export function PdfTab(props: {
   useEffect(() => saveZoom(path, zoom), [path, zoom])
 
   // ---------- 从笔记跳回来：翻到那页，框的上沿停在视口上方约 80，框闪两下 ----------
+  // AI 回答里带着引的那句（text）的页码链接（页码链接跳到段）：在那一页的文字里找是哪一段（这页没有再看后一页、前一页，AI 偶尔差一页），
+  // 那段的上沿停在视口上方三分之一处、那段闪两下；找不到照旧翻到那页、整页闪
   useEffect(() => {
     const j = r.jump
     if (!j || !sizes || !scroller.current) return
+    let alive = true
+    let t: ReturnType<typeof setTimeout> | undefined
+    const go = (p: number, rect: Rect | undefined, third: boolean) => {
+      const sc = scroller.current
+      if (!alive || !sc) return
+      const y = pageTop(p) + (rect ? rect[1] * sizes[p - 1]!.h * scale : 0) - (third ? sc.clientHeight / 3 : 80)
+      sc.scrollTo({ top: Math.max(0, y), behavior: 'smooth' })
+      setFlash({ page: p, ...(rect ? { rect } : {}), seq: j.seq })
+      t = setTimeout(() => setFlash((f) => (f?.seq === j.seq ? null : f)), 1900)
+    }
     const p = Math.min(Math.max(1, j.page), sizes.length)
-    const y = pageTop(p) + (j.rect ? j.rect[1] * sizes[p - 1]!.h * scale : 0) - 80
-    scroller.current.scrollTo({ top: Math.max(0, y), behavior: 'smooth' })
-    setFlash({ page: p, ...(j.rect ? { rect: j.rect } : {}), seq: j.seq })
-    const t = setTimeout(() => setFlash((f) => (f?.seq === j.seq ? null : f)), 1900)
-    return () => clearTimeout(t)
+    if (!j.text || j.rect || !doc) go(p, j.rect, false)
+    else
+      void (async () => {
+        for (const n of [p, p + 1, p - 1].filter((n) => n >= 1 && n <= sizes.length)) {
+          const rect = quoteRect(await pageText(doc, n), j.text!, n)
+          if (rect) return go(n, rect, true)
+        }
+        go(p, undefined, false)
+      })()
+    return () => {
+      alive = false
+      clearTimeout(t)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r.jump?.seq, sizes])
 

@@ -3,14 +3,14 @@
  * 对话、问过的地方、框好还没发的那块、笔记读回来的段、要跳到哪、要看笔记哪一段。
  * 存盘的部分（看到哪页、对话）交给主进程存在软件设置目录；笔记本身在库里。
  */
-import { type AskSection, blocksText, CONFUSED, confusedAsk, confusedOf, DEFAULT_KINDS, type HlKind, documentBlocks, notePathFor, UNPLACED, parseReadingNote, type PdfBlock, pageBlocks, type Rect } from '@cn/format'
+import { type AskSection, blocksText, CONFUSED, confusedAsk, confusedOf, DEFAULT_KINDS, type HlKind, documentBlocks, notePathFor, UNPLACED, PREREQ, parseReadingNote, type PdfBlock, pageBlocks, type Rect } from '@cn/format'
 import { useSyncExternalStore } from 'react'
 import { setHlKindsNow } from './hl-kinds'
 import type { EngineId, ToolStep } from '../../shared/agent'
 import { type AiPick, canSeeImages, convPick, pickLabel, pickReq } from '@cn/ai-engines/shared'
 import { imageNames, type Material, PASTED_NAME, shiftMarks } from '../../shared/materials'
 import { blocksRect, locateShot } from '../../shared/locate'
-import { type AskResult, type ReadingMsg, type ReadingSide, type ReadingState, type ReadingThread, readLine, withoutVizMark } from '../../shared/reading'
+import { type AskResult, type ReadingChat, type ReadingMsg, type ReadingSide, type ReadingState, type ReadingThread, readLine, withoutVizMark } from '../../shared/reading'
 import { titleOf } from '../../shared/layout'
 import { fmtTime, timeUrl, videoOf } from '../../shared/video'
 import { pageText, pdfDoc, renderCrop } from './pdf'
@@ -99,7 +99,8 @@ export interface Reading {
   incoming: { mat: Material; doc: boolean; seq: number }[]
   note: { path: string; text: string; sections: AskSection[] }
   /** 让 PDF 翻过去、框闪两下 */
-  jump: { page: number; rect?: Rect; seq: number } | null
+  /** text：引的那句原文（AI 回答里的页码链接带的）：PdfTab 拿它找是哪一段，找到了跳到那段、那段闪（页码链接跳到段） */
+  jump: { page: number; rect?: Rect; text?: string; seq: number } | null
   /** 让笔记滚到那一段、外圈亮一下 */
   focus: { id: string; seq: number } | null
   /** 让 AI 滚到那次对话、外圈亮一下 */
@@ -326,11 +327,10 @@ export async function load(pdf: string) {
   const [state, note, at] = await Promise.all([window.cnReading.state(pdf), window.cnReading.readNote(pdf), /\.pdf$/i.test(pdf) ? window.cnReading.readAt(pdf).catch(() => null) : null])
   // 读到哪两边合一（ParaRead 联动）：库里那份是两个软件里最近的一次（这边翻页也写进去），有就照它回到那一页
   if (at) state.page = at.page
-  const msgs = state.msgs.map(settled)
   // 旁支照旧在（CN-90）：没问过的空旁支不留
-  const sides = (state.sides ?? []).filter((s) => s.msgs.length).map((s) => ({ ...s, msgs: s.msgs.map(settled) }))
+  const { msgs, sides, older } = splitLegacy({ ...state, msgs: state.msgs.map(settled), sides: (state.sides ?? []).filter((s) => s.msgs.length).map((s) => ({ ...s, msgs: s.msgs.map(settled) })) })
   const last = [...msgs].reverse().find((m) => m.role === 'user')
-  update(pdf, () => ({ loaded: true, state: { ...state, msgs, sides }, activeThread: last?.thread ?? null, note: { ...note, sections: parseReadingNote(note.text, note.path) } }))
+  update(pdf, () => ({ loaded: true, state: { ...state, msgs, sides, older }, activeThread: last?.thread ?? null, note: { ...note, sections: parseReadingNote(note.text, note.path) } }))
   void syncNoted(pdf).catch((e: unknown) => console.error('认记过的问没认成', e))
 }
 
@@ -776,9 +776,10 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     ...(formulas.length ? { formulas } : {}),
   })
   const full = res.text || get(pdf).state.msgs.find((m) => m.id === aiId)?.text || ''
-  const { text: answer, viz } = withoutVizMark(full)
+  const { text: answer, viz, pre } = withoutVizMark(full)
   patchMsg(pdf, aiId, {
     text: answer,
+    ...(pre ? { pre: true as const } : {}),
     read: readOf(th, answer, get(pdf).note.sections, how) + formulaRead,
     ...(viz && !res.error ? { vizOk: true } : {}),
     ...(res.error ? { error: res.error } : {}),
@@ -1006,8 +1007,8 @@ export async function sendSide(pdf: string, id: string, text: string, mats: Mate
     res = { text: '', error: noteErr(e) }
   }
   const sofar = sidesOf(get(pdf)).find((s) => s.id === id)?.msgs.find((m) => m.id === aiId)?.text ?? ''
-  const full = withoutVizMark(res.text || sofar).text
-  patchSideMsg(pdf, id, aiId, () => ({ text: full, ...(res.error ? { error: res.error } : {}), ...changeOf(res) }))
+  const { text: full, pre } = withoutVizMark(res.text || sofar)
+  patchSideMsg(pdf, id, aiId, () => ({ text: full, ...(pre ? { pre: true as const } : {}), ...(res.error ? { error: res.error } : {}), ...changeOf(res) }))
   if (res.commit || res.failed) window.dispatchEvent(new CustomEvent(AI_CHANGED))
   update(pdf, (x) => {
     const { [id]: _done, ...rest } = x.sideRunning
@@ -1033,15 +1034,70 @@ export function stopSide(pdf: string, id: string) {
   if (ai !== undefined) void window.cnReading.stop(ai)
 }
 
-/** 新对话：AI 换一个新会话（重新读全文），选的模型和 effort 回到「AI 对话」那一行；问过的、笔记都留着 */
+/**
+ * 旧记录（没有 older）：以前「+」只在同一段里插一条「新对话」分隔线，newChatAt 之前的问答（连它们开的旁支）挪成以前的一段；
+ * 旁支跟着它所在的那条回答走
+ */
+function splitLegacy(s: ReadingState): { msgs: ReadingMsg[]; sides: ReadingSide[]; older: ReadingChat[] } {
+  const sides = s.sides ?? []
+  if (s.older) return { msgs: s.msgs, sides, older: s.older }
+  const at = s.newChatAt
+  const before = at ? s.msgs.filter((m) => m.time < at) : []
+  if (!at || !before.length) return { msgs: s.msgs, sides, older: [] }
+  const ids = new Set(before.map((m) => m.id))
+  return { msgs: s.msgs.filter((m) => m.time >= at), sides: sides.filter((x) => !ids.has(x.msg)), older: [{ id: at, msgs: before, sides: sides.filter((x) => ids.has(x.msg)) }] }
+}
+
+/** 现在这段问过就收进「之前的对话」（新的在后）；空的不收 */
+function shelve(s: ReadingState): ReadingChat[] {
+  const older = s.older ?? []
+  return s.msgs.length ? [...older, { id: Date.now(), msgs: s.msgs, ...(s.sides?.length ? { sides: s.sides } : {}), ...(s.pick ? { pick: s.pick } : {}) }] : older
+}
+
+/** 有一问正在答（主对话或旁支）：这时不换段（回答会写进看不见的那段） */
+export const busy = (r: Reading) => r.running !== null || Object.keys(r.sideRunning).length > 0
+
+/**
+ * 新对话（和 AI 对话那边的「+」一样是一段空的）：现在这段收进头上对话菜单「之前的对话」，点了能切回；
+ * AI 换一个新会话（重新读全文），选的模型和 effort 回到「AI 对话」那一行。问过的地方（PDF 上的框）、配对笔记都不动
+ */
 export async function newChat(pdf: string) {
+  if (busy(get(pdf))) return
   await window.cnReading.forget(pdf)
   update(pdf, (r) => {
     const { pick: _pick, ...state } = r.state
     void _pick
-    return { activeThread: null, state: { ...state, newChatAt: Date.now() } }
+    return { activeThread: null, side: { open: null, flash: null }, convo: null, state: { ...state, msgs: [], sides: [], older: shelve(r.state), newChatAt: Date.now() } }
   })
   save(pdf)
+}
+
+/**
+ * 切回以前的一段（对话菜单「之前的对话」里点的）：现在这段问过就收起来，那段放回来接着问。
+ * AI 开新会话，主进程按对话记录补上那段最近几轮；那段里开旁支不从主会话分叉（newChatAt 记成现在）
+ */
+export async function switchChat(pdf: string, id: number): Promise<boolean> {
+  const r = get(pdf)
+  const pick = r.state.older?.find((c) => c.id === id)
+  if (!pick || busy(r)) return false
+  await window.cnReading.forget(pdf)
+  update(pdf, (x) => {
+    const { pick: _pick, ...state } = x.state
+    void _pick
+    const last = [...pick.msgs].reverse().find((m) => m.role === 'user')
+    const older = shelve(x.state).filter((c) => c.id !== id)
+    return { activeThread: last?.thread ?? null, side: { open: null, flash: null }, convo: null, state: { ...state, msgs: pick.msgs, sides: pick.sides ?? [], ...(pick.pick ? { pick: pick.pick } : {}), older, newChatAt: Date.now() } }
+  })
+  save(pdf)
+  await syncNoted(pdf).catch((e: unknown) => console.error('认记过的问没认成', e))
+  return true
+}
+
+/** 收起来的那几段里有这条消息（现在这段里没有）的那段，新的先找：笔记里「回到 AI 对话」「完整对话」点回来时切过去 */
+export function olderWith(pdf: string, f: (m: ReadingMsg) => boolean): number | null {
+  const s = get(pdf).state
+  if (s.msgs.some(f)) return null
+  return [...(s.older ?? [])].reverse().find((c) => c.msgs.some(f))?.id ?? null
 }
 
 /** 停下 = 全停：正在答的停掉，排着的那一问也不发（框的那块留在待问区，字还回输入框） */
@@ -1145,6 +1201,15 @@ async function headingOf(src: string, th: ReadingThread): Promise<string> {
   return `第 ${th.page} 页${title ? ` · ${title}` : ''}`
 }
 
+/**
+ * 读 PDF 时不挂在论文任何一处的一问（前置知识标签）：没框没选、没引原文，贴的截图也没认出是哪一页（只照正看着的那页、或没定位）。
+ * 这种一问 AI 标了前置知识时记进笔记末尾「## 前置知识」一节；挂在某处的照旧记在那一页、带标签
+ */
+function looseOf(src: string, th: ReadingThread): boolean {
+  if (!/\.pdf$/i.test(src) || th.rect || th.quote?.trim() || th.crop || th.web) return false
+  return th.found === undefined || th.found === 'view' || th.found === 'none'
+}
+
 /** 来源行：网页回那一段、视频回那一秒（PDF、库里的 HTML 主进程照那一页那一块写） */
 function fromOf(src: string, th: ReadingThread): { label: string; url: string } | undefined {
   const w = th.web
@@ -1195,7 +1260,7 @@ export async function noteAsk(pdf: string, aiId: number, sideId?: string): Promi
       ai,
       // 同一条旁支接着问的不再引一遍那一句（笔记里接在它前一问后面，读回来归成同一条旁支）；这条旁支还没记过的照样引
       ...(side ? { side: { quote: side.msgs.some((m) => m.notePath && m.id !== aiId) ? '' : side.quote, ...(parent ? { parent } : {}), of: side.msg } } : {}),
-      place: { heading: await headingOf(pdf, th), ...(/\.pdf$/i.test(pdf) && th.page > 0 ? { page: th.page } : {}) },
+      place: !side && ai.pre && looseOf(pdf, th) ? { heading: PREREQ } : { heading: await headingOf(pdf, th), ...(/\.pdf$/i.test(pdf) && th.page > 0 ? { page: th.page } : {}) },
       ...(from ? { from } : {}),
       ...(tg.create ? { create: tg.create } : {}),
       ...(tg.inline ? { inline: true } : {}),
@@ -1296,8 +1361,8 @@ export async function makeViz(pdf: string, aiId: number) {
 
 // ---------- 跳转 ----------
 
-export function jumpTo(pdf: string, page: number, rect?: Rect) {
-  update(pdf, () => ({ jump: { page, ...(rect ? { rect } : {}), seq: nextSeq() } }))
+export function jumpTo(pdf: string, page: number, rect?: Rect, text?: string) {
+  update(pdf, () => ({ jump: { page, ...(rect ? { rect } : {}), ...(text ? { text } : {}), seq: nextSeq() } }))
 }
 
 export function focusSection(pdf: string, id: string) {
@@ -1305,7 +1370,11 @@ export function focusSection(pdf: string, id: string) {
 }
 
 export function showConvo(pdf: string, id: string) {
-  update(pdf, () => ({ convo: { id, seq: nextSeq() } }))
+  const go = () => update(pdf, () => ({ convo: { id, seq: nextSeq() } }))
+  // 那一处的问答在以前收起的一段里：先切回那段
+  const old = olderWith(pdf, (m) => m.thread === id)
+  if (old === null) return go()
+  void switchChat(pdf, old).then(go)
 }
 
 /** 补截图那一句：说出来，或者点 × 收起（null） */

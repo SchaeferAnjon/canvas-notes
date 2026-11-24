@@ -17,7 +17,7 @@ const NOTE = '课程/线代/第3讲 笔记.md'
 
 const reading = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' })
 const chat = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const sideIn = (scope: Locator) => scope.getByRole('region', { name: '旁支' })
 const box = async (l: Locator) => (await l.boundingBox())!
 const css = (l: Locator, props: string[]) =>
@@ -61,9 +61,12 @@ async function selectText(page: Page, scope: Locator, from: string, to: string) 
 /** 小框里先打问题再回车 */
 async function askInBox(page: Page, q: string) {
   await expect(askbox(page)).toBeVisible()
-  const t = askbox(page).getByRole('textbox', { name: '问这句' })
-  if (q) await t.fill(q)
-  await t.press('Enter')
+  // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+  await askbox(page).getByRole('button', { name: '问这句' }).click()
+  if (q) {
+    await page.keyboard.insertText(q)
+    await page.keyboard.press('Enter')
+  }
   await expect(askbox(page)).toHaveCount(0)
 }
 
@@ -326,7 +329,7 @@ test('AI 对话：回答里选一句也能「问这句」，就地展开、主�
     // 选一句：同一个小框（不再是「引用 · 拷贝」那条黑胶囊）
     await selectText(page, txt, '周三开始', '下来了。')
     await expect(page.getByRole('toolbar', { name: '选中的这段' })).toHaveCount(0)
-    await expect(askbox(page).locator('.it')).toHaveText(['引用⌘↵', '问这句↵'])
+    await expect(askbox(page).locator(':scope > button')).toHaveText(['问这句↵', '引用⌘↵'])
     await askInBox(page, '三次都是几点跑的？')
     const s = sideIn(ai)
     await expect(s).toBeVisible()

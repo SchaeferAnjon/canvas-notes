@@ -24,7 +24,7 @@ import { editorHost } from '../editor-host'
 import { calloutFolded } from '../fold-block'
 import { type Hidden, hiddenOk, hiddenSyntax } from '../hidden-syntax'
 import { badgeEl, closeRun, flashMark, groupMark } from '@cn/ai-chat/side/marks'
-import { AskBoxView, highlightBottom } from '@cn/ai-chat/side/AskBox'
+import { AskBoxView, highlightBottom, highlightTop } from '@cn/ai-chat/side/AskBox'
 import { ASK_THIS, sideAsks, sideName } from './name'
 import { askSide, blockAgain, nameOf, setName, type SideTarget, sideIndex, writeOnDisk } from './side-core'
 import { SideInline, type SideMsgView } from '@cn/ai-chat/side/SideInline'
@@ -480,7 +480,7 @@ async function send(view: EditorView, open: Open, text: string, mats: Material[]
 class AskPlugin implements PluginValue {
   private el: HTMLDivElement
   private root: Root
-  private box: { cx: number; bottom: number; quote: string; head: number } | null = null
+  private box: { cx: number; top: number; bottom: number; quote: string; head: number } | null = null
   private flashSeen = 0
 
   constructor(readonly view: EditorView) {
@@ -510,10 +510,10 @@ class AskPlugin implements PluginValue {
       const r = range?.getBoundingClientRect() ?? null
       const end = v.coordsAtPos(sel.to)
       const start = v.coordsAtPos(sel.from)
-      // 小框离选中高亮的下沿 8（task-5yp97）：文档里的高亮铺满整行行高，比字的下沿低半个行距
-      const rect = range && r && r.width ? { left: r.left, width: r.width, bottom: highlightBottom(range) } : start && end ? { left: Math.min(start.left, end.left), width: Math.abs(end.right - start.left), bottom: end.bottom } : null
+      // 小条量到选中高亮的上沿、下沿（r129 放在上方，放不下放下方）：文档里的高亮铺满整行行高，比字高出、低出半个行距
+      const rect = range && r && r.width ? { left: r.left, width: r.width, top: highlightTop(range), bottom: highlightBottom(range) } : start && end ? { left: Math.min(start.left, end.left), width: Math.abs(end.right - start.left), top: start.top, bottom: end.bottom } : null
       if (!rect) return
-      this.box = { cx: rect.left + rect.width / 2, bottom: rect.bottom, quote, head: lineFrom(v.state, b.head) }
+      this.box = { cx: rect.left + rect.width / 2, top: rect.top, bottom: rect.bottom, quote, head: lineFrom(v.state, b.head) }
       this.draw()
     }, 0)
   }

@@ -15,7 +15,7 @@ test.skip(!process.env.CN_REAL_AI, '真 AI 才跑：CN_REAL_AI=1')
 test.setTimeout(10 * 60_000)
 
 const DIR = process.env.CN_SHOTS ?? ''
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const sideIn = (scope: Locator) => scope.getByRole('region', { name: '旁支' })
 
 async function shot(run: Running, name: string) {
@@ -106,7 +106,7 @@ async function selectFirstSentence(page: Page, txt: Locator): Promise<string> {
 /** input：旁支的输入框在哪（问框里钉在问框底部，task-5yp97；别处在那一块里） */
 async function askLow(page: Page, s: Locator, q: string, input: Locator = s) {
   await expect(askbox(page)).toBeVisible()
-  await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+  await askbox(page).getByRole('button', { name: '问这句' }).click()
   await expect(s).toBeVisible()
   await input.getByTestId('ai-effort').click()
   await page.getByRole('menu', { name: '想多久（effort）' }).getByRole('menuitemradio', { name: /^Low/ }).click()

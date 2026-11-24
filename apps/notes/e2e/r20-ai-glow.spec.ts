@@ -4,7 +4,8 @@
  *   做完变「整理好了 · 挪了N张卡 · 撤回」，约 1.8 秒后收起；点「撤回」撤的就是这一轮（AI 消息里跟着「已撤回」）。
  * - 点「停下」（esc 一样，b2-board 里按 esc）：光停住变灰，「停下了：这一步做完就停」→「停下了 · 做完的N步留着」，再收掉。
  * - 只加一张卡：整块不亮，只那张卡边上一圈光、卡下面「AI 在写这张卡 · 停下 esc」；做完停成一圈淡掉。
- * - 文档里只写一段：这一段左边竖线里光往下走、下面「AI 在写这一段 · 停下 esc」；整篇改写：整块亮、改到的段落竖线亮、「改好了 · 改了N段」。
+ * - 文档里 AI 改开着的这篇（写一段、整篇改写，2026-11-24 起都一样）：整篇四边亮、顶上「AI 正在改这篇 · 停下 esc」，改到的那一段左边竖线里光往下走
+ *   （下面不再挂「停下」那一颗）；做完「改好了 · +N −M」（这次提交加减的行数）。
  * - AI 对话：答的时候输入框边上一道光，答完停成一圈淡掉。
  * - 减少动态：光不走（没有动画），只有不动的一圈。
  * 都是真发消息（CN_AI_FAKE 走的是真的 MCP 工具）、真按 esc、真点按钮。
@@ -202,25 +203,38 @@ test('只加一张卡：整块不亮，只那张卡边上一圈光，卡下面�
   }
 })
 
-test('文档里只写一段只亮这一段；整篇改写整块亮、改到的段落竖线亮，「改好了 · 改了N段」', async () => {
+test('文档里写一段、整篇改写：整篇四边亮、顶上「AI 正在改这篇」，改到的段落竖线亮；做完「改好了 · +N −M」是这次提交的行数', async () => {
   const note = '# 学习笔记\n\n第一段：这周的目标是读懂论文。\n\n第二段：残差网络的核心是捷径。\n\n第三段：下周再看注意力。\n'
   const run = await launch({ '学习笔记.md': note }, { CN_AI_FAKE: '1', CN_FAKE_SAY_MS: '250' })
   const { page, vault } = run
+  /** 最新一次提交里这篇加减了几行（改动卡上的数） */
+  const numstat = () => {
+    const [a, r] = gitOut(vault, 'show', '--numstat', '--format=', 'HEAD', '--', '学习笔记.md').split(/\s+/)
+    return `改好了 · +${a} −${r}`
+  }
+  /** 顶上那条出现过的每一句（插一段这一轮很快：收尾那句 1.8 秒就收起，等量完竖线可能已经没了） */
+  const said = () => page.evaluate(() => (window as unknown as { barSaid: string[] }).barSaid)
   try {
+    await page.evaluate(() => {
+      const w = window as unknown as { barSaid: string[] }
+      w.barSaid = []
+      new MutationObserver(() => {
+        for (const b of document.querySelectorAll('[data-testid="ai-actbar"]')) if (!w.barSaid.includes(b.textContent ?? '')) w.barSaid.push(b.textContent ?? '')
+      }).observe(document.body, { subtree: true, childList: true, characterData: true })
+    })
     await openNote(page, '学习笔记')
     const doc = pane(page)
     await doc.locator('.cm-line', { hasText: '第二段' }).click()
     await page.keyboard.press('End')
     await page.keyboard.press('Meta+j')
     await send(page, '插入「为什么先读 SAGE：它和 C72 用的是同一批数据。」')
-    // 只这一段：左边竖线里光往下走，下面「AI 在写这一段 · 停下 esc」；整篇不亮
+    // 整篇四边亮、顶上「AI 正在改这篇 · 停下 esc」；写的这一段左边竖线里光往下走，下面不再挂一颗「停下」
+    await expect(doc.getByTestId('ai-acting')).toBeVisible()
+    await expect(doc.getByTestId('ai-actbar')).toContainText('AI 正在改这篇')
+    await expect(doc.getByTestId('ai-actbar').getByRole('button', { name: /停下/ })).toBeVisible()
     const line = doc.getByTestId('ai-spot-line')
     await expect(line).toBeVisible()
-    await expect.poll(() => line.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(1)
-    const inl = doc.getByTestId('ai-spot-bar')
-    await expect(inl).toContainText('AI 在写这一段')
-    await expect(inl.getByRole('button', { name: '停下 esc' })).toBeVisible()
-    await expect(doc.getByTestId('ai-acting')).toHaveCount(0)
+    await expect(doc.getByTestId('ai-spot-bar')).toHaveCount(0)
     // 竖线挨着插进来的那一段（同一行高处）；字一点点长出来（task-6kun1），等这一段显出全文再量
     await expect(doc.locator('.cm-line', { hasText: '为什么先读 SAGE' })).toBeVisible()
     // 插进来的那一段包成 AI 块（task-dtc34）：竖线从块的头一行起
@@ -232,13 +246,14 @@ test('文档里只写一段只亮这一段；整篇改写整块亮、改到的�
     expect(pos.dy).toBeLessThan(4)
     expect(pos.left).toBeGreaterThan(0)
     await page.screenshot({ path: 'test-results/glow-para.png' })
-    // 做完：竖线变实线再淡掉，那一颗收起
-    await expect(line).toHaveClass(/\bsolid\b/, { timeout: 20_000 })
+    // 做完：顶上「改好了 · +N −M」（和这次提交一样），竖线变实线再淡掉
+    await expect.poll(async () => (await said()).some((x) => /改好了 · \+\d+ −\d+/.test(x)), { timeout: 20_000 }).toBe(true)
+    expect((await said()).some((x) => x.includes(numstat()))).toBe(true)
+    await expect(doc.getByTestId('ai-act')).toHaveCount(0, { timeout: 4000 })
     await expect(doc.getByTestId('ai-spot-line')).toHaveCount(0, { timeout: 4000 })
-    await expect(doc.getByTestId('ai-spot-bar')).toHaveCount(0)
     await waitSaved(page)
 
-    // 整篇改写：整块亮、顶上「AI 正在改这篇」，改到的段落竖线亮；做完「改好了 · 改了2段」
+    // 整篇改写：整块亮、顶上「AI 正在改这篇」，改到的段落竖线亮；做完「改好了 · +2 −2」
     const dir = mkdtempSync(join(tmpdir(), 'cn-glow-'))
     const cur = readFileSync(join(vault, '学习笔记.md'), 'utf8')
     const next = cur.replace('第一段：这周的目标是读懂论文。', '第一段：这周只读懂论文。').replace('第三段：下周再看注意力。', '第三段：注意力放到下周。')
@@ -248,7 +263,7 @@ test('文档里只写一段只亮这一段；整篇改写整块亮、改到的�
     await expect(doc.getByTestId('ai-actbar')).toContainText('AI 正在改这篇')
     await expect(doc.getByTestId('ai-spot-line').first()).toBeVisible()
     await page.screenshot({ path: 'test-results/glow-doc.png' })
-    await expect(doc.getByTestId('ai-actbar')).toContainText('改好了 · 改了2段', { timeout: 20_000 })
+    await expect(doc.getByTestId('ai-actbar')).toContainText('改好了 · +2 −2', { timeout: 20_000 })
     await expect(doc.getByTestId('ai-act')).toHaveCount(0, { timeout: 4000 })
   } finally {
     await run.close()

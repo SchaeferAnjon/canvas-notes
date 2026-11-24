@@ -325,7 +325,7 @@ test('写成文章：空白板不问 AI、不建文件；AI 回的不是文章�
 
     await openByName(page, '冰岛')
     await slash(page, '写成', '写成文章')
-    await expect((await answered(page)).getByRole('button', { name: '打开' })).toBeVisible()
+    await expect((await answered(page)).getByRole('button', { name: '打开', exact: true })).toBeVisible()
     expect(subjects(vault, 1)).toEqual(['AI：/写成文章 · 冰岛'])
 
     await slash(page, '总结', '总结这块白板')
@@ -528,7 +528,7 @@ test('写这周的周记：读了什么照这周新划的线、问过的问题�
     for (const l of first.split('\n')) expect(merged.split('\n')).toContain(l)
     // 「打开」开的就是写进去的那篇
     await openByName(page, '梯度下降')
-    await msg.getByRole('button', { name: '打开' }).click()
+    await msg.getByRole('button', { name: '打开', exact: true }).click()
     await expect(tabOn(page)).toHaveText(`${week} 周记`)
   } finally {
     await run.close()

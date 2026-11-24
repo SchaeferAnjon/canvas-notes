@@ -16,7 +16,7 @@ const NOTE = '课程/线代/第3讲 笔记.md'
 const ai = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' })
 const side = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' }).getByRole('region', { name: '旁支' })
 const notes = (page: Page) => page.getByRole('complementary', { name: '笔记', exact: true })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const pdfPane = (page: Page) => page.locator('.pdfpane:not([hidden])')
 const pdfPage = (page: Page, n: number) => pdfPane(page).locator(`.pdfpage[data-page="${n}"]`)
 const gitOut = (vault: string, ...args: string[]) => execFileSync('git', ['-C', vault, ...args], { encoding: 'utf8' }).trim()
@@ -117,8 +117,10 @@ test('笔记逐字核（2026-11-24 新写法）：一问一个小标题是原话
     await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     // 旁支：在第一个回答里选一句，问，再追问一句
     await selectText(page, first.locator('.txt'), '列就是', '去哪')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么是列？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('为什么是列？')
+    await page.keyboard.press('Enter')
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     await expect(side(page).getByTestId('side-noted')).toHaveAttribute('data-state', 'done', { timeout: 15_000 })
     await side(page).getByRole('textbox', { name: '问 AI' }).fill('那行呢？')
@@ -221,8 +223,10 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     const first = ai(page).getByTestId('reading-msg').first()
     await expect(first.getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     await selectText(page, first.locator('.txt'), '列就是', '去哪')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么是列？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('为什么是列？')
+    await page.keyboard.press('Enter')
     await expect(side(page).locator('.acts')).toBeVisible({ timeout: 15_000 })
     // 开着旁支看一眼笔记（直接落在那条旁支上），再回到 AI：这一轮不算「自己点开的」，来了新的一轮照样收成一行
     await rail(page).getByRole('button', { name: '笔记', exact: true }).click()

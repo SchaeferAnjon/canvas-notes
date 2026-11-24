@@ -189,6 +189,7 @@ export const DONE = [
   'renderer/ai-bridge.ts',
   'renderer/ai-head.tsx',
   'renderer/ai-act.tsx',
+  'renderer/ai-change.tsx',
   'renderer/ai-act-store.ts',
   'renderer/ai-glow.tsx',
   'renderer/ai-card-grow.ts',

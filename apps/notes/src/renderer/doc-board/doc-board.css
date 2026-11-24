@@ -2326,3 +2326,19 @@ a.db-ask-src:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* 标了前置知识的那一问（前置知识标签）：列头、问的那张卡上一个小标签，同右栏笔记的 .pre-tag */
+.db-pre-tag {
+  display: inline-block;
+  flex: none;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--acc-soft);
+  color: var(--acc-t);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}

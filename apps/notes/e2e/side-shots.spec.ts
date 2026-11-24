@@ -19,7 +19,7 @@ const look = (vault: string) => {
 }
 const reading = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' })
 const chat = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 
 async function shot(run: Running, name: string) {
   await run.page.mouse.move(5, 300)
@@ -111,7 +111,7 @@ test('读 PDF：340 开着、一句三条、收起只剩小标；480 开着', as
     const txt = msg.locator('.txt')
     await selectText(page, txt, '列就是', '去哪')
     await askbox(page).getByRole('textbox').fill('为什么是基向量？')
-    await askbox(page).getByRole('textbox').press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
     const s = ai.getByRole('region', { name: '旁支' })
     await expect(s.locator('.acts')).toBeVisible({ timeout: 15_000 })
     await ask(page, s, '那行呢？')
@@ -176,7 +176,7 @@ test('AI 对话：480、340 开着', async () => {
     await expect(txt).toContainText('下周要把论文计划', { timeout: 15_000 })
     await selectText(page, txt, '周三开始', '下来了。')
     await askbox(page).getByRole('textbox').fill('三次都是几点跑的？')
-    await askbox(page).getByRole('textbox').press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
     const s = ai.getByRole('region', { name: '旁支' })
     await expect(s.locator('.acts')).toBeVisible({ timeout: 15_000 })
     await ask(page, s, '下周还能坚持吗？')
@@ -218,7 +218,7 @@ test('文档里的 AI 讲解：340 开着', async () => {
     const content = pane(page).locator('.cm-content')
     await selectText(page, content, '最后用这些', '的输出。')
     await askbox(page).getByRole('textbox').fill('V 在这里是什么？')
-    await askbox(page).getByRole('textbox').press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
     const s = pane(page).getByRole('region', { name: '旁支' })
     await expect(s.locator('.acts')).toBeVisible({ timeout: 15_000 })
     await ask(page, s, '为什么偏偏除以根号 d？')

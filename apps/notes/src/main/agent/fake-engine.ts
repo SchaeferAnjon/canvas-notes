@@ -337,6 +337,13 @@ export function fakeEngine(id: EngineId): Engine {
           const shots = /依次是原文公式的截图：([^。]*)。/.exec(prompt)?.[1]
           if (shots) await say(`\n\n收到公式截图（${seen.join('，')}）：${shots}`)
         }
+        // 页码链接跳到段：链接带引的那句原文（第 2 页那句在测试 PDF 里有，第 3 页那句没有：只跳页）
+        else if (q.includes('两种输入'))
+          await say(
+            '因为论文主要篇幅都在讲第一种输入，第二种只在两处一笔带过：\n\n- [第 2 页](#page=2&text=We%20additionally%20extract%20a%20static%20feature%20stream) §III-B 开头：一句话带过，「再结合一个由低频统计描述量构成的静态特征流」\n- [第 3 页](#page=3&text=This%20sentence%20is%20nowhere%20in%20the%20paper) §III-B-3 Static Feature Stream：真正交代第二种输入的只有这一小段',
+          )
+        // 前置知识标签：问的是论文外的基础知识（「O 是怎么算的」「什么是 softmax」），回答末尾单独一行〔前置知识〕
+        else if (/这个 O 是怎么算的|什么是 softmax/.test(q)) await say(`这是论文外的前置知识（${seen.join('，')}）：大 O 记的是 n 变大时算的次数怎么涨，自注意力每两个位置算一次，所以是 n²。\n\n〔前置知识〕`)
         else if (q.includes('宽内容')) await say(WIDE_ANSWER)
         else if (/还是不懂|换个方式/.test(q)) await say(`换个方式讲（${seen.join('，')}）：先别看公式，看图。`)
         else await say(`这是讲解（${seen.join('，')}）。用你在 [第 2 页](#page=2) 弄懂的那条：列就是基向量去哪。\n\n〔可以做个可视化〕`)

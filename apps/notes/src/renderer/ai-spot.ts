@@ -1,12 +1,12 @@
 /**
  * 文档里 AI 动手的那一段（DESIGN.v3 2.3，流光方向 A2；字一点点长出来 task-6kun1，照原型 A2「写一段」）：
- * - 只写一段（doc_insert）、换掉选中的一段、/ 菜单的「AI 写一段」「AI 总结这页」、AI 对话里 AI 自己写进开着的这篇
- *   （全能模式下用命令、Edit 一次写进文件，笔记工具写的，AI 命令改的）：整篇不亮，只这一段。
+ * - / 菜单的「AI 写一段」「AI 总结这页」、AI 命令改的（没有 AI 对话的一轮）：整篇不亮，只这一段。
  *   左边留白里 2px 竖线（和「刚插进来」同一处），里面一道光往下走（1.1 秒一趟）；这一段下面一颗「AI 在写这一段 · 停下 esc」，边上一圈光。
  *   新的字一点点长出来：照原型每 60 毫秒 2 个字，长的加速、4 秒内显完（shared/ai-grow.ts）；竖线跟着字往下长。
  *   这一轮做完、字也显完：竖线变实线 1.6 秒，0.4 秒淡出，那一颗收起；
  *   停下了：竖线变灰淡出，那一颗说「停下了：这一段留着」（/ 菜单写到一半停的：「停下了：写到一半的这段留着」）1.6 秒再收起。
- * - 整篇改写（整块亮着时外面改进来的字）：改到的每一处竖线里光走着、字一点点长出来，显完停成实线 1.6 秒、0.4 秒淡出。
+ * - AI 对话这一轮改到开着的这篇（写一段 doc_insert、换掉选中的、整篇改写，全能模式下用命令、Edit 一次写进文件；整篇四边亮着，ai-act.tsx）：
+ *   顶上那条有「停下」，这里不再挂那一颗；改到的每一处竖线里光走着、字一点点长出来，显完停成实线 1.6 秒、0.4 秒淡出。
  * - 一次改了很多处：只前 8 处长、画竖线，后面的直接显示；一个字一个字显的最多约 800 字（整段算），后面的一下子显出来。
  * - 用户正在那一段里打字：AI 改到那一段不藏不长，直接合并；藏着字的那一段被用户改了就一下全显。
  * - esc、「停下」：AI 还在答时停这一轮（字一下全显；/ 菜单的只留已经显出来的）；答完了只是一下全显。
@@ -244,11 +244,12 @@ const aiDoc = StateField.define<AiDoc>({
           return { ...g, segs, units }
         })
     }
-    // AI 写进来的外部改动：整篇改写（整块亮着）、AI 自己写的文件（主进程说过）
+    // AI 写进来的外部改动（主进程说过是 AI 写的：整篇改写、AI 自己写的文件）。整篇亮着时只决定那一段下面挂不挂「停下」：
+    // 亮着时外面进来的别的改动（这一轮结束补包成 AI 块那一下、用户在别处改的）不是 AI 又写了，已经显出来的字不再藏起来重长
     if (tr.docChanged && tr.annotation(Transaction.remote)) {
       const mark = tr.annotation(aiWroteNote)
       const whole = wholeTurn(tr.state.facet(aiSpotPath)())
-      if (mark !== undefined || whole !== null) {
+      if (mark !== undefined) {
         const r = fromRemote(tr, whole ?? mark!, whole !== null)
         if (r.spots.length) spots = [...spots, ...r.spots]
         if (r.grow) grows = [...grows, r.grow]
@@ -619,11 +620,13 @@ export function aiSpot(path: () => string) {
 /** AI 只写了这一段（插进来、换掉选中的）：只亮这一段、字一点点长出来，turn 是哪一轮 */
 export function spotRange(view: EditorView, range: { from: number; to: number }, turn: number) {
   const doc = view.state.doc
+  // 这篇整篇亮着（顶上那条有「停下」）：这一段只画竖线、字长出来，下面不再挂一颗「停下」
+  const kind = wholeTurn(view.state.facet(aiSpotPath)()) === turn ? 'pass' : 'spot'
   const t = trimSpan(doc.sliceString(range.from, range.to), range.from)
   const segs = t && !still() ? segsOf(doc, t.from, t.to) : null
   const grow = segs?.length ? newGrow(doc, turn, segs) : null
   view.dispatch({
-    effects: [...(grow ? [addGrow.of(grow)] : []), addSpot.of({ id: ++ids, from: range.from, to: range.to, turn, kind: 'spot', grow: grow?.id ?? 0 })],
+    effects: [...(grow ? [addGrow.of(grow)] : []), addSpot.of({ id: ++ids, from: range.from, to: range.to, turn, kind, grow: grow?.id ?? 0 })],
   })
 }
 

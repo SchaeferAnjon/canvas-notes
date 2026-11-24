@@ -315,21 +315,15 @@ test('AI 对话里 AI 自己往开着的这篇末尾续写一节（像 Claude Co
     await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(more)
     const k0 = await shown(page, more)
     expect(k0).toBeLessThan(more.length)
-    // 头两个字和竖线、那一颗同一帧出来（那一颗不先贴在上一段下面再往下跳）
+    // 头两个字和竖线同一帧出来
     expect(k0).toBeGreaterThanOrEqual(2)
     const line = pane(page).getByTestId('ai-spot-line')
     await expect(line).toBeVisible()
     expect(await cometRunning(line)).toBe(1)
-    // 那一颗：点不呼吸（原型是实心不动的点），照原型离字约 20（行底下面空 13）
-    const pill = await pane(page).evaluate(() => {
-      const inl = [...document.querySelectorAll('.cm-ai-inl')].at(-1)!
-      const dot = inl.querySelector('.dot')!
-      const p = inl.querySelector('.pill')!.getBoundingClientRect()
-      const prev = inl.previousElementSibling!.getBoundingClientRect()
-      return { moving: dot.getAnimations().length, gap: p.top - prev.bottom }
-    })
-    expect(pill.moving).toBe(0)
-    expect(Math.abs(pill.gap - 13)).toBeLessThan(1.5)
+    // 整篇四边亮、顶上「AI 正在改这篇 · 停下 esc」（2026-11-24）：那一段下面不再挂一颗「停下」
+    await expect(pane(page).getByTestId('ai-acting')).toBeVisible()
+    await expect(pane(page).getByTestId('ai-actbar')).toContainText('AI 正在改这篇')
+    await expect(pane(page).getByTestId('ai-spot-bar')).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect.poll(() => shown(page, more), { timeout: 400 }).toBe(more.length)
     const w1 = wrapped(BOOK, want)
@@ -342,7 +336,7 @@ test('AI 对话里 AI 自己往开着的这篇末尾续写一节（像 Claude Co
   }
 })
 
-test('AI 写完文件还在答（这一轮没做完）：那一段下面「AI 在写这一段 · 停下 esc」跟着这一轮；esc 停的是这一轮，字一下全显、「停下了：这一段留着」，已经写的照样提交', async () => {
+test('AI 写完文件还在答（这一轮没做完）：整篇四边亮、顶上「AI 正在改这篇 · 停下 esc」跟着这一轮；esc 停的是这一轮，字一下全显、「停下了 · 改的留着 · +N −M」，已经写的照样提交', async () => {
   // 写完以后 AI 一直「还在答」，看完这一会儿该有的样子再放它答完（以前固定答 4 秒，机器忙时没看完这一轮就结束了）
   const gate = join(mkdtempSync(join(tmpdir(), 'cn-hold-')), '放行')
   const release = () => writeFileSync(gate, '')
@@ -357,12 +351,14 @@ test('AI 写完文件还在答（这一轮没做完）：那一段下面「AI �
     await send(page, `自己写文件「书摘.md」「${want}」`)
     await expect.poll(() => editorText(page), { timeout: 15_000 }).toBe(want)
     expect(await shown(page, REVIEW_SEEN)).toBeLessThan(REVIEW_SEEN.length)
-    const inl = pane(page).getByTestId('ai-spot-bar')
-    await expect(inl).toContainText('AI 在写这一段')
-    // 字显完了这一轮还在答：那一颗照样在、光照样走
+    const bar = pane(page).getByTestId('ai-actbar')
+    await expect(bar).toContainText('AI 正在改这篇')
+    await expect(pane(page).getByTestId('ai-spot-bar')).toHaveCount(0)
+    // 字显完了这一轮还在答：顶上那条照样在、四边的光照样走
     // （这一轮答完补包成 AI 块以后框头插在标题和第一段之间，量最后一段）
     await expect.poll(() => shown(page, REVIEW_P2), { timeout: 6000 }).toBe(REVIEW_P2.length)
-    await expect(inl.getByRole('button', { name: '停下 esc' })).toBeVisible()
+    await expect(bar.getByRole('button', { name: /停下/ })).toBeVisible()
+    await expect(pane(page).getByTestId('ai-acting')).toHaveAttribute('data-phase', 'run')
     release()
     // 再写一回、长到一半按 esc：停的是这一轮（AI 那边「停下了」），字一下全显
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible({ timeout: 15_000 })
@@ -377,11 +373,15 @@ test('AI 写完文件还在答（这一轮没做完）：那一段下面「AI �
     await expect(ai(page).getByRole('button', { name: '停下' })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect.poll(() => shown(page, more), { timeout: 600 }).toBe(more.length)
-    await expect(pane(page).getByTestId('ai-spot-bar').last()).toContainText('停下了：这一段留着')
+    await expect(pane(page).getByTestId('ai-actbar')).toContainText(/停下了/)
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible({ timeout: 15_000 })
     await expect.poll(() => disk(vault, '书摘.md')).toBe(noLink(wrapped(cur, `${cur.trimEnd()}\n\n${more}\n`)))
     await waitSaved(page)
     await expect.poll(() => gitOut(vault, 'show', 'HEAD:书摘.md')).toContain(more)
+    // 停下的那一条说这次提交留下的行数，再收掉
+    const [a, r] = gitOut(vault, 'show', '--numstat', '--format=', 'HEAD', '--', '书摘.md').split(/\s+/)
+    await expect(pane(page).getByTestId('ai-actbar')).toContainText(`停下了 · 改的留着 · +${a} −${r}`)
+    await expect(pane(page).getByTestId('ai-act')).toHaveCount(0, { timeout: 4000 })
   } finally {
     await run.close()
   }

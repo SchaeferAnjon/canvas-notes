@@ -23,7 +23,7 @@ import { useCiteSig } from '../cite-names'
 import { Markdown } from '../md-render'
 import { NoteDoc } from '../note-doc'
 import { applyMarks, flashMark, type Mark, rangeText } from '@cn/ai-chat/side/marks'
-import { AskBoxView, highlightBottom } from '@cn/ai-chat/side/AskBox'
+import { AskBoxView, highlightBottom, highlightTop } from '@cn/ai-chat/side/AskBox'
 import { blockOf, showSide } from '@cn/ai-chat/side/host'
 import { ASK_THIS, sideAsks, sideName } from './name'
 import { askSide, nameOf, setName, sideIndex } from './side-core'
@@ -271,7 +271,7 @@ export function SideText(p: { spot: Spot; md: string; className?: string; closed
   const { spot } = p
   const s = useStore()
   const root = useRef<HTMLDivElement>(null)
-  const [box, setBox] = useState<{ cx: number; bottom: number; plain: string; seq: number } | null>(null)
+  const [box, setBox] = useState<{ cx: number; top: number; bottom: number; plain: string; seq: number } | null>(null)
   const b = spot.path ? spot.find(spot.text) : null
   const sides = sidesOf(spot, b)
   const open = s.open?.host === spot.host ? s.open : null
@@ -362,7 +362,7 @@ export function SideText(p: { spot: Spot; md: string; className?: string; closed
   }, [])
 
   /** 选区整个在这段讲解的字里（开着的旁支那一块里的不算）；bottom 是选中高亮的下沿（小框离它 8） */
-  function selected(): { plain: string; rect: DOMRect; bottom: number } | null {
+  function selected(): { plain: string; rect: DOMRect; top: number; bottom: number } | null {
     const sel = window.getSelection()
     const r = root.current
     if (!r || !sel || sel.isCollapsed || !sel.rangeCount) return null
@@ -372,7 +372,7 @@ export function SideText(p: { spot: Spot; md: string; className?: string; closed
     if (!a || !z || !r.contains(a) || !r.contains(z) || a.closest('.side-host') || z.closest('.side-host')) return null
     const range = sel.getRangeAt(0)
     const plain = rangeText(range)
-    return plain.length < 2 ? null : { plain, rect: range.getBoundingClientRect(), bottom: highlightBottom(range) }
+    return plain.length < 2 ? null : { plain, rect: range.getBoundingClientRect(), top: highlightTop(range), bottom: highlightBottom(range) }
   }
 
   function openSide(o: Open | null) {
@@ -405,7 +405,7 @@ export function SideText(p: { spot: Spot; md: string; className?: string; closed
         if ((e.target as Element).closest('.side-host, .badge') || spot.readOnly) return
         setTimeout(() => {
           const sel = selected()
-          if (sel) setBox({ cx: sel.rect.left + sel.rect.width / 2, bottom: sel.bottom, plain: sel.plain, seq: (box?.seq ?? 0) + 1 })
+          if (sel) setBox({ cx: sel.rect.left + sel.rect.width / 2, top: sel.top, bottom: sel.bottom, plain: sel.plain, seq: (box?.seq ?? 0) + 1 })
         }, 0)
       }}
       onMouseDown={(e) => {

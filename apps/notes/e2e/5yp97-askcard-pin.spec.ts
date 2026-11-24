@@ -10,7 +10,7 @@ import { join } from 'node:path'
 import { launch, openNote, pane, rail, waitSaved } from './app'
 import { FAKE_VIDEO_ID, startFakeVideoSite } from './fixtures/fake-video'
 
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 const sideIn = (scope: Locator) => scope.getByRole('region', { name: '旁支' })
 const box = async (l: Locator) => (await l.boundingBox())!
 
@@ -121,8 +121,10 @@ test('问框里开旁支：旁支的输入框和「记到哪」钉在问框底�
     // 回答里选一句开旁支
     await selectText(page, ans, '任何向量', '的组合，')
     await expect(askbox(page)).toBeVisible()
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('为什么是组合？')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('为什么是组合？')
+    await page.keyboard.press('Enter')
     const s = sideIn(ask)
     await expect(s).toBeVisible()
     await expect(s.getByTestId('side-msg').last()).toContainText('旁支的回答', { timeout: 15_000 })

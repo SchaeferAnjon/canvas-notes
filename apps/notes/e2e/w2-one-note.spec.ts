@@ -205,9 +205,11 @@ test('问完底栏说记进了哪篇第几页，笔记在后面时带「在笔�
     await page.mouse.down()
     await page.mouse.move(t.x + Math.min(160, t.width - 10), t.y + 10, { steps: 6 })
     await page.mouse.up()
-    const askbox = page.getByRole('dialog', { name: '选中的这句' })
-    await askbox.getByRole('textbox', { name: '问这句' }).fill('为什么？')
-    await askbox.getByRole('textbox', { name: '问这句' }).press('Enter')
+    const askbox = page.getByRole('toolbar', { name: '选中的这句' })
+    await askbox.getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('为什么？')
+    await page.keyboard.press('Enter')
     await expect(toast).toContainText(/^旁支也记进了笔记，挂在第1页「.{1,10}」下面/, { timeout: 20_000 })
     await expect(toast.getByRole('button', { name: '在笔记里看' })).toBeVisible()
     // 笔记拖到中间左边，看得见了：再问一句，底栏只说一句，不带「在笔记里看」。

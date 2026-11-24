@@ -13,7 +13,7 @@ const chat = (page: Page) => page.getByRole('complementary', { name: 'AI 对话'
 const reading = (page: Page) => page.getByRole('complementary', { name: '边读边问 AI' })
 const bar = (col: Locator) => col.locator('[data-part="对话目录条"]')
 const pop = (col: Locator) => col.locator('[data-part="对话目录浮层"]')
-const askbox = (page: Page) => page.getByRole('dialog', { name: '选中的这句' })
+const askbox = (page: Page) => page.getByRole('toolbar', { name: '选中的这句' })
 /** 条上第几条亮着 */
 const onAt = (col: Locator) => bar(col).evaluate((b) => [...b.children].findIndex((i) => i.classList.contains('on')))
 
@@ -137,8 +137,10 @@ test('AI 对话目录：问一问就出细条，贴着右边不挡字；指着�
     const a2 = col.getByTestId('ai-msg').nth(1)
     await selectText(page, a2.locator('.txt'), '三：先把', '30 秒一窗')
     await expect(askbox(page)).toBeVisible()
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('这一段里说的随机划分和留一被试到底差在哪里')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('这一段里说的随机划分和留一被试到底差在哪里')
+    await page.keyboard.press('Enter')
     const side = col.getByRole('region', { name: '旁支' })
     await expect(side.getByTestId('side-msg').last()).toContainText('第二段', { timeout: 20_000 })
     // 旁支开着时主输入框缩成一行、全能那行藏起（照现在）
@@ -229,8 +231,10 @@ test('读 PDF 的 AI 也有对话目录：问一问就出，点小标题滚过�
     const a1 = col.getByTestId('reading-msg').first()
     await selectText(page, a1.locator('.txt'), '一：先把', '30 秒一窗')
     await expect(askbox(page)).toBeVisible()
-    await askbox(page).getByRole('textbox', { name: '问这句' }).fill('窗口怎么切')
-    await askbox(page).getByRole('textbox', { name: '问这句' }).press('Enter')
+    await askbox(page).getByRole('button', { name: '问这句' }).click()
+    // 「问这句」直接开旁支，光标在旁支的输入框里，问题在那里打（r129 小条上不再常驻问题那一格）
+    await page.keyboard.insertText('窗口怎么切')
+    await page.keyboard.press('Enter')
     const side = col.getByRole('region', { name: '旁支' })
     await expect(side.getByTestId('side-msg').last()).toContainText('第二段', { timeout: 20_000 })
     await expect(side.getByTestId('side-mode')).toHaveText('全能')
