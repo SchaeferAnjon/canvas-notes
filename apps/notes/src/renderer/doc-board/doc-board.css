@@ -663,7 +663,8 @@ a.db-ask-crop:hover {
   margin-top: 3px;
   color: var(--yellow);
 }
-.db-ask-qa > .md {
+.db-ask-qa > .md,
+.db-ask-qa > .db-fold {
   margin-top: 8px;
 }
 .db-ask-side {
@@ -2224,9 +2225,7 @@ a.db-ask-page:hover {
 .db-ask-src {
   display: block;
   margin-top: 4px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   font-size: 12px;
   color: var(--t3);
 }
@@ -2267,4 +2266,63 @@ a.db-ask-src:hover {
 .db-askgroup .cl[data-kind='ai'] .ct .nm,
 .db-col[data-slice] .cl[data-kind='ai'] .ct .nm {
   flex: 1 1 0;
+}
+
+/* ---------- 回答限高、问的那句和引文整段（用户：「收起来看不到我问的内容」）：cards.tsx 的 Folded、AiBody ---------- */
+/* 网页「你问：原话」块：头两行（问句一行、「Claude Code · Opus 5.5 · …」一行）；问句和问答组、混排小列里的块名放不下就折行，不省略
+   （别的 AI 卡头照旧一行，块名是「AI 讲解」这种短词） */
+.db-card .cl[data-asked] .ct {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+.db-card .cl[data-asked] .ct .eng {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+.db-card .cl[data-asked] .ct .nm,
+.db-askgroup .cl[data-kind='ai'] .ct .nm,
+.db-col[data-slice] .cl[data-kind='ai'] .ct .nm {
+  flex: 1 1 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* 块名折成几行时图标对齐第一行 */
+.db-card .cl[data-asked] .ct,
+.db-askgroup .cl[data-kind='ai'] .ct,
+.db-col[data-slice] .cl[data-kind='ai'] .ct {
+  align-items: flex-start;
+}
+.db-card .cl[data-asked] .ct > :first-child,
+.db-askgroup .cl[data-kind='ai'] .ct > :first-child,
+.db-col[data-slice] .cl[data-kind='ai'] .ct > :first-child {
+  margin-top: 3px;
+}
+/* 块里先引着的原文、框的图：整段露出，和下面的回答隔 6 */
+.db-ai-lead {
+  margin-bottom: 6px;
+}
+/* 开着旁支（里面挂着 .side-host）：回答整段露出，卡跟着长高 */
+.db-fold:has(.side-host) {
+  display: block;
+  -webkit-line-clamp: none;
+  overflow: visible;
+}
+.db-fold:has(.side-host) + .db-unfold {
+  display: none;
+}
+.db-unfold {
+  display: block;
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.db-unfold:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }

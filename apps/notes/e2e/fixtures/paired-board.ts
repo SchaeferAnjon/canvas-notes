@@ -125,3 +125,16 @@ export const PB_EIGHT = [
     '',
   ]).flat(),
 ].join('\n')
+
+/**
+ * 回答限高、问的那句和引文整段（用户：「收起来看不到我问的内容」）：第 2 页那一处的引文、问句、回答都改长（第 4 页照旧短）
+ */
+export const PB_LONG = PB_MD.replace(
+  '> T(u + v) = T(u) + T(v) for all u and v.',
+  '> T(u + v) = T(u) + T(v) for all u and v in V, which says that adding two vectors first and then applying T gives the same vector as applying T to each and adding the results, and the end of the quote must stay visible.',
+)
+  .replace('> [!question] 翻译一下', '> [!question] 翻译一下这一句，再说说为什么先加后变和先变后加一样就叫保持加法，问句末尾这几个字也要看得见')
+  .replace(
+    '对所有的 u、v，先加再映射等于先映射再加。',
+    Array.from({ length: 10 }, (_, i) => `第${i + 1}段：对所有的 u、v，先把两个向量加起来再映射，等于先各自映射再把结果加起来，这就是加法条件。`).join('\n\n') + '\n\n长回答的最后一句在这里。',
+  )

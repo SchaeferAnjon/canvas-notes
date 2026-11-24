@@ -5,6 +5,7 @@
  * 2 用户那篇真笔记的只读拷贝（CN_MIXED_REAL=<拷贝的库文件夹>，不进仓库；不给就跳过），薄荷、深湖各一遍：
  *   「2. 预备知识」按来源分小列、两组问答、旁支在组里、问题不当列名、没有一张卡装着整节；切回文档一字节不变。
  *   CN_MIXED_SHOTS=<文件夹>：截改后图。
+ * 3 问的那句、① 引文整段露出（不截、不省略号）；长回答限高，截断处「展开全文」点了整段、再点「收起」，文件一字节不变（用户：「收起来看不到我问的内容」）。
  */
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
@@ -12,7 +13,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { acts, launch, openNote, pane, type Running, waitSaved } from './app'
 import { skinned } from './fixtures/book-digest'
-import { MX_CROP1, MX_CROP2, MX_MD, MX_NOTE } from './fixtures/mixed-board'
+import { LONG_ASKED, LONG_MD, LONG_NOTE, LONG_Q, MX_CROP1, MX_CROP2, MX_MD, MX_NOTE } from './fixtures/mixed-board'
 import { solidPng } from './fixtures/png'
 
 const REAL = process.env.CN_MIXED_REAL
@@ -251,6 +252,116 @@ for (const skin of ['mint', 'petrol'] as const) {
       expect(read(run, NOTE)).toBe(orig)
       await toDoc(page)
       expect(read(run, NOTE)).toBe(orig)
+      expect(git(run.vault, 'status', '--porcelain')).toBe('')
+    } finally {
+      await run.close()
+    }
+  })
+}
+
+/** 这一块和里面的字都整段露出：没有省略号截掉的、没有被限高（line-clamp）藏住的 */
+const fullyShown = (l: Locator) =>
+  l.evaluate((root) =>
+    [root, ...root.querySelectorAll('*')].every((e) => {
+      const st = getComputedStyle(e)
+      if (st.textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth + 1) return false
+      return st.overflowY === 'visible' || e.scrollHeight <= e.clientHeight + 1
+    }),
+  )
+/** 一行字在卡里看得见：它的框在卡（限高的那块）里面，没被藏在限高下面 */
+const seen = (box: Locator, text: string) =>
+  box.evaluate((root, text) => {
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const i = n.textContent!.indexOf(text)
+      if (i < 0) continue
+      const r = document.createRange()
+      r.setStart(n, i)
+      r.setEnd(n, i + text.length)
+      const a = r.getBoundingClientRect()
+      for (let e: HTMLElement | null = n.parentElement; e && e !== root.parentElement; e = e.parentElement) {
+        const b = e.getBoundingClientRect()
+        if (getComputedStyle(e).overflowY !== 'visible' && a.bottom > b.bottom + 1) return false
+      }
+      return true
+    }
+    return false
+  }, text)
+
+for (const skin of ['mint'] as const) {
+  test(`问的那句、引文整段露出；长回答「展开全文」点了整段、「收起」回去；文件一字节不变（${skin}）`, async () => {
+    test.setTimeout(120_000)
+    const run = await launch({ [LONG_NOTE]: LONG_MD }, {}, skinned(skin))
+    const { page } = run
+    try {
+      await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 900))
+      await toBoard(page, '长回答')
+      const g = board(page).locator('.db-askgroup').first()
+      expect(await parts(g)).toEqual(['q', 'qa'])
+      // 问的那张：问句、① 引文、回到网页的来源整段，没有省略号、没有限高
+      const q = g.locator('.db-card[data-part="q"]')
+      await expect(q.locator('.row.aq')).toHaveText(LONG_Q)
+      await expect(q.locator('.db-ask-quote')).toContainText('引文末尾这一句也要看得见。')
+      await expect(q.locator('a.db-ask-src')).toHaveText('—— 6.1.2 多层感知机的限制 · 动手学深度学习 ↩')
+      expect(await fullyShown(q)).toBe(true)
+      expect(await seen(q, '问句末尾这几个字也要看得见')).toBe(true)
+      expect(await seen(q, '引文末尾这一句也要看得见')).toBe(true)
+      // 长回答：限高，最后一句藏着，截断处「展开全文」
+      const a = g.locator('.db-card[data-part="qa"]')
+      const fold = a.locator('.db-fold')
+      const btn = a.locator('.db-unfold')
+      await expect(btn).toHaveText('展开全文')
+      expect(await seen(a, '长回答的最后一句在这里')).toBe(false)
+      if (SHOTS) {
+        await page.waitForTimeout(500)
+        await g.evaluate((el) => {
+          const w = el.closest('.board-wrap') as HTMLElement
+          w.scrollBy(el.getBoundingClientRect().left - w.getBoundingClientRect().left - 140, el.getBoundingClientRect().top - w.getBoundingClientRect().top - 64)
+        })
+        await page.waitForTimeout(400)
+        await page.screenshot({ path: join(SHOTS, `card-full-${skin}-folded.png`) })
+      }
+      // 点了在卡里整段展开，按钮变「收起」
+      await btn.click()
+      await expect(btn).toHaveText('收起')
+      expect(await fullyShown(fold)).toBe(true)
+      expect(await seen(a, '长回答的最后一句在这里')).toBe(true)
+      if (SHOTS) {
+        await page.waitForTimeout(400)
+        await page.screenshot({ path: join(SHOTS, `card-full-${skin}-open.png`) })
+      }
+      // 再点「收起」回到限高
+      await btn.click()
+      await expect(btn).toHaveText('展开全文')
+      expect(await seen(a, '长回答的最后一句在这里')).toBe(false)
+
+      // 网页旧写法「你问：原话」那块：块头的问句、块里引着的原文整段，回答限高 + 展开全文
+      const asked = board(page).locator('.db-card[data-face="callout"]', { hasText: '你问：' })
+      await expect(asked.locator('.cl .ct .nm')).toHaveText(LONG_ASKED)
+      expect(await fullyShown(asked.locator('.cl .ct .nm'))).toBe(true)
+      expect(await fullyShown(asked.locator('.db-ai-lead'))).toBe(true)
+      expect(await seen(asked, '被引的原文末尾这一句也要看得见')).toBe(true)
+      expect(await seen(asked, '你问回答的最后一句在这里')).toBe(false)
+      await asked.locator('.db-unfold').click()
+      await expect(asked.locator('.db-unfold')).toHaveText('收起')
+      expect(await seen(asked, '你问回答的最后一句在这里')).toBe(true)
+      if (SHOTS) {
+        await asked.evaluate((el) => {
+          const w = el.closest('.board-wrap') as HTMLElement
+          w.scrollBy(el.getBoundingClientRect().left - w.getBoundingClientRect().left - 140, el.getBoundingClientRect().top - w.getBoundingClientRect().top - 64)
+        })
+        await page.waitForTimeout(400)
+        await page.screenshot({ path: join(SHOTS, `card-full-${skin}-asked.png`) })
+      }
+      // 回答短的那一问不出「展开全文」
+      const short = board(page).locator('.db-askgroup', { hasText: '③短问' }).locator('.db-card[data-part="qa"]')
+      await expect(short).toContainText('所以输出比输入小一圈。')
+      await expect(short.locator('.db-unfold')).toHaveCount(0)
+
+      // 展开、收起只是看法：一字节不写
+      expect(read(run, LONG_NOTE)).toBe(LONG_MD)
+      await toDoc(page)
+      expect(read(run, LONG_NOTE)).toBe(LONG_MD)
       expect(git(run.vault, 'status', '--porcelain')).toBe('')
     } finally {
       await run.close()

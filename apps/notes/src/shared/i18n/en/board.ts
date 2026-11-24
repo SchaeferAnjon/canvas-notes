@@ -252,4 +252,8 @@ export const BOARD: Table = {
 
   // ---------- 改卡的编辑器（doc-board/unit-editor.tsx） ----------
   这张卡的字: 'Card text',
+
+  // ---------- 回答限高（doc-board/cards.tsx 的 Folded） ----------
+  展开全文: 'Show all',
+  '回答::收起': 'Show less',
 }

@@ -6,15 +6,16 @@
  * 2 用户那篇真笔记的副本（CN_PBC_REAL=<文件夹>，不进仓库；不给就跳过）：一列、几张卡；打开不把白板推到费曼那一列；切回文档不变。
  * 3 平移：两指滑、按住空格拖、中键拖三种都能把最右那列、最左那列拖到画面正中（±40）；适合窗口后最左那列不在工具板底下。
  * 4 写一个词开费曼：那一列出在画面里。
+ * 5 问的那句、引文整段露出（不截、不省略号）；长回答限高，「展开全文」点了整段、再点「收起」，文件一字节不变（用户：「收起来看不到我问的内容」）。
  */
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { acts, launch, openNote, pane, type Running, waitSaved } from './app'
 import { LECTURE } from './fixtures/pdf'
 import { solidPng } from './fixtures/png'
-import { PB_CROP, PB_EIGHT as EIGHT, PB_MD, PB_NOTE, PB_PDF } from './fixtures/paired-board'
+import { PB_CROP, PB_EIGHT as EIGHT, PB_LONG, PB_MD, PB_NOTE, PB_PDF } from './fixtures/paired-board'
 
 const REAL = process.env.CN_PBC_REAL
 const board = (page: Page) => pane(page).getByTestId('doc-board')
@@ -250,6 +251,78 @@ test('8 问的配对笔记：8 列排成一行，第 7、8 列不收成列头、
     await toBoard(page, '普通文档')
     await expect(board(page).locator('.db-col.fold')).toHaveCount(2)
     await expect(board(page).locator('.db-col.fold h3 .truncate')).toHaveText(['第7节', '第8节'])
+  } finally {
+    await run.close()
+  }
+})
+
+/** 这一块和里面的字都整段露出：没有省略号截掉的、没有被限高（line-clamp）藏住的 */
+const fullyShown = (l: Locator) =>
+  l.evaluate((root) =>
+    [root, ...root.querySelectorAll('*')].every((e) => {
+      const st = getComputedStyle(e)
+      if (st.textOverflow === 'ellipsis' && e.scrollWidth > e.clientWidth + 1) return false
+      return st.overflowY === 'visible' || e.scrollHeight <= e.clientHeight + 1
+    }),
+  )
+/** 一行字在卡里看得见：没被藏在限高下面 */
+const seen = (box: Locator, text: string) =>
+  box.evaluate((root, text) => {
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      const i = n.textContent!.indexOf(text)
+      if (i < 0) continue
+      const r = document.createRange()
+      r.setStart(n, i)
+      r.setEnd(n, i + text.length)
+      const a = r.getBoundingClientRect()
+      for (let e: HTMLElement | null = n.parentElement; e && e !== root.parentElement; e = e.parentElement) {
+        if (getComputedStyle(e).overflowY !== 'visible' && a.bottom > e.getBoundingClientRect().bottom + 1) return false
+      }
+      return true
+    }
+    return false
+  }, text)
+
+test('问的那句、引文整段露出；长回答「展开全文」点了整段、「收起」回去；文件一字节不变', async () => {
+  test.setTimeout(120_000)
+  const run = await launch({ [PB_PDF]: LECTURE, [PB_NOTE]: PB_LONG, [PB_CROP]: solidPng(480, 160, [222, 232, 246]) })
+  const { page } = run
+  try {
+    await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1440, 900))
+    await toBoard(page, '第3讲 笔记')
+    const c = col(page, '第2页 · 加法条件')
+    await c.scrollIntoViewIfNeeded()
+    // 选字问的原文整段
+    const quote = c.locator('.db-ask-quote')
+    await expect(quote).toContainText('the end of the quote must stay visible.')
+    expect(await fullyShown(quote)).toBe(true)
+    expect(await seen(quote, 'the end of the quote must stay visible')).toBe(true)
+    // 问句整段
+    const qa = c.locator('.db-card', { has: page.locator('.db-ask-qa') })
+    const q = qa.locator('.row.aq')
+    await expect(q).toContainText('问句末尾这几个字也要看得见')
+    expect(await fullyShown(q)).toBe(true)
+    // 回答限高，截断处「展开全文」
+    const btn = qa.locator('.db-unfold')
+    await expect(btn).toHaveText('展开全文')
+    expect(await seen(qa, '长回答的最后一句在这里')).toBe(false)
+    await btn.click()
+    await expect(btn).toHaveText('收起')
+    expect(await fullyShown(qa.locator('.db-fold'))).toBe(true)
+    expect(await seen(qa, '长回答的最后一句在这里')).toBe(true)
+    await btn.click()
+    await expect(btn).toHaveText('展开全文')
+    expect(await seen(qa, '长回答的最后一句在这里')).toBe(false)
+    // 回答短的（第 4 页）不出按钮
+    const short = col(page, '第4页 · 核与像').locator('.db-card', { hasText: '被映射到零向量的那些向量。' })
+    await expect(short).toBeVisible()
+    await expect(short.locator('.db-unfold')).toHaveCount(0)
+    // 展开、收起只是看法：一字节不写
+    expect(read(run, PB_NOTE)).toBe(PB_LONG)
+    await toDoc(page)
+    expect(read(run, PB_NOTE)).toBe(PB_LONG)
+    expect(git(run.vault, 'status', '--porcelain')).toBe('')
   } finally {
     await run.close()
   }

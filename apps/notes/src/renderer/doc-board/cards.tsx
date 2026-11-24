@@ -9,12 +9,13 @@ import { Codicon, type CodiconName } from '@cn/design'
 import type { EngineId } from '../../shared/agent'
 import { EngineLogo } from '../engine-logo'
 import { type AskPart, type AskSection, askSectionsOf, type DocUnit, findMath, isSummaryHead, parseHlLine, parseSection, parseTable, plainQ, prop } from '@cn/format'
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ScrollX } from '../scroll-x'
 import type { NoteFile } from '../../shared/api'
 import { type FileEntry, fileName } from '../../shared/files'
 import { previewOf, titleOf } from '../../shared/layout'
 import { when } from '../../shared/when'
+import { ASKED } from '../../shared/web-notes'
 import { parseCallout } from '../callout'
 import { CardBody, classify, domainOf, TODO } from '../CardBody'
 import { Attached, inline, Markdown, reviewTag } from '../md-render'
@@ -377,6 +378,84 @@ export function UnitBody(props: { u: DocUnit; f: Face; ctx: CardCtx; acts: CardA
   )
 }
 
+/**
+ * 回答限高（用户：「收起来看不到我问的内容」，问的那句、引文另外整段露出）：超出的地方给「展开全文」，点了在卡里展开、再点「收起」；
+ * 展开只是看法，不写文件。放大看那张（full）整段，没超出不出按钮；开着旁支时（里面挂着 .side-host）CSS 整段露出
+ */
+function Folded({ lines, full, className, children }: { lines: 5 | 7; full: boolean; className?: string; children: ReactNode }) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  const [over, setOver] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || full || open) return
+    const check = () => setOver(el.scrollHeight > el.clientHeight + 1)
+    check()
+    // 公式、图后到，卡宽变了（缩放、拖宽列）：里面那块长高了再量一次
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    for (const c of el.children) ro.observe(c)
+    return () => ro.disconnect()
+  }, [full, open])
+  if (full) return <div className={className}>{children}</div>
+  return (
+    <>
+      <div ref={ref} className={[className, 'db-fold', open ? 'open' : `clamp${lines}`].filter(Boolean).join(' ')}>
+        {children}
+      </div>
+      {(over || open) && (
+        <button
+          type="button"
+          className="db-unfold"
+          aria-expanded={open}
+          onMouseDown={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen(!open)
+          }}
+        >
+          {open ? t('收起', { ctx: '回答' }) : t('展开全文')}
+        </button>
+      )}
+    </>
+  )
+}
+
+/** AI 块正文开头引着的原文（`> …`）、框的图：网页「你问」块里就是问的那段，整段露出；下面的回答限高 */
+function splitLead(body: string): [string, string] {
+  const lines = body.split('\n')
+  let i = 0
+  while (i < lines.length && /^\s*(?:>|!\[)/.test(lines[i]!)) i++
+  return i === 0 ? ['', body] : [lines.slice(0, i).join('\n'), lines.slice(i).join('\n').replace(/^\s*\n/, '')]
+}
+
+/** AI 块的正文：引着的原文整段，回答限高 + 展开全文；开着旁支时回答整段露出（卡跟着长高） */
+function AiBody({ body, spot, full }: { body: string; spot?: Spot | null; full: boolean }) {
+  const [lead, answer] = splitLead(body)
+  return (
+    <>
+      {lead.trim() && (
+        <div className="db-md db-ai-lead">
+          <Markdown text={lead} />
+        </div>
+      )}
+      {answer.trim() && (
+        <Folded lines={5} full={full}>
+          {spot ? (
+            <SideText spot={spot} md={answer} className="db-md" />
+          ) : (
+            <div className="db-md">
+              <Markdown text={answer} />
+            </div>
+          )}
+        </Folded>
+      )}
+    </>
+  )
+}
+
 function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; acts: CardActs; name?: string }) {
   const t = useT()
   const full = ctx.full
@@ -411,7 +490,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
     }
     case 'callout':
       return (
-        <div className={`cl tone-${f.tone}`} data-kind={f.kind}>
+        <div className={`cl tone-${f.tone}`} data-kind={f.kind} data-asked={f.kind === 'ai' && f.title.startsWith(`${ASKED}：`) ? '' : undefined}>
           <div className="ct">
             {/* 没写哪家的「AI 总结」块不画图标（task-5yp97） */}
             {f.engine ? <EngineLogo id={f.engine} size={14} /> : f.bare ? null : <Codicon name={f.icon} size={14} />}
@@ -430,15 +509,15 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
               </span>
             )}
           </div>
-          {f.body.trim() &&
-            (f.kind === 'ai' && acts.side ? (
-              // 开着旁支时整段露出来（卡跟着长高），收着时照旧只露五行
-              <SideText spot={acts.side} md={f.body} className="db-md" closedClass={full ? undefined : 'clamp5'} />
-            ) : (
+          {f.kind === 'ai' ? (
+            <AiBody body={f.body} spot={acts.side} full={full} />
+          ) : (
+            f.body.trim() && (
               <div className={'db-md' + (full ? '' : ' clamp5')}>
                 <Markdown text={f.body} />
               </div>
-            ))}
+            )
+          )}
         </div>
       )
     case 'code': {
@@ -505,7 +584,7 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
     case 'ask':
       return f.s.qas ? <AskDoc s={f.s} pdf={f.pdf} back={f.back} /> : <AskCard s={f.s} pdf={f.pdf} full={full} />
     case 'askpart':
-      return <AskPartBody f={f} />
+      return <AskPartBody f={f} full={full} />
     case 'details':
       return <Details title={f.title} body={f.body} full={full} />
     case 'note':
@@ -776,7 +855,7 @@ function Crop({ s, back, label }: { s: AskSection; back?: string; label: string 
  * top 页码和时间、我框的图（没框画那一页）、选字问的原文；qa 问题条和回答；more 回答后半截；side 旁支（被问那句、几轮问答）；
  * recap 小结；marks 那一页划的线。样子照整节画全的问答卡（AskDoc）
  */
-function AskPartBody({ f }: { f: Extract<Face, { k: 'askpart' }> }) {
+function AskPartBody({ f, full }: { f: Extract<Face, { k: 'askpart' }>; full: boolean }) {
   const t = useT()
   const s = f.s
   switch (f.part) {
@@ -820,14 +899,20 @@ function AskPartBody({ f }: { f: Extract<Face, { k: 'askpart' }> }) {
               <span>{plainQ(qa.q)}</span>
             </div>
           )}
-          {qa.a && <Markdown text={qa.a} />}
+          {qa.a && (
+            <Folded lines={7} full={full}>
+              <Markdown text={qa.a} />
+            </Folded>
+          )}
         </div>
       )
     }
     case 'more':
       return (
         <div className="db-ask-more">
-          <Markdown text={f.md} />
+          <Folded lines={7} full={full}>
+            <Markdown text={f.md} />
+          </Folded>
         </div>
       )
     case 'q': {
@@ -906,7 +991,11 @@ function AskPartBody({ f }: { f: Extract<Face, { k: 'askpart' }> }) {
                     <Codicon name="comment-discussion" size={13} />
                     <span>{plainQ(x.q)}</span>
                   </div>
-                  {x.a && <Markdown text={x.a} />}
+                  {x.a && (
+                    <Folded lines={7} full={full}>
+                      <Markdown text={x.a} />
+                    </Folded>
+                  )}
                 </div>
               ))}
             </div>
