@@ -25,7 +25,8 @@ const addr = (page: Page) => web(page).getByRole('textbox', { name: '网址' })
 const tree = (page: Page) => page.getByRole('tree', { name: '全部文件' })
 const toast = (page: Page) => page.getByTestId('toast')
 const center = (page: Page) => page.locator('.win > main.center')
-const tbWeb = (page: Page) => page.getByTestId('tb-web')
+/** 网页那一组组头最右的「占满」（每一栏都能占满起，标题栏那颗拿掉了） */
+const tbWeb = (page: Page) => page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn')
 const chip = (page: Page) => page.getByTestId('full-chip')
 const chipMenu = (page: Page) => page.getByRole('menu', { name: '记进哪篇' })
 const chooser = (page: Page) => page.getByRole('dialog', { name: '记到哪篇' })
@@ -98,9 +99,8 @@ test('网页占满：右上角那颗、⌃⌘\\、网页 ⋯ 是同一个开关�
     await goBook(page)
     // 文档标签条上不再有「收起中间栏」；右上角那颗写「网页占满」带键，没有小牌
     await expect(page.getByTestId('center-fold')).toHaveCount(0)
-    await expect(tbWeb(page)).toHaveAccessibleName('网页占满')
-    await expect(tbWeb(page)).toContainText('网页占满')
-    await expect(tbWeb(page)).toContainText('⌃⌘\\')
+    await expect(tbWeb(page)).toHaveAccessibleName('占满：网页')
+    await expect(tbWeb(page)).toHaveAttribute('data-key', '⌃⌘\\')
     await expect(chip(page)).toHaveCount(0)
     const before = (await web(page).boundingBox())!.width
     const mid = (await center(page).boundingBox())!.width
@@ -172,7 +172,7 @@ test('网页占满：右上角那颗、⌃⌘\\、网页 ⋯ 是同一个开关�
     await pressFull(page)
     await expect(center(page)).not.toHaveClass(/folded/)
     await expect(chip(page)).toHaveCount(0)
-    await expect(tbWeb(page)).toHaveAccessibleName('网页占满')
+    await expect(tbWeb(page)).toHaveAccessibleName('占满：网页')
     await expect.poll(() => editorText(page)).toContain(p0.slice(0, 16))
     await pressFull(page)
     await expect(center(page)).toHaveClass(/folded/)
@@ -263,7 +263,7 @@ test('混用一：占满 → 网页 ⋯ 在中间开成一页（剪的进收件�
     await expect(center(page)).not.toHaveClass(/folded/)
     await expect(tabOn(page)).toHaveText('杀死一只知更鸟')
     await expect(page.locator('main.center .cm-content')).toBeVisible()
-    await expect(tbWeb(page)).toHaveAccessibleName('网页占满')
+    await expect(tbWeb(page)).toHaveAccessibleName('占满：网页')
   } finally {
     await run.close()
   }
@@ -281,18 +281,21 @@ test('混用二：网页 ⋯ 在中间开成一页 → 按 ⌃⌘\\（什么都�
     await web(page).getByRole('button', { name: '更多' }).click()
     await web(page).getByRole('menu', { name: '更多' }).getByRole('menuitem', { name: /在中间开成一页/ }).click()
     await expect(page.locator(MIDDLE)).toBeVisible()
+    // 每一栏都能占满起：⌃⌘\ 占满当前这栏（中间开着的这一页），不是网页那一组
     await pressFull(page)
-    await expect.poll(() => page.evaluate(() => localStorage.getItem('cn.centerFold'))).toBe('0')
+    await expect(center(page)).toHaveClass(/maxed/)
     await expect(center(page)).not.toHaveClass(/folded/)
 
     await page.locator('.center .tabs .tab.on').click({ button: 'right' })
     await pickMenu(run, '放回右栏')
+    // 布局变了：先回原样
+    await expect(page.getByTestId('max-hint')).toHaveCount(0)
     await expect(page.locator(MIDDLE)).toHaveCount(0)
     await expect(web(page)).toBeVisible()
     await expect(center(page)).not.toHaveClass(/folded/)
     await expect(tabOn(page)).toHaveText('杀死一只知更鸟')
     await expect(page.locator('main.center .cm-content')).toBeVisible()
-    await expect(tbWeb(page)).toHaveAccessibleName('网页占满')
+    await expect(tbWeb(page)).toHaveAccessibleName('占满：网页')
   } finally {
     await run.close({ keep: true })
     for (const d of dirs) rmSync(d, { recursive: true, force: true, maxRetries: 5 })

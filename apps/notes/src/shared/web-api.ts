@@ -135,6 +135,8 @@ export interface CnWebApi {
    * opts.shot：剪贴板里的截图，起名「截图 1」「截图 2」
    */
   saveImage(src: ImageSource, nameHint?: string, opts?: { note?: string; shot?: boolean }): Promise<SavedImage>
+  /** 网页上的一张图取回来（网页那个会话、30 秒超时、最大 20 MB）：拖进 AI 输入框用；type 按文件头认 */
+  fetchImage(url: string): Promise<{ bytes: Uint8Array; type: string }>
   /** 撤回整页剪藏（反向提交） */
   undoClip(path: string): Promise<void>
   /** 网站小图标多深：dark 很黑（深色主题里垫白底）、light 很白、empty 几乎透明（当没有） */

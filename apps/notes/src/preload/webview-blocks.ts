@@ -4,8 +4,11 @@
  */
 import { normText } from '../shared/read-anchor'
 import { cleanHead } from '../shared/read-along'
+import { mathMd, mathRoot, mj2Script } from './webview-md'
 
 const BLOCKS = 'p, li, pre, blockquote, dd, dt, figcaption, h1, h2, h3, h4, h5, h6'
+/** 单独一行的公式：MathJax 3、MathJax 2、KaTeX */
+const DISPLAY_MATH = 'mjx-container[display="true"], .MathJax_Display, .katex-display'
 export const HEAD = /^H[1-6]$/
 
 export const textOf = (el: Element) => (HEAD.test(el.tagName) ? cleanHead(el.textContent ?? '') : normText(el.textContent ?? ''))
@@ -94,8 +97,10 @@ export function blocks(sc: Element): HTMLElement[] {
   const memo = new Map<Element, boolean>()
   const root = sc === document.scrollingElement ? document.body : sc
   if (!root) return []
-  return [...root.querySelectorAll<HTMLElement>(BLOCKS)].filter((el) => {
+  return [...root.querySelectorAll<HTMLElement>(`${BLOCKS}, ${DISPLAY_MATH}`)].filter((el) => {
     if (el.closest('#cn-clip-host, #cn-box-host, #cn-mark-host')) return false
+    // 单独一行的公式（d2l 的 div.math 里那个）自成一块；套在段落、列表项里的算那一段的
+    if (el.matches(DISPLAY_MATH)) return mathRoot(el) === el && !el.parentElement?.closest(BLOCKS) && el.getClientRects().length > 0 && !pinned(el, memo)
     if (el.tagName !== 'PRE' && !HEAD.test(el.tagName) && el.querySelector('p, li, pre')) return false
     if (el.tagName !== 'PRE' && el.closest('pre')) return false
     if (!el.getClientRects().length) return false
@@ -104,20 +109,21 @@ export function blocks(sc: Element): HTMLElement[] {
   })
 }
 
-/** 一块里的字（空白并成一个，软件夹进去的译文 cn-tr 不算）和每个字在哪个文字节点的哪里 */
+/**
+ * 一块里的字（空白并成一个，软件夹进去的译文 cn-tr 不算）和每个字在哪：文字节点的第几个字，或者是哪个公式。
+ * 公式整个写成和文件里一样的 `$…$` / `$$ … $$`（webview-md 的 mathMd），和小条交给软件的「这段字」、文件里引着的原文对得上；
+ * 公式里藏着的 MathML、MathJax 2 的原文 script、Sphinx 的式号（写进了 \tag）不再单算
+ */
 export interface Chars {
   text: string
-  at: [Text, number][]
+  at: [Text | Element, number][]
 }
 
 export function charsOf(el: Element): Chars {
-  const at: [Text, number][] = []
+  const at: [Text | Element, number][] = []
   let text = ''
   let space = true
-  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
-  for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
-    if (n.parentElement?.closest('cn-tr')) continue
-    const t = n.data
+  const feed = (t: string, where: (i: number) => [Text | Element, number]) => {
     for (let i = 0; i < t.length; i++) {
       let ch = t[i]!
       if (/\s/.test(ch)) {
@@ -126,19 +132,37 @@ export function charsOf(el: Element): Chars {
         ch = ' '
       } else space = false
       text += ch
-      at.push([n, i])
+      at.push(where(i))
     }
   }
+  const done = new Set<Element>()
+  const walk = (n: Node) => {
+    if (n.nodeType === Node.TEXT_NODE) return feed((n as Text).data, (i) => [n as Text, i])
+    if (n.nodeType !== Node.ELEMENT_NODE) return
+    const e = n as Element
+    if (done.has(e) || e.tagName === 'CN-TR' || e.tagName === 'STYLE' || e.classList.contains('eqno')) return
+    const root = e.tagName === 'SCRIPT' ? (/^math\/tex/i.test((e as HTMLScriptElement).type) ? e : null) : mathRoot(e)
+    if (root) {
+      const s = mj2Script(root)
+      if (s) done.add(s)
+      return feed(mathMd(root), () => [root, 0])
+    }
+    if (e.tagName === 'SCRIPT') return
+    for (const c of Array.from(e.childNodes)) walk(c)
+  }
+  walk(el)
   return { text, at }
 }
 
-/** 这一块的第 start 到 end 个字在网页里是哪一段（Range） */
+/** 这一块的第 start 到 end 个字在网页里是哪一段（Range）；两头落在公式上时整个公式算进去 */
 export function rangeOf(c: Chars, start: number, end: number): Range | null {
   const a = c.at[start]
   const b = c.at[Math.min(end, c.at.length) - 1]
   if (!a || !b) return null
   const r = document.createRange()
-  r.setStart(a[0], a[1])
-  r.setEnd(b[0], b[1] + 1)
+  if (a[0] instanceof Text) r.setStart(a[0], a[1])
+  else r.setStartBefore(a[0])
+  if (b[0] instanceof Text) r.setEnd(b[0], b[1] + 1)
+  else r.setEndAfter(b[0])
   return r
 }

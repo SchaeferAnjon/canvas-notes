@@ -30,7 +30,8 @@ const actXs = (page: Page) =>
   acts(page).evaluate((el) =>
     [...el.querySelectorAll<HTMLElement>('button')]
       .filter((b) => b.offsetParent)
-      .map((b) => `${b.getAttribute('aria-label') ?? b.textContent}@${Math.round(b.getBoundingClientRect().left * 10) / 10}`),
+      // 「对照看」那颗在任务看法里变灰、名字换成为什么不能点（中间栏分屏）：位置不动就算同一颗
+      .map((b) => `${(b.getAttribute('aria-label') ?? b.textContent ?? '').includes('对照看') ? '对照看' : (b.getAttribute('aria-label') ?? b.textContent)}@${Math.round(b.getBoundingClientRect().left * 10) / 10}`),
   )
 
 const overlap = (a: { x: number; y: number; width: number; height: number }, b: { x: number; y: number; width: number; height: number }) =>

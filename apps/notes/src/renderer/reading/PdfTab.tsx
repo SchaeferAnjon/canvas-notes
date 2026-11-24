@@ -690,11 +690,12 @@ export function PdfTab(props: {
     props.onShowNote(t.id)
   }
 
-  // 工具条：选区（框）上方 6，上面放不下放下面 6；左右限在这一栏看得见的那块里（不撑宽滚动区）；整条放不下才藏键帽（cap-place.ts）
+  // 工具条：选区（框）上方 6，上面放不下放下面 6；左右先限在这一栏看得见的那块里，整条放不下先藏名字、再藏键帽，
+  // 还放不下就浮出这一栏、收在窗口里（9 颗都留着，用户定的；position: fixed，不撑宽滚动区，cap-place.ts）
   const capAt = useCapPlace(
     capRef,
     () => {
-      const slot = capRef.current?.offsetParent as HTMLElement | null
+      const slot = capRef.current?.parentElement
       if (!boxed || !slot || !scroller.current) return null
       // 选着的字还在（缩放不重建文字层）：量选区本身，字的高度不完全按比例变，照记下的比例算会差几个像素
       const live = boxed.quote ? selectionBox() : null
@@ -704,6 +705,7 @@ export function PdfTab(props: {
       return { sel: { left: r.left + b.rect[0] * r.width, top, right: r.left + (b.rect[0] + b.rect[2]) * r.width, bottom: top + b.rect[3] * r.height }, view: clientArea(scroller.current) }
     },
     [capOpen, boxed, width, scale, sizes],
+    scroller,
   )
 
   /** 「100% ▾」：放大、缩小、适合宽度 / 整页、几档常用比例；勾的是现在这一个 */
@@ -878,7 +880,7 @@ export function PdfTab(props: {
                 {capOpen && bar.enabled && boxed?.page === n && !r.queued.length && (
                   <div
                     ref={capRef}
-                    className={'cap capbar' + (capAt?.nohl ? ' nohl' : '') + (capAt?.nokbd ? ' nokbd' : '')}
+                    className={'cap capbar fixed' + (capAt?.nohl ? ' nohl' : '') + (capAt?.nokbd ? ' nokbd' : '') + (capAt?.out ? ' out' : '')}
                     style={capStyle(capAt)}
                     role="toolbar"
                     aria-label="框好的这块"

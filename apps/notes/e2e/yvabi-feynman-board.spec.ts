@@ -216,8 +216,10 @@ const home = (page: Page) =>
     .evaluate((w) => {
       // 费曼那一列整个露出来、离右边 24，上面滚到顶（导图在它左边）
       const col = w.querySelector('[data-testid="fy-col"], [data-testid="fy-pending"]')
-      w.scrollTop = 0
-      if (!col) return w.scrollTo(0, 0)
+      // 起点：四周多出的空白（board-slack.ts）
+      const [hx, hy] = (w as HTMLElement).dataset.home!.split(',').map(Number) as [number, number]
+      w.scrollTop = hy
+      if (!col) return w.scrollTo(hx, hy)
       const r = col.getBoundingClientRect()
       const b = w.getBoundingClientRect()
       w.scrollLeft += r.right - (b.right - 24)

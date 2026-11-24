@@ -1,6 +1,6 @@
 // 附件的两件事（2026-11-17，用户批准的 four-items 小样第 1、2 节）：
 // 删笔记时「连同 N 张图一起移到废纸篓」（默认勾、别的笔记也在用的不删、勾不勾记住、删完底部能撤回）；
-// 「属性」弹层列这篇的附件（前 5 张 + 「全部 N 张 ›」网格、搜名字、按大小、文中没用到；点一张在访达中显示、双击跳到文中）。
+// 「属性」弹层列这篇的附件（前 5 张 + 「全部 N 张 ›」网格、搜名字、按大小、文中没用到；单击跳到文中、右键在访达中显示）。
 import { expect, test, type Page } from '@playwright/test'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -111,7 +111,7 @@ test('删笔记：确认框里「连同 N 张图」默认勾上、别的笔记�
   }
 })
 
-test('属性弹层列附件：前 5 张（缩略图、名字、在哪一节、大小），「全部 N 张 ›」换成网格：搜名字、按大小、文中没用到；点一张在访达中显示、双击跳到文中、右键没用到的能删', async () => {
+test('属性弹层列附件：前 5 张（缩略图、名字、在哪一节、大小），「全部 N 张 ›」换成网格：搜名字、按大小、文中没用到；单击跳到文中、右键在访达中显示、没用到的能删', async () => {
   const run = await launch(vault(9))
   const { page, vault: v } = run
   try {
@@ -129,8 +129,13 @@ test('属性弹层列附件：前 5 张（缩略图、名字、在哪一节、�
     await expect(sec.locator('.pa-more')).toContainText('还有 4 张 · 2 张文中没用到')
     await expect.poll(() => sec.locator('.pa-row img').first().evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth)).toBeGreaterThan(100)
     await shot(run, '2a-属性里的附件')
-    // 点一行：在访达中显示
-    await sec.locator('.pa-row').first().click()
+    // 点一行：跳到文中那一处（2026-11-23 起；在访达中显示挪进右键）
+    await sec.locator('.pa-row').nth(4).hover()
+    await expect(sec.locator('.pa-row').nth(4).locator('.rv')).toHaveText('跳到文中')
+    await sec.locator('.pa-row').nth(4).click()
+    await expect(pane(page).locator('.cm-content img[src$="%205.png"]')).toBeInViewport()
+    await sec.locator('.pa-row').first().click({ button: 'right' })
+    await pickMenu(run, '在访达中显示')
     await expect.poll(() => run.app.evaluate(() => (globalThis as unknown as { cnScreen: string[] }).cnScreen)).toContain(`在访达中显示 ${join(v, DIR, '截图 1.png')}`)
     // 文件夹图标：在访达里打开整个附件文件夹
     await sec.getByRole('button', { name: '在访达里打开附件文件夹' }).click()
@@ -161,11 +166,14 @@ test('属性弹层列附件：前 5 张（缩略图、名字、在哪一节、�
     await pickMenu(run, '移到废纸篓')
     await expect(grid.locator('.pa-cell')).toHaveCount(8)
     expect(existsSync(join(v, DIR, '截图 9.png'))).toBe(false)
-    // 双击一张：跳到文中那一处（光标在那张图上）
+    // 双击一张：跳到文中那一处（光标在那张图那一行）
     await grid.locator('.pa-cell').nth(5).dblclick()
     await expect(pane(page).locator('.cm-content')).toBeFocused()
-    // 滚到了第 6 张图那里（文档里的图画成图，看得见它）
+    // 滚到了第 6 张图那里（文档里的图画成图，看得见它）；第二下放大看图，Esc 收起
     await expect(pane(page).locator('.cm-content img[src$="%206.png"]')).toBeInViewport()
+    await expect(page.getByRole('dialog', { name: '看大图' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: '看大图' })).toHaveCount(0)
     // 网格还开着：返回箭头回到属性，「全部 8 张」（刚删了一张）
     await grid.getByRole('button', { name: '回到属性' }).click()
     await expect(pop.getByRole('region', { name: '附件' }).getByRole('button', { name: /全部 8 张/ })).toBeVisible()

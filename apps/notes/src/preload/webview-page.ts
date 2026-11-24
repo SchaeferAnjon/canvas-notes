@@ -1,7 +1,7 @@
 /**
  * 右栏网页预加载里的两件事（隔离环境，网页碰不到）：
  * 1. 整页剪藏：主进程要正文时，用 Readability（Apache-2.0）抽正文、Turndown（MIT）转成 md 发回去。
- * 2. 拖图片：开始拖网页里的图时，把图的地址、说明和网页标题告诉界面，落到白板上时写来源。
+ * 2. 拖图片：开始拖网页里的图时，把图的地址、说明和网页标题告诉界面，落到白板、文档、AI 输入框上时写来源；拖着时报位置。
  */
 import { Readability } from '@mozilla/readability'
 import { ipcRenderer } from 'electron'
@@ -9,6 +9,7 @@ import TurndownService from 'turndown'
 import { mdUrl } from '../shared/layout'
 import { prepareClip } from './plugins/translate'
 import { codeLang, prepareMath } from './webview-md'
+import { imgInfo, imgOf } from './webview-img'
 
 /** 抽正文前先做的事（webview.ts 设：把 MathJax 3 的公式原文记到容器上） */
 let beforeExtract: () => Promise<unknown> = async () => {}
@@ -158,21 +159,36 @@ ipcRenderer.on('cn:extract', async (_e, id: number) => {
   }
 })
 
-// 拖图片：图的地址、说明、网页标题和网址交给界面。
-// 从网页拖到界面上时，界面那边有时收不到 drop（拖放会话留在 webview 里），
-// 所以松手时把落点也报上去（相对网页左上角；dragend 的 screenX 在 webview 里不对，不用它），界面自己在那里放下
+// 拖图片：图的地址、说明（图注、alt、上面的小标题）、网页标题和网址交给界面。
+// 从网页拖到界面上时，界面那边有时收不到 dragover / drop（拖放会话留在 webview 里），
+// 所以拖着时把指针的位置报上去（cn:dragmove，界面照它亮输入框、画插入线），松手时把落点也报上去
+// （相对网页左上角；dragend 的 screenX 在 webview 里不对，不用它），界面自己在那里放下；落回网页里报 cn:dragcancel
 let dragging = false
+let lastMove = 0
+const inPage = (e: DragEvent) => e.clientX >= 0 && e.clientY >= 0 && e.clientX <= innerWidth && e.clientY <= innerHeight
 document.addEventListener(
   'dragstart',
   (e) => {
-    const t = e.target as HTMLElement | null
-    const img = t instanceof HTMLImageElement ? t : (t?.querySelector?.('img') ?? null)
+    const img = imgOf(e.target)
     dragging = false
     if (!img) return
-    const src = img.currentSrc || img.src
-    if (!src) return
+    const info = imgInfo(img)
+    if (!info) return
     dragging = true
-    ipcRenderer.sendToHost('cn:drag', { src, alt: (img.alt || img.title || '').trim(), url: location.href, title: document.title })
+    ipcRenderer.sendToHost('cn:drag', info)
+  },
+  true,
+)
+document.addEventListener(
+  'drag',
+  (e) => {
+    if (!dragging) return
+    // 拖到最后一下 Chromium 报 (0, 0)：不算
+    if (e.clientX === 0 && e.clientY === 0) return
+    const now = Date.now()
+    if (now - lastMove < 40) return
+    lastMove = now
+    ipcRenderer.sendToHost('cn:dragmove', { x: e.clientX, y: e.clientY, inside: inPage(e) })
   },
   true,
 )
@@ -181,9 +197,20 @@ document.addEventListener(
   (e) => {
     if (!dragging) return
     dragging = false
-    // 落在网页自己里面的不管
-    if (e.clientX >= 0 && e.clientY >= 0 && e.clientX <= innerWidth && e.clientY <= innerHeight) return
+    // 落在网页自己里面的不放，只告诉界面收起亮着的输入框、插入线
+    if (inPage(e)) return ipcRenderer.sendToHost('cn:dragcancel')
     ipcRenderer.sendToHost('cn:dragend', { x: e.clientX, y: e.clientY })
+  },
+  true,
+)
+
+// 右键点在图上：先把这张图的说明报上去，界面拼「问 AI 这张图」「剪进文档」时带来源（右键参数里只有图的地址）
+document.addEventListener(
+  'contextmenu',
+  (e) => {
+    const img = e.target instanceof HTMLImageElement ? e.target : null
+    const info = img && imgInfo(img)
+    if (info) ipcRenderer.sendToHost('cn:ctx-img', info)
   },
   true,
 )

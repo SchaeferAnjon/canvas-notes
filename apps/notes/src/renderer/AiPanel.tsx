@@ -11,6 +11,7 @@ import { sayOf } from './replies/store'
 import { fillReply } from '../shared/replies'
 import { ChangeBar, UndoButton } from '@cn/design/answer-bar'
 import { jumpDone, useChatJump } from './chat-jump'
+import { feedDone, useFeed } from './ai-web-stay'
 import { AiError, openAiSettings } from './ai-error'
 import { AiIntro, SetupCard } from './ai-setup'
 import { ByLogo } from './engine-logo'
@@ -297,6 +298,17 @@ export function AiPanel(props: AiPanelProps) {
     c.add({ kind: 'quote', text: d.text.trim().slice(0, 20_000), src: d.src }, { doc: { tab: props.tab?.id ?? null } })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.draft?.seq])
+  // 网页上点了「引用」「讲解一下」进的是这段（ai-web-stay.ts，偏好「引用留在当前对话」）：引用成为输入框顶上的一块、光标进去；
+  // 讲解一下带着这块直接问。输入框里已经有字、有材料，或 AI 还在答：这块照样放进输入框，不替你发（不冲掉打了一半的）
+  const feed = useFeed()
+  useEffect(() => {
+    if (!feed || feed.key !== place.key || !loaded || props.hidden) return
+    feedDone(feed.seq)
+    if (feed.ask && !c.text.trim() && !c.mats.length && !C.runningNow() && !cp.none) return void run(feed.ask, [feed.mat])
+    c.add(feed.mat)
+    if (feed.ask) showNote(t('这段放进输入框了，回车问'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feed?.seq, place.key, loaded, props.hidden])
   const ranSeq = useRef(0)
   useEffect(() => {
     const a = props.autoRun

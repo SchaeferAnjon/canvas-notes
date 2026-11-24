@@ -119,7 +119,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.locator('main.center .cm-content').click({ position: { x: 40, y: 10 } })
       await pair(`1-原样-${theme}`, proto['1-normal']!, await winShot(run))
 
-      await page.getByTestId('tb-web').click()
+      await page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn').click()
       await expect(page.getByTestId('full-chip')).toBeVisible()
       await pair(`2-网页占满-${theme}`, proto['2-full']!, await winShot(run))
 

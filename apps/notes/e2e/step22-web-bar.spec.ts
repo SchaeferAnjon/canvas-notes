@@ -1,5 +1,5 @@
 // 右栏网页标签栏（录屏 ① CN-15、16、32、35，方案 A；2026-11-21 task-sta8n 方向 A「紧凑两档」标签和地址并成一行）：
-// 「网页占满 / 还原」在标题栏最右、「收起右栏」左边（task-05p2w 方向 A，以前是「移到中间 / 放回右栏」）；当前标签就是地址块，+ 跟在标签后面；没有收起网页的 ×；
+// 「占满 / 还原」在网页那一组组头最右（每一栏都能占满起；以前在标题栏最右，task-05p2w 方向 A）；当前标签就是地址块，+ 跟在标签后面；没有收起网页的 ×；
 // 右栏的当前网页标签不画主题的标记，靠地址块的 --fill 底和别的标签分开。
 import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
@@ -47,24 +47,22 @@ async function shot(run: Running, name: string) {
 }
 
 for (const frame of ['b', 'a'] as const)
-  test(`风格 ${frame.toUpperCase()}：标题栏「网页占满」让右栏网页占满（中间那篇让出地方），同一个位置变成「还原」，再点回原样（task-05p2w 方向 A）`, async () => {
+  test(`风格 ${frame.toUpperCase()}：网页那一组组头的「占满」让网页占满（中间那篇让出地方），同一颗变成「还原」，再点回原样（task-05p2w 方向 A，每一栏都能占满）`, async () => {
     const run = await launch({ 'a.md': '# a\n\n正文\n' }, {}, settingsWith({ skin: 'sky', frame }))
     const { page } = run
     try {
-      // 没开网页时没有这颗按钮
+      // 每一栏都能占满起：这颗在网页那一组组头最右（标题栏那颗拿掉了）；没开网页时没有
+      const full = page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn')
+      await expect(full).toHaveCount(0)
       await expect(titleBar(page).getByTestId('tb-web')).toHaveCount(0)
       await rail(page).getByRole('button', { name: '网页' }).click()
       await go(page, `${base}/1`)
-      const full = titleBar(page).getByTestId('tb-web')
-      await expect(full).toHaveAccessibleName('网页占满')
-      // 紧挨着「收起右栏」的左边
+      await expect(full).toHaveAccessibleName('占满：网页')
+      await expect(full).toHaveAttribute('data-key', '⌃⌘\\')
+      // 在「这一栏的布局」⋯ 右边、组头最右（三栏一律「把手 · ⋯ · 占满」）
       const box1 = (await full.boundingBox())!
-      const fold = (await titleBar(page).getByRole('button', { name: '收起右栏' }).boundingBox())!
-      expect(fold.x - (box1.x + box1.width)).toBeLessThanOrEqual(4)
-      expect(fold.x).toBeGreaterThan(box1.x)
-      // B 带字和键，A 只有图标
-      if (frame === 'b') await expect(full).toContainText('网页占满⌃⌘\\')
-      else expect(Math.round(box1.width)).toBe(28)
+      const more = (await page.locator('.dhead:has([data-testid="dtab-web"]) .dmore').boundingBox())!
+      expect(box1.x).toBeGreaterThan(more.x + more.width - 1)
       const w1 = (await web(page).boundingBox())!.width
       await shot(run, `webbar-${frame}-right`)
       await full.click()
@@ -73,14 +71,11 @@ for (const frame of ['b', 'a'] as const)
       await expect.poll(async () => (await web(page).boundingBox())!.width).toBeGreaterThan(w1 + 300)
       await expect(page.locator('.wpane')).toHaveCount(0)
       await expect(full).toHaveAccessibleName('还原')
-      const box2 = (await full.boundingBox())!
-      // 右边对齐
-      expect(Math.round(box2.x + box2.width)).toBe(Math.round(box1.x + box1.width))
       await shot(run, `webbar-${frame}-full`)
       await full.click()
       await expect(page.locator('.win > main.center')).not.toHaveClass(/folded/)
       await expect(webTabs(page)).toHaveText(['第 1 页 - 雷克雅未克'])
-      await expect(full).toHaveAccessibleName('网页占满')
+      await expect(full).toHaveAccessibleName('占满：网页')
       // 网页收起：这颗跟着没了
       await titleBar(page).getByRole('button', { name: '收起右栏' }).click()
       await expect(full).toHaveCount(0)

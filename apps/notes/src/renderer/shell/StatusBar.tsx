@@ -5,6 +5,7 @@ import type { GitState, StrandedNote } from '../../shared/api'
 import { when } from '../../shared/when'
 import type { AiJob } from '../../shared/ai-logo'
 import { AiIcon } from '../engine-logo'
+import { keyFor } from '../keys'
 import { MenuItem, Popover } from './Shell'
 import { autoSyncLabel } from '../../shared/prefs'
 import { usePrefs } from '../settings-store'
@@ -59,6 +60,8 @@ export function StatusBar(props: {
   toast?: React.ReactNode
   /** 打开库时整理了一次（「我的疑惑」不再是文件、两篇笔记并成一篇）：左边一句带「撤回」和 ×，关掉之前一直在（原型 design/workspace/proto-a.html 底栏左边那句） */
   tidy?: { said: string; onUndo(): void; onClose(): void } | null
+  /** 点了书桌、换了一整套（书桌回到刚才）：左边「已切到书桌「…」· 回到刚才」和 ×，回去、× 掉、再切别的之前一直在 */
+  away?: { name: string; onBack(): void; onClose(): void } | null
   /** 哪都写不进去、字只在内存里的那几篇（stash：设置目录里的备份）：有就不说「都提交了」，醒目地说出来 */
   unsaved?: StrandedNote[]
   /** 在访达里显示那份备份 */
@@ -141,6 +144,20 @@ export function StatusBar(props: {
           <Codicon name="loading" size={14} className="spin" />
           <span className="num">{t('后台{n}件', { n: props.jobs.length })}</span>
         </button>
+      )}
+      {props.away && (
+        <span className="bi tidy-msg desk-away" data-testid="desk-away">
+          <Codicon name="layout" size={14} />
+          <span className="truncate" data-tip={t('已切到书桌「{name}」', { name: props.away.name })} data-side="above">
+            {t('已切到书桌「{name}」', { name: props.away.name })}
+          </span>
+          <button className="lnk" data-tip={t('回到切书桌之前的样子')} data-key={keyFor('undo') ?? undefined} data-side="above" onClick={props.away.onBack}>
+            {t('回到刚才')}
+          </button>
+          <button className="x" aria-label={t('关掉这一句')} onClick={props.away.onClose}>
+            <Codicon name="close" size={12} />
+          </button>
+        </span>
       )}
       {props.tidy && (
         <span className="bi tidy-msg" data-testid="tidy-msg">

@@ -8,7 +8,7 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import type { EngineId } from '../../shared/agent'
 import { EngineLogo } from '../engine-logo'
-import { type AskSection, type DocUnit, findMath, isSummaryHead, parseSection, parseTable, prop } from '@cn/format'
+import { type AskPart, type AskSection, type DocUnit, findMath, isSummaryHead, parseHlLine, parseSection, parseTable, plainQ, prop } from '@cn/format'
 import { type ReactNode, useEffect, useState } from 'react'
 import { ScrollX } from '../scroll-x'
 import type { NoteFile } from '../../shared/api'
@@ -25,6 +25,7 @@ import { videoUrlOfCard } from '../video/BoardCards'
 import { BaseCard } from './base-card'
 import { MapCard } from '../mindmap/MapThumb'
 import { usePdfPage } from './pdf-page'
+import { hlDot } from '../reading/hl-kinds'
 import { useT } from '../i18n'
 import { t as tNow, uiLang } from '../../shared/i18n'
 
@@ -71,6 +72,8 @@ export type Face =
   | { k: 'base'; src: string }
   | { k: 'pdf'; name: string; page: number; file: FileEntry | null }
   | { k: 'ask'; s: AskSection; pdf: FileEntry | null; back?: string }
+  /** 问过 AI 一处一列里的一张（doc-board.ts 的 askUnits）：s 是这一张拼上标题行、链接行认出来的；more 是回答的后半截（md），marks 是那一页划的线 */
+  | { k: 'askpart'; part: AskPart; s: AskSection | null; pdf: FileEntry | null; back?: string; md: string; marks: { text: string; name: string; key: string }[] }
   | { k: 'details'; title: string; body: string }
   | { k: 'note'; note: NoteFile }
   | { k: 'clipnote'; note: NoteFile }
@@ -96,6 +99,7 @@ export const KIND_NAME: Record<string, string> = {
   base: '数据库', // 不翻
   pdf: 'PDF 页', // 不翻
   ask: '问过 AI', // 不翻
+  askpart: '问过 AI', // 不翻
   details: '折叠块', // 不翻
   note: '嵌入的笔记', // 不翻
   clipnote: '网页剪藏', // 不翻
@@ -116,7 +120,7 @@ export function faceClass(f: Face): string {
   // 名字带 fc- 前缀：别处有全局的 .callout（设置页的提醒框）这类，撞名会把卡片变成别的样子
   if (f.k === 'quote' || f.k === 'clipnote') return 'fc-clip'
   if (f.k === 'callout') return 'fc-callout'
-  if (f.k === 'ask') return 'fc-ask'
+  if (f.k === 'ask' || f.k === 'askpart') return 'fc-ask'
   if (f.k === 'embedimg' || f.k === 'images' || f.k === 'cardbody') return 'fc-media'
   return ''
 }
@@ -144,6 +148,24 @@ function sourceOf(title: string, url: string | null): Source {
   const t = title.trim()
   const b = BOOK.exec(t)
   return { title: t, url, ...(b ? { book: { name: b[1]!.trim(), chapter: (b[2] ?? '').trim() } } : {}) }
+}
+
+/** 问过 AI 那一列里的一张：拼上这一节的标题行、链接行，照笔记的认法（parseSection）认 */
+function askFace(part: AskPart, head: string, text: string, ctx: Pick<CardCtx, 'notePath' | 'files'>): Face {
+  const back = /^\[第\s*\d+\s*页\]\(([^)\s]+)\)/m.exec(part === 'old' ? text : head)?.[1]
+  const marks = part === 'marks' ? text.split('\n').flatMap((l) => {
+    const h = parseHlLine(l, ctx.notePath)
+    return h ? [{ text: h.text, name: h.name, key: h.key }] : l.trim() ? [{ text: l.replace(/^[-*]\s+/, ''), name: '', key: '' }] : []
+  }) : []
+  const s = part === 'more' || part === 'marks' ? null : parseSection(part === 'old' ? `${head}\n${text}` : part === 'top' ? `${head.split('\n')[0]}\n${text}` : `${head}\n\n${text}`, ctx.notePath)
+  // 以前的格式整节一张：照原来的问答卡画（有问答的是 AskDoc，没有的是 AskCard）；askpart 没有 old 的画法，以前有问答的这一节画成空卡
+  if (part === 'old') {
+    if (!s) return { k: 'text', md: text }
+    const pdf = s.file ? (ctx.files.find((f) => f.path === s.file) ?? null) : null
+    return { k: 'ask', s, pdf, ...(back ? { back } : {}) }
+  }
+  const pdf = s?.file ? (ctx.files.find((f) => f.path === s.file) ?? null) : null
+  return { k: 'askpart', part, s, pdf, ...(back ? { back } : {}), md: part === 'more' ? text : '', marks }
 }
 
 /** 引文、书摘：正文几行、出处、挂在下面的「微信读书的想法」「我的评价」 */
@@ -187,6 +209,7 @@ function quoteFace(text: string): Face {
 }
 
 export function faceOf(u: DocUnit, ctx: Pick<CardCtx, 'notePath' | 'notes' | 'files'>): Face {
+  if (u.ask) return askFace(u.ask.part, u.ask.head, u.text, ctx)
   const text = u.lead ? u.text.slice(u.lead).replace(/^\s+/, '') : u.text
   const t = text.trim()
   switch (u.kind) {
@@ -447,6 +470,8 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
       )
     case 'ask':
       return f.s.qas ? <AskDoc s={f.s} pdf={f.pdf} back={f.back} /> : <AskCard s={f.s} pdf={f.pdf} full={full} />
+    case 'askpart':
+      return <AskPartBody f={f} />
     case 'details':
       return <Details title={f.title} body={f.body} full={full} />
     case 'note':
@@ -697,6 +722,132 @@ function AskDoc({ s, pdf, back }: { s: AskSection; pdf: FileEntry | null; back?:
       )}
     </>
   )
+}
+
+/** 我框的图（点了回 PDF 那一块），没有链接时只画图 */
+function Crop({ s, back, label }: { s: AskSection; back?: string; label: string }) {
+  const t = useT()
+  const img = <img src={vaultSrc(s.crop!)} alt={t('我框的')} draggable={false} style={s.cropW ? { width: s.cropW } : undefined} />
+  return back ? (
+    <a className="db-ask-crop" data-href={back} data-label={label} title={t('点一下回到 PDF {label}', { label })}>
+      {img}
+    </a>
+  ) : (
+    <span className="db-ask-crop">{img}</span>
+  )
+}
+
+/**
+ * 问过 AI 一处一列（2026-11-23 用户：「每个问话作为一列吧，旁支的话可以作为主对话放在对话那一列」）里的一张：
+ * top 页码和时间、我框的图（没框画那一页）、选字问的原文；qa 问题条和回答；more 回答后半截；side 旁支（被问那句、几轮问答）；
+ * recap 小结；marks 那一页划的线。样子照整节画全的问答卡（AskDoc）
+ */
+function AskPartBody({ f }: { f: Extract<Face, { k: 'askpart' }> }) {
+  const t = useT()
+  const s = f.s
+  switch (f.part) {
+    case 'top': {
+      if (!s) return null
+      const label = s.page > 0 ? t('第{page}页', { page: s.page }) : s.web?.label || t('问过')
+      // 列头已经有图标和「第N页 · 标题」：卡头只说下面是什么，右边时间
+      return (
+        <>
+          <div className="kh">
+            <span>{s.crop ? t('框的图') : s.quote ? t('选的字') : t('这一页')}</span>
+            {s.time && <span className="r num">{s.time}</span>}
+          </div>
+          {s.crop ? (
+            <Crop s={s} back={f.back} label={label} />
+          ) : (
+            s.page > 0 &&
+            // 没框（问整页、选字问）：那一页的上半截，点了回 PDF 那一页
+            (f.back ? (
+              <a className="db-ask-page" data-href={f.back} data-label={label} title={t('点一下回到 PDF {label}', { label })}>
+                <PdfPage file={f.pdf} page={s.page} />
+              </a>
+            ) : (
+              <div className="db-ask-page">
+                <PdfPage file={f.pdf} page={s.page} />
+              </div>
+            ))
+          )}
+          {s.quote && <blockquote className="db-ask-quote">{s.quote}</blockquote>}
+        </>
+      )
+    }
+    case 'qa': {
+      const qa = s?.qas?.[0]
+      if (!qa) return <Markdown text={f.md} />
+      return (
+        <div className="db-ask-qa">
+          {qa.q && (
+            <div className="row aq">
+              <Codicon name="question" size={13} />
+              <span>{plainQ(qa.q)}</span>
+            </div>
+          )}
+          {qa.a && <Markdown text={qa.a} />}
+        </div>
+      )
+    }
+    case 'more':
+      return (
+        <div className="db-ask-more">
+          <Markdown text={f.md} />
+        </div>
+      )
+    case 'side': {
+      const sides = s?.qas?.[0]?.sides ?? []
+      return (
+        <>
+          <Kh icon="git-branch">{t('旁支')}</Kh>
+          {sides.map((d, j) => (
+            <div key={j} className="db-ask-side">
+              {d.quote && <div className="sq">{d.quote}</div>}
+              {d.turns.map((x, k) => (
+                <div key={k}>
+                  <div className="row aq sq-q">
+                    <Codicon name="comment-discussion" size={13} />
+                    <span>{plainQ(x.q)}</span>
+                  </div>
+                  {x.a && <Markdown text={x.a} />}
+                </div>
+              ))}
+            </div>
+          ))}
+        </>
+      )
+    }
+    case 'recap':
+      return s?.recap ? (
+        <>
+          <Kh icon="pass">{t('小结')}</Kh>
+          <div className="db-ask-sum">{inline(s.recap, 'recap')}</div>
+        </>
+      ) : null
+    case 'marks':
+      return (
+        <>
+          <Kh icon="edit">{t('划的线')}</Kh>
+          {/* 照文档、读 PDF 右栏笔记里的划线：含义色的荧光笔只涂字的下半截，下面一行色点 + 含义名 */}
+          <ul className="db-ask-marks">
+            {f.marks.map((m, i) => (
+              <li key={i} style={{ ['--hl' as string]: hlDot(m.key) }}>
+                <span className="mk">{m.text}</span>
+                {m.name && (
+                  <span className="nm">
+                    <i />
+                    {m.name}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )
+    default:
+      return null
+  }
 }
 
 /** 问过 AI（以前的格式）：页码和时间、框下来的截图（没有就画那一页）和标题、疑惑一行、讲通三行、完整对话几轮 */

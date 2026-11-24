@@ -24,6 +24,10 @@ export interface DockNav {
   away: { key: string; label: string; stay?: boolean } | null
   pick(c: { key: string; label: string } | null): void
   asks(key: string): number | null
+  /** 「留在这个对话」：这里是右栏网页自己那段、看着别处的那段时有（之后这个网页的引用、讲解都进看着的那段，ai-web-stay.ts） */
+  stayHere?(): void
+  /** 右栏开着的网页留在看着的这段了：「这是在「X」问的」那一行不再出 */
+  stayed?: boolean
 }
 
 export function AiHead(props: {
@@ -136,18 +140,33 @@ export function AwayBar(props: { nav: DockNav }) {
   const t = useT()
   const key = useKey('ai-follow')
   const { here, away } = props.nav
-  if (!away) return null
+  if (!away || props.nav.stayed) return null
   return (
     <div className={'away' + (away.stay ? ' stay' : '')} data-testid="ai-away">
       <Codicon name="history" size={13} />
-      {away.stay ? <StayText name={away.label} /> : <span className="tx">{t('这是在「{name}」问的', { name: away.label })}</span>}
+      {/* 放不下时只截地方名，「这是在」「问的」留着 */}
+      <StayText name={away.label} />
       {away.stay ? (
         <button onClick={() => props.nav.pick(null)} data-testid="ai-follow">
           <span className="lb">{t('切到《{name}》的 AI', { name: here.label })}</span>
           {key && <span className="k">{key}</span>}
         </button>
       ) : (
-        <button onClick={() => props.nav.pick(null)}>{t('回到「{name}」', { name: here.label })}</button>
+        <>
+          {props.nav.stayHere && (
+            <>
+              <button className="stay-here" onClick={props.nav.stayHere} data-testid="ai-stay-here">
+                {t('留在这个对话')}
+              </button>
+              <span className="sep" aria-hidden>
+                ·
+              </span>
+            </>
+          )}
+          <button onClick={() => props.nav.pick(null)} data-testid="ai-back">
+            {t('回到「{name}」', { name: here.label })}
+          </button>
+        </>
       )}
     </div>
   )

@@ -4,7 +4,8 @@
  * - 「功能按钮」：拷贝 · 插进文档 · ⋯ 固定在左边，只列不改；
  * - 「快捷回复」：和选中小条同一种能拖的三段表（排上，不设上限、放不下的自动进 ⋯ / 收进 ⋯ / 不出现），每行我的 / 自带、在哪出现、键、⋯；
  *   上面「从我的命令里挑…」「加一颗」；
- * - 编辑一颗：名字、提示词（+ 这条回答 这些空、例子、AI 收到的样子）、在哪答、快捷键、在哪能用、放在哪段、存在哪。
+ * - 编辑一颗：名字、提示词（+ 这条回答 这些空、例子、AI 收到的样子）、在哪答、快捷键、在哪能用、放在哪段、存在哪；
+ * - 「回答里选中一句」：自己的 AI 命令每条一个勾，勾着的列在 AI 回答里选中一句弹的小菜单「问这句」下面（命令.json 的 answerSel，默认都勾着）。
  * 一颗快捷回复就是命令库里的一条命令（存好以后 ⌘K、/ 菜单也叫得到）。改了马上存，底下「已存 · 撤回」。
  */
 import { Codicon, type CodiconName } from '@cn/design'
@@ -15,13 +16,13 @@ import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } fro
 import { type AiCmd, rulesOfPrompt } from '../../shared/ai-cmds'
 import { setKey, swapKey } from '../../shared/commands'
 import { t as tNow } from '../../shared/i18n'
-import { dropReply, fillReply, moveReply, REPLY_PLACES, REPLY_VARS, type ReplyConfig, replyItem, type ReplyOut, type ReplyPlace, type ReplyVar, type ReplyZone, SAY_MAX, zoneOfReply } from '../../shared/replies'
+import { ANSWER_SEL_CAP, answerSelOn, dropReply, fillReply, moveReply, REPLY_PLACES, setAnswerSel, REPLY_VARS, type ReplyConfig, replyItem, type ReplyOut, type ReplyPlace, type ReplyVar, type ReplyZone, SAY_MAX, zoneOfReply } from '../../shared/replies'
 import { deleteAiCmd, localAiCmds, saveAiCmd, setLocalAiCmds } from '../commands/store'
 import { AiIcon } from '../engine-logo'
 import { useT } from '../i18n'
 import { availNow, keyFor, withKeys } from '../keys'
 import { onRepliesRequest, type OpenReplies, newReplyCmd, replyNameMax, replyOwnsOf, repliesRequestNow, replyView, saveReply, sayOf, updateReplies, useReplyTable } from '../replies/store'
-import { cmdConfig, updateCmds } from '../search/cmd-store'
+import { cmdConfig, updateCmds, useCmds } from '../search/cmd-store'
 import { Ico, KeyRow, type KeyMode, Pop, SmallSeg, ZoneList } from './sb-kit'
 import './replies.css'
 
@@ -48,10 +49,10 @@ const sampleVars = (t: T, place: ReplyPlace): Record<ReplyVar, string> => ({
   material: place === 'pdf' ? t('《第3讲》第 1 页') : place === 'chat' ? '' : t('网页上你框的那一段'),
 })
 
-/** ⋯ 上面那一段在这一处有什么（宿主加的那几样照各处的样子写） */
+/** ⋯ 上面那一段在这一处有什么（宿主加的那几样照各处的样子写；存进收件箱在最后一组，r100） */
 function menuOf(t: T, place: ReplyPlace): string[] {
   const mid = place === 'pdf' || place === 'web' ? [t('在笔记里看')] : place === 'video' ? [t('到 AI 对话里接着聊')] : []
-  return [t('存进收件箱'), ...mid, t('拷贝为 Markdown')]
+  return [...mid, t('拷贝为 Markdown')]
 }
 
 /** 表里「在哪出现」那一格 */
@@ -78,12 +79,15 @@ export function RepliesPage() {
   const [draft, setDraft] = useState<Draft | null>(null)
   const [place, setPlace] = useState<ReplyPlace>(req?.o.place ?? 'pdf')
   const [flash, setFlash] = useState<{ id: string; seq: number } | null>(null)
+  // 从回答里选中一句的小菜单「调整…」跳过来：列表滚到「回答里选中一句」那一节
+  const [toSel, setToSel] = useState(0)
 
   // 从回答下面 ⋯「调整这一排…」、「存成快捷回复」小卡跳过来
   useEffect(() => {
     if (!req || req.seq === handled) return
     handled = req.seq
     if (req.o.place) setPlace(req.o.place)
+    if (req.o.at === 'sel') setToSel(req.seq)
     if (req.o.view === 'edit') startDraft(req.o.id ?? null, req.o)
     else back()
   }, [req?.seq])
@@ -92,8 +96,8 @@ export function RepliesPage() {
     const c = id ? mine.find((x) => x.id === id) : undefined
     setDraft(
       c
-        ? { id: c.id, name: c.name, say: sayOf(c), out: c.reply?.out ?? 'here', key: keyFor(c.id) ?? '', keyMode: null, where: c.reply?.where.length ? [...c.reply.where] : ['chat'], zone: zoneOfReply(replies, c.id) ?? 'on', store: c.store, rec: !!o.key }
-        : { id: null, name: o.preset?.name ?? '', say: o.preset?.say ?? '', out: 'here', key: '', keyMode: null, where: o.preset?.where.length ? [...o.preset.where] : ['chat', 'pdf', 'web', 'video'], zone: 'on', store: 'vault', rec: false },
+        ? { id: c.id, name: c.name, say: sayOf(c), out: c.reply?.out ?? 'here', key: keyFor(c.id) ?? '', keyMode: null, where: c.reply?.where.length ? [...c.reply.where] : ['chat'], zone: zoneOfReply(replies, c.id) ?? 'on', store: c.store, rec: !!o.key, sel: answerSelOn(cmdConfig().answerSel, c.id) }
+        : { id: null, name: o.preset?.name ?? '', say: o.preset?.say ?? '', out: 'here', key: '', keyMode: null, where: o.preset?.where.length ? [...o.preset.where] : ['chat', 'pdf', 'web', 'video'], zone: 'on', store: 'vault', rec: false, sel: true },
     )
     setView('edit')
   }
@@ -118,7 +122,7 @@ export function RepliesPage() {
         }}
       />
     )
-  return <ListView t={t} replies={replies} mine={mine} place={place} setPlace={setPlace} flash={flash} setFlash={setFlash} onEdit={startDraft} />
+  return <ListView t={t} replies={replies} mine={mine} place={place} setPlace={setPlace} flash={flash} setFlash={setFlash} onEdit={startDraft} toSel={toSel} />
 }
 
 // ---------------------------------------------------------------- 列表
@@ -132,6 +136,7 @@ function ListView(props: {
   flash: { id: string; seq: number } | null
   setFlash(f: { id: string; seq: number } | null): void
   onEdit(id: string | null, o?: Partial<OpenReplies> & { key?: boolean }): void
+  toSel: number
 }) {
   const { t, replies, mine, place } = props
   const said = useSaid()
@@ -205,7 +210,7 @@ function ListView(props: {
     { id: 'insert', icon: 'insert', label: t('插进文档'), onClick: () => {} },
   ]
   const fixedMenu: AbMenuItem[] = menuOf(t, place).map((label, i) => ({ id: 'm' + i, label, onClick: () => {} }))
-  const moreNames = [...menuOf(t, place), ...v.more.map((b) => b.label), t('调整这一排…')]
+  const moreNames = [...menuOf(t, place), ...v.more.map((b) => b.label), t('调整这一排…'), t('存进收件箱')]
 
   return (
     <div className="sb-page rp-page">
@@ -248,7 +253,7 @@ function ListView(props: {
       <div className="sb-tbl rp-fixed" role="list" aria-label={t('功能按钮')} data-row="replyFixed">
         <FixedRow t={t} icon="copy" name={t('拷贝')} note={t('每条回答 · 一直在最左')} />
         <FixedRow t={t} icon="insert" name={t('插进文档')} note={t('每条回答 · 中间没开文档时变淡')} />
-        <FixedRow t={t} icon="ellipsis" name="⋯" note={t('里面：存进收件箱 · 插进主对话 · 在笔记里看 · 拷贝为 Markdown')} />
+        <FixedRow t={t} icon="ellipsis" name="⋯" note={t('里面：插进主对话 · 在笔记里看 · 拷贝为 Markdown · 存进收件箱')} />
       </div>
 
       <div className="sa-grph sb-gt">
@@ -283,7 +288,9 @@ function ListView(props: {
         onToggle={toggleCk}
         onMenu={(id, at) => setMenu({ kind: 'row', id, at })}
       />
-      <div className="sb-fall">{t('「调整这一排…」固定在 ⋯ 最下面，不在这张表里。自带的能挪、能收、能藏，字不能改；要改就「复制一份再改」。')}</div>
+      <div className="sb-fall">{t('「调整这一排…」「存进收件箱」固定在 ⋯ 最后，不在这张表里。自带的能挪、能收、能藏，字不能改；要改就「复制一份再改」。')}</div>
+
+      <SelList t={t} mine={mine} toSel={props.toSel} />
 
       {menu?.kind === 'row' && <RowMenu t={t} replies={replies} mine={mine} id={menu.id} at={menu.at} onClose={() => setMenu(null)} onMove={(z) => move(menu.id, z)} onEdit={props.onEdit} onDelete={() => void remove(menu.id)} />}
       {menu?.kind === 'pick' && (
@@ -322,6 +329,62 @@ function ListView(props: {
           {!mine.length && <div className="ph">{t('还没存过命令：在 AI 对话里调出满意的样子后点「存成命令」')}</div>}
         </Pop>
       )}
+    </div>
+  )
+}
+
+/**
+ * 「回答里选中一句」：自己的 AI 命令每条一个勾（默认勾着），勾着的列在 AI 回答里选中一句的小菜单「问这句」下面，
+ * 照这里的先后露前 4 条、其余在「更多…」。改了马上存，底下「已存 · 撤回」
+ */
+function SelList({ t, mine, toSel }: { t: T; mine: AiCmd[]; toSel: number }) {
+  const said = useSaid()
+  const cfg = useCmds()
+  const ref = useRef<HTMLDivElement>(null)
+  const [flash, setFlash] = useState(0)
+  useEffect(() => {
+    if (!toSel) return
+    ref.current?.scrollIntoView({ block: 'start' })
+    setFlash(toSel)
+  }, [toSel])
+  async function toggle(c: AiCmd) {
+    const on = !answerSelOn(cfg.answerSel, c.id)
+    const before = await updateCmds((x) => ({ ...x, answerSel: setAnswerSel(x.answerSel, c.id, on) }))
+    said.saved(on ? t('「{name}」会出现在回答里选中一句的小菜单', { name: c.name }) : t('「{name}」不出现在回答里选中一句的小菜单了', { name: c.name }), () => void updateCmds((x) => ({ ...x, answerSel: before.answerSel })))
+  }
+  let n = 0
+  return (
+    <div ref={ref} className={'rp-selsec' + (flash ? ' sb-flash' : '')} key={flash} data-testid="replies-sel">
+      <div className="sa-grph sb-gt">
+        {t('回答里选中一句')}
+        <span className="sub">{t('AI 回答里选中一句，小菜单「问这句」下面列出勾着的命令；点一条拿那句去跑，答在旁支里')}</span>
+      </div>
+      {mine.length ? (
+        <div className="sb-tbl rp-sel">
+          <div className="sb-zone" role="list" aria-label={t('回答里选中一句')}>
+            {mine.map((c) => {
+              const on = answerSelOn(cfg.answerSel, c.id)
+              const shown = on && ++n <= ANSWER_SEL_CAP
+              return (
+                <div key={c.id} className={'sb-it' + (on ? '' : ' off')} role="listitem" aria-label={c.name}>
+                  <span className={'sb-ck' + (on ? ' on' : '')} role="checkbox" aria-checked={on} aria-label={c.name} title={on ? t('去掉勾：不出现') : t('勾上：出现在小菜单')} onClick={() => void toggle(c)}>
+                    {on && <Codicon name="check" size={12} />}
+                  </span>
+                  <span className="sb-ico">
+                    <AiIcon job="chat" size={16} />
+                  </span>
+                  <span className="sb-n">{c.name}</span>
+                  <span className="sb-tag mine">{t('我的')}</span>
+                  <span className="sb-wh">{on ? (shown ? t('露着') : t('在「更多…」里')) : t('不出现')}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : (
+        <div className="sb-fall">{t('还没存过命令：在 AI 对话里调出满意的样子后点「存成命令」，或者上面「加一颗」')}</div>
+      )}
+      {mine.length > 0 && <div className="sb-fall">{t('照存的先后露前 {n} 条，其余在「更多…」里。新存的命令默认勾着。', { n: ANSWER_SEL_CAP })}</div>}
     </div>
   )
 }
@@ -424,6 +487,8 @@ interface Draft {
   store: 'vault' | 'local'
   /** 一进来就在按新键 */
   rec: boolean
+  /** AI 回答里选中一句的小菜单里也列出（命令.json 的 answerSel，新的默认勾着） */
+  sel: boolean
 }
 
 // 不翻：名字、那句是键（画的地方 t()），那句里的 {v} 换成「这条回答」那个空
@@ -493,6 +558,7 @@ function EditView(props: { t: T; mine: AiCmd[]; draft: Draft; place: ReplyPlace;
     } else c = newReplyCmd({ name, say, where: d.where, out: d.out, store: d.store })
     await saveAiCmd(c)
     await updateReplies((r) => (zoneOfReply(r, c.id) === d.zone ? r : moveReply(r, c.id, d.zone)))
+    if (d.sel !== answerSelOn(cmdConfig().answerSel, c.id)) await updateCmds((cfg) => ({ ...cfg, answerSel: setAnswerSel(cfg.answerSel, c.id, d.sel) }))
     // 键记进命令表：撞了的「换给这一条」（别的那条让出来）或「两个对调」
     if ((d.key || null) !== keyFor(c.id)) {
       const avail = availNow()
@@ -598,7 +664,7 @@ function EditView(props: { t: T; mine: AiCmd[]; draft: Draft; place: ReplyPlace;
         <div className="sb-row">
           <div className="nm">
             <b>{t('在哪能用')}</b>
-            <span>{t('勾了哪处，哪处的回答下面才有它；至少勾一处')}</span>
+            <span>{t('勾了哪处，哪处能用：前四处在回答下面那排，「回答里选中一句」在选中后的小菜单里；至少勾一处')}</span>
           </div>
           <div className="rc wide">
             <div className="sb-chips nowrap" role="group" aria-label={t('在哪能用')}>
@@ -619,6 +685,9 @@ function EditView(props: { t: T; mine: AiCmd[]; draft: Draft; place: ReplyPlace;
                   </button>
                 )
               })}
+              <button type="button" className={'sb-chip' + (d.sel ? ' on' : '')} aria-pressed={d.sel} title={t('AI 回答里选中一句，小菜单「问这句」下面列出它')} onClick={() => set({ sel: !d.sel })}>
+                {t('回答里选中一句')}
+              </button>
             </div>
           </div>
         </div>

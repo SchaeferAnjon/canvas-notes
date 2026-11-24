@@ -13,23 +13,33 @@ import type { Material } from '../../shared/materials'
 import { bookPrefix, pageHead } from '../../shared/read-along'
 import type { ReadingMsg, ReadingThread } from '../../shared/reading'
 import { backLabel, fragmentUrl, sourceLabel } from '../../shared/web-link'
-import { askLabel, ASKED, webAskBlock } from '../../shared/web-notes'
+import { askLabel, ASKED, webAskBlock, webEntries } from '../../shared/web-notes'
 import type { PageRect, WebSel } from '../../shared/web-reader'
 import { relLink } from '../../shared/video'
+import { WEB_IMG_CLIPPED } from '../web/image-drop'
 import { copy } from '../ctx/menu'
 import type { PopAnchor } from '../pop-place'
 import { pairNote } from '../read-along/pairing'
 import { pairOf } from '../read-along/store'
 import * as Reading from '../reading/store'
 import { askWhere, type Where } from './Where'
+import { readSrc } from '../../shared/ai-chats'
+import { type Convo, convoFor, feedConvo, showConvo } from '../ai-web-stay'
 import { chosenFor, isSkipped, setChosen, skip, targetOf } from './target'
 import { notesChanged, noteTime } from './times'
-import { type Wrote, writeInto } from './write'
+import { noteText, type Wrote, writeInto } from './write'
 import { t } from '../../shared/i18n'
 import { withKeys } from '../keys'
 import { muteSite, siteKey, today } from '../../shared/sel-bar'
 import { updateBar } from '../sel-bar/store'
 import { cmdById, cmdOut, cmdText, openBarSettings } from '../sel-bar/run'
+
+/** 底栏那句话后面的一颗按钮 */
+export interface NoticeAct {
+  label: string
+  icon: CodiconName
+  run(): void
+}
 
 export interface WebNotesHost {
   /** 中间看得见的那篇（文档看法、能写）；中间收起了、开的不是文档（白板、PDF、首页）是 null */
@@ -42,8 +52,10 @@ export interface WebNotesHost {
   clipToInbox(c: Clip): Promise<void>
   /** 右栏 AI 换到这一处（PDF、HTML 的，或网页的 web:<网址>）、打开 */
   askIn(src: string): void
-  /** 底栏一句；act：一颗按钮；undo：「撤回」 */
-  notice(text: string, o?: { act?: { label: string; icon: CodiconName; run(): void }; undo?: () => void }): void
+  /** 打开右栏 AI，不换对话（引用、讲解进右栏正看着、留过的那段，ai-web-stay.ts） */
+  showAi(): void
+  /** 底栏一句；act：一颗按钮，more：再一颗（排在 act 后面）；undo：「撤回」 */
+  notice(text: string, o?: { act?: NoticeAct; more?: NoticeAct; undo?: () => void }): void
   /** 翻译设置（插件那一页） */
   openTranslateSettings(): void
   /** 右栏笔记标签开着、看得见 */
@@ -155,16 +167,19 @@ export async function onSel(sel: WebSel, frame: DOMRect, done: (keep: boolean) =
       const c = cmdById(sel.cmd ?? '')
       if (!c) return H().notice(t('这条命令没有了'))
       const out = cmdOut(c)
-      // 写进笔记的先定记到哪篇；只在 AI 栏答的不用问
-      if (out === 'note' && !H().readingDoc() && !(await ensureAsk(sel.url, at))) return settle(true)
+      // 进哪段对话同引用（convoFor）；进这个网页自己那段、写进笔记的先定记到哪篇，只在 AI 栏答的不用问
+      const to = H().readingDoc() ? null : convoFor(sel.url)
+      if (out === 'note' && !H().readingDoc() && !to && !(await ensureAsk(sel.url, at))) return settle(true)
       settle(false)
-      return await runOwnWeb(sel, cmdText(c, sample), c.name, out)
+      return await runOwnWeb(sel, cmdText(c, sample), c.name, out, to)
     }
-    // 中间开着 PDF、HTML 的进它的 AI，不用问
-    if (!H().readingDoc() && !(await ensureAsk(sel.url, at))) return settle(true)
+    // 进哪段对话：中间开着 PDF、HTML 的进它的 AI（照旧）；不然留过的、右栏正看着的那段（ai-web-stay.ts）；都不是进这个网页自己那段。
+    // 只有进这个网页自己那段时才要定记到哪篇（别的对话记进哪篇跟着那段走）
+    const to = H().readingDoc() ? null : convoFor(sel.url)
+    if (!H().readingDoc() && !to && !(await ensureAsk(sel.url, at))) return settle(true)
     settle(false)
-    if (sel.action === 'quote') return await quoteWeb(sel, at)
-    await askWeb(sel, at, sel.action === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲')
+    if (sel.action === 'quote') return await quoteWeb(sel, at, to)
+    await askWeb(sel, at, sel.action === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲', to)
   } catch (e) {
     H().notice(errText(e))
   } finally {
@@ -172,17 +187,61 @@ export async function onSel(sel: WebSel, frame: DOMRect, done: (keep: boolean) =
   }
 }
 
-/** 讲解一下、翻译 + 讲一讲：选中的这段带进这个网页那一处的 AI 直接问 */
-async function askWeb(sel: WebSel, at: PopAnchor, prompt: string) {
-  const web = { url: sel.url, title: sel.title || sel.url, text: sel.text, ...(sel.head ? { head: sel.head } : {}) }
+const webOf = (sel: WebSel) => ({ url: sel.url, title: sel.title || sel.url, text: sel.text, ...(sel.head ? { head: sel.head } : {}) })
+
+/** 选中的这段带进读 PDF 那一套的一段对话（PDF、HTML 的）直接问，记进它的笔记（同网页上框着问，对上这一页） */
+async function askReading(src: string, sel: WebSel, prompt: string) {
+  await Reading.load(src)
+  Reading.stage(src, { page: /\.pdf$/i.test(src) ? Reading.get(src).state.page : 0, quote: sel.md ?? sel.text, web: webOf(sel), direct: true })
+  return Reading.send(src, prompt)
+}
+
+/**
+ * 进别的一段对话（留过的、右栏正看着的，ai-web-stay.ts）：AI 那一格换到它；读 PDF 那一套的（PDF、HTML）照框着问那样进它，
+ * 普通对话交给 AiPanel（引用放进输入框，讲解一下带着这块直接问）。prompt 不给是引用
+ */
+async function intoConvo(to: Convo, sel: WebSel, prompt?: string) {
+  H().showAi()
+  showConvo(to)
+  const src = readSrc(to.key)
+  if (!src) return feedConvo(to.key, quoteMat(sel), prompt)
+  if (prompt) return askReading(src, sel, prompt)
+  await Reading.load(src)
+  Reading.addMaterial(src, quoteMat(sel))
+}
+
+/**
+ * 按住 ⌘ 框的一块（截图）进别的一段对话（App 的 onWebBox 里 convoFor 定了 to）：这块图存进 pasted/ 成一块图材料，来源写那段上面的小标题；
+ * 引用放进输入框，讲解一下、翻译 + 讲一讲带着它直接问。读 PDF 那一套的（PDF、HTML）照框着问那样进它
+ */
+export async function boxIntoConvo(to: Convo, box: { url: string; title: string; text?: string; head?: string }, png: Uint8Array, action: 'quote' | 'explain' | 'translate') {
+  const prompt = action === 'quote' ? undefined : action === 'explain' ? '给我讲解一下' : '先把这块翻译成中文，再讲一讲'
+  H().showAi()
+  showConvo(to)
+  const web = { url: box.url, title: box.title || box.url, text: box.text ?? '', ...(box.head ? { head: box.head } : {}) }
+  const src = readSrc(to.key)
+  if (src && prompt) {
+    await Reading.load(src)
+    const url = URL.createObjectURL(new Blob([new Uint8Array(png)], { type: 'image/png' }))
+    Reading.stage(src, { page: /\.pdf$/i.test(src) ? Reading.get(src).state.page : 0, url, png, web, direct: true })
+    return Reading.send(src, prompt)
+  }
+  const mat: Material = { kind: 'image', name: await window.cn.aiPaste(png, 'image/png'), src: backLabel(web), url: box.url }
+  if (!src) return feedConvo(to.key, mat, prompt)
+  await Reading.load(src)
+  Reading.addMaterial(src, mat)
+}
+
+/** 讲解一下、翻译 + 讲一讲：选中的这段带进这个网页那一处的 AI 直接问（to：进别的一段对话） */
+async function askWeb(sel: WebSel, at: PopAnchor, prompt: string, to: Convo | null = null) {
+  const web = webOf(sel)
   const doc = H().readingDoc()
   if (doc) {
-    // 中间开着 PDF、HTML：进它的 AI，记进它的笔记（同网页上框着问，对上这一页）
+    // 中间开着 PDF、HTML：进它的 AI，记进它的笔记
     H().askIn(doc)
-    await Reading.load(doc)
-    Reading.stage(doc, { page: /\.pdf$/i.test(doc) ? Reading.get(doc).state.page : 0, quote: sel.md ?? sel.text, web, direct: true })
-    return Reading.send(doc, prompt)
+    return askReading(doc, sel, prompt)
   }
+  if (to) return intoConvo(to, sel, prompt)
   if (!(await ensureAsk(sel.url, at))) return
   const src = `web:${sel.url}`
   H().askIn(src)
@@ -196,17 +255,24 @@ async function askWeb(sel: WebSel, at: PopAnchor, prompt: string) {
  * 自己加的那颗：选中的这段带进这个网页那一处的 AI（中间开着 PDF、HTML 的进它的），照那颗的提示词问；
  * 写进笔记的答完一块 [!ai] 写进正在剪进去的那篇（块头写那颗的名字），只在 AI 栏答的不写
  */
-async function runOwnWeb(sel: WebSel, prompt: string, name: string, out: 'note' | 'answer') {
-  const web = { url: sel.url, title: sel.title || sel.url, text: sel.text, ...(sel.head ? { head: sel.head } : {}) }
+async function runOwnWeb(sel: WebSel, prompt: string, name: string, out: 'note' | 'answer', to: Convo | null = null) {
+  const web = webOf(sel)
   const extra = { cmd: name, ...(out === 'answer' ? { noNote: true as const } : {}) }
   const doc = H().readingDoc()
-  const src = doc ?? `web:${sel.url}`
-  H().askIn(src)
+  // 进别的一段对话（to，同引用）：普通对话带着这段直接问那颗的提示词、答在那里；读 PDF 那一套的照下面进它
+  const other = !doc && to ? readSrc(to.key) : null
+  if (!doc && to) {
+    H().showAi()
+    showConvo(to)
+    if (!other) return feedConvo(to.key, quoteMat(sel), prompt)
+  }
+  const src = doc ?? other ?? `web:${sel.url}`
+  if (!to || doc) H().askIn(src)
   await Reading.load(src)
-  if (!doc) Reading.setWebTitle(src, sel.title)
-  Reading.stage(src, { page: doc && /\.pdf$/i.test(doc) ? Reading.get(doc).state.page : 0, quote: sel.md ?? sel.text, web, direct: true, ...extra })
+  if (!doc && !other) Reading.setWebTitle(src, sel.title)
+  Reading.stage(src, { page: /\.pdf$/i.test(src) ? Reading.get(src).state.page : 0, quote: sel.md ?? sel.text, web, direct: true, ...extra })
   const sent = Reading.send(src, prompt)
-  if (out === 'answer') H().notice(t('答在右栏 AI 里，没动笔记'), { act: { label: t('回网页'), icon: 'globe', run: () => H().showWeb() } })
+  if (out === 'answer' && !other) H().notice(t('答在右栏 AI 里，没动笔记'), { act: { label: t('回网页'), icon: 'globe', run: () => H().showWeb() } })
   await sent
 }
 
@@ -224,14 +290,18 @@ async function muteAll() {
   H().notice(t('哪里都不弹小条了'), { act: { label: t('在设置里打开'), icon: 'settings-gear', run: () => openBarSettings({ view: 'list', focus: 'on' }) }, undo: () => void undo() })
 }
 
-/** 引用：这段成为那一处 AI 输入框顶上的一块材料（来源写那段上面的小标题），光标进去 */
-async function quoteWeb(sel: WebSel, at: PopAnchor) {
-  const mat: Material = { kind: 'quote', text: (sel.md ?? sel.text).trim().slice(0, 20_000), src: backLabel(sel), url: sel.url }
+/** 引用的那一块：来源写那段上面的小标题「6.1.2.1 平移不变性 · zh.d2l.ai」，带网址（回到那一段） */
+const quoteMat = (sel: WebSel): Material => ({ kind: 'quote', text: (sel.md ?? sel.text).trim().slice(0, 20_000), src: backLabel(sel), url: sel.url })
+
+/** 引用：这段成为那一处 AI 输入框顶上的一块材料，光标进去（to：进别的一段对话） */
+async function quoteWeb(sel: WebSel, at: PopAnchor, to: Convo | null = null) {
+  const mat = quoteMat(sel)
   const doc = H().readingDoc()
   if (doc) {
     H().askIn(doc)
     return Reading.addMaterial(doc, mat)
   }
+  if (to) return intoConvo(to, sel)
   if (!(await ensureAsk(sel.url, at))) return
   const src = `web:${sel.url}`
   H().askIn(src)
@@ -270,9 +340,29 @@ async function clipTarget(c: Clip, at: PopAnchor): Promise<string | 'inbox' | nu
   return w.path
 }
 
-/** 剪进那篇（光标处或末尾），底栏说剪到了哪，带「换一篇」「撤回」 */
-async function clipInto(c: Clip & { head?: string }, path: string) {
+/**
+ * 那篇里已经剪过这一段（这一页剪的、引着的原文一样）：给那一块的 md（「跳到那一处」照它找）；没剪过是 null
+ */
+async function clippedBefore(path: string, md: string, url: string): Promise<string | null> {
+  const mine = webEntries(md, url)[0]
+  if (!mine) return null
+  const text = await noteText(path)
+  const hit = webEntries(text, url).find((e) => e.kind === 'clip' && e.quote === mine.quote)
+  return hit ? text.split('\n').slice(hit.line, hit.keyAt + 1).join('\n') : null
+}
+
+/**
+ * 剪进那篇（光标处或末尾），底栏说剪到了哪，带「换一篇」「撤回」。
+ * 同一段已经剪进这篇了：不写第二份，底栏「这段已经剪过了」带「跳到那一处」「再剪一份」（again：点了「再剪一份」，照写）
+ */
+async function clipInto(c: Clip & { head?: string }, path: string, again = false) {
   const md = clipMdOf(c)
+  const before = again ? null : await clippedBefore(path, md, c.url)
+  if (before !== null)
+    return H().notice(t('这段已经剪过了'), {
+      act: { label: t('跳到那一处'), icon: 'go-to-file', run: () => H().peek(path, before) },
+      more: { label: t('再剪一份'), icon: 'add', run: () => void clipInto(c, path, true).catch((e: unknown) => H().notice(errText(e))) },
+    })
   const wrote = await put(path, md, true)
   void window.cn.logActivity('clip', path)
   noteTime(path, md)
@@ -285,6 +375,23 @@ async function clipInto(c: Clip & { head?: string }, path: string) {
     undo: () => void undoWrote(wrote),
   })
 }
+
+/**
+ * 网页里的图剪进了一篇（拖进文档、右键「剪进文档」，网页图拖进对话）：和剪藏一样记下时间、活动；
+ * 这个网页还没定记到哪篇时就记进这篇（拖进来就是选了它），网页上那张图标「剪过」
+ */
+function imgClipped(path: string, md: string, url: string) {
+  void window.cn.logActivity('clip', path)
+  noteTime(path, md)
+  if (host && !targetNow(url) && !isSkipped(url)) setChosen(url, path)
+  notesChanged()
+  clipped(path)
+}
+if (typeof window !== 'undefined')
+  window.addEventListener(WEB_IMG_CLIPPED, (e) => {
+    const d = (e as CustomEvent<{ path: string; md: string; url: string }>).detail
+    imgClipped(d.path, d.md, d.url)
+  })
 
 async function inbox(c: Clip & { md?: string }) {
   await H().clipToInbox({ text: c.md ?? c.text, url: fragmentUrl(c.url, c.text), title: c.title })

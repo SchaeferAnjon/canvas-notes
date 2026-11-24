@@ -344,6 +344,19 @@
   font-size: 12px;
   color: var(--t3);
 }
+/* 「问这句」下面自己的 AI 命令（最多露 4 条，「更多…」就地展开，展开了最多 8 行高、再多在里面滚），最下面「调整…」灰一档 */
+.askbox .mine {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.askbox .it .nm {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.askbox .it.sub {
+  color: var(--t2);
+}
 /* ---------- 问过的那句：--acc 点线（1.5 粗、4 一个点，在字下面约 4），后面一个带数字的小标（17 高、圆角 5、--acc-soft 底 --acc-t 字 11px 500；开着的那条 --acc-bg 底 --acc-on 字） ---------- */
 /* 点线画成底边上重复的点，不用 text-decoration：那条线进不了行内公式（KaTeX 是 inline-block），一句里有公式时会断成几截 */
 .aicell .asked,

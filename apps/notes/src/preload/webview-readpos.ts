@@ -13,6 +13,7 @@ import { anchorAt, findAnchor, findQuote } from '../shared/read-anchor'
 import type { PagePos } from '../shared/read-along'
 import { blocks, charsOf, HEAD, mainScroller, rangeOf, scrollerOf, setLastScroller, textOf, topCover } from './webview-blocks'
 import { flashRange } from './webview-marks'
+import { tagMathJax } from './webview-mathjax'
 
 /** 读的那一行在窗口高的几成处 */
 const LINE = 0.18
@@ -146,6 +147,8 @@ function goto(req: GotoReq, tries = 0) {
     else sc.scrollTop = 0
     return ipcRenderer.sendToHost('cn:readpos:went', { id: req.id, how: 'top' })
   }
+  // 引着的原文里的公式是 `$…$`：先把 MathJax 3 公式的原文记到容器上再找
+  if (req.quote !== undefined && tries === 0) return void tagMathJax().then(() => goto(req, 1))
   if (req.quote !== undefined) {
     // 选中的那几句可能在正文以外的一块（侧栏、页脚）：整页找
     const span = findSpan(blocks(document.scrollingElement ?? document.documentElement), req)

@@ -108,6 +108,17 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+/* 网页上引用进了这段（偏好「引用留在当前对话」）：「留在这个对话 · 回到「zh.d2l.ai」」两颗挨着靠右，中间一个点（点不算哪颗按钮） */
+.away .stay-here ~ button {
+  margin-left: 0;
+}
+.away .stay-here {
+  margin-left: auto;
+}
+.away .sep {
+  flex: none;
+  color: var(--t3);
+}
 /* 从引用 ⌘点开了中间那一篇、右栏留在原来那段（task-3e53q 已定 3）：右边一颗按钮「切到《X》的 AI ⌥⌘J」，名字太长时截短 */
 .away.stay button {
   display: flex;
@@ -134,14 +145,14 @@
   color: color-mix(in srgb, var(--acc-t) 70%, transparent);
 }
 /* 左边那句放不下时只截地方名，「这是在」「问的」留着 */
-.away.stay .tx {
+.away .tx {
   display: flex;
   min-width: 0;
 }
-.away.stay .tx > span {
+.away .tx > span {
   flex: none;
 }
-.away.stay .tx .nm {
+.away .tx .nm {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;

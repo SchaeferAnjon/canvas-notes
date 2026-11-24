@@ -53,3 +53,8 @@
   border-radius: 3px;
   padding: 0 2px;
 }
+
+/* 回答里选中一句：行收在 .sb-zone 里，左右、勾和上面快捷回复那张表对齐 */
+.rp-sel .sb-zone {
+  padding-top: 6px;
+}

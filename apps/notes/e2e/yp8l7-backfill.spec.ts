@@ -52,7 +52,6 @@ test('打开 PDF：有框的位置的 12 节各补一张图（在第一问上面
     await expect(page.getByTestId('toast')).toContainText('补上了 12 张截图；1 条当时没记下框的位置，补不了')
     if (!(await notes(page).isVisible())) await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
     await expect(notes(page).getByTestId('crop-filled')).toHaveText('补上了 12 张截图；1 条当时没记下框的位置，补不了')
-    await notes(page).getByTestId('note-round').first().locator('.fh').click()
     await expect(notes(page).locator('.crop img').first()).toBeVisible()
 
     // 打开配对笔记：不再补、不再提交；打开再保存一字不变
@@ -62,17 +61,17 @@ test('打开 PDF：有框的位置的 12 节各补一张图（在第一问上面
     expect(read(vault)).toBe(after)
     expect(Number(git(vault, 'rev-list', '--count', 'HEAD'))).toBe(before + 1)
 
-    // 白板看法：「问过 AI」一列 13 处（白板只画看得到的卡），第一张整节都在（翻译引用、小标题、列表、最后一句、小结）、带图
+    // 白板看法：一处一列（配对笔记白板分列），13 列；第一列整节都在（翻译引用、小标题、列表、最后一句、小结）、带图
     await acts(page).getByRole('tab', { name: '白板' }).click()
     const board = pane(page).getByTestId('doc-board')
-    await expect(board.locator('.db-col', { hasText: '问过 AI' }).first()).toContainText('13处')
-    const first = board.locator('.db-card', { hasText: '驾驶压力：行为与视觉线索的局限' })
+    await expect(board.locator('.db-col[data-ask="1"]')).toHaveCount(13)
+    const first = board.locator('.db-col', { hasText: '驾驶压力：行为与视觉线索的局限' })
     await expect(first.locator('a.db-ask-crop img')).toBeVisible()
     for (const s of ['先把这块翻译成中文，再讲一讲', '第 1 节的原文到这里', '前情：现有系统靠什么判断压力', 'CAN 总线', '视觉线索 → 会"看不见"', '第 1 节到此为止', '第 1 节小结'])
       await expect(first).toContainText(s)
-    // 一列先摆 6 张，「还有7张，点开」以后最后一张（第 13 节）也整节都在
-    await board.getByRole('button', { name: '还有7张，点开' }).click()
-    const last = board.locator('.db-card', { hasText: '局限和以后' })
+    // 配对笔记所有列完整显示、一行往右排（不收成列头）：最后一列（第 13 节）也整节都在
+    await expect(board.locator('.db-col.fold')).toHaveCount(0)
+    const last = board.locator('.db-col', { hasText: '局限和以后' })
     await expect(last).toContainText('第 13 节到此为止')
     await expect(last).toContainText('第 13 节小结')
     await expect(board.locator('a.db-ask-crop img')).toHaveCount(12)

@@ -102,6 +102,12 @@ export const liveOf = (id: string) => lives.get(id)
 export const pendingOf = (path: string) => pendings.filter((p) => p.path === path)
 export const labelOf = (id: string) => labels.get(id)
 export const placeOf = (id: string) => places.get(id)
+/**
+ * 刚开的一轮（写进文档前后几秒）：列画出来时白板平移过去；打开一块早就有一轮的白板不平移，不把正在看的内容推走。
+ * 按时间认，不是认一次就作废：写进文档以后列先出在一排里、再摆到落点，中间重画了一次
+ */
+const bornAt = new Map<string, number>()
+export const isFresh = (id: string) => Date.now() - (bornAt.get(id) ?? 0) < 8000
 export const takePlace = (id: string) => {
   const p = places.get(id)
   places.delete(id)
@@ -230,6 +236,7 @@ function addDraft(key: string, d: Draft) {
   const sib = d.siblings?.length ? d.siblings : p.req.siblings
   const meta: FeynmanMeta = { ...newMeta(d, { today: today(), nth }), status: 'draft', ...(sib && sib.length > 1 ? { siblings: sib } : {}) }
   if (p.at) places.set(meta.id, p.at)
+  bornAt.set(meta.id, Date.now())
   labels.set(meta.id, d.basisLine)
   lives = new Map(lives).set(meta.id, blank(meta.id, p.path))
   const ok = edit(p.path, (t) => addRound(t, meta, { at: p.req.insertAt?.(t) }))

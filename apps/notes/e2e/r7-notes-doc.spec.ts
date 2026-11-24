@@ -235,9 +235,12 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     expect(await css(srch, ['border-radius'])).toEqual({ 'border-radius': '8px' })
     await expect(n.getByTestId('cards-open')).toHaveText('出卡 · 3问')
     await expect(n.getByRole('tablist', { name: '笔记筛选' }).getByRole('tab')).toHaveText(['全部', '只看我问的', '旁支'])
-    // 旧的那轮收成一行：40 高，「第2页 · 标题」500 + 小结前半句（12 --t3 省略号）+ 右边「2问 · 今天 时间」
+    // 每一轮默认展开（2026-11-23 起）；点「全部收起」都收成一行：40 高，「第2页 · 标题」500 + 小结前半句（12 --t3 省略号）+ 右边「2问 · 今天 时间」
     const rounds = n.getByTestId('note-round')
     await expect(rounds).toHaveCount(2)
+    await expect(rounds.locator('.rh h3')).toHaveText(['第2页 · 测试小标题 p2', '第4页 · 测试小标题 p4'])
+    await n.getByTestId('notes-fold-all').click()
+    await expect(rounds.locator('.fh')).toHaveCount(2)
     const fold = rounds.first()
     await expect(fold).toHaveClass(/\bfold\b/)
     expect((await box(fold.locator('.fh'))).height).toBe(40)
@@ -245,7 +248,8 @@ test('笔记标签一篇长文档（工作区方向 A 原型 buildNote）：顶�
     await expect(fold.locator('.rc')).toHaveText('测试小结：主对话问了 1 句，旁支问了 1 句。')
     expect(await css(fold.locator('.rc'), ['font-size', 'text-overflow'])).toEqual({ 'font-size': '12px', 'text-overflow': 'ellipsis' })
     await expect(fold.locator('.r')).toHaveText(/^2问 · 今天 \d\d:\d\d$/)
-    // 最近一轮展开：「第4页 · 标题」15/600 + 右边「1问 · 时间」，下一行「第4页 ›」「· 我框的」，主问题条整栏宽 --fill2 圆角 6
+    // 点开第 4 页那轮：「第4页 · 标题」15/600 + 右边「1问 · 时间」，下一行「第4页 ›」「· 我框的」，主问题条整栏宽 --fill2 圆角 6
+    await rounds.last().locator('.fh').click()
     const open = rounds.last()
     await expect(open.locator('.rh h3')).toHaveText('第4页 · 测试小标题 p4')
     expect(await css(open.locator('.rh h3'), ['font-size', 'font-weight'])).toEqual({ 'font-size': '15px', 'font-weight': '600' })
@@ -347,6 +351,7 @@ test('以前格式的笔记照旧读得回来、照旧显示（我的疑惑、�
     await expect(n.getByTestId('note-round')).toHaveCount(2)
     await expect(n.getByTestId('cards-open')).toHaveText('出卡 · 2问')
     // 旧的段收成一行（右边小结的位置写讲通的讲法）；点开照旧是我的疑惑、讲通的讲法、要点、完整对话
+    await n.getByTestId('notes-fold-all').click()
     const r1 = n.getByTestId('note-round').first()
     await expect(r1.locator('.tt')).toHaveText('第2页 · 旧的一段')
     await expect(r1.locator('.rc')).toHaveText('先看图，再看公式。')

@@ -73,11 +73,11 @@ test('网页占满：网页上剪一段照样记进中间那篇，底栏说记�
     const mid = (await center(page).boundingBox())!.width
 
     // 网页占满（右上角那颗）：中间那一栏宽 0、看不见，网页占满（宽了中间那么多）
-    await page.getByTestId('tb-web').click()
+    await page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn').click()
     await expect(center(page)).toHaveClass(/folded/)
     await expect.poll(async () => Math.round((await web(page).boundingBox())!.width)).toBeGreaterThan(before + mid - 20)
     // 标题栏那颗换成「还原」
-    await expect(page.getByTestId('tb-web')).toHaveAccessibleName('还原')
+    await expect(page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn')).toHaveAccessibleName('还原')
 
     // 网页上选一段剪下来：记进配好对的《杀死一只知更鸟》（中间看不见也照写，接在末尾、不问记到哪篇），底栏说一句
     await clipFromPage(page, '这本书想让深度学习平易近人')
@@ -101,15 +101,15 @@ test('网页占满：网页上剪一段照样记进中间那篇，底栏说记�
     await expect(center(page)).toHaveClass(/folded/)
 
     // 标题栏「还原」：中间那篇回来，编辑器里看得到剪进来的那段
-    await page.getByTestId('tb-web').click()
+    await page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn').click()
     await expect(center(page)).not.toHaveClass(/folded/)
     await expect.poll(() => editorText(page)).toContain('这本书想让深度学习平易近人')
 
-    // 快捷键（命令表 fold-center，默认 ⌃⌘\）：收起；左栏点那篇：展开
-    await page.locator('main.center').click({ position: { x: 200, y: 300 } })
+    // 快捷键（命令表 fold-center，默认 ⌃⌘\）：焦点在网页那一组时收起；占满盖住左栏（每一栏都能占满），点顶上提示展开
+    await page.getByTestId('dtab-web').click()
     await page.keyboard.press('Control+Meta+Backslash')
     await expect(center(page)).toHaveClass(/folded/)
-    await openTree(page)
+    await page.getByTestId('max-hint').click()
     await expect(center(page)).not.toHaveClass(/folded/)
   } finally {
     await run.close({ keep: true })

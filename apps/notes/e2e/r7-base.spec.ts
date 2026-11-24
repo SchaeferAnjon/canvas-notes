@@ -4,7 +4,7 @@
  * 「改写法」只在这一块露出 YAML。每一行是一篇笔记、每一列是它的属性，都写回 md。都在测试模式里真点、真打字、真拖。
  */
 import { expect, test } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { gitStatus, launch, openNote, pane, shownText } from './app'
 
@@ -192,6 +192,75 @@ test('数据库块头「排序」「筛选」是纯字按钮（不带条数）�
     await expect(db.getByRole('button', { name: '新一条' })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(db.getByRole('button', { name: '新一条' })).toBeVisible()
+  } finally {
+    await run.close()
+  }
+})
+
+/**
+ * 0.5.4 已知问题：多选格子连着加两个值，第二个丢（「刚被别处改过，没改成，再试一次」）。第二次在第一次写回盘之前就要写，
+ * 以前它的「改之前」是第一次写之前的字；现在同一篇的写回在界面那头排队，后一次照前一次写好的字算。
+ * 主进程里第一次写好后回话晚 800ms 到（像原子写 fsync 慢的时候），两个值都要写进去、不提示；真在别处改过照旧提示、不盖掉别处的字
+ */
+test('数据库多选格子连着加两个值：第一次写回慢也不丢第二个；真被别处改过照旧提示、不盖掉', async () => {
+  const TAGGED = ROOMS.replace('      - 评分\n```', '      - 评分\n      - 标签\nproperties:\n  标签:\n    type: multi\n```')
+  const run = await launch({ ...ROOM_FILES, '冰岛行程.md': `# 冰岛行程\n\n${TAGGED}\n` })
+  const { page, vault, app } = run
+  const room = (n: string) => read(vault, `冰岛旅行/住宿/${n}.md`)
+  try {
+    await app.evaluate(({ BrowserWindow, ipcMain }) => {
+      BrowserWindow.getAllWindows()[0]!.setSize(1440, 900)
+      const m = (ipcMain as unknown as { _invokeHandlers: Map<string, (...a: unknown[]) => unknown> })._invokeHandlers
+      const f = m.get('note:write')!
+      const g = globalThis as unknown as { slow: number; hold: Promise<void> | null }
+      g.slow = 0
+      g.hold = null
+      m.set('note:write', async (...a) => {
+        if (g.hold) await g.hold
+        const r = await f(...a)
+        // 盘上写好了、回话晚到：像原子写 fsync 慢的时候，界面在这段里接着改
+        if (g.slow > 0) (g.slow--, await new Promise((r) => setTimeout(r, 800)))
+        return r
+      })
+    })
+    await openNote(page, '冰岛行程')
+    const db = pane(page).locator('[data-part="数据库块"]')
+    await expect(db.locator('thead th.col')).toHaveText(['名字', '价格', '评分', '标签'])
+
+    // 第一次写拖慢：第二个值在第一次写好之前就按下
+    await app.evaluate(() => void ((globalThis as unknown as { slow: number }).slow = 1))
+    await db.locator('tbody tr', { hasText: '霍芬' }).locator('td').nth(3).dblclick()
+    const opts = page.getByRole('dialog', { name: '霍芬 · 港口客栈 · 标签' })
+    const q = opts.getByRole('textbox', { name: '找一个，或者打一个新的' })
+    await q.fill('海边')
+    await q.press('Enter')
+    await q.fill('温泉')
+    await q.press('Enter')
+    await expect.poll(() => room('霍芬 · 港口客栈')).toBe('---\n价格: 1150\n评分: 9.0\n标签: [海边, 温泉]\n---\n')
+    await page.waitForTimeout(1200)
+    await expect(page.getByText('刚被别处改过')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(db.locator('tbody tr', { hasText: '霍芬' }).locator('.base-sel')).toHaveText(['海边', '温泉'])
+
+    // 真在别处改过：写回卡住的这段里外面改了那一篇，这次不写、提示，外面的字留着
+    await app.evaluate(() => {
+      const g = globalThis as unknown as { hold: Promise<void> | null; release: () => void }
+      g.hold = new Promise((r) => (g.release = r))
+    })
+    await db.locator('tbody tr', { hasText: '维克' }).locator('td').nth(3).dblclick()
+    const q2 = page.getByRole('dialog', { name: '维克 · 黑沙滩旅馆 · 标签' }).getByRole('textbox', { name: '找一个，或者打一个新的' })
+    await q2.fill('黑沙滩')
+    await q2.press('Enter')
+    const outside = '---\n价格: 990\n评分: 8.6\n---\n'
+    writeFileSync(join(vault, '冰岛旅行/住宿/维克 · 黑沙滩旅馆.md'), outside)
+    await app.evaluate(() => {
+      const g = globalThis as unknown as { hold: Promise<void> | null; release: () => void }
+      g.hold = null
+      g.release()
+    })
+    await expect(page.getByText('《维克 · 黑沙滩旅馆》刚被别处改过，没改成，再试一次')).toBeVisible()
+    await page.waitForTimeout(500)
+    expect(room('维克 · 黑沙滩旅馆')).toBe(outside)
   } finally {
     await run.close()
   }

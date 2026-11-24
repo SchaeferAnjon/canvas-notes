@@ -27,6 +27,7 @@ import './reading/side.css'
 import './side/side-inline.css'
 import { useT } from './i18n'
 import { takeStay } from './ai-stay'
+import { clearStay, setShown, setStay, stayOf, useStays, useWantConvo, wantDone } from './ai-web-stay'
 import { useKeyHandler } from './keys'
 
 export interface AiDockProps {
@@ -133,7 +134,31 @@ export function AiDock(props: AiDockProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jump?.seq])
-  const nav: DockNav = { here, away, pick: pickAway, asks: asksOf }
+  // 网页上的引用、讲解要进别的一段（ai-web-stay.ts，偏好「引用留在当前对话」）：换到那段
+  const want = useWantConvo()
+  useEffect(() => {
+    if (!want) return
+    wantDone(want.seq)
+    pickAway(want.key === here.key ? null : { key: want.key, label: want.label })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [want?.seq])
+  // 「留在这个对话」：看着别处的对话、这里是右栏网页自己那段时给这颗；留过的（右栏开着的网页留在看着的这段）那一行不再出
+  useStays()
+  const web = props.chat.webOpen && props.chat.webUrl && /^https?:/i.test(props.chat.webUrl) ? props.chat.webUrl : null
+  const stayed = web ? stayOf(web) : null
+  const ownWeb = reading?.startsWith('web:') ? reading.slice(4) : null
+  const nav: DockNav = {
+    here,
+    away,
+    // 自己在菜单里、「回到」点了别的一段：这个网页不再留在原来那段
+    pick: (c) => {
+      if (web && stayed && (c?.key ?? here.key) !== stayed.key) clearStay(web)
+      pickAway(c)
+    },
+    asks: asksOf,
+    ...(away && !away.stay && ownWeb ? { stayHere: () => setStay(ownWeb, away) } : {}),
+    ...(away && stayed?.key === away.key ? { stayed: true } : {}),
+  }
   const awaySrc = away ? readSrc(away.key) : null
   /** 这一格显示的读 PDF 对话：看别处的读 PDF 对话时是它，不然是这里的（选中了几篇「问AI」时不显示） */
   const shownReading = pickOverPdf ? null : away ? awaySrc : reading
@@ -141,6 +166,7 @@ export function AiDock(props: AiDockProps) {
   // 记下这一回看着的是哪段（effect 在上面那个之后跑：中间换了一篇的那一下，上面读到的还是换之前的）
   useEffect(() => {
     shown.current = away ? { key: away.key, label: away.label } : shownReading ? here : chatPlace
+    setShown({ ...shown.current, open: props.open })
   })
   // 「右栏切到这篇的 AI」（命令 ai-follow）：在看别处的对话时回到这里（中间开着的这一篇）的
   useKeyHandler('ai-follow', away ? () => (pickAway(null), true) : null)

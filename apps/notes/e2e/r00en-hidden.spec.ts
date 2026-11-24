@@ -81,7 +81,8 @@ test('AI 回答下面那排：最后一颗 ⋯，点开「存进收件箱」，�
     const row = second.getByTestId('ai-ans-acts')
     const more = row.getByRole('button', { name: '这条回答还能做什么' })
     // 排在「插进文档」后面（「引用再问」task-bppvn 拿掉了），24 方
-    await expect(row.getByRole('button')).toHaveText(['拷贝', '插进文档', ''])
+    await expect(row.locator('[data-act]')).toHaveCount(3)
+    await expect(row.getByRole('button', { name: '插进文档' })).toBeVisible()
     const mb = (await more.boundingBox())!
     expect([Math.round(mb.width), Math.round(mb.height)]).toEqual([24, 24])
     const qb = (await row.getByRole('button', { name: '插进文档' }).boundingBox())!
@@ -96,7 +97,7 @@ test('AI 回答下面那排：最后一颗 ⋯，点开「存进收件箱」，�
     await orow.getByRole('button', { name: '这条回答还能做什么' }).click()
     const menu = page.getByRole('menu', { name: '这条回答还能做什么' })
     await expect(menu).toBeVisible()
-    await expect(menu.getByRole('menuitem')).toHaveText(['存进收件箱', '拷贝为 Markdown', '调整这一排…'])
+    await expect(menu.getByRole('menuitem')).toHaveText(['拷贝为 Markdown', '调整这一排…', '存进收件箱'])
     await menu.getByRole('menuitem').first().hover()
     await expect(orow).toHaveCSS('opacity', '1')
     await expect(orow.getByRole('button', { name: '这条回答还能做什么' })).toHaveAttribute('aria-expanded', 'true')

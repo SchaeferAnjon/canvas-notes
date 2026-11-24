@@ -1,7 +1,7 @@
 import { Codicon } from '@cn/design'
-import { accelFor, useKeyHandler, useKeys } from './keys'
+import { accelFor, PaneFocus, useKeyHandler, useKeys } from './keys'
 import { fmValue, hasOldLayout, isMindmap, needsConvert, needsSummaryConvert } from '@cn/format'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile, OpenedNote } from '../shared/api'
 import { nameNotice, safeName } from '../shared/file-name'
 import { fillCrops } from './reading/crop-fill'
@@ -20,6 +20,7 @@ import { DocToc, isWide, setWide } from './doc-toc'
 import { followsTitle, headingOf, titleRename } from './title-follow'
 import { moveCursor, openCursor, saveCursor, savedCursor } from './open-cursor'
 import { PropsButton } from './mindmap/PropsButton'
+import { jumpInBoard, jumpInDoc } from './attach-jump'
 import { MapLayoutButton, useMapCommands } from './mindmap/LayoutMenu'
 import { requestExport } from './mindmap/export-store'
 import { requestFind } from './find/find-hub'
@@ -72,6 +73,10 @@ export interface NoteTabProps {
   onSaved(): void
   onNotice(text: string): void
   onOpenLink(target: string): void
+  /** 开出来用哪种看法（中间栏分屏「对照看」开的白板那一份）；不给照这一篇记着的 */
+  view?: NoteView
+  /** 对照看（中间栏分屏）：同一篇另一格用白板开；on 是另一格正开着这一篇 */
+  compare?: { on: boolean; toggle(): void }
 }
 
 /** 三种看法：任务（task-pd1d1，名字叫「待办」的默认）、白板、文档 */
@@ -124,6 +129,10 @@ function focusTaking(d: NoteDoc) {
 
 export function NoteTab(props: NoteTabProps) {
   const { path, active, fresh } = props
+  // 中间栏分成两格（中间栏分屏）：两格的标签都 active（看得见），AI 认的这一篇、看法、抢焦点只归当前格那一个
+  const focused = useContext(PaneFocus)
+  const focusedNow = useRef(focused)
+  focusedNow.current = focused
   const t = useT()
   const host = useRef<HTMLDivElement>(null)
   const doc = useRef<NoteDoc | null>(null)
@@ -132,7 +141,7 @@ export function NoteTab(props: NoteTabProps) {
   // 白板一打开就是白板样式：左栏的列表已经知道它是白板，不等读完文件（不然先闪一下文档，读完又跳回白板，
   // 这中间点的「文档」也会被盖掉）
   const first = useRef<{ mode: Mode; chosen: boolean } | null>(null)
-  first.current ??= firstMode(path, props.notes)
+  first.current ??= props.view ? { mode: props.view, chosen: true } : firstMode(path, props.notes)
   const [mode, setMode] = useState<Mode>(first.current.mode)
   const modeRef = useRef(mode)
   modeRef.current = mode
@@ -231,7 +240,7 @@ export function NoteTab(props: NoteTabProps) {
         const h = headingOf(note.text)
         const line = h ? d.view.state.doc.line(h.line) : null
         // 建的时候用户换到了别的标签，新笔记在后台开：不抢焦点（第 6 轮）
-        if (cb.current.active) d.view.focus()
+        if (cb.current.active && focusedNow.current) d.view.focus()
         // 点了新建到这会儿（盘慢时一两秒）打的字：第一行换掉「未命名」，回车后面的是正文
         const early = takeTyping(note.path)
         if (line && early) {
@@ -243,7 +252,7 @@ export function NoteTab(props: NoteTabProps) {
         // 已有的笔记：放回上次离开的地方，没记过放在正文开头（标题下第一段末尾）；不落在藏着的「# 」前面
         if (!note.readOnly) d.view.dispatch({ selection: { anchor: openCursor(note.text, savedCursor(note.path)) }, scrollIntoView: true })
         // 任务界面、白板看法里编辑器藏着：不拿焦点（不然打的字悄悄写进文件）
-        if (cb.current.active && modeRef.current === 'doc') focusTaking(d)
+        if (cb.current.active && focusedNow.current && modeRef.current === 'doc') focusTaking(d)
       }
       off = window.cn.onNoteChanged((p, text) => {
         if (d && p === d.path) void d.applyRemote(text)
@@ -411,16 +420,16 @@ export function NoteTab(props: NoteTabProps) {
   }, [path])
 
   useEffect(() => {
-    if (active && !renaming && mode === 'doc' && doc.current) focusTaking(doc.current)
+    if (active && focusedNow.current && !renaming && mode === 'doc' && doc.current) focusTaking(doc.current)
   }, [active, renaming, mode])
 
   useEffect(() => {
-    if (active) cb.current.onDoc(doc.current)
-  }, [active, text === null])
+    if (active && focused) cb.current.onDoc(doc.current)
+  }, [active, focused, text === null])
 
   useEffect(() => {
-    if (active) cb.current.onMode(mode === 'task' ? 'doc' : mode)
-  }, [active, mode])
+    if (active && focused) cb.current.onMode(mode === 'task' ? 'doc' : mode)
+  }, [active, focused, mode])
 
   useEffect(() => {
     noteRenamers.set(props.tabId, rename)
@@ -511,14 +520,13 @@ export function NoteTab(props: NoteTabProps) {
             notes={props.notes}
             readOnly={readOnly}
             onChange={(t) => doc.current?.setText(t)}
-            onJump={(at) => {
-              // 白板看法里先切到文档，再把光标放到那张图、滚过去
+            onJump={(at, pop) => {
+              // 白板看法（这篇文档画成的白板）：平移到装着那张图的卡、外圈闪一下；导图、旧白板、任务看法先切到文档
+              if (mode === 'board' && !legacy && paneRef.current && jumpInBoard(paneRef.current, path, at)) return
               if (mode !== 'doc') ((picked.current = true), setMode('doc'))
               requestAnimationFrame(() => {
                 const v = doc.current?.view
-                if (!v) return
-                v.dispatch({ selection: { anchor: Math.min(at, v.state.doc.length) }, scrollIntoView: true })
-                v.focus()
+                if (v) jumpInDoc(v, at, pop)
               })
             }}
           />
@@ -531,12 +539,25 @@ export function NoteTab(props: NoteTabProps) {
               ['doc', 'file-text', t('文档')],
             ] as const
           ).map(([m, icon, name]) => (
-            <button key={m} className={mode === m ? 'on' : ''} onClick={() => pick(m)} role="tab" aria-selected={mode === m} aria-label={name} data-tip={name} data-key={mode === m || m === 'task' ? undefined : (K('toggle-view') ?? undefined)} data-side="below">
+            <button key={m} className={mode === m ? 'on' : ''} onClick={(e) => (e.altKey && m === 'board' && props.compare && !props.compare.on ? props.compare.toggle() : pick(m))} role="tab" aria-selected={mode === m} aria-label={name} data-tip={name} data-key={mode === m || m === 'task' ? undefined : (K('toggle-view') ?? undefined)} data-side="below">
               <Codicon name={icon} size={14} />
               <span className="lb">{name}</span>
             </button>
           ))}
         </div>
+        {/* 对照看（中间栏分屏）：另一格用白板开同一篇，同一份字；再点收回成一格。⌥ 点「白板」也是它 */}
+        {/* 任务看法里留在原处变淡（这一排切换时不跳） */}
+        {props.compare && (
+          <ActBtn
+            icon="split-horizontal"
+            text
+            short={props.compare.on ? t('收回对照') : t('对照看')}
+            label={mode === 'task' ? t('任务看法里不能对照看：换到白板或文档') : props.compare.on ? t('收回对照：关掉另一格的白板') : t('对照看：另一格用白板开这一篇')}
+            on={props.compare.on}
+            className={'cmp' + (mode === 'task' ? ' dim' : '')}
+            onClick={() => mode !== 'task' && props.compare!.toggle()}
+          />
+        )}
         <ActBtn
           icon="ellipsis"
           label={t('更多')}

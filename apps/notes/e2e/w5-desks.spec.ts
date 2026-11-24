@@ -1,6 +1,6 @@
 // 长期一起看的网页和笔记 · 方向 B「存成书桌」（task-kbnc0，原型 /private/tmp/canvas-notes-webpair/proto.html#scene=b）：
 // 一张书桌记下中间开着哪几篇、右栏哪几个网页、各读到哪、左栏和网页开没开；存在库里 .canvas-notes/书桌/<名字>.json、跟着 Git 走；
-// 从左栏「书桌」或 ⌘K 一下恢复，底栏「回到刚才的样子」；开着时自动记下改动；改名、删（能撤回）、用现在的样子更新。
+// 从左栏「书桌」或 ⌘K 一下恢复，底栏「回到刚才」、⌘Z、后退、最上面那张「刚才」都回得去；开着时自动记下改动；改名、删（能撤回）、用现在的样子更新。
 // 书桌里的网页是配好对的那本书时，读到哪用 读到哪.json 那一份（和方向 A 同一份）。
 import { expect, test, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
@@ -30,6 +30,7 @@ const webTabs = (page: Page) => web(page).getByRole('tablist', { name: '网页�
 const addr = (page: Page) => web(page).getByRole('textbox', { name: '网址' })
 const tree = (page: Page) => page.getByRole('tree', { name: '全部文件' })
 const toast = (page: Page) => page.getByTestId('toast')
+const away = (page: Page) => page.getByTestId('desk-away')
 const desks = (page: Page) => page.locator('aside.side[aria-label="书桌"]')
 const card = (page: Page, name: string) => desks(page).getByRole('listitem').filter({ has: page.getByRole('button', { name: new RegExp(`^书桌「${name}」`) }) })
 const deskPath = (vault: string, name: string) => join(vault, '.canvas-notes/书桌', `${name}.json`)
@@ -113,7 +114,7 @@ async function palette(page: Page, q: string, row: string | RegExp) {
   await pal.getByRole('option').filter({ hasText: row }).first().click()
 }
 
-test('存一张书桌 → 换一台 Mac 什么都没开 → 从左栏「书桌」恢复：篇、标签、各自读到哪都对；⌘K 也行；「回到刚才的样子」；文件在 .canvas-notes/书桌/、跟着 Git 走', async () => {
+test('存一张书桌 → 换一台 Mac 什么都没开 → 从左栏「书桌」恢复：篇、标签、各自读到哪都对；⌘K 也行；底栏「回到刚才」；文件在 .canvas-notes/书桌/、跟着 Git 走', async () => {
   test.setTimeout(240_000)
   let run = await launch({ [A]: `---\nread-along: ${book.base}/\n---\n${A_TEXT}`, [B]: B_TEXT })
   const vault = run.vault
@@ -183,9 +184,10 @@ test('存一张书桌 → 换一台 Mac 什么都没开 → 从左栏「书桌�
     await expect(webTabs(page)).toHaveCount(2)
     await expect.poll(() => guest(page, 'location.href')).toBe(`${book.base}/chapter_preliminaries/ndarray.html`)
     await expectInView(page, TARGET)
-    await expect(toast(page)).toContainText(`打开了书桌「${BOOK}」：回到「${TARGET_HEAD}」那段`)
-    // 回到刚才的样子：首页、右栏收着
-    await toast(page).getByRole('button', { name: '回到刚才的样子' }).click()
+    await expect(toast(page)).toContainText(`网页回到「${TARGET_HEAD}」那段`)
+    await expect(away(page)).toContainText(`已切到书桌「${BOOK}」`)
+    // 回到刚才（底栏那句一直在）：首页、右栏收着
+    await away(page).getByRole('button', { name: '回到刚才' }).click()
     await expect(centerTabs(page)).toHaveText(['首页'])
     await expect(web(page)).toBeHidden()
     await expect(toast(page)).toContainText('回到了刚才的样子')
@@ -221,7 +223,7 @@ test('开着时自动记下多开的标签；「⋯」里改名、用现在的�
     await go(page, `${book.base}/chapter_preface/index.html`)
     // 左栏「书桌」的 +：存成书桌
     await leftView(page, '书桌')
-    await expect(desks(page)).toContainText('书桌记下中间开着哪几篇、右栏哪几个网页、各自读到哪一段。点一张就回到那个样子，刚才的样子能撤回。')
+    await expect(desks(page)).toContainText('书桌记下中间开着哪几篇、右栏哪几个网页、各自读到哪一段。点一张就换成那一套，按后退回到换之前。')
     await desks(page).getByRole('button', { name: '把现在的样子存成书桌' }).click()
     const dlg = page.getByRole('dialog', { name: '存成书桌' })
     await dlg.getByRole('textbox', { name: '书桌的名字' }).fill('读书')
@@ -304,5 +306,103 @@ test('第一次怎么建：这篇配好了一本书、又常和别的网站一�
     await expect(toast(page)).toContainText(/^不再提。想存时：.+「存成书桌…」或左栏「书桌」的 \+/)
   } finally {
     await run.close()
+  }
+})
+
+test('从一篇笔记点书桌卡跳过去：底栏「回到刚才」、⌘Z、后退、最上面那张「刚才」都回到原来那篇和原来的右栏；左栏「文件」回到文件树', async () => {
+  test.setTimeout(240_000)
+  const run = await launch({ [A]: A_TEXT, [B]: B_TEXT })
+  let run2: Running | null = null
+  const { page } = run
+  const bookUrl = `${book.base}/chapter_preface/index.html`
+  try {
+    // 先存一张书桌「读书」：中间只有 B、右栏是另一个网站；不自动记下（后面在别处开的东西不改它）
+    await openInTree(page, B)
+    await rail(page).getByRole('button', { name: '网页', exact: true }).click()
+    await go(page, `${other.base}/`)
+    await leftView(page, '书桌')
+    await desks(page).getByRole('button', { name: '把现在的样子存成书桌' }).click()
+    const dlg = page.getByRole('dialog', { name: '存成书桌' })
+    await dlg.getByRole('textbox', { name: '书桌的名字' }).fill('读书')
+    await dlg.getByRole('switch', { name: /开着时自动记下改动/ }).click()
+    await dlg.getByRole('button', { name: '存成书桌', exact: true }).click()
+    await expect(card(page, '读书')).toBeVisible()
+
+    // 用户的样子：在 A 篇里读，右栏是那本书
+    await openInTree(page, A)
+    await go(page, bookUrl)
+    await expect(tabOn(page)).toHaveText('学习笔记：动手学深度学习')
+    const before = await centerTabs(page).allTextContents()
+    expect(before).toContain('学习笔记：动手学深度学习')
+
+    const jump = async () => {
+      await leftView(page, '书桌')
+      await card(page, '读书').getByRole('button', { name: /^书桌「读书」/ }).click()
+      await expect(centerTabs(page)).toHaveText(['小论文计划'])
+      await expect.poll(() => guest(page, 'location.href')).toBe(`${other.base}/`)
+      await expect(away(page)).toContainText('已切到书桌「读书」')
+      // 切之前的样子是最上面那张「刚才」
+      const first = desks(page).getByRole('listitem').first()
+      await expect(first).toContainText('刚才')
+      await expect(first).toContainText('切到「读书」之前')
+    }
+    const backHome = async () => {
+      await expect(centerTabs(page)).toHaveText(before)
+      await expect(tabOn(page)).toHaveText('学习笔记：动手学深度学习')
+      await expect.poll(() => guest(page, 'location.href')).toBe(bookUrl)
+      await expect(away(page)).toHaveCount(0)
+      await expect(desks(page).getByRole('listitem').first()).not.toContainText('刚才')
+    }
+
+    // 1. 底栏「回到刚才」
+    await jump()
+    await away(page).getByRole('button', { name: '回到刚才' }).click()
+    await backHome()
+
+    // 2. ⌘Z：换上来那篇光标在里面、还没打字，⌘Z 是回到刚才
+    await jump()
+    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest('.cm-editor'))).toBe(true)
+    await page.keyboard.press('Meta+z')
+    await backHome()
+
+    // 3. 后退 ⌘[，再一次用标题栏的后退按钮
+    await jump()
+    await page.keyboard.press('Meta+BracketLeft')
+    await backHome()
+    await jump()
+    await page.getByRole('banner').getByRole('button', { name: '后退', exact: true }).click()
+    await backHome()
+
+    // 4. × 掉底栏那句：「刚才」卡还在，点它回来；隔了十几秒（底栏提示早没了）也一样
+    await jump()
+    await away(page).getByRole('button', { name: '关掉这一句' }).click()
+    await expect(away(page)).toHaveCount(0)
+    await page.waitForTimeout(11_000)
+    await desks(page).getByRole('button', { name: /^刚才：切到书桌「读书」之前的样子/ }).click()
+    await backHome()
+
+    // 5. 左栏「文件」回到文件树
+    await leftView(page, '书桌')
+    await leftView(page, '文件')
+    await expect(tree(page)).toBeVisible()
+    await expect(desks(page)).toHaveCount(0)
+
+    // 6. 切过去没回来就关了软件：同一台 Mac 再开，「刚才」卡还在（底栏那句不再出），点它回到那几篇和那本书
+    await jump()
+    run2 = await relaunch(run, run.vault, run.userData)
+    const p2 = run2.page
+    await leftView(p2, '书桌')
+    await expect(p2.getByTestId('desk-away')).toHaveCount(0)
+    await desks(p2).getByRole('button', { name: /^刚才：切到书桌「读书」之前的样子/ }).click()
+    await expect(centerTabs(p2)).toHaveText(before.filter((x) => x !== '首页'))
+    await expect(tabOn(p2)).toHaveText('学习笔记：动手学深度学习')
+    await expect.poll(() => guest(p2, 'location.href')).toBe(bookUrl)
+    await expect(desks(p2).getByRole('listitem').first()).not.toContainText('刚才')
+  } finally {
+    if (run2) {
+      await run2.close({ keep: true })
+      rmSync(dirname(run2.vault), { recursive: true, force: true, maxRetries: 5 })
+      rmSync(dirname(run.vault), { recursive: true, force: true, maxRetries: 5 })
+    } else await run.close()
   }
 })

@@ -10,7 +10,7 @@ import { markFresh } from '../sel-bar/store'
 import { onWebBarChange, webBarSpec } from '../sel-bar/web'
 import { webEntries } from '../../shared/web-notes'
 import type { WebviewEl } from '../web/WebView'
-import { NoteDoc } from '../note-doc'
+import { noteText } from './write'
 import { fullClipTarget, onSel, targetNow } from './flow'
 import { WEB_NOTES_CHANGED } from './times'
 
@@ -35,13 +35,6 @@ function clipTo(url: string, center: string | null, inCenter: boolean): { tip: s
   return { tip: '剪成卡片，放进收件箱', sub: '剪完底栏说剪到了哪，能撤回', target: null }
 }
 
-/** 那篇现在的字：开着读编辑器，没开着读文件 */
-async function textOf(path: string): Promise<string> {
-  const d = [...NoteDoc.open].find((x) => x.path === path)
-  if (d) return d.text
-  return (await window.cn.readNote(path)).text
-}
-
 let center: () => string | null = () => null
 export const setBridgeCenter = (f: () => string | null) => void (center = f)
 
@@ -60,7 +53,7 @@ async function push(el: WebviewEl) {
   // 选中小条（task-26nz7）：条上、⋯ 里有哪几颗，总开关、不弹的网站
   el.send('cn:bar', webBarSpec(accColor()))
   const t = /^https?:/i.test(url) ? targetNow(url) : null
-  const marks = t ? webEntries(await textOf(t).catch(() => ''), url).map((e) => ({ id: e.key, quote: e.quote, text: e.text })) : []
+  const marks = t ? webEntries(await noteText(t).catch(() => ''), url).map((e) => ({ id: e.key, quote: e.quote, text: e.text, ...(e.img ? { img: true } : {}) })) : []
   el.send('cn:marks', { marks, color: accColor() })
 }
 

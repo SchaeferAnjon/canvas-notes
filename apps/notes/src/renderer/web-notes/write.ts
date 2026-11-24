@@ -34,6 +34,13 @@ const appendTo = (text: string, md: string) => (text.trim() ? text.replace(/\s*$
 
 const openDoc = (path: string) => [...NoteDoc.open].find((d) => d.path === path && !d.readOnly) ?? null
 
+/** 那篇现在的字：开着读编辑器（还没存的字也算），没开着读文件 */
+export async function noteText(path: string): Promise<string> {
+  const d = [...NoteDoc.open].find((x) => x.path === path)
+  if (d) return d.text
+  return (await window.cn.readNote(path)).text
+}
+
 /**
  * 写进 path：cursor（中间看得见这篇）插在光标处，不然接在末尾；focus：插完光标回到那篇（剪藏是，问答不是：回答是后来才到的）
  */

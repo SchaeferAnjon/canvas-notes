@@ -302,7 +302,10 @@ export class NoteDoc {
             this.events.onText?.(u.state.doc.toString())
             // 外面改的不再写回；文末那一行点进去还没打字时暂时加的换行（tail-line.ts）不存盘
             const fromDisk = u.transactions.every((t) => t.annotation(Transaction.remote) || t.annotation(provisional))
-            if (!fromDisk) this.scheduleSave()
+            if (!fromDisk) {
+              this.scheduleSave()
+              this.mirror()
+            }
           }),
         ],
       }),
@@ -323,6 +326,20 @@ export class NoteDoc {
 
   /** 右键：文档自己的菜单（ctx/editor-menu.ts）。挂在整个编辑器上：图片、表格这些小部件不把事件交给 CodeMirror */
   private onContextMenu = (e: MouseEvent) => editorMenu(this.view, e, this.path)
+
+  /**
+   * 同一篇开在两个编辑器里（中间栏分成两格各开一份、右栏数据库点开的一条）：这边打的字、白板上的操作马上跟到另一份，
+   * 不等存盘（中间栏分屏）。另一份当外面来的改：不进它的撤销、不再存一遍、不再往回传；存盘还是打字的这一份存，
+   * 存完照旧叫另一份对一下底稿（writeOut）
+   */
+  private mirror() {
+    for (const d of NoteDoc.open) if (d !== this && d.path === this.path && !d.destroyed) d.takeMirror(this.diskText)
+  }
+
+  private takeMirror(text: string) {
+    const changes = textChanges(this.text, text)
+    if (changes.length) this.view.dispatch({ changes, annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)] })
+  }
 
   /** 白板上的操作：整篇换成 text，只改有差别的地方，能用 ⌘Z 撤销 */
   setText(text: string) {

@@ -2,7 +2,7 @@
  * 以前只有按键或只在 ⌘K 里的几样，现在点得到（task-xy89o「功能有、但正常翻找不到」）：
  * 1. 「课程」右键「新建一门课」：建 课程/新的课程，开它的首页
  * 2. 块菜单「上移」「下移」（⌥⇧↑ / ⌥⇧↓）：真挪了这一块；最上一块的「上移」、最下一块的「下移」灰着
- * 3. 菜单栏：显示 › 收起 / 展开中间栏、左栏：书桌、左栏：最近删掉的（task-r00en，「找不到的功能」第 8 件）、梦游报告；文件 › 新建一门课、新建文件夹、存成书桌…，点了真跑
+ * 3. 菜单栏：显示 › 当前这栏占满 / 还原、左栏：书桌、左栏：最近删掉的（task-r00en，「找不到的功能」第 8 件）、梦游报告；文件 › 新建一门课、新建文件夹、存成书桌…，点了真跑
  */
 import { expect, type Page, test } from '@playwright/test'
 import { existsSync, readFileSync } from 'node:fs'
@@ -78,12 +78,12 @@ test('块菜单「上移」「下移」：真挪这一块，写进文件；最�
   }
 })
 
-test('菜单栏：显示有收起 / 展开中间栏、左栏：书桌、左栏：最近删掉的、梦游报告；文件有新建一门课、新建文件夹、存成书桌…，点了真跑', async () => {
+test('菜单栏：显示有当前这栏占满 / 还原、左栏：书桌、左栏：最近删掉的、梦游报告；文件有新建一门课、新建文件夹、存成书桌…，点了真跑', async () => {
   const run = await launch({ '写作/草稿.md': '# 草稿\n\n还没写完。\n' })
   const { page } = run
   try {
     const show = await menuBar(run, '显示')
-    expect(show).toEqual(expect.arrayContaining(['收起 / 展开中间栏', '左栏：书桌', '左栏：最近删掉的', '梦游报告']))
+    expect(show).toEqual(expect.arrayContaining(['当前这栏占满 / 还原', '左栏：书桌', '左栏：最近删掉的', '梦游报告']))
     // 「最近删掉的」挨着「左栏：书桌」（task-iq2ow 挪到图标栏底部那一格以后，菜单栏补上）
     expect(show.indexOf('左栏：最近删掉的')).toBe(show.indexOf('左栏：书桌') + 1)
     await clickMenuBar(run, '显示', '左栏：最近删掉的')

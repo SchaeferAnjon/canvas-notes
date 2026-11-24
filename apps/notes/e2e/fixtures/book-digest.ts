@@ -45,7 +45,7 @@ export const DOC = [
 export const PATH = `阅读/${BOOK}.md`
 
 /** 天青（浅）/ 深湖（深）、浮岛书桌，和小样同一套 */
-export function skinned(skin: 'sky' | 'petrol') {
+export function skinned(skin: 'sky' | 'petrol' | 'mint') {
   return (v: string) => {
     const ud = join(v, '..', 'user-data')
     mkdirSync(ud, { recursive: true })

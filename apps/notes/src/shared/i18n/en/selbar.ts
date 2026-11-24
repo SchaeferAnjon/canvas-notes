@@ -34,6 +34,9 @@ export const SELBAR: Table = {
   '{site} 不再弹小条，选了字按 {k:enter}、{k:quote-selection} 照样能用': 'The toolbar no longer shows on {site}; {k:enter} and {k:quote-selection} still work on selected text',
   '改名单': 'Edit list',
   '哪里都不弹小条了': 'The toolbar no longer shows anywhere',
+  '这段已经剪过了': 'Already clipped',
+  '跳到那一处': 'Go to it',
+  '再剪一份': 'Clip again',
 
   // ---------- 设置 › 选中小条：页、预览 ----------
   '选中小条': 'Selection toolbar',

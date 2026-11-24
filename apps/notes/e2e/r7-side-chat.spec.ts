@@ -173,7 +173,7 @@ test('小框（照小样）、空着回车就地开旁支光标在旁支里、�
     expect((await box(acts.first())).height).toBe(24)
     expect(await css(acts.first(), ['font-size', 'border-top-width'])).toEqual({ 'font-size': '12px', 'border-top-width': '0px' })
     await side(page).locator('.acts [data-act="more"]').click()
-    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['存进收件箱', '插进主对话', '在笔记里看', '拷贝为 Markdown', '调整这一排…'])
+    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['插进主对话', '在笔记里看', '拷贝为 Markdown', '调整这一排…', '存进收件箱'])
     await page.keyboard.press('Escape')
     await expect(sideBox(page)).toHaveAttribute('placeholder', '接着问这条旁支…')
     await expect(head.locator('.s')).toHaveText('· 为什么是基向量')

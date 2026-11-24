@@ -68,6 +68,7 @@ export const webApi: CnWebApi = {
   extTheme: (t) => ipcRenderer.send('web:ext-theme', t),
   onKey: (cb) => on('web:key', cb),
   saveImage: (src, nameHint, opts) => ipcRenderer.invoke('web:save-image', src, nameHint, opts),
+  fetchImage: (url) => ipcRenderer.invoke('web:fetch-image', url),
   undoClip: (path) => ipcRenderer.invoke('web:undo-clip', path),
   faviconTone: (url) => ipcRenderer.invoke('web:favicon-tone', url),
 }

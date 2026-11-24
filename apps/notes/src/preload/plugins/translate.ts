@@ -612,20 +612,8 @@ export function prepareClip(doc: Document) {
   for (const el of Array.from(doc.querySelectorAll('[data-cn-fade]'))) el.removeAttribute('data-cn-fade')
 }
 
-/** 选区剪藏取的字：开关关着时选区里的译文去掉，只留原文 */
-/** 剪的时候带不带夹着的译文（「整页剪藏带上译文」） */
+/** 剪的时候带不带夹着的译文（「整页剪藏带上译文」）：关着时选区里的译文去掉，只留原文（webview-md 的 rangeToMd 跳过 cn-tr） */
 export const clipKeepsTranslation = () => pluginEnabled(ID) && settings().clipWithTranslation
-
-export function selectionText(sel: Selection): string {
-  let s = sel.toString()
-  if (pluginEnabled(ID) && settings().clipWithTranslation) return s
-  for (const t of Array.from(document.querySelectorAll('cn-tr'))) {
-    if (!sel.containsNode(t, true)) continue
-    const tt = t.textContent ?? ''
-    if (tt) s = s.replace(tt, '')
-  }
-  return s.replace(/\n{3,}/g, '\n\n').trim()
-}
 
 // ---------------------------------------------------------------- 选中一段翻译
 

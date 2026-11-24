@@ -56,8 +56,8 @@ export function baseNameFor(hint: string | undefined, fallback = '图片'): stri
   return s || fallback
 }
 
-/** 网址 → 字节（用内置浏览器的登录分区，要登录才能看的图也拿得到） */
-async function download(ses: Session, url: string): Promise<{ bytes: Uint8Array; type: string }> {
+/** 网址 → 字节（用内置浏览器的登录分区，要登录才能看的图也拿得到）；30 秒超时，max 字节以上不要 */
+export async function download(ses: Session, url: string, max = MAX_BYTES): Promise<{ bytes: Uint8Array; type: string }> {
   if (url.startsWith('data:')) {
     const m = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(url)
     if (!m) throw new Error('图片数据认不出来')
@@ -71,8 +71,10 @@ async function download(ses: Session, url: string): Promise<{ bytes: Uint8Array;
     const res = await ses.fetch(url, { signal: ac.signal })
     if (!res.ok) throw new Error(`图片下载失败（${res.status}）`)
     const len = Number(res.headers.get('content-length') ?? 0)
-    if (len > MAX_BYTES) throw new Error('图片太大（超过 30MB）')
+    const tooBig = `图片太大（超过 ${Math.round(max / 1024 / 1024)}MB）`
+    if (len > max) throw new Error(tooBig)
     const bytes = new Uint8Array(await res.arrayBuffer())
+    if (bytes.byteLength > max) throw new Error(tooBig)
     return { bytes, type: (res.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase() }
   } catch (e) {
     if ((e as Error).name === 'AbortError') throw new Error('图片下载超时')

@@ -96,7 +96,6 @@ test('出卡的几个样子', async () => {
     await page.keyboard.press('Escape')
     // 问题条上「做成卡」
     await notes(page).getByRole('tab', { name: '全部' }).click()
-    await notes(page).locator('.rnd.fold .fh', { hasText: 'LIF 神经元的三条公式' }).click()
     const bar = notes(page).locator('.rnd:not(.fold) .nside .qs').first()
     await bar.hover()
     await bar.getByRole('button', { name: '做成卡' }).click()

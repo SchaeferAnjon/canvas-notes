@@ -93,8 +93,10 @@ test('白板看法：卡里的「第 3 页」点一下出预览卡（task-3e53q 
     await pdfAt(page, 3)
 
     await tabs(page).filter({ hasText: '第3讲 笔记' }).click()
-    const ask = board.locator('.db-card[data-kind="ask"]')
-    await expect(ask).not.toContainText('](#page=5)')
+    // 一问一列以后一问分成好几张卡（问题、回答按小标题各一张，配对笔记白板分列）：哪张都不露写法，拿带「第 5 页」那张
+    await expect(board.locator('.db-card[data-kind="ask"]', { hasText: '](#page=5)' })).toHaveCount(0)
+    const ask = board.locator('.db-card[data-kind="ask"]').filter({ has: page.locator('a.pg', { hasText: '第 5 页' }) })
+    await expect(ask).toHaveCount(1)
     // 问答卡里的页码和文字卡里的一个样子：颜色、整颗不折行
     const style = (l: Locator) => l.evaluate((e) => ({ c: getComputedStyle(e).color, w: getComputedStyle(e).whiteSpace, cur: getComputedStyle(e).cursor }))
     const inAsk = await style(ask.locator('a.pg', { hasText: '第 5 页' }))

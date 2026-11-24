@@ -6,7 +6,7 @@
  * 都是真按键：主窗口里用 Playwright 的键盘，网页里从主进程往网页送真的按键（Playwright 的键盘到不了 webview 里）。
  */
 import { expect, type Page, test } from '@playwright/test'
-import { readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { dirname, join } from 'node:path'
 import { accelOf } from '../src/shared/cmd-keys'
@@ -31,7 +31,11 @@ test.afterAll(() => server.close())
 const left = (page: Page, name: string) => page.getByRole('navigation', { name: '左栏' }).getByRole('button', { name, exact: true })
 const dlg = (page: Page) => page.getByRole('dialog', { name: '设置' })
 const keyRow = (page: Page, id: string) => dlg(page).locator(`[data-row="k-cmd-${id}"]`)
-const cmdsJson = (run: Running) => JSON.parse(readFileSync(join(run.vault, '.canvas-notes/命令.json'), 'utf8')) as { keys?: Record<string, string> }
+/** 库里的 命令.json（写盘是排队的原子写，读的地方 expect.poll 等它；还没写出来当没改过） */
+const cmdsJson = (run: Running): { keys?: Record<string, string> } => {
+  const f = join(run.vault, '.canvas-notes/命令.json')
+  return existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : {}
+}
 
 /** 设置 › 快捷键：点这一条的键位，按一个新组合 */
 async function setKeyInSettings(page: Page, id: string, name: string, pw: string) {
@@ -321,7 +325,7 @@ test('改了键：提示、⌘K、设置、菜单栏都跟着变，新键能用�
     await expect(keyRow(page, 'left-files').locator('.sa-keyb')).toHaveText('⌥⌘E')
     await page.keyboard.press('Escape')
     await expect(dlg(page)).toHaveCount(0)
-    expect(cmdsJson(run).keys).toEqual({ 'left-files': '⌥⌘E' })
+    await expect.poll(() => cmdsJson(run).keys).toEqual({ 'left-files': '⌥⌘E' })
     // 提示、菜单栏跟着变
     await expect(left(page, '文件')).toHaveAttribute('data-key', '⌥⌘E')
     await expect.poll(async () => (await menuAccels(run))['显示 › 左栏：文件']).toBe('Alt+Command+E')
@@ -385,7 +389,7 @@ test('没有默认键的命令（新建文件夹）在设置里设了键，真�
     await mini.getByRole('button', { name: '清掉', exact: true }).click()
     await expect(palette(p2).locator('.pal-toast')).toContainText('「新建文件夹」没有快捷键了')
     await expect(row('新建文件夹').locator('kbd')).toHaveCount(0)
-    expect(cmdsJson(run).keys ?? {}).toEqual({})
+    await expect.poll(() => cmdsJson(run).keys ?? {}).toEqual({})
     await p2.keyboard.press('Escape')
     await p2.keyboard.press('Control+Meta+KeyN')
     await p2.waitForTimeout(300)
@@ -398,7 +402,7 @@ test('没有默认键的命令（新建文件夹）在设置里设了键，真�
     await mini.getByRole('button', { name: '两个对调' }).click()
     await expect(palette(p2).locator('.pal-toast')).toContainText('对调了：「新建白板」⌘N，「新建笔记」⇧⌘N')
     await expect(row('新建白板').locator('kbd')).toHaveText('⌘N')
-    expect(cmdsJson(run).keys).toEqual({ 'new-board': '⌘N', 'new-note': '⇧⌘N' })
+    await expect.poll(() => cmdsJson(run).keys).toEqual({ 'new-board': '⌘N', 'new-note': '⇧⌘N' })
     await p2.keyboard.press('Escape')
     await p2.keyboard.press('Meta+n')
     // 新建的白板在标签上改名（同 keys-checks 的 new-board、b2-board）：改名框里是「未命名白板」，esc 收起

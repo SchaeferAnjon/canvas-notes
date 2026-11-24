@@ -6,6 +6,8 @@
  * 点外面、失焦收起，esc 收起并取消选区；小框开着、焦点不在输入的地方时回车就是「问这句」；小框开着时 ⌘↵ 是引用
  * （焦点在小框那一格里、打了问题时 ⌘↵ 同 ↵ 发这句：多行框里 ⌘↵ 是提交，命令表 submit）。
  * AskBox 挂在回答列表上（选区在 .am[data-msg] .txt 里，旁支那一块里的不算）；文档里的由编辑器那一半直接给位置（AskBoxView）。
+ * 「问这句」下面列出自己的 AI 命令（用户 r106，命令.json 里 kind: ai 的，去掉勾的在 answerSel.off）：最多露 4 条，多的点「更多…」就地展开，
+ * 最下面隔一道线「调整…」去设置 › 回答下面那排的「回答里选中一句」一节；点一条拿选中的那句填好那条命令的话，和「问这句」打了问题一样开旁支发出去。
  */
 import { Codicon } from '@cn/design'
 import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -16,6 +18,10 @@ import { rangeText } from '../reading/marks'
 import { useDismiss } from '../use-dismiss'
 import { useT } from '../i18n'
 import { t as tNow } from '../../shared/i18n'
+import { answerSelItems, answerSelSay } from '../../shared/replies'
+import { useAiCmds } from '../commands/store'
+import { useCmds } from '../search/cmd-store'
+import { openRepliesSettings, sayOf } from '../replies/store'
 
 /**
  * 选中高亮的下沿（屏幕坐标）：浏览器把选区底色铺满那一行的行盒，比字的下沿（getClientRects 给的）低一截。
@@ -49,7 +55,7 @@ const GAP = 8
 const RING = 1
 
 /** 选区在列表里某条 AI 回答的正文里（旁支那一块里的不算）：那句话、那条回答的 id 和来源 */
-function answerSelection(list: HTMLElement | null): { text: string; rect: DOMRect; bottom: number; msg: number; src: string; range: Range } | null {
+function answerSelection(list: HTMLElement | null): { text: string; answer: string; rect: DOMRect; bottom: number; msg: number; src: string; range: Range } | null {
   const sel = window.getSelection()
   if (!list || !sel || sel.isCollapsed || !sel.rangeCount) return null
   const el = (n: Node | null) => (n instanceof Element ? n : (n?.parentElement ?? null))
@@ -62,14 +68,21 @@ function answerSelection(list: HTMLElement | null): { text: string; rect: DOMRec
   const range = sel.getRangeAt(0)
   const text = rangeText(range)
   if (text.length < 2) return null
-  return { text, rect: range.getBoundingClientRect(), bottom: highlightBottom(range), msg: Number(am.dataset.msg), src: am.dataset.src ?? tNow('AI的回答'), range: range.cloneRange() }
+  return { text, answer: a.textContent ?? '', rect: range.getBoundingClientRect(), bottom: highlightBottom(range), msg: Number(am.dataset.msg), src: am.dataset.src ?? tNow('AI的回答'), range: range.cloneRange() }
 }
 
-/** 小框本身：at 是选区的横中点和选中高亮的下沿（屏幕坐标，highlightBottom），within 是要收在哪一格里（离两边 8） */
-export function AskBoxView(p: { at: { cx: number; bottom: number }; within: DOMRect | null; onQuote(): void; onAsk(question: string): void; onClose(why: 'esc' | 'outside' | 'blur'): void }) {
+/**
+ * 小框本身：at 是选区的横中点和选中高亮的下沿（屏幕坐标，highlightBottom），within 是要收在哪一格里（离两边 8）；
+ * sel 是选中的那句（自己的命令拿它填 {选中的字}），answer 是整条回答（填 {这条回答}，没有的填空）
+ */
+export function AskBoxView(p: { at: { cx: number; bottom: number }; within: DOMRect | null; sel: string; answer?: string; onQuote(): void; onAsk(question: string): void; onClose(why: 'esc' | 'outside' | 'blur'): void }) {
   const t = useT()
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
   const [q, setQ] = useState('')
+  const [all, setAll] = useState(false)
+  const { mine } = useAiCmds()
+  const cmds = answerSelItems(useCmds().answerSel, mine)
+  const list = all ? [...cmds.shown, ...cmds.more] : cmds.shown
   const ref = useRef<HTMLDivElement>(null)
   useDismiss(true, [ref], (why) => p.onClose(why))
   const ask = useRef(p.onAsk)
@@ -113,6 +126,10 @@ export function AskBoxView(p: { at: { cx: number; bottom: number }; within: DOMR
     const left = hi < lo ? Math.max(8, hi) : Math.max(lo, Math.min(p.at.cx - w / 2, hi))
     setPos({ left, top: Math.max(8, Math.min(p.at.bottom + GAP + RING, window.innerHeight - h - 12)) })
   }, [pos, p.at, p.within])
+  // 「更多…」展开以后高了：重新量、重新放（下面放不下往上挪）
+  useLayoutEffect(() => {
+    if (all) setPos(null)
+  }, [all])
   return createPortal(
     <div ref={ref} className="menu askbox" role="dialog" aria-label={t('选中的这句')} data-composer-pop="" style={pos ?? { left: p.at.cx, top: p.at.bottom + GAP + RING, visibility: 'hidden' }}>
       <textarea
@@ -145,6 +162,46 @@ export function AskBoxView(p: { at: { cx: number; bottom: number }; within: DOMR
         {t('问这句')}
         <span className="r">↵</span>
       </button>
+      {list.length > 0 && (
+        <>
+          <div className="sep" />
+          <div className="mine" role="group" aria-label={t('我的命令')}>
+            {list.map((c) => (
+              <button key={c.id} className="it" title={sayOf(c)} onMouseDown={(e) => e.preventDefault()} onClick={() => p.onAsk(answerSelSay(sayOf(c), { sel: p.sel, ...(p.answer ? { answer: p.answer } : {}) }) || c.name)}>
+                <span className="ck">
+                  <AiIcon job="chat" size={14} />
+                </span>
+                <span className="nm">{c.name}</span>
+              </button>
+            ))}
+            {!all && cmds.more.length > 0 && (
+              <button className="it" onMouseDown={(e) => e.preventDefault()} onClick={() => setAll(true)}>
+                <span className="ck">
+                  <Codicon name="ellipsis" size={14} />
+                </span>
+                {t('更多…')}
+                <span className="r">{cmds.more.length}</span>
+              </button>
+            )}
+          </div>
+          <div className="sep" />
+          <button
+            className="it sub"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              // 和引用、问这句一样把选区去掉：不然回来再拖选，按在还选着的字上是拖那段字
+              window.getSelection()?.removeAllRanges()
+              p.onClose('outside')
+              openRepliesSettings({ view: 'list', at: 'sel' })
+            }}
+          >
+            <span className="ck">
+              <Codicon name="settings" size={14} />
+            </span>
+            {t('调整…')}
+          </button>
+        </>
+      )}
     </div>,
     document.body,
   )
@@ -160,7 +217,7 @@ export function AskBox(p: {
   onQuote(text: string, src: string): void
   onAsk(at: { msg: number; quote: string }, question: string, range: Range): void
 }) {
-  const [box, setBox] = useState<{ text: string; msg: number; src: string; cx: number; bottom: number; range: Range; seq: number } | null>(null)
+  const [box, setBox] = useState<{ text: string; answer: string; msg: number; src: string; cx: number; bottom: number; range: Range; seq: number } | null>(null)
   const cb = useRef(p)
   cb.current = p
   useEffect(() => {
@@ -171,7 +228,7 @@ export function AskBox(p: {
       setTimeout(() => {
         const s = answerSelection(list)
         if (!s) return
-        setBox({ text: s.text, msg: s.msg, src: s.src, cx: s.rect.left + s.rect.width / 2, bottom: s.bottom, range: s.range, seq: ++seq })
+        setBox({ text: s.text, answer: s.answer, msg: s.msg, src: s.src, cx: s.rect.left + s.rect.width / 2, bottom: s.bottom, range: s.range, seq: ++seq })
       }, 0)
     const key = (e: KeyboardEvent) => {
       if (e.isComposing || !isKey(e, 'quote')) return
@@ -199,6 +256,8 @@ export function AskBox(p: {
     <AskBoxView
       key={box.seq}
       at={box}
+      sel={box.text}
+      answer={box.answer}
       within={p.list.current?.closest('aside')?.getBoundingClientRect() ?? null}
       onClose={(why) => {
         if (why === 'esc') window.getSelection()?.removeAllRanges()

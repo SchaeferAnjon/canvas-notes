@@ -12,8 +12,9 @@ import { keyFor } from '../keys'
 import { menuAt } from '../ctx/menu'
 import { HeadBtn, MenuItem, Popover, ViewHead } from '../shell/Shell'
 import { Favicon } from '../web/favicons'
-import { type DeskHost, deskHost, openDesk, readingOf, removeDesk, renameDesk, saveNewDesk, snapshotDesk, summary, updateDesk } from './desk-ops'
-import { type DeskEntry, useDeskOn, useDesks, usePairs } from './store'
+import { useT, rich } from '../i18n'
+import { backToBefore, type DeskHost, deskHost, openDesk, readingOf, removeDesk, renameDesk, saveNewDesk, snapshotDesk, summary, updateDesk } from './desk-ops'
+import { type Away, type DeskEntry, useAway, useDeskOn, useDesks, usePairs } from './store'
 import './read-along.css'
 import './desks.css'
 
@@ -142,25 +143,46 @@ function DeskDialog(props: { host: DeskHost }) {
 // ---------------------------------------------------------------- 左栏「书桌」
 
 export function DeskPanel() {
+  const t = useT()
   const desks = useDesks()
   const on = useDeskOn()
   const pairs = usePairs()
+  const away = useAway()
   return (
     <aside className="side desk-side" aria-label="书桌">
       <ViewHead title="书桌">
         <HeadBtn icon="add" label="把现在的样子存成书桌" onClick={() => openDeskDialog()} />
       </ViewHead>
       <ul className="desk-list" aria-label="书桌">
+        {away && <BeforeCard a={away} />}
         {desks.map((e) => (
           <DeskCard key={e.file} e={e} on={on === e.file} books={[...pairs.values()]} />
         ))}
       </ul>
       <p className="desk-foot">
-        书桌记下中间开着哪几篇、右栏哪几个网页、各自读到哪一段。点一张就回到那个样子，刚才的样子能撤回。
+        {t('书桌记下中间开着哪几篇、右栏哪几个网页、各自读到哪一段。点一张就换成那一套，按后退回到换之前。')}
         <br />
-        存在库里 <code>.canvas-notes/书桌/</code>，跟着 Git 走。
+        {rich(t('存在库里 {path}，跟着 Git 走。'), { path: <code>.canvas-notes/书桌/</code> })}
       </p>
     </aside>
+  )
+}
+
+/** 最上面那张「刚才」：点书桌之前的样子，点它回去（只留最近一张，再切就换掉；存在本机，不进库） */
+function BeforeCard({ a }: { a: Away }) {
+  const t = useT()
+  const d = a.desk
+  return (
+    <li className="desk-card desk-before" data-part="刚才那张书桌卡">
+      <button type="button" className="desk-open" aria-label={t('刚才：切到书桌「{name}」之前的样子', { name: a.name })} onClick={backToBefore}>
+        <Thumb d={d} />
+        <span className="desk-tx">
+          <span className="nm truncate">{t('刚才', { ctx: '书桌' })}</span>
+          <span className="sub">{summary(d)}</span>
+          <span className="sub truncate">{t('切到「{name}」之前', { name: a.name })}</span>
+        </span>
+      </button>
+    </li>
   )
 }
 

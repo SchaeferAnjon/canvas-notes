@@ -98,7 +98,7 @@ test('读 PDF：回答下面 拷贝 · 插进文档（变淡）· ⋯ ｜ 还是
 
     // ⋯ 里：存进收件箱 · 在笔记里看 · 拷贝为 Markdown，最下面 调整这一排…
     await row.locator('[data-act="more"]').click()
-    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['存进收件箱', '在笔记里看', '拷贝为 Markdown', '调整这一排…'])
+    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['在笔记里看', '拷贝为 Markdown', '调整这一排…', '存进收件箱'])
     await page.keyboard.press('Escape')
 
     // 右键这条回答：和 AI 对话同一套，插进文档灰着（中间是 PDF）
@@ -255,7 +255,7 @@ test('网页上框着问：回答下面同一排，快捷回复两颗（还是�
     expect(await replyNames(page, row)).toEqual(['还是不懂', '换个方式讲'])
     // ⋯ 里没有「在笔记里看」（网页那一问记进了配对的那篇，不是读 PDF 的笔记）
     await row.locator('[data-act="more"]').click()
-    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['存进收件箱', '拷贝为 Markdown', '调整这一排…'])
+    await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['拷贝为 Markdown', '调整这一排…', '存进收件箱'])
     await page.keyboard.press('Escape')
     await clickReply(page, row, '换个方式讲')
     await expect(ai.locator('.um').last()).toHaveText('换个方式讲')
@@ -319,7 +319,7 @@ test.describe('视频问框', () => {
       await expect(ask.getByTestId('ak-ans-acts')).toBeVisible({ timeout: 15_000 })
       // ⋯ 里「到 AI 对话里接着聊」：问答都带去右栏 AI
       await ask.getByTestId('ak-ans-acts').locator('[data-act="more"]').click()
-      await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['存进收件箱', '到 AI 对话里接着聊', '拷贝为 Markdown', '调整这一排…'])
+      await expect(page.locator('.cn-ab-menu [data-item]')).toHaveText(['到 AI 对话里接着聊', '拷贝为 Markdown', '调整这一排…', '存进收件箱'])
       await page.getByRole('menuitem', { name: '到 AI 对话里接着聊' }).click()
       await expect(reading(page)).toBeVisible()
       await expect(reading(page)).toContainText('框里是 i 帽和 j 帽变换后的位置')

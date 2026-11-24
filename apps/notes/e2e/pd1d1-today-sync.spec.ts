@@ -4,7 +4,7 @@
  * 要先在 apps/today 下 electron-vite build（画布今日的 out/），没有就跳过。
  */
 import { _electron as electron, expect, test, type Page } from '@playwright/test'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import electronPath from 'electron'
@@ -31,6 +31,9 @@ test('画布今日也开着同一个库：那边勾掉，这边三处几秒内�
   const run = await launch(VAULT)
   const { page } = run
   const root = mkdtempSync(join(tmpdir(), 'ct-sync-'))
+  // 画布今日 0.3.3 起打开先进「排一天」（设置能关）：这里关掉，照旧从「今天」那一列开始（同画布今日自己 e2e 的 LOOK）
+  mkdirSync(join(root, 'ud'), { recursive: true })
+  writeFileSync(join(root, 'ud', 'settings.json'), JSON.stringify({ lang: 'zh', followNotes: false, plan: { onOpen: false, tray: true, journal: null } }))
   const ct = await electron.launch({
     executablePath: electronPath as unknown as string,
     args: [CT_MAIN],

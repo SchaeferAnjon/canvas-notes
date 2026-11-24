@@ -95,39 +95,6 @@
 .tb-btn:disabled {
   opacity: 0.35;
 }
-/* 「网页占满 / 还原」（task-05p2w 方向 A，原型 proto.html?dir=a 的 .tact）：收起右栏左边，右栏网页看得见时才有；
-   A 只有图标（悬停出提示和键），B 图标 + 字 13 + 键 11（70%），左右 9、间距 6 */
-.tb-web .lb {
-  display: none;
-}
-.frame-b .tb-web {
-  width: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  border-radius: 6px;
-  margin-right: 2px;
-  background: var(--fill);
-  font: 13px var(--sans);
-  white-space: nowrap;
-}
-.frame-b .tb-web .lb {
-  display: inline;
-}
-.frame-b .tb-web kbd.lb {
-  font: 11px var(--sans);
-  opacity: 0.7;
-}
-[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-web {
-  background: rgba(255, 255, 255, 0.14);
-}
-[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-btn.tb-web {
-  color: #fff;
-}
-[data-frame='b'][data-winbg='photo'] .frame-b .titlebar .tb-web:hover {
-  background: rgba(255, 255, 255, 0.22);
-}
 .cmd {
   position: absolute;
   left: 50%;

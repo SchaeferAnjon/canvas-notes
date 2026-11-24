@@ -104,12 +104,14 @@ test('白板：拖一张卡、空白处框选、中键平移，松手都丢在�
 
     // 中键平移
     const wrap = docBoard(page).locator('.board-wrap')
-    await wrap.evaluate((w) => w.scrollTo(200, 150))
+    // 起点是四周多出的空白那里（board-slack.ts，data-home）：从起点往右下滚一点
+    const [hx, hy] = (await wrap.getAttribute('data-home'))!.split(',').map(Number) as [number, number]
+    await wrap.evaluate((w, [x, y]) => w.scrollTo(x!, y!), [hx + 200, hy + 150])
     const p = await box(card('f3'))
     await m.down(p.x + 40, p.y + 20, 'middle')
     await m.drag(p.x + 140, p.y + 100, 8)
     const s1 = await wrap.evaluate((w) => ({ x: w.scrollLeft, y: w.scrollTop }))
-    expect(s1).toEqual({ x: 100, y: 70 })
+    expect(s1).toEqual({ x: hx + 100, y: hy + 70 })
     await m.lost(p.x + 300, p.y + 300)
     await m.move(p.x - 100, p.y - 100, 4)
     await settle(page)

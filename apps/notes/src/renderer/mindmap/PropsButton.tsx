@@ -11,13 +11,13 @@ import { type RefObject, useEffect, useLayoutEffect, useRef, useState } from 're
 import type { NoteFile } from '../../shared/api'
 import { coursesOf } from '../../shared/mindmap'
 import { propRows } from '../../shared/prop-view'
-import { AttachGrid, AttachList, useAttachments } from '../PropsAttach'
+import { AttachGrid, AttachList, useAttachOpen, useAttachments } from '../PropsAttach'
 import { useT } from '../i18n'
 
 // 不翻：写进文件的类型值，画的地方 t(o, { ctx: '笔记类型' })
 export const TYPES = ['课件', '笔记', '导图', '可视化', '书摘']
 
-type PropsProps = { path: string; text: string; notes: NoteFile[]; readOnly: boolean; onChange(text: string): void; /** 附件网格里双击一张：跳到文中那一处 */ onJump(offset: number): void }
+type PropsProps = { path: string; text: string; notes: NoteFile[]; readOnly: boolean; onChange(text: string): void; /** 附件里单击一张：跳到文中那一处（pop：属性弹层，滚的时候别让它挡着） */ onJump(offset: number, pop: Element | null): void }
 
 export function PropsButton(props: PropsProps) {
   const t = useT()
@@ -25,8 +25,9 @@ export function PropsButton(props: PropsProps) {
   const box = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
-    const off = (e: PointerEvent) => !box.current?.contains(e.target as Node) && setOpen(false)
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false)
+    // 附件里点开的大图（挂在 body 上）算弹层里面
+    const off = (e: PointerEvent) => !box.current?.contains(e.target as Node) && !(e.target as Element).closest?.('.pa-big') && setOpen(false)
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && !document.querySelector('.pa-big') && setOpen(false)
     window.addEventListener('pointerdown', off, true)
     window.addEventListener('keydown', esc)
     return () => {
@@ -58,10 +59,12 @@ function PropsPop(props: PropsProps) {
   const reveal = () => window.cnMenu.reveal(att?.dirExists ? att.dir : props.path)
   const pop = useRef<HTMLDivElement>(null)
   useKeepInside(pop, `${grid}${att?.items.length ?? 0}`)
+  const open = useAttachOpen(props.path, props.text, (at) => props.onJump(at, pop.current))
   if (grid && att)
     return (
       <div ref={pop} className="mm-props grid" role="dialog" aria-label={t('附件')}>
-        <AttachGrid a={att} onBack={() => setGrid(false)} onReveal={reveal} onJump={props.onJump} reload={reload} />
+        <AttachGrid a={att} onBack={() => setGrid(false)} onReveal={reveal} reload={reload} open={open} />
+        {open.viewer}
       </div>
     )
   return (
@@ -109,7 +112,8 @@ function PropsPop(props: PropsProps) {
           </button>
         )
       )}
-      {att && <AttachList a={att} onAll={() => setGrid(true)} onReveal={reveal} reload={reload} />}
+      {att && <AttachList a={att} onAll={() => setGrid(true)} onReveal={reveal} reload={reload} open={open} />}
+      {open.viewer}
       <p className="foot">
         <span>{t('AI 认出来当场填好，你改了以你为准。')}</span>
         <span>{t('存在文件开头；改属性不挪文件、不改名。')}</span>

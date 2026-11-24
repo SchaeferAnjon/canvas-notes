@@ -390,22 +390,51 @@ export function BaseTable(props: {
 
   const name = spec.folder ? spec.folder.split('/').pop()! : tNow('数据库')
 
+  /**
+   * 同一篇的写回排队（0.5.4 已知问题）：多选格子连着加两个值，第二次在第一次写回盘之前就要写。以前第二次拿的「改之前」
+   * 是这次渲染时的 data（第一次写之前的字），原子写带 fsync 后第一次落盘慢，第二次到主进程时盘上已是第一次写好的，
+   * 两份对不上就被当成「别处改过」。现在同一篇一次只写一次，后一次照前一次写好的字算「改之前」；真被别处改过照旧提示。
+   * wrote 是排着队这段时间里自己写下去的字，队排空就不要了（之后照重读回来的 data 算，别处后来改的不会被当成没改）
+   */
+  const dataRef = useRef(data)
+  dataRef.current = data
+  const writeQueue = useRef(new Map<string, Promise<void>>())
+  const wrote = useRef(new Map<string, { text: string; props: Record<string, string> }>())
+  const queued = (path: string, job: () => Promise<void>) => {
+    const prev = writeQueue.current.get(path) ?? Promise.resolve()
+    const mine = prev.then(job)
+    writeQueue.current.set(path, mine)
+    void mine.finally(() => {
+      if (writeQueue.current.get(path) !== mine) return
+      writeQueue.current.delete(path)
+      wrote.current.delete(path)
+    })
+    return mine
+  }
+
   /** 改一格：写进那一篇的 frontmatter（多选写成一行 [a, b]） */
   const save = async (r: BaseRow, col: string, value: string) => {
     setEditing(null)
-    const old = data?.texts.get(r.path)
-    if (old === undefined || (r.props[col] ?? '') === value) return
-    const next = setProp(old, col, value === '' ? undefined : value, { raw: types[col] === 'multi' })
-    const w = await window.cn.writeNote(r.path, next, old)
-    if (!w.ok) app().notice(tNow('《{name}》刚被别处改过，没改成，再试一次', { name: r.name }))
-    else {
-      const p = { ...r.props, [col]: value }
-      if (value === '') delete p[col]
-      setFresh((m) => new Map(m).set(r.path, { text: next, props: p, age: 0 }))
-      props.onCell?.({ path: r.path, name: r.name, col, value, before: old, after: next })
-      baseWrote(spec.folder)
-    }
-    reload()
+    // 没排着队时 r 就是最新的：值没变不写（打开再保存文件不变）
+    if (!writeQueue.current.has(r.path) && (r.props[col] ?? '') === value) return
+    return queued(r.path, async () => {
+      const mine = wrote.current.get(r.path)
+      const old = mine?.text ?? dataRef.current?.texts.get(r.path)
+      if (old === undefined) return
+      const next = setProp(old, col, value === '' ? undefined : value, { raw: types[col] === 'multi' })
+      if (next === old) return
+      const w = await window.cn.writeNote(r.path, next, old)
+      if (!w.ok) app().notice(tNow('《{name}》刚被别处改过，没改成，再试一次', { name: r.name }))
+      else {
+        const p = { ...(mine?.props ?? r.props), [col]: value }
+        if (value === '') delete p[col]
+        wrote.current.set(r.path, { text: next, props: p })
+        setFresh((m) => new Map(m).set(r.path, { text: next, props: p, age: 0 }))
+        props.onCell?.({ path: r.path, name: r.name, col, value, before: old, after: next })
+        baseWrote(spec.folder)
+      }
+      reload()
+    })
   }
 
   /** 每一条都改（改列名、删列）：一条条写回，有被别处改过的跳过并说一句 */

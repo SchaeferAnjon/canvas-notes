@@ -1,0 +1,230 @@
+/* ======================= 中间栏分屏（design/split/README.md） ======================= */
+/* 一个标签一格位置：没分屏时就是原来的一整块（里面的 .pane 照旧撑满） */
+.center > .cslot {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 分成两格：两条标签条、两行面包屑、两格内容都按 --split（第一格占几成）摆，挪格只换样式不重新挂。
+   --sp-th 标签条高（A 35、B 38），--sp-ch 面包屑高（A 24、B 没有） */
+.win > .center.split {
+  --sp-th: 35px;
+  --sp-ch: 24px;
+  --sp-gap: 1px;
+}
+/* B（浮岛书桌）：两格各是一块岛，中间 6 的缝露出背景（同 Dock 栏与栏、组与组，DESIGN.v3 1.9）；中间栏自己不再画岛 */
+.win.frame-b > .center.split {
+  --sp-th: 38px;
+  --sp-ch: 0px;
+  --sp-gap: var(--dgap, 6px);
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
+}
+[data-glass] .win.frame-b > .center.split::before {
+  display: none;
+}
+.center.split > .cisle {
+  position: absolute;
+  z-index: 0;
+  border-radius: 10px;
+  background: var(--win);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 6px 24px rgba(0, 0, 0, 0.14);
+  pointer-events: none;
+}
+[data-glass] .win > .center.split > .cisle {
+  background: var(--isle);
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
+}
+.center.split.row > .cisle {
+  top: 0;
+  bottom: 0;
+}
+.center.split.col > .cisle.p0 {
+  top: 0;
+  height: var(--sp-a);
+}
+.center.split.col > .cisle.p1 {
+  top: var(--sp-b);
+  bottom: 0;
+}
+.win.frame-b > .center.split > .cslot {
+  border-radius: 0 0 10px 10px;
+}
+/* --sp-a 第一格到哪为止、--sp-b 第二格从哪开始：两格之间的缝（A 1px、B 6）两边各让一半，比例 50% 时两格一样宽 */
+.center.split {
+  --sp-a: calc(var(--split) - var(--sp-gap) / 2);
+  --sp-b: calc(var(--split) + var(--sp-gap) / 2);
+}
+.center.split > .p0,
+.center.split > .p1 {
+  position: absolute;
+}
+/* 一格里的东西不伸到另一格（白板左边的工具条在矮的上格里也不压住下格的标签条） */
+.center.split > .cslot {
+  overflow: clip;
+}
+.center.split.row > .p0 {
+  left: 0;
+  width: var(--sp-a);
+}
+.center.split.row > .p1 {
+  left: var(--sp-b);
+  right: 0;
+}
+.center.split.row > .tabs {
+  top: 0;
+}
+.center.split.row > .crumbs {
+  top: var(--sp-th);
+}
+.center.split.row > .cslot {
+  top: calc(var(--sp-th) + var(--sp-ch));
+  bottom: 0;
+}
+.center.split.col > .p0,
+.center.split.col > .p1 {
+  left: 0;
+  right: 0;
+}
+.center.split.col > .tabs.p0 {
+  top: 0;
+}
+.center.split.col > .crumbs.p0 {
+  top: var(--sp-th);
+}
+.center.split.col > .cslot.p0 {
+  top: calc(var(--sp-th) + var(--sp-ch));
+  height: calc(var(--sp-a) - var(--sp-th) - var(--sp-ch));
+}
+.center.split.col > .tabs.p1 {
+  top: var(--sp-b);
+}
+.center.split.col > .crumbs.p1 {
+  top: calc(var(--sp-b) + var(--sp-th));
+}
+.center.split.col > .cslot.p1 {
+  top: calc(var(--sp-b) + var(--sp-th) + var(--sp-ch));
+  bottom: 0;
+}
+
+/* 两格之间：1px --line 的线，手柄 7 宽（同 Dock 的缝：指上去、拖着时中间一条 2px --line2） */
+.center.split > .csash {
+  position: absolute;
+  z-index: 6;
+  -webkit-app-region: no-drag;
+}
+/* 手柄 6 宽，正骑在两格中间（A 是那 1px 的线两边各 3；B 就是那道 6 的缝） */
+.center.split.row > .csash {
+  top: 0;
+  bottom: 0;
+  left: calc(var(--split) - 3px);
+  width: 6px;
+  cursor: col-resize;
+}
+.center.split.col > .csash {
+  left: 0;
+  right: 0;
+  top: calc(var(--split) - 3px);
+  height: 6px;
+  cursor: row-resize;
+}
+/* B 的缝露背景，不画线；拖着时只剩中间那 2px */
+.win.frame-b > .center.split > .csash::before,
+.center.split > .csash.on::before {
+  display: none;
+}
+.center.split > .csash::before,
+.center.split > .csash::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+.center.split.row > .csash::before {
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 0.5px);
+  width: 1px;
+  background: var(--seam);
+}
+.center.split.col > .csash::before {
+  left: 0;
+  right: 0;
+  top: calc(50% - 0.5px);
+  height: 1px;
+  background: var(--line);
+}
+.center.split.row > .csash:hover::after,
+.center.split.row > .csash.on::after {
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+  background: var(--line2);
+}
+.center.split.col > .csash:hover::after,
+.center.split.col > .csash.on::after {
+  left: 0;
+  right: 0;
+  top: calc(50% - 1px);
+  height: 2px;
+  background: var(--line2);
+}
+
+/* 不是当前格的那条标签条：当前标签的标记同「中间不是当前栏」（--line2；整块染色的主题回到 --fill2 底、正文色） */
+[data-tabmark] .win > .center > .tabs.idle .tab.on::before {
+  background: var(--line2);
+}
+[data-tabmark='fill'] .win > .center > .tabs.idle .tab.on {
+  background: linear-gradient(var(--fill2), var(--fill2)), var(--tab-on);
+  color: var(--t1);
+}
+
+/* 非当前格那条标签条：当前标签的名字也退成 --t2（同 VS Code 的 tab.unfocusedActiveForeground），深色下标记线看不清时靠字分 */
+.win > .center > .tabs.idle .tab.on {
+  color: var(--t2);
+}
+
+/* 拖标签时跟着的小牌：白板的颜色小方块（标签条里的 .tab .sw 在这里不生效） */
+.dghost .sw {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}
+
+/* 矮的一格里白板工具板放不下：最高到这一格减 80，竖着滚（七项都点得到） */
+.center.split .db-area > .bpal {
+  max-height: calc(100% - 80px);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+/* 「对照看」：同「白板 · 文档」每格 26 高、圆角 6、左右 7；和分段隔 8，中间一道 14 高的 --line2 竖线 */
+.win .acts .ab-act.cmp {
+  position: relative;
+  height: 26px;
+  border-radius: 6px;
+  padding: 0 7px;
+  margin-left: 9px;
+}
+.win .acts .ab-act.cmp::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 6px;
+  width: 1px;
+  height: 14px;
+  background: var(--line2);
+}
+.win .acts .ab-act.cmp.dim {
+  opacity: 0.4;
+}
+.win .acts .ab-act.cmp.dim:hover {
+  background: none;
+}

@@ -1088,7 +1088,9 @@ function buildMenu() {
     const k = menuKey(id)
     return k ? accelOf(k) : undefined
   }
-  const cmd = (id: string, label: string): Electron.MenuItemConstructorOptions => ({ label, accelerator: accel(id), registerAccelerator: false, click: () => win?.webContents.send('app:key', `cmd:${id}`) })
+  // 按键触发的（macOS 上菜单栏那一项的键总是注册着）发 cmd:，界面和同一下按键的 keydown 算一对、只跑一次；鼠标点的发 pick:，每点一下都跑
+  const via = (e: Electron.KeyboardEvent | undefined) => (e?.triggeredByAccelerator ? 'cmd' : 'pick')
+  const cmd = (id: string, label: string): Electron.MenuItemConstructorOptions => ({ label, accelerator: accel(id), registerAccelerator: false, click: (_i, _w, e) => win?.webContents.send('app:key', `${via(e)}:${id}`) })
   const st = updater?.status()
   const updateItem: Electron.MenuItemConstructorOptions =
     st?.phase === 'ready'
@@ -1121,9 +1123,9 @@ function buildMenu() {
           {
             label: '关闭',
             accelerator: accel('close'),
-            click: () => {
+            click: (_i, _w, e) => {
               const w = BrowserWindow.getFocusedWindow()
-              if (!w || w === win) win?.webContents.send('app:key', 'cmd:close')
+              if (!w || w === win) win?.webContents.send('app:key', `${via(e)}:close`)
               else w.close()
             },
           },
@@ -1153,7 +1155,8 @@ function buildMenu() {
         submenu: [
           cmd('toggle-left', '收起 / 展开左栏'),
           cmd('toggle-right', '收起 / 展开右栏'),
-          cmd('fold-center', '收起 / 展开中间栏'),
+          cmd('fold-center', '当前这栏占满 / 还原'),
+          cmd('split-center', '分屏 / 合成一格'),
           { type: 'separator' },
           cmd('left-files', '左栏：文件'),
           cmd('left-recent', '左栏：最近'),

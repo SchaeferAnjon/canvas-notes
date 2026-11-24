@@ -30,6 +30,11 @@ describe('回到网页那一段的链接（#:~:text=那段开头）', () => {
     expect(u).not.toMatch(/[\s()]/)
     expect(parseFragment(u)).toEqual({ page: PAGE, text: 'a-b, c (d) & e' })
     expect(parseFragment(`${PAGE}#:~:text=前文-,下面我们将,写入CSV文件中。,-后文`)).toEqual({ page: PAGE, text: '下面我们将' })
+    // 带公式的那段（$…$）：$ \ { } _ ^ 也转，文件里那一行不会被当成行内公式、反斜杠不被当成转义；认得回来
+    const tex = String.raw`使用$[\mathbf{X}]_{i, j}$和$x^2$表示`
+    const ut = fragmentUrl(PAGE, tex)
+    expect(ut.split('#:~:text=')[1]).not.toMatch(/[$\\{}_^]/)
+    expect(parseFragment(ut)).toEqual({ page: PAGE, text: tex })
     expect(parseFragment(`${PAGE}#top`)).toBeNull()
     expect(parseFragment('附件/a.png')).toBeNull()
     expect(samePage(`${PAGE}#:~:text=x`, `${PAGE}#later`)).toBe(true)

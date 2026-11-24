@@ -2,7 +2,8 @@ import type { DiffSource } from '../shared/diff'
 
 export type Tab =
   | { id: string; type: 'home' }
-  | { id: string; type: 'note'; path: string; fresh?: boolean }
+  /** view：开出来用哪种看法（中间栏分屏「对照看」开的白板那一份），不给照这一篇记着的 */
+  | { id: string; type: 'note'; path: string; fresh?: boolean; view?: 'board' | 'doc' }
   | { id: string; type: 'inbox' }
   | { id: string; type: 'topic'; topic: string }
   /** 最近：按时间看全部笔记（替掉原来的「全部笔记」） */
@@ -55,6 +56,7 @@ export function validTab(t: unknown): t is Tab {
     case 'growth':
       return true
     case 'note':
+      return str(o.path) && !!o.path && (o.view === undefined || o.view === 'board' || o.view === 'doc')
     case 'pdf':
     case 'html':
       return str(o.path) && !!o.path

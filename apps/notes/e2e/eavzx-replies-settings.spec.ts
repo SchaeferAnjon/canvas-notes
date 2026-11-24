@@ -8,7 +8,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { acts, launch, openAi, openNote, tabOn } from './app'
+import { acts, launch, openAi, openNote, tabOn, widenRight } from './app'
 import { LECTURE } from './fixtures/pdf'
 import { armMenus, pickMenu } from './menu'
 
@@ -44,11 +44,12 @@ interface Own {
 const cmdsOnDisk = (vault: string) => JSON.parse(readFileSync(join(vault, CMDS), 'utf8')) as { own: Own[]; replies?: { on: string[]; more: string[]; off: string[] }; keys?: Record<string, string> }
 
 /** 一条回答下面那一排：右边快捷回复（左边功能按钮的字 拷贝 · 插进文档 去掉） */
+/** 这一排排上的自己加的那几颗（AI 对话 r100 起默认排上的「还是不懂」「换个方式讲」不算，它们另外查） */
 const rowReplies = (msg: Locator) =>
   msg
     .getByTestId('ai-ans-acts')
-    .locator(':scope > button')
-    .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()).filter((s) => s && s !== '拷贝' && s !== '插进文档'))
+    .locator(':scope > [data-reply]')
+    .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()).filter((s) => s !== '还是不懂' && s !== '换个方式讲'))
 
 async function ask(page: Page, text: string) {
   const box = chat(page).getByRole('textbox', { name: '问 AI' })
@@ -98,15 +99,15 @@ test('设置 › 回答下面那排：四处的样子（真的 AnswerBar）和�
     expect(await rowsOf(page, '收进 ⋯')).toEqual([])
     expect(await rowsOf(page, '不出现')).toEqual([])
     await expect(list(page).getByRole('listitem', { name: '还是不懂' })).toContainText('自带')
-    await expect(list(page).getByRole('listitem', { name: '还是不懂' })).toContainText('读 PDF · 网页 · 视频')
+    await expect(list(page).getByRole('listitem', { name: '还是不懂' })).toContainText('四处都有')
     await expect(list(page).getByRole('listitem', { name: '做个可视化' })).toContainText('读 PDF · HTML · AI 觉得适合画图时')
-    // 四处的样子：读 PDF 三颗、网页和视频前两颗、AI 对话一颗不放（只有左边的功能按钮）
+    // 四处的样子：读 PDF 三颗，网页、视频、AI 对话前两颗（AI 对话 r100 起也排上）
     await expect(preview(page).getByRole('radio', { name: '读 PDF' })).toHaveAttribute('aria-checked', 'true')
     expect(await previewBtns(page)).toEqual(['拷贝', '插进文档', '还是不懂', '换个方式讲', '做个可视化'])
     await expect(preview(page)).toContainText('这是讲解（第 1 页）')
-    await expect(preview(page)).toContainText('⋯ 里：存进收件箱 · 在笔记里看 · 拷贝为 Markdown · 调整这一排…')
+    await expect(preview(page)).toContainText('⋯ 里：在笔记里看 · 拷贝为 Markdown · 调整这一排… · 存进收件箱')
     await preview(page).getByRole('radio', { name: 'AI 对话' }).click()
-    expect(await previewBtns(page)).toEqual(['拷贝', '插进文档'])
+    expect(await previewBtns(page)).toEqual(['拷贝', '插进文档', '还是不懂', '换个方式讲'])
     await preview(page).getByRole('radio', { name: '网页' }).click()
     expect(await previewBtns(page)).toEqual(['拷贝', '插进文档', '还是不懂', '换个方式讲'])
     await preview(page).getByRole('radio', { name: '视频' }).click()
@@ -136,9 +137,13 @@ test('加一颗（例子「考考我」）→ AI 对话那一排多一颗，点�
   try {
     await openNote(page, '学习笔记')
     await openAi(page)
+    // 右栏拉宽一点：默认两颗加自己的几颗都排得下（窄了多出来的进 ⋯）
+    await widenRight(page, 260)
     const a1 = await ask(page, '把这周总结成三句话')
     // AI 对话默认一颗快捷回复也没有
     expect(await rowReplies(a1)).toEqual([])
+    // AI 对话默认排上的两颗（r100）
+    await expect(a1.getByTestId('ai-ans-acts').locator('[data-reply]')).toHaveText(['还是不懂', '换个方式讲'])
     // ⋯ 最下面「调整这一排…」：开设置 › 回答下面那排，预览先看 AI 对话
     await a1.getByTestId('ai-ans-acts').getByRole('button', { name: '这条回答还能做什么' }).click()
     await page.getByRole('menu', { name: '这条回答还能做什么' }).getByRole('menuitem', { name: '调整这一排…' }).click()
@@ -160,8 +165,8 @@ test('加一颗（例子「考考我」）→ AI 对话那一排多一颗，点�
     await dlg(page).getByRole('button', { name: '你问的那句' }).click()
     await expect(say).toHaveValue('就{这条回答}出三道选择题考我，我答完再告诉我对错。{你问的那句}')
     await say.fill('就{这条回答}出三道选择题考我，我答完再告诉我对错。')
-    // 在哪能用默认四处；在哪答默认这段对话里
-    await expect(dlg(page).getByRole('group', { name: '在哪能用' }).getByRole('button', { pressed: true })).toHaveCount(4)
+    // 在哪能用默认四处，还有「AI 回答里选中」（回答里选中一句的小菜单，新的默认勾着）；在哪答默认这段对话里
+    await expect(dlg(page).getByRole('group', { name: '在哪能用' }).getByRole('button', { pressed: true })).toHaveText(['AI 对话', '读 PDF', '网页', '视频', '回答里选中一句'])
     await expect(dlg(page).getByRole('radiogroup', { name: '在哪答' }).getByRole('radio', { name: '这段对话里' })).toHaveAttribute('aria-checked', 'true')
     await page.keyboard.press('Meta+Enter')
     await expect(toast(page)).toContainText('「考考我」排在了这一排最后')
@@ -172,7 +177,7 @@ test('加一颗（例子「考考我」）→ AI 对话那一排多一颗，点�
     const quiz = cmdsOnDisk(vault).own.find((o) => o.name === '考考我')!.id
     expect(cmdsOnDisk(vault).replies).toEqual({ on: ['still', 'another', 'viz', quiz], more: [], off: [] })
     // 预览 AI 对话：多了它
-    expect(await previewBtns(page)).toEqual(['拷贝', '插进文档', '考考我'])
+    expect(await previewBtns(page)).toEqual(['拷贝', '插进文档', '还是不懂', '换个方式讲', '考考我'])
 
     // ---------- AI 对话那一排多一颗，点它真发出填好的那句
     await page.keyboard.press('Escape')
@@ -237,13 +242,13 @@ test('加一颗（例子「考考我」）→ AI 对话那一排多一颗，点�
     await m.getByRole('menuitem', { name: '复制一份再改…' }).click()
     await expect(dlg(page).getByRole('textbox', { name: '名字' })).toHaveValue('还是不懂')
     await expect(dlg(page).getByRole('textbox', { name: '提示词' })).toHaveValue('还是不懂')
-    await expect(dlg(page).getByRole('group', { name: '在哪能用' }).getByRole('button', { pressed: true })).toHaveText(['读 PDF', '网页', '视频'])
+    await expect(dlg(page).getByRole('group', { name: '在哪能用' }).getByRole('button', { pressed: true })).toHaveText(['AI 对话', '读 PDF', '网页', '视频', '回答里选中一句'])
     await dlg(page).getByRole('textbox', { name: '名字' }).fill('再细一点')
     await dlg(page).getByRole('textbox', { name: '提示词' }).fill('还是不懂，再讲细一点')
     await dlg(page).getByRole('button', { name: /^存好/ }).click()
     await expect(toast(page)).toContainText('「再细一点」排在了这一排最后')
     expect(await rowsOf(page, '排上')).toEqual(['还是不懂', '换个方式讲', '做个可视化', '再细一点'])
-    await expect.poll(() => cmdsOnDisk(vault).own.find((o) => o.name === '再细一点')?.reply).toEqual({ where: ['pdf', 'web', 'video'], out: 'here' })
+    await expect.poll(() => cmdsOnDisk(vault).own.find((o) => o.name === '再细一点')?.reply).toEqual({ where: ['chat', 'pdf', 'web', 'video'], out: 'here' })
 
     // ---------- 从我的命令里挑：「整理成通顺笔记」排到最后；命令原样（规矩、写到哪不动），多了 reply
     await dlg(page).getByRole('button', { name: '从我的命令里挑…' }).click()
@@ -258,7 +263,7 @@ test('加一颗（例子「考考我」）→ AI 对话那一排多一颗，点�
 
     // AI 对话那一排：挑来的这颗点了发的是它的规矩
     await page.keyboard.press('Escape')
-    expect(await rowReplies(a1)).toEqual(['整理成通顺笔记'])
+    expect(await rowReplies(a1)).toEqual(['再细一点', '整理成通顺笔记'])
 
     // ---------- 删掉：只当快捷回复的连命令删；挑来的只拿掉快捷回复，命令留着
     await openReplies(page)
@@ -284,6 +289,8 @@ test('存成快捷回复：AI 对话里悬停你发的那句点「存成快捷�
     await armMenus(run)
     await openNote(page, '学习笔记')
     await openAi(page)
+    // 右栏拉宽一点：默认两颗加自己的几颗都排得下（窄了多出来的进 ⋯）
+    await widenRight(page, 260)
     const a1 = await ask(page, '举个生活里的例子')
     const um = chat(page).locator('.um-wrap').last()
     // 平时不露，悬停那一句才露：拷贝 · 存成快捷回复
@@ -366,6 +373,8 @@ test('⌘K 和 / 菜单：快捷回复是一条命令，跑它就是在 AI 对�
   try {
     await openNote(page, '学习笔记')
     await openAi(page)
+    // 右栏拉宽一点：默认两颗加自己的几颗都排得下（窄了多出来的进 ⋯）
+    await widenRight(page, 260)
     const a1 = await ask(page, '把这周总结成三句话')
     const answer1 = (await a1.locator('.txt').innerText()).trim()
     expect(await rowReplies(a1)).toEqual(['考考我'])

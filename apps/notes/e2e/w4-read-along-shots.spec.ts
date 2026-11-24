@@ -215,9 +215,9 @@ for (const theme of ['light', 'dark'] as const) {
       await page.keyboard.press('Escape')
 
       // 网页占满（原型里没有；task-05p2w 起是右上角那颗）：只截软件
-      await page.getByTestId('tb-web').click()
+      await page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn').click()
       writeFileSync(join(SHOTS!, `fold-${theme}.png`), await winShot(run))
-      await page.getByTestId('tb-web').click()
+      await page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn').click()
 
       if (theme === 'light') {
         // 「在哪」：1 标题下「对着看」 2 目录树这一行的小标 3 网页标签上的小标 4 左栏「书桌」 5 网页占满
@@ -228,7 +228,7 @@ for (const theme of ['light', 'dark'] as const) {
           { sel: '.ftree .ft-pair', n: 2 },
           { sel: '.right.web .wpm', n: 3 },
           { sel: 'nav[aria-label="左栏"] button[aria-label="书桌"]', n: 4 },
-          { sel: '[data-testid="tb-web"]', n: 5 },
+          { sel: '.dhead:has([data-testid="dtab-web"]) .maxbtn', n: 5 },
         ])
         writeFileSync(join(SHOTS!, 'where.png'), await winShot(run))
       }

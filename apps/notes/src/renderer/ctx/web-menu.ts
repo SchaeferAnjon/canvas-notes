@@ -6,7 +6,9 @@ import { editItems, type CtxParams } from '../../shared/ctx-menu'
 import { accelFor } from '../keys'
 import { pluginInfo, pageStateOf } from '../plugins/host'
 import { toggleTranslate } from '../plugins/translate/shared'
-import { saveImages } from '../web/image-drop'
+import { asClip, saveImages, webImgClipped } from '../web/image-drop'
+import { shownComposer } from '../composer'
+import type { WebImgInfo } from '../../shared/web-img'
 import { app } from './actions'
 import { copy, fromShared, type MenuEntry, showMenu } from './menu'
 import { translateAt } from './translate'
@@ -35,15 +37,53 @@ export interface WebMenuPage {
 }
 
 const pages = new Map<number, { page: WebMenuPage; host: () => WebMenuHost }>()
+
+/** 右键点着的那张图的图注、小标题（网页预加载在弹菜单前报上来，cn:ctx-img） */
+let ctxImg: (WebImgInfo & { at: number }) | null = null
+export const noteCtxImg = (i: WebImgInfo) => void (ctxImg = { ...i, at: Date.now() })
+
+/** 这张图的说明：刚报上来的是这张就用它，不然只有地址 */
+function imgInfoFor(src: string, url: string, title: string): WebImgInfo {
+  const c = ctxImg
+  if (c && c.src === src && Date.now() - c.at < 10_000) return { src, alt: c.alt, caption: c.caption, ...(c.head ? { head: c.head } : {}), url: c.url, title: c.title }
+  return { src, alt: '', caption: '', url, title }
+}
+
+/** 「问 AI 这张图」：附进右栏正开着的那个 AI 输入框（没开就打开 AI，等它出来） */
+export async function askAiImage(img: WebImgInfo) {
+  let c = shownComposer()
+  if (!c) {
+    app().runAi()
+    for (let i = 0; i < 30 && !c; i++) {
+      await new Promise((r) => setTimeout(r, 50))
+      c = shownComposer()
+    }
+  }
+  if (!c) throw new Error(t('右栏 AI 没打开'))
+  await c.addWebImage(img)
+}
+
+/** 「剪进文档」：存进中间那篇的附件，插在光标处；说明是图注，来源回到那张图，网页上标「剪过」 */
+async function clipImage(img: WebImgInfo, doc: { path: string; insertAtCursor(md: string): void }) {
+  const r = await saveImages(doc.path, [asClip({ src: { kind: 'url', url: img.src }, alt: img.alt, web: img })], '\n\n')
+  if (r.errors.length) throw new Error(r.errors[0])
+  const md = r.md.join('\n\n')
+  doc.insertAtCursor(md)
+  if (/^https?:/i.test(img.url)) webImgClipped(doc.path, md, img.url)
+  app().notice(t('图剪进了文档光标处'))
+}
 let listening = false
 
 /** 一个 <webview> 挂上了：登记它，右键时按 id 找到；返回取消登记 */
 export function registerWebMenu(wcId: number, page: WebMenuPage, host: () => WebMenuHost): () => void {
   if (!listening) {
     listening = true
-    window.cnMenu.onWebContext((id, p) => {
+    window.cnMenu.onWebContext(async (id, p) => {
       const r = pages.get(id)
-      if (r) void showMenu(webMenu(id, p, r.page, r.host()), id)
+      if (!r) return
+      // 点在图上：图注是网页预加载另走一路报的，多半先到；没到等它一会儿（最多 150 毫秒）
+      for (let i = 0; i < 15 && p.mediaType === 'image' && !(ctxImg && ctxImg.src === p.srcURL); i++) await new Promise((ok) => setTimeout(ok, 10))
+      void showMenu(webMenu(id, p, r.page, r.host()), id)
     })
   }
   pages.set(wcId, { page, host })
@@ -72,7 +112,8 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
   }
   const img = p.mediaType === 'image' && /^(https?:|data:image\/)/i.test(p.srcURL) ? p.srcURL : ''
   if (img) {
-    const source = http ? { title, url } : undefined
+    const info = imgInfoFor(img, url, title)
+    // 照选了字那一组的先后（DESIGN.v3 9.2）：拷贝、剪，AI 那一项（带引擎标志）自成一组
     out.push(
       { copyImageAt: { x: p.x, y: p.y } },
       { label: t('拷贝图片地址'), run: () => copy(img) },
@@ -84,15 +125,9 @@ export function webMenu(wcId: number, p: CtxParams, page: WebMenuPage, host: Web
           a.notice(t('图存进了{path}', { path: saved.path }))
         },
       },
-      doc && {
-        label: t('插进文档'),
-        run: async () => {
-          const r = await saveImages(doc.path, [{ src: { kind: 'url', url: img }, alt: '', ...(source ? { source } : {}) }], '\n\n')
-          if (r.errors.length) throw new Error(r.errors[0])
-          doc.insertAtCursor(r.md.join('\n\n'))
-          a.notice(t('图插进了文档光标处'))
-        },
-      },
+      doc && { label: t('剪进文档'), run: () => clipImage(info, doc) },
+      '-',
+      { label: t('问 AI 这张图'), ai: 'chat', run: () => askAiImage(info) },
       '-',
     )
   }

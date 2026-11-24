@@ -1,5 +1,5 @@
-// 剪藏保留公式和代码块的复审截图（task-6cxtc 第二轮）：拖选时碰到的公式整块铺系统选区色、角上「引用」「剪藏」（块级在块里右上角、
-// 行内在下面）、⋯ 里「剪整节」排第一、剪进文档后引文里的整行公式画成一整块（式号 \tag 画在右边）。
+// 剪藏保留公式和代码块的复审截图（task-6cxtc 第二轮）：拖选时碰到的公式整块铺系统选区色、点一下公式整块选中出小条、
+// ⋯ 里「剪整节」排第一、剪进文档后引文里的整行公式画成一整块（式号 \tag 画在右边）。
 // 天青 / 深湖 × 浅色网页 / 深色网页，1440 × 887 窗口，真软件、临时库、假 AI、本机假网页（fixtures/math-page.ts）。
 // 只在给了 CN_SHOTS=<目录> 时跑：CN_SHOTS=/private/tmp/canvas-notes-build4/clip-math/round2 npx playwright test e2e/clip-math-shots.spec.ts
 import { expect, test, type Page } from '@playwright/test'
@@ -57,14 +57,12 @@ async function dragSelect(page: Page, a: string, b: string) {
   throw new Error('小条没出来')
 }
 
-async function hover(page: Page, code: string) {
-  // 选区收起、小条收了才出角上那颗
-  await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display ?? 'none'`)).toBe('none')
+/** 点一下公式：整块选中、小条出来 */
+async function clickBlock(page: Page, code: string) {
   const w = (await web(page).locator('webview.on').boundingBox())!
-  await page.mouse.move(w.x + 5, w.y + 5)
   const p = await guest<{ x: number; y: number }>(page, `(() => { const r = (${code}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
-  await page.mouse.move(w.x + p.x, w.y + p.y)
-  await expect.poll(() => guest(page, `document.getElementById('cn-block-host')?.style.display`)).toBe('block')
+  await page.mouse.click(w.x + p.x, w.y + p.y)
+  await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`)).toBe('block')
 }
 
 async function barClick(page: Page, sel: string) {
@@ -97,13 +95,14 @@ for (const skin of ['sky', 'petrol'] as const) {
         // ① 拖选碰到公式、代码块：整块铺系统选区色
         await dragSelect(page, 'm1', 'm4')
         await shot(run, `1-选中-${tag}`)
-        // ② 停在块级公式上：角上那颗在块里右上角
+        // ② 点一下块级公式：整块选中、小条出来
         await guest(page, 'getSelection().removeAllRanges()')
-        await hover(page, `document.querySelector('mjx-container[display="true"]')`)
-        await shot(run, `2-块级角上-${tag}`)
-        // ③ 停在行内公式上：放在它下面
-        await hover(page, `document.querySelectorAll('.katex')[2]`)
-        await shot(run, `3-行内下面-${tag}`)
+        await clickBlock(page, `document.querySelector('mjx-container[display="true"]')`)
+        await shot(run, `2-点块级公式-${tag}`)
+        // ③ 点一下行内公式
+        await guest(page, 'getSelection().removeAllRanges()')
+        await clickBlock(page, `document.querySelectorAll('.katex')[2]`)
+        await shot(run, `3-点行内公式-${tag}`)
         // ④ 选着标题：⋯ 里「剪整节」排第一
         await guest(page, `document.getElementById('h-mat').scrollIntoView({ block: 'start' }); scrollBy(0, -120)`)
         await dragSelect(page, 'h-mat', 'h-mat')

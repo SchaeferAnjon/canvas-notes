@@ -57,7 +57,7 @@ export function Boom({ area }: { area: string }) {
 
 // ---------- 用默认布局打开 ----------
 /** 上次开着的标签、右栏的摆法、网页标签、左右栏宽、左栏看哪一样：清掉这些再加载，库里的文件不动 */
-const LAYOUT_KEYS = ['cn.dock', 'cn.aiOpen', 'cn.rightW', 'cn.webtabs', 'cn.sideHidden', 'cn.sideW', 'cn.centerFold', 'cn.leftView', 'cn.webTopFold']
+const LAYOUT_KEYS = ['cn.dock', 'cn.aiOpen', 'cn.rightW', 'cn.webtabs', 'cn.sideHidden', 'cn.sideW', 'cn.centerFold', 'cn.max', 'cn.leftView', 'cn.webTopFold']
 
 export function clearLayout() {
   try {

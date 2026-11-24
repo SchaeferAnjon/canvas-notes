@@ -75,6 +75,7 @@ import type { MaterialRef } from '../shared/feynman/types'
 import { FeynmanColumn, PeekChip, PendingColumn, useCovered } from './feynman/Column'
 import { StartPop, type PickItem } from './feynman/StartPop'
 import * as Fy from './feynman/store'
+import { useBoardSlack } from './board-slack'
 
 type Drag =
   | { type: 'block'; id: string; start: Pt; origin: Pt; moved: boolean; delta: Pt }
@@ -161,6 +162,10 @@ export function BoardView(props: BoardViewProps) {
   const inbox = inboxOf(notes, props.notePath)
 
   const wrap = useRef<HTMLDivElement>(null)
+  /** 白板四周多出来的空白（board-slack.ts）：滚动位置都按「slack + 原来的值」算 */
+  const slack = useBoardSlack(wrap)
+  const slackRef = useRef(slack)
+  slackRef.current = slack
   const outer = useRef<HTMLDivElement>(null)
   const plane = useRef<HTMLDivElement>(null)
   const els = useRef(new Map<string, HTMLElement>())
@@ -208,8 +213,10 @@ export function BoardView(props: BoardViewProps) {
     const ax = anchor ? anchor.x - r.left : w.clientWidth / 2
     const ay = anchor ? anchor.y - r.top : w.clientHeight / 2
     const from = pendingScroll.current ?? { left: w.scrollLeft, top: w.scrollTop }
-    // 画布左边让出了 room（不随缩放变），换算时扣掉
-    pendingScroll.current = { left: ((from.left + ax - room) / oldS) * newS - ax + room, top: ((from.top + ay - roomTop) / oldS) * newS - ay + roomTop }
+    // 画布左边让出了 room、四周多出的空白（不随缩放变），换算时扣掉
+    const ox = room + slackRef.current.x
+    const oy = roomTop + slackRef.current.y
+    pendingScroll.current = { left: ((from.left + ax - ox) / oldS) * newS - ax + ox, top: ((from.top + ay - oy) / oldS) * newS - ay + oy }
     liveZoom.current = z
     props.onZoom(z)
   }
@@ -226,7 +233,8 @@ export function BoardView(props: BoardViewProps) {
       : null
     const z = fitZoom(box, { w: w.clientWidth - room, h: w.clientHeight - roomTop }, factor)
     const s = z * factor
-    const to = box ? { left: Math.max(0, (box.x - 40) * s), top: Math.max(0, (box.y - 40) * s) } : { left: 0, top: 0 }
+    const { x: sx, y: sy } = slackRef.current
+    const to = box ? { left: sx + Math.max(0, (box.x - 40) * s), top: sy + Math.max(0, (box.y - 40) * s) } : { left: sx, top: sy }
     if (z === liveZoom.current) return void ((w.scrollLeft = to.left), (w.scrollTop = to.top))
     pendingScroll.current = to
     liveZoom.current = z
@@ -237,7 +245,7 @@ export function BoardView(props: BoardViewProps) {
     const w = wrap.current
     if (!w || !mapSize.w) return
     const z = Math.min(liveZoom.current, Math.max(0.5, fitZoom({ x: 0, y: 0, w: mapSize.w, h: mapSize.h }, { w: w.clientWidth - room, h: w.clientHeight - roomTop }, factor)))
-    const to = { left: 0, top: 0 }
+    const to = { left: slackRef.current.x, top: slackRef.current.y }
     if (z === liveZoom.current) return void ((w.scrollLeft = to.left), (w.scrollTop = to.top))
     pendingScroll.current = to
     liveZoom.current = z
@@ -318,7 +326,7 @@ export function BoardView(props: BoardViewProps) {
   const freeSpot = (): Pt => {
     const w = wrap.current!
     const n = doc.blocks.length
-    return { x: Math.round(w.scrollLeft / scale + 60 + (n % 5) * 24), y: Math.round(w.scrollTop / scale + 60 + (n % 5) * 24) }
+    return { x: Math.round(Math.max(0, w.scrollLeft - slack.x) / scale + 60 + (n % 5) * 24), y: Math.round(Math.max(0, w.scrollTop - slack.y) / scale + 60 + (n % 5) * 24) }
   }
   const freeSpotRef = useRef(freeSpot)
   freeSpotRef.current = freeSpot
@@ -960,6 +968,7 @@ export function BoardView(props: BoardViewProps) {
     <div
       className="board-wrap"
       ref={wrap}
+      data-home={`${slack.x},${slack.y}`}
       onPointerDown={(e) => {
         // 右键不清选中：选了几张再右键是对这几张做
         if (e.button === 2) return
@@ -973,7 +982,9 @@ export function BoardView(props: BoardViewProps) {
         setEditing(id)
       }}
     >
-      <div className="plane" ref={plane} style={{ width: extent.w, height: extent.h, marginLeft: room, marginTop: roomTop, transform: `scale(${scale})` }}>
+      {/* 右下角再撑出一圈空白（左上靠 plane 的外边距）：内容四周都能拖出半屏多 */}
+      <div aria-hidden className="board-slack-end" style={{ position: 'absolute', left: room + slack.x * 2 + extent.w * scale - 1, top: roomTop + slack.y * 2 + extent.h * scale - 1, width: 1, height: 1 }} />
+      <div className="plane" ref={plane} style={{ width: extent.w, height: extent.h, marginLeft: room + slack.x, marginTop: roomTop + slack.y, transform: `scale(${scale})` }}>
         <svg className="wires" width={extent.w} height={extent.h}>
           <defs>
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">

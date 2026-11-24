@@ -177,7 +177,7 @@ test('整页剪藏：公式写成 $…$ / $$…$$，代码块带语言、只带�
   }
 })
 
-test('单独一个公式：停在上面角上出「引用」「剪藏」，点剪藏只剪这一块 $$…$$；点一下行内公式整块选中、小条出来', async () => {
+test('单独一个公式：点一下块级公式整块选中、小条出来，点剪藏只剪这一块 $$…$$；停在行内公式上什么都不出，点一下整块选中、小条出来', async () => {
   const run = await launch({ [NOTE]: paired() }, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -189,41 +189,24 @@ test('单独一个公式：停在上面角上出「引用」「剪藏」，点�
     const w = (await web(page).locator('webview.on').boundingBox())!
     const at = (code: string) => guest<{ x: number; y: number }>(page, `(() => { const r = (${code}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
     const big = await at(`document.querySelector('mjx-container[display="true"]')`)
-    await page.mouse.move(w.x + big.x, w.y + big.y)
-    await expect.poll(() => guest(page, `document.getElementById('cn-block-host')?.style.display`)).toBe('block')
-    // 角上那颗在块里右上角、离上边右边各 4（不盖上一行字）；1px 浅色内描边（深色网页上看得出边）
-    const pos = await guest<{ dt: number; dr: number; ring: string }>(
-      page,
-      `(() => { const b = document.getElementById('cn-block-host').shadowRoot.querySelector('.bar'); const r = b.getBoundingClientRect(), m = document.querySelector('mjx-container[display="true"]').getBoundingClientRect(); return { dt: Math.round(r.top - m.top), dr: Math.round(m.right - r.right), ring: getComputedStyle(b).boxShadow } })()`,
-    )
-    expect(pos.dt).toBe(4)
-    expect(pos.dr).toBe(4)
-    expect(pos.ring).toContain('rgba(255, 255, 255, 0.14) 0px 0px 0px 1px inset')
-    const clip = await at(`document.getElementById('cn-block-host').shadowRoot.querySelector('[data-k="clip"]')`)
-    await page.mouse.click(w.x + clip.x, w.y + clip.y)
+    await page.mouse.click(w.x + big.x, w.y + big.y)
+    await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`)).toBe('block')
+    await clickBar(page, 'button.clip')
     await expect(page.locator('.toast-cn')).toContainText(`剪进《${TITLE}》`)
     await waitSaved(page)
     const md = file(run)
     expect(md).toContain(`> $$\n> ${TAGGED}\n> $$`)
     expect(md).not.toContain('当调用函数')
-    // 行内公式矮（不到 34）：角上那颗放到它下面 4、右边对齐（网页两边放不下时离网页边 4）
+    // 停在行内公式上：不出小条，也没有角上那颗（引用、剪藏选中才出）
     await guest(page, 'getSelection().removeAllRanges()')
-    await page.mouse.move(w.x + 5, w.y + 5)
-    const kx = await at(`document.querySelectorAll('.katex')[0]`)
-    await page.mouse.move(w.x + kx.x, w.y + kx.y)
-    await expect
-      .poll(() =>
-        guest<number[]>(
-          page,
-          `(() => { const h = document.getElementById('cn-block-host'); if (h.style.display !== 'block') return []; const r = h.shadowRoot.querySelector('.bar').getBoundingClientRect(), m = document.querySelectorAll('.katex')[0].getBoundingClientRect(); return [Math.round(r.top - m.bottom), Math.round(Math.max(4, Math.min(m.right - r.width, innerWidth - r.width - 4)) - r.left)] })()`,
-        ),
-      )
-      .toEqual([4, 0])
-    // 点一下行内公式：整块选中，小条出来
-    // （先挪开，上面那颗收起：它在 m 下面，可能正好盖着下一行的 m×n）
-    await page.mouse.move(w.x + 5, w.y + 5)
-    await expect.poll(() => guest(page, `document.getElementById('cn-block-host').style.display`)).toBe('none')
+    await expect.poll(() => guest(page, `document.getElementById('cn-clip-host').style.display`)).toBe('none')
     const km = await at(`document.querySelectorAll('.katex')[2]`)
+    await page.mouse.move(w.x + 5, w.y + 5)
+    await page.mouse.move(w.x + km.x, w.y + km.y, { steps: 5 })
+    await page.waitForTimeout(1000)
+    expect(await guest(page, `document.getElementById('cn-clip-host').style.display`)).toBe('none')
+    expect(await guest(page, `[...document.documentElement.children].filter((e) => e.tagName === 'DIV' && e.id.startsWith('cn-') && !['cn-clip-host', 'cn-mark-host'].includes(e.id) && getComputedStyle(e).display !== 'none').map((e) => e.id)`)).toEqual([])
+    // 点一下行内公式：整块选中，小条出来
     await page.mouse.click(w.x + km.x, w.y + km.y)
     await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`)).toBe('block')
     expect(await guest<string>(page, 'getSelection().toString()')).toContain('m×n')

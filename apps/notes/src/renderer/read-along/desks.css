@@ -122,6 +122,15 @@
   background: var(--fill2);
   color: var(--t1);
 }
+/* 最上面那张「刚才」（书桌回到刚才）：点书桌之前的样子，只在本机、不进库：描一圈细线、不铺卡片底，和存下的书桌分开 */
+.desk-card.desk-before {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.desk-card.desk-before:hover {
+  background: var(--fill);
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
 .desk-foot {
   margin: 0;
   padding: 4px 14px 12px;

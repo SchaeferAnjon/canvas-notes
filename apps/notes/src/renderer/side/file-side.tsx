@@ -436,6 +436,8 @@ export function SideText(p: { spot: Spot; md: string; className?: string; closed
         <AskBoxView
           key={box.seq}
           at={box}
+          sel={box.plain}
+          answer={p.md}
           within={root.current?.closest('.db-board, .ak')?.getBoundingClientRect() ?? null}
           onClose={(why) => {
             if (why === 'esc') window.getSelection()?.removeAllRanges()

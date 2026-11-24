@@ -9,12 +9,18 @@ import { codiconSvg } from '@cn/design/codicon-svg'
 import { ipcRenderer } from 'electron'
 import { findQuote } from '../shared/read-anchor'
 import { blocks, charsOf, rangeOf, topCover } from './webview-blocks'
+import { tagMathJax } from './webview-mathjax'
+import { mathRoot } from './webview-md'
+import { figCaption } from './webview-img'
+import { normText } from '../shared/read-anchor'
 
 /** 界面发来的一条：编号（点小标时报回去）、笔记里引着的全文、链接里那段开头 */
 interface MarkReq {
   id: string
   quote: string
   text: string
+  /** 剪的是一张图：照图注（或 alt）认回那张图，图上画框和小标 */
+  img?: boolean
 }
 interface Found {
   ids: string[]
@@ -25,6 +31,8 @@ interface Found {
 let marks: MarkReq[] = []
 let color = '#0a7ea4'
 let found: Found[] = []
+/** 剪过的图（网页图拖进对话）：图左上角一个小标，图外一圈点线 */
+let imgs: { ids: string[]; el: HTMLImageElement }[] = []
 /** 小标和段首的字隔多少、离网页左边至少多少 */
 const GAP = 6
 const EDGE = 2
@@ -49,6 +57,7 @@ function ensure() {
     .mk:hover{background:color-mix(in srgb, var(--c) 20%, #fff)}
     .mk svg{width:12px;height:12px;flex:none}
     .flash{position:absolute;border-radius:3px;transition:opacity .4s}
+    .ib{position:absolute;border:1.5px dotted var(--c);border-radius:4px}
     .flash.out{opacity:0}
   </style><div class="layer"></div>`
   layer = root.querySelector('.layer')
@@ -59,17 +68,34 @@ function ensure() {
   document.documentElement.appendChild(host)
 }
 
-/** 每一条在网页里是哪一段、哪几句；同一段的几条合成一个小标 */
-function find() {
+let findSeq = 0
+/** 每一条在网页里是哪一段、哪几句；同一段的几条合成一个小标。先把 MathJax 3 公式的原文记到容器上（公式按原文对） */
+async function find() {
+  const seq = ++findSeq
   if (!marks.length) {
     found = []
+    imgs = []
     return draw()
   }
+  await tagMathJax()
+  if (seq !== findSeq) return
   const els = blocks(document.scrollingElement ?? document.documentElement)
   const chars = els.map(charsOf)
   const texts = chars.map((c) => c.text)
   const byEl = new Map<HTMLElement, Found>()
+  const byImg = new Map<HTMLImageElement, string[]>()
+  const pics = marks.some((m) => m.img) ? Array.from(document.images).map((el) => ({ el, key: normText(figCaption(el) || el.alt || el.title || '') })) : []
   for (const m of marks) {
+    if (m.img) {
+      const text = normText(m.text)
+      const quote = normText(m.quote).replace(/…$/, '')
+      const pic = pics.find((p) => p.key && ((text && p.key.startsWith(text)) || (quote && p.key.startsWith(quote))))
+      if (pic) {
+        byImg.set(pic.el, [...(byImg.get(pic.el) ?? []), m.id])
+        continue
+      }
+      // 认不回那张图（图换了地方、图注改了）：照图注的字标那段图注
+    }
     let hit: ReturnType<typeof findQuote> = null
     for (const q of [m.quote, m.text]) if (q.trim() && (hit = findQuote(texts, q))) break
     if (!hit) continue
@@ -81,6 +107,7 @@ function find() {
     byEl.set(el, f)
   }
   found = [...byEl.values()]
+  imgs = [...byImg].map(([el, ids]) => ({ el, ids }))
   unyield(new Set(found.map((f) => f.el)))
   draw()
 }
@@ -102,6 +129,12 @@ function unyield(keep: Set<HTMLElement>) {
 function place(b: HTMLElement, f: Found, first: DOMRect): boolean {
   const w = b.offsetWidth
   const h = b.offsetHeight
+  // 单独一行的公式：不让位（加了左内边距公式右头会被切掉），小标放在公式左上角上面的空里（公式上下本来留着一行的空）
+  if (mathRoot(f.el) === f.el) {
+    b.style.left = `${Math.max(EDGE, first.left)}px`
+    b.style.top = `${first.top - h - 2}px`
+    return false
+  }
   const cs = getComputedStyle(f.el)
   const er = f.el.getBoundingClientRect()
   const was = yielded.get(f.el)
@@ -151,8 +184,69 @@ function shown(el: HTMLElement, r: DOMRect): boolean {
   return !hit || hit === el || el.contains(hit) || hit.contains(el) || !!host?.contains(hit)
 }
 
+/**
+ * 这几句一行一个框（点线、亮的那块照它画）。range.getClientRects 会把公式里每个藏着的 MathML 字也算一个框，
+ * 带行内公式的那一行叠出好几层点线（下标那截低 6px、贴到下一行）：这里字只算公式外面的，公式整个算一个框
+ * （单独一行的公式只算画出来的那块，不算整栏宽），同一行的并成一个，底边取这一行字（按宽度最多的那个底边）
+ */
+function lineRects(range: Range): DOMRect[] {
+  const rects: { r: DOMRect; text: boolean }[] = []
+  const root = range.commonAncestorContainer
+  const top = root.nodeType === Node.ELEMENT_NODE ? (root as Element) : root.parentElement
+  const outer = top ? mathRoot(top) : null
+  if (outer) {
+    const shown = outer.querySelector(':scope > mjx-math') ?? outer
+    for (const r of Array.from(shown.getClientRects())) rects.push({ r, text: false })
+  } else if (top) {
+    const done = new Set<Element>()
+    const walker = document.createTreeWalker(top, NodeFilter.SHOW_TEXT)
+    for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+      if (!range.intersectsNode(n)) continue
+      const m = n.parentElement ? mathRoot(n.parentElement) : null
+      if (m) {
+        if (done.has(m)) continue
+        done.add(m)
+        const shown = m.querySelector(':scope > mjx-math') ?? m
+        for (const r of Array.from(shown.getClientRects())) rects.push({ r, text: false })
+        continue
+      }
+      const sub = document.createRange()
+      sub.setStart(n, n === range.startContainer ? range.startOffset : 0)
+      sub.setEnd(n, n === range.endContainer ? range.endOffset : n.data.length)
+      for (const r of Array.from(sub.getClientRects())) rects.push({ r, text: true })
+    }
+    // MathJax 3 的公式里没有能看见的字（画在 ::before 里）：上面按字走碰不到，按元素再找一遍
+    for (const m of Array.from(top.querySelectorAll('mjx-container'))) {
+      if (done.has(m) || mathRoot(m) !== m || !range.intersectsNode(m)) continue
+      done.add(m)
+      const shown = m.querySelector(':scope > mjx-math') ?? m
+      for (const r of Array.from(shown.getClientRects())) rects.push({ r, text: false })
+    }
+  }
+  const lines: { l: number; r: number; t: number; b: number; bottoms: Map<number, number> }[] = []
+  for (const { r, text } of rects.sort((a, b) => a.r.top - b.r.top)) {
+    if (r.width < 1 || r.height < 1) continue
+    // 竖着和这一行重叠过半（下标、上标也算这一行）
+    const line = lines.find((x) => Math.min(x.b, r.bottom) - Math.max(x.t, r.top) >= Math.min(r.height, x.b - x.t) / 2)
+    const key = Math.round(r.bottom)
+    if (!line) {
+      lines.push({ l: r.left, r: r.right, t: r.top, b: r.bottom, bottoms: new Map(text ? [[key, r.width]] : []) })
+      continue
+    }
+    line.l = Math.min(line.l, r.left)
+    line.r = Math.max(line.r, r.right)
+    line.t = Math.min(line.t, r.top)
+    line.b = Math.max(line.b, r.bottom)
+    if (text) line.bottoms.set(key, (line.bottoms.get(key) ?? 0) + r.width)
+  }
+  return lines.map((x) => {
+    const base = [...x.bottoms].sort((a, b) => b[1] - a[1])[0]?.[0] ?? x.b
+    return new DOMRect(x.l, x.t, x.r - x.l, base - x.t)
+  })
+}
+
 function paint() {
-  if (!found.length && !flashes.length) {
+  if (!found.length && !flashes.length && !imgs.length) {
     layer?.replaceChildren()
     unyield(new Set())
     return
@@ -169,13 +263,13 @@ function paint() {
     const er = f.el.getBoundingClientRect()
     if (er.bottom < 0 || er.top > innerHeight || !er.width) continue
     for (const r of f.ranges)
-      for (const line of Array.from(r.getClientRects())) {
+      for (const line of lineRects(r)) {
         if (line.width < 1 || !shown(f.el, line)) continue
         const u = box('u')
         u.style.cssText = `left:${line.left}px;top:${line.bottom - 1}px;width:${line.width}px`
         out.push(u)
       }
-    const first = f.ranges[0]?.getClientRects()[0] ?? er
+    const first = (f.ranges[0] && lineRects(f.ranges[0])[0]) || er
     // 小标跟着那几句的第一行；第一行被盖住（滚到网页钉着的头下面）就不画
     if (!shown(f.el, first)) continue
     const b = document.createElement('button')
@@ -188,15 +282,38 @@ function paint() {
     badges.push([b, f, first])
     out.push(b)
   }
+  // 剪过的图：图外一圈点线，小标挂在点线框外面的右上角（不盖图）；右边放不下才放进图的左上角
+  const pinned: [HTMLElement, DOMRect][] = []
+  for (const g of imgs) {
+    const r = g.el.getBoundingClientRect()
+    if (r.width < 8 || r.height < 8 || !shown(g.el, r)) continue
+    const o = box('ib')
+    o.style.cssText = `left:${r.left - 3}px;top:${r.top - 3}px;width:${r.width + 6}px;height:${r.height + 6}px`
+    const b = document.createElement('button')
+    b.className = 'mk'
+    b.type = 'button'
+    b.dataset.ids = g.ids.join('\n')
+    b.dataset.img = ''
+    b.setAttribute('aria-label', `这张图剪过 ${g.ids.length} 次，点了在笔记里看`)
+    b.title = '这张图剪过，点了在笔记里看'
+    b.innerHTML = `${COMMENT}<span>${g.ids.length}</span>`
+    out.push(o, b)
+    pinned.push([b, r])
+  }
   const now = Date.now()
   flashes = flashes.filter((f) => now - f.at < 2100)
   for (const f of flashes)
-    for (const line of Array.from(f.range.getClientRects())) {
+    for (const line of lineRects(f.range)) {
       const d = box('flash' + (now - f.at > 1600 ? ' out' : ''))
       d.style.cssText = `left:${line.left - 2}px;top:${line.top}px;width:${line.width + 4}px;height:${line.height}px;background:${f.color}`
       out.push(d)
     }
   layer!.replaceChildren(...out)
+  for (const [b, r] of pinned) {
+    const outside = r.right + 9 + b.offsetWidth <= innerWidth - EDGE
+    b.style.left = `${outside ? r.right + 9 : r.left + 6}px`
+    b.style.top = `${outside ? r.top - 3 : r.top + 6}px`
+  }
   let moved = false
   for (const [b, f, first] of badges) moved = place(b, f, first) || moved
   // 有一段刚让了位：点线、小标照挪过以后的字再画一遍
@@ -214,12 +331,12 @@ export function flashRange(range: Range, c: string) {
 
 if (isPage) {
   ipcRenderer.on('cn:marks', (_e, m: { marks?: unknown; color?: unknown }) => {
-    marks = Array.isArray(m?.marks) ? (m.marks as MarkReq[]).filter((x) => x && typeof x.id === 'string' && typeof x.quote === 'string' && typeof x.text === 'string') : []
+    marks = Array.isArray(m?.marks) ? (m.marks as MarkReq[]).filter((x) => x && typeof x.id === 'string' && typeof x.quote === 'string' && typeof x.text === 'string').map((x) => ({ id: x.id, quote: x.quote, text: x.text, ...(x.img === true ? { img: true } : {}) })) : []
     if (typeof m?.color === 'string') color = m.color
-    find()
+    void find()
   })
-  window.addEventListener('scroll', () => (found.length || flashes.length) && draw(), { capture: true, passive: true })
-  window.addEventListener('resize', () => (found.length || flashes.length) && draw())
+  window.addEventListener('scroll', () => (found.length || flashes.length || imgs.length) && draw(), { capture: true, passive: true })
+  window.addEventListener('resize', () => (found.length || flashes.length || imgs.length) && draw())
   // 网页的字变了（后加载的正文、展开收起）：重新找（半秒里攒着一次找）
   let again: ReturnType<typeof setTimeout> | undefined
   const watch = () =>

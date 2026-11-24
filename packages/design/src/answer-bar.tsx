@@ -57,8 +57,10 @@ export interface AnswerBarProps {
   replies?: readonly AbReply[]
   /** 收进 ⋯ 的快捷回复 */
   moreReplies?: readonly AbReply[]
-  /** ⋯ 最下面那一行（调整这一排…） */
+  /** ⋯ 「调整这一排…」那一行 */
   adjust?: AbMenuItem
+  /** ⋯ 最下面那一组（分隔线下面，画布笔记放「存进收件箱」） */
+  tail?: readonly AbMenuItem[]
   /** 'logo' 画的那一家的标志（快捷回复第一颗、再问一次） */
   logo?: ReactNode
   text: {
@@ -250,6 +252,10 @@ export function AnswerBar(p: AnswerBarProps) {
               <MenuRow it={p.adjust} logo={p.logo} close={close} />
             </>
           )}
+          {(p.tail ?? []).length > 0 && <div className="cn-ab-hr" />}
+          {(p.tail ?? []).map((it) => (
+            <MenuRow key={it.id} it={it} logo={p.logo} close={close} />
+          ))}
         </AbMenu>
       )}
     </div>
@@ -281,6 +287,15 @@ function MenuRow({ it, logo, close, reply }: { it: AbMenuItem | AbReply; logo?: 
   )
 }
 
+/** ⋯ 自己或它外面几层藏起来了（透明、visibility hidden、display none） */
+function anchorHidden(el: HTMLElement): boolean {
+  for (let n: HTMLElement | null = el, i = 0; n && i < 8; n = n.parentElement, i++) {
+    const cs = getComputedStyle(n)
+    if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) return true
+  }
+  return false
+}
+
 /** ⋯ 弹出来的菜单：挂在 body 上，右边和 ⋯ 对齐不出窗口，下面放不下翻到上面；Esc、点别处关上；↑↓ 走行 */
 export function AbMenu(p: { anchor: HTMLElement; label: string; onClose(): void; children: ReactNode; className?: string }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -299,8 +314,30 @@ export function AbMenu(p: { anchor: HTMLElement; label: string; onClose(): void;
     place()
     const ro = new ResizeObserver(place)
     ro.observe(el)
-    return () => ro.disconnect()
+    // 对话滚动、窗口变大小：跟着 ⋯ 走（以前弹出来就钉在原处，那排滚走了菜单还挂在输入框上面，task-eavzx r100）
+    addEventListener('scroll', place, true)
+    addEventListener('resize', place)
+    return () => {
+      ro.disconnect()
+      removeEventListener('scroll', place, true)
+      removeEventListener('resize', place)
+    }
   }, [p.anchor])
+  // 那排藏了（⋯ 看不见了、滚出了对话、整条没了），菜单一起关：菜单不单独挂着
+  const onClose = p.onClose
+  useEffect(() => {
+    const io = new IntersectionObserver(([e]) => {
+      if (!e!.isIntersecting) onClose()
+    })
+    io.observe(p.anchor)
+    const tick = setInterval(() => {
+      if (!p.anchor.isConnected || anchorHidden(p.anchor)) onClose()
+    }, 200)
+    return () => {
+      io.disconnect()
+      clearInterval(tick)
+    }
+  }, [p.anchor, onClose])
   useEffect(() => {
     const down = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node) && !p.anchor.contains(e.target as Node)) p.onClose()

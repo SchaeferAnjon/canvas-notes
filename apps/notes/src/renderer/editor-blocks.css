@@ -618,6 +618,16 @@
   object-fit: cover;
   border-radius: 10px;
 }
+/* 属性 › 附件里点了这张跳过来：外圈亮一下（同白板卡飞过来的那一圈，doc-board.css db-landed） */
+.doc .cm-image img.flown {
+  animation: cm-img-landed 2.2s ease-out;
+}
+@keyframes cm-img-landed {
+  0%,
+  80% {
+    box-shadow: 0 0 0 2px var(--acc), 0 0 0 6px var(--acc-soft);
+  }
+}
 /* 配对笔记里「我框的」图（task-yp8l7）：照框在 PDF 上 100% 的宽、整块不裁（白底、1px 线，和右栏笔记一样），点了回 PDF */
 .doc .cm-image img.jump {
   width: auto;

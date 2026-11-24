@@ -3,10 +3,14 @@ import { count, type Table } from '../core'
 
 export const AI: Table = {
   // ---------- 输入框（renderer/composer.tsx、shared/materials.ts） ----------
+  回到网页里这一段: 'Back to this passage on the page',
   '最多{n}块': (p) => `Up to ${count(p.n, 'item')}`,
   '最多{n}张': (p) => `Up to ${count(p.n, 'image')}`,
   粘贴的图: 'Pasted image',
   这张图讲的是什么: 'What’s in this image?',
+  '这张图没附上：{why}': 'Couldn’t attach the image: {why}',
+  松手附上这张图: 'Drop to attach this image',
+  网页上的图: 'Image from the web',
   '{count} · 字里的 ①② 是它们的位置': '{count} · ①② in the text mark where they go',
   '{n}段引用': (p) => count(p.n, 'quote'),
   引用的材料不对: 'The quoted material isn’t valid',
@@ -66,6 +70,8 @@ export const AI: Table = {
   最近在别处问的: 'Recent elsewhere',
   '这是在「{name}」问的': 'Asked in “{name}”',
   '回到「{name}」': 'Back to “{name}”',
+  '留在这个对话': 'Stay in this chat',
+  '这段放进输入框了，回车问': 'Added to the box. Press Return to ask',
   看得到: 'Can see',
   '选中的{n}个': (p) => `${p.n} selected`,
 

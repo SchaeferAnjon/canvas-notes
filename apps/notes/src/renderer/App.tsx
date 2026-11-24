@@ -17,6 +17,8 @@ import { expectDreamChange } from './dream/own-change'
 import { dreamPaths, pendingOf, useDream } from './dream/useDream'
 import { ActivityBar, type BarItem, MenuItem, Popover, TitleBar, Tooltips } from './shell/Shell'
 import { DockFrame, gridTracks, startCenterColDrag } from './shell/Dock'
+import { layoutSig, liveMax, maxColumns, parseMax, type Max } from './shell/max'
+import { MaxButton, MaxHint } from './shell/MaxButton'
 import * as Dk from '../shared/dock'
 import { StatusBar } from './shell/StatusBar'
 import { BellItem, logNotice, TranslateItem } from './shell/StatusExtras'
@@ -74,7 +76,9 @@ import { DRAG_DIR, draggedFolder } from './files/FileTree'
 import { leftConfig } from './files/left-store'
 import { usePluginCommands, usePluginEntries } from './plugins'
 import { loadCmds, noteUsed, setRegistry, useCmds } from './search/cmd-store'
-import { accelFor, keyFor, replayAppKey, runAppKey, runLocal, setAppRunner, withKeys } from './keys'
+import { accelFor, keyFor, PaneFocus, replayAppKey, runAppKey, runLocal, setAppRunner, WEB_ESC, withKeys } from './keys'
+import * as Sp from '../shared/center-split'
+import { SplitSash, type SplitDrop, useTabDrag } from './shell/CenterSplit'
 import { runFindInPage } from './find/find-hub'
 import { keyDef } from '../shared/cmd-table'
 import type { OwnCommand } from '../shared/commands'
@@ -94,7 +98,8 @@ import { loadTabs, newId, retargetTabs, saveTabs, type Tab, tabsOutside } from '
 import { CLIP_PAGE_EVENT, hostOf, WebPanel, type WebDeskApi } from './WebPanel'
 import { WebNotes } from './web-notes/WebNotes'
 import { WhereHost } from './web-notes/Where'
-import { anchorOf, CLIPPED, clipWeb, ensureAsk, pickTarget, setWebNotesHost } from './web-notes/flow'
+import { anchorOf, boxIntoConvo, CLIPPED, clipWeb, ensureAsk, type NoticeAct, pickTarget, setWebNotesHost } from './web-notes/flow'
+import { convoFor } from './ai-web-stay'
 import { FullChip } from './web/FullChip'
 import { refreshWebNotes, setBridgeCenter, setMarkHandler } from './web-notes/bridge'
 import { targetOf, useTargets } from './web-notes/target'
@@ -104,8 +109,8 @@ import type { PagePos } from '../shared/read-along'
 import { type BookRequest, followNote, setReadAlongHost, unpairNote } from './read-along/pairing'
 import { ReadAlongLayer, openPairPop, unpairLabel } from './read-along/ReadAlongLayer'
 import { DeskDialogHost, DeskPanel, openDeskDialog } from './read-along/Desks'
-import { deskChanged, openDesk, setDeskHost } from './read-along/desk-ops'
-import { flushPositions, loadDesks, loadPositions, noteCoOpen, notesOfUrl, pairOf, rightPage, setPairNotes, useDesks, usePairs } from './read-along/store'
+import { backToBefore, deskChanged, openDesk, quietAway, setDeskHost } from './read-along/desk-ops'
+import { awayNow, flushPositions, loadAway, loadDesks, loadPositions, noteCoOpen, notesOfUrl, pairOf, rightPage, setPairNotes, useAway, useDesks, usePairs } from './read-along/store'
 import { WebTab } from './web/WebTab'
 import { CaptureHost } from './mindmap/CaptureSheet'
 import { captureHere } from './mindmap/place'
@@ -260,6 +265,45 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const home: Tab = { id: newId(), type: 'home' }
     return { tabs: [home], active: home.id }
   })
+  /**
+   * 中间栏分屏（照 VS Code、Obsidian，规则 design/split/README.md）：标签还是上面那一串，这里记哪些在第二格、
+   * 不是当前格的那一格前面是哪个、分隔条在几成；记在本机（cn.split:<库>），关了再开照旧。当前格前面的就是 active
+   */
+  const splitKey = `cn.split:${vault.path}`
+  const [split, setSplitState] = useState<Sp.Split | null>(() => {
+    if (!appSettings().general.reopen) return null
+    let raw: string | null = null
+    try {
+      raw = localStorage.getItem(splitKey)
+    } catch {
+      // 本机存储打不开：从一格开始
+    }
+    const s = Sp.parseSplit(raw)
+    const ids = tabs.map((t) => t.id)
+    return Sp.settle(s, ids, active, { ids, active, focus: Sp.paneOf(s, active) })
+  })
+  const splitNow = useRef(split)
+  const setSplit = (s: Sp.Split | null) => {
+    splitNow.current = s
+    setSplitState(s)
+  }
+  /** 上一次对上时的标签、当前标签、当前格：新开的标签落在哪一格、换格时另一格前面换成哪个 */
+  const splitPrev = useRef<Sp.Prev>({ ids: tabs.map((t) => t.id), active, focus: Sp.paneOf(split, active) })
+  useLayoutEffect(() => {
+    const ids = tabs.map((t) => t.id)
+    const next = Sp.settle(splitNow.current, ids, active, splitPrev.current)
+    splitPrev.current = { ids, active, focus: Sp.paneOf(next, active) }
+    if (next !== splitNow.current) setSplit(next)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs, active, split])
+  useEffect(() => {
+    try {
+      if (split) localStorage.setItem(splitKey, JSON.stringify(split))
+      else localStorage.removeItem(splitKey)
+    } catch {
+      // 记不住只影响下次打开
+    }
+  }, [split, splitKey])
   /** 重开软件时恢复的宽网页标签：点开才载入，视频不自己播（task-0t4jq） */
   const [restoredWeb] = useState(() => new Set(tabs.filter((t) => t.type === 'web').map((t) => t.id)))
   /**
@@ -325,35 +369,34 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     }
   }, [sidebarHidden])
   /**
-   * 中间栏收起来（task-kbnc0，用户 2026-11-22：读网页时收起中间栏、摘录照写）：右栏网页开着时才算数，网页那一栏占满；
-   * 中间那篇还开着（看不见），网页上剪的、记下这一刻、框一块问照样写进它。记在本机；左栏点一篇、再按一次就还原。
-   * task-05p2w 方向 A 起叫「网页占满 / 还原」：标题栏那颗、⌃⌘\、网页 ⋯ 是同一个开关（toggleFold）
+   * 每一栏都能占满（shell/max.ts，用户 2026-11-24「每个框都能占满」）：中间那栏或其中一格、右边一组、浮窗盖住整个窗口，别的栏原地看不见。
+   * 网页那一组占满时就是以前的「网页占满」（task-kbnc0、task-05p2w）：中间那篇还开着（看不见），网页上剪的、记下这一刻、框一块问照样写进它。
+   * 各栏标签条右边那颗、⌃⌘\（当前这栏）、双击标签条空处、网页 ⋯ 是同一个开关（toggleMax）；记在本机（以前的 cn.centerFold 当网页占满接着用）
    */
-  const [centerFold, setCenterFold] = useState(() => {
+  const [max, setMax] = useState<Max | null>(() => {
     try {
-      return localStorage.getItem('cn.centerFold') === '1'
+      return parseMax(localStorage.getItem('cn.max')) ?? (localStorage.getItem('cn.centerFold') === '1' ? { kind: 'web' } : null)
     } catch {
-      return false
+      return null
     }
   })
   useEffect(() => {
     try {
-      localStorage.setItem('cn.centerFold', centerFold ? '1' : '0')
+      localStorage.setItem('cn.max', JSON.stringify(max))
+      localStorage.removeItem('cn.centerFold')
     } catch {
       // 记不住只影响下次打开
     }
-  }, [centerFold])
+  }, [max])
+  /** 中间那栏让给了右边一组（还没对上布局，先这么算：网页的笔记目标不选看不见的那篇） */
+  const centerFold = !!max && max.kind !== 'center'
+  /** 中间要看得见（左栏点一篇、开生长图、看一眼）：右边一组占满着就回原样；中间自己占满不动 */
+  const showCenter = () => setMax((m) => (m && m.kind !== 'center' ? null : m))
   /** 网页占满时（task-05p2w 方向 A）：地址栏小牌里选了「这一阵剪进收件箱」、占满以后剪了几条；还原就清掉 */
   const [fullInbox, setFullInbox] = useState(false)
   const [fullCount, setFullCount] = useState(0)
   /** 占满时在小牌里「换一篇…」选的那篇（这一阵剪进它，配对、选过的都不管） */
   const [fullPick, setFullPick] = useState<string | null>(null)
-  useEffect(() => {
-    if (centerFold) return
-    setFullInbox(false)
-    setFullCount(0)
-    setFullPick(null)
-  }, [centerFold])
   /** 左边图标栏选中的那一页，记在本机；默认「最近」 */
   const [leftView, setLeftViewState] = useState<SideView>(() => {
     try {
@@ -375,6 +418,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     void loadLeft()
     void loadPositions()
     void loadDesks()
+    loadAway(vault.path)
     void loadDescs()
     void loadCmds()
     return window.cn.onFilesChanged(() => (void loadLeft(), void loadDescs(), void loadCmds(), void loadPositions(), void loadDesks()))
@@ -420,6 +464,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const [git, setGit] = useState<GitState | null>(null)
   /** 标签条右端：每页自己的动作挂在这里（shell/TabActs） */
   const [actsEl, setActsEl] = useState<HTMLDivElement | null>(null)
+  /** 中间栏分成两格时第二格标签条右端的动作（中间栏分屏） */
+  const [acts2El, setActs2El] = useState<HTMLDivElement | null>(null)
   /** 正在标签上改名的那个标签（双击标签、F2、面包屑最后一节、「更多 › 改名」） */
   const [renaming, setRenaming] = useState<string | null>(null)
   /** AI 对话用的是哪家：右下角圆钮、A 底栏那一项画它的标志、写它的名字（设置里一换当场跟着换，CN-127） */
@@ -464,6 +510,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const [noticeIcon, setNoticeIcon] = useState<{ text: string; icon: CodiconName; ok?: boolean } | null>(null)
   /** 提示后面带的别的按钮（撤回失败后的「在历史里看」）：也只跟着那一句 */
   const [noticeAct, setNoticeAct] = useState<{ text: string; label: string; icon: CodiconName; run(): void } | null>(null)
+  /** 那句话后面的第二颗按钮（「这段已经剪过了 · 跳到那一处 · 再剪一份」） */
+  const [noticeMore, setNoticeMore] = useState<{ text: string; label: string; icon: CodiconName; run(): void } | null>(null)
   /** 出卡送好了（task-tz7y3）：提示条前面绿色对勾，带「打开Anki」「撤回」 */
   const cardsToast = (t: { text: string; act?: { label: string; run(): void }; undo?: () => void }) => {
     setNotice(t.text)
@@ -768,6 +816,28 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       window.removeEventListener('keydown', onKey, true)
     }
   }, [undoable, notice])
+  /** 点了书桌、换了一整套（底栏「已切到书桌「…」· 回到刚才」那句在）：焦点不在文档、输入框里时 ⌘Z 就是回到刚才；提示条自己带「撤回」时让给它 */
+  const away = useAway()
+  const awayKeyOn = !!away && !away.quiet && !(undoable && !noticeUndo?.noKey)
+  useEffect(() => {
+    if (!awayKeyOn) return
+    // 换上来的那篇光标在里面、还没打字：⌘Z 也是回到刚才（同提示条的撤回）；打过字就是撤字
+    let typed = false
+    const onInput = (e: Event) => {
+      if ((e.target as HTMLElement | null)?.closest?.('.cm-editor')) typed = true
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.metaKey || e.shiftKey || e.altKey || e.ctrlKey || e.key.toLowerCase() !== 'z' || e.defaultPrevented) return
+      const target = e.target as HTMLElement | null
+      if (target?.closest?.('.cm-editor') ? typed : target?.closest?.('input, textarea, [contenteditable="true"], main.center')) return
+      e.preventDefault()
+      e.stopPropagation()
+      backToBefore()
+    }
+    window.addEventListener('beforeinput', onInput, true)
+    window.addEventListener('keydown', onKey, true)
+    return () => (window.removeEventListener('beforeinput', onInput, true), window.removeEventListener('keydown', onKey, true))
+  }, [awayKeyOn, away])
 
   /** 现在的标签（监听回调里读，不跟着重挂） */
   const tabsNow = useRef(tabs)
@@ -777,7 +847,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
 
   const open = useCallback((match: (t: Tab) => boolean, make: () => Tab) => {
     setTabState((s) => {
-      const found = s.tabs.find(match)
+      // 分成两格时只在当前格里找：另一格开着同一篇，也在当前格再开一个（照 VS Code、Obsidian，左栏点的落在当前格）
+      const here = Sp.paneOf(splitNow.current, s.active)
+      const found = s.tabs.find((t) => match(t) && Sp.paneOf(splitNow.current, t.id) === here)
       if (found) return { ...s, active: found.id }
       const t = make()
       return { tabs: [...s.tabs, t], active: t.id }
@@ -793,7 +865,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         () => ({ id: newId(), type: 'note', path, fresh }),
       )
       // 中间栏收着：点一篇就展开（task-kbnc0）
-      setCenterFold(false)
+      showCenter()
       // 和网页配成一对的：网页跟着在右栏开到上次读到的那段（task-kbnc0 方向 A）；右键「只打开笔记，网页不跟着开」不跟
       if (!fresh && !noWeb) followNote(path)
     },
@@ -938,20 +1010,37 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   /** 整页日历（task-kzr3n）：只开一个「日历」标签 */
   const openCalendar = () => open((t) => t.type === 'calendar', () => ({ id: newId(), type: 'calendar' }))
   /** 生长图（task-h7oy8）：中间开「生长」标签（开着就换过去） */
-  const openGrowth = () => (open((t) => t.type === 'growth', () => ({ id: newId(), type: 'growth' })), setCenterFold(false))
+  const openGrowth = () => (open((t) => t.type === 'growth', () => ({ id: newId(), type: 'growth' })), showCenter())
   /** 左栏「最近删掉的」点了一条：中间开「最近删掉的」标签看它删掉前的样子 */
   const showTrashItem = (it: TrashItem | 'orphans') => (pickTrash(it), open((t) => t.type === 'trash', () => ({ id: newId(), type: 'trash' })))
   const openArchive = () => open((t) => t.type === 'archive', () => ({ id: newId(), type: 'archive' }))
 
   /** 标签右键（DESIGN.v3 9.2）：关闭这几种、改名、在访达中显示、拷贝路径、网页移到右栏 */
   function tabMenu(t: Tab): MenuEntry[] {
-    const i = tabs.findIndex((x) => x.id === t.id)
+    // 分成两格时「关闭其他 / 右侧 / 全部」只管这个标签所在的那一格（照 VS Code）；关空了合回一格
+    const p = Sp.paneOf(split, t.id)
+    const mine = tabs.filter((x) => Sp.paneOf(split, x.id) === p)
+    const i = mine.findIndex((x) => x.id === t.id)
+    const drop = (gone: Tab[], keep: string) => {
+      leaveTabs(gone)
+      const ids = new Set(gone.map((x) => x.id))
+      setTabState((s) => ({ tabs: s.tabs.filter((x) => !ids.has(x.id)), active: ids.has(s.active ?? '') ? keep : s.active }))
+    }
     const path = 'path' in t ? t.path : null
     return [
       { label: tNow('关闭'), accel: accelFor('close'), run: () => closeByUser(t.id) },
-      { label: tNow('关闭其他'), enabled: tabs.length > 1, run: () => (leaveTabs(tabs.filter((x) => x.id !== t.id)), setTabState({ tabs: tabs.filter((x) => x.id === t.id), active: t.id })) },
-      { label: tNow('关闭右侧'), enabled: i < tabs.length - 1, run: () => (leaveTabs(tabs.slice(i + 1)), setTabState((s) => ({ tabs: s.tabs.slice(0, i + 1), active: s.tabs.slice(0, i + 1).some((x) => x.id === s.active) ? s.active : t.id }))) },
-      { label: tNow('关闭全部'), run: () => (leaveTabs(tabs), setTabState({ tabs: [], active: null })) },
+      { label: tNow('关闭其他'), enabled: mine.length > 1, run: () => drop(mine.filter((x) => x.id !== t.id), t.id) },
+      { label: tNow('关闭右侧'), enabled: i < mine.length - 1, run: () => drop(mine.slice(i + 1), t.id) },
+      split
+        ? { label: tNow('关闭这一格'), run: () => drop(mine, split.other) }
+        : { label: tNow('关闭全部'), run: () => (leaveTabs(tabs), setTabState({ tabs: [], active: null })) },
+      '-',
+      !split && { label: tNow('向右分屏'), accel: accelFor('split-center'), run: () => splitCopyOf(t, 'row') },
+      !split && { label: tNow('向下分屏'), run: () => splitCopyOf(t, 'col') },
+      split && { label: split.dir === 'row' ? (p === 0 ? tNow('挪到右边那一格') : tNow('挪到左边那一格')) : p === 0 ? tNow('挪到下面那一格') : tNow('挪到上面那一格'), run: () => moveTabTo(t.id, p === 0 ? 1 : 0, null) },
+      split && { label: tNow('合成一格'), accel: accelFor('split-center'), run: () => setSplit(null) },
+      // 占满（每一栏都能占满）：中间窄到标签条右端那颗收起时也找得到
+      { label: maxNow ? tNow('还原') : split ? tNow('占满这一格') : tNow('占满这一栏'), accel: accelFor('fold-center'), run: () => toggleMax({ kind: 'center', pane: p }) },
       '-',
       canRenameTab(t) && { label: tNow('重命名'), accel: accelFor('rename'), run: () => setRenaming(t.id) },
       path && { label: tNow('在访达中显示'), run: () => window.cnMenu.reveal(path) },
@@ -960,6 +1049,91 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     ]
   }
 
+  // ---- 中间栏分屏（shared/center-split.ts，shell/CenterSplit.tsx）
+  /** 照着这个标签复制一个放到右边 / 下面成一格，焦点到新的那格（快捷键、右键「向右分屏」，照 VS Code 的「Split Editor」） */
+  function splitCopyOf(t: Tab, dir: Sp.SplitDir) {
+    if (splitNow.current) return
+    const copy = { ...t, id: newId(), ...(t.type === 'note' || t.type === 'folder' ? { fresh: false } : {}) } as Tab
+    const r = Sp.splitCopy(t.id, copy.id, dir)
+    setSplit(r.split)
+    setTabState((s) => {
+      const i = s.tabs.findIndex((x) => x.id === t.id)
+      return { tabs: [...s.tabs.slice(0, i + 1), copy, ...s.tabs.slice(i + 1)], active: r.active }
+    })
+  }
+  /** 把一个标签挪到第 to 格、排在 before 前面（拖到标签条上、拖到另一格、右键「挪到…那一格」）；它成了当前标签 */
+  function moveTabTo(id: string, to: Sp.PaneNo, before: string | null) {
+    const r = Sp.moveTab(tabsNow.current.map((t) => t.id), splitNow.current, id, to, before)
+    setSplit(r.split)
+    setTabState((s) => {
+      const by = new Map(s.tabs.map((t) => [t.id, t]))
+      return { tabs: r.ids.map((i) => by.get(i)).filter((t): t is Tab => !!t), active: id }
+    })
+  }
+  /** 换当前格：另一格前面那个成了当前标签（点进另一格的内容、⌘1 / ⌘2） */
+  function goPane(p: Sp.PaneNo, moveFocus = false) {
+    const s = splitNow.current
+    if (!s || Sp.paneOf(s, activeNow.current) === p) return
+    setTabState((x) => ({ ...x, active: s.other }))
+    setSettingsFront(false)
+    // 按键换格（⌘1 / ⌘2）：键盘焦点也跟过去，不然接着打的字还进原来那格的编辑器
+    if (moveFocus)
+      requestAnimationFrame(() => {
+        const slot = centerRef.current?.querySelector<HTMLElement>(`:scope > .cslot[data-pane="${p}"]:not([hidden])`)
+        const ed = slot?.querySelector<HTMLElement>('.cm-content')
+        if (ed && ed.offsetParent) ed.focus()
+        else if (slot && !slot.contains(document.activeElement)) (document.activeElement as HTMLElement | null)?.blur?.()
+      })
+  }
+  /**
+   * 对照看（中间栏分屏，用户：「同一个文档也想对照着看」）：笔记标签条上那颗、⌥ 点「白板」。另一格（没分屏就分出右边那格）
+   * 用白板开同一篇，同一份字；焦点留在原来这一格接着打。另一格正开着这一篇时再点：那一份关掉、合回一格
+   */
+  function toggleCompare(t: Extract<Tab, { type: 'note' }>) {
+    const s = splitNow.current
+    const mine = Sp.paneOf(s, t.id)
+    const there = s ? tabsNow.current.find((x) => x.id === (Sp.paneOf(s, activeNow.current) === mine ? s.other : activeNow.current)) : null
+    if (s && there?.type === 'note' && there.path === t.path) {
+      leaveTabs([there])
+      setSplit(null)
+      setTabState((x) => ({ tabs: x.tabs.filter((y) => y.id !== there.id), active: t.id }))
+      return
+    }
+    const copy: Tab = { id: newId(), type: 'note', path: t.path, view: 'board' }
+    const to: Sp.PaneNo = s ? (mine === 0 ? 1 : 0) : 1
+    const second = s ? (to === 1 ? [...s.second, copy.id] : s.second) : [copy.id]
+    // 新开的这一份落在另一格，不按「落在当前格」那条规矩算：先当它已经在了
+    splitPrev.current = { ...splitPrev.current, ids: [...splitPrev.current.ids, copy.id] }
+    setSplit({ dir: s?.dir ?? 'row', ratio: s?.ratio ?? 0.5, second, other: copy.id })
+    setTabState((x) => {
+      const i = x.tabs.findIndex((y) => y.id === t.id)
+      return { tabs: [...x.tabs.slice(0, i + 1), copy, ...x.tabs.slice(i + 1)], active: t.id }
+    })
+  }
+  /** 分屏 / 合成一格（快捷键）：没分屏时把当前标签复制一份到右边；分了就合回一格 */
+  function toggleSplit() {
+    if (splitNow.current) return setSplit(null)
+    const t = tabsNow.current.find((x) => x.id === activeNow.current)
+    if (t) splitCopyOf(t, 'row')
+  }
+  const tabDrag = useTabDrag(
+    () => ({
+      center: centerRef.current,
+      split: !!splitNow.current,
+      paneOf: (id) => Sp.paneOf(splitNow.current, id),
+      canSplit: () => Sp.canSplitOut(tabsNow.current.map((t) => t.id), splitNow.current),
+    }),
+    (id, d: SplitDrop) => {
+      setSettingsFront(false)
+      if (d.kind === 'strip') return moveTabTo(id, d.pane, d.before)
+      if (d.kind === 'pane') return moveTabTo(id, d.pane, null)
+      const r = Sp.splitOut(tabsNow.current.map((t) => t.id), activeNow.current, id, d.side)
+      if (!r) return
+      setSplit(r.split)
+      setTabState((s) => ({ ...s, active: r.active }))
+    },
+  )
+
   /** 中间那一页网页放回右栏（task-05p2w：这一页的「⋯」、标签右键「放回右栏」），回到原来那一组 */
   const putWebBack = (t: Extract<Tab, { type: 'web' }>) => (closeTab(t.id), openInWeb(t.url))
 
@@ -967,10 +1141,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const t = tabs.find((x) => x.id === id)
     if (t) leaveTabs([t])
     setTabState((s) => {
-      const i = s.tabs.findIndex((t) => t.id === id)
       const tabs = s.tabs.filter((t) => t.id !== id)
-      const next = s.active === id ? (tabs[Math.min(i, tabs.length - 1)]?.id ?? null) : s.active
-      return { tabs, active: next }
+      return { tabs, active: Sp.afterClose(s.tabs.map((t) => t.id), splitNow.current, s.active, id) }
     })
   }
 
@@ -987,9 +1159,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     const blank = t.type === 'note' && freshNotes.current.has(t.path) && [...NoteDoc.open].find((d) => d.path === t.path)?.view.state.doc.toString().trim() === `# ${titleOf(t.path)}`
     const left = leaveTabs([t])
     setTabState((s) => {
-      const k = s.tabs.findIndex((x) => x.id === id)
       const rest = s.tabs.filter((x) => x.id !== id)
-      return { tabs: rest, active: s.active === id ? (rest[Math.min(k, rest.length - 1)]?.id ?? null) : s.active }
+      // 分成两格时接上同一格里挨着的；这一格关空了合回一格（center-split.ts）
+      return { tabs: rest, active: Sp.afterClose(s.tabs.map((x) => x.id), splitNow.current, s.active, id) }
     })
     if (blank) return
     noticeClosed(tNow('关掉了「{name}」', { name: tabName(t) }), () =>
@@ -1179,6 +1351,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   /** 中间显示的是哪个标签：A 的设置标签在前面时谁都不显示 */
   const settingsTab = settings.appearance.frame === 'a' && settingsPage !== null
   const shown = settingsTab && settingsFront ? null : active
+  /** 中间栏分屏：当前格是第几格；另一格前面的标签；看得见的（两格前面的都算） */
+  const focusPane = Sp.paneOf(split, active)
+  const otherShown = split ? split.other : null
+  const seen = (id: string) => id === shown || id === otherShown
+  const otherTab = otherShown ? (tabs.find((t) => t.id === otherShown) ?? null) : null
   /**
    * 标签多了横着滚（照 VS Code）：换了当前标签就把它整个滚进来；标签条宽度变了（右端动作区换了内容、
    * 比如页面说明晚一步出来把标签条挤窄、窗口变窄）也再滚一次。能滚的那一侧画渐隐（.fl / .fr）。
@@ -1289,13 +1466,36 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const [centerNarrow, setCenterNarrow] = useState(false)
   /** 中间窄于 900 时页面说明最宽 140 */
   const [centerCompact, setCenterCompact] = useState(false)
+  /** 没分屏、中间窄于 440（挤到最窄 420 附近）：标签条右端那颗「占满」收起，空处留给按住拖整栏（⌃⌘\、双击空处、标签右键照样能占满） */
+  const [centerTiny, setCenterTiny] = useState(false)
+  // 左右分成两格时按窄的那一格量（中间栏分屏：两格各一条标签条，动作跟着只留图标）
+  const measureCenter = useCallback(() => {
+    const el = centerRef.current
+    if (!el) return
+    const s = splitNow.current
+    const w = s?.dir === 'row' ? el.clientWidth * Math.min(s.ratio, 1 - s.ratio) : el.clientWidth
+    setCenterNarrow(w < 640)
+    setCenterCompact(w < 900)
+    setCenterTiny(!s && w < 440)
+  }, [])
   useEffect(() => {
     const el = centerRef.current
     if (!el) return
-    const ro = new ResizeObserver(() => (setCenterNarrow(el.clientWidth < 640), setCenterCompact(el.clientWidth < 900)))
+    const ro = new ResizeObserver(measureCenter)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [])
+  }, [measureCenter])
+  useEffect(measureCenter, [split, measureCenter])
+  // 第二格的标签条：前面那个标签整个露着（第一格的走上面 syncTabs 那一套）
+  useLayoutEffect(() => {
+    const el = centerRef.current?.querySelector<HTMLElement>(':scope > .tabs.p1 .tlist')
+    const on = el?.querySelector<HTMLElement>(':scope > .tab.on')
+    if (!el || !on) return
+    const r = el.getBoundingClientRect()
+    const b = on.getBoundingClientRect()
+    if (b.left < r.left) el.scrollLeft -= r.left - b.left
+    else if (b.right > r.right) el.scrollLeft += b.right - r.right
+  })
   /** 标题栏的后退 / 前进：走过的标签，最多记 50 个；关掉的标签跳过 */
   const nav = useRef<{ list: string[]; i: number; jumping: boolean }>({ list: [], i: -1, jumping: false })
   const [, bumpNav] = useState(0)
@@ -1313,6 +1513,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     let j = n.i + d
     // 关掉的标签跳过；跳过关掉的以后又落在现在这个标签上的也跳过（不然按了后退看着像没反应）
     while (j >= 0 && j < n.list.length && (!tabs.some((t) => t.id === n.list[j]) || n.list[j] === active)) j += d
+    // 点书桌换了一整套：退到切之前就是回到刚才（原来那几个标签已经换掉了，照标签退不回去）
+    const away = awayNow()
+    if (d < 0 && away?.exact && away.navAt >= 0 && j < away.navAt) return backToBefore()
     if (j < 0 || j >= n.list.length) return
     n.i = j
     n.jumping = true
@@ -1358,23 +1561,66 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   useEffect(() => wireAuto(), [])
   /** 这个标签看得见（开着、是它那一组前面那个） */
   const vis = (v: Dk.ViewId) => Dk.isShown(dockShown, v)
-  /** 中间栏真收着：右栏网页看得见、在一栏里（浮窗不算）时才算（网页收了，中间就回来）；webCol 是占满的那一栏 */
-  const webCol = Dk.findView(dockShown, 'web')?.col?.id ?? null
-  const folded = centerFold && vis('web') && !!webCol
-  /** 右栏网页看得见、在一栏里：这时才能「网页占满」（标题栏那颗、⌃⌘\、网页「⋯」） */
-  const webInRight = vis('web') && !!webCol
-  /**
-   * 网页占满 ↔ 还原（task-05p2w 方向 A，命令表 fold-center）：网页不在右栏时什么都不记
-   * （以前在中间开成一页时按 ⌃⌘\ 悄悄记下「收起」，放回右栏时中间那篇跟着不见）
-   */
-  const toggleFold = () => setCenterFold((v) => (v ? false : webInRight))
+  /** 现在占满的是哪一栏（对上了布局：那一组收了、拖走了就不算） */
+  const maxNow = liveMax(max, dockShown, !!split)
+  /** 中间那栏让给了右边一组或浮窗：看不见、点不到，里面的东西都还在 */
+  const centerOff = maxNow?.kind === 'group'
+  /** 网页那一组占满、网页在前面（以前的「网页占满」）：剪的照样记进中间那篇，地址栏挂「记进」小牌 */
+  const folded = centerOff && Dk.findView(dockShown, 'web')?.group.id === maxNow.id && vis('web')
+  useEffect(() => {
+    if (folded) return
+    setFullInbox(false)
+    setFullCount(0)
+    setFullPick(null)
+  }, [folded])
+  /** 网页看得见（右栏一组、浮窗都算）：网页 ⋯ 里有「占满 / 还原」 */
+  const webGroup = vis('web') ? (Dk.findView(dockShown, 'web')?.group.id ?? null) : null
+  /** 当前这栏（⌃⌘\ 占满它）：右边一组、浮窗是它自己；中间、左栏是中间正在用的那一格 */
+  const maxTarget = (): Max => (livePane !== 'left' && livePane !== 'center' ? { kind: 'group', id: livePane } : { kind: 'center', pane: focusPane })
+  /** 占满 ↔ 还原：占满着时哪一颗、哪个键都是还原；中间的一格占满时那一格成当前格 */
+  const toggleMax = (m?: Max) => {
+    if (maxNow) return setMax(null)
+    const next = m ?? maxTarget()
+    if (next.kind === 'center' && split && next.pane !== focusPane) goPane(next.pane)
+    if (next.kind === 'group') setPane(next.id)
+    setMax(next)
+  }
+  // 布局变了（开了别的栏、拖了、收了右栏、开关左栏、分屏）、中间换了一篇（一组占满时）：先回原样（不在看不见的地方变）
+  const maxSig = maxNow ? [layoutSig(dock, maxNow.kind === 'group' ? maxNow.id : null), sidebarHidden, shownView, !!split, maxNow.kind === 'center' ? focusPane : active].join('|') : ''
+  const maxBase = useRef<string | null>(null)
+  useEffect(() => {
+    if (!maxNow) return void (maxBase.current = null)
+    if (maxBase.current === null) maxBase.current = maxSig
+    else if (maxBase.current !== maxSig) setMax(null)
+  }, [maxSig])
+  // 记着的占满对不上了（那一组收了）：清掉，不在下次开网页时又冒出来
+  useEffect(() => {
+    if (max && !maxNow && max.kind !== 'web') setMax(null)
+  }, [!!maxNow])
+  // Esc 回原样：焦点不在输入框、编辑器里，别处也没接这一下（白板取消选中、弹层关掉）；网页里按的由主进程看过不在表单里才转来（cn:web-esc）
+  const maxOnRef = useRef(false)
+  maxOnRef.current = !!maxNow
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || !maxOnRef.current) return
+      const a = e.target instanceof HTMLElement ? e.target : null
+      if (a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) return
+      if (document.querySelector('.shell-menu, [role="dialog"][aria-modal="true"]')) return
+      e.preventDefault()
+      setMax(null)
+    }
+    const onWeb = () => maxOnRef.current && setMax(null)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener(WEB_ESC, onWeb)
+    return () => (window.removeEventListener('keydown', onKey), window.removeEventListener(WEB_ESC, onWeb))
+  }, [])
   /** 占满时中间那篇（看不见；文档看法才算，白板、首页是 null）：剪的、问的照样记进它 */
   const foldNote = folded && activeTab?.type === 'note' && activeMode !== 'board' ? activeTab.path : null
   // 网页离开右栏（开成中间的一页、关掉、浮起来）：占满跟着结束，回到右栏时中间那篇不会跟着不见（task-05p2w）
   const webInCol = !!Dk.findView(dock, 'web')?.col
   const webInColWas = useRef(webInCol)
   useEffect(() => {
-    if (webInColWas.current && !webInCol) setCenterFold(false)
+    if (webInColWas.current && !webInCol) showCenter()
     webInColWas.current = webInCol
   }, [webInCol])
   // 占满以后剪了几条（地址栏小牌上的数）
@@ -1884,7 +2130,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     C('left-trash', 'trash', () => openTrash()),
     C('find-file', 'search', () => findInTree()),
     C('find-in-page', 'search', () => void runFindInPage()),
-    C('fold-center', folded ? 'screen-normal' : 'screen-full', () => toggleFold()),
+    C('fold-center', maxNow ? 'screen-normal' : 'screen-full', () => toggleMax()),
+    C('split-center', split ? 'close' : 'split-horizontal', () => toggleSplit(), split ? { name: '合成一格' } : { name: '向右分屏' }), // 不翻：键，⌘K 画的时候翻
     C('save-desk', 'layout', () => openDeskDialog()),
     // 书桌一张一条（⌘K 里「书桌」一组，打字搜名字也行）
     ...deskList.map((e) => ({ id: `desk:${e.file}`, desk: true, name: tNow('书桌：{name}', { name: e.desk.name }), hint: tNow('{n} 篇笔记 · {m} 个网页', { n: e.desk.notes.length, m: e.desk.web.length }), icon: 'layout' as const, run: () => openDesk(e.file) })),
@@ -1970,7 +2217,14 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       case 'left-trash':
         return (toggleLeft('trash'), true)
       case 'fold-center':
-        return (toggleFold(), true)
+        return (toggleMax(), true)
+      case 'split-center':
+        return (toggleSplit(), true)
+      // ⌘1 / ⌘2：换到那一格（照 VS Code）；没分屏时 ⌘2 向右分屏，⌘1 不归它
+      case 'pane-1':
+        return !!splitNow.current && (goPane(0, true), true)
+      case 'pane-2':
+        return splitNow.current ? (goPane(1, true), true) : (toggleSplit(), true)
       case 'dream-report':
         return (toggleLeft('dream'), true)
       case 'outline':
@@ -2118,7 +2372,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         if (e.action === 'settings') return openTranslateSettings()
         if (!e.box) return
         const src = doc ?? `web:${e.box.url}`
+        // 进哪段对话同引用（ai-web-stay.ts 的 convoFor）：进别的一段时框好先不放进网页自己那段（不把右栏拽回来），点了引用、讲解再截图交过去
+        const to = doc ? null : convoFor(e.box.url)
         try {
+          if (to && e.action === 'stage') return
+          if (to && (e.action === 'explain' || e.action === 'translate' || e.action === 'quote')) {
+            const png = await window.cnReading.capture(e.wcId, e.box.rect)
+            clearWebBox(e.view)
+            return await boxIntoConvo(to, { url: e.box.url, title: e.box.title, text: e.box.text, ...(e.box.head ? { head: e.box.head } : {}) }, png, e.action)
+          }
           // 讲解、翻译、引用：网页上框着问（中间没开 PDF、HTML）还没定记到哪篇先问一句，框和工具条留着、弹层贴在工具条下面
           // （同选字的小条，task-6cxtc）；取消了框照旧留着，可以换一颗点；定了（或不用问）收起框和工具条
           if (e.action === 'explain' || e.action === 'translate' || e.action === 'quote') {
@@ -2127,7 +2389,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             clearWebBox(e.view)
           }
           if (e.action === 'copy') {
-            const png = Reading.get(src).pending?.png
+            const png = to ? await window.cnReading.capture(e.wcId, e.box.rect) : Reading.get(src).pending?.png
             if (!png) return setNotice('这块还没截好，再框一次')
             await window.cnMenu.copyImage(png)
             return setNotice('这块图拷贝好了')
@@ -2276,11 +2538,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const docMode = activeTab?.type === 'note' && activeMode !== 'board'
 
   // 网页的笔记（task-6cxtc）：网页小条上点的讲解、引用、剪藏走 web-notes/flow.ts，这里交进去中间开着什么、底栏、AI 那一格
-  const webSay = (text: string, o?: { act?: { label: string; icon: CodiconName; run(): void }; undo?: () => void }) => {
+  const webSay = (text: string, o?: { act?: NoticeAct; more?: NoticeAct; undo?: () => void }) => {
     setNotice(text)
     setNoticeIcon(null)
     setNoticeUndo(o?.undo ? { text, run: o.undo } : null)
     setNoticeAct(o?.act ? { text, ...o.act } : null)
+    setNoticeMore(o?.more ? { text, ...o.more } : null)
   }
   /** 中间看得见、能写的那篇（文档看法，中间没收起） */
   const webCenterNow = () => (docMode && !folded && activeDoc.current && !activeDoc.current.readOnly && activeDoc.current.path === activeTab.path ? activeTab.path : null)
@@ -2298,6 +2561,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       if (Reading.isWebSrc(src)) setWebAsk(src)
       openAi()
     },
+    showAi: () => openAi(),
     notice: webSay,
     openTranslateSettings: () => openTranslateSettings(),
     notesShown: () => vis('note'),
@@ -2316,7 +2580,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     },
     peek: (path, md) => {
       // 「看一眼」：还原，那篇（不在中间就开它，网页不跟着跳）里刚剪的那段滚到当中、左边亮一道
-      setCenterFold(false)
+      showCenter()
       if (activeNote !== path) openNote(path, false, true)
       const want = md.trimEnd()
       let tries = 0
@@ -2365,7 +2629,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   /** 当前标签换成这一篇（右键「打开」）；它已经开在别的标签就切过去 */
   const openHere = (path: string) => {
     if (!/\.md$/i.test(path)) return openFile(path)
-    setCenterFold(false)
+    showCenter()
     followNote(path)
     setTabState((s) => {
       const there = s.tabs.find((t) => t.type === 'note' && t.path === path)
@@ -2591,7 +2855,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       setSidebarHidden(!l.left)
       if (l.web) openView('web', false)
       else if (vis('web')) closeView('web')
-      setCenterFold(!l.center && l.web)
+      setMax(!l.center && l.web ? { kind: 'web' } : null)
       return prev
     },
     layoutText: () =>
@@ -2602,6 +2866,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         ...(folded ? [tNow('中间栏收着')] : []),
       ]),
     showDesks: () => openLeft('desks'),
+    navAt: () => nav.current.i + 1,
+    quiet: () => setNotice(null),
   })
   // 这篇在中间开着、右栏开着一个网站：记一次「一起开」（提示「配成一对？」看它）
   const webShownNow = vis('web')
@@ -2822,6 +3088,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
     { id: 'history', label: t('历史'), icon: 'history' as const, on: vis('history'), onClick: () => toggleView('history'), key: keyFor('history') ?? undefined },
   ]
   // AI 的入口一直在（D 组方向 A）：B 是右图标栏最下面的圆钮（窗口右下角），A 是底栏最右一项；画正在用的那家的标志（CN-127），AI 开着时多一圈强调色
+  /** 占满时顶上那条提示写的名字：中间写那一篇（那一格前面的标签），右边一组写前面那个标签 */
+  const maxGroup = maxNow?.kind === 'group' ? Dk.findGroup(dockShown, maxNow.id)?.group : null
+  const maxName = !maxNow ? '' : maxGroup ? (maxGroup.active === 'record' && record ? titleOf(record.path) : maxGroup.active === 'aicol' && aiColTitle ? aiColTitle : maxGroup.active === 'auto' && autoTitle ? autoTitle : tNow(Dk.VIEW_NAME[maxGroup.active])) : settingsTab && settingsFront ? tNow('设置') : activeTab ? tabName(activeTab) : tNow('中间这栏')
   const aiCorner =
     frame === 'a' ? (
       <button className={'bi ai-corner' + (aiShown ? ' on' : '')} aria-label={aiShown ? t('收起 AI') : t('打开 AI')} aria-pressed={aiShown} data-tip="AI" data-key={keyFor('ask-ai') ?? undefined} data-side="above-left" onClick={toggleAi}>
@@ -2841,10 +3110,12 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         (sidebarHidden ? ' side-hidden' : '') +
         (rightOpen ? ' with-right' : '') +
         (vis('web') ? ' web-open' : '') +
-        (pv.on ? ' previewing' : '')
+        (pv.on ? ' previewing' : '') +
+        (maxNow ? ' maxed' : '')
       }
       data-pane={livePane}
-      style={{ gridTemplateColumns: gridTracks(dockShown, frame, colWidths, folded ? webCol : null), ...(!sidebarHidden && (sideW || fit.side !== SIDE_DEFAULT[frame]) ? { '--side-w': `${fit.side}px` } : {}) } as React.CSSProperties}
+      data-max={maxNow ? (maxNow.kind === 'center' ? `center-${maxNow.pane}` : maxNow.float ? 'float' : 'group') : undefined}
+      style={{ gridTemplateColumns: gridTracks(dockShown, frame, colWidths), ...(maxNow ? { '--max-col': maxColumns(dockShown, !sidebarHidden) } : {}), ...(!sidebarHidden && (sideW || fit.side !== SIDE_DEFAULT[frame]) ? { '--side-w': `${fit.side}px` } : {}) } as React.CSSProperties}
     >
       {!sidebarHidden && <SideSash frame={frame} rightW={fit.right + chromeW - 2 * (frame === 'a' ? 48 : 44)} width={sideW} onWidth={setSideW} />}
       <DockFrame
@@ -2867,14 +3138,17 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         onReset={resetDock}
         hint={dockHint}
         onHintDone={hintDone}
+        max={maxNow?.kind === 'group' ? maxNow.id : null}
+        onMax={(id) => toggleMax({ kind: 'group', id })}
       />
+      {maxNow && <MaxHint name={maxName} onRestore={() => setMax(null)} />}
       <Tooltips />
       <WhereHost />
       <PaneMark pane={livePane} />
       <TitleBar
         leftOpen={!sidebarHidden}
         rightOpen={rightOpen}
-        canBack={nav.current.i > 0}
+        canBack={nav.current.i > 0 || (!!away?.exact && away.navAt >= 0)}
         canForward={nav.current.i < nav.current.list.length - 1}
         location={frame === 'b' && activeTab ? withParent(locationOf(activeTab), crumbParent).join(' / ') : null}
         vaultName={vault.name}
@@ -2884,8 +3158,6 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         onForward={() => navTo(1)}
         onHome={openHome}
         onSearch={() => (setQuickOpen(false), setPaletteOpen(true))}
-        // 网页占满 ↔ 还原（task-05p2w 方向 A）：右栏网页看得见时才有；网页开在中间时不出（回去在那一页的「⋯」里「放回右栏」）
-        web={webInRight ? { full: folded, onToggle: toggleFold } : null}
       />
       {/* 文档里一行待办点「看详情」弹的那张小卡（task-kzr3n，todo/doc-dates.ts） */}
       <TodoPop owner={DOC_OWNER} />
@@ -3017,15 +3289,17 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
       )}
       </PanelGuard>
 
-      <ActsSlot.Provider value={actsEl}>
       {/* 中间那一栏：工作区里排第几栏就放在 .win 的第几列（不挪 DOM，里面的网页、HTML 不重新加载） */}
-      <main className={'center' + (pv.on ? ' previewing' : '') + (centerNarrow ? ' narrow' : '') + (centerCompact ? ' compact' : '') + (tabsTight ? ' tight' : '') + (centerIdx > 0 ? ' not-first' : '') + (folded ? ' folded' : '')} ref={centerRef} style={{ gridColumn: 3 + 2 * centerIdx }} {...(folded ? { inert: true, 'aria-hidden': true } : {})}>
-        <div className="tabs">
+      <main className={'center' + (pv.on ? ' previewing' : '') + (centerNarrow ? ' narrow' : '') + (centerCompact ? ' compact' : '') + (centerTiny ? ' tiny' : '') + (tabsTight ? ' tight' : '') + (centerIdx > 0 ? ' not-first' : '') + (centerOff ? ' folded' : '') + (maxNow?.kind === 'center' ? ` maxed max-p${maxNow.pane}` : '') + (split ? ` split ${split.dir}` : '')} ref={centerRef} style={{ gridColumn: 3 + 2 * centerIdx, ...(split ? { '--split': `${split.ratio * 100}%` } : {}) } as React.CSSProperties} {...(centerOff ? { inert: true, 'aria-hidden': true } : {})}>
+        {/* B：分着时两格各是一块岛（垫在最底下），中间的缝露出背景 */}
+        {split && frame === 'b' && ([0, 1] as const).map((p) => <div key={`isle${p}`} className={`cisle p${p}`} aria-hidden />)}
+        {([0, 1] as const).filter((p) => p === 0 || split).map((p) => (
+        <div key={p} className={'tabs' + (split ? ` p${p}` : '') + (split && p !== focusPane ? ' idle' : '')} data-strip={p}>
           <div className="tstrip">
           {/* 标签后面的空处按住拖：整个中间这一栏和右边几栏换位置（工作区方向 A，startCenterColDrag 只认按在空处的） */}
-          <div className={'tlist' + (tabFade.left ? ' more-l' : '') + (tabFade.right ? ' more-r' : '')} role="tablist" ref={tlistRef} data-testid="tab-list" onPointerDown={startCenterColDrag}>
-            {tabs.map((t) => {
-              const on = t.id === shown
+          <div className={'tlist' + (p === 0 && tabFade.left ? ' more-l' : '') + (p === 0 && tabFade.right ? ' more-r' : '')} role="tablist" ref={p === 0 ? tlistRef : undefined} data-testid={p === 0 ? 'tab-list' : 'tab-list-2'} onPointerDown={startCenterColDrag} onDoubleClick={(e) => e.target === e.currentTarget && toggleMax({ kind: 'center', pane: p })}>
+            {tabs.filter((t) => Sp.paneOf(split, t.id) === p).map((t) => {
+              const on = t.id === (p === focusPane ? shown : otherShown)
               const name = tabName(t)
               return (
                 <div
@@ -3034,8 +3308,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                   {...(t.type === 'folder' ? folderTabDrop(t.id, t.folder) : {})}
                   role="tab"
                   aria-selected={on}
-                  data-testid={on ? 'tab-on' : undefined}
+                  data-testid={on ? (p === focusPane ? 'tab-on' : 'tab-on-other') : undefined}
+                  data-tab={t.id}
                   data-path={'path' in t ? t.path : undefined}
+                  // 按住标签拖：换顺序、拖到另一格、拖到中间内容的边上分出一格（中间栏分屏）；按在 × 上、改名框里不算
+                  onPointerDown={(e) => renaming !== t.id && !(e.target as HTMLElement).closest('.x') && tabDrag.start(e, { id: t.id, icon: tabIcon(t), name })}
                   onDoubleClick={() => (canRenameTab(t) ? setRenaming(t.id) : t.type === 'diff' && setTabs((x) => x.map((y) => (y.id === t.id ? { ...y, pinned: true } : y))))}
                   onContextMenu={(e) => renaming !== t.id && void menuAt(e, tabMenu(t))}
                 >
@@ -3073,7 +3350,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 </div>
               )
             })}
-            {settingsTab && (
+            {settingsTab && p === focusPane && (
               <div className={'tab' + (settingsFront ? ' on' : '')} role="tab" aria-selected={settingsFront}>
                 <button className="tl" onClick={() => setSettingsFront(true)}>
                   <Codicon name="settings-gear" size={15} />
@@ -3086,23 +3363,23 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             )}
           </div>
           {/* 两端还藏着标签：淡出加一个小箭头，点一下挪一整个标签（标签多了方向 A） */}
-          {tabFade.left && (
+          {p === 0 && tabFade.left && (
             <button className="tedge l" aria-label={t('往左看标签')} data-testid="tab-edge-left" onClick={() => snapTabs(-1)}>
               <Codicon name="chevron-left" size={13} />
             </button>
           )}
-          {tabFade.right && (
+          {p === 0 && tabFade.right && (
             <button className="tedge r" aria-label={t('往右看标签')} data-testid="tab-edge-right" onClick={() => snapTabs(1)}>
               <Codicon name="chevron-right" size={13} />
             </button>
           )}
           </div>
-          {(tabsOver || tabsMenu) && <button className={'tmore' + (tabsMenu ? ' open' : '')} aria-label={t('开着的标签')} aria-expanded={!!tabsMenu} data-tip={t('开着的标签')} data-side="below" data-testid="tab-more" onClick={(e) => setTabsMenu(tabsMenu ? null : e.currentTarget)}>
+          {p === 0 && (tabsOver || tabsMenu) && <button className={'tmore' + (tabsMenu ? ' open' : '')} aria-label={t('开着的标签')} aria-expanded={!!tabsMenu} data-tip={t('开着的标签')} data-side="below" data-testid="tab-more" onClick={(e) => setTabsMenu(tabsMenu ? null : e.currentTarget)}>
             <Codicon name="list-flat" size={13} />
             <span className="num">{`${tabs.length + (settingsTab ? 1 : 0)}`}</span>
             <Codicon name="chevron-down" size={11} />
           </button>}
-          {tabsMenu && (
+          {p === 0 && tabsMenu && (
             <Popover anchor={tabsMenu} label={t('开着的标签')} className="pop12 tabs-pop" align="end" onClose={() => setTabsMenu(null)}>
               <div className="mh">{t('开着的{n}个标签', { n: tabs.length + (settingsTab ? 1 : 0) })}</div>
               <div className="tl-rows" role="menu" aria-label={t('开着的标签')}>
@@ -3137,14 +3414,20 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               </div>
             </Popover>
           )}
-          <div className="acts" id="tab-acts" data-testid="tab-acts" ref={setActsEl} />
+          {p === 0 ? <div className="acts" id="tab-acts" data-testid="tab-acts" ref={setActsEl} /> : <div className="acts" data-testid="tab-acts-2" ref={setActs2El} />}
+          <MaxButton on={maxNow?.kind === 'center'} name={!split ? tNow('中间这栏') : split.dir === 'row' ? (p === 0 ? tNow('左边这格') : tNow('右边这格')) : p === 0 ? tNow('上面这格') : tNow('下面这格')} tid={`max-center-${p}`} size={16} onClick={() => toggleMax({ kind: 'center', pane: p })} />
         </div>
+        ))}
+        {split && <SplitSash dir={split.dir} ratio={split.ratio} center={() => centerRef.current} onRatio={(r) => r !== splitNow.current?.ratio && setSplit({ ...splitNow.current!, ratio: r })} />}
 
         {frame === 'a' && activeTab && !(settingsTab && settingsFront) && (
-          <Crumbs parts={withParent(locationOf(activeTab), crumbParent)} parentAt={crumbParent ? locationOf(activeTab).length - 1 : undefined} vaultName={vault.name} onFolder={(f) => openFolder(f)} onParent={() => crumbParent && openNote(crumbParent)} onRename={activeTab.type === 'note' ? () => setRenaming(activeTab.id) : undefined} />
+          <Crumbs className={split ? `p${focusPane}` : undefined} parts={withParent(locationOf(activeTab), crumbParent)} parentAt={crumbParent ? locationOf(activeTab).length - 1 : undefined} vaultName={vault.name} onFolder={(f) => openFolder(f)} onParent={() => crumbParent && openNote(crumbParent)} onRename={activeTab.type === 'note' ? () => setRenaming(activeTab.id) : undefined} />
         )}
+        {frame === 'a' && otherTab && <Crumbs className={`p${focusPane === 0 ? 1 : 0}`} parts={locationOf(otherTab)} vaultName={vault.name} onFolder={(f) => openFolder(f)} onParent={() => undefined} />}
 
         {settingsTab && settingsFront && settingsPage && (
+          <div className={'cslot' + (split ? ` p${focusPane}` : '')} data-pane={focusPane}>
+          <ActsSlot.Provider value={focusPane === 1 ? acts2El : actsEl}>
           <PanelGuard area="settings" label="设置" shape="pane">
           <Settings
             asTab
@@ -3169,10 +3452,18 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             onGoPlace={goPlace}
           />
           </PanelGuard>
+          </ActsSlot.Provider>
+          </div>
         )}
 
-        {tabs.map((t) => (
-          <PanelGuard key={t.id} area={`tab:${t.type}`} label={`「${tabName(t)}」`} shape="pane" hidden={t.id !== shown}>
+        {tabs.map((t) => {
+          const p = Sp.paneOf(split, t.id)
+          return (
+          // 一个标签一格位置（中间栏分屏）：分着时 .p0 / .p1 摆到那一格，挪格只换样式、不重新挂（网页、PDF 不重新载入）
+          <div key={t.id} className={'cslot' + (split ? ` p${p}` : '')} data-pane={p} hidden={!seen(t.id)} onPointerDownCapture={split ? () => goPane(p) : undefined} onFocusCapture={split ? () => goPane(p) : undefined}>
+          <ActsSlot.Provider value={p === 1 ? acts2El : actsEl}>
+          <PaneFocus.Provider value={!split || p === focusPane}>
+          <PanelGuard area={`tab:${t.type}`} label={`「${tabName(t)}」`} shape="pane" hidden={!seen(t.id)}>
           {t.type === 'note' ? (
             <NoteTab
               key={t.id}
@@ -3182,7 +3473,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               onOpenOutline={() => openView('outline')}
               onWantRename={() => setRenaming(t.id)}
               path={t.path}
-              active={t.id === shown}
+              active={seen(t.id)}
               fresh={!!t.fresh}
               notes={notes}
               rightOpen={rightOpen}
@@ -3205,12 +3496,17 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               }}
               onNotice={setNotice}
               onOpenLink={openLink}
+              view={t.view}
+              compare={{ on: !!split && seen(t.id) && (() => {
+                const o = tabs.find((x) => x.id === (t.id === shown || t.id === active ? otherShown : active))
+                return o?.type === 'note' && o.path === t.path && o.id !== t.id
+              })(), toggle: () => toggleCompare(t) }}
             />
           ) : t.type === 'pdf' ? (
             <PdfTab
               key={t.id}
               path={t.path}
-              active={t.id === shown}
+              active={seen(t.id)}
               onAsk={() => openAi()}
               onShowNote={(id) => {
                 openNotes()
@@ -3219,7 +3515,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               onNotice={setNotice}
             />
           ) : t.type === 'webread' ? (
-            <WebReadTab key={t.id} url={t.url} title={t.title} active={t.id === shown} onBackToWeb={openInWeb} onOpenNote={(p) => openNote(p)} onNotice={setNotice} />
+            <WebReadTab key={t.id} url={t.url} title={t.title} active={seen(t.id)} onBackToWeb={openInWeb} onOpenNote={(p) => openNote(p)} onNotice={setNotice} />
           ) : t.type === 'oldimages' ? (
             (() => {
               const it = dream.report?.items.find((x) => x.id === t.item)
@@ -3227,13 +3523,13 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 <OldImagesTab
                   key={t.id}
                   item={it}
-                  active={t.id === shown}
+                  active={seen(t.id)}
                   busy={dreamBusy}
                   onTake={() => void dreamTake(it)}
                   onDrop={() => void dreamDrop(it)}
                 />
               ) : (
-                <section key={t.id} className="pane" hidden={t.id !== shown}>
+                <section key={t.id} className="pane" hidden={!seen(t.id)}>
                   <p className="dv-empty">{tNow('这份梦游报告已经没有这一条了')}</p>
                 </section>
               )
@@ -3243,7 +3539,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               key={t.id}
               src={t.src}
               title={t.title}
-              active={t.id === shown}
+              active={seen(t.id)}
               gitVersion={gitVersion}
               report={dream.report}
               onOpen={(p, line) => (openFile(p), line && /\.md$/i.test(p) && void goToLine(p, line))}
@@ -3253,9 +3549,9 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               onNotice={setNotice}
             />
           ) : t.type === 'html' ? (
-            <HtmlTab key={t.id} path={t.path} dream={!!t.dream} by={t.dream ? dream.report?.items.find((i) => i.files.includes(t.path))?.by : undefined} active={t.id === shown} onAsk={() => openAi()} onNotice={setNotice} />
+            <HtmlTab key={t.id} path={t.path} dream={!!t.dream} by={t.dream ? dream.report?.items.find((i) => i.files.includes(t.path))?.by : undefined} active={seen(t.id)} onAsk={() => openAi()} onNotice={setNotice} />
           ) : t.type === 'folder' ? (
-            t.id === shown && (
+            seen(t.id) && (
               <FolderHomeView
                 key={t.id}
                 folder={t.folder}
@@ -3279,7 +3575,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             <WebTab
               key={t.id}
               url={t.url}
-              active={t.id === shown}
+              active={seen(t.id)}
               restored={restoredWeb.has(t.id)}
               onUrl={(url, title) => setTabs((x) => x.map((y) => (y.id === t.id && y.type === 'web' && (y.url !== url || y.title !== title) ? { ...y, url, title } : y)))}
               onNotice={setNotice}
@@ -3287,7 +3583,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               onPutBack={() => putWebBack(t)}
             />
           ) : t.type === 'home' ? (
-            t.id === shown && (
+            seen(t.id) && (
               <HomeView
                 key={t.id}
                 style={settings.appearance.homeStyle}
@@ -3315,7 +3611,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               />
             )
           ) : t.type === 'recent' ? (
-            t.id === shown && (
+            seen(t.id) && (
               <RecentPage
                 key={t.id}
                 notes={pv.on ? pv.preview.notes : notes}
@@ -3335,13 +3631,13 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               />
             )
           ) : t.type === 'trash' ? (
-            t.id === shown && <TrashPage key={t.id} onRestore={restoreFromTrash} onTrashOrphans={trashOrphans} />
+            seen(t.id) && <TrashPage key={t.id} onRestore={restoreFromTrash} onTrashOrphans={trashOrphans} />
           ) : t.type === 'todo' ? (
-            t.id === shown && <TodoHome key={t.id} active={!settingsFront} />
+            seen(t.id) && <TodoHome key={t.id} active={!settingsFront} />
           ) : t.type === 'calendar' ? (
-            t.id === shown && <CalendarPage key={t.id} active={!settingsFront} />
+            seen(t.id) && <CalendarPage key={t.id} active={!settingsFront} />
           ) : t.type === 'growth' ? (
-            t.id === shown && (
+            seen(t.id) && (
               <GrowthTab
                 key={t.id}
                 active={!settingsFront}
@@ -3353,7 +3649,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               />
             )
           ) : t.type === 'archive' ? (
-            t.id === shown && (
+            seen(t.id) && (
               <NoteIndex
                 key={t.id}
                 which="archive"
@@ -3365,7 +3661,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 onOpenSettings={() => openSettingsAt('archive')}
               />
             )
-          ) : t.id === shown ? (
+          ) : seen(t.id) ? (
             <ListView
               key={t.id}
               title={t.type === 'inbox' ? INBOX : t.topic}
@@ -3381,7 +3677,11 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
             />
           ) : null}
           </PanelGuard>
-        ))}
+          </PaneFocus.Provider>
+          </ActsSlot.Provider>
+          </div>
+          )
+        })}
 
         <PreviewOverlay pv={pv} />
         <ImportHost
@@ -3404,8 +3704,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           }}
         />
         <VideoToast />
+        {tabDrag.overlay}
       </main>
-      </ActsSlot.Provider>
 
       {/* 右边五样的内容（工作区方向 A）：一直挂在 .win 下面，shell/Dock.tsx 量着它们那一组的身子摆上去（挪来挪去不重新挂，网页不重新加载） */}
       <div className="dview" data-view="ai" data-testid="dview-ai" hidden={!aiShown}>
@@ -3434,7 +3734,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 const i = s.tabs.findIndex((t) => t.type === 'diff' && t.src.kind === 'proposal' && t.src.id === id)
                 if (i < 0) return s
                 const tabs = s.tabs.filter((_t, j) => j !== i)
-                return { tabs, active: s.active === s.tabs[i]!.id ? (tabs[Math.min(i, tabs.length - 1)]?.id ?? null) : s.active }
+                return { tabs, active: Sp.afterClose(s.tabs.map((t) => t.id), splitNow.current, s.active, s.tabs[i]!.id) }
               }),
             autoRun: aiAuto,
             draft: aiDraft,
@@ -3534,7 +3834,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           openRequest={webOpen}
           onShow={() => openView('web')}
           onUrl={setRightWeb}
-          full={webInRight ? { on: folded, toggle: toggleFold } : null}
+          full={webGroup ? { on: folded, toggle: () => toggleMax({ kind: 'group', id: webGroup }) } : null}
           chip={folded ? fullChip : null}
           onNotice={setNotice}
           onClose={() => {
@@ -3543,7 +3843,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           }}
           onOpenWide={(url, title) => {
             // 在中间开成一页：网页离开了右栏，占满跟着结束（task-05p2w：不然放回右栏时中间那篇跟着不见）
-            setCenterFold(false)
+            showCenter()
             open((t) => t.type === 'web' && t.url === url, () => ({ id: newId(), type: 'web', url, title }))
           }}
           wideTabs={tabs.flatMap((t) => (t.type === 'web' ? [{ id: t.id, url: t.url, title: t.title }] : []))}
@@ -3611,6 +3911,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
         vaultPath={vault.path}
         update={<UpdateBarItem st={update} onInstall={installUpdate} onOpenSettings={() => openSettingsAt('checkNow')} />}
         ai={frame === 'a' ? aiCorner : undefined}
+        away={away && !away.quiet ? { name: away.name, onBack: backToBefore, onClose: quietAway } : null}
         tidy={
           tidy && {
             said: tidy.said,
@@ -3647,6 +3948,20 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
               >
                 <Codicon name={noticeAct!.icon} size={14} />
                 {noticeAct!.label}
+              </button>
+            )}
+            {actable && noticeMore?.text === notice && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  noticeMore.run()
+                  setNotice(null)
+                  setNoticeMore(null)
+                  setNoticeHover(false)
+                }}
+              >
+                <Codicon name={noticeMore.icon} size={14} />
+                {noticeMore.label}
               </button>
             )}
             {undoable && (
@@ -3817,10 +4132,10 @@ const withParent = (parts: string[], parent: string | null) => (parent ? [...par
  * 方向 A：标签下面一行面包屑，库名打头；前面几节是文件夹，点了开它的首页；笔记的最后一节点了改名。
  * parentAt：那一节是它挂着的父白板 / 笔记（从白板、笔记拍的导图），点了回到那一篇
  */
-function Crumbs(props: { parts: string[]; parentAt?: number; vaultName: string; onFolder(folder: string): void; onParent(): void; onRename?(): void }) {
+function Crumbs(props: { className?: string; parts: string[]; parentAt?: number; vaultName: string; onFolder(folder: string): void; onParent(): void; onRename?(): void }) {
   const t = useT()
   return (
-    <nav className="crumbs" aria-label={t('位置')}>
+    <nav className={'crumbs' + (props.className ? ' ' + props.className : '')} aria-label={t('位置')}>
       <span className="cr root">
         <Codicon name="library" size={14} />
         {props.vaultName}

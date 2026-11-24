@@ -64,12 +64,12 @@ test('文档切到白板：按节摆成列、只看不写；拖进别的列文�
     await openNote(page, '冰岛十天环岛')
     await acts(page).getByRole('tab', { name: '白板' }).click()
     await expect(board(page)).toBeVisible()
-    // 列：出发前、住哪、路线、问过 AI；名字不成卡；冒号那句带上待办；分隔线是空隙
-    await expect(board(page).locator('.db-col h3 .truncate')).toHaveText(['出发前', '住哪', '路线', '问过 AI'])
+    // 列：出发前、住哪、路线、问过 AI 的那一处（列名是那一节的标题，配对笔记白板分列）；名字不成卡；冒号那句带上待办；分隔线是空隙
+    await expect(board(page).locator('.db-col h3 .truncate')).toHaveText(['出发前', '住哪', '路线', '第3页 · 冰川为什么是蓝的'])
     await expect(col(page, '出发前').locator('.db-card')).toHaveCount(2)
     await expect(col(page, '路线').locator('.db-gap')).toHaveCount(1)
     await expect(col(page, '路线').locator('.db-card[data-kind="table"] .kh')).toHaveText('表格2行 × 2列')
-    await expect(col(page, '问过 AI').locator('.db-card[data-kind="ask"]')).toHaveCount(1)
+    await expect(col(page, '第 3 页 · 冰川为什么是蓝的').locator('.db-card[data-kind="ask"]')).toHaveCount(1)
     await page.screenshot({ path: 'test-results/g2-docboard.png' })
     // 只看：文件一个字都不变
     await page.waitForTimeout(1200)

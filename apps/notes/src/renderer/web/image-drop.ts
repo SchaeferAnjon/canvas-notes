@@ -6,15 +6,15 @@
 import { relativeLink } from '@cn/format'
 import { mdUrl } from '../../shared/layout'
 import type { ImageSource } from '../../shared/web-api'
+import { imgClip, type WebImgInfo } from '../../shared/web-img'
 
-export interface WebDragInfo {
-  src: string
-  alt: string
-  url: string
-  title: string
-}
+export type WebDragInfo = WebImgInfo
 
 let lastDrag: (WebDragInfo & { at: number }) | null = null
+/** 网页里的图正拖着（还没松手）：AI 输入框、文档照它亮、画插入线 */
+let dragLive = false
+/** 拖着时指针在界面上的哪个元素上（网页报的位置补发 dragover 用） */
+let hoverEl: Element | null = null
 /** 刚放下的网页图：同一次拖动真 drop 和补发的 drop 都来时只放一张 */
 let lastPlaced: { src: string; at: number } | null = null
 let currentPage: { url: string; title: string } | null = null
@@ -22,6 +22,51 @@ let currentPage: { url: string; title: string } | null = null
 /** 网页里开始拖一张图 */
 export function noteWebDrag(info: WebDragInfo) {
   lastDrag = { ...info, at: Date.now() }
+  dragLive = true
+}
+
+/** 网页里的图正拖着、还没松手（AI 输入框的 dragover 据此认它是一张图） */
+export const webDragLive = () => dragLive && !!lastDrag && Date.now() - lastDrag.at < 60_000
+
+/** 正拖着的那张图的说明（落下时 imagesFrom 也会带上） */
+export const webDragInfo = (): WebDragInfo | null => (lastDrag && Date.now() - lastDrag.at < 60_000 ? lastDrag : null)
+
+const webDt = (d: WebDragInfo) => {
+  const dt = new DataTransfer()
+  dt.setData('text/uri-list', d.src)
+  dt.setData('text/html', `<img src="${attr(d.src)}" alt="${attr(d.alt)}">`)
+  return dt
+}
+
+/** 收起亮着的（AI 输入框、文档的插入线）：给拖着时经过的最后那个元素补一个 dragleave */
+function leaveHover(next: Element | null) {
+  const prev = hoverEl
+  hoverEl = next
+  if (prev && prev !== next && prev.isConnected) prev.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true, relatedTarget: next, dataTransfer: lastDrag ? webDt(lastDrag) : null }))
+}
+
+/**
+ * 网页报来拖着的指针在界面上的位置（x、y 是界面里的坐标）：从 webview 拖出来时界面常收不到真的 dragover，
+ * 这里在那个元素上补发 dragenter / dragover（和真拖一样），AI 输入框亮出「松手附上这张图」、文档画插入线；离开时补 dragleave
+ */
+export function hoverWebDragAt(x: number, y: number) {
+  const d = lastDrag
+  if (!d || !dragLive) return
+  const el = document.elementFromPoint(x, y)
+  if (!el || el.closest('webview')) return leaveHover(null)
+  const fresh = el !== hoverEl
+  leaveHover(el)
+  const dt = webDt(d)
+  for (const type of fresh ? ['dragenter', 'dragover'] : ['dragover']) el.dispatchEvent(new DragEvent(type, { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }))
+}
+
+/** 拖着又回到网页上了：亮着的收起（还在拖） */
+export const backInWebDrag = () => leaveHover(null)
+
+/** 拖回网页里松手了：亮着的收起 */
+export function cancelWebDrag() {
+  dragLive = false
+  leaveHover(null)
 }
 
 const attr = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
@@ -33,12 +78,14 @@ const attr = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').rep
  */
 export function dropWebDragAt(x: number, y: number) {
   const d = lastDrag
-  if (!d || Date.now() - d.at > 60_000) return
+  dragLive = false
+  if (!d || Date.now() - d.at > 60_000) return leaveHover(null)
   const el = document.elementFromPoint(x, y)
+  // 落点不在拖着时最后经过的那个上（网页没来得及报最后一下）：那个收起
+  if (hoverEl && el !== hoverEl) leaveHover(null)
+  hoverEl = null
   if (!el || el.closest('webview')) return
-  const dt = new DataTransfer()
-  dt.setData('text/uri-list', d.src)
-  dt.setData('text/html', `<img src="${attr(d.src)}" alt="${attr(d.alt)}">`)
+  const dt = webDt(d)
   for (const type of ['dragenter', 'dragover', 'drop']) el.dispatchEvent(new DragEvent(type, { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }))
 }
 
@@ -54,6 +101,10 @@ export interface ImageCandidate {
   source?: { title: string; url: string }
   /** 剪贴板里的截图：起名「截图 N」，说明留空（CN-40） */
   shot?: boolean
+  /** 从右栏网页里拖出来的：图注、上面的小标题（AI 输入框写来源、文档里当剪藏写） */
+  web?: WebDragInfo
+  /** 附件起名照它（不给用说明） */
+  name?: string
 }
 
 const IMG_EXT = /\.(png|jpe?g|gif|webp|svg|avif|bmp)(?:[?#].*)?$/i
@@ -123,8 +174,10 @@ export async function imagesFrom(dt: DataTransfer, now = Date.now()): Promise<Im
   lastPlaced = { src, at: now }
   const page = drag && (drag.src === src || drag.src === uri) ? { url: drag.url, title: drag.title } : (currentPage ?? null)
   if (drag && drag.src === src && !alt) alt = drag.alt
+  const web: WebDragInfo | undefined = drag && (drag.src === src || drag.src === uri) ? { src, alt: drag.alt, caption: drag.caption, ...(drag.head ? { head: drag.head } : {}), url: drag.url, title: drag.title } : undefined
   lastDrag = null
-  return [{ src: { kind: 'url', url: src }, alt, ...(page && /^https?:/.test(page.url) ? { source: { title: page.title || page.url, url: page.url } } : {}) }]
+  dragLive = false
+  return [{ src: { kind: 'url', url: src }, alt, ...(page && /^https?:/.test(page.url) ? { source: { title: page.title || page.url, url: page.url } } : {}), ...(web ? { web } : {}) }]
 }
 
 /**
@@ -138,6 +191,17 @@ export function imageMarkdown(notePath: string, saved: string, c: { alt: string;
   return `![${alt}](${link})${src}`
 }
 
+/** 网页里的图剪进了一篇（文档里拖进来、右键「剪进文档」）：web-notes 记下剪藏、网页上那张图标「剪过」 */
+export const WEB_IMG_CLIPPED = 'cn:web-img-clipped'
+export const webImgClipped = (path: string, md: string, url: string) => window.dispatchEvent(new CustomEvent(WEB_IMG_CLIPPED, { detail: { path, md, url } }))
+
+/** 从网页拖进文档的图当剪藏写：说明是图注，来源一行「—— [图 6.2.1 · 书名](网址#:~:text=图注开头)」，附件照图的网址起名 */
+export function asClip(c: ImageCandidate): ImageCandidate {
+  if (!c.web || !/^https?:/i.test(c.web.url)) return c
+  const clip = imgClip(c.web)
+  return { ...c, alt: clip.alt, source: clip.source, ...(/^https?:/i.test(c.web.src) ? { name: c.web.src } : {}) }
+}
+
 /** 认出来的图逐张存进附件，返回写好的 md 片段；存失败的那张报错原因 */
 export async function saveImages(notePath: string, cands: ImageCandidate[], sep = '\n'): Promise<{ md: string[]; errors: string[] }> {
   const md: string[] = []
@@ -145,7 +209,7 @@ export async function saveImages(notePath: string, cands: ImageCandidate[], sep 
   for (const c of cands) {
     try {
       // 存进这篇笔记自己的附件文件夹 附件/<笔记路径>/（CN-40 A）
-      const { path } = await window.cnWeb.saveImage(c.src, c.alt || undefined, { note: notePath, shot: c.shot })
+      const { path } = await window.cnWeb.saveImage(c.src, c.name ?? (c.alt || undefined), { note: notePath, shot: c.shot })
       md.push(imageMarkdown(notePath, path, c, sep))
     } catch (e) {
       errors.push(String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))

@@ -114,7 +114,7 @@ test('ParaRead 写的配对笔记：打开那篇 PDF，右栏「笔记」一处�
     const n = notes(page)
     await expect(n.getByTestId('note-round')).toHaveCount(sections.length)
     await expect(n.getByTestId('cards-open')).toHaveText(`出卡 · ${asks}问`)
-    const titles = await n.getByTestId('note-round').locator('.tt').allInnerTexts()
+    const titles = await n.getByTestId('note-round').locator('.rh h3').allInnerTexts()
     for (const x of sections) expect(titles.some((t) => t.replace(/\s/g, '').includes(x.title.replace(/\s/g, '').replace(/…$/, '')))).toBe(true)
     await page.screenshot({ path: test.info().outputPath('pararead-note-pdf.png') })
     const gaps = framed(md, s.note)

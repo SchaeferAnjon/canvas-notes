@@ -260,3 +260,49 @@ const deskOn = signal<string | null>(null)
 export const useDeskOn = () => deskOn.use()
 export const deskOnNow = () => deskOn.get()
 export const setDeskOn = (file: string | null) => deskOn.set(file)
+
+/** 右栏网页里配好对的书（书桌记网页时认「这本书」） */
+export const pairBooks = (): string[] => [...pairs.get().values()]
+
+// ---------------------------------------------------------------- 刚才（切书桌之前的样子）
+
+/**
+ * 点一张书桌之前的样子（书桌回到刚才）：底栏「已切到书桌「…」· 回到刚才」、⌘Z、后退、左栏书桌最上面那张「刚才」都回这里。只留最近一次，再切就换掉。
+ * desk（记成一张书桌的样子）存在本机（localStorage，按库），重开软件「刚才」卡还在；exact（中间的标签、右栏网页原样）只在这次开软件里有
+ */
+export interface Away {
+  /** 切到的那张书桌叫什么 */
+  name: string
+  desk: Desk
+  exact: unknown
+  /** 切的那一刻后退历史走到第几个（后退退到这之前就是回到刚才）；重开软件后是 -1 */
+  navAt: number
+  /** 底栏那一句 × 掉了（「刚才」卡还在，后退也还回得去；⌘Z 不再当成回去） */
+  quiet: boolean
+}
+const away = signal<Away | null>(null)
+let awayKey = ''
+export const useAway = () => away.use()
+export const awayNow = () => away.get()
+export function setAway(a: Away | null) {
+  away.set(a)
+  if (!awayKey) return
+  try {
+    if (a) localStorage.setItem(awayKey, JSON.stringify({ name: a.name, desk: a.desk }))
+    else localStorage.removeItem(awayKey)
+  } catch {
+    // 记不住只是重开软件后没有「刚才」卡
+  }
+}
+/** 开库时：上次的「刚才」卡（底栏那句不再出） */
+export function loadAway(vault: string) {
+  awayKey = 'cn.deskBefore:' + vault
+  let v: { name?: unknown; desk?: Partial<Desk> } | null = null
+  try {
+    v = JSON.parse(localStorage.getItem(awayKey) ?? 'null')
+  } catch {
+    v = null
+  }
+  const d = v?.desk
+  away.set(v && typeof v.name === 'string' && d && Array.isArray(d.notes) && Array.isArray(d.web) ? { name: v.name, desk: d as Desk, exact: null, navAt: -1, quiet: true } : null)
+}

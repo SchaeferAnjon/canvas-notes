@@ -122,6 +122,8 @@ export interface OpenReplies {
   id?: string
   /** 新的一颗先填好的（复制一份再改） */
   preset?: { name: string; say: string; where: ReplyPlace[] }
+  /** 列表滚到哪一节：sel 是「回答里选中一句」（选中一句的小菜单「调整…」） */
+  at?: 'sel'
 }
 
 let req: { o: OpenReplies; seq: number } | null = null

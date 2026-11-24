@@ -36,8 +36,18 @@ it('iOS 写的命令.json（replies-ios.json）：电脑版读懂、写回逐字
   const cmds = cfg.own.flatMap((x) => aiCmdOf(x, 'vault') ?? [])
   expect(cmds.map((c) => [c.id, c.name, c.write, c.prompt, c.reply])).toEqual([['own-ios1', '考考我', 'answer', '出一道题考我{这条回答}', { where: ['chat', 'web'], out: 'here' }]])
   const owns = cmds.map((c) => ({ id: c.id, name: c.name, where: c.reply!.where, say: c.prompt!, out: c.reply!.out }))
-  expect(repliesAt(cfg.replies, owns, 'chat').on.map((x) => x.id)).toEqual(['own-ios1'])
+  expect(repliesAt(cfg.replies, owns, 'chat').on.map((x) => x.id)).toEqual(['still', 'another', 'own-ios1'])
   expect(repliesAt(cfg.replies, owns, 'pdf').on.map((x) => x.id)).toEqual(['still', 'another'])
   expect(repliesAt(cfg.replies, owns, 'pdf').more.map((x) => x.id)).toEqual([])
   expect(cfg.replies).toEqual({ on: ['still', 'another', 'own-ios1'], more: [], off: ['viz'] })
+})
+
+it('回答里选中一句的不出现名单（answerSel）：电脑版写的和 answer-sel-desktop.json 逐字节一样（iOS 读它、写回不变）', () => {
+  const cfg = defaultCommands()
+  cfg.own = [
+    aiCmdJson({ id: 'own-mac1', name: '大白话', rules: rulesOfPrompt('用大白话解释{选中的字}'), where: ['doc'], write: 'answer', store: 'vault', desc: '用大白话解释{选中的字}', prompt: '用大白话解释{选中的字}' }),
+    aiCmdJson({ id: 'own-mac2', name: '考考我', rules: rulesOfPrompt('出三道题考我'), where: ['doc'], write: 'answer', store: 'vault', desc: '出三道题考我' }),
+  ]
+  cfg.answerSel = { off: ['own-mac2'] }
+  expect(commandsJson(cfg)).toBe(read('answer-sel-desktop.json'))
 })

@@ -168,8 +168,47 @@ export const CHECKS: Record<string, Check> = {
       await k.run.page.keyboard.press('Escape')
     },
   },
-  // 网页占满 / 还原（task-kbnc0，task-05p2w）：右栏网页看得见时按一下占满、再按还原，记在本机；网页不在右栏时不记（混用的毛病，见 05p2w-web-full）
-  'fold-center': { ctxs: ['web'], check: (k, _c, p) => flips(p, () => k.run.page.evaluate(() => String(localStorage.getItem('cn.centerFold') === '1'))) },
+  // 当前这栏占满 / 还原（task-kbnc0、task-05p2w，每一栏都能占满）：焦点在网页里按一下网页那一组占满、再按还原，记在本机（cn.max）
+  'fold-center': { ctxs: ['web'], check: (k, _c, p) => flips(p, () => k.run.page.evaluate(() => localStorage.getItem('cn.max'))) },
+  // 中间栏分屏（⌃\，和网页占满 ⌃⌘\ 是两件事）：分成两格、再按合回一格；占满不跟着变。
+  // 分屏这三条只在白板那种焦点（最后一轮）按：在前面几轮按过分屏、合回以后，AI 输入框里 ⌘[ 后退退不动（「前进」那条挂），四种焦点下分屏在 split-center、web-full-key 里按
+  'split-center': {
+    ctxs: ['board'],
+    async check(k, _c, p) {
+      const page = k.run.page
+      const split = () => page.locator('.win > main.center').evaluate((e) => String(e.classList.contains('split')))
+      await flips(p, split)
+      expect(await page.locator('.win > main.center').getAttribute('class')).not.toMatch(/folded/)
+    },
+  },
+  // ⌘2：没分屏时向右分屏、分着时换到右边那格；⌘1：分着时换到左边那格（左边那格的标签条不再是 idle）
+  'pane-2': {
+    ctxs: ['board'],
+    async check(k, _c, p) {
+      const page = k.run.page
+      const center = page.locator('.win > main.center')
+      await p()
+      await expect(center).toHaveClass(/\bsplit\b/, T)
+      await expect(page.locator('main.center > .tabs.p0')).toHaveClass(/\bidle\b/, T)
+      await page.keyboard.press(pwKey((await keysNow(page, 'split-center'))[0]!))
+      await expect(center).not.toHaveClass(/\bsplit\b/, T)
+    },
+  },
+  'pane-1': {
+    ctxs: ['board'],
+    async check(k, _c, p) {
+      const page = k.run.page
+      const center = page.locator('.win > main.center')
+      const splitKey = pwKey((await keysNow(page, 'split-center'))[0]!)
+      await page.keyboard.press(splitKey)
+      await expect(center).toHaveClass(/\bsplit\b/, T)
+      await p()
+      await expect(page.locator('main.center > .tabs.p0')).not.toHaveClass(/\bidle\b/, T)
+      await expect(page.locator('main.center > .tabs.p1')).toHaveClass(/\bidle\b/, T)
+      await page.keyboard.press(splitKey)
+      await expect(center).not.toHaveClass(/\bsplit\b/, T)
+    },
+  },
   'dream-report': { check: (k, _c, p) => flips(p, () => left(k.run.page, '梦游报告').getAttribute('aria-pressed')) },
   'toggle-right': {
     async check(k, ctx, p, combo) {

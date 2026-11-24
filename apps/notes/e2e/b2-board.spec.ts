@@ -334,8 +334,9 @@ test('文档切到白板不露原文：书摘卡头《书》· 章、PDF 页缩�
     await expect(math.locator('.kh')).toHaveText('公式')
     await expect(math.locator('.katex')).toHaveCount(2)
     await expect(math.locator('.katex .mfrac')).toHaveCount(1)
-    // 问过 AI：框下来的截图画出来；没有截图的第 12 页画那一页
-    const asks = col(page, '问过 AI').locator('.db-card[data-face="ask"]')
+    // 问过 AI（一处一列，以前的格式整节一张）：框下来的截图画出来；没有截图的第 12 页画那一页
+    await expect(docBoard(page).locator('.db-col[data-ask="1"] h3 .truncate')).toHaveText(['第3页 · 计算栈为什么分成九层', '第5页 · 矩阵乘法在 GPU 上为什么快', '第12页 · 搬一次数据比算一次还费电？'])
+    const asks = docBoard(page).locator('.db-col[data-ask="1"] .db-card[data-face="ask"]')
     await expect(asks).toHaveCount(3)
     await expect(asks.nth(0).locator('.kh')).toContainText('第3页')
     await expect(asks.nth(0).locator('.tt')).toHaveText('计算栈为什么分成九层')
@@ -344,6 +345,8 @@ test('文档切到白板不露原文：书摘卡头《书》· 章、PDF 页缩�
     await expect.poll(() => asks.nth(2).locator('.thumb img').evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth), { timeout: 15_000 }).toBeGreaterThan(100)
     // 代码卡头：语言 … 14行；HTML 链接卡；嵌入的笔记
     await expect(col(page, '用代码验证').locator('.db-card[data-face="code"] .kh')).toContainText('python14行')
+    // 配对笔记（「Lecture05 笔记.md」）所有列完整显示、一行往右排：问过 AI 一处一列以后这一节是第 7 列，也不收成列头
+    await expect(col(page, '我还没懂的')).not.toHaveClass(/\bfold\b/)
     const html = col(page, '我还没懂的').locator('.db-card[data-face="link"]')
     await expect(html).toContainText('加速器为何又快又省 · 拖动看车间')
     await expect(html).toContainText('Lecture05 可视化 · HTML · 双击打开')

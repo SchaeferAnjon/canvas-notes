@@ -67,8 +67,9 @@ for (const f of ['a', 'b'] as const) {
       await expect(page.getByTestId('tab-list')).not.toHaveClass(/\bmore-r\b/)
       // B 的动作带字（属性 · 任务 / 白板 / 文档）时当前标签放不下就只留图标，位置让给标签（A 本来就只有图标）；
       // 2026-11-22 起缩放和收件箱在白板右上角（task-wz7gb），这一排窄了，1100 宽时带字也放得下：不论哪样，当前标签整个露着（上面量过）
+      // 中间栏分屏加了「对照看」一颗以后（2026-11-24），1100 宽开导图时 B 也收成图标：名字还在 aria-label 里
       const segLabel = acts(page).locator('.seg button.on .lb')
-      if (f === 'b') await expect(segLabel).toBeVisible()
+      if (f === 'b') await expect(acts(page).locator('.seg button.on')).toHaveAccessibleName(/白板|文档/)
       // 中间窄于 900：说明最宽 140，放不下是省略号，悬停看全句
       const nb = (await note.boundingBox())!
       expect(nb.width).toBeLessThanOrEqual(141)
@@ -93,11 +94,15 @@ for (const f of ['a', 'b'] as const) {
       // 关到只剩三个（首页、第一篇、导图）：放得下就不渐隐
       for (const n of NAMES.slice(1)) await page.locator('.tab', { hasText: n }).getByRole('button', { name: '关闭标签' }).click()
       await expect(page.locator('.tabs .tab')).toHaveCount(3)
-      await expect(page.getByTestId('tab-list')).not.toHaveClass(/\bmore-l\b|\bmore-r\b/)
+      // 放得下就不渐隐、放不下才渐隐（中间栏分屏给笔记、导图加了「对照看」一颗以后，1100 宽开着导图三个标签差 20 来像素放不下）
+      const tl = page.getByTestId('tab-list')
+      if (await tl.evaluate((l) => l.scrollWidth <= l.clientWidth)) await expect(tl).not.toHaveClass(/\bmore-l\b|\bmore-r\b/)
+      else await expect(tl).toHaveClass(/\bmore-[lr]\b/)
       // 回到导图：只剩三个标签，带字放得下（B 带字）；窗口拉到 1500 宽，照样带字、当前标签整个露着
       await page.locator('.tab', { hasText: '导图 11-15' }).locator('.tl').click()
       await expect(tabOn(page)).toContainText('导图 11-15')
-      if (f === 'b') await expect(segLabel).toBeVisible()
+      // 1100 宽开导图带「对照看」时放不下字，收成图标（名字在 aria-label）；拉到 1500 宽再带字
+      if (f === 'b') await expect(acts(page).locator('.seg button.on')).toHaveAccessibleName(/白板|文档/)
       expect((await activeFit(page)).right).toBeGreaterThanOrEqual(0)
       await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1500, 900))
       if (f === 'b') await expect(segLabel).toBeVisible()

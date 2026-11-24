@@ -16,7 +16,7 @@ import { logActivity } from '../activity'
 import { setActiveWeb } from '../agent/web'
 import { faviconTone } from './favicon-tone'
 import { forwardedKey } from '../commands'
-import { saveImage } from './save-image'
+import { download, saveImage, sniffImage } from './save-image'
 import { readChromeBookmarks, readChromeHistory } from './chrome-data'
 import { noteIcon, notifyBookmarksChanged, setupBookmarkKeeper } from './bookmarkkeeper'
 import { Extensions } from './extensions'
@@ -174,6 +174,17 @@ export async function setupWeb(d: Deps): Promise<void> {
     return { path: await saveImage(needVault().root, ses, src, typeof nameHint === 'string' ? nameHint : undefined, { note, shot: o.shot === true }) }
   })
 
+  // 网页里的图拖进 AI 输入框、右键「问 AI 这张图」（网页图拖进对话）：用网页那个会话取图（要登录才看得到的也行），
+  // 和输入框里贴的图一样最大 20 MB；界面把不是 PNG、JPEG 的（SVG、WebP……）画成 PNG 再存进 pasted/
+  ipcMain.handle('web:fetch-image', async (_e, url: unknown) => {
+    if (typeof url !== 'string' || !/^(https?:|data:image\/)/i.test(url)) throw new Error('只能取网页上的图（http/https）')
+    const { bytes, type } = await download(ses, url, 20 * 1024 * 1024)
+    if (!bytes.byteLength) throw new Error('图片是空的')
+    const kind = sniffImage(bytes)
+    if (!kind && !type.startsWith('image/')) throw new Error('这不是图片')
+    const mime = kind === 'svg' ? 'image/svg+xml' : kind === 'jpg' ? 'image/jpeg' : kind ? `image/${kind}` : type
+    return { bytes, type: mime }
+  })
   ipcMain.handle('web:favicon-tone', (_e, url: unknown) => faviconTone(ses, url))
   ipcMain.handle('web:clip-page', (_e, webUrl: unknown) => clipCurrentPage(typeof webUrl === 'string' ? webUrl : null))
   ipcMain.handle('web:undo-clip', async (_e, path: unknown) => {
@@ -232,6 +243,9 @@ async function clipCurrentPage(webUrl: string | null): Promise<{ path: string; c
   return { path, commit: hash ? ((await git.log(v.root, 1, hash))[0] ?? null) : null }
 }
 
+/** 网页里焦点不在输入框、可编辑的地方（Esc 是不是网页表单自己的） */
+const ESC_FREE = `(() => { let a = document.activeElement; while (a && a.shadowRoot && a.shadowRoot.activeElement) a = a.shadowRoot.activeElement; return !(a && (a.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) })()`
+
 /** will-attach-webview 之后：新窗口开成新标签、记历史、插件把它当成标签、网页焦点时的快捷键转给界面 */
 export function attachWebview(wc: WebContents, win: BrowserWindow) {
   wc.setWindowOpenHandler(({ url, disposition }) => {
@@ -243,6 +257,14 @@ export function attachWebview(wc: WebContents, win: BrowserWindow) {
   // 书签管家新标签页里的网站图标用右栏开过的网站报的图标
   wc.on('page-favicon-updated', (_e, icons) => noteIcon(wc.getURL(), icons))
   wc.on('before-input-event', (e, input) => {
+    // Esc（没按别的键）：不在网页的输入框、表单里时告诉界面（占满着就回原样，shell/max.ts）；网页自己照样收到这一下
+    if (input.type === 'keyDown' && input.key === 'Escape' && !input.isAutoRepeat && !input.meta && !input.control && !input.alt && !input.shift) {
+      wc.executeJavaScript(ESC_FREE).then(
+        (free) => free === true && send('app:key', 'esc'),
+        () => undefined, // 网页正在换页、没载完：这一下不算
+      )
+      return
+    }
     // 软件的快捷键（命令表里「软件里」的，task-spsmf）：网页有焦点时也转给界面，界面照样按一下；网页里自己的脚本接的（双语翻译、剪下选中的一段）不转
     const own = forwardedKey(input)
     if (!own) return

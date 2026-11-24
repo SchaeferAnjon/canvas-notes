@@ -34,7 +34,10 @@ test('拷贝、插进文档（光标处）：剪贴板、输入框、文件里�
     await expect(second.locator('.txt')).toContainText('下周要把论文计划')
     const row1 = first.getByTestId('ai-ans-acts')
     const row2 = second.getByTestId('ai-ans-acts')
-    await expect(row2.getByRole('button')).toHaveText(['拷贝', '插进文档', ''])
+    // 右栏默认宽：AI 对话默认排上两颗快捷回复（r100），左边收成图标，名字在 aria-label 里
+    await expect(row2.locator('[data-act]')).toHaveCount(3)
+    await expect(row2.getByRole('button', { name: '拷贝' })).toBeVisible()
+    await expect(row2.getByRole('button', { name: '插进文档' })).toBeVisible()
     // 第 3 颗是 ⋯（task-r00en），只有图标；没有「引用再问」（task-bppvn）
     await expect(row2.getByRole('button').nth(2)).toHaveAccessibleName('这条回答还能做什么')
     await expect(row2.getByRole('button', { name: '引用再问' })).toHaveCount(0)

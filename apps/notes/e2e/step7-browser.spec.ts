@@ -135,7 +135,7 @@ test('多标签：新建、切换、新窗口链接开成新标签、关闭；�
     const wideBox = (await wide.locator('webview').boundingBox())!
     expect(wideBox.width).toBeGreaterThan(600)
     // 这一页标签条右端 ⋯ › 放回右栏（task-05p2w）。右上角那颗只管右栏的网页：右栏还开着「第二页」，它写「网页占满」，不是「放回右栏」
-    await expect(page.getByRole('banner').getByTestId('tb-web')).toHaveAccessibleName('网页占满')
+    await expect(page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn')).toHaveAccessibleName('占满：网页')
     await page.getByTestId('tab-acts').getByRole('button', { name: '更多' }).click()
     await page.getByRole('dialog', { name: '这一页' }).getByRole('menuitem', { name: /放回右栏/ }).click()
     await expect(page.locator('.wpane')).toHaveCount(0)

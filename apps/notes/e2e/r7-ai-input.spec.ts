@@ -657,7 +657,7 @@ async function selectLine(page: Page, n: number, text: string) {
 }
 
 for (const frame of ['b', 'a'] as const) {
-  test(`task-6cxtc 复审 · 界面风格 ${frame.toUpperCase()}：PDF 小条带 ↵、⌘↵ 键帽（照命令表），整条在这一栏里（左右各留 8）、栏底不出横向滚动条；在选区上方 6，上面放不下放到下面 6；栏再窄才藏键帽`, async () => {
+  test(`task-6cxtc 复审 · 界面风格 ${frame.toUpperCase()}：PDF 小条带 ↵、⌘↵ 键帽（照命令表），放得下时整条在这一栏里（左右各留 8）；选字 9 颗放不下时伸出这一栏、不出窗口（用户定的 9 颗）；栏底不出横向滚动条；在选区上方 6，上面放不下放到下面 6；栏再窄才藏键帽`, async () => {
     const run = await launch(files, { CN_AI_FAKE: '1' }, (vault) => {
       const ud = join(dirname(vault), 'user-data')
       mkdirSync(ud, { recursive: true })
@@ -686,11 +686,29 @@ for (const frame of ['b', 'a'] as const) {
       let { cap: c, v } = await capAndView(page)
       expect(v.right - v.left).toBeGreaterThan(400)
       expect(v.right - v.left).toBeLessThan(470)
-      expect(c.x).toBeGreaterThanOrEqual(v.left + 8 - 1) // 小数宽度取整差零点几：差不到 1 都算左右各留 8
-      expect(c.x + c.width).toBeLessThanOrEqual(v.right - 8 + 1)
+      // 用户定了「选字小条保持 9 颗（窄时只留图标）」，不收颗数（0.5.4 已知问题）：藏完名字、键帽 444 宽还放不下，
+      // 小条浮在上面伸出这一栏（左边对齐这一栏留 8，往右伸），但不出窗口、不盖住选中的那行字、栏底不出横向滚动条
+      const btns = cap.getByRole('button')
+      await expect(btns).toHaveCount(9)
+      const win = await page.evaluate(() => document.documentElement.clientWidth)
+      for (const b of await btns.all()) {
+        const bb = await box(b)
+        expect(bb.x).toBeGreaterThanOrEqual(0)
+        expect(bb.x + bb.width).toBeLessThanOrEqual(win)
+      }
+      expect(c.x).toBeGreaterThanOrEqual(8 - 1) // 小数宽度取整差零点几：差不到 1 都算留 8
+      expect(c.x + c.width).toBeLessThanOrEqual(win - 8 + 1)
+      expect(c.x + c.width).toBeGreaterThan(v.right - 8)
+      expect(Math.abs(c.x - (v.left + 8))).toBeLessThanOrEqual(1)
       expect(v.sw).toBeLessThanOrEqual(v.cw)
       expect(Math.abs(sb.y - (c.y + c.height) - 6)).toBeLessThanOrEqual(2)
+      // 伸出这一栏的那段浮在右边那栏上面（点得到，不被盖住）
+      const top = await page.evaluate(([x, y]) => !!document.elementFromPoint(x!, y!)?.closest('[aria-label="框好的这块"]'), [c.x + c.width - 6, c.y + c.height / 2])
+      expect(top).toBe(true)
       await page.screenshot({ path: `test-results/r7-pdf-cap-${frame}.png` })
+      // 小条是 fixed 的：PDF 滚一下，它跟着选区走
+      await page.getByTestId('pdf-view').evaluate((e) => (e.scrollTop += 40))
+      await expect.poll(async () => Math.round((await box(cap)).y)).toBe(Math.round(c.y - 40))
 
       // 选区在这一栏最上面：上面放不下，放到选区下面 6
       await page.keyboard.press('Escape')

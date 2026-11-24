@@ -499,8 +499,10 @@ export class Vault {
         // 文件不在了（外面删了、挪走了又认不出去哪了）：字照样存下，存回原来的位置，文件夹没了就建回来，编辑器说一句
         await mkdir(dirname(p), { recursive: true })
       }
-      // 先记下：换上去那一下监听就会报，报来的和它一样才认得出是自己写的
+      // 先记下：换上去那一下监听就会报，报来的和它一样才认得出是自己写的。
+      // 记下到换上去之间盘上还是旧字：这时去对账（check）会把旧字当外部改动报回编辑器，所以同时记「正在写」，check 等写完再读
       this.known.set(rel, text)
+      const landed = this.writingNow(rel)
       try {
         await atomicWrite(p, encodeNote(text, meta), { expect: cur ? cur.stamp : null })
       } catch (e) {
@@ -510,6 +512,8 @@ export class Vault {
         // 读完以后外面又动了它：回头重读（多半内容不同，走上面的合并）；一直在变就报错，编辑器照「没存上」处理
         if (e instanceof ChangedOutsideError && tries < 5) continue
         throw e
+      } finally {
+        landed()
       }
       this.reindex(rel, text)
       this.onOwnWrite?.(rel, text)
@@ -621,7 +625,30 @@ export class Vault {
     })
   }
 
-  private async check(rel: string, onNoteChanged: (rel: string, text: string) => void, onFilesChanged: () => void, onRenamed: (from: string, to: string) => void) {
+  /** 正在写的这几篇（writeNow 记下 known 到换上去之间），和每篇写过几轮：对账时据此认出「读的时候自己正在写」 */
+  private writes = new Map<string, { flying: Promise<void> | null; n: number }>()
+
+  private writingNow(rel: string): () => void {
+    let done!: () => void
+    const flying = new Promise<void>((r) => (done = r))
+    const w = this.writes.get(rel) ?? { flying: null, n: 0 }
+    this.writes.set(rel, { flying, n: w.n + 1 })
+    return () => {
+      const now = this.writes.get(rel)!
+      this.writes.set(rel, { flying: now.flying === flying ? null : now.flying, n: now.n + 1 })
+      done()
+    }
+  }
+
+  private async check(rel: string, onNoteChanged: (rel: string, text: string) => void, onFilesChanged: () => void, onRenamed: (from: string, to: string) => void): Promise<void> {
+    // 自己正在写这篇：等写完再读，不然读到的是盘上的旧字，当成外部改动报回去会把编辑器里刚打的字合掉（规矩 2 并跑偶发丢字）
+    const flying = this.writes.get(rel)?.flying
+    if (flying) {
+      await flying
+      return this.check(rel, onNoteChanged, onFilesChanged, onRenamed)
+    }
+    const round = this.writes.get(rel)?.n ?? 0
+    const before = this.known.get(rel)
     let bytes: Buffer
     try {
       bytes = await readFile(this.abs(rel))
@@ -635,6 +662,8 @@ export class Vault {
       return
     }
     const prev = this.known.get(rel)
+    // 读的这一会儿自己写了这篇、或同一篇另一轮对账先报了：读到的可能是旧字，重读一遍再比
+    if ((this.writes.get(rel)?.n ?? 0) !== round || prev !== before) return this.check(rel, onNoteChanged, onFilesChanged, onRenamed)
     const { text } = decodeNote(bytes)
     this.index.set(rel, text)
     if (prev === undefined) {

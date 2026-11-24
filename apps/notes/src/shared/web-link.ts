@@ -28,9 +28,12 @@ export function fragmentText(quote: string): string {
   return out.replace(/[\s.,;:!?，。；：！？、…·\-–—/\\(（【「『]+$/u, '')
 }
 
-/** text= 后面那一截：中文照写，空白和 % , - & ( ) # < > " ` 转成 %xx（网址里不断开，md 链接里也不断开） */
+/**
+ * text= 后面那一截：中文照写，空白和 % , - & ( ) # < > " ` 转成 %xx（网址里不断开，md 链接里也不断开）；
+ * 公式（`$\mathbf{X}$`）的 $ \ { } ^ _ | * ~ 也转（文件里一行有两个 $ 会被当成行内公式，反斜杠在 md 里是转义）
+ */
 export function encodeFragment(s: string): string {
-  return s.replace(/[\s%,\-&()#<>"`[\]]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))
+  return s.replace(/[\s%,\-&()#<>"`[\]$\\{}^_|*~]/g,(c) => '%' + c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0'))
 }
 
 /** 回到网页那一段的链接：网址（去掉原来的 #…）+ #:~:text=那段开头 */

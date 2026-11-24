@@ -86,11 +86,15 @@ export interface WebEntry {
   key: string
   /** key 那一行（块头；剪藏是来源那一行）在那篇里第几行（从 0 数）：查那一行是哪次提交写的 */
   keyAt: number
+  /** 剪的是一张图（网页图拖进对话）：网页上照图注认回那张图标「剪过」 */
+  img?: true
 }
 
 const LINK = /\[([^\]\n]*)\]\(([^)\s]+)\)/g
 const AI_HEAD = /^\s*>\s*\[!ai\][+-]?[ \t]+(.*)$/i
 const SOURCE = /^——\s*(.*)$/
+/** 一张图：![说明](路径) */
+const IMAGE = /^!\[([^\]\n]*)\]\([^)\n]+\)\s*$/
 
 const words = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter('zh', { granularity: 'word' }) : null
 
@@ -152,9 +156,18 @@ export function webEntries(md: string, page: string): WebEntry[] {
       continue
     }
     const src = SOURCE.exec(l)
-    if (!src || !/^\s*>/.test(lines[i - 1] ?? '')) continue
+    if (!src) continue
+    // 剪的一张图：图、（空一行）、来源一行
+    const imgAt = IMAGE.test(lines[i - 1] ?? '') ? i - 1 : !(lines[i - 1] ?? '').trim() && IMAGE.test(lines[i - 2] ?? '') ? i - 2 : -1
+    if (imgAt < 0 && !/^\s*>/.test(lines[i - 1] ?? '')) continue
     const link = [...src[1]!.matchAll(LINK)].map((m) => ({ text: m[1]!, url: m[2]!, frag: parseFragment(m[2]!) })).find((x) => x.frag && samePage(x.frag.page, page))
     if (!link) continue
+    if (imgAt >= 0) {
+      const alt = normText(IMAGE.exec(lines[imgAt]!)![1]!)
+      const head = link.text.split(' · ')[0]!.trim()
+      out.push({ kind: 'clip', label: '剪藏', title: `图「${short(alt || head)}」`, head, url: link.url, text: link.frag!.text, quote: alt || link.frag!.text, line: imgAt, key: keyOf(l), keyAt: i, img: true })
+      continue
+    }
     let k = i - 1
     while (k > 0 && /^\s*>/.test(lines[k - 1]!) && !AI_HEAD.test(lines[k - 1]!)) k--
     const quote = normText(

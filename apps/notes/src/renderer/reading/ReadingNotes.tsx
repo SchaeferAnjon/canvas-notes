@@ -1,6 +1,8 @@
 /**
  * 右栏「笔记」标签（2026-11-20 工作区方向 A 起是独立的标签，能拖到任何位置；原型 design/workspace/proto-a.html 的 buildNote）：一篇长文档（CN-93–96）。
- * 读的就是库里那篇「… 笔记.md」（一份 PDF 一篇）：一轮（一处问的地方）一段，按页排，最近问的那一轮展开，旧的每轮收成一行（标题、小结的前半句、几问、时间），点开展开；
+ * 读的就是库里那篇「… 笔记.md」（一份 PDF 一篇）：一轮（一处问的地方）一段，按页排，每一轮默认展开（问的原话、我框的图、回答都露着，
+ * 2026-11-23 用户「我看不到我问的内容 还有问的这个内容的时候的图片 能不能 默认展开 一键收起」；以前只展开最近问的那一轮），
+ * 筛选那一行右边一颗「全部收起 / 全部展开」；收起的一轮是一行（标题、小结的前半句、几问、时间），点开展开，单轮自己点开收起照旧；只是看法，不改文件；
  * 顶上「在这份笔记里找」（搜问题原话、回答、小结），下面一行「全部 · 只看我问的 · 旁支」和「N轮 · N问」：
  * 「只看我问的」只列问题原话（就是这份 PDF 的「我的疑惑」），「旁支」只列旁支里问的，点一条回到「全部」、展开那一轮滚过去。
  * 展开的一轮：标题 + 几问 · 时间、「第 28 页 ›」（点了 PDF 翻过去、框闪）· 我框的、我框的图（按框在 PDF 上 100% 时的宽，CN-111）、
@@ -25,6 +27,13 @@ const MARKS = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
 /** 这一轮问了几问（新格式：主问题 + 旁支问题；以前的段：问了几轮） */
 const asksOf = (s: AskSection) => s.rounds
 type Filter = 'all' | 'q' | 'side'
+
+/**
+ * 每份笔记哪几轮收着：all 是点了「全部收起」，flip 是和 all 反着的那几轮（自己单点开、单收起的）。
+ * 记在这次开着软件的内存里（切到别的 PDF、关了右栏再开照旧）；重开软件回到默认的全展开
+ */
+const folds = new Map<string, { all: boolean; flip: Set<string> }>()
+const NO_FOLD = { all: false, flip: new Set<string>() }
 // 不翻：键，画的地方 t(label, { ctx: '笔记筛选' })（英文写短：All · Mine · Threads）
 const FILTERS: [Filter, string][] = [
   ['all', '全部'], // 不翻
@@ -98,9 +107,7 @@ export function ReadingNotes(props: {
   // 划的线（ParaRead 联动）：按含义筛（再点一下取消）
   const kinds = R.useKinds()
   const [mean, setMean] = useState<string | null>(null)
-  /** 自己点开的、自己收起的那几轮（最近问的那一轮不点也展开） */
-  const [opened, setOpened] = useState<Set<string>>(new Set())
-  const [closed, setClosed] = useState<Set<string>>(new Set())
+  const [, redraw] = useState(0)
   const [ring, setRing] = useState<string | null>(null)
   const list = useRef<HTMLDivElement>(null)
   const sections = useMemo(() => [...r.note.sections].sort((a, b) => a.page - b.page), [r.note.sections])
@@ -110,22 +117,20 @@ export function ReadingNotes(props: {
     if (askedReq?.pdf === pdf) setFilter('q')
   }, [askedReq?.seq])
 
-  // 最近问的那一轮展开，旧的每轮收成一行（自己点开的照旧开着）
-  const newest = r.state.threads.length ? r.state.threads.reduce((a, b) => (a.createdAt > b.createdAt ? a : b)).id : null
-  const isOpen = (id: string) => opened.has(id) || (id === newest && !closed.has(id))
+  // 每一轮默认展开；「全部收起」以后都收成一行；单点开、单收起的记在 flip 里
+  const fold = folds.get(pdf) ?? NO_FOLD
+  const isOpen = (id: string) => fold.all === fold.flip.has(id)
   const setOpen = (id: string, on: boolean) => {
-    setOpened((s) => {
-      const n = new Set(s)
-      if (on) n.add(id)
-      else n.delete(id)
-      return n
-    })
-    setClosed((s) => {
-      const n = new Set(s)
-      if (on) n.delete(id)
-      else n.add(id)
-      return n
-    })
+    const f = folds.get(pdf) ?? NO_FOLD
+    const flip = new Set(f.flip)
+    if (on === f.all) flip.add(id)
+    else flip.delete(id)
+    folds.set(pdf, { all: f.all, flip })
+    redraw((n) => n + 1)
+  }
+  const foldAll = (all: boolean) => {
+    folds.set(pdf, { all, flip: new Set() })
+    redraw((n) => n + 1)
   }
 
   // 看过了，竖条上的小点消失
@@ -137,7 +142,7 @@ export function ReadingNotes(props: {
   useEffect(() => {
     const f = r.focus
     if (!f || props.hidden) return
-    // 已经开着（最近一轮）就不记成「自己点开的」，不然来了新的一轮它也收不起来
+    // 已经开着就不动（不记成和「全部收起」反着的那一轮）
     if (!isOpen(f.id)) setOpen(f.id, true)
     setRing(f.id)
     requestAnimationFrame(() => list.current?.querySelector(`[data-sec="${CSS.escape(f.id)}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
@@ -236,6 +241,7 @@ export function ReadingNotes(props: {
   const asks = sections.reduce((n, s) => n + asksOf(s), 0)
   const text = r.note.text
   const toggle = (id: string) => setOpen(id, !isOpen(id))
+  const anyOpen = sections.some((s) => isOpen(s.id))
   /** 这一轮什么时候问的：本机问过的写「周二 20:14」（同全软件的日期写法），别的照笔记里的钟点 */
   const timeOf = (s: AskSection) => {
     const th = r.state.threads.find((x) => x.id === s.id)
@@ -309,6 +315,19 @@ export function ReadingNotes(props: {
                 {t(label, { ctx: '笔记筛选' })}
               </button>
             ))}
+            {sections.length > 0 && (
+              // 全部收起 / 全部展开：有一轮开着就是「全部收起」
+              <button
+                className="nfold"
+                aria-label={anyOpen ? t('全部收起') : t('全部展开')}
+                data-tip={anyOpen ? t('全部收起') : t('全部展开')}
+                data-side="below"
+                data-testid="notes-fold-all"
+                onClick={() => foldAll(anyOpen)}
+              >
+                <Codicon name={anyOpen ? 'collapse-all' : 'expand-all'} size={14} />
+              </button>
+            )}
             {isPdf && sections.length > 0 ? (
               <button className="btn btn-xs cards-open" data-testid="cards-open" title={t('AI 把这几问改成能单独看懂的卡，你一张张过，再送进 Anki')} onClick={() => openCards({ kind: 'pdf', pdf })}>
                 <AiIcon job="cards" size={14} />

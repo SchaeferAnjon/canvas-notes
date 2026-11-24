@@ -197,7 +197,12 @@
   text-align: left;
   color: var(--t2);
 }
+.pa-cell .pa-th {
+  position: relative;
+  display: block;
+}
 .pa-cell img {
+  display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
   object-fit: cover;
@@ -214,6 +219,19 @@
 .pa-cell .n {
   font-size: 12px;
 }
+/* 用了好几处：角上写「2处」，跳过以后写到了第几处「1/2」；截图多是白底，用深底白字（同 AI 输入框里图上的「第28页」小牌） */
+.pa-cell .uses {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  font-size: 11px;
+  line-height: 16px;
+  color: #fff;
+}
 .pa-cell.unused .n {
   color: var(--t3);
 }
@@ -229,4 +247,27 @@
   border-top: 1px solid var(--line);
   font-size: 12px;
   color: var(--t3);
+}
+
+/* 放大看图（双击一张、文中没用到的单击）：盖住窗口，后面 72% 黑，图刚好放下（92% 宽、82% 高里最大），下面一行名字、大小、在哪一节 */
+.pa-big {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.72);
+  -webkit-app-region: no-drag;
+}
+.pa-big img {
+  border-radius: 6px;
+  background: #fff;
+}
+.pa-big p {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.78);
 }

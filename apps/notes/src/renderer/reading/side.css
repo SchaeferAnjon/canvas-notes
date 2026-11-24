@@ -208,6 +208,24 @@
 .reading-notes .nfil button.cards-open:hover {
   background: var(--fill);
 }
+/* 全部收起 / 全部展开：筛选那一行右边，「出卡」（或「N轮 · N问」）左边一颗 24 的图标按钮 */
+.reading-notes .nfil button.nfold {
+  margin-left: auto;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--t2);
+}
+.reading-notes .nfil button.nfold:hover {
+  color: var(--t1);
+}
+.reading-notes .nfil .nfold + .cards-open,
+.reading-notes .nfil .nfold + .cnt {
+  margin-left: 6px;
+}
 /* 一轮：上面一道 --line */
 .reading-notes .rnd {
   border-top: 1px solid var(--line);

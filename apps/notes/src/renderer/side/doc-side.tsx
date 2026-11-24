@@ -555,6 +555,7 @@ class AskPlugin implements PluginValue {
           <AskBoxView
             key={`${b.cx},${b.bottom}`}
             at={b}
+            sel={b.quote}
             within={this.view.scrollDOM.getBoundingClientRect()}
             onClose={(why) => {
               this.box = null

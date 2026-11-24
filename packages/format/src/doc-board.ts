@@ -10,7 +10,8 @@
  * 4. 一块是一张卡：一段字、一整个列表、一个引用、一个代码块、一张表格、一个数据库、一张图……
  * 5. 冒号结尾的那句和后面那一块合成一张卡。
  * 6. 连着的几张图合成一张图集；视频后面紧跟的时刻挂在视频卡下面。
- * 7. 软件写的「问过 AI」整段（「## 第 3 页 · …」）是一张问答卡，不当列；连着几段合成一列「问过 AI」。
+ * 7. 软件写的「问过 AI」一段（「## 第 3 页 · …」）是一列，列名是那一节的标题：卡是链接和框的图、每一问和回答、旁支（跟在它那一问后面）、
+ *    小结；那一页的「## 第 3 页 · 划的线」并进这一列（askUnits，2026-11-23 用户定「每个问话作为一列」）。
  * 8. 分隔线不成卡，是列里的一截空隙。
  *
  * 写回：切过去只看，一个字节不写。拖进别的列，文档里这段也挪进那一节；拖到空白处，这段前面多一行
@@ -49,6 +50,9 @@ export type UnitKind =
   | 'link'
   | 'gap'
 
+/** 问过 AI 那一列里一张卡是哪一块：链接和框的图、一问一答、回答的后半截、一条旁支、小结、那一页划的线、以前的格式整节 */
+export type AskPart = 'top' | 'qa' | 'more' | 'side' | 'recap' | 'marks' | 'old'
+
 export interface DocUnit {
   kind: UnitKind
   /** 这张卡在文档里的范围（不含前面的位置行） */
@@ -67,6 +71,8 @@ export interface DocUnit {
   tag?: { id: string; from: number; to: number }
   /** 位置行、编号行上别的属性（ai=日期、color=…、merge=3） */
   attrs?: Record<string, string>
+  /** 问过 AI 那一列里的卡（askUnits）：是这一处的哪一块；head 是这一节的标题行和链接行（认这一段、画这张卡用） */
+  ask?: { part: AskPart; head: string }
   /**
    * 合成的一张（task-5ryf9「合成一张」：字一个不改，前面一行注释 `merge=N` 记后面 N 张是一张）：每一张原来的样子。
    * from–to、text 是整张（几段连着中间的空行）；只有一张的不算合成
@@ -75,14 +81,16 @@ export interface DocUnit {
 }
 
 export interface DocColumn {
-  /** 列名（标题那一行去掉 #）；开头那一组是 null；合成的问答列是「问过 AI」 */
+  /** 列名（标题那一行去掉 #）；开头那一组是 null；问过 AI 的一处是那一节的标题（「第 3 页 · …」） */
   title: string | null
-  /** 标题行的范围；开头那一组、问答列没有 */
+  /** 标题行的范围；开头那一组没有 */
   head: { from: number; to: number } | null
   /** 这一节在文档里的末尾（插到列尾时插在这里） */
   end: number
-  /** 软件写的「问过 AI」合成的列：不能往里拖 */
+  /** 软件写的「问过 AI」的一节（一处一列）：不能往里拖 */
   ask: boolean
+  /** 问过 AI 的那一列：问的是第几页（那一页「划的线」并进来） */
+  page?: number
   cards: DocUnit[]
   /** 摆在自己位置上的列：标题前面那一行 `<!-- column id=… x=… y=… -->` 的范围和坐标 */
   place?: { id: string; x: number; y: number; from: number; to: number }
@@ -319,15 +327,13 @@ export function splitDoc(text: string): DocBoard {
   for (const s of secs) {
     const name = s.head ? headText(s.head) : null
     const end = s.body.length ? s.body[s.body.length - 1]!.to : s.head!.to
-    // 7. 「问过 AI」的一节：整节一张问答卡，连着的合成一列（讲通的讲法以前写 [!success]，现在写 [!ai] 提示块）
+    // 7. 「问过 AI」的一节（讲通的讲法以前写 [!success]，现在写 [!ai] 提示块）：一处一列，列头是这一节的标题（askUnits）
     if (s.head && ASK_HEAD.test(name!) && s.body.some((b) => /^>\s*\[!(question|success|ai)\]/.test(at(b)))) {
-      const card: DocUnit = { kind: 'ask', from: s.head.from, to: end, text: text.slice(s.head.from, end) }
-      const prev = columns[columns.length - 1]
-      if (prev?.ask) {
-        prev.cards.push(card)
-        prev.end = end
-      } else columns.push({ title: '问过 AI', head: null, end, ask: true, cards: [card] })
-      total++
+      const cards = askUnits(text, s.head, end)
+      const col: DocColumn = { title: name, head: { from: s.head.from, to: s.head.to }, end, ask: true, cards, page: Number(/\d+/.exec(name!)![0]) }
+      if (s.place) col.place = s.place
+      columns.push(col)
+      total += cards.length
       continue
     }
     const col: DocColumn = { title: name, head: s.head ? { from: s.head.from, to: s.head.to } : null, end, ask: false, cards: [] }
@@ -441,7 +447,94 @@ export function splitDoc(text: string): DocBoard {
     }
     columns.push(col)
   }
+  // 「第 N 页 · 划的线」那一节（highlights.ts）：卡标成划线；放进第 N 页问过的那一列（同一页问了几处放进第一处），那一页没问过就照旧自己一列
+  for (let ci = columns.length - 1; ci >= 0; ci--) {
+    const c = columns[ci]!
+    const m = c.ask || !c.title ? null : MARKED_HEAD.exec(c.title)
+    if (!m) continue
+    const marks = c.cards.filter((u) => u.kind !== 'gap')
+    // 白板上动过的（拖到空白处、连了线）照普通卡
+    if (marks.some((u) => u.place || u.tag || u.attrs || u.parts)) continue
+    const head = text.slice(c.head!.from, c.head!.to)
+    const into = columns.find((x) => x.ask && x.page === Number(m[1]))
+    for (const u of marks) u.ask = { part: 'marks', head }
+    if (!into) continue
+    into.cards.push(...marks)
+    columns.splice(ci, 1)
+  }
   return { title, columns, placed, total, level: colLevel > 6 ? 2 : colLevel }
+}
+
+const MARKED_HEAD = /^第\s*(\d+)\s*页\s*[·・]\s*划的线$/
+/** 问过 AI 那一段里分出卡的几行（和 reading-note.ts 的 STRUCT 同一个认法） */
+const ASK_STRUCT = /^>\s*\[!(question|side|recap)\]/
+const THREAD_LINE = /<!--\s*cn:thread=.+?-->\s*$/
+/** 旁支一轮的问题块里（到「>」空行为止）有没有「> >」那一句 */
+function quoted(lines: readonly string[], i: number): boolean {
+  for (; i < lines.length && /^>/.test(lines[i]!) && !/^>\s*$/.test(lines[i]!); i++) if (/^>\s?>/.test(lines[i]!)) return true
+  return false
+}
+
+/**
+ * 问过 AI 的一节分成几张卡（2026-11-23 用户：「每个问话作为一列吧，旁支的话可以作为主对话放在对话那一列」）：
+ * top：第二行回到 PDF 的链接、我框的图、选字问的原文；qa：一问和它的回答（回答里有 ### 小标题时从第二个小标题起每节一张 more）；
+ * side：一条旁支（带「> >」那一句的开一条，接着问的并进去）；recap：小结和后面的脚注、可视化、双链。
+ * 旁支在文档里就写在被问那一问的回答后面，白板上跟着排在它下面。以前的格式（没有身份注释）整节一张 old。
+ * 只读：卡的范围都是原文里的，切过去一个字节不写
+ */
+function askUnits(text: string, head: MdBlock, end: number): DocUnit[] {
+  const headLine = text.slice(head.from, head.to)
+  const start = text.indexOf('\n', head.to - 1) + 1
+  if (!start || start >= end) return []
+  const body = text.slice(start, end)
+  const first = body.split('\n', 1)[0] ?? ''
+  if (!THREAD_LINE.test(first)) {
+    const from = start + (body.length - body.trimStart().length)
+    return from < end ? [{ kind: 'ask', from, to: end, text: text.slice(from, end), ask: { part: 'old', head: headLine } }] : []
+  }
+  const askHead = headLine + '\n' + first
+  const out: DocUnit[] = []
+  let part = 'top' as AskPart
+  let from = start
+  let to = start
+  /** 这一张里已经有回答的正文（不算问题块、小标题）：再碰到小标题才另起一张，连着的几个小标题不拆开 */
+  let said = false
+  let inCall = false
+  let fence = false
+  const close = () => {
+    if (to > from) out.push({ kind: 'ask', from, to, text: text.slice(from, to), ask: { part, head: askHead } })
+  }
+  const open = (p: AskPart, at: number) => {
+    close()
+    part = p
+    from = at
+    to = at
+    said = false
+  }
+  const lines = body.split('\n')
+  let pos = start
+  for (let i = 0; i < lines.length && pos < end; i++) {
+    const line = lines[i]!
+    const lineEnd = pos + line.length
+    if (/^\s*(```|~~~)/.test(line)) fence = !fence
+    const st = fence ? null : ASK_STRUCT.exec(line)
+    if (st) {
+      if (st[1] === 'question') open('qa', pos)
+      else if (st[1] === 'recap') open('recap', pos)
+      // 旁支接着问的一轮（问题下面没有「> >」那一句）：并进前面那一条
+      else if (part !== 'side' || quoted(lines, i + 1)) open('side', pos)
+      inCall = true
+    } else if (inCall && !line.startsWith('>')) inCall = false
+    const heading = !fence && !inCall && /^#{1,6}\s/.test(line)
+    if (heading && said && (part === 'qa' || part === 'more')) open('more', pos)
+    if (line.trim()) {
+      to = Math.min(lineEnd, end)
+      if (!inCall && !heading) said = true
+    }
+    pos = lineEnd + 1
+  }
+  close()
+  return out
 }
 
 // ---------- 写回 ----------
@@ -894,7 +987,7 @@ export function unitKeys(board: DocBoard): Map<DocUnit, string> {
 export const DOC_BOARD_RULES = `摆白板的规矩（和「文档切到白板」同一套）：
 1. 一列是一个主题（文档里就是一节「##」），列名短，说这一组讲什么；开头没归类的几张放最左一组。
 2. 一块内容一张卡：一段字、一整个列表、一个引用、一张表格、一张图；冒号结尾的那句和后面那一块算一张。
-3. 连着的几张图放在一起；视频卡后面紧跟它的时刻；软件记的「问过 AI」的几张放在一列「问过 AI」里。
+3. 连着的几张图放在一起；视频卡后面紧跟它的时刻；软件记的「问过 AI」一处一列（列名是那一节的标题），旁支、那一页划的线在同一列里。
 4. 每列最多先摆 6 张，多的留在列底；不删卡、不改卡片内容。`
 
 /**

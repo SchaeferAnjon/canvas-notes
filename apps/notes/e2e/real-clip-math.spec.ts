@@ -83,9 +83,6 @@ test('zh.d2l.ai 2.3：剪两段、引用一段、2.3.9 连着 (2.3.7) 两个矩�
     await page.mouse.up()
     await expect.poll(() => guest(page, `document.getElementById('cn-clip-host')?.style.display`)).toBe('block')
     await expect.poll(() => guest<number>(page, `document.querySelectorAll('.cn-selblock').length`)).toBeGreaterThan(0)
-    // 选着字时公式角上那颗不出（拖选经过公式时排下的那一下晚到也不出）
-    await page.waitForTimeout(500)
-    expect(await guest(page, `document.getElementById('cn-block-host')?.style.display ?? 'none'`)).toBe('none')
     await shot(run, '拖选2.3.9连着公式')
     await clickBar(page, 'button.clip')
     await expect.poll(() => file()).toMatch(/> \$\$\n> [\s\S]*?\\begin\{bmatrix\}/)

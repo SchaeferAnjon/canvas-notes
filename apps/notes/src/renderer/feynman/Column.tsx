@@ -45,8 +45,16 @@ export function FeynmanColumn(p: ColumnProps) {
   const body = useRef<HTMLDivElement>(null)
   const col = useRef<HTMLElement>(null)
   const status = r?.meta.status
-  // 刚出来、刚开讲：白板平移到这一列整个露出来（不改缩放）
-  useEffect(() => reveal(col.current), [status === 'draft', status === 'talking'])
+  // 刚出来、刚开讲：白板平移到这一列整个露出来（不改缩放）。打开白板时早就有的一轮不平移（以前一打开就把白板推到它那里，左边的列被推到工具板底下）
+  const mounted = useRef(false)
+  useEffect(() => {
+    const first = !mounted.current
+    mounted.current = true
+    if (first && !S.isFresh(p.id)) return
+    // 还要摆到落点去（写进文档时先出在一排的末尾）：摆好、重画以后再平移，不往一排末尾那里滚
+    if (S.placeOf(p.id)) return
+    reveal(col.current)
+  }, [status === 'draft', status === 'talking'])
   // 讲着时 esc：学生在想先停下它，再按一次暂停（列在前台、焦点不在别的输入框、输入法没在组字）
   useEffect(() => {
     if (status !== 'talking' || !p.active) return

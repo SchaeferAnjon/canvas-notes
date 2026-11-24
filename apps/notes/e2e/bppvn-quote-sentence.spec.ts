@@ -83,7 +83,7 @@ test('回答下面一排只剩「拷贝 · 插进文档 · ⋯」；选一句点
 
     // 回答下面一排：拷贝 · 插进文档 · ⋯，没有「引用再问」
     const row = msg.getByTestId('ai-ans-acts')
-    await expect(row.getByRole('button')).toHaveText(['拷贝', '插进文档', ''])
+    await expect(row.locator('[data-act]')).toHaveText(['拷贝', '插进文档', ''])
     await expect(row.getByRole('button', { name: '引用再问' })).toHaveCount(0)
     await page.mouse.move(5, 5)
     const panel = (await chat(page).boundingBox())!

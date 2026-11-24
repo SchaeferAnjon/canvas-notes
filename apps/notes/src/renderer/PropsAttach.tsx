@@ -1,10 +1,14 @@
 /**
  * 「属性」弹层里这篇的附件（四件事第 2 条，小样 2a、2b）：属性下面一组「附件 40 张 · 86.4 MB」，最多列 5 张（缩略图、名字、在文中哪一节、大小），
- * 点一行在访达中显示；多了一行「全部 40 张 ›」，点开同一个弹层换成 4 列缩略图网格：搜名字、按文中先后 / 按大小 / 文中没用到，
- * 点一张在访达中显示、双击跳到文中那一处、右键拷贝或删除（别的笔记没在用、文中也没用到的才能删）。
+ * 多了一行「全部 40 张 ›」，点开同一个弹层换成 4 列缩略图网格：搜名字、按文中先后 / 按大小 / 文中没用到。
+ * 单击一张（一行）跳到文中用它的那一处（2026-11-23 用户「属性里点这张图 我希望能跳到文档里对应的位置」，attach-jump.ts）：
+ * 用了几处一处一处跳，到最后一处再点回第一处；双击放大看图（用户「单击跳到位置 双击放大打开 这才对吧」）；文中没用到的单击也是看大图。
+ * 右键在访达中显示、拷贝、删除（别的笔记没在用、文中也没用到的才能删）。
  */
 import { Codicon } from '@cn/design'
-import { useEffect, useMemo, useState } from 'react'
+import { imageRefs } from '@cn/format'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { type AttachItem, type NoteAttachments, sizeText } from '../shared/attach'
 import { copy, menuAt } from './ctx/menu'
 import './props-attach.css'
@@ -49,8 +53,75 @@ function itemMenu(e: React.MouseEvent, i: AttachItem, reload: () => void) {
   ])
 }
 
+/** 一张图在文中用到的每一处（照现在编辑器里的字算，没存的也算）；![[图.png]] 这种只认主进程找到的那一处 */
+function placesOf(text: string, note: string, i: AttachItem): number[] {
+  const at = imageRefs(text, note, true)
+    .filter((r) => r.path === i.path)
+    .map((r) => r.offset)
+  return at.length ? at : i.offset === null ? [] : [i.offset]
+}
+
+/**
+ * 单击一张：用到的跳到下一处（第一次点是第一处），没用到的看大图。
+ * 双击：第一下照单击先跳（不等双击的延迟），第二下（detail 2）放大看图
+ */
+export function useAttachOpen(note: string, text: string, onJump: (offset: number) => void) {
+  const next = useRef(new Map<string, number>())
+  const [big, setBig] = useState<AttachItem | null>(null)
+  const [at, setAt] = useState<{ path: string; k: number; n: number } | null>(null)
+  const open = (e: React.MouseEvent, i: AttachItem) => {
+    if (e.detail === 2) return setBig(i)
+    if (e.detail > 2) return
+    const places = placesOf(text, note, i)
+    if (!places.length) return setBig(i)
+    const k = (next.current.get(i.path) ?? 0) % places.length
+    next.current.set(i.path, k + 1)
+    setAt({ path: i.path, k, n: places.length })
+    onJump(places[k]!)
+  }
+  /** 这张用了几处（网格角上写「2处」，跳过以后写「1/2」） */
+  const count = (i: AttachItem) => {
+    const n = placesOf(text, note, i).length
+    if (n < 2) return null
+    return at?.path === i.path && at.n === n ? `${at.k + 1}/${n}` : tNow('{n}处', { n, ctx: '附件用了几处' })
+  }
+  const viewer = big && <BigImage item={big} onClose={() => setBig(null)} />
+  return { open, count, viewer }
+}
+
+/** 放大看图（双击、文中没用到的单击）：盖住窗口，点空白、按 Esc 收起（连点时后几下落在它上面不算） */
+function BigImage(props: { item: AttachItem; onClose(): void }) {
+  const t = useT()
+  const [fit, setFit] = useState<{ width: number; height: number } | null>(null)
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === 'Escape' && (e.stopPropagation(), props.onClose())
+    window.addEventListener('keydown', key, true)
+    return () => window.removeEventListener('keydown', key, true)
+  }, [props])
+  return createPortal(
+    <div className="pa-big" role="dialog" aria-label={t('看大图')} onClick={(e) => e.detail < 2 && props.onClose()}>
+      <img
+        src={imgUrl(props.item.path)}
+        alt={nameOf(props.item.path)}
+        style={fit ?? { visibility: 'hidden' }}
+        onLoad={(e) => {
+          // 刚好放下：按图的长宽比撑到窗口 92% 宽、82% 高里最大（小截图也放大，同 ParaRead 的看大图）
+          const i = e.currentTarget
+          const k = Math.min((window.innerWidth * 0.92) / i.naturalWidth, (window.innerHeight * 0.82) / i.naturalHeight)
+          setFit({ width: Math.round(i.naturalWidth * k), height: Math.round(i.naturalHeight * k) })
+        }}
+        onClick={(e) => e.stopPropagation()}
+      />
+      <p>
+        {nameOf(props.item.path)} · {sizeText(props.item.bytes)} · {props.item.where ?? t('文中没用到')}
+      </p>
+    </div>,
+    document.body,
+  )
+}
+
 /** 属性下面那一组：最多 5 行 */
-export function AttachList(props: { a: NoteAttachments; onAll(): void; onReveal(): void; reload(): void }) {
+export function AttachList(props: { a: NoteAttachments; onAll(): void; onReveal(): void; reload(): void; open: ReturnType<typeof useAttachOpen> }) {
   const { a } = props
   const t = useT()
   if (!a.items.length) return null
@@ -68,7 +139,7 @@ export function AttachList(props: { a: NoteAttachments; onAll(): void; onReveal(
         </button>
       </div>
       {a.items.slice(0, LIST).map((i) => (
-        <button key={i.path} className="pa-row" title={i.path} onClick={() => window.cnMenu.reveal(i.path)} onContextMenu={(e) => itemMenu(e, i, props.reload)}>
+        <button key={i.path} className="pa-row" title={i.path} onClick={(e) => props.open.open(e, i)} onContextMenu={(e) => itemMenu(e, i, props.reload)}>
           <img src={imgUrl(i.path)} alt="" />
           <span className="tx">
             <span className="n truncate">{nameOf(i.path)}</span>
@@ -76,8 +147,8 @@ export function AttachList(props: { a: NoteAttachments; onAll(): void; onReveal(
           </span>
           <span className="sz num">{sizeText(i.bytes)}</span>
           <span className="rv">
-            <Codicon name="go-to-file" size={14} />
-            {t('在访达中显示')}
+            <Codicon name={i.offset === null ? 'zoom-in' : 'go-to-file'} size={14} />
+            {i.offset === null ? t('看大图') : t('跳到文中')}
           </span>
         </button>
       ))}
@@ -99,7 +170,7 @@ export function AttachList(props: { a: NoteAttachments; onAll(): void; onReveal(
 type Order = 'text' | 'size' | 'unused'
 
 /** 「全部 N 张」：同一个弹层换成 4 列缩略图网格 */
-export function AttachGrid(props: { a: NoteAttachments; onBack(): void; onReveal(): void; onJump(offset: number): void; reload(): void }) {
+export function AttachGrid(props: { a: NoteAttachments; onBack(): void; onReveal(): void; reload(): void; open: ReturnType<typeof useAttachOpen> }) {
   const { a } = props
   const t = useT()
   const [q, setQ] = useState('')
@@ -152,17 +223,19 @@ export function AttachGrid(props: { a: NoteAttachments; onBack(): void; onReveal
             role="listitem"
             className={'pa-cell' + (i.offset === null ? ' unused' : '')}
             title={`${i.path} · ${sizeText(i.bytes)}`}
-            onClick={() => window.cnMenu.reveal(i.path)}
-            onDoubleClick={() => i.offset !== null && props.onJump(i.offset)}
+            onClick={(e) => props.open.open(e, i)}
             onContextMenu={(e) => itemMenu(e, i, props.reload)}
           >
-            <img src={imgUrl(i.path)} alt="" />
+            <span className="pa-th">
+              <img src={imgUrl(i.path)} alt="" />
+              {props.open.count(i) && <span className="uses num">{props.open.count(i)}</span>}
+            </span>
             <span className="n truncate">{i.offset === null ? t('没用到 · {name}', { name: nameOf(i.path) }) : nameOf(i.path)}</span>
           </button>
         ))}
         {!list.length && <p className="pa-none">{q ? t('没有名字里带「{q}」的', { q }) : t('没有文中没用到的图')}</p>}
       </div>
-      <p className="pa-foot">{t('点一张在访达中显示 · 双击跳到文中那一处 · 右键拷贝、删除')}</p>
+      <p className="pa-foot">{t('单击跳到文中那一处 · 双击放大 · 右键更多')}</p>
     </div>
   )
 }

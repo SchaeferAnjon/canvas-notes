@@ -76,19 +76,22 @@ export const TRAVEL = `# 冰岛十天环岛
 const cardsOf = (t: string) => splitDoc(t).columns.map((c) => [c.title, c.cards.map((u) => u.kind)])
 
 describe('文档切到白板：分卡（方向 A）', () => {
-  it('Lecture05 笔记：名字不成卡；开头一组没有列头；## 是列，### 是小标题；连着的「问过 AI」合成一列；冒号那句带上代码块；分隔线是空隙', () => {
+  it('Lecture05 笔记：名字不成卡；开头一组没有列头；## 是列，### 是小标题；问过 AI 一处一列；冒号那句带上代码块；分隔线是空隙', () => {
     const b = splitDoc(LECTURE)
     expect(b.title).toBe('Lecture05 笔记')
     expect(cardsOf(LECTURE)).toEqual([
       [null, ['text']],
       ['这一讲讲什么', ['text', 'list']],
-      ['问过 AI', ['ask', 'ask']],
+      ['第 3 页 · 计算栈的九层结构', ['ask']],
+      ['第 5 页 · 加速器为何又快又省', ['ask']],
       ['用代码验证', ['code', 'gap', 'table']],
     ])
     expect(b.columns[1]!.cards[1]!.sub).toBe('九层结构')
-    expect(b.columns[3]!.cards[0]!.text).toBe('各跑一遍：\n\n```python\nprint(1)\n```')
-    expect(b.columns[2]!.ask).toBe(true)
-    expect(b.columns[2]!.cards[0]!.text.startsWith('## 第 3 页 · 计算栈的九层结构')).toBe(true)
+    expect(b.columns[4]!.cards[0]!.text).toBe('各跑一遍：\n\n```python\nprint(1)\n```')
+    expect(b.columns[2]!).toMatchObject({ ask: true, page: 3 })
+    // 以前的格式（没有身份注释）：整节一张，列头是标题那一行
+    expect(b.columns[2]!.cards[0]!.ask).toEqual({ part: 'old', head: '## 第 3 页 · 计算栈的九层结构' })
+    expect(b.columns[2]!.cards[0]!.text.startsWith('> [!question] 我的疑惑')).toBe(true)
   })
 
   it('旅行稿：冒号那句带上待办；连着的图合成图集；视频后面的时刻挂在视频卡下面', () => {
@@ -258,7 +261,7 @@ $$
 
   it('问过 AI 的一节用 [!ai] 写讲通的讲法（新写法）也是问答卡', () => {
     const t = '# 笔记\n\n## 第 5 页 · 旋转矩阵\n[第 5 页](a.pdf#page=5) · 10:20\n\n> [!ai] AI 讲解 · Claude Code · Opus 5.5 · 看了第 5 页\n> 先看图。\n\n[完整对话 · 1 轮](../c.md)\n'
-    expect(cardsOf(t)).toEqual([['问过 AI', ['ask']]])
+    expect(cardsOf(t)).toEqual([['第 5 页 · 旋转矩阵', ['ask']]])
   })
 
   it('用 # 分节的文档：# 就是列', () => {

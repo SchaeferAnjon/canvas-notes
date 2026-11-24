@@ -125,22 +125,22 @@ async function walk(lang: Lang) {
     expect(fm.slice(0, 4)).toEqual([L(lang, '新建笔记', 'New note'), L(lang, '新建白板', 'New board'), L(lang, '新建一门课', 'New course'), L(lang, '新建文件夹', 'New folder')])
     await dismissMenu(run)
 
-    // 右上角「网页占满 ↔ 还原」：右栏开着网页才有
+    // 网页那一组组头的「占满 ↔ 还原」（每一栏都能占满起，标题栏那颗拿掉了）
     await page.getByRole('navigation', { name: L(lang, '右栏', 'Right sidebar') }).getByRole('button', { name: L(lang, '网页', 'Web'), exact: true }).click()
     const addr = page.locator('aside.right.web').getByRole('textbox', { name: '网址' })
     await addr.click()
     await addr.fill(pageUrl)
     await addr.press('Enter')
-    const tb = page.getByTestId('tb-web')
-    await expect(tb).toHaveAccessibleName(L(lang, '网页占满', 'Expand page'))
-    await expect(tb).toHaveAttribute('data-tip', L(lang, '网页占满：中间那篇让出地方，剪的照样记进它', 'Expand page: the center note steps aside; clips still go into it'))
+    const tb = page.locator('.dhead:has([data-testid="dtab-web"]) .maxbtn')
+    await expect(tb).toHaveAccessibleName(L(lang, '占满：网页', 'Fill window: Web'))
+    await expect(tb).toHaveAttribute('data-tip', L(lang, '占满：网页', 'Fill window: Web'))
     await shot(page, 'web', lang)
     await tb.click()
     await expect(tb).toHaveAccessibleName(L(lang, '还原', 'Restore'))
     await expect(tb).toHaveAttribute('aria-pressed', 'true')
     await shot(page, 'web-full', lang)
     await tb.click()
-    await expect(tb).toHaveAccessibleName(L(lang, '网页占满', 'Expand page'))
+    await expect(tb).toHaveAccessibleName(L(lang, '占满：网页', 'Fill window: Web'))
   } finally {
     await run.close()
   }

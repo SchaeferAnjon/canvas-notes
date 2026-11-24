@@ -57,7 +57,6 @@ test('白板看法：长配对笔记', async () => {
       await expect(tabOn(page)).toHaveText('第3讲.pdf')
       const notes = page.getByRole('complementary', { name: '笔记', exact: true })
       if (!(await notes.isVisible())) await rail(page).getByRole('button', { name: '笔记', exact: true }).click()
-      await notes.getByTestId('note-round').first().locator('.fh').click()
       await expect(notes.locator('.crop img').first()).toBeVisible()
       await expect(notes.getByTestId('crop-filled')).toContainText('补上了 12 张截图；1 条当时没记下框的位置，补不了')
       await shot(run, 'panel')

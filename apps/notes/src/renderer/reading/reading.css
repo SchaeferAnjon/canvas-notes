@@ -201,12 +201,20 @@
 }
 
 /* 框好一块、选中一段的工具条：样子是 composer.css 的 .capbar（照 CN-92 小样：34 高、圆角 9、13px 白字），这里只管位置；
-   放哪、什么时候藏键帽在 cap-place.ts 量（选区上方 6、限在这一栏里各留 8；整条放不下才加 .nokbd） */
+   放哪、什么时候藏键帽在 cap-place.ts 量（选区上方 6、限在这一栏里各留 8；整条放不下才加 .nokbd）。
+   PDF 的是 fixed（藏完名字、键帽还放不下时浮出这一栏、收在窗口里，不撑宽滚动区）；网页（HTML）的照旧 absolute */
 .pdfpane .cap {
   position: absolute;
   z-index: 6;
   width: max-content;
   animation: cap-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.pdfpane .cap.fixed {
+  position: fixed;
+}
+/* 伸出这一栏的时候：中间那栏（浮岛风格里 isolation: isolate）整个抬到右栏的内容（.dview，z-index 5）上面，伸出去的那段才不被右栏盖住 */
+.win > .center:has(.pdfpane .cap.fixed.out) {
+  z-index: 6;
 }
 @keyframes cap-in {
   from {

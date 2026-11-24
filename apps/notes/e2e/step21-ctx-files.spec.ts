@@ -85,7 +85,7 @@ test('标签：右键「关闭右侧」「关闭其他」「拷贝路径」', as
     await expect(tabs).toHaveCount(4)
     await tabs.nth(2).click({ button: 'right' })
     const m = await openedMenu(run)
-    expect(menuLabels(m)).toEqual(['关闭', '关闭其他', '关闭右侧', '关闭全部', '重命名', '在访达中显示', '拷贝路径'])
+    expect(menuLabels(m)).toEqual(['关闭', '关闭其他', '关闭右侧', '关闭全部', '向右分屏', '向下分屏', '占满这一栏', '重命名', '在访达中显示', '拷贝路径'])
     await pickMenu(run, '拷贝路径')
     await expect.poll(() => clipboardText(run)).toBe(join(vault, '二.md'))
 

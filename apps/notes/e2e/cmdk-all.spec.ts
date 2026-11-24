@@ -37,6 +37,11 @@ const SCENE: Record<string, string> = {
  * 在哪儿能按（area）是文档里、⌘K 里、网页里、目录树里、视频、梦游、导图里、固定的键的，本来就只在那一处按（设置 › 快捷键里列着）；
  * 「软件里」「在任何软件里」的写在这里
  */
+/** ⌘K 里的名字跟着状态换、不是命令表里那个名字的：画的是这几个之一 */
+const NAMED: Record<string, string[]> = {
+  'split-center': ['向右分屏', '合成一格'], // 命令表里叫「分屏 / 合成一格」（中间栏分屏）
+}
+
 const KEY_AREAS = new Set(['editor', 'palette', 'page', 'tree', 'video', 'dream', 'mindmap', 'fixed'])
 const KEY_ONLY: Record<string, string> = {
   'todo-when': '文档、白板卡里光标在一行待办上、待办详情小卡开着时按，弹那一行的定日子和时间选择器（pd289-when 真按）',
@@ -50,6 +55,8 @@ const KEY_ONLY: Record<string, string> = {
   quote: 'AI 回答里选了字、PDF 上框着一块时按（那里有「引用」按钮）',
   'ask-page': 'PDF、HTML 上按（那里有「问这一页」按钮）',
   translate: '双语翻译插件自己给 ⌘K 一条（插件开着才有，在「网页」）',
+  'pane-1': '中间分成两格时按，跳到左边（上面）那一格（点那一格也是）；没分时没有这一格（中间栏分屏）',
+  'pane-2': '中间分成两格时按，跳到右边（下面）那一格；没分时就是向右分屏，⌘K 里有「向右分屏」（中间栏分屏）',
   'ai-follow': '从 AI 回答里 ⌘点开一篇以后右栏还在原来那段对话时按（右栏头上那颗「切到《X》的 AI」按钮是同一件事，3e53q-kinds 真按）',
 }
 
@@ -141,6 +148,7 @@ test('遍历命令表：进 ⌘K 的每一条不打字时找得到（某一组�
       }
       expect(KEY_ONLY[d.id], `${d.id} 有 home 就别写在 KEY_ONLY`).toBeUndefined()
       if (everywhere.includes(d.name)) continue
+      if (NAMED[d.id]?.some((n) => everywhere.includes(n))) continue
       if (SCENE[d.id]) continue
       missing.push(`${d.id}（${d.name}）不打字找不到`)
     }

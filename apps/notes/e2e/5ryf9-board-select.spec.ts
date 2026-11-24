@@ -49,7 +49,7 @@ const box = async (page: Page, id: string) => (await card(page, id).boundingBox(
 /** 框选空白处的三张：从 f1 左上方的空白拖到 f3 里面（原型「三张都碰到了」） */
 async function pickThree(page: Page) {
   // 白板先滚回左上角（放进新的一列以后会滚到右边去看新的那一列）
-  await board(page).locator('.board-wrap').evaluate((w) => w.scrollTo(0, 0))
+  await board(page).locator('.board-wrap').evaluate((w) => w.scrollTo(...((w as HTMLElement).dataset.home!.split(',').map(Number) as [number, number])))
   const a = await box(page, 'f1')
   const c = await box(page, 'f3')
   await marquee(page, { x: a.x - 24, y: a.y - 24 }, { x: c.x + 30, y: c.y + 30 })
@@ -147,7 +147,7 @@ test('空白处拖出框：碰到的都选上，浮出操作条（照原型的�
     await expect.poll(() => selIds(page)).toEqual([])
 
     // 列里的空处按下也能框：从「前言」列底下的空处往上拖，碰到列里的两张
-    await board(page).locator('.board-wrap').evaluate((w) => w.scrollTo(0, 0))
+    await board(page).locator('.board-wrap').evaluate((w) => w.scrollTo(...((w as HTMLElement).dataset.home!.split(',').map(Number) as [number, number])))
     const q = (await col(page, '前言').boundingBox())!
     const q2 = (await col(page, '前言').locator('.db-card').last().boundingBox())!
     await marquee(page, { x: q.x + q.width - 6, y: q.y + q.height - 3 }, { x: q2.x + 30, y: q.y + 60 })
@@ -166,8 +166,11 @@ test('按住空格拖、中键拖是平移：白板跟着手走，卡不动、�
   const { page } = run
   try {
     const wrap = board(page).locator('.board-wrap')
-    // 先往右下滚一点，好往两边拖
-    await wrap.evaluate((w) => w.scrollTo(200, 150))
+    // 先从起点（四周多出的空白那里，data-home）往右下滚一点，好往两边拖
+    await wrap.evaluate((w) => {
+      const [x, y] = (w as HTMLElement).dataset.home!.split(',').map(Number) as [number, number]
+      w.scrollTo(x + 200, y + 150)
+    })
     const s0 = await wrap.evaluate((w) => ({ x: w.scrollLeft, y: w.scrollTop }))
     const f3 = await box(page, 'f3')
     await board(page).focus()
@@ -459,7 +462,7 @@ test('出卡：点开一张说明小卡（写清楚做好以后点它会怎样�
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setSize(1000, 900))
     await page.keyboard.press('Meta+j')
     await expect(page.getByRole('complementary', { name: 'AI 对话' })).toBeVisible()
-    await board(page).locator('.board-wrap').evaluate((w) => w.scrollTo(0, 0))
+    await board(page).locator('.board-wrap').evaluate((w) => w.scrollTo(...((w as HTMLElement).dataset.home!.split(',').map(Number) as [number, number])))
     await expect.poll(async () => Number(await bar(page).getAttribute('data-level'))).toBe(1)
     const bb = (await bar(page).boundingBox())!
     const area = (await board(page).locator('.db-area').boundingBox())!

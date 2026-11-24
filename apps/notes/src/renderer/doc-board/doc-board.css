@@ -680,6 +680,86 @@ a.db-ask-crop:hover {
   padding-top: 8px;
   border-top: 1px dashed var(--line);
 }
+/* 一处一列里的卡：问题条、小结自己是一张卡，不再要上面的间隔和虚线 */
+.db-card > .db-ask-qa:first-child {
+  margin-top: 0;
+}
+.db-card > .db-ask-recap:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+.db-card > .db-ask-side:nth-child(2) {
+  margin-top: 0;
+}
+/* 没框的那一处：那一页的上半截（整页太长，一列里占一大块），只用来认出是哪一页；下沿渐隐 */
+.db-ask-page {
+  width: 100%;
+  max-height: 96px;
+  overflow: hidden;
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px var(--line2);
+  -webkit-mask-image: linear-gradient(#000 70%, transparent);
+  mask-image: linear-gradient(#000 70%, transparent);
+}
+[data-tone='dark'] .db-ask-page .db-slide {
+  filter: brightness(0.92);
+}
+.db-ask-page .db-slide {
+  border-radius: 6px 6px 0 0;
+}
+a.db-ask-page {
+  display: block;
+  cursor: pointer;
+}
+a.db-ask-page:hover {
+  box-shadow: 0 0 0 1.5px var(--acc-ring);
+}
+.db-ask-marks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.db-ask-marks li + li {
+  margin-top: 8px;
+}
+/* 和读 PDF 右栏笔记（side.css .nhr .mk）同一个荧光笔：浅色混 38%、深色混 36% */
+.db-ask-marks .mk {
+  --hl-mark: light-dark(color-mix(in srgb, var(--hl) 38%, transparent), color-mix(in srgb, var(--hl) 36%, transparent));
+  background: linear-gradient(transparent 38%, var(--hl-mark) 38%, var(--hl-mark) 92%, transparent 92%);
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  color: var(--t1);
+}
+.db-ask-marks .nm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--t3);
+}
+.db-ask-marks .nm i {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hl);
+}
+/* 旁支里的问句、小结：13/1.65 和卡里正文一样；旁支问句 500 和主问题一样重 */
+.db-card .db-ask-side .row.sq-q {
+  font-size: 13px;
+  line-height: 1.65;
+  font-weight: 500;
+}
+.db-ask-sum {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--t1);
+}
 
 /* 问过 AI：截图（没有就画那一页）+ 标题，疑惑一行，讲通三行，完整对话几轮 */
 .db-ask-top {
@@ -989,9 +1069,32 @@ a.db-ask-crop:hover {
 .db-col h3 {
   cursor: grab;
 }
-.db-col.bare h3,
-.db-col[data-ask='1'] h3 {
+.db-col.bare h3 {
   cursor: default;
+}
+/* 问过 AI 一处一列：列头是那一节的标题（「第 N 页 · 问的是什么」），长了折成两行再截 */
+.db-col[data-ask='1'] h3 {
+  align-items: flex-start;
+}
+.db-col[data-ask='1'] h3 > svg,
+.db-col[data-ask='1'] h3 .ci {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 2px;
+  color: var(--t2);
+}
+.db-col[data-ask='1'] h3 .meta {
+  line-height: calc(14px * 1.35);
+}
+/* 一处一列里每一问的第一张卡（不是列里第一张）：上面多空 8，一问和下一问分得开 */
+.db-col[data-ask='1'] .db-sub-wrap + .db-sub-wrap > .db-card[data-part='qa'] {
+  margin-top: 8px;
+}
+.db-col[data-ask='1'] h3 .truncate {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
 }
 /* 空的列：一块虚线框「把卡片拖进来」（照小样 .empty） */
 .db-empty {

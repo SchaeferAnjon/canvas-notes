@@ -20,7 +20,7 @@ import type { SelAction, WebBarBtn, WebBarSpec, WebSel } from '../shared/web-rea
 import { aiLogoHtml, onAiLogo } from './ai-logo'
 import { installExtPage } from './ext-page'
 import { onPluginState, pluginEnabled } from './plugins/state'
-import { clipKeepsTranslation, selectionText, translateSelection } from './plugins/translate'
+import { clipKeepsTranslation, translateSelection } from './plugins/translate'
 import { blockAt, markSelBlocks, rangeToMd, sectionRange, selectBlock } from './webview-md'
 import { tagMathJax } from './webview-mathjax'
 import { setBeforeExtract } from './webview-page'
@@ -376,9 +376,10 @@ function act(action: SelAction, cmd?: string) {
   // 选好马上点（机器忙时 120ms 的防抖还没轮到，小条记着的还是拖到一半的选区）：照现在的选区取字
   const live = window.getSelection()
   if (live && !live.isCollapsed && live.rangeCount && !(live.anchorNode && host?.contains(live.anchorNode))) {
-    const text = selectionText(live)
-    const head = headAbove(live.getRangeAt(0).startContainer)
-    if (text) pending = { ...pending, text, md: rangeToMd(live.getRangeAt(0), !clipKeepsTranslation()) || text, ...(head ? { head } : {}) }
+    const range = live.getRangeAt(0)
+    const text = rangeToMd(range, !clipKeepsTranslation(), true)
+    const head = headAbove(range.startContainer)
+    if (text) pending = { ...pending, text, md: rangeToMd(range, !clipKeepsTranslation()) || text, ...(head ? { head } : {}) }
   }
   // 小条没出来（名单上的网站、总开关关着时按的键）：「记到哪篇」贴着选区问
   const shown = host?.style.display === 'block'
@@ -450,8 +451,7 @@ function lineBox(r: DOMRect, node: Node): { top: number; bottom: number; left: n
 
 function update() {
   const sel = window.getSelection()
-  const text = sel?.toString().trim() ?? ''
-  if (!sel || sel.isCollapsed || !text || sel.rangeCount === 0) return hide()
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return hide()
   if (host && sel.anchorNode && host.contains(sel.anchorNode)) return
   let range = sel.getRangeAt(0)
   // 拖到公式、代码块上松手（原生选区停在它前面的字上，公式本身选不上）：选区接到这一块为止
@@ -465,20 +465,18 @@ function update() {
     sel.addRange(r)
     range = r
   }
+  // 这段字：公式写成 `$…$`（只选了一个公式时浏览器给的字是空的，照它算会当没选中）；选区里夹着的译文「整页剪藏带上译文」关着时不算
+  const plain = rangeToMd(range, !clipKeepsTranslation(), true)
+  if (!plain) return hide()
   const rects = range.getClientRects()
   const first = lineBox(rects[0] ?? range.getBoundingClientRect(), range.startContainer)
   const last = lineBox(rects[rects.length - 1] ?? range.getBoundingClientRect(), range.endContainer)
   ensure()
-  // 选区里夹着的译文：「整页剪藏带上译文」关着时不算（只剪原文）
   const head = headAbove(range.startContainer)
-  const plain = selectionText(sel)
   pending = { text: plain, md: rangeToMd(range, !clipKeepsTranslation()) || plain, rect: range.getBoundingClientRect(), ...(head ? { head } : {}) }
-  // MathJax 3 的公式原文先记到容器上（点小条时取字用得到）
-  void tagMathJax()
+  // MathJax 3 的公式原文先记到容器上：这次才记上的（网页上第一次选到公式），照原文再取一遍字
+  void tagMathJax().then((n) => n && pending && !waiting && update())
   markSelBlocks(range)
-  // 选着字时角上那颗「引用」「剪藏」收起（小条接手）；拖选时停在公式上排着的那一下也取消
-  clearTimeout(pickTimer)
-  if (pickHost) pickHost.style.display = 'none'
   closeMenu()
   hideTip()
   // 名单上的网站、总开关关着：不弹（选区记着，↵、⌘↵ 这些键照样能用）
@@ -558,64 +556,8 @@ else {
 }
 
 // ---------------------------------------------------------------- 单独一个公式、代码块
-// 鼠标停在公式、代码块上：角上出小「引用」「剪藏」（照小条的样子）；点一下公式、代码块整块选中，小条出来，⌘S、⌘↵ 照常
-let pickHost: HTMLDivElement | null = null
-let picked: Element | null = null
-let pickTimer: ReturnType<typeof setTimeout> | undefined
-function pickBar(): HTMLDivElement {
-  if (pickHost) return pickHost
-  pickHost = document.createElement('div')
-  pickHost.id = 'cn-block-host'
-  pickHost.style.cssText = 'position:fixed;z-index:2147483646;left:0;top:0;display:none'
-  const root = pickHost.attachShadow({ mode: 'open' })
-  root.innerHTML = `<style>
-    :host{all:initial}
-    .bar{display:flex;align-items:center;height:26px;padding:0 2px;border-radius:999px;background:#111113;color:#fff;font:500 12px/1 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;
-      box-shadow:inset 0 0 0 1px rgba(255,255,255,.14),0 2px 6px rgba(0,0,0,.18);white-space:nowrap}
-    button{display:flex;align-items:center;gap:5px;height:22px;padding:0 8px;border:0;border-radius:999px;background:none;color:inherit;font:inherit;cursor:pointer}
-    button:hover{background:#2a2a2e}
-    svg{width:13px;height:13px}
-  </style><div class="bar" role="toolbar" aria-label="这一块"><button data-k="quote">${COMMENT}引用</button><button data-k="clip">${QUOTE}剪藏</button></div>`
-  for (const b of Array.from(root.querySelectorAll('button'))) b.addEventListener('mousedown', (e) => e.preventDefault())
-  root.querySelector('.bar')!.addEventListener('click', (e) => {
-    const b = (e.target as Element).closest<HTMLButtonElement>('button[data-k]')
-    if (!b || !picked) return
-    selectBlock(picked)
-    update()
-    pickHost!.style.display = 'none'
-    act(b.dataset.k as SelAction)
-  })
-  document.documentElement.appendChild(pickHost)
-  return pickHost
-}
-/**
- * 角上那颗放在块里右上角、离上边右边各 4（不盖上一行字）；块矮（不到 34，行内公式）放不进去：放到块下面 4、右边对齐
- */
-function showPick(el: Element) {
-  // 小条出来了（拖选经过公式时排下的这一下晚到）：不出
-  if (pending) return
-  const h = pickBar()
-  picked = el
-  h.style.display = 'block'
-  const r = el.getBoundingClientRect()
-  const w = h.offsetWidth
-  const inside = r.height >= 34
-  const left = inside ? r.right - 4 - w : r.right - w
-  const top = inside ? r.top + 4 : r.bottom + 4
-  h.style.transform = `translate(${Math.max(4, Math.min(left, innerWidth - w - 4))}px, ${Math.max(4, Math.min(top, innerHeight - h.offsetHeight - 4))}px)`
-}
+// 点一下公式、代码块：整块选中，小条出来，⌘S、⌘↵ 照常。鼠标停在上面什么都不出（用户 2026-11-24：剪藏、引用选中才出）
 if (location.protocol !== 'cn-ext:') {
-  document.addEventListener('mouseover', (e) => {
-    if (pending) return
-    const el = blockAt(e.target)
-    if (el === picked && pickHost?.style.display === 'block') return
-    clearTimeout(pickTimer)
-    if (el) pickTimer = setTimeout(() => showPick(el), 250)
-    else if (!(e.target instanceof Element && e.target.closest('#cn-block-host'))) {
-      picked = null
-      if (pickHost) pickHost.style.display = 'none'
-    }
-  })
   document.addEventListener('click', (e) => {
     const el = blockAt(e.target)
     const sel = window.getSelection()

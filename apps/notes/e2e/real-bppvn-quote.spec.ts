@@ -49,7 +49,7 @@ test('真 AI：回答下面没有「引用再问」；拖选一段点「引用�
     const msg = chat(page).getByTestId('ai-msg').last()
     console.log('回答：', await msg.locator('.txt').innerText())
     const row = msg.getByTestId('ai-ans-acts')
-    await expect(row.getByRole('button')).toHaveText(['拷贝', '插进文档', ''])
+    await expect(row.locator('[data-act]')).toHaveText(['拷贝', '插进文档', ''])
 
     // 拖选「费曼」那一段（从第一个字到最后一个字）
     const p = msg.locator('.txt p', { hasText: '费曼' }).first()

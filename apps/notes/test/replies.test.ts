@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 import { fitBar } from '@cn/design/answer-bar'
 import { aiCmdJson, aiCmdOf, type Ctx, hiddenHere, replyCtx, slashGroups } from '../src/shared/ai-cmds'
 import { commandsJson, defaultCommands, deleteOwn, normalizeCommands } from '../src/shared/commands'
-import { defaultReplies, dropReply, fillReply, moveReply, normalizeReplies, placeReply, repliesAt, repliesJson, replyNameOf, type ReplyOwn } from '../src/shared/replies'
+import { answerSelItems, answerSelSay, defaultAnswerSel, defaultReplies, dropReply, fillReply, moveReply, normalizeAnswerSel, normalizeReplies, placeReply, repliesAt, repliesJson, replyNameOf, type ReplyOwn, setAnswerSel } from '../src/shared/replies'
 
 const MINE: ReplyOwn[] = [
   { id: 'own-eg', name: '举个例子', where: ['chat'], say: '举个生活里的例子', out: 'here' },
@@ -16,11 +16,19 @@ const names = (xs: { name: string }[]) => xs.map((x) => x.name)
 
 describe('各处默认几颗', () => {
   const d = defaultReplies()
-  it('读 PDF 三颗，网页、视频前两颗，AI 对话一颗不放', () => {
+  it('读 PDF 三颗，网页、视频、AI 对话前两颗（AI 对话 r100 起也排上）', () => {
     expect(names(repliesAt(d, [], 'pdf').on)).toEqual(['还是不懂', '换个方式讲', '做个可视化'])
     expect(names(repliesAt(d, [], 'web').on)).toEqual(['还是不懂', '换个方式讲'])
     expect(names(repliesAt(d, [], 'video').on)).toEqual(['还是不懂', '换个方式讲'])
-    expect(repliesAt(d, [], 'chat').on).toEqual([])
+    expect(names(repliesAt(d, [], 'chat').on)).toEqual(['还是不懂', '换个方式讲'])
+  })
+  it('存过命令.json 的：没把这两颗挪去不出现的，AI 对话照新默认出现；挪过的不动', () => {
+    const kept = normalizeReplies({ on: ['viz', 'own-eg'], more: ['still', 'another'], off: [] })
+    expect(names(repliesAt(kept, MINE, 'chat').on)).toEqual(['举个例子'])
+    expect(names(repliesAt(kept, MINE, 'chat').more)).toEqual(['还是不懂', '换个方式讲'])
+    const off = normalizeReplies({ on: ['viz', 'own-eg'], more: [], off: ['still', 'another'] })
+    expect(names(repliesAt(off, MINE, 'chat').on)).toEqual(['举个例子'])
+    expect(repliesAt(off, MINE, 'chat').more).toEqual([])
   })
   it('默认的不写进命令.json', () => {
     expect(repliesJson(d)).toBeNull()
@@ -31,7 +39,7 @@ describe('各处默认几颗', () => {
 describe('加一颗、排序、收进 ⋯、不出现、删', () => {
   it('加一颗排在最后，这一排多一颗；只在勾了的那几处', () => {
     const c = placeReply(defaultReplies(), 'own-eg')
-    expect(names(repliesAt(c, MINE, 'chat').on)).toEqual(['举个例子'])
+    expect(names(repliesAt(c, MINE, 'chat').on)).toEqual(['还是不懂', '换个方式讲', '举个例子'])
     expect(names(repliesAt(c, MINE, 'pdf').on)).toEqual(['还是不懂', '换个方式讲', '做个可视化'])
     const c2 = placeReply(c, 'own-quiz')
     expect(names(repliesAt(c2, MINE, 'pdf').on)).toEqual(['还是不懂', '换个方式讲', '做个可视化', '考考我'])
@@ -148,5 +156,35 @@ describe('快捷回复也是一条命令：/ 菜单在它出现的那几处叫�
     const back = JSON.parse(JSON.stringify(merged)) as Record<string, unknown>
     expect(back.reply).toBeUndefined()
     expect(back.prompt).toBe('就{这条回答}出三道选择题考我')
+  })
+})
+
+describe('回答里选中一句的小菜单（answerSel）', () => {
+  const mine = ['own-a', 'own-b', 'own-c', 'own-d', 'own-e', 'own-f'].map((id) => ({ id }))
+  it('默认自己的命令都出现：前 4 条露着，其余在「更多…」；命令.json 不写 answerSel', () => {
+    const cfg = defaultCommands()
+    expect(answerSelItems(cfg.answerSel, mine)).toEqual({ shown: mine.slice(0, 4), more: mine.slice(4) })
+    expect(commandsJson(cfg)).not.toContain('answerSel')
+  })
+  it('去掉勾记进 off，再勾上拿掉；坏的 id、重复的读的时候丢掉', () => {
+    let c = setAnswerSel(defaultAnswerSel(), 'own-b', false)
+    c = setAnswerSel(c, 'own-b', false)
+    expect(c).toEqual({ off: ['own-b'] })
+    expect(answerSelItems(c, mine).shown.map((x) => x.id)).toEqual(['own-a', 'own-c', 'own-d', 'own-e'])
+    expect(setAnswerSel(c, 'own-b', true)).toEqual({ off: [] })
+    expect(normalizeAnswerSel({ off: ['own-b', 'own-b', 'still', 3, 'own-x'] })).toEqual({ off: ['own-b', 'own-x'] })
+    expect(normalizeAnswerSel('坏的')).toEqual({ off: [] })
+  })
+  it('存进命令.json、读回来一样；删掉那条命令时名单里也拿掉', () => {
+    const cfg = { ...defaultCommands(), answerSel: { off: ['own-b'] } }
+    const text = commandsJson(cfg)
+    expect(JSON.parse(text).answerSel).toEqual({ off: ['own-b'] })
+    expect(commandsJson(normalizeCommands(JSON.parse(text)))).toBe(text)
+    expect(deleteOwn(cfg, 'own-b').answerSel).toEqual({ off: [] })
+  })
+  it('交给旁支的那句：{选中的字} 填那句（加「」），{这条回答} 照快捷回复填；都没写的原样', () => {
+    expect(answerSelSay('用大白话解释{选中的字}', { sel: '熵增 ' })).toBe('用大白话解释「熵增」')
+    expect(answerSelSay('举例 {selection} 放在{这条回答}里看', { sel: 'x', answer: '整条' })).toBe('举例 「x」 放在「整条」里看')
+    expect(answerSelSay('出三道题考我', { sel: 'x' })).toBe('出三道题考我')
   })
 })

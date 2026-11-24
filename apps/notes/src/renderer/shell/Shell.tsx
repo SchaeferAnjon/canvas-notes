@@ -258,7 +258,7 @@ function Say(props: { text: string; anchor: HTMLElement; side: 'left' | 'right';
   )
 }
 
-/** 标题栏：红绿灯旁收起左栏、后退前进、首页；正中搜索框；最右收起右栏，右栏网页看得见时它左边是「网页占满 / 还原」 */
+/** 标题栏：红绿灯旁收起左栏、后退前进、首页；正中搜索框；最右收起右栏（「占满」在每一栏自己的标签条上，shell/max.ts） */
 export function TitleBar(props: {
   leftOpen: boolean
   rightOpen: boolean
@@ -273,16 +273,10 @@ export function TitleBar(props: {
   onForward(): void
   onHome(): void
   onSearch(): void
-  /**
-   * 网页占满 ↔ 还原（task-05p2w 方向 A，命令表 fold-center ⌃⌘\）：右栏网页看得见、在一栏里时才有；full 是占满着。
-   * 网页开在中间、没开网页时没有这颗（以前的「移到中间 / 放回右栏 / 展开中间栏」三种意思收成这一个）
-   */
-  web: { full: boolean; onToggle(): void } | null
 }) {
   /** 写在提示上的键照命令表（改了跟着变） */
   const K = useKeys()
   const t = useT()
-  const webLabel = props.web?.full ? t('还原') : t('网页占满')
   return (
     <header className="titlebar">
       <div className="tb-left">
@@ -309,22 +303,6 @@ export function TitleBar(props: {
         {K('search') && <kbd>{K('search')}</kbd>}
       </button>
       <div className="tb-right">
-        {props.web && (
-          <button
-            className="tb-btn tb-web"
-            aria-label={webLabel}
-            aria-pressed={props.web.full}
-            data-tip={props.web.full ? t('还原：中间那篇回来，网页回到原来的宽') : t('网页占满：中间那篇让出地方，剪的照样记进它')}
-            data-key={K('fold-center') ?? undefined}
-            data-side="below-left"
-            data-testid="tb-web"
-            onClick={props.web.onToggle}
-          >
-            <Codicon name={props.web.full ? 'screen-normal' : 'screen-full'} />
-            <span className="lb">{webLabel}</span>
-            {K('fold-center') && <kbd className="lb">{K('fold-center')}</kbd>}
-          </button>
-        )}
         <button className="tb-btn" aria-label={props.rightOpen ? t('收起右栏') : t('展开右栏')} aria-pressed={props.rightOpen} data-tip={props.rightOpen ? t('收起右栏') : t('展开右栏')} data-key={K('toggle-right') ?? undefined} data-side="below-left" onClick={props.onToggleRight}>
           <Codicon name={props.rightOpen ? 'layout-sidebar-right' : 'layout-sidebar-right-off'} />
         </button>

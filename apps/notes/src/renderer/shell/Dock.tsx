@@ -11,7 +11,9 @@ import { trackDrag } from '@cn/design/drag-end'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import * as D from '../../shared/dock'
+import { t as tNow } from '../../shared/i18n'
 import { WebFoldButton } from '../web/WebFoldButton'
+import { MaxButton } from './MaxButton'
 import { MenuItem, Popover } from './Shell'
 import { CENTER_MIN } from './SideSash'
 import './dock.css'
@@ -53,6 +55,10 @@ export interface DockProps {
   /** 第一次有两个以上标签时的小卡：还没关过 */
   hint: boolean
   onHintDone(): void
+  /** 占满着的那一组（或浮窗）的 id（shell/max.ts） */
+  max: string | null
+  /** 组头那颗「占满 / 还原」、双击组头空处 */
+  onMax(groupId: string): void
 }
 
 /**
@@ -101,7 +107,8 @@ function Head(p: { g: D.Group | D.FloatWin; float: boolean; cur: boolean; props:
         ))}
         {props.subs?.[g.active] && <span className="dsub">{props.subs[g.active]}</span>}
       </div>
-      <div className="dspace" onPointerDown={grab} />
+      {/* 空处：按住拖整栏 / 浮窗，双击占满（拖是按下挪过 SLOP，双击是两下没挪的点，不打架） */}
+      <div className="dspace" onPointerDown={grab} onDoubleClick={() => props.onMax(g.id)} />
       {g.active === 'web' && <WebFoldButton />}
       {props.tools?.[g.active]}
       <div className="dgrab" data-tip={p.float ? '按住拖动浮窗' : '按住拖动这一栏，换左右位置'} data-side="below" onPointerDown={grab}>
@@ -119,6 +126,8 @@ function Head(p: { g: D.Group | D.FloatWin; float: boolean; cur: boolean; props:
           <Codicon name="ellipsis" size={14} />
         </button>
       )}
+      {/* 最右：占满 / 还原（三栏一律「把手 · ⋯ · 占满」） */}
+      <MaxButton className="dbtn" on={props.max === g.id} name={props.names?.[g.active] || tNow(D.VIEW_NAME[g.active])} tid={`max-${g.id}`} onClick={() => props.onMax(g.id)} />
       {menu && (
         <Popover anchor={menu} label="这一栏的布局" className="dock-menu" align="end" onClose={() => setMenu(null)}>
           <MenuItem
@@ -191,9 +200,15 @@ const rectOf = (el: Element) => el.getBoundingClientRect()
 /** 量着每组身子摆五样的内容（.win > .dview[data-view]）：哪一组前面是它，就摆在那一组身子上 */
 export function placeViews(win: HTMLElement) {
   const w = rectOf(win)
+  const maxed = win.classList.contains('maxed')
   for (const el of win.querySelectorAll<HTMLElement>(':scope > .dview')) {
     const body = win.querySelector<HTMLElement>(`.dbody[data-active="${el.dataset.view}"]`)
     if (!body) continue
+    // 别的栏占满着（shell/max.ts）：这一样原地藏起来、不跟着量（它那一组让开了），还原时大小没变、滚动位置照旧
+    const off = maxed && !body.closest('.dgrp.maxed, .dfloat.maxed')
+    el.classList.toggle('max-off', off)
+    el.inert = off
+    if (off) continue
     const r = rectOf(body)
     el.style.left = `${r.left - w.left}px`
     el.style.top = `${r.top - w.top}px`
@@ -429,7 +444,7 @@ export function DockFrame(props: DockProps) {
         if (D.isCenter(c)) return null
         const cur = props.pane
         return (
-          <div key={c.id} className={'dcol' + (i === 0 ? ' first' : '') + (i === shown.cols.length - 1 ? ' last' : '')} data-col={c.id} style={{ gridColumn: 3 + 2 * i, gridRow: 2 }}>
+          <div key={c.id} className={'dcol' + (i === 0 ? ' first' : '') + (i === shown.cols.length - 1 ? ' last' : '') + (c.groups.some((g) => g.id === props.max) ? ' maxed' : '')} data-col={c.id} style={{ gridColumn: 3 + 2 * i, gridRow: 2 }}>
             {c.groups.map((g, gi) => (
               <GroupBox key={g.id} g={g} gi={gi} col={c} cur={cur === g.id} props={props} drag={drag} colIdx={i} colCount={shown.cols.length} />
             ))}
@@ -471,7 +486,7 @@ function GroupBox(p: { g: D.Group; gi: number; col: D.SideCol; cur: boolean; pro
   return (
     <>
       {p.gi > 0 && <RowSash a={col.groups[p.gi - 1]!} b={g} props={p.props} />}
-      <section className={'dgrp' + (p.cur ? ' cur' : '')} data-group={g.id} style={{ flex: `${g.f} 1 0` }} aria-label={`右栏：${g.views.map((v) => D.VIEW_NAME[v]).join('、')}`}>
+      <section className={'dgrp' + (p.cur ? ' cur' : '') + (p.props.max === g.id ? ' maxed' : '')} data-group={g.id} style={{ flex: `${g.f} 1 0` }} aria-label={`右栏：${g.views.map((v) => D.VIEW_NAME[v]).join('、')}`}>
         <Head g={g} float={false} cur={p.cur} props={p.props} drag={p.drag} colIdx={p.colIdx} colCount={p.colCount} />
         <div className="dbody" data-group={g.id} data-active={g.active} />
       </section>
@@ -635,7 +650,7 @@ function FloatBox(p: { f: D.FloatWin; cur: boolean; props: DockProps; drag: Drag
   const { f } = p
   const ref = useRef<HTMLElement>(null)
   return (
-    <section ref={ref} className={'dfloat' + (p.cur ? ' cur' : '')} data-group={f.id} style={{ left: f.x, top: f.y, width: f.w, height: f.h }} aria-label={`浮窗：${f.views.map((v) => D.VIEW_NAME[v]).join('、')}`}>
+    <section ref={ref} className={'dfloat' + (p.cur ? ' cur' : '') + (p.props.max === f.id ? ' maxed' : '')} data-group={f.id} style={{ left: f.x, top: f.y, width: f.w, height: f.h }} aria-label={`浮窗：${f.views.map((v) => D.VIEW_NAME[v]).join('、')}`}>
       <Head g={f} float cur={p.cur} props={p.props} drag={p.drag} colIdx={0} colCount={0} />
       <div className="dbody" data-group={f.id} data-active={f.active} />
       <div

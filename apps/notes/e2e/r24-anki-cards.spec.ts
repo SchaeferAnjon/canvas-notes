@@ -169,7 +169,6 @@ test('只看我问的「出卡」：AI 改写、一张张过（空格、E 改、
     await expect(n.getByRole('button', { name: '出卡 · 1问' })).toBeVisible()
     // 「全部」里问题条上也标「已送」
     await n.getByRole('tab', { name: '全部' }).click()
-    await n.locator('.rnd.fold .fh', { hasText: 'LIF 神经元的三条公式' }).click()
     await expect(n.locator('.rnd:not(.fold) .qs .mk').first()).toHaveText('已送')
     // 旁支那一问没送：问题条上悬停出「做成卡」
     await expect(n.locator('.rnd:not(.fold) .nside .qs .hov')).toHaveCount(1)

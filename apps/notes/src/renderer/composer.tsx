@@ -20,8 +20,12 @@ import { type AiPick, CLAUDE_DEFAULT, convPick, DEFAULT_EFFORT, ENGINE_LABEL, ha
 import { AiPicker, engineFamily } from './ai-picker'
 import { countLine, MAX_MATERIALS, markOf, type Material, numberOf, renumberMarks, shiftMarks } from '../shared/materials'
 import { copy } from './ctx/menu'
+import { app } from './ctx/actions'
+import { fragmentUrl } from '../shared/web-link'
 import { EngineLogo } from './engine-logo'
-import { imageFiles, MAX_PASTED, pastedUrl, toBytes } from './paste-images'
+import { imageFiles, MAX_PASTED, pastedUrl, pasteWebImage, toBytes } from './paste-images'
+import { imagesFrom, looksLikeImage, webDragLive } from './web/image-drop'
+import { imgChipLabel, type WebImgInfo } from '../shared/web-img'
 import { useDismiss } from './use-dismiss'
 import { useT } from './i18n'
 import { t as tNow } from '../shared/i18n'
@@ -54,6 +58,8 @@ export interface Composer {
   restore(text: string, mats: Material[]): void
   /** 粘贴、拖进来的文件：图变成材料；没有图返回 false（字照常粘） */
   addFiles(files: (File | null)[]): Promise<boolean>
+  /** 网页上的一张图（拖进来的、右键「问 AI 这张图」的）：取回来、SVG 画成 PNG，成为一块材料，来源「图 6.2.1 · zh.d2l.ai」 */
+  addWebImage(img: WebImgInfo): Promise<boolean>
   /** 底行「+」：系统选图框 */
   pickImages(): Promise<void>
   /** 要发出去的材料（去掉界面用的编号） */
@@ -196,6 +202,19 @@ export function useComposer(onNotice: (text: string) => void): Composer {
       }
       return true
     },
+    async addWebImage(img) {
+      if (images() >= MAX_PASTED) {
+        notice.current(tNow('最多{n}张', { n: MAX_PASTED }))
+        return false
+      }
+      try {
+        const name = await pasteWebImage(img.src)
+        return c.add({ kind: 'image', name, src: imgChipLabel(img), ...(/^https?:/i.test(img.url) ? { url: img.url } : {}) })
+      } catch (e) {
+        notice.current(tNow('这张图没附上：{why}', { why: errText(e) }))
+        return false
+      }
+    },
     async pickImages() {
       const room = MAX_PASTED - images()
       if (room <= 0) return notice.current(tNow('最多{n}张', { n: MAX_PASTED }))
@@ -280,11 +299,31 @@ export interface AiInputProps {
   slim?: { onWake(): void } | null
 }
 
+/** 开着的 AI 输入框：右键「问 AI 这张图」附进看得见的那个（网页图拖进对话） */
+const inputs = new Map<HTMLElement, { current: Composer }>()
+
+/** 看得见的那个 AI 输入框（有焦点的优先，不然最靠下的那个：主对话的输入框在一栏最下面）；都看不见是 null */
+export function shownComposer(): Composer | null {
+  const shown = [...inputs].filter(([el]) => el.isConnected && el.checkVisibility({ visibilityProperty: true }) && el.getBoundingClientRect().height > 0)
+  const focused = shown.find(([el]) => el.contains(document.activeElement))
+  if (focused) return focused[1].current
+  shown.sort((a, b) => b[0].getBoundingClientRect().bottom - a[0].getBoundingClientRect().bottom)
+  return shown[0]?.[1].current ?? null
+}
+
 export function AiInput(p: AiInputProps) {
   const { c } = p
   const t = useT()
   const [drop, setDrop] = useState(false)
   const root = useRef<HTMLDivElement>(null)
+  const latest = useRef(c)
+  latest.current = c
+  useEffect(() => {
+    const el = root.current
+    if (!el) return
+    inputs.set(el, latest)
+    return () => void inputs.delete(el)
+  }, [!!p.slim])
   const shelf = !!p.lead || c.mats.length > 0
   useEffect(() => {
     const el = root.current
@@ -341,7 +380,10 @@ export function AiInput(p: AiInputProps) {
         data-testid="ai-input"
         data-composer=""
         onDragOver={(e) => {
-          if (![...e.dataTransfer.items].some((i) => i.kind === 'file' && i.type.startsWith('image/'))) return
+          const file = [...e.dataTransfer.items].some((i) => i.kind === 'file' && i.type.startsWith('image/'))
+          // 右栏网页里拖出来的图：带的是网址和 html（不是文件），网页开始拖时报过（webDragLive）
+          const web = !file && webDragLive() && (e.dataTransfer.types.includes('text/uri-list') || e.dataTransfer.types.includes('text/html'))
+          if (!file && !web) return
           e.preventDefault()
           e.dataTransfer.dropEffect = 'copy'
           setDrop(true)
@@ -352,13 +394,27 @@ export function AiInput(p: AiInputProps) {
         onDrop={(e) => {
           setDrop(false)
           const files = [...e.dataTransfer.files]
-          if (!imageFiles(files).length) return
+          if (imageFiles(files).length) {
+            e.preventDefault()
+            void c.addFiles(files)
+            return
+          }
+          // 网页里的图：不让输入框把网址当字插进去；主进程用网页那个会话取图，来源「图 6.2.1 · zh.d2l.ai」
+          if (!looksLikeImage(e.dataTransfer)) return
           e.preventDefault()
-          void c.addFiles(files)
+          void imagesFrom(e.dataTransfer).then((found) => {
+            for (const f of found) if (f.src.kind === 'url') void c.addWebImage(f.web ?? { src: f.src.url, alt: f.alt, caption: '', url: f.src.url, title: '' })
+          })
         }}
       >
         {/* AI 在答：边上一道光绕着走（流光 A2，DESIGN.v3 2.3） */}
         <ComposerGlow running={p.running} />
+        {drop && (
+          <div className="aiin-drop" data-testid="ai-drop-say" aria-hidden="true">
+            <Codicon name="file-media" size={14} />
+            {t('松手附上这张图')}
+          </div>
+        )}
         {p.children}
         {shelf && <Shelf c={c} lead={p.lead ?? null} />}
         {p.above}
@@ -557,7 +613,7 @@ function Shelf(p: { c: Composer; lead: Lead | null }) {
           data-mat=""
           data-testid="ai-mat"
           data-src={m.src}
-          className={'chipm' + (m.kind === 'image' ? ' img' : '') + (drag?.id === m.id ? ' dragging' : '') + (drag && drag.to === i ? ' dropat' : '') + (drag && drag.to === n && i === n - 1 ? ' dropend' : '')}
+          className={'chipm' + (m.kind === 'image' ? ' img' : '') + (m.kind === 'image' && m.url ? ' web' : '') + (drag?.id === m.id ? ' dragging' : '') + (drag && drag.to === i ? ' dropat' : '') + (drag && drag.to === n && i === n - 1 ? ' dropend' : '')}
           title={m.kind === 'quote' ? t('{src}：{text}', { src: m.src, text: m.text }) : m.src}
           onPointerDown={(e) => {
             if (e.button !== 0 || (e.target as Element).closest('.pxx')) return
@@ -585,7 +641,16 @@ function Shelf(p: { c: Composer; lead: Lead | null }) {
           }}
         >
           <span className="nb">{i + 1}</span>
-          {m.kind === 'image' ? (
+          {m.kind === 'image' && m.url ? (
+            // 网页上拿来的图：缩略图旁边写来源（照引用卡：上面网站、下面图号）
+            <>
+              <img src={pastedUrl(m.name)} alt={m.src} draggable={false} />
+              <span className="cq" data-testid="ai-mat-src">
+                <span className="cs">{webSite(m.src)}</span>
+                <span className="ct">{webName(m.src)}</span>
+              </span>
+            </>
+          ) : m.kind === 'image' ? (
             <img src={pastedUrl(m.name)} alt={m.src} draggable={false} />
           ) : (
             <span className="cq">
@@ -602,6 +667,10 @@ function Shelf(p: { c: Composer; lead: Lead | null }) {
     </div>
   )
 }
+
+/** 网页图的来源「图 6.2.1 · zh.d2l.ai」拆成两行：图号、网站（只有一段时网站那行空着） */
+const webName = (src: string) => (src.includes(' · ') ? src.slice(0, src.lastIndexOf(' · ')) : src)
+const webSite = (src: string) => (src.includes(' · ') ? src.slice(src.lastIndexOf(' · ') + 3) : '')
 
 /** 点一张卡：在它上面弹 360 宽的小卡看全文（图看大图 + 来源），点外面、esc 收起 */
 function Peek(p: { item: Mat | Lead; anchor: HTMLElement; onClose(): void }) {
@@ -787,7 +856,17 @@ export function MatMsg(p: { text: string; mats: Material[]; lead?: ReactNode; on
             ) : (
               <>
                 <span className="fq">{m.text}</span>
-                <span className="fs">{`· ${m.src}`}</span>
+                {/* 网页上引的：来源是回到那一段的链接（右栏网页滚到那几句、亮一下） */}
+                {m.url ? (
+                  <>
+                    <span className="fs">·</span>
+                    <button className="fs back" data-testid="mat-back" title={tNow('回到网页里这一段')} onClick={() => app().openWebAt(fragmentUrl(m.url!, m.text))}>
+                      {`${m.src} ↩`}
+                    </button>
+                  </>
+                ) : (
+                  <span className="fs">{`· ${m.src}`}</span>
+                )}
               </>
             )}
           </div>

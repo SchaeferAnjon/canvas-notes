@@ -151,7 +151,8 @@ test('拖框问：工具条两颗、自己加的那颗、输入框回车、接�
     await acts(page).getByRole('tab', { name: '白板' }).click()
     const crops = pane(page).getByTestId('doc-board').locator('a.db-ask-crop img')
     await expect(crops).toHaveCount(5)
-    const card2 = pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '测试小标题 p2' })
+    // 一处一列（配对笔记白板分列）：标题在列头，图在这一列第一张卡里
+    const card2 = pane(page).getByTestId('doc-board').locator('.db-col', { hasText: '测试小标题 p2' })
     await expect(card2.locator('a.db-ask-crop img')).toHaveAttribute('style', `width: ${w2}px;`)
     await card2.locator('a.db-ask-crop').click()
     await backToPdf(page, 2)
@@ -195,7 +196,7 @@ test('选字问：工具条「翻译 + 讲一讲」、自己加的那颗，原�
     // 白板看法：卡里是那段原文，没有图
     await openNote(page, '第3讲 笔记')
     await acts(page).getByRole('tab', { name: '白板' }).click()
-    const card = pane(page).getByTestId('doc-board').locator('.db-card', { hasText: '测试小标题 p5' })
+    const card = pane(page).getByTestId('doc-board').locator('.db-col', { hasText: '测试小标题 p5' })
     await expect(card.locator('.db-ask-quote')).toHaveText(q5![1]!)
     await expect(card.locator('.db-ask-crop')).toHaveCount(0)
   } finally {

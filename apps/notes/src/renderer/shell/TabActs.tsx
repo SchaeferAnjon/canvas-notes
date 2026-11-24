@@ -44,6 +44,8 @@ export function ActBtn(props: {
   /** 交给 AI 跑的：画跑它的那一家的标志（翻译没有能用的那家时画 icon） */
   ai?: AiJob
   label: string
+  /** 带字时写的短名字（提示、读屏还是 label 那一整句） */
+  short?: string
   keys?: string
   on?: boolean
   text?: boolean
@@ -65,7 +67,7 @@ export function ActBtn(props: {
       onClick={props.onClick}
     >
       {props.ai ? <AiIcon job={props.ai} size={16} fallback={props.icon} /> : <Codicon name={props.icon} size={16} />}
-      {props.text && <span className="lb">{props.label}</span>}
+      {props.text && <span className="lb">{props.short ?? props.label}</span>}
     </button>
   )
 }

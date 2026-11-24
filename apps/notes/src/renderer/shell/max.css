@@ -1,0 +1,164 @@
+/* ======================= 每一栏都能占满（shell/max.ts，用户 2026-11-24「每个框都能占满」） =======================
+ * 占满的那一栏多占 .win 的几列（--max-col：左栏到最后一栏），顶上让出一条提示（.max-hint）；
+ * 让开的栏原地不动、只是看不见也点不到：大小不变，还原时各栏宽度、分屏比例、滚动位置照旧。 */
+.win.maxed {
+  --max-hint-h: 28px;
+}
+.win.maxed > .side,
+.win.maxed > .hsplit,
+.win.maxed > main.center:not(.maxed),
+.win.maxed .dcol:not(.maxed),
+.win.maxed .dsash-col,
+.win.maxed .dfloat:not(.maxed),
+.win.maxed > .dview.max-off {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.win.maxed > main.center.maxed,
+.win.maxed .dcol.maxed {
+  grid-column: var(--max-col) !important;
+  margin-top: var(--max-hint-h);
+  z-index: 3;
+}
+/* 一栏上下几组：别的组和缝让开，占满的那组撑满这一栏（它们的内容 .dview 原地藏着，Dock.tsx 的 placeViews 不量它们） */
+.win.maxed .dcol.maxed > .dgrp:not(.maxed),
+.win.maxed .dcol.maxed > .dsash-row {
+  display: none;
+}
+.win.maxed .dcol.maxed > .dgrp.maxed {
+  flex: 1 1 0 !important;
+}
+/* 浮窗：贴进同一块地方（.win 的格子给绝对定位的它当外框），不能拖、不能拉大小 */
+.win.maxed .dfloat.maxed {
+  grid-column: var(--max-col);
+  grid-row: 2;
+  left: 0 !important;
+  top: var(--max-hint-h) !important;
+  width: 100% !important;
+  height: calc(100% - var(--max-hint-h)) !important;
+  border-radius: 10px;
+}
+.win.frame-a.maxed .dfloat.maxed {
+  border-radius: 0;
+}
+.win.maxed .dfloat.maxed .drz,
+.win.maxed .dfloat.maxed .dgrab {
+  display: none;
+}
+.win.maxed .dfloat.maxed .dspace {
+  cursor: default;
+}
+
+/* 分屏时占满一格：那一格铺满中间，另一格和中间的缝原地藏起来 */
+.center.split.max-p0 > .p1,
+.center.split.max-p1 > .p0,
+.center.split.maxed > .csash {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+.center.split.row.max-p0 > .p0 {
+  width: 100%;
+}
+.center.split.row.max-p1 > .p1 {
+  left: 0;
+}
+.center.split.col.max-p0 > .cslot.p0 {
+  height: auto;
+  bottom: 0;
+}
+.center.split.col.max-p1 > .tabs.p1 {
+  top: 0;
+}
+.center.split.col.max-p1 > .crumbs.p1 {
+  top: var(--sp-th);
+}
+.center.split.col.max-p1 > .cslot.p1 {
+  top: calc(var(--sp-th) + var(--sp-ch));
+}
+.center.split.row.max-p0 > .cisle.p0,
+.center.split.row.max-p1 > .cisle.p1 {
+  left: 0;
+  right: 0;
+  width: auto;
+}
+.center.split.col.max-p0 > .cisle.p0,
+.center.split.col.max-p1 > .cisle.p1 {
+  top: 0;
+  bottom: 0;
+  height: auto;
+}
+
+/* 顶上那条提示：占满的那一栏正上方一枚细胶囊（压在窗口背景图上也看得清），点它回原样 */
+.win > .max-hint {
+  grid-column: var(--max-col);
+  grid-row: 2;
+  align-self: start;
+  justify-self: center;
+  z-index: 6;
+  height: 20px;
+  margin-top: 4px;
+  max-width: calc(100% - 24px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--pop);
+  box-shadow: 0 0 0 1px var(--line2);
+  color: var(--t2);
+  font-size: 12px;
+  -webkit-app-region: no-drag;
+}
+.win > .max-hint:hover {
+  color: var(--t1);
+  box-shadow: 0 0 0 1px var(--line2);
+}
+.win > .max-hint > .codicon {
+  color: var(--accent);
+}
+[data-glass] .win > .max-hint {
+  background: var(--isle-pop, var(--pop));
+  -webkit-backdrop-filter: var(--isle-blur);
+  backdrop-filter: var(--isle-blur);
+}
+
+/* 中间标签条最右那颗（右边各组的那颗用组头的 .dbtn） */
+/* 标签条窄、横着滚的时候也露着（贴在右端，盖住滚过去的东西） */
+.tabs > .maxbtn {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  flex: none;
+  align-self: center;
+  width: 26px;
+  height: 26px;
+  margin: 0 1px 0 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: var(--tabbar, var(--side));
+  color: var(--t2);
+}
+.frame-b .tabs > .maxbtn {
+  margin-bottom: 4px;
+}
+.tabs > .maxbtn:hover,
+.tabs > .maxbtn.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+/* 占满着：右栏组头那颗和中间那颗一样的按下底色 */
+.dhead .maxbtn.on {
+  background: var(--fill2);
+}
+/* AI 占满：对话、输入框不横跨整个窗口，收在当中 900 宽（两边空着，底色照旧是那一组的） */
+.win.maxed > .dview[data-view='ai']:not(.max-off) {
+  padding-inline: max(0px, calc((100% - 900px) / 2));
+}
+/* 没分屏、中间挤到最窄（< 440）：那颗收起，标签条右端的空处留给按住拖整栏（⌃⌘\、双击空处、标签右键照样能占满） */
+.center.tiny > .tabs > .maxbtn:not(.on) {
+  display: none;
+}

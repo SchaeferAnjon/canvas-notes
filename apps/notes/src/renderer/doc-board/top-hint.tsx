@@ -214,7 +214,7 @@ export function TopHint(props: {
         </span>
       ) : s.kind === 'select' ? (
         <span className="tx">{rich(t('空白处按住拖是{a} · 按住空格拖是{b}'), { a: <b>{t('框选')}</b>, b: <b>{t('平移')}</b> })}</span>
-      ) : s.total > 200 ? (
+      ) : s.total > 200 && s.openCols > 0 ? (
         <span className="tx">
           {rich(t('这篇有{total}段 · {rule}', { total: s.total }), { rule: <b>{t('每节先摆{per}张，第{k}节起只留列头', { per: s.per, k: s.openCols + 1 })}</b> })}
         </span>

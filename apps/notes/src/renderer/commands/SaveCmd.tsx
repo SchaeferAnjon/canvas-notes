@@ -25,7 +25,8 @@ import { list, t as tNow } from '../../shared/i18n'
 import './save-cmd.css'
 import { putOnBar } from '../sel-bar/run'
 import { zoneOf } from '../../shared/sel-bar'
-import { cmdConfig } from '../search/cmd-store'
+import { answerSelOn, setAnswerSel } from '../../shared/replies'
+import { cmdConfig, updateCmds } from '../search/cmd-store'
 
 type ChatInit = Extract<CmdEditorInit, { kind: 'chat' }>
 type View = 'before' | 'after' | 'split'
@@ -91,6 +92,9 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
     return z === 'on' || z === 'more' ? z : 'none'
   })()
   const [bar, setBar] = useState<'none' | 'more' | 'on'>(barAt)
+  /** AI 回答里选中一句的小菜单（命令.json 的 answerSel）：新的默认勾着，改的照它现在 */
+  const selAt = base ? answerSelOn(cmdConfig().answerSel, base.id) : true
+  const [sel, setSel] = useState(selAt)
   // 复制自带的：它的规矩照界面语言变成你自己的那几条
   const [rules, setRules] = useState<Rule[]>(() => (chat ? [] : (base?.rules.map((r) => ruleOf(r)) ?? copyOf?.rules.map((r) => ruleOf({ t: t(r) })) ?? [])))
   const [unused, setUnused] = useState<string[]>([])
@@ -192,6 +196,7 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
     try {
       await saveAiCmd(cmd)
       if (bar !== barAt) await putOnBar(cmd, bar === 'none' ? null : bar)
+      if (sel !== selAt) await updateCmds((x) => ({ ...x, answerSel: setAnswerSel(x.answerSel, cmd.id, sel) }))
       props.onNotice(withKeys(t('存好了：/{name} · 在 / 菜单和 {k:search} 的「让AI做」里', { name: cmd.name })))
       props.onClose()
     } catch (e) {
@@ -329,7 +334,7 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
                   <span>{t('没算进去的话：{list}', { list: quoted(lang, unused) })}</span>
                 </div>
               )}
-              <HowForm name={name} where={where} write={write} store={store} onName={(v) => ((nameTouched.current = true), setName(v))} onWhere={setWhere} onWrite={setWrite} onStore={setStore} bar={bar} onBar={setBar} />
+              <HowForm name={name} where={where} write={write} store={store} onName={(v) => ((nameTouched.current = true), setName(v))} onWhere={setWhere} onWrite={setWrite} onStore={setStore} bar={bar} onBar={setBar} sel={sel} onSel={setSel} />
             </section>
           </div>
         ) : (
@@ -343,7 +348,7 @@ function CmdEditor(props: { init: CmdEditorInit; here: string | null; onNotice(t
               <AddRule full={rules.length >= MAX_RULES} onAdd={(t) => setRules((rs) => [...rs, ruleOf({ t })])} />
             </section>
             <section className="sc-rc solo">
-              <HowForm name={name} where={where} write={write} store={store} onName={setName} onWhere={setWhere} onWrite={setWrite} onStore={setStore} bar={bar} onBar={setBar} />
+              <HowForm name={name} where={where} write={write} store={store} onName={setName} onWhere={setWhere} onWrite={setWrite} onStore={setStore} bar={bar} onBar={setBar} sel={sel} onSel={setSel} />
             </section>
           </div>
         )}
@@ -736,6 +741,8 @@ function HowForm(p: {
   onStore(v: 'vault' | 'local'): void
   bar: 'none' | 'more' | 'on'
   onBar(v: 'none' | 'more' | 'on'): void
+  sel: boolean
+  onSel(v: boolean): void
 }) {
   const t = useT()
   const dup = sameAsBuiltin(cleanName(p.name))
@@ -774,6 +781,10 @@ function HowForm(p: {
               </button>
             )
           })}
+          <button role="checkbox" aria-checked={p.sel} className={'sc-chip' + (p.sel ? ' on' : '')} title={t('AI 回答里选中一句，小菜单「问这句」下面列出它')} onClick={() => p.onSel(!p.sel)}>
+            <Codicon name={p.sel ? 'check' : 'comment-discussion'} size={14} />
+            {t('回答里选中一句')}
+          </button>
         </div>
       </div>
       <div className="sc-frow">

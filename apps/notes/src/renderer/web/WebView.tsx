@@ -3,7 +3,9 @@ import { HOLD_POLICY } from '../../shared/web-api'
 import { pageReported } from '../plugins/host'
 import { videoReported } from '../video/store'
 import { noteFavicon } from './favicons'
-import { dropWebDragAt, noteWebDrag } from './image-drop'
+import { backInWebDrag, cancelWebDrag, dropWebDragAt, hoverWebDragAt, noteWebDrag } from './image-drop'
+import { webImgOf } from '../../shared/web-img'
+import { noteCtxImg } from '../ctx/web-menu'
 import { webReadIpc } from '../reading/web-bridge'
 import { registerWebMenu, type WebMenuHost } from '../ctx/web-menu'
 import { pageOutside } from './page-outside'
@@ -121,8 +123,20 @@ export function WebView(props: {
         // 网页上问过、剪过那一段左边的小标
         webMarkIpc(w, args[0])
       } else if (channel === 'cn:drag') {
-        const d = args[0] as { src?: unknown; alt?: unknown; url?: unknown; title?: unknown } | undefined
-        if (typeof d?.src === 'string' && typeof d.url === 'string') noteWebDrag({ src: d.src, alt: String(d.alt ?? ''), url: d.url, title: String(d.title ?? '') })
+        const d = webImgOf(args[0])
+        if (d) noteWebDrag(d)
+      } else if (channel === 'cn:dragmove') {
+        // 拖着网页里的图：指针到了界面哪里（AI 输入框亮、文档画插入线）
+        const p = args[0] as { x?: unknown; y?: unknown; inside?: unknown } | undefined
+        const r = w.getBoundingClientRect()
+        if (p?.inside === true) backInWebDrag()
+        else if (typeof p?.x === 'number' && typeof p.y === 'number') hoverWebDragAt(r.left + p.x, r.top + p.y)
+      } else if (channel === 'cn:dragcancel') {
+        cancelWebDrag()
+      } else if (channel === 'cn:ctx-img') {
+        // 右键点在图上：这张图的图注、小标题（「问 AI 这张图」「剪进文档」写来源）
+        const d = webImgOf(args[0])
+        if (d) noteCtxImg(d)
       } else if (channel === 'cn:plugin') {
         // 网页里的内置插件报状态（比如双语开没开）
         pageReported(w.getWebContentsId(), args[0], args[1])

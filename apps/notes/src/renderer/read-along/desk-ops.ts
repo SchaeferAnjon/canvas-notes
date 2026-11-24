@@ -1,6 +1,6 @@
 /**
  * 存成书桌（task-kbnc0 方向 B，原型 proto.html#scene=b）：一张书桌记下中间开着哪几篇、右栏哪几个网页、各读到哪、样子
- * （左栏、网页、中间栏开没开）；点一张就回到那一套，底栏「回到刚才的样子」。开着的那张（这次开软件里）改动自动记下：
+ * （左栏、网页、中间栏开没开）；点一张就回到那一套，换之前的样子是左栏最上面那张「刚才」，底栏「回到刚才」、⌘Z、后退都回得去。开着的那张（这次开软件里）改动自动记下：
  * 读到哪、多开的标签。网页是配好对的那本书时，读到哪用 读到哪.json 那一份（书桌里只记是哪本书）。
  * 文件在库里 .canvas-notes/书桌/<名字>.json，跟着 Git 走（main/read-along.ts）。
  */
@@ -9,7 +9,8 @@ import { booksOf, type Desk, deskJson, deskSummary, type DeskTab, inBook, type P
 import type { WebDeskApi } from '../WebPanel'
 import type { WebTabs } from '../web/web-tabs'
 import { headOf } from './pairing'
-import { deskOnNow, desksNow, loadDesks, pairOf, positionOf, setDeskOn, usePairs } from './store'
+import { t as tNow } from '../../shared/i18n'
+import { awayNow, deskOnNow, desksNow, loadDesks, pairBooks, pairOf, positionOf, setAway, setDeskOn, usePairs } from './store'
 import type { Went } from './web'
 
 export interface DeskLayout {
@@ -36,6 +37,10 @@ export interface DeskHost {
   layoutText(): string
   /** 左栏换到「书桌」 */
   showDesks(): void
+  /** 收起底栏正中那句提示（切书桌时：前面那句的「撤回」不再占着 ⌘Z） */
+  quiet(): void
+  /** 后退历史里下一个走到的位置（切书桌时记下：后退退到这之前就是回到刚才） */
+  navAt(): number
 }
 
 let host: DeskHost | null = null
@@ -105,42 +110,74 @@ function posOfTab(t: DeskTab): { url: string; pos: PagePos | null } {
   return { url: t.url, pos: t.pos ?? null }
 }
 
-/** 点一张：中间、右栏换成那一套，前面那个网页回到读到的那段；底栏「回到刚才的样子」 */
+/** 换之前的样子原样（这次开软件里切的才有）：中间的标签、右栏网页、样子、开着的是哪一张 */
+interface Exact {
+  center: unknown
+  web: WebTabs | null
+  layout: DeskLayout | null
+  on: string | null
+}
+
+/** 中间、右栏换成这一套，前面那个网页回到读到的那段（landed：回到的那段的小标题，没回到是 null）；返回换之前的样子 */
+function applyDesk(d: Desk, landed: (head: string | null) => void): Exact {
+  const h = H()
+  const prev: Exact = { center: h.setCenter(d.notes, d.active ?? null), web: null, layout: null, on: deskOnNow() }
+  const web = h.web()
+  const at = Math.min(d.webActive ?? 0, Math.max(0, d.web.length - 1))
+  const front = d.web[at]
+  const frontPos = front ? posOfTab(front) : null
+  const say = (how?: Went['how']) => landed(frontPos?.pos && (how === 'exact' || how === 'fuzzy') ? headOf(frontPos.pos) : null)
+  if (d.layout) prev.layout = h.setLayout({ left: d.layout.left, web: d.layout.web && d.web.length > 0, center: d.layout.center !== false })
+  if (web && d.web.length) prev.web = web.replace(d.web.map((t) => ({ title: t.title, ...posOfTab(t) })), at, frontPos?.pos ? (how) => say(how) : undefined)
+  if (!frontPos?.pos) say()
+  return prev
+}
+
+/**
+ * 点一张：中间、右栏换成那一套，前面那个网页回到读到的那段。换之前的样子记成「刚才」（左栏书桌最上面一张，只留最近一张）；
+ * 底栏一直有「已切到书桌「…」· 回到刚才」，⌘Z、后退也回得去（以前只有底栏 10 秒的「回到刚才的样子」，过了就回不去了）
+ */
 export function openDesk(file: string) {
   const h = H()
   const e = desksNow().find((x) => x.file === file)
   if (!e) return h.notice('这张书桌已经不在了')
   const d = e.desk
-  const prevCenter = h.setCenter(d.notes, d.active ?? null)
-  const web = h.web()
-  const at = Math.min(d.webActive ?? 0, Math.max(0, d.web.length - 1))
-  const front = d.web[at]
-  const frontPos = front ? posOfTab(front) : null
-  let prevWeb: WebTabs | null = null
-  let prevLayout: DeskLayout | null = null
-  const say = (how?: Went['how']) => {
-    const where = frontPos?.pos && (how === 'exact' || how === 'fuzzy') ? `：回到「${headOf(frontPos.pos)}」那段` : ''
-    h.notice(`打开了书桌「${d.name}」${where}`, {
-      act: {
-        label: '回到刚才的样子',
-        icon: 'discard',
-        // 过了一会儿才点：用那时候的软件（App 每次画完交进来的那一份），不用打开书桌时的旧样子
-        run: () => {
-          const now = H()
-          now.restoreCenter(prevCenter)
-          if (prevWeb) now.web()?.restore(prevWeb)
-          if (prevLayout) now.setLayout(prevLayout)
-          setDeskOn(null)
-          // 底栏点完按钮会先收起那一句：下一下再说
-          setTimeout(() => now.notice('回到了刚才的样子'))
-        },
-      },
-    })
-  }
-  if (d.layout) prevLayout = h.setLayout({ left: d.layout.left, web: d.layout.web && d.web.length > 0, center: d.layout.center !== false })
-  if (web && d.web.length) prevWeb = web.replace(d.web.map((t) => ({ title: t.title, ...posOfTab(t) })), at, frontPos?.pos ? (how) => say(how) : undefined)
+  const before = snapshotDesk(tNow('刚才', { ctx: '书桌' }), pairBooks(), undefined, undefined, true, false)
+  const navAt = h.navAt()
+  // 前面那句（比如刚存好书桌的「撤回」）收起：这时 ⌘Z 是回到刚才，不是撤回那一句
+  h.quiet()
+  // 切到了哪张底栏左边那句一直说着；提示只说网页回到了哪段（设计复审：以前两句同时说「打开了书桌」）
+  const exact = applyDesk(d, (head) => head && h.notice(`网页回到「${head}」那段`))
   if (d.auto) turnOn(file)
-  if (!frontPos?.pos) say()
+  setAway({ name: d.name, desk: before, exact, navAt, quiet: false })
+}
+
+/** 回到刚才（底栏、⌘Z、后退、「刚才」卡）：这次开软件里切的原样放回，重开软件后照「刚才」卡摆 */
+export function backToBefore() {
+  const a = awayNow()
+  if (!a) return
+  // 过了一会儿才回：用那时候的软件（App 每次画完交进来的那一份），不用打开书桌时的旧样子
+  const h = H()
+  setAway(null)
+  const x = a.exact as Exact | null
+  if (x) {
+    h.restoreCenter(x.center)
+    if (x.web) h.web()?.restore(x.web)
+    if (x.layout) h.setLayout(x.layout)
+    if (x.on && desksNow().some((e) => e.file === x.on)) turnOn(x.on)
+    else setDeskOn(null)
+  } else {
+    applyDesk(a.desk, () => {})
+    setDeskOn(null)
+  }
+  // 底栏点完按钮会先收起那一句：下一下再说
+  setTimeout(() => h.notice('回到了刚才的样子'))
+}
+
+/** 底栏那句 × 掉：「刚才」卡留着 */
+export function quietAway() {
+  const a = awayNow()
+  if (a && !a.quiet) setAway({ ...a, quiet: true })
 }
 
 /** 用现在的样子更新：底栏能撤回（放回更新前的） */

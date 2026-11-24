@@ -7,8 +7,12 @@
  * - 代码块读 <pre> 的字，语言从 class（language-x、highlight-x）认，写成围栏；d2l 那种几个页签的只带看得见的那个。
  * - 选区碰到公式、代码块：整块带上（不管选区停在它中间还是旁边的字上）。
  * - Sphinx（d2l）的式号「(2.3.7)」是公式旁边单独一个 span.eqno：不单独写一行，写进那个公式的 `\tag{2.3.7}`（文档里照样画在右边）。
- * 回到那一段的链接、网页上的小标找段落仍用网页上看得到的纯文字（selectionText），md 只用来写进文件、交给 AI。
+ * 「这段字」（小条交给软件的 text：回到那一段的链接、网页上的小标、回到那几句都拿它找段落）和网页上一块块的字（webview-blocks 的
+ * charsOf）里，公式都写成和文件里一样的 `$…$` / `$$ … $$`（mathMd）。以前一边是浏览器选区的字（MathJax 3 的公式选不出字，只剩换行，
+ * 只选一个公式时是空的，小条当没选中），一边是网页里藏着的 MathML 的字（「X」「[X]i,j」），文件里又是 `$\mathbf{X}$`，三样对不上：
+ * 选公式引用、剪藏没反应，带公式的段落剪完网页上不标、点线只画到模糊找到的半句。
  */
+
 const TEX = 'annotation[encoding="application/x-tex"]'
 /** 公式的最外层：MathJax 3 容器、MathJax 2 的显示（真正的原文在后面的 script）、KaTeX、光秃秃的 MathML */
 const MATH = 'mjx-container, .MathJax, .MathJax_Display, .MathJax_SVG, .MathJax_CHTML, .MathJax_Preview, .katex-display, .katex, math'
@@ -26,7 +30,7 @@ export function mathRoot(el: Element | null): Element | null {
 }
 
 /** MathJax 2 显示用的那一块后面紧跟着的原文 script */
-function mj2Script(el: Element): HTMLScriptElement | null {
+export function mj2Script(el: Element): HTMLScriptElement | null {
   let n = el.nextElementSibling
   // 块级公式外面多一层 .MathJax_Display，script 在它后面
   if (!n && el.parentElement?.classList.contains('MathJax_Display')) n = el.parentElement.nextElementSibling
@@ -74,6 +78,13 @@ function withTag(t: Tex, root: Element): Tex {
 
 export const texMd = (t: Tex) => (t.display ? `\n\n$$\n${t.tex}\n$$\n\n` : `$${t.tex}$`)
 
+/** 一个公式（最外层）写成什么：和写进文件的一样，块级带式号；MathJax 2 的预览那一小块（后面跟着显示块）、读不出来的是空 */
+export function mathMd(root: Element): string {
+  if (root.classList.contains('MathJax_Preview')) return ''
+  const t = texOf(root)
+  return t ? texMd(withTag(t, root)) : ''
+}
+
 /** 代码块的语言：class 里的 language-x、lang-x、highlight-x（Sphinx） */
 export function codeLang(pre: Element): string {
   for (let p: Element | null = pre; p && p !== document.body; p = p.parentElement) {
@@ -103,9 +114,10 @@ function hidden(el: Element): boolean {
 }
 
 /**
- * 选区按网页里的先后转成 md：碰到的公式、代码块整块带上；skipTr：夹着的译文（cn-tr）不要
+ * 选区按网页里的先后转成 md：碰到的公式、代码块整块带上；skipTr：夹着的译文（cn-tr）不要；
+ * flat：「这段字」（代码块只要字、不加围栏，和网页上一块块的字一样），公式照样写成 `$…$`
  */
-export function rangeToMd(range: Range, skipTr: boolean): string {
+export function rangeToMd(range: Range, skipTr: boolean, flat = false): string {
   let out = ''
   const seen = new Set<Element>()
   const push = (s: string) => (out += s)
@@ -139,13 +151,11 @@ export function rangeToMd(range: Range, skipTr: boolean): string {
       seen.add(root)
       const s = mj2Script(root)
       if (s) seen.add(s)
-      // MathJax 2 预览那一小块（.MathJax_Preview）后面还跟着显示块：交给显示块写
-      if (root.classList.contains('MathJax_Preview')) return
-      const t = texOf(root)
-      if (t) push(texMd(withTag(t, root)))
+      // MathJax 2 预览那一小块（.MathJax_Preview）后面还跟着显示块：交给显示块写（mathMd 给空）
+      push(mathMd(root))
       return
     }
-    if (el.tagName === 'PRE') return void push(codeMd(el))
+    if (el.tagName === 'PRE') return void push(flat ? `\n\n${(el.textContent ?? '').replace(/\n+$/, '')}\n\n` : codeMd(el))
     if (el.tagName === 'BR') return void push('\n')
     const block = BLOCK.test(el.tagName)
     if (block) push('\n\n')
@@ -261,14 +271,14 @@ export function sectionRange(sel: Selection): Range | null {
   return r
 }
 
-/** 停在哪个公式、代码块上（整块） */
+/** 点在哪个公式、代码块上（整块） */
 export function blockAt(t: EventTarget | null): Element | null {
   const el = t instanceof Element ? t : null
-  if (!el || el.closest('#cn-clip-host, #cn-box-host, #cn-mark-host, #cn-block-host')) return null
+  if (!el || el.closest('#cn-clip-host, #cn-box-host, #cn-mark-host')) return null
   return mathRoot(el) ?? el.closest('pre')
 }
 
-/** 选中整块（点一下公式、代码块；角上「引用」「剪藏」也是先选中整块再交给小条那一套） */
+/** 选中整块（点一下公式、代码块，再交给小条那一套） */
 export function selectBlock(el: Element) {
   const s = mj2Script(el)
   const r = document.createRange()
