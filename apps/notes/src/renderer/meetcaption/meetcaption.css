@@ -1,0 +1,247 @@
+/* MeetCaption 联动：文件夹首页组件（借 .prw 那一套，只补它多出来的）、上课记录的录音条（DESIGN.v3「MeetCaption 联动」一节） */
+
+/* ---------- 组件 ---------- */
+.mcw .mcw-next {
+  flex-wrap: wrap;
+  white-space: normal;
+  column-gap: 6px;
+}
+.mcw .mcw-next b {
+  font-weight: 600;
+}
+.mcw .mcw-left {
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 上课中：前面一颗 --red 小点（记号，字不上色） */
+.mcw .mcw-live {
+  align-items: center;
+}
+.mcw .mcw-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: var(--red, #ff4015);
+}
+.mcw .mcw-live span {
+  color: var(--t2);
+}
+/* 刚下课的一句：12 --t2，前面一个对勾 */
+.mcw .mcw-after {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.mcw .mcw-after svg {
+  flex: none;
+  color: var(--acc-t);
+}
+.mcw .mcw-row .mcw-date {
+  flex: none;
+  width: 38px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.mcw .mcw-row .mcw-todo {
+  font-size: 12px;
+  color: var(--t2);
+}
+/* 新的一节亮两秒 */
+.mcw .mcw-row {
+  transition: background-color 0.6s;
+}
+.mcw .mcw-row.on {
+  background: var(--acc-soft, var(--fill));
+}
+
+/* ---------- 上课记录的录音条：在正文版心里，和正文同宽 ---------- */
+.mcr {
+  max-width: var(--doc-w, 680px);
+  margin: 24px auto -24px;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r-wid, 10px);
+  background: var(--card);
+  font-size: 13px;
+  color: var(--t1);
+}
+.mcr-err {
+  font-size: 12px;
+  color: var(--t3);
+}
+.mcr-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.mcr-bar .sp {
+  flex: 1;
+}
+/* 放 / 停：28 的实心圆，一条只这一颗 */
+.mcr-play {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--solid);
+  color: var(--solid-t);
+}
+.mcr-play:disabled {
+  opacity: 0.4;
+}
+.mcr-say,
+.mcr-span {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--t3);
+}
+.mcr-at {
+  font-size: 13px;
+  color: var(--t1);
+  white-space: nowrap;
+}
+/* 「在 MeetCaption 里打开」：次按钮，--line2 细边、圆角 6、12 号 */
+.mcr-mc {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line2);
+  border-radius: 6px;
+  background: var(--card);
+  font: 12px var(--sans);
+  color: var(--t1);
+}
+.mcr-mc:hover {
+  background: var(--fill);
+}
+.mcr-seek {
+  width: 100%;
+  margin: 8px 0 0;
+  accent-color: var(--acc);
+}
+.mcr-why {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--t2);
+}
+.mcr-why .lnk {
+  margin-left: 8px;
+}
+.mcr-tabs {
+  display: flex;
+  gap: 14px;
+  margin-top: 8px;
+}
+.mcr-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: 12px var(--sans);
+  color: var(--t2);
+}
+.mcr-tabs button:hover,
+.mcr-tabs button.on {
+  color: var(--t1);
+}
+.mcr-tabs button:disabled {
+  color: var(--t3);
+  opacity: 0.6;
+}
+/* 字幕全文：一句一行，左边钟点 12 --t3，原文 13 --t1，译文 12 --t2；正在放的那句 --fill 底 */
+.mcr-subs {
+  position: relative;
+  max-height: 300px;
+  margin-top: 8px;
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+}
+.mcr-seg {
+  padding: 8px 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t2);
+}
+.mcr-cue {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  font: 13px/1.55 var(--sans);
+  color: var(--t1);
+}
+.mcr-cue:hover {
+  background: var(--fill);
+}
+.mcr-cue.on {
+  background: var(--acc-soft, var(--fill));
+}
+.mcr-t {
+  flex: none;
+  width: 58px;
+  font-size: 12px;
+  color: var(--t3);
+}
+.mcr-x {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.mcr-x em {
+  margin-right: 6px;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--t3);
+}
+.mcr-tr {
+  display: block;
+  font-size: 12px;
+  color: var(--t2);
+}
+/* 关键画面：一排缩略图，16:9、圆角 6，下面钟点 */
+.mcr-frames {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  padding-bottom: 4px;
+  overflow-x: auto;
+}
+.mcr-frame {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 132px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 11px;
+  color: var(--t3);
+}
+.mcr-frame img {
+  width: 132px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--fill);
+}
+.mcr-frame:hover img {
+  border-color: var(--line2);
+}

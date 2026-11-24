@@ -61,6 +61,7 @@ export function toTemplate(items: CtxItem[], target: WebContents, pick: (id: str
       ...(it.checked !== undefined ? { type: 'checkbox' as const, checked: it.checked } : {}),
       ...(it.accel ? { accelerator: it.accel, registerAccelerator: false } : {}),
       ...(it.icon ? { icon: iconOf(it.icon) } : {}),
+      ...(it.tip ? { toolTip: it.tip } : {}),
       click: () => pick(it.id),
     }
   })
@@ -150,6 +151,11 @@ export function setupCtxMenu(needVault: () => Vault, onMoved: () => void) {
     // abs() 拦住 .. 和绝对路径
     const v = needVault()
     shell.showItemInFolder(path === '' ? v.root : v.abs(path))
+  })
+  ipcMain.handle('ctx:open-path', async (_e, path: unknown) => {
+    if (typeof path !== 'string' || !path) throw new Error('参数不对')
+    const err = await shell.openPath(needVault().abs(path))
+    if (err) throw new Error(err)
   })
   ipcMain.handle('ctx:open-external', (_e, url: unknown) => {
     if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) throw new Error('只打开 http(s) 网址')

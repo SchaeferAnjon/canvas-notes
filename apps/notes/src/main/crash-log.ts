@@ -9,7 +9,7 @@
  */
 import { appendFileSync, existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import type { RendererReport } from '../shared/crash'
+import { REPORT_KINDS, type RendererReport } from '../shared/crash'
 
 export const LOG_FILE = 'main.log'
 const MAX_TEXT = 4000
@@ -106,7 +106,7 @@ export function formatReport(r: unknown): { what: string; text: string } | null 
   if (!r || typeof r !== 'object') return null
   const o = r as Record<string, unknown>
   // 界面报上来的一条（ErrorBoundary 接住的、window.onerror、unhandledrejection、恢复时丢掉的坏数据）：只留类型、哪一块、错误、堆栈
-  const kind = ['render', 'error', 'rejection', 'restore'].includes(o.kind as string) ? (o.kind as RendererReport['kind']) : null
+  const kind = REPORT_KINDS.includes(o.kind as RendererReport['kind']) ? (o.kind as RendererReport['kind']) : null
   if (!kind) return null
   const area = str(o.area, 80)
   const lines = [`${area ? `[${area}] ` : ''}${str(o.message) || '（没有说明）'}`]

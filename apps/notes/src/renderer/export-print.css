@@ -1,0 +1,114 @@
+/*
+ * 导出 PDF 的那一层（export-doc.tsx）：平时不显示；打印时只印它，窗口里别的都不印。
+ * 照文档看法（DESIGN.v3「6.1」）：正文 15/1.75，一级标题 28 衬线，二级 19、三级 15；用户在设置里改的字体、字号、行距照用（--doc-*）。
+ * 纸是 A4、不留纸边（主进程 export-doc.ts）；页边距 18 毫米是这一层的内边距，每页都有（box-decoration-break: clone）。纸是白的：不管窗口用哪套主题，这一层一律浅色（color-scheme: light，light-dark() 取浅色那一边）。
+ */
+#cn-print {
+  display: none;
+}
+@media print {
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  body > :not(#cn-print) {
+    display: none !important;
+  }
+  #cn-print {
+    display: block;
+    color-scheme: light;
+    --t1: #111113;
+    --t2: #6e6e73;
+    --t3: #a1a1a6;
+    --line: rgba(17, 17, 19, 0.08);
+    --line2: rgba(17, 17, 19, 0.14);
+    --fill: rgba(17, 17, 19, 0.045);
+    --fill2: rgba(17, 17, 19, 0.075);
+    --clip-bar: #c7c7cc;
+    padding: 18mm 18mm 20mm;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+    background: #fff;
+    color: var(--t1);
+  }
+}
+.cn-print-doc .md {
+  font-family: var(--doc-font, var(--sans));
+  font-size: var(--doc-size, 15px);
+  line-height: var(--doc-lh, 1.75);
+  overflow-wrap: break-word;
+}
+.cn-print-doc .md > * + * {
+  margin-top: 12px;
+}
+.cn-print-doc .md .md-h {
+  break-after: avoid;
+}
+.cn-print-doc .md .md-h1 {
+  font: 600 28px/1.3 var(--serif-title, var(--sans));
+  margin-bottom: 6px;
+}
+.cn-print-doc .md .md-h2 {
+  font: 600 19px/1.35 var(--sans);
+  margin-top: 26px;
+}
+.cn-print-doc .md .md-h3 {
+  font: 600 15px/1.5 var(--sans);
+  margin-top: 18px;
+}
+/* 印出来不横着滚：表格、公式块、代码块放不下就折行、缩字 */
+.cn-print-doc .scroll-x,
+.cn-print-doc .mblock {
+  overflow: visible;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.cn-print-doc .md-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.93em;
+  break-inside: auto;
+}
+.cn-print-doc .md-table tr {
+  break-inside: avoid;
+}
+.cn-print-doc .md-table th,
+.cn-print-doc .md-table td {
+  padding: 6px 10px;
+  border: 1px solid var(--line2);
+  text-align: left;
+  vertical-align: top;
+}
+.cn-print-doc .md-table th {
+  background: var(--fill);
+  font-weight: 600;
+}
+.cn-print-doc .md-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 4px 0;
+  border-radius: 6px;
+  break-inside: avoid;
+}
+.cn-print-doc .md-code {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--fill);
+  font: 12.5px/1.6 var(--mono);
+  white-space: pre-wrap;
+  break-inside: avoid;
+}
+.cn-print-doc .md-callout {
+  break-inside: avoid;
+}
+.cn-print-doc .md-callout-h {
+  white-space: normal;
+}
+.cn-print-doc .md a {
+  color: var(--acc-t, inherit);
+  text-decoration: none;
+}

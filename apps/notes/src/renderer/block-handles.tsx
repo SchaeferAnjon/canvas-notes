@@ -23,7 +23,8 @@ import { Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap, layer, RectangleMarker, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { createRoot, type Root } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
+import { guardedRoot } from './crash/root'
 import { cardMarker } from './atomic-blocks'
 import { blockSel, inSel, selectBlocks, selIndices, setBlockSel } from './block-select'
 import { undo } from '@codemirror/commands'
@@ -354,7 +355,7 @@ class Handles {
     this.bar = document.createElement('div')
     this.bar.className = 'blk-bar'
     this.bar.hidden = true
-    this.barRoot = createRoot(this.bar)
+    this.barRoot = guardedRoot(this.bar, 'block-handles')
     flushSync(() =>
       this.barRoot.render(
         <>

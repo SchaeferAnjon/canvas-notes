@@ -4,8 +4,10 @@
  * 做完、停下以后还留一会儿：光收成一圈再淡掉，提示条换成「整理好了 · 挪了N张卡 · 撤回」1.8 秒后收起。
  * AI 没在动手时这里是空的，什么都不画、不跑。
  */
+import * as C from './ai-chats'
 import type { AiAct, AiActArea } from '../shared/agent'
 import type { ActLines, ActTally } from '../shared/ai-act'
+import { ipcOn } from './crash/ipc'
 
 export interface ActEnd {
   stopped: boolean
@@ -218,7 +220,7 @@ let wired = false
 export function wireActs() {
   if (wired) return
   wired = true
-  window.cn.onAiAct(on)
+  ipcOn(window.cn.onAiAct, 'cn.onAiAct')(on)
   // esc：AI 在动手时就是「停下」，比别处的 esc（关浮窗、关弹层）先接住
   window.addEventListener(
     'keydown',
@@ -226,17 +228,27 @@ export function wireActs() {
       if (e.key !== 'Escape' || e.isComposing || !acting()) return
       e.preventDefault()
       e.stopImmediatePropagation()
-      stopActing()
+      stopActing(escTurn())
     },
     true,
   )
 }
 
-/** 按了停下（esc、提示条或那一处的「停下」）：这一轮当前这一步做完就停 */
-export function stopActing() {
-  const turns = [...new Set(list.filter((e) => !e.end).map((e) => e.turn))]
+/**
+ * esc 停哪一轮（AI 对话同时跑：只停当前这段）：右栏正看着的那段对话在动手就停它，不然停最近开始动手的那一轮
+ */
+function escTurn(): number | undefined {
+  const live = list.filter((e) => !e.end).map((e) => e.turn)
+  const mine = C.runningAt(C.lookingAt() ?? '')?.id
+  return mine !== undefined && live.includes(mine) ? mine : live[live.length - 1]
+}
+
+/** 按了停下（esc、提示条或那一处的「停下」）：这一轮（不给是正在动手的每一轮）当前这一步做完就停 */
+export function stopActing(turn?: number) {
+  const live = [...new Set(list.filter((e) => !e.end).map((e) => e.turn))]
+  const turns = turn === undefined ? live : live.filter((x) => x === turn)
   if (!turns.length) return
-  list = list.map((e) => (e.end ? e : { ...e, stopping: true }))
+  list = list.map((e) => (e.end || !turns.includes(e.turn) ? e : { ...e, stopping: true }))
   emit()
   for (const t of turns) {
     const local = localStops.get(t)

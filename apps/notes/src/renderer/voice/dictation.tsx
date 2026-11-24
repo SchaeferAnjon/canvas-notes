@@ -30,6 +30,7 @@ import { useKey } from '../keys'
 import { openSettingsAt } from '../settings/jump'
 import { type Capture, MicError, startCapture } from './capture'
 import './voice.css'
+import { ipcOn } from '../crash/ipc'
 
 type Field = HTMLTextAreaElement | HTMLInputElement
 export type DictPhase = 'idle' | 'starting' | 'rec' | 'stopping'
@@ -394,7 +395,7 @@ export function useDictation(o: {
 
   const onEventRef = useRef(onEvent)
   onEventRef.current = onEvent
-  useEffect(() => window.cnVoice.onEvent((ev) => onEventRef.current(ev)), [])
+  useEffect(() => ipcOn(window.cnVoice.onEvent, 'cnVoice.onEvent')((ev) => onEventRef.current(ev)), [])
   // 框没了（关掉、换题）：停下，不留着连
   useEffect(() => () => apiRef.current.cancel(), [])
 

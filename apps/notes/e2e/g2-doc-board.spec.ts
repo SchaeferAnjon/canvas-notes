@@ -213,7 +213,8 @@ road.is → Southeast
       return { h: e.getBoundingClientRect().height, metaFs: getComputedStyle(meta).fontSize, ellipsis: getComputedStyle(meta).textOverflow, cut: meta.scrollWidth > meta.clientWidth }
     })
     expect(m.h).toBeLessThan(26)
-    expect(m).toMatchObject({ metaFs: '12px', ellipsis: 'ellipsis', cut: true })
+    // 列 400 以后这一行放得下了（以前 276 时截省略号）：放不下时照样一行省略号
+    expect(m).toMatchObject({ metaFs: '12px', ellipsis: 'ellipsis' })
     // 只看不写
     expect(readFileSync(join(vault, '冰岛.md'), 'utf8')).toBe(doc)
   } finally {

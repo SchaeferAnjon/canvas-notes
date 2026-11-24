@@ -360,7 +360,7 @@ function wireEsc() {
 /** 那一颗上的「停下」：这一轮还在答就停这一轮；答完了只是一下全显 */
 function stopSpot(view: EditorView, id: number) {
   const s = view.state.field(aiDoc).spots.find((x) => x.id === id)
-  if (s && actEntries().some((e) => e.turn === s.turn && !e.end)) return stopActing()
+  if (s && actEntries().some((e) => e.turn === s.turn && !e.end)) return stopActing(s.turn)
   finishView(view)
 }
 

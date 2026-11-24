@@ -7,8 +7,9 @@ import { Readability } from '@mozilla/readability'
 import { ipcRenderer } from 'electron'
 import TurndownService from 'turndown'
 import { mdUrl } from '../shared/layout'
-import { prepareClip } from './plugins/translate'
-import { codeLang, prepareMath } from './webview-md'
+import { clipKeepsTranslation, prepareClip } from './plugins/translate'
+import { codeLang, prepareMath, rangeToMd } from './webview-md'
+import { headAbove } from './webview-head'
 import { imgInfo, imgOf } from './webview-img'
 
 /** 抽正文前先做的事（webview.ts 设：把 MathJax 3 的公式原文记到容器上） */
@@ -171,7 +172,19 @@ document.addEventListener(
   (e) => {
     const img = imgOf(e.target)
     dragging = false
-    if (!img) return
+    if (!img) {
+      // 拖选中的字：剪藏那样的字（公式、代码照 md）、来源和小标题报上去，落进文档 / 白板写成和点「剪藏」一样的一块
+      const sel = window.getSelection()
+      if (!sel || sel.isCollapsed || !sel.rangeCount || !(e.target instanceof Node) || !sel.containsNode(e.target, true)) return
+      const range = sel.getRangeAt(0)
+      const text = rangeToMd(range, !clipKeepsTranslation(), true)
+      if (!text.trim()) return
+      const md = rangeToMd(range, !clipKeepsTranslation()) || text
+      const head = headAbove(range.startContainer)
+      dragging = true
+      ipcRenderer.sendToHost('cn:drag-text', { text, ...(md !== text ? { md } : {}), url: location.href, title: document.title, ...(head ? { head } : {}) })
+      return
+    }
     const info = imgInfo(img)
     if (!info) return
     dragging = true

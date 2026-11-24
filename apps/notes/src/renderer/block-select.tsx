@@ -14,7 +14,8 @@ import { trackDrag } from '@cn/design/drag-end'
 import { EditorState, Prec, StateEffect, StateField } from '@codemirror/state'
 import { EditorView, keymap, layer, RectangleMarker, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { useState } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
+import { guardedRoot } from './crash/root'
 import { titleOf } from '../shared/layout'
 import { t } from '../shared/i18n'
 import { pickCards } from './ai-cards'
@@ -223,7 +224,7 @@ class Framer {
     this.barEl = document.createElement('div')
     this.barEl.style.display = 'contents'
     document.body.appendChild(this.barEl)
-    this.root = createRoot(this.barEl)
+    this.root = guardedRoot(this.barEl, 'block-select')
     this.paint()
   }
   update(u: ViewUpdate) {

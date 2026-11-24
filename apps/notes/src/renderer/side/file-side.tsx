@@ -30,6 +30,7 @@ import { askSide, nameOf, setName, sideIndex } from './side-core'
 import { SideInline, type SideMsgView } from '@cn/ai-chat/side/SideInline'
 import { useT } from '../i18n'
 import { t as tNow } from '../../shared/i18n'
+import { ipcOn } from '../crash/ipc'
 
 /** 一处挂旁支的地方（一张白板卡、问框里的一问） */
 export interface Spot {
@@ -212,7 +213,7 @@ async function send(spot: Spot, open: Open, text: string, mats: Material[], how:
   if (!q) return
   if (!listening) {
     listening = true
-    window.cn.onAiEvent((id, e) => {
+    ipcOn(window.cn.onAiEvent, 'cn.onAiEvent')((id, e) => {
       if (e.type !== 'text' || !st.pend.some((p) => p.id === id)) return
       set({ pend: st.pend.map((p) => (p.id === id ? { ...p, a: p.a + e.delta } : p)) })
     })

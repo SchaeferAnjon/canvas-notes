@@ -1,4 +1,7 @@
 import { trackDrag } from '@cn/design/drag-end'
+import { ATTACHMENTS_DIR } from '@cn/format'
+import { requestJump } from '../attach-jump'
+import { BigImage } from '../PropsAttach'
 import { composing } from '../ime'
 import { useT } from '../i18n'
 import { accelFor, isKey, useKeyHandler, useKeys } from '../keys'
@@ -100,6 +103,7 @@ const ancestors = (p: string) => {
 const shown = (name: string) => name.replace(/\.(md|pdf|html?)$/i, '')
 const imgUrl = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/')
 const isAttach = (k: TreeNode['kind']) => k === 'img' || k === 'att'
+const IMG = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i
 
 /** 「课程」这一行：每门课问完了几讲加起来（和活动栏、首页「在上的课」一样数） */
 function coursesProgress(n: TreeNode): { done: number; total: number } | null {
@@ -195,6 +199,12 @@ export function FileTree(props: {
   const [lasso, setLasso] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null)
   /** 「附件」筛选要的：哪篇笔记用哪些附件（只在选了「附件」时读） */
   const [att, setAtt] = useState<AttachIndex | null>(null)
+  /** 附件/ 顶上那颗「只看没用到的」开着 */
+  const [unusedOnly, setUnusedOnly] = useState(false)
+  /** 文件树里双击一张图：看大图（同属性弹层那个） */
+  const [big, setBig] = useState<{ path: string; bytes: number; sub: string } | null>(null)
+  /** 刚从一行的空白处框选完：松手那一下的 click 不再当成点了那一行 */
+  const swallowClick = useRef(false)
   const treeRef = useRef<HTMLDivElement>(null)
   /** 找文件的框（task-4891y ②）：打的字；有字时树只留命中的几行和它们的上一层，都展开着 */
   const [q, setQ] = useState('')
@@ -342,15 +352,18 @@ export function FileTree(props: {
     const t = setTimeout(() => setRing(null), RING_MS)
     return () => clearTimeout(t)
   }, [ring])
-  // 「附件」筛选：读哪篇笔记用哪些附件；库里文件变了重读
+  // 「附件」筛选、或树里展开了 附件/（每张后面写「被 N 篇用」「没用到」）：读哪篇笔记用哪些附件；库里文件变了重读（停一会儿再读，存一下就读全库太勤）
+  const wantAtt = type === 'att' || (type === 'all' && open.has(ATTACHMENTS_DIR))
   useEffect(() => {
-    if (type !== 'att') return
+    if (!wantAtt) return
     let stale = false
-    void window.cnFiles.attachments().then((a) => !stale && setAtt(a))
+    const timer = window.setTimeout(() => void window.cnFiles.attachments().then((a) => !stale && setAtt(a)), att ? 400 : 0)
     return () => {
       stale = true
+      window.clearTimeout(timer)
     }
-  }, [type, files])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantAtt, files])
 
   const pinSet = useMemo(() => new Set(props.pins), [props.pins])
   /** 梦游（task-m552v）：没收下的可视化挂在它的笔记下面；正在看的这条改了的文件后面一个小点 */
@@ -588,7 +601,13 @@ export function FileTree(props: {
   }
   /** 在空白处按下拖：框选（碰到的行都选上） */
   const startLasso = (e: React.MouseEvent) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('[data-sel], button, input, .ft-pins')) return
+    const at = e.target as HTMLElement
+    if (e.button !== 0 || at.closest('button, input, .ft-pins')) return
+    // 一行里名字、图标以外的空处（缩进、名字后面那段、篇数）也能按下拖出框（同访达列表）：树里行挨着行，以前只认最下面的空白，行多了根本没处下手
+    const row = at.closest<HTMLElement>('[data-sel]')
+    if (row && at.closest('.truncate, .codicon, svg, img, i, .ft-tw:not(:empty), .ft-pin, .si-rename')) return
+    // 按下就拦住：不起行自己的拖动（挪文件），不选中字
+    if (row) e.preventDefault()
     // 焦点放到树上：框完按 Esc 能取消、⌘⌫ 能删（键盘事件要落在树里）
     treeRef.current!.focus({ preventScroll: true })
     const box = treeRef.current!.getBoundingClientRect()
@@ -596,7 +615,14 @@ export function FileTree(props: {
     const y0 = e.clientY - box.top
     let moved = false
     const base = e.metaKey || e.shiftKey ? new Set(sel) : new Set<string>()
+    const scroller = treeRef.current!.closest<HTMLElement>('.nav')
     const move = (ev: MouseEvent) => {
+      // 拖到上下边上：树跟着滚（框的起点记的是相对树的，滚了也对得上）
+      const port = scroller?.getBoundingClientRect()
+      if (scroller && port && moved) {
+        if (ev.clientY > port.bottom - 24) scroller.scrollTop += 16
+        else if (ev.clientY < port.top + 24) scroller.scrollTop -= 16
+      }
       const b = treeRef.current?.getBoundingClientRect()
       if (!b) return
       const x1 = ev.clientX - b.left
@@ -618,8 +644,13 @@ export function FileTree(props: {
       move,
       end: () => {
         setLasso(null)
-        // 只是在空白处点了一下：不再「选着」哪个文件夹，也不再选着好几个
-        if (!moved) (setPicked(null), clearSel())
+        if (moved) {
+          swallowClick.current = true
+          window.setTimeout(() => (swallowClick.current = false))
+          return
+        }
+        // 只是在空白处点了一下：不再「选着」哪个文件夹，也不再选着好几个（在一行的空处点一下是点那一行，那一行自己接）
+        if (!row) (setPicked(null), clearSel())
       },
     })
   }
@@ -666,12 +697,19 @@ export function FileTree(props: {
   )
 
   /**
-   * 一张附件（附件/ 里的图、文件，或「附件」筛选里笔记下面的那几张）：点一下在访达中显示，双击开用它的那篇。
+   * 一张附件（附件/ 里的图、文件，或「附件」筛选里笔记下面的那几张）。用户「点一下只是选中 因为有时候我可能想多选 双击的时候再打开」：
+   * 单击选中（⇧、⌘ 照样多选），双击图在软件里看大图（同属性弹层那个）、别的用系统默认的程序打开；右键在访达中显示、「在哪用到」点一篇跳到那张图。
+   * 后面写「被 N 篇用」（文中链着它的笔记），没有的灰一点、写「没用到」；图按住 ⌘ 悬停出预览（peek.tsx 认 data-peek-wiki）。
    * where：名字后面灰字写它在哪个文件夹（「附件」筛选最下面平铺的两组：p1-1.png 这种名字每份 PDF 都有，删之前要看得出是哪份的）
    */
   const attachRow = (path: string, depth: number, note: string | null, bytes?: number, key = path, where?: string) => {
     order.push(path)
-    const img = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(path)
+    const img = IMG.test(path)
+    const users = att?.refs[path] ?? []
+    const unused = !!att && !users.length
+    const useText = users.length ? t('被{n}篇用', { n: users.length }) : t('没用到')
+    const size = () => bytes ?? files.find((f) => f.path === path)?.bytes ?? 0
+    const openIt = () => (img ? setBig({ path, bytes: size(), sub: att ? useText : '' }) : void window.cnMenu.openPath(path).catch((e: Error) => app().notice(String(e.message))))
     return (
       <div
         key={key}
@@ -680,18 +718,30 @@ export function FileTree(props: {
         aria-selected={sel.has(path)}
         tabIndex={-1}
         data-path={path}
-        className={'si ft-row ft-att' + (sel.has(path) ? ' sel' : '')}
+        className={'si ft-row ft-att' + (sel.has(path) ? ' sel' : '') + (unused ? ' unused' : '')}
         style={{ paddingLeft: 8 + depth * 14 }}
         title={path}
         {...selProps(path)}
-        onClick={(e) => pick(e, path) || void window.cnMenu.reveal(path)}
-        onDoubleClick={() => note && props.onOpen(note)}
+        {...(img ? { 'data-peek-wiki': path } : {})}
+        draggable={many && sel.has(path)}
+        onDragStart={(e) => dragMany(e, path) || e.preventDefault()}
+        onClick={(e) => pick(e, path) || setSel(new Set([path]))}
+        onDoubleClick={(e) => !e.metaKey && !e.shiftKey && openIt()}
+        onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), openIt())}
         onContextMenu={(e) => {
           if (many && sel.has(path)) return groupMenu(e)
+          setSel(new Set([path]))
           void menuAt(e, [
+            { label: img ? t('看大图') : t('打开'), run: openIt },
             { label: t('在访达中显示'), run: () => void window.cnMenu.reveal(path) },
             { label: t('拷贝路径'), run: () => copy(app().absPath(path)) },
-            note && { label: t('打开用它的《{name}》', { name: shown(fileName(note)) }), run: () => props.onOpen(note) },
+            '-',
+            users.length
+              ? { label: t('在哪用到（{n}篇）', { n: users.length }), submenu: users.map((u) => ({ label: shown(fileName(u)), run: () => void openUse(u, path) })) }
+              : { label: att ? t('在哪用到：没有笔记用它') : t('在哪用到'), enabled: false, run: () => undefined },
+            note && !users.includes(note) && { label: t('打开《{name}》', { name: shown(fileName(note)) }), run: () => props.onOpen(note) },
+            '-',
+            { label: t('移到废纸篓'), accel: accelFor('tree-trash'), run: () => void app().trashMany([path]).then(() => setSel(new Set())) },
           ])
         }}
       >
@@ -706,10 +756,23 @@ export function FileTree(props: {
           )}
         </span>
         <span className="ft-fl" />
+        {att && <span className="ft-use">{useText}</span>}
         {bytes !== undefined && <span className="ft-count num">{sizeText(bytes)}</span>}
       </div>
     )
   }
+  /** 「在哪用到」点了一篇：打开它，跳到文中那张图、外圈亮一下（同属性弹层单击一张图）；链着但不是图的（PDF 链接）只打开 */
+  const openUse = async (note: string, path: string) => {
+    props.onOpen(note)
+    const a = await window.cnAttach.of(note, false)
+    const at = a.items.find((i) => i.path === path)?.offset
+    if (at !== null && at !== undefined) requestJump(note, at)
+  }
+  /** 「只看没用到的」开着时 附件/ 下面留哪些：没人用的附件，和装着它们的文件夹 */
+  const keepUnused = (n: TreeNode): boolean => (n.kind === 'dir' ? n.children.some(keepUnused) : isAttach(n.kind) && !att?.refs[n.path]?.length)
+  const unusedIn = (n: TreeNode): number => (n.kind === 'dir' ? n.children.reduce((s, c) => s + unusedIn(c), 0) : keepUnused(n) ? 1 : 0)
+  const inAttDir = (p: string) => p === ATTACHMENTS_DIR || p.startsWith(ATTACHMENTS_DIR + '/')
+  const filtering = unusedOnly && !!att && type === 'all'
 
   /**
    * 挂着的子文件左边的线（task-wuv05，偏好「挂着的文件缩进加弯线」）：父文件展开箭头的正下方一条 1px 竖线，
@@ -795,6 +858,7 @@ export function FileTree(props: {
   const walk = (nodes: TreeNode[], depth: number, dir: string, pageKey = dir, g?: Omit<Guide, 'last'> & { lastAt: number }) => {
     if (making === dir && dir !== '') rows.push(newFolderRow(dir, depth))
     const limit = pages[pageKey] ?? PAGE
+    if (filtering && inAttDir(dir)) nodes = nodes.filter(keepUnused)
     for (const [i, n] of nodes.slice(0, limit).entries()) {
       const pad = { paddingLeft: 8 + depth * 14 }
       if (n.kind === 'dir') {
@@ -866,6 +930,19 @@ export function FileTree(props: {
             )}
           </div>,
         )
+        // 附件/ 展开着：顶上一排「只看没用到的 N」（读到谁用哪张以后才有）
+        if (isOpen && n.path === ATTACHMENTS_DIR && att && type === 'all') {
+          const k = unusedIn(n)
+          rows.push(
+            <div key="att-filter" className="ft-attbar" role="presentation" style={{ paddingLeft: 8 + (depth + 1) * 14 + 22 }}>
+              <button className={'ft-attchip' + (unusedOnly ? ' on' : '')} aria-pressed={unusedOnly} onClick={() => setUnusedOnly((o) => !o)}>
+                {unusedOnly && <Codicon name="check" size={12} />}
+                {t('只看没用到的')}
+                <span className="num">{k}</span>
+              </button>
+            </div>,
+          )
+        }
         if (isOpen) walk(n.children, depth + 1, n.path)
         else if (making === n.path) rows.push(newFolderRow(n.path, depth + 1))
         continue
@@ -1253,6 +1330,7 @@ export function FileTree(props: {
         </Popover>
       )}
       {look && <LookPicker folder={look.folder} anchor={look.el} onClose={() => setLook(null)} />}
+      {big && <BigImage item={big} sub={big.sub || undefined} onClose={() => setBig(null)} />}
       {mover && <MovePicker {...mover} onPick={(f) => moveTo(mover.paths, f)} onClose={() => setMover(null)} />}
       <nav className="nav" aria-label={t('笔记')}>
         <div
@@ -1265,6 +1343,7 @@ export function FileTree(props: {
           onKeyDown={onTreeKey}
           // 空白处：点一下就不再「选着」哪个文件夹（新建文件夹放到开着的文件旁边或最外层）；按下拖是框选；右键在这一层新建
           onMouseDown={startLasso}
+          onClickCapture={(e) => swallowClick.current && ((swallowClick.current = false), e.stopPropagation(), e.preventDefault())}
           onContextMenu={(e) =>
             e.target === e.currentTarget &&
             void menuAt(e, [

@@ -98,8 +98,10 @@ for (const [skin, frame] of LOOKS) {
         boxes['5'] = await pane(page).locator('.td-view').boundingBox()
         writeFileSync(join(DIR!, 'boxes.json'), JSON.stringify(boxes))
       }
-      // ⑥ 任务界面里点一条开详情
-      await row(page, '.pane:not([hidden]) .td-view', '给编辑发邮件').locator('.td-t').click()
+      // ⑥ 任务界面里点一条行里的空白处开详情（点文字是切回文档、跳到那一行）
+      const tt = row(page, '.pane:not([hidden]) .td-view', '给编辑发邮件').locator('.td-tt')
+      const tb = (await tt.boundingBox())!
+      await tt.click({ position: { x: tb.width - 4, y: tb.height / 2 } })
       await expect(page.getByRole('dialog', { name: '详情' })).toBeVisible()
       await shot(run, `6-taskview-pop-${tag}`)
       await page.keyboard.press('Escape')

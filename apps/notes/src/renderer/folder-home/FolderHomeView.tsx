@@ -1,5 +1,6 @@
 import { FAMILY_ICONS } from '@cn/family/icons'
 import { ParaReadTag } from './ParaReadWidget'
+import { mcAutoPlace, McTag } from '../meetcaption/McWidget'
 import { composing } from '../ime'
 /**
  * 一个文件夹的首页（设计稿 design-mindmap 方向 B 第 9 节；2026-11-18 起每个文件夹一个样子，方案 v2「文件夹封面」方向 A）：
@@ -58,6 +59,7 @@ import { isTodoNote } from '../../shared/todo'
 import { usePrefs } from '../settings-store'
 import { useT } from '../i18n'
 import { list } from '../../shared/i18n'
+import { listName } from './FolderListPage'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -70,7 +72,8 @@ export function FolderHomeView(props: {
   version: number
   onOpen(path: string): void
   onOpenAt(pdf: string, page: number): void
-  onOpenAll(): void
+  /** 组件底下「全部 N 份 · 打开列表看」：开这个文件夹里那一类的列表（哪个组件、标签上写的那一类） */
+  onOpenAll(widget: string, name: string): void
   /** 子文件夹卡片：开它的首页 */
   onOpenFolder(folder: string): void
   /** 底部提示；undo 给了就带「撤回」 */
@@ -115,7 +118,11 @@ export function FolderHomeView(props: {
   const [justIn, setJustIn] = useState<Set<string>>(new Set())
 
   useEffect(() => {
-    void window.cnFolder.get(folder).then((r) => setHome(r.home), (e) => props.onNotice(errText(e)))
+    void window.cnFolder.get(folder).then(
+      // MeetCaption 连库时对上的文件夹：第一次打开放一张 MeetCaption 组件
+      (r) => (setHome(r.home), void mcAutoPlace(folder, r.home, (h) => (setHome(h), void window.cnFolder.set(folder, h).catch((e) => props.onNotice(errText(e)))))),
+      (e) => props.onNotice(errText(e)),
+    )
   }, [folder])
   // 预览时：梦游要挪进这个文件夹的也列出来，标「新」（属性从收件箱那篇读）
   const incoming = useMemo(() => (pv.on ? pv.moves.filter((m) => m.to.startsWith(folder + '/')) : []), [pv.on, pv.moves, folder])
@@ -202,7 +209,7 @@ export function FolderHomeView(props: {
         },
       }
     : {}
-  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, asked: asked?.items ?? [], review, onAsked: (pdf) => (app().openWithNote(pdf), showAsked(pdf)), onCards: () => openCards({ kind: 'folder', folder }), onOpenAnki: () => void window.cnReading.openAnki().catch((e) => props.onNotice(errText(e))), onAll: props.onOpenAll, onCapture: () => openCapture({ course: title }), movable: !editing && !pv.on, onMoveTo: (p, anchor) => setMover({ path: pv.realPath(p), anchor }), save, reload: () => void window.cnFolder.get(folder).then((r) => setHome(r.home)), home, id })
+  const ctx = (id: string): WCtx => ({ folder, files, notes: props.notes, fresh, editing, onOpen: (p) => props.onOpen(pv.realPath(p)), onOpenAt: props.onOpenAt, asked: asked?.items ?? [], review, onAsked: (pdf) => (app().openWithNote(pdf), showAsked(pdf)), onCards: () => openCards({ kind: 'folder', folder }), onOpenAnki: () => void window.cnReading.openAnki().catch((e) => props.onNotice(errText(e))), onAll: () => props.onOpenAll(id, listName(home!.widgets[id]!)), onCapture: () => openCapture({ course: title }), movable: !editing && !pv.on, onMoveTo: (p, anchor) => setMover({ path: pv.realPath(p), anchor }), save, reload: () => void window.cnFolder.get(folder).then((r) => setHome(r.home)), home, id })
   const inFolder = files.filter((f) => f.path.startsWith(folder + '/'))
   // 「N篇」和下面「里面有什么」、文件树数得一样：名字叫「待办」的笔记不显示时也不算（task-pd1d1）
   const lead = folderLead(folder, showTodo ? inFolder : inFolder.filter((f) => !isTodoNote(f.path)), { courses, presets })
@@ -528,7 +535,7 @@ export function FolderHomeView(props: {
                     )}
                     <div className="wk">
                       {/* ParaRead 组件头上是它的真图标（偏好「不用首字母图标」），和 MeetCaption 组件一样 */}
-                      {w.type === 'pararead' ? <img className="wk-app" src={FAMILY_ICONS.pararead} alt="" width={16} height={16} /> : <Codicon name={widgetIcon(w.type)} size={14} />}
+                      {w.type === 'pararead' || w.type === 'meetcaption' ? <img className="wk-app" src={FAMILY_ICONS[w.type]} alt="" width={16} height={16} /> : <Codicon name={widgetIcon(w.type)} size={14} />}
                       {/* 条件的名字存在 .首页.json 里：还是默认的那几个时翻，自己起的照原样（t 找不到就原样） */}
                       <span className="truncate">{t(w.type === 'list' ? w.cond!.name : info.name)}</span>
                       <span className="sp" />
@@ -539,6 +546,7 @@ export function FolderHomeView(props: {
                       {w.type === 'slides' && !editing && <SlidesResume c={ctx(id)} />}
                       {w.type === 'todo' && !editing && <TodoOpen folder={folder} />}
                       {w.type === 'pararead' && <ParaReadTag folder={folder} view={w.view ?? 'bilingual'} onView={(v) => save(setWidget(home, id, { view: v }))} />}
+                      {w.type === 'meetcaption' && <McTag folder={folder} mode={w.mcMode} onMode={(m) => save(setWidget(home, id, { mcMode: m === 'video' ? 'class' : m }))} />}
                     </div>
                     <WidgetBody c={ctx(id)} w={w} />
                   </div>

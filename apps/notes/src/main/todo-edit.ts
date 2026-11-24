@@ -35,7 +35,7 @@ export function editTodoText(text: string, line: number, raw: string, e: TodoOp,
   switch (e.op) {
     case 'done':
       if (e.done) {
-        const c = completeTask(text, n, today, newId)
+        const c = completeTask(text, n, today)
         after = c.text
         next = c.next
       } else after = editLine(text, n, (l) => setDone(l, false, today))
@@ -119,6 +119,7 @@ export function todoItems(path: string, text: string): TodoItem[] {
     raw: t.raw,
     title: t.task.title,
     done: t.task.done,
+    doneDate: t.task.doneDate,
     cancelled: t.task.cancelled,
     doing: t.task.doing,
     dupOf: null,

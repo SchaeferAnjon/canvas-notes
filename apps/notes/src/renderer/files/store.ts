@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { type FileEntry, hideTodos } from '../../shared/files'
 import type { HistoryEntry } from '../../shared/web-api'
 import { usePrefs } from '../settings-store'
+import { ipcOn } from '../crash/ipc'
 
 let files: FileEntry[] = []
 let loaded = false
@@ -56,7 +57,7 @@ export function useVaultFiles(): { files: FileEntry[]; loaded: boolean } {
   useEffect(() => {
     if (watching++ === 0) {
       refresh()
-      off = window.cn.onFilesChanged(refresh)
+      off = ipcOn(window.cn.onFilesChanged, 'cn.onFilesChanged')(refresh)
     }
     return () => {
       if (--watching === 0) {
@@ -233,7 +234,7 @@ export function useRecentWeb(): HistoryEntry[] {
     let live = true
     const load = () => void window.cnWeb.recent().then((l) => live && setList(l))
     load()
-    const off = window.cnWeb.onRecentChanged(load)
+    const off = ipcOn(window.cnWeb.onRecentChanged, 'cnWeb.onRecentChanged')(load)
     return () => {
       live = false
       off()

@@ -13,6 +13,8 @@ import type { BoardBase } from '../../shared/api'
 // 选项色块：和文档里的数据库表同一个算法（同一个值总是同一个颜色）
 import { BASE_WROTE, type BaseCellWrite, type BaseEdits, BaseTable, toneOf } from '../base/BaseTable'
 import { useT } from '../i18n'
+import { BaseName } from '../base/base-name'
+import { ipcOn } from '../crash/ipc'
 
 
 interface Rows {
@@ -39,8 +41,8 @@ function useRows(spec: BaseSpec): Rows | null {
     }
     void load()
     const again = () => void load()
-    const off1 = window.cn.onFilesChanged(again)
-    const off2 = window.cn.onNoteChanged((p) => !!spec.folder && p.startsWith(spec.folder + '/') && again())
+    const off1 = ipcOn(window.cn.onFilesChanged, 'cn.onFilesChanged')(again)
+    const off2 = ipcOn(window.cn.onNoteChanged, 'cn.onNoteChanged')((p) => !!spec.folder && p.startsWith(spec.folder + '/') && again())
     const wrote = (e: Event) => (e as CustomEvent<string>).detail === spec.folder && again()
     window.addEventListener(BASE_WROTE, wrote)
     return () => ((live = false), off1(), off2(), window.removeEventListener(BASE_WROTE, wrote))
@@ -58,7 +60,7 @@ function pickCols(spec: BaseSpec, types: Record<string, string>): { num: string 
 }
 
 /** 白板上的数据库卡（看全文时 full：整张表铺开，没有「展开」） */
-export function BaseCard(props: { src: string; full: boolean; onExpand(): void }) {
+export function BaseCard(props: { src: string; full: boolean; onExpand(): void; onRename?(folder: string, name: string): void }) {
   const t = useT()
   const spec = parseBase(props.src)
   const data = useRows(spec)
@@ -70,7 +72,9 @@ export function BaseCard(props: { src: string; full: boolean; onExpand(): void }
     <>
       <div className="kh">
         <Codicon name="database" size={14} />
-        <span>{`${name} · ${spec.view || t('表格')}`}</span>
+        <BaseName name={name} folder={spec.folder} onRename={props.onRename} />
+        {/* 前面那个空格：textContent 读着还是「住宿 · 表格」，画出来行首空格不占地方（隔开靠 gap） */}
+        <span className="db-base-view">{` · ${spec.view || t('表格')}`}</span>
         <span className="r num">{data ? t('{n}条', { n: data.total }) : ''}</span>
       </div>
       <table className="mt db-mini">
@@ -106,7 +110,7 @@ export function BaseCard(props: { src: string; full: boolean; onExpand(): void }
  * 展开：原地长成整张表。write(next)：把这一块 ```base 里的 YAML 换成 next 算出来的（写回这篇文档）；
  * onCell：改好一格（提示条说写进了哪篇、能撤回）
  */
-export function BaseExpand(props: { src: string; file?: string; block?: number; write(next: (src: string) => string): void; onClose(): void; onCell(w: BaseCellWrite): void }) {
+export function BaseExpand(props: { src: string; file?: string; block?: number; onRename?(folder: string, name: string): void; write(next: (src: string) => string): void; onClose(): void; onCell(w: BaseCellWrite): void }) {
   const t = useT()
   const ref = useRef<HTMLDivElement>(null)
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
@@ -114,6 +118,36 @@ export function BaseExpand(props: { src: string; file?: string; block?: number; 
   const spec = parseBase(props.src)
   const close = useRef(props.onClose)
   close.current = props.onClose
+  /** 整页打开着的那一层（盖在这一栏顶上，高随内容）：卡和它叠着就藏起来，整页只有一份；白板滚到卡在它下面时卡再露出来 */
+  const [sheet, setSheet] = useState<HTMLElement | null>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (!sheet) return void (el.style.visibility = '')
+    let raf = 0
+    const check = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        const a = sheet.getBoundingClientRect()
+        const b = el.getBoundingClientRect()
+        const over = b.top < a.bottom && b.bottom > a.top && b.left < a.right && b.right > a.left
+        el.style.visibility = over ? 'hidden' : ''
+      })
+    }
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(sheet)
+    ro.observe(el)
+    document.addEventListener('scroll', check, { capture: true, passive: true })
+    window.addEventListener('resize', check)
+    return () => {
+      cancelAnimationFrame(raf)
+      ro.disconnect()
+      document.removeEventListener('scroll', check, { capture: true })
+      window.removeEventListener('resize', check)
+      el.style.visibility = ''
+    }
+  }, [sheet])
   useEffect(() => {
     const esc = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.isComposing || e.defaultPrevented) return
@@ -149,6 +183,9 @@ export function BaseExpand(props: { src: string; file?: string; block?: number; 
           extra={extra}
           file={props.file}
           block={props.block}
+          sheet
+          onFull={setSheet}
+          onRename={props.onRename}
           foot={spec.folder ? t('每一条是「{folder}/」里的一篇笔记；在这里改，文档里这张表一起变', { folder: spec.folder }) : undefined}
           onCell={props.onCell}
         />

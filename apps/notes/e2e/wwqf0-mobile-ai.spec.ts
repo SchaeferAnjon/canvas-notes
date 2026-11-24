@@ -5,11 +5,24 @@
 import { expect, test, type Page } from '@playwright/test'
 import { spawn } from 'node:child_process'
 import { execFileSync } from 'node:child_process'
+import { utimesSync } from 'node:fs'
+import { join } from 'node:path'
 import { ask, hello, pairWith, type Paired } from '../src/main/mobile-ai/client'
 import { type Frame, parsePairLink } from '../src/main/mobile-ai/protocol'
 import { launch } from './app'
 
-const files = { '随手记.md': '# 随手记\n\n一段字。\n' }
+const files = {
+  '随手记.md': '# 随手记\n\n一段字。\n',
+  '课程/线性代数.md': '# 线性代数\n\n矩阵乘法就是把一个变换接在另一个后面。\n',
+  '读书/三体.md': '# 三体\n\n黑暗森林是一种猜疑链。\n',
+}
+/** 修改时间定死：线性代数最新，三体其次，随手记最早（「最近改过哪些笔记」按这个排） */
+const ages = (vault: string) => {
+  const now = Date.now() / 1000
+  utimesSync(join(vault, '课程/线性代数.md'), now - 60, now - 60)
+  utimesSync(join(vault, '读书/三体.md'), now - 3600, now - 3600)
+  utimesSync(join(vault, '随手记.md'), now - 7200, now - 7200)
+}
 const dialog = (page: Page) => page.getByRole('dialog', { name: '设置' })
 const group = (page: Page) => dialog(page).getByRole('group', { name: 'iPhone 和 iPad' })
 const toggle = (page: Page) => group(page).getByRole('switch', { name: '让iPhone / iPad用这台Mac的AI' })
@@ -28,7 +41,7 @@ const textOf = (frames: Frame[]) =>
     .join('')
 
 test('设置 › AI：开关默认关；打开出二维码，扫码配对以后问一句一帧一帧拿回答；没配对的、取消配对以后的被拒；关掉服务就停', async () => {
-  const run = await launch(files, { CN_AI_FAKE: '1', CN_MAC_NAME: '测试 Mac' })
+  const run = await launch(files, { CN_AI_FAKE: '1', CN_MAC_NAME: '测试 Mac' }, ages)
   const { page } = run
   try {
     await openAiSettings(page)
@@ -82,6 +95,11 @@ test('设置 › AI：开关默认关；打开出二维码，扫码配对以后�
     // PDF 上选一段讲解一下：页码、选中的字都传到了 AI（假 AI 照着话里的页码答）
     const ex = await ask(pad, { kind: 'explain', text: '', quote: 'Grid lines stay straight', source: { kind: 'pdf', title: 'Linear transformations', path: '课程/Linear transformations.pdf', page: 3, pages: 12, pageText: 'Grid lines stay straight, parallel and evenly spaced.' } })
     expect(textOf(ex)).toContain('这是讲解（第 3 页')
+
+    // 手机交给 Mac 的 AI：在首页问「最近改过哪些笔记」，Mac 这头给了读库工具，AI 调 list_recent、read_note 查到库里真的笔记再答
+    // （以前一个工具都不给，AI 说一句「我先看看」就停了）
+    const recent = await ask(pad, { kind: 'chat', text: '最近改过哪些笔记？都是说什么的', device: 'iPhone' })
+    expect(textOf(recent)).toBe('最近改过的笔记：《线性代数》、《三体》、《随手记》。第一篇讲的是：矩阵乘法就是把一个变换接在另一个后面。')
     await expect(group(page).locator('[data-row^="mobileAiDev-"] .sa-ds')).toHaveText('配对于刚刚 · 刚刚问过')
 
     // 配一台新的：换出新的码，二维码回来

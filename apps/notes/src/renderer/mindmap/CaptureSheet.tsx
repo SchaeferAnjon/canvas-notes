@@ -12,13 +12,14 @@ import { CAMERA_LABEL, fromRows, indentRows, rowKey, toRows, type CameraKind, ty
 import { closeCapture, markGrow, openCapture, useCaptureRequest, type CaptureRequest } from './capture-store'
 import { useCamera } from './useCamera'
 import './mindmap.css'
+import { ipcOn } from '../crash/ipc'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 /** 挂在中间栏里：有人请打开（⌘K、菜单、工具板）就开窗口。onPlaced 的 hung：挂到了白板、笔记上（留在那一篇，不另开导图） */
 export function CaptureHost(props: { notes: NoteFile[]; onPlaced(path: string, hung: boolean): void; onNotice(t: string): void }) {
   const req = useCaptureRequest()
-  useEffect(() => window.cnMap.onOpen(() => openCapture()), [])
+  useEffect(() => ipcOn(window.cnMap.onOpen, 'cnMap.onOpen')(() => openCapture()), [])
   if (!req) return null
   return <CaptureSheet key={req.seq} req={req} notes={props.notes} onPlaced={props.onPlaced} onNotice={props.onNotice} />
 }
@@ -74,8 +75,8 @@ function CaptureSheet(props: { req: CaptureRequest; notes: NoteFile[]; onPlaced(
   useEffect(() => {
     if (seed) return
     void window.cnMap.watchAirdrop(true)
-    const offA = window.cnMap.onAirdrop((p) => void usePhoto(p, 'airdrop', `收到隔空投送的照片「${p.name}」`))
-    const offE = window.cnMap.onAirdropError(setNote)
+    const offA = ipcOn(window.cnMap.onAirdrop, 'cnMap.onAirdrop')((p) => void usePhoto(p, 'airdrop', `收到隔空投送的照片「${p.name}」`))
+    const offE = ipcOn(window.cnMap.onAirdropError, 'cnMap.onAirdropError')(setNote)
     return () => {
       offA()
       offE()

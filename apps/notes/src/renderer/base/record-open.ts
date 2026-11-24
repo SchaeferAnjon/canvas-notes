@@ -6,8 +6,9 @@
  * 只管「开的是哪一条」：右栏的样子在 RecordPeek.tsx，工作区里那个标签由 App 开（onRecordOpen）。
  * 开着哪一条记在本机（cn.record），下次打开软件还在；不写进任何文件。
  */
-import { baseYaml, type BaseCtx, type Cell, type ColumnInfo, setPropDef } from '@cn/format'
+import { baseYaml, type BaseCtx, type Cell, type ColumnInfo, folderMap, parseBaseDoc, remapLinks, setPropDef } from '@cn/format'
 import { type ReactNode, useSyncExternalStore } from 'react'
+import { ipcOn } from '../crash/ipc'
 
 export interface RecordReq {
   /** 这一条：库里的相对路径（课程/ecp/课程计划/第3讲 生产.md） */
@@ -91,6 +92,55 @@ export function recordMoved(from: string, to: string) {
   if (map(cur.path) === cur.path && !cur.back.some((b) => map(b.path) !== b.path)) return
   set({ ...cur, path: map(cur.path), back: cur.back.map((b) => ({ ...b, path: map(b.path) })) })
 }
+
+/** 开着的这一条盘上已经没了（在外面挪走、删了，软件没收到改名）：不再开着，右栏「记录」标签跟着收起，不拿旧路径去读 */
+export function recordGone(path: string) {
+  if (cur?.path === path) set(null)
+}
+
+/** 数据库文件夹挪了 / 改了名：开着的这一条和来路里写着它的 ```base 数据源（file.inFolder、关联的 to:）换成新文件夹，和库里那几篇同一个改法 */
+export function recordFolderMoved(from: string, to: string) {
+  if (!cur) return
+  const map = folderMap(from, to)
+  const fix = (src: string) => remapLinks('```base\n' + src + '\n```', '', '', map).slice(8, -4)
+  const src = fix(cur.src)
+  const back = cur.back.map((b) => ({ ...b, src: fix(b.src) }))
+  if (src === cur.src && back.every((b, i) => b.src === cur!.back[i]!.src)) return
+  set({ ...cur, src, back })
+}
+
+/**
+ * 主进程挪一个文件夹（改名、移到、带着记录文件夹挪笔记）只一篇篇报「这篇从哪到哪」（note:renamed）。
+ * 一篇从 A/…/x.md 到 B/…/x.md：后面相同的几段去掉，剩下的就是挪的那个文件夹 A → B；
+ * 开着的这一条的数据源在 A 里头、而且 A 里已经一篇都没了，才算这个数据库整个挪走了（只挪出去一条不换数据源）
+ */
+function moveOf(from: string, to: string): { from: string; to: string } | null {
+  const a = from.split('/')
+  const b = to.split('/')
+  while (a.length > 1 && b.length > 1 && a[a.length - 1] === b[b.length - 1]) (a.pop(), b.pop())
+  return a.length === from.split('/').length ? null : { from: a.join('/'), to: b.join('/') }
+}
+let pending: { from: string; to: string }[] = []
+function followRename(from: string, to: string) {
+  recordMoved(from, to)
+  const m = moveOf(from, to)
+  if (!m || !cur) return
+  if (!pending.length) setTimeout(() => void settle(), 0)
+  if (!pending.some((x) => x.from === m.from)) pending.push(m)
+}
+async function settle() {
+  const moves = pending
+  pending = []
+  if (!cur) return
+  const notes = (await window.cn.listNotes()).map((n) => n.path)
+  const has = (d: string) => notes.some((p) => p.startsWith(d + '/'))
+  for (const m of moves) {
+    const folders = [cur.src, ...cur.back.map((b) => b.src)].map((s) => parseBaseDoc(s).folder).filter((f): f is string => f !== null)
+    if (folders.some((f) => (f === m.from || f.startsWith(m.from + '/')) && !has(f))) recordFolderMoved(m.from, m.to)
+  }
+}
+// 跟改名挂在这里、不挂在右栏「记录」上：那个标签收着（没画）时开着的这一条也得跟过去，不然再打开读的是旧路径（note:read ENOENT）
+if (typeof window !== 'undefined' && window.cn) ipcOn(window.cn.onNoteRenamed, 'cn.onNoteRenamed')(followRename)
 
 /** 开它的那张表改了写法（加了列、换了视图）：跟上，不重新开 */
 export function syncRecord(from: string, src: string, view = 0) {

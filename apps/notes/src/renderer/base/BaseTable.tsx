@@ -70,6 +70,7 @@ import { useViewBar, type ViewPop } from './ViewBar'
 import { foldedGroups, toggleGroup, useViewState, viewNameOf } from './view-state'
 import { BaseLayout, isLayoutView } from './BaseLayout'
 import { useBaseData } from './layout-ctx'
+import { BaseName } from './base-name'
 import { fmt, groupWords } from './words'
 import { openRecord, syncRecord, useRecord } from './record-open'
 import { type AddChoice, AddCol, ColExtra, dayText, dbNameOf, FIELD_ICON, FormulaBox, OWN_CELLS, OwnCell, RelationIssues, RelationPick, rollupDefault, StatusPick } from './cols'
@@ -258,6 +259,14 @@ export function BaseTable(props: {
   onCell?(w: BaseCellWrite): void
   /** 画在文档里的（base-block.tsx）：格子焦点出表回正文（第一行 ↑、最后一行 ↓、Esc 退回选中整块） */
   nav?: { leave(dir: 'up' | 'down' | 'block'): void }
+  /**
+   * 白板上展开的卡（base-card.tsx）：整页打开是盖在这一栏顶上的一层，高随内容（最高整栏），底下白板照旧看得见、滚得动；
+   * onFull 给出那一层（收回时 null），卡和它叠着时自己让开
+   */
+  sheet?: boolean
+  onFull?(el: HTMLElement | null): void
+  /** 双击块头的名字改名（只读时不给）：改的是数据源那个文件夹，库里 file.inFolder 跟着换（base-name.tsx） */
+  onRename?(folder: string, name: string): void
 }) {
   const { edit } = props
   useViewState()
@@ -1680,7 +1689,7 @@ export function BaseTable(props: {
     return (
       <div className="base-top" ref={fold.ref}>
         <Codicon name="database" size={15} />
-        <b data-tip={name}>{name}</b>
+        <BaseName name={name} folder={spec.folder} onRename={props.onRename} tip={name} />
         {shown('count') && (
           <span className="base-count" data-fold="count">
             {countText}
@@ -1737,6 +1746,9 @@ export function BaseTable(props: {
   // 点浮层外面收起
   const rootRef = useRef<HTMLDivElement>(null)
   const fullRef = useRef<HTMLDivElement>(null)
+  const onFull = useRef(props.onFull)
+  onFull.current = props.onFull
+  useLayoutEffect(() => onFull.current?.(full ? fullRef.current : null), [full])
   useEffect(() => {
     if (!pop) return
     const down = (e: MouseEvent) => {
@@ -1784,7 +1796,7 @@ export function BaseTable(props: {
       {full &&
         pane &&
         createPortal(
-          <div className="base base-full" role="dialog" aria-label={tNow('数据库 {name}', { name })} ref={fullRef}>
+          <div className="base base-full" data-sheet={props.sheet ? '' : undefined} role="dialog" aria-label={tNow('数据库 {name}', { name })} ref={fullRef}>
             {head(true)}
             {views.bar}
             {views.chips}

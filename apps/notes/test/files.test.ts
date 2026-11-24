@@ -254,6 +254,8 @@ describe('「附件」筛选（CN-104）：每篇笔记用到的附件、没有�
     const idx = await attachIndex(root, await listEntries(root))
     expect(idx.notes).toEqual([{ note: '写作/游记.md', items: [{ path: '附件/写作/游记/截图 1.png', bytes: 2 }, { path: '附件/视频/yt-1/01-02.jpg', bytes: 3 }] }])
     expect(idx.orphans).toEqual([{ path: '附件/老的/没人用.png', bytes: 1 }])
+    // 文件树「被 N 篇用」：只算文中链着的；只是放在 附件/写作/游记/ 里、文中没用到的截图不算
+    expect(idx.refs).toEqual({ '附件/视频/yt-1/01-02.jpg': ['写作/游记.md'] })
   })
 })
 

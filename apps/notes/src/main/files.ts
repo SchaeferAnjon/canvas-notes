@@ -116,6 +116,8 @@ async function convoNotes(root: string): Promise<string[]> {
 export interface AttachUser {
   note: string
   uses: Set<string>
+  /** uses 里文中真链着的（不算只是放在它附件文件夹里的） */
+  refs: Set<string>
 }
 
 /**
@@ -135,12 +137,12 @@ export async function attachUsers(root: string, files: FileEntry[]): Promise<Att
   const ownerOf = new Map(atts.map((p) => [p, attachOwner(p, (n) => noteSet.has(n))]))
   const out: AttachUser[] = []
   for (const note of [...notes, ...(await convoNotes(root))]) {
-    const uses = new Set(atts.filter((p) => ownerOf.get(p) === note))
     const text = decodeNote(await readFile(join(root, note))).text
-    for (const p of refHits(fileRefs(text, note), attSet, byName)) uses.add(p)
+    const refs = refHits(fileRefs(text, note), attSet, byName)
     // 链着的别的文件（PDF 之类）也记上：完整对话靠它找挂在哪份 PDF 的笔记下面（attachIndex）
-    for (const p of linkedPaths(text, note)) uses.add(p)
-    out.push({ note, uses })
+    for (const p of linkedPaths(text, note)) refs.add(p)
+    const uses = new Set([...atts.filter((p) => ownerOf.get(p) === note), ...refs])
+    out.push({ note, uses, refs })
   }
   return out
 }
@@ -161,7 +163,15 @@ export async function attachIndex(root: string, files: FileEntry[]): Promise<Att
   const mineOf = new Map<string, Set<string>>()
   /** 找不到挂处的图 → 用它的那份完整对话（双击打开它） */
   const convo = new Map<string, string>()
+  const refs: Record<string, string[]> = {}
+  const ref = (p: string, note: string) => {
+    const l = (refs[p] ??= [])
+    if (!l.includes(note)) l.push(note)
+  }
+  // PDF、网页旁边那篇配对笔记算用着它
+  for (const [p, note] of noteOf) if (byPath.has(p)) ref(p, note)
   for (const u of await attachUsers(root, files)) {
+    for (const p of u.refs) if (byPath.has(p)) ref(p, u.note)
     const mine = [...u.uses].filter((p) => byPath.has(p))
     if (!mine.length) continue
     for (const p of mine) used.add(p)
@@ -186,7 +196,7 @@ export async function attachIndex(root: string, files: FileEntry[]): Promise<Att
   const hung = new Set([...mineOf.values()].flatMap((s) => [...s]))
   const convos = [...convo.keys()].filter((p) => !hung.has(p)).sort(byName).map((p) => ({ ...item(p), convo: convo.get(p)! }))
   const orphans = atts.filter((f) => !used.has(f.path)).map((f) => ({ path: f.path, bytes: f.bytes ?? 0 }))
-  return { notes, convos, orphans }
+  return { notes, convos, orphans, refs }
 }
 
 export function registerFiles(vault: () => Vault | null) {

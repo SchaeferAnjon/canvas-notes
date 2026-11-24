@@ -31,6 +31,7 @@ import { openRepliesSettings, sayOf } from './replies/store'
 import { AnswerRow } from './answer-row'
 import type { ReplyPlace } from '../shared/replies'
 import { useT } from './i18n'
+import { ipcOn } from './crash/ipc'
 
 /** 去设置 › AI（App 听这个事件开设置；各处不用一层层传回调） */
 export const openAiSettings = () => window.dispatchEvent(new CustomEvent('cn:open-settings', { detail: 'ai' }))
@@ -50,7 +51,7 @@ const uiOf = (lang: Lang): UiHost => ({
 
 const chat: ChatHost = {
   aiEngines: () => window.cn.aiEngines(),
-  onAiPrefsChanged: (cb) => window.cn.onAiPrefsChanged(cb),
+  onAiPrefsChanged: (cb) => ipcOn(window.cn.onAiPrefsChanged, 'cn.onAiPrefsChanged')(cb),
   aiSetEngine: (id) => window.cn.aiSetEngine(id as EngineId),
   aiSetOmni: (on) => window.cn.aiSetOmni(on),
   aiPickCli: (id) => window.cn.aiPickCli(id as EngineId),

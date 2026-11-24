@@ -87,6 +87,19 @@ async function main() {
     })
     const body = await res.json()
     out({ type: 'assistant', session_id: session, message: { content: [{ type: 'tool_use', id: 't1', name: 'mcp__canvas__board_list', input: {} }] } })
+    // 话里有「挪卡」：像整理白板那样挪一张空白处的卡到 (900, 80)，再试着挪一张「问过 AI」列（fixed）里的卡（r147）
+    if (prompt.includes('挪卡')) {
+      const call = async (name, args) => {
+        const r = await fetch(server.url, { method: 'POST', headers: { 'content-type': 'application/json', ...server.headers }, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: args } }) })
+        const j = await r.json()
+        return `${j.result?.isError || j.error ? '出错' : '好了'}：${j.result?.content?.[0]?.text ?? j.error?.message}`
+      }
+      const list = JSON.parse(body.result.content[0].text)
+      const free = list.cards.find((c) => c.x !== undefined)
+      const fixed = list.columns.find((c) => c.fixed)
+      parts.push(`挪空白处的卡 ${free?.id} ${free ? await call('board_move', { id: free.id, x: 900, y: 80 }) : '没有'}`)
+      parts.push(`挪问答列里的卡 ${fixed ? await call('board_move', { id: fixed.cards[0], x: 340, y: 64 }) : '没有'}`)
+    }
     parts.push(`工具 ${flag('--tools')}`, `放行 ${flag('--allowedTools')}`, `调工具 ${body.result.content[0].text}`, `配置文件 ${mode}`, `轮数 ${flag('--max-turns')}`, `加目录 ${flag('--add-dir') ?? '没给'}`)
   } else {
     // 只读翻文件：像真的一样先搜再读（assistant 消息里的 tool_use）

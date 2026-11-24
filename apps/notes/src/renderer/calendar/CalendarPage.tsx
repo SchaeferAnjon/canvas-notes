@@ -27,6 +27,7 @@ import { aboutToday, openTodayApp, timesTodo, useToday, useTodayInstalled, useTo
 import { openPopAt, popNow } from '../todo/TodoList'
 import todayIcon from '../assets/today-icon.png'
 import './calendar.css'
+import { ipcOn } from '../crash/ipc'
 
 // ---------- 看周还是月（记在本机，默认周）、看哪几天、左栏小月历看哪个月、系统日历连没连 ----------
 
@@ -79,8 +80,8 @@ export function refreshLink() {
   void window.cnCal.state().then((link) => set({ link }))
   if (watching) return
   watching = true
-  window.cnCal.onChanged(() => void window.cnCal.state().then((link) => set({ link, rev: st.rev + 1 })))
-  window.cnCal.onState((link) => set({ link }))
+  ipcOn(window.cnCal.onChanged, 'cnCal.onChanged')(() => void window.cnCal.state().then((link) => set({ link, rev: st.rev + 1 })))
+  ipcOn(window.cnCal.onState, 'cnCal.onState')((link) => set({ link }))
 }
 
 /** 这几天的系统日程（没连是空的） */

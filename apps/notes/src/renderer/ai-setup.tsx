@@ -16,6 +16,7 @@ import { normalizeDream } from '../shared/dream-settings'
 import { EngineLogo } from './engine-logo'
 import { useT } from './i18n'
 import './ai-setup.css'
+import { ipcOn } from './crash/ipc'
 
 type Step =
   | { s: 'pick' }
@@ -71,7 +72,7 @@ export function SetupCard(props: {
   // 装 Claude Code：安装命令的输出一行行来
   useEffect(() => {
     if (step.s !== 'cc') return
-    return window.cn.onAiCcLine((line) => setStep((x) => (x.s === 'cc' ? { ...x, lines: [...x.lines, line].slice(-12) } : x)))
+    return ipcOn(window.cn.onAiCcLine, 'cn.onAiCcLine')((line) => setStep((x) => (x.s === 'cc' ? { ...x, lines: [...x.lines, line].slice(-12) } : x)))
   }, [step.s])
 
   async function findLocal() {

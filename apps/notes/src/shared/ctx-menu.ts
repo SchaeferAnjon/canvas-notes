@@ -8,7 +8,8 @@ export type EditCmd = 'undo' | 'redo' | 'cut' | 'copy' | 'paste' | 'pasteAndMatc
 export type CtxItem =
   | { type: 'separator' }
   /** 普通的一项：点了把 id 回给界面；icon：左边的图（AI 那几项画跑它的那家的标志，界面画好的 32 像素 PNG） */
-  | { id: string; label: string; enabled?: boolean; checked?: boolean; accel?: string; icon?: CtxIcon; submenu?: CtxItem[] }
+  /** tip：悬停说的一句（灰掉的项说为什么） */
+  | { id: string; label: string; enabled?: boolean; checked?: boolean; accel?: string; icon?: CtxIcon; tip?: string; submenu?: CtxItem[] }
   /** 编辑项：主进程直接对目标网页做 */
   | { edit: EditCmd; enabled?: boolean }
   /** 拼写建议：把拼错的词换成它 */
@@ -138,7 +139,7 @@ export function validItems(v: unknown, depth = 0): v is CtxItem[] {
       const p = o.copyImageAt as Record<string, unknown>
       return typeof p.x === 'number' && typeof p.y === 'number'
     }
-    return typeof o.id === 'string' && typeof o.label === 'string' && (o.icon === undefined || validIcon(o.icon)) && (o.submenu === undefined || validItems(o.submenu, depth + 1))
+    return typeof o.id === 'string' && typeof o.label === 'string' && (o.tip === undefined || typeof o.tip === 'string') && (o.icon === undefined || validIcon(o.icon)) && (o.submenu === undefined || validItems(o.submenu, depth + 1))
   })
 }
 
@@ -154,6 +155,8 @@ export interface CnMenuApi {
   copyImage(png: Uint8Array): Promise<void>
   /** 库里的文件或文件夹在访达中显示 */
   reveal(path: string): Promise<void>
+  /** 用系统默认的程序打开库里的一个文件（文件树里双击不是图的附件） */
+  openPath(path: string): Promise<void>
   /** 用默认浏览器打开（只认 http / https） */
   openExternal(url: string): Promise<void>
   /** 库里的笔记挪到另一个文件夹，返回新路径（to）；挂在它下面的数据库记录文件夹跟着挪（with，task-5yp97） */
@@ -165,4 +168,10 @@ export interface CnMenuApi {
   readClipboardText(): Promise<string>
   /** 置顶 / 取消置顶 */
   pin(path: string, on: boolean): Promise<void>
+  /** 导出 PDF 第一步：系统存储面板问存在哪（默认「下载/<name>.pdf」），返回一个号；取消了是 null */
+  pickPdf(name: string): Promise<number | null>
+  /** 导出 PDF 第二步：界面把打印层画好以后，把这个窗口印成 PDF 存到问好的地方，返回存在哪 */
+  printPdf(ticket: number): Promise<string>
+  /** 导出为 Markdown：存储面板问文件夹（默认「下载/<标题>」），建文件夹放 <标题>.md 和 附件/；取消了是 null */
+  exportMd(path: string, text: string): Promise<{ dir: string; files: number } | null>
 }

@@ -23,6 +23,7 @@ import { CONFUSED, highlightsOf, HL_DOT, type HlKind, quoteRect, type Rect } fro
 import { type HlBox, PageHighlights } from './PdfHighlights'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { closePdf, loadPdf, pageText, type PdfDoc, pdfjs } from './pdf'
+import { usePdfPage } from '@cn/pdf-view'
 import { fillCrops } from './crop-fill'
 import { PdfFind } from '../find/PdfFind'
 import { PdfMarks } from './PdfMarks'
@@ -67,10 +68,6 @@ const GAP = 24
 const MIN_BOX = 14
 /** 纸左右留白（左边写页码；问过的标记在纸里，右边和左边一样宽，task-2onrm） */
 const SIDE = 40
-/** 一张画布最多这么多像素（同 pdf.js 的 maxCanvasPixels）：放得很大时降低清晰度，不再按 2 倍画，免得一页占几百 MB */
-const MAX_CANVAS_PX = 2 ** 24
-/** 捏合停下这么久后才按新比例重画（捏的过程中先把画好的那张拉一下，跟着手指走） */
-const SETTLE_MS = 160
 
 export function PdfTab(props: {
   path: string
@@ -965,69 +962,11 @@ function same(a: Set<number>, b: Set<number>) {
   return true
 }
 
-/**
- * 一页：看得到才画（画布 + 文字层）；看不到的只占位。
- * 换了比例：先把画好的那张拉到新大小（画布宽高跟着页面，文字层按 --total-scale-factor 跟着走），再按新比例画一张新的，画好了换上；
- * 捏合的过程中不每一下都重画，停下 SETTLE_MS 后画一次。文字层只建一次，换比例时 update 重新排（选着的字、找到的高亮都还在）
- */
+/** 一页：看得到才画（画布 + 文字层）；看不到的只占位。怎么画、换比例怎么重画在共用包 @cn/pdf-view（ParaRead 也用） */
 const PageView = memo(function PageView(p: { doc: PdfDoc; n: number; w: number; h: number; scale: number; render: boolean; lastPinch: React.RefObject<number>; onText?(n: number): void }) {
   const holder = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
-  const tl = useRef<{ layer: pdfjs.TextLayer; ready: Promise<unknown> } | null>(null)
-  // 离开看得到的范围：画布和文字层都丢掉（回来重画）
-  useEffect(() => {
-    if (p.render) return
-    holder.current?.replaceChildren()
-    textRef.current?.replaceChildren()
-    tl.current?.layer.cancel()
-    tl.current = null
-  }, [p.render])
-  useEffect(() => {
-    if (!p.render || !p.doc) return
-    let cancelled = false
-    let task: ReturnType<pdfjs.PDFPageProxy['render']> | null = null
-    const had = !!holder.current?.querySelector('canvas[data-ready]')
-    const wait = had && Date.now() - (p.lastPinch.current ?? 0) < SETTLE_MS ? SETTLE_MS : 0
-    const timer = setTimeout(() => {
-      void (async () => {
-        const page = await p.doc.getPage(p.n)
-        if (cancelled) return
-        const vp = page.getViewport({ scale: p.scale })
-        // 2 倍屏按 2 倍画；整张超过 MAX_CANVAS_PX 时降下来（不低于 1 倍就不糊）
-        const dpr = Math.min(window.devicePixelRatio || 1, Math.sqrt(MAX_CANVAS_PX / (vp.width * vp.height)))
-        const canvas = document.createElement('canvas')
-        canvas.width = Math.floor(vp.width * dpr)
-        canvas.height = Math.floor(vp.height * dpr)
-        task = page.render({ canvas, viewport: vp, ...(dpr !== 1 ? { transform: [dpr, 0, 0, dpr, 0, 0] } : {}) })
-        try {
-          await task.promise
-        } catch {
-          return
-        }
-        if (cancelled || !holder.current || !textRef.current) return
-        canvas.dataset.ready = '1'
-        canvas.dataset.scale = String(p.scale)
-        holder.current.replaceChildren(canvas)
-        if (!tl.current) {
-          const layer = new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: textRef.current, viewport: vp })
-          textRef.current.replaceChildren()
-          tl.current = { layer, ready: layer.render().catch(() => undefined) }
-          // 文字层画好了：这一页的划线照字找位置
-          void tl.current.ready.then(() => !cancelled && p.onText?.(p.n))
-        } else {
-          const t = tl.current
-          await t.ready
-          if (!cancelled && tl.current === t) t.layer.update({ viewport: vp })
-        }
-      })()
-    }, wait)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
-      task?.cancel()
-    }
-  }, [p.doc, p.n, p.scale, p.render, p.lastPinch, p.onText])
-  useEffect(() => () => tl.current?.layer.cancel(), [])
+  usePdfPage({ doc: p.doc, n: p.n, scale: p.scale, render: p.render, holder, text: textRef, TextLayer: pdfjs.TextLayer, lastPinch: p.lastPinch, onText: p.onText })
   return (
     <div className="pdfpage" data-page={p.n} style={{ width: p.w, height: p.h, ['--total-scale-factor' as string]: p.scale, ['--scale-round-x' as string]: '1px', ['--scale-round-y' as string]: '1px' }}>
       <div className="pdfcanvas" ref={holder} />

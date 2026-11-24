@@ -5,6 +5,7 @@
 import { useSyncExternalStore } from 'react'
 import type { GrowthState } from '../../shared/api'
 import { makeModel, type Model } from './model'
+import { ipcOn } from '../crash/ipc'
 
 export interface GrowthUi {
   /** 数据、在不在算、上次没算成的原因 */
@@ -68,7 +69,7 @@ let wired = false
 export function loadGrowth() {
   if (!wired) {
     wired = true
-    window.cn.onGrowth(take)
+    ipcOn(window.cn.onGrowth, 'cn.onGrowth')(take)
   }
   void window.cn.growthData().then(take, (e: Error) => setGrowth({ state: { ...ui.state, error: e.message } }))
 }

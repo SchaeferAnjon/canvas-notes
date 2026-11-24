@@ -1810,6 +1810,56 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 截短了：能点开看全文（NoticeFull） */
+.status .st-toast .toast-cn > span.cut {
+  cursor: pointer;
+}
+.toast-full {
+  position: fixed;
+  z-index: 60;
+  width: min(520px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 6px 12px;
+  border-radius: 8px;
+  background: var(--solid);
+  color: var(--solid-t);
+  box-shadow: var(--shadow-up);
+  font-size: 12px;
+  animation: st-in 0.14s ease-out;
+}
+/* 长路径在任意处断，能选中拷贝 */
+.toast-full .tf-text {
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.toast-full .tf-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.toast-full .btn {
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.3);
+  color: inherit;
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.toast-full .btn:hover {
+  background: rgba(127, 127, 127, 0.45);
+}
 /* 提示前面的小图标：放回了是绿色对勾（往提示条的字色混一半，深浅底上都看得清），说明是 info */
 .status .st-toast .toast-cn .tl-ic {
   flex: none;

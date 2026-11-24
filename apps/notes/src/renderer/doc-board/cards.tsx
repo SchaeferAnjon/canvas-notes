@@ -29,6 +29,7 @@ import { usePdfPage } from './pdf-page'
 import { hlDot } from '../reading/hl-kinds'
 import { useT } from '../i18n'
 import { t as tNow, uiLang } from '../../shared/i18n'
+import { ipcOn } from '../crash/ipc'
 
 /** 卡上能点的：勾第几行待办、开一个文件或网页、看全文 */
 export interface CardActs {
@@ -40,6 +41,8 @@ export interface CardActs {
   onFull(): void
   /** 数据库卡「展开」：卡在原地长成整张表（白板上才有） */
   onExpand?(): void
+  /** 数据库卡双击卡头的名字改名：改的是数据源那个文件夹（库里 file.inFolder 跟着换，白板上能改时才有） */
+  onRenameBase?(folder: string, name: string): void
   /** AI 讲解卡上选一句开旁支（白板上的卡才有，task-p90ra；拖着的影子、看全文的浮层没有） */
   side?: Spot
 }
@@ -558,19 +561,28 @@ function Main({ u, f, ctx, acts, name }: { u: DocUnit; f: Face; ctx: CardCtx; ac
         </>
       )
     case 'table': {
-      const rows = full ? f.rows : f.rows.slice(0, 4)
+      // 卡里默认整张表都画出来（2026-11-24 用户「表格也展示全部 不默认收起来」）；上百行的才只画前 TABLE_ROWS 行
+      const rows = full ? f.rows : f.rows.slice(0, TABLE_ROWS)
       return (
         <>
           <Kh icon="table" right={t('{rows}行 × {cols}列', { rows: f.rows.length, cols: f.head.length })}>
             {t('表格', { ctx: '卡片种类' })}
           </Kh>
-          <MiniTable head={f.head} rows={rows} right={f.right} />
-          {f.rows.length > rows.length && <div className="from">{t('还有{n}行 · 双击看全部', { n: f.rows.length - rows.length })}</div>}
+          <MiniTable head={f.head} rows={rows} right={f.right} wrap />
+          {f.rows.length > rows.length && (
+            <div className="from">
+              {t('还有{n}行', { n: f.rows.length - rows.length, ctx: '表格' })}
+              {' · '}
+              <button type="button" className="db-all" onClick={(e) => (e.stopPropagation(), acts.onFull())}>
+                {t('看全部')}
+              </button>
+            </div>
+          )}
         </>
       )
     }
     case 'base':
-      return <BaseCard src={f.src} full={full} onExpand={acts.onExpand ?? acts.onFull} />
+      return <BaseCard src={f.src} full={full} onExpand={acts.onExpand ?? acts.onFull} onRename={acts.onRenameBase} />
     case 'pdf':
       return (
         <>
@@ -683,15 +695,30 @@ function highlight(code: string, lang: string): ReactNode[] {
   return out
 }
 
-/** 卡里的小表：宽了只在卡里横着滚，右边还有列时渐隐（scroll-x.tsx，task-83vl3） */
-function MiniTable(props: { head: string[]; rows: ReactNode[][]; right?: boolean[]; cls?: (col: number) => string | undefined }) {
+/** 表格卡里最多先画几行：再多的写「还有 N 行 · 看全部」（一张卡几百行时白板太长、画得慢；一般的表都整张画出来） */
+const TABLE_ROWS = 100
+/** 一列每一格（连表头）都不超过这么宽（中文一个字算 2，别的算 1）就是短列：#、年份这种，按内容最窄、一行不折 */
+const SHORT_COL = 10
+const textWidth = (md: string) => {
+  let n = 0
+  for (const ch of md.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '')) n += /[⺀-￿]/.test(ch) ? 2 : 1
+  return n
+}
+
+/**
+ * 卡里的小表：宽了只在卡里横着滚，右边还有列时渐隐（scroll-x.tsx，task-83vl3）。
+ * wrap（表格卡，128 页）：长的格子换行、不截不限行数，短列（SHORT_COL）一行；数据库卡照旧一格一行、截省略号
+ */
+function MiniTable(props: { head: string[]; rows: ReactNode[][]; right?: boolean[]; cls?: (col: number) => string | undefined; wrap?: boolean }) {
+  const short = props.wrap ? props.head.map((h, j) => [h, ...props.rows.map((r) => r[j])].every((c) => typeof c === 'string' && textWidth(c) <= SHORT_COL)) : []
+  const cellCls = (j: number, extra?: string) => [props.right?.[j] ? 'nr' : '', short[j] ? 'short' : '', extra ?? ''].join(' ').trim() || undefined
   return (
     <ScrollX className="mt-box">
-    <table className="mt">
+    <table className={props.wrap ? 'mt wrap' : 'mt'}>
       <thead>
         <tr>
           {props.head.map((h, j) => (
-            <th key={j} className={props.right?.[j] ? 'nr' : undefined}>
+            <th key={j} className={cellCls(j)}>
               {typeof h === 'string' ? inline(h, 'h' + j) : h}
             </th>
           ))}
@@ -701,7 +728,7 @@ function MiniTable(props: { head: string[]; rows: ReactNode[][]; right?: boolean
         {props.rows.map((r, i) => (
           <tr key={i}>
             {props.head.map((_, j) => (
-              <td key={j} className={[props.right?.[j] ? 'nr' : '', props.cls?.(j) ?? ''].join(' ').trim() || undefined}>
+              <td key={j} className={cellCls(j, props.cls?.(j))}>
                 {typeof r[j] === 'string' ? inline(r[j] as string, `${i}-${j}`) : r[j]}
               </td>
             ))}
@@ -1123,7 +1150,7 @@ function useNoteText(path: string): string | null {
       (n) => live && setText(n.text),
       () => live && setText(''),
     )
-    const off = window.cn.onNoteChanged((p, t) => p === path && setText(t))
+    const off = ipcOn(window.cn.onNoteChanged, 'cn.onNoteChanged')((p, t) => p === path && setText(t))
     return () => ((live = false), off())
   }, [path])
   return text

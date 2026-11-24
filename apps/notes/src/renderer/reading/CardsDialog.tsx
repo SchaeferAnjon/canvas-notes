@@ -22,6 +22,7 @@ import { markGapsSent } from '../feynman-after/after'
 import { t as tNow } from '../../shared/i18n'
 import { dateText } from '../../shared/when'
 import './cards.css'
+import { ipcOn } from '../crash/ipc'
 
 const vaultImg = (p: string) => 'cn-file://vault/' + p.split('/').map(encodeURIComponent).join('/')
 const stem = (p: string) => (p.split('/').pop() ?? p).replace(/\.[^.]+$/, '')
@@ -300,7 +301,7 @@ function CardsDialog(p: CardsHostProps & { scope: CardScope }) {
       },
       (e) => (p.onNotice(errText(e)), closeCards()),
     )
-    const offEv = window.cnReading.onCards((e) => {
+    const offEv = ipcOn(window.cnReading.onCards, 'cnReading.onCards')((e) => {
       if (e.job !== job.current) return
       if ('card' in e) {
         setCards((c) => ({ ...c, [e.id]: e.card }))
@@ -647,7 +648,7 @@ function SpotCard(p: CardsHostProps & { spot: NonNullable<ReturnType<typeof useS
 
   useEffect(() => {
     let stale = false
-    const off = window.cnReading.onCards((e) => {
+    const off = ipcOn(window.cnReading.onCards, 'cnReading.onCards')((e) => {
       if (e.job !== job.current) return
       if ('card' in e) setCard(e.card)
       else if (e.error) setCard((c) => c ?? null)

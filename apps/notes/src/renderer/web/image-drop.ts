@@ -19,22 +19,66 @@ let hoverEl: Element | null = null
 let lastPlaced: { src: string; at: number } | null = null
 let currentPage: { url: string; title: string } | null = null
 
+/** 从网页里拖出来的选中的字（剪藏那样：md 是公式、代码照 md 写的，head 是上面的小标题） */
+export interface WebTextDrag {
+  text: string
+  md?: string
+  url: string
+  title: string
+  head?: string
+}
+let lastText: (WebTextDrag & { at: number }) | null = null
+
+/** 界面补发的拖放（网页报来的落点）带这个类型：真的 drop 已经接住时，它到了只吞掉，不再落一份 */
+export const WEB_DRAG_TYPE = 'application/x-cn-web-drag'
+
 /** 网页里开始拖一张图 */
 export function noteWebDrag(info: WebDragInfo) {
   lastDrag = { ...info, at: Date.now() }
+  lastText = null
   dragLive = true
+}
+
+/** 网页里开始拖选中的字 */
+export function noteWebTextDrag(c: WebTextDrag) {
+  lastText = { ...c, at: Date.now() }
+  lastDrag = null
+  dragLive = true
+}
+
+/** 拖着的这段字（还没落下）；落下时 takeWebText 取走 */
+const textNow = () => (lastText && Date.now() - lastText.at < 60_000 ? lastText : null)
+export const webTextLive = () => !!textNow()
+/** 落进文档 / 白板：取走正拖着的这段字（取走后同一次拖动补发的 drop 不再落一份） */
+export function takeWebText(): WebTextDrag | null {
+  const c = textNow()
+  lastText = null
+  dragLive = false
+  if (!c) return null
+  const { at: _at, ...rest } = c
+  return rest
 }
 
 /** 网页里的图正拖着、还没松手（AI 输入框的 dragover 据此认它是一张图） */
 export const webDragLive = () => dragLive && !!lastDrag && Date.now() - lastDrag.at < 60_000
+/** 网页里的图或选中的字正拖着（文档画插入线、补发的拖放据此） */
+export const webAnyLive = () => webDragLive() || (dragLive && webTextLive())
+
+/** 网页拖出来的数据里的地址是不是这张图（src 属性、srcset 里的哪一档都算） */
+const sameImg = (d: WebDragInfo, url: string | null | undefined) => !!url && (url === d.src || !!d.srcs?.includes(url))
 
 /** 正拖着的那张图的说明（落下时 imagesFrom 也会带上） */
 export const webDragInfo = (): WebDragInfo | null => (lastDrag && Date.now() - lastDrag.at < 60_000 ? lastDrag : null)
 
-const webDt = (d: WebDragInfo) => {
+const webDt = () => {
   const dt = new DataTransfer()
-  dt.setData('text/uri-list', d.src)
-  dt.setData('text/html', `<img src="${attr(d.src)}" alt="${attr(d.alt)}">`)
+  const t = textNow()
+  if (t) dt.setData('text/plain', t.text)
+  else if (lastDrag) {
+    dt.setData('text/uri-list', lastDrag.src)
+    dt.setData('text/html', `<img src="${attr(lastDrag.src)}" alt="${attr(lastDrag.alt)}">`)
+  }
+  dt.setData(WEB_DRAG_TYPE, '1')
   return dt
 }
 
@@ -42,7 +86,7 @@ const webDt = (d: WebDragInfo) => {
 function leaveHover(next: Element | null) {
   const prev = hoverEl
   hoverEl = next
-  if (prev && prev !== next && prev.isConnected) prev.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true, relatedTarget: next, dataTransfer: lastDrag ? webDt(lastDrag) : null }))
+  if (prev && prev !== next && prev.isConnected) prev.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true, relatedTarget: next, dataTransfer: webAnyLive() ? webDt() : null }))
 }
 
 /**
@@ -50,13 +94,12 @@ function leaveHover(next: Element | null) {
  * 这里在那个元素上补发 dragenter / dragover（和真拖一样），AI 输入框亮出「松手附上这张图」、文档画插入线；离开时补 dragleave
  */
 export function hoverWebDragAt(x: number, y: number) {
-  const d = lastDrag
-  if (!d || !dragLive) return
+  if (!webAnyLive()) return
   const el = document.elementFromPoint(x, y)
   if (!el || el.closest('webview')) return leaveHover(null)
   const fresh = el !== hoverEl
   leaveHover(el)
-  const dt = webDt(d)
+  const dt = webDt()
   for (const type of fresh ? ['dragenter', 'dragover'] : ['dragover']) el.dispatchEvent(new DragEvent(type, { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }))
 }
 
@@ -77,15 +120,14 @@ const attr = (v: string) => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').rep
  * 真的 drop 已经接住了（lastDrag 被用掉）就什么都不做；两边都来了，imagesFrom 只认第一次。
  */
 export function dropWebDragAt(x: number, y: number) {
-  const d = lastDrag
+  if (!webAnyLive()) return (dragLive = false), leaveHover(null)
   dragLive = false
-  if (!d || Date.now() - d.at > 60_000) return leaveHover(null)
   const el = document.elementFromPoint(x, y)
   // 落点不在拖着时最后经过的那个上（网页没来得及报最后一下）：那个收起
   if (hoverEl && el !== hoverEl) leaveHover(null)
   hoverEl = null
   if (!el || el.closest('webview')) return
-  const dt = webDt(d)
+  const dt = webDt()
   for (const type of ['dragenter', 'dragover', 'drop']) el.dispatchEvent(new DragEvent(type, { dataTransfer: dt, clientX: x, clientY: y, bubbles: true, cancelable: true }))
 }
 
@@ -119,7 +161,7 @@ export function looksLikeImage(dt: DataTransfer): boolean {
   if (Array.from(dt.files ?? []).some((f) => f.type.startsWith('image/'))) return true
   if (/<img\s/i.test(dt.getData('text/html'))) return true
   const uri = firstUri(dt.getData('text/uri-list'))
-  return !!uri && (IMG_EXT.test(uri) || uri.startsWith('data:image/') || (!!lastDrag && uri === lastDrag.src))
+  return !!uri && (IMG_EXT.test(uri) || uri.startsWith('data:image/') || (!!lastDrag && sameImg(lastDrag, uri)))
 }
 
 /** html 里第一张图的地址和说明 */
@@ -167,14 +209,17 @@ export async function imagesFrom(dt: DataTransfer, now = Date.now()): Promise<Im
   let src: string | null = null
   let alt = ''
   if (fromHtml) ({ src, alt } = fromHtml)
-  else if (uri && (IMG_EXT.test(uri) || uri === drag?.src || uri.startsWith('data:image/'))) src = uri
+  else if (uri && (IMG_EXT.test(uri) || (drag && sameImg(drag, uri)) || uri.startsWith('data:image/'))) src = uri
+  // 是网页报上来的那张（拖出去的数据里是 src 属性那档，维基百科这类 srcset 的 currentSrc 是高清那档）：照报上来的地址存，和右键「剪进文档」存同一张
+  const mine = !!drag && (sameImg(drag, src) || sameImg(drag, uri))
+  if (mine) src = drag!.src
   if (!src || !/^(https?:|data:image\/)/i.test(src)) return []
   // 同一次拖动的第二个 drop（补发的和真的都到了）：这次拖动已经被用掉，图又是同一张
   if (!drag && lastPlaced && lastPlaced.src === src && now - lastPlaced.at < 3000) return []
   lastPlaced = { src, at: now }
-  const page = drag && (drag.src === src || drag.src === uri) ? { url: drag.url, title: drag.title } : (currentPage ?? null)
-  if (drag && drag.src === src && !alt) alt = drag.alt
-  const web: WebDragInfo | undefined = drag && (drag.src === src || drag.src === uri) ? { src, alt: drag.alt, caption: drag.caption, ...(drag.head ? { head: drag.head } : {}), url: drag.url, title: drag.title } : undefined
+  const page = mine ? { url: drag!.url, title: drag!.title } : (currentPage ?? null)
+  if (mine && !alt) alt = drag!.alt
+  const web: WebDragInfo | undefined = mine ? { src, alt: drag!.alt, caption: drag!.caption, ...(drag!.head ? { head: drag!.head } : {}), url: drag!.url, title: drag!.title } : undefined
   lastDrag = null
   dragLive = false
   return [{ src: { kind: 'url', url: src }, alt, ...(page && /^https?:/.test(page.url) ? { source: { title: page.title || page.url, url: page.url } } : {}), ...(web ? { web } : {}) }]
@@ -217,3 +262,8 @@ export async function saveImages(notePath: string, cands: ImageCandidate[], sep 
   }
   return { md, errors }
 }
+
+/** 网页里的字剪成一块的写法（web-notes/flow.ts 的 clipMdOf 登记进来，和点「剪藏」写同一块） */
+let clipMd: ((c: WebTextDrag) => string) | null = null
+export const setWebClipMd = (f: (c: WebTextDrag) => string) => void (clipMd = f)
+export const webTextMd = (c: WebTextDrag): string => (clipMd ? clipMd(c) : (c.md ?? c.text))

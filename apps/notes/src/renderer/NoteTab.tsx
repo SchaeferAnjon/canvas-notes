@@ -1,6 +1,7 @@
 import { Codicon } from '@cn/design'
 import { accelFor, PaneFocus, useKeyHandler, useKeys } from './keys'
-import { fmValue, hasOldLayout, isMindmap, needsConvert, needsSummaryConvert } from '@cn/format'
+import { fmValue, hasOldLayout, isMcRecord, isMindmap, needsConvert, needsSummaryConvert } from '@cn/format'
+import { ClassRecordBar } from './meetcaption/ClassRecordBar'
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { NoteFile, OpenedNote } from '../shared/api'
 import { nameNotice, safeName } from '../shared/file-name'
@@ -20,7 +21,7 @@ import { DocToc, isWide, setWide } from './doc-toc'
 import { followsTitle, headingOf, titleRename } from './title-follow'
 import { moveCursor, openCursor, saveCursor, savedCursor } from './open-cursor'
 import { PropsButton } from './mindmap/PropsButton'
-import { jumpInBoard, jumpInDoc } from './attach-jump'
+import { JUMP_EVENT, jumpInBoard, jumpInDoc, takeJump } from './attach-jump'
 import { MapLayoutButton, useMapCommands } from './mindmap/LayoutMenu'
 import { requestExport } from './mindmap/export-store'
 import { requestFind } from './find/find-hub'
@@ -41,10 +42,12 @@ import { appSettings, publishSettings, usePrefs } from './settings-store'
 import { isTodoNote } from '../shared/todo'
 import type { NoteView } from '../shared/prefs'
 import { TaskView } from './todo/TaskView'
+import { goToLine } from './goto-line'
 import { openSettingsAt } from './settings/jump'
 import { useT } from './i18n'
 import { t as tNow } from '../shared/i18n'
 import { onWantView, takeView } from './note-mode'
+import { ipcOn } from './crash/ipc'
 
 export interface NoteTabProps {
   /** 标签 id：标签上改名时按它找到这一篇的改名 */
@@ -58,7 +61,8 @@ export interface NoteTabProps {
   /** 标签上正在改名：编辑器先不抢焦点 */
   renaming: boolean
   /** 标签条右端「更多」：改名、置顶、移到废纸篓（系统菜单）；extra：这一页自己加的几项（宽版） */
-  onMenu(e: React.MouseEvent, extra: MenuEntry[]): void
+  /** view：这一页正用白板看（导出 PDF、Markdown 两项灰掉）；是导图（不放这两项，导图自己的导出在 extra 里） */
+  onMenu(e: React.MouseEvent, extra: MenuEntry[], view?: 'board' | 'mindmap'): void
   /** ⌥⌘O：右栏打开大纲（目录浮层头一行） */
   onOpenOutline(): void
   notes: NoteFile[]
@@ -269,7 +273,7 @@ export function NoteTab(props: NoteTabProps) {
         // 任务界面、白板看法里编辑器藏着：不拿焦点（不然打的字悄悄写进文件）
         if (cb.current.active && focusedNow.current && modeRef.current === 'doc') focusTaking(d)
       }
-      off = window.cn.onNoteChanged((p, text) => {
+      off = ipcOn(window.cn.onNoteChanged, 'cn.onNoteChanged')((p, text) => {
         if (d && p === d.path) void d.applyRemote(text)
       })
       // 读 PDF 的配对笔记（「X 笔记.md」，段里有 cn:thread）：以前问过、那一段没有框的图的，照记下的框补一张（task-yp8l7）；
@@ -358,6 +362,29 @@ export function NoteTab(props: NoteTabProps) {
 
   /** 用以前的自由白板看：导图、撤回了转写法还是旧写法的白板 */
   const legacy = text !== null && (isMindmap(text) || (fmValue(text, 'type') === 'board' && hasOldLayout(text)))
+  /** 跳到文中 at 那一处的图（属性弹层单击一张图、文件树附件右键「在哪用到」）；pop 是盖在中间栏上的弹层 */
+  const jumpTo = (at: number, pop: Element | null) => {
+    // 白板看法（这篇文档画成的白板）：平移到装着那张图的卡、外圈闪一下；导图、旧白板、任务看法先切到文档
+    if (mode === 'board' && !legacy && paneRef.current && jumpInBoard(paneRef.current, path, at)) return
+    if (mode !== 'doc') ((picked.current = true), setMode('doc'))
+    requestAnimationFrame(() => {
+      const v = doc.current?.view
+      if (v) jumpInDoc(v, at, pop)
+    })
+  }
+  // 文件树「在哪用到」点了这一篇：开好了就跳（刚开的等字读进来）
+  const loaded = text !== null
+  useEffect(() => {
+    if (!loaded) return
+    const go = () => {
+      const at = takeJump(path)
+      if (at !== null) jumpTo(at, null)
+    }
+    go()
+    window.addEventListener(JUMP_EVENT, go)
+    return () => window.removeEventListener(JUMP_EVENT, go)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, path, mode, legacy])
   // ⌘K 里「导图：收起到第一层」「导图：全部展开」（task-wuv05）：当前这篇是导图白板时归它
   useMapCommands(active && !readOnly && text !== null && isMindmap(text), text, (t) => doc.current?.setText(t), path, () => modeRef.current !== 'board' && pick('board'))
 
@@ -535,15 +562,7 @@ export function NoteTab(props: NoteTabProps) {
             notes={props.notes}
             readOnly={readOnly}
             onChange={(t) => doc.current?.setText(t)}
-            onJump={(at, pop) => {
-              // 白板看法（这篇文档画成的白板）：平移到装着那张图的卡、外圈闪一下；导图、旧白板、任务看法先切到文档
-              if (mode === 'board' && !legacy && paneRef.current && jumpInBoard(paneRef.current, path, at)) return
-              if (mode !== 'doc') ((picked.current = true), setMode('doc'))
-              requestAnimationFrame(() => {
-                const v = doc.current?.view
-                if (v) jumpInDoc(v, at, pop)
-              })
-            }}
+            onJump={jumpTo}
           />
         )}
         <div className="seg" role="tablist" aria-label={t('看法')}>
@@ -632,11 +651,13 @@ export function NoteTab(props: NoteTabProps) {
               // 从用的地方跳到设置（方向 A 的 A3）：最下面一项到设置 › 文档和白板，那一行闪一下
               '-',
               mode === 'board' ?{ label: t('白板设置：点阵、右栏开着时缩小…'), run: () => openSettingsAt('boardShrink') } : { label: t('字体、字号、版心…'), run: () => openSettingsAt('size') },
-            ])
+            ], text !== null && isMindmap(text) ? 'mindmap' : mode === 'board' ? 'board' : undefined)
           }
         />
       </TabActs>
       <div className="body" hidden={mode !== 'doc'} ref={bodyRef}>
+        {/* MeetCaption 的上课记录：正文上面的录音条（▶ 就地播、字幕全文、关键画面） */}
+        {text !== null && isMcRecord(text) && <ClassRecordBar path={path} text={text} view={() => doc.current?.view ?? null} onNotice={(x) => cb.current.onNotice(x)} />}
         <div className={'doc ' + mode + (wide ? ' wide' : '')} ref={host} />
       </div>
       {/* 文末「提到这篇的」：画在编辑器下面（版心里），不写进文件 */}
@@ -644,7 +665,17 @@ export function NoteTab(props: NoteTabProps) {
       {/* AI 在这篇文档里动手（插入、改写）：外圈和顶上「AI 正在改这篇 · 停下 esc」（DESIGN.v3 2.3）；白板看法里由白板自己画 */}
       {mode === 'doc' && <AiActLayer area="doc" path={path} host={paneRef} />}
       {/* 任务界面（task-pd1d1）：这一篇的待办，和左边「待办」格、文件夹首页的待办卡同一份、同一套样子 */}
-      {mode === 'task' && <TaskView path={path} />}
+      {mode === 'task' && (
+        <TaskView
+          path={path}
+          onOpenLine={(line) => {
+            // 只这一次换到文档，不记住（「待办」下次开还是任务看法）
+            picked.current = true
+            setMode('doc')
+            void goToLine(path, line)
+          }}
+        />
+      )}
       {/* 在这一篇里找（⇧⌘F）：文档看法里；白板看法里由白板、导图自己找 */}
       <DocFind view={() => doc.current?.view ?? null} host={() => paneRef.current} on={active && mode === 'doc' && text !== null} readOnly={readOnly} owner={path} />
       {mode === 'doc' && text !== null && <DocToc text={text} doc={() => doc.current} scroller={() => bodyRef.current} onOpenOutline={() => cb.current.onOpenOutline()} />}

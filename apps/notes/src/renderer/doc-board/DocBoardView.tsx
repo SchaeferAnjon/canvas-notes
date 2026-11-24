@@ -54,6 +54,8 @@ import {
   unlink,
   unplaceUnit,
   baseBlocks as autoBlocks,
+  BOARD_COL_W,
+  pushApart,
 } from '@cn/format'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -107,8 +109,8 @@ import * as Fy from '../feynman/store'
 import { useBoardSlack } from '../board-slack'
 import { headOf, unitIdOf } from '../../shared/feynman/material'
 
-/** 列宽、列间距、开头留给工具板的宽、顶上留的高（照小样：276、22，第一列离白板左边 92，离顶 64） */
-const COL_W = 276
+/** 列宽（2026-11-24 起 400，@cn/format BOARD_COL_W；列间距 22，第一列离白板左边 92，离顶 64） */
+const COL_W = BOARD_COL_W
 const PER_COL = 6
 const PER_COL_LONG = 4
 const OPEN_COLS = 6
@@ -627,6 +629,29 @@ export function DocBoardView(props: DocBoardViewProps) {
   const factor = props.zoom > 0 ? props.scale / props.zoom : 1
   const liveZoom = useRef(props.zoom)
   const pendingScroll = useRef<{ left: number; top: number } | null>(null)
+  /**
+   * 软件自己挪视野（缩放、适合窗口）时看得见的那块从哪开始（白板框里的坐标）：左沿是工具板右边 + 12，顶沿是右上角缩放那块下沿 + 8
+   * （128 页：以前按整块白板算，放大以后第一列钻到工具板底下、列名压在「125%」底下）。人自己拖、捏合、⌘ 滚轮照旧随便挪
+   */
+  const clearEdges = () => {
+    const w = wrap.current!
+    const wr = w.getBoundingClientRect()
+    const pal = w.parentElement?.querySelector<HTMLElement>(':scope > .bpal')?.getBoundingClientRect()
+    const corner = outer.current?.querySelector<HTMLElement>('.db-corner')?.getBoundingClientRect()
+    return { l: pal && pal.width ? pal.right - wr.left + 12 : ROOM, t: corner && corner.height ? corner.bottom - wr.top + 8 : 0 }
+  }
+  /** 所有列和单独摆的卡（费曼那一列也算）合起来那一块，白板坐标 */
+  const contentBox = () => {
+    const p = plane.current
+    if (!p) return null
+    const base = p.getBoundingClientRect()
+    const rs = [...p.querySelectorAll<HTMLElement>('.db-col, .db-card.placed, .fy-col')].map((el) => el.getBoundingClientRect()).filter((r) => r.width)
+    if (!rs.length) return null
+    const s0 = props.scale
+    const x = Math.min(...rs.map((r) => r.left - base.left)) / s0
+    const y = Math.min(...rs.map((r) => r.top - base.top)) / s0
+    return { x, y, w: Math.max(...rs.map((r) => r.right - base.left)) / s0 - x, h: Math.max(...rs.map((r) => r.bottom - base.top)) / s0 - y }
+  }
   const zoomTo = (next: number, anchor?: { x: number; y: number }) => {
     const w = wrap.current
     const z = clampZoom(next)
@@ -634,13 +659,22 @@ export function DocBoardView(props: DocBoardViewProps) {
     const oldS = liveZoom.current * factor
     const newS = z * factor
     const r = w.getBoundingClientRect()
-    const ax = anchor ? anchor.x - r.left : w.clientWidth / 2
-    const ay = anchor ? anchor.y - r.top : w.clientHeight / 2
+    const e = clearEdges()
+    // 没有鼠标位置（⌘+ ⌘−、右上角菜单）：以看得见的那块（工具板右边、缩放那块下面）的正中为中心
+    const ax = anchor ? anchor.x - r.left : (e.l + w.clientWidth) / 2
+    const ay = anchor ? anchor.y - r.top : (e.t + w.clientHeight) / 2
     const from = pendingScroll.current ?? { left: w.scrollLeft, top: w.scrollTop }
     // 画布左边给工具板让出的 92、四周多出的空白不随缩放变，换算时扣掉
     const ox = ROOM + slackRef.current.x
     const oy = slackRef.current.y
-    pendingScroll.current = { left: ((from.left + ax - ox) / oldS) * newS - ax + ox, top: ((from.top + ay - oy) / oldS) * newS - ay + oy }
+    const to = { left: ((from.left + ax - ox) / oldS) * newS - ax + ox, top: ((from.top + ay - oy) / oldS) * newS - ay + oy }
+    const box = anchor ? null : contentBox()
+    if (box) {
+      // 内容的左边、顶上原来露在可见区里：放大以后也不推到工具板、缩放那块底下（原来就被人拖到底下的不管）
+      if (ox + box.x * oldS - from.left >= e.l - 1) to.left = Math.min(to.left, ox + box.x * newS - e.l)
+      if (oy + box.y * oldS - from.top >= e.t - 1) to.top = Math.min(to.top, oy + box.y * newS - e.t)
+    }
+    pendingScroll.current = to
     liveZoom.current = z
     props.onZoom(z)
   }
@@ -649,22 +683,14 @@ export function DocBoardView(props: DocBoardViewProps) {
     const w = wrap.current
     const p = plane.current
     if (!w || !p) return
-    const base = p.getBoundingClientRect()
     // 费曼那一列（摆在自己位置上的）也算：适合窗口以后它也在画面里
-    const rs = [...p.querySelectorAll<HTMLElement>('.db-col, .db-card.placed, .fy-col')].map((el) => el.getBoundingClientRect())
-    const s0 = props.scale
-    const box = rs.length
-      ? (() => {
-          const x = Math.min(...rs.map((r) => r.left - base.left)) / s0
-          const y = Math.min(...rs.map((r) => r.top - base.top)) / s0
-          return { x, y, w: Math.max(...rs.map((r) => r.right - base.left)) / s0 - x, h: Math.max(...rs.map((r) => r.bottom - base.top)) / s0 - y }
-        })()
-      : null
-    const z = fitZoom(box, { w: w.clientWidth - ROOM, h: w.clientHeight }, factor)
+    const box = contentBox()
+    const e = clearEdges()
+    // 放进工具板右边、缩放那块下面的那一块里（四周各留 40，fitZoom 算的）
+    const z = fitZoom(box, { w: w.clientWidth - e.l, h: w.clientHeight - e.t }, factor)
     const s = z * factor
-    // 最左那一列贴着工具板右边（左边让出的 92 不算进缩放），不被工具板盖住
     const { x: sx, y: sy } = slackRef.current
-    const to = box ? { left: sx + Math.max(0, (box.x - 40) * s), top: sy + Math.max(0, (box.y - 40) * s) } : { left: sx, top: sy }
+    const to = box ? { left: ROOM + sx + (box.x - 40) * s - e.l, top: sy + (box.y - 40) * s - e.t } : { left: sx, top: sy }
     if (z === liveZoom.current) return void ((w.scrollLeft = to.left), (w.scrollTop = to.top))
     pendingScroll.current = to
     liveZoom.current = z
@@ -1153,6 +1179,12 @@ export function DocBoardView(props: DocBoardViewProps) {
   /** 文档里的每一轮，和它在白板上是哪一列（标题行对上） */
   const rounds = useMemo(() => findRounds(text), [text])
   const roundOfCol = (c: DocColumn) => (c.head ? rounds.find((r) => r.head.from === c.head!.from) : undefined)
+  /** 摆在自己位置上的列（'c' + 第几列）、空白处的卡（'u' + 第几张）画在哪个 x：原来按 276 宽摆的、加宽以后叠了的往右推开，不写文件（pushApart）；费曼那一列是软件摆的、按自己的宽画，不算 */
+  const shownX = useMemo(
+    () => pushApart([...board.columns.flatMap((c, ci) => (c.place && !roundOfCol(c) ? [{ id: 'c' + ci, x: c.place.x }] : [])), ...board.placed.map((u, i) => ({ id: 'u' + i, x: u.place!.x }))]),
+    [board, rounds],
+  )
+  const xOf = (u: DocUnit) => shownX.get('u' + board.placed.findIndex((p) => p === u)) ?? u.place?.x ?? 0
   // 费曼「拍成导图」的导图卡：放进材料那张卡所在那一列的末尾（不是费曼那一节）；找不到那张卡就摆在列右边的空白处
   seedWhereRef.current = (near?: string): Where => {
     const head = near?.trim().slice(0, 20)
@@ -1518,18 +1550,19 @@ export function DocBoardView(props: DocBoardViewProps) {
   const manyMenu = (ks: Set<string>): MenuEntry[] => {
     const placed = [...ks].map((k) => byKey.get(k)).filter((u): u is DocUnit => !!u?.place)
     const alignTo = (edgeKey: 'x' | 'y') => {
-      const v = Math.min(...placed.map((u) => u.place![edgeKey]))
+      const v = Math.min(...placed.map((u) => (edgeKey === 'x' ? xOf(u) : u.place!.y)))
       let t = cur.current
       for (const k of ks) {
         const u = [...unitKeys(splitDoc(t))].find(([, x]) => x === k)?.[0]
-        if (u?.place) t = placeUnit(t, u, edgeKey === 'x' ? v : u.place.x, edgeKey === 'y' ? v : u.place.y)
+        const shown = placed.find((p) => keys.get(p) === k)
+        if (u?.place) t = placeUnit(t, u, edgeKey === 'x' ? v : shown ? xOf(shown) : u.place.x, edgeKey === 'y' ? v : u.place.y)
       }
       write(t, edgeKey === 'x' ? tNow('左对齐了：只改了这几行位置') : tNow('顶对齐了：只改了这几行位置'))
     }
     const tidy = () => {
-      const order = [...placed].sort((a, b) => a.place!.y - b.place!.y || a.place!.x - b.place!.x)
+      const order = [...placed].sort((a, b) => a.place!.y - b.place!.y || xOf(a) - xOf(b))
       const perRow = Math.ceil(Math.sqrt(order.length))
-      const x0 = Math.min(...order.map((u) => u.place!.x))
+      const x0 = Math.min(...order.map((u) => xOf(u)))
       let y = Math.min(...order.map((u) => u.place!.y))
       const spots = new Map<string, Pt>()
       for (let r = 0; r * perRow < order.length; r++) {
@@ -1682,7 +1715,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     if (edit?.kind !== 'unit') return null
     const again = findUnitAgain(edit.unit, edit.base, text, board)
     if ('unit' in again) return { unit: again.unit }
-    if (edit.unit.place) return { ghost: { x: edit.unit.place.x, y: edit.unit.place.y } }
+    if (edit.unit.place) return { ghost: { x: shownX.get('u' + board.placed.findIndex((p) => p.place?.id === edit.unit.place!.id)) ?? edit.unit.place.x, y: edit.unit.place.y } }
     // 删掉了：放在原来位置后面那一段前面（同一列），后面没有了就放最后一列的末尾
     const at = again.gone
     for (let ci = 0; ci < board.columns.length; ci++) {
@@ -1743,7 +1776,7 @@ export function DocBoardView(props: DocBoardViewProps) {
     const dragging = drag?.type === 'unit' && drag.moved && (drag.key === key || !!drag.group?.some((g) => g.key === key))
     const editing = editUnit === u
     const side = f.k === 'callout' && f.kind === 'ai' ? sideSpot(u) : undefined
-    const acts: CardActs = { onToggle: (line) => toggle(u, line), onOpen: openTarget, onFull: () => setFull({ unit: u, base: cur.current }), onExpand: () => (setSelected(new Set()), setExpanded(key)), ...(side ? { side } : {}) }
+    const acts: CardActs = { onToggle: (line) => toggle(u, line), onOpen: openTarget, onFull: () => setFull({ unit: u, base: cur.current }), onExpand: () => (setSelected(new Set()), setExpanded(key)), ...(props.readOnly ? {} : { onRenameBase: (folder: string, name: string) => void app().renameFolder(folder, name) }), ...(side ? { side } : {}) }
     const cls =
       `db-card ${u.parts ? 'merged' : faceClass(f)}` +
       (u.kind === 'video' && u.moments && !u.parts ? ' group' : '') +
@@ -1962,7 +1995,7 @@ export function DocBoardView(props: DocBoardViewProps) {
   const placedCols = board.columns.filter((c) => c.place && !roundOfCol(c)).length
   const placedIds = [...board.placed.map((u) => 'u:' + u.place!.id), ...board.columns.flatMap((c) => (c.place && !roundOfCol(c) ? ['c:' + c.place.id] : []))]
   // 白板撑多大：摆在空白处的卡、列都要滚得到
-  const extent = [...board.placed.map((u) => ({ x: u.place!.x + COL_W + 120, y: u.place!.y + 600 })), ...board.columns.filter((c) => c.place).map((c) => ({ x: c.place!.x + COL_W + 120, y: c.place!.y + 800 }))].reduce(
+  const extent = [...board.placed.map((u) => ({ x: xOf(u) + COL_W + 120, y: u.place!.y + 600 })), ...board.columns.flatMap((c, ci) => (c.place ? [{ x: (shownX.get('c' + ci) ?? c.place.x) + COL_W + 120, y: c.place.y + 800 }] : []))].reduce(
     (m, p) => ({ x: Math.max(m.x, p.x), y: Math.max(m.y, p.y) }),
     { x: 0, y: 0 },
   )
@@ -2053,13 +2086,13 @@ export function DocBoardView(props: DocBoardViewProps) {
                 ))}
               </div>
               {/* 摆在自己位置上的列（旧白板转过来的、列头拖到空白处的） */}
-              {board.columns.map((c, ci) => (c.place ? (roundOfCol(c) ? fyColumn(c, { left: c.place.x, top: c.place.y }) : column(c, ci, 0, { position: 'absolute', left: c.place.x, top: c.place.y })) : null))}
+              {board.columns.map((c, ci) => (c.place ? (roundOfCol(c) ? fyColumn(c, { left: c.place.x, top: c.place.y }) : column(c, ci, 0, { position: 'absolute', left: shownX.get('c' + ci) ?? c.place.x, top: c.place.y })) : null))}
               {Fy.pendingOf(props.notePath).map((p) => {
                 const c = p.at ?? ('x' in centerWhere() ? (centerWhere() as Pt) : { x: 0, y: 0 })
                 return <PendingColumn key={p.key} p={p} style={{ left: c.x, top: c.y }} />
               })}
               {covered && coverChip()}
-              {board.placed.map((u) => card(u, -1, { style: { position: 'absolute', left: u.place!.x, top: u.place!.y, width: COL_W } }))}
+              {board.placed.map((u, i) => card(u, -1, { style: { position: 'absolute', left: shownX.get('u' + i) ?? u.place!.x, top: u.place!.y, width: COL_W } }))}
               {slotWhere && !('col' in slotWhere) && (
                 <div style={{ position: 'absolute', left: slotWhere.x, top: slotWhere.y, width: COL_W }}>{draftCard(0)}</div>
               )}
@@ -2080,6 +2113,7 @@ export function DocBoardView(props: DocBoardViewProps) {
                     src={exp.text.replace(/^(```|~~~)base[^\n]*\n/, '').replace(/\n(```|~~~)\s*$/, '')}
                     file={props.notePath}
                     block={Math.max(0, autoBlocks(props.text).findIndex((b) => exp.text.includes(b.src)))}
+                    {...(props.readOnly ? {} : { onRename: (folder: string, name: string) => void app().renameFolder(folder, name) })}
                     write={(next) => {
                       const u = byKey.get(expanded!)
                       if (!u) return
@@ -2316,11 +2350,14 @@ function FullCard(props: {
     return () => window.removeEventListener('keydown', esc, true)
   }, [])
   const f = faceOf(props.unit, props.ctx)
+  /** 表格：浮层按表的自然宽开（最宽 1100），头上「铺满」一下铺满整块白板（128 页） */
+  const table = f.k === 'table' && !editing
+  const [fill, setFill] = useState(false)
   // 节名夹在一句话中间：整句一个模板，按 {sec} 切成前后两段（中间的节名单独截断）
   const where = t('· 在文档「{sec}」里').split('{sec}')
   return (
     <div className="db-full-back" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="db-full" role="dialog" aria-label={t('全文')}>
+      <div className={'db-full' + (table ? ' tbl' : '') + (table && fill ? ' fill' : '')} role="dialog" aria-label={t('全文')}>
         <div className="db-full-hd">
           <Codicon name="preview" size={14} />
           <b>{faceName(f)}</b>
@@ -2331,6 +2368,12 @@ function FullCard(props: {
             <span>{where[1]}</span>
           </span>
           <span className="sp" />
+          {table && (
+            <button type="button" className={'db-pill' + (fill ? ' on' : '')} aria-pressed={fill} onClick={() => setFill((v) => !v)}>
+              <Codicon name={fill ? 'screen-normal' : 'screen-full'} size={13} />
+              {fill ? t('按表宽') : t('铺满')}
+            </button>
+          )}
           {!props.readOnly && !editing && (
             <button type="button" className="db-pill" onClick={() => setEditing(true)}>
               <Codicon name="edit" size={13} />

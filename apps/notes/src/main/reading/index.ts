@@ -200,6 +200,8 @@ export function setupReading(deps: ReadingDeps) {
       return
     }
     if (u.protocol !== 'canvas-notes:' || u.hostname !== 'open') return
+    // MeetCaption 跳过来的（带时间 t= 或哪一场 session=）归 main/meetcaption.ts：打开那一篇、滚到那个时间点
+    if (u.searchParams.has('t') || u.searchParams.has('session')) return
     const file = u.searchParams.get('file') ?? ''
     // 画布今日「打开笔记，到这一行」：canvas-notes://open?file=<笔记>.md&line=<第几行，从 1 数>
     if (/\.md$/i.test(file)) {

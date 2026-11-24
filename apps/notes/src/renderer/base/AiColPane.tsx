@@ -36,6 +36,7 @@ import { composing } from '../ime'
 import { nextPick, valueOf } from '../settings-ai'
 import { aiOpenNow, aiRunOf, aiTableOf, type AiTable, runColumn, setAiOpen, stopColumn, subscribe, useAiCol, wireAiCol } from './ai-col'
 import { AiValue, dropAiColumn, useColEngine } from './ai-cells'
+import { ipcOn } from '../crash/ipc'
 
 const OUT_ICON: Record<AiOutput, string> = Object.fromEntries(AI_OUTPUTS.map((o) => [o.output, o.icon])) as Record<AiOutput, string>
 
@@ -82,7 +83,7 @@ function AiForm(props: { tb: AiTable; col: string | null; def: AiColDef | null; 
   useEffect(() => {
     const load = () => void window.cn.aiEngines().then((r) => setEng({ engines: r.engines, label: r.label, chat: r.chat }))
     load()
-    return window.cn.onAiPrefsChanged(load)
+    return ipcOn(window.cn.onAiPrefsChanged, 'cn.onAiPrefsChanged')(load)
   }, [])
   const output = out ?? guessOutput(prompt)
   const colName = (props.col ?? ((nameTouched && name.trim()) || guessColName(prompt))).replace(/:/g, '：')

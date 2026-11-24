@@ -1,7 +1,8 @@
 /**
  * AI 对话按地方存（D 组 CN-132）的界面这一半：每个地方一份消息，读进来、改了 300 毫秒后存回去（主进程存在 userData/ai/chats/）。
  * 放在模块里不放在组件里：换了页面，正在答的那一轮照样往它自己那个地方的对话里写字，不会写进新的地方。
- * 主进程一次只跑一轮 AI 动手（工具要知道是哪一轮），所以「正在答」是全软件一个，记着是哪个地方的。
+ * 不同地方的对话能同时答（AI 对话同时跑，偏好「AI对话能同时跑」），同一段一次一问；同时答的段数到了上限（设置 › AI，默认 3）就排队，
+ * 前面答完一段自动开始下一段。「正在答」「排着队」「答完了还没看」都记在这里，按地方的 key。
  */
 import { useEffect, useSyncExternalStore } from 'react'
 import type { ChatSide, StoredMsg, ToolStep } from '../shared/agent'
@@ -9,7 +10,9 @@ import type { AiPick } from '@cn/ai-engines/shared'
 import type { Place } from './ai-place'
 import type { NoteTarget } from '../shared/ai-note'
 import type { OlderSummary } from '../shared/ai-chats'
+import { type EngineId, PARALLEL_DEFAULT } from '../shared/agent'
 import { t } from '../shared/i18n'
+import { ipcOn } from './crash/ipc'
 
 /** 存下来的部分 + 只在这次打开时有的（还在生成、按钮） */
 export type Msg = StoredMsg & {
@@ -134,7 +137,11 @@ let listening = false
 function listen() {
   if (listening) return
   listening = true
-  window.cn.onAiEvent((id, e) =>
+  // 同时答几段：设置里改了跟着（多放出来的排着的马上开始）
+  const limitNow = () => void window.cn.aiParallel().then(setLimit)
+  limitNow()
+  ipcOn(window.cn.onAiPrefsChanged, 'cn.onAiPrefsChanged')(limitNow)
+  ipcOn(window.cn.onAiEvent, 'cn.onAiEvent')((id, e) =>
     patch(id, (m) => {
       if (!m.live) return m
       if (e.type === 'text') return { ...m, text: (m.text ?? '') + e.delta }
@@ -194,7 +201,7 @@ export async function shelve(key: string) {
 
 /** 切回收起来的一段：现在这段问过就收起来，那段原样回来（会话号也回来） */
 export async function switchOlder(key: string, id: number) {
-  if (running?.key === key) return
+  if (busyAt(key)) return
   await flush()
   await window.cn.aiChatSwitch(key, id)
   await reload(key)
@@ -220,13 +227,119 @@ export function clear(key: string) {
   void window.cn.aiChatClear(key)
 }
 
-// ---------- 正在答的那一轮（全软件一个） ----------
+// ---------- 正在答的几段、排着队的、答完了还没看的（AI 对话同时跑） ----------
 
-let running: { id: number; key: string; label: string } | null = null
-export const runningNow = () => running
-export function setRunning(r: typeof running) {
-  running = r
+/** 一段对话正在答的那一问：id 是那条回答的编号（停下认它），engine 是谁来答 */
+export interface Running {
+  id: number
+  key: string
+  label: string
+  engine?: EngineId
+}
+/** 地方的 key → 正在答的那一问 */
+const runs = new Map<string, Running>()
+/** 排着队的（先来的在前）：轮到了 go，排着时停下了 cancel */
+const queue: (Running & { go(): void; cancel(): void })[] = []
+let limit = PARALLEL_DEFAULT
+/** 答完了、答完时没在看的那几段（菜单里一个点，看了就去掉） */
+const unseen = new Set<string>()
+/** 右栏 AI 这一格正看着的那段（AiPanel 报；藏起来时 null） */
+let looking: string | null = null
+
+export const runningAt = (key: string): Running | null => runs.get(key) ?? null
+/** 排在第几个（1 起）；没排着是 null */
+export function queuedAt(key: string): { n: number; id: number } | null {
+  const i = queue.findIndex((q) => q.key === key)
+  return i < 0 ? null : { n: i + 1, id: queue[i]!.id }
+}
+/** 这段对话在答或排着队（同一段一次一问） */
+export const busyAt = (key: string) => runs.has(key) || queue.some((q) => q.key === key)
+/** 最早开始答的那一段（「排在第 N 个 · 去看看」去的地方） */
+export const firstRunning = (): Running | null => runs.values().next().value ?? null
+export const unseenAt = (key: string) => unseen.has(key)
+/** 右栏 AI 这一格正看着的那段（没在看是 null） */
+export const lookingAt = () => looking
+/** 排着队是因为同时在答的满了（不满就是在等同一家答完）：满了的上限 */
+export const fullAt = (): number | null => (runs.size >= limit ? limit : null)
+/** 除了 key 这段，还有答完了没看的 */
+export const unseenElsewhere = (key: string) => [...unseen].some((k) => k !== key)
+/** 跟着正在答、排队、没看的变（对话菜单） */
+export function useRuns(): number {
+  return useSyncExternalStore(
+    (cb) => {
+      subs.add(cb)
+      return () => subs.delete(cb)
+    },
+    () => version,
+  )
+}
+
+/** 能不能马上开始：没到上限；Codex、Gemini、OpenCode 一家一个进程（工具认不出是哪一段的），同一家一次一段 */
+function free(r: Running): boolean {
+  if (runs.size >= limit) return false
+  return !r.engine || r.engine === 'claude' || ![...runs.values()].some((x) => x.engine === r.engine)
+}
+
+function start(r: Running) {
+  runs.set(r.key, r)
+  unseen.delete(r.key)
+}
+
+/** 这段对话开始答一问：没到上限马上开始；到了就排队，轮到了才返回 true，排着时停下了返回 false */
+export function begin(r: Running): Promise<boolean> {
+  if (busyAt(r.key)) return Promise.resolve(false)
+  if (!queue.length && free(r)) {
+    start(r)
+    emit()
+    return Promise.resolve(true)
+  }
+  return new Promise((done) => {
+    queue.push({ ...r, go: () => done(true), cancel: () => done(false) })
+    emit()
+  })
+}
+
+/** 排着的按先后看：能开始的开始（前面那段要等同一家时，后面别家的先开始） */
+function pump() {
+  for (let i = 0; i < queue.length; ) {
+    const w = queue[i]!
+    if (!free(w)) {
+      i++
+      continue
+    }
+    queue.splice(i, 1)
+    start(w)
+    w.go()
+  }
   emit()
+}
+
+/** 这段答完了（出错、停下也算）：答完时没在看它就记一个点；排着的下一段开始 */
+export function end(key: string) {
+  if (!runs.delete(key)) return
+  if (looking !== key) unseen.add(key)
+  pump()
+}
+
+/** 排着队时按了停下：不排了 */
+export function cancelQueued(key: string): boolean {
+  const i = queue.findIndex((q) => q.key === key)
+  if (i < 0) return false
+  const [w] = queue.splice(i, 1)
+  w!.cancel()
+  pump()
+  return true
+}
+
+export function setLimit(n: number) {
+  limit = n
+  pump()
+}
+
+/** 右栏 AI 这一格正看着这段（null 是没在看）：看了就去掉它的点 */
+export function setLooking(key: string | null) {
+  looking = key
+  if (key && unseen.delete(key)) emit()
 }
 
 // ---------- 旁支（task-4edsc，方向 A「就地展开」）：跟着这个地方的对话存；开着哪一条、刚收起哪一条只在这次打开时有 ----------

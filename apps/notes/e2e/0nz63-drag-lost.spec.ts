@@ -77,7 +77,8 @@ test('白板：拖一张卡、空白处框选、中键平移，松手都丢在�
     await m.drag(f3.x + 80, f3.y + 40, 4)
     await m.drag(f3.x + 160, f3.y + 120, 10)
     await expect(card('f3')).toHaveClass(/\bdragging\b/)
-    await m.lost(f3.x + 400, f3.y + 300)
+    // 鼠标回到窗口里的哪一点（列 400 以后 f3 更靠右，+400 会落在 1440 宽的窗口外，收不到移动）
+    await m.lost(Math.min(f3.x + 400, 1400), f3.y + 300)
     await expect(card('f3')).not.toHaveClass(/\bdragging\b/)
     await m.move(f3.x + 250, f3.y + 200, 4)
     await settle(page)

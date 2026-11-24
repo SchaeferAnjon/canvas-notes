@@ -70,6 +70,7 @@ export function AiHead(props: {
   older?: OlderChat[]
 }) {
   const t = useT()
+  C.useRuns()
   const [open, setOpen] = useState(false)
   // 对话菜单：点胶囊和菜单以外任何地方、按 Esc、窗口失焦都收起，再点胶囊是收起不是重开（CN-88）
   const box = useRef<HTMLDivElement>(null)
@@ -80,6 +81,7 @@ export function AiHead(props: {
         <button key={props.nav.joined ?? 0} className={'conv' + (open ? ' open' : '') + (props.nav.joined ? ' joined' : '')} data-testid="ai-conv" aria-label={t('对话：{name}', { name: props.label })} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
           <Codicon name="comment-discussion" size={13} className="ic" />
           <span className="t">{props.label}</span>
+          {C.unseenElsewhere(props.nav.away?.key ?? props.nav.here.key) && <span className="rm dot" data-testid="ai-conv-dot" title={t('别的对话答完了，还没看')} />}
           <Codicon name="chevron-down" size={12} className="cv" />
         </button>
         {open && <ConvMenu nav={props.nav} older={props.older ?? []} close={() => setOpen(false)} />}
@@ -91,6 +93,29 @@ export function AiHead(props: {
       </span>
     </div>
   )
+}
+
+/**
+ * 对话菜单、全部对话里一段的状态（AI 对话同时跑）：正在答一个小转圈，排着队「排第 N」，答完了还没看一个点（看了就没了）
+ */
+function RunMark(props: { k: string }) {
+  const t = useT()
+  C.useRuns()
+  if (C.runningAt(props.k))
+    return (
+      <span className="rm" data-testid="ai-run-spin" title={t('正在答')}>
+        <Codicon name="loading" size={12} className="spin" />
+      </span>
+    )
+  const q = C.queuedAt(props.k)
+  if (q)
+    return (
+      <span className="rm q" data-testid="ai-run-queue">
+        {t('排第 {n}', { n: q.n })}
+      </span>
+    )
+  if (C.unseenAt(props.k)) return <span className="rm dot" data-testid="ai-run-dot" title={t('答完了，还没看')} />
+  return null
 }
 
 /** 「这里」先列几段、「最近在别处问的」列几页（全部在「全部对话…」里） */
@@ -206,6 +231,7 @@ function ConvMenu(props: { nav: DockNav; older: OlderChat[]; close(): void }) {
       >
         <span className="ck">{on && <Codicon name="check" size={12} />}</span>
         <span className="lb">{r.first || r.label}</span>
+        {r.id === undefined && <RunMark k={r.key} />}
         <span className="r">{sub ? timeOf(r.at) : [timeOf(r.at), t('{n}问', { n: r.asks })].filter(Boolean).join(' · ')}</span>
       </button>
     )
@@ -221,6 +247,7 @@ function ConvMenu(props: { nav: DockNav; older: OlderChat[]; close(): void }) {
         <button className="it" role="menuitemradio" aria-checked={!away} data-testid="ai-convo" onClick={() => go({ key: here.key, label: here.label })}>
           <span className="ck">{!away && <Codicon name="check" size={12} />}</span>
           <span className="lb">{here.label}</span>
+          <RunMark k={here.key} />
           <span className="r">{hereAsks ? t('{n}问', { n: hereAsks }) : mine.length ? t('新对话') : t('还没问过')}</span>
         </button>
       )}
@@ -245,6 +272,10 @@ function ConvMenu(props: { nav: DockNav; older: OlderChat[]; close(): void }) {
                     <span className="ck">{on && <Codicon name="check" size={12} />}</span>
                     <span className="lb">{g.name}</span>
                     {g.path && <span className="path">{g.path}</span>}
+                    {(() => {
+                      const live = g.rows.find((r) => r.id === undefined && (C.busyAt(r.key) || C.unseenAt(r.key)))
+                      return live ? <RunMark k={live.key} /> : null
+                    })()}
                     <span className="r">{[t('{n} 段', { n }), timeOf(g.rows[0]!.at)].filter(Boolean).join(' · ')}</span>
                   </button>
                   <button className={'fold' + (open === g.key ? ' open' : '')} aria-label={t('展开《{name}》的几段', { name: g.name })} aria-expanded={open === g.key} onClick={() => setOpen((x) => (x === g.key ? null : g.key))}>
@@ -312,6 +343,7 @@ function AllConvos(props: { rows: ConvoRow[]; groups: PageGroup[]; shown: { key:
                 <button key={`${r.key}#${r.id ?? ''}`} className="it sub" role="menuitemradio" aria-checked={on} data-testid="ai-all-row" onClick={() => props.onPick(r)}>
                   <span className="ck">{on && <Codicon name="check" size={12} />}</span>
                   <span className="lb">{r.first || r.label}</span>
+                  {r.id === undefined && <RunMark k={r.key} />}
                   <span className="r">{when(r.at, { time: true })}</span>
                 </button>
               )

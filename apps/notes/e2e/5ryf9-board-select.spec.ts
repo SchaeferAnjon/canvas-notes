@@ -114,7 +114,8 @@ test('空白处拖出框：碰到的都选上，浮出操作条（照原型的�
     await expect.poll(() => selIds(page)).toEqual(['f1', 'f2', 'f3'])
 
     // ⇧ 拖：在选着的上面再加（框 f5）
-    await card(page, 'f5').scrollIntoViewIfNeeded()
+    // 滚到正中（列 400 以后只「滚到看得见」时 f5 贴着白板左边，左上方那块空白落在左栏上）
+    await card(page, 'f5').evaluate((e) => e.scrollIntoView({ block: 'center', inline: 'center' }))
     const e5 = await box(page, 'f5')
     // 从 f5 左上方的空白（f3 和 f5 之间）拖进 f5
     await marquee(page, { x: e5.x - 20, y: e5.y - 16 }, { x: e5.x + 40, y: e5.y + 20 }, { shift: true })

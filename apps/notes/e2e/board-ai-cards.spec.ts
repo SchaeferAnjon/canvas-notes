@@ -139,10 +139,10 @@ for (const width of [1440, 1280]) {
         return edges(page, name)
       }
       const e1 = await settled('这周要讲的')
-      expect(e1.cut).toBe(false)
+      expect(e1.cut, JSON.stringify(e1)).toBe(false)
       expect(e1.col!.left).toBeGreaterThanOrEqual(e1.pal)
       expect(e1.col!.right).toBeLessThanOrEqual(e1.right)
-      expect(Math.abs(e1.gap - gap0)).toBeLessThanOrEqual(1)
+      expect(Math.abs(e1.gap - gap0), JSON.stringify({ e0, e1 })).toBeLessThanOrEqual(1)
       await expect(ai(page).getByTestId('ai-msg').last()).toContainText('写好了', { timeout: 20_000 })
       await expect(board(page).getByTestId('ai-act')).toHaveCount(0, { timeout: 10_000 })
       await expect.poll(() => page.evaluate(() => (CSS as unknown as { highlights: Map<string, unknown> }).highlights.has('cn-ai-grow')), { timeout: 8000 }).toBe(false)

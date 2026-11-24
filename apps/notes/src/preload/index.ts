@@ -19,6 +19,7 @@ import { todoApi, whenApi } from './todo'
 import { familyApi } from './family'
 import { mcpApi } from './mcp'
 import { calApi } from './calendar'
+import { mcApi } from './meetcaption'
 import { mobileAiApi } from './mobile-ai'
 import { crashApi } from './crash'
 import { voiceApi } from './voice'
@@ -240,6 +241,8 @@ const api: CnApi = {
   aiCliUpdate: (id) => ipcRenderer.invoke('ai:cli:update', id),
   aiSetEngine: (id) => ipcRenderer.invoke('ai:engine:set', id),
   aiSetOmni: (on) => ipcRenderer.invoke('ai:omni:set', on),
+  aiParallel: () => ipcRenderer.invoke('ai:parallel'),
+  aiSetParallel: (n) => ipcRenderer.invoke('ai:parallel:set', n),
   aiPrompt: () => ipcRenderer.invoke('ai:prompt'),
   aiSetPrompt: (text) => ipcRenderer.invoke('ai:prompt:set', text),
   aiSetChatPick: (pick) => ipcRenderer.invoke('ai:chat:set', pick),
@@ -350,6 +353,7 @@ contextBridge.exposeInMainWorld('cnFeynman', feynmanApi)
 contextBridge.exposeInMainWorld('cnFamily', familyApi)
 contextBridge.exposeInMainWorld('cnMcp', mcpApi)
 contextBridge.exposeInMainWorld('cnCal', calApi)
+contextBridge.exposeInMainWorld('cnMc', mcApi)
 contextBridge.exposeInMainWorld('cnMobileAi', mobileAiApi)
 contextBridge.exposeInMainWorld('cnAttach', {
   of: (note, shared) => ipcRenderer.invoke('attach:of', note, shared),

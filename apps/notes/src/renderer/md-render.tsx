@@ -66,8 +66,13 @@ export function Attached({ wr, children, hooked, clamp }: { wr: boolean; childre
  * math：公式用 KaTeX 排（CN-89；task-o48fa 起白板卡片、文档切成的白板也排，默认开）：哪段算公式和文档编辑器同一个认法
  * （@cn/format 的 inlineMath / mathBlockAt：行内 $…$、\(…\)，单独成行的 $$…$$、\[…\]；「$5 和 $10」这样的钱数、代码里的不算）
  */
-export function Markdown(p: { text: string; math?: boolean; cites?: CiteScope }) {
-  return p.cites ? <CitedMarkdown {...p} cites={p.cites} /> : <MarkdownBody text={p.text} math={p.math ?? true} />
+/**
+ * img：给了就把图真画出来（导出 PDF 时，export-doc.tsx）：笔记里写的地址（embed：![[图.png]] 里写的名字）→ 能显示的地址；
+ * 不给时正文里的图只留说明文字（卡片里放大图会把卡片撑得很长）
+ */
+export type ImgSrc = (url: string, embed: boolean) => string
+export function Markdown(p: { text: string; math?: boolean; cites?: CiteScope; img?: ImgSrc }) {
+  return p.cites ? <CitedMarkdown {...p} cites={p.cites} /> : <MarkdownBody text={p.text} math={p.math ?? true} {...(p.img ? { img: p.img } : {})} />
 }
 
 /**
@@ -84,14 +89,19 @@ function CitedMarkdown(p: { text: string; math?: boolean; cites: CiteScope }) {
 
 /** 正在画的这条回答认链接用的（MarkdownBody 画的时候放上、画完拿掉；inline 同步调，读得到）；标题、折叠块的头里不认 */
 let auto: { run: CiteRun; conv: string } | null = null
+/** 正在画的这一段要不要画图（同 auto：画的时候放上、画完拿掉） */
+let imgSrc: ImgSrc | null = null
 
-function MarkdownBody(p: { text: string; math: boolean; cites?: CiteScope; auto?: { run: CiteRun; conv: string } }) {
+function MarkdownBody(p: { text: string; math: boolean; cites?: CiteScope; auto?: { run: CiteRun; conv: string }; img?: ImgSrc }) {
   const outer = auto
+  const outerImg = imgSrc
   auto = p.auto ?? null
+  imgSrc = p.img ?? null
   try {
     return markdownBody(p.text, p.math, p.cites)
   } finally {
     auto = outer
+    imgSrc = outerImg
   }
 }
 
@@ -109,6 +119,8 @@ function bare<T>(f: () => T): T {
 function markdownBody(text: string, math: boolean, cites: CiteScope | undefined) {
   const lines = text.replace(/\r\n/g, '\n').split('\n')
   const out: ReactNode[] = []
+  // 套在里面的折叠块、提示块（另画一个 <Markdown>）也照样画图
+  const nested = imgSrc ? { img: imgSrc } : {}
   let i = 0
   const key = () => out.length
   /** 最后一块引文（或者挂在引文下面的评价）在 out 里的位置：紧跟着它、以标签开头的一段挂上去，画弯钩 */
@@ -165,7 +177,7 @@ function markdownBody(text: string, math: boolean, cites: CiteScope | undefined)
             <Codicon name="chevron-right" size={14} />
             <span>{bare(() => inline(det.title, key(), math))}</span>
           </summary>
-          <Markdown text={lines.slice(i + det.lines, close).join('\n')} math={math} {...(cites ? { cites } : {})} />
+          <Markdown text={lines.slice(i + det.lines, close).join('\n')} math={math} {...(cites ? { cites } : {})} {...nested} />
         </details>,
       )
       i = close + 1
@@ -192,7 +204,7 @@ function markdownBody(text: string, math: boolean, cites: CiteScope | undefined)
                 <span className="md-callout-name">{title}</span>
               )}
             </div>
-            {body.length > 1 && <Markdown text={body.slice(1).join('\n')} math={math} {...(cites ? { cites } : {})} />}
+            {body.length > 1 && <Markdown text={body.slice(1).join('\n')} math={math} {...(cites ? { cites } : {})} {...nested} />}
           </div>,
         )
         continue
@@ -376,6 +388,15 @@ export function inline(s: string, keyBase: string | number = '', math = true): R
       p = f.to
       continue
     }
+    // ![[图.png]]、![[图.png|300]]：要画图时（导出 PDF）画成图
+    const embed = imgSrc && s.startsWith('![[', p) ? /^!\[\[([^\]|\n#]+\.(?:png|jpe?g|gif|webp|svg|avif|bmp|heic))(?:\|([^\]\n]*))?\]\]/i.exec(s.slice(p)) : null
+    if (embed) {
+      flush()
+      const w = /^\d+$/.test(embed[2] ?? '') ? Number(embed[2]) : undefined
+      out.push(<img key={key} className="md-img" src={imgSrc!(embed[1]!.trim(), true)} alt={w ? '' : (embed[2] ?? '')} {...(w ? { width: w } : {})} />)
+      p += embed[0].length
+      continue
+    }
     INLINE.lastIndex = p
     const m = INLINE.exec(s)
     const t = m?.[0]
@@ -387,7 +408,8 @@ export function inline(s: string, keyBase: string | number = '', math = true): R
     }
     flush()
     // 正文中间的图片只留说明文字：卡片里放大图会把卡片撑得很长
-    if (t.startsWith('![')) out.push(<span key={key} className="img-alt">{t.slice(2, t.indexOf(']')) || tNow('图片')}</span>)
+    if (t.startsWith('![') && imgSrc) out.push(<img key={key} className="md-img" src={imgSrc(linkHref(t), false)} alt={t.slice(2, t.indexOf(']'))} />)
+    else if (t.startsWith('![')) out.push(<span key={key} className="img-alt">{t.slice(2, t.indexOf(']')) || tNow('图片')}</span>)
     // 加粗里面的公式、代码照常排
     else if (t.startsWith('**')) out.push(<b key={key}>{inline(t.slice(2, -2), key, math)}</b>)
     // 高亮、删除线：和文档里（live-preview 的 cm-hl、cm-strike）一个样子

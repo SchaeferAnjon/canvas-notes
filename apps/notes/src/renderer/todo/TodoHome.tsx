@@ -11,7 +11,7 @@ import '@cn/calendar/calendar.css'
 import { Codicon } from '@cn/design'
 import { addDays, diffDays, parseQuick, weekday } from '@cn/tasks'
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { byFolder, byWhen, dayName, INBOX_TODO, isOpen, listed, type TodoItem, todoLabel } from '../../shared/todo'
+import { byDone, byFolder, byWhen, dayName, INBOX_TODO, isOpen, listed, type TodoItem, todoLabel } from '../../shared/todo'
 import { app } from '../ctx/actions'
 import { FolderGlyph } from '../files/look'
 import { useLang, useT } from '../i18n'
@@ -108,7 +108,7 @@ function dayLabel(d: string, today: string, lang: 'zh' | 'en', t: (k: string) =>
 export function TodoHome(props: { active: boolean }) {
   const t = useT()
   const lang = useLang()
-  const { items, keep, flash } = useTodos()
+  const { items, just, flash } = useTodos()
   const today = useToday()
   const owner = useOwner()
   const installed = useTodayInstalled()
@@ -178,7 +178,8 @@ export function TodoHome(props: { active: boolean }) {
     return () => clearTimeout(tm)
   }, [focus])
 
-  const live = useMemo(() => items.filter((x) => listed(x) && (isOpen(x) || (x.done && keep.has(x.key)))), [items, keep])
+  // 刚勾掉的 2 秒里原处一行「已完成 · 撤回」，过了进下面「已完成」
+  const live = useMemo(() => items.filter((x) => listed(x) && (isOpen(x) || (x.done && just.has(x.key)))), [items, just])
   const calItems = useMemo((): CalItem[] => items.filter((x) => isOpen(x) && listed(x) && x.date).map((x) => ({ key: x.key, title: x.title, date: x.date!, time: x.time })), [items])
 
   const n = todayCount(items, today)
@@ -219,8 +220,8 @@ export function TodoHome(props: { active: boolean }) {
       return [d, live.filter((x) => x.date === d).sort(byWhen)] as const
     })
     const rest = live.filter((x) => x.date === null || diffDays(x.date, today) > 7)
-    const folders = byFolder(rest, new Set(items.map((x) => x.path)), keep).map((g) => ({ ...g, items: [...g.items].sort(byWhen) }))
-    const done = items.filter((x) => listed(x) && x.done && !keep.has(x.key)).sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)
+    const folders = byFolder(rest, new Set(items.map((x) => x.path)), just).map((g) => ({ ...g, items: [...g.items].sort(byWhen) }))
+    const done = items.filter((x) => listed(x) && x.done && !just.has(x.key)).sort(byDone)
     body = (
       <>
         <section className="tdh-sec" data-part="今天组">
@@ -233,7 +234,7 @@ export function TodoHome(props: { active: boolean }) {
             <>
               <div className="td-sub red">
                 {t('过期')}
-                <span className="n num">{ov.length}</span>
+                <span className="n num">{ov.filter((x) => !x.done).length}</span>
               </div>
               {ov.map((x) => row(x, { place: true }))}
             </>
@@ -243,7 +244,7 @@ export function TodoHome(props: { active: boolean }) {
               {ov.length > 0 && (
                 <div className="td-sub" data-drop={`date:${today}`}>
                   {t('今天')}
-                  <span className="n num">{td.length}</span>
+                  <span className="n num">{td.filter((x) => !x.done).length}</span>
                 </div>
               )}
               {td.map((x) => row(x, { place: true, onlyTime: true }))}
@@ -261,7 +262,7 @@ export function TodoHome(props: { active: boolean }) {
               <Fragment key={d}>
                 <div className="td-sub" data-drop={`date:${d}`}>
                   {dayLabel(d, today, lang, t)}
-                  <span className="n num">{g.length}</span>
+                  <span className="n num">{g.filter((x) => !x.done).length}</span>
                 </div>
                 {g.map((x) => row(x, { place: true }))}
               </Fragment>
@@ -281,7 +282,7 @@ export function TodoHome(props: { active: boolean }) {
                 <div className="td-sub tdh-fsub">
                   <FolderGlyph folder={g.folder} size={12} mono />
                   {g.name}
-                  <span className="n num">{g.items.length}</span>
+                  <span className="n num">{g.items.filter((x) => !x.done).length}</span>
                   {g.todo && (
                     <button className="td-link tdh-open" onClick={() => app().openFile(g.todo!)}>
                       {t('打开 {name} ›', { name: todoLabel(g.todo) })}
@@ -299,7 +300,7 @@ export function TodoHome(props: { active: boolean }) {
               <Codicon name={doneOpen ? 'chevron-down' : 'chevron-right'} size={12} />
               {t('已完成')}
               <span className="num">{done.length}</span>
-              <span className="note">{t('· 勾掉的留在原来那行，写上哪天做完')}</span>
+              <span className="note">{t('· 勾掉的留在原来那行，写上哪天做完；最近勾的在上')}</span>
             </button>
             {doneOpen && done.map((x) => row(x, { place: true }))}
           </>

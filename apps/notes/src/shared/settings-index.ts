@@ -134,6 +134,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'fTrans', pg: 'ai', grp: '各功能用哪个', label: '翻译', desc: '网页和视频字幕的双语翻译', kw: '翻译 双语' },
   { id: 'fQuick', pg: 'ai', grp: '各功能用哪个', label: '小活', desc: '视频摘要、起名、插件里的快问', kw: '小活 摘要 起名' },
   { id: 'omni', pg: 'ai', grp: '能动手到哪', label: '全能模式', desc: '开着能读写这台Mac上的文件、跑命令、上网；关着只在库里新建、改名、挪、删笔记。AI输入框下面那颗是同一个开关', kw: '全能 权限 命令 读写' },
+  { id: 'parallel', pg: 'ai', grp: '能动手到哪', label: '同时答几段对话', desc: '不同页面的AI对话能同时答，多出来的排队，前面答完自动开始', kw: '同时 并发 排队 并行 几段' },
   { id: 'prompt', pg: 'ai', grp: '能动手到哪', label: '给AI的长期说明', desc: '每次对话都带上，比如「回答用中文、先说结论」', kw: '提示词 prompt 说明 指令 系统提示' },
   // 回答里的链接（task-3e53q，cite-names.tsx）：AI 没写成链接的笔记名也认，能关；不认的名字
   { id: 'citeNames', pg: 'ai', grp: '回答里的链接', label: '回答里提到的笔记名自动认成链接', desc: '只认库里只有一篇、AI这一轮读过或加了书名号的名字', kw: '链接 引用 名字 自动 认 笔记名 cite' },

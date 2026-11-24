@@ -6,6 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { type CenterKind, setVideoTestOrigin, videoOf } from '../../shared/video'
 import { DEFAULT_VIDEO_SETTINGS, type PlayTick, type VideoSettings, type VideoState } from '../../shared/video-api'
 import type { NoteDoc } from '../note-doc'
+import { ipcOn } from '../crash/ipc'
 
 // 端到端测试时本机的假视频站当成 YouTube
 setVideoTestOrigin(globalThis.window?.cnVideo?.testOrigin ?? null)
@@ -37,16 +38,16 @@ let started = false
 function start() {
   if (started || !window.cnVideo) return
   started = true
-  window.cnVideo.onState((wcId, st) => {
+  ipcOn(window.cnVideo.onState, 'cnVideo.onState')((wcId, st) => {
     const m = new Map(states.get())
     if (st) m.set(wcId, st)
     else m.delete(wcId)
     states.set(m)
   })
   void window.cnVideo.settings().then(settings.set)
-  window.cnVideo.onSettings(settings.set)
+  ipcOn(window.cnVideo.onSettings, 'cnVideo.onSettings')(settings.set)
   // 主进程这边后台做完的事（生成字幕后补上了几处时刻）：中间栏底部提示一句
-  window.cnVideo.onNotice((text) => center.get()?.notice(text))
+  ipcOn(window.cnVideo.onNotice, 'cnVideo.onNotice')((text) => center.get()?.notice(text))
 }
 
 export function useVideoState(wcId: number | undefined): VideoState | null {

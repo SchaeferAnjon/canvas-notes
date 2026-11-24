@@ -10,6 +10,7 @@ import { updateError, updateLine } from '../shared/update'
 import appIcon from './assets/app-icon.png'
 import { Toggle } from './Settings'
 import { useT } from './i18n'
+import { ipcOn } from './crash/ipc'
 
 /** 主线推来的更新状态；一打开就先拿一次（设置秒开，不等网络） */
 export function useUpdateState(): UpdateState | null {
@@ -17,7 +18,7 @@ export function useUpdateState(): UpdateState | null {
   useEffect(() => {
     let live = true
     void window.cn.updateStatus().then((s) => live && setSt(s))
-    const off = window.cn.onUpdateState(setSt)
+    const off = ipcOn(window.cn.onUpdateState, 'cn.onUpdateState')(setSt)
     return () => {
       live = false
       off()

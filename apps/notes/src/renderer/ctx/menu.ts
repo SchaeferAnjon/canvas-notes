@@ -11,7 +11,8 @@ import { aiLogoNow, type LogoEngine, logoPng } from '../engine-logo'
 
 export type MenuEntry =
   /** ai：交给 AI 引擎跑的这一项，左边画跑它的那一家的标志（偏好「AI 图标用引擎标志」） */
-  | { label: string; run(): unknown; enabled?: boolean; checked?: boolean; accel?: string; ai?: AiJob }
+  /** tip：悬停说的一句（灰掉的项说为什么） */
+  | { label: string; run(): unknown; enabled?: boolean; checked?: boolean; accel?: string; ai?: AiJob; tip?: string }
   | { label: string; submenu: MenuEntry[]; enabled?: boolean }
   | { edit: EditCmd; enabled?: boolean }
   | { spell: string }
@@ -47,7 +48,7 @@ export function compile(entries: MenuEntry[], runs = new Map<string, () => unkno
     runs.set(id, e.run)
     const logo = e.ai ? aiLogoNow(e.ai) : null
     const icon = logo ? icons.get(logo) : undefined
-    items.push({ id, label: e.label, ...(e.enabled === false ? { enabled: false } : {}), ...(e.checked !== undefined ? { checked: e.checked } : {}), ...(e.accel ? { accel: e.accel } : {}), ...(icon ? { icon } : {}) })
+    items.push({ id, label: e.label, ...(e.enabled === false ? { enabled: false } : {}), ...(e.checked !== undefined ? { checked: e.checked } : {}), ...(e.accel ? { accel: e.accel } : {}), ...(icon ? { icon } : {}), ...(e.tip ? { tip: e.tip } : {}) })
   })
   return { items, runs }
 }

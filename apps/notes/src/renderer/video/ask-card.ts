@@ -18,6 +18,7 @@ import { videoParent } from './note-parent'
 import { centerNow, clearBox, videoHost, videoStateOf } from './store'
 import { noteSwitchNow } from '../ai-note-switch'
 import * as Reading from '../reading/store'
+import { ipcOn } from '../crash/ipc'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -111,7 +112,7 @@ let listening = false
 function listen() {
   if (listening || !window.cnVideo) return
   listening = true
-  window.cnVideo.onAskText((card, text) => {
+  ipcOn(window.cnVideo.onAskText, 'cnVideo.onAskText')((card, text) => {
     const c = state
     if (!c || c.card !== card) return
     const i = c.turns.length - 1

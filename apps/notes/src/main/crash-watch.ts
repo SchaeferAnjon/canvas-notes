@@ -23,6 +23,39 @@ export function setupCrashLog(log: RollingLog, mainWin: () => BrowserWindow | nu
   })
 }
 
+/**
+ * 界面调主进程（ipcMain.handle）出的系统错（读写文件、开进程这类带 syscall 的：EACCES、ENOSPC…）记进 main.log：
+ * 哪个调用、完整的报错（带完整路径）、调用栈。界面那边只看到一句话、底栏还可能截短（拖进只读文件，用户 0.5.11）。
+ * 「参数不对」这种自己抛给界面看的话不记。要在注册任何 handle 之前调
+ */
+export function logIpcErrors(log: RollingLog) {
+  const handle = ipcMain.handle.bind(ipcMain)
+  ipcMain.handle = (channel, listener) =>
+    handle(channel, async (e, ...args) => {
+      try {
+        return await listener(e, ...args)
+      } catch (err) {
+        if (isSystemError(err)) log.write('ipc-error', `${channel}：${ipcErrorText(err)}`)
+        throw err
+      }
+    })
+}
+
+export function isSystemError(err: unknown): err is NodeJS.ErrnoException {
+  const o = err as NodeJS.ErrnoException | null
+  return !!o && typeof o === 'object' && typeof o.code === 'string' && typeof o.syscall === 'string'
+}
+
+/** 一条：报错原文（带路径），再是堆栈（第一行和原文重复的去掉） */
+export function ipcErrorText(err: NodeJS.ErrnoException & { dest?: string }): string {
+  const lines = [err.message]
+  if (err.path && !err.message.includes(err.path)) lines.push(`路径：${err.path}`)
+  if (err.dest && !err.message.includes(err.dest)) lines.push(`到：${err.dest}`)
+  const frames = (err.stack ?? '').split('\n').filter((l) => /^\s+at /.test(l))
+  lines.push(frames.length ? frames.map((l) => l.trim()).join('\n') : '（没有调用栈）')
+  return lines.join('\n')
+}
+
 /** 菜单「帮助 › 打开日志文件夹」：还没出过错时文件夹也先建好 */
 export async function revealLogs(log: RollingLog) {
   mkdirSync(log.dir, { recursive: true })

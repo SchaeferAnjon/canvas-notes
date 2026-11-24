@@ -73,6 +73,8 @@ export function StatusBar(props: {
   const [pop, setPop] = useState<{ kind: 'changes' | 'jobs' | 'sync'; el: HTMLElement } | null>(null)
   const autoSyncMinutes = usePrefs((s) => s.sync.autoMinutes)
   const changed = git?.changes.length ?? 0
+  /** 同步途中：这里点的，或库正在 rebase / merge（自动同步、终端里的）：写「正在同步」，提交、同步先不让点 */
+  const syncing = busy === 'sync' || !!git?.busy
   const unsaved = props.unsaved ?? []
 
   async function run(kind: 'commit' | 'sync', f: () => Promise<void>) {
@@ -84,15 +86,15 @@ export function StatusBar(props: {
     }
   }
   const commitBtn = (cls: string) => (
-    <button className={cls} onClick={() => void run('commit', props.onCommit)} disabled={!changed || busy !== null} data-tip={t('现在提交')} data-side="above">
+    <button className={cls} onClick={() => void run('commit', props.onCommit)} disabled={!changed || busy !== null || !!git?.busy} data-tip={t('现在提交')} data-side="above">
       <Codicon name="git-commit" size={14} />
       {busy === 'commit' ? t('正在提交') : t('提交')}
     </button>
   )
   const syncBtn = (cls: string) => (
-    <button className={cls} onClick={() => void run('sync', props.onSync)} disabled={busy !== null} data-tip={t('和远端同步')} data-side="above">
-      <Codicon name="sync" size={14} className={busy === 'sync' ? 'spin' : ''} />
-      {busy === 'sync' ? t('正在同步') : t('同步')}
+    <button className={cls} onClick={() => void run('sync', props.onSync)} disabled={busy !== null || !!git?.busy} data-tip={t('和远端同步')} data-side="above">
+      <Codicon name="sync" size={14} className={syncing ? 'spin' : ''} />
+      {syncing ? t('正在同步') : t('同步')}
     </button>
   )
   /** 自动同步开着时下次的时间（设置 › Git和同步） */
@@ -126,10 +128,10 @@ export function StatusBar(props: {
       )}
       {frame === 'a' && commitBtn('bi')}
       {frame === 'a' && (
-        <button className="bi" data-testid="sync-btn" disabled={busy !== null} data-tip={t('和远端同步')} data-side="above" onClick={(e) => setPop(pop?.kind === 'sync' ? null : { kind: 'sync', el: e.currentTarget })}>
-          <Codicon name="sync" size={14} className={busy === 'sync' ? 'spin' : ''} />
-          {busy === 'sync' ? t('正在同步') : t('同步')}
-          {next && busy !== 'sync' && <span className="nxt">· {next}</span>}
+        <button className="bi" data-testid="sync-btn" disabled={busy !== null || !!git?.busy} data-tip={t('和远端同步')} data-side="above" onClick={(e) => setPop(pop?.kind === 'sync' ? null : { kind: 'sync', el: e.currentTarget })}>
+          <Codicon name="sync" size={14} className={syncing ? 'spin' : ''} />
+          {syncing ? t('正在同步') : t('同步')}
+          {next && !syncing && <span className="nxt">· {next}</span>}
         </button>
       )}
       {frame === 'a' &&

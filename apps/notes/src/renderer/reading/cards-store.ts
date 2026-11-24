@@ -4,6 +4,7 @@
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { CardScope, CardsView } from '../../shared/reading'
+import { ipcOn } from '../crash/ipc'
 
 const subs = new Set<() => void>()
 const emit = () => subs.forEach((f) => f())
@@ -65,7 +66,7 @@ export function useCardsView(scope: CardScope | null): CardsView | null {
         (e) => console.error('读问过的几问没成功', e),
       )
     load()
-    const off = window.cn.onFilesChanged(load)
+    const off = ipcOn(window.cn.onFilesChanged, 'cn.onFilesChanged')(load)
     return () => {
       stale = true
       off()

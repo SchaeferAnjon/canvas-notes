@@ -32,14 +32,15 @@ async function shot(run: Running, name: string) {
   writeFileSync(join(SHOTS, `${name}-${tone}.png`), Buffer.from(b64, 'base64'))
 }
 
-const crash = (page: Page, area: string, on = true) => page.evaluate(([a, o]) => (window as unknown as { cnTestCrash(a: string, o: boolean): void }).cnTestCrash(a as string, o as boolean), [area, on] as const)
+const crash = (page: Page, area: string, on: boolean | 'loop' = true) =>
+  page.evaluate(([a, o]) => (window as unknown as { cnTestCrash(a: string, o: boolean | 'loop'): void }).cnTestCrash(a as string, o as boolean | 'loop'), [area, on] as const)
 const logText = (run: Running) => {
   const f = join(run.userData, 'logs', 'main.log')
   return existsSync(f) ? readFileSync(f, 'utf8') : ''
 }
 const card = (page: Page, area: string) => page.locator(`[data-testid="panel-crash"][data-area="${area}"]`)
 
-test('右栏 AI 渲染出错：只那一格换成出错卡，左栏、文档照常，打的字存上盘；重新打开就好；日志里有这条', async () => {
+test('右栏 AI 渲染出错：只那一格换成出错卡，左栏、文档照常，打的字存上盘；重新加载这一块就好；日志里有这条', async () => {
   const run = await launch(FILES, {}, look)
   const { page, vault } = run
   try {
@@ -51,7 +52,7 @@ test('右栏 AI 渲染出错：只那一格换成出错卡，左栏、文档照�
     const ai = card(page, 'ai')
     await expect(ai).toBeVisible()
     await expect(ai).toContainText('这一块出错了')
-    await expect(ai.getByRole('button', { name: '重新打开' })).toBeVisible()
+    await expect(ai.getByRole('button', { name: '重新加载这一块' })).toBeVisible()
     await expect(page.getByRole('textbox', { name: '问 AI' })).toHaveCount(0)
     // 窗口没白：左栏、标签、文档都还在
     await expect(page.getByTestId('crash-page')).toHaveCount(0)
@@ -75,11 +76,95 @@ test('右栏 AI 渲染出错：只那一格换成出错卡，左栏、文档照�
     // main.log 里有这条（带哪一块、堆栈）
     await expect.poll(() => logText(run)).toContain('[renderer-render] [ai] Error: 测试注入的渲染错误：ai')
 
-    // 问题过去了，点「重新打开」这一格回来
+    // 问题过去了，点「重新加载这一块」这一格回来
     await crash(page, 'ai', false)
-    await ai.getByRole('button', { name: '重新打开' }).click()
+    await ai.getByRole('button', { name: '重新加载这一块' }).click()
     await expect(ai).toHaveCount(0)
     await expect(page.getByRole('textbox', { name: '问 AI' })).toBeVisible()
+  } finally {
+    await run.close()
+  }
+})
+
+test('无限 setState（React #185，0.5.10 那台）：只那一格出错卡，main.log 里有组件栈；别的照常能点', async () => {
+  const run = await launch(FILES)
+  const { page } = run
+  try {
+    await openNote(page, '学习笔记：动手学深度学习')
+    await openAi(page)
+    await crash(page, 'ai', 'loop')
+    const ai = card(page, 'ai')
+    await expect(ai).toBeVisible()
+    await expect(ai).toContainText('这一块出错了')
+    await expect(ai.getByRole('button', { name: '重新加载这一块' })).toBeVisible()
+    await expect(page.getByTestId('crash-page')).toHaveCount(0)
+    // 日志：错误、哪一块、组件栈（组件名没压缩，认得出是哪个）
+    await expect.poll(() => logText(run)).toContain('[renderer-render] [ai] Error: Minified React error #185')
+    const entry = logText(run).split('\n[').find((l) => l.includes('#185'))!
+    expect(entry).toMatch(/组件：at Loop[\s\S]*at Boom[\s\S]*at PanelGuard/)
+    // 别的照常能点：左栏点开另一篇，能打字
+    await openNote(page, '第二篇')
+    await expect(tabOn(page)).toHaveText('第二篇')
+    await pane(page).locator('.cm-line', { hasText: '别的内容。' }).click()
+    await page.keyboard.press('End')
+    await page.keyboard.type('还能写')
+    await waitSaved(page)
+    expect(readFileSync(join(run.vault, '第二篇.md'), 'utf8')).toBe('# 第二篇\n\n别的内容。还能写\n')
+    // 问题过去了，重新加载这一块就好
+    await crash(page, 'ai', false)
+    await ai.getByRole('button', { name: '重新加载这一块' }).click()
+    await expect(ai).toHaveCount(0)
+    await expect(page.getByRole('textbox', { name: '问 AI' })).toBeVisible()
+  } finally {
+    await run.close()
+  }
+})
+
+test('编辑器另起的根（/ 菜单浮层）无限 setState：浮层里一行出错卡，日志有组件栈，文档照常能写', async () => {
+  const run = await launch(FILES)
+  const { page, vault } = run
+  try {
+    await openNote(page, '第二篇')
+    await crash(page, 'popover', 'loop')
+    await pane(page).locator('.cm-line', { hasText: '别的内容。' }).click()
+    await page.keyboard.press('End')
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('/')
+    const pop = page.locator('.slash-pop [data-testid="panel-crash"][data-area="popover"]')
+    await expect(pop).toBeVisible()
+    await expect(pop).toContainText('这一块出错了')
+    await expect(pop.getByRole('button', { name: '重新加载这一块' })).toBeVisible()
+    await expect.poll(() => logText(run)).toContain('[renderer-render] [popover] Error: Minified React error #185')
+    expect(logText(run)).toMatch(/\[popover\] Error: Minified React error #185[\s\S]*组件：at Loop[\s\S]*at PanelGuard/)
+    await crash(page, 'popover', false)
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Backspace')
+    await page.keyboard.type('浮层坏了也能写')
+    await waitSaved(page)
+    expect(readFileSync(join(vault, '第二篇.md'), 'utf8')).toContain('浮层坏了也能写')
+  } finally {
+    await run.close()
+  }
+})
+
+test('主进程发来的事件，界面回调里抛错（0.5.10 那台只记了预加载行号）：main.log 记频道和堆栈', async () => {
+  const run = await launch(FILES)
+  const { page, app } = run
+  try {
+    await page.evaluate(() => {
+      function aiEventBoom() {
+        throw new Error('测试：ai:event 回调里抛错')
+      }
+      ;(window as unknown as { cnTestIpc(cb: () => void): void }).cnTestIpc(() => aiEventBoom())
+    })
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.webContents.send('ai:event', -1, { type: 'text', delta: 'x' }))
+    await expect.poll(() => logText(run)).toContain('[renderer-ipc] [cn.onAiEvent] Error: 测试：ai:event 回调里抛错')
+    const entry = logText(run).split('\n[').find((l) => l.includes('[renderer-ipc]'))!
+    expect(entry).toContain('aiEventBoom')
+    // 界面照常
+    await openNote(page, '第二篇')
+    await expect(tabOn(page)).toHaveText('第二篇')
   } finally {
     await run.close()
   }
@@ -96,15 +181,15 @@ test('中间一个标签、左栏出错：各自换成出错卡，切到别的�
     await expect(page.locator('.pane:not([hidden]) [data-testid="panel-crash"]')).toBeVisible()
     await expect(page.getByRole('tab').filter({ hasText: '第二篇' })).toBeVisible()
     await crash(page, 'tab:note', false)
-    await page.locator('.pane:not([hidden])').getByRole('button', { name: '重新打开' }).click()
+    await page.locator('.pane:not([hidden])').getByRole('button', { name: '重新加载这一块' }).click()
     await expect(pane(page).locator('.cm-content')).toBeVisible()
 
     await crash(page, 'left')
     await expect(card(page, 'left')).toBeVisible()
     await page.getByRole('tab').filter({ hasText: '第二篇' }).getByRole('button').first().click()
     await expect(tabOn(page)).toHaveText('第二篇')
-    // 刚才藏着的「第二篇」也抛过，它自己的出错卡还在；点重新打开回来（左栏的出错卡不受影响）
-    await page.locator('.pane:not([hidden])').getByRole('button', { name: '重新打开' }).click()
+    // 刚才藏着的「第二篇」也抛过，它自己的出错卡还在；点重新加载这一块回来（左栏的出错卡不受影响）
+    await page.locator('.pane:not([hidden])').getByRole('button', { name: '重新加载这一块' }).click()
     await expect(card(page, 'left')).toBeVisible()
     await pane(page).locator('.cm-line', { hasText: '别的内容。' }).click()
     await page.keyboard.press('End')

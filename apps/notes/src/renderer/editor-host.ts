@@ -3,7 +3,8 @@ import { type EditorState, Facet, StateField } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import type { ReactNode } from 'react'
 import { flushSync } from 'react-dom'
-import { createRoot, type Root } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
+import { guardedRoot } from './crash/root'
 import { placePop } from './pop-place'
 
 /** 文档模式的块编辑要从外面拿的东西（NoteDoc 给） */
@@ -68,7 +69,7 @@ export class Popover {
     this.el.className = 'ed-pop ' + className
     this.el.hidden = true
     document.body.appendChild(this.el)
-    this.root = createRoot(this.el)
+    this.root = guardedRoot(this.el, 'popover')
   }
 
   get open() {

@@ -8,6 +8,20 @@ import { EditorView } from '@codemirror/view'
 import { flashRange } from './insert-flash'
 import { flyToCard } from './shell/OutlineView'
 
+/** 文件树附件右键「在哪用到」点了一篇：记下要跳到哪（那一篇的标签开好、字读进来后 NoteTab 取走） */
+const pending = new Map<string, number>()
+export const JUMP_EVENT = 'cn:attach-jump'
+export function requestJump(note: string, at: number) {
+  pending.set(note, at)
+  window.dispatchEvent(new Event(JUMP_EVENT))
+}
+export function takeJump(note: string): number | null {
+  const at = pending.get(note)
+  if (at === undefined) return null
+  pending.delete(note)
+  return at
+}
+
 /** 文档看法：at 是图在原文里的位置；avoid 是盖在中间栏上的弹层 */
 export function jumpInDoc(view: EditorView, at: number, avoid: Element | null) {
   const pos = Math.min(at, view.state.doc.length)

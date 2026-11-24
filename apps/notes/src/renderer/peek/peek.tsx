@@ -18,7 +18,8 @@ import { EditorState, type Extension, Facet, Prec, RangeSetBuilder } from '@code
 import { Decoration, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { createRoot, type Root } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
+import { guardedRoot } from '../crash/root'
 import type { CommitInfo } from '../../shared/api'
 import { t } from '../../shared/i18n'
 import { titleOf } from '../../shared/layout'
@@ -244,7 +245,7 @@ async function open(link: Link, parent: number) {
   el.dataset.depth = String(layers.length)
   el.style.zIndex = String(990 + layers.length)
   document.body.appendChild(el)
-  const root = createRoot(el)
+  const root = guardedRoot(el, 'peek')
   layers.push({ el, root, src: link.el, key: link.key })
   flushSync(() => root.render(<Peek c={found} label={link.label} />))
   // 右栏「相关」那种整栏都是条目的：浮窗放在那一栏左边，顶和这一条对齐（设计页 44 1.4），不盖住别的条目

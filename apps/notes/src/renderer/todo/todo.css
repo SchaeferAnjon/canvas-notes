@@ -100,6 +100,25 @@
   color: var(--t3);
   text-decoration: line-through;
 }
+/* 刚勾掉的（2 秒）：行尾一句「已完成 · 撤回」，最后 0.4 秒淡出，然后进「已完成」 */
+.td-r.just {
+  animation: td-just 2s ease-in forwards;
+}
+@keyframes td-just {
+  0%,
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.td-just {
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
 /* 抄了几处（todo-home.css 的 .td-place 是出处的样子；待办格、首页卡里也用，这里补上） */
 .td-dup {
   flex: none;
@@ -272,7 +291,8 @@
 }
 .td-seg {
   display: flex;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: 2px 4px;
   padding: 4px 0 6px;
 }
 .td-seg button {
@@ -505,4 +525,17 @@ select.td-sel {
 }
 .td-ghost svg {
   color: var(--t3);
+}
+
+/* 「全部」里文件夹下面一篇笔记一小段：组名样子，点了打开那一篇 */
+.td-sub.td-note {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+}
+.td-sub.td-note:hover {
+  color: var(--t2);
 }

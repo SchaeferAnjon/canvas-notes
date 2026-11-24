@@ -85,10 +85,20 @@ test('样本：每一处一列，旁支在它那一问下面，划线进那一�
     await home(page)
     const before = await tops(page, '第1页 · 线性映射的定义')
     const b = (await qa1.boundingBox())!
-    const area = (await board(page).locator('.board-wrap').boundingBox())!
     await page.mouse.move(b.x + 40, b.y + 10)
     await page.mouse.down()
-    await page.mouse.move(area.x + area.width - 200, area.y + 300, { steps: 10 })
+    // 落点：画面里一处空白（列 400 以后 50% 时一排列也铺满了画面右边，以前的「右边 200」落在列上）
+    const spot = await board(page).locator('.board-wrap').evaluate((w) => {
+      const r = w.getBoundingClientRect()
+      for (let y = r.bottom - 80; y > r.top + 200; y -= 40)
+        for (let x = r.right - 200; x > r.left + 300; x -= 40) {
+          const ok = [-60, 0, 60].every((d) => [-40, 0, 40].every((e) => (document.elementFromPoint(x + d, y + e) as HTMLElement | null)?.matches('.db-plane, .db-stage, .board-wrap')))
+          if (ok) return { x, y }
+        }
+      return null
+    })
+    expect(spot).not.toBeNull()
+    await page.mouse.move(spot!.x, spot!.y, { steps: 10 })
     await page.mouse.up()
     await expect.poll(() => read(run, PB_NOTE)).toMatch(/<!-- column id=c1 x=\d+ y=\d+ -->\n## 第 1 页 · 线性映射的定义/)
     const moved = read(run, PB_NOTE)
@@ -167,15 +177,22 @@ test('平移：两指滑、按住空格拖、中键拖都能把最右、最左�
       // 按住空格拖：按在列头上拖到正中
       for (const how of ['space', 'middle'] as const) {
         await home(page)
-        const s = await offCenter(page, title)
-        const from = { x: s.c.x + s.c.width / 2, y: s.c.y + 12 }
-        await board(page).focus()
-        if (how === 'space') await page.keyboard.down('Space')
-        await page.mouse.move(from.x, from.y)
-        await page.mouse.down({ button: how === 'space' ? 'left' : 'middle' })
-        await page.mouse.move(from.x - s.dx, from.y - s.dy, { steps: 12 })
-        await page.mouse.up({ button: how === 'space' ? 'left' : 'middle' })
-        if (how === 'space') await page.keyboard.up('Space')
+        // 按在列头上拖；列 400 以后最右那列的列头可能在窗口外：先从白板正中拖几下，列头进了画面再按在列头上拖（一下拖不出白板）
+        for (let k = 0; k < 4; k++) {
+          const s = await offCenter(page, title)
+          if (Math.abs(s.dx) <= 40 && Math.abs(s.dy) <= 40) break
+          const head = { x: s.c.x + s.c.width / 2, y: s.c.y + 12 }
+          const inside = head.x > s.w.x + 20 && head.x < s.w.x + s.w.width - 20 && head.y > s.w.y + 20 && head.y < s.w.y + s.w.height - 20
+          const from = inside ? head : { x: s.w.x + s.w.width / 2, y: s.w.y + s.w.height / 2 }
+          const to = { x: Math.max(s.w.x + 10, Math.min(s.w.x + s.w.width - 10, from.x - s.dx)), y: Math.max(s.w.y + 10, Math.min(s.w.y + s.w.height - 10, from.y - s.dy)) }
+          await board(page).focus()
+          if (how === 'space') await page.keyboard.down('Space')
+          await page.mouse.move(from.x, from.y)
+          await page.mouse.down({ button: how === 'space' ? 'left' : 'middle' })
+          await page.mouse.move(to.x, to.y, { steps: 12 })
+          await page.mouse.up({ button: how === 'space' ? 'left' : 'middle' })
+          if (how === 'space') await page.keyboard.up('Space')
+        }
         const e = await offCenter(page, title)
         expect(Math.abs(e.dx), `${title} ${how}`).toBeLessThanOrEqual(40)
         expect(Math.abs(e.dy), `${title} ${how}`).toBeLessThanOrEqual(40)

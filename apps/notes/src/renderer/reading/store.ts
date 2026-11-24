@@ -24,6 +24,7 @@ import { clearWebBox } from './web-bridge'
 import { ASK_THIS, sideName as nameOf } from '../side/name'
 import { backLabel, fragmentUrl } from '../../shared/web-link'
 import { pageHead } from '../../shared/read-along'
+import { ipcOn } from '../crash/ipc'
 
 /** 框好、还没发的那一块（右栏输入框里那张小图） */
 export interface Pending {
@@ -321,7 +322,7 @@ const settled = (m: ReadingMsg): ReadingMsg =>
 export async function load(pdf: string) {
   if (!listening) {
     listening = true
-    window.cnReading.onAsk((id, e) => (e.type === 'text' ? onAskText(id, e.delta) : onAskStep(id, { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}), ...(e.paths?.length ? { paths: e.paths } : {}) })))
+    ipcOn(window.cnReading.onAsk, 'cnReading.onAsk')((id, e) => (e.type === 'text' ? onAskText(id, e.delta) : onAskStep(id, { id: e.id, label: e.label, ...(e.code ? { code: e.code } : {}), status: e.status, ...(e.detail ? { detail: e.detail } : {}), ...(e.paths?.length ? { paths: e.paths } : {}) })))
   }
   if (get(pdf).loaded) return
   const [state, note, at] = await Promise.all([window.cnReading.state(pdf), window.cnReading.readNote(pdf), /\.pdf$/i.test(pdf) ? window.cnReading.readAt(pdf).catch(() => null) : null])

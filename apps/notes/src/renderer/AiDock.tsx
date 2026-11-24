@@ -32,6 +32,7 @@ import { clearStay, hasDraft, setShown, setStay, stayOf, useStays, useWantConvo,
 import { pagesNow, setPage, usePages } from './ai-pages'
 import { type ChatSummary, isMovedConvo, NO_PAGE, pageOfConvo } from '../shared/ai-chats'
 import { useKeyHandler } from './keys'
+import { ipcOn } from './crash/ipc'
 
 export interface AiDockProps {
   /** AI 标签开着（在哪一组里都算，在别的标签后面也算） */
@@ -70,7 +71,7 @@ function idle(key: string): boolean {
   if (src) {
     const r = R.get(src)
     if (R.busy(r)) return false
-  } else if (C.runningNow()?.key === key) return false
+  } else if (C.busyAt(key)) return false
   return !asksOf(key)
 }
 
@@ -198,7 +199,7 @@ export function AiDock(props: AiDockProps) {
   const onPage = !!away && pageOfConvo(away.key, pagesNow()) === here.key
   /** 看着的这段（菜单「挂到这一页」「不挂任何页」搬的就是它） */
   const shownKey = away?.key ?? (pickOverPdf ? PICKED_KEY : here.key)
-  const canMove = shownKey !== PICKED_KEY && !(C.runningNow()?.key === shownKey) && !!(asksOf(shownKey) ?? 0)
+  const canMove = shownKey !== PICKED_KEY && !C.busyAt(shownKey) && !!(asksOf(shownKey) ?? 0)
   /** 搬家：页自己的那段另起一段（这页留一段空的），搬出来的和读 PDF 的只改「这段 → 那页」表 */
   const move = async (to: { page: string; label: string }) => {
     let key = shownKey
@@ -263,8 +264,8 @@ function useReadingLive(pdf: string) {
   }, [pdf])
   useEffect(() => {
     const note = R.get(pdf).note.path
-    const offA = window.cn.onFilesChanged(() => void R.reloadNote(pdf))
-    const offB = window.cn.onNoteChanged((p) => p === note && void R.reloadNote(pdf))
+    const offA = ipcOn(window.cn.onFilesChanged, 'cn.onFilesChanged')(() => void R.reloadNote(pdf))
+    const offB = ipcOn(window.cn.onNoteChanged, 'cn.onNoteChanged')((p) => p === note && void R.reloadNote(pdf))
     return () => {
       offA()
       offB()

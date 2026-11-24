@@ -13,7 +13,8 @@ import { EditorState, Prec, type Range, StateEffect, StateField, Transaction } f
 import { Decoration, type DecorationSet, EditorView, keymap, type PluginValue, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { type ReactNode, useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { createRoot, type Root } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
+import { guardedRoot } from '../crash/root'
 import type { AiPick, EngineInfo } from '@cn/ai-engines/shared'
 import { convPick, hasEffort } from '@cn/ai-engines/shared'
 import { titleOf } from '../../shared/layout'
@@ -30,6 +31,7 @@ import { askSide, blockAgain, nameOf, setName, type SideTarget, sideIndex, write
 import { SideInline, type SideMsgView } from '@cn/ai-chat/side/SideInline'
 import { useT } from '../i18n'
 import { t as tNow } from '../../shared/i18n'
+import { ipcOn } from '../crash/ipc'
 
 /** 开着的那一条：哪一块讲解（头一行行首，跟着改动挪）、第几条（等于已有的条数是刚开、还没写进去的那条）、那一句 */
 interface Open {
@@ -219,7 +221,7 @@ class HostWidget extends WidgetType {
     return true
   }
   private mount(el: HTMLElement, view: EditorView) {
-    const root = ((el as HTMLElement & { _root?: Root })._root ??= createRoot(el))
+    const root = ((el as HTMLElement & { _root?: Root })._root ??= guardedRoot(el, 'doc-side'))
     flushSync(() => root.render(<DocSide view={view} />))
   }
   destroy(dom: HTMLElement) {
@@ -415,7 +417,7 @@ async function send(view: EditorView, open: Open, text: string, mats: Material[]
   if (!q) return
   if (!listening) {
     listening = true
-    window.cn.onAiEvent((id, e) => {
+    ipcOn(window.cn.onAiEvent, 'cn.onAiEvent')((id, e) => {
       const v = asking.get(id)
       if (v && e.type === 'text') v.dispatch({ effects: pendText.of({ id, delta: e.delta }) })
     })
@@ -487,7 +489,7 @@ class AskPlugin implements PluginValue {
     this.el = document.createElement('div')
     this.el.className = 'cm-side-askbox'
     document.body.appendChild(this.el)
-    this.root = createRoot(this.el)
+    this.root = guardedRoot(this.el, 'doc-side-ask')
     view.contentDOM.addEventListener('mouseup', this.onUp)
   }
 

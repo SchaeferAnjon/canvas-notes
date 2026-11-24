@@ -8,6 +8,7 @@ import type { MobileAiState } from '../../shared/mobile-ai'
 import { Toggle } from '../Settings'
 import { Group, Row, useSaid } from '../settings/ui'
 import './mobile-ai.css'
+import { ipcOn } from '../crash/ipc'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -27,7 +28,7 @@ export function MobileAiGroup(props: { onNotice(t: string): void }) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     void window.cnMobileAi.state().then(setS, (e) => props.onNotice(errText(e)))
-    return window.cnMobileAi.onChanged(setS)
+    return ipcOn(window.cnMobileAi.onChanged, 'cnMobileAi.onChanged')(setS)
   }, [])
   // 配对码还剩几分钟、设备「刚刚用过」：每 15 秒重算一次
   useEffect(() => {
@@ -66,7 +67,7 @@ export function MobileAiGroup(props: { onNotice(t: string): void }) {
                   </div>
                   <div className="mai-txt">
                     <b>用iPhone或iPad扫一下</b>
-                    <p>在那边的画布笔记里：设置 › AI › 扫码配对。配好以后在同一个Wi‑Fi里问AI，先找这台Mac「{s.macName}」，用AI对话那一行选的那家答；两秒没回话就换云端。</p>
+                    <p>在那边的画布笔记里：设置 › AI › 扫码配对。配好以后在同一个Wi‑Fi里问AI，先找这台Mac「{s.macName}」，用AI对话那一行选的那家答；两秒没回话就换云端。这台Mac答时AI能读这里的笔记库（最近改过的、搜、读整篇、待办），只读，不改文件、不跑命令；选的是Codex时读不了库。</p>
                     <p className="mai-exp" data-testid="mobile-ai-expiry">{expired ? '这个码过期了，换一个再扫' : `这个码${left}分钟内有效，用一次就作废`}</p>
                     <div className="mai-acts">
                       <button type="button" className="sa-btn" onClick={() => void run(window.cnMobileAi.newCode())}>

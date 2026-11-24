@@ -1,7 +1,8 @@
 /**
  * 待办三处共用的一份（task-pd1d1）：库里所有笔记的「- [ ]」（主进程 todo:list）。文件一变就重读：外面改了（画布今日、Git）、
  * 软件自己改了、编辑器存了字都走 App 的 refreshNotes → refreshTodos。改一行、加一条交给主进程（只换那几个字），回来重读，
- * 底栏提示带「撤回」。刚勾掉的几条记在 keep 里：三处都划线留在原处（原型 S.just），这一次开软件里一直这样。
+ * 底栏提示带「撤回」。刚勾掉的几条记在 just 里 2 秒：几处都在原处留一行「已完成 · 撤回」，过了就从过期 / 今天 / 文件夹里拿掉、进「已完成」
+ * （2026-11-24 用户「我点了对勾之后，这个任务是不是应该就要消失，到“已完成”里面」；以前整次开软件都划线留着，过期越堆越长）。
  */
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import { copiesOf, type When, type WhenFields } from '@cn/tasks'
@@ -13,13 +14,13 @@ import { t as tNow } from '../../shared/i18n'
 interface State {
   items: TodoItem[]
   loaded: boolean
-  /** 刚勾掉、划线留在原处的（路径#行号） */
-  keep: ReadonlySet<string>
+  /** 刚勾掉、2 秒里还在原处留一行「已完成 · 撤回」的（路径#行号） */
+  just: ReadonlySet<string>
   /** 刚加的、刚改了日子的那一条亮一下（路径#行号） */
   flash: string | null
 }
 
-let state: State = { items: [], loaded: false, keep: new Set(), flash: null }
+let state: State = { items: [], loaded: false, just: new Set(), flash: null }
 const subs = new Set<() => void>()
 let seq = 0
 let watching = 0
@@ -130,17 +131,27 @@ async function edit(t: TodoItem, op: TodoOp) {
   return r
 }
 
-/** 勾掉 / 取消勾选：勾掉的划线留在原处 */
+/** 刚勾掉的留在原处多久 */
+export const JUST_MS = 2000
+/** just 里每一条的撤回编号、底栏那句话（行里点「撤回」时底栏那句一起收） */
+const justUndo = new Map<string, { undo: string; said: string; title: string; timer: ReturnType<typeof setTimeout> }>()
+function dropJust(key: string) {
+  const j = justUndo.get(key)
+  if (j) clearTimeout(j.timer)
+  justUndo.delete(key)
+  if (!state.just.has(key)) return
+  const just = new Set(state.just)
+  just.delete(key)
+  set({ just })
+}
+
+/** 勾掉 / 取消勾选：勾掉的在原处留 2 秒「已完成 · 撤回」，然后进「已完成」 */
 export async function tickTodo(t: TodoItem) {
   // 取消了的 [-] 点一下改回没做完
   const done = !t.done && !t.cancelled
   const r = await edit(t, { op: 'done', done })
   if (!r) return
   const key = `${r.path}#${r.line}`
-  const keep = new Set(state.keep)
-  if (done) keep.add(key)
-  else keep.delete(key)
-  set({ keep })
   const said = done
     ? r.next
       ? tNow('勾掉了「{title}」 · 下一次{when}', { title: t.title, when: dayName(r.next.date, isoToday()) })
@@ -148,7 +159,21 @@ export async function tickTodo(t: TodoItem) {
         ? tNow('勾掉了「{title}」，{n}处一起勾上了', { title: t.title, n: r.copies + 1 })
         : tNow('勾掉了「{title}」', { title: t.title })
     : tNow('取消勾选「{title}」', { ctx: '提示', title: t.title })
+  dropJust(key)
+  if (done && r.undo) {
+    justUndo.set(key, { undo: r.undo, said, title: t.title, timer: setTimeout(() => dropJust(key), JUST_MS) })
+    set({ just: new Set(state.just).add(key) })
+  }
   say(said, r.undo, t.title)
+}
+
+/** 刚勾掉那一行上的「撤回」：撤回这一次勾掉，底栏同一句收掉 */
+export function undoJust(key: string) {
+  const j = justUndo.get(key)
+  if (!j) return
+  dropJust(key)
+  app().noticeDrop(j.said)
+  void undo(j.undo, j.title)
 }
 
 /** 改日子（详情里点「明天」、拖到「明天」那组上）：钟点留着；null 是拿掉日子 */

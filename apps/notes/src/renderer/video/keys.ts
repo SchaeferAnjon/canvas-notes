@@ -9,6 +9,7 @@ import { setVideoPageToggle } from '../plugins/translate/shared'
 import { saveMoment } from './actions'
 import { startAsk } from './ask-card'
 import { setVideoSettings, videoHost, videoSettingsNow, videoStateOf } from './store'
+import { ipcOn } from '../crash/ipc'
 
 type Action = 'moment' | 'ask' | 'toggle' | 'back' | 'fwd' | 'subs'
 
@@ -56,7 +57,7 @@ export function useVideoKeys() {
       runVideoKey(action, wc)
     }
     window.addEventListener('keydown', onKey, true)
-    const off = window.cnVideo.onKey((a, wcId) => runVideoKey(a as Action, wcId))
+    const off = ipcOn(window.cnVideo.onKey, 'cnVideo.onKey')((a, wcId) => runVideoKey(a as Action, wcId))
     return () => {
       window.removeEventListener('keydown', onKey, true)
       off()

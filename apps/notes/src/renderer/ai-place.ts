@@ -27,6 +27,8 @@ export function placeOf(tab: Tab | null, digest = false): Place {
     case 'note':
       return { key: `file:${tab.path}`, label: digest ? bookName(titleOf(tab.path)) : titleOf(tab.path) }
     case 'folder':
+    // 文件夹里那一类的列表：和这个文件夹的首页同一段对话
+    case 'flist':
       return { key: `folder:${tab.folder}`, label: lastSeg(tab.folder) }
     case 'home':
       return { key: 'home', label: t('首页') }
@@ -96,6 +98,8 @@ export function seenOf(tab: Tab | null, o: { board: boolean; digest?: boolean; i
       return { see: o.digest ? t('书摘：{name}', { name: bookName(titleOf(tab.path)) }) : t('文档：{name}', { name: titleOf(tab.path) }), hands: HANDS.doc }
     case 'folder':
       return { see: t('文件夹：{name} · {n}篇', { name: lastSeg(tab.folder), n: o.count(tab.folder) }), hands: HANDS.folder }
+    case 'flist':
+      return { see: t('文件夹：{name} · {n}篇', { name: lastSeg(tab.folder), n: o.count(tab.folder) }), hands: null }
     case 'topic':
       return { see: t('文件夹：{name} · {n}篇', { name: tab.topic, n: o.count(`${CLIPS}/${tab.topic}`) }), hands: HANDS.folder }
     case 'home':

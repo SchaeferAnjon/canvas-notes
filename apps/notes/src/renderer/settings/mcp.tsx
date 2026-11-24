@@ -16,6 +16,7 @@ import type { SettingsProps } from '../Settings'
 import { SETTINGS_PAGES } from '../../shared/settings-index'
 import { Group, PageHead, Row, Sel, useSaid } from './ui'
 import './mcp.css'
+import { ipcOn } from '../crash/ipc'
 
 const errText = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -36,7 +37,7 @@ export function McpSettingsPage(props: SettingsProps) {
   const load = () => void window.cnMcp.get().then(setV)
   useEffect(() => {
     load()
-    const off = window.cnMcp.onCalled(() => load())
+    const off = ipcOn(window.cnMcp.onCalled, 'cnMcp.onCalled')(() => load())
     // 窗口重新拿到焦点（去装了 Claude Code、Codex 回来）：再看一下
     const f = () => void window.cnMcp.recheck().then(setV)
     window.addEventListener('focus', f)
@@ -325,7 +326,7 @@ function McpLog(props: { client: McpClientId | 'all'; onClient(c: McpClientId | 
   useEffect(() => {
     const load = () => void window.cnMcp.calls(q).then(setCalls)
     load()
-    return window.cnMcp.onCalled(load)
+    return ipcOn(window.cnMcp.onCalled, 'cnMcp.onCalled')(load)
   }, [q])
   return (
     <div className="mcp-set mcp-log">

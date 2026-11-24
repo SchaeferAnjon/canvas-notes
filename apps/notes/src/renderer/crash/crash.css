@@ -159,3 +159,10 @@
 .crash-card .crash-detail {
   margin: 6px 0 0 18px;
 }
+
+/* 编辑器部件、浮层里的出错卡：只一行字，不撑格子 */
+.crash-card.crash-inline {
+  width: auto;
+  max-width: 420px;
+  padding: 6px 8px;
+}

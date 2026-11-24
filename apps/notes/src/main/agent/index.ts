@@ -14,11 +14,11 @@ import { readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { findLost, knownSessions } from './recover'
 import { readFile, rename } from 'node:fs/promises'
-import { isAbsolute, join, resolve, sep } from 'node:path'
+import { basename, isAbsolute, join, resolve, sep } from 'node:path'
 import { type AiWrote, aiWroteHead, blockKeys, chatLink, decodeNote, encodeNote, wrapInsert, wrapNewBlocks } from '@cn/format'
 import * as git from '@cn/git'
 import { type ActTally, actScope, noTally } from '../../shared/ai-act'
-import type { AgentContext, AiAct, AiActArea, AiEvent, BridgeOp, ChatSide, EngineId, EngineInfo, SideTurnRequest, StoredMsg, TurnRequest, TurnResult } from '../../shared/agent'
+import { type AgentContext, type AiAct, type AiActArea, type AiEvent, type BridgeOp, type ChatSide, type EngineId, type EngineInfo, PARALLEL_MAX, type SideTurnRequest, type StoredMsg, type TurnRequest, type TurnResult } from '../../shared/agent'
 import type { AiCommitFailed, CommitInfo } from '../../shared/api'
 import { commitErrorText } from '../../shared/git-errors'
 import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, FEATURES, fitPick, MODEL_ID, type ModelOption, pickLabel, resolvePick } from '@cn/ai-engines/shared'
@@ -48,9 +48,10 @@ import { AgentStore } from './store'
 import { cardPerPara, runTool, stepLabel, stepPaths, type ToolHost, toolLabel, toolSpecs, type WebAsk, type WebOpts } from './tools'
 import { pageFor, WEB_PAGE_SAID, type WebPageId, type WebSeen } from '../../shared/web-pages'
 import * as vops from './vault-ops'
-import { AI_BLOCK_RULE, aiBlockLine, langTail, modeLine, MODES_RULE, userNoteLine } from './modes'
+import { AI_BLOCK_RULE, aiBlockLine, langTail, modeLine, MODES_RULE, NO_REMIND_RE, TODO_REMIND_RULE, userNoteLine } from './modes'
 import * as web from './web'
 import { atomicWrite } from '@cn/atomic'
+import { remindNewTimed } from '@cn/tasks'
 
 export { attachWeb, markedClips, unmarkClips } from './web'
 export { langTail, modeLine, MODES_RULE } from './modes'
@@ -74,6 +75,7 @@ ${MODES_RULE}
 - 新建、改名、挪动、删掉库里的笔记优先用 canvas 这组工具（链接、附件、开着的编辑器跟着走）；全能模式下别的事可以直接写文件、跑命令。不管怎么改，这一轮结束软件把库里的改动提交一次，用户能一键撤回，所以直接做，不用先问。
 - 不管用哪种办法改了库里的文件（canvas 工具、自己写文件、跑命令），开着的编辑器当场换成新内容，用户正在打的字会合并进来，不用叫用户关掉标签再打开。
 ${AI_BLOCK_RULE}
+${TODO_REMIND_RULE}
 - 做完用一两句话说做了什么。回答用哪种语言照每条消息开头的【语言】；平实、直接，不客套。不编造笔记里没有的事。
 - ${MATH_RULE}
 - 他问的这一问要讲的主要不是他正在看的网页、视频、文档本身写了什么，而是读懂它要的、它外面的基础知识（大 O 复杂度怎么算、自注意力一般怎么算、某个数学工具、领域常识），在回答最后单独一行写 ${PRE_MARK}；讲眼前这份内容本身的、帮他整理和改笔记的都不写。
@@ -85,9 +87,10 @@ ${CITE_FIND}`
  * AGENT_SYSTEM 改过就加一：Claude Code 接着聊时一直用会话第一次的系统提示（--system-prompt-snapshot），
  * 版本对不上的会话不再接着聊，开新会话、补上最近几轮（2：全能模式、笔记和文件夹那组工具；3：改了开着的文件编辑器当场换；
  * 4：回答的语言照每条消息开头的【语言】，task-zojmg；5：往笔记里新加的段落写成 [!ai] 块，头一行照每条消息开头的【AI 块】，task-dtc34；
- * 6：提到库里的东西写成链接，路径照每条消息开头的【库里的笔记】，task-3e53q；7：讲眼前内容外的前置知识时回答末尾标〔前置知识〕，功能小三件）
+ * 6：提到库里的东西写成链接，路径照每条消息开头的【库里的笔记】，task-3e53q；7：讲眼前内容外的前置知识时回答末尾标〔前置知识〕，功能小三件；
+ * 8：带钟点的待办默认写 🔔 准时，待办默认提醒）
  */
-export const AGENT_VERSION = 7
+export const AGENT_VERSION = 8
 
 /**
  * 引擎表（共用包 @cn/ai-engines 的 createEngines，ParaRead 用同一个）：Key、本机模型、自带 OpenCode 从 sources.ts 来；
@@ -110,6 +113,8 @@ export const engine = (id: EngineId): Engine => engines.engine(id)
 
 /** 这一轮：记下 AI 改了哪些文件 */
 interface Turn {
+  /** 用户这一问说了不要提醒：新建的带钟点的待办不补 🔔 准时 */
+  noRemind: boolean
   /** 外圈、提示条和「停下」认的编号：AI 对话是消息编号，读 PDF 是负的问答编号（两边的消息编号可能撞上） */
   id: number
   engine: EngineId
@@ -173,8 +178,6 @@ export interface AgentDeps {
 }
 
 let store: AgentStore
-/** AI 对话这一格一次答一轮 */
-let dockTurn: Turn | null = null
 /** 正在答的每一轮（AI 对话、读 PDF） */
 const liveTurns = new Set<Turn>()
 /** 答完了、正在提交、还没告诉界面做完（end）的那几轮 */
@@ -254,8 +257,80 @@ function turnOf(token: string): Turn {
   return t
 }
 
-/** 第一次改这个文件前：用户没提交的字先单独提交 */
+/**
+ * 谁在写库里哪个文件（AI 对话同时跑）：库里相对路径 → 那一轮，到那一轮做完（提交完）才放。
+ * 同一个文件同一时间只让一段对话写：另一段要写它时等着，步骤里写「等另一段对话改完《X》」，停下了就不等了
+ */
+const writers = new Map<string, Turn>()
+/** 等着写的那几轮（放了一个文件就叫醒它们再看一遍） */
+const writeWaits = new Set<() => void>()
+let waitSeq = 0
+
+/** 这个文件现在归别的一轮写（那一轮还在答或还在提交）：是哪一轮 */
+function writerOf(t: Turn, path: string): Turn | null {
+  const w = writers.get(path)
+  return w && w !== t && (liveTurns.has(w) || closing.has(w)) ? w : null
+}
+
+/** 正在等着写的那几轮各在等哪个文件（两段互相等对方的文件时不再等，各写各的） */
+const waitingFor = new Map<Turn, string>()
+
+/** t 等 path 会不会转一圈等回自己（A 拿着甲等乙、B 拿着乙等甲） */
+function circular(t: Turn, path: string): boolean {
+  const seen = new Set<Turn>()
+  for (let w = writerOf(t, path); w && !seen.has(w); ) {
+    seen.add(w)
+    const next = waitingFor.get(w)
+    if (next === undefined) return false
+    const by = writers.get(next)
+    if (by === t) return true
+    w = by && by !== w ? by : null
+  }
+  return false
+}
+
+/** 这一轮要写这个文件：别的一轮正写着就等它做完（步骤行写着在等谁），然后归这一轮写到做完 */
+export async function claimWrite(t: Turn, path: string) {
+  if (!writerOf(t, path)) return void writers.set(path, t)
+  const id = `${t.id}-wait-${++waitSeq}`
+  const label = `等另一段对话改完《${basename(path).replace(/\.md$/i, '')}》`
+  t.emit({ type: 'tool', id, label, status: 'run', paths: [path] })
+  waitingFor.set(t, path)
+  try {
+    while (writerOf(t, path) && !t.signal.aborted && !circular(t, path))
+      await new Promise<void>((r) => {
+        const done = () => {
+          writeWaits.delete(done)
+          t.signal.removeEventListener('abort', done)
+          r()
+        }
+        writeWaits.add(done)
+        t.signal.addEventListener('abort', done)
+      })
+  } finally {
+    waitingFor.delete(t)
+  }
+  t.emit({ type: 'tool', id, label, status: t.signal.aborted ? 'err' : 'ok', ...(t.signal.aborted ? { detail: '停下了' } : {}), paths: [path] })
+  if (t.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+  writers.set(path, t)
+}
+
+/** 这一轮做完：它写的文件都放开，叫醒等着的 */
+function releaseWrites(t: Turn) {
+  for (const [p, w] of writers) if (w === t) writers.delete(p)
+  for (const r of [...writeWaits]) r()
+}
+
+/** 这个文件是别的一轮（还在答、还在提交）认领了的：它的锁、它点了名写的、它改了的 */
+function othersFile(t: Turn, path: string): boolean {
+  if (writerOf(t, path)) return true
+  for (const o of [...liveTurns, ...closing]) if (o !== t && (o.named.has(path) || o.touched.has(path))) return true
+  return false
+}
+
+/** 第一次改这个文件前：别的一段对话在写它就等着；用户没提交的字先单独提交 */
 async function beforeEdit(t: Turn, path: string) {
+  await claimWrite(t, path)
   if (t.checked.has(path)) return
   t.checked.add(path)
   const v = needVault()
@@ -742,8 +817,9 @@ function tokenFor(server: McpServer, id: EngineId): { token: string; own: boolea
  * 全能模式开始一轮前：工作区里已经有的改动（用户的字、软件外面删的附件……，软件自己的文件不算）先单独提交，说明照改了什么写
  * （「删除 15 个文件：…」），这一轮结束时库里多出来的改动才是这一轮的。返回没提交上的那几个（结束时也不算 AI 的）
  */
-async function commitUserPending(root: string): Promise<string[]> {
-  const st = (await git.status(root)).filter((s) => !git.isInternalPath(s.path))
+async function commitUserPending(root: string, t: Turn): Promise<string[]> {
+  // 别的一段对话（同时在答）正在改的不是用户的字，留给它自己那一轮提交
+  const st = (await git.status(root)).filter((s) => !git.isInternalPath(s.path) && !othersFile(t, s.path))
   if (!st.length) return []
   try {
     await git.commitPaths(root, st.map((s) => s.path), git.describeChanges(st))
@@ -800,6 +876,8 @@ async function commitTurn(v: Vault, t: Turn, message: string): Promise<{ commit:
   if (t.omni)
     for (const s of await git.status(v.root)) {
       if (git.isInternalPath(s.path) || kinds[s.path]) continue
+      // 同时在答的另一段对话写的：归它那一轮提交（不当成这一轮的，也不当成用户的）
+      if (othersFile(t, s.path)) continue
       // 软件自己写过的（编辑器存的字）不算，除非外面又改了它：监听报过的，或者磁盘上已经不是软件最后写下的（监听还没来得及报）
       if (t.own.has(s.path) && !t.external.has(s.path) && !(/\.md$/i.test(s.path) && (await v.changedOutside(s.path)))) continue
       if (!t.named.has(s.path) && (t.before.has(s.path) || !t.shell)) {
@@ -808,6 +886,8 @@ async function commitTurn(v: Vault, t: Turn, message: string): Promise<{ commit:
       }
       kinds[s.path] = s.code.includes('D') ? '删' : s.code === '??' || s.code[0] === 'A' ? '新' : '改'
     }
+  // AI 新建的带钟点的待办忘了写 🔔 的补「🔔 准时」（用户这一问说了不要提醒的不补），和 AI 的改动在同一次提交里
+  if (!t.noRemind) await remindTurn(v, kinds)
   // AI 往笔记里新加、没包进 [!ai] 块的整段补包上（task-dtc34），和 AI 的改动在同一次提交里
   if (t.aiWrote) await wrapTurn(v, t, kinds)
   // 不是 AI 的先单独提交一次，说明照改了什么写（「删除 15 个文件：…」），不挂 AI 的名字；提交不上就留在工作区，等下次自动提交
@@ -874,6 +954,26 @@ async function wrapTurn(v: Vault, t: Turn, kinds: Record<string, string>) {
   }
 }
 
+/**
+ * 这一轮结束补提醒（待办默认提醒，2026-11-24 用户定）：这一轮新建、改了的每篇笔记和这一轮开始时比，新多出来的、有日子有钟点、
+ * 没写 🔔 的待办加「🔔 准时」（@cn/tasks remindNewTimed）。写盘照 wrapTurn：像外面改的一样写，编辑器三方合并不丢正在打的字
+ */
+async function remindTurn(v: Vault, kinds: Record<string, string>) {
+  for (const [path, kind] of Object.entries(kinds)) {
+    if ((kind !== '改' && kind !== '新') || !/\.md$/i.test(path) || git.isInternalPath(path)) continue
+    const disk = await readFile(v.abs(path)).then(decodeNote, (e: NodeJS.ErrnoException) => {
+      if (e.code === 'ENOENT') return null
+      throw e
+    })
+    if (!disk) continue
+    const r = remindNewTimed(await headText(v.root, path), disk.text)
+    if (!r.n) continue
+    if (decodeNote(await readFile(v.abs(path))).text !== disk.text) continue
+    wrapWrites.set(path, { at: Date.now(), grow: await v.changedOutside(path) })
+    await atomicWrite(v.abs(path), encodeNote(r.text, disk.meta))
+  }
+}
+
 /** 这一轮结束补包写的（路径 → 什么时候、要不要当 AI 写的长出来） */
 const wrapWrites = new Map<string, { at: number; grow: boolean }>()
 
@@ -908,7 +1008,7 @@ export async function runAgentTurn(o: {
   aiWrote?: AiWrote
 }): Promise<AgentTurnResult> {
   const v = needVault()
-  const t: Turn = { id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), webLit: new Set(), docs: new Map(), boardTools: 0, tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), trail: [] }
+  const t: Turn = { noRemind: NO_REMIND_RE.test(o.subject), id: o.id, engine: o.engine, touched: new Map(), checked: new Set(), acts: new Set(), whole: new Set(), webLit: new Set(), docs: new Map(), boardTools: 0, tally: noTally(), signal: o.ac.signal, omni: o.omni, own: new Set(), external: new Set(), moved: new Map(), named: new Set(), shell: false, before: new Set(), wrote: false, emit: o.emit, ...(o.aiWrote ? { aiWrote: o.aiWrote } : {}), trail: [] }
   let outcome: EngineOutcome | null = null
   let error: string | undefined
   /** 没答完（停下、出错）时引擎给的会话号：已经做了的几步在这个会话里，「接着做」接着它 */
@@ -920,7 +1020,7 @@ export async function runAgentTurn(o: {
   noteGiven(o.run.prompt, o.run.images)
   try {
     await bridge('saveAll')
-    if (o.omni) for (const p of await commitUserPending(v.root)) t.before.add(p)
+    if (o.omni) for (const p of await commitUserPending(v.root, t)) t.before.add(p)
     const server = await ensureMcp()
     token = tokenFor(server, o.engine)
     if (token.own) byToken.set(token.token, t)
@@ -932,6 +1032,11 @@ export async function runAgentTurn(o: {
       cwd: v.root,
       mcp: { url: server.url, token: token.token, tools: toolSpecs().map((x) => x.name) },
       omni: o.omni,
+      // 命令行自己写库里的文件（全能模式的 Write、Edit）之前：别的一段对话在写它就等着（Claude Code 走 PreToolUse 钩子）
+      beforeWrite: async (abs: string) => {
+        const rel = vaultRel(v.root, abs)
+        if (rel) await claimWrite(t, rel)
+      },
       // 命令行自己的那一步（全能模式下跑命令、写文件、上网搜）：在做转圈、做完绿勾，和我们工具的步骤行一样
       onStep: (st) => {
         if (st.status === 'run') noteStep(t, v.root, st.tool, st.input)
@@ -963,6 +1068,7 @@ export async function runAgentTurn(o: {
     // 改到的每一篇这次提交里加减了几行（和改动卡上的 +N −M 同一个数）
     const lines = t.docs.size && done?.commit ? Object.fromEntries(done.commit.files.filter((f) => t.docs.has(f.path)).map((f) => [f.path, { added: f.added, removed: f.removed }])) : undefined
     closing.delete(t)
+    releaseWrites(t)
     if (t.acts.size || t.wrote) act({ turn: t.id, kind: 'end', stopped: o.ac.signal.aborted || !!error, commit: done?.commit?.hash ?? null, tally: t.tally, ...(lines ? { lines } : {}) })
   }
   const { commit, kinds, failed } = done
@@ -998,7 +1104,9 @@ export function agentExternal(path: string, text?: string) {
     if (!wrapped.grow && Date.now() - wrapped.at < 10_000) return
   }
   // 答完了、还在提交（还没发 end）的那一轮也算：AI 写完紧接着答完，监听晚到几十毫秒，那篇照样整篇亮、和这一轮一起收
-  const t = [...liveTurns].reverse().find((x) => x.omni) ?? [...closing].reverse().find((x) => x.omni)
+  // 几段对话同时在答：算在正写着这一篇的那一轮上
+  const w = writers.get(path)
+  const t = (w && (liveTurns.has(w) || closing.has(w)) ? w : null) ?? [...liveTurns].reverse().find((x) => x.omni) ?? [...closing].reverse().find((x) => x.omni)
   if (t) wroteNote(t, path)
   // 写完紧接着这一轮就答完了（监听晚到几十毫秒）：照样是 AI 写的，只是没有还在答的一轮了（不挂「AI 在写这一段」到这一轮做完）
   else if (Date.now() - omniEndedAt < 3000) act({ turn: 0, kind: 'wrote', path })
@@ -1049,9 +1157,11 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
   if (req.subject !== undefined && (typeof req.subject !== 'string' || !req.subject.trim() || req.subject.length > 400)) throw new Error('AI 参数不对')
   const place = placeOf(req.place)
   const mats = checkMaterials(req.mats)
-  if (dockBusy) throw new Error('上一轮还没做完，等它做完或者先停下')
+  // 不同的对话能同时答（AI 对话同时跑），同一段对话一次一问
+  const busyKey = place?.key ?? `#${req.id}`
+  if (busyPlaces.has(busyKey)) throw new Error('这段对话上一问还没答完，等它答完或者先停下')
   const v = needVault()
-  dockBusy = true
+  busyPlaces.add(busyKey)
   // 一开始就登记「停下」（读贴的图、拼话这一会儿按停下也算数）
   const ac = new AbortController()
   turns.set(req.id, ac)
@@ -1097,13 +1207,13 @@ async function runTurn(req: TurnRequest): Promise<TurnResult> {
     if (place && session) store.setSession(v.root, place.key, req.engine, session, AGENT_VERSION)
     return { text, commit: r.commit, kinds: r.kinds, ...(r.error ? { error: r.error } : {}), ...(r.failed ? { failed: r.failed } : {}), ...(r.moved ? { moved: r.moved } : {}) }
   } finally {
-    dockBusy = false
+    busyPlaces.delete(busyKey)
     turns.delete(req.id)
   }
 }
 
-/** AI 对话这一格正在答 */
-let dockBusy = false
+/** 正在答的那几段对话（地方的 key）：同一段一次一问，不同的几段能同时答 */
+const busyPlaces = new Set<string>()
 
 /**
  * 每条消息开头的【库里的笔记】（task-3e53q）：AI 照着写链接的路径，不用猜。列哪几篇见 shared/cite-rule.ts 的 notesLine；
@@ -1576,6 +1686,13 @@ export function registerAgent(d: AgentDeps) {
     send('ai:prefs:changed')
   })
   // 全能模式开关（AI 输入框下面那一行，AI 对话和读 PDF 共用）：记在软件设置目录，开着的 AI 面板都跟着换
+  // 同时答几段对话（设置 › AI）：界面按它排队
+  ipcMain.handle('ai:parallel', () => store.parallel())
+  ipcMain.handle('ai:parallel:set', (_e, n: unknown) => {
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 1 || n > PARALLEL_MAX) throw new Error('AI 参数不对')
+    store.setParallel(n)
+    send('ai:prefs:changed')
+  })
   ipcMain.handle('ai:omni:set', (_e, on: unknown) => {
     if (typeof on !== 'boolean') throw new Error('AI 参数不对')
     store.setOmni(on)

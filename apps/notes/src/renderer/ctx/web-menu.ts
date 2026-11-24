@@ -13,6 +13,7 @@ import { app } from './actions'
 import { copy, fromShared, type MenuEntry, showMenu } from './menu'
 import { translateAt } from './translate'
 import { t } from '../../shared/i18n'
+import { ipcOn } from '../crash/ipc'
 
 /** 网页所在的地方（右栏还是中间栏）各自怎么做的几件事 */
 export interface WebMenuHost {
@@ -78,7 +79,7 @@ let listening = false
 export function registerWebMenu(wcId: number, page: WebMenuPage, host: () => WebMenuHost): () => void {
   if (!listening) {
     listening = true
-    window.cnMenu.onWebContext(async (id, p) => {
+    ipcOn(window.cnMenu.onWebContext, 'cnMenu.onWebContext')(async (id, p) => {
       const r = pages.get(id)
       if (!r) return
       // 点在图上：图注是网页预加载另走一路报的，多半先到；没到等它一会儿（最多 150 毫秒）

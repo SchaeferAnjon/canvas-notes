@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { parseBoard, parseLinks } from '@cn/format'
 import { describe, expect, it } from 'vitest'
 import { addCard, addColumn, arrange, link, moveTo, putInColumn, setCardText, summarize } from '../src/main/agent/board-ops'
@@ -152,8 +153,27 @@ describe('白板操作（2026-11-21 起白板就是这篇文档：## 是列、�
     const free = '---\ntype: board\n---\n# 旅行\n\n<!-- card id=a x=420 y=300 -->\n出发前先定住处\n\n<!-- card id=b x=60 y=80 -->\n冰岛环岛十天\n'
     const r = addCard(free, { text: '订机票' })
     expect(r.text.endsWith('冰岛环岛十天\n\n<!-- card id=d1 x=420 y=500 -->\n订机票\n')).toBe(true)
-    expect(summarize(r.text).cards.find((c) => c.id === r.id)).toMatchObject({ text: '订机票', x: 420, y: 500 })
+    // 告诉 AI 的是白板上画的位置：a（420）原来离 b（60）并排 360、列加宽到 400 以后叠了，画的时候推到 60 + 400 + 22，摞在 a 下面的新卡跟着 a
+    expect(summarize(r.text).cards.find((c) => c.id === r.id)).toMatchObject({ text: '订机票', x: 482, y: 500 })
     // 一张卡都没有的空白板：加在文末
     expect(addCard('---\ntype: board\n---\n', { text: '第一张' }).text).toBe('---\ntype: board\n---\n\n第一张\n')
+  })
+})
+
+describe('AI 整理配对笔记白板（r147）：拖进来的卡落在问答一节里', () => {
+  const PAIR = readFileSync(new URL('./fixtures/pair-board-drop.md', import.meta.url), 'utf8')
+  it('board_list 里那张是空白处的卡；问答列标 fixed', () => {
+    const s = summarize(PAIR)
+    expect(s.cards.find((c) => c.id === 'd1')).toMatchObject({ text: '![[过度捕鱼]]', x: 383, y: 2075 })
+    expect(s.columns.find((c) => c.fixed)?.cards.length).toBe(3)
+  })
+  it('挪那张：只改位置行；挪问答列里的卡：报错、不写文件', () => {
+    expect(moveTo(PAIR, 'd1', 900, 64)).toBe(PAIR.replace('<!-- card id=d1 x=383 y=2075 -->', '<!-- card id=d1 x=900 y=64 -->'))
+    const fixed = summarize(PAIR).columns.find((c) => c.fixed)!
+    for (const id of fixed.cards) expect(() => moveTo(PAIR, id, 340, 64)).toThrow(/问过 AI/)
+  })
+  it('排整齐：只改空白处那张的位置行', () => {
+    const out = arrange(PAIR, 'grid')
+    expect(out.replace(/<!-- card id=d1 x=\d+ y=\d+ -->/, '')).toBe(PAIR.replace('<!-- card id=d1 x=383 y=2075 -->', ''))
   })
 })

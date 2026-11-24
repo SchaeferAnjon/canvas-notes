@@ -3,7 +3,8 @@
  * - 在局域网里开一个小服务（server.ts）、用 Bonjour 报一声（advertise.ts）；
  * - 设置里显示一个二维码（一次性配对码，十分钟作废），iPad 扫一次就配好；
  * - 配好的设备来问，交给 AI 对话用的那一家（Claude Code / Codex……，和右栏 AI 同一处：agent/index.ts 的 engine、chatPick、chatRun），
- *   边答边传回去。这一路只回答、不给工具，不动这台 Mac 上的文件；不需要窗口开着（窗口关了软件还在跑就行）。
+ *   边答边传回去。AI 对话、选一段问时给读库的四样只读工具（vault-tools.ts：最近改过的、搜、读一篇、待办；Codex 的进程和右栏共用、
+ *   MCP 是进程级的，不给），不改文件、不跑命令；不需要窗口开着（窗口关了软件还在跑就行）。
  * 主进程在 index.ts 里注册一行：registerMobileAi({ win, vault })。
  */
 import { app, type BrowserWindow, ipcMain, safeStorage } from 'electron'
@@ -23,6 +24,7 @@ import { b64u, CODE_TTL_MS, isLocalAddress, pairLink, PROTO_VERSION } from './pr
 import { encodeQr, qrSvgPath } from './qr'
 import { type MobileServer, startMobileServer } from './server'
 import { MobileStore } from './store'
+import { vaultTools } from './vault-tools'
 
 export interface MobileAiDeps {
   win(): BrowserWindow | null
@@ -71,6 +73,7 @@ export function registerMobileAi(deps: MobileAiDeps) {
   let advert: Advert | null = null
   let code: { code: Buffer; expires: number } | null = null
   let error: string | null = null
+  const tools = vaultTools(deps.vault, app.getVersion())
 
   const view = (): MobileAiState => {
     const me = store.identity()
@@ -122,7 +125,9 @@ export function registerMobileAi(deps: MobileAiDeps) {
           meta: () => ({ engine: chatPick().engine, label: chatLabel() }),
           async ask(q, onText, signal) {
             const p = chatPick()
-            const built = buildPrompt({ ...q, note: aiSettings.prompt().trim() })
+            // 读库工具：AI 对话、选一段问，库开着，引擎不是 Codex（它的 app-server 和右栏共用一个进程，MCP 换了要重起进程，会断右栏正在答的）
+            const lent = (q.kind === 'chat' || q.kind === 'ask') && deps.vault() && p.engine !== 'codex' ? await tools.lend() : null
+            const built = buildPrompt({ ...q, note: aiSettings.prompt().trim() }, { vault: !!lent })
             // 圈的那一块截图：存成这一问自己的临时文件（Codex 要文件路径），答完删掉
             const img = q.image ? join(app.getPath('temp'), `cn-mobile-ai-${randomBytes(6).toString('hex')}.png`) : null
             if (img) writeFileSync(img, Buffer.from(q.image!, 'base64'), { mode: 0o600 })
@@ -135,9 +140,11 @@ export function registerMobileAi(deps: MobileAiDeps) {
                 signal,
                 onText,
                 ...chatRun(p.engine, {}),
+                ...(lent ? { mcp: lent.mcp } : {}),
                 ...(img ? { images: [{ mime: 'image/png' as const, data: q.image!, path: img }] } : {}),
               })
             } finally {
+              lent?.done()
               if (img) rmSync(img, { force: true })
             }
           },
@@ -161,7 +168,7 @@ export function registerMobileAi(deps: MobileAiDeps) {
     code = null
     const s = server
     server = null
-    await s?.close()
+    await Promise.all([s?.close(), tools.close()])
   }
 
   ipcMain.handle('mobileAi:state', () => view())

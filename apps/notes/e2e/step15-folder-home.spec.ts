@@ -326,8 +326,11 @@ test('文件夹首页：项目、生活、写作默认「最近改的」「待�
     await expect(home(page).locator('.fw-row')).toHaveCount(4 + 2)
     await expect(w(page, 'slides').locator('.fw-cover')).toHaveCount(3)
     await shot(page, 'fh-many-light')
+    // 「全部 N 篇」开这门课的笔记和导图整页列表（不是全库「最近」）：406 篇都在
     await w(page, 'notes').locator('.fw-more').click()
-    await expect(page.locator('.tab.on')).toHaveText('最近')
+    await expect(page.locator('.tab.on')).toHaveText('线性代数 · 笔记和导图')
+    await expect(page.locator('[data-testid="folder-list"]:visible')).toHaveAttribute('data-folder', '课程/线性代数')
+    await expect(page.locator('[data-testid="folder-list"]:visible').getByTestId('flist-file')).toHaveCount(406)
   } finally {
     await run.close()
   }

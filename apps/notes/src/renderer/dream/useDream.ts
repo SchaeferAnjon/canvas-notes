@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { DreamGroup, DreamItem, DreamReport } from '../../shared/api'
 import { clock, when } from '../../shared/when'
 import { t } from '../../shared/i18n'
+import { ipcOn } from '../crash/ipc'
 
 /** 最近一份梦游报告，主进程一有变化就推过来 */
 export function useDream() {
@@ -9,7 +10,7 @@ export function useDream() {
   const [running, setRunning] = useState(false)
   useEffect(() => {
     void window.cn.dreamReport().then(setReport)
-    return window.cn.onDream((r, run) => {
+    return ipcOn(window.cn.onDream, 'cn.onDream')((r, run) => {
       setReport(r)
       setRunning(run)
     })

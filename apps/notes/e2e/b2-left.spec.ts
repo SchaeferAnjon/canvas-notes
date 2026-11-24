@@ -411,8 +411,11 @@ test('CN-104 白板筛选：最外层的白板挂在库名下面；附件筛选�
     await expect(tree(page).locator('.ft-att')).toHaveCount(4 + 1)
     await expect(tree(page).locator('.ft-gh').last()).toHaveText('没有笔记的附件')
     await expect(tree(page).locator('.ft-att').last()).toContainText('没人用.png')
-    // 点一张在访达中显示
+    // 点一张只是选中，不在访达中显示（文件树附件：单击选中、双击开）；右键「在访达中显示」才显示
     await tree(page).locator('.ft-att').first().click()
+    await expect(tree(page).locator('.ft-att').first()).toHaveAttribute('aria-selected', 'true')
+    await tree(page).locator('.ft-att').first().click({ button: 'right' })
+    await pickMenu(run, '在访达中显示')
     await expect.poll(() => run.app.evaluate(() => (globalThis as unknown as { cnScreen: string[] }).cnScreen.join('|'))).toContain('截图 1.png')
     // 「全部」时附件/ 目录本身也在树里
     await side(page).getByRole('tab', { name: '全部' }).click()
@@ -468,8 +471,9 @@ test('task-1df7j 附件筛选：读 PDF 的完整对话在用的截图挂在那�
     await expect(tree(page).locator('.ft-att[data-path="附件/旧讲义/p2-1.png"] .truncate')).toHaveText('p2-1.png旧讲义')
     await expect(tree(page).locator('.ft-att[data-path="附件/老的/没人用.png"] .truncate')).toHaveText('没人用.png老的')
     await expect(tree(page).locator('.ft-att[data-path="附件/Lecture05/p1-1.png"] .truncate')).toHaveText('p1-1.png')
-    // 完整对话那一组：双击打开用它的那份对话
-    await tree(page).locator('.ft-att[data-path="附件/旧讲义/p2-1.png"]').dblclick()
+    // 完整对话那一组：右键「在哪用到」点那份对话打开它（双击是看大图）
+    await tree(page).locator('.ft-att[data-path="附件/旧讲义/p2-1.png"]').click({ button: 'right' })
+    await pickMenu(run, '在哪用到（1篇） › 旧讲义-p2-1')
     await expect(tabOn(page)).toHaveText('旧讲义-p2-1')
     await expect(pane(page).locator('.cm-content')).toContainText('旧讲义 · 第 2 页 · 完整对话')
     await expect(tree(page).locator('.ft-gh').last()).toHaveText('没有笔记的附件')

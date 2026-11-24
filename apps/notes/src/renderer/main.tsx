@@ -16,6 +16,7 @@ import { noteLeavers } from './shell/TabActs'
 import { flushSaves as flushReading } from './reading/store'
 import { WindowGuard } from './crash/Guard'
 import { installTestCrash, watchGlobalErrors } from './crash/report'
+import { rootErrors } from './crash/root'
 import { installCiteClicks } from './cite'
 import { installPeek } from './peek/peek'
 import { installDictDemo } from './voice/demo'
@@ -33,7 +34,8 @@ import { installDictDemo } from './voice/demo'
   }
 }
 
-// 出错兜底（task-pyb39）：没接住的异常记进日志；整个窗口包一层，渲染里抛错显示出错页，不白屏
+// 出错兜底（task-pyb39）：没接住的异常记进日志；整个窗口包一层，渲染里抛错显示出错页，不白屏；
+// React 根自己的出错回调也记，带组件栈（crash/root.tsx）
 watchGlobalErrors()
 installTestCrash()
 // AI 回答里的引用（task-3e53q）：点了出预览卡、⌘点打开，哪里画的回答都一样
@@ -42,7 +44,7 @@ installCiteClicks()
 installPeek()
 // 测试模式：语音输入试验框（费曼那一列做好前，端到端测试在这里真点麦克风）
 if (window.cnCrash?.e2e) installDictDemo()
-createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById('root')!, rootErrors('window')).render(
   <WindowGuard>
     <App />
   </WindowGuard>,

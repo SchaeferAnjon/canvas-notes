@@ -1133,6 +1133,25 @@
   text-overflow: ellipsis;
   font-weight: 500;
 }
+/* 名字双击原地改（base-name.tsx）：框和名字同一行同一个字号，改的是数据源文件夹 */
+.base-top b.base-name {
+  cursor: text;
+}
+.base-top > .base-rename {
+  flex-shrink: 1;
+  min-width: 60px;
+  width: 200px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--acc);
+  border-radius: 4px;
+  background: var(--win);
+  font-family: var(--sans);
+  font-size: inherit;
+  font-weight: 500;
+  color: var(--t1);
+  outline: none;
+}
 .base-more {
   position: relative;
 }
@@ -1989,6 +2008,17 @@ input.field[inputmode='decimal'] {
   border-radius: 0;
   box-shadow: none;
   background: var(--win);
+}
+/* 白板上展开的卡点「整页打开」：盖在这一栏顶上，高随内容（最高整栏、再多在里面滚），底下的白板照旧看得见、滚得动；
+   压在展开的卡（30）、工具板、收件箱浮窗（35）上面，提示条（40）、看全文（45）、菜单还在它上面 */
+.base-full[data-sheet] {
+  bottom: auto;
+  max-height: 100%;
+  box-sizing: border-box;
+  z-index: 38;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+  box-shadow: var(--shadow-up);
 }
 
 /* ---------- 白板链接（DESIGN.v3 6.5）：独占一行的 [[白板]] 画成一张卡 ---------- */

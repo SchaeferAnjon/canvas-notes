@@ -15,11 +15,29 @@ import { titleOf } from '../../shared/layout'
 import { recheckFamily, useFamily } from '../family-store'
 import { useLang, useT } from '../i18n'
 import type { WCtx } from './widgets'
+import { ipcOn } from '../crash/ipc'
 
-type Item = FolderReads['items'][number]
+export type Item = FolderReads['items'][number]
+
+type T = ReturnType<typeof useT>
+
+/** 一份 PDF 右边的数：装了写读到哪和看不懂；没装写画布笔记的「问到第几页」（组件和「全部 N 份」列表页一样） */
+export function readRight(t: T, installed: boolean, x: Item): string {
+  if (!installed) return x.asked ? t('问到 {at} 页', { at: x.asked.replace('/', ' / ') }) : t('没问过')
+  const pct = x.read ? readPct(x.read) : undefined
+  const parts = [x.read ? (pct !== undefined ? `${pct}%` : t('第{page}页', { page: x.read.page })) : x.readLabel ? x.readLabel.split(' · ')[0]! : t('没读过')]
+  if (x.confused) parts.push(t('看不懂 {n}', { n: x.confused }))
+  return parts.join(' · ')
+}
+
+/** 「读」：装了用 ParaRead 打开、翻到读到的那页（带着这个文件夹，回得来）；没装用画布笔记打开 */
+export function readPdf(x: Item, o: { installed: boolean; view: PrView; folder: string; onOpenAt(pdf: string, page: number): void; onError(e: string): void }) {
+  if (o.installed) void window.cnFamily.readInParaRead(x.pdf, { ...(x.read ? { page: x.read.page } : {}), back: o.folder, view: o.view }).catch((e: unknown) => o.onError(String((e as Error).message ?? e)))
+  else o.onOpenAt(x.pdf, x.read?.page ?? 1)
+}
 
 /** 最近读的在前，没读过的按名字排在后面 */
-const order = (a: Item, b: Item) => (b.read?.at ?? 0) - (a.read?.at ?? 0) || a.pdf.localeCompare(b.pdf, 'zh-CN', { numeric: true })
+export const order = (a: Item, b: Item) => (b.read?.at ?? 0) - (a.read?.at ?? 0) || a.pdf.localeCompare(b.pdf, 'zh-CN', { numeric: true })
 
 /** 看法：ParaRead 里用保版面双语对照（默认）还是原文 */
 export type PrView = 'bilingual' | 'original'
@@ -44,8 +62,8 @@ export function ParaReadBody(props: { c: WCtx; view: PrView }) {
   // 文件一变（这边、ParaRead 写了笔记、读到哪）重读；不轮询 ParaRead
   useEffect(() => {
     load()
-    const offA = window.cn.onFilesChanged(load)
-    const offB = window.cn.onNoteChanged(load)
+    const offA = ipcOn(window.cn.onFilesChanged, 'cn.onFilesChanged')(load)
+    const offB = ipcOn(window.cn.onNoteChanged, 'cn.onNoteChanged')(load)
     return () => (offA(), offB())
   }, [load])
   const installed = !!fam?.installed.pararead
@@ -58,19 +76,11 @@ export function ParaReadBody(props: { c: WCtx; view: PrView }) {
   if (!data || !fam) return null
   const items = [...data.items].sort(order)
   const now = items.find((x) => x.read)
-  const read = (x: Item, view: PrView = props.view) =>
-    installed ? void window.cnFamily.readInParaRead(x.pdf, { ...(x.read ? { page: x.read.page } : {}), back: c.folder, view }).catch((e: unknown) => setError(String((e as Error).message ?? e))) : c.onOpenAt(x.pdf, x.read?.page ?? 1)
+  const read = (x: Item, view: PrView = props.view) => readPdf(x, { installed, view, folder: c.folder, onOpenAt: c.onOpenAt, onError: setError })
   const app = fam.list.apps.find((a) => a.id === 'pararead')
   const one = app ? (lang === 'en' ? (app.one.en ?? app.one.zh) : app.one.zh) : ''
 
-  /** 右边的数：装了写读到哪和看不懂；没装写画布笔记的「问到第几页」 */
-  const right = (x: Item) => {
-    if (!installed) return x.asked ? t('问到 {at} 页', { at: x.asked.replace('/', ' / ') }) : t('没问过')
-    const pct = x.read ? readPct(x.read) : undefined
-    const parts = [x.read ? (pct !== undefined ? `${pct}%` : t('第{page}页', { page: x.read.page })) : x.readLabel ? x.readLabel.split(' · ')[0]! : t('没读过')]
-    if (x.confused) parts.push(t('看不懂 {n}', { n: x.confused }))
-    return parts.join(' · ')
-  }
+  const right = (x: Item) => readRight(t, installed, x)
 
   return (
     <div className="prw" data-testid="pararead-widget">

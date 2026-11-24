@@ -105,6 +105,7 @@ export type FWidget =
   | 'clips'
   | 'list'
   | 'pararead'
+  | 'meetcaption'
 
 export type FSize = 1 | 2 | 4
 
@@ -132,6 +133,8 @@ export const FWIDGETS: { type: FWidget; name: string; desc: string; size: FSize;
   { type: 'clips', name: '剪藏', desc: '只列主题和篇数', size: 2, cat: 'common' },
   // ParaRead 联动（2026-11-23 用户定另放一张，只在加了它的首页出现）
   { type: 'pararead', name: 'ParaRead', desc: '对照读这个文件夹的PDF：读到哪、还有几处看不懂', size: 2, cat: 'common' },
+  // MeetCaption 联动（已定第 11、12 件：课程、项目首页的主入口，连库时自动放）
+  { type: 'meetcaption', name: 'MeetCaption', desc: '一键开始上课、开会；下一节和最近几节', size: 2, cat: 'common' },
   { type: 'drafts', name: '草稿', desc: '正文不到100字的笔记', size: 2, cat: 'cond' },
   { type: 'list', name: '按条件列出', desc: '自己定条件：类型、第几讲…', size: 2, cat: 'cond' },
 ]
@@ -341,6 +344,8 @@ export interface WidgetData {
   stages?: { name: string; pct: number }[]
   /** ParaRead 组件：这个文件夹在 ParaRead 里默认用哪种看法（没写是对照） */
   view?: 'bilingual' | 'original'
+  /** MeetCaption 组件：这个文件夹默认的模式（没写照 MeetCaption 连库时对的） */
+  mcMode?: 'class' | 'online' | 'meeting' | 'interview'
 }
 
 /**
@@ -448,6 +453,7 @@ function normWidget(raw: unknown): WidgetData | null {
   if (Array.isArray(r.links)) w.links = r.links.filter((x) => x && typeof x.name === 'string' && typeof x.url === 'string' && /^(https?:|mailto:)/.test(x.url)).slice(0, 20)
   if (Array.isArray(r.stages)) w.stages = r.stages.filter((x) => x && typeof x.name === 'string').slice(0, 10).map((x) => ({ name: String(x.name).slice(0, 40), pct: Math.min(100, Math.max(0, Number(x.pct) || 0)) }))
   if (r.view === 'original' || r.view === 'bilingual') w.view = r.view
+  if (r.mcMode === 'class' || r.mcMode === 'online' || r.mcMode === 'meeting' || r.mcMode === 'interview') w.mcMode = r.mcMode
   return w
 }
 

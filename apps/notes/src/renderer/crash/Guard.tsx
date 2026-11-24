@@ -1,7 +1,8 @@
 /**
  * 出错兜底（task-pyb39「突然白屏」）：React 渲染里一抛错，没有 ErrorBoundary 时整棵树卸掉、窗口只剩红黄绿三个按钮。
  * - WindowGuard 包整个窗口：出错页说「笔记都在磁盘上」，能重新加载、用默认布局打开（清掉上次开着的标签和栏的摆法，库里文件不动）。
- * - PanelGuard 包每一块（中间每个标签、右栏五样、左栏、白板、PDF）：一块出错只那一块换成小号出错卡，别的照常能用、能存。
+ * - PanelGuard 包每一块（中间每个标签、右栏五样、左栏、白板、PDF；编辑器部件另起的根经 root.tsx 的 guardedRoot 也包）：
+ *   一块出错只那一块换成小号出错卡「这一块出错了 · 重新加载这一块」，别的照常能用、能存。
  * 接住的错误都报给主进程记进 main.log；测试模式下 window.cnTestCrash(area) 让那一块在渲染时抛错（report.ts）。
  */
 import { Codicon } from '@cn/design'
@@ -14,7 +15,7 @@ interface Caught {
   componentStack: string
 }
 
-class Catch extends Component<{ area: string; fallback(c: Caught, reset: () => void): ReactNode; children: ReactNode }, { caught: Caught | null }> {
+export class Catch extends Component<{ area: string; fallback(c: Caught, reset: () => void): ReactNode; children: ReactNode }, { caught: Caught | null }> {
   state: { caught: Caught | null } = { caught: null }
 
   static getDerivedStateFromError(error: unknown) {
@@ -112,26 +113,27 @@ export function WindowGuard({ children }: { children: ReactNode }) {
 }
 
 /**
- * 包一块：shape 是出错卡占的位置（pane：中间栏的一个标签；side：左栏；fill：撑满所在的格子，右栏、白板、PDF）。
- * 「重新打开」把这一块整个重新挂一遍（里面的状态从头来，文件照样从磁盘读）。
+ * 包一块：shape 是出错卡占的位置（pane：中间栏的一个标签；side：左栏；fill：撑满所在的格子，右栏、白板、PDF；
+ * inline：编辑器里的小部件、浮层，只一行字加「看原话」，不撑格子）。
+ * 「重新加载这一块」把这一块整个重新挂一遍（里面的状态从头来，文件照样从磁盘读）。
  */
-export function PanelGuard({ area, label, shape = 'fill', hidden, children }: { area: string; label: string; shape?: 'pane' | 'side' | 'fill'; hidden?: boolean; children: ReactNode }) {
+export function PanelGuard({ area, label, shape = 'fill', hidden, children }: { area: string; label: string; shape?: 'pane' | 'side' | 'fill' | 'inline'; hidden?: boolean; children: ReactNode }) {
   const [n, setN] = useState(0)
   return (
     <Catch
       area={area}
       fallback={(c, reset) => {
         const card = (
-          <div className="crash-card" role="alert" data-testid="panel-crash" data-area={area}>
+          <div className={shape === 'inline' ? 'crash-card crash-inline' : 'crash-card'} role="alert" data-testid="panel-crash" data-area={area}>
             <div className="crash-card-t">
               <Codicon name="error" size={12} className="crash-ic" />
               <span>这一块出错了</span>
               <span className="crash-dot">·</span>
               <button className="crash-link" onClick={() => (setN((x) => x + 1), reset())}>
-                重新打开
+                重新加载这一块
               </button>
             </div>
-            <p className="crash-card-sub">{`${label}没画出来，别的地方照常能用，笔记都在磁盘上。`}</p>
+            {shape !== 'inline' && <p className="crash-card-sub">{`${label}没画出来，别的地方照常能用，笔记都在磁盘上。`}</p>}
             <Detail text={summary(label, c)} />
           </div>
         )
@@ -147,6 +149,7 @@ export function PanelGuard({ area, label, shape = 'fill', hidden, children }: { 
               {card}
             </aside>
           )
+        if (shape === 'inline') return card
         return <div className="crash-fill">{card}</div>
       }}
     >

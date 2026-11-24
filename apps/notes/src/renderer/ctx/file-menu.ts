@@ -13,6 +13,7 @@ import { moveMenu } from './move-menu'
 import { pairOf, rightPage } from '../read-along/store'
 import { catName } from '../../shared/categories'
 import { t } from '../../shared/i18n'
+import { exportItems } from '../export-doc'
 
 const folderOf = (p: string) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '')
 const nameOf = (p: string) => p.split('/').pop()!
@@ -33,7 +34,7 @@ const pinItem = (pinned: boolean, key: string, tree?: TreeMenu): MenuEntry => ({
  * rename：这个地方能原地改名时给（左栏、全部笔记、标签）；note：PDF、HTML 和它的笔记合成一行时那篇笔记（多一项「单独打开笔记」）；tree：左栏目录树里；
  * home：文件夹首页卡里的一份（task-r00en）：「移到…」弹打字找的小弹层，PDF、HTML 也有（挂着的笔记、可视化一起走）
  */
-export function fileMenu(path: string, on: { rename?(): void; note?: string; tree?: TreeMenu; home?: TreeMenu } = {}): MenuEntry[] {
+export function fileMenu(path: string, on: { rename?(): void; note?: string; tree?: TreeMenu; home?: TreeMenu; view?: 'board' | 'mindmap' } = {}): MenuEntry[] {
   const a = app()
   const md = /\.md$/i.test(path)
   const pinned = a.pins().includes(path)
@@ -57,6 +58,10 @@ export function fileMenu(path: string, on: { rename?(): void; note?: string; tre
     { label: t('在访达中显示'), run: () => window.cnMenu.reveal(path) },
     { label: t('拷贝路径'), run: () => copy(a.absPath(path)) },
     { label: t('拷贝双链'), run: () => copy(`[[${md ? titleOf(path) : nameOf(path)}]]`) },
+    // 导出（2026-11-24）：一篇文档导出成 PDF、导出成别的软件能开的 md 文件夹；白板、数据库先灰掉（view：这一页正用白板看）；
+    // 导图不放（它自己的导出图片 / PDF / OPML 在「⋯」里）
+    '-',
+    ...(md && on.view !== 'mindmap' ? exportItems(path, on.view === 'board') : []),
     '-',
     { label: t('移到废纸篓'), run: () => a.trash(path) },
   ]
@@ -100,5 +105,5 @@ export function folderMenu(folder: string, on: { rename?(): void; newFolder?(): 
 }
 
 /** 右键事件里直接用；extra：这一处自己多的几项，放在最后（文档「⋯」里的宽版） */
-export const onFileMenu = (e: React.MouseEvent, path: string, on: { rename?(): void; note?: string; tree?: TreeMenu; home?: TreeMenu } = {}, extra: MenuEntry[] = []) =>
+export const onFileMenu = (e: React.MouseEvent, path: string, on: { rename?(): void; note?: string; tree?: TreeMenu; home?: TreeMenu; view?: 'board' | 'mindmap' } = {}, extra: MenuEntry[] = []) =>
   void menuAt(e, [...fileMenu(path, on), ...(extra.some(Boolean) ? ['-' as const, ...extra] : [])])

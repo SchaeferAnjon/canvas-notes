@@ -3,7 +3,7 @@ import { HOLD_POLICY } from '../../shared/web-api'
 import { pageReported } from '../plugins/host'
 import { videoReported } from '../video/store'
 import { noteFavicon } from './favicons'
-import { backInWebDrag, cancelWebDrag, dropWebDragAt, hoverWebDragAt, noteWebDrag } from './image-drop'
+import { backInWebDrag, cancelWebDrag, dropWebDragAt, hoverWebDragAt, noteWebDrag, noteWebTextDrag } from './image-drop'
 import { webImgOf } from '../../shared/web-img'
 import { noteCtxImg } from '../ctx/web-menu'
 import { webReadIpc } from '../reading/web-bridge'
@@ -127,6 +127,11 @@ export function WebView(props: {
       } else if (channel === 'cn:drag') {
         const d = webImgOf(args[0])
         if (d) noteWebDrag(d)
+      } else if (channel === 'cn:drag-text') {
+        // 拖网页里选中的字（剪藏那样的字、来源、小标题；落进文档 / 白板写成剪藏的那一块）
+        const c = args[0] as { text?: unknown; md?: unknown; url?: unknown; title?: unknown; head?: unknown } | undefined
+        if (typeof c?.text === 'string' && typeof c.url === 'string')
+          noteWebTextDrag({ text: c.text.slice(0, 20_000), ...(typeof c.md === 'string' ? { md: c.md.slice(0, 40_000) } : {}), url: c.url, title: typeof c.title === 'string' ? c.title.slice(0, 300) : '', ...(typeof c.head === 'string' && c.head ? { head: c.head.slice(0, 200) } : {}) })
       } else if (channel === 'cn:dragmove') {
         // 拖着网页里的图：指针到了界面哪里（AI 输入框亮、文档画插入线）
         const p = args[0] as { x?: unknown; y?: unknown; inside?: unknown } | undefined

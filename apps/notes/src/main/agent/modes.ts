@@ -45,3 +45,11 @@ export const AI_BLOCK_RULE = `- 往库里已有的笔记里新加的段落（评
 export function aiBlockLine(head: string): string {
   return `【AI 块】往笔记里新加的段落写成：> [!ai] ${head}`
 }
+
+/**
+ * 待办默认提醒（2026-11-24 用户定）：AI 建带钟点的待办默认写「🔔 准时」，用户说了提前多久照说的写。
+ * AI 忘了写的这一轮结束软件补（index.ts remindTurn）；用户这一问说了不要提醒（NO_REMIND_RE）就不补
+ */
+export const TODO_REMIND_RULE = `- 写待办一行：\`- [ ] 做什么 📅 YYYY-MM-DD HH:MM 🔔 准时\`（没钟点只写 📅 日子）。带钟点的默认写「🔔 准时」；用户说了提前多久就写那个：🔔 提前30分钟、🔔 提前1小时、🔔 提前1天、🔔 前一天20:00（「提前半小时提醒我」写 🔔 提前30分钟）；用户说不要提醒就不写 🔔。`
+
+export const NO_REMIND_RE = /不(?:用|要|必)?提醒|别提醒|no reminders?|without (?:a )?reminder|don'?t remind/i

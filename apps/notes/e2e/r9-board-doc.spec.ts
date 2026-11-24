@@ -338,7 +338,8 @@ test('连线：卡右边的小圆点拖到另一张卡上连一条线（列里�
     // 「住宿」这一篇（不是装着五条记录的「住宿」文件夹，那一行后面带篇数）
     const row = tree.getByRole('treeitem').filter({ hasText: /^住宿$/ }).first()
     await expect(row).toBeVisible()
-    await row.dragTo(col(page, '住哪').locator('.db-card').first(), { targetPosition: { x: 120, y: 60 } })
+    // 按在名字上拖（一行里名字以外的空处按下是框选，74605847）
+    await row.locator('.truncate').first().dragTo(col(page, '住哪').locator('.db-card').first(), { targetPosition: { x: 120, y: 60 } })
     await expect(col(page, '住哪').locator('.db-card[data-face="note"]')).toBeVisible()
     await waitSaved(page)
     expect(file()).toMatch(/## 住哪\n\n[\s\S]*!\[\[住宿\]\]\n\n## 路线/)

@@ -1,24 +1,28 @@
 /**
- * 左边图标栏「文件」下面的「待办」格（task-pd1d1，原型 todoPanel()）：头上「待办 今天 N」，今天 / 七天 / 按文件夹 / 收件箱 四种分法
- * （默认按文件夹，记在本机），加一条（进 收件箱/待办.md，认「明天下午三点交论文」），下面一组组待办。
- * 按文件夹时每个文件夹一组：点箭头收起，点名字打开这个文件夹的「待办」（没有那篇就开唯一那篇笔记或文件夹首页），组下面「打开 写作/待办 ›」。
+ * 左边图标栏「文件」下面的「待办」格（task-pd1d1，原型 todoPanel()）：头上「待办 今天 N」，今天 / 七天 / 全部 / 按文件夹 / 收件箱 / 已完成
+ * 六种分法（默认按文件夹，记在本机），加一条（进 收件箱/待办.md，认「明天下午三点交论文」），下面一组组待办。
+ * 按文件夹时每个文件夹一组：点箭头收起，点名字打开这个文件夹的「待办」（没有那篇就开唯一那篇笔记或文件夹首页），组里已完成的收成一行「已完成 N 条 ›」，
+ * 组下面「打开 写作/待办 ›」。全部（含没写日子的，2026-11-24 用户「有些我是没写日期的」）：文件夹一组、组里按笔记分；
+ * 已完成：按完成那天倒着排，点勾选框取消勾选就回到原来那一组。
  * 左栏只有 248 宽：每行只露勾选框、标题、日子小块，出处不露。
  */
 import { Codicon } from '@cn/design'
 import { diffDays } from '@cn/tasks'
-import { useMemo, useState } from 'react'
-import { byFolder, type FolderGroup, INBOX_TODO, type TodoItem, todoLabel } from '../../shared/todo'
+import { Fragment, useMemo, useState } from 'react'
+import { byFolder, byNote, doneGroups, type FolderGroup, INBOX_TODO, type TodoItem, todoLabel } from '../../shared/todo'
 import { app } from '../ctx/actions'
 import { FolderGlyph } from '../files/look'
 import { ViewHead } from '../shell/Shell'
 import { aboutToday, openTodayApp, todayCount, useToday, useTodayInstalled, useTodos } from './store'
 import todayIcon from '../assets/today-icon.png'
-import { QuickAdd, TodoGroups, TodoPop, useOwner } from './TodoList'
+import { QuickAdd, TodoGroups, TodoPop, TodoRows, useOwner } from './TodoList'
 import { useT } from '../i18n'
 import { catName } from '../../shared/categories'
 
-type Seg = 'today' | 'week' | 'folder' | 'inbox'
-const SEGS: Seg[] = ['today', 'week', 'folder', 'inbox']
+type Seg = 'today' | 'week' | 'all' | 'folder' | 'inbox' | 'done'
+const SEGS: Seg[] = ['today', 'week', 'all', 'folder', 'inbox', 'done']
+/** 「已完成」先列多少条（库里勾掉的可能上千条），多的点「再列 N 条」 */
+const DONE_PAGE = 100
 const SEG_KEY = 'cn.todoSeg'
 const FOLD_KEY = 'cn.todoFold'
 
@@ -50,7 +54,7 @@ function openGroup(g: FolderGroup) {
 
 export function TodoPanel() {
   const t = useT()
-  const segName: Record<Seg, string> = { today: t('今天'), week: t('七天'), folder: t('按文件夹'), inbox: t('收件箱') }
+  const segName: Record<Seg, string> = { today: t('今天'), week: t('七天'), all: t('全部'), folder: t('按文件夹'), inbox: t('收件箱'), done: t('已完成') }
   const { items } = useTodos()
   const today = useToday()
   const owner = useOwner()
@@ -66,8 +70,11 @@ export function TodoPanel() {
     setFoldState(next)
     keep(FOLD_KEY, next)
   }
-  const { keep: kept } = useTodos()
-  const groups = useMemo(() => byFolder(items, new Set(items.map((t) => t.path)), kept), [items, kept])
+  const { just } = useTodos()
+  const [doneShown, setDoneShown] = useState(DONE_PAGE)
+  const groups = useMemo(() => byFolder(items, new Set(items.map((t) => t.path)), just), [items, just])
+  const dones = useMemo(() => (seg === 'done' ? doneGroups(items, today) : []), [items, seg, today])
+  const doneTotal = dones.reduce((n, g) => n + g.items.length, 0)
   const list = useMemo((): TodoItem[] => {
     if (seg === 'today') return items.filter((t) => t.date !== null && t.date <= today)
     if (seg === 'week') return items.filter((t) => t.date !== null && diffDays(t.date, today) < 7)
@@ -99,7 +106,7 @@ export function TodoPanel() {
         </div>
         <QuickAdd where={{ inbox: true }} label={t('加一条')} placeholder={t('加一条，「明天下午三点交论文」')} hintWhere={catName('收件箱')} />
         <div className="td-list" role="list" aria-label={t('待办')}>
-          {seg === 'folder' ? (
+          {seg === 'folder' || seg === 'all' ? (
             groups.map((g) => {
               const col = fold.includes(g.folder)
               return (
@@ -116,7 +123,19 @@ export function TodoPanel() {
                   </div>
                   {!col && (
                     <>
-                      <TodoGroups list={g.items} owner={owner} />
+                      {seg === 'folder' ? (
+                        <TodoGroups list={g.items} owner={owner} showDone />
+                      ) : (
+                        byNote(g.items, just).map((n) => (
+                          <Fragment key={n.path}>
+                            <button className="td-sub td-note" title={t('打开这一篇')} onClick={() => app().openFile(n.path)}>
+                              {n.name}
+                              <span className="n num">{n.items.filter((x) => !x.done).length}</span>
+                            </button>
+                            <TodoRows items={n.items} owner={owner} />
+                          </Fragment>
+                        ))
+                      )}
                       {g.todo && (
                         <div className="td-more">
                           <button className="td-link" onClick={() => app().openFile(g.todo!)}>
@@ -129,10 +148,36 @@ export function TodoPanel() {
                 </section>
               )
             })
+          ) : seg === 'done' ? (
+            <>
+              {(() => {
+                let left = doneShown
+                return dones.map((g) => {
+                  const shown = g.items.slice(0, Math.max(0, left))
+                  left -= shown.length
+                  if (!shown.length) return null
+                  return (
+                    <Fragment key={g.day ?? ''}>
+                      <div className="td-sub">
+                        {g.name}
+                        <span className="n num">{g.items.length}</span>
+                      </div>
+                      <TodoRows items={shown} owner={owner} />
+                    </Fragment>
+                  )
+                })
+              })()}
+              {doneTotal > doneShown && (
+                <button className="td-more td-btn" onClick={() => setDoneShown((n) => n + DONE_PAGE)}>
+                  {t('再列{n}条 ›', { n: Math.min(DONE_PAGE, doneTotal - doneShown) })}
+                </button>
+              )}
+              {!doneTotal && <p className="td-none">{t('还没有勾掉的待办。勾掉一条，它就到这里来。')}</p>}
+            </>
           ) : (
             <TodoGroups list={list} owner={owner} dropEmpty={seg !== 'today'} />
           )}
-          {seg === 'folder' && !groups.length && <p className="td-none">{t('没有没做的待办。上面加一条，或者在哪篇笔记里写一行「- [ ] 」。')}</p>}
+          {(seg === 'folder' || seg === 'all') && !groups.length && <p className="td-none">{t('没有没做的待办。上面加一条，或者在哪篇笔记里写一行「- [ ] 」。')}</p>}
         </div>
       </div>
       <TodoPop owner={owner} />

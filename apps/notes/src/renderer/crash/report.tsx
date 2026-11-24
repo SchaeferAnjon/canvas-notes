@@ -1,8 +1,9 @@
 /**
  * 出错了报给主进程记进 main.log（task-pyb39）；测试模式下往某一块注入渲染错误；「用默认布局打开」清掉的东西。
  */
-import { useSyncExternalStore } from 'react'
+import { useLayoutEffect, useState, useSyncExternalStore } from 'react'
 import type { RendererReport } from '../../shared/crash'
+import { ipcOn } from './ipc'
 
 export function report(r: RendererReport) {
   try {
@@ -32,7 +33,9 @@ export function watchGlobalErrors() {
 }
 
 // ---------- 测试模式：往某一块注入一个渲染时抛的错（只有 CN_E2E=1 时有 window.cnTestCrash） ----------
-const armed = new Set<string>()
+// how：'throw' 渲染时直接抛；'loop' 每次画完都 setState（无限更新，React 报 #185「更新嵌套太深」，同 0.5.10 用户那台）
+type How = 'throw' | 'loop'
+const armed = new Map<string, How>()
 const subs = new Set<() => void>()
 let ver = 0
 const subscribe = (f: () => void) => (subs.add(f), () => subs.delete(f))
@@ -40,18 +43,27 @@ const snapshot = () => ver
 
 export function installTestCrash() {
   if (!window.cnCrash?.e2e) return
-  ;(window as unknown as { cnTestCrash: (area: string, on?: boolean) => void }).cnTestCrash = (area, on = true) => {
-    if (on) armed.add(area)
+  ;(window as unknown as { cnTestCrash: (area: string, on?: boolean | How) => void }).cnTestCrash = (area, on = true) => {
+    if (on) armed.set(area, on === true ? 'throw' : on)
     else armed.delete(area)
     ver++
     for (const f of subs) f()
   }
+  // 主进程发来的 AI 事件，回调里抛错：经 ipcOn 挂上，和界面里那些订阅一样
+  ;(window as unknown as { cnTestIpc: (cb: () => void) => () => void }).cnTestIpc = (cb) => ipcOn(window.cn.onAiEvent, 'cn.onAiEvent')(cb)
 }
 
 /** 放在每块兜底里面：测试模式下这一块被点名了就在渲染时抛错 */
 export function Boom({ area }: { area: string }) {
   useSyncExternalStore(subscribe, snapshot)
-  if (armed.has(area)) throw new Error(`测试注入的渲染错误：${area}`)
+  const how = armed.get(area)
+  if (how === 'throw') throw new Error(`测试注入的渲染错误：${area}`)
+  return how === 'loop' ? <Loop /> : null
+}
+
+function Loop() {
+  const [n, setN] = useState(0)
+  useLayoutEffect(() => setN(n + 1), [n])
   return null
 }
 

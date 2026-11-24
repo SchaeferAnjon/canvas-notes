@@ -41,7 +41,7 @@ export interface Size {
 
 export interface BoardSummary {
   cards: { id: string; text: string; x?: number; y?: number; w?: number; column?: string; color?: string }[]
-  columns: { id: string; title: string; x: number; y: number; w: number; cards: string[] }[]
+  columns: { id: string; title: string; x: number; y: number; w: number; cards: string[]; fixed?: true }[]
   links: Link[]
   /** 还没放进卡片的段落（「未整理」） */
   loose: string[]

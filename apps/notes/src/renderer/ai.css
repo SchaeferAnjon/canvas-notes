@@ -70,6 +70,33 @@
   color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
+/* 一段的状态（AI 对话同时跑）：正在答小转圈、排第 N、答完没看一个点 */
+.convmenu .rm,
+.aih .conv .rm {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  margin-left: 6px;
+  color: var(--acc-t);
+}
+.convmenu .rm {
+  margin-left: auto;
+  padding-left: 6px;
+}
+.convmenu .rm + .r {
+  margin-left: 8px;
+}
+.convmenu .rm.q {
+  font-size: 12px;
+  color: var(--t3);
+}
+.convmenu .rm.dot,
+.aih .conv .rm.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--acc);
+}
 .convmenu .sep {
   height: 1px;
   margin: 4px 6px;

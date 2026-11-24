@@ -96,11 +96,21 @@ export function finishCards(): boolean {
  * 一列都放不下时推到这张卡那一列离工具板 12。不在列里的卡只推到内容离工具板 12 为止。
  * 人自己已经把内容拖到骑在工具板右边线上的，照旧按可见区推
  */
+/** 上一回 reveal 平滑滚去哪（还在滚的时候再来一张卡，按滚到那里以后的样子算） */
+const going = new WeakMap<HTMLElement, { left: number; top: number; at: number }>()
+
 function reveal(el: HTMLElement) {
   const wrap = el.closest<HTMLElement>('.board-wrap')
   if (!wrap) return
   const w = wrap.getBoundingClientRect()
-  const c = el.getBoundingClientRect()
+  // 平滑滚动还没停（列宽 400 以后一下要滚一整列多）：所有位置按滚到上一回目标以后的样子量，
+  // 不然量到半路上最左那列骑在工具板右边线上，当成人自己拖过去的，按可见区推，把上一回按整列推的那一下盖掉
+  const g = going.get(wrap)
+  const base = g && performance.now() - g.at < 1500 ? g : { left: wrap.scrollLeft, top: wrap.scrollTop }
+  const ox = base.left - wrap.scrollLeft
+  const oy = base.top - wrap.scrollTop
+  const at = (r: DOMRect) => new DOMRect(r.left - ox, r.top - oy, r.width, r.height)
+  const c = at(el.getBoundingClientRect())
   const pal = wrap.parentElement?.querySelector<HTMLElement>(':scope > .bpal')?.getBoundingClientRect()
   const pad = 24
   const below = 40
@@ -109,17 +119,23 @@ function reveal(el: HTMLElement) {
   const R = w.left + (wrap.clientWidth || w.width) - pad
   const T = w.top + pad
   const B = w.top + (wrap.clientHeight || w.height) - pad
-  let dx = c.right > R ? Math.min(c.right - R, c.left - L) : c.left < L ? c.left - L : 0
+  // 列里的卡：左边按它那一列的左边和「工具板右边 + 12」比（列贴着那条线时卡在列里只缩进 12 × 比例，比 24 小，不算没露全）
+  const inCol = pal && pal.width ? el.closest<HTMLElement>('.db-col') : null
+  const lx = inCol ? at(inCol.getBoundingClientRect()).left : c.left
+  const Lx = inCol ? pal!.right + 11 : L
+  let dx = c.right > R ? Math.min(c.right - R, lx - Lx) : lx < Lx ? lx - Lx : 0
   const dy = c.bottom + below > B ? Math.min(c.bottom + below - B, c.top - T) : c.top < T ? c.top - T : 0
   if (dx > 0 && pal && pal.width) {
-    const rects = (sel: string) => [...wrap.querySelectorAll<HTMLElement>(sel)].map((e) => e.getBoundingClientRect()).filter((r) => r.width)
+    const rects = (sel: string) => [...wrap.querySelectorAll<HTMLElement>(sel)].map((e) => at(e.getBoundingClientRect())).filter((r) => r.width)
     // 工具板右边以右还露着的内容（整个滚到工具板左边去的不算）：最左那一块的左边；有一块骑在工具板右边线上就是人自己拖过去的
     const shown = rects('.db-col, .db-card.placed, .fy-col, .bcard').filter((r) => r.right > pal.right + 1)
     const most = Math.min(...shown.map((r) => r.left))
     // 离工具板 12 那条线（上一回推到贴着、平滑滚动还没停时差的那一点也算没过线）
-    const edge = pal.right + 12
+    // 最左那列正贴着这条线（刚打开的样子）就照它那一条对齐：0.8 倍时一列 337.6 宽，按 +12 算会差一两个像素
+    const edge = most >= pal.right - 1 && most <= pal.right + 24 ? most : pal.right + 12
     if (most >= pal.right - 1) {
-      const col = el.closest<HTMLElement>('.db-col')?.getBoundingClientRect()
+      const colEl = el.closest<HTMLElement>('.db-col')
+      const col = colEl ? at(colEl.getBoundingClientRect()) : undefined
       if (col) {
         const need = c.right - R
         const step = rects('.db-col')
@@ -131,8 +147,11 @@ function reveal(el: HTMLElement) {
     }
   }
   if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return
-  // 按现在的位置算到哪（不用 scrollBy：平滑滚动还没停时又来一张卡，scrollBy 叠在没走完的那一截上，推过头、停在两列中间）
-  wrap.scrollTo({ left: wrap.scrollLeft + dx, top: wrap.scrollTop + dy, behavior: still() ? 'auto' : 'smooth' })
+  // 从上一回的目标（没在滚就是现在的位置）算到哪（不用 scrollBy：平滑滚动还没停时又来一张卡，scrollBy 叠在没走完的那一截上，推过头、停在两列中间）
+  const to = { left: base.left + dx, top: base.top + dy }
+  const smooth = !still()
+  if (smooth) going.set(wrap, { ...to, at: performance.now() })
+  wrap.scrollTo({ ...to, behavior: smooth ? 'smooth' : 'auto' })
 }
 
 /** 卡的字（认哪张卡是新写的：白板上原来没有这段字的） */

@@ -23,6 +23,7 @@ import type { Params } from '../shared/i18n'
 import { useT } from './i18n'
 import { RolesSection, useRoles } from './settings-dream-roles'
 import { nativeVault, ROLE_CAT } from '../shared/vault-roles'
+import { ipcOn } from './crash/ipc'
 
 type T = (key: string, p?: Params) => string
 
@@ -310,7 +311,7 @@ function JudgeSection(props: { s: DreamSettings; report: DreamReport | null; set
   useEffect(() => {
     const load = () => void window.cn.aiPrefs().then(setV, () => undefined)
     load()
-    return window.cn.onAiPrefsChanged(load)
+    return ipcOn(window.cn.onAiPrefsChanged, 'cn.onAiPrefsChanged')(load)
   }, [])
   const last = props.report?.judge
   return (

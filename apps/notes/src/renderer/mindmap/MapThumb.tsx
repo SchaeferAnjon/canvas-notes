@@ -13,6 +13,7 @@ import { titleOf } from '../../shared/layout'
 import { layoutMindmap, wirePath, type Level, type Measure } from '../../shared/mindmap-layout'
 import { imageSrc } from '../md-widgets'
 import './map-thumb.css'
+import { ipcOn } from '../crash/ipc'
 
 /** 字宽粗估（同首页缩略 mindmapThumb）：中文一个字一个字号，别的半个 */
 const SIZE: Record<Level, number> = { c: 16, l1: 14, l2: 13 }
@@ -33,7 +34,7 @@ export function useNoteText(path: string): string | null {
       (n) => live && setT(n.text),
       () => live && setT(''),
     )
-    const off = window.cn.onNoteChanged((p, text) => p === path && setT(text))
+    const off = ipcOn(window.cn.onNoteChanged, 'cn.onNoteChanged')((p, text) => p === path && setT(text))
     return () => ((live = false), off())
   }, [path])
   return t

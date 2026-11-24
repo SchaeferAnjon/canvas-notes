@@ -13,6 +13,7 @@ import { fillPrompt } from '../../shared/sel-bar'
 import { AiStreamWrite } from '../ai-write'
 import { app } from '../ctx/actions'
 import { cmdById, cmdOut, cmdPrompt } from './run'
+import { ipcOn } from '../crash/ipc'
 
 // 不翻：给 AI 的提示词
 const SYSTEM = '你是笔记软件里的助手。用户在自己的笔记里选中了一段字，照他的要求处理这段，直接给能放进笔记的内容，不要客套话，不要重复他的要求。'
@@ -65,7 +66,7 @@ export async function runDocCmd(view: EditorView, id: string, path: string) {
     },
     aiCalloutHead({ label: c.name, ...(by ? { by } : {}) }),
   )
-  const off = window.cn.onAiEvent((eid, e) => {
+  const off = ipcOn(window.cn.onAiEvent, 'cn.onAiEvent')((eid, e) => {
     if (eid === turn && e.type === 'text') w.push(e.delta)
   })
   try {

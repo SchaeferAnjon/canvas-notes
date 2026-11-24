@@ -12,7 +12,8 @@ import { type EditorState, type Range, StateEffect, StateField } from '@codemirr
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { type ReactNode, useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
-import { createRoot, type Root } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
+import { guardedRoot } from './crash/root'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
 import { app } from './ctx/actions'
@@ -27,6 +28,7 @@ import './doc-embeds.css'
 import { useT } from './i18n'
 import { list } from '../shared/i18n'
 import './doc-board/doc-board.css'
+import { ipcOn } from './crash/ipc'
 
 /** 库里的笔记（NoteTab 按左栏的列表告诉编辑器） */
 export const setNoteIndex = StateEffect.define<NoteFile[]>()
@@ -59,7 +61,7 @@ function useTextState(path: string): [string | null, (t: string) => void] {
       (n) => live && setT(n.text),
       () => live && setT(''),
     )
-    const off = window.cn.onNoteChanged((p, text) => p === path && setT(text))
+    const off = ipcOn(window.cn.onNoteChanged, 'cn.onNoteChanged')((p, text) => p === path && setT(text))
     return () => ((live = false), off())
   }, [path])
   return [t, setT]
@@ -300,7 +302,7 @@ class EmbedWidget extends WidgetType {
     return true
   }
   private mount(el: HTMLElement) {
-    const root = ((el as HTMLElement & { _root?: Root })._root ??= createRoot(el))
+    const root = ((el as HTMLElement & { _root?: Root })._root ??= guardedRoot(el, 'doc-embed'))
     flushSync(() =>
       root.render(
         this.kind === 'board' ? (

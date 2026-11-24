@@ -2,7 +2,12 @@
 import { afterEach, describe, expect, test } from 'vitest'
 import { randomBytes } from 'node:crypto'
 import { ask, hello, pairWith, type Paired } from '../src/main/mobile-ai/client'
-import { buildPrompt, checkAsk, EXPLAIN_Q, historyText, langLine, type MobileAsk, TRANSLATE_Q } from '../src/main/mobile-ai/prompt'
+import { buildPrompt, checkAsk, EXPLAIN_Q, historyText, langLine, type MobileAsk, TRANSLATE_Q, VAULT_RULE } from '../src/main/mobile-ai/prompt'
+import { vaultTools, VAULT_TOOLS } from '../src/main/mobile-ai/vault-tools'
+import type { Vault } from '../src/main/vault'
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   b64u,
   deviceSecretOf,
@@ -106,6 +111,18 @@ describe('拼给 AI 的话', () => {
     expect(p.prompt).toContain('【用户的长期说明】每一问都照这个来：\n先说结论\n')
     expect(p.prompt).toContain(langLine('en'))
     expect(p.prompt.endsWith('用户说：\n冰岛几月去好？')).toBe(true)
+  })
+
+  test('经 Mac 给了读库工具：AI 对话、选一段问的系统提示后面加读库的规矩；讲解、翻译、/ 命令和不给工具时一字不变（云端那份对照的样例不动）', () => {
+    const chat: MobileAsk = { kind: 'chat', text: '我最近几个文档都是说什么的' }
+    expect(buildPrompt(chat, { vault: true }).system).toBe(`${buildPrompt(chat).system}\n\n${VAULT_RULE}`)
+    expect(buildPrompt(chat).system).not.toContain('list_recent')
+    expect(buildPrompt(chat, { vault: true }).prompt).toBe(buildPrompt(chat).prompt)
+    const ask1: MobileAsk = { kind: 'ask', text: '这段在哪篇还提到过', quote: 'x' }
+    expect(buildPrompt(ask1, { vault: true }).system).toContain(VAULT_RULE)
+    for (const a of [{ kind: 'explain', text: '', quote: 'x' }, { kind: 'translate', text: '', quote: 'x' }, { kind: 'cmd', text: '命令：总结' }] as MobileAsk[])
+      expect(buildPrompt(a, { vault: true })).toEqual(buildPrompt(a))
+    for (const t of VAULT_TOOLS) expect(VAULT_RULE).toContain(t)
   })
 
   test('前面聊过的只带最近 10 条、每条 600 字', () => {
@@ -268,5 +285,56 @@ describe('服务真起来：配对、在吗、问一问（假的 AI）', () => {
     expect(metaAt).toBeLessThan(500)
     await new Promise((r) => setTimeout(r, 300))
     expect(aborted).toBe(true)
+  })
+})
+
+describe('手机交给 Mac 的 AI：读库工具（vault-tools.ts）', () => {
+  const rpc = async (url: string, token: string, method: string, params: unknown = {}) => {
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) })
+    const json = res.status === 200 ? ((await res.json()) as { result?: Record<string, unknown>; error?: { message: string } }) : null
+    return { status: res.status, body: json?.result ?? null, error: json?.error ?? null }
+  }
+
+  test('只有四样只读工具；list_recent 按修改时间列出库里真的笔记，read_note 读得到正文；答完令牌收回；库没开着照实说', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cn-mobile-tools-'))
+    mkdirSync(join(root, '课程'))
+    const now = Date.now() / 1000
+    const put = (p: string, text: string, age: number) => {
+      writeFileSync(join(root, p), text)
+      utimesSync(join(root, p), now - age, now - age)
+    }
+    put('随手记.md', '# 随手记\n\n一段字。\n', 7200)
+    put('课程/线性代数.md', '# 线性代数\n\n矩阵乘法。\n', 60)
+    const files = [
+      { path: '随手记.md', mtimeMs: (now - 7200) * 1000 },
+      { path: '课程/线性代数.md', mtimeMs: (now - 60) * 1000 },
+    ]
+    let open = true
+    const vault = { root, list: async () => files, texts: async () => new Map([['随手记.md', '# 随手记\n\n一段字。\n'], ['课程/线性代数.md', '# 线性代数\n\n矩阵乘法。\n']]) } as unknown as Vault
+    const tools = vaultTools(() => (open ? vault : null), '0.0.0')
+    try {
+      const lent = await tools.lend()
+      expect(lent.mcp.tools).toEqual([...VAULT_TOOLS])
+      const listed = await rpc(lent.mcp.url, lent.mcp.token, 'tools/list')
+      expect((listed.body!.tools as { name: string }[]).map((t) => t.name).sort()).toEqual([...VAULT_TOOLS].sort())
+      const recent = await rpc(lent.mcp.url, lent.mcp.token, 'tools/call', { name: 'list_recent', arguments: { days: 7 } })
+      const notes = (JSON.parse((recent.body!.content as { text: string }[])[0]!.text) as { notes: { title: string }[] }).notes
+      expect(notes.map((n) => n.title)).toEqual(['线性代数', '随手记'])
+      const read = await rpc(lent.mcp.url, lent.mcp.token, 'tools/call', { name: 'read_note', arguments: { path: '课程/线性代数.md' } })
+      expect((recent.body!.isError as boolean | undefined) ?? false).toBe(false)
+      expect((read.body!.content as { text: string }[])[0]!.text).toContain('矩阵乘法')
+      // 改库的工具不在这条路上
+      const write = await rpc(lent.mcp.url, lent.mcp.token, 'tools/call', { name: 'note_write', arguments: { path: '随手记.md', text: 'x' } })
+      expect(write.error?.message ?? (write.body?.isError ? 'isError' : '')).toBeTruthy()
+      open = false
+      const closed = await rpc(lent.mcp.url, lent.mcp.token, 'tools/call', { name: 'list_recent', arguments: {} })
+      expect(closed.body!.isError).toBe(true)
+      expect((closed.body!.content as { text: string }[])[0]!.text).toMatch(/no vault is open/)
+      lent.done()
+      expect((await rpc(lent.mcp.url, lent.mcp.token, 'tools/list')).status).toBe(401)
+    } finally {
+      await tools.close()
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

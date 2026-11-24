@@ -8,6 +8,7 @@
 import { type BaseCtx, type BaseDoc, type BaseRecord, baseContext, type FileWrite, parseBaseDoc, relatedFolders } from '@cn/format'
 import { useEffect, useMemo, useState } from 'react'
 import { BASE_WROTE, baseWrote } from './BaseTable'
+import { ipcOn } from '../crash/ipc'
 
 const inFolder = (p: string, f: string) => /\.md$/i.test(p) && (f === '' || p.startsWith(f + '/'))
 
@@ -56,8 +57,8 @@ export function useBaseData(src: string | null): { ctx: BaseCtx | null; reload()
   useEffect(() => {
     if (!folders.length) return
     const again = () => setTick((t) => t + 1)
-    const off1 = window.cn.onFilesChanged(again)
-    const off2 = window.cn.onNoteChanged((p) => folders.some((f) => inFolder(p, f)) && again())
+    const off1 = ipcOn(window.cn.onFilesChanged, 'cn.onFilesChanged')(again)
+    const off2 = ipcOn(window.cn.onNoteChanged, 'cn.onNoteChanged')((p) => folders.some((f) => inFolder(p, f)) && again())
     const wrote = (e: Event) => folders.includes((e as CustomEvent<string>).detail) && again()
     window.addEventListener(BASE_WROTE, wrote)
     return () => (off1(), off2(), window.removeEventListener(BASE_WROTE, wrote))

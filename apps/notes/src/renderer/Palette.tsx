@@ -27,6 +27,7 @@ import { type Params, t as tNow, tIn } from '../shared/i18n'
 import { openSettingsAt } from './settings/jump'
 import './search/palette.css'
 import { putOnBar } from './sel-bar/run'
+import { ipcOn } from './crash/ipc'
 
 export interface PaletteCommand {
   /** 记在 命令.json 里的身份（钉住、藏起、别名、快捷键都按它）；不给就用名字 */
@@ -189,7 +190,7 @@ export function Palette(props: {
 
   useEffect(() => {
     void window.cnSearch.status().then(setStatus)
-    return window.cnSearch.onStatus(setStatus)
+    return ipcOn(window.cnSearch.onStatus, 'cnSearch.onStatus')(setStatus)
   }, [])
 
   // 文字：打字就出（80ms 防抖）；意思相近：停手 300ms 再算
@@ -239,7 +240,7 @@ export function Palette(props: {
   }, [q])
   useEffect(
     () =>
-      window.cnSearch.onClaude((id, e) => {
+      ipcOn(window.cnSearch.onClaude, 'cnSearch.onClaude')((id, e) => {
         if (id !== claudeId.current || e.type !== 'step') return
         // 不翻：和搜索进程报上来的那一步比（「读 …」是看了一个文件）
         setClaude((c) => (c.phase === 'running' ? { phase: 'running', looked: c.looked + (e.text.startsWith('读 ') ? 1 : 0), step: e.text } : c))

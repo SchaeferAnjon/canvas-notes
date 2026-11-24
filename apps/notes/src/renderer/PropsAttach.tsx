@@ -89,8 +89,8 @@ export function useAttachOpen(note: string, text: string, onJump: (offset: numbe
   return { open, count, viewer }
 }
 
-/** 放大看图（双击、文中没用到的单击）：盖住窗口，点空白、按 Esc 收起（连点时后几下落在它上面不算） */
-function BigImage(props: { item: AttachItem; onClose(): void }) {
+/** 放大看图（双击、文中没用到的单击；文件树里双击一张图）：盖住窗口，点空白、按 Esc 收起（连点时后几下落在它上面不算）。sub 换掉最后那段「在哪一节」 */
+export function BigImage(props: { item: Pick<AttachItem, 'path' | 'bytes'> & { where?: string | null }; sub?: string; onClose(): void }) {
   const t = useT()
   const [fit, setFit] = useState<{ width: number; height: number } | null>(null)
   useEffect(() => {
@@ -113,7 +113,7 @@ function BigImage(props: { item: AttachItem; onClose(): void }) {
         onClick={(e) => e.stopPropagation()}
       />
       <p>
-        {nameOf(props.item.path)} · {sizeText(props.item.bytes)} · {props.item.where ?? t('文中没用到')}
+        {nameOf(props.item.path)} · {sizeText(props.item.bytes)} · {props.sub ?? props.item.where ?? t('文中没用到')}
       </p>
     </div>,
     document.body,

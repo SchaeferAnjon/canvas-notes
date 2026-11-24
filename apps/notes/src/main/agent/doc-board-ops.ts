@@ -5,6 +5,9 @@
  */
 import {
   addSection,
+  BOARD_COL_GAP,
+  BOARD_COL_W,
+  pushApart,
   appendPlaced,
   type DocBoard,
   type DocColumn,
@@ -20,7 +23,7 @@ import {
 import type { ArrangeMode, BoardSummary, NewCard, Size } from './board-ops'
 
 const GAP = 24
-const COL_W = 276
+const COL_W = BOARD_COL_W
 
 function find(text: string, id: string): { b: DocBoard; u: DocUnit } {
   const b = splitDoc(text)
@@ -50,15 +53,19 @@ export function summarize(text: string): BoardSummary {
   const b = splitDoc(text)
   const keys = unitKeys(b)
   const out: BoardSummary = { cards: [], columns: [], links: linksOf(text), loose: [] }
-  b.columns.forEach((c, i) => {
+  // 告诉 AI 的位置照白板上画的：原来按 276 宽摆的、加宽以后叠了的已经推开（pushApart）；一排的列按第几个一排的列算
+  const shown = pushApart([...b.columns.flatMap((c) => (c.place ? [{ id: 'c:' + c.place.id, x: c.place.x }] : [])), ...b.placed.map((u) => ({ id: 'u:' + u.place!.id, x: u.place!.x }))])
+  let flow = 0
+  b.columns.forEach((c) => {
+    const x = c.place ? (shown.get('c:' + c.place.id) ?? c.place.x) : flow++ * (COL_W + BOARD_COL_GAP)
     const cards = c.cards.filter((u) => u.kind !== 'gap')
     // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
     const id = c.title ?? '开头'
     // 不翻：回给 AI 的工具结果（新的列是写进文件的列名）
-    if (c.head || cards.length) out.columns.push({ id, title: c.title ?? '（开头没有列名的一组）', x: c.place?.x ?? i * (COL_W + 22), y: c.place?.y ?? 64, w: COL_W, cards: cards.map((u) => keys.get(u)!) })
+    if (c.head || cards.length) out.columns.push({ id, title: c.title ?? '（开头没有列名的一组）', x, y: c.place?.y ?? 64, w: COL_W, cards: cards.map((u) => keys.get(u)!), ...(c.ask ? { fixed: true as const } : {}) })
     for (const u of cards) out.cards.push({ id: keys.get(u)!, text: u.text, column: id })
   })
-  for (const u of b.placed) out.cards.push({ id: keys.get(u)!, text: u.text, x: u.place!.x, y: u.place!.y, w: COL_W })
+  for (const u of b.placed) out.cards.push({ id: keys.get(u)!, text: u.text, x: shown.get('u:' + u.place!.id) ?? u.place!.x, y: u.place!.y, w: COL_W })
   return out
 }
 

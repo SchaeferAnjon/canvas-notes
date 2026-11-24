@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { clipText } from '@cn/ai-chat/paste'
-import { imagesFrom, looksLikeImage, mayHaveImage, saveImages } from './image-drop'
+import { asClip, imagesFrom, looksLikeImage, mayHaveImage, saveImages, takeWebText, WEB_DRAG_TYPE, webAnyLive, webImgClipped, webTextLive, webTextMd } from './image-drop'
 
 type Pt = { x: number; y: number }
 
@@ -29,9 +29,12 @@ export function useBoardImageDrop(opts: {
     const found = await imagesFrom(dt)
     if (!found.length) return
     // 剪贴板里的截图（文件名都叫 image.png）：起名「截图 N」、说明留空，和文档里一样（CN-40）
-    const cands = paste ? found.map((c) => ({ ...c, alt: '', shot: true })) : found
+    // 从右栏网页拖来的当剪藏写（说明是图注，来源回到那张图，网页上标「剪过」），和文档里一样
+    const cands = paste ? found.map((c) => ({ ...c, alt: '', shot: true })) : found.map(asClip)
     const { md, errors } = await saveImages(o.current.notePath, cands)
     if (md.length) o.current.addCards(md, at ?? o.current.freeSpot())
+    const web = cands.find((c) => c.web)?.web
+    if (md.length && web && /^https?:/i.test(web.url)) webImgClipped(o.current.notePath, md.join('\n\n'), web.url)
     if (errors.length) o.current.onNotice(`有${errors.length}张图没存成：${errors[0]}`)
   }
 
@@ -39,7 +42,7 @@ export function useBoardImageDrop(opts: {
     dropping,
     handlers: {
       onDragOver(e: React.DragEvent) {
-        if (o.current.readOnly || !mayHaveImage(Array.from(e.dataTransfer.types))) return
+        if (o.current.readOnly || !(webAnyLive() || mayHaveImage(Array.from(e.dataTransfer.types)))) return
         e.preventDefault()
         e.dataTransfer.dropEffect = 'copy'
         if (!dropping) setDropping(true)
@@ -49,9 +52,21 @@ export function useBoardImageDrop(opts: {
       },
       onDrop(e: React.DragEvent) {
         setDropping(false)
-        if (o.current.readOnly || !looksLikeImage(e.dataTransfer)) return
-        e.preventDefault()
+        if (o.current.readOnly) return
         const at = o.current.toPlane(e.clientX, e.clientY)
+        // 网页里选中的字：放成一张卡，写法和点「剪藏」一样
+        if (webTextLive()) {
+          e.preventDefault()
+          const c = takeWebText()
+          if (!c) return
+          const md = webTextMd(c)
+          o.current.addCards([md], { x: Math.round(at.x - 40), y: Math.round(at.y - 20) })
+          if (/^https?:/i.test(c.url)) webImgClipped(o.current.notePath, md, c.url)
+          return
+        }
+        // 界面补发的那一下，真的 drop 已经接住了：吞掉
+        if (!looksLikeImage(e.dataTransfer)) return void (Array.from(e.dataTransfer.types).includes(WEB_DRAG_TYPE) && e.preventDefault())
+        e.preventDefault()
         void place(e.dataTransfer, { x: Math.round(at.x - 40), y: Math.round(at.y - 20) })
       },
       onPaste(e: React.ClipboardEvent) {

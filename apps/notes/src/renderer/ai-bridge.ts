@@ -13,6 +13,7 @@ import { NoteDoc, type ViewMode } from './note-doc'
 import type { Tab } from './tabs'
 import type { WebSeen } from '../shared/web-pages'
 import { wcOf } from './web/web-pages'
+import { ipcOn } from './crash/ipc'
 
 export interface BridgeState {
   tab: Tab | null
@@ -59,7 +60,7 @@ export function contextOf(s: BridgeState, mentions: string[] = []): AgentContext
                 ? { type: 'none', title: '最近' } // 不翻
                 : t.type === 'archive'
                   ? { type: 'none', title: '归档' } // 不翻
-                  : t.type === 'folder'
+                  : t.type === 'folder' || t.type === 'flist'
                     ? { type: 'folder', title: t.folder.split('/').pop() || t.folder, path: t.folder, count: folderCount(t.folder, vaultFiles()) }
                     : t.type === 'diff'
                       ? { type: 'none', title: `对比：${t.title}` } // 不翻
@@ -188,7 +189,7 @@ export function useAiBridge(state: BridgeState) {
   ref.current = state
   useEffect(
     () =>
-      window.cn.onAiCall((id, op, arg) => {
+      ipcOn(window.cn.onAiCall, 'cn.onAiCall')((id, op, arg) => {
         handle(ref.current, op, arg).then(
           (v) => void window.cn.aiReply(id, true, v ?? null),
           (e: unknown) => void window.cn.aiReply(id, false, String((e as Error).message ?? e)),

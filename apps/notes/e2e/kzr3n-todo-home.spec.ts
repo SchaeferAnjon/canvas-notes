@@ -109,11 +109,13 @@ test('点「待办」格：左栏是待办列表，中间开「待办」标签�
     await expect(row(home(page).locator('[data-part="七天组"]'), '交论文')).toBeVisible()
     await expect(toast(page)).toContainText('加上了「交论文」')
 
-    // 勾掉：文件里那一行改成 [x] 加 ✅，左栏同一条也划线
+    // 勾掉：文件里那一行改成 [x] 加 ✅；首页、左栏 2 秒后都不在「今天」里了，进首页底下「已完成」
     await row(home(page), '回导师邮件').getByRole('checkbox').click()
     await expect.poll(() => read(run, '收件箱/待办.md')).toContain(`- [x] 回导师邮件 📅 ${T0} 10:30 ✅ ${T0}`)
+    await expect(row(home(page).locator('[data-part="今天组"]'), '回导师邮件')).toHaveCount(0)
+    await expect(row(side(page), '回导师邮件')).toHaveCount(0)
+    await home(page).locator('[data-part="已完成"]').click()
     await expect(row(home(page), '回导师邮件')).toHaveClass(/done/)
-    await expect(row(side(page), '回导师邮件')).toHaveClass(/done/)
   } finally {
     await run.close()
   }

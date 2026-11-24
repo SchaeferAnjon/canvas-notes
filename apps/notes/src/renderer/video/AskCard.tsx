@@ -32,6 +32,7 @@ import { useNoteSwitch } from '../ai-note-switch'
 import { DestPickMenu } from './VideoStrip'
 import { hideToolMarkup } from '../../shared/tool-markup'
 import './ask-card.css'
+import { ipcOn } from '../crash/ipc'
 
 /** 两颗固定的建议（另两颗小活看那一帧和字幕现想，排在它俩中间，同原型） */
 const FIXED = ['讲解这一块', '换个说法讲'] as const
@@ -60,7 +61,7 @@ function useVisionPick(): { engines: EngineInfo[]; pick: VisionPick | null; set(
         setBase({ model: p.model ?? '', ...(p.effort ? { effort: p.effort } : {}) })
       })
     load()
-    const off = window.cn.onAiPrefsChanged(load)
+    const off = ipcOn(window.cn.onAiPrefsChanged, 'cn.onAiPrefsChanged')(load)
     return () => {
       live = false
       off()

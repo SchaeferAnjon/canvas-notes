@@ -9,14 +9,14 @@ import { buildTree, type FileEntry, hideTodos } from '../src/shared/files'
 import { DEFAULT_FILES, normalizeFiles } from '../src/shared/prefs'
 import { recentOf } from '../src/shared/recent'
 import { kindOf } from '../src/shared/layout'
-import { bucketOf, byFolder, chipText, dayName, INBOX_TODO, isTodoNote, quickHint, todoGroups, type TodoItem, todoNoteOf } from '../src/shared/todo'
+import { bucketOf, byFolder, byNote, chipText, dayName, doneGroups, INBOX_TODO, isTodoNote, quickHint, todoGroups, type TodoItem, todoNoteOf } from '../src/shared/todo'
 
 const TODAY = '2026-11-22' // 周日，原型里的「今天」
 let seq = 0
 const t = (title: string, o: Partial<TodoItem> = {}): TodoItem => {
   const path = o.path ?? INBOX_TODO
   const line = o.line ?? ++seq
-  return { key: `${path}#${line}`, id: null, path, line, raw: `- [ ] ${title}`, title, done: false, cancelled: false, date: null, time: null, remind: null, repeat: null, prio: 0, parent: null, ...o }
+  return { key: `${path}#${line}`, id: null, path, line, raw: `- [ ] ${title}`, title, done: false, doneDate: null, cancelled: false, date: null, time: null, remind: null, repeat: null, prio: 0, parent: null, ...o }
 }
 
 describe('哪篇是「待办」', () => {
@@ -79,11 +79,27 @@ describe('分组：过期 / 今天 / 明天 / 以后 / 没定日子', () => {
     ])
     expect(g.groups.map((x) => x.drop)).toEqual([TODAY, '2026-11-23', '2026-11-24'])
   })
-  it('刚勾掉的留在原处（划线），不进「已完成」', () => {
-    const a = t('读完三篇相关论文', { date: TODAY, done: true })
-    const g = todoGroups([a, t('回导师邮件', { date: TODAY, time: '10:30' })], TODAY, { keep: new Set([a.key]) })
+  it('刚勾掉的（2 秒里的 just）留在原处，不进「已完成」；过了 2 秒就进「已完成」', () => {
+    const a = t('读完三篇相关论文', { date: TODAY, done: true, doneDate: TODAY })
+    const list = [a, t('回导师邮件', { date: TODAY, time: '10:30' })]
+    const g = todoGroups(list, TODAY, { just: new Set([a.key]) })
     expect(g.groups.map((x) => [x.name, x.items.map((i) => i.title)])).toEqual([['今天', ['回导师邮件', '读完三篇相关论文']]])
     expect(g.done).toEqual([])
+    const after = todoGroups(list, TODAY)
+    expect(after.groups.map((x) => [x.name, x.items.map((i) => i.title)])).toEqual([['今天', ['回导师邮件']]])
+    expect(after.done.map((x) => x.title)).toEqual(['读完三篇相关论文'])
+  })
+  it('勾掉的过期（日历来的那种也一样）不留在「过期」里：过期组只剩没做完的', () => {
+    const cal = '生活/日历.md'
+    const list = [
+      t('Generative Neural Networks（讲课）', { path: cal, date: '2026-10-27', time: '14:00', remind: '准时', done: true, doneDate: '2026-11-20' }),
+      t('练车', { path: cal, date: '2026-11-09', time: '14:30', done: true, doneDate: '2026-11-21' }),
+      t('给房东发邮件', { path: '生活/WS 2026 27 待办.md', date: '2026-11-19', time: '18:00' }),
+    ]
+    const g = todoGroups(list, TODAY)
+    expect(g.groups.map((x) => [x.name, x.items.map((i) => i.title)])).toEqual([['过期', ['给房东发邮件']]])
+    // 已完成：完成日子倒着
+    expect(g.done.map((x) => x.title)).toEqual(['练车', 'Generative Neural Networks（讲课）'])
   })
   it('子任务不单列，除非它自己写了日子', () => {
     const p = t('写论文', { line: 1 })
@@ -129,6 +145,35 @@ describe('按文件夹', () => {
       ['课程/ecp', '课程 › ecp', null, 1],
     ])
     expect(f[1]!.items.map((x) => x.title)).toEqual(['交论文初稿', '改第二章的开头', '交读书报告'])
+  })
+})
+
+describe('全部、已完成（左栏两种分法）', () => {
+  it('全部：一个文件夹下面按笔记分，「待办」那篇在前；有日子的在前、没写日子的在后；做完的不列', () => {
+    const items = [
+      t('买打印纸', { path: '生活/购物.md' }),
+      t('交房租', { path: '生活/购物.md', date: '2026-11-30' }),
+      t('打疫苗', { path: '生活/待办.md' }),
+      t('早做完了', { path: '生活/购物.md', done: true }),
+    ]
+    expect(byNote(items).map((n) => [n.name, n.items.map((x) => x.title)])).toEqual([
+      ['待办', ['打疫苗']],
+      ['购物', ['交房租', '买打印纸']],
+    ])
+  })
+  it('已完成：按完成那天一组，倒着排；没写完成日子的一组在最后', () => {
+    const items = [
+      t('a', { done: true, doneDate: '2026-11-20' }),
+      t('b', { done: true, doneDate: TODAY }),
+      t('c', { done: true }),
+      t('d', { done: true, doneDate: TODAY }),
+      t('没做完'),
+    ]
+    expect(doneGroups(items, TODAY).map((g) => [g.name, g.items.map((x) => x.title)])).toEqual([
+      ['今天', ['b', 'd']],
+      ['周五', ['a']],
+      ['没写完成日子', ['c']],
+    ])
   })
 })
 

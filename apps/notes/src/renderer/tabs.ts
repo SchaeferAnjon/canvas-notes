@@ -20,6 +20,8 @@ export type Tab =
   | { id: string; type: 'html'; path: string; dream?: boolean }
   /** 文件夹首页（课程/<课>、项目/<项目>、生活、写作）；fresh：刚新建的，进编辑、标题能改 */
   | { id: string; type: 'folder'; folder: string; fresh?: boolean }
+  /** 文件夹首页一个组件的「全部 N 份 · 打开列表看」：这个文件夹里那一类的整页列表；name 是标签上写的那一类（组件名，ParaRead 的是 PDF） */
+  | { id: string; type: 'flist'; folder: string; widget: string; name: string }
   /** 对比标签（历史的一次提交、梦游的一条、可能重复的两篇）；没 pinned 的是预览标签（斜体），再开一个对比就换掉它，双击才固定 */
   | { id: string; type: 'diff'; src: DiffSource; title: string; pinned?: boolean }
   /** 梦游预览 · 挪老图：报告里那一条（按笔记分组列出每张从哪到哪） */
@@ -68,6 +70,8 @@ export function validTab(t: unknown): t is Tab {
       return str(o.url) && str(o.title)
     case 'folder':
       return str(o.folder)
+    case 'flist':
+      return str(o.folder) && str(o.widget) && str(o.name)
     case 'diff':
       return !!o.src && typeof o.src === 'object' && str((o.src as Record<string, unknown>).kind) && str(o.title)
     case 'oldimages':
@@ -139,7 +143,7 @@ export function retargetTabs(tabs: Tab[], from: string, to: string): Tab[] {
   const map = (p: string) => (under(p, from) ? to + p.slice(from.length) : p)
   return tabs.map((t) => {
     if ((t.type === 'note' || t.type === 'pdf' || t.type === 'html') && under(t.path, from)) return { ...t, path: map(t.path) }
-    if (t.type === 'folder' && under(t.folder, from)) return { ...t, folder: map(t.folder) }
+    if ((t.type === 'folder' || t.type === 'flist') && under(t.folder, from)) return { ...t, folder: map(t.folder) }
     return t
   })
 }

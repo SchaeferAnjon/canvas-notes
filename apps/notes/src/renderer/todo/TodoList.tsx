@@ -14,7 +14,7 @@ import { app } from '../ctx/actions'
 import { goToLine } from '../goto-line'
 import { useLinkOn } from '../family-store'
 import { composing } from '../ime'
-import { addTodo, dateTodo, deleteTodo, fieldTodo, isoToday, itemsNow, nowLocal, openInToday, tickTodo, useTodayInstalled, useTodos, useToday } from './store'
+import { addTodo, dateTodo, deleteTodo, fieldTodo, isoToday, itemsNow, nowLocal, openInToday, tickTodo, undoJust, useTodayInstalled, useTodos, useToday } from './store'
 import { pickWhenFor, useWhenInput } from './when-input'
 import { whenEngine } from './when-assist'
 import { EngineLogo, type LogoEngine } from '../engine-logo'
@@ -32,6 +32,8 @@ const cls = (...a: (string | false | null | undefined)[]) => a.filter(Boolean).j
 
 /** anchor：不贴着 .td-r 那一行时（文档里的一行待办，task-kzr3n）给它那一行的框 */
 let pop: { key: string; owner: string; anchor?: () => DOMRect | null } | null = null
+/** 点一条的文字（不是勾选框、日子小块）时这一块自己接，不开详情小卡：文档的任务看法里是「切回文档、跳到那一行」。按 owner 登记 */
+export const onTitleClick = new Map<string, (t: TodoItem) => void>()
 const popSubs = new Set<() => void>()
 function setPop(p: typeof pop) {
   pop = p
@@ -102,6 +104,31 @@ const placeOf = (t: TodoItem) => (isTodoNote(t.path) ? (t.path.includes('/') ? t
  * 待办首页（18-待办首页原型）：place 时出处单独靠右（12 --t3，最宽 150），有重复的多一个 sync；onlyTime 见 Chip
  */
 export function Row({ t, today, owner, src, place, onlyTime, sel, flash }: { t: TodoItem; today: string; owner: string; src?: boolean; place?: boolean; onlyTime?: boolean; sel: boolean; flash: boolean }) {
+  // 刚勾掉的（2 秒）：原处一行「已完成 · 撤回」，然后整行淡出、进「已完成」
+  const just = useTodos().just.has(t.key) && t.done
+  if (just)
+    return (
+      <div className="td-r done just" data-key={t.key} data-owner={owner} role="listitem">
+        <Check t={t} />
+        <span className="td-tt">
+          <span className="td-t">{t.title}</span>
+        </span>
+        <span className="td-just" role="status">
+          {tNow('已完成')}
+          {' · '}
+          <button
+            className="td-link"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              undoJust(t.key)
+            }}
+          >
+            {tNow('撤回')}
+          </button>
+        </span>
+      </div>
+    )
   return (
     <div className={cls('td-r', sel && 'sel', t.done && 'done', t.cancelled && 'cancel', flash && 'flash')} data-key={t.key} data-owner={owner} role="listitem">
       <Check t={t} />
@@ -128,17 +155,17 @@ export function Row({ t, today, owner, src, place, onlyTime, sel, flash }: { t: 
 }
 
 /**
- * 分组（原型 groups()）：只列没做完的，刚勾掉的划线留在原处；dropEmpty 时今天、明天、以后空着也出（一句「空着，拖一条到…」当落点）；
- * showDone 时最后「已完成 N ›」一行，点开列出来（划线）。limit：没做完的最多先列几条（首页卡），多的「还有 N 条 ›」
+ * 分组（原型 groups()）：只列没做完的，刚勾掉的 2 秒里原处一行「已完成 · 撤回」；dropEmpty 时今天、明天、以后空着也出（一句「空着，拖一条到…」当落点）；
+ * showDone 时最后「已完成 N 条 ›」一行（默认收着），点开列出来（划线，完成日子倒着）。limit：没做完的最多先列几条（首页卡），多的「还有 N 条 ›」
  */
 export function TodoGroups(props: { list: readonly TodoItem[]; owner: string; src?: boolean; dropEmpty?: boolean; showDone?: boolean; limit?: number }) {
   useLang()
-  const { keep, flash } = useTodos()
+  const { just, flash } = useTodos()
   const today = useToday()
   const p = usePop()
   const [doneOpen, setDoneOpen] = useState(false)
   const [all, setAll] = useState(false)
-  const { groups, done } = todoGroups(props.list, today, { dropEmpty: props.dropEmpty, keep })
+  const { groups, done } = todoGroups(props.list, today, { dropEmpty: props.dropEmpty, just })
   const total = groups.reduce((n, g) => n + g.items.length, 0)
   let left = props.limit && !all ? props.limit : Infinity
   const row = (t: TodoItem) => <Row key={t.key} t={t} today={today} owner={props.owner} src={props.src} sel={p?.key === t.key} flash={flash === t.key} />
@@ -150,7 +177,7 @@ export function TodoGroups(props: { list: readonly TodoItem[]; owner: string; sr
       <Fragment key={g.bucket}>
         <div className={cls('td-sub', g.red && 'red')} {...(g.drop !== null ? { 'data-drop': `b:${g.drop}` } : {})}>
           {g.name}
-          {g.items.length > 0 && <span className="n num">{g.items.length}</span>}
+          {g.items.some((x) => !x.done) && <span className="n num">{g.items.filter((x) => !x.done).length}</span>}
         </div>
         {shown.length ? shown.map(row) : <div className="td-more">{tNow('空着，拖一条到「{name}」上就改到这天', { name: g.name })}</div>}
       </Fragment>
@@ -167,12 +194,27 @@ export function TodoGroups(props: { list: readonly TodoItem[]; owner: string; sr
       )}
       {props.showDone && done.length > 0 && (
         <>
-          <button className="td-more td-btn" aria-expanded={doneOpen} onClick={() => setDoneOpen((x) => !x)}>
-            {tNow('已完成{n} {arrow}', { n: done.length, arrow: doneOpen ? '⌄' : '›' })}
+          <button className="td-more td-btn td-donefold" aria-expanded={doneOpen} onClick={() => setDoneOpen((x) => !x)}>
+            {tNow('已完成 {n} 条 {arrow}', { n: done.length, arrow: doneOpen ? '⌄' : '›' })}
           </button>
           {doneOpen && done.map(row)}
         </>
       )}
+    </>
+  )
+}
+
+/** 不分组的几行（左栏「全部」一篇笔记下面、「已完成」一天下面） */
+export function TodoRows(props: { items: readonly TodoItem[]; owner: string }) {
+  useLang()
+  const { flash } = useTodos()
+  const today = useToday()
+  const p = usePop()
+  return (
+    <>
+      {props.items.map((t) => (
+        <Row key={t.key} t={t} today={today} owner={props.owner} sel={p?.key === t.key} flash={flash === t.key} />
+      ))}
     </>
   )
 }
@@ -470,6 +512,9 @@ function installDrag(): () => void {
       const chip = (e.target as HTMLElement).closest?.<HTMLElement>('.td-chip')
       const it = chip ? findItem(x.key) : undefined
       if (chip && it) return pickWhenFor(it, chip)
+      const title = (e.target as HTMLElement).closest?.('.td-t') ? onTitleClick.get(x.owner) : undefined
+      const hit = title && findItem(x.key)
+      if (title && hit) return (setPop(null), title(hit))
       const close = pop?.key === x.key && pop.owner === x.owner
       setPop(close ? null : { key: x.key, owner: x.owner })
       // 左栏点一条：待办首页开着时中间也滚到这一条、一起亮（18-待办首页「要你定 2」①）

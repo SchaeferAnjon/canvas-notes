@@ -6,6 +6,7 @@
 import { useSyncExternalStore } from 'react'
 import type { DreamItem, DreamReport } from '../../shared/api'
 import { nextPending, stepFrom } from '../../shared/dream-order'
+import { ipcOn } from '../crash/ipc'
 
 export interface DreamActs {
   /** 中间开这一条（focus：开到它的哪个文件） */
@@ -51,7 +52,7 @@ function start() {
   if (started || typeof window === 'undefined' || !window.cn?.onDream) return
   started = true
   void window.cn.dreamReport().then((r) => setReport(r))
-  window.cn.onDream((r) => setReport(r))
+  ipcOn(window.cn.onDream, 'cn.onDream')((r) => setReport(r))
 }
 
 export function setReport(r: DreamReport | null) {

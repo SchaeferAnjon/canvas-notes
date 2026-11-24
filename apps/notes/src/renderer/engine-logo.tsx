@@ -11,6 +11,7 @@ import type { EngineId } from '../shared/agent'
 import { type AiJob, type AiUses, logoOf } from '../shared/ai-logo'
 import { onPlugins, pluginInfo } from './plugins/host'
 import type { LogoId } from '../shared/ai-logo'
+import { ipcOn } from './crash/ipc'
 
 export { ByLogo, EngineLogo } from '@cn/ai-chat/engine-logo'
 export type LogoEngine = LogoId
@@ -80,7 +81,7 @@ function start() {
   started = true
   load()
   loadTranslate()
-  window.cn.onAiPrefsChanged(load)
+  ipcOn(window.cn.onAiPrefsChanged, 'cn.onAiPrefsChanged')(load)
   // 翻译的设置（只用哪家、顺序）存在插件设置里：插件表一变就再问一次
   onPlugins(loadTranslate)
 }

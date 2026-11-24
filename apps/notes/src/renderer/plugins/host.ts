@@ -6,6 +6,7 @@ import type { WebviewEl } from '../web/WebView'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { PluginInfo } from '../../shared/plugins'
 import type { WebPage } from './types'
+import { ipcOn } from '../crash/ipc'
 
 // ---------------------------------------------------------------- 插件表
 
@@ -24,7 +25,7 @@ function load() {
     loading = null
     console.error('插件表读不出来', e)
   })
-  window.cnPlugins.onChanged(setList)
+  ipcOn(window.cnPlugins.onChanged, 'cnPlugins.onChanged')(setList)
 }
 
 /** 所有内置插件（说明、开没开、设置） */

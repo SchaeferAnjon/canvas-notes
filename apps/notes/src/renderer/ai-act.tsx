@@ -71,7 +71,7 @@ function ActBar(props: { e: ActEntry; area: AiActArea }) {
       {/* 撤回：各处同一颗（无边框、discard 图标，task-eavzx） */}
       {fin && end!.commit && !end!.undone && <UndoButton label={t('撤回')} onClick={() => undoActing(e)} />}
       {!end && !e.stopping && (
-        <button type="button" className="ai-stop" onClick={stopActing}>
+        <button type="button" className="ai-stop" onClick={() => stopActing(e.turn)}>
           {t('停下')}
           <kbd>esc</kbd>
         </button>
@@ -291,7 +291,7 @@ function SpotCard(props: { e: ActEntry; find(id: string): HTMLElement | null; re
           <i className={'dot' + (end ? '' : ' on')} />
           <span>{said}</span>
           {!end && !e.stopping && (
-            <button type="button" className="stop" onClick={stopActing}>
+            <button type="button" className="stop" onClick={() => stopActing(e.turn)}>
               {t('停下 esc')}
             </button>
           )}

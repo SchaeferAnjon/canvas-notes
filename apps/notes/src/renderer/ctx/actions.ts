@@ -79,6 +79,8 @@ export interface AppActions {
   /** 好几个一起挪进 folder（CN-105）：一次提交，链接跟着改 */
   moveMany(paths: string[], folder: string): Promise<void>
   togglePin(path: string, pin: boolean): Promise<void>
+  /** 这篇不能导出（白板 type: board、只有 ```base 块的数据库那篇）：「导出 PDF…」「导出为 Markdown…」灰掉 */
+  exportBlocked(path: string): boolean
   pins(): string[]
   /** 一级文件夹和有首页的文件夹 */
   folders(): string[]

@@ -1,6 +1,6 @@
 /*
  * 文档切到白板（方向 A，照 proposals/doc-to-board/proto-a.html 的 kit.css 量的数）：
- * 第一列离白板左边 92（给工具板让位，不随缩放变），离顶 64；列 276 宽、间距 22、--card、圆角 10、内边距 12/12/4；
+ * 第一列离白板左边 92（给工具板让位，不随缩放变），离顶 64；列 400 宽（2026-11-24 起，以前 276；@cn/format BOARD_COL_W）、间距 22、--card、圆角 10、内边距 12/12/4；
  * 卡片内边距 14/16、13/1.65；列里的卡 1px --line 描边、间距 8；卡头一行 12 --t2、图标 14、右边的数 --t3。
  */
 /* 白板不露滚动条（照小样），滚轮、触控板照样能平移 */
@@ -36,7 +36,7 @@
 .db-col {
   flex: none;
   box-sizing: border-box;
-  width: 276px;
+  width: 400px;
   padding: 12px 12px 4px;
   border-radius: 10px;
   background: var(--card);
@@ -311,6 +311,27 @@
   font-weight: 500;
   color: var(--t1);
 }
+/* 数据库卡头：名字双击原地改（改的是数据源文件夹），框和名字同一行同一个字号 */
+.db-card .kh .base-name {
+  min-width: 0;
+  cursor: text;
+}
+.db-card .kh .db-base-view {
+  flex: none;
+}
+.db-card .kh .base-rename {
+  min-width: 0;
+  width: 160px;
+  height: 20px;
+  margin: -2px 0;
+  padding: 0 4px;
+  border: 1px solid var(--acc);
+  border-radius: 4px;
+  background: var(--win);
+  font: 500 12px var(--sans);
+  color: var(--t1);
+  outline: none;
+}
 .db-card .kh .pg {
   color: var(--t2);
 }
@@ -580,6 +601,35 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 表格卡（.wrap，128 页）：长的格子换行、不截、不限行数，短列（#、年份）按内容最窄一行；每格至少 4em，再挤就整张表在卡里横着滚 */
+.db-card .mt.wrap th,
+.db-card .mt.wrap td {
+  max-width: none;
+  min-width: 4em;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: break-word;
+  vertical-align: top;
+}
+.db-card .mt.wrap th.short,
+.db-card .mt.wrap td.short {
+  width: 1%;
+  min-width: 0;
+  white-space: nowrap;
+}
+/* 「还有 N 行 · 看全部」：看全部能点（强调色字），双击卡照旧 */
+.db-all {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--acc-t);
+  cursor: pointer;
+}
+.db-all:hover {
+  text-decoration: underline;
 }
 .db-card .mt .nr {
   text-align: right;
@@ -969,12 +1019,13 @@ a.db-ask-page:hover {
 }
 .db-img img {
   display: block;
-  width: 100%;
-  height: 150px;
-  object-fit: cover;
+  max-width: 100%;
+  max-height: 260px;
+  margin: 0 auto;
 }
+/* 图卡按图的比例放、最高 260、不裁（128 页：以前一律 150 高、按中间裁，横长的公式图左右被切掉）；竖长的图居中、两边空着 */
 .db-card.full .db-img img {
-  height: 300px;
+  max-height: min(70vh, 720px);
 }
 /* 网页拖来的图：出处一行在说明下面，和卡片左右内边距对齐 */
 .db-img .src.from-web {
@@ -1948,6 +1999,31 @@ a.db-ask-page:hover {
   border-radius: 12px;
   background: var(--pop);
   box-shadow: var(--shadow-up);
+}
+/* 表格的浮层（128 页）：按表的自然宽开，最窄 560、最宽 1100（窄白板两边各留 24），格子换行不截；「铺满」铺满整块白板 */
+.db-full.tbl {
+  width: fit-content;
+  min-width: min(560px, calc(100% - 48px));
+  max-width: min(1100px, calc(100% - 48px));
+}
+.db-full.tbl.fill {
+  width: calc(100% - 48px);
+  max-width: none;
+  height: calc(100% - 40px);
+}
+.db-pill.on {
+  background: var(--fill2);
+  color: var(--t1);
+}
+/* 浮层里表头滚动时钉在上面（表不在自己的横滚框里，宽了整个浮层横着滚） */
+.db-full .mt-box {
+  overflow: visible;
+}
+.db-full .mt th {
+  position: sticky;
+  top: -16px;
+  z-index: 1;
+  background: linear-gradient(var(--fill), var(--fill)), var(--pop);
 }
 .db-full-hd {
   flex: none;

@@ -12,7 +12,7 @@ import { sayOf } from './replies/store'
 import { fillReply } from '../shared/replies'
 import { withoutVizMark } from '../shared/reading'
 import { type AbMenuItem, ChangeBar, UndoButton } from '@cn/ai-chat/answer-bar'
-import { jumpDone, useChatJump } from '@cn/ai-chat/chat-jump'
+import { jumpDone, jumpToChat, useChatJump } from '@cn/ai-chat/chat-jump'
 import { feedDone, setDraft, useFeed } from './ai-web-stay'
 import { AiError } from '@cn/ai-chat/ai-error'
 import { openAiSettings, pastedUrl } from './ai-chat-host'
@@ -95,6 +95,7 @@ import { askable, forgetNoted, mainAsk, notable, noteOne, refreshNoted, unnote, 
 import { showAskIn, webNoteTo } from './web-notes/flow'
 import { NoteTip, TargetMenu } from './ai-note-target'
 import { anchorOf, type PopAnchor } from './pop-place'
+import { ipcOn } from './crash/ipc'
 
 type Msg = C.Msg
 type Action = NonNullable<Msg['actions']>[number]
@@ -208,13 +209,19 @@ export interface AiPanelProps {
 
 export function AiPanel(props: AiPanelProps) {
   const place = props.place
-  // 每个地方各存各的对话（D 组 CN-132，ai-chats.ts）；正在答的那一轮全软件一个，记着是哪个地方的
+  // 每个地方各存各的对话（D 组 CN-132，ai-chats.ts）；不同地方的对话能同时答，同一段一次一问，超过上限排队（AI 对话同时跑）
   const { msgs, loaded, pick: ownPick, sides, noteTo, older } = C.useChat(place)
-  const turn = C.runningNow()
-  /** 这个地方正在答的那一轮 */
-  const running = turn?.key === place.key ? turn.id : null
-  /** 别的地方在答（主进程一次只跑一轮 AI 动手）：这里先不发，发送键说为什么 */
-  const busyElsewhere = !!turn && turn.key !== place.key
+  /** 这段对话排着队：排第几个（发送键换成停下，输入框下面写「排在第 N 个 · 去看看」） */
+  const queued = C.queuedAt(place.key)
+  /** 这段对话正在答（或排着队）的那一问 */
+  const running = C.runningAt(place.key)?.id ?? queued?.id ?? null
+  /** 排着队时「去看看」去的那一段：最早开始答的 */
+  const ahead = queued ? C.firstRunning() : null
+  // 看着这段时它答完不记「没看」的点；看了就去掉
+  useEffect(() => {
+    C.setLooking(props.hidden ? null : place.key)
+  }, [place.key, props.hidden])
+  useEffect(() => () => C.setLooking(null), [])
   /** 输入框上面一行提示（「最多4张」、加图没成的原因），3 秒后收起 */
   const [pasteNote, setPasteNote] = useState<string | null>(null)
   const showNote = (t: string) => {
@@ -320,6 +327,8 @@ export function AiPanel(props: AiPanelProps) {
   const noted = useNoted(place.key)
   const [noteMenu, setNoteMenu] = useState<{ at: PopAnchor; anchor: HTMLElement; then?: 'on' | { one: number } } | null>(null)
   const [noteTip, setNoteTip] = useState<{ text: string; ok?: boolean; acts?: { label: string; primary?: boolean; onClick(): void }[]; seq: number } | null>(null)
+  // 换了一段对话：上一段拨开关时那句提示（「记进《甲篇》」）不跟过来
+  useEffect(() => setNoteTip(null), [place.key])
   const tipSeq = useRef(0)
   /** 提示一句；ms 给了几秒后自己收（中途关是 4 秒），带按钮的等点 */
   const tip = (text: string, o: { ok?: boolean; ms?: number; acts?: { label: string; primary?: boolean; onClick(): void }[] } = {}) => {
@@ -451,7 +460,7 @@ export function AiPanel(props: AiPanelProps) {
   useEffect(() => {
     if (!feed || feed.key !== place.key || !loaded || props.hidden) return
     feedDone(feed.seq)
-    if (feed.ask && !c.text.trim() && !c.mats.length && !C.runningNow() && !cp.none) return void run(feed.ask, [feed.mat])
+    if (feed.ask && !c.text.trim() && !c.mats.length && !C.busyAt(place.key) && !cp.none) return void run(feed.ask, [feed.mat])
     c.add(feed.mat)
     if (feed.ask) showNote(t('这段放进输入框了，回车问'))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -713,19 +722,19 @@ export function AiPanel(props: AiPanelProps) {
 
   /** / 菜单里点了自己的命令（和自带的重名时也认得是哪一条） */
   async function runOwnCmd(cmd: AiCmd) {
-    if (C.runningNow()) return
+    if (C.busyAt(place.key)) return
     if (cmd.reply) return void run(replyText(cmd))
     push({ id: seq++, role: 'user', text: '/' + cmd.name })
     const id = seq++
     push({ id, role: 'ai', pending: true })
-    C.setRunning({ id, key: place.key, label: place.label })
+    if (!(await waitTurn(id))) return
     try {
       await runOwn(runEnv(id), cmd, { web: !!(props.webOpen && props.webUrl) })
     } catch (e) {
       if (e instanceof CommitFailed) patch(id, { pending: false, warn: `改好了，提交没成功：${e.message}`, retry: e.retry })
       else patch(id, { pending: false, error: errText(e) })
     } finally {
-      C.setRunning(null)
+      C.end(place.key)
     }
   }
 
@@ -742,11 +751,20 @@ export function AiPanel(props: AiPanelProps) {
     return () => window.removeEventListener('cn:ai-undo', on)
   })
 
+  /**
+   * 这一问开始答（AI 对话同时跑）：同时在答的到了上限就排队，轮到了再往下；排着时按了停下，这一问记成没发出去
+   */
+  async function waitTurn(id: number): Promise<boolean> {
+    if (await C.begin({ id, key: place.key, label: place.label, engine })) return true
+    patch(id, { pending: false, error: t('没开始答：排队时停下了') })
+    return false
+  }
+
   /** mats：这一句带的材料（输入框顶上那一排，多段引用方向 B）；「再问一次」这些只带字 */
   async function run(raw: string, mats: Material[] = []) {
     // 只贴了图、字里除了编号没别的字：问「这张图讲的是什么」（同读 PDF，CN-24）
     const text = sendText(raw, mats)
-    if ((!text && !mats.length) || C.runningNow()) return
+    if ((!text && !mats.length) || C.busyAt(place.key)) return
     // 还没接 AI：不发，把上手卡顶上来；这一问记着，接上点「开始用」后接着发
     if (cp.none) {
       setSetup(true)
@@ -781,7 +799,7 @@ export function AiPanel(props: AiPanelProps) {
     push({ id, role: 'ai', pending: true })
     // 找重复（大库要算十几秒）不占着对话：算的时候照样能发新问题，它在自己那条消息里报进度、能单独停下
     if (cmd === '找重复') return void findDuplicates(id)
-    C.setRunning({ id, key: place.key, label: place.label })
+    if (!(await waitTurn(id))) return
     try {
       // 新加的自带命令（task-9womr，commands/run.ts）；自己存的命令（打全名字也算，和自带的重名时自带的在前）
       const fresh = cmd ? RUNNERS[cmd] : undefined
@@ -882,17 +900,17 @@ export function AiPanel(props: AiPanelProps) {
       if (e instanceof CommitFailed) patch(id, { pending: false, warn: `改好了，提交没成功：${e.message}`, retry: e.retry })
       else patch(id, { pending: false, error: errText(e) })
     } finally {
-      C.setRunning(null)
+      C.end(place.key)
     }
   }
 
   /** 文件夹页的建议（D 组小样）：问的那句照原话进对话，下面是做的结果 */
   async function runFolder(folder: string, s: FolderSug) {
-    if (C.runningNow()) return
+    if (C.busyAt(place.key)) return
     push({ id: seq++, role: 'user', text: s.text })
     const id = seq++
     push({ id, role: 'ai', pending: true })
-    C.setRunning({ id, key: place.key, label: place.label })
+    if (!(await waitTurn(id))) return
     try {
       if (s.kind === 'sum') await folderSum(id, folder)
       else if (s.kind === 'file') await fileIn(id, folder)
@@ -901,7 +919,7 @@ export function AiPanel(props: AiPanelProps) {
       if (e instanceof CommitFailed) patch(id, { pending: false, warn: `改好了，提交没成功：${e.message}`, retry: e.retry })
       else patch(id, { pending: false, error: errText(e) })
     } finally {
-      C.setRunning(null)
+      C.end(place.key)
     }
   }
 
@@ -1012,7 +1030,7 @@ export function AiPanel(props: AiPanelProps) {
     let found: DuplicatePair[] = []
     let prog = { done: 0, total: 0 }
     patch(id, { dupProgress: prog })
-    const off = window.cn.onDuplicatesProgress((p) => {
+    const off = ipcOn(window.cn.onDuplicatesProgress, 'cn.onDuplicatesProgress')((p) => {
       prog = { done: p.done, total: p.total }
       if (p.pairs.length) found = byScore([...found, ...p.pairs])
       patch(id, { dupProgress: prog, ...(found.length ? { dups: found } : {}) })
@@ -1120,7 +1138,7 @@ export function AiPanel(props: AiPanelProps) {
   function cutOf(m: Msg, last: boolean): { cut?: { at: { label: string; code?: string } | null; onContinue?(): void } } {
     if (!m.engine || (!m.steps?.length && !m.text?.trim())) return {}
     const s = m.steps?.filter((x) => x.status === 'ok').pop()
-    return { cut: { at: s ? { label: s.label, ...(s.code ? { code: s.code } : {}) } : null, ...(last && !C.runningNow() ? { onContinue: () => void run('接着做') } : {}) } }
+    return { cut: { at: s ? { label: s.label, ...(s.code ? { code: s.code } : {}) } : null, ...(last && !C.busyAt(place.key) ? { onContinue: () => void run('接着做') } : {}) } }
   }
 
   /** 回答下面一颗按钮点了：提交没成功、出错写在这条回答上 */
@@ -1166,7 +1184,7 @@ export function AiPanel(props: AiPanelProps) {
         raw={m.error!}
         engine={{ id: m.engine ?? engine, label: engines.find((e) => e.id === (m.engine ?? engine))?.label }}
         {...cutOf(m, i === msgs.length - 1)}
-        {...(q && !C.runningNow()
+        {...(q && !C.busyAt(place.key)
           ? {
               onRetry: () => void run(q),
               onRephrase: () => {
@@ -1227,6 +1245,8 @@ export function AiPanel(props: AiPanelProps) {
 
   function stop() {
     if (running === null) return
+    // 排着队：不排了（还没开始答，什么都没做）
+    if (C.cancelQueued(place.key)) return
     void window.cn.aiStop(running)
     void window.cn.aiTurnStop(running)
   }
@@ -1432,7 +1452,9 @@ export function AiPanel(props: AiPanelProps) {
               {m.steps?.map((s) => (
                 <StepRow key={s.id} s={s} />
               ))}
-              {m.pending && !m.text && !m.steps?.length && !m.dupProgress && <div className="thinking">{m.engine ? `${engines.find((e) => e.id === m.engine)?.label ?? ''}正在想…` : '正在想…'}</div>}
+              {m.pending && !m.text && !m.steps?.length && !m.dupProgress && (
+                <div className="thinking">{queued?.id === m.id ? t('排在第 {n} 个，前面答完自动开始…', { n: queued.n }) : m.engine ? `${engines.find((e) => e.id === m.engine)?.label ?? ''}正在想…` : '正在想…'}</div>
+              )}
               {m.error && !cutOf(m, false).cut && errorOf(m, i)}
               {m.alert && (
                 <div className="aiwarn" role="status" data-testid="ai-alert">
@@ -1690,8 +1712,26 @@ export function AiPanel(props: AiPanelProps) {
         // 全能模式上面那一排「记笔记 ·《记进哪篇》▾ ｜ 旁支」（没开东西、还没选那篇时「记笔记」显示关着，拨它先问记进哪篇）
         note={openSide ? null : { main: noteOn, side: sw.side, target: target ? titleOf(target.path) : null, onMain: toggleNoteMain, onSide: toggleNoteSide, onTarget: (el) => openNoteMenu(el) }}
         running={running !== null}
-        sendDisabled={(!input.trim() && !c.mats.length) || busyElsewhere}
-        sendTip={busyElsewhere ? `「${turn!.label}」那边还在答，答完再发` : undefined}
+        sendDisabled={!input.trim() && !c.mats.length}
+        below={
+          queued ? (
+            <div className="aiin-wait" data-testid="ai-wait">
+              <span>
+                {C.fullAt() !== null
+                  ? t('同时在答 {m} 段，排在第 {n} 个', { m: C.fullAt()!, n: queued.n })
+                  : t('{name}一次答一段，排在第 {n} 个', { name: engines.find((e) => e.id === engine)?.label ?? engine, n: queued.n })}
+              </span>
+              {ahead && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <button data-testid="ai-wait-go" title={t('「{name}」那边还在答', { name: ahead.label })} onClick={() => jumpToChat(ahead.key, ahead.id)}>
+                    {t('去看看')}
+                  </button>
+                </>
+              )}
+            </div>
+          ) : undefined
+        }
         onSend={() => void run(input, c.plain())}
         onStop={stop}
         onKeyDown={onKey}

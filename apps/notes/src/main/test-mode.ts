@@ -61,8 +61,11 @@ export function guardScreen(): void {
     skip('打开面板')
     return { canceled: true, filePaths: [] }
   }) as typeof dialog.showOpenDialog
-  dialog.showSaveDialog = (async () => {
+  // 再记一条默认存在哪（「存储面板默认：…/Downloads/竞赛调研.pdf」），测试看默认的名字和位置
+  dialog.showSaveDialog = (async (...args: unknown[]) => {
+    const opts = args.find((a): a is Electron.SaveDialogOptions => !!a && typeof a === 'object' && !('webContents' in a))
     skip('存储面板')
+    if (opts?.defaultPath) g.cnScreen.push(`存储面板默认：${opts.defaultPath}`)
     return { canceled: true, filePath: '' }
   }) as typeof dialog.showSaveDialog
   // 记「提示框」，再记一条带问的那句（「提示框：有 1 篇写不进去，字只在内存里」），测试看问的是什么

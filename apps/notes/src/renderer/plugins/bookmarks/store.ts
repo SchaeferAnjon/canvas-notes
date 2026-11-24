@@ -2,6 +2,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { BookmarkRow } from '../../../shared/plugins/bookmarks'
 import { pluginInfo } from '../host'
+import { ipcOn } from '../../crash/ipc'
 
 export const ID = 'bookmarks'
 
@@ -23,7 +24,7 @@ export function set(r: BookmarkRow[]) {
 function start() {
   if (started) return
   started = true
-  window.cnWeb.onBookmarksChanged(reload)
+  ipcOn(window.cnWeb.onBookmarksChanged, 'cnWeb.onBookmarksChanged')(reload)
 }
 
 export function useBookmarkRows(): BookmarkRow[] {

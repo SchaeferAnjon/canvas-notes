@@ -4,7 +4,7 @@
  * 任务就是库里笔记中的一行「- [ ]」，读和改那一行用画布今日的 @cn/tasks（只换那几个字）；这里是三处共用的纯计算：
  * 哪篇算「待办」、按 过期 / 今天 / 明天 / 以后 / 没定日子 分组、行尾日子小块怎么写、按文件夹分组、加一条时那行「认出来：…」。
  */
-import { addDays, diffDays, parseQuick, type Prio, type When, type WhenFields, weekday } from '@cn/tasks'
+import { addDays, byDoneDate, byWhenThenNone, diffDays, doneDays, foldersInOrder, notesInOrder, parseQuick, type Prio, type When, type WhenFields, weekday } from '@cn/tasks'
 import { catName, categoryRank, isCategory } from './categories'
 import { onVaultLang, t as tNow, uiLang } from './i18n'
 
@@ -27,8 +27,6 @@ export const todoLabel = (path: string) => path.replace(/\.md$/i, '')
 /** 笔记的名字（文件名去掉 .md）：首页卡标题后面的灰色出处「· 小论文计划」 */
 export const noteName = (path: string) => (path.split('/').pop() ?? path).replace(/\.md$/i, '')
 
-const folderOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '')
-
 /** 库里的一条待办（某篇笔记的某一行），主进程扫出来交给界面 */
 export interface TodoItem {
   /** 笔记路径#行号（行号从 0 数）；行号变了名字就变 */
@@ -41,6 +39,8 @@ export interface TodoItem {
   raw: string
   title: string
   done: boolean
+  /** ✅ 后面的完成日子（「已完成」按它倒着排）；没写的是 null */
+  doneDate: string | null
   /** [-] 取消了的：不算没做完，也不算做完 */
   cancelled: boolean
   /** [/] 做了一半：还算没做完，显示成「进行中」 */
@@ -150,8 +150,7 @@ export function bucketDrop(b: Bucket, today: string): string | null {
 }
 
 /** 组里的先后：日子、钟点（没钟点的在后），再照文件里的先后 */
-export const byWhen = (a: TodoItem, b: TodoItem) =>
-  (a.date ?? '9999-99-99').localeCompare(b.date ?? '9999-99-99') || (a.time ?? '99:99').localeCompare(b.time ?? '99:99') || a.path.localeCompare(b.path) || a.line - b.line
+export const byWhen: (a: TodoItem, b: TodoItem) => number = byWhenThenNone
 
 export interface TodoGroup {
   bucket: Bucket
@@ -164,19 +163,28 @@ export interface TodoGroup {
 
 /**
  * 分组（原型 groups()）：只列没做完的；空的组不出，dropEmpty 时今天、明天、以后空着也出（当落点）。
- * keep：刚勾掉的（这一次开软件里在这几处勾的），划线留在原处，不进「已完成」
+ * just：刚勾掉的（2 秒，一行「已完成 · 撤回」留在原处，task 待办已完成）；过了就进「已完成」。
+ * 2026-11-24 用户「我点了对勾之后，这个任务是不是应该就要消失，到"已完成"里面」：以前勾掉的整次开软件都划线留在原处，过期越堆越长
  */
-export function todoGroups(list: readonly TodoItem[], today: string, opts: { dropEmpty?: boolean; keep?: ReadonlySet<string> } = {}): { groups: TodoGroup[]; done: TodoItem[] } {
-  const keep = opts.keep ?? new Set<string>()
+export function todoGroups(list: readonly TodoItem[], today: string, opts: { dropEmpty?: boolean; just?: ReadonlySet<string> } = {}): { groups: TodoGroup[]; done: TodoItem[] } {
+  const just = opts.just ?? new Set<string>()
   const shown = list.filter(listed)
   const groups: TodoGroup[] = []
   for (const b of BUCKETS) {
-    const items = shown.filter((t) => (isOpen(t) || (t.done && keep.has(t.key))) && bucketOf(t, today) === b).sort(byWhen)
+    const items = shown.filter((t) => (isOpen(t) || (t.done && just.has(t.key))) && bucketOf(t, today) === b).sort(byWhen)
     if (!items.length && !(opts.dropEmpty && b !== 'over' && b !== 'none')) continue
     groups.push({ bucket: b, name: bucketName(b), items, red: b === 'over', drop: bucketDrop(b, today) })
   }
-  const done = shown.filter((t) => t.done && !keep.has(t.key)).sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line)
+  const done = shown.filter((t) => t.done && !just.has(t.key)).sort(byDone)
   return { groups, done }
+}
+
+/** 已完成的先后：完成日子倒着（今天勾的在最上），没写完成日子的在最后，再照文件里的先后 */
+export const byDone: (a: TodoItem, b: TodoItem) => number = byDoneDate
+
+/** 「已完成」看法：按完成那天一组（今天、昨天、11月20日…，倒着），没写完成日子的一组在最后 */
+export function doneGroups(list: readonly TodoItem[], today: string): { day: string | null; name: string; items: TodoItem[] }[] {
+  return doneDays(list.filter((x) => x.done && listed(x))).map((g) => ({ ...g, name: g.day ? dayName(g.day, today) : tNow('没写完成日子') }))
 }
 
 const WK = '日一二三四五六' // 不翻：中文的星期写法
@@ -218,31 +226,30 @@ export interface FolderGroup {
 
 /**
  * 「待办」格选「按文件夹」：每篇笔记所在的文件夹一组（原型 FOLDERS）。收件箱在最前，有「待办」那篇的文件夹在前，
- * 再照顶级分类的先后、名字；只剩做完的文件夹不出（刚勾掉留在原处的那几条除外）。notes：库里有哪些笔记（认哪个文件夹有「待办」）
+ * 再照顶级分类的先后、名字；只剩做完的文件夹不出（刚勾掉、2 秒里还留在原处的那几条除外）。notes：库里有哪些笔记（认哪个文件夹有「待办」）
  */
-export function byFolder(items: readonly TodoItem[], notes: ReadonlySet<string>, keep?: ReadonlySet<string>): FolderGroup[] {
-  const map = new Map<string, TodoItem[]>()
-  for (const t of items) {
-    const f = folderOf(t.path)
-    const list = map.get(f)
-    if (list) list.push(t)
-    else map.set(f, [t])
-  }
-  const collator = new Intl.Collator('zh-Hans-CN', { numeric: true })
+export function byFolder(items: readonly TodoItem[], notes: ReadonlySet<string>, just?: ReadonlySet<string>): FolderGroup[] {
   const top = (f: string) => {
     const first = f.split('/')[0]!
     return isCategory(first) ? categoryRank(first) : 99
   }
-  return [...map]
-    .map(([folder, list]) => ({
+  return foldersInOrder(items, { inbox: catName('收件箱'), todoNotes: notes, rank: top })
+    .map(({ folder, todo, items: list }) => ({
       folder,
       name: folder ? folder.split('/').join(' › ') : tNow('最外层'),
-      todo: notes.has(todoNoteOf(folder)) ? todoNoteOf(folder) : null,
+      todo,
       items: list,
       open: list.filter((t) => isOpen(t) && listed(t)).length,
     }))
-    .filter((g) => g.open > 0 || g.items.some((t) => keep?.has(t.key)))
-    .sort((a, b) => Number(b.folder === catName('收件箱')) - Number(a.folder === catName('收件箱')) || Number(!!b.todo) - Number(!!a.todo) || top(a.folder) - top(b.folder) || collator.compare(a.folder, b.folder))
+    .filter((g) => g.open > 0 || g.items.some((t) => just?.has(t.key)))
+}
+
+/**
+ * 「全部」看法里一个文件夹下面再按笔记分（task 待办已完成，用户「有些我是没写日期的」）：没做完的（加上 just 里刚勾掉的），
+ * 「待办」那篇在前，别的照名字；每篇里有日子的照日子在前，没写日子的在后
+ */
+export function byNote(items: readonly TodoItem[], just?: ReadonlySet<string>): { path: string; name: string; items: TodoItem[] }[] {
+  return notesInOrder(items.filter((t) => listed(t) && (isOpen(t) || (t.done && just?.has(t.key))))).map((n) => ({ ...n, name: noteName(n.path) }))
 }
 
 const prioName = (p: number) => (p === 3 ? tNow('优先级高') : p === 2 ? tNow('优先级中') : tNow('优先级低'))

@@ -10,7 +10,7 @@ import { fileIcon } from '../Palette'
 import { useEffect, useMemo, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { type Cond, type FolderHome, type PropFile, runCond, setWidget, type WidgetData } from '../../shared/folder-home'
-import { progressDone } from '../../shared/files'
+import { type FileEntry, progressDone } from '../../shared/files'
 import { CLIPS, kindOf, titleOf } from '../../shared/layout'
 import { catName, isChildOf, underCat } from '../../shared/categories'
 import { useVaultFiles, vaultFiles } from '../files/store'
@@ -26,6 +26,7 @@ import { TodoCard } from '../todo/TodoCard'
 import { isTodoNote } from '../../shared/todo'
 import { useT } from '../i18n'
 import { ParaReadBody } from './ParaReadWidget'
+import { McBody } from '../meetcaption/McWidget'
 import { t as tNow } from '../../shared/i18n'
 
 export interface WCtx {
@@ -142,7 +143,10 @@ function Rows(props: { c: WCtx; list: PropFile[]; limit: number; right?(f: PropF
   )
 }
 
-export function condResult(c: WCtx, cond: Cond): PropFile[] {
+/** 列一个组件的东西要的：哪个文件夹、它里面的文件（首页和「全部 N 篇」列表页共用） */
+type Src = Pick<WCtx, 'folder' | 'files'>
+
+export function condResult(c: Src, cond: Cond): PropFile[] {
   return runCond(cond.scope === 'folder' ? c.files.filter((f) => f.path.startsWith(c.folder + '/')) : c.files, cond)
 }
 
@@ -190,6 +194,28 @@ export function CondBody(props: { c: WCtx; cond: Cond }) {
       </table>
     )
   return <Rows c={c} list={list} limit={cond.limit} right={right} />
+}
+
+/**
+ * 「全部 N 篇 · 打开列表看」那一页列的文件：和组件里同一套挑法，只是不截（笔记和导图、草稿、按条件列出照它的条件，
+ * 最近改的、可视化、课件进度照组件里那样挑）；不是列文件的组件是 null
+ */
+export function fullList(c: Src, w: WidgetData, showTodo: boolean): PropFile[] | null {
+  const inFolder = c.files.filter((f) => f.path.startsWith(c.folder + '/'))
+  switch (w.type) {
+    case 'notes':
+    case 'drafts':
+    case 'list':
+      return w.cond ? condResult(c, w.cond) : null
+    case 'recent':
+      return (showTodo ? inFolder : inFolder.filter((f) => !isTodoNote(f.path))).sort((a, b) => b.mtimeMs - a.mtimeMs)
+    case 'viz':
+      return inFolder.filter((f) => f.props['类型'] === '可视化') // 不翻：属性键、属性值照文件里的写
+    case 'slides':
+      return slidesOf(c)
+    default:
+      return null
+  }
 }
 
 export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
@@ -268,16 +294,11 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
       return <Calendar c={c} files={inFolder} weeks={w.type === 'cal' ? 20 : 5} />
     case 'pararead':
       return <ParaReadBody c={c} view={w.view ?? 'bilingual'} />
+    case 'meetcaption':
+      return <McBody c={c} mode={w.mcMode} />
     case 'clips': {
       // 每个主题几篇：和那个主题文件夹首页头上的数一样（剪来的 PDF、网页也算）
-      const topics = new Map<string, number>()
-      const all = vaultFiles()
-      const paths = all.length ? all.filter((f) => f.kind !== 'dir').map((f) => f.path) : c.notes.map((n) => n.path)
-      for (const p of paths) {
-        const k = kindOf(p)
-        if (k.kind === 'clip') topics.set(k.topic!, (topics.get(k.topic!) ?? 0) + 1)
-      }
-      const list = [...topics].sort((a, b) => b[1] - a[1])
+      const list = clipTopics(c.notes)
       return list.length ? (
         <>
           {list.slice(0, 5).map(([topic, n]) => (
@@ -298,13 +319,25 @@ export function WidgetBody(props: { c: WCtx; w: WidgetData }) {
   }
 }
 
+/** 剪藏的每个主题几篇，多的在前（剪来的 PDF、网页也算，和那个主题文件夹首页头上的数一样）；组件和「全部 N 个主题」列表页共用 */
+export function clipTopics(notes: NoteFile[]): [string, number][] {
+  const topics = new Map<string, number>()
+  const all = vaultFiles()
+  const paths = all.length ? all.filter((f) => f.kind !== 'dir').map((f) => f.path) : notes.map((n) => n.path)
+  for (const p of paths) {
+    const k = kindOf(p)
+    if (k.kind === 'clip') topics.set(k.topic!, (topics.get(k.topic!) ?? 0) + 1)
+  }
+  return [...topics].sort((a, b) => b[1] - a[1])
+}
+
 const slideAt = (f: PropFile) => Number(f.props['问到']) || 0 // 不翻：属性键、属性值照文件里的写
 const slidePages = (f: PropFile) => Number(f.props['页数']) || 0 // 不翻：属性键、属性值照文件里的写
 const slideDone = (f: PropFile) => slidePages(f) > 0 && slideAt(f) >= slidePages(f)
 const slideStem = (p: string) => titleOf(p).replace(/\.pdf$/i, '')
 
 /** 这门课的课件（按第几讲排） */
-export function slidesOf(c: WCtx): PropFile[] {
+export function slidesOf(c: Src): PropFile[] {
   return c.files
     .filter((f) => f.path.startsWith(c.folder + '/') && f.props['类型'] === '课件') // 不翻：属性键、属性值照文件里的写
     .sort((a, b) => (Number(a.props['第几讲']) || 0) - (Number(b.props['第几讲']) || 0) || a.path.localeCompare(b.path, 'zh')) // 不翻：属性键、属性值照文件里的写
@@ -388,6 +421,21 @@ function SlideCover({ c, f }: { c: WCtx; f: PropFile }) {
   )
 }
 
+/** 每门课和它问完了几份课件 / 一共几份（按名字排；「在上的课」组件和它的「全部 N 门」列表页共用） */
+export function courseList(files: FileEntry[]): { folder: string; done: number; total: number }[] {
+  const courses = files.filter((f) => f.kind === 'dir' && isChildOf(f.path, '课程')).map((f) => f.path)
+  const prog = new Map<string, { done: number; total: number }>()
+  for (const f of files) {
+    if (f.kind !== 'pdf' || !underCat(f.path, '课程')) continue
+    const course = f.path.split('/').slice(0, 2).join('/')
+    const p = prog.get(course) ?? { done: 0, total: 0 }
+    p.total++
+    if (progressDone(f.progress)) p.done++
+    prog.set(course, p)
+  }
+  return courses.sort((a, b) => a.localeCompare(b, 'zh')).map((f) => ({ folder: f, ...(prog.get(f) ?? { done: 0, total: 0 }) }))
+}
+
 /**
  * 「课程」这一页的在上的课（方案 v2 分类与入口的小样）：每门课一行，书架图标、名字、一条进度、「1/5讲」（问完了几份课件 / 一共几份）；
  * 点一行开那门课的首页
@@ -395,19 +443,7 @@ function SlideCover({ c, f }: { c: WCtx; f: PropFile }) {
 function Courses(props: { c: WCtx }) {
   const t = useT()
   const { files } = useVaultFiles()
-  const list = useMemo(() => {
-    const courses = files.filter((f) => f.kind === 'dir' && isChildOf(f.path, '课程')).map((f) => f.path)
-    const prog = new Map<string, { done: number; total: number }>()
-    for (const f of files) {
-      if (f.kind !== 'pdf' || !underCat(f.path, '课程')) continue
-      const course = f.path.split('/').slice(0, 2).join('/')
-      const p = prog.get(course) ?? { done: 0, total: 0 }
-      p.total++
-      if (progressDone(f.progress)) p.done++
-      prog.set(course, p)
-    }
-    return courses.sort((a, b) => a.localeCompare(b, 'zh')).map((f) => ({ folder: f, ...(prog.get(f) ?? { done: 0, total: 0 }) }))
-  }, [files])
+  const list = useMemo(() => courseList(files), [files])
   if (!list.length) return <p className="fw-empty">{t(EMPTY.courses!)}</p>
   return (
     <>

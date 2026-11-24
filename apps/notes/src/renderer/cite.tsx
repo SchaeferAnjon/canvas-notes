@@ -387,7 +387,7 @@ function TodoBody({ c }: { c: TodoCite }) {
   const tick = async () => {
     if (busy) return
     setBusy(true)
-    const item: TodoItem = { key: `${c.path}#${c.line - 1}`, id: task.id, path: c.path, line: c.line - 1, raw, title: task.title, done: task.done, cancelled: task.cancelled, doing: task.doing, dupOf: null, dups: [], date: task.date, time: task.time, remind: task.remind, repeat: task.repeat, prio: task.prio, parent: null }
+    const item: TodoItem = { key: `${c.path}#${c.line - 1}`, id: task.id, path: c.path, line: c.line - 1, raw, title: task.title, done: task.done, doneDate: task.doneDate, cancelled: task.cancelled, doing: task.doing, dupOf: null, dups: [], date: task.date, time: task.time, remind: task.remind, repeat: task.repeat, prio: task.prio, parent: null }
     await tickTodo(item)
     setBusy(false)
     reload()

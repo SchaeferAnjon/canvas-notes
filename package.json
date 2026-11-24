@@ -6,13 +6,14 @@
   "scripts": {
     "dev": "pnpm --filter @cn/notes dev",
     "build": "pnpm --filter @cn/notes build",
-    "typecheck": "tsc -p packages/atomic && tsc -p packages/format && tsc -p packages/tasks && tsc -p packages/git && tsc -p packages/design && tsc -p packages/family && tsc -p packages/calendar && tsc -p apps/notes && tsc -p packages/ai-engines && tsc -p packages/ai-chat",
+    "typecheck": "tsc -p packages/atomic && tsc -p packages/format && tsc -p packages/tasks && tsc -p packages/git && tsc -p packages/design && tsc -p packages/family && tsc -p packages/calendar && tsc -p packages/pdf-view && tsc -p apps/notes && tsc -p packages/ai-engines && tsc -p packages/ai-chat",
     "test": "vitest run",
     "eval:dream": "vitest run --config apps/notes/eval/vitest.config.mts --silent=false dream-links",
     "eval:dream-real": "node apps/notes/eval/dream-real/cli.mjs",
     "eval:feynman": "vitest run --config apps/notes/eval/vitest.config.mts --silent=false feynman",
     "test:e2e": "pnpm --filter @cn/notes test:e2e",
-    "test:pararead": "pnpm --filter pararead test"
+    "test:pararead": "pnpm --filter pararead test",
+    "test:meetcaption": "pnpm --filter meetcaption test"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

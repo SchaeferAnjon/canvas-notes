@@ -184,3 +184,37 @@
   background: var(--fill2);
   color: var(--t2);
 }
+
+/* 文件夹首页「全部 N 份 · 打开列表看」开的列表页（FolderListPage，借这一页的样子）：页头「文件夹 › 这一类」，点文件夹回首页 */
+.fl-hd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  color: var(--t3);
+}
+.fl-hd .lnk {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--t2);
+}
+.fl-hd .lnk:hover {
+  color: var(--t1);
+  text-decoration: underline;
+}
+.fl-hd b {
+  font-weight: 600;
+  color: var(--t1);
+}
+.rp-rec .fl-read {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--t2);
+}
+.rp-rec .rp-note:disabled {
+  opacity: 0.45;
+  background: none;
+}

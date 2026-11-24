@@ -70,6 +70,13 @@ describe('出错日志', () => {
       what: 'renderer-render',
       text: '[ai] TypeError: x is undefined\nTypeError: x\n at y\n组件：at AiDock\n at Desk',
     })
+    // React 根的出错回调、IPC 回调里抛的错（0.5.10 那台 #185 只有预加载行号）：也记，带组件栈 / 频道
+    expect(formatReport({ kind: 'uncaught', area: 'peek', message: 'Error: Minified React error #185', componentStack: '\n at Peek\n at PanelGuard' })).toEqual({
+      what: 'renderer-uncaught',
+      text: '[peek] Error: Minified React error #185\n组件：at Peek\n at PanelGuard',
+    })
+    expect(formatReport({ kind: 'ipc', area: 'ai:event', message: 'Error: x', stack: 'Error: x\n at listen' })?.what).toBe('renderer-ipc')
+    expect(formatReport({ kind: 'recoverable', message: 'Error: y' })?.what).toBe('renderer-recoverable')
     expect(formatReport({ kind: 'note-text', message: '笔记内容' })).toBeNull()
     expect(formatReport(null)).toBeNull()
   })

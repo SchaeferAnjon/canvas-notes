@@ -14,6 +14,7 @@ import { t, tv } from '../../shared/i18n'
 import { titleOf } from '../../shared/layout'
 import { app } from '../ctx/actions'
 import { composing } from '../ime'
+import { ipcOn } from '../crash/ipc'
 
 /** 一张表登记进来的 */
 export interface AiTable {
@@ -256,8 +257,8 @@ let wired = false
 export function wireAiCol() {
   if (wired) return
   wired = true
-  window.cn.onAiColProgress(progress)
-  window.cn.onAiColDone((d) => {
+  ipcOn(window.cn.onAiColProgress, 'cn.onAiColProgress')(progress)
+  ipcOn(window.cn.onAiColDone, 'cn.onAiColDone')((d) => {
     if (jobCol.has(d.job)) void done(d)
     else earlyDone.push(d)
   })

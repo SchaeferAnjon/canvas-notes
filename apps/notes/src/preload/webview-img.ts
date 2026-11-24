@@ -38,6 +38,7 @@ export interface ImgInfo {
   /** 图上面最近的小标题 */
   head?: string
   url: string
+  srcs?: string[]
   title: string
 }
 
@@ -45,7 +46,17 @@ export function imgInfo(img: HTMLImageElement): ImgInfo | null {
   const src = img.currentSrc || img.src
   if (!src) return null
   const head = headAbove(img)
-  return { src, alt: (img.alt || img.title || '').trim(), caption: figCaption(img).slice(0, 400), ...(head ? { head } : {}), url: location.href, title: document.title }
+  // 维基百科这类带 srcset 的：currentSrc 是高清那档，拖出去的数据里是 src 属性那档
+  const srcs = [img.src, ...(img.getAttribute('srcset') ?? '').split(',').map((c) => c.trim().split(/\s+/)[0])]
+    .map((u) => {
+      try {
+        return u ? new URL(u, document.baseURI).href : ''
+      } catch {
+        return ''
+      }
+    })
+    .filter((u, i, a) => u && u !== src && a.indexOf(u) === i)
+  return { src, alt: (img.alt || img.title || '').trim(), caption: figCaption(img).slice(0, 400), ...(head ? { head } : {}), url: location.href, title: document.title, ...(srcs.length ? { srcs } : {}) }
 }
 
 /** 点着的、拖着的那个元素里的图（链接套着的图也算） */

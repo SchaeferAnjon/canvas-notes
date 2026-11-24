@@ -14,7 +14,7 @@ import { bookPrefix } from '../../shared/read-along'
 import { backLabel, fragmentUrl, sourceLabel } from '../../shared/web-link'
 import { webEntries } from '../../shared/web-notes'
 import type { PageRect, WebSel } from '../../shared/web-reader'
-import { WEB_IMG_CLIPPED } from '../web/image-drop'
+import { setWebClipMd, WEB_IMG_CLIPPED } from '../web/image-drop'
 import { copy } from '../ctx/menu'
 import type { PopAnchor } from '../pop-place'
 import { pairNote } from '../read-along/pairing'
@@ -320,6 +320,8 @@ async function quoteWeb(sel: WebSel, at: PopAnchor, to: Convo | null = null) {
 /** 剪下来的一段写成什么：引文 + 「—— [小标题 · 书名](回到这一段的链接)」 */
 /** 剪下来的写 md（公式 $…$、代码块，webview-md.ts）；回到这一段的链接照网页上看得到的字 */
 export const clipMdOf = (c: Clip & { head?: string; md?: string }) => clipMarkdown(c.md ?? c.text, sourceLabel(c), fragmentUrl(c.url, c.text))
+// 网页里选中的字拖进文档、白板：写成和点「剪藏」同一块（web/image-drop.ts）
+setWebClipMd((c) => clipMdOf(c))
 
 /**
  * 剪藏：写进这个网页正在剪进去的那篇。还没定时：中间开着能写的文档就问一句（默认它）；中间是白板、首页、PDF 就照旧剪成卡片进收件箱

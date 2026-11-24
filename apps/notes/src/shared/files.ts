@@ -99,11 +99,13 @@ export interface AttachIndex {
   /** convo：用它的那份完整对话（双击打开） */
   convos: { path: string; bytes: number; convo: string }[]
   orphans: { path: string; bytes: number }[]
+  /** 附件 → 文中链着它的笔记（含读 PDF 的完整对话、PDF 旁边那篇配对笔记）；只是放在某篇的附件文件夹里、文中没用到的不算。文件树写「被 N 篇用」「没用到」 */
+  refs: Record<string, string[]>
 }
 
 export interface CnFilesApi {
   all(): Promise<FileEntry[]>
-  /** 只在选了「附件」筛选时读（要读全库的笔记） */
+  /** 选了「附件」筛选、或树里展开了 附件/ 时读（要读全库的笔记） */
   attachments(): Promise<AttachIndex>
 }
 

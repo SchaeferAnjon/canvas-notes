@@ -19,6 +19,7 @@ import { canStream } from './ai-spot'
 import { keepTail, openTail } from './tail-line'
 import { useT } from './i18n'
 import { tIn, t as tNow, uiLang } from '../shared/i18n'
+import { ipcOn } from './crash/ipc'
 
 /**
  * 文档里的插入菜单（DESIGN.v3 6.3）：在行首打 /（中文输入法打出的「、」也算），或点块旁的「+」，弹出插入菜单；
@@ -883,7 +884,7 @@ class SlashView {
       // 插在空行上就直接放；行里有字就另起一段
       return { pos: at, before: this.view.state.doc.lineAt(at).text.trim() === '' ? '' : '\n\n', after: '' }
     }, head)
-    const off = window.cn.onAiEvent((eid, e) => {
+    const off = ipcOn(window.cn.onAiEvent, 'cn.onAiEvent')((eid, e) => {
       if (eid === id && e.type === 'text') w.push(e.delta)
     })
     try {

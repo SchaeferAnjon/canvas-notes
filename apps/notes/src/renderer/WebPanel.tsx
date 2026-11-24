@@ -49,6 +49,7 @@ import { openPairPop, unpairLabel } from './read-along/ReadAlongLayer'
 import { unpairNote } from './read-along/pairing'
 import { showMenu } from './ctx/menu'
 import { dropped } from './crash/report'
+import { ipcOn } from './crash/ipc'
 
 /** 书桌（task-kbnc0）借右栏网页的本事：记下开着的网页标签和各读到哪、换成一套、换回去 */
 export interface WebDeskApi {
@@ -221,7 +222,7 @@ export function WebPanel(props: {
     const load = () => void window.cnWeb.bookmarks().then(setBookmarks)
     load()
     // 书签管家、导入改了书签：书签栏和星星跟着变
-    return window.cnWeb.onBookmarksChanged(load)
+    return ipcOn(window.cnWeb.onBookmarksChanged, 'cnWeb.onBookmarksChanged')(load)
   }, [])
 
   // 换了中间栏的标签：它上次看的网页还开着就切过去；刚点网页标签上的配对小标开的笔记，留在点的那个网页上（记成这篇的）
@@ -339,14 +340,14 @@ export function WebPanel(props: {
 
   // 主进程转过来的：新窗口链接 / 插件开标签、插件切换关闭标签、网页焦点时的快捷键
   useEffect(() => {
-    const offOpen = window.cnWeb.onOpenTab(({ url, reqId, background }) => {
+    const offOpen = ipcOn(window.cnWeb.onOpenTab, 'cnWeb.onOpenTab')(({ url, reqId, background }) => {
       const id = newTabId()
       if (reqId !== undefined) pending.current.set(id, reqId)
       if (!background) cb.current.onShow()
       setSt((s) => openTab(s, url, { id, background: !!background, owner: cb.current.owner }))
     })
     const tabOf = (wc: number) => Object.entries(wcIdsRef.current).find(([, v]) => v === wc)?.[0]
-    const offCmd = window.cnWeb.onTabCommand((cmd) => {
+    const offCmd = ipcOn(window.cnWeb.onTabCommand, 'cnWeb.onTabCommand')((cmd) => {
       if (cmd.type === 'show') return cb.current.onShow()
       const id = 'tabId' in cmd ? cmd.tabId : tabOf(cmd.webContentsId)
       if (!id) return

@@ -8,8 +8,10 @@ import { baseBlocks as autoBlocks, baseYaml, parseBase, setBaseFilters, setBaseO
 import { EditorSelection, type EditorState, Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, keymap, WidgetType } from '@codemirror/view'
 import { flushSync } from 'react-dom'
-import { createRoot, type Root } from 'react-dom/client'
+import type { Root } from 'react-dom/client'
+import { guardedRoot } from '../crash/root'
 import { editorHost } from '../editor-host'
+import { app } from '../ctx/actions'
 import { type Hidden, hiddenSyntax, wholeBlock } from '../hidden-syntax'
 import { type BaseEdits, BaseTable, GRID_ENTER, type GridEnter } from './BaseTable'
 
@@ -42,7 +44,7 @@ class BaseWidget extends WidgetType {
     return el
   }
   private mount(el: HTMLElement, view: EditorView) {
-    const root = ((el as HTMLElement & { _root?: Root })._root ??= createRoot(el))
+    const root = ((el as HTMLElement & { _root?: Root })._root ??= guardedRoot(el, 'base'))
     /** 改代码块里的 YAML：只换这一块的内容（filters、order、sort 那几行由 base.ts 算） */
     const write = (next: (src: string) => string) => {
       const b = baseBlocks(view.state.doc.toString()).find((x) => x.src === this.src)
@@ -74,7 +76,7 @@ class BaseWidget extends WidgetType {
       // 选中整块再收到头 / 尾：block-flow 的 gapFilter 照「选中的卡片按方向键收起」走到上一块末尾 / 下一块开头
       if (dir !== 'block') view.dispatch({ selection: EditorSelection.cursor(dir === 'up' ? b.from : b.to), userEvent: 'select', scrollIntoView: true })
     }
-    flushSync(() => root.render(<BaseTable spec={parseBase(this.src)} src={this.src} edit={edit} anchor={el} file={view.state.facet(editorHost).path()} block={block} nav={{ leave }} />))
+    flushSync(() => root.render(<BaseTable spec={parseBase(this.src)} src={this.src} edit={edit} anchor={el} file={view.state.facet(editorHost).path()} block={block} nav={{ leave }} {...(view.state.readOnly ? {} : { onRename: (folder: string, name: string) => void app().renameFolder(folder, name) })} />))
   }
   destroy(dom: HTMLElement) {
     const root = (dom as HTMLElement & { _root?: Root })._root

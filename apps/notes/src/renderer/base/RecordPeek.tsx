@@ -32,11 +32,12 @@ import { NoteDoc } from '../note-doc'
 import { MenuItem, Popover } from '../shell/Shell'
 import { nameFromTitle } from '../title-follow'
 import { baseWrote, toneOf } from './BaseTable'
-import { linkedSrc, openRecord, peekEditor, recordBack, recordGo, recordMoved, useRecord } from './record-open'
+import { linkedSrc, openRecord, peekEditor, recordBack, recordGo, recordGone, recordMoved, useRecord } from './record-open'
 import { loadBaseCtx, useBaseData } from './layout-ctx'
 import { PeekButton } from './button-col'
 import { badNum, clearBad, dropBad, NUM_INPUT, numText, stopStep } from './cell-input'
 import './record-peek.css'
+import { ipcOn } from '../crash/ipc'
 
 /** 每种列前面的图标（照原型：状态 issues、日期 calendar、数字 symbol-numeric、公式 symbol-method、关联 references、汇总 symbol-operator） */
 const ICON: Record<FieldType, CodiconName> = {
@@ -141,8 +142,7 @@ export function RecordPeek(props: { shown: boolean; onClose(): void; onFull(path
   const folder = useMemo(() => (src === null ? null : parseBaseDoc(src).folder), [src])
   // 读这一块的笔记（和表格同一个 hook）：开着的这条、换了一条、块改了写法、别处改了这个数据库里的笔记，都重读
   const { ctx, reload: again } = useBaseData(src)
-  // 在外面改了名、挪了地方：跟过去
-  useEffect(() => window.cn.onNoteRenamed((from, to) => recordMoved(from, to)), [])
+  // 在外面改了名、挪了地方：跟过去（record-open.ts 里一直听着，标签收着也跟）
 
   const path = rec?.path ?? null
   const here = ctx && path ? (ctx.recs.find((r) => r.path === path) ?? null) : null
@@ -169,8 +169,12 @@ export function RecordPeek(props: { shown: boolean; onClose(): void; onFull(path
     let cancelled = false
     let d: NoteDoc | null = null
     let off = () => {}
-    void window.cn.readNote(path).then((note) => {
-      if (cancelled || !host.current) return
+    void (async () => {
+      // 先看盘上还在不在（在外面挪走、删了，开着的这一条还记着旧路径）：不在就收起，不去读旧路径
+      if (!(await window.cn.listNotes()).some((n) => n.path === path)) return void (cancelled || recordGone(path))
+      return window.cn.readNote(path)
+    })().then((note) => {
+      if (!note || cancelled || !host.current) return
       d = new NoteDoc(host.current, note, {
         onState: () => {},
         onNotice: (x) => app().notice(x),
@@ -178,7 +182,7 @@ export function RecordPeek(props: { shown: boolean; onClose(): void; onFull(path
         onOpenLink: (target) => app().openWikilink(target),
       })
       doc.current = d
-      off = window.cn.onNoteChanged((p, text) => {
+      off = ipcOn(window.cn.onNoteChanged, 'cn.onNoteChanged')((p, text) => {
         if (d && p === d.path) void d.applyRemote(text)
       })
     })

@@ -35,6 +35,17 @@ async function held(signal: AbortSignal): Promise<boolean> {
   return true
 }
 
+/**
+ * 一段一段放行（AI 对话同时跑的测试）：话里写「〔等放行 甲〕」的那一问，说出头几个字以后等 CN_FAKE_GATES 文件夹里出现「甲」这个文件
+ * （或这一轮被停下）再往下答。别的问照旧只看 CN_FAKE_HOLD
+ */
+async function gate(said: string, signal: AbortSignal) {
+  const name = /〔等放行 ([^〕]+)〕/.exec(said)?.[1]
+  const dir = process.env.CN_FAKE_GATES
+  if (!name || !dir) return
+  while (!existsSync(join(dir, name)) && !signal.aborted) await sleep(50)
+}
+
 /** 写完文件多答一会儿：有放行开关等开关，没有照旧等 CN_FAKE_OWN_MS 毫秒 */
 async function stillAnswering(signal: AbortSignal) {
   if (!(await held(signal))) await sleep(Number(process.env.CN_FAKE_OWN_MS ?? 0))
@@ -152,6 +163,7 @@ export function fakeEngine(id: EngineId): Engine {
           if (!started) {
             started = true
             await held(r.signal)
+            await gate(said, r.signal)
             if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
           }
           // CN_FAKE_SAY_MS：每 4 个字隔多久（测试「答的时候再框一块」要答得慢一点）
@@ -292,6 +304,17 @@ export function fakeEngine(id: EngineId): Engine {
         }
         return { text: `翻了一遍。\n${JSON.stringify({ found: hits.slice(0, 5) })}`, session: undefined }
       }
+      // iPhone / iPad 经 Mac 问「最近改过哪些笔记」：照真 AI 那样先调读库工具（list_recent、read_note）再答；没给工具照实说读不到
+      if (/最近改过哪些笔记/.test(said)) {
+        if (!r.mcp?.tools.includes('list_recent')) {
+          await say('这一问没给读库的工具，读不到你的库。')
+          return { text, session: undefined }
+        }
+        const { notes } = JSON.parse(await call('list_recent', { days: 30, limit: 3 })) as { notes: { path: string; title: string }[] }
+        const first = notes[0] ? (JSON.parse(await call('read_note', { path: notes[0].path })) as { text: string }).text.split('\n').find((l) => l.trim() && !l.startsWith('#')) : undefined
+        await say(`最近改过的笔记：${notes.map((n) => `《${n.title}》`).join('、')}。${first ? `第一篇讲的是：${first.trim()}` : ''}`)
+        return { text, session: undefined }
+      }
       // 测试设置 › AI「给AI的长期说明」真的带进了这一问（AI 对话、读 PDF 都在最前面）
       if (said.includes('复述长期说明')) {
         const note = /【用户的长期说明】每一问都照这个来：\n([\s\S]*?)\n/.exec(prompt)?.[1]
@@ -392,6 +415,23 @@ export function fakeEngine(id: EngineId): Engine {
       // 回答里有长行内代码、宽表、长代码块（task-83vl3）：整条回答不横着滑
       if (said.includes('宽内容')) {
         await say(WIDE_ANSWER)
+        return { text, session: r.session ?? `fake-${id}` }
+      }
+      // 步骤行很长（对话区不横滚，用户截图 r139）：一条 200 字符没空格的命令、一条库外 300 字符的长路径，回答里一个很宽的代码块
+      if (said.includes('长步骤行')) {
+        const command = `python3${'-x'.repeat(48)}${'/very_long_dir_name'.repeat(5)}/run.py?${'a=1&b=2'.repeat(5)}`.slice(0, 200)
+        const file_path = `/Users/me/Library/项目/study project 2/论文/情绪识别 Emo/${'很长的一层文件夹名字/'.repeat(24)}${'x'.repeat(40)}.md`.slice(0, 300)
+        r.onStep?.({ id: 'l1', tool: 'Bash', input: { command }, status: 'run' })
+        r.onStep?.({ id: 'l1', tool: 'Bash', input: { command }, status: 'ok' })
+        r.onStep?.({ id: 'l2', tool: 'Read', input: { file_path }, status: 'run' })
+        r.onStep?.({ id: 'l2', tool: 'Read', input: { file_path }, status: 'ok' })
+        // 话里「」写了库里一篇的路径：也读它（标题 200 字符没空格时步骤行「读《…》」不截）
+        const note = /「([^」]*)」/.exec(said)?.[1]
+        if (note) {
+          r.onStep?.({ id: 'l3', tool: 'Read', input: { file_path: join(r.cwd, note) }, status: 'run' })
+          r.onStep?.({ id: 'l3', tool: 'Read', input: { file_path: join(r.cwd, note) }, status: 'ok' })
+        }
+        await say(`跑完了，输出如下：\n\n\`\`\`\n${'0123456789'.repeat(30)}\n短的一行\n\`\`\``)
         return { text, session: r.session ?? `fake-${id}` }
       }
       // 网页、视频、文档的 AI 对话里问论文外的基础知识（功能小三件 3）：回答末尾单独一行〔前置知识〕；问眼前这一段的不标
@@ -497,6 +537,19 @@ export function fakeEngine(id: EngineId): Engine {
         await stillAnswering(r.signal)
         r.onStep?.({ id: 'w1', ...step, status: 'ok' })
         await say(`写好了 ${file}。`)
+        return { text, session: `fake-${id}` }
+      }
+      // 全能模式：像 Claude Code 自己用 Edit 那样往一篇末尾加一行，写之前先问软件（同一个文件另一段对话在写就等着），
+      // 加完先说一句、等放行再答完（「〔等放行 X〕」）：AI 对话同时跑「同一文件同一时间只让一段对话写」
+      if (/^排队在「[^」]*」末尾加「/.test(said) && r.omni) {
+        const [file, line] = [...said.matchAll(/「([^」]*)」/g)].map((m) => m[1]!)
+        const abs = join(r.cwd, file!)
+        await r.beforeWrite?.(abs)
+        if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+        r.onStep?.({ id: 'q1', tool: 'Edit', input: { file_path: abs }, status: 'run' })
+        writeFileSync(abs, `${readFileSync(abs, 'utf8').replace(/\s*$/, '')}\n\n${line}\n`)
+        r.onStep?.({ id: 'q1', tool: 'Edit', input: { file_path: abs }, status: 'ok' })
+        await say(`加好了「${line}」。`)
         return { text, session: `fake-${id}` }
       }
       // 全能模式：像 Claude Code 自己用 Edit 那样，过一会儿（CN_FAKE_OWN_MS）直接在一篇末尾加一行（用户正在编辑器里打这一篇的字）

@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState, useSyncExternalStore } from 'react'
 import type { ActionState } from '../../shared/web-api'
+import { ipcOn } from '../crash/ipc'
 
 /** 地址栏右边最多固定几个 Chrome 插件按钮；默认一个也不放，在「⋯ › 插件」里点图钉固定 */
 export const MAX_PINNED = 2
@@ -43,7 +44,7 @@ export function useActions(): ActionState[] {
     let alive = true
     const load = () => void window.cnWeb.actions().then((s) => alive && setActions(s.actions))
     load()
-    const off = window.cnWeb.onActionsChanged(load)
+    const off = ipcOn(window.cnWeb.onActionsChanged, 'cnWeb.onActionsChanged')(load)
     return () => {
       alive = false
       off()

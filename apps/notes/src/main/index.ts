@@ -27,6 +27,7 @@ import { setupVoice } from './voice'
 import { setupFeynman } from './feynman'
 import { setupFeynmanAfter } from './feynman-after'
 import { setupMapExport } from './mindmap/export'
+import { setupDocExport } from './export-doc'
 import { readAll } from './duplicates'
 import { duplicatesWithProgress, stopSimilar } from './similar'
 import { registerHome } from './home'
@@ -51,7 +52,7 @@ import { setupQuick } from './quick'
 import { E2E, guardScreen, quitLog } from './test-mode'
 import { capNetworkWait, flushCookies } from './quit-fast'
 import { RollingLog, shareLog } from './crash-log'
-import { revealLogs, setupCrashLog, watchWindow } from './crash-watch'
+import { logIpcErrors, revealLogs, setupCrashLog, watchWindow } from './crash-watch'
 import { Updater } from './updater'
 import { menuLabel, releaseUrl, updateError } from '../shared/update'
 import { SettingsFile } from './settings'
@@ -66,6 +67,7 @@ import { registerFiles } from './files'
 import { registerTodo } from './todo'
 import { registerWhen } from './when-ai'
 import { registerFamily } from './family'
+import { registerMeetCaption } from './meetcaption'
 import { registerCalendar } from './calendar'
 import { registerMobileAi } from './mobile-ai'
 import { planCarry, testTrash, trashFiles } from './folder-ops'
@@ -268,6 +270,8 @@ const userSkins = () => themes.list().map(themeInfo)
 /** 出错日志（task-pyb39）：~/Library/Logs/Canvas Notes/main.log；测试和多开时放在设置目录的 logs/（CN_LOG_DIR 可指定）。先于设置建好：设置坏了也要记 */
 const crashLog = new RollingLog(process.env.CN_LOG_DIR || (E2E || process.env.CN_USER_DATA ? join(app.getPath('userData'), 'logs') : join(app.getPath('home'), 'Library/Logs', BRAND.name)))
 shareLog(crashLog)
+// 先于下面所有 ipcMain.handle：系统错一律记进 main.log
+logIpcErrors(crashLog)
 const settings = new SettingsFile(join(app.getPath('userData'), 'settings.json'), userSkins)
 /** 现在窗口用的是哪套主题（速记小窗、窗口底色跟着它） */
 const currentSkin = () => activeSkin(settings.app().appearance, nativeTheme.shouldUseDarkColors)
@@ -647,16 +651,17 @@ function registerIpc() {
   })
   ipcMain.handle('git:state', async (): Promise<GitState> => {
     const v = needVault()
-    if (!(await git.isRepo(v.root))) return { isRepo: false, branch: null, changes: [], weekCommits: 0, hasRemote: false, lastSync: null, syncError: null, autoCommitMinutes: 0, autoCommitError: null, nextSync: null }
-    const [branch, changes, weekCommits, hasRemote] = await Promise.all([
-      git.currentBranch(v.root),
+    if (!(await git.isRepo(v.root))) return { isRepo: false, branch: null, busy: null, changes: [], weekCommits: 0, hasRemote: false, lastSync: null, syncError: null, autoCommitMinutes: 0, autoCommitError: null, nextSync: null }
+    // 同步途中（pull --rebase，HEAD 临时分离）也照常回状态，不抛「HEAD is not a symbolic ref」
+    const [{ branch, busy }, changes, weekCommits, hasRemote] = await Promise.all([
+      git.headState(v.root),
       git.status(v.root),
       git.countCommitsSince(v.root, startOfWeek(new Date())),
       git.hasRemote(v.root),
     ])
     // 没有要提交的了（别处提交上了）：自动提交的那次失败不再挂着
     if (!changes.length) autoCommitError = null
-    return { isRepo: true, branch, changes, weekCommits, hasRemote, lastSync, syncError, autoCommitMinutes: settings.app().autoCommitMinutes, autoCommitError, nextSync: hasRemote ? nextSyncAt : null }
+    return { isRepo: true, branch, busy, changes, weekCommits, hasRemote, lastSync, syncError, autoCommitMinutes: settings.app().autoCommitMinutes, autoCommitError, nextSync: hasRemote ? nextSyncAt : null }
   })
   ipcMain.handle('git:commit', async () => {
     const v = needVault()
@@ -889,6 +894,7 @@ app.whenReady().then(async () => {
   setupFeynman({ win: () => win, vault: () => vault })
   setupFeynmanAfter()
   setupMapExport(() => win, () => vault)
+  setupDocExport(needVault)
   const dreams = setupDream({
     root: () => vault?.root ?? null,
     // 补双链找候选的向量那一路：搜索索引里每篇切段的向量（意思索引没开、没建好时没有这一路）
@@ -969,6 +975,8 @@ app.whenReady().then(async () => {
   })
   family.watch(vault?.root ?? null)
   const todo = registerTodo({ vault: () => vault, win: () => win, family })
+  // MeetCaption 联动（画布笔记这一侧）：文件夹首页组件、上课记录、两边互跳
+  registerMeetCaption({ vault: () => vault, win: () => win, installed: () => family!.installed() })
   // 「日历」格：系统日历只读、AI 排进空着的时间（task-kzr3n）
   registerCalendar({ win: () => win, todos: todo.list, root: () => vault?.root ?? null })
   // 待办写时间：本地认不出的那一行问 AI（task-pd289）

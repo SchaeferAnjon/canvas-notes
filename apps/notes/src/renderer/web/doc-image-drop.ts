@@ -4,8 +4,8 @@
  * 位置和大小不跳；存失败在图的位置写一行原因（CN-39）。占位只是装饰，不写进文字。
  */
 import { type EditorState, type Range, StateEffect, StateField, type Text } from '@codemirror/state'
-import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
-import { asClip, imagesFrom, looksLikeImage, saveImages, webDragLive, webImgClipped } from './image-drop'
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
+import { asClip, imagesFrom, looksLikeImage, saveImages, takeWebText, WEB_DRAG_TYPE, webAnyLive, webImgClipped, webTextLive, webTextMd } from './image-drop'
 import { hiddenOk } from '../hidden-syntax'
 import { clipText } from '@cn/ai-chat/paste'
 
@@ -172,15 +172,91 @@ export function docImageDrop(notePath: () => string, onNotice: (t: string) => vo
       .catch((e: unknown) => view.dispatch({ effects: updatePending.of({ id, error: String((e as Error)?.message ?? e) }) }))
       .finally(() => setTimeout(() => urls.forEach((u) => u && URL.revokeObjectURL(u)), 1000))
   }
+  /** 网页里拖出来的字落下：写成和点「剪藏」一样的一块，插在落点那一段后面；网页上那段标「剪过」 */
+  const dropText = (view: EditorView, pos: number): boolean => {
+    const c = takeWebText()
+    if (!c) return false
+    const md = webTextMd(c)
+    view.dispatch({ changes: blockInsert(view.state.doc, anchorOf(view.state, pos), md), userEvent: 'input.drop', annotations: hiddenOk.of(true), scrollIntoView: true })
+    if (/^https?:/i.test(c.url)) webImgClipped(notePath(), md, c.url)
+    return true
+  }
+  const types = (dt: DataTransfer | null) => Array.from(dt?.types ?? [])
+  const over = (view: EditorView, e: DragEvent, x: number, y: number): boolean => {
+    if (view.state.readOnly || !e.dataTransfer) return false
+    const ts = types(e.dataTransfer)
+    const web = webAnyLive()
+    if (!web && !ts.some((t) => t === 'Files' || t === 'text/html' || t === 'text/uri-list')) return false
+    e.preventDefault()
+    // 插入线只给图（访达里的图文件）和右栏网页里拖着的图、字；拖别的字进来照 CodeMirror 自己的光标
+    if (ts.includes('Files') || web) dropLine(view, x, y)
+    return true
+  }
+  const drop = (view: EditorView, e: DragEvent, pos: number): boolean => {
+    hideDropLine(view)
+    if (view.state.readOnly || !e.dataTransfer) return false
+    if (webTextLive()) {
+      e.preventDefault()
+      return dropText(view, pos)
+    }
+    if (looksLikeImage(e.dataTransfer)) {
+      e.preventDefault()
+      handle(view, e.dataTransfer, pos, false)
+      return true
+    }
+    // 界面补发的那一下（网页报来的落点），真的 drop 已经接住了：吞掉，不落第二份
+    if (types(e.dataTransfer).includes(WEB_DRAG_TYPE)) {
+      e.preventDefault()
+      return true
+    }
+    return false
+  }
+  /**
+   * 文档那一格里正文外面的空白（最后一段下面、版心两边，NoteTab 的 .body）也接：落点照离它最近的那一行算，
+   * 不然松在文末下面的空白里什么都不发生（正文只有字那么高）
+   */
+  const outside = ViewPlugin.define((view) => {
+    // 编辑器建好时还没挂进 .body：到事件时再找；分屏两格各认自己那一格
+    let box: HTMLElement | null = null
+    const mine = (e: Event) => {
+      box = view.dom.closest<HTMLElement>('.body')
+      const t = e.target as Node | null
+      return !!box && !!t && box.contains(t) && !view.contentDOM.contains(t)
+    }
+    const near = (e: DragEvent) => {
+      const r = view.contentDOM.getBoundingClientRect()
+      return { x: Math.min(Math.max(e.clientX, r.left + 2), r.right - 2), y: Math.min(Math.max(e.clientY, r.top + 2), r.bottom - 2) }
+    }
+    const posOf = (p: { x: number; y: number }) => view.posAtCoords(p, false)
+    const onOver = (e: DragEvent) => {
+      if (!mine(e)) return
+      const p = near(e)
+      over(view, e, p.x, p.y)
+    }
+    const onLeave = (e: DragEvent) => {
+      if (mine(e) && !box!.contains(e.relatedTarget as Node | null)) hideDropLine(view)
+    }
+    const onDrop = (e: DragEvent) => {
+      if (!mine(e)) return
+      drop(view, e, posOf(near(e)))
+    }
+    window.addEventListener('dragover', onOver)
+    window.addEventListener('dragleave', onLeave)
+    window.addEventListener('drop', onDrop)
+    return {
+      destroy() {
+        window.removeEventListener('dragover', onOver)
+        window.removeEventListener('dragleave', onLeave)
+        window.removeEventListener('drop', onDrop)
+      },
+    }
+  })
   return [
     pendingField,
+    outside,
     EditorView.domEventHandlers({
       dragover(e, view) {
-        if (view.state.readOnly || !e.dataTransfer || !Array.from(e.dataTransfer.types).some((t) => t === 'Files' || t === 'text/html' || t === 'text/uri-list')) return false
-        e.preventDefault()
-        // 插入线只给图（访达里的图文件、右栏网页里拖着的图），拖字进来照 CodeMirror 自己的光标
-        const types = Array.from(e.dataTransfer.types)
-        if (types.includes('Files') || webDragLive()) dropLine(view, e.clientX, e.clientY)
+        over(view, e, e.clientX, e.clientY)
         return false
       },
       dragleave(e, view) {
@@ -188,12 +264,7 @@ export function docImageDrop(notePath: () => string, onNotice: (t: string) => vo
         return false
       },
       drop(e, view) {
-        hideDropLine(view)
-        if (view.state.readOnly || !e.dataTransfer || !looksLikeImage(e.dataTransfer)) return false
-        e.preventDefault()
-        const pos = view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.state.selection.main.head
-        handle(view, e.dataTransfer, pos, false)
-        return true
+        return drop(view, e, view.posAtCoords({ x: e.clientX, y: e.clientY }) ?? view.state.selection.main.head)
       },
       paste(e, view) {
         const items = Array.from(e.clipboardData?.items ?? [])

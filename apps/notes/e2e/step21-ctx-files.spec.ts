@@ -16,7 +16,7 @@ test('左栏笔记：右键「移到 › 文件夹」真的挪了文件、开着
     await openNote(page, '日记')
     await row(page, '日记').click({ button: 'right' })
     const m = await openedMenu(run)
-    expect(menuLabels(m)).toEqual(['打开', '在新标签打开', '重命名', '移到', '置顶', '在访达中显示', '拷贝路径', '拷贝双链', '移到废纸篓'])
+    expect(menuLabels(m)).toEqual(['打开', '在新标签打开', '重命名', '移到', '置顶', '在访达中显示', '拷贝路径', '拷贝双链', '导出 PDF…', '导出为 Markdown…', '移到废纸篓'])
     // 每一层文件夹都能选：最外层八个分类都在（还没建的挪进去时建）；有子文件夹的点开是「放进「课程」」和它的子文件夹
     const move = m.find((i) => i.label === '移到')!.submenu!
     expect(menuLabels(move)).toEqual(['收件箱', '课程', '阅读', '剪藏', '周记', '写作', '项目', '生活'])

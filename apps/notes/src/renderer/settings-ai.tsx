@@ -6,7 +6,7 @@
  * 先选家（同一家只列一次，「跟默认」「按顺序」还在最前面），再选这一家的模型（从命令行拉的），再选想多久。
  */
 import { useEffect, useRef, useState } from 'react'
-import type { EngineId, EngineInfo } from '../shared/agent'
+import { type EngineId, type EngineInfo, PARALLEL_DEFAULT, PARALLEL_MAX } from '../shared/agent'
 import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, DEFAULT_EFFORT, findModel, pickLabel } from '@cn/ai-engines/shared'
 import type { AiPrefsView } from '../shared/api'
 import { ENGINES as TR_ENGINES, normalizeTranslate, type TranslateSettings, type TrEngineId } from '../shared/plugins/translate'
@@ -19,6 +19,7 @@ import { Group, hintFor, Lnk, Row, useSaid } from './settings/ui'
 import { settingsItem } from '../shared/settings-index'
 import { useT } from './i18n'
 import { MobileAiGroup } from './mobile-ai/MobileAiGroup'
+import { ipcOn } from './crash/ipc'
 
 export const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -63,7 +64,7 @@ export function AiFeaturePick(props: { feature: AiFeature; name: string; onNotic
   useEffect(() => {
     const load = () => void window.cn.aiPrefs().then(setV, (e) => props.onNotice(errText(e)))
     load()
-    return window.cn.onAiPrefsChanged(load)
+    return ipcOn(window.cn.onAiPrefsChanged, 'cn.onAiPrefsChanged')(load)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   if (!v) return null
@@ -104,10 +105,12 @@ export function AiSettingsPage(props: SettingsProps) {
   const [v, setV] = useState<AiPrefsView | null>(null)
   const [tr, setTr] = useState<TranslateSettings | null>(null)
   const [omni, setOmni] = useState<boolean | null>(null)
+  const [par, setPar] = useState<number | null>(null)
   useEffect(() => {
     const load = () => {
       void window.cn.aiPrefs().then(setV, (e) => props.onNotice(errText(e)))
       void window.cn.aiEngines().then((r) => setOmni(r.omni))
+      void window.cn.aiParallel().then(setPar)
     }
     load()
     void window.cnPlugins.list().then((l) => {
@@ -115,7 +118,7 @@ export function AiSettingsPage(props: SettingsProps) {
       if (tp?.enabled) setTr(normalizeTranslate(tp.settings))
     })
     // AI 输入框下面那颗全能模式开关、引擎菜单换了、后台拉到模型、自查完、更新完：这里跟着
-    return window.cn.onAiPrefsChanged(load)
+    return ipcOn(window.cn.onAiPrefsChanged, 'cn.onAiPrefsChanged')(load)
   }, [])
   if (!v) return null
   const { prefs, engines } = v
@@ -294,6 +297,28 @@ export function AiSettingsPage(props: SettingsProps) {
               })
             }}
           />
+        </Row>
+        <Row id="parallel">
+          <select
+            aria-label={t('同时答几段对话')}
+            value={par ?? PARALLEL_DEFAULT}
+            onChange={(e) => {
+              const n = Number(e.currentTarget.value)
+              const was = par ?? PARALLEL_DEFAULT
+              setPar(n)
+              void window.cn.aiSetParallel(n).catch((err: unknown) => props.onNotice(errText(err)))
+              said.saved(t('最多同时答{n}段对话，多的排队', { n }), () => {
+                setPar(was)
+                void window.cn.aiSetParallel(was)
+              })
+            }}
+          >
+            {Array.from({ length: PARALLEL_MAX }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={n}>
+                {t('{n}段', { n })}
+              </option>
+            ))}
+          </select>
         </Row>
         <PromptRow />
       </Group>

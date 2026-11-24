@@ -34,6 +34,7 @@ import { finishLong } from '../../shared/feynman/long'
 import { t as tNow } from '../../shared/i18n'
 import { NoteDoc } from '../note-doc'
 import { appSettings, publishSettings } from '../settings-store'
+import { ipcOn } from '../crash/ipc'
 
 /** 回答框是哪一种：先讲一段（讲完了）、回答追问（回）、问完了（讲完了，看判定）、当场再讲这几处 */
 export type InputKind = 'explain' | 'reply' | 'end' | 'redo'
@@ -148,7 +149,7 @@ let listening = false
 function listen() {
   if (listening) return
   listening = true
-  window.cnFeynman.onText((reqId, delta) => {
+  ipcOn(window.cnFeynman.onText, 'cnFeynman.onText')((reqId, delta) => {
     const id = streams.get(reqId)
     const l = id ? lives.get(id) : undefined
     if (l?.thinking?.req === reqId) patch(l.id, { stream: l.stream + delta })

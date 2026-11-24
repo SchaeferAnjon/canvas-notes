@@ -29,3 +29,9 @@ apps/pararead/
 # packages/ai-chat、ai-engines 画布笔记也用（ParaRead AI 合并 711a459d 起），跟着导出
 packages/editor/
 apps/notes/test/pararead-sample.test.ts
+
+# MeetCaption（会议字幕）单独一个公开仓库（SchaeferAnjon/meetcaption，apps/meetcaption/scripts/public-export.mjs 导出），不进画布笔记的公开仓库
+apps/meetcaption/
+# 共用包里拿 MeetCaption 那份 JS 抄本对照的测试（要 apps/meetcaption）
+packages/family/test/meetcaption-links.test.ts
+packages/format/test/meetcaption-js.test.ts

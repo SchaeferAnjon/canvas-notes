@@ -9,6 +9,7 @@ import { type ReactNode, useEffect, useState } from 'react'
 import type { EmbedModelStatus } from '../shared/search'
 import { useT } from './i18n'
 import { openSettingsAt } from './settings/jump'
+import { ipcOn } from './crash/ipc'
 
 const MB = 1024 * 1024
 const mb = (n: number) => Math.round(n / MB)
@@ -21,7 +22,7 @@ export function EmbedModelRow() {
   useEffect(() => {
     let live = true
     void window.cn.embedStatus().then((v) => live && setS(v))
-    const off = window.cn.onEmbed(setS)
+    const off = ipcOn(window.cn.onEmbed, 'cn.onEmbed')(setS)
     return () => {
       live = false
       off()

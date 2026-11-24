@@ -133,7 +133,10 @@ describe('两种模式怎么告诉 AI（2026-11-19，全能模式默认开）', 
     // 往笔记里新加的段落写成 [!ai] 块，头一行照每条消息开头的【AI 块】（task-dtc34）
     expect(AGENT_SYSTEM).toContain('一律写成 AI 块')
     // 系统提示改了：AI 对话的旧会话不再接着用（3：改了开着的文件编辑器当场换，2026-11-21；4：回答的语言照每条消息开头的【语言】，task-zojmg；5：AI 块，task-dtc34；6：库里的东西写成链接，task-3e53q；7：前置知识标记，功能小三件）
-    expect(AGENT_VERSION).toBe(7)
+    expect(AGENT_VERSION).toBe(8)
+    // 待办默认提醒（2026-11-24）：带钟点的待办默认写 🔔 准时，说了提前多久照说的写
+    expect(AGENT_SYSTEM).toContain('带钟点的默认写「🔔 准时」')
+    expect(AGENT_SYSTEM).toContain('🔔 提前30分钟')
     // 网页、视频、文档的问答也标前置知识（回答末尾〔前置知识〕，记进笔记那一问带 #前置知识）
     expect(AGENT_SYSTEM).toContain(PRE_MARK)
   })

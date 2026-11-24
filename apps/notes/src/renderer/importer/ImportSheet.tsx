@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { type ImportFolder, type ImportKind, type ImportProgress, type ImportResult, type ImportScan, wholeVault } from '../../shared/import'
 import { closeImport, openImport, useImportOpen } from './store'
 import './import.css'
+import { ipcOn } from '../crash/ipc'
 
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 const mb = (b: number) => (b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(b >= 100 * 1024 * 1024 ? 0 : 1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`)
@@ -23,10 +24,10 @@ export function ImportHost(props: { onOpenInbox(): void; onShowFiles(): void; on
   /** 窗口关着时导完的那次（底下提示，点了「撤回」或过一会儿消失） */
   const [doneToast, setDoneToast] = useState<ImportResult | null>(null)
 
-  useEffect(() => window.cnImport.onOpen(() => openImport()), [])
+  useEffect(() => ipcOn(window.cnImport.onOpen, 'cnImport.onOpen')(() => openImport()), [])
   useEffect(() => {
     void window.cnImport.current().then((p) => p && setProgress(p))
-    return window.cnImport.onProgress(setProgress)
+    return ipcOn(window.cnImport.onProgress, 'cnImport.onProgress')(setProgress)
   }, [])
   const running = !!progress && (progress.phase === 'reading' || progress.phase === 'writing' || progress.phase === 'committing')
   useEffect(() => {

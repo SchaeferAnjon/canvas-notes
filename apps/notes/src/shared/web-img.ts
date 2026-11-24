@@ -17,6 +17,8 @@ export interface WebImgInfo {
   /** 网页的网址、标题 */
   url: string
   title: string
+  /** 同一张图的别的地址（src 属性、srcset 里的几档；src 是 currentSrc）：拖出去时网页给的是 src 属性，照这些认回是哪张 */
+  srcs?: string[]
 }
 
 /** 图注开头的图号：「图6.2.1 二维互相关运算」→「图 6.2.1」，「Figure 3: …」→「Figure 3」 */
@@ -68,5 +70,6 @@ export function webImgOf(raw: unknown): WebImgInfo | null {
   if (typeof d?.src !== 'string' || typeof d.url !== 'string') return null
   const str = (v: unknown, n: number) => (typeof v === 'string' ? v.slice(0, n) : '')
   const head = str(d.head, 200)
-  return { src: d.src, alt: str(d.alt, 400), caption: str(d.caption, 400), ...(head ? { head } : {}), url: d.url, title: str(d.title, 300) }
+  const srcs = Array.isArray(d.srcs) ? d.srcs.filter((x): x is string => typeof x === 'string').slice(0, 12) : []
+  return { src: d.src, alt: str(d.alt, 400), caption: str(d.caption, 400), ...(head ? { head } : {}), url: d.url, title: str(d.title, 300), ...(srcs.length ? { srcs } : {}) }
 }

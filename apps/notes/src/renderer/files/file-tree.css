@@ -466,3 +466,44 @@
   border-bottom: 1px solid var(--line2);
   border-bottom-left-radius: 6px;
 }
+
+/* 附件用没用（文件树附件）：名字后面「被 N 篇用」12 --t3；没人用的整行字和图标淡一点、写「没用到」 */
+.ftree .ft-use {
+  flex: none;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.ftree .ft-row.ft-att.unused > .truncate,
+.ftree .ft-row.ft-att.unused > .ci,
+.ftree .ft-row.ft-att.unused > .ft-thumb {
+  opacity: 0.55;
+}
+/* 附件/ 展开时顶上那一排：一颗小筛选「只看没用到的 N」（同类型筛选那排小签的样子） */
+.ftree .ft-attbar {
+  display: flex;
+  align-items: center;
+  height: 28px;
+}
+.ftree .ft-attchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--t2);
+  background: var(--fill);
+}
+.ftree .ft-attchip:hover {
+  background: var(--fill2);
+}
+.ftree .ft-attchip.on {
+  color: var(--acc-t);
+  background: var(--acc-soft);
+}
+.ftree .ft-attchip .num {
+  color: var(--t3);
+}
