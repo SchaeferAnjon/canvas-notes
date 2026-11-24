@@ -47,4 +47,6 @@ export interface CnVoiceApi {
   onEvent(cb: (e: DictEvent) => void): () => void
   /** 打开系统设置 › 隐私与安全性 › 麦克风 */
   openMicSettings(): Promise<void>
+  /** 连着说多久没听出新字自动停（毫秒）：只有测试模式给（CN_DICT_IDLE_MS），平时没有、用两分钟 */
+  idleMs?: number
 }

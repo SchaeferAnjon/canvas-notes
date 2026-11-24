@@ -6,7 +6,8 @@
  */
 import { Codicon } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { CORE_MAX, type Candidate, type CoreState, type Entry, type FeynmanMeta, findRounds, type Gap, roundById, roundsUsed, type RoundSection, verdictLine } from '../../shared/feynman'
+import { CORE_MAX, type Candidate, type CoreState, type Entry, type FeynmanMeta, findRounds, type Gap, type LongStep, roundById, roundsUsed, type RoundSection, verdictLine } from '../../shared/feynman'
+import { longLabels, longStats, pendingAsk, type TalkState, talkStates } from '../../shared/feynman/long'
 import { GROW_TICK, growStep } from '../../shared/ai-grow'
 import { still } from '../ai-act-store'
 import { GlowRing } from '../ai-glow'
@@ -15,6 +16,7 @@ import { useT } from '../i18n'
 import { composing } from '../ime'
 import { isKey, keyFor } from '../keys'
 import { showMenu } from '../ctx/menu'
+import { usePrefs } from '../settings-store'
 import * as A from './after'
 import { DictationBar, DictationLive, DictationMic, DictationNote, useDictation } from '../voice/dictation'
 import * as S from './store'
@@ -77,6 +79,8 @@ export function FeynmanColumn(p: ColumnProps) {
   const count = r?.entries.length ?? 0
   const verdictKey = r?.meta.verdict ? r.meta.verdict + (r.meta.redone ? '+' : '') : ''
   const lastVerdict = useRef(verdictKey)
+  /** 滚动区贴着底（你没往上翻） */
+  const stuck = useRef(true)
   useLayoutEffect(() => {
     const b = body.current
     if (!b) return
@@ -84,9 +88,43 @@ export function FeynmanColumn(p: ColumnProps) {
     if (verdictKey && verdictKey !== lastVerdict.current) {
       const res = b.querySelector<HTMLElement>('.fy-res')
       if (res) b.scrollTop = res.offsetTop - b.offsetTop - 8
-    } else if (!verdictKey || live?.input || live?.thinking) b.scrollTop = b.scrollHeight
+      stuck.current = false
+    } else if (!verdictKey || live?.input || live?.thinking) {
+      b.scrollTop = b.scrollHeight
+      stuck.current = true
+    } else stuck.current = b.scrollHeight - b.scrollTop - b.clientHeight < 4
     lastVerdict.current = verdictKey
   }, [count, live?.input, !!live?.thinking, verdictKey])
+  // 贴着底时高度一变（列头多一行、学生的话一点点长出来、问收尾那块的按钮出来、框长高）接着贴底；你往上翻过就不动
+  const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const b = bodyEl
+    if (!b) return
+    const stick = () => void (stuck.current && (b.scrollTop = b.scrollHeight))
+    const ro = new ResizeObserver(stick)
+    const watch = () => {
+      ro.disconnect()
+      ro.observe(b)
+      for (const c of b.children) ro.observe(c)
+    }
+    const mo = new MutationObserver(watch)
+    watch()
+    mo.observe(b, { childList: true })
+    return () => (ro.disconnect(), mo.disconnect())
+  }, [bodyEl])
+  // 列很长：滚远了（过了一屏）列头出「回到开头」；滚过一点列头下面一条线
+  const [top, setTop] = useState(false)
+  const lastTop = useRef(0)
+  const [scrolled, setScrolled] = useState(false)
+  const onScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const b = e.currentTarget
+    // 到底了算贴底；往上翻了才算松开（字在长的时候底在往下走，没翻也会差一点到底）
+    if (b.scrollHeight - b.scrollTop - b.clientHeight < 4) stuck.current = true
+    else if (b.scrollTop < lastTop.current - 1) stuck.current = false
+    lastTop.current = b.scrollTop
+    setTop(b.scrollTop > b.clientHeight)
+    setScrolled(b.scrollTop > 4)
+  }
   if (!r) return null
   const m = r.meta
   const cores = m.points.filter((x) => x.kind === 'core')
@@ -94,6 +132,10 @@ export function FeynmanColumn(p: ColumnProps) {
   const paused = m.status === 'paused' || (m.status === 'talking' && !live)
   const talking = m.status === 'talking' && !!live
   const label = S.labelOf(m.id) ?? labelFrom(m, t)
+  const long = m.mode === 'long'
+  // 问收尾那块出来时列头「收尾」先收起（一屏只留一个黑色主按钮）
+  const offering = long && lastAct(m) === 'offer'
+  const canWrap = long && talking && !live?.redo && !offering && !live?.thinking?.judging
   return (
     <section
       ref={col}
@@ -109,12 +151,12 @@ export function FeynmanColumn(p: ColumnProps) {
       onWheel={(e) => e.stopPropagation()}
     >
       {live?.thinking && <GlowRing mode="loop" className="fy-glow" />}
-      <header className="fy-h">
+      <header className={'fy-h' + (scrolled ? ' scrolled' : '')}>
         <div className="fy-t">
           <Codicon name="mortar-board" size={15} />
           <b>{t('费曼 · {topic}', { topic: m.topic })}</b>
           <span className="sp" />
-          <Dots m={m} judged={judged} />
+          <Dots m={m} judged={judged} talking={long && talking && !live?.redo} />
           {m.status === 'draft' && !p.readOnly && (
             <button type="button" className="fy-x" data-testid="fy-discard" aria-label={t('不讲了')} data-tip={t('不讲了：这一列拿掉')} data-side="below" onClick={() => S.discard(p.path, p.id)}>
               <Codicon name="close" size={14} />
@@ -130,7 +172,9 @@ export function FeynmanColumn(p: ColumnProps) {
               data-side="below"
               onClick={() =>
                 void showMenu([
-                  ...(talking && !live?.thinking && r.entries.some((e) => e.kind === 'me') ? [{ label: t('现在结束，看判定'), run: () => void S.finish(p.path, p.id) }] : []),
+                  // 聊到底讲着时暂停钮并进这里（列头留给标题）；三轮照旧是单独一颗
+                  long && talking && !live?.redo && { label: t('暂停'), run: () => S.pause(p.path, p.id) },
+                  ...(talking && !live?.thinking && r.entries.some((e) => e.kind === 'me') ? [{ label: t('现在结束，看判定'), run: () => void (long ? S.wrap(p.path, p.id) : S.finish(p.path, p.id)) }] : []),
                   { label: t('删掉这一轮'), run: () => S.discard(p.path, p.id) },
                 ])
               }
@@ -138,34 +182,70 @@ export function FeynmanColumn(p: ColumnProps) {
               <Codicon name="ellipsis" size={14} />
             </button>
           )}
-          {talking && !live?.redo && (
-            <button type="button" className="fy-pz" data-testid="fy-pause" data-tip={t('暂停：讲过的都留着；材料先露出来（也可以按 esc）')} data-side="below" onClick={() => S.pause(p.path, p.id)}>
+          {talking && !live?.redo && !long && (
+            <button type="button" className="fy-pz" data-testid="fy-pause" aria-label={t('暂停')} data-tip={t('暂停：讲过的都留着；材料先露出来（也可以按 esc）')} data-side="below" onClick={() => S.pause(p.path, p.id)}>
               <Codicon name="debug-pause" size={14} />
               {t('暂停')}
             </button>
           )}
+          {canWrap && (
+            <button
+              type="button"
+              className="fy-btn sm"
+              data-testid="fy-wrap"
+              data-tip={t('收尾：说反了、还没问清的先说穿，然后看判定')}
+              data-side="below"
+              disabled={!!live?.thinking || !r.entries.some((e) => e.kind === 'me')}
+              onClick={() => void S.wrap(p.path, p.id)}
+            >
+              <Codicon name="check" size={14} />
+              {t('收尾')}
+            </button>
+          )}
         </div>
         <div className="fy-m">
-          <ByEngine by={m.by} />
-          <span className="dim">·</span>
-          <span className="lb">{label}</span>
+          <ByEngine by={m.by} />{' '}
+          {/* 分隔点和后一项一起走：换行时点不挂在上一行行尾 */}
+          <span className="lb fy-nw" title={label}>
+            <span className="dim">·</span>{label}
+          </span>
           {m.peeks > 0 && <span className="peeks" data-testid="fy-peeks">{t('看过材料{n}次', { n: m.peeks })}</span>}
+          {long && m.status !== 'draft' && <LongMeta m={m} />}
         </div>
+        {long && talking && <Tired m={m} live={live!} />}
         <Progress text={p.text} m={m} />
+        {top && !paused && (
+          <button type="button" className="fy-top" data-testid="fy-top" onClick={() => body.current?.scrollTo({ top: 0, behavior: still() ? 'auto' : 'smooth' })}>
+            <Codicon name="arrow-up" size={12} />
+            {t('回到开头')}
+          </button>
+        )}
       </header>
       {paused ? (
         <div className="fy-pzline" data-testid="fy-paused">
-          <span>{t('暂停在第{n}轮。讲过的、问过的都存在这一节里；材料先露出来，接着讲时再盖上，这次暂停记成看过一次材料。', { n: roundNo(m) || 1 })}</span>
+          <span>
+            {long
+              ? t('暂停在第{n}问。讲过的、问过的都存在这一节里；材料先露出来，接着讲时再盖上，这次暂停记成看过一次材料。', { n: longStats(m).asks || 1 })
+              : t('暂停在第{n}轮。讲过的、问过的都存在这一节里；材料先露出来，接着讲时再盖上，这次暂停记成看过一次材料。', { n: roundNo(m) || 1 })}
+          </span>
           <button type="button" className="fy-btn solid" data-testid="fy-resume" onClick={() => S.resume(p.path, p.id)}>
             <Codicon name="play" size={14} />
             {t('接着讲')}
           </button>
         </div>
       ) : (
-        <div className="fy-b" ref={body}>
+        <div
+          className="fy-b"
+          ref={(el) => {
+            body.current = el
+            setBodyEl(el)
+          }}
+          onScroll={onScroll}
+        >
           <Plan r={r} path={p.path} readOnly={p.readOnly} onSay={p.onSay} />
           {m.status !== 'draft' && <Opener m={m} />}
           <Entries r={r} live={live} path={p.path} fromMap={p.fromMap} readOnly={p.readOnly} onSay={p.onSay} />
+          {long && talking && !live?.thinking && !live?.redo && !p.readOnly && <TellSkip m={m} last={r.entries.at(-1)} path={p.path} />}
           {live?.thinking && live.stream && (
             <div className="fy-ai ask" data-testid="fy-stream">
               <AiHead who={t('学生')} by={m.by} />
@@ -180,17 +260,28 @@ export function FeynmanColumn(p: ColumnProps) {
               <span className="breath" />
               {live.thinking.word}
               <span className="sp" />
-              <span className="k">{t('停下 esc')}</span>
+              {/* 连着说开着时 esc 先停听写：这句先不出，听写停了再出 */}
+              {!live.dict && <span className="k">{t('停下 esc')}</span>}
             </div>
           )}
           {live?.note && !live.thinking && <div className="fy-note">{live.note}</div>}
-          {live?.input && live.input !== 'end' && !live.thinking && !p.readOnly && <Answer path={p.path} id={p.id} live={live} demo={demoOf(r, live)} terms={[m.topic, ...m.points.map((x) => x.text)]} first={!r.entries.some((e) => e.kind === 'me')} />}
+          {/* 聊到底：学生在想、判定中回答框也挂着（连着说的听写不断，停一下），见 Answer；问收尾那块出来时收起，点「接着往深里聊」再出来 */}
+          {live && live.input !== 'end' && !p.readOnly && (long ? !!(live.input || live.thinking) && !(offering && !live.thinking) : !!live.input && !live.thinking) && (
+            <Answer path={p.path} id={p.id} live={live} demo={demoOf(r, live)} terms={[m.topic, ...m.points.map((x) => x.text)]} first={!r.entries.some((e) => e.kind === 'me')} long={m.mode === 'long'} />
+          )}
           {live?.input === 'end' && !live.thinking && (
-            <div className="fy-done">
-              <span>{t('问了{n}轮。了解即可的不追问。', { n: roundNo(m) })}</span>
-              <button type="button" className="fy-btn solid" data-testid="fy-finish" onClick={() => void S.finish(p.path, p.id)}>
-                {t('讲完了，看判定')}
-              </button>
+            <div className="fy-done end">
+              <div className="say">{t('问了{n}轮。了解即可的不追问。', { n: roundNo(m) })}</div>
+              <div className="acts">
+                {!long && !live.redo && !p.readOnly && (
+                  <button type="button" className="fy-btn sm" data-testid="fy-go-long" data-tip={t('不限轮接着问，前面{n}轮照算；转过去就不能回到三轮', { n: roundNo(m) })} onClick={() => void S.command(p.path, p.id, 'more')}>
+                    {t('接着聊下去')}
+                  </button>
+                )}
+                <button type="button" className="fy-btn solid sm" data-testid="fy-finish" onClick={() => void S.finish(p.path, p.id)}>
+                  {t('讲完了，看判定')}
+                </button>
+              </div>
             </div>
           )}
           {m.status === 'talking' && !live?.input && !live?.thinking && live && !judged && (
@@ -263,19 +354,130 @@ function ByEngine({ by }: { by?: string }) {
   )
 }
 
-/** 列头的小点：只有核心占；讲的时候讲到了变灰，判过以后才变绿、黄、红 */
-function Dots({ m, judged }: { m: FeynmanMeta; judged: boolean }) {
+/**
+ * 列头的小点：只有核心占；讲的时候讲到了变灰，判过以后才变绿、黄、红。
+ * 聊到底讲着时小点能点：弹一张「聊到哪了」小单（只记聊没聊到，不给对错）
+ */
+function Dots({ m, judged, talking }: { m: FeynmanMeta; judged: boolean; talking: boolean }) {
   const t = useT()
+  const [open, setOpen] = useState(false)
+  const wrap = useRef<HTMLSpanElement>(null)
   const cores = m.points.filter((x) => x.kind === 'core')
+  useEffect(() => {
+    if (!open) return
+    const away = (e: PointerEvent) => !wrap.current?.contains(e.target as Node) && setOpen(false)
+    const key = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      e.stopPropagation()
+      setOpen(false)
+    }
+    window.addEventListener('pointerdown', away, true)
+    window.addEventListener('keydown', key, true)
+    return () => (window.removeEventListener('pointerdown', away, true), window.removeEventListener('keydown', key, true))
+  }, [open])
+  useEffect(() => void (!talking && setOpen(false)), [talking])
+  const dots = cores.map((c) => {
+    const st = judged ? m.states?.find((s) => s.id === c.id)?.state : undefined
+    const fixedNow = !!m.gaps?.some((g) => g.point === c.id && g.redone)
+    const cls = fixedNow ? 'ok' : st ? DOT_CLS[STATE_CLS[st]] : m.touched?.includes(c.id) ? 'touched' : ''
+    return <i key={c.id} className={cls} data-k={c.id} />
+  })
+  if (!talking)
+    return (
+      <span className="fy-dots" data-testid="fy-dots" data-tip={t('核心{n}条：讲的时候讲到了变灰；判过以后绿 讲清 · 黄 含糊 · 红 讲错 · 虚线 没讲到', { n: cores.length })} data-side="below">
+        {dots}
+      </span>
+    )
   return (
-    <span className="fy-dots" data-testid="fy-dots" data-tip={t('核心{n}条：讲的时候讲到了变灰；判过以后绿 讲清 · 黄 含糊 · 红 讲错 · 虚线 没讲到', { n: cores.length })} data-side="below">
-      {cores.map((c) => {
-        const st = judged ? m.states?.find((s) => s.id === c.id)?.state : undefined
-        const fixedNow = !!m.gaps?.some((g) => g.point === c.id && g.redone)
-        const cls = fixedNow ? 'ok' : st ? DOT_CLS[STATE_CLS[st]] : m.touched?.includes(c.id) ? 'touched' : ''
-        return <i key={c.id} className={cls} data-k={c.id} />
-      })}
+    <span className="fy-dots-w" ref={wrap}>
+      <button type="button" className={'fy-dots' + (open ? ' on' : '')} data-testid="fy-dots" aria-expanded={open} aria-label={t('聊到哪了')} data-tip={open ? undefined : t('聊到哪了')} data-side="below" onClick={() => setOpen((v) => !v)}>
+        {dots}
+      </button>
+      {open && <TalkList m={m} />}
     </span>
+  )
+}
+
+/** 「聊到哪了」小单：每条核心聊过 / 正在聊 / 还没聊 / 说穿过 / 跳过了；点只有 --t1（正在聊）、--t3、空心（还没聊），不出绿黄红 */
+function TalkList({ m }: { m: FeynmanMeta }) {
+  const t = useT()
+  const WORD: Record<TalkState, string> = { done: t('聊过'), now: t('正在聊'), todo: t('还没聊'), revealed: t('说穿过'), skipped: t('跳过了') }
+  return (
+    <div className="fy-talk" data-testid="fy-talk-list" role="dialog" aria-label={t('聊到哪了')}>
+      <b>{t('聊到哪了')}</b>
+      {talkStates(m).map((x) => (
+        <div key={x.id} className="row" data-testid="fy-talk-row" data-k={x.id} data-state={x.state}>
+          <i className={x.state} />
+          <span className="tx">{x.text}</span>
+          <span className="st">{WORD[x.state]}</span>
+        </div>
+      ))}
+      <div className="ft">{t('只记聊没聊到；讲没讲清，收尾时一起给。')}</div>
+    </div>
+  )
+}
+
+/** 列头那行聊到底的一截：「· 聊到底 · 问了6次 · 12分钟」（0 的项不写，分钟取整）；判过以后「· 聊到底 · 判过了」 */
+function LongMeta({ m }: { m: FeynmanMeta }) {
+  const t = useT()
+  const s = longStats(m)
+  const parts = m.status === 'judged' ? [t('聊到底'), t('判过了')] : [t('聊到底'), s.asks ? t('问了{n}次', { n: s.asks }) : '', s.secs ? minutes(s.secs, t) : ''].filter(Boolean)
+  // 每一段连着前面的分隔点整段走，只在点前换行（不让「聊到 / 底」掉一个字，点也不挂在行尾）
+  return (
+    <span className="mode" data-testid="fy-long-meta">
+      {parts.map((x) => (
+        <span key={x}>
+          {' '}
+          <span className="fy-nw">· {x}</span>
+        </span>
+      ))}
+    </span>
+  )
+}
+
+/** 分钟取整，不到 1 分钟写「不到1分钟」 */
+const minutes = (secs: number, t: ReturnType<typeof useT>) => (secs < 60 ? t('不到1分钟') : t('{n}分钟', { n: Math.round(secs / 60) }))
+
+/**
+ * 聊过 20 分钟：列头多一行灰字，能点掉；下一问出来自己收起（store 收），只出一次。
+ * 按记下的聊天时间算（每一问记一次），不按正在走的秒数：不然你答的时候它就冒出来，一问回来又收掉，等于没出
+ */
+function Tired({ m, live }: { m: FeynmanMeta; live: S.Live }) {
+  const t = useT()
+  const over = (m.secs ?? 0) >= S.TIRED_SECS
+  useEffect(() => {
+    if (!live.tired && live.since && !live.thinking && over) S.tired(m.id, 'on')
+  }, [live.tired, live.since, !!live.thinking, over, m.id])
+  if (live.tired !== 'on') return null
+  return (
+    <div className="fy-tired" data-testid="fy-long-tired">
+      <span>{t('聊了挺久了，累了可以先暂停，下次从这里接着问')}</span>
+      <button type="button" className="fy-x" aria-label={t('收起')} data-tip={t('收起')} onClick={() => S.tired(m.id, 'off')}>
+        <Codicon name="close" size={12} />
+      </button>
+    </div>
+  )
+}
+
+/** 学生最后一句的 act（确认、答「要不要会」不算：那之后还在等上一问） */
+const lastAct = (m: FeynmanMeta) => m.asked.findLast((a) => a.act !== 'confirm' && a.act !== 'answer')?.act
+
+/** 等你答的那一问下面两颗小字：「说穿吧」「先跳过」（和回答框对齐）；往深里聊的那几问不判，不出 */
+function TellSkip({ m, last, path }: { m: FeynmanMeta; last: Entry | undefined; path: string }) {
+  const t = useT()
+  const i = pendingAsk(m.asked)
+  const a = i >= 0 ? m.asked[i] : undefined
+  if (!a?.point || a.step === 'deep' || (last?.kind !== 'student' && last?.kind !== 'confirm')) return null
+  return (
+    <div className="fy-qa" data-part="说穿吧 · 先跳过">
+      <button type="button" data-testid="fy-tell" data-tip={t('直接告诉我，记成靠说穿')} onClick={() => void S.command(path, m.id, 'reveal')}>
+        {t('说穿吧')}
+      </button>
+      <button type="button" data-testid="fy-skip" data-tip={t('这一条排到最后，别的问完再回来问一次')} onClick={() => void S.command(path, m.id, 'skip')}>
+        {t('先跳过')}
+      </button>
+    </div>
   )
 }
 
@@ -388,27 +590,81 @@ function Plan({ r, path, readOnly, onSay }: { r: RoundSection; path: string; rea
               {t('加一条')}
             </button>
           )}
-          <span className="sp" />
-          <button type="button" className="fy-btn solid" data-testid="fy-begin" disabled={!cores.length} onClick={() => S.begin(path, m.id)}>
-            {t('开始讲')}
-          </button>
         </div>
       )}
+      {draft && <Begin path={path} id={m.id} disabled={!cores.length} />}
     </div>
   )
 }
 
-/** AI 块头：引擎标志、谁在说、模型 */
-function AiHead({ who, by, n, icon }: { who: string; by?: string; n?: number; icon?: 'lightbulb' }) {
+/** 单子底部：「追问：三轮 ｜ 聊到底」（记住上次选的）和「开始讲」；第一次选聊到底时下面一行灰字，以后悬停「聊到底」才出 */
+function Begin({ path, id, disabled }: { path: string; id: string; disabled: boolean }) {
+  const t = useT()
+  const f = usePrefs((s) => s.feynman)
+  const why = t('不限轮：没讲清的一条条问，你随时点「收尾」；它想问的都问完了，会问你要不要收尾。')
+  const hint = f.mode === 'long' && !f.longSeen
+  return (
+    <>
+      <div className="go">
+        <span className="lb">{t('追问：')}</span>
+        <div className="fy-seg" role="group" aria-label={t('追问几轮')} data-testid="fy-mode">
+          <button type="button" data-testid="fy-mode-rounds" aria-pressed={f.mode === 'rounds'} onClick={() => S.setTalkMode('rounds')}>
+            {t('三轮')}
+          </button>
+          <button type="button" data-testid="fy-mode-long" aria-pressed={f.mode === 'long'} data-tip={hint ? undefined : why} data-side="below" onClick={() => S.setTalkMode('long')}>
+            {t('聊到底')}
+          </button>
+        </div>
+        <span className="sp" />
+        <button type="button" className="fy-btn solid" data-testid="fy-begin" disabled={disabled} onClick={() => S.begin(path, id)}>
+          {t('开始讲')}
+        </button>
+      </div>
+      {hint && (
+        <div className="why" data-testid="fy-mode-hint">
+          {why}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** AI 块头：引擎标志、谁在说、模型；聊到底右边 12px 小字写这一步（换个角度、提示、说穿……） */
+function AiHead({ who, by, n, icon, tag }: { who: string; by?: string; n?: number; icon?: 'lightbulb'; tag?: string }) {
   return (
     <div className="h">
       <ByLogo by={by ?? ''} />
       {icon && <Codicon name={icon} size={13} className="ic" />}
       {n ? <span className="n num">{n}</span> : null}
       <b>{who}</b>
-      {by && <span>{by}</span>}
+      {by && <span className="by">{by}</span>}
+      {tag && (
+        <span className="tg" data-testid="fy-step">
+          {tag}
+        </span>
+      )}
     </div>
   )
+}
+
+/** 聊到底学生块右边的小字：只写这几步，别的不写 */
+function stepWord(step: LongStep | 'offer' | 'confirm' | 'answer' | 'redirect' | 'ask' | undefined, t: ReturnType<typeof useT>): string | undefined {
+  switch (step) {
+    case 'angle':
+      return t('换个角度')
+    case 'hint':
+      return t('提示')
+    case 'why':
+      return t('问为什么')
+    case 'again':
+      return t('换个情形')
+    case 'later':
+      return t('回来再问')
+    case 'deep':
+      return t('往深里聊 · 不算判定')
+    default:
+      return undefined
+  }
 }
 
 /** 开讲前学生先开口（不进文件：每一轮都一样的一句） */
@@ -436,6 +692,13 @@ function Entries({ r, live, path, fromMap, readOnly, onSay }: { r: RoundSection;
   let afterVerdict = false
   let redoShown = false
   const out: React.ReactNode[] = []
+  // 聊到底：学生的话、说穿和 asked 一一对上（long.ts 的 longLabels），右边小字写这一步；不标号
+  const long = m.mode === 'long'
+  const labels = long ? longLabels(m) : null
+  let si = 0
+  let ri = 0
+  const lastStudent = r.entries.findLastIndex((e) => e.kind === 'student' || e.kind === 'confirm')
+  const offerOpen = long && m.status === 'talking' && !!live && !live.thinking && !live.redo && !readOnly && lastAct(m) === 'offer'
   r.entries.forEach((e, i) => {
     const fresh = live?.fresh === i
     if (e.kind === 'me') {
@@ -454,15 +717,33 @@ function Entries({ r, live, path, fromMap, readOnly, onSay }: { r: RoundSection;
     if (e.kind === 'student' || e.kind === 'confirm') {
       const { quote, rest } = splitQuote(e.text)
       const a = afterVerdict ? undefined : m.asked[ai++]
-      const fresh1 = !!a && (a.act === 'ask' || a.act === 'redirect') && !seen.has(a.point ?? String(ai))
+      const fresh1 = !long && !!a && (a.act === 'ask' || a.act === 'redirect') && !seen.has(a.point ?? String(ai))
       if (fresh1) (seen.add(a!.point ?? String(ai)), n++)
+      const step = labels && !afterVerdict ? labels.students[si++] : undefined
+      const offer = step === 'offer'
       out.push(
-        <div key={i} className="fy-ai ask" data-part={a?.act === 'redirect' ? '先讲核心' : '学生追问'} data-testid="fy-student">
-          <AiHead who={t('学生')} by={e.by} n={fresh1 ? n : undefined} />
+        <div
+          key={i}
+          className={'fy-ai ask' + (offer ? ' offer' : '')}
+          data-part={offer ? '问收尾' : a?.act === 'redirect' ? '先讲核心' : '学生追问'}
+          data-testid={offer ? 'fy-offer' : 'fy-student'}
+          data-step={step}
+        >
+          <AiHead who={t('学生')} by={e.by} n={fresh1 ? n : undefined} tag={stepWord(step, t)} />
           {quote !== null && <div className="quote">{t('你说「{q}」', { q: quote })}</div>}
           <div className="q">
             <Grow text={rest} on={fresh} id={m.id} />
           </div>
+          {offer && offerOpen && i === lastStudent && (
+            <div className="acts">
+              <button type="button" className="fy-btn solid sm" data-testid="fy-offer-wrap" onClick={() => void S.wrap(path, m.id)}>
+                {t('收尾，看判定')}
+              </button>
+              <button type="button" className="fy-btn sm" data-testid="fy-offer-deep" onClick={() => void S.command(path, m.id, 'deep')}>
+                {t('接着往深里聊')}
+              </button>
+            </div>
+          )}
         </div>,
       )
       return
@@ -472,9 +753,10 @@ function Entries({ r, live, path, fromMap, readOnly, onSay }: { r: RoundSection;
       const lines = e.text.split('\n')
       const src = lines.at(-1)?.match(/^(?:出处：|Source: )(.+)$/) ?? e.text.match(/(?:出处：|Source: )([^\n]+?)。?$/)
       const main = src ? e.text.slice(0, e.text.lastIndexOf(src[0])).replace(/[。\s]+$/, '。') : e.text
+      const end = labels && !afterVerdict ? labels.reveals[ri++] === 'end' : false
       out.push(
-        <div key={i} className="fy-ai reveal" data-part="说穿" data-testid="fy-reveal">
-          <AiHead who={t('说穿了')} by={e.by} icon="lightbulb" />
+        <div key={i} className="fy-ai reveal" data-part={end ? '收尾前说穿' : '说穿'} data-testid="fy-reveal" data-end={end || undefined}>
+          {long ? <AiHead who={t('学生')} by={e.by} tag={end ? t('收尾前说穿') : t('说穿')} /> : <AiHead who={t('说穿了')} by={e.by} icon="lightbulb" />}
           <div className="q">
             <Grow text={main} on={fresh} id={m.id} />
           </div>
@@ -515,7 +797,13 @@ function Entries({ r, live, path, fromMap, readOnly, onSay }: { r: RoundSection;
 /** 学生那一句头一行「你说「…」」拿出来单独画 */
 function splitQuote(text: string): { quote: string | null; rest: string } {
   const m = /^(?:你说「([^」\n]*)」|You said “([^”\n]*)”)[。.，,]?\s*/.exec(text)
-  return m ? { quote: (m[1] ?? m[2])!, rest: text.slice(m[0].length) } : { quote: null, rest: text }
+  if (m) return { quote: (m[1] ?? m[2])!, rest: text.slice(m[0].length) }
+  // 只有左引号（右引号丢了）：「你说「」这层不画，只留最后的问句
+  if (/^(?:你说「|You said “)/.test(text)) {
+    const q = /[^。！!；;.?？]*[？?]\s*$/.exec(text)?.[0].trim()
+    if (q) return { quote: null, rest: q }
+  }
+  return { quote: null, rest: text }
 }
 
 /** 你讲的（第一段带框，答的缩进一格）；被学生引了的那一句标出来 */
@@ -563,16 +851,26 @@ function Grow({ text, on, id }: { text: string; on: boolean; id: string }) {
   )
 }
 
-/** 回答框：打字、拍一张手画的图、填示例、讲完了（⌘↵）；左下给麦克风留着位置（④ 语音线） */
-function Answer({ path, id, live, first, demo, terms }: { path: string; id: string; live: S.Live; first: boolean; demo?: string; terms: string[] }) {
+/**
+ * 回答框：打字、拍一张手画的图、填示例、讲完了（⌘↵）；左下的麦克风（④ 语音线）。
+ * 聊到底（long）：点一下麦克风是连着说（design/feynman-long/notes.md 第 7 节）。这时学生在想、判定中回答框也挂着（列那边照样挂），
+ * 听写停一下（hold）、框禁用、顶上「听写停一下 · 等它问完」，问完接着听；没在连着说时想的那会儿框藏起来，和三轮一样看不见。
+ */
+function Answer({ path, id, live, first, demo, terms, long }: { path: string; id: string; live: S.Live; first: boolean; demo?: string; terms: string[]; long: boolean }) {
   const t = useT()
   const [v, setV] = useState('')
+  // 学生在想、判定中（聊到底才挂着）：框不能用
+  const hold = !live.input || !!live.thinking
   // 回答框左下的麦克风（④ 语音线，Soniox 实时听写，边说边出字）：terms 给这一轮的知识点名和要点，听写才认得出「范数」
   const ta = useRef<HTMLTextAreaElement>(null)
-  const d = useDictation({ inputRef: ta, value: v, onChange: setV, terms })
+  const d = useDictation({ inputRef: ta, value: v, onChange: setV, terms, keepOn: long, hold })
   const [img, setImg] = useState<{ name: string; mime: string; base64: string } | null>(null)
   const file = useRef<HTMLInputElement>(null)
-  const kind = live.input!
+  const box = useRef<HTMLDivElement>(null)
+  // 想的那会儿 live.input 是空的：照上一回的样子画
+  const lastKind = useRef<S.InputKind>(live.input ?? 'reply')
+  if (live.input) lastKind.current = live.input
+  const kind = lastKind.current
   const reply = kind === 'reply'
   useLayoutEffect(() => {
     const el = ta.current
@@ -580,20 +878,50 @@ function Answer({ path, id, live, first, demo, terms }: { path: string; id: stri
     el.style.height = 'auto'
     el.style.height = el.scrollHeight + 'px'
   }, [v])
+  // 框出来、换了一种、问完又能用：光标进框
   useEffect(() => {
-    ta.current?.focus({ preventScroll: true })
-  }, [kind])
-  // 「讲完了」：正在听写就先停下、等最后的字定稿再交
+    if (!hold) ta.current?.focus({ preventScroll: true })
+  }, [kind, hold])
+  // 「讲完了」：正在听写就先停下、等最后的字定稿再交；连着说时这一段定稿就交，听写不停（发出去学生在想，停一下，问完接着听）
   const go = async () => {
-    const s = (d.active ? await d.finish() : v).trim()
-    if (!s) return
+    if (hold) return
+    const s = (d.cont ? await d.next() : d.active ? await d.finish() : v).trim()
+    if (!s) {
+      if (d.cont) d.resume()
+      return
+    }
     setV('')
     setImg(null)
     void S.send(path, id, s, img ? { mime: img.mime, base64: img.base64 } : undefined)
   }
+  const goNow = useRef(go)
+  goNow.current = go
+  // 连着说：esc 先停听写（store.esc 先问这里）；说的时候框藏着、焦点不在框里，⌘↵ 在窗口上接（焦点在这一列或没在哪儿时）
+  useEffect(() => {
+    if (!d.cont) return
+    S.holdDict(id, d.quit)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || composing(e) || !isKey(e, 'submit')) return
+      const tgt = e.target as HTMLElement | null
+      if (tgt && tgt !== document.body && !box.current?.closest('.fy-col')?.contains(tgt)) return
+      e.preventDefault()
+      void goNow.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      S.holdDict(id, null)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [d.cont, id])
   const ph = kind === 'redo' ? t('只讲上面这几处。点麦克风说，或者直接打字。') : first ? t('用自己的话讲，像讲给没学过的同学听。点麦克风说，或者直接打字。') : t('回答它… 点麦克风说也行')
   return (
-    <div className={'fy-inp' + (reply ? ' small reply' : '') + (d.active ? ' dict-rec' : '')} data-part="回答框" data-testid="fy-answer">
+    <div
+      ref={box}
+      className={'fy-inp' + (reply ? ' small reply' : '') + (d.active ? ' dict-rec' : '') + (hold ? ' dict-held' : '')}
+      style={hold && !d.cont ? { display: 'none' } : undefined}
+      data-part="回答框"
+      data-testid="fy-answer"
+    >
       <DictationBar d={d} />
       <textarea
         ref={ta}
@@ -601,6 +929,7 @@ function Answer({ path, id, live, first, demo, terms }: { path: string; id: stri
         placeholder={ph}
         aria-label={ph}
         rows={reply ? 2 : 3}
+        disabled={hold}
         onChange={(e) => setV(e.currentTarget.value)}
         onKeyDown={(e) => {
           if (composing(e)) return
@@ -636,24 +965,25 @@ function Answer({ path, id, live, first, demo, terms }: { path: string; id: stri
         }}
       />
       <div className="f">
-        <DictationMic d={d} />
+        <DictationMic d={d} keepOn={long} />
         <button
           type="button"
           className="ib"
           data-testid="fy-photo"
           data-tip={t('拍一张手画的图放进来（AI 看图）')}
           aria-label={t('拍一张手画的图放进来（AI 看图）')}
+          disabled={hold}
           onClick={() => file.current?.click()}
         >
           <Codicon name="device-camera" size={14} />
         </button>
         {demo && (
-          <button type="button" className="fy-btn ghost demo" data-testid="fy-demo" onClick={() => (d.cancel(), setV(demo), ta.current?.focus())}>
+          <button type="button" className="fy-btn ghost demo" data-testid="fy-demo" disabled={hold} onClick={() => (d.cancel(), setV(demo), ta.current?.focus())}>
             {t('填一段示例')}
           </button>
         )}
         <span className="sp" />
-        <button type="button" className="fy-btn solid" data-testid="fy-send" disabled={!v.trim() && !d.active} onClick={() => void go()}>
+        <button type="button" className="fy-btn solid" data-testid="fy-send" disabled={hold || (!v.trim() && !d.active)} onClick={() => void go()}>
           {reply ? t('回') : t('讲完了')}
           {keyFor('submit') && <kbd>{keyFor('submit')}</kbd>}
         </button>
@@ -677,9 +1007,10 @@ function Verdict({ m }: { m: FeynmanMeta }) {
         <b>{w.word}</b>
         {m.redone && <span className="fy-tag">{t('· 当场补讲')}</span>}
         <span className="sp" />
-        <span className="m">{t('第{n}次 · 问了{k}轮', { n: m.nth, k: asks })}</span>
+        <span className="m">{m.mode === 'long' ? t('第{n}次', { n: m.nth }) : t('第{n}次 · 问了{k}轮', { n: m.nth, k: asks })}</span>
       </div>
       <div className="why">{w.why}</div>
+      {m.mode === 'long' && <LongLine m={m} />}
       {w.next && (
         <div className="nx">
           {t('下一步：')}
@@ -691,14 +1022,23 @@ function Verdict({ m }: { m: FeynmanMeta }) {
           const s = m.states?.find((x) => x.id === c.id)
           const st = s?.state ?? 'missing'
           const fixedNow = !!m.gaps?.some((g) => g.point === c.id && g.redone)
+          // 右边只写状态；怎么补上的（说穿后、当场、提示后）跟在引文后面一截小字
+          const how = fixedNow ? (s?.via === 'again' ? t('说穿后补讲清') : t('当场补讲清了')) : s?.via === 'hint' ? t('提示后') : ''
+          // 说穿后补讲清的点照它的状态上色（含糊就是黄点），当场补讲清的才是绿点（用户 2026-11-24 定）
+          const cls = fixedNow && s?.via !== 'again' ? 'good' : STATE_CLS[st]
           return (
-            <div key={c.id} className={'rrow st-' + (fixedNow ? 'good' : STATE_CLS[st])} data-k={c.id} data-state={fixedNow ? 'redone' : st}>
+            <div key={c.id} className={'rrow st-' + cls} data-k={c.id} data-state={fixedNow ? 'redone' : st} data-via={s?.via}>
               <div className="l1">
                 <i />
                 <span className="nm">{c.text}</span>
-                <span className="st">{fixedNow ? t('{was} · 当场补讲清了', { was: STATE_WORD[st] }) : STATE_WORD[st]}</span>
+                <span className="st">{STATE_WORD[st]}</span>
               </div>
-              {s?.quote && <div className="qt">「{s.quote}」</div>}
+              {(s?.quote || how) && (
+                <div className="qt">
+                  {s?.quote && `「${s.quote}」`}
+                  {how && <span className="how">{(s?.quote ? ' · ' : '') + how}</span>}
+                </div>
+              )}
             </div>
           )
         })}
@@ -707,6 +1047,19 @@ function Verdict({ m }: { m: FeynmanMeta }) {
         {t('怎么判：有一条核心讲错就没过；没有讲错时，含糊和没讲到合起来 0条过、1条差一点、2条以上没过。追问后补上、说错后改对都算讲清；了解即可不算。')}
       </div>
       {m.peeks > 0 && <div className="rm">{t('讲的时候看过一眼材料：判定照常，下次再讲的日子提前。')}</div>}
+    </div>
+  )
+}
+
+/** 判定卡里的长谈记录「聊了14分钟 · 问了9次 · 提示1次」：0 的项不写，分钟取整，不到 1 分钟写「不到1分钟」（和 long.ts 的 longLine 一样） */
+function LongLine({ m }: { m: FeynmanMeta }) {
+  const t = useT()
+  const s = longStats(m)
+  const parts = [s.secs ? (s.secs < 60 ? t('聊了不到1分钟') : t('聊了{n}分钟', { n: Math.round(s.secs / 60) })) : '', s.asks ? t('问了{n}次', { n: s.asks }) : '', s.hints ? t('提示{n}次', { n: s.hints }) : ''].filter(Boolean)
+  if (!parts.length) return null
+  return (
+    <div className="rec" data-testid="fy-long-line">
+      {parts.join(' · ')}
     </div>
   )
 }
@@ -744,7 +1097,7 @@ function Gaps({ r, path, fromMap, readOnly, wording, redoing, onSay }: { r: Roun
       {gaps.map((g, i) => (
         <div key={i} className={'g' + (g.kind === 'extra' ? ' lite' : '')} data-testid="fy-gap" data-kind={g.kind}>
           <div>
-            <span className={'tg ' + (g.kind === 'wrong' ? 'bad' : g.kind === 'vague' ? 'vague' : 'miss')}>{KIND[g.kind]}</span>
+            <span className={'tg ' + (g.kind === 'wrong' ? 'bad' : g.kind === 'vague' ? 'vague' : 'miss')}>{g.via === 'hint' ? t('{kind}（提示后）', { kind: KIND[g.kind] }) : KIND[g.kind]}</span>
             <span className="nm">{nameOf(g)}</span>
             {g.quote && <div className="you">{t('你说「{q}」', { q: g.quote })}</div>}
           </div>
@@ -753,7 +1106,7 @@ function Gaps({ r, path, fromMap, readOnly, wording, redoing, onSay }: { r: Roun
           {g.sent ? (
             <div className="st">{t('✓ 已送进Anki')}</div>
           ) : g.redone ? (
-            <div className="st">{t('✓ 当场补讲清了')}</div>
+            <div className="st">{g.via === 'again' ? t('✓ 说穿后补讲清') : t('✓ 当场补讲清了')}</div>
           ) : null}
           {!g.sent && (
             <label className={'ck' + (g.card ? ' on' : '')}>

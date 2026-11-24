@@ -14,3 +14,7 @@ export const voiceApi: CnVoiceApi = {
   },
   openMicSettings: () => ipcRenderer.invoke('voice:mic-settings'),
 }
+
+// 测试模式的主进程才带 --cn-dict-idle-ms（CN_DICT_IDLE_MS）
+const idleArg = process.argv.find((a) => a.startsWith('--cn-dict-idle-ms='))
+if (idleArg) voiceApi.idleMs = Number(idleArg.slice('--cn-dict-idle-ms='.length))

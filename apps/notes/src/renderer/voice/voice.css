@@ -50,10 +50,10 @@
 .dict-bar .dict-sp {
   flex: 1;
 }
+/* 右边那句整句出（「⌘↵ 发这一轮 · esc 停」不截），左边让 */
 .dict-bar .dict-hint {
+  flex: none;
   color: var(--t3);
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .dict-dot {
   width: 8px;
@@ -63,6 +63,24 @@
   flex: none;
   animation: dict-breath 1.2s ease-in-out infinite;
 }
+/* 连着说停一下（费曼聊到底：学生在想、判定中）：点不红、不呼吸，字 --t3（照 design/feynman-long/proto.html 的 .rb.hold） */
+.dict-bar.held {
+  color: var(--t3);
+}
+.dict-bar.held .dict-dot {
+  background: var(--t3);
+  animation: none;
+  transform: scale(0.8);
+}
+/* 停一下时回答框禁用：框里的字、按钮都不能点 */
+.dict-held textarea {
+  cursor: default;
+}
+.dict-held .ib:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .dict-lv {
   display: inline-flex;
   align-items: center;

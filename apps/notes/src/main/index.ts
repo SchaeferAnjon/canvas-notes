@@ -819,7 +819,8 @@ function createWindow() {
       sandbox: true,
       webviewTag: true,
       // 测试时窗口不激活，也要照常渲染；界面靠 --cn-e2e 知道是测试模式（只在这时能注入渲染错误，task-pyb39）
-      ...(E2E ? { backgroundThrottling: false, additionalArguments: ['--cn-e2e'] } : {}),
+      // 连着说多久没声音自动停（renderer/voice/dictation.tsx），测试里改短：CN_DICT_IDLE_MS
+      ...(E2E ? { backgroundThrottling: false, additionalArguments: ['--cn-e2e', ...(Number(process.env.CN_DICT_IDLE_MS) > 0 ? [`--cn-dict-idle-ms=${Number(process.env.CN_DICT_IDLE_MS)}`] : [])] } : {}),
     },
   })
   watchWindow(crashLog, win)

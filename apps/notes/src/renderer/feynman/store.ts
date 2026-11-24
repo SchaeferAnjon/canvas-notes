@@ -30,8 +30,10 @@ import {
   setMeta,
   withPeek,
 } from '../../shared/feynman'
+import { finishLong } from '../../shared/feynman/long'
 import { t as tNow } from '../../shared/i18n'
 import { NoteDoc } from '../note-doc'
+import { appSettings, publishSettings } from '../settings-store'
 
 /** 回答框是哪一种：先讲一段（讲完了）、回答追问（回）、问完了（讲完了，看判定）、当场再讲这几处 */
 export type InputKind = 'explain' | 'reply' | 'end' | 'redo'
@@ -53,6 +55,24 @@ export interface Live {
   peeking: boolean
   /** 列底一句（停下了、出错了） */
   note?: string
+  /** 聊到底记聊了多久：上次记到哪一刻（开讲、每一问、接着讲时记下；暂停时清掉，暂停的时间不算） */
+  since?: number
+  /** 三轮模式里聊了几秒（不写进文件）：「接着聊下去」转成聊到底时接上 */
+  pre?: number
+  /** 聊过 20 分钟那句灰字：on 出着、off 点掉了或下一问出来收起了 */
+  tired?: 'on' | 'off'
+  /** 回答框里连着说开着（esc 先停它：「学生在想…」那行先不写「停下 esc」） */
+  dict?: boolean
+}
+
+/** 单次最多算 10 分钟（走开了不算聊） */
+const STEP_MAX = 600
+/** 聊过多久出「累了可以先暂停」 */
+export const TIRED_SECS = 20 * 60
+
+/** 距上次记的秒数（单次最多 10 分钟）；暂停着是 0 */
+function lapse(l: Live | undefined, now = Date.now()): number {
+  return l?.since ? Math.min(STEP_MAX, Math.max(0, Math.round((now - l.since) / 1000))) : 0
 }
 
 /** 还没写进文档的一轮：正在列要点、先挑一个点（PDF 单子、导图子枝、核心超过 5 条分成的几个点）、出错 */
@@ -272,12 +292,23 @@ export function addPoint(path: string, id: string, text: string) {
   })
 }
 
-/** 「开始讲」：盖住材料，学生开口 */
+/** 「这次要讲到」单子上的「追问：三轮 ｜ 聊到底」：存进设置，下次照这个来（不按点记） */
+export function setTalkMode(mode: 'rounds' | 'long') {
+  const f = appSettings().feynman
+  // 选过聊到底、又换走了：那句灰字算看过了
+  const seen = f.longSeen || (f.mode === 'long' && mode !== 'long')
+  if (f.mode === mode && seen === f.longSeen) return
+  void window.cn.setSettings({ feynman: { mode, longSeen: seen } }).then(publishSettings)
+}
+
+/** 「开始讲」：盖住材料，学生开口；单子上选了聊到底的注释记 mode: 'long'（三轮不写） */
 export function begin(path: string, id: string) {
   listen()
-  writeMeta(path, id, (m) => ({ ...m, status: 'talking', day: today() }))
+  const long = appSettings().feynman.mode === 'long'
+  writeMeta(path, id, (m) => ({ ...m, status: 'talking', day: today(), ...(long ? { mode: 'long' as const } : {}) }))
+  if (long && !appSettings().feynman.longSeen) void window.cn.setSettings({ feynman: { longSeen: true } }).then(publishSettings)
   ensureLive(path, id)
-  patch(id, { input: 'explain', note: undefined })
+  patch(id, { input: 'explain', note: undefined, since: Date.now(), pre: 0 })
 }
 
 /** 不讲了（还没开讲时）：这一节连同前面的位置行从文档里拿掉 */
@@ -312,8 +343,18 @@ export async function send(path: string, id: string, text: string, image?: { mim
   await next(path, id, { ...(image ? { image } : {}), ...(kind === 'redo' && l.redo ? { only: l.redo } : {}) })
 }
 
+/**
+ * 聊到底里点的：「说穿吧」reveal、「先跳过」skip、「接着往深里聊」deep；三轮用完点「接着聊下去」more（这一轮转成聊到底）。
+ * 都没有新的一段你说的，直接问学生下一句
+ */
+export async function command(path: string, id: string, cmd: 'reveal' | 'skip' | 'deep' | 'more') {
+  ensureLive(path, id)
+  patch(id, { input: null, hl: null, note: undefined })
+  await next(path, id, { cmd })
+}
+
 /** 学生下一句：追问的等你回；问完了出「讲完了，看判定」；当场再讲问完了直接判 */
-async function next(path: string, id: string, o: { image?: { mime: string; base64: string }; only?: string[] } = {}) {
+async function next(path: string, id: string, o: { image?: { mime: string; base64: string }; only?: string[]; cmd?: 'reveal' | 'skip' | 'deep' | 'more' } = {}) {
   const r = roundOf(path, id)
   if (!r) return
   const req = reqSeq++
@@ -321,7 +362,7 @@ async function next(path: string, id: string, o: { image?: { mime: string; base6
   patch(id, { thinking: { word: tNow('学生在想…'), req }, stream: '' })
   let res
   try {
-    res = await window.cnFeynman.turn({ reqId: req, meta: r.meta, entries: entriesOf(r), ...(o.image ? { image: o.image } : {}), ...(o.only ? { only: o.only } : {}) })
+    res = await window.cnFeynman.turn({ reqId: req, meta: r.meta, entries: entriesOf(r), ...(o.image ? { image: o.image } : {}), ...(o.only ? { only: o.only } : {}), ...(o.cmd ? { cmd: o.cmd } : {}) })
   } catch (e) {
     streams.delete(req)
     if (lives.get(id)?.thinking?.req !== req) return
@@ -332,9 +373,14 @@ async function next(path: string, id: string, o: { image?: { mime: string; base6
   // esc 停下了：这一问不要了
   if (lives.get(id)?.thinking?.req !== req) return
   const streamed = !!lives.get(id)?.stream
+  // 聊了多久：每一问记一次（距上次的秒数，单次最多 10 分钟），随这一问的注释写回；三轮模式只记在这里，转成聊到底时接上
+  const l0 = lives.get(id)
+  const add = lapse(l0)
+  const meta = res.meta.mode === 'long' ? { ...res.meta, secs: (res.meta.secs ?? l0?.pre ?? 0) + add } : res.meta
+  patch(id, { since: Date.now(), ...(res.meta.mode === 'long' ? {} : { pre: (l0?.pre ?? 0) + add }), ...(l0?.tired === 'on' ? { tired: 'off' as const } : {}) })
   let at: number | null = null
   edit(path, (t) => {
-    let n = setMeta(t, res.meta)
+    let n = setMeta(t, meta)
     if (res.reveal) n = appendEntry(n, id, 'reveal', res.reveal, res.by)
     if (res.say) n = appendEntry(n, id, res.act === 'confirm' ? 'confirm' : 'student', res.say, res.by)
     const rr = roundById(n, id)
@@ -347,7 +393,33 @@ async function next(path: string, id: string, o: { image?: { mime: string; base6
     patch(id, { input: 'end' })
     return
   }
+  // 问收尾那一问（offer）：回答框照旧在，直接接着说也算接着聊
   patch(id, { input: o.only ? 'redo' : 'reply' })
+}
+
+/**
+ * 聊到底的「收尾」（列头那颗、问收尾那块的「收尾，看判定」）：说反了、还没问清的那几条软件先说穿（记讲错），
+ * 一条条写成「说穿」块，再判定。聊了多久记到这一刻
+ */
+export async function wrap(path: string, id: string) {
+  const r = roundOf(path, id)
+  if (!r || r.meta.mode !== 'long') return finish(path, id)
+  const l = lives.get(id)
+  if (l?.thinking) void window.cnFeynman.stop(l.thinking.req)
+  const isZh = /[㐀-鿿]/.test(r.meta.topic) || r.entries.some((e) => e.kind === 'me' && /[㐀-鿿]/.test(e.text))
+  const f = finishLong({ ...r.meta, secs: (r.meta.secs ?? 0) + lapse(l) }, isZh)
+  edit(path, (t) => {
+    let n = setMeta(t, f.meta)
+    for (const x of f.reveals) n = appendEntry(n, id, 'reveal', x.text, r.meta.by)
+    return n
+  })
+  patch(id, { since: undefined, thinking: null, stream: '', tired: undefined })
+  await finish(path, id)
+}
+
+/** 「聊了挺久了」那句：出来、点掉 */
+export function tired(id: string, v: 'on' | 'off') {
+  if (lives.get(id)?.tired !== v) patch(id, { tired: v })
 }
 
 // ---------- 判定 ----------
@@ -402,8 +474,21 @@ export function redo(path: string, id: string) {
 
 // ---------- 暂停、看一眼 ----------
 
-/** esc：学生在想时先停下它；再按一次才暂停 */
-export function esc(path: string, id: string): 'stopped' | 'paused' | null {
+/** 聊到底里连着说的听写（回答框登记）：esc 先停它 */
+const dicts = new Map<string, () => void>()
+export function holdDict(id: string, quit: (() => void) | null) {
+  if (quit) dicts.set(id, quit)
+  else dicts.delete(id)
+  if (!!lives.get(id)?.dict !== !!quit) patch(id, { dict: !!quit })
+}
+
+/** esc：连着说先停听写；学生在想时先停下它；再按一次才暂停 */
+export function esc(path: string, id: string): 'dict' | 'stopped' | 'paused' | null {
+  const quit = dicts.get(id)
+  if (quit) {
+    quit()
+    return 'dict'
+  }
   const l = lives.get(id)
   if (l?.thinking) {
     void window.cnFeynman.stop(l.thinking.req)
@@ -419,8 +504,10 @@ export function esc(path: string, id: string): 'stopped' | 'paused' | null {
 export function pause(path: string, id: string) {
   const l = lives.get(id)
   if (l?.thinking) void window.cnFeynman.stop(l.thinking.req)
-  writeMeta(path, id, (m) => ({ ...m, status: 'paused' }))
-  if (l) patch(id, { thinking: null, stream: '', peeking: false, note: undefined })
+  // 聊到底：暂停前聊的这一段记上，暂停的时间不算
+  const add = lapse(l)
+  writeMeta(path, id, (m) => ({ ...m, status: 'paused', ...(m.mode === 'long' && add ? { secs: (m.secs ?? 0) + add } : {}) }))
+  if (l) patch(id, { thinking: null, stream: '', peeking: false, note: undefined, since: undefined })
 }
 
 /** 接着讲：再盖上，这次暂停记成看过一次材料（已定 5） */
@@ -431,8 +518,9 @@ export function resume(path: string, id: string) {
   const r = roundOf(path, id)
   const me = r?.entries.filter((e) => e.kind === 'me').length ?? 0
   const done = r?.meta.asked.at(-1)?.act === 'done' || (r?.entries.at(-1)?.kind !== 'me' && r?.meta.asked.length && !r.entries.at(-1)?.text.trim())
-  const input: InputKind = l.redo ? 'redo' : me === 0 ? 'explain' : done ? 'end' : 'reply'
-  patch(id, { input: l.input ?? input })
+  // 聊到底：最后是问收尾那一问就回到那块（回答框照旧在）；是等你答的一问，回答框出来
+  const input: InputKind = l.redo ? 'redo' : me === 0 ? 'explain' : done && r?.meta.mode !== 'long' ? 'end' : 'reply'
+  patch(id, { input: l.input ?? input, since: Date.now() })
 }
 
 export function peek(id: string, on: boolean) {

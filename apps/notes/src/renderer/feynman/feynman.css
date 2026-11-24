@@ -1,4 +1,6 @@
-/* 费曼这一列（原型 design/feynman/proto.html 的 .fc，设计页 16-费曼学习）：330 宽，卡片底、圆角、阴影，和白板的列一个样子 */
+/* 费曼这一列（原型 design/feynman/proto.html 的 .fc，设计页 16-费曼学习）：330 宽，卡片底、圆角、阴影，和白板的列一个样子。
+   z 3 已经在白板卡（.db-card.placed 是 2）上面、浮层和工具条（30 起）下面；玻璃外观里 --card 是半透明的，压在列底下的白板卡会透上来，
+   所以底色用实色 --card-solid（shell.css：要挡住底下东西的地方用它） */
 .fy-col {
   position: absolute;
   z-index: 3;
@@ -7,7 +9,7 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  background: var(--card);
+  background: var(--card-solid, var(--card));
   border-radius: 10px;
   box-shadow: var(--shadow);
   color: var(--t1);
@@ -84,6 +86,7 @@
   color: var(--t3);
   margin-top: 3px;
   line-height: 1.55;
+  overflow: hidden;
 }
 .fy-m .by {
   display: inline-flex;
@@ -94,7 +97,7 @@
   vertical-align: -2px;
 }
 .fy-m .dim {
-  margin: 0 4px;
+  margin: 0 4px 0 1px;
 }
 .fy-m .peeks {
   white-space: nowrap;
@@ -107,7 +110,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px;
+  padding: 2px;
 }
 .fy-dots i,
 .fy-plan .pt .cir {
@@ -565,6 +568,19 @@
 }
 .fy-done > span:first-child {
   flex: 1;
+}
+/* 三轮用完：上一行那句占满，下一行两颗靠右 */
+.fy-done.end {
+  display: block;
+}
+.fy-done.end .say {
+  color: var(--t2);
+}
+.fy-done.end .acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 /* 回答框 */
@@ -1264,4 +1280,235 @@ webview.fy-blur {
 .mm-wires path.fy-covered {
   filter: blur(5px);
   opacity: 0.55;
+}
+
+/* ---------- 聊到底（design/feynman-long 方向 A，原型 design/feynman-long/proto.html） ---------- */
+.fy-h {
+  position: relative;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+.fy-h.scrolled {
+  border-bottom-color: var(--line);
+}
+.fy-m .mode {
+  color: var(--t2);
+}
+/* 列头第二行每一段整段走，只在「 · 」处换行（不掉一个字到下一行）；一段比一行还长时（导图枝名很长）在列边裁掉，悬停看全 */
+.fy-m .fy-nw {
+  white-space: nowrap;
+}
+/* 聊过 20 分钟那句：灰字，能点掉 */
+.fy-tired {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--t3);
+}
+.fy-tired .fy-x {
+  height: 20px;
+  padding: 0 4px;
+  color: var(--t3);
+  flex: none;
+}
+/* 滚远了：列头下面浮一颗「回到开头」 */
+.fy-top {
+  position: absolute;
+  left: 50%;
+  bottom: -14px;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  color: var(--t2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fy-top:hover {
+  color: var(--t1);
+}
+/* 列头小点能点（聊到底讲着时）：弹「聊到哪了」 */
+.fy-dots-w {
+  position: relative;
+  display: flex;
+}
+button.fy-dots {
+  border: 0;
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button.fy-dots:hover,
+button.fy-dots.on {
+  background: var(--fill);
+}
+.fy-talk {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: -60px;
+  z-index: 5;
+  width: 260px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--pop);
+  box-shadow: var(--shadow-up);
+  font-size: 13px;
+  color: var(--t2);
+  cursor: default;
+}
+.fy-talk > b {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--t1);
+  margin-bottom: 6px;
+}
+.fy-talk .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+.fy-talk .row i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line2);
+  box-sizing: border-box;
+  flex: none;
+}
+.fy-talk .row i.done,
+.fy-talk .row i.revealed,
+.fy-talk .row i.skipped {
+  background: var(--t3);
+  border-color: var(--t3);
+}
+.fy-talk .row i.now {
+  background: var(--t1);
+  border-color: var(--t1);
+}
+.fy-talk .row .tx {
+  flex: 1;
+  min-width: 0;
+}
+/* 正在聊的那一行：13/500 --t1，别的行 --t2 */
+.fy-talk .row[data-state='now'] .tx {
+  color: var(--t1);
+  font-weight: 500;
+}
+.fy-talk .row[data-state='now'] .st {
+  color: var(--t1);
+}
+.fy-talk .row .st {
+  color: var(--t3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.fy-talk .ft {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--t3);
+}
+/* 单子底部：追问：三轮 ｜ 聊到底 · 开始讲 */
+.fy-plan .go {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.fy-plan .go .lb {
+  font-size: 12px;
+  color: var(--t3);
+}
+.fy-plan .why {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 6px;
+  line-height: 1.55;
+}
+.fy-seg {
+  display: flex;
+  gap: 2px;
+}
+.fy-seg button {
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--t2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fy-seg button:hover {
+  color: var(--t1);
+}
+.fy-seg button[aria-pressed='true'] {
+  background: var(--fill2);
+  color: var(--t1);
+  font-weight: 500;
+}
+/* 学生块右边这一步的小字 */
+.fy-ai .h .tg {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+/* 问收尾那块下面两颗 */
+.fy-ai.offer .acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.fy-btn.sm {
+  height: 24px;
+  padding: 0 9px;
+}
+/* 等你答的那一问下面「说穿吧」「先跳过」：和回答框对齐 */
+.fy-qa {
+  display: flex;
+  gap: 4px;
+  margin: -6px 0 0 20px;
+}
+.fy-qa button {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  color: var(--t2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fy-qa button:hover {
+  background: var(--fill);
+  color: var(--t1);
+}
+/* 判定卡里的长谈记录 */
+.fy-res .rec {
+  font-size: 12px;
+  color: var(--t3);
+  margin-top: 4px;
 }

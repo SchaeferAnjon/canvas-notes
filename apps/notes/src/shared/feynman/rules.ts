@@ -2,6 +2,7 @@
  * 判定、缺口、下次再讲的日子、你的改动：都由软件按 teaching.md 的规则算，AI 只给每条核心一个状态和原话（judge.ts 认 AI 的回答）。
  */
 import { addDays } from '@cn/tasks'
+import { longLine } from './long'
 import { type CoreJudged, type CoreState, CORE_MAX, type SourceRef, type FeynmanMeta, type Gap, isGood, type Point, type PointEdit, RIGHT_MAX, STATE_LABEL, type Verdict } from './types'
 
 /**
@@ -92,12 +93,31 @@ export function gapQuestion(g: Gap, meta: Pick<FeynmanMeta, 'points' | 'topic'>)
  * 判定一行（teaching.md 4.1：现在怎样、差在哪、下一步）。
  * 例：「差一点：核心 4 条讲清 3 条，「学习率太大会怎样」还含糊。下一步：再讲这 1 处，或出卡；三天后再讲。」
  */
-export function verdictLine(meta: Pick<FeynmanMeta, 'points' | 'states' | 'verdict' | 'peeks' | 'redone' | 'passes'>): string {
+export function verdictLine(meta: Pick<FeynmanMeta, 'points' | 'states' | 'verdict' | 'peeks' | 'redone' | 'passes'> & Partial<Pick<FeynmanMeta, 'mode' | 'gaps' | 'asked' | 'secs'>>): string {
+  if (meta.mode !== 'long') return verdictLine3(meta)
+  // 聊到底：提示后答上的照「看一眼」算日子；跳过两次的写跳过了两次；没聊到的、提示后答上的提一句；说穿后补讲清的「过 · 当场补讲」换个说法
+  const st = (id: string) => meta.states?.find((s) => s.id === id)
+  const cores = meta.points.filter((p) => p.kind === 'core')
+  const hint = cores.filter((p) => st(p.id)?.via === 'hint')
+  const skips = new Map<string, number>()
+  for (const a of meta.asked ?? []) if (a.skip && a.point && !(a.step && ['example', 'myth', 'chain', 'deep'].includes(a.step))) skips.set(a.point, (skips.get(a.point) ?? 0) + 1)
+  const skipped = new Set(cores.filter((p) => st(p.id)?.state === 'missing' && (skips.get(p.id) ?? 0) >= 2).map((p) => p.id))
+  const miss = cores.filter((p) => st(p.id)?.state === 'missing' && !skipped.has(p.id)).length
+  const again = (meta.gaps ?? []).some((g) => g.via === 'again')
+  let out = verdictLine3(meta, { hints: hint.length, skipped })
+  if (meta.redone && again) out = out.replace('缺的几处当场讲清了', '说穿过的几处后来换个情形讲清了')
+  const sooner = meta.verdict === 'pass' && !meta.redone
+  const extra = [miss ? `收尾时还有${miss}条没聊到。` : '', hint.length ? `${hint.map((p) => `「${p.text}」`).join('、')}是提示后答上的，出一张卡${sooner ? '，下次再讲提前到一周' : ''}。` : ''].join('')
+  if (extra) out = out.replace(/下一步：/, `${extra}下一步：`)
+  return out
+}
+
+function verdictLine3(meta: Pick<FeynmanMeta, 'points' | 'states' | 'verdict' | 'peeks' | 'redone' | 'passes'>, o: { hints?: number; skipped?: Set<string> } = {}): string {
   const v = meta.verdict ?? 'fail'
   const cores = meta.points.filter((p) => p.kind === 'core')
   const st = (id: string): CoreState => meta.states?.find((s) => s.id === id)?.state ?? 'missing'
   const name = (p: Point) => `「${p.text}」`
-  const days = inDays(gapDays(v, { passes: meta.passes ?? 1, peeks: meta.peeks, redone: !!meta.redone }))
+  const days = inDays(gapDays(v, { passes: meta.passes ?? 1, peeks: meta.peeks + (o.hints ?? 0), redone: !!meta.redone }))
   const peek = meta.peeks ? `讲的时候看过材料${meta.peeks}次：判定照常，下次再讲的日子提前。` : ''
   if (meta.redone) return `过 · 当场补讲：缺的几处当场讲清了。下一步：${days}再讲一次。`
   if (v === 'pass') {
@@ -106,7 +126,7 @@ export function verdictLine(meta: Pick<FeynmanMeta, 'points' | 'states' | 'verdi
     return `过：核心${cores.length}条都讲清了。${tail}下一步：${days}再讲。${peek}`
   }
   const short = cores.filter((p) => !isGood(st(p.id)))
-  const why = short.map((p) => `${name(p)}${st(p.id) === 'wrong' ? '说穿了才知道' : st(p.id) === 'vague' ? '还含糊' : '没讲到'}`).join('，')
+  const why = short.map((p) => `${name(p)}${st(p.id) === 'wrong' ? '说穿了才知道' : st(p.id) === 'vague' ? '还含糊' : o.skipped?.has(p.id) ? '跳过了两次，记没讲到' : '没讲到'}`).join('，')
   if (v === 'almost') return `差一点：核心${cores.length}条讲清${cores.length - short.length}条，${why}。下一步：再讲这1处，或出卡；${days}再讲。${peek}`
   const src = short.map((p) => p.basis).find((b) => b && b !== 'AI 判断')
   return `没过：${why}。下一步：${src ? `看一眼${src}` : '看一遍材料'}，${days}再讲；先把缺口出卡。${peek}`
@@ -120,18 +140,19 @@ export function verdictBody(meta: FeynmanMeta): string {
       const s = meta.states?.find((x) => x.id === p.id)
       return `- ${p.text}：${STATE_LABEL[s?.state ?? 'missing']}${s?.quote ? ` · 「${s.quote}」` : ''}`
     })
-  return [verdictLine(meta).replace(/。?下一步：/, '。\n下一步：'), '', ...rows].join('\n')
+  const long = meta.mode === 'long' ? longLine(meta) : ''
+  return [verdictLine(meta).replace(/。?下一步：/, '。\n下一步：'), ...(long ? [long] : []), '', ...rows].join('\n')
 }
 
 /** 缺口块的正文：一条一行，不用 `- [ ]` */
 export function gapsBody(meta: FeynmanMeta): string {
-  const kindName = (g: Gap) => (g.kind === 'extra' ? '了解即可' : g.kind === 'recap' ? '讲清了' : STATE_LABEL[g.kind])
+  const kindName = (g: Gap) => (g.kind === 'extra' ? '了解即可' : g.kind === 'recap' ? '讲清了' : STATE_LABEL[g.kind] + (g.via === 'hint' ? '（提示后）' : ''))
   return (meta.gaps ?? [])
     .map((g) => {
       const p = meta.points.find((x) => x.id === g.point)
       const head = g.kind === 'recap' ? `用两三句讲清${meta.topic}` : (p?.text ?? '')
       const said = g.quote ? `你说「${g.quote}」 → ` : ''
-      const mark = [g.redone ? '✓ 当场补讲清了' : '', g.sent ? '✓ 已送进Anki' : ''].filter(Boolean).join(' · ')
+      const mark = [g.redone ? (g.via === 'again' ? '✓ 说穿后补讲清' : '✓ 当场补讲清了') : '', g.sent ? '✓ 已送进Anki' : ''].filter(Boolean).join(' · ')
       const where = refName(g.ref)
       const src = [where, g.src].filter(Boolean).join(' · ')
       return `- ${kindName(g)} · ${head}：${said}${g.right}${src ? `（${src}）` : ''}${mark ? ` ${mark}` : ''}`

@@ -7,6 +7,7 @@ import type { Candidate } from './api'
 import { fakeExtract, fakeJudge, fakePdfList, fakeSameThing, fakeTurn } from './fake'
 import { type GatherDeps, gather, headOf, materialText, unitIdOf } from './material'
 import { EXTRACT_SYSTEM, extractPrompt, JUDGE_SYSTEM, judgePrompt, parseExtract, parseJudge, parsePdfList, parseSame, parseTurn, PDF_LIST_SYSTEM, pdfListPrompt, SAME_SYSTEM, samePrompt, studentSystem, turnPrompt, type ExtractedPoint } from './prompts'
+import { judgeEntries, longJudged, longTurn } from './long'
 import { lastAsk, roundsDone } from './round'
 import { applyEdits, gapsBody, judgedMeta, redoneMeta, verdictBody } from './rules'
 import type { Asked, CoverRef, Scope } from './types'
@@ -131,6 +132,8 @@ async function sameThing(p: ExtractedPoint, g: Awaited<ReturnType<typeof gather>
  * 该说穿没说就照答案和出处补一句）；确认加还是减、答「要不要会」不算一轮
  */
 export async function turn(req: TurnReq, deps: FlowDeps): Promise<TurnResult> {
+  // 聊到底（再讲这几处照旧走下面）；三轮用完点「接着聊下去」也从这里转过去
+  if ((req.meta.mode === 'long' && !req.only) || req.cmd === 'more') return longTurn(req, deps)
   const { meta, entries, only } = req
   const images: ImageIn[] = req.image ? [{ mime: req.image.mime, base64: req.image.base64 }] : []
   const ans = await deps.ask({ kind: 'turn', system: studentSystem(meta.topic, meta.scope), prompt: turnPrompt(meta, entries, only), images, fake: () => fakeTurn(meta, entries, only), stream: 'say' })
@@ -175,17 +178,18 @@ export async function turn(req: TurnReq, deps: FlowDeps): Promise<TurnResult> {
 
 /** 讲完了：AI 给每条核心的状态和证据，软件算判定、日子、缺口；当场补讲（only）走「过 · 当场补讲」 */
 export async function judge(req: JudgeReq, deps: FlowDeps): Promise<JudgeResult> {
-  const { meta, entries, only } = req
+  const { meta, only } = req
+  const entries = judgeEntries(meta, req.entries)
   const ans = await deps.ask({ kind: 'judge', system: JUDGE_SYSTEM, prompt: judgePrompt(meta, entries, only), images: [], fake: () => fakeJudge(meta, entries, only), stream: 'full' })
   const j = parseJudge(ans, meta, only)
   if (only) {
     const next = redoneMeta(meta, j.states, req.today)
     return { meta: next, states: j.states, blocks: { verdict: verdictBody(next), gaps: gapsBody(next) }, wording: [], full: '', by: deps.by(false) }
   }
-  const next = judgedMeta(meta, { states: j.states, rights: j.rights, full: j.full, today: req.today, prevPasses: req.prevPasses })
+  const next = (meta.mode === 'long' ? longJudged : judgedMeta)(meta, { states: j.states, rights: j.rights, full: j.full, today: req.today, prevPasses: req.prevPasses })
   return {
     meta: next,
-    states: j.states,
+    states: next.states ?? j.states,
     blocks: { verdict: verdictBody(next), gaps: gapsBody(next), wording: j.wording.map((w) => `- ${w}`).join('\n'), full: j.full },
     wording: j.wording,
     full: j.full,

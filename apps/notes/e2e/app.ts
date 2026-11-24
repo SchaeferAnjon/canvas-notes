@@ -46,9 +46,10 @@ export async function launch(
 
   const launchedAt = Date.now()
   const app = await electron.launch({
-    executablePath: electronPath as unknown as string,
+    // CN_PKG=<打好的 Canvas Notes.app>：起包里的那一份（发版时拿真包跑这一版新东西的流程，同画布今日的 CT_PKG）
+    executablePath: process.env.CN_PKG ? join(process.env.CN_PKG, 'Contents/MacOS/Canvas Notes') : (electronPath as unknown as string),
     // CN_E2E_ARGS：额外的 Chromium 开关（真网站的测试用 --disable-blink-features=AutomationControlled，网站才不当它是自动化）
-    args: [...(process.env.CN_E2E_ARGS?.split(' ').filter(Boolean) ?? []), join(__dirname, '../out/main/index.js')],
+    args: [...(process.env.CN_E2E_ARGS?.split(' ').filter(Boolean) ?? []), ...(process.env.CN_PKG ? [] : [join(__dirname, '../out/main/index.js')])],
     env: {
       ...process.env,
       CN_VAULT: vault,

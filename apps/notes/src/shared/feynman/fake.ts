@@ -7,6 +7,7 @@
  * 同一条连着两次没答对说穿；三轮用完 done。判定：核心的关键词在你自己讲的那段里是讲清，在回答追问里才有是追问后补上，
  * 说穿了的是含糊；「加上」没改过来是讲错，先错后在回答里改成「减」「一起改」是说错后改对。
  */
+import type { Decision, Reading } from './long'
 import type { Entry, FeynmanMeta, Myth, Point } from './types'
 
 interface Known {
@@ -22,9 +23,9 @@ const GD: Known = {
   topic: '梯度下降',
   points: [
     { id: 'c1', kind: 'core', text: '从哪里开始、怎么一步步走', answer: '从一个初始猜测出发，反复挪参数，让损失一步步变小', basis: 'PPT p20', keys: /初始|随便猜|随机|一步|重复|迭代/ },
-    { id: 'c2', kind: 'core', text: '每一步怎么改 θ', answer: '新 θ = 旧 θ − α × 坡度，沿负梯度走；坡度为负时 θ 变大', basis: 'p20 公式', keys: /减去|减阿尔法|减学习|旧的减|反方向|负梯度/, wrong: /加上/, fixedBy: /减去|减阿尔法/ },
+    { id: 'c2', kind: 'core', text: '每一步怎么改 θ', answer: '新 θ = 旧 θ − α × 坡度，沿负梯度走；坡度为负时 θ 变大', basis: 'p20 公式', keys: /减去|减阿尔法|减学习|旧的减|反方向|负梯度/, wrong: /加上/, fixedBy: /减去|减阿尔法/, words: ['减去', '负梯度'] },
     { id: 'c3', kind: 'core', text: '学习率太大、太小会怎样', answer: 'α 太小走得慢，太大来回跳甚至发散', basis: 'p20', keys: /跳|发散|震荡|振荡/ },
-    { id: 'c4', kind: 'core', text: '好几个参数时怎么改', answer: '几个参数同时更新：先用旧 θ 把偏导全算完，再一起改', basis: 'p20「simultaneously」', keys: /同时|同事|一起改|旧的/, wrong: /新的西塔零去算/, fixedBy: /一起改/ },
+    { id: 'c4', kind: 'core', text: '好几个参数时怎么改', answer: '几个参数同时更新：先用旧 θ 把偏导全算完，再一起改', basis: 'p20「simultaneously」', keys: /同时|同事|一起改|旧的/, wrong: /新的西塔零去算/, fixedBy: /一起改/, words: ['同时', '旧值', '一起改'], hint: '坡度是在你脚下那个点量的：先改了 θ₀，你还站在原来那个点吗' },
     { id: 'e1', kind: 'extra', text: '大雾下山的类比', answer: '像大雾里下山，只看脚下的坡；不像的是步长跟着坡度变', basis: 'AI 判断', keys: /下山|大雾/ },
     { id: 'e2', kind: 'extra', text: '这个碗上 α 多大才收敛', answer: '这个碗上 0 < α < 0.5 才收敛', basis: '课外推算', keys: /零点五|0\.5/ },
   ],
@@ -53,7 +54,7 @@ const NORM: Known = {
 
 const KNOWN = [GD, NORM]
 const knownOf = (s: string) => KNOWN.find((k) => k.match.test(s))
-const strip = (p: Point & { keys?: RegExp }): Point => ({ id: p.id, kind: p.kind, text: p.text, answer: p.answer, basis: p.basis })
+const strip = (p: Point & { keys?: RegExp }): Point => ({ id: p.id, kind: p.kind, text: p.text, answer: p.answer, basis: p.basis, ...(p.words ? { words: p.words } : {}), ...(p.hint ? { hint: p.hint } : {}) })
 
 /** 材料里一条条的说法：列表项、一句句，去掉 md 写法 */
 function linesOf(material: string): string[] {
@@ -173,7 +174,7 @@ export function fakeJudge(meta: FeynmanMeta, entries: readonly Lite[], only?: st
   const firstAsk = entries.findIndex((e) => e.kind === 'student')
   const own = entries.filter((e, i) => e.kind === 'me' && (firstAsk === -1 || i < firstAsk)).map((e) => e.text).join('\n') || firstMe
   const answers = entries.filter((e, i) => e.kind === 'me' && firstAsk !== -1 && i > firstAsk).map((e) => e.text)
-  const revealedIds = new Set(meta.asked.filter((a) => a.act === 'reveal').map((a) => a.point))
+  const revealedIds = new Set(meta.asked.filter((a) => a.act === 'reveal' && !a.free).map((a) => a.point))
   const core = meta.points
     .filter((p) => p.kind === 'core' && (!only || only.includes(p.id)))
     .map((p) => {
@@ -203,4 +204,77 @@ export function fakeJudge(meta: FeynmanMeta, entries: readonly Lite[], only?: st
     .join('；')
     .slice(0, 148)
   return JSON.stringify({ core, extra, rights, wording: /学习力的话 就是每一步走多远/.test(said) ? ['每一步走的是 α 乘坡度，坡缓了步子会自己变小。'] : [], full: full + '。' })
+}
+
+/** 只挑了一个选项、只说「对」「是」 */
+const PICK = /^\s*(?:嗯|对|是|是的|对的|之前|之后|改之前的|改之后的|往左|往右|变大|变小|大|小|加|减)[。！!，,\s]*$/
+
+/**
+ * 假的「聊到底」学生：先照规矩看你这一段（答上没有：有那条核心的关键词算答上，只挑选项算 pick，别的算没答上；
+ * 讲到了哪些、哪条说反了），再交给软件定这一问（decide），照那一步写一句。和真 AI 一样回 JSON，走同一套认法
+ */
+export function fakeLongTurn(meta: FeynmanMeta, entries: readonly Lite[], cmd: string | undefined, plan: (r: Reading) => Decision): string {
+  const keys = keysOf(meta)
+  const k = knownOf(meta.topic)
+  const mine = entries.filter((e) => e.kind === 'me')
+  const lastIsMe = entries.at(-1)?.kind === 'me'
+  const last = lastIsMe ? (mine.at(-1)?.text ?? '') : ''
+  const all = mine.map((e) => e.text).join('\n')
+  const cores = meta.points.filter((p) => p.kind === 'core')
+  const touched = cores.filter((p) => keys.get(p.id)!.test(all)).map((p) => p.id)
+  // 说反了：这一段里有那条的错说法、又没改过来
+  const wrong = cores
+    .filter((p) => {
+      const kp = k?.points.find((x) => x.id === p.id && x.text === p.text)
+      return kp?.wrong && kp.wrong.test(last) && !(kp.fixedBy && kp.fixedBy.test(last))
+    })
+    .map((p) => p.id)
+  const pending = [...meta.asked].reverse().find((a) => a.act === 'ask' || a.act === 'redirect' || a.act === 'reveal' || a.act === 'offer')
+  const target = pending && (pending.act === 'ask' || pending.act === 'redirect') && !pending.res && !pending.skip ? pending.point : undefined
+  let res: Reading['last'] = 'none'
+  if (lastIsMe && target && !cmd) {
+    const kp = k?.points.find((x) => x.id === target)
+    const viaMyth = pending?.step === 'wrong' || pending?.step === 'myth' || (pending?.step === 'later' && (meta.flip ?? []).includes(target))
+    if (viaMyth && /^\s*(?:嗯\s*)?(?:对|是|是的|对的)[。！!，,\s]*$/.test(last)) {
+      res = 'miss'
+      wrong.push(target)
+    } else if (PICK.test(last)) res = 'pick'
+    else if (keys.get(target)!.test(last) && !MISS.test(last) && !(kp?.wrong && kp.wrong.test(last) && !(kp.fixedBy && kp.fixedBy.test(last)))) res = 'right'
+    else res = 'miss'
+  }
+  // 加还是减：只确认一次（和三轮的假学生一样）
+  if (lastIsMe && !cmd && /加上/.test(last) && !meta.asked.some((a) => a.act === 'confirm')) return JSON.stringify({ last: 'none', act: 'confirm', say: '你说的是加上学习率乘梯度，还是减？', touched, weak: [], wrong: [] })
+  const d = plan({ last: res, touched, weak: [], wrong })
+  const q = d.next
+  const p = q.point ? meta.points.find((x) => x.id === q.point) : undefined
+  const myth = q.myth ? meta.myths.find((x) => x.id === q.myth) : undefined
+  const quote = last.replace(/\s+/g, ' ').trim().slice(0, 16)
+  const t = p?.text.replace(/[？?]$/, '') ?? meta.topic
+  const lines: Record<string, string> = {
+    new: `你说「${quote}」。那${t}？`,
+    weak: `你说「${quote}」。那${t}，关键是哪一层？`,
+    wrong: `你说「${quote}」。那是不是${myth?.text ?? t}？`,
+    later: `回到刚才跳过的：${t}？`,
+    angle: `${t}，具体是怎样？`,
+    hint: p?.hint ? `提示一下：${p.hint}？` : `提示一下：想想${p?.basis ?? '材料'}那里举的那个情形。那${t}，你再想想？`,
+    why: `你说「${quote}」，为什么？`,
+    again: `拿一个具体的数，${t}？`,
+    example: `能拿一个带数的例子说说「${t}」吗？`,
+    myth: `有人说「${myth?.text ?? t}」，这样说对吗？`,
+    chain: '这几个点合起来，在解决一个什么问题？',
+    deep: `往深里想一步：${t}，要是反过来会怎样？`,
+    offer: '',
+  }
+  const say = lines[q.step]!
+  return JSON.stringify({
+    last: res,
+    act: q.step === 'offer' ? 'offer' : 'ask',
+    ...(q.point ? { point: q.point } : {}),
+    ...(quote ? { quote } : {}),
+    say,
+    ...(d.reveal ? { reveal: `${meta.points.find((x) => x.id === d.reveal!.point)!.answer}。出处：${meta.points.find((x) => x.id === d.reveal!.point)!.basis}。` } : {}),
+    touched,
+    weak: [],
+    wrong,
+  })
 }

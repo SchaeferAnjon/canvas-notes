@@ -3,7 +3,7 @@
  * 写进文档由界面做（文档在编辑器里开着）：用 doc.ts 的 addRound / appendEntry / putBlock / setMeta 改全文，这里只给内容。
  * CN_AI_FAKE=1 时不调模型，照 fake.ts 给固定回答（流程测试用）。
  */
-import type { CoreJudged, CoverRef, Entry, FeynmanMeta, MaterialRef, Myth, Point, PointEdit, Scope, StudentAct, Verdict } from './types'
+import type { CoreJudged, CoverRef, Entry, FeynmanMeta, LongStep, MaterialRef, Myth, Point, PointEdit, Scope, StudentAct, Verdict } from './types'
 
 /** 拆点时列给你挑的一项（PDF 一讲的知识点单子、导图一支的子枝、按意思分成的几组卡） */
 export interface Candidate {
@@ -70,6 +70,11 @@ export interface TurnReq {
   image?: { mime: string; base64: string }
   /** 再讲这几处：只问这几条核心 */
   only?: string[]
+  /**
+   * 聊到底里你点的：reveal「说穿吧」、skip「先跳过」、deep「接着往深里聊」（这三样没有新的一段你说的）；
+   * more「接着聊下去」（三轮用完转成聊到底，接着问）
+   */
+  cmd?: 'reveal' | 'skip' | 'deep' | 'more'
 }
 
 export interface TurnResult {
@@ -82,6 +87,10 @@ export interface TurnResult {
   point?: string
   /** 引的你的原话（界面把那一句标出来） */
   quote?: string
+  /** 聊到底：这一问是哪一步（学生块右边的小字）；act 是 offer 时是问你收尾还是接着往深里聊 */
+  step?: LongStep
+  /** 聊到底：说穿那一块是收尾前软件说穿的、说反了躲不掉的 */
+  revealFlip?: boolean
   /** 改好的注释（asked、touched 记上了）：界面 setMeta 写回 */
   meta: FeynmanMeta
   by: string

@@ -22,6 +22,10 @@ export interface Point {
   basis: string
   /** 出处，点了回到材料：卡片（白板上那张）、PDF 那一页、网页 */
   src?: SourceRef
+  /** 核心的关键词（「同时」「旧值」「一起改」）：一说就等于说穿；聊到底给提示、说穿后再问时问题里不能出现 */
+  words?: string[]
+  /** 核心的一句提示（指一个方向或给一个具体情形，不说结论）：聊到底第 2 次没答上时给 */
+  hint?: string
 }
 
 /** 只凭 AI 判断的要点，「凭什么」写这一句 */
@@ -57,6 +61,8 @@ export interface CoreJudged {
   state: CoreState
   /** 你的原话（没讲到的是空串） */
   quote: string
+  /** 聊到底：hint 提示后答上（出卡、下次提前）；again 说穿后换个情形答上了（说穿后补讲清，判定最多到「过 · 当场补讲」） */
+  via?: 'hint' | 'again'
 }
 
 /**
@@ -81,6 +87,8 @@ export interface Gap {
   sent?: boolean
   /** 当场补讲清了（「✓ 当场补讲清了」） */
   redone?: boolean
+  /** 聊到底：hint 提示后答上的（「追问后补上（提示后）」，默认出卡）；again 说穿后补讲清（redone 一起记） */
+  via?: 'hint' | 'again'
 }
 
 /** 正确说法最长几个字 */
@@ -143,7 +151,18 @@ export type PointEdit =
  * redirect「这些了解即可，先讲核心」接着问一条核心（算一轮）；answer 你问「这个要不要会」，直接答（不算一轮）；
  * done 问完了（三轮用完，或核心都讲清了），请你点「讲完了」看判定
  */
-export type StudentAct = 'ask' | 'confirm' | 'reveal' | 'redirect' | 'answer' | 'done'
+export type StudentAct = 'ask' | 'confirm' | 'reveal' | 'redirect' | 'answer' | 'done' | 'offer'
+
+/** 追问几轮：三轮（默认，ROUNDS_MAX）或聊到底（不限轮，long.ts）；开讲前「这次要讲到」单子上选，记住上次选的 */
+export type TalkMode = 'rounds' | 'long'
+
+/**
+ * 聊到底里这一问是哪一步（long.ts 的 queueOf 排的、软件定的；列里学生块右边的小字照它写）：
+ * wrong 拿常见误解问说错的、weak 问含糊的、new 外行问法问没碰的；angle 换个角度（第 1 次没答上）、hint 给一个提示（第 2 次）、
+ * why 只挑了选项问为什么；again 说穿后隔一会儿换个情形再问；example 带数的例子、myth 拿常见误解试、chain 串讲问点和点怎么接；
+ * later 跳过的回来再问一次；deep 往深里聊（了解即可、变式，不判）
+ */
+export type LongStep = 'wrong' | 'weak' | 'new' | 'angle' | 'hint' | 'why' | 'again' | 'example' | 'myth' | 'chain' | 'later' | 'deep'
 
 /** 学生说过的一句，记在注释里（续讲时算轮次、连着没答对几次） */
 export interface Asked {
@@ -152,6 +171,18 @@ export interface Asked {
   point?: string
   /** 这一问之前，你对这条连着没答对几次（第二次没答对才说穿） */
   miss?: number
+  /** 聊到底：这一问是哪一步（三轮模式不记） */
+  step?: LongStep
+  /** 聊到底：你怎么答的这一问（下一句来时记上）：right 答上、miss 没答上、pick 只挑了选项 / 只说「对」 */
+  res?: 'right' | 'miss' | 'pick' | 'none'
+  /** 聊到底：你点了「先跳过」 */
+  skip?: 1
+  /** 聊到底的说穿：这一条说反过（说反的躲不掉：第二次跳过、收尾前软件说穿，记讲错） */
+  flip?: 1
+  /** 聊到底的说穿：收尾前软件说穿的 */
+  end?: 1
+  /** 聊到底的说穿：加分题（例子、误解、串讲、深聊）上说穿的，不算这条核心说穿过 */
+  free?: 1
 }
 
 /** 一轮走到哪：draft 列出了「这次要讲到」还没开讲；talking 在讲；paused 暂停了；judged 判过了 */
@@ -193,6 +224,16 @@ export interface FeynmanMeta {
   peeks: number
   /** 讲到了的核心（列头小点变灰；判定前） */
   touched?: string[]
+  /** 聊到底（不限轮）；没有这一项是三轮（旧的那几节一个字节不动） */
+  mode?: 'long'
+  /** 聊到底：聊了几秒（界面每一问记一次，暂停的时间不算） */
+  secs?: number
+  /** 聊到底：讲到了、关键那层关系没说出来的核心（AI 每一问给，只拿来排队，不显示、不进判定） */
+  weak?: string[]
+  /** 聊到底：说反了、还没问清的核心（问清了去掉） */
+  flip?: string[]
+  /** 聊到底：你选了几次「接着往深里聊」 */
+  deep?: number
   /** 判过以后：每条核心的状态 */
   states?: CoreJudged[]
   /** 了解即可讲到没有 */

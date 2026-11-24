@@ -87,6 +87,7 @@ export class SettingsFile {
         web: { ...cur.web, ...(p.web ?? {}) },
         sync: { ...cur.sync, ...(p.sync ?? {}) },
         cite: { ...cur.cite, ...(p.cite ?? {}) },
+        feynman: { ...cur.feynman, ...(p.feynman ?? {}) },
       },
       this.userSkins(),
     )

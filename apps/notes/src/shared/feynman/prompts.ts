@@ -30,12 +30,12 @@ ${SCOPE_RULE[o.scope]}找出要讲到的东西，分三类：
 - 常见误解：学这个点的人最容易信的错说法，2 到 4 条，每条写错在哪、正确是什么、挂在哪条核心上。
 
 先看考试证据，再看材料自己标的（标题、加粗、定义框、编号公式、课后题），最后才用你的判断。每条写一句凭什么（basis）；只凭你判断的写「${AI_BASIS}」。
-核心的名字（text）写成要讲的事（「每一步怎么改 θ」），不写答案；答案（answer）另放一栏，一句话、不超过 40 字，讲完才给学生看。
+核心的名字（text）写成要讲的事（「每一步怎么改 θ」），不写答案；答案（answer）另放一栏，一句话、不超过 40 字，讲完才给学生看。每条核心再给两三个关键词（words）：答案里一说出来就等于说穿的词（「同时」「旧值」「一起改」）；和一句提示（hint）：指一个方向或给一个具体情形，不说结论，不出现 words 里的词（「坡度是在你脚下那个点量的」）。
 材料里找不到出处的，basis 写「材料里没有」，不编页码。材料里带「[图 N]」的是框下来的图，图里的内容也算材料。
 知识点名（topic）用材料里的说法，越短越好（「范数」「梯度下降」）。
 
 只回 JSON：
-{"points":[{"topic":"知识点名","core":[{"id":"c1","text":"要讲的事","answer":"正确说法","basis":"凭什么"}],"extra":[{"id":"e1","text":"…","answer":"…","basis":"…"}],"myths":[{"id":"m1","text":"错的说法","right":"正确是什么","core":"c1"}]}]}`
+{"points":[{"topic":"知识点名","core":[{"id":"c1","text":"要讲的事","answer":"正确说法","basis":"凭什么","words":["关键词"],"hint":"一句提示"}],"extra":[{"id":"e1","text":"…","answer":"…","basis":"…"}],"myths":[{"id":"m1","text":"错的说法","right":"正确是什么","core":"c1"}]}]}`
 }
 
 export interface ExtractedPoint {
@@ -44,9 +44,9 @@ export interface ExtractedPoint {
   myths: Myth[]
 }
 
-const str = (v: unknown, max = 200) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '')
+export const str = (v: unknown, max = 200) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '')
 
-function parseJson(answer: string): Record<string, unknown> {
+export function parseJson(answer: string): Record<string, unknown> {
   const json = firstJson(answer)
   if (!json) throw new Error('AI没按要求回答（没有JSON），再试一次')
   try {
@@ -77,7 +77,9 @@ export function parseExtract(answer: string): ExtractedPoint[] {
         let id = str(p.id, 8) || `${prefix}${i + 1}`
         if (!id.startsWith(prefix) || pts.some((q) => q.id === id)) id = `${prefix}${i + 1}`
         while (pts.some((q) => q.id === id)) id += 'x'
-        pts.push({ id, kind, text, answer: clipRight(str(p.answer, 120)), basis: str(p.basis, 40) || AI_BASIS })
+        const words = kind === 'core' && Array.isArray(p.words) ? p.words.map((w) => str(w, 8)).filter(Boolean).slice(0, 4) : []
+        const hint = kind === 'core' ? str(p.hint, 80) : ''
+        pts.push({ id, kind, text, answer: clipRight(str(p.answer, 120)), basis: str(p.basis, 40) || AI_BASIS, ...(words.length ? { words } : {}), ...(hint ? { hint } : {}) })
       })
     }
     take(r.core, 'core')
@@ -160,9 +162,9 @@ export function parseSame(answer: string): number[] {
 
 type Lite = Pick<Entry, 'kind' | 'text'>
 
-const pointLine = (p: Point) => `- ${p.id}（${p.kind === 'core' ? '核心' : '了解即可'}）${p.text}｜答案：${p.answer || '（没写）'}｜出处：${p.basis}`
+export const pointLine = (p: Point) => `- ${p.id}（${p.kind === 'core' ? '核心' : '了解即可'}）${p.text}｜答案：${p.answer || '（没写）'}｜出处：${p.basis}`
 
-function transcript(entries: readonly Lite[]): string {
+export function transcript(entries: readonly Lite[]): string {
   const who: Record<string, string> = { me: '他说', student: '你问', reveal: '你说穿', confirm: '你确认' }
   return entries
     .filter((e) => who[e.kind])
@@ -170,7 +172,7 @@ function transcript(entries: readonly Lite[]): string {
     .join('\n\n')
 }
 
-const CHAIN_ASK: Record<Scope, string> = {
+export const CHAIN_ASK: Record<Scope, string> = {
   point: '核心都讲到了，就要一个带数的例子，或拿一个常见误解试他。',
   section: '这次是串讲一节：追问问点和点的关系（「有了 A 为什么还要 B」「B 的问题是 A 带来的吗」），不问细处。',
   chapter: '这次是串讲一章：追问问主线（这一章在解决什么问题、这几个点怎么接起来），不问细处。',
@@ -287,7 +289,7 @@ ${transcript(entries)}
 原话（quote）截最能说明这个状态的那一句，不超过 40 字，从中间截的前后加「…」；讲错的那条截他说反的那句。
 
 再给：了解即可每条讲到没有、说错没有；每条核心和了解即可一句正确说法（不超过 40 字）和出处（材料里没有的写「材料里没有」）；一段 150 字以内的完整版，只讲核心，尽量用他举的例子和他的说法。
-只回一个 JSON：{"core":[{"id":"c1","state":"讲清","quote":"他的原话"}],"extra":[{"id":"e1","said":true,"wrong":false}],"rights":[{"id":"c1","right":"正确说法","src":"出处"}],"wording":[],"full":"完整版"}`
+${meta.mode === 'long' ? '这一轮是不限轮的长谈：追问几次都算「追问后补上」；往深里聊时问的了解即可、变式，答得怎样不碰核心状态，他在那里把某条核心说反了，照说反算（后来改对是说错后改对）；说穿过的那条，后面他再答上也照说穿算（含糊或讲错）。\n' : ''}只回一个 JSON：{"core":[{"id":"c1","state":"讲清","quote":"他的原话"}],"extra":[{"id":"e1","said":true,"wrong":false}],"rights":[{"id":"c1","right":"正确说法","src":"出处"}],"wording":[],"full":"完整版"}`
 }
 
 const STATE_OF = new Map<string, CoreState>([...CORE_STATES.map((s) => [s, s] as [string, CoreState]), ...Object.entries(STATE_LABEL).map(([k, v]) => [v, k as CoreState] as [string, CoreState])])

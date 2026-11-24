@@ -97,6 +97,14 @@ export interface CitePrefs {
   skip: string[]
 }
 
+/** 费曼学习（design/feynman-long）：「这次要讲到」单子上追问几轮，记住上次选的（不按点记） */
+export interface FeynmanPrefs {
+  /** rounds 三轮、long 聊到底 */
+  mode: 'rounds' | 'long'
+  /** 选聊到底时单子下面那句灰字说过了（以后只在悬停「聊到底」时出） */
+  longSeen: boolean
+}
+
 export const AUTO_SYNC_CHOICES = [0, 30, 60, 1440] as const
 export const FONT_SIZES = [14, 15, 16, 17, 18] as const
 
@@ -107,6 +115,7 @@ export const DEFAULT_PDF: PdfPrefs = { zoom: 'width', openAi: false, recap: true
 export const DEFAULT_WEB: WebPrefs = { engine: 'google', newTab: 'bookmarks', downloads: 'downloads' }
 export const DEFAULT_SYNC: SyncPrefs = { autoMinutes: 0, pullOnOpen: false, pushOnQuit: false, backup: 'off', backupDir: null }
 export const DEFAULT_CITE: CitePrefs = { names: true, skip: [] }
+export const DEFAULT_FEYNMAN: FeynmanPrefs = { mode: 'rounds', longSeen: false }
 
 type Raw = Record<string, unknown>
 const obj = (v: unknown): Raw => (v && typeof v === 'object' ? (v as Raw) : {})
@@ -176,6 +185,11 @@ export function normalizeCite(v: unknown): CitePrefs {
   const r = obj(v)
   const skip = Array.isArray(r.skip) ? [...new Set(r.skip.filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter((x) => x && x.length <= 80))].slice(0, 300) : []
   return { names: bool(r.names, DEFAULT_CITE.names), skip }
+}
+
+export function normalizeFeynman(v: unknown): FeynmanPrefs {
+  const r = obj(v)
+  return { mode: oneOf(r.mode, ['rounds', 'long'], DEFAULT_FEYNMAN.mode), longSeen: bool(r.longSeen, DEFAULT_FEYNMAN.longSeen) }
 }
 
 export function normalizeSync(v: unknown): SyncPrefs {
