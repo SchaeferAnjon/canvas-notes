@@ -7,7 +7,7 @@
 import { Codicon } from '@cn/design'
 import { aiCellOf, type AiColDef, aiColOf, aiDropColumn, aiHandEdit, aiNotePath, baseYaml, type BaseCtx, type BaseRec, dropBaseColumn, type FileWrite, listOf, setPropDef, undoWrites } from '@cn/format'
 import { useEffect, useState } from 'react'
-import { type AiPick, pickLabel } from '../../shared/ai-features'
+import { type AiPick, pickLabel } from '@cn/ai-engines/shared'
 import { t, tv } from '../../shared/i18n'
 import { titleOf } from '../../shared/layout'
 import { app } from '../ctx/actions'

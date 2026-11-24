@@ -1,5 +1,5 @@
 import { composing } from './ime'
-import { jumpToChat } from './chat-jump'
+import { jumpToChat } from '@cn/ai-chat/chat-jump'
 import { Codicon, type CodiconName } from '@cn/design'
 import { askUnits } from '@cn/format'
 import { PanelGuard } from './crash/Guard'
@@ -1513,8 +1513,15 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
   const navTo = (d: -1 | 1) => {
     const n = nav.current
     let j = n.i + d
-    // 关掉的标签跳过；跳过关掉的以后又落在现在这个标签上的也跳过（不然按了后退看着像没反应）
-    while (j >= 0 && j < n.list.length && (!tabs.some((t) => t.id === n.list[j]) || n.list[j] === active)) j += d
+    // 关掉的标签跳过；跳过关掉的以后又落在现在这个标签上的也跳过（不然按了后退看着像没反应）。
+    // 开着同一篇的另一个标签也跳过：⌃\ 分屏是把这一篇复制一份到另一格，合回一格以后两个同名标签挨着记在历史里，
+    // 后退只是在这两份之间换，看着像退不动（收尾清单「分屏合回后 AI 输入框 ⌘[ 退不动」）
+    const docOf = (id: string | null) => {
+      const t = tabs.find((x) => x.id === id)
+      return t && 'path' in t ? `${t.type}:${t.path}` : id
+    }
+    const here = docOf(active)
+    while (j >= 0 && j < n.list.length && (!tabs.some((t) => t.id === n.list[j]) || n.list[j] === active || docOf(n.list[j]!) === here)) j += d
     // 点书桌换了一整套：退到切之前就是回到刚才（原来那几个标签已经换掉了，照标签退不回去）
     const away = awayNow()
     if (d < 0 && away?.exact && away.navAt >= 0 && j < away.navAt) return backToBefore()
@@ -3300,6 +3307,7 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
           onNewNote={() => void newNote()}
           onNewBoard={() => void newBoard()}
           onOpenFile={openFile}
+          onOpenWeb={(url) => openInWeb(url)}
           onRename={(p, n) => void renameFromSidebar(p, n)}
           onOpenFolder={(f) => openFolder(f)}
         />
@@ -3636,6 +3644,8 @@ function Desk({ vault, onSwitchVault }: { vault: VaultInfo; onSwitchVault(v: Vau
                 archiveDays={settings.archiveDays}
                 activePath={null}
                 onOpen={(p) => openNote(pv.realPath(p))}
+                onOpenFile={openFile}
+                onOpenWeb={(url) => openInWeb(url)}
                 onCreate={async (title) => {
                   try {
                     const path = await window.cn.createNote(INBOX, title, `# ${title}\n\n`)

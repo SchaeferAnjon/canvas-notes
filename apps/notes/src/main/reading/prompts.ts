@@ -53,6 +53,10 @@ export function askPrompt(o: {
   subs?: string
   /** 来源是库里的一份 HTML（可视化） */
   html?: boolean
+  /** 这一问材料里带着图（贴截图问的那一问；接着问的只打字的不算） */
+  shot?: boolean
+  /** 附上的公式截图是哪几块（@cn/format 的 formulaImagesNote；文字层里公式是拆散的，以图为准） */
+  formulaNote?: string
 }): string {
   const out: string[] = []
   if (o.web && /^https?:/i.test(o.web.url) && o.web.t !== undefined) {
@@ -82,9 +86,16 @@ export function askPrompt(o: {
   if (o.fullText) out.push(`这是整份 PDF「${o.pdfName}」的文字（共 ${o.pages} 页，「# 」开头的是标题，[图 p5-b3] 是图的位置），先通读一遍，后面他会一处一处问：\n<pdf>\n${o.fullText}\n</pdf>`)
   else if (o.fullPending) out.push(`（整份 PDF「${o.pdfName}」的文字还在读，这一轮先看这一页。）`)
   if (o.digest) out.push(`他笔记里已经弄懂的：\n${o.digest}`)
-  out.push(`他现在在看第 ${o.page} 页（共 ${o.pages} 页）。这一页的文字：\n<page>\n${o.pageText || '（这一页没有能选的字，是图片或扫描件）'}\n</page>`)
-  const where = o.thread.quote ? `他选中了这段字：「${o.thread.quote}」。` : o.hasImage ? (o.thread.rect ? '他在这一页上框了一块，就是附上的图。' : '附上的图是整页。') : '这是他接着刚才那处在追问。'
-  out.push(`${where}\n他说：${o.question}`)
+  // 贴截图问的（0.5.9）：说清这一页是怎么定的；没认出是哪一页的不给哪一页的字
+  const found = o.thread.found === 'none' || (o.shot && o.thread.found !== 'moved') ? o.thread.found : undefined
+  if (found === 'none') out.push(`他贴了一张截图（材料里的图），按图里的字在这份 PDF 里没找到是哪一页，先看图回答。`)
+  else
+    out.push(
+      `${found === 'ocr' ? `他贴了一张截图（材料里的图），按图里的字认出是第 ${o.page} 页（共 ${o.pages} 页）` : found === 'view' ? `他贴了一张截图（材料里的图），图里的字没认出是哪一页，他问的时候正看着第 ${o.page} 页（共 ${o.pages} 页）` : `他现在在看第 ${o.page} 页（共 ${o.pages} 页）`}。这一页的文字：\n<page>\n${o.pageText || '（这一页没有能选的字，是图片或扫描件）'}\n</page>`,
+    )
+  if (o.formulaNote) out.push(o.formulaNote)
+  const where = found ? '' : o.thread.quote ? `他选中了这段字：「${o.thread.quote}」。` : o.hasImage ? (o.thread.rect ? '他在这一页上框了一块，就是附上的图。' : '附上的图是整页。') : '这是他接着刚才那处在追问。'
+  out.push(`${where ? where + '\n' : ''}他说：${o.question}`)
   // 配图的框（CN-60）：笔记里要配一张图时按这个框从 PDF 重新画的页面里裁，矢量画的图也裁得对
   if (o.hasImage && !o.thread.quote) out.push(FIGURE_ASK)
   return out.join('\n\n')

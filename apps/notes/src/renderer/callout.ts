@@ -8,7 +8,7 @@
 import type { CodiconName } from '@cn/design'
 import { isSummaryHead } from '@cn/format'
 import type { EngineId } from '../shared/agent'
-import { ENGINE_LABEL } from '../shared/ai-features'
+import { ENGINE_LABEL } from '@cn/ai-engines/shared'
 import { t as tNow } from '../shared/i18n'
 
 export const CALLOUT_HEAD = /^(\s*>\s*)\[!([A-Za-z][\w-]*)\]([+-]?)[ \t]*(.*)$/

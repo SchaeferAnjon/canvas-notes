@@ -2,11 +2,11 @@
  * 测试用的假引擎（CN_AI_FAKE=1）：不调模型，按用户说的话走一串固定的工具调用。
  * 工具是真的通过 MCP 服务调的（和真引擎走同一条路），字也是一小段一小段吐出来的。
  */
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, sep } from 'node:path'
 import type { EngineId } from '../../shared/agent'
-import { effortOption, type ModelOption } from '../../shared/ai-features'
-import { type Engine, LABELS } from './engines'
+import { effortOption, type ModelOption } from '@cn/ai-engines/shared'
+import { type Engine, LABELS } from '@cn/ai-engines'
 
 async function mcp(url: string, token: string, method: string, params: unknown, id = 1): Promise<Record<string, unknown>> {
   const res = await fetch(url, {
@@ -22,6 +22,23 @@ async function mcp(url: string, token: string, method: string, params: unknown, 
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/**
+ * CN_FAKE_HOLD=<文件>：测试手里的「放行」开关。这个文件不在时，假 AI 答到一半（说出头几个字以后、自己写完文件以后）停着「还在答」，
+ * 等测试建出这个文件（或这一轮被停下）再往下答；文件一直在就不停。测试要在「AI 还在答」的那一会儿里看东西、再框一块时用：
+ * 以前靠答得慢（CN_FAKE_SAY_MS、CN_FAKE_OWN_MS 固定几秒），机器忙时还没看完这一轮就答完了
+ */
+async function held(signal: AbortSignal): Promise<boolean> {
+  const gate = process.env.CN_FAKE_HOLD
+  if (!gate) return false
+  while (!existsSync(gate) && !signal.aborted) await sleep(50)
+  return true
+}
+
+/** 写完文件多答一会儿：有放行开关等开关，没有照旧等 CN_FAKE_OWN_MS 毫秒 */
+async function stillAnswering(signal: AbortSignal) {
+  if (!(await held(signal))) await sleep(Number(process.env.CN_FAKE_OWN_MS ?? 0))
+}
 
 /** 假的 Codex 模型列表（照 codex 0.163.0 的 model/list 的样子；默认的排第一，两个模型的档不一样） */
 export function fakeCodexModels(): ModelOption[] {
@@ -122,11 +139,18 @@ export function fakeEngine(id: EngineId): Engine {
       const prompt = r.prompt.replace(/\n\n【语言】[^\n]*$/, '')
       const said = /用户说：\n([\s\S]*)$/.exec(prompt)?.[1]?.trim() ?? prompt
       let text = ''
+      let started = false
       const say = async (s: string) => {
         for (const part of s.match(/.{1,4}/gsu) ?? []) {
           if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
           text += part
           r.onText(part)
+          // 头几个字说出来以后，有放行开关就等开关（测试在「还在答」时框一块、点按钮）
+          if (!started) {
+            started = true
+            await held(r.signal)
+            if (r.signal.aborted) throw Object.assign(new Error('停下了'), { name: 'AbortError' })
+          }
           // CN_FAKE_SAY_MS：每 4 个字隔多久（测试「答的时候再框一块」要答得慢一点）
           await sleep(Number(process.env.CN_FAKE_SAY_MS ?? 25))
         }
@@ -307,8 +331,12 @@ export function fakeEngine(id: EngineId): Engine {
         if (q.includes('对照表'))
           await say('翻译：\n\n| 原文 | 译文 |\n|---|---|\n| **physics-inspired** machine learning | 受物理启发的机器学习 |\n| data-driven surrogate models for partial differential equations | 偏微分方程的数据驱动代理模型 |\n| [第 2 页](#page=2) | 见第 2 页 |\n\n就这些。')
         // 测试公式（CN-89）：行内的、单独成行的 LaTeX，回答区用 KaTeX 排
-        else if (q.includes('公式'))
+        else if (q.includes('公式')) {
           await say(FORMULA_ANSWER)
+          // AI 看得到公式（2026-11-24）：带了公式那几块的截图时说收到几张、是哪几块
+          const shots = /依次是原文公式的截图：([^。]*)。/.exec(prompt)?.[1]
+          if (shots) await say(`\n\n收到公式截图（${seen.join('，')}）：${shots}`)
+        }
         else if (q.includes('宽内容')) await say(WIDE_ANSWER)
         else if (/还是不懂|换个方式/.test(q)) await say(`换个方式讲（${seen.join('，')}）：先别看公式，看图。`)
         else await say(`这是讲解（${seen.join('，')}）。用你在 [第 2 页](#page=2) 弄懂的那条：列就是基向量去哪。\n\n〔可以做个可视化〕`)
@@ -411,8 +439,8 @@ export function fakeEngine(id: EngineId): Engine {
         r.onStep?.({ id: 'w1', ...step, status: 'run' })
         mkdirSync(dirname(abs), { recursive: true })
         writeFileSync(abs, body ?? '')
-        // CN_FAKE_OWN_MS：写完多等一会儿再答（测试在这一会儿里往编辑器里打字，看提交里不带用户的字）
-        await sleep(Number(process.env.CN_FAKE_OWN_MS ?? 0))
+        // 写完多答一会儿（测试在这一会儿里往编辑器里打字，看提交里不带用户的字；看「AI 在写这一段」还挂着）
+        await stillAnswering(r.signal)
         r.onStep?.({ id: 'w1', ...step, status: 'ok' })
         await say(`写好了 ${file}。`)
         return { text, session: `fake-${id}` }

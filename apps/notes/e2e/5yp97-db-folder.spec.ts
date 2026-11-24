@@ -193,6 +193,8 @@ test('挂在那篇下面的记录文件夹：右键改名、拖进别的文件�
     const before = git(vault, 'rev-parse', 'HEAD')
     await table.dragTo(item(page, '写作'))
     await expect.poll(() => existsSync(join(vault, '写作/项目库/一号.md'))).toBe(true)
+    // 文件先挪、链接随后改：等提示说挪完、链接改好了再看盘上（以前文件一到就读，机器快时读到的还是没改的链接）
+    await expect(toast).toContainText('「表」和它的数据库「项目库」挪到了写作，库里指向它们的链接一起改好了')
     expect(existsSync(join(vault, '写作/表.md'))).toBe(true)
     expect(existsSync(join(vault, '项目/表.md'))).toBe(false)
     expect(existsSync(join(vault, '项目/项目库'))).toBe(false)

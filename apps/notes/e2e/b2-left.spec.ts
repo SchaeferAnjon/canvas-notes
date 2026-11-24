@@ -230,7 +230,8 @@ test('文件夹封面：没选图是自己颜色的渐变；悬停「换封面�
     await page.mouse.up()
     await cover.getByRole('button', { name: '存好' }).click()
     await expect(toast(page)).toContainText('位置存好了：写在这个文件夹的「.首页.json」里')
-    expect(JSON.parse(readFileSync(join(vault, '项目/冰岛旅行/.首页.json'), 'utf8')).coverY).toBeGreaterThan(50)
+    // 提示是点「存好」当下就出的，写盘随后：等写到盘上再读（以前紧跟着读，机器忙时读到的还是原来的位置）
+    await expect.poll(() => JSON.parse(readFileSync(join(vault, '项目/冰岛旅行/.首页.json'), 'utf8')).coverY).toBeGreaterThan(50)
     // 别的文件夹（不是分类）双击名字能改名
     await home(page).locator('.fh-tx h2').dblclick()
     await expect(home(page).getByRole('textbox', { name: '文件夹名字' })).toBeVisible()

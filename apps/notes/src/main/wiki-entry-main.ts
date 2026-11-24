@@ -1,12 +1,13 @@
 /**
  * 点了「建词条页」以后（task-h7oy8，设计页 24-梦游底层 W.4，C1）：在全库找提到它的段，交给 AI 起草（shared/wiki-entry.ts），
- * 要嵌进来的段在原文行尾加块编号（B1，只加块编号，别的字不动），词条页放进收件箱（库里认得出的那个收件箱文件夹）。
+ * 要嵌进来的段在原文行尾加块编号（B1，只加块编号，别的字不动），词条页放进库最外层的「词条/」（库里已经有词条 / MOC / Wiki 一类的文件夹就用它，
+ * .canvas-notes/梦游.md 里定过的先；梦游对比滚动这一轮用户定，不再放收件箱）。
  * 返回每个文件改前改后的字，相关栏写盘、一次提交、撤销（一字节不差）都用它。纯计算，不碰 Electron、不写文件。
  */
 import { addBlockId, blockIdOf, frontLines, newBlockId, onlyBlockIdsAdded, outline } from '@cn/format'
 import { LINK_ASK, LINK_PASS } from '../shared/dream-judge'
-import { roleByName } from '../shared/vault-roles'
-import { INBOX, titleOf } from '../shared/layout'
+import { entryHome, roleByName, type RoleRow, topFoldersOf } from '../shared/vault-roles'
+import { titleOf } from '../shared/layout'
 import { entryLinkPrompt, entryMarkdown, type EntryPiece, entryPrompt, ENTRY_SYSTEM, type EntrySource, parseEntry, parseEntryLinks } from '../shared/wiki-entry'
 import { busyRanges, linkTarget } from './related'
 import { clausePlain, DATED, headingOfPassage, passagePlain } from './wiki-find'
@@ -35,11 +36,12 @@ export interface EntryMention {
 /** 一次最多问几句 */
 const MAX_MENTIONS = 40
 
-/** 词条页放哪：库里认得出是收件箱的最外层文件夹（00-Inbox），没有就是收件箱 */
-export function entryFolder(paths: Iterable<string>): string {
-  const tops = new Set<string>()
-  for (const p of paths) if (p.includes('/')) tops.add(p.slice(0, p.indexOf('/')))
-  return [...tops].sort().find((f) => roleByName(f) === 'inbox') ?? INBOX
+/**
+ * 词条页放哪：给了这个库的分法（.canvas-notes/梦游.md 加推断，dream-roles.ts rolesAt）就照它的词条角色；
+ * 没给就看最外层文件夹的名字（词条、MOC、Wiki……）；都没有是「词条」（第一次建时建）
+ */
+export function entryFolder(paths: readonly string[], roles?: { rows: readonly RoleRow[]; guessed?: readonly string[] }): string {
+  return entryHome(roles ?? { rows: topFoldersOf(paths).flatMap((f) => (roleByName(f) === 'wiki' ? [{ folder: f, role: 'wiki' as const, why: '', sure: 'high' as const }] : [])) })
 }
 
 /** 提到 name 的段：prefer 里的那几篇先（梦游记下的），每篇最多两段，讲得多的（名字出现次数多、段长）先 */
@@ -75,6 +77,8 @@ export async function planEntry(o: {
   rand?: () => number
   /** 自动链过去的把握线（梦游判断那一路的：Sonnet 0.8、Haiku 0.85） */
   pass?: number
+  /** 这个库的分法（词条页放哪）；不给按文件夹名字认 */
+  roles?: { rows: readonly RoleRow[]; guessed?: readonly string[] }
 }): Promise<EntryPlan> {
   const name = o.name.trim()
   if (!name) throw new Error('词条名不对')
@@ -104,7 +108,7 @@ export async function planEntry(o: {
     const first = s.src.text.split(/(?<=[。！？!?])/).find((x) => x.toLowerCase().includes(name.toLowerCase())) ?? s.src.text
     pieces.set(s.src.n, { target: linkTarget(s.path, all), id, title: titleOf(s.path), line: first.trim().slice(0, 80) })
   }
-  const folder = entryFolder(all)
+  const folder = entryFolder(all, o.roles)
   let path = `${folder}/${name.replace(/[\\/:*?"<>|]/g, ' ').trim()}.md`
   for (let n = 2; o.texts.has(path); n++) path = `${folder}/${name} ${n}.md`
   const text = entryMarkdown(name, draft, pieces, o.by)

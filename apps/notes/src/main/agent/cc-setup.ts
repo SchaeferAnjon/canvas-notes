@@ -8,8 +8,7 @@ import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { t } from '../../shared/i18n'
 import { E2E } from '../test-mode'
-import { cliEnv, findCli } from './cli'
-import { runProc } from './engine-proc'
+import { cliEnv, findCli, runProc } from '@cn/ai-engines'
 
 /** 官方原生安装命令（code.claude.com 的安装说明；装在 ~/.local/bin/claude，以后它自己更新） */
 export const CC_INSTALL = 'curl -fsSL https://claude.ai/install.sh | bash'

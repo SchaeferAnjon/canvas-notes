@@ -40,7 +40,7 @@ export const AGENT: Table = {
   '「{a}」和「{b}」都是别的笔记类型': '“{a}” and “{b}” are both other note types',
   加不进去: 'Couldn’t add',
 
-  // ---------- AI 引擎（main/agent/engines.ts、jsonrpc.ts、store.ts）：AI 没答出来时的原话 ----------
+  // ---------- AI 引擎（@cn/ai-engines 的 engines.ts、jsonrpc.ts，main/agent/store.ts）：AI 没答出来时的原话 ----------
   '退出码 {n}': 'Exit code {n}',
   不知道为什么: 'unknown reason',
   '{name} 启动不了：{error}': '{name} won’t start: {error}',
@@ -69,7 +69,7 @@ export const AGENT: Table = {
   '{name} 等了 {s} 秒没回应': '{name} got no reply in {s} s',
   没有这个引擎: 'No such engine',
 
-  // ---------- 找命令行、自查、拉模型、更新（main/agent/cli.ts、engine-check.ts、engine-models.ts、engine-update.ts、engine-watch.ts） ----------
+  // ---------- 找命令行、自查、拉模型、更新（@cn/ai-engines 的 cli.ts、engine-check.ts、engine-models.ts、engine-update.ts、engine-watch.ts） ----------
   '没找到 claude 命令。装 Claude Code：curl -fsSL https://claude.ai/install.sh | bash，再在终端里运行一次 claude 登录。':
     'The claude command wasn’t found. Install Claude Code with curl -fsSL https://claude.ai/install.sh | bash, then run claude once in Terminal to sign in.',
   '没找到 codex 命令。装 Codex：brew install codex 或 npm i -g @openai/codex，再运行一次 codex 登录。': 'The codex command wasn’t found. Install Codex with brew install codex or npm i -g @openai/codex, then run codex once to sign in.',

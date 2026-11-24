@@ -121,6 +121,7 @@ export const SETTINGS_ITEMS: SettingsItem[] = [
   { id: 'newTab', pg: 'web', grp: '网页', label: '新网页标签打开', desc: '{k:web-new-tab} 和标签条的 +', kw: '新标签 首页 主页 起始页' },
   { id: 'chrome', pg: 'web', grp: '网页', label: 'Chrome的登录', desc: '把Chrome里的登录带进右栏网页；macOS会问一次钥匙串', kw: 'Chrome 登录 cookie 导入 账号' },
   { id: 'ext', pg: 'web', grp: '网页', label: 'Chrome插件', desc: '能用哪些接口写在每个插件上', kw: 'Chrome 插件 扩展 extension' },
+  { id: 'keepRecent', pg: 'web', grp: '网页', label: '记下看过的网页', desc: '列进左栏「最近」；只记标题和网址，存在这台Mac上，不进库', kw: '最近 历史 网页 记录 隐私 history' },
   { id: 'dlDir', pg: 'web', grp: '下载', label: '下载放在', desc: '右栏网页里点了下载的文件放这里；下好了底下说一声', kw: '下载 文件 保存 download' },
   { id: 'autoSubs', pg: 'web', grp: '视频', label: '没字幕的视频打开就生成', desc: '要先填听写密钥；一小时约¥0.7', kw: '字幕 听写 自动 视频' },
   { id: 'soniox', pg: 'web', grp: '视频', label: '听写（Soniox）密钥', desc: '生成字幕和费曼的语音输入都用它；加密存在这台Mac上', kw: 'Soniox 密钥 key 听写 字幕 语音 费曼 麦克风 voice' },

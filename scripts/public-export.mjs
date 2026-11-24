@@ -47,6 +47,28 @@ function resolveRel(dir, from, spec) {
   return null
 }
 
+/** 一个软件（start 是相对 dir 的文件夹）要的共用包的文件夹：package.json 里 workspace: 的，连同这些包自己 workspace: 的。
+ *  三份公开导出（这里、画布今日、ParaRead）都拿它核对导出里带全了没有 */
+export function workspaceDeps(dir, start) {
+  const byName = new Map()
+  for (const d of fs.readdirSync(path.join(dir, 'packages'))) {
+    const f = path.join(dir, 'packages', d, 'package.json')
+    if (fs.existsSync(f)) byName.set(JSON.parse(fs.readFileSync(f, 'utf8')).name, `packages/${d}`)
+  }
+  const found = new Set()
+  const queue = [start]
+  while (queue.length) {
+    const pkg = JSON.parse(fs.readFileSync(path.join(dir, queue.shift(), 'package.json'), 'utf8'))
+    for (const [name, v] of Object.entries({ ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies })) {
+      if (!String(v).startsWith('workspace:')) continue
+      const d = byName.get(name)
+      if (!d) throw new Error(`${start} 要的 ${name} 在 packages/ 下找不到`)
+      if (!found.has(d)) found.add(d), queue.push(d)
+    }
+  }
+  return [...found].sort()
+}
+
 /** rules 默认是上面的 LEAKS；画布今日的导出（apps/today/scripts/public-export.mjs）另加几条 */
 export function scan(dir, rules = LEAKS) {
   const found = []
@@ -87,6 +109,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     const tar = execFileSync('git', ['archive', '--format=tar', 'HEAD'], { cwd: ROOT, maxBuffer: 1 << 30 })
     execFileSync('tar', ['-x', '-C', dest], { input: tar })
     const out = excluder(fs.readFileSync(path.join(ROOT, 'release/public-exclude.txt'), 'utf8'))
+    const missing = workspaceDeps(dest, 'apps/notes').filter((d) => out(d + '/package.json'))
+    if (missing.length) throw new Error(`画布笔记要的共用包被 release/public-exclude.txt 排除了：${missing.join('、')}`)
     const files = execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8' }).split('\0').filter(Boolean)
     // 画布笔记 import 了排除掉的画布今日的几份源码（日历用它的提醒事项小助手和排时间，task-kzr3n）：照画布今日借画布笔记文件的做法，
     // 顺着 import 找出来原样留着（路径不变），apps/today/package.json 现生成、只写这几份 import 的包

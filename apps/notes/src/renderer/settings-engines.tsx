@@ -6,8 +6,8 @@
 import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import type { EngineId, EngineInfo } from '../shared/agent'
-import type { CliId } from '../shared/ai-sources'
-import { healthText } from '../shared/engine-health'
+import type { CliId } from '@cn/ai-engines/shared'
+import { healthText } from '@cn/ai-engines/shared'
 import { EngineLogo } from './engine-logo'
 /** 主进程报的错去掉 Electron 加的前缀 */
 const errText = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')

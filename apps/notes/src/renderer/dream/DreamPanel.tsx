@@ -1,7 +1,6 @@
 import { Codicon, type CodiconName } from '@cn/design'
 import { AiIcon } from '../engine-logo'
-import { ChangeBar, UndoButton } from '@cn/design/answer-bar'
-import '@cn/design/answer-bar.css'
+import { ChangeBar, UndoButton } from '@cn/ai-chat/answer-bar'
 import { t } from '../../shared/i18n'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import type { DreamGroup, DreamItem, DreamReport } from '../../shared/api'

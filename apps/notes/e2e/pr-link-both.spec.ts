@@ -5,13 +5,13 @@
 //  3. ParaRead：阅读页里马上多一条绿色的「定义」；把它换成「想引用」；
 //  4. 画布笔记：那一条变成想引用；右键 ParaRead 划的「重点」删掉；
 //  5. ParaRead：那一条没了。
-// 要先打好两个软件（apps/notes、apps/pararead 各 electron-vite build）；PR_BOTH_PAPER=<一篇论文 PDF>（默认用测试讲义）、PR_BOTH_SHOTS=<截图目录>
+// 要先打好两个软件（apps/notes、apps/pararead 各 electron-vite build）；PR_BOTH_PAPER=<一篇论文 PDF>（默认用下面自带的一页样本）、PR_BOTH_SHOTS=<截图目录>
 import { _electron as electron, expect, type ElectronApplication, type Page, test } from '@playwright/test'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { launch, rail, tabOn } from './app'
-import { LECTURE } from './fixtures/pdf'
+import { lecturePdf } from './fixtures/pdf'
 import { armMenus, pickMenu } from './menu'
 
 test.setTimeout(420_000)
@@ -19,7 +19,29 @@ test.setTimeout(420_000)
 const PR = join(__dirname, '../../pararead')
 const PR_ELECTRON = join(PR, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron')
 const PAPER = process.env.PR_BOTH_PAPER
-const REL = `课程/ecp/${PAPER ? basename(PAPER) : '第3讲 线性映射.pdf'}`
+const REL = `课程/ecp/${PAPER ? basename(PAPER) : 'Attention Budgets.pdf'}`
+/**
+ * 自带的样本（不靠用户的论文）：两边都在第 1 页找「40 个字以上的一行」去拖选，ParaRead 用第 0、2、4 行，画布笔记用第 6 行。
+ * 测试讲义（LECTURE）每页只有两三行短句，找不到（0.5.6 起单跑也挂，收尾清单）；这里第 1 页九行长句，每行自成一段
+ */
+const SAMPLE = lecturePdf([
+  {
+    title: 'Attention Budgets in Small Models',
+    lineGap: 32,
+    lines: [
+      'Small language models spend most of their attention on the last few tokens.',
+      'We measure how much of the budget reaches tokens more than a page away.',
+      'Across six model sizes the share of distant attention stays below four percent.',
+      'Pruning the distant heads costs almost nothing on short reading tasks.',
+      'On long documents the same pruning loses a third of the retrieval accuracy.',
+      'A cheap fix is to keep one distant head per layer and drop the others.',
+      'This keeps retrieval within two points while saving a fifth of the compute.',
+      'We release the probes so that others can repeat the measurement on their data.',
+      'The rest of the paper explains the probes, the models, and the failure cases.',
+    ],
+  },
+  { title: '2 Method', lines: ['Each probe hides one sentence and asks the model to find it again later on.'] },
+])
 const NOTE = REL.replace(/\.pdf$/i, ' 笔记.md')
 const SHOTS = process.env.PR_BOTH_SHOTS
 const shot = async (p: Page, name: string) => {
@@ -64,7 +86,7 @@ async function prSelect(w: Page, n: number): Promise<string> {
 test('两个软件来回切两次：ParaRead 划的、问的画布笔记看得到，画布笔记划的 ParaRead 看得到', async () => {
   test.skip(!existsSync(join(PR, 'out/main/index.js')), '先打 ParaRead：cd apps/pararead && pnpm run build')
   test.skip(!process.env.DEEPSEEK_API_KEY, 'ParaRead 问 AI 要 DEEPSEEK_API_KEY')
-  const run = await launch({ [REL]: PAPER ? readFileSync(PAPER) : LECTURE }, { CN_AI_FAKE: '1' })
+  const run = await launch({ [REL]: PAPER ? readFileSync(PAPER) : SAMPLE }, { CN_AI_FAKE: '1' })
   const { page, vault } = run
   const note = () => (existsSync(join(vault, NOTE)) ? readFileSync(join(vault, NOTE), 'utf8') : '')
   let pr: ElectronApplication | null = null
@@ -103,10 +125,12 @@ test('两个软件来回切两次：ParaRead 划的、问的画布笔记看得�
     await expect.poll(note).toContain('k=confused -->')
     const askText = await prSelect(w, 4)
     await w.locator('.sel-toolbar .tb-btn', { hasText: '问 AI' }).click()
-    const box = w.locator('.chat textarea, .composer textarea').first()
+    // ParaRead 0.2.0 起输入框、回答是共用的 @cn/ai-chat（同 apps/pararead/scripts/e2e/ai-chat.mjs）
+    const box = w.locator('.col-right [data-testid=ai-input] textarea').first()
     await box.fill('用一句话讲这句在说什么')
     await box.press('Enter')
-    await expect(w.locator('.msg-ai').last()).not.toBeEmpty({ timeout: 90_000 })
+    await expect(w.locator('.col-right [data-testid=pr-answer]').last().locator('.txt')).not.toBeEmpty({ timeout: 90_000 })
+    await expect(w.locator('.col-right [data-testid=pr-answer-live]')).toHaveCount(0, { timeout: 90_000 })
     await expect.poll(note, { timeout: 120_000 }).toContain('用一句话讲这句在说什么')
     await shot(w, 'both-1-pararead')
 

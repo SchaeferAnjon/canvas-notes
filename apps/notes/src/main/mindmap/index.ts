@@ -9,7 +9,7 @@ import { homedir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 import * as git from '@cn/git'
 import type { MapNode } from '@cn/format'
-import { INSTALL_HINT, findCli } from '../agent/cli'
+import { INSTALL_HINT, findCli } from '@cn/ai-engines'
 import { visionModel } from '../agent'
 import { INBOX } from '../../shared/layout'
 import {

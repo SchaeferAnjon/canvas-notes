@@ -3,7 +3,7 @@
  * 和右下角圆钮同一个，不用通用的闪光；设置 › AI 换了引擎当场跟着换。不碰 Electron，主进程和界面都用。
  */
 import type { EngineId } from './agent'
-import { type AiFeature, type AiPrefs, FEATURES, resolvePick } from './ai-features'
+import { type AiFeature, type AiPrefs, FEATURES, resolvePick } from '@cn/ai-engines/shared'
 import type { TrEngineId } from './plugins/translate'
 
 /** 画标志的那一家：AI 的各家（命令行、Key、本机模型）和翻译多出来的智谱 */

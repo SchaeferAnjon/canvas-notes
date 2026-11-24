@@ -13,7 +13,7 @@
  * 每种卡长什么样在 cards.tsx。每个动作改的是编辑器里的文字，底部提示带「撤回」。⌘Z / ⇧⌘Z 只撤、重做这块白板自己做过的动作。
  * AI 在这块白板上动手时外圈、顶上提示条、AI 指针由 AiActLayer 画（卡的 data-id 是 unitKeys 的名字，AI 工具用的同一个）。
  */
-import { jumpToChat } from '../chat-jump'
+import { jumpToChat } from '@cn/ai-chat/chat-jump'
 import { Codicon, type CodiconName } from '@cn/design'
 import { trackDrag } from '@cn/design/drag-end'
 import { accelFor, isKey, keyFor } from '../keys'

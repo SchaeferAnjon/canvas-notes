@@ -4,12 +4,13 @@
  *   点「撤回」→ 两个文件一字节不差回到原样；再收下；
  * - 打开那篇日记，⌘点「上斜哑铃卧推」→ 开三分化计划、光标停在那一段；⌘点「双杠臂屈伸」→ 停在第九节；
  * - 解剖课里把第九节的标题改短 → 日记里指着它的链接跟着改；
- * - 日记的右栏「相关」顶上「海德堡 · 建词条页…」→ 点了才建：收件箱多一篇「海德堡」，嵌进欧洲史那一段（画得出来），那段行尾加了块编号；
- *   「撤销」→ 词条页没了、加过块编号的几篇一字节不差。
+ * - 日记的右栏「相关」顶上「海德堡 · 建词条页…」→ 点了才建：库最外层「词条/」多一篇「海德堡」（不再放收件箱），嵌进欧洲史那一段（画得出来），
+ *   那段行尾加了块编号；「撤销」→ 词条页没了、加过块编号的几篇一字节不差。库里有「MOC」文件夹时建在它里面。
+ * - 以前建在收件箱里的词条页：梦游报告里一条「挪进 词条/」，收下才挪，提到它的双链还通（梦游对比滚动这一轮）。
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { expect, type Page, test } from '@playwright/test'
 import { editorText, launch, leftView, openNote, pane, rail, type Running, tabOn, waitSaved } from './app'
 
@@ -114,7 +115,7 @@ test('收下一条 Wiki 链接：原句里的字变成链接（那一节、那�
   await expect.poll(() => caretLine(page)).toContain('双杠臂屈伸身体前倾练胸')
 })
 
-test('词条页只建议、点了才建：右栏「相关」顶上「建词条页…」→ 收件箱多一篇，嵌进那一段（画得出来），那段行尾加块编号；撤销一字节不差', async () => {
+test('词条页只建议、点了才建：右栏「相关」顶上「建词条页…」→ 「词条/」多一篇，嵌进那一段（画得出来），那段行尾加块编号；撤销一字节不差', async () => {
   test.setTimeout(180_000)
   run = await launch(WIKI_FILES, { CN_AI_FAKE: '1', CN_FAKE_WIKI: '1' }, onlyLinks)
   const { page, vault } = run
@@ -129,6 +130,7 @@ test('词条页只建议、点了才建：右栏「相关」顶上「建词条�
   await expect(panel.getByTestId('dream-entry-make')).toHaveText('建词条页')
   await page.screenshot({ path: test.info().outputPath('05-report-entry.png') })
   expect(existsSync(join(vault, '收件箱/海德堡.md'))).toBe(false)
+  expect(existsSync(join(vault, '词条/海德堡.md'))).toBe(false)
   const head0 = git(vault, 'rev-parse', 'HEAD')
 
   // 日记的右栏「相关」顶上一张卡
@@ -147,7 +149,9 @@ test('词条页只建议、点了才建：右栏「相关」顶上「建词条�
   await card.click()
   await expect(card).toContainText('建好了', { timeout: 30_000 })
   await expect(card.getByRole('button', { name: '撤销' })).toBeVisible()
-  const page1 = read(vault, '收件箱/海德堡.md')
+  // 放在库最外层的「词条/」（第一次建时建这个文件夹），收件箱里没有
+  expect(existsSync(join(vault, '收件箱/海德堡.md'))).toBe(false)
+  const page1 = read(vault, '词条/海德堡.md')
   expect(page1).toMatch(/^---\n类型: 词条\n来源: 梦游建议\n---\n# 海德堡\n\n> \[!ai\] 梦游起草的词条/)
   const id = /!\[\[Day-001#\^([a-z][a-z0-9]{5})\]\]/.exec(page1)![1]!
   expect(read(vault, EURO)).toContain(`城堡残垣立在海德堡老城区上方。 ^${id}`)
@@ -179,7 +183,7 @@ test('词条页只建议、点了才建：右栏「相关」顶上「建词条�
   // 撤销：词条页没了，加过块编号的那篇一字节不差，一次提交
   await card.getByRole('button', { name: '撤销' }).click()
   await expect(card).toContainText('建词条页…')
-  expect(existsSync(join(vault, '收件箱/海德堡.md'))).toBe(false)
+  expect(existsSync(join(vault, '词条/海德堡.md'))).toBe(false)
   for (const [p, b] of Object.entries(before)) expect(bytes(vault, p).equals(b), p).toBe(true)
   expect(git(vault, 'log', '-1', '--format=%s').trim()).toBe('撤销：建词条页「海德堡」')
   expect(git(vault, 'status', '--porcelain')).toBe('')
@@ -187,7 +191,7 @@ test('词条页只建议、点了才建：右栏「相关」顶上「建词条�
   // 再建一次，点卡打开词条页：嵌进来的那一段画出来（不露 ![[…]]、不露块编号）
   await card.click()
   await expect(card).toContainText('建好了', { timeout: 30_000 })
-  const id2 = /!\[\[Day-001#\^([a-z][a-z0-9]{5})\]\]/.exec(read(vault, '收件箱/海德堡.md'))![1]!
+  const id2 = /!\[\[Day-001#\^([a-z][a-z0-9]{5})\]\]/.exec(read(vault, '词条/海德堡.md'))![1]!
   await card.click()
   await expect(tabOn(page)).toHaveText('海德堡')
   const emb = pane(page).locator('[data-part="嵌进来的一段"]').filter({ hasText: 'Day-001' })
@@ -204,4 +208,66 @@ test('词条页只建议、点了才建：右栏「相关」顶上「建词条�
   await expect(related(page).getByTestId('related-entry')).toContainText('打开')
   await related(page).getByTestId('related-entry').click()
   await expect(tabOn(page)).toHaveText('海德堡')
+})
+
+/** 建一次「海德堡」词条页：跑梦游、开那篇日记的右栏「相关」、点卡上「建词条页…」 */
+async function makeEntry(page: Page) {
+  await page.evaluate(() => window.cn.dreamNow())
+  await leftView(page, '梦游报告')
+  await expect(report(page).getByTestId('dream-item').filter({ hasText: '「海德堡」' })).toContainText('还没有讲它的一篇', { timeout: 60_000 })
+  await leftView(page, '最近')
+  await openNote(page, '2026-10-18')
+  await rail(page).getByRole('button', { name: /^相关/ }).click()
+  const card = related(page).getByTestId('related-entry')
+  await card.click()
+  await expect(card).toContainText('建好了', { timeout: 30_000 })
+}
+
+test('库里有「MOC」文件夹：词条页建在 MOC/ 里，不另建「词条/」', async () => {
+  test.setTimeout(180_000)
+  run = await launch({ ...WIKI_FILES, 'MOC/首页.md': '# 首页\n\n- [[解剖02-练胸]]\n' }, { CN_AI_FAKE: '1', CN_FAKE_WIKI: '1' }, onlyLinks)
+  const { page, vault } = run
+  await makeEntry(page)
+  expect(read(vault, 'MOC/海德堡.md')).toMatch(/^---\n类型: 词条\n/)
+  expect(existsSync(join(vault, '词条'))).toBe(false)
+  expect(existsSync(join(vault, '收件箱/海德堡.md'))).toBe(false)
+})
+
+test('以前建在收件箱里的词条页：报告里一条「挪进 词条/」，收下才挪，提到它的双链还通', async () => {
+  test.setTimeout(180_000)
+  const OLD = '收件箱/莱茵河.md'
+  const OLD_MD = '---\n类型: 词条\n来源: 梦游建议\n---\n# 莱茵河\n\n> [!ai] 梦游起草的词条 · 测试\n> 从阿尔卑斯山流到北海。\n'
+  const LINKER = '生活/旅行计划.md'
+  run = await launch({ ...WIKI_FILES, [OLD]: OLD_MD, [LINKER]: '# 旅行计划\n\n沿着[[莱茵河]]往北走。\n' }, { CN_AI_FAKE: '1', CN_FAKE_WIKI: '1' }, (v) => {
+    // 只开归类（挪）：词条页的挪动走归类那一套
+    const ud = join(dirname(v), 'user-data')
+    mkdirSync(ud, { recursive: true })
+    writeFileSync(join(ud, 'settings.json'), JSON.stringify({ editor: { semantic: false }, dream: { steps: { file: true, rename: false, link: false, week: false, viz: false, attach: false, dup: false, video: false } } }))
+  })
+  const { page, vault } = run
+  await page.evaluate(() => window.cn.dreamNow())
+  await leftView(page, '梦游报告')
+  const panel = report(page)
+  const it = panel.getByTestId('dream-item').filter({ hasText: '挪进 词条/' })
+  await expect(it).toHaveCount(1, { timeout: 60_000 })
+  await expect(it).toContainText('莱茵河')
+  // 只是建议：还没挪
+  expect(existsSync(join(vault, OLD))).toBe(true)
+  expect(existsSync(join(vault, '词条/莱茵河.md'))).toBe(false)
+  await it.click()
+  await expect(panel.getByTestId('dream-detail')).toContainText('词条')
+  await page.screenshot({ path: test.info().outputPath('09-entry-move.png') })
+  await panel.getByTestId('dream-detail').getByRole('button', { name: '收下', exact: true }).click()
+  await expect(it).toContainText('已收下', { timeout: 30_000 })
+  // 挪过去了，一字不差；收件箱里没了；提到它的那篇的双链还指得到（名字没变）
+  expect(existsSync(join(vault, OLD))).toBe(false)
+  expect(read(vault, '词条/莱茵河.md')).toBe(OLD_MD)
+  expect(read(vault, LINKER)).toContain('[[莱茵河]]')
+  expect(git(vault, 'status', '--porcelain')).toBe('')
+  // ⌘点那篇里的 [[莱茵河]]：开的是「词条/」里那一篇
+  await leftView(page, '最近')
+  await openNote(page, '旅行计划')
+  await pane(page).locator('.cm-wikilink', { hasText: '莱茵河' }).first().click({ modifiers: ['Meta'] })
+  await expect(tabOn(page)).toHaveText('莱茵河')
+  await expect(pane(page).locator('.cm-content')).toContainText('从阿尔卑斯山流到北海')
 })

@@ -243,3 +243,31 @@ it('标题改了名：别的篇里指着旧标题的 [[这篇#旧标题]] 跟着
   expect((await v.write('解剖02.md', after.replace('## 九、双杠臂屈伸\n\n', ''), after)).ok).toBe(true)
   expect(readFileSync(join(root, '日记.md'), 'utf8')).toContain('[[解剖02#九、双杠臂屈伸|双杠臂屈伸]]')
 })
+
+it('盘上刚被改过、监听还没对账时别处读一下（右栏笔记、疑问卡、名词卡）：照样报给开着的编辑器，不被这一下读吞掉', async () => {
+  writeFileSync(join(root, '第3讲 笔记.md'), '# 第3讲 笔记\n\n见 [[甲]]。\n')
+  writeFileSync(join(root, '别的.md'), '# 别的\n')
+  // 编辑器打开这一篇
+  await v.read('第3讲 笔记.md')
+  const changed: string[] = []
+  let files = 0
+  v.watch(
+    (_rel, text) => changed.push(text),
+    () => files++,
+  )
+  try {
+    // 监听真的在听了（改一篇别的，等它报「文件变了」）再开始
+    await vi.waitFor(() => {
+      writeFileSync(join(root, '别的.md'), `# 别的\n\n${Date.now()}\n`)
+      expect(files).toBeGreaterThan(0)
+    }, { timeout: 10_000, interval: 200 })
+    // 外面改了（甲改名成乙，别处的双链改好），对账前马上有一处读了它
+    writeFileSync(join(root, '第3讲 笔记.md'), '# 第3讲 笔记\n\n见 [[乙]]。\n')
+    expect((await v.read('第3讲 笔记.md')).text).toContain('[[乙]]')
+    expect(await v.peek('第3讲 笔记.md')).toContain('[[乙]]')
+    await vi.waitFor(() => expect(changed).toEqual(['# 第3讲 笔记\n\n见 [[乙]]。\n']), { timeout: 10_000 })
+    expect(await v.peek('没有.md')).toBeNull()
+  } finally {
+    v.close()
+  }
+})

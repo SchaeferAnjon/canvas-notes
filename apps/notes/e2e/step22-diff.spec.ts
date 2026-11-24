@@ -183,7 +183,7 @@ test('CN-46 历史文件行：双击打开这篇；右键「打开 · 在新标�
   }
 })
 
-test('CN-57/63 + task-m552v 梦游报告：每处改动一行人话（不再铺源码），点了中间开梦游对照：左列「现在的 · main」、右列「收下后」；周记左边写 main 上还没有；可能重复两篇并排', async () => {
+test('CN-57/63 + task-m552v 梦游报告：每处改动一行人话（不再铺源码），点了中间开梦游对照：左列「现在的 · main」、右列「收下后」；周记（新建的）照历史只有一列这一版全文；可能重复两篇并排', async () => {
   const run = await launch(DREAM_VAULT, { CN_AI_FAKE: '1' })
   const { page } = run
   try {
@@ -205,15 +205,15 @@ test('CN-57/63 + task-m552v 梦游报告：每处改动一行人话（不再铺�
     await expect(detail.locator('.dl')).toHaveCount(0)
     await change.click()
     await expect(tabOn(page)).toHaveText('梦游 · 极光')
-    await expect(dt.getByTestId('dream-cols')).toHaveText(`现在的 · main收下后 · ${branch}`)
+    await expect(dt.locator('.dv-cols')).toHaveText(`现在的 · main收下后 · ${branch}`)
     await expect(page.getByTestId('tab-acts').getByTestId('page-note')).toHaveText('梦游 · 还没收下')
     await shotWindow(run, 'cn57-dream-diff')
 
-    // 周记：新建的 md，左边写 main 上还没有、右边这一版全文（文档样子）
+    // 周记：新建的 md，照历史只有一列这一版全文（文档样子；2026-11-24 起对照就是历史那一套）
     await panel.getByTestId('dream-item').filter({ hasText: '周记' }).click()
     await expect(detail.getByTestId('dream-change')).toContainText('新建 周记/')
     await detail.getByTestId('dream-change').click()
-    await expect(dt.getByTestId('dream-void')).toContainText('main 上还没有这个文件')
+    await expect(dt.locator('.dv-cols')).toHaveText('这一版全文')
     await expect(dt.locator('.cm-line', { hasText: '这周主要在准备冰岛自驾' })).toBeVisible()
     // 换掉的是同一个预览标签
     await expect(page.locator('[data-testid="dream-tab"]')).toHaveCount(1)

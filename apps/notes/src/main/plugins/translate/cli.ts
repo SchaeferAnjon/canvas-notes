@@ -1,6 +1,6 @@
 /**
  * 翻译用的本机 AI 命令行：在不在、登录没有（不真的问 AI，只看命令和登录凭据），问一次（不给工具）。
- * 和 AI 浮窗用同一套接法（agent/engines.ts），但各起各的进程，工作目录是插件自己的文件夹（没有库里的 CLAUDE.md 掺进来）。
+ * 和 AI 浮窗用同一套接法（@cn/ai-engines 的 engines.ts），但各起各的进程，工作目录是插件自己的文件夹（没有库里的 CLAUDE.md 掺进来）。
  * CN_AI_FAKE=1 时是假的：CN_TR_FAKE_CLI 定每个命令行的状态（claude=ok,codex=login,…，没写的算能用），
  * CN_TR_FAKE_FAIL 让某个命令行回一句错（claude=Not logged in · Please run /login;codex=…）。
  */
@@ -8,9 +8,8 @@ import { execFileSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { CliId as EngineId } from '../../../shared/ai-sources'
-import { findCli } from '../../agent/cli'
-import { claudeEngine, codexEngine, type Engine, geminiEngine, opencodeEngine } from '../../agent/engines'
+import type { CliId as EngineId } from '@cn/ai-engines/shared'
+import { claudeEngine, codexEngine, type Engine, findCli, geminiEngine, opencodeEngine } from '@cn/ai-engines'
 import type { CliBackend } from '../host'
 import { fakeAnswer } from './fake'
 

@@ -1,6 +1,6 @@
 import { app, autoUpdater as nativeUpdater, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeTheme, session, shell } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { dirname, extname, join, resolve } from 'node:path'
 import * as git from '@cn/git'
@@ -48,7 +48,8 @@ import { registerNoteAttach } from './note-attach'
 import { registerOrphans } from './orphan-attach'
 import { readPins, repin } from './pins'
 import { setupQuick } from './quick'
-import { E2E, guardScreen } from './test-mode'
+import { E2E, guardScreen, quitLog } from './test-mode'
+import { capNetworkWait, flushCookies } from './quit-fast'
 import { RollingLog, shareLog } from './crash-log'
 import { revealLogs, setupCrashLog, watchWindow } from './crash-watch'
 import { Updater } from './updater'
@@ -948,7 +949,7 @@ app.whenReady().then(async () => {
     prefs: () => settings.app().general,
     topItems: readyItems,
   })
-  await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault, downloads: () => settings.app().web.downloads })
+  await setupWeb({ partition: WEB_PARTITION, window: () => win, vault: () => vault, downloads: () => settings.app().web.downloads, keepRecent: () => settings.app().web.keepRecent })
   setupPlugins({ window: () => win, vault: () => vault })
   setupReading({ win: () => win, vault: () => vault })
   setupSearch({ win: () => win, vault: () => vault, semantic: () => settings.app().editor.semantic })
@@ -1191,9 +1192,6 @@ function buildMenu() {
   )
 }
 
-// 测试模式：退出的每一步记进设置目录的 quit.log（端到端测试关软件卡住时看卡在哪一步）
-const quitLog = (what: string) => E2E && appendFileSync(join(app.getPath('userData'), 'quit.log'), `${Date.now()} ${what}\n`)
-
 /**
  * 退出途中主进程里再抛出来的错（包括没人接的 Promise 失败）只记下来，不弹 Electron 默认的「A JavaScript error occurred in the main process」框。
  * 那个框是模态的：退出途中弹出来，软件就停在框上退不出去（端到端测试里窗口在屏幕外，没人点，一直挂着），
@@ -1314,6 +1312,8 @@ app.on('before-quit', (e) => {
       quitLog(`没提交上：${commitErrorText(String((err as { stderr?: string }).stderr || (err as Error).message))}`)
     }
     // 窗口直接销毁，不走网页的卸载：右栏网页（视频页、框着问过的页）偶尔卸载不完，窗口就一直关不掉。字都存过、提交过了，销毁不丢东西
+    // 网络进程收尾前先把 cookie 写盘：退出时它要是没自己退，0.8 秒后会被直接杀掉（quit-fast.ts）
+    quitLog(`cookie ${await flushCookies([WEB_PARTITION])}`)
     for (const w of BrowserWindow.getAllWindows()) w.destroy()
     app.quit()
   })
@@ -1354,6 +1354,8 @@ function pushSync(root: string): string {
   }
 }
 app.on('quit', () => quitLog('quit'))
+// 主进程的 JS 到这里就收尾了；之后是 Chromium 自己收尾（等网络进程，见 quit-fast.ts）
+if (E2E) process.on('exit', () => quitLog('主进程 exit'))
 // 软件自己的窗口（主窗口、速记小窗）里界面没接管的右键（输入框、选了字）：标准编辑菜单
 app.on('browser-window-created', (_e, w) => attachEditMenu(w.webContents))
 
@@ -1366,7 +1368,10 @@ app.on('window-all-closed', () => {
 })
 
 app.on('will-quit', () => {
-  quitLog('will-quit')
+  quitLog(`will-quit（子进程：${app.getAppMetrics().filter((m) => m.type !== 'Browser').map((m) => m.serviceName || m.name || m.type).join('、')}）`)
   globalShortcut.unregisterAll()
   vault?.close()
+  // Chromium 收尾时最多等网络进程 10 秒，机器忙时常常等满：过 0.8 秒它还在就杀掉（quit-fast.ts）
+  const net = capNetworkWait()
+  if (net) quitLog(net)
 })

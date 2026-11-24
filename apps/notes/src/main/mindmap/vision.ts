@@ -1,10 +1,9 @@
 /**
  * 让 Claude Code 看一张照片：claude -p --input-format stream-json，用户消息里放一张 base64 的图和一段话。
- * 不给任何工具、答一次、不留会话记录（参数和 / 命令的一次性问答一样，见 agent/engines.ts 的 claudeArgs）。
+ * 不给任何工具、答一次、不留会话记录（参数和 / 命令的一次性问答一样，见 @cn/ai-engines 的 engines.ts 里的 claudeArgs）。
  */
 import { spawn } from 'node:child_process'
-import { claudeArgs, CLAUDE_MODEL } from '../agent/engines'
-import { cliEnv } from '../agent/cli'
+import { CLAUDE_MODEL, claudeArgs, cliEnv } from '@cn/ai-engines'
 
 export interface VisionRun {
   exe: string

@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useT } from '../i18n'
 import { composing } from '../ime'
-import { useDismiss } from '../use-dismiss'
+import { useDismiss } from '@cn/ai-chat/use-dismiss'
 
 export interface PickItem {
   key: string

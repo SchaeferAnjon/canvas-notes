@@ -1,4 +1,4 @@
-import { _electron as electron, expect, type ElectronApplication, type Page } from '@playwright/test'
+import { _electron as electron, expect, type ElectronApplication, type Page, test } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -68,6 +68,8 @@ export async function launch(
   // 库名画出来时，React 的 effect（⌘F、⌘, 这些快捷键的监听）可能还没挂上；机器忙时紧接着按的第一个快捷键会丢（十次里两三次）。
   // 等两帧再交给测试
   await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 0)))))
+  // 用系统剪贴板的测试（playwright.config.ts 的 clipboard 一组，一条一条跑）：先存下本机剪贴板里原来的，关软件前还回去
+  const clip = test.info().project.name === 'clipboard' ? await saveClipboard(app) : null
   return {
     app,
     page,
@@ -76,6 +78,7 @@ export async function launch(
     userData,
     launchedAt,
     async close(opts: { keep?: boolean } = {}) {
+      if (clip) await restoreClipboard(app, clip)
       // 关不掉时别把整条测试的时间耗完：20 秒还没退出就杀掉，报出退出卡在哪一步（软件在 quit.log 里记的）
       const proc = app.process()
       let timer: NodeJS.Timeout | undefined
@@ -88,15 +91,19 @@ export async function launch(
         const log = existsSync(join(userData, 'quit.log')) ? readFileSync(join(userData, 'quit.log'), 'utf8').trim().replace(/\n/g, ' → ') : '（没有 quit.log）'
         // 它这会儿起着的子进程（卡在哪个 git 命令上）
         // 机器上进程多（几千个、命令行很长）时 ps 的输出超过默认 1MB，execFileSync 报 ENOBUFS 盖掉真正的「没退出」
-        const ps = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,etime=,command='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
-          .split('\n')
+        const all = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,etime=,command='], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\n')
+        const ps = all
           .filter((l) => l.trim().split(/\s+/)[1] === String(proc.pid))
           .map((l) => l.trim().slice(0, 200))
           .join(' | ')
-        console.error(`[关不掉] ${log} · 子进程：${ps}`)
+        // 主进程已经没了、Playwright 还在等：多半是没收拾掉的子进程（成了孤儿、还攥着输出管道），按设置目录找出来（大库提速）
+        const mainAlive = all.some((l) => l.trim().split(/\s+/)[0] === String(proc.pid))
+        const left = all.filter((l) => l.includes(`--user-data-dir=${userData}`)).map((l) => `${l.trim().split(/\s+/).slice(0, 3).join(' ')} ${l.match(/--type=\S+/)?.[0] ?? ''}`)
+        const where = `主进程${mainAlive ? '还在' : '已经没了'}；子进程：${ps || '无'}${left.length ? `；带这个设置目录的进程：${left.join(' | ')}` : ''}`
+        console.error(`[关不掉] ${log} · ${where}`)
         proc.kill('SIGKILL')
         rmSync(root, { recursive: true, force: true, maxRetries: 5 })
-        throw new Error(`软件 20 秒没退出，退出走到：${log}；子进程：${ps || "无"}`)
+        throw new Error(`软件 ${process.env.CN_E2E_QUIT_WAIT ?? 20} 秒没退出，退出走到：${log}；${where}`)
       }
       if (opts.keep) return
       // 大库（几千个文件）删的时候系统可能还在写别的东西，删不干净就再试几次
@@ -104,6 +111,34 @@ export async function launch(
     },
   }
 }
+
+/** 本机剪贴板里的东西：每一项的每一种（text/plain、text/html、image/png……）存成 base64；书签另存 */
+export type SavedClipboard = { type: string; data?: string; bookmark?: { title: string; url: string } }[][]
+
+/** 存下本机剪贴板（用它的测试开始前） */
+export const saveClipboard = (app: ElectronApplication): Promise<SavedClipboard> =>
+  app.evaluate(async ({ clipboard }) =>
+    Promise.all(
+      (await clipboard.read()).map((item) =>
+        Promise.all(
+          item.types.map(async (type) => {
+            const v = await item.getType(type)
+            return v instanceof Blob ? { type, data: Buffer.from(await v.arrayBuffer()).toString('base64') } : { type, bookmark: v as { title: string; url: string } }
+          }),
+        ),
+      ),
+    ),
+  )
+
+/** 还回去（用它的测试结束时）；原来是空的就清空 */
+export const restoreClipboard = (app: ElectronApplication, s: SavedClipboard): Promise<void> =>
+  app.evaluate(async ({ clipboard, ClipboardItem }, s) => {
+    clipboard.clear()
+    const items = s
+      .filter((parts) => parts.length)
+      .map((parts) => new ClipboardItem(Object.fromEntries(parts.map((p) => [p.type, p.bookmark ?? new Blob([Buffer.from(p.data!, 'base64')], { type: p.type })]))))
+    if (items.length) await clipboard.write(items)
+  }, s)
 
 /** 窗口最右边的竖条（网页、梦游、历史） */
 export const rail = (page: Page) => page.getByRole('navigation', { name: '右栏' })

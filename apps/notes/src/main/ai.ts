@@ -5,7 +5,7 @@
  */
 import { appendFileSync } from 'node:fs'
 import type { EngineId } from '../shared/agent'
-import type { AiFeature } from '../shared/ai-features'
+import type { AiFeature } from '@cn/ai-engines/shared'
 import { fakeCmdAnswer } from '../shared/cmd-run'
 import { fakeDistill } from '../shared/distill'
 import { ask as engineAsk, askFast as engineAskFast, askWith, chatRun } from './agent'
@@ -13,7 +13,7 @@ import { fakeJudge, isJudgePrompt } from './dream-judge'
 import { isWikiPrompt } from '../shared/wiki-judge'
 import { fakeEntry, fakeEntryLinks, isEntryLinkPrompt, isEntryPrompt } from '../shared/wiki-entry'
 import { fakeWiki } from './wiki-fake'
-import type { EngineImage } from './agent/engines'
+import type { EngineImage } from '@cn/ai-engines'
 
 /**
  * 这一问用哪家、哪个模型、想多久（/ 命令照 AI 输入框底行选的走，task-0fhyo）；images：一起给的图（截图转成文字）。

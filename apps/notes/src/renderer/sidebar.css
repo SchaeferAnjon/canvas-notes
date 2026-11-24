@@ -83,3 +83,84 @@
 .si.s-fold .c {
   margin-left: auto;
 }
+/*
+ * 「最近」里打开过的 PDF、HTML、看过的网页（2026-11-24）：两行，名字一行占满（默认栏宽 248 也露十几个字）；
+ * 第二行小字 --t3：类型 · 问到第几页 · 时间（网页：网页 · 域名 · 时间），右端「笔记」
+ */
+/* 比 shell.css 的 .frame-a/.frame-b > .side .si（定死 24 / 28 高）更具体 */
+.side .nav .si.s-rec {
+  height: auto;
+  min-height: 0;
+  padding: 5px 10px;
+  align-items: flex-start;
+  cursor: default;
+}
+.si.s-rec > svg {
+  flex: none;
+  margin-top: 1px;
+}
+.s-rec .s-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.s-rec .s-main {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  line-height: 18px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.s-rec .s-sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 18px;
+  font-size: 11px;
+  color: var(--t3);
+  white-space: nowrap;
+}
+.s-rec .s-sub > * {
+  flex: none;
+}
+.s-rec .s-host {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.s-rec .s-sub .c {
+  margin-left: 0;
+  font-size: 11px;
+}
+.s-rec .s-prog {
+  display: flex;
+  align-items: center;
+  font-family: var(--mono);
+}
+.s-rec .s-prog .done {
+  color: var(--green);
+}
+.s-rec .s-note {
+  margin-left: auto;
+  height: 18px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  font-size: 12px;
+  color: var(--t3);
+}
+.s-rec .s-note:hover {
+  background: var(--fill2);
+  color: var(--t2);
+}

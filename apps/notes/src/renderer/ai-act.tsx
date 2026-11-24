@@ -8,8 +8,7 @@
  * - 「AI」小指针（20 的箭头 + 右下一个「AI」小胶囊）每去拿一样东西先移过去（0.55 秒），到了那样东西边上跑一圈光，挪的时候跟着走。
  * 主进程在 ai:act 里说（ai-act-store.ts 记着）。网页里的指针和「✂ 剪成卡片」画在网页自己里面（main/agent/web.ts）。
  */
-import { UndoButton } from '@cn/design/answer-bar'
-import '@cn/design/answer-bar.css'
+import { UndoButton } from '@cn/ai-chat/answer-bar'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Codicon } from '@cn/design'
 import type { AiActArea } from '../shared/agent'

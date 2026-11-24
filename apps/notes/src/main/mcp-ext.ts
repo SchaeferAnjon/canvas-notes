@@ -18,7 +18,7 @@ import { runTool, type ToolHost } from '../mcp/tools'
 import { serveWire, type WireRequest, type WireResult } from '../mcp/wire'
 import { MCP_CLIENTS, type McpCall, type McpClientId, type McpLaunch, type McpRow, type McpView } from '../shared/mcp'
 import type { MeaningHit, SearchStatus } from '../shared/search'
-import { findCli } from './agent/cli'
+import { findCli } from '@cn/ai-engines'
 import { E2E } from './test-mode'
 import type { Vault } from './vault'
 

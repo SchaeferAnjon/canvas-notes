@@ -8,7 +8,7 @@ import { _electron as electron, expect, test, type Locator, type Page } from '@p
 import { readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import electronPath from 'electron'
-import { gitStatus, launch, tabOn } from './app'
+import { gitStatus, launch, openAi, tabOn } from './app'
 import { LECTURE } from './fixtures/pdf'
 import { MAP, MAP_PATH } from './fixtures/mindmap-b1'
 import { armMenus, openedMenu, pickMenu } from './menu'
@@ -372,6 +372,35 @@ test('窗口窄于 1200：「对照看」收进「⋯」，标签条给标签让
     await acts.getByRole('button', { name: '收回对照' }).click()
     await expect(center(page)).not.toHaveClass(/\bsplit\b/)
     await expect(acts.getByRole('button', { name: '对照看：另一格用白板开这一篇' })).toBeVisible()
+  } finally {
+    await run.close()
+  }
+})
+
+test('⌃\\ 分屏再合回：AI 输入框、文档里 ⌘[ 退到上一篇（不在同一篇的两份之间换），⌘] 再回来', async () => {
+  const run = await launch(files)
+  const { page } = run
+  try {
+    await open(page, '甲')
+    await open(page, '乙')
+    // 分出去的是乙的一份复制，合回以后标签条上两个「乙」，历史里也挨着记着
+    await page.keyboard.press('Control+Backslash')
+    await expect(center(page)).toHaveClass(/\bsplit\b/)
+    await page.keyboard.press('Control+Backslash')
+    await expect(center(page)).not.toHaveClass(/\bsplit\b/)
+    expect(await names(list1(page))).toEqual(['首页', '甲', '乙', '乙'])
+    await openAi(page)
+    const ask = page.getByRole('textbox', { name: '问 AI' })
+    await ask.click()
+    await expect(ask).toBeFocused()
+    await page.keyboard.press('Meta+BracketLeft')
+    await expect(tabOn(page)).toHaveText('甲')
+    await page.keyboard.press('Meta+BracketRight')
+    await expect(tabOn(page)).toHaveText('乙')
+    // 文档里按也一样
+    await slot(page, 0).locator('.cm-content').click()
+    await page.keyboard.press('Meta+BracketLeft')
+    await expect(tabOn(page)).toHaveText('甲')
   } finally {
     await run.close()
   }

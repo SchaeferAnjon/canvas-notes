@@ -23,7 +23,8 @@ const names = (s: Locator) => s.locator('.pal-row .nm').allTextContents()
 const row = (page: Page, name: string) => pal(page).locator('.pal-row').filter({ has: page.locator('.nm', { hasText: new RegExp(`^${name}$`) }) }).first()
 const toast = (page: Page) => pal(page).locator('.pal-toast')
 const menu = (page: Page) => page.getByRole('menu').filter({ has: page.locator('.pal-mhead') })
-const cmdsJson = (run: Running) => JSON.parse(readFileSync(join(run.vault, '.canvas-notes/命令.json'), 'utf8')) as Record<string, unknown>
+/** 库里的 命令.json；还没写到盘上时是空的（提示先出、文件随后写，等它的地方都用 expect.poll） */
+const cmdsJson = (run: Running) => (existsSync(join(run.vault, '.canvas-notes/命令.json')) ? JSON.parse(readFileSync(join(run.vault, '.canvas-notes/命令.json'), 'utf8')) : {}) as Record<string, unknown>
 
 async function openPal(page: Page) {
   await page.keyboard.press('Meta+k')
@@ -265,8 +266,8 @@ test('加一条自己的命令（打开一处）：放进钉住的，点了打�
     await form.getByRole('button', { name: '加上' }).click()
     await expect(toast(page)).toContainText('加上了「打开 写作」')
     expect(await names(sec(page, '钉住的'))).toEqual(['新建笔记', '问AI', '按名字跳到…', '打开 写作'])
-    const own = (cmdsJson(run).own as { name: string; kind: string; target: string }[])[0]!
-    expect(own).toMatchObject({ name: '打开 写作', kind: 'open', target: '写作' })
+    // 提示是加上的当下出的，命令.json 随后才写到盘上：等写好再读
+    await expect.poll(() => (cmdsJson(run).own as unknown[] | undefined)?.[0]).toMatchObject({ name: '打开 写作', kind: 'open', target: '写作' })
     // 自己加的：菜单里多「改这条命令…」「删掉这条」
     await row(page, '打开 写作').click({ button: 'right' })
     await expect(menu(page).getByRole('menuitem')).toHaveText(['钉住⌘P'.replace('钉住', '取消钉住'), '挪到', '设快捷键…', '起别名…xz', '改这条命令…', '删掉这条', '藏起⌘⌫'])

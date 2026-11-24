@@ -1,5 +1,5 @@
 // 用本机真的 AI 命令行梦游一次（task-m552v），在照用户样子造的临时库上（PDF 和它的笔记、以前做的可视化 HTML、剪藏、收件箱里几篇），
-// 从头走一遍梦游报告：点条目、对照、只看改动里展开、打开「文件名」、收下后的样子、收下、丢掉、撤回、笔记里嵌着的可视化能拖。
+// 从头走一遍梦游报告：点条目、对照（历史那一套）里展开、打开「文件名」、收下、丢掉、撤回、笔记里嵌着的可视化能拖。
 // 要联网、花一点额度，平时跳过：
 //   env -i HOME="$HOME" USER="$USER" LOGNAME="$LOGNAME" PATH="$PATH" TMPDIR="$TMPDIR" ANTHROPIC_API_KEY="$(dispatch env get CN_TEST_ANTHROPIC_API_KEY)" CN_REAL_AI=1 npx playwright test e2e/real-m552v-dream.spec.ts
 // （在 Claude Code 的终端里跑要像上面这样去掉父会话的 CLAUDE_* 环境变量；用测试的 API key，不占订阅的每周额度，key 只在运行时读；
@@ -72,7 +72,7 @@ const OLD_HTML = '<!doctype html><html><head><meta charset="utf-8"><title>五个
 
 const item = (panel: ReturnType<Page['getByRole']>, t: string | RegExp) => panel.getByTestId('dream-item').filter({ hasText: t })
 
-test(`真 AI（${ENGINE === 'codex' ? 'Codex' : 'Claude Code'}）梦游一次，从头走一遍报告：点条目、对照、展开、打开、收下后的样子、收下、丢掉、撤回、嵌着的可视化能拖`, async () => {
+test(`真 AI（${ENGINE === 'codex' ? 'Codex' : 'Claude Code'}）梦游一次，从头走一遍报告：点条目、对照、展开、打开、收下、丢掉、撤回、嵌着的可视化能拖`, async () => {
   const since = Date.now()
   const run = await launch(DREAM2_VAULT, { CN_AI_MODEL: 'sonnet' }, (vault) => {
     prepareDream2(vault)
@@ -108,20 +108,17 @@ test(`真 AI（${ENGINE === 'codex' ? 'Codex' : 'Claude Code'}）梦游一次，
     await expect(panel.getByTestId('dream-progress').locator('button')).toHaveCount(report.items.length)
     await shot(run, 'real-01-report')
 
-    // 可视化那条（真 AI 做出来才有）：笔记整篇并排、小地图、HTML 就是那张图、收下后的样子、收下、笔记里嵌着能拖
+    // 可视化那条（真 AI 做出来才有）：笔记的对照、HTML 就是那张图、收下、笔记里嵌着能拖
     const viz = report.items.find((i) => i.group === 'viz')
     if (viz) {
       await item(panel, viz.title).click()
       await expect(dt.getByTestId('dream-fbar')).toContainText('笔记')
-      await expect(dt.getByTestId('dream-minimap').locator('.mm-m').first()).toBeVisible()
+      await expect(dt.locator('.cm-merge-b .cm-changedLine').first()).toBeVisible()
       await shot(run, 'real-02-viz-note')
       await dt.getByTestId('dream-file').filter({ hasText: '.html' }).click()
       await expect(dt.locator('[data-testid="viz-frame"]')).toBeVisible()
       await expect(dt.getByTestId('dream-open')).toContainText('梦游分支上的')
       await shot(run, 'real-03-viz-html')
-      await acts(page).getByRole('tab', { name: '收下后的样子' }).click()
-      await shot(run, 'real-04-viz-after')
-      await acts(page).getByRole('tab', { name: '对照' }).click()
       await dt.getByRole('button', { name: '收下', exact: true }).click()
       await expect(item(panel, viz.title)).toContainText('已收下', { timeout: 60_000 })
       const md = readFileSync(join(vault, NOTE), 'utf8')
@@ -147,19 +144,17 @@ test(`真 AI（${ENGINE === 'codex' ? 'Codex' : 'Claude Code'}）梦游一次，
       await leftView(page, '梦游报告')
     }
 
-    // 补双链那条：整篇里末尾那一行；只看改动里折起的一下就开
+    // 补双链那条：末尾那一行；折起的「展开没改的 N 行」一下就开
     const link = report.items.find((i) => i.group === 'link' && i.state === 'pending')
     if (link) {
       await item(panel, link.title).first().click()
       await expect(dt.locator('.cm-merge-b .cm-changedLine').first()).toBeVisible()
-      await acts(page).getByRole('tab', { name: '只看改动' }).click()
-      const fold = dt.locator('.dv-fold:not(.mute)').first()
+      const fold = dt.locator('.cm-merge-b .cm-collapsedLines').first()
       if (await fold.count()) {
-        const n = await dt.locator('.dv-fold:not(.mute)').count()
+        const n = await dt.locator('.cm-merge-b .cm-collapsedLines').count()
         await fold.click()
-        await expect(dt.locator('.dv-fold:not(.mute)')).toHaveCount(n - 1)
+        await expect(dt.locator('.cm-merge-b .cm-collapsedLines')).toHaveCount(n - 1)
       }
-      await acts(page).getByRole('tab', { name: '整篇' }).click()
       await shot(run, 'real-07-link')
     }
 

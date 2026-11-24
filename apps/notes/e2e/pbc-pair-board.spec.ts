@@ -208,15 +208,15 @@ test('什么都没选，写一个词开费曼：那一列出在画面里（不�
     await pop.getByTestId('fy-start-go').click()
     const c = pane(page).getByTestId('fy-col')
     await expect(c).toBeVisible({ timeout: 15_000 })
-    await page.waitForTimeout(800)
-    const w = (await board(page).locator('.board-wrap').boundingBox())!
-    const r = (await c.boundingBox())!
-    expect(r.x).toBeGreaterThanOrEqual(w.x)
-    expect(r.x + r.width).toBeLessThanOrEqual(w.x + w.width)
-    expect(r.y).toBeGreaterThanOrEqual(w.y)
-    expect(r.y).toBeLessThan(w.y + w.height / 2)
+    // 白板平移过去是一段动画：等它停在画面里（以前固定等 0.8 秒，机器忙时动画还没走完就量）
+    const where = async () => {
+      const w = (await board(page).locator('.board-wrap').boundingBox())!
+      const r = (await c.boundingBox())!
+      return { left: r.x >= w.x, right: r.x + r.width <= w.x + w.width, top: r.y >= w.y, upper: r.y < w.y + w.height / 2 }
+    }
+    await expect.poll(where, { timeout: 10_000 }).toEqual({ left: true, right: true, top: true, upper: true })
     // 写进文件的位置行就在这一列现在的地方
-    expect(read(run, PB_NOTE)).toMatch(/<!-- column id=c\d+ x=\d+ y=\d+ -->\n## 费曼 · 范数/)
+    await expect.poll(() => read(run, PB_NOTE)).toMatch(/<!-- column id=c\d+ x=\d+ y=\d+ -->\n## 费曼 · 范数/)
   } finally {
     await run.close()
   }

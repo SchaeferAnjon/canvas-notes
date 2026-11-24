@@ -247,9 +247,14 @@ test('网页图右键：「问 AI 这张图」附进右栏开着的 AI 输入框
   }
 })
 
-test('网页图右键「拷贝图片」，再点进 AI 输入框按 ⌘V：成为一块「粘贴的图」（真按一次 ⌘V，用系统剪贴板）', async () => {
+test('网页图右键「拷贝图片」，再点进 AI 输入框按 ⌘V：成为一块「粘贴的图」（真按一次 ⌘V，用系统剪贴板）；测完本机剪贴板还回原来的', async () => {
+  // 先开一个软件当「用户」：剪贴板里放一句用户原来拷的字（它自己开、关时也照样先存后还用户真的剪贴板）
+  const user = await launch({ '收件箱/一篇.md': '# 一篇\n' })
+  const mine = '用户原来拷的一句'
+  await user.app.evaluate(({ clipboard }, t) => clipboard.writeText(t), mine)
   const run = await launch({ '学习笔记.md': '# 学习笔记\n\n第一段。\n' }, { CN_AI_FAKE: '1' })
   const { page } = run
+  let open = true
   try {
     await armMenus(run)
     await openNote(page, '学习笔记')
@@ -269,7 +274,12 @@ test('网页图右键「拷贝图片」，再点进 AI 输入框按 ⌘V：成�
     await expect(chips).toHaveCount(1)
     await expect(chips.nth(0)).toHaveAttribute('data-src', '粘贴的图')
     await expect.poll(() => chips.nth(0).locator('img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(120)
-  } finally {
+    // 关掉这条测试的软件：剪贴板里不再是那张图，还是用户原来那句（收尾清单：以前会盖掉本机剪贴板）
     await run.close()
+    open = false
+    expect(await user.app.evaluate(async ({ clipboard }) => ({ text: await clipboard.readText(), image: await clipboard.has('image/png') }))).toEqual({ text: mine, image: false })
+  } finally {
+    if (open) await run.close()
+    await user.close()
   }
 })

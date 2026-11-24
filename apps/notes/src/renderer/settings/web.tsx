@@ -58,6 +58,9 @@ export function WebPage(props: SettingsProps) {
         <Row id="ext">
           <Lnk onClick={() => props.onGoPlace('web-extensions')}>{t('在网页「⋯ › 插件」里管')}</Lnk>
         </Row>
+        <Row id="keepRecent">
+          <Toggle on={w.keepRecent} label={t('记下看过的网页')} onChange={(v) => set('keepRecent', v, v ? t('右栏看过的网页记进左栏「最近」') : t('不再记看过的网页；「最近」里也不列'))} />
+        </Row>
       </Group>
       <Group title={t('下载')}>
         <Row id="dlDir">

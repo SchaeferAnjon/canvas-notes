@@ -26,6 +26,8 @@ export class Vault {
   private index = new Map<string, string>()
   /** index 里是不是已经有库里所有的文件（list() 跑完一遍才算） */
   private indexed = false
+  /** 第一次（冷的、要读每一篇）正在列的那一趟：同时来的都等它 */
+  private cold: Promise<NoteFile[]> | null = null
   /** 刚在外面没了的文件（访达里改名、同步盘挪走的那一半）：几秒内同样内容的新文件出现，就当成改了名 */
   private gone = new Map<string, { text: string; t: number }>()
   /**
@@ -138,8 +140,16 @@ export class Vault {
    * 库里所有 md 的说明，新改的在前。
    * 大库（几千篇）每次全读一遍太慢：按「修改时间 + 大小」缓存每篇的说明，没变的不再读；
    * 读到的全文顺手放进搜索缓存，⌘F 第一次搜不用再读一遍。
+   * 第一次列要把每篇读一遍：开库时左栏、待办三处、目录树同时要（list / texts），以前各读各的，真库副本 3049 篇
+   * 五趟一起读要 3.8 到 4.2 秒（单读一趟 0.6 秒），所以同时来的合成一趟（大库提速）；以后再列只 stat，各列各的
    */
   async list(): Promise<NoteFile[]> {
+    if (this.indexed) return this.listNow()
+    this.cold ??= this.listNow().finally(() => (this.cold = null))
+    return (await this.cold).slice()
+  }
+
+  private async listNow(): Promise<NoteFile[]> {
     const paths: string[] = []
     const walk = async (dir: string) => {
       const subs: Promise<void>[] = []
@@ -154,9 +164,20 @@ export class Vault {
     }
     await walk(this.root)
     const out: NoteFile[] = []
-    // 一次最多同时开 64 个文件，几千篇也不会把文件句柄用完
-    for (let i = 0; i < paths.length; i += 64) {
-      for (const f of await Promise.all(paths.slice(i, i + 64).map((p) => this.describeCached(p)))) if (f) out.push(f)
+    // 先一口气 stat 全部（不开文件，不占句柄）：以前 64 篇一批等完再下一批，7000 篇要排 110 轮，机器忙时每轮都要等线程池轮到，
+    // 再列一次 400 多毫秒（大库提速）；没变的直接用上次的说明
+    const stats = await Promise.all(paths.map((p) => stat(p).catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' ? null : Promise.reject(e)))))
+    const changed: [string, Stats][] = []
+    paths.forEach((p, i) => {
+      const st = stats[i]
+      if (!st) return
+      const hit = this.described.get(this.rel(p))
+      if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) out.push(hit.file)
+      else changed.push([p, st])
+    })
+    // 变了的才读：一次最多同时开 64 个文件，几千篇也不会把文件句柄用完
+    for (let i = 0; i < changed.length; i += 64) {
+      for (const f of await Promise.all(changed.slice(i, i + 64).map(([p, st]) => this.describeFresh(p, st)))) if (f) out.push(f)
     }
     const seen = new Set(out.map((f) => f.path))
     for (const rel of new Set([...this.described.keys(), ...this.index.keys()])) if (!seen.has(rel)) this.forget(rel)
@@ -194,15 +215,11 @@ export class Vault {
     return this.tablesIn()
   }
 
-  /** 没变（修改时间和大小都一样）就用上次的说明；文件刚被删掉返回 null */
-  private async describeCached(p: string): Promise<NoteFile | null> {
+  /** 变了（或第一次见）的一篇：读出来、记下说明和全文；文件刚被删掉返回 null */
+  private async describeFresh(p: string, st: Stats): Promise<NoteFile | null> {
     const rel = this.rel(p)
-    let st: Stats
     let bytes: Buffer
     try {
-      st = await stat(p)
-      const hit = this.described.get(rel)
-      if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) return hit.file
       bytes = await readFile(p)
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
@@ -458,10 +475,26 @@ export class Vault {
     this.onMoved?.((p) => map(p) ?? undefined)
   }
 
+  /**
+   * 读一篇。known 只在还没记过这一篇时记下：已经记着的由写盘（write）和监听对账（check）更新。
+   * 以前每读一次都改记成盘上的字，盘上刚被改过、监听还没对账（停 50ms 再读，机器忙时更久）的那一会儿，
+   * 随便哪处读一下（右栏笔记、疑问卡、名词卡、AI 栏……一共三十多处）就把这次改动「吞」了：对账时盘上和 known 一样，
+   * 不报给开着的编辑器，编辑器留着旧字（改名后别处改好的双链、挪附件改好的链接都收不到），下次存盘再写回旧的
+   */
   async read(rel: string): Promise<OpenedNote> {
     const { text, meta } = decodeNote(await readFile(this.abs(rel)))
-    this.known.set(rel, text)
+    if (!this.known.has(rel)) this.known.set(rel, text)
     return { path: rel, text, readOnly: meta.readOnly }
+  }
+
+  /** 只看一眼（不写的地方用）：不碰 known。没有这一篇给 null */
+  async peek(rel: string): Promise<string | null> {
+    try {
+      return decodeNote(await readFile(this.abs(rel))).text
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null
+      throw e
+    }
   }
 
   /**

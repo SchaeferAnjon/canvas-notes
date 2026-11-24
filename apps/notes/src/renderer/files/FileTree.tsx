@@ -23,7 +23,7 @@ import { FolderGlyph, LookPicker } from './look'
 import { useLeft } from './left-store'
 import { presetsOn } from '../../shared/left'
 import { MovePicker, noteMovedTo } from './move-pick'
-import { fileType, TypeChips, type TypeFilter, useSideType } from './type-filter'
+import { fileType, plainType, TypeChips, type TypeFilter, useSideType } from './type-filter'
 import './file-tree.css'
 import { bookName, usePairs } from '../read-along/store'
 import { openDream } from '../dream/nav'
@@ -170,7 +170,9 @@ export function FileTree(props: {
     }
   })
   const [view, setView] = useState(loadView)
-  const [type, setType] = useSideType()
+  const [sideType, setType] = useSideType()
+  // 「最近」才有的 PDF、网页、HTML：文件树里当「全部」
+  const type = plainType(sideType)
   const [pages, setPages] = useState<Record<string, number>>({})
   /** 右键「重命名」：原地改名的那一篇或那个文件夹 */
   const [renaming, setRenaming] = useState<string | null>(null)

@@ -158,6 +158,8 @@ async function open(m: Open) {
     }, 1500)
   })
   void me.scan()
+  // 点乘的 onnxruntime 先载好：第一次按意思搜、第一次点开右栏「相关」不用再等它（真库副本上第一次要多 100 到 400 毫秒）
+  if (me.model) (scorer ??= ortScorer()).catch((e) => (console.error('点乘载不了', e), (scorer = null)))
 }
 
 async function related(paths: string[], k: number): Promise<RelatedReply> {

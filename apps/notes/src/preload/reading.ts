@@ -27,6 +27,7 @@ export const readingApi: CnReadingApi = {
   saveCrop: (pdf, page, png) => ipcRenderer.invoke('reading:crop', pdf, page, png),
   cropGaps: (pdf) => ipcRenderer.invoke('reading:crop-gaps', pdf),
   cropFill: (pdf, items) => ipcRenderer.invoke('reading:crop-fill', pdf, items),
+  ocr: (name) => ipcRenderer.invoke('reading:ocr', name),
   newThread: (pdf, page) => ipcRenderer.invoke('reading:thread', pdf, page),
   setText: (hash, pdf, pages, sizes) => ipcRenderer.invoke('reading:text:set', hash, pdf, pages, sizes),
   getText: (hash) => ipcRenderer.invoke('reading:text:get', hash),

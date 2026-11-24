@@ -27,7 +27,8 @@ import { makeDreamViz } from './dream-viz'
 import { movedText, relinkText } from './dream-file'
 import { FILE_BATCH, type FileMode, type FileStay, inboxEntry, parsePlan, placesOf, planInBatches, redoPrompt, targetOf, type FilePlan } from '../shared/filing'
 import { DEFAULT_DREAM, type DreamSettings, filesOn, inDreamFolders, weekOn } from '../shared/dream-settings'
-import { inboxFolders, isFolderNote, nativeVault, needsConfirm, type Role, roleOf, type RoleRow, roleTicked, rowOf } from '../shared/vault-roles'
+import { entryHome, inboxFolders, isFolderNote, nativeVault, needsConfirm, type Role, roleOf, type RoleRow, roleTicked, rowOf } from '../shared/vault-roles'
+import { isEntryPage } from '../shared/wiki-entry'
 import { rolesAt } from './dream-roles'
 import { atomicWrite } from '@cn/atomic'
 
@@ -375,7 +376,23 @@ export async function runDream(o: DreamOptions): Promise<DreamReport> {
     // 来源是所有收件箱角色的文件夹（00-Inbox、Inbox、收件箱）。收件箱/待办.md 是画布今日和左边「待办」格的收件箱（task-pd1d1）、
     // 文件夹自己的说明（README、xx-MOC）：不归类、不改名
     const inboxes = inboxFolders(rows)
-    const inboxAll = mode ? allFiles.filter((p) => inboxes.some((d) => p.startsWith(d + '/')) && p !== `${INBOX}/待办.md` && !(p.endsWith('.md') && isFolderNote(p, texts.get(p)))) : []
+    const inInbox = (p: string) => inboxes.some((d) => p.startsWith(d + '/'))
+    // 以前建在收件箱里的词条页（梦游建的，类型: 词条）：不交给 AI 归，下面单给一条「挪进 词条/」
+    const entryPages = mode ? allFiles.filter((p) => inInbox(p) && p.endsWith('.md') && isEntryPage(texts.get(p))) : []
+    const inboxAll = mode ? allFiles.filter((p) => inInbox(p) && p !== `${INBOX}/待办.md` && !entryPages.includes(p) && !(p.endsWith('.md') && isFolderNote(p, texts.get(p)))) : []
+    // 6a. 词条页现在放库最外层的「词条/」（库里认得出的词条 / MOC / Wiki 文件夹优先）：收件箱里已有的给一条挪的建议，收下才挪，提到它的链接跟着改（同归类那一套）
+    if (mode && mode !== 'rename' && entryPages.length) {
+      const home = entryHome({ rows, ...(report.roles ? { guessed: report.roles.guessed } : {}) })
+      const fresh = !allFiles.some((f) => f.startsWith(home + '/'))
+      for (const path of entryPages) {
+        try {
+          const it = await fileOne(wt, { path, folder: home, name: null, why: `词条页以后都放在「${home}/」，这篇是以前建在收件箱里的；挪过去，提到它的链接跟着改`, fresh }, texts, allowed)
+          add('file', { ...it, sub: `挪进 ${home}/` })
+        } catch (e) {
+          report.notes.push(`词条页「${titleOf(path)}」没挪：${(e as Error).message}`)
+        }
+      }
+    }
     if (mode && inboxAll.length) {
       try {
         // 归法和 /整理收件箱 是同一份（shared/filing.ts）：去处照这个库的分法，给 AI 每个文件夹的角色和几篇例子；

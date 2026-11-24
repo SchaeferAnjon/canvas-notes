@@ -4,7 +4,7 @@
  * 所以在哪开、在哪接着问都是同一条旁支；改过的名字记在这台 Mac 上，三处一样。
  */
 import { aiBodyOf, type DocAiBlock, docAiBlocks, foldQuote, locateQuote, sideInsert } from '@cn/format'
-import type { AiPick } from '../../shared/ai-features'
+import type { AiPick } from '@cn/ai-engines/shared'
 import type { Material } from '../../shared/materials'
 import { imageNames } from '../../shared/materials'
 

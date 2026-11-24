@@ -13,7 +13,7 @@ import { type DreamReportInternal, runDream, takeItem, undo } from '../src/main/
 import { loadLedger } from '../src/main/dream-ledger'
 import { clausesOf, findHits } from '../src/main/wiki-find'
 import { fakeWiki } from '../src/main/wiki-fake'
-import { entrySources, planEntry } from '../src/main/wiki-entry-main'
+import { entryFolder, entrySources, planEntry } from '../src/main/wiki-entry-main'
 import { DEFAULT_DREAM, type DreamSettings } from '../src/shared/dream-settings'
 import { fakeEntry, fakeEntryLinks, isEntryLinkPrompt } from '../src/shared/wiki-entry'
 import { isWikiPrompt, parseWiki } from '../src/shared/wiki-judge'
@@ -199,12 +199,25 @@ describe('梦游一整次（样本库）', { timeout: 60_000 }, () => {
     expect(after('收件箱/2026-10-18.md')).toMatch(/^# 2026-10-18\n\n朋友来了，带他去\[\[海德堡\]\]老城区走了一圈，桥上人很多。( \^[a-z][a-z0-9]{5})?\n$/)
     // 选课那一段可能被嵌进词条页（行尾加块编号），但「海德堡」那几个字不链
     expect(plan.edits.find((x) => x.path === '生活/选课.md')?.after ?? '').not.toContain('[[海德堡')
-    expect(plan.path).toBe('收件箱/海德堡.md')
+    // 词条页放库最外层的「词条/」（不再放收件箱）
+    expect(plan.path).toBe('词条/海德堡.md')
     expect(plan.text).toMatch(/^---\n类型: 词条\n来源: 梦游建议\n---\n# 海德堡\n\n> \[!ai\] 梦游起草的词条 · 测试\n/)
     expect(plan.text).toMatch(/!\[\[Day-001#\^[a-z][a-z0-9]{5}\]\]/)
     // 去掉链过来的 [[海德堡]]，剩下只多了块编号
     for (const ed of plan.edits) expect(onlyBlockIdsAdded(ed.before, ed.after.split('[[海德堡]]').join('海德堡'))).toBe(true)
     // 已经有这一篇了不再建
     await expect(planEntry({ texts: new Map([...texts, ['生活/海德堡.md', '# 海德堡\n\n一篇。']]), name: '海德堡', ask: async () => '', by: '' })).rejects.toThrow('已经有一篇叫「海德堡」了')
+  })
+
+  it('词条页放哪：没有词条文件夹放「词条」；库里有词条 / MOC / Wiki 一类的最外层文件夹用它；梦游.md 里定过的先', () => {
+    expect(entryFolder(['收件箱/a.md', '生活/b.md'])).toBe('词条')
+    expect(entryFolder(['收件箱/a.md', 'MOC/首页.md'])).toBe('MOC')
+    expect(entryFolder(['00-Inbox/a.md', '20 Wiki/x.md'])).toBe('20 Wiki')
+    // 推断出两个、用户在梦游.md 里把「卡片盒」定成词条：用用户定的
+    const rows = [
+      { folder: 'MOC', role: 'wiki' as const, why: '', sure: 'high' as const },
+      { folder: '卡片盒', role: 'wiki' as const, why: '', sure: 'high' as const },
+    ]
+    expect(entryFolder(['MOC/a.md', '卡片盒/b.md'], { rows, guessed: ['MOC'] })).toBe('卡片盒')
   })
 })

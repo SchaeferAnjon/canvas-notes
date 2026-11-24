@@ -2,7 +2,7 @@
  * 旁支接到排好的 AI 讲解上（task-p90ra，偏好「旁支就地展开」「旁支全局能用」，方向 A 原型 proto.html#dir=a 推到这两处）：
  * - 白板上的 AI 讲解卡（`> [!ai]` 那一张）：卡里选一句，旁支长在卡里那一段下面，卡跟着长高；
  * - 网页视频「框一块问」问框自己的回答：回答里选一句，旁支长在问框里那一段下面。
- * 两处画的都是排好的字（md-render 的 Markdown），不是编辑器：SideText 把回答画出来、划问过的那句和小标（reading/marks）、
+ * 两处画的都是排好的字（md-render 的 Markdown），不是编辑器：SideText 把回答画出来、划问过的那句和小标（@cn/ai-chat 的 side/marks）、
  * 选一句出同一个小框（AskBoxView）、开着的那条用同一个 SideInline 画进那一段后面的格子。
  * 问答写进同一篇文件：挂在那块讲解下面的 `> [!side]`（@cn/format doc-side.ts，和文档里开的是同一份、同一条旁支的会话，side-core.ts）。
  * 那篇在编辑器里开着就改编辑器（不进撤销，同文档里的旁支），没开着先比后写进文件；问框选了「只问不记」的只留在问框里（mem）。
@@ -12,22 +12,22 @@ import { type DocAiBlock, foldQuote, mdPlain, rawQuoteOf, sideInsert, sideRemove
 import { Transaction } from '@codemirror/state'
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
-import { type AiPick, convPick, hasEffort } from '../../shared/ai-features'
+import { type AiPick, convPick, type EngineInfo, hasEffort } from '@cn/ai-engines/shared'
 import type { Material } from '../../shared/materials'
 import type { ReplyPlace } from '../../shared/replies'
-import { useConvPick } from '../composer'
+import { useConvPick } from '@cn/ai-chat/composer'
 import { app } from '../ctx/actions'
 import { hiddenOk } from '../hidden-syntax'
 import { isKey } from '../keys'
 import { useCiteSig } from '../cite-names'
 import { Markdown } from '../md-render'
 import { NoteDoc } from '../note-doc'
-import { applyMarks, flashMark, type Mark, rangeText } from '../reading/marks'
-import { AskBoxView, highlightBottom } from './AskBox'
-import { blockOf, showSide } from './host'
+import { applyMarks, flashMark, type Mark, rangeText } from '@cn/ai-chat/side/marks'
+import { AskBoxView, highlightBottom } from '@cn/ai-chat/side/AskBox'
+import { blockOf, showSide } from '@cn/ai-chat/side/host'
 import { ASK_THIS, sideAsks, sideName } from './name'
 import { askSide, nameOf, setName, sideIndex } from './side-core'
-import { SideInline, type SideMsgView } from './SideInline'
+import { SideInline, type SideMsgView } from '@cn/ai-chat/side/SideInline'
 import { useT } from '../i18n'
 import { t as tNow } from '../../shared/i18n'
 
@@ -479,7 +479,7 @@ function OpenSide(p: { spot: Spot; sides: MemSide[]; groups: { key: string; quot
       live = false
     }
   }, [spot.place])
-  const cp = useConvPick(own, (x) => {
+  const cp = useConvPick<AiPick, EngineInfo>(own, (x) => {
     setOwn(x)
     void window.cn.aiChatSetPick(spot.place, x)
   }, (t) => app().notice(t))

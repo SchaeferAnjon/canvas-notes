@@ -59,6 +59,42 @@ async function frames(page: Page, want: string, n = 40, until?: (k: number) => b
   return out
 }
 
+/**
+ * 从现在起在网页里每一帧记一次 want 看得见几个字（变了才记；两个字以上才算出来了，免得撞上别处同一个字），字全显了就停。
+ * 先开始记、再让 AI 写，最后 done() 等它长完、交回记下的。frames 那样从测试这边隔 100 毫秒来回读一次，机器忙时一次要几百毫秒，
+ * 读到第一下时字早长完了（r22 偶发「第一帧就全显」）
+ */
+async function watchGrowth(page: Page, want: string): Promise<() => Promise<number[]>> {
+  const key = await page.evaluate((want) => {
+    const k = `cnGrow${Math.random().toString(36).slice(2)}`
+    const out: number[] = []
+    ;(window as unknown as Record<string, number[]>)[k] = out
+    const now = () => {
+      const v = Array.from(document.querySelectorAll('.pane:not([hidden]) .cm-content .cm-line'), (l) => l.textContent ?? '').join('\n')
+      let lo = 0
+      let hi = want.length
+      while (lo < hi) {
+        const mid = Math.ceil((lo + hi) / 2)
+        if (v.includes(want.slice(0, mid))) lo = mid
+        else hi = mid - 1
+      }
+      return lo
+    }
+    const tick = () => {
+      const n = now()
+      if (n >= 2 && out.at(-1) !== n) out.push(n)
+      if (n < want.length) requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+    return k
+  }, want)
+  const read = () => page.evaluate((k) => (window as unknown as Record<string, number[]>)[k]!, key)
+  return async () => {
+    await expect.poll(async () => (await read()).at(-1) ?? 0, { timeout: 20_000 }).toBe(want.length)
+    return read()
+  }
+}
+
 /** 竖线里那道光在走（Web Animations 在跑） */
 const cometRunning = (line: Locator) => line.evaluate((el) => el.getAnimations({ subtree: true }).filter((a) => a.playState === 'running' && !(a instanceof CSSTransition)).length)
 
@@ -106,9 +142,10 @@ test('/ AI 写一段：字边收边写、一点点长出来，竖线的光往下
   const { page, vault } = run
   try {
     await openNote(page, '书摘')
+    const grown = await watchGrowth(page, LONG_PARA)
     await slashWrite(page, '写长一段')
     // 字一出来，输入框收起，字在原处一点点长：先短后长（读好几帧，一帧比一帧多，没有一下子全出来）
-    const f = await frames(page, LONG_PARA, 60, (k) => k >= LONG_PARA.length)
+    const f = await grown()
     const grew = f.filter((k, i) => i > 0 && k > f[i - 1]!).length
     expect(f.some((k) => k > 0 && k < LONG_PARA.length / 2)).toBe(true)
     expect(grew).toBeGreaterThanOrEqual(5)
@@ -233,8 +270,9 @@ test('/ AI 总结这页：三句话在开头（标题下面）一点点长出来
     await page.keyboard.press('Enter')
     await page.keyboard.press('Enter')
     await page.keyboard.type('/总结')
+    const grown = await watchGrowth(page, SUMMARY)
     await page.keyboard.press('Enter')
-    const f = await frames(page, SUMMARY, 60, (k) => k >= SUMMARY.length)
+    const f = await grown()
     expect(f.some((k) => k > 0 && k < SUMMARY.length / 2)).toBe(true)
     expect(f.filter((k, i) => i > 0 && k > f[i - 1]!).length).toBeGreaterThanOrEqual(4)
     expect(f.at(-1)).toBe(SUMMARY.length)
@@ -256,11 +294,11 @@ test('AI 对话里 AI 自己往开着的这篇末尾续写一节（像 Claude Co
     await openNote(page, '书摘')
     await page.keyboard.press('Meta+j')
     const want = `${BOOK.trimEnd()}\n\n${REVIEW}\n`
-    // 第一次：不按 esc，从头长到尾
+    // 第一次：不按 esc，从头长到尾；量第一段（这一轮答完补包成 AI 块以后也还是连着的一段字）
+    const grown = await watchGrowth(page, REVIEW_P1)
     await send(page, `过一会儿在「书摘.md」末尾加「${REVIEW}」`)
     await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(REVIEW_P2)
-    // 量第一段（这一轮答完补包成 AI 块以后也还是连着的一段字）
-    const f = await frames(page, REVIEW_P1, 60, (k) => k >= REVIEW_P1.length)
+    const f = await grown()
     expect(f[0]!).toBeLessThan(REVIEW_P1.length / 2)
     expect(f.filter((k, i) => i > 0 && k > f[i - 1]!).length).toBeGreaterThanOrEqual(5)
     for (let i = 1; i < f.length; i++) expect(f[i]!).toBeGreaterThanOrEqual(f[i - 1]!)
@@ -305,7 +343,11 @@ test('AI 对话里 AI 自己往开着的这篇末尾续写一节（像 Claude Co
 })
 
 test('AI 写完文件还在答（这一轮没做完）：那一段下面「AI 在写这一段 · 停下 esc」跟着这一轮；esc 停的是这一轮，字一下全显、「停下了：这一段留着」，已经写的照样提交', async () => {
-  const run = await launch({ '书摘.md': BOOK }, { CN_AI_FAKE: '1', CN_FAKE_OWN_MS: '4000' })
+  // 写完以后 AI 一直「还在答」，看完这一会儿该有的样子再放它答完（以前固定答 4 秒，机器忙时没看完这一轮就结束了）
+  const gate = join(mkdtempSync(join(tmpdir(), 'cn-hold-')), '放行')
+  const release = () => writeFileSync(gate, '')
+  const hold = () => rmSync(gate, { force: true })
+  const run = await launch({ '书摘.md': BOOK }, { CN_AI_FAKE: '1', CN_FAKE_HOLD: gate })
   const { page, vault } = run
   try {
     await openNote(page, '书摘')
@@ -321,12 +363,14 @@ test('AI 写完文件还在答（这一轮没做完）：那一段下面「AI �
     // （这一轮答完补包成 AI 块以后框头插在标题和第一段之间，量最后一段）
     await expect.poll(() => shown(page, REVIEW_P2), { timeout: 6000 }).toBe(REVIEW_P2.length)
     await expect(inl.getByRole('button', { name: '停下 esc' })).toBeVisible()
+    release()
     // 再写一回、长到一半按 esc：停的是这一轮（AI 那边「停下了」），字一下全显
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible({ timeout: 15_000 })
     // 这一轮结束补包成 AI 块（task-dtc34）；第二回 AI 照现在的文件接着写
     await expect.poll(() => disk(vault, '书摘.md')).toBe(wrapped(BOOK, want))
     const cur = readFileSync(join(vault, '书摘.md'), 'utf8')
     const more = '第三段：拉德利这个人一直没露面，全靠孩子们的想象。他住在街角那栋关着百叶窗的房子里，孩子们每天上学都绕着走。'
+    hold()
     await send(page, `自己写文件「书摘.md」「${cur.trimEnd()}\n\n${more}\n」`)
     await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(more)
     expect(await shown(page, more)).toBeLessThan(more.length)
@@ -368,12 +412,13 @@ test('用户正在那一段打字：AI 改到这一段不做动画、直接合�
     // 2. 在第一段打字，AI 往末尾写：不是同一段，照样一点点长（等上一轮答完、提交好：这一轮结束还要补包 AI 块，task-dtc34）
     await expect(ai(page).getByRole('button', { name: '发送' })).toBeVisible({ timeout: 15_000 })
     const add2 = '第二回 AI 加的一段：用户在别的段打字，这一段照样一个字一个字长出来。'
+    const grown = await watchGrowth(page, add2)
     await send(page, `过一会儿在「随手记.md」末尾加「${add2}」`)
     await pane(page).locator('.cm-line', { hasText: '第一段' }).click()
     await page.keyboard.press('End')
     const typing2 = page.keyboard.type('第一段打的', { delay: 160 })
     await expect.poll(() => editorText(page), { timeout: 15_000 }).toContain(add2)
-    const f = await frames(page, add2, 40, (k) => k >= add2.length)
+    const f = await grown()
     expect(f[0]!).toBeLessThan(add2.length)
     expect(f.at(-1)).toBe(add2.length)
     await typing2
@@ -462,7 +507,7 @@ test('白板上 AI 加一张卡：卡里的字一点点长出来（藏着的字�
     expect(hid.filter((h, i) => i > 0 && h < hid[i - 1]!).length).toBeGreaterThanOrEqual(4)
     expect(hid.at(-1)).toBe(0)
     // 字长的时候卡不动：框从头到尾一样
-    expect(new Set(seen.map((s) => s.box)).size).toBe(1)
+    expect(new Set(seen.map((s) => s.box)).size, JSON.stringify(seen)).toBe(1)
   } finally {
     await run.close()
   }

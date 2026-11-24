@@ -51,16 +51,16 @@ import {
   ytTracks,
 } from '../../shared/video'
 import { type AskRequest, type AskResult, type Box, FIXED_KEYS, keyLabel, type MomentMark, type MomentResult, type PeekResult, type VideoSettings, type VideoState } from '../../shared/video-api'
-import { CLAUDE_DEFAULT, pickLabel } from '../../shared/ai-features'
+import { CLAUDE_DEFAULT, pickLabel } from '@cn/ai-engines/shared'
 import { answerLangName, answerRule } from '../../shared/answer-lang'
 import { CITE_RULE } from '../../shared/cite-rule'
 import { askFast } from '../ai'
 import { comboOf } from '../../shared/cmd-keys'
 import { pageKeysNow } from '../commands'
-import { findCli, INSTALL_HINT } from '../agent/cli'
+import { findCli, INSTALL_HINT } from '@cn/ai-engines'
 import { FAST_MODEL, fastEngine, modelOpt, visionModel } from '../agent'
 import { classify } from '../plugins/translate/errors'
-import { isCli } from '../../shared/ai-sources'
+import { isCli } from '@cn/ai-engines/shared'
 
 /** 翻译那张表认得的家（命令行四家、DeepSeek）：出错时写它的名字，别的写「AI」 */
 const trEngine = (id: string) => (isCli(id) || id === 'deepseek' ? id : undefined)

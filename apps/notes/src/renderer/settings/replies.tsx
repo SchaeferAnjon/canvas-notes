@@ -9,8 +9,7 @@
  * 一颗快捷回复就是命令库里的一条命令（存好以后 ⌘K、/ 菜单也叫得到）。改了马上存，底下「已存 · 撤回」。
  */
 import { Codicon, type CodiconName } from '@cn/design'
-import { AnswerBar, type AbAct, type AbMenuItem } from '@cn/design/answer-bar'
-import '@cn/design/answer-bar.css'
+import { AnswerBar, type AbAct, type AbMenuItem } from '@cn/ai-chat/answer-bar'
 import { PageHead as BasePageHead, useSaid } from '@cn/design/settings'
 import { type ReactNode, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { type AiCmd, rulesOfPrompt } from '../../shared/ai-cmds'

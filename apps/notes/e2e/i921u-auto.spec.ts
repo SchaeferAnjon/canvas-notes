@@ -7,7 +7,7 @@
  */
 import { expect, test } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { isoWeekOf, parseLog, stampText } from '@cn/format'
 import { launch, openNote, pane } from './app'
@@ -51,7 +51,14 @@ const git = (vault: string, ...a: string[]) => execFileSync('git', ['-C', vault,
 const logOf = (vault: string) => {
   const dir = join(vault, '.canvas-notes/自动化记录')
   if (!existsSync(dir)) return []
-  return parseLog(execFileSync('cat', [...execFileSync('ls', [dir], { encoding: 'utf8' }).trim().split('\n').map((n) => join(dir, n))], { encoding: 'utf8' }))
+  // 文件夹刚建好、记录还没写进去时里面是空的（以前 ls 出一个空名字，cat 到文件夹本身报错）：只读写好的 .jsonl
+  return parseLog(
+    readdirSync(dir)
+      .filter((n) => /\.jsonl$/.test(n) && !n.startsWith('.'))
+      .sort()
+      .map((n) => readFileSync(join(dir, n), 'utf8'))
+      .join('\n'),
+  )
 }
 const screen = (run: { app: import('@playwright/test').ElectronApplication }) => run.app.evaluate(() => (globalThis as unknown as { cnScreen: string[] }).cnScreen.join('|'))
 
@@ -103,6 +110,8 @@ test('改格子触发规则：发通知、改分类、一次提交、记一行�
     await cat.press('Enter')
     await expect.poll(() => (existsSync(join(vault, '生活/待办.md')) ? read(vault, '生活/待办.md') : ''), { timeout: 40_000 }).toContain('- [ ] 交报销单：工资 12000 📅')
     // 撤回这一次：待办那一篇回到没有
+    // 待办先写、记录那一行随后才写：等记录写到盘上再取它的编号
+    await expect.poll(() => logOf(vault).some((x) => x.rule === '交报销单')).toBe(true)
     const id = logOf(vault).find((x) => x.rule === '交报销单')!.id
     expect(await page.evaluate((i) => window.cn.auto.undo(i), id)).toEqual({ ok: true, hash: expect.any(String) })
     expect(existsSync(join(vault, '生活/待办.md'))).toBe(false)

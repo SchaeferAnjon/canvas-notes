@@ -10,6 +10,7 @@ import type { Placed } from '../../shared/mindmap'
 import { app } from '../ctx/actions'
 import { NoteDoc } from '../note-doc'
 import { boardCapture, openCapture } from './capture-store'
+import { placeRef } from './place-ref'
 
 const errText = (e: unknown) => String((e as Error)?.message ?? e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
@@ -48,6 +49,7 @@ export function captureIntoView(view: NoteDoc['view']): boolean {
   captureIntoDoc(doc)
   return true
 }
+placeRef.captureIntoView = captureIntoView
 
 /** ⌘K、⇧⌘C、菜单「拍一张导图」：前面是白板就挂在白板上，是文档就插在光标处，别的进收件箱 */
 export function captureHere(o: { path: string | null; mode: 'doc' | 'board'; doc: NoteDoc | null }) {

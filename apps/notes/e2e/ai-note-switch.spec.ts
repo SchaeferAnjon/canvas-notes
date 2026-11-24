@@ -485,6 +485,8 @@ test('网页引用、框的一块进了这篇笔记自己那段对话：问的�
     expect(md).toMatch(new RegExp(`先把数据读进来，再处理缺失值。\\n\\n### ①②这部分看不懂是说什么\\n\\n> ① ${P1_LAST}\\n> —— \\[2\\.2\\.1 读取数据集[^\\]]* ↩\\]\\(${fragmentUrl(site.pandas, P1_LAST).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)\\n\\n!\\[`))
     expect(md).toMatch(/\.png\)\n\n> \[!ai\] AI 回答 · Claude Code · Opus 5\.5 · \[回到 AI 对话\]\(canvas-notes:\/\/chat\?key=file%3A/)
     expect(md).not.toContain('AI 笔记')
+    // 新写法带材料不再写脚注（0.5.7 以前的 [^p1-4-1]: 定义，r119）：①② 直接写在这一问下面
+    expect(md).not.toMatch(/\[\^/)
     expect(gitOut(vault, 'status', '--porcelain')).toBe('')
     // 引文的来源点一下：右栏网页回到那一段
     await guest(page, 'window.scrollTo(0, document.body.scrollHeight)')

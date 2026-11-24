@@ -8,7 +8,6 @@ import { when } from '../../shared/when'
 import { noteName } from '../../shared/ai-note'
 import { isKey, useKeys } from '../keys'
 import { Codicon } from '@cn/design'
-import { ByLogo } from '../engine-logo'
 import { readAsk, webAsk } from '../ai-greet'
 import { pageHead } from '../../shared/read-along'
 import { Greeting, QuickRow } from '../ai-quick'
@@ -19,25 +18,26 @@ import { fillReply, type ReplyPlace } from '../../shared/replies'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { type ReadingMsg, withoutVizMark } from '../../shared/reading'
-import { hideToolMarkup } from '../../shared/tool-markup'
-import { touchedOf, useCiteSig } from '../cite-names'
-import { Markdown } from '../md-render'
-import { AiError } from '../ai-error'
-import { pastedUrl } from '../paste-images'
+import { useCiteSig } from '../cite-names'
+import { AiError } from '@cn/ai-chat/ai-error'
+import { AnswerTurn, UserTurn } from '@cn/ai-chat/turns'
 import { AiHead, AwayBar, Chip, type DockNav, Sees } from '../ai-head'
-import { AiInput, type Lead, MatMsg, sendText, useComposer, useConvPick } from '../composer'
-import { ChangeBlock, StepRow } from '../AiPanel'
+import { AiInput, type Lead, MatMsg, sendText, useComposer, useConvPick } from '@cn/ai-chat/composer'
+import type { AiPick, EngineInfo } from '@cn/ai-engines/shared'
+import { ChangeBlock } from '../AiPanel'
+import { StepRow } from '@cn/ai-chat/steps'
 import { AnswerRow } from '../answer-row'
-import { ChangeBar } from '@cn/design/answer-bar'
-import { jumpDone, useChatJump } from '../chat-jump'
+import { ChangeBar } from '@cn/ai-chat/answer-bar'
+import { jumpDone, useChatJump } from '@cn/ai-chat/chat-jump'
 import { app } from '../ctx/actions'
 import { readKey, readLabel } from '../ai-place'
 import { fmtTime } from '../../shared/video'
-import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from './marks'
-import { AskBox } from '../side/AskBox'
-import { showSide as revealSide, useSideHost } from '../side/host'
-import { SideInline } from '../side/SideInline'
-import { ChatToc, type TocSide } from '../chat-toc'
+import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from '@cn/ai-chat/side/marks'
+import { AskBox } from '@cn/ai-chat/side/AskBox'
+import { showSide as revealSide, useSideHost } from '@cn/ai-chat/side/host'
+import { SideInline } from '@cn/ai-chat/side/SideInline'
+import { ChatToc, type TocSide } from '@cn/ai-chat/chat-toc'
+import { NewBelow, useFollow } from '@cn/ai-chat/follow'
 import { t as tNow } from '../../shared/i18n'
 import { titleOf } from '../../shared/layout'
 import * as R from './store'
@@ -55,7 +55,7 @@ import { ensureBeforeSend, pickTarget, showAskIn } from '../web-notes/flow'
 import { useTargets } from '../web-notes/target'
 import { setNoteSwitch, useNoteSwitch } from '../ai-note-switch'
 import { type NotedState, NotedLine, NoteTargetMenu, type NoteTargetItem, NoteTip, type NoteTipState, RecChip } from '../ai-note-ui'
-import type { AbMenuItem } from '@cn/design/answer-bar'
+import type { AbMenuItem } from '@cn/ai-chat/answer-bar'
 import type { PopAnchor } from '../pop-place'
 
 /** 待问那块的小标签：PDF「第28页」；网页、HTML；视频「接着问」是「00:06 · 视频名」 */
@@ -124,7 +124,7 @@ export function ReadingAi(props: {
   const setInput = c.setText
   const box = c.ta
   // 谁来答 · 模型 · effort（CN-91 方向 C）：模型和 effort 记在这份 PDF 的对话里，没选过用设置 › AI「AI 对话」那一行
-  const cp = useConvPick(r.state.pick, (p) => R.setPick(pdf, p), props.onNotice)
+  const cp = useConvPick<AiPick, EngineInfo>(r.state.pick, (p) => R.setPick(pdf, p), props.onNotice)
   const engine = cp.pick.engine
   const engines = cp.engines
   const [flashMsg, setFlashMsg] = useState<string | null>(null)
@@ -269,17 +269,23 @@ export function ReadingAi(props: {
     if (!props.hidden && R.takeAiFocus()) box.current?.focus()
   }, [props.hidden])
 
-  // 新消息、边生成边显示：滚到底（开着旁支时换回这一格不滚走，停在那条旁支上）
+  // 新问、读进来：回到最底接着跟；边生成边显示：跟着就滚到底，人往上翻了就停（@cn/ai-chat/follow，fol 在下面开着旁支那里）。
+  // 开着旁支时换回这一格不滚走，停在那条旁支上
   const lastLen = r.state.msgs.length ? r.state.msgs[r.state.msgs.length - 1]!.text.length : 0
+  const asks = r.state.msgs.filter((m) => m.role === 'user').length
   const sideOpen = useRef(false)
   useEffect(() => {
-    if (sideOpen.current && !lastLen) return
-    list.current?.scrollTo({ top: list.current.scrollHeight })
+    if (!sideOpen.current) fol.follow()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asks])
+  useEffect(() => {
+    fol.stick()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [r.state.msgs.length, lastLen])
   useEffect(() => {
     if (props.hidden || sideOpen.current) return
-    list.current?.scrollTo({ top: list.current.scrollHeight })
+    fol.follow()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.hidden])
 
   // 从笔记点「完整对话」：滚到那次对话，外圈亮一下
@@ -287,6 +293,7 @@ export function ReadingAi(props: {
     const cv = r.convo
     if (!cv || props.hidden) return
     const el = list.current?.querySelector<HTMLElement>(`[data-thread="${CSS.escape(cv.id)}"]`)
+    if (el) fol.pinned.current = false
     el?.scrollIntoView({ block: 'start', behavior: 'smooth' })
     setFlashMsg(cv.id)
     const t = setTimeout(() => setFlashMsg(null), 2000)
@@ -300,6 +307,7 @@ export function ReadingAi(props: {
     const el = list.current?.querySelector<HTMLElement>(`[data-msg="${jump.msg}"]`)
     jumpDone(jump.seq)
     if (!el) return app().notice(tNow('这段对话里找不到那条回答了（点过「新对话」）'))
+    fol.pinned.current = false
     el.scrollIntoView({ block: 'center' })
     el.classList.remove('jumped')
     void el.offsetWidth
@@ -365,6 +373,7 @@ export function ReadingAi(props: {
   const open = sides.find((s) => s.id === r.side.open) ?? null
   const openGroup = open ? (groups.get(open.msg)?.find((g) => g.sides.includes(open)) ?? null) : null
   sideOpen.current = !!open
+  const fol = useFollow(list, !!open)
   /** 对话目录里的旁支：问过的（和开着的那条），挂在它那一句的小标上 */
   const tocSides: TocSide[] = [...groups.values()].flat().flatMap((g) => g.sides.filter((x) => x.msgs.length || x.id === open?.id).map((x) => ({ id: x.id, name: R.sideName(x), group: g.key })))
   const asked = msgs.some((m) => m.role === 'user')
@@ -515,6 +524,15 @@ export function ReadingAi(props: {
     const to = m.notePath ? titleOf(m.notePath) : (m.noteTo?.replace(/^.*《(.*)》.*$/, '$1') ?? titleOf(r.note.path))
     return { state: 'done', to, ...(undoing.has(m.id) ? { undoing: true } : {}) }
   }
+  /** 「放到第 N 页」：这一处是贴截图问的、没认出是哪一页（或照正看着的那页定的），中间正看着的不是这一页 */
+  const moveOf = (m: ReadingMsg): { move?: { lost: boolean; from: number; page: number; onMove(): void } } => {
+    const th = r.state.threads.find((t) => t.id === m.thread)
+    const at = r.state.page
+    if (!th || (th.found !== 'none' && th.found !== 'view') || at < 1 || at === th.page || m.note === 'writing' || !m.text || m.error) return {}
+    // 照正看着的那页定的：只在最后一条回答下面给（翻页时前面每条都冒出一句太吵）；没定位的一直给，直到挪走
+    if (th.found === 'view' && r.state.msgs.findLast((x) => x.role === 'ai')?.id !== m.id) return {}
+    return { move: { lost: th.found === 'none', from: th.page, page: at, onMove: () => void R.moveAsk(pdf, m.id, at).catch((e: unknown) => props.onNotice(String((e as Error).message ?? e))) } }
+  }
   async function undoNote(id: number, side?: string) {
     setUndoing((x) => new Set(x).add(id))
     try {
@@ -651,11 +669,13 @@ export function ReadingAi(props: {
               noted={m.role === 'ai' ? notedOf(m) : null}
               {...(m.notePath ? { onUndoNote: () => void undoNote(m.id), onOpenNote: () => openNote(m) } : m.note === 'done' ? { onOpenNote: () => openNote(m) } : {})}
               noteItem={m.role === 'ai' ? noteItemOf(m) : null}
+              {...(m.role === 'ai' ? moveOf(m) : {})}
             />
           )
         })}
       </div>
       {asked && <ChatToc list={list} sides={tocSides} openSide={open?.id ?? null} onSide={(id) => R.showSide(pdf, id)} />}
+      <NewBelow f={fol} />
       </div>
       {/* 回答里选中一句（CN-90 方向 A）：选区下方的小框，上面一格先打问题，下面「引用 ⌘↵」（⇧⌘L 也行；输入框顶上那一排的一块，来源「AI的回答 · 第28页」）、「问这句 ↵」（下格开旁支） */}
       <AskBox
@@ -824,6 +844,8 @@ function Msg(p: {
   onOpenNote?(): void
   /** ⋯ 最前面：记进《…》/ 从《…》拿掉 */
   noteItem: AbMenuItem | null
+  /** 贴截图问的、没认出是哪一页（或照正看着的那页定的）：「放到第 N 页」挪到中间正看着的那页（0.5.9） */
+  move?: { lost: boolean; from: number; page: number; onMove(): void }
 }) {
   const { m } = p
   const cmd = isCmdTurn(m)
@@ -839,62 +861,41 @@ function Msg(p: {
     return applyMarks(txt.current, p.marks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marksKey, m.text, p.running, sig])
-  // 框的那块（或整页）：放在这一问的气泡最上面
-  const crop = m.image ? (
-    <div className="att">
-      <img src={vaultImg(m.image)} alt={m.page ? `第 ${m.page} 页框的那块` : '框的那块'} />
-    </div>
-  ) : null
   return (
     <>
       {p.sep && <div className="daysep">{p.sep}</div>}
       {m.role === 'user' ? (
-        <div className={'um-wrap' + (p.flash ? ' flash' : '')} data-thread={p.sep ? m.thread : undefined} data-toc-q={tocLabel(m)}>
-          {/* 以前粘贴的图（没有材料那时候）照旧画在气泡上面；带材料的图在气泡里那一排列表里 */}
-          {!m.mats?.length &&
-            m.pasted?.map((n) => (
-              <div key={n} className="att">
-                <img src={pastedUrl(n)} alt="粘贴的图" />
-              </div>
-            ))}
-          {p.quote && <div className="uq">「{p.quote}」</div>}
-          {m.mats?.length ? (
-            <MatMsg text={m.text} mats={m.mats} lead={crop} onContextMenu={(e) => onMessageMenu(e, m.text, { user: p.place })} />
-          ) : (
-            <div className={'um' + (crop ? ' wimg' : '')} onContextMenu={(e) => onMessageMenu(e, m.text, { user: p.place })}>
-              {crop}
-              {crop ? <div className="ut">{m.text}</div> : m.text}
-            </div>
-          )}
-          {/* 你发的那句下面悬停出「拷贝 · 存成快捷回复」（task-eavzx） */}
-          <UserMsgActs text={m.text} place={p.place} />
-        </div>
+        <UserTurn
+          text={m.text}
+          {...(m.mats ? { mats: m.mats } : {})}
+          // 框的那块（或整页）：放在这一问的气泡最上面
+          image={m.image ? { src: vaultImg(m.image), alt: m.page ? `第 ${m.page} 页框的那块` : '框的那块' } : null}
+          // 以前粘贴的图（没有材料那时候）照旧画在气泡上面；带材料的图在气泡里那一排列表里
+          {...(m.pasted ? { pasted: m.pasted } : {})}
+          {...(p.quote ? { quote: p.quote } : {})}
+          tocLabel={tocLabel(m)}
+          {...(p.sep ? { thread: m.thread } : {})}
+          flash={p.flash}
+          onContextMenu={(e) => onMessageMenu(e, m.text, { user: p.place })}
+          // 你发的那句下面悬停出「拷贝 · 存成快捷回复」（task-eavzx）
+          acts={<UserMsgActs text={m.text} place={p.place} />}
+        />
       ) : (
-        <div className="am" data-testid="reading-msg" data-msg={m.id} data-src={m.page ? `AI的回答 · 第${m.page}页` : 'AI的回答'} onContextMenu={(e) => m.text && onMessageMenu(e, withoutVizMark(m.text).text, { ...(m.by ? { by: m.by } : {}), key: p.chatKey, msg: m.id })}>
-          {/* 出错的那条不写「✓ 读了第几页」：没答出来，下面红字说为什么 */}
-          {m.text && !m.error && m.read && (
-            <div className="read">
-              <Codicon name="check" size={12} className="ok" />
-              <span className="rd">{m.read}</span>
-              {m.by && (
-                <span className="by">
-                  {' · '}
-                  <ByLogo by={m.by} />
-                  {m.by}
-                </span>
-              )}
-            </div>
-          )}
-          {/* AI 动手的每一步（DESIGN.v3 2.3）：在做转圈、做完绿勾、出错红叉跟原因；全能模式下它自己跑命令、写文件也写成人话 */}
-          {m.steps?.map((s) => (
-            <StepRow key={s.id} s={s} />
-          ))}
-          {!m.text && !m.error && !m.cant && !m.steps?.length && <div className="thinking">正在想…</div>}
-          {m.text && (
-            <div className="txt md" key={p.marks?.length ? m.text + sig : 'txt'} ref={txt}>
-              <Markdown text={hideToolMarkup(withoutVizMark(m.text).text)} math cites={{ conv: p.conv, touched: touchedOf(m.steps) }} />
-            </div>
-          )}
+        <AnswerTurn
+          msg={m.id}
+          src={m.page ? `AI的回答 · 第${m.page}页` : 'AI的回答'}
+          testId="reading-msg"
+          onContextMenu={(e) => m.text && onMessageMenu(e, withoutVizMark(m.text).text, { ...(m.by ? { by: m.by } : {}), key: p.chatKey, msg: m.id })}
+          // 出错的那条不写「✓ 读了第几页」：没答出来，下面红字说为什么
+          head={m.text && !m.error && m.read ? { read: m.read, ok: m.page !== 0, ...(m.by ? { by: m.by } : {}) } : null}
+          // AI 动手的每一步（DESIGN.v3 2.3）：在做转圈、做完绿勾、出错红叉跟原因；全能模式下它自己跑命令、写文件也写成人话
+          {...(m.steps ? { steps: m.steps } : {})}
+          thinking={!m.text && !m.error && !m.cant && !m.steps?.length ? '正在想…' : null}
+          {...(m.text ? { text: m.text } : {})}
+          conv={p.conv}
+          txtRef={txt}
+          txtKey={p.marks?.length ? m.text + sig : 'txt'}
+        >
           {m.cant && <AiError raw={m.cant} own />}
           {m.error && <AiError raw={m.error} engine={p.engine} {...(p.ask && !p.busy ? { onRetry: () => p.onAgain(p.ask!), onRephrase: () => p.onRephrase(p.ask!) } : {})} />}
           {/* / 命令的结果（task-69r0v，照 AI 对话里命令结果的样子）：写进去的那一篇「打开」、先给你看的「看改动 ……… 不要 · 收下」（收不收那一套，task-eavzx；
@@ -938,6 +939,17 @@ function Msg(p: {
             />
           )}
           {p.noted && <NotedLine s={p.noted} {...(p.onUndoNote ? { onUndo: p.onUndoNote } : {})} {...(p.onOpenNote ? { onOpen: p.onOpenNote } : {})} />}
+          {p.move && (
+            <div className="noted move" data-testid="reading-move">
+              <span>{p.move.lost ? tNow('记在「没定位的问答」里') : tNow('照正看着的第 {n} 页记的', { n: p.move.from })}</span>
+              <span className="go">
+                <span aria-hidden="true">·</span>
+                <button className="lnk" onClick={p.move.onMove}>
+                  {tNow('放到第 {n} 页', { n: p.move.page })}
+                </button>
+              </span>
+            </div>
+          )}
           {m.change && <ChangeBlock change={m.change} onRevert={p.onRevert} />}
           {m.warn && <div className="noted err">{m.warn}</div>}
           {m.viz?.state === 'making' && (
@@ -963,7 +975,7 @@ function Msg(p: {
               </button>
             </div>
           )}
-        </div>
+        </AnswerTurn>
       )}
     </>
   )

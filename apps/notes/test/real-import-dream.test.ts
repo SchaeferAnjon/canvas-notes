@@ -74,7 +74,7 @@ const ok = (want: string[], got: string) => want.some((w) => (w.endsWith('/*') ?
 
 describe.skipIf(!process.env.CN_REAL_DREAM)('真的梦游：导入的 40 条旧笔记归类', () => {
   it('分到对的地方，量时间', async () => {
-    const { claudeEngine, CLAUDE_MODEL } = await import('../src/main/agent/engines')
+    const { claudeEngine, CLAUDE_MODEL } = await import('@cn/ai-engines')
     const { NoteStore } = await import('../src/main/import/apple-notes')
     const { writeImport } = await import('../src/main/import/write')
     const { runDream } = await import('../src/main/dream')

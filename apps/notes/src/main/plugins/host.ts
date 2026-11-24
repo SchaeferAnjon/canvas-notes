@@ -6,7 +6,7 @@
  * 开关和设置存在 <userData>/plugins/state.json；插件自己的东西（缓存之类）放 <userData>/plugins/<id>/。
  */
 import type { WebContents } from 'electron'
-import type { CliId as EngineId } from '../../shared/ai-sources'
+import type { CliId as EngineId } from '@cn/ai-engines/shared'
 import type { PageState, PluginInfo, PluginManifest, PluginPermission } from '../../shared/plugins'
 import type { Vault } from '../vault'
 

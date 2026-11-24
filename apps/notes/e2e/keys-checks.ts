@@ -171,7 +171,8 @@ export const CHECKS: Record<string, Check> = {
   // 当前这栏占满 / 还原（task-kbnc0、task-05p2w，每一栏都能占满）：焦点在网页里按一下网页那一组占满、再按还原，记在本机（cn.max）
   'fold-center': { ctxs: ['web'], check: (k, _c, p) => flips(p, () => k.run.page.evaluate(() => localStorage.getItem('cn.max'))) },
   // 中间栏分屏（⌃\，和网页占满 ⌃⌘\ 是两件事）：分成两格、再按合回一格；占满不跟着变。
-  // 分屏这三条只在白板那种焦点（最后一轮）按：在前面几轮按过分屏、合回以后，AI 输入框里 ⌘[ 后退退不动（「前进」那条挂），四种焦点下分屏在 split-center、web-full-key 里按
+  // 分屏这三条只在白板那种焦点（最后一轮）按，四种焦点下分屏在 split-center、web-full-key 里按。
+  // （以前前面几轮按过分屏、合回以后 AI 输入框里 ⌘[ 退不动：后退在同一篇的两份之间换，已修，split-center 里「⌃\ 分屏再合回」那条守着）
   'split-center': {
     ctxs: ['board'],
     async check(k, _c, p) {

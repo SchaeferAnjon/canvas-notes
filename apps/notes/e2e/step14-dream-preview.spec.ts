@@ -84,13 +84,15 @@ for (const tone of ['light', 'dark'] as const) {
       const moved = files.locator('.ft-row', { hasText: '第3讲 线性代数 导图' })
       await expect(moved.locator('.tag-new')).toHaveText('新')
       // 「新」和名字在同一行里露着（行是 overflow: hidden 的折行布局：不能掉到第二行，也不能把行里的名字滚走）
-      const fit = await moved.evaluate((r) => {
-        const b = r.getBoundingClientRect()
-        const t = r.querySelector('.tag-new')!.getBoundingClientRect()
-        const n = r.querySelector('.truncate')!.getBoundingClientRect()
-        return { scroll: r.scrollTop, tagIn: t.top >= b.top && t.bottom <= b.bottom, nameIn: n.top >= b.top && n.bottom <= b.bottom }
-      })
-      expect(fit).toEqual({ scroll: 0, tagIn: true, nameIn: true })
+      // 左栏刚换到「文件」页、文件夹刚展开时行宽还在变：量到排好为止（以前只量一次，机器忙时量在排到一半）
+      const fit = () =>
+        moved.evaluate((r) => {
+          const b = r.getBoundingClientRect()
+          const t = r.querySelector('.tag-new')!.getBoundingClientRect()
+          const n = r.querySelector('.truncate')!.getBoundingClientRect()
+          return { scroll: r.scrollTop, tagIn: t.top >= b.top && t.bottom <= b.bottom, nameIn: n.top >= b.top && n.bottom <= b.bottom }
+        })
+      await expect.poll(fit).toEqual({ scroll: 0, tagIn: true, nameIn: true })
       await expect(files.locator('.pv-ghost').first()).toBeVisible()
       // 开头的呼吸点是条上的字色（强调色底上是白的，不和底同色）；B 的底栏只剩预览胶囊，后面不留磨砂底
       const dot = await bar(page).locator('.pd').evaluate((d) => [getComputedStyle(d).backgroundColor, getComputedStyle(d.closest('.pv-bar')!).color])

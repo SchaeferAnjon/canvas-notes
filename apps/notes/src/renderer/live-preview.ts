@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language'
 import { Prec, type Range, StateEffect, StateField } from '@codemirror/state'
 import { codiconEl } from '@cn/design'
-import { wikiShown } from '@cn/format'
+import { splitImageAlt, wikiShown } from '@cn/format'
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { blockIds } from './block-id'
 import { hiddenLayoutLine } from './layout-lines'
@@ -10,6 +10,8 @@ import { engineLogoEl, type LogoEngine } from './engine-logo'
 import { highlightsIn } from './highlight'
 import { hlDot } from './reading/hl-kinds'
 import { linkCard } from './link-card'
+import { editorHost } from './editor-host'
+import { imageSrc } from './md-widgets'
 import { mathPreview, mathSpans, touched } from './math-preview'
 import { reviewDecos, reviewExtension } from './review'
 
@@ -99,6 +101,84 @@ class CalloutIcon extends WidgetType {
       view.dispatch({ selection: { anchor: line.from + (c?.prefix ?? 0) }, userEvent: 'select.pointer' })
     })
     return s
+  }
+}
+
+/**
+ * 脚注（读 PDF 配对笔记旧写法里多段引用的 ①②，@cn/format reading-note.ts renderDoc；用户自己写的 [^1] 同一套）：
+ * 引用 [^p1-4-3] 画成 ③（编号是标签末尾的数，和输入框里材料的 ①② 一个样子），一段末尾的定义行
+ * 「[^p1-4-1]: ![粘贴的图|180](…)」画成 ① + 缩略图、「[^p1-4-3]: 「原文」 出处」画成 ③ + 引文、出处淡一号。只加装饰，文字一字不动
+ */
+const FOOT_DEF = /^\[\^([^\]\s]+)\]:[ \t]?/
+const FOOT_REF = /\[\^([^\]\s]+)\](?!:)/g
+const FOOT_IMG = /^!\[([^\]\n]*)\]\(([^)\s]+)\)\s*$/
+const FOOT_QUOTE = /^(「.*」)(\s+.*)?$/
+const CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳'
+/** 标签 → 显示的记号：末尾是数（p1-4-3、1）画成圈号，别的照写标签 */
+const footSign = (label: string) => {
+  const n = Number(/(?:^|-)(\d+)$/.exec(label)?.[1] ?? 0)
+  return n >= 1 && n <= CIRCLED.length ? CIRCLED[n - 1]! : label
+}
+
+class FootMark extends WidgetType {
+  constructor(
+    readonly sign: string,
+    /** 定义行开头那一个 */
+    readonly def: boolean,
+    /** 指着看：这一条脚注写的是什么 */
+    readonly tip: string,
+    /** 一串引用的最后一个：和后面的字隔开 4 */
+    readonly end = false,
+  ) {
+    super()
+  }
+  eq(o: FootMark) {
+    return o.sign === this.sign && o.def === this.def && o.tip === this.tip && o.end === this.end
+  }
+  toDOM() {
+    const s = document.createElement('span')
+    s.className = this.def ? 'cm-fn-sign' : this.end ? 'cm-fn-ref end' : 'cm-fn-ref'
+    s.textContent = this.sign
+    if (this.tip) s.title = this.tip
+    return s
+  }
+  ignoreEvent() {
+    return false
+  }
+}
+
+/** 脚注定义里的图：缩略图（写着的宽，最宽 180），点了选中这一行（同文档里的图：再按退格删） */
+class FootImage extends WidgetType {
+  constructor(
+    readonly src: string,
+    readonly alt: string,
+  ) {
+    super()
+  }
+  eq(o: FootImage) {
+    return o.src === this.src && o.alt === this.alt
+  }
+  toDOM(view: EditorView) {
+    const { caption, width } = splitImageAlt(this.alt)
+    const img = document.createElement('img')
+    img.className = 'cm-fn-img'
+    img.alt = caption
+    img.title = caption
+    img.draggable = false
+    img.src = this.src
+    if (width) img.style.maxWidth = `${Math.min(width, 180)}px`
+    img.addEventListener('error', () => img.classList.add('broken'))
+    img.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
+      e.preventDefault()
+      const line = view.state.doc.lineAt(view.posAtDOM(img))
+      view.focus()
+      view.dispatch({ selection: { anchor: line.from, head: line.to } })
+    })
+    return img
+  }
+  ignoreEvent() {
+    return true
   }
 }
 
@@ -237,6 +317,8 @@ function build(view: EditorView): DecorationSet {
             if (parent?.name === 'InlineCode') markOf(node.from, node.to)
             return
           case 'Link': {
+            // 脚注引用 [^p1-4-3]（lezer 认成链接，下面 footnotes 画成圈号）：不当链接藏「[」「]」，不然露成「^p1-4-3」
+            if (doc.sliceString(node.from, node.from + 2) === '[^') return false
             const url = node.node.getChild('URL')
             // 光一对方括号（「tensor([0, 1, 2, 3])」，task-busas）：lezer 也认成链接，可文里没有「[字]: 网址」就不是链接，原样露着
             if (!url && !node.node.getChild('LinkLabel') && !inWiki(node.from, node.to) && !refDefined(doc.sliceString(node.from + 1, node.to - 1))) return false
@@ -339,6 +421,49 @@ function build(view: EditorView): DecorationSet {
       decos.push(mark('cm-wikilink', { 'data-target': target, 'data-wiki': m[1]! }).range(start + 2 + shown.from, start + 2 + shown.to))
       markOf(start, start + 2 + shown.from)
       markOf(start + 2 + shown.to, end)
+    }
+    footnotes(from, to)
+  }
+
+  /** 脚注：定义行、引用（见 FootMark 上面的说明）；代码里的不算 */
+  function footnotes(from: number, to: number) {
+    if (!doc.sliceString(from, to).includes('[^')) return
+    const all = doc.toString()
+    const tips = new Map<string, string>()
+    for (const m of all.matchAll(/^\[\^([^\]\s]+)\]:[ \t]?(.*)$/gm)) {
+      const im = FOOT_IMG.exec(m[2]!)
+      tips.set(m[1]!, im ? splitImageAlt(im[1]!).caption || '图' : m[2]!.trim())
+    }
+    const path = state.facet(editorHost).path()
+    for (let n = doc.lineAt(from).number, last = doc.lineAt(to).number; n <= last; n++) {
+      const l = doc.line(n)
+      if (l.from < fmEnd || !l.text.includes('[^') || inCode(l.from)) continue
+      const d = FOOT_DEF.exec(l.text)
+      let refFrom = 0
+      if (d) {
+        const prev = n > 1 ? doc.line(n - 1).text : ''
+        decos.push(line(FOOT_DEF.test(prev) ? 'cm-fn' : 'cm-fn cm-fn-first').range(l.from))
+        const body = l.from + d[0].length
+        decos.push(Decoration.replace({ widget: new FootMark(footSign(d[1]!), true, '') }).range(l.from, body))
+        const rest = l.text.slice(d[0].length)
+        const im = FOOT_IMG.exec(rest)
+        const q = im ? null : FOOT_QUOTE.exec(rest)
+        if (im) {
+          decos.push(Decoration.replace({ widget: new FootImage(imageSrc(path, im[2]!), im[1]!) }).range(body, l.to))
+          continue
+        }
+        if (q) {
+          decos.push(mark('cm-fn-quote').range(body, body + q[1]!.length))
+          if (q[2]) decos.push(mark('cm-fn-src').range(body + q[1]!.length, l.to))
+        }
+        refFrom = d[0].length
+      }
+      for (const m of l.text.slice(refFrom).matchAll(FOOT_REF)) {
+        const s = l.from + refFrom + m.index!
+        if (inCode(s)) continue
+        const after = l.text.slice(s - l.from + m[0].length)
+        decos.push(Decoration.replace({ widget: new FootMark(footSign(m[1]!), false, tips.get(m[1]!) ?? '', !!after && !after.startsWith('[^')) }).range(s, s + m[0].length))
+      }
     }
   }
 

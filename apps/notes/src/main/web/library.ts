@@ -150,7 +150,12 @@ export class History {
   private list: HistoryEntry[]
   private timer: NodeJS.Timeout | null = null
 
-  constructor(private file: string) {
+  /** max：最多记几条（左栏「最近」用的那一份少记）；changed：记了、改了、去掉了一条（告诉界面） */
+  constructor(
+    private file: string,
+    private max = MAX_HISTORY,
+    private changed?: () => void,
+  ) {
     this.list = readJson<HistoryEntry[]>(file, []).filter((h) => isWebUrl(h?.url))
   }
 
@@ -161,8 +166,16 @@ export class History {
     const prev = i === -1 ? null : this.list[i]!
     if (i !== -1) this.list.splice(i, 1)
     this.list.unshift({ url, title: title || prev?.title || '', visits: (prev?.visits ?? 0) + 1, lastVisit: now })
-    if (this.list.length > MAX_HISTORY) this.list.length = MAX_HISTORY
+    if (this.list.length > this.max) this.list.length = this.max
     this.later()
+  }
+
+  /** 去掉一条（「最近」里右键「从最近里去掉」） */
+  remove(url: string) {
+    const i = this.list.findIndex((h) => h.url === url)
+    if (i === -1) return
+    this.list.splice(i, 1)
+    this.flush()
   }
 
   /** 标题出来得比导航晚：只改标题，不算一次访问 */
@@ -222,6 +235,7 @@ export class History {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     writeJson(this.file, this.list)
+    this.changed?.()
   }
 }
 

@@ -3,16 +3,18 @@
  * 对话、问过的地方、框好还没发的那块、笔记读回来的段、要跳到哪、要看笔记哪一段。
  * 存盘的部分（看到哪页、对话）交给主进程存在软件设置目录；笔记本身在库里。
  */
-import { type AskSection, blocksText, CONFUSED, confusedAsk, confusedOf, DEFAULT_KINDS, type HlKind, documentBlocks, notePathFor, parseReadingNote, type PdfBlock, pageBlocks, type Rect } from '@cn/format'
+import { type AskSection, blocksText, CONFUSED, confusedAsk, confusedOf, DEFAULT_KINDS, type HlKind, documentBlocks, notePathFor, UNPLACED, parseReadingNote, type PdfBlock, pageBlocks, type Rect } from '@cn/format'
 import { useSyncExternalStore } from 'react'
 import { setHlKindsNow } from './hl-kinds'
 import type { EngineId, ToolStep } from '../../shared/agent'
-import { type AiPick, convPick, pickLabel, pickReq } from '../../shared/ai-features'
-import { imageNames, type Material, shiftMarks } from '../../shared/materials'
+import { type AiPick, canSeeImages, convPick, pickLabel, pickReq } from '@cn/ai-engines/shared'
+import { imageNames, type Material, PASTED_NAME, shiftMarks } from '../../shared/materials'
+import { blocksRect, locateShot } from '../../shared/locate'
 import { type AskResult, type ReadingMsg, type ReadingSide, type ReadingState, type ReadingThread, readLine, withoutVizMark } from '../../shared/reading'
 import { titleOf } from '../../shared/layout'
 import { fmtTime, timeUrl, videoOf } from '../../shared/video'
 import { pageText, pdfDoc, renderCrop } from './pdf'
+import { type FormulaCrop, formulaCrops, formulaPicks } from './formula-crops'
 import { pageTitle } from '../../shared/pdf-page-title'
 import { type NoteAppendRequest, type NoteKind } from '../../shared/ai-note'
 import { readKey } from '../../shared/ai-chats'
@@ -677,6 +679,8 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
   const images = [...pasted, ...imageNames(mats).filter((n) => !pasted.includes(n))]
   let thread: ReadingThread | undefined
   let image: string | undefined
+  /** 贴截图问的这一问怎么定的页（回答头上「看的是第 3 页（按截图认出）」） */
+  let how: ReadingThread['found']
   if (p) {
     const id = await window.cnReading.newThread(pdf, p.page)
     if (p.image) image = p.image
@@ -703,6 +707,13 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     if (p.web && /^https?:/i.test(p.web.url)) clearWebBox(webHost()?.view() ?? null)
   } else {
     thread = r.state.threads.find((t) => t.id === r.activeThread)
+    // 没框没选、贴了截图（粘贴、拖进来的）问（0.5.9）：认截图里的字定是哪一页，和上一处同一页才接着问，不然新开一处
+    const shot = /\.pdf$/i.test(pdf) ? shotOf(mats) : undefined
+    if (shot) {
+      const at = await placeShot(pdf, shot, r.state.page)
+      how = at.found
+      if (!thread || at.found === 'none' || thread.page !== at.page || thread.web) thread = { id: await window.cnReading.newThread(pdf, at.page), page: at.page, ...(at.rect ? { rect: at.rect } : {}), createdAt: now, found: at.found }
+    }
     if (!thread) {
       const page = r.state.page
       thread = { id: await window.cnReading.newThread(pdf, page), page, createdAt: now }
@@ -725,13 +736,29 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     ...(pasted.length ? { pasted } : {}),
     ...(mats.length ? { mats } : {}),
   }
-  const aiMsg: ReadingMsg = { id: aiId, role: 'ai', thread: th.id, text: '', time: now, page: th.page, engine, read: readOf(th, ''), by }
+  const aiMsg: ReadingMsg = { id: aiId, role: 'ai', thread: th.id, text: '', time: now, page: th.page, engine, read: readOf(th, '', [], how), by }
   update(pdf, (x) => ({
     activeThread: th.id,
     state: { ...x.state, threads: x.state.threads.some((t) => t.id === th.id) ? x.state.threads : [...x.state.threads, th], msgs: [...x.state.msgs, userMsg, aiMsg] },
   }))
   save(pdf)
-  const blocks = isWebSrc(pdf) ? [] : /\.html?$/i.test(pdf) ? (get(pdf).blocks[1] ?? []) : await blocksOf(pdf, th.page)
+  const blocks = isWebSrc(pdf) ? [] : /\.html?$/i.test(pdf) ? (get(pdf).blocks[1] ?? []) : th.page > 0 ? await blocksOf(pdf, th.page) : []
+  // 公式（2026-11-24）：文字层里公式是拆散的，这一页（或问到编号的那一页）有公式时照版面框截下公式那几块带给 AI（规则在 formula-crops.ts）；
+  // 这一家看不了图：照旧只给字，回答头上写明
+  let formulas: FormulaCrop[] = []
+  let formulaRead = ''
+  if (/\.pdf$/i.test(pdf) && !image && !carried && th.page > 0) {
+    try {
+      const first = !r.state.msgs.some((m) => m.thread === th.id && m.role === 'user')
+      const picks = await formulaPicks(pdf, th.page, text, first)
+      if (picks.length && canSeeImages(engine)) {
+        formulas = await formulaCrops(pdf, picks)
+        formulaRead = ' · 看了公式图'
+      } else if (picks.length) formulaRead = ' · 公式只读了字'
+    } catch (e) {
+      console.error('公式那几块没截成', e)
+    }
+  }
   const res = await window.cnReading.ask({
     id: aiId,
     pdf,
@@ -746,12 +773,13 @@ async function ask(pdf: string, aiId: number, p: Pending | null, text: string, p
     ...req,
     // 引用的材料（多段引用方向 B）：主进程交给引擎时照旧是 ①②、后面按同一套编号列出每块；后面记笔记也用它
     ...(mats.length ? { mats } : {}),
+    ...(formulas.length ? { formulas } : {}),
   })
   const full = res.text || get(pdf).state.msgs.find((m) => m.id === aiId)?.text || ''
   const { text: answer, viz } = withoutVizMark(full)
   patchMsg(pdf, aiId, {
     text: answer,
-    read: readOf(th, answer, get(pdf).note.sections),
+    read: readOf(th, answer, get(pdf).note.sections, how) + formulaRead,
     ...(viz && !res.error ? { vizOk: true } : {}),
     ...(res.error ? { error: res.error } : {}),
     ...changeOf(res),
@@ -778,7 +806,7 @@ export interface Noted {
   quote?: string
 }
 function told(pdf: string, th: ReadingThread, side?: { quote: string; ask?: string }) {
-  const at = th.page > 0 ? `第${th.page}页` : ''
+  const at = th.page > 0 ? `第${th.page}页` : th.found === 'none' ? `「${UNPLACED}」` : ''
   const under = at + (side?.ask ? `「${side.ask.replace(/\s+/g, ' ').trim().slice(0, 10)}」` : '')
   const text = side ? (under ? `旁支也记进了笔记，挂在${under}下面` : '旁支也记进了笔记') : `记进《${titleOf(get(pdf).note.path)}》${at}`
   window.dispatchEvent(new CustomEvent<Noted>(NOTED, { detail: { pdf, thread: th.id, text, ...(side ? { quote: side.quote } : {}) } }))
@@ -1023,12 +1051,76 @@ export function stop(pdf: string) {
   if (id !== null) void window.cnReading.stop(id)
 }
 
-/** 回答上面那一行：读了第几页；网页上问的「读了网页这一段」（中间开着 PDF 时「· 对上第 5 页」） */
-function readOf(th: ReadingThread, answer: string, sections: AskSection[] = []): string {
+/**
+ * 回答上面那一行：读了第几页；网页上问的「读了网页这一段」（中间开着 PDF 时「· 对上第 5 页」）；
+ * 贴截图问的（how）：「看的是第 3 页（按截图认出）」「看的是第 3 页（你正看着的这页）」「没认出截图是哪一页」
+ */
+function readOf(th: ReadingThread, answer: string, sections: AskSection[] = [], how?: ReadingThread['found']): string {
   if (th.web?.t !== undefined) return `接着${fmtTime(th.web.t)}那一问`
   if (th.web && /^https?:/i.test(th.web.url)) return `读了网页这一段${th.page > 0 ? ` · 对上第${th.page}页` : ''}`
   if (th.web) return `看了框的这一块`
-  return answer ? readLine(th.page, answer, sections) : `读了第${th.page}页`
+  if (how === 'none') return '没认出截图是哪一页'
+  const line = answer ? readLine(th.page, answer, sections) : `读了第${th.page}页`
+  if (how === 'ocr') return line.replace(/^读了第\d+页/, `看的是第${th.page}页（按截图认出）`)
+  if (how === 'view') return line.replace(/^读了第\d+页/, `看的是第${th.page}页（你正看着的）`)
+  return line
+}
+
+// ---------- 贴截图问的定在哪一页（0.5.9，shared/locate.ts） ----------
+
+/** 材料里贴进来的截图（粘贴、拖进来的，不知道哪一页的）：第一张 */
+function shotOf(mats: Material[]): string | undefined {
+  return mats.find((m): m is Extract<Material, { kind: 'image' }> => m.kind === 'image' && !m.page && PASTED_NAME.test(m.name))?.name
+}
+
+/**
+ * 截图是哪一页：① 认图里的字去 PDF 文字层里找；② 找不到、又不像别处的截图（没认出几个字：公式、图），照问的时候正看着的那页；
+ * ③ 认出的字一半以上这份 PDF 里没有（别处的截图）、中间没开着这份 PDF：没定位（page 0）
+ */
+async function placeShot(pdf: string, name: string, viewing: number): Promise<{ page: number; rect?: Rect; found: NonNullable<ReadingThread['found']> }> {
+  const r = get(pdf)
+  const text = await window.cnReading.ocr(name).catch((e: unknown) => {
+    console.error('截图认字没成', e)
+    return ''
+  })
+  const pages = Array.from({ length: r.pages }, (_x, i) => r.blocks[i + 1] ?? [])
+  const at = text.trim() ? locateShot(text, pages) : ({ page: 0, foreign: false } as const)
+  const doc = pdfDoc(pdf)
+  if (at.page > 0) {
+    let rect: Rect | undefined
+    if ('blocks' in at && doc) {
+      const size = await pageText(doc, at.page).catch(() => null)
+      if (size) rect = blocksRect(at.blocks, { w: size.width, h: size.height })
+    }
+    return { page: at.page, ...(rect ? { rect } : {}), found: 'ocr' }
+  }
+  if (!('foreign' in at && at.foreign) && doc && viewing > 0) return { page: viewing, found: 'view' }
+  return { page: 0, found: 'none' }
+}
+
+/**
+ * 「放到第 N 页」（没定位、照正看着的那页定的那一问）：这一处挪到第 page 页；记进笔记了的从原来那节拿掉、记进第 page 页那一节
+ */
+export async function moveAsk(pdf: string, aiId: number, page: number) {
+  const r = get(pdf)
+  const ai = r.state.msgs.find((m) => m.id === aiId)
+  const th = ai && r.state.threads.find((t) => t.id === ai.thread)
+  if (!ai || !th || page < 1 || th.page === page) return
+  // 这一处记进笔记的每一问都挪（按顺序拿掉、再按顺序记）
+  const noted = r.state.msgs.filter((m) => m.thread === th.id && m.role === 'ai' && m.notePath).map((m) => m.id)
+  for (const id of noted) await unnoteAsk(pdf, id)
+  const { rect: _r, ...rest } = th
+  void _r
+  update(pdf, (x) => ({
+    state: {
+      ...x.state,
+      // 挪过来的（moved）：笔记里不写「—— 第 N 页」来源行，截图不是从这一页截的
+      threads: x.state.threads.map((t) => (t.id === th.id ? { ...rest, page, found: 'moved' as const } : t)),
+      msgs: x.state.msgs.map((m) => (m.thread === th.id ? { ...m, page } : m)),
+    },
+  }))
+  save(pdf)
+  for (const id of noted) await noteAsk(pdf, id)
 }
 
 // ---------- 记进笔记（2026-11-24 新写法，shared/ai-note.ts） ----------
@@ -1044,6 +1136,8 @@ async function headingOf(src: string, th: ReadingThread): Promise<string> {
   if (th.web?.t !== undefined) return th.web.title
   // 网页标题去掉站名那一截（「2.2. 数据预处理 — 动手学深度学习」写「2.2. 数据预处理」）
   if (isWebSrc(src)) return pageHead(th.web?.title || get(src).webTitle, th.web?.url ?? src.slice(4))
+  // 贴截图问的、没认出是哪一页：记进「没定位的问答」一节（回答下面「放到第 N 页」挪走）。不翻：写进文件的字
+  if (/\.pdf$/i.test(src) && th.page < 1 && th.found === 'none') return UNPLACED
   if (!/\.pdf$/i.test(src) || th.page < 1) return (src.split('/').pop() ?? src).replace(/\.[^.]+$/, '')
   const doc = pdfDoc(src)
   const title = doc ? pageTitle(await pageText(doc, th.page).catch(() => null)) : ''

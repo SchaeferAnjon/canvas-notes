@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { CLAUDE_EFFORTS, convPick, effortOption, fitPick, INITIAL_PREFS, modelsOf, normalizePick, normalizePrefs, pickLabel, resolvePick } from '../src/shared/ai-features'
+import { CLAUDE_EFFORTS, convPick, effortOption, fitPick, INITIAL_PREFS, modelsOf, normalizePick, normalizePrefs, pickLabel, resolvePick } from '@cn/ai-engines/shared'
 import type { EngineInfo } from '../src/shared/agent'
 import { AgentStore } from '../src/main/agent/store'
 

@@ -278,7 +278,12 @@ export function registerFolderHome(getVault: () => Vault, getWin: () => BrowserW
     changed()
     return d
   })
-  ipcMain.handle('left:set', (_e, c: unknown) => writeLeft(getVault(), c))
+  // 写的是 .canvas-notes/左栏.json：文件监听不看 .canvas-notes，自己报一声，底栏「N处没提交」才跟上（同上面 cat:setDesc）
+  ipcMain.handle('left:set', async (_e, c: unknown) => {
+    const r = await writeLeft(getVault(), c)
+    changed()
+    return r
+  })
   // confirmed：界面已经问过了（文件树里选了好几个一起删，一个确认框问完），不再弹系统确认
   ipcMain.handle('folder:trash', async (_e, folder: unknown, confirmed: unknown) => {
     const v = getVault()

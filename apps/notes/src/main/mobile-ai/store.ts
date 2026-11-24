@@ -1,7 +1,7 @@
 /**
  * Mac 这一头记着的（task-wwqf0）：开没开、这台 Mac 的编号和长期钥匙、配对过的设备、上次用的端口。
  * 存在软件设置目录 mobile-ai/state.json；私钥和每台设备的钥匙加密后才落盘（Electron safeStorage，加密钥匙在这台 Mac 的钥匙串里，
- * 和翻译 API 的 Key 同一个做法，见 plugins/translate/keys.ts）。不进库、不进 Git。
+ * 和翻译 API 的 Key 同一个做法，见 @cn/ai-engines 的 keys.ts）。不进库、不进 Git。
  *
  * 为什么 Mac 这头不放 iCloud 钥匙串：查过（2026-11-22），Developer ID 签名的软件要用数据保护钥匙串（iCloud 同步的项都在这里）
  * 得有带「钥匙串共享」的 provisioning profile 和 keychain-access-groups 权限，Electron 也没有读写同步项的接口（要另写原生模块）；

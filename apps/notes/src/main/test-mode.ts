@@ -5,6 +5,16 @@
  */
 export const E2E = process.env.CN_E2E === '1' || process.env.E2E === '1'
 
+/** 测试模式：退出的每一步记进设置目录的 quit.log（端到端测试关软件卡住时看卡在哪一步；各个子进程什么时候退的也记） */
+export function quitLog(what: string): void {
+  if (!E2E) return
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { app } = require('electron') as typeof import('electron')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { appendFileSync } = require('node:fs') as typeof import('node:fs')
+  appendFileSync(`${app.getPath('userData')}/quit.log`, `${Date.now()} ${what}\n`)
+}
+
 /**
  * 测试模式下，凡是会出现在用户屏幕上的东西都不真做，只记下来（globalThis.cnScreen）：
  * 窗口全透明、鼠标穿透、被系统挪回屏幕就再挪出去；

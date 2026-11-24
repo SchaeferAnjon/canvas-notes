@@ -3,7 +3,7 @@ import type { AskSection, CardText, HlKind, PdfBlock, ReadAt, Rect } from '@cn/f
 import { type FigureBox, parseFigureMark, stripFigureMark } from '@cn/format'
 import type { AiCommitFailed, CommitInfo } from './api'
 import type { EngineId, ToolStep } from './agent'
-import type { AiPick } from './ai-features'
+import type { AiPick } from '@cn/ai-engines/shared'
 import type { Material } from './materials'
 import type { CnAiNoteApi } from './ai-note'
 
@@ -37,6 +37,11 @@ export interface ReadingThread {
   cmd?: string
   /** 那颗选了「只在 AI 栏答」：答完不写进笔记 */
   noNote?: true
+  /**
+   * 贴截图问的、没框没选（0.5.9）这一处怎么定的页：ocr 按截图里的字在 PDF 里认出、view 认不出照问的时候正看着的那页、
+   * none 没定位（page 0，记进笔记「没定位的问答」一节，回答下面给「放到第 N 页」）；moved 没定准、用户「放到第 N 页」挪过来的（笔记里不写来源行）
+   */
+  found?: 'ocr' | 'view' | 'none' | 'moved'
   /** 视频问框带过来的那一处（adoptVideoQa）：问框记进的那篇 AI 笔记，在这里接着问的也记进它 */
   note?: string
 }
@@ -163,6 +168,11 @@ export interface AskRequest {
    * 里面的图同时在 pasted 里（按顺序，排在框的那块后面）。后面记笔记写成 md 脚注 [^1] 用的也是它
    */
   mats?: Material[]
+  /**
+   * 公式那几块的截图（2026-11-24，renderer/reading/formula-crops.ts）：文字层里公式是拆散的，照版面框截下来带给 AI；
+   * name 是 pasted/ 里的名字（排在框的那块、粘贴的图后面），what 是给 AI 说这张是什么（「第 3 页公式 (1)」）
+   */
+  formulas?: { name: string; what: string }[]
 }
 
 export interface AskResult {
@@ -321,6 +331,8 @@ export interface CnReadingApi extends CnAiNoteApi {
   cropGaps(pdf: string): Promise<{ note: string; gaps: { id: string; page: number; rect?: [number, number, number, number]; have?: string }[]; missing: number }>
   /** 补好的图写进库、插进笔记那几段，一次提交；返回补上了几张 */
   cropFill(pdf: string, items: { id: string; page: number; png?: Uint8Array; have?: string; w?: number }[]): Promise<number>
+  /** 贴进来的截图（pasted/ 里的名字）里认出的字（macOS Vision）；认不出是空的 */
+  ocr(name: string): Promise<string>
   /** 新的一处问的地方：给它一个完整对话的路径 */
   newThread(pdf: string, page: number): Promise<string>
   /** 整份 PDF 的段落块（读全文用）和每页的宽高（搜索命中时算那一段在页上的比例），按内容指纹缓存 */

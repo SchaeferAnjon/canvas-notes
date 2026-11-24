@@ -434,82 +434,9 @@
     display: none;
   }
 }
-.reading-ai .daysep {
-  text-align: center;
-  font-size: 12px;
-  color: var(--t3);
-  margin: 2px 0 -4px;
-}
-.reading-ai .um-wrap {
-  align-self: flex-end;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  max-width: 86%;
-  border-radius: 10px;
-}
-.reading-ai .um-wrap .um {
-  max-width: 100%;
-}
-.reading-ai .um-wrap.flash {
-  animation: note-ring 2s ease-out;
-}
-@keyframes note-ring {
-  0%,
-  60% {
-    box-shadow: 0 0 0 2px var(--acc-ring);
-  }
-  100% {
-    box-shadow: 0 0 0 2px transparent;
-  }
-}
-.reading-ai .um-wrap .att {
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px var(--line2);
-  background: #fff;
-}
-[data-tone='dark'] .reading-ai .um-wrap .att,
+/* 对话里一来一回的样子搬进了 @cn/ai-chat 的 turns.css（ParaRead 联动）；笔记里的图深色时一样压暗一点 */
 [data-tone='dark'] .reading-notes .fig .im {
   filter: brightness(0.92);
-}
-.reading-ai .um-wrap .att img {
-  display: block;
-  max-width: 200px;
-  max-height: 120px;
-}
-/* 框的那块在这一问的气泡里（照小样 .um .th）：气泡内边距 6，图圆角 6、1px --line、下面空 6，字左右再让 6 */
-.reading-ai .um.wimg,
-.reading-ai .um.mq:has(> .att) {
-  padding: 6px;
-}
-.reading-ai .um .att {
-  border-radius: 6px;
-  box-shadow: 0 0 0 1px var(--line);
-}
-.reading-ai .um.wimg .att {
-  margin-bottom: 6px;
-}
-.reading-ai .um.wimg .ut,
-.reading-ai .um.mq:has(> .att) > .mt,
-.reading-ai .um.mq:has(> .att) > .fnl {
-  margin: 0 6px;
-}
-.reading-ai .um.wimg .ut {
-  margin-bottom: 2px;
-}
-.reading-ai .um-wrap .uq {
-  max-width: 100%;
-  padding: 4px 10px;
-  border-left: 2px solid var(--clip-bar);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--t2);
-}
-.reading-ai .am .txt {
-  font-size: 13px;
-  line-height: 1.7;
 }
 .md a.pg,
 /* 白板问答卡回答那一行不在 .md 里，照同一个样子 */
@@ -563,6 +490,28 @@
 .reading-ai .noted .lnk:hover {
   color: var(--t1);
   background: var(--fill);
+}
+/* 贴截图问的没定准的那一问：「没认出截图是哪一页，记在「没定位的问答」里 · 放到第 2 页」，窄了说明折行、按钮整颗不断开（0.5.9） */
+.reading-ai .noted.move {
+  height: auto;
+  min-height: 20px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+  row-gap: 0;
+  line-height: 20px;
+}
+.reading-ai .noted.move {
+  padding-left: 18px;
+}
+/* 「· 放到第 N 页」一起换行，点不悬在行尾；能点的字同「撤回」用 --acc-t */
+.reading-ai .noted.move .go {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.reading-ai .noted.move .lnk {
+  color: var(--acc-t);
 }
 
 /* 排着的几问：一问一行，叠在附件右边 */

@@ -105,7 +105,7 @@ export function useCiteRun(scope: CiteScope): () => CiteRun {
 }
 
 /**
- * 认出来的链接会变（设置改了、点了「不是这篇」、库里的文件变了）的指纹：回答上划了旁支小标（reading/marks.ts 改过 DOM）时，
+ * 认出来的链接会变（设置改了、点了「不是这篇」、库里的文件变了）的指纹：回答上划了旁支小标（@cn/ai-chat 的 side/marks.ts 改过 DOM）时，
  * 外面拿它当 key 整块换掉，React 不去动被改过的节点
  */
 export function useCiteSig(conv: string): string {

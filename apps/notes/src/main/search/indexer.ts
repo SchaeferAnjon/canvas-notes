@@ -364,7 +364,7 @@ export class Indexer {
     // 本机小模型给不沾边的段也有 0.84 上下，过得了 min（2000 篇只写「随便写点。」的库，搜「线性代数复习」列出 30 篇）。
     // 这时拿「正文就是这句话的一段」和查询的分数当最像的来卡，建完再照常
     const anchor = this.status.phase !== 'ready' ? dot(v!, (await e.embed([q.trim()], 'passage'))[0]!) : undefined
-    const hits = this.index.search(v!, { limit: o.limit, near: o.near, min: filler + o.over, spread: o.spread, ...(anchor === undefined ? {} : { anchor }) })
+    const hits = await this.index.search(v!, { limit: o.limit, near: o.near, min: filler + o.over, spread: o.spread, ...(anchor === undefined ? {} : { anchor }) }, this.o.scorer)
     return hits.map((h) => ({ ...h, sure: true }))
   }
 }

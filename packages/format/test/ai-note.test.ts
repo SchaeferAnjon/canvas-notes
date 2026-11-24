@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import { decodeNote, splitDoc } from '../src'
 import { FIXTURES } from './fixtures'
-import { type NoteAsk, appendAsk, askColumns, askUnits, hasAsk, insertAfterAsk, insertSide, newReadingNote, pastAsk, parseChatLink, parseReadingNote, pdfSrc, removeAsk, renderAsk, renderSection, setCalloutWords, EN_CALLOUT_WORDS, ZH_CALLOUT_WORDS, webSrc, withDerived, chatLink } from '../src'
+import { type NoteAsk, appendAsk, askColumns, askUnits, hasAsk, insertAfterAsk, insertSide, newReadingNote, pastAsk, parseChatLink, parseReadingNote, pdfSrc, removeAsk, renderAsk, UNPLACED, renderSection, setCalloutWords, EN_CALLOUT_WORDS, ZH_CALLOUT_WORDS, webSrc, withDerived, chatLink } from '../src'
 
 const PDF = '课程/ecpc/Lecture05.pdf'
 const NOTE = '课程/ecpc/Lecture05 笔记.md'
@@ -81,6 +81,13 @@ describe('认回来', () => {
 
 describe('只往后加', () => {
   const place = { heading: '第 28 页 · LIF Neuron', page: 28 }
+  it('「没定位的问答」一直在最后：按页的新一节插在它前面；那一问拿掉后这一节空了连标题一起拿掉', () => {
+    let md = appendAsk(newReadingNote(PDF), NOTE, main(40, '这张图讲什么', '答', { th: 'Lecture05-p1-1' }), { heading: UNPLACED })
+    md = appendAsk(md, NOTE, FIRST, place)
+    md = appendAsk(md, NOTE, main(41, '第 30 页', '答', { th: 'Lecture05-p30-1', src: pdfSrc(NOTE, PDF, 30) }), { heading: '第 30 页', page: 30 })
+    expect(md.split('\n').filter((l) => /^## /.test(l))).toEqual(['## 第 28 页 · LIF Neuron', '## 第 30 页', '## 没定位的问答'])
+    expect(removeAsk(md, KEY, 40)).not.toContain(UNPLACED)
+  })
   it('空笔记：新起一节「第 28 页 · …」；同一条回答再加一次不变', () => {
     const md0 = newReadingNote(PDF, new Date(2026, 10, 24))
     const md1 = appendAsk(md0, NOTE, FIRST, place)
@@ -145,6 +152,41 @@ describe('只往后加', () => {
     ])
     expect(secs[1]!.qas!.map((q) => q.q)).toEqual(['接着问', '再问'])
     expect(secs[0]).toEqual(parseReadingNote(md0, NOTE)[0])
+  })
+  it('带材料（粘贴的图、几段引文）的一问不再写脚注：图和引文直接写在那一问下面；旧写法那段的脚注一字节不动（r119）', () => {
+    const old = withDerived({
+      id: '.canvas-notes/对话/Lecture05-p28-1.md',
+      file: PDF,
+      page: 28,
+      title: 'LIF 神经元',
+      figures: [],
+      doubts: [],
+      good: '',
+      points: [],
+      failed: [],
+      rounds: 0,
+      links: [],
+      qas: [{ q: '①说的是什么？', a: '先抓关系。', sides: [], mats: [{ kind: 'image', path: '附件/Lecture05/p28-1-m1.png', src: '粘贴的图' }] }],
+      recap: '一句小结',
+    })
+    const md0 = newReadingNote(PDF) + '\n' + renderSection(old, NOTE)
+    const defs = (md: string) => md.match(/^\[\^[^\]\s]+\]:/gm) ?? []
+    expect(defs(md0)).toEqual(['[^p28-1-1]:'])
+    const mats: NoteAsk['mats'] = [
+      { kind: 'image', path: '附件/Lecture05/p28-2-ab.png', src: '粘贴的图' },
+      { kind: 'quote', text: 'Transformer 增强', src: 'AI的回答 · 第28页' },
+      { kind: 'quote', text: '慢慢漂移。', src: 'AI的回答 · 第28页' },
+    ]
+    const md1 = appendAsk(md0, NOTE, main(40, '①②③这几处是什么意思', '都在说门槛', { mats }), { heading: '第 28 页 · LIF 神经元', page: 28, after: old.id })
+    const md2 = appendAsk(md1, NOTE, side(41, '②呢', '是漂移', 40), { heading: '第 28 页 · LIF 神经元', page: 28, after: old.id })
+    const added = md2.slice(md0.length)
+    expect(added).not.toMatch(/\[\^/)
+    expect(defs(md2)).toEqual(['[^p28-1-1]:'])
+    expect(md2.startsWith(md0)).toBe(true)
+    expect(added).toContain('### ①②③这几处是什么意思\n')
+    expect(added).toContain('![粘贴的图|180](../../附件/Lecture05/p28-2-ab.png)')
+    expect(added).toContain('> ② Transformer 增强\n> —— AI的回答 · 第28页')
+    expect(renderAsk(main(42, '①', '答', { mats }), NOTE)).not.toMatch(/\[\^/)
   })
   it('按节写的一篇（没开东西时收件箱那篇）里网页的一问：一个网页一节（标题是网页标题），来源是回到那一段的链接', () => {
     const n = '收件箱/读书 · AI 笔记.md'

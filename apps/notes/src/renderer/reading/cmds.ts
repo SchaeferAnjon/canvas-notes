@@ -61,6 +61,9 @@ export async function runReadingCmd(d: ReadingCmdDeps, it: SlashItem) {
     t.patch({ read, text: done, open: { path }, ...(res ? { change: { commit: res as CommitInfo, kinds: { [path]: had ? '改' : '新' } } } : {}) })
   }
   try {
+    // 笔记先从盘上重读一遍：外面刚改过（另一个软件、同步、别处问了一问）时，监听报过来、右栏换上新的要一会儿，
+    // 这一会儿里跑命令会照旧的笔记收（r22-cmd-audit「又问了一问以后再收」偶发只收到 1 问）
+    if (S.get(d.pdf).loaded) await S.reloadNote(d.pdf)
     const r = S.get(d.pdf)
     const pdfLink = (page: number) => `${linkFrom(r.note.path || notePathFor(d.pdf), d.pdf)}#page=${page}`
     // 不翻：比的是命令名（身份）

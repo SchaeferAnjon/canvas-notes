@@ -3,7 +3,7 @@
  * 组件那边一排放得下几颗（fitBar）。
  */
 import { describe, expect, it } from 'vitest'
-import { fitBar } from '@cn/design/answer-bar'
+import { fitBar } from '@cn/ai-chat/answer-bar'
 import { aiCmdJson, aiCmdOf, type Ctx, hiddenHere, replyCtx, slashGroups } from '../src/shared/ai-cmds'
 import { commandsJson, defaultCommands, deleteOwn, normalizeCommands } from '../src/shared/commands'
 import { answerSelItems, answerSelSay, defaultAnswerSel, defaultReplies, dropReply, fillReply, moveReply, normalizeAnswerSel, normalizeReplies, placeReply, repliesAt, repliesJson, replyNameOf, type ReplyOwn, setAnswerSel } from '../src/shared/replies'

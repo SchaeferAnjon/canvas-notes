@@ -1,4 +1,4 @@
-import type { PdfBlock } from '@cn/format'
+import { formulaImagesNote, type PdfBlock } from '@cn/format'
 import { describe, expect, it } from 'vitest'
 import { askPrompt, fullTextOf, noteDigest, sidePrompt, TUTOR_SYSTEM, TUTOR_VERSION } from '../src/main/reading/prompts'
 import { AGENT_SYSTEM, AGENT_VERSION, langTail, modeLine, MODES_RULE } from '../src/main/agent/index'
@@ -58,6 +58,18 @@ describe('问 AI 的话', () => {
     expect(first.endsWith('他说：为什么减掉门槛？')).toBe(true)
     const more = sidePrompt({ first: false, quote: '水位一到门槛就发一个 spike', page: 28, question: '那门槛是多少？' })
     expect(more).toBe('（接着这条旁支问，问的还是「水位一到门槛就发一个 spike」这句。）\n他说：那门槛是多少？')
+  })
+})
+
+describe('AI 看得到公式（2026-11-24）', () => {
+  const thread: ReadingThread = { id: 'x', page: 3, createdAt: 0 }
+  it('带了公式截图：这一页的字后面说附图第几张是哪个公式、以图为准；没带不说', () => {
+    const note = formulaImagesNote(1, ['第 3 页公式 (1)'])
+    const p = askPrompt({ pdfName: 'x', page: 3, pages: 7, pageText: 'αij = exp LeakyReLU a [W h ∥ W h ] (1)', question: '公式 (1) 是什么', thread, digest: '', hasImage: false, formulaNote: note })
+    expect(p).toContain('</page>\n\n附图第 1 张依次是原文公式的截图：第 3 页公式 (1)。')
+    expect(p).toContain('以这几张图为准')
+    expect(p.indexOf('附图第 1 张')).toBeLessThan(p.indexOf('他说：公式 (1) 是什么'))
+    expect(askPrompt({ pdfName: 'x', page: 3, pages: 7, pageText: 't', question: 'q', thread, digest: '', hasImage: false })).not.toContain('原文公式的截图')
   })
 })
 

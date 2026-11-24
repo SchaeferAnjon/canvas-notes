@@ -24,6 +24,7 @@ import { humanWhy } from './dream-links'
 import { aliasesOf, blockLabel, blockLine, HUB_LINKS, headingLine, keysOf, linked, LinkIndex, type LinkRef, linkIn, linkTarget, quoteOf, refKind, seqDir, unlinkIn, whereOf, wordsOf } from './related'
 import { searchRelated, searchStatus } from './search'
 import { judgeRunner } from './dream-judge-run'
+import { rolesAt, walkFiles } from './dream-roles'
 import { planEntry } from './wiki-entry-main'
 import type { Vault } from './vault'
 
@@ -553,7 +554,7 @@ export function registerRelated(o: RelatedDeps) {
     return { kind: 'unlink', a: path, b: other, file: { path: src.path, before, after }, commit }
   })
 
-  // 建词条页（梦游 Wiki 那节 C1）：AI 起草、要嵌的段在原文行尾加块编号、词条页放进收件箱，一次提交；撤销是这几个文件回到改之前（新建的删掉）
+  // 建词条页（梦游 Wiki 那节 C1）：AI 起草、要嵌的段在原文行尾加块编号、词条页放进「词条/」（库里认得出的词条文件夹），一次提交；撤销是这几个文件回到改之前（新建的删掉）
   ipcMain.handle('related:entry', async (_e, n: unknown, f: unknown): Promise<RelatedUndo> => {
     const name = str(n, '词条名')
     const from = typeof f === 'string' ? f : ''
@@ -563,7 +564,8 @@ export function registerRelated(o: RelatedDeps) {
     const prefer = ledger.entries?.find((e) => e.name.toLowerCase() === name.toLowerCase())?.notes ?? []
     const judge = judgeRunner(o.settings().judge)
     // 提到它的地方链过去：过线的线照梦游判断那一路（Sonnet 0.8、Haiku 0.85）
-    const plan = await planEntry({ texts, name, prefer, ask: (system, prompt) => judge.ask(system, prompt), by: judge.by, pass: judge.line.pass })
+    const roles = await rolesAt(v.root, await walkFiles(v.root), texts)
+    const plan = await planEntry({ texts, name, prefer, ask: (system, prompt) => judge.ask(system, prompt), by: judge.by, pass: judge.line.pass, roles })
     const files: NonNullable<RelatedUndo['files']> = []
     const pending = (await git.status(v.root)).filter((x) => plan.edits.some((e) => e.path === x.path))
     if (pending.length)

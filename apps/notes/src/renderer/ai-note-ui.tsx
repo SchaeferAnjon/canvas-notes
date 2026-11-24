@@ -9,7 +9,7 @@ import { Codicon } from '@cn/design'
 import { noteName } from '../shared/ai-note'
 import { useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useDismiss } from './use-dismiss'
+import { useDismiss } from '@cn/ai-chat/use-dismiss'
 import { useT } from './i18n'
 import './ai-note.css'
 

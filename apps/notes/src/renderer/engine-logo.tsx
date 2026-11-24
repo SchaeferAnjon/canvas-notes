@@ -1,42 +1,19 @@
 /**
- * 各家 AI 自己的标志（偏好「Agent 用自己的图标」，DESIGN.v3 2.1）：右下角圆钮、A 底栏的 AI 入口、左栏「问AI」、引擎菜单、翻译设置都用它。
+ * 各家 AI 的标志在画布笔记这边（标志本身和 EngineLogo、ByLogo 在 @cn/ai-chat，ParaRead 联动）：
  * 偏好「AI 图标用引擎标志」（task-5svkm）：凡是交给 AI 引擎跑的（⌘K 命令、右键、块菜单、插入菜单、按钮），左边的图标也画跑它的那一家
- * （AiIcon；系统右键菜单用 logoPng 画成图），设置里换了引擎当场跟着换。
+ * （AiIcon；系统右键菜单用 logoPng 画成图），设置里换了引擎当场跟着换。右下角圆钮、A 底栏的 AI 入口、左栏「问AI」画 AI 对话现在那一家。
  */
 import { Codicon, type CodiconName } from '@cn/design'
 import { codiconSvg } from '@cn/design/codicon-svg'
+import { EngineLogo, GEMINI_PNG as geminiPng, LOGO_SVG as SVG, logoIcon } from '@cn/ai-chat/engine-logo'
 import { useEffect, useSyncExternalStore } from 'react'
 import type { EngineId } from '../shared/agent'
-import { engineOfLabel } from '../shared/ai-features'
 import { type AiJob, type AiUses, logoOf } from '../shared/ai-logo'
 import { onPlugins, pluginInfo } from './plugins/host'
-import claudeSvg from './assets/engine-logos/claude.svg?raw'
-import codexSvg from './assets/engine-logos/codex.svg?raw'
-import deepseekSvg from './assets/engine-logos/deepseek.svg?raw'
-import geminiPng from './assets/engine-logos/gemini.png'
-import openrouterSvg from './assets/engine-logos/openrouter.svg?raw'
-import zhipuSvg from './assets/engine-logos/zhipu.svg?raw'
 import type { LogoId } from '../shared/ai-logo'
 
+export { ByLogo, EngineLogo } from '@cn/ai-chat/engine-logo'
 export type LogoEngine = LogoId
-
-/** Claude API 画 Claude 的标志，OpenAI API 画 OpenAI 的（和 Codex 同一个，task-587os） */
-const SVG: Partial<Record<LogoEngine, string>> = { claude: claudeSvg, anthropic: claudeSvg, codex: codexSvg, openai: codexSvg, deepseek: deepseekSvg, openrouter: openrouterSvg, zhipu: zhipuSvg }
-/** 没有现成标志的：OpenCode 画终端，本机模型（Ollama、LM Studio）画芯片 */
-const ICON = (id: LogoEngine): CodiconName => (id === 'ollama' || id === 'lmstudio' ? 'chip' : 'terminal')
-
-/** OpenCode 没有现成的标志，用终端图标 */
-export function EngineLogo({ id, size = 14, className }: { id: LogoEngine; size?: number; className?: string }) {
-  const svg = SVG[id]
-  const cls = 'eng-logo' + (className ? ' ' + className : '')
-  if (svg) return <span className={cls} data-engine={id} style={{ width: size, height: size }} aria-hidden="true" dangerouslySetInnerHTML={{ __html: svg }} />
-  if (id === 'gemini') return <img className={cls} data-engine={id} src={geminiPng} width={size} height={size} alt="" />
-  return (
-    <span className={cls} data-engine={id} style={{ width: size, height: size, display: 'inline-grid' }} aria-hidden="true">
-      <Codicon name={ICON(id)} size={size} />
-    </span>
-  )
-}
 
 /** 不用 React 的地方（文档里的提示块图标）：同一个标志的一个元素 */
 export function engineLogoEl(id: LogoEngine, size: number): HTMLElement {
@@ -54,14 +31,8 @@ export function engineLogoEl(id: LogoEngine, size: number): HTMLElement {
   s.dataset.engine = id
   s.style.width = s.style.height = `${size}px`
   s.setAttribute('aria-hidden', 'true')
-  s.innerHTML = SVG[id] ?? codiconSvg(ICON(id), { size })
+  s.innerHTML = SVG[id] ?? codiconSvg(logoIcon(id) as CodiconName, { size })
   return s
-}
-
-/** 「Claude Code · Opus 5.5」前面那一家的标志 12（AI 回答头上那一行，偏好「Agent 用自己的图标」）；认不出是哪家不画 */
-export function ByLogo({ by }: { by: string }) {
-  const id = engineOfLabel(by)
-  return id ? <EngineLogo id={id} size={12} className="by-logo" /> : null
 }
 
 // ---------------------------------------------------------------- 各功能现在用哪家

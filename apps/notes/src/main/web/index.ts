@@ -30,11 +30,15 @@ interface Deps {
   vault(): Vault | null
   /** 设置 › 网页和视频「下载放在」 */
   downloads(): WebPrefs['downloads']
+  /** 设置 › 网页和视频「记下看过的网页」（左栏「最近」列它们） */
+  keepRecent(): boolean
 }
 
 let deps: Deps
 let bookmarks: Bookmarks
 let history: History
+/** 左栏「最近」里的网页：只记标题和网址，存在设置目录，不进库（2026-11-24） */
+let recentWeb: History
 let extensions: Extensions | null = null
 /** 界面告诉我们的当前网页 */
 let activeId: number | null = null
@@ -98,8 +102,15 @@ export async function setupWeb(d: Deps): Promise<void> {
     notifyBookmarksChanged()
   })
   history = new History(join(dir, 'history.json'))
+  recentWeb = new History(join(dir, 'recent.json'), 300, () => {
+    const w = deps.window()
+    if (w && !w.isDestroyed()) w.webContents.send('web:recent-changed')
+  })
   // 窗口都关了以后再存（before-quit 时网页还在，之后还会记，留下的定时器会在 Node 收尾时才跑）
-  app.on('will-quit', () => history.flush())
+  app.on('will-quit', () => {
+    history.flush()
+    recentWeb.flush()
+  })
   listenForExtracts()
   setupMediaHold(isOurWebview)
 
@@ -128,6 +139,11 @@ export async function setupWeb(d: Deps): Promise<void> {
     return { added, total: items.length }
   })
   ipcMain.handle('web:history', (_e, q: unknown, limit: unknown) => history.search(typeof q === 'string' ? q : '', Number(limit) || 50))
+  ipcMain.handle('web:recent', () => recentWeb.search('', 300))
+  ipcMain.handle('web:recent-remove', (_e, url: unknown) => {
+    if (typeof url !== 'string') throw new Error('参数不对')
+    recentWeb.remove(url)
+  })
   ipcMain.handle('web:history-import', async (_e, profileId: unknown) => {
     if (typeof profileId !== 'string') throw new Error('参数不对')
     return { added: history.merge(await readChromeHistory(profileId)) }
@@ -252,8 +268,14 @@ export function attachWebview(wc: WebContents, win: BrowserWindow) {
     if (/^https?:/.test(url)) send('web:open-tab', { url, background: disposition === 'background-tab' })
     return { action: 'deny' }
   })
-  wc.on('did-navigate', (_e, url) => history.visit(url, wc.getTitle()))
-  wc.on('page-title-updated', (_e, title) => history.title(wc.getURL(), title))
+  wc.on('did-navigate', (_e, url) => {
+    history.visit(url, wc.getTitle())
+    if (deps.keepRecent()) recentWeb.visit(url, wc.getTitle())
+  })
+  wc.on('page-title-updated', (_e, title) => {
+    history.title(wc.getURL(), title)
+    recentWeb.title(wc.getURL(), title)
+  })
   // 书签管家新标签页里的网站图标用右栏开过的网站报的图标
   wc.on('page-favicon-updated', (_e, icons) => noteIcon(wc.getURL(), icons))
   wc.on('before-input-event', (e, input) => {

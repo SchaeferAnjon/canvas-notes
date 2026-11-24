@@ -463,3 +463,33 @@ test('各种写法的表（补齐的空格、拖过的列宽、对齐冒号、�
     await run.close()
   }
 })
+
+test('格子里按全局快捷键：正在改的格子、选中的格子里 ⌘K 都打开命令面板，打了一半的字写回那一格；esc 关面板', async () => {
+  const run = await open()
+  const { page } = run
+  const palette = page.getByRole('dialog', { name: '搜索和命令' })
+  try {
+    // 正在改：输入框把键拦着不往上冒，⌘K 以前到不了窗口（0.5.4 起，收尾清单）
+    await cell(page, 0, 1).click()
+    expect(await focus(page)).toEqual([0, 1, 'edit'])
+    await page.keyboard.press('End')
+    await page.keyboard.type('（改）')
+    await page.keyboard.press('Meta+k')
+    await expect(palette).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(palette).toHaveCount(0)
+    await expect(cell(page, 0, 1)).toHaveText('机场 → 塞尔福斯（改）')
+    await page.keyboard.press('Meta+s')
+    await expect.poll(() => file(run)).toContain('| 机场 → 塞尔福斯（改） |')
+    // 选中一格（Esc）再按 ⌘K
+    await cell(page, 1, 2).click()
+    await page.keyboard.press('Escape')
+    expect(await focus(page)).toEqual([1, 2, 'sel'])
+    await page.keyboard.press('Meta+k')
+    await expect(palette).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(palette).toHaveCount(0)
+  } finally {
+    await run.close()
+  }
+})

@@ -2,7 +2,7 @@
  * 梦游判断走哪一家（设置 › 梦游「AI判断补双链」，task-h7oy8）：这台 Mac 上登录的命令行（Claude Code、Codex…），用订阅额度；
  * 同时问 4 篇（CN_DREAM_JUDGE_PARALLEL 能调）。软件自己跑的本地模型试过（真库上准确率五六成），2026-11-23 用户定去掉。
  */
-import { pickLabel } from '../shared/ai-features'
+import { pickLabel } from '@cn/ai-engines/shared'
 import type { DreamJudge } from '../shared/dream-settings'
 import { chatRun } from './agent'
 import { ask } from './ai'

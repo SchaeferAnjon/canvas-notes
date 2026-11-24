@@ -100,12 +100,12 @@ describe('意思索引', () => {
     return a.map((x) => x / n)
   }
 
-  it('同一篇只留最像的一段，PDF 每页一条；够像才留；存了能读回来，模型换了就是空的', () => {
+  it('同一篇只留最像的一段，PDF 每页一条；够像才留；存了能读回来，模型换了就是空的', async () => {
     const ix = new VectorIndex('m', 3)
     ix.set('a.md', '1:1', [{ snippet: 'a1' }, { snippet: 'a2' }], [v(1, 0, 0), v(0.9, 0.1, 0)])
     ix.set('b.pdf', '1:1', [{ snippet: 'p1', page: 1 }, { snippet: 'p2', page: 2 }], [v(0.95, 0.05, 0), v(0, 1, 0)])
     ix.set('c.md', '1:1', [{ snippet: 'c' }], [v(0, 0, 1)])
-    const hits = ix.search(v(1, 0, 0), { limit: 10, min: 0.5, near: 0.2, spread: 0 })
+    const hits = await ix.search(v(1, 0, 0), { limit: 10, min: 0.5, near: 0.2, spread: 0 })
     expect(hits.map((h) => [h.path, h.page, h.snippet])).toEqual([
       ['a.md', undefined, 'a1'],
       ['b.pdf', 1, 'p1'],
@@ -114,34 +114,34 @@ describe('意思索引', () => {
     const back = VectorIndex.load(dir, 'm', 3)
     expect(back.fresh('a.md', '1:1')).toBe(true)
     expect(back.fresh('a.md', '2:1')).toBe(false)
-    expect(back.search(v(0, 0, 1), { limit: 10, min: 0.5, near: 0.2, spread: 0 }).map((h) => h.path)).toEqual(['c.md'])
+    expect((await back.search(v(0, 0, 1), { limit: 10, min: 0.5, near: 0.2, spread: 0 })).map((h) => h.path)).toEqual(['c.md'])
     expect(VectorIndex.load(dir, 'other', 3).size).toBe(0)
   })
 
-  it('换掉、删掉一篇后行号复用，存盘时排紧', () => {
+  it('换掉、删掉一篇后行号复用，存盘时排紧', async () => {
     const ix = new VectorIndex('m', 2)
     ix.set('a.md', '1', [{ snippet: 'a' }], [v(1, 0)])
     ix.set('b.md', '1', [{ snippet: 'b' }], [v(0, 1)])
     ix.remove('a.md')
     ix.set('c.md', '1', [{ snippet: 'c' }], [v(1, 0)])
-    expect(ix.search(v(1, 0), { limit: 5, min: 0.9, near: 1, spread: 0 }).map((h) => h.path)).toEqual(['c.md'])
+    expect((await ix.search(v(1, 0), { limit: 5, min: 0.9, near: 1, spread: 0 })).map((h) => h.path)).toEqual(['c.md'])
     ix.save(dir)
-    expect(VectorIndex.load(dir, 'm', 2).search(v(0, 1), { limit: 5, min: 0.9, near: 1, spread: 0 }).map((h) => h.path)).toEqual(['b.md'])
+    expect((await VectorIndex.load(dir, 'm', 2).search(v(0, 1), { limit: 5, min: 0.9, near: 1, spread: 0 })).map((h) => h.path)).toEqual(['b.md'])
   })
 
-  it('库够大（20 篇起）时，只比各篇中位数高出一点的不算：一库差不多的笔记里挑不出沾边的', () => {
+  it('库够大（20 篇起）时，只比各篇中位数高出一点的不算：一库差不多的笔记里挑不出沾边的', async () => {
     const ix = new VectorIndex('m', 2)
     // 20 篇都和查询差不多像（0.96 上下），第一名只高出中位数 0.02
     for (let i = 0; i < 20; i++) ix.set(`n${i}.md`, '1', [{ snippet: '' }], [v(1, 0.3 + i * 0.005)])
     const flat = { limit: 5, min: 0, near: 1, spread: 0.035 }
-    expect(ix.search(v(1, 0.3), flat)).toEqual([])
+    expect(await ix.search(v(1, 0.3), flat)).toEqual([])
     // 真沾边的那篇比中位数高出一截：留下，而且只留它
     ix.set('hit.md', '1', [{ snippet: '' }], [v(1, 0.3)])
     for (let i = 0; i < 20; i++) ix.set(`n${i}.md`, '1', [{ snippet: '' }], [v(1, 0.6 + i * 0.01)])
-    expect(ix.search(v(1, 0.3), flat).map((h) => h.path)).toEqual(['hit.md'])
+    expect((await ix.search(v(1, 0.3), flat)).map((h) => h.path)).toEqual(['hit.md'])
     // 不到 20 篇不看中位数
     for (let i = 5; i < 20; i++) ix.remove(`n${i}.md`)
-    expect(ix.search(v(1, 0.3), flat).length).toBe(5)
+    expect((await ix.search(v(1, 0.3), flat)).length).toBe(5)
   })
 })
 

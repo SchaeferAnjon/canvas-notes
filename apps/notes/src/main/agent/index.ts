@@ -19,14 +19,13 @@ import { type ActTally, actScope, noTally } from '../../shared/ai-act'
 import type { AgentContext, AiAct, AiActArea, AiEvent, BridgeOp, ChatSide, EngineId, EngineInfo, SideTurnRequest, StoredMsg, TurnRequest, TurnResult } from '../../shared/agent'
 import type { AiCommitFailed, CommitInfo } from '../../shared/api'
 import { commitErrorText } from '../../shared/git-errors'
-import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, FEATURES, fitPick, MODEL_ID, type ModelOption, modelsOf, pickLabel, resolvePick } from '../../shared/ai-features'
-import { problemText } from '../../shared/engine-health'
+import { type AiFeature, type AiPick, type AiPrefs, CLAUDE_DEFAULT, FEATURES, fitPick, MODEL_ID, type ModelOption, pickLabel, resolvePick } from '@cn/ai-engines/shared'
+import { problemText } from '@cn/ai-engines/shared'
 import { usesOf } from '../../shared/ai-logo'
 import { checkMaterials, withMaterials } from '../../shared/materials'
-import { ALL_IDS, API_DEFAULT, type CliId, isApi, isCli, isLocal, KEY_JUDGE, KEY_PAGE, LOCAL_SITE, preferModel, routeOf } from '../../shared/ai-sources'
-import { apiEngine, localEngine } from './engine-api'
+import { ALL_IDS, API_DEFAULT, type CliId, isApi, isCli, isLocal, KEY_JUDGE, KEY_PAGE, LOCAL_SITE, preferModel } from '@cn/ai-engines/shared'
 import { installClaudeCode, loginClaudeCode } from './cc-setup'
-import { apiKey, bundledOpencode, initSources, localFound, probeAll, removeKey, setKey, sourceModels, sourceReady, sourceStates } from './sources'
+import { apiKey, apiKeyTail, bundledOpencode, initSources, localFound, probeAll, removeKey, setKey, sourceModels, sourceReady } from './sources'
 import { BRAND } from '../../shared/brand'
 import { t } from '../../shared/i18n'
 import { MATH_RULE } from '../../shared/reading'
@@ -36,9 +35,7 @@ import { logActivity } from '../activity'
 import type { Vault } from '../vault'
 import type { Size } from './board-ops'
 import { describeContext } from './context'
-import { checkCli, checkedCli, COMMAND, findCli, forgetChecks, INSTALL_HINT, loadShellPath, locateCli, pickedCli, setCustomCli, whereOf } from './cli'
-import { claudeEngine, codexEngine, type Engine, type EngineImage, type EngineOutcome, type EngineRun, geminiEngine, LABELS, opencodeEngine, sessionOf } from './engines'
-import { checkNow, engineState, noteVersion, pulledModels, refreshAll, startEngineWatch, updateNow, watchInfo, watching } from './engine-watch'
+import { brokenHint, checkCli, checkNow, type CliFound, COMMAND, createEngines, type Engine, type EngineImage, type EngineOutcome, type EngineRun, engineState, forgetChecks, INSTALL_HINT, LABELS, loadShellPath, locateCli, pickedCli, refreshAll, sessionOf, setCustomCli, sideTurnPrompt, startEngineWatch, updateNow, watching, whereOf } from '@cn/ai-engines'
 import { fakeCodexModels, fakeEngine } from './fake-engine'
 import { pastedImages } from '../pasted'
 import { type McpServer, startMcpServer } from './mcp-server'
@@ -49,7 +46,6 @@ import { AgentStore } from './store'
 import { runTool, stepLabel, stepPaths, type ToolHost, toolLabel, toolSpecs } from './tools'
 import * as vops from './vault-ops'
 import { AI_BLOCK_RULE, aiBlockLine, langTail, modeLine, MODES_RULE, userNoteLine } from './modes'
-import { sideTurnPrompt } from './side-prompt'
 import * as web from './web'
 import { atomicWrite } from '@cn/atomic'
 
@@ -89,16 +85,24 @@ ${CITE_FIND}`
  */
 export const AGENT_VERSION = 6
 
-let engines: Partial<Record<EngineId, Engine>> = {}
+/**
+ * 引擎表（共用包 @cn/ai-engines 的 createEngines，ParaRead 用同一个）：Key、本机模型、自带 OpenCode 从 sources.ts 来；
+ * 假 AI（CN_AI_FAKE=1）换假引擎、演命令行在哪（CN_AI_FAKE_CLI），Codex 给一份固定的模型
+ */
+const engines = createEngines({
+  key: apiKey,
+  keyTail: apiKeyTail,
+  opencode: bundledOpencode,
+  sourceReady,
+  sourceModels,
+  fake: (id) => (FAKE() ? fakeEngine(id) : null),
+  fakeCli: (id) => (REAL_FIND() ? undefined : fakeFound(id)),
+  fallbackModels: (id) => (id === 'codex' && FAKE() ? fakeCodexModels() : []),
+  changed: () => send('ai:prefs:changed'),
+})
 
 /** 读 PDF 边读边问也用同一组引擎（同一个进程、同一个假引擎） */
-export function engine(id: EngineId): Engine {
-  // API Key、本机模型（task-587os）：测试也走真的 HTTP（CN_API_BASE_*、CN_LOCAL_BASE_* 指到本机假的服务，或者真 Key 真问一句）
-  if (isApi(id)) return (engines[id] ??= apiEngine(id, { key: apiKey, opencode: bundledOpencode }))
-  if (isLocal(id)) return (engines[id] ??= localEngine(id))
-  if (FAKE()) return (engines[id] ??= fakeEngine(id))
-  return (engines[id] ??= id === 'claude' ? claudeEngine() : id === 'codex' ? codexEngine() : id === 'gemini' ? geminiEngine() : opencodeEngine())
-}
+export const engine = (id: EngineId): Engine => engines.engine(id)
 
 /** 这一轮：记下 AI 改了哪些文件 */
 interface Turn {
@@ -985,12 +989,7 @@ export function modelOpt(feature: AiFeature, id: EngineId): { model?: string; ef
  * 这家能选的模型（task-m55m7）：从命令行拉到的（engine-watch.ts，启动后、每天一次、版本变了、点「检查更新」时拉，记在软件设置目录）；
  * 没拉到过用自带的（Claude Code 三个、别家只有「某家默认模型」）。假 AI 又不盯命令行时（CN_AI_FAKE=1）Codex 给一份固定的
  */
-function modelsFor(id: EngineId): ModelOption[] {
-  if (!isCli(id)) return modelsOf(id, sourceModels(id))
-  const pulled = pulledModels(id)
-  if (pulled) return modelsOf(id, pulled)
-  return modelsOf(id, id === 'codex' && FAKE() ? fakeCodexModels() : [])
-}
+const modelsFor = (id: EngineId): ModelOption[] => engines.models(id)
 
 /**
  * 这一问真正用的哪家、哪个模型、哪一档（CN-91）：请求里带了就用请求的（输入框底行选的，只管这个对话），没带用「AI 对话」那一行的，
@@ -1122,26 +1121,9 @@ function explain(id: EngineId, raw: string): string {
 /** 找命令是真的：不是假 AI，或者测试要真的找（CN_REAL_FIND=1：找命令走真的，跑的还是假引擎） */
 const REAL_FIND = () => !FAKE() || process.env.CN_REAL_FIND === '1'
 
-const verifying = new Set<string>()
-
-/** 后台跑一次 `--version`；运行不了时通知界面再要一次（先前当它能用报出去了）；能跑的 Codex 接着问它有哪些模型 */
-function verify(id: CliId, path: string) {
-  if (verifying.has(path)) return
-  verifying.add(path)
-  void checkCli(path)
-    .then((c) => {
-      if (!c.ok) send('ai:prefs:changed')
-      // 版本和记下的不一样（Claude Code 自己在后台升级了）：后台自查、重拉模型
-      else noteVersion(id, c.version)
-    })
-    .finally(() => verifying.delete(path))
-}
-
-const brokenHint = (id: CliId) => `找到了 ${COMMAND[id]}，但运行不了。在终端里运行一次 ${COMMAND[id]} --version 看看哪里不对，或者重新装一遍。`
-
 /** 测试用的假命令行（CN_AI_FAKE=1）：在哪找到照真的样子写；CN_AI_FAKE_CLI=codex=missing,gemini=broken 演没找到、运行不了 */
 const FAKE_WHERE: Record<CliId, string> = { claude: '~/.local/bin', codex: '/opt/homebrew/bin', gemini: '/opt/homebrew/bin', opencode: '~/.opencode/bin' }
-function fakeFound(id: CliId): Pick<EngineInfo, 'path' | 'where' | 'broken' | 'custom' | 'hint'> {
+function fakeFound(id: CliId): CliFound {
   const mine = store.cliPaths()[id]
   if (mine) return { path: mine, where: whereOf(mine, app.getPath('home')), custom: true }
   const state = new Map((process.env.CN_AI_FAKE_CLI ?? '').split(',').map((kv) => kv.split('=') as [string, string])).get(id)
@@ -1150,29 +1132,7 @@ function fakeFound(id: CliId): Pick<EngineInfo, 'path' | 'where' | 'broken' | 'c
   return { path: `/fake/${id}`, where: FAKE_WHERE[id] }
 }
 
-function found(id: EngineId): Pick<EngineInfo, 'path' | 'where' | 'broken' | 'custom' | 'hint'> {
-  // API Key、本机模型：没有命令行，能用时给一个记号（界面照旧按 path 认能不能用）
-  if (!isCli(id)) return sourceReady(id) ? { path: `${routeOf(id)}:${id}`, where: '' } : { path: null, where: isApi(id) ? '没填Key' : '没找到' }
-  if (!REAL_FIND()) return fakeFound(id)
-  const hit = locateCli(id)
-  if (!hit) return { path: null, where: '没找到', hint: INSTALL_HINT[id] }
-  const mine = hit.custom ? { custom: true } : {}
-  const c = checkedCli(hit.path)
-  // 还没跑过 --version（或者文件换过了）：先当它能用，后台跑完运行不了再改口
-  if (!c) verify(id, hit.path)
-  if (c && !c.ok) return { path: null, where: hit.where, broken: c.why, hint: brokenHint(id), ...mine }
-  return { path: hit.path, where: hit.where, ...mine }
-}
-
-export function engineInfo(): EngineInfo[] {
-  const states = sourceStates()
-  return IDS.map((id) => {
-    const models = modelsFor(id)
-    const where = found(id)
-    const tail = states.find((s) => s.id === id)?.tail
-    return { id, label: LABELS[id], route: routeOf(id), ...where, models, efforts: models[0]?.efforts ?? [], ...(tail ? { tail } : {}), ...(isCli(id) ? watchInfo(id, where.path) : {}) }
-  })
-}
+export const engineInfo = (): EngineInfo[] => engines.list()
 
 /** 这一家现在能不能用（命令行找到了、Key 填过、本机模型开着）：费曼、认时间这些问之前先看 */
 export const engineReady = (id: EngineId) => installed(id)
@@ -1271,7 +1231,7 @@ async function pickCli(id: EngineId): Promise<EngineInfo | null> {
 /**
  * 这台 Mac 上这家能不能用：命令行找到了（假 AI 时照 CN_AI_FAKE_CLI 演的，默认都当装了）；Key 填过；本机模型开着、有模型
  */
-const installed = (id: EngineId) => (isCli(id) ? (REAL_FIND() ? !!findCli(id) : !!fakeFound(id).path) : sourceReady(id))
+const installed = (id: EngineId) => engines.ready(id)
 const CLI_ORDER = IDS.filter(isCli)
 const LOCAL_ORDER = IDS.filter(isLocal)
 
@@ -1463,8 +1423,7 @@ export function registerAgent(d: AgentDeps) {
     else c.reject(new Error(String(value)))
   })
   app.on('will-quit', () => {
-    for (const e of Object.values(engines)) e.dispose?.()
-    engines = {}
+    engines.dispose()
     void mcp?.close()
   })
 }

@@ -1,6 +1,6 @@
 // 选 AI 先选家再选模型、模型列表自动拉、命令行更新后自查兼容（task-m55m7，用户 r20「这里同一家没必要都列出来」）。
 // 设置 › AI 的默认和五个功能、AI 输入框底下用同一个选择器：先选家（同一家只列一次），再选这一家的模型，再选想多久。
-// 后两条用假的命令行（test/fixtures/fake-cli.mjs，放在临时家目录的 ~/.local/bin，只在家目录里找）：
+// 后两条用假的命令行（packages/ai-engines/test/fixtures/fake-cli.mjs，放在临时家目录的 ~/.local/bin，只在家目录里找）：
 // 假的会报版本、模型、不认某个参数、跑「更新」，测试中途改它的状态文件就是「命令行换了」。不碰这台 Mac 上真的 AI，不联网。
 import { expect, test, type Page } from '@playwright/test'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -129,7 +129,7 @@ function script(p: string, body: string) {
   chmodSync(p, 0o755)
 }
 
-const FAKE = join(__dirname, '../test/fixtures/fake-cli.mjs')
+const FAKE = join(__dirname, '../../../packages/ai-engines/test/fixtures/fake-cli.mjs')
 
 /** 临时家目录的 ~/.local/bin 里放假的命令行（状态写在 fake-state/<家>.json），只在家目录里找，后台拉模型、自查打开 */
 function fakeHome(states: Record<string, object>) {

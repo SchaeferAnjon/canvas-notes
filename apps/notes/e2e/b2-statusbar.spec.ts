@@ -22,11 +22,14 @@ test('A 底栏右端：「译 · Claude Code」、本周提交、通知铃、AI�
     const tr = page.getByTestId('translate-engine')
     await expect(tr).toHaveText('译 · Claude Code')
     // 右端的顺序：译 · 本周提交 · 铃 · AI
-    const order = await bar.evaluate((f) => {
-      const items = [f.querySelector('[data-testid="translate-engine"]'), f.querySelector('[data-testid="week-commits"]'), f.querySelector('[data-testid="bell"]'), f.querySelector('.ai-corner')]
-      return items.map((e) => (e ? Math.round(e.getBoundingClientRect().left) : -1))
-    })
-    expect(order.every((x) => x >= 0)).toBe(true)
+    const where = () =>
+      bar.evaluate((f) => {
+        const items = [f.querySelector('[data-testid="translate-engine"]'), f.querySelector('[data-testid="week-commits"]'), f.querySelector('[data-testid="bell"]'), f.querySelector('.ai-corner')]
+        return items.map((e) => (e ? Math.round(e.getBoundingClientRect().left) : -1))
+      })
+    // 「本周 N 次提交」读完 git 记录才出来：等四样都在再量
+    await expect.poll(async () => (await where()).every((x) => x >= 0)).toBe(true)
+    const order = await where()
     expect([...order].sort((a, b) => a - b)).toEqual(order)
     // 点「译」：列出引擎，现在用的打勾，用不了的灰掉写原因
     await tr.click()

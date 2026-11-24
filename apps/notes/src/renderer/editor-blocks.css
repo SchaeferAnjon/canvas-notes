@@ -665,6 +665,69 @@
 .doc .cm-image-cap.editing {
   visibility: visible;
 }
+/*
+ * 脚注（live-preview.ts footnotes）：引用是 --acc-t 的圈号（同输入框里材料的 ①②，不缩成上标：圈号缩小了认不出）；一段末尾的定义小一号、淡一号，
+ * 头一条上面一道 32 宽的细线（脚注分隔线），圈号后面是缩略图（最宽 180、最高 120，白底 1px 线同「我框的」）或引文、出处 --t3
+ */
+.doc .cm-fn-ref {
+  color: var(--acc-t);
+  cursor: default;
+}
+.doc .cm-fn-ref.end {
+  margin-right: 4px;
+}
+/* 定义折行时接着字排：圈号挂在左边那 20 里 */
+.doc.doc .cm-line.cm-fn {
+  position: relative;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--t2);
+  padding-left: 20px !important;
+}
+.doc .cm-fn-first {
+  padding-top: 20px !important;
+}
+.doc .cm-fn-first::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  width: 32px;
+  height: 1px;
+  background: var(--line2);
+}
+.doc .cm-fn-sign {
+  position: absolute;
+  left: 0;
+  color: var(--acc-t);
+}
+.doc .cm-fn-img {
+  display: inline-block;
+  width: auto;
+  max-width: 180px;
+  max-height: 120px;
+  margin: 4px 0;
+  vertical-align: top;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--line2);
+  cursor: pointer;
+}
+.doc .cm-fn-img.broken {
+  min-width: 48px;
+  min-height: 32px;
+  background: var(--fill);
+}
+[data-tone='dark'] .doc .cm-fn-img {
+  filter: brightness(0.92);
+}
+.doc .cm-fn-quote {
+  color: var(--t1);
+}
+.doc .cm-fn-src {
+  font-size: 12px;
+  color: var(--t3);
+}
 .doc .cm-image-capin {
   width: 100%;
   padding: 0;

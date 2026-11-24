@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "pnpm --filter @cn/notes dev",
     "build": "pnpm --filter @cn/notes build",
-    "typecheck": "tsc -p packages/atomic && tsc -p packages/format && tsc -p packages/tasks && tsc -p packages/git && tsc -p packages/design && tsc -p packages/family && tsc -p packages/calendar && tsc -p apps/notes",
+    "typecheck": "tsc -p packages/atomic && tsc -p packages/format && tsc -p packages/tasks && tsc -p packages/git && tsc -p packages/design && tsc -p packages/family && tsc -p packages/calendar && tsc -p apps/notes && tsc -p packages/ai-engines && tsc -p packages/ai-chat",
     "test": "vitest run",
     "eval:dream": "vitest run --config apps/notes/eval/vitest.config.mts --silent=false dream-links",
     "eval:dream-real": "node apps/notes/eval/dream-real/cli.mjs",

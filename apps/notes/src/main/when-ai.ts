@@ -9,7 +9,7 @@ import { type When, WHEN_AI_SYSTEM, whenAiPrompt, whenFromAi } from '@cn/tasks'
 import { app, ipcMain } from 'electron'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { pickLabel } from '../shared/ai-features'
+import { pickLabel } from '@cn/ai-engines/shared'
 import { fakeWhenAnswer } from '../shared/when-ai'
 import { engine, engineReady, FAST_MODEL, modelOpt, pickFor } from './agent'
 

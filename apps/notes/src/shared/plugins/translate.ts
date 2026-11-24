@@ -1,5 +1,5 @@
 /** 双语翻译插件：说明、设置、认语言、引擎和出错原因（主进程、界面、网页预加载都用，只放纯函数） */
-import { MODEL_ID } from '../ai-features'
+import { MODEL_ID } from '@cn/ai-engines/shared'
 import type { PluginManifest } from '../plugins'
 
 export const TRANSLATE: PluginManifest = {

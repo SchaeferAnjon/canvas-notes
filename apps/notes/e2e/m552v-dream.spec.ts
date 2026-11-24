@@ -5,6 +5,8 @@
  * 12 点另一个文件中间不换 · 13「预览可视化」和对比里的「预览」 · 15 收下后跳回第一条 · 18 笔记里的可视化是一行链接 ·
  * 19 PDF 和笔记一行、HTML 和 PDF 平级 · 20 剪藏筛选里有 PDF、HTML · 23 没有整篇和小地图；
  * 另外：J / K / ⌘↵ / ⌘⌫ 只在梦游报告和对照里算、走命令表；历史里看同一个样子；梦游对照里没有「源码」。
+ * 2026-11-24 用户定（梦游对比滚动）：对照就用历史那一套（两列行号、没改的折成「展开没改的 N 行」、并排 / 合一），
+ * 梦游自己那套整篇并排、收下后的样子、小地图、闪一下去掉；8、9、13、17、23、24 跟着改。
  * 22（「第 3 页」开出空白页）另有 task-j2vv8 在修，这里不测。
  * 样本库照录屏里那份库造（e2e/fixtures/dream2.ts），假 AI 梦游一次 7 条。都是真点，窗口不上屏。
  */
@@ -20,6 +22,9 @@ const VIZ_TITLE = '旋转矩阵 · 拖动角度看基向量'
 
 /** 跑一次梦游、打开报告 */
 async function dreamed(): Promise<{ run: Running; page: Page; panel: Locator }> {
+  // 下面单是等梦游跑完就给了 60 秒（假 AI，7 条改动、建分支、一条条提交），和整条测试默认的 60 秒一样长：
+  // 机器忙时梦游一慢，后面的步骤就没时间了。整条给梦游那 60 秒再加 60 秒
+  test.setTimeout(120_000)
   const run = await launch(DREAM2_VAULT, { CN_AI_FAKE: '1' }, prepareDream2)
   const { page } = run
   const card = page.getByTestId('dream-card')
@@ -49,7 +54,7 @@ async function openItem(page: Page, panel: Locator, text: string | RegExp, file?
 }
 const git = (vault: string, ...args: string[]) => execFileSync('git', ['-C', vault, '-c', 'core.quotepath=false', ...args], { encoding: 'utf8' })
 
-test('5 点「归类和改名」的一条：中间像历史那样开这一条（条目头、这条改的每个文件、挪动那一块、整篇对照）', async () => {
+test('5 点「归类和改名」的一条：中间像历史那样开这一条（条目头、这条改的每个文件、挪动那一块、对照）', async () => {
   const { run, page, panel } = await dreamed()
   try {
     await item(panel, '原名「极光」').click()
@@ -67,9 +72,9 @@ test('5 点「归类和改名」的一条：中间像历史那样开这一条（
     await expect(mv.locator('s')).toHaveText('极光')
     await expect(mv).toContainText('剪藏/旅行/')
     await expect(mv.locator('.to')).toHaveText('极光 2')
-    // 整篇对照：左「现在的 · main」右「收下后 · dream/…」，标题加的「2」标出来
-    await expect(t.getByTestId('dream-cols')).toContainText('现在的 · main')
-    await expect(t.getByTestId('dream-cols')).toContainText('收下后 · dream/')
+    // 对照：左「现在的 · main」右「收下后 · dream/…」，标题加的「2」标出来
+    await expect(t.locator('.dv-cols')).toContainText('现在的 · main')
+    await expect(t.locator('.dv-cols')).toContainText('收下后 · dream/')
     await expect(t.locator('.cm-merge-b .cm-changedText').first()).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('5-file-item.png') })
   } finally {
@@ -95,42 +100,39 @@ test('6 归类组头「预览」改叫「在树里看」：左栏换成挪完以
   }
 })
 
-test('8 对照默认整篇：打开就滚到第一处改动、闪一下；前面几十段没改的不折', async () => {
+test('8 对照就是历史那一套：两列行号，没改的折成「展开没改的 N 行」，改的那一行在眼前；标签条右端并排 / 合一（不露源码）', async () => {
   const { run, page, panel } = await dreamed()
   try {
     await openItem(page, panel, '↔ [[极光预报]]')
-    // 没改的一段都不折（旧的默认把前面四十几行折成「展开没改的 N 行」）：等对照画出来再数
-    await expect(center(page).locator('.cm-changedLine:not(.cm-gap)').first()).toBeVisible()
-    await expect(center(page).locator('.dv-fold, .cm-collapsedLines')).toHaveCount(0)
     const t = dtab(page)
-    await expect(acts(page).getByRole('tab', { name: '整篇' })).toHaveAttribute('aria-selected', 'true')
-    // 末尾加的那一行在眼前，外圈闪一下
+    // 末尾加的那一行（前面四十几行没改的折起来了，不用滚就看得见）
     const added = t.locator('.cm-merge-b .cm-changedLine', { hasText: '相关：' })
     await expect(added).toBeInViewport()
-    await expect(t.locator('.dv-flash')).toHaveCount(1)
-    // 往上滚回去，文首的标题也在（没折起来）
-    await t.getByTestId('dream-scroll').evaluate((el) => (el.scrollTop = 0))
-    await expect(t.locator('.cm-merge-b .cm-line', { hasText: '视频 · youtube.com' })).toBeVisible()
-    await page.screenshot({ path: test.info().outputPath('8-whole.png') })
+    await expect(t.locator('.cm-merge-b .cm-collapsedLines').first()).toHaveText(/^展开没改的 \d+ 行$/)
+    await expect(t.locator('.cm-merge-a .cm-lineNumbers').first()).toBeVisible()
+    await expect(t.locator('.cm-merge-b .cm-lineNumbers').first()).toBeVisible()
+    for (const name of ['并排', '合一']) await expect(acts(page).getByRole('tab', { name })).toBeVisible()
+    // 梦游对照不露源码（偏好「只文档白板不露源码」）；梦游自己那套的看法都没了
+    for (const name of ['源码', '整篇', '只看改动', '对照', '收下后的样子']) await expect(acts(page).getByRole('tab', { name })).toHaveCount(0)
+    await expect(t.getByTestId('dream-minimap')).toHaveCount(0)
+    await expect(t.locator('.dv-diff.doc-look')).toBeVisible()
+    await page.screenshot({ path: test.info().outputPath('8-history-look.png') })
   } finally {
     await run.close()
   }
 })
 
-test('9「展开没改的 N 段」点一下就开（以前要连点三下）', async () => {
+test('9「展开没改的 N 行」点一下就开（以前要连点三下）', async () => {
   const { run, page, panel } = await dreamed()
   try {
     await openItem(page, panel, '↔ [[极光预报]]')
-    // 新的默认整篇，切「只看改动」才折；旧的默认就折着（等标签条右端画出来再看有没有这一颗）
-    await expect(acts(page).getByRole('tab').first()).toBeVisible()
-    const only = acts(page).getByRole('tab', { name: '只看改动' })
-    if (await only.count()) await only.click()
+    // 对照是历史那一套：打开就折着
     const t = center(page)
-    const folds = t.locator('.dv-fold:not(.mute), .cm-merge-b .cm-collapsedLines')
+    const folds = t.locator('.cm-merge-b .cm-collapsedLines')
+    await t.getByTestId('dream-scroll').evaluate((el) => (el.scrollTop = 0))
     await expect(folds.first()).toBeVisible()
     const n = await folds.count()
-    // 写的是「段」（文档看法按段算），新的才有
-    await expect.soft(folds.first()).toHaveText(/^展开没改的 \d+ 段$/)
+    await expect(folds.first()).toHaveText(/^展开没改的 \d+ 行$/)
     // 真点一下（隔 0.4 秒再看）：那一条就没了，里面的字露出来
     await folds.first().click()
     await page.waitForTimeout(400)
@@ -228,26 +230,20 @@ test('12 一条改了两个文件：点左栏小卡里 HTML 那行、中间的�
   }
 })
 
-test('13 没有「预览可视化」：标签条右端「对照 / 收下后的样子」，笔记收下后整篇、改的那段竖线加一句人话；HTML 收下后就是整宽的图', async () => {
+test('13 没有「预览可视化」、没有「收下后的样子」：笔记那边收下后那栏里嵌着的可视化就能拖；HTML 那一格就是能拖的图', async () => {
   const { run, page, panel } = await dreamed()
   try {
     await openItem(page, panel, VIZ_TITLE)
     await expect(page.getByRole('button', { name: '预览可视化' })).toHaveCount(0)
     await expect(center(page).getByRole('button', { name: '预览', exact: true })).toHaveCount(0)
-    await acts(page).getByRole('tab', { name: '收下后的样子' }).click()
+    await expect(acts(page).getByRole('tab', { name: '收下后的样子' })).toHaveCount(0)
     const t = dtab(page)
-    await expect(t.getByTestId('dream-cols')).toHaveText('收下后的样子 · YitingWei_2026_C72_BST-GATNet_driver_stress_EMBC 笔记')
-    const mark = t.locator('.dv-after .cm-line.dv-mark, .dv-after .dv-mark').first()
-    await expect(mark).toBeVisible()
-    await expect(t.locator('.dv-cnote').first()).toContainText('梦游加的')
-    // 嵌着的图在收下后的样子里就能拖
-    await expect(t.frameLocator('.cm-viz iframe').locator('h1')).toHaveText('第 2 页 · 拖动角度')
+    // 嵌进来的那一块：收下后那栏改的那几行里，就是梦游分支上那张图
+    await expect(t.locator('.cm-merge-b .cm-changedLine').first()).toBeVisible()
+    await expect(t.frameLocator('.cm-merge-b .cm-viz iframe').locator('h1')).toHaveText('第 2 页 · 拖动角度')
     await t.getByTestId('dream-file').filter({ hasText: '旋转矩阵.html' }).click()
-    await expect(t.getByTestId('dream-cols')).toHaveText('收下后的样子 · 能拖')
-    const frame = t.locator('[data-testid="viz-frame"]')
-    await expect(frame).toBeVisible()
-    const w = (await frame.boundingBox())!.width
-    expect(w).toBeGreaterThan(((await t.boundingBox())!.width - 80) * 0.9)
+    await expect(t.locator('[data-testid="viz-frame"]')).toBeVisible()
+    await expect(t.frameLocator('[data-testid="viz-frame"]').locator('h1')).toHaveText('第 2 页 · 拖动角度')
   } finally {
     await run.close()
   }
@@ -361,28 +357,21 @@ test('20「剪藏」筛选只列真剪下来的：剪藏/ 里的、收件箱里�
   }
 })
 
-test('23 整篇 + 小地图 + 上一处 / 下一处：每处改动在小地图上一个色块，点色块跳过去', async () => {
+test('23 上一处 / 下一处：点到最后一处再点，说「后面没有改动了」（长文里一处一处往下跳见 dream-scroll-perf）', async () => {
   const { run, page, panel } = await dreamed()
   try {
-    await openItem(page, panel, VIZ_TITLE)
+    await openItem(page, panel, '原名「极光」')
     const t = dtab(page)
-    const mm = t.getByTestId('dream-minimap')
-    await expect(mm).toBeVisible()
-    await expect(mm.locator('.mm-m')).toHaveCount(1)
-    const sc = t.getByTestId('dream-scroll')
-    await sc.evaluate((el) => (el.scrollTop = 0))
-    await mm.locator('.mm-m').click()
-    await expect.poll(() => sc.evaluate((el) => el.scrollTop)).toBeGreaterThan(200)
-    await sc.evaluate((el) => (el.scrollTop = 0))
-    await acts(page).getByRole('button', { name: '下一处' }).click()
-    await expect.poll(() => sc.evaluate((el) => el.scrollTop)).toBeGreaterThan(200)
-    await expect(t.locator('.dv-flash')).toHaveCount(1)
+    await expect(t.locator('.cm-merge-b .cm-changedLine').first()).toBeVisible()
+    for (let i = 0; i < 10 && !(await page.getByText('后面没有改动了').count()); i++) await acts(page).getByRole('button', { name: '下一处' }).click()
+    await expect(page.getByText('后面没有改动了')).toBeVisible()
+    await expect(t.locator('.cm-merge-b .cm-changedLine').last()).toBeInViewport()
   } finally {
     await run.close()
   }
 })
 
-test('24 设计复审改的几处：条目头第一行 26 高；还没收下的挪动文件条写原名和收件箱；整段新加的不再叠字底；只看改动的折叠条右半也能点；收下后的样子 760 居中；合一时删掉的段不露源码；窄于 900 按钮挪到为什么下面', async () => {
+test('24 设计复审改的几处：条目头第一行 26 高；还没收下的挪动文件条写原名和收件箱；窄于 900 按钮挪到为什么下面、自动合一', async () => {
   const { run, page, panel } = await dreamed()
   try {
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1440, 887))
@@ -396,39 +385,6 @@ test('24 设计复审改的几处：条目头第一行 26 高；还没收下的�
     await expect(t.getByTestId('dream-fbar').locator('.dir')).toHaveText('收件箱')
     await expect(t.getByTestId('dream-open')).toContainText('打开「极光」')
 
-    // 合一：删掉的那段（标题「极光」）用实时预览画，不露「# 极光」这样的源码
-    await acts(page).getByRole('tab', { name: '合一' }).click()
-    const del = t.locator('.dv-del')
-    await expect(del.first()).toBeVisible()
-    await expect(t.locator('.cm-deletedChunk:visible')).toHaveCount(0)
-    expect(await del.allInnerTexts()).not.toContainEqual(expect.stringMatching(/^#|!\[/m))
-    await acts(page).getByRole('tab', { name: '并排' }).click()
-
-    // 补双链：新加的那一整行只铺段底，字上不再叠一层
-    await item(panel, '↔ [[极光预报]]').click()
-    const added = t.locator('.cm-merge-b .cm-changedLine', { hasText: '相关：' })
-    await expect(added).toBeVisible()
-    await expect(added).toHaveClass(/dv-pure/)
-    const bg = await added.locator('.cm-changedText').first().evaluate((e) => getComputedStyle(e).backgroundColor).catch(() => 'none')
-    expect(['none', 'rgba(0, 0, 0, 0)']).toContain(bg)
-
-    // 只看改动：折叠条右半（没字的那半）也能点开
-    await acts(page).getByRole('tab', { name: '只看改动' }).click()
-    const mute = t.locator('.dv-fold.mute')
-    await expect(mute.first()).toBeVisible()
-    const n = await t.locator('.dv-fold:not(.mute)').count()
-    await mute.first().click()
-    await expect(t.locator('.dv-fold:not(.mute)')).toHaveCount(n - 1)
-    await acts(page).getByRole('tab', { name: '整篇' }).click()
-
-    // 收下后的样子（笔记）：一列最宽 760 居中
-    await item(panel, VIZ_TITLE).click()
-    await acts(page).getByRole('tab', { name: '收下后的样子' }).click()
-    const content = t.locator('.dv-after .cm-content')
-    await expect(content).toBeVisible()
-    expect(Math.round((await content.boundingBox())!.width)).toBeLessThanOrEqual(760)
-    await acts(page).getByRole('tab', { name: '对照' }).click()
-
     // 窄窗口（中间窄于 900）：按钮挪到为什么下面
     await run.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]!.setContentSize(1024, 768))
     await item(panel, '原名「极光」').click()
@@ -436,6 +392,8 @@ test('24 设计复审改的几处：条目头第一行 26 高；还没收下的�
     const why = (await t.getByTestId('dream-why').boundingBox())!
     const btns = (await t.locator('.dt-head .acts').boundingBox())!
     expect(btns.y).toBeGreaterThan(why.y + why.height - 1)
+    await expect(acts(page).getByRole('tab', { name: '合一' })).toHaveAttribute('aria-selected', 'true')
+    await expect(t.locator('.dv-diff.dv-unified')).toBeVisible()
   } finally {
     await run.close()
   }
@@ -563,7 +521,7 @@ test('17 历史里看收下的那次：和梦游报告里同一个样子，顶�
     const t = dtab(page)
     await expect(t.getByTestId('dream-hist')).toContainText(`历史 · 梦游：做了可视化「${VIZ_TITLE}」`)
     await expect(t.getByTestId('dream-hist').getByRole('button', { name: '在梦游报告里看这条' })).toBeVisible()
-    await expect(t.getByTestId('dream-cols')).toContainText(`这次提交后 · ${head}`)
+    await expect(t.locator('.dv-cols')).toContainText(`这次提交后 · ${head}`)
   } finally {
     await run.close()
   }

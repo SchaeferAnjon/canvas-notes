@@ -1,6 +1,7 @@
 // 发版前第 1 轮（实用 · 读与 AI）：读 PDF 右栏 AI 的发法、引擎菜单、只贴图、出错那条、⌘J 焦点
 import { expect, test, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { acts, launch, openAi, openNote, tabOn } from './app'
 import { solidPng } from './fixtures/png'
@@ -123,7 +124,11 @@ test('框一块连点两下「讲解一下」只发一次、笔记只记一段',
 })
 
 test('AI 还在答时框一块点「讲解一下」：排在后面（输入框上写着），答完自动发；排着时按 × 不要了就不发', async () => {
-  const run = await launch(files, { CN_AI_FAKE: '1', CN_FAKE_SAY_MS: '250' })
+  // AI 答到一半停着，等测试框好、点好再放行（以前靠答得慢，机器忙时框好之前就答完了，排不上）
+  const gate = join(mkdtempSync(join(tmpdir(), 'cn-hold-')), '放行')
+  const release = () => writeFileSync(gate, '')
+  const hold = () => rmSync(gate, { force: true })
+  const run = await launch(files, { CN_AI_FAKE: '1', CN_FAKE_HOLD: gate })
   const { page } = run
   try {
     await shotTone(page)
@@ -139,6 +144,7 @@ test('AI 还在答时框一块点「讲解一下」：排在后面（输入框�
     await shotWindow(run, 'r1-queued')
     await expect(cap(page)).toHaveCount(0)
     await expect(ai(page).getByTestId('reading-att')).toBeVisible()
+    release()
     // 上一问答完，这一块自己发出去
     await expect(userMsgs(page)).toHaveCount(2, { timeout: 15_000 })
     await expect(userMsgs(page).nth(0)).toHaveText('给我讲解一下这一页')
@@ -149,6 +155,7 @@ test('AI 还在答时框一块点「讲解一下」：排在后面（输入框�
     await expect(ai(page).getByTestId('reading-att')).toHaveCount(0)
 
     // 3. 排着的时候按 × 不要这块了：答完不再发
+    hold()
     await acts(page).getByRole('button', { name: /问这一页/ }).click()
     await expect(ai(page).getByRole('button', { name: '停下' })).toBeVisible()
     await drawBox(page, 2, [0.1, 0.15], [0.6, 0.3])
@@ -157,6 +164,7 @@ test('AI 还在答时框一块点「讲解一下」：排在后面（输入框�
     await expect(ai(page).getByTestId('reading-queued')).toBeVisible()
     await ai(page).getByRole('button', { name: '不要这块了' }).click()
     await expect(ai(page).getByTestId('reading-queued')).toHaveCount(0)
+    release()
     await answered(page, 3)
     await page.waitForTimeout(1500)
     await expect(userMsgs(page)).toHaveCount(3)

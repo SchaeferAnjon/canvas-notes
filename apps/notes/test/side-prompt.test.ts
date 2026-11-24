@@ -1,6 +1,6 @@
 // 旁支里问一句时交给 AI 的话（task-4edsc：AI 对话、文档里 AI 讲解块的旁支）
 import { describe, expect, it } from 'vitest'
-import { sideTurnPrompt } from '../src/main/agent/side-prompt'
+import { sideTurnPrompt } from '@cn/ai-engines'
 import { sideName } from '../src/renderer/side/name'
 
 describe('旁支的话', () => {

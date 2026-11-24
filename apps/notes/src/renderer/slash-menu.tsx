@@ -7,11 +7,12 @@ import type { NoteFile } from '../shared/api'
 import { BRAND } from '../shared/brand'
 import { answerLangName } from '../shared/answer-lang'
 import { titleOf } from '../shared/layout'
-import { withoutEffort } from '../shared/ai-features'
+import { withoutEffort } from '@cn/ai-engines/shared'
 import { insertBase } from './base/base-block'
 import { drawnBlocks, editorHost, Popover } from './editor-host'
 import { AiIcon } from './engine-logo'
 import { toggleFold } from './fold-block'
+import { placeRef } from './mindmap/place-ref'
 import { hiddenOk } from './hidden-syntax'
 import { AiStreamWrite } from './ai-write'
 import { canStream } from './ai-spot'
@@ -332,9 +333,9 @@ const ITEMS: SlashItem[] = [
     keys: 'mindmap map photo camera daotu dt paizhao',
     async run(view, from, to) {
       replace(view, from, to, '')
-      // 用到时再拿（note-doc 要 DOM，单元测试里只读这张表）
-      const { captureIntoView } = await import('./mindmap/place')
-      if (!captureIntoView(view)) view.state.facet(editorHost).notice(tNow('这一篇是只读的，插不了导图'))
+      // place.ts 载入时登记进来（note-doc 要 DOM，单元测试里只读这张表，不静态引它）
+      const captureIntoView = placeRef.captureIntoView
+      if (!captureIntoView?.(view)) view.state.facet(editorHost).notice(tNow('这一篇是只读的，插不了导图'))
     },
   },
   {

@@ -314,6 +314,9 @@ function insertAt(md: string, pos: number, text: string): string {
   return (before ? before + '\n\n' : '') + text + (after ? '\n' + after : '')
 }
 
+/** 配对笔记里没认出是哪一页的那几问放的一节（读 PDF 贴截图问的，0.5.9）：按页的新一节排在它前面 */
+export const UNPLACED = '没定位的问答'
+
 /**
  * 加一问（只往后加）：已经记过这一条回答的原样返回。
  * 主对话的一问接在这一节末尾；旁支接在它那一问（side.of）和那一问已有的旁支后面，找不到那一问时接在这一节末尾。
@@ -337,7 +340,8 @@ export function appendAsk(md: string, note: string, a: NoteAsk, place: AskPlace)
   sec ??= [...secs].reverse().find(same)
   if (!sec) {
     const fresh = `## ${oneLine(place.heading)}\n\n${text}`
-    const later = place.page !== undefined ? secs.find((s) => (s.asks > 0 || s.old) && s.page !== undefined && s.page > place.page!) : undefined
+    // 按页的一节排在页码更大的那节前面；没有更大的就排在「没定位的问答」那节前面（它一直在最后）
+    const later = place.page !== undefined ? secs.find((s) => ((s.asks > 0 || s.old) && s.page !== undefined && s.page > place.page!) || (s.asks > 0 && s.heading === UNPLACED)) : undefined
     return insertAt(md, later ? later.from : md.length, fresh)
   }
   const mine = units.filter((u) => u.chunk === sec!.from)

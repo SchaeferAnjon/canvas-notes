@@ -1,5 +1,5 @@
 /**
- * 类型筛选（全部 / 文档 / 白板 / 剪藏，文件树多一个「附件」）：不单独占活动栏的入口，是「文件」「最近」顶上同一排；
+ * 类型筛选（全部 / 文档 / 白板 / 剪藏，文件树多一个「附件」；「最近」多 PDF / 网页 / HTML，只出现最近里有的那几样，2026-11-24）：不单独占活动栏的入口，是「文件」「最近」顶上同一排；
  * 文件夹首页、中间的「最近」页也是这一排。左栏的那一排「文件」「最近」和摘出来的文件夹共用一个，记在本机。
  * 「附件」只在文件树里有（CN-104：附件挂在用它的那篇笔记下面）；别处选着「附件」时当「全部」。
  */
@@ -7,12 +7,23 @@ import { Codicon } from '@cn/design'
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { NoteFile } from '../../shared/api'
 import type { FileEntry } from '../../shared/files'
+import { isOpened, type RecentItem } from '../../shared/recent'
 import { list } from '../../shared/i18n'
 import { menuAt } from '../ctx/menu'
 import { useT } from '../i18n'
 
-export type TypeFilter = 'all' | 'doc' | 'board' | 'clip' | 'att'
-export const TYPE_FILTERS: TypeFilter[] = ['all', 'doc', 'board', 'clip', 'att']
+export type TypeFilter = 'all' | 'doc' | 'board' | 'pdf' | 'web' | 'html' | 'clip' | 'att'
+// 几处共有的四颗（全部 文档 白板 剪藏）位置不动，「最近」才有的接在后面（放不下先收 HTML、网页）
+export const TYPE_FILTERS: TypeFilter[] = ['all', 'doc', 'board', 'clip', 'pdf', 'web', 'html', 'att']
+/** 只有「最近」有的几样（文件树、文件夹首页选着它们时当「全部」） */
+export const RECENT_ONLY: readonly TypeFilter[] = ['pdf', 'web', 'html']
+/** 左栏共用的那一个在只认老几样的地方（文件树、摘出来的文件夹）：最近才有的当「全部」 */
+export const plainType = (t: TypeFilter): TypeFilter => (RECENT_ONLY.includes(t) ? 'all' : t)
+
+/** 「最近」里一条算哪类：打开过的 PDF、HTML、网页就是它自己；笔记照 noteType */
+export function recentType(x: RecentItem): Exclude<TypeFilter, 'all' | 'att'> {
+  return isOpened(x) ? x.opened : noteType(x)
+}
 
 /** 一篇笔记算哪类：白板；剪来的（剪藏/ 里的、收件箱里带来源的：从网页、视频剪下来的）是剪藏；其余是文档 */
 export function noteType(n: Pick<NoteFile, 'kind' | 'board' | 'source'>): Exclude<TypeFilter, 'all' | 'att'> {
@@ -66,14 +77,15 @@ function setSideType(t: TypeFilter) {
 
 /**
  * att：带不带「附件」（只有文件树带）；没带时选着「附件」显示成「全部」。
+ * kinds：「最近」给的，现在有的几类：只出这几颗（加「全部」和选着的那颗），顺序照 TYPE_FILTERS；不给时是老的 全部 / 文档 / 白板 / 剪藏。
  * 栏窄、一排放不下时（英文「All Doc Board Clippings Attachments」在默认宽度下放不下，task-zojmg 设计稿第 2 节）：
  * 从最后往前把放不下的收进末尾一颗「⋯」，点开是这几样的菜单；选着的那一样一直露着。不缩字、不折行（偏好「窄的时候不许挤成一字一行」）
  */
-export function TypeChips(props: { value: TypeFilter; onChange(t: TypeFilter): void; className?: string; att?: boolean }) {
+export function TypeChips(props: { value: TypeFilter; onChange(t: TypeFilter): void; className?: string; att?: boolean; kinds?: readonly TypeFilter[] }) {
   const t = useT()
-  const value = props.value === 'att' && !props.att ? 'all' : props.value
-  const label: Record<TypeFilter, string> = { all: t('全部'), doc: t('文档'), board: t('白板'), clip: t('剪藏'), att: t('附件') }
-  const keys = TYPE_FILTERS.filter((k) => props.att || k !== 'att')
+  const value = props.kinds ? (props.value === 'att' ? 'all' : props.value) : props.value === 'att' && !props.att ? 'all' : plainType(props.value)
+  const label: Record<TypeFilter, string> = { all: t('全部'), doc: t('文档'), board: t('白板'), pdf: 'PDF', web: t('网页'), html: 'HTML', clip: t('剪藏'), att: t('附件') }
+  const keys = props.kinds ? TYPE_FILTERS.filter((k) => k === 'all' || k === value || props.kinds!.includes(k)) : TYPE_FILTERS.filter((k) => (props.att || k !== 'att') && !RECENT_ONLY.includes(k))
   const box = useRef<HTMLDivElement>(null)
   /** 收进「⋯」的几样（从最后往前数，跳过选着的） */
   const [fold, setFold] = useState(0)
@@ -111,7 +123,7 @@ export function TypeChips(props: { value: TypeFilter; onChange(t: TypeFilter): v
     void document.fonts?.ready.then(() => remeasure((n) => n + 1))
     return () => ro.disconnect()
   }, [])
-  useEffect(() => setFold(0), [t, keys.length])
+  useEffect(() => setFold(0), [t, keys.join()])
   return (
     <div ref={box} className={'tchips' + (props.className ? ' ' + props.className : '')} role="tablist" aria-label={t('类型')}>
       {keys

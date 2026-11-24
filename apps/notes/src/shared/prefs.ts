@@ -74,6 +74,8 @@ export interface WebPrefs {
   newTab: 'bookmarks' | 'blank'
   /** 右栏网页里的下载放哪：下载文件夹、库里的「附件/下载」、每次问 */
   downloads: 'downloads' | 'vault' | 'ask'
+  /** 右栏看过的网页记进左栏「最近」（只记标题和网址，存在本机设置目录；关了不再记，「最近」里也不列，2026-11-24） */
+  keepRecent: boolean
 }
 
 export interface SyncPrefs {
@@ -110,7 +112,7 @@ export const DEFAULT_GENERAL: GeneralPrefs = { reopen: true, tray: true, quickKe
 export const DEFAULT_EDITOR: EditorPrefs = { font: 'system', size: 15, lineHeight: 'normal', width: 'narrow', newView: 'doc', spell: false, boardShrink: true, boardDots: true, semantic: true }
 export const DEFAULT_FILES: FilesPrefs = { newWhere: 'picked', delAsk: 'images', showTodo: false, noteViews: {} }
 export const DEFAULT_PDF: PdfPrefs = { zoom: 'width', openAi: false, ankiSides: true }
-export const DEFAULT_WEB: WebPrefs = { engine: 'google', newTab: 'bookmarks', downloads: 'downloads' }
+export const DEFAULT_WEB: WebPrefs = { engine: 'google', newTab: 'bookmarks', downloads: 'downloads', keepRecent: true }
 export const DEFAULT_SYNC: SyncPrefs = { autoMinutes: 0, pullOnOpen: false, pushOnQuit: false, backup: 'off', backupDir: null }
 export const DEFAULT_CITE: CitePrefs = { names: true, skip: [] }
 export const DEFAULT_FEYNMAN: FeynmanPrefs = { mode: 'rounds', longSeen: false }
@@ -175,6 +177,7 @@ export function normalizeWeb(v: unknown): WebPrefs {
     engine: oneOf(r.engine, ['google', 'bing', 'baidu', 'ddg'], DEFAULT_WEB.engine),
     newTab: oneOf(r.newTab, ['bookmarks', 'blank'], DEFAULT_WEB.newTab),
     downloads: oneOf(r.downloads, ['downloads', 'vault', 'ask'], DEFAULT_WEB.downloads),
+    keepRecent: bool(r.keepRecent, DEFAULT_WEB.keepRecent),
   }
 }
 

@@ -6,7 +6,7 @@
  */
 import type { EditorView } from '@codemirror/view'
 import { aiCalloutHead, blockIndexAt, findBlocks } from '@cn/format'
-import { withoutEffort } from '../../shared/ai-features'
+import { withoutEffort } from '@cn/ai-engines/shared'
 import { t } from '../../shared/i18n'
 import { titleOf } from '../../shared/layout'
 import { fillPrompt } from '../../shared/sel-bar'

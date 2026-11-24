@@ -66,7 +66,10 @@ describe('设置的分页和搜索（方向 A「分组侧栏」）', () => {
     expect(sync).toEqual(expect.arrayContaining(['remote', 'autoSync', 'pullOpen', 'pushQuit']))
     // 名字里有「同步」的排在只是组名叫「同步」的前面
     expect(sync.indexOf('autoSync')).toBeLessThan(sync.indexOf('conflict'))
-    expect(searchSettings('隐私').every((i) => i.pg === 'privacy')).toBe(true)
+    // 隐私和联网那一页的全列；页外只有关键词带「隐私」的「记下看过的网页」
+    const priv = searchSettings('隐私')
+    expect(priv.some((i) => i.pg === 'privacy')).toBe(true)
+    expect(priv.filter((i) => i.pg !== 'privacy').map((i) => i.id)).toEqual(['keepRecent'])
   })
 
   it('几个词用空格隔开时每个词都要打中；大小写不管；没打中给空', () => {

@@ -10,6 +10,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { launch, leftView, tabOn, type Running } from './app'
+import { LECTURE } from './fixtures/pdf'
 import { solidPng } from './fixtures/png'
 import { armMenus, pickMenu } from './menu'
 
@@ -289,6 +290,59 @@ test('以前留下的没人用的附件：「最近删掉的」上面一行，�
     await expect.poll(() => (existsSync(join(vault, '附件/剪藏/第三方/冰岛')) ? readdirSync(join(vault, '附件/剪藏/第三方/冰岛')).length : 0)).toBe(5)
     await expect(panel(page).getByTestId('orphan-row').locator('.imgs')).toHaveText('5个')
     expect(git(vault, ['status', '--porcelain'])).toBe('')
+  } finally {
+    await run.close()
+  }
+})
+
+test('改名一篇带图的笔记时，开着的读 PDF 笔记里指向那张图的链接在编辑器里也跟着变（右栏读 PDF 的笔记、疑问卡这些地方读了它也不吞掉这次改动）', async () => {
+  // 收尾清单：读笔记的地方（主进程 reading:note、疑问卡、名词卡……）用 vault.read 时把盘上的字记成「编辑器手里的」，
+  // 改名挪附件改好的链接监听比对时当成没变、不报给编辑器（同 g2-editor 粘贴截图那条、ai-note-switch 修的 ainote:has）
+  const note = '课程/线代/第3讲 笔记.md'
+  const run = await launch({
+    '课程/线代/第3讲.pdf': LECTURE,
+    [note]: '# 第3讲 笔记\n\n## 第 2 页 · 旋转矩阵\n\n![甲那张图](../../附件/收件箱/甲/图.png)\n\n> [!question] 给我讲解一下\n\n回答原文。\n',
+    '收件箱/甲.md': '# 甲\n\n![](../附件/收件箱/甲/图.png)\n',
+    '附件/收件箱/甲/图.png': png(40),
+  })
+  const { page, vault } = run
+  const slot = (p: 0 | 1) => page.locator(`main.center > .cslot[data-pane="${p}"]:not([hidden])`)
+  const open = async (name: string) => {
+    await page.keyboard.press('Meta+o')
+    await page.keyboard.type(name)
+    await expect(page.getByRole('option').first()).toContainText(name)
+    await page.keyboard.press('Enter')
+    await expect(tabOn(page)).toHaveText(new RegExp(name))
+  }
+  try {
+    await size(run)
+    await armMenus(run)
+    // 左边那格：读 PDF 的笔记当文档开着；右边那格：那份 PDF（它的 AI 栏、笔记会去读这篇笔记）
+    await open('第3讲 笔记')
+    await page.keyboard.press('Control+Backslash')
+    await expect(page.locator('main.center')).toHaveClass(/\bsplit\b/)
+    await open('第3讲.pdf')
+    await expect(slot(0).locator('.cm-image img')).toBeVisible()
+    // 目录树里把甲改名成乙：附件/收件箱/甲/ 挪成 附件/收件箱/乙/，读 PDF 笔记里的链接跟着改
+    await reveal(page, '收件箱')
+    await row(page, '甲').click({ button: 'right' })
+    await pickMenu(run, '重命名')
+    const input = tree(page).getByRole('textbox', { name: '新名字' })
+    await input.fill('乙')
+    await input.press('Enter')
+    await expect.poll(() => existsSync(join(vault, '附件/收件箱/乙/图.png'))).toBe(true)
+    await expect.poll(() => readFileSync(join(vault, note), 'utf8')).toContain('![甲那张图](../../附件/收件箱/乙/图.png)')
+    // 编辑器里是新的链接，图照样画得出来
+    const editor = () => slot(0).locator('.cm-editor').evaluate((el) => (el as HTMLElement & { cnText: string }).cnText)
+    await expect.poll(editor).toContain('![甲那张图](../../附件/收件箱/乙/图.png)')
+    await expect(slot(0).locator('.cm-image img')).toHaveAttribute('src', /%E4%B9%99/)
+    // 再在这篇里打几个字存盘：旧链接没写回去
+    await slot(0).locator('.cm-line', { hasText: '回答原文' }).click()
+    await page.keyboard.press('End')
+    await page.keyboard.type('又')
+    await page.keyboard.press('Meta+s')
+    await expect.poll(() => readFileSync(join(vault, note), 'utf8')).toContain('回答原文。又')
+    expect(readFileSync(join(vault, note), 'utf8')).toContain('附件/收件箱/乙/图.png')
   } finally {
     await run.close()
   }

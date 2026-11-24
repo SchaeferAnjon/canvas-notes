@@ -6,7 +6,7 @@
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
-import { claudeEngine } from '../../src/main/agent/engines'
+import { claudeEngine } from '@cn/ai-engines'
 import { type AskQ, type FlowDeps, judge, turn } from '../../src/shared/feynman/flow'
 import { finishLong, leaks, longLine } from '../../src/shared/feynman/long'
 import type { Entry, FeynmanMeta } from '../../src/shared/feynman/types'

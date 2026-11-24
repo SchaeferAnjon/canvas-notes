@@ -3,17 +3,19 @@
  * 以及「让 Claude 帮我找」（Claude Code 只读翻文件，过程一步步报给界面）。
  * 意思索引存在软件设置目录 userData/search/<库的指纹>/，不进库。
  */
-import { app, type BrowserWindow, ipcMain, utilityProcess, type UtilityProcess } from 'electron'
+import { app, type BrowserWindow, ipcMain, shell, utilityProcess, type UtilityProcess } from 'electron'
 import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { rename } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import type { ClaudeFindResult, MeaningHit, RelatedNote, SearchStatus } from '../../shared/search'
 import { engine, FAST_MODEL } from '../agent'
-import { findCli, INSTALL_HINT } from '../agent/cli'
+import { findCli, INSTALL_HINT } from '@cn/ai-engines'
 import type { Vault } from '../vault'
-import { E2E } from '../test-mode'
+import { E2E, quitLog } from '../test-mode'
 import { FIND_SYSTEM, findPrompt, parseFound, toolStep } from './claude-find'
 import { EmbedModel } from './embed-model'
+import { trashOldOnnx } from './old-onnx'
 import type { FromWorker, PassagesReply, Query, RelatedReply, ToWorker } from './protocol'
 
 export interface SearchDeps {
@@ -85,6 +87,17 @@ export function setupSearch(deps: SearchDeps) {
   const send = (ch: string, ...args: unknown[]) => deps.win()?.webContents.send(ch, ...args)
 
   const post = (m: ToWorker) => proc!.postMessage(m)
+  // 换成 GGUF 以前下的 ONNX 版 bge-m3（约 570 MB）：打开 20 秒后在后台挪进废纸篓（old-onnx.ts）；测试用 CN_OLD_ONNX_DELAY_MS 调短
+  // 测试模式只碰测试自己给的模型文件夹（CN_EMBED_DIR）：不然会把这台 Mac 上真的缓存挪进测试的临时「废纸篓」，测完跟着删掉
+  const trashDir = process.env.CN_TRASH_DIR
+  if (!E2E || process.env.CN_EMBED_DIR) setTimeout(
+    () =>
+      void trashOldOnnx(bigModelDir(), trashDir ? (abs) => rename(abs, join(trashDir, `${Date.now()}-${basename(abs)}`)) : (abs) => shell.trashItem(abs)).then(
+        (moved) => moved.length && console.log(`旧的 ONNX 版 bge-m3 挪进了废纸篓：${moved.join('、')}`),
+        (e) => console.error('挪旧的 ONNX 版 bge-m3 没挪成', e),
+      ),
+    Number(process.env.CN_OLD_ONNX_DELAY_MS ?? 20_000),
+  ).unref()
   const embedModel = new EmbedModel({
     dir: bigModelDir(),
     fake: (E2E || process.env.CN_AI_FAKE === '1') && process.env.CN_EMBED_REAL !== '1',
@@ -119,7 +132,7 @@ export function setupSearch(deps: SearchDeps) {
       proc = null
       for (const p of pending.values()) p.reject(new Error(`搜索进程退出了（${code}）`))
       pending.clear()
-      if (quitting) return
+      if (quitting) return quitLog(`搜索进程退了（${code}）`)
       status = { phase: 'error', done: 0, total: 0, files: 0, error: `搜索进程退出了（${code}），下次搜索时重开` }
       send('search:status', status)
     })

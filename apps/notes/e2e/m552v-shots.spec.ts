@@ -92,7 +92,7 @@ for (const [skin, frame] of LOOKS) {
       const item = (t: string) => panel.getByTestId('dream-item').filter({ hasText: t })
       const t = page.locator('[data-testid="dream-tab"]:not([hidden])')
 
-      // ① 归类和改名那条（demo 初始：条目头、两个文件、挪动、整篇并排、第一处闪一下）
+      // ① 归类和改名那条（条目头、两个文件、挪动、对照是历史那一套）
       await item('原名「极光」').click()
       await expect(t.getByTestId('dream-move')).toBeVisible()
       await shot(run, `01-file-item-${tag}`)
@@ -101,7 +101,7 @@ for (const [skin, frame] of LOOKS) {
       await t.getByTestId('dream-file').nth(1).click()
       await expect(t.getByTestId('dream-fbar')).toContainText('冰岛行程')
       await shot(run, `02-file-item-2-${tag}`)
-      // ③ 可视化那条：笔记整篇，滚到嵌进来的那一块
+      // ③ 可视化那条：笔记的对照，嵌进来的那一块
       await item(VIZ_TITLE).click()
       await expect(t.getByTestId('dream-fbar')).toContainText('笔记')
       await shot(run, `03-viz-note-${tag}`)
@@ -110,19 +110,13 @@ for (const [skin, frame] of LOOKS) {
       await t.getByTestId('dream-file').filter({ hasText: '旋转矩阵.html' }).click()
       await expect(t.getByTestId('dream-void')).toBeVisible()
       await shot(run, `04-viz-html-${tag}`)
-      // ⑤ 收下后的样子：HTML 整宽、笔记那段竖线
-      await acts(page).getByRole('tab', { name: '收下后的样子' }).click()
-      await shot(run, `05-viz-html-after-${tag}`)
+      // ⑥ 合一（2026-11-24 起没有「收下后的样子」「只看改动」：没改的本来就折着）
       await t.getByTestId('dream-file').first().click()
-      await expect(t.locator('.dv-after')).toBeVisible()
-      await shot(run, `06-viz-note-after-${tag}`)
-      // ⑥ 只看改动：按段折
-      await acts(page).getByRole('tab', { name: '对照' }).click()
-      await acts(page).getByRole('tab', { name: '只看改动' }).click()
-      await expect(t.locator('.dv-fold').first()).toBeVisible()
-      await shot(run, `07-viz-changes-${tag}`)
-      await measure(page, `07-viz-changes-${tag}`)
-      await acts(page).getByRole('tab', { name: '整篇' }).click()
+      await acts(page).getByRole('tab', { name: '合一' }).click()
+      await expect(t.locator('.dv-diff.dv-unified')).toBeVisible()
+      await shot(run, `07-viz-unified-${tag}`)
+      await measure(page, `07-viz-unified-${tag}`)
+      await acts(page).getByRole('tab', { name: '并排' }).click()
       // ⑦ 收下可视化：0.7 秒后往下走一条（补双链），底部提示带撤回、在历史里看
       await t.getByRole('button', { name: '收下', exact: true }).click()
       await expect(t.getByTestId('dream-k')).toHaveText('补上的双链 · 第5条，共7条', { timeout: 4000 })

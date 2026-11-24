@@ -246,12 +246,12 @@ export class AnkiConnectError extends Error {
   }
 }
 
-/** 谁在这个端口上听：lsof 查（两秒没回、没装、查不到都当不知道） */
+/** 谁在这个端口上听：lsof 查（5 秒没回、没装、查不到都当不知道；lsof 要翻一遍所有进程，机器忙时一两秒是常事，只在送不成时查一次） */
 export function whoListens(port: number): Promise<{ name: string; pid: number } | null> {
   if (process.platform === 'win32') return Promise.resolve(null)
   const lsof = process.platform === 'darwin' ? '/usr/sbin/lsof' : 'lsof'
   return new Promise((resolve) =>
-    execFile(lsof, ['-nP', '+c', '0', `-iTCP:${port}`, '-sTCP:LISTEN'], { timeout: 2000 }, (err, out) => {
+    execFile(lsof, ['-nP', '+c', '0', `-iTCP:${port}`, '-sTCP:LISTEN'], { timeout: 5000 }, (err, out) => {
       if (err) return resolve(null)
       // COMMAND PID USER …：第一行是表头；+c 0 给全名，名字里的空格 lsof 写成 \x20
       const m = /^(\S+)\s+(\d+)\s/m.exec(String(out).split('\n').slice(1).join('\n'))

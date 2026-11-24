@@ -5,7 +5,7 @@
  */
 import { useEffect, useSyncExternalStore } from 'react'
 import type { ChatSide, StoredMsg, ToolStep } from '../shared/agent'
-import type { AiPick } from '../shared/ai-features'
+import type { AiPick } from '@cn/ai-engines/shared'
 import type { Place } from './ai-place'
 import type { NoteTarget } from '../shared/ai-note'
 import { t } from '../shared/i18n'

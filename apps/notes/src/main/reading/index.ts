@@ -10,6 +10,7 @@
  */
 import { app, type BrowserWindow, ipcMain, shell } from 'electron'
 import { pastedImages, pastedPath } from '../pasted'
+import { ocrImage } from '../ocr'
 import { checkMaterials, PASTED_NAME, withMaterials } from '../../shared/materials'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs'
@@ -23,6 +24,7 @@ import {
   CONVO_DIR,
   cropCaption,
   cropGaps,
+  formulaImagesNote,
   insertAfterAsk,
   insertCrop,
   lectureOf,
@@ -46,11 +48,11 @@ import type { CommitInfo } from '../../shared/api'
 import { titleOf } from '../../shared/layout'
 import type { AskEvent, AskRequest, AskResult, PdfFile, ReadingMsg, ReadingSide, ReadingState, ReadingThread, VizRequest, VizResult } from '../../shared/reading'
 import type { NoteAppendResult, NoteAskRequest } from '../../shared/ai-note'
-import { withoutEffort } from '../../shared/ai-features'
+import { withoutEffort } from '@cn/ai-engines/shared'
 import { chatRun, engine, featureLabel, langTail, modeLine, modelOpt, omniOn, runAgentTurn, vaultNotes } from '../agent'
 import { E2E } from '../test-mode'
 import { pdfHash, type PdfTextCache, readTextCache, textCachePath } from '../pdf-text-cache'
-import type { EngineImage } from '../agent/engines'
+import type { EngineImage } from '@cn/ai-engines'
 import type { Vault } from '../vault'
 import { askPrompt, extractHtml, fullTextOf, noteDigest, sidePrompt, TUTOR_SYSTEM, TUTOR_VERSION, VIZ_SYSTEM, vizFileStem, vizPrompt, vizTitle, withVizMeta } from './prompts'
 import { answerMd, matsOf, questionOf } from './section'
@@ -318,7 +320,7 @@ export function setupReading(deps: ReadingDeps) {
     const note = notePathFor(p)
     const v = needVault()
     // 这份 PDF 不在库里了（笔记还在）：截不了
-    const text = existsSync(v.abs(p)) ? await readText(note) : null
+    const text = existsSync(v.abs(p)) ? await peekText(note) : null
     if (!text) return { note, gaps: [], missing: 0 }
     const state = readJson<ReadingState | null>(statePath(p), null)
     const gaps: { id: string; page: number; rect?: [number, number, number, number]; have?: string }[] = []
@@ -332,7 +334,7 @@ export function setupReading(deps: ReadingDeps) {
       }
       let rect = g.rect ?? th?.rect
       if (!rect) {
-        const convo = (await readText(g.id)) ?? ''
+        const convo = (await peekText(g.id)) ?? ''
         const back = /\[回到第\s*\d+\s*页\]\(([^)]+)\)/.exec(convo)
         rect = back ? parsePdfAnchor(back[1]!)?.rect : undefined
       }
@@ -377,11 +379,17 @@ export function setupReading(deps: ReadingDeps) {
     return files.length
   })
 
+  /** 贴进来的截图（pasted/ 里的名字）认出的字：界面拿去 PDF 里找是哪一页（shared/locate.ts） */
+  ipcMain.handle('reading:ocr', (_e, name: unknown) => {
+    if (typeof name !== 'string' || !PASTED_NAME.test(name)) throw new Error(t('粘贴的图不对'))
+    return ocrImage(pastedPath(name))
+  })
+
   ipcMain.handle('reading:thread', async (_e, pdf: unknown, page: number) => {
     const p = needSource(pdf)
     // 以前问过的几处（笔记里的各段、对话记录里的）都算用掉了：完整对话不再写成文件，光看文件在不在会撞到老的那一段
     const taken = new Set(readJson<ReadingState | null>(statePath(p), null)?.threads.map((t) => t.id) ?? [])
-    if (!isWeb(p)) for (const s of parseReadingNote((await readText(notePathFor(p))) ?? '', notePathFor(p))) taken.add(s.id)
+    if (!isWeb(p)) for (const s of parseReadingNote((await peekText(notePathFor(p))) ?? '', notePathFor(p))) taken.add(s.id)
     // 视频没有页码：「视频-youtube-视频号-1.md」
     return freeName((n) => `${CONVO_DIR}/${nameOf(p)}${isWeb(p) && videoOf(p.slice(4)) ? '' : `-p${Math.max(1, Math.floor(page))}`}-${n}.md`, taken)
   })
@@ -396,6 +404,7 @@ export function setupReading(deps: ReadingDeps) {
   ipcMain.handle('reading:text:get', (_e, hash: string) => (typeof hash === 'string' ? textOf(hash) : null))
 
   // ---------- 笔记 ----------
+  /** 读来接着写回去的（写的时候拿它当 base）：走 vault.read，记成已知 */
   async function readText(rel: string): Promise<string | null> {
     try {
       return (await needVault().read(rel)).text
@@ -404,12 +413,14 @@ export function setupReading(deps: ReadingDeps) {
       throw e
     }
   }
+  /** 只看不写的（右栏笔记、拼给 AI 的话、找空着的名字）：vault.peek，不记成已知，外部改动照常报给开着的编辑器（同 ainote:has） */
+  const peekText = (rel: string) => needVault().peek(rel)
   ipcMain.handle('reading:note', async (_e, pdf: unknown) => {
     const src = needSource(pdf)
     // 网页上问的笔记记到中间栏开着的文档或收件箱，不是一篇固定的
     if (isWeb(src)) return { path: '', text: '' }
     const path = notePathFor(src)
-    return { path, text: (await readText(path)) ?? '' }
+    return { path, text: (await peekText(path)) ?? '' }
   })
 
   // ---------- 问 ----------
@@ -434,6 +445,8 @@ export function setupReading(deps: ReadingDeps) {
     const pdf = needSource(req.pdf)
     const v = needVault()
     const mats = checkMaterials(req.mats)
+    if (req.formulas !== undefined && (!Array.isArray(req.formulas) || !req.formulas.every((f) => f && typeof f.name === 'string' && typeof f.what === 'string' && f.what.length <= 200))) throw new Error(t('AI 参数不对'))
+    const formulas = req.formulas ?? []
     const ac = new AbortController()
     asking.set(req.id, ac)
     let text = ''
@@ -446,7 +459,7 @@ export function setupReading(deps: ReadingDeps) {
       const pages = textOf(req.hash)
       // 旁支问的是回答里的一句：不再附整份 PDF 的字（分叉来的会话里本来就有）
       const needFull = !side && (!session || ss.fullIn[req.engine] !== session)
-      const note = isWeb(pdf) ? '' : ((await readText(notePathFor(pdf))) ?? '')
+      const note = isWeb(pdf) ? '' : ((await peekText(notePathFor(pdf))) ?? '')
       const state = readJson<ReadingState | null>(statePath(pdf), null)
       // 旁支：告诉 AI 被问的那句和它所在的那一轮（第一问）；接着问只说接着这条旁支。引用的材料照样按 ①② 列出
       const prompt = side
@@ -462,11 +475,14 @@ export function setupReading(deps: ReadingDeps) {
         // 引用的材料（多段引用方向 B）：字里的 ①②，后面按同一套编号列出每块（图叫「图②」）；框的那块在附图里排第 1，材料里的图接着排
         question: withMaterials(req.text, mats, req.images.length),
         thread: req.thread,
+        ...(mats?.some((m) => m.kind === 'image') ? { shot: true } : {}),
         ...(needFull && pages ? { fullText: fullTextOf(pages) } : {}),
         fullPending: !side && !pages && /\.pdf$/i.test(pdf),
         digest: noteDigest(parseReadingNote(note, notePathFor(pdf))),
         // 「附上的图是…」说的是框的那块（或整页）；材料里的图在材料那几行里说（以前不带材料的粘贴的图照旧算）
         hasImage: req.images.length > 0 || (!mats?.length && (req.pasted?.length ?? 0) > 0),
+        // 公式那几块的截图排在框的那块、粘贴的图后面
+        formulaNote: formulaImagesNote(req.images.length + (req.pasted?.length ?? 0) + 1, formulas.map((f) => f.what)),
       })
       // 能动手（2026-11-19）：和 AI 对话同一套，给我们的工具（库里新建、改名、挪、删笔记……），全能模式开着时命令行自己的工具也全给；
       // 这一问改了的提交一次。外圈、「停下」认负的编号（和 AI 对话的消息编号分开）
@@ -489,7 +505,7 @@ export function setupReading(deps: ReadingDeps) {
           session,
           ...(fork ? { fork: true } : {}),
           keepSession: true,
-          images: [...(await imagesOf(req.images)), ...(await pastedImages(req.pasted))],
+          images: [...(await imagesOf(req.images)), ...(await pastedImages(req.pasted)), ...(await pastedImages(formulas.length ? formulas.map((f) => f.name) : undefined))],
           history: side ? side.history : historyOf(state?.msgs ?? [], pages && needFull ? '' : pages ? fullTextOf(pages) : ''),
           onText: (delta) => {
             text += delta
@@ -569,8 +585,9 @@ export function setupReading(deps: ReadingDeps) {
         else if (first && !old && th.quote?.trim() && !th.web?.answer) ask.quote = th.quote.trim()
         // 来源行：网页那一段、视频那一秒每一问都写（右栏「笔记」认它回网页）；PDF、库里的 HTML 只在这一处第一次记时写（旧写法那段里已经有了不写）
         if (req.from) ask.src = webSrc(note, req.from.label, req.from.url)
-        else if (first && !old && /\.pdf$/i.test(src) && th.page > 0) ask.src = pdfSrc(note, src, th.page, th.rect)
-        else if (first && !old && !isWeb(src)) ask.src = webSrc(note, `${stemOf(src)}.html`, src) // 不翻：写进文件的字（文件名）
+        // 贴截图问、没定位或挪过来的：截图不是从那一页截的，不写来源行
+        else if (first && !old && /\.pdf$/i.test(src) && th.page > 0 && th.found !== 'moved') ask.src = pdfSrc(note, src, th.page, th.rect)
+        else if (first && !old && !isWeb(src) && !/\.pdf$/i.test(src)) ask.src = webSrc(note, `${stemOf(src)}.html`, src) // 不翻：写进文件的字（文件名）
       }
       return aiNote.appendNow({
         note,
@@ -595,7 +612,7 @@ export function setupReading(deps: ReadingDeps) {
     const note = notePathFor(pdf)
     const msgs = req.msgs.filter((m) => m.thread === req.thread.id)
     // 讲到哪了：新格式用这一轮的小结，以前的笔记用讲通的讲法
-    const was = parseReadingNote((await readText(note)) ?? '', note).find((x) => x.id === req.thread.id)
+    const was = parseReadingNote((await peekText(note)) ?? '', note).find((x) => x.id === req.thread.id)
     const good = was?.qas ? was.recap || was.good : was?.good
     const r = await engine(req.engine).run({
       ...modelOpt('chat', req.engine),

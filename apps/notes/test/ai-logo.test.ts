@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { type AiUses, commandJob, logoOf, usesOf } from '../src/shared/ai-logo'
-import { normalizePrefs } from '../src/shared/ai-features'
+import { normalizePrefs } from '@cn/ai-engines/shared'
 
 const uses: AiUses = { chat: 'claude', dream: 'claude', vision: 'claude', quick: 'claude', translate: 'claude' }
 

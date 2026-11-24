@@ -158,6 +158,8 @@ test('捏合以手指为中心；放大缩小后页边标记、问过的框、�
       await page.keyboard.up('Meta')
     }
     await drag([0.1, 0.12], [0.7, 0.2])
+    // 框的那块截好、挂到输入框上以后再发（还在截的时候按回车不发，机器忙时截得慢，以前这一下就丢了）
+    await expect(ai(page).getByRole('img', { name: '第 1 页框的那块' })).toBeVisible()
     await ai(page).getByRole('textbox', { name: '问 AI' }).press('Enter')
     await expect(ai(page).getByTestId('reading-msg').last().getByTestId('ai-noted')).toHaveAttribute('data-state', 'done', { timeout: 20_000 })
     const mk = pdfPane(page).getByRole('button', { name: '第 1 页这里问过 1 轮' })

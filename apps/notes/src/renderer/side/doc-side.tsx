@@ -14,20 +14,20 @@ import { Decoration, type DecorationSet, EditorView, keymap, type PluginValue, V
 import { type ReactNode, useEffect, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
-import type { AiPick } from '../../shared/ai-features'
-import { convPick, hasEffort } from '../../shared/ai-features'
+import type { AiPick, EngineInfo } from '@cn/ai-engines/shared'
+import { convPick, hasEffort } from '@cn/ai-engines/shared'
 import { titleOf } from '../../shared/layout'
 import type { Material } from '../../shared/materials'
-import { useConvPick } from '../composer'
+import { useConvPick } from '@cn/ai-chat/composer'
 import { app } from '../ctx/actions'
 import { editorHost } from '../editor-host'
 import { calloutFolded } from '../fold-block'
 import { type Hidden, hiddenOk, hiddenSyntax } from '../hidden-syntax'
-import { badgeEl, closeRun, flashMark, groupMark } from '../reading/marks'
-import { AskBoxView, highlightBottom } from './AskBox'
+import { badgeEl, closeRun, flashMark, groupMark } from '@cn/ai-chat/side/marks'
+import { AskBoxView, highlightBottom } from '@cn/ai-chat/side/AskBox'
 import { ASK_THIS, sideAsks, sideName } from './name'
 import { askSide, blockAgain, nameOf, setName, type SideTarget, sideIndex, writeOnDisk } from './side-core'
-import { SideInline, type SideMsgView } from './SideInline'
+import { SideInline, type SideMsgView } from '@cn/ai-chat/side/SideInline'
 import { useT } from '../i18n'
 import { t as tNow } from '../../shared/i18n'
 
@@ -325,7 +325,7 @@ function DocSide({ view }: { view: EditorView }): ReactNode {
       live = false
     }
   }, [place])
-  const cp = useConvPick(own, (p) => {
+  const cp = useConvPick<AiPick, EngineInfo>(own, (p) => {
     setOwn(p)
     void window.cn.aiChatSetPick(place, p)
   }, (t) => app().notice(t))

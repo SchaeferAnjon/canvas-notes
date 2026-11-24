@@ -1,7 +1,7 @@
 /**
  * task-x7mk6：梦游对照里能点的东西接上和文档 ⌘点、AI 回答引用（cite.tsx）同一套点法。
  * 用户（0.5.1 截图：对照「收下后」那一栏末尾新加的「相关 [[第三方]]」点不开）：「这个能不能按住cmd 然后左键打开啊」。
- * 以前对照里的两栏（和「收下后的样子」）是只读编辑器，只装了实时预览，没装文档里接 ⌘点的那段（note-doc.ts），谁都不接点击。
+ * 以前对照里的两栏（和当时的「收下后的样子」）是只读编辑器，只装了实时预览，没装文档里接 ⌘点的那段（note-doc.ts），谁都不接点击。
  * 现在：点一下出预览卡；⌘点打开（到那一篇 / 那一页）；⇧⌘点开在后面的新标签；网页 ⌥⌘点在中间栏开；「第 N 页」也是先出卡、⌘点翻过去（task-3e53q 已定 1）。
  * 指向这次梦游新建、改名后还没收下的笔记：开梦游分支上那一份（和文件条「打开「x」· 梦游分支上的」一样）。
  * 样本库照 m552v-dream（e2e/fixtures/dream2.ts），「极光」那篇的「视频 · youtube.com」改成一个网页链接。都是真点，窗口不上屏。
@@ -41,23 +41,32 @@ async function openItem(page: Page, panel: Locator, text: string | RegExp, file?
   if (file) await expect(dtab(page).getByTestId('dream-fbar')).toContainText(file)
 }
 
-/** 这时闪到第几下（还没闪过是 0）：换看法前先记下，等闪出比它新的那一下 */
-const flashN = async (page: Page) => Number((await dtab(page).locator('.dv-flash').getAttribute('data-n', { timeout: 500 }).catch(() => null)) ?? 0)
 /**
- * 对照（或收下后的样子）一画好就自己滚到第一处改动、闪一下：等闪出比 before 新的那一下（这一回滚完了）再点、再滚。
- * 机器忙时画好到滚过去中间隔几帧，这时点下去，点的地方被滚走了；上一回闪的那一下还留着 1.7 秒，不能只等「有闪」
+ * 对照是历史那一套（梦游对比滚动，2026-11-24 用户定）：没改的折成「展开没改的 N 行」。要点文首那几行（图、网页链接）先一路展开：
+ * 编辑器只画看得见的那一截，从顶往下一屏一屏找，见到一条点一条
  */
-const scrolledToChange = (page: Page, before: number) =>
-  expect.poll(async () => flashN(page), { timeout: 10_000 }).toBeGreaterThan(before)
+async function expandAll(page: Page) {
+  const sc = dtab(page).getByTestId('dream-scroll')
+  const folds = dtab(page).locator('.cm-collapsedLines')
+  await expect(dtab(page).locator('.cm-changedLine').first()).toBeVisible()
+  await sc.evaluate((el) => (el.scrollTop = 0))
+  for (let i = 0; i < 100; i++) {
+    if (await folds.count()) {
+      await folds.first().click()
+      continue
+    }
+    if (await sc.evaluate((el) => (el.scrollTop + el.clientHeight >= el.scrollHeight - 1 ? true : ((el.scrollTop += el.clientHeight), false)))) break
+  }
+  await sc.evaluate((el) => (el.scrollTop = 0))
+}
 
 /** 回到梦游对照那个标签 */
 const backToDream = (page: Page) => tabs(page).filter({ hasText: '梦游 ·' }).first().click()
 
-test('用户截图那一处：补上的双链「相关：[[极光预报]]」点一下出预览卡，⌘点开那篇，⇧⌘点开在后面不切走；收下后的样子、改前那栏一样能点', async () => {
+test('用户截图那一处：补上的双链「相关：[[极光预报]]」点一下出预览卡，⌘点开那篇，⇧⌘点开在后面不切走；改前那栏、合一一样能点', async () => {
   const { run, page, panel } = await dreamed()
   try {
     await openItem(page, panel, '↔ [[极光预报]]')
-    await scrolledToChange(page, 0)
     const link = after(page).locator('.cm-wikilink', { hasText: '极光预报' })
     await expect(link).toBeVisible()
     expect(await link.evaluate((e) => getComputedStyle(e).cursor)).toBe('pointer')
@@ -91,26 +100,9 @@ test('用户截图那一处：补上的双链「相关：[[极光预报]]」点�
     await link.click({ modifiers: ['Meta'] })
     await expect(tabOn(page)).toHaveText('极光预报')
 
-    // 收下后的样子：一样能 ⌘点
+    // 改前那一栏：附件图片点一下出卡（写图存在哪），⌘点打开那张图（图在文首，没改的折着：先展开）
     await backToDream(page)
-    let shown = await flashN(page)
-    await acts(page).getByRole('tab', { name: '收下后的样子' }).click()
-    await scrolledToChange(page, shown)
-    const one = dtab(page).locator('.dv-after .cm-wikilink', { hasText: '极光预报' })
-    await one.click()
-    await expect(card(page).locator('.top b')).toHaveText('极光预报')
-    await page.keyboard.press('Escape')
-    await backToDream(page)
-    await one.click({ modifiers: ['Meta'] })
-    await expect(tabOn(page)).toHaveText('极光预报')
-
-    // 改前那一栏：附件图片点一下出卡（写图存在哪），⌘点打开那张图
-    await backToDream(page)
-    shown = await flashN(page)
-    await acts(page).getByRole('tab', { name: '对照' }).click()
-    // 换回对照时先自己滚到第一处改动（文末那一行）：等它滚完再滚回顶上，不然那一滚把这里的滚回顶上又带回去了
-    await scrolledToChange(page, shown)
-    await dtab(page).getByTestId('dream-scroll').evaluate((el) => (el.scrollTop = 0))
+    await expandAll(page)
     const img = beforeCol(page).locator('.cm-image img').first()
     await img.click()
     await expect(card(page).locator('.top b')).toHaveText('封面.png')
@@ -135,8 +127,8 @@ test('网页链接：点一下卡上写网址，⌥⌘点在中间栏开一个�
   const { run, page, panel } = await dreamed()
   try {
     await openItem(page, panel, '↔ [[极光预报]]')
-    // 对照打开时滚到末尾那处改动，文首那几行编辑器还没画：先滚回去
-    await dtab(page).getByTestId('dream-scroll').evaluate((el) => (el.scrollTop = 0))
+    // 网页链接在文首，没改的折着：先展开
+    await expandAll(page)
     const web = after(page).locator('.cm-link', { hasText: '视频 · youtube.com' })
     await web.click()
     await expect(card(page).locator('.u')).toHaveText('youtube.com/watch?v=aurora')
@@ -155,6 +147,7 @@ test('读 PDF 的笔记里「第 N 页」：点一下出预览卡（那页缩略
   const { run, page, panel } = await dreamed()
   try {
     await openItem(page, panel, VIZ_TITLE)
+    await expandAll(page)
     const pg = after(page).locator('.cm-link', { hasText: /^第 3 页$/ }).first()
     await pg.scrollIntoViewIfNeeded()
     const n = await tabs(page).count()

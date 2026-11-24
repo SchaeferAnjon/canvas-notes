@@ -9,13 +9,11 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { atomicWriteSync } from '@cn/atomic'
 import { dirname, join } from 'node:path'
 import type { EngineId } from '../../shared/agent'
-import type { ModelOption } from '../../shared/ai-features'
-import { API_IDS, type ApiId, isApi, isLocal, LOCAL_IDS, type LocalId, type SourceState } from '../../shared/ai-sources'
+import type { ModelOption } from '@cn/ai-engines/shared'
+import { API_IDS, type ApiId, isApi, isLocal, LOCAL_IDS, type LocalId, type SourceState } from '@cn/ai-engines/shared'
 import { t } from '../../shared/i18n'
 import { E2E } from '../test-mode'
-import { KeyStore } from '../plugins/translate/keys'
-import { findCli } from './cli'
-import { type LocalFound, localModels, probeLocal, verifyKey } from './engine-api'
+import { findCli, KeyStore, type LocalFound, localModels, probeLocal, verifyKey } from '@cn/ai-engines'
 
 interface Saved {
   api: Partial<Record<ApiId, { models: ModelOption[]; at: number }>>
@@ -59,6 +57,8 @@ export function initSources(aiDir: string) {
 
 /** 这一家的 Key（真要问的时候才解密） */
 export const apiKey = (id: ApiId): string | undefined => keys.get(id)
+/** Key 的最后 4 位（不解密） */
+export const apiKeyTail = (id: ApiId): string | undefined => keys.tail(id)
 
 /** 验 Key：认了存进钥匙串、记下模型；不认抛一句人话（Key 不存） */
 export async function setKey(id: ApiId, raw: unknown): Promise<ModelOption[]> {

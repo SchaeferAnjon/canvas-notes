@@ -10,13 +10,13 @@ import { AnswerRow } from './answer-row'
 import { UserMsgActs } from './replies/save-reply'
 import { sayOf } from './replies/store'
 import { fillReply } from '../shared/replies'
-import { type AbMenuItem, ChangeBar, UndoButton } from '@cn/design/answer-bar'
-import { jumpDone, useChatJump } from './chat-jump'
+import { type AbMenuItem, ChangeBar, UndoButton } from '@cn/ai-chat/answer-bar'
+import { jumpDone, useChatJump } from '@cn/ai-chat/chat-jump'
 import { feedDone, useFeed } from './ai-web-stay'
-import { AiError, openAiSettings } from './ai-error'
+import { AiError } from '@cn/ai-chat/ai-error'
+import { openAiSettings, pastedUrl } from './ai-chat-host'
 import { AiIntro, SetupCard } from './ai-setup'
 import { ByLogo } from './engine-logo'
-import { pastedUrl } from './paste-images'
 import { AiHead, AwayBar, Chip, type DockNav, Sees } from './ai-head'
 import { askLine, MULTI, pickAsk, quickCmds } from './ai-greet'
 import { dropPicked, pickedFiles, pickTip, usePicked } from './ai-pick'
@@ -24,14 +24,17 @@ import { dropCards, pickText, useCardPick } from './ai-cards'
 import { runTidy } from './commands/tidy'
 import { t } from '../shared/i18n'
 import { Greeting, type Quick, QuickRow } from './ai-quick'
-import { AiInput, MatMsg, sendText, useComposer, useConvPick } from './composer'
+import { AiInput, MatMsg, sendText, useComposer, useConvPick } from '@cn/ai-chat/composer'
+import type { AiPick, EngineInfo } from '@cn/ai-engines/shared'
 import { createPortal } from 'react-dom'
-import { AskBox } from './side/AskBox'
-import { showSide as revealSide, useSideHost } from './side/host'
+import { AskBox } from '@cn/ai-chat/side/AskBox'
+import { showSide as revealSide, useSideHost } from '@cn/ai-chat/side/host'
 import { ASK_THIS, sideName } from './side/name'
-import { SideInline } from './side/SideInline'
-import { ChatToc, type TocSide } from './chat-toc'
-import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from './reading/marks'
+import { SideInline } from '@cn/ai-chat/side/SideInline'
+import { ChatToc, type TocSide } from '@cn/ai-chat/chat-toc'
+import { NewBelow, useFollow } from '@cn/ai-chat/follow'
+import { StepRow } from '@cn/ai-chat/steps'
+import { applyMarks, flashMark, groupMark, type Mark, sideGroups } from '@cn/ai-chat/side/marks'
 import * as C from './ai-chats'
 import { folderCount, HANDS, type Place, seenOf } from './ai-place'
 import { type FolderSug, fileInPrompt, folderSugs, folderSumPrompt, newTarget, parseFileIn, skeleton, sumTargets } from './folder-ai'
@@ -72,7 +75,7 @@ import {
 } from './ai-commands'
 import { GROUPS } from './dream/useDream'
 import { dreamDoes } from '../shared/dream-settings'
-import { pickLabel, withoutEffort } from '../shared/ai-features'
+import { pickLabel, withoutEffort } from '@cn/ai-engines/shared'
 import { withKeys } from './keys'
 import { hideToolMarkup } from '../shared/tool-markup'
 import type { NoteDoc, ViewMode } from './note-doc'
@@ -217,7 +220,7 @@ export function AiPanel(props: AiPanelProps) {
   // 一个 AI 都没接上（task-587os）：空对话里放三选一卡；接上以后卡留着到点「开始用」；发出去的那一问记着，开始用后接着发
   const [setup, setSetup] = useState(false)
   const [pendingAsk, setPendingAsk] = useState<string | null>(null)
-  const cp = useConvPick(ownPick, (p) => C.setPick(place.key, p), showNote, () => setSetup(true))
+  const cp = useConvPick<AiPick, EngineInfo>(ownPick, (p) => C.setPick(place.key, p), showNote, () => setSetup(true))
   useEffect(() => {
     if (cp.none) setSetup(true)
   }, [cp.none])
@@ -226,8 +229,6 @@ export function AiPanel(props: AiPanelProps) {
   const [menuIdx, setMenuIdx] = useState(0)
   const [mentions, setMentions] = useState<string[]>([])
   const list = useRef<HTMLDivElement>(null)
-  /** 对话列表停在最底下（新的字、进度出来时跟着滚） */
-  const pinned = useRef(true)
   const box = c.ta
 
   // 旁支（task-4edsc，方向 A「就地展开」）：回答里选一句「问这句」，就在那一段下面长出来；一句一个小标，数字是这一句开了几条
@@ -242,7 +243,10 @@ export function AiPanel(props: AiPanelProps) {
   const openSide = sides.find((s) => s.id === sideState.open) ?? null
   const openGroup = openSide ? (groups.get(openSide.msg)?.find((g) => g.sides.includes(openSide)) ?? null) : null
   const host = useSideHost(list, openSide && openGroup ? { msg: openSide.msg, key: openGroup.key } : null)
+  // 对话跟着最新的往下滚，人往上翻就停、滚回最底或点「↓ 新回答」再跟（@cn/ai-chat/follow）。
   // 开着旁支：对话不再自己滚到底（停在那条旁支上）
+  const fol = useFollow(list, !!openSide)
+  const pinned = fol.pinned
   if (openSide) pinned.current = false
   /** 对话目录里的旁支：问过的（和开着的那条），挂在它那一句的小标上 */
   const tocSides: TocSide[] = [...groups.values()].flat().flatMap((g) => g.sides.filter((x) => x.msgs.length || x.id === openSide?.id).map((x) => ({ id: x.id, name: sideName(x), group: g.key })))
@@ -436,36 +440,13 @@ export function AiPanel(props: AiPanelProps) {
     ranSeq.current = a.seq
     void run(a.text)
   }, [props.autoRun?.seq, loaded])
-  useEffect(() => {
-    // 跟着最新的往下滚；人往上翻着看时不拽回去（找重复每 0.3 秒刷新一次，不然一直被拉到底）
-    if (pinned.current) list.current?.scrollTo({ top: list.current.scrollHeight })
-  }, [msgs])
+  // 新的字、进度出来：跟着就滚到底（格子变高变矮、字排出来变长也照这样，在 useFollow 里）
+  useEffect(() => fol.stick(), [msgs])
   // 换了地方、收起又打开：从最新那一轮看起
   useLayoutEffect(() => {
     if (props.hidden) return
-    pinned.current = true
-    list.current?.scrollTo({ top: list.current.scrollHeight })
+    fol.follow()
   }, [props.hidden, place.key])
-  // 这一格变高变矮（右栏上半开了历史、拖了分隔线、重开软件时排好版）、里面的字排出来变长（公式、图）：
-  // 停在底下的照旧停在底下。以前只在消息变了时滚，格子变矮后停在半中间，看上去只有第一轮（2026-11-21 用户截图）
-  useEffect(() => {
-    const el = list.current
-    if (!el) return
-    const stick = () => {
-      if (pinned.current) el.scrollTop = el.scrollHeight
-    }
-    const ro = new ResizeObserver(stick)
-    ro.observe(el)
-    for (const c of el.children) ro.observe(c)
-    const mo = new MutationObserver(() => {
-      for (const c of el.children) ro.observe(c)
-    })
-    mo.observe(el, { childList: true })
-    return () => {
-      ro.disconnect()
-      mo.disconnect()
-    }
-  }, [])
 
   /** 文件夹首页（剪藏的一个主题也是一个文件夹）：这个文件夹 */
   const folder = props.tab?.type === 'folder' ? props.tab.folder : props.tab?.type === 'topic' ? `${CLIPS}/${props.tab.topic}` : null
@@ -523,7 +504,7 @@ export function AiPanel(props: AiPanelProps) {
   // ---------- 跑命令 ----------
   // 加进这一轮开始时那个地方的对话（答的时候换了页面也写回原处）；改一条按编号找，在哪个地方都一样
   const push = (m: Msg) => {
-    pinned.current = true
+    fol.follow()
     C.update(place.key, (x) => [...x, { ...m, time: Date.now() }], place.label)
   }
   const patch = (id: number, p: Partial<Msg>) => C.patch(id, p)
@@ -1224,7 +1205,7 @@ export function AiPanel(props: AiPanelProps) {
   const canSave = !!filePath && aiTurns.length > 0 && running === null && !props.nav.away
   // 答完才出的那一行（存成命令、存成了）：停在最底下的跟着滚到它
   useEffect(() => {
-    if (canSave && pinned.current) list.current?.scrollTo({ top: list.current.scrollHeight })
+    if (canSave) fol.stick()
   }, [canSave, savedCmd?.id])
 
   function openSave(edit?: AiCmd) {
@@ -1344,10 +1325,6 @@ export function AiPanel(props: AiPanelProps) {
       <div
         className={'msgs' + (empty ? ' greeting' : '') + (setup ? ' setup' : '')}
         ref={list}
-        onScroll={(e) => {
-          const el = e.currentTarget
-          pinned.current = !openSide && el.scrollHeight - el.scrollTop - el.clientHeight < 48
-        }}
         onClick={(e) => {
           // 问过的那句后面的小标：开着就收起，没开就打开
           const b = (e.target as Element).closest<HTMLElement>('.badge[data-side]')
@@ -1588,6 +1565,7 @@ export function AiPanel(props: AiPanelProps) {
         )}
       </div>
       {asked && <ChatToc list={list} sides={tocSides} openSide={openSide?.id ?? null} onSide={(id) => C.showSide(place.key, id)} />}
+      <NewBelow f={fol} />
       </div>
       {/* 回答里选一句：同一个小框（task-4edsc，方向 A）：「引用 ⌘↵」（⇧⌘L 也行，task-bppvn）成为输入框顶上那一排的一块，「问这句 ↵」就地开一条旁支 */}
       <AskBox
@@ -1718,7 +1696,7 @@ const byScore = (pairs: DuplicatePair[]) => pairs.sort((x, y) => y.score - x.sco
 
 
 /**
- * 回答原文（md 照排）。问过的那几句（旁支）：答完以后在画好的字上划虚线、插小标（reading/marks.ts）；
+ * 回答原文（md 照排）。问过的那几句（旁支）：答完以后在画好的字上划虚线、插小标（@cn/ai-chat 的 side/marks.ts）；
  * 有小标时字一变 .txt 整块换掉（key），React 不去动改过的节点；答着的时候不划
  */
 function AnswerText(p: { text: string; marks?: Mark[]; live: boolean; cites: CiteScope }) {
@@ -1735,21 +1713,6 @@ function AnswerText(p: { text: string; marks?: Mark[]; live: boolean; cites: Cit
     <div className="txt" key={p.marks?.length ? p.text + sig : 'txt'} ref={txt}>
       {/* 模型偶尔把工具调用写成了字（task-ne7cw）：成段的不显示，存的还是原文 */}
       <Markdown text={hideToolMarkup(p.text, p.live)} math cites={p.cites} />
-    </div>
-  )
-}
-
-/**
- * 一步的那一行（DESIGN.v3 2.3）：在做转圈、做完绿勾、出错红叉跟原因；命令、库外的路径是等宽的一段，和前面的字之间留 3px（不手打空格）。
- * AI 对话、读 PDF 的回答共用
- */
-export function StepRow({ s }: { s: ToolStep }) {
-  return (
-    <div className={'read tstep ' + s.status} data-testid="ai-step" title={s.detail ?? s.code}>
-      <Codicon name={s.status === 'run' ? 'loading' : s.status === 'ok' ? 'check' : 'close'} size={12} className={s.status === 'run' ? 'spin' : ''} />
-      <span className="sl">{s.label}</span>
-      {s.code && <code className="sc">{s.code}</code>}
-      {s.status === 'err' && s.detail && <span className="why">：{s.detail}</span>}
     </div>
   )
 }

@@ -13,7 +13,7 @@ const DARK = process.env.CN_SHOT_TONE === 'dark'
 test.skip(!DIR, '只在截交付图时跑（CN_SHOTS=目录）')
 test.setTimeout(180_000)
 
-const FAKE = join(__dirname, '../test/fixtures/fake-cli.mjs')
+const FAKE = join(__dirname, '../../../packages/ai-engines/test/fixtures/fake-cli.mjs')
 const dialog = (page: Page) => page.getByRole('dialog', { name: '设置' })
 const chat = (page: Page) => page.getByRole('complementary', { name: 'AI 对话' })
 const item = (page: Page, menu: string, name: string) => page.getByRole('menu', { name: menu, exact: true }).getByRole('menuitemradio').filter({ has: page.locator('.nm', { hasText: new RegExp(`^${name}$`) }) })

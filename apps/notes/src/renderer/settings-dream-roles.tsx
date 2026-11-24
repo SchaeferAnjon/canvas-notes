@@ -22,6 +22,7 @@ export const roleLabel = (t: T, r: Role): string =>
     project: t('项目', { ctx: '文件夹角色' }),
     area: t('领域', { ctx: '文件夹角色' }),
     resource: t('资料', { ctx: '文件夹角色' }),
+    wiki: t('词条', { ctx: '文件夹角色' }),
     archive: t('归档', { ctx: '文件夹角色' }),
     writing: t('写作', { ctx: '文件夹角色' }),
     life: t('生活', { ctx: '文件夹角色' }),
@@ -35,7 +36,9 @@ export const roleLabel = (t: T, r: Role): string =>
 const roleDoes = (t: T, r: Role): string =>
   r === 'inbox'
     ? t('归类的来源')
-    : r === 'archive' || r === 'meta' || r === 'attach'
+    : r === 'wiki'
+      ? t('词条页放这里')
+      : r === 'archive' || r === 'meta' || r === 'attach'
       ? t('不碰')
       : r === 'unsure'
         ? t('不往里放')

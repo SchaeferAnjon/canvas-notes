@@ -17,7 +17,7 @@ import { usePrefs } from '../settings-store'
 import { openCards, openSpot, unsentOf, useAskedRequest, useCardsView } from './cards-store'
 import { when } from '../../shared/when'
 import { Markdown } from '../md-render'
-import { applyMarks, type Mark } from './marks'
+import { applyMarks, type Mark } from '@cn/ai-chat/side/marks'
 import * as R from './store'
 import { useLang, useT } from '../i18n'
 

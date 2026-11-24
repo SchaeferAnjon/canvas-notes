@@ -17,7 +17,7 @@ describe('设置里新放进来的几组', () => {
     expect(DEFAULT_SETTINGS.editor).toMatchObject({ font: 'system', size: 15, lineHeight: 'normal', width: 'narrow', newView: 'doc', spell: false, boardShrink: true, boardDots: true, semantic: true })
     expect(DEFAULT_SETTINGS.files).toEqual({ newWhere: 'picked', delAsk: 'images', showTodo: false, noteViews: {} })
     expect(DEFAULT_SETTINGS.pdf).toEqual({ zoom: 'width', openAi: false, ankiSides: true })
-    expect(DEFAULT_SETTINGS.web).toEqual({ engine: 'google', newTab: 'bookmarks', downloads: 'downloads' })
+    expect(DEFAULT_SETTINGS.web).toEqual({ engine: 'google', newTab: 'bookmarks', downloads: 'downloads', keepRecent: true })
     expect(DEFAULT_SETTINGS.sync).toEqual({ autoMinutes: 0, pullOnOpen: false, pushOnQuit: false, backup: 'off', backupDir: null })
   })
 

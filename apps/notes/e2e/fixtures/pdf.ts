@@ -13,6 +13,11 @@ export interface FakePage {
   lineGap?: number
   /** 页面底下再画这么多个小色块（画起来慢的「重」页，像图多的课件） */
   heavy?: number
+  /**
+   * 单独成行的公式（AI 看得到公式，2026-11-24）：照论文里 pdf.js 读出来的样子拆开画，α 用 Symbol 字体、下标小一号低一点、编号「(n)」在右边单独一项；
+   * y 是基线（左下角量）
+   */
+  formulas?: { y: number; tag: number }[]
 }
 
 const esc = (s: string) => s.replace(/[\\()]/g, (c) => '\\' + c)
@@ -27,6 +32,7 @@ export function lecturePdf(pages: FakePage[], o: { outline?: boolean } = {}): Bu
   const pagesObj = add('')
   const helv = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>')
   const times = add('<< /Type /Font /Subtype /Type1 /BaseFont /Times-Roman /Encoding /WinAnsiEncoding >>')
+  const symbol = add('<< /Type /Font /Subtype /Type1 /BaseFont /Symbol >>')
   // 64×48 的渐变图
   const iw = 64
   const ih = 48
@@ -48,9 +54,16 @@ export function lecturePdf(pages: FakePage[], o: { outline?: boolean } = {}): Bu
     })
     for (let k = 0; k < (p.heavy ?? 0); k++) s += `${(k % 7) / 7} ${(k % 5) / 5} 0.8 rg ${(k * 37) % 560 + 20} ${(k * 53) % 300 + 60} 6 6 re f\n`
     if (p.image) s += `q ${p.image.w} 0 0 ${p.image.h} ${p.image.x} ${p.image.y} cm /Im1 Do Q\n`
+    for (const f of p.formulas ?? []) {
+      // α_ij = exp(LeakyReLU(a^T [W_i h_i || W_j h_j]))   (n)：Symbol 的 a 是 α
+      s += `BT /F3 13 Tf 120 ${f.y} Td (a) Tj ET\nBT /F2 9 Tf 128 ${f.y - 3} Td (ij) Tj ET\n`
+      s += `BT /F2 13 Tf 142 ${f.y} Td (= exp\\(LeakyReLU\\(a) Tj ET\nBT /F2 9 Tf 247 ${f.y + 6} Td (T) Tj ET\n`
+      s += `BT /F2 13 Tf 254 ${f.y} Td ([W h || W h]\\)\\)) Tj ET\nBT /F2 9 Tf 274 ${f.y - 3} Td (i) Tj ET\nBT /F2 9 Tf 314 ${f.y - 3} Td (j) Tj ET\n`
+      s += `BT /F2 13 Tf 500 ${f.y} Td (\\(${f.tag}\\)) Tj ET\n`
+    }
     s += `BT /F2 10 Tf 72 40 Td (Linear Algebra - Lecture 3) Tj ET\nBT /F2 10 Tf ${W - 110} 40 Td (${i + 1} / ${pages.length}) Tj ET\n`
     const content = add(`<< /Length ${Buffer.byteLength(s, 'latin1')} >>\nstream\n${s}endstream`)
-    kids.push(add(`<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${helv} 0 R /F2 ${times} 0 R >> /XObject << /Im1 ${img} 0 R >> >> /Contents ${content} 0 R >>`))
+    kids.push(add(`<< /Type /Page /Parent ${pagesObj} 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 ${helv} 0 R /F2 ${times} 0 R /F3 ${symbol} 0 R >> /XObject << /Im1 ${img} 0 R >> >> /Contents ${content} 0 R >>`))
   })
   let outlines = 0
   if (o.outline) {
@@ -98,4 +111,18 @@ export const ROTATION = lecturePdf([
     image: { x: 300, y: 300, w: 240, h: 180 },
   },
   { title: '3.5 Kernel and image', lines: ['The kernel is the set of vectors sent to zero.', 'The image is everything T can reach.'] },
+])
+
+/** 第 2 页有两条带编号的公式 (1)(2)（文字层里是拆散的），别的页只有正文（AI 看得到公式，2026-11-24） */
+export const FORMULA_PDF = lecturePdf([
+  { title: 'Lecture 7 Graph Attention', lines: ['Each node attends to its neighbours with learned weights.', 'The weights are computed from the node features.'] },
+  {
+    title: '7.2 Attention coefficients',
+    lines: ['The coefficients are computed as shown in (1) and (2):'],
+    formulas: [
+      { y: 560, tag: 1 },
+      { y: 480, tag: 2 },
+    ],
+  },
+  { title: '7.3 Summary', lines: ['Attention lets each node weigh its neighbours.', 'Multiple heads are concatenated.'] },
 ])

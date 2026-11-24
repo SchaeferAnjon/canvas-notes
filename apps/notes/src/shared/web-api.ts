@@ -98,6 +98,11 @@ export interface CnWebApi {
   // 历史
   history(query: string, limit?: number): Promise<HistoryEntry[]>
   importHistory(profileId: string): Promise<{ added: number }>
+  /** 左栏「最近」里的网页（右栏看过的，最近的在前） */
+  recent(): Promise<HistoryEntry[]>
+  /** 从「最近」里去掉这个网址 */
+  removeRecent(url: string): Promise<void>
+  onRecentChanged(cb: () => void): () => void
   // Chrome 用户
   chromeProfiles(): Promise<ChromeProfileInfo[]>
   // 插件

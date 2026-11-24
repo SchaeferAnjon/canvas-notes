@@ -5,6 +5,7 @@
  * 只顺带提到的列成一行链接加那一句原话。不抄原文。
  * 问 AI 的话、读回答、拼成 md 都在这里（不依赖 Electron 和 Node）；找段、加块编号、写文件在 main/wiki-entry-main.ts。
  */
+import { readProps } from '@cn/format'
 
 export interface EntrySource {
   /** 第几条（1 起） */
@@ -94,6 +95,9 @@ export interface EntryPiece {
   /** 只顺带提到时列的那一句 */
   line: string
 }
+
+/** 梦游建的词条页（属性「类型: 词条」，entryMarkdown 写的）：梦游把收件箱里以前建的挪进「词条/」 */
+export const isEntryPage = (text: string | undefined) => !!text && readProps(text).some((p) => p.key === '类型' && p.value.trim() === '词条')
 
 /** 拼成词条页的 md：属性、标题、[!ai] 导语块（每句挂出处）、按组嵌进来的段 */
 export function entryMarkdown(name: string, draft: EntryDraft, pieces: Map<number, EntryPiece>, by: string): string {

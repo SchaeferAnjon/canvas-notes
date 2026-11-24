@@ -8,6 +8,8 @@ import './app.css'
 import './frame.css'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
+// AI 对话框（@cn/ai-chat）的宿主：第一次画之前交上
+import './ai-chat-host'
 import { NoteDoc } from './note-doc'
 import type { StrandedNote } from '../shared/api'
 import { noteLeavers } from './shell/TabActs'

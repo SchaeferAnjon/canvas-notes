@@ -18,7 +18,8 @@ import { type EmptyRow, emptySections, FOLDERS_ID, groupName, selectable } from 
 import { CmdForm, type FormValue } from './search/CmdForm'
 import { openCmdEditor } from './commands/editor'
 import { deleteAiCmd, useAiCmds } from './commands/store'
-import { useConvPick } from './composer'
+import { useConvPick } from '@cn/ai-chat/composer'
+import type { AiPick, EngineInfo } from '@cn/ai-engines/shared'
 import { KeysMini, type MenuAct, RowMenu, TextMini } from './search/PalMenus'
 import { decodeUrl, isSearchUrl, looksLikeUrl, toUrl } from './url'
 import { langApi, useT } from './i18n'
@@ -143,7 +144,7 @@ export function Palette(props: {
   /** 自己存的 AI 命令（库里的和只在这台 Mac 的）：改、删走「存成命令」那张表和 commands/store */
   const { mine } = useAiCmds()
   /** AI 对话现在用的那一家、模型、想多久：从头写、改一条 AI 命令时影响卡「谁来做」写它，提炼也用它 */
-  const ai = useConvPick(null, () => {}, (t) => say(t))
+  const ai = useConvPick<AiPick, EngineInfo>(null, () => {}, (t) => say(t))
   const aiWho = { who: ai.label, engine: ai.pick.engine, pick: { engine: ai.pick.engine, ...ai.req } }
   /** 命令现在的键（命令表 + 改过的；改了跟着重画） */
   const K = useKeys()

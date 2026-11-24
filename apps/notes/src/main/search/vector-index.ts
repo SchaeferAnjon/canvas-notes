@@ -92,23 +92,27 @@ export class VectorIndex {
   /**
    * 和 q 最像的几处：同一篇 md 只留最像的一段，PDF 每页只留一段。
    * 只留「够像」的（门槛见 Indexer 的 MEANING）：不低于 min；比各篇（各页）的中位数高出 spread 以上（不到 SPREAD_FROM 篇不看）；
-   * 不比第一名低出 near 以上。anchor：已知最像的能有多像（索引没建完时给，见 Indexer.meaning），比库里找到的最像的还高就按它卡
+   * 不比第一名低出 near 以上。anchor：已知最像的能有多像（索引没建完时给，见 Indexer.meaning），比库里找到的最像的还高就按它卡。
+   * 这句和全库每一段的点乘一次交给 score 算（同 related：搜索进程里是 onnxruntime 的 Gemm，真库 7 万段约 5 毫秒；
+   * 以前 JS 一段一段乘，一次 170 到 550 毫秒），再按篇（PDF 按页）取最大
    */
-  search(q: Float32Array, o: { limit: number; min: number; near: number; spread: number; anchor?: number }): MeaningHit[] {
-    const best = new Map<string, MeaningHit>()
+  async search(q: Float32Array, o: { limit: number; min: number; near: number; spread: number; anchor?: number }, score: Scorer = jsScorer): Promise<MeaningHit[]> {
     const d = this.dims
-    for (const [path, f] of this.files) {
-      f.rows.forEach((r, i) => {
-        let s = 0
-        const off = r * d
-        for (let k = 0; k < d; k++) s += this.vec[off + k]! * q[k]!
-        const c = f.chunks[i]!
+    const m = this.rows
+    // 算的时候索引可能在变（还在建）：先把各篇的行号记下来
+    const files = [...this.files].map(([p, f]) => [p, [...f.rows], f.chunks] as const)
+    const sc = m ? await score(q, 1, this.vec.subarray(0, m * d), m, d) : new Float32Array(0)
+    const best = new Map<string, { path: string; s: number; c: FileEntry['chunks'][number] }>()
+    for (const [path, rows, chunks] of files) {
+      for (let i = 0; i < rows.length; i++) {
+        const s = sc[rows[i]!]!
+        const c = chunks[i]!
         const key = c.page ? `${path}#${c.page}` : path
         const had = best.get(key)
-        if (!had || s > had.score) best.set(key, { path, snippet: c.snippet, score: s, ...(c.page ? { page: c.page } : {}) })
-      })
+        if (!had || s > had.s) best.set(key, { path, s, c })
+      }
     }
-    const all = [...best.values()].sort((a, b) => b.score - a.score)
+    const all = [...best.values()].map(({ path, s, c }): MeaningHit => ({ path, snippet: c.snippet, score: s, ...(c.page ? { page: c.page } : {}) })).sort((a, b) => b.score - a.score)
     const top = Math.max(all[0]?.score ?? 0, o.anchor ?? 0)
     const median = all.length >= SPREAD_FROM ? all[all.length >> 1]!.score : -Infinity
     return all.filter((h) => h.score >= o.min && h.score - median >= o.spread && h.score >= top - o.near).slice(0, o.limit)

@@ -2560,53 +2560,6 @@ a.wl.cite:hover {
   font-size: 12px;
   color: var(--t3);
 }
-.um {
-  align-self: flex-end;
-  max-width: 85%;
-  padding: 8px 12px;
-  border-radius: 14px;
-  background: var(--fill2);
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-}
-.am {
-  font-size: 13px;
-  line-height: 1.7;
-}
-.am .read {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 4px;
-  font-size: 12px;
-  color: var(--t3);
-}
-/* 「✓ 读了第4页 · Claude Code · Opus 5.5」一行：放不下时先省略引擎名，再省略「读了…」，不折成两行碎字 */
-.am .read > .rd,
-.am .read > .by {
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.am .read > .rd {
-  flex: 0 1 auto;
-}
-.am .read > .by {
-  flex: 0 1000 auto;
-}
-.am .read > .ci {
-  flex: none;
-}
-/* 「· [标志] Claude Code · Opus 5.5」：标志跟在点后面，和字一起省略 */
-.am .read .by-logo {
-  vertical-align: -2px;
-  margin-right: 3px;
-}
-.am .txt {
-  user-select: text;
-}
 /* 宽了在自己框里横着滚的一块（scroll-x.tsx，表格：白板卡、AI 回答、读 PDF 讲解卡、文档里的表格，task-83vl3）：
    不撑宽外面；横着拨、Shift+滚轮只滚它，滚到头也不传给外面（白板不跟着平移）；还能往哪边滚那一边 32 渐隐（math.css .math-fade-*） */
 .scroll-x {
@@ -2838,9 +2791,6 @@ a.wl.cite:hover {
   background: var(--acc-soft);
   border-radius: 4px;
   padding: 0 3px;
-}
-.am .thinking {
-  color: var(--t3);
 }
 .am .err {
   color: var(--red);

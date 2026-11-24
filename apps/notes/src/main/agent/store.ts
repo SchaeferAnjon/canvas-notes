@@ -11,9 +11,9 @@ import { type ChatSummary, LEGACY } from '../../shared/ai-chats'
 import { t } from '../../shared/i18n'
 import type { ChatSide, EngineId, StoredMsg } from '../../shared/agent'
 import type { NoteTarget } from '../../shared/ai-note'
-import { type AiPick, type AiPrefs, CLAUDE_DEFAULT, normalizePick, normalizePrefs, resolvePick } from '../../shared/ai-features'
+import { type AiPick, type AiPrefs, CLAUDE_DEFAULT, normalizePick, normalizePrefs, resolvePick } from '@cn/ai-engines/shared'
 import { atomicWriteSync } from '@cn/atomic'
-import { ALL_IDS, API_DEFAULT, type CliId, CLI_IDS, isApi, isCli, isLocal, KEY_JUDGE } from '../../shared/ai-sources'
+import { ALL_IDS, API_DEFAULT, type CliId, CLI_IDS, isApi, isCli, isLocal, KEY_JUDGE } from '@cn/ai-engines/shared'
 
 const ENGINES: EngineId[] = ALL_IDS
 

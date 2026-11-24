@@ -1,13 +1,12 @@
 /**
- * 回答下面那一排在画布笔记这边（task-eavzx，款式页「62-回答按钮款式」第二版；组件本身在 @cn/design/answer-bar，画布今日、ParaRead 共用）：
+ * 回答下面那一排在画布笔记这边（task-eavzx，款式页「62-回答按钮款式」第二版；组件本身在 @cn/ai-chat/answer-bar，ParaRead 共用）：
  * - 左边功能按钮固定：拷贝（显示出来的字）· 插进文档 · ⋯（存进收件箱、宿主加的几样（插进主对话、在笔记里看、到 AI 对话里接着聊）、拷贝为 Markdown）；
  * - 右边快捷回复：命令库里的（自带的还是不懂、换个方式讲、做个可视化，自己加的），按这一处（AI 对话 / 读 PDF / 网页 / 视频）照表排；
  * - ⋯ 最下面「调整这一排…」开设置 › 选中小条 › 回答下面那排。
  * 「插进文档」只有一种做法：写成 AI 块，块头链回这段对话（answerBlock；按钮和右键同名那一项都走 insertAnswer）。
  * 以前叫 ans-acts.tsx（task-83vl3 第一版，task-r00en 加 ⋯，task-bppvn 拿掉「引用再问」）。
  */
-import { AnswerBar, type AbAct, type AbMenuItem, type AbReply } from '@cn/design/answer-bar'
-import '@cn/design/answer-bar.css'
+import { AnswerBar, type AbAct, type AbMenuItem, type AbReply } from '@cn/ai-chat/answer-bar'
 import { aiBlock, calloutWords, chatLink } from '@cn/format'
 import { useRef } from 'react'
 import { app } from './ctx/actions'
@@ -15,7 +14,7 @@ import { copy } from './ctx/menu'
 import { t } from '../shared/i18n'
 import { titleOf } from '../shared/layout'
 import { useT } from './i18n'
-import { withoutEffort } from '../shared/ai-features'
+import { withoutEffort } from '@cn/ai-engines/shared'
 import { fillReply, type ReplyPlace, type ReplyVar } from '../shared/replies'
 import { openRepliesSettings, useReplies } from './replies/store'
 import { AiIcon, ByLogo } from './engine-logo'

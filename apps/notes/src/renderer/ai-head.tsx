@@ -10,7 +10,7 @@ import type { ChatSummary } from '../shared/ai-chats'
 import { when } from '../shared/when'
 import * as C from './ai-chats'
 import * as R from './reading/store'
-import { useDismiss } from './use-dismiss'
+import { useDismiss } from '@cn/ai-chat/use-dismiss'
 import { useT } from './i18n'
 import { useKey } from './keys'
 

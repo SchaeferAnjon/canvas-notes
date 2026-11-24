@@ -8,7 +8,7 @@ import type { ReadingThread } from '../../shared/reading'
 import { t as tNow } from '../../shared/i18n'
 import { when } from '../../shared/when'
 import { useEffect, useRef, useState } from 'react'
-import { useDismiss } from '../use-dismiss'
+import { useDismiss } from '@cn/ai-chat/use-dismiss'
 
 /** 竖线最短（框很矮时也点得中、看得见） */
 const MIN_TICK = 8

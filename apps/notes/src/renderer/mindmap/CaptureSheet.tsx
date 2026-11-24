@@ -5,7 +5,7 @@
  */
 import { Codicon, type CodiconName } from '@cn/design'
 import { keyFor } from '../keys'
-import { AiError } from '../ai-error'
+import { AiError } from '@cn/ai-chat/ai-error'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { NoteFile } from '../../shared/api'
 import { CAMERA_LABEL, fromRows, indentRows, rowKey, toRows, type CameraKind, type PhotoFrom, type Row, type StagedPhoto } from '../../shared/mindmap'

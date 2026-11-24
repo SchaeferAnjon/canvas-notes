@@ -8,8 +8,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { claudeArgs, claudeEngine } from '../src/main/agent/engines'
-import { findCli } from '../src/main/agent/cli'
+import { claudeArgs, claudeEngine, findCli } from '@cn/ai-engines'
 import { TUTOR_SYSTEM } from '../src/main/reading/prompts'
 
 describe.skipIf(!process.env.CN_REAL_TUTOR)('真的问一次 Claude Code（读 PDF 那组参数）', () => {

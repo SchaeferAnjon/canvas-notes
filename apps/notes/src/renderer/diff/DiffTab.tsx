@@ -3,11 +3,10 @@
  * 每个文件一段：文件条（路径、+N −N、一句人话、打开这篇）+ 对比。md 两列各有行号，改的行整行淡绿淡红、改的字更深，
  * 没改的折起来（「展开没改的 N 行」点开，能一路展开到整篇）；新建的 md 只显示一列全文；新建的 HTML、大文件一行，源码默认收起。
  * 标签右端：文档 / 源码、并排 / 合一（中间栏窄于 900 自动合一）、上一处 / 下一处。两边都只读，要改点「打开这篇」。
- * 用 @codemirror/merge（MIT）的 MergeView 和 unifiedMergeView。
+ * 用 @codemirror/merge（MIT）的 MergeView 和 unifiedMergeView，先按行比再在改了的行里按字比（line-diff.ts，几千行的长文也比得准、不卡）。
  */
 import { Codicon } from '@cn/design'
-import { ChangeBar } from '@cn/design/answer-bar'
-import '@cn/design/answer-bar.css'
+import { ChangeBar } from '@cn/ai-chat/answer-bar'
 import { t } from '../../shared/i18n'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { MergeView, unifiedMergeView } from '@codemirror/merge'
@@ -24,6 +23,7 @@ import { ActBtn, PageNote, TabActs } from '../shell/TabActs'
 import { proposalDiff, useProposal } from '../commands/proposals'
 import { sectionNames } from '../../shared/cmd-run'
 import { blockChanges } from './blocks'
+import { LINE_DIFF } from './line-diff'
 import './diff.css'
 
 export type Look = 'doc' | 'source'
@@ -65,6 +65,71 @@ export function baseExt(path: string, look: Look, md: boolean): Extension[] {
   ]
 }
 
+/** 文档 / 源码、并排 / 合一：上次选的（本机，历史和梦游对照共用一份） */
+export const rememberedLook = () => remembered<Look>('cn.diffLook', 'doc', ['doc', 'source'] as const)
+export const rememberedLayout = () => remembered<Layout>('cn.diffLayout', 'split', ['split', 'unified'] as const)
+
+/** 标签条右端的两组：文档 / 源码 · 并排 / 合一（中间栏窄时并排灰掉）；选了记住。onLook 不给就只有并排 / 合一（梦游对照不露源码） */
+export function ViewSegs(props: { look: Look; layout: Layout; narrow: boolean; onLook?(l: Look): void; onLayout(l: Layout): void }) {
+  const { look, narrow, onLook } = props
+  return (
+    <>
+      {onLook && (
+        <div className="seg" role="tablist" aria-label="看法">
+          {(
+            [
+              ['doc', 'file-text', '文档'],
+              ['source', 'code', '源码'],
+            ] as const
+          ).map(([m, icon, name]) => (
+            <button key={m} className={look === m ? 'on' : ''} onClick={() => (onLook(m), remember('cn.diffLook', m))} role="tab" aria-selected={look === m} aria-label={name} data-tip={name} data-side="below">
+              <Codicon name={icon} size={14} />
+              <span className="lb">{name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="seg" role="tablist" aria-label="排法">
+        {(
+          [
+            ['split', 'split-horizontal', '并排'],
+            ['unified', 'diff-single', '合一'],
+          ] as const
+        ).map(([m, icon, name]) => (
+          <button
+            key={m}
+            className={props.layout === m ? 'on' : ''}
+            disabled={narrow && m === 'split'}
+            onClick={() => (props.onLayout(m), remember('cn.diffLayout', m))}
+            role="tab"
+            aria-selected={props.layout === m}
+            aria-label={name}
+            data-tip={narrow && m === 'split' ? '中间栏太窄，自动合一' : name}
+            data-side="below"
+          >
+            <Codicon name={icon} size={14} />
+            <span className="lb">{name}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+}
+
+/** 上一处 / 下一处：scroller 里改了的那些块，按在页面上的位置排（跳到离顶 40 的地方；滚完落在 40.x 的那一处不算「下一处」）；没有了回 false */
+export function stepChange(scroller: HTMLElement, dir: 1 | -1): boolean {
+  const starts = [...scroller.querySelectorAll<HTMLElement>('.cm-merge-b .cm-changedLine, .dv-unified .cm-changedLine, .dv-unified .cm-deletedChunk')].filter((el) => {
+    const prev = el.previousElementSibling
+    return !prev || !(prev.classList.contains('cm-changedLine') || prev.classList.contains('cm-deletedChunk'))
+  })
+  const top = scroller.getBoundingClientRect().top
+  const ys = starts.map((el) => el.getBoundingClientRect().top - top)
+  const next = dir === 1 ? ys.findIndex((y) => y > 44) : (ys.map((y, i) => [y, i] as const).filter(([y]) => y < -4).pop()?.[1] ?? -1)
+  if (next === -1) return false
+  scroller.scrollBy({ top: ys[next]! - 40 })
+  return true
+}
+
 export function DiffTab(props: {
   src: DiffSource
   active: boolean
@@ -78,8 +143,8 @@ export function DiffTab(props: {
 }) {
   const { src } = props
   const [res, setRes] = useState<DiffResult | { error: string } | null>(null)
-  const [look, setLook] = useState<Look>(() => remembered('cn.diffLook', 'doc', ['doc', 'source'] as const))
-  const [layout, setLayout] = useState<Layout>(() => remembered('cn.diffLayout', 'split', ['split', 'unified'] as const))
+  const [look, setLook] = useState<Look>(rememberedLook)
+  const [layout, setLayout] = useState<Layout>(rememberedLayout)
   const [narrow, setNarrow] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   // 换的只是要滚到哪个文件时不重读；「还没提交的改动」每次切回这个标签、库的 Git 状态每次变了都重读
@@ -134,61 +199,15 @@ export function DiffTab(props: {
 
   const shown: Layout = narrow ? 'unified' : layout
 
-  /** 上一处 / 下一处：所有文件里改了的那些块，按在页面上的位置排 */
   function step(dir: 1 | -1) {
-    const scroller = box.current
-    if (!scroller) return
-    const starts = [...scroller.querySelectorAll<HTMLElement>('.cm-merge-b .cm-changedLine, .dv-unified .cm-changedLine, .dv-unified .cm-deletedChunk')].filter((el) => {
-      const prev = el.previousElementSibling
-      return !prev || !(prev.classList.contains('cm-changedLine') || prev.classList.contains('cm-deletedChunk'))
-    })
-    const top = scroller.getBoundingClientRect().top
-    const ys = starts.map((el) => el.getBoundingClientRect().top - top)
-    const next = dir === 1 ? ys.findIndex((y) => y > 40) : ys.map((y, i) => [y, i] as const).filter(([y]) => y < -4).pop()?.[1] ?? -1
-    if (next === -1) return props.onNotice(dir === 1 ? '后面没有改动了' : '前面没有改动了')
-    scroller.scrollBy({ top: ys[next]! - 40 })
+    if (box.current && !stepChange(box.current, dir)) props.onNotice(dir === 1 ? '后面没有改动了' : '前面没有改动了')
   }
 
   return (
     <section className="pane dv" hidden={!props.active} data-testid="diff-tab">
       <TabActs active={props.active}>
         {res && !('error' in res) && res.note && <PageNote>{res.note}</PageNote>}
-        <div className="seg" role="tablist" aria-label="看法">
-          {(
-            [
-              ['doc', 'file-text', '文档'],
-              ['source', 'code', '源码'],
-            ] as const
-          ).map(([m, icon, name]) => (
-            <button key={m} className={look === m ? 'on' : ''} onClick={() => (setLook(m), remember('cn.diffLook', m))} role="tab" aria-selected={look === m} aria-label={name} data-tip={name} data-side="below">
-              <Codicon name={icon} size={14} />
-              <span className="lb">{name}</span>
-            </button>
-          ))}
-        </div>
-        <div className="seg" role="tablist" aria-label="排法">
-          {(
-            [
-              ['split', 'split-horizontal', '并排'],
-              ['unified', 'diff-single', '合一'],
-            ] as const
-          ).map(([m, icon, name]) => (
-            <button
-              key={m}
-              className={shown === m ? 'on' : ''}
-              disabled={narrow && m === 'split'}
-              onClick={() => (setLayout(m), remember('cn.diffLayout', m))}
-              role="tab"
-              aria-selected={shown === m}
-              aria-label={name}
-              data-tip={narrow && m === 'split' ? '中间栏太窄，自动合一' : name}
-              data-side="below"
-            >
-              <Codicon name={icon} size={14} />
-              <span className="lb">{name}</span>
-            </button>
-          ))}
-        </div>
+        <ViewSegs look={look} layout={shown} narrow={narrow} onLook={setLook} onLayout={setLayout} />
         {/* 一处改动都没有（都提交了）：上一处、下一处灰掉 */}
         <ActBtn icon="arrow-up" label="上一处" disabled={!res || 'error' in res || !res.files.length} onClick={() => step(-1)} />
         <ActBtn icon="arrow-down" label="下一处" disabled={!res || 'error' in res || !res.files.length} onClick={() => step(1)} />
@@ -287,7 +306,7 @@ function FileSection(props: { f: DiffEntry; res: DiffResult; look: Look; layout:
   )
 }
 
-function Images(props: { f: DiffEntry; res: DiffResult }) {
+export function Images(props: { f: DiffEntry; res: DiffResult }) {
   const { f } = props
   if (!f.before && !f.after) return <div className="dv-one meta">图片太大，没放进对比 · {sizeText(f.size)}</div>
   return (
@@ -318,7 +337,9 @@ function hashMono(label: string): React.ReactNode {
 
 /**
  * 一个文本文件的对比：两边都有 → 并排或合一；只有一边（新建、删掉）→ 一列全文。
- * 「存成命令」那张表也用它画对照（task-9womr）：ext 是多加的编辑器扩展（亮出依据），onViews 拿到画出来的编辑器（钉住时展开折起的、滚到下一处）
+ * 「存成命令」那张表也用它画对照（task-9womr）：ext 是多加的编辑器扩展（亮出依据），onViews 拿到画出来的编辑器（钉住时展开折起的、滚到下一处）。
+ * 梦游对照也用它（梦游对比滚动）：sides 是只加在改前（a）、之后（b）一边的（链接按各自那篇的路径点开、之后那边画梦游分支上的可视化）；
+ * 只有一列、合一时画的是之后那一版，用 b 的（只有改前那一版时用 a 的）
  */
 export function TextDiff(props: {
   f: DiffEntry
@@ -326,11 +347,12 @@ export function TextDiff(props: {
   look: Look
   layout: Layout
   ext?: Extension[]
+  sides?: { a: Extension[]; b: Extension[] }
   onViews?(v: DiffViews | null): void
   /** 并排两列的抬头（「存成命令」那张表要提交号用等宽字）；不给就写 res.left、res.right */
   cols?: readonly [React.ReactNode, React.ReactNode]
 }) {
-  const { f, look, layout, ext: more } = props
+  const { f, look, layout, ext: more, sides } = props
   const host = useRef<HTMLDivElement>(null)
   const md = f.kind === 'md'
   const both = f.before !== null && f.after !== null
@@ -342,6 +364,7 @@ export function TextDiff(props: {
     // 编辑器自己那几样（属性表、图、表格这些块部件）放低一档：@codemirror/merge 的「展开没改的 N 行」是后加进去的、优先级最低，
     // 文首的属性表就盖住了折叠那段的开头，折叠条映射回的位置和那段起点对不上，点了不展开（录屏里要连点几下，task-m552v）
     const ext = [Prec.low([...baseExt(f.path, look, md), ...(more ?? [])])]
+    const side = (s: 'a' | 'b') => [...ext, ...(sides ? [Prec.low(sides[s])] : [])]
     const done = (views: DiffViews, destroy: () => void) => {
       onViews.current?.(views)
       return () => {
@@ -350,16 +373,46 @@ export function TextDiff(props: {
       }
     }
     if (!both || same) {
-      const v = new EditorView({ parent, state: EditorState.create({ doc: f.after ?? f.before ?? '', extensions: ext }) })
+      const v = new EditorView({
+        parent,
+        state: EditorState.create({
+          doc: f.after ?? f.before ?? '',
+          extensions: side(f.after !== null ? 'b' : 'a'),
+        }),
+      })
       return done({ one: v }, () => v.destroy())
     }
     if (layout === 'split') {
-      const mv = new MergeView({ parent, a: { doc: f.before!, extensions: ext }, b: { doc: f.after!, extensions: ext }, collapseUnchanged: COLLAPSE, gutter: true, highlightChanges: true })
+      const mv = new MergeView({
+        parent,
+        a: { doc: f.before!, extensions: side('a') },
+        b: { doc: f.after!, extensions: side('b') },
+        collapseUnchanged: COLLAPSE,
+        gutter: true,
+        highlightChanges: true,
+        diffConfig: LINE_DIFF,
+      })
       return done({ a: mv.a, b: mv.b }, () => mv.destroy())
     }
-    const v = new EditorView({ parent, state: EditorState.create({ doc: f.after!, extensions: [...ext, unifiedMergeView({ original: f.before!, mergeControls: false, collapseUnchanged: COLLAPSE, gutter: true, syntaxHighlightDeletions: false })] }) })
+    const v = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: f.after!,
+        extensions: [
+          ...side('b'),
+          unifiedMergeView({
+            original: f.before!,
+            mergeControls: false,
+            collapseUnchanged: COLLAPSE,
+            gutter: true,
+            syntaxHighlightDeletions: false,
+            diffConfig: LINE_DIFF,
+          }),
+        ],
+      }),
+    })
     return done({ one: v }, () => v.destroy())
-  }, [f, look, layout, md, both, same, more])
+  }, [f, look, layout, md, both, same, more, sides])
   const label = !both ? (f.after !== null ? '这一版全文' : '删掉前的最后一版') : same ? '内容没变' : null
   return (
     <div className={'dv-diff ' + (md && look === 'doc' ? 'doc-look' : 'src-look') + (layout === 'unified' || !both || same ? ' dv-unified' : ' dv-split')}>

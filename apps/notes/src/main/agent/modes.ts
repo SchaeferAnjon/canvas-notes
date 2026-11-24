@@ -4,7 +4,7 @@
  * 开关随时会换：系统提示里两种都写（MODES_RULE），现在是哪种写在每条消息开头（modeLine）
  */
 import type { EngineId } from '../../shared/agent'
-import { LABELS } from './engines'
+import { LABELS } from '@cn/ai-engines'
 import { answerLine } from '../../shared/answer-lang'
 
 export const MODES_RULE = `两种模式，用户在 AI 输入框下面一键切换；现在是哪种写在每条消息开头的【模式】里，以它为准（和上一条可能不一样）：

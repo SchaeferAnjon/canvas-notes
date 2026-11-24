@@ -18,6 +18,8 @@ const { parse } = require('@babel/parser')
 
 export const APP = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = join(APP, 'src')
+/** 画布笔记用到的共用包（字由画布笔记的表翻）：和 src 一起扫，路径写成相对 src 的 ../../../packages/… */
+const PKG_SRCS = ['ai-engines', 'ai-chat'].map((p) => join(APP, '..', '..', 'packages', p, 'src'))
 export const ZH_FILE = join(SRC, 'shared', 'i18n', 'zh.ts')
 
 const HAN = /\p{Script=Han}/u
@@ -35,9 +37,9 @@ export const DONE = [
   // 没装 Claude Code 时的 AI（task-587os）
   'renderer/ai-setup.tsx',
   'renderer/settings-sources.tsx',
-  'main/agent/engine-api.ts',
+  '../../../packages/ai-engines/src/engine-api.ts',
   'main/agent/cc-setup.ts',
-  'shared/ai-sources.ts',
+  '../../../packages/ai-engines/src/shared/sources.ts',
   // 第一批（task-zojmg）：底座、语言设置、速记小窗和菜单栏图标、检查更新、日期
   'main/lang.ts',
   'main/quick.ts',
@@ -141,7 +143,7 @@ export const DONE = [
   'renderer/callout.ts',
   'renderer/fold-block.ts',
   'renderer/doc-toc.tsx',
-  'renderer/chat-toc.tsx',
+  '../../../packages/ai-chat/src/chat-toc.tsx',
   'renderer/peek/peek.tsx',
   'renderer/review.ts',
   'renderer/md-render.tsx',
@@ -174,15 +176,15 @@ export const DONE = [
   'renderer/mindmap/PropsButton.tsx',
   'renderer/mindmap/props-block.ts',
   // 第三批（task-zojmg）：AI 对话（AiPanel.tsx、ai-write.ts、ai-greet.ts 在别的分支正改着，合进来再抽）
-  'renderer/composer.tsx',
-  'shared/materials.ts',
+  '../../../packages/ai-chat/src/composer.tsx',
+  '../../../packages/ai-chat/src/materials.ts',
   'renderer/AiDock.tsx',
   'renderer/ai-chats.ts',
   'renderer/ai-pick.ts',
   'renderer/ai-spot.ts',
   'renderer/ai-quick.tsx',
   'renderer/ai-place.ts',
-  'renderer/ai-picker.tsx',
+  '../../../packages/ai-chat/src/ai-picker.tsx',
   'renderer/folder-ai.ts',
   'renderer/ai-bridge.ts',
   'renderer/ai-head.tsx',
@@ -191,7 +193,7 @@ export const DONE = [
   'renderer/ai-glow.tsx',
   'renderer/ai-card-grow.ts',
   'renderer/ai-commands.ts',
-  'renderer/ai-error.tsx',
+  '../../../packages/ai-chat/src/ai-error.tsx',
   'shared/ai-act.ts',
   'shared/ai-errors.ts',
   'shared/agent.ts',
@@ -223,18 +225,23 @@ export const DONE = [
   'renderer/replies/store.ts',
   // 第三批：旁支
   'renderer/side/name.ts',
+  '../../../packages/ai-chat/src/side/name.ts',
+  '../../../packages/ai-chat/src/side/marks.ts',
+  '../../../packages/ai-chat/src/turns.tsx',
+  '../../../packages/ai-chat/src/steps.tsx',
+  '../../../packages/ai-chat/src/answer-bar.tsx',
+  'renderer/ai-chat-host.tsx',
   'renderer/side/side-core.ts',
-  'renderer/side/AskBox.tsx',
-  'renderer/side/SideInline.tsx',
+  '../../../packages/ai-chat/src/side/AskBox.tsx',
+  '../../../packages/ai-chat/src/side/SideInline.tsx',
   'renderer/side/doc-side.tsx',
   'renderer/side/file-side.tsx',
-  'renderer/side/host.ts',
+  '../../../packages/ai-chat/src/side/host.ts',
   // 第三批：读 PDF 的笔记栏、出卡、/ 命令（PdfTab、ReadingAi、HtmlTab、WebReadTab、reading/store、双语在别的分支正改着）
   'renderer/reading/CardsDialog.tsx',
   'renderer/reading/ReadingNotes.tsx',
   'renderer/reading/cmds.ts',
   'renderer/reading/card-commands.ts',
-  'renderer/reading/marks.ts',
   'renderer/reading/cards-store.ts',
   'renderer/reading/math.tsx',
   'renderer/reading/pdf.ts',
@@ -247,19 +254,19 @@ export const DONE = [
   'main/reading/doubts.ts',
   'main/reading/card-prompt.ts',
   'main/reading/chats.ts',
-  'main/agent/engines.ts',
-  'main/agent/cli.ts',
-  'main/agent/jsonrpc.ts',
+  '../../../packages/ai-engines/src/engines.ts',
+  '../../../packages/ai-engines/src/cli.ts',
+  '../../../packages/ai-engines/src/jsonrpc.ts',
   'main/agent/store.ts',
-  'main/agent/engine-update.ts',
-  'main/agent/engine-watch.ts',
-  'main/agent/engine-models.ts',
-  'main/agent/engine-check.ts',
-  'main/agent/engine-proc.ts',
+  '../../../packages/ai-engines/src/engine-update.ts',
+  '../../../packages/ai-engines/src/engine-watch.ts',
+  '../../../packages/ai-engines/src/engine-models.ts',
+  '../../../packages/ai-engines/src/engine-check.ts',
+  '../../../packages/ai-engines/src/engine-proc.ts',
   'main/agent/web.ts',
   'main/agent/vault-ops.ts',
   'main/agent/context.ts',
-  'main/agent/side-prompt.ts',
+  '../../../packages/ai-engines/src/side-prompt.ts',
   'main/agent/board-ops.ts',
   'main/agent/doc-board-ops.ts',
   'main/agent/mcp-server.ts',
@@ -341,7 +348,7 @@ export const DATA = [
   { file: 'shared/left.ts', objects: ['COLOR_NAMES'] },
   { file: 'shared/plugins/translate.ts', objects: ['STATE_TEXT'] },
   // 设置 › AI 每家那一行：自查出的问题影响哪
-  { file: 'shared/engine-health.ts', objects: ['SCOPE_TEXT'] },
+  { file: '../../../packages/ai-engines/src/shared/health.ts', objects: ['SCOPE_TEXT'] },
   // 设置 › 插件：权限名、三个内置插件的说明（双语翻译归 task-6cxtc，那边改完再登记）
   { file: 'shared/plugins.ts', objects: ['PERMISSION_LABEL'] },
   { file: 'shared/plugins/weread.ts', props: ['description'] },
@@ -428,7 +435,7 @@ export const DATA = [
   { file: 'shared/ai-cmds.ts', within: 'tagsOf', all: true },
   { file: 'renderer/commands/SaveCmd.tsx', objects: ['EV_TEXT'] },
   // 旁支里空着回车问的那句；读 PDF 笔记栏的筛选（英文写短 All · Mine · Threads）
-  { file: 'renderer/side/name.ts', within: 'ASK_THIS', all: true },
+  { file: '../../../packages/ai-chat/src/side/name.ts', within: 'ASK_THIS', all: true },
   { file: 'renderer/reading/ReadingNotes.tsx', within: 'FILTERS', all: true, ctx: '笔记筛选' },
 ]
 
@@ -570,7 +577,7 @@ export function collect() {
     const id = k.ctx ? `${k.ctx}::${k.key}` : k.key
     if (!seen.has(id)) seen.set(id, k.file)
   }
-  for (const f of srcFiles()) {
+  for (const f of [...srcFiles(), ...PKG_SRCS.flatMap((d) => srcFiles(d))]) {
     const code = readFileSync(f, 'utf8')
     if (!/\b(t|tNow|tv|tIn)\(/.test(code)) continue
     for (const k of scanCode(code, relative(SRC, f)).keys) push(k)

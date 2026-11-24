@@ -16,7 +16,7 @@ import {
 import { type ApiProvider, askApi, isApi, PROVIDERS } from './api'
 import type { CliBackend } from '../host'
 import { SWITCHABLE, toTrError, TranslateError } from './errors'
-import type { KeyStore } from './keys'
+import type { KeyStore } from '@cn/ai-engines'
 
 /** 命令行多久一个字都没吐算没回应 */
 export const CLI_IDLE_MS = 60_000

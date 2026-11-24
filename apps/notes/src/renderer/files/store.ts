@@ -4,6 +4,7 @@
  */
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { type FileEntry, hideTodos } from '../../shared/files'
+import type { HistoryEntry } from '../../shared/web-api'
 import { usePrefs } from '../settings-store'
 
 let files: FileEntry[] = []
@@ -92,7 +93,7 @@ export function recentFiles(): string[] {
   }
 }
 
-/** 打开了一个文件：放到最近打开的最前面（最多记 30 个） */
+/** 打开了一个文件：放到最近打开的最前面（最多记 30 个）；PDF、HTML 另记下打开的时间（左栏「最近」按它排） */
 export function fileOpened(path: string) {
   const next = [path, ...recentFiles().filter((p) => p !== path)].slice(0, 30)
   try {
@@ -100,6 +101,41 @@ export function fileOpened(path: string) {
   } catch {
     // 记不住最近打开不影响使用
   }
+  if (/\.(pdf|html?)$/i.test(path)) docOpened(path)
+}
+
+// ---------- PDF、HTML 最后打开的时间（本机，「最近」列它们，2026-11-24） ----------
+
+const OPENED_KEY = 'cn.openedAt'
+/** 最多记这么多个（老的挤掉） */
+const OPENED_MAX = 300
+let openedAt: ReadonlyMap<string, number> = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(OPENED_KEY) ?? '{}') as unknown
+    return new Map(v && typeof v === 'object' ? Object.entries(v).filter((e): e is [string, number] => typeof e[1] === 'number') : [])
+  } catch {
+    return new Map()
+  }
+})()
+const openedSubs = new Set<() => void>()
+
+function docOpened(path: string, at = Date.now()) {
+  const next = new Map([[path, at], ...[...openedAt].filter(([p]) => p !== path).sort((a, b) => b[1] - a[1]).slice(0, OPENED_MAX - 1)])
+  openedAt = next
+  try {
+    localStorage.setItem(OPENED_KEY, JSON.stringify(Object.fromEntries(next)))
+  } catch {
+    // 记不住打开时间：「最近」里少这一条，不影响使用
+  }
+  for (const f of openedSubs) f()
+}
+
+/** PDF、HTML（库里路径）→ 最后打开的时间 */
+export function useOpenedAt(): ReadonlyMap<string, number> {
+  return useSyncExternalStore(
+    (f) => (openedSubs.add(f), () => void openedSubs.delete(f)),
+    () => openedAt,
+  )
 }
 
 // ---------- 「最近删掉的」有几篇（task-5yp97）：目录树最底下那一行的数 ----------
@@ -184,4 +220,24 @@ export function useRestored(): ReadonlyMap<string, number> {
     (f) => (restoredSubs.add(f), () => void restoredSubs.delete(f)),
     () => restored,
   )
+}
+
+// ---------- 右栏看过的网页（左栏「最近」列它们；主进程存在设置目录，不进库，2026-11-24） ----------
+
+/** 看过的网页，最近的在前；设置里关了「记下看过的网页」时是空的 */
+export function useRecentWeb(): HistoryEntry[] {
+  const keep = usePrefs((s) => s.web.keepRecent)
+  const [list, setList] = useState<HistoryEntry[]>([])
+  useEffect(() => {
+    if (!keep) return setList([])
+    let live = true
+    const load = () => void window.cnWeb.recent().then((l) => live && setList(l))
+    load()
+    const off = window.cnWeb.onRecentChanged(load)
+    return () => {
+      live = false
+      off()
+    }
+  }, [keep])
+  return list
 }

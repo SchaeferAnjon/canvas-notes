@@ -15,7 +15,7 @@ import { isoWeek, newHighlights, newQuestions, type WeekInfo, weekPath } from '.
 import { titleOf } from '../shared/layout'
 import { underCat } from '../shared/categories'
 import { WEREAD_FOLDER } from '../shared/plugins/weread'
-import type { EngineImage } from './agent/engines'
+import type { EngineImage } from '@cn/ai-engines'
 import * as web from './agent/web'
 import { videoCues } from './video'
 import type { Vault } from './vault'

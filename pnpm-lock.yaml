@@ -203,6 +203,12 @@ importers:
       '@babel/parser':
         specifier: 7.29.14
         version: 7.29.14
+      '@cn/ai-chat':
+        specifier: workspace:*
+        version: link:../../packages/ai-chat
+      '@cn/ai-engines':
+        specifier: workspace:*
+        version: link:../../packages/ai-engines
       '@cn/atomic':
         specifier: workspace:*
         version: link:../../packages/atomic
@@ -302,6 +308,9 @@ importers:
 
   apps/today:
     dependencies:
+      '@cn/ai-engines':
+        specifier: workspace:*
+        version: link:../../packages/ai-engines
       '@cn/atomic':
         specifier: workspace:*
         version: link:../../packages/atomic
@@ -311,6 +320,34 @@ importers:
       electron:
         specifier: ^45.3.2
         version: 45.3.2(supports-color@7.2.0)
+
+  packages/ai-chat:
+    dependencies:
+      '@cn/ai-engines':
+        specifier: workspace:*
+        version: link:../ai-engines
+      '@cn/design':
+        specifier: workspace:*
+        version: link:../design
+      react:
+        specifier: ^19.0.0
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.3.1(react@19.3.1)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19
+        version: 19.3.0(@types/react@19.3.0)
+
+  packages/ai-engines:
+    dependencies:
+      '@cn/atomic':
+        specifier: workspace:*
+        version: link:../atomic
 
   packages/atomic: {}
 

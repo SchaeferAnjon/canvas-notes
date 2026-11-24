@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { DreamItem, DreamReport } from '../shared/api'
 import { ask } from './ai'
 import { chatRun, featureLabel, ownPick } from './agent'
-import { pickLabel } from '../shared/ai-features'
+import { pickLabel } from '@cn/ai-engines/shared'
 import type { AiAskOpts } from '../shared/api'
 
 type AiAskPick = NonNullable<AiAskOpts['pick']>

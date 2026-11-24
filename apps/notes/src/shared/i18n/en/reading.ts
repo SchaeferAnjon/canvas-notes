@@ -215,4 +215,8 @@ export const READING: Table = {
   '只问不记 · 记笔记关着': 'Ask only · notes are off',
   'AI 栏输入框下面的「记笔记」跟着关上：之后在网页上问的都不记，在那里能再打开': 'This turns off “Take notes” under the AI input: later questions on web pages are not noted. Turn it back on there.',
   '记进《{title}》末尾': (p) => `Added to the end of “${p.title}”`,
+  粘贴的图不对: 'The pasted image is not valid',
+  '记在「没定位的问答」里': 'Noted under “Unplaced questions”',
+  '照正看着的第 {n} 页记的': (p) => `Noted under page ${p.n}, the one you were viewing`,
+  '放到第 {n} 页': (p) => `Move to page ${p.n}`,
 }

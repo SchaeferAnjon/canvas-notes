@@ -5,14 +5,17 @@ import { fileIcon } from './Palette'
 import { useMemo, useState } from 'react'
 import type { NoteFile } from '../shared/api'
 import { titleOf } from '../shared/layout'
-import { RECENT_PAGE, type RecentGroup, recentOf } from '../shared/recent'
+import { isOpened, RECENT_PAGE, type RecentGroup, type RecentItem, recentItems, recentOf, type RecentOpened } from '../shared/recent'
+import { menuAt } from './ctx/menu'
+import { useOpenedAt, useRecentWeb, useVaultFiles } from './files/store'
+import { Progress } from './search/QuickOpen'
 import { type ArchiveDays, INBOX_WARN } from '../shared/sidebar'
 import { RenameInput } from './note-menu'
 import { onFileMenu } from './ctx/file-menu'
 import { GhostRows, MovedMark, type DreamPreview } from './dream/preview'
 import { FileTree } from './files/FileTree'
 import { vaultName } from './vault-name'
-import { noteType, TypeChips, useSideType } from './files/type-filter'
+import { noteType, recentType, TypeChips, type TypeFilter, useSideType } from './files/type-filter'
 import { HeadBtn, ViewHead } from './shell/Shell'
 import './sidebar.css'
 import type { Tab } from './tabs'
@@ -42,7 +45,7 @@ export const viewName = (v: SideView) => (v === 'files' ? t('文件') : v === 't
 const EN_MONTH = { now: new Intl.DateTimeFormat('en-US', { month: 'long' }), old: new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }) }
 
 /** 「最近」的组名：今天、这周、更早；每个月一组的英文用 Intl（「October」「October 2025」），中文照 shared/recent 给的 */
-export function recentLabel(g: RecentGroup): string {
+export function recentLabel(g: Pick<RecentGroup, 'key' | 'label'>): string {
   if (g.key === 'today') return t('今天')
   if (g.key === 'week') return t('这周')
   if (g.key === 'older') return t('更早')
@@ -68,6 +71,8 @@ export function Sidebar(props: {
   onAskAi(): void
   /** 目录树里点了文件（md、PDF、HTML） */
   onOpenFile(path: string): void
+  /** 「最近」里点了看过的网页：在右栏开 */
+  onOpenWeb(url: string): void
   /** 收件箱堆多了：让 AI 分一分 */
   onTidy(): void
   /** 右键菜单里点了「重命名」后，在左栏原地改名 */
@@ -181,6 +186,77 @@ export function Sidebar(props: {
 
 type RowFn = (n: NoteFile, right?: React.ReactNode) => React.ReactNode
 
+const KIND_ICON = { pdf: 'file-pdf', html: 'file-code', web: 'globe' } as const
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
+
+/**
+ * 「最近」里打开过的 PDF、HTML、看过的网页（2026-11-24）：两行。第一行图标和名字（网页是标题），名字占满整行（默认栏宽 248 也露十几个字）；
+ * 第二行小字：类型 · 问到第几页 · 时间（网页是 网页 · 域名 · 时间），有配对笔记的这一行右端一个「笔记」小字（点它开那篇笔记）。
+ * 整行点了开它自己（网页在右栏开）；网页右键「从最近里去掉」
+ */
+function OpenedRow(props: { x: RecentOpened; now: number; on: boolean; onOpen(path: string): void; onOpenNote(path: string): void }) {
+  const t = useT()
+  const { x } = props
+  const web = x.opened === 'web'
+  const name = web ? x.title || hostOf(x.path) : (x.path.split('/').pop() ?? x.path).replace(/\.(pdf|html?)$/i, '')
+  const kind = x.opened === 'pdf' ? 'PDF' : x.opened === 'html' ? 'HTML' : t('网页')
+  const dot = <span className="s-dot">·</span>
+  return (
+    // 整行点都算（名字是那颗能用键盘按的按钮，点了冒到这一层）；「笔记」自己开笔记
+    <div
+      className={'si s-rec' + (props.on ? ' on' : '')}
+      data-kind={x.opened}
+      onClick={() => props.onOpen(x.path)}
+      onContextMenu={(e) => (web ? void menuAt(e, [{ label: t('从最近里去掉'), run: () => window.cnWeb.removeRecent(x.path) }]) : onFileMenu(e, x.path))}
+      title={x.path}
+    >
+      <Codicon name={KIND_ICON[x.opened]} />
+      <div className="s-lines">
+        <button className="s-main s-title" aria-label={`${name} · ${kind}`}>
+          {name}
+        </button>
+        <div className="s-sub">
+          <span className="s-kind">{kind}</span>
+          {web && (
+            <>
+              {dot}
+              <span className="s-host">{hostOf(x.path)}</span>
+            </>
+          )}
+          {x.progress && x.progress.asked > 0 && (
+            <>
+              {dot}
+              <span className="s-prog">
+                <Progress p={x.progress} />
+              </span>
+            </>
+          )}
+          {dot}
+          <span className="c num">{when(x.mtimeMs, { now: props.now })}</span>
+          {x.note && (
+            <button
+              className="s-note"
+              data-tip={t('开配对的笔记「{name}」', { name: titleOf(x.note) })}
+              onClick={(e) => {
+                e.stopPropagation()
+                props.onOpenNote(x.note!)
+              }}
+            >
+              {t('笔记')}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** 「最近」：置顶 → 今天 → 这周 → 按月收起；底下只留「归档」 */
 function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
   const t = useT()
@@ -191,17 +267,26 @@ function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
   const [sideType, setType] = useSideType()
   // 「附件」只在文件树里有：这里当「全部」
   const type = sideType === 'att' ? 'all' : sideType
+  const { files } = useVaultFiles()
+  const openedAt = useOpenedAt()
+  const web = useRecentWeb()
+  /** 笔记 + 打开过的 PDF、HTML（配对笔记并进去）+ 右栏看过的网页（2026-11-24） */
+  const items = useMemo(() => recentItems(props.notes, files, openedAt, web), [props.notes, files, openedAt, web])
+  /** 顶上那一排只出现有的几类 */
+  const kinds = useMemo(() => [...new Set(items.map(recentType))] as TypeFilter[], [items])
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set())
   /** 名字叫「待办」的笔记默认不列（在左边「待办」格里；设置 › 文件「文件树里显示待办」打开才列，task-pd1d1） */
   const showTodo = usePrefs((s) => s.files.showTodo)
   const [shown, setShown] = useState<Record<string, number>>({})
   const now = Date.now()
   const m = useMemo(
-    () => recentOf(props.notes, { pins: props.pins, now, archiveDays: props.archiveDays, keep: type === 'all' ? undefined : (n) => noteType(n) === type, hideTodo: !showTodo }),
+    () => recentOf<RecentItem>(items, { pins: props.pins, now, archiveDays: props.archiveDays, keep: type === 'all' ? undefined : (n) => recentType(n) === type, hideTodo: !showTodo }),
     // now 每次渲染都变，只在笔记、置顶、筛选变了时重算
-    [props.notes, props.pins, props.archiveDays, type, showTodo],
+    [items, props.pins, props.archiveDays, type, showTodo],
   )
-  const group = (g: RecentGroup) => {
+  const activePath = props.active && 'path' in props.active ? props.active.path : null
+  const one = (x: RecentItem) => (isOpened(x) ? <OpenedRow key={x.path} x={x} now={now} on={activePath === x.path} onOpen={x.opened === 'web' ? props.onOpenWeb : props.onOpenFile} onOpenNote={props.onOpenNote} /> : props.row(x, when(x.mtimeMs, { now })))
+  const group = (g: RecentGroup<RecentItem>) => {
     const folded = g.key !== 'today' && g.key !== 'week'
     const open = !folded || openMonths.has(g.key)
     const limit = shown[g.key] ?? RECENT_PAGE
@@ -216,7 +301,7 @@ function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
         ) : (
           <div className="sh">{recentLabel(g)}</div>
         )}
-        {open && g.items.slice(0, limit).map((n) => props.row(n, when(n.mtimeMs, { now })))}
+        {open && g.items.slice(0, limit).map(one)}
         {open && g.items.length > limit && (
           <button className="si s-more" onClick={() => setShown((s) => ({ ...s, [g.key]: limit + RECENT_PAGE }))}>
             <span className="num">{t('还有{n}篇 · 再显示{more}篇', { n: g.items.length - limit, more: Math.min(RECENT_PAGE, g.items.length - limit) })}</span>
@@ -240,7 +325,7 @@ function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
         <HeadBtn icon="comment-discussion" glyph={<EngineLogo id={engine.id} size={15} />} label={t('问AI')} keys={K('ask-ai') ?? undefined} onClick={props.onAskAi} />
         <HeadBtn icon="link-external" label={t('在中间打开')} onClick={props.onOpenRecent} />
       </ViewHead>
-      <TypeChips value={type} onChange={setType} className="side-chips" />
+      <TypeChips value={type} onChange={setType} className="side-chips" kinds={kinds} />
       <nav className="nav" aria-label={t('笔记')}>
         {m.pinned.length > 0 && (
           <div className="s-group" role="group" aria-label={t('置顶')}>
@@ -248,7 +333,7 @@ function RecentSide(props: Parameters<typeof Sidebar>[0] & { row: RowFn }) {
               <Codicon name="pinned" size={12} />
               {t('置顶')}
             </div>
-            {m.pinned.map((n) => props.row(n, when(n.mtimeMs, { now })))}
+            {m.pinned.map(one)}
           </div>
         )}
         {m.groups.map(group)}

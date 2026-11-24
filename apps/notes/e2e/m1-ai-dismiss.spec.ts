@@ -1,4 +1,4 @@
-// CN-88（M1 录屏 0:43）：引擎菜单点空白处收不回去。公共的「点外面就收起」（renderer/use-dismiss.ts）：
+// CN-88（M1 录屏 0:43）：引擎菜单点空白处收不回去。公共的「点外面就收起」（@cn/ai-chat 的 use-dismiss.ts）：
 // 点菜单和打开它的按钮以外任何地方（AI 回答正文、PDF、右图标栏）、按 esc、窗口失焦都收；再点胶囊是收起不是重开。
 import { expect, test, type Page } from '@playwright/test'
 import { launch, openAi, openNote, rail, tabOn } from './app'

@@ -8,7 +8,7 @@
 import { Codicon } from '@cn/design'
 import { useState } from 'react'
 import type { EngineInfo } from '../shared/agent'
-import { API_IDS, type ApiId, KEY_SHAPE, type LocalId, LOCAL_IDS, PROVIDER_NAME, SOURCE_LABEL } from '../shared/ai-sources'
+import { API_IDS, type ApiId, KEY_SHAPE, type LocalId, LOCAL_IDS, PROVIDER_NAME, SOURCE_LABEL } from '@cn/ai-engines/shared'
 import { EngineLogo } from './engine-logo'
 import { Group, Row, useSaid } from './settings/ui'
 import { useT } from './i18n'
